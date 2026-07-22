@@ -226,6 +226,28 @@ func TestFingerprintGateInputsInvalidatesScopeAndEnvironment(t *testing.T) {
 	}
 }
 
+func TestGateFingerprintPlanIgnoresPushOnlyGateNames(t *testing.T) {
+	commit := gatePlan{
+		ChangedFiles:       []string{"internal/app/modules.go"},
+		RequiredGates:      []string{"backend:test_with_guard"},
+		AffectedGoPackages: []string{"./internal/app"},
+	}
+	push := commit
+	push.RequiredGates = []string{"backend:test_with_guard", "backend:nilness", "backend:race"}
+
+	commitData, err := marshalGateFingerprintPlan(commit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pushData, err := marshalGateFingerprintPlan(push)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(commitData) != string(pushData) {
+		t.Fatalf("push-only gate names changed common gate fingerprint:\ncommit=%s\npush=%s", commitData, pushData)
+	}
+}
+
 func TestFingerprintGateInputsIgnoresShellBookkeepingEnvironment(t *testing.T) {
 	scope := runGateCacheGit(t, ".", "write-tree")
 	first, err := fingerprintGateInputs(scope, "diff:whitespace", gatePlan{})
@@ -246,9 +268,10 @@ func TestFingerprintGateInputsIgnoresShellBookkeepingEnvironment(t *testing.T) {
 
 func TestStableGateEnvironmentOmitsIsolatedIndexPath(t *testing.T) {
 	t.Setenv("GIT_INDEX_FILE", filepath.Join(t.TempDir(), "isolated-index"))
+	t.Setenv("GIT_CONFIG_COUNT", "1")
 	t.Setenv("PWD", filepath.Join(t.TempDir(), "isolated-worktree"))
 	for _, entry := range stableGateEnvironment() {
-		if strings.HasPrefix(entry, "GIT_INDEX_FILE=") || strings.HasPrefix(entry, "PWD=") {
+		if strings.HasPrefix(entry, "GIT_") || strings.HasPrefix(entry, "PWD=") {
 			t.Fatalf("ephemeral snapshot path leaked into stable cache environment: %q", entry)
 		}
 	}

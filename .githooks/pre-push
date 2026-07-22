@@ -3,6 +3,10 @@
 # Bypass: git push --no-verify
 set -e
 
+# Match pre-commit's deterministic Go environment so same-tree cache keys are comparable.
+unset GOFLAGS
+export GOFLAGS=
+
 # Gosec remains outside Git hooks; race and nilness are owned by the push-only AI-maintenance scope.
 export SUPER_DOLPHIN_GITHOOK_SKIP_GOSEC=1
 export SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1
@@ -27,12 +31,21 @@ run_without_git_env() (
 )
 
 PUSH_RANGES=$(mktemp -t pre-push-ranges.XXXXXX)
+PUSH_CACHE_INDEX=
+PUSH_CACHE_INDEX_DIR=
+PUSH_CACHE_ARGS=()
 AI_MAINTENANCE_CHANGED_FILES=()
 HAS_FRONTEND_APP_CODE_CHANGES=0
 HAS_CODEMAP_CHANGES=0
 HAS_SKILL_CHANGES=0
 cleanup() {
   rm -f "$PUSH_RANGES"
+  if [ -n "${PUSH_CACHE_INDEX:-}" ]; then
+    rm -f "$PUSH_CACHE_INDEX"
+  fi
+  if [ -n "${PUSH_CACHE_INDEX_DIR:-}" ]; then
+    rmdir "$PUSH_CACHE_INDEX_DIR"
+  fi
 }
 trap cleanup EXIT
 
@@ -192,6 +205,40 @@ run_path_based_repository_gates() {
   fi
 }
 
+prepare_push_gate_cache() {
+  local range commit_count cache_scope
+  range=$(sort -u "$PUSH_RANGES")
+  if [ -z "$range" ] || [[ "$range" == *$'\n'* ]] || [[ "$range" != *..* ]]; then
+    return 0
+  fi
+  if ! commit_count=$(git rev-list --count "$range") || [ "$commit_count" -ne 1 ]; then
+    return 0
+  fi
+  if ! git diff --quiet -- || ! git diff --cached --quiet --; then
+    echo "[pre-push] gate cache skip: tracked worktree or index differs from pushed HEAD"
+    return 0
+  fi
+  if ! cache_scope=$(git rev-parse 'HEAD^{tree}'); then
+    echo "❌ 无法固定 pre-push tree，拒绝使用门禁缓存" >&2
+    exit 1
+  fi
+  PUSH_CACHE_INDEX_DIR=$(mktemp -d "${TMPDIR:-/tmp}/pre-push-index.XXXXXX")
+  case "$PUSH_CACHE_INDEX_DIR" in
+    /*) ;;
+    *) PUSH_CACHE_INDEX_DIR="$PWD/$PUSH_CACHE_INDEX_DIR" ;;
+  esac
+  PUSH_CACHE_INDEX="$PUSH_CACHE_INDEX_DIR/index"
+  if ! GIT_INDEX_FILE="$PUSH_CACHE_INDEX" git read-tree "$cache_scope"; then
+    echo "❌ 无法为 pre-push tree 创建不可变门禁 index" >&2
+    exit 1
+  fi
+  PUSH_CACHE_ARGS=(
+    --cache-dir .build-cache/ai-maintenance-gates
+    --cache-max-age 10m
+    --cache-scope "$cache_scope"
+  )
+}
+
 run_ai_maintenance_push_gate() {
   if [ ${#AI_MAINTENANCE_CHANGED_FILES[@]} -eq 0 ]; then
     return 0
@@ -209,7 +256,11 @@ run_ai_maintenance_push_gate() {
   done < <(sort -u "$PUSH_RANGES")
 
   echo "[pre-push] AI maintenance gates..."
-  run_without_git_env ./scripts/ai_maintenance_gates.sh "${args[@]}"
+  if [ ${#PUSH_CACHE_ARGS[@]} -gt 0 ]; then
+    run_without_git_env env GIT_INDEX_FILE="$PUSH_CACHE_INDEX" ./scripts/ai_maintenance_gates.sh "${args[@]}" "${PUSH_CACHE_ARGS[@]}"
+  else
+    run_without_git_env ./scripts/ai_maintenance_gates.sh "${args[@]}"
+  fi
 }
 
 configure_pre_push_node_runtime() {
@@ -266,6 +317,7 @@ fi
 
 collect_changed_test_scopes
 configure_pre_push_node_runtime
+prepare_push_gate_cache
 run_ai_maintenance_push_gate
 run_path_based_repository_gates
 

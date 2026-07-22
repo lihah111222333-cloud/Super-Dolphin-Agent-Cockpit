@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	gateCacheSchemaVersion = "gate-cache-v5"
+	gateCacheSchemaVersion = "gate-cache-v6"
 	defaultGateCacheMaxAge = 10 * time.Minute
 	maxGateCacheMarkers    = 32
 )
@@ -33,6 +33,15 @@ type gateResultCache struct {
 	maxAge      time.Duration
 	now         func() time.Time
 	fingerprint gateFingerprinter
+}
+
+type gateFingerprintPlan struct {
+	ChangedFiles        []string `json:"changed_files"`
+	RequiredEvidence    []string `json:"required_evidence"`
+	GeneratedFiles      []string `json:"generated_files"`
+	AffectedGoPackages  []string `json:"affected_go_packages,omitempty"`
+	DiagnosticFiles     []string `json:"diagnostic_files,omitempty"`
+	RequiresEvidenceDoc bool     `json:"requires_evidence_doc"`
 }
 
 // optionalGateResultCache 在未配置目录时关闭缓存，配置后必须成功建立完整缓存契约。
@@ -256,7 +265,7 @@ func fingerprintGateInputs(scope, gate string, plan gatePlan) (string, error) {
 // fingerprintGateInputsAt 生成包含 Git 真值源、工具链和环境的稳定输入指纹。
 func fingerprintGateInputsAt(scope, gate string, plan gatePlan, _ time.Time) (string, error) {
 	h := sha256.New()
-	planData, err := json.Marshal(plan)
+	planData, err := marshalGateFingerprintPlan(plan)
 	if err != nil {
 		return "", fmt.Errorf("marshal gate plan: %w", err)
 	}
@@ -276,6 +285,18 @@ func fingerprintGateInputsAt(scope, gate string, plan gatePlan, _ time.Time) (st
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// marshalGateFingerprintPlan excludes gate names so push-only additions can reuse identical common work.
+func marshalGateFingerprintPlan(plan gatePlan) ([]byte, error) {
+	return json.Marshal(gateFingerprintPlan{
+		ChangedFiles:        plan.ChangedFiles,
+		RequiredEvidence:    plan.RequiredEvidence,
+		GeneratedFiles:      plan.GeneratedFiles,
+		AffectedGoPackages:  plan.AffectedGoPackages,
+		DiagnosticFiles:     plan.DiagnosticFiles,
+		RequiresEvidenceDoc: plan.RequiresEvidenceDoc,
+	})
+}
+
 func stableGateEnvironment() []string {
 	volatile := map[string]bool{
 		"GIT_INDEX_FILE": true,
@@ -287,7 +308,7 @@ func stableGateEnvironment() []string {
 	environ := make([]string, 0, len(os.Environ()))
 	for _, entry := range os.Environ() {
 		name, _, _ := strings.Cut(entry, "=")
-		if !volatile[name] {
+		if !volatile[name] && !strings.HasPrefix(name, "GIT_") {
 			environ = append(environ, entry)
 		}
 	}

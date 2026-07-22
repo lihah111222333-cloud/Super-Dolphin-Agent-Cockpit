@@ -21,7 +21,6 @@ func TestBuildGatePlanRoutesFrontendBackendAndGeneratedFiles(t *testing.T) {
 		"backend:test_with_guard",
 		"codemap:check",
 		"diff:whitespace",
-		"frontend:build",
 		"frontend:embed-verify",
 		"frontend:lint",
 		"frontend:typecheck-contracts",
@@ -29,6 +28,7 @@ func TestBuildGatePlanRoutesFrontendBackendAndGeneratedFiles(t *testing.T) {
 		"lsp:changed-diagnostics",
 		"project-map:check",
 	)
+	assertStringSetOmits(t, plan.RequiredGates, "frontend:build")
 	assertStringSetContains(t, plan.DiagnosticFiles, "frontend-app/src/App.jsx", "internal/app/modules.go")
 	assertStringSetContains(t, plan.RequiredEvidence,
 		"generated:source",
@@ -73,9 +73,9 @@ func TestPushGatePlanAddsRiskGatesWithoutChangingCommitPlan(t *testing.T) {
 	commitPlan := mustGatePlanForScope(t, files, false)
 	pushPlan := mustGatePlanForScope(t, files, true)
 
-	assertStringSetOmits(t, commitPlan.RequiredGates, "backend:nilness", "backend:test_with_guard_and_race")
-	assertStringSetContains(t, pushPlan.RequiredGates, "backend:nilness", "backend:test_with_guard_and_race")
-	assertStringSetOmits(t, pushPlan.RequiredGates, "backend:test_with_guard")
+	assertStringSetOmits(t, commitPlan.RequiredGates, "backend:nilness", "backend:race")
+	assertStringSetContains(t, pushPlan.RequiredGates, "backend:archtest", "backend:nilness", "backend:race", "backend:test_with_guard")
+	assertStringSetOmits(t, pushPlan.RequiredGates, "backend:test_with_guard_and_race")
 	if got := affectedRacePackages(pushPlan.ChangedFiles); len(got) != 1 || got[0] != "./internal/provider/codexapp" {
 		t.Fatalf("affected race packages = %v, want provider package", got)
 	}
@@ -85,26 +85,26 @@ func TestPushGatePlanOmitsRaceForNonConcurrentBackendSurface(t *testing.T) {
 	plan := mustGatePlanForScope(t, []string{"internal/dto/agent/state.go"}, true)
 
 	assertStringSetContains(t, plan.RequiredGates, "backend:nilness")
-	assertStringSetOmits(t, plan.RequiredGates, "backend:test_with_guard_and_race")
+	assertStringSetOmits(t, plan.RequiredGates, "backend:race", "backend:test_with_guard_and_race")
 }
 
 func TestPushGatePlanRoutesGoModuleRiskGates(t *testing.T) {
 	plan := mustGatePlanForScope(t, []string{"go.mod"}, true)
 
-	assertStringSetContains(t, plan.RequiredGates, "backend:nilness", "backend:test_with_guard_and_race")
-	assertStringSetOmits(t, plan.RequiredGates, "backend:test_with_guard")
+	assertStringSetContains(t, plan.RequiredGates, "backend:nilness", "backend:race", "backend:test_with_guard")
+	assertStringSetOmits(t, plan.RequiredGates, "backend:test_with_guard_and_race")
 	if len(affectedNilnessPackages(plan)) == 0 || len(affectedRacePackagesForPlan(plan)) == 0 {
 		t.Fatalf("go.mod push risk packages missing: nilness=%v race=%v", affectedNilnessPackages(plan), affectedRacePackagesForPlan(plan))
 	}
 }
 
-func TestCombinedBackendRaceArgsRunsBothLanesThroughOneWrapper(t *testing.T) {
+func TestBackendRaceArgsRunOnlyThePushRiskLane(t *testing.T) {
 	plan := mustGatePlanForScope(t, []string{"internal/provider/codexapp/session.go"}, true)
-	args, err := backendTestWithGuardAndRaceArgs(plan)
+	args, err := backendRaceArgs(plan)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertStringSetContains(t, args, "./scripts/test_with_guard.sh", "--with-race", "--", "-count=1")
+	assertStringSetContains(t, args, "./scripts/test_with_guard.sh", "--race-only", "./internal/provider/codexapp")
 	count := 0
 	for _, arg := range args {
 		if arg == "./scripts/test_with_guard.sh" {
@@ -112,7 +112,7 @@ func TestCombinedBackendRaceArgsRunsBothLanesThroughOneWrapper(t *testing.T) {
 		}
 	}
 	if count != 1 {
-		t.Fatalf("combined backend gate must invoke one guard wrapper: %v", args)
+		t.Fatalf("backend race gate must invoke one guard wrapper: %v", args)
 	}
 }
 
@@ -252,6 +252,10 @@ func TestBuildGatePlanIncludesChangedBackendPackages(t *testing.T) {
 		"./internal/contract",
 	)
 	assertStringSetOmits(t, plan.AffectedGoPackages, "./internal/archtest")
+	assertStringSetOmits(t, plan.AffectedGoPackages, "./cmd/mcp-lsp", "./cmd/mcp-orch", "./internal/app")
+
+	modulePlan := mustBuildGatePlan(t, []string{"go.mod"})
+	assertStringSetContains(t, modulePlan.AffectedGoPackages, "./cmd/mcp-lsp", "./internal/app", "./scripts/ai_maintenance")
 }
 
 func TestBuildGatePlanRoutesCapabilityContractProducerInputs(t *testing.T) {
@@ -485,12 +489,64 @@ func TestGatePlanProducerMatchesRunnerAndEvidenceRegistries(t *testing.T) {
 
 func TestGateRunnersCacheOnlyStaticGeneratedChecks(t *testing.T) {
 	cacheable := map[string]bool{
-		"project-map:check": true,
+		"ai-maintenance:self-test": true,
+		"backend:archtest":         true,
+		"backend:nilness":          true,
+		"backend:race":             true,
+		"backend:test_with_guard":  true,
+		"capcontract:check":        true,
+		"frontend:embed-verify":    true,
+		"frontend:lint":            true,
+		"frontend:test":            true,
+		"lsp:changed-diagnostics":  true,
+		"project-map:check":        true,
+		"sqlc:verify":              true,
 	}
 	for gate, runner := range gateRunners(gatePlan{}, gateExecutionScope{}) {
 		if runner.cacheable != cacheable[gate] {
 			t.Errorf("gate %q cacheable=%v, want %v", gate, runner.cacheable, cacheable[gate])
 		}
+	}
+}
+
+func TestApplyPrevalidatedMapGatesRequiresStagedCacheScope(t *testing.T) {
+	plan := mustBuildGatePlan(t, []string{"internal/app/modules.go"})
+	filtered, err := applyPrevalidatedMapGates(plan, []string{"codemap:check", "project-map:check"}, true, false, strings.Repeat("a", 40))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertStringSetOmits(t, filtered.RequiredGates, "codemap:check", "project-map:check")
+
+	for _, test := range []struct {
+		name      string
+		gates     []string
+		diff      bool
+		push      bool
+		cacheTree string
+	}{
+		{name: "unstaged", gates: []string{"codemap:check"}, cacheTree: strings.Repeat("a", 40)},
+		{name: "push", gates: []string{"codemap:check"}, diff: true, push: true, cacheTree: strings.Repeat("a", 40)},
+		{name: "missing scope", gates: []string{"codemap:check"}, diff: true},
+		{name: "unsupported gate", gates: []string{"frontend:test"}, diff: true, cacheTree: strings.Repeat("a", 40)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := applyPrevalidatedMapGates(plan, test.gates, test.diff, test.push, test.cacheTree); err == nil {
+				t.Fatal("invalid prevalidated gate configuration was accepted")
+			}
+		})
+	}
+}
+
+func TestRunGatesRejectsPrevalidatedMapWithoutValidatedCache(t *testing.T) {
+	err := runGates([]string{
+		"--changed-file", "internal/app/modules.go",
+		"--diff-cached",
+		"--cache-scope", strings.Repeat("a", 40),
+		"--prevalidated-gate", "codemap:check",
+		"--print-plan",
+	})
+	if err == nil || !strings.Contains(err.Error(), "validated gate cache and isolated index") {
+		t.Fatalf("prevalidated gate without cache error = %v", err)
 	}
 }
 

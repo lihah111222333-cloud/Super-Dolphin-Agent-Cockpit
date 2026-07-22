@@ -58,19 +58,24 @@ func gateRunners(plan gatePlan, executionScope gateExecutionScope) map[string]ga
 			return runCommand("", name, args...)
 		}}
 	}
-	runners := map[string]gateRunner{
-		"ai-maintenance:self-test": {run: func() error {
+	cacheable := func(run func() error) gateRunner {
+		return gateRunner{cacheable: true, run: run}
+	}
+	return map[string]gateRunner{
+		"ai-maintenance:self-test": cacheable(func() error {
 			if err := runCommand("", "go", "test", "./scripts/ai_maintenance", "-count=1"); err != nil {
 				return err
 			}
 			return runCommand("", "go", "test", "./scripts", "-run", "TestAIMaintenanceGate", "-count=1")
-		}},
-		"backend:test_with_guard": {run: func() error {
-			args := append([]string{"./scripts/test_with_guard.sh"}, plan.AffectedGoPackages...)
-			args = append(args, "-count=1")
+		}),
+		"backend:test_with_guard": cacheable(func() error {
+			args, err := backendTestWithGuardArgs(plan)
+			if err != nil {
+				return err
+			}
 			return runCommand("", args[0], args[1:]...)
-		}},
-		"lsp:changed-diagnostics": {run: func() error {
+		}),
+		"lsp:changed-diagnostics": cacheable(func() error {
 			files, deleted, err := existingDiagnosticFiles(plan.DiagnosticFiles)
 			if err != nil {
 				return err
@@ -87,48 +92,49 @@ func gateRunners(plan gatePlan, executionScope gateExecutionScope) map[string]ga
 				args = append(args, "--file", file)
 			}
 			return runCommand("", "go", args...)
-		}},
-		"backend:test_with_guard_and_race": {run: func() error {
-			args, err := backendTestWithGuardAndRaceArgs(plan)
+		}),
+		"backend:race": cacheable(func() error {
+			args, err := backendRaceArgs(plan)
 			if err != nil {
 				return err
 			}
 			return runCommand("", args[0], args[1:]...)
-		}},
-		"backend:nilness": {run: func() error {
+		}),
+		"backend:archtest": cacheable(func() error {
+			return runCommand("", "./scripts/test_with_guard.sh", "--archtest-only")
+		}),
+		"backend:nilness": cacheable(func() error {
 			packages := affectedNilnessPackages(plan)
 			args := append([]string{"go", "run", "./scripts/nilness_guard.go", "-test=false", "--"}, packages...)
 			return runCommand("", args[0], args[1:]...)
-		}},
-		"capcontract:check": generatedCheck(false, "make", "capcontract-check"),
-		"turncontract:verify": {run: func() error {
-			if err := runCommand("", "go", "run", "./scripts/turncontract", "--verify"); err != nil {
-				return err
-			}
-			if err := runCommand("", "go", "test", "./internal/dto/turn", "-run", "^TestTurnContractFieldGuard", "-count=1"); err != nil {
-				return err
-			}
-			return runCommand("", "node", "frontend-app/scripts/turn-contract-field-guard.mjs")
-		}},
+		}),
+		"capcontract:check":   generatedCheck(true, "make", "capcontract-check"),
+		"turncontract:verify": {run: runTurnContractVerifyGate},
 		"frontend:static-guards": {run: func() error {
 			return runCommand("frontend-app", "npm", "run", "guard:architecture")
 		}},
-		"frontend:lint":         {run: func() error { return runCommand("frontend-app", "npm", "run", "lint") }},
-		"frontend:test":         {run: func() error { return runCommand("frontend-app", "npm", "test") }},
-		"frontend:build":        {run: func() error { return runCommand("frontend-app", "npm", "run", "build") }},
-		"frontend:embed-verify": {run: func() error { return runCommand("", "make", "frontend-embed-verify") }},
+		"frontend:lint":                cacheable(func() error { return runCommand("frontend-app", "npm", "run", "lint") }),
+		"frontend:typecheck-contracts": {run: func() error { return runCommand("frontend-app", "npm", "run", "typecheck:contracts") }},
+		"frontend:test":                cacheable(func() error { return runCommand("frontend-app", "npm", "test") }),
+		"frontend:embed-verify":        cacheable(func() error { return runCommand("", "make", "frontend-embed-verify") }),
 		"frontend:performance-verify": {run: func() error {
 			return runCommand("frontend-app", "npm", "run", "performance:verify")
 		}},
 		"codemap:check":     generatedCheck(false, "make", "codemap-check"),
 		"project-map:check": generatedCheck(true, "make", "project-map-check", "PROJECT_MAP_ARGS="),
-		"sqlc:verify":       {run: func() error { return runCommand("", "make", "sqlc-verify-worktree") }},
+		"sqlc:verify":       cacheable(func() error { return runCommand("", "make", "sqlc-verify-worktree") }),
 		"diff:whitespace":   {run: func() error { return runWhitespaceCheck(executionScope) }},
 	}
-	runners["frontend:typecheck-contracts"] = gateRunner{run: func() error {
-		return runCommand("frontend-app", "npm", "run", "typecheck:contracts")
-	}}
-	return runners
+}
+
+func runTurnContractVerifyGate() error {
+	if err := runCommand("", "go", "run", "./scripts/turncontract", "--verify"); err != nil {
+		return err
+	}
+	if err := runCommand("", "go", "test", "./internal/dto/turn", "-run", "^TestTurnContractFieldGuard", "-count=1"); err != nil {
+		return err
+	}
+	return runCommand("", "node", "frontend-app/scripts/turn-contract-field-guard.mjs")
 }
 
 // existingDiagnosticFiles keeps deleted paths out of the live diagnostics request while
@@ -152,16 +158,45 @@ func existingDiagnosticFiles(files []string) (existing []string, deleted int, er
 	return existing, deleted, nil
 }
 
-// backendTestWithGuardAndRaceArgs 构造一次 guard 后依次运行普通与 race 测试的参数。
-func backendTestWithGuardAndRaceArgs(plan gatePlan) ([]string, error) {
-	racePackages := affectedRacePackagesForPlan(plan)
-	if len(racePackages) == 0 || len(plan.AffectedGoPackages) == 0 {
-		return nil, errors.New("combined backend race gate requires normal and race packages")
+func backendTestWithGuardArgs(plan gatePlan) ([]string, error) {
+	packages := plan.AffectedGoPackages
+	if !requiresBroadBackendRegression(plan.ChangedFiles) {
+		var err error
+		packages, err = resolveDirectReverseDependentPackages(packages)
+		if err != nil {
+			return nil, err
+		}
 	}
-	args := append([]string{"./scripts/test_with_guard.sh", "--with-race"}, racePackages...)
-	args = append(args, "--")
-	args = append(args, plan.AffectedGoPackages...)
+	if len(packages) == 0 {
+		return nil, errors.New("backend gate resolved no Go packages")
+	}
+	args := []string{"./scripts/test_with_guard.sh"}
+	if !requiresFullArchtest(plan.ChangedFiles) {
+		args = append(args, "--quick-guard")
+	}
+	args = append(args, packages...)
 	return append(args, "-count=1"), nil
+}
+
+func requiresFullArchtest(files []string) bool {
+	if requiresBroadBackendRegression(files) {
+		return true
+	}
+	for _, file := range files {
+		if strings.HasPrefix(file, "internal/archtest/") || file == "scripts/code_size_guard.go" {
+			return true
+		}
+	}
+	return false
+}
+
+// backendRaceArgs isolates the push-only race lane so a matching normal gate can be reused.
+func backendRaceArgs(plan gatePlan) ([]string, error) {
+	racePackages := affectedRacePackagesForPlan(plan)
+	if len(racePackages) == 0 {
+		return nil, errors.New("backend race gate requires affected race packages")
+	}
+	return append([]string{"./scripts/test_with_guard.sh", "--race-only"}, racePackages...), nil
 }
 
 // runWhitespaceCheck 根据 hook 显式传入的 staged 或 push-range 真值源检查空白错误。

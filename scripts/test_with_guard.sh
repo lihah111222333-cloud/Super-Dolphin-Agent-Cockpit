@@ -9,8 +9,11 @@ usage() {
 Usage:
   scripts/test_with_guard.sh [go test args...]
   scripts/test_with_guard.sh <file.go> [more.go...]
+  scripts/test_with_guard.sh --quick-guard [go test args...]
   scripts/test_with_guard.sh --guard-only
+  scripts/test_with_guard.sh --archtest-only
   scripts/test_with_guard.sh --with-race <race-package...> -- <go-test-args...>
+  scripts/test_with_guard.sh --race-only <race-package...>
   scripts/test_with_guard.sh --help
 
 Examples:
@@ -22,13 +25,29 @@ Examples:
 USAGE
 }
 
+QUICK_ARCHTEST_SKIP='^(TestCodeSizeGuard|TestPrioritySSAGuardsUseUnifiedFreezeBaseline|TestPrioritySSALoaderExtractionPreservesCandidates|TestWideOrchestrationLoaderExtractionPreservesCandidates)$'
+QUICK_ARCHTEST_RUN='^(TestDependencyDirection|TestValidateDefaultBackendBoundaryGovernance|TestBackendBoundaryRuleFactsHaveOneSource)$'
+
 run_guard() {
   local real_go="$1"
+  local mode="${2:-full}"
   (
     cd "$ROOT_DIR"
     ./scripts/forbid_raw_go_test.sh
     "$real_go" run ./scripts/code_size_guard.go
-    "$real_go" test ./internal/archtest -count=1
+    if [ "$mode" = "quick" ]; then
+      "$real_go" test ./internal/archtest -run "$QUICK_ARCHTEST_RUN" -count=1
+    else
+      "$real_go" test ./internal/archtest -count=1
+    fi
+  )
+}
+
+run_archtest_only() {
+  local real_go="$1"
+  (
+    cd "$ROOT_DIR"
+    "$real_go" test ./internal/archtest -skip "$QUICK_ARCHTEST_SKIP" -count=1
   )
 }
 
@@ -41,17 +60,41 @@ run_go_test() {
   )
 }
 
+collect_copylocks_packages() {
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
+      ./internal/provider|./internal/provider/*|\
+      ./internal/platform|./internal/platform/*|\
+      ./internal/module/thread|./internal/module/thread/*)
+        printf '%s\n' "$arg"
+        ;;
+    esac
+  done
+}
+
 run_copylocks_guard() {
   local real_go="$1"
+  shift
+  local -a packages=()
+  local package
+  while IFS= read -r package; do
+    [ -n "$package" ] && packages+=("$package")
+  done < <(collect_copylocks_packages "$@")
+  if [ ${#packages[@]} -eq 0 ]; then
+    echo "[test-with-guard] copylocks skip: no affected registered package"
+    return 0
+  fi
   (
     cd "$ROOT_DIR"
-    "$real_go" vet -copylocks ./internal/provider/... ./internal/platform/... ./internal/module/thread/...
+    "$real_go" vet -copylocks "${packages[@]}"
   )
 }
 
 run_with_race() {
   local real_go="$1"
-  shift
+  local guard_mode="$2"
+  shift 2
   local -a race_packages=()
   while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do
     race_packages+=("$1")
@@ -66,10 +109,20 @@ run_with_race() {
     usage
     return 1
   fi
-  run_guard "$real_go"
-  run_copylocks_guard "$real_go"
+  run_guard "$real_go" "$guard_mode"
+  run_copylocks_guard "$real_go" "$@"
   run_go_test "$real_go" "$@"
   run_go_test "$real_go" "${race_packages[@]}" -race -short -count=1
+}
+
+run_race_only() {
+  local real_go="$1"
+  shift
+  if [ "$#" -eq 0 ]; then
+    usage
+    return 1
+  fi
+  run_go_test "$real_go" "$@" -race -short -count=1
 }
 
 all_args_are_go_files() {
@@ -115,6 +168,16 @@ main() {
     exit 1
   fi
 
+  local guard_mode=full
+  if [ "$1" = "--quick-guard" ]; then
+    guard_mode=quick
+    shift
+    if [ "$#" -eq 0 ]; then
+      usage
+      exit 1
+    fi
+  fi
+
   case "$1" in
     --help|-h)
       usage
@@ -124,7 +187,14 @@ main() {
       if ! real_go="$(resolve_real_go)"; then
         exit 1
       fi
-      run_guard "$real_go"
+      run_guard "$real_go" "$guard_mode"
+      ;;
+    --archtest-only)
+      local real_go
+      if ! real_go="$(resolve_real_go)"; then
+        exit 1
+      fi
+      run_archtest_only "$real_go"
       ;;
     --with-race)
       local real_go
@@ -132,7 +202,15 @@ main() {
         exit 1
       fi
       shift
-      run_with_race "$real_go" "$@"
+      run_with_race "$real_go" "$guard_mode" "$@"
+      ;;
+    --race-only)
+      local real_go
+      if ! real_go="$(resolve_real_go)"; then
+        exit 1
+      fi
+      shift
+      run_race_only "$real_go" "$@"
       ;;
     --)
       local real_go
@@ -144,8 +222,8 @@ main() {
         usage
         exit 1
       fi
-      run_guard "$real_go"
-      run_copylocks_guard "$real_go"
+      run_guard "$real_go" "$guard_mode"
+      run_copylocks_guard "$real_go" "$@"
       run_go_test "$real_go" "$@"
       ;;
     *)
@@ -157,8 +235,8 @@ main() {
         run_single_file_guard "$real_go" "$@"
         return
       fi
-      run_guard "$real_go"
-      run_copylocks_guard "$real_go"
+      run_guard "$real_go" "$guard_mode"
+      run_copylocks_guard "$real_go" "$@"
       run_go_test "$real_go" "$@"
       ;;
   esac

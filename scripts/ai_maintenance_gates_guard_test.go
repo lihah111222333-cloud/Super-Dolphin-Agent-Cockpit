@@ -46,12 +46,16 @@ func TestAIMaintenanceGateVerifiesLocalHookArtifacts(t *testing.T) {
 	assertScriptContains(t, preCommit, "run_ai_maintenance_staged_gate")
 	assertScriptContains(t, preCommit, "./scripts/ai_maintenance_gates.sh")
 	assertScriptContains(t, preCommit, "--changed-file")
+	assertScriptContains(t, preCommit, "--prevalidated-gate")
 	assertScriptContains(t, preCommit, "go run ./scripts/ai_maintenance")
 	assertScriptContains(t, preCommit, "scripts/refresh_generated_artifacts.sh capcontract")
 	assertScriptContains(t, preCommit, "git add -- \"$CAPCONTRACT_MANIFEST\"")
 	assertScriptContains(t, prePush, "run_ai_maintenance_push_gate")
 	assertScriptContains(t, prePush, "./scripts/ai_maintenance_gates.sh")
 	assertScriptContains(t, prePush, "--changed-file")
+	assertScriptContains(t, prePush, "--cache-scope")
+	assertScriptContains(t, preCommit, "export GOFLAGS=")
+	assertScriptContains(t, prePush, "export GOFLAGS=")
 	if strings.Contains(prePush, "add_capcontract_path") || strings.Contains(prePush, "internal/provider/*") {
 		t.Fatal("pre-push must delegate capcontract routing to the unified AI plan")
 	}

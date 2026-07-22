@@ -303,6 +303,39 @@ describe('runtime slice event lifecycle', () => {
     }));
   });
 
+  it('binds the first concrete bridge scope without inventing a rollback scope', async () => {
+    let runtime;
+    runtime = createRuntime({
+      assistantEventScope: '',
+      currentChatCwd: vi.fn(() => '.'),
+      activateAssistantEventScope: vi.fn((scope) => {
+        runtime.assistantEventScope = scope;
+      }),
+    });
+    const actions = createRuntimeSlice(runtime, createDeps({
+      onBridgeEvent: vi.fn(() => ({ ready: Promise.resolve(true), unsubscribe: vi.fn() })),
+    }));
+
+    await expect(actions.rebindBridgeEventScope('/repo/app')).resolves.toBe(true);
+
+    expect(runtime.assistantEventScope).toBe('/repo/app');
+    expect(runtime.bridgeEventScopeGeneration).toBe(1);
+  });
+
+  it('requires an existing rollback scope for a prepared project transition', async () => {
+    const runtime = createRuntime({
+      assistantEventScope: '',
+      currentChatCwd: vi.fn(() => '.'),
+    });
+    const onBridgeEvent = vi.fn();
+    const actions = createRuntimeSlice(runtime, createDeps({ onBridgeEvent }));
+
+    await expect(actions.prepareBridgeEventScope('/repo/other'))
+      .rejects.toThrow('runtime bridge previous scope is required');
+
+    expect(onBridgeEvent).not.toHaveBeenCalled();
+  });
+
   it('restores the prepared scope and continues delivering events from the previous project', async () => {
     const handlers = [];
     let runtime;

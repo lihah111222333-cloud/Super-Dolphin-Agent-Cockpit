@@ -37,7 +37,7 @@
     "lint": "eslint .",
     "preview": "vite preview --host 127.0.0.1 --port 4175",
     "test": "npm run test:hook",
-    "test:hook": "npm run guard:critical-skip && npm run typecheck:contracts && npm run audit:rpc-contracts && vitest run --no-file-parallelism --maxWorkers=1",
+    "test:hook": "npm run guard:critical-skip && npm run typecheck:contracts && npm run audit:rpc-contracts && vitest run --maxWorkers=4",
     "mcp:ui-test": "node scripts/ui-test-mcp-server.mjs",
     "mcp:ui-test:acceptance": "node scripts/ui-test-mcp-acceptance.mjs",
     "mcp:ui-test:scenario": "node scripts/ui-test-mcp-scenario.mjs"

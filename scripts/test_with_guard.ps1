@@ -17,7 +17,10 @@ function Write-Usage {
 Usage:
   scripts/test_with_guard.ps1 [go test args...]
   scripts/test_with_guard.ps1 <file.go> [more.go...]
+  scripts/test_with_guard.ps1 --quick-guard [go test args...]
   scripts/test_with_guard.ps1 --guard-only
+  scripts/test_with_guard.ps1 --archtest-only
+  scripts/test_with_guard.ps1 --race-only <race-package...>
   scripts/test_with_guard.ps1 --help
 
 Examples:
@@ -210,8 +213,14 @@ function Invoke-RawGoTestGuard {
     $script:LastStatus = 0
 }
 
+$QuickArchtestSkip = '^(TestCodeSizeGuard|TestPrioritySSAGuardsUseUnifiedFreezeBaseline|TestPrioritySSALoaderExtractionPreservesCandidates|TestWideOrchestrationLoaderExtractionPreservesCandidates)$'
+$QuickArchtestRun = '^(TestDependencyDirection|TestValidateDefaultBackendBoundaryGovernance|TestBackendBoundaryRuleFactsHaveOneSource)$'
+
 function Invoke-Guard {
-    param([string]$realGo)
+    param(
+        [string]$realGo,
+        [bool]$Quick
+    )
     Push-Location $RootDir
     try {
         Invoke-RawGoTestGuard
@@ -223,7 +232,22 @@ function Invoke-Guard {
             $script:LastStatus = $LASTEXITCODE
             return
         }
-        & $realGo test ./internal/archtest -count=1
+        if ($Quick) {
+            & $realGo test ./internal/archtest -run $QuickArchtestRun -count=1
+        } else {
+            & $realGo test ./internal/archtest -count=1
+        }
+        $script:LastStatus = $LASTEXITCODE
+    } finally {
+        Pop-Location
+    }
+}
+
+function Invoke-ArchtestOnly {
+    param([string]$realGo)
+    Push-Location $RootDir
+    try {
+        & $realGo test ./internal/archtest -skip $QuickArchtestSkip -count=1
         $script:LastStatus = $LASTEXITCODE
     } finally {
         Pop-Location
@@ -244,15 +268,62 @@ function Invoke-GoTest {
     }
 }
 
+function Get-CopylocksPackages {
+    param([string[]]$InputArgs)
+    $packages = @()
+    foreach ($arg in $InputArgs) {
+        if ($arg -match '^\./internal/(provider|platform)(/|$)' -or $arg -match '^\./internal/module/thread(/|$)') {
+            $packages += $arg
+        }
+    }
+    return @($packages | Select-Object -Unique)
+}
+
 function Invoke-CopylocksGuard {
-    param([string]$realGo)
+    param(
+        [string]$realGo,
+        [string[]]$GuardArgs
+    )
+    $packages = @(Get-CopylocksPackages -InputArgs $GuardArgs)
+    if ($packages.Count -eq 0) {
+        [Console]::Out.WriteLine('[test-with-guard] copylocks skip: no affected registered package')
+        $script:LastStatus = 0
+        return
+    }
     Push-Location $RootDir
     try {
-        & $realGo vet -copylocks ./internal/provider/... ./internal/platform/... ./internal/module/thread/...
+        & $realGo vet -copylocks @packages
         $script:LastStatus = $LASTEXITCODE
     } finally {
         Pop-Location
     }
+}
+
+function Invoke-GuardedTests {
+    param(
+        [string]$realGo,
+        [string[]]$TestArgs,
+        [bool]$Quick
+    )
+    Invoke-Guard -realGo $realGo -Quick $Quick
+    if ($script:LastStatus -ne 0) { return }
+    Invoke-CopylocksGuard -realGo $realGo -GuardArgs $TestArgs
+    if ($script:LastStatus -ne 0) { return }
+    Invoke-GoTest -realGo $realGo -GuardArgs $TestArgs
+}
+
+function Invoke-RaceOnly {
+    param(
+        [string]$realGo,
+        [string[]]$Packages
+    )
+    if ($Packages.Count -eq 0) {
+        Write-Usage
+        $script:LastStatus = 1
+        return
+    }
+    $raceArgs = @($Packages) + @('-race', '-short', '-count=1')
+    Invoke-GoTest -realGo $realGo -GuardArgs $raceArgs
 }
 
 function Test-AllArgsAreGoFiles {
@@ -308,7 +379,18 @@ function Main {
         exit 1
     }
 
-    switch ($GuardArgs[0]) {
+    $argsForRun = @($GuardArgs)
+    $quick = $false
+    if ($argsForRun[0] -eq '--quick-guard') {
+        $quick = $true
+        if ($argsForRun.Count -le 1) {
+            Write-Usage
+            exit 1
+        }
+        $argsForRun = @($argsForRun[1..($argsForRun.Count - 1)])
+    }
+
+    switch ($argsForRun[0]) {
         '--help' {
             Write-Usage
             exit 0
@@ -322,57 +404,48 @@ function Main {
             if ([string]::IsNullOrWhiteSpace($realGo)) {
                 exit 1
             }
-            Invoke-Guard -realGo $realGo
+            Invoke-Guard -realGo $realGo -Quick $quick
             $status = $script:LastStatus
             exit $status
         }
+        '--archtest-only' {
+            $realGo = Resolve-RealGo
+            if ([string]::IsNullOrWhiteSpace($realGo)) { exit 1 }
+            Invoke-ArchtestOnly -realGo $realGo
+            exit $script:LastStatus
+        }
+        '--race-only' {
+            $realGo = Resolve-RealGo
+            if ([string]::IsNullOrWhiteSpace($realGo)) { exit 1 }
+            $packages = if ($argsForRun.Count -gt 1) { @($argsForRun[1..($argsForRun.Count - 1)]) } else { @() }
+            Invoke-RaceOnly -realGo $realGo -Packages $packages
+            exit $script:LastStatus
+        }
         '--' {
-            if ($GuardArgs.Count -le 1) {
+            if ($argsForRun.Count -le 1) {
                 Write-Usage
                 exit 1
             }
-            $remaining = @($GuardArgs[1..($GuardArgs.Count - 1)])
+            $remaining = @($argsForRun[1..($argsForRun.Count - 1)])
             $realGo = Resolve-RealGo
             if ([string]::IsNullOrWhiteSpace($realGo)) {
                 exit 1
             }
-            Invoke-Guard -realGo $realGo
-            $status = $script:LastStatus
-            if ($status -ne 0) {
-                exit $status
-            }
-            Invoke-CopylocksGuard -realGo $realGo
-            $status = $script:LastStatus
-            if ($status -ne 0) {
-                exit $status
-            }
-            Invoke-GoTest -realGo $realGo -GuardArgs $remaining
-            $status = $script:LastStatus
-            exit $status
+            Invoke-GuardedTests -realGo $realGo -TestArgs $remaining -Quick $quick
+            exit $script:LastStatus
         }
         default {
             $realGo = Resolve-RealGo
             if ([string]::IsNullOrWhiteSpace($realGo)) {
                 exit 1
             }
-            if (Test-AllArgsAreGoFiles -Args $GuardArgs) {
-                Invoke-SingleFileGuard -realGo $realGo -GoFiles $GuardArgs
+            if (Test-AllArgsAreGoFiles -Args $argsForRun) {
+                Invoke-SingleFileGuard -realGo $realGo -GoFiles $argsForRun
                 $status = $script:LastStatus
                 exit $status
             }
-            Invoke-Guard -realGo $realGo
-            $status = $script:LastStatus
-            if ($status -ne 0) {
-                exit $status
-            }
-            Invoke-CopylocksGuard -realGo $realGo
-            $status = $script:LastStatus
-            if ($status -ne 0) {
-                exit $status
-            }
-            Invoke-GoTest -realGo $realGo -GuardArgs $GuardArgs
-            $status = $script:LastStatus
-            exit $status
+            Invoke-GuardedTests -realGo $realGo -TestArgs $argsForRun -Quick $quick
+            exit $script:LastStatus
         }
     }
 }

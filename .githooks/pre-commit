@@ -91,6 +91,7 @@ trap 'finish_cleanup 143; exit $?' TERM
 trap 'finish_cleanup 129; exit $?' HUP
 
 STAGED_CHANGED_FILES=()
+PREVALIDATED_MAP_GATE_ARGS=()
 CAPCONTRACT_MANIFEST=docs/doc/codemap/capability-contract/capability_manifest.json
 GOFMT_FILES=()
 PKG_CANDIDATES=()
@@ -130,11 +131,8 @@ ensure_codemap_generated_paths_clean() {
 }
 
 refresh_codemap_generated_files() {
-  local path plan refresh_capcontract=0
+  local path plan refresh_capcontract=0 refresh_codemap=0 refresh_project_map=0
   local plan_args=(plan)
-
-  echo "[pre-commit] codemap refresh..."
-  ensure_codemap_generated_paths_clean
 
   CODEMAP_TMP=$(mktemp -d "$HOOK_TMPDIR/pre-commit-codemap.XXXXXX")
   git -c core.autocrlf=false checkout-index -a --prefix="$CODEMAP_TMP/"
@@ -151,6 +149,12 @@ refresh_codemap_generated_files() {
       exit 1
     fi
   fi
+  if grep -Fq '"codemap:check"' <<<"$plan"; then
+    refresh_codemap=1
+  fi
+  if grep -Fq '"project-map:check"' <<<"$plan"; then
+    refresh_project_map=1
+  fi
   if grep -Fq "\"$CAPCONTRACT_MANIFEST\"" <<<"$plan"; then
     refresh_capcontract=1
     if ! git diff --quiet -- "$CAPCONTRACT_MANIFEST"; then
@@ -158,41 +162,60 @@ refresh_codemap_generated_files() {
       exit 1
     fi
   fi
+  if [ "$refresh_codemap" -eq 0 ] && [ "$refresh_project_map" -eq 0 ] && [ "$refresh_capcontract" -eq 0 ]; then
+    echo "[pre-commit] generated refresh skip: staged plan has no generated producer"
+    return 0
+  fi
+  if [ "$refresh_codemap" -eq 1 ] || [ "$refresh_project_map" -eq 1 ]; then
+    echo "[pre-commit] codemap refresh..."
+    ensure_codemap_generated_paths_clean
+  fi
   (
     cd "$CODEMAP_TMP"
-    run_go_without_git_env scripts/refresh_generated_artifacts.sh codemap
+    if [ "$refresh_codemap" -eq 1 ]; then
+      run_go_without_git_env scripts/refresh_generated_artifacts.sh codemap
+    fi
     if [ "$refresh_capcontract" -eq 1 ]; then
       run_go_without_git_env scripts/refresh_generated_artifacts.sh capcontract
     fi
-    run_go_without_git_env scripts/refresh_generated_artifacts.sh project-map -- --filesystem-scan
+    if [ "$refresh_project_map" -eq 1 ]; then
+      run_go_without_git_env scripts/refresh_generated_artifacts.sh project-map -- --filesystem-scan
+    fi
   )
 
-  for generated in \
-    README.md \
-    docs/doc/codemap/13-archtest-boundaries.md \
-    docs/doc/codemap/README.md \
-    docs/doc/codemap/ai-index.json \
-    docs/doc/codemap/project-map
-  do
-    if [ ! -e "$CODEMAP_TMP/$generated" ]; then
-      echo "❌ 代码地图刷新未生成期望文件：$generated" >&2
-      exit 1
-    fi
-  done
+  if [ "$refresh_codemap" -eq 1 ]; then
+    for generated in README.md docs/doc/codemap/13-archtest-boundaries.md docs/doc/codemap/README.md docs/doc/codemap/ai-index.json; do
+      if [ ! -e "$CODEMAP_TMP/$generated" ]; then
+        echo "❌ 代码地图刷新未生成期望文件：$generated" >&2
+        exit 1
+      fi
+    done
+  fi
+  if [ "$refresh_project_map" -eq 1 ] && [ ! -d "$CODEMAP_TMP/docs/doc/codemap/project-map" ]; then
+    echo "❌ 项目地图刷新未生成期望目录：docs/doc/codemap/project-map" >&2
+    exit 1
+  fi
 
   if [ "$refresh_capcontract" -eq 1 ] && [ ! -f "$CODEMAP_TMP/$CAPCONTRACT_MANIFEST" ]; then
     echo "❌ capability contract 刷新未生成期望文件：$CAPCONTRACT_MANIFEST" >&2
     exit 1
   fi
 
-  rm -rf docs/doc/codemap/project-map
   mkdir -p docs/doc/codemap
-  cp "$CODEMAP_TMP/README.md" README.md
-  cp "$CODEMAP_TMP/docs/doc/codemap/13-archtest-boundaries.md" docs/doc/codemap/13-archtest-boundaries.md
-  cp "$CODEMAP_TMP/docs/doc/codemap/README.md" docs/doc/codemap/README.md
-  cp "$CODEMAP_TMP/docs/doc/codemap/ai-index.json" docs/doc/codemap/ai-index.json
-  cp -R "$CODEMAP_TMP/docs/doc/codemap/project-map" docs/doc/codemap/project-map
-  git add -A -- "${CODEMAP_GENERATED_PATHS[@]}"
+  if [ "$refresh_codemap" -eq 1 ]; then
+    cp "$CODEMAP_TMP/README.md" README.md
+    cp "$CODEMAP_TMP/docs/doc/codemap/13-archtest-boundaries.md" docs/doc/codemap/13-archtest-boundaries.md
+    cp "$CODEMAP_TMP/docs/doc/codemap/README.md" docs/doc/codemap/README.md
+    cp "$CODEMAP_TMP/docs/doc/codemap/ai-index.json" docs/doc/codemap/ai-index.json
+    git add -A -- README.md docs/doc/codemap/13-archtest-boundaries.md docs/doc/codemap/README.md docs/doc/codemap/ai-index.json
+    PREVALIDATED_MAP_GATE_ARGS+=(--prevalidated-gate codemap:check)
+  fi
+  if [ "$refresh_project_map" -eq 1 ]; then
+    rm -rf docs/doc/codemap/project-map
+    cp -R "$CODEMAP_TMP/docs/doc/codemap/project-map" docs/doc/codemap/project-map
+    git add -A -- docs/doc/codemap/project-map
+    PREVALIDATED_MAP_GATE_ARGS+=(--prevalidated-gate project-map:check)
+  fi
   if [ "$refresh_capcontract" -eq 1 ]; then
     mkdir -p "$(dirname "$CAPCONTRACT_MANIFEST")"
     cp "$CODEMAP_TMP/$CAPCONTRACT_MANIFEST" "$CAPCONTRACT_MANIFEST"
@@ -228,6 +251,7 @@ run_ai_maintenance_staged_gate() {
       --cache-max-age 10m \
       --cache-scope "$cache_scope" \
       --diff-cached \
+      "${PREVALIDATED_MAP_GATE_ARGS[@]}" \
       "${args[@]}"
   ); then
     echo "❌ AI maintenance gates 未通过" >&2

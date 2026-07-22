@@ -50,6 +50,7 @@ func assertPrePushGoOnlyScope(t *testing.T) {
 	assertOutputOmitsAll(t, out, "frontend-app tests")
 	log := fixture.log(t)
 	assertOutputContainsAll(t, log, "ai-maintenance --skip-deferred-e2e --changed-file go.mod --changed-file internal/app/app.go")
+	assertOutputContainsAll(t, log, "--cache-dir .build-cache/ai-maintenance-gates", "--cache-max-age 10m", "--cache-scope")
 	assertOutputOmitsAll(t, log, "go-test ", "node ", "npx ", "npm ")
 }
 
@@ -267,7 +268,10 @@ func main() {
 			generated = []string{manifest}
 		}
 	}
-	if err := json.NewEncoder(os.Stdout).Encode(map[string]any{"generated_files": generated}); err != nil {
+	if err := json.NewEncoder(os.Stdout).Encode(map[string]any{
+		"generated_files": generated,
+		"required_gates": []string{"codemap:check", "project-map:check"},
+	}); err != nil {
 		panic(err)
 	}
 }

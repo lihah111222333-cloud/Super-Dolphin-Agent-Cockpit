@@ -147,7 +147,7 @@ func TestTestWithGuardPowerShellWrapperMatchesBashContract(t *testing.T) {
 		"function Invoke-SingleFileGuard",
 		"[System.IO.Path]::GetFullPath",
 		"exit $status",
-		"if (Test-AllArgsAreGoFiles -Args $GuardArgs)",
+		"if (Test-AllArgsAreGoFiles -Args $argsForRun)",
 		"& $realGo test @GuardArgs",
 	} {
 		assertScriptContains(t, script, want)
@@ -164,6 +164,29 @@ func TestTestWithGuardGuardOnlyRunsFullArchtest(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestTestWithGuardQuickModeSkipsHistoricalScansAndScopesCopylocks(t *testing.T) {
+	bash := readScript(t, "test_with_guard.sh")
+	for _, want := range []string{
+		"--quick-guard",
+		"TestDependencyDirection",
+		"TestValidateDefaultBackendBoundaryGovernance",
+		"TestBackendBoundaryRuleFactsHaveOneSource",
+		"--archtest-only",
+		"collect_copylocks_packages",
+		"--race-only",
+	} {
+		assertScriptContains(t, bash, want)
+	}
+	assertScriptDoesNotContain(t, bash, `vet -copylocks ./internal/provider/... ./internal/platform/... ./internal/module/thread/...`)
+
+	powershell := readScript(t, "test_with_guard.ps1")
+	for _, want := range []string{"--quick-guard", "--archtest-only", "--race-only", "Get-CopylocksPackages", "[string[]]$TestArgs", "-TestArgs $argsForRun"} {
+		assertScriptContains(t, powershell, want)
+	}
+	assertScriptDoesNotContain(t, powershell, `vet -copylocks ./internal/provider/... ./internal/platform/... ./internal/module/thread/...`)
+	assertScriptDoesNotContain(t, powershell, `Invoke-GuardedTests -realGo $realGo -Args`)
 }
 
 type codeSizeGuardCLIResult struct {

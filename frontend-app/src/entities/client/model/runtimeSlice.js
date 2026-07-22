@@ -66,49 +66,15 @@ async function initializeRuntimeEventSubscriptions(runtime, deps, retryBootstrap
   }
 }
 
-function createLifecycleActions(runtime, deps) {
-  const retryBootstrapAfterReconnect = () => {
-    runBackgroundAction('provider.reconnect.bootstrap', () => runtime.get().bootstrap().catch((error) => {
-      runtime.addWarning('error', 'app.bootstrap.reconnect_failed', { error: 'background action failure; see Health diagnostic ID' });
-      throw error;
-    }));
-  };
-
-  const initializeEvents = () => {
-    /*
-     * bridge event 只注册一次。
-     * 重连后 ready 只同步当前线程，其他状态重新 bootstrap。
-     */
-    if (runtime.eventInitializationPromise) return runtime.eventInitializationPromise;
-    if (runtime.eventInitializationState === 'ready'
-      && runtime.bridgeUnsubscribe
-      && runtime.reconnectUnsubscribe) {
-      return Promise.resolve(true);
-    }
-    if (runtime.bridgeUnsubscribe || runtime.reconnectUnsubscribe) {
-      clearRuntimeUnsubscribe(runtime, 'bridgeUnsubscribe');
-      clearRuntimeUnsubscribe(runtime, 'reconnectUnsubscribe');
-    }
-    const generation = runtime.eventInitializationGeneration + 1;
-    runtime.eventInitializationGeneration = generation;
-    runtime.eventInitializationState = 'initializing';
-    const initialization = initializeRuntimeEventSubscriptions(
-      runtime,
-      deps,
-      retryBootstrapAfterReconnect,
-      generation,
-    ).finally(() => {
-      if (runtime.eventInitializationPromise === initialization) {
-        runtime.eventInitializationPromise = null;
-      }
-    });
-    runtime.eventInitializationPromise = initialization;
-    return initialization;
-  };
-
-  const prepareBridgeEventScope = async (scope) => {
+function createBridgeScopeActions(runtime, deps) {
+  const prepareBridgeEventScope = async (scope, requirePreviousScope = true) => {
     let normalizedScope = scope;
     if (!normalizedScope) normalizedScope = currentChatScope(runtime);
+    const previousScope = runtime.assistantEventScope || currentChatScope(runtime);
+    const hasPreviousScope = Boolean(previousScope && previousScope !== '.');
+    if (requirePreviousScope && !hasPreviousScope) {
+      throw new Error('runtime bridge previous scope is required');
+    }
     runtime.assertAssistantEventScopeCapacity?.(normalizedScope);
     const rebindGeneration = runtime.bridgeScopeRebindGeneration + 1;
     const bridgeEventScopeGeneration = runtime.bridgeEventScopeGeneration + 1;
@@ -157,16 +123,11 @@ function createLifecycleActions(runtime, deps) {
         throw error;
       }
     };
-    const previousScope = runtime.assistantEventScope || currentChatScope(runtime);
-    if (!previousScope || previousScope === '.') {
-      abort();
-      throw new Error('runtime bridge previous scope is required');
-    }
     transition = {
       abort,
       commit,
       generation: rebindGeneration,
-      previousScope,
+      previousScope: hasPreviousScope ? previousScope : '',
       unsubscribe: abort,
     };
     runtime.pendingBridgeScopeRebind = transition;
@@ -185,12 +146,13 @@ function createLifecycleActions(runtime, deps) {
   };
 
   const rebindBridgeEventScope = async (scope) => {
-    const transition = await prepareBridgeEventScope(scope);
+    const requirePreviousScope = runtime.bridgeEventScopeGeneration > 0;
+    const transition = await prepareBridgeEventScope(scope, requirePreviousScope);
     return transition.commit();
   };
 
   const restorePreparedBridgeEventScope = async (prepared) => {
-    const generation = Number(prepared?.generation ?? prepared?.rebindGeneration);
+    const generation = Number(prepared?.generation);
     const previousScope = typeof prepared?.previousScope === 'string' ? prepared.previousScope : '';
     if (typeof prepared?.abort !== 'function'
       || !Number.isSafeInteger(generation)
@@ -211,6 +173,55 @@ function createLifecycleActions(runtime, deps) {
       throw error;
     }
   };
+
+  return {
+    prepareBridgeEventScope,
+    rebindBridgeEventScope,
+    restorePreparedBridgeEventScope,
+  };
+}
+
+function createLifecycleActions(runtime, deps) {
+  const retryBootstrapAfterReconnect = () => {
+    runBackgroundAction('provider.reconnect.bootstrap', () => runtime.get().bootstrap().catch((error) => {
+      runtime.addWarning('error', 'app.bootstrap.reconnect_failed', { error: 'background action failure; see Health diagnostic ID' });
+      throw error;
+    }));
+  };
+
+  const initializeEvents = () => {
+    /*
+     * bridge event 只注册一次。
+     * 重连后 ready 只同步当前线程，其他状态重新 bootstrap。
+     */
+    if (runtime.eventInitializationPromise) return runtime.eventInitializationPromise;
+    if (runtime.eventInitializationState === 'ready'
+      && runtime.bridgeUnsubscribe
+      && runtime.reconnectUnsubscribe) {
+      return Promise.resolve(true);
+    }
+    if (runtime.bridgeUnsubscribe || runtime.reconnectUnsubscribe) {
+      clearRuntimeUnsubscribe(runtime, 'bridgeUnsubscribe');
+      clearRuntimeUnsubscribe(runtime, 'reconnectUnsubscribe');
+    }
+    const generation = runtime.eventInitializationGeneration + 1;
+    runtime.eventInitializationGeneration = generation;
+    runtime.eventInitializationState = 'initializing';
+    const initialization = initializeRuntimeEventSubscriptions(
+      runtime,
+      deps,
+      retryBootstrapAfterReconnect,
+      generation,
+    ).finally(() => {
+      if (runtime.eventInitializationPromise === initialization) {
+        runtime.eventInitializationPromise = null;
+      }
+    });
+    runtime.eventInitializationPromise = initialization;
+    return initialization;
+  };
+
+  const bridgeScopeActions = createBridgeScopeActions(runtime, deps);
 
   const destroy = () => {
     runtime.eventInitializationGeneration += 1;
@@ -238,16 +249,10 @@ function createLifecycleActions(runtime, deps) {
     runtime.sidebarRefreshSeq += 1;
   };
 
-  Object.assign(runtime, {
-    prepareBridgeEventScope,
-    rebindBridgeEventScope,
-    restorePreparedBridgeEventScope,
-  });
+  Object.assign(runtime, bridgeScopeActions);
   return {
     initializeEvents,
-    prepareBridgeEventScope,
-    rebindBridgeEventScope,
-    restorePreparedBridgeEventScope,
+    ...bridgeScopeActions,
     destroy,
   };
 }

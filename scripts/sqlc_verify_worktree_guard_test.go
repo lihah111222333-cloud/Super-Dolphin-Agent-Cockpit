@@ -67,7 +67,7 @@ func TestSQLCVerifyWorktreeScriptRejectsRegenerationDrift(t *testing.T) {
 
 func TestSQLCVerificationModesStaySeparatedByWorkflow(t *testing.T) {
 	aiMaintenance := readRepoFile(t, "ai_maintenance/main.go") + readRepoFile(t, "ai_maintenance/gate_execution.go")
-	assertScriptContainsIgnoringWhitespace(t, aiMaintenance, `"sqlc:verify": {run: func() error { return runCommand("", "make", "sqlc-verify-worktree") }}`)
+	assertScriptContainsIgnoringWhitespace(t, aiMaintenance, `"sqlc:verify": cacheable(func() error { return runCommand("", "make", "sqlc-verify-worktree") })`)
 	assertScriptContainsIgnoringWhitespace(t, aiMaintenance, `"sqlc:verify": {"make sqlc-verify-worktree", "make sqlc-verify"}`)
 
 	prePush := readRepoFile(t, "../.githooks/pre-push")

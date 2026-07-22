@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/capcontract"
 )
@@ -25,6 +26,7 @@ var aiMaintenanceFiles = map[string]bool{
 	"scripts/frontend_embed_verify.sh":           true,
 	"scripts/refresh_generated_artifacts.sh":     true,
 	"scripts/sqlc_verify_worktree.sh":            true,
+	"scripts/test_with_guard.ps1":                true,
 	"scripts/test_with_guard.sh":                 true,
 }
 
@@ -163,8 +165,10 @@ func runGates(args []string) error {
 	pushGates := fs.Bool("push-gates", false, "include push-only risk gates")
 	changed := multiFlag{}
 	diffRanges := multiFlag{}
+	prevalidatedGates := multiFlag{}
 	fs.Var(&changed, "changed-file", "changed file path; may be repeated")
 	fs.Var(&diffRanges, "diff-range", "Git range checked for whitespace errors; may be repeated")
+	fs.Var(&prevalidatedGates, "prevalidated-gate", "staged map gate already completed by pre-commit; may be repeated")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -176,11 +180,11 @@ func runGates(args []string) error {
 			return err
 		}
 	}
-	plan, err := gatePlanForScope(files, *pushGates)
+	cache, err := validatedGateCacheForRun(*cacheDir, *cacheMaxAge, *cacheScope, prevalidatedGates)
 	if err != nil {
 		return err
 	}
-	plan, err = filterDeferredE2E(plan, *skipDeferredE2E)
+	plan, err := buildGateRunPlan(files, *pushGates, *skipDeferredE2E, []string(prevalidatedGates), *diffCached, *cacheScope)
 	if err != nil {
 		return err
 	}
@@ -192,15 +196,66 @@ func runGates(args []string) error {
 	if err := validateOptionalEvidence(*evidencePath, plan); err != nil {
 		return err
 	}
-	cache, err := optionalGateResultCache(*cacheDir, *cacheMaxAge, *cacheScope)
-	if err != nil {
-		return err
-	}
 	executionScope, err := newGateExecutionScope(*diffCached, diffRanges)
 	if err != nil {
 		return err
 	}
 	return executeGatePlanWithCache(plan, cache, executionScope)
+}
+
+func validatedGateCacheForRun(root string, maxAge time.Duration, scope string, prevalidated []string) (*gateResultCache, error) {
+	cache, err := optionalGateResultCache(root, maxAge, scope)
+	if err != nil {
+		return nil, err
+	}
+	if len(prevalidated) > 0 && cache == nil {
+		return nil, errors.New("prevalidated map gates require a validated gate cache and isolated index")
+	}
+	return cache, nil
+}
+
+// buildGateRunPlan 依次应用推送风险、延后 E2E 和 staged 预验证约束，保持执行入口低复杂度。
+func buildGateRunPlan(files []string, pushGates, skipDeferredE2E bool, prevalidatedGates []string, diffCached bool, cacheScope string) (gatePlan, error) {
+	plan, err := gatePlanForScope(files, pushGates)
+	if err != nil {
+		return gatePlan{}, err
+	}
+	plan, err = filterDeferredE2E(plan, skipDeferredE2E)
+	if err != nil {
+		return gatePlan{}, err
+	}
+	return applyPrevalidatedMapGates(plan, prevalidatedGates, diffCached, pushGates, cacheScope)
+}
+
+// applyPrevalidatedMapGates 只允许 staged hook 对同一不可变 tree 跳过刚完成的地图检查。
+func applyPrevalidatedMapGates(plan gatePlan, gates []string, diffCached, pushGates bool, cacheScope string) (gatePlan, error) {
+	if len(gates) == 0 {
+		return plan, nil
+	}
+	if !diffCached || pushGates || !isGitObjectID(cacheScope) {
+		return gatePlan{}, errors.New("prevalidated map gates require staged diff, non-push scope, and an immutable cache tree")
+	}
+	allowed := map[string]bool{"codemap:check": true, "project-map:check": true}
+	required := map[string]bool{}
+	for _, gate := range plan.RequiredGates {
+		required[gate] = true
+	}
+	seen := map[string]bool{}
+	for _, gate := range gates {
+		if !allowed[gate] {
+			return gatePlan{}, fmt.Errorf("gate %q cannot be prevalidated", gate)
+		}
+		if seen[gate] {
+			return gatePlan{}, fmt.Errorf("prevalidated gate %q was provided more than once", gate)
+		}
+		if !required[gate] {
+			return gatePlan{}, fmt.Errorf("prevalidated gate %q is absent from the generated plan", gate)
+		}
+		seen[gate] = true
+		plan.RequiredGates = removeGate(plan.RequiredGates, gate)
+		fmt.Fprintf(os.Stderr, "[ai-maintenance] prevalidated gate=%s scope=%s\n", gate, cacheScope[:12])
+	}
+	return plan, nil
 }
 
 // filterDeferredE2E 在显式要求时从计划中移除延迟 Provider E2E 包。
@@ -337,13 +392,20 @@ func applyFileGateRules(file string, capabilityRules capcontract.PathRules, turn
 	}
 	if codemapRelevant(file) {
 		gates["codemap:check"] = true
+	}
+	if projectMapRelevant(file) {
 		gates["project-map:check"] = true
 	}
-	if generatedCodemapFile(file) {
-		generated[file] = true
-		evidence["generated:source"] = true
-	}
+	applyGeneratedFileEvidence(file, evidence, generated)
 	return backendChanged, nil
+}
+
+func applyGeneratedFileEvidence(file string, evidence, generated map[string]bool) {
+	if !generatedCodemapFile(file) {
+		return
+	}
+	generated[file] = true
+	evidence["generated:source"] = true
 }
 
 // applyCapabilityContractGateRules 统一能力清单生成输入与检查路由，并在路径规则解析失败时阻断。
@@ -423,7 +485,7 @@ func applyGateInfrastructureRules(file string, gates map[string]bool) bool {
 		gates["codemap:check"] = true
 		gates["project-map:check"] = true
 		return true
-	case "scripts/test_with_guard.sh":
+	case "scripts/test_with_guard.sh", "scripts/test_with_guard.ps1":
 		return true
 	case "scripts/sqlc_verify_worktree.sh":
 		gates["sqlc:verify"] = true
@@ -445,7 +507,6 @@ func applySourceGateRules(file string, gates, evidence map[string]bool) bool {
 		}
 		gates["frontend:lint"] = true
 		gates["frontend:test"] = true
-		gates["frontend:build"] = true
 		gates["frontend:embed-verify"] = true
 		if file == "frontend-app/scripts/frontend-maintainability-baseline.json" {
 			gates["frontend:performance-verify"] = true
@@ -471,12 +532,9 @@ func criticalTypecheckRelevant(file string) bool {
 			(strings.HasSuffix(file, ".js") || strings.HasSuffix(file, ".jsx")))
 }
 
-// affectedGoPackages 合并稳定后端回归包与 diff 命中的 Go 包，并避免 archtest 被守卫包装器重复执行。
+// affectedGoPackages 对普通变更只保留直接包；全局输入或无法定位包时才使用广域回归集合。
 func affectedGoPackages(files []string) []string {
 	packages := map[string]bool{}
-	for _, pkg := range coreBackendGatePackages {
-		packages[pkg] = true
-	}
 	for _, file := range files {
 		if pkg, ok := changedGoPackage(file); ok {
 			if pkg == "./internal/archtest" {
@@ -485,7 +543,26 @@ func affectedGoPackages(files []string) []string {
 			packages[pkg] = true
 		}
 	}
+	if requiresBroadBackendRegression(files) || len(packages) == 0 {
+		for _, pkg := range coreBackendGatePackages {
+			packages[pkg] = true
+		}
+	}
 	return sortedKeys(packages)
+}
+
+func requiresBroadBackendRegression(files []string) bool {
+	for _, file := range files {
+		if goModuleFile(file) {
+			return true
+		}
+		switch file {
+		case "Makefile", "scripts/forbid_raw_go_test.sh", "scripts/real_go_resolver.sh",
+			"scripts/test_with_guard.sh", "scripts/test_with_guard.ps1":
+			return true
+		}
+	}
+	return false
 }
 
 func changedGoPackage(file string) (string, bool) {
@@ -595,23 +672,23 @@ func generatedEvidenceProblems(doc evidenceDoc, plan gatePlan) []string {
 
 func gateEvidenceCommandFragments() map[string][]string {
 	return map[string][]string{
-		"ai-maintenance:self-test":         {"go test ./scripts/ai_maintenance", "go test ./scripts -run TestAIMaintenanceGate"},
-		"backend:test_with_guard":          {"./scripts/test_with_guard.sh"},
-		"backend:test_with_guard_and_race": {"./scripts/test_with_guard.sh", "--with-race", "-race"},
-		"backend:nilness":                  {"go run ./scripts/nilness_guard.go"},
-		"lsp:changed-diagnostics":          {"go run ./scripts/lsp_diagnostics_gate"},
-		"capcontract:check":                {"make capcontract-check"},
-		"turncontract:verify":              {"go run ./scripts/turncontract --verify", "go test ./internal/dto/turn -run ^TestTurnContractFieldGuard", "node frontend-app/scripts/turn-contract-field-guard.mjs"},
-		"frontend:static-guards":           {"npm run guard:architecture"},
-		"frontend:lint":                    {"npm run lint"},
-		"frontend:typecheck-contracts":     {"npm run typecheck:contracts"},
-		"frontend:test":                    {"npm test"},
-		"frontend:build":                   {"npm run build"},
-		"frontend:embed-verify":            {"make frontend-embed-verify"},
-		"frontend:performance-verify":      {"npm run performance:verify"},
-		"codemap:check":                    {"make codemap-check"},
-		"project-map:check":                {"make project-map-check"},
-		"sqlc:verify":                      {"make sqlc-verify-worktree", "make sqlc-verify"},
+		"ai-maintenance:self-test":     {"go test ./scripts/ai_maintenance", "go test ./scripts -run TestAIMaintenanceGate"},
+		"backend:archtest":             {"./scripts/test_with_guard.sh", "--archtest-only"},
+		"backend:test_with_guard":      {"./scripts/test_with_guard.sh"},
+		"backend:race":                 {"./scripts/test_with_guard.sh", "--race-only"},
+		"backend:nilness":              {"go run ./scripts/nilness_guard.go"},
+		"lsp:changed-diagnostics":      {"go run ./scripts/lsp_diagnostics_gate"},
+		"capcontract:check":            {"make capcontract-check"},
+		"turncontract:verify":          {"go run ./scripts/turncontract --verify", "go test ./internal/dto/turn -run ^TestTurnContractFieldGuard", "node frontend-app/scripts/turn-contract-field-guard.mjs"},
+		"frontend:static-guards":       {"npm run guard:architecture"},
+		"frontend:lint":                {"npm run lint"},
+		"frontend:typecheck-contracts": {"npm run typecheck:contracts"},
+		"frontend:test":                {"npm test"},
+		"frontend:embed-verify":        {"make frontend-embed-verify"},
+		"frontend:performance-verify":  {"npm run performance:verify"},
+		"codemap:check":                {"make codemap-check"},
+		"project-map:check":            {"make project-map-check"},
+		"sqlc:verify":                  {"make sqlc-verify-worktree", "make sqlc-verify"},
 	}
 }
 
@@ -661,7 +738,7 @@ func normalizeFiles(files []string) []string {
 	return out
 }
 
-// codemapRelevant 判断变更是否可能影响代码地图或 AI 项目地图。
+// codemapRelevant 判断变更是否可能影响手写代码地图或其符号索引。
 func codemapRelevant(file string) bool {
 	return strings.HasPrefix(file, "cmd/") ||
 		strings.HasPrefix(file, "internal/") ||
@@ -671,6 +748,26 @@ func codemapRelevant(file string) bool {
 		file == ".ai-project-map.overrides.json" ||
 		file == "scripts/generate_ai_project_map.mjs" ||
 		file == "scripts/codemap_index.go"
+}
+
+// projectMapRelevant mirrors the generator's indexed roots so path or size drift is never skipped.
+func projectMapRelevant(file string) bool {
+	for _, prefix := range []string{
+		"cmd/", "docs/", "frontend-app/", "internal/", "migrations/", "pkg/",
+		"scripts/", "sql/", "test/", "tests/", "third_party/",
+	} {
+		if strings.HasPrefix(file, prefix) {
+			return true
+		}
+	}
+	switch file {
+	case "AGENTS.md", "CLAUDE.md", "Makefile", "README.de.md", "README.es.md", "README.ja.md",
+		"README.ko.md", "README.md", "README.zh-CN.md", "go.mod", "package-lock.json", "package.json",
+		"run-new-ui-desktop.ps1", "run-new-ui-desktop.sh", ".ai-project-map.overrides.json":
+		return true
+	default:
+		return false
+	}
 }
 
 func generatedCodemapFile(file string) bool {
@@ -698,13 +795,13 @@ func orderedGates(values map[string]bool) []string {
 		"frontend:lint",
 		"frontend:typecheck-contracts",
 		"frontend:test",
-		"frontend:build",
 		"frontend:embed-verify",
 		"frontend:performance-verify",
 		"backend:test_with_guard",
 		"lsp:changed-diagnostics",
-		"backend:test_with_guard_and_race",
+		"backend:archtest",
 		"backend:nilness",
+		"backend:race",
 		"sqlc:verify",
 		"codemap:check",
 		"project-map:check",

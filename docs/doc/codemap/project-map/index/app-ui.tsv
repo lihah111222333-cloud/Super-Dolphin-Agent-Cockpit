@@ -15,7 +15,7 @@ frontend-app/eslint.config.js	frontend-app	app-ui	js-source	857	当前 React/Vit
 frontend-app/index.html	frontend-app	app-ui	html	391	当前 React/Vite 前端包	frontend,app,index,当前,React,Vite,前端包
 frontend-app/jsconfig.json	frontend-app	app-ui	json	421	当前 React/Vite 前端包	frontend,app,jsconfig,当前,React,Vite,前端包
 frontend-app/package-lock.json	frontend-app	app-ui	json	235816	当前 React/Vite 前端包	frontend,app,package,lock,当前,React,Vite,前端包
-frontend-app/package.json	frontend-app	app-ui	json	4609	当前 React/Vite 前端包	frontend,app,package,当前,React,Vite,前端包
+frontend-app/package.json	frontend-app	app-ui	json	4587	当前 React/Vite 前端包	frontend,app,package,当前,React,Vite,前端包
 frontend-app/playwright.business-flows.config.js	frontend-app	app-ui	js-source	894	当前 React/Vite 前端包	frontend,app,playwright,business,flows,config,当前,React,Vite,前端包
 frontend-app/playwright.desktop-wide.config.js	frontend-app	app-ui	js-source	1030	当前 React/Vite 前端包	frontend,app,playwright,desktop,wide,config,当前,React,Vite,前端包
 frontend-app/playwright.desktop.config.js	frontend-app	app-ui	js-source	617	当前 React/Vite 前端包	frontend,app,playwright,desktop,config,当前,React,Vite,前端包
@@ -84,7 +84,7 @@ frontend-app/scripts/frontend-state-ownership-guard.mjs	frontend-app	app-ui	js-s
 frontend-app/scripts/frontend-state-ownership-guard.test.mjs	frontend-app	app-ui	js-test	8805	React 前端构建与校验脚本	frontend,app,scripts,state,ownership,guard,test,React,前端构建与校验脚本
 frontend-app/scripts/frontend-state-ownership-registry.json	frontend-app	app-ui	json	5222	React 前端构建与校验脚本	frontend,app,scripts,state,ownership,registry,React,前端构建与校验脚本
 frontend-app/scripts/frontend-z-index-token-guard.mjs	frontend-app	app-ui	js-source	10459	React 前端构建与校验脚本	frontend,app,scripts,z,index,token,guard,React,前端构建与校验脚本
-frontend-app/scripts/frontend-z-index-token-guard.test.mjs	frontend-app	app-ui	js-test	9267	React 前端构建与校验脚本	frontend,app,scripts,z,index,token,guard,test,React,前端构建与校验脚本
+frontend-app/scripts/frontend-z-index-token-guard.test.mjs	frontend-app	app-ui	js-test	9433	React 前端构建与校验脚本	frontend,app,scripts,z,index,token,guard,test,React,前端构建与校验脚本
 frontend-app/scripts/managed-command.mjs	frontend-app	app-ui	js-source	6198	React 前端构建与校验脚本	frontend,app,scripts,managed,command,React,前端构建与校验脚本
 frontend-app/scripts/managed-command.test.mjs	frontend-app	app-ui	js-test	4380	React 前端构建与校验脚本	frontend,app,scripts,managed,command,test,React,前端构建与校验脚本
 frontend-app/scripts/no-critical-skip.mjs	frontend-app	app-ui	js-source	8621	React 前端构建与校验脚本	frontend,app,scripts,no,critical,skip,React,前端构建与校验脚本
@@ -213,8 +213,8 @@ frontend-app/src/entities/client/model/runtimeAssistantTimeline.js	frontend-app	
 frontend-app/src/entities/client/model/runtimeAssistantTimeline.test.js	frontend-app	app-ui	js-test	8917	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,runtimeAssistantTimeline,test,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/runtimeResults.js	frontend-app	app-ui	js-source	286	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,runtimeResults,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/runtimeResults.test.js	frontend-app	app-ui	js-test	13038	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,runtimeResults,test,React,客户端状态,thread,composer,store,模型
-frontend-app/src/entities/client/model/runtimeSlice.js	frontend-app	app-ui	js-source	15389	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,runtimeSlice,React,客户端状态,thread,composer,store,模型
-frontend-app/src/entities/client/model/runtimeSlice.test.js	frontend-app	app-ui	js-test	16353	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,runtimeSlice,test,React,客户端状态,thread,composer,store,模型
+frontend-app/src/entities/client/model/runtimeSlice.js	frontend-app	app-ui	js-source	15674	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,runtimeSlice,React,客户端状态,thread,composer,store,模型
+frontend-app/src/entities/client/model/runtimeSlice.test.js	frontend-app	app-ui	js-test	17567	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,runtimeSlice,test,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/thread-open/threadOpenCoordinator.js	frontend-app	app-ui	js-source	1549	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,thread,open,threadOpenCoordinator,React,客户端状态,composer,store,模型
 frontend-app/src/entities/client/model/thread-open/threadOpenCoordinator.test.js	frontend-app	app-ui	js-test	4009	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,thread,open,threadOpenCoordinator,test,React,客户端状态,composer,store,模型
 frontend-app/src/entities/client/model/threadActivityMetrics.test.js	frontend-app	app-ui	js-test	3661	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,threadActivityMetrics,test,React,客户端状态,thread,composer,store,模型
@@ -233,7 +233,8 @@ frontend-app/src/entities/client/model/threadMessagesRuntime.test.js	frontend-ap
 frontend-app/src/entities/client/model/timelineRuntime.js	frontend-app	app-ui	js-source	24268	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,timelineRuntime,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/timelineRuntime.test.js	frontend-app	app-ui	js-test	8977	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,timelineRuntime,test,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/useClientStore.js	frontend-app	app-ui	js-source	6204	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,useClientStore,React,客户端状态,thread,composer,store,模型
-frontend-app/src/entities/client/model/useClientStore.terminal-order.test.js	frontend-app	app-ui	js-test	34420	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,useClientStore,terminal,order,test,React,客户端状态,thread,composer,store,模型
+frontend-app/src/entities/client/model/useClientStore.lifecycle-events.test.js	frontend-app	app-ui	js-test	11856	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,useClientStore,lifecycle,events,test,React,客户端状态,thread,composer,store,模型
+frontend-app/src/entities/client/model/useClientStore.terminal-order.test.js	frontend-app	app-ui	js-test	25391	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,useClientStore,terminal,order,test,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/useClientStore.test.js	frontend-app	app-ui	js-test	370606	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,useClientStore,test,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/warningRuntime.test.js	frontend-app	app-ui	js-test	5359	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,warningRuntime,test,React,客户端状态,thread,composer,store,模型
 frontend-app/src/features/approval/model/approvalDecision.js	frontend-app	app-ui	js-source	1941	当前 React/Vite 前端包	frontend,app,src,features,approval,model,approvalDecision,当前,React,Vite,前端包

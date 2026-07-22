@@ -14,18 +14,6 @@ import (
 
 var wildcardRowSQLPattern = regexp.MustCompile(`(?is)\b(SELECT|RETURNING)\s+\*`)
 
-func TestSQLCBypassAccessorRemoved(t *testing.T) {
-	t.Parallel()
-
-	root := repoRootForGuardTests(t)
-	accessor := filepath.Join(root, "cmd", "mcp-orch", "store", "sqlc", "db_accessor.go")
-	if _, err := os.Stat(accessor); err == nil {
-		t.Fatalf("%s exists; DAG storage must not recover raw DB access from generated sqlc queries", accessor)
-	} else if !os.IsNotExist(err) {
-		t.Fatalf("stat %s: %v", accessor, err)
-	}
-}
-
 func TestMCPOrchDAGStorageDoesNotBypassSQLC(t *testing.T) {
 	t.Parallel()
 

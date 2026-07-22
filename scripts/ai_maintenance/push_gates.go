@@ -14,9 +14,11 @@ func gatePlanForScope(files []string, pushGates bool) (gatePlan, error) {
 	if len(affectedNilnessPackages(plan)) > 0 {
 		plan.RequiredGates = appendOrderedGate(plan.RequiredGates, "backend:nilness")
 	}
+	if slices.Contains(plan.RequiredGates, "backend:test_with_guard") && !requiresFullArchtest(plan.ChangedFiles) {
+		plan.RequiredGates = appendOrderedGate(plan.RequiredGates, "backend:archtest")
+	}
 	if len(affectedRacePackagesForPlan(plan)) > 0 {
-		plan.RequiredGates = removeGate(plan.RequiredGates, "backend:test_with_guard")
-		plan.RequiredGates = appendOrderedGate(plan.RequiredGates, "backend:test_with_guard_and_race")
+		plan.RequiredGates = appendOrderedGate(plan.RequiredGates, "backend:race")
 	}
 	plan.RequiredGates = orderGateNames(plan.RequiredGates)
 	return plan, nil
