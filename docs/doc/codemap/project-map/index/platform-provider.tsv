@@ -483,7 +483,7 @@ internal/platform/notify/slack_test.go	internal	platform-provider	go-test	1020	�
 internal/platform/notify/slack.go	internal	platform-provider	go-source	1305	基础设施层	internal,platform,notify,slack,基础设施层
 internal/platform/notify/webhook_test.go	internal	platform-provider	go-test	6207	基础设施层	internal,platform,notify,webhook,test,基础设施层
 internal/platform/notify/webhook.go	internal	platform-provider	go-source	7478	基础设施层	internal,platform,notify,webhook,基础设施层
-internal/platform/observability/argument_preview.go	internal	platform-provider	go-source	13595	基础设施层	internal,platform,observability,argument,preview,基础设施层
+internal/platform/observability/argument_preview.go	internal	platform-provider	go-source	13654	基础设施层	internal,platform,observability,argument,preview,基础设施层
 internal/platform/observability/code_anchor_test.go	internal	platform-provider	go-test	1006	基础设施层	internal,platform,observability,code,anchor,test,基础设施层
 internal/platform/observability/code_anchor.go	internal	platform-provider	go-source	663	基础设施层	internal,platform,observability,code,anchor,基础设施层
 internal/platform/observability/config_test.go	internal	platform-provider	go-test	3174	基础设施层	internal,platform,observability,config,test,基础设施层
@@ -504,7 +504,7 @@ internal/platform/observability/module.go	internal	platform-provider	go-source	1
 internal/platform/observability/query.go	internal	platform-provider	go-source	4973	基础设施层	internal,platform,observability,query,基础设施层
 internal/platform/observability/record_error.go	internal	platform-provider	go-source	1582	基础设施层	internal,platform,observability,record,error,基础设施层
 internal/platform/observability/retention_test.go	internal	platform-provider	go-test	3096	基础设施层	internal,platform,observability,retention,test,基础设施层
-internal/platform/observability/safe_preview_test.go	internal	platform-provider	go-test	9908	基础设施层	internal,platform,observability,safe,preview,test,基础设施层
+internal/platform/observability/safe_preview_test.go	internal	platform-provider	go-test	11637	基础设施层	internal,platform,observability,safe,preview,test,基础设施层
 internal/platform/observability/safe_preview.go	internal	platform-provider	go-source	14539	基础设施层	internal,platform,observability,safe,preview,基础设施层
 internal/platform/observability/sampler_test.go	internal	platform-provider	go-test	1222	基础设施层	internal,platform,observability,sampler,test,基础设施层
 internal/platform/observability/sampler.go	internal	platform-provider	go-source	1818	基础设施层	internal,platform,observability,sampler,基础设施层
