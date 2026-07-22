@@ -12,6 +12,7 @@ import (
 	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
 	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
+	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
@@ -105,7 +106,7 @@ func settleIgnoredTurnCompletion(runtime turnLifecycleRuntime, logger *slog.Logg
 	}
 	logTurnTerminalProgress(logger, "orchestration: turn completed event settled",
 		ev.AgentID, ev.ThreadID, ev.TurnID, startedAt, nil)
-	if detail := turnCompletedReportText(ev); !errors.Is(err, errAgentNotFound) && !ev.Success && detail != "" && launcherrors.Classify(errors.New(detail)) == launcherrors.ClassPermanent {
+	if detail := turnCompletedInternalFailureDetail(ev); !errors.Is(err, errAgentNotFound) && !ev.Success && detail != "" && launcherrors.Classify(errors.New(detail)) == launcherrors.ClassPermanent {
 		runtime.stopAgentAfterPermanentTurnFailure(ev.AgentID, ev.ThreadID, "turn_completed_permanent")
 	}
 	return true
@@ -119,10 +120,14 @@ func settleProviderTurnCompletionMismatch(runtime turnLifecycleRuntime, logger *
 	}
 	logTurnTerminalProgress(logger, "orchestration: turn completed event settled",
 		ev.AgentID, ev.ThreadID, ev.TurnID, startedAt, nil)
-	if detail := turnCompletedReportText(ev); !ev.Success && detail != "" && launcherrors.Classify(errors.New(detail)) == launcherrors.ClassPermanent {
+	if detail := turnCompletedInternalFailureDetail(ev); !ev.Success && detail != "" && launcherrors.Classify(errors.New(detail)) == launcherrors.ClassPermanent {
 		runtime.stopAgentAfterPermanentTurnFailure(ev.AgentID, ev.ThreadID, "turn_completed_permanent")
 	}
 	return true
+}
+
+func turnCompletedInternalFailureDetail(ev turndto.TurnCompleted) string {
+	return platformshared.FirstTrimmed(ev.Error, ev.Reason, ev.StopReason)
 }
 
 // handleTurnInterruptedEvent 使用 background context 处理 turn.interrupted 事件。

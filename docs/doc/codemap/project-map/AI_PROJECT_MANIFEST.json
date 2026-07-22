@@ -4,13 +4,13 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4753,
+  "files": 4754,
   "domains": {
     "docs-agent": 958,
     "other": 704,
     "app-ui": 642,
     "platform-provider": 1113,
-    "orchestration": 391,
+    "orchestration": 392,
     "modules": 741,
     "store-sql": 204
   },
@@ -28,8 +28,8 @@
       {
         "key": "orchestration",
         "file": "docs/doc/codemap/project-map/index/orchestration.tsv",
-        "file_count": 391,
-        "size_kb": 88,
+        "file_count": 392,
+        "size_kb": 88.3,
         "desc": "mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具"
       },
       {
@@ -71,7 +71,7 @@
   },
   "module_counts": {
     "(root)": 12,
-    "cmd": 667,
+    "cmd": 668,
     "docs": 950,
     "frontend-app": 636,
     "internal": 2264,

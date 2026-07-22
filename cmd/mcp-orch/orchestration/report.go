@@ -509,18 +509,23 @@ func drainReportRequestersLocked(ctx context.Context, agent *agentRuntime) []str
 	return requesters
 }
 
-// turnCompletedReportText 从 turn.completed 事件中提取适合展示的 report 文本。
+const missingPublicTurnFailureReport = "turn failed: safe public error unavailable"
+
+// turnCompletedReportText 只在成功时保留 assistant 文本；失败只消费 canonical PublicError。
 func turnCompletedReportText(ev turndto.TurnCompleted) string {
-	if text := platformshared.FirstTrimmed(ev.Result, ev.Summary, ev.Message); text != "" {
-		return text
-	}
 	if ev.Success {
-		return ""
+		return platformshared.FirstTrimmed(ev.Result, ev.Summary, ev.Message)
 	}
-	if detail := platformshared.FirstTrimmed(ev.Error, ev.Reason, ev.StopReason); detail != "" {
-		return "turn failed: " + detail
+	terminal, canonical, err := turndto.CanonicalTurnTerminal(ev)
+	if err != nil || !canonical || terminal.PublicError == nil {
+		return missingPublicTurnFailureReport
 	}
-	return "turn failed without detail"
+	return fmt.Sprintf(
+		"turn %s: %s (diagnostic id: %s)",
+		terminal.Outcome,
+		strings.TrimSpace(terminal.PublicError.Message),
+		strings.TrimSpace(terminal.PublicError.DiagnosticID),
+	)
 }
 
 // extractReportFromEventData 从 hook event JSON 里递归提取 report/summary/text 字段。

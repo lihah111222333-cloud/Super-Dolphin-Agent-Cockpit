@@ -422,6 +422,18 @@ func TestHandleTurnInterruptedEventIsIdempotent(t *testing.T) {
 	}
 }
 
+func assertMissingPublicTurnFailureReport(t *testing.T, report string, forbidden ...string) {
+	t.Helper()
+	if report != missingPublicTurnFailureReport {
+		t.Fatalf("report = %q, want fail-closed report %q", report, missingPublicTurnFailureReport)
+	}
+	for _, raw := range forbidden {
+		if strings.Contains(report, raw) {
+			t.Fatalf("report = %q, leaked raw failure field %q", report, raw)
+		}
+	}
+}
+
 func TestRemoteTurnInterruptedAuthErrorStopsAgentAndWritesReport(t *testing.T) {
 	t.Parallel()
 
@@ -449,9 +461,7 @@ func TestRemoteTurnInterruptedAuthErrorStopsAgentAndWritesReport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetReport() error = %v", err)
 	}
-	if got.Report == "" || !strings.Contains(got.Report, "Authentication failed") {
-		t.Fatalf("GetReport().Report = %q, want auth interruption report", got.Report)
-	}
+	assertMissingPublicTurnFailureReport(t, got.Report, "Authentication failed")
 	if !agent.stopRequested || agent.state == agentdto.StateTurnRunning || agent.state == agentdto.StateTurnQueued || agent.state == agentdto.StateTurnStarting {
 		t.Fatalf("agent state after auth interruption = state:%q stopRequested:%v, want stop requested and not running/pending", agent.state, agent.stopRequested)
 	}
@@ -485,9 +495,7 @@ func TestRemoteTurnInterruptedClaudeAPIConnectionRefusedStopsAgent(t *testing.T)
 	if err != nil {
 		t.Fatalf("GetReport() error = %v", err)
 	}
-	if got.Report == "" || !strings.Contains(got.Report, "Unable to connect to API") {
-		t.Fatalf("GetReport().Report = %q, want Claude API connection refusal report", got.Report)
-	}
+	assertMissingPublicTurnFailureReport(t, got.Report, "Unable to connect to API")
 	if !agent.stopRequested || agent.state != agentdto.StateStopped || agent.activeTurnID != "" {
 		t.Fatalf("agent after cleanup = state:%q stopRequested:%v activeTurnID:%q, want stopped with cleared active turn", agent.state, agent.stopRequested, agent.activeTurnID)
 	}
@@ -522,9 +530,7 @@ func TestRemoteTurnInterruptedClaudeModelUnavailableStopsAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetReport() error = %v", err)
 	}
-	if got.Report == "" || !strings.Contains(got.Report, "selected model") {
-		t.Fatalf("GetReport().Report = %q, want Claude model unavailable report", got.Report)
-	}
+	assertMissingPublicTurnFailureReport(t, got.Report, reason)
 	if !agent.stopRequested || agent.state != agentdto.StateStopped || agent.activeTurnID != "" {
 		t.Fatalf("agent after cleanup = state:%q stopRequested:%v activeTurnID:%q, want stopped with cleared active turn", agent.state, agent.stopRequested, agent.activeTurnID)
 	}
@@ -559,9 +565,7 @@ func TestRemoteTurnInterruptedClaudeModelUnavailableFinalStateVisibleAsStopped(t
 	if report.State != string(agentdto.StateStopped) {
 		t.Fatalf("GetReport().State = %q, want %q", report.State, agentdto.StateStopped)
 	}
-	if report.Report == "" || !strings.Contains(report.Report, "selected model") {
-		t.Fatalf("GetReport().Report = %q, want Claude model unavailable report", report.Report)
-	}
+	assertMissingPublicTurnFailureReport(t, report.Report, reason)
 
 	assertOnlyListedAgentState(t, svc, "agent-remote", agentdto.StateStopped)
 }
@@ -596,9 +600,7 @@ func TestRemoteTurnCompletedClaudeModelUnavailableFinalStateVisibleAsStopped(t *
 	if report.State != string(agentdto.StateStopped) {
 		t.Fatalf("GetReport().State = %q, want %q", report.State, agentdto.StateStopped)
 	}
-	if report.Report == "" || !strings.Contains(report.Report, "selected model") {
-		t.Fatalf("GetReport().Report = %q, want Claude model unavailable report", report.Report)
-	}
+	assertMissingPublicTurnFailureReport(t, report.Report, reason)
 
 	assertOnlyListedAgentState(t, svc, "agent-remote", agentdto.StateStopped)
 }
@@ -627,9 +629,7 @@ func TestHookTurnCompletedClaudeModelUnavailableFinalStateVisibleAsStopped(t *te
 	if report.State != string(agentdto.StateStopped) {
 		t.Fatalf("GetReport().State = %q, want %q", report.State, agentdto.StateStopped)
 	}
-	if report.Report == "" || !strings.Contains(report.Report, "selected model") {
-		t.Fatalf("GetReport().Report = %q, want Claude model unavailable report", report.Report)
-	}
+	assertMissingPublicTurnFailureReport(t, report.Report, reason)
 }
 
 func TestRemoteTurnInterruptedEmptyReasonWritesTerminalFallbackReport(t *testing.T) {
@@ -659,9 +659,7 @@ func TestRemoteTurnInterruptedEmptyReasonWritesTerminalFallbackReport(t *testing
 	if err != nil {
 		t.Fatalf("GetReport() error = %v", err)
 	}
-	if got.Report == "" || !strings.Contains(got.Report, "without producing a turn report") {
-		t.Fatalf("GetReport().Report = %q, want terminal fallback report", got.Report)
-	}
+	assertMissingPublicTurnFailureReport(t, got.Report)
 }
 
 func TestHandleTurnCompletedEventConvergesAfterInterrupt(t *testing.T) {
