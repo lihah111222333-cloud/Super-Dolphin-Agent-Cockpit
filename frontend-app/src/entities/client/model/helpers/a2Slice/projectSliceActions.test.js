@@ -24,7 +24,15 @@ function createActionHarness() {
     }),
     get: () => state,
     notifyAction: vi.fn(),
+    prepareBridgeEventScope: vi.fn(async (scope) => {
+      await runtime.rebindBridgeEventScope(scope);
+      return { generation: 1, previousScope: '/repo/app' };
+    }),
     rebindBridgeEventScope: vi.fn(() => Promise.resolve(true)),
+    restorePreparedBridgeEventScope: vi.fn(async ({ previousScope }) => {
+      await runtime.rebindBridgeEventScope(previousScope);
+      return true;
+    }),
     refreshChatSurfaceForCwdInBackground: vi.fn(),
     requireProjectScopeCwd: vi.fn(() => '/repo/app'),
     saveActiveComposerDraft: vi.fn(),
@@ -127,5 +135,43 @@ describe('projectSliceActions', () => {
     expect(deps.setActiveProject).not.toHaveBeenCalled();
     expect(runtime.refreshChatSurfaceForCwdInBackground).not.toHaveBeenCalled();
     expect(runtime.notifyAction).toHaveBeenCalledWith('切换项目失败，请重试。', 'error');
+  });
+
+  it('restores the previous bridge scope when the backend rejects after preparation', async () => {
+    const { action, deps, runtime, state } = createActionHarness();
+    const backendError = new Error('project backend offline');
+    deps.setActiveProject.mockRejectedValueOnce(backendError);
+
+    await expect(action('/repo/newer')).rejects.toBe(backendError);
+
+    expect(runtime.prepareBridgeEventScope).toHaveBeenCalledWith('/repo/newer');
+    expect(runtime.restorePreparedBridgeEventScope).toHaveBeenCalledWith({
+      generation: 1,
+      previousScope: '/repo/app',
+    });
+    expect(runtime.rebindBridgeEventScope.mock.calls).toEqual([
+      ['/repo/newer'],
+      ['/repo/app'],
+    ]);
+    expect(state().activeProject).toBe('/repo/app');
+  });
+
+  it('marks bootstrap failed when restoring the previous bridge scope fails', async () => {
+    const { action, deps, runtime, state } = createActionHarness();
+    const backendError = new Error('project backend offline');
+    deps.setActiveProject.mockRejectedValueOnce(backendError);
+    runtime.restorePreparedBridgeEventScope.mockRejectedValueOnce(new Error('bridge restore failed'));
+
+    await expect(action('/repo/newer')).rejects.toBe(backendError);
+
+    expect(state()).toEqual(expect.objectContaining({
+      bootstrapStatus: 'failed',
+      error: '连接后端失败，请重试。',
+    }));
+    expect(runtime.addWarning).toHaveBeenCalledWith(
+      'error',
+      'project.scope.restore_failed',
+      expect.objectContaining({ path: '/repo/newer' }),
+    );
   });
 });

@@ -149,6 +149,36 @@ function createLifecycleActions(runtime, deps) {
     }
   };
 
+  const prepareBridgeEventScope = async (scope) => {
+    const previousScope = runtime.assistantEventScope || currentChatScope(runtime);
+    if (!previousScope || previousScope === '.') {
+      throw new Error('runtime bridge previous scope is required');
+    }
+    await rebindBridgeEventScope(scope);
+    return {
+      generation: runtime.bridgeScopeRebindGeneration,
+      previousScope,
+    };
+  };
+
+  const restorePreparedBridgeEventScope = async (prepared) => {
+    const generation = Number(prepared?.generation);
+    const previousScope = typeof prepared?.previousScope === 'string' ? prepared.previousScope : '';
+    if (!Number.isSafeInteger(generation) || generation < 1 || !previousScope || previousScope === '.') {
+      throw new Error('runtime prepared bridge scope is invalid');
+    }
+    if (generation !== runtime.bridgeScopeRebindGeneration) return false;
+    const restoreGeneration = runtime.bridgeScopeRebindGeneration + 1;
+    try {
+      await rebindBridgeEventScope(previousScope);
+      return true;
+    }
+    catch (error) {
+      if (restoreGeneration !== runtime.bridgeScopeRebindGeneration) return false;
+      throw error;
+    }
+  };
+
   const destroy = () => {
     runtime.eventInitializationGeneration += 1;
     runtime.eventInitializationPromise = null;
@@ -170,10 +200,15 @@ function createLifecycleActions(runtime, deps) {
     runtime.observedTurnByThread?.clear();
     runtime.retiredTurnRefs?.clear();
     runtime.assistantEventLedgersByScope?.clear();
+    runtime.agentFailureNoticeLedger?.clear();
     runtime.sidebarRefreshSeq += 1;
   };
 
-  Object.assign(runtime, { rebindBridgeEventScope });
+  Object.assign(runtime, {
+    prepareBridgeEventScope,
+    rebindBridgeEventScope,
+    restorePreparedBridgeEventScope,
+  });
   return { initializeEvents, rebindBridgeEventScope, destroy };
 }
 

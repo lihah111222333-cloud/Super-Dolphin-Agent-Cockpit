@@ -7921,6 +7921,48 @@ function registerBridgeEventHandlersForTest() {
     }
   });
 
+  it('notifies once when an error patch arrives before duplicate agent failure events', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', agentId: 'agent-1', name: 'Existing', provider: 'codex', status: 'error' }],
+      statuses: { 'thread-1': { status: 'error' } },
+      activeTurnByThread: {},
+    });
+    registerBridgeEventHandlersForTest();
+    backend.getSidebarState.mockClear();
+    const event = {
+      type: 'agent/failed',
+      payload: {
+        threadId: 'thread-1',
+        agentId: 'agent-1',
+        sessionId: 'session-1',
+        error: 'Authorization: Bearer raw-failure-secret /private/agent.log',
+      },
+    };
+
+    bridgeCallback(event);
+    bridgeCallback(event);
+    await flushPromises(8);
+
+    const state = useClientStore.getState();
+    expect(backend.getSidebarState).not.toHaveBeenCalled();
+    expect(state.actionNotice).toEqual(expect.objectContaining({ message: '代理运行失败', tone: 'error' }));
+    expect(state.warningEntries).toEqual([
+      expect.objectContaining({
+        event: 'agent.lifecycle.failed',
+        occurrenceCount: 1,
+        fields: expect.objectContaining({
+          agent_id: 'agent-1',
+          reason: 'agent_failed',
+        }),
+      }),
+    ]);
+    expect(JSON.stringify({ warnings: state.warningEntries, traces: backend.emitFrontendTraceEvent.mock.calls }))
+      .not.toMatch(/raw-failure-secret|\/private\/agent\.log/);
+  });
+
   it.each([
     ['cancelled', '本轮已取消'],
     ['interrupted', '本轮已中断'],
