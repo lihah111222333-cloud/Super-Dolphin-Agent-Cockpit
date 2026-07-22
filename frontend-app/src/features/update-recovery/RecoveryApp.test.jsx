@@ -2,6 +2,12 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { RecoveryApp } from "./RecoveryApp.jsx";
+import { recoveryPublicErrorForCode } from "./recoveryClient.js";
+
+const RECOVERY_DIAGNOSTIC_ID =
+  "1111111111111111111111111111111111111111111111111111111111111111";
+const RECOVERY_STARTUP_MESSAGE =
+  "Recovery mode started because the previous startup did not complete.";
 
 function recoveryState(overrides = {}) {
   return {
@@ -17,7 +23,10 @@ function recoveryState(overrides = {}) {
       leaseOwner: "guard-1",
       leaseGeneration: 2,
       candidateSHA256: "abcdef0123456789",
-      reason: "normal preflight failed",
+      reason: recoveryPublicErrorForCode(
+        "RECOVERY_STARTUP_FAILED",
+        RECOVERY_DIAGNOSTIC_ID,
+      ),
     },
     ...overrides,
   };
@@ -39,7 +48,7 @@ describe("RecoveryApp", () => {
     expect(
       await screen.findByRole("heading", { name: "Super Dolphin Recovery" }),
     ).toBeVisible();
-    expect(screen.getByText("normal preflight failed")).toBeVisible();
+    expect(screen.getByText(RECOVERY_STARTUP_MESSAGE)).toBeVisible();
     expect(screen.getByText("transaction-1")).toBeVisible();
     expect(screen.queryByText(/normal ready/i)).not.toBeInTheDocument();
 
@@ -56,7 +65,7 @@ describe("RecoveryApp", () => {
       restore: vi.fn(),
     };
     render(<RecoveryApp client={client} confirmRestore={() => false} />);
-    await screen.findByText("normal preflight failed");
+    await screen.findByText(RECOVERY_STARTUP_MESSAGE);
 
     fireEvent.click(screen.getByRole("button", { name: "Restore" }));
 
@@ -85,7 +94,7 @@ describe("RecoveryApp", () => {
       restore: vi.fn(),
     };
     render(<RecoveryApp client={client} />);
-    await screen.findByText("normal preflight failed");
+    await screen.findByText(RECOVERY_STARTUP_MESSAGE);
 
     expect(screen.getByRole("button", { name: "Check" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Retry" })).toBeDisabled();
@@ -112,7 +121,7 @@ describe("RecoveryApp", () => {
       ),
     };
     render(<RecoveryApp client={client} confirmRestore={() => true} />);
-    await screen.findByText("normal preflight failed");
+    await screen.findByText(RECOVERY_STARTUP_MESSAGE);
     fireEvent.click(screen.getByRole("button", { name: "Restore" }));
     await waitFor(() => expect(client.restore).toHaveBeenCalledTimes(1));
 
@@ -196,7 +205,7 @@ describe("RecoveryApp", () => {
       restore: vi.fn(),
     };
     render(<RecoveryApp client={client} exportDiagnostics={vi.fn()} />);
-    await screen.findByText("normal preflight failed");
+    await screen.findByText(RECOVERY_STARTUP_MESSAGE);
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(
       await screen.findByRole("button", {
@@ -222,10 +231,10 @@ describe("RecoveryApp", () => {
       restore: vi.fn(),
     };
     render(<RecoveryApp client={client} />);
-    await screen.findByText("normal preflight failed");
+    await screen.findByText(RECOVERY_STARTUP_MESSAGE);
     fireEvent.click(screen.getByRole("button", { name: "Check" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Recovery action failed. Sensitive diagnostics remain preserved internally.",
+      "Recovery action could not be completed safely.",
     );
     expect(screen.queryByText(secret)).not.toBeInTheDocument();
   });

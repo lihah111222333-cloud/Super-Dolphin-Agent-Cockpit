@@ -230,6 +230,8 @@ func TestTurnOutputDeltaUpdatesLastMessageWithoutPublishingThreadPatch(t *testin
 	turnHeader := testTurnHeader(testAgentSessionHeader("thread-stream", "agent-stream"), "turn-stream")
 	svc.state.Threads = []ThreadSummary{{ID: "thread-stream", AgentID: "agent-stream"}}
 	svc.state.Agents = []AgentSummary{{ID: "agent-stream", ThreadID: "thread-stream"}}
+	svc.applyTurnStarted(turndto.TurnStarted{TurnHeader: turnHeader})
+	_ = mustReceiveThreadPatch(t, got)
 
 	svc.applyTurnOutputDelta(turndto.TurnOutputDelta{
 		TurnHeader: turnHeader,

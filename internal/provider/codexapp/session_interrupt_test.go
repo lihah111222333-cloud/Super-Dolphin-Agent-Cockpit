@@ -97,6 +97,105 @@ func TestSessionInterruptFallsBackToActiveTurnID(t *testing.T) {
 	}
 }
 
+func TestStartTurnConsumesEarlyTerminalBeforeResponse(t *testing.T) {
+	fixture := newEarlyTerminalTurnFixture(t)
+	handle := startEarlyTerminalTestTurn(t, fixture.session)
+	assertEarlyTerminalProviderID(t, handle)
+	assertEarlyTerminalHandle(t, handle)
+	assertEarlyCanonicalTerminal(t, fixture.terminals)
+	assertNoEarlyTerminalDuplicate(t, fixture.terminals)
+	assertEarlyTerminalOwnerStateCleared(t, fixture.session)
+}
+
+type earlyTerminalTurnFixture struct {
+	session   *session
+	terminals <-chan turndto.TurnCompleted
+}
+
+func newEarlyTerminalTurnFixture(t *testing.T) earlyTerminalTurnFixture {
+	t.Helper()
+	bus := event.NewDispatcher()
+	t.Cleanup(func() { _ = bus.Close() })
+	dispatcher := unified.NewEventDispatcher(bus, nil)
+	RegisterTranslators(dispatcher)
+	terminals := make(chan turndto.TurnCompleted, 2)
+	cancelTerminal := event.Subscribe(bus, func(ev turndto.TurnCompleted) { terminals <- ev })
+	t.Cleanup(cancelTerminal)
+	s, err := newSession(context.Background(), pkglogger.Get(), startEarlyTerminalTurnStartServer(t), "agent-1", dispatcher, testApprovalManager(), nil)
+	if err != nil {
+		t.Fatalf("newSession() error = %v", err)
+	}
+	s.runtime.Start()
+	t.Cleanup(func() { closeCodexTestSession(t, s) })
+	s.setThreadID("thread-1")
+	return earlyTerminalTurnFixture{session: s, terminals: terminals}
+}
+
+func startEarlyTerminalTestTurn(t *testing.T, s *session) contract.TurnHandle {
+	t.Helper()
+
+	handle, err := s.StartTurn(context.Background(), dto.TurnRequest{
+		ThreadID: "thread-1",
+		Inputs:   []dto.InputItem{{Type: "text", Content: "finish before response"}},
+	})
+	if err != nil {
+		t.Fatalf("StartTurn() error = %v", err)
+	}
+	return handle
+}
+
+func assertEarlyTerminalProviderID(t *testing.T, handle contract.TurnHandle) {
+	t.Helper()
+	if got := handle.ProviderID(); got != "turn-early" {
+		t.Fatalf("ProviderID() = %q, want turn-early", got)
+	}
+}
+
+func assertEarlyTerminalHandle(t *testing.T, handle contract.TurnHandle) {
+	t.Helper()
+	select {
+	case <-handle.Done():
+		if err := handle.Err(); err != nil {
+			t.Fatalf("early terminal handle error = %v, want nil", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("early terminal left returned turn handle active")
+	}
+}
+
+func assertEarlyCanonicalTerminal(t *testing.T, terminals <-chan turndto.TurnCompleted) {
+	t.Helper()
+	select {
+	case terminal := <-terminals:
+		if terminal.ThreadID != "agent-1" || terminal.TurnID != "turn-early" || !terminal.Success || terminal.Status != "completed" {
+			t.Fatalf("early terminal = %#v, want canonical completed terminal", terminal)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for early canonical terminal")
+	}
+}
+
+func assertNoEarlyTerminalDuplicate(t *testing.T, terminals <-chan turndto.TurnCompleted) {
+	t.Helper()
+	select {
+	case duplicate := <-terminals:
+		t.Fatalf("early terminal dispatched more than once: %#v", duplicate)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func assertEarlyTerminalOwnerStateCleared(t *testing.T, s *session) {
+	t.Helper()
+	s.mu.Lock()
+	tracked := s.turns["turn-early"]
+	active := s.activeTurnID
+	pending := s.pendingTurn
+	s.mu.Unlock()
+	if tracked != nil || active != "" || pending != nil {
+		t.Fatalf("early terminal retained owner state: tracked=%#v active=%q pending=%#v", tracked, active, pending)
+	}
+}
+
 func TestSessionInterruptTargetChangesBeforeWireWrite(t *testing.T) {
 	paramsCh := make(chan map[string]any, 1)
 	s := newInterruptTestSession(t, paramsCh)
@@ -172,6 +271,74 @@ func TestSessionInterruptPendingClaimRejectsSecondRequestWithoutWire(t *testing.
 	close(releaseFirst)
 	if err := waitForInterruptError(t, firstErr, "first interrupt response"); err != nil {
 		t.Fatalf("first Interrupt() error = %v", err)
+	}
+}
+
+func TestSessionInterruptEmptyRequestIDClaimsStopOwnership(t *testing.T) {
+	serverURL, firstSeen, releaseFirst, calls := startBlockedInterruptResponseServer(t)
+	defer closeInterruptSignal(releaseFirst)
+	s := newActiveInterruptTestSession(t, serverURL, nil)
+	firstErr := make(chan error, 1)
+	runtimesafe.SafeGo(context.Background(), pkglogger.Get(), "codexapp.test.first-empty-id-interrupt", func(context.Context) {
+		firstErr <- s.Interrupt(context.Background(), interruptTestRequest(""))
+	})
+	waitForInterruptSignal(t, firstSeen, "first interrupt wire request")
+	baseline := s.transport.nextID.Load()
+
+	secondErr := make(chan error, 1)
+	runtimesafe.SafeGo(context.Background(), pkglogger.Get(), "codexapp.test.second-empty-id-interrupt", func(context.Context) {
+		secondErr <- s.Interrupt(context.Background(), interruptTestRequest(""))
+	})
+	var err error
+	select {
+	case err = <-secondErr:
+	case <-time.After(time.Second):
+		t.Fatal("second Interrupt() did not reject while first response remained blocked")
+	}
+	if !errors.Is(err, errInterruptRequestAlreadyClaimed) {
+		t.Fatalf("second Interrupt() error = %v, want already claimed", err)
+	}
+	if got := s.transport.nextID.Load(); got != baseline {
+		t.Fatalf("second Interrupt() advanced wire request ID from %d to %d", baseline, got)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("interrupt wire calls = %d, want 1", got)
+	}
+	s.mu.Lock()
+	retained := s.interruptRequests["turn-1"]
+	s.mu.Unlock()
+	if retained == nil || retained.requestID != "" || retained.state != interruptRequestPending {
+		t.Fatalf("retained claim = %#v, want pending empty request ID", retained)
+	}
+
+	closeInterruptSignal(releaseFirst)
+	if err := waitForInterruptError(t, firstErr, "first interrupt response"); err != nil {
+		t.Fatalf("first Interrupt() error = %v", err)
+	}
+}
+
+func TestSessionInterruptEmptyRequestIDClaimDoesNotAttributeTerminal(t *testing.T) {
+	s := &session{activeTurnID: "turn-1", activeTurnGeneration: 7}
+	claim, err := s.reserveInterruptRequest(interruptTargetClaim{turnID: "turn-1", generation: 7}, "")
+	if err != nil {
+		t.Fatalf("reserveInterruptRequest() error = %v", err)
+	}
+	if claim == nil || claim.requestID != "" {
+		t.Fatalf("reserveInterruptRequest() claim = %#v, want internal empty-ID claim", claim)
+	}
+	if err := s.markInterruptRequestPending(interruptTargetClaim{turnID: "turn-1", generation: 7}, claim); err != nil {
+		t.Fatalf("markInterruptRequestPending() error = %v", err)
+	}
+	payload := map[string]any{"turnId": "turn-1"}
+	outcome := canonicalTurnTerminalOutcome("turn/aborted", payload)
+	if s.applyAcceptedInterruptRequest(payload, &outcome) {
+		t.Fatalf("empty request ID claimed terminal attribution: %#v", payload)
+	}
+	if outcome.Cause == "user_request" || outcome.RequestID != "" {
+		t.Fatalf("terminal outcome attribution = (%q, %q), want no user request", outcome.Cause, outcome.RequestID)
+	}
+	if _, exists := payload["termination_request_id"]; exists {
+		t.Fatalf("payload wrote empty termination_request_id: %#v", payload)
 	}
 }
 
@@ -357,6 +524,52 @@ func writeInterruptTerminalNotification(conn *websocket.Conn) bool {
 		"params": map[string]any{"threadId": "thread-1", "turnId": "turn-1", "timestamp": "2026-07-16T10:11:12.123Z"},
 	}
 	return conn.WriteJSON(notification) == nil
+}
+
+func startEarlyTerminalTurnStartServer(t *testing.T) string {
+	t.Helper()
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		serveEarlyTerminalTurnStart(t, conn)
+	}))
+	t.Cleanup(server.Close)
+	return "ws" + strings.TrimPrefix(server.URL, "http")
+}
+
+func serveEarlyTerminalTurnStart(t *testing.T, conn *websocket.Conn) {
+	t.Helper()
+	defer conn.Close()
+	for {
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+		msg, ok := decodeCodexTestRPCMessage(raw)
+		if !ok {
+			continue
+		}
+		result := mustJSON(map[string]any{"ok": true})
+		if msg.Method == "turn/start" {
+			if err := conn.WriteJSON(map[string]any{
+				"jsonrpc": "2.0",
+				"method":  "turn/completed",
+				"params": map[string]any{
+					"threadId": "thread-1", "turnId": "turn-early", "timestamp": "2026-07-16T10:11:12.123Z",
+					"success": true, "status": "completed",
+				},
+			}); err != nil {
+				return
+			}
+			result = mustJSON(map[string]any{"turn": map[string]any{"id": "turn-early"}})
+		}
+		if !writeCodexTestRPCResponse(t, conn, msg.ID, codexTestRPCResultOrDefault(msg.Method, result)) {
+			return
+		}
+	}
 }
 
 func startBlockedInterruptResponseServer(t *testing.T) (string, <-chan struct{}, chan struct{}, *atomic.Int32) {

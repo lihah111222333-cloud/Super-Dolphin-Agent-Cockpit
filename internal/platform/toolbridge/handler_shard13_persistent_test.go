@@ -224,9 +224,7 @@ func TestProxyMapsPersistentSubagentFlagRequired(t *testing.T) {
 	if got.Error.Code != jsonRPCCodeInvalidParam {
 		t.Fatalf("proxy error code = %d, want %d", got.Error.Code, jsonRPCCodeInvalidParam)
 	}
-	if !strings.Contains(got.Error.Message, contract.ErrPersistentSubagentFlagRequired.Error()) {
-		t.Fatalf("proxy error message = %q, want substring %q", got.Error.Message, contract.ErrPersistentSubagentFlagRequired.Error())
-	}
+	assertPublicToolErrorPayload(t, got.Error.Message, contract.ErrPersistentSubagentFlagRequired.Error())
 	if len(registry.gotKinds) != 0 {
 		t.Fatalf("FindActiveByKind() kinds = %#v, want none", registry.gotKinds)
 	}
@@ -283,9 +281,7 @@ func TestProxyToolCall_RejectsMissingRuntimeAsInvalidParams(t *testing.T) {
 	if got.Error.Code != jsonRPCCodeInvalidParam {
 		t.Fatalf("proxy error code = %d, want %d", got.Error.Code, jsonRPCCodeInvalidParam)
 	}
-	if !strings.Contains(got.Error.Message, contract.ErrThreadRuntimeRequired.Error()) {
-		t.Fatalf("proxy error message = %q, want substring %q", got.Error.Message, contract.ErrThreadRuntimeRequired.Error())
-	}
+	assertPublicToolErrorPayload(t, got.Error.Message, contract.ErrThreadRuntimeRequired.Error())
 	if len(registry.gotKinds) != 0 {
 		t.Fatalf("FindActiveByKind() kinds = %#v, want none", registry.gotKinds)
 	}

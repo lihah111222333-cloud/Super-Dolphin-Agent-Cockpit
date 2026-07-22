@@ -117,7 +117,7 @@ func TestRecoveryBindingStateExposesTypedRecoveryMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("State() error = %v", err)
 	}
-	if state.Mode != app.StartupModeRecovery || state.Projection.Reason != "Recovery action is required; sensitive diagnostics remain preserved internally." || state.LastAction != "state" {
+	if state.Mode != app.StartupModeRecovery || !strings.HasPrefix(state.Projection.Reason, "RECOVERY_STARTUP_FAILED|") || state.LastAction != "state" {
 		t.Fatalf("State() = %#v", state)
 	}
 	if state.Actions != (recoveryActionAvailability{}) {
@@ -243,8 +243,8 @@ func TestRecoveryWailsMethodsReturnOnlyFixedSafeErrors(t *testing.T) {
 				t.Fatal(err)
 			}
 			err := method.call(fixture.binding)
-			if err == nil || err.Error() != "RECOVERY_OPERATION_FAILED" {
-				t.Fatalf("Wails %s error = %q, want fixed safe error", method.name, err)
+			if err == nil || !strings.HasPrefix(err.Error(), "RECOVERY_") {
+				t.Fatalf("Wails %s error = %q, want fixed public error", method.name, err)
 			}
 			if strings.Contains(err.Error(), journalRoot) || strings.Contains(err.Error(), fixture.root) {
 				t.Fatalf("Wails %s leaked journal path in %q", method.name, err)
@@ -349,7 +349,7 @@ func TestRecoveryBindingSerializesConcurrentSurfaceCalls(t *testing.T) {
 func TestRecoveryRetrySurfacesActualAmbiguityWithTransactionID(t *testing.T) {
 	fixture := newAmbiguousRecoveryFixture(t)
 	binding := fixture.binding
-	if _, err := binding.Retry(t.Context()); err == nil || err.Error() != "RECOVERY_OPERATION_FAILED" {
+	if _, err := binding.Retry(t.Context()); err == nil || !strings.HasPrefix(err.Error(), "RECOVERY_RETRY_FAILED|") {
 		t.Fatalf("Retry() error = %v, want fixed Wails boundary error", err)
 	}
 	state, err := binding.State(t.Context())
@@ -372,7 +372,7 @@ func TestRecoveryRetrySurfacesActualDigestMismatchInWailsState(t *testing.T) {
 	fixture := newAmbiguousRecoveryFixture(t)
 	mustAgentTerminalNoError(t, os.Rename(filepath.Join(fixture.root, "external-old-release"), fixture.target))
 	mustAgentTerminalNoError(t, os.WriteFile(filepath.Join(fixture.target, "tampered"), []byte("changed"), 0o600))
-	if _, err := fixture.binding.Retry(t.Context()); err == nil || err.Error() != "RECOVERY_OPERATION_FAILED" {
+	if _, err := fixture.binding.Retry(t.Context()); err == nil || !strings.HasPrefix(err.Error(), "RECOVERY_RETRY_FAILED|") {
 		t.Fatalf("Retry() error = %v, want fixed Wails boundary error", err)
 	}
 	state, err := fixture.binding.State(t.Context())

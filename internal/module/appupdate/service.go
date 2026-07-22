@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -19,6 +18,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
@@ -56,6 +56,10 @@ const (
 	updaterHelperName       = "super-dolphin-updater"
 	installQuitDelay        = 250 * time.Millisecond
 	artifactDownloadTimeout = 10 * time.Minute
+
+	// 远程更新元数据在解析或验签前必须受限，避免无界响应体耗尽内存。
+	maxUpdateManifestBodyBytes        int64 = 1 << 20
+	maxGitHubReleaseMetadataBodyBytes int64 = 4 << 20
 )
 
 // Config 是 appupdate 模块运行所需的更新源、签名、公钥和本地路径配置。
@@ -77,6 +81,11 @@ type Config struct {
 
 // RequestQuit 是安装 helper 启动后请求桌面宿主退出的回调。
 type RequestQuit func()
+
+type installCommandLauncher func(*exec.Cmd) (bool, error)
+
+var errUpdateOperationInProgress = errors.New("app update operation already in progress")
+var errUpdateInstallStarted = errors.New("app update operation rejected: installation has already started")
 
 // Service 定义应用更新检查、下载和安装的业务接口。
 type Service interface {
@@ -119,12 +128,14 @@ type selectedUpdate struct {
 	DownloadedAt string          `json:"downloaded_at"`
 }
 
-// service 是 Service 接口的实现，封装 HTTP 客户端和更新配置。
+// service 是 Service 接口的实现；operationState 使用 0=idle、1=active、-1=install-started。
 type service struct {
 	cfg                      Config
 	httpClient               *http.Client
 	requestQuit              RequestQuit
+	launchCommand            installCommandLauncher
 	windowsSignatureVerifier windowsInstallerSignatureVerifier
+	operationState           atomic.Int32
 }
 
 // ProvideConfig 提供配置。
@@ -236,9 +247,24 @@ func newService(cfg Config, client *http.Client, requestQuit RequestQuit) *servi
 		cfg:                      cfg,
 		httpClient:               client,
 		requestQuit:              requestQuit,
+		launchCommand:            launchInstallCommand,
 		windowsSignatureVerifier: verifyWindowsInstallerSignatureWithPowerShell,
 	}
 }
+
+func (s *service) beginOperation() error {
+	if s.operationState.CompareAndSwap(0, 1) {
+		return nil
+	}
+	if s.operationState.Load() < 0 {
+		return errUpdateInstallStarted
+	}
+	return errUpdateOperationInProgress
+}
+
+func (s *service) endOperation() { s.operationState.CompareAndSwap(1, 0) }
+
+func (s *service) markInstallStarted() { s.operationState.Store(-1) }
 
 // Check 检查是否有可用更新；未启用或版本不高于当前版本时返回 Available=false。
 func (s *service) Check(ctx context.Context) (CheckResult, error) {
@@ -273,9 +299,28 @@ func (s *service) Check(ctx context.Context) (CheckResult, error) {
 
 // Download 下载并校验更新产物，成功后写入 stage manifest 供 Install 使用。
 func (s *service) Download(ctx context.Context) (DownloadResult, error) {
+	if err := s.beginOperation(); err != nil {
+		return DownloadResult{}, err
+	}
+	defer s.endOperation()
+	return s.download(ctx)
+}
+
+// download 执行单次下载流水线，调用方必须持有 service operation lease。
+func (s *service) download(ctx context.Context) (result DownloadResult, returnErr error) {
 	if err := s.invalidatePreJournalFailure(); err != nil {
 		return DownloadResult{}, err
 	}
+	stage, err := openStageBoundary(s.cfg.StageDir)
+	if err != nil {
+		return DownloadResult{}, fmt.Errorf("open app update stage: %w", err)
+	}
+	defer func() {
+		if err := stage.Close(); err != nil {
+			result = DownloadResult{}
+			returnErr = errors.Join(returnErr, fmt.Errorf("close app update stage: %w", err))
+		}
+	}()
 	payload, artifact, err := s.fetchManifest(ctx)
 	if err != nil {
 		return DownloadResult{}, err
@@ -284,7 +329,7 @@ func (s *service) Download(ctx context.Context) (DownloadResult, error) {
 	if err != nil {
 		return DownloadResult{}, err
 	}
-	if err := s.downloadArtifact(ctx, artifact, artifactPath); err != nil {
+	if err := s.downloadArtifact(ctx, stage, artifact, artifactPath); err != nil {
 		return DownloadResult{}, err
 	}
 	staged := selectedUpdate{
@@ -296,8 +341,8 @@ func (s *service) Download(ctx context.Context) (DownloadResult, error) {
 	if updatePlatformOS(artifact.Platform) == "darwin" {
 		staged.DMGPath = artifactPath
 	}
-	stagedPath := s.stagedManifestPath()
-	if err := writeSelectedUpdate(stagedPath, staged); err != nil {
+	stagedPath := filepath.Join(s.cfg.StageDir, selectedUpdateFilename)
+	if err := writeSelectedUpdate(stage, staged); err != nil {
 		return DownloadResult{}, err
 	}
 	return DownloadResult{
@@ -312,55 +357,54 @@ func (s *service) Download(ctx context.Context) (DownloadResult, error) {
 
 // Install 读取已暂存的更新记录并启动平台安装命令，成功启动后延迟请求宿主退出。
 func (s *service) Install(ctx context.Context) (InstallResult, error) {
+	if err := s.beginOperation(); err != nil {
+		return InstallResult{}, err
+	}
+	defer s.endOperation()
 	return s.install(ctx)
 }
 
 // install 启动暂存更新，并为 Darwin helper 建立唯一 pre-journal 代际。
-func (s *service) install(ctx context.Context) (InstallResult, error) {
+func (s *service) install(ctx context.Context) (result InstallResult, returnErr error) {
 	_ = ctx
 	if s.requestQuit == nil {
 		return InstallResult{}, errors.New("app update request quit callback is not configured")
 	}
-	staged, err := readSelectedUpdate(s.stagedManifestPath())
+	stage, err := openStageBoundary(s.cfg.StageDir)
+	if err != nil {
+		return InstallResult{}, fmt.Errorf("open app update stage: %w", err)
+	}
+	defer closeInstallStage(stage, &result, &returnErr)
+	staged, err := readSelectedUpdate(stage)
 	if err != nil {
 		return InstallResult{}, err
 	}
-	if err := s.validateInstallSelection(staged); err != nil {
+	if err := s.validateInstallSelection(stage, staged); err != nil {
 		return InstallResult{}, err
 	}
 	generation, err := s.beginInstallAttempt(staged)
 	if err != nil {
 		return InstallResult{}, err
 	}
-	cmd, helper, err := s.installCommand(staged, generation)
+	helper, started, err := s.startInstallCommand(stage, staged, generation)
+	if started {
+		s.markInstallStarted()
+	}
 	if err != nil {
 		return InstallResult{}, err
 	}
-	if err := cmd.Start(); err != nil {
-		return InstallResult{}, fmt.Errorf("start app update helper: %w", err)
-	}
-	if cmd.Process == nil {
-		return InstallResult{}, errors.New("start app update helper: process is nil")
-	}
-	if err := cmd.Process.Release(); err != nil {
-		return InstallResult{}, fmt.Errorf("release app update helper: %w", err)
+	if !started {
+		return InstallResult{}, errors.New("start app update helper: launcher returned without starting process")
 	}
 	s.scheduleRequestQuit()
 	return InstallResult{Started: true, Helper: helper}, nil
 }
 
-func (s *service) validateInstallSelection(staged selectedUpdate) error {
-	if err := validateStagedUpdate(staged); err != nil {
+// validateInstallSelection 在 service 配置、无 alias stage 和平台安装门之间保持同一选择身份。
+func (s *service) validateInstallSelection(stage *stageBoundary, staged selectedUpdate) error {
+	if err := validateStagedUpdate(stage, staged); err != nil {
 		return err
 	}
-	if err := s.validateStagedIdentity(staged); err != nil {
-		return err
-	}
-	return s.verifyInstallGate(staged)
-}
-
-// validateStagedIdentity 将 selected-update 绑定到当前配置平台与唯一 stage 产物路径。
-func (s *service) validateStagedIdentity(staged selectedUpdate) error {
 	if staged.Artifact.Platform != s.cfg.Platform {
 		return fmt.Errorf("selected app update platform %q does not match configured platform %q", staged.Artifact.Platform, s.cfg.Platform)
 	}
@@ -374,7 +418,7 @@ func (s *service) validateStagedIdentity(staged selectedUpdate) error {
 	if updatePlatformOS(staged.Artifact.Platform) == "darwin" && staged.DMGPath != expected {
 		return fmt.Errorf("selected app update dmg path %q does not match staged path %q", staged.DMGPath, expected)
 	}
-	return nil
+	return s.verifyInstallGate(staged)
 }
 
 // readPreJournalFailure 仅在 Darwin 更新配置下读取可见 failure 状态。
@@ -431,9 +475,52 @@ func newPreJournalGeneration() (string, error) {
 	return hex.EncodeToString(raw[:]), nil
 }
 
+func closeInstallStage(stage *stageBoundary, result *InstallResult, returnErr *error) {
+	if err := stage.Close(); err != nil {
+		*result = InstallResult{}
+		*returnErr = errors.Join(*returnErr, fmt.Errorf("close app update stage: %w", err))
+	}
+}
+
+func (s *service) startInstallCommand(stage *stageBoundary, staged selectedUpdate, generation string) (string, bool, error) {
+	cmd, helper, logFile, err := s.installCommand(stage, staged, generation)
+	if err != nil {
+		return "", false, err
+	}
+	started, launchErr := s.launchCommand(cmd)
+	var closeErr error
+	if logFile != nil {
+		closeErr = logFile.Close()
+	}
+	if launchErr != nil {
+		return "", started, errors.Join(launchErr, closeErr)
+	}
+	if closeErr != nil {
+		return "", started, fmt.Errorf("close app update helper log: %w", closeErr)
+	}
+	return helper, started, nil
+}
+
+func launchInstallCommand(cmd *exec.Cmd) (bool, error) {
+	if err := cmd.Start(); err != nil {
+		return false, fmt.Errorf("start app update helper: %w", err)
+	}
+	if cmd.Process == nil {
+		return true, errors.New("start app update helper: process is nil")
+	}
+	if err := cmd.Process.Release(); err != nil {
+		return true, fmt.Errorf("release app update helper: %w", err)
+	}
+	return true, nil
+}
+
 // InstallLatest 串联 Download 和 Install，确保安装的是当前检查到的最新产物。
 func (s *service) InstallLatest(ctx context.Context) (InstallResult, error) {
-	if _, err := s.Download(ctx); err != nil {
+	if err := s.beginOperation(); err != nil {
+		return InstallResult{}, err
+	}
+	defer s.endOperation()
+	if _, err := s.download(ctx); err != nil {
 		return InstallResult{}, err
 	}
 	return s.install(ctx)
@@ -469,7 +556,7 @@ func (s *service) fetchManifest(ctx context.Context) (ManifestPayload, UpdateArt
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return ManifestPayload{}, UpdateArtifact{}, fmt.Errorf("fetch app update manifest: status %s", resp.Status)
 	}
-	raw, err := io.ReadAll(resp.Body)
+	raw, err := readBoundedUpdateBody(resp.Body, maxUpdateManifestBodyBytes)
 	if err != nil {
 		return ManifestPayload{}, UpdateArtifact{}, fmt.Errorf("read app update manifest: %w", err)
 	}
@@ -482,8 +569,28 @@ func (s *service) fetchManifest(ctx context.Context) (ManifestPayload, UpdateArt
 	})
 }
 
+// readBoundedUpdateBody 在解析或验签前读取受限响应体，超限立即失败。
+func readBoundedUpdateBody(body io.Reader, limit int64) ([]byte, error) {
+	if limit < 1 {
+		return nil, errors.New("update response body limit must be positive")
+	}
+	raw, err := io.ReadAll(io.LimitReader(body, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(raw)) > limit {
+		return nil, fmt.Errorf("response body exceeds %d-byte limit", limit)
+	}
+	return raw, nil
+}
+
 // downloadArtifact 下载 artifact 到临时文件，hash/size 校验通过后再原子 rename 到目标路径。
-func (s *service) downloadArtifact(ctx context.Context, artifact UpdateArtifact, targetPath string) error {
+func (s *service) downloadArtifact(ctx context.Context, stage *stageBoundary, artifact UpdateArtifact, targetPath string) error {
+	artifactName, err := stage.stageFileName(targetPath)
+	if err != nil {
+		return err
+	}
+	temporaryName := artifactName + ".tmp"
 	downloadCtx, cancel := platformconfig.WithTimeout(ctx, artifactDownloadTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(downloadCtx, http.MethodGet, artifact.URL, nil)
@@ -498,14 +605,15 @@ func (s *service) downloadArtifact(ctx context.Context, artifact UpdateArtifact,
 	if err := requireSuccessStatus("download app update artifact", resp); err != nil {
 		return err
 	}
-	tmpPath := targetPath + ".tmp"
-	if err := writeVerifiedArtifact(tmpPath, resp.Body, artifact); err != nil {
-		_ = os.Remove(tmpPath)
+	out, err := stage.openWriteFile(temporaryName, false)
+	if err != nil {
 		return err
 	}
-	if err := os.Rename(tmpPath, targetPath); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("stage app update artifact: %w", err)
+	if err := writeVerifiedArtifact(out, resp.Body, artifact); err != nil {
+		return err
+	}
+	if err := stage.commitFile(temporaryName, artifactName); err != nil {
+		return err
 	}
 	return nil
 }
@@ -519,11 +627,7 @@ func requireSuccessStatus(operation string, resp *http.Response) error {
 }
 
 // writeVerifiedArtifact 边写入边计算 sha256 和 size，任何不匹配都会返回错误。
-func writeVerifiedArtifact(tmpPath string, body io.Reader, artifact UpdateArtifact) error {
-	out, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-	if err != nil {
-		return fmt.Errorf("create app update artifact file: %w", err)
-	}
+func writeVerifiedArtifact(out *os.File, body io.Reader, artifact UpdateArtifact) error {
 	hash := sha256.New()
 	writer := &artifactSizeLimitWriter{dst: io.MultiWriter(out, hash), max: artifact.Size}
 	writtenBody := &io.LimitedReader{R: body, N: artifact.Size + 1}
@@ -573,16 +677,6 @@ func (w *artifactSizeLimitWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-// stagedManifestPath 返回 staged manifest JSON 的完整路径。
-func (s *service) stagedManifestPath() string {
-	return filepath.Join(s.cfg.StageDir, selectedUpdateFilename)
-}
-
-// helperLogPath 返回 updater helper 日志文件的完整路径。
-func (s *service) helperLogPath() string {
-	return filepath.Join(s.cfg.StageDir, helperLogFilename)
-}
-
 // verifyInstallGate 在启动平台安装器之前执行最后一道平台安全校验。
 // Windows 更新包必须先通过 Authenticode 发布者和证书指纹检查，避免仅靠 manifest/hash 信任 .exe。
 func (s *service) verifyInstallGate(staged selectedUpdate) error {
@@ -603,31 +697,37 @@ func (s *service) verifyInstallGate(staged selectedUpdate) error {
 }
 
 // installCommand 按平台构造安装命令，macOS 使用 helper，Windows 直接运行安装包。
-func (s *service) installCommand(staged selectedUpdate, generation string) (*exec.Cmd, string, error) {
+func (s *service) installCommand(stage *stageBoundary, staged selectedUpdate, generation string) (*exec.Cmd, string, *os.File, error) {
 	artifactPath := selectedArtifactPath(staged)
 	switch updatePlatformOS(staged.Artifact.Platform) {
 	case "darwin":
-		if err := appupdatefailure.ValidateGeneration(generation); err != nil {
-			return nil, "", err
+		logFile, err := stage.openWriteFile(helperLogFilename, false)
+		if err != nil {
+			return nil, "", nil, fmt.Errorf("open app update helper log: %w", err)
 		}
-		args := []string{"-dmg", artifactPath, "-target", s.cfg.TargetAppPath, "-restart", "-wait-pid", strconv.Itoa(os.Getpid()), "-log", s.helperLogPath(), "-pre-journal-generation", generation}
+		if err := appupdatefailure.ValidateGeneration(generation); err != nil {
+			return nil, "", nil, errors.Join(err, logFile.Close())
+		}
+		args := []string{"-dmg", artifactPath, "-target", s.cfg.TargetAppPath, "-restart", "-wait-pid", strconv.Itoa(os.Getpid()), "-log", "/dev/fd/1", "-pre-journal-generation", generation}
 		if s.cfg.AllowUnsigned {
 			args = append(args, "-allow-unsigned")
 		}
-		return detachedHelperCommand(s.helperLogPath(), s.cfg.HelperPath, args), s.cfg.HelperPath, nil
+		return detachedHelperCommand(logFile, s.cfg.HelperPath, args), s.cfg.HelperPath, logFile, nil
 	case "windows":
-		return exec.Command(artifactPath, "/S"), artifactPath, nil
+		return exec.Command(artifactPath, "/S"), artifactPath, nil, nil
 	default:
-		return nil, "", fmt.Errorf("unsupported app update platform %q", staged.Artifact.Platform)
+		return nil, "", nil, fmt.Errorf("unsupported app update platform %q", staged.Artifact.Platform)
 	}
 }
 
 // detachedHelperCommand 构造通过 nohup 脱离终端运行 helper 的 shell 命令。
-func detachedHelperCommand(logPath string, helperPath string, args []string) *exec.Cmd {
-	script := `log_path=$1; shift; nohup "$@" >"$log_path" 2>&1 &`
-	shellArgs := []string{"-c", script, "super-dolphin-updater-launcher", logPath, helperPath}
+func detachedHelperCommand(logFile *os.File, helperPath string, args []string) *exec.Cmd {
+	script := `nohup "$@" >&3 2>&3 &`
+	shellArgs := []string{"-c", script, "super-dolphin-updater-launcher", helperPath}
 	shellArgs = append(shellArgs, args...)
-	return exec.Command("/bin/sh", shellArgs...)
+	cmd := exec.Command("/bin/sh", shellArgs...)
+	cmd.ExtraFiles = []*os.File{logFile}
+	return cmd
 }
 
 // validateConfig 校验已启用的更新配置完整性。
@@ -740,49 +840,6 @@ func decodePublicKey(raw string) ([]byte, error) {
 		return nil, fmt.Errorf("decode %s: %w", envUpdatePublicKey, err)
 	}
 	return key, nil
-}
-
-// writeSelectedUpdate 将已选更新信息序列化写入 staged manifest 文件。
-func writeSelectedUpdate(path string, staged selectedUpdate) error {
-	raw, err := json.MarshalIndent(staged, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encode selected app update: %w", err)
-	}
-	raw = append(raw, '\n')
-	if err := os.WriteFile(path, raw, 0o600); err != nil {
-		return fmt.Errorf("write selected app update: %w", err)
-	}
-	return nil
-}
-
-// readSelectedUpdate 从 staged manifest 文件反序列化已选更新信息。
-func readSelectedUpdate(path string) (selectedUpdate, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return selectedUpdate{}, fmt.Errorf("read selected app update: %w", err)
-	}
-	var staged selectedUpdate
-	if err := json.Unmarshal(raw, &staged); err != nil {
-		return selectedUpdate{}, fmt.Errorf("decode selected app update: %w", err)
-	}
-	return staged, nil
-}
-
-// validateStagedUpdate 校验产物存在、元数据合法，并重新计算 SHA-256 防止文件被替换。
-func validateStagedUpdate(staged selectedUpdate) error {
-	artifactPath := selectedArtifactPath(staged)
-	if strings.TrimSpace(artifactPath) == "" {
-		return errors.New("selected app update artifact_path is required")
-	}
-	if info, err := os.Stat(artifactPath); err != nil {
-		return fmt.Errorf("selected app update artifact is not available: %w", err)
-	} else if info.IsDir() {
-		return fmt.Errorf("selected app update artifact must be a file: %s", artifactPath)
-	}
-	if err := validateArtifact(staged.Artifact); err != nil {
-		return err
-	}
-	return verifyStagedArtifactSHA256(artifactPath, staged.Artifact.SHA256)
 }
 
 // selectedArtifactPath 优先返回 ArtifactPath，为空时回退到 DMGPath。

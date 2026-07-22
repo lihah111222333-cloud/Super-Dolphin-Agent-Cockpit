@@ -180,6 +180,19 @@ func TestCheckMapsErrNoUpdateToUnavailable(t *testing.T) {
 	}
 }
 
+func TestCheckRejectsChunkedManifestWithoutContentLengthExceedingBodyLimit(t *testing.T) {
+	publicKey, _ := testManifestKeypair(t)
+	oversized := bytes.Repeat([]byte("x"), int(maxUpdateManifestBodyBytes)+1)
+	svc := newService(testServiceConfig(publicKey, t.TempDir(), "1.2.3"), chunkedHTTPClientFor(map[string][]byte{
+		"https://updates.example.test/manifest.json": oversized,
+	}), nil)
+
+	_, err := svc.Check(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("Check() error = %v, want body limit rejection", err)
+	}
+}
+
 func TestCheckReportsDisabledWhenUpdateConfigDisabled(t *testing.T) {
 	svc := newService(Config{}, nil, nil)
 
@@ -215,7 +228,16 @@ func TestDownloadVerifiesArtifactAndWritesSelectedUpdate(t *testing.T) {
 	if result.StagedManifestPath != filepath.Join(stageDir, selectedUpdateFilename) {
 		t.Fatalf("StagedManifestPath = %q, want selected update path", result.StagedManifestPath)
 	}
-	staged, err := readSelectedUpdate(result.StagedManifestPath)
+	stage, err := openStageBoundary(stageDir)
+	if err != nil {
+		t.Fatalf("openStageBoundary() error = %v", err)
+	}
+	defer func() {
+		if closeErr := stage.Close(); closeErr != nil {
+			t.Errorf("stage.Close() error = %v", closeErr)
+		}
+	}()
+	staged, err := readSelectedUpdate(stage)
 	if err != nil {
 		t.Fatalf("readSelectedUpdate() error = %v", err)
 	}
@@ -237,7 +259,8 @@ func TestDownloadRejectsArtifactSHA256Mismatch(t *testing.T) {
 	payload.Artifacts[0].Size = 3
 	payload.Artifacts[0].SHA256 = strings.Repeat("0", 64)
 	rawManifest := signTestManifest(t, privateKey, payload)
-	svc := newService(testServiceConfig(publicKey, appUpdateRealTempDir(t), "1.2.2"), httpClientFor(map[string][]byte{
+	stageDir := appUpdateRealTempDir(t)
+	svc := newService(testServiceConfig(publicKey, stageDir, "1.2.2"), httpClientFor(map[string][]byte{
 		"https://updates.example.test/manifest.json":                rawManifest,
 		"https://updates.example.com/Super-Dolphin-1.2.3-arm64.dmg": []byte("dmg"),
 	}), nil)
@@ -276,10 +299,58 @@ func TestAppUpdateDownloadRejectsBodyLargerThanManifestSize(t *testing.T) {
 		t.Fatalf("download read %d bytes, want at most manifest size plus sentinel byte", body.bytesRead())
 	}
 	artifactPath := filepath.Join(stageDir, dmgFilename)
-	for _, path := range []string{artifactPath, artifactPath + ".tmp"} {
-		if _, statErr := os.Stat(path); !errors.Is(statErr, os.ErrNotExist) {
-			t.Fatalf("Stat(%q) error = %v, want file removed", path, statErr)
-		}
+	if _, statErr := os.Lstat(artifactPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("Lstat(%q) error = %v, want final artifact absent", artifactPath, statErr)
+	}
+	temporary, statErr := os.Lstat(artifactPath + ".tmp")
+	if statErr != nil {
+		t.Fatalf("Lstat(temporary artifact) error = %v, want retained safe temporary file", statErr)
+	}
+	if !temporary.Mode().IsRegular() || temporary.Size() != payload.Artifacts[0].Size {
+		t.Fatalf("temporary artifact = mode %v size %d, want regular file with %d bytes", temporary.Mode(), temporary.Size(), payload.Artifacts[0].Size)
+	}
+}
+
+func TestDownloadRejectsStageAliasBeforeNetwork(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink fixture requires developer mode or elevated privilege on Windows")
+	}
+	for _, tc := range []struct {
+		name      string
+		entryName string
+	}{
+		{name: "artifact tmp", entryName: dmgFilename + ".tmp"},
+		{name: "selected update", entryName: selectedUpdateFilename},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stageDir := appUpdateRealTempDir(t)
+			outside := filepath.Join(canonicalTempDir(t), "outside")
+			sentinel := []byte("do not overwrite")
+			if err := os.WriteFile(outside, sentinel, 0o600); err != nil {
+				t.Fatalf("WriteFile(outside) error = %v", err)
+			}
+			if err := os.Symlink(outside, filepath.Join(stageDir, tc.entryName)); err != nil {
+				t.Fatalf("Symlink(stage entry) error = %v", err)
+			}
+			publicKey, _ := testManifestKeypair(t)
+			networkCalls := 0
+			svc := newService(testServiceConfig(publicKey, stageDir, "1.2.2"), &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				networkCalls++
+				return nil, errors.New("network must not be called for an aliased stage entry")
+			})}, nil)
+
+			_, err := svc.Download(context.Background())
+			if err == nil || !strings.Contains(err.Error(), "alias") {
+				t.Fatalf("Download() error = %v, want stage alias rejection", err)
+			}
+			if networkCalls != 0 {
+				t.Fatalf("network calls = %d, want stage rejection before manifest fetch", networkCalls)
+			}
+			got, readErr := os.ReadFile(outside)
+			if readErr != nil || !bytes.Equal(got, sentinel) {
+				t.Fatalf("outside content = %q, read error = %v, want untouched sentinel", got, readErr)
+			}
+		})
 	}
 }
 
@@ -343,7 +414,7 @@ func TestInstallPassesAllowUnsignedToHelper(t *testing.T) {
 	}
 	stageDir := appUpdateRealTempDir(t)
 	argsPath := filepath.Join(stageDir, "helper.args")
-	helper := writeArgsHelperScript(t, argsPath)
+	helper := writeArgsHelperScriptWithName(t, argsPath, "helper-args.sh")
 	svc := newService(Config{
 		Enabled:       true,
 		StageDir:      stageDir,
@@ -376,6 +447,42 @@ func TestInstallPassesAllowUnsignedToHelper(t *testing.T) {
 	assertPreJournalFailureHidden(t, stageDir, "Install")
 }
 
+func TestInstallRejectsHelperLogAliasBeforeStartingHelper(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("darwin helper launch uses /bin/sh")
+	}
+	stageDir := appUpdateRealTempDir(t)
+	marker := filepath.Join(stageDir, "helper.started")
+	helper := writeHelperScript(t, marker, 0)
+	svc := newService(Config{
+		Enabled:       true,
+		StageDir:      stageDir,
+		HelperPath:    helper,
+		TargetAppPath: "/Applications/Super Dolphin.app",
+	}, nil, func() {})
+	writeSelectedInstallFixture(t, svc)
+	outside := filepath.Join(canonicalTempDir(t), "outside.log")
+	sentinel := []byte("do not overwrite")
+	if err := os.WriteFile(outside, sentinel, 0o600); err != nil {
+		t.Fatalf("WriteFile(outside) error = %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(stageDir, helperLogFilename)); err != nil {
+		t.Fatalf("Symlink(helper log path) error = %v", err)
+	}
+
+	_, err := svc.Install(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "alias") {
+		t.Fatalf("Install() error = %v, want helper log alias rejection", err)
+	}
+	if _, statErr := os.Stat(marker); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("helper marker stat error = %v, want helper not started", statErr)
+	}
+	got, readErr := os.ReadFile(outside)
+	if readErr != nil || !bytes.Equal(got, sentinel) {
+		t.Fatalf("outside content = %q, read error = %v, want untouched sentinel", got, readErr)
+	}
+}
+
 func TestInstallCommandUsesDetachedLauncherForMacHelper(t *testing.T) {
 	stageDir := appUpdateRealTempDir(t)
 	helper := filepath.Join(stageDir, "helper.sh")
@@ -392,22 +499,14 @@ func TestInstallCommandUsesDetachedLauncherForMacHelper(t *testing.T) {
 		DMGPath:      dmgPath,
 	}
 
-	cmd, gotHelper, err := svc.installCommand(staged, recoveryTestGeneration)
-	if err != nil {
-		t.Fatalf("installCommand() error = %v", err)
-	}
+	cmd, gotHelper := installCommandForTest(t, svc, stageDir, staged)
 	if gotHelper != helper {
 		t.Fatalf("helper = %q, want %q", gotHelper, helper)
 	}
 	if filepath.Base(cmd.Path) != "sh" {
 		t.Fatalf("command path = %q, want shell launcher", cmd.Path)
 	}
-	joinedArgs := strings.Join(cmd.Args, " ")
-	for _, want := range []string{"nohup", helper, "-wait-pid " + strconv.Itoa(os.Getpid()), "-log", "super-dolphin-updater.log", "-pre-journal-generation " + recoveryTestGeneration} {
-		if !strings.Contains(joinedArgs, want) {
-			t.Fatalf("command args = %q, want %q", joinedArgs, want)
-		}
-	}
+	requireDetachedHelperCommand(t, cmd, "nohup", helper, "-wait-pid "+strconv.Itoa(os.Getpid()), "-log", "/dev/fd/1", "-pre-journal-generation "+recoveryTestGeneration)
 }
 
 func TestInstallStartsWindowsInstallerWithSilentFlag(t *testing.T) {
@@ -416,7 +515,7 @@ func TestInstallStartsWindowsInstallerWithSilentFlag(t *testing.T) {
 	}
 	stageDir := appUpdateRealTempDir(t)
 	argsPath := filepath.Join(stageDir, "installer.args")
-	installer := writeArgsHelperScriptAt(t, argsPath, filepath.Join(stageDir, exeFilename))
+	installer := writeWindowsInstallerFixture(t, stageDir, argsPath)
 	quitCalled := make(chan struct{}, 1)
 	svc := newService(Config{
 		Enabled:           true,
@@ -427,32 +526,10 @@ func TestInstallStartsWindowsInstallerWithSilentFlag(t *testing.T) {
 	}, nil, func() {
 		quitCalled <- struct{}{}
 	})
-	svc.windowsSignatureVerifier = func(path, publisher, thumbprint string) error {
-		if path != installer {
-			t.Fatalf("signature path = %q, want %q", path, installer)
-		}
-		if publisher != "Super Dolphin Test Publisher" || thumbprint != strings.Repeat("a", 40) {
-			t.Fatalf("signature gate = (%q, %q), want configured publisher/thumbprint", publisher, thumbprint)
-		}
-		return nil
-	}
+	svc.windowsSignatureVerifier = expectedWindowsSignatureVerifier(t, installer)
 	writeSelectedInstallFixtureForPlatform(t, svc, "windows-amd64", installer)
 
-	result, err := svc.Install(context.Background())
-	if err != nil {
-		t.Fatalf("Install() error = %v", err)
-	}
-	if !result.Started {
-		t.Fatalf("Install() Started = false, want true")
-	}
-	waitForFile(t, argsPath)
-	args, err := os.ReadFile(argsPath)
-	if err != nil {
-		t.Fatalf("ReadFile(argsPath) error = %v", err)
-	}
-	if strings.TrimSpace(string(args)) != "/S" {
-		t.Fatalf("installer args = %q, want /S", string(args))
-	}
+	result := requireSilentWindowsInstall(t, svc, argsPath)
 	if result.Helper != installer {
 		t.Fatalf("Install() Helper = %q, want installer path", result.Helper)
 	}
@@ -462,7 +539,10 @@ func TestInstallStartsWindowsInstallerWithSilentFlag(t *testing.T) {
 func TestInstallRejectsWindowsInstallerBeforeStartWhenAuthenticodeGateFails(t *testing.T) {
 	stageDir := appUpdateRealTempDir(t)
 	argsPath := filepath.Join(stageDir, "installer.args")
-	installer := writeArgsHelperScriptAt(t, argsPath, filepath.Join(stageDir, exeFilename))
+	installer := filepath.Join(stageDir, exeFilename)
+	if err := os.Rename(writeArgsHelperScriptWithName(t, argsPath, exeFilename), installer); err != nil {
+		t.Fatalf("Rename(installer) error = %v", err)
+	}
 	quitCalled := make(chan struct{}, 1)
 	svc := newService(Config{
 		Enabled:           true,
@@ -514,6 +594,23 @@ func httpClientFor(responses map[string][]byte) *http.Client {
 		}
 		return okResponse(req, bytes.NewReader(body)), nil
 	})}
+}
+
+func chunkedHTTPClientFor(responses map[string][]byte) *http.Client {
+	return &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		body, ok := responses[req.URL.String()]
+		if !ok {
+			return notFoundResponse(req), nil
+		}
+		return chunkedOKResponse(req, bytes.NewReader(body)), nil
+	})}
+}
+
+func chunkedOKResponse(req *http.Request, body io.Reader) *http.Response {
+	resp := okResponse(req, body)
+	resp.ContentLength = -1
+	resp.TransferEncoding = []string{"chunked"}
+	return resp
 }
 
 func okResponse(req *http.Request, body io.Reader) *http.Response {
@@ -574,110 +671,6 @@ func writeInfoPlist(t *testing.T, appPath, version string) {
 	}
 }
 
-func writeHelperScript(t *testing.T, marker string, sleep time.Duration) string {
-	t.Helper()
-	helper := filepath.Join(t.TempDir(), "helper.sh")
-	body := "#!/usr/bin/env bash\nprintf started > " + shellQuote(marker) + "\n"
-	if sleep > 0 {
-		body += "sleep " + durationSecondsString(sleep) + "\n"
-	}
-	if err := os.WriteFile(helper, []byte(body), 0o755); err != nil {
-		t.Fatalf("WriteFile(helper) error = %v", err)
-	}
-	return helper
-}
-
-func writeArgsHelperScript(t *testing.T, argsPath string) string {
-	t.Helper()
-	return writeArgsHelperScriptWithName(t, argsPath, "helper-args.sh")
-}
-
-func writeArgsHelperScriptWithName(t *testing.T, argsPath, name string) string {
-	t.Helper()
-	return writeArgsHelperScriptAt(t, argsPath, filepath.Join(t.TempDir(), name))
-}
-
-func writeArgsHelperScriptAt(t *testing.T, argsPath, helper string) string {
-	t.Helper()
-	tempArgsPath := argsPath + ".tmp"
-	body := "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" > " + shellQuote(tempArgsPath) + "\n" +
-		"mv " + shellQuote(tempArgsPath) + " " + shellQuote(argsPath) + "\n"
-	if err := os.WriteFile(helper, []byte(body), 0o755); err != nil {
-		t.Fatalf("WriteFile(helper) error = %v", err)
-	}
-	return helper
-}
-
-func durationSecondsString(d time.Duration) string {
-	return strings.TrimRight(strings.TrimRight(strconv.FormatFloat(d.Seconds(), 'f', 3, 64), "0"), ".")
-}
-
-func shellQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
-}
-
-func writeSelectedInstallFixture(t *testing.T, svc *service) {
-	t.Helper()
-	dmgPath := filepath.Join(svc.cfg.StageDir, dmgFilename)
-	writeSelectedInstallFixtureForPlatform(t, svc, "darwin-arm64", dmgPath)
-}
-
-func writeSelectedInstallFixtureForPlatform(t *testing.T, svc *service, platform, artifactPath string) {
-	t.Helper()
-	if err := os.MkdirAll(svc.cfg.StageDir, 0o700); err != nil {
-		t.Fatalf("MkdirAll(StageDir) error = %v", err)
-	}
-	if _, err := os.Stat(artifactPath); err != nil {
-		if err := os.WriteFile(artifactPath, []byte("dmg"), 0o700); err != nil {
-			t.Fatalf("WriteFile(artifact) error = %v", err)
-		}
-	}
-	artifactBytes, err := os.ReadFile(artifactPath)
-	if err != nil {
-		t.Fatalf("ReadFile(artifact) error = %v", err)
-	}
-	artifactURL := "https://updates.example.com/Super-Dolphin-1.2.3-arm64.dmg"
-	if platform == "windows-amd64" {
-		artifactURL = testGitHubReleaseAssetURL("v1.2.3", "Super-Dolphin-windows-amd64.exe")
-	}
-	staged := selectedUpdate{
-		Payload: testManifestPayload(),
-		Artifact: UpdateArtifact{
-			Platform: platform,
-			URL:      artifactURL,
-			SHA256:   sha256Hex(artifactBytes),
-			Size:     int64(len(artifactBytes)),
-		},
-		DMGPath:      artifactPath,
-		ArtifactPath: artifactPath,
-		DownloadedAt: time.Now().UTC().Format(time.RFC3339Nano),
-	}
-	if err := writeSelectedUpdate(svc.stagedManifestPath(), staged); err != nil {
-		t.Fatalf("writeSelectedUpdate() error = %v", err)
-	}
-}
-
-func waitForFile(t *testing.T, path string) {
-	t.Helper()
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(path); err == nil {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatalf("timed out waiting for %s", path)
-}
-
-func waitForSignal(t *testing.T, signal <-chan struct{}, name string) {
-	t.Helper()
-	select {
-	case <-signal:
-	case <-time.After(5 * time.Second):
-		t.Fatalf("timed out waiting for %s", name)
-	}
-}
-
 func TestInstallRejectsTamperedArtifact(t *testing.T) {
 	stageDir := appUpdateRealTempDir(t)
 	svc := newService(Config{
@@ -704,7 +697,7 @@ func TestInstallRejectsSelectedPlatformMismatchBeforeAttempt(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("darwin helper launch uses /bin/sh")
 	}
-	stageDir := appUpdateRealTempDir(t)
+	stageDir := canonicalTempDir(t)
 	marker := filepath.Join(stageDir, "helper.started")
 	svc := newService(Config{
 		Enabled: true, StageDir: stageDir, Platform: "darwin-arm64",
@@ -723,7 +716,7 @@ func TestInstallRejectsSelectedArtifactOutsideStageBeforeAttempt(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("darwin helper launch uses /bin/sh")
 	}
-	stageDir := appUpdateRealTempDir(t)
+	stageDir := canonicalTempDir(t)
 	marker := filepath.Join(stageDir, "helper.started")
 	svc := newService(Config{
 		Enabled: true, StageDir: stageDir, Platform: "darwin-arm64",
@@ -761,7 +754,7 @@ func TestInstallRejectsDivergentDarwinDMGPathBeforeAttempt(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("darwin helper launch uses /bin/sh")
 	}
-	stageDir := appUpdateRealTempDir(t)
+	stageDir := canonicalTempDir(t)
 	marker := filepath.Join(stageDir, "helper.started")
 	svc := newService(Config{
 		Enabled: true, StageDir: stageDir, Platform: "darwin-arm64",
@@ -769,12 +762,19 @@ func TestInstallRejectsDivergentDarwinDMGPathBeforeAttempt(t *testing.T) {
 	}, nil, func() {})
 	artifactPath := filepath.Join(stageDir, dmgFilename)
 	writeSelectedInstallFixtureForPlatform(t, svc, "darwin-arm64", artifactPath)
-	staged, err := readSelectedUpdate(svc.stagedManifestPath())
+	stage, err := openStageBoundary(svc.cfg.StageDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	staged, err := readSelectedUpdate(stage)
 	if err != nil {
 		t.Fatal(err)
 	}
 	staged.DMGPath = filepath.Join(appUpdateRealTempDir(t), dmgFilename)
-	if err := writeSelectedUpdate(svc.stagedManifestPath(), staged); err != nil {
+	if err := writeSelectedUpdate(stage, staged); err != nil {
+		t.Fatal(err)
+	}
+	if err := stage.Close(); err != nil {
 		t.Fatal(err)
 	}
 

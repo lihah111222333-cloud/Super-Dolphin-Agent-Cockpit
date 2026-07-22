@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
@@ -55,6 +56,22 @@ func TestHostToolErrorMirrorsValidStructuredContent(t *testing.T) {
 	assertHostToolErrorLegacyEnvelope(t, textEnvelope)
 	assertHostToolErrorMeta(t, textEnvelope)
 	assertHostToolErrorStructuredContent(t, got, textEnvelope)
+}
+
+func TestHostToolErrorDoesNotExposeRawCause(t *testing.T) {
+	const marker = "token=sk-test-secret dsn=postgres://alice:secret@db/private path=/Users/private/secret.go"
+	got := hostToolErrorResult(ToolCallRequest{Name: "observability_trace_get"}, errors.New(marker))
+	if got == nil || got.Success || len(got.ContentItems) != 1 {
+		t.Fatalf("hostToolErrorResult() = %#v, want failed tool result", got)
+	}
+	if strings.Contains(got.ContentItems[0].Text, marker) || strings.Contains(string(got.StructuredContent), marker) {
+		t.Fatalf("hostToolErrorResult() leaked marker: %#v", got)
+	}
+	envelope := decodeToolResultEnvelope(t, got)
+	message, ok := envelope["error"].(string)
+	if !ok || !strings.HasPrefix(message, "Tool execution failed. Diagnostic ID: ") || envelope["code"] == "" || envelope["hint"] == "" {
+		t.Fatalf("host error envelope = %#v, want stable code/hint and public diagnostic error", envelope)
+	}
 }
 
 func assertHostToolErrorLegacyEnvelope(t *testing.T, textEnvelope map[string]any) {

@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "updatedAt": "2026-07-22T04:55:28Z"
+    "updatedAt": "2026-07-22T08:30:57Z"
   },
   "files": {
     "src/App.test.jsx": {
@@ -19,7 +19,7 @@
       ]
     },
     "src/entities/client/model/useClientStore.test.js": {
-      "lines": 8610,
+      "lines": 8745,
       "maxFuncLen": 41,
       "maxNesting": 6,
       "maxParams": 3,
@@ -94,7 +94,7 @@
       ]
     },
     "src/shared/api/wailsBridge.test.js": {
-      "lines": 1769,
+      "lines": 1838,
       "maxFuncLen": 40,
       "maxNesting": 7,
       "maxParams": 2,
@@ -134,10 +134,12 @@
       "emptyFuncs": 0,
       "todoCount": 0,
       "longLineCount": 0,
-      "frozenViolations": ["file-length"]
+      "frozenViolations": [
+        "file-length"
+      ]
     },
     "scripts/frontend-maintainability-score.test.mjs": {
-      "lines": 2804,
+      "lines": 2794,
       "maxFuncLen": 235,
       "maxNesting": 8,
       "maxParams": 4,
@@ -153,8 +155,8 @@
       ]
     },
     "scripts/performance-budget-runner.test.mjs": {
-      "lines": 908,
-      "maxFuncLen": 119,
+      "lines": 1125,
+      "maxFuncLen": 136,
       "maxNesting": 6,
       "maxParams": 3,
       "exportCount": 0,
@@ -163,7 +165,9 @@
       "emptyFuncs": 0,
       "todoCount": 0,
       "longLineCount": 0,
-      "frozenViolations": ["file-length"]
+      "frozenViolations": [
+        "file-length"
+      ]
     },
     "scripts/rpc-contract-audit.test.mjs": {
       "lines": 3051,
@@ -176,7 +180,9 @@
       "emptyFuncs": 0,
       "todoCount": 0,
       "longLineCount": 0,
-      "frozenViolations": ["file-length"]
+      "frozenViolations": [
+        "file-length"
+      ]
     }
   }
 }

@@ -272,7 +272,7 @@ function Conversation(props) {
       onDragEnter={composerController.handleDragEnter}
       onDragOver={composerController.handleDragOver}
       onDragLeave={composerController.handleDragLeave}
-      onDrop={(event) => runUIAction('composer.drop', () => composerController.handleDrop(event))}
+      onDrop={(event) => { void composerController.handleDrop(event); }}
     >
       <ContextUsageBanner activeThreadId={activeThreadId} store={store} tokenUsage={tokenUsage} />
       <ConversationTimeline

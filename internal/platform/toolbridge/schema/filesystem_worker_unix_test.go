@@ -476,7 +476,7 @@ func assertPublishedFilesystemSnapshot(
 }
 
 func TestTerminateProcessTreeSignalsLeasedGroup(t *testing.T) {
-	cmd, guard := startGuardedUnixTestProcess(t, "sleep 30")
+	cmd, guard := startGuardedUnixTestProcess(t, "30")
 	killCalled := false
 	guard.killGroup = func(pid int, signal syscall.Signal) error {
 		killCalled = true
@@ -538,8 +538,8 @@ func TestCleanupWorkerLateReapReleasesLimiterCapacity(t *testing.T) {
 }
 
 func TestLimiterWaitsForMainAndCleanupLateReaps(t *testing.T) {
-	mainCmd, mainGuard := startGuardedUnixTestProcess(t, "sleep 30")
-	cleanupCmd, cleanupGuard := startGuardedUnixTestProcess(t, "sleep 30")
+	mainCmd, mainGuard := startGuardedUnixTestProcess(t, "30")
+	cleanupCmd, cleanupGuard := startGuardedUnixTestProcess(t, "30")
 	mainRelease := make(chan struct{})
 	cleanupRelease := make(chan struct{})
 	mainReleased, cleanupReleased := false, false
@@ -596,7 +596,7 @@ func assertLimiterCapacityExhausted(t *testing.T, limiter *helperLimiter, stage 
 }
 
 func TestWaitPublishBarrierLeasesGroupAcrossPIDReuseWindow(t *testing.T) {
-	cmd, guard := startGuardedUnixTestProcess(t, "sleep 0.05")
+	cmd, guard := startGuardedUnixTestProcess(t, "0.05")
 	waitCompleted := make(chan struct{})
 	releasePublish := make(chan struct{})
 	released := false
@@ -667,9 +667,9 @@ func assertPathExistence(t *testing.T, path string, want bool) {
 	}
 }
 
-func startGuardedUnixTestProcess(t *testing.T, command string) (*exec.Cmd, *processGuard) {
+func startGuardedUnixTestProcess(t *testing.T, sleepDuration string) (*exec.Cmd, *processGuard) {
 	t.Helper()
-	cmd := exec.Command("sh", "-c", command)
+	cmd := exec.Command("sleep", sleepDuration)
 	guard, err := prepareProcessGuard(cmd)
 	if err != nil {
 		t.Fatal(err)

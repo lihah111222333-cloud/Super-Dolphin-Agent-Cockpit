@@ -127,9 +127,9 @@ func validateCanonicalPackageLayout(paths ...string) error {
 
 // mapPackageTrustConfig 将已验证 trust 映射为 appupdate Config。
 func mapPackageTrustConfig(trust recovery.PackageTrust, resources, target string) (Config, error) {
-	home := os.Getenv(envSuperDolphinHome)
-	if home == "" || !filepath.IsAbs(home) {
-		return Config{}, errors.New("SUPER_DOLPHIN_HOME must be an absolute path for package-owned updates")
+	stageDir, err := packageOwnedStageDir()
+	if err != nil {
+		return Config{}, err
 	}
 	publicKey, err := base64.StdEncoding.DecodeString(trust.ManifestPublicKey)
 	if err != nil {
@@ -141,21 +141,46 @@ func mapPackageTrustConfig(trust recovery.PackageTrust, resources, target string
 	}
 	cfg := Config{
 		Enabled: true, PublicKey: publicKey, Channel: trust.Channel,
-		StageDir: filepath.Join(home, "updates"), HelperPath: filepath.Join(resources, "bin", updaterHelperName),
+		StageDir: stageDir, HelperPath: filepath.Join(resources, "bin", updaterHelperName),
 		TargetAppPath: target, Platform: trust.Platform, CurrentVersion: version,
 	}
-	switch trust.Source.Kind {
-	case recovery.UpdateSourceGitHub:
-		cfg.GitHubRepo = trust.Source.Value
-	case recovery.UpdateSourceManifest:
-		cfg.ManifestURL = trust.Source.Value
-	default:
-		return Config{}, fmt.Errorf("unsupported package-owned source kind %q", trust.Source.Kind)
+	if err := applyPackageOwnedUpdateSource(&cfg, trust.Source); err != nil {
+		return Config{}, err
 	}
 	if err := validateConfig(cfg); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// packageOwnedStageDir 以持有根检查 package-owned updates 目录，拒绝 home 或 updates alias。
+func packageOwnedStageDir() (string, error) {
+	home := os.Getenv(envSuperDolphinHome)
+	if home == "" || !filepath.IsAbs(home) || filepath.Clean(home) != home {
+		return "", errors.New("SUPER_DOLPHIN_HOME must be a clean absolute path for package-owned updates")
+	}
+	stageDir := filepath.Join(home, "updates")
+	stage, err := openStageBoundary(stageDir)
+	if err != nil {
+		return "", fmt.Errorf("open package-owned update stage: %w", err)
+	}
+	if err := stage.Close(); err != nil {
+		return "", fmt.Errorf("close package-owned update stage: %w", err)
+	}
+	return stageDir, nil
+}
+
+// applyPackageOwnedUpdateSource 将经验证的 package-owned 来源映射到唯一的更新配置字段。
+func applyPackageOwnedUpdateSource(cfg *Config, source recovery.UpdateSource) error {
+	switch source.Kind {
+	case recovery.UpdateSourceGitHub:
+		cfg.GitHubRepo = source.Value
+	case recovery.UpdateSourceManifest:
+		cfg.ManifestURL = source.Value
+	default:
+		return fmt.Errorf("unsupported package-owned source kind %q", source.Kind)
+	}
+	return nil
 }
 
 func runtimePlatform() string {

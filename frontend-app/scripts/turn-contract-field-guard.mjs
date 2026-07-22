@@ -33,12 +33,14 @@ export function validateTurnContractFieldGuard({ repoRoot = defaultRepoRoot, sou
   assertExactSet('consumer registry schemas', schemaNames, registeredSchemas);
   const targetSchemas = new Map(Object.entries(registry.schemas)
     .map(([schemaName, entry]) => [entry.jsValidator.symbol, schemaName]));
+  const nonLiteralDynamicImportPolicy = validateNonLiteralDynamicImportPolicy(registry);
   const resolveValidatorExports = createValidatorExportResolver(repoRoot, sourceOverrides, targetSchemas);
   const discoveredConsumers = discoverJSValidatorConsumers(
     repoRoot,
     sourceOverrides,
     targetSchemas,
     resolveValidatorExports,
+    nonLiteralDynamicImportPolicy,
   );
   for (const [schemaName, schema] of schemas) {
     const entry = registry.schemas[schemaName];
@@ -125,13 +127,29 @@ function validateExactProjections(chain, actual) {
   }
 }
 
-function discoverJSValidatorConsumers(repoRoot, sourceOverrides, targetSchemas, resolveValidatorExports) {
+function discoverJSValidatorConsumers(
+  repoRoot,
+  sourceOverrides,
+  targetSchemas,
+  resolveValidatorExports,
+  nonLiteralDynamicImportPolicy,
+) {
   const discovered = new Map([...targetSchemas.values()].map((schemaName) => [schemaName, []]));
+  const usedNonLiteralDynamicImportExemptions = new Set();
   const sourceRoot = path.join(repoRoot, 'frontend-app/src');
   for (const absolutePath of productionJavaScriptFiles(sourceRoot)) {
     const relativePath = path.relative(repoRoot, absolutePath).split(path.sep).join('/');
     const ast = parseModule(readRepositorySource(repoRoot, relativePath, sourceOverrides), relativePath);
     resolveValidatorExports(relativePath);
+    assertDynamicValidatorImportsSafe(
+      repoRoot,
+      sourceOverrides,
+      ast,
+      relativePath,
+      resolveValidatorExports,
+      nonLiteralDynamicImportPolicy,
+      usedNonLiteralDynamicImportExemptions,
+    );
     const bindings = validatorBindings(
       repoRoot,
       sourceOverrides,
@@ -162,6 +180,11 @@ function discoverJSValidatorConsumers(repoRoot, sourceOverrides, targetSchemas, 
       }
     });
   }
+  assertExactSet(
+    'non-literal dynamic import exemptions',
+    [...nonLiteralDynamicImportPolicy.keys()].sort(),
+    [...usedNonLiteralDynamicImportExemptions].sort(),
+  );
   for (const [schemaName, consumers] of discovered) discovered.set(schemaName, [...new Set(consumers)].sort());
   return discovered;
 }
@@ -239,6 +262,63 @@ function importedValidatorBindings(repoRoot, sourceOverrides, ast, relativePath,
   }
   return bindings;
 }
+
+function validateNonLiteralDynamicImportPolicy(registry) {
+  const exemptions = registry.jsDynamicImportPolicy?.nonLiteralExemptions;
+  if (!Array.isArray(exemptions) || exemptions.length === 0) {
+    throw new Error('consumer registry must declare non-literal dynamic import exemptions');
+  }
+  const paths = new Map();
+  for (const exemption of exemptions) {
+    if (!isRecord(exemption)
+      || typeof exemption.path !== 'string'
+      || !/^frontend-app\/src\/.+\.(?:js|jsx)$/.test(exemption.path)
+      || typeof exemption.reason !== 'string'
+      || !exemption.reason.trim()) {
+      throw new Error('non-literal dynamic import exemption must have a production JS path and reason');
+    }
+    if (paths.has(exemption.path)) {
+      throw new Error('non-literal dynamic import exemption duplicates ' + exemption.path);
+    }
+    paths.set(exemption.path, exemption.reason);
+  }
+  return paths;
+}
+
+function assertDynamicValidatorImportsSafe(
+  repoRoot,
+  sourceOverrides,
+  ast,
+  relativePath,
+  resolveValidatorExports,
+  nonLiteralDynamicImportPolicy,
+  usedNonLiteralDynamicImportExemptions,
+) {
+  walkNode(ast.program, (node) => {
+    const source = dynamicImportSource(node);
+    if (!source) return;
+    const sourceValue = stringLiteralValue(source);
+    if (!sourceValue) {
+      if (!nonLiteralDynamicImportPolicy.has(relativePath)) {
+        throw new Error(relativePath + ' non-literal dynamic import is not an approved non-validator boundary');
+      }
+      usedNonLiteralDynamicImportExemptions.add(relativePath);
+      return;
+    }
+    const sourcePath = resolveLocalModulePath(repoRoot, sourceOverrides, relativePath, sourceValue);
+    if (!sourcePath) return;
+    if (resolveValidatorExports(sourcePath).size > 0) {
+      throw new Error(relativePath + ' dynamic validator import ' + sourceValue + ' cannot be resolved exactly');
+    }
+  });
+}
+
+function dynamicImportSource(node) {
+  if (node?.type === 'ImportExpression') return node.source;
+  if (node?.type === 'CallExpression' && node.callee?.type === 'Import') return node.arguments?.[0];
+  return undefined;
+}
+
 
 function createValidatorExportResolver(repoRoot, sourceOverrides, targetSchemas) {
   const directExports = new Map([...targetSchemas]

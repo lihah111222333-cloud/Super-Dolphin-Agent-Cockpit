@@ -356,14 +356,18 @@ func (c *interruptCleanupClaim) cancelRestartAndStopWatcher() {
 }
 
 func (s *session) restoreFailedInterrupt(claim *interruptCleanupClaim) {
+	restoreWatcher := false
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.interrupting || s.activeTurn != claim.handle {
-		return
+	if s.interrupting && s.activeTurn == claim.handle {
+		s.interrupting = false
+		s.transport = claim.transport
+		delete(s.suppressedTurns, claim.turnID)
+		restoreWatcher = claim.watcher != nil
 	}
-	s.interrupting = false
-	s.transport = claim.transport
-	delete(s.suppressedTurns, claim.turnID)
+	s.mu.Unlock()
+	if restoreWatcher {
+		s.startLogWatcherIfCurrent(claim.transport)
+	}
 }
 
 func (s *session) finishInterruptCleanup(claim *interruptCleanupClaim, reason string) (*turnHandle, []dto.RawProviderEvent, bool) {

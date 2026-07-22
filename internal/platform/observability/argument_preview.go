@@ -259,8 +259,11 @@ func explicitSensitiveArgumentPreviewKey(key string) bool {
 		if sensitiveArgumentPreviewKeySegment(segment) {
 			return true
 		}
-		if segment == "private" && i+1 < len(segments) && segments[i+1] == "key" {
-			return true
+		if i+1 < len(segments) && segments[i+1] == "key" {
+			switch segment {
+			case "private", "ssh", "access", "client", "signing":
+				return true
+			}
 		}
 	}
 	return false

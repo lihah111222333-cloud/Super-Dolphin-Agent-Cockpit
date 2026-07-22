@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/observability"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
@@ -382,12 +384,18 @@ func (t *transport) RespondWithID(id json.RawMessage, result any, callErr error)
 	}
 	payload := map[string]any{"jsonrpc": "2.0", "id": id, "result": result}
 	if callErr != nil {
-		code, message := -32000, strings.ToLower(strings.TrimSpace(callErr.Error()))
-		if strings.Contains(message, "method not supported") || strings.Contains(message, "method not found") {
+		code, rawMessage := -32000, strings.ToLower(strings.TrimSpace(callErr.Error()))
+		if strings.Contains(rawMessage, "method not supported") || strings.Contains(rawMessage, "method not found") {
 			code = -32601
 		}
+		publicMessage := providerdto.PublicMessageForError("Tool execution failed.", callErr)
+		pkglogger.Warn("codexapp: inbound request failed",
+			observability.ErrorCodeField, fmt.Sprintf("jsonrpc_%d", code),
+			observability.ErrorPreviewField, publicMessage,
+			"public_error", publicMessage,
+		)
 		delete(payload, "result")
-		payload["error"] = jsonRPCError{Code: code, Message: callErr.Error()}
+		payload["error"] = jsonRPCError{Code: code, Message: publicMessage}
 	}
 	return t.writeJSON(payload)
 }

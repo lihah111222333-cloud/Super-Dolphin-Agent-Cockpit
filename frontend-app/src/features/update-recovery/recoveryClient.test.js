@@ -6,6 +6,11 @@ import {
   normalizeRecoveryState,
 } from "./recoveryClient.js";
 
+const RECOVERY_DIAGNOSTIC_ID =
+  "2222222222222222222222222222222222222222222222222222222222222222";
+const RECOVERY_STARTUP_REASON =
+  `RECOVERY_STARTUP_FAILED|${RECOVERY_DIAGNOSTIC_ID}`;
+
 function recoveryPayload(overrides = {}) {
   return {
     mode: "recovery",
@@ -20,7 +25,7 @@ function recoveryPayload(overrides = {}) {
       lease_owner: "guard-1",
       lease_generation: 2,
       candidate_sha256: "abc123",
-      reason: "health check failed",
+      reason: RECOVERY_STARTUP_REASON,
     },
     ...overrides,
   };
@@ -211,7 +216,7 @@ describe("Recovery client", () => {
   it("fails fast when the Recovery runtime bridge is unavailable", async () => {
     const client = createRecoveryClient(async () => ({}));
     await expect(client.state()).rejects.toThrow(
-      "Recovery Wails runtime is unavailable",
+      "Recovery action could not be completed safely",
     );
   });
 });

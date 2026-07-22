@@ -6,8 +6,17 @@ import ts from 'typescript';
 
 const appRoot = path.resolve(new URL('..', import.meta.url).pathname);
 
-export const CRITICAL_SKIP_ROOTS = Object.freeze(['src', 'scripts']);
+export const CRITICAL_SKIP_ROOTS = Object.freeze(['src', 'scripts', 'tests']);
 export const criticalPattern = /\b(provider|thread|turn|workflow|rpc|contract|desktop|smoke)\b/i;
+
+const TEST_API_MODULES = new Map([
+  ['vitest', new Set(['describe', 'it', 'test'])],
+  ['@playwright/test', new Set(['test'])],
+]);
+
+const LEGACY_TEST_API_BINDINGS = new Map(
+  ['describe', 'it', 'test'].map((apiName) => [apiName, { moduleName: null, apiName }]),
+);
 
 function walkTestFiles(dir) {
   if (!fs.existsSync(dir)) {
@@ -44,37 +53,142 @@ function lineNumberForNode(sourceFile, node) {
   return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
 }
 
-function isTestApiIdentifier(node) {
-  return ts.isIdentifier(node) && ['describe', 'it', 'test'].includes(node.text);
+function staticStringValue(node) {
+  return ts.isStringLiteralLike(node) ? node.text : null;
 }
 
 function isStaticSkipProperty(node) {
-  return ts.isStringLiteralLike(node) && node.text === 'skip';
+  return staticStringValue(node) === 'skip';
 }
 
-function isSkipMemberAccess(node) {
+function staticPropertyName(node) {
   if (ts.isPropertyAccessExpression(node)) {
-    return node.name.text === 'skip' && isTestApiIdentifier(node.expression);
+    return node.name.text;
   }
   if (ts.isElementAccessExpression(node)) {
-    return isStaticSkipProperty(node.argumentExpression) && isTestApiIdentifier(node.expression);
+    return staticStringValue(node.argumentExpression);
+  }
+  return null;
+}
+
+function collectTestApiBindings(sourceFile) {
+  const identifiers = new Map(LEGACY_TEST_API_BINDINGS);
+  const namespaces = new Map();
+
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier)) {
+      continue;
+    }
+
+    const moduleName = statement.moduleSpecifier.text;
+    const supportedApis = TEST_API_MODULES.get(moduleName);
+    const importClause = statement.importClause;
+    if (!supportedApis || !importClause || importClause.isTypeOnly || !importClause.namedBindings) {
+      continue;
+    }
+
+    if (ts.isNamespaceImport(importClause.namedBindings)) {
+      namespaces.set(importClause.namedBindings.name.text, { moduleName });
+      continue;
+    }
+
+    if (!ts.isNamedImports(importClause.namedBindings)) {
+      continue;
+    }
+
+    for (const specifier of importClause.namedBindings.elements) {
+      if (specifier.isTypeOnly) continue;
+      const apiName = (specifier.propertyName ?? specifier.name).text;
+      if (supportedApis.has(apiName)) {
+        identifiers.set(specifier.name.text, { moduleName, apiName });
+      }
+    }
+  }
+
+  return { identifiers, namespaces };
+}
+
+function testApiBindingForExpression(node, bindings) {
+  if (ts.isIdentifier(node)) {
+    return bindings.identifiers.get(node.text) ?? null;
+  }
+
+  const propertyName = staticPropertyName(node);
+  if (propertyName === null || (!ts.isPropertyAccessExpression(node) && !ts.isElementAccessExpression(node))) {
+    return null;
+  }
+
+  if (ts.isIdentifier(node.expression)) {
+    const namespace = bindings.namespaces.get(node.expression.text);
+    const supportedApis = namespace && TEST_API_MODULES.get(namespace.moduleName);
+    if (supportedApis?.has(propertyName)) {
+      return { moduleName: namespace.moduleName, apiName: propertyName };
+    }
+  }
+
+  const parentBinding = testApiBindingForExpression(node.expression, bindings);
+  if (
+    parentBinding?.moduleName === '@playwright/test'
+    && parentBinding.apiName === 'test'
+    && propertyName === 'describe'
+  ) {
+    return { moduleName: parentBinding.moduleName, apiName: propertyName };
+  }
+
+  return null;
+}
+
+function isTestApiExpression(node, bindings) {
+  return testApiBindingForExpression(node, bindings) !== null;
+}
+
+function isDynamicTestApiModuleLoad(node) {
+  if (!ts.isCallExpression(node) || node.arguments.length === 0) return false;
+  const [moduleSpecifier] = node.arguments;
+  if (!ts.isStringLiteralLike(moduleSpecifier) || !TEST_API_MODULES.has(moduleSpecifier.text)) {
+    return false;
+  }
+
+  return (
+    node.expression.kind === ts.SyntaxKind.ImportKeyword
+    || (ts.isIdentifier(node.expression) && node.expression.text === 'require')
+  );
+}
+
+function assertNoDynamicTestApiBindings(sourceFile, relFile) {
+  function visit(node) {
+    if (isDynamicTestApiModuleLoad(node)) {
+      throw new Error(`critical skip source dynamic test API binding: ${relFile}:${lineNumberForNode(sourceFile, node)}`);
+    }
+    ts.forEachChild(node, visit);
+  }
+
+  visit(sourceFile);
+}
+
+function isSkipMemberAccess(node, bindings) {
+  if (ts.isPropertyAccessExpression(node)) {
+    return node.name.text === 'skip' && isTestApiExpression(node.expression, bindings);
+  }
+  if (ts.isElementAccessExpression(node)) {
+    return isStaticSkipProperty(node.argumentExpression) && isTestApiExpression(node.expression, bindings);
   }
   return false;
 }
 
-function isSkipEachCallExpression(node) {
+function isSkipEachCallExpression(node, bindings) {
   if (!ts.isCallExpression(node)) return false;
   const callee = node.expression;
   return (
-    ts.isPropertyAccessExpression(callee) &&
-    callee.name.text === 'each' &&
-    isSkipMemberAccess(callee.expression)
+    ts.isPropertyAccessExpression(callee)
+    && callee.name.text === 'each'
+    && isSkipMemberAccess(callee.expression, bindings)
   );
 }
 
-function isSkippedTestCall(node) {
+function isSkippedTestCall(node, bindings) {
   const expression = node.expression;
-  return isSkipMemberAccess(expression) || isSkipEachCallExpression(expression);
+  return isSkipMemberAccess(expression, bindings) || isSkipEachCallExpression(expression, bindings);
 }
 
 function skippedTestName(node) {
@@ -99,10 +213,13 @@ export function skippedTestsInSource(relFile, source) {
     throw new Error(`critical skip source parse failed: ${relFile}:${line + 1}`);
   }
 
+  const testApiBindings = collectTestApiBindings(sourceFile);
+  assertNoDynamicTestApiBindings(sourceFile, relFile);
+
   const skips = [];
 
   function visit(node) {
-    if (ts.isCallExpression(node) && isSkippedTestCall(node)) {
+    if (ts.isCallExpression(node) && isSkippedTestCall(node, testApiBindings)) {
       const { name, parseError } = skippedTestName(node);
       skips.push({
         file: relFile,

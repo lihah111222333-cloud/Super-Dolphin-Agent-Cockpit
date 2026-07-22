@@ -14,8 +14,6 @@ import { normalizeThreadId } from './threadIdentity.js';
 
 const MAX_TRACKED_TURN_TERMINALS = 64;
 const MAX_TRACKED_TURN_TERMINAL_SCOPES = 8;
-const RETIRED_TURN_FILTER_WORDS = 256;
-const RETIRED_TURN_FILTER_BITS = RETIRED_TURN_FILTER_WORDS * 32;
 
 function createTurnTerminalLedger(runtime) {
   return {
@@ -23,7 +21,6 @@ function createTurnTerminalLedger(runtime) {
     turnTerminalStates: runtime?.turnTerminalStates || new Map(),
     observedTurnByThread: runtime?.observedTurnByThread || new Map(),
     retiredTurnRefs: runtime?.retiredTurnRefs || new Map(),
-    retiredTurnFilter: runtime?.retiredTurnFilter || new Uint32Array(RETIRED_TURN_FILTER_WORDS),
   };
 }
 
@@ -47,35 +44,7 @@ function activateTurnTerminalLedger(runtime, scope) {
   runtime.turnTerminalStates = ledger.turnTerminalStates;
   runtime.observedTurnByThread = ledger.observedTurnByThread;
   runtime.retiredTurnRefs = ledger.retiredTurnRefs;
-  runtime.retiredTurnFilter = ledger.retiredTurnFilter;
   return ledger;
-}
-
-function retiredTurnHash(key, seed) {
-  let hash = seed >>> 0;
-  for (let index = 0; index < key.length; index += 1) {
-    hash = Math.imul(hash ^ key.charCodeAt(index), 16777619) >>> 0;
-  }
-  return hash;
-}
-
-function retiredTurnFilterIndexes(key) {
-  const first = retiredTurnHash(key, 2166136261);
-  const second = retiredTurnHash(key, 2246822519) | 1;
-  return [0, 1, 2, 3].map((offset) => (first + Math.imul(offset, second)) >>> 0)
-    .map((hash) => hash % RETIRED_TURN_FILTER_BITS);
-}
-
-function rememberRetiredTurn(runtime, key) {
-  for (const index of retiredTurnFilterIndexes(key)) {
-    runtime.retiredTurnFilter[index >>> 5] |= (1 << (index & 31));
-  }
-}
-
-function retiredTurnRemembered(runtime, key) {
-  return retiredTurnFilterIndexes(key).every((index) => (
-    runtime.retiredTurnFilter[index >>> 5] & (1 << (index & 31))
-  ) !== 0);
 }
 
 function entryMatchesTurnRef(entry, turnRef) {
@@ -255,7 +224,7 @@ function terminalCacheStats(runtime) {
 
 function archivedTurnRef(runtime, turnRef) {
   const key = runtimeTurnRefKey(turnRef.threadId, turnRef.turnId);
-  return runtime.retiredTurnRefs.has(key) || retiredTurnRemembered(runtime, key);
+  return runtime.retiredTurnRefs.has(key);
 }
 
 function rejectTerminalCacheCapacity(runtime, deps, event, method, turnRef) {
@@ -285,7 +254,6 @@ function retirePendingObservedTurnForActiveTurn(runtime, deps, observedTurnRef, 
 function retainRetiredTurnRef(runtime, deps, turnRef) {
   const key = runtimeTurnRefKey(turnRef.threadId, turnRef.turnId);
   if (runtime.retiredTurnRefs.has(key)) return true;
-  rememberRetiredTurn(runtime, key);
   if (runtime.retiredTurnRefs.size >= MAX_TRACKED_TURN_TERMINALS) {
     for (const [retiredKey, retiredTurnRef] of runtime.retiredTurnRefs) {
       if (turnRefIsActive(runtime, deps, retiredTurnRef)) continue;
@@ -644,6 +612,11 @@ export function clearTurnRuntimeForThread(runtime, threadId) {
   }
   for (const key of runtime.retiredTurnRefs.keys()) {
     if (key.startsWith(prefix)) runtime.retiredTurnRefs.delete(key);
+  }
+  runtime.patchGenerationsByThread.delete(threadId);
+  const sequencePrefix = `${threadId}::`;
+  for (const key of runtime.sequencesByThread.keys()) {
+    if (key === threadId || key.startsWith(sequencePrefix)) runtime.sequencesByThread.delete(key);
   }
   runtime.observedTurnByThread.delete(threadId);
 }

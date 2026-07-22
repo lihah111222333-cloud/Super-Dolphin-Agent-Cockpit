@@ -75,6 +75,7 @@ func translateCodexEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 	if rawErr, agentErr, ok := codexTimestampProviderError(raw); ok {
 		publish(dto.BusRawProviderEvent{Event: rawErr})
 		publish(agentErr)
+		publishCodexTimestampFailureTerminal(raw, publish)
 		return
 	}
 	eventType := strings.TrimSpace(raw.EventType)
@@ -109,8 +110,9 @@ func translateCodexEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 }
 
 const (
-	codexMissingTimestampCode = "codex_missing_timestamp"
-	codexInvalidTimestampCode = "codex_invalid_timestamp"
+	codexMissingTimestampCode           = "codex_missing_timestamp"
+	codexInvalidTimestampCode           = "codex_invalid_timestamp"
+	codexTerminalTimestampProtocolError = "terminal contract: provider timestamp invalid"
 )
 
 var codexLifecycleEventsRequiringTimestamp = map[string]struct{}{
@@ -166,6 +168,42 @@ func codexTimestampProviderError(raw dto.RawProviderEvent) (dto.RawProviderEvent
 		Code:               code,
 		Payload:            rawErr.SafePayload(),
 	}, true
+}
+
+// codexTerminalTimestampInvalid 仅标记会中断 canonical terminal 的坏 provider 时间。
+func codexTerminalTimestampInvalid(raw dto.RawProviderEvent) bool {
+	if !isTurnTerminalEvent(raw.EventType) {
+		return false
+	}
+	_, _, invalid := codexTimestampProviderError(raw)
+	return invalid
+}
+
+// publishCodexTimestampFailureTerminal 在可归因 terminal 时间无效时发布脱敏的失败终态。
+// 原始时间和 provider 错误只保留在内部 provider error 通道，绝不进入 TurnCompleted。
+func publishCodexTimestampFailureTerminal(raw dto.RawProviderEvent, publish func(ev any)) {
+	if !isTurnTerminalEvent(raw.EventType) {
+		return
+	}
+	payload, err := decodeRawEventPayload(raw.Data)
+	if err != nil {
+		return
+	}
+	agentID := strings.TrimSpace(payloadAgentID(payload))
+	turnID := strings.TrimSpace(payloadTurnID(payload))
+	if agentID == "" || strings.TrimSpace(payloadThreadID(payload)) == "" || turnID == "" {
+		return
+	}
+	safePayload := map[string]any{
+		"agentId":   agentID,
+		"threadId":  agentID,
+		"sessionId": stringValue(payload, "sessionId", "session_id"),
+		"turnId":    turnID,
+		"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
+		"error":     codexTerminalTimestampProtocolError,
+	}
+	terminal := &dto.TerminalOutcome{Status: "failed", ContractError: "provider timestamp invalid"}
+	publishCodexTranslatedEvent(raw.EventType, translateTurnTerminalEvent(safePayload, terminal), publish)
 }
 
 func codexEventRequiresTimestamp(eventType string) bool {

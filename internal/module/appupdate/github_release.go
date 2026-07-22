@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -89,7 +88,7 @@ func (s *service) fetchGitHubLatestRelease(ctx context.Context) (githubRelease, 
 	if err := requireSuccessStatus("fetch GitHub latest release", resp); err != nil {
 		return githubRelease{}, err
 	}
-	raw, err := io.ReadAll(resp.Body)
+	raw, err := readBoundedUpdateBody(resp.Body, maxGitHubReleaseMetadataBodyBytes)
 	if err != nil {
 		return githubRelease{}, fmt.Errorf("read GitHub latest release: %w", err)
 	}
@@ -123,7 +122,7 @@ func (s *service) fetchGitHubManifestAsset(ctx context.Context, asset githubRele
 	if err := requireSuccessStatus("fetch GitHub app update manifest", resp); err != nil {
 		return nil, err
 	}
-	raw, err := io.ReadAll(resp.Body)
+	raw, err := readBoundedUpdateBody(resp.Body, maxUpdateManifestBodyBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read GitHub app update manifest: %w", err)
 	}

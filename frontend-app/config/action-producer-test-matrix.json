@@ -27,11 +27,6 @@
       "actionId": "approval.respond"
     },
     {
-      "caseId": "a.producer.composer.drop",
-      "layer": "A",
-      "actionId": "composer.drop"
-    },
-    {
       "caseId": "a.producer.composer.file.drop",
       "layer": "A",
       "actionId": "composer.file.drop"
@@ -60,11 +55,6 @@
       "caseId": "a.producer.composer.model.selector",
       "layer": "A",
       "actionId": "composer.model.selector"
-    },
-    {
-      "caseId": "a.producer.composer.paste",
-      "layer": "A",
-      "actionId": "composer.paste"
     },
     {
       "caseId": "a.producer.composer.send",
@@ -1950,24 +1940,6 @@
       ]
     },
     {
-      "actionId": "composer.drop",
-      "errorSource": "sync-throw",
-      "evidence": [
-        "a.producer.composer.drop",
-        "b.wrapper.sync-throw",
-        "b.wrapper.sink-failure"
-      ]
-    },
-    {
-      "actionId": "composer.drop",
-      "errorSource": "promise-reject",
-      "evidence": [
-        "a.producer.composer.drop",
-        "b.wrapper.promise-reject",
-        "b.wrapper.sink-failure"
-      ]
-    },
-    {
       "actionId": "composer.file.select",
       "errorSource": "sync-throw",
       "evidence": [
@@ -1999,24 +1971,6 @@
       "errorSource": "promise-reject",
       "evidence": [
         "a.producer.composer.model.selector",
-        "b.wrapper.promise-reject",
-        "b.wrapper.sink-failure"
-      ]
-    },
-    {
-      "actionId": "composer.paste",
-      "errorSource": "sync-throw",
-      "evidence": [
-        "a.producer.composer.paste",
-        "b.wrapper.sync-throw",
-        "b.wrapper.sink-failure"
-      ]
-    },
-    {
-      "actionId": "composer.paste",
-      "errorSource": "promise-reject",
-      "evidence": [
-        "a.producer.composer.paste",
         "b.wrapper.promise-reject",
         "b.wrapper.sink-failure"
       ]

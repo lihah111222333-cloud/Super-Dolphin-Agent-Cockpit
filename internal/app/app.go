@@ -141,7 +141,7 @@ func Run() error {
 // DesktopACKPublisher 把健康 ACK 写入与 Wails Run 退出放入同一线性化顺序。
 type DesktopACKPublisher func(write func() error) error
 
-// RunDesktop 启动桌面 Wails 应用，并在 backend 与 Wails lifecycle 就绪后调用 ready。
+// RunDesktop 启动桌面 Wails 应用，并在 backend 与前端 Wails RPC 握手就绪后调用 ready。
 // 前端 filesystem 为空时由 wails 模块降级到内置占位页；运行结束前会先 drain runtime。
 func RunDesktop(
 	parent context.Context,
@@ -191,7 +191,7 @@ func RunDesktop(
 	return errors.Join(runErr, preDrainErr, stopErr)
 }
 
-// prepareDesktopRuntime 串行执行 Fx Start 与 Wails 依赖校验；ACK 由 ApplicationStarted 驱动。
+// prepareDesktopRuntime 串行执行 Fx Start 与 Wails 依赖校验；ACK 由前端 RPC 握手驱动。
 func prepareDesktopRuntime(
 	ctx context.Context,
 	start func(context.Context) error,
@@ -211,8 +211,9 @@ func prepareDesktopRuntime(
 }
 
 var (
-	errDesktopNotActivated = errors.New("wails application exited before ApplicationStarted")
-	errDesktopRunBeforeACK = errors.New("wails application exited before activation ACK completed")
+	errDesktopNotActivated     = errors.New("wails application exited before ApplicationStarted")
+	errDesktopNotFrontendReady = errors.New("wails application exited before frontend readiness")
+	errDesktopRunBeforeACK     = errors.New("wails application exited before activation ACK completed")
 )
 
 type desktopActivationGate struct {
@@ -264,11 +265,15 @@ func (gate *desktopActivationGate) markRunExited() desktopActivationSnapshot {
 func desktopActivationResult(
 	runErr error,
 	activated bool,
+	frontendReady bool,
 	snapshot desktopActivationSnapshot,
 	readyErr error,
 ) error {
 	if !activated {
 		return errors.Join(runErr, errDesktopNotActivated, readyErr)
+	}
+	if !frontendReady {
+		return errors.Join(runErr, errDesktopNotFrontendReady, readyErr)
 	}
 	if snapshot.ackCommitted {
 		return errors.Join(runErr, readyErr)
@@ -279,7 +284,7 @@ func desktopActivationResult(
 	return errors.Join(runErr, errDesktopRunBeforeACK, readyErr)
 }
 
-// runActivatedDesktop 在调用方 goroutine 运行 Wails，并仅在 ApplicationStarted 后写入 ACK。
+// runActivatedDesktop 在调用方 goroutine 运行 Wails，并仅在前端 Wails RPC 握手后写入 ACK。
 func runActivatedDesktop(
 	ctx context.Context,
 	activation *uiwails.ActivationReadiness,
@@ -295,9 +300,9 @@ func runActivatedDesktop(
 	gate := &desktopActivationGate{}
 	readyDone := make(chan error, 1)
 	runtimesafe.SafeGo(activationCtx, pkglogger.Get(), "app.desktopActivation", func(context.Context) {
-		if err := activation.Wait(activationCtx); err != nil {
+		if err := activation.WaitForFrontendReady(activationCtx); err != nil {
 			quit()
-			readyDone <- errors.Join(errDesktopNotActivated, err)
+			readyDone <- errors.Join(errDesktopNotFrontendReady, err)
 			return
 		}
 		err := ready(activationCtx, gate.publish)
@@ -310,13 +315,16 @@ func runActivatedDesktop(
 	runErr := run()
 	snapshot := gate.markRunExited()
 	activated := activation.Activated()
+	frontendReady := activation.FrontendReady()
 	if !activated {
 		cancelActivation(errDesktopNotActivated)
+	} else if !frontendReady {
+		cancelActivation(errDesktopNotFrontendReady)
 	} else {
 		cancelActivation(errDesktopRunBeforeACK)
 	}
 	readyErr := <-readyDone
-	return desktopActivationResult(runErr, activated, snapshot, readyErr)
+	return desktopActivationResult(runErr, activated, frontendReady, snapshot, readyErr)
 }
 
 // runDesktopPreflight 在 Fx 启动前准备桌面运行环境。

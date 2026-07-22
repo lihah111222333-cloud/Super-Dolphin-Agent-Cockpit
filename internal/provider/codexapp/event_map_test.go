@@ -45,52 +45,6 @@ func TestAgentSessionHeaderPrefersAgentIDAsThreadID(t *testing.T) {
 	}
 }
 
-func TestCodexTimestampProviderErrorForMissingLifecycleAndInvalidTerminal(t *testing.T) {
-	tests := []struct {
-		name     string
-		raw      dto.RawProviderEvent
-		wantCode string
-	}{
-		{
-			name: "missing lifecycle timestamp",
-			raw: dto.RawProviderEvent{EventType: "thread/status/changed", Data: map[string]any{
-				"agentId": "agent-1", "threadId": "thread-1", "sessionId": "session-1", "newState": "idle",
-			}},
-			wantCode: codexMissingTimestampCode,
-		},
-		{
-			name: "invalid terminal timestamp",
-			raw: dto.RawProviderEvent{EventType: "turn/completed", Data: map[string]any{
-				"agentId": "agent-1", "threadId": "thread-1", "sessionId": "session-1", "turnId": "turn-1", "timestamp": "not-a-time",
-			}},
-			wantCode: codexInvalidTimestampCode,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var published []any
-			translateCodexAdapterEvent(tt.raw, func(ev any) { published = append(published, ev) })
-			if len(published) != 2 {
-				t.Fatalf("published events = %#v, want raw provider error and AgentError", published)
-			}
-			if _, ok := published[0].(dto.BusRawProviderEvent); !ok {
-				t.Fatalf("first event type = %T, want BusRawProviderEvent", published[0])
-			}
-			agentErr, ok := published[1].(agentdto.AgentError)
-			if !ok {
-				t.Fatalf("second event type = %T, want AgentError", published[1])
-			}
-			if agentErr.Code != tt.wantCode || !strings.HasPrefix(agentErr.Message, "Provider reported an error. Diagnostic ID:") {
-				t.Fatalf("AgentError = %#v, want timestamp validation code %q", agentErr, tt.wantCode)
-			}
-			if strings.Contains(agentErr.Message, "not-a-time") || strings.Contains(agentErr.Message, "missing timestamp") {
-				t.Fatalf("AgentError leaked raw timestamp failure: %#v", agentErr)
-			}
-		})
-	}
-}
-
 func TestCodexTerminalTimestampUsesProviderValue(t *testing.T) {
 	want, err := time.Parse(time.RFC3339Nano, "2026-07-16T10:11:12.123Z")
 	if err != nil {

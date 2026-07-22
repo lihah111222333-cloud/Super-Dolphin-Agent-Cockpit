@@ -1116,6 +1116,11 @@ function Package-WindowsMain() {
             "GOARM=$((& go env GOARM).Trim())",
             "CC=$((& go env CC).Trim())",
             "CXX=$((& go env CXX).Trim())",
+            "CGO_ENABLED=$env:CGO_ENABLED",
+            "CGO_CPPFLAGS=$env:CGO_CPPFLAGS",
+            "CGO_CFLAGS=$env:CGO_CFLAGS",
+            "CGO_CXXFLAGS=$env:CGO_CXXFLAGS",
+            "CGO_LDFLAGS=$env:CGO_LDFLAGS",
             "WINDOWS_GUI_LDFLAGS=$windowsGuiLdFlags",
             "APP_COMMIT=$appCommit",
             "VCS_MODIFIED=$(Get-GitWorktreeModifiedInput)"

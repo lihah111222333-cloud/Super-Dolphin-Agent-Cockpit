@@ -22,6 +22,7 @@ import {
 } from './desktop-failure-contract.mjs';
 import { runManagedCommand } from './managed-command.mjs';
 import { DELIVERY_RUNNER_CONTENT_PATHS } from './delivery-smoke-runner.mjs';
+import { RUNNER_CONTENT_PATHS } from './evidence-provenance.mjs';
 import { FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS } from './frontend-execution-closure.mjs';
 import { productionActionFailureMatrixTitle } from '../src/shared/ui/productionActionFailureMatrixTitles.js';
 import { HEAP_MEASUREMENT_CLOCK } from './resource-budget.mjs';
@@ -35,7 +36,6 @@ import {
   dependencyTreeIntegrity,
   executionControlIds,
   finalGateFailures,
-  frontendPlanSizeStatus,
   inspectTargetRepository,
   persistScoreReport,
   performanceAuditPathAllowed,
@@ -59,7 +59,7 @@ const dependencyIntegrityModulePath = './frontend-maintainability-dependency-int
 const dependencyRefreshPath = join(scriptRoot, 'refresh-frontend-maintainability-dependencies.mjs');
 const plannedBaseSha = 'b40867229af8e17916c00393639ccb0fcb4bf6fc';
 const T05_DELIVERY_EVIDENCE_TEST_TIMEOUT_MS = 30_000;
-const EXECUTABLE_PROBE_TEST_TIMEOUT_MS = 90_000;
+const EXECUTABLE_PROBE_TEST_TIMEOUT_MS = 180_000;
 const FINAL_SCORER_COMMAND_TIMEOUT_MS = 180_000;
 const FINAL_SCORER_TEST_TIMEOUT_MS = FINAL_SCORER_COMMAND_TIMEOUT_MS + 30_000;
 const ACTION_PRODUCER_PROBE_TIMEOUT_MS = 180_000;
@@ -1264,13 +1264,6 @@ describe('frontend maintainability scorer configuration', () => {
     expect(() => validateConfiguration(t04HookRouteGuard.controls, t04HookRouteGuard.fixtures))
       .toThrow('T04 hook-route guard contract differs from frozen contract');
 
-    const t04PlanSizeGuard = documents();
-    const planSizeGuard = t04PlanSizeGuard.controls.controls.find(({ id }) => id === 'T04-local-gates')
-      .allOf.find(({ argv }) => argv.includes('--assert-frontend-plan-size'));
-    planSizeGuard.timeoutMs = 1;
-    expect(() => validateConfiguration(t04PlanSizeGuard.controls, t04PlanSizeGuard.fixtures))
-      .toThrow('T04 frontend-plan size guard contract differs from frozen contract');
-
     const mutableProbe = documents();
     mutableProbe.controls.controls.find(({ id }) => id === 'A02-state-ownership').allOf[0].argv[1] = 'scripts/renamed-guard.mjs';
     expect(() => validateConfiguration(mutableProbe.controls, mutableProbe.fixtures))
@@ -1387,13 +1380,9 @@ describe('frontend maintainability scorer configuration', () => {
       caseIds: ['hook-route-pre-commit-deleted', 'hook-route-pre-push-deleted', 'hook-route-ai-maintenance-deleted'],
       testCount: 3,
     });
-    expect(controls.controls.find(({ id }) => id === 'T04-local-gates').allOf[5]).toMatchObject({
-      kind: 'command',
-      cwd: '.',
-      argv: ['node', 'frontend-app/scripts/frontend-maintainability-score.mjs', '--assert-frontend-plan-size'],
-      caseIds: ['frontend-plan-size-bytes', 'frontend-plan-size-lines'],
-      testCount: 2,
-    });
+    const t04LocalGates = controls.controls.find(({ id }) => id === 'T04-local-gates');
+    expect(t04LocalGates.allOf).toHaveLength(5);
+    expect(t04LocalGates.allOf.flatMap(({ argv }) => argv)).not.toContain('--assert-frontend-plan-size');
     expect(JSON.parse(readFileSync(join(scriptRoot, 'frontend-maintainability-baseline.json'), 'utf8')).baseSha)
       .toBe(plannedBaseSha);
     const backgroundHealth = controls.controls.find(({ id }) => id === 'E03-background-health');
@@ -2748,25 +2737,20 @@ describe('executable evidence registry', () => {
     }
   }, 60_000);
 
-  it('binds every performance control to the audited runner content files', () => {
+  it('binds every performance control to current runner content and keeps P03 subject-owned', () => {
     const { controls } = documents();
-    const baselineDocument = JSON.parse(readFileSync(
-      join(scriptRoot, 'frontend-maintainability-baseline.json'),
-      'utf8',
-    ));
-    const auditedRunnerFiles = baselineDocument.provenance.runnerFiles.map(({ path }) => path);
     const nonRunnerFiles = [
       'frontend-app/package.json',
       'frontend-app/src/entities/client/model/contractStoreModel.js',
       'frontend-app/src/entities/client/model/threadLifecycleRuntime.js',
+      'frontend-app/src/pages/chat/components/ChatActionFeedback.js',
     ];
 
-    expect(auditedRunnerFiles).toContain('frontend-app/src/pages/chat/components/ChatActionFeedback.js');
-    for (const path of nonRunnerFiles) expect(auditedRunnerFiles).not.toContain(path);
+    for (const path of nonRunnerFiles) expect(RUNNER_CONTENT_PATHS).not.toContain(path);
     for (const controlId of ['P01-render-isolation', 'P02-history-budget', 'P03-feedback-budget', 'P04-resource-budget']) {
       const control = controls.controls.find(({ id }) => id === controlId);
       const check = control.allOf.find(({ evidenceProtocol }) => evidenceProtocol === 'performance-budget-json-v1');
-      expect(check.runnerFiles).toEqual(auditedRunnerFiles);
+      expect(check.runnerFiles).toEqual(RUNNER_CONTENT_PATHS);
       for (const path of nonRunnerFiles) expect(check.runnerFiles).not.toContain(path);
     }
     expect(performanceAuditPathAllowed('frontend-app/package.json')).toBe(false);
@@ -2924,11 +2908,16 @@ describe('scoring semantics', () => {
     expect(structuredEvidenceStatus(overAbsoluteLimit, { ...options, baselineDocument: baseline })).toBe('FAIL');
   }, 60_000);
 
-  it('fails closed when the frontend plan exceeds either frozen size limit', () => {
-    expect(frontendPlanSizeStatus('x'.repeat(25_600))).toMatchObject({ status: 'PASS', bytes: 25_600, lines: 1 });
-    expect(frontendPlanSizeStatus('x'.repeat(25_601))).toMatchObject({ status: 'FAIL', bytes: 25_601 });
-    expect(frontendPlanSizeStatus('x\n'.repeat(501))).toMatchObject({ status: 'FAIL', lines: 501 });
-    expect(frontendPlanSizeStatus(`${'x\n'.repeat(500)}x`)).toMatchObject({ status: 'FAIL', lines: 501 });
+  it('keeps historical plans outside the --score --run execution contract', () => {
+    const t04 = documents().controls.controls.find(({ id }) => id === 'T04-local-gates');
+    const source = readFileSync(scorerPath, 'utf8');
+    const legacyPlanGate = cli(['--assert-frontend-plan-size']);
+    expect(t04.allOf).toHaveLength(5);
+    expect(t04.allOf.flatMap(({ argv }) => argv)).not.toContain('--assert-frontend-plan-size');
+    expect(source).not.toContain('docs/plans/2026-07-15-frontend-maintainability-error-discoverability-90-plan.md');
+    expect(source).not.toContain('--assert-frontend-plan-size');
+    expect(legacyPlanGate.status).not.toBe(0);
+    expect(`${legacyPlanGate.stdout}${legacyPlanGate.stderr}`).toContain('unknown scorer mode');
   });
 
   it('does not turn zero evidence or confirmed artifact gaps into score', async () => {

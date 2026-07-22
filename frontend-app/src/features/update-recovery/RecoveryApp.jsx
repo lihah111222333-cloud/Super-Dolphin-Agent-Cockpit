@@ -9,14 +9,16 @@ import {
 } from "lucide-react";
 
 import { exportRecoveryDiagnostics } from "./recoveryDiagnostics.js";
+import {
+  recoveryPublicErrorForFailure,
+  recoveryPublicReasonForDisplay,
+} from "./recoveryClient.js";
 
 const EMPTY_STATE = Object.freeze({
   status: "loading",
   value: null,
-  error: "",
+  error: null,
 });
-const GENERIC_ACTION_ERROR =
-  "Recovery action failed. Sensitive diagnostics remain preserved internally.";
 
 function fieldValue(value) {
   return value === "" ? "None" : value;
@@ -35,13 +37,17 @@ function viewForValue(value) {
   return { status: value.failure.code ? "failure" : "ready", value, error: "" };
 }
 
-async function refreshAfterActionFailure(client) {
+async function refreshAfterActionFailure(client, cause) {
   try {
     const value = await client.state();
     if (value.failure.code) return viewForValue(value);
-    return { status: "error", value, error: GENERIC_ACTION_ERROR };
+    return { status: "error", value, error: recoveryPublicErrorForFailure(cause) };
   } catch {
-    return { status: "error", value: null, error: GENERIC_ACTION_ERROR };
+    return {
+      status: "error",
+      value: null,
+      error: recoveryPublicErrorForFailure(cause),
+    };
   }
 }
 
@@ -122,12 +128,12 @@ function RecoveryApp({
   const runAction = useCallback(
     async (action) => {
       setActiveAction(action);
-      setView((current) => ({ ...current, status: "loading", error: "" }));
+        setView((current) => ({ ...current, status: "loading", error: null }));
       try {
         const value = await client[action]();
         setView(viewForValue(value));
-      } catch {
-        const failedView = await refreshAfterActionFailure(client);
+      } catch (error) {
+        const failedView = await refreshAfterActionFailure(client, error);
         setView(failedView);
       }
     },
@@ -146,6 +152,7 @@ function RecoveryApp({
   const projection = view.value?.projection;
   const actions = view.value?.actions;
   const failure = view.value?.failure;
+	const recoveryReason = recoveryPublicReasonForDisplay(projection?.reason);
   const busy = view.status === "loading";
   const statusLabel = recoveryStatusLabel(busy, failure, projection);
   const restart = useCallback(() => {
@@ -176,7 +183,9 @@ function RecoveryApp({
 
       {view.error && (
         <div className="recovery-error" role="alert">
-          {view.error}
+          <strong>{view.error.title}</strong>
+          <p>{view.error.publicMessage}</p>
+          <p>Diagnostic ID: {view.error.diagnosticId}</p>
         </div>
       )}
       {restartInstruction && (
@@ -199,7 +208,8 @@ function RecoveryApp({
             aria-labelledby="recovery-reason-title"
           >
             <p id="recovery-reason-title">Recovery reason</p>
-            <strong>{fieldValue(projection.reason)}</strong>
+            <strong>{recoveryReason ? recoveryReason.publicMessage : "None"}</strong>
+            {recoveryReason && <p>Diagnostic ID: {recoveryReason.diagnosticId}</p>}
           </section>
 
           <section className="recovery-details" aria-label="Recovery state">

@@ -115,12 +115,12 @@ func TestOnNotificationFirstTerminalWinsBeforeDispatch(t *testing.T) {
 	}
 }
 
-func TestOnNotificationFirstTerminalWithoutLiveHandleIsDispatchedOnce(t *testing.T) {
+func TestOnNotificationOwnerlessTerminalIsRejected(t *testing.T) {
 	bus := event.NewDispatcher()
 	defer func() { _ = bus.Close() }()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
 	RegisterTranslators(dispatcher)
-	completedEvents := make(chan turndto.TurnCompleted, 2)
+	completedEvents := make(chan turndto.TurnCompleted, 1)
 	cancelSub := event.Subscribe(bus, func(ev turndto.TurnCompleted) {
 		completedEvents <- ev
 	})
@@ -128,55 +128,45 @@ func TestOnNotificationFirstTerminalWithoutLiveHandleIsDispatchedOnce(t *testing
 
 	s := &session{agentID: "agent-public", dispatcher: dispatcher}
 	s.onNotification("turn/completed", json.RawMessage(`{"turnId":"turn-provider","threadId":"thread-provider","timestamp":"2026-07-16T10:11:12.123Z","success":true,"status":"completed"}`))
-	s.onNotification("turn/failed", json.RawMessage(`{"turnId":"turn-provider","threadId":"thread-provider","timestamp":"2026-07-16T10:11:12.123Z","success":false,"status":"failed","error":"late failure"}`))
 
 	select {
-	case completed := <-completedEvents:
-		if !completed.Success || completed.Status != "completed" {
-			t.Fatalf("first terminal = %#v, want completed success", completed)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for first terminal without handle")
-	}
-	select {
-	case duplicate := <-completedEvents:
-		t.Fatalf("conflicting terminal without handle was dispatched: %#v", duplicate)
+	case terminal := <-completedEvents:
+		t.Fatalf("ownerless terminal was dispatched: %#v", terminal)
 	case <-time.After(50 * time.Millisecond):
 	}
 }
 
-func TestTerminalSealCapacityEvictsOldestAndRetainsRecentConflict(t *testing.T) {
-	s := &session{agentID: "agent-public"}
-	for i := range maxTerminalSeals * 2 {
-		payload := map[string]any{"turnId": fmt.Sprintf("turn-%d", i)}
-		if !s.claimTerminalSeal(payload) {
-			t.Fatalf("turn %d was blocked before terminal seal capacity", i)
+func TestOnNotificationOldOwnerlessTerminalIsRejectedAfterChurn(t *testing.T) {
+	const liveTerminalCount = 257
+	bus := event.NewDispatcher()
+	defer func() { _ = bus.Close() }()
+	dispatcher := unified.NewEventDispatcher(bus, nil)
+	RegisterTranslators(dispatcher)
+	completedEvents := make(chan turndto.TurnCompleted, liveTerminalCount+1)
+	cancelSub := event.Subscribe(bus, func(ev turndto.TurnCompleted) {
+		completedEvents <- ev
+	})
+	defer cancelSub()
+
+	s := &session{agentID: "agent-public", dispatcher: dispatcher, turns: map[string]*turnHandle{}}
+	for i := range liveTerminalCount {
+		turnID := fmt.Sprintf("turn-%d", i)
+		s.turns[turnID] = newTurnHandle("local-"+turnID, turnID)
+		s.onNotification("turn/completed", json.RawMessage(`{"turnId":"`+turnID+`","timestamp":"2026-07-16T10:11:12.123Z","success":true,"status":"completed"}`))
+	}
+	for range liveTerminalCount {
+		select {
+		case <-completedEvents:
+		case <-time.After(time.Second):
+			t.Fatal("timed out draining live terminal events")
 		}
 	}
-	if got := len(s.terminalSeals); got != maxTerminalSeals {
-		t.Fatalf("terminal seal count = %d, want %d", got, maxTerminalSeals)
-	}
-	if got := len(s.terminalSealOrder); got != maxTerminalSeals {
-		t.Fatalf("terminal seal order length = %d, want %d", got, maxTerminalSeals)
-	}
-	recentTurnID := fmt.Sprintf("turn-%d", maxTerminalSeals*2-1)
-	if s.claimTerminalSeal(map[string]any{"turnId": recentTurnID}) {
-		t.Fatal("recent conflicting terminal was not rejected")
-	}
-	if !s.claimTerminalSeal(map[string]any{"turnId": "turn-0"}) {
-		t.Fatal("oldest evicted terminal remained permanently latched")
-	}
-}
 
-func TestTerminalSealKeyUsesPublicSessionThreadIdentity(t *testing.T) {
-	s := &session{agentID: "agent-public"}
-	key, ok := s.terminalSealKey(map[string]any{
-		"agentId":  "provider-agent",
-		"threadId": "provider-thread",
-		"turnId":   "turn-provider",
-	})
-	if !ok || key != "agent-public\x00turn-provider" {
-		t.Fatalf("terminal seal key = %q, ok=%v, want public session thread identity", key, ok)
+	s.onNotification("turn/failed", json.RawMessage(`{"turnId":"turn-0","timestamp":"2026-07-16T10:11:12.123Z","success":false,"status":"failed","error":"late failure"}`))
+	select {
+	case duplicate := <-completedEvents:
+		t.Fatalf("old ownerless terminal was dispatched after churn: %#v", duplicate)
+	case <-time.After(50 * time.Millisecond):
 	}
 }
 

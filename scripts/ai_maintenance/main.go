@@ -447,6 +447,9 @@ func applySourceGateRules(file string, gates, evidence map[string]bool) bool {
 		gates["frontend:test"] = true
 		gates["frontend:build"] = true
 		gates["frontend:embed-verify"] = true
+		if file == "frontend-app/scripts/frontend-maintainability-baseline.json" {
+			gates["frontend:performance-verify"] = true
+		}
 		requireLSPEvidence(file, evidence)
 	case strings.HasPrefix(file, "cmd/"), strings.HasPrefix(file, "internal/"), strings.HasPrefix(file, "pkg/"):
 		requireLSPEvidence(file, evidence)
@@ -605,6 +608,7 @@ func gateEvidenceCommandFragments() map[string][]string {
 		"frontend:test":                    {"npm test"},
 		"frontend:build":                   {"npm run build"},
 		"frontend:embed-verify":            {"make frontend-embed-verify"},
+		"frontend:performance-verify":      {"npm run performance:verify"},
 		"codemap:check":                    {"make codemap-check"},
 		"project-map:check":                {"make project-map-check"},
 		"sqlc:verify":                      {"make sqlc-verify-worktree", "make sqlc-verify"},
@@ -696,6 +700,7 @@ func orderedGates(values map[string]bool) []string {
 		"frontend:test",
 		"frontend:build",
 		"frontend:embed-verify",
+		"frontend:performance-verify",
 		"backend:test_with_guard",
 		"lsp:changed-diagnostics",
 		"backend:test_with_guard_and_race",

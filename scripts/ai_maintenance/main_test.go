@@ -44,6 +44,12 @@ func TestBuildGatePlanRoutesFrontendBackendAndGeneratedFiles(t *testing.T) {
 	}
 }
 
+func TestBuildGatePlanRoutesFrontendPerformanceBaselineToVerification(t *testing.T) {
+	plan := mustBuildGatePlan(t, []string{"frontend-app/scripts/frontend-maintainability-baseline.json"})
+
+	assertStringSetContains(t, plan.RequiredGates, "frontend:performance-verify")
+}
+
 func TestBuildGatePlanRoutesAIMaintenanceHooksToSelfTest(t *testing.T) {
 	plan := mustBuildGatePlan(t, []string{".githooks/pre-commit", ".githooks/pre-push"})
 
@@ -460,6 +466,7 @@ func TestGatePlanProducerMatchesRunnerAndEvidenceRegistries(t *testing.T) {
 		{"scripts/ai_maintenance/main.go"},
 		{".githooks/pre-commit"},
 		{"frontend-app/src/App.jsx"},
+		{"frontend-app/scripts/frontend-maintainability-baseline.json"},
 		{"internal/store/thread/store.go"},
 		{"internal/contract/provider.go"},
 		{"docs/doc/codemap/ai-index.json"},

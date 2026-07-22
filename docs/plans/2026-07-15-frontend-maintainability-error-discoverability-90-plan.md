@@ -1,18 +1,20 @@
-# 前端可维护性与错误可发现性 90 分提升计划（桌面版）
+# 前端可维护性与错误可发现性 90 分提升计划（桌面版，历史不可复现快照）
 
-> **状态：** IMPLEMENTED / final review pending / performance NOT_VERIFIED
+> **状态：** 历史、不可复现的规划快照；不构成当前实现、评分或交付状态。
 >
-> **评分基线：** `SCORE_BASE_SHA=fe64840a7bd55471175dc358cc8eb1e3869832a7`（冻结 `origin/main`）
+> **历史原始状态声明（仅供审计）：** 本文曾标记为 `IMPLEMENTED / final review pending / performance NOT_VERIFIED`；其中 `IMPLEMENTED` 与实现冻结表述现已撤销。
 >
-> **实现提交：** `IMPLEMENTATION_SHA=9729f7f1eb964fbff385510d7840c138829a52f1`
+> **历史原始评分基线记录（仅供审计）：** `SCORE_BASE_SHA=fe64840a7bd55471175dc358cc8eb1e3869832a7`（当时冻结 `origin/main`）。
 >
-> **性能暂停：** 2026-07-21 起按控制器指令停止 P01-P04、benchmark 和 `frontend-maintainability --final`。恢复前性能证据、最终分数与“达到 90 分”结论均保持 `NOT_VERIFIED`；功能门禁与代码审查可继续。
+> **历史原始实现声明（仅供审计）：** 曾记录 `IMPLEMENTATION_SHA=9729f7f1eb964fbff385510d7840c138829a52f1`；该对象无法解析为 Git commit，不得用作实现冻结、证据或评分输入。
+>
+> **历史性能暂停记录：** 2026-07-21 起按控制器指令停止 P01-P04、benchmark 和 `frontend-maintainability --final`。恢复前性能证据、最终分数与“达到 90 分”结论均保持 `NOT_VERIFIED`；功能门禁与代码审查可继续。
 >
 > **产品边界：** 单机桌面应用。运行边界是 React、Wails、Go 后端和本机 provider 进程，不按分布式系统设计。
 >
 > **目标：** 错误可发现、终态真实、用户动作不得只写 console；修复与证据闭环后，脚本在同一提交上算出 ≥90 分。
 
-本文是执行合同，不是“当前已经 90 分”的证明。历史估分只能作为参考；最终分数必须绑定同一提交上的代码、测试和审查结果。
+本文保留为当时的执行规划记录，不是当前执行合同、当前已经 90 分的证明或可复现实现证据。历史估分只能作为参考；任何当前结论必须绑定可解析的同一提交代码、测试和审查结果。
 
 ---
 
@@ -381,7 +383,7 @@ runner emits SCORE_BASE-schema normalized report with SUBJECT SHA/tree, control,
 
 ---
 
-当前功能实现冻结为 `IMPLEMENTATION_SHA=9729f7f1eb964fbff385510d7840c138829a52f1`。最终候选仍仅由恢复评分时调用者的 `SUBJECT_SHA` 冻结；不得将本文提交 SHA 写回本文，结论只认第 6.2 节的新鲜证据。性能暂停期间不存在已验证的最终候选。
+本文历史上曾将 `IMPLEMENTATION_SHA=9729f7f1eb964fbff385510d7840c138829a52f1` 称为“当前功能实现冻结”；该 SHA 无法解析为 Git commit，该主张现已撤销。正文中关于 `SUBJECT_SHA` 的冻结规则只保留为当时的拟议流程，不得据此得出当前实现或评分结论。
 
 ## 8. 停止条件
 

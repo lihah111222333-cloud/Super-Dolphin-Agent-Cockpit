@@ -18,7 +18,6 @@ import (
 const (
 	maxSuppressedToolEnds         = 256
 	maxRolloutToolNames           = 256
-	maxTerminalSeals              = 256
 	turnToolFailurePrefix         = "\x00turn_tool_failure\x00"
 	acceptedInterruptRequestIDKey = "\x00accepted_interrupt_request_id\x00"
 )
@@ -105,41 +104,21 @@ func (s *session) finishTurn(raw dto.RawProviderEvent) {
 	h.complete(errors.New(errText))
 }
 
-// claimTerminalSeal records the first canonical terminal for a public thread and turn.
-// A missing live handle is valid for resumed or asynchronous provider events and is not a duplicate.
+// claimTerminalSeal 只允许仍由 live owner 持有的 turn 领取首个 terminal。
+// claim 状态放在 handle 内并与 handle 一起回收，避免历史 terminal seal 无界增长或 LRU 漏放。
 func (s *session) claimTerminalSeal(payload map[string]any) bool {
-	key, ok := s.terminalSealKey(payload)
-	if !ok {
-		return true
+	turnID := strings.TrimSpace(payloadTurnID(payload))
+	if turnID == "" {
+		return false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.terminalSeals == nil {
-		s.terminalSeals = map[string]struct{}{}
-	}
-	if _, exists := s.terminalSeals[key]; exists {
+	h := s.turns[turnID]
+	if h == nil || h.terminalClaimed {
 		return false
 	}
-	s.terminalSeals[key] = struct{}{}
-	s.terminalSealOrder = append(s.terminalSealOrder, key)
-	for len(s.terminalSealOrder) > maxTerminalSeals {
-		oldest := s.terminalSealOrder[0]
-		s.terminalSealOrder = s.terminalSealOrder[1:]
-		delete(s.terminalSeals, oldest)
-	}
+	h.terminalClaimed = true
 	return true
-}
-
-func (s *session) terminalSealKey(payload map[string]any) (string, bool) {
-	turnID := strings.TrimSpace(payloadTurnID(payload))
-	threadID := strings.TrimSpace(s.agentID)
-	if threadID == "" {
-		threadID = shared.FirstNonEmpty(payloadAgentID(payload), payloadThreadID(payload))
-	}
-	if threadID == "" || turnID == "" {
-		return "", false
-	}
-	return threadID + "\x00" + turnID, true
 }
 
 // failMalformedTerminalNotification 只关闭可证明属于 active TurnRef 的 malformed terminal。
@@ -187,10 +166,6 @@ func (s *session) failMalformedTerminalNotification(method string, params json.R
 		"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
 		"error":     errText,
 	}
-	if !s.claimTerminalSeal(payload) {
-		h.complete(errors.New(errText))
-		return
-	}
 	s.dispatch(dto.RawProviderEvent{EventType: "turn/completed", Terminal: outcome, Data: payload})
 	pkglogger.Warn("codexapp: malformed terminal notification failed active turn",
 		"agent_id", s.agentID,
@@ -209,10 +184,11 @@ func (s *session) takeActiveTurnIfMatches(rawTurnID string) (*turnHandle, bool) 
 	h := s.turns[turnID]
 	matched := h != nil && rawTurnID != "" && (rawTurnID == turnID ||
 		rawTurnID == strings.TrimSpace(h.ProviderID()) || rawTurnID == strings.TrimSpace(h.LocalID()))
-	if !matched {
+	if !matched || h.terminalClaimed {
 		s.mu.Unlock()
 		return nil, false
 	}
+	h.terminalClaimed = true
 	delete(s.turns, turnID)
 	delete(s.interruptRequests, turnID)
 	s.setActiveTurnLocked("")
@@ -245,6 +221,67 @@ func (s *session) takeTurn(turnID string) *turnHandle {
 	s.dropTurnOutputAccumulator(turnID)
 	s.discardTurnToolFailures(turnID)
 	return h
+}
+
+// claimAndTakeRecoveryTurn 原子地领取仍由 recovery snapshot 持有的 turn，并清空关联 Stop claim。
+// 终态 claim 绑定到 live handle，旧终态即使在后续 churn 后到达也不会重新进入分发。
+func (s *session) claimAndTakeRecoveryTurn(snapshot *turnReplayState, requireInterrupt bool) (*turnHandle, *interruptRequestClaim, bool, bool) {
+	if s == nil {
+		return nil, nil, false, false
+	}
+	turnID, ok := recoverySnapshotTurnID(snapshot)
+	if !ok {
+		return nil, nil, false, false
+	}
+	s.mu.Lock()
+	h, terminalOwned := s.recoveryTurnLocked(snapshot, turnID)
+	if h == nil || terminalOwned {
+		s.mu.Unlock()
+		return nil, nil, false, terminalOwned
+	}
+	claim := s.consumeInterruptClaimLocked(turnID)
+	if requireInterrupt && claim == nil {
+		s.mu.Unlock()
+		return nil, nil, false, false
+	}
+	s.takeRecoveryTurnLocked(turnID, h)
+	s.mu.Unlock()
+	s.dropTurnOutputAccumulator(turnID)
+	s.discardTurnToolFailures(turnID)
+	return h, claim, true, false
+}
+
+// recoverySnapshotTurnID 验证 recovery snapshot 的局部 owner 身份并取得 provider turn ID。
+func recoverySnapshotTurnID(snapshot *turnReplayState) (string, bool) {
+	if snapshot == nil || snapshot.handle == nil {
+		return "", false
+	}
+	turnID := strings.TrimSpace(snapshot.providerID)
+	return turnID, turnID != ""
+}
+
+// recoveryTurnLocked 只接受仍属于当前 snapshot 的 live handle，并报告是否已有终态 owner。
+// 调用方必须持有 s.mu。
+func (s *session) recoveryTurnLocked(snapshot *turnReplayState, turnID string) (*turnHandle, bool) {
+	h := s.turns[turnID]
+	if h != snapshot.handle {
+		return nil, false
+	}
+	return h, h.terminalClaimed
+}
+
+// takeRecoveryTurnLocked 在同一临界区内标记终态所有权并清除所有本地 turn 注册表。
+// 调用方必须持有 s.mu。
+func (s *session) takeRecoveryTurnLocked(turnID string, h *turnHandle) {
+	h.terminalClaimed = true
+	delete(s.turns, turnID)
+	delete(s.interruptRequests, turnID)
+	if turnID == s.activeTurnID {
+		s.setActiveTurnLocked("")
+	}
+	if s.pendingTurn != nil && s.pendingTurn.handle == h {
+		s.pendingTurn = nil
+	}
 }
 
 // applyAcceptedInterruptRequest 消费同一 active TurnRef 的 Stop claim。
@@ -850,6 +887,7 @@ func (s *session) failTurns(err error) {
 	s.setActiveTurnLocked("")
 	s.interruptRequests = nil
 	s.pendingTurn = nil
+	s.startingTurn = nil
 	s.mu.Unlock()
 	// 失败所有 turn 时同步丢弃 providerID 对应的输出累积器，避免关闭后残留大文本缓冲。
 	for providerID, h := range turns {

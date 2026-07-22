@@ -63,6 +63,33 @@ func TestSaveAndRestoreAcrossLinkedWorktrees(t *testing.T) {
 	}
 }
 
+func TestMakefileChangeMissesSharedCacheAcrossLinkedWorktrees(t *testing.T) {
+	repository := initRepository(t)
+	first := addWorktree(t, repository, "first")
+	second := addWorktree(t, repository, "second")
+	writeFixtureTree(t, first)
+	writeFixtureTree(t, second)
+	writeFile(t, filepath.Join(first, "Makefile"), "build-peer-binaries: first\n", 0o644)
+	writeFile(t, filepath.Join(second, "Makefile"), "build-peer-binaries: second\n", 0o644)
+
+	firstRequest := fixtureRequest(first)
+	firstRequest.paths = append(firstRequest.paths, filepath.Join(first, "Makefile"))
+	secondRequest := fixtureRequest(second)
+	secondRequest.paths = append(secondRequest.paths, filepath.Join(second, "Makefile"))
+
+	writeFile(t, filepath.Join(first, "bin", "tool"), "first artifact", 0o755)
+	if err := save(firstRequest); err != nil {
+		t.Fatal(err)
+	}
+	hit, err := restore(secondRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hit {
+		t.Fatal("expected shared cache miss when only Makefile content differs")
+	}
+}
+
 func TestRestoreRejectsCorruptSharedArtifact(t *testing.T) {
 	repository := initRepository(t)
 	worktree := addWorktree(t, repository, "corrupt")
@@ -132,7 +159,7 @@ func TestSavePrunesOldEntriesPerPhase(t *testing.T) {
 	worktree := addWorktree(t, repository, "prune")
 	writeFixtureTree(t, worktree)
 	request := fixtureRequest(worktree)
-	for index := 0; index < maxCacheEntriesPerPhase+3; index++ {
+	for index := range maxCacheEntriesPerPhase + 3 {
 		request.inputs = []string{"variant=" + string(rune('a'+index))}
 		writeFile(t, filepath.Join(worktree, "bin", "tool"), request.inputs[0], 0o755)
 		if err := save(request); err != nil {

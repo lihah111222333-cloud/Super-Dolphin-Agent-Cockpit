@@ -1,18 +1,20 @@
 path	module	domain	type	size_bytes	purpose	search_keys
-internal/module/appupdate/github_release_test.go	internal	modules	go-test	9240	业务模块层	internal,module,appupdate,github,release,test,业务模块层
-internal/module/appupdate/github_release.go	internal	modules	go-source	9752	业务模块层	internal,module,appupdate,github,release,业务模块层
+internal/module/appupdate/github_release_test.go	internal	modules	go-test	10697	业务模块层	internal,module,appupdate,github,release,test,业务模块层
+internal/module/appupdate/github_release.go	internal	modules	go-source	9831	业务模块层	internal,module,appupdate,github,release,业务模块层
 internal/module/appupdate/manifest_test.go	internal	modules	go-test	8176	业务模块层	internal,module,appupdate,manifest,test,业务模块层
 internal/module/appupdate/manifest.go	internal	modules	go-source	9708	业务模块层	internal,module,appupdate,manifest,业务模块层
 internal/module/appupdate/module.go	internal	modules	go-source	533	业务模块层	internal,module,appupdate,业务模块层
-internal/module/appupdate/package_trust_test.go	internal	modules	go-test	11458	业务模块层	internal,module,appupdate,package,trust,test,业务模块层
+internal/module/appupdate/package_trust_test.go	internal	modules	go-test	12781	业务模块层	internal,module,appupdate,package,trust,test,业务模块层
 internal/module/appupdate/package_trust_tool.go	internal	modules	go-source	3996	业务模块层	internal,module,appupdate,package,trust,tool,业务模块层
-internal/module/appupdate/package_trust.go	internal	modules	go-source	5987	业务模块层	internal,module,appupdate,package,trust,业务模块层
+internal/module/appupdate/package_trust.go	internal	modules	go-source	6821	业务模块层	internal,module,appupdate,package,trust,业务模块层
 internal/module/appupdate/rpc_recovery_test.go	internal	modules	go-test	11114	业务模块层	internal,module,appupdate,rpc,recovery,test,业务模块层
 internal/module/appupdate/rpc_test.go	internal	modules	go-test	2346	业务模块层	internal,module,appupdate,rpc,test,业务模块层
 internal/module/appupdate/rpc.go	internal	modules	go-source	3949	业务模块层	internal,module,appupdate,rpc,业务模块层
+internal/module/appupdate/service_operation_test.go	internal	modules	go-test	11855	业务模块层	internal,module,appupdate,service,operation,test,业务模块层
 internal/module/appupdate/service_sidecar_stub_test.go	internal	modules	go-test	776	业务模块层	internal,module,appupdate,service,sidecar,stub,test,业务模块层
-internal/module/appupdate/service_test.go	internal	modules	go-test	28403	业务模块层	internal,module,appupdate,service,test,业务模块层
-internal/module/appupdate/service.go	internal	modules	go-source	30479	业务模块层	internal,module,appupdate,service,业务模块层
+internal/module/appupdate/service_test.go	internal	modules	go-test	29102	业务模块层	internal,module,appupdate,service,test,业务模块层
+internal/module/appupdate/service.go	internal	modules	go-source	32195	业务模块层	internal,module,appupdate,service,业务模块层
+internal/module/appupdate/stage_io.go	internal	modules	go-source	15576	业务模块层	internal,module,appupdate,stage,io,业务模块层
 internal/module/appupdate/windows_signature_test.go	internal	modules	go-test	1416	业务模块层	internal,module,appupdate,windows,signature,test,业务模块层
 internal/module/appupdate/windows_signature.go	internal	modules	go-source	4213	业务模块层	internal,module,appupdate,windows,signature,业务模块层
 internal/module/cron/actors_test.go	internal	modules	go-test	2751	业务模块层	internal,module,cron,actors,test,业务模块层
@@ -695,7 +697,7 @@ internal/module/uistate/model_providers.go	internal	modules	go-source	14905	UI �
 internal/module/uistate/module_runtime_test.go	internal	modules	go-test	7181	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,runtime,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/module.go	internal	modules	go-source	7519	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/overlay_test.go	internal	modules	go-test	14320	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,overlay,test,UI,事件投影,sidebar,timeline,状态
-internal/module/uistate/patch_test.go	internal	modules	go-test	21872	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,patch,test,UI,事件投影,sidebar,timeline,状态
+internal/module/uistate/patch_test.go	internal	modules	go-test	21975	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,patch,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/patch_timeline.go	internal	modules	go-source	4604	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,patch,timeline,UI,事件投影,sidebar,状态
 internal/module/uistate/patch.go	internal	modules	go-source	17531	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,patch,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/persistence_port.go	internal	modules	go-source	1604	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,persistence,port,UI,事件投影,sidebar,timeline,状态
@@ -703,8 +705,8 @@ internal/module/uistate/phase2_stats_patch_pending_test.go	internal	modules	go-t
 internal/module/uistate/preferences_event_test.go	internal	modules	go-test	1355	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,preferences,event,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/preferences_runtime_contract_test.go	internal	modules	go-test	6827	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,preferences,runtime,contract,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/preferences.go	internal	modules	go-source	16602	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,preferences,UI,事件投影,sidebar,timeline,状态
-internal/module/uistate/projector_handlers.go	internal	modules	go-source	19545	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,projector,handlers,UI,事件投影,sidebar,timeline,状态
-internal/module/uistate/projector_status_test.go	internal	modules	go-test	22812	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,projector,status,test,UI,事件投影,sidebar,timeline,状态
+internal/module/uistate/projector_handlers.go	internal	modules	go-source	19487	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,projector,handlers,UI,事件投影,sidebar,timeline,状态
+internal/module/uistate/projector_status_test.go	internal	modules	go-test	26551	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,projector,status,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/projector.go	internal	modules	go-source	13914	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,projector,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/projects_concurrency_test.go	internal	modules	go-test	2855	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,projects,concurrency,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/projects_test.go	internal	modules	go-test	5241	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,projects,test,UI,事件投影,sidebar,timeline,状态
@@ -715,8 +717,8 @@ internal/module/uistate/service.go	internal	modules	go-source	17227	UI 事件投
 internal/module/uistate/sidebar_clone_contract_test.go	internal	modules	go-test	3898	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,sidebar,clone,contract,test,UI,事件投影,timeline,状态
 internal/module/uistate/sidebar_compat.go	internal	modules	go-source	13572	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,sidebar,compat,UI,事件投影,timeline,状态
 internal/module/uistate/sidebar_test.go	internal	modules	go-test	25101	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,sidebar,test,UI,事件投影,timeline,状态
-internal/module/uistate/snapshot_helpers_test.go	internal	modules	go-test	2026	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,snapshot,helpers,test,UI,事件投影,sidebar,timeline,状态
-internal/module/uistate/snapshot_helpers.go	internal	modules	go-source	12895	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,snapshot,helpers,UI,事件投影,sidebar,timeline,状态
+internal/module/uistate/snapshot_helpers_test.go	internal	modules	go-test	2763	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,snapshot,helpers,test,UI,事件投影,sidebar,timeline,状态
+internal/module/uistate/snapshot_helpers.go	internal	modules	go-source	13195	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,snapshot,helpers,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/state_json_test.go	internal	modules	go-test	2004	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,state,json,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/state.go	internal	modules	go-source	20248	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,state,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/subscribers_test.go	internal	modules	go-test	3402	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,subscribers,test,UI,事件投影,sidebar,timeline,状态
