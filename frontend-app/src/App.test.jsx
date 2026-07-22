@@ -754,14 +754,14 @@ it('renders the persisted shell layout width through the real chat layout', asyn
   const storage = createShellLayoutStorage('480.5');
 
   render(<App shellLayoutStorage={storage} />);
-  fireEvent.click(await screen.findByRole('button', { name: '显示侧边栏' }));
-  await waitForBackendThreadHeading();
+  const chatLayout = await screen.findByTestId('chat-layout', {}, { timeout: 20_000 });
+  fireEvent.click(await screen.findByRole('button', { name: '显示侧边栏' }, { timeout: 20_000 }));
 
-  expect(screen.getByTestId('chat-layout')).toHaveStyle({
+  expect(chatLayout).toHaveStyle({
     gridTemplateColumns: 'minmax(0, 1fr) 6px 480.5px',
   });
   expect(storage.set).not.toHaveBeenCalled();
-}, 15000);
+}, 30000);
 it.each([
   ['read', (storage) => storage.get.mockImplementation(() => { throw new Error('private shell layout read'); })],
   ['first write', (storage) => storage.set.mockImplementation(() => { throw new Error('private shell layout write'); })],

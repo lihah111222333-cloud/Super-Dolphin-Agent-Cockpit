@@ -10,7 +10,7 @@ function codePreviewPathChoice(filePath, position, options, locateResult) {
   return { open: true, file: { filename: filePath, position }, options, truncated: Boolean(locateResult?.truncated) };
 }
 
-async function saveCodePreviewChanges({
+function saveCodePreviewChanges({
   codePreview,
   isCurrentPreviewRequest,
   previewRequestSeqRef,
@@ -71,7 +71,7 @@ function useCodePreviewController({ projectPath, projects }) {
     setPathChoice(emptyPathChoiceState());
   }, [previewScopeKey]);
 
-  const openCodePreviewForPath = useCallback((filePath, fallbackRelative = '', position = null) => runUIAction('file.code-preview.open', async () => {
+  const openCodePreviewForPath = useCallback(async (filePath, fallbackRelative = '', position = null) => {
     const requestSeq = nextPreviewRequestSeq();
     const requestScopeKey = previewScopeKey;
     const displayPath = firstText(fallbackRelative, filePath);
@@ -87,7 +87,7 @@ function useCodePreviewController({ projectPath, projects }) {
       if (isCurrentPreviewRequest(requestSeq, requestScopeKey)) setCodePreview((current) => ({ ...current, loading: false, error: '打开失败，请重试。' }));
       throw error;
     }
-  }), [isCurrentPreviewRequest, nextPreviewRequestSeq, previewScopeKey, projectPath, projects]);
+  }, [isCurrentPreviewRequest, nextPreviewRequestSeq, previewScopeKey, projectPath, projects]);
 
   const openFileRef = useCallback((payload = {}) => runUIAction('file.code-preview.locate', async () => {
     const filePath = firstTrimmedText(payload.path, payload.filePath);
@@ -134,15 +134,15 @@ function useCodePreviewController({ projectPath, projects }) {
     }
   }), [isCurrentPreviewRequest, nextPreviewRequestSeq, previewScopeKey, projectPath, projects]);
 
-  const openChosenPath = useCallback(async (filePath) => {
+  const openChosenPath = useCallback((filePath) => {
     const fallback = firstText(pathChoice.file?.filename, filePath);
     const position = pathChoice.file?.position ?? null;
     setPathChoice(emptyPathChoiceState());
-    await openCodePreviewForPath(filePath, fallback, position);
+    void runUIAction('file.code-preview.open', () => openCodePreviewForPath(filePath, fallback, position));
   }, [openCodePreviewForPath, pathChoice.file]);
 
-  const savePreviewChanges = useCallback(async () => {
-    await saveCodePreviewChanges({
+  const savePreviewChanges = useCallback(() => {
+    void saveCodePreviewChanges({
       codePreview,
       isCurrentPreviewRequest,
       previewRequestSeqRef,

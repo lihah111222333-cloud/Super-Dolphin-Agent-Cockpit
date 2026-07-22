@@ -1,5 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import process from 'node:process';
@@ -29,6 +31,89 @@ const TOOL_COUNTS = Object.freeze([1, 3]);
 const HISTORY_BLOCK_COUNT = 9;
 const HISTORY_BLOCK_ITERATIONS = 500_000;
 const MEASUREMENT_ITERATIONS = HISTORY_BLOCK_COUNT * HISTORY_BLOCK_ITERATIONS;
+const P02_FIXTURE_PATH = 'frontend-app/src/pages/chat/model/chatHistoryBenchmarkFixture.js';
+const P02_TIMELINE_PATH = 'frontend-app/src/pages/chat/model/timelineMaterializationModel.js';
+const P02_SUBJECT_CONTENT_PATHS = Object.freeze([
+  P02_FIXTURE_PATH,
+  P02_TIMELINE_PATH,
+]);
+
+function requireFullSha(value, label) {
+  if (!/^[0-9a-f]{40}$/.test(value || '')) {
+    throw new TypeError(`${label} must be a full 40-character Git SHA`);
+  }
+  return value;
+}
+
+function subjectContentEvidence(subjectRoot) {
+  const files = P02_SUBJECT_CONTENT_PATHS.map((path) => {
+    const filePath = resolve(subjectRoot, path);
+    if (!existsSync(filePath)) throw new Error(`P02 detached subject is missing ${path}`);
+    return Object.freeze({
+      path,
+      sha256: createHash('sha256').update(readFileSync(filePath)).digest('hex'),
+    });
+  });
+  const contentHash = createHash('sha256').update(files.map(({ path, sha256 }) => `${path}\0${sha256}\n`).join('')).digest('hex');
+  return Object.freeze({ contentHash, files: Object.freeze(files) });
+}
+
+async function importSubjectModule(subjectRoot, path, label) {
+  const filePath = resolve(subjectRoot, path);
+  if (!existsSync(filePath)) throw new Error(`P02 detached subject is missing ${label}: ${path}`);
+  try {
+    return await import(/* @vite-ignore */ pathToFileURL(filePath).href);
+  } catch (error) {
+    throw new Error(`P02 detached subject ${label} cannot be imported: ${path}`, { cause: error });
+  }
+}
+
+async function loadChatHistoryBenchmarkTarget({ subjectRoot, subjectSha, subjectTree } = {}) {
+  if (typeof subjectRoot !== 'string' || subjectRoot.length === 0) throw new TypeError('P02 subjectRoot is required');
+  requireFullSha(subjectSha, 'P02 subjectSha');
+  requireFullSha(subjectTree, 'P02 subjectTree');
+  const root = resolve(subjectRoot);
+  const [fixtureModule, timelineModule] = await Promise.all([
+    importSubjectModule(root, P02_FIXTURE_PATH, 'fixture'),
+    importSubjectModule(root, P02_TIMELINE_PATH, 'timeline model'),
+  ]);
+  if (typeof fixtureModule.buildChatHistoryFixture !== 'function') {
+    throw new Error(`P02 detached subject fixture does not export buildChatHistoryFixture: ${P02_FIXTURE_PATH}`);
+  }
+  if (typeof timelineModule.selectMaterializedTimeline !== 'function'
+    || !Number.isSafeInteger(timelineModule.TIMELINE_INITIAL_MATERIALIZED_MESSAGES)
+    || timelineModule.TIMELINE_INITIAL_MATERIALIZED_MESSAGES <= 0) {
+    throw new Error(`P02 detached subject timeline model has an invalid materialization contract: ${P02_TIMELINE_PATH}`);
+  }
+  return Object.freeze({
+    buildChatHistoryFixture: fixtureModule.buildChatHistoryFixture,
+    selectMaterializedTimeline: timelineModule.selectMaterializedTimeline,
+    timelineInitialMaterializedMessages: timelineModule.TIMELINE_INITIAL_MATERIALIZED_MESSAGES,
+    provenance: Object.freeze({
+      content: subjectContentEvidence(root),
+      subjectSha,
+      subjectTree,
+    }),
+  });
+}
+
+function resolveChatHistoryBenchmarkTarget(target) {
+  if (target === undefined) {
+    return Object.freeze({
+      buildChatHistoryFixture,
+      selectMaterializedTimeline,
+      timelineInitialMaterializedMessages: TIMELINE_INITIAL_MATERIALIZED_MESSAGES,
+    });
+  }
+  if (target == null || typeof target !== 'object'
+    || typeof target.buildChatHistoryFixture !== 'function'
+    || typeof target.selectMaterializedTimeline !== 'function'
+    || !Number.isSafeInteger(target.timelineInitialMaterializedMessages)
+    || target.timelineInitialMaterializedMessages <= 0) {
+    throw new TypeError('P02 target requires fixture, timeline selector, and a positive materialization limit');
+  }
+  return target;
+}
 
 function buildChatHistoryBenchmarkCases({ extended }) {
   if (typeof extended !== 'boolean') throw new TypeError('extended must be a boolean');
@@ -49,11 +134,16 @@ function requireMeasurementMetadata({ caseName, turns, toolsPerTurn, node, commi
   if (typeof commit !== 'string' || commit.length === 0) throw new TypeError('commit is required');
 }
 
-function measureChatHistoryCase(history, metadata) {
+function measureChatHistoryCase(history, metadata, target) {
   requireMeasurementMetadata(metadata);
+  const subjectTarget = resolveChatHistoryBenchmarkTarget(target);
+  const {
+    selectMaterializedTimeline: selectTimeline,
+    timelineInitialMaterializedMessages: materializationLimit,
+  } = subjectTarget;
   const heapBefore = process.memoryUsage().heapUsed;
   const startedAt = performance.now();
-  const materialized = selectMaterializedTimeline(history, TIMELINE_INITIAL_MATERIALIZED_MESSAGES);
+  const materialized = selectTimeline(history, materializationLimit);
   const durationMs = performance.now() - startedAt;
   const heapDeltaBytes = process.memoryUsage().heapUsed - heapBefore;
   return Object.freeze({
@@ -76,16 +166,18 @@ function currentCommit() {
   }).trim();
 }
 
-function runChatHistoryBenchmark({ extended, commit = currentCommit() }) {
+function runChatHistoryBenchmark({ extended, commit = currentCommit(), target } = {}) {
+  const subjectTarget = resolveChatHistoryBenchmarkTarget(target);
+  const { buildChatHistoryFixture: buildFixture } = subjectTarget;
   return buildChatHistoryBenchmarkCases({ extended }).map(({ turns, toolsPerTurn }) => {
-    const history = buildChatHistoryFixture({ archived: true, seed: 7, toolsPerTurn, turns });
+    const history = buildFixture({ archived: true, seed: 7, toolsPerTurn, turns });
     return measureChatHistoryCase(history, {
       caseName: `turns-${turns}-tools-${toolsPerTurn}`,
       turns,
       toolsPerTurn,
       node: process.version,
       commit,
-    });
+    }, subjectTarget);
   });
 }
 
@@ -93,16 +185,24 @@ function runChatHistoryBenchmarkSamples({
   extended = false,
   commit = currentCommit(),
   sampleCount = SAMPLE_COUNT,
+  target,
   warmupCount = WARMUP_COUNT,
 } = {}) {
   if (sampleCount !== SAMPLE_COUNT) throw new TypeError(`sampleCount must be ${SAMPLE_COUNT}`);
   if (warmupCount !== WARMUP_COUNT) throw new TypeError(`warmupCount must be ${WARMUP_COUNT}`);
+  const subjectTarget = resolveChatHistoryBenchmarkTarget(target);
+  const {
+    buildChatHistoryFixture: buildFixture,
+    provenance: subjectProduct,
+    selectMaterializedTimeline: selectTimeline,
+    timelineInitialMaterializedMessages: materializationLimit,
+  } = subjectTarget;
   const cases = buildChatHistoryBenchmarkCases({ extended });
   const measuredCases = {};
   for (const { turns, toolsPerTurn } of cases) {
     const caseName = `turns-${turns}-tools-${toolsPerTurn}`;
-    const history = buildChatHistoryFixture({ archived: true, seed: 7, toolsPerTurn, turns });
-    const expectedBlockMaterializedCount = TIMELINE_INITIAL_MATERIALIZED_MESSAGES * HISTORY_BLOCK_ITERATIONS;
+    const history = buildFixture({ archived: true, seed: 7, toolsPerTurn, turns });
+    const expectedBlockMaterializedCount = materializationLimit * HISTORY_BLOCK_ITERATIONS;
     const measureBlock = (workload, label) => {
       let materializedCount = 0;
       const startedAt = process.cpuUsage();
@@ -119,11 +219,8 @@ function runChatHistoryBenchmarkSamples({
       }
       return durationMs;
     };
-    const productionWorkload = () => selectMaterializedTimeline(
-      history,
-      TIMELINE_INITIAL_MATERIALIZED_MESSAGES,
-    );
-    const referenceWorkload = () => history.slice(-TIMELINE_INITIAL_MATERIALIZED_MESSAGES);
+    const productionWorkload = () => selectTimeline(history, materializationLimit);
+    const referenceWorkload = () => history.slice(-materializationLimit);
     const measureBatch = (sampleIndex) => {
       const blockOrders = [];
       const productionBlockCpuDurationsMs = [];
@@ -171,8 +268,8 @@ function runChatHistoryBenchmarkSamples({
       blockCount: HISTORY_BLOCK_COUNT,
       blockIterationCount: HISTORY_BLOCK_ITERATIONS,
       iterationCount: MEASUREMENT_ITERATIONS,
-      materializedCount: TIMELINE_INITIAL_MATERIALIZED_MESSAGES,
-      referenceMaterializedCount: TIMELINE_INITIAL_MATERIALIZED_MESSAGES,
+      materializedCount: materializationLimit,
+      referenceMaterializedCount: materializationLimit,
       sampleDiagnostics: Object.freeze(sampleDiagnostics),
       normalizedRatioSamples: Object.freeze(normalizedRatioSamples),
       normalizedRatioMedian: median(normalizedRatioSamples, `${caseName}.normalizedRatioSamples`),
@@ -181,6 +278,7 @@ function runChatHistoryBenchmarkSamples({
   return Object.freeze({
     metricId: 'P02-history-budget',
     subjectSha: commit,
+    ...(subjectProduct === undefined ? {} : { subjectProduct }),
     node: process.version,
     warmupCount,
     sampleCount,
@@ -255,7 +353,9 @@ export {
   HISTORY_BLOCK_COUNT,
   HISTORY_BLOCK_ITERATIONS,
   MEASUREMENT_ITERATIONS,
+  P02_SUBJECT_CONTENT_PATHS,
   buildChatHistoryBenchmarkCases,
+  loadChatHistoryBenchmarkTarget,
   measureChatHistoryCase,
   runChatHistoryBenchmark,
   runChatHistoryBenchmarkSamples,

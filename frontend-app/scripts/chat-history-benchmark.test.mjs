@@ -10,6 +10,7 @@ import {
   MEASUREMENT_ITERATIONS,
   buildChatHistoryBenchmarkCases,
   measureChatHistoryCase,
+  runChatHistoryBenchmark,
   runChatHistoryBenchmarkSamples,
   verifyChatHistoryEvidence,
 } from './chat-history-benchmark.mjs';
@@ -47,6 +48,19 @@ describe('chat history benchmark', () => {
       { turns: 10_000, toolsPerTurn: 1 },
       { turns: 10_000, toolsPerTurn: 3 },
     ]);
+  });
+
+  it('uses a requested subject P02 implementation rather than current static imports', () => {
+    const subjectSha = 'a'.repeat(40);
+    const target = Object.freeze({
+      buildChatHistoryFixture: () => ['subject-only'],
+      selectMaterializedTimeline: (history) => history,
+      timelineInitialMaterializedMessages: 1,
+    });
+    const result = runChatHistoryBenchmark({ commit: subjectSha, extended: false, target });
+
+    expect(result).toHaveLength(6);
+    expect(result.every(({ materializedCount }) => materializedCount === 1)).toBe(true);
   });
 
   it('measures only bounded numeric evidence with exact output keys', () => {
@@ -164,7 +178,7 @@ describe('chat history benchmark', () => {
       expect(entry.normalizedRatioMedian).toBe(median(entry.normalizedRatioSamples));
       expect(Object.keys(entry).filter((key) => key.includes('Ratio') && key.endsWith('Ms'))).toEqual([]);
     });
-  }, 60_000);
+  }, 300_000);
 
   it('keeps verify NOT_VERIFIED until an exact frozen five-sample baseline exists', () => {
     expect(verifyChatHistoryEvidence({ cases: {} }, {

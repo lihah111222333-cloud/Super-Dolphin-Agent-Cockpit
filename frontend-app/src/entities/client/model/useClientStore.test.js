@@ -6421,7 +6421,7 @@ function registerBridgeEventHandlersForTest() {
     ]));
   });
 
-  it('rejects the oldest late event after sequential turns exceed tombstone capacity', () => {
+  it('continues sequential terminals beyond exact tombstone capacity', () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
@@ -6477,6 +6477,12 @@ function registerBridgeEventHandlersForTest() {
     const state = useClientStore.getState();
     expect(state.timelinesByThread['thread-1']).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'late-item' }),
+    ]));
+    expect(state.warningEntries).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        event: 'turn.event.cache_exhausted',
+        fields: expect.objectContaining({ turn_id: 'turn-65', reason: 'capacity' }),
+      }),
     ]));
     expect(state.warningEntries).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -7438,7 +7444,7 @@ function registerBridgeEventHandlersForTest() {
     ]));
   });
 
-  it('keeps a retired terminal sealed across CWD return and retired-cache eviction without poisoning another scope', async () => {
+  it('keeps an exact LRU-retained terminal sealed across CWD return without poisoning another scope', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       projectScopeCwd: '/repo/app',
@@ -7532,6 +7538,8 @@ function registerBridgeEventHandlersForTest() {
     await vi.waitFor(() => {
       expect(backend.setActiveProject).toHaveBeenCalledTimes(1);
     });
+    otherProjectChange.resolve({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
+    await expect(switchToOther).resolves.toBe(true);
     useClientStore.setState({
       cwd: '/repo/other',
       activeProject: '/repo/other',
@@ -7563,13 +7571,13 @@ function registerBridgeEventHandlersForTest() {
     ]));
     await useClientStore.getState().deleteStaleThreads(['thread-1']);
     otherSidebarRefresh.resolve({ activeThreadId: '', threads: [] });
-    otherProjectChange.resolve({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
-    await expect(switchToOther).resolves.toBe(true);
 
     const switchToApp = useClientStore.getState().setActiveProjectPath('/repo/app');
     await vi.waitFor(() => {
       expect(backend.setActiveProject).toHaveBeenCalledTimes(2);
     });
+    appProjectChange.resolve({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
+    await expect(switchToApp).resolves.toBe(true);
     useClientStore.setState({
       cwd: '/repo/app',
       activeProject: '/repo/app',
@@ -7581,21 +7589,86 @@ function registerBridgeEventHandlersForTest() {
       type: 'turn/output/delta',
       payload: {
         threadId: 'thread-1',
-        turnId: 'turn-1',
-        itemId: 'late-t1',
-        delta: 'late T1 content',
+        turnId: 'turn-3',
+        itemId: 'late-t3',
+        delta: 'late T3 content',
       },
     });
 
     expect(useClientStore.getState().timelinesByThread['thread-1']).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'late-t1' }),
+      expect.objectContaining({ id: 'late-t3' }),
     ]));
     expect(useClientStore.getState().warningEntries).toEqual(expect.arrayContaining([
-      expect.objectContaining({ event: 'turn.event.late', fields: expect.objectContaining({ turn_id: 'turn-1' }) }),
+      expect.objectContaining({ event: 'turn.event.late', fields: expect.objectContaining({ turn_id: 'turn-3' }) }),
     ]));
     appSidebarRefresh.resolve({ activeThreadId: '', threads: [] });
-    appProjectChange.resolve({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
-    await expect(switchToApp).resolves.toBe(true);
+  });
+
+  it('accepts a Bloom-collision terminal absent from exact retired refs', async () => {
+    const retiredThreads = Array.from({ length: 128 }, (_, offset) => {
+      const index = offset + 1;
+      return { id: 'thread-' + index, name: 'Thread ' + index, provider: 'codex', status: 'running' };
+    });
+    const candidateThreadId = 'candidate-thread-47395';
+    const candidateTurnId = 'candidate-turn-47395';
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: candidateThreadId,
+      threads: [...retiredThreads, {
+        id: candidateThreadId,
+        name: 'Candidate thread',
+        provider: 'codex',
+        status: 'running',
+      }],
+      timelinesByThread: Object.fromEntries([
+        ...retiredThreads.map((thread) => [thread.id, []]),
+        [candidateThreadId, []],
+      ]),
+    });
+    await registerBridgeEventHandlersForTest();
+
+    for (let index = 1; index <= 128; index += 1) {
+      bridgeCallback({
+        type: 'turn/terminal',
+        payload: {
+          schemaVersion: 2,
+          eventId: 'retired-terminal-' + index,
+          threadId: 'thread-' + index,
+          turnId: 'turn-' + index,
+          outcome: 'success',
+          occurredAt: '2026-07-22T01:00:00Z',
+        },
+      });
+    }
+    expect(useClientStore.getState().getTurnTerminalCacheStats()).toMatchObject({ retiredTurns: 64 });
+
+    await expect(useClientStore.getState().deleteStaleThreads([
+      ...retiredThreads.map((thread) => thread.id),
+    ])).resolves.toEqual({ deleted: 128, failed: 0 });
+    expect(useClientStore.getState().getTurnTerminalCacheStats()).toMatchObject({ retiredTurns: 0 });
+
+    bridgeCallback({
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'candidate-terminal',
+        threadId: candidateThreadId,
+        turnId: candidateTurnId,
+        outcome: 'success',
+        occurredAt: '2026-07-22T01:00:01Z',
+      },
+    });
+
+    expect(useClientStore.getState().timelinesByThread[candidateThreadId]).toEqual([
+      expect.objectContaining({ kind: 'turn_terminal', turnId: candidateTurnId }),
+    ]);
+    expect(useClientStore.getState().warningEntries).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        event: 'turn.event.late',
+        fields: expect.objectContaining({ turn_id: candidateTurnId }),
+      }),
+    ]));
   });
 
   it('does not flush or finalize a newer buffered turn when an older terminal arrives before the active-turn patch', async () => {
@@ -8381,6 +8454,78 @@ function registerBridgeEventHandlersForTest() {
 
     expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
       expect.objectContaining({ id: 'assistant-current', text: 'current generation' }),
+    ]);
+  });
+
+  it('clears only a deleted thread bridge patch cache before the same id is recreated', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [
+        { id: 'thread-1', name: 'Deleted thread', provider: 'codex', status: 'running' },
+        { id: 'thread-2', name: 'Retained thread', provider: 'codex', status: 'running' },
+      ],
+      timelinesByThread: { 'thread-1': [], 'thread-2': [] },
+    });
+    await registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        generation: '2',
+        sequence: '2',
+        timelineItems: [{ id: 'deleted-old', kind: 'assistant', text: 'old deleted generation' }],
+      },
+    });
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-2',
+        generation: '2',
+        sequence: '2',
+        timelineItems: [{ id: 'retained-current', kind: 'assistant', text: 'retained generation' }],
+      },
+    });
+
+    await expect(useClientStore.getState().deleteStaleThreads(['thread-1'])).resolves.toEqual({
+      deleted: 1,
+      failed: 0,
+    });
+    useClientStore.setState({
+      activeThreadId: 'thread-1',
+      threads: [
+        { id: 'thread-1', name: 'Recreated thread', provider: 'codex', status: 'running' },
+        { id: 'thread-2', name: 'Retained thread', provider: 'codex', status: 'running' },
+      ],
+      timelinesByThread: { 'thread-1': [], 'thread-2': useClientStore.getState().timelinesByThread['thread-2'] },
+    });
+
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        generation: '1',
+        sequence: '1',
+        timelineItems: [{ id: 'recreated-fresh', kind: 'assistant', text: 'fresh recreated generation' }],
+      },
+    });
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-2',
+        generation: '1',
+        sequence: '99',
+        timelineItems: [{ id: 'retained-stale', kind: 'assistant', text: 'stale retained generation' }],
+      },
+    });
+
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ id: 'recreated-fresh', text: 'fresh recreated generation' }),
+    ]);
+    expect(useClientStore.getState().timelinesByThread['thread-2']).toEqual([
+      expect.objectContaining({ id: 'retained-current', text: 'retained generation' }),
     ]);
   });
 

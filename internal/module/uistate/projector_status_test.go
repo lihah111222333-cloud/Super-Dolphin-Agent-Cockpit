@@ -79,6 +79,11 @@ func TestTimelineAndProjectionTerminalStatusParity(t *testing.T) {
 			terminal: turndto.TurnTerminalV2{Outcome: "interrupted"},
 			want:     "interrupted",
 		},
+		{
+			name:     "canonical cancelled status",
+			terminal: turndto.TurnTerminalV2{Outcome: "cancelled"},
+			want:     "cancelled",
+		},
 	}
 
 	for _, tt := range tests {
@@ -600,6 +605,115 @@ func TestStaleTurnInterruptedDoesNotOverwriteCurrentProjection(t *testing.T) {
 			Reason:     "late interrupt",
 		})
 	})
+}
+
+func TestLateTerminalAfterCurrentTerminalDoesNotOverwriteProjection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		applyLate func(*testing.T, *service, sharedto.TurnHeader)
+	}{
+		{
+			name: "completed",
+			applyLate: func(t *testing.T, svc *service, header sharedto.TurnHeader) {
+				svc.applyTurnCompleted(canonicalPatchTurnCompleted(t, turndto.TurnCompleted{
+					TurnHeader: header,
+					Success:    true,
+					Status:     "completed",
+				}))
+			},
+		},
+		{
+			name: "interrupted",
+			applyLate: func(_ *testing.T, svc *service, header sharedto.TurnHeader) {
+				svc.applyTurnInterrupted(turndto.TurnInterrupted{
+					TurnHeader: header,
+					Reason:     "late interrupt",
+				})
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertLateTerminalAfterCurrentTerminalPreservesProjection(t, tt.applyLate)
+		})
+	}
+}
+
+func assertLateTerminalAfterCurrentTerminalPreservesProjection(t *testing.T, applyLate func(*testing.T, *service, sharedto.TurnHeader)) {
+	t.Helper()
+
+	dispatcher := event.NewDispatcher()
+	t.Cleanup(func() { _ = dispatcher.Close() })
+	svc := newProjectionTestService(t)
+	svc.bindDispatcher(dispatcher)
+	patches := subscribeThreadPatch(t, dispatcher)
+	header := testAgentSessionHeader("thread-current", "agent-current")
+	turnA := testTurnHeader(header, "turn-a")
+	turnB := testTurnHeader(header, "turn-b")
+
+	svc.applyTurnStarted(turndto.TurnStarted{TurnHeader: turnA})
+	_ = mustReceiveThreadPatch(t, patches)
+	svc.applyTurnStarted(turndto.TurnStarted{TurnHeader: turnB})
+	_ = mustReceiveThreadPatch(t, patches)
+	svc.applyTurnCompleted(canonicalPatchTurnCompleted(t, turndto.TurnCompleted{
+		TurnHeader: turnB,
+		Success:    false,
+		Status:     "failed",
+		Error:      "current terminal",
+	}))
+	_ = mustReceiveThreadPatch(t, patches)
+	setCurrentTerminalProjectionSentinel(t, svc)
+
+	applyLate(t, svc, turnA)
+	assertNoThreadPatch(t, patches, "late terminal after current terminal")
+	assertCurrentTerminalProjectionPreserved(t, svc)
+}
+
+func setCurrentTerminalProjectionSentinel(t *testing.T, svc *service) {
+	t.Helper()
+
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	if svc.state.ActiveTurn != nil {
+		t.Fatalf("active turn after current terminal = %#v, want nil", svc.state.ActiveTurn)
+	}
+	svc.state.Threads = []ThreadSummary{{
+		ID:              "thread-current",
+		AgentID:         "agent-current",
+		State:           "failed",
+		ThreadStatus:    "failed",
+		OverlayType:     overlayTypeTerminalWait,
+		OverlayText:     "current terminal overlay",
+		OverlayPriority: overlayPriorityTerminalWait,
+	}}
+	if svc.activityByThread == nil {
+		svc.activityByThread = map[string]*threadActivity{}
+	}
+	svc.activityByThread["thread-current"] = &threadActivity{turnDepth: 1, commandDepth: 1}
+}
+
+func assertCurrentTerminalProjectionPreserved(t *testing.T, svc *service) {
+	t.Helper()
+
+	svc.mu.RLock()
+	defer svc.mu.RUnlock()
+	activity := svc.activityByThread["thread-current"]
+	if activity == nil || activity.turnDepth != 1 || activity.commandDepth != 1 {
+		t.Fatalf("current thread activity = %#v, want preserved sentinel", activity)
+	}
+	if len(svc.state.Threads) != 1 || svc.state.Threads[0].ThreadStatus != "failed" || svc.state.Threads[0].OverlayType != overlayTypeTerminalWait {
+		t.Fatalf("current thread projection = %#v, want preserved current terminal projection", svc.state.Threads)
+	}
+	seen := map[string]bool{}
+	for _, turn := range svc.state.RecentTurns {
+		seen[turn.ID] = true
+	}
+	if !seen["turn-a"] || !seen["turn-b"] {
+		t.Fatalf("recent turns = %#v, want both current and late terminal history", svc.state.RecentTurns)
+	}
 }
 
 func assertStaleTurnTerminalPreservesCurrentProjection(t *testing.T, apply func(*service, sharedto.TurnHeader)) {

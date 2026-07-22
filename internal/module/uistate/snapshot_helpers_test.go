@@ -3,28 +3,45 @@ package uistate
 import "testing"
 
 func TestPushRecentTurnKeepsFirstTerminalForSameThreadAndTurn(t *testing.T) {
-	completed := TurnSummary{
-		ID:       "turn-1",
-		ThreadID: "thread-1",
-		Status:   "completed",
-		Success:  boolPointer(true),
-	}
-	failed := TurnSummary{
-		ID:       "turn-1",
-		ThreadID: "thread-1",
-		Status:   "failed",
-		Success:  boolPointer(false),
-		Error:    "late failure",
+	tests := []struct {
+		name         string
+		firstStatus  string
+		firstSuccess bool
+		nextStatus   string
+		nextSuccess  bool
+	}{
+		{name: "completed", firstStatus: "completed", firstSuccess: true, nextStatus: "failed", nextSuccess: false},
+		{name: "failed", firstStatus: "failed", firstSuccess: false, nextStatus: "completed", nextSuccess: true},
+		{name: "interrupted", firstStatus: "interrupted", firstSuccess: false, nextStatus: "failed", nextSuccess: false},
+		{name: "cancelled", firstStatus: "cancelled", firstSuccess: false, nextStatus: "failed", nextSuccess: false},
 	}
 
-	items := pushRecentTurn(nil, completed, recentTurnLimit)
-	items = pushRecentTurn(items, failed, recentTurnLimit)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			first := TurnSummary{
+				ID:       "turn-1",
+				ThreadID: "thread-1",
+				Status:   tt.firstStatus,
+				Success:  boolPointer(tt.firstSuccess),
+			}
+			next := TurnSummary{
+				ID:       "turn-1",
+				ThreadID: "thread-1",
+				Status:   tt.nextStatus,
+				Success:  boolPointer(tt.nextSuccess),
+				Error:    "late terminal",
+			}
 
-	if len(items) != 1 {
-		t.Fatalf("recent turns = %#v, want one terminal", items)
-	}
-	if items[0].Status != "completed" || items[0].Success == nil || !*items[0].Success || items[0].Error != "" {
-		t.Fatalf("recent turn = %#v, want first completed terminal", items[0])
+			items := pushRecentTurn(nil, first, recentTurnLimit)
+			items = pushRecentTurn(items, next, recentTurnLimit)
+
+			if len(items) != 1 {
+				t.Fatalf("recent turns = %#v, want one terminal", items)
+			}
+			if got := items[0]; got.Status != tt.firstStatus || got.Success == nil || *got.Success != tt.firstSuccess || got.Error != "" {
+				t.Fatalf("recent turn = %#v, want first %s terminal", got, tt.firstStatus)
+			}
+		})
 	}
 }
 

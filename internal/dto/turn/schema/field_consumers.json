@@ -52,8 +52,8 @@
       "name": "canonical-terminal-deep-copy",
       "path": "internal/dto/turn/terminal.go",
       "symbol": "cloneTurnTerminalV2",
-      "calls": ["cloneStrings"],
-      "identifiers": ["SchemaVersion", "EventID", "ThreadID", "TurnID", "Outcome", "TerminationCause", "TerminationRequestID", "PublicError", "PartialItemIDs", "OccurredAt", "Code", "Title", "Message", "DiagnosticID", "Retryable", "RecoveryActions"]
+      "cloneOf": "TurnTerminalV2",
+      "calls": ["cloneStrings"]
     },
     {
       "name": "canonical-terminal-diagnostic-id",
@@ -282,6 +282,18 @@
       "calls": ["validatePublicErrorV1"]
     }
   ],
+  "jsDynamicImportPolicy": {
+    "nonLiteralExemptions": [
+      {
+        "path": "frontend-app/src/shared/api/wailsBridge.js",
+        "reason": "The browser-native Wails runtime module is selected at runtime and is not a contract validator boundary."
+      },
+      {
+        "path": "frontend-app/src/shared/api/wails/wailsBridgeLogRuntime.js",
+        "reason": "The browser-native Wails log runtime module is selected at runtime and is not a contract validator boundary."
+      }
+    ]
+  },
   "jsMappers": [
     {
       "name": "turn-interrupt-identity",

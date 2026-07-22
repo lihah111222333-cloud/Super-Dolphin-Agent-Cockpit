@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
 )
 
@@ -67,13 +68,23 @@ func canonicalRecentTurnThreadID(item TurnSummary) string {
 	return strings.TrimSpace(firstNonEmptyString(item.ThreadID, item.AgentID))
 }
 
-func isTerminalRecentTurn(item TurnSummary) bool {
-	switch strings.ToLower(strings.TrimSpace(item.Status)) {
-	case "completed", "failed", "interrupted":
-		return true
-	default:
-		return false
+func canonicalTurnTerminalOutcomes() [4]string {
+	return [...]string{
+		"success",
+		"failed",
+		"interrupted",
+		"cancelled",
 	}
+}
+
+func isTerminalRecentTurn(item TurnSummary) bool {
+	status := strings.ToLower(strings.TrimSpace(item.Status))
+	for _, outcome := range canonicalTurnTerminalOutcomes() {
+		if status == completionStatus(turndto.TurnTerminalV2{Outcome: outcome}) {
+			return true
+		}
+	}
+	return false
 }
 
 // markThreadStopped 将线程终态写入 sidebar 快照；deleted 会直接移除可见线程。

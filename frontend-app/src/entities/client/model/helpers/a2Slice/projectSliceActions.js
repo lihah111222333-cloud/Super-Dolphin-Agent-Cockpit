@@ -12,12 +12,6 @@ function projectCwdForSelection(project, cwd) {
   return project && project !== '.' ? project : cwd;
 }
 
-async function rebindConfirmedProjectScope(runtime, normalizePath, projects, cwd, requestedCwd) {
-  const confirmedCwd = projectCwdForSelection(normalizePath(projects?.active), cwd);
-  if (confirmedCwd !== requestedCwd) await runtime.rebindBridgeEventScope(confirmedCwd);
-  return confirmedCwd;
-}
-
 async function registerProjectIfNeeded(deps, context, isCurrentIntent) {
   if (!shouldRegisterProject(context.target, context.previousActiveProject, context.visibleProjects)) return true;
   await deps.addProject({ cwd: context.cwd, path: context.target });
@@ -25,12 +19,11 @@ async function registerProjectIfNeeded(deps, context, isCurrentIntent) {
   return true;
 }
 
-async function addAndActivateSelectedProject(runtime, deps, scopeCwd, selected) {
+async function addAndActivateSelectedProject(deps, scopeCwd, selected) {
   const projects = await deps.addProject({ cwd: scopeCwd, path: selected });
-  runtime.applyProjects(projects, scopeCwd);
-  if (deps.normalizePath(runtime.get().activeProject) === selected) return;
-  const activatedProjects = await deps.setActiveProject({ cwd: scopeCwd, path: selected });
-  runtime.applyProjects(activatedProjects, scopeCwd);
+  const activeProject = projectCwdForSelection(deps.normalizePath(projects?.active), scopeCwd);
+  if (activeProject === selected) return projects;
+  return deps.setActiveProject({ cwd: scopeCwd, path: selected });
 }
 
 function pickerSeedProject(runtime, normalizePath, scopeCwd) {
@@ -43,6 +36,7 @@ async function runActiveProjectSwitch(runtime, deps, context) {
   const { normalizePath, projectShortLabel, setActiveProject } = deps;
   if (!isCurrentIntent()) return false;
   const previousActiveProject = normalizePath(runtime.get().activeProject);
+  let preparedScope = null;
   try {
     void runtime.saveActiveComposerDraft();
     const visibleProjects = projectVisiblePaths(runtime, normalizePath);
@@ -53,10 +47,19 @@ async function runActiveProjectSwitch(runtime, deps, context) {
     );
     if (!registered || !isCurrentIntent()) return false;
     const requestedCwd = projectCwdForSelection(target, cwd);
-    await runtime.rebindBridgeEventScope(requestedCwd);
+    preparedScope = await runtime.prepareBridgeEventScope(requestedCwd);
+    if (!isCurrentIntent()) return false;
     const projects = await setActiveProject({ cwd, path: target });
     if (!isCurrentIntent()) return false;
-    const confirmedCwd = await rebindConfirmedProjectScope(runtime, normalizePath, projects, cwd, requestedCwd);
+    const confirmedCwd = projectCwdForSelection(normalizePath(projects?.active), cwd);
+    if (confirmedCwd !== requestedCwd) {
+      preparedScope.abort();
+      preparedScope = null;
+      preparedScope = await runtime.prepareBridgeEventScope(confirmedCwd);
+    }
+    if (!isCurrentIntent()) return false;
+    preparedScope.commit();
+    preparedScope = null;
     runtime.applyProjects(projects, cwd);
     runtime.refreshChatSurfaceForCwdInBackground(confirmedCwd, { preserveActiveThreadId });
     runtime.notifyAction(`已切换项目：${projectShortLabel(target)}`, 'success');
@@ -67,6 +70,9 @@ async function runActiveProjectSwitch(runtime, deps, context) {
     runtime.notifyAction('切换项目失败，请重试。', 'error');
     runtime.addWarning('error', 'project.set_active.failed', { path: target, error: 'action failure; see Health diagnostic ID' });
     throw error;
+  }
+  finally {
+    preparedScope?.abort();
   }
 }
 
@@ -99,15 +105,25 @@ function createAddProjectFromPickerAction(runtime, deps) {
     const scopeCwd = runtime.requireProjectScopeCwd('project.add');
     const seed = pickerSeedProject(runtime, normalizePath, scopeCwd);
     let selected = '';
+    let preparedScope = null;
     try {
       selected = normalizePath(await selectProjectDir(seed));
       if (!selected) {
         runtime.notifyAction('未选择项目', 'info');
         return false;
       }
-      await addAndActivateSelectedProject(runtime, deps, scopeCwd, selected);
-      await runtime.rebindBridgeEventScope(selected);
-      runtime.refreshChatSurfaceForCwdInBackground(selected);
+      preparedScope = await runtime.prepareBridgeEventScope(selected);
+      const projects = await addAndActivateSelectedProject(deps, scopeCwd, selected);
+      const confirmedCwd = projectCwdForSelection(normalizePath(projects?.active), scopeCwd);
+      if (confirmedCwd !== selected) {
+        preparedScope.abort();
+        preparedScope = null;
+        preparedScope = await runtime.prepareBridgeEventScope(confirmedCwd);
+      }
+      preparedScope.commit();
+      preparedScope = null;
+      runtime.applyProjects(projects, scopeCwd);
+      runtime.refreshChatSurfaceForCwdInBackground(confirmedCwd);
       runtime.notifyAction(`已添加项目：${projectShortLabel(selected)}`, 'success');
       return true;
     }
@@ -115,6 +131,9 @@ function createAddProjectFromPickerAction(runtime, deps) {
       runtime.notifyAction('添加项目失败，请重试。', 'error');
       runtime.addWarning('error', 'project.add.failed', { path: selected, error: 'action failure; see Health diagnostic ID' });
       throw error;
+    }
+    finally {
+      preparedScope?.abort();
     }
   };
 }

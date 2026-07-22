@@ -122,6 +122,20 @@ describe('thread lifecycle runtime', () => {
   });
 
   it.each([
+    ['success rawError', successfulInterruptResult({ rawError: 'unexpected' }), 'rawError'],
+    ['success typo', successfulInterruptResult({ confrimed: true }), 'confrimed'],
+    ['failure rawError', { ok: false, error: 'turn already completed', rawError: 'unexpected' }, 'rawError'],
+    ['failure typo', { ok: false, error: 'turn already completed', erorr: 'unexpected' }, 'erorr'],
+  ])('fails fast for interrupt response with unknown %s field', async (_name, response, field) => {
+    const runtime = createRuntime();
+    const rpc = vi.fn().mockResolvedValue(response);
+    attachActiveThreadRpcRuntime(runtime, createDeps());
+
+    await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).rejects.toThrow(field);
+    expect(runtime.notifyAction).not.toHaveBeenCalledWith('已发送中断请求', 'success', { threadId: 'thread-1' });
+  });
+
+  it.each([
     ['undefined', undefined],
     ['null', null],
     ['zero', 0],

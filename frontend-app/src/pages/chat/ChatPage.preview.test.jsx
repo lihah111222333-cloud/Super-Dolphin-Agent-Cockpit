@@ -1,7 +1,28 @@
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, expect, it, vi } from 'vitest';
+import { frontendHealthSnapshot, resetFrontendHealthForTest } from '../../shared/diagnostics/frontendHealthStore.js';
+import { resetVisibleActionFailureForTest, visibleActionFailureSnapshot } from '../../shared/ui/actionFailureSink.js';
 import { TestChatPage, TestChatPageWrapper, createActiveThreadStore, createFakeStore, deferred, getThreadCardByName, locateCodeFile, openCodeFile, openPath, saveCodeFile } from './__tests__/chatPageTestSupport.js';
+
+function resetActionFailures() {
+  window.localStorage.clear();
+  resetFrontendHealthForTest();
+  resetVisibleActionFailureForTest();
+}
+
+function expectSingleActionFailure(actionId) {
+  const failures = frontendHealthSnapshot();
+  expect(failures.map((failure) => failure.actionId)).toEqual([actionId]);
+  expect(failures[0]).toEqual(expect.objectContaining({ actionId, occurrences: 1 }));
+  expect(visibleActionFailureSnapshot()).toEqual(expect.objectContaining({ actionId }));
+}
+
+afterEach(async () => {
+  cleanup();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  resetActionFailures();
+});
   it('renders compact assistant markdown block markers as formatted content', () => {
     const store = createActiveThreadStore([
       {
@@ -257,6 +278,105 @@ import { TestChatPage, TestChatPageWrapper, createActiveThreadStore, createFakeS
       previewMode: 'full',
       contentVersion: 'sha256:b-version',
     }));
+  });
+
+  it('reports a locate-to-open rejection once under the locate action', async () => {
+    resetActionFailures();
+    openCodeFile.mockRejectedValueOnce(new Error('open rejected after locate'));
+    const store = createActiveThreadStore([
+      {
+        id: 'assistant-preview-failure',
+        role: 'assistant',
+        text: ':codex-file-citation[]{path="src/failure.js" line_range_start="1" line_range_end="1"}',
+        time: '2026-06-02T08:00:00Z',
+      },
+    ], { activeProject: '/repo/app', projects: ['/repo/app'] });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+    fireEvent.click(await screen.findByRole('button', { name: '打开文件引用 src/failure.js' }));
+
+    await waitFor(() => expect(frontendHealthSnapshot()).not.toHaveLength(0));
+    expectSingleActionFailure('file.code-preview.locate');
+  });
+
+  it('consumes a rejected candidate preview open after reporting it once', async () => {
+    resetActionFailures();
+    const unhandled = vi.fn();
+    window.addEventListener('unhandledrejection', unhandled);
+    try {
+      locateCodeFile.mockResolvedValueOnce({
+        ok: true,
+        paths: ['/repo/app/src/a.js', '/repo/app/src/b.js'],
+        matches: [
+          { path: '/repo/app/src/a.js', relative: 'src/a.js' },
+          { path: '/repo/app/src/b.js', relative: 'src/b.js' },
+        ],
+      });
+      openCodeFile.mockRejectedValueOnce(new Error('candidate open rejected'));
+      const store = createActiveThreadStore([
+        {
+          id: 'assistant-preview-choice',
+          role: 'assistant',
+          text: ':codex-file-citation[]{path="src/choice.js" line_range_start="1" line_range_end="1"}',
+          time: '2026-06-02T08:00:00Z',
+        },
+      ], { activeProject: '/repo/app', projects: ['/repo/app'] });
+
+      render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+      fireEvent.click(await screen.findByRole('button', { name: '打开文件引用 src/choice.js' }));
+      fireEvent.click(await screen.findByRole('button', { name: '/repo/app/src/a.js' }));
+
+      await waitFor(() => expect(frontendHealthSnapshot()).not.toHaveLength(0));
+      expectSingleActionFailure('file.code-preview.open');
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('unhandledrejection', unhandled);
+    }
+  });
+
+  it('consumes a rejected preview save after reporting it once', async () => {
+    resetActionFailures();
+    const unhandled = vi.fn();
+    window.addEventListener('unhandledrejection', unhandled);
+    try {
+      openCodeFile.mockResolvedValueOnce({
+        ok: true,
+        filePath: '/repo/app/src/save.js',
+        relative: 'src/save.js',
+        previewMode: 'full',
+        contentVersion: 'sha256:save-version',
+        snippet: [{ line: 1, text: 'const saved = true;' }],
+        startLine: 1,
+        endLine: 1,
+        totalLines: 1,
+      });
+      saveCodeFile.mockRejectedValueOnce(new Error('save rejected'));
+      const store = createActiveThreadStore([
+        {
+          id: 'assistant-preview-save',
+          role: 'assistant',
+          text: ':codex-file-citation[]{path="src/save.js" line_range_start="1" line_range_end="1"}',
+          time: '2026-06-02T08:00:00Z',
+        },
+      ], { activeProject: '/repo/app', projects: ['/repo/app'] });
+
+      render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+      fireEvent.click(await screen.findByRole('button', { name: '打开文件引用 src/save.js' }));
+      const preview = await screen.findByRole('dialog', { name: '文件预览' });
+      const editor = within(preview).getByLabelText('文件预览内容');
+      fireEvent.change(editor, { target: { value: 'const saved = false;' } });
+      fireEvent.click(within(preview).getByRole('button', { name: '保存预览更改' }));
+
+      await waitFor(() => expect(frontendHealthSnapshot()).not.toHaveLength(0));
+      expectSingleActionFailure('file.code-preview.save');
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('unhandledrejection', unhandled);
+    }
   });
 
   it('opens local markdown links from timeline messages directly', async () => {
