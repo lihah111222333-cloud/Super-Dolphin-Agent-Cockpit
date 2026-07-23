@@ -798,6 +798,19 @@ function freezeMetric(metric, metadata) {
   return Object.freeze({ ...metric, status: 'PASS', ...metadata });
 }
 
+function freezeWorstTimingMetric(runs, metricId, metadata) {
+  const designated = runs[0].metrics[metricId];
+  const cases = Object.fromEntries(Object.entries(designated.cases).map(([caseId, designatedCase]) => {
+    const worstCase = runs
+      .map((run) => run.metrics[metricId].cases[caseId])
+      .reduce((worst, current) => (
+        current.durationMedianMs > worst.durationMedianMs ? current : worst
+      ), designatedCase);
+    return [caseId, worstCase];
+  }));
+  return freezeMetric({ ...designated, cases: Object.freeze(cases) }, metadata);
+}
+
 function buildFrozenPerformanceBaseline({
   runs,
   subjectSha,
@@ -832,10 +845,10 @@ function buildFrozenPerformanceBaseline({
       'P01-render-isolation': freezeMetric(designated.metrics['P01-render-isolation'], {
         absoluteUpdateLimit: 1,
       }),
-      'P02-history-budget': freezeMetric(designated.metrics['P02-history-budget'], {
+      'P02-history-budget': freezeWorstTimingMetric(runs, 'P02-history-budget', {
         maxRegressionRatio: P02_MAX_REGRESSION_RATIO,
       }),
-      'P03-feedback-budget': freezeMetric(designated.metrics['P03-feedback-budget'], {
+      'P03-feedback-budget': freezeWorstTimingMetric(runs, 'P03-feedback-budget', {
         maxRegressionRatio: P03_MAX_REGRESSION_RATIO,
       }),
       'P04-resource-budget': freezeMetric(designated.metrics['P04-resource-budget'], {

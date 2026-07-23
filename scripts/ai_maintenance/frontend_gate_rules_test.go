@@ -56,3 +56,28 @@ func TestBuildGatePlanRoutesFrontendPerformanceContractsToVerification(t *testin
 		})
 	}
 }
+
+func TestFrontendChangedTestsAllowsPerformanceOnlyCoverageByVerifier(t *testing.T) {
+	tests, err := frontendChangedTestFiles([]string{
+		"frontend-app/scripts/performance-budget-runner.mjs",
+		"frontend-app/scripts/performance-budget-runner.test.mjs",
+	})
+	if err != nil {
+		t.Fatalf("frontendChangedTestFiles returned error: %v", err)
+	}
+	if len(tests) != 0 {
+		t.Fatalf("performance runner tests are excluded by Vitest config and must not be scheduled, got %v", tests)
+	}
+	if !frontendChangedTestsCoveredByPerformanceVerify([]string{
+		"frontend-app/scripts/performance-budget-runner.mjs",
+		"frontend-app/scripts/performance-budget-runner.test.mjs",
+	}) {
+		t.Fatalf("performance runner changes should be covered by performance verify when Vitest has no runnable changed-test target")
+	}
+	if frontendChangedTestsCoveredByPerformanceVerify([]string{
+		"frontend-app/scripts/performance-budget-runner.mjs",
+		"frontend-app/src/mainReadiness.js",
+	}) {
+		t.Fatalf("mixed non-performance frontend source still requires a runnable changed-test target")
+	}
+}

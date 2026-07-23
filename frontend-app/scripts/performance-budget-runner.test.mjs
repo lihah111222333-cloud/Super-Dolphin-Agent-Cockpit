@@ -1000,8 +1000,12 @@ describe('performance baseline freeze', () => {
     })).toThrow(/plan snapshot commit does not exist/);
   });
 
-  it('builds the exact frozen artifact from designated run one without applying the P01 candidate limit', () => {
+  it('builds the exact frozen artifact with conservative timing cases without applying the P01 candidate limit', () => {
     const runs = freezeRuns();
+    const slowP02Case = pairedTimingCase(1.09);
+    const slowP03Case = timingCase(112, FEEDBACK_DURATION_CLOCK);
+    runs[2].metrics['P02-history-budget'].cases['turns-200-tools-1'] = slowP02Case;
+    runs[1].metrics['P03-feedback-budget'].cases['stop-visible-feedback'] = slowP03Case;
     const baselineArtifact = buildFreezeArtifact(runs);
     expect(baselineArtifact).toEqual({
       schemaVersion: 1,
@@ -1040,11 +1044,19 @@ describe('performance baseline freeze', () => {
         },
         'P02-history-budget': {
           ...runs[0].metrics['P02-history-budget'],
+          cases: {
+            ...runs[0].metrics['P02-history-budget'].cases,
+            'turns-200-tools-1': slowP02Case,
+          },
           status: 'PASS',
           maxRegressionRatio: 1.15,
         },
         'P03-feedback-budget': {
           ...runs[0].metrics['P03-feedback-budget'],
+          cases: {
+            ...runs[0].metrics['P03-feedback-budget'].cases,
+            'stop-visible-feedback': slowP03Case,
+          },
           status: 'PASS',
           maxRegressionRatio: 1.15,
         },
