@@ -155,7 +155,7 @@
       ]
     },
     "scripts/performance-budget-runner.test.mjs": {
-      "lines": 1125,
+      "lines": 1138,
       "maxFuncLen": 136,
       "maxNesting": 6,
       "maxParams": 3,
