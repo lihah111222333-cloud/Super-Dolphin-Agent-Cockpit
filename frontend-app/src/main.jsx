@@ -42,6 +42,8 @@ import './pages/chat/components/RuntimePanelPolish.css';
 import './pages/skills/DatasourcePage.css';
 import './AppShellSidebarThreadActions.css';
 import './shared/styles/MarkdownReferences.css';
+// 深色科技感光效层（v2）：仅 dark 作用域，置于所有抛光层之后。
+import './shared/styles/TechGlowPolish.css';
 import App, { APP_PROFILER_ID } from './App.jsx';
 import { AppErrorBoundary } from './app/AppErrorBoundary.jsx';
 import { emitFrontendTraceEvent } from './shared/api/backendApi.js';

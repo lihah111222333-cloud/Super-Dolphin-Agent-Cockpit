@@ -2,27 +2,29 @@
 :root[data-theme="light"],
 .sa-window[data-theme="light"] {
   color-scheme: light;
-  --suiyuan-background: #fbf9f3;
-  --suiyuan-surface-bright: #fbf9f3;
+  /* 亮色「Airy Command Center」基线：冷白/云灰表面 + 蓝紫主色，
+     与深色 AI Command Center 共用同一套应用主题语言。 */
+  --suiyuan-background: #f5f7fa;
+  --suiyuan-surface-bright: #f5f7fa;
   --suiyuan-surface-lowest: #ffffff;
-  --suiyuan-surface-low: #f5f4ed;
-  --suiyuan-surface: #f0eee7;
-  --suiyuan-surface-high: #eae8e1;
-  --suiyuan-surface-highest: #e4e3dc;
-  --suiyuan-surface-variant: #e4e3dc;
-  --suiyuan-on-surface: #1b1c18;
-  --suiyuan-on-surface-variant: #584238;
-  --suiyuan-secondary: #5d5f5d;
-  --suiyuan-secondary-fixed-dim: #c6c7c4;
-  --suiyuan-outline: #8b7268;
-  --suiyuan-outline-variant: #e0c0b3;
-  --suiyuan-primary: #a03b00;
-  --suiyuan-primary-deep: #792b00;
-  --suiyuan-primary-fixed: #ffdbcd;
-  --suiyuan-primary-fixed-dim: #ffb597;
-  --suiyuan-primary-container: #c84d05;
-  --suiyuan-inverse-surface: #30312c;
-  --suiyuan-inverse-on-surface: #f2f1ea;
+  --suiyuan-surface-low: #f2f4f9;
+  --suiyuan-surface: #eceff5;
+  --suiyuan-surface-high: #e2e7f0;
+  --suiyuan-surface-highest: #dae0eb;
+  --suiyuan-surface-variant: #dae0eb;
+  --suiyuan-on-surface: #171a23;
+  --suiyuan-on-surface-variant: #4c5568;
+  --suiyuan-secondary: #5d6474;
+  --suiyuan-secondary-fixed-dim: #c3c9d6;
+  --suiyuan-outline: #8a93a8;
+  --suiyuan-outline-variant: #d3d9e5;
+  --suiyuan-primary: #4f5dd8;
+  --suiyuan-primary-deep: #3d4ac0;
+  --suiyuan-primary-fixed: #e2e7ff;
+  --suiyuan-primary-fixed-dim: #b9c2f8;
+  --suiyuan-primary-container: #6672e8;
+  --suiyuan-inverse-surface: #2a2e3a;
+  --suiyuan-inverse-on-surface: #f2f4fa;
   --suiyuan-sidebar-width: 280px;
   --suiyuan-content-max-width: 1100px;
   --suiyuan-gutter: 24px;
@@ -44,40 +46,43 @@
   --suiyuan-text-label-xs-size: 11px;
   --suiyuan-text-label-xs-line: 14px;
   --suiyuan-mobile-nav-height: 64px;
-  --suiyuan-card-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.05);
-  --suiyuan-input-shadow: 0 8px 30px rgba(0, 0, 0, 0.04);
+  --suiyuan-card-shadow: 0 20px 40px -10px rgba(30, 38, 68, 0.08);
+  --suiyuan-input-shadow: 0 8px 30px rgba(30, 38, 68, 0.06);
   --suiyuan-input-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.82);
-  --suiyuan-logo-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --suiyuan-send-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
-  --bg: #fbf9f3;
-  --bg-elevated: #fbf9f3;
-  --app-bg: #fbf9f3;
+  --suiyuan-logo-shadow: 0 1px 2px rgba(30, 38, 68, 0.08);
+  --suiyuan-send-shadow: 0 4px 6px -1px rgba(30, 38, 68, 0.12), 0 2px 4px -2px rgba(30, 38, 68, 0.12);
+  --bg: #f5f7fa;
+  --bg-elevated: #ffffff;
+  --app-bg: #f5f7fa;
   --surface: #ffffff;
-  --surface-2: #f5f4ed;
-  --surface-3: #f0eee7;
-  --surface-code: #f5f4ed;
+  --surface-2: #f2f4f9;
+  --surface-3: #e9edf4;
+  --surface-code: #eef1f7;
   --overlay: color-mix(in srgb, var(--text-pri) 36%, transparent);
-  --border: #e0c0b3;
-  --border-strong: #8b7268;
-  --text-pri: #1b1c18;
-  --text-sec: #584238;
-  --text-muted: #8b7268;
-  --text-subtle: #6f5b52;
-  --primary: #a03b00;
-  --primary-2: #792b00;
+  --border: #d3d9e5;
+  --border-strong: #8a93a8;
+  --text-pri: #171a23;
+  --text-sec: #4c5568;
+  --text-muted: #8a93a8;
+  --text-subtle: #6b7386;
+  --primary: #4f5dd8;
+  --primary-2: #3d4ac0;
   --primary-ink: #ffffff;
-  --primary-soft: rgba(255, 219, 205, 0.68);
+  --primary-soft: rgba(79, 93, 216, 0.1);
+  /* 科技光效辅助色（亮色变体）：与深色同色相族，提高明度对比。 */
+  --cyan: #0891b2;
+  --violet: #7c5cf0;
   --success: #128b52;
-  --warning: #a03b00;
+  --warning: #b45309;
   --error: #ba1a1a;
-  --info: #5a5c5c;
-  --focus-ring: rgba(160, 59, 0, 0.48);
-  --primary-action-bg: #a03b00;
-  --primary-action-bg-hover: #c84d05;
-  --primary-action-border: #a03b00;
+  --info: #54627a;
+  --focus-ring: rgba(79, 93, 216, 0.38);
+  --primary-action-bg: #4f5dd8;
+  --primary-action-bg-hover: #6672e8;
+  --primary-action-border: #4f5dd8;
   --primary-action-text: #ffffff;
   --primary-action-shadow: none;
-  --shadow: 0 22px 70px rgba(88, 66, 56, 0.14);
+  --shadow: 0 22px 70px rgba(30, 38, 68, 0.12);
   --radius: 8px;
   --radius-sm: 6px;
   --radius-md: 8px;
@@ -112,10 +117,10 @@
   --suiyuan-fusion-btn-bg: var(--primary-action-bg);
   --suiyuan-fusion-btn-color: var(--primary-action-text);
   --suiyuan-fusion-btn-shadow: none;
-  /* MCP 工具卡片：浅色主题下使用统一深灰底，保证白色文字对比度 */
-  --mcp-card-bg: #34362f;
-  --mcp-card-bg-hover: #3d4037;
-  --mcp-card-border: #50534a;
+  /* MCP 工具卡片：浅色主题下使用统一冷灰蓝底，保证白色文字对比度 */
+  --mcp-card-bg: #2e3340;
+  --mcp-card-bg-hover: #383e4c;
+  --mcp-card-border: #4a5162;
   --mcp-card-text: #ffffff;
   --mcp-card-text-muted: rgba(255, 255, 255, 0.74);
   --mcp-card-badge-bg: rgba(255, 255, 255, 0.12);
@@ -124,38 +129,59 @@
   --mcp-card-danger: #ffb4ab;
   --mcp-card-icon-bg: rgba(255, 255, 255, 0.12);
   --transition: 150ms ease;
+  --transition-lift: 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* Motion tokens：全站统一节奏。时长/缓动与主题无关，dark 直接继承。 */
+  --motion-instant: 120ms;
+  --motion-fast: 160ms;
+  --motion-base: 200ms;
+  --motion-panel: 240ms;
+  --motion-page: 340ms;
+  --motion-stagger: 45ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-emphasized: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --motion-hover: var(--motion-fast) var(--ease-standard);
+  --motion-press: var(--motion-instant) var(--ease-standard);
+  --motion-overlay: var(--motion-panel) var(--ease-emphasized);
+  --motion-page-enter: var(--motion-page) var(--ease-emphasized);
+  --radius-xl: 16px;
+  --shadow-lg: 0 28px 80px rgba(30, 38, 68, 0.16);
 }
 
 :root[data-theme="dark"],
 .sa-window[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #131411;
-  --bg-elevated: #1b1c18;
-  --app-bg: #131411;
-  --surface: #1b1c18;
-  --surface-2: #1e1f1b;
-  --surface-3: #292a25;
-  --surface-code: #1e1f1b;
+  /* 深色 AI Command Center 基线：深石墨底 + 蓝紫主色，三级表面层次。 */
+  --bg: #0e1014;
+  --bg-elevated: #161920;
+  --app-bg: #0e1014;
+  --surface: #161920;
+  --surface-2: #1b1f28;
+  --surface-3: #232833;
+  --surface-code: #131720;
   --overlay: rgba(0, 0, 0, 0.64);
-  --border: #504541;
-  --border-strong: #9f8d84;
-  --text-pri: #e5e2da;
-  --text-sec: #d0c4bf;
-  --text-muted: #9f8d84;
-  --text-subtle: #80736d;
-  --primary: #ffb597;
-  --primary-2: #ff8a50;
-  --primary-ink: #4b1700;
-  --primary-soft: rgba(255, 181, 151, 0.14);
+  --border: #2b313e;
+  --border-strong: #495161;
+  --text-pri: #e9ebf2;
+  --text-sec: #b8bfcc;
+  --text-muted: #8b93a3;
+  --text-subtle: #6e7585;
+  --primary: #8f9ff8;
+  --primary-2: #aeb7fb;
+  --primary-ink: #12152e;
+  --primary-soft: rgba(143, 159, 248, 0.14);
+  /* 科技光效辅助色：蓝紫主色的伴生青/紫，只用于渐变与光晕，不做大面填充。 */
+  --cyan: #67e8f9;
+  --violet: #a78bfa;
   --success: #7fd8a1;
   --warning: #e8c177;
   --error: #ffb4ab;
-  --info: #d0c4bf;
-  --focus-ring: rgba(255, 181, 151, 0.56);
-  --primary-action-bg: #ffb597;
-  --primary-action-bg-hover: #ffcab5;
-  --primary-action-border: rgba(255, 181, 151, 0.64);
-  --primary-action-text: #4b1700;
+  --info: #9fb2cc;
+  --focus-ring: rgba(143, 159, 248, 0.5);
+  --primary-action-bg: #8f9ff8;
+  --primary-action-bg-hover: #a6b0fa;
+  --primary-action-border: rgba(143, 159, 248, 0.6);
+  --primary-action-text: #12152e;
   --primary-action-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 10px 28px rgba(0, 0, 0, 0.28);
   --shadow: 0 24px 72px rgba(0, 0, 0, 0.38);
   --ink: var(--text-pri);
@@ -177,8 +203,8 @@
   --purple: var(--primary);
   --text: var(--text-pri);
   --suiyuan-switch-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-  --suiyuan-inverse-surface: #f2f1ea;
-  --suiyuan-inverse-on-surface: #30312c;
+  --suiyuan-inverse-surface: #eef0f5;
+  --suiyuan-inverse-on-surface: #262a33;
   --suiyuan-fusion-bg: var(--surface-2);
   --suiyuan-fusion-border: var(--border);
   --suiyuan-fusion-color: var(--text-pri);
@@ -188,17 +214,18 @@
   --suiyuan-fusion-btn-bg: var(--primary-action-bg);
   --suiyuan-fusion-btn-color: var(--primary-action-text);
   --suiyuan-fusion-btn-shadow: none;
-  /* MCP 工具卡片：深色主题下使用比页面稍亮的暗灰底，文字保持近白 */
-  --mcp-card-bg: #242620;
-  --mcp-card-bg-hover: #2c2e27;
-  --mcp-card-border: #43453d;
-  --mcp-card-text: #f5f4ed;
-  --mcp-card-text-muted: rgba(245, 244, 237, 0.72);
-  --mcp-card-badge-bg: rgba(245, 244, 237, 0.1);
-  --mcp-card-badge-border: rgba(245, 244, 237, 0.24);
+  /* MCP 工具卡片：深色主题下使用比页面稍亮的冷灰底，文字保持近白 */
+  --mcp-card-bg: #20242e;
+  --mcp-card-bg-hover: #272c38;
+  --mcp-card-border: #3c4350;
+  --mcp-card-text: #f2f4f8;
+  --mcp-card-text-muted: rgba(242, 244, 248, 0.72);
+  --mcp-card-badge-bg: rgba(242, 244, 248, 0.1);
+  --mcp-card-badge-border: rgba(242, 244, 248, 0.24);
   --mcp-card-ok: var(--success);
   --mcp-card-danger: var(--error);
-  --mcp-card-icon-bg: rgba(245, 244, 237, 0.1);
+  --mcp-card-icon-bg: rgba(242, 244, 248, 0.1);
+  --shadow-lg: 0 28px 80px rgba(0, 0, 0, 0.52);
 }
 
 body, button, input, select, textarea, span, p, h1, h2, h3, h4, h5, h6, div {

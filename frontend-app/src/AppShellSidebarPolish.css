@@ -3,7 +3,7 @@
   min-height: 38px !important;
   height: auto !important;
   padding: 8px 10px !important;
-  transition: all 0.2s ease;
+  transition: background var(--motion-base) var(--ease-standard), color var(--motion-base) var(--ease-standard), border-color var(--motion-base) var(--ease-standard), box-shadow var(--motion-base) var(--ease-standard);
 }
 
 .sidebar-new-chat:hover {
@@ -13,3 +13,76 @@
 /* ==========================================================================
    Figure 3: Automation Clock & Presets Enhancements
    ========================================================================== */
+
+/* 统一交互层：workbench 侧边栏导航与新对话按钮共享全局过渡语言。
+   只补过渡，不改变既有几何、颜色与选中态。 */
+.app-sidebar-nav button,
+.sidebar-settings,
+.sidebar-project-thread,
+.sidebar-tree-item,
+.sidebar-tree-folder,
+.sidebar-task-thread,
+.sidebar-icon-action,
+.sidebar-brand-actions button,
+.suiyuan-sidebar-collapse {
+  transition: background var(--transition), color var(--transition);
+}
+
+.suiyuan-new-chat {
+  transition: background var(--motion-hover), border-color var(--motion-hover), box-shadow var(--motion-fast) var(--ease-standard), transform var(--motion-fast) var(--ease-spring);
+}
+
+/* 新对话按钮：hover 轻微抬升与阴影收放；按下快速回落，释放经 spring 回弹 */
+.suiyuan-new-chat:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--suiyuan-card-shadow);
+}
+
+.suiyuan-new-chat:active:not(:disabled) {
+  transform: translateY(0);
+  transition-duration: var(--motion-instant);
+}
+
+/* 导航选中指示条：scaleY + opacity 平滑出现，避免生硬跳变 */
+.suiyuan-nav-item::before,
+.suiyuan-footer-item::before {
+  opacity: 0;
+  transform: scaleY(0.45);
+  transition: opacity var(--motion-hover), transform var(--motion-hover), background var(--motion-hover);
+}
+
+.suiyuan-nav-item.active::before,
+.suiyuan-footer-item.active::before {
+  opacity: 1;
+  transform: scaleY(1);
+}
+
+/* 导航 hover：仅图标轻微位移，文字保持不动 */
+.suiyuan-nav-item svg,
+.suiyuan-footer-item svg,
+.app-sidebar-nav button svg {
+  transition: transform var(--motion-hover);
+}
+
+.suiyuan-nav-item:hover svg,
+.suiyuan-footer-item:hover svg,
+.app-sidebar-nav button:hover svg {
+  transform: translateX(2px);
+}
+
+/* 项目树与会话列表：展开时轻量出现（仅 opacity/小位移，无 reflow） */
+@keyframes sd-tree-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.sidebar-project-thread-list,
+.suiyuan-chat-project-tree {
+  animation: sd-tree-in var(--motion-fast) var(--ease-standard);
+}

@@ -41,6 +41,7 @@ const cssFiles = [
   'src/pages/skills/DatasourcePage.css',
   'src/AppShellSidebarThreadActions.css',
   'src/shared/styles/MarkdownReferences.css',
+  'src/shared/styles/TechGlowPolish.css',
 ];
 
 const mainSource = readFileSync(path.join(cwd(), 'src/main.jsx'), 'utf8');
@@ -316,7 +317,7 @@ describe('layer token and overlay host contract', () => {
       declarations[declaration.prop] = declaration.value;
     });
     expect(declarations['--surface']).toBe('#ffffff');
-    expect(declarations['--text-pri']).toBe('#1b1c18');
+    expect(declarations['--text-pri']).toBe('#171a23');
   });
 
   it('classifies missing, duplicate, nested, and misordered overlay hosts', () => {
@@ -734,21 +735,21 @@ describe('theme-aware component styles', () => {
       const light = declarationsFor('.sa-window[data-theme="light"]');
       const lightSpecific = declarationsFor('.sa-window[data-theme="light"].sa-window');
 
-      expect(light['--bg']).toBe('#fbf9f3');
-      expect(light['--bg-elevated']).toBe('#fbf9f3');
+      expect(light['--bg']).toBe('#f5f7fa');
+      expect(light['--bg-elevated']).toBe('#ffffff');
       expect(light['--surface']).toBe('#ffffff');
-      expect(light['--surface-2']).toBe('#f5f4ed');
-      expect(light['--surface-3']).toBe('#f0eee7');
-      expect(light['--primary']).toBe('#a03b00');
-      expect(light['--primary-2']).toBe('#792b00');
-      expect(light['--text-pri']).toBe('#1b1c18');
-      expect(light['--text-sec']).toBe('#584238');
-      expect(light['--text-muted']).toBe('#8b7268');
-      expect(lightSpecific['--bg']).toBe('#fbf9f3');
-      expect(lightSpecific['--bg-elevated']).toBe('#fbf9f3');
-      expect(lightSpecific['--surface-2']).toBe('#f5f4ed');
-      expect(lightSpecific['--surface-3']).toBe('#f0eee7');
-      expect(lightSpecific['--text-sec']).toBe('#584238');
+      expect(light['--surface-2']).toBe('#f2f4f9');
+      expect(light['--surface-3']).toBe('#e9edf4');
+      expect(light['--primary']).toBe('#4f5dd8');
+      expect(light['--primary-2']).toBe('#3d4ac0');
+      expect(light['--text-pri']).toBe('#171a23');
+      expect(light['--text-sec']).toBe('#4c5568');
+      expect(light['--text-muted']).toBe('#8a93a8');
+      expect(lightSpecific['--bg']).toBe('#f5f7fa');
+      expect(lightSpecific['--bg-elevated']).toBe('#ffffff');
+      expect(lightSpecific['--surface-2']).toBe('#f2f4f9');
+      expect(lightSpecific['--surface-3']).toBe('#e9edf4');
+      expect(lightSpecific['--text-sec']).toBe('#4c5568');
     });
 
     it('keeps the Suiyuan workbench aliases available for shell and chat surfaces', () => {
@@ -757,8 +758,8 @@ describe('theme-aware component styles', () => {
       expect(rootTokens['--suiyuan-sidebar-width']).toBe('280px');
       expect(rootTokens['--suiyuan-content-max-width']).toBe('1100px');
       expect(rootTokens['--suiyuan-gutter']).toBe('24px');
-      expect(rootTokens['--suiyuan-card-shadow']).toBe('0 20px 40px -10px rgba(0, 0, 0, 0.05)');
-      expect(rootTokens['--suiyuan-input-shadow']).toBe('0 8px 30px rgba(0, 0, 0, 0.04)');
+      expect(rootTokens['--suiyuan-card-shadow']).toBe('0 20px 40px -10px rgba(30, 38, 68, 0.08)');
+      expect(rootTokens['--suiyuan-input-shadow']).toBe('0 8px 30px rgba(30, 38, 68, 0.06)');
       expect(rootTokens['--suiyuan-input-highlight']).toBe('inset 0 1px 0 rgba(255, 255, 255, 0.82)');
     });
   });
@@ -1563,12 +1564,12 @@ describe('workbench shell styles', () => {
     it('maps Suiyuan design tokens to dark surfaces in dark mode', () => {
       const darkShell = declarationsFor('.sa-window.suiyuan-shell[data-theme="dark"]');
 
-      expect(darkShell['--suiyuan-background']).toBe('#131411');
-      expect(darkShell['--suiyuan-surface-bright']).toBe('#131411');
-      expect(darkShell['--suiyuan-surface-lowest']).toBe('#1b1c18');
-      expect(darkShell['--suiyuan-surface-low']).toBe('#1e1f1b');
-      expect(darkShell['--suiyuan-on-surface']).toBe('#e5e2da');
-      expect(darkShell['--suiyuan-primary']).toBe('#ffb597');
+      expect(darkShell['--suiyuan-background']).toBe('#0e1014');
+      expect(darkShell['--suiyuan-surface-bright']).toBe('#0e1014');
+      expect(darkShell['--suiyuan-surface-lowest']).toBe('#161920');
+      expect(darkShell['--suiyuan-surface-low']).toBe('#1b1f28');
+      expect(darkShell['--suiyuan-on-surface']).toBe('#e9ebf2');
+      expect(darkShell['--suiyuan-primary']).toBe('#8f9ff8');
       expect(darkShell['--suiyuan-card-shadow']).toBe('0 20px 40px -10px rgba(0, 0, 0, 0.3)');
       expect(darkShell['--suiyuan-input-shadow']).toBe('0 8px 30px rgba(0, 0, 0, 0.2)');
     });
@@ -1982,8 +1983,8 @@ describe('light theme baseline usability', () => {
     const inlineCode = declarationsFor('.sa-window[data-theme="light"] .message-markdown code');
     const codeBlock = declarationsFor('.sa-window[data-theme="light"] .message-markdown pre');
 
-    expect(lightTheme['--bg']).toBe('#fbf9f3');
-    expect(lightTheme['--text-sec']).toBe('#584238');
+    expect(lightTheme['--bg']).toBe('#f5f7fa');
+    expect(lightTheme['--text-sec']).toBe('#4c5568');
     expect(markdown.color).toBe('var(--text-sec)');
     expect(assistantMarkdown.color).toBe('var(--text-sec)');
     expect(inlineCode.color).toBe('var(--text-pri)');
@@ -2249,23 +2250,22 @@ describe('suiyuan theme contract', () => {
     const light = declarationsFor('.sa-window[data-theme="light"]');
 
     expect(themeRootRules).toHaveLength(1);
-    expect(rootLight['--bg']).toBe('#fbf9f3');
+    expect(rootLight['--bg']).toBe('#f5f7fa');
     expect(rootLight['--surface']).toBe('#ffffff');
-    expect(dark['--bg']).toBe('#131411');
-    expect(dark['--surface']).toBe('#1b1c18');
-    expect(dark['--surface-2']).toBe('#1e1f1b');
-    expect(dark['--surface-3']).toBe('#292a25');
-    expect(dark['--text-pri']).toBe('#e5e2da');
-    expect(dark['--primary']).toBe('#ffb597');
-    expect(dark['--primary-2']).toBe('#ff8a50');
-    expect(dark['--app-bg']).toBe('#131411');
+    expect(dark['--bg']).toBe('#0e1014');
+    expect(dark['--surface']).toBe('#161920');
+    expect(dark['--surface-2']).toBe('#1b1f28');
+    expect(dark['--surface-3']).toBe('#232833');
+    expect(dark['--text-pri']).toBe('#e9ebf2');
+    expect(dark['--primary']).toBe('#8f9ff8');
+    expect(dark['--primary-2']).toBe('#aeb7fb');
+    expect(dark['--app-bg']).toBe('#0e1014');
     expect(dark['--accent']).toBe('var(--primary)');
     expect(dark['--accent-2']).toBe('var(--primary-2)');
     expect(dark['--green']).toBe('var(--success)');
     expect(dark['--blue']).toBe('var(--info)');
-    expect(light['--bg']).toBe('#fbf9f3');
-    expect(light['--primary']).toBe('#a03b00');
-    expect(light['--primary-2']).toBe('#792b00');
+    expect(light['--primary']).toBe('#4f5dd8');
+    expect(light['--primary-2']).toBe('#3d4ac0');
     expect(light['--accent']).toBe('var(--primary)');
     expect(light['--accent-2']).toBe('var(--primary-2)');
   });
@@ -2278,9 +2278,9 @@ describe('suiyuan theme contract', () => {
     const primaryDisabled = declarationsFor('.btn-primary:disabled');
     const secondary = declarationsFor('.btn-secondary');
 
-    expect(tokens['--primary-action-bg']).toBe('#ffb597');
-    expect(light['--primary-action-bg']).toBe('#a03b00');
-    expect(light['--primary-action-bg-hover']).toBe('#c84d05');
+    expect(tokens['--primary-action-bg']).toBe('#8f9ff8');
+    expect(light['--primary-action-bg']).toBe('#4f5dd8');
+    expect(light['--primary-action-bg-hover']).toBe('#6672e8');
     expect(primary.background).toBe('var(--primary-action-bg)');
     expect(primary.color).toBe('var(--primary-action-text)');
     expect(primary['white-space']).toBe('nowrap');

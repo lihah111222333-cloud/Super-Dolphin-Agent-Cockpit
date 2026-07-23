@@ -119,7 +119,7 @@
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 150ms ease;
+  transition: background var(--motion-hover), border-color var(--motion-hover), box-shadow var(--motion-hover), color var(--motion-hover), transform var(--motion-hover);
   min-width: 64px;
   white-space: nowrap;
   flex: 0 0 auto;

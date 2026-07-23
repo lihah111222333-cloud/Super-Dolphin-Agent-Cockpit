@@ -65,7 +65,7 @@
   font-weight: 500;
   color: var(--text-sec);
   cursor: pointer;
-  transition: all 150ms ease;
+  transition: background var(--motion-hover), border-color var(--motion-hover), box-shadow var(--motion-hover), color var(--motion-hover), transform var(--motion-hover);
 }
 
 .preset-pill:hover {

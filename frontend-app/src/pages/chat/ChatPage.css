@@ -275,6 +275,23 @@
   text-align: center;
 }
 
+/* Ant Design Flex：只承载纵向编排，文本继续使用原生语义元素。 */
+.chat-intro-welcome {
+  width: 100%;
+  gap: 0;
+  text-align: center;
+}
+
+.chat-intro-welcome .chat-intro-title {
+  margin: 0;
+  color: var(--text-pri);
+  font-family: var(--font-cjk);
+}
+
+.chat-intro-welcome .chat-intro-subtitle {
+  font-family: var(--font-cjk);
+}
+
 .chat-intro-logo-tile {
   width: 64px;
   height: 64px;
@@ -402,6 +419,7 @@
 
 .chat-intro-card:active {
   transform: translateY(-1px);
+  transition-duration: var(--motion-instant);
 }
 
 .chat-intro-card__icon {
@@ -596,4 +614,53 @@
     line-height: 15px;
   }
 
+}
+
+/* 欢迎页入场：标题、说明与建议卡片的轻量 stagger；reduced-motion 统一收口于 ThemePolish */
+@keyframes sd-intro-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.chat-intro-logo-tile,
+.chat-intro-title,
+.chat-intro-subtitle,
+.chat-intro-card {
+  animation: sd-intro-rise var(--motion-page-enter) both;
+}
+
+.chat-intro-title {
+  animation-delay: var(--motion-stagger);
+}
+
+.chat-intro-subtitle {
+  animation-delay: calc(var(--motion-stagger) * 2);
+}
+
+.chat-intro-card:nth-child(1) {
+  animation-delay: calc(var(--motion-stagger) * 3);
+}
+
+.chat-intro-card:nth-child(2) {
+  animation-delay: calc(var(--motion-stagger) * 4);
+}
+
+.chat-intro-card:nth-child(3) {
+  animation-delay: calc(var(--motion-stagger) * 5);
+}
+
+/* 建议卡片：hover 时图标容器轻微放大，与卡片抬升/边框/阴影形成层次 */
+.chat-intro-card__icon {
+  transition: background var(--motion-hover), color var(--motion-hover), transform var(--motion-hover);
+}
+
+.chat-intro-card:hover .chat-intro-card__icon,
+.chat-intro-card:focus-visible .chat-intro-card__icon {
+  transform: scale(1.08);
 }

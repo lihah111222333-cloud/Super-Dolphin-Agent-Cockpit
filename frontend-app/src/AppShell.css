@@ -4,33 +4,34 @@
 }
 
 .sa-window.suiyuan-shell[data-theme="light"] {
-  --sidebar-bg: #fbf9f3;
-  --sidebar-border: #e0c0b3;
+  --sidebar-bg: #eef1f7;
+  --sidebar-border: #d3d9e5;
   --sidebar-active: color-mix(in srgb, var(--primary) 8%, var(--surface));
   --primary-soft: color-mix(in srgb, var(--primary) 10%, var(--surface));
 }
 
 .sa-window.suiyuan-shell[data-theme="dark"] {
-  --suiyuan-background: #131411;
-  --suiyuan-surface-bright: #131411;
-  --suiyuan-surface-lowest: #1b1c18;
-  --suiyuan-surface-low: #1e1f1b;
-  --suiyuan-surface: #1e1f1b;
-  --suiyuan-surface-high: #292a25;
-  --suiyuan-surface-highest: #33342f;
-  --suiyuan-on-surface: #e5e2da;
-  --suiyuan-on-surface-variant: #d0c4bf;
-  --suiyuan-outline: #9f8d84;
-  --suiyuan-outline-variant: #504541;
-  --suiyuan-primary: #ffb597;
-  --suiyuan-primary-deep: #ff8a50;
-  --suiyuan-primary-fixed: rgba(255, 181, 151, 0.16);
-  --suiyuan-primary-fixed-dim: #ffb597;
+  /* 深色 AI Command Center：与 styles.css dark 块同源的深石墨 + 蓝紫。 */
+  --suiyuan-background: #0e1014;
+  --suiyuan-surface-bright: #0e1014;
+  --suiyuan-surface-lowest: #161920;
+  --suiyuan-surface-low: #1b1f28;
+  --suiyuan-surface: #1b1f28;
+  --suiyuan-surface-high: #232833;
+  --suiyuan-surface-highest: #2a303d;
+  --suiyuan-on-surface: #e9ebf2;
+  --suiyuan-on-surface-variant: #b8bfcc;
+  --suiyuan-outline: #8b93a3;
+  --suiyuan-outline-variant: #2b313e;
+  --suiyuan-primary: #8f9ff8;
+  --suiyuan-primary-deep: #aeb7fb;
+  --suiyuan-primary-fixed: rgba(143, 159, 248, 0.16);
+  --suiyuan-primary-fixed-dim: #8f9ff8;
   --suiyuan-card-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.3);
   --suiyuan-input-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
   --suiyuan-input-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  --sidebar-bg: #1b1c18;
-  --sidebar-border: #504541;
+  --sidebar-bg: #13161d;
+  --sidebar-border: #262c37;
   --sidebar-active: color-mix(in srgb, var(--primary) 14%, var(--surface-2));
 }
 

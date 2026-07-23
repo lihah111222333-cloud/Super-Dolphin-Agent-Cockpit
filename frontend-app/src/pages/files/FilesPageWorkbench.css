@@ -19,7 +19,7 @@
   display: flex;
   flex-direction: column;
   box-shadow: none;
-  transition: all 150ms ease;
+  transition: background var(--motion-hover), border-color var(--motion-hover), box-shadow var(--motion-hover), color var(--motion-hover), transform var(--motion-hover);
 }
 
 .file-row:hover {
@@ -148,7 +148,7 @@
   align-items: center;
   gap: 4px;
   cursor: pointer;
-  transition: all 150ms ease;
+  transition: background var(--motion-hover), border-color var(--motion-hover), box-shadow var(--motion-hover), color var(--motion-hover), transform var(--motion-hover);
   min-width: 64px;
   white-space: nowrap;
   flex: 0 0 auto;

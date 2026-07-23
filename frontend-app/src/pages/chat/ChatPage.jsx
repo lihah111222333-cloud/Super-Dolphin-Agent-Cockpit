@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { Bot, Code2, FileText, Sailboat, Sparkles } from 'lucide-react';
+import Flex from 'antd/es/flex';
 import {
   activeThreadForStore,
 } from './adapters/threadStateAdapter.js';
@@ -57,26 +58,32 @@ function renderIntroTitle(title) {
 
   return (
     <>
-      {title.slice(0, markerIndex)}
-      <em>{marker}</em>
-      {title.slice(markerIndex + marker.length)}
+      <span aria-hidden="true">
+        {title.slice(0, markerIndex)}
+        <em>{marker}</em>
+        {title.slice(markerIndex + marker.length)}
+      </span>
+      <span className="sr-only">{title}</span>
     </>
   );
 }
 
 function ChatIntroSpotlight({ copy, onSuggestion }) {
+  // 空状态头部使用 Ant Design Flex 负责纵向编排；标题和建议卡保留原生语义，
+  // 避免为纯布局引入额外排版运行时，同时确保键盘与读屏契约不退化。
   return (
     <div className="chat-intro-spotlight" aria-labelledby="chat-intro-title" data-testid="chat-intro-spotlight">
       <div className="chat-intro-spotlight__inner">
-        <div className="chat-intro-logo-tile" aria-hidden="true">
-          <Sailboat className="chat-intro-logo-light" data-testid="chat-intro-light-logo" size={28} strokeWidth={1.8} />
-          <Bot className="chat-intro-logo-dark" data-testid="chat-intro-dark-logo" size={28} strokeWidth={1.8} />
-        </div>
-        <h2 id="chat-intro-title" className="chat-intro-title" aria-label={copy.introTitle}>
-          <span aria-hidden="true">{renderIntroTitle(copy.introTitle)}</span>
-          <span className="sr-only">{copy.introTitle}</span>
-        </h2>
-        <p className="chat-intro-subtitle">{copy.introSubtitle}</p>
+        <Flex className="chat-intro-welcome" vertical align="center">
+          <span className="chat-intro-logo-tile" aria-hidden="true">
+            <Sailboat className="chat-intro-logo-light" data-testid="chat-intro-light-logo" size={28} strokeWidth={1.8} />
+            <Bot className="chat-intro-logo-dark" data-testid="chat-intro-dark-logo" size={28} strokeWidth={1.8} />
+          </span>
+          <h2 id="chat-intro-title" className="chat-intro-title">
+            {renderIntroTitle(copy.introTitle)}
+          </h2>
+          <p className="chat-intro-subtitle">{copy.introSubtitle}</p>
+        </Flex>
         <div className="chat-intro-suggestions" data-testid="chat-intro-suggestions">
           {INTRO_SUGGESTION_DEFINITIONS.map(({ key, icon: Icon }) => {
             const suggestion = copy.introSuggestions[key];

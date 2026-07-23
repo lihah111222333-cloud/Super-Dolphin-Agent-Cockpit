@@ -2,3 +2,18 @@
   border-color: var(--border-strong);
   color: var(--text-pri);
 }
+
+/* 工作流模板卡片：可点击选择，hover 轻微抬升、按下快速回落；选中 ring 保持不变 */
+.enterprise-template-card {
+  transition: border-color var(--motion-hover), box-shadow var(--motion-hover), transform var(--motion-hover);
+}
+
+.enterprise-template-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--suiyuan-card-shadow);
+}
+
+.enterprise-template-card:active {
+  transform: translateY(0);
+  transition-duration: var(--motion-instant);
+}
