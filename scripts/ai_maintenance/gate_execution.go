@@ -169,7 +169,7 @@ func frontendChangedTestFiles(files []string) ([]string, error) {
 		for _, candidate := range candidates {
 			if _, err := os.Stat(filepath.Join("frontend-app", candidate)); err == nil {
 				seen[candidate] = true
-			} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+			} else if !errors.Is(err, os.ErrNotExist) {
 				return nil, fmt.Errorf("stat frontend test target %q: %w", candidate, err)
 			}
 		}
