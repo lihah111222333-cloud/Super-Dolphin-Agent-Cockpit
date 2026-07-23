@@ -46,6 +46,8 @@ CODEMAP_TMP=
 CACHE_INDEX=
 CACHE_INDEX_DIR=
 GATE_WORKTREE=
+GATE_COMMIT=
+GATE_DIFF_BASE=
 cleanup() {
 	local original_status="${1:-0}"
 	local cleanup_status=0
@@ -227,7 +229,7 @@ run_ai_maintenance_staged_gate() {
       --cache-dir .build-cache/ai-maintenance-gates \
       --cache-max-age 10m \
       --cache-scope "$cache_scope" \
-      --diff-cached \
+      --diff-range "$GATE_DIFF_BASE..$GATE_COMMIT" \
       "${args[@]}"
   ); then
     echo "❌ AI maintenance gates 未通过" >&2
@@ -310,49 +312,54 @@ verify_staged_go_inputs() (
 )
 
 create_staged_gate_worktree() {
-  local cache_scope=$1 base_commit empty_tree merge_head
-  if ! base_commit=$(run_go_without_git_env git rev-parse --verify HEAD 2>/dev/null); then
+  local cache_scope=$1 original_head empty_tree merge_head merge_head_path
+  local commit_args=("$cache_scope")
+
+  if original_head=$(run_go_without_git_env git rev-parse --verify HEAD 2>/dev/null); then
+    GATE_DIFF_BASE=$original_head
+    commit_args+=(-p "$original_head")
+  else
     if ! empty_tree=$(run_go_without_git_env git hash-object -t tree /dev/null); then
       echo "❌ 无法创建首次提交门禁的 empty tree" >&2
       exit 1
     fi
-    if ! base_commit=$(printf 'pre-commit empty base\n' | run_go_without_git_env git commit-tree "$empty_tree"); then
-      echo "❌ 无法创建首次提交门禁的临时 base commit" >&2
-      exit 1
-    fi
+    GATE_DIFF_BASE=$empty_tree
   fi
 
-  if merge_head=$(run_go_without_git_env git rev-parse --verify MERGE_HEAD 2>/dev/null); then
-    if ! base_commit=$(printf 'pre-commit staged merge snapshot\n' | \
-      run_go_without_git_env git commit-tree "$cache_scope" -p "$base_commit" -p "$merge_head"); then
-      echo "❌ 无法创建 staged merge 门禁的临时提交" >&2
-      exit 1
-    fi
+  if ! merge_head_path=$(run_go_without_git_env git rev-parse --git-path MERGE_HEAD); then
+    echo "❌ 无法定位 MERGE_HEAD" >&2
+    exit 1
+  fi
+  if [ -f "$merge_head_path" ]; then
+    while IFS= read -r merge_head; do
+      if [ -z "$merge_head" ] || ! run_go_without_git_env git rev-parse --verify "$merge_head^{commit}" >/dev/null; then
+        echo "❌ MERGE_HEAD 包含无效父提交：$merge_head" >&2
+        exit 1
+      fi
+      commit_args+=(-p "$merge_head")
+    done <"$merge_head_path"
+  fi
+
+  if ! GATE_COMMIT=$(printf 'pre-commit staged gate snapshot\n' | \
+    run_go_without_git_env git -c commit.gpgsign=false commit-tree "${commit_args[@]}"); then
+    echo "❌ 无法创建 staged gate 临时提交" >&2
+    exit 1
   fi
 
   GATE_WORKTREE=$(mktemp -d "$HOOK_TMPDIR/pre-commit-worktree.XXXXXX")
   rmdir "$GATE_WORKTREE"
-  if ! run_go_without_git_env git worktree add --quiet --detach --no-checkout "$GATE_WORKTREE" "$base_commit"; then
-    echo "❌ 无法创建 staged gate 临时 worktree" >&2
-    exit 1
-  fi
-  if ! GIT_INDEX_FILE="$CACHE_INDEX" git checkout-index -a --prefix="$GATE_WORKTREE/"; then
-    echo "❌ 无法将 staged tree 展开到临时门禁 worktree" >&2
-    exit 1
-  fi
-	if ! run_go_without_git_env git -C "$GATE_WORKTREE" read-tree "$cache_scope"; then
-    echo "❌ 无法将 staged tree 写入临时门禁 worktree index" >&2
+  if ! run_go_without_git_env git worktree add --quiet --detach "$GATE_WORKTREE" "$GATE_COMMIT"; then
+    echo "❌ 无法 checkout staged gate 临时提交" >&2
     exit 1
   fi
 
-  mkdir -p "$REPO_ROOT/.build-cache"
-  ln -s "$REPO_ROOT/.build-cache" "$GATE_WORKTREE/.build-cache"
+  mkdir -p "$REPO_ROOT/.build-cache/ai-maintenance-gates"
+  mkdir "$GATE_WORKTREE/.build-cache"
+  ln -s "$REPO_ROOT/.build-cache/ai-maintenance-gates" "$GATE_WORKTREE/.build-cache/ai-maintenance-gates"
   if [ -x "$REPO_ROOT/frontend-app/node_modules/.bin/vite" ] && \
     [ -f "$GATE_WORKTREE/frontend-app/package.json" ] && \
     [ -f "$GATE_WORKTREE/frontend-app/package-lock.json" ] && \
-    cmp -s "$REPO_ROOT/frontend-app/package.json" "$GATE_WORKTREE/frontend-app/package.json" && \
     cmp -s "$REPO_ROOT/frontend-app/package-lock.json" "$GATE_WORKTREE/frontend-app/package-lock.json" && \
-    [ ! "$REPO_ROOT/frontend-app/package.json" -nt "$REPO_ROOT/frontend-app/node_modules" ] && \
     [ ! "$REPO_ROOT/frontend-app/package-lock.json" -nt "$REPO_ROOT/frontend-app/node_modules" ]; then
     mkdir "$GATE_WORKTREE/frontend-app/node_modules"
     while IFS= read -r -d '' dependency; do

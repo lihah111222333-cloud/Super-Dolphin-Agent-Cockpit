@@ -267,7 +267,7 @@ func TestPreCommitRoutesDocsOnlyThroughCachedAIMaintenance(t *testing.T) {
 		"--cache-dir .build-cache/ai-maintenance-gates",
 		"--cache-max-age 10m",
 		"--cache-scope",
-		"--diff-cached",
+		"--diff-range",
 		"gate-index=",
 		"pre-commit OK",
 	)
@@ -433,7 +433,7 @@ func TestPreCommitRejectsPartialIndexMismatch(t *testing.T) {
 func TestPreCommitRunsLongGatesFromStagedSnapshot(t *testing.T) {
 	root := preparePreCommitGateFixture(t)
 	tmpRoot := t.TempDir()
-	writeFixTestGuardFile(t, root, ".gitignore", "frontend-app/node_modules/\n")
+	writeFixTestGuardFile(t, root, ".gitignore", ".build-cache/\nfrontend-app/node_modules/\n")
 	writeFixTestGuardFile(t, root, "frontend-app/package.json", "{}\n")
 	writeFixTestGuardFile(t, root, "frontend-app/package-lock.json", "{}\n")
 	vitePath := filepath.Join(root, "frontend-app", "node_modules", ".bin", "vite")
@@ -448,9 +448,15 @@ func TestPreCommitRunsLongGatesFromStagedSnapshot(t *testing.T) {
 	path := ".githooks/snapshot-input.sh"
 	writeFixTestGuardFile(t, root, path, "staged snapshot\n")
 	runFixTestGuardGit(t, root, "add", path)
+	warmOut, warmErr := runPreCommitHook(t, root)
+	if warmErr != nil {
+		t.Fatalf("pre-commit fixture warmup failed: %v\n%s", warmErr, warmOut)
+	}
+	originalState := capturePreCommitRepositoryState(t, root)
 
 	out, err := runPreCommitHookWithEnv(t, root, map[string]string{
 		"TMPDIR":                        tmpRoot,
+		"GATE_ASSERT_CLEAN":             "1",
 		"GATE_MUTATE_ORIGINAL_PATH":     filepath.Join(root, path),
 		"GATE_ASSERT_RELATIVE_PATH":     path,
 		"GATE_ASSERT_CONTENT":           "staged snapshot",
@@ -460,6 +466,8 @@ func TestPreCommitRunsLongGatesFromStagedSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pre-commit staged snapshot failed: %v\n%s", err, out)
 	}
+	assertSyntheticGateSnapshot(t, out, originalState.indexTree, originalState.headCommit, originalState.headCommit)
+	assertPreCommitRepositoryState(t, root, originalState)
 	assertOutputContainsAll(t, out, "gate-worktree=", "cache-tree=", "worktree-tree=", "pre-commit OK")
 	if strings.Contains(out, "gate-worktree="+root) {
 		t.Fatalf("AI gate ran in mutable original worktree:\n%s", out)

@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -87,7 +86,41 @@ func TestUpdateOperationRetainsLatchWhenStartedHelperReleaseFails(t *testing.T) 
 	if got := fixture.counts.launch.Load(); got != 1 {
 		t.Fatalf("helper launch attempts = %d, want 1", got)
 	}
-	assertNoUpdateQuit(t, fixture.quitCalled, "helper release failure")
+	waitForSignal(t, fixture.quitCalled, "RequestQuit after helper release failure")
+	assertNoSecondUpdateQuit(t, fixture.quitCalled)
+}
+
+func TestUpdateOperationRequestsQuitWhenStartedHelperLogCloseFails(t *testing.T) {
+	fixture := newUpdateOperationFixture(t)
+	close(fixture.verifierRelease)
+	fixture.svc.cfg.Platform = "darwin-arm64"
+	fixture.svc.cfg.HelperPath = filepath.Join(fixture.svc.cfg.StageDir, "helper")
+	fixture.svc.cfg.TargetAppPath = "/Applications/Super Dolphin.app"
+	writeSelectedInstallFixtureForPlatform(
+		t,
+		fixture.svc,
+		"darwin-arm64",
+		filepath.Join(fixture.svc.cfg.StageDir, dmgFilename),
+	)
+	fixture.svc.launchCommand = func(cmd *exec.Cmd) (bool, error) {
+		fixture.counts.launch.Add(1)
+		if len(cmd.ExtraFiles) != 1 {
+			t.Fatalf("helper inherited files = %d, want 1", len(cmd.ExtraFiles))
+		}
+		if err := cmd.ExtraFiles[0].Close(); err != nil {
+			t.Fatalf("close helper log before service cleanup: %v", err)
+		}
+		return true, nil
+	}
+	if _, err := fixture.svc.Install(context.Background()); err == nil || !strings.Contains(err.Error(), "close app update helper log") {
+		t.Fatalf("Install() error = %v, want helper log close failure", err)
+	}
+	assertUpdateOperationsRejected(t, fixture.svc, "after helper log close failure")
+	if got := fixture.counts.launch.Load(); got != 1 {
+		t.Fatalf("helper launch attempts = %d, want 1", got)
+	}
+	waitForSignal(t, fixture.quitCalled, "RequestQuit after helper log close failure")
+	assertNoSecondUpdateQuit(t, fixture.quitCalled)
 }
 
 type updateOperationCall struct {
@@ -141,15 +174,6 @@ func assertNoSecondUpdateQuit(t *testing.T, quitCalled <-chan struct{}) {
 	select {
 	case <-quitCalled:
 		t.Fatal("RequestQuit called more than once")
-	case <-time.After(2 * installQuitDelay):
-	}
-}
-
-func assertNoUpdateQuit(t *testing.T, quitCalled <-chan struct{}, phase string) {
-	t.Helper()
-	select {
-	case <-quitCalled:
-		t.Fatalf("RequestQuit called after %s", phase)
 	case <-time.After(2 * installQuitDelay):
 	}
 }
@@ -209,53 +233,5 @@ func newUpdateOperationFixture(t *testing.T) updateOperationFixture {
 		verifierEntered: verifierEntered,
 		verifierRelease: verifierRelease,
 		quitCalled:      quitCalled,
-	}
-}
-
-func writeSelectedInstallFixtureForPlatform(t *testing.T, svc *service, platform, artifactPath string) {
-	t.Helper()
-	if err := os.MkdirAll(svc.cfg.StageDir, 0o700); err != nil {
-		t.Fatalf("MkdirAll(StageDir) error = %v", err)
-	}
-	if _, err := os.Stat(artifactPath); err != nil {
-		if err := os.WriteFile(artifactPath, []byte("installer"), 0o700); err != nil {
-			t.Fatalf("WriteFile(artifact) error = %v", err)
-		}
-	}
-	artifactBytes, err := os.ReadFile(artifactPath)
-	if err != nil {
-		t.Fatalf("ReadFile(artifact) error = %v", err)
-	}
-	staged := selectedUpdate{
-		Payload: testManifestPayload(),
-		Artifact: UpdateArtifact{
-			Platform: platform,
-			URL:      "https://updates.example.com/Super-Dolphin-windows-amd64.exe",
-			SHA256:   sha256Hex(artifactBytes),
-			Size:     int64(len(artifactBytes)),
-		},
-		ArtifactPath: artifactPath,
-		DownloadedAt: time.Now().UTC().Format(time.RFC3339Nano),
-	}
-	stage, err := openStageBoundary(svc.cfg.StageDir)
-	if err != nil {
-		t.Fatalf("openStageBoundary() error = %v", err)
-	}
-	writeErr := writeSelectedUpdate(stage, staged)
-	closeErr := stage.Close()
-	if writeErr != nil {
-		t.Fatalf("writeSelectedUpdate() error = %v", writeErr)
-	}
-	if closeErr != nil {
-		t.Fatalf("stage.Close() error = %v", closeErr)
-	}
-}
-
-func waitForSignal(t *testing.T, signal <-chan struct{}, name string) {
-	t.Helper()
-	select {
-	case <-signal:
-	case <-time.After(5 * time.Second):
-		t.Fatalf("timed out waiting for %s", name)
 	}
 }

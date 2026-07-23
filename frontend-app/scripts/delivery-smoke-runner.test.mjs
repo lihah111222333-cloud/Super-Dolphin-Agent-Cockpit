@@ -1,6 +1,6 @@
 import { join } from 'node:path';
-import { cwd, execPath } from 'node:process';
-import { describe, expect, it } from 'vitest';
+import process, { cwd, execPath } from 'node:process';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runManagedCommand } from './managed-command.mjs';
 import { FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS } from './frontend-execution-closure.mjs';
 import {
@@ -19,8 +19,16 @@ const COMPLETE_SCRIPTS = {
   'smoke:desktop:rpc': 'node scripts/desktop-smoke.mjs',
   'smoke:desktop:failure': 'node scripts/desktop-failure-smoke.mjs',
 };
+const FAILURE_SMOKE_ENV_CONFLICTS = Object.freeze([
+  'VITE_DEV_URL',
+  'FRONTEND_DEVSERVER_URL',
+]);
 
 describe('delivery smoke runner', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('locks build, embed, start and failure smoke commands exactly', () => {
     expect(DELIVERY_COMMANDS.map(({ id, cwd: commandCwd, argv }) => ({ id, cwd: commandCwd, argv }))).toEqual([
       { id: 'frontend-build', cwd: 'frontend-app', argv: ['npm', 'run', 'build'] },
@@ -68,6 +76,38 @@ describe('delivery smoke runner', () => {
     expect(verdict.executedCommands).toBe(0);
     expect(calls).toBe(0);
   });
+
+  it.each(FAILURE_SMOKE_ENV_CONFLICTS)(
+    'isolates desktop failure smoke from inherited %s',
+    async (conflictingVariable) => {
+      vi.stubEnv(conflictingVariable, 'http://127.0.0.1:5999');
+      vi.stubEnv('SUPER_DOLPHIN_FAILURE_SMOKE_VITE_URL', 'http://127.0.0.1:5178');
+      vi.stubEnv('DELIVERY_SMOKE_COMMON_SENTINEL', 'preserved');
+      const inheritedPath = process.env.PATH;
+      const inspected = inspectDeliveryCommands({ scripts: COMPLETE_SCRIPTS }, MAKEFILE);
+      const calls = [];
+      const verdict = await runDeliveryCommands(inspected, async (program, args, options) => {
+        calls.push({ program, args, options });
+        return { status: 0, signal: null };
+      });
+
+      expect(verdict.status).toBe('PASS');
+      expect(calls).toHaveLength(DELIVERY_COMMANDS.length);
+      expect(new Set(calls.map(({ options }) => options.env))).toHaveProperty('size', DELIVERY_COMMANDS.length);
+      for (const { options } of calls) {
+        expect(options.env).not.toBe(process.env);
+        expect(options.env.PATH).toBe(inheritedPath);
+        expect(options.env.SUPER_DOLPHIN_FAILURE_SMOKE_VITE_URL).toBe('http://127.0.0.1:5178');
+        expect(options.env.DELIVERY_SMOKE_COMMON_SENTINEL).toBe('preserved');
+      }
+      const failureCall = calls[DELIVERY_COMMANDS.findIndex(({ id }) => id === 'desktop-failure-smoke')];
+      expect(failureCall.options.env).not.toHaveProperty(conflictingVariable);
+      expect(process.env[conflictingVariable]).toBe('http://127.0.0.1:5999');
+      for (const call of calls.slice(0, -1)) {
+        expect(call.options.env[conflictingVariable]).toBe('http://127.0.0.1:5999');
+      }
+    },
+  );
 
   it('runs the complete integration delivery surface in final verify mode', async () => {
     const result = await runManagedCommand(execPath, [join(cwd(), 'scripts/delivery-smoke-runner.mjs'), '--verify'], {

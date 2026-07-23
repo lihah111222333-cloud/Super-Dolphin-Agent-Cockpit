@@ -49,6 +49,10 @@ const DELIVERY_COMMANDS = Object.freeze([
   }),
 ]);
 const DELIVERY_CASE_IDS = Object.freeze(DELIVERY_COMMANDS.map(({ id }) => id));
+const DESKTOP_FAILURE_SMOKE_CONFLICT_ENV_KEYS = Object.freeze([
+  'VITE_DEV_URL',
+  'FRONTEND_DEVSERVER_URL',
+]);
 
 function validateDeliveryCaseResult(caseIds, testCount) {
   if (!Array.isArray(caseIds)) throw new TypeError('delivery caseIds must be an array');
@@ -117,9 +121,14 @@ async function runDeliveryCommands(inspected, runCommand = runManagedCommand, re
   for (const command of inspected.commands) {
     const [program, ...args] = command.argv;
     const cwd = command.cwd === '.' ? repositoryRoot : resolve(repositoryRoot, command.cwd);
+    const env = { ...process.env };
+    if (command.id === 'desktop-failure-smoke') {
+      for (const key of DESKTOP_FAILURE_SMOKE_CONFLICT_ENV_KEYS) delete env[key];
+    }
     const startedAtMs = Date.now();
     const result = await runCommand(program, args, {
       cwd,
+      env,
       timeoutMs: DELIVERY_COMMAND_TIMEOUT_MS,
       killGraceMs: 20_000,
     });

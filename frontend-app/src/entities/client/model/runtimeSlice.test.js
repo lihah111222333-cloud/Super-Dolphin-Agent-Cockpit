@@ -303,6 +303,39 @@ describe('runtime slice event lifecycle', () => {
     }));
   });
 
+  it('rebinds the first authoritative scope without inventing a previous scope', async () => {
+    const onBridgeEvent = vi.fn(() => ({ ready: Promise.resolve(true), unsubscribe: vi.fn() }));
+    let runtime;
+    runtime = createRuntime({
+      assistantEventScope: '',
+      currentChatCwd: vi.fn(() => '.'),
+      activateAssistantEventScope: vi.fn((scope) => {
+        runtime.assistantEventScope = scope;
+      }),
+    });
+    const actions = createRuntimeSlice(runtime, createDeps({ onBridgeEvent }));
+
+    await expect(actions.rebindBridgeEventScope('/repo/bootstrap')).resolves.toBe(true);
+
+    expect(runtime.assistantEventScope).toBe('/repo/bootstrap');
+    expect(onBridgeEvent).toHaveBeenCalledOnce();
+  });
+
+  it('requires a real previous scope for public prepared project switches', async () => {
+    const onBridgeEvent = vi.fn(() => ({ ready: Promise.resolve(true), unsubscribe: vi.fn() }));
+    const runtime = createRuntime({
+      assistantEventScope: '',
+      currentChatCwd: vi.fn(() => '.'),
+    });
+    const actions = createRuntimeSlice(runtime, createDeps({ onBridgeEvent }));
+
+    await expect(actions.prepareBridgeEventScope('/repo/other')).rejects.toThrow(
+      'runtime bridge previous scope is required',
+    );
+
+    expect(onBridgeEvent).not.toHaveBeenCalled();
+  });
+
   it('restores the prepared scope and continues delivering events from the previous project', async () => {
     const handlers = [];
     let runtime;
@@ -326,6 +359,17 @@ describe('runtime slice event lifecycle', () => {
     expect(runtime.handleBridgeEvent).toHaveBeenLastCalledWith(expect.objectContaining({
       payload: expect.objectContaining({ eventId: 'restored-old-scope' }),
     }));
+  });
+
+  it('rejects a prepared scope that only provides the legacy rebindGeneration field', async () => {
+    const runtime = createRuntime({ bridgeScopeRebindGeneration: 1 });
+    createRuntimeSlice(runtime, createDeps());
+
+    await expect(runtime.restorePreparedBridgeEventScope({
+      abort: vi.fn(),
+      previousScope: '/repo/app',
+      rebindGeneration: 1,
+    })).rejects.toThrow('runtime prepared bridge scope is invalid');
   });
 
   it('generation-fences a stale restore after a newer bridge scope wins', async () => {

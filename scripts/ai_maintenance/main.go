@@ -444,10 +444,12 @@ func applySourceGateRules(file string, gates, evidence map[string]bool) bool {
 			gates["frontend:typecheck-contracts"] = true
 		}
 		gates["frontend:lint"] = true
-		gates["frontend:test"] = true
+		if frontendChangedTestRelevant(file) {
+			gates["frontend:changed-tests"] = true
+		}
 		gates["frontend:build"] = true
 		gates["frontend:embed-verify"] = true
-		if file == "frontend-app/scripts/frontend-maintainability-baseline.json" {
+		if frontendPerformanceRelevant(file) {
 			gates["frontend:performance-verify"] = true
 		}
 		requireLSPEvidence(file, evidence)
@@ -459,6 +461,72 @@ func applySourceGateRules(file string, gates, evidence map[string]bool) bool {
 		return true
 	}
 	return false
+}
+
+// frontendPerformanceRelevant 覆盖性能 runner、契约测试、受管 subject 与其执行入口，防止证据或预算变化绕过 verifier。
+func frontendPerformanceRelevant(file string) bool {
+	switch file {
+	case "frontend-app/package.json",
+		"frontend-app/vite.config.js",
+		"frontend-app/scripts/chat-history-benchmark.mjs",
+		"frontend-app/scripts/chat-history-benchmark.test.mjs",
+		"frontend-app/scripts/evidence-provenance.mjs",
+		"frontend-app/scripts/evidence-provenance.test.mjs",
+		"frontend-app/scripts/frontend-maintainability-baseline.json",
+		"frontend-app/scripts/frontend-performance-cases.json",
+		"frontend-app/scripts/managed-command.mjs",
+		"frontend-app/scripts/performance-baseline-provenance.mjs",
+		"frontend-app/scripts/performance-baseline-provenance.test.mjs",
+		"frontend-app/scripts/performance-budget-config.mjs",
+		"frontend-app/scripts/performance-budget-model.mjs",
+		"frontend-app/scripts/performance-budget-model.test.mjs",
+		"frontend-app/scripts/performance-budget-runner.mjs",
+		"frontend-app/scripts/performance-budget-runner.test.mjs",
+		"frontend-app/scripts/render-isolation-probe.test.jsx",
+		"frontend-app/scripts/resource-budget.mjs",
+		"frontend-app/scripts/resource-budget.test.mjs",
+		"frontend-app/scripts/stop-feedback-benchmark.mjs",
+		"frontend-app/scripts/stop-feedback-benchmark.test.mjs",
+		"frontend-app/src/entities/client/model/contractStoreModel.js",
+		"frontend-app/src/entities/client/model/threadLifecycleRuntime.js",
+		"frontend-app/src/pages/chat/components/ChatActionFeedback.js":
+		return true
+	default:
+		return false
+	}
+}
+
+// frontendChangedTestRelevant 只把 commit-time 前端测试路由到 diff 命中的 Vitest 目标。
+func frontendChangedTestRelevant(file string) bool {
+	if frontendPreCommitSmokeOrE2EFile(file) {
+		return false
+	}
+	if strings.HasPrefix(file, "frontend-app/src/") {
+		return frontendScriptOrSourceFile(file)
+	}
+	if strings.HasPrefix(file, "frontend-app/scripts/") {
+		return frontendScriptOrSourceFile(file)
+	}
+	return false
+}
+
+func frontendPreCommitSmokeOrE2EFile(file string) bool {
+	switch file {
+	case "frontend-app/scripts/delivery-smoke-runner.mjs",
+		"frontend-app/scripts/delivery-smoke-runner.test.mjs":
+		return true
+	default:
+		return false
+	}
+}
+
+func frontendScriptOrSourceFile(file string) bool {
+	switch filepath.Ext(file) {
+	case ".js", ".jsx", ".mjs", ".ts", ".tsx":
+		return true
+	default:
+		return false
+	}
 }
 
 // criticalTypecheckRelevant 判断变更是否会影响关键前端严格类型检查闭包。
@@ -605,7 +673,7 @@ func gateEvidenceCommandFragments() map[string][]string {
 		"frontend:static-guards":           {"npm run guard:architecture"},
 		"frontend:lint":                    {"npm run lint"},
 		"frontend:typecheck-contracts":     {"npm run typecheck:contracts"},
-		"frontend:test":                    {"npm test"},
+		"frontend:changed-tests":           {"npx vitest run"},
 		"frontend:build":                   {"npm run build"},
 		"frontend:embed-verify":            {"make frontend-embed-verify"},
 		"frontend:performance-verify":      {"npm run performance:verify"},
@@ -697,7 +765,7 @@ func orderedGates(values map[string]bool) []string {
 		"frontend:static-guards",
 		"frontend:lint",
 		"frontend:typecheck-contracts",
-		"frontend:test",
+		"frontend:changed-tests",
 		"frontend:build",
 		"frontend:embed-verify",
 		"frontend:performance-verify",

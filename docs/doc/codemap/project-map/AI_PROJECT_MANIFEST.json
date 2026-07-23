@@ -4,14 +4,14 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4769,
+  "files": 4773,
   "domains": {
     "docs-agent": 958,
     "other": 706,
-    "app-ui": 652,
+    "app-ui": 655,
     "platform-provider": 1114,
     "orchestration": 392,
-    "modules": 743,
+    "modules": 744,
     "store-sql": 204
   },
   "index_files": {
@@ -21,8 +21,8 @@
       {
         "key": "app-ui",
         "file": "docs/doc/codemap/project-map/index/app-ui.tsv",
-        "file_count": 652,
-        "size_kb": 132.8,
+        "file_count": 655,
+        "size_kb": 133.4,
         "desc": "桌面应用、Wails host、React/Vite 前端与 UI 测试"
       },
       {
@@ -35,8 +35,8 @@
       {
         "key": "modules",
         "file": "docs/doc/codemap/project-map/index/modules.tsv",
-        "file_count": 743,
-        "size_kb": 144.5,
+        "file_count": 744,
+        "size_kb": 144.7,
         "desc": "业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等"
       },
       {
@@ -73,8 +73,8 @@
     "(root)": 12,
     "cmd": 668,
     "docs": 950,
-    "frontend-app": 646,
-    "internal": 2269,
+    "frontend-app": 649,
+    "internal": 2270,
     "pkg": 30,
     "scripts": 146,
     "sql": 29,
