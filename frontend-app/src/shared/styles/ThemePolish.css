@@ -14,10 +14,16 @@ body {
 :where(input, textarea, select) {
   background: var(--surface-2);
   color: var(--text-pri);
+  transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
 }
 
 :where(button, input, textarea, select):focus-visible,
 :where(a):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+:where([role="button"], [role="tab"], [role="menuitem"], [role="radio"], [role="option"], summary):focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
@@ -762,4 +768,330 @@ textarea:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ==========================================================================
+   Unified workbench interaction layer（统一交互层）
+   全站控件共享同一组状态语言：过渡、pressed、弹层入场、加载呼吸与滚动条；
+   颜色与阴影只引用主题 token，reduced-motion 由全局 1ms 规则兜底。
+   ========================================================================== */
+
+.top-command button,
+.page-actions button,
+.action-row button,
+.skills-toolbar button,
+.file-intro button,
+.file-row button,
+.settings-page button,
+.memory-page button,
+.workflow-page button,
+.prompt-page button,
+.prompt-editor-modal button,
+.prompt-wizard-modal button,
+.skills-editor-modal button,
+.composer button,
+.composer-model,
+.model-dropdown select,
+.model-inherit,
+.btn {
+  transition: background var(--transition), border-color var(--transition), color var(--transition), box-shadow var(--transition), transform var(--transition);
+}
+
+.top-command button:active:not(:disabled),
+.page-actions button:active:not(:disabled),
+.action-row button:active:not(:disabled),
+.skills-toolbar button:active:not(:disabled),
+.file-intro button:active:not(:disabled),
+.file-row button:active:not(:disabled),
+.settings-page button:active:not(:disabled),
+.memory-page button:active:not(:disabled),
+.workflow-page button:active:not(:disabled),
+.prompt-page button:active:not(:disabled),
+.prompt-editor-modal button:active:not(:disabled),
+.prompt-wizard-modal button:active:not(:disabled),
+.skills-editor-modal button:active:not(:disabled),
+.suiyuan-new-chat:active:not(:disabled),
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+@keyframes sd-modal-overlay-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes sd-modal-box-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+}
+
+.modal-overlay {
+  animation: sd-modal-overlay-in 160ms ease-out;
+}
+
+.modal-box {
+  animation: sd-modal-box-in var(--transition-lift);
+}
+
+@keyframes sd-loading-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.62;
+  }
+}
+
+.prompt-loading,
+.code-preview-loading,
+.mcp-tool-status.is-loading {
+  animation: sd-loading-pulse 1.6s ease-in-out infinite;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-muted) 32%, transparent);
+  background-clip: padding-box;
+  border: 3px solid transparent;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text-muted) 52%, transparent);
+  background-clip: padding-box;
+  border: 3px solid transparent;
+}
+
+/* ==========================================================================
+   Unified motion layer（统一动效层）
+   节奏全部引用 styles.css 的 motion tokens；只动画 transform/opacity/outline 等
+   低成本属性；reduced-motion 在本区块末尾统一收口。
+   ========================================================================== */
+
+/* Composer：卡片焦点环强化、发送按钮 scale 反馈、拖拽边框呼吸 */
+.composer-card {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  transition: border-color var(--motion-hover), box-shadow var(--motion-hover), outline-color var(--motion-hover);
+}
+
+.composer-card:focus-within {
+  outline-color: color-mix(in srgb, var(--accent-2) 55%, transparent);
+}
+
+.composer .send:hover:not(:disabled) {
+  transform: scale(1.06);
+}
+
+.composer .send:active:not(:disabled) {
+  transform: scale(0.94);
+  transition-duration: var(--motion-instant);
+}
+
+@keyframes sd-drop-glow {
+  0%, 100% {
+    box-shadow: var(--composer-shadow, var(--shadow)), 0 0 0 2px color-mix(in srgb, var(--accent-2) 24%, transparent);
+  }
+  50% {
+    box-shadow: var(--composer-shadow, var(--shadow)), 0 0 0 6px color-mix(in srgb, var(--accent-2) 34%, transparent);
+  }
+}
+
+.composer.drop-active .composer-card {
+  animation: sd-drop-glow 1.2s var(--ease-standard) infinite;
+}
+
+/* 浮层：统一 opacity + 轻 scale/位移入场，origin 按弹出方向 */
+@keyframes sd-popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.top-command .project-dropdown,
+.titlebar .project-dropdown,
+.memory-create-menu,
+.project-selector-popover {
+  transform-origin: top center;
+  animation: sd-popover-in var(--motion-overlay) both;
+}
+
+.model-dropdown,
+.slash-command-palette {
+  transform-origin: bottom center;
+  animation: sd-popover-in var(--motion-overlay) both;
+}
+
+/* 页面进入：内容承接感，路由切换时播放一次，不影响布局 */
+@keyframes sd-page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.settings-page,
+.memory-page,
+.workflow-page,
+.prompt-page,
+.skills-tabbed-container,
+.shared-files-page {
+  animation: sd-page-enter var(--motion-page-enter) both;
+}
+
+/* 状态反馈：notice 快速淡入；复制成功一次性 icon pop */
+@keyframes sd-feedback-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.top-command .action-feedback,
+.titlebar .action-feedback,
+.settings-status,
+.memory-notice,
+.prompt-notice {
+  animation: sd-feedback-in var(--motion-fast) var(--ease-standard);
+}
+
+#overlay-root .global-action-failure {
+  animation: sd-feedback-in var(--motion-base) var(--ease-emphasized);
+}
+
+@keyframes sd-copied-pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.message-copy.is-copied {
+  animation: sd-copied-pop var(--motion-base) var(--ease-spring);
+}
+
+/* 空状态：图标一次性轻量进入，不循环 */
+@keyframes sd-empty-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.empty-state > span {
+  animation: sd-empty-pop var(--motion-base) var(--ease-emphasized) both;
+}
+
+/* 图标按钮：仅少量动作图标使用轻微旋转/放大 */
+.theme-toggle svg,
+.suiyuan-sidebar-collapse svg,
+.sidebar-icon-action svg,
+.workbench-toggle svg {
+  transition: transform var(--motion-hover);
+}
+
+.theme-toggle:hover svg {
+  transform: rotate(15deg);
+}
+
+.suiyuan-sidebar-collapse:hover svg,
+.sidebar-icon-action:hover svg,
+.workbench-toggle:hover svg {
+  transform: scale(1.08);
+}
+
+/* 主题切换：仅主要表面过渡背景与边框色，避免全页刺眼闪烁 */
+.sa-window,
+.titlebar,
+.suiyuan-top-appbar,
+.sa-main,
+.chat-page,
+.fusion-surface,
+.modal-box {
+  transition: background-color var(--motion-hover), border-color var(--motion-hover);
+}
+
+@keyframes sd-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* reduced-motion：循环动画静止为可读帧；位移/缩放入场统一退化为 120ms 纯淡入，
+   stagger 归零；焦点环不受影响。 */
+@media (prefers-reduced-motion: reduce) {
+  .prompt-loading,
+  .code-preview-loading,
+  .mcp-tool-status.is-loading,
+  .composer.drop-active .composer-card {
+    animation: none !important;
+  }
+
+  .modal-overlay,
+  .modal-box,
+  .top-command .project-dropdown,
+  .titlebar .project-dropdown,
+  .model-dropdown,
+  .memory-create-menu,
+  .project-selector-popover,
+  .slash-command-palette,
+  .settings-page,
+  .memory-page,
+  .workflow-page,
+  .prompt-page,
+  .skills-tabbed-container,
+  .shared-files-page,
+  .message,
+  .chat-intro-logo-tile,
+  .chat-intro-title,
+  .chat-intro-subtitle,
+  .chat-intro-card,
+  .empty-state > span,
+  .sidebar-project-thread-list,
+  .suiyuan-chat-project-tree,
+  .reasoning-trace[open] .reasoning-step-list,
+  .top-command .action-feedback,
+  .titlebar .action-feedback,
+  .settings-status,
+  .memory-notice,
+  .prompt-notice,
+  #overlay-root .global-action-failure,
+  .message-copy.is-copied {
+    animation-name: sd-fade-in !important;
+    animation-duration: 120ms !important;
+    animation-delay: 0ms !important;
+  }
 }

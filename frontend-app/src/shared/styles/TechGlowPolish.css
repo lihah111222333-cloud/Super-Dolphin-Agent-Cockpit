@@ -1,0 +1,347 @@
+/* ==========================================================================
+   Tech Glow Polish（科技感光效层，v2）
+   dark：环境光、渐变描边、主色/青色光晕与一次性扫光（发光形态）；
+   light：同一语言的浅色形态——光晕退化为柔和冷色投影，渐变与扫光保留。
+   选择器刻意带主题作用域，不与 styles.*.test.js 锁定的基础选择器文本冲突。
+   交互动效保持 140–220ms；环境漂移动画 ≥4s 且全部由 reduced-motion 兜底。
+   ========================================================================== */
+
+/* ---------- 聊天空状态：极光环境光 ---------- */
+
+.sa-window[data-theme="dark"] {
+  --tech-aurora-background:
+    radial-gradient(44% 38% at 74% 16%, rgba(143, 159, 248, 0.15), transparent 70%),
+    radial-gradient(38% 34% at 22% 80%, rgba(103, 232, 249, 0.09), transparent 70%);
+  --tech-card-hover-shadow: 0 14px 34px rgba(0, 0, 0, 0.34), 0 0 22px color-mix(in srgb, var(--primary) 20%, transparent);
+  --tech-sheen-background: linear-gradient(115deg, transparent 32%, rgba(233, 235, 242, 0.09) 48%, transparent 64%);
+  --tech-highlight-20: rgba(255, 255, 255, 0.2);
+  --tech-highlight-22: rgba(255, 255, 255, 0.22);
+  --tech-highlight-24: rgba(255, 255, 255, 0.24);
+  --tech-highlight-26: rgba(255, 255, 255, 0.26);
+}
+
+.sa-window .chat-page.chat-page--intro {
+  position: relative;
+}
+
+.sa-window[data-theme="dark"] .chat-page.chat-page--intro::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: var(--tech-aurora-background);
+  animation: sd-aurora-drift 18s var(--ease-standard) infinite alternate;
+}
+
+@keyframes sd-aurora-drift {
+  from {
+    transform: translate3d(-1.5%, -1%, 0) scale(1);
+  }
+  to {
+    transform: translate3d(1.5%, 1.5%, 0) scale(1.05);
+  }
+}
+
+/* ---------- 空状态头部：渐变标题 + Logo 光晕 ---------- */
+
+.sa-window[data-theme="dark"] .chat-intro-spotlight .chat-intro-title em {
+  background: linear-gradient(100deg, var(--primary) 5%, var(--cyan) 95%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.sa-window[data-theme="dark"] .chat-intro-spotlight .chat-intro-logo-tile {
+  border-color: color-mix(in srgb, var(--primary) 46%, transparent);
+  background: color-mix(in srgb, var(--primary) 9%, var(--surface-2));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--primary) 24%, transparent),
+    0 0 34px color-mix(in srgb, var(--primary) 30%, transparent);
+  animation: sd-halo-breathe 4.6s ease-in-out infinite;
+}
+
+@keyframes sd-halo-breathe {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--primary) 22%, transparent),
+      0 0 26px color-mix(in srgb, var(--primary) 24%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--primary) 34%, transparent),
+      0 0 46px color-mix(in srgb, var(--primary) 42%, transparent);
+  }
+}
+
+/* ---------- 建议卡：边缘光 + 图标渐变 + 一次性扫光 ---------- */
+
+.sa-window[data-theme="dark"] .chat-intro-spotlight .chat-intro-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.sa-window[data-theme="dark"] .chat-intro-spotlight .chat-intro-card:hover,
+.sa-window[data-theme="dark"] .chat-intro-spotlight .chat-intro-card:focus-visible {
+  border-color: color-mix(in srgb, var(--primary) 52%, transparent);
+  background: linear-gradient(165deg, var(--suiyuan-surface-high) 0%, color-mix(in srgb, var(--primary) 7%, var(--suiyuan-surface-high)) 100%);
+  box-shadow: var(--tech-card-hover-shadow);
+  transform: translateY(-3px);
+}
+
+.sa-window[data-theme="dark"] .chat-intro-spotlight .chat-intro-card:hover .chat-intro-card__icon,
+.sa-window[data-theme="dark"] .chat-intro-spotlight .chat-intro-card:focus-visible .chat-intro-card__icon {
+  background: linear-gradient(135deg, var(--primary), var(--violet));
+  color: var(--primary-ink);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--primary) 42%, transparent);
+}
+
+/* 扫光：hover 时从左到右掠过一次，非循环。 */
+.sa-window[data-theme="dark"] .chat-intro-spotlight .chat-intro-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: var(--tech-sheen-background);
+  transform: translateX(-130%);
+  transition: transform 560ms var(--ease-standard);
+}
+
+.sa-window[data-theme="dark"] .chat-intro-spotlight .chat-intro-card:hover::after,
+.sa-window[data-theme="dark"] .chat-intro-spotlight .chat-intro-card:focus-visible::after {
+  transform: translateX(130%);
+}
+
+/* ---------- 新对话主按钮：蓝紫→紫罗兰渐变 + 主色光晕 ---------- */
+
+.sa-window[data-theme="dark"] .suiyuan-new-chat {
+  border: 0;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--violet) 100%);
+  color: var(--primary-ink);
+  box-shadow:
+    0 6px 22px color-mix(in srgb, var(--primary) 34%, transparent),
+    inset 0 1px 0 var(--tech-highlight-20);
+  transition: box-shadow var(--motion-hover), transform var(--motion-hover), filter var(--motion-hover);
+}
+
+.sa-window[data-theme="dark"] .suiyuan-new-chat:hover:not(:disabled),
+.sa-window[data-theme="dark"] .suiyuan-new-chat:focus-visible {
+  background: linear-gradient(135deg, var(--primary-2) 0%, var(--violet) 100%);
+  box-shadow:
+    0 8px 30px color-mix(in srgb, var(--primary) 48%, transparent),
+    inset 0 1px 0 var(--tech-highlight-24);
+  transform: translateY(-1px);
+}
+
+.sa-window[data-theme="dark"] .suiyuan-new-chat:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* ---------- 发送按钮：渐变 + 光晕（中断态保持错误色，不发光） ---------- */
+
+.sa-window[data-theme="dark"] .composer .send:not(:disabled):not(.send--interrupt) {
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--violet) 100%);
+  color: var(--primary-ink);
+  box-shadow:
+    0 4px 18px color-mix(in srgb, var(--primary) 42%, transparent),
+    inset 0 1px 0 var(--tech-highlight-22);
+}
+
+.sa-window[data-theme="dark"] .composer .send:not(:disabled):not(.send--interrupt):hover,
+.sa-window[data-theme="dark"] .composer .send:not(:disabled):not(.send--interrupt):focus-visible {
+  background: linear-gradient(135deg, var(--primary-2) 0%, var(--violet) 100%);
+  box-shadow:
+    0 6px 26px color-mix(in srgb, var(--primary) 56%, transparent),
+    inset 0 1px 0 var(--tech-highlight-26);
+}
+
+/* ---------- 输入区焦点：蓝紫→青渐变描边（padding-box/border-box 双层） ---------- */
+
+.sa-window[data-theme="dark"] .composer-card:focus-within {
+  border-color: transparent;
+  background:
+    linear-gradient(var(--composer-docked-bg, var(--surface)), var(--composer-docked-bg, var(--surface))) padding-box,
+    linear-gradient(125deg,
+      color-mix(in srgb, var(--primary) 74%, transparent) 0%,
+      color-mix(in srgb, var(--cyan) 46%, transparent) 52%,
+      color-mix(in srgb, var(--primary) 16%, transparent) 100%) border-box;
+  box-shadow:
+    var(--composer-shadow, var(--shadow)),
+    0 0 26px color-mix(in srgb, var(--primary) 22%, transparent);
+}
+
+/* ---------- reduced-motion：环境/循环动效全部静止，扫光移除 ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .sa-window .chat-page.chat-page--intro::before,
+  .sa-window .chat-intro-spotlight .chat-intro-logo-tile {
+    animation: none !important;
+  }
+
+  .sa-window .chat-intro-spotlight .chat-intro-card::after {
+    display: none;
+  }
+
+  .sa-window .chat-intro-spotlight .chat-intro-card:hover,
+  .sa-window .chat-intro-spotlight .chat-intro-card:focus-visible {
+    transform: none;
+  }
+}
+
+/* ==========================================================================
+   浅色主题段（Airy Command Center）
+   与深色同一设计语言：蓝紫/青渐变保留，光晕降级为柔和冷色投影，
+   阴影统一带 navy 色调（rgba(30, 38, 68, …)），避免浅底上的廉价灰影。
+   ========================================================================== */
+
+/* ---------- 浅色极光环境光 ---------- */
+
+.sa-window[data-theme="light"] {
+  --tech-aurora-background:
+    radial-gradient(44% 38% at 74% 16%, rgba(79, 93, 216, 0.07), transparent 70%),
+    radial-gradient(38% 34% at 22% 80%, rgba(8, 145, 178, 0.05), transparent 70%);
+  --tech-white: #ffffff;
+  --tech-card-hover-background: linear-gradient(165deg, #ffffff 0%, color-mix(in srgb, var(--primary) 4%, #ffffff) 100%);
+  --tech-card-hover-shadow: 0 14px 32px rgba(30, 38, 68, 0.12), 0 0 20px color-mix(in srgb, var(--primary) 12%, transparent);
+  --tech-sheen-background: linear-gradient(115deg, transparent 32%, rgba(255, 255, 255, 0.65) 48%, transparent 64%);
+  --tech-highlight-22: rgba(255, 255, 255, 0.22);
+  --tech-highlight-24: rgba(255, 255, 255, 0.24);
+  --tech-highlight-26: rgba(255, 255, 255, 0.26);
+  --tech-highlight-28: rgba(255, 255, 255, 0.28);
+}
+
+.sa-window[data-theme="light"] .chat-page.chat-page--intro::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: var(--tech-aurora-background);
+  animation: sd-aurora-drift 18s var(--ease-standard) infinite alternate;
+}
+
+/* ---------- 浅色空状态头部：渐变标题 + Logo 柔光 ---------- */
+
+.sa-window[data-theme="light"] .chat-intro-spotlight .chat-intro-title em {
+  background: linear-gradient(100deg, var(--primary) 5%, var(--cyan) 95%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.sa-window[data-theme="light"] .chat-intro-spotlight .chat-intro-logo-tile {
+  border-color: color-mix(in srgb, var(--primary) 34%, transparent);
+  background: color-mix(in srgb, var(--primary) 5%, var(--tech-white));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--primary) 14%, transparent),
+    0 6px 26px color-mix(in srgb, var(--primary) 18%, transparent);
+  animation: sd-halo-breathe-light 4.6s ease-in-out infinite;
+}
+
+@keyframes sd-halo-breathe-light {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--primary) 12%, transparent),
+      0 6px 20px color-mix(in srgb, var(--primary) 13%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--primary) 20%, transparent),
+      0 8px 34px color-mix(in srgb, var(--primary) 24%, transparent);
+  }
+}
+
+/* ---------- 浅色建议卡：主色边缘 + 图标渐变 + 白色扫光 ---------- */
+
+.sa-window[data-theme="light"] .chat-intro-spotlight .chat-intro-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.sa-window[data-theme="light"] .chat-intro-spotlight .chat-intro-card:hover,
+.sa-window[data-theme="light"] .chat-intro-spotlight .chat-intro-card:focus-visible {
+  border-color: color-mix(in srgb, var(--primary) 46%, transparent);
+  background: var(--tech-card-hover-background);
+  box-shadow: var(--tech-card-hover-shadow);
+  transform: translateY(-3px);
+}
+
+.sa-window[data-theme="light"] .chat-intro-spotlight .chat-intro-card:hover .chat-intro-card__icon,
+.sa-window[data-theme="light"] .chat-intro-spotlight .chat-intro-card:focus-visible .chat-intro-card__icon {
+  background: linear-gradient(135deg, var(--primary), var(--violet));
+  color: var(--tech-white);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--primary) 32%, transparent);
+}
+
+.sa-window[data-theme="light"] .chat-intro-spotlight .chat-intro-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: var(--tech-sheen-background);
+  transform: translateX(-130%);
+  transition: transform 560ms var(--ease-standard);
+}
+
+.sa-window[data-theme="light"] .chat-intro-spotlight .chat-intro-card:hover::after,
+.sa-window[data-theme="light"] .chat-intro-spotlight .chat-intro-card:focus-visible::after {
+  transform: translateX(130%);
+}
+
+/* ---------- 浅色新对话主按钮：同族渐变 + 柔和投影 ---------- */
+
+.sa-window.suiyuan-shell[data-theme="light"] .suiyuan-new-chat {
+  border: 0;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--violet) 100%);
+  color: var(--tech-white);
+  box-shadow:
+    0 6px 20px color-mix(in srgb, var(--primary) 28%, transparent),
+    inset 0 1px 0 var(--tech-highlight-22);
+  transition: box-shadow var(--motion-hover), transform var(--motion-hover), filter var(--motion-hover);
+}
+
+.sa-window.suiyuan-shell[data-theme="light"] .suiyuan-new-chat:hover:not(:disabled),
+.sa-window.suiyuan-shell[data-theme="light"] .suiyuan-new-chat:focus-visible {
+  background: linear-gradient(135deg, var(--suiyuan-primary-container) 0%, var(--violet) 100%);
+  box-shadow:
+    0 8px 28px color-mix(in srgb, var(--primary) 38%, transparent),
+    inset 0 1px 0 var(--tech-highlight-26);
+  transform: translateY(-1px);
+}
+
+.sa-window.suiyuan-shell[data-theme="light"] .suiyuan-new-chat:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* ---------- 浅色发送按钮 ---------- */
+
+.sa-window[data-theme="light"] .composer .send:not(:disabled):not(.send--interrupt) {
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--violet) 100%);
+  color: var(--tech-white);
+  box-shadow:
+    0 4px 16px color-mix(in srgb, var(--primary) 32%, transparent),
+    inset 0 1px 0 var(--tech-highlight-24);
+}
+
+.sa-window[data-theme="light"] .composer .send:not(:disabled):not(.send--interrupt):hover,
+.sa-window[data-theme="light"] .composer .send:not(:disabled):not(.send--interrupt):focus-visible {
+  background: linear-gradient(135deg, var(--suiyuan-primary-container) 0%, var(--violet) 100%);
+  box-shadow:
+    0 6px 24px color-mix(in srgb, var(--primary) 44%, transparent),
+    inset 0 1px 0 var(--tech-highlight-28);
+}
+
+/* ---------- 浅色输入区焦点：渐变描边 + 柔光 ---------- */
+
+.sa-window[data-theme="light"] .composer-card:focus-within {
+  border-color: transparent;
+  background:
+    linear-gradient(var(--composer-docked-bg, var(--surface)), var(--composer-docked-bg, var(--surface))) padding-box,
+    linear-gradient(125deg,
+      color-mix(in srgb, var(--primary) 62%, transparent) 0%,
+      color-mix(in srgb, var(--cyan) 38%, transparent) 52%,
+      color-mix(in srgb, var(--primary) 14%, transparent) 100%) border-box;
+  box-shadow:
+    var(--composer-shadow, var(--shadow)),
+    0 0 22px color-mix(in srgb, var(--primary) 14%, transparent);
+}

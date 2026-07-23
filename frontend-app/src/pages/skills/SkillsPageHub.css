@@ -504,7 +504,7 @@
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition: all var(--transition);
+  transition: background var(--motion-hover), border-color var(--motion-hover), box-shadow var(--motion-hover), color var(--motion-hover), transform var(--motion-hover);
   white-space: nowrap;
 }
 

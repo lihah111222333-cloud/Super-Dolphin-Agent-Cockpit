@@ -354,3 +354,19 @@
     background-position: -100% 0;
   }
 }
+
+/* reasoning 展开：内容出现时轻量承接（仅 opacity/小位移，不做高度动画） */
+@keyframes sd-reasoning-expand {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.reasoning-trace[open] .reasoning-step-list {
+  animation: sd-reasoning-expand var(--motion-base) var(--ease-standard);
+}

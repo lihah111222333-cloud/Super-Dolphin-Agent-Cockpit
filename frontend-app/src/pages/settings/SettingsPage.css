@@ -12,7 +12,7 @@
   border: 1px solid var(--border);
   border-radius: var(--suiyuan-radius-card);
   box-shadow: none;
-  transition: all var(--transition);
+  transition: background var(--transition), border-color var(--transition), box-shadow var(--transition), color var(--transition);
   padding: 16px;
 }
 

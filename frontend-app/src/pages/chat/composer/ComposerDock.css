@@ -58,11 +58,11 @@
   --primary-soft: var(--suiyuan-primary-fixed);
   --info: var(--suiyuan-primary);
   --blue: var(--suiyuan-primary);
-  /* 暗色发送圆钮：饱和主色底 + 近白箭头（Stitch 设计） */
-  --primary-action-bg: var(--suiyuan-primary-container);
+  /* 暗色发送圆钮：蓝紫主色底 + 深墨箭头，与深色 AI Command Center 基线一致 */
+  --primary-action-bg: var(--suiyuan-primary);
   --primary-action-bg-hover: var(--suiyuan-primary-deep);
-  --primary-action-border: var(--suiyuan-primary-container);
-  --primary-action-text: var(--suiyuan-inverse-surface);
+  --primary-action-border: var(--suiyuan-primary);
+  --primary-action-text: var(--primary-ink);
   --primary-action-shadow: var(--suiyuan-input-shadow);
   background: linear-gradient(
     to top,

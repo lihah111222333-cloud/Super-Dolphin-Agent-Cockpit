@@ -8,6 +8,13 @@
   box-shadow: none !important;
 }
 
+/* 深色选中会话：蓝紫渐变底 + 主色描边与外发光，选中态一眼可辨。 */
+.sa-window[data-theme="dark"] .thread-card.active {
+  border-color: color-mix(in srgb, var(--primary) 42%, transparent);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--primary) 16%, transparent), color-mix(in srgb, var(--primary) 7%, transparent));
+  box-shadow: 0 0 16px color-mix(in srgb, var(--primary) 14%, transparent);
+}
+
 .message-markdown .chat-md-citation,
 .message-markdown .chat-md-file-ref {
   display: inline-flex;
@@ -104,25 +111,42 @@
    ========================================================================== */
 
 .sa-window[data-theme="light"] {
-  --sidebar-bg: #dedbd3;
-  --sidebar-border: #cbc7bd;
-  --sidebar-active: #eee8d9;
-  --workbench-bg: #fbf9f2;
-  --assistant-card-bg: #f5f4ed;
-  --code-block-bg: #f5f4ed;
+  --sidebar-bg: #e9edf5;
+  --sidebar-border: #d3d9e5;
+  --sidebar-active: #e2e7ff;
+  --workbench-bg: #f5f7fa;
+  --assistant-card-bg: #f2f4f9;
+  --code-block-bg: #eef1f7;
   --composer-docked-bg: #ffffff;
-  --composer-floating-bg: #f7f3ec;
+  --composer-floating-bg: #f7f9fd;
   --on-accent: #ffffff;
-  --on-accent-muted: rgba(255, 255, 255, 0.72);
+  --on-accent-muted: rgba(255, 255, 255, 0.75);
   --surface: #ffffff;
-  --surface-2: #f5f4ed;
-  --border: rgba(224, 192, 179, 0.62);
-  --border-strong: rgba(139, 114, 104, 0.42);
-  --workbench-ink: #1b1c18;
-  --message-user-bg: #f0eee7;
-  --message-user-text: #1b1c18;
+  --surface-2: #f2f4f9;
+  --border: rgba(138, 147, 168, 0.4);
+  --border-strong: rgba(138, 147, 168, 0.6);
+  --workbench-ink: #171a23;
+  --message-user-bg: #e9edf4;
+  --message-user-text: #171a23;
   --sidebar-logo-shadow: none;
-  --composer-shadow: 0 22px 42px rgba(48, 43, 34, 0.08);
+  --composer-shadow: 0 22px 42px rgba(30, 38, 68, 0.1);
+}
+
+/* 深色 AI Command Center workbench 变量：与 styles.css dark 块对齐，
+   让 workbench 专用表面在深色下落到对应层级。 */
+.sa-window[data-theme="dark"] {
+  --workbench-bg: var(--bg);
+  --assistant-card-bg: var(--surface-2);
+  --code-block-bg: var(--surface-code);
+  --composer-docked-bg: var(--surface-2);
+  --composer-floating-bg: var(--surface-2);
+  --on-accent: var(--text-pri);
+  --on-accent-muted: var(--text-sec);
+  --workbench-ink: var(--text-pri);
+  --message-user-bg: var(--surface-3);
+  --message-user-text: var(--text-pri);
+  --sidebar-logo-shadow: none;
+  --composer-shadow: 0 18px 48px rgba(0, 0, 0, 0.34);
 }
 
 .sa-window {

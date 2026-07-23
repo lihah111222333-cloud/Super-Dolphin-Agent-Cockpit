@@ -11,6 +11,12 @@
   background: var(--workbench-bg);
 }
 
+/* 深色下 Header 与消息区之间补一条低对比分层线 + 轻微表面抬升。 */
+.sa-window[data-theme="dark"] .chat-page-header {
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 42%, var(--bg));
+}
+
 .chat-page-title {
   display: inline-flex;
   align-items: center;
@@ -70,9 +76,9 @@
   width: min(440px, calc(100vw - 36px));
   display: grid;
   gap: 6px;
-  border: 1px solid color-mix(in srgb, var(--warning) 44%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--primary) 34%, var(--border));
   border-radius: 10px;
-  background: color-mix(in srgb, var(--surface) 94%, var(--warning));
+  background: color-mix(in srgb, var(--surface) 94%, var(--primary));
   color: var(--text-pri);
   box-shadow: var(--shadow);
   padding: 12px 14px;
@@ -102,6 +108,16 @@
 .chat-action-toast.is-error {
   border-color: color-mix(in srgb, var(--error) 50%, var(--border));
   background: color-mix(in srgb, var(--surface) 94%, var(--error));
+}
+
+.chat-action-toast.is-success {
+  border-color: color-mix(in srgb, var(--success) 44%, var(--border));
+  background: color-mix(in srgb, var(--surface) 94%, var(--success));
+}
+
+.chat-action-toast.is-warning {
+  border-color: color-mix(in srgb, var(--warning) 44%, var(--border));
+  background: color-mix(in srgb, var(--surface) 94%, var(--warning));
 }
 
 .chat-header-tools {
@@ -420,6 +436,12 @@
   background: var(--composer-docked-bg, var(--surface));
   box-shadow: var(--composer-shadow);
   overflow: visible;
+}
+
+/* 输入区焦点态：卡片描边转主色 + 克制外环，明确当前输入上下文。 */
+.composer-card:focus-within {
+  border-color: color-mix(in srgb, var(--accent-2) 46%, var(--border));
+  box-shadow: var(--composer-shadow, var(--shadow)), 0 0 0 3px color-mix(in srgb, var(--accent-2) 16%, transparent);
 }
 
 .composer--floating .composer-card {
@@ -869,21 +891,21 @@
 
 /* Keep the high-specificity light override aligned with exported Suiyuan tokens. */
 .sa-window[data-theme="light"].sa-window {
-  --bg: #fbf9f3;
-  --bg-elevated: #fbf9f3;
-  --app-bg: #fbf9f3;
+  --bg: #f5f7fa;
+  --bg-elevated: #ffffff;
+  --app-bg: #f5f7fa;
   --surface: #ffffff;
-  --surface-2: #f5f4ed;
-  --surface-3: #f0eee7;
-  --surface-code: #f5f4ed;
+  --surface-2: #f2f4f9;
+  --surface-3: #e9edf4;
+  --surface-code: #eef1f7;
   --overlay: color-mix(in srgb, var(--text-pri) 36%, transparent);
-  --border: #e0c0b3;
-  --border-strong: #8b7268;
-  --text-pri: #1b1c18;
-  --text-sec: #584238;
-  --text-muted: #8b7268;
-  --text-subtle: #6f5b52;
-  --shadow: 0 22px 70px rgba(88, 66, 56, 0.14);
+  --border: #d3d9e5;
+  --border-strong: #8a93a8;
+  --text-pri: #171a23;
+  --text-sec: #4c5568;
+  --text-muted: #8a93a8;
+  --text-subtle: #6b7386;
+  --shadow: 0 22px 70px rgba(30, 38, 68, 0.12);
 }
 
 /* ==========================================================================
