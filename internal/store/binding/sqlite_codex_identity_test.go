@@ -29,7 +29,7 @@ func TestSQLiteUpsertAllowsCodexHomeAliasRepairForSameTuple(t *testing.T) {
 	}
 	repair := seed
 	repair.CodexHome = canonicalHome
-	repair.UpdatedAt = 2
+	repair.UpdatedAt = seed.UpdatedAt + 1
 	if err := store.Upsert(ctx, repair); err != nil {
 		t.Fatalf("canonical repair Upsert() error = %v", err)
 	}
@@ -60,7 +60,7 @@ func TestSQLiteRunMigrationsRepairsOldCodexHomeTrigger(t *testing.T) {
 	mustSQLiteUpsert(t, ctx, store, "seed", seed)
 	repair := seed
 	repair.CodexHome = canonicalHome
-	repair.UpdatedAt = 2
+	repair.UpdatedAt = seed.UpdatedAt + 1
 	assertSQLiteImmutableRejection(t, ctx, store, repair)
 
 	if err := platformsqlite.RunMigrations(ctx, db, sqliteMigrationsDir()); err != nil {
@@ -128,7 +128,7 @@ func TestSQLiteUpsertRejectsCodexTupleConflicts(t *testing.T) {
 			conflict := seed
 			conflict.CodexInstanceKey = tc.instanceKey
 			conflict.CodexModelProvider = tc.modelProvider
-			conflict.UpdatedAt = 2
+			conflict.UpdatedAt = seed.UpdatedAt + 1
 			err := store.Upsert(ctx, conflict)
 			if err == nil || !strings.Contains(err.Error(), "identity is immutable") {
 				t.Fatalf("conflict Upsert() error = %v, want immutable rejection", err)
@@ -211,8 +211,8 @@ func sqliteCodexIdentityUpsertParams(agentID string) binding.UpsertParams {
 		ProviderThreadID:   agentID + "-provider-thread",
 		CodexThreadID:      agentID + "-public-thread",
 		Cwd:                "/repo",
-		CreatedAt:          1,
-		UpdatedAt:          1,
+		CreatedAt:          1_700_000_000_000,
+		UpdatedAt:          1_700_000_000_000,
 		CodexHome:          "/real/.codex",
 		CodexInstanceKey:   "default",
 		CodexModelProvider: "openai",

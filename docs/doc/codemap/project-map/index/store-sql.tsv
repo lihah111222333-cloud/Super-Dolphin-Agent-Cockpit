@@ -20,7 +20,7 @@ internal/store/binding/codex_identity_test.go	internal	store-sql	go-test	6273	�
 internal/store/binding/contract.go	internal	store-sql	go-source	3857	应用级持久化 store	internal,store,binding,contract,应用级持久化
 internal/store/binding/module.go	internal	store-sql	go-source	276	应用级持久化 store	internal,store,binding,module,应用级持久化
 internal/store/binding/session_adapter.go	internal	store-sql	go-source	3493	应用级持久化 store	internal,store,binding,session,adapter,应用级持久化
-internal/store/binding/sqlite_codex_identity_test.go	internal	store-sql	go-test	7905	应用级持久化 store	internal,store,binding,sqlite,codex,identity,test,应用级持久化
+internal/store/binding/sqlite_codex_identity_test.go	internal	store-sql	go-test	7988	应用级持久化 store	internal,store,binding,sqlite,codex,identity,test,应用级持久化
 internal/store/binding/store_shard12_helpers_test.go	internal	store-sql	go-test	5362	应用级持久化 store	internal,store,binding,shard12,helpers,test,应用级持久化
 internal/store/binding/store_test.go	internal	store-sql	go-test	22085	应用级持久化 store	internal,store,binding,test,应用级持久化
 internal/store/binding/store.go	internal	store-sql	go-source	13074	应用级持久化 store	internal,store,binding,应用级持久化
