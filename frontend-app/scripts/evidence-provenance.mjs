@@ -9,6 +9,7 @@ const RUNNER_CONTENT_PATHS = Object.freeze([
   'frontend-app/scripts/chat-history-benchmark.mjs',
   'frontend-app/scripts/evidence-provenance.mjs',
   'frontend-app/scripts/frontend-performance-cases.json',
+  'frontend-app/scripts/managed-command.mjs',
   'frontend-app/scripts/performance-baseline-provenance.mjs',
   'frontend-app/scripts/performance-budget-config.mjs',
   'frontend-app/scripts/performance-budget-model.mjs',
@@ -16,18 +17,19 @@ const RUNNER_CONTENT_PATHS = Object.freeze([
   'frontend-app/scripts/render-isolation-probe.test.jsx',
   'frontend-app/scripts/resource-budget.mjs',
   'frontend-app/scripts/stop-feedback-benchmark.mjs',
-  'frontend-app/src/pages/chat/components/ChatActionFeedback.js',
 ]);
 
 const BASELINE_AUDIT_ALLOWED_PATHS = Object.freeze(new Set([
   ...RUNNER_CONTENT_PATHS,
   'frontend-app/src/entities/client/model/contractStoreModel.js',
   'frontend-app/src/entities/client/model/threadLifecycleRuntime.js',
+  'frontend-app/src/pages/chat/components/ChatActionFeedback.js',
   'docs/doc/codemap/README.md',
   'docs/doc/codemap/ai-index.json',
   'docs/plans/2026-07-15-frontend-maintainability-error-discoverability-90-plan.md',
   'frontend-app/scripts/chat-history-benchmark.test.mjs',
   'frontend-app/scripts/evidence-provenance.test.mjs',
+  'frontend-app/scripts/managed-command.test.mjs',
   'frontend-app/scripts/performance-baseline-provenance.test.mjs',
   'frontend-app/scripts/performance-budget-model.test.mjs',
   'frontend-app/scripts/performance-budget-runner.test.mjs',

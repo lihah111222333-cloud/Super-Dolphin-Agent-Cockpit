@@ -10,6 +10,8 @@ const PURE_PERFORMANCE_RUNNER_PATHS = Object.freeze(new Set([
   'frontend-app/scripts/evidence-provenance.mjs',
   'frontend-app/scripts/evidence-provenance.test.mjs',
   'frontend-app/scripts/frontend-performance-cases.json',
+  'frontend-app/scripts/managed-command.mjs',
+  'frontend-app/scripts/managed-command.test.mjs',
   'frontend-app/scripts/performance-baseline-provenance.mjs',
   'frontend-app/scripts/performance-baseline-provenance.test.mjs',
   'frontend-app/scripts/performance-budget-config.mjs',

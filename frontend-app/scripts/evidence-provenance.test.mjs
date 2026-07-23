@@ -19,7 +19,7 @@ import {
 } from './evidence-provenance.mjs';
 import { isAllowedPerformanceBaselinePath } from './performance-baseline-provenance.mjs';
 import {
-  P03_RUNNER_FEEDBACK_PROBE_PATH,
+  P03_SUBJECT_FEEDBACK_COMPONENT_PATH,
   P03_SUBJECT_CONTENT_PATHS,
   subjectContentEvidence,
 } from './stop-feedback-benchmark.mjs';
@@ -29,6 +29,7 @@ const FROZEN_PLAN_PATH = 'docs/plans/2026-07-15-frontend-maintainability-error-d
 const P03_SUBJECT_RUNTIME_CONTENT_PATHS = Object.freeze([
   'frontend-app/src/entities/client/model/contractStoreModel.js',
   'frontend-app/src/entities/client/model/threadLifecycleRuntime.js',
+  P03_SUBJECT_FEEDBACK_COMPONENT_PATH,
 ]);
 
 describe('evidence provenance', () => {
@@ -42,12 +43,12 @@ describe('evidence provenance', () => {
     first.runnerFiles.forEach(({ sha256 }) => expect(sha256).toMatch(/^[0-9a-f]{64}$/));
   });
 
-  it('partitions runner content from P03 subject runtime content', () => {
+  it('partitions P03 subject runtime content from runner content', () => {
     const runnerFiles = runnerContentEvidence(REPOSITORY_ROOT).runnerFiles.map(({ path }) => path);
     const subjectFiles = subjectContentEvidence(REPOSITORY_ROOT).files.map(({ path }) => path);
 
-    expect(runnerFiles).toContain(P03_RUNNER_FEEDBACK_PROBE_PATH);
-    expect(P03_SUBJECT_CONTENT_PATHS).not.toContain(P03_RUNNER_FEEDBACK_PROBE_PATH);
+    expect(runnerFiles).not.toContain(P03_SUBJECT_FEEDBACK_COMPONENT_PATH);
+    expect(P03_SUBJECT_CONTENT_PATHS).toContain(P03_SUBJECT_FEEDBACK_COMPONENT_PATH);
     expect(subjectFiles).toEqual(expect.arrayContaining(P03_SUBJECT_RUNTIME_CONTENT_PATHS));
     P03_SUBJECT_RUNTIME_CONTENT_PATHS.forEach((path) => {
       expect(runnerFiles).not.toContain(path);
@@ -55,23 +56,23 @@ describe('evidence provenance', () => {
     });
   });
 
-  it('changes the runner content hash when the runner-owned feedback probe changes', () => {
-    const temporaryRoot = mkdtempSync(resolve(tmpdir(), 'runner-content-hash-'));
+  it('changes the subject content hash when the subject feedback component changes', () => {
+    const temporaryRoot = mkdtempSync(resolve(tmpdir(), 'subject-content-hash-'));
     try {
-      for (const runnerPath of RUNNER_CONTENT_PATHS) {
-        const sourcePath = resolve(REPOSITORY_ROOT, runnerPath);
-        const targetPath = resolve(temporaryRoot, runnerPath);
+      for (const subjectPath of P03_SUBJECT_CONTENT_PATHS) {
+        const sourcePath = resolve(REPOSITORY_ROOT, subjectPath);
+        const targetPath = resolve(temporaryRoot, subjectPath);
         mkdirSync(resolve(targetPath, '..'), { recursive: true });
         writeFileSync(targetPath, readFileSync(sourcePath));
       }
-      const first = runnerContentEvidence(temporaryRoot);
-      const feedbackPath = resolve(temporaryRoot, P03_RUNNER_FEEDBACK_PROBE_PATH);
+      const first = subjectContentEvidence(temporaryRoot);
+      const feedbackPath = resolve(temporaryRoot, P03_SUBJECT_FEEDBACK_COMPONENT_PATH);
       writeFileSync(feedbackPath, `${readFileSync(feedbackPath, 'utf8')}\n// hash mutation\n`);
-      const second = runnerContentEvidence(temporaryRoot);
-      expect(first.runnerFiles.map(({ path }) => path)).toEqual(expect.arrayContaining([
-        P03_RUNNER_FEEDBACK_PROBE_PATH,
+      const second = subjectContentEvidence(temporaryRoot);
+      expect(first.files.map(({ path }) => path)).toEqual(expect.arrayContaining([
+        P03_SUBJECT_FEEDBACK_COMPONENT_PATH,
       ]));
-      expect(second.runnerContentHash).not.toBe(first.runnerContentHash);
+      expect(second.contentHash).not.toBe(first.contentHash);
     } finally {
       rmSync(temporaryRoot, { recursive: true, force: true });
     }
