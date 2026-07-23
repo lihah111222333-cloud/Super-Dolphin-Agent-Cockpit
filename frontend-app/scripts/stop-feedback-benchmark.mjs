@@ -18,7 +18,7 @@ import {
 // Eleven observations retain the 80% trimmed mean's outlier rejection without turning DOM commits into a load test.
 const MEASUREMENT_ITERATIONS = 11;
 const DOM_COMMIT_TIMEOUT_MS = 250;
-const FROZEN_PLAN_BASE_SHA = 'b40867229af8e17916c00393639ccb0fcb4bf6fc';
+const FROZEN_PLAN_BASE_SHA = '314a8e240b2fe58de23651a00b74f05c985cf5e4';
 const STOP_FEEDBACK = Object.freeze({
   base: Object.freeze({
     confirmed: Object.freeze({ message: '已发送中断请求', tone: 'success' }),
