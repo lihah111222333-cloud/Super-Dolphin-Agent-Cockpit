@@ -4,14 +4,14 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4773,
+  "files": 4779,
   "domains": {
     "docs-agent": 958,
-    "other": 709,
-    "app-ui": 653,
+    "other": 711,
+    "app-ui": 656,
     "platform-provider": 1114,
     "orchestration": 392,
-    "modules": 743,
+    "modules": 744,
     "store-sql": 204
   },
   "index_files": {
@@ -21,8 +21,8 @@
       {
         "key": "app-ui",
         "file": "docs/doc/codemap/project-map/index/app-ui.tsv",
-        "file_count": 653,
-        "size_kb": 133,
+        "file_count": 656,
+        "size_kb": 133.6,
         "desc": "桌面应用、Wails host、React/Vite 前端与 UI 测试"
       },
       {
@@ -35,8 +35,8 @@
       {
         "key": "modules",
         "file": "docs/doc/codemap/project-map/index/modules.tsv",
-        "file_count": 743,
-        "size_kb": 144.5,
+        "file_count": 744,
+        "size_kb": 144.7,
         "desc": "业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等"
       },
       {
@@ -63,8 +63,8 @@
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 709,
-        "size_kb": 138.9,
+        "file_count": 711,
+        "size_kb": 139.4,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -73,10 +73,10 @@
     "(root)": 12,
     "cmd": 668,
     "docs": 950,
-    "frontend-app": 647,
-    "internal": 2269,
+    "frontend-app": 650,
+    "internal": 2270,
     "pkg": 30,
-    "scripts": 149,
+    "scripts": 151,
     "sql": 29,
     "test": 9,
     "tests": 1,

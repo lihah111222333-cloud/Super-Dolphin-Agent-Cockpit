@@ -40,7 +40,7 @@ func TestCheckFetchesGitHubLatestReleaseManifestForCurrentPlatform(t *testing.T)
 func TestCheckRejectsChunkedGitHubReleaseMetadataWithoutContentLengthExceedingBodyLimit(t *testing.T) {
 	publicKey, _ := testManifestKeypair(t)
 	oversized := bytes.Repeat([]byte("x"), int(maxGitHubReleaseMetadataBodyBytes)+1)
-	svc := newService(testGitHubServiceConfig(publicKey, t.TempDir(), "1.2.2", "darwin-arm64"), chunkedHTTPClientFor(map[string][]byte{
+	svc := newService(testGitHubServiceConfig(publicKey, appUpdateRealTempDir(t), "1.2.2", "darwin-arm64"), chunkedHTTPClientFor(map[string][]byte{
 		testGitHubAPIURL(): oversized,
 	}), nil)
 
@@ -54,7 +54,7 @@ func TestCheckRejectsChunkedGitHubManifestAssetWithoutContentLengthExceedingBody
 	publicKey, _ := testManifestKeypair(t)
 	payload := testGitHubManifestPayload(t, []byte("signed dmg bytes"), "darwin-arm64")
 	oversized := bytes.Repeat([]byte("x"), int(maxUpdateManifestBodyBytes)+1)
-	svc := newService(testGitHubServiceConfig(publicKey, t.TempDir(), "1.2.2", "darwin-arm64"), chunkedHTTPClientFor(map[string][]byte{
+	svc := newService(testGitHubServiceConfig(publicKey, appUpdateRealTempDir(t), "1.2.2", "darwin-arm64"), chunkedHTTPClientFor(map[string][]byte{
 		testGitHubAPIURL(): []byte(testGitHubReleaseJSON(t, "v1.2.3", payload.Artifacts[0], "darwin-arm64")),
 		testGitHubReleaseAssetURL(
 			"v1.2.3",

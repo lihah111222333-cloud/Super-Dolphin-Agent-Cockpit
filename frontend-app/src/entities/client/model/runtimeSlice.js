@@ -67,14 +67,9 @@ async function initializeRuntimeEventSubscriptions(runtime, deps, retryBootstrap
 }
 
 function createBridgeScopeActions(runtime, deps) {
-  const prepareBridgeEventScope = async (scope, requirePreviousScope = true) => {
+  const createBridgeEventScopeTransition = async (scope) => {
     let normalizedScope = scope;
     if (!normalizedScope) normalizedScope = currentChatScope(runtime);
-    const previousScope = runtime.assistantEventScope || currentChatScope(runtime);
-    const hasPreviousScope = Boolean(previousScope && previousScope !== '.');
-    if (requirePreviousScope && !hasPreviousScope) {
-      throw new Error('runtime bridge previous scope is required');
-    }
     runtime.assertAssistantEventScopeCapacity?.(normalizedScope);
     const rebindGeneration = runtime.bridgeScopeRebindGeneration + 1;
     const bridgeEventScopeGeneration = runtime.bridgeEventScopeGeneration + 1;
@@ -127,7 +122,6 @@ function createBridgeScopeActions(runtime, deps) {
       abort,
       commit,
       generation: rebindGeneration,
-      previousScope: hasPreviousScope ? previousScope : '',
       unsubscribe: abort,
     };
     runtime.pendingBridgeScopeRebind = transition;
@@ -145,9 +139,18 @@ function createBridgeScopeActions(runtime, deps) {
     }
   };
 
+  const prepareBridgeEventScope = async (scope) => {
+    const previousScope = runtime.assistantEventScope || currentChatScope(runtime);
+    if (!previousScope || previousScope === '.') {
+      throw new Error('runtime bridge previous scope is required');
+    }
+    const transition = await createBridgeEventScopeTransition(scope);
+    transition.previousScope = previousScope;
+    return transition;
+  };
+
   const rebindBridgeEventScope = async (scope) => {
-    const requirePreviousScope = runtime.bridgeEventScopeGeneration > 0;
-    const transition = await prepareBridgeEventScope(scope, requirePreviousScope);
+    const transition = await createBridgeEventScopeTransition(scope);
     return transition.commit();
   };
 

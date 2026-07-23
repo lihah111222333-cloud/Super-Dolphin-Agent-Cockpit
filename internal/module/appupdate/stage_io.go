@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // stageBoundary 将更新 stage 固定到持有的目录根，所有子项均通过该根访问。
@@ -410,7 +412,7 @@ func verifyStagedArtifactSHA256File(file *os.File, want string) error {
 		return fmt.Errorf("close staged app update artifact: %w", closeErr)
 	}
 	if got := hex.EncodeToString(hash.Sum(nil)); !strings.EqualFold(got, want) {
-		return fmt.Errorf("staged app update artifact sha256 = %s, want %s", got, want)
+		return fmt.Errorf("%w: staged app update artifact sha256 = %s, want %s", contract.ErrUpdateIntegrityInvalid, got, want)
 	}
 	return nil
 }

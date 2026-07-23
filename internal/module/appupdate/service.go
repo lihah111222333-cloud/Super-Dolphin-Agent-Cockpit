@@ -392,6 +392,7 @@ func (s *service) install(ctx context.Context) (result InstallResult, returnErr 
 	helper, started, err := s.startInstallCommand(stage, staged, generation)
 	if started {
 		s.markInstallStarted()
+		s.scheduleRequestQuit()
 	}
 	if err != nil {
 		return InstallResult{}, err
@@ -399,7 +400,6 @@ func (s *service) install(ctx context.Context) (result InstallResult, returnErr 
 	if !started {
 		return InstallResult{}, errors.New("start app update helper: launcher returned without starting process")
 	}
-	s.scheduleRequestQuit()
 	return InstallResult{Started: true, Helper: helper}, nil
 }
 

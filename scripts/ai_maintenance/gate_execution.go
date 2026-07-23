@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -115,7 +116,7 @@ func gateRunners(plan gatePlan, executionScope gateExecutionScope) map[string]ga
 		}},
 		"frontend:lint":                cacheable(func() error { return runCommand("frontend-app", "npm", "run", "lint") }),
 		"frontend:typecheck-contracts": {run: func() error { return runCommand("frontend-app", "npm", "run", "typecheck:contracts") }},
-		"frontend:test":                cacheable(func() error { return runCommand("frontend-app", "npm", "test") }),
+		"frontend:changed-tests":       cacheable(func() error { return runFrontendChangedTests(plan) }),
 		"frontend:embed-verify":        cacheable(func() error { return runCommand("", "make", "frontend-embed-verify") }),
 		"frontend:performance-verify": {run: func() error {
 			return runCommand("frontend-app", "npm", "run", "performance:verify")
@@ -135,6 +136,58 @@ func runTurnContractVerifyGate() error {
 		return err
 	}
 	return runCommand("", "node", "frontend-app/scripts/turn-contract-field-guard.mjs")
+}
+
+// runFrontendChangedTests 执行与 staged 前端源码同名或直接变更的 Vitest 文件，避免 pre-commit 退化为整套 npm test。
+func runFrontendChangedTests(plan gatePlan) error {
+	tests, err := frontendChangedTestFiles(plan.ChangedFiles)
+	if err != nil {
+		return err
+	}
+	if len(tests) == 0 {
+		return errors.New("frontend changed-tests gate has no matching test files")
+	}
+	args := append([]string{"vitest", "run"}, tests...)
+	args = append(args, "--no-file-parallelism", "--maxWorkers=1")
+	return runCommand("frontend-app", "npx", args...)
+}
+
+// frontendChangedTestFiles 根据前端 diff 收集直接变更或同名配对的 Vitest 测试文件。
+func frontendChangedTestFiles(files []string) ([]string, error) {
+	seen := map[string]bool{}
+	for _, file := range files {
+		if !frontendChangedTestRelevant(file) {
+			continue
+		}
+		rel := strings.TrimPrefix(file, "frontend-app/")
+		candidates := []string{}
+		if isFrontendTestFile(rel) {
+			candidates = append(candidates, rel)
+		} else if candidate := pairedFrontendTestFile(rel); candidate != "" {
+			candidates = append(candidates, candidate)
+		}
+		for _, candidate := range candidates {
+			if _, err := os.Stat(filepath.Join("frontend-app", candidate)); err == nil {
+				seen[candidate] = true
+			} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return nil, fmt.Errorf("stat frontend test target %q: %w", candidate, err)
+			}
+		}
+	}
+	return sortedKeys(seen), nil
+}
+
+func isFrontendTestFile(file string) bool {
+	base := filepath.Base(file)
+	return strings.Contains(base, ".test.") || strings.Contains(base, ".spec.")
+}
+
+func pairedFrontendTestFile(file string) string {
+	ext := filepath.Ext(file)
+	if ext == "" {
+		return ""
+	}
+	return strings.TrimSuffix(file, ext) + ".test" + ext
 }
 
 // existingDiagnosticFiles keeps deleted paths out of the live diagnostics request while

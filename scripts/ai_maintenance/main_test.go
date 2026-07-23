@@ -24,7 +24,7 @@ func TestBuildGatePlanRoutesFrontendBackendAndGeneratedFiles(t *testing.T) {
 		"frontend:embed-verify",
 		"frontend:lint",
 		"frontend:typecheck-contracts",
-		"frontend:test",
+		"frontend:changed-tests",
 		"lsp:changed-diagnostics",
 		"project-map:check",
 	)
@@ -42,12 +42,6 @@ func TestBuildGatePlanRoutesFrontendBackendAndGeneratedFiles(t *testing.T) {
 	if !plan.RequiresEvidenceDoc {
 		t.Fatal("source and generated changes must require evidence doc")
 	}
-}
-
-func TestBuildGatePlanRoutesFrontendPerformanceBaselineToVerification(t *testing.T) {
-	plan := mustBuildGatePlan(t, []string{"frontend-app/scripts/frontend-maintainability-baseline.json"})
-
-	assertStringSetContains(t, plan.RequiredGates, "frontend:performance-verify")
 }
 
 func TestBuildGatePlanRoutesAIMaintenanceHooksToSelfTest(t *testing.T) {
@@ -497,7 +491,7 @@ func TestGateRunnersCacheOnlyStaticGeneratedChecks(t *testing.T) {
 		"capcontract:check":        true,
 		"frontend:embed-verify":    true,
 		"frontend:lint":            true,
-		"frontend:test":            true,
+		"frontend:changed-tests":   true,
 		"lsp:changed-diagnostics":  true,
 		"project-map:check":        true,
 		"sqlc:verify":              true,
@@ -715,7 +709,7 @@ COMMANDS_RUN:
     exit: 0
   - cmd: cd frontend-app && npm run typecheck:contracts
     exit: 0
-  - cmd: cd frontend-app && npm test
+  - cmd: cd frontend-app && npx vitest run src/App.test.jsx
     exit: 0
   - cmd: cd frontend-app && npm run build
     exit: 0

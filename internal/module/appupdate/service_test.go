@@ -183,7 +183,7 @@ func TestCheckMapsErrNoUpdateToUnavailable(t *testing.T) {
 func TestCheckRejectsChunkedManifestWithoutContentLengthExceedingBodyLimit(t *testing.T) {
 	publicKey, _ := testManifestKeypair(t)
 	oversized := bytes.Repeat([]byte("x"), int(maxUpdateManifestBodyBytes)+1)
-	svc := newService(testServiceConfig(publicKey, t.TempDir(), "1.2.3"), chunkedHTTPClientFor(map[string][]byte{
+	svc := newService(testServiceConfig(publicKey, appUpdateRealTempDir(t), "1.2.3"), chunkedHTTPClientFor(map[string][]byte{
 		"https://updates.example.test/manifest.json": oversized,
 	}), nil)
 
@@ -725,7 +725,7 @@ func TestInstallRejectsSelectedArtifactOutsideStageBeforeAttempt(t *testing.T) {
 	artifactPath := filepath.Join(appUpdateRealTempDir(t), dmgFilename)
 	writeSelectedInstallFixtureForPlatform(t, svc, "darwin-arm64", artifactPath)
 
-	if _, err := svc.Install(context.Background()); err == nil || !strings.Contains(err.Error(), "artifact path") {
+	if _, err := svc.Install(context.Background()); err == nil || !strings.Contains(err.Error(), "outside stage boundary") {
 		t.Fatalf("Install() error = %v, want staged artifact identity mismatch", err)
 	}
 	assertInstallAttemptNotStarted(t, stageDir, marker)
@@ -744,7 +744,7 @@ func TestInstallRejectsNonCleanSelectedArtifactAliasBeforeAttempt(t *testing.T) 
 	artifactPath := stageDir + "/./" + dmgFilename
 	writeSelectedInstallFixtureForPlatform(t, svc, "darwin-arm64", artifactPath)
 
-	if _, err := svc.Install(context.Background()); err == nil || !strings.Contains(err.Error(), "artifact path") {
+	if _, err := svc.Install(context.Background()); err == nil || !strings.Contains(err.Error(), "outside stage boundary") {
 		t.Fatalf("Install() error = %v, want non-clean staged artifact rejection", err)
 	}
 	assertInstallAttemptNotStarted(t, stageDir, marker)

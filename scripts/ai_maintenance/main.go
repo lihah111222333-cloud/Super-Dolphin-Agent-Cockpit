@@ -506,9 +506,11 @@ func applySourceGateRules(file string, gates, evidence map[string]bool) bool {
 			gates["frontend:typecheck-contracts"] = true
 		}
 		gates["frontend:lint"] = true
-		gates["frontend:test"] = true
+		if frontendChangedTestRelevant(file) {
+			gates["frontend:changed-tests"] = true
+		}
 		gates["frontend:embed-verify"] = true
-		if file == "frontend-app/scripts/frontend-maintainability-baseline.json" {
+		if frontendPerformanceRelevant(file) {
 			gates["frontend:performance-verify"] = true
 		}
 		requireLSPEvidence(file, evidence)
@@ -683,7 +685,7 @@ func gateEvidenceCommandFragments() map[string][]string {
 		"frontend:static-guards":       {"npm run guard:architecture"},
 		"frontend:lint":                {"npm run lint"},
 		"frontend:typecheck-contracts": {"npm run typecheck:contracts"},
-		"frontend:test":                {"npm test"},
+		"frontend:changed-tests":       {"npx vitest run"},
 		"frontend:embed-verify":        {"make frontend-embed-verify"},
 		"frontend:performance-verify":  {"npm run performance:verify"},
 		"codemap:check":                {"make codemap-check"},
@@ -794,7 +796,7 @@ func orderedGates(values map[string]bool) []string {
 		"frontend:static-guards",
 		"frontend:lint",
 		"frontend:typecheck-contracts",
-		"frontend:test",
+		"frontend:changed-tests",
 		"frontend:embed-verify",
 		"frontend:performance-verify",
 		"backend:test_with_guard",

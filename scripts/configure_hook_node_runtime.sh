@@ -28,7 +28,7 @@ validate_hook_node_bin() {
 }
 
 configure_hook_node_runtime() {
-  local node_bin source_label
+  local canonical_exec_path canonical_version node_bin source_label
   node_bin=
   source_label=
 
@@ -39,21 +39,31 @@ configure_hook_node_runtime() {
     source_label="Codex bundled runtime"
   fi
 
-  if [ -n "$node_bin" ]; then
-    validate_hook_node_bin "$node_bin" || return 1
-    export PATH="$node_bin:$PATH"
-    hash -r
-    echo "[git-hook] Node runtime: $source_label -> $node_bin/node"
+  if [ -z "$node_bin" ]; then
+    echo "❌ git hook 缺少受管 Node.js；请设置 SUPER_DOLPHIN_HOOK_NODE_BIN 或使用 Codex bundled runtime" >&2
+    return 1
   fi
 
-  if ! command -v node >/dev/null 2>&1; then
-    echo "❌ git hook 缺少 Node.js；请安装 Node 或设置 SUPER_DOLPHIN_HOOK_NODE_BIN" >&2
+  validate_hook_node_bin "$node_bin" || return 1
+  export PATH="$node_bin:$PATH"
+  hash -r
+
+  if ! canonical_exec_path=$(node -p 'require("node:fs").realpathSync(process.execPath)'); then
+    echo "❌ git hook 无法解析 canonical Node execPath：$node_bin/node" >&2
     return 1
   fi
-  if ! node -e 'process.exit(0)'; then
-    echo "❌ git hook Node 启动失败：$(command -v node)" >&2
+  if ! canonical_version=$(node -p 'process.version'); then
+    echo "❌ git hook 无法读取 canonical Node version：$node_bin/node" >&2
     return 1
   fi
+  if [ -z "$canonical_exec_path" ] || [ -z "$canonical_version" ]; then
+    echo "❌ git hook canonical Node 身份为空：$node_bin/node" >&2
+    return 1
+  fi
+  export SUPER_DOLPHIN_CANONICAL_NODE_EXEC_PATH="$canonical_exec_path"
+  export SUPER_DOLPHIN_CANONICAL_NODE_VERSION="$canonical_version"
+  echo "[git-hook] Node runtime: $source_label -> $canonical_exec_path ($canonical_version)"
+
   if ! command -v npm >/dev/null 2>&1; then
     echo "❌ git hook 缺少 npm：Node=$(command -v node)" >&2
     return 1
