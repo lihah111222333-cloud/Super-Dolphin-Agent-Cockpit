@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
-const FROZEN_PLAN_BASE_SHA = 'b40867229af8e17916c00393639ccb0fcb4bf6fc';
+const FROZEN_PLAN_BASE_SHA = '314a8e240b2fe58de23651a00b74f05c985cf5e4';
 
 const PURE_PERFORMANCE_RUNNER_PATHS = Object.freeze(new Set([
   'frontend-app/scripts/chat-history-benchmark.mjs',
@@ -10,6 +10,8 @@ const PURE_PERFORMANCE_RUNNER_PATHS = Object.freeze(new Set([
   'frontend-app/scripts/evidence-provenance.mjs',
   'frontend-app/scripts/evidence-provenance.test.mjs',
   'frontend-app/scripts/frontend-performance-cases.json',
+  'frontend-app/scripts/managed-command.mjs',
+  'frontend-app/scripts/managed-command.test.mjs',
   'frontend-app/scripts/performance-baseline-provenance.mjs',
   'frontend-app/scripts/performance-baseline-provenance.test.mjs',
   'frontend-app/scripts/performance-budget-config.mjs',

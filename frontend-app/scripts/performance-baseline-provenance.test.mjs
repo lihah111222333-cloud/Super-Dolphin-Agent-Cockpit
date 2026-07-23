@@ -14,8 +14,8 @@ const REPOSITORY_ROOT = resolve(cwd(), '..');
 const SCRIPT_PATH = resolve(cwd(), 'scripts/performance-baseline-provenance.mjs');
 
 describe('performance baseline provenance', () => {
-  it('pins the original plan BASE_SHA and accepts the original baseline commit', () => {
-    expect(FROZEN_PLAN_BASE_SHA).toBe('b40867229af8e17916c00393639ccb0fcb4bf6fc');
+  it('pins the frozen plan BASE_SHA and accepts the frozen baseline commit', () => {
+    expect(FROZEN_PLAN_BASE_SHA).toBe('314a8e240b2fe58de23651a00b74f05c985cf5e4');
     const result = assertPerformanceBaselineProvenance({
       repositoryRoot: REPOSITORY_ROOT,
       baselineBaseSha: FROZEN_PLAN_BASE_SHA,

@@ -81,7 +81,7 @@ const governancePaths = [
   'internal/ui/wails/bridge.go',
 ];
 const artifactProbes = new Set(['promptHistoryVisibleError', 'criticalTypecheck']);
-const plannedBaseSha = 'b40867229af8e17916c00393639ccb0fcb4bf6fc';
+const plannedBaseSha = '314a8e240b2fe58de23651a00b74f05c985cf5e4';
 const plannedThresholds = { overall: 90, dimensions: { E: 90, A: 85, C: 85, T: 85, P: 80 } };
 const requiredDoDControls = new Set(['E06-failure-matrix', 'C05-provider-rpc-parity', 'T05-build-embed-smoke', 'P04-resource-budget']);
 const customEvidenceProtocols = new Set([
@@ -180,6 +180,7 @@ const performanceRunnerFiles = Object.freeze([
   'frontend-app/scripts/chat-history-benchmark.mjs',
   'frontend-app/scripts/evidence-provenance.mjs',
   'frontend-app/scripts/frontend-performance-cases.json',
+  'frontend-app/scripts/managed-command.mjs',
   'frontend-app/scripts/performance-baseline-provenance.mjs',
   'frontend-app/scripts/performance-budget-config.mjs',
   'frontend-app/scripts/performance-budget-model.mjs',

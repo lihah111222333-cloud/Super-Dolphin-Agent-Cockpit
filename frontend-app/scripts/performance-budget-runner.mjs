@@ -141,8 +141,10 @@ function loadAverageTolerance(environment) {
 function assertComparableLoadAverage(left, right, label) {
   const tolerance = Math.min(loadAverageTolerance(left), loadAverageTolerance(right));
   for (const [index, value] of left.loadAverage.entries()) {
-    if (Math.abs(value - right.loadAverage[index]) > tolerance) {
-      throw new Error(`${label} loadAverage differs beyond ${tolerance}`);
+    const expected = right.loadAverage[index];
+    const delta = Math.abs(value - expected);
+    if (delta > tolerance) {
+      throw new Error(`${label} loadAverage[${index}] differs beyond ${tolerance}: left=${value}, right=${expected}, delta=${delta}`);
     }
   }
 }

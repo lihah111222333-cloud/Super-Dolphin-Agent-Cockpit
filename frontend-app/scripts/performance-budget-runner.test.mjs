@@ -1097,7 +1097,8 @@ describe('performance baseline freeze', () => {
 
     const overloaded = freezeRuns();
     overloaded[2].environment.loadAverage = [20, 20, 20];
-    expect(() => buildFreezeArtifact(overloaded)).toThrow(/loadAverage/);
+    expect(() => buildFreezeArtifact(overloaded))
+      .toThrow('freeze run 3 loadAverage[0] differs beyond 4: left=20, right=1, delta=19');
 
   });
 
