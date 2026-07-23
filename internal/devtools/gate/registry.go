@@ -101,15 +101,16 @@ func (s GateSpec) Validate() error {
 // GateRegistry 返回单一有序 gate catalog 的隔离副本。
 func GateRegistry() []GateSpec {
 	all := allProfiles()
-	nonRelease := []Profile{ProfileLocalFast, ProfilePush, ProfileRemoteRequired, ProfilePromotion}
+	localRemotePromotion := []Profile{ProfileLocalFast, ProfileRemoteRequired, ProfilePromotion}
+	localRemotePromotionRelease := []Profile{ProfileLocalFast, ProfileRemoteRequired, ProfilePromotion, ProfileRelease}
 	releaseRequired := []Profile{ProfileRelease}
 	registry := []GateSpec{
 		newGateSpec(GateIDAIMaintenanceSelfTest, all, all),
 		newGateSpec(GateIDFrontendLint, all, all),
-		newGateSpec(GateIDFrontendTest, nonRelease, nonRelease),
+		newGateSpec(GateIDFrontendTest, localRemotePromotion, localRemotePromotion),
 		newGateSpec(GateIDFrontendFullTest, []Profile{ProfileRelease}, []Profile{ProfileRelease}),
-		newGateSpec(GateIDFrontendBuild, all, all),
-		newGateSpec(GateIDFrontendEmbedVerify, all, all),
+		newGateSpec(GateIDFrontendBuild, all, localRemotePromotionRelease),
+		newGateSpec(GateIDFrontendEmbedVerify, all, localRemotePromotionRelease),
 		newGateSpec(GateIDBackendTestWithGuard, all, all),
 		newGateSpec(GateIDLSPChangedDiagnostics, all, all),
 		newGateSpec(GateIDBackendTestGuardWithRace, all, releaseRequired),

@@ -55,15 +55,27 @@ func TestBuildGatePlanFiltersCanonicalRequiredProfiles(t *testing.T) {
 	remote := mustBuildPlan(t, ProfileRemoteRequired)
 	promotion := mustBuildPlan(t, ProfilePromotion)
 	release := mustBuildPlan(t, ProfileRelease)
-	assertGatePlanIDSetEqual(t, local, push)
 	assertGatePlanIDSetEqual(t, local, remote)
 	assertGatePlanIDSetEqual(t, local, promotion)
+	pushOnlyRemoved := gateIDSet(local.Gates)
+	for id := range gateIDSet(push.Gates) {
+		delete(pushOnlyRemoved, id)
+	}
+	if !reflect.DeepEqual(pushOnlyRemoved, map[GateID]bool{
+		GateIDFrontendTest:        true,
+		GateIDFrontendBuild:       true,
+		GateIDFrontendEmbedVerify: true,
+	}) {
+		t.Fatalf("local gates omitted from push = %v", pushOnlyRemoved)
+	}
 
 	releaseOnly := gateIDSet(release.Gates)
 	for id := range gateIDSet(push.Gates) {
 		delete(releaseOnly, id)
 	}
 	if !reflect.DeepEqual(releaseOnly, map[GateID]bool{
+		GateIDFrontendBuild:            true,
+		GateIDFrontendEmbedVerify:      true,
 		GateIDFrontendFullTest:         true,
 		GateIDBackendTestGuardWithRace: true,
 		GateIDBackendNilness:           true,
@@ -85,7 +97,7 @@ func TestFrontendTestGateProfileContract(t *testing.T) {
 	if frontendTest.ID != GateID("frontend:test") {
 		t.Fatalf("frontend test id = %q", frontendTest.ID)
 	}
-	wantFrontendProfiles := []Profile{ProfileLocalFast, ProfilePush, ProfileRemoteRequired, ProfilePromotion}
+	wantFrontendProfiles := []Profile{ProfileLocalFast, ProfileRemoteRequired, ProfilePromotion}
 	if !slices.Equal(frontendTest.RequiredProfiles, wantFrontendProfiles) {
 		t.Fatalf("frontend test required profiles = %v, want %v", frontendTest.RequiredProfiles, wantFrontendProfiles)
 	}
@@ -110,7 +122,7 @@ func TestFrontendTestGateProfileContract(t *testing.T) {
 		wantFullTest     bool
 	}{
 		{ProfileLocalFast, true, false},
-		{ProfilePush, true, false},
+		{ProfilePush, false, false},
 		{ProfileRemoteRequired, true, false},
 		{ProfilePromotion, true, false},
 		{ProfileRelease, false, true},

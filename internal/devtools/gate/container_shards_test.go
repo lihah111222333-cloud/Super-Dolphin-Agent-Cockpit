@@ -43,15 +43,15 @@ func TestBuildContainerShardSetUsesProfileSpecificCanonicalGroups(t *testing.T) 
 	remote := testContainerShardSet(t, ProfileRemoteRequired)
 	promotion := testContainerShardSet(t, ProfilePromotion)
 	pushWant := [][]GateID{
-		{GateIDAIMaintenanceSelfTest, GateIDFrontendLint, GateIDFrontendTest, GateIDFrontendBuild, GateIDFrontendEmbedVerify},
+		{GateIDAIMaintenanceSelfTest, GateIDFrontendLint},
 		{GateIDBackendTestWithGuard, GateIDLSPChangedDiagnostics},
 		{GateIDSQLCVerify, GateIDCodemapCheck, GateIDProjectMapCheck, GateIDCapabilityContractCheck, GateIDWhitespaceCheck},
 	}
 	assertContainerShardGateGroups(t, set, want)
 	assertContainerShardGateGroups(t, normal, normalWant)
 	assertContainerShardGateGroups(t, push, pushWant)
-	assertContainerShardGateGroups(t, remote, pushWant)
-	assertContainerShardGateGroups(t, promotion, pushWant)
+	assertContainerShardGateGroups(t, remote, normalWant)
+	assertContainerShardGateGroups(t, promotion, normalWant)
 	assertShardSetRejectsSelfConsistentMissingGate(t, set)
 }
 
