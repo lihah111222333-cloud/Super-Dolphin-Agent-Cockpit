@@ -16,6 +16,54 @@ function setThreadLoading(state, id, loading) {
   };
 }
 
+function failedThreadSelectionPatch(runtime, state, context, deps, intentIsCurrent) {
+  const { id, previousActiveThread } = context;
+  const previousCwd = deps.normalizePath(previousActiveThread?.cwd);
+  const currentCwd = deps.normalizePath(runtime.currentChatCwd());
+  const cannotRestorePreviousScope = intentIsCurrent
+    && previousActiveThread
+    && previousCwd
+    && currentCwd
+    && previousCwd !== currentCwd;
+  if (!cannotRestorePreviousScope) {
+    return {
+      pendingActiveThreadId: intentIsCurrent && state.pendingActiveThreadId === id ? '' : state.pendingActiveThreadId,
+      threadStateLoadingByThread: setThreadLoading(state, id, false),
+      ...(intentIsCurrent && previousActiveThread ? {
+        threads: deps.upsertExplicitThread(state.threads, previousActiveThread, previousActiveThread.id),
+      } : {}),
+    };
+  }
+  const restored = runtime.restoreComposerDraft({
+    ...state,
+    activeProject: currentCwd,
+    cwd: currentCwd,
+    activeThreadId: '',
+  }, '');
+  return {
+    activeThreadId: '',
+    pendingActiveThreadId: '',
+    draft: restored.draft,
+    attachments: restored.attachments,
+    composerCapabilities: restored.composerCapabilities,
+    threadStateLoadingByThread: setThreadLoading(state, id, false),
+    actionNotice: deps.actionNotice(
+      '无法打开该会话；已取消旧项目会话选择，请重试后再发送。',
+      'error',
+    ),
+  };
+}
+
+function clearFailedThreadSelection(runtime, context, deps, coordinator) {
+  const { selectionIntent } = context;
+  const intentIsCurrent = coordinator.isCurrent(selectionIntent);
+  if (coordinator.canReleaseTarget(selectionIntent)) {
+    runtime.set((state) => failedThreadSelectionPatch(runtime, state, context, deps, intentIsCurrent));
+  }
+  if (intentIsCurrent) coordinator.cancel(selectionIntent);
+  return intentIsCurrent;
+}
+
 function selectionIntentForOpen(coordinator, targetThreadId, options = {}) {
   if (Object.prototype.hasOwnProperty.call(options, 'selectionSnapshot')) {
     return coordinator.beginIfUnchanged(options.selectionSnapshot, targetThreadId);
@@ -108,17 +156,15 @@ async function openResolvedThread(runtime, context, deps, coordinator) {
   const { requestedId, resolvedThread, options, selectionIntent, source } = context;
   const id = normalizeBackendThreadId(resolvedThread.id);
   const historyFallback = threadOpenHistoryFallbackItems(id, options);
-  const intentIsCurrent = coordinator.isCurrent(selectionIntent);
-  const restored = intentIsCurrent ? selectThreadDraft(runtime, runtime.get(), id) : null;
+  const selectionState = runtime.get();
+  const previousActiveThread = selectionState.threads.find((thread) => (
+    deps.threadMatchesIdentifier(thread, selectionState.activeThreadId)
+  ));
   runtime.set((state) => ({
     threads: deps.upsertExplicitThread(state.threads, resolvedThread, requestedId),
     threadStateLoadingByThread: setThreadLoading(state, id, true),
     ...(coordinator.isCurrent(selectionIntent) ? {
-      activeThreadId: id,
-      pendingActiveThreadId: '',
-      draft: restored.draft,
-      attachments: restored.attachments,
-      composerCapabilities: restored.composerCapabilities,
+      pendingActiveThreadId: id,
     } : {}),
   }));
   try {
@@ -126,30 +172,36 @@ async function openResolvedThread(runtime, context, deps, coordinator) {
       includeArchived: true,
       includeDiff: false,
       preserveActiveThreadId: true,
+      preserveActiveThreadRecord: false,
       shouldPublishFailure: () => coordinator.isCurrent(selectionIntent),
       ...(historyFallback.length > 0 ? { historyFallback } : {}),
     });
-    if (!synced) return false;
-  } catch (error) {
-    runtime.set((state) => ({ threadStateLoadingByThread: setThreadLoading(state, id, false) }));
+    if (!synced) {
+      clearFailedThreadSelection(runtime, { id, previousActiveThread, selectionIntent }, deps, coordinator);
+      return false;
+    }
     if (!coordinator.isCurrent(selectionIntent)) return false;
+    const restored = selectThreadDraft(runtime, runtime.get(), id);
+    runtime.set((state) => ({
+      threads: deps.upsertExplicitThread(state.threads, resolvedThread, requestedId),
+      activeThreadId: id,
+      pendingActiveThreadId: '',
+      draft: restored.draft,
+      attachments: restored.attachments,
+      composerCapabilities: restored.composerCapabilities,
+    }));
+  } catch (error) {
+    if (!coordinator.isCurrent(selectionIntent)) return false;
+    clearFailedThreadSelection(runtime, { id, previousActiveThread, selectionIntent }, deps, coordinator);
     runtime.notifyRPCFailure('打开会话', 'thread.open.failed', error, { threadId: id, source });
     throw error;
   }
   return coordinator.isCurrent(selectionIntent);
 }
 
-function listMutationBlocksSelection(current, id, deps) {
-  const lastListMutationTime = current.lastListMutationTime || 0;
-  if (deps.clockNowMillis() - lastListMutationTime >= 350) return false;
-  const currentActiveId = deps.backendThreadIdForState(current, current.activeThreadId);
-  return id !== currentActiveId;
-}
-
 async function setActiveThread(runtime, threadId, options, deps, coordinator) {
   const id = deps.backendThreadIdForState(runtime.get(), threadId, { includeArchived: true });
   const current = runtime.get();
-  if (listMutationBlocksSelection(current, id, deps)) return false;
   const selectionIntent = id ? selectionIntentForOpen(coordinator, id, options) : null;
   if (id && !selectionIntent) return false;
   const restored = selectThreadDraft(runtime, current, id);
@@ -186,28 +238,48 @@ async function activateExistingThread(runtime, context, deps, coordinator) {
     const synced = await runtime.get().syncThreadState(id, {
       includeArchived: true,
       includeDiff: false,
+      preserveActiveThreadId: true,
       shouldPublishFailure: () => coordinator.isCurrent(selectionIntent),
     });
-    return synced && coordinator.isCurrent(selectionIntent);
+    if (!synced) {
+      clearFailedThreadSelection(runtime, { id, previousActiveThread: null, selectionIntent }, deps, coordinator);
+      return false;
+    }
+    return coordinator.isCurrent(selectionIntent);
   }
   runtime.set((state) => ({
-    activeThreadId: id,
-    pendingActiveThreadId: '',
-    draft: restored.draft,
-    attachments: restored.attachments,
-    composerCapabilities: restored.composerCapabilities,
+    pendingActiveThreadId: id,
     threadStateLoadingByThread: setThreadLoading(state, id, true),
   }));
   try {
     const synced = await runtime.get().syncThreadState(id, {
       includeArchived: true,
       includeDiff: false,
+      preserveActiveThreadId: true,
+      preserveActiveThreadRecord: false,
       shouldPublishFailure: () => coordinator.isCurrent(selectionIntent),
     });
-    if (!synced) return false;
-  } catch (error) {
-    runtime.set((state) => ({ threadStateLoadingByThread: setThreadLoading(state, id, false) }));
+    if (!synced) {
+      const previousActiveThread = current.threads.find((thread) => (
+        deps.threadMatchesIdentifier(thread, current.activeThreadId)
+      ));
+      clearFailedThreadSelection(runtime, { id, previousActiveThread, selectionIntent }, deps, coordinator);
+      return false;
+    }
     if (!coordinator.isCurrent(selectionIntent)) return false;
+    runtime.set({
+      activeThreadId: id,
+      pendingActiveThreadId: '',
+      draft: restored.draft,
+      attachments: restored.attachments,
+      composerCapabilities: restored.composerCapabilities,
+    });
+  } catch (error) {
+    if (!coordinator.isCurrent(selectionIntent)) return false;
+    const previousActiveThread = current.threads.find((thread) => (
+      deps.threadMatchesIdentifier(thread, current.activeThreadId)
+    ));
+    clearFailedThreadSelection(runtime, { id, previousActiveThread, selectionIntent }, deps, coordinator);
     runtime.notifyRPCFailure('切换会话', 'thread.select.failed', error, { threadId: id });
     throw error;
   }

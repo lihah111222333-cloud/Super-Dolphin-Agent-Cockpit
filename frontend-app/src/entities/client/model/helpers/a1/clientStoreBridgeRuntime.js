@@ -5,7 +5,14 @@ import { bridgePatchData, bridgePatchState } from '../../bridgePatchState.js';
 import { bridgeRevisionKey } from '../bridgeRevision.js';
 import { isAssistantMessageDeltaEvent } from '../../runtimeAssistantTimeline.js';
 import { normalizeBackendThreadId, normalizeThreadId, isAgentRuntimeId } from '../threadIdentity.js';
-import { normalizeTokenUsage, threadActivityTimestamp, shouldFloatThreadPatch } from '../threadActivityMetrics.js';
+import {
+  activeTurnPayload,
+  isInterruptibleTurnSummary,
+  normalizeTokenUsage,
+  normalizeTurnSummary,
+  threadActivityTimestamp,
+  shouldFloatThreadPatch,
+} from '../threadActivityMetrics.js';
 import {
   BRIDGE_PATCH_SLOW_MS,
   clockNowMillis,
@@ -154,12 +161,23 @@ function attachBridgePatchRuntime(runtime) {
    * ui/thread/patch 是实时线程状态入口。
    * 先确认 thread/cwd 属于当前页面，再按 sequence 跳过旧事件。
    */
-  const { set, bridgeThreadIdForPayload, reconcileObservedTurnWithActiveTurn } = runtime;
+  const {
+    set,
+    bridgeThreadIdForPayload,
+    activeTurnPatchRejected,
+    reconcileObservedTurnWithActiveTurn,
+    replayPendingTurnTerminalsForThread,
+  } = runtime;
   const { sequencesByThread, patchGenerationsByThread } = runtime;
 
   const applyBridgePatch = (method, payload, knownThreadId = '') => {
     const threadId = knownThreadId || bridgeThreadIdForPayload(payload);
     if (!threadId) return;
+    const activeTurn = normalizeTurnSummary(activeTurnPayload(payload));
+    if (isInterruptibleTurnSummary(activeTurn)
+      && activeTurnPatchRejected(method, threadId, activeTurn.id)) {
+      return;
+    }
 
     const generation = normalizeString(payload.generation || payload.epoch);
     if (generation) {
@@ -191,6 +209,7 @@ function attachBridgePatchRuntime(runtime) {
           threadMatchesIdentifier,
         }));
         reconcileObservedTurnWithActiveTurn(threadId);
+        replayPendingTurnTerminalsForThread(threadId);
       }
     finally {
       const durationMs = clockNowMillis() - patchStart;

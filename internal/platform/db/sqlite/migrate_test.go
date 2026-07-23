@@ -224,6 +224,96 @@ func TestDatasourceDocumentsTableComesFromMigration(t *testing.T) {
 	assertIndex(t, db, "datasource_documents", "idx_datasource_documents_workspace_name", false, "")
 }
 
+// TestRunMigrationsThreadTimestampMillisConvertsPersistedSeconds 验证历史 thread 秒时间戳会在持久化边界一次性升级为毫秒。
+func TestRunMigrationsThreadTimestampMillisConvertsPersistedSeconds(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrationTestDB(t)
+	createMigrationMarkerTable(t, db)
+	markBaselineApplied(t, db)
+	createThreadTimestampMigrationTables(t, db)
+	mustExec(t, db, `
+		INSERT INTO agent_threads(thread_id, created_at, updated_at, finished_at)
+		VALUES ('seconds', 1784719357, 1784719358, 1784719359),
+		       ('millis', 1784719357000, 1784719358000, NULL);
+		INSERT INTO agent_provider_binding(agent_id, created_at, updated_at)
+		VALUES ('agent-seconds', 1784719357, 1784719358),
+		       ('agent-millis', 1784719357000, 1784719358000)
+	`)
+	dir := t.TempDir()
+	writeMigrationTestFile(t, dir, "118_thread_timestamp_millis.sql", readMigrationTestFile(t, "118_thread_timestamp_millis.sql"))
+
+	if err := RunMigrations(ctx, db, dir); err != nil {
+		t.Fatalf("RunMigrations() error = %v", err)
+	}
+	assertThreadTimestampRow(t, db, "seconds", 1784719357000, 1784719358000, 1784719359000)
+	assertThreadTimestampRow(t, db, "millis", 1784719357000, 1784719358000, 0)
+	assertBindingTimestampRow(t, db, "agent-seconds", 1784719357000, 1784719358000)
+	assertBindingTimestampRow(t, db, "agent-millis", 1784719357000, 1784719358000)
+	assertMigrationMarkerCount(t, db, "118_thread_timestamp_millis.sql", 1)
+}
+
+// TestRunMigrationsThreadTimestampMillisRejectsInvalidRange 验证非零且既非合理秒值也非毫秒值的数据会阻断并回滚迁移。
+func TestRunMigrationsThreadTimestampMillisRejectsInvalidRange(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrationTestDB(t)
+	createMigrationMarkerTable(t, db)
+	markBaselineApplied(t, db)
+	createThreadTimestampMigrationTables(t, db)
+	mustExec(t, db, "INSERT INTO agent_threads(thread_id, created_at, updated_at) VALUES ('invalid', 123, 1784719357)")
+	dir := t.TempDir()
+	writeMigrationTestFile(t, dir, "118_thread_timestamp_millis.sql", readMigrationTestFile(t, "118_thread_timestamp_millis.sql"))
+
+	err := RunMigrations(ctx, db, dir)
+	if err == nil {
+		t.Fatal("RunMigrations() error = nil, want invalid thread timestamp rejection")
+	}
+	assertThreadTimestampRow(t, db, "invalid", 123, 1784719357, 0)
+	assertMigrationMarkerCount(t, db, "118_thread_timestamp_millis.sql", 0)
+}
+
+// createThreadTimestampMigrationTables 创建 118 migration 所需的最小持久化结构。
+func createThreadTimestampMigrationTables(t *testing.T, db *sql.DB) {
+	t.Helper()
+	mustExec(t, db, `
+		CREATE TABLE agent_threads (
+			thread_id TEXT PRIMARY KEY,
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL,
+			finished_at INTEGER
+		);
+		CREATE TABLE agent_provider_binding (
+			agent_id TEXT PRIMARY KEY,
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL
+		)
+	`)
+}
+
+// assertThreadTimestampRow 断言 agent_threads 的三个时间字段均保持毫秒契约。
+func assertThreadTimestampRow(t *testing.T, db *sql.DB, threadID string, wantCreatedAt, wantUpdatedAt, wantFinishedAt int64) {
+	t.Helper()
+	var createdAt, updatedAt int64
+	var finishedAt sql.NullInt64
+	if err := db.QueryRow("SELECT created_at, updated_at, finished_at FROM agent_threads WHERE thread_id = ?", threadID).Scan(&createdAt, &updatedAt, &finishedAt); err != nil {
+		t.Fatalf("read thread timestamp row %s: %v", threadID, err)
+	}
+	if createdAt != wantCreatedAt || updatedAt != wantUpdatedAt || finishedAt.Int64 != wantFinishedAt {
+		t.Fatalf("thread timestamp row %s = (%d, %d, %d), want (%d, %d, %d)", threadID, createdAt, updatedAt, finishedAt.Int64, wantCreatedAt, wantUpdatedAt, wantFinishedAt)
+	}
+}
+
+// assertBindingTimestampRow 断言 agent_provider_binding 时间字段保持毫秒契约。
+func assertBindingTimestampRow(t *testing.T, db *sql.DB, agentID string, wantCreatedAt, wantUpdatedAt int64) {
+	t.Helper()
+	var createdAt, updatedAt int64
+	if err := db.QueryRow("SELECT created_at, updated_at FROM agent_provider_binding WHERE agent_id = ?", agentID).Scan(&createdAt, &updatedAt); err != nil {
+		t.Fatalf("read binding timestamp row %s: %v", agentID, err)
+	}
+	if createdAt != wantCreatedAt || updatedAt != wantUpdatedAt {
+		t.Fatalf("binding timestamp row %s = (%d, %d), want (%d, %d)", agentID, createdAt, updatedAt, wantCreatedAt, wantUpdatedAt)
+	}
+}
+
 func TestRunMigrationsSystemLogsTraceSpanRejectsLegacyShape(t *testing.T) {
 	ctx := context.Background()
 	db := openMigrationTestDB(t)

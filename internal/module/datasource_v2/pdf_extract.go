@@ -4,43 +4,31 @@ package datasourcev2
 import (
 	"bytes"
 	"compress/zlib"
+	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
-	"os"
+	"strconv"
 	"strings"
 	"unicode/utf16"
 	"unicode/utf8"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/pdftext"
 )
 
 var errPDFTextNotFound = errors.New("datasource v2: pdf text content not found")
 
-// extractPDFText 从 PDF 文件中提取所有 stream 的可读文本，无可用文本时返回 errPDFTextNotFound。
-func extractPDFText(sourcePath string) (string, error) {
-	content, err := os.ReadFile(sourcePath)
+// extractPDFText 兼容旧包内调用，但正文语义统一委托给 pdftext SSOT。
+func extractPDFText(ctx context.Context, sourcePath string) (string, error) {
+	result, err := pdftext.ExtractFile(ctx, sourcePath, pdftext.Limits{MaxInputBytes: datasourceV2MaxImportBytes, MaxOutputBytes: datasourceV2MaxImportBytes})
 	if err != nil {
-		return "", fmt.Errorf("read pdf datasource: %w", err)
-	}
-	streams, err := extractPDFStreams(content)
-	if err != nil {
+		if errors.Is(err, pdftext.ErrInputTooLarge) || errors.Is(err, pdftext.ErrOutputTooLarge) {
+			return "", errDatasourceV2TextTooLarge
+		}
 		return "", err
 	}
-	parts := make([]string, 0, len(streams))
-	totalBytes := 0
-	for _, stream := range streams {
-		if text := extractPDFTextFromStream(stream); text != "" {
-			totalBytes += len(text)
-			if totalBytes > datasourceV2MaxImportBytes {
-				return "", errDatasourceV2TextTooLarge
-			}
-			parts = append(parts, text)
-		}
-	}
-	if len(parts) == 0 {
-		return "", errPDFTextNotFound
-	}
-	return strings.Join(parts, "\n"), nil
+	return result.Text, nil
 }
 
 // extractPDFStreams 扫描 PDF stream/endstream 片段并按字典声明解压内容。
@@ -55,13 +43,16 @@ func extractPDFStreams(content []byte) ([][]byte, error) {
 		}
 		streamStart := offset + streamIndex
 		bodyStart := skipPDFStreamLineBreak(content, streamStart+len("stream"))
-		streamEndRelative := bytes.Index(content[bodyStart:], []byte("endstream"))
-		if streamEndRelative < 0 {
-			return nil, errors.New("datasource v2: malformed pdf stream")
+		dictionary := pdfStreamDictionary(content[:streamStart])
+		streamBody, streamEnd, err := extractPDFStreamBody(content, bodyStart, dictionary)
+		if err != nil {
+			return nil, err
 		}
-		streamEnd := bodyStart + streamEndRelative
-		streamBody := bytes.TrimRight(content[bodyStart:streamEnd], "\r\n")
-		decoded, err := decodePDFStream(pdfStreamDictionary(content[:streamStart]), streamBody)
+		if pdfStreamDefinitelyNonText(dictionary) {
+			offset = streamEnd + len("endstream")
+			continue
+		}
+		decoded, err := decodePDFStream(dictionary, streamBody)
 		if err != nil {
 			return nil, err
 		}
@@ -69,6 +60,112 @@ func extractPDFStreams(content []byte) ([][]byte, error) {
 		offset = streamEnd + len("endstream")
 	}
 	return streams, nil
+}
+
+// extractPDFStreamBody 优先按 direct /Length 精确截取正文，避免修改 Flate 二进制尾字节。
+func extractPDFStreamBody(content []byte, bodyStart int, dictionary []byte) ([]byte, int, error) {
+	length, found, err := pdfDirectStreamLength(dictionary)
+	if err != nil {
+		return nil, 0, fmt.Errorf("datasource v2: invalid pdf stream length: %w", err)
+	}
+	if found {
+		if length > datasourceV2MaxImportBytes {
+			return nil, 0, errDatasourceV2TextTooLarge
+		}
+		if bodyStart > len(content) || length > len(content)-bodyStart {
+			return nil, 0, errors.New("datasource v2: truncated pdf stream length")
+		}
+		bodyEnd := bodyStart + length
+		markerStart := skipPDFStreamLineBreak(content, bodyEnd)
+		if !bytes.HasPrefix(content[markerStart:], []byte("endstream")) {
+			return nil, 0, errors.New("datasource v2: pdf stream length exceeds declared boundary")
+		}
+		return content[bodyStart:bodyEnd], markerStart, nil
+	}
+	streamEndRelative := bytes.Index(content[bodyStart:], []byte("endstream"))
+	if streamEndRelative < 0 {
+		return nil, 0, errors.New("datasource v2: malformed pdf stream")
+	}
+	streamEnd := bodyStart + streamEndRelative
+	return content[bodyStart:streamEnd], streamEnd, nil
+}
+
+// pdfDirectStreamLength 解析当前 stream 字典中的 direct /Length；indirect reference 交给 marker 路径。
+func pdfDirectStreamLength(dictionary []byte) (int, bool, error) {
+	index := pdfStreamLengthKeyIndex(dictionary)
+	if index < 0 {
+		return 0, false, nil
+	}
+	tail := bytes.TrimLeft(dictionary[index+len("/Length"):], " \t\r\n\f\x00")
+	if len(tail) == 0 || tail[0] < '0' || tail[0] > '9' {
+		return 0, true, errors.New("direct /Length must be a non-negative integer")
+	}
+	digits := pdfDecimalPrefixLength(tail)
+	if pdfIndirectLengthReference(tail[digits:]) {
+		return 0, false, nil
+	}
+	length, err := strconv.Atoi(string(tail[:digits]))
+	if err != nil {
+		return 0, true, err
+	}
+	return length, true, nil
+}
+
+// pdfStreamLengthKeyIndex 查找精确的 /Length 名称，避免把 /Length1 当成流长度。
+func pdfStreamLengthKeyIndex(dictionary []byte) int {
+	return pdfDictionaryNameKeyIndex(dictionary, "/Length")
+}
+
+// pdfStreamDefinitelyNonText 识别不可能承载正文的图片与嵌入字体程序，避免无意义地解压大型二进制资源。
+func pdfStreamDefinitelyNonText(dictionary []byte) bool {
+	return pdfDictionaryNameKeyIndex(dictionary, "/Length1") >= 0 || pdfDictionaryNameValueEquals(dictionary, "/Subtype", "/Image")
+}
+
+func pdfDictionaryNameValueEquals(dictionary []byte, key, expected string) bool {
+	index := pdfDictionaryNameKeyIndex(dictionary, key)
+	if index < 0 {
+		return false
+	}
+	tail := bytes.TrimLeft(dictionary[index+len(key):], " \t\r\n\f\x00")
+	return bytes.HasPrefix(tail, []byte(expected)) && (len(tail) == len(expected) || pdfNameDelimiter(tail[len(expected)]))
+}
+
+func pdfDictionaryNameKeyIndex(dictionary []byte, key string) int {
+	searchEnd := len(dictionary)
+	for searchEnd > 0 {
+		index := bytes.LastIndex(dictionary[:searchEnd], []byte(key))
+		if index < 0 {
+			return -1
+		}
+		next := index + len(key)
+		if next == len(dictionary) || pdfNameDelimiter(dictionary[next]) {
+			return index
+		}
+		searchEnd = index
+	}
+	return -1
+}
+
+func pdfNameDelimiter(value byte) bool {
+	return strings.ContainsRune(" \t\r\n\f\x00()<>[]{}/%", rune(value))
+}
+
+func pdfDecimalPrefixLength(value []byte) int {
+	for index, ch := range value {
+		if ch < '0' || ch > '9' {
+			return index
+		}
+	}
+	return len(value)
+}
+
+func pdfIndirectLengthReference(value []byte) bool {
+	fields := bytes.Fields(value)
+	if len(fields) < 2 || !bytes.Equal(fields[1], []byte("R")) {
+		return false
+	}
+	_, err := strconv.Atoi(string(fields[0]))
+	return err == nil
 }
 
 // skipPDFStreamLineBreak 跳过 stream 关键字后的 PDF 换行分隔符。

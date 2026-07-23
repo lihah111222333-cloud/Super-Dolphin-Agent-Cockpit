@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/sqlc"
@@ -264,11 +266,22 @@ func (s *datasourceCommandStore) MarkReady(ctx context.Context, params MarkReady
 		return nil, wrapDatasourceV2Error(err, "mark_ready")
 	}
 	hash := strings.TrimSpace(params.ContentHash)
+	qualityReason := strings.TrimSpace(params.QualityReason)
 	row, err := s.q.MarkDatasourceV2DocumentReady(ctx, sqlc.MarkDatasourceV2DocumentReadyParams{
-		ID:          params.DocumentID,
-		ContentHash: &hash,
-		ChunkCount:  params.ChunkCount,
-		TotalChars:  params.TotalChars,
+		ID:                   params.DocumentID,
+		ContentHash:          &hash,
+		ChunkCount:           params.ChunkCount,
+		TotalChars:           params.TotalChars,
+		QualityReason:        nullableStringPtr(qualityReason),
+		ExtractorName:        stringPtr(params.ExtractorName),
+		ExtractorVersion:     stringPtr(params.ExtractorVersion),
+		PageCount:            int64Ptr(int64(params.PageCount)),
+		RuneCount:            int64Ptr(params.RuneCount),
+		VisibleRuneCount:     int64Ptr(params.VisibleRunes),
+		ControlRuneCount:     int64Ptr(params.ControlRunes),
+		NulRuneCount:         int64Ptr(params.NULRunes),
+		ReplacementRuneCount: int64Ptr(params.ReplacementRunes),
+		UnmappedFontCount:    int64Ptr(params.UnmappedFonts),
 	})
 	if err != nil {
 		return nil, wrapDatasourceV2Error(err, "mark_ready")
@@ -341,6 +354,10 @@ func validateInsertChunkParams(params InsertChunkParams) error {
 		return errors.New("chunk index must be non-negative")
 	case params.Content == "":
 		return errors.New("chunk content is required")
+	case !utf8.ValidString(params.Content):
+		return errors.New("chunk content must be valid UTF-8")
+	case containsForbiddenDatasourceRune(params.Content):
+		return errors.New("chunk content contains forbidden NUL, control, or replacement rune")
 	case params.CharCount <= 0:
 		return errors.New("char count must be positive")
 	case params.ByteCount <= 0:
@@ -369,6 +386,7 @@ func validateInsertChunkVectorParams(params InsertChunkParams) error {
 	}
 }
 
+// validateMarkReadyParams 校验文档摘要与质量证明后才允许进入 ready。
 func validateMarkReadyParams(params MarkReadyParams) error {
 	switch {
 	case params.DocumentID <= 0:
@@ -380,24 +398,60 @@ func validateMarkReadyParams(params MarkReadyParams) error {
 	case params.TotalChars <= 0:
 		return errors.New("total chars must be positive")
 	default:
+		return validateReadyQuality(params)
+	}
+}
+
+// validateReadyQuality 校验 ready 文档必须携带完整且通过的抽取质量证明。
+// 非零异常计数只允许与显式规范化原因同时持久化，避免静默吞掉抽取瑕疵。
+func validateReadyQuality(quality MarkReadyParams) error {
+	switch {
+	case quality.QualityStatus != QualityPassed:
+		return errors.New("quality status must be passed")
+	case strings.TrimSpace(quality.ExtractorName) == "":
+		return errors.New("extractor name is required")
+	case strings.TrimSpace(quality.ExtractorVersion) == "":
+		return errors.New("extractor version is required")
+	case quality.PageCount <= 0 || quality.VisibleRunes <= 0:
+		return errors.New("quality page and visible rune counts must be positive")
+	case quality.UnmappedFonts != 0:
+		return errors.New("unmapped fonts must be zero")
+	case hasNegativeQualityArtifactCount(quality):
+		return errors.New("quality artifact counters must be non-negative")
+	case hasNormalizedQualityArtifacts(quality) && strings.TrimSpace(quality.QualityReason) == "":
+		return errors.New("normalized quality artifacts require a reason")
+	default:
 		return nil
 	}
 }
 
+func hasNegativeQualityArtifactCount(quality MarkReadyParams) bool {
+	return quality.ControlRunes < 0 || quality.NULRunes < 0 || quality.ReplacementRunes < 0
+}
+
+func hasNormalizedQualityArtifacts(quality MarkReadyParams) bool {
+	return quality.ControlRunes+quality.NULRunes+quality.ReplacementRunes > 0
+}
+
 func documentFromSQLC(row sqlc.DatasourceV2Document) Document {
 	return Document{
-		ID:           row.ID,
-		SourcePath:   row.SourcePath,
-		FileName:     row.FileName,
-		Extension:    row.Extension,
-		SizeBytes:    row.SizeBytes,
-		ContentHash:  stringFromPtr(row.ContentHash),
-		ChunkCount:   row.ChunkCount,
-		TotalChars:   row.TotalChars,
-		Status:       row.Status,
-		ErrorMessage: stringFromPtr(row.ErrorMessage),
-		CreatedAt:    timeFromMillis(row.CreatedAt),
-		UpdatedAt:    timeFromMillis(row.UpdatedAt),
+		ID:            row.ID,
+		SourcePath:    row.SourcePath,
+		FileName:      row.FileName,
+		Extension:     row.Extension,
+		SizeBytes:     row.SizeBytes,
+		ContentHash:   stringFromPtr(row.ContentHash),
+		ChunkCount:    row.ChunkCount,
+		TotalChars:    row.TotalChars,
+		Status:        row.Status,
+		ErrorMessage:  stringFromPtr(row.ErrorMessage),
+		QualityStatus: row.QualityStatus, QualityReason: stringFromPtr(row.QualityReason),
+		ExtractorName: stringFromPtr(row.ExtractorName), ExtractorVersion: stringFromPtr(row.ExtractorVersion),
+		PageCount: int32FromPtr(row.PageCount), RuneCount: int64FromPtr(row.RuneCount), VisibleRunes: int64FromPtr(row.VisibleRuneCount),
+		ControlRunes: int64FromPtr(row.ControlRuneCount), NULRunes: int64FromPtr(row.NulRuneCount),
+		ReplacementRunes: int64FromPtr(row.ReplacementRuneCount), UnmappedFonts: int64FromPtr(row.UnmappedFontCount),
+		CreatedAt: timeFromMillis(row.CreatedAt),
+		UpdatedAt: timeFromMillis(row.UpdatedAt),
 	}
 }
 
@@ -443,6 +497,32 @@ func stringFromPtr(value *string) string {
 		return ""
 	}
 	return *value
+}
+
+func stringPtr(value string) *string { return &value }
+func nullableStringPtr(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+func int64Ptr(value int64) *int64 { return &value }
+func int64FromPtr(value *int64) int64 {
+	if value == nil {
+		return 0
+	}
+	return *value
+}
+func int32FromPtr(value *int64) int32 { return int32(int64FromPtr(value)) }
+
+// containsForbiddenDatasourceRune 检查持久化边界不可接受的 NUL、控制符和替换符。
+func containsForbiddenDatasourceRune(content string) bool {
+	for _, r := range content {
+		if r == 0 || r == unicode.ReplacementChar || (unicode.IsControl(r) && r != '\n' && r != '\t') {
+			return true
+		}
+	}
+	return false
 }
 
 func timeFromMillis(value int64) time.Time {

@@ -153,6 +153,62 @@ func TestTask4BExternalAuthorityGenerationConfigAndMembershipCAS(t *testing.T) {
 	assertTask4BExternalAuthorityCAS(t, owner, second, third)
 }
 
+func TestIssueMCPToolAuthorityReusesIdenticalIdentityAndQuarantine(t *testing.T) {
+	store := newMemoryMCPServerStore()
+	cwd := t.TempDir()
+	binary := providerdto.MCPBinary{
+		Name: "external", TrustedServerID: "external", Type: "http", URL: "https://example.test/v1",
+	}
+	store.seed(cwd, binary.Name, ServerConfig{Transport: "http", URL: binary.URL})
+	owner := AsMCPToolAuthorityOwner(NewServiceWithStore(store))
+	first := issueTask4BExternalAuthority(t, owner, cwd, binary, "membership-v1")
+	if err := owner.CompareAndSwapMCPToolQuarantines(
+		context.Background(),
+		[]contract.MCPToolQuarantineCommit{{Authority: first, Tools: map[string]string{"bad": "schema"}}},
+		func() error { return nil },
+	); err != nil {
+		t.Fatalf("commit quarantine: %v", err)
+	}
+	second := issueTask4BExternalAuthority(t, owner, cwd, binary, "membership-v1")
+	if second != first {
+		t.Fatalf("identical authority changed: first=%#v second=%#v", first, second)
+	}
+	state := owner.(*mcpToolAuthorityOwner).current[mcpToolAuthorityKey(second)]
+	if state.quarantine["bad"] != "schema" || len(state.quarantine) != 1 {
+		t.Fatalf("identical reissue lost quarantine: %#v", state.quarantine)
+	}
+}
+
+func TestConcurrentIdenticalAuthorityIssuesReturnSameToken(t *testing.T) {
+	store := newMemoryMCPServerStore()
+	cwd := t.TempDir()
+	binary := providerdto.MCPBinary{
+		Name: "external", TrustedServerID: "external", Type: "http", URL: "https://example.test/v1",
+	}
+	store.seed(cwd, binary.Name, ServerConfig{Transport: "http", URL: binary.URL})
+	owner := AsMCPToolAuthorityOwner(NewServiceWithStore(store))
+	tokens := make(chan contract.MCPToolAuthority, 2)
+	errs := make(chan error, 2)
+	for range 2 {
+		safego.Go(context.Background(), nil, "mcp-server.concurrent-authority-issue-test", func(context.Context) {
+			token, err := owner.IssueMCPToolAuthority(context.Background(), contract.MCPToolAuthorityIssueRequest{
+				CWD: cwd, Binary: binary, MembershipDigest: "membership-v1",
+			})
+			tokens <- token
+			errs <- err
+		})
+	}
+	first, second := <-tokens, <-tokens
+	for range 2 {
+		if err := <-errs; err != nil {
+			t.Fatalf("concurrent IssueMCPToolAuthority() error = %v", err)
+		}
+	}
+	if first != second || first.Generation != 1 {
+		t.Fatalf("concurrent identical tokens = %#v / %#v, want same generation 1", first, second)
+	}
+}
+
 func TestAuthorityDeleteAfterReadPreventsPublish(t *testing.T) {
 	store := newMemoryMCPServerStore()
 	cwd := t.TempDir()

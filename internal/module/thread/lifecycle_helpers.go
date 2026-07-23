@@ -481,7 +481,7 @@ func firstNonZero(values ...int64) int64 {
 			return value
 		}
 	}
-	return time.Now().Unix()
+	return time.Now().UnixMilli()
 }
 
 func (s *service) maybeRegisterThreadBinding(
@@ -527,7 +527,7 @@ func (s *service) upsertPublicThread(
 		Cwd:              state.CWD,
 		Status:           statusCreated,
 		CreatedAt:        state.CreatedAt,
-		UpdatedAt:        time.Now().Unix(),
+		UpdatedAt:        time.Now().UnixMilli(),
 		OwnerThreadID:    state.OwnerThreadID,
 		ParentAgentID:    state.ParentAgentID,
 		AgentType:        state.AgentType,

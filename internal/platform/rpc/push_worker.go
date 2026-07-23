@@ -137,16 +137,48 @@ func (w *pushNotificationWorker) Enqueue(notifications []eventsurface.Notificati
 
 // enqueueLocked 在持锁状态下写入队列，满载时压缩为 degraded 事件加最新请求。
 func (w *pushNotificationWorker) enqueueLocked(req pushRequest) {
+	if pushRequestMustPreserve(req) {
+		w.queue = append(w.queue, req)
+		return
+	}
 	if len(w.queue) > 0 && w.queue[0].degraded {
-		w.queue = []pushRequest{pushWorkerDegradedRequest(w.queue[0].dropped + 1), req}
+		w.compactOverflowQueueLocked(req)
 		return
 	}
 	if len(w.queue) >= pushWorkerPendingLimit {
-		dropped := int64(len(w.queue))
-		w.queue = []pushRequest{pushWorkerDegradedRequest(dropped), req}
+		w.compactOverflowQueueLocked(req)
 		return
 	}
 	w.queue = append(w.queue, req)
+}
+
+// compactOverflowQueueLocked 只压缩可丢弃的高频请求，保留 assistant completion 与 terminal 的顺序。
+func (w *pushNotificationWorker) compactOverflowQueueLocked(latest pushRequest) {
+	var dropped int64
+	preserved := make([]pushRequest, 0, len(w.queue))
+	for _, queued := range w.queue {
+		switch {
+		case queued.degraded:
+			dropped += queued.dropped
+		case pushRequestMustPreserve(queued):
+			preserved = append(preserved, queued)
+		default:
+			dropped++
+		}
+	}
+	w.queue = append([]pushRequest{pushWorkerDegradedRequest(dropped)}, preserved...)
+	w.queue = append(w.queue, latest)
+}
+
+// pushRequestMustPreserve 标记终态收敛所需的不可丢事件。
+func pushRequestMustPreserve(req pushRequest) bool {
+	for _, notification := range req.notifications {
+		switch strings.TrimSpace(notification.Method) {
+		case eventsurface.MethodItemCompleted, eventsurface.MethodTurnTerminal:
+			return true
+		}
+	}
+	return false
 }
 
 // pushWorkerDegradedRequest 构造队列压缩后的显式退化通知。

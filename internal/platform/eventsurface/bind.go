@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
@@ -23,6 +24,57 @@ import (
 )
 
 var outputDeltaPublishLogSampler = pkglogger.NewEverySampler(1000)
+
+const terminalTurnTrackingLimit = 4096
+
+type terminalTurnTracker struct {
+	mu    sync.RWMutex
+	seen  map[string]struct{}
+	order []string
+}
+
+func newTerminalTurnTracker() *terminalTurnTracker {
+	return &terminalTurnTracker{seen: make(map[string]struct{}, terminalTurnTrackingLimit)}
+}
+
+func (t *terminalTurnTracker) mark(threadID, turnID string) {
+	key := turnIdentityKey(threadID, turnID)
+	if key == "" {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if _, exists := t.seen[key]; exists {
+		return
+	}
+	t.seen[key] = struct{}{}
+	t.order = append(t.order, key)
+	if len(t.order) <= terminalTurnTrackingLimit {
+		return
+	}
+	delete(t.seen, t.order[0])
+	t.order = t.order[1:]
+}
+
+func (t *terminalTurnTracker) contains(threadID, turnID string) bool {
+	key := turnIdentityKey(threadID, turnID)
+	if key == "" {
+		return false
+	}
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	_, ok := t.seen[key]
+	return ok
+}
+
+func turnIdentityKey(threadID, turnID string) string {
+	threadID = strings.TrimSpace(threadID)
+	turnID = strings.TrimSpace(turnID)
+	if threadID == "" || turnID == "" {
+		return ""
+	}
+	return threadID + "\x00" + turnID
+}
 
 func captureBindStack() string {
 	pcs := make([]uintptr, 8)
@@ -136,6 +188,7 @@ func taskNodeStatusChangedPayload(ev taskdto.TaskNodeStatusChanged) map[string]a
 // bindCore 绑定 turn 和全局状态事件。
 // 输出增量事件带采样 debug 日志，避免高频 token/command 输出刷爆日志。
 func bindCore(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish PublishFunc) []context.CancelFunc {
+	terminalTurns := newTerminalTurnTracker()
 	return []context.CancelFunc{
 		bus.ResilientSubscribe(dispatcher, func(ev agentdto.StateChanged) {
 			publish(MethodUIStateChanged, ev)
@@ -144,6 +197,7 @@ func bindCore(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish Pu
 			publish(MethodTurnStarted, ev)
 		}, logger),
 		bus.ResilientSubscribe(dispatcher, func(ev turndto.TurnCompleted) {
+			terminalTurns.mark(ev.ThreadID, ev.TurnID)
 			publishTurnTerminal(logger, publish, ev)
 		}, logger),
 		bus.ResilientSubscribe(dispatcher, func(ev turndto.TurnStalled) {
@@ -153,6 +207,16 @@ func bindCore(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish Pu
 			publish(MethodTurnResumed, turnResumedPayload(ev))
 		}, logger),
 		bus.ResilientSubscribe(dispatcher, func(ev turndto.TurnOutputDelta) {
+			if terminalTurns.contains(ev.ThreadID, ev.TurnID) {
+				if logger != nil {
+					logger.Debug("eventsurface: dropped output delta after authoritative terminal",
+						"thread_id", ev.ThreadID,
+						"turn_id", ev.TurnID,
+						"stream", ev.Stream,
+					)
+				}
+				return
+			}
 			method := turnOutputMethod(ev)
 			if logger != nil && outputDeltaPublishLogSampler.ShouldLog(ev.Stream) {
 				logger.Debug("eventsurface: TurnOutputDelta publish",
@@ -178,7 +242,37 @@ func publishTurnTerminal(logger *pkglogger.Logger, publish PublishFunc, ev turnd
 		pkglogger.Error("eventsurface: missing canonical turn terminal", "thread_id", ev.ThreadID, "turn_id", ev.TurnID)
 		return
 	}
+	if completion := authoritativeAssistantCompletionPayload(ev); completion != nil {
+		publish(MethodItemCompleted, completion)
+	}
 	publish(MethodTurnTerminal, terminal)
+}
+
+// authoritativeAssistantCompletionPayload 把 TurnCompleted.Result 投影为前端可收敛的权威 assistant item。
+// 必须先于 turn/terminal 发布，否则 terminal 的 partialItemIds 会等待一个已被 raw 过滤器拦截的完成事件。
+func authoritativeAssistantCompletionPayload(ev turndto.TurnCompleted) map[string]any {
+	if strings.TrimSpace(ev.Result) == "" {
+		return nil
+	}
+	itemID := "assistant-final-" + strings.TrimSpace(ev.TurnID)
+	for index := len(ev.PartialItemIDs) - 1; index >= 0; index-- {
+		if candidate := strings.TrimSpace(ev.PartialItemIDs[index]); candidate != "" {
+			itemID = candidate
+			break
+		}
+	}
+	payload := turnHeaderPayload(ev.TurnHeader)
+	payload["item"] = map[string]any{
+		"id":    itemID,
+		"type":  "assistant",
+		"role":  "assistant",
+		"phase": "final_answer",
+		"text":  ev.Result,
+	}
+	if !ev.Timestamp.IsZero() {
+		payload["timestamp"] = ev.Timestamp.UTC().Format(time.RFC3339Nano)
+	}
+	return payload
 }
 
 func bindThread(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish PublishFunc) []context.CancelFunc {

@@ -2,9 +2,32 @@ package datasourcev2
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestImportRejectsForbiddenControlBeforeTransactionAndPreservesChunks(t *testing.T) {
+	project := t.TempDir()
+	t.Chdir(project)
+	source := filepath.Join(project, "control.txt")
+	if err := os.WriteFile(source, []byte("safe\x00unsafe"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := newReadyDatasourceV2Store()
+	before := append([]TextChunk(nil), store.chunks...)
+	_, err := newDatasourceV2TestService(store).ImportFileText(context.Background(), ImportFileTextRequest{SourcePath: source})
+	if err == nil || !strings.Contains(err.Error(), "NUL rune") {
+		t.Fatalf("ImportFileText() error = %v, want NUL rejection", err)
+	}
+	if store.withTxCalls != 0 {
+		t.Fatalf("WithTx calls = %d, want 0", store.withTxCalls)
+	}
+	if len(store.chunks) != len(before) || store.chunks[0].Content != before[0].Content {
+		t.Fatalf("old chunks changed after failed reimport: before=%+v after=%+v", before, store.chunks)
+	}
+}
 
 // TestDatasourceV2GetReturnsFirstPageOnly 固定 get 只返回首个 chunk 页及后续游标。
 func TestDatasourceV2GetReturnsFirstPageOnly(t *testing.T) {

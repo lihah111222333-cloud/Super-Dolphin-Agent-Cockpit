@@ -341,9 +341,10 @@ func runtimeReportCodexRPCResult(method string) json.RawMessage {
 	case "thread/start":
 		return mustJSON(map[string]any{"thread": map[string]any{"id": "provider-thread-1"}, "model": "gpt-5"})
 	case "thread/resume":
-		return mustJSON(map[string]any{"thread": map[string]any{"id": "provider-thread-1"}})
-	case "thread/config/get":
-		return mustJSON(map[string]any{"threadId": "provider-thread-1", "effective": map[string]any{"approvals": "on-request"}})
+		return mustJSON(map[string]any{
+			"thread":         map[string]any{"id": "provider-thread-1"},
+			"approvalPolicy": "on-request",
+		})
 	default:
 		return mustJSON(map[string]any{"ok": true})
 	}

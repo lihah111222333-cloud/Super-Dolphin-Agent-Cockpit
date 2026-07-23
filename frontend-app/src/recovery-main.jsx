@@ -16,8 +16,8 @@ createRoot(root).render(
 );
 
 function reportRecoveryFrontendReadinessAfterPageLoad() {
-  void reportFrontendReadiness().catch(() => {
-    console.error('recovery.frontend.readiness.handshake_failed');
+  void reportFrontendReadiness().catch((error) => {
+    console.error('recovery.frontend.readiness.handshake_failed', error);
   });
 }
 

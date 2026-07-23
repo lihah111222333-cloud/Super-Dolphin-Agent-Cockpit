@@ -179,7 +179,7 @@ export function attachThreadMessagesRuntime(runtime, deps = {}) {
     /** @type {ThreadMessageLoadOptions} */
     const loadOptions = options && typeof options === 'object' ? options : {};
     const id = backendThreadIdForState(get(), threadId, { includeArchived: loadOptions.includeArchived === true });
-    if (!id) return;
+    if (!id) return false;
     const generation = nextThreadMessageGeneration(id);
     setThreadMessagesLoading(id, generation, true);
     try {
@@ -189,13 +189,15 @@ export function attachThreadMessagesRuntime(runtime, deps = {}) {
       if (page.messages.length === 0) {
         applyEmptyThreadMessagePage(set, id, loadOptions.historyFallback);
         setThreadMessagesLoading(id, generation, false);
-        return;
+        return true;
       }
       applyThreadMessageItems(set, id, page.items, page.meta);
+      return true;
     }
     catch (error) {
       emitThreadHistoryInitialPageTrace(id, null, 'error', error);
       addWarning('error', 'thread.messages.failed', { threadId: id, error: error.message });
+      return false;
     }
     finally {
       setThreadMessagesLoading(id, generation, false);
@@ -207,8 +209,8 @@ export function attachThreadMessagesRuntime(runtime, deps = {}) {
    * @param {ThreadMessageLoadOptions & { loadMessages?: boolean }} syncOptions
    */
   const startThreadMessagesLoad = async (threadId, syncOptions) => {
-    if (syncOptions.loadMessages === false) return;
-    await loadThreadMessages(threadId, {
+    if (syncOptions.loadMessages === false) return true;
+    return loadThreadMessages(threadId, {
       includeArchived: syncOptions.includeArchived === true,
       historyFallback: syncOptions.historyFallback,
     });

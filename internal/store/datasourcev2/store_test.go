@@ -239,10 +239,10 @@ func TestMarkReadyForwardsSummaryAndMapsRow(t *testing.T) {
 	}}
 
 	got, err := s.MarkReady(context.Background(), MarkReadyParams{
-		DocumentID:  9,
-		ContentHash: "sha256:abc",
-		ChunkCount:  3,
-		TotalChars:  15,
+		DocumentID: 9, ContentHash: "sha256:abc", ChunkCount: 3, TotalChars: 15,
+		QualityStatus: QualityPassed, QualityReason: "normalized minor extraction artifacts: NUL=1 replacement=0 control=0",
+		ExtractorName: "utf8-text", ExtractorVersion: "v1",
+		PageCount: 1, RuneCount: 15, VisibleRunes: 14, NULRunes: 1,
 	})
 	if err != nil {
 		t.Fatalf("MarkReady() unexpected error: %v", err)
@@ -251,8 +251,16 @@ func TestMarkReadyForwardsSummaryAndMapsRow(t *testing.T) {
 		ready.ChunkCount != 3 || ready.TotalChars != 15 {
 		t.Fatalf("MarkReady() forwarded wrong params: %+v", ready)
 	}
+	assertQualityReasonContains(t, ready.QualityReason, "NUL=1")
 	if got.Status != StatusReady || got.ChunkCount != 3 {
 		t.Fatalf("MarkReady() mapped row = %+v", got)
+	}
+}
+
+func assertQualityReasonContains(t *testing.T, reason *string, want string) {
+	t.Helper()
+	if reason == nil || !strings.Contains(*reason, want) {
+		t.Fatalf("quality reason = %v, want substring %q", reason, want)
 	}
 }
 

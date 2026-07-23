@@ -394,15 +394,27 @@ function normalizeMemorySection(section, target) {
   return entries.map((item, index) => normalizeMemoryEntry(item, index, target));
 }
 
+const memoryOverviewSchema = z.object({
+  writeAvailable: z.boolean(),
+  unavailableReason: z.enum(['git_repository_required']).optional(),
+}).passthrough().superRefine((value, context) => {
+  if (!value.writeAvailable && value.unavailableReason !== 'git_repository_required') {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['unavailableReason'], message: 'is required when memory writes are unavailable' });
+  }
+  if (value.writeAvailable && value.unavailableReason !== undefined) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['unavailableReason'], message: 'must be omitted when memory writes are available' });
+  }
+});
+
 const memorySnapshotSchema = z.object({
-  overview: z.unknown().optional(),
+  overview: memoryOverviewSchema,
   private: memorySectionSchema,
   team: memorySectionSchema,
 }).passthrough().superRefine((value, context) => {
   validateMemorySection(value.private, 'private', context);
   validateMemorySection(value.team, 'team', context);
 }).transform((value) => ({
-  overview: schemaObjectValue(value.overview),
+  overview: value.overview,
   entries: [
     ...normalizeMemorySection(value.private, 'private'),
     ...normalizeMemorySection(value.team, 'team'),

@@ -1,0 +1,11 @@
+ALTER TABLE datasource_v2_documents ADD COLUMN quality_status TEXT NOT NULL DEFAULT 'unknown' CHECK(quality_status IN ('unknown', 'passed', 'failed'));
+ALTER TABLE datasource_v2_documents ADD COLUMN quality_reason TEXT;
+ALTER TABLE datasource_v2_documents ADD COLUMN extractor_name TEXT;
+ALTER TABLE datasource_v2_documents ADD COLUMN extractor_version TEXT;
+ALTER TABLE datasource_v2_documents ADD COLUMN page_count INTEGER CHECK(page_count IS NULL OR page_count > 0);
+ALTER TABLE datasource_v2_documents ADD COLUMN rune_count INTEGER CHECK(rune_count IS NULL OR rune_count >= 0);
+ALTER TABLE datasource_v2_documents ADD COLUMN visible_rune_count INTEGER CHECK(visible_rune_count IS NULL OR visible_rune_count >= 0);
+ALTER TABLE datasource_v2_documents ADD COLUMN control_rune_count INTEGER CHECK(control_rune_count IS NULL OR control_rune_count >= 0);
+ALTER TABLE datasource_v2_documents ADD COLUMN nul_rune_count INTEGER CHECK(nul_rune_count IS NULL OR nul_rune_count >= 0);
+ALTER TABLE datasource_v2_documents ADD COLUMN replacement_rune_count INTEGER CHECK(replacement_rune_count IS NULL OR replacement_rune_count >= 0);
+ALTER TABLE datasource_v2_documents ADD COLUMN unmapped_font_count INTEGER CHECK(unmapped_font_count IS NULL OR unmapped_font_count >= 0);

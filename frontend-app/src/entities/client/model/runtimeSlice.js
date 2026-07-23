@@ -27,6 +27,7 @@ async function initializeRuntimeEventSubscriptions(runtime, deps, retryBootstrap
     isDagNodeStatusBridgeEvent,
     onBridgeEvent,
     onRuntimeReconnect,
+    reportFrontendReadiness,
   } = deps;
   let bridgeSubscription;
   let reconnectSubscription;
@@ -41,7 +42,10 @@ async function initializeRuntimeEventSubscriptions(runtime, deps, retryBootstrap
     }), 'runtime.bridge.subscribe', generation);
     reconnectSubscription = trackRuntimeSubscription(runtime, onRuntimeReconnect(() => runBackgroundAction(
       'provider.reconnect',
-      () => handleRuntimeReconnect(runtime, retryBootstrapAfterReconnect),
+      async () => {
+        await reportFrontendReadiness();
+        return handleRuntimeReconnect(runtime, retryBootstrapAfterReconnect);
+      },
     )), 'runtime.reconnect.subscribe', generation);
     await Promise.all([
       bridgeSubscription.ready,
@@ -383,10 +387,11 @@ function createThreadSyncActions(runtime, deps) {
     const activeAtRequest = runtime.get().activeThreadId;
     const includeDiff = syncOptions.includeDiff !== false;
     const generation = nextThreadSyncGeneration(id);
+    let messagesPromise = null;
     setThreadStateLoading(id, generation, true);
     try {
       const snapshotPromise = getThreadState({ cwd, threadId: id, includeDiff });
-      const messagesPromise = runtime.startThreadMessagesLoad(id, syncOptions);
+      messagesPromise = runtime.startThreadMessagesLoad(id, syncOptions);
       const snapshot = await snapshotPromise;
       if (!isCurrentThreadSyncGeneration(id, generation)) {
         await messagesPromise;
@@ -396,15 +401,21 @@ function createThreadSyncActions(runtime, deps) {
       runtime.applySnapshot(snapshot, {
         preferredActiveThreadId: id,
         preserveActiveThreadId: activeChanged || syncOptions.preserveActiveThreadId === true,
+        preserveActiveThreadRecord: syncOptions.preserveActiveThreadRecord !== false,
         includeArchivedActiveThread: syncOptions.includeArchived === true,
         cacheSidebarThreads: false,
       });
       if (includeDiff) markThreadDiffReady(runtime, id);
-      await messagesPromise;
+      const messagesLoaded = await messagesPromise;
+      if (messagesLoaded === false) {
+        publishThreadSyncFailure(runtime, syncOptions, id, new Error('thread message sync failed'));
+        return false;
+      }
       if (!activeChanged && shouldAutoLoadThreadConfig(runtime.get(), id)) await runtime.get().loadThreadConfig(id);
       return true;
     }
     catch (error) {
+      await Promise.allSettled([messagesPromise]);
       if (!isCurrentThreadSyncGeneration(id, generation)) return false;
       publishThreadSyncFailure(runtime, syncOptions, id, error);
       return false;

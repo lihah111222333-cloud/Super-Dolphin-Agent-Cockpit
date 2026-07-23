@@ -83,7 +83,7 @@ func (a *App) CallAPI(method string, params json.RawMessage) (any, error) {
 	params = stripCallAPITraceParams(method, params)
 	var result json.RawMessage
 	if method == frontendReadinessMethod {
-		result, err = a.handleFrontendReadiness(params)
+		result, err = a.handleFrontendReadiness(ctx, params)
 	} else {
 		result, err = a.dispatch(ctx, method, params)
 	}
@@ -137,41 +137,66 @@ func (a *App) frontendReadinessOwners() (*ActivationReadiness, *WailsLifecycle, 
 }
 
 // handleFrontendReadiness 处理经过真实 Wails CallAPI 边界到达的前端 probe/commit。
-func (a *App) handleFrontendReadiness(params json.RawMessage) (json.RawMessage, error) {
+func (a *App) handleFrontendReadiness(ctx context.Context, params json.RawMessage) (json.RawMessage, error) {
 	request, err := decodeFrontendReadinessRequest(params)
 	if err != nil {
 		return nil, err
 	}
-	readiness, lifecycle, err := a.frontendReadinessOwners()
+	response, err := a.handleFrontendReadinessRequest(ctx, request)
 	if err != nil {
 		return nil, err
 	}
-	epoch, err := readiness.CurrentEpoch()
-	if err != nil {
-		return nil, err
-	}
-	switch request.Phase {
-	case frontendReadinessProbe:
-		if request.Epoch != 0 {
-			return nil, errors.New("wails frontend readiness: probe must not include an epoch")
-		}
-	case frontendReadinessCommit:
-		if request.Epoch != epoch {
-			return nil, errors.New("wails frontend readiness: epoch does not match current activation")
-		}
-		// 先更新 lifecycle，再释放 ACK gate，避免 ACK 后仍观察到未 ready 的生命周期状态。
-		lifecycle.MarkFrontendReady()
-		if err := readiness.MarkFrontendReady(epoch); err != nil {
-			return nil, err
-		}
-	default:
-		return nil, errors.New("wails frontend readiness: phase must be probe or commit")
-	}
-	result, err := json.Marshal(frontendReadinessResponse{Epoch: epoch})
+	result, err := json.Marshal(response)
 	if err != nil {
 		return nil, fmt.Errorf("wails frontend readiness: encode response: %w", err)
 	}
 	return result, nil
+}
+
+// handleFrontendReadinessRequest 让原生 CallAPI 与调试 WebSocket RPC 共享同一握手状态机。
+func (a *App) handleFrontendReadinessRequest(ctx context.Context, request frontendReadinessRequest) (frontendReadinessResponse, error) {
+	readiness, lifecycle, err := a.frontendReadinessOwners()
+	if err != nil {
+		return frontendReadinessResponse{}, err
+	}
+	if err := validateFrontendReadinessRequest(request); err != nil {
+		return frontendReadinessResponse{}, err
+	}
+	if err := readiness.Wait(ctx); err != nil {
+		return frontendReadinessResponse{}, fmt.Errorf("wails frontend readiness: wait for ApplicationStarted: %w", err)
+	}
+	epoch, err := readiness.CurrentEpoch()
+	if err != nil {
+		return frontendReadinessResponse{}, err
+	}
+	if request.Phase == frontendReadinessCommit {
+		if request.Epoch != epoch {
+			return frontendReadinessResponse{}, errors.New("wails frontend readiness: epoch does not match current activation")
+		}
+		// 先更新 lifecycle，再释放 ACK gate，避免 ACK 后仍观察到未 ready 的生命周期状态。
+		lifecycle.MarkFrontendReady()
+		if err := readiness.MarkFrontendReady(epoch); err != nil {
+			return frontendReadinessResponse{}, err
+		}
+	}
+	return frontendReadinessResponse{Epoch: epoch}, nil
+}
+
+// validateFrontendReadinessRequest 在等待 native 启动前拒绝非法 phase/epoch 组合。
+func validateFrontendReadinessRequest(request frontendReadinessRequest) error {
+	switch request.Phase {
+	case frontendReadinessProbe:
+		if request.Epoch != 0 {
+			return errors.New("wails frontend readiness: probe must not include an epoch")
+		}
+	case frontendReadinessCommit:
+		if request.Epoch == 0 {
+			return errors.New("wails frontend readiness: commit epoch is required")
+		}
+	default:
+		return errors.New("wails frontend readiness: phase must be probe or commit")
+	}
+	return nil
 }
 
 // decodeFrontendReadinessRequest 严格解析握手载荷，拒绝未知字段和尾随 JSON。

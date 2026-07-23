@@ -49,8 +49,10 @@ const loading = Boolean(memoryCwd) && memoryQuery.isPending && !hasSnapshot;
 const queryErrorState = dashboardQueryErrorState(memoryQuery, hasSnapshot);
 const syncError = queryErrorState.cachedSyncError ? '同步记忆失败，当前显示上次成功数据。' : '';
 const error = queryErrorState.blockingError ? '读取记忆失败，请重试。' : '';
+const writeAvailable = hasSnapshot && snapshot.overview?.writeAvailable === true;
+const unavailableReason = textValue(snapshot.overview?.unavailableReason);
 const refreshMemory = useCallback(async () => { if (!memoryCwd) return;
-await queryClient.invalidateQueries({ queryKey: dashboardQueryKey(memoryCwd, 'memory') }); }, [memoryCwd, queryClient]); return { error, isProjectPending: !memoryCwd, loading, memoryCwd, queryClient, refreshMemory, snapshot, syncError }; }
+await queryClient.invalidateQueries({ queryKey: dashboardQueryKey(memoryCwd, 'memory') }); }, [memoryCwd, queryClient]); return { error, isProjectPending: !memoryCwd, loading, memoryCwd, queryClient, refreshMemory, snapshot, syncError, unavailableReason, writeAvailable }; }
 async function fetchMemoryDashboardWithSignal(memoryCwd, signal) {
 const snapshot = typeof fetchMemoryDashboard.withSignal === 'function' ? await fetchMemoryDashboard.withSignal(memoryCwd, signal) : await fetchMemoryDashboard(memoryCwd); memorySimilarityDegraded(snapshot?.overview); return snapshot;
 }
@@ -187,12 +189,14 @@ showNotice,
 }; }
 function MemoryPage({ copy = APP_COPY.zh.memory, projectPath, onSimilarCountChange, resolveLaunchPreferences }) { const model = useMemoryPageModel({ projectPath, onSimilarCountChange, resolveLaunchPreferences }); return <MemoryPageView copy={copy} model={model} />; }
 function MemoryPageView({ copy, model }) { return ( <section className="memory-page"> <MemoryPageHeader copy={copy} />
-<MemoryStats autoDream={model.autoDream} categoryCounts={model.derived.categoryCounts} copy={copy} disabled={model.dashboard.isProjectPending} health={model.derived.health} />
-<MemoryToolbar copy={copy} disabled={model.dashboard.isProjectPending} editor={model.editor} searchText={model.searchText} setSearchText={model.setSearchText} showNotice={model.showNotice} />
+<MemoryStats autoDream={model.autoDream} categoryCounts={model.derived.categoryCounts} copy={copy} disabled={!model.dashboard.isProjectPending && !model.dashboard.loading && !model.dashboard.writeAvailable} health={model.derived.health} projectPending={model.dashboard.isProjectPending} />
+<MemoryToolbar copy={copy} disabled={model.dashboard.isProjectPending} editor={model.editor}
+searchText={model.searchText} setSearchText={model.setSearchText} showNotice={model.showNotice}
+writeUnavailable={!model.dashboard.isProjectPending && !model.dashboard.loading && !model.dashboard.writeAvailable} />
 <MemorySimilaritySection copy={copy} degraded={model.derived.similarityDegraded} expanded={model.similarExpanded}
-groups={model.derived.similarGroups} setExpanded={model.setSimilarExpanded} similarity={model.similarity} /> <MemoryStatusMessages copy={copy} dashboard={model.dashboard} notice={model.notice} />
+groups={model.derived.similarGroups} setExpanded={model.setSimilarExpanded} similarity={model.similarity} writeUnavailable={!model.dashboard.writeAvailable} /> <MemoryStatusMessages copy={copy} dashboard={model.dashboard} notice={model.notice} />
 <MemoryTabs activeCategory={model.activeCategory} categoryCounts={model.derived.categoryCounts} copy={copy} setActiveCategory={model.setActiveCategory} /> <MemoryCardsSection copy={copy} dashboard={model.dashboard} deletion={model.deletion} editor={model.editor}
-searchText={model.searchText} visibleEntries={model.derived.visibleEntries} /> <MemoryModals deletion={model.deletion} editor={model.editor} similarity={model.similarity} /> </section> ); }
+searchText={model.searchText} visibleEntries={model.derived.visibleEntries} /> {model.dashboard.writeAvailable ? <MemoryModals deletion={model.deletion} editor={model.editor} similarity={model.similarity} /> : null} </section> ); }
 function MemoryPageHeader({ copy }) {
   // 共享 PageHeader 的 h1 会被 app shell 隐藏，这里用页面内 hero 提供可见标题与副标题。
   return (
@@ -203,7 +207,7 @@ function MemoryPageHeader({ copy }) {
   );
 }
 function MemoryToolbar(props) {
-  const { copy, disabled, editor, searchText, setSearchText, showNotice } = props;
+  const { copy, disabled, editor, searchText, setSearchText, showNotice, writeUnavailable } = props;
   // 未选择项目时不使用原生 disabled（点击零反馈），改为 aria-disabled + 点击提示引导。
   const handleCreateClick = () => {
     if (disabled) {
@@ -219,7 +223,11 @@ function MemoryToolbar(props) {
           <input aria-label={copy.search} placeholder={copy.searchPlaceholder} value={searchText} onChange={(event) => setSearchText(event.target.value)} />
         </label>
         <div className="memory-create">
-          <button type="button" className="suiyuan-btn-fusion-ghost memory-create-button" aria-label={`+ ${copy.new} ▾`} aria-haspopup="menu" aria-expanded={editor.createMenuOpen} aria-disabled={disabled || undefined} title={disabled ? '请先选择项目' : undefined} onClick={handleCreateClick}>
+          <button type="button" className="suiyuan-btn-fusion-ghost memory-create-button"
+            aria-label={`+ ${copy.new} ▾`} aria-haspopup="menu" aria-expanded={editor.createMenuOpen}
+            aria-disabled={disabled || writeUnavailable || undefined}
+            title={writeUnavailable ? '当前项目不是 Git 仓库，记忆功能仅支持 Git 项目' : (disabled ? '请先选择项目' : undefined)}
+            onClick={handleCreateClick} disabled={writeUnavailable}>
             <Plus size={15} aria-hidden="true" />
             <span>{copy.new}</span>
             <ChevronDown size={14} aria-hidden="true" className="memory-create-chevron" />
@@ -232,7 +240,8 @@ function MemoryToolbar(props) {
 function MemoryCreateMenu({ copy, onCreate }) { return ( <div role="menu" aria-label="新建记忆" className="memory-create-menu memory-create-menu-list">
 <button type="button" role="menuitem" onClick={() => onCreate('feedback')}>{copy.newPreference}</button>
 <button type="button" role="menuitem" onClick={() => onCreate('project')}>{copy.newProject}</button> </div> ); }
-function MemoryStats({ autoDream, categoryCounts, copy, disabled, health }) {
+function MemoryStats(props) {
+  const { autoDream, categoryCounts, copy, disabled, health, projectPending } = props;
   return (
     <div className="memory-stats">
       <Panel className="memory-overview-panel" title={<><Layers size={13} aria-hidden="true" />{copy.overview}</>}>
@@ -245,7 +254,7 @@ function MemoryStats({ autoDream, categoryCounts, copy, disabled, health }) {
         </div>
       </Panel>
       {health ? <MemoryHealthPanel copy={copy} health={health} /> : null}
-      <MemoryAutoDreamPanel autoDream={autoDream} copy={copy} disabled={disabled} />
+      <MemoryAutoDreamPanel autoDream={autoDream} copy={copy} disabled={disabled} projectPending={projectPending} />
     </div>
   );
 }
@@ -253,7 +262,7 @@ function MemoryHealthPanel({ copy, health }) { const prefPercent = memoryHealthP
 <Panel className="memory-health-panel" title={<><Activity size={13} aria-hidden="true" />{copy.health}</>}> <p>{copy.preference} <meter value={health.preferenceCount} max={health.maxPerCategory} /> {health.preferenceCount} / {health.maxPerCategory}</p>
 <div className={'memory-health-track ' + memoryHealthClass(prefPercent)}><span style={{ width: String(prefPercent) + '%' }} /></div> <p>{copy.project} <meter value={health.projectCount} max={health.maxPerCategory} /> {health.projectCount} / {health.maxPerCategory}</p>
 <div className={'memory-health-track ' + memoryHealthClass(projPercent)}><span style={{ width: String(projPercent) + '%' }} /></div> <p><span className="green-dot" /> {copy.healthy}</p> </Panel> ); }
-function MemoryAutoDreamPanel({ autoDream, copy, disabled }) {
+function MemoryAutoDreamPanel({ autoDream, copy, disabled, projectPending }) {
   return (
     <Panel className="memory-auto-dream-panel" title={<><Sparkles size={13} aria-hidden="true" />{copy.autoDream}</>}>
       <div className="memory-auto-dream-content">
@@ -261,7 +270,10 @@ function MemoryAutoDreamPanel({ autoDream, copy, disabled }) {
           <span className={autoDream.enabled ? 'green-dot' : 'orange-dot'} /> {autoDream.enabled ? copy.autoDreamOn : copy.autoDreamOff}
         </p>
         <small className="memory-auto-dream-description">{copy.autoDreamDescription}</small>
-        <button type="button" className={'memory-auto-dream-toggle suiyuan-switch-btn' + (autoDream.enabled ? ' active' : '')} aria-disabled={disabled || undefined} title={disabled ? '请先选择项目' : undefined} onClick={() => { void autoDream.toggleAutoDream(); }} disabled={autoDream.toggling}>
+        <button type="button" className={'memory-auto-dream-toggle suiyuan-switch-btn' + (autoDream.enabled ? ' active' : '')}
+          aria-disabled={disabled || projectPending || undefined}
+          title={disabled ? '当前项目不可写入记忆' : (projectPending ? '请先选择项目' : undefined)}
+          onClick={() => { void autoDream.toggleAutoDream(); }} disabled={disabled || autoDream.toggling}>
           <span className="suiyuan-switch-track" aria-hidden="true"><span className="suiyuan-switch-thumb" /></span>
           <span className="memory-auto-dream-toggle-text">{autoDream.enabled ? copy.disable : copy.enable}</span>
         </button>
@@ -271,7 +283,7 @@ function MemoryAutoDreamPanel({ autoDream, copy, disabled }) {
   );
 }
 function MemorySimilaritySection(options) {
-const { copy, degraded, expanded, groups, setExpanded, similarity } = options; if (!groups.length && !degraded) return null; const busy = degraded || memorySimilarityBusy(similarity); return (
+const { copy, degraded, expanded, groups, setExpanded, similarity, writeUnavailable } = options; if (!groups.length && !degraded) return null; const busy = degraded || writeUnavailable || memorySimilarityBusy(similarity); return (
 <> <div className={'similar-alert' + (degraded ? ' is-degraded' : '')} role={degraded ? 'status' : undefined}> <AlertTriangle size={20} />
 <span>{degraded ? '相似记忆状态暂不可用，已暂停整合与忽略操作' : `${groups.length} ${copy.similarGroupsSuffix}`}</span>
 {groups.length ? <button type="button" onClick={() => { void similarity.mergeAllGroups(); }} disabled={busy}>{memoryMergeAllLabel(similarity, copy)}</button> : null}
@@ -285,27 +297,32 @@ function memorySimilarityBusy(similarity) { return similarity.mergingAll || Bool
 function memoryMergeAllLabel(similarity, copy) { if (similarity.mergingAll) return copy.mergeStarting; if (similarity.consolidationJob) return copy.mergeRunning; return copy.mergeAll; }
 function MemoryStatusMessages({ copy, dashboard, notice }) { const scanNotice = memoryScanDiagnostic(dashboard.snapshot); return (
 <> {notice.message ? <div className={'memory-notice is-' + notice.level}>{notice.message}</div> : null} {scanNotice ? <div className={'memory-notice is-' + scanNotice.level}>{scanNotice.message}</div> : null}
+{!dashboard.isProjectPending && !dashboard.loading && dashboard.unavailableReason === 'git_repository_required' ? <div className="memory-notice is-warning" role="status">当前项目不是 Git 仓库，记忆功能仅支持 Git 项目</div> : null}
 {dashboard.isProjectPending ? <div className="memory-notice is-info">{copy.connecting}</div> : null} {!dashboard.isProjectPending && dashboard.loading ? <div className="memory-notice is-info">{copy.loading}</div> : null}
 {dashboard.syncError ? <MemorySyncError copy={copy} message={dashboard.syncError} onRefresh={dashboard.refreshMemory} /> : null} {dashboard.error ? <MemorySyncError copy={copy} message={dashboard.error} onRefresh={dashboard.refreshMemory} /> : null} </> ); }
 function MemorySyncError({ copy, message, onRefresh }) { return ( <div className="memory-notice is-error" role="alert"> <span>{message}</span> <button type="button" onClick={() => { void runUIAction('memory.dashboard.retry', onRefresh); }}>{copy.retrySync}</button> </div> ); }
 function MemoryTabs({ activeCategory, categoryCounts, copy, setActiveCategory }) { return ( <div className="memory-tabs" role="tablist" aria-label={copy.tabsAria}> {MEMORY_CATEGORY_KEYS.map((key) => (
 <button key={key} type="button" role="tab" aria-selected={activeCategory === key} className={activeCategory === key ? 'active' : ''} onClick={() => setActiveCategory(key)} > {copy[key]} {categoryCounts[key] || 0} </button> ))} </div> ); }
 function MemoryCardsSection(props) { const { copy, dashboard, deletion, editor, searchText, visibleEntries } = props; if (!dashboard.error && !dashboard.isProjectPending && !dashboard.loading && visibleEntries.length === 0) {
-return <MemoryEmptyState copy={copy} searchText={searchText} />; } if (!dashboard.error && !dashboard.isProjectPending && visibleEntries.length > 0) { return <MemoryCardsList copy={copy} deletion={deletion} editor={editor} visibleEntries={visibleEntries} />; } return null; }
+return <MemoryEmptyState copy={copy} searchText={searchText} />; } if (!dashboard.error && !dashboard.isProjectPending && visibleEntries.length > 0) {
+return <MemoryCardsList copy={copy} deletion={deletion} editor={editor} visibleEntries={visibleEntries}
+writeUnavailable={!dashboard.writeAvailable} />; } return null; }
 function MemoryEmptyState({ copy, searchText }) { return ( <div className="empty-state memory-empty"> <span><MemoryStick size={24} /></span> <h2>{searchText ? copy.emptySearchTitle : copy.emptyTitle}</h2> <p>{searchText ? copy.emptySearchText : copy.emptyText}</p> </div> ); }
 function memoryEntryKey(entry) { return [entry.target, entry.path].join(':'); }
-function MemoryCardsList({ copy, deletion, editor, visibleEntries }) { return ( <div className="memory-cards"> {visibleEntries.map((entry) => (
-<MemoryCard key={entry.id} entry={entry} busy={editor.busyKey === memoryEntryKey(entry)} copy={copy} deleting={deletion.deletingKey === memoryEntryKey(entry)} onEdit={editor.openEdit} onDelete={deletion.setDeleteTarget} /> ))} </div> ); }
+function MemoryCardsList({ copy, deletion, editor, visibleEntries, writeUnavailable = false }) { return ( <div className="memory-cards"> {visibleEntries.map((entry) => (
+<MemoryCard key={entry.id} entry={entry} busy={editor.busyKey === memoryEntryKey(entry)} copy={copy} deleting={deletion.deletingKey === memoryEntryKey(entry)} onEdit={editor.openEdit} onDelete={deletion.setDeleteTarget} writeUnavailable={writeUnavailable} /> ))} </div> ); }
 function MemoryModals({ deletion, editor, similarity }) { const editorState = editor.editor; return ( <> {editorState.open ? (
 <MemoryEditorModal editor={editorState} saving={editor.saving} onClose={editor.closeEditor} onChange={editor.updateEditorForm} onSave={editor.saveEditor} onDelete={() => requestMemoryEditorDelete(editor, deletion)} />
 ) : null} {deletion.deleteTarget ? <MemoryDeleteDialog deletion={deletion} /> : null} {similarity.mergeTarget ? <MemoryMergeDialog similarity={similarity} /> : null} </> ); }
 function requestMemoryEditorDelete(editor, deletion) { const form = editor.editor.form; deletion.setDeleteTarget({ target: form.target, path: form.existingPath, name: form.name, title: form.title, }); editor.setEditor((current) => ({ ...current, open: false })); }
 function MemoryDeleteDialog({ deletion }) { const entry = deletion.deleteTarget; return ( <MemoryDeleteModal entry={entry} deleting={deletion.deletingKey === memoryEntryKey(entry)} onClose={() => deletion.setDeleteTarget(null)} onConfirm={deletion.confirmDelete} /> ); }
 function MemoryMergeDialog({ similarity }) { const group = similarity.mergeTarget; return ( <MemoryMergeModal group={group} merging={similarity.mergingKey === memoryPairKey(group)} onClose={() => similarity.setMergeTarget(null)} onConfirm={similarity.confirmMerge} /> ); }
-function MemoryCard(props) { const { copy, entry, busy, deleting, onEdit, onDelete } = props; return (
+function MemoryCard(props) { const { copy, entry, busy, deleting, onEdit, onDelete, writeUnavailable } = props; return (
 <article className={`memory-card ${entry.category === 'project' ? 'type-project' : 'type-preference'}`}> <header> <h3>{memoryEntryTitle(entry)}</h3> <span>{entry.tag}</span> {entry.source === 'dream' ? <em>{copy.dream}</em> : null} </header>
 {entry.description ? <p>{entry.description}</p> : null} <code>{entry.preview || copy.noPreview}</code> <footer> <time>{sharedFileTimestamp(entry.updatedAt)}</time>
-<button type="button" onClick={() => { void onEdit(entry); }} disabled={busy}>{busy ? copy.loadingAction : copy.edit}</button> <button type="button" className="danger" onClick={() => onDelete(entry)} disabled={deleting}>{deleting ? copy.deleting : copy.delete}</button>
+<button type="button" onClick={() => { void onEdit(entry); }} disabled={busy || writeUnavailable}>
+{busy ? copy.loadingAction : copy.edit}</button> <button type="button" className="danger"
+onClick={() => onDelete(entry)} disabled={deleting || writeUnavailable}>{deleting ? copy.deleting : copy.delete}</button>
 </footer> </article> ); }
 function memoryEditorTypeChangePatch(type) { return { type, target: memoryTargetForType(type), content: memoryTemplateForType(type), }; }
 function MemoryEditorHeader({ editor, form }) { return ( <header> <div> <h2>{editor.mode === 'edit' ? '编辑记忆' : '新建记忆'}</h2> <p>{form.type === 'project' ? '项目记忆' : '偏好记忆'}</p> </div> </header> ); }

@@ -33,6 +33,9 @@ func TestSetNameSyncsProviderWhenSupported(t *testing.T) {
 	if threads.upsert.Prompt != "after" {
 		t.Fatalf("persisted prompt = %q, want after", threads.upsert.Prompt)
 	}
+	if threads.upsert.UpdatedAt < 1_000_000_000_000 {
+		t.Fatalf("persisted updated_at = %d, want epoch milliseconds", threads.upsert.UpdatedAt)
+	}
 	if !reflect.DeepEqual(session.setThreadNameCalls, []string{"thread-1:after"}) {
 		t.Fatalf("provider rename calls = %#v", session.setThreadNameCalls)
 	}

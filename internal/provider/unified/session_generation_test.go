@@ -1,6 +1,8 @@
 package unified
 
 import (
+	"context"
+	"strings"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
@@ -85,5 +87,39 @@ func TestSessionManagerRegisterConflict(t *testing.T) {
 	}
 	if manager.SessionGeneration("agent-1") != newGeneration {
 		t.Fatalf("SessionGeneration() = %d, want %d", manager.SessionGeneration("agent-1"), newGeneration)
+	}
+}
+
+func TestSessionManagerResumeRejectsConflictingProviderIdentity(t *testing.T) {
+	manager := NewSessionManager(nil)
+	pending := &generationTestSession{threadID: "provider-thread-1"}
+	firstIdentity := resumeCoordinationIdentity("codex", pending.threadID)
+
+	got, err := manager.resumeSession(context.Background(), "agent-1", firstIdentity, true, func() (contract.Session, error) {
+		return pending, nil
+	})
+	if err != nil || got != pending {
+		t.Fatalf("first resume = (%#v, %v), want pending session", got, err)
+	}
+
+	secondCalled := false
+	_, err = manager.resumeSession(
+		context.Background(),
+		"agent-1",
+		resumeCoordinationIdentity("codex", "provider-thread-2"),
+		true,
+		func() (contract.Session, error) {
+			secondCalled = true
+			return &generationTestSession{threadID: "provider-thread-2"}, nil
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "conflicting provider session identity") {
+		t.Fatalf("conflicting resume error = %v", err)
+	}
+	if secondCalled {
+		t.Fatal("conflicting resume invoked provider")
+	}
+	if pending.stopped {
+		t.Fatal("conflicting resume ForceStop the existing pending session")
 	}
 }

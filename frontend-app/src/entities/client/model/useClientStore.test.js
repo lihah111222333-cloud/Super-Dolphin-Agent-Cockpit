@@ -31,6 +31,7 @@ let runtimeReconnectCallback;
 
 const backend = vi.hoisted(() => ({
   readConfig: vi.fn(),
+  reportFrontendReadiness: vi.fn(),
   getWindowBootstrap: vi.fn(),
   openNewWindow: vi.fn(),
   getProjects: vi.fn(),
@@ -174,6 +175,7 @@ function registerBridgeEventHandlersForTest() {
     runtimeReconnectCallback = null;
     resetClientStoreForTests();
     backend.readConfig.mockResolvedValue({ cwd: '/repo/app' });
+    backend.reportFrontendReadiness.mockResolvedValue(1);
     backend.getWindowBootstrap.mockResolvedValue({ snapshot: null });
     backend.openNewWindow.mockResolvedValue({ ok: true });
     backend.getProjects.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
@@ -441,12 +443,10 @@ function registerBridgeEventHandlersForTest() {
 
     runtimeReconnectCallback();
     firstConfig.reject(new Error('runtime shim: failed to connect ws://127.0.0.1:5175/wails/ws'));
-    await expect(bootstrapPromise).rejects.toThrow('runtime shim: failed to connect');
-    await flushPromises();
+    await expect(bootstrapPromise).rejects.toThrow('runtime shim: failed to connect'); await flushPromises();
 
-    expect(backend.readConfig).toHaveBeenCalledTimes(2);
-    expect(useClientStore.getState().bootstrapStatus).toBe('ready');
-    expect(useClientStore.getState().activeProject).toBe('/repo/app');
+    expect(backend.reportFrontendReadiness).toHaveBeenCalledTimes(1); expect(backend.readConfig).toHaveBeenCalledTimes(2);
+    expect(useClientStore.getState().bootstrapStatus).toBe('ready'); expect(useClientStore.getState().activeProject).toBe('/repo/app');
   });
 
   it('waits for both runtime subscriptions before the first bootstrap RPC', async () => {
@@ -3176,7 +3176,7 @@ function registerBridgeEventHandlersForTest() {
       activeProject: '/repo/app',
       activeThreadId: 'thread-1',
       draft: 'Retry on missing session',
-      attachments: [],
+      attachments: [], threads: [{ id: 'thread-1', name: 'Existing thread', provider: 'codex', status: 'running', cwd: '/repo/app' }],
     });
     backend.startTurn
       .mockRejectedValueOnce(new Error('session not found for agent "agent_123"'));
@@ -3195,8 +3195,7 @@ function registerBridgeEventHandlersForTest() {
       activeProject: '/repo/app',
       activeThreadId: 'thread-1',
       draft: 'Continue stopped DAG agent',
-      attachments: [],
-      threads: [{ id: 'thread-1', name: 'DAG agent', provider: 'codex', status: 'stopped' }],
+      attachments: [], threads: [{ id: 'thread-1', name: 'DAG agent', provider: 'codex', status: 'stopped', cwd: '/repo/app' }],
     });
     backend.startTurn
       .mockRejectedValueOnce(new Error('{"message":"[-32098] resolve session: thread \\"thread-1\\": resolve session: thread \\"thread-1\\" is stopped"}'))
@@ -3223,8 +3222,7 @@ function registerBridgeEventHandlersForTest() {
       activeThreadId: 'thread-legacy',
       draft: 'Continue legacy thread',
       attachments: [],
-      composerCapabilities: boundCapabilities,
-      threads: [{ id: 'thread-legacy', name: 'Legacy', provider: 'codex', status: 'running' }],
+      composerCapabilities: boundCapabilities, threads: [{ id: 'thread-legacy', name: 'Legacy', provider: 'codex', status: 'running', cwd: '/repo/app' }],
     });
     backend.startTurn
       .mockRejectedValueOnce(new Error('resolve session: thread "thread-legacy": resolve session: auto-resume failed: codex identity required for resume'))
@@ -4346,7 +4344,7 @@ function registerBridgeEventHandlersForTest() {
       activeThreadId: 'thread-1',
       draft: 'Review this change',
       attachments: [{ path: '/tmp/change.patch', name: 'change.patch' }],
-      composerCapabilities: boundCapabilities,
+      composerCapabilities: boundCapabilities, threads: [{ id: 'thread-1', name: 'Review thread', provider: 'codex', status: 'running', cwd: '/repo/app' }],
     });
     backend.startTurn.mockResolvedValueOnce({ ok: true });
 
@@ -4382,7 +4380,7 @@ function registerBridgeEventHandlersForTest() {
       activeThreadId: 'thread-1',
       draft: 'Review this change',
       attachments: [{ path: '/tmp/change.patch', name: 'change.patch' }],
-      composerCapabilities: boundCapabilities,
+      composerCapabilities: boundCapabilities, threads: [{ id: 'thread-1', name: 'Review thread', provider: 'codex', status: 'running', cwd: '/repo/app' }],
     });
     backend.startTurn.mockRejectedValueOnce(new Error('turn/start failed'));
 
@@ -5890,7 +5888,7 @@ function registerBridgeEventHandlersForTest() {
     }
   });
 
-  it('deduplicates overlapping assistant deltas before merging the formatted patch reply', () => {
+  it('keeps repeated additive assistant deltas separate from the formatted patch reply', () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
@@ -5936,12 +5934,7 @@ function registerBridgeEventHandlersForTest() {
 
     const assistantMessages = useClientStore.getState().timelinesByThread['thread-1']
       .filter((message) => message.role === 'assistant');
-    expect(assistantMessages).toEqual([
-      expect.objectContaining({
-        id: 'assistant-from-patch',
-        text: '正常数学',
-      }),
-    ]);
+    expect(assistantMessages.map(({ id, text }) => ({ id, text }))).toEqual([{ id: 'assistant-from-patch', text: '正常数学' }, { id: 'assistant-stream-turn-1', text: '正常常数学' }]);
   });
 
   it('keeps runtime assistant replies when later partial bridge patches omit them', () => {
@@ -6502,7 +6495,6 @@ function registerBridgeEventHandlersForTest() {
         delta: 'late mutation',
       },
     });
-
     const state = useClientStore.getState();
     expect(state.timelinesByThread['thread-1']).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'late-item' }),
@@ -6600,7 +6592,7 @@ function registerBridgeEventHandlersForTest() {
     });
   });
 
-  it('does not evict active turn references when terminal capacity is full', () => {
+  it('evicts completed terminal refs when capacity is full', () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
@@ -6651,12 +6643,14 @@ function registerBridgeEventHandlersForTest() {
       },
     });
 
-    expect(useClientStore.getState().timelinesByThread['active-thread-64']).toBeUndefined();
+    expect(useClientStore.getState().timelinesByThread['active-thread-64']).toEqual([
+      expect.objectContaining({ kind: 'turn_terminal', turnId: 'active-turn-64' }),
+    ]);
     expect(useClientStore.getState().getTurnTerminalCacheStats()).toMatchObject({
       capacity: 64,
       terminalStates: 64,
       observedTurns: 64,
-      retiredTurns: 0,
+      retiredTurns: 1,
     });
     bridgeCallback({
       type: 'turn/terminal',
@@ -6671,11 +6665,7 @@ function registerBridgeEventHandlersForTest() {
     });
     expect(useClientStore.getState().warningEntries).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        event: 'turn.terminal.cache_exhausted',
-        fields: expect.objectContaining({ turn_id: 'active-turn-64', reason: 'capacity' }),
-      }),
-      expect.objectContaining({
-        event: 'turn.terminal.conflict',
+        event: 'turn.terminal.stale',
         fields: expect.objectContaining({ turn_id: 'active-turn-0' }),
       }),
     ]));

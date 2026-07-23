@@ -94,6 +94,8 @@ func TestNewUIDesktopScriptWaitsForFrontendBeforeBackend(t *testing.T) {
 		`print_backend_log_tail`,
 		`print_frontend_log_tail`,
 		`wait_for_any_process_exit`,
+		`desktop_backend_healthy`,
+		`desktop backend stopped serving while its host process remained alive`,
 		`CLEANUP_DONE`,
 		`go run -ldflags "$SCHEMA_BUILD_IDENTITY_LDFLAG" ./cmd/agent-terminal >>"$SUPER_DOLPHIN_BACKEND_LOG" 2>&1`,
 		`npm run dev -- --host "$VITE_DEV_HOST" --port "$VITE_DEV_PORT" --strictPort >"$SUPER_DOLPHIN_FRONTEND_LOG" 2>&1`,
@@ -107,6 +109,7 @@ func TestNewUIDesktopScriptWaitsForFrontendBeforeBackend(t *testing.T) {
 	assertTextOrder(t, text, `(cd "$FRONTEND_APP_DIR" && npm run dev -- --host "$VITE_DEV_HOST" --port "$VITE_DEV_PORT" --strictPort >"$SUPER_DOLPHIN_FRONTEND_LOG" 2>&1) &`, `wait_for_http "$FRONTEND_DEVSERVER_URL" "frontend-app vite"`)
 	assertTextOrder(t, text, `wait_for_http "$FRONTEND_DEVSERVER_URL" "frontend-app vite"`, "\nstart_desktop_backend\n")
 	assertTextOrder(t, text, "\nstart_desktop_backend\nwait_for_backend\n", "\n  wait_for_any_process_exit\n")
+	assertTextOrderAfter(t, text, "wait_for_any_process_exit() {", "desktop_backend_healthy", "report_stale_desktop_backend")
 	if strings.Contains(text, "\nstart_desktop_backend\nwait_for_backend\n\n(cd \"$FRONTEND_APP_DIR\"") {
 		t.Fatal("run-new-ui-desktop.sh must not launch the desktop backend before Vite is ready")
 	}

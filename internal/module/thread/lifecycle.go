@@ -299,7 +299,7 @@ func (s *service) persistStartedSession(
 		CodexHome:          codexHome,
 		CodexInstanceKey:   codexInstanceKey,
 		CodexModelProvider: codexModelProvider,
-		CreatedAt:          time.Now().Unix(),
+		CreatedAt:          time.Now().UnixMilli(),
 		AgentKey:           req.AgentKey,
 		PromptVersionID:    req.PromptVersionID,
 		OwnerThreadID:      req.OwnerThreadID,

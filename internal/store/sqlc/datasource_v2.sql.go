@@ -44,7 +44,11 @@ func (q *Queries) DeleteDatasourceV2Document(ctx context.Context, arg DeleteData
 }
 
 const getDatasourceV2Document = `-- name: GetDatasourceV2Document :one
-SELECT id, source_path, file_name, extension, size_bytes, content_hash, chunk_count, total_chars, status, error_message, created_at, updated_at
+SELECT id, source_path, file_name, extension, size_bytes, content_hash,
+       chunk_count, total_chars, status, error_message, created_at, updated_at,
+       quality_status, quality_reason, extractor_name, extractor_version,
+       page_count, rune_count, visible_rune_count, control_rune_count,
+       nul_rune_count, replacement_rune_count, unmapped_font_count
 FROM datasource_v2_documents
 WHERE id = ?1
 `
@@ -69,6 +73,17 @@ func (q *Queries) GetDatasourceV2Document(ctx context.Context, arg GetDatasource
 		&i.ErrorMessage,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.QualityStatus,
+		&i.QualityReason,
+		&i.ExtractorName,
+		&i.ExtractorVersion,
+		&i.PageCount,
+		&i.RuneCount,
+		&i.VisibleRuneCount,
+		&i.ControlRuneCount,
+		&i.NulRuneCount,
+		&i.ReplacementRuneCount,
+		&i.UnmappedFontCount,
 	)
 	return i, err
 }
@@ -250,7 +265,11 @@ func (q *Queries) ListDatasourceV2ChunksPage(ctx context.Context, arg ListDataso
 }
 
 const listDatasourceV2Documents = `-- name: ListDatasourceV2Documents :many
-SELECT id, source_path, file_name, extension, size_bytes, content_hash, chunk_count, total_chars, status, error_message, created_at, updated_at
+SELECT id, source_path, file_name, extension, size_bytes, content_hash,
+       chunk_count, total_chars, status, error_message, created_at, updated_at,
+       quality_status, quality_reason, extractor_name, extractor_version,
+       page_count, rune_count, visible_rune_count, control_rune_count,
+       nul_rune_count, replacement_rune_count, unmapped_font_count
 FROM datasource_v2_documents
 WHERE (
     ?1 = ''
@@ -289,6 +308,17 @@ func (q *Queries) ListDatasourceV2Documents(ctx context.Context, arg ListDatasou
 			&i.ErrorMessage,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.QualityStatus,
+			&i.QualityReason,
+			&i.ExtractorName,
+			&i.ExtractorVersion,
+			&i.PageCount,
+			&i.RuneCount,
+			&i.VisibleRuneCount,
+			&i.ControlRuneCount,
+			&i.NulRuneCount,
+			&i.ReplacementRuneCount,
+			&i.UnmappedFontCount,
 		); err != nil {
 			return nil, err
 		}
@@ -308,18 +338,39 @@ UPDATE datasource_v2_documents
 SET content_hash = ?1,
     chunk_count = ?2,
     total_chars = ?3,
-    status = 'ready',
-    error_message = NULL,
+	status = 'ready',
+	error_message = NULL,
+	quality_status = 'passed',
+	quality_reason = ?4,
+	extractor_name = ?5,
+	extractor_version = ?6,
+	page_count = ?7,
+	rune_count = ?8,
+	visible_rune_count = ?9,
+	control_rune_count = ?10,
+	nul_rune_count = ?11,
+	replacement_rune_count = ?12,
+	unmapped_font_count = ?13,
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-WHERE id = ?4
-RETURNING id, source_path, file_name, extension, size_bytes, content_hash, chunk_count, total_chars, status, error_message, created_at, updated_at
+WHERE id = ?14
+RETURNING id, source_path, file_name, extension, size_bytes, content_hash, chunk_count, total_chars, status, error_message, created_at, updated_at, quality_status, quality_reason, extractor_name, extractor_version, page_count, rune_count, visible_rune_count, control_rune_count, nul_rune_count, replacement_rune_count, unmapped_font_count
 `
 
 type MarkDatasourceV2DocumentReadyParams struct {
-	ContentHash *string `db:"content_hash" json:"content_hash"`
-	ChunkCount  int32   `db:"chunk_count" json:"chunk_count"`
-	TotalChars  int32   `db:"total_chars" json:"total_chars"`
-	ID          int64   `db:"id" json:"id"`
+	ContentHash          *string `db:"content_hash" json:"content_hash"`
+	ChunkCount           int32   `db:"chunk_count" json:"chunk_count"`
+	TotalChars           int32   `db:"total_chars" json:"total_chars"`
+	QualityReason        *string `db:"quality_reason" json:"quality_reason"`
+	ExtractorName        *string `db:"extractor_name" json:"extractor_name"`
+	ExtractorVersion     *string `db:"extractor_version" json:"extractor_version"`
+	PageCount            *int64  `db:"page_count" json:"page_count"`
+	RuneCount            *int64  `db:"rune_count" json:"rune_count"`
+	VisibleRuneCount     *int64  `db:"visible_rune_count" json:"visible_rune_count"`
+	ControlRuneCount     *int64  `db:"control_rune_count" json:"control_rune_count"`
+	NulRuneCount         *int64  `db:"nul_rune_count" json:"nul_rune_count"`
+	ReplacementRuneCount *int64  `db:"replacement_rune_count" json:"replacement_rune_count"`
+	UnmappedFontCount    *int64  `db:"unmapped_font_count" json:"unmapped_font_count"`
+	ID                   int64   `db:"id" json:"id"`
 }
 
 func (q *Queries) MarkDatasourceV2DocumentReady(ctx context.Context, arg MarkDatasourceV2DocumentReadyParams) (DatasourceV2Document, error) {
@@ -327,6 +378,16 @@ func (q *Queries) MarkDatasourceV2DocumentReady(ctx context.Context, arg MarkDat
 		arg.ContentHash,
 		arg.ChunkCount,
 		arg.TotalChars,
+		arg.QualityReason,
+		arg.ExtractorName,
+		arg.ExtractorVersion,
+		arg.PageCount,
+		arg.RuneCount,
+		arg.VisibleRuneCount,
+		arg.ControlRuneCount,
+		arg.NulRuneCount,
+		arg.ReplacementRuneCount,
+		arg.UnmappedFontCount,
 		arg.ID,
 	)
 	var i DatasourceV2Document
@@ -343,6 +404,17 @@ func (q *Queries) MarkDatasourceV2DocumentReady(ctx context.Context, arg MarkDat
 		&i.ErrorMessage,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.QualityStatus,
+		&i.QualityReason,
+		&i.ExtractorName,
+		&i.ExtractorVersion,
+		&i.PageCount,
+		&i.RuneCount,
+		&i.VisibleRuneCount,
+		&i.ControlRuneCount,
+		&i.NulRuneCount,
+		&i.ReplacementRuneCount,
+		&i.UnmappedFontCount,
 	)
 	return i, err
 }
@@ -366,6 +438,7 @@ SELECT
 FROM datasource_v2_text_chunks AS c
 JOIN datasource_v2_documents AS d ON d.id = c.document_id
 WHERE d.status = 'ready'
+  AND d.quality_status = 'passed'
   AND c.embedding IS NOT NULL
   AND c.embedding_model = ?2
   AND c.embedding_dim = ?3
@@ -449,7 +522,7 @@ SET source_path = ?1,
     size_bytes = ?4,
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
 WHERE id = ?5
-RETURNING id, source_path, file_name, extension, size_bytes, content_hash, chunk_count, total_chars, status, error_message, created_at, updated_at
+RETURNING id, source_path, file_name, extension, size_bytes, content_hash, chunk_count, total_chars, status, error_message, created_at, updated_at, quality_status, quality_reason, extractor_name, extractor_version, page_count, rune_count, visible_rune_count, control_rune_count, nul_rune_count, replacement_rune_count, unmapped_font_count
 `
 
 type UpdateDatasourceV2DocumentMetadataParams struct {
@@ -482,6 +555,17 @@ func (q *Queries) UpdateDatasourceV2DocumentMetadata(ctx context.Context, arg Up
 		&i.ErrorMessage,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.QualityStatus,
+		&i.QualityReason,
+		&i.ExtractorName,
+		&i.ExtractorVersion,
+		&i.PageCount,
+		&i.RuneCount,
+		&i.VisibleRuneCount,
+		&i.ControlRuneCount,
+		&i.NulRuneCount,
+		&i.ReplacementRuneCount,
+		&i.UnmappedFontCount,
 	)
 	return i, err
 }
@@ -497,6 +581,8 @@ INSERT INTO datasource_v2_documents (
     content_hash,
     chunk_count,
     total_chars,
+	quality_status,
+	quality_reason,
     updated_at
 )
 VALUES (
@@ -509,6 +595,8 @@ VALUES (
     NULL,
     0,
     0,
+	'unknown',
+	NULL,
     (CAST(strftime('%s','now') AS INTEGER) * 1000)
 )
 ON CONFLICT (source_path) DO UPDATE
@@ -520,8 +608,19 @@ SET file_name = EXCLUDED.file_name,
     content_hash = NULL,
     chunk_count = 0,
     total_chars = 0,
+	quality_status = 'unknown',
+	quality_reason = NULL,
+	extractor_name = NULL,
+	extractor_version = NULL,
+	page_count = NULL,
+	rune_count = NULL,
+	visible_rune_count = NULL,
+	control_rune_count = NULL,
+	nul_rune_count = NULL,
+	replacement_rune_count = NULL,
+	unmapped_font_count = NULL,
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-RETURNING id, source_path, file_name, extension, size_bytes, content_hash, chunk_count, total_chars, status, error_message, created_at, updated_at
+RETURNING id, source_path, file_name, extension, size_bytes, content_hash, chunk_count, total_chars, status, error_message, created_at, updated_at, quality_status, quality_reason, extractor_name, extractor_version, page_count, rune_count, visible_rune_count, control_rune_count, nul_rune_count, replacement_rune_count, unmapped_font_count
 `
 
 type UpsertDatasourceV2DocumentImportingParams struct {
@@ -552,6 +651,17 @@ func (q *Queries) UpsertDatasourceV2DocumentImporting(ctx context.Context, arg U
 		&i.ErrorMessage,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.QualityStatus,
+		&i.QualityReason,
+		&i.ExtractorName,
+		&i.ExtractorVersion,
+		&i.PageCount,
+		&i.RuneCount,
+		&i.VisibleRuneCount,
+		&i.ControlRuneCount,
+		&i.NulRuneCount,
+		&i.ReplacementRuneCount,
+		&i.UnmappedFontCount,
 	)
 	return i, err
 }

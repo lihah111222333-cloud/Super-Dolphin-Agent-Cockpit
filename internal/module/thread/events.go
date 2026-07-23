@@ -121,7 +121,7 @@ func (s *service) recordAgentLaunchSessionUUID(ctx context.Context, binding *thr
 	if err := store.UpdateSessionUUID(ctx, threadBindingSessionUUIDUpdate{
 		AgentID:     agentID,
 		SessionUUID: sessionID,
-		UpdatedAt:   time.Now().Unix(),
+		UpdatedAt:   time.Now().UnixMilli(),
 	}); err != nil {
 		return err
 	}
@@ -163,7 +163,7 @@ func (s *service) recordAgentLaunchProviderThreadID(ctx context.Context, binding
 	if err := store.UpdateProviderThreadID(ctx, threadBindingProviderThreadIDUpdate{
 		AgentID:          agentID,
 		ProviderThreadID: providerThreadID,
-		UpdatedAt:        time.Now().Unix(),
+		UpdatedAt:        time.Now().UnixMilli(),
 	}); err != nil {
 		return err
 	}
@@ -204,7 +204,7 @@ func (s *service) syncAgentLaunchCWD(ctx context.Context, binding *threadBinding
 	if err := store.UpdateAgentCwd(ctx, threadBindingCWDUpdate{
 		AgentID:   agentID,
 		Cwd:       nextCWD,
-		UpdatedAt: time.Now().Unix(),
+		UpdatedAt: time.Now().UnixMilli(),
 	}); err != nil {
 		return err
 	}

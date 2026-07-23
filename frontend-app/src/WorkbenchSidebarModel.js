@@ -1,5 +1,6 @@
 import { firstPresentText, requireArrayValue, textValue } from './pages/shared/pageShared.js';
 import { APP_BRAND_NAME } from './shared/i18n/appI18n.js';
+import { normalizeThreadTimestamp } from './shared/time/threadTimestamp.js';
 
 function projectNameFromPath(projectPath) {
   const value = textValue(projectPath);
@@ -164,9 +165,11 @@ export function sidebarSnapshotThreads(snapshot) {
   return threads.map((thread) => {
     const archivedAt = projectThreadArchiveTimestamp(thread, archiveMap);
     const runtimeCwd = projectThreadRuntimeCwd(thread, runtimeById);
-    if (!archivedAt && !runtimeCwd && !isProjectThreadArchived(thread)) return thread;
+    const updatedAt = normalizeSidebarThreadTimestamp(thread);
+    if (!archivedAt && !runtimeCwd && !isProjectThreadArchived(thread) && thread?.updatedAt === updatedAt) return thread;
     return {
       ...thread,
+      ...(updatedAt ? { updatedAt } : {}),
       ...(runtimeCwd && !textValue(thread?.cwd) ? { cwd: runtimeCwd } : {}),
       ...(archivedAt || isProjectThreadArchived(thread) ? {
         archived: true,
@@ -174,6 +177,16 @@ export function sidebarSnapshotThreads(snapshot) {
       } : {}),
     };
   });
+}
+
+function normalizeSidebarThreadTimestamp(thread = {}) {
+  for (const key of ['updatedAt', 'updated_at', 'createdAt', 'created_at']) {
+    const value = thread[key];
+    if (value !== undefined && value !== null && value !== '' && value !== 0) {
+      return normalizeThreadTimestamp(value, 'sidebar thread updatedAt');
+    }
+  }
+  return '';
 }
 
 function isAutomationThread(thread = {}) {

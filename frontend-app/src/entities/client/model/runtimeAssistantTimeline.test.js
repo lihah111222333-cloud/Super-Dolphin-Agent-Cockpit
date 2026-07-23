@@ -77,12 +77,13 @@ describe('runtimeAssistantTimeline', () => {
     expect(runtimeAssistantCompletion({ item: { type: 'assistant' } })).toBeNull();
   });
 
-  it('appends deltas without duplicating overlapping text', () => {
+  it('appends canonical output deltas without interpreting repeated text as snapshots', () => {
     expect(appendAssistantDeltaText('', 'hello')).toBe('hello');
     expect(appendAssistantDeltaText('hello', '')).toBe('hello');
-    expect(appendAssistantDeltaText('hello world', 'world')).toBe('hello world');
-    expect(appendAssistantDeltaText('hello', 'hello world')).toBe('hello world');
-    expect(appendAssistantDeltaText('hello wor', 'world')).toBe('hello world');
+    expect(appendAssistantDeltaText('hello ', 'hello ')).toBe('hello hello ');
+    expect(appendAssistantDeltaText('**bold', '**')).toBe('**bold**');
+    expect(appendAssistantDeltaText('```js\ncode\n', '```')).toBe('```js\ncode\n```');
+    expect(appendAssistantDeltaText('line one\n', '\nline three')).toBe('line one\n\nline three');
     expect(assistantDeltaBufferKey('thread', 'item', 'turn')).toBe('thread\u0000turn\u0000item');
   });
 
@@ -135,6 +136,41 @@ describe('runtimeAssistantTimeline', () => {
     expect(merged).toEqual([
       { id: 'u1', role: 'user', kind: 'user', text: 'question', time: '2026-06-15T01:00:00Z' },
       { id: 'assistant-final-turn-1', role: 'assistant', kind: 'assistant', text: 'answer', done: true, runtime: true, turnId: 'turn-1', time: '2026-06-15T01:00:02Z' },
+    ]);
+  });
+
+  it('replaces duplicated live delta text with the authoritative completion', () => {
+    const merged = mergeRuntimeAssistantCompletion([
+      {
+        id: 'assistant-stream-turn-1',
+        role: 'assistant',
+        kind: 'assistant',
+        text: '权限上下文权限上下文仍然是：仍然是：',
+        done: false,
+        runtime: true,
+        turnId: 'turn-1',
+      },
+    ], {
+      item: {
+        id: 'assistant-item-1',
+        role: 'assistant',
+        kind: 'assistant',
+        text: '权限上下文仍然是：',
+        done: true,
+        runtime: true,
+        turnId: 'turn-1',
+      },
+      explicitId: true,
+      streamId: 'assistant-stream-turn-1',
+    });
+
+    expect(merged).toEqual([
+      expect.objectContaining({
+        id: 'assistant-item-1',
+        text: '权限上下文仍然是：',
+        done: true,
+        turnId: 'turn-1',
+      }),
     ]);
   });
 

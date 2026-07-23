@@ -57,8 +57,9 @@ INSERT INTO datasource_v2_documents (
 	content_hash,
 	chunk_count,
 	total_chars,
-	status
-) VALUES (1, '/tmp/search.txt', 'search.txt', '.txt', 32, 'sha256:test', 2, 32, 'ready')
+	status,
+	quality_status
+) VALUES (1, '/tmp/search.txt', 'search.txt', '.txt', 32, 'sha256:test', 2, 32, 'ready', 'passed')
 `); err != nil {
 		t.Fatalf("insert datasource_v2 document: %v", err)
 	}

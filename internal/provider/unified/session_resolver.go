@@ -7,12 +7,10 @@ import (
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
-	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/clone"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/historyjsonl"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/identifier"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
-	"golang.org/x/sync/singleflight"
 )
 
 type driverRegistry interface {
@@ -26,8 +24,6 @@ type sessionResolver struct {
 	bindingWriter contract.SessionBindingUpserter
 	registry      driverRegistry
 	sessions      *SessionManager
-
-	autoResumeFlight singleflight.Group
 }
 
 var _ contract.SessionResolver = (*sessionResolver)(nil)
@@ -208,18 +204,11 @@ func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contra
 	if err != nil {
 		return nil, err
 	}
-	key := autoResumeSingleflightKey(binding, plan.req)
-	res, err, _ := r.autoResumeFlight.Do(key, func() (any, error) {
-		return r.runAutoResumeSession(ctx, binding, plan)
+	resumeCtx := context.WithoutCancel(ctx)
+	resumeIdentity := resumeCoordinationIdentity(plan.req.Provider, plan.req.ProviderThreadID)
+	return r.sessions.resumeSession(ctx, binding.AgentID, resumeIdentity, false, func() (contract.Session, error) {
+		return r.runAutoResumeSession(resumeCtx, binding, plan)
 	})
-	if err != nil {
-		return nil, err
-	}
-	session, ok := res.(contract.Session)
-	if !ok || session == nil {
-		return nil, fmt.Errorf("resolve session: auto-resume returned invalid session")
-	}
-	return session, nil
 }
 
 // runAutoResumeSession 是 singleflight owner 执行的实际恢复流程。
@@ -241,29 +230,11 @@ func (r *sessionResolver) runAutoResumeSession(ctx context.Context, binding *con
 		_ = session.ForceStop()
 		return nil, fmt.Errorf("resolve session: auto-resume backfill codex identity: %w", err)
 	}
-	r.sessions.Register(binding.AgentID, session)
 	pkglogger.Info("resolve session: auto-resume succeeded",
 		"agent_id", binding.AgentID,
 		"thread_id", session.ThreadID(),
 	)
 	return session, nil
-}
-
-// autoResumeSingleflightKey 用 provider、agent 和 provider/codex thread 身份合并同一冷恢复。
-func autoResumeSingleflightKey(binding *contract.SessionBinding, req dto.ResumeSessionRequest) string {
-	codexThreadID := ""
-	if binding != nil {
-		codexThreadID = strings.TrimSpace(binding.CodexThreadID)
-	}
-	if codexThreadID == "" {
-		codexThreadID = strings.TrimSpace(req.ThreadID)
-	}
-	return strings.Join([]string{
-		normalizeProviderName(req.Provider),
-		strings.TrimSpace(req.AgentID),
-		strings.TrimSpace(req.ProviderThreadID),
-		codexThreadID,
-	}, "\x00")
 }
 
 // lookupAutoResumeThreadState 从线程记录中读取 auto-resume 配置和 prompt 快照。

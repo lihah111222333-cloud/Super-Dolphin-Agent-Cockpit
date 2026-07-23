@@ -1,6 +1,7 @@
 package codexapp
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -42,6 +43,74 @@ func TestCodexTimestampProviderErrorForMissingLifecycleAndInvalidTerminal(t *tes
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) { assertCodexTimestampFailure(t, tc) })
+	}
+}
+
+func TestCodexSessionObservesMissingNonTerminalLifecycleTimestamp(t *testing.T) {
+	bus := event.NewDispatcher()
+	t.Cleanup(func() { _ = bus.Close() })
+	dispatcher := unified.NewEventDispatcher(bus, nil)
+	RegisterTranslators(dispatcher)
+	s := &session{agentID: "agent-1", dispatcher: dispatcher}
+	launched := make(chan agentdto.AgentLaunched, 1)
+	stateChanged := make(chan agentdto.StateChanged, 1)
+	started := make(chan turndto.TurnStarted, 1)
+	agentErrors := make(chan agentdto.AgentError, 1)
+	for _, cancel := range []func(){
+		event.Subscribe(bus, func(ev agentdto.AgentLaunched) { launched <- ev }),
+		event.Subscribe(bus, func(ev agentdto.StateChanged) { stateChanged <- ev }),
+		event.Subscribe(bus, func(ev turndto.TurnStarted) { started <- ev }),
+		event.Subscribe(bus, func(ev agentdto.AgentError) { agentErrors <- ev }),
+	} {
+		defer cancel()
+	}
+
+	fixtures := []struct {
+		method string
+		params json.RawMessage
+		assert func()
+	}{
+		{method: "thread/started", params: json.RawMessage(`{"threadId":"provider-thread","sessionId":"session-1"}`), assert: func() {
+			select {
+			case <-launched:
+			case <-time.After(time.Second):
+				t.Fatal("thread/started did not emit AgentLaunched")
+			}
+		}},
+		{method: "thread/status/changed", params: json.RawMessage(`{"threadId":"provider-thread","sessionId":"session-1","status":"turn_running"}`), assert: func() {
+			select {
+			case <-stateChanged:
+			case <-time.After(time.Second):
+				t.Fatal("thread/status/changed did not emit StateChanged")
+			}
+		}},
+		{method: "turn/started", params: json.RawMessage(`{"threadId":"provider-thread","sessionId":"session-1","turnId":"turn-1"}`), assert: func() {
+			select {
+			case <-started:
+			case <-time.After(time.Second):
+				t.Fatal("turn/started did not emit TurnStarted")
+			}
+		}},
+	}
+	for _, fixture := range fixtures {
+		s.onNotification(fixture.method, fixture.params)
+		fixture.assert()
+	}
+	select {
+	case agentErr := <-agentErrors:
+		t.Fatalf("missing non-terminal timestamp emitted AgentError: %#v", agentErr)
+	default:
+	}
+}
+
+func TestCodexSessionKeepsExplicitInvalidAndTerminalTimestampStrict(t *testing.T) {
+	invalid := json.RawMessage(`{"threadId":"provider-thread","sessionId":"session-1","timestamp":"not-a-time"}`)
+	if got := observeMissingCodexLifecycleTimestamp("thread/started", invalid, time.Now().UTC()); !bytes.Equal(got, invalid) {
+		t.Fatalf("explicit invalid timestamp was rewritten: %s", got)
+	}
+	terminal := json.RawMessage(`{"threadId":"provider-thread","turnId":"turn-1"}`)
+	if got := observeMissingCodexLifecycleTimestamp("turn/completed", terminal, time.Now().UTC()); !bytes.Equal(got, terminal) {
+		t.Fatalf("terminal timestamp was synthesized: %s", got)
 	}
 }
 

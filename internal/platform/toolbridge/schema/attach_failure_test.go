@@ -175,6 +175,7 @@ func TestCleanupUnattachedProcessFailsFastWhenTreeIsUnreaped(t *testing.T) {
 	if err := attachProcessGuard(cmd, attachedGuard); err != nil {
 		t.Fatalf("attachProcessGuard() error = %v", err)
 	}
+	realKillGroup := attachedGuard.killGroup
 	attachedGuard.killGroup = func(int, syscall.Signal) error { return killErr }
 
 	err := cleanupUnattachedProcessTree(cmd, attachedGuard, errors.New("injected attach failure"))
@@ -186,6 +187,43 @@ func TestCleanupUnattachedProcessFailsFastWhenTreeIsUnreaped(t *testing.T) {
 			t.Fatalf("process %d unexpectedly exited before fail-fast return: %v", pid, signalErr)
 		}
 	}
+	attachedGuard.killGroup = realKillGroup
+	if err := realKillGroup(-attachedGuard.groupID, syscall.SIGKILL); err != nil {
+		t.Fatalf("release unreaped process tree: %v", err)
+	}
+	attachedGuard.groupKilled = true
+}
+
+func TestAttachFailureCapacityReleasesOnlyAfterLateReap(t *testing.T) {
+	cmd, guard, _ := startAttachFailureProcessTree(t)
+	if err := attachProcessGuard(cmd, guard); err != nil {
+		t.Fatalf("attachProcessGuard() error = %v", err)
+	}
+	limiter := newHelperLimiter(1)
+	if err := limiter.acquire(context.Background()); err != nil {
+		t.Fatalf("acquire initial capacity: %v", err)
+	}
+	capacity := &helperCapacityTracker{release: func() { <-limiter.slots }, pending: 1}
+	realKillGroup := guard.killGroup
+	guard.killGroup = func(int, syscall.Signal) error { return errors.New("injected process-group kill failure") }
+	err := cleanupUnattachedProcessTreeWithCapacity(cmd, guard, errors.New("injected attach failure"), capacity)
+	if ErrorCode(err) != CodeReapFailed {
+		t.Fatalf("cleanupUnattachedProcessTreeWithCapacity() code=%q error=%v", ErrorCode(err), err)
+	}
+	reapFailures, complete := errorTreeCodeCount(err, CodeReapFailed)
+	capacity.finish(reapFailures, complete)
+	assertLimiterCapacityExhausted(t, limiter, "before attach-failure late reap")
+	guard.killGroup = realKillGroup
+	if err := realKillGroup(-guard.groupID, syscall.SIGKILL); err != nil {
+		t.Fatalf("release attach-failure process tree: %v", err)
+	}
+	guard.groupKilled = true
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := limiter.acquire(ctx); err != nil {
+		t.Fatalf("capacity was not released after attach-failure late reap: %v", err)
+	}
+	<-limiter.slots
 }
 
 func startAttachFailureProcessTree(t *testing.T) (*exec.Cmd, *processGuard, []int) {

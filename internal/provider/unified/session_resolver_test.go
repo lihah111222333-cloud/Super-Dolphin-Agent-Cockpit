@@ -3,6 +3,7 @@ package unified
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -139,6 +140,165 @@ func (d *blockingResumeDriver) resumeCount() int {
 	return d.resumed
 }
 
+type contextCaptureResumeDriver struct {
+	name       string
+	session    *contextBoundSession
+	resumeCtx  context.Context
+	resumeCall int
+}
+
+func (d *contextCaptureResumeDriver) Name() string { return d.name }
+
+func (d *contextCaptureResumeDriver) StartSession(context.Context, dto.StartSessionRequest) (contract.Session, error) {
+	return d.session, nil
+}
+
+func (d *contextCaptureResumeDriver) ResumeSession(ctx context.Context, _ dto.ResumeSessionRequest) (contract.Session, error) {
+	d.resumeCtx = ctx
+	d.resumeCall++
+	d.session.ctx = ctx
+	return d.session, nil
+}
+
+type contextBoundSession struct {
+	generationTestSession
+	ctx context.Context
+}
+
+func (s *contextBoundSession) usable() bool {
+	return s.ctx != nil && s.ctx.Err() == nil
+}
+
+type sequencedBlockingResumeDriver struct {
+	name     string
+	sessions []contract.Session
+	started  chan int
+	release  chan struct{}
+
+	mu      sync.Mutex
+	resumed int
+}
+
+func newSequencedBlockingResumeDriver(name string, sessions ...contract.Session) *sequencedBlockingResumeDriver {
+	return &sequencedBlockingResumeDriver{
+		name:     name,
+		sessions: sessions,
+		started:  make(chan int, len(sessions)),
+		release:  make(chan struct{}),
+	}
+}
+
+func (d *sequencedBlockingResumeDriver) Name() string { return d.name }
+
+func (d *sequencedBlockingResumeDriver) StartSession(context.Context, dto.StartSessionRequest) (contract.Session, error) {
+	return nil, errors.New("unexpected start session")
+}
+
+func (d *sequencedBlockingResumeDriver) ResumeSession(ctx context.Context, _ dto.ResumeSessionRequest) (contract.Session, error) {
+	d.mu.Lock()
+	index := d.resumed
+	d.resumed++
+	d.mu.Unlock()
+	d.started <- index + 1
+	select {
+	case <-d.release:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	if index >= len(d.sessions) {
+		return nil, fmt.Errorf("unexpected resume call %d", index+1)
+	}
+	return d.sessions[index], nil
+}
+
+func (d *sequencedBlockingResumeDriver) resumeCount() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.resumed
+}
+
+func newAutoResumeResolverForTest(
+	t *testing.T,
+	driver contract.Driver,
+	sessions *SessionManager,
+	agentID string,
+	publicThreadID string,
+	providerThreadID string,
+) *sessionResolver {
+	t.Helper()
+	rolloutPath := writeExistingProviderHistoryFile(t)
+	return &sessionResolver{
+		threadStore: keyedThreadLookup{
+			publicThreadID: {
+				ThreadID:       publicThreadID,
+				AgentID:        agentID,
+				Status:         "running",
+				PromptSnapshot: autoResumePromptSnapshotForTest(),
+			},
+		},
+		bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
+			"codex:" + providerThreadID: {
+				Provider:         "codex",
+				AgentID:          agentID,
+				ProviderThreadID: providerThreadID,
+				CodexThreadID:    publicThreadID,
+				RolloutPath:      rolloutPath,
+				Cwd:              "/repo",
+			},
+		}},
+		registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
+			{Name: "codex", Create: func() contract.Driver { return driver }},
+		}}),
+		sessions: sessions,
+	}
+}
+
+func waitResumeCallForTest(t *testing.T, started <-chan int, want int) {
+	t.Helper()
+	call := <-started
+	if call != want {
+		t.Fatalf("ResumeSession call = %d, want %d", call, want)
+	}
+}
+
+func assertNoResumeCallForTest(t *testing.T, started <-chan int) {
+	t.Helper()
+	select {
+	case call := <-started:
+		t.Fatalf("concurrent resolver started duplicate ResumeSession call %d", call)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func waitSessionResultForTest(
+	t *testing.T,
+	name string,
+	sessionCh <-chan contract.Session,
+	errCh <-chan error,
+) contract.Session {
+	t.Helper()
+	if err := <-errCh; err != nil {
+		t.Fatalf("%s error = %v", name, err)
+	}
+	return <-sessionCh
+}
+
+func assertSessionResultBlockedForTest(
+	t *testing.T,
+	name string,
+	sessionCh <-chan contract.Session,
+	errCh <-chan error,
+) {
+	t.Helper()
+	select {
+	case session := <-sessionCh:
+		t.Fatalf("%s returned pending session before activation: %#v", name, session)
+	case err := <-errCh:
+		t.Fatalf("%s returned error before activation: %v", name, err)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
 func TestResolveSessionRejectsAgentIDOnPublicThreadPath(t *testing.T) {
 	t.Parallel()
 
@@ -155,6 +315,144 @@ func TestResolveSessionRejectsAgentIDOnPublicThreadPath(t *testing.T) {
 	got, err := resolver.ResolveSession(context.Background(), "agent-1")
 	if err == nil || got == session {
 		t.Fatalf("ResolveSession(agent id) = (%#v, %v), want public thread lookup failure", got, err)
+	}
+}
+
+func TestAutoResumeSessionOutlivesCallerContext(t *testing.T) {
+	session := &contextBoundSession{
+		generationTestSession: generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111120"},
+	}
+	driver := &contextCaptureResumeDriver{name: "codex", session: session}
+	sessions := NewSessionManager(nil)
+	resolver := newAutoResumeResolverForTest(
+		t,
+		driver,
+		sessions,
+		"agent-context",
+		"public-thread-context",
+		session.threadID,
+	)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	got, err := resolver.ResolveSession(ctx, "public-thread-context")
+	if err != nil {
+		t.Fatalf("ResolveSession() error = %v", err)
+	}
+	cancel()
+
+	if got != session {
+		t.Fatalf("ResolveSession() = %#v, want %#v", got, session)
+	}
+	if !session.usable() {
+		t.Fatalf("auto-resumed session context canceled with caller: %v", driver.resumeCtx.Err())
+	}
+	registered, err := sessions.Get("agent-context")
+	if err != nil || registered != session {
+		t.Fatalf("registered session after caller cancel = (%#v, %v), want live session", registered, err)
+	}
+}
+
+func TestClientResumeSessionOutlivesCallerContext(t *testing.T) {
+	session := &contextBoundSession{
+		generationTestSession: generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111122"},
+	}
+	driver := &contextCaptureResumeDriver{name: "codex", session: session}
+	sessions := NewSessionManager(nil)
+	registry := NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
+		{Name: "codex", Create: func() contract.Driver { return driver }},
+	}})
+	client := NewClient(registry, sessions, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	got, err := client.ResumeSession(ctx, dto.ResumeSessionRequest{
+		Provider:         "codex",
+		AgentID:          "agent-client-context",
+		ProviderThreadID: session.threadID,
+	})
+	if err != nil {
+		t.Fatalf("Client.ResumeSession() error = %v", err)
+	}
+	cancel()
+
+	if got != session {
+		t.Fatalf("Client.ResumeSession() = %#v, want %#v", got, session)
+	}
+	if !session.usable() {
+		t.Fatalf("client-resumed session context canceled with caller: %v", driver.resumeCtx.Err())
+	}
+	sessions.Activate("agent-client-context")
+	registered, err := sessions.Get("agent-client-context")
+	if err != nil || registered != session {
+		t.Fatalf("registered session after caller cancel = (%#v, %v), want live session", registered, err)
+	}
+}
+
+func TestConcurrentClientAndResolverResumeSharePendingSession(t *testing.T) {
+	pending := &generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111121"}
+	duplicate := &generationTestSession{threadID: pending.threadID}
+	driver := newSequencedBlockingResumeDriver("codex", pending, duplicate)
+	t.Cleanup(func() {
+		select {
+		case <-driver.release:
+		default:
+			close(driver.release)
+		}
+	})
+	sessions := NewSessionManager(nil)
+	resolver := newAutoResumeResolverForTest(
+		t,
+		driver,
+		sessions,
+		"agent-shared-resume",
+		"public-thread-shared-resume",
+		pending.threadID,
+	)
+	client := NewClient(resolver.registry.(*Registry), sessions, nil)
+	clientResult := make(chan contract.Session, 1)
+	clientErr := make(chan error, 1)
+	var clientGroup errgroup.Group
+	clientGroup.Go(func() error {
+		session, err := client.ResumeSession(context.Background(), dto.ResumeSessionRequest{
+			Provider:         "codex",
+			AgentID:          "agent-shared-resume",
+			ThreadID:         "public-thread-shared-resume",
+			ProviderThreadID: pending.threadID,
+		})
+		clientResult <- session
+		clientErr <- err
+		return nil
+	})
+	waitResumeCallForTest(t, driver.started, 1)
+
+	resolverResult := make(chan contract.Session, 1)
+	resolverErr := make(chan error, 1)
+	var resolverGroup errgroup.Group
+	resolverGroup.Go(func() error {
+		session, err := resolver.ResolveSession(context.Background(), "public-thread-shared-resume")
+		resolverResult <- session
+		resolverErr <- err
+		return nil
+	})
+
+	assertNoResumeCallForTest(t, driver.started)
+	close(driver.release)
+	if got := waitSessionResultForTest(t, "Client.ResumeSession()", clientResult, clientErr); got != pending {
+		t.Fatalf("Client.ResumeSession() = %#v, want pending %#v", got, pending)
+	}
+	assertSessionResultBlockedForTest(t, "ResolveSession()", resolverResult, resolverErr)
+	if pending.stopped {
+		t.Fatal("pending session was ForceStop by concurrent resolver")
+	}
+
+	sessions.Activate("agent-shared-resume")
+	if got := waitSessionResultForTest(t, "ResolveSession() after activation", resolverResult, resolverErr); got != pending {
+		t.Fatalf("ResolveSession() = %#v, want shared pending %#v", got, pending)
+	}
+	if got := driver.resumeCount(); got != 1 {
+		t.Fatalf("ResumeSession calls = %d, want 1 shared resume", got)
+	}
+	if err := errors.Join(clientGroup.Wait(), resolverGroup.Wait()); err != nil {
+		t.Fatalf("resume workers error = %v", err)
 	}
 }
 

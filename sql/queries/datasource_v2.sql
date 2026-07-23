@@ -9,6 +9,8 @@ INSERT INTO datasource_v2_documents (
     content_hash,
     chunk_count,
     total_chars,
+	quality_status,
+	quality_reason,
     updated_at
 )
 VALUES (
@@ -21,6 +23,8 @@ VALUES (
     NULL,
     0,
     0,
+	'unknown',
+	NULL,
     (CAST(strftime('%s','now') AS INTEGER) * 1000)
 )
 ON CONFLICT (source_path) DO UPDATE
@@ -32,8 +36,19 @@ SET file_name = EXCLUDED.file_name,
     content_hash = NULL,
     chunk_count = 0,
     total_chars = 0,
+	quality_status = 'unknown',
+	quality_reason = NULL,
+	extractor_name = NULL,
+	extractor_version = NULL,
+	page_count = NULL,
+	rune_count = NULL,
+	visible_rune_count = NULL,
+	control_rune_count = NULL,
+	nul_rune_count = NULL,
+	replacement_rune_count = NULL,
+	unmapped_font_count = NULL,
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-RETURNING id, source_path, file_name, extension, size_bytes, content_hash, chunk_count, total_chars, status, error_message, created_at, updated_at;
+RETURNING *;
 
 -- name: DeleteDatasourceV2ChunksByDocumentID :execrows
 DELETE FROM datasource_v2_text_chunks
@@ -68,14 +83,29 @@ UPDATE datasource_v2_documents
 SET content_hash = sqlc.arg(content_hash),
     chunk_count = sqlc.arg(chunk_count),
     total_chars = sqlc.arg(total_chars),
-    status = 'ready',
-    error_message = NULL,
+	status = 'ready',
+	error_message = NULL,
+	quality_status = 'passed',
+	quality_reason = sqlc.narg(quality_reason),
+	extractor_name = sqlc.arg(extractor_name),
+	extractor_version = sqlc.arg(extractor_version),
+	page_count = sqlc.arg(page_count),
+	rune_count = sqlc.arg(rune_count),
+	visible_rune_count = sqlc.arg(visible_rune_count),
+	control_rune_count = sqlc.arg(control_rune_count),
+	nul_rune_count = sqlc.arg(nul_rune_count),
+	replacement_rune_count = sqlc.arg(replacement_rune_count),
+	unmapped_font_count = sqlc.arg(unmapped_font_count),
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
 WHERE id = sqlc.arg(id)
-RETURNING id, source_path, file_name, extension, size_bytes, content_hash, chunk_count, total_chars, status, error_message, created_at, updated_at;
+RETURNING *;
 
 -- name: ListDatasourceV2Documents :many
-SELECT id, source_path, file_name, extension, size_bytes, content_hash, chunk_count, total_chars, status, error_message, created_at, updated_at
+SELECT id, source_path, file_name, extension, size_bytes, content_hash,
+       chunk_count, total_chars, status, error_message, created_at, updated_at,
+       quality_status, quality_reason, extractor_name, extractor_version,
+       page_count, rune_count, visible_rune_count, control_rune_count,
+       nul_rune_count, replacement_rune_count, unmapped_font_count
 FROM datasource_v2_documents
 WHERE (
     sqlc.arg(keyword) = ''
@@ -87,7 +117,11 @@ ORDER BY updated_at DESC, id DESC
 LIMIT sqlc.arg(limit);
 
 -- name: GetDatasourceV2Document :one
-SELECT id, source_path, file_name, extension, size_bytes, content_hash, chunk_count, total_chars, status, error_message, created_at, updated_at
+SELECT id, source_path, file_name, extension, size_bytes, content_hash,
+       chunk_count, total_chars, status, error_message, created_at, updated_at,
+       quality_status, quality_reason, extractor_name, extractor_version,
+       page_count, rune_count, visible_rune_count, control_rune_count,
+       nul_rune_count, replacement_rune_count, unmapped_font_count
 FROM datasource_v2_documents
 WHERE id = sqlc.arg(id);
 
@@ -124,6 +158,7 @@ SELECT
 FROM datasource_v2_text_chunks AS c
 JOIN datasource_v2_documents AS d ON d.id = c.document_id
 WHERE d.status = 'ready'
+  AND d.quality_status = 'passed'
   AND c.embedding IS NOT NULL
   AND c.embedding_model = sqlc.arg(embedding_model)
   AND c.embedding_dim = sqlc.arg(embedding_dim)
@@ -139,7 +174,7 @@ SET source_path = sqlc.arg(source_path),
     size_bytes = sqlc.arg(size_bytes),
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
 WHERE id = sqlc.arg(id)
-RETURNING id, source_path, file_name, extension, size_bytes, content_hash, chunk_count, total_chars, status, error_message, created_at, updated_at;
+RETURNING *;
 
 -- name: DeleteDatasourceV2Document :execrows
 DELETE FROM datasource_v2_documents

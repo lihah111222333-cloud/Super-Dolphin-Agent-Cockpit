@@ -34,7 +34,7 @@ func AsMCPToolAuthorityOwner(svc Service) contract.MCPToolAuthorityOwner {
 	return &mcpToolAuthorityOwner{svc: owner, current: make(map[string]mcpToolAuthorityState)}
 }
 
-// IssueMCPToolAuthority 复核当前 config 后签发新的单调 generation。
+// IssueMCPToolAuthority 复核当前 config；完整 identity 未变化时复用当前 authority。
 func (o *mcpToolAuthorityOwner) IssueMCPToolAuthority(
 	ctx context.Context,
 	req contract.MCPToolAuthorityIssueRequest,
@@ -55,9 +55,22 @@ func (o *mcpToolAuthorityOwner) IssueMCPToolAuthority(
 	}
 	token.MembershipDigest = req.MembershipDigest
 	key := mcpToolAuthorityKey(token)
-	token.Generation = o.current[key].token.Generation + 1
+	current := o.current[key]
+	if sameMCPToolAuthorityIdentity(current.token, token) {
+		return current.token, nil
+	}
+	token.Generation = current.token.Generation + 1
 	o.current[key] = mcpToolAuthorityState{token: token}
 	return token, nil
+}
+
+// sameMCPToolAuthorityIdentity 比较 generation 之外的完整签发 identity。
+func sameMCPToolAuthorityIdentity(current, candidate contract.MCPToolAuthority) bool {
+	if current.Generation == 0 {
+		return false
+	}
+	current.Generation = 0
+	return current == candidate
 }
 
 // CheckMCPToolAuthority 复核 generation、membership 和 config digest 仍为 owner current。

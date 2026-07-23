@@ -170,11 +170,21 @@ func (client *Client) executeProcess(
 	if err := operationContextError(parentCtx, operationCtx); err != nil {
 		return Result{}, err
 	}
-	raw, err := client.executeInFilesystemWorker(parentCtx, operationCtx, encodedRequest, capacity)
+	raw, snapshot, err := client.executeInFilesystemWorker(parentCtx, operationCtx, encodedRequest, capacity)
 	if err != nil {
 		return Result{}, err
 	}
-	return client.finish(operationCtx, request, identity, fence, raw)
+	result, finishErr := client.finish(operationCtx, request, identity, fence, raw)
+	if finishErr == nil {
+		return result, nil
+	}
+	cleanupErr := cleanupFilesystemSnapshotWithWorker(
+		client.filesystemWorkerPath,
+		client.workerCommand,
+		snapshot,
+		capacity,
+	)
+	return Result{}, errors.Join(finishErr, cleanupErr)
 }
 
 func operationContextError(parentCtx, operationCtx context.Context) error {
@@ -386,6 +396,16 @@ func stopAndReap(
 
 // cleanupUnattachedProcessTree 在 attach 失败后等待完整树被已验证 ownership lease 同步回收。
 func cleanupUnattachedProcessTree(cmd *exec.Cmd, guard *processGuard, attachErr error) error {
+	return cleanupUnattachedProcessTreeWithCapacity(cmd, guard, attachErr, nil)
+}
+
+// cleanupUnattachedProcessTreeWithCapacity 在迟到 Wait 完成前持续占用 helper 容量槽。
+func cleanupUnattachedProcessTreeWithCapacity(
+	cmd *exec.Cmd,
+	guard *processGuard,
+	attachErr error,
+	capacity *helperCapacityTracker,
+) error {
 	terminateErr := terminateUnattachedProcessTree(cmd, guard)
 	waitResult := make(chan error, 1)
 	reapCtx, cancel := context.WithTimeout(context.Background(), reapDeadline)
@@ -410,6 +430,13 @@ func cleanupUnattachedProcessTree(cmd *exec.Cmd, guard *processGuard, attachErr 
 		)
 	case <-reapCtx.Done():
 		closeErr := closeProcessGuard(guard)
+		if capacity != nil {
+			completeLateReap := capacity.registerLateReap()
+			safego.Go(context.Background(), nil, "toolbridge.schema-helper.unattached-late-reap", func(context.Context) {
+				<-waitResult
+				completeLateReap()
+			})
+		}
 		return newDiagnostic(
 			CodeReapFailed,
 			"unattached helper was not reaped within one second",

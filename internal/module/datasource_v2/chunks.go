@@ -24,10 +24,18 @@ func writeSourceChunks(
 	documentID int64,
 	store Store,
 ) (summary chunkWriteSummary, err error) {
-	if source.extension == ".pdf" {
-		return writePDFChunks(ctx, source.path, documentID, store)
+	if source.content == nil {
+		return chunkWriteSummary{}, errors.New("datasource v2: prepared content is required")
 	}
-	return writeTextChunks(ctx, source.path, documentID, store)
+	writer := newChunkWriter(documentID, store)
+	reader := bufio.NewReaderSize(strings.NewReader(source.content.text), datasourceV2ChunkMaxBytes)
+	if err := writeReaderRunes(ctx, reader, writer); err != nil {
+		return chunkWriteSummary{}, err
+	}
+	if err := writer.flush(ctx); err != nil {
+		return chunkWriteSummary{}, err
+	}
+	return writer.summary()
 }
 
 // writeTextChunks 打开源文件并把 UTF-8 正文流式写成数据库分块。
@@ -67,7 +75,7 @@ func writePDFChunks(
 	documentID int64,
 	store Store,
 ) (chunkWriteSummary, error) {
-	text, err := extractPDFText(sourcePath)
+	text, err := extractPDFText(ctx, sourcePath)
 	if err != nil {
 		return chunkWriteSummary{}, err
 	}
@@ -150,6 +158,9 @@ func newChunkWriter(documentID int64, store Store) *chunkWriter {
 // writeRune 把一个合法 UTF-8 rune 追加到当前分块，并同步更新摘要。
 // 当前分块达到目标字节数时会立即 flush，避免大文件长期占用内存。
 func (w *chunkWriter) writeRune(ctx context.Context, r rune) error {
+	if forbiddenDatasourceTextRune(r) {
+		return fmt.Errorf("datasource v2: forbidden text rune U+%04X", r)
+	}
 	if w.chunkChars == math.MaxInt32 || w.totalChars == math.MaxInt32 {
 		return errDatasourceV2TextTooLarge
 	}
@@ -162,6 +173,11 @@ func (w *chunkWriter) writeRune(ctx context.Context, r rune) error {
 		return err
 	}
 	return w.flushIfFull(ctx)
+}
+
+// forbiddenDatasourceTextRune 识别不可进入 embedding 和 chunk store 的字符。
+func forbiddenDatasourceTextRune(r rune) bool {
+	return r == 0 || r == unicode.ReplacementChar || (unicode.IsControl(r) && r != '\n' && r != '\t')
 }
 
 // appendRune 将 rune 编码后追加到分块缓冲，同步更新字节数、字符数和 token 状态。

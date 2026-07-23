@@ -671,12 +671,7 @@ export const RPC_CONTRACT_REGISTRY = Object.freeze({
     [TESTS.API, TESTS.SKILLS],
     ['user-selected local file import mutation'],
     false,
-    { responsePolicy: {
-      kind: 'ignored-result',
-      consumer: { path: 'frontend-app/src/pages/skills/DataSourceView.jsx', symbol: 'importDatasourceSelection' },
-      outcome: { kind: 'published-callback', target: ['ctx', 'setNotice'] },
-      regressionTest: { path: 'frontend-app/src/pages/skills/SkillsPage.ignoredResultActions.test.jsx', symbol: 'ignores malformed datasource import body and publishes import success' },
-    } },
+	{ responseValidator: 'datasourceImportResponse' },
   ),
   DATASOURCE_V2_LIST: contract('DATASOURCE_V2_LIST', RPC_METHODS.DATASOURCE_V2_LIST, 'listDatasourceDocuments', 'P1', 'datasourceV2', [TESTS.API, TESTS.SKILLS], ['datasource read'], false, { responseValidator: 'datasourceDocumentsResponse' }),
   DATASOURCE_V2_GET: contract('DATASOURCE_V2_GET', RPC_METHODS.DATASOURCE_V2_GET, 'getDatasourceDocument', 'P1', 'datasourceV2', [TESTS.API, TESTS.SKILLS], ['datasource read'], false, { responseValidator: 'datasourceDetailResponse' }),

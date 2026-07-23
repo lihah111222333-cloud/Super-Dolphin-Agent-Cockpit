@@ -295,6 +295,11 @@ async function callAPI(method, params = {}) {
 
 const FRONTEND_READINESS_RPC_METHOD = 'ui/frontend/readiness';
 
+/** @param {{ phase: 'probe' } | { phase: 'commit', epoch: number }} request */
+function callFrontendReadiness(request) {
+  return invokeRuntimeByID(METHOD_IDS.CALL_API, [FRONTEND_READINESS_RPC_METHOD, request]);
+}
+
 /** @param {unknown} result @param {'probe' | 'commit'} phase */
 function frontendReadinessEpoch(result, phase) {
   if (!result || typeof result !== 'object' || Array.isArray(result)) {
@@ -317,9 +322,9 @@ async function reportFrontendReadiness({ documentRef = globalThis.document } = {
   if (!documentRef || documentRef.readyState !== 'complete') {
     throw new Error('frontend page load is required before readiness');
   }
-  const probeResult = await callAPI(FRONTEND_READINESS_RPC_METHOD, { phase: 'probe' });
+  const probeResult = await callFrontendReadiness({ phase: 'probe' });
   const epoch = frontendReadinessEpoch(probeResult, 'probe');
-  const commitResult = await callAPI(FRONTEND_READINESS_RPC_METHOD, { phase: 'commit', epoch });
+  const commitResult = await callFrontendReadiness({ phase: 'commit', epoch });
   if (frontendReadinessEpoch(commitResult, 'commit') !== epoch) {
     throw new Error('frontend readiness commit epoch does not match probe epoch');
   }

@@ -113,6 +113,57 @@ func TestExecuteDeadlineKillsBlockedSnapshotBeforeHelperLaunch(t *testing.T) {
 	assertFilesystemSnapshotSetUnchanged(t, snapshotRoot, snapshotsBefore)
 }
 
+func TestSuccessfulExecuteUsesOneWorkerAndLeavesNoSnapshot(t *testing.T) {
+	snapshotRoot := setFilesystemSnapshotRoot(t)
+	snapshotsBefore := filesystemSnapshotDirectoryNames(t, snapshotRoot)
+	client := newSchemaTestClient(t, os.Args[0])
+	client.operationTimeout = helperFixtureTimeout
+	client.workerEnv = []string{"REASONIX_SCHEMA_MALICIOUS_HELPER=success"}
+	workerStarts := 0
+	client.workerCommand = func(path string) *exec.Cmd {
+		workerStarts++
+		return exec.Command(path)
+	}
+	canonical, err := Canonicalize([]byte(`{"type":"object"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Execute(context.Background(), testInvocation(canonical), allowFence); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if workerStarts != 1 {
+		t.Fatalf("filesystem worker starts = %d, want exactly one execute worker", workerStarts)
+	}
+	assertFilesystemSnapshotSetUnchanged(t, snapshotRoot, snapshotsBefore)
+}
+
+func TestShortLivedFilesystemWorkersAttachReliably(t *testing.T) {
+	root := setFilesystemSnapshotRoot(t)
+	for index := 0; index < 64; index++ {
+		ctx, cancel := context.WithTimeout(context.Background(), helperFixtureTimeout)
+		request := filesystemWorkerRequest{Version: filesystemWorkerVersion, Operation: filesystemWorkerSweep}
+		setFilesystemWorkerDeadline(ctx, &request)
+		_, err := runFilesystemWorker(
+			ctx,
+			ctx,
+			os.Args[0],
+			func(path string) *exec.Cmd { return exec.Command(path) },
+			nil,
+			request,
+			nil,
+			0,
+			nil,
+		)
+		cancel()
+		if err != nil {
+			t.Fatalf("short-lived filesystem worker %d failed: %v", index, err)
+		}
+	}
+	if entries := filesystemSnapshotDirectoryNames(t, root); len(entries) != 0 {
+		t.Fatalf("short-lived sweep workers left snapshots: %v", entries)
+	}
+}
+
 func TestExecuteReapsBlockedCleanupWorkerAndPreservesCleanupFailure(t *testing.T) {
 	previousLimiter := globalHelperLimiter
 	globalHelperLimiter = newHelperLimiter(maxLiveHelpers)
@@ -121,7 +172,7 @@ func TestExecuteReapsBlockedCleanupWorkerAndPreservesCleanupFailure(t *testing.T
 	snapshotsBefore := filesystemSnapshotDirectoryNames(t, snapshotRoot)
 	client := newSchemaTestClient(t, os.Args[0])
 	client.operationTimeout = helperFixtureTimeout
-	client.workerEnv = []string{"REASONIX_SCHEMA_MALICIOUS_HELPER=success"}
+	client.workerEnv = []string{"REASONIX_SCHEMA_MALICIOUS_HELPER=identity"}
 	fixtures := make([]blockingFilesystemWorkerFixture, maxLiveHelpers)
 	for index := range fixtures {
 		fixtures[index] = installBlockingFilesystemWorker(t)
@@ -142,11 +193,12 @@ func TestExecuteReapsBlockedCleanupWorkerAndPreservesCleanupFailure(t *testing.T
 	for index, fixture := range fixtures {
 		assertBlockedCleanupReaped(t, client, testInvocation(canonical), fixture, index)
 	}
+	client.workerEnv = []string{"REASONIX_SCHEMA_MALICIOUS_HELPER=success"}
 	if _, err = client.Execute(context.Background(), testInvocation(canonical), allowFence); err != nil {
 		t.Fatalf("Execute(after %d cleanup timeouts) error = %v", maxLiveHelpers, err)
 	}
-	if workerStarts != 2*(maxLiveHelpers+1) {
-		t.Fatalf("filesystem worker starts = %d, want %d", workerStarts, 2*(maxLiveHelpers+1))
+	if workerStarts != 2*maxLiveHelpers+1 {
+		t.Fatalf("filesystem worker starts = %d, want %d", workerStarts, 2*maxLiveHelpers+1)
 	}
 	assertFilesystemSnapshotSetUnchanged(t, snapshotRoot, snapshotsBefore)
 }
@@ -172,8 +224,10 @@ func assertBlockedCleanupReaped(
 	case <-time.After(filesystemSnapshotCleanupTimeout + reapDeadline + time.Second):
 		t.Fatalf("blocked cleanup worker %d was not synchronously reaped", index)
 	}
-	if ErrorCode(err) != CodeTimeout || !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("Execute(blocked cleanup %d) error=%v code=%q", index, err, ErrorCode(err))
+	if ErrorCode(err) != CodeProtocolViolation ||
+		!errorTreeContainsCode(err, CodeTimeout) ||
+		!errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Execute(blocked cleanup %d) did not preserve protocol and cleanup failures: %v", index, err)
 	}
 	if errorTreeContainsCode(err, CodeReapFailed) {
 		t.Fatalf("Execute(blocked cleanup %d) mislabeled a reaped worker: %v", index, err)

@@ -570,8 +570,8 @@ func primeResumeToolScope(s *session, req dto.ResumeSessionRequest) {
 }
 
 // finishOrCleanupResumedSession 统一 resume 收尾失败的 session 清理，避免主流程堆高复杂度。
-func (d *driver) finishOrCleanupResumedSession(ctx context.Context, s *session, req dto.ResumeSessionRequest, threadID string) (contract.Session, error) {
-	resumed, err := d.finishResumedSession(ctx, s, req, threadID)
+func (d *driver) finishOrCleanupResumedSession(ctx context.Context, s *session, req dto.ResumeSessionRequest, result resumeResult) (contract.Session, error) {
+	resumed, err := d.finishResumedSession(ctx, s, req, result)
 	if err != nil {
 		cleanupFailedSession(s, "force stop failed on resume finalization error")
 		return nil, err
@@ -580,8 +580,8 @@ func (d *driver) finishOrCleanupResumedSession(ctx context.Context, s *session, 
 }
 
 // finishResumedSession 恢复 resume 后本地 session 需要继续使用的运行配置。
-func (d *driver) finishResumedSession(ctx context.Context, s *session, req dto.ResumeSessionRequest, threadID string) (contract.Session, error) {
-	s.setThreadID(threadID)
+func (d *driver) finishResumedSession(ctx context.Context, s *session, req dto.ResumeSessionRequest, result resumeResult) (contract.Session, error) {
+	s.setThreadID(result.threadID)
 	s.ensureRuntimeCodexHomeFromInitialize("resume")
 	if cwd := strings.TrimSpace(req.CWD); cwd != "" {
 		s.setRuntimeConfigValue("cwd", cwd)
@@ -599,10 +599,8 @@ func (d *driver) finishResumedSession(ctx context.Context, s *session, req dto.R
 	if len(req.CodexDisabledNativeTools) > 0 {
 		s.setRuntimeConfigValue("codexDisabledNativeTools", append([]string(nil), req.CodexDisabledNativeTools...))
 	}
-	s.approvalPolicyVerified.Store(false)
-	if err := d.restoreApprovalPolicy(ctx, s, threadID); err != nil {
-		return nil, fmt.Errorf("restore approval policy from thread/config/get: %w", err)
-	}
+	s.setApprovalPolicy(result.approvalPolicy)
+	s.setRuntimeConfigValue("approvalPolicy", result.approvalPolicy)
 	if err := applyResumeNativeToolRuntimePolicy(s, req.CodexDisabledNativeTools); err != nil {
 		return nil, err
 	}
@@ -727,64 +725,6 @@ func logThreadStartIdentityTrace(msg, serverURL string, req dto.StartSessionRequ
 		fields = append(fields, "error", err)
 	}
 	pkglogger.Warn(msg, fields...)
-}
-
-type threadConfigGetResponse struct {
-	Effective *struct {
-		Approvals string `json:"approvals"`
-	} `json:"effective"`
-}
-
-type sanitizedThreadConfigGetError struct {
-	cause error
-}
-
-// Error 返回固定脱敏文案，避免暴露远端 RPC 错误内容。
-func (e *sanitizedThreadConfigGetError) Error() string {
-	return "codexapp: approval policy remote verification failed"
-}
-
-// Unwrap 保留底层错误链，供 errors.Is 和 errors.As 分类。
-func (e *sanitizedThreadConfigGetError) Unwrap() error {
-	if e == nil {
-		return nil
-	}
-	return e.cause
-}
-
-// restoreApprovalPolicy 从远端线程配置恢复已验证的审批策略。
-func (d *driver) restoreApprovalPolicy(ctx context.Context, s *session, threadID string) error {
-	if d == nil {
-		return errors.New("codexapp: approval policy restore requires driver")
-	}
-	if s == nil || s.transport == nil {
-		return errors.New("codexapp: approval policy restore requires session transport")
-	}
-	result, err := s.transport.Call(ctx, "thread/config/get", map[string]any{
-		"threadId": threadID,
-	})
-	if err != nil {
-		return &sanitizedThreadConfigGetError{cause: err}
-	}
-	var resp threadConfigGetResponse
-	if err := json.Unmarshal(result, &resp); err != nil {
-		return errors.New("codexapp: approval policy response decode failed")
-	}
-	if resp.Effective == nil {
-		return errors.New("codexapp: approval policy response effective object is required")
-	}
-	approval := strings.TrimSpace(resp.Effective.Approvals)
-	if approval == "" {
-		return errors.New("codexapp: approval policy response approvals string is required")
-	}
-	switch approval {
-	case "untrusted", "on-failure", "on-request", "never":
-	default:
-		return fmt.Errorf("codexapp: approval policy response contains unknown policy %q", approval)
-	}
-	s.setApprovalPolicy(approval)
-	s.setRuntimeConfigValue("approvalPolicy", approval)
-	return nil
 }
 
 func (d *driver) reportRuntime(agentID, serverURL string) error {

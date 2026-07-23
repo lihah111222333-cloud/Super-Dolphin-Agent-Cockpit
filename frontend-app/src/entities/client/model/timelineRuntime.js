@@ -62,7 +62,7 @@ function normalizeTimestamp(value) {
   const asNumber = Number(text);
   if (Number.isFinite(asNumber) && asNumber > 0) return asNumber;
   const sanitized = text.replace(/(\.\d{3})\d+/g, '$1');
-  const parsed = parseOptionalTimestamp(sanitized);
+  const parsed = parseOptionalTimestamp(sanitized, 'timeline timestamp');
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 

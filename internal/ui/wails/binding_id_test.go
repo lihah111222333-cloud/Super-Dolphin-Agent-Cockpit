@@ -654,6 +654,25 @@ func newFrontendReadinessTestApp(t *testing.T) (*App, *ActivationReadiness, *Wai
 	return app, readiness, lifecycle, uint64(epochValue)
 }
 
+func TestHandleFrontendReadinessProbeHonorsApplicationStartWaitContext(t *testing.T) {
+	readiness := NewActivationReadiness()
+	lifecycle := NewWailsLifecycle(nil, nil)
+	app := &App{dispatch: func(context.Context, string, json.RawMessage) (json.RawMessage, error) {
+		t.Fatal("frontend readiness must not use generic RPC dispatch")
+		return nil, nil
+	}}
+	if err := app.bindFrontendReadiness(readiness, lifecycle); err != nil {
+		t.Fatalf("bindFrontendReadiness() error = %v", err)
+	}
+
+	sentinel := errors.New("activation canceled")
+	ctx, cancel := context.WithCancelCause(context.Background())
+	cancel(sentinel)
+	if _, err := app.handleFrontendReadiness(ctx, json.RawMessage(`{"phase":"probe"}`)); !errors.Is(err, sentinel) {
+		t.Fatalf("handleFrontendReadiness() error = %v, want activation context cause", err)
+	}
+}
+
 func TestCallAPIFrontendReadinessRejectsStaleEpoch(t *testing.T) {
 	app, readiness, lifecycle, _ := newFrontendReadinessTestApp(t)
 	if _, err := app.CallAPI(frontendReadinessMethod, json.RawMessage(`{"phase":"commit","epoch":999}`)); err == nil {

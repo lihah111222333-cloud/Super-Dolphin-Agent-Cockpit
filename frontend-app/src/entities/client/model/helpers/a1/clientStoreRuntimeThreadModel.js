@@ -216,15 +216,21 @@ function reusableThreadIdForSend(state, value) {
   return normalizeBackendThreadId(id);
 }
 
-function cwdForExistingThreadSend(state, threadId, fallbackCwd) {
+function cwdForExistingThreadSend(state, threadId) {
   const id = normalizeThreadId(threadId);
-  if (!id) return fallbackCwd;
+  if (!id) throw new Error('frontend-app: existing thread id is required before sending');
   const matchedThread = state.threads.find((thread) => (
     threadMatchesIdentifier(thread, id) ||
     threadMatchesIdentifier(thread, state.activeThreadId)
   ));
+  if (!matchedThread) {
+    throw new Error('frontend-app: reopen the conversation before sending because its authoritative thread record is unavailable');
+  }
   const threadCwd = normalizePath(matchedThread?.cwd);
-  return threadCwd && threadCwd !== '.' ? threadCwd : fallbackCwd;
+  if (!threadCwd || threadCwd === '.') {
+    throw new Error('frontend-app: reopen the conversation before sending because its authoritative workspace is unavailable');
+  }
+  return threadCwd;
 }
 
 function activeProviderLockedThreadId(state) {

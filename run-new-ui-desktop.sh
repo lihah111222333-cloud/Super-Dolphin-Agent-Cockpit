@@ -489,8 +489,18 @@ wait_for_backend() {
   exit 1
 }
 
+desktop_backend_healthy() {
+  local backend_port="${SUPER_DOLPHIN_HTTP_ADDR##*:}"
+  lsof -tiTCP:"$backend_port" -sTCP:LISTEN >/dev/null 2>&1
+}
+
+report_stale_desktop_backend() {
+  echo "❌ desktop backend stopped serving while its host process remained alive" >&2
+  print_backend_log_tail
+}
+
 wait_for_any_process_exit() {
-  local status
+  local status backend_health_failures=0
   while true; do
     if [ -n "${DESKTOP_PID:-}" ] && process_exited "$DESKTOP_PID"; then
       capture_wait_status "$DESKTOP_PID"
@@ -507,6 +517,15 @@ wait_for_any_process_exit() {
         print_frontend_log_tail
       fi
       return "$status"
+    fi
+    if desktop_backend_healthy; then
+      backend_health_failures=0
+    else
+      backend_health_failures=$((backend_health_failures + 1))
+      if [ "$backend_health_failures" -ge 3 ]; then
+        report_stale_desktop_backend
+        return 1
+      fi
     fi
     sleep 0.5
   done
@@ -728,7 +747,7 @@ snapshot_backend_watch_state() {
 
 run_backend_hot_supervisor_loop() {
   local interval="$SUPER_DOLPHIN_HOT_POLL_INTERVAL"
-  local previous current status
+  local previous current status backend_health_failures=0
   previous="$(snapshot_backend_watch_state)"
   echo "  backend hot reload: enabled"
   echo "  backend watch paths: $SUPER_DOLPHIN_HOT_WATCH_PATHS"
@@ -749,6 +768,15 @@ run_backend_hot_supervisor_loop() {
         print_backend_log_tail
       fi
       return "$status"
+    fi
+    if desktop_backend_healthy; then
+      backend_health_failures=0
+    else
+      backend_health_failures=$((backend_health_failures + 1))
+      if [ "$backend_health_failures" -ge 3 ]; then
+        report_stale_desktop_backend
+        return 1
+      fi
     fi
     sleep "$interval"
     current="$(snapshot_backend_watch_state)"

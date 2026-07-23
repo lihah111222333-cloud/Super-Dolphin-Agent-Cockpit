@@ -111,6 +111,14 @@ describe('ObservabilityPage module', () => {
     expect(screen.queryByText(/按条件筛选最近请求/)).not.toBeInTheDocument();
   });
 
+  it('keeps log search before the Health diagnostics panel', () => {
+    renderObservabilityPage();
+
+    const searchForm = screen.getByRole('button', { name: '查询最新日志' }).closest('form');
+    const healthPanel = screen.getByTestId('frontend-health-panel');
+    expect(searchForm.compareDocumentPosition(healthPanel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('queries recent logs with the backend payload', async () => {
     const table = await queryRecentLogs();
     const [payload] = listObservabilityRecent.mock.calls[0];

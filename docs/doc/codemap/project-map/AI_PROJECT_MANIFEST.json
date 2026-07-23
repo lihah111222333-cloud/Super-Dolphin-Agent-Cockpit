@@ -4,15 +4,15 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4779,
+  "files": 4797,
   "domains": {
     "docs-agent": 958,
     "other": 711,
-    "app-ui": 656,
-    "platform-provider": 1114,
+    "app-ui": 664,
+    "platform-provider": 1120,
     "orchestration": 392,
-    "modules": 744,
-    "store-sql": 204
+    "modules": 747,
+    "store-sql": 205
   },
   "index_files": {
     "map_markdown": "docs/doc/codemap/project-map/AI_PROJECT_MAP.md",
@@ -21,8 +21,8 @@
       {
         "key": "app-ui",
         "file": "docs/doc/codemap/project-map/index/app-ui.tsv",
-        "file_count": 656,
-        "size_kb": 133.6,
+        "file_count": 664,
+        "size_kb": 135.6,
         "desc": "桌面应用、Wails host、React/Vite 前端与 UI 测试"
       },
       {
@@ -35,22 +35,22 @@
       {
         "key": "modules",
         "file": "docs/doc/codemap/project-map/index/modules.tsv",
-        "file_count": 744,
-        "size_kb": 144.7,
+        "file_count": 747,
+        "size_kb": 145.2,
         "desc": "业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等"
       },
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1114,
-        "size_kb": 205.5,
+        "file_count": 1120,
+        "size_kb": 206.6,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
         "key": "store-sql",
         "file": "docs/doc/codemap/project-map/index/store-sql.tsv",
-        "file_count": 204,
-        "size_kb": 29.8,
+        "file_count": 205,
+        "size_kb": 30,
         "desc": "持久化层：store、sqlc、SQL queries、migrations"
       },
       {
@@ -73,8 +73,8 @@
     "(root)": 12,
     "cmd": 668,
     "docs": 950,
-    "frontend-app": 650,
-    "internal": 2270,
+    "frontend-app": 658,
+    "internal": 2280,
     "pkg": 30,
     "scripts": 151,
     "sql": 29,

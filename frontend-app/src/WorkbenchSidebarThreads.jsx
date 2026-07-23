@@ -1,5 +1,5 @@
 import React from 'react';
-import { Check, RefreshCw, Trash2, X } from 'lucide-react';
+import { Check, Pencil, RefreshCw, Trash2, X } from 'lucide-react';
 import { threadStatusBusy } from './app/appShellModel.js';
 import { APP_COPY } from './shared/i18n/appI18n.js';
 import { formatRelativeTime } from './WorkbenchSidebarThreadModel.js';
@@ -80,7 +80,6 @@ export function SidebarThreadRow({
         type="button"
         className={`sidebar-thread-item${active ? ' active' : ''}`}
         onClick={onSelect}
-        onDoubleClick={(event) => threadActions.beginRename(thread, event)}
         aria-label={openLabel}
         title={label}
       >
@@ -95,6 +94,15 @@ export function SidebarThreadRow({
             <RefreshCw size={13} aria-hidden="true" />
           </span>
         ) : null}
+        <button
+          type="button"
+          className="thread-inline-action-btn"
+          onClick={(event) => threadActions.beginRename(thread, event)}
+          aria-label={`${copy.renameConversation}：${label}`}
+          title={copy.renameConversation}
+        >
+          <Pencil size={13} aria-hidden="true" />
+        </button>
         <button
           type="button"
           className="thread-inline-action-btn danger"

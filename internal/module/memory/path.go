@@ -78,7 +78,7 @@ func FindCanonicalGitRoot(ctx context.Context, projectRoot string) (string, erro
 
 	cmd := exec.CommandContext(gitCtx, "git", "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir")
 	cmd.Dir = fallback
-	output, err := cmd.Output()
+	output, err := runGitRootCommand(cmd)
 	if err != nil {
 		return "", fmt.Errorf("resolve git root for %q: %w", fallback, err)
 	}
@@ -102,6 +102,23 @@ func FindCanonicalGitRoot(ctx context.Context, projectRoot string) (string, erro
 		}
 	}
 	return gitRoot, nil
+}
+
+func runGitRootCommand(cmd *exec.Cmd) ([]byte, error) {
+	output, err := cmd.Output()
+	if err == nil {
+		return output, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && gitRepositoryRequiredFailure(exitErr.ExitCode(), string(exitErr.Stderr)) {
+		return nil, ErrGitRepositoryRequired
+	}
+	return nil, err
+}
+
+// gitRepositoryRequiredFailure 只识别 Git 明确报告“不是仓库”的 exit 128，其他执行故障必须上抛。
+func gitRepositoryRequiredFailure(exitCode int, stderr string) bool {
+	return exitCode == 128 && strings.Contains(strings.ToLower(stderr), "not a git repository")
 }
 
 // SanitizePath 将项目路径转换为适合作为记忆目录名的安全 key。

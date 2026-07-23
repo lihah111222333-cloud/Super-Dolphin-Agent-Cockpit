@@ -23,6 +23,7 @@ func TestNewRPCHandlersRegistersNativeDialogRoutes(t *testing.T) {
 
 	handlers := NewRPCHandlers(&App{}, nil, nil).Handlers
 	for _, method := range []string{
+		frontendReadinessMethod,
 		"ui/selectProjectDir",
 		"ui/selectProjectDirs",
 		"ui/selectFiles",
@@ -38,6 +39,33 @@ func TestNewRPCHandlersRegistersNativeDialogRoutes(t *testing.T) {
 		if _, ok := handlers[method]; !ok {
 			t.Fatalf("handler %q is not registered", method)
 		}
+	}
+}
+
+func TestFrontendReadinessRPCCommitsDebugBrowserActivation(t *testing.T) {
+	readiness := NewActivationReadiness()
+	lifecycle := NewWailsLifecycle(nil, nil)
+	app := &App{}
+	if err := app.bindFrontendReadiness(readiness, lifecycle); err != nil {
+		t.Fatalf("bindFrontendReadiness() error = %v", err)
+	}
+	readiness.MarkApplicationStarted()
+	server := newWailsRPCServer(t, app)
+
+	raw, err := server.Dispatch(context.Background(), frontendReadinessMethod, json.RawMessage(`{"phase":"probe"}`))
+	if err != nil {
+		t.Fatalf("Dispatch(probe) error = %v", err)
+	}
+	var probe frontendReadinessResponse
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		t.Fatalf("Unmarshal(probe) error = %v", err)
+	}
+	commit := mustJSON(t, frontendReadinessRequest{Phase: frontendReadinessCommit, Epoch: probe.Epoch})
+	if _, err := server.Dispatch(context.Background(), frontendReadinessMethod, commit); err != nil {
+		t.Fatalf("Dispatch(commit) error = %v", err)
+	}
+	if !readiness.FrontendReady() || !lifecycle.frontendReady.Load() {
+		t.Fatal("debug browser RPC did not commit frontend readiness")
 	}
 }
 

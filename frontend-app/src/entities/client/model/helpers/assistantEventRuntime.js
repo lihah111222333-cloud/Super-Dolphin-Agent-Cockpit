@@ -325,6 +325,18 @@ function reconcileObservedTurnWithActiveTurn(runtime, threadId, deps) {
   trackObservedTurn(runtime, deps, 'turn.event.cache_exhausted', 'turn.active.reconcile', { threadId, turnId: activeTurnId });
 }
 
+function activeTurnPatchRejected(runtime, method, threadId, turnId, deps) {
+  const turnRef = { threadId, turnId };
+  const key = runtimeTurnRefKey(threadId, turnId);
+  if (runtime.turnTerminalStates.get(key)?.status !== 'sealed'
+    && !archivedTurnRef(runtime, turnRef)
+    && !terminalTimelineContainsTurn(runtime, deps, turnRef)) {
+    return false;
+  }
+  emitRejectedTurnEvent(runtime, deps, 'turn.event.late', method, turnRef);
+  return true;
+}
+
 function enqueueAssistantDelta(runtime, method, payload, deps) {
   const turnRef = canonicalTurnEventRef(runtime, method, payload);
   const delta = deps.extractDeltaText(payload.delta ?? payload.text ?? payload.content);
@@ -478,6 +490,38 @@ function terminalNotice(terminal, deps) {
   return deps.actionNotice('本轮已中断', 'info');
 }
 
+function terminalThreadStatus(terminal) {
+  if (terminal.outcome === 'success') return 'completed';
+  if (terminal.outcome === 'failed') return 'error';
+  return 'stopped';
+}
+
+function terminalLifecyclePatch(state, threadId, terminal, deps) {
+  const status = terminalThreadStatus(terminal);
+  const relatedIds = relatedThreadTimelineKeys(state, threadId, deps);
+  const related = new Set(relatedIds);
+  const activeTurnByThread = { ...state.activeTurnByThread };
+  for (const id of relatedIds) {
+    if (activeTurnByThread[id]?.id === terminal.turnId) delete activeTurnByThread[id];
+  }
+  const statuses = { ...state.statuses };
+  for (const id of relatedIds) {
+    if (id === threadId || state.statuses[id]) {
+      statuses[id] = { ...state.statuses[id], status, interruptible: false };
+    }
+  }
+  return {
+    activeTurnByThread,
+    statuses,
+    threads: state.threads.map((thread) => (
+      related.has(normalizeThreadId(thread.id))
+        || deps.threadMatchesIdentifier(thread, threadId)
+        ? { ...thread, status }
+        : thread
+    )),
+  };
+}
+
 function terminalPartialItemsAccepted(runtime, timeline, turnRef, terminal) {
   if (!terminal.partialItemIds) return true;
   const bufferedItemIds = new Set();
@@ -495,6 +539,19 @@ function replayPendingTurnTerminal(runtime, turnRef, deps) {
   if (pending?.status !== 'pending') return false;
   runtime.turnTerminalStates.delete(key);
   return applyTurnTerminal(runtime, pending.method, pending.payload, deps);
+}
+
+function replayPendingTurnTerminalsForThread(runtime, threadId, deps) {
+  if (!threadId) return false;
+  let replayed = false;
+  for (const pending of Array.from(runtime.turnTerminalStates.values())) {
+    if (pending?.status !== 'pending' || pending.threadId !== threadId) continue;
+    replayed = replayPendingTurnTerminal(runtime, {
+      threadId: pending.threadId,
+      turnId: pending.turnId,
+    }, deps) || replayed;
+  }
+  return replayed;
 }
 
 function terminalConflictReason(existing, terminal) {
@@ -581,19 +638,23 @@ function applyTurnTerminal(runtime, method, payload, deps) {
   runtime.flushAssistantDeltasNow(turnRef);
   runtime.turnTerminalStates.set(key, { status: 'sealed', eventId: terminal.eventId, fingerprint });
   runtime.finalizeActiveAssistantMessages(turnRef);
-  runtime.set((state) => ({
-    timelinesByThread: {
-      ...state.timelinesByThread,
-      [threadId]: [...(state.timelinesByThread[threadId] || deps.optionalUiArray()), terminalTimelineItem(terminal)],
-    },
-    actionNotice: terminalNotice(terminal, deps),
-    activityEntries: [{
-      id: `${method}-${terminal.eventId}`,
-      method,
-      threadId,
-      timestamp: terminal.occurredAt,
-    }, ...state.activityEntries].slice(0, 120),
-  }));
+  runtime.set((state) => {
+    const lifecycle = terminalLifecyclePatch(state, threadId, terminal, deps);
+    return {
+      ...lifecycle,
+      timelinesByThread: {
+        ...state.timelinesByThread,
+        [threadId]: [...(state.timelinesByThread[threadId] || deps.optionalUiArray()), terminalTimelineItem(terminal)],
+      },
+      actionNotice: terminalNotice(terminal, deps),
+      activityEntries: [{
+        id: `${method}-${terminal.eventId}`,
+        method,
+        threadId,
+        timestamp: terminal.occurredAt,
+      }, ...state.activityEntries].slice(0, 120),
+    };
+  });
   if (terminal.outcome !== 'success' && terminal.terminationCause !== 'user_request') {
     runtime.addWarning('error', `turn.terminal.${terminal.outcome}`, { threadId, turnId: terminal.turnId, eventName: method });
   }
@@ -659,7 +720,11 @@ export function attachAssistantEventRuntime(runtime, deps) {
     assertAssistantEventScopeCapacity: (scope) => assertTurnTerminalLedgerCapacity(runtime, scope),
     activateAssistantEventScope: (scope) => activateAssistantEventScope(runtime, scope),
     getTurnTerminalCacheStats: () => terminalCacheStats(runtime),
+    activeTurnPatchRejected: (method, threadId, turnId) => (
+      activeTurnPatchRejected(runtime, method, threadId, turnId, deps)
+    ),
     reconcileObservedTurnWithActiveTurn: (threadId) => reconcileObservedTurnWithActiveTurn(runtime, threadId, deps),
+    replayPendingTurnTerminalsForThread: (threadId) => replayPendingTurnTerminalsForThread(runtime, threadId, deps),
     finalizeActiveAssistantMessages: (turnRef) => finalizeActiveAssistantMessages(runtime, turnRef, deps),
     flushAssistantDeltasNow: (turnRef) => flushAssistantDeltaBuffers(runtime, deps, turnRef),
     applyAssistantCompletion: (method, payload) => applyAssistantCompletion(runtime, method, payload, deps),
