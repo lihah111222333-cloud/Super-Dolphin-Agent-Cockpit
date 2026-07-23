@@ -344,9 +344,10 @@ func codexAppResumeIdentityContractCase() contracttest.Case {
 		serverURL := startCodexRPCServer(t, func(method string) json.RawMessage {
 			switch method {
 			case "thread/resume":
-				return mustJSON(map[string]any{"thread": map[string]any{"id": req.ProviderThreadID}})
-			case "thread/config/get":
-				return mustJSON(map[string]any{"effective": map[string]any{"approvals": "on-request"}})
+				return mustJSON(map[string]any{
+					"thread":         map[string]any{"id": req.ProviderThreadID},
+					"approvalPolicy": "on-request",
+				})
 			default:
 				return mustJSON(map[string]any{"ok": true})
 			}
@@ -701,9 +702,10 @@ func codexAppContractRPCResult(msg jsonRPCMessage) json.RawMessage {
 		if strings.TrimSpace(threadID) == "" {
 			threadID = "provider-thread-contract"
 		}
-		return mustJSON(map[string]any{"thread": map[string]any{"id": threadID}})
-	case "thread/config/get":
-		return mustJSON(map[string]any{"effective": map[string]any{"approvals": "on-request"}})
+		return mustJSON(map[string]any{
+			"thread":         map[string]any{"id": threadID},
+			"approvalPolicy": "on-request",
+		})
 	case "thread/fork":
 		return mustJSON(map[string]any{"thread": map[string]any{"id": "provider-thread-contract-fork"}})
 	case "model/list":

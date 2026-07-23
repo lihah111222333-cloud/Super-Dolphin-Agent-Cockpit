@@ -15,7 +15,7 @@ function loadWailsRuntime() {
 export { loadWailsRuntime };
 export { registerBridgeLogStore } from './wails/wailsBridgeLogRuntime.js';
 export { normalizeRuntimeEventEnvelope, emitFrontendTraceEvent } from './wails/wailsBridgeTraceEvents.js';
-export { callAPI, sendFrontendLogBatch } from './wails/wailsBridgeRpc.js';
+export { callAPI, reportFrontendReadiness, sendFrontendLogBatch } from './wails/wailsBridgeRpc.js';
 export {
   selectProjectDir, selectProjectDirs, selectFiles, selectDatasourceImportFile,
   readDroppedTextFiles, saveClipboardImage, saveTextFile, openSharedFile,

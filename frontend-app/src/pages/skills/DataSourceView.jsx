@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Database, Eye, Pencil, Trash2, RefreshCw, Search, Upload } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
@@ -42,6 +42,7 @@ const DATASOURCE_UI = {
   importPlaceholder: '支持 PDF、TXT 和 TEXT 文件',
   importSuccess: '已导入数据源。',
   loadingMore: '继续读取分块...',
+	loadMore: '加载更多',
   loading: '读取中...',
   noChunks: '暂无分块。',
   path: '路径',
@@ -53,6 +54,8 @@ const DATASOURCE_UI = {
   totalChars: '字符',
   updateSuccess: '已更新数据源。',
   view: '查看',
+	reimportRequired: '需重新导入',
+	qualityReason: '质量原因',
 };
 
 function textFromValue(value) {
@@ -91,6 +94,17 @@ function normalizeDatasourceDocument(raw, index = 0) {
     totalChars: Number(raw.totalChars ?? raw.total_chars ?? 0),
     status: cleanScalar(raw.status),
     errorMessage: cleanScalar(raw.errorMessage ?? raw.error_message),
+	qualityStatus: cleanScalar(raw.qualityStatus ?? raw.quality_status),
+	qualityReason: cleanScalar(raw.qualityReason ?? raw.quality_reason),
+	extractorName: cleanScalar(raw.extractorName ?? raw.extractor_name),
+	extractorVersion: cleanScalar(raw.extractorVersion ?? raw.extractor_version),
+	pageCount: Number(raw.pageCount ?? raw.page_count ?? 0),
+	runeCount: Number(raw.runeCount ?? raw.rune_count ?? 0),
+	visibleRunes: Number(raw.visibleRunes ?? raw.visible_runes ?? 0),
+	controlRunes: Number(raw.controlRunes ?? raw.control_runes ?? 0),
+	nulRunes: Number(raw.nulRunes ?? raw.nul_runes ?? 0),
+	replacementRunes: Number(raw.replacementRunes ?? raw.replacement_runes ?? 0),
+	unmappedFonts: Number(raw.unmappedFonts ?? raw.unmapped_fonts ?? 0),
     createdAt: cleanScalar(raw.createdAt ?? raw.created_at),
     updatedAt: cleanScalar(raw.updatedAt ?? raw.updated_at),
   };
@@ -230,7 +244,10 @@ function datasourceEditForm(doc) {
 
 // eslint-disable-next-line react-refresh/only-export-components
 export async function importDatasourceSelection(ctx) {
-  await ctx.facade.importDatasourceLocalFile({ sourcePath: ctx.sourcePath, pickerToken: ctx.pickerToken });
+	const imported = normalizeDatasourceDocument(await ctx.facade.importDatasourceLocalFile({ sourcePath: ctx.sourcePath, pickerToken: ctx.pickerToken }));
+	if (imported.status !== 'ready' || imported.qualityStatus !== 'passed') {
+		throw new Error('datasource import result must be ready with passed quality');
+	}
   ctx.setSourcePath('');
   ctx.setNotice(ctx.successText);
   await ctx.invalidateDocuments();
@@ -265,6 +282,8 @@ function DataSourceImporterCard({ busyAction, handleImport, sourcePath }) {
 }
 
 function DataSourceDocumentCard({ doc, setDetailID, setEditingDoc, setDeletingDoc }) {
+	const usable = doc.status === 'ready' && doc.qualityStatus === 'passed';
+	const statusLabel = usable ? 'ready' : DATASOURCE_UI.reimportRequired;
   return (
     <div className="datasource-card">
       <div className="datasource-card-icon">
@@ -283,8 +302,8 @@ function DataSourceDocumentCard({ doc, setDetailID, setEditingDoc, setDeletingDo
           <span>{doc.chunkCount} 个分块</span>
         </div>
       </div>
-      <span className={`datasource-status mcp-tool-status is-${doc.status === 'ready' ? 'enabled' : doc.status === 'failed' ? 'error' : 'loading'}`}>
-        {doc.status || '-'}
+	  <span className={`datasource-status mcp-tool-status is-${usable ? 'enabled' : 'error'}`} title={doc.qualityReason || undefined}>
+		{statusLabel}
       </span>
       <div className="datasource-card-actions">
         <button
@@ -321,7 +340,7 @@ function DataSourceDocumentCard({ doc, setDetailID, setEditingDoc, setDeletingDo
 }
 
 function DatasourceDetailModal(props) {
-  const { detail, isError, isFetchingNextPage, isLoading, onClose } = props;
+	const { detail, hasNextPage, isError, isFetchingNextPage, isLoading, onClose, onLoadMore } = props;
   return (
     <FocusTrapDialog ariaLabel={DATASOURCE_UI.detailTitle} className="modal-box datasource-modal" closeDisabled={false} onClose={onClose}>
       <header>
@@ -339,6 +358,8 @@ function DatasourceDetailModal(props) {
             <div><dt>{DATASOURCE_UI.size}</dt><dd>{formatDatasourceBytes(detail.document.sizeBytes)}</dd></div>
             <div><dt>{DATASOURCE_UI.totalChars}</dt><dd>{detail.document.totalChars}</dd></div>
             <div><dt>{DATASOURCE_UI.status}</dt><dd>{detail.document.status || '-'}</dd></div>
+			<div><dt>质量</dt><dd>{detail.document.qualityStatus === 'passed' ? 'passed' : DATASOURCE_UI.reimportRequired}</dd></div>
+			<div><dt>{DATASOURCE_UI.qualityReason}</dt><dd>{detail.document.qualityReason || '-'}</dd></div>
           </dl>
           <div className="datasource-chunks">
             <h3>{DATASOURCE_UI.content}</h3>
@@ -346,6 +367,7 @@ function DatasourceDetailModal(props) {
               <pre key={`${chunk.id}-${chunk.chunkIndex}`} data-testid="datasource-detail-chunk">{chunk.content}</pre>
             ))}
             {isFetchingNextPage ? <p className="datasource-chunk-loading" role="status">{DATASOURCE_UI.loadingMore}</p> : null}
+			{hasNextPage && !isFetchingNextPage ? <button type="button" data-testid="datasource-load-more" onClick={onLoadMore}>{DATASOURCE_UI.loadMore}</button> : null}
           </div>
         </>
       ) : null}
@@ -439,11 +461,6 @@ function useDataSourceViewModel({
   const detailData = useMemo(() => combineDatasourceDetailPages(detailPagesData?.pages), [detailPagesData]);
   const filtered = documents.filter((doc) => datasourceMatches(doc, search));
 
-  useEffect(() => {
-    if (detailID <= 0 || detailIsError || !detailHasNextPage || detailIsFetchingNextPage) return;
-    void fetchNextDatasourcePage();
-  }, [detailHasNextPage, detailID, detailIsError, detailIsFetchingNextPage, fetchNextDatasourcePage]);
-
   const invalidateDocuments = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: datasourceDocumentsQueryKey() });
   }, [queryClient]);
@@ -474,7 +491,7 @@ function useDataSourceViewModel({
         successText: DATASOURCE_UI.importSuccess,
       });
     } catch (error) {
-      setActionError(`${DATASOURCE_UI.errorPrefix}请重试。`);
+      setActionError(`${DATASOURCE_UI.errorPrefix}导入失败。请确认文件可读取；PDF 请使用包含可搜索文本的版本，必要时从原始文档重新导出。`);
       throw error;
     } finally {
       setBusyAction('');
@@ -533,6 +550,7 @@ function useDataSourceViewModel({
     documentsError, documentsIsError, documentsIsFetching, documentsIsLoading,
     refetchDocuments: refreshDocuments,
     detailData, detailError, detailIsError, detailIsFetchingNextPage, detailIsLoading,
+	detailHasNextPage, fetchNextDatasourcePage,
     filtered, handleImport, handleUpdate, handleDelete,
   };
 }
@@ -628,7 +646,9 @@ export function DataSourceView({ copy }) {
           error={model.detailError}
           isError={model.detailIsError}
           isFetchingNextPage={model.detailIsFetchingNextPage}
+		  hasNextPage={model.detailHasNextPage}
           isLoading={model.detailIsLoading}
+		  onLoadMore={() => { void model.fetchNextDatasourcePage(); }}
           onClose={() => setDetailID(0)}
         />
       ) : null}

@@ -1,6 +1,7 @@
 package codexapp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -82,7 +83,8 @@ type threadRPCResult struct {
 	Thread struct {
 		ID string `json:"id"`
 	} `json:"thread"`
-	Model string `json:"model"`
+	Model          string          `json:"model"`
+	ApprovalPolicy json.RawMessage `json:"approvalPolicy"`
 }
 
 type threadStartParams struct {
@@ -264,17 +266,17 @@ func (d *driver) resumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	}
 	s.setRuntimeConfig(canonicalStartRuntimeConfig(req.Config))
 	primeResumeToolScope(s, req)
-	threadID, err := resumeRemoteThread(ctx, s.transport, req)
+	resume, err := resumeRemoteThread(ctx, s.transport, req)
 	if err != nil {
 		cleanupFailedSession(s, "force stop failed on resume error")
 		d.clearStaleProviderThreadID(req.AgentID, "codexapp: clear stale binding failed")
 		return nil, err
 	}
-	if err := d.rebuildResumeToolSurface(ctx, s, req, threadID); err != nil {
+	if err := d.rebuildResumeToolSurface(ctx, s, req, resume.threadID); err != nil {
 		cleanupFailedSession(s, "force stop failed on resume tool surface error")
 		return nil, err
 	}
-	return d.finishOrCleanupResumedSession(ctx, s, req, threadID)
+	return d.finishOrCleanupResumedSession(ctx, s, req, resume)
 }
 
 // ResolveResumeSessionIdentity 为恢复请求补齐 Codex home、instance key 和 model provider。
@@ -355,21 +357,26 @@ type startResult struct {
 	model    string
 }
 
-func resumeRemoteThread(ctx context.Context, t *transport, req dto.ResumeSessionRequest) (string, error) {
+type resumeResult struct {
+	threadID       string
+	approvalPolicy string
+}
+
+func resumeRemoteThread(ctx context.Context, t *transport, req dto.ResumeSessionRequest) (resumeResult, error) {
 	resumeID, err := requireProviderResumeThreadID("codexapp", req.ProviderThreadID)
 	if err != nil {
-		return "", err
+		return resumeResult{}, err
 	}
 	params, err := buildThreadResumeParams(req)
 	if err != nil {
-		return "", err
+		return resumeResult{}, err
 	}
 	params.ThreadID = resumeID
 	raw, err := callWithTimeout(ctx, t, 30*time.Second, "thread/resume", params)
 	if err != nil {
-		return "", err
+		return resumeResult{}, err
 	}
-	return decodeThreadID(raw)
+	return decodeResumeResult(raw)
 }
 
 func requireProviderResumeThreadID(component, providerThreadID string) (string, error) {
@@ -479,4 +486,60 @@ func decodeThreadID(raw json.RawMessage) (string, error) {
 		return "", errors.New("codexapp: empty thread id")
 	}
 	return id, nil
+}
+
+func decodeResumeResult(raw json.RawMessage) (resumeResult, error) {
+	resp, err := decodeThreadRPCResult(raw)
+	if err != nil {
+		return resumeResult{}, err
+	}
+	id := strings.TrimSpace(resp.Thread.ID)
+	if id == "" {
+		return resumeResult{}, errors.New("codexapp: empty thread id")
+	}
+	approvalPolicy, err := decodeResumeApprovalPolicy(resp.ApprovalPolicy)
+	if err != nil {
+		return resumeResult{}, err
+	}
+	return resumeResult{threadID: id, approvalPolicy: approvalPolicy}, nil
+}
+
+// decodeResumeApprovalPolicy 校验 thread/resume 返回的权威审批策略，并保留 granular 对象的规范 JSON。
+func decodeResumeApprovalPolicy(raw json.RawMessage) (string, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", errors.New("codexapp: thread/resume approvalPolicy is required")
+	}
+	var policy string
+	if err := json.Unmarshal(raw, &policy); err == nil {
+		policy = strings.TrimSpace(policy)
+		switch policy {
+		case "untrusted", "on-request", "never":
+			return policy, nil
+		default:
+			return "", fmt.Errorf("codexapp: thread/resume contains unknown approvalPolicy %q", policy)
+		}
+	}
+	return decodeGranularResumeApprovalPolicy(raw)
+}
+
+// decodeGranularResumeApprovalPolicy 严格校验 granular 审批对象的必需布尔字段。
+func decodeGranularResumeApprovalPolicy(raw json.RawMessage) (string, error) {
+	var granular struct {
+		Granular *struct {
+			MCPElicitations *bool `json:"mcp_elicitations"`
+			Rules           *bool `json:"rules"`
+			SandboxApproval *bool `json:"sandbox_approval"`
+		} `json:"granular"`
+	}
+	if err := json.Unmarshal(raw, &granular); err != nil || granular.Granular == nil {
+		return "", errors.New("codexapp: thread/resume approvalPolicy has invalid shape")
+	}
+	if granular.Granular.MCPElicitations == nil || granular.Granular.Rules == nil || granular.Granular.SandboxApproval == nil {
+		return "", errors.New("codexapp: thread/resume granular approvalPolicy is incomplete")
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, raw); err != nil {
+		return "", errors.New("codexapp: thread/resume granular approvalPolicy is invalid")
+	}
+	return compact.String(), nil
 }

@@ -72,7 +72,7 @@ function ThreadRail({ copy = APP_COPY.zh.chat, store }) {
             key={thread.id}
             thread={thread}
             store={store}
-            active={(store.pendingActiveThreadId || store.activeThreadId) === thread.id}
+            active={store.activeThreadId === thread.id}
             editing={rename.editingThreadId === thread.id}
             editingName={rename.editingName}
             hoveredArchiveThreadId={hoveredArchiveThreadId}

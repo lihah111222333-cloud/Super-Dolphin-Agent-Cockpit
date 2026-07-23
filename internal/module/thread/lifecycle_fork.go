@@ -52,7 +52,7 @@ func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error)
 		return ForkResult{}, errors.New("fork thread id is required")
 	}
 	displayName := continuationName(strings.TrimSpace(meta.Name))
-	state := threadStateFields{PublicThreadID: newThreadID, OwnerThreadID: historyTargetID(binding, threadID), AgentID: newThreadID, ParentAgentID: meta.ParentAgentID, AgentType: meta.AgentType, AgentMemoryScope: meta.AgentMemoryScope, Provider: provider, CWD: cwd, Model: meta.Model, Name: displayName, Prompt: displayName, ConfigOverride: configOverride, CodexHome: identity.Home, CodexInstanceKey: identity.InstanceKey, CodexModelProvider: identity.ModelProvider, CreatedAt: time.Now().Unix()}
+	state := threadStateFields{PublicThreadID: newThreadID, OwnerThreadID: historyTargetID(binding, threadID), AgentID: newThreadID, ParentAgentID: meta.ParentAgentID, AgentType: meta.AgentType, AgentMemoryScope: meta.AgentMemoryScope, Provider: provider, CWD: cwd, Model: meta.Model, Name: displayName, Prompt: displayName, ConfigOverride: configOverride, CodexHome: identity.Home, CodexInstanceKey: identity.InstanceKey, CodexModelProvider: identity.ModelProvider, CreatedAt: time.Now().UnixMilli()}
 	forkState := newThreadState(threadStateForkKind, state)
 	if err := s.persistCreatingForkStateWithPromptSnapshot(ctx, forkState, snapshot); err != nil {
 		return ForkResult{}, err
@@ -120,7 +120,7 @@ func (s *service) upsertForkThreadStatus(ctx context.Context, state threadState,
 		Cwd:              state.CWD,
 		Status:           strings.TrimSpace(status),
 		CreatedAt:        state.CreatedAt,
-		UpdatedAt:        time.Now().Unix(),
+		UpdatedAt:        time.Now().UnixMilli(),
 		OwnerThreadID:    state.OwnerThreadID,
 		ParentAgentID:    state.ParentAgentID,
 		AgentType:        state.AgentType,

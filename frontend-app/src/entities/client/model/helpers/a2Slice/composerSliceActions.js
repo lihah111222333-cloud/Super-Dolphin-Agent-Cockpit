@@ -270,8 +270,20 @@ async function rollbackFailedSendDraft(runtime, deps, activeRequest, threadId, e
 function createSendDraftAction(runtime, deps) {
   const { createSendDraftRequest, optimisticSendDraftState } = deps;
   return async () => {
-    const cwd = runtime.requireCwd('send message');
-    const request = createSendDraftRequest(runtime.get(), cwd);
+    let request;
+    try {
+      const cwd = runtime.requireCwd('send message');
+      request = createSendDraftRequest(runtime.get(), cwd);
+    }
+    catch (error) {
+      runtime.notifyAction('无法发送：请重新打开目标会话，确认项目后再重试。', 'error', {
+        category: 'thread-scope',
+      });
+      runtime.addWarning('error', 'thread.send.scope_invalid', {
+        error: error instanceof Error ? error.message : 'unknown send scope error',
+      });
+      throw error;
+    }
     if (!request) return false;
     runtime.set((state) => optimisticSendDraftState(state, request));
 

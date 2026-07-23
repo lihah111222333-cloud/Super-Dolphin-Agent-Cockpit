@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { normalizeMemorySnapshot } from './memoryAdapter.js';
 import { parseMemorySnapshotResponse } from '../shared/api/backendSchemas.js';
 
-const memoryOverview = { health: { similarGroups: [] } };
+const memoryOverview = { writeAvailable: true, health: { similarGroups: [] } };
 const privateMemoryEntry = { path: 'u.md', type: 'user', name: 'User Memory', updated_at: '2026-07-08' };
 const teamMemoryEntry = { path: 'p.md', type: 'project', title: 'Project Memory' };
 
@@ -39,7 +39,7 @@ describe('memoryAdapter', () => {
 
   it('rejects malformed memory sections instead of normalizing them to empty entries', () => {
     expect(() => normalizeMemorySnapshot({
-      overview: {},
+      overview: { writeAvailable: true },
       private: null,
       team: { entries: [] },
     })).toThrow(/memory private entries must be an array/);
@@ -49,12 +49,12 @@ describe('memoryAdapter', () => {
     // Go 生产端（loadUIMemoryScope）保证 entries 始终为数组；
     // null 属于非法 wire 形状，必须在 schema 边界 fail-fast，不得静默归一为空列表。
     expect(() => normalizeMemorySnapshot({
-      overview: {},
+      overview: { writeAvailable: true },
       private: { entries: null },
       team: { entries: [] },
     })).toThrow(/memory private entries must be an array/);
     expect(() => normalizeMemorySnapshot({
-      overview: {},
+      overview: { writeAvailable: true },
       private: { entries: [] },
       team: { entries: null },
     })).toThrow(/memory team entries must be an array/);
@@ -62,17 +62,17 @@ describe('memoryAdapter', () => {
 
   it('fails fast when memory section entries are missing entirely', () => {
     expect(() => normalizeMemorySnapshot({
-      overview: {},
+      overview: { writeAvailable: true },
       private: {},
       team: { entries: [] },
     })).toThrow(/memory private entries must be an array/);
     expect(() => normalizeMemorySnapshot({
-      overview: {},
+      overview: { writeAvailable: true },
       private: { entries: [] },
       team: {},
     })).toThrow(/memory team entries must be an array/);
     expect(() => normalizeMemorySnapshot({
-      overview: {},
+      overview: { writeAvailable: true },
       private: { entries: [] },
       team: null,
     })).toThrow(/memory team entries must be an array/);
@@ -84,5 +84,15 @@ describe('memoryAdapter', () => {
     expect(() => parseMemorySnapshotResponse(memorySnapshot([], [{ ...teamMemoryEntry, type: '' }]))).toThrow('memory team entry 0 type is unsupported: (empty)');
 
     expect(() => parseMemorySnapshotResponse(memorySnapshot([{ path: 'u.md', type: 'user' }], []))).toThrow('memory private entry 0 name is required');
+  });
+
+  it('preserves the stable non-Git capability reason and rejects incomplete capability shapes', () => {
+    const unavailable = parseMemorySnapshotResponse({
+      ...memorySnapshot([], []),
+      overview: { writeAvailable: false, unavailableReason: 'git_repository_required' },
+    });
+    expect(unavailable.overview).toEqual({ writeAvailable: false, unavailableReason: 'git_repository_required' });
+    expect(() => parseMemorySnapshotResponse({ ...memorySnapshot([], []), overview: { writeAvailable: false } }))
+      .toThrow(/required when memory writes are unavailable/);
   });
 });

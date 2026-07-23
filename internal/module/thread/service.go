@@ -240,7 +240,7 @@ func (s *service) SetName(ctx context.Context, threadID, name string) error {
 	thread.Name = name
 	thread.Prompt = name
 	thread.ManuallyRenamed = true
-	thread.UpdatedAt = time.Now().Unix()
+	thread.UpdatedAt = time.Now().UnixMilli()
 	if err := s.upsertThread(ctx, *thread); err != nil {
 		return err
 	}
@@ -485,7 +485,7 @@ func (s *service) updateThreadStatus(ctx context.Context, threadID, status strin
 	return s.threadStore.UpdateStatus(ctx, threadStoreStatusUpdate{
 		ThreadID:  id,
 		Status:    strings.TrimSpace(status),
-		UpdatedAt: time.Now().Unix(),
+		UpdatedAt: time.Now().UnixMilli(),
 	})
 }
 
@@ -701,6 +701,6 @@ func (s *service) setBindingArchived(ctx context.Context, threadID string, archi
 	return s.bindingStore.SetArchived(ctx, bindingStoreArchiveUpdate{
 		AgentID:   strings.TrimSpace(binding.AgentID),
 		Archived:  archived,
-		UpdatedAt: time.Now().Unix(),
+		UpdatedAt: time.Now().UnixMilli(),
 	})
 }

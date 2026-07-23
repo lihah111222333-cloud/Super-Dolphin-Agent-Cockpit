@@ -250,7 +250,11 @@ function ChatPage(props) {
       {showHeader ? (
         <ChatPageHeader copy={copy} store={store} projectPath={projectPath} rightPanelOpen={rightPanelOpen} setRightPanelOpen={setRightPanelOpen} />
       ) : null}
-      <ChatActionFeedback copy={copy} feedback={headerFeedback} />
+      <ChatActionFeedback
+        copy={copy}
+        feedback={headerFeedback}
+        onDismiss={() => store.dismissActionNotice?.(headerFeedback)}
+      />
       <div ref={chatLayoutRef} className="chat-layout" data-testid="chat-layout" style={{ gridTemplateColumns: layoutColumns }}>
         {introMode ? <ChatIntroSpotlight copy={copy} onSuggestion={prefillIntroSuggestion} /> : null}
         <ThreadRail copy={copy} store={store} />

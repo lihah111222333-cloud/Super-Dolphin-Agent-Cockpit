@@ -27,6 +27,15 @@ describe('required timestamp contract', () => {
   it('accepts a real leap day', () => {
     expect(parseRequiredTimestamp('2024-02-29T00:00:00Z', 'timestamp')).toBe(1709164800000);
   });
+
+  it('normalizes explicit RFC3339 timezone offsets to the same UTC instant', () => {
+    expect(parseRequiredTimestamp('2026-07-23T18:07:30+08:00', 'timestamp')).toBe(
+      parseRequiredTimestamp('2026-07-23T10:07:30Z', 'timestamp'),
+    );
+    expect(parseRequiredTimestamp('2026-07-23T04:37:30-05:30', 'timestamp')).toBe(
+      parseRequiredTimestamp('2026-07-23T10:07:30Z', 'timestamp'),
+    );
+  });
 });
 
 describe('runtime result helpers', () => {

@@ -43,7 +43,7 @@ function skillEditorContext(overrides = {}) {
 }
 
 describe('skills ignored-result actions', () => {
-  it('ignores malformed datasource import body and publishes import success', async () => {
+  it('rejects malformed datasource import body before publishing success', async () => {
     const facade = { importDatasourceLocalFile: vi.fn().mockResolvedValue({ malformed: 'datasource-import-sentinel' }) };
     const ctx = {
       facade,
@@ -55,18 +55,14 @@ describe('skills ignored-result actions', () => {
       successText: '资料已导入',
     };
 
-    const result = await importDatasourceSelection(ctx);
-
-    expect(result).toBeUndefined();
+	await expect(importDatasourceSelection(ctx)).rejects.toThrow('missing documentId');
     expect(facade.importDatasourceLocalFile).toHaveBeenCalledWith({
       pickerToken: 'picker-token',
       sourcePath: 'C:\\data\\source.pdf',
     });
-    expect(ctx.setSourcePath).toHaveBeenCalledWith('');
-    expect(ctx.setNotice).toHaveBeenLastCalledWith('资料已导入');
-    expect(ctx.invalidateDocuments).toHaveBeenCalledWith();
-    expect(ctx.setSourcePath.mock.invocationCallOrder[0]).toBeLessThan(ctx.setNotice.mock.invocationCallOrder[0]);
-    expect(ctx.setNotice.mock.invocationCallOrder[0]).toBeLessThan(ctx.invalidateDocuments.mock.invocationCallOrder[0]);
+	expect(ctx.setSourcePath).not.toHaveBeenCalled();
+	expect(ctx.setNotice).not.toHaveBeenCalled();
+	expect(ctx.invalidateDocuments).not.toHaveBeenCalled();
   });
 
   it('ignores malformed create-skill body and publishes save success', async () => {

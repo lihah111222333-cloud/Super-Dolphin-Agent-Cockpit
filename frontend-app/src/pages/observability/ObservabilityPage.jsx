@@ -64,9 +64,9 @@ queryKey: observabilityRecentQueryKey(queryCwd, params), exact: true,
 }));
 setSubmittedRecentParams(params); });
 }, [buildRecentParams, queryClient, queryCwd, setExpandedTraces]);
-return ( <section className="settings-page observability-page" data-testid="observability-page"> <ObservabilityHeader copy={copy} /> <FrontendHealthPanel /> {notice ? <div className="settings-alert error" role="alert">{notice}</div> : null}
+return ( <section className="settings-page observability-page" data-testid="observability-page"> <ObservabilityHeader copy={copy} /> {notice ? <div className="settings-alert error" role="alert">{notice}</div> : null}
 <ObservabilitySearchForm copy={copy} filters={filters} loading={loading} onFilter={setFilter} onSubmit={runQuery} /> <ObservabilityRecentLogs result={recentResult} onOpenTrace={toggleTraceExpansion} onCopyTrace={copyTraceId} copiedTraceId={copiedTraceId}
-expandedTraces={expandedTraces} queryCwd={queryCwd} queryLimit={queryLimit} onTraceError={setNotice} /> </section> ); }
+expandedTraces={expandedTraces} queryCwd={queryCwd} queryLimit={queryLimit} onTraceError={setNotice} /> <FrontendHealthPanel /> </section> ); }
 function ObservabilityHeader({ copy }) { return ( <div className="settings-header"> <div> <h1>{copy.title}</h1> </div> </div> ); }
 function ObservabilitySearchForm({ copy, filters, loading, onFilter, onSubmit }) { const submit = (event) => { event.preventDefault(); void onSubmit(); }; return (
 <form className="observability-search fusion-surface" onSubmit={submit} aria-busy={loading}> <div className="observability-filter-grid"> <ObservabilityTextFilter label="Trace ID" value={filters.traceId} placeholder="00-... 或 trace_id" onChange={(value) => onFilter('traceId', value)} />

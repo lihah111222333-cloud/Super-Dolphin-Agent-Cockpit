@@ -403,11 +403,38 @@ function validateSkillResolutionApplyResponse(method, response) {
 /** @param {string} method @param {unknown} response @param {string} label */
 function validateDatasourceDocument(method, response, label) {
   const document = assertResponseRecord(method, response, label);
-  assertOnlyResponseKeys(method, document, new Set(['documentId', 'sourcePath', 'fileName', 'extension', 'sizeBytes', 'contentHash', 'chunkCount', 'totalChars', 'status', 'errorMessage', 'createdAt', 'updatedAt']), label);
+  assertOnlyResponseKeys(method, document, new Set([
+    'documentId', 'sourcePath', 'fileName', 'extension', 'sizeBytes', 'contentHash',
+    'chunkCount', 'totalChars', 'status', 'errorMessage', 'qualityStatus', 'qualityReason',
+    'extractorName', 'extractorVersion', 'pageCount', 'runeCount', 'visibleRunes',
+    'controlRunes', 'nulRunes', 'replacementRunes', 'unmappedFonts', 'createdAt', 'updatedAt',
+  ]), label);
   validateRequiredFields(method, document, label, {
-    stringKeys: ['sourcePath', 'fileName', 'extension', 'contentHash', 'status', 'errorMessage', 'createdAt', 'updatedAt'],
-    integerKeys: ['documentId', 'sizeBytes', 'chunkCount', 'totalChars'],
+    stringKeys: ['sourcePath', 'fileName', 'extension', 'contentHash', 'status', 'errorMessage', 'qualityStatus', 'qualityReason', 'extractorName', 'extractorVersion', 'createdAt', 'updatedAt'],
+    integerKeys: ['documentId', 'sizeBytes', 'chunkCount', 'totalChars', 'pageCount', 'runeCount', 'visibleRunes', 'controlRunes', 'nulRunes', 'replacementRunes', 'unmappedFonts'],
   });
+  if (typeof document.qualityStatus !== 'string' || !['unknown', 'passed', 'failed'].includes(document.qualityStatus)) {
+    throw new TypeError(`${method} response ${label}.qualityStatus is invalid`);
+  }
+  return document;
+}
+
+/** @param {string} method @param {unknown} response */
+function validateDatasourceImportResponse(method, response) {
+  const document = assertBackendResponseObject(method, response);
+  assertOnlyResponseKeys(method, document, new Set([
+    'documentId', 'sourcePath', 'fileName', 'extension', 'sizeBytes', 'contentHash',
+    'chunkCount', 'totalChars', 'status', 'qualityStatus', 'qualityReason', 'extractorName',
+    'extractorVersion', 'pageCount', 'runeCount', 'visibleRunes', 'controlRunes',
+    'nulRunes', 'replacementRunes', 'unmappedFonts',
+  ]), 'body');
+  validateRequiredFields(method, document, 'body', {
+    stringKeys: ['sourcePath', 'fileName', 'extension', 'contentHash', 'status', 'qualityStatus', 'qualityReason', 'extractorName', 'extractorVersion'],
+    integerKeys: ['documentId', 'sizeBytes', 'chunkCount', 'totalChars', 'pageCount', 'runeCount', 'visibleRunes', 'controlRunes', 'nulRunes', 'replacementRunes', 'unmappedFonts'],
+  });
+  if (document.status !== 'ready' || document.qualityStatus !== 'passed') {
+    throw new TypeError(`${method} response body must be ready with passed quality`);
+  }
   return document;
 }
 
@@ -551,6 +578,7 @@ export function createBackendResponseValidators(methods) {
     [methods.SKILLS_RESOLUTION_APPLY]: validateSkillResolutionApplyResponse,
     [methods.SKILL_TOOLS_LIST]: validateSkillToolsListResponse,
     [methods.SKILL_TOOLS_CREATE]: validateSkillToolMutationResponse,
+	[methods.DATASOURCE_V2_IMPORT_LOCAL_FILE]: validateDatasourceImportResponse,
     [methods.DATASOURCE_V2_LIST]: validateDatasourceDocumentsResponse,
     [methods.DATASOURCE_V2_GET]: validateDatasourceDetailResponse,
     [methods.DATASOURCE_V2_LIST_CHUNKS]: validateDatasourceChunksResponse,

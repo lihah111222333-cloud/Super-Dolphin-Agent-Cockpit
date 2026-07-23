@@ -124,16 +124,6 @@ export function isAssistantMessageDeltaEvent(eventName, payload = {}) {
 export function appendAssistantDeltaText(existingText, deltaText) {
   const base = optionalTextField(existingText);
   const incoming = optionalTextField(deltaText);
-  if (!incoming) return base;
-  if (!base) return incoming;
-  if (base.endsWith(incoming)) return base;
-  if (incoming.endsWith(base)) return incoming;
-  const maxOverlap = Math.min(base.length, incoming.length, 32);
-  for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
-    if (base.slice(-overlap) === incoming.slice(0, overlap)) {
-      return base + incoming.slice(overlap);
-    }
-  }
   return base + incoming;
 }
 

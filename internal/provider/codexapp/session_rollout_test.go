@@ -35,6 +35,7 @@ func TestOnNotification_CodexRolloutAssistantMessageCompletesActiveTurn(t *testi
 	s.onNotification("response_item", json.RawMessage(`{
 		"type":"message",
 		"role":"assistant",
+		"phase":"final_answer",
 		"content":[{"type":"output_text","text":"done from resumed rollout"}]
 	}`))
 
@@ -87,7 +88,7 @@ func TestOnNotification_CodexAssistantItemCompletedCompletesActiveTurnFromAccumu
 		"agentId":"agent-1",
 		"threadId":"provider-thread-1",
 		"turnId":"turn-1",
-		"item":{"id":"item-accepted-1","type":"agent_message","role":"assistant","content":[]}
+		"item":{"id":"item-accepted-1","type":"agent_message","role":"assistant","phase":"final_answer","content":[]}
 	}`))
 
 	completed := waitRolloutTurnCompleted(t, completedCh)

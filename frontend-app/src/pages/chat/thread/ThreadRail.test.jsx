@@ -60,4 +60,11 @@ describe('ThreadRail', () => {
 
     expect(store.deleteStaleThreads).toHaveBeenCalledWith(['archived-empty']);
   });
+
+  it('keeps the committed thread active while another selection is pending', () => {
+    render(<ThreadRail store={createStore({ pendingActiveThreadId: 't2' })} />);
+
+    expect(screen.getByRole('button', { name: /Active thread/ }).closest('.thread-card')).toHaveClass('active');
+    expect(screen.getByRole('button', { name: /Older thread/ }).closest('.thread-card')).not.toHaveClass('active');
+  });
 });

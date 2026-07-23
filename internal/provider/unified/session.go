@@ -11,6 +11,7 @@ import (
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
+	"golang.org/x/sync/singleflight"
 )
 
 // SessionManager 按 agent ID 管理活跃 provider session，并用 generation 防止旧清理误删新会话。
@@ -19,13 +20,29 @@ type SessionManager struct {
 	sessions       map[string]sessionEntry
 	nextGeneration uint64
 	logger         *slog.Logger
+	resumeFlight   singleflight.Group
 }
 
 // sessionEntry 记录单个内存 session 及其代际，代际用于异步清理时的 CAS 保护。
 type sessionEntry struct {
-	generation uint64
-	session    contract.Session
-	pending    bool
+	generation     uint64
+	session        contract.Session
+	pending        bool
+	pendingDone    chan struct{}
+	resumeIdentity string
+}
+
+// coordinatedResumeResult 保存一次共享恢复的 session 及 pending 激活信号。
+type coordinatedResumeResult struct {
+	session        contract.Session
+	pending        bool
+	pendingDone    <-chan struct{}
+	resumeIdentity string
+}
+
+// resumeCoordinationIdentity 生成同一 agent 恢复时必须一致的 provider thread 身份。
+func resumeCoordinationIdentity(provider, providerThreadID string) string {
+	return normalizeProviderName(provider) + "\x00" + strings.TrimSpace(providerThreadID)
 }
 
 // NewSessionManager 创建空的内存 session 管理器，logger 缺失时使用包级默认 logger。
@@ -53,6 +70,16 @@ func (m *SessionManager) RegisterPending(agentID string, session contract.Sessio
 // register 写入 session manager，并返回新的 generation。
 // pending session 不会被 Get 暴露，替换旧 session 时负责停止旧进程。
 func (m *SessionManager) register(agentID string, session contract.Session, pending bool) uint64 {
+	return m.registerWithIdentity(agentID, session, pending, "")
+}
+
+// registerWithIdentity 写入 session，并保留共享恢复的 provider identity 供冲突检查。
+func (m *SessionManager) registerWithIdentity(
+	agentID string,
+	session contract.Session,
+	pending bool,
+	resumeIdentity string,
+) uint64 {
 	id := normalizeAgentID(agentID)
 	if id == "" || session == nil {
 		return 0
@@ -61,7 +88,17 @@ func (m *SessionManager) register(agentID string, session contract.Session, pend
 	m.mu.Lock()
 	previous := m.sessions[id]
 	generation := m.nextGenerationLocked()
-	m.sessions[id] = sessionEntry{generation: generation, session: session, pending: pending}
+	entry := sessionEntry{
+		generation:     generation,
+		session:        session,
+		pending:        pending,
+		resumeIdentity: resumeIdentity,
+	}
+	if pending {
+		entry.pendingDone = make(chan struct{})
+	}
+	m.sessions[id] = entry
+	closePendingSignal(previous)
 	m.mu.Unlock()
 
 	if previous.session != nil && previous.session != session {
@@ -70,6 +107,118 @@ func (m *SessionManager) register(agentID string, session contract.Session, pend
 		}
 	}
 	return generation
+}
+
+// resumeSession 按 agent 合并 Client resume 与 resolver auto-resume。
+// pending owner 可以先返回给 thread 持久化；活跃 resolver 会等待 Activate 或 Remove 后再继续。
+func (m *SessionManager) resumeSession(
+	ctx context.Context,
+	agentID string,
+	resumeIdentity string,
+	pending bool,
+	run func() (contract.Session, error),
+) (contract.Session, error) {
+	if m == nil {
+		return nil, fmt.Errorf("coordinate resume: session manager is not configured")
+	}
+	id := normalizeAgentID(agentID)
+	if id == "" {
+		return nil, fmt.Errorf("coordinate resume: agent id is required")
+	}
+	if run == nil {
+		return nil, fmt.Errorf("coordinate resume: resume function is required")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	value, err, _ := m.resumeFlight.Do(id, func() (any, error) {
+		return m.runCoordinatedResume(id, resumeIdentity, pending, run)
+	})
+	return m.finishCoordinatedResume(ctx, id, resumeIdentity, pending, value, err)
+}
+
+// runCoordinatedResume 由 singleflight owner 执行 provider 恢复和唯一一次注册。
+func (m *SessionManager) runCoordinatedResume(
+	agentID string,
+	resumeIdentity string,
+	pending bool,
+	run func() (contract.Session, error),
+) (coordinatedResumeResult, error) {
+	if current, ok := m.currentResume(agentID); ok {
+		return current, nil
+	}
+	session, err := run()
+	if err != nil {
+		return coordinatedResumeResult{}, err
+	}
+	m.registerWithIdentity(agentID, session, pending, resumeIdentity)
+	current, ok := m.currentResume(agentID)
+	if !ok {
+		return coordinatedResumeResult{}, fmt.Errorf("coordinate resume: registered session for agent %q is missing", agentID)
+	}
+	return current, nil
+}
+
+// finishCoordinatedResume 校验共享结果，并按调用方角色决定立即返回或等待 pending 激活。
+func (m *SessionManager) finishCoordinatedResume(
+	ctx context.Context,
+	agentID string,
+	resumeIdentity string,
+	pending bool,
+	value any,
+	resumeErr error,
+) (contract.Session, error) {
+	if resumeErr != nil {
+		return nil, resumeErr
+	}
+	result, ok := value.(coordinatedResumeResult)
+	if !ok || result.session == nil {
+		return nil, fmt.Errorf("coordinate resume: invalid result for agent %q", agentID)
+	}
+	if result.resumeIdentity != "" && result.resumeIdentity != resumeIdentity {
+		return nil, fmt.Errorf("coordinate resume: conflicting provider session identity for agent %q", agentID)
+	}
+	if !result.pending || pending {
+		return result.session, nil
+	}
+	return m.waitPendingResume(ctx, agentID, result.pendingDone)
+}
+
+// currentResume 读取 active 或 pending session，供共享恢复 owner 使用。
+func (m *SessionManager) currentResume(agentID string) (coordinatedResumeResult, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	entry, ok := m.sessions[agentID]
+	if !ok || entry.session == nil {
+		return coordinatedResumeResult{}, false
+	}
+	return coordinatedResumeResult{
+		session:        entry.session,
+		pending:        entry.pending,
+		pendingDone:    entry.pendingDone,
+		resumeIdentity: entry.resumeIdentity,
+	}, true
+}
+
+// waitPendingResume 等待 thread 持久化激活共享 session；移除或取消都返回明确错误。
+func (m *SessionManager) waitPendingResume(
+	ctx context.Context,
+	agentID string,
+	pendingDone <-chan struct{},
+) (contract.Session, error) {
+	if pendingDone == nil {
+		return nil, fmt.Errorf("coordinate resume: pending signal for agent %q is missing", agentID)
+	}
+	select {
+	case <-pendingDone:
+		session, err := m.Get(agentID)
+		if err != nil {
+			return nil, fmt.Errorf("coordinate resume: pending session for agent %q was not activated: %w", agentID, err)
+		}
+		return session, nil
+	case <-ctx.Done():
+		return nil, fmt.Errorf("coordinate resume: wait for agent %q activation: %w", agentID, ctx.Err())
+	}
 }
 
 // Get 按 agent ID 读取当前内存 session，缺失时返回 contract.ErrSessionNotFound 包装错误。
@@ -102,6 +251,8 @@ func (m *SessionManager) ActivateSession(agentID string) bool {
 		return false
 	}
 	entry.pending = false
+	closePendingSignal(entry)
+	entry.pendingDone = nil
 	m.sessions[id] = entry
 	return true
 }
@@ -177,6 +328,7 @@ func (m *SessionManager) drain() map[string]sessionEntry {
 	out := make(map[string]sessionEntry, len(m.sessions))
 	for agentID, entry := range m.sessions {
 		out[agentID] = entry
+		closePendingSignal(entry)
 	}
 	m.sessions = make(map[string]sessionEntry)
 	return out
@@ -195,7 +347,15 @@ func (m *SessionManager) removeEntry(agentID string, generation uint64, requireM
 		return nil, false
 	}
 	delete(m.sessions, agentID)
+	closePendingSignal(entry)
 	return entry.session, true
+}
+
+// closePendingSignal 唤醒等待 pending 激活的 resolver；仅在 channel owner 持锁时调用。
+func closePendingSignal(entry sessionEntry) {
+	if entry.pendingDone != nil {
+		close(entry.pendingDone)
+	}
 }
 
 // closeRemovedSession 用统一超时关闭被移除 session，失败时降级到 ForceStop 并记录日志。

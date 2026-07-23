@@ -131,18 +131,17 @@ async function startProjectThreadAction(props) {
 }
 
 async function selectProjectThreadAction(props) {
-  const { activeProjectPath, path, selectionIntent, store, threadId } = props;
+  const { activeProjectPath, path, selectionSnapshot, store, threadId } = props;
   if (path && projectTreeKey(path) !== projectTreeKey(activeProjectPath)) {
     const switched = await store?.setActiveProjectPath?.(path, {
       preserveActiveThreadId: true,
-      selectionIntent,
     });
-    if (switched === false) {
-      store?.cancelOpeningThread?.(selectionIntent);
-      return;
-    }
+    if (switched === false) return false;
   }
-  return store?.setActiveThread?.(threadId, { selectionIntent });
+  return store?.openThreadById?.(threadId, {
+    source: 'sidebar-project-tree',
+    selectionSnapshot,
+  });
 }
 
 function ProjectThreadEntry(props) {
@@ -330,10 +329,12 @@ export function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, 
   const selectThread = (thread, path) => {
     const threadId = typeof thread === 'object' ? thread?.id : thread;
     if (!threadId) return;
-    const selectionIntent = store?.beginOpeningThread?.(thread);
-    if (!selectionIntent) return;
+    const selectionSnapshot = store?.captureThreadSelection?.();
+    if (!selectionSnapshot || typeof store?.openThreadById !== 'function') {
+      throw new Error('canonical thread open capability is unavailable');
+    }
     setActivePage('chat');
-    runUIAction('thread.select', () => selectProjectThreadAction({ activeProjectPath, path, selectionIntent, store, threadId }), actionOptions);
+    runUIAction('thread.select', () => selectProjectThreadAction({ activeProjectPath, path, selectionSnapshot, store, threadId }), actionOptions);
   };
   return (
     <section className="sidebar-project-tree" aria-label={copy.projects}>

@@ -136,7 +136,7 @@ function createSendDraftRequest(state, cwd) {
   const previousThreadId = reusableThreadIdForSend(state, previousActiveThreadId);
   const launchIntentId = createLaunchIntentId();
   const provisionalThreadId = previousThreadId || launchIntentId;
-  const requestCwd = previousThreadId ? cwdForExistingThreadSend(state, previousThreadId, cwd) : cwd;
+  const requestCwd = previousThreadId ? cwdForExistingThreadSend(state, previousThreadId) : cwd;
   return {
     cwd: requestCwd,
     text,

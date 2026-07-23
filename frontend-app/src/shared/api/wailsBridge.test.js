@@ -931,8 +931,8 @@ describe('wails frontend readiness handshake', () => {
 
     const readinessCalls = byID.mock.calls.filter(([, method]) => method === 'ui/frontend/readiness');
     expect(readinessCalls).toHaveLength(2);
-    expect(readinessCalls[0][2]).toEqual(expect.objectContaining({ phase: 'probe' }));
-    expect(readinessCalls[1][2]).toEqual(expect.objectContaining({ phase: 'commit', epoch: 7 }));
+    expect(readinessCalls[0][2]).toEqual({ phase: 'probe' });
+    expect(readinessCalls[1][2]).toEqual({ phase: 'commit', epoch: 7 });
   });
 
   it('does not commit when the Wails bridge probe fails', async () => {
@@ -947,7 +947,7 @@ describe('wails frontend readiness handshake', () => {
 
     const readinessCalls = byID.mock.calls.filter(([, method]) => method === 'ui/frontend/readiness');
     expect(readinessCalls).toHaveLength(1);
-    expect(readinessCalls[0][2]).toEqual(expect.objectContaining({ phase: 'probe' }));
+    expect(readinessCalls[0][2]).toEqual({ phase: 'probe' });
   });
 
   it('rejects unknown readiness response fields before committing', async () => {
@@ -963,7 +963,7 @@ describe('wails frontend readiness handshake', () => {
 
     const readinessCalls = byID.mock.calls.filter(([, method]) => method === 'ui/frontend/readiness');
     expect(readinessCalls).toHaveLength(1);
-    expect(readinessCalls[0][2]).toEqual(expect.objectContaining({ phase: 'probe' }));
+    expect(readinessCalls[0][2]).toEqual({ phase: 'probe' });
   });
 
   it('rejects unknown readiness fields in the commit response', async () => {
@@ -981,7 +981,7 @@ describe('wails frontend readiness handshake', () => {
 
     const readinessCalls = byID.mock.calls.filter(([, method]) => method === 'ui/frontend/readiness');
     expect(readinessCalls).toHaveLength(2);
-    expect(readinessCalls[1][2]).toEqual(expect.objectContaining({ phase: 'commit', epoch: 7 }));
+    expect(readinessCalls[1][2]).toEqual({ phase: 'commit', epoch: 7 });
   });
 
   it('does not call the bridge before the page load boundary', async () => {

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -305,7 +306,7 @@ func TestExtractPDFTextRejectsOversizedFlateStream(t *testing.T) {
 		t.Fatalf("write compressed pdf: %v", err)
 	}
 
-	_, err := extractPDFText(source)
+	_, err := extractPDFText(context.Background(), source)
 	if err == nil || !strings.Contains(err.Error(), "too large") {
 		t.Fatalf("extractPDFText() error = %v, want decompressed size rejection", err)
 	}
@@ -370,7 +371,7 @@ func TestImportLocalFileRPCStoresOutsideWorkspaceSource(t *testing.T) {
 	}
 }
 
-func TestImportTextRPCPreservesWhitespaceOnlyContent(t *testing.T) {
+func TestImportTextRPCRejectsWhitespaceOnlyContent(t *testing.T) {
 	project := t.TempDir()
 	t.Chdir(project)
 	source := filepath.Join(project, "blank.txt")
@@ -384,22 +385,13 @@ func TestImportTextRPCPreservesWhitespaceOnlyContent(t *testing.T) {
 		t.Fatalf("marshal payload: %v", err)
 	}
 
-	raw, err := server.Dispatch(context.Background(), "datasourceV2/importText", payload)
-	if err != nil {
-		t.Fatalf("Dispatch datasourceV2/importText: %v", err)
+	_, err = server.Dispatch(context.Background(), "datasourceV2/importText", payload)
+	if err == nil || !strings.Contains(err.Error(), "visible body is empty") {
+		t.Fatalf("Dispatch error = %v, want visible body rejection", err)
 	}
-
-	var got ImportFileTextResult
-	if err := json.Unmarshal(raw, &got); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
+	if len(store.inserted) != 0 {
+		t.Fatalf("inserted chunks = %d, want 0", len(store.inserted))
 	}
-	if got.TotalChars != 3 {
-		t.Fatalf("TotalChars = %d, want 3", got.TotalChars)
-	}
-	if store.inserted[0].Content != " \n\t" {
-		t.Fatalf("stored whitespace chunk = %q", store.inserted[0].Content)
-	}
-	assertDatasourceV2InsertedVector(t, store.inserted[0], 0)
 }
 
 func newDatasourceV2TestServer(svc Service) *platformrpc.Server {
@@ -463,6 +455,7 @@ type recordingDatasourceV2Store struct {
 	listKeyword string
 	listLimit   int32
 	deletedID   int64
+	withTxCalls int
 }
 
 func newRecordingDatasourceV2Store() *recordingDatasourceV2Store {
@@ -520,6 +513,7 @@ func assertDatasourceV2InsertedVector(t *testing.T, chunk InsertChunkParams, wan
 }
 
 func (s *recordingDatasourceV2Store) WithTx(ctx context.Context, fn func(Store) error) error {
+	s.withTxCalls++
 	return fn(s)
 }
 
@@ -555,6 +549,17 @@ func (s *recordingDatasourceV2Store) MarkReady(
 	doc.ContentHash = params.ContentHash
 	doc.ChunkCount = params.ChunkCount
 	doc.TotalChars = params.TotalChars
+	doc.QualityStatus = params.QualityStatus
+	doc.QualityReason = params.QualityReason
+	doc.ExtractorName = params.ExtractorName
+	doc.ExtractorVersion = params.ExtractorVersion
+	doc.PageCount = params.PageCount
+	doc.RuneCount = params.RuneCount
+	doc.VisibleRunes = params.VisibleRunes
+	doc.ControlRunes = params.ControlRunes
+	doc.NULRunes = params.NULRunes
+	doc.ReplacementRunes = params.ReplacementRunes
+	doc.UnmappedFonts = params.UnmappedFonts
 	return &doc, nil
 }
 
@@ -631,13 +636,12 @@ func (s *recordingDatasourceV2Store) DeleteDocument(_ context.Context, documentI
 
 func minimalPDFWithText(text string) []byte {
 	body := "BT /F1 12 Tf 72 720 Td (" + text + ") Tj ET"
-	return []byte("%PDF-1.4\n" +
-		"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n" +
-		"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n" +
-		"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj\n" +
-		"4 0 obj << /Length 0 >> stream\n" + body + "\nendstream endobj\n" +
-		"5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n" +
-		"trailer << /Root 1 0 R >>\n%%EOF\n")
+	return buildDatasourceV2TestPDF([]string{
+		"<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+		fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(body), body),
+		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+	})
 }
 
 func compressedPDFWithText(t *testing.T, text string) []byte {
@@ -650,11 +654,26 @@ func compressedPDFWithText(t *testing.T, text string) []byte {
 	if err := writer.Close(); err != nil {
 		t.Fatalf("close zlib writer: %v", err)
 	}
-	return []byte("%PDF-1.4\n" +
-		"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n" +
-		"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n" +
-		"3 0 obj << /Type /Page /Parent 2 0 R /Contents 4 0 R >> endobj\n" +
-		"4 0 obj << /Filter /FlateDecode /Length 0 >> stream\n" +
-		compressed.String() + "\nendstream endobj\n" +
-		"trailer << /Root 1 0 R >>\n%%EOF\n")
+	return buildDatasourceV2TestPDF([]string{
+		"<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>",
+		fmt.Sprintf("<< /Filter /FlateDecode /Length %d >>\nstream\n%s\nendstream", compressed.Len(), compressed.String()),
+	})
+}
+
+func buildDatasourceV2TestPDF(objects []string) []byte {
+	var output bytes.Buffer
+	output.WriteString("%PDF-1.4\n")
+	offsets := make([]int, len(objects)+1)
+	for index, object := range objects {
+		offsets[index+1] = output.Len()
+		fmt.Fprintf(&output, "%d 0 obj\n%s\nendobj\n", index+1, object)
+	}
+	xref := output.Len()
+	fmt.Fprintf(&output, "xref\n0 %d\n0000000000 65535 f \n", len(objects)+1)
+	for _, offset := range offsets[1:] {
+		fmt.Fprintf(&output, "%010d 00000 n \n", offset)
+	}
+	fmt.Fprintf(&output, "trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", len(objects)+1, xref)
+	return output.Bytes()
 }

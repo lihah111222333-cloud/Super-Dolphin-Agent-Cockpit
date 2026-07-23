@@ -40,7 +40,7 @@ func (c *Client) StartSession(
 	ctx context.Context,
 	req dto.StartSessionRequest,
 ) (contract.Session, error) {
-	return c.open(ctx, "starting", req.Provider, req.AgentID, false, func(driver contract.Driver) (contract.Session, error) {
+	return c.open(ctx, "starting", req.Provider, req.AgentID, "", false, func(driver contract.Driver) (contract.Session, error) {
 		return driver.StartSession(ctx, req)
 	})
 }
@@ -51,8 +51,9 @@ func (c *Client) ResumeSession(
 	ctx context.Context,
 	req dto.ResumeSessionRequest,
 ) (contract.Session, error) {
-	return c.open(ctx, "resuming", req.Provider, req.AgentID, true, func(driver contract.Driver) (contract.Session, error) {
-		return driver.ResumeSession(ctx, req)
+	resumeCtx := context.WithoutCancel(ctx)
+	return c.open(ctx, "resuming", req.Provider, req.AgentID, resumeCoordinationIdentity(req.Provider, req.ProviderThreadID), true, func(driver contract.Driver) (contract.Session, error) {
+		return driver.ResumeSession(resumeCtx, req)
 	})
 }
 
@@ -63,6 +64,7 @@ func (c *Client) open(
 	action string,
 	provider string,
 	agentID string,
+	resumeIdentity string,
 	pending bool,
 	run func(contract.Driver) (contract.Session, error),
 ) (contract.Session, error) {
@@ -70,6 +72,31 @@ func (c *Client) open(
 	if err != nil {
 		return nil, err
 	}
+	runOpen := func() (contract.Session, error) {
+		return c.runOpen(ctx, action, provider, agentID, driver, run)
+	}
+	if pending && c.sessions != nil {
+		return c.sessions.resumeSession(ctx, agentID, resumeIdentity, true, runOpen)
+	}
+	session, err := runOpen()
+	if err != nil {
+		return nil, err
+	}
+	if c.sessions != nil {
+		c.sessions.Register(agentID, session)
+	}
+	return session, nil
+}
+
+// runOpen 执行一次 provider session acquire，并在成功后统一包装 trace session。
+func (c *Client) runOpen(
+	ctx context.Context,
+	action string,
+	provider string,
+	agentID string,
+	driver contract.Driver,
+	run func(contract.Driver) (contract.Session, error),
+) (contract.Session, error) {
 	c.logger.Info(action+" session", "provider", strings.TrimSpace(provider), "agent_id", strings.TrimSpace(agentID))
 	started := time.Now()
 	session, err := run(driver)
@@ -79,12 +106,5 @@ func (c *Client) open(
 	}
 	session = c.wrapSession(provider, session)
 	c.recordProviderTrace(ctx, providerSessionEvent("provider.session.ready", provider, agentID, session.ThreadID(), time.Since(started), nil))
-	if c.sessions != nil {
-		if pending {
-			c.sessions.RegisterPending(agentID, session)
-		} else {
-			c.sessions.Register(agentID, session)
-		}
-	}
 	return session, nil
 }

@@ -9,6 +9,7 @@ import {
   onRuntimeReconnect,
   openNewWindow as openNewWindowRPC,
   readConfig,
+  reportFrontendReadiness,
   registerBridgeLogStore,
   removeProject as removeProjectRPC,
   selectProjectDir,
@@ -31,7 +32,6 @@ import { isDagNodeStatusBridgeEvent } from './helpers/bridgeRevision.js';
 import { createThreadSelectionActions } from './helpers/threadSelectionActions.js';
 import {
   baseState,
-  clockNowMillis,
   normalizeBootstrapPage,
   normalizeBootstrapSnapshot,
   normalizePath,
@@ -100,6 +100,7 @@ const runtimeActionDeps = {
   normalizeThreadId,
   onBridgeEvent: (callback, options) => onBridgeEvent(callback, options),
   onRuntimeReconnect: (callback) => onRuntimeReconnect(callback),
+  reportFrontendReadiness: () => reportFrontendReadiness(),
   providerActivePreferenceKey: PROVIDER_ACTIVE_PREF_KEY,
   readConfig: () => readConfig(),
   requireActiveProviderPreference,
@@ -132,7 +133,7 @@ function createClientStore(set, get) {
     ...createThreadSelectionActions(runtime, {
       actionNotice,
       backendThreadIdForState,
-      clockNowMillis,
+      normalizePath,
       normalizeThread,
       normalizeString,
       optionalUiObject,
@@ -150,6 +151,9 @@ function createClientStore(set, get) {
     ...createThreadDeleteActions(runtime),
     addWarning: runtime.addWarning,
     addLog: runtime.addLog,
+    dismissActionNotice: (notice) => runtime.set((state) => (
+      state.actionNotice === notice ? { actionNotice: null } : {}
+    )),
     getTurnTerminalCacheStats: runtime.getTurnTerminalCacheStats,
     setLogLevel: runtime.setLogLevel,
     toggleSmoothStreaming: () => {

@@ -5,11 +5,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/pdftext"
 	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
@@ -70,15 +73,26 @@ type ImportLocalFileRequest struct {
 
 // ImportFileTextResult 返回导入后的文档 id、摘要和分块统计。
 type ImportFileTextResult struct {
-	DocumentID  int64  `json:"documentId"`
-	SourcePath  string `json:"sourcePath"`
-	FileName    string `json:"fileName"`
-	Extension   string `json:"extension"`
-	SizeBytes   int64  `json:"sizeBytes"`
-	ContentHash string `json:"contentHash"`
-	ChunkCount  int32  `json:"chunkCount"`
-	TotalChars  int32  `json:"totalChars"`
-	Status      string `json:"status"`
+	DocumentID       int64  `json:"documentId"`
+	SourcePath       string `json:"sourcePath"`
+	FileName         string `json:"fileName"`
+	Extension        string `json:"extension"`
+	SizeBytes        int64  `json:"sizeBytes"`
+	ContentHash      string `json:"contentHash"`
+	ChunkCount       int32  `json:"chunkCount"`
+	TotalChars       int32  `json:"totalChars"`
+	Status           string `json:"status"`
+	QualityStatus    string `json:"qualityStatus"`
+	QualityReason    string `json:"qualityReason"`
+	ExtractorName    string `json:"extractorName"`
+	ExtractorVersion string `json:"extractorVersion"`
+	PageCount        int32  `json:"pageCount"`
+	RuneCount        int64  `json:"runeCount"`
+	VisibleRunes     int64  `json:"visibleRunes"`
+	ControlRunes     int64  `json:"controlRunes"`
+	NULRunes         int64  `json:"nulRunes"`
+	ReplacementRunes int64  `json:"replacementRunes"`
+	UnmappedFonts    int64  `json:"unmappedFonts"`
 }
 
 // ListDocumentsRequest 描述 datasource_v2 列表页的过滤条件；Limit 必须显式传入，避免接口静默返回过大结果集。
@@ -152,18 +166,29 @@ type DeleteDocumentResult struct {
 
 // DocumentResult 是 list、get、import、update 共用的 JSON 文档形状。
 type DocumentResult struct {
-	DocumentID   int64     `json:"documentId"`
-	SourcePath   string    `json:"sourcePath"`
-	FileName     string    `json:"fileName"`
-	Extension    string    `json:"extension"`
-	SizeBytes    int64     `json:"sizeBytes"`
-	ContentHash  string    `json:"contentHash"`
-	ChunkCount   int32     `json:"chunkCount"`
-	TotalChars   int32     `json:"totalChars"`
-	Status       string    `json:"status"`
-	ErrorMessage string    `json:"errorMessage"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	DocumentID       int64     `json:"documentId"`
+	SourcePath       string    `json:"sourcePath"`
+	FileName         string    `json:"fileName"`
+	Extension        string    `json:"extension"`
+	SizeBytes        int64     `json:"sizeBytes"`
+	ContentHash      string    `json:"contentHash"`
+	ChunkCount       int32     `json:"chunkCount"`
+	TotalChars       int32     `json:"totalChars"`
+	Status           string    `json:"status"`
+	ErrorMessage     string    `json:"errorMessage"`
+	QualityStatus    string    `json:"qualityStatus"`
+	QualityReason    string    `json:"qualityReason"`
+	ExtractorName    string    `json:"extractorName"`
+	ExtractorVersion string    `json:"extractorVersion"`
+	PageCount        int32     `json:"pageCount"`
+	RuneCount        int64     `json:"runeCount"`
+	VisibleRunes     int64     `json:"visibleRunes"`
+	ControlRunes     int64     `json:"controlRunes"`
+	NULRunes         int64     `json:"nulRunes"`
+	ReplacementRunes int64     `json:"replacementRunes"`
+	UnmappedFonts    int64     `json:"unmappedFonts"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
 }
 
 // TextChunkResult 暴露单篇文档详情页需要展示的持久化分块。
@@ -404,8 +429,13 @@ func (s *service) listChunksPage(ctx context.Context, req ListChunksRequest) (Li
 // importSourceText 用 store 事务包住一次完整导入。
 // imported 只在事务回调全部成功后返回，避免调用方拿到未标记 ready 的文档。
 func (s *service) importSourceText(ctx context.Context, source importSource) (*Document, error) {
+	content, err := prepareImportContent(ctx, source)
+	if err != nil {
+		return nil, err
+	}
+	source.content = &content
 	var imported *Document
-	err := s.store.WithTx(ctx, func(txStore Store) error {
+	err = s.store.WithTx(ctx, func(txStore Store) error {
 		ready, err := importSourceTextInTx(ctx, txStore, source)
 		if err != nil {
 			return err
@@ -446,10 +476,13 @@ func importSourceTextInTx(
 		return nil, err
 	}
 	return txStore.MarkReady(ctx, MarkReadyParams{
-		DocumentID:  doc.ID,
-		ContentHash: summary.contentHash,
-		ChunkCount:  summary.chunkCount,
-		TotalChars:  summary.totalChars,
+		DocumentID: doc.ID, ContentHash: summary.contentHash, ChunkCount: summary.chunkCount, TotalChars: summary.totalChars,
+		QualityStatus: source.content.quality.Status, QualityReason: source.content.quality.Reason,
+		ExtractorName: source.content.quality.ExtractorName, ExtractorVersion: source.content.quality.ExtractorVersion,
+		PageCount: source.content.quality.PageCount, RuneCount: source.content.quality.RuneCount,
+		VisibleRunes: source.content.quality.VisibleRunes, ControlRunes: source.content.quality.ControlRunes,
+		NULRunes: source.content.quality.NULRunes, ReplacementRunes: source.content.quality.ReplacementRunes,
+		UnmappedFonts: source.content.quality.UnmappedFonts,
 	})
 }
 
@@ -459,6 +492,75 @@ type importSource struct {
 	fileName  string
 	extension string
 	sizeBytes int64
+	content   *preparedImportContent
+}
+
+type preparedImportContent struct {
+	text    string
+	quality pdftext.Metadata
+}
+
+// prepareImportContent 在任何事务、embedding 或 chunk 写入前完成正文准备与质量门禁。
+func prepareImportContent(ctx context.Context, source importSource) (preparedImportContent, error) {
+	if source.extension == ".pdf" {
+		return preparePDFImportContent(ctx, source.path)
+	}
+	return prepareTextImportContent(ctx, source.path)
+}
+
+// preparePDFImportContent 通过唯一 PDF 抽取器完成页面解析、聚合预算和质量门禁。
+func preparePDFImportContent(ctx context.Context, sourcePath string) (preparedImportContent, error) {
+	result, err := pdftext.ExtractFile(ctx, sourcePath, pdftext.Limits{
+		MaxInputBytes:  datasourceV2MaxImportBytes,
+		MaxOutputBytes: datasourceV2MaxImportBytes,
+	})
+	if err != nil {
+		if errors.Is(err, pdftext.ErrInputTooLarge) || errors.Is(err, pdftext.ErrOutputTooLarge) {
+			return preparedImportContent{}, errDatasourceV2TextTooLarge
+		}
+		return preparedImportContent{}, err
+	}
+	return preparedImportContent{text: result.Text, quality: result.Metadata}, nil
+}
+
+// prepareTextImportContent 读取 UTF-8 文本并执行严格正文质量门禁。
+// 文本文件没有 PDF 字形映射造成的可修复噪声，出现异常字符时应视为格式或编码错误。
+func prepareTextImportContent(ctx context.Context, sourcePath string) (preparedImportContent, error) {
+	file, err := os.Open(sourcePath)
+	if err != nil {
+		return preparedImportContent{}, fmt.Errorf("open source file: %w", err)
+	}
+	defer file.Close()
+	content, err := io.ReadAll(io.LimitReader(file, datasourceV2MaxImportBytes+1))
+	if err != nil {
+		return preparedImportContent{}, fmt.Errorf("read source file: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return preparedImportContent{}, err
+	}
+	if len(content) > datasourceV2MaxImportBytes {
+		return preparedImportContent{}, errDatasourceV2TextTooLarge
+	}
+	if !utf8.Valid(content) {
+		return preparedImportContent{}, errDatasourceV2InvalidUTF8
+	}
+	text := string(content)
+	metadata := pdftext.Analyze(text, 1)
+	metadata.ExtractorName = "utf8-text"
+	metadata.ExtractorVersion = "v1"
+	if metadata.NULRunes != 0 {
+		return preparedImportContent{}, fmt.Errorf("%w: NUL rune count is %d", pdftext.ErrQualityRejected, metadata.NULRunes)
+	}
+	if metadata.ReplacementRunes != 0 {
+		return preparedImportContent{}, fmt.Errorf("%w: replacement rune count is %d", pdftext.ErrQualityRejected, metadata.ReplacementRunes)
+	}
+	if metadata.ControlRunes != 0 {
+		return preparedImportContent{}, fmt.Errorf("%w: forbidden control rune count is %d", pdftext.ErrQualityRejected, metadata.ControlRunes)
+	}
+	if err := pdftext.Validate(pdftext.Result{Text: text, Metadata: metadata}); err != nil {
+		return preparedImportContent{}, err
+	}
+	return preparedImportContent{text: text, quality: metadata}, nil
 }
 
 // prepareImportSource 校验 workspace 路径并读取文件元信息。
@@ -572,15 +674,20 @@ type chunkWriteSummary struct {
 // importFileTextResult 将 store Document 转换为 ImportFileTextResult。
 func importFileTextResult(doc Document) ImportFileTextResult {
 	return ImportFileTextResult{
-		DocumentID:  doc.ID,
-		SourcePath:  doc.SourcePath,
-		FileName:    doc.FileName,
-		Extension:   doc.Extension,
-		SizeBytes:   doc.SizeBytes,
-		ContentHash: doc.ContentHash,
-		ChunkCount:  doc.ChunkCount,
-		TotalChars:  doc.TotalChars,
-		Status:      doc.Status,
+		DocumentID:    doc.ID,
+		SourcePath:    doc.SourcePath,
+		FileName:      doc.FileName,
+		Extension:     doc.Extension,
+		SizeBytes:     doc.SizeBytes,
+		ContentHash:   doc.ContentHash,
+		ChunkCount:    doc.ChunkCount,
+		TotalChars:    doc.TotalChars,
+		Status:        doc.Status,
+		QualityStatus: doc.QualityStatus, QualityReason: doc.QualityReason,
+		ExtractorName: doc.ExtractorName, ExtractorVersion: doc.ExtractorVersion,
+		PageCount: doc.PageCount, RuneCount: doc.RuneCount, VisibleRunes: doc.VisibleRunes,
+		ControlRunes: doc.ControlRunes, NULRunes: doc.NULRunes,
+		ReplacementRunes: doc.ReplacementRunes, UnmappedFonts: doc.UnmappedFonts,
 	}
 }
 
@@ -678,18 +785,29 @@ func documentResults(docs []Document) []DocumentResult {
 // documentResult 将 store Document 转换为 DocumentResult。
 func documentResult(doc Document) DocumentResult {
 	return DocumentResult{
-		DocumentID:   doc.ID,
-		SourcePath:   doc.SourcePath,
-		FileName:     doc.FileName,
-		Extension:    doc.Extension,
-		SizeBytes:    doc.SizeBytes,
-		ContentHash:  doc.ContentHash,
-		ChunkCount:   doc.ChunkCount,
-		TotalChars:   doc.TotalChars,
-		Status:       doc.Status,
-		ErrorMessage: doc.ErrorMessage,
-		CreatedAt:    doc.CreatedAt,
-		UpdatedAt:    doc.UpdatedAt,
+		DocumentID:       doc.ID,
+		SourcePath:       doc.SourcePath,
+		FileName:         doc.FileName,
+		Extension:        doc.Extension,
+		SizeBytes:        doc.SizeBytes,
+		ContentHash:      doc.ContentHash,
+		ChunkCount:       doc.ChunkCount,
+		TotalChars:       doc.TotalChars,
+		Status:           doc.Status,
+		ErrorMessage:     doc.ErrorMessage,
+		QualityStatus:    doc.QualityStatus,
+		QualityReason:    doc.QualityReason,
+		ExtractorName:    doc.ExtractorName,
+		ExtractorVersion: doc.ExtractorVersion,
+		PageCount:        doc.PageCount,
+		RuneCount:        doc.RuneCount,
+		VisibleRunes:     doc.VisibleRunes,
+		ControlRunes:     doc.ControlRunes,
+		NULRunes:         doc.NULRunes,
+		ReplacementRunes: doc.ReplacementRunes,
+		UnmappedFonts:    doc.UnmappedFonts,
+		CreatedAt:        doc.CreatedAt,
+		UpdatedAt:        doc.UpdatedAt,
 	}
 }
 

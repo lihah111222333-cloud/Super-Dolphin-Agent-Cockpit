@@ -567,6 +567,8 @@ func isRequestUserInputMethod(method string) bool {
 // 外来线程事件会被丢弃；turn 输出先补齐 result 再进入抑制和派发路径。
 func (s *session) onNotification(method string, params json.RawMessage) {
 	s.noteReadActivity()
+	observeCodexTurnLatencyMilestone(method, params, time.Now().UTC())
+	params = observeMissingCodexLifecycleTimestamp(method, params, time.Now().UTC())
 	terminalMethod := strings.TrimSpace(method)
 	if eventThread, ok := s.alienThreadEventThread(params); ok {
 		pkglogger.Warn("codexapp: dropped alien thread event",
@@ -602,6 +604,37 @@ func (s *session) onNotification(method string, params json.RawMessage) {
 		s.dispatch(raw)
 	}
 	s.handleNotificationAction(method, params, raw)
+}
+
+// observeMissingCodexLifecycleTimestamp 为 app-server 未携带时间的非终态生命周期通知记录宿主接收时间。
+// 显式时间字段（包括非法值）和 turn 终态保持 provider 原值，继续由 translator 严格校验。
+func observeMissingCodexLifecycleTimestamp(method string, params json.RawMessage, receivedAt time.Time) json.RawMessage {
+	method = strings.TrimSpace(method)
+	if isTurnTerminalEvent(method) {
+		return params
+	}
+	if _, ok := codexLifecycleEventsRequiringTimestamp[method]; !ok {
+		return params
+	}
+	payload := decodeEventPayload(params)
+	if payload == nil || hasCodexTimestampField(payload) {
+		return params
+	}
+	payload["timestamp"] = receivedAt.Format(time.RFC3339Nano)
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return params
+	}
+	return encoded
+}
+
+func hasCodexTimestampField(payload map[string]any) bool {
+	for _, key := range []string{"timestamp", "ts", "createdAt", "created_at"} {
+		if _, ok := payload[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // prepareAndSealTerminalNotification 绑定 canonical terminal outcome，并领取首个终态 owner。
@@ -729,6 +762,9 @@ func (s *session) completeAssistantMessageCompleted(method string, params json.R
 	if !ok {
 		return false
 	}
+	if !assistantMessageOwnsTurnTerminal(method, payload, item) {
+		return false
+	}
 	turnID := shared.FirstNonEmpty(payloadTurnID(payload), payloadTurnID(item))
 	s.mu.Lock()
 	if turnID == "" {
@@ -739,7 +775,7 @@ func (s *session) completeAssistantMessageCompleted(method string, params json.R
 	if !ok {
 		return false
 	}
-	s.completeSyntheticTurn(turnID, "assistant_message_completed", assistantMessageText(item), acceptedAssistantItemIDs(item))
+	s.completeSyntheticTurn(turnID, "assistant_final_answer_completed", assistantMessageText(item), acceptedAssistantItemIDs(item))
 	return true
 }
 

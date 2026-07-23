@@ -152,10 +152,17 @@ type windowBootstrapGetParams struct {
 	clientMetaParams
 }
 
+func frontendReadinessRPCHandler(app *App) handler.Func {
+	return rpc.StrictHandler(func(ctx context.Context, p frontendReadinessRequest) (any, error) {
+		return app.handleFrontendReadinessRequest(ctx, p)
+	})
+}
+
 // NewRPCHandlers 注册桌面专用 UI helper RPC。
 // uiState 只依赖 contract.UIProjectStateFacade，避免 ui/wails 反向依赖 uistate 服务实现。
 func NewRPCHandlers(app *App, cfg *config.Config, uiState contract.UIProjectStateFacade) rpc.HandlerMapResult {
 	return rpc.HandlerMapResult{Handlers: handler.Map{
+		frontendReadinessMethod: frontendReadinessRPCHandler(app),
 		"ui/code/save": rpc.StrictHandler(func(ctx context.Context, p codeSaveParams) (any, error) {
 			return handleCodeSave(ctx, cfg, uiState, p)
 		}),

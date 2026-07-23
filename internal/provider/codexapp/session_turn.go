@@ -57,11 +57,134 @@ type startingTurnState struct {
 // StartTurn 启动 provider turn，并记录本地 turn handle、trace 和可重放状态。
 // 动态工具和模型解析必须在远端调用前完成，失败时不会登记 active turn。
 func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.TurnHandle, error) {
+	startedAt := time.Now()
 	params, err := s.prepareTurnStartParams(ctx, req)
+	preparedAt := time.Now()
 	if err != nil {
+		logCodexTurnStartLatency(s.agentID, req, preparedAt.Sub(startedAt), 0, err)
 		return nil, err
 	}
-	return s.startTurnWithProvisionalOwner(ctx, req, params)
+	handle, err := s.startTurnWithProvisionalOwner(ctx, req, params)
+	logCodexTurnStartLatency(s.agentID, req, preparedAt.Sub(startedAt), time.Since(preparedAt), err)
+	return handle, err
+}
+
+// logCodexTurnStartLatency 将宿主 prepare 与 provider turn/start RPC 分段记录，避免把模型耗时混入启动诊断。
+func logCodexTurnStartLatency(agentID string, req dto.TurnRequest, prepareDuration, providerStartDuration time.Duration, err error) {
+	pkglogger.Info("codexapp: turn start latency",
+		"agent_id", strings.TrimSpace(agentID),
+		"thread_id", strings.TrimSpace(req.ThreadID),
+		"local_turn_id", strings.TrimSpace(req.LocalID),
+		"prepare_ms", prepareDuration.Milliseconds(),
+		"provider_start_rpc_ms", providerStartDuration.Milliseconds(),
+		"success", err == nil,
+	)
+}
+
+type codexTurnLatencyMilestone struct {
+	Phase                string
+	TurnID               string
+	ProviderDurationMS   int64
+	ProviderFirstTokenMS int64
+}
+
+// observeCodexTurnLatencyMilestone 记录 provider 内部可见的阶段边界，不记录提示词或回复正文。
+// 同一 phase 可出现多次；诊断端以 turn_id 下最早时间作为首个 commentary/final token。
+func observeCodexTurnLatencyMilestone(method string, params json.RawMessage, observedAt time.Time) {
+	payload := decodeEventPayload(params)
+	milestone, ok := codexTurnLatencyMilestoneFor(method, payload)
+	if !ok {
+		return
+	}
+	pkglogger.Info("codexapp: turn latency milestone",
+		"phase", milestone.Phase,
+		"turn_id", milestone.TurnID,
+		"observed_at_unix_ms", observedAt.UnixMilli(),
+		"provider_duration_ms", milestone.ProviderDurationMS,
+		"provider_first_token_ms", milestone.ProviderFirstTokenMS,
+	)
+}
+
+func codexTurnLatencyMilestoneFor(method string, payload map[string]any) (codexTurnLatencyMilestone, bool) {
+	method = strings.TrimSpace(method)
+	item := codexToolItemPayload(payload)
+	turnID := firstPayloadTurnID(payload, item)
+	if method == "turn_context" {
+		return codexTurnLatencyMilestone{Phase: "provider_context_ready", TurnID: turnID}, true
+	}
+	if method == "event_msg" {
+		return codexTaskLatencyMilestone(payload, turnID)
+	}
+	if isAssistantMessageCompletedMethod(method) && isCodexLatencyMessageItem(item) {
+		return codexMessageLatencyMilestone(item, turnID)
+	}
+	return codexTurnLatencyMilestone{}, false
+}
+
+func codexTaskLatencyMilestone(payload map[string]any, turnID string) (codexTurnLatencyMilestone, bool) {
+	switch strings.TrimSpace(stringValue(payload, "type")) {
+	case "task_started":
+		return codexTurnLatencyMilestone{Phase: "provider_task_started", TurnID: turnID}, true
+	case "task_complete":
+		return codexTurnLatencyMilestone{
+			Phase:                "provider_task_complete",
+			TurnID:               turnID,
+			ProviderDurationMS:   int64Value(payload, "duration_ms"),
+			ProviderFirstTokenMS: int64Value(payload, "time_to_first_token_ms"),
+		}, true
+	default:
+		return codexTurnLatencyMilestone{}, false
+	}
+}
+
+// codexMessageLatencyMilestone 将用户消息、commentary 与 final_answer 映射为可观测的首字阶段里程碑。
+func codexMessageLatencyMilestone(item map[string]any, turnID string) (codexTurnLatencyMilestone, bool) {
+	role := strings.ToLower(strings.TrimSpace(stringValue(item, "role")))
+	phase := strings.ToLower(strings.TrimSpace(stringValue(item, "phase")))
+	switch {
+	case role == "user":
+		return codexTurnLatencyMilestone{Phase: "provider_user_message", TurnID: turnID}, true
+	case role == "assistant" && phase == "commentary":
+		return codexTurnLatencyMilestone{Phase: "provider_commentary", TurnID: turnID}, true
+	case role == "assistant" && phase == "final_answer":
+		return codexTurnLatencyMilestone{Phase: "provider_final_answer", TurnID: turnID}, true
+	default:
+		return codexTurnLatencyMilestone{}, false
+	}
+}
+
+func isCodexLatencyMessageItem(item map[string]any) bool {
+	switch strings.ToLower(strings.TrimSpace(stringValue(item, "type", "kind"))) {
+	case "message", "assistant", "assistant_message", "agent_message", "agentmessage":
+		return true
+	default:
+		return false
+	}
+}
+
+func firstPayloadTurnID(payload, item map[string]any) string {
+	return strings.TrimSpace(shared.FirstNonEmpty(payloadTurnID(payload), payloadTurnID(item)))
+}
+
+// assistantMessageOwnsTurnTerminal 只允许协议明确标记为 final_answer 的 assistant item 领取终态。
+// commentary 是过程输出；缺失或未知 phase 不能再靠 role/type 猜测终态。
+func assistantMessageOwnsTurnTerminal(method string, payload, item map[string]any) bool {
+	phase := strings.ToLower(strings.TrimSpace(shared.FirstNonEmpty(
+		stringValue(item, "phase"),
+		stringValue(payload, "phase"),
+	)))
+	if phase == "final_answer" {
+		return true
+	}
+	if phase == "commentary" {
+		return false
+	}
+	pkglogger.Warn("codexapp: assistant completion missing authoritative final phase",
+		"method", strings.TrimSpace(method),
+		"phase", phase,
+		"turn_id_set", firstPayloadTurnID(payload, item) != "",
+	)
+	return false
 }
 
 // prepareTurnStartParams 在远端调用前完成 thread、动态工具和运行时模型配置校验。

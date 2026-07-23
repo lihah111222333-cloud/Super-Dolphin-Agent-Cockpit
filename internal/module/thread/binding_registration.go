@@ -46,7 +46,7 @@ func normalizeThreadState(state threadState) (threadState, error) {
 		return threadState{}, errors.New("thread and agent ids are required")
 	}
 	if state.CreatedAt == 0 {
-		state.CreatedAt = time.Now().Unix()
+		state.CreatedAt = time.Now().UnixMilli()
 	}
 	return state, nil
 }
@@ -213,7 +213,7 @@ func (s *service) resolveProviderThreadConflict(ctx context.Context, registratio
 	if store == nil {
 		return nil
 	}
-	if err := store.UpdateProviderThreadID(ctx, threadBindingProviderThreadIDUpdate{AgentID: existingAgentID, ProviderThreadID: "", UpdatedAt: time.Now().Unix()}); err != nil {
+	if err := store.UpdateProviderThreadID(ctx, threadBindingProviderThreadIDUpdate{AgentID: existingAgentID, ProviderThreadID: "", UpdatedAt: time.Now().UnixMilli()}); err != nil {
 		return fmt.Errorf("evict stale provider_thread_id binding: %w", err)
 	}
 	return nil
@@ -318,7 +318,7 @@ func (s *service) persistRegisteredBinding(ctx context.Context, registration bin
 		CodexInstanceKey:   registration.CodexInstanceKey,
 		CodexModelProvider: registration.CodexModelProvider,
 		CreatedAt:          registration.CreatedAt,
-		UpdatedAt:          time.Now().Unix(),
+		UpdatedAt:          time.Now().UnixMilli(),
 	}))
 }
 func (s *service) verifyOrRollbackThreadBinding(ctx context.Context, registration bindingRegistration, outcome bindingWriteOutcome) error {
@@ -496,7 +496,7 @@ func (s *service) rollbackThreadBinding(ctx context.Context, outcome bindingWrit
 		AgentType:        strings.TrimSpace(outcome.Previous.AgentType),
 		AgentMemoryScope: strings.TrimSpace(outcome.Previous.AgentMemoryScope),
 		CreatedAt:        outcome.Previous.CreatedAt,
-		UpdatedAt:        time.Now().Unix(),
+		UpdatedAt:        time.Now().UnixMilli(),
 	}))
 }
 func cloneBinding(binding *threadBindingRecord) *threadBindingRecord {
@@ -549,7 +549,7 @@ func (r *bindingRecoveryReporter) ClearStaleProviderThreadID(ctx context.Context
 	if current == "" || identifier.LooksLikeUUID(current) {
 		return nil
 	}
-	if err := r.store.UpdateProviderThreadID(ctx, threadBindingProviderThreadIDUpdate{AgentID: agentID, ProviderThreadID: "", UpdatedAt: time.Now().Unix()}); err != nil {
+	if err := r.store.UpdateProviderThreadID(ctx, threadBindingProviderThreadIDUpdate{AgentID: agentID, ProviderThreadID: "", UpdatedAt: time.Now().UnixMilli()}); err != nil {
 		return err
 	}
 	if r.logger != nil {
@@ -572,7 +572,7 @@ func (r *bindingRecoveryReporter) RecordProviderSessionUUID(ctx context.Context,
 	if err != nil || binding == nil {
 		return err
 	}
-	updatedAt := time.Now().Unix()
+	updatedAt := time.Now().UnixMilli()
 	if err := r.recordSessionUUID(ctx, agentID, sessionUUID, updatedAt); err != nil {
 		return err
 	}

@@ -11,7 +11,10 @@ const (
 	// StatusReady 表示文档分块、摘要字段和向量索引都已完成持久化。
 	StatusReady = "ready"
 	// StatusFailed 预留给异步导入失败记录，调用方不能把它当作 ready 文档检索。
-	StatusFailed = "failed"
+	StatusFailed   = "failed"
+	QualityUnknown = "unknown"
+	QualityPassed  = "passed"
+	QualityFailed  = "failed"
 )
 
 // Store 持久化 datasource_v2 文档元数据和文本分块。
@@ -89,27 +92,49 @@ type InsertChunkParams struct {
 // MarkReadyParams 在所有分块写入完成后更新文档摘要字段。
 // 调用方应只在同一导入事务末尾使用它，将文档从 importing 推进到 ready。
 type MarkReadyParams struct {
-	DocumentID  int64
-	ContentHash string
-	ChunkCount  int32
-	TotalChars  int32
+	DocumentID       int64
+	ContentHash      string
+	ChunkCount       int32
+	TotalChars       int32
+	QualityStatus    string
+	QualityReason    string
+	ExtractorName    string
+	ExtractorVersion string
+	PageCount        int32
+	RuneCount        int64
+	VisibleRunes     int64
+	ControlRunes     int64
+	NULRunes         int64
+	ReplacementRunes int64
+	UnmappedFonts    int64
 }
 
 // Document 是 datasource_v2_documents 的跨模块 DTO。
 // 它屏蔽 sqlc 行类型，保留 JSON 字段名供 UI 和服务层稳定消费。
 type Document struct {
-	ID           int64     `json:"id"`
-	SourcePath   string    `json:"sourcePath"`
-	FileName     string    `json:"fileName"`
-	Extension    string    `json:"extension"`
-	SizeBytes    int64     `json:"sizeBytes"`
-	ContentHash  string    `json:"contentHash"`
-	ChunkCount   int32     `json:"chunkCount"`
-	TotalChars   int32     `json:"totalChars"`
-	Status       string    `json:"status"`
-	ErrorMessage string    `json:"errorMessage"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	ID               int64     `json:"id"`
+	SourcePath       string    `json:"sourcePath"`
+	FileName         string    `json:"fileName"`
+	Extension        string    `json:"extension"`
+	SizeBytes        int64     `json:"sizeBytes"`
+	ContentHash      string    `json:"contentHash"`
+	ChunkCount       int32     `json:"chunkCount"`
+	TotalChars       int32     `json:"totalChars"`
+	Status           string    `json:"status"`
+	ErrorMessage     string    `json:"errorMessage"`
+	QualityStatus    string    `json:"qualityStatus"`
+	QualityReason    string    `json:"qualityReason"`
+	ExtractorName    string    `json:"extractorName"`
+	ExtractorVersion string    `json:"extractorVersion"`
+	PageCount        int32     `json:"pageCount"`
+	RuneCount        int64     `json:"runeCount"`
+	VisibleRunes     int64     `json:"visibleRunes"`
+	ControlRunes     int64     `json:"controlRunes"`
+	NULRunes         int64     `json:"nulRunes"`
+	ReplacementRunes int64     `json:"replacementRunes"`
+	UnmappedFonts    int64     `json:"unmappedFonts"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
 }
 
 // TextChunk 是 datasource_v2_text_chunks 的跨模块 DTO。

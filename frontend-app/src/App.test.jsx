@@ -431,7 +431,7 @@ function mockMemoryDefaults() {
       enabled: true,
       autoDreamEnabled: false,
       autoDreamIntent: null,
-      projectRoot: '/repo/app',
+      projectRoot: '/repo/app', writeAvailable: true,
       health: { preferenceCount: 0, projectCount: 0, maxPerCategory: 15, similarGroups: [] },
     },
     private: { entries: [] },
@@ -3639,7 +3639,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
   it('sends the composer draft when plain Enter is pressed inside the textarea', async () => {
     backend.getSidebarState.mockResolvedValue({
       activeThreadId: 'thread-1',
-      threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: 'idle' }],
+      threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: 'idle', cwd: '/repo/app' }],
     });
     backend.startTurn.mockResolvedValue({ ok: true });
     render(<App />);
@@ -4045,7 +4045,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
   });
 
-  it('switches identity immediately but shields stale target-thread content while refreshing', async () => {
+  it('keeps the current identity and content until the target thread refresh commits', async () => {
     let resolveThreadBState;
     backend.getSidebarState.mockResolvedValue({
       activeThreadId: 'thread-a',
@@ -4087,14 +4087,14 @@ async function toggleInlineTraceFromRecentLogs(table) {
       threadId: 'thread-b',
       includeDiff: false,
     }));
-    expect(useClientStore.getState().activeThreadId).toBe('thread-b');
-    expect(useClientStore.getState().pendingActiveThreadId).toBe('');
+    expect(useClientStore.getState().activeThreadId).toBe('thread-a');
+    expect(useClientStore.getState().pendingActiveThreadId).toBe('thread-b');
     expect(useClientStore.getState().threadStateLoadingByThread['thread-b']).toBe(true);
-    expect(getThreadCardByName('Agent B')).toHaveClass('active');
-    expect(screen.queryByText('Agent A ready')).not.toBeInTheDocument();
+    expect(getThreadCardByName('Agent A')).toHaveClass('active');
+    expect(screen.getByText('Agent A ready')).toBeInTheDocument();
     expect(screen.queryByText('stale cached Agent B content')).not.toBeInTheDocument();
     expect(screen.queryByText(/让我们从/)).not.toBeInTheDocument();
-    expect(screen.getByTestId('timeline-loading-placeholder')).toHaveTextContent('正在同步会话历史');
+    expect(screen.queryByTestId('timeline-loading-placeholder')).not.toBeInTheDocument();
 
     act(() => {
       resolveThreadBState({
@@ -4116,7 +4116,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.queryByText('stale cached Agent B content')).not.toBeInTheDocument();
   });
 
-  it('shows trusted cached target-thread history immediately while refreshing', async () => {
+  it('keeps current content while trusted target cache refreshes before commit', async () => {
     backend.getSidebarState.mockResolvedValue({
       activeThreadId: 'thread-a',
       threads: [
@@ -4161,8 +4161,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
       threadId: 'thread-b',
       includeDiff: false,
     }));
-    expect(screen.getByText('cached Agent B content')).toBeInTheDocument();
-    expect(screen.queryByText('Agent A ready')).not.toBeInTheDocument();
+    expect(screen.queryByText('cached Agent B content')).not.toBeInTheDocument();
+    expect(screen.getByText('Agent A ready')).toBeInTheDocument(); expect(useClientStore.getState().pendingActiveThreadId).toBe('thread-b');
     expect(screen.queryByTestId('timeline-loading-placeholder')).not.toBeInTheDocument();
   });
 
@@ -4995,7 +4995,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
       threads: [
         { id: 'thread-pin', name: 'Pinned chat', provider: 'codex', status: 'idle' },
         { id: 'thread-new', name: 'Newer chat', provider: 'codex', status: 'idle' },
-        { id: 'thread-old', name: 'Older chat', provider: 'codex', status: 'idle' },
+        { id: 'thread-old', name: 'Older chat', provider: 'codex', status: 'idle', cwd: '/repo/app' },
       ],
       'threadPins.chat': { 'thread-pin': 1735689600000 },
     });
@@ -5358,7 +5358,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
         enabled: true,
         autoDreamEnabled: false,
         autoDreamIntent: null,
-        projectRoot: '/repo/app',
+        projectRoot: '/repo/app', writeAvailable: true,
         health: {
           preferenceCount: 0,
           projectCount: 0,
@@ -6155,7 +6155,7 @@ async function createGeneratedPromptIntent() {
         enabled: true,
         autoDreamEnabled: false,
         autoDreamIntent: null,
-        projectRoot: '/repo/app',
+        projectRoot: '/repo/app', writeAvailable: true,
         health: {
           preferenceCount: 1,
           projectCount: 1,
@@ -6232,7 +6232,7 @@ async function createGeneratedPromptIntent() {
         enabled: true,
         autoDreamEnabled: true,
         autoDreamIntent: null,
-        projectRoot: '/repo/app',
+        projectRoot: '/repo/app', writeAvailable: true,
         health: { preferenceCount: entries.length, projectCount: 0, maxPerCategory: 15, similarGroups: [] },
       },
       private: { entries },
@@ -6291,7 +6291,7 @@ async function createGeneratedPromptIntent() {
           enabled: true,
           autoDreamEnabled: true,
           autoDreamIntent: null,
-          projectRoot: '/repo/app',
+          projectRoot: '/repo/app', writeAvailable: true,
           health: { preferenceCount: 1, projectCount: 0, maxPerCategory: 15, similarGroups: [] },
         },
         private: {
@@ -6335,7 +6335,7 @@ async function createGeneratedPromptIntent() {
         enabled: true,
         autoDreamEnabled: true,
         autoDreamIntent: null,
-        projectRoot: '/repo/app',
+        projectRoot: '/repo/app', writeAvailable: true,
         health: { preferenceCount: entries.length, projectCount: 0, maxPerCategory: 15, similarGroups: [] },
       },
       private: { entries },
@@ -6385,7 +6385,7 @@ async function createGeneratedPromptIntent() {
           enabled: true,
           autoDreamEnabled: true,
           autoDreamIntent: null,
-          projectRoot: '/repo/app',
+          projectRoot: '/repo/app', writeAvailable: true,
           health: { preferenceCount: 1, projectCount: 0, maxPerCategory: 15, similarGroups: [] },
         },
         private: {
@@ -6437,7 +6437,7 @@ async function createGeneratedPromptIntent() {
         enabled: true,
         autoDreamEnabled: true,
         autoDreamIntent: null,
-        projectRoot: '/repo/app',
+        projectRoot: '/repo/app', writeAvailable: true,
         health: { preferenceCount: entries.length, projectCount: 0, maxPerCategory: 15, similarGroups: [] },
       },
       private: { entries },
@@ -6473,7 +6473,7 @@ async function createGeneratedPromptIntent() {
         enabled: true,
         autoDreamEnabled: false,
         autoDreamIntent: null,
-        projectRoot: '/repo/app',
+        projectRoot: '/repo/app', writeAvailable: true,
         health: { preferenceCount: 1, projectCount: 0, maxPerCategory: 15, similarGroups: [] },
       },
       private: {
@@ -6549,7 +6549,7 @@ async function createGeneratedPromptIntent() {
       overview: {
         enabled: true,
         autoDreamEnabled: true,
-        projectRoot: '/repo/app',
+        projectRoot: '/repo/app', writeAvailable: true,
         health: {
           preferenceCount: 2,
           projectCount: 0,
@@ -6634,7 +6634,7 @@ function createSimilaritySnapshots() {
     overview: {
       enabled: true,
       autoDreamEnabled: true,
-      projectRoot: '/repo/app',
+      projectRoot: '/repo/app', writeAvailable: true,
       health: {
         preferenceCount: 2,
         projectCount: 0,

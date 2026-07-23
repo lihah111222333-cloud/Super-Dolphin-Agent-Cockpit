@@ -53,6 +53,7 @@ function createDeps(overrides = {}) {
     isDagNodeStatusBridgeEvent: vi.fn(() => false),
     onBridgeEvent: vi.fn(() => vi.fn()),
     onRuntimeReconnect: vi.fn(() => vi.fn()),
+    reportFrontendReadiness: vi.fn().mockResolvedValue(1),
     ...overrides,
   };
 }
@@ -63,6 +64,23 @@ beforeEach(() => {
 });
 
 describe('runtime slice event lifecycle', () => {
+  it('binds the first backend scope when no previous project exists', async () => {
+    let runtime;
+    runtime = createRuntime({
+      assistantEventScope: '',
+      currentChatCwd: vi.fn(() => ''),
+      activateAssistantEventScope: vi.fn((scope) => {
+        runtime.assistantEventScope = scope;
+      }),
+    });
+    const actions = createRuntimeSlice(runtime, createDeps({
+      onBridgeEvent: vi.fn(() => ({ ready: Promise.resolve(true), unsubscribe: vi.fn() })),
+    }));
+
+    await expect(actions.rebindBridgeEventScope('/repo/app')).resolves.toBe(true);
+    expect(runtime.assistantEventScope).toBe('/repo/app');
+  });
+
   it('matrix:FM-18 layer:frontend persists reconnect bootstrap failure in Health and permits recovery', async () => {
     const rawCause = 'provider reconnect token=secret';
     let reconnectHandler;
@@ -388,6 +406,17 @@ describe('runtime slice event lifecycle', () => {
 
     await expect(runtime.restorePreparedBridgeEventScope(prepared)).resolves.toBe(false);
     expect(runtime.assistantEventScope).toBe('/repo/newer');
+  });
+
+  it('rejects a prepared scope that only contains the retired generation field', async () => {
+    const runtime = createRuntime({ bridgeScopeRebindGeneration: 1 });
+    createRuntimeSlice(runtime, createDeps());
+
+    await expect(runtime.restorePreparedBridgeEventScope({
+      abort: vi.fn(),
+      previousScope: '/repo/app',
+      rebindGeneration: 1,
+    })).rejects.toThrow('runtime prepared bridge scope is invalid');
   });
 });
 

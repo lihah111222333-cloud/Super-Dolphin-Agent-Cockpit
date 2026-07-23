@@ -125,7 +125,7 @@ beforeEach(() => {
       chunkCount: 1,
       totalChars: 7,
       status: 'ready',
-      contentHash: 'sha256:abc',
+      contentHash: 'sha256:abc', qualityStatus: 'passed', qualityReason: '', extractorName: 'utf8-text', extractorVersion: 'v1', pageCount: 1, runeCount: 7, visibleRunes: 7, controlRunes: 0, nulRunes: 0, replacementRunes: 0, unmappedFonts: 0,
     }],
   });
   backend.importDatasourceLocalFile.mockResolvedValue({
@@ -136,7 +136,7 @@ beforeEach(() => {
     sizeBytes: 3,
     chunkCount: 1,
     totalChars: 3,
-    status: 'ready',
+    status: 'ready', contentHash: 'sha256:new', qualityStatus: 'passed', qualityReason: '', extractorName: 'utf8-text', extractorVersion: 'v1', pageCount: 1, runeCount: 7, visibleRunes: 7, controlRunes: 0, nulRunes: 0, replacementRunes: 0, unmappedFonts: 0,
   });
   backend.getDatasourceDocument.mockResolvedValue({
     document: {
@@ -147,7 +147,7 @@ beforeEach(() => {
       sizeBytes: 7,
       chunkCount: 1,
       totalChars: 7,
-      status: 'ready',
+      status: 'ready', qualityStatus: 'passed', qualityReason: '', extractorName: 'utf8-text', extractorVersion: 'v1', pageCount: 1, runeCount: 7, visibleRunes: 7, controlRunes: 0, nulRunes: 0, replacementRunes: 0, unmappedFonts: 0,
     },
     chunks: [{
       id: 501,
@@ -180,7 +180,7 @@ beforeEach(() => {
     sizeBytes: 8,
     chunkCount: 1,
     totalChars: 7,
-    status: 'ready',
+    status: 'ready', qualityStatus: 'passed', qualityReason: '', extractorName: 'utf8-text', extractorVersion: 'v1', pageCount: 1, runeCount: 7, visibleRunes: 7, controlRunes: 0, nulRunes: 0, replacementRunes: 0, unmappedFonts: 0,
   });
   backend.deleteDatasourceDocument.mockResolvedValue({ documentId: 101, deleted: true });
   backend.selectFiles.mockResolvedValue(['C:\\data\\new.pdf']);
@@ -476,9 +476,7 @@ describe('SkillsPage backend migration', () => {
 
   it('renders datasource_v2 rows and sends create, read, update, and delete actions', async () => {
     renderSkillsPage();
-
     fireEvent.click(screen.getByRole('button', { name: /数据源|Data Sources/ }));
-
     expect(await screen.findByText('source.txt')).toBeInTheDocument();
     expect(backend.listDatasourceDocuments).toHaveBeenCalledWith({ limit: 200 });
 
@@ -493,17 +491,15 @@ describe('SkillsPage backend migration', () => {
         pickerToken: 'picker-token',
       });
     });
-
     fireEvent.click(screen.getByTestId('datasource-view-101'));
+	const detailDialog = await screen.findByRole('dialog', { name: '数据源详情' }); fireEvent.click(await within(detailDialog).findByTestId('datasource-load-more'));
     await waitFor(() => {
       expect(backend.getDatasourceDocument).toHaveBeenCalledWith({ documentId: 101 });
       expect(backend.listDatasourceChunks).toHaveBeenCalledWith({ documentId: 101, limit: 50, cursor: 0 });
     });
-    const detailDialog = await screen.findByRole('dialog', { name: '数据源详情' });
     const chunks = await within(detailDialog).findAllByTestId('datasource-detail-chunk');
     expect(chunks.map((chunk) => chunk.textContent)).toEqual(['content', 'more content']);
     fireEvent.click(within(detailDialog).getByRole('button', { name: '关闭' }));
-
     fireEvent.click(screen.getByTestId('datasource-edit-101'));
     const editDialog = await screen.findByRole('dialog', { name: '编辑数据源' });
     fireEvent.change(within(editDialog).getByTestId('datasource-edit-source-path'), {
@@ -520,7 +516,6 @@ describe('SkillsPage backend migration', () => {
         fileName: 'source-renamed.txt',
       }));
     });
-
     fireEvent.click(screen.getByTestId('datasource-delete-101'));
     const deleteDialog = await screen.findByRole('dialog', { name: '删除数据源' });
     fireEvent.click(within(deleteDialog).getByTestId('datasource-delete-confirm'));
@@ -529,15 +524,14 @@ describe('SkillsPage backend migration', () => {
     });
   });
 
-  it('ignores RPC response body for datasource import', async () => {
+  it('rejects malformed RPC response body for datasource import', async () => {
     backend.importDatasourceLocalFile.mockResolvedValueOnce({ unexpectedImportBody: ['ignored'] });
     renderSkillsPage();
     fireEvent.click(screen.getByRole('button', { name: /数据源|Data Sources/ }));
     expect(await screen.findByText('source.txt')).toBeInTheDocument();
-
     fireEvent.click(screen.getByTestId('datasource-import-button'));
     await waitFor(() => expect(backend.importDatasourceLocalFile).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText('已导入数据源。')).toBeInTheDocument();
+	expect(screen.queryByText('已导入数据源。')).not.toBeInTheDocument(); expect(await screen.findByRole('alert')).toHaveTextContent('操作失败');
   });
 
   it('ignores RPC response body for datasource delete', async () => {
@@ -545,7 +539,6 @@ describe('SkillsPage backend migration', () => {
     renderSkillsPage();
     fireEvent.click(screen.getByRole('button', { name: /数据源|Data Sources/ }));
     expect(await screen.findByText('source.txt')).toBeInTheDocument();
-
     fireEvent.click(screen.getByTestId('datasource-delete-101'));
     const dialog = await screen.findByRole('dialog', { name: '删除数据源' });
     fireEvent.click(within(dialog).getByTestId('datasource-delete-confirm'));
@@ -558,7 +551,6 @@ describe('SkillsPage backend migration', () => {
     const nextPage = deferred();
     backend.listDatasourceChunks.mockImplementationOnce(() => nextPage.promise);
     renderSkillsPage();
-
     fireEvent.click(screen.getByRole('button', { name: /数据源|Data Sources/ }));
     expect(await screen.findByText('source.txt')).toBeInTheDocument();
 
@@ -568,9 +560,9 @@ describe('SkillsPage backend migration', () => {
     const firstChunk = await within(detailDialog).findByTestId('datasource-detail-chunk');
     expect(firstChunk).toHaveTextContent('content');
     expect(within(detailDialog).queryByText('more content')).not.toBeInTheDocument();
-    await waitFor(() => {
-      expect(backend.listDatasourceChunks).toHaveBeenCalledWith({ documentId: 101, limit: 50, cursor: 0 });
-    });
+	expect(backend.listDatasourceChunks).not.toHaveBeenCalled();
+	fireEvent.click(within(detailDialog).getByTestId('datasource-load-more'));
+	await waitFor(() => expect(backend.listDatasourceChunks).toHaveBeenCalledWith({ documentId: 101, limit: 50, cursor: 0 }));
 
     nextPage.resolve({
       chunks: [{

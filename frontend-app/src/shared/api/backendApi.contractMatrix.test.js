@@ -51,6 +51,7 @@ const EXPECTED_NEW_RESPONSE_VALIDATORS = Object.freeze([
   ['DASHBOARD_PROMPTS', 'dashboardPromptsResponse'],
   ['DASHBOARD_WORKFLOW_MATERIAL_WRITE', 'workflowMaterialWriteResponse'],
   ['DATASOURCE_V2_GET', 'datasourceDetailResponse'],
+	['DATASOURCE_V2_IMPORT_LOCAL_FILE', 'datasourceImportResponse'],
   ['DATASOURCE_V2_LIST', 'datasourceDocumentsResponse'],
   ['DATASOURCE_V2_LIST_CHUNKS', 'datasourceChunksResponse'],
   ['DATASOURCE_V2_UPDATE', 'datasourceDocumentResponse'],
@@ -122,7 +123,6 @@ const EXPECTED_NEW_IGNORED_RESPONSE_POLICIES = Object.freeze([
   'DASHBOARD_DAG_DISPATCH_NODE',
   'DASHBOARD_DAG_TERMINATE',
   'DATASOURCE_V2_DELETE',
-  'DATASOURCE_V2_IMPORT_LOCAL_FILE',
   'SKILLS_CREATE',
   'SKILLS_LOCAL_DELETE',
   'SKILLS_LOCAL_WRITE',
@@ -135,7 +135,6 @@ const EXPECTED_LOCKED_RESPONSE_POLICIES = Object.freeze({
   DASHBOARD_DAG_DISPATCH_NODE: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/pages/workflows/hooks/useWorkflowActions.js', symbol: 'dispatchDagNodeAction' }, outcome: { kind: 'published-callback', target: ['notices', 'showTaskNotice'] }, regressionTest: { path: 'frontend-app/src/pages/workflows/hooks/useWorkflowActions.ignoredResult.test.js', symbol: 'ignores malformed dispatch body and publishes dispatch success' } },
   DASHBOARD_DAG_TERMINATE: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/pages/workflows/hooks/useWorkflowActions.js', symbol: 'stopSelectedDagAction' }, outcome: { kind: 'published-callback', target: ['notices', 'showTaskNotice'] }, regressionTest: { path: 'frontend-app/src/pages/workflows/hooks/useWorkflowActions.ignoredResult.test.js', symbol: 'ignores malformed terminate body and publishes stop success' } },
   DATASOURCE_V2_DELETE: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/pages/skills/DataSourceView.jsx', symbol: 'handleDelete', visibility: 'module-private' }, regressionTest: { path: 'frontend-app/src/pages/skills/SkillsPage.test.jsx', symbol: 'ignores RPC response body for datasource delete' } },
-  DATASOURCE_V2_IMPORT_LOCAL_FILE: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/pages/skills/DataSourceView.jsx', symbol: 'importDatasourceSelection' }, outcome: { kind: 'published-callback', target: ['ctx', 'setNotice'] }, regressionTest: { path: 'frontend-app/src/pages/skills/SkillsPage.ignoredResultActions.test.jsx', symbol: 'ignores malformed datasource import body and publishes import success' } },
   SKILLS_CREATE: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/pages/skills/SkillsPage.jsx', symbol: 'saveSkillEditor' }, outcome: { kind: 'published-callback', target: ['ctx', 'setNotice'] }, regressionTest: { path: 'frontend-app/src/pages/skills/SkillsPage.ignoredResultActions.test.jsx', symbol: 'ignores malformed create-skill body and publishes save success' } },
   SKILLS_LOCAL_DELETE: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/pages/skills/SkillsPage.jsx', symbol: 'confirmDeleteSkill' }, outcome: { kind: 'published-callback', target: ['ctx', 'setNotice'] }, regressionTest: { path: 'frontend-app/src/pages/skills/SkillsPage.ignoredResultActions.test.jsx', symbol: 'ignores malformed delete-skill body and publishes delete success' } },
   SKILLS_LOCAL_WRITE: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/pages/skills/SkillsPage.jsx', symbol: 'saveSkillEditor' }, outcome: { kind: 'published-callback', target: ['ctx', 'setNotice'] }, regressionTest: { path: 'frontend-app/src/pages/skills/SkillsPage.ignoredResultActions.test.jsx', symbol: 'ignores malformed write-skill body and publishes save success' } },
@@ -196,9 +195,9 @@ describe('backend API contract matrix', () => {
     ));
     expect(entries).toHaveLength(140);
     expect(validators).toEqual(EXPECTED_RESPONSE_VALIDATORS);
-    expect(validators).toHaveLength(99);
-    expect(EXPECTED_NEW_RESPONSE_VALIDATORS).toHaveLength(70);
-    expect(policies).toHaveLength(37);
+	expect(validators).toHaveLength(100);
+	expect(EXPECTED_NEW_RESPONSE_VALIDATORS).toHaveLength(71);
+	expect(policies).toHaveLength(36);
     expect(unusedKeys).toEqual(EXPECTED_UNUSED_RESPONSE_POLICIES);
     expect(RPC_CONTRACT_REGISTRY.UI_LOG.responsePolicy.kind).toBe('ignored-result');
     expect(RPC_CONTRACT_REGISTRY.TURN_INTERRUPT.responsePolicy.kind).toBe('result-handled');
@@ -215,7 +214,6 @@ describe('backend API contract matrix', () => {
       'DASHBOARD_DAG_APPLY_OPS',
       'DASHBOARD_DAG_DISPATCH_NODE',
       'DASHBOARD_DAG_TERMINATE',
-      'DATASOURCE_V2_IMPORT_LOCAL_FILE',
       'SKILLS_CREATE',
       'SKILLS_LOCAL_DELETE',
       'SKILLS_LOCAL_WRITE',

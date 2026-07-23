@@ -332,7 +332,7 @@ func (s *service) persistThreadConfig(
 		thread.Model = strings.TrimSpace(*patch.Model)
 	}
 	thread.ConfigOverride = raw
-	thread.UpdatedAt = time.Now().Unix()
+	thread.UpdatedAt = time.Now().UnixMilli()
 	return s.upsertThread(ctx, *thread)
 }
 

@@ -138,9 +138,22 @@ export function parseRequiredTimestamp(value, label) {
   const text = requireStringField(value, label);
   const numeric = Number(text);
   if (Number.isFinite(numeric) && numeric > 0) return numeric;
-  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?Z$/);
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?(Z|([+-])(\d{2}):(\d{2}))$/);
   if (!match) failContract(label, 'an ISO-8601 UTC timestamp');
-  const [, yearText, monthText, dayText, hourText, minuteText, secondText, milliText = '0'] = match;
+  const [
+    ,
+    yearText,
+    monthText,
+    dayText,
+    hourText,
+    minuteText,
+    secondText,
+    milliText = '0',
+    ,
+    offsetSign = '',
+    offsetHourText = '0',
+    offsetMinuteText = '0',
+  ] = match;
   const year = Number(yearText);
   const month = Number(monthText);
   const day = Number(dayText);
@@ -148,10 +161,16 @@ export function parseRequiredTimestamp(value, label) {
   const minute = Number(minuteText);
   const second = Number(secondText);
   const millisecond = Number(milliText.padEnd(3, '0'));
-  if (year < 1970 || month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month) || hour > 23 || minute > 59 || second > 59) {
+  const offsetHour = Number(offsetHourText);
+  const offsetMinute = Number(offsetMinuteText);
+  if (year < 1970 || month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month) || hour > 23 || minute > 59 || second > 59 || offsetHour > 23 || offsetMinute > 59) {
     failContract(label, 'an ISO-8601 UTC timestamp');
   }
-  return (((daysBeforeYear(year) + daysBeforeMonth(year, month) + day - 1) * 24 + hour) * 60 + minute) * 60 * 1000 + second * 1000 + millisecond;
+  const localMillis = (((daysBeforeYear(year) + daysBeforeMonth(year, month) + day - 1) * 24 + hour) * 60 + minute) * 60 * 1000 + second * 1000 + millisecond;
+  const offsetMillis = (offsetHour * 60 + offsetMinute) * 60 * 1000;
+  const epochMillis = offsetSign === '+' ? localMillis - offsetMillis : localMillis + offsetMillis;
+  if (!Number.isFinite(epochMillis) || epochMillis <= 0) failContract(label, 'an ISO-8601 UTC timestamp');
+  return epochMillis;
 }
 
 /** @param {unknown} value @param {string} label */

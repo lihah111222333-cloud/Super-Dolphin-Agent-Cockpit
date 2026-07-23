@@ -135,18 +135,29 @@ type CronJobRun struct {
 }
 
 type DatasourceV2Document struct {
-	ID           int64   `db:"id" json:"id"`
-	SourcePath   string  `db:"source_path" json:"source_path"`
-	FileName     string  `db:"file_name" json:"file_name"`
-	Extension    string  `db:"extension" json:"extension"`
-	SizeBytes    int64   `db:"size_bytes" json:"size_bytes"`
-	ContentHash  *string `db:"content_hash" json:"content_hash"`
-	ChunkCount   int32   `db:"chunk_count" json:"chunk_count"`
-	TotalChars   int32   `db:"total_chars" json:"total_chars"`
-	Status       string  `db:"status" json:"status"`
-	ErrorMessage *string `db:"error_message" json:"error_message"`
-	CreatedAt    int64   `db:"created_at" json:"created_at"`
-	UpdatedAt    int64   `db:"updated_at" json:"updated_at"`
+	ID                   int64   `db:"id" json:"id"`
+	SourcePath           string  `db:"source_path" json:"source_path"`
+	FileName             string  `db:"file_name" json:"file_name"`
+	Extension            string  `db:"extension" json:"extension"`
+	SizeBytes            int64   `db:"size_bytes" json:"size_bytes"`
+	ContentHash          *string `db:"content_hash" json:"content_hash"`
+	ChunkCount           int32   `db:"chunk_count" json:"chunk_count"`
+	TotalChars           int32   `db:"total_chars" json:"total_chars"`
+	Status               string  `db:"status" json:"status"`
+	ErrorMessage         *string `db:"error_message" json:"error_message"`
+	CreatedAt            int64   `db:"created_at" json:"created_at"`
+	UpdatedAt            int64   `db:"updated_at" json:"updated_at"`
+	QualityStatus        string  `db:"quality_status" json:"quality_status"`
+	QualityReason        *string `db:"quality_reason" json:"quality_reason"`
+	ExtractorName        *string `db:"extractor_name" json:"extractor_name"`
+	ExtractorVersion     *string `db:"extractor_version" json:"extractor_version"`
+	PageCount            *int64  `db:"page_count" json:"page_count"`
+	RuneCount            *int64  `db:"rune_count" json:"rune_count"`
+	VisibleRuneCount     *int64  `db:"visible_rune_count" json:"visible_rune_count"`
+	ControlRuneCount     *int64  `db:"control_rune_count" json:"control_rune_count"`
+	NulRuneCount         *int64  `db:"nul_rune_count" json:"nul_rune_count"`
+	ReplacementRuneCount *int64  `db:"replacement_rune_count" json:"replacement_rune_count"`
+	UnmappedFontCount    *int64  `db:"unmapped_font_count" json:"unmapped_font_count"`
 }
 
 type McpToolLifecycle struct {

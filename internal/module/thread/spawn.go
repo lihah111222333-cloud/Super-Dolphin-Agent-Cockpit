@@ -74,7 +74,7 @@ func (s *service) startPendingThread(ctx context.Context, req StartRequest, agen
 	if s == nil || s.threadStore == nil {
 		return StartResult{}, errors.New("thread store is not configured")
 	}
-	createdAt := time.Now().Unix()
+	createdAt := time.Now().UnixMilli()
 	displayName := resolveDisplayName(ctx, s.threadStore, agentID, req.Prompt, req.Name)
 	pendingStored := buildPendingStoredThreadConfig(req)
 	configOverride, err := encodeStoredThreadConfig(pendingStored)

@@ -3,6 +3,7 @@ import { firstOptionalPresent } from '../../contractStoreModel.js';
 import { firstThreadCopyText } from '../threadCopyPayload.js';
 import { isArchivedStatus } from '../threadListMutations.js';
 import { normalizeBackendThreadId, normalizeThreadId, normalizeThreadIdentity } from '../threadIdentity.js';
+import { normalizeThreadTimestamp } from '../../../../../shared/time/threadTimestamp.js';
 import {
   clockNowMillis,
   normalizePath,
@@ -217,7 +218,7 @@ function normalizeThread(raw, options = {}) {
     taskId: normalizeString(firstOptionalPresent(raw?.taskId, raw?.task_id, sourceThread?.taskId, sourceThread?.task_id)),
     source: normalizeString(firstOptionalPresent(raw?.source, raw?.origin, sourceThread?.source, sourceThread?.origin)),
     lastMessage: normalizeString(firstOptionalPresent(raw?.lastMessage, raw?.last_message, raw?.preview)),
-    updatedAt: normalizeString(firstOptionalPresent(raw?.updatedAt, raw?.updated_at, raw?.createdAt, raw?.created_at)),
+    updatedAt: normalizeThreadTimestamp(firstOptionalPresent(raw?.updatedAt, raw?.updated_at, raw?.createdAt, raw?.created_at)),
     pinned: Boolean(firstOptionalPresent(raw?.pinned, raw?.isPinned, pinnedAt > 0)),
     pinnedAt,
     archived,

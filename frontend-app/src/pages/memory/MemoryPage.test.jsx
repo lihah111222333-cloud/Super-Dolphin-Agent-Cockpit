@@ -26,11 +26,14 @@ const actionRunner = vi.hoisted(() => ({
 vi.mock('./services/memoryPageService.js', () => backend);
 vi.mock('../../shared/ui/runUIAction.js', () => actionRunner);
 
-function memorySnapshot({ privateEntries = [], similarGroups = [], similarityDegraded, teamEntries = [], autoDream = {} } = {}) {
+function memorySnapshot(options = {}) {
+  const { privateEntries = [], similarGroups = [], similarityDegraded, teamEntries = [], autoDream = {}, writeAvailable = true } = options;
   return {
     overview: {
       autoDreamEnabled: autoDream.enabled === true,
       autoDreamIntent: autoDream.intent === undefined ? null : autoDream.intent,
+      writeAvailable,
+      ...(writeAvailable ? {} : { unavailableReason: 'git_repository_required' }),
       health: {
         preferenceCount: privateEntries.length,
         projectCount: teamEntries.length,
@@ -452,6 +455,27 @@ describe('MemoryPage editor', () => {
 		fireEvent.click(toggle);
 		expect(await screen.findByText('请先在聊天页选择项目，再切换自动沉淀。')).toBeInTheDocument();
 		expect(backend.setMemoryAutoDreamIntent).not.toHaveBeenCalled();
+	});
+
+	it('disables every visible memory write entrypoint for a non-Git project', async () => {
+		fetchMemoryDashboard.mockResolvedValue(normalizeMemorySnapshot(memorySnapshot({
+			writeAvailable: false,
+			privateEntries: [{ path: 'u.md', type: 'feedback', name: 'Read only', description: 'readonly' }],
+			similarGroups: [{
+				targetA: 'private', pathA: 'a.md', nameA: 'A', targetB: 'private', pathB: 'b.md', nameB: 'B', score: 0.9,
+			}],
+		})));
+		renderMemoryPage('/plain/folder');
+
+		expect(await screen.findByRole('status')).toHaveTextContent('当前项目不是 Git 仓库，记忆功能仅支持 Git 项目');
+		expect(screen.getByRole('button', { name: '+ 新建 ▾' })).toBeDisabled();
+		expect(screen.getByRole('button', { name: '开启' })).toBeDisabled();
+		expect(screen.getByRole('button', { name: APP_COPY.zh.memory.edit })).toBeDisabled();
+		expect(screen.getByRole('button', { name: APP_COPY.zh.memory.delete })).toBeDisabled();
+		expect(screen.getByRole('button', { name: APP_COPY.zh.memory.mergeAll })).toBeDisabled();
+		expect(backend.upsertMemoryEntry).not.toHaveBeenCalled();
+		expect(backend.setMemoryAutoDreamIntent).not.toHaveBeenCalled();
+		expect(backend.startConsolidateMemorySimilarities).not.toHaveBeenCalled();
 	});
 });
 

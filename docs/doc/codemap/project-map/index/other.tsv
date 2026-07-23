@@ -31,7 +31,7 @@ cmd/super-dolphin-updater/process_guard_unix_test.go	cmd	other	go-test	10225	Sup
 cmd/super-dolphin-updater/process_guard_unix.go	cmd	other	go-source	9853	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,process,guard,unix,Super-Dolphin,install,and,detach,command
 cmd/super-dolphin-updater/process_guard_windows_test.go	cmd	other	go-test	2126	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,process,guard,windows,test,Super-Dolphin,install,and,detach,command
 cmd/super-dolphin-updater/process_guard_windows.go	cmd	other	go-source	6777	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,process,guard,windows,Super-Dolphin,install,and,detach,command
-go.mod	(root)	other	mod	3841	仓库根级配置、入口或说明文件	go,仓库根级配置,入口或说明文件
+go.mod	(root)	other	mod	3872	仓库根级配置、入口或说明文件	go,仓库根级配置,入口或说明文件
 internal/app/app_test.go	internal	other	go-test	9863	root Fx/app 装配、runner 与 graph closure	internal,app,test,root,Fx,装配,runner,与,graph,closure
 internal/app/app.go	internal	other	go-source	17358	root Fx/app 装配、runner 与 graph closure	internal,app,root,Fx,装配,runner,与,graph,closure
 internal/app/dashboard_adapter.go	internal	other	go-source	4491	root Fx/app 装配、runner 与 graph closure	internal,app,dashboard,adapter,root,Fx,装配,runner,与,graph,closure
@@ -47,7 +47,7 @@ internal/app/modules.go	internal	other	go-source	7547	root Fx/app 装配、runne
 internal/app/new_ui_hot_reload_scripts_test.go	internal	other	go-test	4599	root Fx/app 装配、runner 与 graph closure	internal,app,new,ui,hot,reload,scripts,test,root,Fx,装配,runner,与,graph,closure
 internal/app/new_ui_ps1_embed_dist_test.go	internal	other	go-test	2079	root Fx/app 装配、runner 与 graph closure	internal,app,new,ui,ps1,embed,dist,test,root,Fx,装配,runner,与,graph,closure
 internal/app/new_ui_scripts_helpers_test.go	internal	other	go-test	2412	root Fx/app 装配、runner 与 graph closure	internal,app,new,ui,scripts,helpers,test,root,Fx,装配,runner,与,graph,closure
-internal/app/new_ui_scripts_test.go	internal	other	go-test	27518	root Fx/app 装配、runner 与 graph closure	internal,app,new,ui,scripts,test,root,Fx,装配,runner,与,graph,closure
+internal/app/new_ui_scripts_test.go	internal	other	go-test	27745	root Fx/app 装配、runner 与 graph closure	internal,app,new,ui,scripts,test,root,Fx,装配,runner,与,graph,closure
 internal/app/new_ui_sqlite_scripts_test.go	internal	other	go-test	4678	root Fx/app 装配、runner 与 graph closure	internal,app,new,ui,sqlite,scripts,test,root,Fx,装配,runner,与,graph,closure
 internal/app/observability_trace_adapters.go	internal	other	go-source	3023	root Fx/app 装配、runner 与 graph closure	internal,app,observability,trace,adapters,root,Fx,装配,runner,与,graph,closure
 internal/app/orchestration_adapter_ports_test.go	internal	other	go-test	10127	root Fx/app 装配、runner 与 graph closure	internal,app,orchestration,adapter,ports,test,root,Fx,装配,runner,与,graph,closure
@@ -83,7 +83,7 @@ internal/app/storeadapter/dashboard/adapter.go	internal	other	go-source	19653	�
 internal/app/storeadapter/dashboard/module.go	internal	other	go-source	513	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,dashboard,module,业务,Store,到,窄端口的适配器
 internal/app/storeadapter/dashboard/port_external_test.go	internal	other	go-test	3229	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,dashboard,port,external,test,业务,Store,到,module,窄端口的适配器
 internal/app/storeadapter/datasourcev2/adapter_test.go	internal	other	go-test	19133	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,datasourcev2,adapter,test,业务,Store,到,module,窄端口的适配器
-internal/app/storeadapter/datasourcev2/adapter.go	internal	other	go-source	12158	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,datasourcev2,adapter,业务,Store,到,module,窄端口的适配器
+internal/app/storeadapter/datasourcev2/adapter.go	internal	other	go-source	12918	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,datasourcev2,adapter,业务,Store,到,module,窄端口的适配器
 internal/app/storeadapter/datasourcev2/module.go	internal	other	go-source	215	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,datasourcev2,module,业务,Store,到,窄端口的适配器
 internal/app/storeadapter/datasourcev2/port_external_test.go	internal	other	go-test	2190	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,datasourcev2,port,external,test,业务,Store,到,module,窄端口的适配器
 internal/app/storeadapter/feedback/adapter_test.go	internal	other	go-test	5955	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,feedback,adapter,test,业务,Store,到,module,窄端口的适配器
@@ -442,12 +442,12 @@ internal/testutil/storeadapter/assert_test.go	internal	other	go-test	4825	Intern
 internal/testutil/storeadapter/assert.go	internal	other	go-source	6337	Internal test helpers and golden fixtures	internal,testutil,storeadapter,assert,Internal,test,helpers,and,golden,fixtures
 internal/ui/wails/assets_test.go	internal	other	go-test	2951	Wails binding 与 UI RPC 桥接	internal,ui,wails,assets,test,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/assets.go	internal	other	go-source	4872	Wails binding 与 UI RPC 桥接	internal,ui,wails,assets,Wails,binding,与,UI,RPC,桥接
-internal/ui/wails/binding_id_test.go	internal	other	go-test	26372	Wails binding 与 UI RPC 桥接	internal,ui,wails,binding,id,test,Wails,与,UI,RPC,桥接
+internal/ui/wails/binding_id_test.go	internal	other	go-test	27190	Wails binding 与 UI RPC 桥接	internal,ui,wails,binding,id,test,Wails,与,UI,RPC,桥接
 internal/ui/wails/binding_method_ids_lexer_test.go	internal	other	go-test	5248	Wails binding 与 UI RPC 桥接	internal,ui,wails,binding,method,ids,lexer,test,Wails,与,UI,RPC,桥接
 internal/ui/wails/binding_native_test.go	internal	other	go-test	3823	Wails binding 与 UI RPC 桥接	internal,ui,wails,binding,native,test,Wails,与,UI,RPC,桥接
 internal/ui/wails/binding_native.go	internal	other	go-source	12998	Wails binding 与 UI RPC 桥接	internal,ui,wails,binding,native,Wails,与,UI,RPC,桥接
 internal/ui/wails/binding_test.go	internal	other	go-test	4618	Wails binding 与 UI RPC 桥接	internal,ui,wails,binding,test,Wails,与,UI,RPC,桥接
-internal/ui/wails/binding.go	internal	other	go-source	20327	Wails binding 与 UI RPC 桥接	internal,ui,wails,binding,Wails,与,UI,RPC,桥接
+internal/ui/wails/binding.go	internal	other	go-source	21433	Wails binding 与 UI RPC 桥接	internal,ui,wails,binding,Wails,与,UI,RPC,桥接
 internal/ui/wails/bridge_test.go	internal	other	go-test	2638	Wails binding 与 UI RPC 桥接	internal,ui,wails,bridge,test,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/bridge.go	internal	other	go-source	3717	Wails binding 与 UI RPC 桥接	internal,ui,wails,bridge,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/clipboard_assets_test.go	internal	other	go-test	6551	Wails binding 与 UI RPC 桥接	internal,ui,wails,clipboard,assets,test,Wails,binding,与,UI,RPC,桥接
@@ -477,8 +477,8 @@ internal/ui/wails/rpc_frontend_log_level_test.go	internal	other	go-test	4599	Wai
 internal/ui/wails/rpc_path_open_test.go	internal	other	go-test	3416	Wails binding 与 UI RPC 桥接	internal,ui,wails,rpc,path,open,test,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/rpc_save_text_file_test.go	internal	other	go-test	4111	Wails binding 与 UI RPC 桥接	internal,ui,wails,rpc,save,text,file,test,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/rpc_shared_file_open_test.go	internal	other	go-test	9418	Wails binding 与 UI RPC 桥接	internal,ui,wails,rpc,shared,file,open,test,Wails,binding,与,UI,RPC,桥接
-internal/ui/wails/rpc_test.go	internal	other	go-test	23685	Wails binding 与 UI RPC 桥接	internal,ui,wails,rpc,test,Wails,binding,与,UI,RPC,桥接
-internal/ui/wails/rpc.go	internal	other	go-source	20397	Wails binding 与 UI RPC 桥接	internal,ui,wails,rpc,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/rpc_test.go	internal	other	go-test	24796	Wails binding 与 UI RPC 桥接	internal,ui,wails,rpc,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/rpc.go	internal	other	go-source	20670	Wails binding 与 UI RPC 桥接	internal,ui,wails,rpc,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/runner.go	internal	other	go-source	1596	Wails binding 与 UI RPC 桥接	internal,ui,wails,runner,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/scope_catalog.go	internal	other	go-source	4033	Wails binding 与 UI RPC 桥接	internal,ui,wails,scope,catalog,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/sharedfile_open.go	internal	other	go-source	17139	Wails binding 与 UI RPC 桥接	internal,ui,wails,sharedfile,open,Wails,binding,与,UI,RPC,桥接
@@ -539,7 +539,7 @@ pkg/skillblocks/skillblocks.go	pkg	other	go-source	9983	可复用公共库	pkg,s
 pkg/skillmetrics/skillmetrics_test.go	pkg	other	go-test	2042	skill 指标公共库	pkg,skillmetrics,test,skill,指标公共库
 pkg/skillmetrics/skillmetrics.go	pkg	other	go-source	4655	skill 指标公共库	pkg,skillmetrics,skill,指标公共库
 run-new-ui-desktop.ps1	(root)	other	script	31756	仓库根级配置、入口或说明文件	run,new,ui,desktop,仓库根级配置,入口或说明文件
-run-new-ui-desktop.sh	(root)	other	script	31053	仓库根级配置、入口或说明文件	run,new,ui,desktop,仓库根级配置,入口或说明文件
+run-new-ui-desktop.sh	(root)	other	script	31923	仓库根级配置、入口或说明文件	run,new,ui,desktop,仓库根级配置,入口或说明文件
 scripts/activate_guard_env.sh	scripts	other	script	1148	工程自动化、测试守卫、代码地图与开发脚本	scripts,activate,guard,env,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ai_maintenance_gates_guard_test.go	scripts	other	go-test	5639	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,gates,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ai_maintenance_gates.sh	scripts	other	script	175	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,gates,工程自动化,测试守卫,代码地图与开发脚本

@@ -439,7 +439,7 @@ function guardedBackendResponse(method) {
     || method === RPC_METHODS.OBSERVABILITY_THREAD_RECENT
     || method === RPC_METHODS.OBSERVABILITY_TRACE_GET
   ) return { source: 'memory', events: [] };
-  if (method === RPC_METHODS.UI_MEMORY_GET) return { overview: {}, private: { entries: [] }, team: { entries: [] } };
+  if (method === RPC_METHODS.UI_MEMORY_GET) return { overview: { writeAvailable: true }, private: { entries: [] }, team: { entries: [] } };
   if (method === RPC_METHODS.UI_STATE_GET) return { threads: [], agents: [], token_usage: {} };
   if (method === RPC_METHODS.UI_SHARED_FILE_GET) return { path: 'reports/final.md', content: '' };
   if (method === RPC_METHODS.THREAD_MESSAGES) return { messages: [], total: 0, hasMore: false, nextBefore: '' };
@@ -506,7 +506,7 @@ function guardedBackendResponse(method) {
 
   it('rejects malformed registered dashboard response boundaries', async () => {
     const callAPI = vi.fn((method) => {
-      if (method === RPC_METHODS.UI_MEMORY_GET) return Promise.resolve({ private: null, team: { entries: [] } });
+      if (method === RPC_METHODS.UI_MEMORY_GET) return Promise.resolve({ overview: { writeAvailable: true }, private: null, team: { entries: [] } });
       if (method === RPC_METHODS.DASHBOARD_SHARED_FILES) return Promise.resolve({ files: null });
       if (method === RPC_METHODS.MODEL_PROVIDERS_LIST) return Promise.resolve(null);
       if (method === RPC_METHODS.OBSERVABILITY_TRACE_GET) return Promise.resolve(null);
@@ -523,7 +523,7 @@ function guardedBackendResponse(method) {
   it('rejects memory snapshot responses whose section entries are null at the facade boundary', async () => {
     // 生产端（internal/module/memory/ui_rpc.go loadUIMemoryScope）始终输出数组；
     // null entries 属于非法 wire 形状，facade 必须 fail-fast，不得归一为空列表。
-    const callAPI = vi.fn().mockResolvedValue({ overview: {}, private: { entries: null }, team: { entries: [] } });
+    const callAPI = vi.fn().mockResolvedValue({ overview: { writeAvailable: true }, private: { entries: null }, team: { entries: [] } });
     const api = createBackendApi({ callAPI });
 
     await expect(api.getMemorySnapshot({ cwd: '/repo/app' })).rejects.toThrow(/memory private entries must be an array/);
@@ -550,7 +550,7 @@ function guardedBackendResponse(method) {
     const document = {
       documentId: 101, sourcePath: 'C:\\data\\alpha.txt', fileName: 'alpha.txt',
       extension: '.txt', sizeBytes: 42, contentHash: 'hash', chunkCount: 1,
-      totalChars: 5, status: 'ready', errorMessage: '',
+      totalChars: 5, status: 'ready', errorMessage: '', qualityStatus: 'passed', qualityReason: '', extractorName: 'utf8-text', extractorVersion: 'v1', pageCount: 1, runeCount: 5, visibleRunes: 5, controlRunes: 0, nulRunes: 0, replacementRunes: 0, unmappedFonts: 0,
       createdAt: '2026-07-13T00:00:00Z', updatedAt: '2026-07-13T00:00:00Z',
     };
     const chunk = {
@@ -565,7 +565,6 @@ function guardedBackendResponse(method) {
       [RPC_METHODS.DATASOURCE_V2_UPDATE]: document,
     }[method] ?? { ok: true }));
     const api = createBackendApi({ callAPI });
-
     await api.createDatasourceDocument({ source_path: ' C:\\data\\alpha.txt ' });
     await api.listDatasourceDocuments({ keyword: 'alpha', limit: '25' });
     await api.getDatasourceDocument({ document_id: '101' });
@@ -578,7 +577,6 @@ function guardedBackendResponse(method) {
       sizeBytes: '42',
     });
     await api.deleteDatasourceDocument({ id: 101 });
-
     expect(callAPI).toHaveBeenNthCalledWith(1, RPC_METHODS.DATASOURCE_V2_CREATE, {
       sourcePath: 'C:\\data\\alpha.txt',
     });
@@ -619,11 +617,9 @@ function guardedBackendResponse(method) {
   });
 
   it('maps user-selected datasource imports to the local file RPC', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const callAPI = vi.fn().mockResolvedValue({ documentId: 2, sourcePath: 'D:\\new\\fj.txt', fileName: 'fj.txt', extension: '.txt', sizeBytes: 2, contentHash: 'sha256:new', chunkCount: 1, totalChars: 2, status: 'ready', qualityStatus: 'passed', qualityReason: '', extractorName: 'utf8-text', extractorVersion: 'v1', pageCount: 1, runeCount: 2, visibleRunes: 2, controlRunes: 0, nulRunes: 0, replacementRunes: 0, unmappedFonts: 0 });
     const api = createBackendApi({ callAPI });
-
     await api.importDatasourceLocalFile({ source_path: ' D:\\new\\fj.txt ', picker_token: ' picker-token ' });
-
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.DATASOURCE_V2_IMPORT_LOCAL_FILE, {
       sourcePath: 'D:\\new\\fj.txt',
       pickerToken: 'picker-token',

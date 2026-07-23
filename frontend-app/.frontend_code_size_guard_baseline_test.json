@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "updatedAt": "2026-07-22T08:30:57Z"
+    "updatedAt": "2026-07-23T10:43:09Z"
   },
   "files": {
     "src/App.test.jsx": {
@@ -19,7 +19,7 @@
       ]
     },
     "src/entities/client/model/useClientStore.test.js": {
-      "lines": 8745,
+      "lines": 8736,
       "maxFuncLen": 41,
       "maxNesting": 6,
       "maxParams": 3,

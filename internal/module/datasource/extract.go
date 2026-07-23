@@ -24,7 +24,7 @@ func extractDatasourceText(ctx context.Context, sourcePath, ext string) (string,
 	ext = strings.ToLower(strings.TrimSpace(ext))
 	switch {
 	case ext == ".pdf":
-		text, err = extractPDFText(sourcePath)
+		text, err = extractPDFText(ctx, sourcePath)
 	case isTextUploadExtension(ext):
 		text, err = extractTextFile(sourcePath)
 	default:

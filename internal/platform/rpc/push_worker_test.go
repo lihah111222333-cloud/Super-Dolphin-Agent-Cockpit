@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"errors"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -148,6 +149,50 @@ func TestRPCPushWorkerEnqueueAfterStopRejectsWithoutMutation(t *testing.T) {
 	worker.mu.Unlock()
 	if queueLen != 0 {
 		t.Errorf("queue length after post-Stop enqueue = %d, want 0", queueLen)
+	}
+}
+
+func TestRPCPushWorkerPreservesAssistantCompletionBeforeTerminalUnderOverflow(t *testing.T) {
+	broadcaster := &fakePushBroadcaster{}
+	bridge := &PushBridge{logger: pkglogger.Get()}
+	worker := newPushNotificationWorker(broadcaster, bridge, pkglogger.Get())
+
+	for index := 0; index < pushWorkerPendingLimit+2; index++ {
+		worker.Enqueue([]eventsurface.Notification{{
+			Method:  eventsurface.MethodAgentMessageDelta,
+			Payload: map[string]any{"threadId": "thread-1", "turnId": "turn-1", "delta": "x"},
+		}})
+	}
+	worker.Enqueue([]eventsurface.Notification{{
+		Method: eventsurface.MethodItemCompleted,
+		Payload: map[string]any{
+			"threadId": "thread-1",
+			"turnId":   "turn-1",
+			"item":     map[string]any{"id": "assistant-item-1", "type": "assistant", "text": "final"},
+		},
+	}})
+	worker.Enqueue([]eventsurface.Notification{{
+		Method:  eventsurface.MethodTurnTerminal,
+		Payload: map[string]any{"threadId": "thread-1", "turnId": "turn-1", "outcome": "success"},
+	}})
+
+	worker.Start()
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = worker.Stop(ctx)
+	}()
+
+	waitForNotifySent(t, worker, 4)
+	calls := broadcaster.observed()
+	var critical []string
+	for _, call := range calls {
+		if call.method == eventsurface.MethodItemCompleted || call.method == eventsurface.MethodTurnTerminal {
+			critical = append(critical, call.method)
+		}
+	}
+	if !reflect.DeepEqual(critical, []string{eventsurface.MethodItemCompleted, eventsurface.MethodTurnTerminal}) {
+		t.Fatalf("critical methods = %#v, want assistant completion then terminal; calls=%#v", critical, calls)
 	}
 }
 

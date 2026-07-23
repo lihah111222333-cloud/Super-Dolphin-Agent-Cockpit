@@ -565,13 +565,14 @@ func dynamicToolsResumeResult(state *dynamicToolsResumeState, method string, par
 	switch method {
 	case "model/list":
 		result = validCodexModelListMap()
-	case "thread/config/get":
-		result = map[string]any{"effective": map[string]any{"approvals": "never"}}
 	case "thread/start":
 		state.markStart(params)
 		result = map[string]any{"thread": map[string]any{"id": "provider-thread-1"}}
 	case "thread/resume":
-		return map[string]any{"thread": map[string]any{"id": "provider-thread-1"}}, state.markResume(params)
+		return map[string]any{
+			"thread":         map[string]any{"id": "provider-thread-1"},
+			"approvalPolicy": "never",
+		}, state.markResume(params)
 	}
 	return result, false
 }

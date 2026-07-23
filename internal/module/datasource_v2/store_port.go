@@ -6,6 +6,15 @@ import (
 	"time"
 )
 
+const (
+	// QualityUnknown 表示迁移前数据尚未经过当前抽取与质量门禁。
+	QualityUnknown = "unknown"
+	// QualityPassed 表示正文已通过当前抽取与质量门禁。
+	QualityPassed = "passed"
+	// QualityFailed 表示正文抽取或质量门禁失败。
+	QualityFailed = "failed"
+)
+
 // Store 是 datasource_v2 模块访问持久化能力的窄端口。
 // 具体 sqlc/store 实现由 App 组合边界适配，业务文件不直接依赖 store 包。
 type Store interface {
@@ -75,26 +84,48 @@ type InsertChunkParams struct {
 
 // MarkReadyParams 在导入事务末尾推进文档状态。
 type MarkReadyParams struct {
-	DocumentID  int64
-	ContentHash string
-	ChunkCount  int32
-	TotalChars  int32
+	DocumentID       int64
+	ContentHash      string
+	ChunkCount       int32
+	TotalChars       int32
+	QualityStatus    string
+	QualityReason    string
+	ExtractorName    string
+	ExtractorVersion string
+	PageCount        int32
+	RuneCount        int64
+	VisibleRunes     int64
+	ControlRunes     int64
+	NULRunes         int64
+	ReplacementRunes int64
+	UnmappedFonts    int64
 }
 
 // Document 是 datasource_v2 模块消费的稳定文档视图。
 type Document struct {
-	ID           int64
-	SourcePath   string
-	FileName     string
-	Extension    string
-	SizeBytes    int64
-	ContentHash  string
-	ChunkCount   int32
-	TotalChars   int32
-	Status       string
-	ErrorMessage string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID               int64
+	SourcePath       string
+	FileName         string
+	Extension        string
+	SizeBytes        int64
+	ContentHash      string
+	ChunkCount       int32
+	TotalChars       int32
+	Status           string
+	ErrorMessage     string
+	QualityStatus    string
+	QualityReason    string
+	ExtractorName    string
+	ExtractorVersion string
+	PageCount        int32
+	RuneCount        int64
+	VisibleRunes     int64
+	ControlRunes     int64
+	NULRunes         int64
+	ReplacementRunes int64
+	UnmappedFonts    int64
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 // TextChunk 是 datasource_v2 模块消费的稳定文本分块视图。

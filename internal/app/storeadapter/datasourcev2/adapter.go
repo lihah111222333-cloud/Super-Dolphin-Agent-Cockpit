@@ -285,10 +285,12 @@ func toStoreDatasourceV2InsertChunkParams(params datasourcev2.InsertChunkParams)
 
 func toStoreDatasourceV2MarkReadyParams(params datasourcev2.MarkReadyParams) datasourcev2store.MarkReadyParams {
 	return datasourcev2store.MarkReadyParams{
-		DocumentID:  params.DocumentID,
-		ContentHash: params.ContentHash,
-		ChunkCount:  params.ChunkCount,
-		TotalChars:  params.TotalChars,
+		DocumentID: params.DocumentID, ContentHash: params.ContentHash, ChunkCount: params.ChunkCount, TotalChars: params.TotalChars,
+		QualityStatus: params.QualityStatus, QualityReason: params.QualityReason,
+		ExtractorName: params.ExtractorName, ExtractorVersion: params.ExtractorVersion,
+		PageCount: params.PageCount, RuneCount: params.RuneCount, VisibleRunes: params.VisibleRunes,
+		ControlRunes: params.ControlRunes, NULRunes: params.NULRunes,
+		ReplacementRunes: params.ReplacementRunes, UnmappedFonts: params.UnmappedFonts,
 	}
 }
 
@@ -302,18 +304,23 @@ func fromStoreDatasourceV2Documents(docs []datasourcev2store.Document) []datasou
 
 func fromStoreDatasourceV2Document(doc datasourcev2store.Document) datasourcev2.Document {
 	return datasourcev2.Document{
-		ID:           doc.ID,
-		SourcePath:   doc.SourcePath,
-		FileName:     doc.FileName,
-		Extension:    doc.Extension,
-		SizeBytes:    doc.SizeBytes,
-		ContentHash:  doc.ContentHash,
-		ChunkCount:   doc.ChunkCount,
-		TotalChars:   doc.TotalChars,
-		Status:       doc.Status,
-		ErrorMessage: doc.ErrorMessage,
-		CreatedAt:    doc.CreatedAt,
-		UpdatedAt:    doc.UpdatedAt,
+		ID:            doc.ID,
+		SourcePath:    doc.SourcePath,
+		FileName:      doc.FileName,
+		Extension:     doc.Extension,
+		SizeBytes:     doc.SizeBytes,
+		ContentHash:   doc.ContentHash,
+		ChunkCount:    doc.ChunkCount,
+		TotalChars:    doc.TotalChars,
+		Status:        doc.Status,
+		ErrorMessage:  doc.ErrorMessage,
+		QualityStatus: doc.QualityStatus, QualityReason: doc.QualityReason,
+		ExtractorName: doc.ExtractorName, ExtractorVersion: doc.ExtractorVersion,
+		PageCount: doc.PageCount, RuneCount: doc.RuneCount, VisibleRunes: doc.VisibleRunes,
+		ControlRunes: doc.ControlRunes, NULRunes: doc.NULRunes,
+		ReplacementRunes: doc.ReplacementRunes, UnmappedFonts: doc.UnmappedFonts,
+		CreatedAt: doc.CreatedAt,
+		UpdatedAt: doc.UpdatedAt,
 	}
 }
 

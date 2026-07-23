@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
@@ -36,6 +37,55 @@ const (
 
 type processGuardAttachProbe func(processGuardAttachStage) error
 
+type filesystemWorkerStartGate struct {
+	decision     chan error
+	decisionOnce sync.Once
+}
+
+type filesystemWorkerGatedReader struct {
+	reader io.Reader
+	gate   *filesystemWorkerStartGate
+	once   sync.Once
+	err    error
+}
+
+// newFilesystemWorkerStartGate 阻止 worker 在父侧完成进程边界绑定前读取任何请求字节。
+func newFilesystemWorkerStartGate(reader io.Reader) (*filesystemWorkerStartGate, io.Reader) {
+	gate := &filesystemWorkerStartGate{decision: make(chan error, 1)}
+	return gate, &filesystemWorkerGatedReader{reader: reader, gate: gate}
+}
+
+// release 仅在 stable identity 与进程树边界绑定成功后放行请求。
+func (gate *filesystemWorkerStartGate) release() {
+	gate.decisionOnce.Do(func() { gate.decision <- nil })
+}
+
+// abort 关闭失败启动的请求入口，确保 worker 不会执行请求。
+func (gate *filesystemWorkerStartGate) abort(err error) {
+	if err == nil {
+		err = errors.New("schema filesystem worker start gate aborted")
+	}
+	gate.decisionOnce.Do(func() { gate.decision <- err })
+}
+
+// Read 在启动裁决成功前阻塞，失败时不向 worker 交付任何请求字节。
+func (reader *filesystemWorkerGatedReader) Read(payload []byte) (int, error) {
+	reader.once.Do(func() { reader.err = <-reader.gate.decision })
+	if reader.err != nil {
+		return 0, reader.err
+	}
+	return reader.reader.Read(payload)
+}
+
+// gatedFilesystemWorkerRequest 合并固定头和可选 payload，并返回父侧控制的启动门。
+func gatedFilesystemWorkerRequest(header []byte, payload io.Reader) (*filesystemWorkerStartGate, io.Reader) {
+	requestStream := io.Reader(bytes.NewReader(header))
+	if payload != nil {
+		requestStream = io.MultiReader(requestStream, payload)
+	}
+	return newFilesystemWorkerStartGate(requestStream)
+}
+
 func verifyHelperPackageInWorker(ctx context.Context, config ClientConfig) ([]byte, error) {
 	request := filesystemWorkerRequest{
 		Version: filesystemWorkerVersion, Operation: filesystemWorkerVerify,
@@ -52,10 +102,10 @@ func (client *Client) executeInFilesystemWorker(
 	operationCtx context.Context,
 	encodedRequest []byte,
 	capacity *helperCapacityTracker,
-) ([]byte, error) {
+) ([]byte, filesystemSnapshotIdentity, error) {
 	snapshot, err := newFilesystemSnapshotIdentity(client.helperGOOS, client.ownerIdentity)
 	if err != nil {
-		return nil, newDiagnostic(CodeProcessStartFailed, "create schema snapshot cleanup identity", err)
+		return nil, filesystemSnapshotIdentity{}, newDiagnostic(CodeProcessStartFailed, "create schema snapshot cleanup identity", err)
 	}
 	request := filesystemWorkerRequest{
 		Version: filesystemWorkerVersion, Operation: filesystemWorkerExecute,
@@ -64,10 +114,11 @@ func (client *Client) executeInFilesystemWorker(
 	}
 	setFilesystemWorkerDeadline(operationCtx, &request)
 	payload := io.MultiReader(bytes.NewReader(client.helperImage), bytes.NewReader(encodedRequest))
-	return runFilesystemWorker(
+	payloadResult, runErr := runFilesystemWorker(
 		parentCtx, operationCtx, client.filesystemWorkerPath, client.workerCommand, client.workerEnv,
 		request, payload, maxStdoutBytes, capacity,
 	)
+	return payloadResult, snapshot, runErr
 }
 
 func setFilesystemWorkerDeadline(ctx context.Context, request *filesystemWorkerRequest) {
@@ -131,11 +182,8 @@ func runFilesystemWorkerWithAttacher(
 		)
 	}
 	cmd.Env = filesystemWorkerProcessEnvironment(cmd.Env, extraEnv)
-	if payload == nil {
-		cmd.Stdin = bytes.NewReader(header)
-	} else {
-		cmd.Stdin = io.MultiReader(bytes.NewReader(header), payload)
-	}
+	startGate, gatedRequestStream := gatedFilesystemWorkerRequest(header, payload)
+	cmd.Stdin = gatedRequestStream
 	stdout := &boundedBuffer{limit: filesystemWorkerMaxHeaderBytes + maxPayload}
 	stderr := &boundedBuffer{limit: maxStderrBytes}
 	cmd.Stdout = stdout
@@ -147,16 +195,19 @@ func runFilesystemWorkerWithAttacher(
 		)
 	}
 	if err := cmd.Start(); err != nil {
+		startGate.abort(err)
 		closeErr := closeProcessGuard(guard)
 		return nil, TransientInitializationError(
 			newDiagnostic(CodeProcessStartFailed, "start schema filesystem worker", errors.Join(err, closeErr)),
 		)
 	}
 	if err := attacher(cmd, guard); err != nil {
+		startGate.abort(err)
 		return nil, TransientInitializationError(
 			cleanupFilesystemWorkerAfterAttachFailure(workerPath, command, request, cmd, guard, err, capacity),
 		)
 	}
+	startGate.release()
 	result, runErr := waitFilesystemWorker(
 		parentCtx,
 		operationCtx,
@@ -168,7 +219,7 @@ func runFilesystemWorkerWithAttacher(
 		maxPayload,
 		capacity,
 	)
-	if request.Operation != filesystemWorkerExecute {
+	if request.Operation != filesystemWorkerExecute || runErr == nil {
 		return result, runErr
 	}
 	cleanupErr := cleanupFilesystemSnapshotWithWorker(
@@ -193,7 +244,7 @@ func cleanupFilesystemWorkerAfterAttachFailure(
 	attachErr error,
 	capacity *helperCapacityTracker,
 ) error {
-	processErr := cleanupUnattachedProcessTree(cmd, guard, attachErr)
+	processErr := cleanupUnattachedProcessTreeWithCapacity(cmd, guard, attachErr, capacity)
 	if request.Operation != filesystemWorkerExecute || errorTreeContainsCode(processErr, CodeReapFailed) {
 		return processErr
 	}

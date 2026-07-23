@@ -172,7 +172,7 @@ function preserveLiveBusyStatusForSnapshotThread(state, snapshotThread) {
 
 function snapshotThreadList(payload, state, options, maps) {
   const nextThreads = [...normalizeSnapshotThreadList(payload, state, options, maps)];
-  if (!options.preserveActiveThreadId) return nextThreads;
+  if (!options.preserveActiveThreadId || options.preserveActiveThreadRecord === false) return nextThreads;
   for (const thread of state.threads) {
     if (shouldPreserveSnapshotThread(state, thread, nextThreads)) nextThreads.push(thread);
   }

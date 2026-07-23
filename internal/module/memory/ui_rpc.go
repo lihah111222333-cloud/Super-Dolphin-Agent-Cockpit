@@ -23,7 +23,13 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/similarity"
 )
 
-const uiMemoryPreviewLimit = 320
+const (
+	uiMemoryPreviewLimit         = 320
+	memoryUnavailableGitRequired = "git_repository_required"
+)
+
+// ErrGitRepositoryRequired 表示 Git 明确确认当前目录不属于任何仓库。
+var ErrGitRepositoryRequired = errors.New("git repository required")
 
 // uiMemoryGetParams 是 ui/memory/get 的 JSON-RPC 入参；CWD 为空时使用 memory 配置中的项目根。
 type uiMemoryGetParams struct {
@@ -44,6 +50,8 @@ type UIMemoryOverview struct {
 	AutoDreamEnabled     bool                 `json:"autoDreamEnabled"`
 	AutoDreamIntent      *bool                `json:"autoDreamIntent,omitempty"`
 	AutoDreamIntentError string               `json:"autoDreamIntentError,omitempty"`
+	WriteAvailable       bool                 `json:"writeAvailable"`
+	UnavailableReason    string               `json:"unavailableReason,omitempty"`
 	Scan                 UIMemoryScanMetadata `json:"scan"`
 	RootDir              string               `json:"rootDir,omitempty"`
 	ProjectRoot          string               `json:"projectRoot,omitempty"`
@@ -135,9 +143,11 @@ func buildUIMemorySnapshot(ctx context.Context, svc Service, logger *slog.Logger
 		projectRoot = strings.TrimSpace(cfg.ProjectRoot)
 	}
 	buildCtx := contract.BuildCtx{CWD: projectRoot}
-	if gitRoot, err := FindCanonicalGitRoot(ctx, projectRoot); err == nil && strings.TrimSpace(gitRoot) != "" {
-		buildCtx.GitRoot = strings.TrimSpace(gitRoot)
+	writeAvailable, unavailableReason, gitRoot, err := resolveUIMemoryGitCapability(ctx, projectRoot)
+	if err != nil {
+		return UIMemorySnapshot{}, err
 	}
+	buildCtx.GitRoot = gitRoot
 	gate := ResolveMemoryGate(buildCtx, &cfg)
 	intent, intentErr := ReadAutoDreamIntent(cfg.RootDir)
 	intentError := autoDreamIntentErrorSummary(intentErr)
@@ -173,6 +183,8 @@ func buildUIMemorySnapshot(ctx context.Context, svc Service, logger *slog.Logger
 			AutoDreamEnabled:     cfg.Enabled && cfg.ExtractOnStop && gate.AutoEnabled,
 			AutoDreamIntent:      intent,
 			AutoDreamIntentError: intentError,
+			WriteAvailable:       writeAvailable,
+			UnavailableReason:    unavailableReason,
 			Scan:                 scanMetadata,
 			RootDir:              strings.TrimSpace(cfg.RootDir),
 			ProjectRoot:          projectRoot,
@@ -184,6 +196,23 @@ func buildUIMemorySnapshot(ctx context.Context, svc Service, logger *slog.Logger
 		Private: privateSection,
 		Team:    teamSection,
 	}, nil
+}
+
+func resolveUIMemoryGitCapability(ctx context.Context, projectRoot string) (bool, string, string, error) {
+	// UI 快照即使在扫描上下文已取消时，也要返回稳定的 capability 与
+	// memory_scan_canceled 元数据；Git 探测自身仍受 FindCanonicalGitRoot 的超时约束。
+	gitRoot, err := FindCanonicalGitRoot(context.WithoutCancel(ctx), projectRoot)
+	if errors.Is(err, ErrGitRepositoryRequired) {
+		return false, memoryUnavailableGitRequired, "", nil
+	}
+	if err != nil {
+		return false, "", "", fmt.Errorf("resolve memory Git capability: %w", err)
+	}
+	gitRoot = strings.TrimSpace(gitRoot)
+	if gitRoot == "" {
+		return false, "", "", errors.New("resolve memory Git capability: empty Git root")
+	}
+	return true, "", gitRoot, nil
 }
 
 func uiAutoDreamHealthFromSnapshot(snapshot DreamTaskSnapshot) *UIAutoDreamHealth {

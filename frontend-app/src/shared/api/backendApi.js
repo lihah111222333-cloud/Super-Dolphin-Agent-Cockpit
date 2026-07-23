@@ -1,7 +1,7 @@
 // @ts-check
 
 import { createBackendApi } from './backend/backendApiFactoryThread.js';
-import { registerBridgeLogStore, sendFrontendLogBatch, emitFrontendTraceEvent } from './wailsBridge.js';
+import { registerBridgeLogStore, reportFrontendReadiness, sendFrontendLogBatch, emitFrontendTraceEvent } from './wailsBridge.js';
 
 export { RPC_METHODS } from './backend/backendRpcMethods.js';
 export { createBackendApi };
@@ -89,5 +89,5 @@ export {
   onFilesDropped, onRuntimeReconnect, readDroppedTextFiles, saveClipboardImage,
   saveTextFile, openSharedFile, previewSharedFile, beginTextClipboardWrite,
   copyTextToClipboard, selectFiles, selectDatasourceImportFile, selectProjectDir,
-  selectProjectDirs, registerBridgeLogStore, sendFrontendLogBatch, emitFrontendTraceEvent,
+  selectProjectDirs, registerBridgeLogStore, reportFrontendReadiness, sendFrontendLogBatch, emitFrontendTraceEvent,
 };

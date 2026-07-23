@@ -3408,7 +3408,6 @@
         "internal/provider/codexapp.*driver.resolveResumeOptionsWithPolicy",
         "internal/provider/codexapp.*driver.resolveSessionOptions",
         "internal/provider/codexapp.*driver.resolveStartPoolIdentity",
-        "internal/provider/codexapp.*driver.restoreApprovalPolicy",
         "internal/provider/codexapp.*driver.resumeSession",
         "internal/provider/codexapp.*driver.startAssemblyInstructions",
         "internal/provider/codexapp.*driver.startDynamicSession",
@@ -3453,8 +3452,6 @@
         "internal/provider/codexapp.*recoveryManager.CheckHealth",
         "internal/provider/codexapp.*recoveryManager.Reconnect",
         "internal/provider/codexapp.*rolloutReader.ReadHistory",
-        "internal/provider/codexapp.*sanitizedThreadConfigGetError.Error",
-        "internal/provider/codexapp.*sanitizedThreadConfigGetError.Unwrap",
         "internal/provider/codexapp.*session.AllowedModels",
         "internal/provider/codexapp.*session.Capabilities",
         "internal/provider/codexapp.*session.Close",
@@ -3728,6 +3725,7 @@
         "internal/provider/codexapp.approvalParseFailedDecision",
         "internal/provider/codexapp.approvalRequestFingerprint",
         "internal/provider/codexapp.assistantMessageContentText",
+        "internal/provider/codexapp.assistantMessageOwnsTurnTerminal",
         "internal/provider/codexapp.assistantMessagePayload",
         "internal/provider/codexapp.assistantMessageText",
         "internal/provider/codexapp.attachProcessGuard",
@@ -3799,6 +3797,7 @@
         "internal/provider/codexapp.codexManifestVerifier",
         "internal/provider/codexapp.codexManifestVerifier.IsExecutable",
         "internal/provider/codexapp.codexManifestVerifier.ValidCLI",
+        "internal/provider/codexapp.codexMessageLatencyMilestone",
         "internal/provider/codexapp.codexModelResolution",
         "internal/provider/codexapp.codexModelResolver",
         "internal/provider/codexapp.codexModelResolver.Resolve",
@@ -3828,10 +3827,13 @@
         "internal/provider/codexapp.codexSandboxPolicyWireJSON",
         "internal/provider/codexapp.codexSandboxWireJSON",
         "internal/provider/codexapp.codexSupportedPlatformValue",
+        "internal/provider/codexapp.codexTaskLatencyMilestone",
         "internal/provider/codexapp.codexTerminalTimestampInvalid",
         "internal/provider/codexapp.codexTerminationPayload",
         "internal/provider/codexapp.codexTimestampProviderError",
         "internal/provider/codexapp.codexToolItemPayload",
+        "internal/provider/codexapp.codexTurnLatencyMilestone",
+        "internal/provider/codexapp.codexTurnLatencyMilestoneFor",
         "internal/provider/codexapp.codexWheelReleasePlatform",
         "internal/provider/codexapp.collectRolloutMetadata",
         "internal/provider/codexapp.commandLeaf",
@@ -3847,8 +3849,11 @@
         "internal/provider/codexapp.decodeAnyPayload",
         "internal/provider/codexapp.decodeCodexRolloutFrame",
         "internal/provider/codexapp.decodeEventPayload",
+        "internal/provider/codexapp.decodeGranularResumeApprovalPolicy",
         "internal/provider/codexapp.decodeRawEventPayload",
         "internal/provider/codexapp.decodeRawEventPayloadBytes",
+        "internal/provider/codexapp.decodeResumeApprovalPolicy",
+        "internal/provider/codexapp.decodeResumeResult",
         "internal/provider/codexapp.decodeStartResult",
         "internal/provider/codexapp.decodeThreadID",
         "internal/provider/codexapp.decodeThreadRPCResult",
@@ -3896,6 +3901,7 @@
         "internal/provider/codexapp.findManagedCodexBinary",
         "internal/provider/codexapp.findPeerBinary",
         "internal/provider/codexapp.findRolloutPath",
+        "internal/provider/codexapp.firstPayloadTurnID",
         "internal/provider/codexapp.forceCompleteParams",
         "internal/provider/codexapp.forceCompleteTargetNotFoundError",
         "internal/provider/codexapp.forceCompleteTargetNotFoundError.Error",
@@ -3904,6 +3910,7 @@
         "internal/provider/codexapp.generateApprovalSessionScope",
         "internal/provider/codexapp.hasAnyConfigKey",
         "internal/provider/codexapp.hasAnyKey",
+        "internal/provider/codexapp.hasCodexTimestampField",
         "internal/provider/codexapp.hasMethod",
         "internal/provider/codexapp.hasStartCodexIdentityConfig",
         "internal/provider/codexapp.imageTurnInput",
@@ -3929,6 +3936,7 @@
         "internal/provider/codexapp.isAssistantMessageItem",
         "internal/provider/codexapp.isCodexAppServerListenArgs",
         "internal/provider/codexapp.isCodexFunctionCallItem",
+        "internal/provider/codexapp.isCodexLatencyMessageItem",
         "internal/provider/codexapp.isCodexReleaseTagRune",
         "internal/provider/codexapp.isCodexRolloutToolEventType",
         "internal/provider/codexapp.isExecutable",
@@ -3967,6 +3975,7 @@
         "internal/provider/codexapp.localSpawnListenURL",
         "internal/provider/codexapp.localSpawnNativeLSPFailClosedArgs",
         "internal/provider/codexapp.logCodexMCPStartupStatus",
+        "internal/provider/codexapp.logCodexTurnStartLatency",
         "internal/provider/codexapp.logThreadStartIdentityTrace",
         "internal/provider/codexapp.looksLikeToolCall",
         "internal/provider/codexapp.lookupEnvValue",
@@ -4021,6 +4030,8 @@
         "internal/provider/codexapp.normalizeTrustedWorkspaceRoot",
         "internal/provider/codexapp.normalizedExplicitProviderHome",
         "internal/provider/codexapp.normalizedTurnOutputStream",
+        "internal/provider/codexapp.observeCodexTurnLatencyMilestone",
+        "internal/provider/codexapp.observeMissingCodexLifecycleTimestamp",
         "internal/provider/codexapp.parseListenURLLine",
         "internal/provider/codexapp.parsePortFromURL",
         "internal/provider/codexapp.parseProcessIDs",
@@ -4123,6 +4134,7 @@
         "internal/provider/codexapp.resumeCodexIdentityConfig",
         "internal/provider/codexapp.resumeIdentity",
         "internal/provider/codexapp.resumeRemoteThread",
+        "internal/provider/codexapp.resumeResult",
         "internal/provider/codexapp.retryPolicyForTransportMethod",
         "internal/provider/codexapp.rolloutContentItem",
         "internal/provider/codexapp.rolloutLine",
@@ -4139,7 +4151,6 @@
         "internal/provider/codexapp.sandboxStringSliceField",
         "internal/provider/codexapp.sanitizeCodexReleaseTag",
         "internal/provider/codexapp.sanitizeProviderPayload",
-        "internal/provider/codexapp.sanitizedThreadConfigGetError",
         "internal/provider/codexapp.selectCodexModel",
         "internal/provider/codexapp.selectCodexProviderHome",
         "internal/provider/codexapp.selectCodexReleaseAsset",
@@ -4175,7 +4186,6 @@
         "internal/provider/codexapp.stripOneLeadingSystemNoise",
         "internal/provider/codexapp.stripTagBlock",
         "internal/provider/codexapp.textTurnInput",
-        "internal/provider/codexapp.threadConfigGetResponse",
         "internal/provider/codexapp.threadRPCResult",
         "internal/provider/codexapp.threadResumeParams",
         "internal/provider/codexapp.threadStartModelResolutionSource",
@@ -4600,6 +4610,7 @@
         "internal/provider/unified.*Client.StartSession",
         "internal/provider/unified.*Client.open",
         "internal/provider/unified.*Client.recordProviderTrace",
+        "internal/provider/unified.*Client.runOpen",
         "internal/provider/unified.*Client.wrapSession",
         "internal/provider/unified.*EventDispatcher.Dispatch",
         "internal/provider/unified.*EventDispatcher.Publish",
@@ -4618,10 +4629,16 @@
         "internal/provider/unified.*SessionManager.RemoveCurrent",
         "internal/provider/unified.*SessionManager.SessionGeneration",
         "internal/provider/unified.*SessionManager.closeRemovedSession",
+        "internal/provider/unified.*SessionManager.currentResume",
         "internal/provider/unified.*SessionManager.drain",
+        "internal/provider/unified.*SessionManager.finishCoordinatedResume",
         "internal/provider/unified.*SessionManager.nextGenerationLocked",
         "internal/provider/unified.*SessionManager.register",
+        "internal/provider/unified.*SessionManager.registerWithIdentity",
         "internal/provider/unified.*SessionManager.removeEntry",
+        "internal/provider/unified.*SessionManager.resumeSession",
+        "internal/provider/unified.*SessionManager.runCoordinatedResume",
+        "internal/provider/unified.*SessionManager.waitPendingResume",
         "internal/provider/unified.*dreamExecutor.ExecuteDream",
         "internal/provider/unified.*dreamExecutor.ExecuteDreamWithOptions",
         "internal/provider/unified.*dreamExecutor.preflight",
@@ -4675,7 +4692,6 @@
         "internal/provider/unified.autoResumeCodexIdentityFields",
         "internal/provider/unified.autoResumePlan",
         "internal/provider/unified.autoResumePublicThreadID",
-        "internal/provider/unified.autoResumeSingleflightKey",
         "internal/provider/unified.autoResumeThreadState",
         "internal/provider/unified.bindingWithCodexIdentity",
         "internal/provider/unified.boolValue",
@@ -4683,12 +4699,14 @@
         "internal/provider/unified.clientParams",
         "internal/provider/unified.cloneAutoResumePromptBoundary",
         "internal/provider/unified.cloneAutoResumePromptSnapshot",
+        "internal/provider/unified.closePendingSignal",
         "internal/provider/unified.closeSession",
         "internal/provider/unified.commonAgentSessionHeader",
         "internal/provider/unified.commonTurnHeader",
         "internal/provider/unified.completeAutoResumeCodexIdentity",
         "internal/provider/unified.configString",
         "internal/provider/unified.contextWindowValue",
+        "internal/provider/unified.coordinatedResumeResult",
         "internal/provider/unified.dreamExecutor",
         "internal/provider/unified.dreamExecutorConfigError",
         "internal/provider/unified.dreamExecutorConfigError.ExecuteDream",
@@ -4736,6 +4754,7 @@
         "internal/provider/unified.rejectAutoResumeLifecycle",
         "internal/provider/unified.resolveAutoResumeSessionIdentity",
         "internal/provider/unified.resolveProviderOrder",
+        "internal/provider/unified.resumeCoordinationIdentity",
         "internal/provider/unified.resumeRequestCodexIdentity",
         "internal/provider/unified.resumeSessionIdentityResolver",
         "internal/provider/unified.resumeSessionIdentityResolver.ResolveResumeSessionIdentity",
@@ -8148,7 +8167,6 @@
         "internal/provider/codexapp.*driver.resolveResumeOptionsWithPolicy",
         "internal/provider/codexapp.*driver.resolveSessionOptions",
         "internal/provider/codexapp.*driver.resolveStartPoolIdentity",
-        "internal/provider/codexapp.*driver.restoreApprovalPolicy",
         "internal/provider/codexapp.*driver.resumeSession",
         "internal/provider/codexapp.*driver.startAssemblyInstructions",
         "internal/provider/codexapp.*driver.startDynamicSession",
@@ -8193,8 +8211,6 @@
         "internal/provider/codexapp.*recoveryManager.CheckHealth",
         "internal/provider/codexapp.*recoveryManager.Reconnect",
         "internal/provider/codexapp.*rolloutReader.ReadHistory",
-        "internal/provider/codexapp.*sanitizedThreadConfigGetError.Error",
-        "internal/provider/codexapp.*sanitizedThreadConfigGetError.Unwrap",
         "internal/provider/codexapp.*session.AllowedModels",
         "internal/provider/codexapp.*session.Capabilities",
         "internal/provider/codexapp.*session.Close",
@@ -8468,6 +8484,7 @@
         "internal/provider/codexapp.approvalParseFailedDecision",
         "internal/provider/codexapp.approvalRequestFingerprint",
         "internal/provider/codexapp.assistantMessageContentText",
+        "internal/provider/codexapp.assistantMessageOwnsTurnTerminal",
         "internal/provider/codexapp.assistantMessagePayload",
         "internal/provider/codexapp.assistantMessageText",
         "internal/provider/codexapp.attachProcessGuard",
@@ -8539,6 +8556,7 @@
         "internal/provider/codexapp.codexManifestVerifier",
         "internal/provider/codexapp.codexManifestVerifier.IsExecutable",
         "internal/provider/codexapp.codexManifestVerifier.ValidCLI",
+        "internal/provider/codexapp.codexMessageLatencyMilestone",
         "internal/provider/codexapp.codexModelResolution",
         "internal/provider/codexapp.codexModelResolver",
         "internal/provider/codexapp.codexModelResolver.Resolve",
@@ -8568,10 +8586,13 @@
         "internal/provider/codexapp.codexSandboxPolicyWireJSON",
         "internal/provider/codexapp.codexSandboxWireJSON",
         "internal/provider/codexapp.codexSupportedPlatformValue",
+        "internal/provider/codexapp.codexTaskLatencyMilestone",
         "internal/provider/codexapp.codexTerminalTimestampInvalid",
         "internal/provider/codexapp.codexTerminationPayload",
         "internal/provider/codexapp.codexTimestampProviderError",
         "internal/provider/codexapp.codexToolItemPayload",
+        "internal/provider/codexapp.codexTurnLatencyMilestone",
+        "internal/provider/codexapp.codexTurnLatencyMilestoneFor",
         "internal/provider/codexapp.codexWheelReleasePlatform",
         "internal/provider/codexapp.collectRolloutMetadata",
         "internal/provider/codexapp.commandLeaf",
@@ -8587,8 +8608,11 @@
         "internal/provider/codexapp.decodeAnyPayload",
         "internal/provider/codexapp.decodeCodexRolloutFrame",
         "internal/provider/codexapp.decodeEventPayload",
+        "internal/provider/codexapp.decodeGranularResumeApprovalPolicy",
         "internal/provider/codexapp.decodeRawEventPayload",
         "internal/provider/codexapp.decodeRawEventPayloadBytes",
+        "internal/provider/codexapp.decodeResumeApprovalPolicy",
+        "internal/provider/codexapp.decodeResumeResult",
         "internal/provider/codexapp.decodeStartResult",
         "internal/provider/codexapp.decodeThreadID",
         "internal/provider/codexapp.decodeThreadRPCResult",
@@ -8636,6 +8660,7 @@
         "internal/provider/codexapp.findManagedCodexBinary",
         "internal/provider/codexapp.findPeerBinary",
         "internal/provider/codexapp.findRolloutPath",
+        "internal/provider/codexapp.firstPayloadTurnID",
         "internal/provider/codexapp.forceCompleteParams",
         "internal/provider/codexapp.forceCompleteTargetNotFoundError",
         "internal/provider/codexapp.forceCompleteTargetNotFoundError.Error",
@@ -8644,6 +8669,7 @@
         "internal/provider/codexapp.generateApprovalSessionScope",
         "internal/provider/codexapp.hasAnyConfigKey",
         "internal/provider/codexapp.hasAnyKey",
+        "internal/provider/codexapp.hasCodexTimestampField",
         "internal/provider/codexapp.hasMethod",
         "internal/provider/codexapp.hasStartCodexIdentityConfig",
         "internal/provider/codexapp.imageTurnInput",
@@ -8669,6 +8695,7 @@
         "internal/provider/codexapp.isAssistantMessageItem",
         "internal/provider/codexapp.isCodexAppServerListenArgs",
         "internal/provider/codexapp.isCodexFunctionCallItem",
+        "internal/provider/codexapp.isCodexLatencyMessageItem",
         "internal/provider/codexapp.isCodexReleaseTagRune",
         "internal/provider/codexapp.isCodexRolloutToolEventType",
         "internal/provider/codexapp.isExecutable",
@@ -8707,6 +8734,7 @@
         "internal/provider/codexapp.localSpawnListenURL",
         "internal/provider/codexapp.localSpawnNativeLSPFailClosedArgs",
         "internal/provider/codexapp.logCodexMCPStartupStatus",
+        "internal/provider/codexapp.logCodexTurnStartLatency",
         "internal/provider/codexapp.logThreadStartIdentityTrace",
         "internal/provider/codexapp.looksLikeToolCall",
         "internal/provider/codexapp.lookupEnvValue",
@@ -8761,6 +8789,8 @@
         "internal/provider/codexapp.normalizeTrustedWorkspaceRoot",
         "internal/provider/codexapp.normalizedExplicitProviderHome",
         "internal/provider/codexapp.normalizedTurnOutputStream",
+        "internal/provider/codexapp.observeCodexTurnLatencyMilestone",
+        "internal/provider/codexapp.observeMissingCodexLifecycleTimestamp",
         "internal/provider/codexapp.parseListenURLLine",
         "internal/provider/codexapp.parsePortFromURL",
         "internal/provider/codexapp.parseProcessIDs",
@@ -8863,6 +8893,7 @@
         "internal/provider/codexapp.resumeCodexIdentityConfig",
         "internal/provider/codexapp.resumeIdentity",
         "internal/provider/codexapp.resumeRemoteThread",
+        "internal/provider/codexapp.resumeResult",
         "internal/provider/codexapp.retryPolicyForTransportMethod",
         "internal/provider/codexapp.rolloutContentItem",
         "internal/provider/codexapp.rolloutLine",
@@ -8879,7 +8910,6 @@
         "internal/provider/codexapp.sandboxStringSliceField",
         "internal/provider/codexapp.sanitizeCodexReleaseTag",
         "internal/provider/codexapp.sanitizeProviderPayload",
-        "internal/provider/codexapp.sanitizedThreadConfigGetError",
         "internal/provider/codexapp.selectCodexModel",
         "internal/provider/codexapp.selectCodexProviderHome",
         "internal/provider/codexapp.selectCodexReleaseAsset",
@@ -8915,7 +8945,6 @@
         "internal/provider/codexapp.stripOneLeadingSystemNoise",
         "internal/provider/codexapp.stripTagBlock",
         "internal/provider/codexapp.textTurnInput",
-        "internal/provider/codexapp.threadConfigGetResponse",
         "internal/provider/codexapp.threadRPCResult",
         "internal/provider/codexapp.threadResumeParams",
         "internal/provider/codexapp.threadStartModelResolutionSource",
@@ -9340,6 +9369,7 @@
         "internal/provider/unified.*Client.StartSession",
         "internal/provider/unified.*Client.open",
         "internal/provider/unified.*Client.recordProviderTrace",
+        "internal/provider/unified.*Client.runOpen",
         "internal/provider/unified.*Client.wrapSession",
         "internal/provider/unified.*EventDispatcher.Dispatch",
         "internal/provider/unified.*EventDispatcher.Publish",
@@ -9358,10 +9388,16 @@
         "internal/provider/unified.*SessionManager.RemoveCurrent",
         "internal/provider/unified.*SessionManager.SessionGeneration",
         "internal/provider/unified.*SessionManager.closeRemovedSession",
+        "internal/provider/unified.*SessionManager.currentResume",
         "internal/provider/unified.*SessionManager.drain",
+        "internal/provider/unified.*SessionManager.finishCoordinatedResume",
         "internal/provider/unified.*SessionManager.nextGenerationLocked",
         "internal/provider/unified.*SessionManager.register",
+        "internal/provider/unified.*SessionManager.registerWithIdentity",
         "internal/provider/unified.*SessionManager.removeEntry",
+        "internal/provider/unified.*SessionManager.resumeSession",
+        "internal/provider/unified.*SessionManager.runCoordinatedResume",
+        "internal/provider/unified.*SessionManager.waitPendingResume",
         "internal/provider/unified.*dreamExecutor.ExecuteDream",
         "internal/provider/unified.*dreamExecutor.ExecuteDreamWithOptions",
         "internal/provider/unified.*dreamExecutor.preflight",
@@ -9415,7 +9451,6 @@
         "internal/provider/unified.autoResumeCodexIdentityFields",
         "internal/provider/unified.autoResumePlan",
         "internal/provider/unified.autoResumePublicThreadID",
-        "internal/provider/unified.autoResumeSingleflightKey",
         "internal/provider/unified.autoResumeThreadState",
         "internal/provider/unified.bindingWithCodexIdentity",
         "internal/provider/unified.boolValue",
@@ -9423,12 +9458,14 @@
         "internal/provider/unified.clientParams",
         "internal/provider/unified.cloneAutoResumePromptBoundary",
         "internal/provider/unified.cloneAutoResumePromptSnapshot",
+        "internal/provider/unified.closePendingSignal",
         "internal/provider/unified.closeSession",
         "internal/provider/unified.commonAgentSessionHeader",
         "internal/provider/unified.commonTurnHeader",
         "internal/provider/unified.completeAutoResumeCodexIdentity",
         "internal/provider/unified.configString",
         "internal/provider/unified.contextWindowValue",
+        "internal/provider/unified.coordinatedResumeResult",
         "internal/provider/unified.dreamExecutor",
         "internal/provider/unified.dreamExecutorConfigError",
         "internal/provider/unified.dreamExecutorConfigError.ExecuteDream",
@@ -9476,6 +9513,7 @@
         "internal/provider/unified.rejectAutoResumeLifecycle",
         "internal/provider/unified.resolveAutoResumeSessionIdentity",
         "internal/provider/unified.resolveProviderOrder",
+        "internal/provider/unified.resumeCoordinationIdentity",
         "internal/provider/unified.resumeRequestCodexIdentity",
         "internal/provider/unified.resumeSessionIdentityResolver",
         "internal/provider/unified.resumeSessionIdentityResolver.ResolveResumeSessionIdentity",
@@ -12888,7 +12926,6 @@
         "internal/provider/codexapp.*driver.resolveResumeOptionsWithPolicy",
         "internal/provider/codexapp.*driver.resolveSessionOptions",
         "internal/provider/codexapp.*driver.resolveStartPoolIdentity",
-        "internal/provider/codexapp.*driver.restoreApprovalPolicy",
         "internal/provider/codexapp.*driver.resumeSession",
         "internal/provider/codexapp.*driver.startAssemblyInstructions",
         "internal/provider/codexapp.*driver.startDynamicSession",
@@ -12933,8 +12970,6 @@
         "internal/provider/codexapp.*recoveryManager.CheckHealth",
         "internal/provider/codexapp.*recoveryManager.Reconnect",
         "internal/provider/codexapp.*rolloutReader.ReadHistory",
-        "internal/provider/codexapp.*sanitizedThreadConfigGetError.Error",
-        "internal/provider/codexapp.*sanitizedThreadConfigGetError.Unwrap",
         "internal/provider/codexapp.*session.AllowedModels",
         "internal/provider/codexapp.*session.Capabilities",
         "internal/provider/codexapp.*session.Close",
@@ -13208,6 +13243,7 @@
         "internal/provider/codexapp.approvalParseFailedDecision",
         "internal/provider/codexapp.approvalRequestFingerprint",
         "internal/provider/codexapp.assistantMessageContentText",
+        "internal/provider/codexapp.assistantMessageOwnsTurnTerminal",
         "internal/provider/codexapp.assistantMessagePayload",
         "internal/provider/codexapp.assistantMessageText",
         "internal/provider/codexapp.attachProcessGuard",
@@ -13279,6 +13315,7 @@
         "internal/provider/codexapp.codexManifestVerifier",
         "internal/provider/codexapp.codexManifestVerifier.IsExecutable",
         "internal/provider/codexapp.codexManifestVerifier.ValidCLI",
+        "internal/provider/codexapp.codexMessageLatencyMilestone",
         "internal/provider/codexapp.codexModelResolution",
         "internal/provider/codexapp.codexModelResolver",
         "internal/provider/codexapp.codexModelResolver.Resolve",
@@ -13308,10 +13345,13 @@
         "internal/provider/codexapp.codexSandboxPolicyWireJSON",
         "internal/provider/codexapp.codexSandboxWireJSON",
         "internal/provider/codexapp.codexSupportedPlatformValue",
+        "internal/provider/codexapp.codexTaskLatencyMilestone",
         "internal/provider/codexapp.codexTerminalTimestampInvalid",
         "internal/provider/codexapp.codexTerminationPayload",
         "internal/provider/codexapp.codexTimestampProviderError",
         "internal/provider/codexapp.codexToolItemPayload",
+        "internal/provider/codexapp.codexTurnLatencyMilestone",
+        "internal/provider/codexapp.codexTurnLatencyMilestoneFor",
         "internal/provider/codexapp.codexWheelReleasePlatform",
         "internal/provider/codexapp.collectRolloutMetadata",
         "internal/provider/codexapp.commandLeaf",
@@ -13327,8 +13367,11 @@
         "internal/provider/codexapp.decodeAnyPayload",
         "internal/provider/codexapp.decodeCodexRolloutFrame",
         "internal/provider/codexapp.decodeEventPayload",
+        "internal/provider/codexapp.decodeGranularResumeApprovalPolicy",
         "internal/provider/codexapp.decodeRawEventPayload",
         "internal/provider/codexapp.decodeRawEventPayloadBytes",
+        "internal/provider/codexapp.decodeResumeApprovalPolicy",
+        "internal/provider/codexapp.decodeResumeResult",
         "internal/provider/codexapp.decodeStartResult",
         "internal/provider/codexapp.decodeThreadID",
         "internal/provider/codexapp.decodeThreadRPCResult",
@@ -13376,6 +13419,7 @@
         "internal/provider/codexapp.findManagedCodexBinary",
         "internal/provider/codexapp.findPeerBinary",
         "internal/provider/codexapp.findRolloutPath",
+        "internal/provider/codexapp.firstPayloadTurnID",
         "internal/provider/codexapp.forceCompleteParams",
         "internal/provider/codexapp.forceCompleteTargetNotFoundError",
         "internal/provider/codexapp.forceCompleteTargetNotFoundError.Error",
@@ -13384,6 +13428,7 @@
         "internal/provider/codexapp.generateApprovalSessionScope",
         "internal/provider/codexapp.hasAnyConfigKey",
         "internal/provider/codexapp.hasAnyKey",
+        "internal/provider/codexapp.hasCodexTimestampField",
         "internal/provider/codexapp.hasMethod",
         "internal/provider/codexapp.hasStartCodexIdentityConfig",
         "internal/provider/codexapp.imageTurnInput",
@@ -13409,6 +13454,7 @@
         "internal/provider/codexapp.isAssistantMessageItem",
         "internal/provider/codexapp.isCodexAppServerListenArgs",
         "internal/provider/codexapp.isCodexFunctionCallItem",
+        "internal/provider/codexapp.isCodexLatencyMessageItem",
         "internal/provider/codexapp.isCodexReleaseTagRune",
         "internal/provider/codexapp.isCodexRolloutToolEventType",
         "internal/provider/codexapp.isExecutable",
@@ -13447,6 +13493,7 @@
         "internal/provider/codexapp.localSpawnListenURL",
         "internal/provider/codexapp.localSpawnNativeLSPFailClosedArgs",
         "internal/provider/codexapp.logCodexMCPStartupStatus",
+        "internal/provider/codexapp.logCodexTurnStartLatency",
         "internal/provider/codexapp.logThreadStartIdentityTrace",
         "internal/provider/codexapp.looksLikeToolCall",
         "internal/provider/codexapp.lookupEnvValue",
@@ -13501,6 +13548,8 @@
         "internal/provider/codexapp.normalizeTrustedWorkspaceRoot",
         "internal/provider/codexapp.normalizedExplicitProviderHome",
         "internal/provider/codexapp.normalizedTurnOutputStream",
+        "internal/provider/codexapp.observeCodexTurnLatencyMilestone",
+        "internal/provider/codexapp.observeMissingCodexLifecycleTimestamp",
         "internal/provider/codexapp.parseListenURLLine",
         "internal/provider/codexapp.parsePortFromURL",
         "internal/provider/codexapp.parseProcessIDs",
@@ -13603,6 +13652,7 @@
         "internal/provider/codexapp.resumeCodexIdentityConfig",
         "internal/provider/codexapp.resumeIdentity",
         "internal/provider/codexapp.resumeRemoteThread",
+        "internal/provider/codexapp.resumeResult",
         "internal/provider/codexapp.retryPolicyForTransportMethod",
         "internal/provider/codexapp.rolloutContentItem",
         "internal/provider/codexapp.rolloutLine",
@@ -13619,7 +13669,6 @@
         "internal/provider/codexapp.sandboxStringSliceField",
         "internal/provider/codexapp.sanitizeCodexReleaseTag",
         "internal/provider/codexapp.sanitizeProviderPayload",
-        "internal/provider/codexapp.sanitizedThreadConfigGetError",
         "internal/provider/codexapp.selectCodexModel",
         "internal/provider/codexapp.selectCodexProviderHome",
         "internal/provider/codexapp.selectCodexReleaseAsset",
@@ -13655,7 +13704,6 @@
         "internal/provider/codexapp.stripOneLeadingSystemNoise",
         "internal/provider/codexapp.stripTagBlock",
         "internal/provider/codexapp.textTurnInput",
-        "internal/provider/codexapp.threadConfigGetResponse",
         "internal/provider/codexapp.threadRPCResult",
         "internal/provider/codexapp.threadResumeParams",
         "internal/provider/codexapp.threadStartModelResolutionSource",
@@ -14080,6 +14128,7 @@
         "internal/provider/unified.*Client.StartSession",
         "internal/provider/unified.*Client.open",
         "internal/provider/unified.*Client.recordProviderTrace",
+        "internal/provider/unified.*Client.runOpen",
         "internal/provider/unified.*Client.wrapSession",
         "internal/provider/unified.*EventDispatcher.Dispatch",
         "internal/provider/unified.*EventDispatcher.Publish",
@@ -14098,10 +14147,16 @@
         "internal/provider/unified.*SessionManager.RemoveCurrent",
         "internal/provider/unified.*SessionManager.SessionGeneration",
         "internal/provider/unified.*SessionManager.closeRemovedSession",
+        "internal/provider/unified.*SessionManager.currentResume",
         "internal/provider/unified.*SessionManager.drain",
+        "internal/provider/unified.*SessionManager.finishCoordinatedResume",
         "internal/provider/unified.*SessionManager.nextGenerationLocked",
         "internal/provider/unified.*SessionManager.register",
+        "internal/provider/unified.*SessionManager.registerWithIdentity",
         "internal/provider/unified.*SessionManager.removeEntry",
+        "internal/provider/unified.*SessionManager.resumeSession",
+        "internal/provider/unified.*SessionManager.runCoordinatedResume",
+        "internal/provider/unified.*SessionManager.waitPendingResume",
         "internal/provider/unified.*dreamExecutor.ExecuteDream",
         "internal/provider/unified.*dreamExecutor.ExecuteDreamWithOptions",
         "internal/provider/unified.*dreamExecutor.preflight",
@@ -14155,7 +14210,6 @@
         "internal/provider/unified.autoResumeCodexIdentityFields",
         "internal/provider/unified.autoResumePlan",
         "internal/provider/unified.autoResumePublicThreadID",
-        "internal/provider/unified.autoResumeSingleflightKey",
         "internal/provider/unified.autoResumeThreadState",
         "internal/provider/unified.bindingWithCodexIdentity",
         "internal/provider/unified.boolValue",
@@ -14163,12 +14217,14 @@
         "internal/provider/unified.clientParams",
         "internal/provider/unified.cloneAutoResumePromptBoundary",
         "internal/provider/unified.cloneAutoResumePromptSnapshot",
+        "internal/provider/unified.closePendingSignal",
         "internal/provider/unified.closeSession",
         "internal/provider/unified.commonAgentSessionHeader",
         "internal/provider/unified.commonTurnHeader",
         "internal/provider/unified.completeAutoResumeCodexIdentity",
         "internal/provider/unified.configString",
         "internal/provider/unified.contextWindowValue",
+        "internal/provider/unified.coordinatedResumeResult",
         "internal/provider/unified.dreamExecutor",
         "internal/provider/unified.dreamExecutorConfigError",
         "internal/provider/unified.dreamExecutorConfigError.ExecuteDream",
@@ -14216,6 +14272,7 @@
         "internal/provider/unified.rejectAutoResumeLifecycle",
         "internal/provider/unified.resolveAutoResumeSessionIdentity",
         "internal/provider/unified.resolveProviderOrder",
+        "internal/provider/unified.resumeCoordinationIdentity",
         "internal/provider/unified.resumeRequestCodexIdentity",
         "internal/provider/unified.resumeSessionIdentityResolver",
         "internal/provider/unified.resumeSessionIdentityResolver.ResolveResumeSessionIdentity",
@@ -17633,7 +17690,6 @@
         "internal/provider/codexapp.*driver.resolveResumeOptionsWithPolicy",
         "internal/provider/codexapp.*driver.resolveSessionOptions",
         "internal/provider/codexapp.*driver.resolveStartPoolIdentity",
-        "internal/provider/codexapp.*driver.restoreApprovalPolicy",
         "internal/provider/codexapp.*driver.resumeSession",
         "internal/provider/codexapp.*driver.startAssemblyInstructions",
         "internal/provider/codexapp.*driver.startDynamicSession",
@@ -17678,8 +17734,6 @@
         "internal/provider/codexapp.*recoveryManager.CheckHealth",
         "internal/provider/codexapp.*recoveryManager.Reconnect",
         "internal/provider/codexapp.*rolloutReader.ReadHistory",
-        "internal/provider/codexapp.*sanitizedThreadConfigGetError.Error",
-        "internal/provider/codexapp.*sanitizedThreadConfigGetError.Unwrap",
         "internal/provider/codexapp.*session.AllowedModels",
         "internal/provider/codexapp.*session.Capabilities",
         "internal/provider/codexapp.*session.Close",
@@ -17953,6 +18007,7 @@
         "internal/provider/codexapp.approvalParseFailedDecision",
         "internal/provider/codexapp.approvalRequestFingerprint",
         "internal/provider/codexapp.assistantMessageContentText",
+        "internal/provider/codexapp.assistantMessageOwnsTurnTerminal",
         "internal/provider/codexapp.assistantMessagePayload",
         "internal/provider/codexapp.assistantMessageText",
         "internal/provider/codexapp.attachProcessGuard",
@@ -18024,6 +18079,7 @@
         "internal/provider/codexapp.codexManifestVerifier",
         "internal/provider/codexapp.codexManifestVerifier.IsExecutable",
         "internal/provider/codexapp.codexManifestVerifier.ValidCLI",
+        "internal/provider/codexapp.codexMessageLatencyMilestone",
         "internal/provider/codexapp.codexModelResolution",
         "internal/provider/codexapp.codexModelResolver",
         "internal/provider/codexapp.codexModelResolver.Resolve",
@@ -18053,10 +18109,13 @@
         "internal/provider/codexapp.codexSandboxPolicyWireJSON",
         "internal/provider/codexapp.codexSandboxWireJSON",
         "internal/provider/codexapp.codexSupportedPlatformValue",
+        "internal/provider/codexapp.codexTaskLatencyMilestone",
         "internal/provider/codexapp.codexTerminalTimestampInvalid",
         "internal/provider/codexapp.codexTerminationPayload",
         "internal/provider/codexapp.codexTimestampProviderError",
         "internal/provider/codexapp.codexToolItemPayload",
+        "internal/provider/codexapp.codexTurnLatencyMilestone",
+        "internal/provider/codexapp.codexTurnLatencyMilestoneFor",
         "internal/provider/codexapp.codexWheelReleasePlatform",
         "internal/provider/codexapp.collectRolloutMetadata",
         "internal/provider/codexapp.commandLeaf",
@@ -18073,8 +18132,11 @@
         "internal/provider/codexapp.decodeAnyPayload",
         "internal/provider/codexapp.decodeCodexRolloutFrame",
         "internal/provider/codexapp.decodeEventPayload",
+        "internal/provider/codexapp.decodeGranularResumeApprovalPolicy",
         "internal/provider/codexapp.decodeRawEventPayload",
         "internal/provider/codexapp.decodeRawEventPayloadBytes",
+        "internal/provider/codexapp.decodeResumeApprovalPolicy",
+        "internal/provider/codexapp.decodeResumeResult",
         "internal/provider/codexapp.decodeStartResult",
         "internal/provider/codexapp.decodeThreadID",
         "internal/provider/codexapp.decodeThreadRPCResult",
@@ -18122,6 +18184,7 @@
         "internal/provider/codexapp.findManagedCodexBinary",
         "internal/provider/codexapp.findPeerBinary",
         "internal/provider/codexapp.findRolloutPath",
+        "internal/provider/codexapp.firstPayloadTurnID",
         "internal/provider/codexapp.forceCompleteParams",
         "internal/provider/codexapp.forceCompleteTargetNotFoundError",
         "internal/provider/codexapp.forceCompleteTargetNotFoundError.Error",
@@ -18130,6 +18193,7 @@
         "internal/provider/codexapp.generateApprovalSessionScope",
         "internal/provider/codexapp.hasAnyConfigKey",
         "internal/provider/codexapp.hasAnyKey",
+        "internal/provider/codexapp.hasCodexTimestampField",
         "internal/provider/codexapp.hasMethod",
         "internal/provider/codexapp.hasStartCodexIdentityConfig",
         "internal/provider/codexapp.imageTurnInput",
@@ -18154,6 +18218,7 @@
         "internal/provider/codexapp.isAssistantMessageItem",
         "internal/provider/codexapp.isCodexAppServerListenArgs",
         "internal/provider/codexapp.isCodexFunctionCallItem",
+        "internal/provider/codexapp.isCodexLatencyMessageItem",
         "internal/provider/codexapp.isCodexReleaseTagRune",
         "internal/provider/codexapp.isCodexRolloutToolEventType",
         "internal/provider/codexapp.isExecutable",
@@ -18194,6 +18259,7 @@
         "internal/provider/codexapp.localSpawnListenURL",
         "internal/provider/codexapp.localSpawnNativeLSPFailClosedArgs",
         "internal/provider/codexapp.logCodexMCPStartupStatus",
+        "internal/provider/codexapp.logCodexTurnStartLatency",
         "internal/provider/codexapp.logThreadStartIdentityTrace",
         "internal/provider/codexapp.looksLikeToolCall",
         "internal/provider/codexapp.lookupEnvValue",
@@ -18249,6 +18315,8 @@
         "internal/provider/codexapp.normalizeTrustedWorkspaceRoot",
         "internal/provider/codexapp.normalizedExplicitProviderHome",
         "internal/provider/codexapp.normalizedTurnOutputStream",
+        "internal/provider/codexapp.observeCodexTurnLatencyMilestone",
+        "internal/provider/codexapp.observeMissingCodexLifecycleTimestamp",
         "internal/provider/codexapp.parseListenURLLine",
         "internal/provider/codexapp.parsePortFromURL",
         "internal/provider/codexapp.parseProcessIDs",
@@ -18352,6 +18420,7 @@
         "internal/provider/codexapp.resumeCodexIdentityConfig",
         "internal/provider/codexapp.resumeIdentity",
         "internal/provider/codexapp.resumeRemoteThread",
+        "internal/provider/codexapp.resumeResult",
         "internal/provider/codexapp.retryPolicyForTransportMethod",
         "internal/provider/codexapp.rolloutContentItem",
         "internal/provider/codexapp.rolloutLine",
@@ -18368,7 +18437,6 @@
         "internal/provider/codexapp.sandboxStringSliceField",
         "internal/provider/codexapp.sanitizeCodexReleaseTag",
         "internal/provider/codexapp.sanitizeProviderPayload",
-        "internal/provider/codexapp.sanitizedThreadConfigGetError",
         "internal/provider/codexapp.selectCodexModel",
         "internal/provider/codexapp.selectCodexProviderHome",
         "internal/provider/codexapp.selectCodexReleaseAsset",
@@ -18403,7 +18471,6 @@
         "internal/provider/codexapp.stripTagBlock",
         "internal/provider/codexapp.terminatePID",
         "internal/provider/codexapp.textTurnInput",
-        "internal/provider/codexapp.threadConfigGetResponse",
         "internal/provider/codexapp.threadRPCResult",
         "internal/provider/codexapp.threadResumeParams",
         "internal/provider/codexapp.threadStartModelResolutionSource",
@@ -18828,6 +18895,7 @@
         "internal/provider/unified.*Client.StartSession",
         "internal/provider/unified.*Client.open",
         "internal/provider/unified.*Client.recordProviderTrace",
+        "internal/provider/unified.*Client.runOpen",
         "internal/provider/unified.*Client.wrapSession",
         "internal/provider/unified.*EventDispatcher.Dispatch",
         "internal/provider/unified.*EventDispatcher.Publish",
@@ -18846,10 +18914,16 @@
         "internal/provider/unified.*SessionManager.RemoveCurrent",
         "internal/provider/unified.*SessionManager.SessionGeneration",
         "internal/provider/unified.*SessionManager.closeRemovedSession",
+        "internal/provider/unified.*SessionManager.currentResume",
         "internal/provider/unified.*SessionManager.drain",
+        "internal/provider/unified.*SessionManager.finishCoordinatedResume",
         "internal/provider/unified.*SessionManager.nextGenerationLocked",
         "internal/provider/unified.*SessionManager.register",
+        "internal/provider/unified.*SessionManager.registerWithIdentity",
         "internal/provider/unified.*SessionManager.removeEntry",
+        "internal/provider/unified.*SessionManager.resumeSession",
+        "internal/provider/unified.*SessionManager.runCoordinatedResume",
+        "internal/provider/unified.*SessionManager.waitPendingResume",
         "internal/provider/unified.*dreamExecutor.ExecuteDream",
         "internal/provider/unified.*dreamExecutor.ExecuteDreamWithOptions",
         "internal/provider/unified.*dreamExecutor.preflight",
@@ -18903,7 +18977,6 @@
         "internal/provider/unified.autoResumeCodexIdentityFields",
         "internal/provider/unified.autoResumePlan",
         "internal/provider/unified.autoResumePublicThreadID",
-        "internal/provider/unified.autoResumeSingleflightKey",
         "internal/provider/unified.autoResumeThreadState",
         "internal/provider/unified.bindingWithCodexIdentity",
         "internal/provider/unified.boolValue",
@@ -18911,12 +18984,14 @@
         "internal/provider/unified.clientParams",
         "internal/provider/unified.cloneAutoResumePromptBoundary",
         "internal/provider/unified.cloneAutoResumePromptSnapshot",
+        "internal/provider/unified.closePendingSignal",
         "internal/provider/unified.closeSession",
         "internal/provider/unified.commonAgentSessionHeader",
         "internal/provider/unified.commonTurnHeader",
         "internal/provider/unified.completeAutoResumeCodexIdentity",
         "internal/provider/unified.configString",
         "internal/provider/unified.contextWindowValue",
+        "internal/provider/unified.coordinatedResumeResult",
         "internal/provider/unified.dreamExecutor",
         "internal/provider/unified.dreamExecutorConfigError",
         "internal/provider/unified.dreamExecutorConfigError.ExecuteDream",
@@ -18964,6 +19039,7 @@
         "internal/provider/unified.rejectAutoResumeLifecycle",
         "internal/provider/unified.resolveAutoResumeSessionIdentity",
         "internal/provider/unified.resolveProviderOrder",
+        "internal/provider/unified.resumeCoordinationIdentity",
         "internal/provider/unified.resumeRequestCodexIdentity",
         "internal/provider/unified.resumeSessionIdentityResolver",
         "internal/provider/unified.resumeSessionIdentityResolver.ResolveResumeSessionIdentity",
@@ -18985,13 +19061,13 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2299,
-    "total_methods": 1222,
+    "total_functions": 2313,
+    "total_methods": 1226,
     "total_interfaces": 186,
     "total_interface_methods": 370,
-    "total_exported": 1267,
-    "total_unexported": 3058,
-    "total_structs": 618
+    "total_exported": 1265,
+    "total_unexported": 3079,
+    "total_structs": 619
   },
   "packages": [
     {
@@ -64903,6 +64979,27 @@
           ]
         },
         {
+          "name": "assistantMessageOwnsTurnTerminal",
+          "exported": false,
+          "params": [
+            {
+              "name": "method",
+              "type": "string"
+            },
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            },
+            {
+              "name": "item",
+              "type": "map[string]any"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
           "name": "assistantMessagePayload",
           "exported": false,
           "params": [
@@ -65772,6 +65869,24 @@
           ]
         },
         {
+          "name": "codexMessageLatencyMilestone",
+          "exported": false,
+          "params": [
+            {
+              "name": "item",
+              "type": "map[string]any"
+            },
+            {
+              "name": "turnID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "codexTurnLatencyMilestone",
+            "bool"
+          ]
+        },
+        {
           "name": "codexNativeToolDescriptors",
           "exported": false,
           "returns": [
@@ -66006,6 +66121,24 @@
           ]
         },
         {
+          "name": "codexTaskLatencyMilestone",
+          "exported": false,
+          "params": [
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            },
+            {
+              "name": "turnID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "codexTurnLatencyMilestone",
+            "bool"
+          ]
+        },
+        {
           "name": "codexTerminalTimestampInvalid",
           "exported": false,
           "params": [
@@ -66059,6 +66192,24 @@
           ],
           "returns": [
             "map[string]any"
+          ]
+        },
+        {
+          "name": "codexTurnLatencyMilestoneFor",
+          "exported": false,
+          "params": [
+            {
+              "name": "method",
+              "type": "string"
+            },
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            }
+          ],
+          "returns": [
+            "codexTurnLatencyMilestone",
+            "bool"
           ]
         },
         {
@@ -66283,6 +66434,20 @@
           ]
         },
         {
+          "name": "decodeGranularResumeApprovalPolicy",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "json.RawMessage"
+            }
+          ],
+          "returns": [
+            "string",
+            "error"
+          ]
+        },
+        {
           "name": "decodeRawEventPayloadBytes",
           "exported": false,
           "params": [
@@ -66307,6 +66472,34 @@
           ],
           "returns": [
             "map[string]any",
+            "error"
+          ]
+        },
+        {
+          "name": "decodeResumeApprovalPolicy",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "json.RawMessage"
+            }
+          ],
+          "returns": [
+            "string",
+            "error"
+          ]
+        },
+        {
+          "name": "decodeResumeResult",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "json.RawMessage"
+            }
+          ],
+          "returns": [
+            "resumeResult",
             "error"
           ]
         },
@@ -66943,6 +67136,23 @@
           ]
         },
         {
+          "name": "firstPayloadTurnID",
+          "exported": false,
+          "params": [
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            },
+            {
+              "name": "item",
+              "type": "map[string]any"
+            }
+          ],
+          "returns": [
+            "string"
+          ]
+        },
+        {
           "name": "forceCompleteParams",
           "exported": false,
           "params": [
@@ -67018,6 +67228,19 @@
             {
               "name": "keys",
               "type": "...string"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "name": "hasCodexTimestampField",
+          "exported": false,
+          "params": [
+            {
+              "name": "payload",
+              "type": "map[string]any"
             }
           ],
           "returns": [
@@ -67409,6 +67632,19 @@
         },
         {
           "name": "isCodexFunctionCallItem",
+          "exported": false,
+          "params": [
+            {
+              "name": "item",
+              "type": "map[string]any"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "name": "isCodexLatencyMessageItem",
           "exported": false,
           "params": [
             {
@@ -67875,6 +68111,32 @@
           ],
           "returns": [
             "bool"
+          ]
+        },
+        {
+          "name": "logCodexTurnStartLatency",
+          "exported": false,
+          "params": [
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "req",
+              "type": "dto.TurnRequest"
+            },
+            {
+              "name": "prepareDuration",
+              "type": "time.Duration"
+            },
+            {
+              "name": "providerStartDuration",
+              "type": "time.Duration"
+            },
+            {
+              "name": "err",
+              "type": "error"
+            }
           ]
         },
         {
@@ -68802,6 +69064,45 @@
           ],
           "returns": [
             "string"
+          ]
+        },
+        {
+          "name": "observeCodexTurnLatencyMilestone",
+          "exported": false,
+          "params": [
+            {
+              "name": "method",
+              "type": "string"
+            },
+            {
+              "name": "params",
+              "type": "json.RawMessage"
+            },
+            {
+              "name": "observedAt",
+              "type": "time.Time"
+            }
+          ]
+        },
+        {
+          "name": "observeMissingCodexLifecycleTimestamp",
+          "exported": false,
+          "params": [
+            {
+              "name": "method",
+              "type": "string"
+            },
+            {
+              "name": "params",
+              "type": "json.RawMessage"
+            },
+            {
+              "name": "receivedAt",
+              "type": "time.Time"
+            }
+          ],
+          "returns": [
+            "json.RawMessage"
           ]
         },
         {
@@ -69934,7 +70235,7 @@
             }
           ],
           "returns": [
-            "string",
+            "resumeResult",
             "error"
           ]
         },
@@ -73073,8 +73374,8 @@
               "type": "dto.ResumeSessionRequest"
             },
             {
-              "name": "threadID",
-              "type": "string"
+              "name": "result",
+              "type": "resumeResult"
             }
           ],
           "returns": [
@@ -73100,8 +73401,8 @@
               "type": "dto.ResumeSessionRequest"
             },
             {
-              "name": "threadID",
-              "type": "string"
+              "name": "result",
+              "type": "resumeResult"
             }
           ],
           "returns": [
@@ -73352,28 +73653,6 @@
           "returns": [
             "providershared.CodexIdentity",
             "bool",
-            "error"
-          ]
-        },
-        {
-          "receiver": "*driver",
-          "name": "restoreApprovalPolicy",
-          "exported": false,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "s",
-              "type": "*session"
-            },
-            {
-              "name": "threadID",
-              "type": "string"
-            }
-          ],
-          "returns": [
             "error"
           ]
         },
@@ -73929,22 +74208,6 @@
           ],
           "returns": [
             "[]Message",
-            "error"
-          ]
-        },
-        {
-          "receiver": "*sanitizedThreadConfigGetError",
-          "name": "Error",
-          "exported": true,
-          "returns": [
-            "string"
-          ]
-        },
-        {
-          "receiver": "*sanitizedThreadConfigGetError",
-          "name": "Unwrap",
-          "exported": true,
-          "returns": [
             "error"
           ]
         },
@@ -77688,6 +77951,10 @@
           "exported": false
         },
         {
+          "name": "codexTurnLatencyMilestone",
+          "exported": false
+        },
+        {
           "name": "dreamExecutor",
           "exported": false
         },
@@ -77816,6 +78083,10 @@
           "exported": false
         },
         {
+          "name": "resumeResult",
+          "exported": false
+        },
+        {
           "name": "rolloutContentItem",
           "exported": false
         },
@@ -77836,10 +78107,6 @@
           "exported": false
         },
         {
-          "name": "sanitizedThreadConfigGetError",
-          "exported": false
-        },
-        {
           "name": "session",
           "exported": false
         },
@@ -77853,10 +78120,6 @@
         },
         {
           "name": "startingTurnState",
-          "exported": false
-        },
-        {
-          "name": "threadConfigGetResponse",
           "exported": false
         },
         {
@@ -82741,23 +83004,6 @@
           ]
         },
         {
-          "name": "autoResumeSingleflightKey",
-          "exported": false,
-          "params": [
-            {
-              "name": "binding",
-              "type": "*contract.SessionBinding"
-            },
-            {
-              "name": "req",
-              "type": "dto.ResumeSessionRequest"
-            }
-          ],
-          "returns": [
-            "string"
-          ]
-        },
-        {
           "name": "bindingWithCodexIdentity",
           "exported": false,
           "params": [
@@ -82860,6 +83106,16 @@
           ],
           "returns": [
             "dto.PromptAssemblySnapshot"
+          ]
+        },
+        {
+          "name": "closePendingSignal",
+          "exported": false,
+          "params": [
+            {
+              "name": "entry",
+              "type": "sessionEntry"
+            }
           ]
         },
         {
@@ -83606,6 +83862,23 @@
           ]
         },
         {
+          "name": "resumeCoordinationIdentity",
+          "exported": false,
+          "params": [
+            {
+              "name": "provider",
+              "type": "string"
+            },
+            {
+              "name": "providerThreadID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string"
+          ]
+        },
+        {
           "name": "resumeRequestCodexIdentity",
           "exported": false,
           "params": [
@@ -83784,6 +84057,10 @@
               "type": "string"
             },
             {
+              "name": "resumeIdentity",
+              "type": "string"
+            },
+            {
               "name": "pending",
               "type": "bool"
             },
@@ -83810,6 +84087,41 @@
               "name": "event",
               "type": "observability.TraceEvent"
             }
+          ]
+        },
+        {
+          "receiver": "*Client",
+          "name": "runOpen",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "action",
+              "type": "string"
+            },
+            {
+              "name": "provider",
+              "type": "string"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "driver",
+              "type": "contract.Driver"
+            },
+            {
+              "name": "run",
+              "type": "func(contract.Driver) (contract.Session, error)"
+            }
+          ],
+          "returns": [
+            "contract.Session",
+            "error"
           ]
         },
         {
@@ -84056,6 +84368,21 @@
         },
         {
           "receiver": "*SessionManager",
+          "name": "currentResume",
+          "exported": false,
+          "params": [
+            {
+              "name": "agentID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "coordinatedResumeResult",
+            "bool"
+          ]
+        },
+        {
+          "receiver": "*SessionManager",
           "name": "drain",
           "exported": false,
           "returns": [
@@ -84064,8 +84391,69 @@
         },
         {
           "receiver": "*SessionManager",
+          "name": "finishCoordinatedResume",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "resumeIdentity",
+              "type": "string"
+            },
+            {
+              "name": "pending",
+              "type": "bool"
+            },
+            {
+              "name": "value",
+              "type": "any"
+            },
+            {
+              "name": "resumeErr",
+              "type": "error"
+            }
+          ],
+          "returns": [
+            "contract.Session",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*SessionManager",
           "name": "nextGenerationLocked",
           "exported": false,
+          "returns": [
+            "uint64"
+          ]
+        },
+        {
+          "receiver": "*SessionManager",
+          "name": "registerWithIdentity",
+          "exported": false,
+          "params": [
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "session",
+              "type": "contract.Session"
+            },
+            {
+              "name": "pending",
+              "type": "bool"
+            },
+            {
+              "name": "resumeIdentity",
+              "type": "string"
+            }
+          ],
           "returns": [
             "uint64"
           ]
@@ -84113,6 +84501,87 @@
           "returns": [
             "contract.Session",
             "bool"
+          ]
+        },
+        {
+          "receiver": "*SessionManager",
+          "name": "resumeSession",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "resumeIdentity",
+              "type": "string"
+            },
+            {
+              "name": "pending",
+              "type": "bool"
+            },
+            {
+              "name": "run",
+              "type": "func() (contract.Session, error)"
+            }
+          ],
+          "returns": [
+            "contract.Session",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*SessionManager",
+          "name": "runCoordinatedResume",
+          "exported": false,
+          "params": [
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "resumeIdentity",
+              "type": "string"
+            },
+            {
+              "name": "pending",
+              "type": "bool"
+            },
+            {
+              "name": "run",
+              "type": "func() (contract.Session, error)"
+            }
+          ],
+          "returns": [
+            "coordinatedResumeResult",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*SessionManager",
+          "name": "waitPendingResume",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "pendingDone",
+              "type": "\u003c-chan struct{}"
+            }
+          ],
+          "returns": [
+            "contract.Session",
+            "error"
           ]
         },
         {
@@ -84783,6 +85252,10 @@
         },
         {
           "name": "clientParams",
+          "exported": false
+        },
+        {
+          "name": "coordinatedResumeResult",
           "exported": false
         },
         {
