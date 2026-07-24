@@ -33,7 +33,7 @@ func TestProvideConfigUsesPackageOwnedProductionTrust(t *testing.T) {
 func TestProvideConfigRejectsPackageHomeAlias(t *testing.T) {
 	cfg, executable, _, _, home := productionPackageConfigFixture(t, "darwin-arm64")
 	clearUpdateOverrideEnvironment(t)
-	alias := filepath.Join(canonicalTempDir(t), "home-alias")
+	alias := filepath.Join(appUpdateRealTempDir(t), "home-alias")
 	if err := os.Symlink(home, alias); err != nil {
 		t.Fatalf("Symlink(home) error = %v", err)
 	}
@@ -47,7 +47,7 @@ func TestProvideConfigRejectsPackageHomeAlias(t *testing.T) {
 func TestProvideConfigRejectsPackageUpdatesAlias(t *testing.T) {
 	cfg, executable, _, _, home := productionPackageConfigFixture(t, "darwin-arm64")
 	clearUpdateOverrideEnvironment(t)
-	outside := canonicalTempDir(t)
+	outside := appUpdateRealTempDir(t)
 	updates := filepath.Join(home, "updates")
 	if err := os.Symlink(outside, updates); err != nil {
 		t.Fatalf("Symlink(updates) error = %v", err)
@@ -95,7 +95,7 @@ func TestProvideConfigRejectsForgedRuntimeResources(t *testing.T) {
 
 func productionPackageConfigFixture(t *testing.T, platform string) (*platformconfig.Config, string, string, string, string) {
 	t.Helper()
-	target := filepath.Join(canonicalTempDir(t), "Super Dolphin.app")
+	target := filepath.Join(appUpdateRealTempDir(t), "Super Dolphin.app")
 	resources := filepath.Join(target, "Contents", "Resources")
 	executable := filepath.Join(target, "Contents", "MacOS", "agent-terminal")
 	bin := filepath.Join(resources, "bin")
@@ -141,7 +141,7 @@ func productionPackageConfigFixture(t *testing.T, platform string) (*platformcon
 	}
 	writeInfoPlist(t, target, "1.2.5")
 	cfg := &platformconfig.Config{ProjectRoot: t.TempDir(), Dependency: platformconfig.DependencyConfig{Profile: platformconfig.DependencyProfileProduction}}
-	return cfg, executable, resources, target, canonicalTempDir(t)
+	return cfg, executable, resources, target, appUpdateRealTempDir(t)
 }
 
 func clearUpdateOverrideEnvironment(t *testing.T) {
@@ -166,7 +166,7 @@ func clearUpdateOverrideEnvironment(t *testing.T) {
 }
 
 func TestVerifiedPackageTrustPublicKeyRequiresProductionExactTrustAndHelpers(t *testing.T) {
-	resources := canonicalTempDir(t)
+	resources := appUpdateRealTempDir(t)
 	binDir := filepath.Join(resources, "bin")
 	if err := os.MkdirAll(binDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -206,7 +206,7 @@ func TestVerifiedPackageTrustPublicKeyRequiresProductionExactTrustAndHelpers(t *
 }
 
 func TestVerifiedPackageTrustPublicKeyRejectsDisabledTrust(t *testing.T) {
-	resources := canonicalTempDir(t)
+	resources := appUpdateRealTempDir(t)
 	binDir := filepath.Join(resources, "bin")
 	if err := os.MkdirAll(binDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -230,7 +230,7 @@ func TestVerifiedPackageTrustPublicKeyRejectsDisabledTrust(t *testing.T) {
 }
 
 func TestPackageLayoutRejectsExecutableAlias(t *testing.T) {
-	root := canonicalTempDir(t)
+	root := appUpdateRealTempDir(t)
 	target := filepath.Join(root, "Super Dolphin.app")
 	macOSDir := filepath.Join(target, "Contents", "MacOS")
 	if err := os.MkdirAll(filepath.Join(target, "Contents", "Resources"), 0o700); err != nil {
@@ -253,7 +253,7 @@ func TestPackageLayoutRejectsExecutableAlias(t *testing.T) {
 }
 
 func TestPackageLayoutRejectsResourcesAlias(t *testing.T) {
-	root := canonicalTempDir(t)
+	root := appUpdateRealTempDir(t)
 	target := filepath.Join(root, "Super Dolphin.app")
 	macOSDir := filepath.Join(target, "Contents", "MacOS")
 	if err := os.MkdirAll(macOSDir, 0o700); err != nil {
@@ -276,7 +276,7 @@ func TestPackageLayoutRejectsResourcesAlias(t *testing.T) {
 }
 
 func TestVerifiedPackageTrustRejectsHelperAlias(t *testing.T) {
-	resources := canonicalTempDir(t)
+	resources := appUpdateRealTempDir(t)
 	binDir := filepath.Join(resources, "bin")
 	if err := os.MkdirAll(binDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -307,13 +307,4 @@ func TestVerifiedPackageTrustRejectsHelperAlias(t *testing.T) {
 	if _, err := VerifiedPackageTrustPublicKey(resources, "darwin-arm64"); err == nil || !strings.Contains(err.Error(), "alias") {
 		t.Fatalf("VerifiedPackageTrustPublicKey(helper alias) error = %v", err)
 	}
-}
-
-func canonicalTempDir(t *testing.T) string {
-	t.Helper()
-	path, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	return path
 }

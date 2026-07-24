@@ -4,7 +4,7 @@ internal/module/appupdate/github_release.go	internal	modules	go-source	9831	业�
 internal/module/appupdate/manifest_test.go	internal	modules	go-test	8176	业务模块层	internal,module,appupdate,manifest,test,业务模块层
 internal/module/appupdate/manifest.go	internal	modules	go-source	9708	业务模块层	internal,module,appupdate,manifest,业务模块层
 internal/module/appupdate/module.go	internal	modules	go-source	533	业务模块层	internal,module,appupdate,业务模块层
-internal/module/appupdate/package_trust_test.go	internal	modules	go-test	12781	业务模块层	internal,module,appupdate,package,trust,test,业务模块层
+internal/module/appupdate/package_trust_test.go	internal	modules	go-test	12660	业务模块层	internal,module,appupdate,package,trust,test,业务模块层
 internal/module/appupdate/package_trust_tool.go	internal	modules	go-source	3996	业务模块层	internal,module,appupdate,package,trust,tool,业务模块层
 internal/module/appupdate/package_trust.go	internal	modules	go-source	6821	业务模块层	internal,module,appupdate,package,trust,业务模块层
 internal/module/appupdate/rpc_recovery_test.go	internal	modules	go-test	11114	业务模块层	internal,module,appupdate,rpc,recovery,test,业务模块层
@@ -13,7 +13,7 @@ internal/module/appupdate/rpc.go	internal	modules	go-source	3949	业务模块层
 internal/module/appupdate/service_operation_test.go	internal	modules	go-test	7855	业务模块层	internal,module,appupdate,service,operation,test,业务模块层
 internal/module/appupdate/service_sidecar_stub_test.go	internal	modules	go-test	776	业务模块层	internal,module,appupdate,service,sidecar,stub,test,业务模块层
 internal/module/appupdate/service_test_helpers_test.go	internal	modules	go-test	6044	业务模块层	internal,module,appupdate,service,test,helpers,业务模块层
-internal/module/appupdate/service_test.go	internal	modules	go-test	29132	业务模块层	internal,module,appupdate,service,test,业务模块层
+internal/module/appupdate/service_test.go	internal	modules	go-test	29303	业务模块层	internal,module,appupdate,service,test,业务模块层
 internal/module/appupdate/service.go	internal	modules	go-source	32470	业务模块层	internal,module,appupdate,service,业务模块层
 internal/module/appupdate/stage_io.go	internal	modules	go-source	15690	业务模块层	internal,module,appupdate,stage,io,业务模块层
 internal/module/appupdate/windows_signature_test.go	internal	modules	go-test	1416	业务模块层	internal,module,appupdate,windows,signature,test,业务模块层

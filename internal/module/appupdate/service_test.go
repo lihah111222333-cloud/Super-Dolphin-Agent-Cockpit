@@ -32,7 +32,7 @@ func TestProvideConfigRequiresHTTPSManifestWithHost(t *testing.T) {
 	t.Setenv(envUpdateEnabled, "1")
 	t.Setenv(envUpdateManifestURL, "http://updates.example.test/manifest.json")
 	t.Setenv(envUpdatePublicKey, base64.StdEncoding.EncodeToString(make([]byte, 32)))
-	t.Setenv(envUpdateStageDir, t.TempDir())
+	t.Setenv(envUpdateStageDir, appUpdateRealTempDir(t))
 	t.Setenv(envUpdateHelperPath, "/bin/echo")
 	t.Setenv(envUpdateTargetApp, "/Applications/Super Dolphin.app")
 	t.Setenv(envVersion, "1.0.0")
@@ -48,7 +48,7 @@ func TestProvideConfigAcceptsGitHubRepoWithoutLegacyManifestURL(t *testing.T) {
 	t.Setenv(envUpdateEnabled, "1")
 	t.Setenv(envUpdateGitHubRepo, testValidGitHubRepo)
 	t.Setenv(envUpdatePublicKey, base64.StdEncoding.EncodeToString(publicKey))
-	t.Setenv(envUpdateStageDir, t.TempDir())
+	t.Setenv(envUpdateStageDir, appUpdateRealTempDir(t))
 	t.Setenv(envUpdateHelperPath, "/bin/echo")
 	t.Setenv(envUpdateTargetApp, "/Applications/Super Dolphin.app")
 	t.Setenv(envUpdatePlatform, "darwin-arm64")
@@ -72,7 +72,7 @@ func TestProvideConfigRejectsBothUpdateSources(t *testing.T) {
 	t.Setenv(envUpdateManifestURL, "https://updates.example.test/manifest.json")
 	t.Setenv(envUpdateGitHubRepo, testValidGitHubRepo)
 	t.Setenv(envUpdatePublicKey, base64.StdEncoding.EncodeToString(publicKey))
-	t.Setenv(envUpdateStageDir, t.TempDir())
+	t.Setenv(envUpdateStageDir, appUpdateRealTempDir(t))
 	t.Setenv(envUpdateHelperPath, "/bin/echo")
 	t.Setenv(envUpdateTargetApp, "/Applications/Super Dolphin.app")
 	t.Setenv(envUpdatePlatform, "darwin-arm64")
@@ -89,7 +89,7 @@ func TestProvideConfigRejectsWindowsUpdatesWithoutAuthenticodeGate(t *testing.T)
 	t.Setenv(envUpdateEnabled, "1")
 	t.Setenv(envUpdateManifestURL, "https://updates.example.test/manifest.json")
 	t.Setenv(envUpdatePublicKey, base64.StdEncoding.EncodeToString(publicKey))
-	t.Setenv(envUpdateStageDir, t.TempDir())
+	t.Setenv(envUpdateStageDir, appUpdateRealTempDir(t))
 	t.Setenv(envUpdatePlatform, "windows-amd64")
 	t.Setenv(envVersion, "1.0.0")
 
@@ -106,7 +106,7 @@ func TestProvideConfigReadsCurrentVersionFromInfoPlist(t *testing.T) {
 	t.Setenv(envUpdateEnabled, "1")
 	t.Setenv(envUpdateManifestURL, "https://updates.example.test/manifest.json")
 	t.Setenv(envUpdatePublicKey, base64.StdEncoding.EncodeToString(publicKey))
-	t.Setenv(envUpdateStageDir, t.TempDir())
+	t.Setenv(envUpdateStageDir, appUpdateRealTempDir(t))
 	t.Setenv(envUpdateHelperPath, "/bin/echo")
 	t.Setenv(envUpdateTargetApp, targetApp)
 	t.Setenv(envUpdatePlatform, "darwin-arm64")
@@ -324,7 +324,7 @@ func TestDownloadRejectsStageAliasBeforeNetwork(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			stageDir := appUpdateRealTempDir(t)
-			outside := filepath.Join(canonicalTempDir(t), "outside")
+			outside := filepath.Join(appUpdateRealTempDir(t), "outside")
 			sentinel := []byte("do not overwrite")
 			if err := os.WriteFile(outside, sentinel, 0o600); err != nil {
 				t.Fatalf("WriteFile(outside) error = %v", err)
@@ -368,7 +368,7 @@ func TestInstallRequiresRequestQuitBeforeStartingHelper(t *testing.T) {
 	writeSelectedInstallFixture(t, svc)
 
 	_, err := svc.Install(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "request quit callback") {
+	if err == nil || err.Error() != "app update request quit callback is not configured" {
 		t.Fatalf("Install() error = %v, want missing RequestQuit", err)
 	}
 	if _, statErr := os.Stat(marker); !errors.Is(statErr, os.ErrNotExist) {
@@ -461,7 +461,7 @@ func TestInstallRejectsHelperLogAliasBeforeStartingHelper(t *testing.T) {
 		TargetAppPath: "/Applications/Super Dolphin.app",
 	}, nil, func() {})
 	writeSelectedInstallFixture(t, svc)
-	outside := filepath.Join(canonicalTempDir(t), "outside.log")
+	outside := filepath.Join(appUpdateRealTempDir(t), "outside.log")
 	sentinel := []byte("do not overwrite")
 	if err := os.WriteFile(outside, sentinel, 0o600); err != nil {
 		t.Fatalf("WriteFile(outside) error = %v", err)
@@ -471,7 +471,7 @@ func TestInstallRejectsHelperLogAliasBeforeStartingHelper(t *testing.T) {
 	}
 
 	_, err := svc.Install(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "alias") {
+	if err == nil || err.Error() != "open app update stage: app update stage entry \"super-dolphin-updater.log\" is an alias or reparse point" {
 		t.Fatalf("Install() error = %v, want helper log alias rejection", err)
 	}
 	if _, statErr := os.Stat(marker); !errors.Is(statErr, os.ErrNotExist) {
@@ -559,7 +559,7 @@ func TestInstallRejectsWindowsInstallerBeforeStartWhenAuthenticodeGateFails(t *t
 	writeSelectedInstallFixtureForPlatform(t, svc, "windows-amd64", installer)
 
 	_, err := svc.Install(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "authenticode") {
+	if err == nil || err.Error() != "mock authenticode rejected" {
 		t.Fatalf("Install() error = %v, want Authenticode rejection", err)
 	}
 	if _, statErr := os.Stat(argsPath); !errors.Is(statErr, os.ErrNotExist) {
@@ -697,7 +697,7 @@ func TestInstallRejectsSelectedPlatformMismatchBeforeAttempt(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("darwin helper launch uses /bin/sh")
 	}
-	stageDir := canonicalTempDir(t)
+	stageDir := appUpdateRealTempDir(t)
 	marker := filepath.Join(stageDir, "helper.started")
 	svc := newService(Config{
 		Enabled: true, StageDir: stageDir, Platform: "darwin-arm64",
@@ -716,7 +716,7 @@ func TestInstallRejectsSelectedArtifactOutsideStageBeforeAttempt(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("darwin helper launch uses /bin/sh")
 	}
-	stageDir := canonicalTempDir(t)
+	stageDir := appUpdateRealTempDir(t)
 	marker := filepath.Join(stageDir, "helper.started")
 	svc := newService(Config{
 		Enabled: true, StageDir: stageDir, Platform: "darwin-arm64",
@@ -754,7 +754,7 @@ func TestInstallRejectsDivergentDarwinDMGPathBeforeAttempt(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("darwin helper launch uses /bin/sh")
 	}
-	stageDir := canonicalTempDir(t)
+	stageDir := appUpdateRealTempDir(t)
 	marker := filepath.Join(stageDir, "helper.started")
 	svc := newService(Config{
 		Enabled: true, StageDir: stageDir, Platform: "darwin-arm64",
