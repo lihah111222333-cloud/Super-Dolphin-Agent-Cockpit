@@ -324,7 +324,7 @@ type installedBinaryCandidate struct {
 func installedBinaryCandidates(ctx context.Context, cfg InstallerConfig) ([]installedBinaryCandidate, error) {
 	path, pathErr := exec.LookPath(cfg.BinaryName)
 	fallbackPath, fallbackOK := postInstallBinaryPath(ctx, cfg)
-	_, pathIsShim := commandShimTarget(path)
+	_, pathIsShim := CommandShimTarget(path)
 	candidates := make([]installedBinaryCandidate, 0, 2)
 	appendCandidate := func(candidate installedBinaryCandidate) {
 		if candidate.path == "" {
@@ -464,8 +464,8 @@ func npmInstallBinDir(ctx context.Context, npmCmd string) string {
 	return filepath.Join(prefix, "bin")
 }
 
-// commandShimTarget 读取 pnpm 生成的 shell shim 目标，不执行 shim 或目标文件。
-func commandShimTarget(path string) (string, bool) {
+// CommandShimTarget 读取 pnpm 生成的 shell shim 目标，不执行 shim 或目标文件。
+func CommandShimTarget(path string) (string, bool) {
 	file, err := os.Open(strings.TrimSpace(path))
 	if err != nil {
 		return "", false

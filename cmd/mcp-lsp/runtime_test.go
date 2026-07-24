@@ -434,6 +434,24 @@ func TestRuntimeJSTSInitOptionsResolvePackagedWrapperTSServerPath(t *testing.T) 
 	}
 }
 
+func TestRuntimeTypeScriptModuleRootResolvesPNPMCommandShim(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses a POSIX pnpm command shim")
+	}
+	prefix := t.TempDir()
+	binDir := filepath.Join(prefix, "bin")
+	typeScriptRoot := filepath.Join(prefix, "store", "node_modules", "typescript")
+	target := filepath.Join(typeScriptRoot, "bin", "tsserver")
+	writeRuntimeExecutable(t, target, "#!/bin/sh\nexit 0\n")
+	writeRuntimeTestFile(t, filepath.Join(typeScriptRoot, "lib", "tsserver.js"), "fixture\n")
+	writeRuntimeExecutable(t, filepath.Join(binDir, "tsserver"), "#!/bin/sh\nexit 0\n# cmd-shim-target="+target+"\n")
+	t.Setenv("PATH", binDir)
+
+	if got := runtimeTypeScriptModuleRoot(""); got != typeScriptRoot {
+		t.Fatalf("runtimeTypeScriptModuleRoot() = %q, want pnpm TypeScript root %q", got, typeScriptRoot)
+	}
+}
+
 func writeTypeScriptNPMFixture(t *testing.T) (string, string) {
 	t.Helper()
 	prefix := t.TempDir()

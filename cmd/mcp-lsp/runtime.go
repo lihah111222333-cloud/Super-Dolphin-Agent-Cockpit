@@ -628,6 +628,9 @@ func runtimeTypeScriptModuleRoot(serverBinary string) string {
 		if err != nil {
 			resolved = binaryPath
 		}
+		if target, ok := installer.CommandShimTarget(resolved); ok {
+			resolved = target
+		}
 		if root := typeScriptModuleRootFromBinary(resolved); root != "" {
 			return root
 		}
