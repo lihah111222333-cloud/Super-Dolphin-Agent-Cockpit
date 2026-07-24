@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { validateSkillInfo } from '../../features/slash-commands/adapters/skillInfoWireContract.js';
 import { skillsPageService } from './services/skillsPageService.js';
 import { SKILLS_REQUEST_TIMEOUT_MS, withTimeout } from '../shared/pageShared.js';
 
@@ -17,9 +17,6 @@ function firstTextField(raw, fields, source, required = false) { for (const fiel
 function firstArrayField(raw, fields, source, required = false) { for (const field of fields) { const value = raw?.[field]; if (Array.isArray(value)) return value; } if (required) throw new Error(`${source} is missing ${fields[0]}`); return []; }
 
 const SKILLS_DASHBOARD_TIMEOUT_MS = Math.max(1, SKILLS_REQUEST_TIMEOUT_MS - 250);
-
-const skillDashboardItemSchema = z.object({ name: z.unknown().optional(), dir: z.unknown().optional(), skill_file: z.unknown().optional() }).passthrough();
-const skillsDashboardResponseSchema = z.object({ skills: z.array(skillDashboardItemSchema) }).passthrough();
 
 const { getDashboardPage } = skillsPageService;
 
@@ -49,21 +46,19 @@ function normalizeWordList(...groups) {
 }
 
 function normalizeSkill(raw, index) {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    throw new Error(`skills dashboard response item ${index} must be an object`);
-  }
   const source = `skills dashboard response item ${index}`;
-  const name = firstTextField(raw, ['name'], source, true);
-  const displayName = firstTextField(raw, ['display_name'], source);
-  const scope = scopeForSkill(raw);
-  const dir = firstTextField(raw, ['dir'], source, true);
+  const skill = validateSkillInfo(raw, source);
+  const name = skill.name;
+  const displayName = skill.display_name;
+  const scope = scopeForSkill(skill);
+  const dir = skill.dir;
   // skill_file 在 dashboard wire（contract.SkillInfo）中不存在，定位 SKILL.md 时由
-  // skillFileForItem 用 dir + '/SKILL.md' 回退；这里按可选字段读取，缺失不算非法响应。
-  const skillFile = firstTextField(raw, ['skill_file'], source);
-  const description = firstTextField(raw, ['description'], source);
-  const summary = firstTextField(raw, ['summary'], source);
+  // skillFileForItem 用 dir + '/SKILL.md' 回退。
+  const skillFile = '';
+  const description = skill.description;
+  const summary = skill.summary;
   const title = displayName ? displayName : name;
-  const personalType = firstTextField(raw, ['personal_type'], source);
+  const personalType = skill.personal_type;
   return {
     id: [scope, personalType, name, dir, index].join(':'),
     name,
@@ -74,20 +69,18 @@ function normalizeSkill(raw, index) {
     summary,
     scope,
     personalType,
-    tags: normalizeWordList(firstArrayField(raw, ['trigger_words'], source), firstArrayField(raw, ['force_words'], source)),
+    tags: normalizeWordList(skill.trigger_words, skill.force_words),
   };
 }
 
 function parseSkillsDashboardResponse(response) {
-  const result = skillsDashboardResponseSchema.safeParse(response);
-  if (result.success) return result.data;
-  const issue = result.error.issues[0];
-  if (issue?.path?.[0] === 'skills') {
-    const itemIndex = issue.path.find((part) => Number.isInteger(part));
-    if (Number.isInteger(itemIndex)) throw new Error(`skills dashboard response item ${itemIndex} must be an object`);
-    throw new Error('skills dashboard response skills must be an array');
+  if (!response || typeof response !== 'object' || Array.isArray(response)) {
+    throw new TypeError('skills dashboard response must be an object');
   }
-  throw new Error('skills dashboard response must be an object');
+  if (!Array.isArray(response.skills)) {
+    throw new TypeError('skills dashboard response skills must be an array');
+  }
+  return response;
 }
 
 function normalizeSkillsResponse(response) {

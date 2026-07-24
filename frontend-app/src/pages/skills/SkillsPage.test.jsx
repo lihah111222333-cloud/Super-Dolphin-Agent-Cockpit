@@ -80,8 +80,8 @@ beforeEach(() => {
       name: 'backend',
       display_name: '后端',
       dir: '/repo/app/.agents/skills/backend',
-      skill_file: '/repo/app/.agents/skills/backend/SKILL.md',
       description: '当你需要 Go 后端开发时使用。',
+      summary: 'Go 后端技能摘要。',
       trigger_words: ['go', 'service'],
       scope: 'project',
     }],
@@ -652,8 +652,8 @@ describe('SkillsPage backend migration', () => {
       skill: {
         display_name: '后端',
         dir: '/repo/app/.agents/skills/backend',
-        skill_file: '/repo/app/.agents/skills/backend/SKILL.md',
         description: '当你需要 Go 后端开发时使用。',
+        summary: 'Go 后端技能摘要。',
         trigger_words: ['go'],
         scope: 'project',
       },
@@ -663,8 +663,8 @@ describe('SkillsPage backend migration', () => {
       skill: {
         name: 'backend',
         display_name: '后端',
-        skill_file: '/repo/app/.agents/skills/backend/SKILL.md',
         description: '当你需要 Go 后端开发时使用。',
+        summary: 'Go 后端技能摘要。',
         trigger_words: ['go'],
         scope: 'project',
       },
@@ -693,14 +693,13 @@ describe('SkillsPage backend migration', () => {
   });
 
   it('loads skills whose dashboard wire omits skill_file, matching the real backend contract', async () => {
-    // 真实后端（contract.SkillInfo）不提供 skill_file 字段；前端必须按真实契约解析，
-    // 定位 SKILL.md 由 skillFileForItem 用 dir + '/SKILL.md' 回退。
+    // 真实后端不提供 skill_file；定位 SKILL.md 由 skillFileForItem 用 dir 回退。
     backend.getDashboardPage.mockResolvedValueOnce({
       skills: [{
         name: 'backend',
         display_name: '后端',
         dir: '/repo/app/.agents/skills/backend',
-        description: '当你需要 Go 后端开发时使用。',
+        description: '当你需要 Go 后端开发时使用。', summary: 'Go 后端技能摘要。',
         trigger_words: ['go', 'service'],
         scope: 'project',
       }],
@@ -904,8 +903,8 @@ describe('SkillsPage backend migration', () => {
           name: 'backend',
           display_name: '后端',
           dir: '/repo/app/.agents/skills/backend',
-          skill_file: '/repo/app/.agents/skills/backend/SKILL.md',
           description: '当你需要 Go 后端开发时使用。',
+          summary: 'Go 后端技能摘要。',
           trigger_words: ['go'],
           scope: 'project',
         },
@@ -913,8 +912,8 @@ describe('SkillsPage backend migration', () => {
           name: 'docs',
           display_name: 'Docs Skill',
           dir: '/repo/app/.agents/skills/docs',
-          skill_file: '/repo/app/.agents/skills/docs/SKILL.md',
           description: '当你需要整理文档时使用。',
+          summary: '文档技能摘要。',
           trigger_words: ['docs'],
           scope: 'project',
         },

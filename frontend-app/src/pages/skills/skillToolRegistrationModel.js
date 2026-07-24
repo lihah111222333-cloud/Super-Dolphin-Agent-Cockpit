@@ -20,6 +20,12 @@ function firstPresentText(...values) {
   return '';
 }
 
+function uniqueNamedSkills(skills) {
+  const counts = new Map();
+  skills.forEach((skill) => counts.set(skill.name, (counts.get(skill.name) ?? 0) + 1));
+  return skills.filter((skill) => counts.get(skill.name) === 1);
+}
+
 // “注册技能工具”的状态机：只能把当前项目真实存在的 Skill 注册为动态工具。
 // 打开对话框时经真实 API 加载技能列表与已注册工具；保存前再次拉取确认，
 // 不依赖过期 UI 状态，杜绝注册出没有对应 SKILL.md 的不可调用工具。
@@ -51,7 +57,7 @@ export function useSkillToolRegistration({ createTool, listTools, projectPath, q
       ]);
       const registeredNames = normalizeRegisteredNames(toolsResponse);
       setLoadState({ status: 'ready', skills, registeredNames, error: '' });
-      const firstAvailable = skills.find((skill) => !registeredNames.includes(skill.name));
+      const firstAvailable = uniqueNamedSkills(skills).find((skill) => !registeredNames.includes(skill.name));
       if (firstAvailable) {
         setSelection(firstAvailable.name);
         setDescription(firstPresentText(firstAvailable.description, firstAvailable.summary));
@@ -100,10 +106,17 @@ export function useSkillToolRegistration({ createTool, listTools, projectPath, q
       ]);
       const freshRegisteredNames = normalizeRegisteredNames(freshToolsResponse);
       const refreshed = { status: 'ready', skills: freshSkills, registeredNames: freshRegisteredNames, error: '' };
-      if (!freshSkills.some((skill) => skill.name === selection)) {
+      const matchingSkills = freshSkills.filter((skill) => skill.name === selection);
+      if (matchingSkills.length === 0) {
         setLoadState(refreshed);
         setSelection('');
         setSaveError(`技能「${selection}」已不存在，请重新选择`);
+        return;
+      }
+      if (matchingSkills.length > 1) {
+        setLoadState(refreshed);
+        setSelection('');
+        setSaveError(`技能「${selection}」存在同名冲突，无法注册为工具`);
         return;
       }
       if (freshRegisteredNames.includes(selection)) {
@@ -124,7 +137,8 @@ export function useSkillToolRegistration({ createTool, listTools, projectPath, q
   }, [createTool, description, enabled, listTools, projectPath, queryClient, selection, setPanelNotice, toolSaving]);
 
   const availableSkills = useMemo(
-    () => loadState.skills.filter((skill) => !loadState.registeredNames.includes(skill.name)),
+    () => uniqueNamedSkills(loadState.skills)
+      .filter((skill) => !loadState.registeredNames.includes(skill.name)),
     [loadState.skills, loadState.registeredNames],
   );
 
