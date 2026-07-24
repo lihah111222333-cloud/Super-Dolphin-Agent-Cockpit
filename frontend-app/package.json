@@ -43,6 +43,7 @@
     "mcp:ui-test:scenario": "node scripts/ui-test-mcp-scenario.mjs"
   },
   "dependencies": {
+    "@ant-design/x": "^2.8.0",
     "@tanstack/react-query": "^5.100.14",
     "@tanstack/react-virtual": "^3.14.5",
     "antd": "^6.5.1",

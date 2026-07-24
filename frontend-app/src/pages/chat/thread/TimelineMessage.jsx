@@ -1,5 +1,6 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { CheckCircle2, Copy, File } from 'lucide-react';
+import { Bot, CheckCircle2, Copy, File } from 'lucide-react';
+import Bubble from '@ant-design/x/es/bubble';
 import { isApprovalMessage } from '../../../features/approval/model/approvalDecision.js';
 import { runUIAction } from '../../../shared/ui/runUIAction.js';
 import { publicErrorForRemoteTerminal } from '../../../shared/ui/publicError.js';
@@ -167,6 +168,12 @@ function UserMessageAttachments({ attachments, actions }) {
   );
 }
 
+const CHAT_ASSISTANT_AVATAR = (
+  <span className="chat-bubble-avatar" aria-hidden="true">
+    <Bot size={16} strokeWidth={1.9} />
+  </span>
+);
+
 const TimelineMessage = memo(function TimelineMessage({
   message,
   actions,
@@ -209,28 +216,37 @@ const TimelineMessage = memo(function TimelineMessage({
   }
 
   const isUser = message.role === 'user';
+  // 消息体使用 Ant Design X Bubble 原生聊天气泡；Markdown/附件/复制等既有
+  // 渲染能力作为 content/footer 插槽继续复用，业务数据与流式语义不变。
   return (
     <article className={`message ${message.role} no-avatar`}>
-      <div className="bubble">
-        {isUser ? (
-          <header>
-            <time>{formatTime(message.time)}</time>
-          </header>
-        ) : null}
-        {isUser ? <UserMessageAttachments attachments={message.attachments} actions={actions} /> : null}
-        <MessageContent text={displayText} actions={actions} />
-        {streamingAssistant ? (
-          <output className="assistant-thinking-status" aria-live="polite">
-            {ASSISTANT_THINKING_LABEL}
-          </output>
-        ) : null}
-        {!isUser && message.role === 'assistant' ? (
+      <Bubble
+        className={`chat-x-bubble chat-x-bubble--${isUser ? 'user' : 'assistant'}`}
+        placement={isUser ? 'end' : 'start'}
+        variant={isUser ? 'filled' : 'outlined'}
+        shape="corner"
+        avatar={isUser ? undefined : CHAT_ASSISTANT_AVATAR}
+        header={isUser ? <time>{formatTime(message.time)}</time> : undefined}
+        loading={streamingAssistant && !trimmedText(displayText)}
+        content={(
+          <>
+            {isUser ? <UserMessageAttachments attachments={message.attachments} actions={actions} /> : null}
+            <MessageContent text={displayText} actions={actions} />
+          </>
+        )}
+        footer={isUser ? undefined : (
           <div className="assistant-footer">
+            {streamingAssistant ? (
+              <output className="assistant-thinking-status" aria-live="polite">
+                {ASSISTANT_THINKING_LABEL}
+              </output>
+            ) : null}
             <time>{formatTime(message.time)}</time>
             <AssistantMessageActions copy={copy} text={message.text} />
           </div>
-        ) : null}
-      </div>
+        )}
+        footerPlacement="outer-start"
+      />
     </article>
   );
 });

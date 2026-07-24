@@ -1,6 +1,8 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
 import { UNSAFE_PortalProvider } from 'react-aria';
+import { ConfigProvider as AntdConfigProvider } from 'antd';
+import XProvider from '@ant-design/x/es/x-provider';
 import { useShallow } from 'zustand/react/shallow';
 import { useClientStore } from './entities/client/model/useClientStore.js';
 import { checkAppUpdate, installLatestAppUpdate } from './shared/api/backendApi.js';
@@ -31,6 +33,7 @@ import {
 } from './app/appShellModel.js';
 import { SuiyuanAppWindow } from './app/shell/SuiyuanAppWindow.jsx';
 import { appShortcutPlatform } from './app/shell/appShortcutPlatform.js';
+import { antdLocaleFor, antdThemeConfig } from './app/antdTheme.js';
 import { updateVersionFromResult } from './app/shell/appUpdateVersion.js';
 import { createShellLayoutStore } from './app/shell/model/useShellLayoutStore.js';
 import { appCommandPreferencePort } from './app/commands/appCommandPreferencePort.js';
@@ -359,12 +362,20 @@ function AppShell({ shellLayoutStorage, skipBootstrap = false, uiTestMCPMode = f
       }
     };
   }, [overlayRoot, shell.theme]);
+  // Ant Design / Ant Design X 主题跟随应用主题（深色/浅色 Command Center 基线），
+  // 仅提供 UI 组件与视觉 token，不接管任何请求层、会话状态或业务契约。
+  const antdTheme = useMemo(() => antdThemeConfig(shell.theme), [shell.theme]);
+  const antdLocale = useMemo(() => antdLocaleFor(language.locale), [language.locale]);
   return (
-    <UNSAFE_PortalProvider getContainer={() => overlayRoot}>
-      {uiTestMCPMode
-        ? <UITestMCPShell />
-        : <AppWindowShortcutBoundary language={language} shell={shell} shellLayoutStore={shellLayoutStore} store={store} />}
-    </UNSAFE_PortalProvider>
+    <AntdConfigProvider theme={antdTheme} locale={antdLocale}>
+      <XProvider theme={antdTheme}>
+        <UNSAFE_PortalProvider getContainer={() => overlayRoot}>
+          {uiTestMCPMode
+            ? <UITestMCPShell />
+            : <AppWindowShortcutBoundary language={language} shell={shell} shellLayoutStore={shellLayoutStore} store={store} />}
+        </UNSAFE_PortalProvider>
+      </XProvider>
+    </AntdConfigProvider>
   );
 }
 

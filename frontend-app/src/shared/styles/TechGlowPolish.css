@@ -345,3 +345,60 @@
     var(--composer-shadow, var(--shadow)),
     0 0 22px color-mix(in srgb, var(--primary) 14%, transparent);
 }
+
+/* ---------- 深色消息区：X Bubble 用户气泡 / 助手卡片 / 代码块 / 思考中 ---------- */
+
+.sa-window[data-theme="dark"] .message.user .chat-x-bubble .ant-bubble-content {
+  border: 1px solid color-mix(in srgb, var(--primary) 22%, var(--border));
+  background: linear-gradient(155deg, #272c39 0%, #20242f 100%);
+  color: var(--text-pri);
+}
+
+.sa-window[data-theme="dark"] .message.assistant .chat-x-bubble .ant-bubble-content {
+  border-color: color-mix(in srgb, var(--border) 88%, var(--primary));
+  background: color-mix(in srgb, var(--surface) 62%, transparent);
+}
+
+.sa-window[data-theme="dark"] .message.assistant .message-markdown pre,
+.sa-window[data-theme="dark"] .message.assistant .message-output pre {
+  border-color: color-mix(in srgb, var(--cyan) 13%, var(--border));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.sa-window[data-theme="dark"] .assistant-thinking-status::before {
+  box-shadow: 0 0 10px var(--primary);
+}
+
+.sa-window[data-theme="dark"] ::selection {
+  background: rgba(143, 159, 248, 0.34);
+  color: #f4f6ff;
+}
+
+/* ---------- 浅色消息区：X Bubble 用户气泡 / 助手卡片 / 代码块 / 思考中 ---------- */
+
+.sa-window[data-theme="light"] .message.user .chat-x-bubble .ant-bubble-content {
+  border: 1px solid color-mix(in srgb, var(--primary) 18%, var(--border));
+  background: linear-gradient(155deg, #eef1f8 0%, #e5eaf3 100%);
+  color: var(--text-pri);
+}
+
+.sa-window[data-theme="light"] .message.assistant .chat-x-bubble .ant-bubble-content {
+  border-color: color-mix(in srgb, var(--border) 90%, var(--primary));
+  background: #ffffff;
+  box-shadow: 0 6px 20px rgba(30, 38, 68, 0.05);
+}
+
+.sa-window[data-theme="light"] .message.assistant .message-markdown pre,
+.sa-window[data-theme="light"] .message.assistant .message-output pre {
+  border-color: color-mix(in srgb, var(--cyan) 16%, var(--border));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.sa-window[data-theme="light"] .assistant-thinking-status::before {
+  box-shadow: 0 0 8px color-mix(in srgb, var(--primary) 72%, transparent);
+}
+
+.sa-window[data-theme="light"] ::selection {
+  background: rgba(79, 93, 216, 0.2);
+  color: #171a23;
+}

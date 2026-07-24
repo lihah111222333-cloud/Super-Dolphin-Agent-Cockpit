@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { Bot, Code2, FileText, Sailboat, Sparkles } from 'lucide-react';
-import Flex from 'antd/es/flex';
+import Welcome from '@ant-design/x/es/welcome';
 import {
   activeThreadForStore,
 } from './adapters/threadStateAdapter.js';
@@ -69,21 +69,25 @@ function renderIntroTitle(title) {
 }
 
 function ChatIntroSpotlight({ copy, onSuggestion }) {
-  // 空状态头部使用 Ant Design Flex 负责纵向编排；标题和建议卡保留原生语义，
-  // 避免为纯布局引入额外排版运行时，同时确保键盘与读屏契约不退化。
+  // 空状态头部使用 Ant Design X Welcome（borderless 变体），保留既有品牌 logo、
+  // 高亮标题与 className 契约；建议卡维持原生 <button>，因为 X Prompts 的 item
+  // 是无 role/tabIndex 的 div，替换会丢失键盘可达性。
   return (
-    <div className="chat-intro-spotlight" aria-labelledby="chat-intro-title" data-testid="chat-intro-spotlight">
+    <div className="chat-intro-spotlight" data-testid="chat-intro-spotlight">
       <div className="chat-intro-spotlight__inner">
-        <Flex className="chat-intro-welcome" vertical align="center">
-          <span className="chat-intro-logo-tile" aria-hidden="true">
-            <Sailboat className="chat-intro-logo-light" data-testid="chat-intro-light-logo" size={28} strokeWidth={1.8} />
-            <Bot className="chat-intro-logo-dark" data-testid="chat-intro-dark-logo" size={28} strokeWidth={1.8} />
-          </span>
-          <h2 id="chat-intro-title" className="chat-intro-title">
-            {renderIntroTitle(copy.introTitle)}
-          </h2>
-          <p className="chat-intro-subtitle">{copy.introSubtitle}</p>
-        </Flex>
+        <Welcome
+          className="chat-intro-welcome"
+          variant="borderless"
+          classNames={{ title: 'chat-intro-title', description: 'chat-intro-subtitle' }}
+          icon={(
+            <span className="chat-intro-logo-tile" aria-hidden="true">
+              <Sailboat className="chat-intro-logo-light" data-testid="chat-intro-light-logo" size={28} strokeWidth={1.8} />
+              <Bot className="chat-intro-logo-dark" data-testid="chat-intro-dark-logo" size={28} strokeWidth={1.8} />
+            </span>
+          )}
+          title={renderIntroTitle(copy.introTitle)}
+          description={copy.introSubtitle}
+        />
         <div className="chat-intro-suggestions" data-testid="chat-intro-suggestions">
           {INTRO_SUGGESTION_DEFINITIONS.map(({ key, icon: Icon }) => {
             const suggestion = copy.introSuggestions[key];

@@ -200,6 +200,15 @@ export function createFrontendViteConfig(env = process.env, viteEnv = {}) {
             if (id.includes('/node_modules/lucide-react/')) {
               return 'icons';
             }
+            // Ant Design 体系独立成块，避免主入口 chunk 超出冻结预算。
+            if (
+              id.includes('/node_modules/antd/')
+              || id.includes('/node_modules/@ant-design/')
+              || id.includes('/node_modules/@rc-component/')
+              || id.includes('/node_modules/rc-')
+            ) {
+              return 'antd';
+            }
             return undefined;
           },
         },

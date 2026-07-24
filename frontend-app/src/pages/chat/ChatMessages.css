@@ -771,3 +771,52 @@ button.user-attachment-file-pill:focus-visible {
 .message {
   animation: sd-message-in var(--motion-base) var(--ease-standard) both;
 }
+
+/* ==========================================================================
+   Ant Design X Bubble 适配层
+   布局约束（宽度/最大宽/头像/页脚间距）在这里；主题配色（用户气泡渐变、
+   助手卡片底）在 TechGlowPolish.css 的 dark/light 段。
+   ========================================================================== */
+
+.chat-x-bubble {
+  width: 100%;
+  min-width: 0;
+}
+
+.message.user .chat-x-bubble .ant-bubble-content {
+  max-width: min(720px, 100%);
+}
+
+.message.assistant .chat-x-bubble .ant-bubble-content {
+  max-width: min(840px, 100%);
+}
+
+.chat-x-bubble .ant-bubble-header {
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.chat-x-bubble .ant-bubble-footer {
+  margin-top: 6px;
+}
+
+.chat-x-bubble .ant-bubble-footer .assistant-footer {
+  margin-top: 0;
+}
+
+/* 助手头像：品牌主色细边小牌，与空状态 Logo 牌同一语言。 */
+.chat-bubble-avatar {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, var(--primary) 32%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--primary) 9%, var(--surface-2));
+  color: var(--primary);
+}
+
+/* X Bubble 加载态圆点继承主色，不额外定制。 */
