@@ -2,6 +2,38 @@ package main
 
 import "testing"
 
+// TestFrontendGatePlanUsesRiskSpecificRouting 锁定前端路径类别与日常门禁的最小风险集合。
+func TestFrontendGatePlanUsesRiskSpecificRouting(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want []string
+		omit []string
+	}{
+		{name: "production source", path: "frontend-app/src/App.jsx", want: []string{"frontend:static-guards", "frontend:lint", "frontend:changed-tests", "lsp:changed-diagnostics"}, omit: []string{"frontend:embed-verify"}},
+		{name: "stylesheet", path: "frontend-app/src/styles.css", omit: []string{"frontend:static-guards", "frontend:lint", "frontend:changed-tests", "frontend:typecheck-contracts", "frontend:embed-verify", "lsp:changed-diagnostics"}},
+		{name: "unit test", path: "frontend-app/src/App.test.jsx", want: []string{"frontend:lint", "frontend:changed-tests", "lsp:changed-diagnostics"}, omit: []string{"frontend:static-guards", "frontend:embed-verify", "frontend:typecheck-contracts"}},
+		{name: "gate script", path: "frontend-app/scripts/frontend-state-ownership-guard.mjs", want: []string{"frontend:static-guards", "frontend:lint", "frontend:changed-tests", "lsp:changed-diagnostics"}, omit: []string{"frontend:embed-verify"}},
+		{name: "package manifest", path: "frontend-app/package.json", want: []string{"frontend:static-guards"}, omit: []string{"frontend:lint", "frontend:changed-tests", "frontend:embed-verify", "frontend:performance-verify", "lsp:changed-diagnostics"}},
+		{name: "frontend documentation", path: "frontend-app/README.md", omit: []string{"frontend:static-guards", "frontend:lint", "frontend:changed-tests", "frontend:typecheck-contracts", "frontend:embed-verify", "frontend:performance-verify", "lsp:changed-diagnostics"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			plan := mustBuildGatePlan(t, []string{test.path})
+			assertStringSetContains(t, plan.RequiredGates, test.want...)
+			assertStringSetOmits(t, plan.RequiredGates, test.omit...)
+		})
+	}
+}
+
+func TestPushGatePlanAddsFrontendBuildAndPerformanceChecks(t *testing.T) {
+	files := []string{"frontend-app/package.json", "frontend-app/src/App.jsx"}
+	commitPlan := mustGatePlanForScope(t, files, false)
+	pushPlan := mustGatePlanForScope(t, files, true)
+	assertStringSetOmits(t, commitPlan.RequiredGates, "frontend:embed-verify", "frontend:performance-verify")
+	assertStringSetContains(t, pushPlan.RequiredGates, "frontend:embed-verify", "frontend:performance-verify")
+}
+
 func TestBuildGatePlanRoutesFrontendChangedTestsWithoutFullNpmTest(t *testing.T) {
 	plan := mustBuildGatePlan(t, []string{"frontend-app/src/mainReadiness.js"})
 
@@ -16,10 +48,11 @@ func TestBuildGatePlanOmitsDesktopSmokeFromPreCommitChangedTests(t *testing.T) {
 	})
 
 	assertStringSetOmits(t, plan.RequiredGates, "frontend:changed-tests", "frontend:test")
-	assertStringSetContains(t, plan.RequiredGates, "frontend:lint", "frontend:embed-verify")
+	assertStringSetContains(t, plan.RequiredGates, "frontend:lint")
+	assertStringSetOmits(t, plan.RequiredGates, "frontend:embed-verify")
 }
 
-func TestBuildGatePlanRoutesFrontendPerformanceContractsToVerification(t *testing.T) {
+func TestPushGatePlanRoutesFrontendPerformanceContractsToVerification(t *testing.T) {
 	tests := []struct {
 		name string
 		file string
@@ -51,13 +84,15 @@ func TestBuildGatePlanRoutesFrontendPerformanceContractsToVerification(t *testin
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			plan := mustBuildGatePlan(t, []string{test.file})
-			assertStringSetContains(t, plan.RequiredGates, "frontend:performance-verify")
+			commitPlan := mustGatePlanForScope(t, []string{test.file}, false)
+			pushPlan := mustGatePlanForScope(t, []string{test.file}, true)
+			assertStringSetOmits(t, commitPlan.RequiredGates, "frontend:performance-verify")
+			assertStringSetContains(t, pushPlan.RequiredGates, "frontend:performance-verify")
 		})
 	}
 }
 
-func TestFrontendChangedTestsAllowsPerformanceOnlyCoverageByVerifier(t *testing.T) {
+func TestFrontendChangedTestsDeferExcludedPerformanceClosureToPushVerifier(t *testing.T) {
 	tests, err := frontendChangedTestFiles([]string{
 		"frontend-app/scripts/performance-budget-runner.mjs",
 		"frontend-app/scripts/performance-budget-runner.test.mjs",
@@ -68,16 +103,8 @@ func TestFrontendChangedTestsAllowsPerformanceOnlyCoverageByVerifier(t *testing.
 	if len(tests) != 0 {
 		t.Fatalf("performance runner tests are excluded by Vitest config and must not be scheduled, got %v", tests)
 	}
-	if !frontendChangedTestsCoveredByPerformanceVerify([]string{
-		"frontend-app/scripts/performance-budget-runner.mjs",
-		"frontend-app/scripts/performance-budget-runner.test.mjs",
-	}) {
-		t.Fatalf("performance runner changes should be covered by performance verify when Vitest has no runnable changed-test target")
-	}
-	if frontendChangedTestsCoveredByPerformanceVerify([]string{
-		"frontend-app/scripts/performance-budget-runner.mjs",
-		"frontend-app/src/mainReadiness.js",
-	}) {
-		t.Fatalf("mixed non-performance frontend source still requires a runnable changed-test target")
-	}
+	commitPlan := mustGatePlanForScope(t, []string{"frontend-app/scripts/performance-budget-runner.mjs"}, false)
+	pushPlan := mustGatePlanForScope(t, []string{"frontend-app/scripts/performance-budget-runner.mjs"}, true)
+	assertStringSetOmits(t, commitPlan.RequiredGates, "frontend:changed-tests", "frontend:performance-verify")
+	assertStringSetContains(t, pushPlan.RequiredGates, "frontend:performance-verify")
 }

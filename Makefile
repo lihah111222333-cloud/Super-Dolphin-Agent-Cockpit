@@ -1,4 +1,4 @@
-.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain frontend-deps frontend-build frontend-app-deps frontend-app-build frontend-embed-verify run run-plain dev-hot run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries package-macos package-linux package-windows release-update-gate test test-deferred test-e2e test-e2e-rpc-runtime vet clean guard code-size-guard guard-shell actionlint lsp-diagnostics-check protocol-sync-check rpc-regression-check archtest-map-check archtest-map-refresh codemap-check codemap-refresh project-map-check project-map-refresh capcontract-check capcontract-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report log-audit p2-audit ida-test-all ida-test-heavy sqlc-generate sqlc-verify sqlc-verify-worktree codex-worktree-ready
+.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain frontend-deps frontend-build frontend-app-deps frontend-app-build frontend-embed-verify frontend-gate-health run run-plain dev-hot run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries package-macos package-linux package-windows release-update-gate test test-deferred test-e2e test-e2e-rpc-runtime vet clean guard code-size-guard guard-shell actionlint lsp-diagnostics-check protocol-sync-check rpc-regression-check archtest-map-check archtest-map-refresh codemap-check codemap-refresh project-map-check project-map-refresh capcontract-check capcontract-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report log-audit p2-audit ida-test-all ida-test-heavy sqlc-generate sqlc-verify sqlc-verify-worktree codex-worktree-ready
 
 # Auto-detect macOS version to avoid ld warnings about version mismatch.
 # Override with: make MIN_MACOS_VERSION=15.0 build
@@ -77,6 +77,10 @@ frontend-app-build: frontend-app-deps
 
 frontend-embed-verify: frontend-app-build
 	./scripts/frontend_embed_verify.sh
+
+frontend-gate-health:
+	./scripts/test_with_guard.sh ./scripts/ai_maintenance -run 'Frontend|GateInfrastructure|GateRunners' -count=1
+	./scripts/test_with_guard.sh ./scripts -run 'Frontend' -count=1
 
 # The root desktop scripts are the preferred dev launchers. These make targets
 # keep the minimal packaged-asset run path for CI and local checks.

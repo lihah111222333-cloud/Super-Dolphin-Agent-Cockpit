@@ -81,7 +81,7 @@ const governancePaths = [
   'internal/ui/wails/bridge.go',
 ];
 const artifactProbes = new Set(['promptHistoryVisibleError', 'criticalTypecheck']);
-const plannedBaseSha = '314a8e240b2fe58de23651a00b74f05c985cf5e4';
+const plannedBaseSha = 'f3f1bfe3b02dc6e2192bdf1583fc8afece5c32be';
 const plannedThresholds = { overall: 90, dimensions: { E: 90, A: 85, C: 85, T: 85, P: 80 } };
 const requiredDoDControls = new Set(['E06-failure-matrix', 'C05-provider-rpc-parity', 'T05-build-embed-smoke', 'P04-resource-budget']);
 const customEvidenceProtocols = new Set([

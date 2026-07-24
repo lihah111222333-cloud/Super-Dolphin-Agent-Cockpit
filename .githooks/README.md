@@ -22,7 +22,7 @@ make install-hooks
 
 | Hook | 触发 | 做什么 | 大约耗时 |
 |---|---|---|---|
-| `pre-commit` | `git commit` | 从 staged index 快照按计划刷新并 stage 代码地图生成物；拒绝 partial index、staged/worktree 不一致和代码提交夹带的额外 worktree 输入；再由 AI maintenance 按变更面执行后端快速守卫/包测试或前端 lint/test/embed 验证 | 普通后端变更只测直接包和一级反向依赖；可缓存绿色 gate 绑定同一 staged tree，空白检查不缓存 |
+| `pre-commit` | `git commit` | 从 staged index 快照按计划刷新并 stage 代码地图生成物；拒绝 partial index、staged/worktree 不一致和代码提交夹带的额外 worktree 输入；再由 AI maintenance 按变更面执行后端快速守卫/包测试或前端 lint、架构门禁和定向测试 | 普通后端变更只测直接包和一级反向依赖；前端构建与性能验证延后到 push；可缓存绿色 gate 绑定同一 staged tree，空白检查不缓存 |
 | `commit-msg` | `git commit` | 要求提交标题包含中文；提交正文如果存在也必须包含中文；提交主题属于 `fix` / `hotfix` / `bugfix` / `修复` 时，要求同一提交修改锁定 bug 的测试、fixture、golden 或 snapshot | <1 秒 |
 | `pre-push` | `git push` | 只允许推送当前 `HEAD`；检查中文提交与 fix 测试；AI maintenance 补跑其余 archtest、nilness 和独立 `-race` 风险面；单提交且 tree 相同时可复用 pre-commit 的共同绿色 gate；skill 保留独立路径门禁 | 视变更面而定 |
 
@@ -30,7 +30,21 @@ make install-hooks
 
 绿色 gate 缓存位于 `.build-cache/ai-maintenance-gates/`，有效期 10 分钟。后端测试、推送级 archtest、race、nilness、LSP diagnostics、前端 lint/test/embed、project-map、capcontract、SQLC 和 AI maintenance 自测均可缓存；`codemap:check` 与空白检查仍每次真实执行。指纹绑定不可变 Git tree、隔离 index、变更计划（不含仅在 push 追加的 gate 名）、工具链和稳定环境；命中前以及发布 marker 前都会重新计算。pre-push 仅在恰好推送一个提交、tracked worktree/index 干净且 `HEAD^{tree}` 与 cache scope 一致时传入同一缓存，其他范围一律真实执行，不把不可比较输入当成绿色。
 
-`commit-msg` 要求标题包含中文，正文如果存在也必须包含中文，并用提交主题识别 fix 类提交。普通后端 pre-commit 只运行代码守卫、三项规范架构事实测试、直接变更包及其一级生产/测试反向依赖；Go 模块、archtest 或代码守卫/wrapper 变更仍走完整面。`pre-push` 再追加其余 archtest、nilness 和登记并发包的独立 `-race` lane，不再把普通测试和 race 合并后重复执行。copylocks 也只覆盖本次命中的 provider/platform/thread 包。前端 `npm test` 使用最多 4 个 worker；AI plan 不再单独执行 `frontend:build`，因为 `frontend:embed-verify` 已包含唯一一次 build。capcontract 由 AI plan 统一路由，skill mirror 保留独立路径门禁。两个 hook 都不执行 `gosec` 或前端 e2e；安全扫描保持在 hook 之外按需显式执行。
+`commit-msg` 要求标题包含中文，正文如果存在也必须包含中文，并用提交主题识别 fix 类提交。普通后端 pre-commit 只运行代码守卫、三项规范架构事实测试、直接变更包及其一级生产/测试反向依赖；Go 模块、archtest 或代码守卫/wrapper 变更仍走完整面。`pre-push` 再追加其余 archtest、nilness 和登记并发包的独立 `-race` lane，不再把普通测试和 race 合并后重复执行。copylocks 也只覆盖本次命中的 provider/platform/thread 包。前端 pre-commit 按路径分类：生产脚本运行 lint、架构门禁、关键类型检查和定向测试；测试文件不触发 embed；样式和静态资源不触发 JS lint；普通文档不触发前端命令。Vite build、embed 和性能验证只在 push 范围命中其真实输入时运行。`frontend:embed-verify` 包含唯一一次 build，且 `npm run build` 是同步嵌入产物的唯一 owner，Make 不再重复同步。capcontract 由 AI plan 统一路由，skill mirror 保留独立路径门禁。两个 hook 都不执行 `gosec` 或前端 e2e；安全扫描保持在 hook 之外按需显式执行。
+
+## 前端门禁健康检查
+
+`make frontend-gate-health` 执行前端 gate-plan 路由矩阵、npm/Make/AI runner 调用图、死亡目标、直接/间接调用环和单次构建同步 owner 的回归检查。它是夜间完整巡检的快速防腐入口，不替代交付前的完整前端验证：
+
+```bash
+make frontend-gate-health
+cd frontend-app
+npm run lint
+npm test
+npm run build
+```
+
+调用图检查会解析 `package.json` 中的 `npm run` 边、Make target 依赖和 recipe 中的 npm/Make 边，并显式登记 AI frontend runner 的动态调用边；未知 npm 目标、死亡节点或任意环都会 Fail-Fast。
 
 CI 也会在 `.github/workflows/ci.yml` 的 `commit-guard` job 中运行 `scripts/ci_commit_guard.sh`：它按 GitHub `pull_request` / `push` 事件解析提交范围，先复用 `scripts/guard_commit_titles.sh --range` 要求范围内每个 commit 的标题包含中文，且非空正文也包含中文，再复用 `scripts/guard_fix_commits_have_tests.sh --range` 拦截未安装 hook 或绕过 hook 后进入 PR / main 的 fix 类提交。正文为空允许；正文一旦存在，纯英文正文会失败。
 

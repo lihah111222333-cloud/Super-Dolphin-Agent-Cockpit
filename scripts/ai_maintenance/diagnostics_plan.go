@@ -15,7 +15,7 @@ func changedDiagnosticFiles(files []string) []string {
 
 // lspDiagnosticsRelevant 约束 changed-file 门禁的源码边界，具体语言支持仍由 adapter registry 裁决。
 func lspDiagnosticsRelevant(file string) bool {
-	return strings.HasPrefix(file, "frontend-app/") ||
+	return frontendDiagnosticsRelevant(file) ||
 		strings.HasPrefix(file, "cmd/") ||
 		strings.HasPrefix(file, "internal/") ||
 		strings.HasPrefix(file, "pkg/") ||

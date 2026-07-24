@@ -18,6 +18,10 @@
   --tech-highlight-22: rgba(255, 255, 255, 0.22);
   --tech-highlight-24: rgba(255, 255, 255, 0.24);
   --tech-highlight-26: rgba(255, 255, 255, 0.26);
+  --tech-message-user-background: linear-gradient(155deg, #272c39 0%, #20242f 100%);
+  --tech-code-highlight: rgba(255, 255, 255, 0.03);
+  --tech-selection-background: rgba(143, 159, 248, 0.34);
+  --tech-selection-color: #f4f6ff;
 }
 
 .sa-window .chat-page.chat-page--intro {
@@ -208,6 +212,12 @@
   --tech-highlight-24: rgba(255, 255, 255, 0.24);
   --tech-highlight-26: rgba(255, 255, 255, 0.26);
   --tech-highlight-28: rgba(255, 255, 255, 0.28);
+  --tech-message-user-background: linear-gradient(155deg, #eef1f8 0%, #e5eaf3 100%);
+  --tech-message-assistant-background: #ffffff;
+  --tech-message-assistant-shadow: 0 6px 20px rgba(30, 38, 68, 0.05);
+  --tech-code-highlight: rgba(255, 255, 255, 0.6);
+  --tech-selection-background: rgba(79, 93, 216, 0.2);
+  --tech-selection-color: #171a23;
 }
 
 .sa-window[data-theme="light"] .chat-page.chat-page--intro::before {
@@ -350,7 +360,7 @@
 
 .sa-window[data-theme="dark"] .message.user .chat-x-bubble .ant-bubble-content {
   border: 1px solid color-mix(in srgb, var(--primary) 22%, var(--border));
-  background: linear-gradient(155deg, #272c39 0%, #20242f 100%);
+  background: var(--tech-message-user-background);
   color: var(--text-pri);
 }
 
@@ -362,7 +372,7 @@
 .sa-window[data-theme="dark"] .message.assistant .message-markdown pre,
 .sa-window[data-theme="dark"] .message.assistant .message-output pre {
   border-color: color-mix(in srgb, var(--cyan) 13%, var(--border));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  box-shadow: inset 0 1px 0 var(--tech-code-highlight);
 }
 
 .sa-window[data-theme="dark"] .assistant-thinking-status::before {
@@ -370,28 +380,28 @@
 }
 
 .sa-window[data-theme="dark"] ::selection {
-  background: rgba(143, 159, 248, 0.34);
-  color: #f4f6ff;
+  background: var(--tech-selection-background);
+  color: var(--tech-selection-color);
 }
 
 /* ---------- 浅色消息区：X Bubble 用户气泡 / 助手卡片 / 代码块 / 思考中 ---------- */
 
 .sa-window[data-theme="light"] .message.user .chat-x-bubble .ant-bubble-content {
   border: 1px solid color-mix(in srgb, var(--primary) 18%, var(--border));
-  background: linear-gradient(155deg, #eef1f8 0%, #e5eaf3 100%);
+  background: var(--tech-message-user-background);
   color: var(--text-pri);
 }
 
 .sa-window[data-theme="light"] .message.assistant .chat-x-bubble .ant-bubble-content {
   border-color: color-mix(in srgb, var(--border) 90%, var(--primary));
-  background: #ffffff;
-  box-shadow: 0 6px 20px rgba(30, 38, 68, 0.05);
+  background: var(--tech-message-assistant-background);
+  box-shadow: var(--tech-message-assistant-shadow);
 }
 
 .sa-window[data-theme="light"] .message.assistant .message-markdown pre,
 .sa-window[data-theme="light"] .message.assistant .message-output pre {
   border-color: color-mix(in srgb, var(--cyan) 16%, var(--border));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  box-shadow: inset 0 1px 0 var(--tech-code-highlight);
 }
 
 .sa-window[data-theme="light"] .assistant-thinking-status::before {
@@ -399,6 +409,6 @@
 }
 
 .sa-window[data-theme="light"] ::selection {
-  background: rgba(79, 93, 216, 0.2);
-  color: #171a23;
+  background: var(--tech-selection-background);
+  color: var(--tech-selection-color);
 }

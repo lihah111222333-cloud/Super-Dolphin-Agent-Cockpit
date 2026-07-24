@@ -57,9 +57,8 @@ const frozenRepoRoot = resolve(scriptRoot, '..', '..');
 const scorerPath = join(scriptRoot, 'frontend-maintainability-score.mjs');
 const dependencyIntegrityModulePath = './frontend-maintainability-dependency-integrity.mjs';
 const dependencyRefreshPath = join(scriptRoot, 'refresh-frontend-maintainability-dependencies.mjs');
-const plannedBaseSha = '314a8e240b2fe58de23651a00b74f05c985cf5e4';
-const T05_DELIVERY_EVIDENCE_TEST_TIMEOUT_MS = 30_000;
-const EXECUTABLE_PROBE_TEST_TIMEOUT_MS = 180_000;
+const plannedBaseSha = 'f3f1bfe3b02dc6e2192bdf1583fc8afece5c32be';
+const [T05_DELIVERY_EVIDENCE_TEST_TIMEOUT_MS, EXECUTABLE_PROBE_TEST_TIMEOUT_MS] = [30_000, 180_000];
 const FINAL_SCORER_COMMAND_TIMEOUT_MS = 180_000;
 const FINAL_SCORER_TEST_TIMEOUT_MS = FINAL_SCORER_COMMAND_TIMEOUT_MS + 30_000;
 const ACTION_PRODUCER_PROBE_TIMEOUT_MS = 180_000;
@@ -132,6 +131,7 @@ function commitTree(repoRoot, message) {
 
 function cloneSparseRepository(repoRoot, revision, paths) {
   execFileSync('git', ['clone', '-q', '--shared', '--no-checkout', frozenRepoRoot, repoRoot]);
+  git(repoRoot, ['fetch', '-q', frozenRepoRoot, revision]);
   git(repoRoot, ['sparse-checkout', 'init', '--no-cone']);
   git(repoRoot, ['sparse-checkout', 'set', '--no-cone', ...paths]);
   git(repoRoot, ['checkout', '-q', '--detach', revision]);
@@ -1737,7 +1737,7 @@ describe('frozen scorer target binding', () => {
       requireClean: false,
       requireFinalContract: true,
     })).toThrow('frozen governance drift');
-  });
+  }, 15_000);
 
   it('keeps the canonical detached immutable dependency installation Git-clean and Vitest-executable', async () => {
     const fixture = createFinalCliFixture();

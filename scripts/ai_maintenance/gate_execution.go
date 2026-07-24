@@ -145,9 +145,6 @@ func runFrontendChangedTests(plan gatePlan) error {
 		return err
 	}
 	if len(tests) == 0 {
-		if frontendChangedTestsCoveredByPerformanceVerify(plan.ChangedFiles) {
-			return nil
-		}
 		return errors.New("frontend changed-tests gate has no matching test files")
 	}
 	args := append([]string{"vitest", "run"}, tests...)
@@ -181,20 +178,6 @@ func frontendChangedTestFiles(files []string) ([]string, error) {
 		}
 	}
 	return sortedKeys(seen), nil
-}
-
-func frontendChangedTestsCoveredByPerformanceVerify(files []string) bool {
-	hasChangedTestRelevantFile := false
-	for _, file := range files {
-		if !frontendChangedTestRelevant(file) {
-			continue
-		}
-		hasChangedTestRelevantFile = true
-		if !frontendPerformanceRelevant(file) {
-			return false
-		}
-	}
-	return hasChangedTestRelevantFile
 }
 
 func isFrontendTestFile(file string) bool {

@@ -20,6 +20,12 @@ func gatePlanForScope(files []string, pushGates bool) (gatePlan, error) {
 	if len(affectedRacePackagesForPlan(plan)) > 0 {
 		plan.RequiredGates = appendOrderedGate(plan.RequiredGates, "backend:race")
 	}
+	if slices.ContainsFunc(plan.ChangedFiles, frontendBuildRelevant) {
+		plan.RequiredGates = appendOrderedGate(plan.RequiredGates, "frontend:embed-verify")
+	}
+	if slices.ContainsFunc(plan.ChangedFiles, frontendPerformanceRelevant) {
+		plan.RequiredGates = appendOrderedGate(plan.RequiredGates, "frontend:performance-verify")
+	}
 	plan.RequiredGates = orderGateNames(plan.RequiredGates)
 	return plan, nil
 }

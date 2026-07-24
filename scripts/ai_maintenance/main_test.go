@@ -21,7 +21,6 @@ func TestBuildGatePlanRoutesFrontendBackendAndGeneratedFiles(t *testing.T) {
 		"backend:test_with_guard",
 		"codemap:check",
 		"diff:whitespace",
-		"frontend:embed-verify",
 		"frontend:lint",
 		"frontend:typecheck-contracts",
 		"frontend:changed-tests",

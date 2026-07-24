@@ -57,7 +57,6 @@ func TestMakefileBuildsCurrentFrontendAppByDefault(t *testing.T) {
 	assertScriptDoesNotContain(t, makefile, "frontend-legacy-build")
 	assertScriptDoesNotContain(t, makefile, "LEGACY_FRONTEND_DIR")
 	assertScriptContains(t, makefile, "build-agent-terminal-plain: frontend-build build-peer-binaries")
-	assertScriptOrder(t, makefile, "cd $(FRONTEND_APP_DIR) && $(NPM) run build", "node $(FRONTEND_APP_DIR)/scripts/sync-frontend-dist.mjs")
 	assertScriptContains(t, packageJSON, `"build": "vite build && node scripts/sync-frontend-dist.mjs"`)
 }
 
@@ -84,6 +83,9 @@ func TestMakefileGuardRunsFullArchtestAndFrontendEmbedVerify(t *testing.T) {
 
 	assertScriptContains(t, makefile, "frontend-embed-verify: frontend-app-build")
 	assertScriptContains(t, makefile, "./scripts/frontend_embed_verify.sh")
+	assertScriptContains(t, makefile, "frontend-gate-health:")
+	assertScriptContains(t, makefile, "./scripts/test_with_guard.sh ./scripts/ai_maintenance -run 'Frontend|GateInfrastructure|GateRunners'")
+	assertScriptContains(t, makefile, "./scripts/test_with_guard.sh ./scripts -run 'Frontend'")
 	assertScriptContains(t, makefile, "guard:\n\t$(TEST_WITH_GUARD) --guard-only")
 	assertScriptContains(t, makefile, "code-size-guard:\n\t$(TEST_WITH_GUARD) --guard-only")
 

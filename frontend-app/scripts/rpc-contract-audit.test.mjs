@@ -1,6 +1,5 @@
 import { describe, expect, it, onTestFinished } from 'vitest'
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
 import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -457,25 +456,6 @@ function consumerValidatedRegression() {
 }
 
 describe('rpc contract audit', { timeout: 30000 }, () => {
-  it('keeps every explicit contracts include live and covers the provider preference owner', () => {
-    const frontendRoot = resolve(import.meta.dirname, '..')
-    const config = JSON.parse(readFileSync(join(frontendRoot, 'tsconfig.contracts.json'), 'utf8'))
-    const missingIncludes = config.include.filter((filePath) => !existsSync(join(frontendRoot, filePath)))
-
-    expect(missingIncludes).toEqual([])
-
-    const listedFiles = spawnSync(
-      join(frontendRoot, 'node_modules', '.bin', 'tsc'),
-      ['-p', 'tsconfig.contracts.json', '--listFilesOnly'],
-      { cwd: frontendRoot, encoding: 'utf8' },
-    )
-    expect(listedFiles.status, listedFiles.stderr).toBe(0)
-    expect(listedFiles.stdout.split(/\r?\n/u)).toContain(join(
-      frontendRoot,
-      'src/entities/client/model/helpers/providerPreferences.js',
-    ))
-  })
-
   it('skips deep AST traversal when a file has no relevant facade bindings', () => {
     const unrelatedStatement = {
       type: 'ExpressionStatement',

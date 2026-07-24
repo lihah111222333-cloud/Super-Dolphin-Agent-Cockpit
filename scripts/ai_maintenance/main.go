@@ -454,7 +454,7 @@ func turnContractRelevant(file string, turnContractPaths map[string]bool) bool {
 
 // frontendStaticGuardRelevant 覆盖 guard 自身与全部生产前端输入，防止新增 writer 或反向依赖绕过定向门禁。
 func frontendStaticGuardRelevant(file string) bool {
-	return strings.HasPrefix(file, "frontend-app/src/") || frontendStaticGuardFiles[file]
+	return frontendProductionScriptRelevant(file) || frontendStaticGuardFiles[file]
 }
 
 func turnContractProductionGo(file string) bool {
@@ -505,15 +505,15 @@ func applySourceGateRules(file string, gates, evidence map[string]bool) bool {
 		if criticalTypecheckRelevant(file) {
 			gates["frontend:typecheck-contracts"] = true
 		}
-		gates["frontend:lint"] = true
+		if frontendLintRelevant(file) {
+			gates["frontend:lint"] = true
+		}
 		if frontendChangedTestRelevant(file) {
 			gates["frontend:changed-tests"] = true
 		}
-		gates["frontend:embed-verify"] = true
-		if frontendPerformanceRelevant(file) {
-			gates["frontend:performance-verify"] = true
+		if frontendDiagnosticsRelevant(file) {
+			requireLSPEvidence(file, evidence)
 		}
-		requireLSPEvidence(file, evidence)
 	case strings.HasPrefix(file, "cmd/"), strings.HasPrefix(file, "internal/"), strings.HasPrefix(file, "pkg/"):
 		requireLSPEvidence(file, evidence)
 		return true
@@ -531,7 +531,8 @@ func criticalTypecheckRelevant(file string) bool {
 		file == "frontend-app/scripts/critical-typecheck-guard.mjs" ||
 		file == "frontend-app/scripts/contracts-typecheck-guard.test.mjs" ||
 		(strings.HasPrefix(file, "frontend-app/src/") &&
-			(strings.HasSuffix(file, ".js") || strings.HasSuffix(file, ".jsx")))
+			(strings.HasSuffix(file, ".js") || strings.HasSuffix(file, ".jsx")) &&
+			!isFrontendTestFile(strings.TrimPrefix(file, "frontend-app/")))
 }
 
 // affectedGoPackages 对普通变更只保留直接包；全局输入或无法定位包时才使用广域回归集合。

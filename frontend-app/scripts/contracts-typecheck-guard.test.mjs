@@ -1,4 +1,5 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -63,6 +64,29 @@ function registry(overrides = {}) {
 }
 
 describe('critical typecheck guard', () => {
+  it('keeps every explicit contracts include live and covers the provider preference owner', () => {
+    const frontendRoot = path.resolve(import.meta.dirname, '..');
+    const contractConfig = JSON.parse(
+      readFileSync(path.join(frontendRoot, 'tsconfig.contracts.json'), 'utf8'),
+    );
+    const missingIncludes = contractConfig.include.filter(
+      (filePath) => !existsSync(path.join(frontendRoot, filePath)),
+    );
+
+    expect(missingIncludes).toEqual([]);
+
+    const listedFiles = spawnSync(
+      path.join(frontendRoot, 'node_modules', '.bin', 'tsc'),
+      ['-p', 'tsconfig.contracts.json', '--listFilesOnly'],
+      { cwd: frontendRoot, encoding: 'utf8' },
+    );
+    expect(listedFiles.status, listedFiles.stderr).toBe(0);
+    expect(listedFiles.stdout.split(/\r?\n/u)).toContain(path.join(
+      frontendRoot,
+      'src/entities/client/model/helpers/providerPreferences.js',
+    ));
+  });
+
   it.each(['checkJs', 'strict', 'noImplicitAny', 'useUnknownInCatchVariables'])(
     'rejects disabled %s',
     (option) => {
