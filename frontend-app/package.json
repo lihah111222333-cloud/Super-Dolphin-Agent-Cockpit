@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": "^20.19.0 || ^22.13.0 || >=24"
+  },
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5175 --strictPort",
     "desktop:dev": "cd .. && VITE_DEV_URL=http://127.0.0.1:5175 SUPER_DOLPHIN_HTTP_ADDR=127.0.0.1:4512 go run ./cmd/agent-terminal",

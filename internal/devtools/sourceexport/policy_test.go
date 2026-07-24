@@ -90,6 +90,46 @@ func TestRepositoryPolicyLoads(t *testing.T) {
 	}
 }
 
+func TestRepositoryPolicyClassifiesLaunchersAndGitHooks(t *testing.T) {
+	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy, err := LoadPolicy(filepath.Join(root, "release", "open-source-policy.json"))
+	if err != nil {
+		t.Fatalf("LoadPolicy() error = %v", err)
+	}
+
+	tests := []struct {
+		path string
+		code Code
+	}{
+		{path: "run-new-ui-desktop.sh"},
+		{path: "run-new-ui-desktop.ps1"},
+		{path: ".githooks/README.md"},
+		{path: ".githooks/commit-msg"},
+		{path: ".githooks/pre-commit"},
+		{path: ".githooks/pre-push"},
+		{path: ".githooks/unapproved-local-hook", code: CodeUnclassifiedPath},
+		{path: "run-unapproved-local.sh", code: CodeUnclassifiedPath},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			decision, err := classifyPath(policy, tt.path)
+			if tt.code != "" {
+				assertErrorCode(t, err, tt.code)
+				return
+			}
+			if err != nil {
+				t.Fatalf("classifyPath() error = %v", err)
+			}
+			if decision != pathAllowed {
+				t.Fatalf("classifyPath() decision = %d, want %d", decision, pathAllowed)
+			}
+		})
+	}
+}
+
 func TestRepositoryPolicySchemaIsClosed(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	if err != nil {

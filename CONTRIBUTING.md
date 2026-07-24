@@ -15,7 +15,7 @@ risk are explicit.
 
 ## Development Setup
 
-The current development baseline is Go 1.25.7 and Node.js 20 or newer. The
+The current development baseline is Go 1.25.7 and Node.js matching `^20.19.0 || ^22.13.0 || >=24`. The
 desktop provider flow also requires the provider and language-server tools
 listed in the [README](README.md#quick-start).
 

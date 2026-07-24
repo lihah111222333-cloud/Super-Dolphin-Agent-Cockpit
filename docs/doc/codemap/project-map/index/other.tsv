@@ -366,7 +366,7 @@ internal/devtools/sourceexport/identity_guard_test.go	internal	other	go-test	227
 internal/devtools/sourceexport/identity.go	internal	other	go-source	2234	开发工具与生成器辅助包	internal,devtools,sourceexport,identity,开发工具与生成器辅助包
 internal/devtools/sourceexport/path_matcher_test.go	internal	other	go-test	2280	开发工具与生成器辅助包	internal,devtools,sourceexport,path,matcher,test,开发工具与生成器辅助包
 internal/devtools/sourceexport/path_matcher.go	internal	other	go-source	2765	开发工具与生成器辅助包	internal,devtools,sourceexport,path,matcher,开发工具与生成器辅助包
-internal/devtools/sourceexport/policy_test.go	internal	other	go-test	5762	开发工具与生成器辅助包	internal,devtools,sourceexport,policy,test,开发工具与生成器辅助包
+internal/devtools/sourceexport/policy_test.go	internal	other	go-test	6862	开发工具与生成器辅助包	internal,devtools,sourceexport,policy,test,开发工具与生成器辅助包
 internal/devtools/sourceexport/policy.go	internal	other	go-source	7384	开发工具与生成器辅助包	internal,devtools,sourceexport,policy,开发工具与生成器辅助包
 internal/devtools/sqlitepackagesmoke/main.go	internal	other	go-source	9362	开发工具与生成器辅助包	internal,devtools,sqlitepackagesmoke,main,开发工具与生成器辅助包
 internal/devtools/sqlitereleasegate/gates_test.go	internal	other	go-test	6130	开发工具与生成器辅助包	internal,devtools,sqlitereleasegate,gates,test,开发工具与生成器辅助包
@@ -592,7 +592,7 @@ scripts/extract_jsonrpc_methods_main_guardrail_test.go	scripts	other	go-test	124
 scripts/extract_jsonrpc_methods.go	scripts	other	go-source	10788	工程自动化、测试守卫、代码地图与开发脚本	scripts,extract,jsonrpc,methods,工程自动化,测试守卫,代码地图与开发脚本
 scripts/fixtures/prompt_intent_dream_fixture.json	scripts	other	json	3001	工程自动化、测试守卫、代码地图与开发脚本	scripts,fixtures,prompt,intent,dream,fixture,工程自动化,测试守卫,代码地图与开发脚本
 scripts/forbid_raw_go_test.sh	scripts	other	script	2325	工程自动化、测试守卫、代码地图与开发脚本	scripts,forbid,raw,go,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/frontend_build_guard_test.go	scripts	other	go-test	3629	工程自动化、测试守卫、代码地图与开发脚本	scripts,frontend,build,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/frontend_build_guard_test.go	scripts	other	go-test	4694	工程自动化、测试守卫、代码地图与开发脚本	scripts,frontend,build,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/frontend_embed_verify_guard_test.go	scripts	other	go-test	21632	工程自动化、测试守卫、代码地图与开发脚本	scripts,frontend,embed,verify,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/frontend_embed_verify.sh	scripts	other	script	3157	工程自动化、测试守卫、代码地图与开发脚本	scripts,frontend,embed,verify,工程自动化,测试守卫,代码地图与开发脚本
 scripts/generate_ai_project_map_guard_test.go	scripts	other	go-test	19266	工程自动化、测试守卫、代码地图与开发脚本	scripts,generate,ai,project,map,guard,test,工程自动化,测试守卫,代码地图与开发脚本

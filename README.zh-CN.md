@@ -196,7 +196,7 @@ cmd/mcp-orch/             orchestration, DAG, cron, and agent tools
 ### 前置条件
 
 - Go 1.25.7
-- Node.js 20+ 与 npm
+- Node.js 匹配 `^20.19.0 || ^22.13.0 || >=24` 与 npm
 - 已安装并完成认证的 OpenAI Codex CLI（`codex`）
 - `gopls`
 - `typescript-language-server` 与 TypeScript 5.9.3

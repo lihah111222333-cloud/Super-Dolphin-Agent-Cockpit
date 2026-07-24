@@ -1,6 +1,42 @@
 package main
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
+
+const frontendNodeEngineContract = "^20.19.0 || ^22.13.0 || >=24"
+
+func TestFrontendNodeRuntimeAndDocumentationContract(t *testing.T) {
+	packageJSON := readRepoFile(t, "../frontend-app/package.json")
+	var manifest struct {
+		Engines struct {
+			Node string `json:"node"`
+		} `json:"engines"`
+	}
+	if err := json.Unmarshal([]byte(packageJSON), &manifest); err != nil {
+		t.Fatalf("decode frontend-app/package.json: %v", err)
+	}
+	if manifest.Engines.Node != frontendNodeEngineContract {
+		t.Fatalf("frontend-app/package.json engines.node = %q, want %q", manifest.Engines.Node, frontendNodeEngineContract)
+	}
+
+	documents := []string{
+		"../README.md",
+		"../README.zh-CN.md",
+		"../README.ja.md",
+		"../README.ko.md",
+		"../README.es.md",
+		"../README.de.md",
+		"../CONTRIBUTING.md",
+	}
+	for _, path := range documents {
+		text := readRepoFile(t, path)
+		assertScriptContains(t, text, "`"+frontendNodeEngineContract+"`")
+		assertScriptDoesNotContain(t, text, "Node.js 20.19+")
+		assertScriptDoesNotContain(t, text, "Node.js 20.19 or newer")
+	}
+}
 
 func TestMakefileBuildsCurrentFrontendAppByDefault(t *testing.T) {
 	makefile := readRepoFile(t, "../Makefile")

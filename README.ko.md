@@ -196,7 +196,7 @@ Component 책임, data flow, 진실 공급원, 알려진 범위는 [Architecture
 ### 사전 요구 사항
 
 - Go 1.25.7
-- Node.js 20+ 및 npm
+- Node.js `^20.19.0 || ^22.13.0 || >=24` 및 npm
 - 설치 및 인증을 완료한 OpenAI Codex CLI(`codex`)
 - `gopls`
 - `typescript-language-server` 및 TypeScript 5.9.3
