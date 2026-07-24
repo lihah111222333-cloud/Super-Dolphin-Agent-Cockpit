@@ -571,8 +571,8 @@ internal/module/thread/router_resolve_version_sections_test.go	internal	modules	
 internal/module/thread/router_resolve.go	internal	modules	go-source	15503	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,router,resolve,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/rpc_config_test.go	internal	modules	go-test	2347	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,rpc,config,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/rpc_fork_kickoff_l07_test.go	internal	modules	go-test	942	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,rpc,fork,kickoff,l07,test,start,resume,stop,生命周期与绑定真相源
-internal/module/thread/rpc_types_test.go	internal	modules	go-test	22755	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,rpc,types,test,start,resume,fork,stop,生命周期与绑定真相源
-internal/module/thread/rpc_types.go	internal	modules	go-source	25677	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,rpc,types,start,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/rpc_types_test.go	internal	modules	go-test	23167	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,rpc,types,test,start,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/rpc_types.go	internal	modules	go-source	26333	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,rpc,types,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/rpc.go	internal	modules	go-source	25151	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,rpc,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/runtime_chain_test.go	internal	modules	go-test	7529	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,runtime,chain,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/runtime_prompt_catalog_test.go	internal	modules	go-test	3296	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,runtime,prompt,catalog,test,start,resume,fork,stop,生命周期与绑定真相源
@@ -656,8 +656,8 @@ internal/module/turn/redaction_test.go	internal	modules	go-test	6183	turn 启动
 internal/module/turn/redaction.go	internal	modules	go-source	4105	turn 启动、执行、审批与 provider 调度	internal,module,turn,redaction,启动,执行,审批与,provider,调度
 internal/module/turn/rpc_helpers_test.go	internal	modules	go-test	12352	turn 启动、执行、审批与 provider 调度	internal,module,turn,rpc,helpers,test,启动,执行,审批与,provider,调度
 internal/module/turn/rpc_helpers.go	internal	modules	go-source	20949	turn 启动、执行、审批与 provider 调度	internal,module,turn,rpc,helpers,启动,执行,审批与,provider,调度
-internal/module/turn/rpc_types_test.go	internal	modules	go-test	8289	turn 启动、执行、审批与 provider 调度	internal,module,turn,rpc,types,test,启动,执行,审批与,provider,调度
-internal/module/turn/rpc_types.go	internal	modules	go-source	24150	turn 启动、执行、审批与 provider 调度	internal,module,turn,rpc,types,启动,执行,审批与,provider,调度
+internal/module/turn/rpc_types_test.go	internal	modules	go-test	9297	turn 启动、执行、审批与 provider 调度	internal,module,turn,rpc,types,test,启动,执行,审批与,provider,调度
+internal/module/turn/rpc_types.go	internal	modules	go-source	24904	turn 启动、执行、审批与 provider 调度	internal,module,turn,rpc,types,启动,执行,审批与,provider,调度
 internal/module/turn/rpc.go	internal	modules	go-source	1037	turn 启动、执行、审批与 provider 调度	internal,module,turn,rpc,启动,执行,审批与,provider,调度
 internal/module/turn/runtime_config_contract_test.go	internal	modules	go-test	3113	turn 启动、执行、审批与 provider 调度	internal,module,turn,runtime,config,contract,test,启动,执行,审批与,provider,调度
 internal/module/turn/service_dedupe_store_test.go	internal	modules	go-test	9117	turn 启动、执行、审批与 provider 调度	internal,module,turn,service,dedupe,store,test,启动,执行,审批与,provider,调度

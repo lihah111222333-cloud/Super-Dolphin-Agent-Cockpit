@@ -32,6 +32,39 @@ func TestTurnSteerParamsRejectsUnknownField(t *testing.T) {
 	}
 }
 
+func TestTurnParamsRejectUnknownSkillRefSource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		payload   string
+		newTarget func() any
+		want      string
+	}{
+		{
+			name:      "start",
+			payload:   `{"threadId":"thread-1","selectedSkillRefs":[{"name":"docs","source":"robot"}]}`,
+			newTarget: func() any { return &turnStartParams{} },
+			want:      `turn/start: selected skill ref source "robot" is invalid`,
+		},
+		{
+			name:      "steer",
+			payload:   `{"threadId":"thread-1","selectedSkillRefs":[{"name":"docs","source":"robot"}]}`,
+			newTarget: func() any { return &turnSteerParams{} },
+			want:      `turn/steer: selected skill ref source "robot" is invalid`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := json.Unmarshal([]byte(tt.payload), tt.newTarget())
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("json.Unmarshal(%s params) error = %v, want %q", tt.name, err, tt.want)
+			}
+		})
+	}
+}
+
 func TestTurnStartParamsAcceptsCamelRuntimeAliases(t *testing.T) {
 	t.Parallel()
 

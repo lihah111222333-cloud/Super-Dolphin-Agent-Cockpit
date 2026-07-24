@@ -463,6 +463,16 @@ func TestStartParamsRejectsInvalidManualSkillSelectionAliases(t *testing.T) {
 	}
 }
 
+func TestStartParamsRejectsUnknownSkillRefSource(t *testing.T) {
+	t.Parallel()
+
+	var params startParams
+	err := json.Unmarshal([]byte(`{"selectedSkillRefs":[{"name":"docs","source":"robot"}]}`), &params)
+	if err == nil || !strings.Contains(err.Error(), `thread/start: selected skill ref source "robot" is invalid`) {
+		t.Fatalf("json.Unmarshal(startParams) error = %v, want invalid source rejection", err)
+	}
+}
+
 func TestStartParamsAcceptsSelectedSkillRefsCamelCase(t *testing.T) {
 	t.Parallel()
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	provider "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	platformrpc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 )
 
@@ -115,7 +116,10 @@ func (p *startParams) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*p = startParams(current)
-	return p.fillLegacyFields(data)
+	if err := p.fillLegacyFields(data); err != nil {
+		return err
+	}
+	return validateSkillRefSources("thread/start", p.SelectedSkillRefs)
 }
 
 type startParamCompatFields struct {
@@ -210,6 +214,20 @@ type skillRefParams struct {
 	PersonalType string `json:"personalType,omitempty"`
 	Path         string `json:"path,omitempty"`
 	Source       string `json:"source,omitempty"`
+}
+
+// validateSkillRefSources 拒绝未知的显式 skill source；空 source 保留调用方默认语义。
+func validateSkillRefSources(method string, refs []skillRefParams) error {
+	for _, ref := range refs {
+		rawSource := strings.TrimSpace(ref.Source)
+		if rawSource == "" {
+			continue
+		}
+		if source := provider.SkillSource(rawSource); !source.Valid() {
+			return fmt.Errorf("%s: selected skill ref source %q is invalid", method, rawSource)
+		}
+	}
+	return nil
 }
 
 func (p *startParams) fillLegacyStringFields(payload map[string]json.RawMessage) error {

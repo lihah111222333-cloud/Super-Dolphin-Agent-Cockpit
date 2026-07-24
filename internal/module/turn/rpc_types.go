@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	provider "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	platformrpc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 )
 
@@ -48,9 +49,12 @@ func (p *turnStartParams) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	var legacy legacyTurnStartParams
-	return decodeLegacyTurnParams(data, (*rawTurnStartParams)(p), &legacy, func(current *rawTurnStartParams, legacy *legacyTurnStartParams) error {
+	if err := decodeLegacyTurnParams(data, (*rawTurnStartParams)(p), &legacy, func(current *rawTurnStartParams, legacy *legacyTurnStartParams) error {
 		return mergeTurnStartLegacy(current, legacy, payload)
-	})
+	}); err != nil {
+		return err
+	}
+	return validateSkillRefSources("turn/start", p.SelectedSkillRefs)
 }
 
 type rawTurnStartParams turnStartParams
@@ -132,6 +136,20 @@ type skillRefParams struct {
 	Source       string `json:"source,omitempty"`
 }
 
+// validateSkillRefSources 拒绝未知的显式 skill source；空 source 保留调用方默认语义。
+func validateSkillRefSources(method string, refs []skillRefParams) error {
+	for _, ref := range refs {
+		rawSource := strings.TrimSpace(ref.Source)
+		if rawSource == "" {
+			continue
+		}
+		if source := provider.SkillSource(rawSource); !source.Valid() {
+			return fmt.Errorf("%s: selected skill ref source %q is invalid", method, rawSource)
+		}
+	}
+	return nil
+}
+
 // turnSteerParams 是 turn/steer 入参，结构跟 start 接近但要求 expected turn ID。
 type turnSteerParams struct {
 	ThreadID                     string                `json:"thread_id"`
@@ -166,9 +184,12 @@ func (p *turnSteerParams) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	var legacy legacyTurnSteerParams
-	return decodeLegacyTurnParams(data, (*rawTurnSteerParams)(p), &legacy, func(current *rawTurnSteerParams, legacy *legacyTurnSteerParams) error {
+	if err := decodeLegacyTurnParams(data, (*rawTurnSteerParams)(p), &legacy, func(current *rawTurnSteerParams, legacy *legacyTurnSteerParams) error {
 		return mergeTurnSteerLegacy(current, legacy, payload)
-	})
+	}); err != nil {
+		return err
+	}
+	return validateSkillRefSources("turn/steer", p.SelectedSkillRefs)
 }
 
 type rawTurnSteerParams turnSteerParams
