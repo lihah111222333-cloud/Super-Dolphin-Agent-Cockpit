@@ -31,9 +31,9 @@
   - `newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client)` / `bootstrapRunner.Run(ctx)`：runner 总是被加入 runner group，但只有在 `GO_AGENT_PEER_MODE=1` 且 `GO_AGENT_CTL_RPC_ADDR` 非空时才真正向控制面注册；否则只是阻塞等待 ctx 结束。
   - `bindRuntime()`：把 stdio / HTTP / bootstrap runner 注入同一个 `platformrunner.RunGroup` 生命周期。
   - 还包含 `newNoopSessionCleaner()` / `newNoopTurnStarter()`，作为 standalone / 测试兜底实现。
-- `cmd/mcp-orch/memory/`
-  - 旧 standalone memory read 包：保留 env config、scope root / 路径授权、index/file 读取与 `contract.MemoryService.Read()` 实现。
-  - 当前不由 `fx.go/run()`、`newRegistry()` 或 `tools.NewRegistry()` 装配，不提供 `memory_read` / `memory_write` MCP tools；agent-terminal 的 memory tools 由 app host-direct toolbridge registry 提供。
+- 记忆工具边界
+  - `internal/module/memory/module.go:456-465` 导出 `AgentMemoryReader/Writer`，`internal/platform/toolbridge/memory_read_tool.go:14-74` 与 `internal/platform/toolbridge/module.go:84-123` 负责 host-direct 暴露。
+  - `runtime_memory_test.go:8-17` 和 `tools/memory_tools_test.go:5-12` 锁定本 peer 不注册 `memory_read` / `memory_write`。
 - `http_runner.go`
   - 仅在 `GO_AGENT_PEER_MODE=1` 时启用 `common.NewHTTPServer`。
   - 监听 `127.0.0.1:0`，并把地址写入 peer discovery file。
@@ -74,7 +74,7 @@
 - `cmd/mcp-orch/main.go`：保护 stdout 的 MCP 通道，限制 `GOMAXPROCS`。
 - `cmd/mcp-orch/fx.go`：Fx 装配入口；拼装 store、workspace、orchestration、launcher、bootstrap、runner。
 - `cmd/mcp-orch/runtime.go`：logger / SQLite sqlc queries / registry / stdio runner / bootstrap runner / runtime 绑定。
-- `cmd/mcp-orch/memory/`：旧 standalone memory read 包；当前不被 runtime/registry 装配，不注册 memory tools。
+- 记忆工具不属于本 peer：`runtime_memory_test.go:8-17` 与 `tools/memory_tools_test.go:5-12` 锁定 registry 不注册 `memory_read` / `memory_write`；当前实现位于 `internal/module/memory` 与 `internal/platform/toolbridge`。
 - `cmd/mcp-orch/http_runner.go`：peer 模式 HTTP MCP server、peer discovery file、非 peer 模式阻塞 runner。
 - `cmd/mcp-orch/hook_subscription.go`：hook topic 常量与 `subscribeOrchestrationHooks()` 辅助函数；主启动路径未直接调用，主要被测试覆盖。
 - `cmd/mcp-orch/sqlc.yaml`：`sql/queries/*` 到 `store/sqlc/*` 的 sqlc 生成配置。
@@ -217,7 +217,7 @@ sharedfile 三个 leaf helper 包不在 `cmd/mcp-orch/` 树下，但同时被 mc
 | `type taskdag.Store interface` | `store/taskdag/contract.go` | 兼容聚合持久化接口；真实消费面拆成 `OrchestrationStore` / `DAGMutationStore` / `DAGReadStore` / `DAGDetailStore` / `NodeStatusStore` / `RecoveryStore` / `RunningNodeStore` / `WakeupStore` / `WorkerLeaseStore`。 |
 | `type workspace.Store interface` | `store/workspace/contract.go` | `workspace_runs` / `workspace_run_files` 的持久化接口。 |
 | `type prompt.Store` / `commandcard.Store` / `sharedfile.Store` | `store/*/contract.go` | prompt / command / shared_file 资源查询与写入。 |
-| `cmd/mcp-orch/memory` legacy package | `memory/` | 旧 standalone memory read service/config/path 实现；当前不进入 Fx runtime/registry 装配，不提供 MCP memory tool。 |
+| memory tool 排除边界 | `runtime_memory_test.go` / `tools/memory_tools_test.go` | mcp-orch registry 明确不暴露 `memory_read` / `memory_write`；当前 host-direct 实现由 `internal/module/memory/module.go:456-465` 和 `internal/platform/toolbridge/memory_read_tool.go:14-74` 提供。 |
 | `type sqlc.Queries` | `store/sqlc/db.go` | 所有 SQL 的底层执行器。 |
 
 ### `agentRuntime` 里最关键的字段
@@ -580,7 +580,7 @@ tools.Registry
   -> store/{prompt,commandcard,sharedfile}
 ```
 
-> 当前 source tree 仍有 `cmd/mcp-orch/memory/*` 旧包，但 `run()` 不提供 `memory.NewConfig()` / `memory.NewService()`，`newRegistry(...)` 不接收 memory 参数，`tools.NewRegistry()` 不挂入 memory tools。
+> 当前 source tree 没有独立的 mcp-orch memory 包，`newRegistryParams` 也没有 memory 依赖（`runtime.go:158-180`）；`runtime_memory_test.go:8-17` 与 `tools/memory_tools_test.go:5-12` 锁定本 peer 不暴露 memory tools。实际调用链是 `internal/module/memory/module.go:456-465` 导出 `AgentMemoryReader/Writer`，再由 `internal/platform/toolbridge/memory_read_tool.go:14-74` 和 `module.go:84-123` 组装 host-direct registry。
 
 - `run()`：Fx 装配总入口（`cmd/mcp-orch/fx.go:30`）。
 - `buildBootstrapConfig()`：注册 `OnToolsList` / `OnToolsCall` / `Hooks.OnAfter` / capabilities（`cmd/mcp-orch/fx.go:77`）。

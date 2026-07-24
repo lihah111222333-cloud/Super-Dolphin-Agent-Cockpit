@@ -318,9 +318,9 @@ docs/dev-ui-test-mcp.md	docs	docs-agent	doc	8519	项目文档体系	docs,dev,ui,
 docs/doc/codemap/01-terminal-ui-go.md	docs	docs-agent	doc	25338	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,go,手写代码地图卷与自动,ai-index
 docs/doc/codemap/01-terminal-ui-react.md	docs	docs-agent	doc	5640	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,react,手写代码地图卷与自动,ai-index
 docs/doc/codemap/01-terminal-ui.md	docs	docs-agent	doc	3962	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,手写代码地图卷与自动,ai-index
-docs/doc/codemap/02-mcp-orch.md	docs	docs-agent	doc	68316	手写代码地图卷与自动 ai-index	docs,doc,codemap,02,mcp,orch,手写代码地图卷与自动,ai-index
+docs/doc/codemap/02-mcp-orch.md	docs	docs-agent	doc	68761	手写代码地图卷与自动 ai-index	docs,doc,codemap,02,mcp,orch,手写代码地图卷与自动,ai-index
 docs/doc/codemap/03-mcp-lsp-ida.md	docs	docs-agent	doc	25444	手写代码地图卷与自动 ai-index	docs,doc,codemap,03,mcp,lsp,ida,手写代码地图卷与自动,ai-index
-docs/doc/codemap/04-app-contract.md	docs	docs-agent	doc	69528	手写代码地图卷与自动 ai-index	docs,doc,codemap,04,app,contract,手写代码地图卷与自动,ai-index
+docs/doc/codemap/04-app-contract.md	docs	docs-agent	doc	70085	手写代码地图卷与自动 ai-index	docs,doc,codemap,04,app,contract,手写代码地图卷与自动,ai-index
 docs/doc/codemap/05-dto.md	docs	docs-agent	doc	67005	手写代码地图卷与自动 ai-index	docs,doc,codemap,05,dto,手写代码地图卷与自动,ai-index
 docs/doc/codemap/06-mcpserver.md	docs	docs-agent	doc	38126	手写代码地图卷与自动 ai-index	docs,doc,codemap,06,mcpserver,手写代码地图卷与自动,ai-index
 docs/doc/codemap/07-module-read.md	docs	docs-agent	doc	27862	手写代码地图卷与自动 ai-index	docs,doc,codemap,07,module,read,手写代码地图卷与自动,ai-index

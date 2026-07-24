@@ -134,7 +134,7 @@ flowchart TD
 | `OrchestrationTurnStarter` | `StartTurn(ctx context.Context, submission TurnSubmission) (string, error)` | cmd：`cmd/mcp-orch/orchestration` | `internal/module/turn` (`orchestrationTurnStarter`)；standalone fallback：`cmd/mcp-orch` (`noopTurnStarter`) |
 | `RuntimeReporter` | `ReportRuntime(ctx context.Context, report RuntimeReport) error` | Provider：`internal/provider/{claudecli,codexapp}` | `internal/app` (`orchestrationRuntimeReporter` / `noopRuntimeReporter`)；`cmd/mcp-orch/orchestration.runtimeReporter` 仅辅类型，未导出到 app 图 |
 | `SessionResolver` | `ResolveSession(ctx context.Context, threadID string) (Session, error)` | RPC：`internal/platform/rpc` capability gate；Module：`internal/module/turn`；Platform：`internal/platform/cachekeepalive` | `internal/provider/unified` (`sessionResolver`) |
-| `MemoryService` | `Read(ctx context.Context, req MemoryReadRequest) (MemoryReadResult, error)` | cmd：`cmd/mcp-orch/tools` / `tools.Registry` | `cmd/mcp-orch/memory` (`service`) |
+| `MemoryService` | `Read(ctx context.Context, req MemoryReadRequest) (MemoryReadResult, error)` | 当前无显式 consumer（LSP references 仅返回 `internal/contract/memory.go:145` 的声明） | 当前无生产实现或 Fx 装配证据；实际 host-direct memory tool 使用下列 `AgentMemoryReader/Writer` 契约。 |
 | `AgentMemoryReader` | `ReadAgentMemory(ctx, MemoryReadRequest) (MemoryReadResult, error); MemoryReadEnabled() bool; MemoryReadToolsEnabled() bool` | Platform：`internal/platform/toolbridge` (`MemoryReadHostToolRegistry`) | `internal/module/memory` (`MemoryLifecycleHooks`) |
 | `AgentMemoryWriter` | `WriteAgentMemory(ctx, AgentMemoryWriteRequest) (AgentMemoryWriteResult, error); MemoryWriteEnabled() bool; MemoryWriteToolsEnabled() bool` | Platform：`internal/platform/toolbridge` (`MemoryWriteHostToolRegistry`) | `internal/module/memory` (`MemoryLifecycleHooks`) |
 
@@ -168,7 +168,7 @@ flowchart TD
 | `ToolHookCallback` | `mcp_control.go` | 向订阅 peer 分发 hook callback | `*internal/platform/mcpcontrol.ToolRegistry` | 同上。 |
 | `PeerCallback` | `mcp_control.go` | 对单个 lease 做 before/check/after callback | `*internal/platform/mcpcontrol.ToolRegistry` | 同上。 |
 | `ToolControlPlane` | `mcp_control.go` | 上述 4 个 MCP 控制面接口的组合 | `*internal/platform/mcpcontrol.ToolRegistry` | 组合接口，无单独实现。 |
-| `MemoryService` | `memory.go` | `memory_read` 背后的只读 memory 查询 | `*cmd/mcp-orch/memory.service` | 仅在 `cmd/mcp-orch` standalone 图由 `memory.NewService` 提供；`app.Module` 当前不装它。 |
+| `MemoryService` | `memory.go` | 当前无显式 consumer | — | LSP references 仅返回 `memory.go:145` 的声明，不能映射为 `memory_read` 实现；当前 host-direct 工具链使用 `AgentMemoryReader/Writer`。 |
 | `AgentMemoryReader` | `memory.go` | agent 侧 memory 读取（host tool 注册） | `*internal/module/memory.MemoryLifecycleHooks` | 由 `memory.Module` 通过 `provideAgentMemoryReader` 导出；`toolbridge.Module` 消费。 |
 | `AgentMemoryWriter` | `memory.go` | agent 侧 memory 写入（host tool 注册） | `*internal/module/memory.MemoryLifecycleHooks` | 由 `memory.Module` 通过 `provideAgentMemoryWriter` 导出；`toolbridge.Module` 消费。 |
 | `AgentLifecyclePort` / `AgentRuntimePort` / `AgentReportPort` / `TurnSubmissionPort` | `orchestration.go` | agent 生命周期、runtime、report、turn 提交的拆分端口 | `*cmd/mcp-orch/orchestration.service` | 由 `cmd/mcp-orch/orchestration.Module` 分别导出为窄端口；生产消费侧不得重新聚合成总接口。 |
@@ -368,7 +368,7 @@ uiwails.NewHTTPAssetServer() [desktop only] -----┼--> []platformrunner.Runner
 | `contract.RuntimeReporter` | `app.newRuntimeReporter` | `provider/claudecli.NewDriverFactory`、`provider/codexapp.NewDriverFactory` |
 | `thread.OrchestrationFacade` | `app.newMCPOrchOrchestrationFacade` | `module/thread.NewService` |
 
-> 另：`contract.MemoryService` 不属于 `app.Module` 根图；它由 `cmd/mcp-orch/memory.NewService` 在 standalone `run()` 图中注入 `tools.NewRegistry` / `memory_read`。
+> 另：`contract.MemoryService` 当前只有声明、没有显式 consumer 或 Fx 装配证据（`internal/contract/memory.go:145-147`）。实际 `memory_read` / `memory_write` 链路由 `internal/module/memory/module.go:456-465` 导出 `AgentMemoryReader/Writer`，再由 `internal/platform/toolbridge/memory_read_tool.go:14-74` 与 `module.go:84-123` 组装 host-direct registry；`cmd/mcp-orch/runtime_memory_test.go:8-17` 和 `tools/memory_tools_test.go:5-12` 则锁定 mcp-orch 不注册这两项工具。
 
 ### 4.5 关键注入链（按职责）
 
@@ -895,8 +895,8 @@ internal/contract
   ├─ errors           -> session / hook / orchestration 通用哨兵错误
   ├─ hooks            -> hooks / mcpcontrol / hookstore
   ├─ mcp_control      -> mcpcontrol / hooks
-  ├─ memory           -> cmd/mcp-orch memory_read
-  ├─ agent_memory     -> toolbridge (AgentMemoryReader/Writer)
+  ├─ memory           -> 当前无显式 consumer 的 MemoryService（仅保留 contract）
+  ├─ agent_memory     -> memory module -> toolbridge host-direct (AgentMemoryReader/Writer)
   ├─ orchestration    -> cmd/mcp-orch / dashboard / uistate / wails / app
   ├─ prompt           -> prompt / thread / turn / memory
   ├─ provider         -> unified / claudecli / codexapp / thread / turn
