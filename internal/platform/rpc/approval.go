@@ -120,6 +120,31 @@ func (m *ApprovalManager) RequestApproval(ctx context.Context, bridge *PushBridg
 			return contract.ApprovalDecision{}, err
 		}
 	}
+	return m.waitForPendingApproval(ctx, pending, owner)
+}
+
+// RequestEventApproval 注册并发布事件驱动审批，然后等待 approval/respond 按完整身份回写。
+// 该入口不启动 RPC callback，也不因 callback bridge/server 为空而自动拒绝。
+func (m *ApprovalManager) RequestEventApproval(ctx context.Context, req ApprovalRequest) (contract.ApprovalDecision, error) {
+	ctx, cancel := WithApprovalDeadline(ctx)
+	defer cancel()
+	req, err := normalizeApprovalRequest(req)
+	if err != nil {
+		return contract.ApprovalDecision{}, err
+	}
+	pending, owner := m.registerPending(req, nil)
+	if owner {
+		m.publishRequested(pending)
+	}
+	return m.waitForPendingApproval(ctx, pending, owner)
+}
+
+// waitForPendingApproval 等待已登记审批完成，并统一处理取消、超时和 pending 清理。
+func (m *ApprovalManager) waitForPendingApproval(
+	ctx context.Context,
+	pending *pendingApproval,
+	owner bool,
+) (contract.ApprovalDecision, error) {
 	decision, err := waitForApproval(ctx, pending)
 	if err == nil {
 		return decision, nil

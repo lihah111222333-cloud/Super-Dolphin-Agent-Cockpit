@@ -456,6 +456,7 @@ func assertStaleProviderSessionState(t *testing.T, s *session) {
 
 func TestRequestToolApprovalDedupeWaitReturnsOnCallerContextCancel(t *testing.T) {
 	s := &session{
+		agentID:              "agent-caller-cancel",
 		ctx:                  context.Background(),
 		approvalSessionScope: "test-session-scope",
 		processedApprovals:   map[string]*processedApprovalEntry{},
@@ -488,6 +489,7 @@ func TestRequestToolApprovalDedupeWaitReturnsOnSessionContextCancel(t *testing.T
 	sessionCtx, cancelSession := context.WithCancel(context.Background())
 	cancelSession()
 	s := &session{
+		agentID:              "agent-session-cancel",
 		ctx:                  sessionCtx,
 		approvalSessionScope: "test-session-scope",
 		processedApprovals:   map[string]*processedApprovalEntry{},

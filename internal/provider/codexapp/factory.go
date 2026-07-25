@@ -2,6 +2,8 @@ package codexapp
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,9 +15,11 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	contract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
@@ -26,6 +30,8 @@ type callTarget interface {
 }
 
 type callTargetFunc func(context.Context, string, any) (json.RawMessage, error)
+
+type approvalDecisionSender func(requestID int64, decision contract.ApprovalDecision) error
 
 // Call 将函数适配为 callTarget。
 // 测试和轻量调用点可注入闭包，而生产 transport 仍实现同一接口。
@@ -62,6 +68,143 @@ func callWithTimeout(ctx context.Context, t callTarget, d time.Duration, method 
 	callCtx, cancel := withTimeout(ctx, d)
 	defer cancel()
 	return t.Call(callCtx, method, params)
+}
+
+// prepareApprovalRequest 校验审批载荷并构造宿主审批请求；可定位的坏请求会立即回写拒绝。
+func (s *session) prepareApprovalRequest(
+	method string,
+	payload map[string]any,
+	send approvalDecisionSender,
+) (rpc.ApprovalRequest, int64, bool, error) {
+	requestID, hasRequestID := strictApprovalRequestID(payload, "requestId", "request_id")
+	if hasRequestID {
+		s.logApprovalRequestReceived(requestID, method)
+	}
+	if err := validateApprovalPayload(payload); err != nil {
+		if hasRequestID {
+			s.logApprovalRequestFailed(requestID, method, "parse", err)
+			return rpc.ApprovalRequest{}, requestID, false, send(requestID, approvalParseFailedDecision(err))
+		}
+		s.failTurns(err)
+		return rpc.ApprovalRequest{}, 0, false, err
+	}
+	req, requestID, ok := s.buildApprovalRequest(method, payload)
+	if !ok {
+		err := errors.New("codexapp: approval_parse_failed: approval request identity is required")
+		s.logApprovalRequestFailed(requestID, method, "parse", err)
+		s.failTurns(err)
+		return rpc.ApprovalRequest{}, requestID, false, err
+	}
+	return req, requestID, true, nil
+}
+
+// handleInboundApprovalRequest 处理当前 app-server 的 JSON-RPC 审批请求。
+// message.id 是 provider 的响应身份；params 不再携带旧 requestId，因此先生成宿主侧正整数代理 ID。
+func (s *session) handleInboundApprovalRequest(resp Responder, msg RawMessage) {
+	method := strings.TrimSpace(msg.Method)
+	pkglogger.Info("codexapp: approval server request received",
+		"agent_id", s.agentID, "method", method)
+	params, err := approvalParamsWithJSONRPCID(msg.ID, msg.Params)
+	if err != nil {
+		pkglogger.Warn("codexapp: approval server request identity failed",
+			"agent_id", s.agentID, "method", method, "error", err)
+		s.failTurns(err)
+		if respErr := resp.RespondWithID(msg.ID, nil, err); respErr != nil && s.logger != nil {
+			s.logger.Warn("codexapp: invalid approval request respond failed",
+				"agent_id", s.agentID, "method", msg.Method, "error", respErr)
+		}
+		return
+	}
+	runtimesafe.SafeGo(s.ctx, s.logger, "codexapp.session.jsonrpcApprovalRequest", func(runCtx context.Context) {
+		responded := false
+		send := func(_ int64, decision contract.ApprovalDecision) error {
+			result, resultErr := approvalJSONRPCResponse(method, decision)
+			if resultErr != nil {
+				return resultErr
+			}
+			responded = true
+			return resp.RespondWithID(msg.ID, result, nil)
+		}
+		requestErr := s.requestToolApprovalWithSender(runCtx, method, params, send, true)
+		if requestErr == nil || responded {
+			return
+		}
+		if respErr := resp.RespondWithID(msg.ID, nil, requestErr); respErr != nil && s.logger != nil {
+			s.logger.Warn("codexapp: approval request error respond failed",
+				"agent_id", s.agentID, "method", method, "error", respErr)
+		}
+	})
+}
+
+// approvalParamsWithJSONRPCID 将 JSON-RPC 响应身份映射为宿主审批使用的正整数 requestId。
+func approvalParamsWithJSONRPCID(id json.RawMessage, params json.RawMessage) (json.RawMessage, error) {
+	requestID, err := approvalRequestIDFromJSONRPC(id)
+	if err != nil {
+		return nil, err
+	}
+	payload := decodeEventPayload(params)
+	if len(payload) == 0 {
+		return nil, errors.New("codexapp: approval_parse_failed: payload is required")
+	}
+	if existing, ok := strictApprovalRequestID(payload, "requestId", "request_id"); ok && existing != requestID {
+		return nil, errors.New("codexapp: approval_parse_failed: JSON-RPC id conflicts with requestId")
+	}
+	payload["requestId"] = requestID
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("codexapp: encode approval request params: %w", err)
+	}
+	return encoded, nil
+}
+
+// approvalRequestIDFromJSONRPC 保留正整数 ID，并把零、负整数或不透明字符串确定性映射为正整数代理身份。
+// JSON-RPC 允许数值 ID 为零或负数，而宿主审批身份要求 requestId 大于零；映射仅用于宿主关联，响应仍使用原始 JSON-RPC ID。
+func approvalRequestIDFromJSONRPC(id json.RawMessage) (int64, error) {
+	var number json.Number
+	if err := json.Unmarshal(id, &number); err == nil {
+		if parsed, parseErr := number.Int64(); parseErr == nil {
+			if parsed > 0 {
+				return parsed, nil
+			}
+			return approvalRequestIDSurrogate("jsonrpc-number:" + number.String())
+		}
+	}
+	var text string
+	if err := json.Unmarshal(id, &text); err != nil || strings.TrimSpace(text) == "" {
+		return 0, errors.New("codexapp: approval JSON-RPC id must be a non-empty string or integer")
+	}
+	text = strings.TrimSpace(text)
+	if parsed, err := strconv.ParseInt(text, 10, 64); err == nil && parsed > 0 {
+		return parsed, nil
+	}
+	return approvalRequestIDSurrogate("jsonrpc-string:" + text)
+}
+
+// approvalRequestIDSurrogate 把不能直接作为宿主审批身份的 JSON-RPC ID 映射到稳定正整数。
+func approvalRequestIDSurrogate(identity string) (int64, error) {
+	digest := sha256.Sum256([]byte(identity))
+	surrogate, err := strconv.ParseInt(hex.EncodeToString(digest[:8])[:15], 16, 64)
+	if err != nil || surrogate <= 0 {
+		return 0, errors.New("codexapp: approval JSON-RPC id surrogate is invalid")
+	}
+	return surrogate, nil
+}
+
+// approvalJSONRPCResponse 将宿主布尔决策映射为当前 app-server 请求响应契约。
+func approvalJSONRPCResponse(method string, decision contract.ApprovalDecision) (map[string]any, error) {
+	switch strings.TrimSpace(method) {
+	case "item/commandExecution/requestApproval", "item/fileChange/requestApproval":
+	default:
+		return nil, fmt.Errorf("codexapp: unsupported JSON-RPC approval response method %q", method)
+	}
+	if decision.Approved == nil {
+		return nil, errors.New("codexapp: approval decision must explicitly accept or decline")
+	}
+	value := "decline"
+	if *decision.Approved {
+		value = "accept"
+	}
+	return map[string]any{"decision": value}, nil
 }
 
 func decodeTurnStartResult(raw json.RawMessage) (*turnStartResult, error) {

@@ -26,7 +26,7 @@ func TestRequestApprovalDecisionAutoDeclinesWithoutFrontend(t *testing.T) {
 		SessionScope: "test-session-scope",
 		CallID:       "call-1",
 		RequestID:    &requestID,
-	})
+	}, false)
 	if err != nil {
 		t.Fatalf("requestApprovalDecision() error = %v", err)
 	}
@@ -84,7 +84,7 @@ func TestRequestApprovalDecisionAutoRespondsRequestUserInputWhenPolicyNever(t *t
 		t.Fatalf("buildApprovalRequest() approval policy = %q, want %q", req.ApprovalPolicy, "never")
 	}
 
-	decision, err := s.requestApprovalDecision(req)
+	decision, err := s.requestApprovalDecision(req, false)
 	if err != nil {
 		t.Fatalf("requestApprovalDecision() error = %v", err)
 	}
@@ -93,6 +93,30 @@ func TestRequestApprovalDecisionAutoRespondsRequestUserInputWhenPolicyNever(t *t
 	}
 	if decision.Reason != "auto_approved" {
 		t.Fatalf("requestApprovalDecision() reason = %q, want %q", decision.Reason, "auto_approved")
+	}
+}
+
+func TestBuildApprovalRequestUsesPublicThreadIDForUIProjection(t *testing.T) {
+	s := &session{
+		agentID:              "agent-public-thread",
+		approvalSessionScope: "test-session-scope",
+	}
+	s.setApprovalPolicy("on-request")
+
+	req, _, ok := s.buildApprovalRequest("item/commandExecution/requestApproval", map[string]any{
+		"requestId": int64(1),
+		"itemId":    "call-1",
+		"threadId":  "provider-internal-thread",
+		"turnId":    "provider-turn-1",
+	})
+	if !ok {
+		t.Fatal("buildApprovalRequest() ok = false, want true")
+	}
+	if req.ThreadID != "agent-public-thread" {
+		t.Fatalf("buildApprovalRequest() ThreadID = %q, want public thread ID", req.ThreadID)
+	}
+	if got := stringValue(req.Payload, "threadId"); got != "provider-internal-thread" {
+		t.Fatalf("buildApprovalRequest() payload threadId = %q, want provider-internal-thread", got)
 	}
 }
 
@@ -170,7 +194,7 @@ func TestBuildApprovalRequestRequiresFullBackendIdentity(t *testing.T) {
 }
 
 func TestBuildApprovalRequestRejectsAmbiguousProviderIdentity(t *testing.T) {
-	s := &session{approvalSessionScope: "session-scope-a"}
+	s := &session{agentID: "agent-1", approvalSessionScope: "session-scope-a"}
 	s.setApprovalPolicy("on-request")
 	for _, payload := range []map[string]any{
 		{"requestId": int64(17), "request_id": int64(18), "callId": "call-17"},
