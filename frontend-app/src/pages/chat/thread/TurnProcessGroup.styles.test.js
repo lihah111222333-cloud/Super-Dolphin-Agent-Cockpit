@@ -29,6 +29,15 @@ describe('TurnProcessGroup styles', () => {
     expect(userBubble['margin-left']).toBe('auto');
   });
 
+  it('prevents process disclosures from shrinking inside the timeline flex column', () => {
+    const group = declarationsFor('.turn-process');
+
+    expect(group.padding).toBe('0');
+    expect(group.flex).toBe('0 0 auto');
+    expect(group['min-height']).toBe('46px');
+    expect(group.overflow).toBe('hidden');
+  });
+
   it('keeps expanded process messages inside a scrollable window', () => {
     const list = declarationsFor('.turn-process-list');
 
