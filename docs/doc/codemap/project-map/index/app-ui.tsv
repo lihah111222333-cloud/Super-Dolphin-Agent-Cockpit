@@ -541,11 +541,12 @@ frontend-app/src/pages/workflows/services/workflowPageService.js	frontend-app	ap
 frontend-app/src/pages/workflows/services/workflowScheduleModel.js	frontend-app	app-ui	js-source	7017	React 页面与路由级 UI	frontend,app,src,pages,workflows,services,workflowScheduleModel,React,页面与路由级,UI
 frontend-app/src/pages/workflows/services/workflowScheduleModel.test.js	frontend-app	app-ui	js-test	1776	React 页面与路由级 UI	frontend,app,src,pages,workflows,services,workflowScheduleModel,test,React,页面与路由级,UI
 frontend-app/src/pages/workflows/WorkflowEmptyState.css	frontend-app	app-ui	css	1845	React 页面与路由级 UI	frontend,app,src,pages,workflows,WorkflowEmptyState,React,页面与路由级,UI
-frontend-app/src/pages/workflows/WorkflowPage.css	frontend-app	app-ui	css	22581	React 页面与路由级 UI	frontend,app,src,pages,workflows,WorkflowPage,React,页面与路由级,UI
+frontend-app/src/pages/workflows/WorkflowPage.css	frontend-app	app-ui	css	22596	React 页面与路由级 UI	frontend,app,src,pages,workflows,WorkflowPage,React,页面与路由级,UI
 frontend-app/src/pages/workflows/WorkflowPage.edge.test.jsx	frontend-app	app-ui	jsx	12227	React 页面与路由级 UI	frontend,app,src,pages,workflows,WorkflowPage,edge,test,React,页面与路由级,UI
 frontend-app/src/pages/workflows/WorkflowPage.enterprise.test.jsx	frontend-app	app-ui	jsx	21271	React 页面与路由级 UI	frontend,app,src,pages,workflows,WorkflowPage,enterprise,test,React,页面与路由级,UI
 frontend-app/src/pages/workflows/WorkflowPage.jsx	frontend-app	app-ui	jsx	633	React 页面与路由级 UI	frontend,app,src,pages,workflows,WorkflowPage,React,页面与路由级,UI
 frontend-app/src/pages/workflows/WorkflowPage.runtime.test.jsx	frontend-app	app-ui	jsx	19476	React 页面与路由级 UI	frontend,app,src,pages,workflows,WorkflowPage,runtime,test,React,页面与路由级,UI
+frontend-app/src/pages/workflows/WorkflowPage.styles.test.js	frontend-app	app-ui	js-test	640	React 页面与路由级 UI	frontend,app,src,pages,workflows,WorkflowPage,styles,test,React,页面与路由级,UI
 frontend-app/src/pages/workflows/WorkflowPage.test.jsx	frontend-app	app-ui	jsx	22875	React 页面与路由级 UI	frontend,app,src,pages,workflows,WorkflowPage,test,React,页面与路由级,UI
 frontend-app/src/pages/workflows/WorkflowPage.testSupport.jsx	frontend-app	app-ui	jsx	12832	React 页面与路由级 UI	frontend,app,src,pages,workflows,WorkflowPage,testSupport,React,页面与路由级,UI
 frontend-app/src/pages/workflows/WorkflowPolish.css	frontend-app	app-ui	css	598	React 页面与路由级 UI	frontend,app,src,pages,workflows,WorkflowPolish,React,页面与路由级,UI
