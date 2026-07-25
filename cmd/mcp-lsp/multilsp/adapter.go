@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
@@ -22,6 +23,9 @@ import (
 
 const goBuildTagsLanguageSpecificKey = "goBuildTags"
 const goDefaultStandaloneTag = "ignore"
+const goplsRemoteAutoArg = "-remote=auto;sdmcp2"
+const defaultGoplsRemoteListenTimeoutArg = "-remote.listen.timeout=1m"
+const goplsDaemonIdleTimeoutEnv = "MCP_LSP_GOPLS_DAEMON_IDLE_TIMEOUT"
 
 const (
 	projectWalkMaxDepth   = 32
@@ -196,9 +200,28 @@ func (a goLanguageAdapter) ResolveRoot(_ context.Context, scope LSPToolScope, ta
 }
 
 // ServerCommand 返回 Go 语言服务启动命令。
-// gopls 的安装校验由 registry/installer 负责，这里只声明运行时可执行文件。
+// 所有 mcp-lsp sidecar 通过 gopls auto remote 共享 daemon cache，同时保留各自 LSP session。
 func (goLanguageAdapter) ServerCommand(context.Context, ResolvedLanguageScope) (ServerCommand, error) {
-	return ServerCommand{Executable: "gopls"}, nil
+	timeoutArg, err := goplsRemoteListenTimeoutArg()
+	if err != nil {
+		return ServerCommand{}, err
+	}
+	return ServerCommand{
+		Executable: "gopls",
+		Args:       []string{goplsRemoteAutoArg, timeoutArg},
+	}, nil
+}
+
+func goplsRemoteListenTimeoutArg() (string, error) {
+	raw := strings.TrimSpace(os.Getenv(goplsDaemonIdleTimeoutEnv))
+	if raw == "" {
+		return defaultGoplsRemoteListenTimeoutArg, nil
+	}
+	timeout, err := time.ParseDuration(raw)
+	if err != nil || timeout <= 0 {
+		return "", fmt.Errorf("%s must be a positive Go duration: %q", goplsDaemonIdleTimeoutEnv, raw)
+	}
+	return "-remote.listen.timeout=" + timeout.String(), nil
 }
 
 // InitOptions 生成 gopls 初始化选项。
@@ -376,7 +399,12 @@ func (a goLanguageAdapter) resolvedDirectoryFilters() []string {
 // EnvPolicy 为 gopls 进程生成与当前 Go scope 匹配的环境覆盖。
 // GOOS/GOARCH 固定为当前 peer 的宿主平台，避免父进程的交叉编译环境污染诊断。
 func (goLanguageAdapter) EnvPolicy(scope ResolvedLanguageScope) []string {
-	env := []string{"GOOS=" + runtime.GOOS, "GOARCH=" + runtime.GOARCH}
+	memoryLimit := rssLimitBytesForLanguage("go") / (1024 * 1024)
+	env := []string{
+		"GOOS=" + runtime.GOOS,
+		"GOARCH=" + runtime.GOARCH,
+		fmt.Sprintf("GOMEMLIMIT=%dMiB", memoryLimit),
+	}
 	mode := scope.LanguageSpecific["goworkMode"]
 	switch mode {
 	case goworkModeOff:

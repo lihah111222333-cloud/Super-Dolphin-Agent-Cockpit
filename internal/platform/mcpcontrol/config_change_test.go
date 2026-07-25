@@ -73,6 +73,19 @@ func (s *stubConfigPeer) callbackCount() int {
 	return len(s.callbackMethods)
 }
 
+func TestDispatchLSPReleaseScopeFailsWhenNoPeerCanReceiveRelease(t *testing.T) {
+	registry := NewRegistry()
+	_, err := registry.DispatchLSPReleaseScope(context.Background(), dto.LSPReleaseScopeRequest{
+		ScopeKind: dto.LSPReleaseScopeAgentThread,
+		AgentID:   "agent-missing",
+		ThreadID:  "thread-1",
+		Drain:     true,
+	})
+	if err == nil {
+		t.Fatal("DispatchLSPReleaseScope() error = nil, want explicit unavailable error")
+	}
+}
+
 func (s *stubConfigPeer) snapshotLastCallback() (string, any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

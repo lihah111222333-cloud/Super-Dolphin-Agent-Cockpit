@@ -29,6 +29,40 @@ func TestGoLanguageAdapterEnvPolicyOverridesForeignBuildContext(t *testing.T) {
 	}
 }
 
+func TestGoLanguageAdapterBoundsSharedDaemonMemory(t *testing.T) {
+	t.Setenv(lspGoRSSLimitEnv, "512")
+	env := envMap(goLanguageAdapter{}.EnvPolicy(ResolvedLanguageScope{}))
+	if got := env["GOMEMLIMIT"]; got != "512MiB" {
+		t.Fatalf("GOMEMLIMIT = %q, want 512MiB for shared gopls daemon", got)
+	}
+}
+
+func TestGoplsRemoteListenTimeoutArgValidatesConfiguration(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     string
+		want    string
+		wantErr bool
+	}{
+		{name: "default", want: defaultGoplsRemoteListenTimeoutArg},
+		{name: "custom", raw: "2500ms", want: "-remote.listen.timeout=2.5s"},
+		{name: "zero", raw: "0", wantErr: true},
+		{name: "invalid", raw: "not-a-duration", wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv(goplsDaemonIdleTimeoutEnv, test.raw)
+			got, err := goplsRemoteListenTimeoutArg()
+			if (err != nil) != test.wantErr {
+				t.Fatalf("goplsRemoteListenTimeoutArg() error = %v, wantErr=%v", err, test.wantErr)
+			}
+			if got != test.want {
+				t.Fatalf("goplsRemoteListenTimeoutArg() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 func envMap(entries []string) map[string]string {
 	out := make(map[string]string, len(entries))
 	for _, entry := range entries {
@@ -39,7 +73,11 @@ func envMap(entries []string) map[string]string {
 }
 
 func hostGoEnv(extra ...string) []string {
-	return append([]string{"GOOS=" + runtime.GOOS, "GOARCH=" + runtime.GOARCH}, extra...)
+	return append([]string{
+		"GOOS=" + runtime.GOOS,
+		"GOARCH=" + runtime.GOARCH,
+		"GOMEMLIMIT=384MiB",
+	}, extra...)
 }
 
 func TestGenericLanguageServicesMatrixCoversDefaultLSPClients(t *testing.T) {

@@ -3,6 +3,7 @@ package main
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/bootstrap"
 	"go.uber.org/fx"
@@ -24,6 +25,33 @@ func TestNewStdioServerFailsFastWhenMcpStdoutNil(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "mcpStdout") {
 		t.Fatalf("newServer() error = %q, want mention of mcpStdout", err.Error())
+	}
+}
+
+func TestMcpLSPProcessIdleTimeoutValidatesConfiguration(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     string
+		want    time.Duration
+		wantErr bool
+	}{
+		{name: "default", want: defaultMcpLSPProcessIdleTimeout},
+		{name: "disabled", raw: "0"},
+		{name: "custom", raw: "250ms", want: 250 * time.Millisecond},
+		{name: "negative", raw: "-1s", wantErr: true},
+		{name: "invalid", raw: "not-a-duration", wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv(mcpLSPProcessIdleTimeoutEnv, test.raw)
+			got, err := mcpLSPProcessIdleTimeout()
+			if (err != nil) != test.wantErr {
+				t.Fatalf("mcpLSPProcessIdleTimeout() error = %v, wantErr=%v", err, test.wantErr)
+			}
+			if got != test.want {
+				t.Fatalf("mcpLSPProcessIdleTimeout() = %s, want %s", got, test.want)
+			}
+		})
 	}
 }
 

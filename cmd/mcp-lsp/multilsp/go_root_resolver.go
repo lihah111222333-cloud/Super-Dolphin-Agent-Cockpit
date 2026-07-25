@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -82,7 +83,7 @@ func ResolveGoRoot(req GoRootRequest) (GoRootInfo, error) {
 	if goWorkPath != "" {
 		info, err := resolveGoWorkRoot(target, projectRoot, goWorkPath, goworkModeAuto)
 		if err == nil && !goWorkRootContainsTarget(info, target) {
-			info, err = resolveGoRootWithoutGoWork(target, projectRoot, goworkModeAuto, noiseDirNames)
+			info, err = resolveGoRootWithoutGoWork(target, projectRoot, goworkModeOff, noiseDirNames)
 		}
 		return withGoToolchain(info, env, err)
 	}
@@ -144,8 +145,9 @@ func resolveGoRootFromGOWORK(target, projectRoot string, env []string, noiseDirN
 	}
 	info, err := resolveGoWorkRoot(target, projectRoot, goWorkPath, goworkModeExplicit)
 	if err == nil && !goWorkRootContainsTarget(info, target) {
-		// 环境里的 GOWORK 可能指向另一个 worktree；目标不在其中时交回本地发现路径。
-		return GoRootInfo{}, false, nil
+		// 环境里的 GOWORK 指向其他 worktree 时必须显式 off，不能让子进程继续继承父环境。
+		info, err = resolveGoRootWithoutGoWork(target, projectRoot, goworkModeOff, noiseDirNames)
+		return info, true, err
 	}
 	return info, true, err
 }
@@ -584,8 +586,8 @@ func hashStringList(values []string) string {
 
 func envValue(env []string, key string) (string, bool) {
 	prefix := key + "="
-	for i := len(env) - 1; i >= 0; i-- {
-		if value, ok := strings.CutPrefix(env[i], prefix); ok {
+	for _, entry := range slices.Backward(env) {
+		if value, ok := strings.CutPrefix(entry, prefix); ok {
 			return value, true
 		}
 	}

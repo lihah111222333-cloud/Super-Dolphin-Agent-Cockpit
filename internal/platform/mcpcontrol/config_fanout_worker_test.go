@@ -17,11 +17,13 @@ import (
 // (it comes from the worker-owned fanoutCtx) and (b) cancelling the
 // worker unblocks an in-flight peer RPC.
 type fakeFanoutNotifier struct {
-	mu       sync.Mutex
-	received []fakeFanoutCall
-	entered  chan struct{}
-	exited   chan error
-	block    chan struct{}
+	mu                    sync.Mutex
+	received              []fakeFanoutCall
+	releaseRequests       []dto.LSPReleaseScopeRequest
+	entered               chan struct{}
+	exited                chan error
+	block                 chan struct{}
+	releaseFailuresRemain atomic.Int64
 }
 
 type fakeFanoutCall struct {
@@ -66,6 +68,26 @@ func (f *fakeFanoutNotifier) calls() []fakeFanoutCall {
 	out := make([]fakeFanoutCall, len(f.received))
 	copy(out, f.received)
 	return out
+}
+
+func (f *fakeFanoutNotifier) DispatchLSPReleaseScope(_ context.Context, req dto.LSPReleaseScopeRequest) (dto.LSPReleaseScopeResult, error) {
+	f.mu.Lock()
+	f.releaseRequests = append(f.releaseRequests, req)
+	f.mu.Unlock()
+	if f.releaseFailuresRemain.Add(-1) >= 0 {
+		return dto.LSPReleaseScopeResult{}, errors.New("temporary release failure")
+	}
+	return dto.LSPReleaseScopeResult{
+		MatchedManagers: 1,
+		ClosedManagers:  1,
+		Drained:         true,
+	}, nil
+}
+
+func (f *fakeFanoutNotifier) releases() []dto.LSPReleaseScopeRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]dto.LSPReleaseScopeRequest(nil), f.releaseRequests...)
 }
 
 // stubVersionSource increments a monotonic counter for advanceConfigVersion
@@ -259,6 +281,72 @@ func TestConfigFanoutWorkerOverflowKeepsLatestAndEmitsDegradedEvent(t *testing.T
 	if calls[2].configVersion != 3 {
 		t.Fatalf("latest configVersion = %d, want 3 after degraded signal", calls[2].configVersion)
 	}
+}
+
+func TestConfigFanoutWorkerOverflowPreservesEveryLSPRelease(t *testing.T) {
+	notifier := &fakeFanoutNotifier{
+		entered: make(chan struct{}),
+		block:   make(chan struct{}),
+	}
+	worker := newConfigFanoutWorker(notifier, &stubVersionSource{}, nil)
+	worker.Start()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = worker.Stop(ctx)
+	})
+
+	worker.Enqueue(configTopicAgent, map[string]any{"event": "agent/state/changed", "sequence": 0})
+	waitForFanoutNotifier(t, notifier)
+	for index := 1; index <= 6; index++ {
+		worker.Enqueue(configTopicAgent, map[string]any{
+			"event":   "agent/stopped",
+			"agentId": "agent-" + string(rune('0'+index)),
+			"reason":  "overflow_release",
+		})
+	}
+	close(notifier.block)
+
+	waitForLSPReleaseCalls(t, notifier, 6)
+	releases := notifier.releases()
+	for index, req := range releases {
+		wantAgentID := "agent-" + string(rune('1'+index))
+		if req.AgentID != wantAgentID {
+			t.Fatalf("release[%d].AgentID = %q, want %q; releases=%#v", index, req.AgentID, wantAgentID, releases)
+		}
+	}
+}
+
+func TestConfigFanoutWorkerRetriesTransientLSPReleaseFailure(t *testing.T) {
+	notifier := &fakeFanoutNotifier{}
+	notifier.releaseFailuresRemain.Store(1)
+	worker := newConfigFanoutWorker(notifier, &stubVersionSource{}, nil)
+	worker.Start()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = worker.Stop(ctx)
+	})
+
+	worker.Enqueue(configTopicAgent, map[string]any{
+		"event":   "agent/stopped",
+		"agentId": "agent-retry",
+		"reason":  "retry_release",
+	})
+
+	waitForLSPReleaseCalls(t, notifier, 2)
+}
+
+func waitForLSPReleaseCalls(t *testing.T, notifier *fakeFanoutNotifier, want int) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if len(notifier.releases()) >= want {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("release calls = %d, want at least %d", len(notifier.releases()), want)
 }
 
 func waitForConfigFanoutProcessed(t *testing.T, worker *configFanoutWorker, want int64) {

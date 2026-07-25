@@ -132,6 +132,7 @@ type Server struct {
 	tools               ToolProvider
 	toolErrorClassifier ToolErrorClassifier
 	ready               chan struct{} // closed when Run enters its read loop
+	idleTimeout         time.Duration
 }
 
 // ServerOption configures the stdio MCP server.
@@ -141,6 +142,16 @@ type ServerOption func(*Server)
 func WithToolErrorClassifier(classifier ToolErrorClassifier) ServerOption {
 	return func(s *Server) {
 		s.toolErrorClassifier = classifier
+	}
+}
+
+// WithIdleTimeout 配置 stdio server 在没有协议消息时主动退出。
+// 零值保持永久等待；计时只覆盖请求之间的空闲窗口，不会中断正在执行的工具调用。
+func WithIdleTimeout(timeout time.Duration) ServerOption {
+	return func(server *Server) {
+		if server != nil && timeout > 0 {
+			server.idleTimeout = timeout
+		}
 	}
 }
 
@@ -218,6 +229,13 @@ func (s *Server) Run(ctx context.Context) error {
 	// Signal that the stdio server is ready to accept messages.
 	// Bootstrap runners block on this before connecting to the control plane.
 	close(s.ready)
+	var idleTimer *time.Timer
+	var idleC <-chan time.Time
+	if s.idleTimeout > 0 {
+		idleTimer = time.NewTimer(s.idleTimeout)
+		idleC = idleTimer.C
+		defer idleTimer.Stop()
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -225,35 +243,73 @@ func (s *Server) Run(ctx context.Context) error {
 				"server", s.name, "error", ctx.Err())
 			_ = s.transport.Close()
 			return nil
+		case <-idleC:
+			pkglogger.Info("mcp: server run stopping (idle timeout)",
+				"server", s.name,
+				"idle_timeout", s.idleTimeout,
+			)
+			_ = s.transport.Close()
+			return nil
 		case result, ok := <-results:
-			if !ok {
-				pkglogger.Warn("mcp: server run stopping (read channel closed)",
-					"server", s.name)
-				return nil
-			}
-			if shouldStop(result.err) {
-				pkglogger.Warn("mcp: server run stopping (EOF/pipe closed)",
-					"server", s.name, "error", result.err)
-				return nil
-			}
-			if result.err != nil {
-				pkglogger.Warn("mcp: server run stopping (read error)",
-					"server", s.name, "error", result.err)
-				return result.err
-			}
-			exit, err := s.handleMessage(ctx, result.payload)
-			if err != nil {
-				pkglogger.Warn("mcp: server run stopping (handle error)",
-					"server", s.name, "error", err)
+			stopServerIdleTimer(idleTimer)
+			idleC = nil
+			stop, err := s.processReadResult(ctx, result, ok)
+			if stop {
 				return err
 			}
-			if exit {
-				pkglogger.Warn("mcp: server run stopping (exit requested)",
-					"server", s.name)
-				return nil
+			resetServerIdleTimer(idleTimer, s.idleTimeout)
+			if idleTimer != nil {
+				idleC = idleTimer.C
 			}
 		}
 	}
+}
+
+// processReadResult 统一分类 read loop 结果，并指示主循环是否应退出。
+func (s *Server) processReadResult(ctx context.Context, result readResult, channelOpen bool) (bool, error) {
+	if !channelOpen {
+		pkglogger.Warn("mcp: server run stopping (read channel closed)", "server", s.name)
+		return true, nil
+	}
+	if shouldStop(result.err) {
+		pkglogger.Warn("mcp: server run stopping (EOF/pipe closed)",
+			"server", s.name, "error", result.err)
+		return true, nil
+	}
+	if result.err != nil {
+		pkglogger.Warn("mcp: server run stopping (read error)",
+			"server", s.name, "error", result.err)
+		return true, result.err
+	}
+	exit, err := s.handleMessage(ctx, result.payload)
+	if err != nil {
+		pkglogger.Warn("mcp: server run stopping (handle error)",
+			"server", s.name, "error", err)
+		return true, err
+	}
+	if exit {
+		pkglogger.Warn("mcp: server run stopping (exit requested)", "server", s.name)
+		return true, nil
+	}
+	return false, nil
+}
+
+func stopServerIdleTimer(timer *time.Timer) {
+	if timer == nil || timer.Stop() {
+		return
+	}
+	select {
+	case <-timer.C:
+	default:
+	}
+}
+
+func resetServerIdleTimer(timer *time.Timer, timeout time.Duration) {
+	if timer == nil || timeout <= 0 {
+		return
+	}
+	stopServerIdleTimer(timer)
+	timer.Reset(timeout)
 }
 
 // startReadLoop 启动单独 goroutine 读取 transport，panic 会被记录而不是击穿 Run。

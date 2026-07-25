@@ -510,12 +510,13 @@ func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *
 		DiagnosticsMaxWait:               runtimeAdapterDiagnosticsMaxWait(adapter),
 		DisableInitialWorkspaceBootstrap: true,
 		ClientFactory: multilsp.ClientFactoryWithEnvFunc(func(rootDir string, env []string, h protocol.NotificationHandler) (multilsp.Client, error) {
-			// rootDir 来自本次 workspace 解析结果，让语言服务器子进程跟随调用方项目。
-			// 只有调用方尚未解析到具体 workspace 时，才退回 manager 启动根目录。
+			// rootDir 来自本次 workspace 解析结果；语言服务器子进程跟随项目启动。
+			// gopls 只在 Go 构建环境兼容时共享 cohort，避免首个 session 的基础环境污染后续 workspace。
 			dir := rootDir
 			if strings.TrimSpace(dir) == "" {
 				dir = root
 			}
+			serverArgs := runtimeServerArgs(command, env)
 			sqliteWorkspace := false
 			if adapterSupportsLanguage(adapter, "sql") {
 				var workspaceErr error
@@ -530,7 +531,7 @@ func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *
 			}
 			client, err := multilsp.NewClientWithOptions(multilsp.Options{
 				Binary:              binary.Get(),
-				Args:                command.Args,
+				Args:                serverArgs,
 				Dir:                 dir,
 				Env:                 env,
 				InitOptions:         runtimeAdapterInitOptionsWithBinary(adapter, packagedLSP, binary.Get()),
@@ -776,24 +777,49 @@ func (m *Manager) ReleaseScope(req mcpdto.LSPReleaseScopeRequest) (mcpdto.LSPRel
 		Drain:      req.Drain,
 		Reason:     req.Reason,
 	}
-	var combined mcpdto.LSPReleaseScopeResult
-	var firstErr error
+	aggregation := runtimeReleaseAggregation{allDrained: req.Drain}
 	for _, releaser := range m.releaseScopes {
 		if releaser == nil {
 			continue
 		}
 		result, err := releaser.ReleaseScope(translated)
-		if err != nil && firstErr == nil {
-			firstErr = err
-		}
-		combined.MatchedManagers += result.MatchedManagers
-		combined.ClosedManagers += result.ClosedManagers
-		combined.BusyLeases += result.BusyLeases
-		combined.Drained = combined.Drained || result.Drained
-		combined.ScopeKeys = appendRuntimeUnique(combined.ScopeKeys, result.ScopeKeys...)
-		combined.ManagerKeys = appendRuntimeUnique(combined.ManagerKeys, result.ManagerKeys...)
+		aggregation.merge(result, err)
 	}
-	return combined, firstErr
+	return aggregation.finish(req.Drain)
+}
+
+type runtimeReleaseAggregation struct {
+	result     mcpdto.LSPReleaseScopeResult
+	firstErr   error
+	allDrained bool
+	consulted  int
+}
+
+// merge 合并单个语言池的释放结果，并保留首个错误。
+func (a *runtimeReleaseAggregation) merge(result multilsp.ReleaseScopeResult, err error) {
+	a.consulted++
+	if err != nil {
+		a.allDrained = false
+		if a.firstErr == nil {
+			a.firstErr = err
+		}
+	}
+	a.result.MatchedManagers += result.MatchedManagers
+	a.result.ClosedManagers += result.ClosedManagers
+	a.result.BusyLeases += result.BusyLeases
+	a.allDrained = a.allDrained && result.Drained
+	a.result.ScopeKeys = appendRuntimeUnique(a.result.ScopeKeys, result.ScopeKeys...)
+	a.result.ManagerKeys = appendRuntimeUnique(a.result.ManagerKeys, result.ManagerKeys...)
+}
+
+// finish 只有所有已咨询语言池都成功 drain 时才返回 Drained=true。
+func (a runtimeReleaseAggregation) finish(drain bool) (mcpdto.LSPReleaseScopeResult, error) {
+	a.result.Drained = drain &&
+		a.consulted > 0 &&
+		a.allDrained &&
+		a.result.BusyLeases == 0 &&
+		a.firstErr == nil
+	return a.result, a.firstErr
 }
 
 func appendRuntimeUnique(dst []string, values ...string) []string {

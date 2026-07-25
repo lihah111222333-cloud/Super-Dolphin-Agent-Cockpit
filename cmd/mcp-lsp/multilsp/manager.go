@@ -23,6 +23,7 @@ import (
 
 var (
 	ErrManagerClosed       = errors.New("LSP manager is closed")
+	ErrManagerPoolClosed   = errors.New("LSP manager pool is closed")
 	ErrClientFactoryNil    = errors.New("LSP client factory is nil")
 	ErrWorkspaceRootEmpty  = errors.New("workspace root is empty")
 	ErrDocumentTargetEmpty = errors.New("document target is empty")
@@ -114,7 +115,15 @@ type manager struct {
 	mu         sync.RWMutex                // 保护 closed 与 workspaces。
 	ensureMu   sync.Mutex                  // 串行化客户端创建，避免同一 workspace 重复启动。
 	closed     bool                        // manager 关闭后禁止再创建客户端。
+	retiring   bool                        // release drain 已建立代际栅栏，禁止新增租约。
 	workspaces map[string]*workspaceClient // workspace key 到客户端状态。
+
+	closeMu          sync.Mutex              // 串行化关闭与失败重试，避免同一 client 并发 Close。
+	closeInitialized bool                    // 是否已经摘除 workspace client 并进入关闭阶段。
+	closeComplete    bool                    // 所有 client 的进程级 Close 是否已经完成。
+	closeResult      error                   // 关闭完成后的稳定结果，供重复 Close 返回。
+	closeWarnings    error                   // 已完成 client 的 graceful shutdown 错误。
+	closingClients   []pendingClientShutdown // Close 失败后仍需重试的 client owner。
 
 	diagGeneration     atomic.Uint64                 // 诊断缓存代际，关闭/刷新时递增。
 	diagMu             sync.RWMutex                  // 保护 diagnostics。

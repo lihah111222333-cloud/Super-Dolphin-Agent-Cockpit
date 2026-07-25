@@ -51,9 +51,9 @@ func TestGoWorkEnvPropagatedToGopls(t *testing.T) {
 	if call.rootDir != repo {
 		t.Fatalf("gopls rootDir = %q, want go.work root %q", call.rootDir, repo)
 	}
-	wantEnv := []string{"GOOS=" + runtime.GOOS, "GOARCH=" + runtime.GOARCH, "GOWORK=" + goWorkPath}
+	wantEnv := []string{"GOOS=" + runtime.GOOS, "GOARCH=" + runtime.GOARCH, "GOMEMLIMIT=384MiB", "GOWORK=" + goWorkPath}
 	if !reflect.DeepEqual(call.env, wantEnv) {
-		t.Fatalf("gopls env = %#v, want explicit go.work", call.env)
+		t.Fatalf("gopls env = %#v, want %#v", call.env, wantEnv)
 	}
 	client := factory.clientAt(t, 0)
 	if client.rootURI != goWorkFakeFileURI(repo) {

@@ -72,36 +72,76 @@ func (r *ToolRegistry) DispatchLSPReleaseScope(ctx context.Context, req dto.LSPR
 	}
 	targets := r.releaseScopeTargets(req)
 	if len(targets) == 0 {
-		return dto.LSPReleaseScopeResult{}, nil
+		return dto.LSPReleaseScopeResult{}, errPeerUnavailable(
+			"mcp lsp release-scope has no active target for scope_kind=%s agent_id=%s thread_id=%s",
+			req.ScopeKind,
+			req.AgentID,
+			req.ThreadID,
+		)
 	}
 
-	var combined dto.LSPReleaseScopeResult
-	var errs []error
+	aggregation := releaseScopeDispatchAggregation{allDrained: req.Drain}
 	for _, target := range targets {
-		if target == nil || target.Peer == nil {
-			continue
-		}
-		var result dto.LSPReleaseScopeResult
-		callCtx, cancel := withTimeoutContext(ctx, r.notifyTimeout)
-		err := target.Peer.Callback(callCtx, dto.MethodLSPReleaseScope, req, &result)
-		cancel()
-		if err != nil {
-			peer, evicted := r.notePeerFailure(target.Lease)
-			if evicted {
-				_ = r.disconnectLease(target.Lease, disconnectLeaseOptions{
-					ctx:  ctx,
-					peer: peer,
-				})
-			} else {
-				closePeer(peer)
-			}
-			errs = append(errs, errPeerUnavailable("mcp lsp release-scope callback failed for %s/%d: %v", target.Lease.InstanceID, target.Lease.Generation, err))
-			continue
-		}
-		r.resetPeerFailure(target.Lease)
-		mergeLSPReleaseScopeResult(&combined, result)
+		result, err := r.callLSPReleaseScopeTarget(ctx, target, req)
+		aggregation.merge(result, err)
 	}
-	return combined, errors.Join(errs...)
+	return aggregation.finish(req.Drain, len(targets))
+}
+
+// callLSPReleaseScopeTarget 调用单个 peer，并在失败时更新租约健康状态。
+func (r *ToolRegistry) callLSPReleaseScopeTarget(ctx context.Context, target *ToolInstance, req dto.LSPReleaseScopeRequest) (dto.LSPReleaseScopeResult, error) {
+	if target == nil || target.Peer == nil {
+		return dto.LSPReleaseScopeResult{}, errPeerUnavailable("mcp lsp release-scope target is unavailable")
+	}
+	var result dto.LSPReleaseScopeResult
+	callCtx, cancel := withTimeoutContext(ctx, r.notifyTimeout)
+	err := target.Peer.Callback(callCtx, dto.MethodLSPReleaseScope, req, &result)
+	cancel()
+	if err == nil {
+		r.resetPeerFailure(target.Lease)
+		return result, nil
+	}
+	peer, evicted := r.notePeerFailure(target.Lease)
+	if evicted {
+		_ = r.disconnectLease(target.Lease, disconnectLeaseOptions{ctx: ctx, peer: peer})
+	} else {
+		closePeer(peer)
+	}
+	return dto.LSPReleaseScopeResult{}, errPeerUnavailable(
+		"mcp lsp release-scope callback failed for %s/%d: %v",
+		target.Lease.InstanceID,
+		target.Lease.Generation,
+		err,
+	)
+}
+
+type releaseScopeDispatchAggregation struct {
+	result            dto.LSPReleaseScopeResult
+	errs              []error
+	allDrained        bool
+	successfulTargets int
+}
+
+// merge 合并单个 peer 的释放结果；任一错误都会阻断最终 drained。
+func (a *releaseScopeDispatchAggregation) merge(result dto.LSPReleaseScopeResult, err error) {
+	if err != nil {
+		a.allDrained = false
+		a.errs = append(a.errs, err)
+		return
+	}
+	a.successfulTargets++
+	a.allDrained = a.allDrained && result.Drained
+	mergeLSPReleaseScopeResult(&a.result, result)
+}
+
+// finish 只有所有目标都成功完成 drain 时才返回 Drained=true。
+func (a releaseScopeDispatchAggregation) finish(drain bool, targetCount int) (dto.LSPReleaseScopeResult, error) {
+	a.result.Drained = drain &&
+		a.successfulTargets == targetCount &&
+		a.allDrained &&
+		a.result.BusyLeases == 0 &&
+		len(a.errs) == 0
+	return a.result, errors.Join(a.errs...)
 }
 
 // normalizeLSPReleaseScopeRequest 清理 scope 请求字段，避免空白字符影响路由匹配。
@@ -147,7 +187,8 @@ func (r *ToolRegistry) releaseScopeTargets(req dto.LSPReleaseScopeRequest) []*To
 	})
 }
 
-// mergeLSPReleaseScopeResult 合并多个 LSP peer 的释放结果，计数累加且 key 列表去重。
+// mergeLSPReleaseScopeResult 合并多个 LSP peer 的计数和 key。
+// Drained 必须由调用方按所有目标 AND 聚合，不能在这里用 OR 掩盖 busy peer。
 func mergeLSPReleaseScopeResult(dst *dto.LSPReleaseScopeResult, src dto.LSPReleaseScopeResult) {
 	if dst == nil {
 		return
@@ -155,7 +196,6 @@ func mergeLSPReleaseScopeResult(dst *dto.LSPReleaseScopeResult, src dto.LSPRelea
 	dst.MatchedManagers += src.MatchedManagers
 	dst.ClosedManagers += src.ClosedManagers
 	dst.BusyLeases += src.BusyLeases
-	dst.Drained = dst.Drained || src.Drained
 	dst.ScopeKeys = appendUniqueStrings(dst.ScopeKeys, src.ScopeKeys...)
 	dst.ManagerKeys = appendUniqueStrings(dst.ManagerKeys, src.ManagerKeys...)
 }

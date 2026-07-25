@@ -48,7 +48,7 @@ func (m *manager) ReleaseScope(req ReleaseScopeRequest) (ReleaseScopeResult, err
 }
 
 // ReleaseScope 从池中摘除匹配 scope 的 manager clone 并关闭可安全释放的实例。
-// 仍有活跃租约的 manager 只计入 BusyLeases，不会被强制关闭；Drain 用于调用方判断是否需要重试。
+// Drain 会先建立代际栅栏并摘除 busy manager，最后租约释放后再自动关闭；不会中断进行中的请求。
 func (p *ManagerPool) ReleaseScope(req ReleaseScopeRequest) (ReleaseScopeResult, error) {
 	if p == nil {
 		return ReleaseScopeResult{}, errors.New("LSP manager pool is nil")
@@ -57,14 +57,87 @@ func (p *ManagerPool) ReleaseScope(req ReleaseScopeRequest) (ReleaseScopeResult,
 	if err := validateReleaseScopeRequest(req); err != nil {
 		return ReleaseScopeResult{}, err
 	}
+	p.lifecycleMu.RLock()
+	defer p.lifecycleMu.RUnlock()
+	if p.closing || p.closed {
+		return ReleaseScopeResult{}, ErrManagerPoolClosed
+	}
+	p.releaseMu.Lock()
+	defer p.releaseMu.Unlock()
 
-	result, toClose := p.detachReleaseScopeManagers(req)
-	closed, firstErr := closeReleaseScopeManagers(req, toClose)
-	result.ClosedManagers += closed
-	if req.Drain && result.BusyLeases == 0 {
+	p.drainPendingReleases()
+	pendingResult, pendingErr := p.pendingReleaseScopeResult(req)
+	result, toClose, pending := p.detachReleaseScopeManagers(req)
+	mergeReleaseScopeResult(&result, pendingResult)
+	p.rememberPendingReleases(pending)
+	closeErr := p.closeDetachedReleaseManagers(req, toClose, &result)
+	firstErr := errors.Join(pendingErr, closeErr)
+	if req.Drain && result.BusyLeases == 0 && firstErr == nil {
 		result.Drained = true
 	}
 	return result, firstErr
+}
+
+// pendingReleaseScopeResult 把已摘除但仍有租约的旧 manager 代际计入后续 drain 查询。
+func (p *ManagerPool) pendingReleaseScopeResult(req ReleaseScopeRequest) (ReleaseScopeResult, error) {
+	pending := p.snapshotPendingReleaseStates()
+	var result ReleaseScopeResult
+	var firstErr error
+	var consumed []*manager
+	for _, candidate := range pending {
+		if candidate.manager == nil || !candidate.state.report || !releaseScopeMatches(req, candidate.state.scope) {
+			continue
+		}
+		consume, closeErr := p.mergePendingReleaseState(&result, candidate)
+		if consume {
+			consumed = append(consumed, candidate.manager)
+		}
+		firstErr = errors.Join(firstErr, closeErr)
+	}
+	p.consumeSuccessfulReleaseReceipts(consumed)
+	if firstErr != nil {
+		firstErr = fmt.Errorf("release scope close failed: %w", firstErr)
+	}
+	return result, firstErr
+}
+
+type pendingReleaseSnapshot struct {
+	manager *manager
+	state   pendingManagerReleaseState
+}
+
+func (p *ManagerPool) snapshotPendingReleaseStates() []pendingReleaseSnapshot {
+	p.pendingMu.Lock()
+	defer p.pendingMu.Unlock()
+	pending := make([]pendingReleaseSnapshot, 0, len(p.pendingReleases))
+	for mgr, state := range p.pendingReleases {
+		pending = append(pending, pendingReleaseSnapshot{manager: mgr, state: state})
+	}
+	return pending
+}
+
+func (p *ManagerPool) mergePendingReleaseState(result *ReleaseScopeResult, candidate pendingReleaseSnapshot) (bool, error) {
+	recordReleaseScopeMatch(result, candidate.state.scope)
+	if candidate.state.completed {
+		result.ClosedManagers++
+		return candidate.state.closeErr == nil, candidate.state.closeErr
+	}
+	result.BusyLeases += p.activeLeasesForManager(candidate.manager)
+	return false, candidate.state.closeErr
+}
+
+// consumeSuccessfulReleaseReceipts 只消费已成功关闭且已向查询方返回的 receipt。
+func (p *ManagerPool) consumeSuccessfulReleaseReceipts(managers []*manager) {
+	if len(managers) == 0 {
+		return
+	}
+	p.pendingMu.Lock()
+	defer p.pendingMu.Unlock()
+	for _, mgr := range managers {
+		if state, ok := p.pendingReleases[mgr]; ok && state.completed && state.closeErr == nil {
+			delete(p.pendingReleases, mgr)
+		}
+	}
 }
 
 // ReleaseManagerKey 释放指定 manager key 对应的 clone。
@@ -79,26 +152,35 @@ func (p *ManagerPool) ReleaseManagerKey(managerKey string) error {
 	return err
 }
 
-func (p *ManagerPool) detachReleaseScopeManagers(req ReleaseScopeRequest) (ReleaseScopeResult, []*manager) {
+func (p *ManagerPool) detachReleaseScopeManagers(req ReleaseScopeRequest) (ReleaseScopeResult, []pendingManagerRelease, []pendingManagerRelease) {
 	var result ReleaseScopeResult
-	var toClose []*manager
+	var toClose []pendingManagerRelease
+	var pending []pendingManagerRelease
 	seenClose := map[*manager]struct{}{}
+	seenPending := map[*manager]struct{}{}
 	for _, shard := range p.shards {
-		shardResult, shardManagers := p.detachReleaseScopeManagersFromShard(shard, req, seenClose)
+		shardResult, shardManagers, shardPending := p.detachReleaseScopeManagersFromShard(shard, req, seenClose, seenPending)
 		mergeReleaseScopeResult(&result, shardResult)
 		toClose = append(toClose, shardManagers...)
+		pending = append(pending, shardPending...)
 	}
-	return result, toClose
+	return result, toClose, pending
 }
 
 // detachReleaseScopeManagersFromShard 在单个 shard 锁内摘除可释放的 clone。
-// 有活跃租约的 clone 只记录 busy，不从 map 删除，避免正在使用的 client 被关闭。
-func (p *ManagerPool) detachReleaseScopeManagersFromShard(shard *managerShard, req ReleaseScopeRequest, seen map[*manager]struct{}) (ReleaseScopeResult, []*manager) {
+// drain 请求会先从 map 摘除 busy clone，并在最后租约释放后按 manager 指针代际关闭。
+func (p *ManagerPool) detachReleaseScopeManagersFromShard(
+	shard *managerShard,
+	req ReleaseScopeRequest,
+	seenClose map[*manager]struct{},
+	seenPending map[*manager]struct{},
+) (ReleaseScopeResult, []pendingManagerRelease, []pendingManagerRelease) {
 	if shard == nil {
-		return ReleaseScopeResult{}, nil
+		return ReleaseScopeResult{}, nil, nil
 	}
 	var result ReleaseScopeResult
-	var toClose []*manager
+	var toClose []pendingManagerRelease
+	var pending []pendingManagerRelease
 	shard.mu.Lock()
 	defer shard.mu.Unlock()
 	for key, clone := range shard.clones {
@@ -106,17 +188,54 @@ func (p *ManagerPool) detachReleaseScopeManagersFromShard(shard *managerShard, r
 			continue
 		}
 		recordReleaseScopeMatch(&result, clone.resolvedScope)
-		if busy := p.activeLeasesForManager(clone.manager); busy > 0 {
+		busy, detach := p.retireManagerForRelease(clone.manager, req.Drain)
+		if busy > 0 {
 			result.BusyLeases += busy
+			if detach {
+				delete(shard.clones, key)
+				if _, ok := seenPending[clone.manager]; !ok {
+					seenPending[clone.manager] = struct{}{}
+					pending = append(pending, pendingManagerRelease{
+						manager: clone.manager,
+						scope:   clone.resolvedScope,
+					})
+				}
+			}
+			continue
+		}
+		if !detach {
 			continue
 		}
 		delete(shard.clones, key)
-		if _, ok := seen[clone.manager]; !ok {
-			seen[clone.manager] = struct{}{}
-			toClose = append(toClose, clone.manager)
+		if _, ok := seenClose[clone.manager]; !ok {
+			seenClose[clone.manager] = struct{}{}
+			toClose = append(toClose, pendingManagerRelease{
+				manager: clone.manager,
+				scope:   clone.resolvedScope,
+			})
 		}
 	}
-	return result, toClose
+	return result, toClose, pending
+}
+
+// retireManagerForRelease 在 manager 写临界区内复核租约并建立摘除栅栏。
+// 非 drain 的 busy manager 保留在 shard；idle manager 无论 drain 与否都先 retiring 再摘除。
+func (p *ManagerPool) retireManagerForRelease(mgr *manager, drain bool) (busy int, detach bool) {
+	if p == nil || mgr == nil {
+		return 0, false
+	}
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+	for _, workspace := range mgr.workspaces {
+		if workspace != nil && workspace.client != nil {
+			busy += p.activeLeases(workspace.client)
+		}
+	}
+	if busy > 0 && !drain {
+		return busy, false
+	}
+	mgr.retiring = true
+	return busy, true
 }
 
 func (p *ManagerPool) releaseScopeCanDetach(req ReleaseScopeRequest, clone *pooledManager) bool {
@@ -148,17 +267,19 @@ func mergeReleaseScopeResult(dst *ReleaseScopeResult, src ReleaseScopeResult) {
 	}
 }
 
-// closeReleaseScopeManagers 关闭已从池中摘除的 manager 列表。
-// 函数继续尝试关闭全部目标，只包装第一个错误返回，防止一个失败阻断其余资源清理。
-func closeReleaseScopeManagers(req ReleaseScopeRequest, managers []*manager) (int, error) {
+// closeDetachedReleaseManagers 关闭本次摘除的 manager；失败状态写入 receipt，后续相同 drain 会继续重试。
+func (p *ManagerPool) closeDetachedReleaseManagers(
+	req ReleaseScopeRequest,
+	releases []pendingManagerRelease,
+	result *ReleaseScopeResult,
+) error {
 	var firstErr error
-	closed := 0
-	for _, mgr := range managers {
-		if mgr == nil {
+	for _, release := range releases {
+		if release.manager == nil {
 			continue
 		}
-		if mgr.logger != nil {
-			mgr.logger.Info("LSP release scope closing manager",
+		if release.manager.logger != nil {
+			release.manager.logger.Info("LSP release scope closing manager",
 				"scope_kind", req.ScopeKind,
 				"agent_id", req.AgentID,
 				"thread_id", req.ThreadID,
@@ -167,15 +288,60 @@ func closeReleaseScopeManagers(req ReleaseScopeRequest, managers []*manager) (in
 				"reason", req.Reason,
 			)
 		}
-		if err := mgr.closeWithoutPool(); err != nil && firstErr == nil {
-			firstErr = err
+		done, closeErr := release.manager.closeWithoutPoolStatus()
+		if done && closeErr == nil {
+			if result != nil {
+				result.ClosedManagers++
+			}
+			continue
 		}
-		closed++
+		p.rememberPendingReleaseState(release, done, closeErr)
+		firstErr = errors.Join(firstErr, closeErr)
 	}
 	if firstErr != nil {
-		return closed, fmt.Errorf("release scope close failed: %w", firstErr)
+		return fmt.Errorf("release scope close failed: %w", firstErr)
 	}
-	return closed, nil
+	return nil
+}
+
+func (p *ManagerPool) rememberPendingReleaseState(release pendingManagerRelease, completed bool, closeErr error) {
+	if p == nil || release.manager == nil {
+		return
+	}
+	p.pendingMu.Lock()
+	p.pendingReleases[release.manager] = pendingManagerReleaseState{
+		scope:     release.scope,
+		completed: completed,
+		closeErr:  closeErr,
+		report:    true,
+	}
+	p.pendingMu.Unlock()
+}
+
+// closeDetachedPoolManagers 关闭 cap/TTL 摘除的 manager，并把失败 owner 留给 recycler 或 pool Close 重试。
+func (p *ManagerPool) closeDetachedPoolManagers(releases []pendingManagerRelease, reason string) error {
+	var firstErr error
+	for _, release := range releases {
+		if release.manager == nil {
+			continue
+		}
+		done, closeErr := release.manager.closeWithoutPoolStatus()
+		if done && closeErr == nil {
+			continue
+		}
+		p.pendingMu.Lock()
+		p.pendingReleases[release.manager] = pendingManagerReleaseState{
+			scope:     release.scope,
+			completed: done,
+			closeErr:  closeErr,
+		}
+		p.pendingMu.Unlock()
+		firstErr = errors.Join(firstErr, closeErr)
+	}
+	if firstErr != nil {
+		return fmt.Errorf("%s: %w", reason, firstErr)
+	}
+	return nil
 }
 
 func normalizeReleaseScopeRequest(req ReleaseScopeRequest) ReleaseScopeRequest {

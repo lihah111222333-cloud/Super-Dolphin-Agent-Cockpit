@@ -127,9 +127,24 @@ func (r *poolRecycler) check() {
 	if r == nil || r.pool == nil {
 		return
 	}
+	r.pool.drainPendingReleases()
 	for _, snapshot := range r.pool.snapshotManagers() {
 		r.checkIdleWorkspaces(snapshot.manager, snapshot.resolvedScope)
 		r.checkManager(snapshot.index, snapshot.manager, snapshot.resolvedScope)
+	}
+	r.evictIdleEmptyClones()
+}
+
+// evictIdleEmptyClones 摘除过期空 clone，并把关闭失败交回 pool receipt 等待重试。
+func (r *poolRecycler) evictIdleEmptyClones() {
+	cutoff := time.Now().Add(-idleTimeout)
+	releases := r.pool.detachIdleEmptyClones(cutoff)
+	if err := r.pool.closeDetachedPoolManagers(releases, "close idle LSP manager"); err != nil {
+		for _, release := range releases {
+			if release.manager != nil && release.manager.logger != nil {
+				release.manager.logger.Warn("LSP idle clone close failed", "err", err)
+			}
+		}
 	}
 }
 

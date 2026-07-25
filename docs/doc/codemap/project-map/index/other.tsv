@@ -430,7 +430,7 @@ internal/devtools/codemapindex/anchor.go	internal	other	go-source	261	开发工�
 internal/devtools/codemapindex/readme_sync.go	internal	other	go-source	3732	开发工具与生成器辅助包	internal,devtools,codemapindex,readme,sync,开发工具与生成器辅助包
 internal/devtools/codemapindex/source_scan.go	internal	other	go-source	3518	开发工具与生成器辅助包	internal,devtools,codemapindex,source,scan,开发工具与生成器辅助包
 internal/devtools/gate/action_grant_validation.go	internal	other	go-source	4754	开发工具与生成器辅助包	internal,devtools,gate,action,grant,validation,开发工具与生成器辅助包
-internal/devtools/gate/container_shards_test.go	internal	other	go-test	16764	开发工具与生成器辅助包	internal,devtools,gate,container,shards,test,开发工具与生成器辅助包
+internal/devtools/gate/container_shards_test.go	internal	other	go-test	16700	开发工具与生成器辅助包	internal,devtools,gate,container,shards,test,开发工具与生成器辅助包
 internal/devtools/gate/container_shards.go	internal	other	go-source	23007	开发工具与生成器辅助包	internal,devtools,gate,container,shards,开发工具与生成器辅助包
 internal/devtools/gate/contracts_test.go	internal	other	go-test	25573	开发工具与生成器辅助包	internal,devtools,gate,contracts,test,开发工具与生成器辅助包
 internal/devtools/gate/contracts_validation_release.go	internal	other	go-source	2100	开发工具与生成器辅助包	internal,devtools,gate,contracts,validation,release,开发工具与生成器辅助包
@@ -464,8 +464,8 @@ internal/devtools/gate/executor_workspace.go	internal	other	go-source	8601	开�
 internal/devtools/gate/executor.go	internal	other	go-source	16251	开发工具与生成器辅助包	internal,devtools,gate,executor,开发工具与生成器辅助包
 internal/devtools/gate/gate_result_test.go	internal	other	go-test	1183	开发工具与生成器辅助包	internal,devtools,gate,result,test,开发工具与生成器辅助包
 internal/devtools/gate/gate_result_validation.go	internal	other	go-source	1286	开发工具与生成器辅助包	internal,devtools,gate,result,validation,开发工具与生成器辅助包
-internal/devtools/gate/registry_test.go	internal	other	go-test	9005	开发工具与生成器辅助包	internal,devtools,gate,registry,test,开发工具与生成器辅助包
-internal/devtools/gate/registry.go	internal	other	go-source	12438	开发工具与生成器辅助包	internal,devtools,gate,registry,开发工具与生成器辅助包
+internal/devtools/gate/registry_test.go	internal	other	go-test	9385	开发工具与生成器辅助包	internal,devtools,gate,registry,test,开发工具与生成器辅助包
+internal/devtools/gate/registry.go	internal	other	go-source	12620	开发工具与生成器辅助包	internal,devtools,gate,registry,开发工具与生成器辅助包
 internal/devtools/gate/release_authority_test.go	internal	other	go-test	2987	开发工具与生成器辅助包	internal,devtools,gate,release,authority,test,开发工具与生成器辅助包
 internal/devtools/gate/resource_witness.go	internal	other	go-source	1152	开发工具与生成器辅助包	internal,devtools,gate,resource,witness,开发工具与生成器辅助包
 internal/devtools/gate/result_receipt_authority.go	internal	other	go-source	6157	开发工具与生成器辅助包	internal,devtools,gate,result,receipt,authority,开发工具与生成器辅助包

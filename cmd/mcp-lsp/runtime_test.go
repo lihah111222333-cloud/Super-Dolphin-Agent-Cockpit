@@ -336,6 +336,60 @@ func TestRuntimeServerBinaryPrefersInstalledBinaryOverride(t *testing.T) {
 	}
 }
 
+func TestRuntimeServerArgsSharesOnlyCompatibleGoplsEnvironments(t *testing.T) {
+	command := multilsp.ServerCommand{
+		Executable: "gopls",
+		Args:       []string{"-remote=auto;sdmcp2", "-remote.listen.timeout=1m"},
+	}
+	first := runtimeServerArgs(command, []string{"GOOS=darwin", "GOARCH=arm64"})
+	reordered := runtimeServerArgs(command, []string{"GOARCH=arm64", "GOOS=darwin"})
+	incompatible := runtimeServerArgs(command, []string{"GOOS=darwin", "GOARCH=arm64", "GOWORK=off"})
+	if !slices.Equal(first, reordered) {
+		t.Fatalf("equivalent gopls environments produced different cohorts: first=%v reordered=%v", first, reordered)
+	}
+	if slices.Equal(first, incompatible) {
+		t.Fatalf("incompatible gopls environments reused one cohort: first=%v incompatible=%v", first, incompatible)
+	}
+	if first[1] != command.Args[1] {
+		t.Fatalf("runtimeServerArgs changed daemon timeout arg: got=%v command=%v", first, command.Args)
+	}
+}
+
+func TestRuntimeServerArgsSeparatesAmbientGoBuildEnvironments(t *testing.T) {
+	command := multilsp.ServerCommand{
+		Executable: "gopls",
+		Args:       []string{"-remote=auto;sdmcp2", "-remote.listen.timeout=1m"},
+	}
+	t.Setenv("GOPROXY", "https://proxy-one.invalid")
+	first := runtimeServerArgs(command, []string{"GOOS=darwin", "GOARCH=arm64"})
+	t.Setenv("GOPROXY", "https://proxy-two.invalid")
+	second := runtimeServerArgs(command, []string{"GOOS=darwin", "GOARCH=arm64"})
+	if slices.Equal(first, second) {
+		t.Fatalf("different ambient Go build environments reused one cohort: first=%v second=%v", first, second)
+	}
+}
+
+func TestRuntimeServerArgsSeparatesDaemonIdleTimeouts(t *testing.T) {
+	firstCommand := multilsp.ServerCommand{
+		Executable: "gopls",
+		Args:       []string{"-remote=auto;sdmcp2", "-remote.listen.timeout=1m"},
+	}
+	secondCommand := firstCommand
+	secondCommand.Args = []string{"-remote=auto;sdmcp2", "-remote.listen.timeout=2s"}
+	first := runtimeServerArgs(firstCommand, []string{"GOOS=darwin", "GOARCH=arm64"})
+	second := runtimeServerArgs(secondCommand, []string{"GOOS=darwin", "GOARCH=arm64"})
+	if slices.Equal(first[:1], second[:1]) {
+		t.Fatalf("different daemon idle timeouts reused one cohort: first=%v second=%v", first, second)
+	}
+}
+
+func TestRuntimeServerArgsLeavesNonSharedServerUnchanged(t *testing.T) {
+	command := multilsp.ServerCommand{Executable: "pyright-langserver", Args: []string{"--stdio"}}
+	if got := runtimeServerArgs(command, []string{"GOOS=darwin"}); !slices.Equal(got, command.Args) {
+		t.Fatalf("runtimeServerArgs(non-shared) = %v, want %v", got, command.Args)
+	}
+}
+
 func TestRuntimeAdapterDiagnosticsMaxWaitCoversAllLSPClientAdapters(t *testing.T) {
 	registry := multilsp.NewDefaultLanguageAdapterRegistry()
 	for _, languageID := range runtimePrimaryLanguageIDs() {

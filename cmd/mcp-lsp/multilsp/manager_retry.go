@@ -8,12 +8,43 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
 
 const (
 	lspErrorContentModified       = -32801
 	transientLSPRequestMaxRetries = 3
 )
+
+type pendingClientShutdown struct {
+	client       Client
+	shutdownDone bool
+	shutdownErr  error
+}
+
+// retryPendingClientShutdowns 对 Close 失败的 client 保留 owner；只有 Close 成功才移出重试集合。
+func retryPendingClientShutdowns(states []pendingClientShutdown) (remaining []pendingClientShutdown, completedErr, retryErr error) {
+	remaining = make([]pendingClientShutdown, 0, len(states))
+	for _, state := range states {
+		if state.client == nil {
+			continue
+		}
+		if !state.shutdownDone {
+			shutCtx, cancel := platformconfig.WithTimeout(context.Background(), managerShutdownTimeout)
+			state.shutdownErr = state.client.Shutdown(shutCtx)
+			cancel()
+			state.shutdownDone = true
+		}
+		if err := state.client.Close(); err != nil {
+			retryErr = firstNonNilError(retryErr, state.shutdownErr)
+			retryErr = firstNonNilError(retryErr, err)
+			remaining = append(remaining, state)
+			continue
+		}
+		completedErr = firstNonNilError(completedErr, state.shutdownErr)
+	}
+	return remaining, completedErr, retryErr
+}
 
 // request 包装一次可重试的 LSP JSON-RPC 请求。
 // 只对幂等读类能力重试瞬时 content modified 或死连接；非可重放方法会先重建 client 再返回错误。

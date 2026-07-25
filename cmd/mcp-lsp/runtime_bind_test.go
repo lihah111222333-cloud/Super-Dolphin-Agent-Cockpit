@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/multilsp"
+	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 	platformrunner "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runner"
 	"go.uber.org/fx"
 )
@@ -68,5 +70,35 @@ func waitForRuntimeShutdown(t *testing.T, ch <-chan struct{}) {
 	case <-ch:
 	case <-time.After(time.Second):
 		t.Fatal("runtime shutdown was not requested")
+	}
+}
+
+type stubScopeReleaser struct {
+	result multilsp.ReleaseScopeResult
+}
+
+func (s stubScopeReleaser) ReleaseScope(multilsp.ReleaseScopeRequest) (multilsp.ReleaseScopeResult, error) {
+	return s.result, nil
+}
+
+func TestManagerReleaseScopeDoesNotReportDrainedWhenAnyLanguagePoolIsBusy(t *testing.T) {
+	manager := &Manager{
+		releaseScopes: []multilsp.ScopeReleaser{
+			stubScopeReleaser{result: multilsp.ReleaseScopeResult{Drained: true}},
+			stubScopeReleaser{result: multilsp.ReleaseScopeResult{MatchedManagers: 1, BusyLeases: 1}},
+		},
+	}
+
+	result, err := manager.ReleaseScope(mcpdto.LSPReleaseScopeRequest{
+		ScopeKind: mcpdto.LSPReleaseScopeAgentThread,
+		AgentID:   "agent-busy",
+		ThreadID:  "thread-1",
+		Drain:     true,
+	})
+	if err != nil {
+		t.Fatalf("ReleaseScope(): %v", err)
+	}
+	if result.Drained {
+		t.Fatalf("ReleaseScope() = %#v, want drained=false while one language pool is busy", result)
 	}
 }

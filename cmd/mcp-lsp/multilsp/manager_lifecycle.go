@@ -40,34 +40,65 @@ func (m *manager) EnsureClient(ctx context.Context, filePath, languageID string)
 
 // Close 关闭 LSP 管理器资源。
 func (m *manager) Close() error {
-	return m.close(true)
+	if m == nil {
+		return nil
+	}
+	if m.pool != nil && m.pool.primary == m {
+		return m.pool.Close()
+	}
+	return m.closeWithoutPool()
 }
 
 func (m *manager) closeWithoutPool() error {
-	return m.close(false)
+	_, err := m.closeWithoutPoolStatus()
+	return err
 }
 
-func (m *manager) close(closePool bool) error {
-	m.mu.Lock()
-	if m.closed {
-		m.mu.Unlock()
-		return nil
+// closeWithoutPoolStatus 关闭当前 manager，并保留 Close 失败的 client 供后续调用重试。
+// done 只表示所有进程级 Close 已确认完成；graceful Shutdown 错误仍通过 err 稳定返回。
+func (m *manager) closeWithoutPoolStatus() (done bool, err error) {
+	if m == nil {
+		return true, nil
 	}
+	m.closeMu.Lock()
+	defer m.closeMu.Unlock()
+	if m.closeComplete {
+		return true, m.closeResult
+	}
+	if !m.closeInitialized {
+		m.initializeClose()
+	}
+
+	remaining, completedErr, attemptErr := retryPendingClientShutdowns(m.closingClients)
+	m.closingClients = remaining
+	m.closeWarnings = firstNonNilError(m.closeWarnings, completedErr)
+	if len(remaining) > 0 {
+		return false, firstNonNilError(m.closeWarnings, attemptErr)
+	}
+	m.closeComplete = true
+	m.closeResult = m.closeWarnings
+	return true, m.closeResult
+}
+
+// initializeClose 原子封闭新请求，等待正在创建的 client 退出后取得唯一 cleanup owner。
+func (m *manager) initializeClose() {
+	m.mu.Lock()
 	m.closed = true
+	m.retiring = true
 	m.mu.Unlock()
 
 	// 等待正在初始化的 client 先看到 closed 状态并完成清理，再统一 shutdown。
 	m.waitForEnsureOperations()
-
 	clients := m.collectAndClearClients()
-	m.AdvanceDiagnosticGeneration()
-	var firstErr error
-	if closePool && m.pool != nil && m.pool.primary == m {
-		firstErr = firstNonNilError(firstErr, m.pool.closeManagersExcept(m))
+	m.closingClients = make([]pendingClientShutdown, 0, len(clients))
+	for _, client := range clients {
+		if client != nil {
+			m.closingClients = append(m.closingClients, pendingClientShutdown{client: client})
+		}
 	}
-	firstErr = firstNonNilError(firstErr, shutdownClients(clients))
+	m.AdvanceDiagnosticGeneration()
 	closeBootstrapCoordinator(m)
-	return firstErr
+	m.closeInitialized = true
 }
 
 func (m *manager) waitForEnsureOperations() {
@@ -234,7 +265,7 @@ func (m *manager) leaseBoundClient(client Client) (leasedClient, bool, error) {
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if m.closed {
+	if m.closed || m.retiring {
 		return leasedClient{}, false, ErrManagerClosed
 	}
 	for _, workspace := range m.workspaces {
@@ -260,7 +291,7 @@ func (m *manager) leaseClientLocked(client Client) leasedClient {
 // 发现死 client 时会先摘除、推进诊断代际并关闭旧实例，后续请求再创建新 client。
 func (m *manager) lookupExistingClient(key string) (Client, error) {
 	m.mu.RLock()
-	if m.closed {
+	if m.closed || m.retiring {
 		m.mu.RUnlock()
 		return nil, ErrManagerClosed
 	}
@@ -310,7 +341,7 @@ func (m *manager) createAndRegisterClient(ctx context.Context, cfg workspaceConf
 	}
 
 	m.mu.Lock()
-	if m.closed {
+	if m.closed || m.retiring {
 		m.mu.Unlock()
 		_ = shutdownClients([]Client{client})
 		return nil, ErrManagerClosed

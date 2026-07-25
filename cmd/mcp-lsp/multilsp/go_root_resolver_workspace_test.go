@@ -39,14 +39,14 @@ func runExternalGOWORKOutsideTrustedScopeFallsBackToUpwardRoot(t *testing.T) {
 		WorkspaceRoot: repo,
 		ModuleRoot:    repo,
 		GoModPath:     filepath.Join(repo, "go.mod"),
-		GOWORKMode:    goworkModeAuto,
+		GOWORKMode:    goworkModeOff,
 		ProjectRoot:   repo,
 	})
 	if info.GoWorkPath != "" {
 		t.Fatalf("external GOWORK should be ignored for unrelated target, got go.work %q", info.GoWorkPath)
 	}
-	if got := goRootEnv(info); len(got) != 0 {
-		t.Fatalf("external GOWORK should not be forwarded to gopls env: %#v", got)
+	if got := goRootEnv(info); !reflect.DeepEqual(got, []string{"GOWORK=off"}) {
+		t.Fatalf("external GOWORK should be explicitly disabled for gopls, got %#v", got)
 	}
 }
 
@@ -69,14 +69,14 @@ func TestGoRootResolverAncestorGoWorkOutsideUseListFallsBackToNearestGoMod(t *te
 		WorkspaceRoot: worktree,
 		ModuleRoot:    worktree,
 		GoModPath:     filepath.Join(worktree, "go.mod"),
-		GOWORKMode:    goworkModeAuto,
+		GOWORKMode:    goworkModeOff,
 		ProjectRoot:   worktree,
 	})
 	if info.GoWorkPath != "" {
 		t.Fatalf("ancestor go.work outside use list should not be selected, got %q", info.GoWorkPath)
 	}
-	if got := goRootEnv(info); len(got) != 0 {
-		t.Fatalf("ancestor go.work outside use list should not be forwarded to gopls env: %#v", got)
+	if got := goRootEnv(info); !reflect.DeepEqual(got, []string{"GOWORK=off"}) {
+		t.Fatalf("ancestor go.work outside use list should be explicitly disabled for gopls, got %#v", got)
 	}
 	assertFolderPaths(t, info.workspaceFolderPaths(), []string{worktree})
 }

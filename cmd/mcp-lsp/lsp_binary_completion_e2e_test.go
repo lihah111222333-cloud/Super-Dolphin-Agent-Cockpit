@@ -220,6 +220,8 @@ func (c *mcpLSPBinaryClient) close(t *testing.T) {
 	if c == nil || c.cmd == nil {
 		return
 	}
+	cmd := c.cmd
+	c.cmd = nil
 	raw, _ := json.Marshal(map[string]any{
 		"jsonrpc": "2.0",
 		"method":  "exit",
@@ -228,7 +230,7 @@ func (c *mcpLSPBinaryClient) close(t *testing.T) {
 	_ = c.stdin.Close()
 	done := make(chan error, 1)
 	var waiters sync.WaitGroup
-	waiters.Go(func() { done <- c.cmd.Wait() })
+	waiters.Go(func() { done <- cmd.Wait() })
 	defer waiters.Wait()
 	select {
 	case err := <-done:
@@ -236,8 +238,8 @@ func (c *mcpLSPBinaryClient) close(t *testing.T) {
 			t.Logf("mcp-lsp binary exited with %v; stderr=%s", err, c.stderrString())
 		}
 	case <-time.After(5 * time.Second):
-		_ = c.cmd.Process.Kill()
-		t.Logf("killed mcp-lsp binary after shutdown timeout; stderr=%s", c.stderrString())
+		_ = cmd.Process.Kill()
+		t.Errorf("mcp-lsp binary required kill after shutdown timeout; stderr=%s", c.stderrString())
 	}
 }
 
