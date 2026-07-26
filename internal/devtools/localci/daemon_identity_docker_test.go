@@ -112,14 +112,14 @@ func TestDockerDaemonIdentityProbeContextAliasesShareIdentityKey(t *testing.T) {
 
 func TestProbeDockerSchedulerAuthorityContextAliasesShareIdentity(t *testing.T) {
 	clearDockerAuthorityEnvironment(t)
-	first, err := probeDockerSchedulerAuthority(context.Background(), authorityProbeRunner(
+	first, err := probeDockerSchedulerAuthority(context.Background(), 3, authorityProbeRunner(
 		dockerContextOutput(t, "desktop-linux", "unix:///var/run/docker.sock", false, "", nil),
 		testDaemonID, testDaemonID, 12, 24*bytesPerGiB,
 	))
 	if err != nil {
 		t.Fatalf("first probeDockerSchedulerAuthority() error = %v", err)
 	}
-	alias, err := probeDockerSchedulerAuthority(context.Background(), authorityProbeRunner(
+	alias, err := probeDockerSchedulerAuthority(context.Background(), 3, authorityProbeRunner(
 		dockerContextOutput(t, "desktop-alias", "unix:///var/run/../run/docker.sock", false, "", nil),
 		testDaemonID, testDaemonID, 12, 24*bytesPerGiB,
 	))
@@ -128,6 +128,9 @@ func TestProbeDockerSchedulerAuthorityContextAliasesShareIdentity(t *testing.T) 
 	}
 	if first.ContextName == alias.ContextName || first.IdentityKey != alias.IdentityKey {
 		t.Fatalf("authority aliases do not converge: first=%#v alias=%#v", first, alias)
+	}
+	if first.SchedulerConfig.MaxActiveWorkloads != 3 || alias.SchedulerConfig.MaxActiveWorkloads != 3 {
+		t.Fatalf("authority aliases lost configured capacity: first=%#v alias=%#v", first, alias)
 	}
 }
 
@@ -140,7 +143,7 @@ func TestProbeDockerSchedulerAuthorityRejectsContextABA(t *testing.T) {
 		{output: firstContext},
 		{output: dockerContextOutput(t, "context-b", "unix:///var/run/docker-b.sock", false, "", nil)},
 	}}
-	if _, err := probeDockerSchedulerAuthority(context.Background(), runner); err == nil || !strings.Contains(err.Error(), "context drift") {
+	if _, err := probeDockerSchedulerAuthority(context.Background(), 3, runner); err == nil || !strings.Contains(err.Error(), "context drift") {
 		t.Fatalf("probeDockerSchedulerAuthority() error = %v, want context drift", err)
 	}
 	if len(runner.args) != 4 {
@@ -163,7 +166,7 @@ func TestProbeDockerSchedulerAuthorityRejectsInsufficientCapacity(t *testing.T) 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			runner := authorityProbeRunner(contextOutput, testDaemonID, testDaemonID, test.logicalCPUs, test.memoryBytes)
-			if _, err := probeDockerSchedulerAuthority(context.Background(), runner); err == nil || !strings.Contains(err.Error(), test.wantSubstring) {
+			if _, err := probeDockerSchedulerAuthority(context.Background(), 3, runner); err == nil || !strings.Contains(err.Error(), test.wantSubstring) {
 				t.Fatalf("probeDockerSchedulerAuthority() error = %v, want %q", err, test.wantSubstring)
 			}
 		})
@@ -176,7 +179,7 @@ func TestProbeDockerSchedulerAuthorityRejectsCapacityDaemonMismatch(t *testing.T
 		dockerContextOutput(t, "desktop-linux", "unix:///var/run/docker.sock", false, "", nil),
 		testDaemonID, "different-daemon", 12, 24*bytesPerGiB,
 	)
-	if _, err := probeDockerSchedulerAuthority(context.Background(), runner); err == nil || !strings.Contains(err.Error(), "identity mismatch") {
+	if _, err := probeDockerSchedulerAuthority(context.Background(), 3, runner); err == nil || !strings.Contains(err.Error(), "identity mismatch") {
 		t.Fatalf("probeDockerSchedulerAuthority() error = %v, want capacity identity mismatch", err)
 	}
 }

@@ -427,7 +427,7 @@ func validateStoredShardImmutableIdentity(record coordinatorShardRecord) error {
 	if record.ContainerConfigDigest != record.Shard.AcceptedConfigDigest {
 		return fmt.Errorf("%w: coordinator shard image config drifted", errCoordinatorState)
 	}
-	if !strings.HasSuffix(record.ContainerImageReference, "@"+record.Shard.AcceptedManifestDigest) {
+	if !shardImageReferenceMatches(record.ContainerImageReference, record.Shard) {
 		return fmt.Errorf("%w: coordinator shard image manifest drifted", errCoordinatorState)
 	}
 	if record.SourceSnapshotDir == "" {
@@ -562,13 +562,13 @@ func validateCoordinatorContainerMode(record coordinatorJobRecord) error {
 	return validateCoordinatorShardClocks(record)
 }
 
-// validateNormalTerminalShardExitTimes 要求正常终态的规范三片均保留 Docker 退出时钟。
+// validateNormalTerminalShardExitTimes 要求正常终态的所有 durable shards 均保留 Docker 退出时钟。
 func validateNormalTerminalShardExitTimes(record coordinatorJobRecord) error {
 	if !normalTerminalStateRequiresContainerExit(record.State) {
 		return nil
 	}
-	if len(record.ContainerShards) != gatecontract.MaxContainerShards {
-		return fmt.Errorf("%w: normal shard terminal state does not have the canonical shard count", errCoordinatorState)
+	if len(record.ContainerShards) == 0 {
+		return fmt.Errorf("%w: normal shard terminal state has no durable shards", errCoordinatorState)
 	}
 	for _, shard := range record.ContainerShards {
 		if shard.ExitedAt == nil {
@@ -609,10 +609,17 @@ func validateRecoveredCoordinatorShardSet(record coordinatorJobRecord) error {
 	}
 	set.AcceptedManifestDigest = record.ContainerShards[0].Shard.AcceptedManifestDigest
 	set.AcceptedConfigDigest = record.ContainerShards[0].Shard.AcceptedConfigDigest
+	set.ShardsPerJob = record.ContainerShards[0].Shard.ShardsPerJob
 	for index, shard := range record.ContainerShards {
 		set.Shards[index] = shard.Shard
 	}
-	if err := set.Validate(); err != nil {
+	var err error
+	if record.State.terminal() {
+		err = set.ValidateStored(record.Plan)
+	} else {
+		err = set.Validate()
+	}
+	if err != nil {
 		return fmt.Errorf("%w: recovered coordinator shard set is not exact: %v", errCoordinatorState, err)
 	}
 	if record.State == jobStatePassed {

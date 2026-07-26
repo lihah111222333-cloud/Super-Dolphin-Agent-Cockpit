@@ -60,7 +60,7 @@ func TestContainerShardExecutorCommandRequiresOneExactCanonicalShard(t *testing.
 		t.Fatalf("parse shard argv = %#v, %v", parsed, err)
 	}
 	badRawShard := slices.Clone(argv[1:])
-	badRawShard[6] = string(GateIDWhitespaceCheck)
+	badRawShard[6] = "forged-gate"
 	if _, err := parseExecutorPlanCommand(badRawShard); err == nil {
 		t.Fatal("parser accepted a forged shard gate list")
 	}
@@ -98,18 +98,18 @@ func TestExecutorPlanUsesTwoIsolatedLanesAndCanonicalResults(t *testing.T) {
 	}
 }
 
-func TestExecutorPlanDAGSchedulesBackendAfterLSPWithoutDuplicates(t *testing.T) {
+func TestExecutorPlanDAGSchedulesCanonicalGatesWithoutDuplicates(t *testing.T) {
 	tests := []struct {
 		profile Profile
 		lanes   [][]GateID
 	}{
 		{ProfileLocalFast, [][]GateID{
-			{GateIDAIMaintenanceSelfTest, GateIDFrontendTest, GateIDLSPChangedDiagnostics, GateIDBackendTestWithGuard},
+			{GateIDAIMaintenanceSelfTest, GateIDFrontendTest, GateIDBackendTestWithGuard},
 			{GateIDFrontendLint, GateIDFrontendBuild, GateIDFrontendEmbedVerify, GateIDSQLCVerify, GateIDCodemapCheck,
 				GateIDProjectMapCheck, GateIDCapabilityContractCheck, GateIDWhitespaceCheck},
 		}},
 		{ProfileRelease, [][]GateID{
-			{GateIDAIMaintenanceSelfTest, GateIDFrontendFullTest, GateIDLSPChangedDiagnostics, GateIDBackendTestWithGuard,
+			{GateIDAIMaintenanceSelfTest, GateIDFrontendFullTest, GateIDBackendTestWithGuard,
 				GateIDBackendTestGuardWithRace, GateIDBackendNilness},
 			{GateIDFrontendLint, GateIDFrontendBuild, GateIDFrontendEmbedVerify, GateIDSQLCVerify, GateIDCodemapCheck,
 				GateIDProjectMapCheck, GateIDCapabilityContractCheck, GateIDWhitespaceCheck},

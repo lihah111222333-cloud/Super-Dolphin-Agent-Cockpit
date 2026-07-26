@@ -636,7 +636,7 @@ func validateProductionProvisionReleaseGateCounts(
 	record coordinatorJobRecord,
 	expected gatecontract.GatePlan,
 ) error {
-	if record.Receipt == nil || len(expected.Gates) != 15 {
+	if record.Receipt == nil || len(expected.Gates) != 14 {
 		return fmt.Errorf("production release gate receipt/count drifted: expected=%d record=%#v", len(expected.Gates), record)
 	}
 	if len(record.Plan.Gates) != len(expected.Gates) ||
@@ -666,7 +666,7 @@ func validateProductionProvisionReleaseGate(
 	return nil
 }
 
-func TestProductionReleaseGateSetRequiresCanonicalFifteen(t *testing.T) {
+func TestProductionReleaseGateSetRequiresCanonicalFourteen(t *testing.T) {
 	source := gatecontract.SourceSpec{
 		Kind: gatecontract.SourceKindCommit, ObjectFormat: gatecontract.GitObjectFormatSHA1,
 		Commit:        &gatecontract.CommitSource{SHA: strings.Repeat("a", 40)},

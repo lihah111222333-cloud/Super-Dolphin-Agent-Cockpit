@@ -1,7 +1,7 @@
 {
   "schema_version": "1",
   "buildkit_version": "v0.26.2",
-  "buildkit_image": "docker.io/moby/buildkit@sha256:de10faf919fc71ba4eb1dd7bd6449566d012b0c9436b1c61bfee21d621b009aa",
+  "buildkit_image": "mirror.gcr.io/moby/buildkit@sha256:de10faf919fc71ba4eb1dd7bd6449566d012b0c9436b1c61bfee21d621b009aa",
   "dockerfile_frontend": "builtin:dockerfile.v1",
   "source_date_epoch": "0",
   "target_platforms": [
@@ -11,11 +11,11 @@
   "base_images": [
     {
       "name": "GO_IMAGE",
-      "reference": "docker.io/library/golang@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225dfd0944eb651"
+      "reference": "mirror.gcr.io/library/golang@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225dfd0944eb651"
     },
     {
       "name": "NODE_IMAGE",
-      "reference": "docker.io/library/node@sha256:5711a0d445a1af54af9589066c646df387d1831a608226f4cd694fc59e745059"
+      "reference": "mirror.gcr.io/library/node@sha256:5711a0d445a1af54af9589066c646df387d1831a608226f4cd694fc59e745059"
     }
   ],
   "dependency_sources": [

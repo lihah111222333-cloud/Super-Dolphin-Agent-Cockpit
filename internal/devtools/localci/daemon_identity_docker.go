@@ -1,9 +1,12 @@
 package localci
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +17,178 @@ import (
 	"sort"
 	"strings"
 )
+
+func validateBuildxPolicyBinding(request BuildKitBuildRequest) error {
+	if err := validateDigest("buildx policy digest", request.PolicyDigest); err != nil {
+		return err
+	}
+	if request.ImageSchemaVersion != imageInputSchemaVersion {
+		return fmt.Errorf("buildx image schema version %q is unsupported", request.ImageSchemaVersion)
+	}
+	return nil
+}
+
+func validateBuildxDigests(request BuildKitBuildRequest) error {
+	digests := []struct {
+		name  string
+		value string
+	}{
+		{name: "buildx context digest", value: request.ContextDigest},
+		{name: "buildx input manifest digest", value: request.InputManifestDigest},
+		{name: "buildx input digest", value: request.InputDigest},
+		{name: "buildx toolchain digest", value: request.ToolchainDigest},
+		{name: "buildx Dockerfile digest", value: request.DockerfileDigest},
+		{name: "buildx cache namespace", value: request.CacheNamespace},
+	}
+	for _, digestValue := range digests {
+		if err := validateDigest(digestValue.name, digestValue.value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateBuildxArguments 要求工具链参数严格排序、唯一且值类型受锁约束。
+func validateBuildxArguments(arguments []BuildArgument) error {
+	if len(arguments) == 0 {
+		return errors.New("buildx locked build arguments are required")
+	}
+	previous := ""
+	foundSourceDateEpoch := false
+	for _, argument := range arguments {
+		isSourceDateEpoch, err := validateBuildxArgument(argument, previous)
+		if err != nil {
+			return err
+		}
+		foundSourceDateEpoch = foundSourceDateEpoch || isSourceDateEpoch
+		previous = argument.Name
+	}
+	if !foundSourceDateEpoch {
+		return errors.New("buildx SOURCE_DATE_EPOCH argument is required")
+	}
+	return nil
+}
+
+// validateBuildxArgument 校验单个受锁参数及其相对排序。
+func validateBuildxArgument(argument BuildArgument, previous string) (bool, error) {
+	if !validBuildxArgumentName(argument.Name) {
+		return false, fmt.Errorf("buildx argument name %q is invalid", argument.Name)
+	}
+	if _, forbidden := forbiddenBuildArgumentNames[strings.ToUpper(argument.Name)]; forbidden {
+		return false, fmt.Errorf("buildx proxy argument %q is forbidden", argument.Name)
+	}
+	if previous >= argument.Name {
+		return false, errors.New("buildx arguments must be strictly sorted and unique")
+	}
+	switch argument.Name {
+	case sourceDateEpochArgument:
+		if err := validateSourceDateEpoch(argument.Value); err != nil {
+			return false, err
+		}
+		return true, nil
+	case "RUNTIME_DEPS_IMAGE":
+		if argument.Value != "runtime-deps" {
+			return false, errors.New("buildx RUNTIME_DEPS_IMAGE argument must name the controlled context")
+		}
+		return false, nil
+	default:
+		if !immutableImageReference(argument.Value) {
+			return false, fmt.Errorf("buildx argument %q must be an immutable image reference", argument.Name)
+		}
+		return false, nil
+	}
+}
+
+// validateRuntimeDepsBuildRequest 校验运行时依赖构建只使用规范文件和完整锁定参数。
+func validateRuntimeDepsBuildRequest(request BuildKitBuildRequest) error {
+	if request.RuntimeDepsDockerfilePath != "build/gate/runtime-deps.Dockerfile" {
+		return errors.New("runtime dependencies Dockerfile path is not canonical")
+	}
+	if err := validateDigest("runtime dependencies Dockerfile digest", request.RuntimeDepsDockerfileDigest); err != nil {
+		return err
+	}
+	if err := validateDigest("runtime dependencies input digest", request.RuntimeDepsInputDigest); err != nil {
+		return err
+	}
+	if len(request.RuntimeDepsBuildArguments) != 6 {
+		return errors.New("runtime dependencies build arguments are incomplete")
+	}
+	return validateRuntimeDepsBuildArguments(request.RuntimeDepsBuildArguments)
+}
+
+// validateRuntimeDepsBuildArguments 校验参数集合完整、排序且各值符合锁类型。
+func validateRuntimeDepsBuildArguments(arguments []BuildArgument) error {
+	expectedNames := map[string]struct{}{
+		"GO_IMAGE": {}, "NODE_IMAGE": {},
+		"SQRUFF_ARCHIVE_SHA256_AMD64": {}, "SQRUFF_ARCHIVE_SHA256_ARM64": {},
+		"SQRUFF_ARCHIVE_URL_AMD64": {}, "SQRUFF_ARCHIVE_URL_ARM64": {},
+	}
+	previous := ""
+	for _, argument := range arguments {
+		if argument.Name <= previous {
+			return errors.New("runtime dependencies build arguments must be strictly sorted and unique")
+		}
+		if err := validateRuntimeDepsBuildArgument(argument); err != nil {
+			return err
+		}
+		delete(expectedNames, argument.Name)
+		previous = argument.Name
+	}
+	if len(expectedNames) != 0 {
+		return errors.New("runtime dependencies build arguments are incomplete")
+	}
+	return nil
+}
+
+// validateRuntimeDepsBuildArgument 根据参数名称校验镜像、摘要或下载地址。
+func validateRuntimeDepsBuildArgument(argument BuildArgument) error {
+	switch argument.Name {
+	case "GO_IMAGE", "NODE_IMAGE":
+		if !immutableImageReference(argument.Value) {
+			return fmt.Errorf("runtime dependencies argument %q must be an immutable image reference", argument.Name)
+		}
+	case "SQRUFF_ARCHIVE_SHA256_AMD64", "SQRUFF_ARCHIVE_SHA256_ARM64":
+		if len(argument.Value) != sha256.Size*2 {
+			return fmt.Errorf("runtime dependencies argument %q must be a SHA-256 hex digest", argument.Name)
+		}
+		decoded, err := hex.DecodeString(argument.Value)
+		if err != nil || hex.EncodeToString(decoded) != argument.Value {
+			return fmt.Errorf("runtime dependencies argument %q must be canonical SHA-256 hex", argument.Name)
+		}
+	case "SQRUFF_ARCHIVE_URL_AMD64", "SQRUFF_ARCHIVE_URL_ARM64":
+		if !strings.HasPrefix(argument.Value, "https://github.com/quarylabs/sqruff/releases/download/") {
+			return fmt.Errorf("runtime dependencies argument %q must be a locked Sqruff release URL", argument.Name)
+		}
+	default:
+		return fmt.Errorf("runtime dependencies argument %q is not permitted", argument.Name)
+	}
+	return nil
+}
+
+// validateBuildxContextFileDigest 校验上下文中的目标文件与请求摘要完全一致。
+func validateBuildxContextFileDigest(contextTar []byte, filePath string, expectedDigest string) error {
+	reader := tar.NewReader(bytes.NewReader(contextTar))
+	for {
+		header, err := reader.Next()
+		if errors.Is(err, io.EOF) {
+			return fmt.Errorf("buildx context is missing %q", filePath)
+		}
+		if err != nil {
+			return fmt.Errorf("read buildx context tar: %w", err)
+		}
+		if header.Name != filePath {
+			continue
+		}
+		data, err := io.ReadAll(reader)
+		if err != nil {
+			return fmt.Errorf("read buildx context file %q: %w", filePath, err)
+		}
+		if bytesDigest(data) != expectedDigest {
+			return fmt.Errorf("buildx context file %q digest does not match the request", filePath)
+		}
+		return nil
+	}
+}
 
 const (
 	dockerContextJSONFormat     = "{{json .}}"

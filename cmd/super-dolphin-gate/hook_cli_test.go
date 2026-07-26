@@ -394,6 +394,28 @@ func TestPrePushHookSubmitsEveryVerifiedRef(t *testing.T) {
 	}
 }
 
+func TestPrePushHookWaitsQueuedJobWithinSameInvocation(t *testing.T) {
+	repository := newHookTestRepository(t)
+	head := strings.TrimSpace(runHookTestGit(t, repository, "rev-parse", "HEAD"))
+	zero := strings.Repeat("0", len(head))
+	input := fmt.Sprintf("refs/heads/main %s refs/heads/main %s\n", head, zero)
+	coordinator := &recordingHookCoordinator{queuePosition: 1, waitWithReceipt: true}
+
+	if err := runHookWithConnector(
+		[]string{"pre-push", "origin", "file://" + repository}, strings.NewReader(input), &bytes.Buffer{}, repository, hookTestConnector(coordinator),
+	); err != nil {
+		t.Fatalf("pre-push error = %v", err)
+	}
+	if coordinator.submitCount != 1 || coordinator.waitCount != 1 || coordinator.grantCount != 1 {
+		t.Fatalf("pre-push calls submit=%d wait=%d grant=%d", coordinator.submitCount, coordinator.waitCount, coordinator.grantCount)
+	}
+	if coordinator.lastWait.JobID != "job-queued" ||
+		coordinator.lastWait.Repository != coordinator.lastSubmit.Repository ||
+		coordinator.lastWait.Invocation != coordinator.lastSubmit.Invocation {
+		t.Fatalf("wait request did not bind submitted invocation: %#v", coordinator.lastWait)
+	}
+}
+
 func TestPreCommitAndCodexPassedEvidenceBindsReceiptAndStatus(t *testing.T) {
 	repository := newHookTestRepository(t)
 	tree := strings.TrimSpace(runHookTestGit(t, repository, "write-tree"))
@@ -534,6 +556,9 @@ type recordingHookCoordinator struct {
 	statusCount     int
 	queuePosition   int
 	passWithReceipt bool
+	waitWithReceipt bool
+	waitCount       int
+	lastWait        gatehook.WaitRequest
 	grantCount      int
 	failGrantAt     int
 	grantRequests   []gitPushGrantRequest
@@ -558,9 +583,17 @@ func (coordinator *recordingHookCoordinator) Status(
 }
 
 func (coordinator *recordingHookCoordinator) Wait(
-	context.Context,
-	gatehook.WaitRequest,
+	_ context.Context,
+	request gatehook.WaitRequest,
 ) (gatehook.JobStatus, error) {
+	coordinator.waitCount++
+	coordinator.lastWait = request
+	if coordinator.waitWithReceipt {
+		return gatehook.JobStatus{
+			JobID: request.JobID, State: gatehook.JobStatePassed,
+			SourceTreeSHA: coordinator.lastSubmit.Source.SourceTreeSHA, ReceiptID: "receipt-valid",
+		}, nil
+	}
 	return gatehook.JobStatus{}, fmt.Errorf("unexpected wait")
 }
 

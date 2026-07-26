@@ -15,29 +15,31 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schedulerSchemaVersion = 2
+const schedulerSchemaVersion = 3
 
 var (
 	errRecoveryUnproved             = errors.New("running workload could not be proved alive during recovery")
 	errHandshakeConsumed            = errors.New("opaque handshake token was already consumed")
 	errHandshakeExpired             = errors.New("opaque handshake token expired")
-	errSchedulerSchemaV1Unsupported = errors.New("scheduler schema v1 is unsupported; automatic migration to v2 is disabled")
+	errSchedulerSchemaV1Unsupported = errors.New("scheduler schema v1 is unsupported; automatic migration is disabled")
+	errSchedulerSchemaV2Unsupported = errors.New("scheduler schema v2 is unsupported; automatic migration is disabled")
 )
 
 type schedulerState struct {
-	db         *sql.DB
-	daemonKey  string
-	statePath  string
-	stateInfo  os.FileInfo
-	parentPath string
-	parentInfo os.FileInfo
-	ownerUID   int
-	now        func() time.Time
+	db                 *sql.DB
+	daemonKey          string
+	statePath          string
+	stateInfo          os.FileInfo
+	parentPath         string
+	parentInfo         os.FileInfo
+	ownerUID           int
+	maxActiveWorkloads int
+	now                func() time.Time
 }
 
 type queueState interface {
 	saveKernel(context.Context, *schedulerKernel) error
-	loadKernel(context.Context, daemonIdentity) (*schedulerKernel, error)
+	loadKernel(context.Context, daemonIdentity, int) (*schedulerKernel, error)
 }
 
 type leaseState interface {
@@ -90,17 +92,36 @@ func openSchedulerState(
 	ctx context.Context,
 	statePath string,
 	identity daemonIdentity,
+	maxActiveWorkloads int,
 ) (*schedulerState, error) {
-	if strings.TrimSpace(statePath) == "" {
-		return nil, errors.New("scheduler state path is required")
-	}
-	if strings.TrimSpace(identity.key) == "" {
-		return nil, errors.New("validated daemon identity is required")
+	if err := validateSchedulerStateOpenInputs(statePath, identity, maxActiveWorkloads); err != nil {
+		return nil, err
 	}
 	stateFile, err := openCurrentUIDPrivateFile(statePath, identity.ownerUID)
 	if err != nil {
 		return nil, fmt.Errorf("validate scheduler state file: %w", err)
 	}
+	return openValidatedSchedulerState(ctx, statePath, identity, maxActiveWorkloads, stateFile)
+}
+
+func validateSchedulerStateOpenInputs(statePath string, identity daemonIdentity, maxActiveWorkloads int) error {
+	if strings.TrimSpace(statePath) == "" {
+		return errors.New("scheduler state path is required")
+	}
+	if strings.TrimSpace(identity.key) == "" {
+		return errors.New("validated daemon identity is required")
+	}
+	return validateMaxActiveWorkloads(maxActiveWorkloads)
+}
+
+// openValidatedSchedulerState 校验文件身份后打开并准备 SQLite 状态。
+func openValidatedSchedulerState(
+	ctx context.Context,
+	statePath string,
+	identity daemonIdentity,
+	maxActiveWorkloads int,
+	stateFile *os.File,
+) (*schedulerState, error) {
 	stateInfo, err := stateFile.Stat()
 	if err != nil {
 		return nil, closeFileAfterError(stateFile, err, "close scheduler state validation handle after stat failure")
@@ -122,7 +143,7 @@ func openSchedulerState(
 		db: db, daemonKey: identity.key,
 		statePath: statePath, stateInfo: stateInfo,
 		parentPath: parentPath, parentInfo: parentInfo,
-		ownerUID: identity.ownerUID, now: time.Now,
+		ownerUID: identity.ownerUID, maxActiveWorkloads: maxActiveWorkloads, now: time.Now,
 	}
 	if err := state.prepare(ctx); err != nil {
 		if closeErr := db.Close(); closeErr != nil {
@@ -146,18 +167,19 @@ func (s *schedulerState) prepare(ctx context.Context) error {
 		return err
 	}
 	if empty {
-		if err := createSchedulerSchema(ctx, s.db, s.daemonKey); err != nil {
+		if err := createSchedulerSchema(ctx, s.db, s.daemonKey, s.maxActiveWorkloads); err != nil {
 			return err
 		}
 	}
-	return validateSchedulerSchema(ctx, s.db, s.daemonKey)
+	return validateSchedulerSchema(ctx, s.db, s.daemonKey, s.maxActiveWorkloads)
 }
 
 const schedulerSchemaSQL = `
 CREATE TABLE scheduler_schema (
 	id INTEGER PRIMARY KEY CHECK (id = 1),
 	version INTEGER NOT NULL,
-	daemon_key TEXT NOT NULL
+	daemon_key TEXT NOT NULL,
+	max_active_workloads INTEGER NOT NULL CHECK (max_active_workloads >= 1 AND max_active_workloads <= 64)
 );
 CREATE TABLE scheduler_workloads (
 	id TEXT PRIMARY KEY,
@@ -167,7 +189,7 @@ CREATE TABLE scheduler_workloads (
 	kind INTEGER NOT NULL,
 	service_count INTEGER NOT NULL CHECK (service_count >= 0),
 	group_identity TEXT NOT NULL,
-	group_size INTEGER NOT NULL CHECK (group_size >= 0 AND group_size <= 3),
+	group_size INTEGER NOT NULL CHECK (group_size >= 0 AND group_size <= 64),
 	shard_identities BLOB NOT NULL,
 	status TEXT NOT NULL,
 	failed_shard_identity TEXT NOT NULL,
@@ -213,11 +235,15 @@ CREATE TABLE scheduler_handshake_tokens (
 func (s *schedulerState) loadKernel(
 	ctx context.Context,
 	identity daemonIdentity,
+	maxActiveWorkloads int,
 ) (*schedulerKernel, error) {
 	if identity.key != s.daemonKey {
 		return nil, errors.New("scheduler kernel daemon identity mismatch")
 	}
-	kernel, err := newSchedulerKernel(identity)
+	if maxActiveWorkloads != s.maxActiveWorkloads {
+		return nil, errors.New("scheduler state max active workloads mismatch")
+	}
+	kernel, err := newSchedulerKernel(identity, maxActiveWorkloads)
 	if err != nil {
 		return nil, err
 	}
@@ -347,7 +373,7 @@ func validateRecoveredKernel(kernel *schedulerKernel) error {
 	if err := kernel.validateDAG(); err != nil {
 		return err
 	}
-	if len(kernel.leases) > maxActiveWorkloads {
+	if len(kernel.leases) > kernel.maxActiveWorkloads {
 		return fmt.Errorf("restored lease count %d exceeds capacity", len(kernel.leases))
 	}
 	leaseCounts := make(map[workloadID]int, len(kernel.nodes))

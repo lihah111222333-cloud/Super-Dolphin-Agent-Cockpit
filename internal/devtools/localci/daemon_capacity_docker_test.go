@@ -45,7 +45,7 @@ func TestDockerDaemonCapacityInspectorReadsCurrentClassCapacity(t *testing.T) {
 	if !reflect.DeepEqual(runner.args, wantArgs) {
 		t.Fatalf("docker args = %#v, want %#v", runner.args, wantArgs)
 	}
-	if _, err := ValidateDaemonCapacity(context.Background(), testDaemonID, inspector); err == nil || !strings.Contains(err.Error(), "memory capacity insufficient") {
+	if _, err := ValidateDaemonCapacity(context.Background(), testDaemonID, 3, inspector); err == nil || !strings.Contains(err.Error(), "memory capacity insufficient") {
 		t.Fatalf("ValidateDaemonCapacity() error = %v, want memory capacity insufficient", err)
 	}
 }
@@ -60,7 +60,7 @@ func TestDockerDaemonCapacityInspectorMapsPassingCapacity(t *testing.T) {
 	}
 	inspector.now = testObservedAt
 
-	evidence, err := ValidateDaemonCapacity(context.Background(), testDaemonID, inspector)
+	evidence, err := ValidateDaemonCapacity(context.Background(), testDaemonID, 3, inspector)
 	if err != nil {
 		t.Fatalf("ValidateDaemonCapacity() error = %v", err)
 	}

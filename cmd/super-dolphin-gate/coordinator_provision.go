@@ -37,6 +37,8 @@ type productionProvisionManifest struct {
 	CandidateTTLSeconds        int64                  `json:"candidate_ttl_seconds"`
 	PromotionPollMillis        int64                  `json:"promotion_poll_millis"`
 	ActionGrantTTLSeconds      int64                  `json:"action_grant_ttl_seconds"`
+	ShardsPerJob               int                    `json:"shards_per_job"`
+	MaxActiveCIWorkloads       int                    `json:"max_active_ci_workloads"`
 }
 
 // Validate 校验 manifest 只包含显式路径、外部 trust anchors 与生产时限。
@@ -50,6 +52,9 @@ func (manifest productionProvisionManifest) Validate() error {
 	if err := validateProductionProvisionTiming(manifest); err != nil {
 		return err
 	}
+	if err := validateProductionProvisionSchedulingPolicy(manifest); err != nil {
+		return err
+	}
 	for _, value := range []string{
 		manifest.InstallRoot, manifest.LauncherPath, manifest.ControllerBinary, manifest.BootstrapRootFile,
 		manifest.BootstrapControllerKeyFile, manifest.ReceiptKeyFile, manifest.ActionGrantKeyFile,
@@ -60,6 +65,13 @@ func (manifest productionProvisionManifest) Validate() error {
 		}
 	}
 	return nil
+}
+
+func validateProductionProvisionSchedulingPolicy(manifest productionProvisionManifest) error {
+	return productionCoordinatorConfig{
+		ShardsPerJob:         manifest.ShardsPerJob,
+		MaxActiveCIWorkloads: manifest.MaxActiveCIWorkloads,
+	}.validateSchedulingPolicy()
 }
 
 // validateProductionProvisionTiming 固定 watcher、candidate 与 grant 的生产上限。
@@ -532,6 +544,7 @@ func productionProvisionConfig(
 			PrivateKeyFile: filepath.Join(root, "action-grant-private.json"), TTLSeconds: manifest.ActionGrantTTLSeconds,
 		},
 		CandidateTTLSeconds: manifest.CandidateTTLSeconds, PromotionPollMillis: manifest.PromotionPollMillis,
+		ShardsPerJob: manifest.ShardsPerJob, MaxActiveCIWorkloads: manifest.MaxActiveCIWorkloads,
 	}
 }
 

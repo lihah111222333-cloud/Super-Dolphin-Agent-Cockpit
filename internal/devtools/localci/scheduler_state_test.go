@@ -45,7 +45,7 @@ func TestSchedulerStateRejectsSchemaVersionDrift(t *testing.T) {
 	}
 
 	identity := mustDaemonIdentity(t, "daemon-state")
-	if _, err := openSchedulerState(ctx, path, identity); err == nil {
+	if _, err := openSchedulerState(ctx, path, identity, testMaxActiveWorkloads); err == nil {
 		t.Fatal("expected schema version drift to fail")
 	}
 }
@@ -81,7 +81,7 @@ func TestSchedulerStateRejectsV1WithoutModifyingDatabase(t *testing.T) {
 		t.Fatalf("read v1 fixture before open: %v", err)
 	}
 	identity := mustDaemonIdentity(t, "daemon-v2")
-	_, err = openSchedulerState(ctx, path, identity)
+	_, err = openSchedulerState(ctx, path, identity, testMaxActiveWorkloads)
 	if !errors.Is(err, errSchedulerSchemaV1Unsupported) {
 		t.Fatalf("open v1 error=%v want=%v", err, errSchedulerSchemaV1Unsupported)
 	}
@@ -127,14 +127,14 @@ func TestSchedulerStateRejectsDaemonIdentityMismatch(t *testing.T) {
 
 	ctx := context.Background()
 	path := filepath.Join(canonicalPrivateTempDir(t), "state.db")
-	first, err := openSchedulerState(ctx, path, mustDaemonIdentity(t, "daemon-first"))
+	first, err := openSchedulerState(ctx, path, mustDaemonIdentity(t, "daemon-first"), testMaxActiveWorkloads)
 	if err != nil {
 		t.Fatalf("open first state: %v", err)
 	}
 	if err := first.close(); err != nil {
 		t.Fatalf("close first state: %v", err)
 	}
-	if _, err := openSchedulerState(ctx, path, mustDaemonIdentity(t, "daemon-second")); err == nil {
+	if _, err := openSchedulerState(ctx, path, mustDaemonIdentity(t, "daemon-second"), testMaxActiveWorkloads); err == nil {
 		t.Fatal("expected daemon identity mismatch to fail")
 	}
 }
@@ -165,7 +165,7 @@ func TestSchedulerStateRestoresQueueAndLeases(t *testing.T) {
 
 	reopened := mustOpenSchedulerState(t, ctx, path, identity)
 	cleanupSchedulerState(t, reopened)
-	restored, err := reopened.loadKernel(ctx, identity)
+	restored, err := reopened.loadKernel(ctx, identity, testMaxActiveWorkloads)
 	if err != nil {
 		t.Fatalf("load kernel: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestSchedulerStateRejectsRecoveredShardGroupIdentityDrift(t *testing.T) {
 				t.Fatalf("save group: %v", err)
 			}
 			test.mutate(t, state)
-			if _, err := state.loadKernel(ctx, kernel.identity); err == nil {
+			if _, err := state.loadKernel(ctx, kernel.identity, testMaxActiveWorkloads); err == nil {
 				t.Fatal("drifted group identity recovered successfully")
 			}
 		})
@@ -287,7 +287,7 @@ func TestSchedulerRecoveryMarksUnprovedRunningWorkloadInfraFailed(t *testing.T) 
 	if err := state.reconcileLeases(ctx, nil); !errors.Is(err, errRecoveryUnproved) {
 		t.Fatalf("reconcile error=%v want=%v", err, errRecoveryUnproved)
 	}
-	restored, err := state.loadKernel(ctx, kernel.identity)
+	restored, err := state.loadKernel(ctx, kernel.identity, testMaxActiveWorkloads)
 	if err != nil {
 		t.Fatalf("load reconciled kernel: %v", err)
 	}
@@ -590,7 +590,7 @@ func TestSchedulerStateCreatesPrivateFile(t *testing.T) {
 func expectSchedulerStateRejected(t *testing.T, path string, identity daemonIdentity) {
 	t.Helper()
 
-	if _, err := openSchedulerState(context.Background(), path, identity); err == nil {
+	if _, err := openSchedulerState(context.Background(), path, identity, testMaxActiveWorkloads); err == nil {
 		t.Fatal("expected scheduler state open to fail")
 	}
 }
@@ -680,7 +680,7 @@ func mustOpenSchedulerState(
 ) *schedulerState {
 	t.Helper()
 
-	state, err := openSchedulerState(ctx, path, identity)
+	state, err := openSchedulerState(ctx, path, identity, testMaxActiveWorkloads)
 	if err != nil {
 		t.Fatalf("open scheduler state: %v", err)
 	}
@@ -721,7 +721,7 @@ func assertOutboxSequences(t *testing.T, events []outboxEvent, want ...uint64) {
 func mustNewSchedulerKernel(t *testing.T, identity daemonIdentity) *schedulerKernel {
 	t.Helper()
 
-	kernel, err := newSchedulerKernel(identity)
+	kernel, err := newSchedulerKernel(identity, testMaxActiveWorkloads)
 	if err != nil {
 		t.Fatalf("new scheduler kernel: %v", err)
 	}

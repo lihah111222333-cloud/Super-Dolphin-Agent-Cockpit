@@ -29,6 +29,14 @@ func TestResolveGateImageInputsIsDeterministicAndIgnoresOrdinarySource(t *testin
 	if ordinary.ImageInputDigest != base.ImageInputDigest || ordinary.ContextDigest != base.ContextDigest {
 		t.Fatal("ordinary source change altered canonical image inputs")
 	}
+	if slices.ContainsFunc(ordinary.SourceEntries, func(entry sourceexport.TreeEntry) bool {
+		return entry.Path == "internal/module/example/service.go"
+	}) {
+		t.Fatal("ordinary source entry leaked into persisted image input closure")
+	}
+	if len(ordinary.SourceEntries) != len(base.SourceEntries) {
+		t.Fatalf("ordinary source changed persisted closure size: got %d want %d", len(ordinary.SourceEntries), len(base.SourceEntries))
+	}
 }
 
 func TestResolveGateImageInputsChangesForDeclaredInput(t *testing.T) {
@@ -62,6 +70,13 @@ func TestResolveGateImageInputsRejectsMaliciousDockerfile(t *testing.T) {
 	_, err := ResolveGateImageInputs(readOnlyImageTree(t, entries), digest("d"), "linux/arm64")
 	if err == nil || !strings.Contains(err.Error(), "Dockerfile COPY source") {
 		t.Fatalf("undeclared Dockerfile COPY error = %v", err)
+	}
+
+	dockerfile = validCandidateDockerfile() + "COPY . .\n"
+	entries = append(candidateEntries(dockerfile), contextEntry("hidden.txt", "100644", "hidden\n"))
+	_, err = ResolveGateImageInputs(readOnlyImageTree(t, entries), digest("d"), "linux/arm64")
+	if err == nil || !strings.Contains(err.Error(), "root source requires the declared input closure to equal the Git tree") {
+		t.Fatalf("partial root COPY error = %v", err)
 	}
 }
 

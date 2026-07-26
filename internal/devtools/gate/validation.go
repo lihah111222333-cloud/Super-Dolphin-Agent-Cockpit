@@ -548,12 +548,23 @@ func (e ContainerEvidence) Validate() error {
 
 // Validate 校验签名 ResultReceipt 及其完整执行证据闭包。
 func (r ResultReceipt) Validate() error {
-	return r.validate(true)
+	return r.validate(true, nil)
+}
+
+// ValidateStored 按历史计划校验终态回执，不把旧 registry 当作当前可执行策略。
+func (r ResultReceipt) ValidateStored(plan GatePlan) error {
+	if err := plan.ValidateStored(); err != nil {
+		return err
+	}
+	if r.PlanDigest != plan.PlanDigest || r.PolicyDigest != plan.PolicyDigest || !reflect.DeepEqual(r.Source, plan.Source) {
+		return errors.New("stored result receipt drifted from its historical plan")
+	}
+	return r.validate(true, &plan)
 }
 
 // validate 按签名要求校验 ResultReceipt 的完整字段和执行证据闭包。
-func (r ResultReceipt) validate(requireSignature bool) error {
-	if err := r.validateIdentity(requireSignature); err != nil {
+func (r ResultReceipt) validate(requireSignature bool, storedPlan *GatePlan) error {
+	if err := r.validateIdentity(requireSignature, storedPlan != nil); err != nil {
 		return err
 	}
 	if err := r.validateExecutionIdentity(); err != nil {
@@ -565,8 +576,14 @@ func (r ResultReceipt) validate(requireSignature bool) error {
 	if err := r.validateResults(); err != nil {
 		return err
 	}
-	if err := r.validatePassedShardReceipt(); err != nil {
-		return err
+	var shardErr error
+	if storedPlan == nil {
+		shardErr = r.validatePassedShardReceipt()
+	} else {
+		shardErr = r.validateStoredPassedShardReceipt(*storedPlan)
+	}
+	if shardErr != nil {
+		return shardErr
 	}
 	if err := r.Container.Validate(); err != nil {
 		return err
@@ -575,12 +592,12 @@ func (r ResultReceipt) validate(requireSignature bool) error {
 }
 
 // validateIdentity 校验 receipt schema、主身份、source 与可选签名字段。
-func (r ResultReceipt) validateIdentity(requireSignature bool) error {
-	if r.SchemaVersion != ResultReceiptSchemaVersion {
+func (r ResultReceipt) validateIdentity(requireSignature bool, allowLegacy bool) error {
+	if r.SchemaVersion != ResultReceiptSchemaVersion && !(allowLegacy && r.SchemaVersion == legacyResultReceiptSchemaVersion) {
 		return fmt.Errorf("unsupported result receipt schema_version %d", r.SchemaVersion)
 	}
 	if r.Status != ResultStatusPassed {
-		return fmt.Errorf("result receipt schema v2 only signs passed status, got %q", r.Status)
+		return fmt.Errorf("result receipt schema only signs passed status, got %q", r.Status)
 	}
 	values := map[string]string{
 		"receipt_id": r.ReceiptID, "repo_id": r.RepoID, "invocation_id": r.InvocationID,
@@ -650,7 +667,7 @@ func (r ResultReceipt) validateResults() error {
 func ResultReceiptSigningPayload(receipt ResultReceipt) ([]byte, error) {
 	unsigned := receipt
 	unsigned.Signature = ""
-	if err := unsigned.validate(false); err != nil {
+	if err := unsigned.validate(false, nil); err != nil {
 		return nil, err
 	}
 	payload, err := json.Marshal(unsigned)

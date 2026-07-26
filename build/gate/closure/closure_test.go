@@ -39,36 +39,40 @@ func TestExtractArchiveAcceptsRegularFile(t *testing.T) {
 	}
 }
 
-func TestCollectClosureFilesIncludesFrontendBuildInputsOnlyLocally(t *testing.T) {
+func TestCollectClosureFilesIncludesOnlyEnvironmentImageInputs(t *testing.T) {
 	repositoryRoot := testRepositoryRoot(t)
-	localFiles, ownerFiles, err := collectClosureFiles(repositoryRoot)
+	sourceRoot := t.TempDir()
+	if err := extractGitTree(repositoryRoot, "HEAD^{tree}", sourceRoot); err != nil {
+		t.Fatal(err)
+	}
+	localFiles, ownerFiles, err := collectClosureFiles(sourceRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, path := range []string{
-		"frontend-app/src/App.jsx",
-		"frontend-app/public/wails/runtime.js",
-		"frontend-app/index.html",
-		"frontend-app/recovery.html",
-		"frontend-app/required-dist-entries.txt",
+		"build/gate/toolchain.lock",
+		"build/gate/runtime-deps.lock",
+		"cmd/super-dolphin-gate/main.go",
+		"cmd/super-dolphin-gate-executor/main.go",
+		"internal/devtools/localci/image_builder.go",
 	} {
 		if !slices.Contains(localFiles, path) {
 			t.Fatalf("local closure files do not contain %s", path)
 		}
 	}
 	for _, path := range []string{
+		"README.md",
+		"cmd/mcp-lsp/main.go",
 		"frontend-app/src/App.jsx",
-		"frontend-app/public/wails/runtime.js",
-		"frontend-app/recovery.html",
-		"frontend-app/required-dist-entries.txt",
+		"internal/module/skill/service.go",
 	} {
-		if slices.Contains(ownerFiles, path) {
-			t.Fatalf("runtime owner files unexpectedly contain frontend build input %s", path)
+		if slices.Contains(localFiles, path) || slices.Contains(ownerFiles, path) {
+			t.Fatalf("environment image closure unexpectedly contains ordinary job source %s", path)
 		}
 	}
 }
 
-func TestRenderDockerfileBuildsAndEmbedsFrontend(t *testing.T) {
+func TestRenderDockerfileBuildsOnlyGateRuntime(t *testing.T) {
 	repositoryRoot := testRepositoryRoot(t)
 	lock, err := readToolchainLock(filepath.Join(repositoryRoot, gateToolchain))
 	if err != nil {
@@ -78,38 +82,30 @@ func TestRenderDockerfileBuildsAndEmbedsFrontend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dockerfile, err := renderDockerfile(lock, runtimeDeps, []string{
-		"frontend-app/index.html",
-		"frontend-app/public/wails/runtime.js",
-		"frontend-app/recovery.html",
-		"frontend-app/required-dist-entries.txt",
-		"frontend-app/src/App.jsx",
-	}, []string{"frontend-app/package.json", "frontend-app/vite.config.js"})
+	dockerfile, err := renderDockerfile(lock, runtimeDeps, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	output := string(dockerfile)
 	for _, wanted := range []string{
-		"RUN --network=none ln -s /opt/super-dolphin-gate/runtime/frontend/node_modules /src/frontend-app/node_modules && \\\n",
-		"    cd /src/frontend-app && npm run build && \\\n",
-		"    test -f /src/cmd/agent-terminal/web-dist/index.html && \\\n",
-		"    test -f /src/cmd/agent-terminal/web-dist/recovery.html && \\\n",
-		"    chmod -R a-w /src/cmd/agent-terminal/web-dist\n",
-		"COPY --from=build --chown=0:0 /src/cmd/agent-terminal/web-dist /opt/super-dolphin-gate/frontend-embed\n",
+		"go build -mod=mod -trimpath -buildvcs=false -o /out/super-dolphin-gate ./cmd/super-dolphin-gate",
+		"go build -mod=mod -trimpath -buildvcs=false -o /out/super-dolphin-gate-executor ./cmd/super-dolphin-gate-executor",
+		"printf '<!doctype html><title>gate compile seed</title>\\n' > /opt/super-dolphin-gate/frontend-embed/index.html",
 	} {
 		if !strings.Contains(output, wanted) {
 			t.Fatalf("generated Dockerfile does not contain %q", wanted)
 		}
 	}
-	finalStageMarker := "FROM $" + "{RUNTIME_DEPS_IMAGE}\nUSER root\n"
-	finalStageStart := strings.LastIndex(output, finalStageMarker)
-	if finalStageStart < 0 {
-		t.Fatalf("generated Dockerfile does not contain final stage marker %q", finalStageMarker)
-	}
-	finalStage := output[finalStageStart:]
-	for _, unwanted := range []string{"frontend-app/src/", "frontend-app/public/", "frontend-app/recovery.html"} {
-		if strings.Contains(finalStage, unwanted) {
-			t.Fatalf("final stage unexpectedly contains frontend build source %q", unwanted)
+	for _, unwanted := range []string{
+		"COPY . .",
+		"npm run build",
+		"frontend-app",
+		"/opt/super-dolphin-gate/owners",
+		"nilness-guard",
+		"go test",
+	} {
+		if strings.Contains(output, unwanted) {
+			t.Fatalf("generated environment Dockerfile unexpectedly contains job-source build step %q", unwanted)
 		}
 	}
 }

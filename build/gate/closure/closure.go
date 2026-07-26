@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/parser"
+	"go/token"
 	"io"
 	"io/fs"
 	"os"
@@ -142,7 +144,7 @@ func createTemporarySourceRoot() (string, func(), error) {
 
 // generateClosureOutputs 从解包后的 Git 树构造 Dockerfile 与输入清单。
 func generateClosureOutputs(sourceRoot string) (map[string][]byte, int, error) {
-	localFiles, ownerFiles, err := collectClosureFiles(sourceRoot)
+	localFiles, _, err := collectClosureFiles(sourceRoot)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -150,7 +152,7 @@ func generateClosureOutputs(sourceRoot string) (map[string][]byte, int, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	dockerfile, err := renderDockerfile(lock, runtimeDeps, localFiles, ownerFiles)
+	dockerfile, err := renderDockerfile(lock, runtimeDeps, localFiles)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -161,21 +163,137 @@ func generateClosureOutputs(sourceRoot string) (map[string][]byte, int, error) {
 	return map[string][]byte{gateDockerfile: dockerfile, gateInputs: manifestData}, len(localFiles), nil
 }
 
-// collectClosureFiles 汇集编译与运行时 owner 的去重有序闭包输入。
+// collectClosureFiles 汇集环境镜像和运行时命令的最小有序闭包输入。
 func collectClosureFiles(sourceRoot string) ([]string, []string, error) {
-	localFiles, err := collectCompileFiles(sourceRoot)
+	localFiles, err := collectEnvironmentImageFiles(sourceRoot)
 	if err != nil {
 		return nil, nil, err
 	}
-	frontendFiles, err := collectFrontendBuildFiles(sourceRoot)
+	return localFiles, nil, nil
+}
+
+// collectEnvironmentImageFiles 只收集工具链、依赖锁和受信 CI runtime 的构建输入。
+func collectEnvironmentImageFiles(sourceRoot string) ([]string, error) {
+	files, err := collectNamedRegularInputs(sourceRoot, "environment image", []string{
+		gateDockerfile,
+		gateInputs,
+		gateToolchain,
+		gateRuntimeDepsLock,
+		gateRuntimeDepsDocker,
+		gateRuntimeLSPPackage,
+		gateRuntimeLSPLock,
+		gateRuntimeProxyModule,
+		gateRuntimeProxySum,
+		gateRuntimeToolsModule,
+		gateRuntimeToolsSum,
+		gateRuntimeToolsSource,
+		"go.mod",
+		"go.sum",
+		"frontend-app/package.json",
+		"frontend-app/package-lock.json",
+		"internal/devtools/nilnessrunner/runner.go",
+		"scripts/nilness_guard.go",
+		"third_party/kelindar-event",
+	})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	ownerFiles, err := collectRuntimeOwnerFiles(sourceRoot)
+	goFiles, err := collectLocalGoDependencyFiles(sourceRoot, []string{
+		"build/gate/cmd/runtime-seed-manifest",
+		"cmd/super-dolphin-gate",
+		"cmd/super-dolphin-gate-executor",
+	})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return mergeSorted(mergeSorted(localFiles, frontendFiles), ownerFiles), ownerFiles, nil
+	return sortedUniqueStrings(append(files, goFiles...)), nil
+}
+
+// collectLocalGoDependencyFiles 从入口包递归收集环境运行时所需的仓内 Go 源码。
+func collectLocalGoDependencyFiles(sourceRoot string, roots []string) ([]string, error) {
+	modulePath, err := readModulePath(filepath.Join(sourceRoot, "go.mod"))
+	if err != nil {
+		return nil, err
+	}
+	queue := slices.Clone(roots)
+	seen := make(map[string]struct{}, len(queue))
+	files := make(map[string]struct{})
+	for len(queue) > 0 {
+		directory := queue[0]
+		queue = queue[1:]
+		if _, exists := seen[directory]; exists {
+			continue
+		}
+		seen[directory] = struct{}{}
+		imports, err := collectGoPackageFiles(sourceRoot, directory, files)
+		if err != nil {
+			return nil, err
+		}
+		for _, imported := range imports {
+			prefix := modulePath + "/"
+			if localPackage, ok := strings.CutPrefix(imported, prefix); ok {
+				queue = append(queue, localPackage)
+			}
+		}
+	}
+	return sortedKeys(files), nil
+}
+
+// collectGoPackageFiles 收集单个仓内包的非测试源码并返回其导入路径。
+func collectGoPackageFiles(sourceRoot, directory string, files map[string]struct{}) ([]string, error) {
+	absolute := filepath.Join(sourceRoot, filepath.FromSlash(directory))
+	entries, err := os.ReadDir(absolute)
+	if err != nil {
+		return nil, fmt.Errorf("read local Go package %s: %w", directory, err)
+	}
+	imports := make(map[string]struct{})
+	fileCount := 0
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		relative := filepath.ToSlash(filepath.Join(directory, name))
+		files[relative] = struct{}{}
+		fileCount++
+		parsed, err := parser.ParseFile(token.NewFileSet(), filepath.Join(absolute, name), nil, parser.ImportsOnly)
+		if err != nil {
+			return nil, fmt.Errorf("parse local Go package file %s: %w", relative, err)
+		}
+		for _, imported := range parsed.Imports {
+			path, err := strconv.Unquote(imported.Path.Value)
+			if err != nil {
+				return nil, fmt.Errorf("decode import in %s: %w", relative, err)
+			}
+			imports[path] = struct{}{}
+		}
+	}
+	if fileCount == 0 {
+		return nil, fmt.Errorf("local Go package %s has no build files", directory)
+	}
+	return sortedKeys(imports), nil
+}
+
+func readModulePath(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read module path: %w", err)
+	}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 2 && fields[0] == "module" {
+			return fields[1], nil
+		}
+	}
+	return "", errors.New("module path is missing")
+}
+
+func sortedUniqueStrings(values []string) []string {
+	set := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		set[value] = struct{}{}
+	}
+	return sortedKeys(set)
 }
 
 // readClosureLocks 读取并交叉校验闭包生成所需的两份锁文件。
@@ -328,52 +446,6 @@ func safeArchiveName(name string) (string, error) {
 	return cleaned, nil
 }
 
-// collectRuntimeOwnerFiles 收集运行时 owner 校验需要的常规文件。
-func collectRuntimeOwnerFiles(sourceRoot string) ([]string, error) {
-	return collectNamedRegularInputs(sourceRoot, "runtime owner", []string{
-		".githooks",
-		"Makefile",
-		"frontend-app/.frontend_code_size_guard_baseline.json",
-		"frontend-app/.frontend_code_size_guard_baseline_test.json",
-		"frontend-app/eslint.config.js",
-		"frontend-app/index.html",
-		"frontend-app/jsconfig.json",
-		"frontend-app/package-lock.json",
-		"frontend-app/package.json",
-		"frontend-app/scripts",
-		"frontend-app/tsconfig.contracts.json",
-		"frontend-app/vite.config.js",
-		"frontend-app/vite.config.test.js",
-		"internal/archtest",
-		"scripts",
-	})
-}
-
-// collectCompileFiles 收集构建 gate 二进制和校验器所需的常规输入。
-func collectCompileFiles(sourceRoot string) ([]string, error) {
-	return collectRegularInputs(sourceRoot, []string{
-		"cmd/super-dolphin-gate", "cmd/super-dolphin-gate-executor",
-		"internal", "pkg", "build/gate/closure", "build/gate/cmd/runtime-seed-manifest/main.go",
-		gateRuntimeProxyModule, gateRuntimeProxySum,
-	})
-}
-
-// collectFrontendBuildFiles 收集真相镜像中离线构建嵌入式前端所需的源码。
-func collectFrontendBuildFiles(sourceRoot string) ([]string, error) {
-	return collectRegularInputs(sourceRoot, []string{
-		"frontend-app/src",
-		"frontend-app/public",
-		"frontend-app/index.html",
-		"frontend-app/recovery.html",
-		"frontend-app/required-dist-entries.txt",
-	})
-}
-
-// collectRegularInputs 收集闭包编译输入中的常规文件。
-func collectRegularInputs(sourceRoot string, roots []string) ([]string, error) {
-	return collectNamedRegularInputs(sourceRoot, "closure", roots)
-}
-
 // collectNamedRegularInputs 收集指定用途根路径下的常规文件并按路径排序。
 func collectNamedRegularInputs(sourceRoot, inputKind string, roots []string) ([]string, error) {
 	set := make(map[string]struct{})
@@ -428,18 +500,6 @@ func collectNamedRegularTree(sourceRoot, inputKind, absolute string, set map[str
 		set[filepath.ToSlash(relative)] = struct{}{}
 		return nil
 	})
-}
-
-// mergeSorted 对两个路径集合去重并返回稳定排序的结果。
-func mergeSorted(left, right []string) []string {
-	values := make(map[string]struct{}, len(left)+len(right))
-	for _, name := range left {
-		values[name] = struct{}{}
-	}
-	for _, name := range right {
-		values[name] = struct{}{}
-	}
-	return sortedKeys(values)
 }
 
 // immutableBaseImage 查找并校验指定的不可变远程基础镜像引用。
@@ -529,39 +589,28 @@ func validateToolchainBaseImages(lock toolchainLock) error {
 	return nil
 }
 
-// renderDockerfile 生成使用预构建运行时依赖镜像的确定性 Dockerfile。
-func renderDockerfile(lock toolchainLock, runtimeDeps runtimeDepsLock, localFiles, ownerFiles []string) ([]byte, error) {
+// renderDockerfile 生成只包含受信 CI runtime 的确定性环境镜像。
+func renderDockerfile(lock toolchainLock, runtimeDeps runtimeDepsLock, buildFiles []string) ([]byte, error) {
 	if err := validateDockerfileInputs(lock, runtimeDeps); err != nil {
 		return nil, err
 	}
 	var output strings.Builder
 	fmt.Fprintf(&output, "ARG RUNTIME_DEPS_IMAGE\nARG SOURCE_DATE_EPOCH=%s\n", lock.SourceDateEpoch)
 	output.WriteString("FROM ${RUNTIME_DEPS_IMAGE} AS build\nUSER root\nARG SOURCE_DATE_EPOCH\n\n")
-	output.WriteString("WORKDIR /src\nENV GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off\n")
-	output.WriteString("COPY [\"go.mod\", \"go.sum\", \"./\"]\n")
-	output.WriteString("RUN --network=none cp -a /opt/super-dolphin-gate/runtime/vendor ./vendor\n")
-	if err := writeDockerCopyInstructions(&output, localFiles, "./", "Docker COPY"); err != nil {
+	output.WriteString("WORKDIR /src\nENV GOTOOLCHAIN=local GOPROXY=file:///opt/super-dolphin-gate/runtime/go-proxy GOSUMDB=off\n")
+	if err := writeDockerCopyInstructions(&output, buildFiles, "/src/", "environment build COPY"); err != nil {
 		return nil, err
 	}
-	output.WriteString("RUN --network=none /usr/local/bin/super-dolphin-runtime-seed verify /src /opt/super-dolphin-gate/runtime\n")
-	output.WriteString("RUN --network=none ln -s /opt/super-dolphin-gate/runtime/frontend/node_modules /src/frontend-app/node_modules && \\\n")
-	output.WriteString("    cd /src/frontend-app && npm run build && \\\n")
-	output.WriteString("    test -f /src/cmd/agent-terminal/web-dist/index.html && \\\n")
-	output.WriteString("    test -f /src/cmd/agent-terminal/web-dist/recovery.html && \\\n")
-	output.WriteString("    chmod -R a-w /src/cmd/agent-terminal/web-dist\n")
-	output.WriteString("RUN --network=none CGO_ENABLED=0 go build -mod=vendor -trimpath -buildvcs=false -o /tmp/nilness-guard ./scripts/nilness_guard.go && rm /tmp/nilness-guard\n")
-	output.WriteString("RUN --network=none CGO_ENABLED=0 go test -mod=vendor -run '^$' ./internal/devtools/gatehook\n")
-	output.WriteString("RUN --network=none CGO_ENABLED=0 go build -mod=vendor -trimpath -buildvcs=false -o /out/super-dolphin-gate ./cmd/super-dolphin-gate && \\\n")
-	output.WriteString("    CGO_ENABLED=0 go build -mod=vendor -trimpath -buildvcs=false -o /out/super-dolphin-gate-executor ./cmd/super-dolphin-gate-executor && \\\n")
+	output.WriteString("RUN --network=none CGO_ENABLED=0 go build -mod=mod -trimpath -buildvcs=false -o /out/super-dolphin-gate ./cmd/super-dolphin-gate && \\\n")
+	output.WriteString("    CGO_ENABLED=0 go build -mod=mod -trimpath -buildvcs=false -o /out/super-dolphin-gate-executor ./cmd/super-dolphin-gate-executor && \\\n")
 	output.WriteString("    touch -d \"@${SOURCE_DATE_EPOCH}\" /out/super-dolphin-gate /out/super-dolphin-gate-executor\n\n")
 	output.WriteString("FROM ${RUNTIME_DEPS_IMAGE}\nUSER root\n")
 	output.WriteString("COPY --from=build /out/super-dolphin-gate /super-dolphin-gate\n")
 	output.WriteString("COPY --from=build /out/super-dolphin-gate-executor /usr/local/bin/super-dolphin-gate-executor\n")
-	output.WriteString("COPY --from=build --chown=0:0 /src/cmd/agent-terminal/web-dist /opt/super-dolphin-gate/frontend-embed\n")
-	if err := writeDockerCopyInstructions(&output, ownerFiles, "/opt/super-dolphin-gate/owners/", "runtime owner COPY"); err != nil {
-		return nil, err
-	}
-	output.WriteString("ENV GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off GOFLAGS=-mod=vendor\\ -buildvcs=false\n")
+	output.WriteString("RUN mkdir -p /opt/super-dolphin-gate/frontend-embed && \\\n")
+	output.WriteString("    printf '<!doctype html><title>gate compile seed</title>\\n' > /opt/super-dolphin-gate/frontend-embed/index.html && \\\n")
+	output.WriteString("    chmod -R a-w /opt/super-dolphin-gate/frontend-embed\n")
+	output.WriteString("ENV GOTOOLCHAIN=local GOPROXY=file:///opt/super-dolphin-gate/runtime/go-proxy GOSUMDB=off GOFLAGS=-mod=mod\\ -buildvcs=false\n")
 	output.WriteString("USER 65532:65532\nENTRYPOINT [\"/super-dolphin-gate\"]\n")
 	return []byte(output.String()), nil
 }
@@ -611,16 +660,7 @@ func isCanonicalSourceDateEpoch(value string) bool {
 
 // renderManifest 生成包含全部闭包输入的稳定 JSON 清单。
 func renderManifest(localFiles []string) ([]byte, error) {
-	inputs := []string{
-		gateDockerfile, gateInputs, gateToolchain, gateRuntimeDepsLock, gateRuntimeDepsDocker,
-		gateRuntimeLSPPackage, gateRuntimeLSPLock,
-		gateRuntimeToolsModule, gateRuntimeToolsSum, gateRuntimeToolsSource,
-		"build/gate/closure_test.go",
-		"build/gate/cmd/generate-closure/main.go",
-		"go.mod", "go.sum",
-	}
-	inputs = append(inputs, localFiles...)
-	sort.Strings(inputs)
+	inputs := slices.Clone(localFiles)
 	manifest := inputManifest{SchemaVersion: "1", Dockerfile: gateDockerfile, Inputs: inputs}
 	data, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {

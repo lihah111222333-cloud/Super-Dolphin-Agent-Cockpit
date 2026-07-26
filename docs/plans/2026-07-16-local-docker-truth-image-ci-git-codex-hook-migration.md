@@ -1,25 +1,25 @@
-# 本地 Docker 真相镜像 CI 与 Git/Codex Hook 迁移计划
+# 节点本地 Docker 真相镜像 CI 与 Git/Codex Hook 迁移计划
 
-> **状态：** DESIGN READY / 3-agent cross-review PASS / implementation pending
+> **状态：** IMPLEMENTATION IN PROGRESS / 2026-07-26 修订为环境镜像与任务源码解耦
 >
 > **复核基线（2026-07-16）：** 当前 `HEAD` 与本地远端跟踪引用 `origin/main` 均为 `c2176e0dfcddf8d4f52729988fd024916800a4fd`。该 SHA 仅是文档复核快照；Task 0 开始时必须重新解析，不得把静态文档 SHA 当作执行输入。
 >
-> **执行边界：** Docker 安装在本机；第一版不建设独立 CI 服务器，不把 GitHub Actions 作为唯一执行端。4 CPU/8 GiB 是每个执行容器的上限，不是镜像属性，也不是 3 个并发任务共享的总预算。
+> **执行边界：** Docker 安装在每个 CI 执行节点。节点从受信 Git object 实时构建并缓存 CI 环境真相镜像，但只有 CI runner、工具链、依赖锁、镜像定义或 policy 变化才允许触发镜像构建；普通产品源码、测试或文档变化只物化精确 Git tree 并注入一次性执行容器，禁止重新构建环境镜像。镜像和 BuildKit cache 不上传、不跨节点复制。4 CPU/8 GiB 是每个执行容器的上限，不是预占内存；总并发由节点 `max_active_ci_workloads` 配置决定。
 >
-> **目标：** 将当前分散在 Git hooks、Codex lifecycle hook、AI maintenance、代码守卫和 workflow 中的门禁迁移为统一 CLI，并由自动构建的不可变真相镜像执行 Git commit 或显式 worktree tree；同一 Docker daemon 全局最多同时运行 3 个 CI workload，超过后排队。
+> **目标：** 将当前分散在 Git hooks、Codex lifecycle hook、AI maintenance、代码守卫和 workflow 中的门禁迁移为统一 CLI；自动维护不可变 CI 环境真相镜像，每次 CI 从请求的精确 Git tree 物化只读源码，再按 `shards_per_job` 从该镜像创建一次性容器并行执行分片。节点以 `max_active_ci_workloads` 约束所有 Agent、build、job、service 与 shard 的总并发，超过后排队。
 
 本文是迁移执行合同，不代表统一 CLI、本地调度器、真相镜像或远程 receipt 已经实现。最终完成状态必须绑定同一提交上的源码、测试、Docker 实测和 Hook 证据。
 
 ### 最终效果（验收口径）
 
-1. 修改 Dockerfile、工具链锁、Gate CLI、gate registry、门禁策略或生成器入口等 CI 真值输入后，下一次 CI 提交会自动识别新的输入 digest，自动构建候选真相镜像，并经过旧真相镜像验证和兼容性对比；候选提交被接受后，候选 digest 原子晋升为新的真相源。
-2. 任何被称为 CI 的执行入口只能调用统一 `submit` 网关。网关先解析已接受的 `policy_sha + ImageIdentity + generation`，再从其中目标平台 manifest digest 创建一个全新、一次性的隔离容器执行本次 CI；禁止在宿主机直接执行 CI gate，也禁止复用前一次任务的可写容器。
-3. “fork 容器”在本文中严格表示 `docker create/run <image>@sha256:<digest>`：从同一不可变真相镜像创建新容器，不表示克隆一个正在运行的容器。容器退出后只保留日志和 receipt，容器本身销毁。
+1. 修改 Dockerfile、工具链锁、Gate CLI/executor、gate registry、门禁策略或镜像闭包生成器等 CI 环境真值输入后，下一次 CI 提交自动识别新的 `image_input_digest`，在接收任务的节点上实时构建候选环境真相镜像。普通产品源码、测试和文档不属于镜像输入，变化时必须复用已接受环境镜像，不得调用 BuildKit。
+2. 任何被称为 CI 的执行入口只能调用统一 `submit` 网关。网关解析已接受策略，将请求的 Git object 一次物化为经过 tree 复验的私有只读源码快照，在当前节点确保环境镜像存在，再从该镜像按本次受信 `shards_per_job` 创建全新的一次性隔离容器并行执行门禁分片；禁止在宿主机直接执行 CI gate，也禁止把活动 worktree 或前一次任务的可写容器作为源码。
+3. “fork 容器”在本文中严格表示从当前节点刚构建或经本地内容缓存复验的真相镜像执行 `docker create/run`，不表示克隆一个正在运行的容器。容器退出后只保留日志和 receipt，容器本身销毁。
 4. 本地 Git Hook、Codex Hook、人工 CLI、release adapter 和 workflow adapter 都必须经过同一网关。任何仍直接调用 `go test`、`npm test`、`make guard` 或旧 gate wrapper 并把结果作为 CI 结论的入口，均视为迁移未完成。
 5. 仓库维护版本化 `CIEntrypoint` 清单，登记所有能产生 CI 结论的 Hook、workflow、Make target、脚本和 CLI alias。架构守卫校验每个入口最终只调用 `submit`，并拒绝新增未登记入口；普通开发者手工运行测试可以存在，但不能签发或复用 CI receipt。
 6. 每次独立权威 CI action 都生成新的 invocation nonce、job、container ID 和 removal proof；只允许同一 invocation 的观察者订阅同一运行，不允许用历史 passed receipt 代替新容器。
 
-真相源是不可变 Docker `ImageIdentity`，不是一个长期运行的“母容器”。首次运行、CI 真值更新、日常任务执行分别对应 bootstrap image、候选 image 晋升、从已接受 platform manifest 创建一次性 job container，三者不得混用。
+全局真相分为两个正交身份：`EnvironmentTruth = policy_sha + image_input_digest + toolchain_digest + platform`，以及 `JobSourceTruth = SourceSpec + source_tree_sha + source_bundle_digest`。普通 CI 只更新后者；只有环境真值变化才构建或晋升镜像。`NodeImageIdentity` 是环境真相在单个节点的本地物化证据，不是源码快照，也不是长期运行的“母容器”。
 
 ---
 
@@ -28,18 +28,19 @@
 ### 1.1 本计划覆盖
 
 - 统一门禁 CLI、稳定退出码、版本化 plan/result/receipt JSON。
-- 自动构建并按 digest 使用本地 Docker 真相镜像。
+- 每个执行节点自动构建并按本地内容身份使用 Docker 真相镜像。
 - CI 真值输入变化时自动构建候选镜像，接受后自动晋升；普通 CI 调用无需人工先执行 build。
-- 最多 3 个 Docker job/service/build workload 并发，超过后按 DAG/FIFO 排队。
+- `shards_per_job` 与 `max_active_ci_workloads` 都由节点仓库外配置显式给出；默认可为 3，但 3 不是协议上限。
+- 同一 daemon 上全部 Agent 共用一个全局 slot 池；例如 `shards_per_job=5`、`max_active_ci_workloads=20` 时，4 个 Agent 可各自启动 5 个 shard，共 20 路并行，第 5 个 Agent 排队。
 - 每个 gate 容器最多 4 CPU、8 GiB 内存。
 - 普通 profile 最长 10 分钟，release profile 最长 30 分钟。
 - Git `pre-commit` 检查 staged/active worktree，`pre-push` 将明确 commit SHA 提交给 Docker CI。
 - Codex `Stop` / `SubagentStop` 从官方 hook stdin 解析 session、turn、cwd 和 agent 身份，并将排队、失败或通过状态反馈给对应 agent。
-- 相同镜像 build singleflight、旧 SHA 取消、结构化日志、不可变 receipt 和镜像晋升；CI job 本身不跨 invocation 缓存。
+- 同一节点相同 build singleflight、旧 SHA 取消、结构化日志、不可变 receipt 和策略晋升；CI job 本身不跨 invocation 缓存，BuildKit 缓存不跨机器复制。
 
 ### 1.2 本计划不覆盖
 
-- 多主机调度、Kubernetes、远程 Docker daemon 或独立 CI 集群。
+- 跨节点统一资源调度、Kubernetes、远程 Docker daemon 或独立 CI 集群；远程 runner 在自己的节点独立构建和执行不属于多主机统一调度。
 - 用 Linux Docker 替代 macOS/Windows 原生 smoke、签名和发布验证。
 - 自动修改或合并 agent 分支。
 - 从不稳定 transcript 格式推断 agent 身份或 worktree。
@@ -48,13 +49,13 @@
 ### 1.3 硬原则
 
 - CI 权威输入必须是 Git object：`commit SHA`、`tree SHA` 或明确的 `base/head`，不能读取验证期间持续变化的活动目录。
-- 真相镜像必须以不可变 digest 执行；`latest` 只能作为人类别名，不能进入 receipt 或缓存键。
+- 节点本地真相镜像必须以复验过的内容身份执行；`latest` 或其他可变标签只能作为人类别名，不能进入 receipt 或缓存键。
 - 候选代码不能修改裁判后立即使用自己的新裁判给自己签发绿色 receipt。
 - 本地 Hook、Codex Hook、Docker runner 和 workflow 不得各自维护一份 gate 必选规则。
 - 缺少身份、Git object、镜像 digest、必需 gate、evidence 或执行结果时 fail-fast，不产生绿色结果。
 - queued、running、cancelled、timeout、infra_failed 和 failed 均不能显示为 passed。
 - 所有 CI 执行必须经过 `submit -> scheduler 持久化/FIFO/slot -> image ensure/build -> docker create/run`；宿主机直跑只允许作为非权威开发命令，不能生成 CI receipt。
-- 每个请求必须且只能携带一种 `SourceSpec`；镜像输入、容器源码、plan、task key 和 receipt 必须绑定同一个 Git object，禁止从活动 worktree 补读文件。
+- 每个请求必须且只能携带一种 `SourceSpec`；容器源码、plan、task key 和 receipt 必须绑定同一个 job Git object，禁止从活动 worktree补读文件。环境镜像另行绑定已接受的环境输入 Git object 和 `image_input_digest`；receipt 必须同时记录这两个身份，不得要求普通 job tree 等于 image build tree。
 - 权威 receipt 必须由候选容器不可访问的宿主机密钥签名；普通 JSON、日志文本或候选代码生成的校验和不构成通过证明。
 
 ---
@@ -146,7 +147,7 @@ Codex Stop/SubagentStop -----------> resolve identity + tree -> submit/query
 |---|---|---|
 | `internal/devtools/gate` | GateSpec、profile、plan、结果、证据、退出码 | Docker daemon 生命周期、Git Hook stdin |
 | `cmd/super-dolphin-gate` | CLI 参数、JSON/stdout、日志/stderr、进程退出码 | 重复 gate 规则 |
-| singleton scheduler daemon | 规范化 Docker daemon identity 唯一 owner、统一 FIFO、3 slot、取消、状态、签名 receipt/action grant | 领域 gate 选择规则 |
+| singleton scheduler daemon | 规范化 Docker daemon identity 唯一 owner、统一 FIFO、可配置全局 slot、取消、状态、签名 receipt/action grant | 领域 gate 选择规则 |
 | Docker executor | clean clone/checkout、资源限制、超时、命令执行 | agent 身份推断、merge 决策 |
 | Git hooks | Git stdin/index 适配和同步阻断 | 另一套 gate registry |
 | Codex hooks | Codex stdin/output 适配和 agent 通知 | transcript 解析、领域 gate registry |
@@ -156,9 +157,9 @@ Codex Stop/SubagentStop -----------> resolve identity + tree -> submit/query
 
 ### 4.2 可信执行模型
 
-普通 CI 由当前已接受 `ImageIdentity` 内的 `TrustedRunnerIdentity` 执行；候选源码只作为待测 source bundle 挂入，不提供当前权威 runner。若候选修改 Gate CLI、runner 或策略，push admission 仍由旧 generation 的 runner 计算并直接启动旧 policy required gates。
+普通 CI 由当前已接受策略在执行节点实时物化的 `TrustedRunnerIdentity` 执行；候选源码只作为待测 source bundle 挂入，不提供当前权威 runner。若候选修改 Gate CLI、runner 或策略，push admission 仍由旧 generation 的节点本地 runner 计算并直接启动旧 policy required gates。
 
-候选镜像自测事件一律视为不受信输入。晋升是独立 `promotion` CI invocation：scheduler 必须原子预留两个 slot，从上一 accepted platform manifest 创建新的 trusted-runner 容器，并另行创建候选测试容器；两者分别绑定 deadline、network 和 removal proof。旧真相侧 verifier 在 accepted-runner 容器内解析候选 GateSpec、计算预期 gate/命令/事件闭包，宿主 scheduler 直接观察每个进程启动、argv digest、退出码、日志 digest 和顺序，并运行固定 known-bad corpus；同时验证 BuildKit provenance 和候选 image identity。宿主 controller 只编排、观察和验签，禁止在宿主机执行 promotion gate。候选 executor 不能请求 signer 为自己上报的 `passed` 事件签章。
+候选镜像自测事件一律视为不受信输入。晋升是独立 `promotion` CI invocation：scheduler 必须原子预留两个 slot，从上一 accepted policy 的节点本地 materialization 创建新的 trusted-runner 容器，并另行创建候选测试容器；两者分别绑定 deadline、network 和 removal proof。旧真相侧 verifier 在 accepted-runner 容器内解析候选 GateSpec、计算预期 gate/命令/事件闭包，宿主 scheduler 直接观察每个进程启动、argv digest、退出码、日志 digest 和顺序，并运行固定 known-bad corpus；同时验证 BuildKit provenance 和候选 `NodeImageIdentity`。宿主 controller 只编排、观察和验签，禁止在宿主机执行 promotion gate。候选 executor 不能请求 signer 为自己上报的 `passed` 事件签章。
 
 首次 bootstrap 使用仓库外、安装包签名的最小 runner/verifier；其二进制摘要和签名链固定在 bootstrap trust root。任何 accepted generation 都记录 `TrustedRunnerIdentity{binary_digest, signer, policy_digest}`，下一 generation 必须由上一 generation 验证。
 
@@ -218,7 +219,7 @@ super-dolphin-gate receipt verify --input <file>
 | `local-fast` | staged/worktree tree | 10 分钟 | pre-commit 快速反馈 |
 | `push` | base/head commit SHA | 10 分钟 | pre-push 权威提交门禁 |
 | `remote-required` | base/head/merge candidate | 10 分钟 | 后续 required check |
-| `promotion` | trusted ref 精确 tip + candidate identity | 10 分钟 | 上一 accepted manifest 内 trusted runner 验证候选并签发 promotion evidence |
+| `promotion` | trusted ref 精确 tip + candidate identity | 10 分钟 | 上一 accepted policy 的节点本地 runner 验证候选并签发 promotion evidence |
 | `release` | release commit SHA | 30 分钟 | release 与 packaging gates |
 
 必须由测试证明 `local-fast` 的必需规则集合是 `push` / `remote-required` 的子集。所有非 release profile 的容器运行硬截止均为 10 分钟，release 为 30 分钟；排队时间不计入运行 deadline，但必须单独记录。deadline 在容器启动时持久化，scheduler 重启不得重置。profile 不接受任意 `--skip-required`。
@@ -233,7 +234,7 @@ super-dolphin-gate receipt verify --input <file>
 | 11 | evidence 不完整 |
 | 12 | Git object、worktree 或 identity 不一致 |
 | 13 | Docker、工具链或基础设施失败，可重试 |
-| 14 | registry 或内部不变量错误 |
+| 14 | 节点本地镜像存储、BuildKit 或内部不变量错误 |
 | 15 | cancelled 或被新 SHA supersede |
 | 16 | timeout |
 
@@ -250,7 +251,7 @@ super-dolphin-gate receipt verify --input <file>
 - `GrantRequest`
 - `ActionGrant`
 - `SourceSpec`
-- `ImageIdentity`
+- `NodeImageIdentity`
 - `TrustedRunnerIdentity`
 - `PromotionRecord`
 - `SignedJobToken`
@@ -289,7 +290,7 @@ staged tree 可能是没有 ref 的 dangling object。宿主机 source exporter 
 2. 保持当前规则：显式 push 的 `local_sha` 必须等于当前 `HEAD`。
 3. 每个 ref 独立规范化 SourceSpec：新分支使用 `base_kind=empty_tree/update_kind=create`；普通 range 使用 `base_kind=commit/update_kind=fast_forward`；无共同祖先或非快进使用 `update_kind=force` 并要求 break-glass grant。
 4. 运行 commit title 与 fix-test history guard。
-5. 调用完整协议：`submit --profile push --base-kind <kind> [--base <sha>] --head <local_sha> --local-ref <local_ref> --remote-ref <remote_ref> --observed-remote <remote_sha> --update-kind <kind> --wait`。
+5. 调用完整协议：`submit --profile push --base-kind <kind> [--base <sha>] --head <local_sha> --local-ref <local_ref> --remote-ref <remote_ref> --observed-remote <remote_sha> --update-kind <kind> --wait`。若 submit 返回 queued/running，pre-push 必须在同一次 hook action 内以原 repository、invocation、job_id 发起类型化 wait；禁止退出后靠重试创建新 invocation，否则多个 Agent 会重复排队且永远无法消费已通过回执。
 6. Docker CI 在临时目录执行 clean clone/checkout，并再次验证 `HEAD == requested head_sha`、base/head object 存在、工作树初始 clean。
 7. job 非 passed 时阻止 push。
 
@@ -305,98 +306,98 @@ commit/range 输入由 source exporter 生成同样的只读 Git bundle；容器
 
 ### 7.0 首次 bootstrap
 
-本机不存在已接受镜像时，第一次 `submit` 仍必须自动完成初始化，不要求开发者手工执行 Docker build：
+节点不存在已接受策略的本地镜像时，第一次 `submit` 仍必须自动完成初始化，不要求开发者手工执行 Docker build：
 
 1. 从仓库外 bootstrap trust root 取得受信仓库身份、remote URL、baseline commit、bootstrap runner OCI manifest digest、公钥和最小验证器版本。
-2. 从签名安装包附带的 OCI archive 或 trust root 固定 registry 按 digest 导入 bootstrap runner，逐 descriptor 验证 manifest/config/layers；不得执行 checkout 内 CLI。
-3. scheduler 将 bootstrap 建模为特殊受信 invocation，取得全局 slot 后从固定 bootstrap manifest 创建全新 bootstrap-runner 容器，应用 4 CPU/8 GiB、network、deadline、ResultReceipt 和 removal 合同。容器显式 fetch baseline commit，从其 Git object 导出 Dockerfile、工具链锁和 manifest，并运行固定 fixtures、known-bad corpus、自测试、schema roundtrip 和 required gates；宿主 verifier 只编排、观察和验签，禁止在宿主机启动 gate。
-4. 全部通过后原子写入 generation 1 的 `policy_sha + source_tree_sha + ImageIdentity + image_input_digest` 晋升记录。
-5. 当前 CI job 随后从该 digest 创建新的执行容器；用于 build 的中间容器不能直接充当 job container。
+2. 仓库外签名 launcher 使用安装包内的最小宿主 verifier 校验 baseline Git object、固定构建定义和锁文件，再在当前节点启动受控 BuildKit build；不得导入或拉取预构建 gate/runtime 镜像，也不得执行 checkout 内 CLI。
+3. scheduler 将 bootstrap 建模为特殊受信 invocation并取得全局 slot。BuildKit 只读取 baseline Git tree 导出的 canonical context，按当前平台实时构建 bootstrap runner；构建过程应用 4 CPU/8 GiB、network、deadline 和 provenance 合同。
+4. scheduler 从新构建的本地内容身份创建全新 bootstrap-runner 容器，运行固定 fixtures、known-bad corpus、自测试、schema roundtrip 和 required gates；宿主 verifier 只编排、观察和验签，禁止在宿主机启动 gate。
+5. 全部通过后原子写入 generation 1 的 `policy_sha + source_tree_sha + image_input_digest` 晋升记录，并把该节点的 `NodeImageIdentity` 作为可丢弃物化证据单独记录。
+6. 当前 CI job 随后从该节点本地内容身份创建新的执行容器；用于 build 的中间容器不能直接充当 job container。
 
-bootstrap trust root 由签名安装包写入 `~/.config/super-dolphin/gate/bootstrap-root.json`，其内容不从当前 checkout 更新；至少固定 `repo_id`、规范化 remote URL、baseline commit、bootstrap runner OCI identity、manifest digest、Ed25519 公钥、最小 launcher/verifier/promotion controller 的二进制摘要、安装包 signer 和 verifier version。Keychain ACL 绑定仓库外 launcher/controller 的代码签名；候选容器、构建上下文、仓库 CLI 和未签名二进制均不可调用签名私钥。root/key 更新必须由旧 root 签名，记录 key epoch、not-before/not-after、revocation 和恢复流程。缺 trust root、可信 runner 容器、baseline、签名、输入摘要、测试或晋升记录时 fail-fast；不得把“本机还没有真相镜像”作为回退到宿主机直跑的理由。完成首次 bootstrap 后，所有策略变更均走旧真相镜像验证候选镜像的正常晋升流程。
+bootstrap trust root 由签名安装包写入 `~/.config/super-dolphin/gate/bootstrap-root.json`，其内容不从当前 checkout 更新；至少固定 `repo_id`、规范化 remote URL、baseline commit、Ed25519 公钥、最小 launcher/verifier/promotion controller 的二进制摘要、锁定基础镜像 digest、安装包 signer 和 verifier version。Keychain ACL 绑定仓库外 launcher/controller 的代码签名；候选容器、构建上下文、仓库 CLI 和未签名二进制均不可调用签名私钥。root/key 更新必须由旧 root 签名，记录 key epoch、not-before/not-after、revocation 和恢复流程。缺 trust root、baseline、签名、输入摘要、构建证明、测试或晋升记录时 fail-fast；不得把“本节点还没有真相镜像”作为回退到宿主机直跑或拉取预构建镜像的理由。
 
 ### 7.1 构建输入
 
-以下路径仅是初始种子，不是手写权威闭包：
+以下路径是环境镜像闭包的初始种子，不是完整仓库源码清单：
 
 ```text
 build/gate/Dockerfile
 build/gate/toolchain.lock
-go.mod
-go.sum
-frontend-app/package.json
-frontend-app/package-lock.json
+build/gate/runtime-deps.lock
 cmd/super-dolphin-gate/**
+cmd/super-dolphin-gate-executor/**
 internal/devtools/gate/**
-scripts/ai_maintenance/**
-scripts/test_with_guard.sh
-scripts/go_with_guard.sh
-scripts/go_guard_shell.sh
-Makefile
+internal/devtools/localci/**
 ```
 
-manifest generator 从规范化 `SourceSpec.source_tree_sha` 自动闭包 Dockerfile `COPY/ADD`、Gate CLI 编译依赖、GateSpec 命令目标、Make 依赖、wrapper 和生成器，生成 canonical sorted input manifest。source exporter 从同一 Git tree 生成 canonical tar build context 并计算 `context_digest`；BuildKit 只能读取该 tar，禁止以 cwd 为 context。BuildKit provenance 的 materials、Dockerfile digest 和 context digest 必须与 manifest 完全一致。
+manifest generator 从已接受环境输入 Git object 自动闭包 Dockerfile `COPY/ADD`、Gate CLI/executor 编译依赖、工具链与依赖锁和 policy，生成 canonical sorted image manifest。普通产品 `cmd/**`、`internal/module/**`、`frontend-app/src/**`、测试和文档不得进入环境镜像闭包。candidate state 和 build request 只能持久化该环境输入闭包，禁止以 base64 或其他形式嵌入完整 Git tree。source exporter 为每次 job 从请求的 `SourceSpec` 生成独立 Git bundle/manifest，节点侧只物化一次并复验 `source_tree_sha`，随后由本次 `shards_per_job` 个 shard 以只读方式共享；源码 bundle 不进入 BuildKit context。
+
+Go 依赖层只构建锁文件绑定的节点共享 module proxy，执行容器校验 job tree 的 `go.sum` 与 runtime-proxy lock 后直接使用该只读 proxy；禁止在环境镜像生成 vendor，也禁止把 vendor 注入 job tree。为兼容已签名安装的 schema v4 bootstrap controller，`runtime-deps.lock.paths.vendor` 暂时保留为不参与构建与执行的 legacy 解码字段，不代表镜像中必须存在该目录。`cmd/agent-terminal/web-dist` 是未提交的产品构建产物：frontend build/embed 门禁必须从本次 Git tree 构建并验证真实产物；backend/race 仅为 Go 包加载注入环境镜像内固定、只读且与产品代码无关的单文件 embed 编译占位种子，禁止把它当作产品构建证明。
 
 `image ensure` 只从上述只读 Git object/context 读取输入，不读取 cwd。它对 Git blob SHA、文件 mode、内容 SHA-256、build args、目标平台、Dockerfile frontend/BuildKit 版本、所有 `FROM` 基础镜像 digest、锁定依赖源和网络策略计算 `image_input_digest`。无法闭包命令目标、存在未声明 `COPY/ADD`、出现 symlink 越界、未锁定外部依赖或 provenance/materials 漂移时 fail-fast。
 
-候选 build 使用每次 build 隔离的 rootless worker/cgroup 和按 `image_input_digest` 隔离的 cache namespace；禁止 secret mount、SSH forwarding、host network、insecure entitlement、Docker socket、宿主 credential helper、代理变量和跨候选可写 cache。外部网络仅允许访问 trust root 登记且内容 digest 固定的依赖代理/registry，访问记录进入 provenance。恶意 Dockerfile 请求被禁 entitlement、读取 secret/socket、越界网络或污染其他 cache 时 build 失败。
+候选 build 使用受控 rootless worker/cgroup；禁止 secret mount、SSH forwarding、host network、insecure entitlement、Docker socket、宿主 credential helper和代理变量。BuildKit 缓存只存在于当前执行节点；同一节点的全部 Agent、CI invocation、runtime dependency 镜像和候选真相镜像必须复用唯一固定的持久 cache pool，禁止按源码树、镜像输入或依赖 digest 创建新 cache 目录。环境输入 digest 未变化时 `image ensure` 必须在 inspect/identity 复验后直接返回，禁止仅为了“刷新缓存”再次执行 BuildKit。只有环境输入变化时才读取并写回该共享 pool；普通业务源码变化只更新 source bundle，不访问 image build cache。缓存不得上传、导出、导入或跨节点复制，命中也不能替代锁文件、provenance 和产物身份复验。
 
-每次 `submit` 都必须把同一 `source_object + source_tree_sha` 交给 scheduler；scheduler 先持久化 invocation/workload，再在持有全局 slot 时调用 `image ensure`。输入 digest 命中已接受镜像时直接解析其不可变 identity；输入变化时自动排入 candidate build workload。`source_tree_sha + input_manifest_digest + context_digest + provenance_digest` 同时写入晋升记录和 receipt。相同 build key 可以 singleflight，但独立 CI invocation 不能复用历史 job；build 未完成时不能回退到可变 tag。
+每次 `submit` 都必须把 job 的 `source_object + source_tree_sha` 交给 scheduler；scheduler 先持久化 invocation/workload，再解析已接受 `EnvironmentTruth`。环境输入 digest 命中时直接复验并使用不可变镜像 identity，不创建 build workload；仅环境输入变化时自动排入 candidate build workload。receipt 同时写入 job source identity 与 accepted environment/image identity。相同环境 build key 可以 singleflight，但独立 CI invocation 不能复用历史 job。
 
 ### 7.2 镜像标签与 digest
 
-`ImageIdentity` 分开记录 OCI index digest、目标 platform manifest digest、config digest、rootfs diff IDs 和平台三元组。执行 authority 是目标 platform manifest digest；多平台发布 identity 是 OCI index digest。不得用本地 image ID/config digest 冒充 registry manifest digest。
+`NodeImageIdentity` 记录当前节点 Docker daemon identity、本地 image ID、config digest、rootfs diff IDs、平台三元组和完整 labels。它必须绑定 `image_build_tree_sha + image_input_digest + toolchain_digest`，只在生成它的节点和 daemon 内有效。job 的 `source_tree_sha` 由 source bundle/materialization receipt 单独证明，不写成环境镜像的源码标签。
 
 ```text
 human tag: super-dolphin-gate:<policy-sha-prefix>
-execution authority: <registry-or-local-content-address>@sha256:<platform-manifest-digest>
-distribution identity: sha256:<oci-index-digest>
+execution authority: local image ID + daemon identity
+cross-node authority: image_build_tree_sha + image_input_digest + locked build definition
 labels:
   org.super-dolphin.policy-sha
-  org.super-dolphin.source-tree-sha
+  org.super-dolphin.source-tree-sha  # 兼容字段名；语义是 image_build_tree_sha，不是本次 job tree
   org.super-dolphin.image-input-digest
   org.super-dolphin.toolchain-digest
   org.super-dolphin.schema-version
 ```
 
-调度器只按 digest 启动 job。标签指向错误 digest、label 缺失或 label 与请求不一致时拒绝执行。
+调度器在 `docker create` 前后都按 image ID 重新 inspect，并复验 daemon identity、config、rootfs 和 labels。标签指向错误 image ID、label 缺失或 label 与请求不一致时拒绝执行。远程节点不得接受另一个节点提供的 image ID；它必须从相同 Git object 独立构建。
 
 ### 7.3 晋升规则
 
-普通业务提交使用当前已接受 policy SHA 对应的真相镜像。`PromotionController` 是仓库外签名组件；受信 remote URL、接受 ref（默认 `refs/heads/main`）、当前 generation 和公钥来自 bootstrap root/外部单调 state。若候选修改 CLI、gate registry、Dockerfile 或镜像输入，采用两阶段状态机：
+普通业务提交使用当前已接受 policy SHA 对应的锁定构建定义，并在执行节点确保其本地物化镜像存在。`PromotionController` 是仓库外签名组件；受信 remote URL、接受 ref（默认 `refs/heads/main`）、当前 generation 和公钥来自 bootstrap root/外部单调 state。若候选修改 CLI、gate registry、Dockerfile 或镜像输入，采用两阶段状态机：
 
-1. 旧真相 runner 完成候选验证并产出 ResultReceipt；scheduler 的唯一 grant issuer 基于该证据签发 audience=`git.push` 的 ActionGrant。scheduler 构建/验证候选镜像后将其持久化为 `awaiting_trusted_ref`，但继续使用旧 generation 执行权威 CI。
+1. 旧策略的节点本地 runner 完成候选验证并产出 ResultReceipt；scheduler 的唯一 grant issuer 基于该证据签发 audience=`git.push` 的 ActionGrant。scheduler 实时构建并验证候选镜像后将候选策略持久化为 `awaiting_trusted_ref`，但继续使用旧 generation 执行权威 CI。
 2. pre-push 只原子消费本次 audience=`git.push` 的 ActionGrant 并允许 Git push；它不在远端接受前晋升。
 3. scheduler 的 trusted-ref watcher 在 admission 后自动轮询/fetch 受信 remote/ref，无需第二条人工命令。它只处理该 ref 的精确 tip；若 tip 已前进，旧 pending candidate 标记 superseded，并为新 tip 重新计算 CI 输入，不得因 tip“包含”旧候选就晋升旧策略。
-4. `promotion` profile 从上一 accepted manifest 创建 runner 容器，对精确 tip 的固定 fixture、known-bad corpus、新旧 plan、required gate、命令闭包、退出码、结果 schema、BuildKit provenance 和候选 ImageIdentity 完成验证；verifier 只提交证据，scheduler grant issuer 基于 promotion ResultReceipt 签发 audience=`image.promote` 的 ActionGrant。
-5. 启用 registry 时先 push staging digest，远端逐 descriptor 复验 OCI index/manifest/config/layers 和 attestation；controller 将状态持久化为 `staged -> admitted`。
-6. 外部单调 store 以 `expected_previous_policy + expected_previous_image + expected_generation` 对签名 PromotionRecord 做一次原子 authority CAS，成功后状态为 `committed` 且 generation 加一；本地 accepted locator 只是可从该 store 重建的缓存，materialize 后状态为 `materialized`。本地模式使用 Keychain 代码签名 ACL 保护的 latest-generation anchor + 仓库外 append-only signed record log；log/anchor 缺失或回退时 fail-closed，并只从受信远端 record store 恢复。
-7. controller 在 staged/admitted/committed/materialized 任一 crash point 重启后按外部 authority 幂等恢复；CAS 冲突、ref 回退、重复 generation、pending 超时、候选不可达、签名错误、远端发布失败或 digest 不一致时保持旧真相源并失败，不允许候选代码直接晋升自己。
+4. `promotion` profile 从上一 accepted policy 的节点本地镜像创建 runner 容器，对精确 tip 的固定 fixture、known-bad corpus、新旧 plan、required gate、命令闭包、退出码、结果 schema、BuildKit provenance 和候选 `NodeImageIdentity` 完成验证；verifier 只提交证据，scheduler grant issuer 基于 promotion ResultReceipt 签发 audience=`policy.promote` 的 ActionGrant。
+5. 外部单调 store 以 `expected_previous_policy + expected_previous_input_digest + expected_generation` 对签名 PromotionRecord 做一次原子 authority CAS，成功后 generation 加一。PromotionRecord 只记录策略、Git object、构建输入和锁摘要，不包含可供其他节点拉取的镜像地址。
+6. 当前节点把已验证的 `NodeImageIdentity` 记录为可丢弃 materialization；其他节点观察到新 generation 后，从 PromotionRecord 的精确 Git object 独立实时构建并验证自己的本地 materialization。
+7. controller 在 awaiting_trusted_ref/committed/materialized 任一 crash point 重启后按外部 authority 幂等恢复；CAS 冲突、ref 回退、重复 generation、pending 超时、签名错误、构建失败或本地产物身份不一致时保持旧真相源并失败，不允许候选代码直接晋升自己。
 
 固定 fixtures 和兼容性判定来自旧真相镜像或 bootstrap trust root，不能由候选单方面替换。镜像构建是统一 FIFO 中的 `build` workload，占一个全局 slot 且同一时间最多一个；构建期间新 job 不得插队，不能使用半构建镜像。已运行旧 generation job 可以完成，其 receipt 明确记录 `accepted_at_submit` 与 `accepted_at_finish`；generation 变化时状态为 `passed_stale_policy`，只能展示历史结果，不能授权新的 push/release action。
 
-### 7.4 本地与 workflow 分发边界
+### 7.4 本地与远程节点实时构建边界
 
-- 本地 Git/Codex/CLI 入口从仓库外签名 PromotionRecord 解析已接受 generation，再使用 scheduler 独占的 loopback OCI registry（固定 repository、TLS identity、不可变 digest）中的目标 platform manifest。build 先 push staging repository 并逐 descriptor 复验，CAS 后才 materialize accepted repository；`docker create` 前再次解析/验证 manifest/config/layers。该 registry 是基础设施，不签发 CI 结果；不可用时 fail-fast。
-- GitHub 托管 runner 无法访问本机 image store。若 workflow 仍承担 required CI，`image promote` 必须把完全相同的 OCI index/platform manifest/config/rootfs 链发布到受控 registry，workflow 只能按目标 platform manifest digest pull 后创建容器。
-- registry 地址与完整 `ImageIdentity` 必须进入晋升记录与 receipt；workflow 禁止用 branch tag、`latest` 或在 runner 上自行重建一份未晋升镜像冒充真相源。
-- 第一版若不配置 registry，则本地容器 CI 可以完成，但远端 required workflow 迁移必须保持 blocked；不得回退为 workflow 宿主机直跑。
+- 本地 Git/Codex/CLI 入口从仓库外签名 PromotionRecord 解析已接受 generation、环境输入 Git object 和 `image_input_digest`。命中本机不可变环境镜像时只复验 inputs、labels、config 和 rootfs，不运行 BuildKit；仅本机无该环境 identity 或环境输入变化时实时构建。每次 job 的 Git object 通过独立 bundle 物化，不参与镜像命中键。
+- GitHub 托管 runner、自托管 runner或另一台开发机同样从精确 Git object 独立构建。禁止从 GHCR、Docker Hub、artifact、共享目录或另一节点 Docker daemon 拉取预构建 gate/runtime 真相镜像。
+- 后期可用 SSH 作为远程 CI 派发传输层，但只传递签名任务、仓库身份、精确 Git OID、profile 和 deadline。远端节点必须从受信 Git remote 取得并复验该 Git object，再使用自己的 Docker daemon 实时构建和执行；SSH 不得传输源码快照、预构建镜像、OCI layout、本地 image ID 或 BuildKit cache。
+- 每个节点只有一份供本节点全部仓库工作树、Agent、CI 任务和镜像共享的持久 BuildKit cache pool；完整路径由该节点的仓库外 `CandidateBuildRoot` 配置解析，只固定相对目录 `cache/shared`，不得在代码或仓库配置中写死某台设备的绝对路径。cache 路径严禁包含 worktree path、agent ID、source tree、image input 或 dependency digest。任务退出只回收 builder、OCI layout 和执行容器，不删除共享 cache。禁止 cache export/import、跨机复制和把 cache 命中作为正确性证据。节点清空缓存后必须能够从 Git object 与锁定依赖重新构建。
+- 不同 CPU 架构分别构建各自平台产物；跨节点比较 `image_build_tree_sha + image_input_digest + toolchain_digest + platform + provenance materials`，job source 另比较 `source_tree_sha + bundle_digest`，不要求不同架构具有相同本地 image ID。
+- receipt 同时记录 job source truth、全局环境构建真相和当前节点的 `NodeImageIdentity`。另一个节点只能信任前两者并自行物化源码和镜像，不能直接使用收到的 host path 或 image ID。
 
-远端 runner 预置 bootstrap 公钥，只从仓库外只增不改的 PromotionRecord store 获取当前记录，验证 repo ID、trusted ref/event SHA、generation、签名、完整 OCI identity 和 attestation 后才 pull/create。候选 workflow 文件不能传入或覆盖 authority digest。
+远程 runner 预置 bootstrap 公钥，只从仓库外只增不改的 PromotionRecord store 获取当前记录，验证 repo ID、trusted ref/event SHA、generation、签名、Git object 和构建输入摘要后才开始本地 build。候选 workflow 文件不能传入或覆盖 authority 输入。
 
-GitHub 远端 required check 的唯一 owner 是组织级受保护 reusable workflow + GitHub App check publisher，二者配置不来自候选 ref。受保护 workflow 使用 GitHub OIDC identity，在 runner 上执行独立 `remote-required` submit、从 accepted manifest 创建新容器并产生带 OIDC attestation 的 ResultReceipt；只有 App identity 可以发布 branch protection/merge queue 所要求的 check 名称。候选仓库 workflow、同名 job、空成功或本地签名不能产生等价 required 结论。直接 API 更新 ref、未安装 hook或 `--no-verify` 仍必须经过该远端容器 check；自管 Git server 则使用受信 receive hook 验证 exact old/new/ref。未部署该远端 authority 时，本地 Docker CI 可以使用，但不得声明远端 Git 授权闭环或 release ready。
+GitHub 远端 required check 的唯一 owner 是组织级受保护 reusable workflow + GitHub App check publisher，二者配置不来自候选 ref。受保护 workflow 使用 GitHub OIDC identity，在 runner 上执行独立 `remote-required` submit、实时构建节点本地镜像、创建新容器并产生带 OIDC attestation 的 ResultReceipt；只有 App identity 可以发布 branch protection/merge queue 所要求的 check 名称。候选仓库 workflow、同名 job、空成功或本地签名不能产生等价 required 结论。
 
-该分发不要求新建独立 CI 服务器：本地任务仍由本机 Docker 执行，远端 workflow 使用现有 runner 的 Docker。若未来要求所有远端事件也必须回到本机 Docker，则必须引入 self-hosted runner 或受认证的远程提交服务，属于下一阶段基础设施。
+该模型不要求新建独立 CI 服务器：当前本地任务由本机 Docker 构建和执行；后期既可由远端 workflow，也可由受信 SSH dispatcher 将任务派发到远端 runner，但构建与 CI 容器始终在接收任务的节点本地完成。需要跨节点统一排队时才引入中央调度服务，但中央调度器也不得分发源码快照、预构建真相镜像或 BuildKit 缓存。
 
 ---
 
 ## 8. 本地调度与资源合同
 
-### 8.1 固定资源
+### 8.1 可配置容量与固定单容器上限
 
 ```text
-max_running_gate_containers = 3
-max_active_ci_workloads = 3
+shards_per_job = 5
+max_running_gate_containers = 20
+max_active_ci_workloads = 20
 container_cpus = 4
 container_memory = 8 GiB
 normal_timeout = 10m
@@ -405,15 +406,15 @@ queue_policy = FIFO
 max_image_builds = 1
 ```
 
-Docker Desktop 若要同时兑现 3 个 job 的完整上限，需要至少允许 12 CPU 与 24 GiB 内存；启动自检必须报告实际配额。配额不足时不能静默降低单 job 限额，应拒绝启动或要求显式调整配置。
+节点若要兑现配置的完整并发，应具备与 `max_active_ci_workloads × container_cpus / container_memory` 相匹配的可用资源；启动自检必须报告 daemon CPU、内存、配置上限和理论最坏值。容器的 4 CPU/8 GiB 是 cgroup 上限，不是启动时一次性预占；实际内存随 workload 使用增长。配额不足时不能静默篡改配置，应拒绝启动或要求显式调整容量或分片数。
 
-资源合同固定为“每个执行容器最多 4 CPU/8 GiB，最多 3 个执行容器”。若部署机器只给 Docker Desktop 总计 4 CPU/8 GiB，则该机器不满足 3 并发合同，必须降低 `max_running_gate_containers` 后形成新的显式配置与 receipt，不能仍宣称 3 并发规格已兑现。
+资源合同固定的是“每个执行容器的上限”和“节点显式配置的全局 slot 数”，不固定 slot 数值。`shards_per_job` 必须处于 `1..min(max_active_ci_workloads, canonical_gate_count)`；单个 invocation 的 shard gang 大于节点容量时立即 fail-fast。修改容量配置必须产生新的配置身份与 receipt，不能仍沿用旧容量声明。
 
 每个执行容器默认 `network=none`、非 root、`cap-drop=ALL`、`no-new-privileges`、只读 rootfs、只读 source、受限 tmpfs、固定 seccomp，并清空宿主环境、凭据和代理变量；同时设置 PID、临时磁盘和日志上限，不挂载 Docker socket，不使用 privileged，不共享可写源码、Git index、生成物目录或 `.build-cache`。确需服务依赖的 gate 必须为该 invocation 创建唯一 internal network；service container 绑定 invocation token/labels，不能与其他 job 共享 DNS/alias，并且每个 service container 也占全局 slot。receipt 记录完整 network/container 集合和 removal proof。依赖下载只发生在受控构建阶段并受 lock/digest 约束。
 
 ### 8.2 单例调度所有权
 
-调度 key 不是 Docker context 名称，而是规范化 endpoint/TLS fingerprint 加 Docker `/info` daemon ID。多个 context alias 指向同一 daemon 时必须解析为同一 key 和同一 scheduler。第一版只支持当前 UID 独占拥有的本地 Docker daemon/socket；发现 group/world 可写 socket、共享 daemon 或无法证明唯一 owner 时拒绝启动，不把“每用户各 3 个”冒充 daemon 全局 3 个。
+调度 key 不是 Docker context 名称，而是规范化 endpoint/TLS fingerprint 加 Docker `/info` daemon ID。多个 context alias 指向同一 daemon 时必须解析为同一 key 和同一 scheduler。第一版只支持当前 UID 独占拥有的本地 Docker daemon/socket；发现 group/world 可写 socket、共享 daemon 或无法证明唯一 owner 时拒绝启动，不把“每进程各自的容量”冒充 daemon 全局容量。
 
 CLI、Git Hook、Codex Hook 和所有 worktree/clone 只通过仓库外 Unix socket 连接该唯一 scheduler daemon，不得在各自进程内创建私有 scheduler。socket 权限固定 `0600` 并校验 peer UID。
 
@@ -424,13 +425,13 @@ lock:   ~/.local/share/super-dolphin-gate/<daemon-identity>/scheduler.lock
 keys:   macOS Keychain / host secret store
 ```
 
-daemon 以进程锁和 SQLite 原子 slot lease 管理全局容量。job/service container 各占一个 slot，candidate image build session 也占一个 slot，因此任意时刻 `running job/service containers + active builds <= 3`；build 仍受 `max_image_builds=1` 约束。build 只能通过 scheduler 独占的 rootless BuildKit control endpoint 启动，持久化 solve/session ID、heartbeat 和 owner lease；不得依赖无法枚举的匿名 build。启动、恢复和发放 slot 前必须通过 Docker API/BuildKit control API 对账全部受控 workload；未知或重复 owner 时 fail-fast，不再启动容器。
+daemon 以进程锁和 SQLite 原子 slot lease 管理全局容量。job/service/shard container 各占一个 slot，candidate image build session 也占一个 slot，因此任意时刻 `running job/service/shard containers + active builds <= max_active_ci_workloads`；build 仍受 `max_image_builds=1` 约束。`shards_per_job=5` 且全局容量 20 时，4 个独立 invocation 可以各占 5 个 slot 同时运行，后续 runnable workload 进入统一队列。build 只能通过 scheduler 独占的 rootless BuildKit control endpoint 启动，持久化 solve/session ID、heartbeat 和 owner lease；不得依赖无法枚举的匿名 build。启动、恢复和发放 slot 前必须通过 Docker API/BuildKit control API 对账全部受控 workload；未知或重复 owner 时 fail-fast，不再启动容器。
 
 ### 8.3 FIFO、去重与取消
 
-每次 `submit` 先生成新的 `invocation_id + request_nonce + enqueue_seq` 并持久化依赖 DAG，再解析/构建镜像。workload 类型为 `job|build|service`，共享同一单调 FIFO。等待依赖的 job 不占 slot；缺镜像时，singleflight build 继承最早依赖 invocation 的 `enqueue_seq` 和子序号 0，build 完成后唤醒依赖 job。需要服务的 invocation 必须在启动任何容器前原子 gang-reserve `1 job + N services` 个 slot，需求大于 3 立即失败；部分 create 失败时回滚全部 lease/container/network。
+每次 `submit` 先生成新的 `invocation_id + request_nonce + enqueue_seq` 并持久化依赖 DAG，再解析/构建镜像。workload 类型为 `job|build|service|shard`，共享同一单调 FIFO。等待依赖的 job 不占 slot；缺镜像时，singleflight build 继承最早依赖 invocation 的 `enqueue_seq` 和子序号 0，build 完成后唤醒依赖 job。每个 invocation 必须在启动任何 shard 前按配置原子 gang-reserve `shards_per_job + N services` 个 slot，需求大于 `max_active_ci_workloads` 立即失败；部分 create 失败时回滚全部 lease/container/network。
 
-调度器每次选择 `enqueue_seq` 最小的 runnable DAG node；blocked head 不占 slot，也不阻止其依赖 build 运行。相同 enqueue_seq 按 `build -> service gang -> job` 固定排序，gang 资源不足时保持 queued 并继续检查下一个不依赖该 gang、但 enqueue_seq 更大的 runnable node，避免空闲 slot；一旦 gang 可满足，不能被后来节点持续饿死。build 使用 4 CPU/8 GiB、普通 10 分钟或 release 30 分钟的同一资源/deadline/heartbeat/kill/reconcile 合同。
+调度器每次选择 `enqueue_seq` 最小的 runnable DAG node；blocked head 不占 slot，也不阻止其依赖 build 运行。每个 job 的硬依赖只允许包含该 invocation 自己的 candidate build 或 service gang，不得把前一个 invocation 的 job ID 写成成功依赖；跨 invocation 顺序由单调 `enqueue_seq`、全局 slot 和同一 job 的原子 gang 控制，前序任务进入任何 terminal failure 后都不能永久阻塞后续任务。相同 enqueue_seq 按 `build -> service gang -> job` 固定排序，gang 资源不足时保持 queued 并继续检查下一个不依赖该 gang、但 enqueue_seq 更大的 runnable node，避免空闲 slot；一旦 gang 可满足，不能被后来节点持续饿死。build 使用 4 CPU/8 GiB、普通 10 分钟或 release 30 分钟的同一资源/deadline/heartbeat/kill/reconcile 合同。
 
 任务身份字段：
 
@@ -470,7 +471,7 @@ network_policy_digest
 
 scheduler 为每个 job 生成随机 nonce 和短期、单次使用的 `SignedJobToken`，绑定 job ID、invocation、规范化 SourceSpec、source tree、profile、image identity、generation、deadline 和 container ID。token 由宿主机密钥签名，在 trusted runner 启动握手时原子消费；过期、重放、跨 job/container 使用均失败。候选容器永远不能读取宿主签名私钥。
 
-容器只返回未受信的原始执行事件。trusted runner/verifier 向 scheduler 提交由其直接观察的 gate plan、进程/argv digest、事件闭包、退出状态和日志摘要；scheduler 结合 Docker inspect 生成 `ResultReceipt`，并使用对应 key-purpose 的宿主机 Ed25519 密钥签名。receipt 至少包含：repo/invocation/source object/source tree、plan/policy/runner digest、完整 ImageIdentity、promotion generation、container/network/service IDs、规范化 HostConfig/network policy、资源限制、started_at/deadline、逐 gate/evidence/log digest、最终状态、container/network removal proof、signer key ID 和 key epoch。候选生成的 JSON 或 checksum 不能成为权威 receipt。
+容器只返回未受信的原始执行事件。trusted runner/verifier 向 scheduler 提交由其直接观察的 gate plan、进程/argv digest、事件闭包、退出状态和日志摘要；scheduler 结合 Docker inspect 生成 `ResultReceipt`，并使用对应 key-purpose 的宿主机 Ed25519 密钥签名。receipt 至少包含：repo/invocation/source object/source tree、plan/policy/runner digest、完整 `NodeImageIdentity`、promotion generation、container/network/service IDs、规范化 HostConfig/network policy、资源限制、started_at/deadline、逐 gate/evidence/log digest、最终状态、container/network removal proof、signer key ID 和 key epoch。候选生成的 JSON 或 checksum 不能成为权威 receipt。
 
 可缓存 `ResultReceipt` 只用于审计，不授权新的权威动作。Git push、release、promotion 等消费端必须提交 typed `GrantRequest`：绑定 result receipt、invocation owner/subscriber capability、受信 adapter identity、进程 challenge、audience/action policy、remote/ref/old/new SHA 和 request nonce。
 
@@ -521,11 +522,11 @@ subagent: session_id + turn_id + agent_id
 **写集：** `docs/plans`、新 gate contract tests。
 
 1. 重新解析并记录执行时 `HEAD`、受信 remote URL/ref/SHA，禁止沿用文档静态基线。
-2. 固定 SourceSpec、ImageIdentity、PromotionRecord、签名 token/receipt、CLI 命令、profile、退出码和 JSON schema。
+2. 固定 SourceSpec、NodeImageIdentity、PromotionRecord、签名 token/receipt、CLI 命令、profile、退出码和 JSON schema。
 3. 建立 CI entrypoint inventory RED：现有 Hook、workflow、Make target、PowerShell/Go/shell wrapper 和 Codex 脚本中的宿主机权威直跑全部被识别。
 4. 建立 Codex Hook fixture：Stop、SubagentStop、permission_mode 全枚举、缺 cwd/agent_id、orchestrator spawn record 抢注/重放、stop_hook_active 的 queued/failed/passed/tree-changed、managed requirements/launcher identity 变化失效、竞争 repo/user hook 无 authority。
 5. 建立 Git fixture：commit/tree/range 互斥、base_kind/ref/update kind、dangling staged tree bundle、普通 range、新分支、zero SHA、fast-forward/force break-glass、无共同祖先、dirty/partial index；delete 明确走独立 Git 策略。
-6. 建立 scheduler RED：context alias/竞争单例、第 4 个 workload 排队、三个冷 submit、build/tie-breaker、job+services gang、部分 create rollback、统一 DAG/FIFO、旧 SHA supersede、outbox crash/replay、GrantRequest 越权、ActionGrant issuance/delivery/双消费/crash/revoke。
+6. 建立 scheduler RED：context alias/竞争单例、配置容量达到上限后下一个 workload 排队、多组冷 submit、build/tie-breaker、job+services/shards gang、部分 create rollback、统一 DAG/FIFO、旧 SHA supersede、outbox crash/replay、GrantRequest 越权、ActionGrant issuance/delivery/双消费/crash/revoke。
 7. 建立 image/promotion RED：canonical context/provenance 闭包、输入变更触发 rebuild、Git object/构建上下文错配、OCI digest 错配、候选伪造全绿事件不能获签、首次 push 后 watcher 自动晋升、CAS 冲突和回滚拒绝。
 
 **出口：** 所有缺口由确定性 RED 锁定，字段动态差集可报告准确 missing/stale。
@@ -554,7 +555,7 @@ subagent: session_id + turn_id + agent_id
 
 **建议写集：** `internal/devtools/localci/scheduler*`、状态存储和 scheduler tests。
 
-- 实现基于 daemon identity 的单例、build/job/service DAG FIFO、gang reservation、全局 3 slot、同 invocation subscriber、durable outbox、取消/恢复、签名 token/receipt/action grant。
+- 实现基于 daemon identity 的单例、build/job/service/shard DAG FIFO、gang reservation、节点可配置全局 slot、同 invocation subscriber、durable outbox、取消/恢复、签名 token/receipt/action grant。
 - 第一版队列/outbox/lease 可使用仓库已有 SQLite driver，但 PromotionRecord authority 与 Keychain generation anchor 不以该 SQLite 为真值；数据库属于 developer tooling，不进入产品 store/module。
 - 不使用 Redis 作为权威状态。
 
@@ -596,21 +597,22 @@ Task 1A/1B/1C 可并行，但先冻结共享类型；每条 lane 不得各自复
 | 面 | 最小证明 |
 |---|---|
 | Git commit truth | 容器 checkout 的 HEAD 精确等于请求 head SHA，初始工作树 clean |
-| SourceSpec | commit/tree/range 严格互斥；base_kind/ref/observed remote/update kind 正确；source tree、镜像输入、容器源码、plan 和 receipt 完全一致 |
+| SourceSpec | commit/tree/range 严格互斥；base_kind/ref/observed remote/update kind 正确；job source tree、容器源码、plan 和 receipt 完全一致，并与 environment image identity 分字段记录 |
 | Active worktree | dangling staged tree 经临时 bare repo/bundle 导入；容器复算 tree SHA；tree 变化使旧结果失效；partial index 被拒绝 |
-| Queue/DAG | context alias 解析同一 daemon；三个冷 submit 无死锁；build 继承最早票据；job+services 原子 gang reserve；第 4 个 workload queued |
+| Queue/DAG | context alias 解析同一 daemon；多组冷 submit 无死锁；build 继承最早票据；job+services/shards 原子 gang reserve；超过配置容量的 workload queued |
 | Fresh container | 每个独立 submit 都有新 invocation nonce/container/removal proof；只有同 invocation observer 可订阅；历史 passed receipt 不能代替运行 |
 | Resources | Docker inspect 证明 `--cpus=4`、`--memory=8g`、非 root、cap-drop、只读 rootfs/source、PID/磁盘/日志限制 |
 | Network isolation | 默认 network none；每 invocation 独占 internal network/service identity；跨 job TCP/DNS 不可达；宿主凭据和 Docker socket 不可见 |
-| Build isolation | 候选 Dockerfile 无 secret/SSH/host network/insecure entitlement/socket/proxy；cache 按 input digest 隔离；只访问锁定依赖代理 |
+| Build isolation | 候选 Dockerfile 无 secret/SSH/host network/insecure entitlement/socket/proxy；节点外配置根下唯一 `cache/shared` 被全部工作树和镜像复用，路径不含设备、工作树或 digest 身份；只访问锁定依赖源 |
 | Timeout | fresh shard/container 在 admission 后启动执行时钟：非 release 10m、release 30m；排队时间单列，源码快照准备独立 15m；候选 truth-image 构建与晋升独立 30m；重启不重置已启动的执行 deadline；超时 kill/wait/remove 且不 passed |
-| Image truth | canonical tar/context/provenance materials、source object/input manifest/OCI identity 一致；基础镜像/BuildKit/依赖进入闭包 |
+| Image truth | 普通源码/测试/文档变化不调用 BuildKit且复用 accepted image；runner、Dockerfile、policy、工具链或依赖锁变化才改变 image input；image context/provenance 与环境闭包一致 |
+| Source injection | 每个 job 的精确 Git tree 只物化一次；`shards_per_job` 个一次性 shard 只读共享同一 snapshot；tree/bundle/manifest 任一不匹配 fail-fast |
 | Trusted runner | 候选 executor 伪造全绿且未启动 required command 时，旧 verifier 通过进程/argv/log/known-bad 闭包证明并拒绝晋升 |
-| Bootstrap | 空 image store 从固定 OCI digest 创建 bootstrap-runner 容器；宿主不执行 gate；篡改 checkout/CLI/verifier、未知 baseline、签名错误失败 |
-| Promotion | promotion profile 从上一 accepted manifest 新建 runner 容器；一次 push 后 watcher 晋升精确 tip；staged/admitted/committed/materialized 各 crash point 可恢复 |
-| Image distribution | 本地与远端 receipt 绑定同一 OCI index/platform manifest/config/rootfs 链；无 registry 时远端 required workflow fail-fast blocked |
+| Bootstrap | 空 image store 从固定 baseline Git object 实时构建 bootstrap-runner；宿主不执行 gate；篡改 checkout/CLI/verifier、未知 baseline、签名错误失败 |
+| Promotion | promotion profile 从上一 accepted policy 的节点本地镜像新建 runner 容器；一次 push 后 watcher 晋升精确 tip；awaiting_trusted_ref/committed/materialized 各 crash point可恢复 |
+| Cross-node build | 本地与远端 receipt 绑定同一 Git object、image input、工具链和平台；各节点独立实时构建，禁止分发预构建镜像或 BuildKit cache |
 | Execution gateway | `CIEntrypoint` 清单覆盖 Hook/workflow/Make/release/wrapper；每个入口均到达 `submit`，扫描和契约测试阻止宿主机直接执行权威 gate |
-| Container isolation | 不同 invocation 对应不同 container ID，容器均从 receipt 中的 platform manifest digest 创建并在结束后销毁 |
+| Container isolation | 不同 invocation 对应不同 container ID，容器均从 receipt 中复验过的节点本地 image ID 创建并在结束后销毁 |
 | Codex Stop | 使用 session/turn/cwd；queued/failed 通过 continuation reason 通知根 agent |
 | SubagentStop | 使用 agent_id；独立 worktree 未注册时 fail-fast block |
 | Fields | producer 字段动态枚举，missing/stale/未知枚举/缺字段 fail-first |
@@ -618,7 +620,7 @@ Task 1A/1B/1C 可并行，但先冻结共享类型；每条 lane 不得各自复
 | Recovery | scheduler/Docker daemon 异常不会把不明状态恢复为 passed |
 | Codex activation | requirements managed-only 生效且竞争 hook 无 authority；orchestrator spawn record 防抢注；active 查询父 invocation；Stop/SubagentStop 产生真实 job |
 | Notification | subscriber capability、event_seq、durable outbox、ack/replay 正确；状态提交/投递/ack 各 crash point 不丢失或错投 terminal event |
-| Remote authority | 受保护 reusable workflow 从 accepted manifest 创建容器并产 OIDC attestation；只有 GitHub App identity 能发布 required check |
+| Remote authority | 受保护 reusable workflow 从 accepted Git object 实时构建节点本地镜像、创建容器并产 OIDC attestation；只有 GitHub App identity 能发布 required check |
 
 ### 11.2 完成门槛
 
@@ -627,17 +629,18 @@ Task 1A/1B/1C 可并行，但先冻结共享类型；每条 lane 不得各自复
 - Git `pre-push` 对真实 commit SHA 启动本地 Docker CI，并能阻止失败 push。
 - Git `pre-commit` 对 dangling staged tree 通过只读 bundle 启动容器，容器复算 tree SHA 与请求一致。
 - Codex managed Stop/SubagentStop 通过仓库外签名 launcher 定位 session/agent、permission mode 与 worktree；独立 worktree 走显式注册。
-- 从 context alias、不同进程、worktree 和 clone 同时提交 4 个 workload 时，同一 daemon 只有 3 个 active，第 4 个 queued；job/service/build 同样占 slot且严格 FIFO。
+- 配置 `shards_per_job=5`、`max_active_ci_workloads=20` 时，从不同 Agent、进程、worktree 和 clone 同时提交 4 个 invocation，必须观察到 20 个 shard active；第 5 个 invocation queued。job/service/shard/build 同样占 slot且遵守统一 FIFO/fairness。
 - 三个冷启动 submit、job+两个 service、build singleflight 和任一 create/crash point 均无 slot/FIFO 死锁。
 - 每个 gate/service 容器和 build session 的 inspect/control evidence 证明 4 CPU/8 GiB 限额。
 - 普通与 release timeout 负向测试均通过。
 - 真相镜像变更、构建、digest 校验与晋升闭环通过。
-- canonical build context 与 BuildKit provenance 完全绑定请求 Git tree；候选 runner 伪造全绿事件不能得到 ResultReceipt 或 audience=`image.promote` ActionGrant。
+- canonical image context 与 BuildKit provenance 完全绑定环境输入 Git tree；job source bundle/materialization 独立绑定请求 Git tree。候选 runner 伪造全绿事件不能得到 ResultReceipt 或 audience=`image.promote` ActionGrant。
 - PromotionController 在唯一一次正常 push 后由 watcher 自动观察精确受信 tip并执行 generation CAS；伪造事件/receipt、候选自签、并发覆盖和回滚负测全部失败。
-- promotion 验证本身从上一 accepted manifest 创建新 runner 容器；宿主 controller 不执行 gate。
+- promotion 验证本身从上一 accepted policy 的节点本地镜像创建新 runner 容器；宿主 controller 不执行 gate。
 - 清空本地 gate image/state 后，第一次 `submit` 无需人工 build 即可完成 bootstrap，并从晋升后的 digest 创建独立 job container。
 - bootstrap 的所有 required gate 都在固定 digest 的 bootstrap-runner 容器内执行，宿主 verifier 只观察和验签。
 - 修改任一登记的 CI 真值输入后，不运行人工 build 命令也能由下一次 `submit` 自动构建候选镜像。
+- 仅修改普通产品源码、测试或文档时，下一次 `submit` 不启动 BuildKit；它复用已接受环境镜像、物化新 Git tree，并从该镜像按 `shards_per_job` 创建新容器并行执行门禁。
 - Git Hook、Codex Hook、人工 CI、release 和 workflow required job 不存在绕过 `submit` 的宿主机权威执行路径。
 - GitHub branch protection/merge queue 只接受受保护 reusable workflow + App identity 发布的容器 check；`--no-verify`、同名空 workflow 和 API ref update 不能绕过。
 - 所有权威 receipt 均由候选容器不可访问的宿主机密钥签名；原生 advisory smoke 不得影响权威 CI 状态。
@@ -651,15 +654,15 @@ Task 1A/1B/1C 可并行，但先冻结共享类型；每条 lane 不得各自复
 
 ## 12. 已知风险与实施裁决
 
-- **本机容量：** 3 x 4 CPU / 8 GiB 意味着 Docker Desktop 需要至少 12 CPU / 24 GiB 可分配资源；资源不足是启动 blocker，不通过争抢制造随机超时。
+- **节点容量：** 理论最坏资源为 `max_active_ci_workloads × 4 CPU / 8 GiB`；例如 20 路完整合同要求 80 CPU/160 GiB。资源不足是启动 blocker，不通过争抢制造随机超时；容器内存按实际使用增长，不在启动时一次性预占。
 - **镜像自举：** 首次 bootstrap 只信任仓库外 trust root；后续 gate 代码变更必须由旧镜像验证并经过候选镜像对比，禁止候选自签。
-- **全局并发：** 3 slot 属于规范化 Docker daemon identity 的单例 daemon，不属于 context 名称或单个 worktree；build、job 和 service container 共同占 slot。
+- **全局并发：** `max_active_ci_workloads` 个 slot 属于规范化 Docker daemon identity 的单例 daemon，不属于 context 名称或单个 worktree；build、job、service 和 shard container 共同占 slot。
 - **晋升与 receipt：** 晋升必须使用受信 ref、旧签名 receipt 和 generation CAS；候选容器不能访问签名密钥。
 - **子 agent worktree：** 官方 `SubagentStop` 提供 agent_id，但公共 cwd 是 session cwd；独立 worktree 必须显式登记。
 - **Hook 并发：** Codex 会并发运行同事件多个匹配 hook；只有同一 hook invocation 的 observer 可以订阅同一 job，独立 CI action 不去重。
 - **Hook async：** Codex 当前不支持 async command hook；采用短等待 + continuation prompt，不在 Hook 中隐式后台运行。
 - **Hook 激活：** 修改 `.codex/hooks.json`、仓库外 launcher/CLI 或 scheduler identity 后必须重新确认 managed 来源和完整信任摘要；fixture 通过不等于真实 Hook 已激活。
-- **平台真实性：** Linux Docker receipt 不代表 macOS/Windows smoke 通过；原生 smoke 只作 advisory，平台与完整 ImageIdentity 必须进入 task key 和 receipt。
+- **平台真实性：** Linux Docker receipt 不代表 macOS/Windows smoke 通过；原生 smoke 只作 advisory，平台与完整 `NodeImageIdentity` 必须进入 task key 和 receipt。
 - **活动输入：** worktree 结果只对精确 tree SHA 有效；commit push 始终重新绑定 commit SHA。
 
 ---

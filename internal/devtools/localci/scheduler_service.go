@@ -28,12 +28,13 @@ var (
 	ErrWorkloadNotFound = errors.New("scheduler workload not found")
 )
 
-// SchedulerConfig 只描述 daemon identity；运行时根目录由进程内固定解析。
+// SchedulerConfig 描述 daemon identity 和不可变的 node-global slot 容量。
 type SchedulerConfig struct {
-	Endpoint       string
-	TLSFingerprint string
-	DaemonID       string
-	OwnerUID       int
+	Endpoint           string
+	TLSFingerprint     string
+	DaemonID           string
+	OwnerUID           int
+	MaxActiveWorkloads int
 }
 
 // WorkloadKind 是 scheduler 自有的 workload 分类，不复制 gate DTO。
@@ -120,6 +121,9 @@ type Scheduler struct {
 
 // OpenScheduler 依次规范化 identity、取得单例锁、验证 SQLite 并恢复 kernel。
 func OpenScheduler(ctx context.Context, config SchedulerConfig) (*Scheduler, error) {
+	if err := validateMaxActiveWorkloads(config.MaxActiveWorkloads); err != nil {
+		return nil, fmt.Errorf("%w: validate max active workloads: %w", ErrInvalidSchedulerInput, err)
+	}
 	identity, err := newDaemonIdentity(config.Endpoint, config.TLSFingerprint, config.DaemonID, config.OwnerUID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: normalize daemon identity: %w", ErrInvalidSchedulerInput, err)
@@ -131,7 +135,7 @@ func OpenScheduler(ctx context.Context, config SchedulerConfig) (*Scheduler, err
 	if err != nil {
 		return nil, fmt.Errorf("resolve scheduler runtime root: %w", err)
 	}
-	return openSchedulerAtRuntimeRoot(ctx, identity, runtimeRoot)
+	return openSchedulerAtRuntimeRoot(ctx, identity, config.MaxActiveWorkloads, runtimeRoot)
 }
 
 // openSchedulerWithRuntimeRoot 仅为包内测试提供隔离根目录，生产调用方不可指定路径。
@@ -140,6 +144,9 @@ func openSchedulerWithRuntimeRoot(
 	config SchedulerConfig,
 	runtimeRoot string,
 ) (*Scheduler, error) {
+	if err := validateMaxActiveWorkloads(config.MaxActiveWorkloads); err != nil {
+		return nil, fmt.Errorf("%w: validate max active workloads: %w", ErrInvalidSchedulerInput, err)
+	}
 	identity, err := newDaemonIdentity(config.Endpoint, config.TLSFingerprint, config.DaemonID, config.OwnerUID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: normalize daemon identity: %w", ErrInvalidSchedulerInput, err)
@@ -147,14 +154,19 @@ func openSchedulerWithRuntimeRoot(
 	if ctx == nil {
 		return nil, fmt.Errorf("%w: context is required", ErrInvalidSchedulerInput)
 	}
-	return openSchedulerAtRuntimeRoot(ctx, identity, runtimeRoot)
+	return openSchedulerAtRuntimeRoot(ctx, identity, config.MaxActiveWorkloads, runtimeRoot)
 }
 
+// openSchedulerAtRuntimeRoot 在受信运行根下取得单例锁并恢复指定容量的 scheduler。
 func openSchedulerAtRuntimeRoot(
 	ctx context.Context,
 	identity daemonIdentity,
+	maxActiveWorkloads int,
 	runtimeRoot string,
 ) (*Scheduler, error) {
+	if err := validateMaxActiveWorkloads(maxActiveWorkloads); err != nil {
+		return nil, fmt.Errorf("%w: validate max active workloads: %w", ErrInvalidSchedulerInput, err)
+	}
 	lockPath, statePath, err := deriveSchedulerRuntimePaths(runtimeRoot, identity)
 	if err != nil {
 		return nil, fmt.Errorf("%w: validate scheduler runtime root: %w", ErrInvalidSchedulerInput, err)
@@ -163,11 +175,11 @@ func openSchedulerAtRuntimeRoot(
 	if err != nil {
 		return nil, fmt.Errorf("acquire scheduler singleton: %w", err)
 	}
-	state, err := openSchedulerState(ctx, statePath, identity)
+	state, err := openSchedulerState(ctx, statePath, identity, maxActiveWorkloads)
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("open scheduler SQLite: %w", err), closeSchedulerLock(lock))
 	}
-	kernel, err := state.loadKernel(ctx, identity)
+	kernel, err := state.loadKernel(ctx, identity, maxActiveWorkloads)
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("recover scheduler kernel: %w", err), closeSchedulerResources(state, lock))
 	}
@@ -328,7 +340,7 @@ func (s *Scheduler) ReserveRunnable(ctx context.Context) ([]WorkloadReservation,
 	return exported, nil
 }
 
-// Complete 持久化已启动 workload 的终态并原子释放其全部 lease。
+// Complete 持久化已启动 workload 的终态，或收敛因依赖失败而无法启动的排队 workload。
 func (s *Scheduler) Complete(ctx context.Context, id string, status WorkloadStatus) error {
 	workloadIDValue, err := validatePublicID("workload ID", id)
 	if err != nil {
@@ -666,9 +678,9 @@ func exportStatus(state workloadState) (WorkloadStatus, error) {
 
 func cloneSchedulerKernel(source *schedulerKernel) *schedulerKernel {
 	clone := &schedulerKernel{
-		identity: source.identity,
-		nodes:    make(map[workloadID]*workloadNode, len(source.nodes)),
-		leases:   make(map[string]slotLease, len(source.leases)),
+		identity: source.identity, maxActiveWorkloads: source.maxActiveWorkloads,
+		nodes:  make(map[workloadID]*workloadNode, len(source.nodes)),
+		leases: make(map[string]slotLease, len(source.leases)),
 	}
 	for id, node := range source.nodes {
 		spec := node.spec

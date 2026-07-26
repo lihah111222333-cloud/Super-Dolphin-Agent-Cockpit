@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -27,13 +28,6 @@ import (
 
 type productionProvisionDockerRuntime struct {
 	sourceRepository string
-}
-
-type productionRuntimeDepsLockDocument struct {
-	Images []struct {
-		Platform string                     `json:"platform"`
-		Image    gatecontract.ImageIdentity `json:"image"`
-	} `json:"images"`
 }
 
 const (
@@ -222,18 +216,10 @@ func buildProductionProvisionCandidateImage(
 	tag := repository + ":fixture"
 	root := productionProvisionRepositoryRoot(t)
 	metadataPath := filepath.Join(contextRoot, "metadata.json")
-	runBootstrapDocker(
-		t, "buildx", "build", "--load", "--provenance=false", "--network=none",
-		"--platform=linux/"+runtime.GOARCH, "--file="+filepath.Join(root, "build/gate/Dockerfile"),
-		"--tag="+tag, "--metadata-file="+metadataPath,
-		"--build-arg=RUNTIME_DEPS_IMAGE="+productionRuntimeDepsReference(t, inputs),
-		"--label=org.super-dolphin.policy-sha="+policyDigest,
-		"--label=org.super-dolphin.source-tree-sha="+inputs.SubmittedSourceTree,
-		"--label=org.super-dolphin.image-input-digest="+inputs.ImageInputDigest,
-		"--label=org.super-dolphin.toolchain-digest="+inputs.ToolchainDigest,
-		"--label=org.super-dolphin.schema-version="+inputs.ImageSchemaVersion,
-		root,
-	)
+	runtimeDepsLayout := buildProductionRuntimeDepsOCI(t, contextRoot, root, inputs)
+	runBootstrapDocker(t, productionProvisionCandidateBuildArguments(
+		root, tag, metadataPath, runtimeDepsLayout, policyDigest, inputs,
+	)...)
 	data, err := os.ReadFile(metadataPath)
 	if err != nil {
 		t.Fatal(err)
@@ -250,49 +236,116 @@ func buildProductionProvisionCandidateImage(
 	return productionBootstrapFixtureIdentity(repository, digest, document)
 }
 
-func productionRuntimeDepsReference(t *testing.T, inputs localci.GateImageInputs) string {
-	t.Helper()
-	data := productionRuntimeDepsLockData(t, inputs)
-	var lock productionRuntimeDepsLockDocument
-	if err := json.Unmarshal(data, &lock); err != nil {
-		t.Fatalf("decode runtime dependency lock: %v", err)
+func productionProvisionCandidateBuildArguments(
+	repositoryRoot string,
+	tag string,
+	metadataPath string,
+	runtimeDepsLayout string,
+	policyDigest string,
+	inputs localci.GateImageInputs,
+) []string {
+	return []string{
+		"buildx", "build", "--load", "--provenance=false", "--network=none",
+		"--platform=" + inputs.Platform, "--file=" + filepath.Join(repositoryRoot, "build/gate/Dockerfile"),
+		"--tag=" + tag, "--metadata-file=" + metadataPath,
+		"--build-context=runtime-deps=oci-layout://" + runtimeDepsLayout,
+		"--build-arg=RUNTIME_DEPS_IMAGE=runtime-deps",
+		"--label=org.super-dolphin.policy-sha=" + policyDigest,
+		"--label=org.super-dolphin.source-tree-sha=" + inputs.SubmittedSourceTree,
+		"--label=org.super-dolphin.image-input-digest=" + inputs.ImageInputDigest,
+		"--label=org.super-dolphin.toolchain-digest=" + inputs.ToolchainDigest,
+		"--label=org.super-dolphin.schema-version=" + inputs.ImageSchemaVersion,
+		repositoryRoot,
 	}
-	return productionRuntimeDepsPlatformReference(t, lock, inputs.Platform)
 }
 
-func productionRuntimeDepsLockData(t *testing.T, inputs localci.GateImageInputs) []byte {
+func TestProductionProvisionCandidateBuildUsesNodeLocalRuntimeDeps(t *testing.T) {
+	inputs := localci.GateImageInputs{
+		Platform: "linux/arm64", SubmittedSourceTree: "tree", ImageInputDigest: "inputs",
+		ToolchainDigest: "toolchain", ImageSchemaVersion: "1",
+	}
+	arguments := productionProvisionCandidateBuildArguments(
+		"/private/source", "candidate:fixture", "/private/metadata.json", "/private/runtime-deps.oci", "policy", inputs,
+	)
+	for _, want := range []string{
+		"--build-context=runtime-deps=oci-layout:///private/runtime-deps.oci",
+		"--build-arg=RUNTIME_DEPS_IMAGE=runtime-deps",
+	} {
+		if !slices.Contains(arguments, want) {
+			t.Fatalf("candidate build arguments missing %q: %#v", want, arguments)
+		}
+	}
+	for _, argument := range arguments {
+		if strings.Contains(argument, "ghcr.io/") || strings.Contains(argument, "RUNTIME_DEPS_IMAGE=@") {
+			t.Fatalf("candidate build retained remote runtime dependency reference: %q", argument)
+		}
+	}
+}
+
+func buildProductionRuntimeDepsOCI(
+	t *testing.T,
+	contextRoot string,
+	repositoryRoot string,
+	inputs localci.GateImageInputs,
+) string {
+	t.Helper()
+	layout := filepath.Join(contextRoot, "runtime-deps.oci")
+	arguments := []string{
+		"buildx", "build", "--provenance=false", "--network=default",
+		"--platform=" + inputs.Platform, "--file=" + filepath.Join(repositoryRoot, "build/gate/runtime-deps.Dockerfile"),
+		"--output=type=oci,dest=" + layout + ",tar=false",
+	}
+	arguments = append(arguments, productionRuntimeDepsBuildArguments(t, inputs)...)
+	arguments = append(arguments, repositoryRoot)
+	runBootstrapDocker(t, arguments...)
+	return layout
+}
+
+func productionRuntimeDepsBuildArguments(t *testing.T, inputs localci.GateImageInputs) []string {
 	t.Helper()
 	var data []byte
 	for _, entry := range inputs.SourceEntries {
-		if entry.Path == "build/gate/runtime-deps.lock" {
+		if entry.Path == "build/gate/toolchain.lock" {
 			if data != nil {
-				t.Fatal("runtime dependency lock appears more than once in gate image inputs")
+				t.Fatal("toolchain lock appears more than once in gate image inputs")
 			}
 			data = entry.Data
 		}
 	}
 	if data == nil {
-		t.Fatal("runtime dependency lock is missing from gate image inputs")
+		t.Fatal("toolchain lock is missing from gate image inputs")
 	}
-	return data
-}
-
-func productionRuntimeDepsPlatformReference(t *testing.T, lock productionRuntimeDepsLockDocument, platform string) string {
-	t.Helper()
-	var reference string
-	for _, image := range lock.Images {
-		if image.Platform != platform {
-			continue
+	var lock struct {
+		BaseImages []struct {
+			Name      string `json:"name"`
+			Reference string `json:"reference"`
+		} `json:"base_images"`
+		RuntimeTools struct {
+			SqruffArtifacts []struct {
+				Platform string `json:"platform"`
+				URL      string `json:"url"`
+				SHA256   string `json:"sha256"`
+			} `json:"sqruff_artifacts"`
+		} `json:"runtime_tools"`
+	}
+	if err := json.Unmarshal(data, &lock); err != nil {
+		t.Fatalf("decode toolchain lock: %v", err)
+	}
+	arguments := make([]string, 0, len(lock.BaseImages)+4)
+	for _, image := range lock.BaseImages {
+		arguments = append(arguments, "--build-arg="+image.Name+"="+image.Reference)
+	}
+	for _, artifact := range lock.RuntimeTools.SqruffArtifacts {
+		switch artifact.Platform {
+		case "linux/amd64":
+			arguments = append(arguments, "--build-arg=SQRUFF_ARCHIVE_URL_AMD64="+artifact.URL, "--build-arg=SQRUFF_ARCHIVE_SHA256_AMD64="+artifact.SHA256)
+		case "linux/arm64":
+			arguments = append(arguments, "--build-arg=SQRUFF_ARCHIVE_URL_ARM64="+artifact.URL, "--build-arg=SQRUFF_ARCHIVE_SHA256_ARM64="+artifact.SHA256)
+		default:
+			t.Fatalf("unsupported Sqruff artifact platform %q", artifact.Platform)
 		}
-		if reference != "" {
-			t.Fatalf("runtime dependency lock repeats platform %q", platform)
-		}
-		reference = image.Image.Registry + "@" + image.Image.PlatformManifestDigest
 	}
-	if reference == "@" || reference == "" {
-		t.Fatalf("runtime dependency lock has no image for platform %q", platform)
-	}
-	return reference
+	return arguments
 }
 
 func productionProvisionRepositoryRoot(t *testing.T) string {
@@ -416,6 +469,7 @@ func productionProvisionDockerManifest(
 		TrustedSourceRoot:  prepareProductionTrustedSourceRoot(t),
 		Platform:           runner.OS + "/" + runner.Architecture, TrustedRootKeys: []productionTrustedKey{trust},
 		CandidateTTLSeconds: 3600, PromotionPollMillis: 5_000, ActionGrantTTLSeconds: 60,
+		ShardsPerJob: 3, MaxActiveCIWorkloads: 3,
 	}
 	return manifest, root
 }
@@ -715,81 +769,5 @@ func TestProductionProvisionExecutionDeadlineObservation(t *testing.T) {
 				t.Fatalf("productionProvisionExecutionDeadlineReady() = (%v, %v), want (%v, error=%v)", ready, err, test.ready, test.wantErr)
 			}
 		})
-	}
-}
-
-func productionProvisionOwnerStatus(
-	checkpoint localci.DockerDaemonIdentityCheckpoint,
-) (jobStatus, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	client, err := dialCoordinator(ctx, checkpoint)
-	if err != nil {
-		return jobStatus{}, err
-	}
-	defer client.Close()
-	records, err := client.store.jobs(ctx)
-	if err != nil {
-		return jobStatus{}, err
-	}
-	if len(records) != 1 {
-		return jobStatus{}, fmt.Errorf("production provision owner jobs = %d, want 1", len(records))
-	}
-	return client.Status(ctx, records[0].JobID)
-}
-
-func productionProvisionOwnerEvidence(checkpoint localci.DockerDaemonIdentityCheckpoint) string {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	client, err := dialCoordinator(ctx, checkpoint)
-	if err != nil {
-		return err.Error()
-	}
-	defer client.Close()
-	records, err := client.store.jobs(ctx)
-	if err != nil {
-		return "jobs: " + err.Error()
-	}
-	snapshot, err := client.scheduler.Snapshot(ctx)
-	if err != nil {
-		return "scheduler: " + err.Error()
-	}
-	data, err := json.Marshal(struct {
-		Jobs      []coordinatorJobRecord    `json:"jobs"`
-		Scheduler localci.SchedulerSnapshot `json:"scheduler"`
-	}{Jobs: records, Scheduler: snapshot})
-	if err != nil {
-		return "encode: " + err.Error()
-	}
-	return string(data)
-}
-
-func productionProvisionHookConnector(
-	config productionCoordinatorConfig,
-	checkpoint localci.DockerDaemonIdentityCheckpoint,
-) hookCoordinatorConnector {
-	return func(ctx context.Context) (hookCoordinator, error) {
-		planner, err := newProductionCandidateSubmissionPlanner(ctx, config)
-		if err != nil {
-			return nil, err
-		}
-		client, err := newDeferredCoordinatorClient(
-			ctx, checkpoint, planner,
-			func(connectCtx context.Context) (*localci.SchedulerClient, error) {
-				return localci.DialScheduler(connectCtx, checkpoint.SchedulerConfig)
-			},
-		)
-		if err != nil {
-			return nil, err
-		}
-		authority, err := newProductionHookResultReceiptAuthority(ctx, config)
-		if err != nil {
-			return nil, errors.Join(err, client.Close())
-		}
-		grants, err := newProductionActionGrantService(config, client.store, authority)
-		if err != nil {
-			return nil, errors.Join(err, client.Close())
-		}
-		return &hookCoordinatorBridge{client: client, authority: authority, grants: grants}, nil
 	}
 }

@@ -40,6 +40,8 @@ type productionCoordinatorConfig struct {
 	ActionGrantAuthority       productionActionGrantAuthorityConfig   `json:"action_grant_authority"`
 	CandidateTTLSeconds        int64                                  `json:"candidate_ttl_seconds"`
 	PromotionPollMillis        int64                                  `json:"promotion_poll_millis"`
+	ShardsPerJob               int                                    `json:"shards_per_job"`
+	MaxActiveCIWorkloads       int                                    `json:"max_active_ci_workloads"`
 }
 
 type productionTrustedKey struct {
@@ -154,7 +156,24 @@ func (config productionCoordinatorConfig) Validate() error {
 	if err := config.validatePaths(); err != nil {
 		return err
 	}
+	if err := config.validateSchedulingPolicy(); err != nil {
+		return err
+	}
 	return validateProductionRootSeparation(config)
+}
+
+// validateSchedulingPolicy 校验 owner 与 scheduler 共享的显式并发契约。
+func (config productionCoordinatorConfig) validateSchedulingPolicy() error {
+	if config.ShardsPerJob < 1 || config.ShardsPerJob > 64 {
+		return errors.New("production coordinator shards_per_job must be within 1..64")
+	}
+	if config.MaxActiveCIWorkloads < 1 || config.MaxActiveCIWorkloads > 64 {
+		return errors.New("production coordinator max_active_ci_workloads must be within 1..64")
+	}
+	if config.MaxActiveCIWorkloads < config.ShardsPerJob {
+		return errors.New("production coordinator max_active_ci_workloads must be at least shards_per_job")
+	}
+	return nil
 }
 
 // validateIdentity 校验 repository、ref、platform 与 signer 集合均显式且规范。

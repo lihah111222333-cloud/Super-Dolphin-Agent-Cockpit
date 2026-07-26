@@ -119,8 +119,8 @@ func (harness *schedulerDockerAcceptanceHarness) startFirstWave(t *testing.T) []
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reservations) != maxActiveWorkloads {
-		t.Fatalf("initial reservations=%d want=%d", len(reservations), maxActiveWorkloads)
+	if len(reservations) != testMaxActiveWorkloads {
+		t.Fatalf("initial reservations=%d want=%d", len(reservations), testMaxActiveWorkloads)
 	}
 	if harness.kernel.state("job-4") != stateQueued {
 		t.Fatalf("fourth state=%s want=%s", harness.kernel.state("job-4"), stateQueued)

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -91,6 +92,9 @@ func TestUpdateOperationRetainsLatchWhenStartedHelperReleaseFails(t *testing.T) 
 }
 
 func TestUpdateOperationRequestsQuitWhenStartedHelperLogCloseFails(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("Darwin pre-journal helper lifecycle requires Darwin")
+	}
 	fixture := newUpdateOperationFixture(t)
 	close(fixture.verifierRelease)
 	fixture.svc.cfg.Platform = "darwin-arm64"

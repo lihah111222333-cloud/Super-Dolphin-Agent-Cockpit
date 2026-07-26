@@ -82,7 +82,7 @@ func (runner *blockingFreshRunner) waitForGroupRelease(
 func (runner *blockingFreshRunner) recordGroupLifecycleCompletion(sourceTreeSHA string) {
 	runner.mu.Lock()
 	runner.completed[sourceTreeSHA]++
-	completed := runner.completed[sourceTreeSHA] == gatecontract.MaxContainerShards
+	completed := runner.completed[sourceTreeSHA] == testCoordinatorSchedulingPolicy().ShardsPerJob
 	runner.mu.Unlock()
 	if completed && runner.lifecycleComplete != nil {
 		runner.lifecycleComplete <- struct{}{}
@@ -110,7 +110,7 @@ func (runner *failingPlanFreshRunner) RunFreshContainer(
 ) (localci.FreshContainerResult, error) {
 	runner.mu.Lock()
 	runner.requests = append(runner.requests, request)
-	if len(runner.requests) == gatecontract.MaxContainerShards && runner.started != nil {
+	if len(runner.requests) == testCoordinatorSchedulingPolicy().ShardsPerJob && runner.started != nil {
 		close(runner.started)
 	}
 	ready := runner.ready
@@ -122,7 +122,7 @@ func (runner *failingPlanFreshRunner) RunFreshContainer(
 	runner.recordLifecycleCompletion()
 	runner.mu.Lock()
 	runner.readyCount++
-	if runner.readyCount == gatecontract.MaxContainerShards {
+	if runner.readyCount == testCoordinatorSchedulingPolicy().ShardsPerJob {
 		close(runner.ready)
 	}
 	runner.mu.Unlock()
@@ -178,7 +178,7 @@ func (runner *countingPlanFreshRunner) recordLifecycleCompletion() {
 	runner.mu.Lock()
 	defer runner.mu.Unlock()
 	runner.completed++
-	if runner.completed == gatecontract.MaxContainerShards {
+	if runner.completed == testCoordinatorSchedulingPolicy().ShardsPerJob {
 		close(runner.lifecycleReady)
 	}
 }
@@ -337,8 +337,8 @@ func assertFailedPlanStatus(t *testing.T, requests []freshContainerRequest, stat
 
 func assertFailedPlanRequests(t *testing.T, requests []freshContainerRequest) {
 	t.Helper()
-	if len(requests) != gatecontract.MaxContainerShards {
-		t.Fatalf("failed plan request count=%d want=%d", len(requests), gatecontract.MaxContainerShards)
+	if len(requests) != testCoordinatorSchedulingPolicy().ShardsPerJob {
+		t.Fatalf("failed plan request count=%d want=%d", len(requests), testCoordinatorSchedulingPolicy().ShardsPerJob)
 	}
 	for _, request := range requests {
 		if request.PlanExecution || request.ShardIdentity == "" || len(request.ShardGateIDs) == 0 {
@@ -404,7 +404,7 @@ func assertThreeShardPlanStatus(
 
 func assertThreeShardPlanRequests(t *testing.T, requests []freshContainerRequest, status jobStatus) {
 	t.Helper()
-	if status.State != jobStatePassed || !status.Terminal || len(requests) != gatecontract.MaxContainerShards {
+	if status.State != jobStatePassed || !status.Terminal || len(requests) != testCoordinatorSchedulingPolicy().ShardsPerJob {
 		t.Fatalf("three-shard plan status=%#v requests=%#v", status, requests)
 	}
 	for _, request := range requests {
@@ -417,7 +417,7 @@ func assertThreeShardPlanRequests(t *testing.T, requests []freshContainerRequest
 func assertThreeShardPlanReceipt(t *testing.T, record coordinatorJobRecord, requests []freshContainerRequest) {
 	t.Helper()
 	if record.Receipt == nil || record.Receipt.Status != gatecontract.ResultStatusPassed ||
-		len(record.Receipt.GateResults) != len(requests[0].Plan.Gates) || len(record.ContainerShards) != gatecontract.MaxContainerShards || record.Deadline == nil {
+		len(record.Receipt.GateResults) != len(requests[0].Plan.Gates) || len(record.ContainerShards) != testCoordinatorSchedulingPolicy().ShardsPerJob || record.Deadline == nil {
 		t.Fatalf("three-shard receipt = %#v", record.Receipt)
 	}
 }
@@ -526,8 +526,8 @@ func assertCoordinatorFIFOJobsTerminal(t *testing.T, client *coordinatorTranspor
 
 func assertSingleThreeShardGang(t *testing.T, snapshot localci.SchedulerSnapshot, jobID string) {
 	t.Helper()
-	if len(snapshot.Leases) != gatecontract.MaxContainerShards {
-		t.Fatalf("job %s active leases=%d want=%d", jobID, len(snapshot.Leases), gatecontract.MaxContainerShards)
+	if len(snapshot.Leases) != testCoordinatorSchedulingPolicy().ShardsPerJob {
+		t.Fatalf("job %s active leases=%d want=%d", jobID, len(snapshot.Leases), testCoordinatorSchedulingPolicy().ShardsPerJob)
 	}
 	groupIdentity := snapshot.Leases[0].GroupIdentity
 	for _, lease := range snapshot.Leases {

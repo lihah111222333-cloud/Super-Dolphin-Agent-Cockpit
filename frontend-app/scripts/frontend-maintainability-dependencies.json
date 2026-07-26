@@ -34,6 +34,10 @@
         },
         {
           "platform": "linux",
+          "arch": "arm64"
+        },
+        {
+          "platform": "linux",
           "arch": "x64"
         },
         {
@@ -43,6 +47,7 @@
       ],
       "evidence": [
         ".github/workflows/ci.yml#actions/setup-node:20",
+        "build/gate/runtime-deps.lock#linux/arm64",
         "frontend-app/package-lock.json#node_modules/eslint.engines",
         "frontend-app/package-lock.json#node_modules/vite.engines",
         "frontend-app/scripts/frontend-maintainability-score.test.mjs#portable-dependency-integrity"
@@ -51,8 +56,8 @@
   ],
   "packageLockSha256": "a558027d0cc2ca66844a6ac3e77079b94ff1a2f19c89ff0b2609af82f478b882",
   "neutralTree": {
-    "sha256": "80ae0173157a73da7d1c6390c2e5687bf70ad9b73545c7ae4ec199e464d165eb",
-    "pathCount": 56880
+    "sha256": "ae66784c38ebfb39414c5daf642893383e7170266c8b5366d396db5e341fe3be",
+    "pathCount": 56879
   },
   "optionalLockSha256": "f7aa44e081e723dc98d4902fef7a3f7b1f195a61964178c34589657d7c08c04c",
   "binLockSha256": "ff04dcd5b52c4fc528142eac4e38d0818fa73bfd8b5450781abd80f40e2268c3",

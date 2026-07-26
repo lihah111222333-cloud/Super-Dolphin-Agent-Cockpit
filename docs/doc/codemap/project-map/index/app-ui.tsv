@@ -77,7 +77,7 @@ frontend-app/scripts/frontend-hook-test-runner.mjs	frontend-app	app-ui	js-source
 frontend-app/scripts/frontend-hook-test-runner.test.mjs	frontend-app	app-ui	js-test	1723	React 前端构建与校验脚本	frontend,app,scripts,hook,test,runner,React,前端构建与校验脚本
 frontend-app/scripts/frontend-maintainability-baseline.json	frontend-app	app-ui	json	302099	React 前端构建与校验脚本	frontend,app,scripts,maintainability,baseline,React,前端构建与校验脚本
 frontend-app/scripts/frontend-maintainability-controls.json	frontend-app	app-ui	json	27393	React 前端构建与校验脚本	frontend,app,scripts,maintainability,controls,React,前端构建与校验脚本
-frontend-app/scripts/frontend-maintainability-dependencies.json	frontend-app	app-ui	json	2028	React 前端构建与校验脚本	frontend,app,scripts,maintainability,dependencies,React,前端构建与校验脚本
+frontend-app/scripts/frontend-maintainability-dependencies.json	frontend-app	app-ui	json	2158	React 前端构建与校验脚本	frontend,app,scripts,maintainability,dependencies,React,前端构建与校验脚本
 frontend-app/scripts/frontend-maintainability-dependency-integrity.mjs	frontend-app	app-ui	js-source	21443	React 前端构建与校验脚本	frontend,app,scripts,maintainability,dependency,integrity,React,前端构建与校验脚本
 frontend-app/scripts/frontend-maintainability-red-fixtures.json	frontend-app	app-ui	json	2433	React 前端构建与校验脚本	frontend,app,scripts,maintainability,red,fixtures,React,前端构建与校验脚本
 frontend-app/scripts/frontend-maintainability-score.mjs	frontend-app	app-ui	js-source	139790	React 前端构建与校验脚本	frontend,app,scripts,maintainability,score,React,前端构建与校验脚本
@@ -325,8 +325,8 @@ frontend-app/src/pages/chat/adapters/threadStateAdapter.js	frontend-app	app-ui	j
 frontend-app/src/pages/chat/adapters/threadStatusAdapter.js	frontend-app	app-ui	js-source	4693	React 页面与路由级 UI	frontend,app,src,pages,chat,adapters,threadStatusAdapter,React,页面与路由级,UI
 frontend-app/src/pages/chat/ChatMessages.css	frontend-app	app-ui	css	16954	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatMessages,React,页面与路由级,UI
 frontend-app/src/pages/chat/ChatPage.core.test.jsx	frontend-app	app-ui	jsx	34539	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,core,test,React,页面与路由级,UI
-frontend-app/src/pages/chat/ChatPage.css	frontend-app	app-ui	css	15575	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,React,页面与路由级,UI
-frontend-app/src/pages/chat/ChatPage.jsx	frontend-app	app-ui	jsx	15380	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,React,页面与路由级,UI
+frontend-app/src/pages/chat/ChatPage.css	frontend-app	app-ui	css	15285	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,React,页面与路由级,UI
+frontend-app/src/pages/chat/ChatPage.jsx	frontend-app	app-ui	jsx	15035	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,React,页面与路由级,UI
 frontend-app/src/pages/chat/ChatPage.preview.test.jsx	frontend-app	app-ui	jsx	23633	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,preview,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/ChatPage.scroll.test.jsx	frontend-app	app-ui	jsx	3519	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,scroll,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/ChatPage.test.jsx	frontend-app	app-ui	jsx	299	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,test,React,页面与路由级,UI

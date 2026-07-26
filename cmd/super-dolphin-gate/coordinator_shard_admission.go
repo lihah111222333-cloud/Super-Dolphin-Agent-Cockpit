@@ -82,7 +82,7 @@ type coordinatorExecer interface {
 
 // shardAdmissionForSet 将完整三 shard 集合绑定为唯一的调度 group 请求。
 func shardAdmissionForSet(record coordinatorJobRecord, set gatecontract.ContainerShardSet) (coordinatorShardAdmission, localci.WorkloadRequest, error) {
-	if record.JobID == "" || record.InvocationID == "" || record.EnqueueSequence == 0 || set.Validate() != nil {
+	if record.JobID == "" || record.InvocationID == "" || record.EnqueueSequence == 0 || validateShardSetForRecord(record, set) != nil {
 		return coordinatorShardAdmission{}, localci.WorkloadRequest{}, errors.New("validated job and container shard set are required")
 	}
 	identities := make([]string, len(set.Shards))
@@ -200,6 +200,7 @@ func (owner *coordinatorOwner) shardAdmissionRequest(
 		set.Shards[index] = shard.Shard
 	}
 	set.AcceptedManifestDigest, set.AcceptedConfigDigest = set.Shards[0].AcceptedManifestDigest, set.Shards[0].AcceptedConfigDigest
+	set.ShardsPerJob = set.Shards[0].ShardsPerJob
 	_, request, err := shardAdmissionForSet(record, set)
 	if err != nil || request.ID != admission.WorkloadID || request.GroupIdentity != admission.GroupIdentity {
 		return localci.WorkloadRequest{}, errors.New("durable shard admission binding drifted")
@@ -530,10 +531,18 @@ func containerShardSetForRecord(record coordinatorJobRecord, records []coordinat
 	}
 	set := gatecontract.ContainerShardSet{Profile: record.Profile, PlanDigest: record.Plan.PlanDigest, SourceTreeSHA: record.JobSourceTreeSHA, Shards: make([]gatecontract.ContainerShard, len(records))}
 	set.AcceptedManifestDigest, set.AcceptedConfigDigest = records[0].Shard.AcceptedManifestDigest, records[0].Shard.AcceptedConfigDigest
+	set.ShardsPerJob = records[0].Shard.ShardsPerJob
 	for index, record := range records {
 		set.Shards[index] = record.Shard
 	}
-	return set, set.Validate()
+	return set, validateShardSetForRecord(record, set)
+}
+
+func validateShardSetForRecord(record coordinatorJobRecord, set gatecontract.ContainerShardSet) error {
+	if record.State.terminal() {
+		return set.ValidateStored(record.Plan)
+	}
+	return set.Validate()
 }
 
 func reservationShardIdentities(reservation localci.WorkloadReservation) []string {

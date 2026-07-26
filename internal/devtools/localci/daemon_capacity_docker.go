@@ -385,7 +385,7 @@ func (executor *dockerExecutor) createArgs(request containerRequest) []string {
 		"create",
 		"--cpus=" + strconv.FormatInt(workloadLogicalCPUs, 10),
 		"--memory=" + strconv.FormatInt(workloadMemoryGiB, 10) + "g",
-		"--pids-limit=512", "--storage-opt=size=10G", "--init", "--read-only", "--user=65532:65532",
+		"--pids-limit=512", "--init", "--read-only", "--user=65532:65532",
 		"--cap-drop=ALL", "--security-opt=no-new-privileges", "--security-opt=seccomp=" + executor.seccompPath,
 		"--network=none", "--mount=type=bind,src=" + request.SourceDir + ",dst=/workspace/source,readonly",
 		"--tmpfs=/tmp:" + containerTempTmpfs, "--tmpfs=" + containerWorkDir + ":" + containerWorkTmpfs,
@@ -407,10 +407,13 @@ func (executor *dockerExecutor) createArgs(request containerRequest) []string {
 	return append(args, request.Command[1:]...)
 }
 
-// validateContainerRequest 校验不可变镜像、受信源码挂载和 gate 命令。
+// validateContainerRequest 校验不可变 manifest/config 镜像引用、受信源码挂载和 gate 命令。
 func (executor *dockerExecutor) validateContainerRequest(request containerRequest) error {
-	if !strings.Contains(request.Image, "@sha256:") || !sha256DigestPattern.MatchString(request.Image[strings.LastIndex(request.Image, "@")+1:]) {
-		return errors.New("container image must use an immutable platform manifest digest")
+	configReference := sha256DigestPattern.MatchString(request.Image)
+	manifestReference := strings.Contains(request.Image, "@sha256:") &&
+		sha256DigestPattern.MatchString(request.Image[strings.LastIndex(request.Image, "@")+1:])
+	if !configReference && !manifestReference {
+		return errors.New("container image must use an immutable platform manifest or config digest")
 	}
 	if err := executor.validateSourceDirectory(request.SourceDir); err != nil {
 		return err

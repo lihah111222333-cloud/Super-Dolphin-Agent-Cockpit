@@ -21,6 +21,8 @@ const (
 	buildxProvenanceType       = "https://mobyproject.org/buildkit@v1"
 	buildxProvenanceBuilderID  = ""
 	buildxImportedImageCreated = "1970-01-01T00:00:00Z"
+	runtimeDepsManifestMedia   = "application/vnd.oci.image.manifest.v1+json"
+	buildxNamedContextCaps     = "moby.buildkit.frontend.contexts+forward"
 )
 
 const runtimeDepsLockPath = "build/gate/runtime-deps.lock"
@@ -57,12 +59,6 @@ type lockedSqruffArtifact struct {
 	SHA256   string `json:"sha256"`
 }
 
-type runtimeDepsImage struct {
-	Platform  string             `json:"platform"`
-	Image     gate.ImageIdentity `json:"image"`
-	ImageSize int64              `json:"image_size_bytes"`
-}
-
 var runtimeDepsPlatforms = []string{"linux/amd64", "linux/arm64"}
 
 type lockedBaseImage struct {
@@ -90,33 +86,25 @@ func validateToolchainVersions(lock toolchainLock) error {
 	return nil
 }
 
-// loadRuntimeDepsImageIdentity 严格解码运行时依赖锁并返回已验证的平台镜像身份。
-func loadRuntimeDepsImageIdentity(closure map[string]sourceexport.TreeEntry, platform string) (gate.ImageIdentity, error) {
+// loadRuntimeDepsLock 严格解码节点本地运行时依赖锁。
+func loadRuntimeDepsLock(closure map[string]sourceexport.TreeEntry, platform string) (runtimeDepsLock, error) {
 	entry, exists := closure[runtimeDepsLockPath]
 	if !exists {
-		return gate.ImageIdentity{}, fmt.Errorf("candidate input closure is missing %s", runtimeDepsLockPath)
+		return runtimeDepsLock{}, fmt.Errorf("candidate input closure is missing %s", runtimeDepsLockPath)
 	}
 	var lock runtimeDepsLock
 	if err := decodeStrictJSON(entry.Data, &lock); err != nil {
-		return gate.ImageIdentity{}, fmt.Errorf("decode runtime dependencies lock: %w", err)
+		return runtimeDepsLock{}, fmt.Errorf("decode runtime dependencies lock: %w", err)
 	}
 	if err := validateRuntimeDepsLock(lock, platform, closure); err != nil {
-		return gate.ImageIdentity{}, err
+		return runtimeDepsLock{}, err
 	}
-	for _, image := range lock.Images {
-		if image.Platform == platform {
-			return image.Image, nil
-		}
-	}
-	return gate.ImageIdentity{}, fmt.Errorf("runtime dependencies image for target %q is not locked", platform)
+	return lock, nil
 }
 
-// validateRuntimeDepsLock 校验 schema、OCI 身份、目标平台和必需元数据。
+// validateRuntimeDepsLock 校验节点本地构建合同、目标平台和必需元数据。
 func validateRuntimeDepsLock(lock runtimeDepsLock, platform string, closure map[string]sourceexport.TreeEntry) error {
 	if err := validateRuntimeDepsLockHeader(lock); err != nil {
-		return err
-	}
-	if err := validateRuntimeDepsImages(lock.Images); err != nil {
 		return err
 	}
 	if !slices.Contains(runtimeDepsPlatforms, platform) {
@@ -125,75 +113,13 @@ func validateRuntimeDepsLock(lock runtimeDepsLock, platform string, closure map[
 	return validateRuntimeDepsClosure(lock, closure)
 }
 
-// validateRuntimeDepsLockHeader 约束 schema3、匿名拉取策略和固定双平台镜像数量。
+// validateRuntimeDepsLockHeader 约束节点本地 schema v4，不允许 registry 镜像输入。
 func validateRuntimeDepsLockHeader(lock runtimeDepsLock) error {
-	if lock.SchemaVersion != "3" {
+	if lock.SchemaVersion != "4" {
 		return fmt.Errorf("runtime dependencies lock schema version %q is unsupported", lock.SchemaVersion)
 	}
-	if lock.RegistryPullPolicy != "anonymous" {
-		return fmt.Errorf("runtime dependencies registry pull policy %q is unsupported", lock.RegistryPullPolicy)
-	}
-	if len(lock.Images) != len(runtimeDepsPlatforms) {
-		return fmt.Errorf("runtime dependencies image count = %d, want %d", len(lock.Images), len(runtimeDepsPlatforms))
-	}
-	return nil
-}
-
-// validateRuntimeDepsImages 校验双平台镜像共享 repository/index 且摘要互不重复。
-func validateRuntimeDepsImages(images []runtimeDepsImage) error {
-	repository := images[0].Image.Registry
-	indexDigest := images[0].Image.OCIIndexDigest
-	manifestDigests := make(map[string]struct{}, len(images))
-	configDigests := make(map[string]struct{}, len(images))
-	for index, expectedPlatform := range runtimeDepsPlatforms {
-		if err := validateRuntimeDepsImage(images[index], expectedPlatform, index, repository, indexDigest, manifestDigests, configDigests); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// validateRuntimeDepsImage 校验单个平台镜像身份、共享来源和正向镜像大小。
-func validateRuntimeDepsImage(image runtimeDepsImage, expectedPlatform string, index int, repository string, indexDigest string, manifestDigests map[string]struct{}, configDigests map[string]struct{}) error {
-	if image.Platform != expectedPlatform {
-		return fmt.Errorf("runtime dependencies image platform %q at index %d, want %q", image.Platform, index, expectedPlatform)
-	}
-	if err := image.Image.Validate(); err != nil {
-		return fmt.Errorf("validate runtime dependencies image identity for %s: %w", expectedPlatform, err)
-	}
-	if err := validateRemoteImageRegistry(image.Image.Registry); err != nil {
-		return fmt.Errorf("validate runtime dependencies image registry for %s: %w", expectedPlatform, err)
-	}
-	if image.Image.Registry != repository || image.Image.OCIIndexDigest != indexDigest {
-		return errors.New("runtime dependency platforms must share one registry repository and OCI index digest")
-	}
-	if err := recordRuntimeDepsImageDigests(image.Image, manifestDigests, configDigests); err != nil {
-		return err
-	}
-	if image.ImageSize <= 0 {
-		return fmt.Errorf("runtime dependencies image size for %s must be positive", expectedPlatform)
-	}
-	return validateRuntimeDepsPlatform(image.Image, expectedPlatform)
-}
-
-// recordRuntimeDepsImageDigests 拒绝平台 manifest 与 config 摘要重复。
-func recordRuntimeDepsImageDigests(image gate.ImageIdentity, manifestDigests map[string]struct{}, configDigests map[string]struct{}) error {
-	if _, exists := manifestDigests[image.PlatformManifestDigest]; exists {
-		return errors.New("runtime dependency platform manifest digest is duplicated")
-	}
-	manifestDigests[image.PlatformManifestDigest] = struct{}{}
-	if _, exists := configDigests[image.ConfigDigest]; exists {
-		return errors.New("runtime dependency config digest is duplicated")
-	}
-	configDigests[image.ConfigDigest] = struct{}{}
-	return nil
-}
-
-// validateRuntimeDepsPlatform 将 OCI 平台身份严格绑定到候选目标平台。
-func validateRuntimeDepsPlatform(image gate.ImageIdentity, platform string) error {
-	actual := image.OS + "/" + image.Architecture
-	if actual != platform || image.Variant != "" {
-		return fmt.Errorf("runtime dependencies image platform %q does not match target %q", actual, platform)
+	if lock.BuildMode != "node-local" || lock.CacheScope != "node" {
+		return errors.New("runtime dependencies lock must use node-local build mode and node cache scope")
 	}
 	return nil
 }
@@ -360,20 +286,53 @@ type buildxEnvironment struct {
 	Platform string `json:"platform"`
 }
 
-// validateBuildxMetadata 严格解码并复验输出、descriptor 与 provenance 的请求绑定。
-func validateBuildxMetadata(data []byte, request BuildKitBuildRequest, imageDigestOutput string, builderName string) (buildxMetadata, error) {
+// readRuntimeDepsBuildxDigest 读取并校验节点本地 runtime OCI layout 的单平台摘要。
+func readRuntimeDepsBuildxDigest(metadataPath string, platformValue string) (string, error) {
+	data, err := readBuildxMetadataFile(metadataPath)
+	if err != nil {
+		return "", fmt.Errorf("read runtime dependencies buildx metadata: %w", err)
+	}
+	var metadata buildxMetadata
+	if err := decodeStrictJSON(data, &metadata); err != nil {
+		return "", fmt.Errorf("decode runtime dependencies buildx metadata: %w", err)
+	}
+	descriptor := metadata.Descriptor
+	if descriptor.MediaType != runtimeDepsManifestMedia {
+		return "", errors.New("runtime dependencies result is not a single OCI platform manifest")
+	}
+	if err := validateDigest("runtime dependencies platform manifest digest", descriptor.Digest); err != nil {
+		return "", err
+	}
+	if metadata.ImageDigest != descriptor.Digest {
+		return "", errors.New("runtime dependencies metadata digest does not match its descriptor")
+	}
+	if descriptor.Size <= 0 {
+		return "", errors.New("runtime dependencies platform manifest descriptor size is invalid")
+	}
+	expectedPlatform, err := parseBuildxPlatform(platformValue)
+	if err != nil {
+		return "", err
+	}
+	if descriptor.Platform != expectedPlatform {
+		return "", errors.New("runtime dependencies platform manifest descriptor does not match the request")
+	}
+	return descriptor.Digest, nil
+}
+
+// validateBuildxMetadata 严格解码并复验 descriptor 与 provenance 的请求绑定。
+func validateBuildxMetadata(data []byte, request BuildKitBuildRequest, builderName string, runtimeDepsDigest string) (buildxMetadata, error) {
 	var metadata buildxMetadata
 	if err := decodeStrictJSON(data, &metadata); err != nil {
 		return buildxMetadata{}, fmt.Errorf("decode buildx metadata: %w", err)
 	}
-	if err := validateBuildxMetadataFields(metadata, imageDigestOutput, builderName); err != nil {
+	if err := validateBuildxMetadataFields(metadata, builderName); err != nil {
 		return buildxMetadata{}, err
 	}
 	var provenance buildxProvenance
 	if err := decodeStrictJSON(metadata.Provenance, &provenance); err != nil {
 		return buildxMetadata{}, fmt.Errorf("decode buildx provenance: %w", err)
 	}
-	if err := validateBuildxProvenance(provenance, request); err != nil {
+	if err := validateBuildxProvenance(provenance, request, runtimeDepsDigest); err != nil {
 		return buildxMetadata{}, err
 	}
 	if err := validateBuildxDescriptor(metadata.Descriptor, request.Platform); err != nil {
@@ -392,8 +351,8 @@ func validateBuildxMetadata(data []byte, request BuildKitBuildRequest, imageDige
 	return metadata, nil
 }
 
-// validateBuildxMetadataFields 校验顶层必填字段和 quiet 输出 manifest digest。
-func validateBuildxMetadataFields(metadata buildxMetadata, imageDigestOutput string, builderName string) error {
+// validateBuildxMetadataFields 校验顶层必填字段。
+func validateBuildxMetadataFields(metadata buildxMetadata, builderName string) error {
 	if !rawJSONPresent(metadata.Provenance) {
 		return errors.New("buildx metadata provenance is required")
 	}
@@ -410,9 +369,6 @@ func validateBuildxMetadataFields(metadata buildxMetadata, imageDigestOutput str
 	}
 	if err := validateDigest("buildx metadata image digest", metadata.ImageDigest); err != nil {
 		return err
-	}
-	if metadata.ImageDigest != imageDigestOutput {
-		return errors.New("buildx stdout manifest digest does not match metadata")
 	}
 	if metadata.ImageName == "" {
 		return errors.New("buildx metadata immutable image name is required")
@@ -515,7 +471,7 @@ func buildxAttachmentDigest(data []byte) string {
 }
 
 // validateBuildxProvenance 校验 stdin context、平台和固定 frontend 参数。
-func validateBuildxProvenance(provenance buildxProvenance, request BuildKitBuildRequest) error {
+func validateBuildxProvenance(provenance buildxProvenance, request BuildKitBuildRequest, runtimeDepsDigest string) error {
 	if provenance.Builder.ID != buildxProvenanceBuilderID ||
 		!rawJSONPresent(provenance.BuildConfig) || !rawJSONPresent(provenance.Metadata) {
 		return errors.New("buildx provenance is missing required evidence")
@@ -526,39 +482,69 @@ func validateBuildxProvenance(provenance buildxProvenance, request BuildKitBuild
 	if err := validateBuildxConfigSource(provenance.Invocation.ConfigSource, request); err != nil {
 		return err
 	}
-	if err := validateBuildxMaterials(provenance.Materials, provenance.Invocation.ConfigSource, request); err != nil {
+	if err := validateBuildxMaterials(provenance.Materials, provenance.Invocation.ConfigSource, request, runtimeDepsDigest); err != nil {
 		return err
 	}
 	if provenance.Invocation.Environment.Platform != request.Platform {
 		return errors.New("buildx provenance platform does not match the request")
 	}
-	return validateBuildxParameters(provenance.Invocation.Parameters, request)
+	return validateBuildxParameters(provenance.Invocation.Parameters, request, runtimeDepsDigest)
 }
 
 // validateBuildxMaterials 校验 provenance material 集合严格闭合于受控构建输入。
-func validateBuildxMaterials(materials []buildxMaterial, source buildxConfigSource, request BuildKitBuildRequest) error {
+func validateBuildxMaterials(materials []buildxMaterial, source buildxConfigSource, request BuildKitBuildRequest, runtimeDepsDigest string) error {
+	expected, err := expectedBuildxMaterials(source, request, runtimeDepsDigest)
+	if err != nil {
+		return err
+	}
+	return validateBuildxMaterialClosure(materials, expected)
+}
+
+// expectedBuildxMaterials 从源码、运行时依赖和锁定基础镜像生成期望 material 集合。
+func expectedBuildxMaterials(source buildxConfigSource, request BuildKitBuildRequest, runtimeDepsDigest string) (map[string]buildxContextDigests, error) {
 	expected := map[string]buildxContextDigests{source.URI: source.Digest}
+	runtimeMaterial, err := expectedRuntimeDepsBuildxMaterial(runtimeDepsDigest, request.Platform)
+	if err != nil {
+		return nil, err
+	}
+	expected[runtimeMaterial.URI] = runtimeMaterial.Digest
 	for _, argument := range request.BuildArguments {
-		if argument.Name == sourceDateEpochArgument {
+		if argument.Name == sourceDateEpochArgument || argument.Name == "RUNTIME_DEPS_IMAGE" {
 			continue
 		}
 		material, err := expectedBuildxImageMaterial(argument.Value, request.Platform)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if _, exists := expected[material.URI]; exists {
-			return errors.New("buildx request contains duplicate provenance materials")
+			return nil, errors.New("buildx request contains duplicate provenance materials")
 		}
 		expected[material.URI] = material.Digest
 	}
+	return expected, nil
+}
+
+// validateBuildxMaterialClosure 要求实际 material 与期望 URI 和摘要一一对应。
+func validateBuildxMaterialClosure(materials []buildxMaterial, expected map[string]buildxContextDigests) error {
 	if len(materials) != len(expected) {
-		return errors.New("buildx provenance material closure does not match the locked inputs")
+		return fmt.Errorf(
+			"buildx provenance material closure does not match the locked inputs: got %v, want %v",
+			buildxMaterialURIs(materials),
+			buildxExpectedMaterialURIs(expected),
+		)
 	}
 	seen := make(map[string]struct{}, len(materials))
 	for _, material := range materials {
 		digest, exists := expected[material.URI]
 		if !exists || material.Digest != digest {
-			return errors.New("buildx provenance contains an unlocked material")
+			return fmt.Errorf(
+				"buildx provenance contains an unlocked material: uri=%q digest=%+v expected=%+v exists=%t expected_uris=%v",
+				material.URI,
+				material.Digest,
+				digest,
+				exists,
+				buildxExpectedMaterialURIs(expected),
+			)
 		}
 		if _, duplicate := seen[material.URI]; duplicate {
 			return errors.New("buildx provenance contains a duplicate material")
@@ -566,6 +552,40 @@ func validateBuildxMaterials(materials []buildxMaterial, source buildxConfigSour
 		seen[material.URI] = struct{}{}
 	}
 	return nil
+}
+
+// buildxMaterialURIs 返回排序后的实际 material URI，供闭包错误稳定呈现。
+func buildxMaterialURIs(materials []buildxMaterial) []string {
+	uris := make([]string, 0, len(materials))
+	for _, material := range materials {
+		uris = append(uris, material.URI)
+	}
+	slices.Sort(uris)
+	return uris
+}
+
+// buildxExpectedMaterialURIs 返回排序后的期望 material URI。
+func buildxExpectedMaterialURIs(expected map[string]buildxContextDigests) []string {
+	uris := make([]string, 0, len(expected))
+	for uri := range expected {
+		uris = append(uris, uri)
+	}
+	slices.Sort(uris)
+	return uris
+}
+
+// expectedRuntimeDepsBuildxMaterial 绑定同一 builder 生成的私有 OCI layout 摘要和目标平台。
+func expectedRuntimeDepsBuildxMaterial(digest string, platform string) (buildxMaterial, error) {
+	if err := validateDigest("runtime dependencies platform manifest digest", digest); err != nil {
+		return buildxMaterial{}, err
+	}
+	if _, err := parseBuildxPlatform(platform); err != nil {
+		return buildxMaterial{}, err
+	}
+	return buildxMaterial{
+		URI:    "pkg:oci/runtime-deps?digest=" + digest + "&platform=" + url.QueryEscape(platform),
+		Digest: buildxContextDigests{SHA256: strings.TrimPrefix(digest, "sha256:")},
+	}, nil
 }
 
 // expectedBuildxImageMaterial 将锁定镜像引用转换为对应的平台 provenance material。
@@ -599,16 +619,42 @@ func validateBuildxConfigSource(source buildxConfigSource, request BuildKitBuild
 	return nil
 }
 
-func validateBuildxParameters(parameters buildxParameters, request BuildKitBuildRequest) error {
+// validateBuildxParameters 校验 provenance 参数与受控命令完全一致且不含 secret 或 SSH 输入。
+func validateBuildxParameters(parameters buildxParameters, request BuildKitBuildRequest, runtimeDepsDigest string) error {
 	if parameters.Frontend != "dockerfile.v0" {
 		return errors.New("buildx provenance frontend is not dockerfile.v0")
 	}
 	if len(parameters.Secrets) != 0 || len(parameters.SSH) != 0 {
 		return errors.New("buildx provenance contains forbidden secret or SSH inputs")
 	}
+	runtimeContext, exists := parameters.Args["context:runtime-deps"]
+	if !exists {
+		return errors.New("buildx provenance is missing the runtime dependencies named context")
+	}
+	if err := validateRuntimeDepsBuildxContext(runtimeContext, runtimeDepsDigest); err != nil {
+		return err
+	}
 	expected := expectedBuildxProvenanceArgs(request)
+	expected["context:runtime-deps"] = runtimeContext
+	expected["frontend.caps"] = buildxNamedContextCaps
 	if !maps.Equal(parameters.Args, expected) {
 		return errors.New("buildx provenance arguments do not match the locked command")
+	}
+	return nil
+}
+
+func validateRuntimeDepsBuildxContext(value string, digest string) error {
+	if err := validateDigest("runtime dependencies named context digest", digest); err != nil {
+		return err
+	}
+	const prefix = "oci-layout://"
+	suffix := ":latest@" + digest
+	if !strings.HasPrefix(value, prefix) || !strings.HasSuffix(value, suffix) {
+		return errors.New("buildx runtime dependencies named context does not match its platform manifest digest")
+	}
+	reference := strings.TrimSuffix(strings.TrimPrefix(value, prefix), suffix)
+	if !buildxHistoryRecordReferencePattern.MatchString(reference) {
+		return errors.New("buildx runtime dependencies named context reference is not canonical")
 	}
 	return nil
 }
@@ -705,7 +751,7 @@ func (resolver *DockerCandidateIdentityResolver) ResolveCandidateIdentity(
 	if resolver == nil || interfaceValueIsNil(resolver.runner) || ctx == nil {
 		return gate.ImageIdentity{}, errors.New("candidate Docker identity resolver is not configured")
 	}
-	reference, err := CandidateImageReference(result.ImageDigest)
+	reference, err := candidateImageTag(result.InputDigest)
 	if err != nil {
 		return gate.ImageIdentity{}, err
 	}
@@ -717,7 +763,7 @@ func (resolver *DockerCandidateIdentityResolver) ResolveCandidateIdentity(
 	if err != nil {
 		return gate.ImageIdentity{}, err
 	}
-	return candidateIdentityFromInspect(reference, document, candidate, result, configDigest, platform)
+	return candidateIdentityFromInspect(document, candidate, result, configDigest, platform)
 }
 
 // inspectCandidate 严格读取单一 host Docker image inspect 文档。
@@ -742,20 +788,24 @@ func validateCandidateInspect(
 	candidate PromotionCandidate,
 	result CandidateResult,
 ) (string, buildxPlatform, error) {
-	if document.Descriptor == nil || document.Config == nil || document.RootFS == nil {
+	if document.Config == nil || document.RootFS == nil {
 		return "", buildxPlatform{}, errors.New("promotion candidate image inspect is incomplete")
 	}
-	if document.Descriptor.MediaType != buildxManifestMedia {
-		return "", buildxPlatform{}, errors.New("promotion candidate image is not a Docker platform manifest")
-	}
-	configDigest, err := resolveDockerDescriptorConfigDigest(
-		document.Descriptor.Annotations,
-		candidateImageRepository,
-		result.InputDigest,
-		result.ConfigDigest,
-	)
-	if err != nil {
-		return "", buildxPlatform{}, fmt.Errorf("resolve promotion candidate config digest: %w", err)
+	configDigest := result.ConfigDigest
+	if document.Descriptor != nil {
+		if document.Descriptor.MediaType != buildxManifestMedia {
+			return "", buildxPlatform{}, errors.New("promotion candidate image is not a Docker platform manifest")
+		}
+		var err error
+		configDigest, err = resolveDockerDescriptorConfigDigest(
+			document.Descriptor.Annotations,
+			candidateImageRepository,
+			result.InputDigest,
+			result.ConfigDigest,
+		)
+		if err != nil {
+			return "", buildxPlatform{}, fmt.Errorf("resolve promotion candidate config digest: %w", err)
+		}
 	}
 	if err := validateCandidateInspectDigests(document, result, configDigest); err != nil {
 		return "", buildxPlatform{}, err
@@ -788,7 +838,7 @@ func candidateInspectPlatformMatches(document imageInspectDocument, platform bui
 
 // validateCandidateInspectDigests 拒绝 manifest、config 或展示 ID 语义漂移。
 func validateCandidateInspectDigests(document imageInspectDocument, result CandidateResult, configDigest string) error {
-	if document.Descriptor.Digest != result.ImageDigest {
+	if document.Descriptor != nil && document.Descriptor.Digest != result.ImageDigest {
 		return errors.New("promotion candidate descriptor digest drifted from build result")
 	}
 	if err := validateDigest("promotion candidate config digest", configDigest); err != nil {
@@ -802,7 +852,6 @@ func validateCandidateInspectDigests(document imageInspectDocument, result Candi
 
 // candidateIdentityFromInspect 构造完整 identity 并复核 labels 与 immutable reference。
 func candidateIdentityFromInspect(
-	reference string,
 	document imageInspectDocument,
 	candidate PromotionCandidate,
 	result CandidateResult,
@@ -823,9 +872,6 @@ func candidateIdentityFromInspect(
 	}
 	if err := validateImageIdentity(gateImageIdentityReader{ImageIdentity: identity}, document.Config.Labels, expected); err != nil {
 		return gate.ImageIdentity{}, fmt.Errorf("verify promotion candidate identity: %w", err)
-	}
-	if !strings.HasSuffix(reference, "@"+identity.PlatformManifestDigest) {
-		return gate.ImageIdentity{}, errors.New("promotion candidate immutable reference drifted")
 	}
 	return identity, nil
 }

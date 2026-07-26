@@ -227,7 +227,7 @@ func (store *coordinatorStore) createJob(
 	}, nil
 }
 
-// persistCoordinatorJobTransaction 在同一事务内写入任务并绑定最新未完成前驱。
+// persistCoordinatorJobTransaction 在同一事务内写入任务及其真实构建依赖。
 func persistCoordinatorJobTransaction(
 	ctx context.Context,
 	tx *sql.Tx,
@@ -256,42 +256,7 @@ scheduler_subsequence, scheduler_dependencies_json, state, submitted_at
 	if err != nil || sequence <= 0 {
 		return 0, nil, fmt.Errorf("read coordinator enqueue sequence: %w", err)
 	}
-	dependencies, err = schedulerDependenciesWithActivePredecessor(ctx, tx, sequence, dependencies)
-	if err != nil {
-		return 0, nil, err
-	}
-	dependenciesJSON, err = json.Marshal(dependencies)
-	if err != nil {
-		return 0, nil, fmt.Errorf("encode coordinator FIFO dependencies: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE coordinator_jobs SET scheduler_dependencies_json = ? WHERE job_id = ?`, dependenciesJSON, jobID); err != nil {
-		return 0, nil, fmt.Errorf("persist coordinator FIFO dependency: %w", err)
-	}
 	return sequence, dependencies, nil
-}
-
-type coordinatorJobQueryer interface {
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-}
-
-// schedulerDependenciesWithActivePredecessor keeps concurrent submissions behind the latest unfinished durable job.
-func schedulerDependenciesWithActivePredecessor(
-	ctx context.Context,
-	queryer coordinatorJobQueryer,
-	sequence int64,
-	dependencies []string,
-) ([]string, error) {
-	var predecessor string
-	err := queryer.QueryRowContext(ctx, `SELECT job_id FROM coordinator_jobs
-WHERE enqueue_sequence < ? AND state IN (?, ?) ORDER BY enqueue_sequence DESC LIMIT 1`,
-		sequence, jobStateQueued, jobStateStarted).Scan(&predecessor)
-	if errors.Is(err, sql.ErrNoRows) {
-		return dependencies, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("read coordinator FIFO predecessor: %w", err)
-	}
-	return append(dependencies, predecessor), nil
 }
 
 func schedulerMetadataForCandidatePlan(plan localci.PromotionCandidatePlan) (uint32, []string, error) {
@@ -307,59 +272,53 @@ func schedulerMetadataForCandidatePlan(plan localci.PromotionCandidatePlan) (uin
 	return 0, []string{}, nil
 }
 
-func (store *coordinatorStore) job(ctx context.Context, jobID string) (coordinatorJobRecord, error) {
-	row := store.db.QueryRowContext(ctx, `SELECT invocation_id, job_id, enqueue_sequence, repository_root, entrypoint, authority_owner, authority_attestation,
+const coordinatorJobSelect = `SELECT invocation_id, job_id, enqueue_sequence, repository_root, entrypoint, authority_owner, authority_attestation,
 plan_json, profile, job_source_tree_sha, image_provenance_source_tree_sha, state, submitted_at,
  scheduler_subsequence, scheduler_dependencies_json,
 started_at, deadline_at, container_exited_at, completed_at, active_gate_id, container_phase, container_id,
 container_labels_json, container_image_reference, container_config_digest, container_host_config_digest,
 container_resource_witness_json, container_resource_witness_digest, container_resource_witness_verified, source_snapshot_dir,
-removal_proof_digest, gate_results_json, receipt_id, receipt_json, error_text FROM coordinator_jobs WHERE job_id = ?`, jobID)
-	record, err := scanCoordinatorJob(row, jobID)
-	return store.completeCoordinatorJobRead(ctx, record, err)
+removal_proof_digest, gate_results_json, receipt_id, receipt_json, error_text FROM coordinator_jobs`
+
+func (store *coordinatorStore) job(ctx context.Context, jobID string) (coordinatorJobRecord, error) {
+	return store.readCoordinatorJobSnapshot(ctx, coordinatorJobSelect+" WHERE job_id = ?", jobID)
 }
 
 func (store *coordinatorStore) jobByInvocation(
 	ctx context.Context,
 	invocationID string,
 ) (coordinatorJobRecord, error) {
-	row := store.db.QueryRowContext(ctx, `SELECT invocation_id, job_id, enqueue_sequence, repository_root, entrypoint, authority_owner, authority_attestation,
-plan_json, profile, job_source_tree_sha, image_provenance_source_tree_sha, state, submitted_at,
- scheduler_subsequence, scheduler_dependencies_json,
-started_at, deadline_at, container_exited_at, completed_at, active_gate_id, container_phase, container_id,
-container_labels_json, container_image_reference, container_config_digest, container_host_config_digest,
-container_resource_witness_json, container_resource_witness_digest, container_resource_witness_verified, source_snapshot_dir,
-removal_proof_digest, gate_results_json, receipt_id, receipt_json, error_text FROM coordinator_jobs WHERE invocation_id = ?`, invocationID)
-	record, err := scanCoordinatorJob(row, invocationID)
-	return store.completeCoordinatorJobRead(ctx, record, err)
+	return store.readCoordinatorJobSnapshot(ctx, coordinatorJobSelect+" WHERE invocation_id = ?", invocationID)
 }
 
 func (store *coordinatorStore) jobByReceiptID(
 	ctx context.Context,
 	receiptID string,
 ) (coordinatorJobRecord, error) {
-	row := store.db.QueryRowContext(ctx, `SELECT invocation_id, job_id, enqueue_sequence, repository_root, entrypoint, authority_owner, authority_attestation,
-plan_json, profile, job_source_tree_sha, image_provenance_source_tree_sha, state, submitted_at,
- scheduler_subsequence, scheduler_dependencies_json,
-started_at, deadline_at, container_exited_at, completed_at, active_gate_id, container_phase, container_id,
-container_labels_json, container_image_reference, container_config_digest, container_host_config_digest,
-container_resource_witness_json, container_resource_witness_digest, container_resource_witness_verified, source_snapshot_dir,
-removal_proof_digest, gate_results_json, receipt_id, receipt_json, error_text FROM coordinator_jobs WHERE receipt_id = ?`, receiptID)
-	record, err := scanCoordinatorJob(row, receiptID)
-	return store.completeCoordinatorJobRead(ctx, record, err)
+	return store.readCoordinatorJobSnapshot(ctx, coordinatorJobSelect+" WHERE receipt_id = ?", receiptID)
 }
 
-// completeCoordinatorJobRead 补全 job 的分片记录，并校验容器模式及已签发 receipt。
-func (store *coordinatorStore) completeCoordinatorJobRead(
+// readCoordinatorJobSnapshot 在一个只读事务快照内读取 job 与分片，避免并发生命周期写入产生撕裂记录。
+func (store *coordinatorStore) readCoordinatorJobSnapshot(
 	ctx context.Context,
-	record coordinatorJobRecord,
-	err error,
-) (coordinatorJobRecord, error) {
+	query string,
+	lookupValue string,
+) (record coordinatorJobRecord, retErr error) {
+	tx, err := store.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return coordinatorJobRecord{}, fmt.Errorf("begin coordinator job snapshot: %w", err)
+	}
+	defer func() {
+		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+			retErr = errors.Join(retErr, rollbackErr)
+		}
+	}()
+	record, err = scanCoordinatorJob(tx.QueryRowContext(ctx, query, lookupValue), lookupValue)
 	record, err = requireCoordinatorPassedReceipt(record, err)
 	if err != nil {
 		return coordinatorJobRecord{}, err
 	}
-	shards, err := store.containerShards(ctx, record.JobID)
+	shards, err := containerShardsFromQuery(ctx, tx, record.JobID)
 	if err != nil {
 		return coordinatorJobRecord{}, err
 	}
@@ -371,6 +330,9 @@ func (store *coordinatorStore) completeCoordinatorJobRead(
 		if err := validateStoredResultReceipt(record); err != nil {
 			return coordinatorJobRecord{}, err
 		}
+	}
+	if err := tx.Commit(); err != nil {
+		return coordinatorJobRecord{}, fmt.Errorf("commit coordinator job snapshot: %w", err)
 	}
 	return record, nil
 }
@@ -514,12 +476,12 @@ AND (? NOT IN (?, ?, ?, ?) OR (
   (NOT EXISTS (SELECT 1 FROM coordinator_job_shards WHERE coordinator_job_shards.job_id = coordinator_jobs.job_id)
    AND container_exited_at IS NOT NULL)
   OR
-  ((SELECT COUNT(*) FROM coordinator_job_shards WHERE coordinator_job_shards.job_id = coordinator_jobs.job_id) = ?
+	   ((SELECT COUNT(*) FROM coordinator_job_shards WHERE coordinator_job_shards.job_id = coordinator_jobs.job_id) > 0
    AND NOT EXISTS (SELECT 1 FROM coordinator_job_shards
                    WHERE coordinator_job_shards.job_id = coordinator_jobs.job_id AND exited_at IS NULL))
 ))`, state, completedAt.Format(time.RFC3339Nano),
 		resultJSON, receiptID, receiptJSON, errorText, jobID, jobStateQueued, jobStateStarted,
-		state, jobStatePassed, jobStateFailed, jobStateCancelled, jobStateTimeout, gatecontract.MaxContainerShards)
+		state, jobStatePassed, jobStateFailed, jobStateCancelled, jobStateTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("persist coordinator terminal state: %w", err)
 	}

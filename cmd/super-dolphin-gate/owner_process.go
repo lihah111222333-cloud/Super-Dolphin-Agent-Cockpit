@@ -12,6 +12,8 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"reflect"
+	"runtime"
 	"strings"
 	"syscall"
 
@@ -49,7 +51,33 @@ func (executableOwnerStarter) StartCoordinatorOwner(ctx context.Context, checkpo
 func newCoordinatorOwnerCommand(executable string, args ...string) *exec.Cmd {
 	command := exec.Command(executable, args...)
 	command.Env = coordinatorOwnerEnvironment(os.Environ())
+	detachCoordinatorOwnerCommand(command)
 	return command
+}
+
+// detachCoordinatorOwnerCommand 防止调用方终端退出时向全局 owner 传播挂断信号。
+func detachCoordinatorOwnerCommand(command *exec.Cmd) {
+	if command == nil || runtime.GOOS == "windows" {
+		return
+	}
+	command.SysProcAttr = &syscall.SysProcAttr{}
+	setsid := reflect.ValueOf(command.SysProcAttr).Elem().FieldByName("Setsid")
+	setsid.SetBool(true)
+}
+
+// coordinatorOwnerCommandDetached 检查当前平台的 owner 脱离约束是否已满足。
+func coordinatorOwnerCommandDetached(command *exec.Cmd) bool {
+	if command == nil {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		return true
+	}
+	if command.SysProcAttr == nil {
+		return false
+	}
+	setsid := reflect.ValueOf(command.SysProcAttr).Elem().FieldByName("Setsid")
+	return setsid.IsValid() && setsid.Kind() == reflect.Bool && setsid.Bool()
 }
 
 // coordinatorOwnerEnvironment 移除调用方可控状态，并以固定 Git/Docker 工具链替换 PATH。

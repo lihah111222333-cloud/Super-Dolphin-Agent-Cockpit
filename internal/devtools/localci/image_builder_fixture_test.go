@@ -34,11 +34,11 @@ func candidateEntries(dockerfile string) []sourceexport.TreeEntry {
 	toolchain := `{
   "schema_version": "1",
   "buildkit_version": "v0.26.2",
-  "buildkit_image": "docker.io/moby/buildkit@sha256:` + strings.Repeat("c", 64) + `",
+  "buildkit_image": "mirror.gcr.io/moby/buildkit@sha256:` + strings.Repeat("c", 64) + `",
   "dockerfile_frontend": "builtin:dockerfile.v1",
   "source_date_epoch": "0",
   "target_platforms": ["linux/amd64", "linux/arm64"],
-  "base_images": [{"name":"GO_IMAGE","reference":"golang@sha256:` + strings.Repeat("b", 64) + `"}],
+  "base_images": [{"name":"GO_IMAGE","reference":"golang@sha256:` + strings.Repeat("b", 64) + `"},{"name":"NODE_IMAGE","reference":"node@sha256:` + strings.Repeat("d", 64) + `"}],
   "dependency_sources": ["go.sum"],
   "runtime_deps_lock": "build/gate/runtime-deps.lock",
   "runtime_tools": {

@@ -161,25 +161,28 @@ type reservation struct {
 }
 
 type schedulerKernel struct {
-	identity daemonIdentity
-	nodes    map[workloadID]*workloadNode
-	leases   map[string]slotLease
+	identity           daemonIdentity
+	maxActiveWorkloads int
+	nodes              map[workloadID]*workloadNode
+	leases             map[string]slotLease
 }
 
-func newSchedulerKernel(identity daemonIdentity) (*schedulerKernel, error) {
+func newSchedulerKernel(identity daemonIdentity, maxActiveWorkloads int) (*schedulerKernel, error) {
 	if strings.TrimSpace(identity.key) == "" || strings.TrimSpace(identity.daemonID) == "" {
 		return nil, errors.New("validated daemon identity is required")
 	}
+	if err := validateMaxActiveWorkloads(maxActiveWorkloads); err != nil {
+		return nil, err
+	}
 	return &schedulerKernel{
-		identity: identity,
-		nodes:    make(map[workloadID]*workloadNode),
-		leases:   make(map[string]slotLease),
+		identity: identity, maxActiveWorkloads: maxActiveWorkloads,
+		nodes: make(map[workloadID]*workloadNode), leases: make(map[string]slotLease),
 	}, nil
 }
 
 // enqueue 校验 owner-local workload 并将其加入统一 FIFO。
 func (s *schedulerKernel) enqueue(spec workloadSpec) error {
-	if err := validateWorkloadSpec(spec); err != nil {
+	if err := validateWorkloadSpec(spec, s.maxActiveWorkloads); err != nil {
 		return err
 	}
 	if err := s.validateGroupSpec(spec); err != nil {
@@ -196,7 +199,7 @@ func (s *schedulerKernel) enqueue(spec workloadSpec) error {
 }
 
 // validateWorkloadSpec 校验所有 standalone 与 grouped workload 的共享输入。
-func validateWorkloadSpec(spec workloadSpec) error {
+func validateWorkloadSpec(spec workloadSpec, maxActiveWorkloads int) error {
 	if strings.TrimSpace(string(spec.id)) == "" {
 		return errors.New("workload ID is required")
 	}
@@ -230,7 +233,7 @@ func (s *schedulerKernel) validateGroupSpec(spec workloadSpec) error {
 		}
 		return nil
 	}
-	if err := validateGroupHeader(spec); err != nil {
+	if err := validateGroupHeader(spec, s.maxActiveWorkloads); err != nil {
 		return err
 	}
 	if err := validateShardIdentities(spec.shardIDs); err != nil {
@@ -240,7 +243,7 @@ func (s *schedulerKernel) validateGroupSpec(spec workloadSpec) error {
 }
 
 // validateGroupHeader 校验 group 类型、容量与 identity 数量一致。
-func validateGroupHeader(spec workloadSpec) error {
+func validateGroupHeader(spec workloadSpec, maxActiveWorkloads int) error {
 	if spec.kind != workloadShard || spec.groupID == "" {
 		return errors.New("shard group requires shard kind and group identity")
 	}
@@ -281,12 +284,12 @@ func (s *schedulerKernel) reserveRunnable() ([]reservation, error) {
 	if err := s.validateDAG(); err != nil {
 		return nil, err
 	}
-	if len(s.leases) > maxActiveWorkloads {
-		return nil, fmt.Errorf("active lease count %d exceeds capacity %d", len(s.leases), maxActiveWorkloads)
+	if len(s.leases) > s.maxActiveWorkloads {
+		return nil, fmt.Errorf("active lease count %d exceeds capacity %d", len(s.leases), s.maxActiveWorkloads)
 	}
 
 	queued := s.sortedQueued()
-	reservations := make([]reservation, 0, maxActiveWorkloads-len(s.leases))
+	reservations := make([]reservation, 0, s.maxActiveWorkloads-len(s.leases))
 	var blockedGang *workloadNode
 	for _, node := range queued {
 		decision, gang := s.decideReservation(node, blockedGang)
@@ -306,7 +309,7 @@ func (s *schedulerKernel) reserveRunnable() ([]reservation, error) {
 			node.gangBypasses = 0
 			blockedGang = nil
 		}
-		if len(s.leases) == maxActiveWorkloads {
+		if len(s.leases) == s.maxActiveWorkloads {
 			break
 		}
 	}
@@ -333,7 +336,7 @@ func (s *schedulerKernel) decideReservation(
 		return reservationSkip, blockedGang
 	}
 	required := 1 + node.spec.serviceCount
-	if required > maxActiveWorkloads-len(s.leases) {
+	if required > s.maxActiveWorkloads-len(s.leases) {
 		if node.spec.serviceCount > 0 && blockedGang == nil {
 			blockedGang = node
 		}
@@ -355,7 +358,7 @@ func (s *schedulerKernel) reserve(node *workloadNode) (reservation, error) {
 		return reservation{}, fmt.Errorf("workload %q is not queued", node.spec.id)
 	}
 	required := 1 + node.spec.serviceCount
-	if len(s.leases)+required > maxActiveWorkloads {
+	if len(s.leases)+required > s.maxActiveWorkloads {
 		return reservation{}, fmt.Errorf("workload %q does not fit available capacity", node.spec.id)
 	}
 	leases := make([]slotLease, 0, required)
@@ -394,11 +397,18 @@ func (s *schedulerKernel) reserve(node *workloadNode) (reservation, error) {
 	return reservation{workloadID: node.spec.id, groupID: node.spec.groupID, leases: leases}, nil
 }
 
-// complete 只接受已启动 standalone workload 的终态。
+// complete 接受已启动 workload 的终态，或把依赖已失败的排队 workload 收敛为基础设施失败。
 func (s *schedulerKernel) complete(id workloadID, terminalState workloadState) error {
 	node, exists := s.nodes[id]
 	if !exists {
 		return fmt.Errorf("unknown workload %q", id)
+	}
+	if node.state == stateQueued {
+		if terminalState != stateInfraFailed || !s.dependenciesFailed(node) {
+			return fmt.Errorf("queued workload %q has no failed dependency", id)
+		}
+		node.state = terminalState
+		return nil
 	}
 	if node.state != stateStarted {
 		return fmt.Errorf("workload %q is not running", id)
@@ -655,6 +665,16 @@ func (s *schedulerKernel) dependenciesSucceeded(node *workloadNode) bool {
 		}
 	}
 	return true
+}
+
+func (s *schedulerKernel) dependenciesFailed(node *workloadNode) bool {
+	for _, dependencyID := range node.spec.dependencies {
+		state := s.nodes[dependencyID].state
+		if state.terminal() && state != statePassed {
+			return true
+		}
+	}
+	return false
 }
 
 // sortedQueued 生成稳定的 build、service gang、job FIFO 视图。

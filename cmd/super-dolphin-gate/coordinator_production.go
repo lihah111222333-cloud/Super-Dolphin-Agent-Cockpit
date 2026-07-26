@@ -72,6 +72,9 @@ func productionCoordinatorDependenciesWithBuildx(
 		ImageEnsurer: imageEnsurer, CandidateBuilder: candidateBuilder, PromotionWatcher: watcher,
 		SourceMaterializer: sourceMaterializer, FreshRunner: freshRunner, RecoveryRunner: freshRunner,
 		ReceiptSigner: receiptSigner,
+		SchedulingPolicy: coordinatorSchedulingPolicy{
+			ShardsPerJob: config.ShardsPerJob, MaxActiveCIWorkloads: config.MaxActiveCIWorkloads,
+		},
 	}
 	return dependencies, dependencies.validate()
 }

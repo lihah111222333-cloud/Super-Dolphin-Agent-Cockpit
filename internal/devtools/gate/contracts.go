@@ -220,8 +220,11 @@ const (
 	ResultStatusPassedStalePolicy ResultStatus = "passed_stale_policy"
 )
 
-// ResultReceiptSchemaVersion 是包含完整 canonical shard receipts 的签名合同版本。
-const ResultReceiptSchemaVersion uint32 = 2
+// ResultReceiptSchemaVersion binds dynamically sized canonical shard receipts.
+const (
+	ResultReceiptSchemaVersion       uint32 = 3
+	legacyResultReceiptSchemaVersion uint32 = 2
+)
 
 // ResultReceipt is the canonical signed audit result. It never authorizes an action by itself.
 type ResultReceipt struct {

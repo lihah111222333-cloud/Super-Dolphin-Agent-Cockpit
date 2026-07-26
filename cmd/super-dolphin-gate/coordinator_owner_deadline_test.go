@@ -469,7 +469,8 @@ func startDeadlineOwner(t *testing.T, imageEnsurer ImageEnsurer, runner FreshCon
 		ImageEnsurer: imageEnsurer, CandidateBuilder: fakeCandidateBuildService{},
 		PromotionWatcher: fakePromotionWatcher{}, SourceMaterializer: fakeSourceMaterializer{},
 		FreshRunner: runner, RecoveryRunner: &capturingFreshContainerRunner{},
-		ReceiptSigner: mustTestResultReceiptSigner(t),
+		ReceiptSigner:    mustTestResultReceiptSigner(t),
+		SchedulingPolicy: testCoordinatorSchedulingPolicy(),
 	})
 	if err != nil {
 		t.Fatalf("openCoordinatorOwner() error = %v", err)

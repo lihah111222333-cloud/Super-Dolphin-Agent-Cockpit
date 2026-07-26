@@ -15,6 +15,7 @@ import (
 const (
 	coordinatorPollInterval           = 20 * time.Millisecond
 	coordinatorConnectTimeout         = 5 * time.Second
+	coordinatorOwnerStartupTimeout    = 30 * time.Second
 	coordinatorStateTransitionTimeout = time.Second
 	coordinatorCleanupTimeout         = 30 * time.Second
 	coordinatorProvisioningTimeout    = 15 * time.Minute
@@ -183,6 +184,19 @@ type coordinatorDependencies struct {
 	FreshRunner        FreshContainerRunner
 	RecoveryRunner     FreshContainerRecoveryRunner
 	ReceiptSigner      resultReceiptSigner
+	SchedulingPolicy   coordinatorSchedulingPolicy
+}
+
+type coordinatorSchedulingPolicy struct {
+	ShardsPerJob         int
+	MaxActiveCIWorkloads int
+}
+
+// Validate 校验每任务分片数与节点全局并发容量合同。
+func (policy coordinatorSchedulingPolicy) Validate() error {
+	return productionCoordinatorConfig{
+		ShardsPerJob: policy.ShardsPerJob, MaxActiveCIWorkloads: policy.MaxActiveCIWorkloads,
+	}.validateSchedulingPolicy()
 }
 
 // validate 要求 owner 执行、构建、晋升与物化依赖全部显式接线。
@@ -207,6 +221,9 @@ func (dependencies coordinatorDependencies) validate() error {
 	}
 	if interfaceIsNil(dependencies.ReceiptSigner) {
 		return fmt.Errorf("%w: ResultReceiptSigner is required", errCoordinatorDependency)
+	}
+	if err := dependencies.SchedulingPolicy.Validate(); err != nil {
+		return fmt.Errorf("%w: scheduling policy: %w", errCoordinatorDependency, err)
 	}
 	return nil
 }
@@ -260,16 +277,18 @@ func connectScheduler(
 	starter coordinatorOwnerStarter,
 ) (*localci.SchedulerClient, error) {
 	connectCtx, cancel := context.WithDeadline(ctx, time.Now().Add(coordinatorConnectTimeout))
-	defer cancel()
 	client, dialErr := localci.DialScheduler(connectCtx, checkpoint.SchedulerConfig)
+	cancel()
 	if dialErr == nil {
 		return client, nil
 	}
 	if interfaceIsNil(starter) {
 		return nil, fmt.Errorf("%w: owner starter is required: %v", errCoordinatorDependency, dialErr)
 	}
-	startErr := starter.StartCoordinatorOwner(connectCtx, checkpoint)
-	return waitForScheduler(connectCtx, checkpoint, startErr)
+	startupCtx, cancelStartup := context.WithDeadline(ctx, time.Now().Add(coordinatorOwnerStartupTimeout))
+	defer cancelStartup()
+	startErr := starter.StartCoordinatorOwner(startupCtx, checkpoint)
+	return waitForScheduler(startupCtx, checkpoint, startErr)
 }
 
 func waitForScheduler(

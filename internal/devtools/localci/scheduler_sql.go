@@ -20,7 +20,7 @@ func schedulerDatabaseEmpty(ctx context.Context, db *sql.DB) (bool, error) {
 	return count == 0, nil
 }
 
-func createSchedulerSchema(ctx context.Context, db *sql.DB, daemonKey string) (retErr error) {
+func createSchedulerSchema(ctx context.Context, db *sql.DB, daemonKey string, maxActiveWorkloads int) (retErr error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin scheduler schema creation: %w", err)
@@ -31,9 +31,10 @@ func createSchedulerSchema(ctx context.Context, db *sql.DB, daemonKey string) (r
 	}
 	if _, err := tx.ExecContext(
 		ctx,
-		"INSERT INTO scheduler_schema (id, version, daemon_key) VALUES (1, ?, ?)",
+		"INSERT INTO scheduler_schema (id, version, daemon_key, max_active_workloads) VALUES (1, ?, ?, ?)",
 		schedulerSchemaVersion,
 		daemonKey,
+		maxActiveWorkloads,
 	); err != nil {
 		return fmt.Errorf("record scheduler schema identity: %w", err)
 	}
@@ -44,23 +45,36 @@ func createSchedulerSchema(ctx context.Context, db *sql.DB, daemonKey string) (r
 }
 
 // validateSchedulerSchema 拒绝版本、daemon key 或 SQLite 完整性漂移。
-func validateSchedulerSchema(ctx context.Context, db *sql.DB, daemonKey string) error {
+func validateSchedulerSchema(ctx context.Context, db *sql.DB, daemonKey string, maxActiveWorkloads int) error {
 	var version int
-	var storedDaemonKey string
 	if err := db.QueryRowContext(
 		ctx,
-		"SELECT version, daemon_key FROM scheduler_schema WHERE id = 1",
-	).Scan(&version, &storedDaemonKey); err != nil {
+		"SELECT version FROM scheduler_schema WHERE id = 1",
+	).Scan(&version); err != nil {
 		return fmt.Errorf("read scheduler schema identity: %w", err)
 	}
 	if version == 1 {
 		return errSchedulerSchemaV1Unsupported
 	}
+	if version == 2 {
+		return errSchedulerSchemaV2Unsupported
+	}
 	if version != schedulerSchemaVersion {
 		return fmt.Errorf("scheduler schema version %d does not match required %d", version, schedulerSchemaVersion)
 	}
+	var storedDaemonKey string
+	var storedMaxActiveWorkloads int
+	if err := db.QueryRowContext(
+		ctx,
+		"SELECT daemon_key, max_active_workloads FROM scheduler_schema WHERE id = 1",
+	).Scan(&storedDaemonKey, &storedMaxActiveWorkloads); err != nil {
+		return fmt.Errorf("read scheduler schema capacity: %w", err)
+	}
 	if storedDaemonKey != daemonKey {
 		return errors.New("scheduler state daemon identity mismatch")
+	}
+	if storedMaxActiveWorkloads != maxActiveWorkloads {
+		return fmt.Errorf("scheduler max active workloads drifted: stored %d, configured %d", storedMaxActiveWorkloads, maxActiveWorkloads)
 	}
 	var integrity string
 	if err := db.QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&integrity); err != nil {

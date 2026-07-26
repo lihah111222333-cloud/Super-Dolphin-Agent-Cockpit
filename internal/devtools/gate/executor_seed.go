@@ -20,13 +20,12 @@ import (
 )
 
 // RuntimeSeedSchemaVersion is the shared image-builder/executor manifest schema.
-const RuntimeSeedSchemaVersion = 6
+const RuntimeSeedSchemaVersion = 7
 
 // RuntimeSeedManifest binds immutable runtime seeds to repository lock files.
 type RuntimeSeedManifest struct {
 	SchemaVersion         uint32 `json:"schema_version"`
 	GoSumSHA256           string `json:"go_sum_sha256"`
-	VendorTreeSHA256      string `json:"vendor_tree_sha256"`
 	ModuleProxyLockSHA256 string `json:"module_proxy_lock_sha256"`
 	ModuleProxyTreeSHA256 string `json:"module_proxy_tree_sha256"`
 	PackageLockSHA256     string `json:"package_lock_sha256"`
@@ -46,16 +45,8 @@ func installRuntimeSeeds(config executorConfig, layout executorLayout, program E
 		return err
 	}
 	if program.NeedsGoSeed {
-		proxyLock := filepath.Join(layout.sourceCopy, "build", "gate", "runtime-proxy", "go.sum")
-		if err := validateBoundRuntimeFile(proxyLock, manifest.ModuleProxyLockSHA256); err != nil {
-			return fmt.Errorf("validate Go module proxy lock: %w", err)
-		}
-		if err := installBoundSeed(
-			filepath.Join(layout.sourceCopy, "go.sum"), manifest.GoSumSHA256,
-			filepath.Join(config.runtimeSeedRoot, "vendor"), manifest.VendorTreeSHA256,
-			filepath.Join(layout.sourceCopy, "vendor"),
-		); err != nil {
-			return fmt.Errorf("install Go runtime seed: %w", err)
+		if err := validateGoRuntimeSeeds(config, layout, manifest); err != nil {
+			return err
 		}
 	}
 	if program.NeedsFrontendSeed {
@@ -76,6 +67,23 @@ func installRuntimeSeeds(config executorConfig, layout executorLayout, program E
 	return nil
 }
 
+// validateGoRuntimeSeeds 校验提交锁与环境镜像中的共享 Go module proxy。
+func validateGoRuntimeSeeds(config executorConfig, layout executorLayout, manifest RuntimeSeedManifest) error {
+	if err := validateBoundRuntimeFile(filepath.Join(layout.sourceCopy, "go.sum"), manifest.GoSumSHA256); err != nil {
+		return fmt.Errorf("validate Go dependency lock: %w", err)
+	}
+	proxyLock := filepath.Join(layout.sourceCopy, "build", "gate", "runtime-proxy", "go.sum")
+	if err := validateBoundRuntimeFile(proxyLock, manifest.ModuleProxyLockSHA256); err != nil {
+		return fmt.Errorf("validate Go module proxy lock: %w", err)
+	}
+	if err := validateRuntimeSeedTree(
+		filepath.Join(config.runtimeSeedRoot, "go-proxy"), manifest.ModuleProxyTreeSHA256,
+	); err != nil {
+		return fmt.Errorf("validate Go module proxy seed: %w", err)
+	}
+	return nil
+}
+
 // validateBoundRuntimeFile 校验候选快照中的运行时锁文件与镜像清单一致。
 func validateBoundRuntimeFile(path string, expectedDigest string) error {
 	digest, err := fileSHA256(path)
@@ -84,6 +92,18 @@ func validateBoundRuntimeFile(path string, expectedDigest string) error {
 	}
 	if digest != expectedDigest {
 		return errors.New("runtime seed source lock digest does not match snapshot")
+	}
+	return nil
+}
+
+// validateRuntimeSeedTree 校验环境镜像中的只读依赖树与清单摘要一致。
+func validateRuntimeSeedTree(path string, expectedDigest string) error {
+	actualDigest, err := RuntimeSeedTreeDigest(path)
+	if err != nil {
+		return err
+	}
+	if actualDigest != expectedDigest {
+		return fmt.Errorf("runtime seed tree digest %s does not match manifest %s", actualDigest, expectedDigest)
 	}
 	return nil
 }
@@ -139,7 +159,7 @@ func (manifest RuntimeSeedManifest) validateShape() error {
 		return fmt.Errorf("runtime seed schema = %d, want %d", manifest.SchemaVersion, RuntimeSeedSchemaVersion)
 	}
 	for name, digest := range map[string]string{
-		"go_sum_sha256": manifest.GoSumSHA256, "vendor_tree_sha256": manifest.VendorTreeSHA256,
+		"go_sum_sha256":            manifest.GoSumSHA256,
 		"module_proxy_lock_sha256": manifest.ModuleProxyLockSHA256,
 		"module_proxy_tree_sha256": manifest.ModuleProxyTreeSHA256,
 		"package_lock_sha256":      manifest.PackageLockSHA256, "node_modules_tree_sha256": manifest.NodeModulesTreeSHA256,
@@ -167,10 +187,6 @@ func BuildRuntimeSeedManifest(snapshotRoot string, runtimeRoot string) (RuntimeS
 	if err != nil {
 		return RuntimeSeedManifest{}, fmt.Errorf("digest go.sum: %w", err)
 	}
-	vendor, err := RuntimeSeedTreeDigest(filepath.Join(runtimePath, "vendor"))
-	if err != nil {
-		return RuntimeSeedManifest{}, err
-	}
 	moduleProxyLock, moduleProxy, err := runtimeModuleProxyDigests(snapshotPath, runtimePath)
 	if err != nil {
 		return RuntimeSeedManifest{}, err
@@ -188,7 +204,7 @@ func BuildRuntimeSeedManifest(snapshotRoot string, runtimeRoot string) (RuntimeS
 		return RuntimeSeedManifest{}, fmt.Errorf("digest sqruff: %w", err)
 	}
 	return RuntimeSeedManifest{
-		SchemaVersion: RuntimeSeedSchemaVersion, GoSumSHA256: goSum, VendorTreeSHA256: vendor,
+		SchemaVersion: RuntimeSeedSchemaVersion, GoSumSHA256: goSum,
 		ModuleProxyLockSHA256: moduleProxyLock, ModuleProxyTreeSHA256: moduleProxy,
 		PackageLockSHA256: packageLock, NodeModulesTreeSHA256: nodeModules, NPMCacheTreeSHA256: npmCache,
 		RipgrepSHA256: ripgrep, SqruffSHA256: sqruff,
@@ -522,8 +538,8 @@ func copyRuntimeSeed(sourceRoot string, targetRoot string) error {
 	if err != nil {
 		return fmt.Errorf("copy runtime seed: %w", err)
 	}
-	for index := len(directories) - 1; index >= 0; index-- {
-		if err := os.Chmod(directories[index].path, directories[index].mode); err != nil {
+	for _, directory := range slices.Backward(directories) {
+		if err := os.Chmod(directory.path, directory.mode); err != nil {
 			return err
 		}
 	}
@@ -537,8 +553,8 @@ func copyRuntimeSeedContents(sourceRoot string, targetRoot string) error {
 	if err := filepath.WalkDir(sourceRoot, copier.copy); err != nil {
 		return fmt.Errorf("copy runtime seed: %w", err)
 	}
-	for index := len(directories) - 1; index >= 0; index-- {
-		if err := os.Chmod(directories[index].path, directories[index].mode); err != nil {
+	for _, directory := range slices.Backward(directories) {
+		if err := os.Chmod(directory.path, directory.mode); err != nil {
 			return err
 		}
 	}

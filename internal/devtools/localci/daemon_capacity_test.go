@@ -34,16 +34,16 @@ func TestValidateDaemonCapacityBoundaries(t *testing.T) {
 		wantErr       bool
 		wantSubstring string
 	}{
-		{name: "current class environment lacks memory", logicalCPUs: 18, memoryBytes: 765 * bytesPerGiB / 100, wantErr: true, wantSubstring: "memory capacity insufficient"},
-		{name: "eighteen CPUs and twenty five GiB pass", logicalCPUs: 18, memoryBytes: 25 * bytesPerGiB},
-		{name: "eleven CPUs fail", logicalCPUs: 11, memoryBytes: 25 * bytesPerGiB, wantErr: true, wantSubstring: "logical CPU capacity insufficient"},
-		{name: "one byte below memory requirement fails", logicalCPUs: 18, memoryBytes: 24*bytesPerGiB - 1, wantErr: true, wantSubstring: "memory capacity insufficient"},
+		{name: "twenty slots lack memory", logicalCPUs: 80, memoryBytes: 160*bytesPerGiB - 1, wantErr: true, wantSubstring: "memory capacity insufficient"},
+		{name: "twenty slots pass", logicalCPUs: 80, memoryBytes: 160 * bytesPerGiB},
+		{name: "seventy nine CPUs fail", logicalCPUs: 79, memoryBytes: 160 * bytesPerGiB, wantErr: true, wantSubstring: "logical CPU capacity insufficient"},
+		{name: "one byte below twenty-slot memory requirement fails", logicalCPUs: 80, memoryBytes: 160*bytesPerGiB - 1, wantErr: true, wantSubstring: "memory capacity insufficient"},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			stub := &capacityInspectorStub{capacity: validDaemonCapacity(test.logicalCPUs, test.memoryBytes)}
-			evidence, err := ValidateDaemonCapacity(context.Background(), testDaemonID, stub)
+			evidence, err := ValidateDaemonCapacity(context.Background(), testDaemonID, 20, stub)
 			if test.wantErr {
 				if err == nil || !strings.Contains(err.Error(), test.wantSubstring) {
 					t.Fatalf("ValidateDaemonCapacity() error = %v, want substring %q", err, test.wantSubstring)
@@ -53,7 +53,7 @@ func TestValidateDaemonCapacityBoundaries(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ValidateDaemonCapacity() error = %v", err)
 			}
-			if evidence.Required.LogicalCPUs != 12 || evidence.Required.MemoryBytes != 24*bytesPerGiB {
+			if evidence.Required.LogicalCPUs != 80 || evidence.Required.MemoryBytes != 160*bytesPerGiB {
 				t.Fatalf("required capacity = %#v", evidence.Required)
 			}
 			if evidence.DaemonID != testDaemonID || evidence.ObservedAt != testObservedAt() {
@@ -64,7 +64,7 @@ func TestValidateDaemonCapacityBoundaries(t *testing.T) {
 }
 
 func TestValidateDaemonCapacityRejectsInvalidInputs(t *testing.T) {
-	validInspector := &capacityInspectorStub{capacity: validDaemonCapacity(18, 25*bytesPerGiB)}
+	validInspector := &capacityInspectorStub{capacity: validDaemonCapacity(80, 160*bytesPerGiB)}
 	tests := []struct {
 		name      string
 		ctx       context.Context
@@ -80,14 +80,14 @@ func TestValidateDaemonCapacityRejectsInvalidInputs(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := ValidateDaemonCapacity(test.ctx, test.daemonID, test.inspector); err == nil {
+			if _, err := ValidateDaemonCapacity(test.ctx, test.daemonID, 20, test.inspector); err == nil {
 				t.Fatal("ValidateDaemonCapacity() error = nil")
 			}
 		})
 	}
 
 	var typedNil *capacityInspectorStub
-	if _, err := ValidateDaemonCapacity(context.Background(), testDaemonID, typedNil); err == nil {
+	if _, err := ValidateDaemonCapacity(context.Background(), testDaemonID, 20, typedNil); err == nil {
 		t.Fatal("ValidateDaemonCapacity() accepted typed-nil inspector")
 	}
 }
@@ -107,7 +107,7 @@ func TestValidateDaemonCapacityRejectsInvalidCapacityValues(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			stub := &capacityInspectorStub{capacity: test.capacity}
-			if _, err := ValidateDaemonCapacity(context.Background(), testDaemonID, stub); err == nil {
+			if _, err := ValidateDaemonCapacity(context.Background(), testDaemonID, 20, stub); err == nil {
 				t.Fatal("ValidateDaemonCapacity() error = nil")
 			}
 		})
@@ -117,7 +117,7 @@ func TestValidateDaemonCapacityRejectsInvalidCapacityValues(t *testing.T) {
 func TestValidateDaemonCapacityPropagatesInspectorError(t *testing.T) {
 	wantErr := errors.New("docker info unavailable")
 	stub := &capacityInspectorStub{err: wantErr}
-	_, err := ValidateDaemonCapacity(context.Background(), testDaemonID, stub)
+	_, err := ValidateDaemonCapacity(context.Background(), testDaemonID, 20, stub)
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("ValidateDaemonCapacity() error = %v, want %v", err, wantErr)
 	}
@@ -127,7 +127,7 @@ func TestValidateDaemonCapacityRejectsDaemonIdentityMismatch(t *testing.T) {
 	capacity := validDaemonCapacity(18, 25*bytesPerGiB)
 	capacity.DaemonID = "different-daemon"
 	stub := &capacityInspectorStub{capacity: capacity}
-	_, err := ValidateDaemonCapacity(context.Background(), testDaemonID, stub)
+	_, err := ValidateDaemonCapacity(context.Background(), testDaemonID, 20, stub)
 	if err == nil || !strings.Contains(err.Error(), "identity mismatch") {
 		t.Fatalf("ValidateDaemonCapacity() error = %v, want identity mismatch", err)
 	}
@@ -136,8 +136,8 @@ func TestValidateDaemonCapacityRejectsDaemonIdentityMismatch(t *testing.T) {
 func TestValidateDaemonCapacityRejectsCanceledContextBeforeInspection(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	stub := &capacityInspectorStub{capacity: validDaemonCapacity(18, 25*bytesPerGiB)}
-	_, err := ValidateDaemonCapacity(ctx, testDaemonID, stub)
+	stub := &capacityInspectorStub{capacity: validDaemonCapacity(80, 160*bytesPerGiB)}
+	_, err := ValidateDaemonCapacity(ctx, testDaemonID, 20, stub)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("ValidateDaemonCapacity() error = %v, want context canceled", err)
 	}
@@ -147,14 +147,14 @@ func TestValidateDaemonCapacityRejectsCanceledContextBeforeInspection(t *testing
 }
 
 func TestCapacityEvidenceIsCopiedAndStrictlyValidated(t *testing.T) {
-	stub := &capacityInspectorStub{capacity: validDaemonCapacity(18, 25*bytesPerGiB)}
-	evidence, err := ValidateDaemonCapacity(context.Background(), testDaemonID, stub)
+	stub := &capacityInspectorStub{capacity: validDaemonCapacity(80, 160*bytesPerGiB)}
+	evidence, err := ValidateDaemonCapacity(context.Background(), testDaemonID, 20, stub)
 	if err != nil {
 		t.Fatalf("ValidateDaemonCapacity() error = %v", err)
 	}
 	stub.capacity.DaemonID = "mutated-daemon"
 	stub.capacity.MemoryBytes = 1
-	if evidence.Available.DaemonID != testDaemonID || evidence.Available.MemoryBytes != 25*bytesPerGiB {
+	if evidence.Available.DaemonID != testDaemonID || evidence.Available.MemoryBytes != 160*bytesPerGiB {
 		t.Fatalf("evidence changed with inspector state: %#v", evidence)
 	}
 
@@ -189,6 +189,15 @@ func TestCheckedCapacityProductRejectsInvalidAndOverflow(t *testing.T) {
 	for _, test := range tests {
 		if _, err := checkedCapacityProduct(test.value, test.multiplier); err == nil {
 			t.Fatalf("checkedCapacityProduct(%d, %d) error = nil", test.value, test.multiplier)
+		}
+	}
+}
+
+func TestValidateDaemonCapacityRejectsInvalidConfiguredCapacity(t *testing.T) {
+	stub := &capacityInspectorStub{capacity: validDaemonCapacity(80, 160*bytesPerGiB)}
+	for _, capacity := range []int{0, -1, 65} {
+		if _, err := ValidateDaemonCapacity(context.Background(), testDaemonID, capacity, stub); err == nil {
+			t.Fatalf("ValidateDaemonCapacity() accepted configured capacity %d", capacity)
 		}
 	}
 }

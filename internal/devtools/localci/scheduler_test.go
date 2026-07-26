@@ -11,6 +11,8 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+const testMaxActiveWorkloads = 3
+
 func TestDaemonIdentityNormalizesContextAliases(t *testing.T) {
 	t.Parallel()
 
@@ -119,8 +121,8 @@ func TestSchedulerFourthWorkloadStaysQueued(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reserve runnable: %v", err)
 	}
-	if len(reservations) != maxActiveWorkloads {
-		t.Fatalf("reservations=%d want=%d", len(reservations), maxActiveWorkloads)
+	if len(reservations) != testMaxActiveWorkloads {
+		t.Fatalf("reservations=%d want=%d", len(reservations), testMaxActiveWorkloads)
 	}
 	if got := kernel.state(workloadID('4')); got != stateQueued {
 		t.Fatalf("fourth state=%s want=%s", got, stateQueued)
@@ -189,6 +191,33 @@ func TestSchedulerDAGRunnableFIFOAndBlockedBuildDependency(t *testing.T) {
 	assertReservationIDs(t, reservations, "build", "later-job")
 	if got := kernel.state("job-waits-for-build"); got != stateQueued {
 		t.Fatalf("blocked job state=%s want=%s", got, stateQueued)
+	}
+}
+
+func TestSchedulerCompletesQueuedWorkloadAfterDependencyFailure(t *testing.T) {
+	t.Parallel()
+
+	kernel := newTestSchedulerKernel(t)
+	mustEnqueue(t, kernel, workloadSpec{
+		id: "job", invocationID: "inv", enqueueSeq: 1, subSeq: 1, kind: workloadJob,
+		dependencies: []workloadID{"build"},
+	})
+	mustEnqueue(t, kernel, workloadSpec{
+		id: "build", invocationID: "inv", enqueueSeq: 1, kind: workloadBuild,
+	})
+	reservations, err := kernel.reserveRunnable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertReservationIDs(t, reservations, "build")
+	if err := kernel.complete("build", stateInfraFailed); err != nil {
+		t.Fatal(err)
+	}
+	if err := kernel.complete("job", stateInfraFailed); err != nil {
+		t.Fatal(err)
+	}
+	if got := kernel.state("job"); got != stateInfraFailed {
+		t.Fatalf("blocked job state=%s want=%s", got, stateInfraFailed)
 	}
 }
 
@@ -391,7 +420,7 @@ func TestSchedulerRejectsOversizedGang(t *testing.T) {
 
 func TestSchedulerShardGroupExactAdmissionCapacityOneTwoThree(t *testing.T) {
 	t.Parallel()
-	for size := 1; size <= maxActiveWorkloads; size++ {
+	for size := 1; size <= testMaxActiveWorkloads; size++ {
 		t.Run(fmt.Sprintf("capacity-%d", size), func(t *testing.T) {
 			kernel := newTestSchedulerKernel(t)
 			spec := testShardGroupSpec(size)
@@ -487,8 +516,8 @@ func TestSchedulerShardGroupConcurrentPeakIsThree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run concurrent leases: %v", err)
 	}
-	if peak != maxActiveWorkloads {
-		t.Fatalf("concurrent peak=%d want=%d", peak, maxActiveWorkloads)
+	if peak != testMaxActiveWorkloads {
+		t.Fatalf("concurrent peak=%d want=%d", peak, testMaxActiveWorkloads)
 	}
 	if queued, err := kernel.reserveRunnable(); err != nil || len(queued) != 0 {
 		t.Fatalf("fourth workload admitted while group active: reservations=%+v err=%v", queued, err)
@@ -641,7 +670,7 @@ func newTestSchedulerKernel(t *testing.T) *schedulerKernel {
 	if err != nil {
 		t.Fatalf("new daemon identity: %v", err)
 	}
-	kernel, err := newSchedulerKernel(identity)
+	kernel, err := newSchedulerKernel(identity, testMaxActiveWorkloads)
 	if err != nil {
 		t.Fatalf("new scheduler kernel: %v", err)
 	}

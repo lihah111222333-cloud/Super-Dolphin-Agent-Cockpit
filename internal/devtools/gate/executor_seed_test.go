@@ -28,8 +28,10 @@ func TestInstallRuntimeSeedsBindsLocksAndPreventsOverwrite(t *testing.T) {
 	if err := installRuntimeSeeds(config, layout, program); err != nil {
 		t.Fatalf("installRuntimeSeeds: %v", err)
 	}
+	if _, err := os.Stat(filepath.Join(source, "vendor")); !os.IsNotExist(err) {
+		t.Fatalf("Go runtime seed unexpectedly materialized source vendor: %v", err)
+	}
 	for _, path := range []string{
-		filepath.Join(source, "vendor", "modules.txt"),
 		filepath.Join(source, "frontend-app", "node_modules", "tool", "index.js"),
 		filepath.Join(npmCache, "_cacache", "content-v2", "sha512", "fixture"),
 	} {
@@ -335,7 +337,7 @@ func assertRuntimeSeedManifestField(t *testing.T, field reflect.StructField, val
 }
 
 func TestRuntimeSeedManifestRejectsUnknownFieldsAndSeedTamper(t *testing.T) {
-	unknown := strings.NewReader(`{"schema_version":1,"go_sum_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","vendor_tree_sha256":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","package_lock_sha256":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","node_modules_tree_sha256":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","unknown":true}`)
+	unknown := strings.NewReader(`{"schema_version":1,"go_sum_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","module_proxy_lock_sha256":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","module_proxy_tree_sha256":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","package_lock_sha256":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","node_modules_tree_sha256":"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","npm_cache_tree_sha256":"sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","ripgrep_sha256":"sha256:1111111111111111111111111111111111111111111111111111111111111111","sqruff_sha256":"sha256:2222222222222222222222222222222222222222222222222222222222222222","unknown":true}`)
 	if _, err := DecodeRuntimeSeedManifest(unknown); err == nil {
 		t.Fatal("DecodeRuntimeSeedManifest unexpectedly accepted an unknown field")
 	}
@@ -348,7 +350,7 @@ func TestRuntimeSeedManifestRejectsUnknownFieldsAndSeedTamper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeTestFile(t, filepath.Join(runtimeRoot, "vendor", "tampered"), "tamper\n", 0o600)
+	writeTestFile(t, filepath.Join(runtimeRoot, "go-proxy", "tampered"), "tamper\n", 0o600)
 	if err := manifest.Validate(source, runtimeRoot); err == nil {
 		t.Fatal("RuntimeSeedManifest.Validate unexpectedly accepted seed tamper")
 	}
@@ -409,11 +411,9 @@ func writeRuntimeSeedFixture(t *testing.T, source string) (string, string) {
 	proxyLockPath := filepath.Join(source, "build", "gate", "runtime-proxy", "go.sum")
 	writeTestFile(t, proxyLockPath, runtimeProxyFixtureSum, 0o600)
 	runtimeRoot := realTempDir(t)
-	vendorRoot := filepath.Join(runtimeRoot, "vendor")
 	moduleProxyRoot := filepath.Join(runtimeRoot, "go-proxy")
 	nodeModulesRoot := filepath.Join(runtimeRoot, "frontend", "node_modules")
 	npmCacheRoot := filepath.Join(runtimeRoot, "frontend", "npm-cache")
-	writeTestFile(t, filepath.Join(vendorRoot, "modules.txt"), "# modules\n", 0o600)
 	proxyVersionRoot := filepath.Join(moduleProxyRoot, "github.com", "kelindar", "event", "@v")
 	writeTestFile(t, filepath.Join(proxyVersionRoot, "list"), "v1.5.2\n", 0o600)
 	writeTestFile(t, filepath.Join(proxyVersionRoot, "v1.5.2.info"), "{}\n", 0o600)
@@ -428,7 +428,6 @@ func writeRuntimeSeedFixture(t *testing.T, source string) (string, string) {
 	writeTestFile(t, sqruffPath, "fixture sqruff\n", 0o700)
 	goSumDigest := mustRuntimeSeedFileDigest(t, filepath.Join(source, "go.sum"))
 	packageLockDigest := mustRuntimeSeedFileDigest(t, filepath.Join(source, "frontend-app", "package-lock.json"))
-	vendorDigest := mustRuntimeSeedTreeDigest(t, vendorRoot)
 	moduleProxyDigest := mustRuntimeSeedTreeDigest(t, moduleProxyRoot)
 	nodeModulesDigest := mustRuntimeSeedTreeDigest(t, nodeModulesRoot)
 	npmCacheDigest := mustRuntimeSeedTreeDigest(t, npmCacheRoot)
@@ -436,7 +435,7 @@ func writeRuntimeSeedFixture(t *testing.T, source string) (string, string) {
 	sqruffDigest := mustRuntimeSeedFileDigest(t, sqruffPath)
 	proxyLockDigest := mustRuntimeSeedFileDigest(t, proxyLockPath)
 	manifest := RuntimeSeedManifest{
-		SchemaVersion: RuntimeSeedSchemaVersion, GoSumSHA256: goSumDigest, VendorTreeSHA256: vendorDigest,
+		SchemaVersion: RuntimeSeedSchemaVersion, GoSumSHA256: goSumDigest,
 		ModuleProxyLockSHA256: proxyLockDigest, ModuleProxyTreeSHA256: moduleProxyDigest,
 		PackageLockSHA256: packageLockDigest, NodeModulesTreeSHA256: nodeModulesDigest, NPMCacheTreeSHA256: npmCacheDigest,
 		RipgrepSHA256: ripgrepDigest, SqruffSHA256: sqruffDigest,

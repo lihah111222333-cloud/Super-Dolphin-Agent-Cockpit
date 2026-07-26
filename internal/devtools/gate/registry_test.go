@@ -180,6 +180,24 @@ func TestBuildGatePlanProducesStrictDigestBoundJSON(t *testing.T) {
 	}
 }
 
+func TestGatePlanValidateStoredAcceptsIntactHistoricalRegistry(t *testing.T) {
+	plan := mustBuildPlan(t, ProfileLocalFast)
+	all := allProfiles()
+	plan.Gates = append(plan.Gates, newGateSpec(GateIDLSPChangedDiagnostics, all, all))
+	digest, err := plan.digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.PlanDigest = digest
+
+	if err := plan.ValidateStored(); err != nil {
+		t.Fatalf("ValidateStored() error = %v", err)
+	}
+	if err := plan.Validate(); err == nil {
+		t.Fatal("Validate() accepted a historical plan as current")
+	}
+}
+
 func TestGatePlanRequiredFieldsFailClosed(t *testing.T) {
 	t.Parallel()
 

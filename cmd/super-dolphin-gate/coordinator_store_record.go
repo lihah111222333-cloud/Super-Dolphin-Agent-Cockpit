@@ -85,7 +85,10 @@ func decodeScannedCoordinatorJob(
 	completed sql.NullString,
 	receiptID sql.NullString,
 ) (coordinatorJobRecord, error) {
-	if err := gatecontract.DecodeStrictJSON(planJSON, &record.Plan); err != nil {
+	if err := decodeCoordinatorJSON(planJSON, &record.Plan); err != nil {
+		return coordinatorJobRecord{}, fmt.Errorf("decode persisted coordinator plan: %w", err)
+	}
+	if err := validatePersistedCoordinatorPlan(record); err != nil {
 		return coordinatorJobRecord{}, fmt.Errorf("decode persisted coordinator plan: %w", err)
 	}
 	if err := decodeCoordinatorTimes(&record, submitted, started, deadline, containerExited, completed); err != nil {
@@ -199,7 +202,7 @@ func validateCoordinatorIdentity(record coordinatorJobRecord) error {
 
 // validateCoordinatorPlanState 校验 plan 派生字段及可识别的 job 状态。
 func validateCoordinatorPlanState(record coordinatorJobRecord) error {
-	if err := record.Plan.Validate(); err != nil {
+	if err := validatePersistedCoordinatorPlan(record); err != nil {
 		return fmt.Errorf("%w: persisted plan is invalid: %v", errCoordinatorState, err)
 	}
 	if err := validatePersistedSubmissionAuthority(record); err != nil {
@@ -209,6 +212,14 @@ func validateCoordinatorPlanState(record coordinatorJobRecord) error {
 		return fmt.Errorf("%w: persisted job fields drifted from plan", errCoordinatorState)
 	}
 	return nil
+}
+
+// validatePersistedCoordinatorPlan 允许终态历史计划自证完整性，但活动任务必须匹配当前 registry。
+func validatePersistedCoordinatorPlan(record coordinatorJobRecord) error {
+	if record.State.terminal() {
+		return record.Plan.ValidateStored()
+	}
+	return record.Plan.Validate()
 }
 
 // validatePersistedSubmissionAuthority 重验 durable envelope，不伪造仅在 INSERT 前存在的 capability。
@@ -277,10 +288,10 @@ func validateStoredResultReceipt(record coordinatorJobRecord) error {
 	if receipt == nil || receipt.ReceiptID != record.ReceiptID || receipt.ReceiptID != resultReceiptID(record.JobID) {
 		return fmt.Errorf("%w: persisted receipt identity does not match job", errCoordinatorState)
 	}
-	if receipt.SchemaVersion != gatecontract.ResultReceiptSchemaVersion || len(receipt.ShardReceipts) != gatecontract.MaxContainerShards {
-		return fmt.Errorf("%w: persisted receipt must use the canonical v%d three-shard schema", errCoordinatorState, gatecontract.ResultReceiptSchemaVersion)
+	if len(receipt.ShardReceipts) == 0 {
+		return fmt.Errorf("%w: persisted receipt must contain shard evidence", errCoordinatorState)
 	}
-	if err := receipt.Validate(); err != nil {
+	if err := receipt.ValidateStored(record.Plan); err != nil {
 		return fmt.Errorf("%w: persisted receipt is invalid: %v", errCoordinatorState, err)
 	}
 	if storedResultReceiptDrifted(record, receipt) {
@@ -318,7 +329,7 @@ func storedReceiptResourceWitnessDrifted(record coordinatorJobRecord, receipt *g
 
 // storedShardReceiptExitedAtDrifted 比较已签名分片退出时间与 SQLite 持久化记录。
 func storedShardReceiptExitedAtDrifted(record coordinatorJobRecord, receipt *gatecontract.ResultReceipt) bool {
-	if len(record.ContainerShards) != gatecontract.MaxContainerShards || len(receipt.ShardReceipts) != gatecontract.MaxContainerShards {
+	if len(record.ContainerShards) == 0 || len(receipt.ShardReceipts) != len(record.ContainerShards) {
 		return true
 	}
 	for index, durable := range record.ContainerShards {
@@ -661,7 +672,7 @@ func validateShardLifecycleImmutable(record coordinatorShardRecord, labels map[s
 	if event.ConfigDigest != record.Shard.AcceptedConfigDigest {
 		return fmt.Errorf("%w: shard lifecycle image config drifted", errCoordinatorState)
 	}
-	if !strings.HasSuffix(event.ImageReference, "@"+record.Shard.AcceptedManifestDigest) {
+	if !shardImageReferenceMatches(event.ImageReference, record.Shard) {
 		return fmt.Errorf("%w: shard lifecycle image manifest drifted", errCoordinatorState)
 	}
 	if event.SourceSnapshotDir == "" {
@@ -674,6 +685,11 @@ func validateShardLifecycleImmutable(record coordinatorShardRecord, labels map[s
 		return fmt.Errorf("%w: removed coordinator shard cannot be reused", errCoordinatorState)
 	}
 	return validateLifecyclePhaseOrder(record.ContainerPhase, event.Phase)
+}
+
+func shardImageReferenceMatches(reference string, shard gatecontract.ContainerShard) bool {
+	return reference == shard.AcceptedConfigDigest ||
+		strings.HasSuffix(reference, "@"+shard.AcceptedManifestDigest)
 }
 
 func equalShardLifecycleImmutable(record coordinatorShardRecord, labels map[string]string, event localci.FreshContainerLifecycleEvent) bool {

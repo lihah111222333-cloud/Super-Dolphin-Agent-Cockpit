@@ -11,7 +11,7 @@ internal/module/appupdate/rpc_recovery_darwin_test.go	internal	modules	go-test	3
 internal/module/appupdate/rpc_recovery_test.go	internal	modules	go-test	7487	业务模块层	internal,module,appupdate,rpc,recovery,test,业务模块层
 internal/module/appupdate/rpc_test.go	internal	modules	go-test	2346	业务模块层	internal,module,appupdate,rpc,test,业务模块层
 internal/module/appupdate/rpc.go	internal	modules	go-source	3949	业务模块层	internal,module,appupdate,rpc,业务模块层
-internal/module/appupdate/service_operation_test.go	internal	modules	go-test	7855	业务模块层	internal,module,appupdate,service,operation,test,业务模块层
+internal/module/appupdate/service_operation_test.go	internal	modules	go-test	7964	业务模块层	internal,module,appupdate,service,operation,test,业务模块层
 internal/module/appupdate/service_sidecar_stub_test.go	internal	modules	go-test	1947	业务模块层	internal,module,appupdate,service,sidecar,stub,test,业务模块层
 internal/module/appupdate/service_test_helpers_test.go	internal	modules	go-test	6907	业务模块层	internal,module,appupdate,service,test,helpers,业务模块层
 internal/module/appupdate/service_test.go	internal	modules	go-test	29377	业务模块层	internal,module,appupdate,service,test,业务模块层

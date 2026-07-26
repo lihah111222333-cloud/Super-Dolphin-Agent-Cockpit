@@ -589,10 +589,15 @@ func validGrantRequest(now time.Time) GrantRequest {
 
 func validResultReceipt(t *testing.T, now time.Time) ResultReceipt {
 	t.Helper()
-	return validResultReceiptForProfile(t, now, ProfileLocalFast)
+	return validResultReceiptForProfileWithShardCount(t, now, ProfileLocalFast, legacyContainerShardCount)
 }
 
 func validResultReceiptForProfile(t *testing.T, now time.Time, profile Profile) ResultReceipt {
+	t.Helper()
+	return validResultReceiptForProfileWithShardCount(t, now, profile, legacyContainerShardCount)
+}
+
+func validResultReceiptForProfileWithShardCount(t *testing.T, now time.Time, profile Profile, shardsPerJob uint8) ResultReceipt {
 	t.Helper()
 	plan, err := BuildGatePlan(profile, registryTestSource())
 	if err != nil {
@@ -601,7 +606,7 @@ func validResultReceiptForProfile(t *testing.T, now time.Time, profile Profile) 
 	image := validImageIdentity()
 	image.PlatformManifestDigest = shardTestDigest('a')
 	image.ConfigDigest = shardTestDigest('b')
-	set, err := BuildContainerShardSet(plan, image.PlatformManifestDigest, image.ConfigDigest)
+	set, err := BuildContainerShardSetWithCount(plan, image.PlatformManifestDigest, image.ConfigDigest, shardsPerJob)
 	if err != nil {
 		t.Fatal(err)
 	}

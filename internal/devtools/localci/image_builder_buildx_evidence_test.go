@@ -16,6 +16,32 @@ func TestControlledBuildxOwnerFieldRegistration(t *testing.T) {
 	}
 }
 
+func TestExpectedRuntimeDepsBuildxMaterialUsesCanonicalOCIURI(t *testing.T) {
+	material, err := expectedRuntimeDepsBuildxMaterial(digest("1"), "linux/arm64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantURI := "pkg:oci/runtime-deps?digest=" + digest("1") + "&platform=linux%2Farm64"
+	if material.URI != wantURI || material.Digest.SHA256 != strings.TrimPrefix(digest("1"), "sha256:") {
+		t.Fatalf("runtime dependencies material = %+v, want URI %q", material, wantURI)
+	}
+}
+
+func TestValidateRuntimeDepsBuildxContextRejectsReferenceAndDigestDrift(t *testing.T) {
+	valid := "oci-layout://" + testBuildxHistoryRecordReference + ":latest@" + digest("1")
+	if err := validateRuntimeDepsBuildxContext(valid, digest("1")); err != nil {
+		t.Fatalf("valid runtime dependencies context: %v", err)
+	}
+	for _, value := range []string{
+		"oci-layout://short:latest@" + digest("1"),
+		"oci-layout://" + testBuildxHistoryRecordReference + ":latest@" + digest("2"),
+	} {
+		if err := validateRuntimeDepsBuildxContext(value, digest("1")); err == nil {
+			t.Fatalf("runtime dependencies context drift %q unexpectedly passed", value)
+		}
+	}
+}
+
 func TestBuildxEvidenceFieldRegistration(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -62,6 +88,67 @@ func TestDockerBuildxRunnerAcceptsMissingOptionalMetadataConfigDigest(t *testing
 	}
 	if result.ConfigDigest != digest("4") {
 		t.Fatalf("config digest = %q", result.ConfigDigest)
+	}
+}
+
+func TestDockerBuildxRunnerAcceptsConfigDigestFromLegacyDockerExporter(t *testing.T) {
+	request := validBuildxRequest(t)
+	executor := validBuildxExecutor(t, request)
+	document := validBuildxMetadataDocument(t, request)
+	delete(document, "containerimage.config.digest")
+	executor.metadata = marshalBuildxMetadata(t, document)
+	executor.output = digest("4") + "\n"
+	runner, _ := newTestDockerBuildxRunner(t, executor)
+	result, err := runner.Build(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PlatformManifestDigest != validBuildxManifestDigest(t) || result.ConfigDigest != digest("4") {
+		t.Fatalf("build result = %+v", result)
+	}
+}
+
+func TestDockerBuildxRunnerUsesVerifiedMetadataInsteadOfProgressOutput(t *testing.T) {
+	request := validBuildxRequest(t)
+	executor := validBuildxExecutor(t, request)
+	executor.output = "#1 plain progress mentions " + digest("9") + "\n"
+	runner, _ := newTestDockerBuildxRunner(t, executor)
+	result, err := runner.Build(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PlatformManifestDigest != validBuildxManifestDigest(t) || result.ConfigDigest != digest("4") {
+		t.Fatalf("verified build result = %+v", result)
+	}
+}
+
+func TestValidateCandidateInspectAcceptsLegacyLocalImageStore(t *testing.T) {
+	configDigest := digest("4")
+	var document imageInspectDocument
+	data := []byte(`{
+		"Id":"` + configDigest + `",
+		"RepoDigests":[],
+		"Os":"linux",
+		"Architecture":"arm64",
+		"Variant":"",
+		"Descriptor":null,
+		"Config":{"Labels":{}},
+		"RootFS":{"Type":"layers","Layers":["` + digest("5") + `"]}
+	}`)
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	result := CandidateResult{ImageDigest: digest("3"), ConfigDigest: configDigest}
+	resolved, platform, err := validateCandidateInspect(document, PromotionCandidate{Platform: "linux/arm64"}, result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != configDigest || platform.OS != "linux" || platform.Architecture != "arm64" {
+		t.Fatalf("resolved config = %q, platform = %+v", resolved, platform)
+	}
+	document.ID = digest("9")
+	if _, _, err := validateCandidateInspect(document, PromotionCandidate{Platform: "linux/arm64"}, result); err == nil {
+		t.Fatal("legacy image with unbound config ID was accepted")
 	}
 }
 

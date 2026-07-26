@@ -159,6 +159,7 @@ func TestManualAndReleaseEntrypointsUseCoordinator(t *testing.T) {
 	root := coordinatorContractRepoRoot(t)
 	cli := parseContractGuardFile(t, filepath.Join(root, "cmd", "super-dolphin-gate", "coordinator_cli.go"))
 	for _, requirement := range []struct{ function, call string }{
+		{function: "connectProductionCoordinator", call: "ProbeDockerSchedulerAuthorityWithCapacity"},
 		{function: "runSubmit", call: "runSubmitWithConnector"},
 		{function: "runSubmitWithConnector", call: "withCoordinator"},
 		{function: "runProductionReleaseSubmitPlanWithWaitConnector", call: "withCoordinator"},
@@ -170,14 +171,12 @@ func TestManualAndReleaseEntrypointsUseCoordinator(t *testing.T) {
 	}
 }
 
-// TestProductionCoordinatorUsesThreeContainerShardProtocol reads production Go
-// with go/parser. It deliberately excludes tests so fixtures cannot satisfy the
-// proof that the owner path actually builds, schedules, runs, aggregates, fails,
-// and completes one shard group.
-func TestProductionCoordinatorUsesThreeContainerShardProtocol(t *testing.T) {
+// TestProductionCoordinatorUsesDynamicContainerShardProtocol 用 go/parser 读取生产代码，
+// 排除测试夹具后证明 owner 确实构造、调度、执行、聚合并完成动态分片组。
+func TestProductionCoordinatorUsesDynamicContainerShardProtocol(t *testing.T) {
 	evidence := coordinatorASTEvidence(t, coordinatorContractRepoRoot(t))
 	for _, required := range []string{
-		"BuildContainerShardSet",
+		"BuildContainerShardSetWithCount",
 		"RunContainerShards",
 		"AggregateContainerShards",
 		"ReportShardFailure",
@@ -187,7 +186,7 @@ func TestProductionCoordinatorUsesThreeContainerShardProtocol(t *testing.T) {
 		"ShardIdentities",
 	} {
 		if !evidence.names[required] {
-			t.Errorf("production coordinator is missing required three-container shard protocol symbol %q", required)
+			t.Errorf("production coordinator is missing required dynamic shard protocol symbol %q", required)
 		}
 	}
 	if len(evidence.planExecutionFallbacks) != 0 {
@@ -197,16 +196,18 @@ func TestProductionCoordinatorUsesThreeContainerShardProtocol(t *testing.T) {
 
 // TestShardResourceAndAggregationContract fixes the contract at the dynamically
 // parsed producer source: each worker is 4 CPU / 8 GiB / 512 PIDs, with at most
-// three workers, and the coordinator budgets remain 10m normal / 30m release.
+// 64 workers, and the coordinator budgets remain 10m normal / 30m release.
 func TestShardResourceAndAggregationContract(t *testing.T) {
 	root := coordinatorContractRepoRoot(t)
 	shards := parseContractGuardFile(t, filepath.Join(root, "internal", "devtools", "gate", "container_shards.go"))
 	consts := contractGuardConsts(t, shards)
 	for name, want := range map[string]string{
-		"MaxContainerShards":        "3",
-		"containerShardCPUNanos":    "4000000000",
-		"containerShardMemoryBytes": "8 << 30",
-		"containerShardPIDs":        "512",
+		"MaxContainerShards":          "64",
+		"legacyContainerShardCount":   "3",
+		"containerShardSchemaVersion": "2",
+		"containerShardCPUNanos":      "4000000000",
+		"containerShardMemoryBytes":   "8 << 30",
+		"containerShardPIDs":          "512",
 	} {
 		if got := strings.ReplaceAll(consts[name], "_", ""); got != want {
 			t.Errorf("%s = %q, want %q", name, got, want)
@@ -398,7 +399,7 @@ func recordCoordinatorProtocolIdentifier(evidence *coordinatorContractEvidence, 
 
 func recordCoordinatorProtocolCall(evidence *coordinatorContractEvidence, node *ast.CallExpr) {
 	switch name := contractGuardCalledName(node.Fun); name {
-	case "BuildContainerShardSet", "RunContainerShards", "AggregateContainerShards", "ReportShardFailure", "CompleteGroup":
+	case "BuildContainerShardSetWithCount", "RunContainerShards", "AggregateContainerShards", "ReportShardFailure", "CompleteGroup":
 		evidence.names[name] = true
 	}
 }

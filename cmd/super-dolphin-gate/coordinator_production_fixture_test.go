@@ -67,10 +67,10 @@ func productionBuildInputFiles() map[string]string {
 
 func productionToolchainLock() string {
 	return "{\n  \"schema_version\": \"1\",\n  \"buildkit_version\": \"v0.26.2\",\n" +
-		"  \"buildkit_image\": \"docker.io/moby/buildkit@sha256:" + strings.Repeat("d", 64) + "\",\n" +
+		"  \"buildkit_image\": \"mirror.gcr.io/moby/buildkit@sha256:" + strings.Repeat("d", 64) + "\",\n" +
 		"  \"dockerfile_frontend\": \"builtin:dockerfile.v1\",\n  \"source_date_epoch\": \"0\",\n" +
 		"  \"target_platforms\": [\"linux/amd64\",\"linux/arm64\"],\n" +
-		"  \"base_images\": [{\"name\":\"GO_IMAGE\",\"reference\":\"registry.example.invalid/base/golang@sha256:" + strings.Repeat("b", 64) + "\"}],\n" +
+		"  \"base_images\": [{\"name\":\"GO_IMAGE\",\"reference\":\"registry.example.invalid/base/golang@sha256:" + strings.Repeat("b", 64) + "\"},{\"name\":\"NODE_IMAGE\",\"reference\":\"registry.example.invalid/base/node@sha256:" + strings.Repeat("e", 64) + "\"}],\n" +
 		"  \"dependency_sources\": [\"go.sum\"],\n  \"runtime_deps_lock\": \"build/gate/runtime-deps.lock\",\n" +
 		"  \"runtime_tools\": {\"node_version\":\"v1\",\"npm_version\":\"1\",\"python_version\":\"3\",\"ripgrep\":\"/opt/super-dolphin-gate/runtime/bin/rg@13.0.0-4+b2\",\"sqruff\":\"/opt/super-dolphin-gate/runtime/bin/sqruff@0.38.0\",\"sqruff_artifacts\":[{\"platform\":\"linux/amd64\",\"url\":\"https://github.com/quarylabs/sqruff/releases/download/v0.38.0/sqruff-linux-x86_64-musl.tar.gz\",\"sha256\":\"" + strings.Repeat("a", 64) + "\"},{\"platform\":\"linux/arm64\",\"url\":\"https://github.com/quarylabs/sqruff/releases/download/v0.38.0/sqruff-linux-aarch64-musl.tar.gz\",\"sha256\":\"" + strings.Repeat("c", 64) + "\"}],\"gopls\":\"gopls@v1\",\"sqlc\":\"sqlc@v1\",\"npm_lsp_packages\":[\"typescript@1\"]},\n" +
 		"  \"network_policy\": \"none\"\n}\n"
@@ -78,33 +78,58 @@ func productionToolchainLock() string {
 
 func productionRuntimeDepsLock(t *testing.T, files map[string]string) string {
 	t.Helper()
-	const runtimeDepsRegistry = "ghcr.io/super-dolphin/runtime-deps"
 	inputs := make(map[string]string, len(productionRuntimeDepsInputPaths()))
 	for field, path := range productionRuntimeDepsInputPaths() {
 		inputs[field] = productionFixtureDigest(files[path])
 	}
 	return productionFixtureJSON(t, map[string]any{
-		"schema_version": "3", "registry_pull_policy": "anonymous",
-		"images": []map[string]any{
-			{
-				"platform": "linux/amd64", "image_size_bytes": 1,
-				"image": map[string]any{
-					"registry": runtimeDepsRegistry, "oci_index_digest": productionDigest("1"),
-					"platform_manifest_digest": productionDigest("2"), "config_digest": productionDigest("3"),
-					"rootfs_diff_ids": []string{productionDigest("4")}, "os": "linux", "architecture": "amd64",
-				},
-			},
-			{
-				"platform": "linux/arm64", "image_size_bytes": 2,
-				"image": map[string]any{
-					"registry": runtimeDepsRegistry, "oci_index_digest": productionDigest("1"),
-					"platform_manifest_digest": productionDigest("5"), "config_digest": productionDigest("6"),
-					"rootfs_diff_ids": []string{productionDigest("7")}, "os": "linux", "architecture": "arm64",
-				},
-			},
-		},
+		"schema_version": "4", "build_mode": "node-local", "cache_scope": "node",
 		"inputs": inputs, "paths": productionRuntimePaths(),
 	})
+}
+
+func TestProductionRuntimeDepsLockUsesNodeLocalSchema(t *testing.T) {
+	files := productionBuildInputFiles()
+	data := []byte(productionRuntimeDepsLock(t, files))
+	var lock map[string]json.RawMessage
+	if err := json.Unmarshal(data, &lock); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]struct{}{
+		"schema_version": {}, "build_mode": {}, "cache_scope": {}, "inputs": {}, "paths": {},
+	}
+	if len(lock) != len(want) {
+		t.Fatalf("runtime dependency lock fields = %v, want only %v", sortedProductionFixtureKeys(lock), sortedProductionFixtureKeys(want))
+	}
+	for field := range want {
+		if _, exists := lock[field]; !exists {
+			t.Fatalf("runtime dependency lock missing %q", field)
+		}
+	}
+	schemaVersion := productionFixtureString(t, lock, "schema_version")
+	buildMode := productionFixtureString(t, lock, "build_mode")
+	cacheScope := productionFixtureString(t, lock, "cache_scope")
+	if schemaVersion != "4" || buildMode != "node-local" || cacheScope != "node" {
+		t.Fatalf("runtime dependency lock header = (%q, %q, %q)", schemaVersion, buildMode, cacheScope)
+	}
+}
+
+func productionFixtureString(t *testing.T, fields map[string]json.RawMessage, name string) string {
+	t.Helper()
+	var value string
+	if err := json.Unmarshal(fields[name], &value); err != nil {
+		t.Fatal(err)
+	}
+	return value
+}
+
+func sortedProductionFixtureKeys[T any](values map[string]T) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func changeProductionBuildInput(t *testing.T, repository string, path string, content string) {
@@ -280,6 +305,7 @@ func newProductionTestFixture(t *testing.T) productionTestFixture {
 			Signer: authority.signer, PrivateKeyFile: authority.promotionKeyPath,
 		},
 		CandidateTTLSeconds: 3600, PromotionPollMillis: 5_000,
+		ShardsPerJob: 3, MaxActiveCIWorkloads: 3,
 	}
 	bootstrapRoot, rootTrust, rootPrivateKey := productionBootstrapRootForFixture(
 		t, config, repository.commit, repository.tree, authority.signer, authority.publicKey,

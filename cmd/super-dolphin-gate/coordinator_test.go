@@ -10,9 +10,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -41,6 +41,14 @@ func (fakeImageEnsurer) EnsureImage(_ context.Context, request imageEnsureReques
 type fakeCandidateBuildService struct{}
 
 func (fakeCandidateBuildService) ExecuteBuild(context.Context, string) error { return nil }
+
+type failingCandidateBuildService struct {
+	err error
+}
+
+func (service failingCandidateBuildService) ExecuteBuild(context.Context, string) error {
+	return service.err
+}
 
 type fakePromotionWatcher struct{}
 
@@ -214,7 +222,8 @@ func TestConnectCoordinatorCompetingStartersConverge(t *testing.T) {
 		ImageEnsurer: fakeImageEnsurer{}, CandidateBuilder: fakeCandidateBuildService{},
 		PromotionWatcher: fakePromotionWatcher{}, SourceMaterializer: fakeSourceMaterializer{},
 		FreshRunner: immediateFreshRunner{}, RecoveryRunner: &capturingFreshContainerRunner{},
-		ReceiptSigner: mustTestResultReceiptSigner(t),
+		ReceiptSigner:    mustTestResultReceiptSigner(t),
+		SchedulingPolicy: testCoordinatorSchedulingPolicy(),
 	}
 	starters := []*competingOwnerStarter{
 		{checkpoint: checkpoint, dependencies: dependencies},
@@ -356,8 +365,9 @@ func startCoordinatorSlotTestFixture(t *testing.T) coordinatorSlotTestFixture {
 	owner, err := openCoordinatorOwner(context.Background(), checkpoint, coordinatorDependencies{
 		ImageEnsurer: fakeImageEnsurer{}, CandidateBuilder: buildService,
 		PromotionWatcher: fakePromotionWatcher{}, SourceMaterializer: fakeSourceMaterializer{}, FreshRunner: runner,
-		RecoveryRunner: &capturingFreshContainerRunner{},
-		ReceiptSigner:  mustTestResultReceiptSigner(t),
+		RecoveryRunner:   &capturingFreshContainerRunner{},
+		ReceiptSigner:    mustTestResultReceiptSigner(t),
+		SchedulingPolicy: testCoordinatorSchedulingPolicy(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -377,10 +387,51 @@ func startCoordinatorSlotTestFixture(t *testing.T) coordinatorSlotTestFixture {
 	return coordinatorSlotTestFixture{buildService: buildService, runner: runner, client: client}
 }
 
+func TestCoordinatorKeepsServingAfterCandidateBuildFailure(t *testing.T) {
+	checkpoint := coordinatorTestCheckpoint(t)
+	buildErr := errors.New("injected candidate build failure")
+	owner, err := openCoordinatorOwner(context.Background(), checkpoint, coordinatorDependencies{
+		ImageEnsurer: fakeImageEnsurer{}, CandidateBuilder: failingCandidateBuildService{err: buildErr},
+		PromotionWatcher: fakePromotionWatcher{}, SourceMaterializer: fakeSourceMaterializer{},
+		FreshRunner: immediateFreshRunner{}, RecoveryRunner: &capturingFreshContainerRunner{},
+		ReceiptSigner:    mustTestResultReceiptSigner(t),
+		SchedulingPolicy: testCoordinatorSchedulingPolicy(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	serveCtx, cancel := context.WithCancel(context.Background())
+	group := errgroup.Group{}
+	group.Go(func() error { return owner.Serve(serveCtx) })
+	t.Cleanup(func() {
+		cancel()
+		if err := group.Wait(); !isExpectedCoordinatorServeShutdown(err) {
+			t.Errorf("owner Serve() error = %v", err)
+		}
+	})
+	client := dialTestCoordinator(t, checkpoint)
+	client.candidatePlanner = &oneShotCandidatePlanner{plan: localci.PromotionCandidatePlan{
+		BuildRequired: true, WorkloadID: "build-failing-candidate",
+	}}
+	failed := submitTestPlan(t, client, "1")
+	terminal, err := client.Wait(context.Background(), failed.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if terminal.State != jobStateInfraFailed || !strings.Contains(terminal.Error, buildErr.Error()) {
+		t.Fatalf("failed candidate terminal status = %#v", terminal)
+	}
+	passed := submitTestPlan(t, client, "2")
+	terminal, err = client.Wait(context.Background(), passed.JobID)
+	if err != nil || terminal.State != jobStatePassed {
+		t.Fatalf("post-failure job terminal=%#v err=%v", terminal, err)
+	}
+}
+
 func assertCoordinatorSharedSlotSnapshot(t *testing.T, snapshot localci.SchedulerSnapshot, status jobStatus) {
 	t.Helper()
-	if len(snapshot.Leases) != gatecontract.MaxContainerShards {
-		t.Fatalf("active gang leases = %d, want %d", len(snapshot.Leases), gatecontract.MaxContainerShards)
+	if len(snapshot.Leases) != testCoordinatorSchedulingPolicy().ShardsPerJob {
+		t.Fatalf("active gang leases = %d, want %d", len(snapshot.Leases), testCoordinatorSchedulingPolicy().ShardsPerJob)
 	}
 	groupIdentity := snapshot.Leases[0].GroupIdentity
 	if groupIdentity == "" {
@@ -413,67 +464,6 @@ func assertCoordinatorWorkload(
 		return
 	}
 	t.Fatalf("workload %q is missing", workloadID)
-}
-
-func TestConnectCoordinatorDeadlineCoversOwnerStarter(t *testing.T) {
-	checkpoint := coordinatorTestCheckpoint(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-	startedAt := time.Now()
-	_, err := connectCoordinator(ctx, checkpoint, blockingOwnerStarter{})
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("connectCoordinator() error = %v, want deadline exceeded", err)
-	}
-	if elapsed := time.Since(startedAt); elapsed > time.Second {
-		t.Fatalf("connectCoordinator() elapsed = %v, starter escaped deadline", elapsed)
-	}
-}
-
-func TestOwnerHandshakeDeadlineKillsAndReapsChild(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-	command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestCoordinatorProcessHelper$", "-test.count=1")
-	command.Env = append(os.Environ(), "SD_COORDINATOR_HELPER=hang-handshake")
-	startedAt := time.Now()
-	err := startCoordinatorOwnerCommand(ctx, command)
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("startCoordinatorOwnerCommand() error = %v, want deadline exceeded", err)
-	}
-	if command.ProcessState == nil {
-		t.Fatal("timed-out owner child was not waited and reaped")
-	}
-	if elapsed := time.Since(startedAt); elapsed > time.Second {
-		t.Fatalf("owner handshake cancellation elapsed = %v", elapsed)
-	}
-}
-
-func TestOwnerSurvivesHandshakeContextCancellation(t *testing.T) {
-	sentinel := filepath.Join(t.TempDir(), "owner-survived")
-	ctx, cancel := context.WithCancel(context.Background())
-	command := newCoordinatorOwnerCommand(
-		os.Args[0], "-test.run=^TestCoordinatorProcessHelper$", "-test.count=1",
-	)
-	command.Env = append(os.Environ(),
-		"SD_COORDINATOR_HELPER=ready-after-handshake",
-		"SD_COORDINATOR_SENTINEL="+sentinel,
-	)
-	if err := startCoordinatorOwnerCommand(ctx, command); err != nil {
-		cancel()
-		t.Fatalf("startCoordinatorOwnerCommand() error = %v", err)
-	}
-	cancel()
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		if _, err := os.Stat(sentinel); err == nil {
-			return
-		} else if !errors.Is(err, os.ErrNotExist) {
-			t.Fatal(err)
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("owner child stopped when handshake context was cancelled")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
 }
 
 func TestFreshContainerRequestFieldRegistryIsComplete(t *testing.T) {
@@ -684,6 +674,7 @@ func runCLIProcessSubmit(
 		"SD_COORDINATOR_HELPER=submit",
 		"SD_COORDINATOR_ENDPOINT="+checkpoint.SchedulerConfig.Endpoint,
 		"SD_COORDINATOR_DAEMON_ID="+checkpoint.SchedulerConfig.DaemonID,
+		"SD_COORDINATOR_MAX_ACTIVE_WORKLOADS="+strconv.Itoa(checkpoint.SchedulerConfig.MaxActiveWorkloads),
 		"SD_COORDINATOR_IDENTITY_KEY="+checkpoint.IdentityKey,
 		"SD_COORDINATOR_TREE_CHARACTER="+character,
 	)
@@ -700,10 +691,15 @@ func runCLIProcessSubmit(
 
 func checkpointFromHelperEnvironment(t *testing.T) localci.DockerDaemonIdentityCheckpoint {
 	t.Helper()
+	maxActiveWorkloads, err := strconv.Atoi(os.Getenv("SD_COORDINATOR_MAX_ACTIVE_WORKLOADS"))
+	if err != nil {
+		t.Fatalf("parse helper max active workloads: %v", err)
+	}
 	return localci.DockerDaemonIdentityCheckpoint{
 		SchedulerConfig: localci.SchedulerConfig{
 			Endpoint: os.Getenv("SD_COORDINATOR_ENDPOINT"),
 			DaemonID: os.Getenv("SD_COORDINATOR_DAEMON_ID"), OwnerUID: os.Getuid(),
+			MaxActiveWorkloads: maxActiveWorkloads,
 		},
 		IdentityKey: os.Getenv("SD_COORDINATOR_IDENTITY_KEY"),
 	}
@@ -715,8 +711,11 @@ func coordinatorTestCheckpoint(t *testing.T) localci.DockerDaemonIdentityCheckpo
 	endpoint := "unix:///tmp/" + daemonID + ".sock"
 	digest := sha256.Sum256([]byte(endpoint + "\x00\x00" + daemonID))
 	checkpoint := localci.DockerDaemonIdentityCheckpoint{
-		SchedulerConfig: localci.SchedulerConfig{Endpoint: endpoint, DaemonID: daemonID, OwnerUID: os.Getuid()},
-		IdentityKey:     hex.EncodeToString(digest[:]),
+		SchedulerConfig: localci.SchedulerConfig{
+			Endpoint: endpoint, DaemonID: daemonID, OwnerUID: os.Getuid(),
+			MaxActiveWorkloads: testCoordinatorSchedulingPolicy().MaxActiveCIWorkloads,
+		},
+		IdentityKey: hex.EncodeToString(digest[:]),
 	}
 	t.Cleanup(func() { removeCoordinatorTestState(t, checkpoint) })
 	return checkpoint
@@ -740,8 +739,9 @@ func startTestCoordinatorOwnerWithSigner(
 	owner, err := openCoordinatorOwner(context.Background(), checkpoint, coordinatorDependencies{
 		ImageEnsurer: fakeImageEnsurer{}, CandidateBuilder: fakeCandidateBuildService{},
 		PromotionWatcher: fakePromotionWatcher{}, SourceMaterializer: fakeSourceMaterializer{}, FreshRunner: runner,
-		RecoveryRunner: &capturingFreshContainerRunner{},
-		ReceiptSigner:  signer,
+		RecoveryRunner:   &capturingFreshContainerRunner{},
+		ReceiptSigner:    signer,
+		SchedulingPolicy: testCoordinatorSchedulingPolicy(),
 	})
 	if err != nil {
 		t.Fatalf("openCoordinatorOwner() error = %v", err)
@@ -756,6 +756,10 @@ func startTestCoordinatorOwnerWithSigner(
 		}
 	})
 	return owner
+}
+
+func testCoordinatorSchedulingPolicy() coordinatorSchedulingPolicy {
+	return coordinatorSchedulingPolicy{ShardsPerJob: 3, MaxActiveCIWorkloads: 3}
 }
 
 func dialTestCoordinator(t *testing.T, checkpoint localci.DockerDaemonIdentityCheckpoint) *coordinatorTransportClient {
@@ -812,38 +816,6 @@ func waitForStartedJobs(t *testing.T, started <-chan freshContainerRequest, coun
 			}
 		case <-time.After(5 * time.Second):
 			t.Fatal("timed out waiting for scheduled job")
-		}
-	}
-}
-
-func mustWorkingDirectory(t *testing.T) string {
-	t.Helper()
-	root, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return root
-}
-
-func removeCoordinatorTestState(t *testing.T, checkpoint localci.DockerDaemonIdentityCheckpoint) {
-	t.Helper()
-	runtimeRoot, err := coordinatorRuntimeRoot()
-	if err != nil {
-		t.Errorf("coordinatorRuntimeRoot() error = %v", err)
-		return
-	}
-	prefixes := []string{
-		"localci-coordinator-" + checkpoint.IdentityKey + ".db",
-		"localci-scheduler-" + checkpoint.IdentityKey + ".db",
-		"localci-scheduler-" + checkpoint.IdentityKey + ".lock",
-		"s-" + checkpoint.IdentityKey[:32] + ".sock",
-	}
-	for _, prefix := range prefixes {
-		matches, _ := filepath.Glob(filepath.Join(runtimeRoot, prefix+"*"))
-		for _, match := range matches {
-			if err := os.Remove(match); err != nil && !os.IsNotExist(err) {
-				t.Errorf("remove test state %s: %v", match, err)
-			}
 		}
 	}
 }

@@ -275,25 +275,13 @@
   text-align: center;
 }
 
-/* Ant Design X Welcome：改为纵向居中布局，复用既有 chat-intro-* 视觉契约。 */
 .chat-intro-welcome {
-  width: 100%;
+  display: flex;
   flex-direction: column;
   align-items: center;
+  width: 100%;
   gap: 0;
-  background: transparent;
-  border: 0;
-  padding: 0;
   text-align: center;
-}
-
-.chat-intro-welcome .ant-welcome-content-wrapper {
-  align-items: center;
-  text-align: center;
-}
-
-.chat-intro-welcome .ant-welcome-icon {
-  margin: 0;
 }
 
 .chat-intro-welcome .chat-intro-title {

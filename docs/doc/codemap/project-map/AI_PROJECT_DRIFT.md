@@ -2,16 +2,16 @@
 
 > 状态：**OK**
 >
-> 已索引文件：5032
+> 已索引文件：5038
 >
-> 未细分职责文件：80
+> 未细分职责文件：81
 
 ## 1. 漂移指标
 
 | 指标 | 当前值 |
 |---|---:|
-| 未细分职责文件数 | 80 |
-| 未细分职责占比 | 1.59% |
+| 未细分职责文件数 | 81 |
+| 未细分职责占比 | 1.61% |
 | 最大未细分职责占比阈值 | 5.00% |
 
 ## 2. 漂移告警
@@ -22,7 +22,7 @@
 
 | 模块 | 文件数 |
 |---|---:|
-| `cmd` | 78 |
+| `cmd` | 79 |
 | `internal` | 2 |
 
 ## 4. 样例文件
@@ -66,6 +66,7 @@
 - `cmd/super-dolphin-gate/coordinator_provision_docker_test.go`
 - `cmd/super-dolphin-gate/coordinator_provision_e2e_optin_test.go`
 - `cmd/super-dolphin-gate/coordinator_provision_failure_logs_test.go`
+- `cmd/super-dolphin-gate/coordinator_provision_helpers_test.go`
 - `cmd/super-dolphin-gate/coordinator_provision_publish_darwin.go`
 - `cmd/super-dolphin-gate/coordinator_provision_publish_unsupported.go`
 - `cmd/super-dolphin-gate/coordinator_provision_recovery.go`
@@ -76,7 +77,6 @@
 - `cmd/super-dolphin-gate/coordinator_recovery.go`
 - `cmd/super-dolphin-gate/coordinator_recovery_plan_test.go`
 - `cmd/super-dolphin-gate/coordinator_recovery_shards.go`
-- `cmd/super-dolphin-gate/coordinator_recovery_store.go`
 
 ## 5. 修复方式
 

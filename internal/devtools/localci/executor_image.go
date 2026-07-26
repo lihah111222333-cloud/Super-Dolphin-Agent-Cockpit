@@ -30,6 +30,31 @@ const (
 var sha256DigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 var gitObjectPattern = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
 
+// runtimeDepsBuildArguments 从工具链锁生成排序且完整的运行时依赖构建参数。
+func runtimeDepsBuildArguments(lock toolchainLock) ([]BuildArgument, error) {
+	arguments := make([]BuildArgument, 0, 6)
+	for _, image := range lock.BaseImages {
+		if image.Name == "GO_IMAGE" || image.Name == "NODE_IMAGE" {
+			arguments = append(arguments, BuildArgument{Name: image.Name, Value: image.Reference})
+		}
+	}
+	if len(arguments) != 2 {
+		return nil, errors.New("runtime dependencies require locked GO_IMAGE and NODE_IMAGE")
+	}
+	for _, artifact := range lock.RuntimeTools.SqruffArtifacts {
+		architecture := "AMD64"
+		if artifact.Platform == "linux/arm64" {
+			architecture = "ARM64"
+		}
+		arguments = append(arguments,
+			BuildArgument{Name: "SQRUFF_ARCHIVE_SHA256_" + architecture, Value: artifact.SHA256},
+			BuildArgument{Name: "SQRUFF_ARCHIVE_URL_" + architecture, Value: artifact.URL},
+		)
+	}
+	sort.Slice(arguments, func(left, right int) bool { return arguments[left].Name < arguments[right].Name })
+	return arguments, nil
+}
+
 // imageIdentityReader is the narrow caller contract for Task 1A's canonical ImageIdentity.
 // 依赖 task-1a：canonical shared type 落地后补充适配器。
 type imageIdentityReader interface {
@@ -206,26 +231,23 @@ func (runner *FreshContainerRunner) inspectAndVerifyImage(ctx context.Context, p
 	if err := decodeSingleInspect(output, &document); err != nil {
 		return "", fmt.Errorf("decode gate image inspect: %w", err)
 	}
-	if document.Config == nil || document.RootFS == nil {
-		return "", errors.New("gate image inspect omitted config or rootfs")
+	if err := validateImageInspectEnvelope(document); err != nil {
+		return "", err
 	}
 	manifestDigest, configDigest, err := validateImageInspectDescriptor(document, prepared.expectedIdentity, prepared.expectedImage)
 	if err != nil {
 		return "", err
 	}
-	if !slices.Equal(document.RootFS.Layers, prepared.expectedIdentity.RootFSDiffIDs) {
-		return "", errors.New("gate image inspect rootfs diff IDs drifted")
+	if err := validateImageInspectRootFS(document, prepared.expectedIdentity); err != nil {
+		return "", err
 	}
 	identity := gateImageIdentityReader{ImageIdentity: gate.ImageIdentity{
 		OCIIndexDigest: preparedIdentityIndex(prepared), PlatformManifestDigest: manifestDigest,
 		ConfigDigest: configDigest, RootFSDiffIDs: document.RootFS.Layers,
 		OS: document.OS, Architecture: document.Architecture, Variant: document.Variant,
 	}}
-	if document.RootFS.Type != "layers" {
-		return "", fmt.Errorf("gate image rootfs type %q is not layers", document.RootFS.Type)
-	}
-	if !gate.ContainsImmutableImageReference(document.RepoDigests, prepared.expectedIdentity.Registry, prepared.expectedIdentity.PlatformManifestDigest) {
-		return "", errors.New("gate image inspect does not contain the requested platform manifest reference")
+	if err := validateImageInspectRepositoryBinding(document, prepared.expectedIdentity); err != nil {
+		return "", err
 	}
 	if err := validateImageIdentity(identity, document.Config.Labels, prepared.expectedImage); err != nil {
 		return "", fmt.Errorf("verify gate image inspect: %w", err)
@@ -233,9 +255,57 @@ func (runner *FreshContainerRunner) inspectAndVerifyImage(ctx context.Context, p
 	return digestJSON(document)
 }
 
+func validateImageInspectEnvelope(document imageInspectDocument) error {
+	if document.Config == nil || document.RootFS == nil {
+		return errors.New("gate image inspect omitted config or rootfs")
+	}
+	if document.RootFS.Type != "layers" {
+		return fmt.Errorf("gate image rootfs type %q is not layers", document.RootFS.Type)
+	}
+	return nil
+}
+
+func validateImageInspectRootFS(document imageInspectDocument, expected gate.ImageIdentity) error {
+	if !slices.Equal(document.RootFS.Layers, expected.RootFSDiffIDs) {
+		return errors.New("gate image inspect rootfs diff IDs drifted")
+	}
+	return nil
+}
+
+func validateImageInspectRepositoryBinding(document imageInspectDocument, expected gate.ImageIdentity) error {
+	if document.Descriptor == nil {
+		return nil
+	}
+	if !gate.ContainsImmutableImageReference(document.RepoDigests, expected.Registry, expected.PlatformManifestDigest) {
+		return errors.New("gate image inspect does not contain the requested platform manifest reference")
+	}
+	return nil
+}
+
 // validateImageInspectDescriptor 从 Docker descriptor 读取 manifest/config 身份，绝不把展示 ID 当作 config。
 func validateImageInspectDescriptor(document imageInspectDocument, expected gate.ImageIdentity, metadata expectedImageMetadata) (string, string, error) {
-	if document.Descriptor == nil || document.Descriptor.MediaType != buildxManifestMedia || document.Descriptor.Size <= 0 {
+	if document.Descriptor == nil {
+		return validateLegacyImageInspectDescriptor(document, expected)
+	}
+	return validateCompleteImageInspectDescriptor(document, expected, metadata)
+}
+
+func validateLegacyImageInspectDescriptor(document imageInspectDocument, expected gate.ImageIdentity) (string, string, error) {
+	if expected.Registry != candidateImageRepository || document.ID != expected.ConfigDigest {
+		return "", "", errors.New("gate image inspect omitted a complete descriptor")
+	}
+	if err := validateDigest("accepted platform manifest digest", expected.PlatformManifestDigest); err != nil {
+		return "", "", err
+	}
+	if err := validateDigest("accepted config digest", expected.ConfigDigest); err != nil {
+		return "", "", err
+	}
+	return expected.PlatformManifestDigest, expected.ConfigDigest, nil
+}
+
+// validateCompleteImageInspectDescriptor 校验带 descriptor 的 manifest、config 与展示 ID 三者绑定。
+func validateCompleteImageInspectDescriptor(document imageInspectDocument, expected gate.ImageIdentity, metadata expectedImageMetadata) (string, string, error) {
+	if document.Descriptor.MediaType != buildxManifestMedia || document.Descriptor.Size <= 0 {
 		return "", "", errors.New("gate image inspect omitted a complete descriptor")
 	}
 	manifestDigest := document.Descriptor.Digest
@@ -472,10 +542,10 @@ func validateContainerResourceIsolation(host *containerHostConfig) error {
 	return nil
 }
 
-// validateContainerCapabilityIsolation 校验 capability、断网和可写层配额合同。
+// validateContainerCapabilityIsolation 校验 capability、断网且只读根文件系统不附加后端相关存储选项。
 func validateContainerCapabilityIsolation(host *containerHostConfig) error {
 	if !equalStringSet(host.CapDrop, []string{"ALL"}) ||
-		host.NetworkMode != noContainerNetwork || host.StorageOpt["size"] != "10G" {
+		host.NetworkMode != noContainerNetwork || len(host.StorageOpt) != 0 {
 		return errors.New("gate container capability, network, or storage contract drifted")
 	}
 	return nil
@@ -569,6 +639,9 @@ func validateFinishedContainerIdentity(document containerInspectDocument, contai
 
 // containerImageIdentityMatches 兼容 Docker inspect 展示 manifest 或 config，但不混淆二者语义。
 func containerImageIdentityMatches(observed string, imageReference string, configDigest string) bool {
+	if sha256DigestPattern.MatchString(imageReference) {
+		return imageReference == configDigest && observed == configDigest
+	}
 	separator := strings.LastIndex(imageReference, "@")
 	if separator <= 0 || separator == len(imageReference)-1 {
 		return false

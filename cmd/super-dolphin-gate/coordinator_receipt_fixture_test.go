@@ -3,12 +3,28 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"testing"
 	"time"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/localci"
 )
+
+func TestPassedShardEvidenceCardinalityUsesDurableSetLength(t *testing.T) {
+	set := gatecontract.ContainerShardSet{Shards: []gatecontract.ContainerShard{{}, {}}}
+	execution := receiptExecution{
+		ShardReceipts: []gatecontract.ContainerShardReceipt{{}, {}},
+		Containers:    []gatecontract.ContainerEvidence{{}, {}},
+	}
+	if err := validatePassedShardEvidenceCardinality(execution, set); err != nil {
+		t.Fatalf("two durable shards rejected: %v", err)
+	}
+	execution.Containers = execution.Containers[:1]
+	if err := validatePassedShardEvidenceCardinality(execution, set); err == nil {
+		t.Fatal("mismatched durable shard evidence was accepted")
+	}
+}
 
 func TestCoordinatorStorePersistsReceiptCrashSafely(t *testing.T) {
 	checkpoint := coordinatorTestCheckpoint(t)
@@ -52,6 +68,48 @@ func TestCoordinatorStorePersistsReceiptCrashSafely(t *testing.T) {
 	store = mustOpenCoordinatorStore(t, ctx, checkpoint)
 	if _, err := store.job(ctx, record.JobID); err == nil {
 		t.Fatal("restart restored a passed row whose receipt was lost")
+	}
+}
+
+func TestCoordinatorJobsOnlyDependOnTheirOwnCandidateBuild(t *testing.T) {
+	checkpoint := coordinatorTestCheckpoint(t)
+	ctx := context.Background()
+	store := mustOpenCoordinatorStore(t, ctx, checkpoint)
+	t.Cleanup(func() {
+		_ = store.close()
+	})
+
+	plan := mustTestGatePlan(t, "d")
+	first, err := store.createJob(
+		ctx,
+		"dependency-invocation-first",
+		"dependency-job-first",
+		mustWorkingDirectory(t),
+		plan,
+		localci.PromotionCandidatePlan{BuildRequired: true, WorkloadID: "build-first"},
+		manualSubmissionAuthority(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.createJob(
+		ctx,
+		"dependency-invocation-second",
+		"dependency-job-second",
+		mustWorkingDirectory(t),
+		plan,
+		localci.PromotionCandidatePlan{BuildRequired: true, WorkloadID: "build-second"},
+		manualSubmissionAuthority(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := first.SchedulerDependencies, []string{"build-first"}; !slices.Equal(got, want) {
+		t.Fatalf("first dependencies = %v, want %v", got, want)
+	}
+	if got, want := second.SchedulerDependencies, []string{"build-second"}; !slices.Equal(got, want) {
+		t.Fatalf("second dependencies = %v, want %v", got, want)
 	}
 }
 

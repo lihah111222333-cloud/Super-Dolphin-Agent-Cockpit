@@ -63,7 +63,7 @@ func OpenSchedulerOwner(ctx context.Context, config SchedulerConfig) (*Scheduler
 	if err != nil {
 		return nil, fmt.Errorf("resolve scheduler owner runtime root: %w", err)
 	}
-	return openSchedulerOwnerAtRuntimeRoot(ctx, identity, runtimeRoot)
+	return openSchedulerOwnerAtRuntimeRoot(ctx, identity, config.MaxActiveWorkloads, runtimeRoot)
 }
 
 // ReconcileRecovery 只能在 Serve 前调用，用作 coordinator 的启动恢复屏障。
@@ -105,14 +105,24 @@ func DialScheduler(ctx context.Context, config SchedulerConfig) (*SchedulerClien
 	return dialSchedulerAtRuntimeRoot(ctx, identity, runtimeRoot)
 }
 
-// ProbeDockerSchedulerAuthority 以同一 Docker runner 绑定 daemon identity 与三槽位容量证据。
+// ProbeDockerSchedulerAuthority 保留仅身份探测，供尚未携带容量配置的旧调用方发现 daemon。
 func ProbeDockerSchedulerAuthority(ctx context.Context) (DockerDaemonIdentityCheckpoint, error) {
-	return probeDockerSchedulerAuthority(ctx, execDockerRunner{})
+	identityProbe, err := newDockerDaemonIdentityProbe(execDockerRunner{})
+	if err != nil {
+		return DockerDaemonIdentityCheckpoint{}, err
+	}
+	return identityProbe.Probe(ctx)
+}
+
+// ProbeDockerSchedulerAuthorityWithCapacity 以同一 Docker runner 绑定 identity 与配置容量证据。
+func ProbeDockerSchedulerAuthorityWithCapacity(ctx context.Context, maxActiveWorkloads int) (DockerDaemonIdentityCheckpoint, error) {
+	return probeDockerSchedulerAuthority(ctx, maxActiveWorkloads, execDockerRunner{})
 }
 
 // probeDockerSchedulerAuthority 复用同一 runner 依次固定 identity 与容量证据。
 func probeDockerSchedulerAuthority(
 	ctx context.Context,
+	maxActiveWorkloads int,
 	runner dockerRunner,
 ) (DockerDaemonIdentityCheckpoint, error) {
 	identityProbe, err := newDockerDaemonIdentityProbe(runner)
@@ -127,19 +137,23 @@ func probeDockerSchedulerAuthority(
 	if err != nil {
 		return DockerDaemonIdentityCheckpoint{}, err
 	}
-	evidence, err := ValidateDaemonCapacity(ctx, checkpoint.SchedulerConfig.DaemonID, capacityInspector)
+	evidence, err := ValidateDaemonCapacity(ctx, checkpoint.SchedulerConfig.DaemonID, maxActiveWorkloads, capacityInspector)
 	if err != nil {
 		return DockerDaemonIdentityCheckpoint{}, fmt.Errorf("validate Docker scheduler capacity: %w", err)
 	}
 	if evidence.Available.DaemonID != checkpoint.SchedulerConfig.DaemonID {
 		return DockerDaemonIdentityCheckpoint{}, errors.New("Docker scheduler capacity identity does not match checkpoint")
 	}
+	checkpoint.SchedulerConfig.MaxActiveWorkloads = maxActiveWorkloads
 	return checkpoint, nil
 }
 
 func schedulerTransportIdentity(ctx context.Context, config SchedulerConfig) (daemonIdentity, error) {
 	if ctx == nil {
 		return daemonIdentity{}, fmt.Errorf("%w: context is required", ErrInvalidSchedulerInput)
+	}
+	if err := validateMaxActiveWorkloads(config.MaxActiveWorkloads); err != nil {
+		return daemonIdentity{}, fmt.Errorf("%w: validate max active workloads: %w", ErrInvalidSchedulerInput, err)
 	}
 	identity, err := newDaemonIdentity(config.Endpoint, config.TLSFingerprint, config.DaemonID, config.OwnerUID)
 	if err != nil {
@@ -157,19 +171,21 @@ func openSchedulerOwnerWithRuntimeRoot(
 	if err != nil {
 		return nil, err
 	}
-	return openSchedulerOwnerAtRuntimeRoot(ctx, identity, runtimeRoot)
+	return openSchedulerOwnerAtRuntimeRoot(ctx, identity, config.MaxActiveWorkloads, runtimeRoot)
 }
 
+// openSchedulerOwnerAtRuntimeRoot 在受信运行根下启动节点唯一 scheduler owner。
 func openSchedulerOwnerAtRuntimeRoot(
 	ctx context.Context,
 	identity daemonIdentity,
+	maxActiveWorkloads int,
 	runtimeRoot string,
 ) (*SchedulerOwner, error) {
 	socketPath, err := deriveSchedulerSocketPath(runtimeRoot, identity)
 	if err != nil {
 		return nil, fmt.Errorf("%w: derive scheduler socket path: %w", ErrInvalidSchedulerInput, err)
 	}
-	scheduler, err := openSchedulerAtRuntimeRoot(ctx, identity, runtimeRoot)
+	scheduler, err := openSchedulerAtRuntimeRoot(ctx, identity, maxActiveWorkloads, runtimeRoot)
 	if err != nil {
 		return nil, err
 	}

@@ -271,7 +271,7 @@ func newContainerRequest(image string, sourceDir string, command []string, relea
 	}
 }
 
-// executionImageReference 只从 registry 与平台 manifest digest 派生执行引用。
+// executionImageReference 对本机真相镜像使用不可变 config digest，其余镜像使用 registry manifest 引用。
 func executionImageReference(identity gate.ImageIdentity) (string, error) {
 	registry := identity.Registry
 	if registry == "" || strings.TrimSpace(registry) != registry || strings.ContainsAny(registry, "@\x00\r\n\t ") {
@@ -283,6 +283,12 @@ func executionImageReference(identity gate.ImageIdentity) (string, error) {
 	}
 	if err := validateDigest("platform manifest digest", identity.PlatformManifestDigest); err != nil {
 		return "", err
+	}
+	if registry == candidateImageRepository {
+		if err := validateDigest("config digest", identity.ConfigDigest); err != nil {
+			return "", err
+		}
+		return identity.ConfigDigest, nil
 	}
 	return registry + "@" + identity.PlatformManifestDigest, nil
 }
@@ -333,7 +339,21 @@ func (runner *FreshContainerRunner) createPreparedContainer(provisionContext con
 	containerID, err := runner.docker.create(provisionContext, newContainerRequest(prepared.imageReference, request.SourceSnapshotDir, prepared.command, request.Profile == gate.ProfileRelease, request.ContainerLabels))
 	result.setContainerID(containerID)
 	if containerID == "" {
-		return result, err
+		operationIdentity, identityErr := FreshContainerOperationIdentity(request.ContainerLabels)
+		if identityErr != nil {
+			return result, errors.Join(err, identityErr)
+		}
+		cleanupContext, cancelCleanup := platformconfig.WithTimeout(
+			context.WithoutCancel(parentContext), freshContainerLifecycleCleanupTimeout,
+		)
+		defer cancelCleanup()
+		cleaned, cleanupErr := runner.CleanupUnprovedFreshContainer(cleanupContext, FreshContainerCleanupRequest{
+			ContainerID: operationIdentity, ContainerLabels: request.ContainerLabels,
+			ImageReference: result.ImageReference, ConfigDigest: request.Image.ConfigDigest,
+			SourceSnapshotDir: request.SourceSnapshotDir, Command: prepared.command,
+			Profile: request.Profile, GateID: request.GateID, LifecycleHook: request.LifecycleHook,
+		})
+		return cleaned, errors.Join(err, cleanupErr)
 	}
 	if hookErr := runner.emitLifecycle(provisionContext, request, result, FreshContainerPhaseCreated); hookErr != nil {
 		return runner.removeContainer(parentContext, result, request, errors.Join(err, hookErr))

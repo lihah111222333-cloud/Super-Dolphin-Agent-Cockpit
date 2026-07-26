@@ -44,7 +44,7 @@ func connectProductionCoordinator(ctx context.Context) (coordinatorClient, error
 	if err != nil {
 		return nil, err
 	}
-	checkpoint, err := localci.ProbeDockerSchedulerAuthority(ctx)
+	checkpoint, err := localci.ProbeDockerSchedulerAuthorityWithCapacity(ctx, config.MaxActiveCIWorkloads)
 	if err != nil {
 		return nil, fmt.Errorf("establish Docker scheduler authority: %w", err)
 	}

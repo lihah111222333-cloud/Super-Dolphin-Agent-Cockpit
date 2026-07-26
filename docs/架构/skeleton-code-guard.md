@@ -136,7 +136,7 @@ npm run guard:critical-skip
 
 `pre-push` 按 push range 推导变更面：
 
-- Go 代码：`local-fast` 先完成同 tree 的前端 test/build/embed；`pre-push` 只重复轻量前端、完整普通后端/LSP 与架构契约三分片，高内存 nilness 和独立 race 检查只进入 30 分钟 release profile。
+- Go 代码：`local-fast` 先完成同 tree 的前端 test/build/embed；`pre-push` 只重复轻量前端+LSP、独占内存的完整普通后端与架构契约三分片，高内存 nilness 和独立 race 检查只进入 30 分钟 release profile。
 - 前端代码：`local-fast` 运行 `npm run lint`、`npm run test:hook`、build 与 `make frontend-embed-verify`；`pre-push` 只重复 lint，完整测试证据继续由同 tree 回执约束。
 - SQL/store：`make sqlc-verify-worktree`。
 - codemap/project-map/capcontract：由 AI maintenance 对应 `make *-check`，任何 drift 在 pre-commit/pre-push 都 fail-fast。

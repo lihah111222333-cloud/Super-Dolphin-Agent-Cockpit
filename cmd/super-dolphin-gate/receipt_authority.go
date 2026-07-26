@@ -163,8 +163,8 @@ func validateCurrentAcceptedReceipt(
 	receipt gatecontract.ResultReceipt,
 	accepted gatecontract.AcceptedImageRecord,
 ) error {
-	if receipt.SchemaVersion != gatecontract.ResultReceiptSchemaVersion || len(receipt.ShardReceipts) != gatecontract.MaxContainerShards {
-		return errors.New("result receipt must use the canonical v2 three-shard schema")
+	if receipt.SchemaVersion != gatecontract.ResultReceiptSchemaVersion || len(receipt.ShardReceipts) == 0 {
+		return fmt.Errorf("result receipt must use the canonical v%d shard schema", gatecontract.ResultReceiptSchemaVersion)
 	}
 	if receipt.RepoID != accepted.RepoID || receipt.PolicyDigest != accepted.PolicyDigest ||
 		receipt.Generation != accepted.Generation ||
@@ -260,12 +260,12 @@ func validatePassedReceiptExecution(record coordinatorJobRecord, execution recei
 		return errors.New("accepted image policy digest does not match job plan")
 	}
 	if execution.ShardSet == nil {
-		return errors.New("passed execution must contain the canonical three container shards")
+		return errors.New("passed execution must contain a durable shard set")
 	}
 	return validatePassedShardReceiptExecution(record, execution)
 }
 
-// validatePassedShardReceiptExecution 要求 passed 三 shard receipt 的身份、聚合和容器证据完全一致。
+// validatePassedShardReceiptExecution 要求 passed shard receipt 的身份、聚合和容器证据完全一致。
 func validatePassedShardReceiptExecution(record coordinatorJobRecord, execution receiptExecution) error {
 	set := *execution.ShardSet
 	if err := validatePassedShardSetIdentity(record, execution, set); err != nil {
@@ -297,9 +297,9 @@ func validatePassedShardSetIdentity(record coordinatorJobRecord, execution recei
 }
 
 func validatePassedShardEvidenceCardinality(execution receiptExecution, set gatecontract.ContainerShardSet) error {
-	if len(set.Shards) != gatecontract.MaxContainerShards || len(execution.ShardReceipts) != len(set.Shards) ||
+	if len(set.Shards) == 0 || len(execution.ShardReceipts) != len(set.Shards) ||
 		len(execution.Containers) != len(set.Shards) {
-		return errors.New("passed shard execution does not contain the exact three containers")
+		return errors.New("passed shard execution does not contain the exact durable containers")
 	}
 	return nil
 }

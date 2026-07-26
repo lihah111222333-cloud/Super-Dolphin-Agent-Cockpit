@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// validatePassedShardReceipt 校验 v2 passed receipt 的三分片签名闭包。
+// validatePassedShardReceipt 校验当前动态数量分片的完整签名闭包。
 func (r ResultReceipt) validatePassedShardReceipt() error {
 	set, err := resultReceiptShardSet(r.ShardReceipts)
 	if err != nil {
@@ -38,23 +38,80 @@ func (r ResultReceipt) validatePassedShardReceipt() error {
 	return nil
 }
 
+// validateStoredPassedShardReceipt 使用回执绑定的历史计划校验终态三分片闭包。
+func (r ResultReceipt) validateStoredPassedShardReceipt(plan GatePlan) error {
+	set, err := storedResultReceiptShardSet(r.ShardReceipts, plan)
+	if err != nil {
+		return err
+	}
+	if err := validateStoredResultReceiptShardBinding(r, set, plan); err != nil {
+		return err
+	}
+	aggregated, err := aggregateStoredResultReceiptShards(r, set, plan)
+	if err != nil {
+		return fmt.Errorf("aggregate stored result receipt shards: %w", err)
+	}
+	if err := validateResultReceiptGateAggregate(r.GateResults, aggregated); err != nil {
+		return err
+	}
+	if err := validateResultReceiptShardTimeline(r, r.ShardReceipts); err != nil {
+		return err
+	}
+	container, err := aggregateResultReceiptContainer(r.ShardReceipts)
+	if err != nil {
+		return err
+	}
+	if r.Container != container {
+		return errors.New("stored result receipt aggregate container evidence drifted")
+	}
+	return nil
+}
+
 // resultReceiptShardSet 从签名回执重建唯一 canonical shard set。
 func resultReceiptShardSet(receipts []ContainerShardReceipt) (ContainerShardSet, error) {
-	if len(receipts) != MaxContainerShards {
-		return ContainerShardSet{}, errors.New("result receipt requires exactly three shard receipts")
+	set, err := uncheckedResultReceiptShardSet(receipts)
+	if err != nil {
+		return ContainerShardSet{}, err
+	}
+	if err := set.Validate(); err != nil {
+		return ContainerShardSet{}, fmt.Errorf("result receipt shard set: %w", err)
+	}
+	return set, nil
+}
+
+func storedResultReceiptShardSet(receipts []ContainerShardReceipt, plan GatePlan) (ContainerShardSet, error) {
+	set, err := uncheckedResultReceiptShardSet(receipts)
+	if err != nil {
+		return ContainerShardSet{}, err
+	}
+	if err := set.ValidateStored(plan); err != nil {
+		return ContainerShardSet{}, fmt.Errorf("stored result receipt shard set: %w", err)
+	}
+	return set, nil
+}
+
+// uncheckedResultReceiptShardSet 从回执重建尚未执行 canonical 校验的分片集合。
+func uncheckedResultReceiptShardSet(receipts []ContainerShardReceipt) (ContainerShardSet, error) {
+	if len(receipts) == 0 || len(receipts) > MaxContainerShards {
+		return ContainerShardSet{}, errors.New("result receipt shard receipt count is invalid")
 	}
 	first := receipts[0].Shard
+	shardsPerJob := first.ShardsPerJob
+	if first.SchemaVersion == legacyContainerShardSchemaVersion && shardsPerJob == 0 {
+		shardsPerJob = legacyContainerShardCount
+	}
+	if int(shardsPerJob) != len(receipts) {
+		return ContainerShardSet{}, errors.New("result receipt shard receipt count does not match shards_per_job")
+	}
 	set := ContainerShardSet{
 		Profile: first.Profile, PlanDigest: first.PlanDigest, SourceTreeSHA: first.SourceTreeSHA,
 		AcceptedManifestDigest: first.AcceptedManifestDigest, AcceptedConfigDigest: first.AcceptedConfigDigest,
-		Shards: make([]ContainerShard, len(receipts)),
+		ShardsPerJob: shardsPerJob,
+		Shards:       make([]ContainerShard, len(receipts)),
 	}
 	for index, receipt := range receipts {
 		set.Shards[index] = receipt.Shard
 		set.Shards[index].GateIDs = slices.Clone(receipt.Shard.GateIDs)
-	}
-	if err := set.Validate(); err != nil {
-		return ContainerShardSet{}, fmt.Errorf("result receipt shard set: %w", err)
 	}
 	return set, nil
 }
@@ -78,6 +135,63 @@ func validateResultReceiptShardBinding(receipt ResultReceipt, set ContainerShard
 		return errors.New("release result receipt requires release shard profile")
 	}
 	return nil
+}
+
+// validateStoredResultReceiptShardBinding 将历史回执绑定到其原始计划、来源和镜像。
+func validateStoredResultReceiptShardBinding(receipt ResultReceipt, set ContainerShardSet, plan GatePlan) error {
+	if set.PlanDigest != receipt.PlanDigest || set.SourceTreeSHA != receipt.Source.SourceTreeSHA ||
+		plan.PlanDigest != receipt.PlanDigest || plan.PolicyDigest != receipt.PolicyDigest {
+		return errors.New("stored result receipt shard plan or source identity drifted")
+	}
+	if set.AcceptedManifestDigest != receipt.Image.PlatformManifestDigest || set.AcceptedConfigDigest != receipt.Image.ConfigDigest {
+		return errors.New("stored result receipt shard image identity drifted")
+	}
+	if receipt.Entrypoint == CIEntrypointRelease && set.Profile != ProfileRelease {
+		return errors.New("stored release result receipt requires release shard profile")
+	}
+	return nil
+}
+
+// aggregateStoredResultReceiptShards 按历史计划顺序聚合分片结果并保留 release 证据。
+func aggregateStoredResultReceiptShards(
+	receipt ResultReceipt,
+	set ContainerShardSet,
+	plan GatePlan,
+) ([]PlanGateExecution, error) {
+	indexed := make(map[string]ContainerShardReceipt, len(receipt.ShardReceipts))
+	for _, shardReceipt := range receipt.ShardReceipts {
+		if _, exists := indexed[shardReceipt.Shard.IdentityDigest]; exists {
+			return nil, errors.New("stored container shard receipt is duplicated")
+		}
+		indexed[shardReceipt.Shard.IdentityDigest] = shardReceipt
+	}
+	results, err := collectStoredContainerShardResults(set, indexed, plan)
+	if err != nil {
+		return nil, err
+	}
+	ordered := make([]PlanGateExecution, 0, len(plan.Gates))
+	for _, spec := range plan.Gates {
+		if spec.ID == GateIDReleaseLayeredCheck {
+			continue
+		}
+		execution, ok := results[spec.ID]
+		if !ok {
+			return nil, fmt.Errorf("stored container shard aggregate gate %q is missing", spec.ID)
+		}
+		ordered = append(ordered, execution)
+	}
+	if len(results) != len(ordered) {
+		return nil, errors.New("stored container shard aggregate gate coverage is not exact")
+	}
+	if set.Profile == ProfileRelease {
+		release := receipt.GateResults[len(receipt.GateResults)-1]
+		ordered = append(ordered, PlanGateExecution{
+			GateID: GateID(release.GateID), Status: ResultStatusPassed, ExitCode: release.ExitCode,
+			StartedAt: release.StartedAt, CompletedAt: release.CompletedAt,
+			ArgvDigest: release.ArgvDigest, LogDigest: release.LogDigest,
+		})
+	}
+	return ordered, nil
 }
 
 // aggregateResultReceiptShards 以已签 release gate 时钟重放 canonical 聚合。

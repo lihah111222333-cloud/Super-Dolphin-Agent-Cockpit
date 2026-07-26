@@ -176,8 +176,8 @@ func TestRecoveredShardGroupUsesExactArgvAndCompletesAfterAllLive(t *testing.T) 
 	if err := owner.resumeRecoveredShardGroup(context.Background(), record); err != nil {
 		t.Fatal(err)
 	}
-	if got := runner.recoveredRequests(); len(got) != gatecontract.MaxContainerShards {
-		t.Fatalf("recovered containers = %d, want %d", len(got), gatecontract.MaxContainerShards)
+	if got := runner.recoveredRequests(); len(got) != testCoordinatorSchedulingPolicy().ShardsPerJob {
+		t.Fatalf("recovered containers = %d, want %d", len(got), testCoordinatorSchedulingPolicy().ShardsPerJob)
 	} else {
 		for _, request := range got {
 			identity := request.ContainerLabels[coordinatorLabelShardIdentity]
@@ -236,8 +236,8 @@ func TestRecoveredShardCleanupFailureRetainsCancellingLease(t *testing.T) {
 	if err != nil || persisted.State != jobStateStarted {
 		t.Fatalf("job state=%q err=%v, want started", persisted.State, err)
 	}
-	if got := runner.cleanupCount(); got != gatecontract.MaxContainerShards {
-		t.Fatalf("cleanup attempts=%d, want every shard=%d", got, gatecontract.MaxContainerShards)
+	if got := runner.cleanupCount(); got != testCoordinatorSchedulingPolicy().ShardsPerJob {
+		t.Fatalf("cleanup attempts=%d, want every shard=%d", got, testCoordinatorSchedulingPolicy().ShardsPerJob)
 	}
 }
 
@@ -289,8 +289,8 @@ func runRecoveredPreClockShardCleanupCase(t *testing.T, test recoveredPreClockSh
 	err := owner.resumeRecoveredShardGroup(context.Background(), record)
 	test.assert(t, owner, runner, record, admission, err)
 
-	if got := runner.cleanupCount(); got != gatecontract.MaxContainerShards {
-		t.Fatalf("cleanup attempts=%d, want every shard=%d", got, gatecontract.MaxContainerShards)
+	if got := runner.cleanupCount(); got != testCoordinatorSchedulingPolicy().ShardsPerJob {
+		t.Fatalf("cleanup attempts=%d, want every shard=%d", got, testCoordinatorSchedulingPolicy().ShardsPerJob)
 	}
 }
 
@@ -337,7 +337,7 @@ func assertRecoveredPreClockCleanupFailedClosed(
 		t.Fatalf("durable state=%q err=%v, want started", stored.State, storeErr)
 	}
 	snapshot, snapshotErr := owner.schedulerClient.Snapshot(context.Background())
-	if snapshotErr != nil || len(snapshot.Leases) != gatecontract.MaxContainerShards {
+	if snapshotErr != nil || len(snapshot.Leases) != testCoordinatorSchedulingPolicy().ShardsPerJob {
 		t.Fatalf("cleanup failure leases=%#v err=%v", snapshot.Leases, snapshotErr)
 	}
 }
@@ -363,8 +363,8 @@ func TestRecoveredShardReceiptSigningFailureCleansBeforeInfraComplete(t *testing
 	if runner.cleanupBeforeBarrier {
 		t.Fatal("receipt signing compensation cleaned before scheduler cancelling barrier")
 	}
-	if got := runner.cleanupCount(); got != gatecontract.MaxContainerShards {
-		t.Fatalf("receipt signing compensation cleanup count=%d want=%d", got, gatecontract.MaxContainerShards)
+	if got := runner.cleanupCount(); got != testCoordinatorSchedulingPolicy().ShardsPerJob {
+		t.Fatalf("receipt signing compensation cleanup count=%d want=%d", got, testCoordinatorSchedulingPolicy().ShardsPerJob)
 	}
 	assertRecoveredShardTerminal(t, owner, record.JobID, admission.WorkloadID, localci.WorkloadStatusInfraFailed)
 }
@@ -470,7 +470,7 @@ func TestShardFinalizationDeadlineRetainsGangLease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(snapshot.Leases) != gatecontract.MaxContainerShards {
+	if len(snapshot.Leases) != testCoordinatorSchedulingPolicy().ShardsPerJob {
 		t.Fatalf("timed out finalization released leases: %#v", snapshot.Leases)
 	}
 	stored, err := owner.store.job(context.Background(), record.JobID)

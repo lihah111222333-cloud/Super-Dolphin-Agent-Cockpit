@@ -163,7 +163,7 @@ func ResolveGateImageInputs(tree ReadOnlyGitTree, policyDigest string, platform 
 	result := prepared.result
 	return GateImageInputs{
 		SubmittedSourceTree: result.SourceTreeSHA, PolicyDigest: policyDigest,
-		ImageSchemaVersion: imageInputSchemaVersion, Platform: platform, SourceEntries: cloneTreeEntries(tree.Entries),
+		ImageSchemaVersion: imageInputSchemaVersion, Platform: platform, SourceEntries: cloneTreeEntries(prepared.sourceEntries),
 		ImageInputDigest: result.InputDigest, ContextDigest: result.ContextDigest,
 		InputManifestDigest: result.InputManifestDigest, ToolchainDigest: result.ToolchainDigest,
 		DockerfileDigest: result.DockerfileDigest,

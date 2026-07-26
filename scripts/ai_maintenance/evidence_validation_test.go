@@ -31,7 +31,7 @@ COMMANDS_RUN:
     exit: 0
   - cmd: cd frontend-app && npm run typecheck:contracts
     exit: 0
-  - cmd: cd frontend-app && npm test
+  - cmd: cd frontend-app && npx vitest run src/App.test.jsx
     exit: 0
   - cmd: cd frontend-app && npm run build
     exit: 0

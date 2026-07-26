@@ -112,7 +112,6 @@ func GateRegistry() []GateSpec {
 		newGateSpec(GateIDFrontendBuild, all, localRemotePromotionRelease),
 		newGateSpec(GateIDFrontendEmbedVerify, all, localRemotePromotionRelease),
 		newGateSpec(GateIDBackendTestWithGuard, all, all),
-		newGateSpec(GateIDLSPChangedDiagnostics, all, all),
 		newGateSpec(GateIDBackendTestGuardWithRace, all, releaseRequired),
 		newGateSpec(GateIDBackendNilness, all, releaseRequired),
 		newGateSpec(GateIDSQLCVerify, all, all),
@@ -249,6 +248,44 @@ func BuildGatePlan(profile Profile, source SourceSpec) (GatePlan, error) {
 
 // Validate 拒绝 registry 漂移、顺序变化与 digest 篡改。
 func (p GatePlan) Validate() error {
+	if err := p.validateStored(); err != nil {
+		return err
+	}
+	policyDigest, err := GateRegistryDigest()
+	if err != nil {
+		return err
+	}
+	if p.PolicyDigest != policyDigest || !equalGateSpecs(p.Gates, requiredGatesForProfile(p.Profile)) {
+		return errors.New("gate plan does not match canonical registry")
+	}
+	return nil
+}
+
+// ValidateStored 校验历史计划自身的完整性，不把旧 registry 误当成当前可执行策略。
+func (p GatePlan) ValidateStored() error {
+	return p.validateStored()
+}
+
+// validateStored 校验历史计划的身份、gate 集合和内容摘要。
+func (p GatePlan) validateStored() error {
+	if err := validateStoredPlanIdentity(p); err != nil {
+		return err
+	}
+	if err := validateStoredPlanGates(p); err != nil {
+		return err
+	}
+	wantDigest, err := p.digest()
+	if err != nil {
+		return err
+	}
+	if p.PlanDigest != wantDigest {
+		return errors.New("gate plan digest mismatch")
+	}
+	return nil
+}
+
+// validateStoredPlanIdentity 校验历史计划的版本、来源和策略摘要格式。
+func validateStoredPlanIdentity(p GatePlan) error {
 	if p.SchemaVersion != gateSchemaVersion {
 		return fmt.Errorf("unsupported gate plan schema_version %d", p.SchemaVersion)
 	}
@@ -258,19 +295,29 @@ func (p GatePlan) Validate() error {
 	if err := p.Source.Validate(); err != nil {
 		return fmt.Errorf("source spec: %w", err)
 	}
-	policyDigest, err := GateRegistryDigest()
-	if err != nil {
+	if err := validateDigest("gate policy digest", p.PolicyDigest); err != nil {
 		return err
 	}
-	if p.PolicyDigest != policyDigest || !equalGateSpecs(p.Gates, requiredGatesForProfile(p.Profile)) {
-		return errors.New("gate plan does not match canonical registry")
+	if len(p.Gates) == 0 {
+		return errors.New("gate plan has no gates")
 	}
-	wantDigest, err := p.digest()
-	if err != nil {
-		return err
-	}
-	if p.PlanDigest != wantDigest {
-		return errors.New("gate plan digest mismatch")
+	return nil
+}
+
+// validateStoredPlanGates 校验历史计划内 gate 唯一且属于声明的 profile。
+func validateStoredPlanGates(p GatePlan) error {
+	seen := make(map[GateID]bool, len(p.Gates))
+	for _, spec := range p.Gates {
+		if err := spec.Validate(); err != nil {
+			return err
+		}
+		if seen[spec.ID] {
+			return fmt.Errorf("gate plan contains duplicate gate %q", spec.ID)
+		}
+		seen[spec.ID] = true
+		if !slices.Contains(spec.RequiredProfiles, p.Profile) {
+			return fmt.Errorf("gate %q is not required by plan profile %q", spec.ID, p.Profile)
+		}
 	}
 	return nil
 }

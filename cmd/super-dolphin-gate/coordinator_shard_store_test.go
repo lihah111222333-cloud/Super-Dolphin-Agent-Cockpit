@@ -499,6 +499,33 @@ func coordinatorShardLifecycleEvent(
 	return event
 }
 
+func TestCoordinatorShardLifecycleAcceptsLocalConfigDigestReference(t *testing.T) {
+	_, _, set := coordinatorShardTestStore(t)
+	shard := set.Shards[0]
+	event := coordinatorShardLifecycleEvent(
+		shard,
+		localci.FreshContainerPhasePrepared,
+		time.Now().UTC(),
+		time.Now().UTC().Add(time.Minute),
+		"/private/source",
+		gatecontract.ContainerResourceWitness{},
+		"",
+	)
+	event.ImageReference = shard.AcceptedConfigDigest
+	record := coordinatorShardRecord{Shard: shard}
+	if err := validateShardLifecycleImmutable(record, coordinatorShardTestLabels("job-local-config", shard), event); err != nil {
+		t.Fatalf("local config digest lifecycle reference was rejected: %v", err)
+	}
+	record.JobID = "job-local-config"
+	record.ContainerImageReference = shard.AcceptedConfigDigest
+	record.ContainerConfigDigest = shard.AcceptedConfigDigest
+	record.SourceSnapshotDir = event.SourceSnapshotDir
+	record.ContainerLabels = coordinatorShardTestLabels(record.JobID, shard)
+	if err := validateStoredShardImmutableIdentity(record); err != nil {
+		t.Fatalf("stored local config digest reference was rejected: %v", err)
+	}
+}
+
 func TestCoordinatorShardLifecycleRejectsInvalidExitedAt(t *testing.T) {
 	tests := []struct {
 		name   string

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -12,31 +13,31 @@ import (
 )
 
 func TestBuildContainerShardSetUsesProfileSpecificCanonicalGroups(t *testing.T) {
-	if groups := canonicalContainerShardGroups(ProfileRelease); len(groups) != MaxContainerShards {
-		t.Fatalf("canonical release shard groups = %d, want %d", len(groups), MaxContainerShards)
+	if groups := canonicalContainerShardGroups(ProfileRelease, legacyContainerShardCount); len(groups) != legacyContainerShardCount {
+		t.Fatalf("canonical release shard groups = %d, want %d", len(groups), legacyContainerShardCount)
 	}
-	if groups := canonicalContainerShardGroups(ProfileLocalFast); len(groups) != MaxContainerShards {
-		t.Fatalf("canonical local shard groups = %d, want %d", len(groups), MaxContainerShards)
+	if groups := canonicalContainerShardGroups(ProfileLocalFast, legacyContainerShardCount); len(groups) != legacyContainerShardCount {
+		t.Fatalf("canonical local shard groups = %d, want %d", len(groups), legacyContainerShardCount)
 	}
 	for _, profile := range []Profile{ProfilePush, ProfileRemoteRequired, ProfilePromotion} {
-		if groups := canonicalContainerShardGroups(profile); len(groups) != MaxContainerShards {
-			t.Fatalf("canonical %s shard groups = %d, want %d", profile, len(groups), MaxContainerShards)
+		if groups := canonicalContainerShardGroups(profile, legacyContainerShardCount); len(groups) != legacyContainerShardCount {
+			t.Fatalf("canonical %s shard groups = %d, want %d", profile, len(groups), legacyContainerShardCount)
 		}
 	}
 	set := testContainerShardSet(t, ProfileRelease)
-	if len(set.Shards) != MaxContainerShards {
-		t.Fatalf("shards = %d, want %d", len(set.Shards), MaxContainerShards)
+	if len(set.Shards) != legacyContainerShardCount {
+		t.Fatalf("shards = %d, want %d", len(set.Shards), legacyContainerShardCount)
 	}
 	want := [][]GateID{
 		{GateIDAIMaintenanceSelfTest, GateIDFrontendLint, GateIDFrontendFullTest, GateIDFrontendBuild, GateIDFrontendEmbedVerify,
 			GateIDSQLCVerify, GateIDCodemapCheck, GateIDProjectMapCheck, GateIDCapabilityContractCheck, GateIDWhitespaceCheck},
-		{GateIDBackendTestWithGuard, GateIDLSPChangedDiagnostics, GateIDBackendNilness},
+		{GateIDBackendTestWithGuard, GateIDBackendNilness},
 		{GateIDBackendTestGuardWithRace},
 	}
 	normal := testContainerShardSet(t, ProfileLocalFast)
 	normalWant := [][]GateID{
 		{GateIDAIMaintenanceSelfTest, GateIDFrontendLint, GateIDFrontendTest, GateIDFrontendBuild, GateIDFrontendEmbedVerify},
-		{GateIDBackendTestWithGuard, GateIDLSPChangedDiagnostics},
+		{GateIDBackendTestWithGuard},
 		{GateIDSQLCVerify, GateIDCodemapCheck, GateIDProjectMapCheck, GateIDCapabilityContractCheck, GateIDWhitespaceCheck},
 	}
 	push := testContainerShardSet(t, ProfilePush)
@@ -44,7 +45,7 @@ func TestBuildContainerShardSetUsesProfileSpecificCanonicalGroups(t *testing.T) 
 	promotion := testContainerShardSet(t, ProfilePromotion)
 	pushWant := [][]GateID{
 		{GateIDAIMaintenanceSelfTest, GateIDFrontendLint},
-		{GateIDBackendTestWithGuard, GateIDLSPChangedDiagnostics},
+		{GateIDBackendTestWithGuard},
 		{GateIDSQLCVerify, GateIDCodemapCheck, GateIDProjectMapCheck, GateIDCapabilityContractCheck, GateIDWhitespaceCheck},
 	}
 	assertContainerShardGateGroups(t, set, want)
@@ -53,6 +54,83 @@ func TestBuildContainerShardSetUsesProfileSpecificCanonicalGroups(t *testing.T) 
 	assertContainerShardGateGroups(t, remote, normalWant)
 	assertContainerShardGateGroups(t, promotion, normalWant)
 	assertShardSetRejectsSelfConsistentMissingGate(t, set)
+}
+
+func TestBuildContainerShardSetWithCountBindsRequestedShardCount(t *testing.T) {
+	plan := mustBuildPlan(t, ProfileLocalFast)
+	for _, count := range []uint8{1, 2, 3, 5} {
+		t.Run(fmt.Sprintf("count-%d", count), func(t *testing.T) {
+			assertContainerShardCountBinding(t, plan, count)
+		})
+	}
+}
+
+func assertContainerShardCountBinding(t *testing.T, plan GatePlan, count uint8) {
+	t.Helper()
+	set, err := BuildContainerShardSetWithCount(plan, shardTestDigest('a'), shardTestDigest('b'), count)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if set.ShardsPerJob != count || len(set.Shards) != int(count) {
+		t.Fatalf("shards_per_job=%d shards=%d, want %d", set.ShardsPerJob, len(set.Shards), count)
+	}
+	for _, shard := range set.Shards {
+		if shard.ShardsPerJob != count {
+			t.Fatalf("shard %d shards_per_job=%d, want %d", shard.Index, shard.ShardsPerJob, count)
+		}
+		if count >= 2 && slices.Contains(shard.GateIDs, GateIDBackendTestGuardWithRace) && len(shard.GateIDs) != 1 {
+			t.Fatalf("count=%d did not isolate the race gate: %#v", count, shard.GateIDs)
+		}
+	}
+}
+
+func TestBuildContainerShardSetWithCountRejectsInvalidCount(t *testing.T) {
+	plan := mustBuildPlan(t, ProfileLocalFast)
+	for _, count := range []uint8{0, 65, uint8(len(plan.Gates) + 1)} {
+		if _, err := BuildContainerShardSetWithCount(plan, shardTestDigest('a'), shardTestDigest('b'), count); err == nil {
+			t.Fatalf("BuildContainerShardSetWithCount(count=%d) succeeded", count)
+		}
+	}
+}
+
+func TestBuildContainerShardSetWithCountKeepsReleaseRaceIsolated(t *testing.T) {
+	plan := mustBuildPlan(t, ProfileRelease)
+	set, err := BuildContainerShardSetWithCount(plan, shardTestDigest('a'), shardTestDigest('b'), 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, shard := range set.Shards {
+		if slices.Contains(shard.GateIDs, GateIDBackendTestGuardWithRace) && len(shard.GateIDs) != 1 {
+			t.Fatalf("release race gate was not isolated: %#v", shard.GateIDs)
+		}
+	}
+}
+
+func TestContainerShardSetValidateStoredAcceptsIntactHistoricalGrouping(t *testing.T) {
+	plan := mustBuildPlan(t, ProfileLocalFast)
+	all := allProfiles()
+	plan.Gates = append(plan.Gates, newGateSpec(GateIDLSPChangedDiagnostics, all, all))
+	digest, err := plan.digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.PlanDigest = digest
+	set := ContainerShardSet{
+		Profile: plan.Profile, PlanDigest: plan.PlanDigest, SourceTreeSHA: plan.Source.SourceTreeSHA,
+		AcceptedManifestDigest: testDigest, AcceptedConfigDigest: testDigest, ShardsPerJob: legacyContainerShardCount,
+	}
+	groups := canonicalContainerShardGroups(ProfileLocalFast, legacyContainerShardCount)
+	groups[1] = append(groups[1], GateIDLSPChangedDiagnostics)
+	if err := appendContainerShards(&set, groups); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := set.ValidateStored(plan); err != nil {
+		t.Fatalf("ValidateStored() error = %v", err)
+	}
+	if err := set.Validate(); err == nil {
+		t.Fatal("Validate() accepted historical shard grouping as current")
+	}
 }
 
 func TestCanonicalGateArgvDigestMatchesReceiptEncoding(t *testing.T) {
@@ -104,6 +182,7 @@ func assertShardSetRejectsSelfConsistentMissingGate(t *testing.T, set ContainerS
 
 func TestRunContainerShardsPeaksAtThreeAndCancelsCompanions(t *testing.T) {
 	set := testContainerShardSet(t, ProfileLocalFast)
+	shardCount := len(set.Shards)
 	var mu sync.Mutex
 	running, peak := 0, 0
 	allStarted := make(chan struct{})
@@ -113,7 +192,7 @@ func TestRunContainerShardsPeaksAtThreeAndCancelsCompanions(t *testing.T) {
 		if running > peak {
 			peak = running
 		}
-		if running == MaxContainerShards {
+		if running == shardCount {
 			close(allStarted)
 		}
 		mu.Unlock()
@@ -125,13 +204,13 @@ func TestRunContainerShardsPeaksAtThreeAndCancelsCompanions(t *testing.T) {
 		<-ctx.Done()
 		return ContainerShardReceipt{Shard: shard}, ctx.Err()
 	})
-	if err == nil || len(receipts) != MaxContainerShards {
+	if err == nil || len(receipts) != shardCount {
 		t.Fatalf("RunContainerShards() receipts=%d err=%v", len(receipts), err)
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if peak != MaxContainerShards {
-		t.Fatalf("concurrency peak = %d, want %d", peak, MaxContainerShards)
+	if peak != shardCount {
+		t.Fatalf("concurrency peak = %d, want %d", peak, shardCount)
 	}
 }
 

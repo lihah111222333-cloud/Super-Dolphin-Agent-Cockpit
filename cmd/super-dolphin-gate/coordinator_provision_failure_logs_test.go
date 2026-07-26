@@ -264,11 +264,11 @@ func TestProductionProvisionFailureLogSelectionIncludesEveryNonPassedGate(t *tes
 	results := []gatecontract.GateResult{
 		{GateID: string(gatecontract.GateIDAIMaintenanceSelfTest), Status: gatecontract.GateStatusPassed},
 		{GateID: string(gatecontract.GateIDBackendTestWithGuard), Status: gatecontract.GateStatusFailed},
-		{GateID: string(gatecontract.GateIDLSPChangedDiagnostics), Status: gatecontract.GateStatusFailed},
+		{GateID: string(gatecontract.GateIDFrontendLint), Status: gatecontract.GateStatusFailed},
 	}
 	failed := productionProvisionFailedGateResults(results)
 	if len(failed) != 2 || failed[0].GateID != string(gatecontract.GateIDBackendTestWithGuard) ||
-		failed[1].GateID != string(gatecontract.GateIDLSPChangedDiagnostics) {
+		failed[1].GateID != string(gatecontract.GateIDFrontendLint) {
 		t.Fatalf("failed gate log selection = %#v", failed)
 	}
 }

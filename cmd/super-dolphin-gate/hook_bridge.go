@@ -338,7 +338,7 @@ func resultReceiptMatchesHookStatus(
 	return status.ReceiptID == receipt.ReceiptID &&
 		receipt.ReceiptID == resultReceiptID(status.JobID) &&
 		receipt.SchemaVersion == gatecontract.ResultReceiptSchemaVersion &&
-		len(receipt.ShardReceipts) == gatecontract.MaxContainerShards &&
+		receipt.Validate() == nil &&
 		receipt.InvocationID == status.InvocationID &&
 		receipt.Source.SourceTreeSHA == status.JobSourceTreeSHA &&
 		receipt.Source.SourceTreeSHA == expectedTree &&

@@ -15,7 +15,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
 )
 
@@ -73,13 +72,12 @@ func TestEnsureCandidateUsesDeterministicInputClosure(t *testing.T) {
 	}
 }
 
-func TestPrepareCandidateSelectsRuntimeDepsImageForRequestedPlatform(t *testing.T) {
+func TestPrepareCandidateBindsNodeLocalRuntimeDepsForRequestedPlatform(t *testing.T) {
 	for _, test := range []struct {
 		platform string
-		digest   string
 	}{
-		{platform: "linux/amd64", digest: digest("2")},
-		{platform: "linux/arm64", digest: digest("5")},
+		{platform: "linux/amd64"},
+		{platform: "linux/arm64"},
 	} {
 		t.Run(test.platform, func(t *testing.T) {
 			request := candidateRequest(candidateEntries(validCandidateDockerfile()), digest("f"), digest("e"))
@@ -89,10 +87,9 @@ func TestPrepareCandidateSelectsRuntimeDepsImageForRequestedPlatform(t *testing.
 				t.Fatal(err)
 			}
 			for _, argument := range prepared.buildRequest.BuildArguments {
-				if argument.Name == "RUNTIME_DEPS_IMAGE" {
-					want := "ghcr.io/super-dolphin/runtime-deps@" + test.digest
-					if argument.Value != want {
-						t.Fatalf("runtime dependency image = %q, want %q", argument.Value, want)
+				if argument.Name == "RUNTIME_DEPS_IMAGE" && argument.Value == "runtime-deps" {
+					if prepared.buildRequest.RuntimeDepsDockerfilePath != "build/gate/runtime-deps.Dockerfile" || prepared.buildRequest.RuntimeDepsInputDigest == "" {
+						t.Fatalf("runtime dependency request = %#v", prepared.buildRequest)
 					}
 					return
 				}
@@ -174,6 +171,8 @@ func TestCandidateAndBuildKitFieldRegistriesAreComplete(t *testing.T) {
 		"BuildKitImage": "immutable builder image and identity binding", "BuildKitVersion": "builder binding",
 		"DockerfileFrontend": "frontend binding",
 		"BuildArguments":     "locked toolchain arguments", "NetworkPolicy": "network contract",
+		"RuntimeDepsDockerfilePath": "node-local runtime Dockerfile", "RuntimeDepsDockerfileDigest": "runtime Dockerfile binding",
+		"RuntimeDepsInputDigest": "node-local runtime inputs", "RuntimeDepsBuildArguments": "locked runtime toolchain arguments",
 		"CacheNamespace": "isolated cache",
 	})
 }
@@ -371,45 +370,20 @@ func TestEnsureCandidateRejectsMissingDriftedOrUnclosedRuntimeDepsLock(t *testin
 	assertCandidateRejectedBeforeBuild(t, outsideClosure)
 }
 
-func TestPrepareCandidateAcceptsRuntimeDepsSchema3Closure(t *testing.T) {
+func TestPrepareCandidateAcceptsRuntimeDepsSchema4Closure(t *testing.T) {
 	if _, err := prepareCandidate(candidateRequest(candidateEntries(validCandidateDockerfile()), digest("f"), digest("e"))); err != nil {
-		t.Fatalf("schema3 runtime dependency closure: %v", err)
+		t.Fatalf("schema4 runtime dependency closure: %v", err)
 	}
 }
 
-func TestPrepareCandidateRejectsRuntimeDepsCrossPlatformIdentityTampering(t *testing.T) {
+func TestPrepareCandidateRejectsRuntimeDepsNonLocalOrRegistryLockFields(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		mutate func(*testing.T, map[string]any)
 	}{
-		{name: "authenticated pull policy", mutate: func(_ *testing.T, lock map[string]any) { lock["registry_pull_policy"] = "authenticated" }},
-		{name: "private DNS registry", mutate: func(t *testing.T, lock map[string]any) {
-			runtimeDepsLockImage(t, lock, 0)["registry"] = "runtime-deps.corp.internal/runtime-deps"
-		}},
-		{name: "public non-GHCR registry", mutate: func(t *testing.T, lock map[string]any) {
-			runtimeDepsLockImage(t, lock, 0)["registry"] = "registry.example.com/runtime-deps"
-		}},
-		{name: "explicit registry port", mutate: func(t *testing.T, lock map[string]any) {
-			runtimeDepsLockImage(t, lock, 0)["registry"] = "ghcr.io:443/runtime-deps"
-		}},
-		{name: "uppercase registry host", mutate: func(t *testing.T, lock map[string]any) {
-			runtimeDepsLockImage(t, lock, 0)["registry"] = "GHCR.io/runtime-deps"
-		}},
-		{name: "trailing-dot registry host", mutate: func(t *testing.T, lock map[string]any) {
-			runtimeDepsLockImage(t, lock, 0)["registry"] = "ghcr.io./runtime-deps"
-		}},
-		{name: "repository mismatch", mutate: func(t *testing.T, lock map[string]any) {
-			runtimeDepsLockImage(t, lock, 1)["registry"] = "registry.example.invalid/other"
-		}},
-		{name: "index mismatch", mutate: func(t *testing.T, lock map[string]any) {
-			runtimeDepsLockImage(t, lock, 1)["oci_index_digest"] = digest("8")
-		}},
-		{name: "duplicate manifest", mutate: func(t *testing.T, lock map[string]any) {
-			runtimeDepsLockImage(t, lock, 1)["platform_manifest_digest"] = runtimeDepsLockImage(t, lock, 0)["platform_manifest_digest"]
-		}},
-		{name: "duplicate config", mutate: func(t *testing.T, lock map[string]any) {
-			runtimeDepsLockImage(t, lock, 1)["config_digest"] = runtimeDepsLockImage(t, lock, 0)["config_digest"]
-		}},
+		{name: "non-local build mode", mutate: func(_ *testing.T, lock map[string]any) { lock["build_mode"] = "registry" }},
+		{name: "shared cache scope", mutate: func(_ *testing.T, lock map[string]any) { lock["cache_scope"] = "global" }},
+		{name: "legacy registry image field", mutate: func(_ *testing.T, lock map[string]any) { lock["images"] = []any{} }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			entries := candidateEntries(validCandidateDockerfile())
@@ -421,7 +395,7 @@ func TestPrepareCandidateRejectsRuntimeDepsCrossPlatformIdentityTampering(t *tes
 
 func TestPrepareCandidateRejectsLegacyIncompleteAndDriftedRuntimeDepsInputs(t *testing.T) {
 	legacy := candidateEntries(validCandidateDockerfile())
-	replaceEntryText(t, legacy, runtimeDepsLockPath, `"schema_version":"3"`, `"schema_version":"1"`)
+	replaceEntryText(t, legacy, runtimeDepsLockPath, `"schema_version":"4"`, `"schema_version":"1"`)
 	assertCandidateRejectedBeforeBuild(t, legacy)
 
 	missingGoMod := candidateEntries(validCandidateDockerfile())
@@ -477,8 +451,8 @@ func TestBuildKitImageBindsCandidateInputAndBuildRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	changedEntries := candidateEntries(validCandidateDockerfile())
-	firstImage := "docker.io/moby/buildkit@sha256:" + strings.Repeat("c", 64)
-	secondImage := "docker.io/moby/buildkit@sha256:" + strings.Repeat("d", 64)
+	firstImage := "mirror.gcr.io/moby/buildkit@sha256:" + strings.Repeat("c", 64)
+	secondImage := "mirror.gcr.io/moby/buildkit@sha256:" + strings.Repeat("d", 64)
 	replaceCandidateInputText(t, changedEntries, toolchainLockPath, firstImage, secondImage)
 	second, err := prepareCandidate(candidateRequest(changedEntries, digest("f"), digest("e")))
 	if err != nil {
@@ -549,11 +523,7 @@ func candidateRequest(entries []sourceexport.TreeEntry, acceptedInput string, ac
 
 func testRuntimeDepsLock(files map[string]string) string {
 	lock := runtimeDepsLock{
-		SchemaVersion: "3", RegistryPullPolicy: "anonymous",
-		Images: []runtimeDepsImage{
-			{Platform: "linux/amd64", Image: gate.ImageIdentity{Registry: "ghcr.io/super-dolphin/runtime-deps", OCIIndexDigest: digest("1"), PlatformManifestDigest: digest("2"), ConfigDigest: digest("3"), RootFSDiffIDs: []string{digest("4")}, OS: "linux", Architecture: "amd64"}, ImageSize: 1},
-			{Platform: "linux/arm64", Image: gate.ImageIdentity{Registry: "ghcr.io/super-dolphin/runtime-deps", OCIIndexDigest: digest("1"), PlatformManifestDigest: digest("5"), ConfigDigest: digest("6"), RootFSDiffIDs: []string{digest("7")}, OS: "linux", Architecture: "arm64"}, ImageSize: 1},
-		},
+		SchemaVersion: "4", BuildMode: "node-local", CacheScope: "node",
 		Inputs: runtimeDepsInputs{
 			Dockerfile:    contentDigest(files["build/gate/runtime-deps.Dockerfile"]),
 			ToolchainLock: contentDigest(files["build/gate/toolchain.lock"]),
@@ -736,23 +706,6 @@ func mutateRuntimeDepsLockDocument(t *testing.T, entries []sourceexport.TreeEntr
 		return
 	}
 	t.Fatal("runtime dependency lock fixture is missing")
-}
-
-func runtimeDepsLockImage(t *testing.T, document map[string]any, index int) map[string]any {
-	t.Helper()
-	images, ok := document["images"].([]any)
-	if !ok || index < 0 || index >= len(images) {
-		t.Fatal("runtime dependency lock images are invalid")
-	}
-	entry, ok := images[index].(map[string]any)
-	if !ok {
-		t.Fatal("runtime dependency lock image entry is invalid")
-	}
-	identity, ok := entry["image"].(map[string]any)
-	if !ok {
-		t.Fatal("runtime dependency image identity is invalid")
-	}
-	return identity
 }
 
 func replaceEntryText(t *testing.T, entries []sourceexport.TreeEntry, name string, oldText string, newText string) {

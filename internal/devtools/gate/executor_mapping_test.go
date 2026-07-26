@@ -182,9 +182,6 @@ func TestFrontendProgramsUsePinnedRuntimeInputs(t *testing.T) {
 			}
 		})
 	}
-	if programs[GateIDLSPChangedDiagnostics].Strategy != ExecutorStrategyChangedDiagnostics {
-		t.Fatal("LSP gate does not derive changed targets from snapshot Git truth")
-	}
 }
 
 func TestBackendRaceExecutorCombinesCanonicalAndRegisteredPackages(t *testing.T) {

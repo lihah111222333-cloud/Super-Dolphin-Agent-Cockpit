@@ -146,46 +146,114 @@ func validateExecutorGateIDs(profile Profile, gateIDs []GateID, shard bool) erro
 	return validatePlanGateIDs(profile, gateIDs)
 }
 
-const canonicalContainerShardGroupCount = MaxContainerShards
-
+// validateContainerShardGateIDs 校验 gate 列表属于某个合法动态分片布局。
 func validateContainerShardGateIDs(profile Profile, gateIDs []GateID) error {
-	for _, expected := range canonicalContainerShardGroups(profile) {
-		if slices.Equal(gateIDs, expected) {
-			return nil
+	for count := uint8(1); count <= MaxContainerShards && int(count) <= len(requiredContainerShardGateIDs(profile)); count++ {
+		for _, expected := range canonicalContainerShardGroups(profile, count) {
+			if slices.Equal(gateIDs, expected) {
+				return nil
+			}
 		}
 	}
 	return errors.New("shard gate list does not match a canonical container shard")
 }
 
-// canonicalContainerShardGroups is the shared coordinator and executor shard contract.
-// 所有包含 race 的配置都将普通后端与 race 分入不同 shard，避免共享容器内存峰值叠加。
-func canonicalContainerShardGroups(profile Profile) [][]GateID {
+// canonicalContainerShardGroups 是 coordinator 与 executor 共享的分片合同。
+// 三分片保持历史分组不变；其他数量仅在原组内切分，并在至少两个分片时隔离 race gate。
+func canonicalContainerShardGroups(profile Profile, shardsPerJob uint8) [][]GateID {
+	if err := validateRequestedContainerShardCount(shardsPerJob, len(requiredContainerShardGateIDs(profile))); err != nil {
+		return nil
+	}
+	groups := legacyCanonicalContainerShardGroups(profile)
+	switch shardsPerJob {
+	case 1:
+		return [][]GateID{mergeContainerShardGroups(groups)}
+	case legacyContainerShardCount:
+		return groups
+	case 2:
+		return [][]GateID{mergeContainerShardGroups(groups[:2]), slices.Clone(groups[2])}
+	}
+	for uint8(len(groups)) < shardsPerJob {
+		index := largestSplittableContainerShardGroup(groups)
+		if index < 0 {
+			return nil
+		}
+		left, right := splitContainerShardGroup(groups[index])
+		groups = append(groups, nil)
+		copy(groups[index+2:], groups[index+1:])
+		groups[index], groups[index+1] = left, right
+	}
+	return groups
+}
+
+func mergeContainerShardGroups(groups [][]GateID) []GateID {
+	merged := make([]GateID, 0)
+	for _, group := range groups {
+		merged = append(merged, group...)
+	}
+	return merged
+}
+
+func requiredContainerShardGateIDs(profile Profile) []GateID {
 	ids := requiredGateIDs(profile)
 	if profile == ProfileRelease {
 		ids = ids[:len(ids)-1]
 	}
+	return ids
+}
+
+func legacyCanonicalContainerShardGroups(profile Profile) [][]GateID {
+	ids := requiredContainerShardGateIDs(profile)
 	isolateRace := slices.Contains(ids, GateIDBackendTestGuardWithRace)
-	groups := make([][]GateID, canonicalContainerShardGroupCount)
+	groups := make([][]GateID, legacyContainerShardCount)
 	for _, id := range ids {
-		switch id {
-		case GateIDAIMaintenanceSelfTest, GateIDFrontendLint, GateIDFrontendTest, GateIDFrontendFullTest, GateIDFrontendBuild, GateIDFrontendEmbedVerify:
-			groups[0] = append(groups[0], id)
-		case GateIDBackendTestWithGuard, GateIDLSPChangedDiagnostics, GateIDBackendNilness:
-			groups[1] = append(groups[1], id)
-		case GateIDBackendTestGuardWithRace:
-			if isolateRace {
-				groups[2] = append(groups[2], id)
-			} else {
-				groups[1] = append(groups[1], id)
-			}
-		default:
-			if isolateRace {
-				groups[0] = append(groups[0], id)
-			} else {
-				groups[2] = append(groups[2], id)
-			}
+		index := canonicalContainerShardGroupIndex(profile, id, isolateRace)
+		groups[index] = append(groups[index], id)
+	}
+	return nonemptyContainerShardGroups(groups)
+}
+
+func largestSplittableContainerShardGroup(groups [][]GateID) int {
+	index := -1
+	for candidate, group := range groups {
+		if len(group) > 1 && (index < 0 || len(group) > len(groups[index])) {
+			index = candidate
 		}
 	}
+	return index
+}
+
+func splitContainerShardGroup(group []GateID) ([]GateID, []GateID) {
+	middle := (len(group) + 1) / 2
+	return slices.Clone(group[:middle]), slices.Clone(group[middle:])
+}
+
+// canonicalContainerShardGroupIndex 按配置、门禁类型与 race 隔离策略返回固定 shard 索引。
+func canonicalContainerShardGroupIndex(profile Profile, id GateID, isolateRace bool) int {
+	switch id {
+	case GateIDAIMaintenanceSelfTest, GateIDFrontendLint, GateIDFrontendTest, GateIDFrontendFullTest, GateIDFrontendBuild, GateIDFrontendEmbedVerify:
+		return 0
+	case GateIDLSPChangedDiagnostics:
+		if profile == ProfilePush {
+			return 0
+		}
+		return 1
+	case GateIDBackendTestWithGuard, GateIDBackendNilness:
+		return 1
+	case GateIDBackendTestGuardWithRace:
+		if isolateRace {
+			return 2
+		}
+		return 1
+	default:
+		if isolateRace {
+			return 0
+		}
+		return 2
+	}
+}
+
+func nonemptyContainerShardGroups(groups [][]GateID) [][]GateID {
 	nonempty := make([][]GateID, 0, len(groups))
 	for _, group := range groups {
 		if len(group) != 0 {
@@ -332,14 +400,18 @@ func canonicalGateArgvDigest(profile Profile, gateID GateID) (string, error) {
 		if spec.ID != gateID {
 			continue
 		}
-		encoded, err := json.Marshal(spec.Argv)
-		if err != nil {
-			return "", fmt.Errorf("marshal gate %q argv: %w", gateID, err)
-		}
-		digest := sha256.Sum256(encoded)
-		return fmt.Sprintf("sha256:%x", digest), nil
+		return gateSpecArgvDigest(spec)
 	}
 	return "", fmt.Errorf("gate %q is not canonical for profile %q", gateID, profile)
+}
+
+func gateSpecArgvDigest(spec GateSpec) (string, error) {
+	encoded, err := json.Marshal(spec.Argv)
+	if err != nil {
+		return "", fmt.Errorf("marshal gate %q argv: %w", spec.ID, err)
+	}
+	digest := sha256.Sum256(encoded)
+	return fmt.Sprintf("sha256:%x", digest), nil
 }
 
 // canonicalReleaseAttestationLog 生成按 canonical gate 顺序绑定的 release 前序证明日志。

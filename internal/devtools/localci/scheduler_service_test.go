@@ -130,6 +130,54 @@ func TestSchedulerServiceThreeSlotsFourthQueuedAndConcurrentCalls(t *testing.T) 
 	assertServiceState(t, scheduler, "job-4", WorkloadStatusQueued)
 }
 
+func TestSchedulerServiceTwentySlotsAdmitsFourFiveSlotGroupsAndQueuesTwentyFirst(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	config := newSchedulerServiceConfig(t, "twenty-slots")
+	config.MaxActiveWorkloads = 20
+	scheduler := mustOpenSchedulerService(t, ctx, config)
+	defer closeSchedulerService(t, scheduler)
+
+	for index := 1; index <= 4; index++ {
+		request := testServiceShardGroupRequestWithSize(index, 5)
+		mustServiceEnqueue(t, scheduler, request)
+	}
+	mustServiceEnqueue(t, scheduler, WorkloadRequest{
+		ID: "twenty-first", InvocationID: "inv-twenty-first", EnqueueSequence: 5, Kind: WorkloadKindJob,
+	})
+
+	reservations, err := scheduler.ReserveRunnable(ctx)
+	if err != nil {
+		t.Fatalf("reserve twenty slots: %v", err)
+	}
+	if len(reservations) != 4 {
+		t.Fatalf("reservations=%d want four groups", len(reservations))
+	}
+	for index, reservation := range reservations {
+		if len(reservation.Leases) != 5 {
+			t.Fatalf("reservation[%d] leases=%d want=5", index, len(reservation.Leases))
+		}
+	}
+	assertServiceState(t, scheduler, "twenty-first", WorkloadStatusQueued)
+	assertSnapshotCounts(t, scheduler, 5, 20)
+}
+
+func TestSchedulerServiceRejectsRestartCapacityDrift(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	config := newSchedulerServiceConfig(t, "capacity-drift")
+	config.MaxActiveWorkloads = 20
+	scheduler := mustOpenSchedulerService(t, ctx, config)
+	closeSchedulerService(t, scheduler)
+
+	config.MaxActiveWorkloads = 19
+	if _, err := openSchedulerWithRuntimeRoot(ctx, config.SchedulerConfig, config.runtimeRoot); err == nil || !strings.Contains(err.Error(), "max active workloads drifted") {
+		t.Fatalf("reopen drift error=%v want capacity drift", err)
+	}
+}
+
 func TestSchedulerCompleteRejectsChangedStatePathBeforeLeaseMutation(t *testing.T) {
 	t.Parallel()
 	assertSchedulerCompletionRejectsChangedStatePath(t, "remove-recreate", removeAndRecreateSchedulerStatePath)
@@ -471,6 +519,30 @@ func TestSchedulerServiceGroupIdentityAndQueuedCancellationFailClosed(t *testing
 	assertServiceState(t, scheduler, request.ID, WorkloadStatusCancelled)
 }
 
+func TestSchedulerServiceCompletesQueuedWorkloadAfterDependencyFailure(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	scheduler := mustOpenSchedulerService(t, ctx, newSchedulerServiceConfig(t, "failed-dependency"))
+	defer closeSchedulerService(t, scheduler)
+	mustServiceEnqueue(t, scheduler, WorkloadRequest{
+		ID: "build", InvocationID: "invocation", EnqueueSequence: 1, Kind: WorkloadKindBuild,
+	})
+	mustServiceEnqueue(t, scheduler, WorkloadRequest{
+		ID: "job", InvocationID: "invocation", EnqueueSequence: 1, Subsequence: 1,
+		Kind: WorkloadKindJob, Dependencies: []string{"build"},
+	})
+	if _, err := scheduler.ReserveRunnable(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := scheduler.Complete(ctx, "build", WorkloadStatusInfraFailed); err != nil {
+		t.Fatal(err)
+	}
+	if err := scheduler.Complete(ctx, "job", WorkloadStatusInfraFailed); err != nil {
+		t.Fatal(err)
+	}
+	assertServiceState(t, scheduler, "job", WorkloadStatusInfraFailed)
+}
+
 func TestSchedulerServiceGroupFailureCannotBypassCancellationBarrier(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -493,7 +565,7 @@ func TestSchedulerServiceGroupFailureCannotBypassCancellationBarrier(t *testing.
 func TestSchedulerServiceFieldRegistry(t *testing.T) {
 	t.Parallel()
 	assertSchedulerStructFields(t, reflect.TypeFor[SchedulerConfig](), []string{
-		"Endpoint", "TLSFingerprint", "DaemonID", "OwnerUID",
+		"Endpoint", "TLSFingerprint", "DaemonID", "OwnerUID", "MaxActiveWorkloads",
 	})
 	assertSchedulerStructFields(t, reflect.TypeFor[WorkloadRequest](), []string{
 		"ID", "InvocationID", "EnqueueSequence", "Subsequence", "Kind", "ServiceCount",
@@ -519,9 +591,8 @@ func newSchedulerServiceConfig(t *testing.T, name string) schedulerServiceTestCo
 	privateDir := canonicalPrivateTempDir(t)
 	return schedulerServiceTestConfig{
 		SchedulerConfig: SchedulerConfig{
-			Endpoint: "unix:///var/run/docker.sock",
-			DaemonID: "daemon-" + name,
-			OwnerUID: os.Geteuid(),
+			Endpoint: "unix:///var/run/docker.sock", DaemonID: "daemon-" + name,
+			OwnerUID: os.Geteuid(), MaxActiveWorkloads: testMaxActiveWorkloads,
 		},
 		runtimeRoot: privateDir,
 	}
@@ -592,6 +663,18 @@ func assertSnapshotCounts(t *testing.T, scheduler *Scheduler, workloads, leases 
 	}
 	if len(snapshot.Workloads) != workloads || len(snapshot.Leases) != leases {
 		t.Fatalf("snapshot workloads=%d leases=%d want=%d/%d", len(snapshot.Workloads), len(snapshot.Leases), workloads, leases)
+	}
+}
+
+func testServiceShardGroupRequestWithSize(index int, size int) WorkloadRequest {
+	identities := make([]string, size)
+	for shard := range identities {
+		identities[shard] = fmt.Sprintf("group-%d-shard-%d", index, shard)
+	}
+	return WorkloadRequest{
+		ID: fmt.Sprintf("group-%d", index), InvocationID: fmt.Sprintf("inv-group-%d", index),
+		EnqueueSequence: uint64(index), Kind: WorkloadKindShard, GroupIdentity: fmt.Sprintf("group-%d-identity", index),
+		GroupSize: size, ServiceCount: size - 1, ShardIdentities: identities,
 	}
 }
 

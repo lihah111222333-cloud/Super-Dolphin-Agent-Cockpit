@@ -26,7 +26,7 @@ func TestSchedulerCurrentUIDExclusiveStorageFailsFastOnWindows(t *testing.T) {
 	if _, err := acquireSchedulerLock(lockPath, identity); !errors.Is(err, errSchedulerPlatformUnsupported) {
 		t.Fatalf("lock error=%v want=%v", err, errSchedulerPlatformUnsupported)
 	}
-	if _, err := openSchedulerState(context.Background(), statePath, identity); !errors.Is(err, errSchedulerPlatformUnsupported) {
+	if _, err := openSchedulerState(context.Background(), statePath, identity, testMaxActiveWorkloads); !errors.Is(err, errSchedulerPlatformUnsupported) {
 		t.Fatalf("state error=%v want=%v", err, errSchedulerPlatformUnsupported)
 	}
 	if _, err := OpenScheduler(context.Background(), config); !errors.Is(err, errSchedulerPlatformUnsupported) {

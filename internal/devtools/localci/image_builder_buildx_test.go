@@ -3,7 +3,6 @@ package localci
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -11,8 +10,6 @@ import (
 	"sort"
 	"strings"
 	"testing"
-
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
 )
 
 func TestDockerBuildxRunnerUsesFixedCommandAndCanonicalStdin(t *testing.T) {
@@ -26,11 +23,11 @@ func TestDockerBuildxRunnerUsesFixedCommandAndCanonicalStdin(t *testing.T) {
 	if result.PlatformManifestDigest != validBuildxManifestDigest(t) || result.ConfigDigest != digest("4") {
 		t.Fatalf("build result = %#v", result)
 	}
-	if len(executor.calls) != 11 {
+	if len(executor.calls) != 12 {
 		t.Fatalf("buildx calls = %d", len(executor.calls))
 	}
 	assertControlledBuildxLifecycle(t, executor.calls, request)
-	call := executor.calls[5]
+	call := executor.calls[6]
 	if !bytes.Equal(call.stdin, request.ContextTar) {
 		t.Fatal("buildx stdin did not receive the canonical context tar")
 	}
@@ -54,11 +51,14 @@ func TestCreatePrivateBuildxWorkspaceCleansUpAfterChmodFailure(t *testing.T) {
 	}
 }
 
-func TestDockerBuildxRunnerUsesExistingIsolatedCache(t *testing.T) {
+func TestDockerBuildxRunnerUsesOneSharedCacheForAllImages(t *testing.T) {
 	request := validBuildxRequest(t)
+	if request.CacheNamespace == request.RuntimeDepsInputDigest {
+		t.Fatal("fixture must use different candidate and runtime dependency digests")
+	}
 	executor := validBuildxExecutor(t, request)
 	runner, root := newTestDockerBuildxRunner(t, executor)
-	cachePath := filepath.Join(root, "cache", strings.TrimPrefix(request.CacheNamespace, "sha256:"))
+	cachePath := filepath.Join(root, "cache", buildxSharedCacheDirectory)
 	writeBuildxCacheLayout(t, cachePath)
 	if _, err := runner.Build(context.Background(), request); err != nil {
 		t.Fatal(err)
@@ -66,8 +66,91 @@ func TestDockerBuildxRunnerUsesExistingIsolatedCache(t *testing.T) {
 	cacheFrom := "--cache-from=type=local,src=" + cachePath
 	buildCall := recordedBuildxBuildCall(t, executor.calls)
 	if !slices.Contains(buildCall.args, cacheFrom) {
-		t.Fatalf("existing isolated cache was not imported: %v", buildCall.args)
+		t.Fatalf("candidate image did not import the shared cache: %v", buildCall.args)
 	}
+	runtimeCalls := recordedRuntimeDepsBuildxCalls(executor.calls)
+	if len(runtimeCalls) != 1 || !slices.Contains(runtimeCalls[0].args, cacheFrom) {
+		t.Fatalf("runtime dependency image did not import the shared cache: %v", runtimeCalls)
+	}
+}
+
+func TestBuildxSharedCachePathIsNodeConfiguredAndWorktreeIndependent(t *testing.T) {
+	requests := []BuildKitBuildRequest{validBuildxRequest(t), validBuildxRequest(t)}
+	requests[1].SourceTreeSHA = digest("b")
+	requests[1].CacheNamespace = digest("c")
+	requests[1].RuntimeDepsInputDigest = digest("d")
+	for _, nodeRoot := range []string{privateTempRoot(t), privateTempRoot(t)} {
+		runner, err := newDockerBuildxRunner(validBuildxExecutor(t, requests[0]), nodeRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cachePath := filepath.Join(runner.cacheRoot, buildxSharedCacheDirectory)
+		wantCacheTo := "--cache-to=type=local,dest=" + cachePath + ",mode=max"
+		for _, request := range requests {
+			runtimeArgs := runtimeDepsBuildxArgs(request, "/tmp/runtime", "/tmp/runtime.json", cachePath, true, "builder")
+			candidateArgs := runner.commandArgs(request, "/tmp/candidate.json", "candidate", true, "builder")
+			for _, args := range [][]string{runtimeArgs, candidateArgs} {
+				if !slices.Contains(args, wantCacheTo) {
+					t.Fatalf("build does not use node-configured shared cache %q: %v", cachePath, args)
+				}
+			}
+		}
+	}
+}
+
+func TestDockerBuildxRunnerRetriesRuntimeDependenciesInSameBuilder(t *testing.T) {
+	request := validBuildxRequest(t)
+	executor := validBuildxExecutor(t, request)
+	executor.runtimeBuildErrs = []error{errors.New("temporary runtime dependency download failure")}
+	runner, _ := newTestDockerBuildxRunner(t, executor)
+	if _, err := runner.Build(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	runtimeCalls := recordedRuntimeDepsBuildxCalls(executor.calls)
+	if len(runtimeCalls) != 2 {
+		t.Fatalf("runtime dependency build calls = %d, want 2", len(runtimeCalls))
+	}
+	firstBuilder := valueWithPrefix(runtimeCalls[0].args, "--builder=")
+	secondBuilder := valueWithPrefix(runtimeCalls[1].args, "--builder=")
+	if firstBuilder == "" || firstBuilder != secondBuilder {
+		t.Fatalf("runtime dependency retry changed controlled builder: first=%q second=%q", firstBuilder, secondBuilder)
+	}
+	for _, call := range runtimeCalls {
+		if !bytes.Equal(call.stdin, request.ContextTar) {
+			t.Fatal("runtime dependency retry did not receive the canonical context tar")
+		}
+	}
+}
+
+func TestDockerBuildxRunnerStopsAfterTwoRuntimeDependencyFailures(t *testing.T) {
+	request := validBuildxRequest(t)
+	firstErr := errors.New("first runtime dependency failure")
+	secondErr := errors.New("second runtime dependency failure")
+	executor := validBuildxExecutor(t, request)
+	executor.runtimeBuildErrs = []error{firstErr, secondErr}
+	runner, _ := newTestDockerBuildxRunner(t, executor)
+	_, err := runner.Build(context.Background(), request)
+	if !errors.Is(err, firstErr) || !errors.Is(err, secondErr) {
+		t.Fatalf("runtime dependency retry error = %v", err)
+	}
+	if runtimeCalls := recordedRuntimeDepsBuildxCalls(executor.calls); len(runtimeCalls) != 2 {
+		t.Fatalf("runtime dependency build calls = %d, want 2", len(runtimeCalls))
+	}
+	for _, call := range executor.calls {
+		if slices.Contains(call.args, "--file="+request.DockerfilePath) {
+			t.Fatal("candidate build ran after runtime dependency retries were exhausted")
+		}
+	}
+}
+
+func recordedRuntimeDepsBuildxCalls(calls []buildxCommandCall) []buildxCommandCall {
+	var matched []buildxCommandCall
+	for _, call := range calls {
+		if slices.Contains(call.args, "--file=build/gate/runtime-deps.Dockerfile") {
+			matched = append(matched, call)
+		}
+	}
+	return matched
 }
 
 func writeBuildxCacheLayout(t *testing.T, cachePath string) {
@@ -181,7 +264,7 @@ func TestDockerBuildxRunnerRejectsSymlinkCacheEscape(t *testing.T) {
 	executor := validBuildxExecutor(t, request)
 	runner, root := newTestDockerBuildxRunner(t, executor)
 	outside := privateTempRoot(t)
-	cachePath := filepath.Join(root, "cache", strings.TrimPrefix(request.CacheNamespace, "sha256:"))
+	cachePath := filepath.Join(root, "cache", buildxSharedCacheDirectory)
 	if err := os.Symlink(outside, cachePath); err != nil {
 		t.Skipf("create cache symlink: %v", err)
 	}
@@ -321,7 +404,7 @@ func TestDockerBuildxRunnerCleansUpWithBoundedContextAfterBuildCancellation(t *t
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled build error = %v", err)
 	}
-	if len(executor.calls) != 10 || executor.calls[len(executor.calls)-4].args[1] != "rm" {
+	if len(executor.calls) != 11 || executor.calls[len(executor.calls)-4].args[1] != "rm" {
 		t.Fatalf("controlled builder cleanup call = %v", executor.calls)
 	}
 	if cleanupErr := executor.contextErrs[len(executor.contextErrs)-1]; cleanupErr != nil {
@@ -378,27 +461,24 @@ func TestValidateBuildxImageIdentityAcceptsOnlyLockedDockerHubNormalization(t *t
 	}
 }
 
-func TestDockerBuildxRunnerRejectsCommandFailureAndTrailingOutput(t *testing.T) {
+func TestDockerBuildxRunnerRejectsCommandFailureAndAcceptsPlainProgress(t *testing.T) {
 	request := validBuildxRequest(t)
-	tests := []struct {
-		name   string
-		output string
-		err    error
-	}{
-		{name: "command failure", err: errors.New("buildx failed")},
-		{name: "trailing output", output: digest("4") + "\nwarning\n"},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			executor := validBuildxExecutor(t, request)
-			executor.output = test.output
-			executor.err = test.err
-			runner, _ := newTestDockerBuildxRunner(t, executor)
-			if _, err := runner.Build(context.Background(), request); err == nil {
-				t.Fatal("invalid buildx command result was accepted")
-			}
-		})
-	}
+	t.Run("command failure", func(t *testing.T) {
+		executor := validBuildxExecutor(t, request)
+		executor.err = errors.New("buildx failed")
+		runner, _ := newTestDockerBuildxRunner(t, executor)
+		if _, err := runner.Build(context.Background(), request); err == nil {
+			t.Fatal("failed buildx command was accepted")
+		}
+	})
+	t.Run("plain progress", func(t *testing.T) {
+		executor := validBuildxExecutor(t, request)
+		executor.output = "#1 loading build definition\n#2 exporting to docker image format\n"
+		runner, _ := newTestDockerBuildxRunner(t, executor)
+		if _, err := runner.Build(context.Background(), request); err != nil {
+			t.Fatalf("plain buildx progress was rejected: %v", err)
+		}
+	})
 }
 
 func TestDockerBuildxRunnerRecordsBeforeUnknownCreateSideEffectAndCleansIt(t *testing.T) {
@@ -525,99 +605,6 @@ func TestDockerBuildxRunnerReclaimsLegacyBuilderAndNodeAfterRestart(t *testing.T
 	}
 }
 
-func TestSanitizedBuildxEnvironmentPreservesDockerConfigAndLocksControls(t *testing.T) {
-	environment := []string{
-		"PATH=/usr/bin",
-		"HTTP_PROXY=http://proxy.invalid",
-		"https_proxy=http://proxy.invalid",
-		"BUILDX_METADATA_PROVENANCE=disabled",
-		"BUILDX_METADATA_WARNINGS=1",
-		"BUILDX_BUILDER=attacker-builder",
-		"DOCKER_CONTEXT=attacker-context",
-		"DOCKER_HOST=tcp://attacker.invalid:2376",
-		"DOCKER_CONFIG=/tmp/docker-config",
-	}
-	actual := sanitizedBuildxEnvironment(environment)
-	wanted := []string{
-		"PATH=/usr/bin",
-		"DOCKER_CONFIG=/tmp/docker-config",
-		"BUILDX_METADATA_PROVENANCE=max",
-		"BUILDX_METADATA_WARNINGS=0",
-		"BUILDX_NO_DEFAULT_ATTESTATIONS=1",
-	}
-	if !slices.Equal(actual, wanted) {
-		t.Fatalf("buildx environment = %v, want %v", actual, wanted)
-	}
-}
-
-func TestExecBuildxCommandExecutorReportsActualCommand(t *testing.T) {
-	t.Setenv("PATH", t.TempDir())
-	_, err := (execBuildxCommandExecutor{}).Run(
-		context.Background(), bytes.NewReader(nil), "buildx", "ls", "--format", "{{.Name}}",
-	)
-	if err == nil || !strings.Contains(err.Error(), "docker buildx ls:") {
-		t.Fatalf("buildx list error = %v", err)
-	}
-}
-
-func validBuildxRequest(t *testing.T) BuildKitBuildRequest {
-	t.Helper()
-	prepared, err := prepareCandidate(candidateRequest(candidateEntries(validCandidateDockerfile()), digest("f"), digest("e")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return prepared.buildRequest
-}
-
-func localBuildxSmokeRequest(t *testing.T) BuildKitBuildRequest {
-	t.Helper()
-	var lock toolchainLock
-	if err := decodeStrictJSON(readRepoFile(t, toolchainLockPath), &lock); err != nil {
-		t.Fatal(err)
-	}
-	reference := ""
-	for _, image := range lock.BaseImages {
-		if image.Name == "GO_IMAGE" {
-			reference = image.Reference
-			break
-		}
-	}
-	if reference == "" {
-		t.Fatal("toolchain lock is missing GO_IMAGE")
-	}
-	dockerfile := strings.Replace(validCandidateDockerfile(), lockedGoImageReference(), reference, 1)
-	entries := candidateEntries(dockerfile)
-	replaceEntryText(t, entries, toolchainLockPath, lockedGoImageReference(), reference)
-	replaceEntryText(t, entries, toolchainLockPath, "docker.io/moby/buildkit@"+digest("c"), lock.BuildKitImage)
-	changeEntry(t, entries, "go.sum", "")
-	changeEntry(t, entries, "cmd/super-dolphin-gate/main.go", "package main\n\nfunc main() {}\n")
-	refreshRuntimeDepsLock(t, entries)
-	bindLocalSmokeRuntimeImages(t, entries)
-	prepared, err := prepareCandidate(candidateRequest(entries, digest("f"), digest("e")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return prepared.buildRequest
-}
-
-func bindLocalSmokeRuntimeImages(t *testing.T, entries []sourceexport.TreeEntry) {
-	t.Helper()
-	var fixture runtimeDepsLock
-	if err := decodeStrictJSON(candidateEntry(t, entries, runtimeDepsLockPath).Data, &fixture); err != nil {
-		t.Fatal(err)
-	}
-	var actual runtimeDepsLock
-	if err := decodeStrictJSON(readRepoFile(t, runtimeDepsLockPath), &actual); err != nil {
-		t.Fatal(err)
-	}
-	fixture.Images = actual.Images
-	data, err := json.Marshal(fixture)
-	if err != nil {
-		t.Fatal(err)
-	}
-	changeEntry(t, entries, runtimeDepsLockPath, string(data)+"\n")
-}
-
 func cloneBuildxRequest(request BuildKitBuildRequest) BuildKitBuildRequest {
 	request.ContextTar = append([]byte(nil), request.ContextTar...)
 	request.BuildArguments = append([]BuildArgument(nil), request.BuildArguments...)
@@ -655,10 +642,10 @@ func assertFixedBuildxArgs(t *testing.T, args []string, request BuildKitBuildReq
 	t.Helper()
 	assertBuildxCommandShape(t, args)
 	assertControlledBuilderArgument(t, args)
-	assertBuildxArgumentsContain(t, args, []string{"--output=type=docker,oci-mediatypes=false", "--progress=quiet", "--provenance=false", "--platform=" + request.Platform, "--file=" + request.DockerfilePath, "--network=none"}, "buildx command")
+	assertBuildxArgumentsContain(t, args, []string{"--output=type=docker,oci-mediatypes=false", "--progress=plain", "--provenance=false", "--platform=" + request.Platform, "--file=" + request.DockerfilePath, "--network=none"}, "buildx command")
 	assertFixedBuildxTagAndCache(t, args, request)
 	assertBuildxArgumentOrder(t, args, request)
-	assertIsolatedBuildxCache(t, args, request, root)
+	assertSharedBuildxCache(t, args, root)
 	assertNoForbiddenBuildxArguments(t, args)
 }
 
@@ -683,10 +670,10 @@ func assertBuildxArgumentsContain(t *testing.T, args []string, required []string
 	}
 }
 
-func assertIsolatedBuildxCache(t *testing.T, args []string, request BuildKitBuildRequest, root string) {
-	cacheArgument := "--cache-to=type=local,dest=" + filepath.Join(root, "cache", strings.TrimPrefix(request.CacheNamespace, "sha256:")) + ",mode=min"
+func assertSharedBuildxCache(t *testing.T, args []string, root string) {
+	cacheArgument := "--cache-to=type=local,dest=" + filepath.Join(root, "cache", buildxSharedCacheDirectory) + ",mode=max"
 	if !slices.Contains(args, cacheArgument) {
-		t.Fatalf("buildx cache namespace is not isolated: %v", args)
+		t.Fatalf("buildx command does not export the node shared cache: %v", args)
 	}
 }
 
@@ -765,56 +752,37 @@ const testBuildxBuilderPlaceholder = "__controlled_builder__"
 
 const testBuildxHistoryRecordReference = "aaaaaaaaaaaaaaaaaaaaaaaaa"
 
-func assertControlledBuildxLifecycle(t *testing.T, calls []buildxCommandCall, request BuildKitBuildRequest) {
+func assertRuntimeDepsBuildxArgs(t *testing.T, args []string, request BuildKitBuildRequest) {
 	t.Helper()
-	if len(calls) != 11 {
-		t.Fatalf("controlled buildx lifecycle call count = %d", len(calls))
+	assertBuildxCommandShape(t, args)
+	assertControlledBuilderArgument(t, args)
+	assertBuildxArgumentsContain(t, args, []string{"--progress=plain", "--platform=" + request.Platform, "--file=" + request.RuntimeDepsDockerfilePath, "--network=default"}, "runtime dependencies buildx command")
+	if cacheTo := valueWithPrefix(args, "--cache-to="); !strings.HasPrefix(cacheTo, "--cache-to=type=local,dest=") || !strings.HasSuffix(cacheTo, ",mode=max") {
+		t.Fatalf("runtime dependencies cache export = %q, want node-local mode=max", cacheTo)
 	}
-	name := assertControlledBuilderCreate(t, calls[0].args, request)
-	assertExactBuildxCommand(t, calls[1].args, []string{"buildx", "inspect", "--builder", name, "--bootstrap"}, "controlled builder inspect command")
-	assertExactBuildxCommand(t, calls[2].args, []string{"container", "update", "--pids-limit", buildxBuilderPidsLimit, controlledBuildxContainerName(name)}, "controlled builder PIDs update command")
-	assertExactBuildxCommand(t, calls[3].args, []string{"container", "inspect", "--format", "{{.Config.Image}}\n{{.Image}}\n{{.HostConfig.CpuQuota}}/{{.HostConfig.CpuPeriod}}/{{.HostConfig.Memory}}/{{.HostConfig.PidsLimit}}", controlledBuildxContainerName(name)}, "controlled builder resource inspect command")
-	assertExactBuildxCommand(t, calls[4].args, []string{"image", "inspect", "--format", "{{.Id}}\n{{range .RepoDigests}}{{println .}}{{end}}", request.BuildKitImage}, "controlled builder image inspect command")
-	assertExactBuildxCommand(t, calls[6].args, []string{"buildx", "history", "inspect", "attachment", "--builder", name, testBuildxHistoryRecordReference, validBuildxManifestDigest(t)}, "controlled build record attachment command")
-	assertExactBuildxCommand(t, calls[7].args, []string{"buildx", "rm", "--force", name}, "controlled builder cleanup command")
-	assertExactBuildxCommand(t, calls[8].args, []string{"container", "rm", "--force", controlledBuildxContainerName(name)}, "controlled builder container cleanup command")
-	assertExactBuildxCommand(t, calls[9].args, []string{"buildx", "ls", "--format", "{{.Name}}"}, "controlled builder absence witness command")
-	assertExactBuildxCommand(t, calls[10].args, []string{"container", "ls", "--all", "--filter", "name=^/buildx_buildkit_" + buildxBuilderNamePrefix, "--format", "{{.Names}}"}, "controlled builder container absence witness command")
-}
-
-func assertControlledBuilderCreate(t *testing.T, create []string, request BuildKitBuildRequest) string {
-	if len(create) < 2 || create[0] != "buildx" || create[1] != "create" {
-		t.Fatalf("controlled builder create command = %v", create)
+	if output := valueWithPrefix(args, "--output="); !strings.Contains(output, "/runtime-deps,tar=false") {
+		t.Fatalf("runtime dependencies OCI layout output = %q", output)
 	}
-	name := valueAfter(create, "--name")
-	assertBuildxArgumentsContain(t, create, []string{"--driver", "docker-container", "--driver-opt=image=" + request.BuildKitImage, "--driver-opt=cpu-quota=" + buildxBuilderCPUQuota, "--driver-opt=cpu-period=" + buildxBuilderCPUPeriod, "--driver-opt=memory=" + buildxBuilderMemory}, "controlled builder create command")
-	if pidsOptions := prefixedArguments(create, "--driver-opt=pids-limit="); len(pidsOptions) != 0 {
-		t.Fatalf("controlled builder create command contains unsupported PIDs driver option: %v", pidsOptions)
+	actual := prefixedArguments(args, "--build-arg=")
+	want := make([]string, len(request.RuntimeDepsBuildArguments))
+	for index, argument := range request.RuntimeDepsBuildArguments {
+		want[index] = "--build-arg=" + argument.Name + "=" + argument.Value
 	}
-	return name
-}
-
-func assertExactBuildxCommand(t *testing.T, actual []string, expected []string, subject string) {
-	if !slices.Equal(actual, expected) {
-		t.Fatalf("%s = %v", subject, actual)
+	if !slices.Equal(actual, want) {
+		t.Fatalf("runtime dependencies build arguments = %v, want %v", actual, want)
+	}
+	for _, forbidden := range []string{"--push", "--cache-from=type=registry", "--cache-to=type=registry", "--build-context=runtime-deps"} {
+		if slices.Contains(args, forbidden) {
+			t.Fatalf("runtime dependencies build contains forbidden cross-node argument %q", forbidden)
+		}
 	}
 }
 
-func valueAfter(arguments []string, flag string) string {
-	for index, argument := range arguments {
-		if argument == flag && index+1 < len(arguments) {
-			return arguments[index+1]
+func valueWithPrefix(args []string, prefix string) string {
+	for _, argument := range args {
+		if strings.HasPrefix(argument, prefix) {
+			return argument
 		}
 	}
 	return ""
-}
-
-func recordedBuildxBuildCall(t *testing.T, calls []buildxCommandCall) buildxCommandCall {
-	for _, call := range calls {
-		if len(call.args) >= 2 && call.args[0] == "buildx" && call.args[1] == "build" {
-			return call
-		}
-	}
-	t.Fatalf("buildx build command was not recorded: %v", calls)
-	return buildxCommandCall{}
 }

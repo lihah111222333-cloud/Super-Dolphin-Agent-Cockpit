@@ -162,7 +162,7 @@ func TestResultReceiptMatchesHookStatusRejectsLegacyOrIncompleteShards(t *testin
 		t.Fatal("legacy result receipt matched hook status")
 	}
 	incomplete := cloneResultReceipt(fixture.receipt)
-	incomplete.ShardReceipts = incomplete.ShardReceipts[:gatecontract.MaxContainerShards-1]
+	incomplete.ShardReceipts = incomplete.ShardReceipts[:testCoordinatorSchedulingPolicy().ShardsPerJob-1]
 	if resultReceiptMatchesHookStatus(incomplete, status, request.Source.SourceTreeSHA) {
 		t.Fatal("incomplete shard receipt matched hook status")
 	}

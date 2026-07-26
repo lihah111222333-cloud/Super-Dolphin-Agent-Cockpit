@@ -78,12 +78,29 @@ func TestProductionProvisionInstallsClosureWithoutAcceptedSeed(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(config.AcceptedImageRoot, "accepted-image.json")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("provision seeded accepted state: %v", err)
 	}
-	launcher, err := os.ReadFile(result.LauncherPath)
+	assertProvisionedSchedulingPolicy(t, config, fixture.manifest)
+	assertLauncherPinsProductionClosure(t, result.LauncherPath, config.BootstrapControllerFile)
+}
+
+func assertProvisionedSchedulingPolicy(
+	t *testing.T,
+	config productionCoordinatorConfig,
+	manifest productionProvisionManifest,
+) {
+	t.Helper()
+	if config.ShardsPerJob != manifest.ShardsPerJob || config.MaxActiveCIWorkloads != manifest.MaxActiveCIWorkloads {
+		t.Fatalf("provisioned scheduling policy = shards:%d workloads:%d", config.ShardsPerJob, config.MaxActiveCIWorkloads)
+	}
+}
+
+func assertLauncherPinsProductionClosure(t *testing.T, launcherPath, bootstrapControllerFile string) {
+	t.Helper()
+	launcher, err := os.ReadFile(launcherPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(launcher), productionCoordinatorConfigEnv+"='") ||
-		!strings.Contains(string(launcher), config.BootstrapControllerFile) {
+		!strings.Contains(string(launcher), bootstrapControllerFile) {
 		t.Fatalf("launcher does not pin installed production closure: %s", launcher)
 	}
 }
@@ -294,6 +311,7 @@ func TestProductionProvisionFieldRegistryIsComplete(t *testing.T) {
 		"Platform":        "target platform",
 		"TrustedRootKeys": "release trust anchors", "CandidateTTLSeconds": "candidate expiry",
 		"PromotionPollMillis": "watcher cadence", "ActionGrantTTLSeconds": "grant expiry",
+		"ShardsPerJob": "per-job shard count", "MaxActiveCIWorkloads": "scheduler capacity",
 	})
 	assertProductionFields(t, reflect.TypeFor[productionProvisionSigningKey](), map[string]string{
 		"Signer": "authority identity", "PublicKey": "verification key", "PrivateKey": "external signing material",
@@ -326,6 +344,19 @@ func TestProductionProvisionFieldRegistryIsComplete(t *testing.T) {
 		"ContainerInspectDigest": "runner inspect evidence", "StartedAt": "execution lower bound",
 		"CompletedAt": "execution upper bound", "Signature": "controller Ed25519 proof",
 	})
+}
+
+func TestProductionProvisionRejectsInvalidSchedulingPolicy(t *testing.T) {
+	fixture := newProductionProvisionFixture(t)
+	fixture.manifest.ShardsPerJob = 0
+	if err := fixture.manifest.Validate(); err == nil || !strings.Contains(err.Error(), "shards_per_job") {
+		t.Fatalf("zero shards_per_job error = %v", err)
+	}
+	fixture.manifest.ShardsPerJob = 4
+	fixture.manifest.MaxActiveCIWorkloads = 3
+	if err := fixture.manifest.Validate(); err == nil || !strings.Contains(err.Error(), "at least shards_per_job") {
+		t.Fatalf("undersized max_active_ci_workloads error = %v", err)
+	}
 }
 
 type productionProvisionFixture struct {
@@ -387,6 +418,7 @@ func newProductionProvisionFixture(t *testing.T) productionProvisionFixture {
 		TrustedSourceRoot: trustedSourceRoot,
 		Platform:          root.Runner.OS + "/" + root.Runner.Architecture, TrustedRootKeys: []productionTrustedKey{trust},
 		CandidateTTLSeconds: 3600, PromotionPollMillis: 5_000, ActionGrantTTLSeconds: 60,
+		ShardsPerJob: 3, MaxActiveCIWorkloads: 3,
 	}}
 }
 

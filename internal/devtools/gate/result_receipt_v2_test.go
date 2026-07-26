@@ -43,6 +43,54 @@ func TestResultReceiptV2RejectsIncompleteOrDriftedShardClosure(t *testing.T) {
 	}
 }
 
+func TestResultReceiptRejectsShardCountBindingDrift(t *testing.T) {
+	receipt := validResultReceipt(t, time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC))
+	receipt.ShardReceipts[0].Shard.ShardsPerJob = 2
+	identity, err := containerShardIdentityDigest(receipt.ShardReceipts[0].Shard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt.ShardReceipts[0].Shard.IdentityDigest = identity
+	if err := receipt.Validate(); err == nil {
+		t.Fatal("receipt accepted a shard count binding drift")
+	}
+}
+
+func TestResultReceiptV3ValidatesDynamicShardCount(t *testing.T) {
+	receipt := validResultReceiptForProfileWithShardCount(t, time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC), ProfileLocalFast, 5)
+	if receipt.SchemaVersion != ResultReceiptSchemaVersion || len(receipt.ShardReceipts) != 5 {
+		t.Fatalf("schema=%d shards=%d, want schema=%d shards=5", receipt.SchemaVersion, len(receipt.ShardReceipts), ResultReceiptSchemaVersion)
+	}
+	if err := receipt.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
+func TestResultReceiptV2ThreeShardHistoryValidatesStored(t *testing.T) {
+	receipt := validResultReceipt(t, time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC))
+	receipt.SchemaVersion = legacyResultReceiptSchemaVersion
+	for index := range receipt.ShardReceipts {
+		shard := &receipt.ShardReceipts[index].Shard
+		shard.SchemaVersion = legacyContainerShardSchemaVersion
+		shard.ShardsPerJob = 0
+		identity, err := legacyContainerShardIdentityDigest(*shard)
+		if err != nil {
+			t.Fatal(err)
+		}
+		shard.IdentityDigest = identity
+	}
+	plan, err := BuildGatePlan(receipt.ShardReceipts[0].Shard.Profile, receipt.Source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := receipt.ValidateStored(plan); err != nil {
+		t.Fatalf("ValidateStored() error = %v", err)
+	}
+	if err := receipt.Validate(); err == nil {
+		t.Fatal("Validate() accepted a legacy receipt")
+	}
+}
+
 func TestResultReceiptV2SignatureCoversEveryShardExitedAt(t *testing.T) {
 	receipt := validResultReceipt(t, time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC))
 	publicKey, privateKey, err := ed25519.GenerateKey(nil)

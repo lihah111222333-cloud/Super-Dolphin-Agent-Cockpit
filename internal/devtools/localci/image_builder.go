@@ -46,23 +46,27 @@ type BuildArgument struct {
 
 // BuildKitBuildRequest 是不暴露 secret、SSH、entitlement 或宿主网络开关的构建合同。
 type BuildKitBuildRequest struct {
-	SourceTreeSHA       string
-	PolicyDigest        string
-	ImageSchemaVersion  string
-	ContextTar          []byte
-	ContextDigest       string
-	InputManifestDigest string
-	InputDigest         string
-	ToolchainDigest     string
-	DockerfilePath      string
-	DockerfileDigest    string
-	Platform            string
-	BuildKitVersion     string
-	BuildKitImage       string
-	DockerfileFrontend  string
-	BuildArguments      []BuildArgument
-	NetworkPolicy       string
-	CacheNamespace      string
+	SourceTreeSHA               string
+	PolicyDigest                string
+	ImageSchemaVersion          string
+	ContextTar                  []byte
+	ContextDigest               string
+	InputManifestDigest         string
+	InputDigest                 string
+	ToolchainDigest             string
+	DockerfilePath              string
+	DockerfileDigest            string
+	Platform                    string
+	BuildKitVersion             string
+	BuildKitImage               string
+	DockerfileFrontend          string
+	BuildArguments              []BuildArgument
+	RuntimeDepsDockerfilePath   string
+	RuntimeDepsDockerfileDigest string
+	RuntimeDepsInputDigest      string
+	RuntimeDepsBuildArguments   []BuildArgument
+	NetworkPolicy               string
+	CacheNamespace              string
 }
 
 // CandidateRequest 绑定单一 Git tree、已验证输入条目和当前 accepted 镜像。
@@ -103,8 +107,9 @@ type buildInputManifest struct {
 }
 
 type preparedCandidate struct {
-	result       CandidateResult
-	buildRequest BuildKitBuildRequest
+	result        CandidateResult
+	buildRequest  BuildKitBuildRequest
+	sourceEntries []sourceexport.TreeEntry
 }
 
 type dockerfileStageTracker struct {
@@ -174,15 +179,16 @@ func prepareCandidate(request CandidateRequest) (preparedCandidate, error) {
 	if err != nil {
 		return preparedCandidate{}, err
 	}
-	runtimeImage, err := loadRuntimeDepsImageIdentity(closureByPath, request.Platform)
+	runtimeDeps, err := loadRuntimeDepsLock(closureByPath, request.Platform)
+	if err != nil {
+		return preparedCandidate{}, err
+	}
+	runtimeDepsArguments, err := runtimeDepsBuildArguments(lock)
 	if err != nil {
 		return preparedCandidate{}, err
 	}
 	dockerfile := closureByPath[manifest.Dockerfile].Data
-	arguments := lockedBuildArguments([]lockedBaseImage{{
-		Name:      "RUNTIME_DEPS_IMAGE",
-		Reference: runtimeImage.Registry + "@" + runtimeImage.PlatformManifestDigest,
-	}}, lock.SourceDateEpoch)
+	arguments := []BuildArgument{{Name: "RUNTIME_DEPS_IMAGE", Value: "runtime-deps"}, {Name: sourceDateEpochArgument, Value: lock.SourceDateEpoch}}
 	if err := validateCandidateDockerfile(dockerfile, arguments, closureByPath, entriesByPath); err != nil {
 		return preparedCandidate{}, err
 	}
@@ -190,7 +196,9 @@ func prepareCandidate(request CandidateRequest) (preparedCandidate, error) {
 	if err != nil {
 		return preparedCandidate{}, fmt.Errorf("build canonical candidate context: %w", err)
 	}
-	return assemblePreparedCandidate(request, manifest, lock, manifestData, lockData, dockerfile, arguments, canonicalContext), nil
+	prepared := assemblePreparedCandidate(request, manifest, lock, runtimeDeps, manifestData, lockData, dockerfile, arguments, runtimeDepsArguments, canonicalContext)
+	prepared.sourceEntries = cloneTreeEntries(closure)
+	return prepared, nil
 }
 
 func validateCandidateRequestIdentity(request CandidateRequest) error {
@@ -387,14 +395,6 @@ func validateRemoteImageReference(reference string) error {
 	return validateRemoteRegistryHost(registry)
 }
 
-func validateRemoteImageRegistry(repository string) error {
-	registry, name, found := strings.Cut(repository, "/")
-	if !found || registry == "" || name == "" {
-		return errors.New("runtime dependency image registry must include a repository path")
-	}
-	return validateRuntimeDepsRegistryHost(registry)
-}
-
 // validateRemoteRegistryHost 校验注册表主机有效且不指向回环地址。
 func validateRemoteRegistryHost(registry string) error {
 	parsed, err := url.Parse("https://" + registry)
@@ -409,30 +409,12 @@ func validateRemoteRegistryHost(registry string) error {
 	return nil
 }
 
-// validateRuntimeDepsRegistryHost 仅接受不带显式端口的规范 GHCR 主机。
-func validateRuntimeDepsRegistryHost(registry string) error {
-	parsed, err := url.Parse("https://" + registry)
-	if err != nil || parsed.Host != "ghcr.io" {
-		return errors.New("runtime dependency image registry must use canonical ghcr.io host without an explicit port")
-	}
-	return nil
-}
-
-func lockedBuildArguments(images []lockedBaseImage, sourceDateEpoch string) []BuildArgument {
-	arguments := make([]BuildArgument, 0, len(images)+1)
-	for _, image := range images {
-		arguments = append(arguments, BuildArgument{Name: image.Name, Value: image.Reference})
-	}
-	arguments = append(arguments, BuildArgument{Name: sourceDateEpochArgument, Value: sourceDateEpoch})
-	sort.Slice(arguments, func(left int, right int) bool { return arguments[left].Name < arguments[right].Name })
-	return arguments
-}
-
-func assemblePreparedCandidate(request CandidateRequest, manifest buildInputManifest, lock toolchainLock, manifestData []byte, lockData []byte, dockerfile []byte, arguments []BuildArgument, canonical canonicalContext) preparedCandidate {
+func assemblePreparedCandidate(request CandidateRequest, manifest buildInputManifest, lock toolchainLock, runtimeDeps runtimeDepsLock, manifestData []byte, lockData []byte, dockerfile []byte, arguments []BuildArgument, runtimeDepsArguments []BuildArgument, canonical canonicalContext) preparedCandidate {
 	manifestDigest := bytesDigest(manifestData)
 	toolchainDigest := bytesDigest(lockData)
 	dockerfileDigest := bytesDigest(dockerfile)
-	fields := []string{canonical.ContextDigest, canonical.InputDigest, manifestDigest, toolchainDigest, dockerfileDigest, request.PolicyDigest, request.ImageSchemaVersion, request.Platform, lock.BuildKitVersion, lock.BuildKitImage, lock.DockerfileFrontend, lock.NetworkPolicy}
+	runtimeDepsInputDigest := fieldsDigest(runtimeDepsInputsDigest(runtimeDeps.Inputs), request.Platform)
+	fields := []string{canonical.ContextDigest, canonical.InputDigest, manifestDigest, toolchainDigest, dockerfileDigest, runtimeDepsInputDigest, request.PolicyDigest, request.ImageSchemaVersion, request.Platform, lock.BuildKitVersion, lock.BuildKitImage, lock.DockerfileFrontend, lock.NetworkPolicy}
 	for _, argument := range arguments {
 		fields = append(fields, argument.Name, argument.Value)
 	}
@@ -447,9 +429,20 @@ func assemblePreparedCandidate(request CandidateRequest, manifest buildInputMani
 		InputManifestDigest: manifestDigest, InputDigest: inputDigest, ToolchainDigest: toolchainDigest,
 		DockerfilePath: manifest.Dockerfile, DockerfileDigest: dockerfileDigest, Platform: request.Platform,
 		BuildKitVersion: lock.BuildKitVersion, BuildKitImage: lock.BuildKitImage, DockerfileFrontend: lock.DockerfileFrontend,
-		BuildArguments: append([]BuildArgument(nil), arguments...), NetworkPolicy: lock.NetworkPolicy, CacheNamespace: inputDigest,
+		BuildArguments:            append([]BuildArgument(nil), arguments...),
+		RuntimeDepsDockerfilePath: "build/gate/runtime-deps.Dockerfile", RuntimeDepsDockerfileDigest: runtimeDeps.Inputs.Dockerfile,
+		RuntimeDepsInputDigest: runtimeDepsInputDigest, RuntimeDepsBuildArguments: runtimeDepsArguments,
+		NetworkPolicy: lock.NetworkPolicy, CacheNamespace: inputDigest,
 	}
 	return preparedCandidate{result: result, buildRequest: buildRequest}
+}
+
+func runtimeDepsInputsDigest(inputs runtimeDepsInputs) string {
+	fields := make([]string, 0, 28)
+	for _, binding := range runtimeDepsInputBindings(inputs) {
+		fields = append(fields, binding.path, binding.digest)
+	}
+	return fieldsDigest(fields...)
 }
 
 // validateCandidateDockerfile 绑定锁定参数，并拒绝越界构建能力和未声明输入。
@@ -773,6 +766,9 @@ func dockerfileCopyOptions(fields []string) ([]string, string, error) {
 
 // validateDockerfileCopySource 校验单一来源路径及目录内全部 Git 条目。
 func validateDockerfileCopySource(source string, closure map[string]sourceexport.TreeEntry, allEntries map[string]sourceexport.TreeEntry) error {
+	if source == "." {
+		return validateWholeContextClosure(closure, allEntries)
+	}
 	cleaned, err := canonicalCopySource(source)
 	if err != nil {
 		return err
@@ -781,6 +777,19 @@ func validateDockerfileCopySource(source string, closure map[string]sourceexport
 		return nil
 	}
 	return validateCopyDirectoryClosure(cleaned, closure, allEntries)
+}
+
+// validateWholeContextClosure 仅在输入闭包精确覆盖 Git 树时允许 COPY .。
+func validateWholeContextClosure(closure map[string]sourceexport.TreeEntry, allEntries map[string]sourceexport.TreeEntry) error {
+	if len(closure) != len(allEntries) {
+		return errors.New("root source requires the declared input closure to equal the Git tree")
+	}
+	for name := range allEntries {
+		if _, exists := closure[name]; !exists {
+			return fmt.Errorf("Git entry %q is outside the declared input closure", name)
+		}
+	}
+	return nil
 }
 
 // canonicalCopySource 拒绝动态、远程、glob 和非规范 COPY/ADD 来源。

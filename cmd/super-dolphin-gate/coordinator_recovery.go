@@ -212,7 +212,7 @@ func shardAdmissionIsUnexecuted(record coordinatorJobRecord) bool {
 	if slices.Contains([]bool{
 		record.StartedAt != nil,
 		record.Deadline != nil,
-		len(record.ContainerShards) != gatecontract.MaxContainerShards,
+		len(record.ContainerShards) == 0,
 	}, true) {
 		return false
 	}
@@ -427,7 +427,7 @@ func (owner *coordinatorOwner) probeRecoveredShards(ctx context.Context, record 
 
 // recoveredShardProbesAreLive 要求每片均已启动、可观察且探测无漂移。
 func recoveredShardProbesAreLive(probes []recoveredShardProbe) bool {
-	if len(probes) != gatecontract.MaxContainerShards {
+	if len(probes) == 0 {
 		return false
 	}
 	for _, probe := range probes {

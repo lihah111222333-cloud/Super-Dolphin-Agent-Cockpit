@@ -216,7 +216,8 @@ func TestDeferredCoordinatorPlansBeforeSchedulerConnect(t *testing.T) {
 		ImageEnsurer: fakeImageEnsurer{}, CandidateBuilder: fakeCandidateBuildService{},
 		PromotionWatcher: fakePromotionWatcher{}, SourceMaterializer: fakeSourceMaterializer{},
 		FreshRunner: immediateFreshRunner{}, RecoveryRunner: &capturingFreshContainerRunner{},
-		ReceiptSigner: mustTestResultReceiptSigner(t),
+		ReceiptSigner:    mustTestResultReceiptSigner(t),
+		SchedulingPolicy: testCoordinatorSchedulingPolicy(),
 	}}
 	delay := coordinatorConnectTimeout + 100*time.Millisecond
 	client, err := newDeferredCoordinatorClient(

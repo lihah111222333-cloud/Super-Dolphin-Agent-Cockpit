@@ -42,45 +42,35 @@ func TestPreCommitCleanupFailureFailsHook(t *testing.T) {
 	)
 }
 
-func TestPreCommitGateFailureCleansSyntheticWorktree(t *testing.T) {
+func TestPreCommitWaitFailurePreservesRepositoryState(t *testing.T) {
 	root := preparePreCommitGateFixture(t)
 	writeFixTestGuardFile(t, root, "internal/app/failure.go", "package app\n")
 	runFixTestGuardGit(t, root, "add", "internal/app/failure.go")
-	warmOut, warmErr := runPreCommitHook(t, root)
-	if warmErr != nil {
-		t.Fatalf("pre-commit failure fixture warmup failed: %v\n%s", warmErr, warmOut)
-	}
 	originalState := capturePreCommitRepositoryState(t, root)
 	tmpRoot := t.TempDir()
 
 	out, err := runPreCommitHookWithEnv(t, root, map[string]string{
-		"TMPDIR":             tmpRoot,
-		"GATE_ASSERT_CLEAN":  "1",
-		"GATE_FORCE_FAILURE": "1",
+		"TMPDIR":                  tmpRoot,
+		"GATE_WAIT_FORCE_FAILURE": "1",
 	})
 	if err == nil {
-		t.Fatalf("forced gate failure unexpectedly succeeded:\n%s", out)
+		t.Fatalf("forced wait failure unexpectedly succeeded:\n%s", out)
 	}
-	assertOutputContainsAll(t, out, "forced gate failure", "AI maintenance gates 未通过")
+	assertOutputContainsAll(t, out, "forced wait failure")
 	assertPreCommitRepositoryState(t, root, originalState)
 	assertPreCommitFixtureClean(t, root, tmpRoot)
 }
 
-func TestPreCommitSIGINTCleansSyntheticWorktree(t *testing.T) {
+func TestPreCommitSIGINTCleansHookOutputFiles(t *testing.T) {
 	root := preparePreCommitGateFixture(t)
 	writeFixTestGuardFile(t, root, "internal/app/interrupt.go", "package app\n")
 	runFixTestGuardGit(t, root, "add", "internal/app/interrupt.go")
-	warmOut, warmErr := runPreCommitHook(t, root)
-	if warmErr != nil {
-		t.Fatalf("pre-commit interrupt fixture warmup failed: %v\n%s", warmErr, warmOut)
-	}
 	originalState := capturePreCommitRepositoryState(t, root)
 	tmpRoot := t.TempDir()
 	readyFile := filepath.Join(t.TempDir(), "gate-ready")
 	cmd := preCommitCommand(t, root, map[string]string{
 		"TMPDIR":                  tmpRoot,
-		"GATE_ASSERT_CLEAN":       "1",
-		"GATE_READY_FILE":         readyFile,
+		"GATE_WAIT_READY_FILE":    readyFile,
 		"GATE_WAIT_FOR_INTERRUPT": "1",
 	})
 	var output bytes.Buffer

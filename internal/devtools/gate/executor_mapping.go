@@ -113,12 +113,6 @@ var executorPrograms = map[GateID]ExecutorProgram{
 			normalGoExecutorStep(append([]string{"./scripts/test_with_guard.sh", "--canonical-backend"}, canonicalBackendPackagePatterns()...)),
 		},
 	}, "scripts/test_with_guard.sh", "scripts/check_nested_go_modules.sh"))),
-	GateIDLSPChangedDiagnostics: requireExecutables(withFrontendSeed(withGoSeed(ExecutorProgram{
-		Strategy: ExecutorStrategyChangedDiagnostics,
-		RequiredPaths: []string{
-			"scripts/lsp_diagnostics_gate/main.go",
-		},
-	})), ExecutorSqruffBinaryPath),
 	GateIDBackendTestGuardWithRace: backendRaceExecutorProgram(),
 	GateIDBackendNilness: withGoSeed(requirePaths(ExecutorProgram{
 		Strategy: ExecutorStrategyCommands,

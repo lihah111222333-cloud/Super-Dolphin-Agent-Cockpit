@@ -21,11 +21,11 @@ import (
 )
 
 type runtimeDepsLock struct {
-	SchemaVersion      string             `json:"schema_version"`
-	RegistryPullPolicy string             `json:"registry_pull_policy"`
-	Images             []runtimeDepsImage `json:"images"`
-	Inputs             runtimeDepsInputs  `json:"inputs"`
-	Paths              runtimeDepsPaths   `json:"paths"`
+	SchemaVersion string            `json:"schema_version"`
+	BuildMode     string            `json:"build_mode"`
+	CacheScope    string            `json:"cache_scope"`
+	Inputs        runtimeDepsInputs `json:"inputs"`
+	Paths         runtimeDepsPaths  `json:"paths"`
 }
 
 type runtimeDepsInputs struct {
@@ -68,7 +68,7 @@ type runtimeDepsInputBinding struct {
 	digest string
 }
 
-// validateRuntimeDepsClosure 将 schema3 的每个依赖摘要绑定到候选输入闭包。
+// validateRuntimeDepsClosure 将 node-local 依赖摘要绑定到候选输入闭包。
 func validateRuntimeDepsClosure(lock runtimeDepsLock, closure map[string]sourceexport.TreeEntry) error {
 	if lock.Paths != canonicalRuntimeDepsPaths() {
 		return errors.New("runtime dependencies paths drifted from the executor contract")

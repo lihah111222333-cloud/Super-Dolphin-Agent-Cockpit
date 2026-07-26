@@ -11,10 +11,11 @@ import (
 )
 
 const (
-	maxActiveWorkloads        = 3
-	workloadLogicalCPUs int64 = 4
-	workloadMemoryGiB   int64 = 8
-	bytesPerGiB         int64 = 1 << 30
+	workloadLogicalCPUs       int64 = 4
+	workloadMemoryGiB         int64 = 8
+	bytesPerGiB               int64 = 1 << 30
+	minActiveWorkloads              = 1
+	maxAllowedActiveWorkloads       = 64
 )
 
 // DaemonCapacityInspector 从受信 Docker API 适配器读取指定 daemon 的总容量。
@@ -48,9 +49,10 @@ type CapacityEvidence struct {
 func ValidateDaemonCapacity(
 	ctx context.Context,
 	daemonID string,
+	maxActiveWorkloads int,
 	inspector DaemonCapacityInspector,
 ) (CapacityEvidence, error) {
-	if err := validateCapacityPreflightInputs(ctx, daemonID, inspector); err != nil {
+	if err := validateCapacityPreflightInputs(ctx, daemonID, maxActiveWorkloads, inspector); err != nil {
 		return CapacityEvidence{}, err
 	}
 
@@ -72,7 +74,7 @@ func ValidateDaemonCapacity(
 		)
 	}
 
-	required, err := requiredDaemonCapacity()
+	required, err := requiredDaemonCapacity(maxActiveWorkloads)
 	if err != nil {
 		return CapacityEvidence{}, err
 	}
@@ -154,9 +156,11 @@ func (evidence CapacityEvidence) Validate() error {
 	return nil
 }
 
+// validateCapacityPreflightInputs 校验节点容量探测所需的身份、容量与上下文。
 func validateCapacityPreflightInputs(
 	ctx context.Context,
 	daemonID string,
+	maxActiveWorkloads int,
 	inspector DaemonCapacityInspector,
 ) error {
 	if ctx == nil {
@@ -168,13 +172,19 @@ func validateCapacityPreflightInputs(
 	if err := validateDaemonID(daemonID); err != nil {
 		return err
 	}
+	if err := validateMaxActiveWorkloads(maxActiveWorkloads); err != nil {
+		return err
+	}
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("inspect docker daemon capacity: %w", err)
 	}
 	return nil
 }
 
-func requiredDaemonCapacity() (CapacityRequirement, error) {
+func requiredDaemonCapacity(maxActiveWorkloads int) (CapacityRequirement, error) {
+	if err := validateMaxActiveWorkloads(maxActiveWorkloads); err != nil {
+		return CapacityRequirement{}, err
+	}
 	logicalCPUs, err := checkedCapacityProduct(workloadLogicalCPUs, int64(maxActiveWorkloads))
 	if err != nil {
 		return CapacityRequirement{}, fmt.Errorf("calculate required logical CPU capacity: %w", err)
@@ -188,6 +198,13 @@ func requiredDaemonCapacity() (CapacityRequirement, error) {
 		return CapacityRequirement{}, fmt.Errorf("calculate required memory capacity: %w", err)
 	}
 	return CapacityRequirement{LogicalCPUs: logicalCPUs, MemoryBytes: memoryBytes}, nil
+}
+
+func validateMaxActiveWorkloads(value int) error {
+	if value < minActiveWorkloads || value > maxAllowedActiveWorkloads {
+		return fmt.Errorf("max active workloads %d is outside %d..%d", value, minActiveWorkloads, maxAllowedActiveWorkloads)
+	}
+	return nil
 }
 
 func checkedCapacityProduct(value, multiplier int64) (int64, error) {

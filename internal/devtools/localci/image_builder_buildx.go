@@ -19,19 +19,20 @@ import (
 )
 
 const (
-	buildxMetadataLimit       = 16 << 20
-	buildxManifestMedia       = "application/vnd.docker.distribution.manifest.v2+json"
-	buildxConfigMedia         = "application/vnd.docker.container.image.v1+json"
-	buildxLayerMedia          = "application/vnd.docker.image.rootfs.diff.tar.gzip"
-	candidateImageRepository  = "docker.io/library/super-dolphin-gate-local"
-	candidateImageTagPrefix   = "candidate-"
-	buildxBuilderNamePrefix   = "super-dolphin-gate-"
-	buildxBuilderCPUQuota     = "400000"
-	buildxBuilderCPUPeriod    = "100000"
-	buildxBuilderMemory       = "8g"
-	buildxBuilderMemoryBytes  = "8589934592"
-	buildxBuilderPidsLimit    = "512"
-	buildxBuilderCleanupLimit = 30 * time.Second
+	buildxMetadataLimit        = 16 << 20
+	buildxManifestMedia        = "application/vnd.docker.distribution.manifest.v2+json"
+	buildxConfigMedia          = "application/vnd.docker.container.image.v1+json"
+	buildxLayerMedia           = "application/vnd.docker.image.rootfs.diff.tar.gzip"
+	candidateImageRepository   = "docker.io/library/super-dolphin-gate-local"
+	candidateImageTagPrefix    = "candidate-"
+	buildxBuilderNamePrefix    = "super-dolphin-gate-"
+	buildxBuilderCPUQuota      = "400000"
+	buildxBuilderCPUPeriod     = "100000"
+	buildxBuilderMemory        = "8g"
+	buildxBuilderMemoryBytes   = "8589934592"
+	buildxBuilderPidsLimit     = "512"
+	buildxBuilderCleanupLimit  = 30 * time.Second
+	buildxSharedCacheDirectory = "shared"
 )
 
 var forbiddenBuildArgumentNames = map[string]struct{}{
@@ -67,7 +68,7 @@ type controlledBuildxOwner struct {
 
 type execBuildxCommandExecutor struct{}
 
-// NewDockerBuildxRunner 固定私有工作根和隔离 cache 根。
+// NewDockerBuildxRunner 从节点配置根派生私有工作目录和跨工作树共享 cache。
 func NewDockerBuildxRunner(trustedRoot string) (*DockerBuildxRunner, error) {
 	return newDockerBuildxRunner(execBuildxCommandExecutor{}, trustedRoot)
 }
@@ -142,12 +143,22 @@ func (runner *DockerBuildxRunner) Build(ctx context.Context, request BuildKitBui
 	if err := validateBuildxDockerfileDirectives(request.ContextTar, request.DockerfilePath); err != nil {
 		return BuildKitResult{}, err
 	}
+	if err := validateBuildxDockerfileDirectives(request.ContextTar, request.RuntimeDepsDockerfilePath); err != nil {
+		return BuildKitResult{}, err
+	}
+	if err := validateBuildxContextFileDigest(request.ContextTar, request.RuntimeDepsDockerfilePath, request.RuntimeDepsDockerfileDigest); err != nil {
+		return BuildKitResult{}, err
+	}
 	builderName, err := runner.createControlledBuilder(ctx, request, workspace)
 	if err != nil {
 		return BuildKitResult{}, err
 	}
 	defer runner.cleanupControlledBuilder(ctx, builderName, &result, &err)
-	return runner.buildCandidate(ctx, request, workspace, candidateTag, useCache, builderName)
+	runtimeDepsDigest, err := runner.buildRuntimeDeps(ctx, request, workspace, builderName)
+	if err != nil {
+		return BuildKitResult{}, err
+	}
+	return runner.buildCandidate(ctx, request, workspace, candidateTag, useCache, builderName, runtimeDepsDigest)
 }
 
 // createPrivateBuildxWorkspace 创建仅当前构建可访问的临时工作区。
@@ -193,24 +204,20 @@ func (runner *DockerBuildxRunner) cleanupControlledBuilder(ctx context.Context, 
 }
 
 // buildCandidate 执行候选构建并验证严格绑定的 metadata。
-func (runner *DockerBuildxRunner) buildCandidate(ctx context.Context, request BuildKitBuildRequest, workspace string, candidateTag string, useCache bool, builderName string) (BuildKitResult, error) {
+func (runner *DockerBuildxRunner) buildCandidate(ctx context.Context, request BuildKitBuildRequest, workspace string, candidateTag string, useCache bool, builderName string, runtimeDepsDigest string) (BuildKitResult, error) {
 	metadataPath := filepath.Join(workspace, "metadata.json")
-	output, err := runner.executor.Run(ctx, bytes.NewReader(request.ContextTar), runner.commandArgs(request, metadataPath, candidateTag, useCache, builderName)...)
+	_, err := runner.executor.Run(ctx, bytes.NewReader(request.ContextTar), runner.commandArgs(request, metadataPath, candidateTag, useCache, builderName)...)
 	if err != nil {
 		return BuildKitResult{}, fmt.Errorf("run candidate buildx command: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
 		return BuildKitResult{}, err
 	}
-	imageDigest, err := parseBuildxDigestOutput(output)
-	if err != nil {
-		return BuildKitResult{}, err
-	}
 	metadataData, err := readBuildxMetadataFile(metadataPath)
 	if err != nil {
 		return BuildKitResult{}, err
 	}
-	metadata, err := validateBuildxMetadata(metadataData, request, imageDigest, builderName)
+	metadata, err := validateBuildxMetadata(metadataData, request, builderName, runtimeDepsDigest)
 	if err != nil {
 		return BuildKitResult{}, err
 	}
@@ -219,6 +226,61 @@ func (runner *DockerBuildxRunner) buildCandidate(ctx context.Context, request Bu
 		return BuildKitResult{}, err
 	}
 	return BuildKitResult{PlatformManifestDigest: metadata.ImageDigest, ConfigDigest: configDigest}, nil
+}
+
+// buildRuntimeDeps 在同一受控 builder 和任务 deadline 内有界重试节点本地运行时依赖构建。
+func (runner *DockerBuildxRunner) buildRuntimeDeps(ctx context.Context, request BuildKitBuildRequest, workspace string, builderName string) (string, error) {
+	layout := filepath.Join(workspace, "runtime-deps")
+	metadataPath := filepath.Join(workspace, "runtime-deps-metadata.json")
+	useCache, err := runner.cacheAvailable()
+	if err != nil {
+		return "", err
+	}
+	cachePath := filepath.Join(runner.cacheRoot, buildxSharedCacheDirectory)
+	var attemptErrors []error
+	for attempt := 1; attempt <= 2; attempt++ {
+		args := runtimeDepsBuildxArgs(request, layout, metadataPath, cachePath, useCache, builderName)
+		if _, err := runner.executor.Run(ctx, bytes.NewReader(request.ContextTar), args...); err == nil {
+			digest, metadataErr := readRuntimeDepsBuildxDigest(metadataPath, request.Platform)
+			if metadataErr != nil {
+				return "", metadataErr
+			}
+			return digest, nil
+		} else {
+			attemptErrors = append(attemptErrors, fmt.Errorf("attempt %d: %w", attempt, err))
+		}
+		if err := ctx.Err(); err != nil {
+			return "", errors.Join(append(attemptErrors, err)...)
+		}
+		if attempt == 2 {
+			break
+		}
+		if err := os.RemoveAll(layout); err != nil {
+			return "", errors.Join(append(attemptErrors, fmt.Errorf("reset runtime dependencies OCI layout: %w", err))...)
+		}
+		useCache, err = runner.cacheAvailable()
+		if err != nil {
+			return "", errors.Join(append(attemptErrors, err)...)
+		}
+	}
+	return "", fmt.Errorf("build node-local runtime dependencies after 2 attempts: %w", errors.Join(attemptErrors...))
+}
+
+// runtimeDepsBuildxArgs 固定节点本地运行时依赖构建的 Buildx 参数和缓存边界。
+func runtimeDepsBuildxArgs(request BuildKitBuildRequest, layout string, metadataPath string, cachePath string, useCache bool, builderName string) []string {
+	args := []string{
+		"buildx", "build", "--builder=" + builderName, "--output=type=oci,dest=" + layout + ",tar=false",
+		"--progress=plain", "--provenance=false", "--platform=" + request.Platform,
+		"--file=" + request.RuntimeDepsDockerfilePath, "--network=default", "--metadata-file=" + metadataPath,
+	}
+	if useCache {
+		args = append(args, "--cache-from=type=local,src="+cachePath)
+	}
+	args = append(args, "--cache-to=type=local,dest="+cachePath+",mode=max")
+	for _, argument := range request.RuntimeDepsBuildArguments {
+		args = append(args, "--build-arg="+argument.Name+"="+argument.Value)
+	}
+	return append(args, "-")
 }
 
 // createControlledBuilder 将每次候选构建绑定到新建且受资源限制的 BuildKit 容器。
@@ -300,7 +362,7 @@ func (runner *DockerBuildxRunner) validateControlledBuilderResources(ctx context
 
 // prepareBuildxExecution 固定 candidate tag 并校验可选 cache source。
 func (runner *DockerBuildxRunner) prepareBuildxExecution(request BuildKitBuildRequest) (string, bool, error) {
-	useCache, err := runner.cacheAvailable(request.CacheNamespace)
+	useCache, err := runner.cacheAvailable()
 	if err != nil {
 		return "", false, err
 	}
@@ -329,19 +391,20 @@ func (runner *DockerBuildxRunner) validateBuild(ctx context.Context, request Bui
 }
 
 func (runner *DockerBuildxRunner) commandArgs(request BuildKitBuildRequest, metadataPath string, candidateTag string, useCache bool, builderName string) []string {
-	cachePath := filepath.Join(runner.cacheRoot, strings.TrimPrefix(request.CacheNamespace, "sha256:"))
+	cachePath := filepath.Join(runner.cacheRoot, buildxSharedCacheDirectory)
 	args := []string{
-		"buildx", "build", "--builder=" + builderName, "--output=type=docker,oci-mediatypes=false", "--progress=quiet", "--provenance=false",
+		"buildx", "build", "--builder=" + builderName, "--output=type=docker,oci-mediatypes=false", "--progress=plain", "--provenance=false",
 		"--platform=" + request.Platform,
 		"--file=" + request.DockerfilePath,
 		"--network=none",
 		"--tag=" + candidateTag,
 		"--metadata-file=" + metadataPath,
+		"--build-context=runtime-deps=oci-layout://" + filepath.Join(filepath.Dir(metadataPath), "runtime-deps"),
 	}
 	if useCache {
 		args = append(args, "--cache-from=type=local,src="+cachePath)
 	}
-	args = append(args, "--cache-to=type=local,dest="+cachePath+",mode=min")
+	args = append(args, "--cache-to=type=local,dest="+cachePath+",mode=max")
 	for _, argument := range request.BuildArguments {
 		args = append(args, "--build-arg="+argument.Name+"="+argument.Value)
 	}
@@ -351,9 +414,9 @@ func (runner *DockerBuildxRunner) commandArgs(request BuildKitBuildRequest, meta
 	return append(args, "-")
 }
 
-// cacheAvailable 校验已有 namespace 不逃逸，并报告是否可作为 cache source。
-func (runner *DockerBuildxRunner) cacheAvailable(namespace string) (bool, error) {
-	cachePath := filepath.Join(runner.cacheRoot, strings.TrimPrefix(namespace, "sha256:"))
+// cacheAvailable 校验节点唯一共享 cache，并报告是否可作为 cache source。
+func (runner *DockerBuildxRunner) cacheAvailable() (bool, error) {
+	cachePath := filepath.Join(runner.cacheRoot, buildxSharedCacheDirectory)
 	info, err := os.Lstat(cachePath)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
@@ -371,49 +434,24 @@ func (runner *DockerBuildxRunner) cacheAvailable(namespace string) (bool, error)
 	if resolved != cachePath {
 		return false, errors.New("buildx cache namespace escapes the private cache root")
 	}
-	if err := validateBuildxCacheLayout(cachePath); err != nil {
-		recovered, recoveryErr := recoverEmptyBuildxCacheNamespace(cachePath)
-		if recoveryErr != nil {
-			return false, errors.Join(err, recoveryErr)
-		}
-		if recovered {
-			return false, nil
-		}
-		return false, err
-	}
-	return true, nil
+	return buildxCacheLayoutAvailable(cachePath), nil
 }
 
-// recoverEmptyBuildxCacheNamespace 仅回收已通过路径约束且为空的中断导出目录。
-func recoverEmptyBuildxCacheNamespace(cachePath string) (bool, error) {
-	entries, err := os.ReadDir(cachePath)
-	if err != nil {
-		return false, fmt.Errorf("inspect incomplete buildx cache namespace: %w", err)
-	}
-	if len(entries) != 0 {
-		return false, nil
-	}
-	if err := os.Remove(cachePath); err != nil {
-		return false, fmt.Errorf("remove empty buildx cache namespace: %w", err)
-	}
-	return true, nil
-}
-
-// validateBuildxCacheLayout 只把完整 local OCI cache 作为 cache source。
-func validateBuildxCacheLayout(cachePath string) error {
+// buildxCacheLayoutAvailable 只把完整 local OCI cache 识别为可导入来源。
+func buildxCacheLayoutAvailable(cachePath string) bool {
 	files := []string{filepath.Join(cachePath, "index.json"), filepath.Join(cachePath, "oci-layout")}
 	for _, filePath := range files {
 		info, err := os.Lstat(filePath)
 		if err != nil || !info.Mode().IsRegular() {
-			return errors.New("buildx cache namespace is missing a regular OCI metadata file")
+			return false
 		}
 	}
 	blobsPath := filepath.Join(cachePath, "blobs", "sha256")
 	info, err := os.Lstat(blobsPath)
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return errors.New("buildx cache namespace is missing a real sha256 blobs directory")
+		return false
 	}
-	return nil
+	return true
 }
 
 func candidateImageTag(inputDigest string) (string, error) {
@@ -443,7 +481,10 @@ func validateBuildxRequest(request BuildKitBuildRequest) error {
 	if _, err := parseBuildxPlatform(request.Platform); err != nil {
 		return err
 	}
-	return validateBuildxArguments(request.BuildArguments)
+	if err := validateBuildxArguments(request.BuildArguments); err != nil {
+		return err
+	}
+	return validateRuntimeDepsBuildRequest(request)
 }
 
 // validateBuildKitVersion 验证锁定版本是可精确比较的 BuildKit 版本字符串。
@@ -464,9 +505,9 @@ func validateBuildKitVersion(version string) error {
 }
 
 func validateBuildKitImageReference(reference string) error {
-	const prefix = "docker.io/moby/buildkit@"
+	const prefix = "mirror.gcr.io/moby/buildkit@"
 	if !strings.HasPrefix(reference, prefix) {
-		return errors.New("buildx BuildKit image must use the canonical docker.io/moby/buildkit repository")
+		return errors.New("buildx BuildKit image must use the canonical mirror.gcr.io/moby/buildkit repository")
 	}
 	if err := validateDigest("buildx BuildKit image digest", strings.TrimPrefix(reference, prefix)); err != nil {
 		return err
@@ -499,69 +540,6 @@ func validateBuildxRequestIdentity(request BuildKitBuildRequest) error {
 	}
 	if request.DockerfileFrontend != "builtin:dockerfile.v1" {
 		return errors.New("buildx Dockerfile frontend must be builtin:dockerfile.v1")
-	}
-	return nil
-}
-
-func validateBuildxPolicyBinding(request BuildKitBuildRequest) error {
-	if err := validateDigest("buildx policy digest", request.PolicyDigest); err != nil {
-		return err
-	}
-	if request.ImageSchemaVersion != imageInputSchemaVersion {
-		return fmt.Errorf("buildx image schema version %q is unsupported", request.ImageSchemaVersion)
-	}
-	return nil
-}
-
-func validateBuildxDigests(request BuildKitBuildRequest) error {
-	digests := []struct {
-		name  string
-		value string
-	}{
-		{name: "buildx context digest", value: request.ContextDigest},
-		{name: "buildx input manifest digest", value: request.InputManifestDigest},
-		{name: "buildx input digest", value: request.InputDigest},
-		{name: "buildx toolchain digest", value: request.ToolchainDigest},
-		{name: "buildx Dockerfile digest", value: request.DockerfileDigest},
-		{name: "buildx cache namespace", value: request.CacheNamespace},
-	}
-	for _, digestValue := range digests {
-		if err := validateDigest(digestValue.name, digestValue.value); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// validateBuildxArguments 要求工具链参数严格排序、唯一且值类型受锁约束。
-func validateBuildxArguments(arguments []BuildArgument) error {
-	if len(arguments) == 0 {
-		return errors.New("buildx locked build arguments are required")
-	}
-	previous := ""
-	foundSourceDateEpoch := false
-	for _, argument := range arguments {
-		if !validBuildxArgumentName(argument.Name) {
-			return fmt.Errorf("buildx argument name %q is invalid", argument.Name)
-		}
-		if _, forbidden := forbiddenBuildArgumentNames[strings.ToUpper(argument.Name)]; forbidden {
-			return fmt.Errorf("buildx proxy argument %q is forbidden", argument.Name)
-		}
-		if previous >= argument.Name {
-			return errors.New("buildx arguments must be strictly sorted and unique")
-		}
-		if argument.Name == sourceDateEpochArgument {
-			if err := validateSourceDateEpoch(argument.Value); err != nil {
-				return err
-			}
-			foundSourceDateEpoch = true
-		} else if !immutableImageReference(argument.Value) {
-			return fmt.Errorf("buildx argument %q must be an immutable image reference", argument.Name)
-		}
-		previous = argument.Name
-	}
-	if !foundSourceDateEpoch {
-		return errors.New("buildx SOURCE_DATE_EPOCH argument is required")
 	}
 	return nil
 }
@@ -847,18 +825,6 @@ func readBuildxMetadataFile(metadataPath string) ([]byte, error) {
 		return nil, fmt.Errorf("read buildx metadata file: %w", err)
 	}
 	return data, nil
-}
-
-func parseBuildxDigestOutput(output string) (string, error) {
-	trimmed := strings.TrimSuffix(output, "\n")
-	trimmed = strings.TrimSuffix(trimmed, "\r")
-	if trimmed == "" || strings.TrimSpace(trimmed) != trimmed || strings.ContainsAny(trimmed, "\r\n") {
-		return "", errors.New("buildx command output must contain one digest and no trailing output")
-	}
-	if err := validateDigest("buildx manifest output", trimmed); err != nil {
-		return "", err
-	}
-	return trimmed, nil
 }
 
 func buildxCommandExecutorIsNil(executor buildxCommandExecutor) bool {

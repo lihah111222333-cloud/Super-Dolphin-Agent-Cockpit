@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -21,6 +22,7 @@ type coordinatorOwner struct {
 	dependencies        coordinatorDependencies
 	daemonIdentityKey   string
 	shardCleanupTimeout time.Duration
+	schedulingPolicy    coordinatorSchedulingPolicy
 	recovered           []coordinatorJobRecord
 	fatal               chan error
 	workers             errgroup.Group
@@ -37,7 +39,9 @@ func openCoordinatorOwner(
 	if err := dependencies.validate(); err != nil {
 		return nil, err
 	}
-	schedulerOwner, err := localci.OpenSchedulerOwner(ctx, checkpoint.SchedulerConfig)
+	schedulerConfig := checkpoint.SchedulerConfig
+	schedulerConfig.MaxActiveWorkloads = dependencies.SchedulingPolicy.MaxActiveCIWorkloads
+	schedulerOwner, err := localci.OpenSchedulerOwner(ctx, schedulerConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -48,7 +52,8 @@ func openCoordinatorOwner(
 	owner := &coordinatorOwner{
 		schedulerOwner: schedulerOwner, store: store, dependencies: dependencies,
 		daemonIdentityKey: checkpoint.IdentityKey, shardCleanupTimeout: coordinatorCleanupTimeout,
-		fatal: make(chan error, 1),
+		schedulingPolicy: dependencies.SchedulingPolicy,
+		fatal:            make(chan error, 1),
 	}
 	reconcileCtx, cancelReconcile := localci.BoundedOperationContext(context.WithoutCancel(ctx), coordinatorCleanupTimeout)
 	owner.recovered, err = owner.reconcileRecovery(reconcileCtx)
@@ -57,7 +62,7 @@ func openCoordinatorOwner(
 		return nil, errors.Join(err, store.close(), schedulerOwner.Close())
 	}
 	connectCtx, cancelConnect := localci.BoundedOperationContext(context.WithoutCancel(ctx), coordinatorConnectTimeout)
-	owner.schedulerClient, err = localci.DialScheduler(connectCtx, checkpoint.SchedulerConfig)
+	owner.schedulerClient, err = localci.DialScheduler(connectCtx, schedulerConfig)
 	cancelConnect()
 	if err != nil {
 		return nil, errors.Join(err, store.close(), schedulerOwner.Close())
@@ -222,9 +227,28 @@ func (owner *coordinatorOwner) executeCandidateBuild(ctx context.Context, worklo
 		return errors.Join(err, fmt.Errorf("complete candidate build workload %q: %w", workloadID, completeErr))
 	}
 	if err != nil {
-		return fmt.Errorf("execute candidate build workload %q within candidate build timeout: %w", workloadID, err)
+		return owner.failCandidateBuildDependents(cleanupCtx, workloadID,
+			fmt.Errorf("execute candidate build workload %q within candidate build timeout: %w", workloadID, err))
 	}
 	return nil
+}
+
+// failCandidateBuildDependents 将构建错误写入全部排队依赖任务，但不把预期的 workload 失败升级为 owner 进程故障。
+func (owner *coordinatorOwner) failCandidateBuildDependents(ctx context.Context, workloadID string, buildErr error) error {
+	records, err := owner.store.jobs(ctx)
+	if err != nil {
+		return errors.Join(buildErr, fmt.Errorf("load candidate build dependents: %w", err))
+	}
+	var completionErrors []error
+	for _, record := range records {
+		if record.State != jobStateQueued || !slices.Contains(record.SchedulerDependencies, workloadID) {
+			continue
+		}
+		if err := owner.completeExecution(ctx, record, receiptExecution{}, jobStateInfraFailed, buildErr); err != nil {
+			completionErrors = append(completionErrors, fmt.Errorf("fail candidate build dependent %q: %w", record.JobID, err))
+		}
+	}
+	return errors.Join(completionErrors...)
 }
 
 func (owner *coordinatorOwner) executeJob(parent context.Context, jobID string) error {
@@ -247,7 +271,7 @@ func (owner *coordinatorOwner) admitContainerShards(ctx context.Context, record 
 		return owner.completeExecution(ctx, record, receiptExecution{}, jobStateInfraFailed,
 			fmt.Errorf("provision truth image within provisioning timeout: %w", err))
 	}
-	set, err := gatecontract.BuildContainerShardSet(record.Plan, image.Identity.PlatformManifestDigest, image.Identity.ConfigDigest)
+	set, err := owner.buildContainerShardSet(record.Plan, image.Identity.PlatformManifestDigest, image.Identity.ConfigDigest)
 	if err != nil {
 		return owner.completeExecution(ctx, record, receiptExecution{}, jobStateInfraFailed, err)
 	}
@@ -262,6 +286,30 @@ func (owner *coordinatorOwner) admitContainerShards(ctx context.Context, record 
 		return fmt.Errorf("complete shard preparation workload: %w", err)
 	}
 	return nil
+}
+
+// buildContainerShardSet keeps the owner-side configured count bound to the durable set.
+func (owner *coordinatorOwner) buildContainerShardSet(
+	plan gatecontract.GatePlan,
+	manifestDigest string,
+	configDigest string,
+) (gatecontract.ContainerShardSet, error) {
+	set, err := gatecontract.BuildContainerShardSetWithCount(
+		plan,
+		manifestDigest,
+		configDigest,
+		uint8(owner.schedulingPolicy.ShardsPerJob),
+	)
+	if err != nil {
+		return gatecontract.ContainerShardSet{}, err
+	}
+	if len(set.Shards) != owner.schedulingPolicy.ShardsPerJob {
+		return gatecontract.ContainerShardSet{}, fmt.Errorf(
+			"configured shards_per_job %d does not match gate shard set %d",
+			owner.schedulingPolicy.ShardsPerJob, len(set.Shards),
+		)
+	}
+	return set, nil
 }
 
 func (owner *coordinatorOwner) ensureJobImage(ctx context.Context, record coordinatorJobRecord) (ensuredImage, error) {
@@ -631,7 +679,7 @@ func recoveredShardResultsFailed(results []localci.FreshContainerResult) bool {
 func recoveredShardSet(record coordinatorJobRecord, probes []recoveredShardProbe) (gatecontract.ContainerShardSet, error) {
 	set := gatecontract.ContainerShardSet{Profile: record.Profile, PlanDigest: record.Plan.PlanDigest, SourceTreeSHA: record.JobSourceTreeSHA,
 		AcceptedManifestDigest: probes[0].shard.Shard.AcceptedManifestDigest, AcceptedConfigDigest: probes[0].shard.Shard.AcceptedConfigDigest,
-		Shards: make([]gatecontract.ContainerShard, len(probes))}
+		ShardsPerJob: probes[0].shard.Shard.ShardsPerJob, Shards: make([]gatecontract.ContainerShard, len(probes))}
 	for index := range probes {
 		set.Shards[index] = probes[index].shard.Shard
 	}

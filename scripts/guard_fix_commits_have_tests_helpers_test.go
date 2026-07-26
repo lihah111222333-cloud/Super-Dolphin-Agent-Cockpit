@@ -187,6 +187,16 @@ case "${1:-}" in
       exit 1
     fi
     printf 'fixture wait verified staged tree %s job=%s\n' "$tree" "$fixture_job"
+    if [ -n "${GATE_WAIT_READY_FILE:-}" ]; then
+      : >"$GATE_WAIT_READY_FILE"
+    fi
+    if [ -n "${GATE_WAIT_FOR_INTERRUPT:-}" ]; then
+      sleep 2
+    fi
+    if [ -n "${GATE_WAIT_FORCE_FAILURE:-}" ]; then
+      printf '%s\n' 'forced wait failure' >&2
+      exit 42
+    fi
     fixture_tmp=$(mktemp -d "${TMPDIR:-/tmp}/pre-commit-fixture.XXXXXX")
     fixture_worktree="$fixture_tmp/worktree"
     git -C "$repository_root" worktree add --quiet --detach --no-checkout "$fixture_worktree" HEAD
@@ -346,27 +356,6 @@ func writePreCommitFakeCodemapMakefile(t *testing.T, root string) {
 	}
 }
 
-func writePrePushScopeFakeBins(t *testing.T, logPath string) string {
-	t.Helper()
-	binDir := t.TempDir()
-	for name, content := range map[string]string{
-		"go":   "#!/usr/bin/env bash\nprintf 'go %s\\n' \"$*\" >>\"$HOOK_SCOPE_LOG\"\nif [ \"${1:-}\" = \"list\" ]; then shift; printf '%s\\n' \"$@\"; fi\n",
-		"make": "#!/usr/bin/env bash\nprintf 'make %s\\n' \"$*\" >>\"$HOOK_SCOPE_LOG\"\n",
-		"node": "#!/usr/bin/env bash\ncase \"${1:-}\" in\n  -e)\n    [ \"${2:-}\" = \"process.exit(0)\" ] || exit 1\n    exit 0\n    ;;\n  -p)\n    case \"${2:-}\" in\n      'require(\"node:fs\").realpathSync(process.execPath)') printf '%s\\n' \"$0\" ;;\n      'process.version') printf '%s\\n' 'v20.0.0' ;;\n      *) exit 1 ;;\n    esac\n    ;;\n  *) printf 'node %s\\n' \"$*\" >>\"$HOOK_SCOPE_LOG\" ;;\nesac\n",
-		"npx":  "#!/usr/bin/env bash\nprintf 'npx %s\\n' \"$*\" >>\"$HOOK_SCOPE_LOG\"\n",
-		"npm":  "#!/usr/bin/env bash\nprintf 'npm %s\\n' \"$*\" >>\"$HOOK_SCOPE_LOG\"\n",
-	} {
-		path := filepath.Join(binDir, name)
-		if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
-			t.Fatalf("write fake %s: %v", name, err)
-		}
-	}
-	if err := os.WriteFile(logPath, nil, 0o644); err != nil {
-		t.Fatalf("write log file: %v", err)
-	}
-	return binDir
-}
-
 func TestPreCommitCreatesDeterministicEmbedPlaceholderFromStagedSnapshot(t *testing.T) {
 	for _, mutableIgnoredArtifact := range []bool{false, true} {
 		name := "without ignored artifact"
@@ -412,46 +401,6 @@ func TestPreCommitFixtureGateRejectsUnsupportedClosureCommand(t *testing.T) {
 		t.Fatalf("fixture gate accepted unsupported closure command:\n%s", out)
 	}
 	assertOutputContainsAll(t, string(out), "fixture gate: closure requires check --tree <tree>")
-}
-
-func prePushStdin(base, head string) string {
-	return "refs/heads/main " + head + " refs/heads/main " + base + "\n"
-}
-
-func runPrePushScopeHook(t *testing.T, root, stdin, binDir, logPath string) (string, error) {
-	t.Helper()
-	cmd := exec.Command("bash", bashPath(".githooks", "pre-push"))
-	cmd.Dir = root
-	cmd.Stdin = strings.NewReader(stdin)
-	capcontractGoBin := os.Getenv("CAPCONTRACT_PATH_RULES_GO_BIN")
-	if capcontractGoBin == "" {
-		resolvedGo, err := exec.LookPath("go")
-		if err != nil {
-			t.Fatalf("resolve real Go executable for path-rules fixture: %v", err)
-		}
-		capcontractGoBin = bashAbsolutePath(resolvedGo)
-	}
-	env := append(os.Environ(),
-		"PATH="+bashArg("", binDir)+":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-		"HOOK_SCOPE_LOG="+bashArg("", logPath),
-		"CAPCONTRACT_PATH_RULES_GO_BIN="+capcontractGoBin,
-		"SUPER_DOLPHIN_HOOK_NODE_BIN="+bashArg("", binDir),
-	)
-	cmd.Env = appendWSLEnvKeysWithGitPath(
-		t,
-		env,
-		"PATH",
-		"HOOK_SCOPE_LOG",
-		"CAPCONTRACT_PATH_RULES_GO_BIN",
-		"SUPER_DOLPHIN_HOOK_NODE_BIN",
-	)
-	out, err := cmd.CombinedOutput()
-	return string(out), err
-}
-
-func runPreCommitHook(t *testing.T, root string) (string, error) {
-	t.Helper()
-	return runPreCommitHookWithEnv(t, root, nil)
 }
 
 func runPreCommitHookWithEnv(t *testing.T, root string, extra map[string]string) (string, error) {
@@ -553,36 +502,6 @@ func assertPreCommitRepositoryState(t *testing.T, root string, want preCommitRep
 	if got := capturePreCommitRepositoryState(t, root); got != want {
 		t.Fatalf("repository state changed by staged gate\ngot:  %#v\nwant: %#v", got, want)
 	}
-}
-
-func preCommitOutputValue(t *testing.T, output, prefix string) string {
-	t.Helper()
-	for line := range strings.SplitSeq(output, "\n") {
-		if value, ok := strings.CutPrefix(line, prefix); ok {
-			return value
-		}
-	}
-	t.Fatalf("output missing prefix %q\n%s", prefix, output)
-	return ""
-}
-
-func assertSyntheticGateSnapshot(t *testing.T, output, expectedTree, diffBase string, parents ...string) {
-	t.Helper()
-	gateCommit := preCommitOutputValue(t, output, "gate-head=")
-	if gateCommit == "" || gateCommit == diffBase {
-		t.Fatalf("gate commit %q must be a distinct synthetic commit from %q\n%s", gateCommit, diffBase, output)
-	}
-	assertOutputContainsAll(t, output,
-		"gate-tree="+expectedTree,
-		"gate-status=\n",
-		"--diff-cached",
-	)
-	assertOutputOmitsAll(t, output, "--diff-range")
-	wantParents := "gate-head-parents=" + gateCommit
-	for _, parent := range parents {
-		wantParents += " " + parent
-	}
-	assertOutputContainsAll(t, output, wantParents)
 }
 
 func runCICommitGuard(t *testing.T, root string, env map[string]string, args ...string) (string, error) {

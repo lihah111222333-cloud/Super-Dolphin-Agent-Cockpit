@@ -81,4 +81,19 @@ func validImageIdentityStub() imageIdentityStub {
 	}
 }
 
+func TestValidateContainerCapabilityIsolationRejectsStorageOptions(t *testing.T) {
+	host := &containerHostConfig{
+		CapDrop:     []string{"ALL"},
+		NetworkMode: noContainerNetwork,
+		StorageOpt:  map[string]string{},
+	}
+	if err := validateContainerCapabilityIsolation(host); err != nil {
+		t.Fatalf("empty storage options were rejected: %v", err)
+	}
+	host.StorageOpt["size"] = "10G"
+	if err := validateContainerCapabilityIsolation(host); err == nil {
+		t.Fatal("backend-specific writable layer storage option was accepted")
+	}
+}
+
 func digest(character string) string { return "sha256:" + strings.Repeat(character, 64) }

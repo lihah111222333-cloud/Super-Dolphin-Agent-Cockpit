@@ -474,7 +474,8 @@ func assertProductionCoordinatorConfigFields(t *testing.T) {
 		"ResultReceiptAuthority": "result receipt authority",
 		"ActionGrantAuthority":   "single-use action authority",
 		"PromotionSigner":        "host signing authority", "CandidateTTLSeconds": "candidate expiry",
-		"PromotionPollMillis": "watcher cadence",
+		"PromotionPollMillis": "watcher cadence", "ShardsPerJob": "per-job shard count",
+		"MaxActiveCIWorkloads": "scheduler capacity",
 	})
 	assertProductionFields(t, reflect.TypeFor[productionTrustedKey](), map[string]string{
 		"Signer": "key identity", "PublicKey": "Ed25519 verification material",
@@ -564,6 +565,12 @@ func TestLoadProductionCoordinatorConfigFileValidatesDecodedConfig(t *testing.T)
 		}},
 		{name: "promotion_poll", want: "promotion_poll_millis must be within 5000..60000", mutate: func(config *productionCoordinatorConfig) {
 			config.PromotionPollMillis = 4_999
+		}},
+		{name: "shards_per_job", want: "shards_per_job must be within 1..64", mutate: func(config *productionCoordinatorConfig) {
+			config.ShardsPerJob = 0
+		}},
+		{name: "max_active_ci_workloads", want: "max_active_ci_workloads must be at least shards_per_job", mutate: func(config *productionCoordinatorConfig) {
+			config.MaxActiveCIWorkloads = config.ShardsPerJob - 1
 		}},
 		{name: "root_overlap", want: "roots must not overlap", mutate: func(config *productionCoordinatorConfig) {
 			config.CandidateBuildRoot = config.AcceptedImageRoot

@@ -21,26 +21,28 @@ type buildxCommandCall struct {
 }
 
 type recordingBuildxCommandExecutor struct {
-	calls            []buildxCommandCall
-	contextErrs      []error
-	metadata         []byte
-	output           string
-	err              error
-	path             string
-	builderName      string
-	request          BuildKitBuildRequest
-	inspectOutput    string
-	containerOutput  string
-	imageOutput      string
-	attachmentOutput string
-	attachmentErr    error
-	onBuild          func()
-	createErr        error
-	updateErr        error
-	removeErr        error
-	createSideEffect bool
-	builders         map[string]bool
-	containers       map[string]bool
+	calls             []buildxCommandCall
+	contextErrs       []error
+	metadata          []byte
+	output            string
+	err               error
+	path              string
+	builderName       string
+	request           BuildKitBuildRequest
+	inspectOutput     string
+	containerOutput   string
+	imageOutput       string
+	attachmentOutput  string
+	attachmentErr     error
+	onBuild           func()
+	runtimeBuildErrs  []error
+	runtimeBuildCalls int
+	createErr         error
+	updateErr         error
+	removeErr         error
+	createSideEffect  bool
+	builders          map[string]bool
+	containers        map[string]bool
 }
 
 func (executor *recordingBuildxCommandExecutor) Run(ctx context.Context, stdin io.Reader, args ...string) (string, error) {
@@ -211,6 +213,9 @@ func testBuildxOutput(output string, fallback string) string {
 }
 
 func (executor *recordingBuildxCommandExecutor) runCandidateBuild(args []string) (string, error) {
+	if slices.Contains(args, "--file=build/gate/runtime-deps.Dockerfile") {
+		return executor.runRuntimeDepsBuild(args)
+	}
 	executor.path = buildxMetadataPath(args)
 	if executor.onBuild != nil {
 		executor.onBuild()
@@ -230,6 +235,29 @@ func (executor *recordingBuildxCommandExecutor) runCandidateBuild(args []string)
 		return "", err
 	}
 	return executor.output, nil
+}
+
+func (executor *recordingBuildxCommandExecutor) runRuntimeDepsBuild(args []string) (string, error) {
+	call := executor.runtimeBuildCalls
+	executor.runtimeBuildCalls++
+	if call < len(executor.runtimeBuildErrs) {
+		return "", executor.runtimeBuildErrs[call]
+	}
+	if executor.err != nil {
+		return "", executor.err
+	}
+	metadataPath := buildxMetadataPath(args)
+	if metadataPath == "" {
+		return "", errors.New("runtime dependencies metadata path was not provided")
+	}
+	metadata, err := json.Marshal(validRuntimeDepsBuildxMetadata(executor.request.Platform))
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(metadataPath, metadata, 0o600); err != nil {
+		return "", err
+	}
+	return "", nil
 }
 
 func (executor *recordingBuildxCommandExecutor) candidateMetadata() ([]byte, error) {
@@ -340,8 +368,15 @@ func buildValidBuildxProvenanceDocument(request BuildKitBuildRequest) (map[strin
 
 func buildValidBuildxMaterialsDocument(request BuildKitBuildRequest) ([]any, error) {
 	materials := make([]any, 0, len(request.BuildArguments))
+	runtimeMaterial, err := expectedRuntimeDepsBuildxMaterial(digest("7"), request.Platform)
+	if err != nil {
+		return nil, err
+	}
+	materials = append(materials, map[string]any{
+		"uri": runtimeMaterial.URI, "digest": map[string]any{"sha256": runtimeMaterial.Digest.SHA256},
+	})
 	for _, argument := range request.BuildArguments {
-		if argument.Name == sourceDateEpochArgument {
+		if argument.Name == sourceDateEpochArgument || argument.Name == "RUNTIME_DEPS_IMAGE" {
 			continue
 		}
 		material, err := expectedBuildxImageMaterial(argument.Value, request.Platform)
@@ -356,6 +391,22 @@ func buildValidBuildxMaterialsDocument(request BuildKitBuildRequest) ([]any, err
 		"uri":    "http://buildkit-session/test",
 		"digest": map[string]any{"sha256": strings.TrimPrefix(request.ContextDigest, "sha256:")},
 	}), nil
+}
+
+func validRuntimeDepsBuildxMetadata(platformValue string) map[string]any {
+	platform, _ := parseBuildxPlatform(platformValue)
+	return map[string]any{
+		"buildx.build.provenance":      map[string]any{"runtime": true},
+		"buildx.build.ref":             testBuildxHistoryRecordReference,
+		"containerimage.config.digest": digest("6"),
+		"containerimage.descriptor": map[string]any{
+			"mediaType": runtimeDepsManifestMedia,
+			"digest":    digest("7"),
+			"size":      512,
+			"platform":  platform,
+		},
+		"containerimage.digest": digest("7"),
+	}
 }
 
 func validBuildxConfigSource(request BuildKitBuildRequest) map[string]any {
@@ -433,7 +484,11 @@ func expectedCandidateImageTag(request BuildKitBuildRequest) string {
 }
 
 func expectedProvenanceArgs(request BuildKitBuildRequest) map[string]any {
-	arguments := map[string]any{"force-network-mode": "none"}
+	arguments := map[string]any{
+		"force-network-mode":   "none",
+		"frontend.caps":        buildxNamedContextCaps,
+		"context:runtime-deps": "oci-layout://" + testBuildxHistoryRecordReference + ":latest@" + digest("7"),
+	}
 	for _, argument := range request.BuildArguments {
 		arguments["build-arg:"+argument.Name] = argument.Value
 	}

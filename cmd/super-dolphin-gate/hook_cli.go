@@ -110,7 +110,7 @@ func runPrePushHook(
 		return infrastructureError("create pre-push action attempt: %v", err)
 	}
 	for index, request := range requests {
-		status, executeErr := executeHookRequest(ctx, coordinator, request)
+		status, executeErr := executePrePushRequest(ctx, coordinator, request)
 		if err := gitHookDecision(status, request.Submit.Source.SourceTreeSHA, executeErr); err != nil {
 			return fmt.Errorf("pre-push ref update %d: %w", index+1, err)
 		}
@@ -131,6 +131,23 @@ func runPrePushHook(
 		}
 	}
 	return nil
+}
+
+// executePrePushRequest 在同一次 hook action 内等待已提交 job 的终态，避免重试创建重复 invocation。
+func executePrePushRequest(
+	ctx context.Context,
+	coordinator gatehook.Coordinator,
+	request gatehook.Request,
+) (gatehook.JobStatus, error) {
+	status, err := executeHookRequest(ctx, coordinator, request)
+	if err != nil || status.State != gatehook.JobStateQueued && status.State != gatehook.JobStateRunning {
+		return status, err
+	}
+	wait, err := gatehook.WaitRequestForStatus(request.Submit.Repository, request.Submit.Invocation, status)
+	if err != nil {
+		return status, err
+	}
+	return coordinator.Wait(ctx, wait)
 }
 
 // newHookDeliveryID 为一次真实 Git hook action 分配不可预测的 delivery identity。

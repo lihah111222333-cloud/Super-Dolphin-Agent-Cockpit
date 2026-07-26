@@ -14,12 +14,14 @@ import (
 )
 
 const (
-	// MaxContainerShards is both the canonical invocation cap and the scheduler gang size.
-	MaxContainerShards                 = 3
-	containerShardSchemaVersion uint32 = 1
-	containerShardCPUNanos      int64  = 4_000_000_000
-	containerShardMemoryBytes   int64  = 8 << 30
-	containerShardPIDs          int64  = 512
+	// MaxContainerShards bounds an explicitly requested per-invocation shard count.
+	MaxContainerShards                       = 64
+	legacyContainerShardCount                = 3
+	containerShardSchemaVersion       uint32 = 2
+	legacyContainerShardSchemaVersion uint32 = 1
+	containerShardCPUNanos            int64  = 4_000_000_000
+	containerShardMemoryBytes         int64  = 8 << 30
+	containerShardPIDs                int64  = 512
 )
 
 // ContainerShard binds one disposable container to an exact subset of a canonical plan.
@@ -33,6 +35,7 @@ type ContainerShard struct {
 	SourceTreeSHA          string   `json:"source_tree_sha"`
 	AcceptedManifestDigest string   `json:"accepted_manifest_digest"`
 	AcceptedConfigDigest   string   `json:"accepted_config_digest"`
+	ShardsPerJob           uint8    `json:"shards_per_job"`
 	GateIDs                []GateID `json:"gate_ids"`
 }
 
@@ -43,6 +46,7 @@ type ContainerShardSet struct {
 	SourceTreeSHA          string
 	AcceptedManifestDigest string
 	AcceptedConfigDigest   string
+	ShardsPerJob           uint8
 	Shards                 []ContainerShard
 }
 
@@ -63,25 +67,41 @@ type ContainerShardReceipt struct {
 	Deadline              time.Time                `json:"deadline"`
 }
 
-// ContainerShardRunner executes exactly one already-validated disposable-container shard.
+// ContainerShardRunner 执行一个已验证的一次性容器分片。
 type ContainerShardRunner func(context.Context, ContainerShard) (ContainerShardReceipt, error)
 
-// BuildContainerShardSet 将单次 canonical invocation 固定切成至多三个容器工作组。
+// BuildContainerShardSet 保留历史默认三分片构造入口。
 func BuildContainerShardSet(plan GatePlan, acceptedManifestDigest string, acceptedConfigDigest string) (ContainerShardSet, error) {
-	if _, err := containerShardPrerequisites(plan, acceptedManifestDigest, acceptedConfigDigest); err != nil {
+	return BuildContainerShardSetWithCount(plan, acceptedManifestDigest, acceptedConfigDigest, legacyContainerShardCount)
+}
+
+// BuildContainerShardSetWithCount 按显式数量构造与 invocation 绑定的 canonical 分片集合。
+func BuildContainerShardSetWithCount(plan GatePlan, acceptedManifestDigest string, acceptedConfigDigest string, shardsPerJob uint8) (ContainerShardSet, error) {
+	prerequisites, err := containerShardPrerequisites(plan, acceptedManifestDigest, acceptedConfigDigest)
+	if err != nil {
+		return ContainerShardSet{}, err
+	}
+	if err := validateRequestedContainerShardCount(shardsPerJob, len(prerequisites)); err != nil {
 		return ContainerShardSet{}, err
 	}
 	set := ContainerShardSet{
 		Profile: plan.Profile, PlanDigest: plan.PlanDigest, SourceTreeSHA: plan.Source.SourceTreeSHA,
-		AcceptedManifestDigest: acceptedManifestDigest, AcceptedConfigDigest: acceptedConfigDigest,
+		AcceptedManifestDigest: acceptedManifestDigest, AcceptedConfigDigest: acceptedConfigDigest, ShardsPerJob: shardsPerJob,
 	}
-	if err := appendContainerShards(&set, canonicalContainerShardGroups(plan.Profile)); err != nil {
+	if err := appendContainerShards(&set, canonicalContainerShardGroups(plan.Profile, shardsPerJob)); err != nil {
 		return ContainerShardSet{}, err
 	}
 	if err := set.Validate(); err != nil {
 		return ContainerShardSet{}, err
 	}
 	return set, nil
+}
+
+func validateRequestedContainerShardCount(shardsPerJob uint8, gateCount int) error {
+	if shardsPerJob == 0 || shardsPerJob > MaxContainerShards || int(shardsPerJob) > gateCount {
+		return fmt.Errorf("shards_per_job %d is outside 1..min(%d,%d)", shardsPerJob, MaxContainerShards, gateCount)
+	}
+	return nil
 }
 
 // containerShardPrerequisites 从完整 plan 剥离只能由聚合器拥有的 release gate。
@@ -107,7 +127,7 @@ func appendContainerShards(set *ContainerShardSet, groups [][]GateID) error {
 		if len(gates) == 0 {
 			continue
 		}
-		shard := ContainerShard{SchemaVersion: containerShardSchemaVersion, Index: uint8(len(set.Shards)), Profile: set.Profile, PlanDigest: set.PlanDigest, SourceTreeSHA: set.SourceTreeSHA, AcceptedManifestDigest: set.AcceptedManifestDigest, AcceptedConfigDigest: set.AcceptedConfigDigest, GateIDs: slices.Clone(gates)}
+		shard := ContainerShard{SchemaVersion: containerShardSchemaVersion, Index: uint8(len(set.Shards)), Profile: set.Profile, PlanDigest: set.PlanDigest, SourceTreeSHA: set.SourceTreeSHA, AcceptedManifestDigest: set.AcceptedManifestDigest, AcceptedConfigDigest: set.AcceptedConfigDigest, ShardsPerJob: set.ShardsPerJob, GateIDs: slices.Clone(gates)}
 		identity, err := containerShardIdentityDigest(shard)
 		if err != nil {
 			return err
@@ -146,9 +166,60 @@ func (set ContainerShardSet) Validate() error {
 	return nil
 }
 
+// ValidateStored 校验历史终态分片的摘要与计划覆盖，不把旧分组当成当前可执行策略。
+func (set ContainerShardSet) ValidateStored(plan GatePlan) error {
+	if err := plan.ValidateStored(); err != nil {
+		return err
+	}
+	if err := validateStoredContainerShardSetHeader(set); err != nil {
+		return err
+	}
+	if set.Profile != plan.Profile || set.PlanDigest != plan.PlanDigest || set.SourceTreeSHA != plan.Source.SourceTreeSHA {
+		return errors.New("stored container shard set drifted from its plan")
+	}
+	seen, err := validateStoredContainerShardIdentities(set)
+	if err != nil {
+		return err
+	}
+	return validateStoredContainerShardCoverage(seen, plan)
+}
+
+// validateStoredContainerShardIdentities 校验历史分片身份并拒绝重复 gate 归属。
+func validateStoredContainerShardIdentities(set ContainerShardSet) (map[GateID]struct{}, error) {
+	seen := make(map[GateID]struct{})
+	for index, shard := range set.Shards {
+		if err := validateStoredContainerShard(set, shard, index); err != nil {
+			return nil, err
+		}
+		if err := claimContainerShardGates(seen, shard.GateIDs); err != nil {
+			return nil, err
+		}
+	}
+	return seen, nil
+}
+
+// validateStoredContainerShardCoverage 校验历史分片恰好覆盖计划内非 release gate。
+func validateStoredContainerShardCoverage(seen map[GateID]struct{}, plan GatePlan) error {
+	expected := make(map[GateID]struct{}, len(plan.Gates))
+	for _, spec := range plan.Gates {
+		if spec.ID != GateIDReleaseLayeredCheck {
+			expected[spec.ID] = struct{}{}
+		}
+	}
+	if len(seen) != len(expected) {
+		return errors.New("stored container shard set does not exactly cover its plan")
+	}
+	for id := range expected {
+		if _, ok := seen[id]; !ok {
+			return fmt.Errorf("stored container shard set omits gate %q", id)
+		}
+	}
+	return nil
+}
+
 // validateCanonicalContainerShardGroups 拒绝遗漏、重排或把 gate 塞进错误 worker 的自洽伪造集合。
 func validateCanonicalContainerShardGroups(set ContainerShardSet) error {
-	expected := canonicalContainerShardGroups(set.Profile)
+	expected := canonicalContainerShardGroups(set.Profile, set.ShardsPerJob)
 	if len(set.Shards) != len(expected) {
 		return errors.New("container shard set does not have canonical shard count")
 	}
@@ -173,15 +244,37 @@ func validateContainerShardSetHeader(set ContainerShardSet) error {
 	if set.SourceTreeSHA == "" {
 		return errors.New("container shard set source tree SHA is required")
 	}
-	if len(set.Shards) == 0 || len(set.Shards) > MaxContainerShards {
-		return fmt.Errorf("container shard count %d is outside 1..%d", len(set.Shards), MaxContainerShards)
+	if err := validateRequestedContainerShardCount(set.ShardsPerJob, len(requiredContainerShardGateIDs(set.Profile))); err != nil {
+		return err
+	}
+	if len(set.Shards) != int(set.ShardsPerJob) {
+		return errors.New("container shard count does not match shards_per_job")
 	}
 	return nil
 }
 
+func validateStoredContainerShardSetHeader(set ContainerShardSet) error {
+	if allLegacyContainerShards(set.Shards) {
+		set.ShardsPerJob = legacyContainerShardCount
+	}
+	return validateContainerShardSetHeader(set)
+}
+
+func allLegacyContainerShards(shards []ContainerShard) bool {
+	if len(shards) != legacyContainerShardCount {
+		return false
+	}
+	for _, shard := range shards {
+		if shard.SchemaVersion != legacyContainerShardSchemaVersion || shard.ShardsPerJob != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // validateContainerShard 验证单 shard 不能改变 group 绑定或把 release gate 交给 worker。
 func validateContainerShard(set ContainerShardSet, shard ContainerShard, index int) error {
-	if shard.Index != uint8(index) || shard.SchemaVersion != containerShardSchemaVersion {
+	if shard.Index != uint8(index) || shard.SchemaVersion != containerShardSchemaVersion || shard.ShardsPerJob != set.ShardsPerJob {
 		return errors.New("container shard identity binding drifted")
 	}
 	if err := validateContainerShardBinding(set, shard); err != nil {
@@ -193,6 +286,42 @@ func validateContainerShard(set ContainerShardSet, shard ContainerShard, index i
 	}
 	if len(shard.GateIDs) == 0 || slices.Contains(shard.GateIDs, GateIDReleaseLayeredCheck) {
 		return errors.New("container shard gate set is invalid")
+	}
+	return nil
+}
+
+// validateStoredContainerShard 校验当前或历史分片的版本、身份与 gate 边界。
+func validateStoredContainerShard(set ContainerShardSet, shard ContainerShard, index int) error {
+	legacy := allLegacyContainerShards(set.Shards)
+	if err := validateStoredContainerShardVersion(set, shard, index); err != nil {
+		return err
+	}
+	if err := validateContainerShardBinding(set, shard); err != nil {
+		return err
+	}
+	return validateStoredContainerShardDigest(shard, legacy)
+}
+
+// validateStoredContainerShardVersion 区分历史三分片与当前动态分片版本绑定。
+func validateStoredContainerShardVersion(set ContainerShardSet, shard ContainerShard, index int) error {
+	if allLegacyContainerShards(set.Shards) {
+		if shard.Index != uint8(index) || shard.SchemaVersion != legacyContainerShardSchemaVersion || shard.ShardsPerJob != 0 {
+			return errors.New("stored container shard identity binding drifted")
+		}
+	} else if err := validateContainerShard(set, shard, index); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateStoredContainerShardDigest 按 schema 版本复验历史或当前分片摘要。
+func validateStoredContainerShardDigest(shard ContainerShard, legacy bool) error {
+	identity, err := containerShardIdentityDigest(shard)
+	if legacy {
+		identity, err = legacyContainerShardIdentityDigest(shard)
+	}
+	if err != nil || shard.IdentityDigest != identity || len(shard.GateIDs) == 0 || slices.Contains(shard.GateIDs, GateIDReleaseLayeredCheck) {
+		return errors.New("stored container shard identity binding drifted")
 	}
 	return nil
 }
@@ -219,6 +348,28 @@ func claimContainerShardGates(seen map[GateID]struct{}, gateIDs []GateID) error 
 }
 
 func containerShardIdentityDigest(shard ContainerShard) (string, error) {
+	material := struct {
+		SchemaVersion          uint32
+		Index                  uint8
+		Profile                Profile
+		PlanDigest             string
+		SourceTreeSHA          string
+		AcceptedManifestDigest string
+		AcceptedConfigDigest   string
+		ShardsPerJob           uint8
+		GateIDs                []GateID
+	}{shard.SchemaVersion, shard.Index, shard.Profile, shard.PlanDigest, shard.SourceTreeSHA,
+		shard.AcceptedManifestDigest, shard.AcceptedConfigDigest, shard.ShardsPerJob, shard.GateIDs}
+	encoded, err := json.Marshal(material)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(encoded)
+	return fmt.Sprintf("sha256:%x", sum), nil
+}
+
+// legacyContainerShardIdentityDigest 复现 schema v1 未包含分片数量字段的历史摘要。
+func legacyContainerShardIdentityDigest(shard ContainerShard) (string, error) {
 	material := struct {
 		SchemaVersion          uint32
 		Index                  uint8
@@ -357,6 +508,61 @@ func collectContainerShardResults(set ContainerShardSet, indexed map[string]Cont
 	return results, nil
 }
 
+func collectStoredContainerShardResults(
+	set ContainerShardSet,
+	indexed map[string]ContainerShardReceipt,
+	plan GatePlan,
+) (map[GateID]PlanGateExecution, error) {
+	specs := make(map[GateID]GateSpec, len(plan.Gates))
+	for _, spec := range plan.Gates {
+		specs[spec.ID] = spec
+	}
+	results := make(map[GateID]PlanGateExecution)
+	var deadline time.Time
+	for _, shard := range set.Shards {
+		if err := collectStoredContainerShardResult(shard, indexed, specs, &deadline, results); err != nil {
+			return nil, err
+		}
+	}
+	return results, nil
+}
+
+// collectStoredContainerShardResult 校验一个历史分片回执并汇入唯一 gate 结果集合。
+func collectStoredContainerShardResult(
+	shard ContainerShard,
+	indexed map[string]ContainerShardReceipt,
+	specs map[GateID]GateSpec,
+	deadline *time.Time,
+	results map[GateID]PlanGateExecution,
+) error {
+	receipt, exists := indexed[shard.IdentityDigest]
+	if !exists || !equalContainerShard(receipt.Shard, shard) {
+		return errors.New("stored container shard receipt identity is missing or forged")
+	}
+	for _, validate := range []func(ContainerShardReceipt) error{
+		validateShardRemoval,
+		validateShardTimeline,
+		validateShardResources,
+	} {
+		if err := validate(receipt); err != nil {
+			return err
+		}
+	}
+	if err := validateStoredShardGateExecutions(shard, receipt.GateExecutions, specs); err != nil {
+		return err
+	}
+	if err := claimShardDeadline(deadline, receipt.Deadline); err != nil {
+		return err
+	}
+	for _, execution := range receipt.GateExecutions {
+		if _, exists := results[execution.GateID]; exists {
+			return fmt.Errorf("gate %q has duplicate stored receipt coverage", execution.GateID)
+		}
+		results[execution.GateID] = execution
+	}
+	return nil
+}
+
 func claimShardDeadline(deadline *time.Time, candidate time.Time) error {
 	if deadline.IsZero() {
 		*deadline = candidate
@@ -411,6 +617,7 @@ func equalContainerShard(left, right ContainerShard) bool {
 	return left.SchemaVersion == right.SchemaVersion && left.Index == right.Index && left.IdentityDigest == right.IdentityDigest &&
 		left.Profile == right.Profile && left.PlanDigest == right.PlanDigest && left.SourceTreeSHA == right.SourceTreeSHA &&
 		left.AcceptedManifestDigest == right.AcceptedManifestDigest && left.AcceptedConfigDigest == right.AcceptedConfigDigest &&
+		left.ShardsPerJob == right.ShardsPerJob &&
 		slices.Equal(left.GateIDs, right.GateIDs)
 }
 
@@ -536,6 +743,32 @@ func validateShardGateExecutions(shard ContainerShard, executions []PlanGateExec
 	for index, id := range shard.GateIDs {
 		if err := validateShardGateExecution(shard.Profile, id, executions[index]); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// validateStoredShardGateExecutions 将历史执行结果绑定到其原始计划命令摘要。
+func validateStoredShardGateExecutions(
+	shard ContainerShard,
+	executions []PlanGateExecution,
+	specs map[GateID]GateSpec,
+) error {
+	if len(executions) != len(shard.GateIDs) {
+		return errors.New("stored container shard receipt gate coverage is incomplete")
+	}
+	for index, id := range shard.GateIDs {
+		spec, ok := specs[id]
+		if !ok {
+			return fmt.Errorf("stored container shard gate %q is absent from its plan", id)
+		}
+		argvDigest, err := gateSpecArgvDigest(spec)
+		if err != nil {
+			return err
+		}
+		execution := executions[index]
+		if !validPassedShardGateExecution(id, execution) || execution.ArgvDigest != argvDigest {
+			return fmt.Errorf("stored container shard receipt gate %q is invalid", id)
 		}
 	}
 	return nil

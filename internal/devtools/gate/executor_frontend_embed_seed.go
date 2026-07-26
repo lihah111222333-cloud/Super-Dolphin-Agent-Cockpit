@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 )
 
-// installExecutorSeeds 组合锁文件绑定的运行时依赖与真相镜像前端产物。
+// installExecutorSeeds 组合锁文件绑定的运行时依赖与 Go embed 编译占位种子。
 func installExecutorSeeds(config executorConfig, layout executorLayout, program ExecutorProgram) error {
 	if err := installRuntimeSeeds(config, layout, program); err != nil {
 		return err
@@ -18,7 +18,7 @@ func installExecutorSeeds(config executorConfig, layout executorLayout, program 
 	return installFrontendEmbedSeed(config, layout)
 }
 
-// installFrontendEmbedSeed 注入真相镜像中的预构建前端产物，不读取 runtime manifest。
+// installFrontendEmbedSeed 注入与产品代码无关的 Go embed 编译占位种子，不替代前端构建门禁。
 func installFrontendEmbedSeed(config executorConfig, layout executorLayout) error {
 	seedRoot, err := trustedDirectory(config.frontendEmbedSeedRoot, false, -1)
 	if err != nil {

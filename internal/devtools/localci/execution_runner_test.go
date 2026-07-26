@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -32,6 +30,7 @@ type freshDockerRunnerStub struct {
 	psOutputs     []string
 	psCalls       int
 	createErr     error
+	createNoID    bool
 	startErr      error
 	containerID   string
 	finishedAt    string
@@ -91,6 +90,9 @@ func (stub *freshDockerRunnerStub) runLifecycle(command string) (string, error) 
 }
 
 func (stub *freshDockerRunnerStub) runCreate() (string, error) {
+	if stub.createNoID {
+		return "", stub.createErr
+	}
 	if stub.containerID == "" {
 		stub.containerID = testContainerID
 	}
@@ -143,6 +145,10 @@ func (stub *freshDockerRunnerStub) imageInspectJSON() string {
 		descriptor["annotations"] = map[string]string{}
 	case "familiar repository":
 		document["RepoDigests"] = []string{strings.TrimPrefix(identity.Registry, "docker.io/library/") + "@" + identity.PlatformManifestDigest}
+	case "legacy local store":
+		document["Id"] = identity.ConfigDigest
+		document["RepoDigests"] = []string{}
+		document["Descriptor"] = nil
 	case "rootfs":
 		document["RootFS"] = map[string]any{"Type": "layers", "Layers": []string{digest("9")}}
 	case "platform":
@@ -173,10 +179,14 @@ func (stub *freshDockerRunnerStub) containerInspectJSON(finished bool) string {
 			exitCode = stub.waitExitCode
 		}
 	}
+	imageReference, err := executionImageReference(stub.request.Image)
+	if err != nil {
+		stub.t.Fatal(err)
+	}
 	document := map[string]any{
-		"Id": stub.containerID, "Image": stub.request.Image.PlatformManifestDigest, "Path": command[0], "Args": command[1:],
+		"Id": stub.containerID, "Image": stub.request.Image.ConfigDigest, "Path": command[0], "Args": command[1:],
 		"Config": map[string]any{
-			"Image": stub.request.Image.Registry + "@" + stub.request.Image.PlatformManifestDigest, "User": "65532:65532",
+			"Image": imageReference, "User": "65532:65532",
 			"WorkingDir": "/workspace/work", "Labels": stub.request.ContainerLabels,
 			"Env": []string{
 				"HOME=/workspace/work/home", "TMPDIR=/workspace/work/tmp", "GOCACHE=/workspace/work/go-cache",
@@ -189,7 +199,7 @@ func (stub *freshDockerRunnerStub) containerInspectJSON(finished bool) string {
 			"Init":     true,
 			"NanoCpus": int64(4_000_000_000), "Memory": int64(8 * 1024 * 1024 * 1024), "PidsLimit": int64(512),
 			"ReadonlyRootfs": true, "CapDrop": []string{"ALL"}, "SecurityOpt": []string{"no-new-privileges", "seccomp=/fixture/seccomp.json"},
-			"NetworkMode": "none", "StorageOpt": map[string]string{"size": "10G"},
+			"NetworkMode": "none", "StorageOpt": map[string]string{},
 			"Tmpfs": map[string]string{
 				"/tmp":            "rw,noexec,nosuid,nodev,size=2147483648",
 				"/workspace/work": "rw,exec,nosuid,nodev,size=5368709120,uid=65532,gid=65532,mode=0700",
@@ -240,18 +250,6 @@ func TestRunFreshContainerAcceptsDocker29DescriptorConfigAndReturnsEvidence(t *t
 	if !calledDockerCommand(stub.calls, "ps") {
 		t.Fatalf("Docker removal proof missing: %#v", stub.calls)
 	}
-}
-
-func TestRunFreshContainerAcceptsDockerHubFamiliarDigestReference(t *testing.T) {
-	runner, stub, request := freshContainerFixture(t)
-	request.Image.Registry = candidateImageRepository
-	stub.request = request
-	stub.imageMutation = "familiar repository"
-	result, err := runner.RunFreshContainer(context.Background(), request)
-	if err != nil {
-		t.Fatalf("RunFreshContainer() error = %v", err)
-	}
-	assertFreshContainerEvidence(t, result)
 }
 
 func assertFreshContainerEvidence(t *testing.T, result FreshContainerResult) {
@@ -410,6 +408,30 @@ func TestRunFreshContainerCreateIDErrorPersistsRemovedWithoutFabricatedExit(t *t
 	assertCleanupWithoutObservedExit(t, events, FreshContainerPhaseCreated)
 	if !result.ExitedAt.IsZero() {
 		t.Fatalf("create cleanup fabricated exited_at %s", result.ExitedAt)
+	}
+}
+
+func TestRunFreshContainerCreateWithoutIDProvesStableAbsence(t *testing.T) {
+	runner, stub, request := freshContainerFixture(t)
+	stub.createNoID = true
+	stub.createErr = errors.New("create returned no container ID")
+	events := make([]FreshContainerLifecycleEvent, 0, 3)
+	request.LifecycleHook = func(_ context.Context, event FreshContainerLifecycleEvent) error {
+		events = append(events, event)
+		return nil
+	}
+
+	result, err := runner.RunFreshContainer(context.Background(), request)
+	if err == nil || result.Status != gate.ResultStatusInfraFailed || !result.Container.Removed || result.RemovalProofDigest == "" {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	if stub.psCalls != creatingAbsenceProofs {
+		t.Fatalf("creating absence probes=%d want=%d calls=%#v", stub.psCalls, creatingAbsenceProofs, stub.calls)
+	}
+	assertCleanupWithoutObservedExit(t, events, FreshContainerPhaseCreating)
+	operationIdentity := mustFreshContainerOperationIdentity(t, request.ContainerLabels)
+	if events[len(events)-1].ContainerID != operationIdentity {
+		t.Fatalf("removed lifecycle container identity=%q want=%q", events[len(events)-1].ContainerID, operationIdentity)
 	}
 }
 
@@ -793,29 +815,6 @@ func freshContainerFixture(t *testing.T) (*FreshContainerRunner, *freshDockerRun
 	return runner, stub, request
 }
 
-func canonicalDockerFixture(t *testing.T) (string, string, string) {
-	t.Helper()
-	seccomp, root, source := dockerFixture(t)
-	for _, path := range []string{seccomp, root, source} {
-		resolved, err := filepath.EvalSymlinks(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		switch path {
-		case seccomp:
-			seccomp = resolved
-		case root:
-			root = resolved
-		case source:
-			source = resolved
-		}
-	}
-	if err := os.Chmod(source, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	return seccomp, root, source
-}
-
 func validFreshContainerRequest(t *testing.T, source string) FreshContainerRequest {
 	t.Helper()
 	jobSourceTree := strings.Repeat("b", 40)
@@ -839,13 +838,4 @@ func validFreshContainerRequest(t *testing.T, source string) FreshContainerReque
 		SourceTreeSHA: jobSourceTree, SourceSnapshotDir: source, Profile: gate.ProfileLocalFast, Plan: plan, GateID: gate.GateIDWhitespaceCheck,
 		ContainerLabels: map[string]string{"test.container": "fresh-container-fixture"},
 	}
-}
-
-func calledDockerCommand(calls [][]string, prefix ...string) bool {
-	for _, call := range calls {
-		if len(call) >= len(prefix) && slices.Equal(call[:len(prefix)], prefix) {
-			return true
-		}
-	}
-	return false
 }

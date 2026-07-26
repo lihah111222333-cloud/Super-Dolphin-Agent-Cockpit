@@ -551,9 +551,10 @@ func schedulerTransportTestRoot(t *testing.T) string {
 
 func schedulerTransportTestConfig(daemonID string) SchedulerConfig {
 	return SchedulerConfig{
-		Endpoint: "unix:///var/run/docker.sock",
-		DaemonID: daemonID,
-		OwnerUID: os.Geteuid(),
+		Endpoint:           "unix:///var/run/docker.sock",
+		DaemonID:           daemonID,
+		OwnerUID:           os.Geteuid(),
+		MaxActiveWorkloads: testMaxActiveWorkloads,
 	}
 }
 
