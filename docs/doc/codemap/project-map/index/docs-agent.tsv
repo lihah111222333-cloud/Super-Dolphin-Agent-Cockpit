@@ -5,6 +5,7 @@ docs/adr/0001-workflow-runtime-kernel.md	docs	docs-agent	doc	2538	架构决策�
 docs/adr/0002-session-ports-and-prefix-stability.md	docs	docs-agent	doc	1701	架构决策记录	docs,adr,0002,session,ports,and,prefix,stability,架构决策记录
 docs/adr/0003-mcp-tool-lifecycle-owner-storage.md	docs	docs-agent	doc	11828	架构决策记录	docs,adr,0003,mcp,tool,lifecycle,owner,storage,架构决策记录
 docs/adr/2026-06-30-writer-preview-contract-spike.md	docs	docs-agent	doc	16954	架构决策记录	docs,adr,2026,06,30,writer,preview,contract,spike,架构决策记录
+docs/adr/README.md	docs	docs-agent	doc	964	架构决策记录	docs,adr,README,架构决策记录
 docs/ai01-docs/agent-implementation-plan.md	docs	docs-agent	doc	8571	项目文档体系	docs,ai01,agent,implementation,plan,项目文档体系
 docs/ai01-docs/agent-manus-like-spec.md	docs	docs-agent	doc	23793	项目文档体系	docs,ai01,agent,manus,like,spec,项目文档体系
 docs/ai01-docs/frontend-backend-interface-audit-2026-06-12.md	docs	docs-agent	doc	14309	项目文档体系	docs,ai01,frontend,backend,interface,audit,2026,06,12,项目文档体系
@@ -93,17 +94,6 @@ docs/ai01-docs/政企工作流/2026-06-17-enterprise-workflow-template-package-t
 docs/ai01-docs/政企工作流/2026-06-17-enterprise-workflow-template-package.md	docs	docs-agent	doc	5346	项目文档体系	docs,ai01,政企工作流,2026,06,17,enterprise,workflow,template,package,项目文档体系
 docs/ai01-docs/政企工作流/2026-06-18-工作流模板实现测试记录.md	docs	docs-agent	doc	4419	项目文档体系	docs,ai01,政企工作流,2026,06,18,工作流模板实现测试记录,项目文档体系
 docs/ai01-docs/政企工作流/2026-06-18-工作流浏览器功能测试记录.md	docs	docs-agent	doc	3657	项目文档体系	docs,ai01,政企工作流,2026,06,18,工作流浏览器功能测试记录,项目文档体系
-docs/ai04-docs/mcp_server_datasource接口使用说明.md	docs	docs-agent	doc	8766	项目文档体系	docs,ai04,mcp,server,datasource接口使用说明,项目文档体系
-docs/ai04-docs/修改记录2026-06-12 _17-19.md	docs	docs-agent	doc	3537	项目文档体系	docs,ai04,修改记录2026,06,12 ,17,19,项目文档体系
-docs/ai04-docs/修改记录2026-06-13 _12-18.md	docs	docs-agent	doc	4062	项目文档体系	docs,ai04,修改记录2026,06,13 ,12,18,项目文档体系
-docs/ai04-docs/修改记录2026-06-13 _14-08.md	docs	docs-agent	doc	4465	项目文档体系	docs,ai04,修改记录2026,06,13 ,14,08,项目文档体系
-docs/ai04-docs/修改记录2026-06-13 _15-24.md	docs	docs-agent	doc	4820	项目文档体系	docs,ai04,修改记录2026,06,13 ,15,24,项目文档体系
-docs/ai04-docs/修改记录2026-06-13 _16-06.md	docs	docs-agent	doc	11163	项目文档体系	docs,ai04,修改记录2026,06,13 ,16,项目文档体系
-docs/ai04-docs/修改记录2026-06-13 _datasource正文解析落库.md	docs	docs-agent	doc	8666	项目文档体系	docs,ai04,修改记录2026,06,13 ,datasource正文解析落库,项目文档体系
-docs/ai04-docs/修改记录2026-06-13 _turn构建system prompt接入datasource和mcp_server.md	docs	docs-agent	doc	6762	项目文档体系	docs,ai04,修改记录2026,06,13 ,turn构建system prompt接入datasource和mcp,server,项目文档体系
-docs/ai04-docs/修改记录2026-06-15 _10-02_mcp_server同名active配置跳过.md	docs	docs-agent	doc	4695	项目文档体系	docs,ai04,修改记录2026,06,15 ,10,02,mcp,server同名active配置跳过,项目文档体系
-docs/ai04-docs/修改记录2026-06-15 _15-38_HTTP_MCP_tools进入Codex动态工具请求.md	docs	docs-agent	doc	7052	项目文档体系	docs,ai04,修改记录2026,06,15 ,15,38,HTTP,MCP,tools进入Codex动态工具请求,项目文档体系
-docs/ai04-docs/修改记录2026-06-16 _11-25_mcpServer_postgres改为npm全局安装.md	docs	docs-agent	doc	7638	项目文档体系	docs,ai04,修改记录2026,06,16 ,11,25,mcpServer,postgres改为npm全局安装,项目文档体系
 docs/automation/代码仓库腐化守卫巡检协议.md	docs	docs-agent	doc	22574	项目文档体系	docs,automation,代码仓库腐化守卫巡检协议,项目文档体系
 docs/before/1/session-summary.md	docs	docs-agent	doc	65595	项目文档体系	docs,before,1,session,summary,项目文档体系
 docs/before/1/会话习惯-迁移版.md	docs	docs-agent	doc	10059	项目文档体系	docs,before,1,会话习惯,迁移版,项目文档体系
@@ -342,6 +332,7 @@ docs/git-history-v3-architecture-governance-clusters-2026-07-04.md	docs	docs-age
 docs/guards/code-size-freeze-v3-fail-first.txt	docs	docs-agent	txt	466	项目文档体系	docs,guards,code,size,freeze,v3,fail,first,项目文档体系
 docs/internal-notes/lsp提示词英文版.md	docs	docs-agent	doc	2283	内部提示词与工程方法记录	docs,internal,notes,lsp提示词英文版,内部提示词与工程方法记录
 docs/internal-notes/LSP系统提示词.md	docs	docs-agent	doc	2922	内部提示词与工程方法记录	docs,internal,notes,LSP系统提示词,内部提示词与工程方法记录
+docs/internal-notes/README.md	docs	docs-agent	doc	559	内部提示词与工程方法记录	docs,internal,notes,README,内部提示词与工程方法记录
 docs/internal-notes/RPC能力E2E覆盖矩阵.md	docs	docs-agent	doc	10761	内部提示词与工程方法记录	docs,internal,notes,RPC能力E2E覆盖矩阵,内部提示词与工程方法记录
 docs/li/2026-06-27-reasonix-architecture-absorption-plan.md	docs	docs-agent	doc	65302	项目文档体系	docs,li,2026,06,27,reasonix,architecture,absorption,plan,项目文档体系
 docs/li/reasonix-absorption-spikes/event-wire-methods.md	docs	docs-agent	doc	1078	项目文档体系	docs,li,reasonix,absorption,spikes,event,wire,methods,项目文档体系
@@ -349,6 +340,7 @@ docs/li/reasonix-absorption-spikes/mcp-tool-lifecycle.md	docs	docs-agent	doc	530
 docs/li/reasonix-absorption-spikes/prompt-prefix-shape.md	docs	docs-agent	doc	628	项目文档体系	docs,li,reasonix,absorption,spikes,prompt,prefix,shape,项目文档体系
 docs/open-source/ARCHITECTURE.md	docs	docs-agent	doc	9765	项目文档体系	docs,open,source,ARCHITECTURE,项目文档体系
 docs/open-source/GOVERNANCE.md	docs	docs-agent	doc	11529	项目文档体系	docs,open,source,GOVERNANCE,项目文档体系
+docs/open-source/README.md	docs	docs-agent	doc	634	项目文档体系	docs,open,source,README,项目文档体系
 docs/open-source/RELEASE_CHECKLIST.md	docs	docs-agent	doc	5049	项目文档体系	docs,open,source,RELEASE,CHECKLIST,项目文档体系
 docs/open-source/ROADMAP.md	docs	docs-agent	doc	3152	项目文档体系	docs,open,source,ROADMAP,项目文档体系
 docs/pians/2026-06-29-production-risk-remediation-evidence.md	docs	docs-agent	doc	15046	项目文档体系	docs,pians,2026,06,29,production,risk,remediation,evidence,项目文档体系
@@ -546,7 +538,7 @@ docs/plans/orch-pos-feedback-loop/2026-06-01-phase6/score-table.md	docs	docs-age
 docs/plans/orch-pos-feedback-loop/2026-06-01-phase6/scorecards/array-output-migration.json	docs	docs-agent	json	1248	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase6,scorecards,array,output,migration,历史计划与迁移执行文档
 docs/plans/orch-pos-feedback-loop/2026-06-01-validation/cognitive-usability-score.md	docs	docs-agent	doc	3867	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,validation,cognitive,usability,score,历史计划与迁移执行文档
 docs/plans/prompt-ui-redesign.md	docs	docs-agent	doc	20838	历史计划与迁移执行文档	docs,plans,prompt,ui,redesign,历史计划与迁移执行文档
-docs/plans/README.md	docs	docs-agent	doc	377	历史计划与迁移执行文档	docs,plans,README,历史计划与迁移执行文档
+docs/plans/README.md	docs	docs-agent	doc	750	历史计划与迁移执行文档	docs,plans,README,历史计划与迁移执行文档
 docs/plans/v3-workflow.md	docs	docs-agent	doc	82475	历史计划与迁移执行文档	docs,plans,v3,workflow,历史计划与迁移执行文档
 docs/plans/架构违规修复.md	docs	docs-agent	doc	29066	历史计划与迁移执行文档	docs,plans,架构违规修复,历史计划与迁移执行文档
 docs/plans/自动化.md	docs	docs-agent	doc	62015	历史计划与迁移执行文档	docs,plans,自动化,历史计划与迁移执行文档
@@ -832,7 +824,8 @@ docs/plans/迁移/verify-align-thread.md	docs	docs-agent	doc	7795	历史计划�
 docs/plans/迁移/verify-align-turn.md	docs	docs-agent	doc	3306	历史计划与迁移执行文档	docs,plans,迁移,verify,align,turn,历史计划与迁移执行文档
 docs/plans/迁移/verify-align-workspace.md	docs	docs-agent	doc	5365	历史计划与迁移执行文档	docs,plans,迁移,verify,align,workspace,历史计划与迁移执行文档
 docs/plans/迁移/verify-arch-compliance.md	docs	docs-agent	doc	8054	历史计划与迁移执行文档	docs,plans,迁移,verify,arch,compliance,历史计划与迁移执行文档
-docs/README.md	docs	docs-agent	doc	1558	项目文档体系	docs,README,项目文档体系
+docs/README.md	docs	docs-agent	doc	4245	项目文档体系	docs,README,项目文档体系
+docs/reference/README.md	docs	docs-agent	doc	430	项目文档体系	docs,reference,README,项目文档体系
 docs/scripts/macos_release_smoke.sh	docs	docs-agent	script	19061	项目文档体系	docs,scripts,macos,release,smoke,项目文档体系
 docs/security/internal/check_repofp_delegators.go	docs	docs-agent	go-source	2298	项目文档体系	docs,security,internal,check,repofp,delegators,项目文档体系
 docs/security/p21-redteam.sh	docs	docs-agent	script	7238	项目文档体系	docs,security,p21,redteam,项目文档体系
@@ -921,6 +914,9 @@ docs/superpowers/需求文档/摘要承接与长会话恢复-未完成.md	docs	d
 docs/superpowers/需求文档/模型网关与计费路由-未完成.md	docs	docs-agent	doc	5938	项目文档体系	docs,superpowers,需求文档,模型网关与计费路由,未完成,项目文档体系
 docs/superpowers/需求文档/竞品调研与产品差异-未完成.md	docs	docs-agent	doc	5937	项目文档体系	docs,superpowers,需求文档,竞品调研与产品差异,未完成,项目文档体系
 docs/superpowers/需求文档/账号试用充值与运营后台-未完成.md	docs	docs-agent	doc	7846	项目文档体系	docs,superpowers,需求文档,账号试用充值与运营后台,未完成,项目文档体系
+docs/work/plans/README.md	docs	docs-agent	doc	388	项目文档体系	docs,work,plans,README,项目文档体系
+docs/work/proposals/README.md	docs	docs-agent	doc	367	项目文档体系	docs,work,proposals,README,项目文档体系
+docs/work/README.md	docs	docs-agent	doc	698	项目文档体系	docs,work,README,项目文档体系
 docs/契约/atomic-commit-convention.md	docs	docs-agent	doc	8075	项目文档体系	docs,契约,atomic,commit,convention,项目文档体系
 docs/契约/fail-fast-convention.md	docs	docs-agent	doc	9470	项目文档体系	docs,契约,fail,fast,convention,项目文档体系
 docs/契约/fix-workflow-convention.md	docs	docs-agent	doc	24833	项目文档体系	docs,契约,fix,workflow,convention,项目文档体系
@@ -950,6 +946,7 @@ docs/调研/context-window/raw-openai-codex.md	docs	docs-agent	doc	10391	项目�
 docs/调研/context-window/raw-opensource-agents.md	docs	docs-agent	doc	17535	项目文档体系	docs,调研,context,window,raw,opensource,agents,项目文档体系
 docs/调研/context-window/上下文窗口去硬编码调研.md	docs	docs-agent	doc	21665	项目文档体系	docs,调研,context,window,上下文窗口去硬编码调研,项目文档体系
 docs/迁移/契约/stateless-convention.md	docs	docs-agent	doc	4071	项目文档体系	docs,迁移,契约,stateless,convention,项目文档体系
+docs/运维/README.md	docs	docs-agent	doc	499	项目文档体系	docs,运维,README,项目文档体系
 docs/运维/update-recovery-schema-rollout.md	docs	docs-agent	doc	8764	项目文档体系	docs,运维,update,recovery,schema,rollout,项目文档体系
 docs/面试试题.md	docs	docs-agent	doc	7567	项目文档体系	docs,面试试题,项目文档体系
 README.de.md	(root)	docs-agent	doc	31717	仓库根级配置、入口或说明文件	README,de,仓库根级配置,入口或说明文件

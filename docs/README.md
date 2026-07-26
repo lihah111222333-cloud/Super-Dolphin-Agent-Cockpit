@@ -1,36 +1,78 @@
-# Super-Dolphin Docs
+# Super-Dolphin 文档导航
 
-This directory separates current project references from historical planning
-material and archived agent output. Use this file as the default entry point
-before scanning large documentation folders.
+本目录同时保存当前规范、生成索引、运维资料和历史证据。开始查阅前先按本页确定资料性质，不要把历史计划或旧审查报告当作当前实现事实。
 
-## Current Sources
+## 事实来源优先级
 
-- `../README.md`: repository layout, entry points, and local development flow.
-- `doc/codemap/README.md`: generated code-map table of contents and reading
-  boundaries.
-- `decisions/` and `adr/`: accepted architecture decisions.
-- `契约/`: long-lived engineering conventions for framework, runtime, store,
-  RPC, MCP, and module boundaries.
-- `internal-notes/`: mandatory local workflow notes, including LSP tool-chain
-  guidance.
+1. 源码、同包测试和可复查的 LSP 证据。
+2. 状态为 Accepted 的 [ADR](adr/)。
+3. 当前 [工程契约](契约/) 与 [架构骨架](架构/)。
+4. 生成的 [代码地图](doc/codemap/README.md)，用于定位，不代替源码。
+5. 计划、迁移记录、调研和旧报告，仅用于追溯背景。
 
-## Historical Material
+资料冲突时按以上顺序校准，并修正仍被当作当前入口的过期文档。
 
-- `plans/`: historical execution plans. These files can explain why earlier
-  work happened, but they are not current implementation truth.
-- `superpowers/plans/`: historical Superpowers implementation plans.
-- `archive/`: old reports, agent notes, generated analysis, review logs, and
-  evidence moved out of the default reading path.
+## 当前入口
 
-When current behavior and historical documents disagree, trust source code,
-tests, accepted ADRs, and active contract docs first.
+| 入口 | 用途 |
+| --- | --- |
+| [项目 README](../README.md) | 产品定位、仓库布局、开发入口和验证命令 |
+| [开源文档](open-source/) | 对外架构、治理、路线图和发布检查 |
+| [ADR](adr/) | 架构决策及其 Accepted、Proposed 等状态 |
+| [工程契约](契约/) | Fail-Fast、模块边界、RPC、MCP、状态、存储和提交流程 |
+| [架构骨架](架构/) | Fx、runner、JSON-RPC、事件、状态机和代码守卫的长期分工 |
+| [当前参考](reference/) | 已由源码、测试或生成来源核验的 API、配置和字段参考 |
+| [内部说明](internal-notes/) | LSP 使用约束、RPC E2E 覆盖矩阵等维护说明 |
+| [运维](运维/) | 发布后或升级过程中的操作手册 |
 
-## Reading Order
+## 开发中材料
 
-1. Read `../README.md` for the active project shape.
-2. Read `doc/codemap/README.md`, then one relevant code-map volume.
-3. Read source code and same-package tests for the behavior in question.
-4. Use `decisions/`, `adr/`, and `契约/` for accepted constraints.
-5. Open `plans/`, `superpowers/plans/`, or `archive/` only for history,
-   migration context, or provenance.
+| 入口 | 用途 |
+| --- | --- |
+| [开发中文档](work/) | 有明确退出条件的提案和执行计划 |
+| [待评审提案](work/proposals/) | 尚未成为当前约束的设计提案 |
+| [执行中计划](work/plans/) | 已批准、尚未完成的实施计划 |
+
+提案被接受后应转化为 ADR、契约、架构文档或执行计划；计划完成、取消或被替代后应进入归档。
+
+## 生成索引与配套材料
+
+| 路径 | 性质 | 维护方式 |
+| --- | --- | --- |
+| [代码地图](doc/codemap/README.md) | 生成的源码导航与能力索引 | 修生成器后运行对应刷新/检查入口，不直接手改生成结果 |
+| `guards/` | 守卫使用的基线或冻结清单 | 与守卫实现和测试同步维护 |
+| `security/` | 安全检查脚本和辅助程序 | 与调用它们的验证入口同步维护 |
+| `healthy-check/` | 健康检查执行记录和计划 | 视为时点证据，不视为长期规范 |
+
+## 历史与追溯材料
+
+下列目录默认不进入当前行为的阅读链：
+
+| 路径 | 内容 |
+| --- | --- |
+| [历史计划](plans/) | 执行计划、迁移拆工和阶段性方案 |
+| [Superpowers 设计与计划](superpowers/) | 功能设计规格和历史实施计划 |
+| [归档](archive/) | 修改记录、过期参考、旧报告、审查记录和原始证据 |
+| `before/` | 早期文档快照和迁移前资料 |
+| `迁移/` | 迁移期约定；除非追溯迁移，不作为当前契约 |
+| `ai01-docs/`、`cc/`、`li/`、`pians/` | 尚待按生命周期迁移的阶段性设计、审查、修复证据和工作记录 |
+| `调研/` | 外部产品或技术调研原始材料 |
+
+这些路径仍可能被源码注释、测试或后续报告引用。移动或删除前必须先检查引用，并优先使用 `git mv` 保留历史。
+
+## 推荐阅读顺序
+
+1. 从[项目 README](../README.md)确认当前项目形态。
+2. 打开[代码地图目录](doc/codemap/README.md)，只选择与任务相关的一卷。
+3. 用源码、同包测试和 LSP 确认定义、引用、调用链与诊断。
+4. 查阅相关 ADR、工程契约和架构骨架。
+5. 只有需要来源、迁移背景或旧证据时，才进入历史目录。
+
+## 文档维护约定
+
+- 新增长期规则时，优先放入 `契约/`、`架构/` 或 `adr/`，并补充对应目录入口。
+- 开发提案和执行中计划只进入 `work/`，并写明状态和退出条件。
+- 一次性计划、审查结果和运行证据不得伪装成长期事实来源。
+- 无法证明仍与实现一致的旧接口说明进入 `archive/reference/`，不得直接进入 `reference/`。
+- 生成物看起来过期时，先确认生成器和刷新入口。
+- 文档改动至少运行 `git diff --check -- docs`；涉及代码地图或守卫说明时，再运行对应生成物检查。

@@ -1,9 +1,12 @@
-# Historical Plans
+# 历史执行计划
 
-This directory contains historical execution and migration plans. It is kept
-for traceability because source comments, tests, and older reports still refer
-to these paths.
+本目录保存历史执行计划和迁移拆工。源码注释、测试和旧报告仍可能引用这些路径，因此保留它们用于追溯。
 
-Do not treat these files as current implementation truth. For current behavior,
-read source code, tests, `docs/decisions/`, `docs/adr/`, `docs/契约/`, and the
-active code map first.
+这些文件不是当前实现事实。确认现有行为时，应依次查看源码与测试、`docs/adr/`、`docs/契约/`、`docs/架构/` 和当前代码地图。
+
+## 使用规则
+
+- 只有在追溯设计来源、迁移背景或执行证据时才读取本目录。
+- 未重新核验源码和测试前，不得直接执行旧计划中的命令或修改清单。
+- 新计划应明确日期、目标、事实基线和验收方式；完成后继续留在本目录作为历史记录。
+- 移动或删除旧计划前先检查仓库引用，并优先使用 `git mv` 保留历史。
