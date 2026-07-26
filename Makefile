@@ -68,7 +68,6 @@ frontend-app-build: frontend-app-deps
 		test -n "$$entry" || { echo "frontend required entries manifest contains an empty entry: $(FRONTEND_REQUIRED_ENTRIES_FILE)" >&2; exit 1; }; \
 		test -f "$(FRONTEND_APP_DIR)/dist/$$entry" || { echo "frontend dist missing required entry $$entry: $(FRONTEND_APP_DIR)/dist/$$entry" >&2; exit 1; }; \
 	done < "$(FRONTEND_REQUIRED_ENTRIES_FILE)"
-	node $(FRONTEND_APP_DIR)/scripts/sync-frontend-dist.mjs
 	test -f $(EMBEDDED_FRONTEND_DIR)/index.html
 	@while IFS= read -r entry || [ -n "$$entry" ]; do \
 		test -n "$$entry" || { echo "frontend required entries manifest contains an empty entry: $(FRONTEND_REQUIRED_ENTRIES_FILE)" >&2; exit 1; }; \
