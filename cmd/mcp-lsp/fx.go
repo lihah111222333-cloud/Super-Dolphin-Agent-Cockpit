@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/multilsp"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/tools"
@@ -24,11 +23,6 @@ import (
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 
 	"go.uber.org/fx"
-)
-
-const (
-	mcpLSPProcessIdleTimeoutEnv     = "MCP_LSP_PROCESS_IDLE_TIMEOUT"
-	defaultMcpLSPProcessIdleTimeout = 15 * time.Minute
 )
 
 // bootstrapRunner 持有启动配置和控制面客户端，等待 stdio server 就绪后再连接 RPC。
@@ -130,33 +124,10 @@ func newServer(handlers ToolHandlers) (*common.Server, error) {
 	if stdout == nil {
 		return nil, errors.New("mcp-lsp: mcpStdout not initialized; program assembly order is broken")
 	}
-	idleTimeout, err := mcpLSPProcessIdleTimeout()
-	if err != nil {
-		return nil, err
-	}
 	transport := common.NewStdioTransport(os.Stdin, stdout)
-	options := make([]common.ServerOption, 0, 1)
-	if os.Getenv("GO_AGENT_PEER_MODE") != "1" && idleTimeout > 0 {
-		options = append(options, common.WithIdleTimeout(idleTimeout))
-	}
 	return common.NewServer(binaryName, binaryVersion, transport, registryToolProvider{
 		defs: toolDefinitions(handlers),
-	}, options...), nil
-}
-
-func mcpLSPProcessIdleTimeout() (time.Duration, error) {
-	raw := strings.TrimSpace(os.Getenv(mcpLSPProcessIdleTimeoutEnv))
-	if raw == "" {
-		return defaultMcpLSPProcessIdleTimeout, nil
-	}
-	if raw == "0" {
-		return 0, nil
-	}
-	timeout, err := time.ParseDuration(raw)
-	if err != nil || timeout <= 0 {
-		return 0, errors.New(mcpLSPProcessIdleTimeoutEnv + " must be 0 or a positive Go duration")
-	}
-	return timeout, nil
+	}), nil
 }
 
 // newBootstrapRunner 构建 bootstrapRunner，等待 stdio server ready 信号后连接控制面。

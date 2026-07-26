@@ -4,14 +4,12 @@ package main
 
 import (
 	"context"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	gostdruntime "runtime"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 )
@@ -70,23 +68,6 @@ func TestMcpLSPBinaryConcurrentAgentsUseSharedGoplsDaemon_E2E(t *testing.T) {
 	}
 }
 
-func TestMcpLSPBinaryExitsAfterProcessIdleTimeout_E2E(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping mcp-lsp binary lifecycle e2e test in short mode")
-	}
-
-	root := t.TempDir()
-	binary := buildMcpLSPBinaryForTest(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, t.TempDir(), []string{
-		"MCP_LSP_PROCESS_IDLE_TIMEOUT=200ms",
-	})
-	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
-
-	waitForMcpLSPNaturalExit(t, client, 3*time.Second)
-}
-
 func TestMcpLSPBinaryRealGoplsDaemonExitsAfterLastForwarder_E2E(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping real gopls daemon lifecycle e2e test in short mode")
@@ -142,23 +123,6 @@ func TestMcpLSPBinaryRealGoplsDaemonExitsAfterLastForwarder_E2E(t *testing.T) {
 	requireMCPToolSuccess(t, second, result, "remaining worktree after first forwarder exits")
 	second.close(t)
 	waitForGoplsDaemonState(t, goplsPath, runtimeDir, false, 10*time.Second)
-}
-
-func waitForMcpLSPNaturalExit(t *testing.T, client *mcpLSPBinaryClient, timeout time.Duration) {
-	t.Helper()
-	done := make(chan error, 1)
-	var waiters sync.WaitGroup
-	waiters.Go(func() { done <- client.cmd.Wait() })
-	defer waiters.Wait()
-	select {
-	case err := <-done:
-		if err != nil && !errors.Is(err, os.ErrProcessDone) {
-			t.Fatalf("mcp-lsp idle exit: %v; stderr=%s", err, client.stderrString())
-		}
-	case <-time.After(timeout):
-		_ = client.cmd.Process.Kill()
-		t.Fatalf("mcp-lsp did not exit after configured idle timeout; stderr=%s", client.stderrString())
-	}
 }
 
 func waitForGoplsDaemonState(t *testing.T, goplsPath, runtimeDir string, wantRunning bool, timeout time.Duration) {

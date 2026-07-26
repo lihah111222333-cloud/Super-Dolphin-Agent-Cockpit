@@ -21,6 +21,23 @@ import (
 	"time"
 )
 
+// TestMcpLSPBinaryStdioRemainsAvailablePastLegacyProcessIdleTimeout_E2E 防止进程级空闲回收关闭 agent 持有的 stdio transport。
+func TestMcpLSPBinaryStdioRemainsAvailablePastLegacyProcessIdleTimeout_E2E(t *testing.T) {
+	root := t.TempDir()
+	binary := buildMcpLSPBinaryForTest(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, t.TempDir(), []string{
+		"MCP_LSP_PROCESS_IDLE_TIMEOUT=40ms",
+	})
+	defer client.close(t)
+
+	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+	time.Sleep(200 * time.Millisecond)
+	client.call(t, "tools/list", map[string]any{})
+}
+
 func TestMcpLSPBinaryPythonConstantIdentifierCompletion_E2E(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping mcp-lsp binary e2e test in short mode")
