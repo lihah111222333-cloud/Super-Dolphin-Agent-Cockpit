@@ -512,7 +512,7 @@ describe('SettingsPage provider migration', () => {
     ['stallThresholdSec', 29, '统一超时阈值', 30],
     ['contextUsageAlerts.thresholds', [70, 70, 95], 'Warn 阈值', 70],
     ['settings.provider.codex.effort', 'max', 'Provider Effort', 'xhigh'],
-    ['settings.provider.codex.sandbox', { type: 'workspaceWrite', writableRoots: 'bad', networkAccess: 'yes' }, 'Sandbox Policy', 'workspaceWrite'],
+    ['settings.provider.codex.sandbox', { type: 'workspaceWrite', writableRoots: 'bad', networkAccess: 'yes' }, 'Sandbox Policy', 'readOnly'],
   ])('rejects malformed %s without applying a fallback value', async (key, value, controlName, defaultValue) => {
     const preferences = preferenceFixture({ [key]: value });
     backend.getPreference.mockImplementation(({ key: requestedKey }) => Promise.resolve(preferences[requestedKey] ?? null));

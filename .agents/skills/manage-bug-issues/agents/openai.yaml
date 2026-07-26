@@ -1,0 +1,4 @@
+interface:
+  display_name: "Bug Issue 账本"
+  short_description: "通过项目级 Excel 账本管理 Bug Issue 生命周期"
+  default_prompt: "使用 $manage-bug-issues 记录、检索、推进或验证当前项目的 Bug Issue。"

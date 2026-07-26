@@ -102,6 +102,39 @@ func TestParseAgentConfig_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestParseNodeConfigsAcceptDisplayMetadataUI(t *testing.T) {
+	t.Parallel()
+	raw := json.RawMessage(`{"ui":{"stage_key":"intake","stage_title":"材料收集","execution_mode":"agent","operation_summary":"收集仓库文档","model_action":"分析并汇总","skills":["repo-audit"],"input_sources":["workspace"],"expected_outputs":["inventory.md"]}}`)
+	tests := []struct {
+		name  string
+		parse func(json.RawMessage) (*NodeUIConfig, error)
+	}{
+		{name: "agent", parse: func(raw json.RawMessage) (*NodeUIConfig, error) {
+			cfg, err := ParseAgentConfig(raw)
+			return cfg.UI, err
+		}},
+		{name: "automation", parse: func(raw json.RawMessage) (*NodeUIConfig, error) {
+			cfg, err := ParseAutomationConfig(raw)
+			return cfg.UI, err
+		}},
+		{name: "hybrid", parse: func(raw json.RawMessage) (*NodeUIConfig, error) {
+			cfg, err := ParseHybridConfig(raw)
+			return cfg.UI, err
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ui, err := test.parse(raw)
+			if err != nil {
+				t.Fatalf("parse config.ui: %v", err)
+			}
+			if ui == nil || ui.StageKey != "intake" || len(ui.ExpectedOutputs) != 1 || ui.ExpectedOutputs[0] != "inventory.md" {
+				t.Fatalf("config.ui lost fields: %+v", ui)
+			}
+		})
+	}
+}
+
 func TestParseNodeConfigsRejectUnknownFieldsAndTrailingJSON(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

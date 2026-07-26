@@ -178,3 +178,41 @@ it('normalizes legacy token usage pushes like the Vue frontend', () => {
   expect(usage.contextWindowTokens).toBe(258400);
   expect(usage.usedPercent).toBeCloseTo((42000 / 258400) * 100, 6);
 });
+
+it('keeps assistant deltas separated by itemId within the same turn', async () => {
+  vi.useFakeTimers();
+  try {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'running' }],
+      statuses: { 'thread-1': { status: 'running' } },
+      activeTurnByThread: { 'thread-1': { id: 'turn-1', status: 'running' } },
+      timelinesByThread: { 'thread-1': [] },
+    });
+    registerBridgeEventHandlersForTest();
+
+    for (const [itemId, delta] of [
+      ['item-a', '我先看'],
+      ['item-b', '我先检查'],
+      ['item-a', '工作区'],
+      ['item-b', '当前目录'],
+    ]) {
+      runtime.bridgeCallback({
+        type: 'turn/output/delta',
+        payload: { threadId: 'thread-1', turnId: 'turn-1', itemId, stream: 'assistant', delta },
+      });
+    }
+    await vi.advanceTimersByTimeAsync(60);
+
+    const messages = useClientStore.getState().timelinesByThread['thread-1']
+      .filter((item) => item.kind === 'assistant' && item.role === 'assistant');
+    expect(messages).toEqual([
+      expect.objectContaining({ id: 'item-a', text: '我先看工作区' }),
+      expect.objectContaining({ id: 'item-b', text: '我先检查当前目录' }),
+    ]);
+  } finally {
+    vi.useRealTimers();
+  }
+});

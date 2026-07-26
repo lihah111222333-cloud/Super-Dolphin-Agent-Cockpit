@@ -410,12 +410,26 @@ type HybridExecConfig struct {
 	Verifier   *AgentExecConfig      `json:"verifier,omitempty"`
 }
 
+// NodeUIConfig 是工作流编辑器展示节点阶段、动作与输入输出摘要所需的元数据。
+// 执行器不消费这些字段，但必须按项目工作流契约严格接收并保留它们。
+type NodeUIConfig struct {
+	StageKey         string   `json:"stage_key,omitempty"`
+	StageTitle       string   `json:"stage_title,omitempty"`
+	ExecutionMode    string   `json:"execution_mode,omitempty"`
+	OperationSummary string   `json:"operation_summary,omitempty"`
+	ModelAction      string   `json:"model_action,omitempty"`
+	Skills           []string `json:"skills,omitempty"`
+	InputSources     []string `json:"input_sources,omitempty"`
+	ExpectedOutputs  []string `json:"expected_outputs,omitempty"`
+}
+
 // AgentNodeConfig 是 node_type=agent 节点的完整 config。
 type AgentNodeConfig struct {
 	Exec      AgentExecConfig `json:"exec"`
 	Execution ExecutionConfig `json:"execution"`
 	Inputs    InputsConfig    `json:"inputs"`
 	Outputs   OutputsConfig   `json:"outputs"`
+	UI        *NodeUIConfig   `json:"ui,omitempty"`
 	// FirstTurn 可选：覆盖 agent_key 的默认提示词（一次性指令）。
 	FirstTurn string `json:"first_turn,omitempty"`
 }
@@ -426,6 +440,7 @@ type AutomationNodeConfig struct {
 	Execution ExecutionConfig      `json:"execution"`
 	Inputs    InputsConfig         `json:"inputs"`
 	Outputs   OutputsConfig        `json:"outputs"`
+	UI        *NodeUIConfig        `json:"ui,omitempty"`
 }
 
 // HybridNodeConfig 是 node_type=hybrid 节点的完整 config。
@@ -434,6 +449,7 @@ type HybridNodeConfig struct {
 	Execution ExecutionConfig  `json:"execution"`
 	Inputs    InputsConfig     `json:"inputs"`
 	Outputs   OutputsConfig    `json:"outputs"`
+	UI        *NodeUIConfig    `json:"ui,omitempty"`
 }
 
 // ErrUnknownNodeType 在 ParseNodeConfig 收到未知 node_type 时返回；errors.Is 可用。

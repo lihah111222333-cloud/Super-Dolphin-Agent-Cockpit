@@ -97,8 +97,8 @@ cmd/mcp-orch/orchestration/node_router.go	cmd	orchestration	go-source	28976	agen
 cmd/mcp-orch/orchestration/nodeevents/events_test.go	cmd	orchestration	go-test	1998	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,nodeevents,events,test,agent,生命周期,turn,队列,DAG,wakeup,report,与,hook
 cmd/mcp-orch/orchestration/nodeevents/events.go	cmd	orchestration	go-source	2567	agent 生命周期、turn 队列、DAG、wakeup、report 与 hook 消费	cmd,mcp,orch,orchestration,nodeevents,events,agent,生命周期,turn,队列,DAG,wakeup,report,与,hook,消费
 cmd/mcp-orch/orchestration/nodeexec/artifact_config_test.go	cmd	orchestration	go-test	5052	DAG 节点执行器、typed ops、输入输出与自动化执行	cmd,mcp,orch,orchestration,nodeexec,artifact,config,test,DAG,节点执行器,typed,ops,输入输出与自动化执行
-cmd/mcp-orch/orchestration/nodeexec/config_test.go	cmd	orchestration	go-test	22801	DAG 节点执行器、typed ops、输入输出与自动化执行	cmd,mcp,orch,orchestration,nodeexec,config,test,DAG,节点执行器,typed,ops,输入输出与自动化执行
-cmd/mcp-orch/orchestration/nodeexec/config.go	cmd	orchestration	go-source	29489	DAG 节点执行器、typed ops、输入输出与自动化执行	cmd,mcp,orch,orchestration,nodeexec,config,DAG,节点执行器,typed,ops,输入输出与自动化执行
+cmd/mcp-orch/orchestration/nodeexec/config_test.go	cmd	orchestration	go-test	24034	DAG 节点执行器、typed ops、输入输出与自动化执行	cmd,mcp,orch,orchestration,nodeexec,config,test,DAG,节点执行器,typed,ops,输入输出与自动化执行
+cmd/mcp-orch/orchestration/nodeexec/config.go	cmd	orchestration	go-source	30353	DAG 节点执行器、typed ops、输入输出与自动化执行	cmd,mcp,orch,orchestration,nodeexec,config,DAG,节点执行器,typed,ops,输入输出与自动化执行
 cmd/mcp-orch/orchestration/nodeexec/cycle_test.go	cmd	orchestration	go-test	10243	DAG 节点执行器、typed ops、输入输出与自动化执行	cmd,mcp,orch,orchestration,nodeexec,cycle,test,DAG,节点执行器,typed,ops,输入输出与自动化执行
 cmd/mcp-orch/orchestration/nodeexec/cycle.go	cmd	orchestration	go-source	10075	DAG 节点执行器、typed ops、输入输出与自动化执行	cmd,mcp,orch,orchestration,nodeexec,cycle,DAG,节点执行器,typed,ops,输入输出与自动化执行
 cmd/mcp-orch/orchestration/nodeexec/executor_agent_inputs_test.go	cmd	orchestration	go-test	17066	DAG 节点执行器、typed ops、输入输出与自动化执行	cmd,mcp,orch,orchestration,nodeexec,executor,agent,inputs,test,DAG,节点执行器,typed,ops,输入输出与自动化执行

@@ -409,8 +409,19 @@ func (a *App) emitRuntimeEvent(event string, data any) {
 	if a.emitter != nil {
 		a.emitter(event, data)
 	}
-	if a.pushRuntimeEvent != nil {
+	if a.pushRuntimeEvent != nil && shouldMirrorRuntimeEventToRPC(event) {
 		a.pushRuntimeEvent(a.callContext(), event, data)
+	}
+}
+
+// shouldMirrorRuntimeEventToRPC 避免把 EventBridge 的新旧兼容包络再次镜像到 UI WebSocket。
+// RPC push worker 已直接发送强类型通知，开发 runtime 会在浏览器侧合成这两个兼容事件。
+func shouldMirrorRuntimeEventToRPC(event string) bool {
+	switch strings.TrimSpace(event) {
+	case bridgeEventName, agentEventName:
+		return false
+	default:
+		return true
 	}
 }
 

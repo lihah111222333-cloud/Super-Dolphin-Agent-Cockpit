@@ -6,10 +6,14 @@ import { describe, expect, it } from 'vitest';
 
 const stylesheet = readFileSync(path.join(cwd(), 'src/pages/chat/thread/TurnProcessGroup.css'), 'utf8');
 const root = postcss.parse(stylesheet);
+const workflowStylesheet = readFileSync(path.join(cwd(), 'src/pages/workflows/WorkflowPage.css'), 'utf8');
+const workflowRoot = postcss.parse(workflowStylesheet);
+const chatStylesheet = readFileSync(path.join(cwd(), 'src/pages/chat/ChatMessages.css'), 'utf8');
+const chatRoot = postcss.parse(chatStylesheet);
 
-function declarationsFor(selector) {
+function declarationsFor(selector, stylesheetRoot = root) {
   const declarations = {};
-  root.walkRules(selector, (rule) => {
+  stylesheetRoot.walkRules(selector, (rule) => {
     if (rule.selector !== selector) return;
     rule.walkDecls((declaration) => {
       declarations[declaration.prop] = declaration.value;
@@ -19,6 +23,27 @@ function declarationsFor(selector) {
 }
 
 describe('TurnProcessGroup styles', () => {
+  it('keeps user bubbles content-sized and anchored to the right', () => {
+    const userBubble = declarationsFor('.message.user .chat-x-bubble', chatRoot);
+
+    expect(userBubble.width).toBe('fit-content');
+    expect(userBubble['max-width']).toBe('min(720px, 78%)');
+    expect(userBubble['margin-left']).toBe('auto');
+  });
+
+  it('prevents process disclosures from shrinking inside the timeline flex column', () => {
+    const group = declarationsFor('.turn-process');
+    const workflowSelectors = [];
+    workflowRoot.walkRules((rule) => workflowSelectors.push(rule.selector));
+
+    expect(group.padding).toBe('0');
+    expect(group.flex).toBe('0 0 auto');
+    expect(group['min-height']).toBe('46px');
+    expect(group.overflow).toBe('hidden');
+    expect(workflowSelectors).toContain('.workflow-page details');
+    expect(workflowSelectors).not.toContain('details');
+  });
+
   it('keeps expanded process messages inside a scrollable window', () => {
     const list = declarationsFor('.turn-process-list');
 

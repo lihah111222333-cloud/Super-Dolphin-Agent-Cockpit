@@ -1339,6 +1339,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.NodeSpawnRecorder",
         "cmd/mcp-orch/orchestration/nodeexec.NodeSpawnRecorder.RecordNodeSpawn",
         "cmd/mcp-orch/orchestration/nodeexec.NodeSpec",
+        "cmd/mcp-orch/orchestration/nodeexec.NodeUIConfig",
         "cmd/mcp-orch/orchestration/nodeexec.NormalizeDependsOn",
         "cmd/mcp-orch/orchestration/nodeexec.NormalizeNodeType",
         "cmd/mcp-orch/orchestration/nodeexec.OnFailureConfig",
@@ -3525,6 +3526,7 @@
         "internal/provider/codexapp.*session.forceCompleteTurn",
         "internal/provider/codexapp.*session.handleApprovalRequest",
         "internal/provider/codexapp.*session.handleConnectionDead",
+        "internal/provider/codexapp.*session.handleInboundApprovalRequest",
         "internal/provider/codexapp.*session.handleInboundToolCall",
         "internal/provider/codexapp.*session.handleNotificationAction",
         "internal/provider/codexapp.*session.injectAccumulatedResult",
@@ -3544,6 +3546,7 @@
         "internal/provider/codexapp.*session.pendingTurnRecoveryState",
         "internal/provider/codexapp.*session.pendingTurnSnapshot",
         "internal/provider/codexapp.*session.prepareAndSealTerminalNotification",
+        "internal/provider/codexapp.*session.prepareApprovalRequest",
         "internal/provider/codexapp.*session.prepareToolCall",
         "internal/provider/codexapp.*session.prepareTurnDynamicTools",
         "internal/provider/codexapp.*session.prepareTurnStartParams",
@@ -3568,6 +3571,7 @@
         "internal/provider/codexapp.*session.requestApprovalDecision",
         "internal/provider/codexapp.*session.requestToolApproval",
         "internal/provider/codexapp.*session.requestToolApprovalWithContext",
+        "internal/provider/codexapp.*session.requestToolApprovalWithSender",
         "internal/provider/codexapp.*session.reserveInterruptRequest",
         "internal/provider/codexapp.*session.reserveStartingTurn",
         "internal/provider/codexapp.*session.resolveTurnStartModel",
@@ -3722,8 +3726,12 @@
         "internal/provider/codexapp.approvalDeadlineExceededDecision",
         "internal/provider/codexapp.approvalDecisionContext",
         "internal/provider/codexapp.approvalDecisionFailedDecision",
+        "internal/provider/codexapp.approvalJSONRPCResponse",
+        "internal/provider/codexapp.approvalParamsWithJSONRPCID",
         "internal/provider/codexapp.approvalParseFailedDecision",
         "internal/provider/codexapp.approvalRequestFingerprint",
+        "internal/provider/codexapp.approvalRequestIDFromJSONRPC",
+        "internal/provider/codexapp.approvalRequestIDSurrogate",
         "internal/provider/codexapp.assistantMessageContentText",
         "internal/provider/codexapp.assistantMessageOwnsTurnTerminal",
         "internal/provider/codexapp.assistantMessagePayload",
@@ -3940,6 +3948,7 @@
         "internal/provider/codexapp.isCodexReleaseTagRune",
         "internal/provider/codexapp.isCodexRolloutToolEventType",
         "internal/provider/codexapp.isExecutable",
+        "internal/provider/codexapp.isJSONRPCApprovalRequestMethod",
         "internal/provider/codexapp.isKnownAgentState",
         "internal/provider/codexapp.isKnownRequestMethod",
         "internal/provider/codexapp.isLoopbackHost",
@@ -6098,6 +6107,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.NodeSpawnRecorder",
         "cmd/mcp-orch/orchestration/nodeexec.NodeSpawnRecorder.RecordNodeSpawn",
         "cmd/mcp-orch/orchestration/nodeexec.NodeSpec",
+        "cmd/mcp-orch/orchestration/nodeexec.NodeUIConfig",
         "cmd/mcp-orch/orchestration/nodeexec.NormalizeDependsOn",
         "cmd/mcp-orch/orchestration/nodeexec.NormalizeNodeType",
         "cmd/mcp-orch/orchestration/nodeexec.OnFailureConfig",
@@ -8284,6 +8294,7 @@
         "internal/provider/codexapp.*session.forceCompleteTurn",
         "internal/provider/codexapp.*session.handleApprovalRequest",
         "internal/provider/codexapp.*session.handleConnectionDead",
+        "internal/provider/codexapp.*session.handleInboundApprovalRequest",
         "internal/provider/codexapp.*session.handleInboundToolCall",
         "internal/provider/codexapp.*session.handleNotificationAction",
         "internal/provider/codexapp.*session.injectAccumulatedResult",
@@ -8303,6 +8314,7 @@
         "internal/provider/codexapp.*session.pendingTurnRecoveryState",
         "internal/provider/codexapp.*session.pendingTurnSnapshot",
         "internal/provider/codexapp.*session.prepareAndSealTerminalNotification",
+        "internal/provider/codexapp.*session.prepareApprovalRequest",
         "internal/provider/codexapp.*session.prepareToolCall",
         "internal/provider/codexapp.*session.prepareTurnDynamicTools",
         "internal/provider/codexapp.*session.prepareTurnStartParams",
@@ -8327,6 +8339,7 @@
         "internal/provider/codexapp.*session.requestApprovalDecision",
         "internal/provider/codexapp.*session.requestToolApproval",
         "internal/provider/codexapp.*session.requestToolApprovalWithContext",
+        "internal/provider/codexapp.*session.requestToolApprovalWithSender",
         "internal/provider/codexapp.*session.reserveInterruptRequest",
         "internal/provider/codexapp.*session.reserveStartingTurn",
         "internal/provider/codexapp.*session.resolveTurnStartModel",
@@ -8481,8 +8494,12 @@
         "internal/provider/codexapp.approvalDeadlineExceededDecision",
         "internal/provider/codexapp.approvalDecisionContext",
         "internal/provider/codexapp.approvalDecisionFailedDecision",
+        "internal/provider/codexapp.approvalJSONRPCResponse",
+        "internal/provider/codexapp.approvalParamsWithJSONRPCID",
         "internal/provider/codexapp.approvalParseFailedDecision",
         "internal/provider/codexapp.approvalRequestFingerprint",
+        "internal/provider/codexapp.approvalRequestIDFromJSONRPC",
+        "internal/provider/codexapp.approvalRequestIDSurrogate",
         "internal/provider/codexapp.assistantMessageContentText",
         "internal/provider/codexapp.assistantMessageOwnsTurnTerminal",
         "internal/provider/codexapp.assistantMessagePayload",
@@ -8699,6 +8716,7 @@
         "internal/provider/codexapp.isCodexReleaseTagRune",
         "internal/provider/codexapp.isCodexRolloutToolEventType",
         "internal/provider/codexapp.isExecutable",
+        "internal/provider/codexapp.isJSONRPCApprovalRequestMethod",
         "internal/provider/codexapp.isKnownAgentState",
         "internal/provider/codexapp.isKnownRequestMethod",
         "internal/provider/codexapp.isLoopbackHost",
@@ -10857,6 +10875,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.NodeSpawnRecorder",
         "cmd/mcp-orch/orchestration/nodeexec.NodeSpawnRecorder.RecordNodeSpawn",
         "cmd/mcp-orch/orchestration/nodeexec.NodeSpec",
+        "cmd/mcp-orch/orchestration/nodeexec.NodeUIConfig",
         "cmd/mcp-orch/orchestration/nodeexec.NormalizeDependsOn",
         "cmd/mcp-orch/orchestration/nodeexec.NormalizeNodeType",
         "cmd/mcp-orch/orchestration/nodeexec.OnFailureConfig",
@@ -13043,6 +13062,7 @@
         "internal/provider/codexapp.*session.forceCompleteTurn",
         "internal/provider/codexapp.*session.handleApprovalRequest",
         "internal/provider/codexapp.*session.handleConnectionDead",
+        "internal/provider/codexapp.*session.handleInboundApprovalRequest",
         "internal/provider/codexapp.*session.handleInboundToolCall",
         "internal/provider/codexapp.*session.handleNotificationAction",
         "internal/provider/codexapp.*session.injectAccumulatedResult",
@@ -13062,6 +13082,7 @@
         "internal/provider/codexapp.*session.pendingTurnRecoveryState",
         "internal/provider/codexapp.*session.pendingTurnSnapshot",
         "internal/provider/codexapp.*session.prepareAndSealTerminalNotification",
+        "internal/provider/codexapp.*session.prepareApprovalRequest",
         "internal/provider/codexapp.*session.prepareToolCall",
         "internal/provider/codexapp.*session.prepareTurnDynamicTools",
         "internal/provider/codexapp.*session.prepareTurnStartParams",
@@ -13086,6 +13107,7 @@
         "internal/provider/codexapp.*session.requestApprovalDecision",
         "internal/provider/codexapp.*session.requestToolApproval",
         "internal/provider/codexapp.*session.requestToolApprovalWithContext",
+        "internal/provider/codexapp.*session.requestToolApprovalWithSender",
         "internal/provider/codexapp.*session.reserveInterruptRequest",
         "internal/provider/codexapp.*session.reserveStartingTurn",
         "internal/provider/codexapp.*session.resolveTurnStartModel",
@@ -13240,8 +13262,12 @@
         "internal/provider/codexapp.approvalDeadlineExceededDecision",
         "internal/provider/codexapp.approvalDecisionContext",
         "internal/provider/codexapp.approvalDecisionFailedDecision",
+        "internal/provider/codexapp.approvalJSONRPCResponse",
+        "internal/provider/codexapp.approvalParamsWithJSONRPCID",
         "internal/provider/codexapp.approvalParseFailedDecision",
         "internal/provider/codexapp.approvalRequestFingerprint",
+        "internal/provider/codexapp.approvalRequestIDFromJSONRPC",
+        "internal/provider/codexapp.approvalRequestIDSurrogate",
         "internal/provider/codexapp.assistantMessageContentText",
         "internal/provider/codexapp.assistantMessageOwnsTurnTerminal",
         "internal/provider/codexapp.assistantMessagePayload",
@@ -13458,6 +13484,7 @@
         "internal/provider/codexapp.isCodexReleaseTagRune",
         "internal/provider/codexapp.isCodexRolloutToolEventType",
         "internal/provider/codexapp.isExecutable",
+        "internal/provider/codexapp.isJSONRPCApprovalRequestMethod",
         "internal/provider/codexapp.isKnownAgentState",
         "internal/provider/codexapp.isKnownRequestMethod",
         "internal/provider/codexapp.isLoopbackHost",
@@ -15616,6 +15643,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.NodeSpawnRecorder",
         "cmd/mcp-orch/orchestration/nodeexec.NodeSpawnRecorder.RecordNodeSpawn",
         "cmd/mcp-orch/orchestration/nodeexec.NodeSpec",
+        "cmd/mcp-orch/orchestration/nodeexec.NodeUIConfig",
         "cmd/mcp-orch/orchestration/nodeexec.NormalizeDependsOn",
         "cmd/mcp-orch/orchestration/nodeexec.NormalizeNodeType",
         "cmd/mcp-orch/orchestration/nodeexec.OnFailureConfig",
@@ -17807,6 +17835,7 @@
         "internal/provider/codexapp.*session.forceCompleteTurn",
         "internal/provider/codexapp.*session.handleApprovalRequest",
         "internal/provider/codexapp.*session.handleConnectionDead",
+        "internal/provider/codexapp.*session.handleInboundApprovalRequest",
         "internal/provider/codexapp.*session.handleInboundToolCall",
         "internal/provider/codexapp.*session.handleNotificationAction",
         "internal/provider/codexapp.*session.injectAccumulatedResult",
@@ -17826,6 +17855,7 @@
         "internal/provider/codexapp.*session.pendingTurnRecoveryState",
         "internal/provider/codexapp.*session.pendingTurnSnapshot",
         "internal/provider/codexapp.*session.prepareAndSealTerminalNotification",
+        "internal/provider/codexapp.*session.prepareApprovalRequest",
         "internal/provider/codexapp.*session.prepareToolCall",
         "internal/provider/codexapp.*session.prepareTurnDynamicTools",
         "internal/provider/codexapp.*session.prepareTurnStartParams",
@@ -17850,6 +17880,7 @@
         "internal/provider/codexapp.*session.requestApprovalDecision",
         "internal/provider/codexapp.*session.requestToolApproval",
         "internal/provider/codexapp.*session.requestToolApprovalWithContext",
+        "internal/provider/codexapp.*session.requestToolApprovalWithSender",
         "internal/provider/codexapp.*session.reserveInterruptRequest",
         "internal/provider/codexapp.*session.reserveStartingTurn",
         "internal/provider/codexapp.*session.resolveTurnStartModel",
@@ -18004,8 +18035,12 @@
         "internal/provider/codexapp.approvalDeadlineExceededDecision",
         "internal/provider/codexapp.approvalDecisionContext",
         "internal/provider/codexapp.approvalDecisionFailedDecision",
+        "internal/provider/codexapp.approvalJSONRPCResponse",
+        "internal/provider/codexapp.approvalParamsWithJSONRPCID",
         "internal/provider/codexapp.approvalParseFailedDecision",
         "internal/provider/codexapp.approvalRequestFingerprint",
+        "internal/provider/codexapp.approvalRequestIDFromJSONRPC",
+        "internal/provider/codexapp.approvalRequestIDSurrogate",
         "internal/provider/codexapp.assistantMessageContentText",
         "internal/provider/codexapp.assistantMessageOwnsTurnTerminal",
         "internal/provider/codexapp.assistantMessagePayload",
@@ -18222,6 +18257,7 @@
         "internal/provider/codexapp.isCodexReleaseTagRune",
         "internal/provider/codexapp.isCodexRolloutToolEventType",
         "internal/provider/codexapp.isExecutable",
+        "internal/provider/codexapp.isJSONRPCApprovalRequestMethod",
         "internal/provider/codexapp.isKnownAgentState",
         "internal/provider/codexapp.isKnownRequestMethod",
         "internal/provider/codexapp.isLoopbackHost",
@@ -19061,13 +19097,13 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2313,
-    "total_methods": 1226,
+    "total_functions": 2318,
+    "total_methods": 1229,
     "total_interfaces": 186,
     "total_interface_methods": 370,
-    "total_exported": 1265,
-    "total_unexported": 3079,
-    "total_structs": 619
+    "total_exported": 1266,
+    "total_unexported": 3087,
+    "total_structs": 620
   },
   "packages": [
     {
@@ -41675,6 +41711,10 @@
         },
         {
           "name": "NodeSpec",
+          "exported": true
+        },
+        {
+          "name": "NodeUIConfig",
           "exported": true
         },
         {
@@ -64936,6 +64976,42 @@
           ]
         },
         {
+          "name": "approvalJSONRPCResponse",
+          "exported": false,
+          "params": [
+            {
+              "name": "method",
+              "type": "string"
+            },
+            {
+              "name": "decision",
+              "type": "contract.ApprovalDecision"
+            }
+          ],
+          "returns": [
+            "map[string]any",
+            "error"
+          ]
+        },
+        {
+          "name": "approvalParamsWithJSONRPCID",
+          "exported": false,
+          "params": [
+            {
+              "name": "id",
+              "type": "json.RawMessage"
+            },
+            {
+              "name": "params",
+              "type": "json.RawMessage"
+            }
+          ],
+          "returns": [
+            "json.RawMessage",
+            "error"
+          ]
+        },
+        {
           "name": "approvalParseFailedDecision",
           "exported": false,
           "params": [
@@ -64963,6 +65039,34 @@
           ],
           "returns": [
             "string"
+          ]
+        },
+        {
+          "name": "approvalRequestIDFromJSONRPC",
+          "exported": false,
+          "params": [
+            {
+              "name": "id",
+              "type": "json.RawMessage"
+            }
+          ],
+          "returns": [
+            "int64",
+            "error"
+          ]
+        },
+        {
+          "name": "approvalRequestIDSurrogate",
+          "exported": false,
+          "params": [
+            {
+              "name": "identity",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "int64",
+            "error"
           ]
         },
         {
@@ -67688,6 +67792,19 @@
           "params": [
             {
               "name": "path",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "name": "isJSONRPCApprovalRequestMethod",
+          "exported": false,
+          "params": [
+            {
+              "name": "method",
               "type": "string"
             }
           ],
@@ -75355,6 +75472,21 @@
         },
         {
           "receiver": "*session",
+          "name": "handleInboundApprovalRequest",
+          "exported": false,
+          "params": [
+            {
+              "name": "resp",
+              "type": "Responder"
+            },
+            {
+              "name": "msg",
+              "type": "RawMessage"
+            }
+          ]
+        },
+        {
+          "receiver": "*session",
           "name": "handleInboundToolCall",
           "exported": false,
           "params": [
@@ -75635,6 +75767,31 @@
           "returns": [
             "dto.RawProviderEvent",
             "bool"
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "prepareApprovalRequest",
+          "exported": false,
+          "params": [
+            {
+              "name": "method",
+              "type": "string"
+            },
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            },
+            {
+              "name": "send",
+              "type": "approvalDecisionSender"
+            }
+          ],
+          "returns": [
+            "rpc.ApprovalRequest",
+            "int64",
+            "bool",
+            "error"
           ]
         },
         {
@@ -75973,6 +76130,10 @@
             {
               "name": "req",
               "type": "rpc.ApprovalRequest"
+            },
+            {
+              "name": "eventDriven",
+              "type": "bool"
             }
           ],
           "returns": [
@@ -75996,6 +76157,36 @@
             {
               "name": "params",
               "type": "json.RawMessage"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "requestToolApprovalWithSender",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "method",
+              "type": "string"
+            },
+            {
+              "name": "params",
+              "type": "json.RawMessage"
+            },
+            {
+              "name": "send",
+              "type": "approvalDecisionSender"
+            },
+            {
+              "name": "eventDriven",
+              "type": "bool"
             }
           ],
           "returns": [

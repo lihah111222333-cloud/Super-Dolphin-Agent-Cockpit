@@ -31,7 +31,7 @@ const SETTINGS_DEFAULTS = Object.freeze({
   providerModel: 'gpt-5.5',
   providerEffort: 'xhigh',
   personality: 'pragmatic',
-  sandboxPolicy: 'workspaceWrite',
+  sandboxPolicy: 'readOnly',
   readOnlyMode: 'fullAccess',
   readableRoots: '',
   writableRoots: '',
@@ -280,7 +280,7 @@ function pathsFromTextarea(value) {
 
 function absolutePathsError(value, copy = APP_COPY.zh.settings) {
   const paths = pathsFromTextarea(value);
-  if (paths.length === 0) return copy.provider.missingRoot;
+  if (paths.length === 0) return '';
   const bad = paths.filter((root) => !isAbsoluteRootPath(root));
   return bad.length > 0 ? copy.provider.absolutePathRequired + bad.join(', ') : '';
 }

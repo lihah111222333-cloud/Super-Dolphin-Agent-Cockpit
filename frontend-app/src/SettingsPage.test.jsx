@@ -354,7 +354,7 @@ describe('SettingsPage provider settings', () => {
 
     await renderSettingsPage();
 
-    const writableRoots = screen.getByLabelText('Writable Roots');
+    const writableRoots = await screen.findByLabelText('Writable Roots');
     await waitFor(() => expect(writableRoots).toHaveValue('/repo/app'));
 
     fireEvent.change(writableRoots, { target: { value: '/repo/app\nrelative/path' } });
@@ -424,7 +424,7 @@ describe('SettingsPage provider settings', () => {
     });
   });
 
-  it('blocks workspaceWrite provider save when writable roots are empty', async () => {
+  it('allows workspaceWrite provider save when additional writable roots are empty', async () => {
     const preferences = {
       'settings.provider.active': 'codex',
       'settings.provider.codex.sandbox': {
@@ -443,9 +443,17 @@ describe('SettingsPage provider settings', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '保存 Provider 设置' }));
 
-    expect(await screen.findByText('保存 Provider 设置失败，请重试。')).toBeInTheDocument();
-    expect(screen.getAllByRole('alert').map((item) => item.textContent).join('\n')).not.toContain('请至少填写一个绝对路径');
-    expect(backend.setPreference).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(backend.setPreference).toHaveBeenCalledWith({
+        cwd: '/repo/app',
+        key: 'settings.provider.codex.sandbox',
+        value: {
+          type: 'workspaceWrite',
+          writableRoots: [],
+          networkAccess: false,
+        },
+      });
+    });
   });
 
   it('falls back from scoped provider preferences to global Codex values', async () => {

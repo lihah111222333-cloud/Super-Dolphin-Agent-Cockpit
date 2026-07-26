@@ -344,9 +344,6 @@ func (p CodexNativeToolPolicy) AppServerArgs() []string {
 
 // RequiresReadOnlySandbox 表示策略需要用只读沙箱补足无法原生硬禁用的写入工具。
 func (p CodexNativeToolPolicy) RequiresReadOnlySandbox() bool {
-	if p.has(CodexNativeToolApplyPatch) || p.has(CodexNativeToolWriteNewFile) {
-		return true
-	}
 	for _, tier := range p.tiers {
 		if tier == NativeToolEnforcementEffectHard {
 			return true

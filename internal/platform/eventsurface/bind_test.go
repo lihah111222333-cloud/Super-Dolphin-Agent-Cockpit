@@ -625,20 +625,21 @@ func TestBindPublishesTurnOutputMethods(t *testing.T) {
 		AgentHeader:  shared.AgentHeader{ThreadHeader: shared.ThreadHeader{ThreadID: "thread-1"}, AgentID: "agent-1"},
 		TurnIDHeader: shared.TurnIDHeader{TurnID: "turn-1"},
 	}
-	event.Publish(dispatcher, turndto.TurnOutputDelta{TurnHeader: header, Stream: "message", Delta: "hello"})
+	event.Publish(dispatcher, turndto.TurnOutputDelta{TurnHeader: header, ItemID: "assistant-1", Stream: "message", Delta: "hello"})
 	event.Publish(dispatcher, turndto.TurnOutputDelta{TurnHeader: header, Stream: "reasoning", Delta: "thinking"})
 	event.Publish(dispatcher, turndto.TurnOutputDelta{TurnHeader: header, Stream: "stdout", Delta: "out"})
 
-	gotMethods := []string{
-		mustReceivePublished(t, got).method,
-		mustReceivePublished(t, got).method,
-		mustReceivePublished(t, got).method,
-	}
+	published := []publishedEvent{mustReceivePublished(t, got), mustReceivePublished(t, got), mustReceivePublished(t, got)}
+	gotMethods := []string{published[0].method, published[1].method, published[2].method}
 	wantMethods := []string{MethodAgentMessageDelta, MethodReasoningTextDelta, MethodCommandOutputDelta}
 	for i, want := range wantMethods {
 		if gotMethods[i] != want {
 			t.Fatalf("method[%d] = %q, want %q; all=%#v", i, gotMethods[i], want, gotMethods)
 		}
+	}
+	messagePayload, ok := published[0].payload.(map[string]any)
+	if !ok || messagePayload["itemId"] != "assistant-1" {
+		t.Fatalf("message delta payload = %#v, want itemId assistant-1", published[0].payload)
 	}
 }
 

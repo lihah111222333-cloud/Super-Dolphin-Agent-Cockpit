@@ -276,11 +276,17 @@ func (s *session) onInboundMessage(ctx context.Context, resp Responder, msg RawM
 		s.handleInboundToolCall(ctx, resp, msg, toolHandler)
 		return
 	}
+	if len(msg.ID) != 0 && isJSONRPCApprovalRequestMethod(msg.Method) {
+		s.handleInboundApprovalRequest(resp, msg)
+		return
+	}
 	if isKnownRequestMethod(msg.Method) {
 		s.onNotification(msg.Method, msg.Params)
 		return
 	}
 	if len(msg.ID) != 0 {
+		pkglogger.Warn("codexapp: unsupported inbound request",
+			"agent_id", s.agentID, "method", strings.TrimSpace(msg.Method))
 		if respErr := resp.RespondWithID(msg.ID, nil, fmt.Errorf("method not supported: %s", msg.Method)); respErr != nil {
 			s.logger.Warn("codexapp: unsupported method respond failed",
 				"agent_id", s.agentID, "method", msg.Method, "error", respErr)
@@ -332,6 +338,16 @@ func (s *session) respondInvalidToolCall(resp Responder, msg RawMessage, err err
 func isKnownRequestMethod(method string) bool {
 	return hasMethod(method, approvalBridgeMethods) || hasMethod(method, requestUserInputMethods)
 }
+
+func isJSONRPCApprovalRequestMethod(method string) bool {
+	switch strings.TrimSpace(method) {
+	case "item/commandExecution/requestApproval", "item/fileChange/requestApproval":
+		return true
+	default:
+		return false
+	}
+}
+
 func isToolCallMethod(method string) bool {
 	switch strings.TrimSpace(method) {
 	case "item/tool/call", "dynamic_tool_call", "tool.call.begin", "tools/call":

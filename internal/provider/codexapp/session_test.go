@@ -199,6 +199,116 @@ func TestOnInboundMessage_Approval_ViaApprovalBridge(t *testing.T) {
 	}
 }
 
+func TestOnInboundMessage_ApprovalRequest_RespondsWithJSONRPCID(t *testing.T) {
+	bus := event.NewDispatcher()
+	ctx := t.Context()
+
+	requested := make(chan tooldto.ToolApprovalRequested, 1)
+	cancelSub := event.Subscribe(bus, func(ev tooldto.ToolApprovalRequested) { requested <- ev })
+	defer cancelSub()
+
+	approvals := rpc.NewApprovalManager(nil, bus)
+	resp := newRecordingResponder()
+	s := newInboundTestSession(ctx, approvals, &ServerManager{})
+
+	s.onInboundMessage(ctx, resp, RawMessage{
+		ID:     json.RawMessage(`17`),
+		Method: "item/commandExecution/requestApproval",
+		Params: json.RawMessage(`{"itemId":"command-1","command":"echo hi","turnId":"turn-1","threadId":"provider-thread-1","startedAtMs":1}`),
+	})
+
+	ev := waitApprovalRequested(t, requested)
+	if ev.RequestID != 17 || ev.CallID != "command-1" {
+		t.Fatalf("approval identity = (%d, %q), want (17, command-1)", ev.RequestID, ev.CallID)
+	}
+	approved := true
+	if err := approvals.Respond(contract.ApprovalIdentity{
+		SessionScope: ev.SessionScope,
+		CallID:       ev.CallID,
+		RequestID:    ev.RequestID,
+	}, contract.ApprovalDecision{Approved: &approved}); err != nil {
+		t.Fatalf("Respond() error = %v", err)
+	}
+
+	call := waitResponseCall(t, resp.ch)
+	if string(call.id) != "17" || call.err != nil {
+		t.Fatalf("response = (id=%s, err=%v), want (17, nil)", call.id, call.err)
+	}
+	result, ok := call.result.(map[string]any)
+	if !ok || result["decision"] != "accept" {
+		t.Fatalf("response result = %#v, want decision=accept", call.result)
+	}
+}
+
+func TestApprovalRequestIDFromJSONRPCSupportsOpaqueString(t *testing.T) {
+	first, err := approvalRequestIDFromJSONRPC(json.RawMessage(`"approval-request-alpha"`))
+	if err != nil {
+		t.Fatalf("approvalRequestIDFromJSONRPC() error = %v", err)
+	}
+	second, err := approvalRequestIDFromJSONRPC(json.RawMessage(`"approval-request-alpha"`))
+	if err != nil {
+		t.Fatalf("approvalRequestIDFromJSONRPC() second error = %v", err)
+	}
+	if first <= 0 || first != second {
+		t.Fatalf("opaque request surrogate = (%d, %d), want matching positive IDs", first, second)
+	}
+}
+
+func TestApprovalRequestIDFromJSONRPCMapsZeroToStablePositiveIdentity(t *testing.T) {
+	first, err := approvalRequestIDFromJSONRPC(json.RawMessage(`0`))
+	if err != nil {
+		t.Fatalf("approvalRequestIDFromJSONRPC(0) error = %v", err)
+	}
+	second, err := approvalRequestIDFromJSONRPC(json.RawMessage(`0`))
+	if err != nil {
+		t.Fatalf("approvalRequestIDFromJSONRPC(0) second error = %v", err)
+	}
+	if first <= 0 || first != second {
+		t.Fatalf("zero request surrogate = (%d, %d), want matching positive IDs", first, second)
+	}
+}
+
+func TestOnInboundMessage_ApprovalRequestWithZeroID_RespondsWithOriginalJSONRPCID(t *testing.T) {
+	bus := event.NewDispatcher()
+	ctx := t.Context()
+
+	requested := make(chan tooldto.ToolApprovalRequested, 1)
+	cancelSub := event.Subscribe(bus, func(ev tooldto.ToolApprovalRequested) { requested <- ev })
+	defer cancelSub()
+
+	approvals := rpc.NewApprovalManager(nil, bus)
+	resp := newRecordingResponder()
+	s := newInboundTestSession(ctx, approvals, &ServerManager{})
+
+	s.onInboundMessage(ctx, resp, RawMessage{
+		ID:     json.RawMessage(`0`),
+		Method: "item/commandExecution/requestApproval",
+		Params: json.RawMessage(`{"itemId":"command-zero","command":"echo hi","turnId":"turn-zero","threadId":"provider-thread-zero","startedAtMs":1}`),
+	})
+
+	ev := waitApprovalRequested(t, requested)
+	if ev.RequestID <= 0 || ev.CallID != "command-zero" {
+		t.Fatalf("approval identity = (%d, %q), want positive request ID and command-zero", ev.RequestID, ev.CallID)
+	}
+	approved := true
+	if err := approvals.Respond(contract.ApprovalIdentity{
+		SessionScope: ev.SessionScope,
+		CallID:       ev.CallID,
+		RequestID:    ev.RequestID,
+	}, contract.ApprovalDecision{Approved: &approved}); err != nil {
+		t.Fatalf("Respond() error = %v", err)
+	}
+
+	call := waitResponseCall(t, resp.ch)
+	if string(call.id) != "0" || call.err != nil {
+		t.Fatalf("response = (id=%s, err=%v), want (0, nil)", call.id, call.err)
+	}
+	result, ok := call.result.(map[string]any)
+	if !ok || result["decision"] != "accept" {
+		t.Fatalf("response result = %#v, want decision=accept", call.result)
+	}
+}
+
 func TestOnInboundMessage_RequestUserInput_ViaApprovalBridge(t *testing.T) {
 	bus := event.NewDispatcher()
 	ctx := t.Context()

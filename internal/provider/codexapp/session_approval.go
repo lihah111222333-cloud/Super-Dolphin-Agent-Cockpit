@@ -57,24 +57,24 @@ func (s *session) requestToolApproval(method string, params json.RawMessage) err
 // requestToolApprovalWithContext 将 provider approval 通知转成宿主审批请求。
 // payload 身份字段异常时必须 fail-fast；能定位 requestId 时回写拒绝决策，否则终止当前 turn。
 func (s *session) requestToolApprovalWithContext(ctx context.Context, method string, params json.RawMessage) error {
+	return s.requestToolApprovalWithSender(ctx, method, params, s.sendApprovalDecision, false)
+}
+
+// requestToolApprovalWithSender 解析并等待宿主审批，再通过调用方选择的协议回写决策。
+// legacy notification 使用 approval/respond；JSON-RPC server request 使用原始 message.id 响应。
+func (s *session) requestToolApprovalWithSender(
+	ctx context.Context,
+	method string,
+	params json.RawMessage,
+	send approvalDecisionSender,
+	eventDriven bool,
+) error {
+	if send == nil {
+		return errors.New("codexapp: approval decision sender is required")
+	}
 	payload := decodeEventPayload(params)
-	requestID, hasRequestID := strictApprovalRequestID(payload, "requestId", "request_id")
-	if hasRequestID {
-		s.logApprovalRequestReceived(requestID, method)
-	}
-	if err := validateApprovalPayload(payload); err != nil {
-		if hasRequestID {
-			s.logApprovalRequestFailed(requestID, method, "parse", err)
-			return s.sendApprovalDecision(requestID, approvalParseFailedDecision(err))
-		}
-		s.failTurns(err)
-		return err
-	}
-	req, requestID, ok := s.buildApprovalRequest(method, payload)
-	if !ok {
-		err := errors.New("codexapp: approval_parse_failed: approval request identity is required")
-		s.logApprovalRequestFailed(requestID, method, "parse", err)
-		s.failTurns(err)
+	req, requestID, accepted, err := s.prepareApprovalRequest(method, payload, send)
+	if err != nil || !accepted {
 		return err
 	}
 	key := processedApprovalRequestKey(req, requestID)
@@ -88,9 +88,9 @@ func (s *session) requestToolApprovalWithContext(ctx context.Context, method str
 		if err != nil {
 			return err
 		}
-		return s.sendApprovalDecision(requestID, decision)
+		return send(requestID, decision)
 	}
-	decision, err := s.requestApprovalDecision(req)
+	decision, err := s.requestApprovalDecision(req, eventDriven)
 	if err != nil {
 		s.logApprovalRequestFailed(requestID, method, "decision", err)
 	}
@@ -100,7 +100,7 @@ func (s *session) requestToolApprovalWithContext(ctx context.Context, method str
 		return err
 	}
 	s.finishProcessedApproval(key, entry, decision, nil)
-	return s.sendApprovalDecision(requestID, decision)
+	return send(requestID, decision)
 }
 
 // normalizeApprovalDecisionError 将可恢复的审批失败归一化为拒绝决策。
@@ -115,7 +115,7 @@ func normalizeApprovalDecisionError(decision contract.ApprovalDecision, err erro
 	return approvalDecisionFailedDecision(err), nil
 }
 
-func (s *session) requestApprovalDecision(req rpc.ApprovalRequest) (contract.ApprovalDecision, error) {
+func (s *session) requestApprovalDecision(req rpc.ApprovalRequest, eventDriven bool) (contract.ApprovalDecision, error) {
 	if s == nil {
 		return contract.ApprovalDecision{}, errors.New("session is nil")
 	}
@@ -128,6 +128,9 @@ func (s *session) requestApprovalDecision(req rpc.ApprovalRequest) (contract.App
 		req.Kind = "request_user_input"
 		return s.approvals.RequestUserInput(ctx, nil, nil, req)
 	}
+	if eventDriven {
+		return s.approvals.RequestEventApproval(ctx, req)
+	}
 	return s.approvals.RequestApproval(ctx, nil, nil, req)
 }
 
@@ -135,7 +138,7 @@ func validateApprovalPayload(payload map[string]any) error {
 	if len(payload) == 0 {
 		return errors.New("codexapp: approval_parse_failed: payload is required")
 	}
-	if err := validateApprovalStringFields(payload, "callId", "call_id", "approvalId", "approval_id", "toolName", "tool_name", "tool", "name", "threadId", "thread_id", "turnId", "turn_id", "reason", "message"); err != nil {
+	if err := validateApprovalStringFields(payload, "callId", "call_id", "itemId", "item_id", "approvalId", "approval_id", "toolName", "tool_name", "tool", "name", "threadId", "thread_id", "turnId", "turn_id", "reason", "message"); err != nil {
 		return err
 	}
 	if err := validateApprovalObjectField(payload, "item"); err != nil {
@@ -323,6 +326,7 @@ func (s *session) clearProcessedApprovals() {
 }
 
 // buildApprovalRequest 从已验证 payload 构造带 sessionScope、callId、requestId 的权威审批身份。
+// ThreadID 必须使用宿主公开会话 ID；provider thread ID 仅保留在原始 payload 中，避免 UI 把审批投影到幽灵会话。
 // 任一身份或已验证审批策略缺失时必须 fail closed，禁止退回仅 requestId 的兼容路径。
 func (s *session) buildApprovalRequest(method string, payload map[string]any) (rpc.ApprovalRequest, int64, bool) {
 	if s == nil || !s.approvalPolicyVerified.Load() {
@@ -337,7 +341,8 @@ func (s *session) buildApprovalRequest(method string, payload map[string]any) (r
 	}
 	callID, hasCallID := strictApprovalCallID(payload)
 	sessionScope := strings.TrimSpace(s.approvalSessionScope)
-	if !hasCallID || sessionScope == "" {
+	publicThreadID := strings.TrimSpace(s.agentID)
+	if !hasCallID || sessionScope == "" || publicThreadID == "" {
 		return rpc.ApprovalRequest{}, 0, false
 	}
 	requestRef := requestID
@@ -347,7 +352,7 @@ func (s *session) buildApprovalRequest(method string, payload map[string]any) (r
 		ApprovalID:     stringValue(payload, "approvalId", "approval_id"),
 		ToolName:       payloadToolName(payload),
 		AgentID:        s.agentID,
-		ThreadID:       payloadThreadID(payload, s.ThreadID()),
+		ThreadID:       publicThreadID,
 		TurnID:         payloadTurnID(payload),
 		Reason:         stringValue(payload, "reason", "message"),
 		SourceMethod:   method,
@@ -390,7 +395,7 @@ func strictApprovalCallID(payload map[string]any) (string, bool) {
 	var callID string
 	present := false
 	for _, source := range sources {
-		for _, key := range []string{"callId", "call_id"} {
+		for _, key := range []string{"callId", "call_id", "itemId", "item_id"} {
 			value, exists := source[key]
 			if !exists {
 				continue

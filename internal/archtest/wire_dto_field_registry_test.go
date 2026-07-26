@@ -139,7 +139,7 @@ func turnOutputDeltaWireDTOFieldRule() wireDTOFieldRule {
 	return wireDTOFieldRule{
 		Name:   "internal/dto/turn.TurnOutputDelta -> eventsurface.turnOutputDeltaPayload",
 		Type:   reflect.TypeFor[turndto.TurnOutputDelta](),
-		Mapped: []string{"thread_id", "agent_id", "turn_id", "stream", "delta"},
+		Mapped: []string{"thread_id", "agent_id", "turn_id", "item_id", "stream", "delta"},
 		Exempt: map[string]string{
 			"timestamp": "streaming delta 不带事件时间，客户端按接收顺序和 thread patch sequence 排序",
 		},

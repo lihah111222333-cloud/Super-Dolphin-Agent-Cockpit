@@ -149,3 +149,27 @@ func TestConsumeWindowBootstrapSnapshotFallsBackToLegacySlot(t *testing.T) {
 		t.Fatalf("second snapshot = %#v, want nil", second)
 	}
 }
+
+func TestEmitRuntimeEventDoesNotMirrorCompatEnvelopesToRPC(t *testing.T) {
+	var emitted []string
+	var pushed []string
+	app := &App{
+		emitter: func(event string, _ any) {
+			emitted = append(emitted, event)
+		},
+		pushRuntimeEvent: func(_ context.Context, event string, _ any) {
+			pushed = append(pushed, event)
+		},
+	}
+
+	app.emitRuntimeEvent(bridgeEventName, map[string]any{"type": "item/agentMessage/delta"})
+	app.emitRuntimeEvent(agentEventName, map[string]any{"type": "item/agentMessage/delta"})
+	app.emitRuntimeEvent("app-will-quit", nil)
+
+	if want := []string{bridgeEventName, agentEventName, "app-will-quit"}; !reflect.DeepEqual(emitted, want) {
+		t.Fatalf("native emitted events = %v, want %v", emitted, want)
+	}
+	if want := []string{"app-will-quit"}; !reflect.DeepEqual(pushed, want) {
+		t.Fatalf("RPC pushed events = %v, want %v", pushed, want)
+	}
+}

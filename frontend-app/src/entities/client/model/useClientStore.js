@@ -154,6 +154,7 @@ function createClientStore(set, get) {
     dismissActionNotice: (notice) => runtime.set((state) => (
       state.actionNotice === notice ? { actionNotice: null } : {}
     )),
+    notifyAction: runtime.notifyAction,
     getTurnTerminalCacheStats: runtime.getTurnTerminalCacheStats,
     setLogLevel: runtime.setLogLevel,
     toggleSmoothStreaming: () => {
