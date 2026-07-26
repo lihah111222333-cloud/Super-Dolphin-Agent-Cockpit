@@ -55,9 +55,8 @@ type registryToolProvider struct {
 // run 组装并启动 mcp-lsp sidecar 自身的 fx 应用。
 // 该进程只暴露 ctl 工具与 manifest 元数据，stdout 必须保留给 MCP stdio 协议通道。
 func run() error {
-	// MCP stdio 协议把 stdout 当作 JSON-RPC 通道；日志必须固定写 stderr。
+	// MCP stdio 协议把 stdout 当作 JSON-RPC 通道；控制台日志必须固定写 stderr。
 	// 如果这里回到 stdout，客户端会把普通日志当作协议帧解析而失败。
-	pkglogger.InitWithConsoleWriter(os.Stderr)
 
 	app := fx.New(
 		fx.NopLogger,

@@ -2,7 +2,10 @@
 package main
 
 import (
+	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sync/atomic"
 
@@ -24,25 +27,47 @@ var mcpStdout atomic.Pointer[os.File]
 // main 初始化 sidecar 运行环境，保护 MCP stdout 通道后启动服务，异常时以非零码退出。
 func main() {
 	rlimit.Init()
+	mcpStdout.Store(os.Stdout)
+	os.Stdout = os.Stderr
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		_, _ = os.Stderr.WriteString("mcp-lsp resolve user home failed: " + err.Error() + "\n")
+		os.Exit(1)
+	}
+	if err := initSidecarFileLogger(homeDir, os.Stderr); err != nil {
+		_, _ = os.Stderr.WriteString(err.Error() + "\n")
+		os.Exit(1)
+	}
 	if err := os.Setenv("SUPER_DOLPHIN_PROCESS_ROLE", "sidecar"); err != nil {
-		_, _ = os.Stderr.WriteString("mcp-lsp startup env failed: " + err.Error() + "\n")
+		pkglogger.Get().Error("mcp-lsp startup env failed", pkglogger.FieldError, err)
 		os.Exit(1)
 	}
 	if err := runtimeenv.ConfigureSidecarRuntime(); err != nil {
-		_, _ = os.Stderr.WriteString("mcp-lsp sidecar runtime env failed: " + err.Error() + "\n")
+		pkglogger.Get().Error("mcp-lsp sidecar runtime env failed", pkglogger.FieldError, err)
 		os.Exit(1)
 	}
 	// sidecar 只处理轻量协议转发，限制调度线程避免和宿主/工具进程抢占 CPU。
 	if runtime.GOMAXPROCS(0) > 2 {
 		runtime.GOMAXPROCS(2)
 	}
-	mcpStdout.Store(os.Stdout)
-	os.Stdout = os.Stderr
 	os.Exit(runMain())
 }
 
+// initSidecarFileLogger 将 mcp-lsp 日志同时写入 stderr 和进程自有的私有文件。
+func initSidecarFileLogger(homeDir string, console io.Writer) error {
+	logDir := filepath.Join(homeDir, ".multi-agent", "log", binaryName)
+	if err := pkglogger.InitWithFileOptions(logDir, pkglogger.FileOptions{
+		Prefix:        binaryName,
+		ConsoleWriter: console,
+	}); err != nil {
+		return fmt.Errorf("initialize mcp-lsp file logger: %w", err)
+	}
+	return nil
+}
+
 // runMain 启动 LSP sidecar 并把错误转换为进程退出码。
-// 日志写 stderr，stdout 继续留给 MCP JSON-RPC 帧。
+// 日志写 stderr 和私有文件，stdout 继续留给 MCP JSON-RPC 帧。
 func runMain() int {
 	if err := run(); err != nil {
 		pkglogger.Get().Error("mcp-lsp failed", "error", err)
