@@ -218,6 +218,34 @@ func TestFileReadKeepsNormalTimeoutTier(t *testing.T) {
 	assertDeadlineNear(t, deadline, middleware.TierNormal, "read_file")
 }
 
+func TestPatchEditReplaceRangeDisablesOuterTimeout(t *testing.T) {
+	if _, ok := patchEditDeadlineForAction(t, "replace_range"); ok {
+		t.Fatal("patch_edit replace_range received an outer tool deadline, want LSP initialization to own its timeout")
+	}
+	deadline, ok := patchEditDeadlineForAction(t, "rename")
+	if !ok {
+		t.Fatal("patch_edit rename context deadline missing")
+	}
+	assertDeadlineNear(t, deadline, middleware.TierNormal, "rename")
+}
+
+func patchEditDeadlineForAction(t *testing.T, action string) (time.Time, bool) {
+	t.Helper()
+	root := t.TempDir()
+	var deadline time.Time
+	deadlineOK := false
+	handler := wrapToolHandlerWithTimeoutResolver("patch_edit", middleware.TierNormal, patchEditTimeoutTier, func(ctx context.Context, _ json.RawMessage) (any, error) {
+		deadline, deadlineOK = ctx.Deadline()
+		return "ok", nil
+	})
+	payload := mustMarshalToolPayload(t, map[string]any{"action": action})
+
+	if _, err := handler(testToolContext(root), payload); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+	return deadline, deadlineOK
+}
+
 func fileToolDeadlineForAction(t *testing.T, action string) (time.Time, bool) {
 	t.Helper()
 	root := t.TempDir()

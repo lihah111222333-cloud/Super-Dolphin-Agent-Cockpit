@@ -178,7 +178,7 @@ cmd/mcp-lsp/tools/atomic_write.go	cmd	platform-provider	go-source	3665	LSP MCP t
 cmd/mcp-lsp/tools/factory_bindings.go	cmd	platform-provider	go-source	9013	LSP MCP tools 实现	cmd,mcp,lsp,tools,factory,bindings,LSP,MCP,实现
 cmd/mcp-lsp/tools/factory_results.go	cmd	platform-provider	go-source	2650	LSP MCP tools 实现	cmd,mcp,lsp,tools,factory,results,LSP,MCP,实现
 cmd/mcp-lsp/tools/factory_scope.go	cmd	platform-provider	go-source	9522	LSP MCP tools 实现	cmd,mcp,lsp,tools,factory,scope,LSP,MCP,实现
-cmd/mcp-lsp/tools/factory_test.go	cmd	platform-provider	go-test	14159	LSP MCP tools 实现	cmd,mcp,lsp,tools,factory,test,LSP,MCP,实现
+cmd/mcp-lsp/tools/factory_test.go	cmd	platform-provider	go-test	15214	LSP MCP tools 实现	cmd,mcp,lsp,tools,factory,test,LSP,MCP,实现
 cmd/mcp-lsp/tools/factory.go	cmd	platform-provider	go-source	3707	LSP MCP tools 实现	cmd,mcp,lsp,tools,factory,LSP,MCP,实现
 cmd/mcp-lsp/tools/formatter_test.go	cmd	platform-provider	go-test	1174	LSP MCP tools 实现	cmd,mcp,lsp,tools,formatter,test,LSP,MCP,实现
 cmd/mcp-lsp/tools/formatter.go	cmd	platform-provider	go-source	16372	LSP MCP tools 实现	cmd,mcp,lsp,tools,formatter,LSP,MCP,实现
@@ -206,7 +206,7 @@ cmd/mcp-lsp/tools/tool_edit_replace.go	cmd	platform-provider	go-source	16624	LSP
 cmd/mcp-lsp/tools/tool_edit_support_shard16_test.go	cmd	platform-provider	go-test	478	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,edit,support,shard16,test,LSP,MCP,实现
 cmd/mcp-lsp/tools/tool_edit_support_test.go	cmd	platform-provider	go-test	19860	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,edit,support,test,LSP,MCP,实现
 cmd/mcp-lsp/tools/tool_edit_support.go	cmd	platform-provider	go-source	11507	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,edit,support,LSP,MCP,实现
-cmd/mcp-lsp/tools/tool_edit.go	cmd	platform-provider	go-source	6178	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,edit,LSP,MCP,实现
+cmd/mcp-lsp/tools/tool_edit.go	cmd	platform-provider	go-source	6564	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,edit,LSP,MCP,实现
 cmd/mcp-lsp/tools/tool_error_envelope_test.go	cmd	platform-provider	go-test	2656	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,error,envelope,test,LSP,MCP,实现
 cmd/mcp-lsp/tools/tool_error_envelope.go	cmd	platform-provider	go-source	640	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,error,envelope,LSP,MCP,实现
 cmd/mcp-lsp/tools/tool_file_app_managed_test.go	cmd	platform-provider	go-test	6982	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,file,app,managed,test,LSP,MCP,实现

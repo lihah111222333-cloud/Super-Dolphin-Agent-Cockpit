@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/middleware"
@@ -51,13 +52,23 @@ type editEnvelope struct {
 // NewEditHandler 注册 patch_edit 工具处理器。
 // 默认不绑定额外根目录，路径解析依赖调用上下文中的可信 workspace。
 func NewEditHandler(registry lspmanager.Registry) middleware.Handler {
-	return wrapToolHandler("patch_edit", middleware.TierNormal, EditHandler{registry: registry}.Handle)
+	return wrapToolHandlerWithTimeoutResolver("patch_edit", middleware.TierNormal, patchEditTimeoutTier, EditHandler{registry: registry}.Handle)
 }
 
 // NewEditHandlerWithRoot 注册绑定固定根目录的 patch_edit 工具处理器。
 // 该入口用于 sidecar 初始化已知根目录的场景，所有写入仍需通过后续路径校验。
 func NewEditHandlerWithRoot(root string, registry lspmanager.Registry) middleware.Handler {
-	return wrapToolHandler("patch_edit", middleware.TierNormal, EditHandler{registry: registry, root: resolveRoot(root)}.Handle)
+	return wrapToolHandlerWithTimeoutResolver("patch_edit", middleware.TierNormal, patchEditTimeoutTier, EditHandler{registry: registry, root: resolveRoot(root)}.Handle)
+}
+
+func patchEditTimeoutTier(params json.RawMessage) time.Duration {
+	var input struct {
+		Action string `json:"action"`
+	}
+	if err := json.Unmarshal(params, &input); err == nil && strings.TrimSpace(input.Action) == "replace_range" {
+		return toolTimeoutDisabled
+	}
+	return middleware.TierNormal
 }
 
 // HandleEdit 是旧版函数式入口，转交给 EditHandler 以复用统一校验和响应信封。
