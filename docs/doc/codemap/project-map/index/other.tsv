@@ -157,12 +157,12 @@ internal/archtest/bootstrap_subscribe_desired_state_guard_test.go	internal	other
 internal/archtest/boundary_registry_test.go	internal	other	go-test	12875	架构守卫、baseline ratchet 与冻结规则	internal,archtest,boundary,registry,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/bus_callback_guard_test.go	internal	other	go-test	10818	架构守卫、baseline ratchet 与冻结规则	internal,archtest,bus,callback,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/ci_cross_platform_smoke_guard_test.go	internal	other	go-test	2229	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ci,cross,platform,smoke,guard,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/code_size_guard_test.go	internal	other	go-test	8225	架构守卫、baseline ratchet 与冻结规则	internal,archtest,code,size,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/code_size_guard_test.go	internal	other	go-test	10163	架构守卫、baseline ratchet 与冻结规则	internal,archtest,code,size,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/contract_import_boundary_test.go	internal	other	go-test	534	架构守卫、baseline ratchet 与冻结规则	internal,archtest,contract,import,boundary,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/cron_list_field_guard_test.go	internal	other	go-test	7045	架构守卫、baseline ratchet 与冻结规则	internal,archtest,cron,list,field,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/cross_domain_guard_test.go	internal	other	go-test	767	架构守卫、baseline ratchet 与冻结规则	internal,archtest,cross,domain,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/dag_designer_prompt_asset_contract_test.go	internal	other	go-test	3887	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dag,designer,prompt,asset,contract,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/dead_key_guard_test.go	internal	other	go-test	680	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dead,key,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dead_key_guard_test.go	internal	other	go-test	300	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dead,key,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/deep_map_probe_guard_test.go	internal	other	go-test	2904	架构守卫、baseline ratchet 与冻结规则	internal,archtest,deep,map,probe,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/dependency_direction_mcp_orch_test.go	internal	other	go-test	7159	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dependency,direction,mcp,orch,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/dependency_direction_module_store_test.go	internal	other	go-test	4002	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dependency,direction,module,store,test,架构守卫,baseline,ratchet,与冻结规则
@@ -193,7 +193,7 @@ internal/archtest/guard_freeze.go	internal	other	go-source	17429	架构守卫、
 internal/archtest/guardlib.go	internal	other	go-source	19089	架构守卫、baseline ratchet 与冻结规则	internal,archtest,guardlib,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/historical_skill_path_guard_test.go	internal	other	go-test	7089	架构守卫、baseline ratchet 与冻结规则	internal,archtest,historical,skill,path,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/id_parse_guard_test.go	internal	other	go-test	2341	架构守卫、baseline ratchet 与冻结规则	internal,archtest,id,parse,guard,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/identifier_guard_test.go	internal	other	go-test	1531	架构守卫、baseline ratchet 与冻结规则	internal,archtest,identifier,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/identifier_guard_test.go	internal	other	go-test	909	架构守卫、baseline ratchet 与冻结规则	internal,archtest,identifier,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/ignored_return_guard_test.go	internal	other	go-test	3768	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ignored,return,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/interface_isolation_dashboard_guard_test.go	internal	other	go-test	2923	架构守卫、baseline ratchet 与冻结规则	internal,archtest,interface,isolation,dashboard,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/interface_isolation_guard_test.go	internal	other	go-test	11847	架构守卫、baseline ratchet 与冻结规则	internal,archtest,interface,isolation,guard,test,架构守卫,baseline,ratchet,与冻结规则
@@ -255,6 +255,8 @@ internal/archtest/prompt_external_reference_guard_helpers_test.go	internal	other
 internal/archtest/prompt_external_reference_guard_test.go	internal	other	go-test	8557	架构守卫、baseline ratchet 与冻结规则	internal,archtest,prompt,external,reference,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/ratchet_test.go	internal	other	go-test	12966	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ratchet,test,架构守卫,baseline,与冻结规则
 internal/archtest/ratchet.go	internal	other	go-source	9899	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ratchet,架构守卫,baseline,与冻结规则
+internal/archtest/repository_guard_scan_test.go	internal	other	go-test	1066	架构守卫、baseline ratchet 与冻结规则	internal,archtest,repository,guard,scan,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/repository_guard_scan.go	internal	other	go-source	2042	架构守卫、baseline ratchet 与冻结规则	internal,archtest,repository,guard,scan,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/root_bridge_allowlist_test.go	internal	other	go-test	651	架构守卫、baseline ratchet 与冻结规则	internal,archtest,root,bridge,allowlist,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/root_bridge_allowlist.go	internal	other	go-source	8084	架构守卫、baseline ratchet 与冻结规则	internal,archtest,root,bridge,allowlist,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/runner_actor_guard_test.go	internal	other	go-test	5838	架构守卫、baseline ratchet 与冻结规则	internal,archtest,runner,actor,guard,test,架构守卫,baseline,ratchet,与冻结规则
@@ -559,7 +561,7 @@ scripts/ai_maintenance/gate_execution.go	scripts	other	go-source	10828	工程自
 scripts/ai_maintenance/main_test.go	scripts	other	go-test	28924	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,main,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ai_maintenance/main.go	scripts	other	go-source	29384	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,main,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ai_maintenance/project_map_routing_test.go	scripts	other	go-test	1884	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,project,map,routing,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/ai_maintenance/push_gates.go	scripts	other	go-source	4031	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,push,gates,工程自动化,测试守卫,代码地图与开发脚本
+scripts/ai_maintenance/push_gates.go	scripts	other	go-source	4054	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,push,gates,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ai_maintenance/push_risk_gate_test.go	scripts	other	go-test	2962	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,push,risk,gate,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ai_maintenance/turn_contract_registry.go	scripts	other	go-source	6839	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,turn,contract,registry,工程自动化,测试守卫,代码地图与开发脚本
 scripts/archtestmap/main_test.go	scripts	other	go-test	13277	工程自动化、测试守卫、代码地图与开发脚本	scripts,archtestmap,main,test,工程自动化,测试守卫,代码地图与开发脚本
@@ -676,8 +678,8 @@ scripts/sqlite_release_gates_guard_test.go	scripts	other	go-test	5908	工程自�
 scripts/sqlite_release_gates/main_test.go	scripts	other	go-test	1160	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlite,release,gates,main,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/sqlite_release_gates/main.go	scripts	other	go-source	2605	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlite,release,gates,main,工程自动化,测试守卫,代码地图与开发脚本
 scripts/test_new_ui_desktop_hot.sh	scripts	other	script	2622	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,new,ui,desktop,hot,工程自动化,测试守卫,代码地图与开发脚本
-scripts/test_with_guard.ps1	scripts	other	script	14479	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,工程自动化,测试守卫,代码地图与开发脚本
-scripts/test_with_guard.sh	scripts	other	script	5617	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,工程自动化,测试守卫,代码地图与开发脚本
+scripts/test_with_guard.ps1	scripts	other	script	14515	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,工程自动化,测试守卫,代码地图与开发脚本
+scripts/test_with_guard.sh	scripts	other	script	5635	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,工程自动化,测试守卫,代码地图与开发脚本
 scripts/tests/test_codex_stop_gate_plan.sh	scripts	other	script	14392	工程自动化、测试守卫、代码地图与开发脚本	scripts,tests,test,codex,stop,gate,plan,工程自动化,测试守卫,代码地图与开发脚本
 scripts/turncontract/main.go	scripts	other	go-source	6740	工程自动化、测试守卫、代码地图与开发脚本	scripts,turncontract,main,工程自动化,测试守卫,代码地图与开发脚本
 scripts/turncontract/schema_support_test.go	scripts	other	go-test	7727	工程自动化、测试守卫、代码地图与开发脚本	scripts,turncontract,schema,support,test,工程自动化,测试守卫,代码地图与开发脚本

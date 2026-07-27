@@ -94,6 +94,7 @@ func hasGoModuleChange(files []string) bool {
 var raceSensitivePathPrefixes = []string{
 	"cmd/",
 	"internal/app/",
+	"internal/archtest/",
 	"internal/contract/",
 	"internal/mcpserver/",
 	"internal/module/",
