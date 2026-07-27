@@ -1,8 +1,8 @@
 # AI 项目地图（Super-Dolphin）
 
-> 已索引文件：**5093**
+> 已索引文件：**4220**
 >
-> 扫描规则：allowlisted project files; excludes: .git/**, .idea/**, .claude/**, .workspace/**, .worktrees/**, .agent/code_exec/**, .agent/workspaces/**, .agnet/report/**, .agnet/shared/**, bin/**, reports/**, docs/archive/**, **/node_modules/**, **/dist/**, **/web-dist/**, **/coverage/**, **/.vite/**, **/.tmp/**, **/tmp/**, **/.gocache/**, **/.gomodcache/**, **/.npm-cache/**, docs/doc/codemap/project-map/**, docs/doc/codemap/ai-index.json, go.sum, test_output.txt, naked_go.txt
+> 扫描规则：allowlisted project files; excludes: .git/**, .idea/**, .claude/**, .workspace/**, .worktrees/**, .agent/code_exec/**, .agent/workspaces/**, .agnet/report/**, .agnet/shared/**, bin/**, reports/**, docs/plans/**, docs/superpowers/**, docs/archive/**, docs/before/**, docs/迁移/**, docs/ai01-docs/**, docs/cc/**, docs/li/**, docs/pians/**, docs/调研/**, docs/healthy-check/**, docs/decisions/**, docs/reviews/**, **/node_modules/**, **/dist/**, **/web-dist/**, **/coverage/**, **/.vite/**, **/.tmp/**, **/tmp/**, **/.gocache/**, **/.gomodcache/**, **/.npm-cache/**, docs/doc/codemap/project-map/**, docs/doc/codemap/ai-index.json, go.sum, test_output.txt, naked_go.txt
 >
 > 漂移状态：**OK**（详见 `docs/doc/codemap/project-map/AI_PROJECT_DRIFT.md`）
 
@@ -26,8 +26,8 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 | `docs/doc/codemap/project-map/index/modules.tsv` | 751 | 146.1 KB | 业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等 |
 | `docs/doc/codemap/project-map/index/platform-provider.tsv` | 1146 | 211.8 KB | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
 | `docs/doc/codemap/project-map/index/store-sql.tsv` | 209 | 30.7 KB | 持久化层：store、sqlc、SQL queries、migrations |
-| `docs/doc/codemap/project-map/index/docs-agent.tsv` | 961 | 172.6 KB | 代码地图、ADR/决策、计划与 docs 项目知识 |
-| `docs/doc/codemap/project-map/index/other.tsv` | 940 | 188.1 KB | 公共库、脚本、测试、配置与其他根级资源 |
+| `docs/doc/codemap/project-map/index/docs-agent.tsv` | 87 | 12.4 KB | 代码地图、ADR、契约与 docs 项目知识 |
+| `docs/doc/codemap/project-map/index/other.tsv` | 941 | 188.3 KB | 公共库、脚本、测试、配置与其他根级资源 |
 
 **检索示例：**
 
@@ -47,10 +47,10 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 | 模块 | 文件数 | 职责 |
 |---|---:|---|
 | `internal` | 2451 | 应用内部模块、平台、provider、store 与守卫 |
-| `docs` | 953 | 代码地图、ADR、计划、迁移和内部说明 |
 | `cmd` | 750 | 可执行入口与 MCP peer |
 | `frontend-app` | 679 | 当前 React/Vite 新 UI |
-| `scripts` | 170 | 工程自动化脚本 |
+| `scripts` | 171 | 工程自动化脚本 |
+| `docs` | 79 | 当前文档、生成索引、开发中材料与历史证据 |
 | `pkg` | 30 | 可复用公共库 |
 | `sql` | 29 | SQL query 源文件 |
 | `(root)` | 12 | 仓库根级配置和说明 |
@@ -162,7 +162,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 
 - 当前事实（L1）：`README.md`、`docs/README.md`、`docs/adr/*`、`docs/契约/*`、`docs/架构/*`、`docs/reference/*`、`docs/运维/*`
 - 开发中材料（L2）：`docs/work/proposals/*`、`docs/work/plans/*`、`docs/internal-notes/*`
-- 历史归档（L3）：`docs/archive/`，以及待迁移的 `docs/plans/*`、`docs/superpowers/plans/*`（默认不递归索引）
+- 历史归档（L3）：`docs/plans/*`、`docs/superpowers/*`、`docs/archive/*`、`docs/before/*`、`docs/迁移/*`、`docs/ai01-docs/*`、`docs/cc/*`、`docs/li/*`、`docs/pians/*`、`docs/调研/*`、`docs/healthy-check/*`、`docs/decisions/*`、`docs/reviews/*`（默认不递归索引）
 - Agent 体系：`.agents/skills/*/SKILL.md` 是 repo-local skill 指令入口；不要把 `.agents` 当作普通项目源码递归扫描。
 
 ## 9. 索引字段说明

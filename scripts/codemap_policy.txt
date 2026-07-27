@@ -1,0 +1,21 @@
+schema	1
+historical	docs/plans
+historical	docs/superpowers
+historical	docs/archive
+historical	docs/before
+historical	docs/迁移
+historical	docs/ai01-docs
+historical	docs/cc
+historical	docs/li
+historical	docs/pians
+historical	docs/调研
+historical	docs/healthy-check
+historical	docs/decisions
+historical	docs/reviews
+shard	app-ui	app-ui.tsv
+shard	orchestration	orchestration.tsv
+shard	modules	modules.tsv
+shard	platform-provider	platform-provider.tsv
+shard	store-sql	store-sql.tsv
+shard	docs-agent	docs-agent.tsv
+shard	other	other.tsv

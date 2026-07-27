@@ -2,12 +2,13 @@
   "version": "1.0",
   "generator": "node:scripts/generate_ai_project_map.mjs",
   "rules_sources": [
+    "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 5093,
+  "files": 4220,
   "domains": {
-    "docs-agent": 961,
-    "other": 940,
+    "docs-agent": 87,
+    "other": 941,
     "app-ui": 685,
     "platform-provider": 1146,
     "orchestration": 401,
@@ -56,15 +57,15 @@
       {
         "key": "docs-agent",
         "file": "docs/doc/codemap/project-map/index/docs-agent.tsv",
-        "file_count": 961,
-        "size_kb": 172.6,
-        "desc": "代码地图、ADR/决策、计划与 docs 项目知识"
+        "file_count": 87,
+        "size_kb": 12.4,
+        "desc": "代码地图、ADR、契约与 docs 项目知识"
       },
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 940,
-        "size_kb": 188.1,
+        "file_count": 941,
+        "size_kb": 188.3,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -72,11 +73,11 @@
   "module_counts": {
     "(root)": 12,
     "cmd": 750,
-    "docs": 953,
+    "docs": 79,
     "frontend-app": 679,
     "internal": 2451,
     "pkg": 30,
-    "scripts": 170,
+    "scripts": 171,
     "sql": 29,
     "test": 9,
     "tests": 1,
@@ -232,7 +233,7 @@
   ],
   "drift": {
     "status": "OK",
-    "unknown_ratio": 0.0159,
+    "unknown_ratio": 0.0192,
     "unknown_files": 81,
     "thresholds": {
       "max_unknown_ratio": 0.05

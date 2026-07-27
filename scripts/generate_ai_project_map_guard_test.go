@@ -14,26 +14,7 @@ func TestProjectMapGeneratorIndexesOnlyTrackedCodeAndDocs(t *testing.T) {
 	requireNodeForProjectMap(t)
 	root := prepareProjectMapFixture(t, true)
 
-	writeFixTestGuardFile(t, root, ".agent/report/noise.md", "agent report\n")
-	writeFixTestGuardFile(t, root, ".agents/report/noise.md", "agents report\n")
-	writeFixTestGuardFile(t, root, ".local/cache.txt", "cache\n")
-	writeFixTestGuardFile(t, root, ".mypy_cache/cache.json", "{}\n")
-	writeFixTestGuardFile(t, root, "docs/guide.md", "tracked docs\n")
-	writeFixTestGuardFile(t, root, ".agent/skills/demo/SKILL.md", "tracked but not docs\n")
-	writeFixTestGuardFile(t, root, "internal/app/storeadapter/prompt/adapter.go", "package promptadapter\n")
-	writeFixTestGuardFile(t, root, "internal/app/runtimeadapter/toolbridge/adapter.go", "package toolbridgeadapter\n")
-	writeFixTestGuardFile(t, root, "internal/app/internal/storeguard/nil.go", "package storeguard\n")
-	writeFixTestGuardFile(t, root, "internal/module/thread/thread.go", "package thread\n")
-	writeFixTestGuardFile(t, root, "internal/provider/codexapp/provider.go", "package codexapp\n")
-	runFixTestGuardGit(t, root, "add",
-		"docs/guide.md",
-		".agent/skills/demo/SKILL.md",
-		"internal/app/storeadapter/prompt/adapter.go",
-		"internal/app/runtimeadapter/toolbridge/adapter.go",
-		"internal/app/internal/storeguard/nil.go",
-		"internal/module/thread/thread.go",
-		"internal/provider/codexapp/provider.go",
-	)
+	prepareTrackedProjectMapFixtures(t, root)
 	runFixTestGuardGit(t, root, "commit", "-m", "chore: 更新 project map fixture")
 
 	out, err := runProjectMapGenerator(t, root)
@@ -51,7 +32,17 @@ func TestProjectMapGeneratorIndexesOnlyTrackedCodeAndDocs(t *testing.T) {
 	assertOutputContainsAll(t, generated, "internal/app/app.go", "docs/guide.md")
 	assertAppAdapterProjectMapRoutes(t, generated)
 	assertOutputContainsAll(t, generated, "docs/guide.md\tdocs\tdocs-agent\tdoc\t13\t")
-	assertOutputOmitsAll(t, generated, ".agent/report", ".agents/report", ".agent/skills", ".local/", ".mypy_cache")
+	assertOutputOmitsAll(
+		t,
+		generated,
+		".agent/report",
+		".agents/report",
+		".agent/skills",
+		".local/",
+		".mypy_cache",
+		"docs/plans/obsolete.md",
+		"docs/superpowers/plans/obsolete.md",
+	)
 	assertOutputContainsAll(t, generated,
 		"扫描规则：",
 		"| 索引文件 | 文件数 | 大小 | 覆盖范围 |",
@@ -79,11 +70,70 @@ func TestProjectMapGeneratorIndexesOnlyTrackedCodeAndDocs(t *testing.T) {
 		"## 9. 索引字段说明",
 		"| `search_keys` | 建议检索关键词 |",
 	)
+	for _, historicalRoot := range codemapHistoricalRoots(t) {
+		assertOutputOmitsAll(t, generated, historicalRoot+"/project-map-fixture.md")
+		assertOutputContainsAll(t, generated, "`"+historicalRoot+"/*`")
+	}
 
 	manifest := readProjectMapManifest(t, root)
 	if _, ok := manifest.Domains["docs-agent"]; !ok {
 		t.Fatalf("manifest missing docs-agent domain: %#v", manifest.Domains)
 	}
+}
+
+func prepareTrackedProjectMapFixtures(t *testing.T, root string) {
+	t.Helper()
+	writeFixTestGuardFile(t, root, ".agent/report/noise.md", "agent report\n")
+	writeFixTestGuardFile(t, root, ".agents/report/noise.md", "agents report\n")
+	writeFixTestGuardFile(t, root, ".local/cache.txt", "cache\n")
+	writeFixTestGuardFile(t, root, ".mypy_cache/cache.json", "{}\n")
+	writeFixTestGuardFile(t, root, "docs/guide.md", "tracked docs\n")
+	writeFixTestGuardFile(t, root, "docs/plans/obsolete.md", "historical plan\n")
+	writeFixTestGuardFile(t, root, "docs/superpowers/plans/obsolete.md", "historical superpowers plan\n")
+	writeFixTestGuardFile(t, root, ".agent/skills/demo/SKILL.md", "tracked but not docs\n")
+	writeFixTestGuardFile(t, root, "internal/app/storeadapter/prompt/adapter.go", "package promptadapter\n")
+	writeFixTestGuardFile(t, root, "internal/app/runtimeadapter/toolbridge/adapter.go", "package toolbridgeadapter\n")
+	writeFixTestGuardFile(t, root, "internal/app/internal/storeguard/nil.go", "package storeguard\n")
+	writeFixTestGuardFile(t, root, "internal/module/thread/thread.go", "package thread\n")
+	writeFixTestGuardFile(t, root, "internal/provider/codexapp/provider.go", "package codexapp\n")
+	historicalFixtures := make([]string, 0)
+	for _, historicalRoot := range codemapHistoricalRoots(t) {
+		relative := historicalRoot + "/project-map-fixture.md"
+		writeFixTestGuardFile(t, root, relative, "historical fixture\n")
+		historicalFixtures = append(historicalFixtures, relative)
+	}
+	addPaths := []string{
+		"docs/guide.md",
+		"docs/plans/obsolete.md",
+		"docs/superpowers/plans/obsolete.md",
+		".agent/skills/demo/SKILL.md",
+		"internal/app/storeadapter/prompt/adapter.go",
+		"internal/app/runtimeadapter/toolbridge/adapter.go",
+		"internal/app/internal/storeguard/nil.go",
+		"internal/module/thread/thread.go",
+		"internal/provider/codexapp/provider.go",
+	}
+	runFixTestGuardGit(t, root, append([]string{"add"}, append(addPaths, historicalFixtures...)...)...)
+}
+
+// codemapHistoricalRoots 从 Go/JS 共用策略读取历史根，避免测试复制第二份列表。
+func codemapHistoricalRoots(t *testing.T) []string {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join(scriptRepoRoot(t), "scripts", "codemap_policy.txt"))
+	if err != nil {
+		t.Fatalf("read codemap policy: %v", err)
+	}
+	var roots []string
+	for line := range strings.SplitSeq(string(body), "\n") {
+		fields := strings.Split(line, "\t")
+		if len(fields) == 2 && fields[0] == "historical" {
+			roots = append(roots, fields[1])
+		}
+	}
+	if len(roots) == 0 {
+		t.Fatal("codemap policy has no historical roots")
+	}
+	return roots
 }
 
 func TestProjectMapGeneratorOutputsIgnoreWallClockAndDetectTrackedDrift(t *testing.T) {
@@ -205,6 +255,19 @@ func TestProjectMapGeneratorRequiresExplicitFilesystemScanWithoutGit(t *testing.
 	assertOutputContainsAll(t, generated, "run-new-ui-desktop.ps1\t(root)\tother\tscript\t8\t")
 }
 
+func TestProjectMapGeneratorRejectsMissingCurrentDocumentationRoot(t *testing.T) {
+	requireNodeForProjectMap(t)
+	root := prepareProjectMapFixture(t, true)
+	if err := os.RemoveAll(filepath.Join(root, "docs", "adr")); err != nil {
+		t.Fatalf("remove current documentation fixture: %v", err)
+	}
+	out, err := runProjectMapGenerator(t, root)
+	if err == nil {
+		t.Fatalf("project map accepted missing current documentation root\n%s", out)
+	}
+	assertOutputContainsAll(t, out, "canonical current documentation path is missing: docs/adr")
+}
+
 func TestProjectMapGeneratorAppliesRuleOverrides(t *testing.T) {
 	requireNodeForProjectMap(t)
 	root := prepareProjectMapFixture(t, true)
@@ -322,6 +385,14 @@ func prepareProjectMapFixture(t *testing.T, initGit bool) string {
 	writeFixTestGuardFile(t, root, "go.mod", "module example.com/projectmap\n\ngo 1.25\n")
 	writeFixTestGuardFile(t, root, "CLAUDE.md", "fixture\n")
 	writeFixTestGuardFile(t, root, "README.md", "fixture\n")
+	writeFixTestGuardFile(t, root, "AGENTS.md", "Use `docs/adr/*.md`.\n")
+	writeFixTestGuardFile(t, root, "docs/README.md", "# Docs\n")
+	writeFixTestGuardFile(t, root, "docs/adr/README.md", "# ADR\n")
+	writeFixTestGuardFile(t, root, "docs/work/plans/README.md", "# Plans\n")
+	writeFixTestGuardFile(t, root, "docs/archive/reviews/README.md", "# Archived reviews\n")
+	writeFixTestGuardFile(t, root, "docs/契约/README.md", "Accepted decisions: `docs/adr`.\n")
+	writeFixTestGuardFile(t, root, "docs/契约/fix-workflow-convention.md", "`docs/work/plans/` `docs/archive/reviews/` `docs/adr/`\n")
+	writeFixTestGuardFile(t, root, "docs/契约/mcp-service-convention.md", "# MCP\n")
 	writeFixTestGuardFile(t, root, "run-new-ui-desktop.ps1", "one\r\ntwo\r\n")
 	writeFixTestGuardFile(t, root, "internal/app/app.go", "package app\n\nfunc App() {}\n")
 	writeFixTestGuardFile(t, root, "docs/guide.md", "docs\n")
@@ -331,7 +402,7 @@ func prepareProjectMapFixture(t *testing.T, initGit bool) string {
 	runFixTestGuardGit(t, root, "init", "-q")
 	runFixTestGuardGit(t, root, "config", "user.email", "projectmap@example.test")
 	runFixTestGuardGit(t, root, "config", "user.name", "Project Map Test")
-	runFixTestGuardGit(t, root, "add", "go.mod", "CLAUDE.md", "README.md", "internal/app/app.go")
+	runFixTestGuardGit(t, root, "add", "go.mod", "CLAUDE.md", "README.md", "AGENTS.md", "docs/README.md", "docs/adr", "docs/work/plans", "docs/archive/reviews", "docs/契约", "internal/app/app.go")
 	runFixTestGuardGit(t, root, "commit", "-m", "chore: 初始化 project map fixture")
 	return root
 }

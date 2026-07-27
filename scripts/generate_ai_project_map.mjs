@@ -61,11 +61,77 @@ function parseArgs(argv) {
   return options;
 }
 
+function loadCodemapPolicy() {
+  const policyPath = path.join(SCRIPT_DIR, 'codemap_policy.txt');
+  let body;
+  try {
+    body = fs.readFileSync(policyPath, 'utf8');
+  } catch (error) {
+    throw new Error(`project-map: cannot load ${policyPath}: ${error.message}`);
+  }
+  const policy = { schema_version: 0, historical_doc_roots: [], project_map_shards: {} };
+  for (const [index, rawLine] of body.split(/\r?\n/).entries()) {
+    if (rawLine === '') continue;
+    const fields = rawLine.split('\t');
+    if (fields[0] === 'schema' && fields.length === 2 && policy.schema_version === 0) {
+      policy.schema_version = Number(fields[1]);
+    } else if (fields[0] === 'historical' && fields.length === 2) {
+      policy.historical_doc_roots.push(fields[1]);
+    } else if (fields[0] === 'shard' && fields.length === 3 && !Object.hasOwn(policy.project_map_shards, fields[1])) {
+      policy.project_map_shards[fields[1]] = fields[2];
+    } else {
+      throw new Error(`project-map: malformed codemap policy line ${index + 1}`);
+    }
+  }
+  if (policy.schema_version !== 1) {
+    throw new Error(`project-map: unsupported codemap policy schema ${policy.schema_version}`);
+  }
+  validatePolicyRoots(policy.historical_doc_roots);
+  validatePolicyShards(policy.project_map_shards);
+  return policy;
+}
+
+function validatePolicyRoots(roots) {
+  if (!Array.isArray(roots) || roots.length === 0) {
+    throw new Error('project-map: codemap policy historical_doc_roots must be a non-empty array');
+  }
+  const unique = new Set();
+  for (const root of roots) {
+    if (typeof root !== 'string' || !/^docs\/[^/]+(?:\/[^/]+)*$/.test(root) || path.posix.normalize(root) !== root) {
+      throw new Error(`project-map: invalid historical document root ${String(root)}`);
+    }
+    const overlapping = [...unique].find(
+      (existing) => root === existing || root.startsWith(`${existing}/`) || existing.startsWith(`${root}/`),
+    );
+    if (overlapping) {
+      throw new Error(`project-map: duplicate or overlapping historical document root ${root}`);
+    }
+    unique.add(root);
+  }
+}
+
+function validatePolicyShards(shards) {
+  if (!shards || typeof shards !== 'object' || Array.isArray(shards) || Object.keys(shards).length === 0) {
+    throw new Error('project-map: codemap policy project_map_shards must be a non-empty object');
+  }
+  const files = new Set();
+  for (const [domain, file] of Object.entries(shards)) {
+    if (!/^[a-z][a-z0-9-]*$/.test(domain) || !/^[a-z][a-z0-9-]*\.tsv$/.test(file)) {
+      throw new Error(`project-map: invalid shard mapping ${domain}=${String(file)}`);
+    }
+    if (files.has(file)) throw new Error(`project-map: duplicate shard file ${file}`);
+    files.add(file);
+  }
+}
+
 const OPTIONS = parseArgs(process.argv.slice(2));
 const CHECK = OPTIONS.check;
 const STRICT_DRIFT = OPTIONS.strictDrift;
 const FILESYSTEM_SCAN = OPTIONS.filesystemScan;
 let GIT_BLOB_SIZES = null;
+
+const CODEMAP_POLICY = loadCodemapPolicy();
+const HISTORICAL_DOC_PREFIXES = CODEMAP_POLICY.historical_doc_roots;
 
 const EXCLUDES = [
   '.git/**',
@@ -79,7 +145,7 @@ const EXCLUDES = [
   '.agnet/shared/**',
   'bin/**',
   'reports/**',
-  'docs/archive/**',
+  ...HISTORICAL_DOC_PREFIXES.map((prefix) => `${prefix}/**`),
   '**/node_modules/**',
   '**/dist/**',
   '**/web-dist/**',
@@ -97,15 +163,7 @@ const EXCLUDES = [
   'naked_go.txt',
 ];
 
-const DOMAIN_FILES = {
-  'app-ui': 'app-ui.tsv',
-  orchestration: 'orchestration.tsv',
-  modules: 'modules.tsv',
-  'platform-provider': 'platform-provider.tsv',
-  'store-sql': 'store-sql.tsv',
-  'docs-agent': 'docs-agent.tsv',
-  other: 'other.tsv',
-};
+const DOMAIN_FILES = CODEMAP_POLICY.project_map_shards;
 
 const DOMAIN_DESCRIPTIONS = {
   'app-ui': '桌面应用、Wails host、React/Vite 前端与 UI 测试',
@@ -113,7 +171,7 @@ const DOMAIN_DESCRIPTIONS = {
   modules: '业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等',
   'platform-provider': '基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider',
   'store-sql': '持久化层：store、sqlc、SQL queries、migrations',
-  'docs-agent': '代码地图、ADR/决策、计划与 docs 项目知识',
+  'docs-agent': '代码地图、ADR、契约与 docs 项目知识',
   other: '公共库、脚本、测试、配置与其他根级资源',
 };
 
@@ -124,7 +182,7 @@ const RULES_CANDIDATES = [
 const MODULE_DESCRIPTIONS = {
   cmd: '可执行入口与 MCP peer',
   internal: '应用内部模块、平台、provider、store 与守卫',
-  docs: '代码地图、ADR、计划、迁移和内部说明',
+  docs: '当前文档、生成索引、开发中材料与历史证据',
   pkg: '可复用公共库',
   scripts: '工程自动化脚本',
   sql: 'SQL query 源文件',
@@ -210,9 +268,7 @@ const PURPOSE_RULES = [
   ['pkg/', '可复用公共库'],
   ['scripts/', '工程自动化、测试守卫、代码地图与开发脚本'],
   ['docs/doc/codemap/', '手写代码地图卷与自动 ai-index'],
-  ['docs/decisions/', 'ADR/决策记录'],
   ['docs/adr/', '架构决策记录'],
-  ['docs/plans/', '历史计划与迁移执行文档'],
   ['docs/internal-notes/', '内部提示词与工程方法记录'],
   ['docs/', '项目文档体系'],
 ];
@@ -243,7 +299,7 @@ const runtime = {
   driftThresholds: {
     max_unknown_ratio: 0.18,
   },
-  rulesSources: [],
+  rulesSources: ['scripts/codemap_policy.txt'],
 };
 
 const RUNTIME_ENTRY_ROWS = [
@@ -305,9 +361,12 @@ const SUBSYSTEM_PREFIX_GROUPS = [
 
 function main() {
   loadRuleOverrides(OPTIONS);
+  validateDomainPolicy();
   GIT_BLOB_SIZES = FILESYSTEM_SCAN ? null : loadGitTrackedBlobSizes();
   const files = scanFiles();
   const entries = files.map(buildEntry);
+  validateLifecycleEntries(entries);
+  validateCurrentDocumentationNavigation();
   const grouped = groupByDomain(entries);
   const drift = buildDrift(entries);
   const outputs = renderAll(entries, grouped, drift);
@@ -334,9 +393,62 @@ function main() {
   console.log(`project-map: ${entries.length} files, ${Object.keys(grouped).length} domains, drift=${drift.status}`);
 }
 
+function validateDomainPolicy() {
+  const described = Object.keys(DOMAIN_DESCRIPTIONS).sort();
+  const mapped = Object.keys(DOMAIN_FILES).sort();
+  if (described.join('\n') !== mapped.join('\n')) {
+    throw new Error(`project-map: shard policy domains differ from descriptions: mapped=${mapped.join(',')} described=${described.join(',')}`);
+  }
+}
+
 function scanFiles() {
   if (!FILESYSTEM_SCAN) return scanGitTrackedFiles();
   return scanFilesystemFiles();
+}
+
+function validateLifecycleEntries(entries) {
+  const historical = entries.find((entry) => HISTORICAL_DOC_PREFIXES.some(
+    (prefix) => entry.path === prefix || entry.path.startsWith(`${prefix}/`),
+  ));
+  if (historical) {
+    throw new Error(`project-map: historical document entered current index: ${historical.path}`);
+  }
+}
+
+function validateCurrentDocumentationNavigation() {
+  const docsReadme = path.join(ROOT, 'docs', 'README.md');
+  if (!fs.existsSync(docsReadme)) {
+    throw new Error('project-map: canonical docs/README.md is missing');
+  }
+  for (const relative of ['docs/adr', 'docs/work/plans', 'docs/archive/reviews']) {
+    const absolute = path.join(ROOT, relative);
+    if (!fs.existsSync(absolute) || !fs.statSync(absolute).isDirectory()) {
+      throw new Error(`project-map: canonical current documentation path is missing: ${relative}`);
+    }
+  }
+  const checks = [
+    ['AGENTS.md', ['docs/adr/*.md'], ['docs/decisions/*.md']],
+    ['docs/契约/README.md', ['docs/adr'], ['docs/decisions']],
+    [
+      'docs/契约/fix-workflow-convention.md',
+      ['docs/work/plans/', 'docs/archive/reviews/', 'docs/adr/'],
+      ['docs/decisions', 'docs/li/', 'docs/plans/', 'docs/reviews/'],
+    ],
+    ['docs/契约/mcp-service-convention.md', [], ['docs/decisions/ADR-003-mcp-input-enum-validation.md']],
+  ];
+  for (const [relative, required, forbidden] of checks) {
+    const body = fs.readFileSync(path.join(ROOT, relative), 'utf8');
+    for (const value of required) {
+      if (!body.includes(value)) {
+        throw new Error(`project-map: current documentation ${relative} is missing ${value}`);
+      }
+    }
+    for (const value of forbidden) {
+      if (body.includes(value)) {
+        throw new Error(`project-map: current documentation ${relative} points to historical ${value}`);
+      }
+    }
+  }
 }
 
 function loadRuleOverrides(options) {
@@ -491,6 +603,7 @@ function shouldSkipDir(rel) {
     '.agnet/report',
     '.agnet/shared',
     ...runtime.archivePrefixes.map((prefix) => prefix.replace(/\/+$/, '')),
+    ...HISTORICAL_DOC_PREFIXES,
     'docs/doc/codemap/project-map',
     'reports',
   ].some((prefix) => rel === prefix || rel.startsWith(`${prefix}/`));
@@ -635,13 +748,22 @@ function buildDrift(entries) {
 function renderAll(entries, grouped, drift) {
   const outputs = {};
   const stats = shardStats(grouped);
-  outputs[MAP_MD] = renderMap(entries, drift, stats);
+  outputs[MAP_MD] = renderPolicyAwareMap(entries, drift, stats);
   outputs[DRIFT_MD] = renderDrift(entries, drift);
   outputs[MANIFEST_JSON] = `${JSON.stringify(renderManifest(entries, grouped, drift, stats), null, 2)}\n`;
   for (const [domain, items] of Object.entries(grouped)) {
     outputs[path.join(INDEX_DIR, DOMAIN_FILES[domain])] = renderTSV(items);
   }
   return outputs;
+}
+
+function renderPolicyAwareMap(entries, drift, stats) {
+  const rendered = renderMap(entries, drift, stats);
+  const historical = HISTORICAL_DOC_PREFIXES.map((prefix) => `\`${prefix}/*\``).join('、');
+  return rendered.replace(
+    /- 历史归档（L3）：[^\n]*/,
+    `- 历史归档（L3）：${historical}（默认不递归索引）`,
+  );
 }
 
 function renderManifest(entries, grouped, drift, stats) {
