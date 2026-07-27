@@ -42,6 +42,26 @@ func TestRunWithTxRollsBackOnError(t *testing.T) {
 	}
 }
 
+func TestRunWithTxJoinsFunctionAndRollbackErrors(t *testing.T) {
+	t.Parallel()
+	fnErr := errors.New("write failed")
+	rollbackErr := errors.New("rollback failed")
+	tx := &captureTx{rollbackErr: rollbackErr}
+
+	err := runWithCommitter(context.Background(), tx, func(sqlTxCommitter) error {
+		return fnErr
+	})
+	if !errors.Is(err, fnErr) {
+		t.Fatalf("runWithTx() error = %v, want function error", err)
+	}
+	if !errors.Is(err, rollbackErr) {
+		t.Fatalf("runWithTx() error = %v, want rollback error", err)
+	}
+	if !tx.rolledBack {
+		t.Fatal("runWithTx() did not roll back")
+	}
+}
+
 func TestRunWithTxRollsBackOnPanicReturnsError(t *testing.T) {
 	t.Parallel()
 	tx := &captureTx{}

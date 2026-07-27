@@ -127,8 +127,9 @@ func runWithCommitter(ctx context.Context, tx sqlTxCommitter, fn func(c sqlTxCom
 		}
 	}()
 	if err := fn(tx); err != nil {
-		_ = tx.Rollback()
-		return err
+		cleanupCtx, cancel := txCleanupContext(ctx)
+		defer cancel()
+		return rollbackTx(cleanupCtx, tx, err)
 	}
 	return tx.Commit()
 }
