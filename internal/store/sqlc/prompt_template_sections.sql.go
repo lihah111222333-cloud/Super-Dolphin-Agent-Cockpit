@@ -57,14 +57,21 @@ WITH scoped AS (
     AND TRIM(s.body) <> ''
     AND ?1 <> ''
     AND (instr(t.tags, '"scope.cwd:' || ?1 || '"') > 0 OR instr(t.tags, '"scope.global"') > 0)
+),
+ranked AS (
+  SELECT scoped.id, scoped.template_id, scoped.section_key, scoped.region, scoped.ordinal, scoped.body, scoped.enable_when, scoped.enabled, scoped.created_at, scoped.updated_at, scoped.trigger_type, scoped.recall_topic, scoped.template_prompt_key, scoped.template_title, scoped.template_tags, scoped.priority, scoped.scope_rank, scoped.rule_identity,
+         ROW_NUMBER() OVER (
+           PARTITION BY rule_identity
+           ORDER BY scope_rank ASC, id ASC
+         ) AS scope_row
+  FROM scoped
 )
 SELECT id, template_id, section_key, region, ordinal, body,
        enable_when, enabled, created_at, updated_at,
        trigger_type, recall_topic, template_prompt_key,
        template_title, template_tags
-FROM scoped
-GROUP BY rule_identity
-HAVING id = MIN(id)
+FROM ranked
+WHERE scope_row = 1
 ORDER BY priority DESC, template_prompt_key, ordinal, id
 `
 
@@ -258,15 +265,22 @@ WITH scoped AS (
     AND TRIM(s.recall_topic) <> ''
     AND ?1 <> ''
     AND (instr(t.tags, '"scope.cwd:' || ?1 || '"') > 0 OR instr(t.tags, '"scope.global"') > 0)
+),
+ranked AS (
+  SELECT scoped.id, scoped.template_id, scoped.section_key, scoped.region, scoped.ordinal, scoped.enable_when, scoped.enabled, scoped.created_at, scoped.updated_at, scoped.trigger_type, scoped.recall_topic, scoped.template_prompt_key, scoped.template_title, scoped.template_description, scoped.template_when_to_use, scoped.template_tags, scoped.scope_rank,
+         ROW_NUMBER() OVER (
+           PARTITION BY TRIM(recall_topic)
+           ORDER BY scope_rank ASC, id ASC
+         ) AS scope_row
+  FROM scoped
 )
 SELECT id, template_id, section_key, region, ordinal,
        enable_when, enabled, created_at, updated_at,
        trigger_type, recall_topic,
        template_prompt_key, template_title, template_description,
        template_when_to_use, template_tags
-FROM scoped
-GROUP BY TRIM(recall_topic)
-HAVING id = MIN(id)
+FROM ranked
+WHERE scope_row = 1
 ORDER BY recall_topic, id
 `
 

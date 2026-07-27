@@ -35,15 +35,22 @@ WITH scoped AS (
     AND TRIM(s.recall_topic) <> ''
     AND sqlc.arg(cwd) <> ''
     AND (instr(t.tags, '"scope.cwd:' || sqlc.arg(cwd) || '"') > 0 OR instr(t.tags, '"scope.global"') > 0)
+),
+ranked AS (
+  SELECT scoped.*,
+         ROW_NUMBER() OVER (
+           PARTITION BY TRIM(recall_topic)
+           ORDER BY scope_rank ASC, id ASC
+         ) AS scope_row
+  FROM scoped
 )
 SELECT id, template_id, section_key, region, ordinal,
        enable_when, enabled, created_at, updated_at,
        trigger_type, recall_topic,
        template_prompt_key, template_title, template_description,
        template_when_to_use, template_tags
-FROM scoped
-GROUP BY TRIM(recall_topic)
-HAVING id = MIN(id)
+FROM ranked
+WHERE scope_row = 1
 ORDER BY recall_topic, id;
 
 -- name: ListDefaultRuleSections :many
@@ -75,14 +82,21 @@ WITH scoped AS (
     AND TRIM(s.body) <> ''
     AND sqlc.arg(cwd) <> ''
     AND (instr(t.tags, '"scope.cwd:' || sqlc.arg(cwd) || '"') > 0 OR instr(t.tags, '"scope.global"') > 0)
+),
+ranked AS (
+  SELECT scoped.*,
+         ROW_NUMBER() OVER (
+           PARTITION BY rule_identity
+           ORDER BY scope_rank ASC, id ASC
+         ) AS scope_row
+  FROM scoped
 )
 SELECT id, template_id, section_key, region, ordinal, body,
        enable_when, enabled, created_at, updated_at,
        trigger_type, recall_topic, template_prompt_key,
        template_title, template_tags
-FROM scoped
-GROUP BY rule_identity
-HAVING id = MIN(id)
+FROM ranked
+WHERE scope_row = 1
 ORDER BY priority DESC, template_prompt_key, ordinal, id;
 
 -- name: LockRecallTopicInCWD :exec
