@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -296,6 +297,73 @@ func (m *editFailureManager) DidChange(_ context.Context, uri string, _ int, _ [
 		m.didChangeHook(uri)
 	}
 	return m.didChangeErr
+}
+
+type canceledRollbackManager struct {
+	structureTestManager
+	contextErr  error
+	content     string
+	hasDeadline bool
+	version     int
+}
+
+func (m *canceledRollbackManager) DidChange(ctx context.Context, _ string, version int, changes []protocol.TextDocumentContentChangeEvent) error {
+	m.contextErr = ctx.Err()
+	_, m.hasDeadline = ctx.Deadline()
+	if m.contextErr != nil {
+		return m.contextErr
+	}
+	if len(changes) != 1 {
+		return fmt.Errorf("DidChange changes = %d, want 1", len(changes))
+	}
+	m.content = changes[0].Text
+	m.version = version
+	return nil
+}
+
+func TestRollbackReplaceRangeUpdateSyncsWithCanceledCallerContext(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "sample.go")
+	const (
+		original = "package sample\n\nfunc old() {}\n"
+		updated  = "package sample\n\nfunc updated() {}\n"
+	)
+	if err := os.WriteFile(path, []byte(updated), 0o600); err != nil {
+		t.Fatalf("write updated fixture: %v", err)
+	}
+	manager := &canceledRollbackManager{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, _, err := (EditHandler{}).rollbackReplaceRangeUpdate(
+		ctx,
+		manager,
+		path,
+		editableFile{raw: original, mode: 0o600},
+		7,
+		context.Canceled,
+		nil,
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("rollback error = %v, want original context cancellation", err)
+	}
+	if strings.Contains(err.Error(), "rollback failed") {
+		t.Fatalf("rollback error = %v, canceled caller must not prevent rollback sync", err)
+	}
+	assertFileContent(t, path, original)
+	if manager.contextErr != nil {
+		t.Fatalf("rollback DidChange context error = %v, want independent live context", manager.contextErr)
+	}
+	if !manager.hasDeadline {
+		t.Fatal("rollback DidChange context has no deadline, want bounded independent context")
+	}
+	if manager.content != original {
+		t.Fatalf("rollback DidChange content = %q, want %q", manager.content, original)
+	}
+	if manager.version != 8 {
+		t.Fatalf("rollback DidChange version = %d, want 8", manager.version)
+	}
 }
 
 func TestEditFailureAfterDeadClientReturnsRetryableWithoutAutoReplay(t *testing.T) {
