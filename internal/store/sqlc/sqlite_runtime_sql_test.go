@@ -138,6 +138,54 @@ func TestLoadedAgentThreadPageZeroTimestampCursorDoesNotRestartFirstPage(t *test
 	}
 }
 
+func TestAgentThreadPagesDoNotExpandRowsForBindingAliases(t *testing.T) {
+	t.Parallel()
+
+	db := openSQLCTestSQLiteDB(t)
+	q := New(db)
+	ctx := context.Background()
+	for _, row := range []UpsertAgentThreadParams{
+		{ThreadID: "thread-new", Name: "new", Status: "created", CreatedAt: 2, UpdatedAt: 2},
+		{ThreadID: "thread-old", Name: "old", Status: "created", CreatedAt: 1, UpdatedAt: 1},
+	} {
+		if err := q.UpsertAgentThread(ctx, row); err != nil {
+			t.Fatalf("UpsertAgentThread(%s) error = %v", row.ThreadID, err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO agent_provider_binding(agent_id, provider, codex_thread_id, updated_at)
+		VALUES ('alias-old', 'codex', 'thread-new', 1),
+		       ('alias-new', 'codex', 'thread-new', 2)
+	`); err != nil {
+		t.Fatalf("insert binding aliases: %v", err)
+	}
+
+	allRows, err := q.ListAgentThreadsPage(ctx, ListAgentThreadsPageParams{CursorThreadID: "", Limit: 1})
+	if err != nil {
+		t.Fatalf("ListAgentThreadsPage() error = %v", err)
+	}
+	if len(allRows) != 2 {
+		t.Fatalf("ListAgentThreadsPage() row count = %d, want two distinct thread rows", len(allRows))
+	}
+	assertDistinctThreadLookahead(t, allRows[0].ThreadID, allRows[0].AgentID, allRows[1].ThreadID, len(allRows))
+
+	loadedRows, err := q.ListLoadedAgentThreadsPage(ctx, ListLoadedAgentThreadsPageParams{CursorThreadID: "", Limit: 1})
+	if err != nil {
+		t.Fatalf("ListLoadedAgentThreadsPage() error = %v", err)
+	}
+	if len(loadedRows) != 2 {
+		t.Fatalf("ListLoadedAgentThreadsPage() row count = %d, want two distinct thread rows", len(loadedRows))
+	}
+	assertDistinctThreadLookahead(t, loadedRows[0].ThreadID, loadedRows[0].AgentID, loadedRows[1].ThreadID, len(loadedRows))
+}
+
+func assertDistinctThreadLookahead(t *testing.T, firstThreadID, firstAgentID, secondThreadID string, rowCount int) {
+	t.Helper()
+	if rowCount != 2 || firstThreadID != "thread-new" || firstAgentID != "alias-new" || secondThreadID != "thread-old" {
+		t.Fatalf("page lookahead = count:%d first:%q agent:%q second:%q; want two distinct threads and newest binding alias", rowCount, firstThreadID, firstAgentID, secondThreadID)
+	}
+}
+
 func openSQLCTestSQLiteDB(t *testing.T) *sql.DB {
 	t.Helper()
 

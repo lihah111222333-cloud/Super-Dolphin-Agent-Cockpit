@@ -491,11 +491,14 @@ func (q *Queries) ListAgentThreads(ctx context.Context) ([]ListAgentThreadsRow, 
 
 const listAgentThreadsPage = `-- name: ListAgentThreadsPage :many
 SELECT t.thread_id, t.name, t.prompt, t.model, t.cwd, t.status, t.port, t.pid, t.created_at, t.updated_at, t.finished_at, t.last_event_type, t.error_message, t.workspace_run_key, t.owner_thread_id, t.parent_agent_id, t.agent_type, t.agent_memory_scope, t.config_override, t.agent_key, t.prompt_version_id, t.pending_launch, t.manually_renamed,
-       COALESCE(b.agent_id, '') AS agent_id
+       CAST(COALESCE((
+           SELECT b.agent_id
+           FROM agent_provider_binding b
+           WHERE b.provider_thread_id = t.thread_id OR b.codex_thread_id = t.thread_id
+           ORDER BY b.updated_at DESC, b.agent_id DESC
+           LIMIT 1
+       ), '') AS TEXT) AS agent_id
 FROM agent_threads t
-LEFT JOIN (
-    SELECT agent_id, provider_thread_id, codex_thread_id FROM agent_provider_binding
-) b ON (b.provider_thread_id = t.thread_id OR b.codex_thread_id = t.thread_id)
 WHERE ?1 = ''
    OR t.created_at < ?2
    OR (t.created_at = ?2 AND t.thread_id < ?1)
@@ -586,11 +589,14 @@ func (q *Queries) ListAgentThreadsPage(ctx context.Context, arg ListAgentThreads
 
 const listLoadedAgentThreadsPage = `-- name: ListLoadedAgentThreadsPage :many
 SELECT t.thread_id, t.name, t.prompt, t.model, t.cwd, t.status, t.port, t.pid, t.created_at, t.updated_at, t.finished_at, t.last_event_type, t.error_message, t.workspace_run_key, t.owner_thread_id, t.parent_agent_id, t.agent_type, t.agent_memory_scope, t.config_override, t.agent_key, t.prompt_version_id, t.pending_launch, t.manually_renamed,
-       COALESCE(b.agent_id, '') AS agent_id
+       CAST(COALESCE((
+           SELECT b.agent_id
+           FROM agent_provider_binding b
+           WHERE b.provider_thread_id = t.thread_id OR b.codex_thread_id = t.thread_id
+           ORDER BY b.updated_at DESC, b.agent_id DESC
+           LIMIT 1
+       ), '') AS TEXT) AS agent_id
 FROM agent_threads t
-LEFT JOIN (
-    SELECT agent_id, provider_thread_id, codex_thread_id FROM agent_provider_binding
-) b ON (b.provider_thread_id = t.thread_id OR b.codex_thread_id = t.thread_id)
 WHERE t.status = 'created'
   AND (
       ?1 = ''
