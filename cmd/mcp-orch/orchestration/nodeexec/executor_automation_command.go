@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 )
 
@@ -17,14 +16,11 @@ const (
 	automationCommandStderrLimitBytes = 256 * 1024
 )
 
-var (
-	sensitiveHeaderTextPattern  = regexp.MustCompile(`(?im)(^|[^\pL\pN_])((?:token|api[_-]?key|password|secret|authorization|cookie)\s*:\s*)[^\r\n]*`)
-	sensitiveCommandTextPattern = regexp.MustCompile(`(?i)\b(token|api[_-]?key|password|secret|authorization|cookie)\b(\s*=\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s\r\n]+)`)
-)
-
 // ShellCommandRunner 执行 automation command 卡片。
 // 调用前会校验风险级别、工作区边界和命令文本，失败时不启动进程。
-type ShellCommandRunner struct{}
+type ShellCommandRunner struct {
+	authorizer CommandExecutionAuthorizer
+}
 
 // preparedAutomationCommand 保存一次命令执行所需的进程和可回传结果。
 type preparedAutomationCommand struct {
@@ -35,14 +31,26 @@ type preparedAutomationCommand struct {
 	normalizedArgs json.RawMessage      // 模板渲染后的结构化参数快照
 }
 
-// NewShellCommandRunner 创建无状态命令 runner。
-// runner 本身不持有工作区或环境，所有执行边界必须随 RunCommandCard 的 options 显式传入。
-func NewShellCommandRunner() *ShellCommandRunner { return &ShellCommandRunner{} }
+// NewShellCommandRunner 创建命令 runner。
+// 未注入可信 authorizer 时 runner 保持可装配，但所有实际命令都会在 spawn 前 fail-closed。
+func NewShellCommandRunner(opts ...ShellCommandRunnerOption) (*ShellCommandRunner, error) {
+	runner := &ShellCommandRunner{}
+	for _, opt := range opts {
+		if opt == nil {
+			return nil, errors.New("nodeexec: nil ShellCommandRunnerOption")
+		}
+		opt(runner)
+	}
+	return runner, nil
+}
 
 // RunCommandCard 运行命令卡；命令执行必须显式标记 high 风险，并限制在允许工作区内。
-func (ShellCommandRunner) RunCommandCard(ctx context.Context, card AutomationCommandCard, args json.RawMessage, opts ...AutomationCommandRunOptions) (AutomationCommandResult, error) {
+func (r *ShellCommandRunner) RunCommandCard(ctx context.Context, card AutomationCommandCard, args json.RawMessage, opts ...AutomationCommandRunOptions) (AutomationCommandResult, error) {
 	prepared, err := prepareAutomationCommand(ctx, card, args, opts)
 	if err != nil {
+		return AutomationCommandResult{}, err
+	}
+	if err := r.authorizeCommandExecution(ctx, card, prepared); err != nil {
 		return AutomationCommandResult{}, err
 	}
 	err = prepared.cmd.Run()
@@ -281,13 +289,6 @@ func allowedAutomationCommandEnv(env map[string]string) []string {
 		out = append(out, strings.TrimSpace(key)+"="+value)
 	}
 	return out
-}
-
-// redactSensitiveText 对命令、stdout、stderr 中的敏感键做统一脱敏。
-// Header 形态的值可能包含空格和多个字段，必须整行截断，避免 Bearer/Cookie 残留。
-func redactSensitiveText(text string) string {
-	redacted := sensitiveHeaderTextPattern.ReplaceAllString(text, "${1}${2}[REDACTED]")
-	return sensitiveCommandTextPattern.ReplaceAllString(redacted, "${1}${2}[REDACTED]")
 }
 
 func stripAutomationControlFieldsBeforePromptReuse(raw string) string {

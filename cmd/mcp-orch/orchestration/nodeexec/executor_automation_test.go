@@ -64,7 +64,7 @@ func executeAutomationNode(t *testing.T, exec NodeExecutor, node Node, runCtx Ru
 func TestShellCommandRunnerRejectsRenderedShellInjection(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	runner := NewShellCommandRunner()
+	runner := newShellCommandRunnerForTest(t)
 
 	result, err := runner.RunCommandCard(context.Background(), AutomationCommandCard{
 		CardKey:         "greet",
@@ -92,7 +92,7 @@ func TestAutomationExecutor_Happy(t *testing.T) {
 		RiskLevel:       "high",
 		Enabled:         true,
 	}}
-	exec := NewAutomationExecutor(getter, NewShellCommandRunner())
+	exec := NewAutomationExecutor(getter, newAuthorizedShellCommandRunnerForTest(t))
 	root := t.TempDir()
 	node := makeAutomationNode(t, AutomationNodeConfig{Exec: AutomationExecConfig{
 		Kind:           AutomationKindCommandCard,

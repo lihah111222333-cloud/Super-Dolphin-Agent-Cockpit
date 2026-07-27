@@ -25,7 +25,9 @@ func orchestrationExecutionOptions(remoteAddr string) fx.Option {
 					return buildLauncher(lc, turnStarter, logger, remoteAddr)
 				},
 				newAutomationCommandGetter,
-				nodeexec.NewShellCommandRunner,
+				// 当前没有可信 principal/grants resolver；默认 runner 会在真实 spawn 前 fail-closed。
+				// 后续接入 IAM 时只需在此注入 CommandExecutionAuthorizer，不能由 DAG payload 自证权限。
+				func() (*nodeexec.ShellCommandRunner, error) { return nodeexec.NewShellCommandRunner() },
 				func(r *nodeexec.ShellCommandRunner) nodeexec.AutomationCommandRunner { return r },
 				orchestration.ProvideAgentLifecycleController,
 				orchestration.NewServiceAgentLauncher,

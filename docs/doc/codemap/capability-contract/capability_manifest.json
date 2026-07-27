@@ -1276,6 +1276,8 @@
         "cmd/mcp-orch/orchestration/nodeexec.*OpAddNode.UnmarshalJSON",
         "cmd/mcp-orch/orchestration/nodeexec.*OpUpdateDAG.UnmarshalJSON",
         "cmd/mcp-orch/orchestration/nodeexec.*Ops.UnmarshalJSON",
+        "cmd/mcp-orch/orchestration/nodeexec.*ShellCommandRunner.RunCommandCard",
+        "cmd/mcp-orch/orchestration/nodeexec.*ShellCommandRunner.authorizeCommandExecution",
         "cmd/mcp-orch/orchestration/nodeexec.*automationArgvSplitState.accept",
         "cmd/mcp-orch/orchestration/nodeexec.*automationArgvSplitState.acceptQuoteOrEscape",
         "cmd/mcp-orch/orchestration/nodeexec.*automationArgvSplitState.finish",
@@ -1307,6 +1309,10 @@
         "cmd/mcp-orch/orchestration/nodeexec.AutomationNodeConfig",
         "cmd/mcp-orch/orchestration/nodeexec.BuildArtifactImportPlan",
         "cmd/mcp-orch/orchestration/nodeexec.BuildArtifactTextPlan",
+        "cmd/mcp-orch/orchestration/nodeexec.CommandExecutionAuthorization",
+        "cmd/mcp-orch/orchestration/nodeexec.CommandExecutionAuthorizationRequest",
+        "cmd/mcp-orch/orchestration/nodeexec.CommandExecutionAuthorizer",
+        "cmd/mcp-orch/orchestration/nodeexec.CommandExecutionAuthorizer.AuthorizeCommandExecution",
         "cmd/mcp-orch/orchestration/nodeexec.CommandExitError",
         "cmd/mcp-orch/orchestration/nodeexec.CommandExitError.Error",
         "cmd/mcp-orch/orchestration/nodeexec.CommandExitError.Unwrap",
@@ -1387,17 +1393,18 @@
         "cmd/mcp-orch/orchestration/nodeexec.SharedFileWriter.WriteSharedFile",
         "cmd/mcp-orch/orchestration/nodeexec.SharedfileTarget",
         "cmd/mcp-orch/orchestration/nodeexec.ShellCommandRunner",
-        "cmd/mcp-orch/orchestration/nodeexec.ShellCommandRunner.RunCommandCard",
         "cmd/mcp-orch/orchestration/nodeexec.SummarizationConfig",
         "cmd/mcp-orch/orchestration/nodeexec.UpdateNodeChange",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateAddNodeTopology",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateAutomationCommandDispatchConfig",
+        "cmd/mcp-orch/orchestration/nodeexec.ValidateAutomationCommandWorkspaceScope",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateCreateDAGNodes",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateLaunchCWDForNodeConfig",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateNodeSpecsConfig",
         "cmd/mcp-orch/orchestration/nodeexec.ValidatePersistableNodeConfig",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateTransition",
         "cmd/mcp-orch/orchestration/nodeexec.WithAutomationHooks",
+        "cmd/mcp-orch/orchestration/nodeexec.WithCommandExecutionAuthorizer",
         "cmd/mcp-orch/orchestration/nodeexec.WithExecutionTimeout",
         "cmd/mcp-orch/orchestration/nodeexec.WithHooks",
         "cmd/mcp-orch/orchestration/nodeexec.WithLaunchedThreadCapture",
@@ -1407,6 +1414,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.agentLaunchCWDValidationFailure",
         "cmd/mcp-orch/orchestration/nodeexec.agentLaunchEnv",
         "cmd/mcp-orch/orchestration/nodeexec.allowedAutomationCommandEnv",
+        "cmd/mcp-orch/orchestration/nodeexec.appendAutomationSensitiveKeyWord",
         "cmd/mcp-orch/orchestration/nodeexec.applyAutomationCommandOptions",
         "cmd/mcp-orch/orchestration/nodeexec.applyDependsOnPatch",
         "cmd/mcp-orch/orchestration/nodeexec.artifactObjectMatchesTool",
@@ -1418,10 +1426,13 @@
         "cmd/mcp-orch/orchestration/nodeexec.artifactTextFromObject",
         "cmd/mcp-orch/orchestration/nodeexec.artifactTextFromValue",
         "cmd/mcp-orch/orchestration/nodeexec.automationArgvSplitState",
+        "cmd/mcp-orch/orchestration/nodeexec.automationByteIsEscaped",
         "cmd/mcp-orch/orchestration/nodeexec.automationCommandContext",
         "cmd/mcp-orch/orchestration/nodeexec.automationCommandResult",
         "cmd/mcp-orch/orchestration/nodeexec.automationCommandResultPayload",
         "cmd/mcp-orch/orchestration/nodeexec.automationCommandRunOptionsFromConfig",
+        "cmd/mcp-orch/orchestration/nodeexec.automationLineEnd",
+        "cmd/mcp-orch/orchestration/nodeexec.automationSensitiveKeyWords",
         "cmd/mcp-orch/orchestration/nodeexec.automationSharedFileOwnerNode",
         "cmd/mcp-orch/orchestration/nodeexec.automationSharedFileProducerActor",
         "cmd/mcp-orch/orchestration/nodeexec.automationSharedfilePath",
@@ -1431,6 +1442,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.buildInputsPayload",
         "cmd/mcp-orch/orchestration/nodeexec.buildLaunchRequestFromAgentConfig",
         "cmd/mcp-orch/orchestration/nodeexec.canonicalExistingPath",
+        "cmd/mcp-orch/orchestration/nodeexec.canonicalWorkspaceRoots",
         "cmd/mcp-orch/orchestration/nodeexec.captureLaunchedThread",
         "cmd/mcp-orch/orchestration/nodeexec.classifiedAgentLaunchFailure",
         "cmd/mcp-orch/orchestration/nodeexec.classifyAgentLaunchError",
@@ -1473,6 +1485,9 @@
         "cmd/mcp-orch/orchestration/nodeexec.injectKind",
         "cmd/mcp-orch/orchestration/nodeexec.inputsConfigured",
         "cmd/mcp-orch/orchestration/nodeexec.isAllowedConfigAgentKey",
+        "cmd/mcp-orch/orchestration/nodeexec.isAutomationInlineSpace",
+        "cmd/mcp-orch/orchestration/nodeexec.isAutomationKeyByte",
+        "cmd/mcp-orch/orchestration/nodeexec.isAutomationQuote",
         "cmd/mcp-orch/orchestration/nodeexec.isCycleSCC",
         "cmd/mcp-orch/orchestration/nodeexec.isPersistedNodeStatus",
         "cmd/mcp-orch/orchestration/nodeexec.isReservedOrLegacyNodeStatus",
@@ -1496,15 +1511,19 @@
         "cmd/mcp-orch/orchestration/nodeexec.newTarjanState",
         "cmd/mcp-orch/orchestration/nodeexec.normalizeAgentLaunchConfig",
         "cmd/mcp-orch/orchestration/nodeexec.normalizeAutomationRunOptions",
+        "cmd/mcp-orch/orchestration/nodeexec.openingAutomationQuote",
         "cmd/mcp-orch/orchestration/nodeexec.opsHeader",
         "cmd/mcp-orch/orchestration/nodeexec.parseExecutableAutomationConfig",
         "cmd/mcp-orch/orchestration/nodeexec.parseExecutionTimeoutSeconds",
         "cmd/mcp-orch/orchestration/nodeexec.parseExecutionTimeoutString",
+        "cmd/mcp-orch/orchestration/nodeexec.pathWithinAnyRoot",
         "cmd/mcp-orch/orchestration/nodeexec.pathWithinRoot",
         "cmd/mcp-orch/orchestration/nodeexec.persistedNodeStatuses",
         "cmd/mcp-orch/orchestration/nodeexec.planAddNodeTopology",
         "cmd/mcp-orch/orchestration/nodeexec.prepareAutomationCommand",
         "cmd/mcp-orch/orchestration/nodeexec.preparedAutomationCommand",
+        "cmd/mcp-orch/orchestration/nodeexec.quotedAutomationValueEnd",
+        "cmd/mcp-orch/orchestration/nodeexec.redactSensitiveAssignments",
         "cmd/mcp-orch/orchestration/nodeexec.redactSensitiveText",
         "cmd/mcp-orch/orchestration/nodeexec.registerNewNode",
         "cmd/mcp-orch/orchestration/nodeexec.rejectAutomationShellModeFields",
@@ -1518,20 +1537,27 @@
         "cmd/mcp-orch/orchestration/nodeexec.resolveExecutionConfigTimeout",
         "cmd/mcp-orch/orchestration/nodeexec.resolveSpawnKeys",
         "cmd/mcp-orch/orchestration/nodeexec.sanitizeLaunchName",
+        "cmd/mcp-orch/orchestration/nodeexec.scrubAutomationJSONLines",
+        "cmd/mcp-orch/orchestration/nodeexec.scrubAutomationJSONText",
         "cmd/mcp-orch/orchestration/nodeexec.scrubAutomationResultObject",
         "cmd/mcp-orch/orchestration/nodeexec.scrubAutomationResultValue",
         "cmd/mcp-orch/orchestration/nodeexec.seedAdjacency",
         "cmd/mcp-orch/orchestration/nodeexec.seedAdjacencyFull",
+        "cmd/mcp-orch/orchestration/nodeexec.sensitiveTextKeyBeforeDelimiter",
+        "cmd/mcp-orch/orchestration/nodeexec.sensitiveTextValueEnd",
         "cmd/mcp-orch/orchestration/nodeexec.shouldDropAutomationResultKey",
         "cmd/mcp-orch/orchestration/nodeexec.shouldEmitFullNodeResult",
         "cmd/mcp-orch/orchestration/nodeexec.shouldEmitSharedfileEnvelope",
+        "cmd/mcp-orch/orchestration/nodeexec.skipAutomationInlineSpace",
         "cmd/mcp-orch/orchestration/nodeexec.sortedKeys",
         "cmd/mcp-orch/orchestration/nodeexec.splitAutomationCommandArgv",
+        "cmd/mcp-orch/orchestration/nodeexec.startsAutomationSensitiveKeyWord",
         "cmd/mcp-orch/orchestration/nodeexec.startsTemplateAction",
         "cmd/mcp-orch/orchestration/nodeexec.stripAutomationControlFieldsBeforePromptReuse",
         "cmd/mcp-orch/orchestration/nodeexec.tarjanSCCCycleComponents",
         "cmd/mcp-orch/orchestration/nodeexec.tarjanState",
         "cmd/mcp-orch/orchestration/nodeexec.transition",
+        "cmd/mcp-orch/orchestration/nodeexec.trimAutomationInlineSpaceBackward",
         "cmd/mcp-orch/orchestration/nodeexec.truncateErrSummary",
         "cmd/mcp-orch/orchestration/nodeexec.updateChangeFromOp",
         "cmd/mcp-orch/orchestration/nodeexec.validateAgentLaunchIdentity",
@@ -1550,6 +1576,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.validatePersistableAutomationExec",
         "cmd/mcp-orch/orchestration/nodeexec.validateRenderedCommandShellSafety",
         "cmd/mcp-orch/orchestration/nodeexec.validateUpdateNodeConfig",
+        "cmd/mcp-orch/orchestration/nodeexec.validateWorkspaceScope",
         "cmd/mcp-orch/orchestration/nodeexec.verifyDependsOnIntegrity",
         "cmd/mcp-orch/orchestration/nodeexec.walkConfigForBannedKeys",
         "cmd/mcp-orch/orchestration/nodeexec.writeAutomationSharedfile",
@@ -1652,6 +1679,11 @@
         "cmd/mcp-orch/orchestration/wakeupreclaim.WakeupReclaimerConfig.ConfigOrDefaults",
         "cmd/mcp-orch/orchestration/wakeupreclaim.nodeRunIDForLog",
         "cmd/mcp-orch/orchestration/wakeuptext.RenderUpstreamPromptHint",
+        "cmd/mcp-orch/tools.*applyOpsWorkspaceValidator.existingNodeType",
+        "cmd/mcp-orch/tools.*applyOpsWorkspaceValidator.loadExistingNodeTypes",
+        "cmd/mcp-orch/tools.*applyOpsWorkspaceValidator.validate",
+        "cmd/mcp-orch/tools.*applyOpsWorkspaceValidator.validateAddNode",
+        "cmd/mcp-orch/tools.*applyOpsWorkspaceValidator.validateUpdateNode",
         "cmd/mcp-orch/tools.*promptRecallTracker.mark",
         "cmd/mcp-orch/tools.AgentIDInput",
         "cmd/mcp-orch/tools.AgentListPorts",
@@ -1783,6 +1815,7 @@
         "cmd/mcp-orch/tools.applyOpsOpSchema",
         "cmd/mcp-orch/tools.applyOpsPayloadFromInput",
         "cmd/mcp-orch/tools.applyOpsRequestFromInput",
+        "cmd/mcp-orch/tools.applyOpsWorkspaceValidator",
         "cmd/mcp-orch/tools.archivedAgentState",
         "cmd/mcp-orch/tools.artifactLinksFromRaw",
         "cmd/mcp-orch/tools.assignOrchPosSegment",
@@ -2108,6 +2141,7 @@
         "cmd/mcp-orch/tools.trimStringSlicePreserveEmpty",
         "cmd/mcp-orch/tools.truncatePromptSectionsPreview",
         "cmd/mcp-orch/tools.trustedAgentID",
+        "cmd/mcp-orch/tools.trustedTaskWorkspaceRoots",
         "cmd/mcp-orch/tools.trustedWorkspaceRoots",
         "cmd/mcp-orch/tools.ttsInput",
         "cmd/mcp-orch/tools.ttsStatusError",
@@ -6050,6 +6084,8 @@
         "cmd/mcp-orch/orchestration/nodeexec.*OpAddNode.UnmarshalJSON",
         "cmd/mcp-orch/orchestration/nodeexec.*OpUpdateDAG.UnmarshalJSON",
         "cmd/mcp-orch/orchestration/nodeexec.*Ops.UnmarshalJSON",
+        "cmd/mcp-orch/orchestration/nodeexec.*ShellCommandRunner.RunCommandCard",
+        "cmd/mcp-orch/orchestration/nodeexec.*ShellCommandRunner.authorizeCommandExecution",
         "cmd/mcp-orch/orchestration/nodeexec.*automationArgvSplitState.accept",
         "cmd/mcp-orch/orchestration/nodeexec.*automationArgvSplitState.acceptQuoteOrEscape",
         "cmd/mcp-orch/orchestration/nodeexec.*automationArgvSplitState.finish",
@@ -6081,6 +6117,10 @@
         "cmd/mcp-orch/orchestration/nodeexec.AutomationNodeConfig",
         "cmd/mcp-orch/orchestration/nodeexec.BuildArtifactImportPlan",
         "cmd/mcp-orch/orchestration/nodeexec.BuildArtifactTextPlan",
+        "cmd/mcp-orch/orchestration/nodeexec.CommandExecutionAuthorization",
+        "cmd/mcp-orch/orchestration/nodeexec.CommandExecutionAuthorizationRequest",
+        "cmd/mcp-orch/orchestration/nodeexec.CommandExecutionAuthorizer",
+        "cmd/mcp-orch/orchestration/nodeexec.CommandExecutionAuthorizer.AuthorizeCommandExecution",
         "cmd/mcp-orch/orchestration/nodeexec.CommandExitError",
         "cmd/mcp-orch/orchestration/nodeexec.CommandExitError.Error",
         "cmd/mcp-orch/orchestration/nodeexec.CommandExitError.Unwrap",
@@ -6161,17 +6201,18 @@
         "cmd/mcp-orch/orchestration/nodeexec.SharedFileWriter.WriteSharedFile",
         "cmd/mcp-orch/orchestration/nodeexec.SharedfileTarget",
         "cmd/mcp-orch/orchestration/nodeexec.ShellCommandRunner",
-        "cmd/mcp-orch/orchestration/nodeexec.ShellCommandRunner.RunCommandCard",
         "cmd/mcp-orch/orchestration/nodeexec.SummarizationConfig",
         "cmd/mcp-orch/orchestration/nodeexec.UpdateNodeChange",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateAddNodeTopology",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateAutomationCommandDispatchConfig",
+        "cmd/mcp-orch/orchestration/nodeexec.ValidateAutomationCommandWorkspaceScope",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateCreateDAGNodes",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateLaunchCWDForNodeConfig",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateNodeSpecsConfig",
         "cmd/mcp-orch/orchestration/nodeexec.ValidatePersistableNodeConfig",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateTransition",
         "cmd/mcp-orch/orchestration/nodeexec.WithAutomationHooks",
+        "cmd/mcp-orch/orchestration/nodeexec.WithCommandExecutionAuthorizer",
         "cmd/mcp-orch/orchestration/nodeexec.WithExecutionTimeout",
         "cmd/mcp-orch/orchestration/nodeexec.WithHooks",
         "cmd/mcp-orch/orchestration/nodeexec.WithLaunchedThreadCapture",
@@ -6181,6 +6222,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.agentLaunchCWDValidationFailure",
         "cmd/mcp-orch/orchestration/nodeexec.agentLaunchEnv",
         "cmd/mcp-orch/orchestration/nodeexec.allowedAutomationCommandEnv",
+        "cmd/mcp-orch/orchestration/nodeexec.appendAutomationSensitiveKeyWord",
         "cmd/mcp-orch/orchestration/nodeexec.applyAutomationCommandOptions",
         "cmd/mcp-orch/orchestration/nodeexec.applyDependsOnPatch",
         "cmd/mcp-orch/orchestration/nodeexec.artifactObjectMatchesTool",
@@ -6192,10 +6234,13 @@
         "cmd/mcp-orch/orchestration/nodeexec.artifactTextFromObject",
         "cmd/mcp-orch/orchestration/nodeexec.artifactTextFromValue",
         "cmd/mcp-orch/orchestration/nodeexec.automationArgvSplitState",
+        "cmd/mcp-orch/orchestration/nodeexec.automationByteIsEscaped",
         "cmd/mcp-orch/orchestration/nodeexec.automationCommandContext",
         "cmd/mcp-orch/orchestration/nodeexec.automationCommandResult",
         "cmd/mcp-orch/orchestration/nodeexec.automationCommandResultPayload",
         "cmd/mcp-orch/orchestration/nodeexec.automationCommandRunOptionsFromConfig",
+        "cmd/mcp-orch/orchestration/nodeexec.automationLineEnd",
+        "cmd/mcp-orch/orchestration/nodeexec.automationSensitiveKeyWords",
         "cmd/mcp-orch/orchestration/nodeexec.automationSharedFileOwnerNode",
         "cmd/mcp-orch/orchestration/nodeexec.automationSharedFileProducerActor",
         "cmd/mcp-orch/orchestration/nodeexec.automationSharedfilePath",
@@ -6205,6 +6250,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.buildInputsPayload",
         "cmd/mcp-orch/orchestration/nodeexec.buildLaunchRequestFromAgentConfig",
         "cmd/mcp-orch/orchestration/nodeexec.canonicalExistingPath",
+        "cmd/mcp-orch/orchestration/nodeexec.canonicalWorkspaceRoots",
         "cmd/mcp-orch/orchestration/nodeexec.captureLaunchedThread",
         "cmd/mcp-orch/orchestration/nodeexec.classifiedAgentLaunchFailure",
         "cmd/mcp-orch/orchestration/nodeexec.classifyAgentLaunchError",
@@ -6247,6 +6293,9 @@
         "cmd/mcp-orch/orchestration/nodeexec.injectKind",
         "cmd/mcp-orch/orchestration/nodeexec.inputsConfigured",
         "cmd/mcp-orch/orchestration/nodeexec.isAllowedConfigAgentKey",
+        "cmd/mcp-orch/orchestration/nodeexec.isAutomationInlineSpace",
+        "cmd/mcp-orch/orchestration/nodeexec.isAutomationKeyByte",
+        "cmd/mcp-orch/orchestration/nodeexec.isAutomationQuote",
         "cmd/mcp-orch/orchestration/nodeexec.isCycleSCC",
         "cmd/mcp-orch/orchestration/nodeexec.isPersistedNodeStatus",
         "cmd/mcp-orch/orchestration/nodeexec.isReservedOrLegacyNodeStatus",
@@ -6270,15 +6319,19 @@
         "cmd/mcp-orch/orchestration/nodeexec.newTarjanState",
         "cmd/mcp-orch/orchestration/nodeexec.normalizeAgentLaunchConfig",
         "cmd/mcp-orch/orchestration/nodeexec.normalizeAutomationRunOptions",
+        "cmd/mcp-orch/orchestration/nodeexec.openingAutomationQuote",
         "cmd/mcp-orch/orchestration/nodeexec.opsHeader",
         "cmd/mcp-orch/orchestration/nodeexec.parseExecutableAutomationConfig",
         "cmd/mcp-orch/orchestration/nodeexec.parseExecutionTimeoutSeconds",
         "cmd/mcp-orch/orchestration/nodeexec.parseExecutionTimeoutString",
+        "cmd/mcp-orch/orchestration/nodeexec.pathWithinAnyRoot",
         "cmd/mcp-orch/orchestration/nodeexec.pathWithinRoot",
         "cmd/mcp-orch/orchestration/nodeexec.persistedNodeStatuses",
         "cmd/mcp-orch/orchestration/nodeexec.planAddNodeTopology",
         "cmd/mcp-orch/orchestration/nodeexec.prepareAutomationCommand",
         "cmd/mcp-orch/orchestration/nodeexec.preparedAutomationCommand",
+        "cmd/mcp-orch/orchestration/nodeexec.quotedAutomationValueEnd",
+        "cmd/mcp-orch/orchestration/nodeexec.redactSensitiveAssignments",
         "cmd/mcp-orch/orchestration/nodeexec.redactSensitiveText",
         "cmd/mcp-orch/orchestration/nodeexec.registerNewNode",
         "cmd/mcp-orch/orchestration/nodeexec.rejectAutomationShellModeFields",
@@ -6292,20 +6345,27 @@
         "cmd/mcp-orch/orchestration/nodeexec.resolveExecutionConfigTimeout",
         "cmd/mcp-orch/orchestration/nodeexec.resolveSpawnKeys",
         "cmd/mcp-orch/orchestration/nodeexec.sanitizeLaunchName",
+        "cmd/mcp-orch/orchestration/nodeexec.scrubAutomationJSONLines",
+        "cmd/mcp-orch/orchestration/nodeexec.scrubAutomationJSONText",
         "cmd/mcp-orch/orchestration/nodeexec.scrubAutomationResultObject",
         "cmd/mcp-orch/orchestration/nodeexec.scrubAutomationResultValue",
         "cmd/mcp-orch/orchestration/nodeexec.seedAdjacency",
         "cmd/mcp-orch/orchestration/nodeexec.seedAdjacencyFull",
+        "cmd/mcp-orch/orchestration/nodeexec.sensitiveTextKeyBeforeDelimiter",
+        "cmd/mcp-orch/orchestration/nodeexec.sensitiveTextValueEnd",
         "cmd/mcp-orch/orchestration/nodeexec.shouldDropAutomationResultKey",
         "cmd/mcp-orch/orchestration/nodeexec.shouldEmitFullNodeResult",
         "cmd/mcp-orch/orchestration/nodeexec.shouldEmitSharedfileEnvelope",
+        "cmd/mcp-orch/orchestration/nodeexec.skipAutomationInlineSpace",
         "cmd/mcp-orch/orchestration/nodeexec.sortedKeys",
         "cmd/mcp-orch/orchestration/nodeexec.splitAutomationCommandArgv",
+        "cmd/mcp-orch/orchestration/nodeexec.startsAutomationSensitiveKeyWord",
         "cmd/mcp-orch/orchestration/nodeexec.startsTemplateAction",
         "cmd/mcp-orch/orchestration/nodeexec.stripAutomationControlFieldsBeforePromptReuse",
         "cmd/mcp-orch/orchestration/nodeexec.tarjanSCCCycleComponents",
         "cmd/mcp-orch/orchestration/nodeexec.tarjanState",
         "cmd/mcp-orch/orchestration/nodeexec.transition",
+        "cmd/mcp-orch/orchestration/nodeexec.trimAutomationInlineSpaceBackward",
         "cmd/mcp-orch/orchestration/nodeexec.truncateErrSummary",
         "cmd/mcp-orch/orchestration/nodeexec.updateChangeFromOp",
         "cmd/mcp-orch/orchestration/nodeexec.validateAgentLaunchIdentity",
@@ -6324,6 +6384,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.validatePersistableAutomationExec",
         "cmd/mcp-orch/orchestration/nodeexec.validateRenderedCommandShellSafety",
         "cmd/mcp-orch/orchestration/nodeexec.validateUpdateNodeConfig",
+        "cmd/mcp-orch/orchestration/nodeexec.validateWorkspaceScope",
         "cmd/mcp-orch/orchestration/nodeexec.verifyDependsOnIntegrity",
         "cmd/mcp-orch/orchestration/nodeexec.walkConfigForBannedKeys",
         "cmd/mcp-orch/orchestration/nodeexec.writeAutomationSharedfile",
@@ -6426,6 +6487,11 @@
         "cmd/mcp-orch/orchestration/wakeupreclaim.WakeupReclaimerConfig.ConfigOrDefaults",
         "cmd/mcp-orch/orchestration/wakeupreclaim.nodeRunIDForLog",
         "cmd/mcp-orch/orchestration/wakeuptext.RenderUpstreamPromptHint",
+        "cmd/mcp-orch/tools.*applyOpsWorkspaceValidator.existingNodeType",
+        "cmd/mcp-orch/tools.*applyOpsWorkspaceValidator.loadExistingNodeTypes",
+        "cmd/mcp-orch/tools.*applyOpsWorkspaceValidator.validate",
+        "cmd/mcp-orch/tools.*applyOpsWorkspaceValidator.validateAddNode",
+        "cmd/mcp-orch/tools.*applyOpsWorkspaceValidator.validateUpdateNode",
         "cmd/mcp-orch/tools.*promptRecallTracker.mark",
         "cmd/mcp-orch/tools.AgentIDInput",
         "cmd/mcp-orch/tools.AgentListPorts",
@@ -6557,6 +6623,7 @@
         "cmd/mcp-orch/tools.applyOpsOpSchema",
         "cmd/mcp-orch/tools.applyOpsPayloadFromInput",
         "cmd/mcp-orch/tools.applyOpsRequestFromInput",
+        "cmd/mcp-orch/tools.applyOpsWorkspaceValidator",
         "cmd/mcp-orch/tools.archivedAgentState",
         "cmd/mcp-orch/tools.artifactLinksFromRaw",
         "cmd/mcp-orch/tools.assignOrchPosSegment",
@@ -6882,6 +6949,7 @@
         "cmd/mcp-orch/tools.trimStringSlicePreserveEmpty",
         "cmd/mcp-orch/tools.truncatePromptSectionsPreview",
         "cmd/mcp-orch/tools.trustedAgentID",
+        "cmd/mcp-orch/tools.trustedTaskWorkspaceRoots",
         "cmd/mcp-orch/tools.trustedWorkspaceRoots",
         "cmd/mcp-orch/tools.ttsInput",
         "cmd/mcp-orch/tools.ttsStatusError",
@@ -10824,6 +10892,8 @@
         "cmd/mcp-orch/orchestration/nodeexec.*OpAddNode.UnmarshalJSON",
         "cmd/mcp-orch/orchestration/nodeexec.*OpUpdateDAG.UnmarshalJSON",
         "cmd/mcp-orch/orchestration/nodeexec.*Ops.UnmarshalJSON",
+        "cmd/mcp-orch/orchestration/nodeexec.*ShellCommandRunner.RunCommandCard",
+        "cmd/mcp-orch/orchestration/nodeexec.*ShellCommandRunner.authorizeCommandExecution",
         "cmd/mcp-orch/orchestration/nodeexec.*automationArgvSplitState.accept",
         "cmd/mcp-orch/orchestration/nodeexec.*automationArgvSplitState.acceptQuoteOrEscape",
         "cmd/mcp-orch/orchestration/nodeexec.*automationArgvSplitState.finish",
@@ -10855,6 +10925,10 @@
         "cmd/mcp-orch/orchestration/nodeexec.AutomationNodeConfig",
         "cmd/mcp-orch/orchestration/nodeexec.BuildArtifactImportPlan",
         "cmd/mcp-orch/orchestration/nodeexec.BuildArtifactTextPlan",
+        "cmd/mcp-orch/orchestration/nodeexec.CommandExecutionAuthorization",
+        "cmd/mcp-orch/orchestration/nodeexec.CommandExecutionAuthorizationRequest",
+        "cmd/mcp-orch/orchestration/nodeexec.CommandExecutionAuthorizer",
+        "cmd/mcp-orch/orchestration/nodeexec.CommandExecutionAuthorizer.AuthorizeCommandExecution",
         "cmd/mcp-orch/orchestration/nodeexec.CommandExitError",
         "cmd/mcp-orch/orchestration/nodeexec.CommandExitError.Error",
         "cmd/mcp-orch/orchestration/nodeexec.CommandExitError.Unwrap",
@@ -10935,17 +11009,18 @@
         "cmd/mcp-orch/orchestration/nodeexec.SharedFileWriter.WriteSharedFile",
         "cmd/mcp-orch/orchestration/nodeexec.SharedfileTarget",
         "cmd/mcp-orch/orchestration/nodeexec.ShellCommandRunner",
-        "cmd/mcp-orch/orchestration/nodeexec.ShellCommandRunner.RunCommandCard",
         "cmd/mcp-orch/orchestration/nodeexec.SummarizationConfig",
         "cmd/mcp-orch/orchestration/nodeexec.UpdateNodeChange",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateAddNodeTopology",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateAutomationCommandDispatchConfig",
+        "cmd/mcp-orch/orchestration/nodeexec.ValidateAutomationCommandWorkspaceScope",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateCreateDAGNodes",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateLaunchCWDForNodeConfig",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateNodeSpecsConfig",
         "cmd/mcp-orch/orchestration/nodeexec.ValidatePersistableNodeConfig",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateTransition",
         "cmd/mcp-orch/orchestration/nodeexec.WithAutomationHooks",
+        "cmd/mcp-orch/orchestration/nodeexec.WithCommandExecutionAuthorizer",
         "cmd/mcp-orch/orchestration/nodeexec.WithExecutionTimeout",
         "cmd/mcp-orch/orchestration/nodeexec.WithHooks",
         "cmd/mcp-orch/orchestration/nodeexec.WithLaunchedThreadCapture",
@@ -10955,6 +11030,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.agentLaunchCWDValidationFailure",
         "cmd/mcp-orch/orchestration/nodeexec.agentLaunchEnv",
         "cmd/mcp-orch/orchestration/nodeexec.allowedAutomationCommandEnv",
+        "cmd/mcp-orch/orchestration/nodeexec.appendAutomationSensitiveKeyWord",
         "cmd/mcp-orch/orchestration/nodeexec.applyAutomationCommandOptions",
         "cmd/mcp-orch/orchestration/nodeexec.applyDependsOnPatch",
         "cmd/mcp-orch/orchestration/nodeexec.artifactObjectMatchesTool",
@@ -10966,10 +11042,13 @@
         "cmd/mcp-orch/orchestration/nodeexec.artifactTextFromObject",
         "cmd/mcp-orch/orchestration/nodeexec.artifactTextFromValue",
         "cmd/mcp-orch/orchestration/nodeexec.automationArgvSplitState",
+        "cmd/mcp-orch/orchestration/nodeexec.automationByteIsEscaped",
         "cmd/mcp-orch/orchestration/nodeexec.automationCommandContext",
         "cmd/mcp-orch/orchestration/nodeexec.automationCommandResult",
         "cmd/mcp-orch/orchestration/nodeexec.automationCommandResultPayload",
         "cmd/mcp-orch/orchestration/nodeexec.automationCommandRunOptionsFromConfig",
+        "cmd/mcp-orch/orchestration/nodeexec.automationLineEnd",
+        "cmd/mcp-orch/orchestration/nodeexec.automationSensitiveKeyWords",
         "cmd/mcp-orch/orchestration/nodeexec.automationSharedFileOwnerNode",
         "cmd/mcp-orch/orchestration/nodeexec.automationSharedFileProducerActor",
         "cmd/mcp-orch/orchestration/nodeexec.automationSharedfilePath",
@@ -10979,6 +11058,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.buildInputsPayload",
         "cmd/mcp-orch/orchestration/nodeexec.buildLaunchRequestFromAgentConfig",
         "cmd/mcp-orch/orchestration/nodeexec.canonicalExistingPath",
+        "cmd/mcp-orch/orchestration/nodeexec.canonicalWorkspaceRoots",
         "cmd/mcp-orch/orchestration/nodeexec.captureLaunchedThread",
         "cmd/mcp-orch/orchestration/nodeexec.classifiedAgentLaunchFailure",
         "cmd/mcp-orch/orchestration/nodeexec.classifyAgentLaunchError",
@@ -11021,6 +11101,9 @@
         "cmd/mcp-orch/orchestration/nodeexec.injectKind",
         "cmd/mcp-orch/orchestration/nodeexec.inputsConfigured",
         "cmd/mcp-orch/orchestration/nodeexec.isAllowedConfigAgentKey",
+        "cmd/mcp-orch/orchestration/nodeexec.isAutomationInlineSpace",
+        "cmd/mcp-orch/orchestration/nodeexec.isAutomationKeyByte",
+        "cmd/mcp-orch/orchestration/nodeexec.isAutomationQuote",
         "cmd/mcp-orch/orchestration/nodeexec.isCycleSCC",
         "cmd/mcp-orch/orchestration/nodeexec.isPersistedNodeStatus",
         "cmd/mcp-orch/orchestration/nodeexec.isReservedOrLegacyNodeStatus",
@@ -11044,15 +11127,19 @@
         "cmd/mcp-orch/orchestration/nodeexec.newTarjanState",
         "cmd/mcp-orch/orchestration/nodeexec.normalizeAgentLaunchConfig",
         "cmd/mcp-orch/orchestration/nodeexec.normalizeAutomationRunOptions",
+        "cmd/mcp-orch/orchestration/nodeexec.openingAutomationQuote",
         "cmd/mcp-orch/orchestration/nodeexec.opsHeader",
         "cmd/mcp-orch/orchestration/nodeexec.parseExecutableAutomationConfig",
         "cmd/mcp-orch/orchestration/nodeexec.parseExecutionTimeoutSeconds",
         "cmd/mcp-orch/orchestration/nodeexec.parseExecutionTimeoutString",
+        "cmd/mcp-orch/orchestration/nodeexec.pathWithinAnyRoot",
         "cmd/mcp-orch/orchestration/nodeexec.pathWithinRoot",
         "cmd/mcp-orch/orchestration/nodeexec.persistedNodeStatuses",
         "cmd/mcp-orch/orchestration/nodeexec.planAddNodeTopology",
         "cmd/mcp-orch/orchestration/nodeexec.prepareAutomationCommand",
         "cmd/mcp-orch/orchestration/nodeexec.preparedAutomationCommand",
+        "cmd/mcp-orch/orchestration/nodeexec.quotedAutomationValueEnd",
+        "cmd/mcp-orch/orchestration/nodeexec.redactSensitiveAssignments",
         "cmd/mcp-orch/orchestration/nodeexec.redactSensitiveText",
         "cmd/mcp-orch/orchestration/nodeexec.registerNewNode",
         "cmd/mcp-orch/orchestration/nodeexec.rejectAutomationShellModeFields",
@@ -11066,20 +11153,27 @@
         "cmd/mcp-orch/orchestration/nodeexec.resolveExecutionConfigTimeout",
         "cmd/mcp-orch/orchestration/nodeexec.resolveSpawnKeys",
         "cmd/mcp-orch/orchestration/nodeexec.sanitizeLaunchName",
+        "cmd/mcp-orch/orchestration/nodeexec.scrubAutomationJSONLines",
+        "cmd/mcp-orch/orchestration/nodeexec.scrubAutomationJSONText",
         "cmd/mcp-orch/orchestration/nodeexec.scrubAutomationResultObject",
         "cmd/mcp-orch/orchestration/nodeexec.scrubAutomationResultValue",
         "cmd/mcp-orch/orchestration/nodeexec.seedAdjacency",
         "cmd/mcp-orch/orchestration/nodeexec.seedAdjacencyFull",
+        "cmd/mcp-orch/orchestration/nodeexec.sensitiveTextKeyBeforeDelimiter",
+        "cmd/mcp-orch/orchestration/nodeexec.sensitiveTextValueEnd",
         "cmd/mcp-orch/orchestration/nodeexec.shouldDropAutomationResultKey",
         "cmd/mcp-orch/orchestration/nodeexec.shouldEmitFullNodeResult",
         "cmd/mcp-orch/orchestration/nodeexec.shouldEmitSharedfileEnvelope",
+        "cmd/mcp-orch/orchestration/nodeexec.skipAutomationInlineSpace",
         "cmd/mcp-orch/orchestration/nodeexec.sortedKeys",
         "cmd/mcp-orch/orchestration/nodeexec.splitAutomationCommandArgv",
+        "cmd/mcp-orch/orchestration/nodeexec.startsAutomationSensitiveKeyWord",
         "cmd/mcp-orch/orchestration/nodeexec.startsTemplateAction",
         "cmd/mcp-orch/orchestration/nodeexec.stripAutomationControlFieldsBeforePromptReuse",
         "cmd/mcp-orch/orchestration/nodeexec.tarjanSCCCycleComponents",
         "cmd/mcp-orch/orchestration/nodeexec.tarjanState",
         "cmd/mcp-orch/orchestration/nodeexec.transition",
+        "cmd/mcp-orch/orchestration/nodeexec.trimAutomationInlineSpaceBackward",
         "cmd/mcp-orch/orchestration/nodeexec.truncateErrSummary",
         "cmd/mcp-orch/orchestration/nodeexec.updateChangeFromOp",
         "cmd/mcp-orch/orchestration/nodeexec.validateAgentLaunchIdentity",
@@ -11098,6 +11192,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.validatePersistableAutomationExec",
         "cmd/mcp-orch/orchestration/nodeexec.validateRenderedCommandShellSafety",
         "cmd/mcp-orch/orchestration/nodeexec.validateUpdateNodeConfig",
+        "cmd/mcp-orch/orchestration/nodeexec.validateWorkspaceScope",
         "cmd/mcp-orch/orchestration/nodeexec.verifyDependsOnIntegrity",
         "cmd/mcp-orch/orchestration/nodeexec.walkConfigForBannedKeys",
         "cmd/mcp-orch/orchestration/nodeexec.writeAutomationSharedfile",
@@ -11200,6 +11295,11 @@
         "cmd/mcp-orch/orchestration/wakeupreclaim.WakeupReclaimerConfig.ConfigOrDefaults",
         "cmd/mcp-orch/orchestration/wakeupreclaim.nodeRunIDForLog",
         "cmd/mcp-orch/orchestration/wakeuptext.RenderUpstreamPromptHint",
+        "cmd/mcp-orch/tools.*applyOpsWorkspaceValidator.existingNodeType",
+        "cmd/mcp-orch/tools.*applyOpsWorkspaceValidator.loadExistingNodeTypes",
+        "cmd/mcp-orch/tools.*applyOpsWorkspaceValidator.validate",
+        "cmd/mcp-orch/tools.*applyOpsWorkspaceValidator.validateAddNode",
+        "cmd/mcp-orch/tools.*applyOpsWorkspaceValidator.validateUpdateNode",
         "cmd/mcp-orch/tools.*promptRecallTracker.mark",
         "cmd/mcp-orch/tools.AgentIDInput",
         "cmd/mcp-orch/tools.AgentListPorts",
@@ -11331,6 +11431,7 @@
         "cmd/mcp-orch/tools.applyOpsOpSchema",
         "cmd/mcp-orch/tools.applyOpsPayloadFromInput",
         "cmd/mcp-orch/tools.applyOpsRequestFromInput",
+        "cmd/mcp-orch/tools.applyOpsWorkspaceValidator",
         "cmd/mcp-orch/tools.archivedAgentState",
         "cmd/mcp-orch/tools.artifactLinksFromRaw",
         "cmd/mcp-orch/tools.assignOrchPosSegment",
@@ -11656,6 +11757,7 @@
         "cmd/mcp-orch/tools.trimStringSlicePreserveEmpty",
         "cmd/mcp-orch/tools.truncatePromptSectionsPreview",
         "cmd/mcp-orch/tools.trustedAgentID",
+        "cmd/mcp-orch/tools.trustedTaskWorkspaceRoots",
         "cmd/mcp-orch/tools.trustedWorkspaceRoots",
         "cmd/mcp-orch/tools.ttsInput",
         "cmd/mcp-orch/tools.ttsStatusError",
@@ -15598,6 +15700,8 @@
         "cmd/mcp-orch/orchestration/nodeexec.*OpAddNode.UnmarshalJSON",
         "cmd/mcp-orch/orchestration/nodeexec.*OpUpdateDAG.UnmarshalJSON",
         "cmd/mcp-orch/orchestration/nodeexec.*Ops.UnmarshalJSON",
+        "cmd/mcp-orch/orchestration/nodeexec.*ShellCommandRunner.RunCommandCard",
+        "cmd/mcp-orch/orchestration/nodeexec.*ShellCommandRunner.authorizeCommandExecution",
         "cmd/mcp-orch/orchestration/nodeexec.*automationArgvSplitState.accept",
         "cmd/mcp-orch/orchestration/nodeexec.*automationArgvSplitState.acceptQuoteOrEscape",
         "cmd/mcp-orch/orchestration/nodeexec.*automationArgvSplitState.finish",
@@ -15629,6 +15733,10 @@
         "cmd/mcp-orch/orchestration/nodeexec.AutomationNodeConfig",
         "cmd/mcp-orch/orchestration/nodeexec.BuildArtifactImportPlan",
         "cmd/mcp-orch/orchestration/nodeexec.BuildArtifactTextPlan",
+        "cmd/mcp-orch/orchestration/nodeexec.CommandExecutionAuthorization",
+        "cmd/mcp-orch/orchestration/nodeexec.CommandExecutionAuthorizationRequest",
+        "cmd/mcp-orch/orchestration/nodeexec.CommandExecutionAuthorizer",
+        "cmd/mcp-orch/orchestration/nodeexec.CommandExecutionAuthorizer.AuthorizeCommandExecution",
         "cmd/mcp-orch/orchestration/nodeexec.CommandExitError",
         "cmd/mcp-orch/orchestration/nodeexec.CommandExitError.Error",
         "cmd/mcp-orch/orchestration/nodeexec.CommandExitError.Unwrap",
@@ -15709,17 +15817,18 @@
         "cmd/mcp-orch/orchestration/nodeexec.SharedFileWriter.WriteSharedFile",
         "cmd/mcp-orch/orchestration/nodeexec.SharedfileTarget",
         "cmd/mcp-orch/orchestration/nodeexec.ShellCommandRunner",
-        "cmd/mcp-orch/orchestration/nodeexec.ShellCommandRunner.RunCommandCard",
         "cmd/mcp-orch/orchestration/nodeexec.SummarizationConfig",
         "cmd/mcp-orch/orchestration/nodeexec.UpdateNodeChange",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateAddNodeTopology",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateAutomationCommandDispatchConfig",
+        "cmd/mcp-orch/orchestration/nodeexec.ValidateAutomationCommandWorkspaceScope",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateCreateDAGNodes",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateLaunchCWDForNodeConfig",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateNodeSpecsConfig",
         "cmd/mcp-orch/orchestration/nodeexec.ValidatePersistableNodeConfig",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateTransition",
         "cmd/mcp-orch/orchestration/nodeexec.WithAutomationHooks",
+        "cmd/mcp-orch/orchestration/nodeexec.WithCommandExecutionAuthorizer",
         "cmd/mcp-orch/orchestration/nodeexec.WithExecutionTimeout",
         "cmd/mcp-orch/orchestration/nodeexec.WithHooks",
         "cmd/mcp-orch/orchestration/nodeexec.WithLaunchedThreadCapture",
@@ -15729,6 +15838,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.agentLaunchCWDValidationFailure",
         "cmd/mcp-orch/orchestration/nodeexec.agentLaunchEnv",
         "cmd/mcp-orch/orchestration/nodeexec.allowedAutomationCommandEnv",
+        "cmd/mcp-orch/orchestration/nodeexec.appendAutomationSensitiveKeyWord",
         "cmd/mcp-orch/orchestration/nodeexec.applyAutomationCommandOptions",
         "cmd/mcp-orch/orchestration/nodeexec.applyDependsOnPatch",
         "cmd/mcp-orch/orchestration/nodeexec.artifactObjectMatchesTool",
@@ -15740,10 +15850,13 @@
         "cmd/mcp-orch/orchestration/nodeexec.artifactTextFromObject",
         "cmd/mcp-orch/orchestration/nodeexec.artifactTextFromValue",
         "cmd/mcp-orch/orchestration/nodeexec.automationArgvSplitState",
+        "cmd/mcp-orch/orchestration/nodeexec.automationByteIsEscaped",
         "cmd/mcp-orch/orchestration/nodeexec.automationCommandContext",
         "cmd/mcp-orch/orchestration/nodeexec.automationCommandResult",
         "cmd/mcp-orch/orchestration/nodeexec.automationCommandResultPayload",
         "cmd/mcp-orch/orchestration/nodeexec.automationCommandRunOptionsFromConfig",
+        "cmd/mcp-orch/orchestration/nodeexec.automationLineEnd",
+        "cmd/mcp-orch/orchestration/nodeexec.automationSensitiveKeyWords",
         "cmd/mcp-orch/orchestration/nodeexec.automationSharedFileOwnerNode",
         "cmd/mcp-orch/orchestration/nodeexec.automationSharedFileProducerActor",
         "cmd/mcp-orch/orchestration/nodeexec.automationSharedfilePath",
@@ -15753,6 +15866,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.buildInputsPayload",
         "cmd/mcp-orch/orchestration/nodeexec.buildLaunchRequestFromAgentConfig",
         "cmd/mcp-orch/orchestration/nodeexec.canonicalExistingPath",
+        "cmd/mcp-orch/orchestration/nodeexec.canonicalWorkspaceRoots",
         "cmd/mcp-orch/orchestration/nodeexec.captureLaunchedThread",
         "cmd/mcp-orch/orchestration/nodeexec.classifiedAgentLaunchFailure",
         "cmd/mcp-orch/orchestration/nodeexec.classifyAgentLaunchError",
@@ -15795,6 +15909,9 @@
         "cmd/mcp-orch/orchestration/nodeexec.injectKind",
         "cmd/mcp-orch/orchestration/nodeexec.inputsConfigured",
         "cmd/mcp-orch/orchestration/nodeexec.isAllowedConfigAgentKey",
+        "cmd/mcp-orch/orchestration/nodeexec.isAutomationInlineSpace",
+        "cmd/mcp-orch/orchestration/nodeexec.isAutomationKeyByte",
+        "cmd/mcp-orch/orchestration/nodeexec.isAutomationQuote",
         "cmd/mcp-orch/orchestration/nodeexec.isCycleSCC",
         "cmd/mcp-orch/orchestration/nodeexec.isPersistedNodeStatus",
         "cmd/mcp-orch/orchestration/nodeexec.isReservedOrLegacyNodeStatus",
@@ -15818,15 +15935,19 @@
         "cmd/mcp-orch/orchestration/nodeexec.newTarjanState",
         "cmd/mcp-orch/orchestration/nodeexec.normalizeAgentLaunchConfig",
         "cmd/mcp-orch/orchestration/nodeexec.normalizeAutomationRunOptions",
+        "cmd/mcp-orch/orchestration/nodeexec.openingAutomationQuote",
         "cmd/mcp-orch/orchestration/nodeexec.opsHeader",
         "cmd/mcp-orch/orchestration/nodeexec.parseExecutableAutomationConfig",
         "cmd/mcp-orch/orchestration/nodeexec.parseExecutionTimeoutSeconds",
         "cmd/mcp-orch/orchestration/nodeexec.parseExecutionTimeoutString",
+        "cmd/mcp-orch/orchestration/nodeexec.pathWithinAnyRoot",
         "cmd/mcp-orch/orchestration/nodeexec.pathWithinRoot",
         "cmd/mcp-orch/orchestration/nodeexec.persistedNodeStatuses",
         "cmd/mcp-orch/orchestration/nodeexec.planAddNodeTopology",
         "cmd/mcp-orch/orchestration/nodeexec.prepareAutomationCommand",
         "cmd/mcp-orch/orchestration/nodeexec.preparedAutomationCommand",
+        "cmd/mcp-orch/orchestration/nodeexec.quotedAutomationValueEnd",
+        "cmd/mcp-orch/orchestration/nodeexec.redactSensitiveAssignments",
         "cmd/mcp-orch/orchestration/nodeexec.redactSensitiveText",
         "cmd/mcp-orch/orchestration/nodeexec.registerNewNode",
         "cmd/mcp-orch/orchestration/nodeexec.rejectAutomationShellModeFields",
@@ -15840,20 +15961,27 @@
         "cmd/mcp-orch/orchestration/nodeexec.resolveExecutionConfigTimeout",
         "cmd/mcp-orch/orchestration/nodeexec.resolveSpawnKeys",
         "cmd/mcp-orch/orchestration/nodeexec.sanitizeLaunchName",
+        "cmd/mcp-orch/orchestration/nodeexec.scrubAutomationJSONLines",
+        "cmd/mcp-orch/orchestration/nodeexec.scrubAutomationJSONText",
         "cmd/mcp-orch/orchestration/nodeexec.scrubAutomationResultObject",
         "cmd/mcp-orch/orchestration/nodeexec.scrubAutomationResultValue",
         "cmd/mcp-orch/orchestration/nodeexec.seedAdjacency",
         "cmd/mcp-orch/orchestration/nodeexec.seedAdjacencyFull",
+        "cmd/mcp-orch/orchestration/nodeexec.sensitiveTextKeyBeforeDelimiter",
+        "cmd/mcp-orch/orchestration/nodeexec.sensitiveTextValueEnd",
         "cmd/mcp-orch/orchestration/nodeexec.shouldDropAutomationResultKey",
         "cmd/mcp-orch/orchestration/nodeexec.shouldEmitFullNodeResult",
         "cmd/mcp-orch/orchestration/nodeexec.shouldEmitSharedfileEnvelope",
+        "cmd/mcp-orch/orchestration/nodeexec.skipAutomationInlineSpace",
         "cmd/mcp-orch/orchestration/nodeexec.sortedKeys",
         "cmd/mcp-orch/orchestration/nodeexec.splitAutomationCommandArgv",
+        "cmd/mcp-orch/orchestration/nodeexec.startsAutomationSensitiveKeyWord",
         "cmd/mcp-orch/orchestration/nodeexec.startsTemplateAction",
         "cmd/mcp-orch/orchestration/nodeexec.stripAutomationControlFieldsBeforePromptReuse",
         "cmd/mcp-orch/orchestration/nodeexec.tarjanSCCCycleComponents",
         "cmd/mcp-orch/orchestration/nodeexec.tarjanState",
         "cmd/mcp-orch/orchestration/nodeexec.transition",
+        "cmd/mcp-orch/orchestration/nodeexec.trimAutomationInlineSpaceBackward",
         "cmd/mcp-orch/orchestration/nodeexec.truncateErrSummary",
         "cmd/mcp-orch/orchestration/nodeexec.updateChangeFromOp",
         "cmd/mcp-orch/orchestration/nodeexec.validateAgentLaunchIdentity",
@@ -15872,6 +16000,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.validatePersistableAutomationExec",
         "cmd/mcp-orch/orchestration/nodeexec.validateRenderedCommandShellSafety",
         "cmd/mcp-orch/orchestration/nodeexec.validateUpdateNodeConfig",
+        "cmd/mcp-orch/orchestration/nodeexec.validateWorkspaceScope",
         "cmd/mcp-orch/orchestration/nodeexec.verifyDependsOnIntegrity",
         "cmd/mcp-orch/orchestration/nodeexec.walkConfigForBannedKeys",
         "cmd/mcp-orch/orchestration/nodeexec.writeAutomationSharedfile",
@@ -15974,6 +16103,11 @@
         "cmd/mcp-orch/orchestration/wakeupreclaim.WakeupReclaimerConfig.ConfigOrDefaults",
         "cmd/mcp-orch/orchestration/wakeupreclaim.nodeRunIDForLog",
         "cmd/mcp-orch/orchestration/wakeuptext.RenderUpstreamPromptHint",
+        "cmd/mcp-orch/tools.*applyOpsWorkspaceValidator.existingNodeType",
+        "cmd/mcp-orch/tools.*applyOpsWorkspaceValidator.loadExistingNodeTypes",
+        "cmd/mcp-orch/tools.*applyOpsWorkspaceValidator.validate",
+        "cmd/mcp-orch/tools.*applyOpsWorkspaceValidator.validateAddNode",
+        "cmd/mcp-orch/tools.*applyOpsWorkspaceValidator.validateUpdateNode",
         "cmd/mcp-orch/tools.*promptRecallTracker.mark",
         "cmd/mcp-orch/tools.AgentIDInput",
         "cmd/mcp-orch/tools.AgentListPorts",
@@ -16105,6 +16239,7 @@
         "cmd/mcp-orch/tools.applyOpsOpSchema",
         "cmd/mcp-orch/tools.applyOpsPayloadFromInput",
         "cmd/mcp-orch/tools.applyOpsRequestFromInput",
+        "cmd/mcp-orch/tools.applyOpsWorkspaceValidator",
         "cmd/mcp-orch/tools.archivedAgentState",
         "cmd/mcp-orch/tools.artifactLinksFromRaw",
         "cmd/mcp-orch/tools.assignOrchPosSegment",
@@ -16430,6 +16565,7 @@
         "cmd/mcp-orch/tools.trimStringSlicePreserveEmpty",
         "cmd/mcp-orch/tools.truncatePromptSectionsPreview",
         "cmd/mcp-orch/tools.trustedAgentID",
+        "cmd/mcp-orch/tools.trustedTaskWorkspaceRoots",
         "cmd/mcp-orch/tools.trustedWorkspaceRoots",
         "cmd/mcp-orch/tools.ttsInput",
         "cmd/mcp-orch/tools.ttsStatusError",
@@ -20372,6 +20508,8 @@
         "cmd/mcp-orch/orchestration/nodeexec.*OpAddNode.UnmarshalJSON",
         "cmd/mcp-orch/orchestration/nodeexec.*OpUpdateDAG.UnmarshalJSON",
         "cmd/mcp-orch/orchestration/nodeexec.*Ops.UnmarshalJSON",
+        "cmd/mcp-orch/orchestration/nodeexec.*ShellCommandRunner.RunCommandCard",
+        "cmd/mcp-orch/orchestration/nodeexec.*ShellCommandRunner.authorizeCommandExecution",
         "cmd/mcp-orch/orchestration/nodeexec.*automationArgvSplitState.accept",
         "cmd/mcp-orch/orchestration/nodeexec.*automationArgvSplitState.acceptQuoteOrEscape",
         "cmd/mcp-orch/orchestration/nodeexec.*automationArgvSplitState.finish",
@@ -20403,6 +20541,10 @@
         "cmd/mcp-orch/orchestration/nodeexec.AutomationNodeConfig",
         "cmd/mcp-orch/orchestration/nodeexec.BuildArtifactImportPlan",
         "cmd/mcp-orch/orchestration/nodeexec.BuildArtifactTextPlan",
+        "cmd/mcp-orch/orchestration/nodeexec.CommandExecutionAuthorization",
+        "cmd/mcp-orch/orchestration/nodeexec.CommandExecutionAuthorizationRequest",
+        "cmd/mcp-orch/orchestration/nodeexec.CommandExecutionAuthorizer",
+        "cmd/mcp-orch/orchestration/nodeexec.CommandExecutionAuthorizer.AuthorizeCommandExecution",
         "cmd/mcp-orch/orchestration/nodeexec.CommandExitError",
         "cmd/mcp-orch/orchestration/nodeexec.CommandExitError.Error",
         "cmd/mcp-orch/orchestration/nodeexec.CommandExitError.Unwrap",
@@ -20483,17 +20625,18 @@
         "cmd/mcp-orch/orchestration/nodeexec.SharedFileWriter.WriteSharedFile",
         "cmd/mcp-orch/orchestration/nodeexec.SharedfileTarget",
         "cmd/mcp-orch/orchestration/nodeexec.ShellCommandRunner",
-        "cmd/mcp-orch/orchestration/nodeexec.ShellCommandRunner.RunCommandCard",
         "cmd/mcp-orch/orchestration/nodeexec.SummarizationConfig",
         "cmd/mcp-orch/orchestration/nodeexec.UpdateNodeChange",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateAddNodeTopology",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateAutomationCommandDispatchConfig",
+        "cmd/mcp-orch/orchestration/nodeexec.ValidateAutomationCommandWorkspaceScope",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateCreateDAGNodes",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateLaunchCWDForNodeConfig",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateNodeSpecsConfig",
         "cmd/mcp-orch/orchestration/nodeexec.ValidatePersistableNodeConfig",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateTransition",
         "cmd/mcp-orch/orchestration/nodeexec.WithAutomationHooks",
+        "cmd/mcp-orch/orchestration/nodeexec.WithCommandExecutionAuthorizer",
         "cmd/mcp-orch/orchestration/nodeexec.WithExecutionTimeout",
         "cmd/mcp-orch/orchestration/nodeexec.WithHooks",
         "cmd/mcp-orch/orchestration/nodeexec.WithLaunchedThreadCapture",
@@ -20503,6 +20646,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.agentLaunchCWDValidationFailure",
         "cmd/mcp-orch/orchestration/nodeexec.agentLaunchEnv",
         "cmd/mcp-orch/orchestration/nodeexec.allowedAutomationCommandEnv",
+        "cmd/mcp-orch/orchestration/nodeexec.appendAutomationSensitiveKeyWord",
         "cmd/mcp-orch/orchestration/nodeexec.applyAutomationCommandOptions",
         "cmd/mcp-orch/orchestration/nodeexec.applyDependsOnPatch",
         "cmd/mcp-orch/orchestration/nodeexec.artifactObjectMatchesTool",
@@ -20514,10 +20658,13 @@
         "cmd/mcp-orch/orchestration/nodeexec.artifactTextFromObject",
         "cmd/mcp-orch/orchestration/nodeexec.artifactTextFromValue",
         "cmd/mcp-orch/orchestration/nodeexec.automationArgvSplitState",
+        "cmd/mcp-orch/orchestration/nodeexec.automationByteIsEscaped",
         "cmd/mcp-orch/orchestration/nodeexec.automationCommandContext",
         "cmd/mcp-orch/orchestration/nodeexec.automationCommandResult",
         "cmd/mcp-orch/orchestration/nodeexec.automationCommandResultPayload",
         "cmd/mcp-orch/orchestration/nodeexec.automationCommandRunOptionsFromConfig",
+        "cmd/mcp-orch/orchestration/nodeexec.automationLineEnd",
+        "cmd/mcp-orch/orchestration/nodeexec.automationSensitiveKeyWords",
         "cmd/mcp-orch/orchestration/nodeexec.automationSharedFileOwnerNode",
         "cmd/mcp-orch/orchestration/nodeexec.automationSharedFileProducerActor",
         "cmd/mcp-orch/orchestration/nodeexec.automationSharedfilePath",
@@ -20527,6 +20674,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.buildInputsPayload",
         "cmd/mcp-orch/orchestration/nodeexec.buildLaunchRequestFromAgentConfig",
         "cmd/mcp-orch/orchestration/nodeexec.canonicalExistingPath",
+        "cmd/mcp-orch/orchestration/nodeexec.canonicalWorkspaceRoots",
         "cmd/mcp-orch/orchestration/nodeexec.captureLaunchedThread",
         "cmd/mcp-orch/orchestration/nodeexec.classifiedAgentLaunchFailure",
         "cmd/mcp-orch/orchestration/nodeexec.classifyAgentLaunchError",
@@ -20569,6 +20717,9 @@
         "cmd/mcp-orch/orchestration/nodeexec.injectKind",
         "cmd/mcp-orch/orchestration/nodeexec.inputsConfigured",
         "cmd/mcp-orch/orchestration/nodeexec.isAllowedConfigAgentKey",
+        "cmd/mcp-orch/orchestration/nodeexec.isAutomationInlineSpace",
+        "cmd/mcp-orch/orchestration/nodeexec.isAutomationKeyByte",
+        "cmd/mcp-orch/orchestration/nodeexec.isAutomationQuote",
         "cmd/mcp-orch/orchestration/nodeexec.isCycleSCC",
         "cmd/mcp-orch/orchestration/nodeexec.isPersistedNodeStatus",
         "cmd/mcp-orch/orchestration/nodeexec.isReservedOrLegacyNodeStatus",
@@ -20592,15 +20743,19 @@
         "cmd/mcp-orch/orchestration/nodeexec.newTarjanState",
         "cmd/mcp-orch/orchestration/nodeexec.normalizeAgentLaunchConfig",
         "cmd/mcp-orch/orchestration/nodeexec.normalizeAutomationRunOptions",
+        "cmd/mcp-orch/orchestration/nodeexec.openingAutomationQuote",
         "cmd/mcp-orch/orchestration/nodeexec.opsHeader",
         "cmd/mcp-orch/orchestration/nodeexec.parseExecutableAutomationConfig",
         "cmd/mcp-orch/orchestration/nodeexec.parseExecutionTimeoutSeconds",
         "cmd/mcp-orch/orchestration/nodeexec.parseExecutionTimeoutString",
+        "cmd/mcp-orch/orchestration/nodeexec.pathWithinAnyRoot",
         "cmd/mcp-orch/orchestration/nodeexec.pathWithinRoot",
         "cmd/mcp-orch/orchestration/nodeexec.persistedNodeStatuses",
         "cmd/mcp-orch/orchestration/nodeexec.planAddNodeTopology",
         "cmd/mcp-orch/orchestration/nodeexec.prepareAutomationCommand",
         "cmd/mcp-orch/orchestration/nodeexec.preparedAutomationCommand",
+        "cmd/mcp-orch/orchestration/nodeexec.quotedAutomationValueEnd",
+        "cmd/mcp-orch/orchestration/nodeexec.redactSensitiveAssignments",
         "cmd/mcp-orch/orchestration/nodeexec.redactSensitiveText",
         "cmd/mcp-orch/orchestration/nodeexec.registerNewNode",
         "cmd/mcp-orch/orchestration/nodeexec.rejectAutomationShellModeFields",
@@ -20614,20 +20769,27 @@
         "cmd/mcp-orch/orchestration/nodeexec.resolveExecutionConfigTimeout",
         "cmd/mcp-orch/orchestration/nodeexec.resolveSpawnKeys",
         "cmd/mcp-orch/orchestration/nodeexec.sanitizeLaunchName",
+        "cmd/mcp-orch/orchestration/nodeexec.scrubAutomationJSONLines",
+        "cmd/mcp-orch/orchestration/nodeexec.scrubAutomationJSONText",
         "cmd/mcp-orch/orchestration/nodeexec.scrubAutomationResultObject",
         "cmd/mcp-orch/orchestration/nodeexec.scrubAutomationResultValue",
         "cmd/mcp-orch/orchestration/nodeexec.seedAdjacency",
         "cmd/mcp-orch/orchestration/nodeexec.seedAdjacencyFull",
+        "cmd/mcp-orch/orchestration/nodeexec.sensitiveTextKeyBeforeDelimiter",
+        "cmd/mcp-orch/orchestration/nodeexec.sensitiveTextValueEnd",
         "cmd/mcp-orch/orchestration/nodeexec.shouldDropAutomationResultKey",
         "cmd/mcp-orch/orchestration/nodeexec.shouldEmitFullNodeResult",
         "cmd/mcp-orch/orchestration/nodeexec.shouldEmitSharedfileEnvelope",
+        "cmd/mcp-orch/orchestration/nodeexec.skipAutomationInlineSpace",
         "cmd/mcp-orch/orchestration/nodeexec.sortedKeys",
         "cmd/mcp-orch/orchestration/nodeexec.splitAutomationCommandArgv",
+        "cmd/mcp-orch/orchestration/nodeexec.startsAutomationSensitiveKeyWord",
         "cmd/mcp-orch/orchestration/nodeexec.startsTemplateAction",
         "cmd/mcp-orch/orchestration/nodeexec.stripAutomationControlFieldsBeforePromptReuse",
         "cmd/mcp-orch/orchestration/nodeexec.tarjanSCCCycleComponents",
         "cmd/mcp-orch/orchestration/nodeexec.tarjanState",
         "cmd/mcp-orch/orchestration/nodeexec.transition",
+        "cmd/mcp-orch/orchestration/nodeexec.trimAutomationInlineSpaceBackward",
         "cmd/mcp-orch/orchestration/nodeexec.truncateErrSummary",
         "cmd/mcp-orch/orchestration/nodeexec.updateChangeFromOp",
         "cmd/mcp-orch/orchestration/nodeexec.validateAgentLaunchIdentity",
@@ -20646,6 +20808,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.validatePersistableAutomationExec",
         "cmd/mcp-orch/orchestration/nodeexec.validateRenderedCommandShellSafety",
         "cmd/mcp-orch/orchestration/nodeexec.validateUpdateNodeConfig",
+        "cmd/mcp-orch/orchestration/nodeexec.validateWorkspaceScope",
         "cmd/mcp-orch/orchestration/nodeexec.verifyDependsOnIntegrity",
         "cmd/mcp-orch/orchestration/nodeexec.walkConfigForBannedKeys",
         "cmd/mcp-orch/orchestration/nodeexec.writeAutomationSharedfile",
@@ -20751,6 +20914,11 @@
         "cmd/mcp-orch/orchestration/wakeupreclaim.WakeupReclaimerConfig.ConfigOrDefaults",
         "cmd/mcp-orch/orchestration/wakeupreclaim.nodeRunIDForLog",
         "cmd/mcp-orch/orchestration/wakeuptext.RenderUpstreamPromptHint",
+        "cmd/mcp-orch/tools.*applyOpsWorkspaceValidator.existingNodeType",
+        "cmd/mcp-orch/tools.*applyOpsWorkspaceValidator.loadExistingNodeTypes",
+        "cmd/mcp-orch/tools.*applyOpsWorkspaceValidator.validate",
+        "cmd/mcp-orch/tools.*applyOpsWorkspaceValidator.validateAddNode",
+        "cmd/mcp-orch/tools.*applyOpsWorkspaceValidator.validateUpdateNode",
         "cmd/mcp-orch/tools.*promptRecallTracker.mark",
         "cmd/mcp-orch/tools.AgentIDInput",
         "cmd/mcp-orch/tools.AgentListPorts",
@@ -20882,6 +21050,7 @@
         "cmd/mcp-orch/tools.applyOpsOpSchema",
         "cmd/mcp-orch/tools.applyOpsPayloadFromInput",
         "cmd/mcp-orch/tools.applyOpsRequestFromInput",
+        "cmd/mcp-orch/tools.applyOpsWorkspaceValidator",
         "cmd/mcp-orch/tools.archivedAgentState",
         "cmd/mcp-orch/tools.artifactLinksFromRaw",
         "cmd/mcp-orch/tools.assignOrchPosSegment",
@@ -21207,6 +21376,7 @@
         "cmd/mcp-orch/tools.trimStringSlicePreserveEmpty",
         "cmd/mcp-orch/tools.truncatePromptSectionsPreview",
         "cmd/mcp-orch/tools.trustedAgentID",
+        "cmd/mcp-orch/tools.trustedTaskWorkspaceRoots",
         "cmd/mcp-orch/tools.trustedWorkspaceRoots",
         "cmd/mcp-orch/tools.ttsInput",
         "cmd/mcp-orch/tools.ttsStatusError",
@@ -25154,6 +25324,8 @@
         "cmd/mcp-orch/orchestration/nodeexec.*OpAddNode.UnmarshalJSON",
         "cmd/mcp-orch/orchestration/nodeexec.*OpUpdateDAG.UnmarshalJSON",
         "cmd/mcp-orch/orchestration/nodeexec.*Ops.UnmarshalJSON",
+        "cmd/mcp-orch/orchestration/nodeexec.*ShellCommandRunner.RunCommandCard",
+        "cmd/mcp-orch/orchestration/nodeexec.*ShellCommandRunner.authorizeCommandExecution",
         "cmd/mcp-orch/orchestration/nodeexec.*automationArgvSplitState.accept",
         "cmd/mcp-orch/orchestration/nodeexec.*automationArgvSplitState.acceptQuoteOrEscape",
         "cmd/mcp-orch/orchestration/nodeexec.*automationArgvSplitState.finish",
@@ -25185,6 +25357,10 @@
         "cmd/mcp-orch/orchestration/nodeexec.AutomationNodeConfig",
         "cmd/mcp-orch/orchestration/nodeexec.BuildArtifactImportPlan",
         "cmd/mcp-orch/orchestration/nodeexec.BuildArtifactTextPlan",
+        "cmd/mcp-orch/orchestration/nodeexec.CommandExecutionAuthorization",
+        "cmd/mcp-orch/orchestration/nodeexec.CommandExecutionAuthorizationRequest",
+        "cmd/mcp-orch/orchestration/nodeexec.CommandExecutionAuthorizer",
+        "cmd/mcp-orch/orchestration/nodeexec.CommandExecutionAuthorizer.AuthorizeCommandExecution",
         "cmd/mcp-orch/orchestration/nodeexec.CommandExitError",
         "cmd/mcp-orch/orchestration/nodeexec.CommandExitError.Error",
         "cmd/mcp-orch/orchestration/nodeexec.CommandExitError.Unwrap",
@@ -25265,17 +25441,18 @@
         "cmd/mcp-orch/orchestration/nodeexec.SharedFileWriter.WriteSharedFile",
         "cmd/mcp-orch/orchestration/nodeexec.SharedfileTarget",
         "cmd/mcp-orch/orchestration/nodeexec.ShellCommandRunner",
-        "cmd/mcp-orch/orchestration/nodeexec.ShellCommandRunner.RunCommandCard",
         "cmd/mcp-orch/orchestration/nodeexec.SummarizationConfig",
         "cmd/mcp-orch/orchestration/nodeexec.UpdateNodeChange",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateAddNodeTopology",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateAutomationCommandDispatchConfig",
+        "cmd/mcp-orch/orchestration/nodeexec.ValidateAutomationCommandWorkspaceScope",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateCreateDAGNodes",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateLaunchCWDForNodeConfig",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateNodeSpecsConfig",
         "cmd/mcp-orch/orchestration/nodeexec.ValidatePersistableNodeConfig",
         "cmd/mcp-orch/orchestration/nodeexec.ValidateTransition",
         "cmd/mcp-orch/orchestration/nodeexec.WithAutomationHooks",
+        "cmd/mcp-orch/orchestration/nodeexec.WithCommandExecutionAuthorizer",
         "cmd/mcp-orch/orchestration/nodeexec.WithExecutionTimeout",
         "cmd/mcp-orch/orchestration/nodeexec.WithHooks",
         "cmd/mcp-orch/orchestration/nodeexec.WithLaunchedThreadCapture",
@@ -25285,6 +25462,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.agentLaunchCWDValidationFailure",
         "cmd/mcp-orch/orchestration/nodeexec.agentLaunchEnv",
         "cmd/mcp-orch/orchestration/nodeexec.allowedAutomationCommandEnv",
+        "cmd/mcp-orch/orchestration/nodeexec.appendAutomationSensitiveKeyWord",
         "cmd/mcp-orch/orchestration/nodeexec.applyAutomationCommandOptions",
         "cmd/mcp-orch/orchestration/nodeexec.applyDependsOnPatch",
         "cmd/mcp-orch/orchestration/nodeexec.artifactObjectMatchesTool",
@@ -25296,10 +25474,13 @@
         "cmd/mcp-orch/orchestration/nodeexec.artifactTextFromObject",
         "cmd/mcp-orch/orchestration/nodeexec.artifactTextFromValue",
         "cmd/mcp-orch/orchestration/nodeexec.automationArgvSplitState",
+        "cmd/mcp-orch/orchestration/nodeexec.automationByteIsEscaped",
         "cmd/mcp-orch/orchestration/nodeexec.automationCommandContext",
         "cmd/mcp-orch/orchestration/nodeexec.automationCommandResult",
         "cmd/mcp-orch/orchestration/nodeexec.automationCommandResultPayload",
         "cmd/mcp-orch/orchestration/nodeexec.automationCommandRunOptionsFromConfig",
+        "cmd/mcp-orch/orchestration/nodeexec.automationLineEnd",
+        "cmd/mcp-orch/orchestration/nodeexec.automationSensitiveKeyWords",
         "cmd/mcp-orch/orchestration/nodeexec.automationSharedFileOwnerNode",
         "cmd/mcp-orch/orchestration/nodeexec.automationSharedFileProducerActor",
         "cmd/mcp-orch/orchestration/nodeexec.automationSharedfilePath",
@@ -25309,6 +25490,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.buildInputsPayload",
         "cmd/mcp-orch/orchestration/nodeexec.buildLaunchRequestFromAgentConfig",
         "cmd/mcp-orch/orchestration/nodeexec.canonicalExistingPath",
+        "cmd/mcp-orch/orchestration/nodeexec.canonicalWorkspaceRoots",
         "cmd/mcp-orch/orchestration/nodeexec.captureLaunchedThread",
         "cmd/mcp-orch/orchestration/nodeexec.classifiedAgentLaunchFailure",
         "cmd/mcp-orch/orchestration/nodeexec.classifyAgentLaunchError",
@@ -25351,6 +25533,9 @@
         "cmd/mcp-orch/orchestration/nodeexec.injectKind",
         "cmd/mcp-orch/orchestration/nodeexec.inputsConfigured",
         "cmd/mcp-orch/orchestration/nodeexec.isAllowedConfigAgentKey",
+        "cmd/mcp-orch/orchestration/nodeexec.isAutomationInlineSpace",
+        "cmd/mcp-orch/orchestration/nodeexec.isAutomationKeyByte",
+        "cmd/mcp-orch/orchestration/nodeexec.isAutomationQuote",
         "cmd/mcp-orch/orchestration/nodeexec.isCycleSCC",
         "cmd/mcp-orch/orchestration/nodeexec.isPersistedNodeStatus",
         "cmd/mcp-orch/orchestration/nodeexec.isReservedOrLegacyNodeStatus",
@@ -25374,15 +25559,19 @@
         "cmd/mcp-orch/orchestration/nodeexec.newTarjanState",
         "cmd/mcp-orch/orchestration/nodeexec.normalizeAgentLaunchConfig",
         "cmd/mcp-orch/orchestration/nodeexec.normalizeAutomationRunOptions",
+        "cmd/mcp-orch/orchestration/nodeexec.openingAutomationQuote",
         "cmd/mcp-orch/orchestration/nodeexec.opsHeader",
         "cmd/mcp-orch/orchestration/nodeexec.parseExecutableAutomationConfig",
         "cmd/mcp-orch/orchestration/nodeexec.parseExecutionTimeoutSeconds",
         "cmd/mcp-orch/orchestration/nodeexec.parseExecutionTimeoutString",
+        "cmd/mcp-orch/orchestration/nodeexec.pathWithinAnyRoot",
         "cmd/mcp-orch/orchestration/nodeexec.pathWithinRoot",
         "cmd/mcp-orch/orchestration/nodeexec.persistedNodeStatuses",
         "cmd/mcp-orch/orchestration/nodeexec.planAddNodeTopology",
         "cmd/mcp-orch/orchestration/nodeexec.prepareAutomationCommand",
         "cmd/mcp-orch/orchestration/nodeexec.preparedAutomationCommand",
+        "cmd/mcp-orch/orchestration/nodeexec.quotedAutomationValueEnd",
+        "cmd/mcp-orch/orchestration/nodeexec.redactSensitiveAssignments",
         "cmd/mcp-orch/orchestration/nodeexec.redactSensitiveText",
         "cmd/mcp-orch/orchestration/nodeexec.registerNewNode",
         "cmd/mcp-orch/orchestration/nodeexec.rejectAutomationShellModeFields",
@@ -25396,20 +25585,27 @@
         "cmd/mcp-orch/orchestration/nodeexec.resolveExecutionConfigTimeout",
         "cmd/mcp-orch/orchestration/nodeexec.resolveSpawnKeys",
         "cmd/mcp-orch/orchestration/nodeexec.sanitizeLaunchName",
+        "cmd/mcp-orch/orchestration/nodeexec.scrubAutomationJSONLines",
+        "cmd/mcp-orch/orchestration/nodeexec.scrubAutomationJSONText",
         "cmd/mcp-orch/orchestration/nodeexec.scrubAutomationResultObject",
         "cmd/mcp-orch/orchestration/nodeexec.scrubAutomationResultValue",
         "cmd/mcp-orch/orchestration/nodeexec.seedAdjacency",
         "cmd/mcp-orch/orchestration/nodeexec.seedAdjacencyFull",
+        "cmd/mcp-orch/orchestration/nodeexec.sensitiveTextKeyBeforeDelimiter",
+        "cmd/mcp-orch/orchestration/nodeexec.sensitiveTextValueEnd",
         "cmd/mcp-orch/orchestration/nodeexec.shouldDropAutomationResultKey",
         "cmd/mcp-orch/orchestration/nodeexec.shouldEmitFullNodeResult",
         "cmd/mcp-orch/orchestration/nodeexec.shouldEmitSharedfileEnvelope",
+        "cmd/mcp-orch/orchestration/nodeexec.skipAutomationInlineSpace",
         "cmd/mcp-orch/orchestration/nodeexec.sortedKeys",
         "cmd/mcp-orch/orchestration/nodeexec.splitAutomationCommandArgv",
+        "cmd/mcp-orch/orchestration/nodeexec.startsAutomationSensitiveKeyWord",
         "cmd/mcp-orch/orchestration/nodeexec.startsTemplateAction",
         "cmd/mcp-orch/orchestration/nodeexec.stripAutomationControlFieldsBeforePromptReuse",
         "cmd/mcp-orch/orchestration/nodeexec.tarjanSCCCycleComponents",
         "cmd/mcp-orch/orchestration/nodeexec.tarjanState",
         "cmd/mcp-orch/orchestration/nodeexec.transition",
+        "cmd/mcp-orch/orchestration/nodeexec.trimAutomationInlineSpaceBackward",
         "cmd/mcp-orch/orchestration/nodeexec.truncateErrSummary",
         "cmd/mcp-orch/orchestration/nodeexec.updateChangeFromOp",
         "cmd/mcp-orch/orchestration/nodeexec.validateAgentLaunchIdentity",
@@ -25428,6 +25624,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.validatePersistableAutomationExec",
         "cmd/mcp-orch/orchestration/nodeexec.validateRenderedCommandShellSafety",
         "cmd/mcp-orch/orchestration/nodeexec.validateUpdateNodeConfig",
+        "cmd/mcp-orch/orchestration/nodeexec.validateWorkspaceScope",
         "cmd/mcp-orch/orchestration/nodeexec.verifyDependsOnIntegrity",
         "cmd/mcp-orch/orchestration/nodeexec.walkConfigForBannedKeys",
         "cmd/mcp-orch/orchestration/nodeexec.writeAutomationSharedfile",
@@ -25533,6 +25730,11 @@
         "cmd/mcp-orch/orchestration/wakeupreclaim.WakeupReclaimerConfig.ConfigOrDefaults",
         "cmd/mcp-orch/orchestration/wakeupreclaim.nodeRunIDForLog",
         "cmd/mcp-orch/orchestration/wakeuptext.RenderUpstreamPromptHint",
+        "cmd/mcp-orch/tools.*applyOpsWorkspaceValidator.existingNodeType",
+        "cmd/mcp-orch/tools.*applyOpsWorkspaceValidator.loadExistingNodeTypes",
+        "cmd/mcp-orch/tools.*applyOpsWorkspaceValidator.validate",
+        "cmd/mcp-orch/tools.*applyOpsWorkspaceValidator.validateAddNode",
+        "cmd/mcp-orch/tools.*applyOpsWorkspaceValidator.validateUpdateNode",
         "cmd/mcp-orch/tools.*promptRecallTracker.mark",
         "cmd/mcp-orch/tools.AgentIDInput",
         "cmd/mcp-orch/tools.AgentListPorts",
@@ -25664,6 +25866,7 @@
         "cmd/mcp-orch/tools.applyOpsOpSchema",
         "cmd/mcp-orch/tools.applyOpsPayloadFromInput",
         "cmd/mcp-orch/tools.applyOpsRequestFromInput",
+        "cmd/mcp-orch/tools.applyOpsWorkspaceValidator",
         "cmd/mcp-orch/tools.archivedAgentState",
         "cmd/mcp-orch/tools.artifactLinksFromRaw",
         "cmd/mcp-orch/tools.assignOrchPosSegment",
@@ -25989,6 +26192,7 @@
         "cmd/mcp-orch/tools.trimStringSlicePreserveEmpty",
         "cmd/mcp-orch/tools.truncatePromptSectionsPreview",
         "cmd/mcp-orch/tools.trustedAgentID",
+        "cmd/mcp-orch/tools.trustedTaskWorkspaceRoots",
         "cmd/mcp-orch/tools.trustedWorkspaceRoots",
         "cmd/mcp-orch/tools.ttsInput",
         "cmd/mcp-orch/tools.ttsStatusError",
@@ -28679,13 +28883,13 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2320,
-    "total_methods": 1232,
-    "total_interfaces": 186,
-    "total_interface_methods": 370,
-    "total_exported": 1266,
-    "total_unexported": 3093,
-    "total_structs": 621
+    "total_functions": 2343,
+    "total_methods": 1238,
+    "total_interfaces": 187,
+    "total_interface_methods": 371,
+    "total_exported": 1271,
+    "total_unexported": 3121,
+    "total_structs": 624
   },
   "packages": [
     {
@@ -47582,8 +47786,15 @@
         {
           "name": "NewShellCommandRunner",
           "exported": true,
+          "params": [
+            {
+              "name": "opts",
+              "type": "...ShellCommandRunnerOption"
+            }
+          ],
           "returns": [
-            "*ShellCommandRunner"
+            "*ShellCommandRunner",
+            "error"
           ]
         },
         {
@@ -47808,6 +48019,23 @@
           ]
         },
         {
+          "name": "ValidateAutomationCommandWorkspaceScope",
+          "exported": true,
+          "params": [
+            {
+              "name": "raw",
+              "type": "json.RawMessage"
+            },
+            {
+              "name": "trustedRoots",
+              "type": "[]string"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
           "name": "ValidateCreateDAGNodes",
           "exported": true,
           "params": [
@@ -47896,6 +48124,19 @@
           ],
           "returns": [
             "AutomationOption"
+          ]
+        },
+        {
+          "name": "WithCommandExecutionAuthorizer",
+          "exported": true,
+          "params": [
+            {
+              "name": "authorizer",
+              "type": "CommandExecutionAuthorizer"
+            }
+          ],
+          "returns": [
+            "ShellCommandRunnerOption"
           ]
         },
         {
@@ -48026,6 +48267,31 @@
             {
               "name": "env",
               "type": "map[string]string"
+            }
+          ],
+          "returns": [
+            "[]string"
+          ]
+        },
+        {
+          "name": "appendAutomationSensitiveKeyWord",
+          "exported": false,
+          "params": [
+            {
+              "name": "words",
+              "type": "[]string"
+            },
+            {
+              "name": "runes",
+              "type": "[]rune"
+            },
+            {
+              "name": "start",
+              "type": "int"
+            },
+            {
+              "name": "end",
+              "type": "int"
             }
           ],
           "returns": [
@@ -48258,6 +48524,23 @@
           ]
         },
         {
+          "name": "automationByteIsEscaped",
+          "exported": false,
+          "params": [
+            {
+              "name": "text",
+              "type": "string"
+            },
+            {
+              "name": "index",
+              "type": "int"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
           "name": "automationCommandContext",
           "exported": false,
           "params": [
@@ -48318,6 +48601,36 @@
           ],
           "returns": [
             "AutomationCommandRunOptions"
+          ]
+        },
+        {
+          "name": "automationLineEnd",
+          "exported": false,
+          "params": [
+            {
+              "name": "text",
+              "type": "string"
+            },
+            {
+              "name": "start",
+              "type": "int"
+            }
+          ],
+          "returns": [
+            "int"
+          ]
+        },
+        {
+          "name": "automationSensitiveKeyWords",
+          "exported": false,
+          "params": [
+            {
+              "name": "key",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "[]string"
           ]
         },
         {
@@ -48475,6 +48788,24 @@
           ],
           "returns": [
             "string",
+            "error"
+          ]
+        },
+        {
+          "name": "canonicalWorkspaceRoots",
+          "exported": false,
+          "params": [
+            {
+              "name": "label",
+              "type": "string"
+            },
+            {
+              "name": "roots",
+              "type": "[]string"
+            }
+          ],
+          "returns": [
+            "[]string",
             "error"
           ]
         },
@@ -49092,6 +49423,45 @@
           ]
         },
         {
+          "name": "isAutomationInlineSpace",
+          "exported": false,
+          "params": [
+            {
+              "name": "value",
+              "type": "byte"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "name": "isAutomationKeyByte",
+          "exported": false,
+          "params": [
+            {
+              "name": "value",
+              "type": "byte"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "name": "isAutomationQuote",
+          "exported": false,
+          "params": [
+            {
+              "name": "value",
+              "type": "byte"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
           "name": "isCycleSCC",
           "exported": false,
           "params": [
@@ -49411,6 +49781,23 @@
           ]
         },
         {
+          "name": "openingAutomationQuote",
+          "exported": false,
+          "params": [
+            {
+              "name": "text",
+              "type": "string"
+            },
+            {
+              "name": "closing",
+              "type": "int"
+            }
+          ],
+          "returns": [
+            "int"
+          ]
+        },
+        {
           "name": "parseExecutableAutomationConfig",
           "exported": false,
           "params": [
@@ -49452,6 +49839,23 @@
             "time.Duration",
             "bool",
             "error"
+          ]
+        },
+        {
+          "name": "pathWithinAnyRoot",
+          "exported": false,
+          "params": [
+            {
+              "name": "pathValue",
+              "type": "string"
+            },
+            {
+              "name": "roots",
+              "type": "[]string"
+            }
+          ],
+          "returns": [
+            "bool"
           ]
         },
         {
@@ -49521,6 +49925,36 @@
           "returns": [
             "preparedAutomationCommand",
             "error"
+          ]
+        },
+        {
+          "name": "quotedAutomationValueEnd",
+          "exported": false,
+          "params": [
+            {
+              "name": "text",
+              "type": "string"
+            },
+            {
+              "name": "start",
+              "type": "int"
+            }
+          ],
+          "returns": [
+            "int"
+          ]
+        },
+        {
+          "name": "redactSensitiveAssignments",
+          "exported": false,
+          "params": [
+            {
+              "name": "text",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string"
           ]
         },
         {
@@ -49742,6 +50176,34 @@
           ]
         },
         {
+          "name": "scrubAutomationJSONLines",
+          "exported": false,
+          "params": [
+            {
+              "name": "text",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string",
+            "bool"
+          ]
+        },
+        {
+          "name": "scrubAutomationJSONText",
+          "exported": false,
+          "params": [
+            {
+              "name": "text",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string",
+            "bool"
+          ]
+        },
+        {
           "name": "scrubAutomationResultObject",
           "exported": false,
           "params": [
@@ -49796,6 +50258,45 @@
           ]
         },
         {
+          "name": "sensitiveTextKeyBeforeDelimiter",
+          "exported": false,
+          "params": [
+            {
+              "name": "text",
+              "type": "string"
+            },
+            {
+              "name": "delimiter",
+              "type": "int"
+            }
+          ],
+          "returns": [
+            "bool",
+            "bool"
+          ]
+        },
+        {
+          "name": "sensitiveTextValueEnd",
+          "exported": false,
+          "params": [
+            {
+              "name": "text",
+              "type": "string"
+            },
+            {
+              "name": "start",
+              "type": "int"
+            },
+            {
+              "name": "headerValue",
+              "type": "bool"
+            }
+          ],
+          "returns": [
+            "int"
+          ]
+        },
+        {
           "name": "shouldDropAutomationResultKey",
           "exported": false,
           "params": [
@@ -49835,6 +50336,23 @@
           ]
         },
         {
+          "name": "skipAutomationInlineSpace",
+          "exported": false,
+          "params": [
+            {
+              "name": "text",
+              "type": "string"
+            },
+            {
+              "name": "start",
+              "type": "int"
+            }
+          ],
+          "returns": [
+            "int"
+          ]
+        },
+        {
           "name": "sortedKeys",
           "exported": false,
           "params": [
@@ -49859,6 +50377,23 @@
           "returns": [
             "[]string",
             "error"
+          ]
+        },
+        {
+          "name": "startsAutomationSensitiveKeyWord",
+          "exported": false,
+          "params": [
+            {
+              "name": "runes",
+              "type": "[]rune"
+            },
+            {
+              "name": "index",
+              "type": "int"
+            }
+          ],
+          "returns": [
+            "bool"
           ]
         },
         {
@@ -49902,6 +50437,23 @@
           ],
           "returns": [
             "[][]string"
+          ]
+        },
+        {
+          "name": "trimAutomationInlineSpaceBackward",
+          "exported": false,
+          "params": [
+            {
+              "name": "text",
+              "type": "string"
+            },
+            {
+              "name": "end",
+              "type": "int"
+            }
+          ],
+          "returns": [
+            "int"
           ]
         },
         {
@@ -50158,6 +50710,27 @@
             {
               "name": "node",
               "type": "ExistingNodeFull"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "validateWorkspaceScope",
+          "exported": false,
+          "params": [
+            {
+              "name": "cwd",
+              "type": "string"
+            },
+            {
+              "name": "configRoots",
+              "type": "[]string"
+            },
+            {
+              "name": "trustedRoots",
+              "type": "[]string"
             }
           ],
           "returns": [
@@ -50688,6 +51261,55 @@
           ]
         },
         {
+          "receiver": "*ShellCommandRunner",
+          "name": "RunCommandCard",
+          "exported": true,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "card",
+              "type": "AutomationCommandCard"
+            },
+            {
+              "name": "args",
+              "type": "json.RawMessage"
+            },
+            {
+              "name": "opts",
+              "type": "...AutomationCommandRunOptions"
+            }
+          ],
+          "returns": [
+            "AutomationCommandResult",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*ShellCommandRunner",
+          "name": "authorizeCommandExecution",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "card",
+              "type": "AutomationCommandCard"
+            },
+            {
+              "name": "prepared",
+              "type": "preparedAutomationCommand"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
           "receiver": "*automationArgvSplitState",
           "name": "acceptQuoteOrEscape",
           "exported": false,
@@ -50884,33 +51506,6 @@
           ]
         },
         {
-          "receiver": "ShellCommandRunner",
-          "name": "RunCommandCard",
-          "exported": true,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "card",
-              "type": "AutomationCommandCard"
-            },
-            {
-              "name": "args",
-              "type": "json.RawMessage"
-            },
-            {
-              "name": "opts",
-              "type": "...AutomationCommandRunOptions"
-            }
-          ],
-          "returns": [
-            "AutomationCommandResult",
-            "error"
-          ]
-        },
-        {
           "receiver": "commandTemplateQuoteState",
           "name": "inQuote",
           "exported": false,
@@ -51019,6 +51614,27 @@
               ],
               "returns": [
                 "AutomationCommandResult",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "CommandExecutionAuthorizer",
+          "exported": true,
+          "methods": [
+            {
+              "name": "AuthorizeCommandExecution",
+              "params": [
+                {
+                  "type": "context.Context"
+                },
+                {
+                  "type": "CommandExecutionAuthorizationRequest"
+                }
+              ],
+              "returns": [
+                "CommandExecutionAuthorization",
                 "error"
               ]
             }
@@ -51305,6 +51921,14 @@
         },
         {
           "name": "AutomationNodeConfig",
+          "exported": true
+        },
+        {
+          "name": "CommandExecutionAuthorization",
+          "exported": true
+        },
+        {
+          "name": "CommandExecutionAuthorizationRequest",
           "exported": true
         },
         {
@@ -58746,6 +59370,19 @@
           ]
         },
         {
+          "name": "trustedTaskWorkspaceRoots",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            }
+          ],
+          "returns": [
+            "[]string"
+          ]
+        },
+        {
           "name": "trustedWorkspaceRoots",
           "exported": false,
           "params": [
@@ -58942,6 +59579,18 @@
           "exported": false,
           "params": [
             {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "svc",
+              "type": "contract.DAGRuntime"
+            },
+            {
+              "name": "dagKey",
+              "type": "string"
+            },
+            {
               "name": "raw",
               "type": "json.RawMessage"
             }
@@ -58957,6 +59606,10 @@
             {
               "name": "nodes",
               "type": "[]contract.CreateDAGNodeRequest"
+            },
+            {
+              "name": "trustedRoots",
+              "type": "[]string"
             }
           ],
           "returns": [
@@ -59720,6 +60373,83 @@
       ],
       "methods": [
         {
+          "receiver": "*applyOpsWorkspaceValidator",
+          "name": "existingNodeType",
+          "exported": false,
+          "params": [
+            {
+              "name": "nodeKey",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*applyOpsWorkspaceValidator",
+          "name": "loadExistingNodeTypes",
+          "exported": false,
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*applyOpsWorkspaceValidator",
+          "name": "validateAddNode",
+          "exported": false,
+          "params": [
+            {
+              "name": "index",
+              "type": "int"
+            },
+            {
+              "name": "op",
+              "type": "nodeexec.OpAddNode"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*applyOpsWorkspaceValidator",
+          "name": "validateUpdateNode",
+          "exported": false,
+          "params": [
+            {
+              "name": "index",
+              "type": "int"
+            },
+            {
+              "name": "op",
+              "type": "nodeexec.OpUpdateNode"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*applyOpsWorkspaceValidator",
+          "name": "validate",
+          "exported": false,
+          "params": [
+            {
+              "name": "index",
+              "type": "int"
+            },
+            {
+              "name": "op",
+              "type": "nodeexec.Op"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
           "receiver": "*promptRecallTracker",
           "name": "mark",
           "exported": false,
@@ -60418,6 +61148,10 @@
         },
         {
           "name": "agentReportsResult",
+          "exported": false
+        },
+        {
+          "name": "applyOpsWorkspaceValidator",
           "exported": false
         },
         {
