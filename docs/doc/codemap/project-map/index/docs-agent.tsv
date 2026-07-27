@@ -1,5 +1,5 @@
 path	module	domain	type	size_bytes	purpose	search_keys
-AGENTS.md	(root)	docs-agent	doc	9139	仓库根级配置、入口或说明文件	AGENTS,仓库根级配置,入口或说明文件
+AGENTS.md	(root)	docs-agent	doc	9113	仓库根级配置、入口或说明文件	AGENTS,仓库根级配置,入口或说明文件
 CLAUDE.md	(root)	docs-agent	doc	8456	仓库根级配置、入口或说明文件	CLAUDE,仓库根级配置,入口或说明文件
 docs/adr/0001-workflow-runtime-kernel.md	docs	docs-agent	doc	2538	架构决策记录	docs,adr,0001,workflow,runtime,kernel,架构决策记录
 docs/adr/0002-session-ports-and-prefix-stability.md	docs	docs-agent	doc	1701	架构决策记录	docs,adr,0002,session,ports,and,prefix,stability,架构决策记录
@@ -309,10 +309,10 @@ docs/cc/数据库切换/sqlite-switch-overall-readiness-review-2026-06-14.md	doc
 docs/cc/数据库切换/sqlite-switch-overall-readiness-review-2026-06-15.md	docs	docs-agent	doc	4804	项目文档体系	docs,cc,数据库切换,sqlite,switch,overall,readiness,review,2026,06,15,项目文档体系
 docs/dev-agentic-e2e-harness.md	docs	docs-agent	doc	3050	项目文档体系	docs,dev,agentic,e2e,harness,项目文档体系
 docs/dev-ui-test-mcp.md	docs	docs-agent	doc	8519	项目文档体系	docs,dev,ui,test,mcp,项目文档体系
-docs/doc/codemap/01-terminal-ui-go.md	docs	docs-agent	doc	25338	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,go,手写代码地图卷与自动,ai-index
+docs/doc/codemap/01-terminal-ui-go.md	docs	docs-agent	doc	25034	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,go,手写代码地图卷与自动,ai-index
 docs/doc/codemap/01-terminal-ui-react.md	docs	docs-agent	doc	5640	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,react,手写代码地图卷与自动,ai-index
 docs/doc/codemap/01-terminal-ui.md	docs	docs-agent	doc	3962	手写代码地图卷与自动 ai-index	docs,doc,codemap,01,terminal,ui,手写代码地图卷与自动,ai-index
-docs/doc/codemap/02-mcp-orch.md	docs	docs-agent	doc	68761	手写代码地图卷与自动 ai-index	docs,doc,codemap,02,mcp,orch,手写代码地图卷与自动,ai-index
+docs/doc/codemap/02-mcp-orch.md	docs	docs-agent	doc	68298	手写代码地图卷与自动 ai-index	docs,doc,codemap,02,mcp,orch,手写代码地图卷与自动,ai-index
 docs/doc/codemap/03-mcp-lsp-ida.md	docs	docs-agent	doc	25444	手写代码地图卷与自动 ai-index	docs,doc,codemap,03,mcp,lsp,ida,手写代码地图卷与自动,ai-index
 docs/doc/codemap/04-app-contract.md	docs	docs-agent	doc	70085	手写代码地图卷与自动 ai-index	docs,doc,codemap,04,app,contract,手写代码地图卷与自动,ai-index
 docs/doc/codemap/05-dto.md	docs	docs-agent	doc	67005	手写代码地图卷与自动 ai-index	docs,doc,codemap,05,dto,手写代码地图卷与自动,ai-index
@@ -320,7 +320,7 @@ docs/doc/codemap/06-mcpserver.md	docs	docs-agent	doc	38126	手写代码地图卷
 docs/doc/codemap/07-module-read.md	docs	docs-agent	doc	27862	手写代码地图卷与自动 ai-index	docs,doc,codemap,07,module,read,手写代码地图卷与自动,ai-index
 docs/doc/codemap/07-module-write.md	docs	docs-agent	doc	37736	手写代码地图卷与自动 ai-index	docs,doc,codemap,07,module,write,手写代码地图卷与自动,ai-index
 docs/doc/codemap/07-module.md	docs	docs-agent	doc	6108	手写代码地图卷与自动 ai-index	docs,doc,codemap,07,module,手写代码地图卷与自动,ai-index
-docs/doc/codemap/08-platform.md	docs	docs-agent	doc	54954	手写代码地图卷与自动 ai-index	docs,doc,codemap,08,platform,手写代码地图卷与自动,ai-index
+docs/doc/codemap/08-platform.md	docs	docs-agent	doc	54729	手写代码地图卷与自动 ai-index	docs,doc,codemap,08,platform,手写代码地图卷与自动,ai-index
 docs/doc/codemap/09-provider.md	docs	docs-agent	doc	81696	手写代码地图卷与自动 ai-index	docs,doc,codemap,09,provider,手写代码地图卷与自动,ai-index
 docs/doc/codemap/10-store.md	docs	docs-agent	doc	62444	手写代码地图卷与自动 ai-index	docs,doc,codemap,10,store,手写代码地图卷与自动,ai-index
 docs/doc/codemap/11-memory-prompt-thread.md	docs	docs-agent	doc	3196	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,memory,prompt,thread,手写代码地图卷与自动,ai-index
@@ -922,13 +922,13 @@ docs/work/proposals/README.md	docs	docs-agent	doc	367	项目文档体系	docs,wo
 docs/work/README.md	docs	docs-agent	doc	698	项目文档体系	docs,work,README,项目文档体系
 docs/契约/atomic-commit-convention.md	docs	docs-agent	doc	8075	项目文档体系	docs,契约,atomic,commit,convention,项目文档体系
 docs/契约/fail-fast-convention.md	docs	docs-agent	doc	9470	项目文档体系	docs,契约,fail,fast,convention,项目文档体系
-docs/契约/fix-workflow-convention.md	docs	docs-agent	doc	24833	项目文档体系	docs,契约,fix,workflow,convention,项目文档体系
+docs/契约/fix-workflow-convention.md	docs	docs-agent	doc	25081	项目文档体系	docs,契约,fix,workflow,convention,项目文档体系
 docs/契约/fx-convention.md	docs	docs-agent	doc	3512	项目文档体系	docs,契约,fx,convention,项目文档体系
 docs/契约/jrpc2-convention.md	docs	docs-agent	doc	34562	项目文档体系	docs,契约,jrpc2,convention,项目文档体系
-docs/契约/mcp-service-convention.md	docs	docs-agent	doc	16247	项目文档体系	docs,契约,mcp,service,convention,项目文档体系
+docs/契约/mcp-service-convention.md	docs	docs-agent	doc	16169	项目文档体系	docs,契约,mcp,service,convention,项目文档体系
 docs/契约/modularity-convention.md	docs	docs-agent	doc	47932	项目文档体系	docs,契约,modularity,convention,项目文档体系
 docs/契约/onion-architecture-convention.md	docs	docs-agent	doc	4227	项目文档体系	docs,契约,onion,architecture,convention,项目文档体系
-docs/契约/README.md	docs	docs-agent	doc	1866	项目文档体系	docs,契约,README,项目文档体系
+docs/契约/README.md	docs	docs-agent	doc	1870	项目文档体系	docs,契约,README,项目文档体系
 docs/契约/recall-topic-naming.md	docs	docs-agent	doc	1328	项目文档体系	docs,契约,recall,topic,naming,项目文档体系
 docs/契约/rungroup-convention.md	docs	docs-agent	doc	3717	项目文档体系	docs,契约,rungroup,convention,项目文档体系
 docs/契约/sqlc-convention.md	docs	docs-agent	doc	3949	项目文档体系	docs,契约,sqlc,convention,项目文档体系

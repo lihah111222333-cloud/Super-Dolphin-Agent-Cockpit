@@ -562,7 +562,7 @@
 
 ## 2.14 `toolbridge/`：Provider <-> MCP Tool 桥接
 
-> 2026-04-24 debt banner / authoritative pointer：本节描述 `platform/toolbridge` 的稳定职责，不再是 toolbridge 依赖方向的权威记录。`toolbridge` 直连 provider concrete 与业务 store 的 hidden-contract / 依赖反向问题，authoritative 入口是 [`docs/plans/迁移/p22/README.md`](../../plans/迁移/p22/README.md) 与 [`docs/plans/迁移/p22/P4_DependencyDirectionAndHiddenContracts.md`](../../plans/迁移/p22/P4_DependencyDirectionAndHiddenContracts.md)。
+> 当前导航边界：本节描述 `platform/toolbridge` 的稳定职责；依赖方向以源码、同包测试、`docs/契约/onion-architecture-convention.md` 和生成的第 13 卷边界规则为准。历史迁移计划只用于追溯，不覆盖当前事实。
 
 **职责**
 

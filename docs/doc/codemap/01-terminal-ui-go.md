@@ -1,6 +1,6 @@
 # super-agent-v3 代码地图：终端入口与 UI 层（Go / Wails）
 
-> 2026-04-24 debt banner / authoritative pointer：本卷描述 `internal/ui/wails` 的稳定职责与装配结构，不再是 ui/wails 依赖方向 / hidden contract 的权威记录。`ui/wails` → `module/uistate` 直连、`NewActiveAgentCounter` 按 agent state 负面枚举等 debt 的 authoritative 入口是 [`docs/plans/迁移/p22/README.md`](../../plans/迁移/p22/README.md) 与 [`docs/plans/迁移/p22/P4_DependencyDirectionAndHiddenContracts.md`](../../plans/迁移/p22/P4_DependencyDirectionAndHiddenContracts.md)。若本卷与 P22/P4 冲突，以后者为准。
+> 当前导航边界：本卷描述 `internal/ui/wails` 的职责与装配结构；依赖方向以源码、同包测试、`docs/契约/onion-architecture-convention.md` 和生成的第 13 卷边界规则为准。历史迁移计划只用于追溯，不覆盖当前事实。
 
 ## 1. 阅读边界
 

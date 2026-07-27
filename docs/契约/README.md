@@ -1,6 +1,6 @@
 # super-agent-v3 契约文档
 
-本目录记录当前仍生效的工程契约。回答实现行为时，事实来源顺序是源码与测试、LSP 证据、`docs/decisions` / `docs/adr`、本目录契约、`docs/架构` 骨架，再用 `docs/doc/codemap` 缩小阅读范围。
+本目录记录当前仍生效的工程契约。回答实现行为时，事实来源顺序是源码与测试、LSP 证据、状态为 Accepted 的 `docs/adr`、本目录契约、`docs/架构` 骨架，再用 `docs/doc/codemap` 缩小阅读范围。
 
 `docs/plans/**`、`docs/迁移/**`、`docs/superpowers/plans/**` 和旧报告只作为历史规划材料；除非追溯来源，不应把它们当成当前规范入口。
 
