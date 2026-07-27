@@ -44,7 +44,6 @@ func provideCronThreadStarter(svc Service) contract.CronThreadStarter {
 type threadStoreRecord = ThreadRecord
 type threadStoreStatusUpdate = ThreadStatusUpdate
 type bindingStoreRecord = BindingRecord
-type bindingStoreArchiveUpdate = BindingArchiveUpdate
 type threadBindingStoreRecord = BindingRecord
 type threadConfigStoreRecord = ThreadRecord
 type threadBindingStoreAdapter struct {

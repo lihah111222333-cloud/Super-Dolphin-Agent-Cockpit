@@ -297,10 +297,6 @@ func (toolCallBindingStoreWriteNoop) UpdateProviderThreadID(context.Context, bin
 	return nil
 }
 
-func (toolCallBindingStoreWriteNoop) SetArchived(context.Context, bindingstore.SetArchivedParams) error {
-	return nil
-}
-
 func (toolCallBindingStoreWriteNoop) BindAgentThread(context.Context, bindingstore.BindAgentThreadParams) error {
 	return nil
 }

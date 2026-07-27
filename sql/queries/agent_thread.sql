@@ -131,7 +131,7 @@ SET name = excluded.name,
     pending_launch = excluded.pending_launch,
     manually_renamed = excluded.manually_renamed;
 
--- name: UpdateAgentThreadStatus :exec
+-- name: UpdateAgentThreadStatus :execrows
 UPDATE agent_threads
 SET status = ?,
     updated_at = ?

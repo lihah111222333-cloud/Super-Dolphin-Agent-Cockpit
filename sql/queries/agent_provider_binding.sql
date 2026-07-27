@@ -41,7 +41,7 @@ SET session_uuid = ?,
     updated_at = ?
 WHERE agent_id = ?;
 
--- name: UpdateAgentProviderBindingArchived :exec
+-- name: UpdateAgentProviderBindingArchived :execrows
 UPDATE agent_provider_binding
 SET archived = ?,
     updated_at = ?

@@ -535,9 +535,11 @@ func newService(
 	if threadEvents != nil {
 		dispatcher = threadEvents.Dispatcher()
 	}
+	archiveStateStore, _ := threadStore.(ArchiveStateStore)
 	s := &service{
 		logger:                  logger,
 		threadStore:             threadStore,
+		archiveStateStore:       archiveStateStore,
 		bindingStore:            bindingStore,
 		sessions:                sessions,
 		starter:                 starter,

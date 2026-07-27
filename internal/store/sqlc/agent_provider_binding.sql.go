@@ -92,7 +92,7 @@ func (q *Queries) GetAgentProviderBindingByProviderThread(ctx context.Context, a
 	return i, err
 }
 
-const updateAgentProviderBindingArchived = `-- name: UpdateAgentProviderBindingArchived :exec
+const updateAgentProviderBindingArchived = `-- name: UpdateAgentProviderBindingArchived :execrows
 UPDATE agent_provider_binding
 SET archived = ?,
     updated_at = ?
@@ -105,9 +105,12 @@ type UpdateAgentProviderBindingArchivedParams struct {
 	AgentID   string `db:"agent_id" json:"agent_id"`
 }
 
-func (q *Queries) UpdateAgentProviderBindingArchived(ctx context.Context, arg UpdateAgentProviderBindingArchivedParams) error {
-	_, err := q.db.ExecContext(ctx, updateAgentProviderBindingArchived, arg.Archived, arg.UpdatedAt, arg.AgentID)
-	return err
+func (q *Queries) UpdateAgentProviderBindingArchived(ctx context.Context, arg UpdateAgentProviderBindingArchivedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateAgentProviderBindingArchived, arg.Archived, arg.UpdatedAt, arg.AgentID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const updateAgentProviderBindingProviderThreadID = `-- name: UpdateAgentProviderBindingProviderThreadID :exec

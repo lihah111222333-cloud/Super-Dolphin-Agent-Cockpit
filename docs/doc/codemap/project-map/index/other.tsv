@@ -111,11 +111,11 @@ internal/app/storeadapter/skill/adapter_test.go	internal	other	go-test	6545	业�
 internal/app/storeadapter/skill/adapter.go	internal	other	go-source	5727	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,skill,adapter,业务,Store,到,module,窄端口的适配器
 internal/app/storeadapter/skill/module.go	internal	other	go-source	236	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,skill,module,业务,Store,到,窄端口的适配器
 internal/app/storeadapter/skill/tool_crud_test.go	internal	other	go-test	8102	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,skill,tool,crud,test,业务,Store,到,module,窄端口的适配器
-internal/app/storeadapter/thread/adapter_test.go	internal	other	go-test	17632	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,thread,adapter,test,业务,Store,到,module,窄端口的适配器
+internal/app/storeadapter/thread/adapter_test.go	internal	other	go-test	18254	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,thread,adapter,test,业务,Store,到,module,窄端口的适配器
 internal/app/storeadapter/thread/module.go	internal	other	go-source	470	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,thread,module,业务,Store,到,窄端口的适配器
 internal/app/storeadapter/thread/port_external_test.go	internal	other	go-test	1240	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,thread,port,external,test,业务,Store,到,module,窄端口的适配器
 internal/app/storeadapter/thread/prompt.go	internal	other	go-source	11002	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,thread,prompt,业务,Store,到,module,窄端口的适配器
-internal/app/storeadapter/thread/store.go	internal	other	go-source	14077	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,thread,store,业务,Store,到,module,窄端口的适配器
+internal/app/storeadapter/thread/store.go	internal	other	go-source	14793	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,thread,store,业务,Store,到,module,窄端口的适配器
 internal/app/storeadapter/turn/adapter_test.go	internal	other	go-test	6246	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,turn,adapter,test,业务,Store,到,module,窄端口的适配器
 internal/app/storeadapter/turn/adapter.go	internal	other	go-source	2584	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,turn,adapter,业务,Store,到,module,窄端口的适配器
 internal/app/storeadapter/turn/module.go	internal	other	go-source	260	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,turn,module,业务,Store,到,窄端口的适配器

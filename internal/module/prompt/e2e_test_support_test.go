@@ -198,14 +198,6 @@ func (s *capturingBindingStore) DeleteByAgentID(_ context.Context, agentID strin
 	return nil
 }
 
-func (s *capturingBindingStore) SetArchived(_ context.Context, params thread.BindingArchiveUpdate) error {
-	if s.binding != nil && s.binding.AgentID == params.AgentID {
-		s.binding.Archived = params.Archived
-		s.binding.UpdatedAt = params.UpdatedAt
-	}
-	return nil
-}
-
 func (s *capturingBindingStore) UpdateAgentCwd(_ context.Context, params thread.BindingCWDUpdate) error {
 	if s.binding != nil && s.binding.AgentID == params.AgentID {
 		s.binding.Cwd = params.Cwd

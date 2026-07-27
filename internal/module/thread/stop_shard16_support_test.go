@@ -15,10 +15,44 @@ type stubThreadBindingStore struct {
 
 	binding         *BindingRecord
 	sessionUpdates  []BindingSessionUUIDUpdate
-	archived        []BindingArchiveUpdate
+	archived        []ArchiveStateUpdate
 	deletedAgentIDs []string
 	calls           *[]string
 	getByAgentIDErr error
+}
+
+type stubArchiveStateStore struct {
+	service *service
+	err     error
+	updates []ArchiveStateUpdate
+}
+
+func attachStubArchiveStateStore(svc *service) *stubArchiveStateStore {
+	store := &stubArchiveStateStore{service: svc}
+	svc.archiveStateStore = store
+	return store
+}
+
+func (s *stubArchiveStateStore) SetArchiveState(ctx context.Context, params ArchiveStateUpdate) error {
+	s.updates = append(s.updates, params)
+	if s.err != nil {
+		return s.err
+	}
+	status := statusCreated
+	if params.Archived {
+		status = statusArchived
+	}
+	if err := s.service.threadStore.UpdateStatus(ctx, ThreadStatusUpdate{
+		ThreadID: params.ThreadID, Status: status, UpdatedAt: params.UpdatedAt,
+	}); err != nil {
+		return err
+	}
+	bindingStore, ok := s.service.bindingStore.(*stubThreadBindingStore)
+	if !ok {
+		return errors.New("test archive state requires stub binding store")
+	}
+	bindingStore.recordArchiveState(params)
+	return nil
 }
 
 type stubThreadBindingStoreNoopMethods struct{}
@@ -41,14 +75,17 @@ func (s *stubThreadBindingStore) UpdateSessionUUID(_ context.Context, params Bin
 func (stubThreadBindingStoreNoopMethods) UpdateProviderThreadID(context.Context, BindingProviderThreadIDUpdate) error {
 	return nil
 }
-func (s *stubThreadBindingStore) SetArchived(_ context.Context, params BindingArchiveUpdate) error {
+func (s *stubThreadBindingStore) recordArchiveState(params ArchiveStateUpdate) {
 	s.archived = append(s.archived, params)
+	if s.binding != nil && s.binding.AgentID == params.AgentID {
+		s.binding.Archived = params.Archived
+		s.binding.UpdatedAt = params.UpdatedAt
+	}
 	archived := "false"
 	if params.Archived {
 		archived = "true"
 	}
 	recordCall(s.calls, "binding_archive:"+params.AgentID+":"+archived)
-	return nil
 }
 func (s *stubThreadBindingStore) GetByAgentID(_ context.Context, agentID string) (*BindingRecord, error) {
 	if s.binding != nil && s.binding.AgentID == agentID {

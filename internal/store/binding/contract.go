@@ -12,7 +12,6 @@ type Store interface {
 	DeleteByAgentID(ctx context.Context, agentID string) error
 	UpdateSessionUUID(ctx context.Context, params UpdateSessionUUIDParams) error
 	UpdateProviderThreadID(ctx context.Context, params UpdateProviderThreadIDParams) error
-	SetArchived(ctx context.Context, params SetArchivedParams) error
 	GetByAgentID(ctx context.Context, agentID string) (*Binding, error)
 	BindAgentThread(ctx context.Context, params BindAgentThreadParams) error
 	UnbindAgentThread(ctx context.Context, agentID string) error
@@ -65,13 +64,6 @@ type UpdateProviderThreadIDParams struct {
 	ProviderThreadID string
 	UpdatedAt        int64
 	AgentID          string
-}
-
-// SetArchivedParams 标记 agent 绑定是否归档，归档后恢复路径应拒绝继续拉起。
-type SetArchivedParams struct {
-	AgentID   string
-	Archived  bool
-	UpdatedAt int64
 }
 
 // BindAgentThreadParams 记录 agent 到公共 thread 和 cwd 的绑定，供跨模块查找使用。

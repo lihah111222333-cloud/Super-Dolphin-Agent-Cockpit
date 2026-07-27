@@ -32,6 +32,20 @@ type Store interface {
 	CountAll(ctx context.Context) (int64, error)
 }
 
+// ArchiveStateStore 原子维护 thread 状态和 provider binding 的归档标记。
+// 它是 Store concrete value 的附加能力，组合根通过 Thread-owned adapter 暴露给业务层。
+type ArchiveStateStore interface {
+	SetArchiveState(ctx context.Context, params ArchiveStateParams) error
+}
+
+// ArchiveStateParams 是跨 agent_threads 与 agent_provider_binding 的原子写入输入。
+type ArchiveStateParams struct {
+	ThreadID  string
+	AgentID   string
+	Archived  bool
+	UpdatedAt int64
+}
+
 // UpsertParams 汇总创建或更新 thread 记录时需要写入的字段。
 // ConfigOverride 和 PromptVersionID 保留运行时配置快照，不能在 store 层静默补默认值。
 type UpsertParams struct {

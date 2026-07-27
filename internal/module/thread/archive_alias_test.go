@@ -35,6 +35,7 @@ func TestArchiveResolvesBindingWhenPendingLaunchProbeMissesAlias(t *testing.T) {
 		turns:         &stubTurnService{calls: &calls},
 		orchestration: &stubThreadOrchestration{calls: &calls},
 	}
+	attachStubArchiveStateStore(svc)
 
 	if err := svc.Archive(context.Background(), "agent-1"); err != nil {
 		t.Fatalf("Archive() error = %v", err)

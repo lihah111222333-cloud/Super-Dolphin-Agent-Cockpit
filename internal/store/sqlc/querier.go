@@ -227,14 +227,14 @@ type Querier interface {
 	TransitionWorkspaceRunStatus(ctx context.Context, arg TransitionWorkspaceRunStatusParams) (WorkspaceRun, error)
 	UnbindAgentThread(ctx context.Context, arg UnbindAgentThreadParams) error
 	UpdateAgentCwd(ctx context.Context, arg UpdateAgentCwdParams) error
-	UpdateAgentProviderBindingArchived(ctx context.Context, arg UpdateAgentProviderBindingArchivedParams) error
+	UpdateAgentProviderBindingArchived(ctx context.Context, arg UpdateAgentProviderBindingArchivedParams) (int64, error)
 	UpdateAgentProviderBindingProviderThreadID(ctx context.Context, arg UpdateAgentProviderBindingProviderThreadIDParams) error
 	UpdateAgentProviderBindingSessionUUID(ctx context.Context, arg UpdateAgentProviderBindingSessionUUIDParams) error
 	// Atomically clears pending_launch and stamps the router decision after the
 	// Claude CLI has been spawned for this thread.
 	UpdateAgentThreadLaunchResult(ctx context.Context, arg UpdateAgentThreadLaunchResultParams) error
 	UpdateAgentThreadPromptSnapshot(ctx context.Context, arg UpdateAgentThreadPromptSnapshotParams) (int64, error)
-	UpdateAgentThreadStatus(ctx context.Context, arg UpdateAgentThreadStatusParams) error
+	UpdateAgentThreadStatus(ctx context.Context, arg UpdateAgentThreadStatusParams) (int64, error)
 	UpdateCronJobSchedule(ctx context.Context, arg UpdateCronJobScheduleParams) error
 	UpdateDatasourceV2DocumentMetadata(ctx context.Context, arg UpdateDatasourceV2DocumentMetadataParams) (DatasourceV2Document, error)
 	UpdatePromptIntentDraftStatus(ctx context.Context, arg UpdatePromptIntentDraftStatusParams) (UpdatePromptIntentDraftStatusRow, error)

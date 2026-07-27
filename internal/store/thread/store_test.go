@@ -121,8 +121,8 @@ func (s *threadQuerierStub) UpdateAgentThreadPromptSnapshot(ctx context.Context,
 	return 1, nil
 }
 
-func (threadMutationNoop) UpdateAgentThreadStatus(context.Context, sqlc.UpdateAgentThreadStatusParams) error {
-	return nil
+func (threadMutationNoop) UpdateAgentThreadStatus(context.Context, sqlc.UpdateAgentThreadStatusParams) (int64, error) {
+	return 1, nil
 }
 
 func (threadMutationNoop) UpdateAgentThreadLaunchResult(context.Context, sqlc.UpdateAgentThreadLaunchResultParams) error {

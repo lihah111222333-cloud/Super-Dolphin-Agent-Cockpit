@@ -12,7 +12,11 @@ import (
 )
 
 var _ thread.ThreadStore = (*threadStoreAdapter)(nil)
+var _ thread.ThreadStore = (*threadArchiveStateAdapter)(nil)
+var _ thread.ArchiveStateStore = (*threadArchiveStateAdapter)(nil)
 var _ thread.BindingStore = (*threadBindingStoreAdapter)(nil)
+var _ thread.ThreadStore = (*threadStoreCapabilitiesAdapter)(nil)
+var _ thread.ArchiveStateStore = (*threadStoreCapabilitiesAdapter)(nil)
 var _ thread.ThreadPageReader = (*threadStoreCapabilitiesAdapter)(nil)
 var _ thread.LoadedThreadPageReader = (*threadStoreCapabilitiesAdapter)(nil)
 var _ thread.ActiveThreadCounter = (*threadStoreCapabilitiesAdapter)(nil)
@@ -21,8 +25,13 @@ type threadStoreAdapter struct {
 	store threadstore.Store
 }
 
-type threadStoreCapabilitiesAdapter struct {
+type threadArchiveStateAdapter struct {
 	*threadStoreAdapter
+	archiveState threadstore.ArchiveStateStore
+}
+
+type threadStoreCapabilitiesAdapter struct {
+	*threadArchiveStateAdapter
 	pageReader       thread.ThreadPageReader
 	loadedPageReader thread.LoadedThreadPageReader
 	activeCounter    thread.ActiveThreadCounter
@@ -32,12 +41,19 @@ type threadBindingStoreAdapter struct {
 	store bindingstore.Store
 }
 
-// provideThreadStoreAdapter 构造 Thread-owned 持久化端口，并保留 concrete Store 的动态分页能力。
+// provideThreadStoreAdapter 构造 Thread-owned 持久化端口，并保留原子归档和动态分页能力。
 func provideThreadStoreAdapter(store threadstore.Store) (thread.ThreadStore, error) {
 	if store == nil {
 		return nil, fmt.Errorf("app: thread store adapter requires thread store")
 	}
-	base := &threadStoreAdapter{store: store}
+	archiveState, ok := store.(threadstore.ArchiveStateStore)
+	if !ok {
+		return nil, fmt.Errorf("app: thread store adapter requires atomic archive state capability")
+	}
+	base := &threadArchiveStateAdapter{
+		threadStoreAdapter: &threadStoreAdapter{store: store},
+		archiveState:       archiveState,
+	}
 	pageReader, hasPage := store.(thread.ThreadPageReader)
 	loadedPageReader, hasLoadedPage := store.(thread.LoadedThreadPageReader)
 	activeCounter, hasActiveCount := store.(thread.ActiveThreadCounter)
@@ -48,10 +64,10 @@ func provideThreadStoreAdapter(store threadstore.Store) (thread.ThreadStore, err
 		return nil, fmt.Errorf("app: thread store optional capabilities must be provided together")
 	}
 	return &threadStoreCapabilitiesAdapter{
-		threadStoreAdapter: base,
-		pageReader:         pageReader,
-		loadedPageReader:   loadedPageReader,
-		activeCounter:      activeCounter,
+		threadArchiveStateAdapter: base,
+		pageReader:                pageReader,
+		loadedPageReader:          loadedPageReader,
+		activeCounter:             activeCounter,
 	}, nil
 }
 
@@ -108,6 +124,11 @@ func (a *threadStoreAdapter) UpdateStatus(ctx context.Context, params thread.Thr
 	return a.store.UpdateStatus(ctx, threadStatusUpdateToStore(params))
 }
 
+// SetArchiveState 转换并原子写入 thread/binding 归档状态。
+func (a *threadArchiveStateAdapter) SetArchiveState(ctx context.Context, params thread.ArchiveStateUpdate) error {
+	return a.archiveState.SetArchiveState(ctx, archiveStateUpdateToStore(params))
+}
+
 // DeleteByThreadID 删除指定线程记录。
 func (a *threadStoreAdapter) DeleteByThreadID(ctx context.Context, threadID string) error {
 	return a.store.DeleteByThreadID(ctx, threadID)
@@ -162,11 +183,6 @@ func (a *threadBindingStoreAdapter) UpdateSessionUUID(ctx context.Context, param
 // UpdateProviderThreadID 转换并写入 provider thread ID。
 func (a *threadBindingStoreAdapter) UpdateProviderThreadID(ctx context.Context, params thread.BindingProviderThreadIDUpdate) error {
 	return a.store.UpdateProviderThreadID(ctx, bindingProviderThreadIDUpdateToStore(params))
-}
-
-// SetArchived 转换并写入 binding 归档状态。
-func (a *threadBindingStoreAdapter) SetArchived(ctx context.Context, params thread.BindingArchiveUpdate) error {
-	return a.store.SetArchived(ctx, bindingArchiveUpdateToStore(params))
 }
 
 // GetByAgentID 读取 agent binding 并转换 DTO。
@@ -230,6 +246,12 @@ func threadUpsertToStore(row thread.ThreadUpsert) threadstore.UpsertParams {
 
 func threadStatusUpdateToStore(row thread.ThreadStatusUpdate) threadstore.UpdateStatusParams {
 	return threadstore.UpdateStatusParams{ThreadID: row.ThreadID, Status: row.Status, UpdatedAt: row.UpdatedAt}
+}
+
+func archiveStateUpdateToStore(row thread.ArchiveStateUpdate) threadstore.ArchiveStateParams {
+	return threadstore.ArchiveStateParams{
+		ThreadID: row.ThreadID, AgentID: row.AgentID, Archived: row.Archived, UpdatedAt: row.UpdatedAt,
+	}
 }
 
 func promptSnapshotToStore(row thread.PromptSnapshotRecord) threadstore.PromptSnapshot {
@@ -298,10 +320,6 @@ func bindingSessionUUIDUpdateToStore(row thread.BindingSessionUUIDUpdate) bindin
 
 func bindingProviderThreadIDUpdateToStore(row thread.BindingProviderThreadIDUpdate) bindingstore.UpdateProviderThreadIDParams {
 	return bindingstore.UpdateProviderThreadIDParams{ProviderThreadID: row.ProviderThreadID, UpdatedAt: row.UpdatedAt, AgentID: row.AgentID}
-}
-
-func bindingArchiveUpdateToStore(row thread.BindingArchiveUpdate) bindingstore.SetArchivedParams {
-	return bindingstore.SetArchivedParams{AgentID: row.AgentID, Archived: row.Archived, UpdatedAt: row.UpdatedAt}
 }
 
 func bindingCWDUpdateToStore(row thread.BindingCWDUpdate) bindingstore.UpdateAgentCwdParams {

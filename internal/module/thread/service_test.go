@@ -321,34 +321,6 @@ func TestDeletePendingLaunchStillHandlesMissingBindingRecord(t *testing.T) {
 	assertDeletedIDs(t, store, "thread-pending-missing-binding")
 }
 
-func TestSetArchivedFailsWhenBindingStoreMissing(t *testing.T) {
-	t.Parallel()
-
-	t.Run("binding store missing", func(t *testing.T) {
-		t.Parallel()
-
-		svc := &service{threadStore: &stubThreadStore{thread: &ThreadRecord{ThreadID: "thread-1"}}}
-
-		err := svc.setBindingArchived(context.Background(), "thread-1", true)
-
-		if err == nil || !strings.Contains(err.Error(), "binding store is not configured") {
-			t.Fatalf("setBindingArchived() error = %v, want binding store not configured", err)
-		}
-	})
-
-	t.Run("thread store missing", func(t *testing.T) {
-		t.Parallel()
-
-		svc := &service{bindingStore: &stubThreadBindingStore{binding: &BindingRecord{AgentID: "thread-1"}}}
-
-		err := svc.setBindingArchived(context.Background(), "thread-1", true)
-
-		if err == nil || !strings.Contains(err.Error(), "thread store is not configured") {
-			t.Fatalf("setBindingArchived() error = %v, want thread store not configured", err)
-		}
-	})
-}
-
 func TestDeletePinActiveThreadSoftDelete(t *testing.T) {
 	t.Parallel()
 

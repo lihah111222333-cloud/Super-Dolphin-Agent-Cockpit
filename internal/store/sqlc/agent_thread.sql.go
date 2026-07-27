@@ -935,7 +935,7 @@ func (q *Queries) UpdateAgentThreadLaunchResult(ctx context.Context, arg UpdateA
 	return err
 }
 
-const updateAgentThreadStatus = `-- name: UpdateAgentThreadStatus :exec
+const updateAgentThreadStatus = `-- name: UpdateAgentThreadStatus :execrows
 UPDATE agent_threads
 SET status = ?,
     updated_at = ?
@@ -948,9 +948,12 @@ type UpdateAgentThreadStatusParams struct {
 	ThreadID  string `db:"thread_id" json:"thread_id"`
 }
 
-func (q *Queries) UpdateAgentThreadStatus(ctx context.Context, arg UpdateAgentThreadStatusParams) error {
-	_, err := q.db.ExecContext(ctx, updateAgentThreadStatus, arg.Status, arg.UpdatedAt, arg.ThreadID)
-	return err
+func (q *Queries) UpdateAgentThreadStatus(ctx context.Context, arg UpdateAgentThreadStatusParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateAgentThreadStatus, arg.Status, arg.UpdatedAt, arg.ThreadID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const upsertAgentThread = `-- name: UpsertAgentThread :exec

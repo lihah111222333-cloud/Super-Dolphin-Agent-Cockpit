@@ -333,10 +333,6 @@ func (historyTestBindingNoopStore) UpdateProviderThreadID(context.Context, Bindi
 	return nil
 }
 
-func (historyTestBindingNoopStore) SetArchived(context.Context, BindingArchiveUpdate) error {
-	return nil
-}
-
 func (s *historyTestBindingStore) GetByAgentID(_ context.Context, agentID string) (*BindingRecord, error) {
 	binding, ok := s.bindings[strings.TrimSpace(agentID)]
 	if !ok {

@@ -328,44 +328,6 @@ func TestUpdateProviderThreadID(t *testing.T) {
 	}
 }
 
-func TestSetArchived(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name     string
-		archived bool
-	}{
-		{name: "archive", archived: true},
-		{name: "unarchive", archived: false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var got sqlc.UpdateAgentProviderBindingArchivedParams
-			s := &store{q: newBindingQuerierTestAdapter(&bindingQuerierStub{
-				updateArchivedFn: func(_ context.Context, arg sqlc.UpdateAgentProviderBindingArchivedParams) error {
-					got = arg
-					return nil
-				},
-			})}
-
-			if err := s.SetArchived(context.Background(), SetArchivedParams{
-				AgentID:   "agent-archived",
-				Archived:  tt.archived,
-				UpdatedAt: 400,
-			}); err != nil {
-				t.Fatalf("SetArchived() error = %v", err)
-			}
-			wantArchived := int64(0)
-			if tt.archived {
-				wantArchived = 1
-			}
-			if got.AgentID != "agent-archived" || got.Archived != wantArchived || got.UpdatedAt != 400 {
-				t.Fatalf("SetArchived() forwarded wrong params: %+v", got)
-			}
-		})
-	}
-}
-
 func TestErrorWrapping(t *testing.T) {
 	t.Parallel()
 

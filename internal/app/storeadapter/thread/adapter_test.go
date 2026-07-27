@@ -42,6 +42,7 @@ func TestThreadStoreAdapterFieldCoverage(t *testing.T) {
 	storeadaptertest.AssertFieldsMap(t, func(row threadstore.Thread) thread.ThreadRecord { return *threadRecordFromStore(&row) })
 	storeadaptertest.AssertFieldsMap(t, threadUpsertToStore)
 	storeadaptertest.AssertFieldsMap(t, threadStatusUpdateToStore)
+	storeadaptertest.AssertFieldsMap(t, archiveStateUpdateToStore)
 	storeadaptertest.AssertFieldsMap(t, mapPromptSnapshotFixtureToStore)
 	storeadaptertest.AssertFieldsMap(t, mapPromptSnapshotFixtureFromStore)
 	finishedAt := int64(41)
@@ -151,7 +152,6 @@ func TestThreadBindingStoreAdapterFieldCoverage(t *testing.T) {
 	storeadaptertest.AssertFieldsMap(t, bindingUpsertToStore)
 	storeadaptertest.AssertFieldsMap(t, bindingSessionUUIDUpdateToStore)
 	storeadaptertest.AssertFieldsMap(t, bindingProviderThreadIDUpdateToStore)
-	storeadaptertest.AssertFieldsMap(t, bindingArchiveUpdateToStore)
 	storeadaptertest.AssertFieldsMap(t, bindingCWDUpdateToStore)
 	if _, err := provideThreadBindingStoreAdapter(nil); err == nil || !strings.Contains(err.Error(), "binding store") {
 		t.Fatalf("provideThreadBindingStoreAdapter(nil) error = %v, want binding store context", err)
@@ -207,10 +207,12 @@ func TestThreadStoreOptionalCapabilities(t *testing.T) {
 	if _, ok := plain.(thread.ThreadPageReader); ok {
 		t.Fatal("plain Store unexpectedly exposes optional page capability")
 	}
+	assertThreadArchiveCapability(t, plain)
 	full, err := provideThreadStoreAdapter(&capableThreadStore{})
 	if err != nil {
 		t.Fatalf("provide capable adapter: %v", err)
 	}
+	assertThreadArchiveCapability(t, full)
 	assertThreadOptionalCapabilities(t, full)
 	if _, err := provideThreadStoreAdapter(&partialThreadStore{}); err == nil || !strings.Contains(err.Error(), "provided together") {
 		t.Fatalf("partial optional capabilities error = %v, want fail-fast", err)
@@ -302,6 +304,13 @@ func assertBuiltinOnlyPromptCatalog(t *testing.T) {
 	}
 }
 
+func assertThreadArchiveCapability(t *testing.T, store thread.ThreadStore) {
+	t.Helper()
+	if _, ok := store.(thread.ArchiveStateStore); !ok {
+		t.Fatal("thread Store missing ArchiveStateStore")
+	}
+}
+
 func assertThreadOptionalCapabilities(t *testing.T, store thread.ThreadStore) {
 	t.Helper()
 	page, ok := store.(thread.ThreadPageReader)
@@ -354,9 +363,17 @@ func assertAdapterInt64PointerClone(t *testing.T, field string, source, target *
 
 type plainThreadStore struct{ threadstore.Store }
 
+func (*plainThreadStore) SetArchiveState(context.Context, threadstore.ArchiveStateParams) error {
+	return nil
+}
+
 type bindingStoreStub struct{ bindingstore.Store }
 
 type capableThreadStore struct{ threadstore.Store }
+
+func (*capableThreadStore) SetArchiveState(context.Context, threadstore.ArchiveStateParams) error {
+	return nil
+}
 
 func (*capableThreadStore) ListPage(context.Context, contract.ThreadListPageParams) (contract.ThreadListPage, error) {
 	return contract.ThreadListPage{NextCursorThreadID: "all"}, nil
@@ -371,6 +388,10 @@ func (*capableThreadStore) CountActive(context.Context) (int64, error) {
 }
 
 type partialThreadStore struct{ threadstore.Store }
+
+func (*partialThreadStore) SetArchiveState(context.Context, threadstore.ArchiveStateParams) error {
+	return nil
+}
 
 func (*partialThreadStore) ListPage(context.Context, contract.ThreadListPageParams) (contract.ThreadListPage, error) {
 	return contract.ThreadListPage{}, nil

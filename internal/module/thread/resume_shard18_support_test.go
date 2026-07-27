@@ -40,10 +40,6 @@ func (s *stubBindingStore) UpdateProviderThreadID(_ context.Context, params Bind
 
 type stubBindingStoreNoopMethods struct{}
 
-func (stubBindingStoreNoopMethods) SetArchived(context.Context, BindingArchiveUpdate) error {
-	return nil
-}
-
 func (s *stubBindingStore) GetByAgentID(_ context.Context, agentID string) (*BindingRecord, error) {
 	return s.bindingForAgent(agentID)
 }

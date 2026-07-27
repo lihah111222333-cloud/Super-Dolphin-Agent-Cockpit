@@ -739,7 +739,7 @@ internal/platform/toolbridge/handler_peer_decode_skill_collision_test.go	interna
 internal/platform/toolbridge/handler_peer_decode.go	internal	platform-provider	go-source	32242	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,peer,decode,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/handler_proxy_timeout_test.go	internal	platform-provider	go-test	2280	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,proxy,timeout,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/handler_response.go	internal	platform-provider	go-source	1226	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,response,provider,与,MCP,tools,桥接
-internal/platform/toolbridge/handler_runtime_test.go	internal	platform-provider	go-test	11038	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,runtime,test,provider,与,MCP,tools,桥接
+internal/platform/toolbridge/handler_runtime_test.go	internal	platform-provider	go-test	10917	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,runtime,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/handler_schema_lazy_test.go	internal	platform-provider	go-test	9317	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,schema,lazy,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/handler_shard13_memory_test.go	internal	platform-provider	go-test	18695	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,shard13,memory,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/handler_shard13_persistent_test.go	internal	platform-provider	go-test	11752	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,shard13,persistent,test,provider,与,MCP,tools,桥接
