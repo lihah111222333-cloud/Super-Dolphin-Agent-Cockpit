@@ -516,8 +516,7 @@ func assertSkillsListRejectsMissingCWD(t *testing.T, server *platformrpc.Server)
 
 func TestSkillLocalDeleteRPCRequiresExplicitTarget(t *testing.T) {
 	skipWindowsShortMirrorIntegration(t)
-
-	t.Parallel()
+	userHome := setSkillTestUserHome(t)
 
 	projectRoot := filepath.Join(t.TempDir(), "repo")
 	superDolphinHome := filepath.Join(t.TempDir(), ".super-dolphin")
@@ -531,6 +530,13 @@ func TestSkillLocalDeleteRPCRequiresExplicitTarget(t *testing.T) {
 		superDolphinHome:  superDolphinHome,
 		http:              &http.Client{},
 		auditStore:        &capturingSkillAuditStore{},
+	}
+	for _, provider := range []SkillProvider{SkillProviderClaude, SkillProviderCodex} {
+		mirrorRoot := providerPersonalMirrorRoot(provider)
+		relative, err := filepath.Rel(userHome, mirrorRoot)
+		if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			t.Fatalf("personal mirror root %q escapes isolated user home %q: relative=%q error=%v", mirrorRoot, userHome, relative, err)
+		}
 	}
 	server := newSkillRPCTestServer(t, svc)
 
