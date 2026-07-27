@@ -50,10 +50,7 @@ func assertMCPOrchDependencyDirection(t *testing.T, root string) {
 	})
 	t.Run("rpc_client_mode_only", func(t *testing.T) { assertNoRPCHostSelectors(t, files) })
 	t.Run("module_no_reverse_mcp_imports", func(t *testing.T) {
-		if !dirExists(root, "internal/module") {
-			t.Skip("directory not yet created")
-		}
-		assertNoImportPrefixes(t, parseImportFiles(t, root, "internal/module"), []string{modulePath + "/" + mcpOrchPkg, modulePath + "/cmd/mcp-lsp", modulePath + "/cmd/mcp-ida"})
+		assertCanonicalBoundaryRule(t, root, "module_no_outer_implementation_imports")
 	})
 }
 

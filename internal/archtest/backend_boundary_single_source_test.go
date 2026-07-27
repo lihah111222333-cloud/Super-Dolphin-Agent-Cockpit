@@ -364,7 +364,8 @@ func declaresProceduralBackendDependencyBoundary(node *ast.File, packageStrings 
 		if declaresProceduralStoreBoundary(facts.parseTargets, facts.facts) ||
 			declaresProceduralFXBoundary(facts.parseTargets, facts.facts) ||
 			declaresProceduralMCPServerFamilyBoundary(facts.parseTargets, facts.facts) ||
-			declaresProceduralPlatformControlBoundary(facts.parseTargets, facts.facts) {
+			declaresProceduralPlatformControlBoundary(facts.parseTargets, facts.facts) ||
+			declaresProceduralModuleOuterBoundary(facts.parseTargets, facts.facts) {
 			return true
 		}
 	}
@@ -463,39 +464,29 @@ func backendBoundaryConsumerFunctionFactViolations(rel string, fn *ast.FuncDecl)
 	if violation := backendBoundarySpecialFunctionViolation(rel, fn); violation != "" {
 		return []string{violation}
 	}
-	if fn.Body == nil || strings.HasPrefix(fn.Name.Name, "Test") && backendBoundaryAllowsTestPolicyFixture(rel) {
+	if fn.Body == nil {
 		return nil
 	}
 	var violations []string
 	ast.Inspect(fn.Body, func(node ast.Node) bool {
 		literal, ok := node.(*ast.CompositeLit)
 		if ok && hasBackendBoundaryPolicyLiteralShape(literal) {
+			if isExplicitBackendBoundaryValidationLiteral(rel, literal) {
+				return false
+			}
 			violations = append(violations, rel+": function "+fn.Name.Name+" declares local backend boundary policy facts")
 			return false
 		}
 		return true
 	})
+	if declaresClosedContractAllowlist(fn) {
+		violations = append(violations, rel+": function "+fn.Name.Name+" declares a local contract repository allowlist")
+	}
 	return violations
 }
 
 func backendBoundaryAllowsTestPolicyFixture(rel string) bool {
 	return filepath.ToSlash(rel) == "internal/archtest/boundary_registry_test.go"
-}
-
-func backendBoundarySpecialFunctionViolation(rel string, fn *ast.FuncDecl) string {
-	if rel == "internal/archtest/sqlc_boundary_test.go" && strings.HasPrefix(fn.Name.Name, "Test") && !usesCanonicalSQLCBoundaryRule(fn) {
-		return rel + ": local SQLC evaluator duplicates the canonical registry"
-	}
-	switch fn.Name.Name {
-	case "defaultBackendBoundaryMatrix", "defaultBoundaryRegistry":
-		return rel + ": local default boundary registry duplicates the canonical registry"
-	case "moduleOwnerForImportCheck", "moduleSiblingImportViolations", "importedModuleName":
-		return rel + ": local module sibling evaluator duplicates the canonical registry"
-	case "mcpSidecarFilePatterns", "mcpSidecarImportAllowances":
-		return rel + ": local MCP sidecar allowlist helper " + fn.Name.Name + " duplicates the canonical registry"
-	default:
-		return ""
-	}
 }
 
 func usesCanonicalSQLCBoundaryRule(fn *ast.FuncDecl) bool {
@@ -737,15 +728,6 @@ func isLocalBoundaryPolicyType(name string) bool {
 	default:
 		return false
 	}
-}
-
-func backendBoundaryConsumerValueFactViolations(rel string, item *ast.ValueSpec) []string {
-	for _, name := range item.Names {
-		if name.Name == "moduleDBImportAllowlist" {
-			return []string{rel + ": local moduleDBImportAllowlist duplicates registry exceptions"}
-		}
-	}
-	return nil
 }
 
 func backendBoundaryConsumerRuleIDSources(rel string, node *ast.File) map[string][]string {

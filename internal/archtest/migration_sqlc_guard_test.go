@@ -133,7 +133,7 @@ func collectHookstoreSQLCBypassViolations(t *testing.T, root string) []string {
 			t.Fatalf("read %s: %v", path, err)
 		}
 		content := string(data)
-		for _, forbidden := range []string{"TODO(sqlc-migration)", ".Exec(", ".Query(", ".QueryRow(", ".ExecContext(", ".QueryContext(", ".QueryRowContext("} {
+		for _, forbidden := range []string{"TODO(sqlc-migration)", "CheckHookReviewIdempotency", ".Exec(", ".Query(", ".QueryRow(", ".ExecContext(", ".QueryContext(", ".QueryRowContext("} {
 			if strings.Contains(content, forbidden) {
 				violations = append(violations, fmt.Sprintf("%s contains %s", filepath.ToSlash(filepath.Join("internal", "store", "hookstore", name)), forbidden))
 			}
@@ -155,7 +155,6 @@ func missingHookSQLCMethodViolations(t *testing.T, root string) []string {
 		"SaveHookPendingReview",
 		"GetHookPendingReview",
 		"ListHookPendingReviewsByAgent",
-		"CheckHookReviewIdempotency",
 		"ResolveHookPendingReview",
 		"GetHookResolvedReview",
 		"CancelHookPendingReviewsByLease",

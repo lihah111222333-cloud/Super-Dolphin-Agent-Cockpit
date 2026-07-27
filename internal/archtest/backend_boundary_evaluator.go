@@ -2,7 +2,6 @@ package archtest
 
 import (
 	"fmt"
-	"go/build"
 	"go/parser"
 	"go/token"
 	"os"
@@ -100,7 +99,10 @@ func validateBackendBoundaryRuleRequirements(label string, rule BackendBoundaryR
 	if ruleRequiresDeny(rule.Kind) && len(rule.Deny) == 0 {
 		violations = append(violations, label+" must declare deny policies")
 	}
-	if (rule.Kind == BoundaryRuleAllowInternalImports || rule.Kind == BoundaryRuleStoreImports) && len(rule.Allow) == 0 {
+	if (rule.Kind == BoundaryRuleAllowInternalImports ||
+		rule.Kind == BoundaryRuleAllowRepositoryImports ||
+		rule.Kind == BoundaryRuleAllowExternalImports ||
+		rule.Kind == BoundaryRuleStoreImports) && len(rule.Allow) == 0 {
 		violations = append(violations, label+" must declare allow policies")
 	}
 	return violations
@@ -108,7 +110,13 @@ func validateBackendBoundaryRuleRequirements(label string, rule BackendBoundaryR
 
 func isKnownBoundaryRuleKind(kind BoundaryRuleKind) bool {
 	switch kind {
-	case BoundaryRuleDenyImports, BoundaryRuleAllowInternalImports, BoundaryRuleModuleSiblings, BoundaryRuleScopedImport, BoundaryRuleStoreImports:
+	case BoundaryRuleDenyImports,
+		BoundaryRuleAllowInternalImports,
+		BoundaryRuleAllowRepositoryImports,
+		BoundaryRuleAllowExternalImports,
+		BoundaryRuleModuleSiblings,
+		BoundaryRuleScopedImport,
+		BoundaryRuleStoreImports:
 		return true
 	default:
 		return false
@@ -617,138 +625,6 @@ func applicableBackendBoundaryRules(rules []BackendBoundaryRule, rel string) []B
 		}
 	}
 	return applicable
-}
-
-// evaluateBackendBoundaryRule 按已验证的 typed kind 分派规则，未知 kind 仍失败关闭。
-func evaluateBackendBoundaryRule(rule BackendBoundaryRule, rel string, imports []backendBoundaryImport) []string {
-	switch rule.Kind {
-	case BoundaryRuleDenyImports:
-		return denyImportViolations(rule, rel, imports)
-	case BoundaryRuleAllowInternalImports:
-		return allowInternalImportViolations(rule, rel, imports)
-	case BoundaryRuleModuleSiblings:
-		return moduleSiblingImportViolationsForRule(rule, rel, imports)
-	case BoundaryRuleScopedImport:
-		return scopedImportViolations(rule, rel, imports)
-	case BoundaryRuleStoreImports:
-		return storeImportViolationsForRule(rule, rel, imports)
-	default:
-		return []string{fmt.Sprintf("%s has unknown backend boundary rule kind %q", rule.ID, rule.Kind)}
-	}
-}
-
-func denyImportViolations(rule BackendBoundaryRule, rel string, imports []backendBoundaryImport) []string {
-	var violations []string
-	for _, imp := range imports {
-		if matchesBackendBoundaryPolicy(rule.Deny, rel, imp.path) && !backendBoundaryExceptionAllows(rule.Exceptions, rel, imp.path) {
-			violations = append(violations, backendBoundaryViolation(rule, rel, imp))
-		}
-	}
-	return violations
-}
-
-// allowInternalImportViolations 只对白名单外的内部或 cmd 导入报告违规，保留外部依赖边界。
-func allowInternalImportViolations(rule BackendBoundaryRule, rel string, imports []backendBoundaryImport) []string {
-	var violations []string
-	for _, imp := range imports {
-		if !isBackendBoundaryInternalOrCmdImport(imp.path) || isOwnMCPCommandImport(rel, imp.path) {
-			continue
-		}
-		if matchesBackendBoundaryPolicy(rule.Deny, rel, imp.path) || !matchesBackendBoundaryPolicy(rule.Allow, rel, imp.path) {
-			violations = append(violations, backendBoundaryViolation(rule, rel, imp))
-		}
-	}
-	return violations
-}
-
-func moduleSiblingImportViolationsForRule(rule BackendBoundaryRule, rel string, imports []backendBoundaryImport) []string {
-	owner, ok := backendBoundaryModuleOwner(rel)
-	if !ok {
-		return nil
-	}
-	var violations []string
-	for _, imp := range imports {
-		importOwner, ok := backendBoundaryImportedModuleOwner(imp.path)
-		if ok && importOwner != owner {
-			violations = append(violations, backendBoundaryViolation(rule, rel, imp))
-		}
-	}
-	return violations
-}
-
-func scopedImportViolations(rule BackendBoundaryRule, rel string, imports []backendBoundaryImport) []string {
-	var violations []string
-	for _, imp := range imports {
-		if !matchesBackendBoundaryPolicy(rule.Deny, rel, imp.path) {
-			continue
-		}
-		if matchesBackendBoundaryFilePolicy(rule.ScopeAllow, rel) || backendBoundaryExceptionAllows(rule.Exceptions, rel, imp.path) {
-			continue
-		}
-		violations = append(violations, backendBoundaryViolation(rule, rel, imp))
-	}
-	return violations
-}
-
-// storeImportViolationsForRule 保留 store 同 owner 内聚，同时拒绝 registry 未登记的横向和外部依赖。
-func storeImportViolationsForRule(rule BackendBoundaryRule, rel string, imports []backendBoundaryImport) []string {
-	var violations []string
-	for _, imp := range imports {
-		if isBackendBoundaryStdlibImport(imp.path) || isSameBackendBoundaryStorePackage(rel, imp.path) || matchesBackendBoundaryStorePolicy(rule.Allow, rel, imp.path) {
-			continue
-		}
-		violations = append(violations, backendBoundaryViolation(rule, rel, imp))
-	}
-	return violations
-}
-
-// matchesBackendBoundaryStorePolicy 对仓库内端口使用前缀语义，对外部包保持既有精确许可。
-func matchesBackendBoundaryStorePolicy(policies []BoundaryImportPolicy, rel, imp string) bool {
-	for _, policy := range policies {
-		if !matchesBackendBoundaryPattern(policy.FilePattern, rel) {
-			continue
-		}
-		prefix := normalizeBackendBoundaryImportPrefix(policy.ImportPrefix)
-		if strings.HasPrefix(prefix, "internal/") || strings.HasPrefix(prefix, "cmd/") {
-			if matchesBackendBoundaryImportPrefix(imp, prefix) {
-				return true
-			}
-			continue
-		}
-		if imp == prefix {
-			return true
-		}
-	}
-	return false
-}
-
-func isBackendBoundaryStdlibImport(imp string) bool {
-	if imp == "C" {
-		return true
-	}
-	if strings.Contains(imp, ".") {
-		return false
-	}
-	pkg, err := build.Default.Import(imp, "", build.FindOnly)
-	return err == nil && pkg.Goroot
-}
-
-func isSameBackendBoundaryStorePackage(rel, imp string) bool {
-	dir := filepath.ToSlash(filepath.Dir(rel))
-	if dir == "internal/store" || !strings.HasPrefix(dir, "internal/store/") {
-		return false
-	}
-	prefix := backendBoundaryModulePath + "/" + dir
-	return imp == prefix || strings.HasPrefix(imp, prefix+"/")
-}
-
-func matchesBackendBoundaryPolicy(policies []BoundaryImportPolicy, rel, imp string) bool {
-	for _, policy := range policies {
-		if matchesBackendBoundaryPattern(policy.FilePattern, rel) && matchesBackendBoundaryImportPrefix(imp, policy.ImportPrefix) {
-			return true
-		}
-	}
-	return false
 }
 
 func matchesBackendBoundaryFilePolicy(policies []BoundaryFilePolicy, rel string) bool {

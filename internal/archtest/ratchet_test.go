@@ -20,7 +20,7 @@ func TestGuardHookModeFailsOnBaselineOrFreezeDrift(t *testing.T) {
 		"run_ai_maintenance_staged_gate",
 		"./scripts/ai_maintenance_gates.sh",
 	)
-	assertGuardModeFileContains(t, root, "scripts/ai_maintenance/main.go",
+	assertGuardModeFileContains(t, root, "scripts/ai_maintenance/gate_execution.go",
 		`"backend:test_with_guard"`,
 		`"./scripts/test_with_guard.sh"`,
 	)

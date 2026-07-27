@@ -19,12 +19,12 @@ func TestBoundaryRegistryValidation(t *testing.T) {
 func TestBoundaryRegistryRejectsInvalidEntries(t *testing.T) {
 	cases := []struct {
 		name   string
-		mutate func(*archtest.BackendBoundaryRegistry)
+		mutate func(*testing.T, *archtest.BackendBoundaryRegistry)
 		want   string
 	}{
 		{
 			name: "missing owner",
-			mutate: func(registry *archtest.BackendBoundaryRegistry) {
+			mutate: func(_ *testing.T, registry *archtest.BackendBoundaryRegistry) {
 				registry.Rules = append(registry.Rules, archtest.BackendBoundaryRule{
 					ID:           "missing_owner",
 					Reason:       "synthetic invalid rule",
@@ -42,7 +42,7 @@ func TestBoundaryRegistryRejectsInvalidEntries(t *testing.T) {
 		},
 		{
 			name: "unknown owner",
-			mutate: func(registry *archtest.BackendBoundaryRegistry) {
+			mutate: func(_ *testing.T, registry *archtest.BackendBoundaryRegistry) {
 				registry.Rules = append(registry.Rules, archtest.BackendBoundaryRule{
 					ID:           "unknown_owner",
 					Owner:        "missing",
@@ -61,14 +61,15 @@ func TestBoundaryRegistryRejectsInvalidEntries(t *testing.T) {
 		},
 		{
 			name: "missing deny policy",
-			mutate: func(registry *archtest.BackendBoundaryRegistry) {
-				registry.Rules[0].Deny = nil
+			mutate: func(t *testing.T, registry *archtest.BackendBoundaryRegistry) {
+				rule := mustMutableBackendBoundaryRule(t, registry, "contract_dto_no_framework_imports")
+				rule.Deny = nil
 			},
 			want: "must declare deny policies",
 		},
 		{
 			name: "temporary exception missing remove_when",
-			mutate: func(registry *archtest.BackendBoundaryRegistry) {
+			mutate: func(_ *testing.T, registry *archtest.BackendBoundaryRegistry) {
 				rule := &registry.Rules[0]
 				rule.Exceptions = append(rule.Exceptions, archtest.BoundaryException{
 					ID:           "synthetic_temporary_exception",
@@ -86,7 +87,7 @@ func TestBoundaryRegistryRejectsInvalidEntries(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			registry := archtest.DefaultBackendBoundaryRegistry()
-			tc.mutate(&registry)
+			tc.mutate(t, &registry)
 			violations := strings.Join(archtest.ValidateBackendBoundaryRegistry(registry), "\n")
 			if !strings.Contains(violations, tc.want) {
 				t.Fatalf("ValidateBackendBoundaryRegistry() missing %q in:\n%s", tc.want, violations)
