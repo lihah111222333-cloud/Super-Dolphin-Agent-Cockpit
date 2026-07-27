@@ -8195,7 +8195,7 @@ async function designWorkflowWithAi() {
     render(<App skipBootstrap />);
 
     expect(screen.getByTestId('composer-dock')).toHaveClass('composer', 'composer--docked');
-    expect(screen.getByTestId('chat-timeline')).toHaveClass('timeline');
+    expect(screen.getByRole('region', { name: '聊天记录' })).toHaveClass('timeline');
   });
 
   it('connects settings page build info and provider preferences to backend', async () => {
