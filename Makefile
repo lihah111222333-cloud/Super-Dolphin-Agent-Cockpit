@@ -1,11 +1,8 @@
-.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain frontend-deps frontend-build frontend-app-deps frontend-app-build frontend-embed-verify frontend-gate-health run run-plain dev-hot run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries package-macos package-linux package-windows release-update-gate test test-deferred test-e2e test-e2e-rpc-runtime vet clean guard code-size-guard guard-shell actionlint lsp-diagnostics-check protocol-sync-check rpc-regression-check archtest-map-check archtest-map-refresh codemap-check codemap-refresh project-map-check project-map-refresh capcontract-check capcontract-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report log-audit p2-audit ida-test-all ida-test-heavy sqlc-generate sqlc-verify sqlc-verify-worktree codex-worktree-ready
+.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain frontend-deps frontend-build frontend-app-deps frontend-app-build frontend-embed-verify frontend-gate-health run run-plain dev-hot run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries package-macos package-linux package-windows release-update-gate test test-deferred test-e2e test-e2e-rpc-runtime vet clean guard code-size-guard guard-shell actionlint lsp-diagnostics-check protocol-sync-check rpc-regression-check archtest-map-check archtest-map-refresh codemap-check codemap-refresh project-map-check project-map-refresh capcontract-check capcontract-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report sqlc-generate sqlc-verify sqlc-verify-worktree codex-worktree-ready
 
 # Auto-detect macOS version to avoid ld warnings about version mismatch.
 # Override with: make MIN_MACOS_VERSION=15.0 build
 MIN_MACOS_VERSION ?= $(shell sw_vers -productVersion 2>/dev/null | cut -d. -f1-2 || echo 11.0)
-FRIDA_VERSION_FILE ?= build/frida-version.txt
-FRIDA_DEVKIT_VERSION ?= $(shell cat $(FRIDA_VERSION_FILE) 2>/dev/null)
-FRIDA_LDFLAGS ?= -X github.com/multi-agent/go-agent-v2/pkg/idamcp.defaultFridaVersion=$(FRIDA_DEVKIT_VERSION)
 APP_COMMIT ?= $(shell git rev-parse HEAD)
 SCHEMA_BUILD_IDENTITY_LDFLAG = -X github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge/schema.buildAppCommit=$(APP_COMMIT)
 ACTIONLINT_VERSION := v1.7.12
@@ -35,16 +32,14 @@ else
 endif
 
 build: guard frontend-build
-	go run ./cmd/frida-bootstrap --frida-version "$(FRIDA_DEVKIT_VERSION)" -- \
-		go build -tags frida -ldflags "$(FRIDA_LDFLAGS)" $(GO_PACKAGE_PATTERNS)
+	go build $(GO_PACKAGE_PATTERNS)
 	@$(MAKE) --no-print-directory _hook_check
 
 build-plain: guard frontend-build
 	go build $(GO_PACKAGE_PATTERNS)
 
 build-agent-terminal: frontend-build build-peer-binaries
-	go run ./cmd/frida-bootstrap --frida-version "$(FRIDA_DEVKIT_VERSION)" -- \
-		go build -tags frida -ldflags "$(FRIDA_LDFLAGS) $(SCHEMA_BUILD_IDENTITY_LDFLAG)" -o bin/agent-terminal ./cmd/agent-terminal
+	go build -ldflags "$(SCHEMA_BUILD_IDENTITY_LDFLAG)" -o bin/agent-terminal ./cmd/agent-terminal
 
 build-agent-terminal-plain: frontend-build build-peer-binaries
 	go build -ldflags "$(SCHEMA_BUILD_IDENTITY_LDFLAG)" -o bin/agent-terminal ./cmd/agent-terminal
@@ -84,8 +79,7 @@ frontend-gate-health:
 # The root desktop scripts are the preferred dev launchers. These make targets
 # keep the minimal packaged-asset run path for CI and local checks.
 run: frontend-build build-peer-binaries
-	go run ./cmd/frida-bootstrap --frida-version "$(FRIDA_DEVKIT_VERSION)" -- \
-		go run -tags frida -ldflags "$(FRIDA_LDFLAGS) $(SCHEMA_BUILD_IDENTITY_LDFLAG)" ./cmd/agent-terminal
+	go run -ldflags "$(SCHEMA_BUILD_IDENTITY_LDFLAG)" ./cmd/agent-terminal
 
 run-plain: frontend-build build-peer-binaries
 	go run -ldflags "$(SCHEMA_BUILD_IDENTITY_LDFLAG)" ./cmd/agent-terminal
@@ -155,16 +149,12 @@ release-update-gate:
 run-agent-terminal-debug: frontend-build build-peer-binaries
 	GO_AGENT_CTL_SESSION_TOKEN=$(DEV_CONTROL_SESSION_TOKEN) \
 		GO_AGENT_PEER_BIN_DIR=$(CURDIR)/bin \
-		go run ./cmd/frida-bootstrap --frida-version "$(FRIDA_DEVKIT_VERSION)" -- \
-		go run -tags frida -ldflags "$(FRIDA_LDFLAGS) $(SCHEMA_BUILD_IDENTITY_LDFLAG)" ./cmd/agent-terminal --debug --debug-port $(AGENT_TERMINAL_DEBUG_PORT)
+		go run -ldflags "$(SCHEMA_BUILD_IDENTITY_LDFLAG)" ./cmd/agent-terminal --debug --debug-port $(AGENT_TERMINAL_DEBUG_PORT)
 
 run-agent-terminal-debug-plain: frontend-build build-peer-binaries
 	GO_AGENT_CTL_SESSION_TOKEN=$(DEV_CONTROL_SESSION_TOKEN) \
 		GO_AGENT_PEER_BIN_DIR=$(CURDIR)/bin \
 		go run -ldflags "$(SCHEMA_BUILD_IDENTITY_LDFLAG)" ./cmd/agent-terminal --debug --debug-port $(AGENT_TERMINAL_DEBUG_PORT)
-
-mcp:
-	go run ./cmd/mcp-server/main.go
 
 codex-worktree-ready:
 	go run ./cmd/codex-worktree-setup ready
@@ -182,24 +172,10 @@ test: frontend-build
 	@echo "\n=== deferred E2E packages (sequential, -p 1) ==="
 	$(TEST_WITH_GUARD) $(DEFERRED_TEST_PKGS) -race -count=1 -p 1 -timeout 120s
 
-p2-audit:
-	$(TEST_WITH_GUARD) ./internal/logaudit -count=1
-
-log-audit:
-	go run ./cmd/log-audit/main.go -hours=24 -top=10 -pretty=true
-
-test-e2e:
-	$(TEST_WITH_GUARD) -tags=e2e ./cmd/rpc-test/ -v -timeout 120s -count=1
+test-e2e: test-e2e-rpc-runtime
 
 test-e2e-rpc-runtime:
 	$(TEST_WITH_GUARD) -tags=e2e ./internal/e2e/rpc_runtime -v -timeout 120s -count=1
-
-ida-test-all:
-	go run ./cmd/ida-test-orchestrator
-
-ida-test-heavy:
-	go run ./cmd/ida-test-orchestrator --include-heavy-fork
-
 
 # protocol-sync-check: RPC smoke coverage + protocol freeze guards.
 # Keeps mcp-orch launcher method aliases, report protocol, and toolbridge protocol
