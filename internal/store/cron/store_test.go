@@ -26,9 +26,7 @@ type cronJobQuerierStub struct {
 	createFn         func(context.Context, sqlc.CreateCronJobParams) (sqlc.CronJob, error)
 	getByIDFn        func(context.Context, string) (sqlc.CronJob, error)
 	listFn           func(context.Context) ([]sqlc.CronJob, error)
-	deleteFn         func(context.Context, string) error
 	updateScheduleFn func(context.Context, sqlc.UpdateCronJobScheduleParams) error
-	setEnabledFn     func(context.Context, sqlc.SetCronJobEnabledParams) error
 }
 
 func (s *cronJobQuerierStub) CreateCronJob(ctx context.Context, a sqlc.CreateCronJobParams) (sqlc.CronJob, error) {
@@ -52,11 +50,8 @@ func (s *cronJobQuerierStub) ListCronJobs(ctx context.Context) ([]sqlc.CronJob, 
 func (s *cronJobQuerierStub) ListCronJobsPage(ctx context.Context, _ sqlc.ListCronJobsPageParams) ([]sqlc.CronJob, error) {
 	return s.ListCronJobs(ctx)
 }
-func (s *cronJobQuerierStub) DeleteCronJob(ctx context.Context, arg sqlc.DeleteCronJobParams) error {
-	if s.deleteFn != nil {
-		return s.deleteFn(ctx, arg.ID)
-	}
-	return nil
+func (s *cronJobQuerierStub) DeleteCronJob(context.Context, sqlc.DeleteCronJobParams) (int64, error) {
+	return 1, nil
 }
 func (s *cronJobQuerierStub) UpdateCronJobSchedule(ctx context.Context, a sqlc.UpdateCronJobScheduleParams) error {
 	if s.updateScheduleFn != nil {
@@ -64,11 +59,8 @@ func (s *cronJobQuerierStub) UpdateCronJobSchedule(ctx context.Context, a sqlc.U
 	}
 	return nil
 }
-func (s *cronJobQuerierStub) SetCronJobEnabled(ctx context.Context, a sqlc.SetCronJobEnabledParams) error {
-	if s.setEnabledFn != nil {
-		return s.setEnabledFn(ctx, a)
-	}
-	return nil
+func (s *cronJobQuerierStub) SetCronJobEnabled(context.Context, sqlc.SetCronJobEnabledParams) (int64, error) {
+	return 1, nil
 }
 func (s *cronJobQuerierStub) PatchCronJobNextRunAt(ctx context.Context, a sqlc.PatchCronJobNextRunAtParams) error {
 	return nil

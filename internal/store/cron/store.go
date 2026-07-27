@@ -17,9 +17,9 @@ type querier interface {
 	CreateCronJob(ctx context.Context, arg sqlc.CreateCronJobParams) (sqlc.CronJob, error)
 	GetCronJobByID(ctx context.Context, arg sqlc.GetCronJobByIDParams) (sqlc.CronJob, error)
 	ListCronJobsPage(ctx context.Context, arg sqlc.ListCronJobsPageParams) ([]sqlc.CronJob, error)
-	DeleteCronJob(ctx context.Context, arg sqlc.DeleteCronJobParams) error
+	DeleteCronJob(ctx context.Context, arg sqlc.DeleteCronJobParams) (int64, error)
 	UpdateCronJobSchedule(ctx context.Context, arg sqlc.UpdateCronJobScheduleParams) error
-	SetCronJobEnabled(ctx context.Context, arg sqlc.SetCronJobEnabledParams) error
+	SetCronJobEnabled(ctx context.Context, arg sqlc.SetCronJobEnabledParams) (int64, error)
 	PatchCronJobNextRunAt(ctx context.Context, arg sqlc.PatchCronJobNextRunAtParams) error
 	ClaimDueJobsForUpdate(ctx context.Context, arg sqlc.ClaimDueJobsForUpdateParams) ([]sqlc.CronJob, error)
 	RenewLease(ctx context.Context, arg sqlc.RenewLeaseParams) (int64, error)
@@ -219,7 +219,14 @@ func (s *cronJobCommandStore) DeleteJob(ctx context.Context, id string) error {
 	if err != nil {
 		return wrap(err, "delete_job")
 	}
-	return wrap(s.q.DeleteCronJob(ctx, sqlc.DeleteCronJobParams{ID: id}), "delete_job")
+	rows, err := s.q.DeleteCronJob(ctx, sqlc.DeleteCronJobParams{ID: id})
+	if err != nil {
+		return wrap(err, "delete_job")
+	}
+	if rows == 0 {
+		return wrap(ErrJobNotFound, "delete_job")
+	}
+	return nil
 }
 
 // UpdateJobSchedule 覆盖任务调度和执行配置，必需字段缺失时直接返回错误。
@@ -262,11 +269,18 @@ func (s *cronJobCommandStore) SetJobEnabled(ctx context.Context, id string, enab
 	if err != nil {
 		return wrap(err, "set_job_enabled")
 	}
-	return wrap(s.q.SetCronJobEnabled(ctx, sqlc.SetCronJobEnabledParams{
+	rows, err := s.q.SetCronJobEnabled(ctx, sqlc.SetCronJobEnabledParams{
 		Enabled:   boolToInt(enabled),
 		UpdatedAt: ts(now),
 		ID:        id,
-	}), "set_job_enabled")
+	})
+	if err != nil {
+		return wrap(err, "set_job_enabled")
+	}
+	if rows == 0 {
+		return wrap(ErrJobNotFound, "set_job_enabled")
+	}
+	return nil
 }
 
 // PatchNextRunAt 只更新下一次调度时间，供 scheduler 在计算后持久化游标。

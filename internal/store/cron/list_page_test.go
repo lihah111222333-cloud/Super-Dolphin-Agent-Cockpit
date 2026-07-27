@@ -76,6 +76,21 @@ func TestCronListPageRejectsUnboundedValuesAndInvalidCursor(t *testing.T) {
 	}
 }
 
+func TestCronJobMutationsReturnNotFoundWhenTargetDoesNotExist(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, db := openSubmitRunStore(t, "mutation-not-found")
+	t.Cleanup(func() { _ = db.Close() })
+
+	if err := store.DeleteJob(ctx, "missing-job"); !errors.Is(err, ErrJobNotFound) {
+		t.Fatalf("DeleteJob(missing) error = %v, want ErrJobNotFound", err)
+	}
+	if err := store.SetJobEnabled(ctx, "missing-job", true, time.Now().UTC()); !errors.Is(err, ErrJobNotFound) {
+		t.Fatalf("SetJobEnabled(missing) error = %v, want ErrJobNotFound", err)
+	}
+}
+
 func seedCronListJob(t *testing.T, ctx context.Context, store Store, id string, createdAt time.Time) {
 	t.Helper()
 	if _, err := store.CreateJob(ctx, CreateJobParams{

@@ -53,7 +53,7 @@ type Querier interface {
 	DeleteAgentProviderBindingByAgentID(ctx context.Context, arg DeleteAgentProviderBindingByAgentIDParams) error
 	DeleteAgentThreadByID(ctx context.Context, arg DeleteAgentThreadByIDParams) error
 	DeleteCommandCard(ctx context.Context, arg DeleteCommandCardParams) (int64, error)
-	DeleteCronJob(ctx context.Context, arg DeleteCronJobParams) error
+	DeleteCronJob(ctx context.Context, arg DeleteCronJobParams) (int64, error)
 	DeleteDatasourceDocument(ctx context.Context, arg DeleteDatasourceDocumentParams) (int64, error)
 	DeleteDatasourceV2ChunksByDocumentID(ctx context.Context, arg DeleteDatasourceV2ChunksByDocumentIDParams) (int64, error)
 	DeleteDatasourceV2Document(ctx context.Context, arg DeleteDatasourceV2DocumentParams) (int64, error)
@@ -220,7 +220,7 @@ type Querier interface {
 	SaveHookPendingReview(ctx context.Context, arg SaveHookPendingReviewParams) (int64, error)
 	SearchDatasourceV2ChunksByEmbedding(ctx context.Context, arg SearchDatasourceV2ChunksByEmbeddingParams) ([]SearchDatasourceV2ChunksByEmbeddingRow, error)
 	SetCronJobActiveTurn(ctx context.Context, arg SetCronJobActiveTurnParams) (int64, error)
-	SetCronJobEnabled(ctx context.Context, arg SetCronJobEnabledParams) error
+	SetCronJobEnabled(ctx context.Context, arg SetCronJobEnabledParams) (int64, error)
 	SetCronJobRunTurn(ctx context.Context, arg SetCronJobRunTurnParams) (int64, error)
 	// Deletes every row whose updated_at is older than cutoff. Run on a
 	// coarse interval by the scheduler so the table can never outgrow
