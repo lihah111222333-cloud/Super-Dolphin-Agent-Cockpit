@@ -18,6 +18,7 @@ import (
 	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/httpegress"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge/mcpwire"
 )
 
 const (
@@ -70,7 +71,9 @@ func newHTTPMCPClient(ctx context.Context, binary providerdto.MCPBinary) (*httpM
 	if err != nil {
 		return nil, err
 	}
-	client.captureProtocolVersion(raw)
+	if err := client.captureProtocolVersion(raw); err != nil {
+		return nil, fmt.Errorf("toolbridge: HTTP MCP initialize: %w", err)
+	}
 	if err := client.notify(ctx, "notifications/initialized", nil); err != nil {
 		return nil, err
 	}
@@ -412,14 +415,11 @@ func (c *httpMCPClient) captureSessionID(sessionID string) error {
 	return nil
 }
 
-func (c *httpMCPClient) captureProtocolVersion(raw json.RawMessage) {
-	var result struct {
-		ProtocolVersion string `json:"protocolVersion"`
+func (c *httpMCPClient) captureProtocolVersion(raw json.RawMessage) error {
+	version, err := mcpwire.DecodeInitializeProtocolVersion(raw)
+	if err != nil {
+		return err
 	}
-	if err := json.Unmarshal(raw, &result); err != nil {
-		return
-	}
-	if version := strings.TrimSpace(result.ProtocolVersion); version != "" {
-		c.protocolVersion = version
-	}
+	c.protocolVersion = version
+	return nil
 }

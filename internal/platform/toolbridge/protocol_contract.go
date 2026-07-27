@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"slices"
 	"strings"
 
 	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge/mcpwire"
 )
 
 // 本文件集中定义 toolbridge 对外 JSON-RPC wire 协议常量。
@@ -29,7 +31,7 @@ const (
 // ProxyProtocolVersion 和 ProxyServerInfo* 是 proxy initialize 响应的固定字段。
 // 外部 MCP client 可能缓存握手结果，重启后必须保持稳定。
 const (
-	ProxyProtocolVersion    = "2025-11-25"
+	ProxyProtocolVersion    = mcpwire.LatestProtocolVersion
 	ProxyServerInfoName     = "proxy"
 	ProxyServerInfoVersion  = "1.0.0"
 	ProxyNotificationMethod = "notifications/initialized"
@@ -397,4 +399,248 @@ func decodeToolArgumentFields(args json.RawMessage) (map[string]json.RawMessage,
 		return nil, err
 	}
 	return fields, nil
+}
+
+// adaptPeerContentItem 将 peer wire content block 转为内部表示，并严格校验 variant 必填字段。
+func adaptPeerContentItem(item peerToolCallContent) (ToolCallContentItem, error) {
+	item.Type = strings.TrimSpace(item.Type)
+	if err := adaptPeerContentVariant(&item); err != nil {
+		return ToolCallContentItem{}, err
+	}
+	annotations, err := cloneOptionalJSONObject(item.Annotations, "content annotations")
+	if err != nil {
+		return ToolCallContentItem{}, err
+	}
+	meta, err := cloneOptionalJSONObject(item.Meta, "content _meta")
+	if err != nil {
+		return ToolCallContentItem{}, err
+	}
+	item.Annotations = annotations
+	item.Meta = meta
+	return item, nil
+}
+
+// adaptPeerContentVariant 按 content type 分派 one-hot 字段与必填值校验。
+func adaptPeerContentVariant(item *peerToolCallContent) error {
+	switch item.Type {
+	case "text":
+		return adaptPeerTextContent(item)
+	case "image", "audio":
+		return adaptPeerBinaryContent(item)
+	case "resource":
+		return adaptPeerResourceContent(item)
+	case "resource_link":
+		return adaptPeerResourceLinkContent(item)
+	default:
+		return fmt.Errorf("unsupported content type %q", item.Type)
+	}
+}
+
+func adaptPeerTextContent(item *peerToolCallContent) error {
+	if err := rejectPeerContentVariantFields(*item, "text", "text"); err != nil {
+		return err
+	}
+	item.Type = "inputText"
+	return nil
+}
+
+func adaptPeerBinaryContent(item *peerToolCallContent) error {
+	if strings.TrimSpace(item.Data) == "" {
+		return fmt.Errorf("%s data is required", item.Type)
+	}
+	if strings.TrimSpace(item.MIMEType) == "" {
+		return fmt.Errorf("%s mimeType is required", item.Type)
+	}
+	return rejectPeerContentVariantFields(*item, item.Type, "data", "mimeType")
+}
+
+func adaptPeerResourceContent(item *peerToolCallContent) error {
+	if err := rejectPeerContentVariantFields(*item, "resource", "resource"); err != nil {
+		return err
+	}
+	resource, err := cloneJSONObject(item.Resource, "resource object")
+	if err != nil {
+		return err
+	}
+	item.Resource = resource
+	return nil
+}
+
+// adaptPeerResourceLinkContent 校验资源链接字段、大小和图标 JSON，禁止混入其他 variant。
+func adaptPeerResourceLinkContent(item *peerToolCallContent) error {
+	if err := rejectPeerContentVariantFields(
+		*item,
+		"resource_link",
+		"mimeType",
+		"uri",
+		"name",
+		"title",
+		"description",
+		"size",
+		"icons",
+	); err != nil {
+		return err
+	}
+	if strings.TrimSpace(item.URI) == "" {
+		return fmt.Errorf("resource_link uri is required")
+	}
+	if item.Size != nil && *item.Size < 0 {
+		return fmt.Errorf("resource_link size must be non-negative")
+	}
+	icons, err := cloneOptionalJSONArray(item.Icons, "resource_link icons")
+	if err != nil {
+		return err
+	}
+	item.Icons = icons
+	return nil
+}
+
+type peerContentFieldPresence struct {
+	name    string
+	present bool
+}
+
+// rejectPeerContentVariantFields 拒绝当前 content variant 未允许的 one-hot 字段。
+func rejectPeerContentVariantFields(item peerToolCallContent, variant string, allowed ...string) error {
+	for _, field := range peerContentFields(item) {
+		if !field.present {
+			continue
+		}
+		if !contentFieldAllowed(field.name, allowed) {
+			return fmt.Errorf("%s content contains fields from another variant", variant)
+		}
+	}
+	return nil
+}
+
+func peerContentFields(item peerToolCallContent) []peerContentFieldPresence {
+	return []peerContentFieldPresence{
+		{name: "text", present: item.Text != ""},
+		{name: "data", present: item.Data != ""},
+		{name: "mimeType", present: item.MIMEType != ""},
+		{name: "resource", present: len(item.Resource) > 0},
+		{name: "uri", present: item.URI != ""},
+		{name: "name", present: item.Name != ""},
+		{name: "title", present: item.Title != ""},
+		{name: "description", present: item.Description != ""},
+		{name: "size", present: item.Size != nil},
+		{name: "icons", present: len(item.Icons) > 0},
+	}
+}
+
+func contentFieldAllowed(name string, allowed []string) bool {
+	return slices.Contains(allowed, name)
+}
+
+// contentItemToMCP 将内部 content block 转回 MCP wire map，保持字段和顺序无损。
+func contentItemToMCP(item ToolCallContentItem) (map[string]any, error) {
+	item.Type = normalizedMCPContentType(item.Type)
+	validated, err := adaptPeerContentItem(item)
+	if err != nil {
+		return nil, err
+	}
+	if validated.Type == "inputText" {
+		validated.Type = "text"
+	}
+	block := map[string]any{"type": validated.Type}
+	if err := appendMCPContentVariantFields(block, validated); err != nil {
+		return nil, err
+	}
+	appendMCPContentMetadata(block, validated)
+	return block, nil
+}
+
+func normalizedMCPContentType(itemType string) string {
+	switch strings.TrimSpace(itemType) {
+	case "", "inputText":
+		return "text"
+	default:
+		return strings.TrimSpace(itemType)
+	}
+}
+
+func appendMCPContentVariantFields(block map[string]any, item ToolCallContentItem) error {
+	switch item.Type {
+	case "text":
+		block["text"] = item.Text
+	case "image", "audio":
+		block["data"] = item.Data
+		block["mimeType"] = item.MIMEType
+	case "resource":
+		block["resource"] = cloneRawJSON(item.Resource)
+	case "resource_link":
+		appendMCPResourceLinkFields(block, item)
+	default:
+		return fmt.Errorf("unsupported content type %q", item.Type)
+	}
+	return nil
+}
+
+// appendMCPResourceLinkFields 只写入资源链接实际存在的可选 wire 字段。
+func appendMCPResourceLinkFields(block map[string]any, item ToolCallContentItem) {
+	block["uri"] = item.URI
+	if item.Name != "" {
+		block["name"] = item.Name
+	}
+	if item.Title != "" {
+		block["title"] = item.Title
+	}
+	if item.Description != "" {
+		block["description"] = item.Description
+	}
+	if item.MIMEType != "" {
+		block["mimeType"] = item.MIMEType
+	}
+	if item.Size != nil {
+		block["size"] = *item.Size
+	}
+	if len(item.Icons) > 0 {
+		block["icons"] = cloneRawJSON(item.Icons)
+	}
+}
+
+func appendMCPContentMetadata(block map[string]any, item ToolCallContentItem) {
+	if len(item.Annotations) > 0 {
+		block["annotations"] = cloneRawJSON(item.Annotations)
+	}
+	if len(item.Meta) > 0 {
+		block["_meta"] = cloneRawJSON(item.Meta)
+	}
+}
+
+// cloneJSONObject 校验并深拷贝必填 JSON object。
+func cloneJSONObject(raw json.RawMessage, field string) (json.RawMessage, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) || trimmed[0] != '{' || !json.Valid(trimmed) {
+		return nil, fmt.Errorf("%s is required and must be a JSON object", field)
+	}
+	return cloneRawJSON(trimmed), nil
+}
+
+// cloneOptionalJSONObject 校验并深拷贝可选 JSON object。
+func cloneOptionalJSONObject(raw json.RawMessage, field string) (json.RawMessage, error) {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil, nil
+	}
+	value, err := cloneJSONObject(raw, field)
+	if err != nil {
+		return nil, err
+	}
+	return value, nil
+}
+
+// cloneOptionalJSONArray 校验并深拷贝可选 JSON array。
+func cloneOptionalJSONArray(raw json.RawMessage, field string) (json.RawMessage, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return nil, nil
+	}
+	if bytes.Equal(trimmed, []byte("null")) || trimmed[0] != '[' || !json.Valid(trimmed) {
+		return nil, fmt.Errorf("%s must be a JSON array", field)
+	}
+	return cloneRawJSON(trimmed), nil
+}
+
+func cloneRawJSON(raw json.RawMessage) json.RawMessage {
+	return json.RawMessage(append([]byte(nil), raw...))
 }

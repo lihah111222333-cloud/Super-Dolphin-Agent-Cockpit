@@ -13,6 +13,7 @@ import (
 	"time"
 
 	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge/mcpwire"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
@@ -137,9 +138,9 @@ func (h *HTTPServer) handleMCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req jsonRPCRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		writeJSONError(w, nil, codeParseError, "parse error")
+	req, errorCode, message := decodeJSONRPCRequest(body)
+	if errorCode != 0 {
+		writeJSONError(w, nil, errorCode, message)
 		return
 	}
 
@@ -220,9 +221,9 @@ func (h *HTTPServer) handleInitialize(req jsonRPCRequest) *jsonRPCResponse {
 	if err := platformshared.DecodeInput(req.Params, &params); err != nil {
 		return errorResponse(req.ID, codeInvalidParams, err.Error())
 	}
-	version := strings.TrimSpace(params.ProtocolVersion)
-	if version == "" {
-		version = "2024-11-05"
+	version, err := mcpwire.NegotiateProtocolVersion(params.ProtocolVersion)
+	if err != nil {
+		return errorResponse(req.ID, codeInvalidParams, err.Error())
 	}
 	result := map[string]any{
 		"protocolVersion": version,

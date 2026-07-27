@@ -14,8 +14,8 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/mcpcontrol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge/mcpwire"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge/schema"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 )
@@ -727,11 +727,12 @@ func (h *Handler) waitForPeer(ctx context.Context, clientKind string) ([]*mcpcon
 // adaptMCPResponse 将 MCP tools/call 响应转换为内部 ToolCallResult。
 func adaptMCPResponse(resp peerToolCallResponse) (*ToolCallResult, error) {
 	items := make([]ToolCallContentItem, 0, len(resp.Content))
-	for _, item := range resp.Content {
-		items = append(items, ToolCallContentItem{
-			Type: "inputText",
-			Text: strings.TrimSpace(item.Text),
-		})
+	for index, item := range resp.Content {
+		adapted, err := adaptPeerContentItem(item)
+		if err != nil {
+			return nil, fmt.Errorf("toolbridge: peer content[%d]: %w", index, err)
+		}
+		items = append(items, adapted)
 	}
 	if peerToolCallResponseIsEmptySuccess(resp, items) {
 		return toolCallEmptyPeerResult(), nil
@@ -749,27 +750,6 @@ func adaptMCPResponse(resp peerToolCallResponse) (*ToolCallResult, error) {
 		StructuredContent: structuredContent,
 		Success:           !resp.IsError && !structuredFailure,
 	}, nil
-}
-
-// peerToolCallResponseIsEmptySuccess 判断 peer 是否返回了没有内容的成功响应。
-func peerToolCallResponseIsEmptySuccess(resp peerToolCallResponse, items []ToolCallContentItem) bool {
-	if resp.IsError {
-		return false
-	}
-	structured := bytes.TrimSpace(resp.StructuredContent)
-	if !(len(structured) == 0 || bytes.Equal(structured, []byte("null")) || bytes.Equal(structured, []byte("{}"))) {
-		return false
-	}
-	if len(items) == 0 {
-		return true
-	}
-	for _, item := range items {
-		text := strings.TrimSpace(item.Text)
-		if text != "" && text != "null" {
-			return false
-		}
-	}
-	return true
 }
 
 // toolCallEmptyPeerResult 将空成功响应转为显式失败，避免模型误以为工具有有效结果。
@@ -790,7 +770,7 @@ func normalizeToolResultStructuredContent(raw json.RawMessage) (json.RawMessage,
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil, nil
 	}
-	return common.StructuredContentFromRaw(raw)
+	return mcpwire.StructuredContentFromRaw(raw)
 }
 
 // structuredContentReportsFailure 判断 structuredContent 是否用 success/isError/ok 报告失败。

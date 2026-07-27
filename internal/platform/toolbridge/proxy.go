@@ -379,9 +379,15 @@ func (h *Handler) handleProxyToolCall(w http.ResponseWriter, ctx context.Context
 	if result == nil {
 		result = &ToolCallResult{Success: true}
 	}
+	content, err := toMCPContent(result.ContentItems)
+	if err != nil {
+		h.publishProxyToolCallEnd(callReq, started, nil, err)
+		writePublicJSONRPCError(w, req.ID, jsonRPCCodeInternal, err)
+		return
+	}
 	h.publishProxyToolCallEnd(callReq, started, result, nil)
 	payload := map[string]any{
-		"content": toMCPContent(result.ContentItems),
+		"content": content,
 		"isError": !result.Success,
 	}
 	if len(result.StructuredContent) > 0 {
@@ -547,23 +553,20 @@ func writeProxyJSON(w http.ResponseWriter, resp proxyJSONRPCResponse) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-// toMCPContent 将内部 content item 转为 MCP text content。
-func toMCPContent(items []ToolCallContentItem) []map[string]any {
+// toMCPContent 将内部 content item 转为严格校验的 MCP content blocks。
+func toMCPContent(items []ToolCallContentItem) ([]map[string]any, error) {
 	if len(items) == 0 {
-		return []map[string]any{}
+		return []map[string]any{}, nil
 	}
 	content := make([]map[string]any, 0, len(items))
-	for _, item := range items {
-		itemType := strings.TrimSpace(item.Type)
-		if itemType == "" || itemType == "inputText" {
-			itemType = "text"
+	for index, item := range items {
+		block, err := contentItemToMCP(item)
+		if err != nil {
+			return nil, fmt.Errorf("toolbridge: contentItems[%d]: %w", index, err)
 		}
-		content = append(content, map[string]any{
-			"type": itemType,
-			"text": item.Text,
-		})
+		content = append(content, block)
 	}
-	return content
+	return content, nil
 }
 
 // familyToClientKind 校验并返回 URL family 对应的 MCP client kind。

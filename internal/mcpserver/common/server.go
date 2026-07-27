@@ -14,6 +14,7 @@ import (
 
 	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge/mcpwire"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
@@ -226,34 +227,64 @@ func (s *Server) Run(ctx context.Context) error {
 			_ = s.transport.Close()
 			return nil
 		case result, ok := <-results:
-			if !ok {
-				pkglogger.Warn("mcp: server run stopping (read channel closed)",
-					"server", s.name)
-				return nil
-			}
-			if shouldStop(result.err) {
-				pkglogger.Warn("mcp: server run stopping (EOF/pipe closed)",
-					"server", s.name, "error", result.err)
-				return nil
-			}
-			if result.err != nil {
-				pkglogger.Warn("mcp: server run stopping (read error)",
-					"server", s.name, "error", result.err)
-				return result.err
-			}
-			exit, err := s.handleMessage(ctx, result.payload)
+			stop, err := s.consumeReadResult(ctx, result, ok)
 			if err != nil {
-				pkglogger.Warn("mcp: server run stopping (handle error)",
-					"server", s.name, "error", err)
 				return err
 			}
-			if exit {
-				pkglogger.Warn("mcp: server run stopping (exit requested)",
-					"server", s.name)
+			if stop {
 				return nil
 			}
 		}
 	}
+}
+
+// consumeReadResult 分类 transport 读取结果，并报告主循环应继续还是终止。
+func (s *Server) consumeReadResult(ctx context.Context, result readResult, channelOpen bool) (bool, error) {
+	if !channelOpen {
+		pkglogger.Warn("mcp: server run stopping (read channel closed)",
+			"server", s.name)
+		return true, nil
+	}
+	if shouldStop(result.err) {
+		pkglogger.Warn("mcp: server run stopping (EOF/pipe closed)",
+			"server", s.name, "error", result.err)
+		return true, nil
+	}
+	if isJSONSyntaxReadError(result.err) {
+		pkglogger.Warn("mcp: invalid JSON message",
+			"server", s.name, "error", result.err)
+		return true, errors.Join(
+			result.err,
+			s.reply(errorResponse(nil, codeParseError, "parse error")),
+		)
+	}
+	if result.err != nil {
+		pkglogger.Warn("mcp: server run stopping (read error)",
+			"server", s.name, "error", result.err)
+		return true, result.err
+	}
+	exit, err := s.handleMessage(ctx, result.payload)
+	if err != nil {
+		pkglogger.Warn("mcp: server run stopping (handle error)",
+			"server", s.name, "error", err)
+		return true, err
+	}
+	if exit {
+		pkglogger.Warn("mcp: server run stopping (exit requested)",
+			"server", s.name)
+	}
+	return exit, nil
+}
+
+func isJSONSyntaxReadError(err error) bool {
+	if errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	if errors.Is(err, mcpwire.ErrStdioMalformedJSON) {
+		return true
+	}
+	var syntaxErr *json.SyntaxError
+	return errors.As(err, &syntaxErr)
 }
 
 // startReadLoop 启动单独 goroutine 读取 transport，panic 会被记录而不是击穿 Run。
@@ -284,15 +315,31 @@ func (s *Server) readLoop(results chan<- readResult) {
 
 // handleMessage 解析单条 JSON-RPC 消息并写回响应，exit=true 表示收到退出通知。
 func (s *Server) handleMessage(ctx context.Context, payload json.RawMessage) (bool, error) {
-	var req jsonRPCRequest
-	if err := json.Unmarshal(payload, &req); err != nil {
-		return false, s.reply(errorResponse(nil, codeParseError, "parse error"))
+	req, errorCode, message := decodeJSONRPCRequest(payload)
+	if errorCode != 0 {
+		return false, s.reply(errorResponse(nil, errorCode, message))
 	}
 	resp, exit := s.dispatch(ctx, req)
 	if resp == nil {
 		return exit, nil
 	}
 	return exit, s.reply(resp)
+}
+
+// decodeJSONRPCRequest 先区分 JSON 语法错误与合法但不是 object 的 invalid request。
+func decodeJSONRPCRequest(payload json.RawMessage) (jsonRPCRequest, int, string) {
+	trimmed := bytes.TrimSpace(payload)
+	if len(trimmed) == 0 || !json.Valid(trimmed) {
+		return jsonRPCRequest{}, codeParseError, "parse error"
+	}
+	if trimmed[0] != '{' {
+		return jsonRPCRequest{}, codeInvalidReq, "request must be a JSON object"
+	}
+	var req jsonRPCRequest
+	if err := json.Unmarshal(trimmed, &req); err != nil {
+		return jsonRPCRequest{}, codeInvalidReq, "invalid request"
+	}
+	return req, 0, ""
 }
 
 // dispatch 派发MCP 服务。
@@ -324,16 +371,16 @@ func (s *Server) dispatch(ctx context.Context, req jsonRPCRequest) (*jsonRPCResp
 	}
 }
 
-// handleInitialize 返回 MCP serverInfo 和工具能力，缺省协议版本保持与客户端兼容。
+// handleInitialize 返回 MCP serverInfo 和工具能力，只声明 mcpwire 明确支持的协议版本。
 func (s *Server) handleInitialize(req jsonRPCRequest) *jsonRPCResponse {
 	var params initializeParams
 	if err := platformshared.DecodeInput(req.Params, &params); err != nil {
 		err = fmt.Errorf("decode params: %w", err)
 		return errorResponse(req.ID, codeInvalidParams, err.Error())
 	}
-	version := strings.TrimSpace(params.ProtocolVersion)
-	if version == "" {
-		version = "2024-11-05"
+	version, err := mcpwire.NegotiateProtocolVersion(params.ProtocolVersion)
+	if err != nil {
+		return errorResponse(req.ID, codeInvalidParams, err.Error())
 	}
 	result := map[string]any{
 		"protocolVersion": version,

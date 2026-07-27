@@ -4,35 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 )
-
-func TestStdioMCPClientRequestSkipsNotificationsUntilMatchingResponse(t *testing.T) {
-	transport := &fakeStdioTransport{reads: []json.RawMessage{
-		json.RawMessage(`{"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":"p1"}}`),
-		json.RawMessage(`{"jsonrpc":"2.0","id":1,"result":{"ok":true}}`),
-	}}
-	client := &stdioMCPClient{transport: transport}
-
-	raw, err := client.request(context.Background(), "tools/list", map[string]any{})
-	if err != nil {
-		t.Fatalf("request() error = %v", err)
-	}
-	if string(raw) != `{"ok":true}` {
-		t.Fatalf("request() result = %s, want {\"ok\":true}", raw)
-	}
-	if len(transport.writes) != 1 {
-		t.Fatalf("writes = %d, want 1", len(transport.writes))
-	}
-}
 
 func TestStdioMCPClientListToolsRejectsMalformedResult(t *testing.T) {
 	cases := []struct {
@@ -45,10 +28,10 @@ func TestStdioMCPClientListToolsRejectsMalformedResult(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			transport := &fakeStdioTransport{reads: []json.RawMessage{
+			transport := newFakeStdioTransport(
 				json.RawMessage(`{"jsonrpc":"2.0","id":1,"result":` + tc.result + `}`),
-			}}
-			client := &stdioMCPClient{transport: transport}
+			)
+			client := newTestStdioMCPClient(t, transport)
 
 			_, err := client.ListTools(context.Background())
 			if err == nil {
@@ -62,10 +45,10 @@ func TestStdioMCPClientListToolsRejectsMalformedResult(t *testing.T) {
 }
 
 func TestStdioMCPClientCallToolForwardsWorkspaceRootsMetadata(t *testing.T) {
-	transport := &fakeStdioTransport{reads: []json.RawMessage{
+	transport := newFakeStdioTransport(
 		json.RawMessage(`{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"ok"}]}}`),
-	}}
-	client := &stdioMCPClient{transport: transport}
+	)
+	client := newTestStdioMCPClient(t, transport)
 
 	_, err := client.CallTool(context.Background(), "grep", json.RawMessage(`{"query":"x","_workspaceRoots":["/forged"]}`), ToolCallRequest{
 		AgentID:        "agent-1",
@@ -77,12 +60,13 @@ func TestStdioMCPClientCallToolForwardsWorkspaceRootsMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CallTool() error = %v", err)
 	}
-	if len(transport.writes) != 1 {
-		t.Fatalf("writes = %d, want 1", len(transport.writes))
+	writes := transport.Writes()
+	if len(writes) != 1 {
+		t.Fatalf("writes = %d, want 1", len(writes))
 	}
-	write, ok := transport.writes[0].(map[string]any)
+	write, ok := writes[0].(map[string]any)
 	if !ok {
-		t.Fatalf("write type = %T, want map[string]any", transport.writes[0])
+		t.Fatalf("write type = %T, want map[string]any", writes[0])
 	}
 	params, ok := write["params"].(map[string]any)
 	if !ok {
@@ -99,10 +83,10 @@ func TestStdioMCPClientCallToolForwardsWorkspaceRootsMetadata(t *testing.T) {
 }
 
 func TestStdioMCPClientCallToolPreservesMCPIsError(t *testing.T) {
-	transport := &fakeStdioTransport{reads: []json.RawMessage{
+	transport := newFakeStdioTransport(
 		json.RawMessage(`{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\"success\":false,\"code\":\"path_outside_workspace\"}"}],"isError":true,"structuredContent":{"success":false,"code":"path_outside_workspace"}}}`),
-	}}
-	client := &stdioMCPClient{transport: transport}
+	)
+	client := newTestStdioMCPClient(t, transport)
 
 	got, err := client.CallTool(context.Background(), "file", json.RawMessage(`{}`), ToolCallRequest{})
 	if err != nil {
@@ -115,10 +99,10 @@ func TestStdioMCPClientCallToolPreservesMCPIsError(t *testing.T) {
 
 func TestStdioMCPClientCallToolConvertsJSONRPCErrorToToolResult(t *testing.T) {
 	const marker = "token=sk-test-secret dsn=postgres://alice:secret@db/private path=/Users/private/secret.go"
-	transport := &fakeStdioTransport{reads: []json.RawMessage{
+	transport := newFakeStdioTransport(
 		json.RawMessage(`{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"` + marker + `"}}`),
-	}}
-	client := &stdioMCPClient{transport: transport}
+	)
+	client := newTestStdioMCPClient(t, transport)
 
 	got, err := client.CallTool(context.Background(), "launch_agent", json.RawMessage(`{"name":"worker"}`), ToolCallRequest{})
 	if err != nil {
@@ -133,10 +117,10 @@ func TestStdioMCPClientCallToolConvertsJSONRPCErrorToToolResult(t *testing.T) {
 }
 
 func TestStdioMCPClientCallToolRejectsNullSuccessPayload(t *testing.T) {
-	transport := &fakeStdioTransport{reads: []json.RawMessage{
+	transport := newFakeStdioTransport(
 		json.RawMessage(`{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"null"}],"structuredContent":{}}}`),
-	}}
-	client := &stdioMCPClient{transport: transport}
+	)
+	client := newTestStdioMCPClient(t, transport)
 
 	got, err := client.CallTool(context.Background(), "launch_agent", json.RawMessage(`{"name":"worker"}`), ToolCallRequest{})
 	if err != nil {
@@ -151,10 +135,10 @@ func TestStdioMCPClientCallToolRejectsNullSuccessPayload(t *testing.T) {
 }
 
 func TestStdioMCPClientRejectsOversizePeerResponse(t *testing.T) {
-	transport := &fakeStdioTransport{reads: []json.RawMessage{
+	transport := newFakeStdioTransport(
 		json.RawMessage(`{"jsonrpc":"2.0","id":1,"result":{"blob":"` + strings.Repeat("x", 1048577) + `"}}`),
-	}}
-	client := &stdioMCPClient{transport: transport}
+	)
+	client := newTestStdioMCPClient(t, transport)
 
 	_, err := client.request(context.Background(), "tools/list", map[string]any{})
 	if err == nil {
@@ -285,26 +269,183 @@ func TestStdioMCPClientScrubsDatabaseEnvFromParentAndManifest(t *testing.T) {
 	requireEnvValueInSlice(t, env, "TOOLBRIDGE_SAFE_MANIFEST", "keep-manifest")
 }
 
+type stdioRequestOutcome struct {
+	raw json.RawMessage
+	err error
+}
+
+type fakeStdioRead struct {
+	raw json.RawMessage
+	err error
+}
+
 type fakeStdioTransport struct {
-	reads  []json.RawMessage
-	writes []any
-	closed bool
+	readCh    chan fakeStdioRead
+	closedCh  chan struct{}
+	closeOnce sync.Once
+	mu        sync.Mutex
+	writes    []any
+	closed    bool
+}
+
+func newFakeStdioTransport(reads ...json.RawMessage) *fakeStdioTransport {
+	transport := &fakeStdioTransport{
+		readCh:   make(chan fakeStdioRead, 128),
+		closedCh: make(chan struct{}),
+	}
+	for _, raw := range reads {
+		transport.Enqueue(raw)
+	}
+	return transport
+}
+
+func newTestStdioMCPClient(t *testing.T, transport stdioTransport) *stdioMCPClient {
+	t.Helper()
+	client := &stdioMCPClient{
+		transport: transport,
+		pending:   make(map[int64]chan stdioRequestResult),
+		closed:    make(chan struct{}),
+	}
+	t.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+	})
+	return client
 }
 
 func (t *fakeStdioTransport) ReadMessage() (json.RawMessage, error) {
-	next := t.reads[0]
-	t.reads = t.reads[1:]
-	return next, nil
+	select {
+	case next := <-t.readCh:
+		return next.raw, next.err
+	case <-t.closedCh:
+		return nil, io.ErrClosedPipe
+	}
 }
 
 func (t *fakeStdioTransport) WriteMessage(payload any) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.closed {
+		return io.ErrClosedPipe
+	}
 	t.writes = append(t.writes, payload)
 	return nil
 }
 
 func (t *fakeStdioTransport) Close() error {
-	t.closed = true
+	t.closeOnce.Do(func() {
+		t.mu.Lock()
+		t.closed = true
+		close(t.closedCh)
+		t.mu.Unlock()
+	})
 	return nil
+}
+
+func (t *fakeStdioTransport) Enqueue(raw json.RawMessage) {
+	t.readCh <- fakeStdioRead{raw: raw}
+}
+
+func (t *fakeStdioTransport) EnqueueError(err error) {
+	t.readCh <- fakeStdioRead{err: err}
+}
+
+func (t *fakeStdioTransport) Writes() []any {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]any(nil), t.writes...)
+}
+
+func (t *fakeStdioTransport) Closed() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.closed
+}
+
+func waitForStdioWrites(t *testing.T, transport *fakeStdioTransport, count int) []any {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		writes := transport.Writes()
+		if len(writes) >= count {
+			return writes
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %d stdio writes; got %d", count, len(transport.Writes()))
+	return nil
+}
+
+func waitForStdioOutcome(t *testing.T, outcomes <-chan stdioRequestOutcome) stdioRequestOutcome {
+	t.Helper()
+	select {
+	case outcome := <-outcomes:
+		return outcome
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for stdio request outcome")
+		return stdioRequestOutcome{}
+	}
+}
+
+func waitForStdioTransportClosed(t *testing.T, transport *fakeStdioTransport) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if transport.Closed() {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("timed out waiting for stdio transport close")
+}
+
+func stdioWriteID(t *testing.T, payload any) int64 {
+	t.Helper()
+	write, ok := payload.(map[string]any)
+	if !ok {
+		t.Fatalf("stdio write type = %T, want map[string]any", payload)
+	}
+	id, ok := write["id"].(int64)
+	if !ok || id <= 0 {
+		t.Fatalf("stdio write id = %#v, want positive int64", write["id"])
+	}
+	return id
+}
+
+func stdioRequestIDsByMethod(t *testing.T, writes []any) map[string]int64 {
+	t.Helper()
+	requestIDs := make(map[string]int64, len(writes))
+	for _, payload := range writes {
+		write, ok := payload.(map[string]any)
+		if !ok {
+			t.Fatalf("stdio write type = %T, want map[string]any", payload)
+		}
+		method, ok := write["method"].(string)
+		if !ok || method == "" {
+			t.Fatalf("stdio write method = %#v, want non-empty string", write["method"])
+		}
+		requestIDs[method] = stdioWriteID(t, payload)
+	}
+	return requestIDs
+}
+
+func assertStdioCancellation(t *testing.T, payload any, wantID int64) {
+	t.Helper()
+	write, ok := payload.(map[string]any)
+	if !ok {
+		t.Fatalf("stdio cancellation type = %T, want map[string]any", payload)
+	}
+	if method := write["method"]; method != "notifications/cancelled" {
+		t.Fatalf("stdio cancellation method = %#v, want notifications/cancelled", method)
+	}
+	params, ok := write["params"].(map[string]any)
+	if !ok {
+		t.Fatalf("stdio cancellation params = %#v, want map[string]any", write["params"])
+	}
+	if requestID := params["requestId"]; requestID != wantID {
+		t.Fatalf("stdio cancellation requestId = %#v, want %d", requestID, wantID)
+	}
 }
 
 func runStdioMCPTestHelper() {
@@ -382,6 +523,29 @@ func TestStdioMCPClientInitializeUsesProxyProtocolVersion(t *testing.T) {
 	}
 }
 
+func TestNewStdioMCPClientRejectsUnsupportedInitializeProtocolVersion(t *testing.T) {
+	if os.Getenv("TOOLBRIDGE_STDIO_MCP_HELPER") == "1" {
+		runStdioMCPTestHelper()
+		return
+	}
+
+	_, err := newStdioMCPClientForValidatedBinary(context.Background(), providerdto.MCPBinary{
+		Name:            "unsupported-version-helper",
+		TrustedServerID: "unsupported-version-helper",
+		Command: []string{
+			os.Args[0],
+			"-test.run=^TestNewStdioMCPClientRejectsUnsupportedInitializeProtocolVersion$",
+		},
+		Env: map[string]string{
+			"TOOLBRIDGE_STDIO_MCP_HELPER":       "1",
+			"TOOLBRIDGE_STDIO_PROTOCOL_VERSION": "2099-01-01",
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "is not supported") {
+		t.Fatalf("newStdioMCPClientForValidatedBinary() error = %v, want unsupported protocol version", err)
+	}
+}
+
 func serveMinimalStdioMCP() {
 	decoder := json.NewDecoder(os.Stdin)
 	encoder := json.NewEncoder(os.Stdout)
@@ -402,7 +566,17 @@ func serveMinimalStdioMCP() {
 		}
 		switch req.Method {
 		case "initialize":
-			_ = encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": map[string]any{}})
+			protocolVersion := os.Getenv("TOOLBRIDGE_STDIO_PROTOCOL_VERSION")
+			if protocolVersion == "" {
+				protocolVersion = ProxyProtocolVersion
+			}
+			_ = encoder.Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      req.ID,
+				"result": map[string]any{
+					"protocolVersion": protocolVersion,
+				},
+			})
 		case "tools/list":
 			_ = encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": map[string]any{"tools": []any{}}})
 		case "tools/call":

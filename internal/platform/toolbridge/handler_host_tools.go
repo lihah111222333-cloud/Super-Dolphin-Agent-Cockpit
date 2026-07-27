@@ -12,7 +12,7 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge/mcpwire"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
@@ -447,7 +447,7 @@ func marshalHostToolResult(result any) ([]byte, json.RawMessage, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	structured, err := common.StructuredContentFromRaw(payload)
+	structured, err := mcpwire.StructuredContentFromRaw(payload)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -572,7 +572,7 @@ func hostToolErrorResult(req ToolCallRequest, err error) *ToolCallResult {
 
 // hostToolErrorEnvelopeFields 生成 host-direct 错误兼容期新增的 ToolErrorEnvelope 字段。
 func hostToolErrorEnvelopeFields(req ToolCallRequest, err error) (string, bool, string, map[string]any) {
-	code, retryable, hint, classifiedMeta := common.ClassifyToolError(req.Name, err)
+	code, retryable, hint, classifiedMeta := mcpwire.ClassifyToolError(req.Name, err)
 	if stableCode := contract.AgentMemoryErrorCode(err); stableCode != "" {
 		code = stableCode
 		retryable = false

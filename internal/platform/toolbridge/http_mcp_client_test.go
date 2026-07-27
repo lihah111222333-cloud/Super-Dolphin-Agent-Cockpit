@@ -103,6 +103,42 @@ func TestPrepareCodexToolSurfaceNamesHTTPMCPInitializeFailure(t *testing.T) {
 	}
 }
 
+func TestNewHTTPMCPClientRejectsInvalidInitializeProtocolVersion(t *testing.T) {
+	tests := []struct {
+		name   string
+		result map[string]any
+		want   string
+	}{
+		{name: "missing", result: map[string]any{"capabilities": map[string]any{}}, want: "protocolVersion is required"},
+		{name: "unsupported", result: map[string]any{"protocolVersion": "2099-01-01"}, want: "is not supported"},
+		{name: "control", result: map[string]any{"protocolVersion": "2025-11-25\r\nX-Evil: yes"}, want: "control characters"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var req struct {
+					ID json.RawMessage `json:"id"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				writeHTTPMCPToolsTestResponse(w, req.ID, tt.result)
+			}))
+			defer server.Close()
+
+			_, err := newHTTPMCPClient(context.Background(), providerdto.MCPBinary{
+				Name: string(providerdto.FamilyOrch),
+				Type: "http",
+				URL:  server.URL,
+			})
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("newHTTPMCPClient() error = %v, want substring %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestHTTPMCPClientCallToolConvertsJSONRPCErrorToToolResult(t *testing.T) {
 	const marker = "token=sk-test-secret dsn=postgres://alice:secret@db/private path=/Users/private/secret.go"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
