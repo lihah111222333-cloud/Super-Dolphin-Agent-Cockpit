@@ -16,6 +16,7 @@ import (
 	"github.com/kelindar/event"
 	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
@@ -77,6 +78,96 @@ func TestAttemptRecoveryExhaustsAtTwo(t *testing.T) {
 	case <-handle.Done():
 	default:
 		t.Fatal("handle.Done() not closed after max recovery — turns not failed")
+	}
+}
+
+// TestAttemptRecoverySerializesBeforeConsumingBudget 锁定并发断链的恢复预算边界。
+// recoveryMu 被其它恢复持有时，等待者不得在锁外递增计数或提前 failTurns。
+func TestAttemptRecoverySerializesBeforeConsumingBudget(t *testing.T) {
+	t.Parallel()
+
+	handle := newTurnHandle("local-1", "provider-1")
+	s := &session{
+		turns:      map[string]*turnHandle{"provider-1": handle},
+		suppressed: map[string]struct{}{},
+	}
+	s.recoveryMu.Lock()
+
+	const callers = maxRecoveryAttempts + 1
+	ready := make(chan struct{}, callers)
+	release := make(chan struct{})
+	results := make(chan error, callers)
+	startConcurrentRecoveryCalls(t, s, callers, ready, release, results)
+	close(release)
+
+	earlyResult := receiveEarlyRecoveryResult(results)
+	countWhileLocked := s.recoveryCount.Load()
+	turnFailedWhileLocked := turnHandleDone(handle)
+	s.recoveryMu.Unlock()
+
+	remaining := callers
+	if earlyResult != nil {
+		remaining--
+	}
+	waitForRecoveryResults(t, results, remaining)
+	if earlyResult != nil {
+		t.Fatalf("attemptRecovery() returned before serialization lock was released: %v", earlyResult)
+	}
+	if countWhileLocked != 0 {
+		t.Fatalf("recoveryCount while recoveryMu held = %d, want 0", countWhileLocked)
+	}
+	if turnFailedWhileLocked {
+		t.Fatal("pending turn failed before any serialized recovery attempt")
+	}
+}
+
+func startConcurrentRecoveryCalls(
+	t *testing.T,
+	s *session,
+	callers int,
+	ready chan struct{},
+	release <-chan struct{},
+	results chan<- error,
+) {
+	t.Helper()
+	for range callers {
+		runtimesafe.SafeGo(t.Context(), nil, "codexapp.test.concurrent-recovery", func(context.Context) {
+			ready <- struct{}{}
+			<-release
+			results <- s.attemptRecovery("concurrent disconnect")
+		})
+	}
+	for range callers {
+		<-ready
+	}
+}
+
+func receiveEarlyRecoveryResult(results <-chan error) error {
+	select {
+	case err := <-results:
+		return err
+	case <-time.After(100 * time.Millisecond):
+		return nil
+	}
+}
+
+func turnHandleDone(handle *turnHandle) bool {
+	select {
+	case <-handle.Done():
+		return true
+	default:
+		return false
+	}
+}
+
+func waitForRecoveryResults(t *testing.T, results <-chan error, remaining int) {
+	t.Helper()
+	for range remaining {
+		select {
+		case <-results:
+		case <-time.After(time.Second):
+			t.Fatal("attemptRecovery() did not return after recoveryMu was released")
+		}
 	}
 }
 

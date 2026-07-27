@@ -3513,6 +3513,7 @@
         "internal/provider/codexapp.*session.discardTurnToolFailures",
         "internal/provider/codexapp.*session.dispatch",
         "internal/provider/codexapp.*session.dispatchRecoveryAttempt",
+        "internal/provider/codexapp.*session.drainRecoveryReader",
         "internal/provider/codexapp.*session.dropTurnOutputAccumulator",
         "internal/provider/codexapp.*session.ensureRuntimeCodexHomeFromInitialize",
         "internal/provider/codexapp.*session.ensureToolSurfaceID",
@@ -8281,6 +8282,7 @@
         "internal/provider/codexapp.*session.discardTurnToolFailures",
         "internal/provider/codexapp.*session.dispatch",
         "internal/provider/codexapp.*session.dispatchRecoveryAttempt",
+        "internal/provider/codexapp.*session.drainRecoveryReader",
         "internal/provider/codexapp.*session.dropTurnOutputAccumulator",
         "internal/provider/codexapp.*session.ensureRuntimeCodexHomeFromInitialize",
         "internal/provider/codexapp.*session.ensureToolSurfaceID",
@@ -13049,6 +13051,7 @@
         "internal/provider/codexapp.*session.discardTurnToolFailures",
         "internal/provider/codexapp.*session.dispatch",
         "internal/provider/codexapp.*session.dispatchRecoveryAttempt",
+        "internal/provider/codexapp.*session.drainRecoveryReader",
         "internal/provider/codexapp.*session.dropTurnOutputAccumulator",
         "internal/provider/codexapp.*session.ensureRuntimeCodexHomeFromInitialize",
         "internal/provider/codexapp.*session.ensureToolSurfaceID",
@@ -17822,6 +17825,7 @@
         "internal/provider/codexapp.*session.discardTurnToolFailures",
         "internal/provider/codexapp.*session.dispatch",
         "internal/provider/codexapp.*session.dispatchRecoveryAttempt",
+        "internal/provider/codexapp.*session.drainRecoveryReader",
         "internal/provider/codexapp.*session.dropTurnOutputAccumulator",
         "internal/provider/codexapp.*session.ensureRuntimeCodexHomeFromInitialize",
         "internal/provider/codexapp.*session.ensureToolSurfaceID",
@@ -19098,11 +19102,11 @@
   "summary": {
     "total_packages": 41,
     "total_functions": 2318,
-    "total_methods": 1229,
+    "total_methods": 1230,
     "total_interfaces": 186,
     "total_interface_methods": 370,
     "total_exported": 1266,
-    "total_unexported": 3087,
+    "total_unexported": 3088,
     "total_structs": 620
   },
   "packages": [
@@ -75297,6 +75301,14 @@
               "name": "raw",
               "type": "dto.RawProviderEvent"
             }
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "drainRecoveryReader",
+          "exported": false,
+          "returns": [
+            "error"
           ]
         },
         {

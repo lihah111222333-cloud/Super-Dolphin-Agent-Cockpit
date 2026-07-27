@@ -48,6 +48,7 @@ type session struct {
 	recoveryMu             sync.Mutex
 	lastReadAt             atomic.Int64
 	recoveryCount          atomic.Int32
+	recoveryGeneration     atomic.Uint64
 	turns                  map[string]*turnHandle
 	activeTurnID           string
 	activeTurnGeneration   uint64

@@ -978,11 +978,11 @@ internal/provider/codexapp/process_windows_test.go	internal	platform-provider	go
 internal/provider/codexapp/process_windows.go	internal	platform-provider	go-source	8679	Codex app/server provider 集成	internal,provider,codexapp,process,windows,Codex,app,server,集成
 internal/provider/codexapp/protocol/dynamic_tool.go	internal	platform-provider	go-source	340	Codex app/server provider 集成	internal,provider,codexapp,protocol,dynamic,tool,Codex,app,server,集成
 internal/provider/codexapp/provider_contract_test.go	internal	platform-provider	go-test	29338	Codex app/server provider 集成	internal,provider,codexapp,contract,test,Codex,app,server,集成
-internal/provider/codexapp/recovery_escalation_test.go	internal	platform-provider	go-test	15558	Codex app/server provider 集成	internal,provider,codexapp,recovery,escalation,test,Codex,app,server,集成
+internal/provider/codexapp/recovery_escalation_test.go	internal	platform-provider	go-test	17961	Codex app/server provider 集成	internal,provider,codexapp,recovery,escalation,test,Codex,app,server,集成
 internal/provider/codexapp/recovery_replay_policy_test.go	internal	platform-provider	go-test	14221	Codex app/server provider 集成	internal,provider,codexapp,recovery,replay,policy,test,Codex,app,server,集成
 internal/provider/codexapp/recovery_toolbridge_test.go	internal	platform-provider	go-test	11603	Codex app/server provider 集成	internal,provider,codexapp,recovery,toolbridge,test,Codex,app,server,集成
 internal/provider/codexapp/recovery_transport_test.go	internal	platform-provider	go-test	23556	Codex app/server provider 集成	internal,provider,codexapp,recovery,transport,test,Codex,app,server,集成
-internal/provider/codexapp/recovery.go	internal	platform-provider	go-source	26554	Codex app/server provider 集成	internal,provider,codexapp,recovery,Codex,app,server,集成
+internal/provider/codexapp/recovery.go	internal	platform-provider	go-source	27118	Codex app/server provider 集成	internal,provider,codexapp,recovery,Codex,app,server,集成
 internal/provider/codexapp/relay_preflight_test.go	internal	platform-provider	go-test	3258	Codex app/server provider 集成	internal,provider,codexapp,relay,preflight,test,Codex,app,server,集成
 internal/provider/codexapp/resultguard/file_read.go	internal	platform-provider	go-source	6844	Codex app/server provider 集成	internal,provider,codexapp,resultguard,file,read,Codex,app,server,集成
 internal/provider/codexapp/runtime_hooks_test.go	internal	platform-provider	go-test	1184	Codex app/server provider 集成	internal,provider,codexapp,runtime,hooks,test,Codex,app,server,集成
@@ -1011,7 +1011,7 @@ internal/provider/codexapp/session_runtime.go	internal	platform-provider	go-sour
 internal/provider/codexapp/session_test.go	internal	platform-provider	go-test	26204	Codex app/server provider 集成	internal,provider,codexapp,session,test,Codex,app,server,集成
 internal/provider/codexapp/session_turn_test.go	internal	platform-provider	go-test	16832	Codex app/server provider 集成	internal,provider,codexapp,session,turn,test,Codex,app,server,集成
 internal/provider/codexapp/session_turn.go	internal	platform-provider	go-source	20744	Codex app/server provider 集成	internal,provider,codexapp,session,turn,Codex,app,server,集成
-internal/provider/codexapp/session.go	internal	platform-provider	go-source	29938	Codex app/server provider 集成	internal,provider,codexapp,session,Codex,app,server,集成
+internal/provider/codexapp/session.go	internal	platform-provider	go-source	29976	Codex app/server provider 集成	internal,provider,codexapp,session,Codex,app,server,集成
 internal/provider/codexapp/sidecar_runtime_env_test.go	internal	platform-provider	go-test	5648	Codex app/server provider 集成	internal,provider,codexapp,sidecar,runtime,env,test,Codex,app,server,集成
 internal/provider/codexapp/sidecar_runtime_env.go	internal	platform-provider	go-source	9280	Codex app/server provider 集成	internal,provider,codexapp,sidecar,runtime,env,Codex,app,server,集成
 internal/provider/codexapp/support.go	internal	platform-provider	go-source	28112	Codex app/server provider 集成	internal,provider,codexapp,support,Codex,app,server,集成
