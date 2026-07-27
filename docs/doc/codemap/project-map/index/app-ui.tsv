@@ -226,8 +226,8 @@ frontend-app/src/entities/client/model/threadForkState.js	frontend-app	app-ui	js
 frontend-app/src/entities/client/model/threadForkState.test.js	frontend-app	app-ui	js-test	6575	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,threadForkState,test,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/threadHistoryTimeline.test.js	frontend-app	app-ui	js-test	4112	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,threadHistoryTimeline,test,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/threadIdentity.test.js	frontend-app	app-ui	js-test	2006	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,threadIdentity,test,React,客户端状态,thread,composer,store,模型
-frontend-app/src/entities/client/model/threadLifecycleRuntime.js	frontend-app	app-ui	js-source	12790	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,threadLifecycleRuntime,React,客户端状态,thread,composer,store,模型
-frontend-app/src/entities/client/model/threadLifecycleRuntime.test.js	frontend-app	app-ui	js-test	19262	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,threadLifecycleRuntime,test,React,客户端状态,thread,composer,store,模型
+frontend-app/src/entities/client/model/threadLifecycleRuntime.js	frontend-app	app-ui	js-source	14527	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,threadLifecycleRuntime,React,客户端状态,thread,composer,store,模型
+frontend-app/src/entities/client/model/threadLifecycleRuntime.test.js	frontend-app	app-ui	js-test	23184	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,threadLifecycleRuntime,test,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/threadListMutations.test.js	frontend-app	app-ui	js-test	3590	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,threadListMutations,test,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/threadMessagesPagination.js	frontend-app	app-ui	js-source	2961	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,threadMessagesPagination,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/threadMessagesPagination.test.js	frontend-app	app-ui	js-test	3066	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,threadMessagesPagination,test,React,客户端状态,thread,composer,store,模型
@@ -648,7 +648,8 @@ frontend-app/src/shared/ui/productionActionFailureMatrixTitles.js	frontend-app	a
 frontend-app/src/shared/ui/productionActionFailureMatrixTitles.test.js	frontend-app	app-ui	js-test	722	React 共享 UI 组件	frontend,app,src,shared,ui,productionActionFailureMatrixTitles,test,React,共享,UI,组件
 frontend-app/src/shared/ui/publicError.js	frontend-app	app-ui	js-source	6020	React 共享 UI 组件	frontend,app,src,shared,ui,publicError,React,共享,UI,组件
 frontend-app/src/shared/ui/publicError.test.js	frontend-app	app-ui	js-test	1696	React 共享 UI 组件	frontend,app,src,shared,ui,publicError,test,React,共享,UI,组件
-frontend-app/src/shared/ui/runUIAction.js	frontend-app	app-ui	js-source	8724	React 共享 UI 组件	frontend,app,src,shared,ui,runUIAction,React,共享,UI,组件
+frontend-app/src/shared/ui/runUIAction.js	frontend-app	app-ui	js-source	9416	React 共享 UI 组件	frontend,app,src,shared,ui,runUIAction,React,共享,UI,组件
+frontend-app/src/shared/ui/runUIAction.singleFlight.test.js	frontend-app	app-ui	js-test	2174	React 共享 UI 组件	frontend,app,src,shared,ui,runUIAction,singleFlight,test,React,共享,UI,组件
 frontend-app/src/shared/ui/runUIAction.test.js	frontend-app	app-ui	js-test	11568	React 共享 UI 组件	frontend,app,src,shared,ui,runUIAction,test,React,共享,UI,组件
 frontend-app/src/styles.css	frontend-app	app-ui	css	10811	当前 React/Vite 前端包	frontend,app,src,styles,当前,React,Vite,前端包
 frontend-app/src/styles.test.js	frontend-app	app-ui	js-test	122110	当前 React/Vite 前端包	frontend,app,src,styles,test,当前,React,Vite,前端包

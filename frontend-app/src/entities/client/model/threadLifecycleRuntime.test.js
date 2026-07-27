@@ -338,6 +338,106 @@ describe('thread lifecycle runtime', () => {
     }));
   });
 
+  it('shares one complete interrupt action across concurrent entry points for the same turn', async () => {
+    let resolveRpc;
+    const runtime = createRuntime();
+    const deps = createDeps({
+      createRequestId: vi.fn()
+        .mockReturnValueOnce('stop-request-1')
+        .mockReturnValueOnce('stop-request-2'),
+    });
+    const rpc = vi.fn(() => new Promise((resolve) => {
+      resolveRpc = resolve;
+    }));
+    attachActiveThreadRpcRuntime(runtime, deps);
+
+    const first = runtime.activeThreadRPC('thread.interrupt', rpc);
+    const second = runtime.activeThreadRPC('thread.interrupt', rpc);
+
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(deps.createRequestId).toHaveBeenCalledTimes(1);
+    resolveRpc(successfulInterruptResult());
+    await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
+    expect(runtime.notifyAction).toHaveBeenCalledTimes(1);
+    expect(runtime.notifyAction).toHaveBeenCalledWith('已发送中断请求', 'success', { threadId: 'thread-1' });
+  });
+
+  it('allows a new turn on the same thread to start its own interrupt flight', async () => {
+    let activeTurnId = 'turn-1';
+    const resolvers = new Map();
+    const runtime = createRuntime();
+    const deps = createDeps({
+      activeThreadInterruptTarget: vi.fn(() => ({
+        threadId: 'thread-1',
+        turnId: activeTurnId,
+        interruptible: true,
+      })),
+      createRequestId: vi.fn()
+        .mockReturnValueOnce('stop-request-1')
+        .mockReturnValueOnce('stop-request-2'),
+    });
+    const rpc = vi.fn((request) => new Promise((resolve) => {
+      resolvers.set(request.expectedTurnId, resolve);
+    }));
+    attachActiveThreadRpcRuntime(runtime, deps);
+
+    const first = runtime.activeThreadRPC('thread.interrupt', rpc);
+    activeTurnId = 'turn-2';
+    const second = runtime.activeThreadRPC('thread.interrupt', rpc);
+
+    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(deps.createRequestId).toHaveBeenCalledTimes(2);
+    expect(rpc.mock.calls.map(([request]) => request.expectedTurnId)).toEqual(['turn-1', 'turn-2']);
+
+    resolvers.get('turn-1')(successfulInterruptResult());
+    resolvers.get('turn-2')(successfulInterruptResult({
+      requestId: 'stop-request-2',
+      expectedTurnId: 'turn-2',
+      turnId: 'turn-2',
+    }));
+    await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
+  });
+
+  it('keeps a timed-out interrupt single-flight locked until the underlying RPC settles', async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveFirstRpc;
+      const runtime = createRuntime();
+      const deps = createDeps({
+        createRequestId: vi.fn()
+          .mockReturnValueOnce('stop-request-1')
+          .mockReturnValueOnce('stop-request-2'),
+      });
+      const rpc = vi.fn()
+        .mockImplementationOnce(() => new Promise((resolve) => {
+          resolveFirstRpc = resolve;
+        }))
+        .mockResolvedValueOnce(successfulInterruptResult({ requestId: 'stop-request-2' }));
+      attachActiveThreadRpcRuntime(runtime, deps);
+
+      const first = runtime.activeThreadRPC('thread.interrupt', rpc);
+      const firstTimeout = expect(first).rejects.toMatchObject({ code: 'THREAD_INTERRUPT_RPC_TIMEOUT' });
+      await vi.advanceTimersByTimeAsync(INTERRUPT_RPC_TIMEOUT_MS);
+      await firstTimeout;
+
+      await expect(runtime.activeThreadRPC('thread.interrupt', rpc))
+        .rejects.toMatchObject({ code: 'THREAD_INTERRUPT_RPC_TIMEOUT' });
+      expect(rpc).toHaveBeenCalledTimes(1);
+      expect(deps.createRequestId).toHaveBeenCalledTimes(1);
+
+      resolveFirstRpc(successfulInterruptResult());
+      await Promise.resolve();
+      await Promise.resolve();
+
+      await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(true);
+      expect(rpc).toHaveBeenCalledTimes(2);
+      expect(deps.createRequestId).toHaveBeenCalledTimes(2);
+    }
+    finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('records warning when backend lifecycle rpc fails', async () => {
     const runtime = createRuntime();
     const deps = createDeps();
