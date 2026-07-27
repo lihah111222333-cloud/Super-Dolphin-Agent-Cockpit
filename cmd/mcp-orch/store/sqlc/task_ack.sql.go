@@ -69,7 +69,7 @@ type InsertTaskAckParams struct {
 	RequestedBy   string          `db:"requested_by" json:"requested_by"`
 	Priority      string          `db:"priority" json:"priority"`
 	Status        string          `db:"status" json:"status"`
-	Progress      interface{}     `db:"progress" json:"progress"`
+	Progress      any             `db:"progress" json:"progress"`
 	AckMessage    string          `db:"ack_message" json:"ack_message"`
 	ResultSummary string          `db:"result_summary" json:"result_summary"`
 	Metadata      json.RawMessage `db:"metadata" json:"metadata"`
@@ -112,12 +112,12 @@ LIMIT ?6
 `
 
 type ListTaskAcksParams struct {
-	StatusFilter     interface{} `db:"status_filter" json:"status_filter"`
-	PriorityFilter   interface{} `db:"priority_filter" json:"priority_filter"`
-	AssignedToFilter interface{} `db:"assigned_to_filter" json:"assigned_to_filter"`
-	Keyword          interface{} `db:"keyword" json:"keyword"`
-	KeywordPattern   string      `db:"keyword_pattern" json:"keyword_pattern"`
-	LimitCount       int64       `db:"limit_count" json:"limit_count"`
+	StatusFilter     any    `db:"status_filter" json:"status_filter"`
+	PriorityFilter   any    `db:"priority_filter" json:"priority_filter"`
+	AssignedToFilter any    `db:"assigned_to_filter" json:"assigned_to_filter"`
+	Keyword          any    `db:"keyword" json:"keyword"`
+	KeywordPattern   string `db:"keyword_pattern" json:"keyword_pattern"`
+	LimitCount       int64  `db:"limit_count" json:"limit_count"`
 }
 
 type ListTaskAcksRow struct {
@@ -215,7 +215,7 @@ type UpdateTaskAckParams struct {
 	RequestedBy   string          `db:"requested_by" json:"requested_by"`
 	Priority      string          `db:"priority" json:"priority"`
 	Status        string          `db:"status" json:"status"`
-	Progress      interface{}     `db:"progress" json:"progress"`
+	Progress      any             `db:"progress" json:"progress"`
 	AckMessage    string          `db:"ack_message" json:"ack_message"`
 	ResultSummary string          `db:"result_summary" json:"result_summary"`
 	Metadata      json.RawMessage `db:"metadata" json:"metadata"`

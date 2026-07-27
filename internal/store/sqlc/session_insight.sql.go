@@ -107,9 +107,9 @@ LIMIT ?
 `
 
 type ListObservedApprovalRequestsParams struct {
-	Column1  interface{} `db:"column_1" json:"column_1"`
-	ThreadID string      `db:"thread_id" json:"thread_id"`
-	Limit    int64       `db:"limit" json:"limit"`
+	Column1  any    `db:"column_1" json:"column_1"`
+	ThreadID string `db:"thread_id" json:"thread_id"`
+	Limit    int64  `db:"limit" json:"limit"`
 }
 
 type ListObservedApprovalRequestsRow struct {
@@ -170,9 +170,9 @@ LIMIT ?
 `
 
 type ListObservedTokenTurnsParams struct {
-	Column1  interface{} `db:"column_1" json:"column_1"`
-	ThreadID string      `db:"thread_id" json:"thread_id"`
-	Limit    int64       `db:"limit" json:"limit"`
+	Column1  any    `db:"column_1" json:"column_1"`
+	ThreadID string `db:"thread_id" json:"thread_id"`
+	Limit    int64  `db:"limit" json:"limit"`
 }
 
 type ListObservedTokenTurnsRow struct {

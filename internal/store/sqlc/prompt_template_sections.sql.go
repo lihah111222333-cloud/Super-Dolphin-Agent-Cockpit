@@ -198,7 +198,7 @@ type ListPromptTemplateSectionsByTemplatesParams struct {
 
 func (q *Queries) ListPromptTemplateSectionsByTemplates(ctx context.Context, arg ListPromptTemplateSectionsByTemplatesParams) ([]PromptTemplateSection, error) {
 	query := listPromptTemplateSectionsByTemplates
-	var queryParams []interface{}
+	var queryParams []any
 	if len(arg.TemplateIds) > 0 {
 		for _, v := range arg.TemplateIds {
 			queryParams = append(queryParams, v)

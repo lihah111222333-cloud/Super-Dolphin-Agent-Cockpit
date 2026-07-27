@@ -193,25 +193,25 @@ LIMIT ?2
 `
 
 type ListCommandCardsParams struct {
-	Keyword    interface{} `db:"keyword" json:"keyword"`
-	LimitCount int64       `db:"limit_count" json:"limit_count"`
+	Keyword    any   `db:"keyword" json:"keyword"`
+	LimitCount int64 `db:"limit_count" json:"limit_count"`
 }
 
 type ListCommandCardsRow struct {
-	ID              int64       `db:"id" json:"id"`
-	CardKey         string      `db:"card_key" json:"card_key"`
-	Title           string      `db:"title" json:"title"`
-	Description     string      `db:"description" json:"description"`
-	CommandTemplate string      `db:"command_template" json:"command_template"`
-	ArgsSchema      []byte      `db:"args_schema" json:"args_schema"`
-	RiskLevel       string      `db:"risk_level" json:"risk_level"`
-	Enabled         int64       `db:"enabled" json:"enabled"`
-	CreatedBy       string      `db:"created_by" json:"created_by"`
-	UpdatedBy       string      `db:"updated_by" json:"updated_by"`
-	CreatedAt       int64       `db:"created_at" json:"created_at"`
-	UpdatedAt       int64       `db:"updated_at" json:"updated_at"`
-	LastRunAt       interface{} `db:"last_run_at" json:"last_run_at"`
-	RunCount        int64       `db:"run_count" json:"run_count"`
+	ID              int64  `db:"id" json:"id"`
+	CardKey         string `db:"card_key" json:"card_key"`
+	Title           string `db:"title" json:"title"`
+	Description     string `db:"description" json:"description"`
+	CommandTemplate string `db:"command_template" json:"command_template"`
+	ArgsSchema      []byte `db:"args_schema" json:"args_schema"`
+	RiskLevel       string `db:"risk_level" json:"risk_level"`
+	Enabled         int64  `db:"enabled" json:"enabled"`
+	CreatedBy       string `db:"created_by" json:"created_by"`
+	UpdatedBy       string `db:"updated_by" json:"updated_by"`
+	CreatedAt       int64  `db:"created_at" json:"created_at"`
+	UpdatedAt       int64  `db:"updated_at" json:"updated_at"`
+	LastRunAt       any    `db:"last_run_at" json:"last_run_at"`
+	RunCount        int64  `db:"run_count" json:"run_count"`
 }
 
 func (q *Queries) ListCommandCards(ctx context.Context, arg ListCommandCardsParams) ([]ListCommandCardsRow, error) {

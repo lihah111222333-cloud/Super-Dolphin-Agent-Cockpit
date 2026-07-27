@@ -79,11 +79,11 @@ LIMIT ?
 `
 
 type ListWorkspaceRunFilesParams struct {
-	Column1 interface{} `db:"column_1" json:"column_1"`
-	RunKey  string      `db:"run_key" json:"run_key"`
-	Column3 interface{} `db:"column_3" json:"column_3"`
-	State   string      `db:"state" json:"state"`
-	Limit   int64       `db:"limit" json:"limit"`
+	Column1 any    `db:"column_1" json:"column_1"`
+	RunKey  string `db:"run_key" json:"run_key"`
+	Column3 any    `db:"column_3" json:"column_3"`
+	State   string `db:"state" json:"state"`
+	Limit   int64  `db:"limit" json:"limit"`
 }
 
 func (q *Queries) ListWorkspaceRunFiles(ctx context.Context, arg ListWorkspaceRunFilesParams) ([]WorkspaceRunFile, error) {
@@ -137,11 +137,11 @@ LIMIT ?
 `
 
 type ListWorkspaceRunsParams struct {
-	Column1 interface{} `db:"column_1" json:"column_1"`
-	Status  string      `db:"status" json:"status"`
-	Column3 interface{} `db:"column_3" json:"column_3"`
-	DAGKey  string      `db:"dag_key" json:"dag_key"`
-	Limit   int64       `db:"limit" json:"limit"`
+	Column1 any    `db:"column_1" json:"column_1"`
+	Status  string `db:"status" json:"status"`
+	Column3 any    `db:"column_3" json:"column_3"`
+	DAGKey  string `db:"dag_key" json:"dag_key"`
+	Limit   int64  `db:"limit" json:"limit"`
 }
 
 func (q *Queries) ListWorkspaceRuns(ctx context.Context, arg ListWorkspaceRunsParams) ([]WorkspaceRun, error) {

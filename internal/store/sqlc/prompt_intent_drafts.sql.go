@@ -79,9 +79,9 @@ LIMIT ?3
 `
 
 type ListPromptIntentDraftsParams struct {
-	CWD        string      `db:"cwd" json:"cwd"`
-	Status     interface{} `db:"status" json:"status"`
-	LimitCount int64       `db:"limit_count" json:"limit_count"`
+	CWD        string `db:"cwd" json:"cwd"`
+	Status     any    `db:"status" json:"status"`
+	LimitCount int64  `db:"limit_count" json:"limit_count"`
 }
 
 type ListPromptIntentDraftsRow struct {

@@ -46,7 +46,7 @@ LIMIT 500
 `
 
 type ListAgentStatusesParams struct {
-	StatusFilter interface{} `db:"status_filter" json:"status_filter"`
+	StatusFilter any `db:"status_filter" json:"status_filter"`
 }
 
 func (q *Queries) ListAgentStatuses(ctx context.Context, arg ListAgentStatusesParams) ([]AgentStatus, error) {

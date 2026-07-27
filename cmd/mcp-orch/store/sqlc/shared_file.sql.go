@@ -84,9 +84,9 @@ LIMIT ?3
 `
 
 type ListSharedFilesParams struct {
-	Prefix       interface{} `db:"prefix" json:"prefix"`
-	PrefixLength int64       `db:"prefix_length" json:"prefix_length"`
-	LimitCount   int64       `db:"limit_count" json:"limit_count"`
+	Prefix       any   `db:"prefix" json:"prefix"`
+	PrefixLength int64 `db:"prefix_length" json:"prefix_length"`
+	LimitCount   int64 `db:"limit_count" json:"limit_count"`
 }
 
 func (q *Queries) ListSharedFiles(ctx context.Context, arg ListSharedFilesParams) ([]SharedFile, error) {

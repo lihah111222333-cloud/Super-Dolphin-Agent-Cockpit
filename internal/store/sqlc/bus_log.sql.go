@@ -58,11 +58,11 @@ LIMIT ?5
 `
 
 type ListBusExceptionLogsParams struct {
-	CategoryFilter interface{} `db:"category_filter" json:"category_filter"`
-	SeverityFilter interface{} `db:"severity_filter" json:"severity_filter"`
-	Keyword        interface{} `db:"keyword" json:"keyword"`
-	KeywordPattern string      `db:"keyword_pattern" json:"keyword_pattern"`
-	LimitCount     int64       `db:"limit_count" json:"limit_count"`
+	CategoryFilter any    `db:"category_filter" json:"category_filter"`
+	SeverityFilter any    `db:"severity_filter" json:"severity_filter"`
+	Keyword        any    `db:"keyword" json:"keyword"`
+	KeywordPattern string `db:"keyword_pattern" json:"keyword_pattern"`
+	LimitCount     int64  `db:"limit_count" json:"limit_count"`
 }
 
 type ListBusExceptionLogsRow struct {

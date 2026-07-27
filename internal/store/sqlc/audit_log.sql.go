@@ -69,12 +69,12 @@ LIMIT ?6
 `
 
 type ListAuditEventsParams struct {
-	EventTypeFilter interface{} `db:"event_type_filter" json:"event_type_filter"`
-	ActionFilter    interface{} `db:"action_filter" json:"action_filter"`
-	ActorFilter     interface{} `db:"actor_filter" json:"actor_filter"`
-	Keyword         interface{} `db:"keyword" json:"keyword"`
-	KeywordPattern  string      `db:"keyword_pattern" json:"keyword_pattern"`
-	LimitCount      int64       `db:"limit_count" json:"limit_count"`
+	EventTypeFilter any    `db:"event_type_filter" json:"event_type_filter"`
+	ActionFilter    any    `db:"action_filter" json:"action_filter"`
+	ActorFilter     any    `db:"actor_filter" json:"actor_filter"`
+	Keyword         any    `db:"keyword" json:"keyword"`
+	KeywordPattern  string `db:"keyword_pattern" json:"keyword_pattern"`
+	LimitCount      int64  `db:"limit_count" json:"limit_count"`
 }
 
 func (q *Queries) ListAuditEvents(ctx context.Context, arg ListAuditEventsParams) ([]AuditEvent, error) {

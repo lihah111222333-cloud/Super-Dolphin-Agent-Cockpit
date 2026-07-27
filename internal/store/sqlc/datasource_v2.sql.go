@@ -210,9 +210,9 @@ LIMIT ?3 + 1
 `
 
 type ListDatasourceV2ChunksPageParams struct {
-	DocumentID int64       `db:"document_id" json:"document_id"`
-	Cursor     int32       `db:"cursor" json:"cursor"`
-	Limit      interface{} `db:"limit" json:"limit"`
+	DocumentID int64 `db:"document_id" json:"document_id"`
+	Cursor     int32 `db:"cursor" json:"cursor"`
+	Limit      any   `db:"limit" json:"limit"`
 }
 
 type ListDatasourceV2ChunksPageRow struct {
@@ -282,8 +282,8 @@ LIMIT ?2
 `
 
 type ListDatasourceV2DocumentsParams struct {
-	Keyword interface{} `db:"keyword" json:"keyword"`
-	Limit   int64       `db:"limit" json:"limit"`
+	Keyword any   `db:"keyword" json:"keyword"`
+	Limit   int64 `db:"limit" json:"limit"`
 }
 
 func (q *Queries) ListDatasourceV2Documents(ctx context.Context, arg ListDatasourceV2DocumentsParams) ([]DatasourceV2Document, error) {
@@ -448,10 +448,10 @@ LIMIT ?4
 `
 
 type SearchDatasourceV2ChunksByEmbeddingParams struct {
-	Embedding      interface{} `db:"embedding" json:"embedding"`
-	EmbeddingModel string      `db:"embedding_model" json:"embedding_model"`
-	EmbeddingDim   int32       `db:"embedding_dim" json:"embedding_dim"`
-	Limit          int64       `db:"limit" json:"limit"`
+	Embedding      any    `db:"embedding" json:"embedding"`
+	EmbeddingModel string `db:"embedding_model" json:"embedding_model"`
+	EmbeddingDim   int32  `db:"embedding_dim" json:"embedding_dim"`
+	Limit          int64  `db:"limit" json:"limit"`
 }
 
 type SearchDatasourceV2ChunksByEmbeddingRow struct {

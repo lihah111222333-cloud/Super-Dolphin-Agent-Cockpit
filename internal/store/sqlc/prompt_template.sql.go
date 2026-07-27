@@ -258,10 +258,10 @@ LIMIT ?4
 `
 
 type ListPromptTemplatesParams struct {
-	AgentKey   interface{} `db:"agent_key" json:"agent_key"`
-	Keyword    interface{} `db:"keyword" json:"keyword"`
-	CWD        *string     `db:"cwd" json:"cwd"`
-	LimitCount int64       `db:"limit_count" json:"limit_count"`
+	AgentKey   any     `db:"agent_key" json:"agent_key"`
+	Keyword    any     `db:"keyword" json:"keyword"`
+	CWD        *string `db:"cwd" json:"cwd"`
+	LimitCount int64   `db:"limit_count" json:"limit_count"`
 }
 
 type ListPromptTemplatesRow struct {

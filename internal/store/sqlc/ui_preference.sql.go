@@ -37,7 +37,7 @@ ORDER BY cwd ASC, key ASC
 `
 
 type ListUIPreferencesParams struct {
-	CWDFilter interface{} `db:"cwd_filter" json:"cwd_filter"`
+	CWDFilter any `db:"cwd_filter" json:"cwd_filter"`
 }
 
 type ListUIPreferencesRow struct {

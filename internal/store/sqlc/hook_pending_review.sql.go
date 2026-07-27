@@ -269,10 +269,10 @@ LIMIT ?4 + 1
 `
 
 type ListHookPendingReviewsByAgentPageParams struct {
-	AgentID          string      `db:"agent_id" json:"agent_id"`
-	CursorCreatedAt  interface{} `db:"cursor_created_at" json:"cursor_created_at"`
-	CursorHookCallID string      `db:"cursor_hook_call_id" json:"cursor_hook_call_id"`
-	Limit            interface{} `db:"limit" json:"limit"`
+	AgentID          string `db:"agent_id" json:"agent_id"`
+	CursorCreatedAt  any    `db:"cursor_created_at" json:"cursor_created_at"`
+	CursorHookCallID string `db:"cursor_hook_call_id" json:"cursor_hook_call_id"`
+	Limit            any    `db:"limit" json:"limit"`
 }
 
 type ListHookPendingReviewsByAgentPageRow struct {

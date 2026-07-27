@@ -48,9 +48,9 @@ LIMIT ?3
 `
 
 type ListAILogSystemLogsParams struct {
-	Keyword        interface{} `db:"keyword" json:"keyword"`
-	KeywordPattern string      `db:"keyword_pattern" json:"keyword_pattern"`
-	LimitCount     int64       `db:"limit_count" json:"limit_count"`
+	Keyword        any    `db:"keyword" json:"keyword"`
+	KeywordPattern string `db:"keyword_pattern" json:"keyword_pattern"`
+	LimitCount     int64  `db:"limit_count" json:"limit_count"`
 }
 
 type ListAILogSystemLogsRow struct {
@@ -158,11 +158,11 @@ LIMIT ?
 `
 
 type ListAILogsByCategoryParams struct {
-	Column1 interface{} `db:"column_1" json:"column_1"`
-	LOWER   string      `db:"LOWER" json:"LOWER"`
-	Column3 interface{} `db:"column_3" json:"column_3"`
-	Message string      `db:"message" json:"message"`
-	Limit   int64       `db:"limit" json:"limit"`
+	Column1 any    `db:"column_1" json:"column_1"`
+	LOWER   string `db:"LOWER" json:"LOWER"`
+	Column3 any    `db:"column_3" json:"column_3"`
+	Message string `db:"message" json:"message"`
+	Limit   int64  `db:"limit" json:"limit"`
 }
 
 type ListAILogsByCategoryRow struct {

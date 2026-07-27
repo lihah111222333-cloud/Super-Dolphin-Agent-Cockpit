@@ -57,9 +57,9 @@ WHERE dag_key = ?2
 `
 
 type CancelTaskDagRunNodesParams struct {
-	Reason interface{} `db:"reason" json:"reason"`
-	DagKey string      `db:"dag_key" json:"dag_key"`
-	RunID  *int64      `db:"run_id" json:"run_id"`
+	Reason any    `db:"reason" json:"reason"`
+	DagKey string `db:"dag_key" json:"dag_key"`
+	RunID  *int64 `db:"run_id" json:"run_id"`
 }
 
 func (q *Queries) CancelTaskDagRunNodes(ctx context.Context, arg CancelTaskDagRunNodesParams) (int64, error) {
@@ -379,9 +379,9 @@ LIMIT ?3
 `
 
 type ListTaskDagRunsByKeyParams struct {
-	DagKey       string      `db:"dag_key" json:"dag_key"`
-	StatusFilter interface{} `db:"status_filter" json:"status_filter"`
-	LimitCount   int64       `db:"limit_count" json:"limit_count"`
+	DagKey       string `db:"dag_key" json:"dag_key"`
+	StatusFilter any    `db:"status_filter" json:"status_filter"`
+	LimitCount   int64  `db:"limit_count" json:"limit_count"`
 }
 
 type ListTaskDagRunsByKeyRow struct {

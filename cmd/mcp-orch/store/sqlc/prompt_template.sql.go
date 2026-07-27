@@ -50,9 +50,9 @@ LIMIT 1
 `
 
 type GetPromptRecallSectionBodyParams struct {
-	ScopeRank   interface{} `db:"scope_rank" json:"scope_rank"`
-	RecallTopic string      `db:"recall_topic" json:"recall_topic"`
-	ScopeCWD    interface{} `db:"scope_cwd" json:"scope_cwd"`
+	ScopeRank   any    `db:"scope_rank" json:"scope_rank"`
+	RecallTopic string `db:"recall_topic" json:"recall_topic"`
+	ScopeCWD    any    `db:"scope_cwd" json:"scope_cwd"`
 }
 
 func (q *Queries) GetPromptRecallSectionBody(ctx context.Context, arg GetPromptRecallSectionBodyParams) (string, error) {
@@ -305,11 +305,11 @@ LIMIT ?5
 `
 
 type ListPromptTemplatesParams struct {
-	AgentKey       interface{} `db:"agent_key" json:"agent_key"`
-	Keyword        interface{} `db:"keyword" json:"keyword"`
-	RuntimeVisible interface{} `db:"runtime_visible" json:"runtime_visible"`
-	ScopeCWD       interface{} `db:"scope_cwd" json:"scope_cwd"`
-	LimitCount     int64       `db:"limit_count" json:"limit_count"`
+	AgentKey       any   `db:"agent_key" json:"agent_key"`
+	Keyword        any   `db:"keyword" json:"keyword"`
+	RuntimeVisible any   `db:"runtime_visible" json:"runtime_visible"`
+	ScopeCWD       any   `db:"scope_cwd" json:"scope_cwd"`
+	LimitCount     int64 `db:"limit_count" json:"limit_count"`
 }
 
 type ListPromptTemplatesRow struct {

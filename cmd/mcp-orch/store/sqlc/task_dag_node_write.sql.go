@@ -138,8 +138,8 @@ type FailTaskDagNodeIfNonTerminalParams struct {
 	DagKey             string          `db:"dag_key" json:"dag_key"`
 	NodeKey            string          `db:"node_key" json:"node_key"`
 	RunID              *int64          `db:"run_id" json:"run_id"`
-	WakeupID           interface{}     `db:"wakeup_id" json:"wakeup_id"`
-	WakeupFenceMatched interface{}     `db:"wakeup_fence_matched" json:"wakeup_fence_matched"`
+	WakeupID           any             `db:"wakeup_id" json:"wakeup_id"`
+	WakeupFenceMatched any             `db:"wakeup_fence_matched" json:"wakeup_fence_matched"`
 }
 
 func (q *Queries) FailTaskDagNodeIfNonTerminal(ctx context.Context, arg FailTaskDagNodeIfNonTerminalParams) (int64, error) {

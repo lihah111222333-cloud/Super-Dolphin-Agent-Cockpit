@@ -178,9 +178,9 @@ LIMIT ?3
 `
 
 type ListWorkspaceRunFilesParams struct {
-	RunKeyFilter interface{} `db:"run_key_filter" json:"run_key_filter"`
-	StateFilter  interface{} `db:"state_filter" json:"state_filter"`
-	LimitCount   int64       `db:"limit_count" json:"limit_count"`
+	RunKeyFilter any   `db:"run_key_filter" json:"run_key_filter"`
+	StateFilter  any   `db:"state_filter" json:"state_filter"`
+	LimitCount   int64 `db:"limit_count" json:"limit_count"`
 }
 
 func (q *Queries) ListWorkspaceRunFiles(ctx context.Context, arg ListWorkspaceRunFilesParams) ([]WorkspaceRunFile, error) {
@@ -228,9 +228,9 @@ LIMIT ?3
 `
 
 type ListWorkspaceRunsParams struct {
-	StatusFilter interface{} `db:"status_filter" json:"status_filter"`
-	DagKeyFilter interface{} `db:"dag_key_filter" json:"dag_key_filter"`
-	LimitCount   int64       `db:"limit_count" json:"limit_count"`
+	StatusFilter any   `db:"status_filter" json:"status_filter"`
+	DagKeyFilter any   `db:"dag_key_filter" json:"dag_key_filter"`
+	LimitCount   int64 `db:"limit_count" json:"limit_count"`
 }
 
 type ListWorkspaceRunsRow struct {

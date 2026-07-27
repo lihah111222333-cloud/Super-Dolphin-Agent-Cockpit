@@ -363,10 +363,10 @@ LIMIT ?4
 `
 
 type ListTaskDagsParams struct {
-	StatusFilter   interface{} `db:"status_filter" json:"status_filter"`
-	Keyword        interface{} `db:"keyword" json:"keyword"`
-	KeywordPattern string      `db:"keyword_pattern" json:"keyword_pattern"`
-	LimitCount     int64       `db:"limit_count" json:"limit_count"`
+	StatusFilter   any    `db:"status_filter" json:"status_filter"`
+	Keyword        any    `db:"keyword" json:"keyword"`
+	KeywordPattern string `db:"keyword_pattern" json:"keyword_pattern"`
+	LimitCount     int64  `db:"limit_count" json:"limit_count"`
 }
 
 type ListTaskDagsRow struct {

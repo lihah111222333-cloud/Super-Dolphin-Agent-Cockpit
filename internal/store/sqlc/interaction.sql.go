@@ -103,13 +103,13 @@ LIMIT ?
 `
 
 type ListInteractionsParams struct {
-	Column1  interface{} `db:"column_1" json:"column_1"`
-	ThreadID string      `db:"thread_id" json:"thread_id"`
-	Column3  interface{} `db:"column_3" json:"column_3"`
-	Column4  *string     `db:"column_4" json:"column_4"`
-	Column5  *string     `db:"column_5" json:"column_5"`
-	Column6  *string     `db:"column_6" json:"column_6"`
-	Limit    int64       `db:"limit" json:"limit"`
+	Column1  any     `db:"column_1" json:"column_1"`
+	ThreadID string  `db:"thread_id" json:"thread_id"`
+	Column3  any     `db:"column_3" json:"column_3"`
+	Column4  *string `db:"column_4" json:"column_4"`
+	Column5  *string `db:"column_5" json:"column_5"`
+	Column6  *string `db:"column_6" json:"column_6"`
+	Limit    int64   `db:"limit" json:"limit"`
 }
 
 func (q *Queries) ListInteractions(ctx context.Context, arg ListInteractionsParams) ([]AgentInteraction, error) {

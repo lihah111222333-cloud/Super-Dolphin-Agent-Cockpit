@@ -294,7 +294,7 @@ type ListAgentThreadConfigsByIDsRow struct {
 
 func (q *Queries) ListAgentThreadConfigsByIDs(ctx context.Context, arg ListAgentThreadConfigsByIDsParams) ([]ListAgentThreadConfigsByIDsRow, error) {
 	query := listAgentThreadConfigsByIDs
-	var queryParams []interface{}
+	var queryParams []any
 	if len(arg.ThreadIds) > 0 {
 		for _, v := range arg.ThreadIds {
 			queryParams = append(queryParams, v)
@@ -504,9 +504,9 @@ LIMIT ?3 + 1
 `
 
 type ListAgentThreadsPageParams struct {
-	CursorThreadID  interface{} `db:"cursor_thread_id" json:"cursor_thread_id"`
-	CursorCreatedAt int64       `db:"cursor_created_at" json:"cursor_created_at"`
-	Limit           interface{} `db:"limit" json:"limit"`
+	CursorThreadID  any   `db:"cursor_thread_id" json:"cursor_thread_id"`
+	CursorCreatedAt int64 `db:"cursor_created_at" json:"cursor_created_at"`
+	Limit           any   `db:"limit" json:"limit"`
 }
 
 type ListAgentThreadsPageRow struct {
@@ -602,9 +602,9 @@ LIMIT ?3 + 1
 `
 
 type ListLoadedAgentThreadsPageParams struct {
-	CursorThreadID  interface{} `db:"cursor_thread_id" json:"cursor_thread_id"`
-	CursorCreatedAt int64       `db:"cursor_created_at" json:"cursor_created_at"`
-	Limit           interface{} `db:"limit" json:"limit"`
+	CursorThreadID  any   `db:"cursor_thread_id" json:"cursor_thread_id"`
+	CursorCreatedAt int64 `db:"cursor_created_at" json:"cursor_created_at"`
+	Limit           any   `db:"limit" json:"limit"`
 }
 
 type ListLoadedAgentThreadsPageRow struct {
@@ -1000,25 +1000,25 @@ SET name = excluded.name,
 `
 
 type UpsertAgentThreadParams struct {
-	ThreadID         string      `db:"thread_id" json:"thread_id"`
-	Name             string      `db:"name" json:"name"`
-	Prompt           string      `db:"prompt" json:"prompt"`
-	Model            string      `db:"model" json:"model"`
-	CWD              string      `db:"cwd" json:"cwd"`
-	Status           string      `db:"status" json:"status"`
-	Port             int64       `db:"port" json:"port"`
-	Pid              int64       `db:"pid" json:"pid"`
-	CreatedAt        int64       `db:"created_at" json:"created_at"`
-	UpdatedAt        int64       `db:"updated_at" json:"updated_at"`
-	OwnerThreadID    string      `db:"owner_thread_id" json:"owner_thread_id"`
-	ParentAgentID    string      `db:"parent_agent_id" json:"parent_agent_id"`
-	AgentType        string      `db:"agent_type" json:"agent_type"`
-	AgentMemoryScope string      `db:"agent_memory_scope" json:"agent_memory_scope"`
-	ConfigOverride   interface{} `db:"config_override" json:"config_override"`
-	AgentKey         string      `db:"agent_key" json:"agent_key"`
-	PromptVersionID  *int64      `db:"prompt_version_id" json:"prompt_version_id"`
-	PendingLaunch    int64       `db:"pending_launch" json:"pending_launch"`
-	ManuallyRenamed  int64       `db:"manually_renamed" json:"manually_renamed"`
+	ThreadID         string `db:"thread_id" json:"thread_id"`
+	Name             string `db:"name" json:"name"`
+	Prompt           string `db:"prompt" json:"prompt"`
+	Model            string `db:"model" json:"model"`
+	CWD              string `db:"cwd" json:"cwd"`
+	Status           string `db:"status" json:"status"`
+	Port             int64  `db:"port" json:"port"`
+	Pid              int64  `db:"pid" json:"pid"`
+	CreatedAt        int64  `db:"created_at" json:"created_at"`
+	UpdatedAt        int64  `db:"updated_at" json:"updated_at"`
+	OwnerThreadID    string `db:"owner_thread_id" json:"owner_thread_id"`
+	ParentAgentID    string `db:"parent_agent_id" json:"parent_agent_id"`
+	AgentType        string `db:"agent_type" json:"agent_type"`
+	AgentMemoryScope string `db:"agent_memory_scope" json:"agent_memory_scope"`
+	ConfigOverride   any    `db:"config_override" json:"config_override"`
+	AgentKey         string `db:"agent_key" json:"agent_key"`
+	PromptVersionID  *int64 `db:"prompt_version_id" json:"prompt_version_id"`
+	PendingLaunch    int64  `db:"pending_launch" json:"pending_launch"`
+	ManuallyRenamed  int64  `db:"manually_renamed" json:"manually_renamed"`
 }
 
 func (q *Queries) UpsertAgentThread(ctx context.Context, arg UpsertAgentThreadParams) error {

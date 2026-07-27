@@ -12,8 +12,38 @@ func TestSQLCVerifyWorktreeMakefileContracts(t *testing.T) {
 	makefile := readRepoFile(t, "../Makefile")
 
 	assertScriptContains(t, makefile, "sqlc-generate sqlc-verify sqlc-verify-worktree")
+	assertScriptContains(t, makefile, "\tbash scripts/sqlc_postprocess.sh\n")
+	assertScriptContains(t, makefile, "\nsqlc-verify:\n\t$(MAKE) --no-print-directory sqlc-generate\n")
 	assertScriptContains(t, makefile, "\nsqlc-verify-worktree:\n\tbash scripts/sqlc_verify_worktree.sh\n")
 	assertScriptContains(t, makefile, "git status --porcelain --untracked-files=all -- internal/store/sqlc cmd/mcp-orch/store/sqlc")
+}
+
+func TestSQLCPostprocessNormalizesEmptyInterfacesDeterministically(t *testing.T) {
+	root := t.TempDir()
+	writeSQLCFixtureFile(t, root, "scripts/sqlc_postprocess.sh", readScript(t, "sqlc_postprocess.sh"))
+	writeSQLCFixtureFile(t, root, "internal/store/sqlc/query.go", "package sqlc\n\ntype Row struct { Value interface{} }\n")
+	writeSQLCFixtureFile(t, root, "cmd/mcp-orch/store/sqlc/query.go", "package sqlc\n\nfunc decode(v interface{}) interface{} { return v }\n")
+	runSQLCFixtureCommand(t, root, "git", "init")
+
+	first := runSQLCFixtureCommandOutput(t, root, "bash", "scripts/sqlc_postprocess.sh")
+	if !strings.Contains(first, "normalized generated empty interfaces to any") {
+		t.Fatalf("postprocess output missing success message:\n%s", first)
+	}
+	for _, rel := range []string{"internal/store/sqlc/query.go", "cmd/mcp-orch/store/sqlc/query.go"} {
+		content, err := os.ReadFile(filepath.Join(root, rel))
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		if strings.Contains(string(content), "interface{}") || !strings.Contains(string(content), "any") {
+			t.Fatalf("postprocessed %s = %q, want any without interface{}", rel, content)
+		}
+	}
+	before := readFixtureFiles(t, root)
+	runSQLCFixtureCommandOutput(t, root, "bash", "scripts/sqlc_postprocess.sh")
+	after := readFixtureFiles(t, root)
+	if before != after {
+		t.Fatalf("second postprocess pass changed generated output")
+	}
 }
 
 func TestSQLCVerifyWorktreeScriptUsesSnapshotsNotHeadGate(t *testing.T) {
@@ -149,4 +179,28 @@ func runSQLCFixtureCommand(t *testing.T, dir, name string, args ...string) {
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("%s %s failed: %v\n%s", name, strings.Join(args, " "), err, output)
 	}
+}
+
+func runSQLCFixtureCommandOutput(t *testing.T, dir, name string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%s %s failed: %v\n%s", name, strings.Join(args, " "), err, output)
+	}
+	return string(output)
+}
+
+func readFixtureFiles(t *testing.T, root string) string {
+	t.Helper()
+	var combined strings.Builder
+	for _, rel := range []string{"internal/store/sqlc/query.go", "cmd/mcp-orch/store/sqlc/query.go"} {
+		content, err := os.ReadFile(filepath.Join(root, rel))
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		combined.Write(content)
+	}
+	return combined.String()
 }

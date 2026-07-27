@@ -325,12 +325,12 @@ SQLC := go run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION)
 sqlc-generate:
 	$(SQLC) generate
 	$(SQLC) generate -f cmd/mcp-orch/sqlc.yaml
+	bash scripts/sqlc_postprocess.sh
 	@echo "✅ sqlc generate (root + cmd/mcp-orch)"
 
 # CI gate: regenerate and fail if the working tree drifts from committed output.
 sqlc-verify:
-	$(SQLC) generate
-	$(SQLC) generate -f cmd/mcp-orch/sqlc.yaml
+	$(MAKE) --no-print-directory sqlc-generate
 	@if [ -n "$$(git status --porcelain --untracked-files=all -- internal/store/sqlc cmd/mcp-orch/store/sqlc)" ]; then \
 		echo "❌ sqlc-generated code is out of date; run 'make sqlc-generate' and commit."; \
 		git --no-pager diff -- internal/store/sqlc cmd/mcp-orch/store/sqlc; \

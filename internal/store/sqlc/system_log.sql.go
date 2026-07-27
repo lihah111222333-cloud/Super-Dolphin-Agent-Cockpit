@@ -93,20 +93,20 @@ LIMIT ?14
 `
 
 type ListSystemLogsParams struct {
-	LevelFilter        interface{} `db:"level_filter" json:"level_filter"`
-	LoggerFilter       interface{} `db:"logger_filter" json:"logger_filter"`
-	SourceFilter       interface{} `db:"source_filter" json:"source_filter"`
-	ComponentFilter    interface{} `db:"component_filter" json:"component_filter"`
-	AgentIDFilter      interface{} `db:"agent_id_filter" json:"agent_id_filter"`
-	ThreadIDFilter     interface{} `db:"thread_id_filter" json:"thread_id_filter"`
-	TraceIDFilter      interface{} `db:"trace_id_filter" json:"trace_id_filter"`
-	SpanIDFilter       interface{} `db:"span_id_filter" json:"span_id_filter"`
-	ParentSpanIDFilter interface{} `db:"parent_span_id_filter" json:"parent_span_id_filter"`
-	EventTypeFilter    interface{} `db:"event_type_filter" json:"event_type_filter"`
-	ToolNameFilter     interface{} `db:"tool_name_filter" json:"tool_name_filter"`
-	Keyword            interface{} `db:"keyword" json:"keyword"`
-	KeywordPattern     string      `db:"keyword_pattern" json:"keyword_pattern"`
-	LimitCount         int64       `db:"limit_count" json:"limit_count"`
+	LevelFilter        any    `db:"level_filter" json:"level_filter"`
+	LoggerFilter       any    `db:"logger_filter" json:"logger_filter"`
+	SourceFilter       any    `db:"source_filter" json:"source_filter"`
+	ComponentFilter    any    `db:"component_filter" json:"component_filter"`
+	AgentIDFilter      any    `db:"agent_id_filter" json:"agent_id_filter"`
+	ThreadIDFilter     any    `db:"thread_id_filter" json:"thread_id_filter"`
+	TraceIDFilter      any    `db:"trace_id_filter" json:"trace_id_filter"`
+	SpanIDFilter       any    `db:"span_id_filter" json:"span_id_filter"`
+	ParentSpanIDFilter any    `db:"parent_span_id_filter" json:"parent_span_id_filter"`
+	EventTypeFilter    any    `db:"event_type_filter" json:"event_type_filter"`
+	ToolNameFilter     any    `db:"tool_name_filter" json:"tool_name_filter"`
+	Keyword            any    `db:"keyword" json:"keyword"`
+	KeywordPattern     string `db:"keyword_pattern" json:"keyword_pattern"`
+	LimitCount         int64  `db:"limit_count" json:"limit_count"`
 }
 
 type ListSystemLogsRow struct {
