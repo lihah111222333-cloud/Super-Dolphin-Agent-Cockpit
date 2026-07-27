@@ -40,6 +40,24 @@ func TestValidateResolvedIPAllowsPublicAddress(t *testing.T) {
 	}
 }
 
+func TestNewPublicHTTPTransportDoesNotInheritEnvironmentProxy(t *testing.T) {
+	t.Setenv("HTTP_PROXY", "http://127.0.0.1:18080")
+	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:18080")
+
+	transport, ok := NewPublicHTTPTransport().(*http.Transport)
+	if !ok {
+		t.Fatalf("NewPublicHTTPTransport() type = %T, want *http.Transport", transport)
+	}
+	if transport.Proxy != nil {
+		req := &http.Request{URL: mustParseHTTPURL(t, "https://example.com")}
+		proxyURL, err := transport.Proxy(req)
+		if err != nil {
+			t.Fatalf("transport.Proxy() error = %v", err)
+		}
+		t.Fatalf("NewPublicHTTPTransport() proxy = %v, want disabled environment proxy", proxyURL)
+	}
+}
+
 func TestValidateRedirectRejectsLoopbackTarget(t *testing.T) {
 	req := &http.Request{URL: mustParseHTTPURL(t, "http://127.0.0.1/mcp")}
 	err := ValidateRedirect(req, nil)

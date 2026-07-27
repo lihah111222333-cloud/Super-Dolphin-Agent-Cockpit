@@ -64,6 +64,9 @@ func NewPublicHTTPClient(timeout time.Duration) *http.Client {
 // NewPublicHTTPTransport 返回带解析后 IP 校验的 HTTP transport，供需要自定义 client 的出站调用复用。
 func NewPublicHTTPTransport() http.RoundTripper {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// 环境代理会把 DialContext 的地址替换为代理端点，使目标域名绕过本地解析后 IP 校验。
+	// 公网出站边界不接受隐式代理；若未来需要代理，必须建立可验证目标地址的显式协议。
+	transport.Proxy = nil
 	dialer := &publicDialer{
 		resolver: net.DefaultResolver,
 		dialer: &net.Dialer{
