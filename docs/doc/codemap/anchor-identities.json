@@ -723,9 +723,9 @@
       "codemap_file": "01-terminal-ui-go.md",
       "codemap_line": 189,
       "target_path": "internal/ui/wails/code_preview.go",
-      "line_spec": "306",
-      "content_sha256": "f34a6aa7752587dbdc3340264b5aa6a355b59bc7fd1c144cdce7ebce994bdc08",
-      "symbol": "splitTextLines"
+      "line_spec": "476",
+      "content_sha256": "6211cc5b5732775019b046184af863eb83bdda8a72b9772d720e3663d69012c7",
+      "symbol": "openCodeEditor"
     },
     {
       "codemap_file": "01-terminal-ui-go.md",

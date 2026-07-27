@@ -251,24 +251,24 @@ cmd/mcp-orch/store/sharedfile/module.go	cmd	orchestration	go-source	2046	shared 
 cmd/mcp-orch/store/sharedfile/store_test.go	cmd	orchestration	go-test	9598	shared file 资源 store	cmd,mcp,orch,store,sharedfile,test,shared,file,资源
 cmd/mcp-orch/store/sharedfile/store.go	cmd	orchestration	go-source	13464	shared file 资源 store	cmd,mcp,orch,store,sharedfile,shared,file,资源
 cmd/mcp-orch/store/sqlc/.gitkeep	cmd	orchestration	file	0	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,mcp-orch,生成层
-cmd/mcp-orch/store/sqlc/command_card.sql.go	cmd	orchestration	go-source	11014	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,command,card,sql,mcp-orch,生成层
-cmd/mcp-orch/store/sqlc/db.go	cmd	orchestration	go-source	597	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,db,mcp-orch,生成层
+cmd/mcp-orch/store/sqlc/command_card.sql.go	cmd	orchestration	go-source	10932	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,command,card,sql,mcp-orch,生成层
+cmd/mcp-orch/store/sqlc/db.go	cmd	orchestration	go-source	573	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,db,mcp-orch,生成层
 cmd/mcp-orch/store/sqlc/models.go	cmd	orchestration	go-source	35851	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,models,mcp-orch,生成层
-cmd/mcp-orch/store/sqlc/prompt_template.sql.go	cmd	orchestration	go-source	14451	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,prompt,template,sql,mcp-orch,生成层
-cmd/mcp-orch/store/sqlc/shared_file.sql.go	cmd	orchestration	go-source	3882	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,shared,file,sql,mcp-orch,生成层
-cmd/mcp-orch/store/sqlc/task_ack.sql.go	cmd	orchestration	go-source	7268	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,task,ack,sql,mcp-orch,生成层
-cmd/mcp-orch/store/sqlc/task_dag_dag.sql.go	cmd	orchestration	go-source	15739	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,task,dag,sql,mcp-orch,生成层
+cmd/mcp-orch/store/sqlc/prompt_template.sql.go	cmd	orchestration	go-source	14406	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,prompt,template,sql,mcp-orch,生成层
+cmd/mcp-orch/store/sqlc/shared_file.sql.go	cmd	orchestration	go-source	3864	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,shared,file,sql,mcp-orch,生成层
+cmd/mcp-orch/store/sqlc/task_ack.sql.go	cmd	orchestration	go-source	7238	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,task,ack,sql,mcp-orch,生成层
+cmd/mcp-orch/store/sqlc/task_dag_dag.sql.go	cmd	orchestration	go-source	15719	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,task,dag,sql,mcp-orch,生成层
 cmd/mcp-orch/store/sqlc/task_dag_node_read.sql.go	cmd	orchestration	go-source	20564	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,task,dag,node,read,sql,mcp-orch,生成层
 cmd/mcp-orch/store/sqlc/task_dag_node_runtime.sql.go	cmd	orchestration	go-source	9704	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,task,dag,node,runtime,sql,mcp-orch,生成层
 cmd/mcp-orch/store/sqlc/task_dag_node_spawning_thread.sql.go	cmd	orchestration	go-source	1280	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,task,dag,node,spawning,thread,sql,mcp-orch,生成层
 cmd/mcp-orch/store/sqlc/task_dag_node_write.sql.go	cmd	orchestration	go-source	10467	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,task,dag,node,write,sql,mcp-orch,生成层
 cmd/mcp-orch/store/sqlc/task_dag_run_guard_test.go	cmd	orchestration	go-test	936	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,task,dag,run,guard,test,mcp-orch,生成层
-cmd/mcp-orch/store/sqlc/task_dag_run.sql.go	cmd	orchestration	go-source	15590	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,task,dag,run,sql,mcp-orch,生成层
+cmd/mcp-orch/store/sqlc/task_dag_run.sql.go	cmd	orchestration	go-source	15560	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,task,dag,run,sql,mcp-orch,生成层
 cmd/mcp-orch/store/sqlc/task_dag_wakeup_dispatch.sql.go	cmd	orchestration	go-source	11420	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,task,dag,wakeup,dispatch,sql,mcp-orch,生成层
 cmd/mcp-orch/store/sqlc/task_dag_wakeup_query.sql.go	cmd	orchestration	go-source	13092	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,task,dag,wakeup,query,sql,mcp-orch,生成层
 cmd/mcp-orch/store/sqlc/task_dag_worker_lease.sql.go	cmd	orchestration	go-source	4012	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,task,dag,worker,lease,sql,mcp-orch,生成层
 cmd/mcp-orch/store/sqlc/types_ext.go	cmd	orchestration	go-source	1921	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,types,ext,mcp-orch,生成层
-cmd/mcp-orch/store/sqlc/workspace_run.sql.go	cmd	orchestration	go-source	13570	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,workspace,run,sql,mcp-orch,生成层
+cmd/mcp-orch/store/sqlc/workspace_run.sql.go	cmd	orchestration	go-source	13534	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,workspace,run,sql,mcp-orch,生成层
 cmd/mcp-orch/store/sqlctx/db_test.go	cmd	orchestration	go-test	1178	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,store,sqlctx,db,test,orchestration,MCP,peer,bootstrap,registry,与,sidecar,入口
 cmd/mcp-orch/store/sqlctx/db.go	cmd	orchestration	go-source	7225	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,store,sqlctx,db,orchestration,MCP,peer,bootstrap,registry,与,sidecar,入口
 cmd/mcp-orch/store/taskdag/contract.go	cmd	orchestration	go-source	30807	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,contract,DAG,node,wakeup,worker,lease,持久化

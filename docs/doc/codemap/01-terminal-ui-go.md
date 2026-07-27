@@ -186,7 +186,7 @@ sequenceDiagram
 2. `internal/ui/wails/scope_catalog.go:41` `loadScopeCatalog()` 会把 `config.ProjectRoot`、`ProjectsState.Active`、`ProjectsState.Projects` 全部折叠进 `knownRoots`，只允许已注册项目作为 scope root。
 3. `internal/ui/wails/code_scope.go:67` `resolveSaveTarget()` 和 `internal/ui/wails/code_scope.go:88` `resolveOpenTarget()` 负责把相对路径/绝对路径收束到 `scopedPath`；若目标越出项目根，最终会被 `internal/ui/wails/code_scope.go:309` `secureRelativeToRoot()` 拒绝。
 4. `internal/ui/wails/code_scope.go:138` `findScopedFiles()` 在相对路径缺失时做限深、限时、去重搜索；`node_modules/dist/vendor/.git` 等目录会被显式跳过。
-5. `internal/ui/wails/code_preview.go:63` `saveScopedFile()` 负责落盘并回传 `relative/totalLines`；`internal/ui/wails/code_preview.go:102` `openScopedFile()` 负责 snippet / full-text / image preview，并在 `internal/ui/wails/code_preview.go:306` `openCodeEditor()` 尝试打开 VS Code 或系统默认程序。
+5. `internal/ui/wails/code_preview.go:63` `saveScopedFile()` 负责落盘并回传 `relative/totalLines`；`internal/ui/wails/code_preview.go:102` `openScopedFile()` 负责 snippet / full-text / image preview，并在 `internal/ui/wails/code_preview.go:476` `openCodeEditor()` 尝试打开 VS Code 或系统默认程序。
 
 ### 4.7 多窗口 bootstrap、窗口组与文件拖拽
 
