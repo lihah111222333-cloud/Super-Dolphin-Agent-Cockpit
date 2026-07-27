@@ -232,11 +232,12 @@ func TestAlienThreadEventThreadReportsIncomingThreadID(t *testing.T) {
 }
 
 func TestAlienThreadEventThreadIgnoresOwnOrMissingThreadID(t *testing.T) {
-	s := &session{}
+	s := &session{agentID: "public-thread"}
 	s.threadID.Store("own-thread")
 
 	for _, params := range []string{
 		`{"threadId":"own-thread"}`,
+		`{"thread_id":"public-thread"}`,
 		`{"turnId":"turn-1"}`,
 		`{"threadId":" "}`,
 		`{`,

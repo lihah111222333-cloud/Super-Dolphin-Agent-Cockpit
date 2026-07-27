@@ -655,3 +655,55 @@ func TestOnNotification_MalformedTerminalFromAlienThreadDoesNotFinishActiveTurn(
 		t.Fatal("alien malformed terminal notification removed active turn handle")
 	}
 }
+
+func TestOnNotification_PublicThreadTerminalCompletesActiveTurn(t *testing.T) {
+	h := newTurnHandle("local-own", "T-own")
+	s := &session{
+		agentID:      "thread-public",
+		turns:        map[string]*turnHandle{"T-own": h},
+		activeTurnID: "T-own",
+	}
+	s.threadID.Store("thread-provider")
+
+	s.onNotification("turn/completed", json.RawMessage(
+		`{"threadId":"thread-public","turnId":"T-own","timestamp":"2026-07-25T04:16:48Z","success":true,"status":"completed"}`,
+	))
+
+	select {
+	case <-h.Done():
+	case <-time.After(time.Second):
+		t.Fatal("public-thread terminal did not finish active turn")
+	}
+	if err := h.Err(); err != nil {
+		t.Fatalf("public-thread terminal error = %v, want nil", err)
+	}
+	if s.activeTurnID != "" || s.turns["T-own"] != nil {
+		t.Fatal("public-thread terminal did not clear active turn ownership")
+	}
+}
+
+func TestOnNotification_PublicThreadMalformedTerminalFailsActiveTurn(t *testing.T) {
+	h := newTurnHandle("local-own", "T-own")
+	s := &session{
+		agentID:      "thread-public",
+		turns:        map[string]*turnHandle{"T-own": h},
+		activeTurnID: "T-own",
+	}
+	s.threadID.Store("thread-provider")
+
+	s.onNotification("turn/completed", json.RawMessage(
+		`{"thread_id":"thread-public","turn_id":"T-own","prompt":"raw-secret"}`,
+	))
+
+	select {
+	case <-h.Done():
+	case <-time.After(time.Second):
+		t.Fatal("public-thread malformed terminal did not fail active turn")
+	}
+	if err := h.Err(); err == nil || !strings.Contains(err.Error(), "terminal contract: malformed terminal payload") {
+		t.Fatalf("public-thread malformed terminal error = %v", err)
+	}
+	if s.activeTurnID != "" || s.turns["T-own"] != nil {
+		t.Fatal("public-thread malformed terminal did not clear active turn ownership")
+	}
+}

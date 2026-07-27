@@ -870,21 +870,17 @@ func assistantMessageContentText(raw any) string {
 }
 
 func (s *session) alienThreadEventThread(params json.RawMessage) (string, bool) {
-	own := s.ThreadID()
-	if own == "" {
+	providerThreadID := strings.TrimSpace(s.ThreadID())
+	publicThreadID := strings.TrimSpace(s.agentID)
+	// provider thread 尚未绑定时不能把 thread/started 等首批生命周期事件误判为外来线程。
+	if providerThreadID == "" {
 		return "", false
 	}
-	var envelope struct {
-		ThreadID string `json:"threadId"`
-	}
-	if err := json.Unmarshal(params, &envelope); err != nil {
-		return "", false
-	}
-	eventThread := strings.TrimSpace(envelope.ThreadID)
+	eventThread := strings.TrimSpace(payloadThreadID(decodeEventPayload(params)))
 	if eventThread == "" {
 		return "", false
 	}
-	if eventThread == own {
+	if eventThread == providerThreadID || eventThread == publicThreadID {
 		return "", false
 	}
 	return eventThread, true
