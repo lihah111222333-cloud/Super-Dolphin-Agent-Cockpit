@@ -419,10 +419,14 @@ func normalizeThreadListPage(req ListPageRequest) (contract.ThreadListPageParams
 	if req.Limit > maxThreadListLimit {
 		return contract.ThreadListPageParams{}, fmt.Errorf("thread list limit exceeds maximum: %d > %d", req.Limit, maxThreadListLimit)
 	}
+	cursorThreadID := strings.TrimSpace(req.CursorThreadID)
+	if req.CursorCreatedAt != 0 && cursorThreadID == "" {
+		return contract.ThreadListPageParams{}, errors.New("thread list cursor_thread_id is required when cursor_created_at is set")
+	}
 	return contract.ThreadListPageParams{
 		Limit:           req.Limit,
 		CursorCreatedAt: req.CursorCreatedAt,
-		CursorThreadID:  strings.TrimSpace(req.CursorThreadID),
+		CursorThreadID:  cursorThreadID,
 	}, nil
 }
 

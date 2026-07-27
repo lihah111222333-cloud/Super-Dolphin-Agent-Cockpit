@@ -118,7 +118,7 @@ internal/store/sqlc/agent_feedback.sql.go	internal	store-sql	go-source	5732	应�
 internal/store/sqlc/agent_provider_binding.sql.go	internal	store-sql	go-source	8633	应用级持久化 store	internal,store,sqlc,agent,provider,binding,sql,应用级持久化
 internal/store/sqlc/agent_status.sql.go	internal	store-sql	go-source	3530	应用级持久化 store	internal,store,sqlc,agent,status,sql,应用级持久化
 internal/store/sqlc/agent_thread_prompt_snapshot.sql.go	internal	store-sql	go-source	1413	应用级持久化 store	internal,store,sqlc,agent,thread,prompt,snapshot,sql,应用级持久化
-internal/store/sqlc/agent_thread.sql.go	internal	store-sql	go-source	35611	应用级持久化 store	internal,store,sqlc,agent,thread,sql,应用级持久化
+internal/store/sqlc/agent_thread.sql.go	internal	store-sql	go-source	35613	应用级持久化 store	internal,store,sqlc,agent,thread,sql,应用级持久化
 internal/store/sqlc/ai_log.sql.go	internal	store-sql	go-source	8568	应用级持久化 store	internal,store,sqlc,ai,log,sql,应用级持久化
 internal/store/sqlc/audit_log.sql.go	internal	store-sql	go-source	2848	应用级持久化 store	internal,store,sqlc,audit,log,sql,应用级持久化
 internal/store/sqlc/bus_log.sql.go	internal	store-sql	go-source	3111	应用级持久化 store	internal,store,sqlc,bus,log,sql,应用级持久化
@@ -144,7 +144,7 @@ internal/store/sqlc/prompt_template.sql.go	internal	store-sql	go-source	15484	�
 internal/store/sqlc/querier.go	internal	store-sql	go-source	23702	应用级持久化 store	internal,store,sqlc,querier,应用级持久化
 internal/store/sqlc/session_insight.sql.go	internal	store-sql	go-source	27932	应用级持久化 store	internal,store,sqlc,session,insight,sql,应用级持久化
 internal/store/sqlc/shared_file.sql.go	internal	store-sql	go-source	3353	应用级持久化 store	internal,store,sqlc,shared,file,sql,应用级持久化
-internal/store/sqlc/sqlite_runtime_sql_test.go	internal	store-sql	go-test	2423	应用级持久化 store	internal,store,sqlc,sqlite,runtime,sql,test,应用级持久化
+internal/store/sqlc/sqlite_runtime_sql_test.go	internal	store-sql	go-test	5136	应用级持久化 store	internal,store,sqlc,sqlite,runtime,sql,test,应用级持久化
 internal/store/sqlc/system_log.sql.go	internal	store-sql	go-source	6019	应用级持久化 store	internal,store,sqlc,system,log,sql,应用级持久化
 internal/store/sqlc/thread_binding.sql.go	internal	store-sql	go-source	5220	应用级持久化 store	internal,store,sqlc,thread,binding,sql,应用级持久化
 internal/store/sqlc/topology_approval.sql.go	internal	store-sql	go-source	4078	应用级持久化 store	internal,store,sqlc,topology,approval,sql,应用级持久化

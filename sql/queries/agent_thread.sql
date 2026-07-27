@@ -36,7 +36,7 @@ FROM agent_threads t
 LEFT JOIN (
     SELECT agent_id, provider_thread_id, codex_thread_id FROM agent_provider_binding
 ) b ON (b.provider_thread_id = t.thread_id OR b.codex_thread_id = t.thread_id)
-WHERE sqlc.arg(cursor_created_at) = 0
+WHERE sqlc.arg(cursor_thread_id) = ''
    OR t.created_at < sqlc.arg(cursor_created_at)
    OR (t.created_at = sqlc.arg(cursor_created_at) AND t.thread_id < sqlc.arg(cursor_thread_id))
 ORDER BY t.created_at DESC, t.thread_id DESC
@@ -51,7 +51,7 @@ LEFT JOIN (
 ) b ON (b.provider_thread_id = t.thread_id OR b.codex_thread_id = t.thread_id)
 WHERE t.status = 'created'
   AND (
-      sqlc.arg(cursor_created_at) = 0
+      sqlc.arg(cursor_thread_id) = ''
       OR t.created_at < sqlc.arg(cursor_created_at)
       OR (t.created_at = sqlc.arg(cursor_created_at) AND t.thread_id < sqlc.arg(cursor_thread_id))
   )

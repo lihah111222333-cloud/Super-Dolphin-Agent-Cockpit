@@ -84,6 +84,28 @@ func TestListThreadsRejectsOverLimit(t *testing.T) {
 	}
 }
 
+func TestThreadListRejectsTimestampOnlyCursor(t *testing.T) {
+	t.Parallel()
+
+	for _, loaded := range []bool{false, true} {
+		store := &pageAwareThreadStore{}
+		svc := &service{threadStore: store}
+		req := ListPageRequest{Limit: 2, CursorCreatedAt: 123, CursorThreadID: " "}
+		var err error
+		if loaded {
+			_, err = svc.ListLoadedPage(context.Background(), req)
+		} else {
+			_, err = svc.ListPage(context.Background(), req)
+		}
+		if err == nil || !strings.Contains(err.Error(), "cursor_thread_id is required") {
+			t.Fatalf("loaded=%v error = %v, want incomplete cursor rejection", loaded, err)
+		}
+		if store.pageParams.Limit != 0 || store.loadedPageParams.Limit != 0 {
+			t.Fatalf("loaded=%v store was called: page=%#v loaded=%#v", loaded, store.pageParams, store.loadedPageParams)
+		}
+	}
+}
+
 // TestLoadedThreadsUsesSQLFilter 验证 loaded 线程页必须使用 store 的 SQL 过滤入口。
 func TestLoadedThreadsUsesSQLFilter(t *testing.T) {
 	t.Parallel()
