@@ -287,7 +287,7 @@ func (db *hookStoreQuerierStub) execCount(op string) int {
 }
 
 func hookReviewAfterCursor(review mcp.PendingHookReview, cursorCreatedAt time.Time, cursorHookCallID string) bool {
-	if cursorCreatedAt.IsZero() {
+	if cursorHookCallID == "" {
 		return true
 	}
 	if review.CreatedAt.After(cursorCreatedAt) {

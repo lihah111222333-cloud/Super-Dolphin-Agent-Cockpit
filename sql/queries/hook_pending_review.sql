@@ -35,9 +35,9 @@ FROM hook_pending_reviews
 WHERE agent_id = sqlc.arg(agent_id)
   AND status = 'pending'
   AND (
-      sqlc.arg(cursor_created_at) = 0
+      CAST(sqlc.arg(cursor_hook_call_id) AS TEXT) = ''
       OR created_at > sqlc.arg(cursor_created_at)
-      OR (created_at = sqlc.arg(cursor_created_at) AND hook_call_id > sqlc.arg(cursor_hook_call_id))
+      OR (created_at = sqlc.arg(cursor_created_at) AND hook_call_id > CAST(sqlc.arg(cursor_hook_call_id) AS TEXT))
   )
 ORDER BY created_at ASC, hook_call_id ASC
 LIMIT sqlc.arg(limit) + 1;

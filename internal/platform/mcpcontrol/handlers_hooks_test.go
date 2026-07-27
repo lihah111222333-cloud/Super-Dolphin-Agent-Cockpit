@@ -153,6 +153,21 @@ func TestHookPendingHandler_SharedServiceUsesRequestedAgentID(t *testing.T) {
 	requirePendingResponse(t, resp, "call-shared", 25, false)
 }
 
+func TestValidateHookPendingInputAllowsZeroTimestampCursorWithID(t *testing.T) {
+	t.Parallel()
+
+	req := dto.HookPendingRequest{
+		Limit: 1,
+		Cursor: &dto.HookPendingCursor{
+			CreatedAt:  time.Time{},
+			HookCallID: "call-zero",
+		},
+	}
+	if err := validateHookPendingInput(req); err != nil {
+		t.Fatalf("validateHookPendingInput() error = %v, want valid zero timestamp cursor", err)
+	}
+}
+
 // TestHookPendingHandler_SharedServiceRequiresAgentID 验证共享服务缺少 agent 时 fail-fast。
 func TestHookPendingHandler_SharedServiceRequiresAgentID(t *testing.T) {
 	t.Parallel()

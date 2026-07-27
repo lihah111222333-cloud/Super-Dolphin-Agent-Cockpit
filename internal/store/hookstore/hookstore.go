@@ -352,8 +352,8 @@ func normalizeHookPendingReviewPageParams(params contract.HookPendingReviewPageP
 	if params.Limit > contract.HookPendingReviewMaxPageLimit {
 		params.Limit = contract.HookPendingReviewMaxPageLimit
 	}
-	if params.CursorCreatedAt.IsZero() {
-		params.CursorHookCallID = ""
+	if params.CursorHookCallID == "" && !params.CursorCreatedAt.IsZero() {
+		return params, fmt.Errorf("hook pending review cursor requires hook call ID")
 	}
 	return params, nil
 }

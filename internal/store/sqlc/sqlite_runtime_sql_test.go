@@ -179,6 +179,44 @@ func TestAgentThreadPagesDoNotExpandRowsForBindingAliases(t *testing.T) {
 	assertDistinctThreadLookahead(t, loadedRows[0].ThreadID, loadedRows[0].AgentID, loadedRows[1].ThreadID, len(loadedRows))
 }
 
+func TestHookPendingReviewPageContinuesAfterZeroTimestampCursor(t *testing.T) {
+	t.Parallel()
+
+	db := openSQLCTestSQLiteDB(t)
+	q := New(db)
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO hook_pending_reviews(
+			hook_call_id, topic, agent_id, payload, status, created_at, deadline_at
+		) VALUES
+			('call-zero-a', 'topic/a', 'agent-zero', CAST('{}' AS BLOB), 'pending', 0, 10),
+			('call-zero-b', 'topic/b', 'agent-zero', CAST('{}' AS BLOB), 'pending', 0, 10)
+	`); err != nil {
+		t.Fatalf("insert zero timestamp hook reviews: %v", err)
+	}
+
+	first, err := q.ListHookPendingReviewsByAgentPage(ctx, ListHookPendingReviewsByAgentPageParams{
+		AgentID: "agent-zero", CursorCreatedAt: int64(0), CursorHookCallID: "", Limit: int64(1),
+	})
+	if err != nil {
+		t.Fatalf("ListHookPendingReviewsByAgentPage(first) error = %v", err)
+	}
+	if len(first) != 2 || first[0].HookCallID != "call-zero-a" {
+		t.Fatalf("first page lookahead = %+v, want call-zero-a then call-zero-b", first)
+	}
+
+	second, err := q.ListHookPendingReviewsByAgentPage(ctx, ListHookPendingReviewsByAgentPageParams{
+		AgentID: "agent-zero", CursorCreatedAt: first[0].CreatedAt,
+		CursorHookCallID: first[0].HookCallID, Limit: int64(1),
+	})
+	if err != nil {
+		t.Fatalf("ListHookPendingReviewsByAgentPage(second) error = %v", err)
+	}
+	if len(second) != 1 || second[0].HookCallID != "call-zero-b" {
+		t.Fatalf("second page = %+v, want call-zero-b without restarting", second)
+	}
+}
+
 func assertDistinctThreadLookahead(t *testing.T, firstThreadID, firstAgentID, secondThreadID string, rowCount int) {
 	t.Helper()
 	if rowCount != 2 || firstThreadID != "thread-new" || firstAgentID != "alias-new" || secondThreadID != "thread-old" {

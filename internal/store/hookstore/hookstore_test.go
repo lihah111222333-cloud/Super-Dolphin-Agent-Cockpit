@@ -153,6 +153,56 @@ func TestListPendingReviewsCapsLimit(t *testing.T) {
 	}
 }
 
+func TestListPendingReviewsPageContinuesAfterZeroTimestampCursor(t *testing.T) {
+	t.Parallel()
+
+	zero := time.Time{}
+	deadline := time.Unix(60, 0).UTC()
+	store, _ := newTestStore(
+		testRecord{review: testPendingReview("call-zero-a", "agent-zero", "reject", zero, deadline), status: "pending"},
+		testRecord{review: testPendingReview("call-zero-b", "agent-zero", "reject", zero, deadline), status: "pending"},
+	)
+
+	first, err := store.ListPendingReviewsPage(context.Background(), contract.HookPendingReviewPageParams{
+		AgentID: "agent-zero",
+		Limit:   1,
+	})
+	if err != nil {
+		t.Fatalf("ListPendingReviewsPage(first) error = %v", err)
+	}
+	if !first.HasMore || len(first.Reviews) != 1 || first.Reviews[0].HookCallID != "call-zero-a" ||
+		!first.NextCursorCreatedAt.IsZero() || first.NextCursorHookCallID != "call-zero-a" {
+		t.Fatalf("first page = %+v, want zero-time cursor at call-zero-a", first)
+	}
+
+	second, err := store.ListPendingReviewsPage(context.Background(), contract.HookPendingReviewPageParams{
+		AgentID:          "agent-zero",
+		Limit:            1,
+		CursorCreatedAt:  first.NextCursorCreatedAt,
+		CursorHookCallID: first.NextCursorHookCallID,
+	})
+	if err != nil {
+		t.Fatalf("ListPendingReviewsPage(second) error = %v", err)
+	}
+	if len(second.Reviews) != 1 || second.Reviews[0].HookCallID != "call-zero-b" {
+		t.Fatalf("second page = %+v, want call-zero-b without restarting", second)
+	}
+}
+
+func TestListPendingReviewsPageRejectsTimestampWithoutCursorID(t *testing.T) {
+	t.Parallel()
+
+	store, _ := newTestStore()
+	_, err := store.ListPendingReviewsPage(context.Background(), contract.HookPendingReviewPageParams{
+		AgentID:         "agent-cursor",
+		Limit:           1,
+		CursorCreatedAt: time.Unix(1, 0).UTC(),
+	})
+	if err == nil || !strings.Contains(err.Error(), "cursor requires hook call ID") {
+		t.Fatalf("ListPendingReviewsPage() error = %v, want incomplete cursor rejection", err)
+	}
+}
+
 func testPendingReview(hookCallID, agentID, defaultAction string, createdAt, deadlineAt time.Time) mcp.PendingHookReview {
 	return mcp.PendingHookReview{
 		HookCallID:      hookCallID,

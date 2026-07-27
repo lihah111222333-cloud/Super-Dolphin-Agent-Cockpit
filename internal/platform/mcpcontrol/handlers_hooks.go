@@ -80,7 +80,8 @@ func resolveHookPendingAgentID(instance *ToolInstance, req dto.HookPendingReques
 	}
 }
 
-// validateHookPendingInput 校验 pending 分页请求，缺 limit 或半个 cursor 都必须 fail-fast。
+// validateHookPendingInput 校验 pending 分页请求；cursor 对象以 hook_call_id 区分首页，
+// created_at 零值是数据库允许的合法 keyset 值。
 func validateHookPendingInput(req dto.HookPendingRequest) error {
 	if req.Limit <= 0 {
 		return newHookInvalidParams("hook pending requires limit")
@@ -91,8 +92,8 @@ func validateHookPendingInput(req dto.HookPendingRequest) error {
 	if req.Cursor == nil {
 		return nil
 	}
-	if req.Cursor.CreatedAt.IsZero() || strings.TrimSpace(req.Cursor.HookCallID) == "" {
-		return newHookInvalidParams("hook pending cursor requires created_at and hook_call_id")
+	if strings.TrimSpace(req.Cursor.HookCallID) == "" {
+		return newHookInvalidParams("hook pending cursor requires hook_call_id")
 	}
 	return nil
 }

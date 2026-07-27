@@ -260,9 +260,9 @@ FROM hook_pending_reviews
 WHERE agent_id = ?1
   AND status = 'pending'
   AND (
-      ?2 = 0
-      OR created_at > ?2
-      OR (created_at = ?2 AND hook_call_id > ?3)
+      CAST(?2 AS TEXT) = ''
+      OR created_at > ?3
+      OR (created_at = ?3 AND hook_call_id > CAST(?2 AS TEXT))
   )
 ORDER BY created_at ASC, hook_call_id ASC
 LIMIT ?4 + 1
@@ -270,8 +270,8 @@ LIMIT ?4 + 1
 
 type ListHookPendingReviewsByAgentPageParams struct {
 	AgentID          string `db:"agent_id" json:"agent_id"`
-	CursorCreatedAt  any    `db:"cursor_created_at" json:"cursor_created_at"`
 	CursorHookCallID string `db:"cursor_hook_call_id" json:"cursor_hook_call_id"`
+	CursorCreatedAt  int64  `db:"cursor_created_at" json:"cursor_created_at"`
 	Limit            any    `db:"limit" json:"limit"`
 }
 
@@ -292,8 +292,8 @@ type ListHookPendingReviewsByAgentPageRow struct {
 func (q *Queries) ListHookPendingReviewsByAgentPage(ctx context.Context, arg ListHookPendingReviewsByAgentPageParams) ([]ListHookPendingReviewsByAgentPageRow, error) {
 	rows, err := q.db.QueryContext(ctx, listHookPendingReviewsByAgentPage,
 		arg.AgentID,
-		arg.CursorCreatedAt,
 		arg.CursorHookCallID,
+		arg.CursorCreatedAt,
 		arg.Limit,
 	)
 	if err != nil {
