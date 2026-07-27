@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
@@ -287,7 +288,7 @@ func suggestedIdentifierColumns(lineText string) []map[string]any {
 		identifier := lineText[match[0]:match[1]]
 		suggestions = append(suggestions, map[string]any{
 			"identifier": identifier,
-			"column":     match[0] + 1,
+			"column":     utf8.RuneCountInString(lineText[:match[0]]) + 1,
 		})
 	}
 	return suggestions

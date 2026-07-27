@@ -155,6 +155,55 @@ func TestResolveFilePositionRequestSuggestsNearbyIdentifierForBlankLine(t *testi
 	}
 }
 
+func TestSuggestedIdentifierColumnsUseOneBasedRuneColumns(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		lineText string
+	}{
+		{name: "CJK prefix", lineText: "界 target"},
+		{name: "emoji prefix", lineText: "🙂 target"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			suggestions := suggestedIdentifierColumns(tc.lineText)
+			for _, suggestion := range suggestions {
+				if suggestion["identifier"] == "target" && suggestion["column"] == 3 {
+					return
+				}
+			}
+			t.Fatalf("suggestedIdentifierColumns(%q) = %#v, want target at one-based rune column 3", tc.lineText, suggestions)
+		})
+	}
+}
+
+func TestResolveFilePositionRequestNearbySuggestionUsesRuneColumn(t *testing.T) {
+	dir := t.TempDir()
+	writePositionFixture(t, dir, "sample.go", "package sample\n\n界 target\n")
+
+	_, _, err := resolveFilePositionRequest(testToolContext(dir), filePositionParams{
+		Pos: "sample.go:2:6",
+	})
+	if err == nil {
+		t.Fatalf("resolveFilePositionRequest returned nil error, want position_out_of_range")
+	}
+
+	var coded *common.CodedToolError
+	if !errors.As(err, &coded) {
+		t.Fatalf("error type = %T, want *common.CodedToolError", err)
+	}
+	suggestions, ok := coded.Meta["nearby_suggested_columns"].([]map[string]any)
+	if !ok || len(suggestions) == 0 {
+		t.Fatalf("nearby_suggested_columns = %#v, want at least one suggestion", coded.Meta["nearby_suggested_columns"])
+	}
+	for _, suggestion := range suggestions {
+		if suggestion["line"] == 3 && suggestion["identifier"] == "target" && suggestion["column"] == 3 {
+			return
+		}
+	}
+	t.Fatalf("nearby_suggested_columns = %#v, want target at line 3 one-based rune column 3", suggestions)
+}
+
 func TestEnrichIdentifierNotFoundErrorSuggestsImplementationMethodColumn(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "adapter.go")
