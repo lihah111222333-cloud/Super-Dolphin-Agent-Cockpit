@@ -148,6 +148,20 @@ func TestScanUsesCanonicalTargetsAndBuildTagsDeterministically(t *testing.T) {
 	}
 }
 
+func TestCanonicalTargetsCoverReleasePackageMatrix(t *testing.T) {
+	want := []string{
+		"darwin/amd64",
+		"darwin/arm64",
+		"linux/amd64",
+		"linux/arm64",
+		"windows/amd64",
+		"windows/arm64",
+	}
+	if !reflect.DeepEqual(canonicalTargets, want) {
+		t.Fatalf("canonicalTargets = %#v, want release package matrix %#v", canonicalTargets, want)
+	}
+}
+
 func writeScanFixture(t *testing.T, dir, path, body string) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {

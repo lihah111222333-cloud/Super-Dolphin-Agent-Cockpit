@@ -349,12 +349,12 @@ internal/contract/thread.go	internal	other	go-source	3778	跨模块稳定接口�
 internal/contract/toolbridge.go	internal	other	go-source	4928	跨模块稳定接口、事件和 DTO 边界	internal,contract,toolbridge,跨模块稳定接口,事件和,DTO,边界
 internal/contract/ui_project_state.go	internal	other	go-source	623	跨模块稳定接口、事件和 DTO 边界	internal,contract,ui,project,state,跨模块稳定接口,事件和,DTO,边界
 internal/contract/wire_omitzero_test.go	internal	other	go-test	1832	跨模块稳定接口、事件和 DTO 边界	internal,contract,wire,omitzero,test,跨模块稳定接口,事件和,DTO,边界
-internal/devtools/capcontract/manifest_test.go	internal	other	go-test	3914	开发工具与生成器辅助包	internal,devtools,capcontract,manifest,test,开发工具与生成器辅助包
+internal/devtools/capcontract/manifest_test.go	internal	other	go-test	4013	开发工具与生成器辅助包	internal,devtools,capcontract,manifest,test,开发工具与生成器辅助包
 internal/devtools/capcontract/manifest.go	internal	other	go-source	9607	开发工具与生成器辅助包	internal,devtools,capcontract,manifest,开发工具与生成器辅助包
 internal/devtools/capcontract/path_rules_test.go	internal	other	go-test	5760	开发工具与生成器辅助包	internal,devtools,capcontract,path,rules,test,开发工具与生成器辅助包
 internal/devtools/capcontract/path_rules.go	internal	other	go-source	9115	开发工具与生成器辅助包	internal,devtools,capcontract,path,rules,开发工具与生成器辅助包
-internal/devtools/capcontract/scanner_test.go	internal	other	go-test	7081	开发工具与生成器辅助包	internal,devtools,capcontract,scanner,test,开发工具与生成器辅助包
-internal/devtools/capcontract/scanner.go	internal	other	go-source	17965	开发工具与生成器辅助包	internal,devtools,capcontract,scanner,开发工具与生成器辅助包
+internal/devtools/capcontract/scanner_test.go	internal	other	go-test	7427	开发工具与生成器辅助包	internal,devtools,capcontract,scanner,test,开发工具与生成器辅助包
+internal/devtools/capcontract/scanner.go	internal	other	go-source	18006	开发工具与生成器辅助包	internal,devtools,capcontract,scanner,开发工具与生成器辅助包
 internal/devtools/codemapindex/anchor_test.go	internal	other	go-test	3795	开发工具与生成器辅助包	internal,devtools,codemapindex,anchor,test,开发工具与生成器辅助包
 internal/devtools/codemapindex/anchor.go	internal	other	go-source	261	开发工具与生成器辅助包	internal,devtools,codemapindex,anchor,开发工具与生成器辅助包
 internal/devtools/codemapindex/readme_sync.go	internal	other	go-source	3732	开发工具与生成器辅助包	internal,devtools,codemapindex,readme,sync,开发工具与生成器辅助包
