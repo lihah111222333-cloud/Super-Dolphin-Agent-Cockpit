@@ -4,6 +4,11 @@ DROP INDEX IF EXISTS idx_prompt_templates_enabled;
 -- SPLIT --
 DROP INDEX IF EXISTS idx_prompt_templates_auto_route;
 -- SPLIT --
+CREATE TEMP TABLE prompt_template_sections_111_backup AS
+SELECT id, template_id, section_key, region, ordinal, body, enable_when, enabled,
+       created_at, updated_at, trigger_type, recall_topic
+FROM prompt_template_sections;
+-- SPLIT --
 CREATE TABLE prompt_templates_new (
     id INTEGER PRIMARY KEY,
     prompt_key TEXT NOT NULL UNIQUE,
@@ -44,6 +49,16 @@ FROM prompt_templates;
 DROP TABLE prompt_templates;
 -- SPLIT --
 ALTER TABLE prompt_templates_new RENAME TO prompt_templates;
+-- SPLIT --
+INSERT INTO prompt_template_sections (
+    id, template_id, section_key, region, ordinal, body, enable_when, enabled,
+    created_at, updated_at, trigger_type, recall_topic
+)
+SELECT id, template_id, section_key, region, ordinal, body, enable_when, enabled,
+       created_at, updated_at, trigger_type, recall_topic
+FROM prompt_template_sections_111_backup;
+-- SPLIT --
+DROP TABLE prompt_template_sections_111_backup;
 -- SPLIT --
 CREATE INDEX IF NOT EXISTS idx_prompt_templates_agent_tool ON prompt_templates(agent_key, tool_name);
 -- SPLIT --
