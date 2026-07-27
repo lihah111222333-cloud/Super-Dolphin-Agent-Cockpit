@@ -15,6 +15,9 @@ func TestValidateResolvedIPRejectsUnsafeAddresses(t *testing.T) {
 	}{
 		{name: "loopback", addr: "127.0.0.1"},
 		{name: "private", addr: "10.0.0.5"},
+		{name: "cgnat first", addr: "100.64.0.0"},
+		{name: "cgnat last", addr: "100.127.255.255"},
+		{name: "cgnat ipv4 mapped", addr: "::ffff:100.64.0.1"},
 		{name: "link local", addr: "169.254.169.254"},
 		{name: "unspecified", addr: "0.0.0.0"},
 	}
@@ -30,8 +33,10 @@ func TestValidateResolvedIPRejectsUnsafeAddresses(t *testing.T) {
 }
 
 func TestValidateResolvedIPAllowsPublicAddress(t *testing.T) {
-	if err := ValidateResolvedIP("example.com", netip.MustParseAddr("93.184.216.34")); err != nil {
-		t.Fatalf("ValidateResolvedIP() error = %v, want public address allowed", err)
+	for _, raw := range []string{"93.184.216.34", "100.63.255.255", "100.128.0.0"} {
+		if err := ValidateResolvedIP("example.com", netip.MustParseAddr(raw)); err != nil {
+			t.Fatalf("ValidateResolvedIP(%s) error = %v, want public address allowed", raw, err)
+		}
 	}
 }
 

@@ -26,6 +26,8 @@ var unsafeHeaderNames = map[string]struct{}{
 	"upgrade":             {},
 }
 
+var carrierGradeNATPrefix = netip.MustParsePrefix("100.64.0.0/10")
+
 // ValidatePublicURL 校验出站 HTTP URL 只能指向公网主机，避免 SSRF 访问本机、内网或云元数据地址。
 func ValidatePublicURL(rawURL string) (string, error) {
 	trimmed := strings.TrimSpace(rawURL)
@@ -182,11 +184,12 @@ func isUnsafeHTTPHost(host string) bool {
 	return !strings.Contains(normalized, ".")
 }
 
-// isUnsafeHTTPAddr 判断解析后的 IP 是否属于本机、内网、链路本地、多播或未指定地址。
+// isUnsafeHTTPAddr 判断解析后的 IP 是否属于本机、内网、CGNAT、链路本地、多播或未指定地址。
 func isUnsafeHTTPAddr(addr netip.Addr) bool {
 	addr = addr.Unmap()
 	return !addr.IsGlobalUnicast() ||
 		addr.IsPrivate() ||
+		carrierGradeNATPrefix.Contains(addr) ||
 		addr.IsLoopback() ||
 		addr.IsLinkLocalUnicast() ||
 		addr.IsLinkLocalMulticast() ||

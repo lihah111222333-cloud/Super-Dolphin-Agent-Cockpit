@@ -434,8 +434,8 @@ internal/platform/hooks/runner_provider.go	internal	platform-provider	go-source	
 internal/platform/hooks/subscribers_test.go	internal	platform-provider	go-test	2410	hook 配置、执行与三阶段拦截	internal,platform,hooks,subscribers,test,hook,配置,执行与三阶段拦截
 internal/platform/hooks/subscribers.go	internal	platform-provider	go-source	1121	hook 配置、执行与三阶段拦截	internal,platform,hooks,subscribers,hook,配置,执行与三阶段拦截
 internal/platform/hooks/test_helpers_test.go	internal	platform-provider	go-test	5788	hook 配置、执行与三阶段拦截	internal,platform,hooks,test,helpers,hook,配置,执行与三阶段拦截
-internal/platform/httpegress/policy_test.go	internal	platform-provider	go-test	1461	基础设施层	internal,platform,httpegress,policy,test,基础设施层
-internal/platform/httpegress/policy.go	internal	platform-provider	go-source	6211	基础设施层	internal,platform,httpegress,policy,基础设施层
+internal/platform/httpegress/policy_test.go	internal	platform-provider	go-test	1696	基础设施层	internal,platform,httpegress,policy,test,基础设施层
+internal/platform/httpegress/policy.go	internal	platform-provider	go-source	6329	基础设施层	internal,platform,httpegress,policy,基础设施层
 internal/platform/mcpcontrol/config_change_test.go	internal	platform-provider	go-test	14106	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,config,change,test,MCP,控制平面与,peer,注册
 internal/platform/mcpcontrol/config_change.go	internal	platform-provider	go-source	5676	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,config,change,MCP,控制平面与,peer,注册
 internal/platform/mcpcontrol/config_fanout_worker_test.go	internal	platform-provider	go-test	9984	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,config,fanout,worker,test,MCP,控制平面与,peer,注册
