@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -16,16 +15,16 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/capcontract"
 )
 
-var agentIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
-
 var aiMaintenanceFiles = map[string]bool{
 	"Makefile":                                   true,
 	"scripts/ai_maintenance_gates.sh":            true,
 	"scripts/ai_maintenance_gates_guard_test.go": true,
+	"scripts/codex_stop_gate.sh":                 true,
 	"scripts/configure_hook_node_runtime.sh":     true,
 	"scripts/frontend_embed_verify.sh":           true,
 	"scripts/refresh_generated_artifacts.sh":     true,
 	"scripts/sqlc_verify_worktree.sh":            true,
+	"scripts/tests/test_codex_stop_gate_plan.sh": true,
 	"scripts/test_with_guard.ps1":                true,
 	"scripts/test_with_guard.sh":                 true,
 }
@@ -46,6 +45,14 @@ var frontendStaticGuardFiles = map[string]bool{
 	"frontend-app/scripts/frontend-dependency-direction-registry.json":  true,
 	"frontend-app/scripts/frontend-dependency-direction-guard.mjs":      true,
 	"frontend-app/scripts/frontend-dependency-direction-guard.test.mjs": true,
+}
+
+var codemapExactFiles = map[string]bool{
+	".ai-project-map.overrides.json":      true,
+	"README.md":                           true,
+	"scripts/codemap_index.go":            true,
+	"scripts/codemap_policy.txt":          true,
+	"scripts/generate_ai_project_map.mjs": true,
 }
 
 var coreBackendGatePackages = []string{
@@ -263,14 +270,21 @@ func filterDeferredE2E(plan gatePlan, skip bool) (gatePlan, error) {
 	if !skip {
 		return plan, nil
 	}
+	repoRoot, err := capcontract.FindRepoRoot(".")
+	if err != nil {
+		return gatePlan{}, fmt.Errorf("resolve deferred E2E package owner: %w", err)
+	}
 	packages, err := excludeDeferredE2EGoPackages(
 		plan.AffectedGoPackages,
-		"scripts/ai_maintenance/deferred_e2e_packages.txt",
+		filepath.Join(repoRoot, "scripts", "ai_maintenance", "deferred_e2e_packages.txt"),
 	)
 	if err != nil {
 		return gatePlan{}, err
 	}
 	plan.AffectedGoPackages = packages
+	if len(packages) == 0 {
+		plan.RequiredGates = removeGate(plan.RequiredGates, "backend:test_with_guard")
+	}
 	return plan, nil
 }
 
@@ -361,7 +375,10 @@ func buildGatePlanForRepo(repoRoot string, files []string) (gatePlan, error) {
 	plan.GeneratedFiles = sortedKeys(generated)
 	plan.RequiresEvidenceDoc = len(plan.RequiredEvidence) > 0
 	if backendChanged {
-		plan.AffectedGoPackages = affectedGoPackages(normalized)
+		plan.AffectedGoPackages, err = affectedGoPackages(repoRoot, normalized)
+		if err != nil {
+			return gatePlan{}, err
+		}
 	}
 	return plan, nil
 }
@@ -372,9 +389,7 @@ func applyFileGateRules(file string, capabilityRules capcontract.PathRules, turn
 	if err := applyCapabilityContractGateRules(file, capabilityRules, gates, evidence, generated); err != nil {
 		return false, err
 	}
-	if aiMaintenanceRelevant(file) {
-		gates["ai-maintenance:self-test"] = true
-	}
+	applyOwnedGateRules(file, gates)
 	if applyGateInfrastructureRules(file, gates) {
 		backendChanged = true
 	}
@@ -535,58 +550,6 @@ func criticalTypecheckRelevant(file string) bool {
 			!isFrontendTestFile(strings.TrimPrefix(file, "frontend-app/")))
 }
 
-// affectedGoPackages 对普通变更只保留直接包；全局输入或无法定位包时才使用广域回归集合。
-func affectedGoPackages(files []string) []string {
-	packages := map[string]bool{}
-	for _, file := range files {
-		if pkg, ok := changedGoPackage(file); ok {
-			if pkg == "./internal/archtest" {
-				continue
-			}
-			packages[pkg] = true
-		}
-	}
-	if requiresBroadBackendRegression(files) || len(packages) == 0 {
-		for _, pkg := range coreBackendGatePackages {
-			packages[pkg] = true
-		}
-	}
-	return sortedKeys(packages)
-}
-
-func requiresBroadBackendRegression(files []string) bool {
-	for _, file := range files {
-		if goModuleFile(file) {
-			return true
-		}
-		switch file {
-		case "Makefile", "scripts/forbid_raw_go_test.sh", "scripts/real_go_resolver.sh",
-			"scripts/test_with_guard.sh", "scripts/test_with_guard.ps1":
-			return true
-		}
-	}
-	return false
-}
-
-func changedGoPackage(file string) (string, bool) {
-	if !strings.HasSuffix(file, ".go") {
-		return "", false
-	}
-	switch {
-	case strings.HasPrefix(file, "cmd/"),
-		strings.HasPrefix(file, "internal/"),
-		strings.HasPrefix(file, "pkg/"),
-		strings.HasPrefix(file, "scripts/"):
-		dir := filepath.ToSlash(filepath.Dir(file))
-		if dir == "." || dir == "" {
-			return "", false
-		}
-		return "./" + dir, true
-	default:
-		return "", false
-	}
-}
-
 func requireLSPEvidence(file string, evidence map[string]bool) {
 	evidence["lsp:diagnostics"] = true
 	if sourceLike(file) {
@@ -594,104 +557,6 @@ func requireLSPEvidence(file string, evidence map[string]bool) {
 		evidence["lsp:inspect"] = true
 		evidence["lsp:xref"] = true
 		evidence["lsp:read_file"] = true
-	}
-}
-
-// statusEvidenceProblems 校验 evidence 状态字段之间的一致性，先于命令和 LSP 证据校验执行。
-func statusEvidenceProblems(doc evidenceDoc) []string {
-	problems := agentIDEvidenceProblems(doc)
-	problems = append(problems, statusValueProblems(doc)...)
-	return append(problems, blockerStatusProblems(doc)...)
-}
-
-// agentIDEvidenceProblems 要求 agentid 是平台 UUID，避免 worker-1 这类不可追溯别名混入证据链。
-func agentIDEvidenceProblems(doc evidenceDoc) []string {
-	if strings.TrimSpace(doc.AgentID) == "" {
-		return []string{"missing AGENTID"}
-	}
-	if !agentIDPattern.MatchString(strings.TrimSpace(doc.AgentID)) {
-		return []string{"AGENTID must be exact platform UUID"}
-	}
-	return nil
-}
-
-// statusValueProblems 限定 evidence 状态枚举，防止自由文本状态被当成可验收结果。
-func statusValueProblems(doc evidenceDoc) []string {
-	if strings.TrimSpace(doc.Status) == "" {
-		return []string{"missing STATUS"}
-	}
-	if doc.Status != "" && doc.Status != "DONE_WITH_EVIDENCE" && doc.Status != "BLOCKED" && doc.Status != "PLAN_BLOCKER" {
-		return []string{"unsupported STATUS " + doc.Status}
-	}
-	return nil
-}
-
-// blockerStatusProblems 区分完成报告和阻塞报告：完成不能带 blocker，阻塞必须说明 blocker。
-func blockerStatusProblems(doc evidenceDoc) []string {
-	var problems []string
-	if doc.Status == "DONE_WITH_EVIDENCE" && len(doc.CommandsRun) == 0 {
-		problems = append(problems, "DONE_WITH_EVIDENCE requires COMMANDS_RUN")
-	}
-	if doc.Status == "DONE_WITH_EVIDENCE" && len(doc.Blockers) > 0 {
-		problems = append(problems, "DONE_WITH_EVIDENCE must not include BLOCKERS")
-	}
-	if doc.Status == "BLOCKED" || doc.Status == "PLAN_BLOCKER" {
-		if len(doc.Blockers) == 0 {
-			problems = append(problems, doc.Status+" requires BLOCKERS")
-		}
-	}
-	return problems
-}
-
-// lspEvidenceProblems 确认计划要求的每一类 LSP 证据都明确 PASS。
-func lspEvidenceProblems(doc evidenceDoc, plan gatePlan) []string {
-	var problems []string
-	for _, want := range plan.RequiredEvidence {
-		if key, ok := strings.CutPrefix(want, "lsp:"); ok {
-			if !evidencePassed(doc.LSPEvidence[key]) {
-				problems = append(problems, "missing or non-pass LSP evidence "+key)
-			}
-		}
-	}
-	return problems
-}
-
-func diffScopeProblems(doc evidenceDoc, plan gatePlan) []string {
-	if len(plan.ChangedFiles) > 0 && !sameStringSet(plan.ChangedFiles, doc.OwnedFilesChanged) {
-		return []string{"OWNED_FILES_CHANGED does not match changed files"}
-	}
-	return nil
-}
-
-func generatedEvidenceProblems(doc evidenceDoc, plan gatePlan) []string {
-	var problems []string
-	for _, generatedFile := range plan.GeneratedFiles {
-		if !generatedEvidencePresent(doc.GeneratedFiles, generatedFile) {
-			problems = append(problems, "generated file lacks check-failed plus refresh evidence: "+generatedFile)
-		}
-	}
-	return problems
-}
-
-func gateEvidenceCommandFragments() map[string][]string {
-	return map[string][]string{
-		"ai-maintenance:self-test":     {"go test ./scripts/ai_maintenance", "go test ./scripts -run TestAIMaintenanceGate"},
-		"backend:archtest":             {"./scripts/test_with_guard.sh", "--archtest-only"},
-		"backend:test_with_guard":      {"./scripts/test_with_guard.sh"},
-		"backend:race":                 {"./scripts/test_with_guard.sh", "--race-only"},
-		"backend:nilness":              {"go run ./scripts/nilness_guard.go"},
-		"lsp:changed-diagnostics":      {"go run ./scripts/lsp_diagnostics_gate"},
-		"capcontract:check":            {"make capcontract-check"},
-		"turncontract:verify":          {"go run ./scripts/turncontract --verify", "go test ./internal/dto/turn -run ^TestTurnContractFieldGuard", "node frontend-app/scripts/turn-contract-field-guard.mjs"},
-		"frontend:static-guards":       {"npm run guard:architecture"},
-		"frontend:lint":                {"npm run lint"},
-		"frontend:typecheck-contracts": {"npm run typecheck:contracts"},
-		"frontend:changed-tests":       {"npx vitest run"},
-		"frontend:embed-verify":        {"make frontend-embed-verify"},
-		"frontend:performance-verify":  {"npm run performance:verify"},
-		"codemap:check":                {"make codemap-check"},
-		"project-map:check":            {"make project-map-check"},
-		"sqlc:verify":                  {"make sqlc-verify-worktree", "make sqlc-verify"},
 	}
 }
 
@@ -743,14 +608,15 @@ func normalizeFiles(files []string) []string {
 
 // codemapRelevant 判断变更是否可能影响手写代码地图或其符号索引。
 func codemapRelevant(file string) bool {
-	return strings.HasPrefix(file, "cmd/") ||
-		strings.HasPrefix(file, "internal/") ||
-		strings.HasPrefix(file, "pkg/") ||
-		strings.HasPrefix(file, "frontend-app/src/") ||
-		strings.HasPrefix(file, "docs/doc/codemap/") ||
-		file == ".ai-project-map.overrides.json" ||
-		file == "scripts/generate_ai_project_map.mjs" ||
-		file == "scripts/codemap_index.go"
+	if codemapExactFiles[file] {
+		return true
+	}
+	for _, prefix := range []string{"cmd/", "internal/", "pkg/", "frontend-app/src/", "docs/doc/codemap/", "scripts/archtestmap/"} {
+		if strings.HasPrefix(file, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // projectMapRelevant mirrors the generator's indexed roots so path or size drift is never skipped.
@@ -773,8 +639,11 @@ func projectMapRelevant(file string) bool {
 	}
 }
 
+// generatedCodemapFile 识别由代码地图生成器拥有、不得手工漂移的产物。
 func generatedCodemapFile(file string) bool {
-	return file == "docs/doc/codemap/ai-index.json" ||
+	return file == "README.md" ||
+		file == "docs/doc/codemap/13-archtest-boundaries.md" ||
+		file == "docs/doc/codemap/ai-index.json" ||
 		file == "docs/doc/codemap/README.md" ||
 		file == "docs/doc/codemap/capability-contract/capability_manifest.json" ||
 		strings.HasPrefix(file, "docs/doc/codemap/project-map/")
@@ -798,9 +667,15 @@ func orderedGates(values map[string]bool) []string {
 		"frontend:lint",
 		"frontend:typecheck-contracts",
 		"frontend:changed-tests",
+		"frontend:e2e",
 		"frontend:embed-verify",
 		"frontend:performance-verify",
+		"workflow:actionlint",
+		"release:semantic-guards",
+		"codex-stop:self-test",
+		"nightly-protocol:check",
 		"backend:test_with_guard",
+		"backend:test-integrity",
 		"lsp:changed-diagnostics",
 		"backend:archtest",
 		"backend:nilness",

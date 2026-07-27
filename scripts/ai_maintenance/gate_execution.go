@@ -3,10 +3,13 @@ package main
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/capcontract"
 )
 
 type gateExecutionScope struct {
@@ -62,7 +65,7 @@ func gateRunners(plan gatePlan, executionScope gateExecutionScope) map[string]ga
 	cacheable := func(run func() error) gateRunner {
 		return gateRunner{cacheable: true, run: run}
 	}
-	return map[string]gateRunner{
+	runners := map[string]gateRunner{
 		"ai-maintenance:self-test": cacheable(func() error {
 			if err := runCommand("", "go", "test", "./scripts/ai_maintenance", "-count=1"); err != nil {
 				return err
@@ -126,6 +129,8 @@ func gateRunners(plan gatePlan, executionScope gateExecutionScope) map[string]ga
 		"sqlc:verify":       cacheable(func() error { return runCommand("", "make", "sqlc-verify-worktree") }),
 		"diff:whitespace":   {run: func() error { return runWhitespaceCheck(executionScope) }},
 	}
+	maps.Copy(runners, ownedGateRunners(plan))
+	return runners
 }
 
 func runTurnContractVerifyGate() error {
@@ -220,10 +225,26 @@ func existingDiagnosticFiles(files []string) (existing []string, deleted int, er
 	return existing, deleted, nil
 }
 
+// backendTestWithGuardArgs 从当前仓库根解析后端回归命令。
 func backendTestWithGuardArgs(plan gatePlan) ([]string, error) {
+	repoRoot, err := capcontract.FindRepoRoot(".")
+	if err != nil {
+		return nil, fmt.Errorf("resolve backend regression owner: %w", err)
+	}
+	return backendTestWithGuardArgsForRepo(plan, repoRoot)
+}
+
+// backendTestWithGuardArgsForRepo 对删除或全局输入变化使用 ci-l1 的完整、分序工作区回归。
+func backendTestWithGuardArgsForRepo(plan gatePlan, repoRoot string) ([]string, error) {
+	fullRegression, err := requiresFullWorkspaceRegression(repoRoot, plan.ChangedFiles)
+	if err != nil {
+		return nil, err
+	}
+	if fullRegression {
+		return []string{"make", "ci-l1"}, nil
+	}
 	packages := plan.AffectedGoPackages
 	if !requiresBroadBackendRegression(plan.ChangedFiles) {
-		var err error
 		packages, err = resolveDirectReverseDependentPackages(packages)
 		if err != nil {
 			return nil, err

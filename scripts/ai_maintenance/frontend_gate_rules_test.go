@@ -34,6 +34,32 @@ func TestPushGatePlanAddsFrontendBuildAndPerformanceChecks(t *testing.T) {
 	assertStringSetContains(t, pushPlan.RequiredGates, "frontend:embed-verify", "frontend:performance-verify")
 }
 
+func TestPushGatePlanRoutesVitestExcludedE2EToExplicitCommands(t *testing.T) {
+	tests := []struct {
+		file   string
+		script string
+	}{
+		{"frontend-app/tests/e2e/business-flows.spec.js", "test:e2e:business"},
+		{"frontend-app/playwright.business-flows.config.js", "test:e2e:business"},
+		{"frontend-app/tests/e2e/desktop-wide.spec.js", "test:e2e:desktop-wide"},
+		{"frontend-app/playwright.desktop-wide.config.js", "test:e2e:desktop-wide"},
+		{"frontend-app/tests/e2e/desktop-failure.spec.js", "smoke:desktop:failure"},
+		{"frontend-app/tests/e2e/desktop-ux.spec.js", "smoke:desktop:ux"},
+	}
+	for _, test := range tests {
+		t.Run(test.file, func(t *testing.T) {
+			commitPlan := mustGatePlanForScope(t, []string{test.file}, false)
+			pushPlan := mustGatePlanForScope(t, []string{test.file}, true)
+			assertStringSetOmits(t, commitPlan.RequiredGates, "frontend:e2e", "frontend:changed-tests")
+			assertStringSetContains(t, pushPlan.RequiredGates, "frontend:e2e")
+			commands := frontendE2ECommands(pushPlan.ChangedFiles)
+			if len(commands) != 1 || commands[0].script != test.script {
+				t.Fatalf("frontend E2E commands = %#v, want %q", commands, test.script)
+			}
+		})
+	}
+}
+
 func TestBuildGatePlanRoutesFrontendChangedTestsWithoutFullNpmTest(t *testing.T) {
 	plan := mustBuildGatePlan(t, []string{"frontend-app/src/mainReadiness.js"})
 

@@ -4,10 +4,13 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 )
+
+var agentIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 // validateEvidenceFile 对 worker evidence 做 fail-fast 校验；任何缺失或不匹配都返回 BLOCK。
 func validateEvidenceFile(path string, plan gatePlan) error {
@@ -42,6 +45,113 @@ func completionEvidenceProblems(doc evidenceDoc, plan gatePlan) []string {
 	problems = append(problems, generatedEvidenceProblems(doc, plan)...)
 	problems = append(problems, gateCommandProblems(doc, plan)...)
 	return problems
+}
+
+// statusEvidenceProblems 校验 evidence 状态字段之间的一致性，先于命令和 LSP 证据校验执行。
+func statusEvidenceProblems(doc evidenceDoc) []string {
+	problems := agentIDEvidenceProblems(doc)
+	problems = append(problems, statusValueProblems(doc)...)
+	return append(problems, blockerStatusProblems(doc)...)
+}
+
+// agentIDEvidenceProblems 要求 agentid 是平台 UUID，避免 worker-1 这类不可追溯别名混入证据链。
+func agentIDEvidenceProblems(doc evidenceDoc) []string {
+	if strings.TrimSpace(doc.AgentID) == "" {
+		return []string{"missing AGENTID"}
+	}
+	if !agentIDPattern.MatchString(strings.TrimSpace(doc.AgentID)) {
+		return []string{"AGENTID must be exact platform UUID"}
+	}
+	return nil
+}
+
+// statusValueProblems 限定 evidence 状态枚举，防止自由文本状态被当成可验收结果。
+func statusValueProblems(doc evidenceDoc) []string {
+	if strings.TrimSpace(doc.Status) == "" {
+		return []string{"missing STATUS"}
+	}
+	if doc.Status != "" && doc.Status != "DONE_WITH_EVIDENCE" && doc.Status != "BLOCKED" && doc.Status != "PLAN_BLOCKER" {
+		return []string{"unsupported STATUS " + doc.Status}
+	}
+	return nil
+}
+
+// blockerStatusProblems 区分完成报告和阻塞报告：完成不能带 blocker，阻塞必须说明 blocker。
+func blockerStatusProblems(doc evidenceDoc) []string {
+	var problems []string
+	if doc.Status == "DONE_WITH_EVIDENCE" && len(doc.CommandsRun) == 0 {
+		problems = append(problems, "DONE_WITH_EVIDENCE requires COMMANDS_RUN")
+	}
+	if doc.Status == "DONE_WITH_EVIDENCE" && len(doc.Blockers) > 0 {
+		problems = append(problems, "DONE_WITH_EVIDENCE must not include BLOCKERS")
+	}
+	if doc.Status == "BLOCKED" || doc.Status == "PLAN_BLOCKER" {
+		if len(doc.Blockers) == 0 {
+			problems = append(problems, doc.Status+" requires BLOCKERS")
+		}
+	}
+	return problems
+}
+
+// lspEvidenceProblems 确认计划要求的每一类 LSP 证据都明确 PASS。
+func lspEvidenceProblems(doc evidenceDoc, plan gatePlan) []string {
+	var problems []string
+	for _, want := range plan.RequiredEvidence {
+		if key, ok := strings.CutPrefix(want, "lsp:"); ok {
+			if !evidencePassed(doc.LSPEvidence[key]) {
+				problems = append(problems, "missing or non-pass LSP evidence "+key)
+			}
+		}
+	}
+	return problems
+}
+
+// diffScopeProblems 验证证据声明的修改范围与计划路径完全一致。
+func diffScopeProblems(doc evidenceDoc, plan gatePlan) []string {
+	if len(plan.ChangedFiles) > 0 && !sameStringSet(plan.ChangedFiles, doc.OwnedFilesChanged) {
+		return []string{"OWNED_FILES_CHANGED does not match changed files"}
+	}
+	return nil
+}
+
+// generatedEvidenceProblems 要求每个生成物都记录先失败检查再刷新来源。
+func generatedEvidenceProblems(doc evidenceDoc, plan gatePlan) []string {
+	var problems []string
+	for _, generatedFile := range plan.GeneratedFiles {
+		if !generatedEvidencePresent(doc.GeneratedFiles, generatedFile) {
+			problems = append(problems, "generated file lacks check-failed plus refresh evidence: "+generatedFile)
+		}
+	}
+	return problems
+}
+
+// gateEvidenceCommandFragments 定义每个 gate 可接受的可审计命令证据片段。
+func gateEvidenceCommandFragments() map[string][]string {
+	return map[string][]string{
+		"ai-maintenance:self-test":     {"go test ./scripts/ai_maintenance", "go test ./scripts -run TestAIMaintenanceGate"},
+		"backend:archtest":             {"./scripts/test_with_guard.sh", "--archtest-only"},
+		"backend:test_with_guard":      {"./scripts/test_with_guard.sh", "make ci-l1"},
+		"backend:race":                 {"./scripts/test_with_guard.sh", "--race-only"},
+		"backend:nilness":              {"go run ./scripts/nilness_guard.go"},
+		"lsp:changed-diagnostics":      {"go run ./scripts/lsp_diagnostics_gate"},
+		"capcontract:check":            {"make capcontract-check"},
+		"turncontract:verify":          {"go run ./scripts/turncontract --verify", "go test ./internal/dto/turn -run ^TestTurnContractFieldGuard", "node frontend-app/scripts/turn-contract-field-guard.mjs"},
+		"frontend:static-guards":       {"npm run guard:architecture"},
+		"frontend:lint":                {"npm run lint"},
+		"frontend:typecheck-contracts": {"npm run typecheck:contracts"},
+		"frontend:changed-tests":       {"npx vitest run"},
+		"frontend:e2e":                 {"npm run test:e2e:", "npm run smoke:desktop:"},
+		"frontend:embed-verify":        {"make frontend-embed-verify"},
+		"frontend:performance-verify":  {"npm run performance:verify"},
+		"workflow:actionlint":          {"make actionlint"},
+		"release:semantic-guards":      {"go test ./scripts"},
+		"codex-stop:self-test":         {"bash scripts/tests/test_codex_stop_gate_plan.sh"},
+		"nightly-protocol:check":       {"make nightly-protocol-check"},
+		"backend:test-integrity":       {"go test ./internal/guards"},
+		"codemap:check":                {"make codemap-check"},
+		"project-map:check":            {"make project-map-check"},
+		"sqlc:verify":                  {"make sqlc-verify-worktree", "make sqlc-verify"},
+	}
 }
 
 // commandEvidenceProblems 校验每条命令都有命令文本和成功退出码。

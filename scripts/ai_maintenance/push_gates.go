@@ -26,6 +26,9 @@ func gatePlanForScope(files []string, pushGates bool) (gatePlan, error) {
 	if slices.ContainsFunc(plan.ChangedFiles, frontendPerformanceRelevant) {
 		plan.RequiredGates = appendOrderedGate(plan.RequiredGates, "frontend:performance-verify")
 	}
+	if slices.ContainsFunc(plan.ChangedFiles, frontendE2ERelevant) {
+		plan.RequiredGates = appendOrderedGate(plan.RequiredGates, "frontend:e2e")
+	}
 	plan.RequiredGates = orderGateNames(plan.RequiredGates)
 	return plan, nil
 }

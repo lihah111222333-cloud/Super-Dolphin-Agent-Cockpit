@@ -99,6 +99,15 @@ func frontendChangedTestRelevant(file string) bool {
 	return false
 }
 
+// frontendE2ERelevant 把默认 Vitest 排除的 Playwright/桌面场景交给显式 push gate。
+func frontendE2ERelevant(file string) bool {
+	return file == "frontend-app/package.json" ||
+		strings.HasPrefix(file, "frontend-app/tests/e2e/") ||
+		(strings.HasPrefix(file, "frontend-app/") &&
+			strings.HasPrefix(filepath.Base(file), "playwright.") &&
+			strings.HasSuffix(file, ".config.js"))
+}
+
 // frontendChangedTestDeferredToPerformance 识别被默认 Vitest 配置排除、由 push 性能验证独占的测试闭包。
 func frontendChangedTestDeferredToPerformance(file string) bool {
 	if !frontendPerformanceRelevant(file) || !frontendScriptOrSourceFile(file) {

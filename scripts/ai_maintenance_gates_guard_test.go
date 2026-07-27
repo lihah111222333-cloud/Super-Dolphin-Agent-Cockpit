@@ -102,17 +102,19 @@ func TestAIMaintenanceGateRouteDeletionMutations(t *testing.T) {
 
 func TestAIMaintenanceGateImplementationContracts(t *testing.T) {
 	source := readRepoFile(t, "../scripts/ai_maintenance/main.go")
-	testSource := readRepoFile(t, "../scripts/ai_maintenance/main_test.go")
+	evidenceSource := readRepoFile(t, "../scripts/ai_maintenance/evidence.go")
+	testSource := readRepoFile(t, "../scripts/ai_maintenance/main_test.go") +
+		readRepoFile(t, "../scripts/ai_maintenance/owner_evidence_test.go")
 
 	assertScriptContains(t, source, "validate-evidence")
 	assertScriptContains(t, source, "buildGatePlan")
 	assertScriptContains(t, source, "frontend:embed-verify")
 	assertScriptContains(t, source, "ai-maintenance:self-test")
-	assertScriptContains(t, source, "AGENTID must be exact platform UUID")
-	assertScriptContains(t, source, "DONE_WITH_EVIDENCE must not include BLOCKERS")
-	assertScriptContains(t, source, "generated file lacks check-failed plus refresh evidence")
-	assertScriptContains(t, source, "missing or non-pass LSP evidence")
-	assertScriptContains(t, source, "OWNED_FILES_CHANGED does not match changed files")
+	assertScriptContains(t, evidenceSource, "AGENTID must be exact platform UUID")
+	assertScriptContains(t, evidenceSource, "DONE_WITH_EVIDENCE must not include BLOCKERS")
+	assertScriptContains(t, evidenceSource, "generated file lacks check-failed plus refresh evidence")
+	assertScriptContains(t, evidenceSource, "missing or non-pass LSP evidence")
+	assertScriptContains(t, evidenceSource, "OWNED_FILES_CHANGED does not match changed files")
 	assertScriptContains(t, testSource, "TestBuildGatePlanRoutesFrontendBackendAndGeneratedFiles")
 	assertScriptContains(t, testSource, "TestValidateEvidenceBlocksMissingAgentIDDiagnosticsAndCommands")
 }
