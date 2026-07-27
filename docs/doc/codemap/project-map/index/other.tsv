@@ -454,8 +454,8 @@ internal/ui/wails/clipboard_assets_test.go	internal	other	go-test	6551	Wails bin
 internal/ui/wails/clipboard_assets.go	internal	other	go-source	8501	Wails binding 与 UI RPC 桥接	internal,ui,wails,clipboard,assets,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/clipboard_cleanup_test.go	internal	other	go-test	3311	Wails binding 与 UI RPC 桥接	internal,ui,wails,clipboard,cleanup,test,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/clipboard_cleanup.go	internal	other	go-source	2936	Wails binding 与 UI RPC 桥接	internal,ui,wails,clipboard,cleanup,Wails,binding,与,UI,RPC,桥接
-internal/ui/wails/code_preview_test.go	internal	other	go-test	9483	Wails binding 与 UI RPC 桥接	internal,ui,wails,code,preview,test,Wails,binding,与,UI,RPC,桥接
-internal/ui/wails/code_preview.go	internal	other	go-source	20844	Wails binding 与 UI RPC 桥接	internal,ui,wails,code,preview,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/code_preview_test.go	internal	other	go-test	11272	Wails binding 与 UI RPC 桥接	internal,ui,wails,code,preview,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/code_preview.go	internal	other	go-source	20996	Wails binding 与 UI RPC 桥接	internal,ui,wails,code,preview,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/code_scope_test.go	internal	other	go-test	2462	Wails binding 与 UI RPC 桥接	internal,ui,wails,code,scope,test,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/code_scope_windows_test.go	internal	other	go-test	502	Wails binding 与 UI RPC 桥接	internal,ui,wails,code,scope,windows,test,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/code_scope.go	internal	other	go-source	11451	Wails binding 与 UI RPC 桥接	internal,ui,wails,code,scope,Wails,binding,与,UI,RPC,桥接

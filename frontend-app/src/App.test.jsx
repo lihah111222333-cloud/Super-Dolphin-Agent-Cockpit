@@ -633,7 +633,7 @@ function mockSettingsAndThreadDefaults() {
     ok: true,
     filePath: '/repo/app/src/a.js',
     relative: 'src/a.js',
-    totalLines: 2,
+    totalLines: 2, contentVersion: 'version-src-a-saved',
   });
 }
 

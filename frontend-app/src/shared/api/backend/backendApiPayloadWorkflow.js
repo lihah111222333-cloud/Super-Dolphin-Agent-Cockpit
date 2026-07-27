@@ -279,6 +279,19 @@ function optionalCodeInteger(method, payload, key) {
   return Math.trunc(value);
 }
 
+/** @param {string} method @param {WorkflowPayload} payload @param {string} key */
+function requiredCodeSaveText(method, payload, key) {
+  if (!hasOwn(payload, key) || payload[key] === null || payload[key] === undefined) {
+    throw new Error(`${method}: ${key} is required`);
+  }
+  if (typeof payload[key] !== 'string') {
+    throw new Error(`${method}: ${key} must be a string`);
+  }
+  const value = payload[key].trim();
+  if (!value) throw new Error(`${method}: ${key} is required`);
+  return value;
+}
+
 /** @param {string} method @param {unknown} params @param {{ includePosition?: boolean, includeContent?: boolean }} options */
 function codeFilePayload(method, params, options = {}) {
   const payload = requireKey(method, assertPlainObject(method, params), 'filePath');
@@ -295,7 +308,11 @@ function codeFilePayload(method, params, options = {}) {
   if (options.includeContent) {
     if (!hasOwn(payload, 'content')) throw new Error(`${method}: content is required`);
     if (typeof payload.content !== 'string') throw new Error(`${method}: content must be a string`);
+    const previewMode = requiredCodeSaveText(method, payload, 'previewMode');
+    if (previewMode !== 'full') throw new Error(`${method}: previewMode must be full`);
     request.content = payload.content;
+    request.previewMode = previewMode;
+    request.contentVersion = requiredCodeSaveText(method, payload, 'contentVersion');
   }
   return cleanObject(request);
 }

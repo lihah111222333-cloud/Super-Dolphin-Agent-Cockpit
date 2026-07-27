@@ -168,7 +168,7 @@ function openWindowResponse() {
 }
 
 function codeSaveResponse() {
-  return { ok: true, filePath: '/repo/app/src/App.jsx', relative: 'src/App.jsx', totalLines: 1 };
+  return { ok: true, filePath: '/repo/app/src/App.jsx', relative: 'src/App.jsx', totalLines: 1, contentVersion: 'sha256:app-v2' };
 }
 
 function projectsStateResponse() {
@@ -1475,7 +1475,7 @@ function guardedBackendResponse(method) {
     const codeSaveCall = (api) => api.saveCodeFile({
       filePath: 'src/App.jsx',
       content: 'export default App;',
-      project: '/repo/app',
+      project: '/repo/app', previewMode: 'full', contentVersion: 'sha256:app-v1',
     });
     const cases = [
       { call: (api) => api.readConfig(), response: runtimeConfigResponse({ surprise: true }) },
@@ -1685,7 +1685,7 @@ function guardedBackendResponse(method) {
     const call = (api) => api.saveCodeFile({
       filePath: 'src/App.jsx',
       content: 'export default App;',
-      project: '/repo/app',
+      project: '/repo/app', previewMode: 'full', contentVersion: 'sha256:app-v1',
     });
     const cases = [
       { response: { ...codeSaveResponse(), ok: false }, message: 'ui/code/save response ok must be true' },
@@ -1822,8 +1822,8 @@ function guardedBackendResponse(method) {
         message: 'ui/openNewWindow response ok must be a boolean',
       },
       {
-        call: (api) => api.saveCodeFile({ filePath: 'src/App.jsx', content: 'export default App;', project: '/repo/app' }),
-        response: { ok: true, filePath: '/repo/app/src/App.jsx', relative: 'src/App.jsx', totalLines: '1' },
+        call: (api) => api.saveCodeFile({ filePath: 'src/App.jsx', content: 'export default App;', project: '/repo/app', previewMode: 'full', contentVersion: 'sha256:app-v1' }),
+        response: { ok: true, filePath: '/repo/app/src/App.jsx', relative: 'src/App.jsx', totalLines: '1', contentVersion: 'sha256:app-v2' },
         message: 'ui/code/save response totalLines must be an integer',
       },
       ...[
@@ -3334,7 +3334,7 @@ function expectMemoryCenterValidation(api) {
     await api.locateCodeFile({ filePath: 'src/App.jsx', project: '/repo/app', projects: ['/repo/app'] });
     await api.openCodeFile({ filePath: 'src/App.jsx', project: '/repo/app', projects: ['/repo/app'], line: 10, column: 2 });
     await api.openPath({ filePath: 'src', project: '/repo/app', projects: ['/repo/app'] });
-    await api.saveCodeFile({ filePath: 'src/App.jsx', content: 'export default App;', project: '/repo/app', projects: ['/repo/app'] });
+    await api.saveCodeFile({ filePath: 'src/App.jsx', content: 'export default App;', project: '/repo/app', projects: ['/repo/app'], previewMode: 'full', contentVersion: 'sha256:app-v1' });
 
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_CODE_LOCATE, {
       filePath: 'src/App.jsx',
@@ -3357,7 +3357,7 @@ function expectMemoryCenterValidation(api) {
       filePath: 'src/App.jsx',
       content: 'export default App;',
       project: '/repo/app',
-      projects: ['/repo/app'],
+      projects: ['/repo/app'], previewMode: 'full', contentVersion: 'sha256:app-v1',
     });
     expect(() => api.locateCodeFile({ filePath: '' })).toThrow('filePath is required');
     expect(() => api.openCodeFile({ filePath: '' })).toThrow('filePath is required');

@@ -27,10 +27,11 @@ const maxCodeOpenFileBytes int64 = 10 << 20
 // codeSaveResult 是 ui/code/save 返回给前端的保存结果。
 // JSON 字段保持前端既有 camelCase wire 名称，避免桌面 UI 版本间不兼容。
 type codeSaveResult struct {
-	Ok         bool   `json:"ok"`
-	FilePath   string `json:"filePath"`
-	Relative   string `json:"relative"`
-	TotalLines int    `json:"totalLines"`
+	Ok             bool   `json:"ok"`
+	FilePath       string `json:"filePath"`
+	Relative       string `json:"relative"`
+	TotalLines     int    `json:"totalLines"`
+	ContentVersion string `json:"contentVersion"`
 }
 
 // codeLocateMatch 描述一次 ui/code/locate 命中的文件元数据。
@@ -101,17 +102,19 @@ func saveScopedFile(rawPath, content string, roots []string, createNew bool, pre
 		return codeSaveResult{}, fmt.Errorf("ui/code/save: contentVersion mismatch for %q", target.Abs)
 	}
 	body := normalizeFileText(content)
+	bodyBytes := []byte(body)
 	if err := os.MkdirAll(filepath.Dir(target.Abs), 0o755); err != nil {
 		return codeSaveResult{}, err
 	}
-	if err := os.WriteFile(target.Abs, []byte(body), writeFileMode(target.Abs)); err != nil {
+	if err := os.WriteFile(target.Abs, bodyBytes, writeFileMode(target.Abs)); err != nil {
 		return codeSaveResult{}, err
 	}
 	return codeSaveResult{
-		Ok:         true,
-		FilePath:   target.Abs,
-		Relative:   target.Relative,
-		TotalLines: countTextLines(body),
+		Ok:             true,
+		FilePath:       target.Abs,
+		Relative:       target.Relative,
+		TotalLines:     countTextLines(body),
+		ContentVersion: codeContentVersion(bodyBytes),
 	}, nil
 }
 

@@ -2,23 +2,56 @@ package wails
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 )
 
+func TestCodeSaveResultJSONFieldsMatchConsumerRegistry(t *testing.T) {
+	t.Parallel()
+
+	consumerRegistry := map[string]struct{}{
+		"ok":             {},
+		"filePath":       {},
+		"relative":       {},
+		"totalLines":     {},
+		"contentVersion": {},
+	}
+	producerFields := make(map[string]struct{})
+	resultType := reflect.TypeFor[codeSaveResult]()
+	for i := range resultType.NumField() {
+		tag, _, _ := strings.Cut(resultType.Field(i).Tag.Get("json"), ",")
+		if tag != "" && tag != "-" {
+			producerFields[tag] = struct{}{}
+		}
+	}
+	missing := registryDifference(consumerRegistry, producerFields)
+	stale := registryDifference(producerFields, consumerRegistry)
+	if len(missing) != 0 || len(stale) != 0 {
+		t.Fatalf("codeSaveResult field drift: missing=%v stale=%v producer=%v", missing, stale, producerFields)
+	}
+}
+
+func registryDifference(left, right map[string]struct{}) []string {
+	diff := make([]string, 0)
+	for field := range left {
+		if _, ok := right[field]; !ok {
+			diff = append(diff, field)
+		}
+	}
+	sort.Strings(diff)
+	return diff
+}
+
 func TestSaveScopedFileWritesWithinScope(t *testing.T) {
 	root := t.TempDir()
 	target := filepath.Join(root, "docs", "readme.md")
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		t.Fatalf("MkdirAll() error = %v", err)
-	}
-	if err := os.WriteFile(target, []byte("old"), 0o644); err != nil {
-		t.Fatalf("WriteFile(old) error = %v", err)
-	}
+	writeTestFile(t, target, "old")
 
 	result, err := saveScopedFile(target, "# Saved\n\nBody", []string{root}, false, "full", codeContentVersion([]byte("old")))
 	if err != nil {
@@ -39,6 +72,29 @@ func TestSaveScopedFileWritesWithinScope(t *testing.T) {
 	}
 	if string(data) != "# Saved\n\nBody" {
 		t.Fatalf("saveScopedFile() body = %q, want normalized markdown", string(data))
+	}
+	wantVersion := codeContentVersion(data)
+	if result.ContentVersion != wantVersion {
+		t.Fatalf("saveScopedFile() contentVersion = %q, want hash of written bytes %q", result.ContentVersion, wantVersion)
+	}
+	if result.ContentVersion == codeContentVersion([]byte("old")) {
+		t.Fatal("saveScopedFile() returned stale request contentVersion")
+	}
+	assertCodeSaveResultJSONContentVersion(t, result, wantVersion)
+}
+
+func assertCodeSaveResultJSONContentVersion(t *testing.T, result codeSaveResult, wantVersion string) {
+	t.Helper()
+	wire, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("json.Marshal(codeSaveResult) error = %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(wire, &payload); err != nil {
+		t.Fatalf("json.Unmarshal(codeSaveResult) error = %v", err)
+	}
+	if payload["contentVersion"] != wantVersion {
+		t.Fatalf("codeSaveResult JSON contentVersion = %#v, want %q", payload["contentVersion"], wantVersion)
 	}
 }
 
@@ -215,7 +271,7 @@ func TestLocateScopedFileSkipsIgnoredDirectories(t *testing.T) {
 func TestLocateScopedFileSkipsTooDeepDirectories(t *testing.T) {
 	root := t.TempDir()
 	deep := root
-	for i := 0; i < codeSearchMaxDepth+2; i++ {
+	for range codeSearchMaxDepth + 2 {
 		deep = filepath.Join(deep, "nested")
 	}
 	writeTestFile(t, filepath.Join(deep, "target.js"), "const depth = true;\n")
@@ -243,7 +299,6 @@ func TestBuildCodeOpenResultRejectsLargeFiles(t *testing.T) {
 func TestBuildCodeOpenResultRejectsLargeImageFiles(t *testing.T) {
 	root := t.TempDir()
 	for _, ext := range []string{".png", ".jpg", ".gif", ".svg", ".webp", ".ico"} {
-		ext := ext
 		t.Run(ext, func(t *testing.T) {
 			target := filepath.Join(root, "assets", "large"+ext)
 			writeTestFile(t, target, strings.Repeat("a", int(maxCodeOpenFileBytes)+1))

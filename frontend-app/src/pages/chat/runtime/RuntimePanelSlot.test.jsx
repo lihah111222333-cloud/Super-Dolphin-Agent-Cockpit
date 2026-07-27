@@ -75,7 +75,13 @@ function renderSlot(overrides = {}) {
         if (filePath === 'src/b.js') return secondOpen.promise;
         throw new Error(`unexpected open path ${filePath}`);
       }),
-      saveCodeFile: vi.fn().mockResolvedValue({ ok: true, filePath: 'src/b.js', relative: 'src/b.js', totalLines: 1 }),
+      saveCodeFile: vi.fn().mockResolvedValue({
+        ok: true,
+        filePath: 'src/b.js',
+        relative: 'src/b.js',
+        totalLines: 1,
+        contentVersion: 'version-src-b-saved',
+      }),
     };
     const diffText = [
       'diff --git a/src/a.js b/src/a.js',
@@ -139,7 +145,18 @@ function renderSlot(overrides = {}) {
       previewMode: 'full',
       contentVersion: 'version-src-b',
     }));
-  });
+
+    fireEvent.change(editor, { target: { value: 'const latest = "again";' } });
+    fireEvent.click(within(preview).getByRole('button', { name: '保存预览更改' }));
+
+    await waitFor(() => expect(codeFileActions.saveCodeFile).toHaveBeenCalledTimes(2));
+    expect(codeFileActions.saveCodeFile).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      filePath: 'src/b.js',
+      content: 'const latest = "again";',
+      previewMode: 'full',
+      contentVersion: 'version-src-b-saved',
+    }));
+  }, 10_000);
 
   it('keeps edits typed while a code preview save is in flight marked as unsaved', async () => {
     const save = deferred();
@@ -179,7 +196,13 @@ function renderSlot(overrides = {}) {
     fireEvent.change(editor, { target: { value: 'saved snapshot\nsaved before click\nnew unsaved edit' } });
 
     await act(async () => {
-      save.resolve({ ok: true, filePath: 'docs/plan.md', relative: 'docs/plan.md', totalLines: 2 });
+      save.resolve({
+        ok: true,
+        filePath: 'docs/plan.md',
+        relative: 'docs/plan.md',
+        totalLines: 2,
+        contentVersion: 'version-docs-plan-saved',
+      });
     });
 
     expect(editor).toHaveValue('saved snapshot\nsaved before click\nnew unsaved edit');

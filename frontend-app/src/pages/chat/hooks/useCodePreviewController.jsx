@@ -10,7 +10,7 @@ function codePreviewPathChoice(filePath, position, options, locateResult) {
   return { open: true, file: { filename: filePath, position }, options, truncated: Boolean(locateResult?.truncated) };
 }
 
-function saveCodePreviewChanges({
+export function saveCodePreviewChanges({
   codePreview,
   isCurrentPreviewRequest,
   previewRequestSeqRef,

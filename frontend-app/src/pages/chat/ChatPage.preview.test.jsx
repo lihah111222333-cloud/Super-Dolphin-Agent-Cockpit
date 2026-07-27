@@ -213,7 +213,13 @@ afterEach(async () => {
       if (filePath.endsWith('src/b.js')) return secondOpen.promise;
       throw new Error(`unexpected open path ${filePath}`);
     });
-    saveCodeFile.mockResolvedValue({ ok: true, filePath: '/repo/app/src/b.js', relative: 'src/b.js', totalLines: 1 });
+    saveCodeFile.mockResolvedValue({
+      ok: true,
+      filePath: '/repo/app/src/b.js',
+      relative: 'src/b.js',
+      totalLines: 1,
+      contentVersion: 'sha256:b-version-saved',
+    });
     const store = createActiveThreadStore([
       {
         id: 'assistant-race',
@@ -278,6 +284,7 @@ afterEach(async () => {
       previewMode: 'full',
       contentVersion: 'sha256:b-version',
     }));
+
   });
 
   it('reports a locate-to-open rejection once under the locate action', async () => {
