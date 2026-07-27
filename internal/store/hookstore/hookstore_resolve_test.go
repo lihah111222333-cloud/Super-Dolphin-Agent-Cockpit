@@ -3,10 +3,13 @@ package hookstore
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	runtimesafe "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/sqlc"
 )
 
 func TestResolvePendingReview(t *testing.T) {
@@ -58,8 +61,8 @@ func testResolvePendingReviewIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolvePendingReview() idempotent error = %v", err)
 	}
-	if db.execCount("resolve") != 0 {
-		t.Fatalf("resolve exec count = %d, want 0", db.execCount("resolve"))
+	if db.execCount("resolve") != 1 {
+		t.Fatalf("resolve exec count = %d, want 1", db.execCount("resolve"))
 	}
 	got := db.mustRecord(t, review.HookCallID)
 	if got.reason != "already done" || got.resolvedBy != "reviewer-existing" {
@@ -83,6 +86,118 @@ func testResolvePendingReviewNotFound(t *testing.T) {
 	if !errors.Is(err, contract.ErrHookReviewNotFound) {
 		t.Fatalf("ResolvePendingReview() error = %v, want ErrHookReviewNotFound", err)
 	}
+}
+
+func TestResolvePendingReviewConcurrentSameKeyIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 3, 24, 14, 15, 0, 0, time.UTC)
+	review := testPendingReview("call-concurrent-idempotent", "agent-resolve", "reject", now, now.Add(15*time.Minute))
+	q := newConcurrentResolveQuerier(testRecord{review: review, status: "pending"})
+	store := newStoreForTest(q, nil)
+	attempts := []concurrentResolveAttempt{
+		{decision: "approve", reason: "first payload", by: "reviewer-a"},
+		{decision: "reject", reason: "retry payload", by: "reviewer-b"},
+	}
+	assertConcurrentResolveAttemptsSucceed(t, store, review.HookCallID, attempts)
+
+	got := q.mustRecord(t, review.HookCallID)
+	assertConcurrentResolveRecord(t, &got)
+}
+
+type concurrentResolveAttempt struct {
+	decision string
+	reason   string
+	by       string
+}
+
+func assertConcurrentResolveAttemptsSucceed(
+	t *testing.T,
+	store contract.HookReviewStore,
+	hookCallID string,
+	attempts []concurrentResolveAttempt,
+) {
+	t.Helper()
+	start := make(chan struct{})
+	results := make(chan error, len(attempts))
+	var workers sync.WaitGroup
+	for _, attempt := range attempts {
+		workers.Add(1)
+		runtimesafe.SafeGo(t.Context(), nil, "hookstore.concurrent-resolve", func(ctx context.Context) {
+			defer workers.Done()
+			<-start
+			results <- store.ResolvePendingReview(
+				ctx,
+				hookCallID,
+				attempt.decision,
+				attempt.reason,
+				"idem-shared",
+				attempt.by,
+			)
+		})
+	}
+	close(start)
+	workers.Wait()
+	close(results)
+	resultCount := 0
+	for err := range results {
+		resultCount++
+		if err != nil {
+			t.Fatalf("concurrent ResolvePendingReview() error = %v, want all attempts idempotent", err)
+		}
+	}
+	if resultCount != len(attempts) {
+		t.Fatalf("concurrent ResolvePendingReview() results = %d, want %d", resultCount, len(attempts))
+	}
+}
+
+func assertConcurrentResolveRecord(t *testing.T, got *testRecord) {
+	t.Helper()
+	if got.status != "resolved" || got.idempotencyKey != "idem-shared" {
+		t.Fatalf("resolved record = %+v, want resolved shared idempotency key", got)
+	}
+	firstPayload := got.decision == "approve" && got.reason == "first payload" && got.resolvedBy == "reviewer-a"
+	retryPayload := got.decision == "reject" && got.reason == "retry payload" && got.resolvedBy == "reviewer-b"
+	if !firstPayload && !retryPayload {
+		t.Fatalf("resolved record contains mixed concurrent payload: %+v", got)
+	}
+}
+
+type concurrentResolveQuerier struct {
+	*hookStoreQuerierStub
+	mu sync.Mutex
+}
+
+func newConcurrentResolveQuerier(record testRecord) *concurrentResolveQuerier {
+	base := &hookStoreQuerierStub{records: map[string]*testRecord{}}
+	recordCopy := record
+	base.records[record.review.HookCallID] = &recordCopy
+	return &concurrentResolveQuerier{hookStoreQuerierStub: base}
+}
+
+func (q *concurrentResolveQuerier) ResolveHookPendingReview(
+	_ context.Context,
+	arg sqlc.ResolveHookPendingReviewParams,
+) (int64, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	record, ok := q.records[arg.HookCallID]
+	if !ok {
+		return 0, nil
+	}
+	if record.status == "resolved" && record.idempotencyKey == arg.IdempotencyKey {
+		return 1, nil
+	}
+	if record.status != "pending" {
+		return 0, nil
+	}
+	record.status = "resolved"
+	record.decision = arg.Decision
+	record.reason = arg.Reason
+	record.idempotencyKey = arg.IdempotencyKey
+	record.resolvedBy = arg.ResolvedBy
+	record.resolvedAt = fromMSPtr(arg.ResolvedAt)
+	return 1, nil
 }
 
 func TestCancelExpiredReviews(t *testing.T) {

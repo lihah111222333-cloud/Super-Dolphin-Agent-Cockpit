@@ -26,8 +26,6 @@ type Querier interface {
 	CancelExpiredHookReviews(ctx context.Context, arg CancelExpiredHookReviewsParams) (int64, error)
 	CancelHookPendingReviewsByAgent(ctx context.Context, arg CancelHookPendingReviewsByAgentParams) (int64, error)
 	CancelHookPendingReviewsByLease(ctx context.Context, arg CancelHookPendingReviewsByLeaseParams) (int64, error)
-	// Returns 1 if a review is already resolved with the given idempotency key.
-	CheckHookReviewIdempotency(ctx context.Context, arg CheckHookReviewIdempotencyParams) (int64, error)
 	// Claim / lease -----------------------------------------------------
 	// ClaimDueJobsForUpdate marks up to `limit` due rows as claimed by `claimed_by`.
 	// FOR UPDATE SKIP LOCKED removed: SQLite does not support it.

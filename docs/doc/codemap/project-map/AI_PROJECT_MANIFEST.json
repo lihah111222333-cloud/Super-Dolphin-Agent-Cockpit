@@ -4,7 +4,7 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4816,
+  "files": 4817,
   "domains": {
     "docs-agent": 959,
     "other": 712,
@@ -12,7 +12,7 @@
     "platform-provider": 1120,
     "orchestration": 392,
     "modules": 748,
-    "store-sql": 206
+    "store-sql": 207
   },
   "index_files": {
     "map_markdown": "docs/doc/codemap/project-map/AI_PROJECT_MAP.md",
@@ -49,8 +49,8 @@
       {
         "key": "store-sql",
         "file": "docs/doc/codemap/project-map/index/store-sql.tsv",
-        "file_count": 206,
-        "size_kb": 30.2,
+        "file_count": 207,
+        "size_kb": 30.4,
         "desc": "持久化层：store、sqlc、SQL queries、migrations"
       },
       {
@@ -74,7 +74,7 @@
     "cmd": 668,
     "docs": 951,
     "frontend-app": 673,
-    "internal": 2282,
+    "internal": 2283,
     "pkg": 30,
     "scripts": 152,
     "sql": 29,

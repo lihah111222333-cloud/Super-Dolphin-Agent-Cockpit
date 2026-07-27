@@ -47,16 +47,19 @@ SELECT COUNT(*)
 FROM hook_pending_reviews
 WHERE status = 'pending';
 
--- name: CheckHookReviewIdempotency :one
--- Returns 1 if a review is already resolved with the given idempotency key.
-SELECT 1 AS already_resolved
-FROM hook_pending_reviews
-WHERE hook_call_id = ? AND status = 'resolved' AND idempotency_key = ?;
-
 -- name: ResolveHookPendingReview :execrows
 UPDATE hook_pending_reviews
-SET status = 'resolved', decision = ?, reason = ?, idempotency_key = ?, resolved_by = ?, resolved_at = ?
-WHERE hook_call_id = ? AND status = 'pending';
+SET status = CASE WHEN status = 'pending' THEN 'resolved' ELSE status END,
+    decision = CASE WHEN status = 'pending' THEN sqlc.arg(decision) ELSE decision END,
+    reason = CASE WHEN status = 'pending' THEN sqlc.arg(reason) ELSE reason END,
+    idempotency_key = CASE WHEN status = 'pending' THEN sqlc.arg(idempotency_key) ELSE idempotency_key END,
+    resolved_by = CASE WHEN status = 'pending' THEN sqlc.arg(resolved_by) ELSE resolved_by END,
+    resolved_at = CASE WHEN status = 'pending' THEN sqlc.arg(resolved_at) ELSE resolved_at END
+WHERE hook_call_id = sqlc.arg(hook_call_id)
+  AND (
+      status = 'pending'
+      OR (status = 'resolved' AND idempotency_key = sqlc.arg(idempotency_key))
+  );
 
 -- name: GetHookResolvedReview :one
 SELECT decision, resolved_at, subscriber_lease
