@@ -104,6 +104,9 @@ docs/ai04-docs/修改记录2026-06-13 _turn构建system prompt接入datasource�
 docs/ai04-docs/修改记录2026-06-15 _10-02_mcp_server同名active配置跳过.md	docs	docs-agent	doc	4695	项目文档体系	docs,ai04,修改记录2026,06,15 ,10,02,mcp,server同名active配置跳过,项目文档体系
 docs/ai04-docs/修改记录2026-06-15 _15-38_HTTP_MCP_tools进入Codex动态工具请求.md	docs	docs-agent	doc	7052	项目文档体系	docs,ai04,修改记录2026,06,15 ,15,38,HTTP,MCP,tools进入Codex动态工具请求,项目文档体系
 docs/ai04-docs/修改记录2026-06-16 _11-25_mcpServer_postgres改为npm全局安装.md	docs	docs-agent	doc	7638	项目文档体系	docs,ai04,修改记录2026,06,16 ,11,25,mcpServer,postgres改为npm全局安装,项目文档体系
+docs/automation/全仓夜间门禁健康巡检协议.md	docs	docs-agent	doc	20144	项目文档体系	docs,automation,全仓夜间门禁健康巡检协议,项目文档体系
+docs/automation/授权问题修复与验证协议.md	docs	docs-agent	doc	8402	项目文档体系	docs,automation,授权问题修复与验证协议,项目文档体系
+docs/automation/门禁问题台账接管协议.md	docs	docs-agent	doc	9032	项目文档体系	docs,automation,门禁问题台账接管协议,项目文档体系
 docs/before/1/session-summary.md	docs	docs-agent	doc	65595	项目文档体系	docs,before,1,session,summary,项目文档体系
 docs/before/1/会话习惯-迁移版.md	docs	docs-agent	doc	10059	项目文档体系	docs,before,1,会话习惯,迁移版,项目文档体系
 docs/before/1/会话习惯.md	docs	docs-agent	doc	78831	项目文档体系	docs,before,1,会话习惯,项目文档体系

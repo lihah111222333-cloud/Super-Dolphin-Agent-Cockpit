@@ -4,9 +4,9 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 5038,
+  "files": 5041,
   "domains": {
-    "docs-agent": 960,
+    "docs-agent": 963,
     "other": 927,
     "app-ui": 675,
     "platform-provider": 1131,
@@ -56,8 +56,8 @@
       {
         "key": "docs-agent",
         "file": "docs/doc/codemap/project-map/index/docs-agent.tsv",
-        "file_count": 960,
-        "size_kb": 173,
+        "file_count": 963,
+        "size_kb": 173.5,
         "desc": "代码地图、ADR/决策、计划与 docs 项目知识"
       },
       {
@@ -72,7 +72,7 @@
   "module_counts": {
     "(root)": 12,
     "cmd": 741,
-    "docs": 952,
+    "docs": 955,
     "frontend-app": 669,
     "internal": 2425,
     "pkg": 30,
