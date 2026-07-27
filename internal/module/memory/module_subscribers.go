@@ -89,11 +89,23 @@ func registerThreadHookSubscriptions(p memorySubscriptionDeps, nested *nestedIng
 		appendCancel(contract.ResilientSubscribe(p.Dispatcher, func(ev threaddto.Started) {
 			p.NestedRuntime.OnThreadStart(ev.ThreadID)
 		}, pkglogger.Get()))
+		appendCancel(contract.ResilientSubscribe(p.Dispatcher, func(ev threaddto.Stopped) {
+			if nested != nil {
+				nested.DropThread(ev.ThreadID)
+			}
+			p.NestedRuntime.OnThreadStop(ev.ThreadID)
+		}, pkglogger.Get()))
 		// ToolCallEnd 回调不能直接进入 nested 读盘慢路径；worker 负责维护 pending
 		// 集合和 wake 信号，并在自己的 goroutine 中调用 AddToolReadResult。
 		if nested != nil {
 			appendCancel(contract.ResilientSubscribe(p.Dispatcher, func(ev tooldto.ToolCallEnd) {
-				nested.Enqueue(ev.ThreadID, ev.ToolName, ev.Result, ev.PersistedPath)
+				if err := nested.Enqueue(ev.ThreadID, ev.ToolName, ev.Result, ev.PersistedPath); err != nil {
+					pkglogger.Warn("memory: nested ingest rejected",
+						"thread_id", ev.ThreadID,
+						"tool_name", ev.ToolName,
+						"error", err,
+					)
+				}
 			}, pkglogger.Get()))
 		}
 	}

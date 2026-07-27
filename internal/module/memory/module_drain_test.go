@@ -20,10 +20,11 @@ type drainTestNestedRuntime struct {
 	calls []string // 按 AddToolReadResult 调用顺序记录 threadID
 }
 
-func (r *drainTestNestedRuntime) AddToolReadResult(threadID, _, _, _ string) {
+func (r *drainTestNestedRuntime) AddToolReadResult(threadID, _, _, _ string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.calls = append(r.calls, threadID)
+	return nil
 }
 
 func (r *drainTestNestedRuntime) callCount() int {
@@ -101,7 +102,7 @@ func startDrainTestWorkers(scheduler *autoDreamScheduler, nested *nestedIngestWo
 }
 
 func enqueueDrainTestWork(scheduler *autoDreamScheduler, nested *nestedIngestWorker, teamSync *teamSyncCoordinator, count int) {
-	for i := 0; i < count; i++ {
+	for i := range count {
 		scheduler.Enqueue("thread-scheduler")
 		// 每次使用不同 persistedPath，避免 nestedIngestWorker 的 coalesce key 合并入队。
 		nested.Enqueue("thread-nested", "tool", "result", "/tmp/path-"+string(rune('0'+i)))
