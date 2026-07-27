@@ -448,8 +448,8 @@ internal/ui/wails/binding_native_test.go	internal	other	go-test	3823	Wails bindi
 internal/ui/wails/binding_native.go	internal	other	go-source	12998	Wails binding 与 UI RPC 桥接	internal,ui,wails,binding,native,Wails,与,UI,RPC,桥接
 internal/ui/wails/binding_test.go	internal	other	go-test	5480	Wails binding 与 UI RPC 桥接	internal,ui,wails,binding,test,Wails,与,UI,RPC,桥接
 internal/ui/wails/binding.go	internal	other	go-source	21872	Wails binding 与 UI RPC 桥接	internal,ui,wails,binding,Wails,与,UI,RPC,桥接
-internal/ui/wails/bridge_test.go	internal	other	go-test	2638	Wails binding 与 UI RPC 桥接	internal,ui,wails,bridge,test,Wails,binding,与,UI,RPC,桥接
-internal/ui/wails/bridge.go	internal	other	go-source	3717	Wails binding 与 UI RPC 桥接	internal,ui,wails,bridge,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/bridge_test.go	internal	other	go-test	6886	Wails binding 与 UI RPC 桥接	internal,ui,wails,bridge,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/bridge.go	internal	other	go-source	5863	Wails binding 与 UI RPC 桥接	internal,ui,wails,bridge,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/clipboard_assets_test.go	internal	other	go-test	6551	Wails binding 与 UI RPC 桥接	internal,ui,wails,clipboard,assets,test,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/clipboard_assets.go	internal	other	go-source	8501	Wails binding 与 UI RPC 桥接	internal,ui,wails,clipboard,assets,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/clipboard_cleanup_test.go	internal	other	go-test	3311	Wails binding 与 UI RPC 桥接	internal,ui,wails,clipboard,cleanup,test,Wails,binding,与,UI,RPC,桥接
@@ -469,7 +469,7 @@ internal/ui/wails/http_server_test.go	internal	other	go-test	10700	Wails binding
 internal/ui/wails/http_server.go	internal	other	go-source	10473	Wails binding 与 UI RPC 桥接	internal,ui,wails,http,server,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/lifecycle_test.go	internal	other	go-test	6649	Wails binding 与 UI RPC 桥接	internal,ui,wails,lifecycle,test,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/lifecycle.go	internal	other	go-source	8665	Wails binding 与 UI RPC 桥接	internal,ui,wails,lifecycle,Wails,binding,与,UI,RPC,桥接
-internal/ui/wails/module.go	internal	other	go-source	7960	Wails binding 与 UI RPC 桥接	internal,ui,wails,module,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/module.go	internal	other	go-source	7921	Wails binding 与 UI RPC 桥接	internal,ui,wails,module,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/path_open.go	internal	other	go-source	3573	Wails binding 与 UI RPC 桥接	internal,ui,wails,path,open,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/readiness_test.go	internal	other	go-test	2194	Wails binding 与 UI RPC 桥接	internal,ui,wails,readiness,test,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/readiness.go	internal	other	go-source	3802	Wails binding 与 UI RPC 桥接	internal,ui,wails,readiness,Wails,binding,与,UI,RPC,桥接

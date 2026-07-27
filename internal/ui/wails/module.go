@@ -227,13 +227,9 @@ func bindWailsLifecycle(lifecycle *WailsLifecycle, shutdowner fx.Shutdowner, log
 
 // bindEventBridge 将 EventBridge 挂到 Fx 生命周期。
 func bindEventBridge(lc fx.Lifecycle, bridge *EventBridge) {
-	if bridge == nil {
-		return
-	}
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
-			bridge.Start()
-			return nil
+			return bridge.Start()
 		},
 		OnStop: func(context.Context) error {
 			bridge.Stop()
