@@ -416,6 +416,7 @@ func TestHTTPDirectPeerRequiresTrustedScopeMetadata(t *testing.T) {
 		t.Fatalf("marshal HTTP tools/call: %v", err)
 	}
 	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(raw))
+	attachInitializedHTTPSession(t, server, req)
 
 	server.handleMCP(rec, req)
 
@@ -442,6 +443,7 @@ func TestHTTPDirectPeerWithoutTrustedMetadataIsNotMultiAgentIsolationPass(t *tes
 	server := NewHTTPServer("mcp-lsp", "dev", provider)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"file","arguments":{"agent_id":"forged-agent","cwd":"/forged"}}}`))
+	attachInitializedHTTPSession(t, server, req)
 
 	server.handleMCP(rec, req)
 
@@ -514,9 +516,30 @@ func TestRollbackKeepsHTTPMCPCompatibility(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 
-	resp, err := http.Post("http://"+addr+"/mcp", "application/json", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
+	initResp, err := http.Post("http://"+addr+"/mcp", "application/json", strings.NewReader(
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"compat-test"}}}`,
+	))
 	if err != nil {
-		t.Fatalf("POST /mcp error = %v", err)
+		t.Fatalf("initialize POST /mcp error = %v", err)
+	}
+	defer initResp.Body.Close()
+	sessionID := initResp.Header.Get(testHTTPMCPHeaderSessionID)
+	if initResp.StatusCode != http.StatusOK || sessionID == "" {
+		t.Fatalf("initialize status = %d session = %q, want 200 and session", initResp.StatusCode, sessionID)
+	}
+	req, err := http.NewRequest(
+		http.MethodPost,
+		"http://"+addr+"/mcp",
+		strings.NewReader(`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`),
+	)
+	if err != nil {
+		t.Fatalf("NewRequest() error = %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(testHTTPMCPHeaderSessionID, sessionID)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("tools/list POST /mcp error = %v", err)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)

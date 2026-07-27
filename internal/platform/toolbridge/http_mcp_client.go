@@ -17,6 +17,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/httpegress"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge/mcpwire"
 )
@@ -27,6 +28,7 @@ const (
 	httpMCPContentTypeEventStream = "text/event-stream"
 	httpMCPHeaderSessionID        = "Mcp-Session-Id"
 	httpMCPHeaderProtocolVersion  = "MCP-Protocol-Version"
+	httpMCPCloseTimeout           = 5 * time.Second
 )
 
 var defaultHTTPMCPClient = &http.Client{Timeout: 30 * time.Second}
@@ -43,6 +45,8 @@ type httpMCPClient struct {
 	protocolVersion string
 	mu              sync.Mutex
 	nextID          int64
+	closeOnce       sync.Once
+	closeErr        error
 }
 
 type httpMCPRPCResponse struct {
@@ -69,12 +73,15 @@ func newHTTPMCPClient(ctx context.Context, binary providerdto.MCPBinary) (*httpM
 		"clientInfo":      map[string]any{"name": "super-agent-codex", "version": "dev"},
 	})
 	if err != nil {
+		_ = client.Close()
 		return nil, err
 	}
 	if err := client.captureProtocolVersion(raw); err != nil {
+		_ = client.Close()
 		return nil, fmt.Errorf("toolbridge: HTTP MCP initialize: %w", err)
 	}
 	if err := client.notify(ctx, "notifications/initialized", nil); err != nil {
+		_ = client.Close()
 		return nil, err
 	}
 	return client, nil
@@ -169,8 +176,50 @@ func (c *httpMCPClient) CallTool(ctx context.Context, name string, args json.Raw
 	return adaptMCPResponse(decoded)
 }
 
-// Close 保持 mcpClient 接口一致；HTTP MCP 没有本地进程或长连接需要释放。
+// Close 通过 Streamable HTTP DELETE 显式释放远端 session；重复调用返回稳定结果。
 func (c *httpMCPClient) Close() error {
+	if c == nil {
+		return nil
+	}
+	c.closeOnce.Do(func() {
+		c.closeErr = c.closeSession()
+	})
+	return c.closeErr
+}
+
+// closeSession 在有界超时内发送 DELETE，并仅在远端确认成功后清空本地 session ID。
+func (c *httpMCPClient) closeSession() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.sessionID == "" {
+		return nil
+	}
+	ctx, cancel := platformconfig.WithTimeout(context.Background(), httpMCPCloseTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.endpoint, nil)
+	if err != nil {
+		return fmt.Errorf("toolbridge: build HTTP MCP session close request: %w", err)
+	}
+	req.Header.Set(httpMCPHeaderSessionID, c.sessionID)
+	if c.protocolVersion != "" {
+		req.Header.Set(httpMCPHeaderProtocolVersion, c.protocolVersion)
+	}
+	for name, value := range c.headers {
+		req.Header.Set(name, value)
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("toolbridge: HTTP MCP session close: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := readHTTPMCPBody(resp.Body)
+	if err != nil {
+		return err
+	}
+	if err := rejectHTTPMCPStatus(resp.StatusCode, "session close", body); err != nil {
+		return err
+	}
+	c.sessionID = ""
 	return nil
 }
 

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
@@ -139,6 +140,37 @@ func TestNewHTTPMCPClientRejectsInvalidInitializeProtocolVersion(t *testing.T) {
 	}
 }
 
+func TestNewHTTPMCPClientReleasesSessionAfterMalformedInitializeResponse(t *testing.T) {
+	var deletes atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			if got := r.Header.Get(httpMCPHeaderSessionID); got != "session-malformed" {
+				http.Error(w, "missing session", http.StatusBadRequest)
+				return
+			}
+			deletes.Add(1)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.Header().Set(httpMCPHeaderSessionID, "session-malformed")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{`))
+	}))
+	defer server.Close()
+
+	_, err := newHTTPMCPClient(context.Background(), providerdto.MCPBinary{
+		Name: string(providerdto.FamilyOrch),
+		Type: "http",
+		URL:  server.URL,
+	})
+	if err == nil {
+		t.Fatal("newHTTPMCPClient() error = nil, want malformed initialize response")
+	}
+	if got := deletes.Load(); got != 1 {
+		t.Fatalf("DELETE calls = %d, want 1", got)
+	}
+}
+
 func TestHTTPMCPClientCallToolConvertsJSONRPCErrorToToolResult(t *testing.T) {
 	const marker = "token=sk-test-secret dsn=postgres://alice:secret@db/private path=/Users/private/secret.go"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -164,6 +196,55 @@ func TestHTTPMCPClientCallToolConvertsJSONRPCErrorToToolResult(t *testing.T) {
 	}
 	if len(got.ContentItems) != 1 || strings.Contains(got.ContentItems[0].Text, marker) || !strings.HasPrefix(got.ContentItems[0].Text, "Tool execution failed. Diagnostic ID: ") {
 		t.Fatalf("CallTool() content = %#v, want public diagnostic error without marker", got.ContentItems)
+	}
+}
+
+func TestHTTPMCPClientCloseDeletesSessionOnce(t *testing.T) {
+	var deletes atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if got := r.Header.Get(httpMCPHeaderSessionID); got != "session-close" {
+			http.Error(w, "missing session", http.StatusBadRequest)
+			return
+		}
+		if got := r.Header.Get(httpMCPHeaderProtocolVersion); got != ProxyProtocolVersion {
+			http.Error(w, "missing protocol version", http.StatusBadRequest)
+			return
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer token" {
+			http.Error(w, "missing authorization", http.StatusUnauthorized)
+			return
+		}
+		deletes.Add(1)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	client := &httpMCPClient{
+		client:          server.Client(),
+		endpoint:        server.URL,
+		headers:         map[string]string{"Authorization": "Bearer token"},
+		sessionID:       "session-close",
+		protocolVersion: ProxyProtocolVersion,
+	}
+
+	if err := client.Close(); err != nil {
+		t.Fatalf("first Close() error = %v", err)
+	}
+	if err := client.Close(); err != nil {
+		t.Fatalf("second Close() error = %v", err)
+	}
+	if got := deletes.Load(); got != 1 {
+		t.Fatalf("DELETE calls = %d, want 1", got)
+	}
+}
+
+func TestHTTPMCPClientCloseAcceptsTypedNilAfterInitializeFailure(t *testing.T) {
+	var client *httpMCPClient
+	if err := client.Close(); err != nil {
+		t.Fatalf("typed-nil Close() error = %v", err)
 	}
 }
 

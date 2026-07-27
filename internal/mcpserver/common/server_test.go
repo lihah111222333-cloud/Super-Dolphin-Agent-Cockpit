@@ -236,6 +236,7 @@ func TestToolsCallRejectsMissingNameBeforeProvider(t *testing.T) {
 				server := NewHTTPServer("test", "dev", provider)
 				rec := httptest.NewRecorder()
 				req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(tt.body))
+				attachInitializedHTTPSession(t, server, req)
 				server.handleMCP(rec, req)
 				if rec.Code != http.StatusOK {
 					t.Fatalf("HTTP status = %d, want 200; body=%s", rec.Code, rec.Body.String())
@@ -343,6 +344,7 @@ func TestHTTPToolsCallTypedNilErrorReturnsStructuredToolError(t *testing.T) {
 	server := NewHTTPServer("test", "dev", provider)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":29,"method":"tools/call","params":{"name":"launch_agent","arguments":{}}}`))
+	attachInitializedHTTPSession(t, server, req)
 
 	server.handleMCP(rec, req)
 
@@ -374,6 +376,7 @@ func TestHTTPToolsCallUsesInjectedToolErrorClassifier(t *testing.T) {
 	server := NewHTTPServer("test", "dev", provider, WithHTTPToolErrorClassifier(classifier))
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"demo_tool","arguments":{}}}`))
+	attachInitializedHTTPSession(t, server, req)
 
 	server.handleMCP(rec, req)
 
@@ -393,6 +396,7 @@ func TestHTTPToolsListRejectsInvalidToolSchema(t *testing.T) {
 	server := NewHTTPServer("test", "dev", badSchemaToolProvider{})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":36,"method":"tools/list"}`))
+	attachInitializedHTTPSession(t, server, req)
 
 	server.handleMCP(rec, req)
 
@@ -406,6 +410,7 @@ func TestHTTPToolsListNilProviderReturnsInternalError(t *testing.T) {
 	server := NewHTTPServer("test", "dev", nil)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":37,"method":"tools/list"}`))
+	attachInitializedHTTPSession(t, server, req)
 
 	server.handleMCP(rec, req)
 
@@ -659,7 +664,9 @@ func TestTransportsAcceptAbsentAndNullJSONRPCID(t *testing.T) {
 			if tt.http {
 				server := NewHTTPServer("test", "dev", provider)
 				rec := httptest.NewRecorder()
-				server.handleMCP(rec, httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body)))
+				req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+				attachInitializedHTTPSession(t, server, req)
+				server.handleMCP(rec, req)
 				raw = rec.Body.Bytes()
 			} else {
 				var output bytes.Buffer
@@ -712,6 +719,7 @@ func TestTransportsRejectInvalidJSONRPCIDBeforeProvider(t *testing.T) {
 				server := NewHTTPServer("test", "dev", provider)
 				rec := httptest.NewRecorder()
 				req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+				attachInitializedHTTPSession(t, server, req)
 				server.handleMCP(rec, req)
 				raw = rec.Body.Bytes()
 			} else {

@@ -113,7 +113,9 @@ const (
 	codeMethodMissing = -32601
 	codeInvalidParams = -32602
 	codeInternal      = -32603
-	codeToolCall      = -32000
+
+	maxStdioInFlightToolCalls = 64
+	stdioToolCallDrainTimeout = 2 * time.Second
 )
 
 // ToolProvider 是 mcpserver/common 调用具体工具实现的最小接口。
@@ -134,6 +136,14 @@ type Server struct {
 	toolErrorClassifier ToolErrorClassifier
 	ready               chan struct{} // closed when Run enters its read loop
 	idleTimeout         time.Duration
+
+	inFlightMu       sync.Mutex
+	inFlight         map[jsonRPCIDKey]*inFlightToolCall
+	inFlightWG       sync.WaitGroup
+	inFlightActive   int
+	inFlightDrained  chan struct{}
+	stopping         bool
+	acceptingReplies bool
 }
 
 // ServerOption configures the stdio MCP server.
@@ -198,6 +208,22 @@ type readResult struct {
 	err     error
 }
 
+// jsonRPCIDKey 保留 JSON-RPC ID 的协议类型，避免数字 1 与字符串 "1" 共享取消槽位。
+type jsonRPCIDKey struct {
+	kind  byte
+	value string
+}
+
+// inFlightToolCall 保存单个 stdio tools/call 的子 context 取消函数。
+type inFlightToolCall struct {
+	cancel context.CancelFunc
+}
+
+// cancelledParams 是 MCP notifications/cancelled 的标准参数。
+type cancelledParams struct {
+	RequestID json.RawMessage `json:"requestId"`
+}
+
 // NewServer 创建 stdio MCP 服务端，并补齐空 name/version 的开发默认值。
 func NewServer(name, version string, transport *StdioTransport, tools ToolProvider, opts ...ServerOption) *Server {
 	if strings.TrimSpace(name) == "" {
@@ -206,7 +232,18 @@ func NewServer(name, version string, transport *StdioTransport, tools ToolProvid
 	if strings.TrimSpace(version) == "" {
 		version = "dev"
 	}
-	s := &Server{name: name, version: version, transport: transport, tools: tools, ready: make(chan struct{})}
+	drained := make(chan struct{})
+	close(drained)
+	s := &Server{
+		name:             name,
+		version:          version,
+		transport:        transport,
+		tools:            tools,
+		ready:            make(chan struct{}),
+		inFlight:         make(map[jsonRPCIDKey]*inFlightToolCall),
+		inFlightDrained:  drained,
+		acceptingReplies: true,
+	}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(s)
@@ -224,6 +261,10 @@ func (s *Server) Run(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	cancelActiveToolCalls := true
+	defer func() {
+		s.shutdownInFlightToolCalls(cancelActiveToolCalls)
+	}()
 	pkglogger.Info("mcp: server run started", "server", s.name)
 	results := make(chan readResult, 1)
 	s.startReadLoop(results)
@@ -254,14 +295,15 @@ func (s *Server) Run(ctx context.Context) error {
 		case result, ok := <-results:
 			stopServerIdleTimer(idleTimer)
 			idleC = nil
+			if !ok || shouldStop(result.err) {
+				cancelActiveToolCalls = false
+			}
 			stop, err := s.processReadResult(ctx, result, ok)
 			if stop {
 				return err
 			}
 			resetServerIdleTimer(idleTimer, s.idleTimeout)
-			if idleTimer != nil {
-				idleC = idleTimer.C
-			}
+			idleC = serverIdleTimerChannel(idleTimer)
 		}
 	}
 }
@@ -332,6 +374,13 @@ func resetServerIdleTimer(timer *time.Timer, timeout time.Duration) {
 	timer.Reset(timeout)
 }
 
+func serverIdleTimerChannel(timer *time.Timer) <-chan time.Time {
+	if timer == nil {
+		return nil
+	}
+	return timer.C
+}
+
 // startReadLoop 启动单独 goroutine 读取 transport，panic 会被记录而不是击穿 Run。
 func (s *Server) startReadLoop(results chan<- readResult) {
 	var readWG sync.WaitGroup
@@ -398,7 +447,8 @@ func (s *Server) dispatch(ctx context.Context, req jsonRPCRequest) (*jsonRPCResp
 	switch req.Method {
 	case "initialize":
 		return s.handleInitialize(req), false
-	case "notifications/initialized":
+	case "notifications/initialized", "notifications/cancelled":
+		s.handleNotification(req)
 		return nil, false
 	case "ping", "shutdown":
 		return maybeResult(req.ID, map[string]any{}), false
@@ -407,13 +457,186 @@ func (s *Server) dispatch(ctx context.Context, req jsonRPCRequest) (*jsonRPCResp
 	case "tools/list":
 		return s.handleToolsList(ctx, req), false
 	case "tools/call":
-		return s.handleToolsCall(ctx, req), false
+		return s.dispatchToolCall(ctx, req), false
 	default:
 		if !hasRequestID(req.ID) {
 			return nil, false
 		}
 		return errorResponse(req.ID, codeMethodMissing, "method not found"), false
 	}
+}
+
+// handleNotification 处理无需响应的 MCP 通知；initialized 只确认就绪，cancelled 取消目标调用。
+func (s *Server) handleNotification(req jsonRPCRequest) {
+	if req.Method == "notifications/cancelled" {
+		s.handleCancelled(req.Params)
+	}
+}
+
+// dispatchToolCall 只把带 ID 的 tools/call 放入异步取消注册表，notification 保持同步无响应。
+func (s *Server) dispatchToolCall(ctx context.Context, req jsonRPCRequest) *jsonRPCResponse {
+	if hasRequestID(req.ID) {
+		return s.startToolCall(ctx, req)
+	}
+	return s.handleToolsCall(ctx, req)
+}
+
+// startToolCall 为带 ID 的 stdio tools/call 注册有界子 context 并异步执行。
+func (s *Server) startToolCall(ctx context.Context, req jsonRPCRequest) *jsonRPCResponse {
+	key, err := makeJSONRPCIDKey(req.ID)
+	if err != nil {
+		return errorResponse(req.ID, codeInvalidReq, err.Error())
+	}
+
+	s.inFlightMu.Lock()
+	if s.stopping {
+		s.inFlightMu.Unlock()
+		return errorResponse(req.ID, codeInternal, "server is stopping")
+	}
+	if _, exists := s.inFlight[key]; exists {
+		s.inFlightMu.Unlock()
+		return errorResponse(req.ID, codeInvalidReq, "duplicate active request id")
+	}
+	if s.inFlightActive >= maxStdioInFlightToolCalls {
+		s.inFlightMu.Unlock()
+		return errorResponse(
+			req.ID,
+			codeInternal,
+			fmt.Sprintf("too many active tools/call requests (limit %d)", maxStdioInFlightToolCalls),
+		)
+	}
+	callCtx, cancel := context.WithCancel(ctx)
+	call := &inFlightToolCall{cancel: cancel}
+	if s.inFlightActive == 0 {
+		s.inFlightDrained = make(chan struct{})
+	}
+	s.inFlightActive++
+	s.inFlight[key] = call
+	s.inFlightMu.Unlock()
+
+	s.inFlightWG.Go(func() {
+		defer s.markToolCallDone()
+		defer cancel()
+		resp := s.handleToolsCall(callCtx, req)
+		if s.shouldReplyToolCall(key, call) {
+			if err := s.reply(resp); err != nil {
+				pkglogger.Warn("mcp: async tools/call reply failed",
+					"server", s.name, "resp_id", string(req.ID), "error", err)
+			}
+		}
+		s.finishToolCall(key, call)
+	})
+	return nil
+}
+
+// shouldReplyToolCall 确认当前调用仍持有 typed ID 槽位，且 Run 未放弃超时响应。
+func (s *Server) shouldReplyToolCall(key jsonRPCIDKey, call *inFlightToolCall) bool {
+	s.inFlightMu.Lock()
+	defer s.inFlightMu.Unlock()
+	return s.inFlight[key] == call && s.acceptingReplies
+}
+
+// markToolCallDone 在响应路径结束后释放并发槽位，并通知 Run 当前批次已完全收口。
+func (s *Server) markToolCallDone() {
+	s.inFlightMu.Lock()
+	defer s.inFlightMu.Unlock()
+	s.inFlightActive--
+	if s.inFlightActive == 0 {
+		close(s.inFlightDrained)
+	}
+}
+
+// handleCancelled 按原始 typed JSON-RPC ID 取消当前 Server 内的活动 tools/call。
+func (s *Server) handleCancelled(raw json.RawMessage) {
+	var params cancelledParams
+	if err := platformshared.DecodeInput(raw, &params); err != nil {
+		pkglogger.Warn("mcp: cancelled notification decode failed",
+			"server", s.name, "error", err)
+		return
+	}
+	key, err := makeJSONRPCIDKey(params.RequestID)
+	if err != nil {
+		pkglogger.Warn("mcp: cancelled notification requestId invalid",
+			"server", s.name, "error", err)
+		return
+	}
+
+	s.inFlightMu.Lock()
+	call := s.inFlight[key]
+	s.inFlightMu.Unlock()
+	if call != nil {
+		call.cancel()
+	}
+}
+
+// finishToolCall 仅删除仍指向当前调用的槽位，避免旧完成回调误删复用 ID 的新调用。
+func (s *Server) finishToolCall(key jsonRPCIDKey, call *inFlightToolCall) {
+	s.inFlightMu.Lock()
+	defer s.inFlightMu.Unlock()
+	if s.inFlight[key] == call {
+		delete(s.inFlight, key)
+	}
+}
+
+// shutdownInFlightToolCalls 停止接收新调用，并用固定超时等待 goroutine 收口。
+// transport 正常 EOF 会先排空已经接收的请求；显式退出、读错或 ctx 取消会立即取消。
+func (s *Server) shutdownInFlightToolCalls(cancelImmediately bool) {
+	s.inFlightMu.Lock()
+	s.stopping = true
+	drained := s.inFlightDrained
+	cancels := make([]context.CancelFunc, 0, len(s.inFlight))
+	for _, call := range s.inFlight {
+		cancels = append(cancels, call.cancel)
+	}
+	s.inFlightMu.Unlock()
+	if cancelImmediately {
+		cancelToolCalls(cancels)
+	}
+
+	timer := time.NewTimer(stdioToolCallDrainTimeout)
+	defer timer.Stop()
+	select {
+	case <-drained:
+		s.inFlightWG.Wait()
+	case <-timer.C:
+		s.inFlightMu.Lock()
+		s.acceptingReplies = false
+		active := s.inFlightActive
+		s.inFlightMu.Unlock()
+		if !cancelImmediately {
+			cancelToolCalls(cancels)
+		}
+		pkglogger.Warn("mcp: timed out draining tools/call",
+			"server", s.name, "active", active, "timeout", stdioToolCallDrainTimeout)
+	}
+}
+
+func cancelToolCalls(cancels []context.CancelFunc) {
+	for _, cancel := range cancels {
+		cancel()
+	}
+}
+
+// makeJSONRPCIDKey 把合法 ID 转为带类型的可比较键；字符串按解码后的值匹配。
+func makeJSONRPCIDKey(id json.RawMessage) (jsonRPCIDKey, error) {
+	trimmed := bytes.TrimSpace(id)
+	if len(trimmed) == 0 {
+		return jsonRPCIDKey{}, errors.New("request id is required")
+	}
+	if err := validateJSONRPCID(trimmed); err != nil {
+		return jsonRPCIDKey{}, err
+	}
+	if bytes.Equal(trimmed, []byte("null")) {
+		return jsonRPCIDKey{kind: 'z'}, nil
+	}
+	if trimmed[0] != '"' {
+		return jsonRPCIDKey{kind: 'n', value: string(trimmed)}, nil
+	}
+	var value string
+	if err := json.Unmarshal(trimmed, &value); err != nil {
+		return jsonRPCIDKey{}, fmt.Errorf("decode string request id: %w", err)
+	}
+	return jsonRPCIDKey{kind: 's', value: value}, nil
 }
 
 // handleInitialize 返回 MCP serverInfo 和工具能力，并与 HTTP transport 共用严格协议协商。

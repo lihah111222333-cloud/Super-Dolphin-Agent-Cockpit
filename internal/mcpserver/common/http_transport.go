@@ -50,6 +50,9 @@ type HTTPServer struct {
 	server              *http.Server
 	bearerToken         string
 	toolErrorClassifier ToolErrorClassifier
+
+	sessionsMu sync.RWMutex
+	sessions   map[string]*httpMCPSession
 }
 
 // NewHTTPServer 创建使用 Streamable HTTP transport 的 legacy MCP server。
@@ -62,7 +65,12 @@ func NewHTTPServer(name, version string, tools ToolProvider, opts ...HTTPServerO
 	if strings.TrimSpace(version) == "" {
 		version = "dev"
 	}
-	h := &HTTPServer{name: name, version: version, tools: tools}
+	h := &HTTPServer{
+		name:     name,
+		version:  version,
+		tools:    tools,
+		sessions: make(map[string]*httpMCPSession),
+	}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(h)
@@ -114,6 +122,7 @@ func (h *HTTPServer) Start(ctx context.Context, listenAddr string) (string, erro
 // Legacy: HTTP MCP transport 仅保留给旧调用方；当前工具执行路径使用 stdio MCP sidecar Server。
 // Stop 优雅关闭 legacy HTTP server；未启动时直接返回 nil。
 func (h *HTTPServer) Stop(ctx context.Context) error {
+	h.terminateAllSessions()
 	if h.server == nil {
 		return nil
 	}
@@ -123,7 +132,7 @@ func (h *HTTPServer) Stop(ctx context.Context) error {
 
 // handleMCP 处理单个 HTTP JSON-RPC 请求；notification 返回 202 且不写响应体。
 func (h *HTTPServer) handleMCP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
+	if r.Method != http.MethodPost && r.Method != http.MethodDelete {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -131,6 +140,20 @@ func (h *HTTPServer) handleMCP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
+	h.handleAuthorizedMCP(w, r)
+}
+
+// handleAuthorizedMCP 在鉴权通过后按 HTTP method 分派 session 生命周期与 JSON-RPC 请求。
+func (h *HTTPServer) handleAuthorizedMCP(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodDelete {
+		h.handleDeleteSession(w, r)
+		return
+	}
+	h.handlePostMCP(w, r)
+}
+
+// handlePostMCP 解码单个 POST 请求并在对应 session 内执行 JSON-RPC。
+func (h *HTTPServer) handlePostMCP(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	body, err := readLimitedHTTPBody(r.Body)
 	if err != nil {
@@ -143,8 +166,21 @@ func (h *HTTPServer) handleMCP(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, nil, errorCode, message)
 		return
 	}
+	if invalid := validateHTTPJSONRPCEnvelope(req); invalid != nil {
+		writeHTTPResponse(w, invalid)
+		return
+	}
 
-	resp := h.dispatch(r.Context(), req)
+	if req.Method == "initialize" {
+		h.handleInitializeRequest(w, r, req)
+		return
+	}
+	session, status, err := h.requireSession(r)
+	if err != nil {
+		writeHTTPJSONError(w, status, req.ID, codeInvalidReq, err.Error())
+		return
+	}
+	resp := h.dispatch(r.Context(), session, req)
 	if resp == nil {
 		// Notification — no response needed, return 202 Accepted.
 		w.WriteHeader(http.StatusAccepted)
@@ -156,6 +192,17 @@ func (h *HTTPServer) handleMCP(w http.ResponseWriter, r *http.Request) {
 		pkglogger.Warn("mcp http: write response failed",
 			"server", h.name, "error", err)
 	}
+}
+
+// validateHTTPJSONRPCEnvelope 在 session 路由前拒绝非法版本或请求 ID，避免 session 错误遮蔽协议错误。
+func validateHTTPJSONRPCEnvelope(req jsonRPCRequest) *jsonRPCResponse {
+	if err := validateJSONRPCID(req.ID); err != nil {
+		return errorResponse(nil, codeInvalidReq, err.Error())
+	}
+	if strings.TrimSpace(req.JSONRPC) != "2.0" {
+		return errorResponse(req.ID, codeInvalidReq, "jsonrpc must be 2.0")
+	}
+	return nil
 }
 
 // readLimitedHTTPBody 读取 HTTP JSON-RPC body，并用 limit+1 检测避免截断后继续解析。
@@ -189,7 +236,7 @@ func (h *HTTPServer) authorized(r *http.Request) bool {
 }
 
 // dispatch 派发MCP 服务。
-func (h *HTTPServer) dispatch(ctx context.Context, req jsonRPCRequest) *jsonRPCResponse {
+func (h *HTTPServer) dispatch(ctx context.Context, session *httpMCPSession, req jsonRPCRequest) *jsonRPCResponse {
 	if err := validateJSONRPCID(req.ID); err != nil {
 		return errorResponse(nil, codeInvalidReq, err.Error())
 	}
@@ -197,16 +244,17 @@ func (h *HTTPServer) dispatch(ctx context.Context, req jsonRPCRequest) *jsonRPCR
 		return errorResponse(req.ID, codeInvalidReq, "jsonrpc must be 2.0")
 	}
 	switch req.Method {
-	case "initialize":
-		return h.handleInitialize(req)
 	case "notifications/initialized", "exit":
+		return nil
+	case "notifications/cancelled":
+		session.cancelRequest(req.Params)
 		return nil
 	case "ping", "shutdown":
 		return maybeResult(req.ID, map[string]any{})
 	case "tools/list":
 		return h.handleToolsList(ctx, req)
 	case "tools/call":
-		return h.handleToolsCall(ctx, req)
+		return h.handleSessionToolCall(ctx, session, req)
 	default:
 		if !hasRequestID(req.ID) {
 			return nil
@@ -311,6 +359,14 @@ func (h *HTTPServer) handleToolsCall(ctx context.Context, req jsonRPCRequest) *j
 // writeJSONError 以 JSON-RPC error envelope 写出 HTTP 错误响应。
 func writeJSONError(w http.ResponseWriter, id json.RawMessage, code int, message string) {
 	w.Header().Set("Content-Type", "application/json")
+	resp := errorResponse(id, code, message)
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// writeHTTPJSONError 同时表达 HTTP transport 状态与 JSON-RPC 错误 envelope。
+func writeHTTPJSONError(w http.ResponseWriter, status int, id json.RawMessage, code int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
 	resp := errorResponse(id, code, message)
 	_ = json.NewEncoder(w).Encode(resp)
 }

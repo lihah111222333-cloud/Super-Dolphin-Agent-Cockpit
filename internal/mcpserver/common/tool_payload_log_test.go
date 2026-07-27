@@ -88,6 +88,7 @@ func TestToolPayloadLogDebugModeStillRedactsSecrets(t *testing.T) {
 				server := NewHTTPServer("mcp-lsp", "dev", testToolProvider{})
 				rec := httptest.NewRecorder()
 				req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(secretToolCallRequest(t, "req-secret-http")))
+				attachInitializedHTTPSession(t, server, req)
 				server.handleMCP(rec, req)
 				if rec.Code != http.StatusOK {
 					t.Fatalf("HTTP status = %d, want 200; body=%s", rec.Code, rec.Body.String())
@@ -186,6 +187,7 @@ func TestToolPayloadLogMarksHTTPTransportDeprecated(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(toolCallRequest(t, 12, "edit", map[string]any{
 		"patch": "+http legacy path\n",
 	})))
+	attachInitializedHTTPSession(t, server, req)
 
 	server.handleMCP(rec, req)
 
