@@ -3,6 +3,7 @@ package taskdag
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlc"
@@ -137,6 +138,19 @@ func parseLeaseDuration(value, operation, entity string) (sqlc.Interval, error) 
 		return 0, wrapTaskDAGError(err, operation, entity)
 	}
 	return interval, nil
+}
+
+// ParseLeaseDuration 严格解析 dispatcher lease，并返回可用于 Go ticker 的正时长。
+func ParseLeaseDuration(value string) (time.Duration, error) {
+	interval, err := intervalValue(value)
+	if err != nil {
+		return 0, fmt.Errorf("parse lease duration: %w", err)
+	}
+	duration := time.Duration(interval) * time.Millisecond
+	if duration <= 0 {
+		return 0, fmt.Errorf("parse lease duration: duration must be positive: %q", value)
+	}
+	return duration, nil
 }
 
 // bindWakeupTurnTx 把 sent wakeup 和 turn_id 绑起来。

@@ -117,11 +117,13 @@
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.publishDAGNodeFailure",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.recordPermanentRouterFailure",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.recordRetryAccepted",
+        "cmd/mcp-orch/orchestration.*WakeupDispatcher.renewClaimedWakeup",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.resolveDAGRetryContext",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.resolveDAGRetryPolicy",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.retryPolicyFailFast",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.retryWakeup",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.retryWakeupWithSmartRetryConfig",
+        "cmd/mcp-orch/orchestration.*WakeupDispatcher.routeClaimedWithLeaseHeartbeat",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.spawnReplanPlanner",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.tryDAGFailWithCascade",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.trySmartDAGRetry",
@@ -682,6 +684,7 @@
         "cmd/mcp-orch/orchestration.createDAGParams",
         "cmd/mcp-orch/orchestration.createDAGRequestFromParams",
         "cmd/mcp-orch/orchestration.currentAgentModel",
+        "cmd/mcp-orch/orchestration.currentRouteWakeupFence",
         "cmd/mcp-orch/orchestration.dagController",
         "cmd/mcp-orch/orchestration.dagControllerParams",
         "cmd/mcp-orch/orchestration.dagKeyParams",
@@ -928,6 +931,7 @@
         "cmd/mcp-orch/orchestration.publishTurnResumedEvent",
         "cmd/mcp-orch/orchestration.publishTurnStalledEvent",
         "cmd/mcp-orch/orchestration.rawJSONObject",
+        "cmd/mcp-orch/orchestration.readRoutedWakeupResult",
         "cmd/mcp-orch/orchestration.recordDispatchFailedMetric",
         "cmd/mcp-orch/orchestration.recordDispatchRetryMetric",
         "cmd/mcp-orch/orchestration.recordLegacyResultCapMetric",
@@ -1009,6 +1013,7 @@
         "cmd/mcp-orch/orchestration.resultLooksLikeRawAutomationInputs",
         "cmd/mcp-orch/orchestration.routeRunID",
         "cmd/mcp-orch/orchestration.routeWakeupFence",
+        "cmd/mcp-orch/orchestration.routedWakeupResult",
         "cmd/mcp-orch/orchestration.rpcCall",
         "cmd/mcp-orch/orchestration.runContextBuildErr",
         "cmd/mcp-orch/orchestration.runOpsBatch",
@@ -4886,11 +4891,13 @@
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.publishDAGNodeFailure",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.recordPermanentRouterFailure",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.recordRetryAccepted",
+        "cmd/mcp-orch/orchestration.*WakeupDispatcher.renewClaimedWakeup",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.resolveDAGRetryContext",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.resolveDAGRetryPolicy",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.retryPolicyFailFast",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.retryWakeup",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.retryWakeupWithSmartRetryConfig",
+        "cmd/mcp-orch/orchestration.*WakeupDispatcher.routeClaimedWithLeaseHeartbeat",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.spawnReplanPlanner",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.tryDAGFailWithCascade",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.trySmartDAGRetry",
@@ -5451,6 +5458,7 @@
         "cmd/mcp-orch/orchestration.createDAGParams",
         "cmd/mcp-orch/orchestration.createDAGRequestFromParams",
         "cmd/mcp-orch/orchestration.currentAgentModel",
+        "cmd/mcp-orch/orchestration.currentRouteWakeupFence",
         "cmd/mcp-orch/orchestration.dagController",
         "cmd/mcp-orch/orchestration.dagControllerParams",
         "cmd/mcp-orch/orchestration.dagKeyParams",
@@ -5697,6 +5705,7 @@
         "cmd/mcp-orch/orchestration.publishTurnResumedEvent",
         "cmd/mcp-orch/orchestration.publishTurnStalledEvent",
         "cmd/mcp-orch/orchestration.rawJSONObject",
+        "cmd/mcp-orch/orchestration.readRoutedWakeupResult",
         "cmd/mcp-orch/orchestration.recordDispatchFailedMetric",
         "cmd/mcp-orch/orchestration.recordDispatchRetryMetric",
         "cmd/mcp-orch/orchestration.recordLegacyResultCapMetric",
@@ -5778,6 +5787,7 @@
         "cmd/mcp-orch/orchestration.resultLooksLikeRawAutomationInputs",
         "cmd/mcp-orch/orchestration.routeRunID",
         "cmd/mcp-orch/orchestration.routeWakeupFence",
+        "cmd/mcp-orch/orchestration.routedWakeupResult",
         "cmd/mcp-orch/orchestration.rpcCall",
         "cmd/mcp-orch/orchestration.runContextBuildErr",
         "cmd/mcp-orch/orchestration.runOpsBatch",
@@ -9655,11 +9665,13 @@
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.publishDAGNodeFailure",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.recordPermanentRouterFailure",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.recordRetryAccepted",
+        "cmd/mcp-orch/orchestration.*WakeupDispatcher.renewClaimedWakeup",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.resolveDAGRetryContext",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.resolveDAGRetryPolicy",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.retryPolicyFailFast",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.retryWakeup",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.retryWakeupWithSmartRetryConfig",
+        "cmd/mcp-orch/orchestration.*WakeupDispatcher.routeClaimedWithLeaseHeartbeat",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.spawnReplanPlanner",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.tryDAGFailWithCascade",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.trySmartDAGRetry",
@@ -10220,6 +10232,7 @@
         "cmd/mcp-orch/orchestration.createDAGParams",
         "cmd/mcp-orch/orchestration.createDAGRequestFromParams",
         "cmd/mcp-orch/orchestration.currentAgentModel",
+        "cmd/mcp-orch/orchestration.currentRouteWakeupFence",
         "cmd/mcp-orch/orchestration.dagController",
         "cmd/mcp-orch/orchestration.dagControllerParams",
         "cmd/mcp-orch/orchestration.dagKeyParams",
@@ -10466,6 +10479,7 @@
         "cmd/mcp-orch/orchestration.publishTurnResumedEvent",
         "cmd/mcp-orch/orchestration.publishTurnStalledEvent",
         "cmd/mcp-orch/orchestration.rawJSONObject",
+        "cmd/mcp-orch/orchestration.readRoutedWakeupResult",
         "cmd/mcp-orch/orchestration.recordDispatchFailedMetric",
         "cmd/mcp-orch/orchestration.recordDispatchRetryMetric",
         "cmd/mcp-orch/orchestration.recordLegacyResultCapMetric",
@@ -10547,6 +10561,7 @@
         "cmd/mcp-orch/orchestration.resultLooksLikeRawAutomationInputs",
         "cmd/mcp-orch/orchestration.routeRunID",
         "cmd/mcp-orch/orchestration.routeWakeupFence",
+        "cmd/mcp-orch/orchestration.routedWakeupResult",
         "cmd/mcp-orch/orchestration.rpcCall",
         "cmd/mcp-orch/orchestration.runContextBuildErr",
         "cmd/mcp-orch/orchestration.runOpsBatch",
@@ -14424,11 +14439,13 @@
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.publishDAGNodeFailure",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.recordPermanentRouterFailure",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.recordRetryAccepted",
+        "cmd/mcp-orch/orchestration.*WakeupDispatcher.renewClaimedWakeup",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.resolveDAGRetryContext",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.resolveDAGRetryPolicy",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.retryPolicyFailFast",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.retryWakeup",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.retryWakeupWithSmartRetryConfig",
+        "cmd/mcp-orch/orchestration.*WakeupDispatcher.routeClaimedWithLeaseHeartbeat",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.spawnReplanPlanner",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.tryDAGFailWithCascade",
         "cmd/mcp-orch/orchestration.*WakeupDispatcher.trySmartDAGRetry",
@@ -14989,6 +15006,7 @@
         "cmd/mcp-orch/orchestration.createDAGParams",
         "cmd/mcp-orch/orchestration.createDAGRequestFromParams",
         "cmd/mcp-orch/orchestration.currentAgentModel",
+        "cmd/mcp-orch/orchestration.currentRouteWakeupFence",
         "cmd/mcp-orch/orchestration.dagController",
         "cmd/mcp-orch/orchestration.dagControllerParams",
         "cmd/mcp-orch/orchestration.dagKeyParams",
@@ -15235,6 +15253,7 @@
         "cmd/mcp-orch/orchestration.publishTurnResumedEvent",
         "cmd/mcp-orch/orchestration.publishTurnStalledEvent",
         "cmd/mcp-orch/orchestration.rawJSONObject",
+        "cmd/mcp-orch/orchestration.readRoutedWakeupResult",
         "cmd/mcp-orch/orchestration.recordDispatchFailedMetric",
         "cmd/mcp-orch/orchestration.recordDispatchRetryMetric",
         "cmd/mcp-orch/orchestration.recordLegacyResultCapMetric",
@@ -15316,6 +15335,7 @@
         "cmd/mcp-orch/orchestration.resultLooksLikeRawAutomationInputs",
         "cmd/mcp-orch/orchestration.routeRunID",
         "cmd/mcp-orch/orchestration.routeWakeupFence",
+        "cmd/mcp-orch/orchestration.routedWakeupResult",
         "cmd/mcp-orch/orchestration.rpcCall",
         "cmd/mcp-orch/orchestration.runContextBuildErr",
         "cmd/mcp-orch/orchestration.runOpsBatch",
@@ -19101,13 +19121,13 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2318,
-    "total_methods": 1230,
+    "total_functions": 2320,
+    "total_methods": 1232,
     "total_interfaces": 186,
     "total_interface_methods": 370,
     "total_exported": 1266,
-    "total_unexported": 3088,
-    "total_structs": 620
+    "total_unexported": 3093,
+    "total_structs": 621
   },
   "packages": [
     {
@@ -20640,6 +20660,23 @@
           ],
           "returns": [
             "string"
+          ]
+        },
+        {
+          "name": "currentRouteWakeupFence",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "fallback",
+              "type": "taskdag.WakeupFence"
+            }
+          ],
+          "returns": [
+            "taskdag.WakeupFence"
           ]
         },
         {
@@ -23958,6 +23995,19 @@
           ]
         },
         {
+          "name": "readRoutedWakeupResult",
+          "exported": false,
+          "params": [
+            {
+              "name": "resultCh",
+              "type": "\u003c-chan routedWakeupResult"
+            }
+          ],
+          "returns": [
+            "routedWakeupResult"
+          ]
+        },
+        {
           "name": "recordDispatchFailedMetric",
           "exported": false
         },
@@ -26994,6 +27044,24 @@
         },
         {
           "receiver": "*WakeupDispatcher",
+          "name": "renewClaimedWakeup",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "lease",
+              "type": "*taskdag.ClaimedWakeupLease"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*WakeupDispatcher",
           "name": "resolveDAGRetryContext",
           "exported": false,
           "params": [
@@ -27137,6 +27205,26 @@
           ],
           "returns": [
             "bool"
+          ]
+        },
+        {
+          "receiver": "*WakeupDispatcher",
+          "name": "routeClaimedWithLeaseHeartbeat",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "wakeup",
+              "type": "*taskdag.Wakeup"
+            }
+          ],
+          "returns": [
+            "routedWakeupResult",
+            "*taskdag.Wakeup",
+            "error"
           ]
         },
         {
@@ -36187,6 +36275,10 @@
         },
         {
           "name": "reportParams",
+          "exported": false
+        },
+        {
+          "name": "routedWakeupResult",
           "exported": false
         },
         {
