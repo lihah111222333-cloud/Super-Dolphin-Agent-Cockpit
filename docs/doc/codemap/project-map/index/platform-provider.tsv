@@ -401,6 +401,7 @@ internal/platform/eventsurface/methods.go	internal	platform-provider	go-source	2
 internal/platform/eventsurface/remote_decode.go	internal	platform-provider	go-source	5457	基础设施层	internal,platform,eventsurface,remote,decode,基础设施层
 internal/platform/eventsurface/task_contract_test.go	internal	platform-provider	go-test	2446	基础设施层	internal,platform,eventsurface,task,contract,test,基础设施层
 internal/platform/eventsurface/terminal_order_test.go	internal	platform-provider	go-test	3971	基础设施层	internal,platform,eventsurface,terminal,order,test,基础设施层
+internal/platform/eventsurface/wire_dto_mapper_contract_test.go	internal	platform-provider	go-test	2515	基础设施层	internal,platform,eventsurface,wire,dto,mapper,contract,test,基础设施层
 internal/platform/hooks/dispatch_worker_test.go	internal	platform-provider	go-test	10901	hook 配置、执行与三阶段拦截	internal,platform,hooks,dispatch,worker,test,hook,配置,执行与三阶段拦截
 internal/platform/hooks/dispatch_worker.go	internal	platform-provider	go-source	7044	hook 配置、执行与三阶段拦截	internal,platform,hooks,dispatch,worker,hook,配置,执行与三阶段拦截
 internal/platform/hooks/dispatcher_test.go	internal	platform-provider	go-test	14441	hook 配置、执行与三阶段拦截	internal,platform,hooks,dispatcher,test,hook,配置,执行与三阶段拦截
@@ -437,6 +438,7 @@ internal/platform/hooks/test_helpers_test.go	internal	platform-provider	go-test	
 internal/platform/httpegress/policy_test.go	internal	platform-provider	go-test	1696	基础设施层	internal,platform,httpegress,policy,test,基础设施层
 internal/platform/httpegress/policy.go	internal	platform-provider	go-source	6329	基础设施层	internal,platform,httpegress,policy,基础设施层
 internal/platform/mcpcontrol/config_change_test.go	internal	platform-provider	go-test	14106	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,config,change,test,MCP,控制平面与,peer,注册
+internal/platform/mcpcontrol/config_change_wire_dto_contract_test.go	internal	platform-provider	go-test	1803	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,config,change,wire,dto,contract,test,MCP,控制平面与,peer,注册
 internal/platform/mcpcontrol/config_change.go	internal	platform-provider	go-source	5676	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,config,change,MCP,控制平面与,peer,注册
 internal/platform/mcpcontrol/config_fanout_worker_test.go	internal	platform-provider	go-test	9984	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,config,fanout,worker,test,MCP,控制平面与,peer,注册
 internal/platform/mcpcontrol/config_fanout_worker.go	internal	platform-provider	go-source	7799	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,config,fanout,worker,MCP,控制平面与,peer,注册
