@@ -692,6 +692,61 @@ func TestFinalizeRecoveredRunRollsBackRunWhenJobFenceFails(t *testing.T) {
 	}
 }
 
+func TestFinalizeRecoveredRunCommitsFinishedRunAndJobTogether(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, db := openSubmitRunStore(t, "live-finalize-finished")
+	now := time.Unix(1_700_000_000, 0).UTC()
+	seedClaimedSubmittingRun(ctx, t, store, now)
+	if err := store.SubmitRunWithActiveTurn(ctx, SubmitRunWithActiveTurnParams{
+		RunID: "run-submit", JobID: "job-submit", ClaimToken: "claim-token", ActiveTurnID: "turn-submit",
+		SubmittedAt: now, Now: now,
+	}); err != nil {
+		t.Fatalf("SubmitRunWithActiveTurn() error = %v", err)
+	}
+
+	nextRunAt := now.Add(time.Hour)
+	if err := store.FinalizeRecoveredRun(ctx, FinalizeRecoveredRunParams{
+		ExpectedRunStatus: StatusSubmitted,
+		MarkFailedParams: MarkFailedParams{
+			ID: "job-submit", ClaimToken: "claim-token", RunID: "run-submit",
+			ExpectedActiveTurnID: "turn-submit", LastRunAt: now, LastTurnID: "turn-submit",
+			LastStatus: StatusFinished, NextRunAt: nextRunAt, Now: now.Add(time.Second),
+		},
+	}); err != nil {
+		t.Fatalf("FinalizeRecoveredRun() error = %v", err)
+	}
+
+	var runStatus, jobStatus, claimToken, activeTurn string
+	var storedNextRunAt int64
+	err := db.QueryRowContext(ctx, `
+		SELECT r.status, j.last_status, j.claim_token, j.active_turn_id, j.next_run_at
+		FROM cron_job_runs AS r JOIN cron_jobs AS j ON j.id = r.job_id
+		WHERE r.id = 'run-submit'
+	`).Scan(&runStatus, &jobStatus, &claimToken, &activeTurn, &storedNextRunAt)
+	if err != nil {
+		t.Fatalf("read finalized state: %v", err)
+	}
+	if runStatus != StatusFinished || jobStatus != StatusFinished || claimToken != "" || activeTurn != "" || storedNextRunAt != nextRunAt.UnixMilli() {
+		t.Fatalf("finalized state = run:%q job:%q claim:%q turn:%q next:%d", runStatus, jobStatus, claimToken, activeTurn, storedNextRunAt)
+	}
+}
+
+func TestFinalizeRecoveredRunRejectsUnsupportedTerminalStatus(t *testing.T) {
+	t.Parallel()
+	_, err := validateFinalizeRecoveredRun(FinalizeRecoveredRunParams{
+		ExpectedRunStatus: StatusSubmitted,
+		MarkFailedParams: MarkFailedParams{
+			ID: "job-submit", ClaimToken: "claim-token", RunID: "run-submit",
+			ExpectedActiveTurnID: "turn-submit", LastTurnID: "turn-submit",
+			LastStatus: "finished_typo", NextRunAt: time.Unix(1_700_000_000, 0).UTC(),
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "unsupported terminal status") {
+		t.Fatalf("validateFinalizeRecoveredRun() error = %v, want unsupported terminal status", err)
+	}
+}
+
 // ----- migration + query lint (schema-level guarantees) -----
 
 func TestClaimQueryUsesSQLiteAtomicClaimSemantics(t *testing.T) {

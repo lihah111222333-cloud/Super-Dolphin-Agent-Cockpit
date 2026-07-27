@@ -3,6 +3,7 @@ package cron
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -122,6 +123,40 @@ func TestSchedulerPublishesFailedOnStartTurnError(t *testing.T) {
 	}
 	if events[2].Error == "" {
 		t.Fatalf("failed event should carry error message; got %+v", events[2])
+	}
+}
+
+func TestSchedulerDoesNotPublishTerminalStateWhenAtomicFinalizeFails(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := event.NewDispatcher()
+	defer func() { _ = dispatcher.Close() }()
+
+	store := &recordingCronStore{}
+	s := newTestScheduler(t, store, &programmableSubmitter{}).WithDispatcher(dispatcher)
+	job := JobRecord{
+		ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC",
+		ClaimToken: "tok", ActiveTurnID: "turn-1", NextRunAt: s.now(),
+	}
+	run := RunRecord{
+		ID: "run-1", JobID: job.ID, TurnID: "turn-1",
+		Status: statusRunning, ScheduledAt: s.now(),
+	}
+	store.getRunByTurnIDFn = func(context.Context, string) (RunRecord, error) { return run, nil }
+	store.getJobFn = func(context.Context, string) (JobRecord, error) { return job, nil }
+	store.finalizeRecoveredRunFn = func(context.Context, FinalizeRecoveredRunParams) error {
+		return errors.New("atomic finalize failed")
+	}
+	out, cleanup := collectRunStateEvents(t, dispatcher)
+	defer cleanup()
+
+	err := s.CompleteTurn(context.Background(), "turn-1", true, "")
+	if err == nil || !strings.Contains(err.Error(), "atomic finalize failed") {
+		t.Fatalf("CompleteTurn error = %v, want atomic finalization failure", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if events := out.get(); len(events) != 0 {
+		t.Fatalf("terminal event published before atomic finalization committed: %+v", events)
 	}
 }
 

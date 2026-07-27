@@ -388,18 +388,17 @@ func TestTerminalEarlyArrivalDoesNotBecomePermanentStale(t *testing.T) {
 	job := JobRecord{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", ClaimToken: "claim-token"}
 	run := RunRecord{ID: "run-1", JobID: job.ID, Status: statusSubmitting, ScheduledAt: s.now()}
 	var terminalErr error
-	var finished MarkFinishedParams
+	var finished FinalizeRecoveredRunParams
 	store.submitRunWithActiveTurn = func(_ context.Context, p SubmitRunWithActiveTurnParams) error {
 		run.TurnID, run.Status = p.ActiveTurnID, statusSubmitted
 		job.ActiveTurnID = p.ActiveTurnID
 		terminalErr = s.CompleteTurn(context.Background(), p.ActiveTurnID, true, "")
 		return nil
 	}
-	store.casStatusFn = func(context.Context, CASRunStatusParams) error { run.Status = statusFinished; return nil }
 	store.getRunByTurnIDFn = func(context.Context, string) (RunRecord, error) { return run, nil }
 	store.listUnresolvedFn = func(context.Context) ([]RunRecord, error) { return []RunRecord{run}, nil }
 	store.getJobFn = func(context.Context, string) (JobRecord, error) { return job, nil }
-	store.markFinishedFn = func(_ context.Context, p MarkFinishedParams) error {
+	store.finalizeRecoveredRunFn = func(_ context.Context, p FinalizeRecoveredRunParams) error {
 		finished = p
 		return nil
 	}
@@ -411,7 +410,7 @@ func TestTerminalEarlyArrivalDoesNotBecomePermanentStale(t *testing.T) {
 		t.Fatalf("early terminal error = %v, want terminal to observe active turn", terminalErr)
 	}
 	if finished.ExpectedActiveTurnID != "turn-1" || finished.LastTurnID != "turn-1" {
-		t.Fatalf("MarkFinished params = %+v", finished)
+		t.Fatalf("FinalizeRecoveredRun params = %+v", finished)
 	}
 }
 
@@ -524,17 +523,17 @@ func TestSchedulerDoesNotFinishLongTurnUntilTerminalEvent(t *testing.T) {
 	store.claimFn = func(context.Context, ClaimDueJobsForUpdateParams) ([]JobRecord, error) {
 		return []JobRecord{job}, nil
 	}
-	markFinishedCalls := 0
-	store.markFinishedFn = func(context.Context, MarkFinishedParams) error {
-		markFinishedCalls++
+	finalizeCalls := 0
+	store.finalizeRecoveredRunFn = func(context.Context, FinalizeRecoveredRunParams) error {
+		finalizeCalls++
 		return nil
 	}
 
 	if err := s.RunTick(context.Background()); err != nil {
 		t.Fatalf("RunTick error = %v", err)
 	}
-	if markFinishedCalls != 0 {
-		t.Fatalf("long turn was marked finished before terminal event; calls=%d", markFinishedCalls)
+	if finalizeCalls != 0 {
+		t.Fatalf("long turn was finalized before terminal event; calls=%d", finalizeCalls)
 	}
 	last := store.casCalls[len(store.casCalls)-1]
 	if last.NextStatus != statusRunning {
@@ -550,8 +549,8 @@ func TestSchedulerTerminalEventMarksFinished(t *testing.T) {
 	run := RunRecord{ID: "run-1", JobID: job.ID, TurnID: "turn-1", Status: statusRunning, ScheduledAt: s.now()}
 	store.listUnresolvedFn = func(context.Context) ([]RunRecord, error) { return []RunRecord{run}, nil }
 	store.getJobFn = func(context.Context, string) (JobRecord, error) { return job, nil }
-	var finished MarkFinishedParams
-	store.markFinishedFn = func(_ context.Context, p MarkFinishedParams) error {
+	var finished FinalizeRecoveredRunParams
+	store.finalizeRecoveredRunFn = func(_ context.Context, p FinalizeRecoveredRunParams) error {
 		finished = p
 		return nil
 	}
@@ -560,11 +559,13 @@ func TestSchedulerTerminalEventMarksFinished(t *testing.T) {
 		t.Fatalf("CompleteTurn error = %v", err)
 	}
 	if finished.ID != job.ID || finished.RunID != run.ID || finished.ExpectedActiveTurnID != "turn-1" || finished.LastTurnID != "turn-1" {
-		t.Fatalf("MarkFinished params = %+v", finished)
+		t.Fatalf("FinalizeRecoveredRun params = %+v", finished)
 	}
-	last := store.casCalls[len(store.casCalls)-1]
-	if last.ExpectedStatus != statusRunning || last.NextStatus != statusFinished {
-		t.Fatalf("CAS = %s -> %s, want running -> finished", last.ExpectedStatus, last.NextStatus)
+	if finished.ExpectedRunStatus != statusRunning || finished.LastStatus != statusFinished {
+		t.Fatalf("terminal transition = %s -> %s, want running -> finished", finished.ExpectedRunStatus, finished.LastStatus)
+	}
+	if len(store.casCalls) != 0 {
+		t.Fatalf("terminal finalization must not use a separate CAS: %+v", store.casCalls)
 	}
 }
 
@@ -576,8 +577,8 @@ func TestCronTerminalEventFinalizesSubmittedRun(t *testing.T) {
 	run := RunRecord{ID: "run-1", JobID: job.ID, TurnID: "turn-1", Status: statusSubmitted, ScheduledAt: s.now()}
 	store.listUnresolvedFn = func(context.Context) ([]RunRecord, error) { return []RunRecord{run}, nil }
 	store.getJobFn = func(context.Context, string) (JobRecord, error) { return job, nil }
-	var finished MarkFinishedParams
-	store.markFinishedFn = func(_ context.Context, p MarkFinishedParams) error {
+	var finished FinalizeRecoveredRunParams
+	store.finalizeRecoveredRunFn = func(_ context.Context, p FinalizeRecoveredRunParams) error {
 		finished = p
 		return nil
 	}
@@ -586,11 +587,13 @@ func TestCronTerminalEventFinalizesSubmittedRun(t *testing.T) {
 		t.Fatalf("CompleteTurn error = %v", err)
 	}
 	if finished.ID != job.ID || finished.RunID != run.ID || finished.ExpectedActiveTurnID != "turn-1" || finished.LastTurnID != "turn-1" {
-		t.Fatalf("MarkFinished params = %+v", finished)
+		t.Fatalf("FinalizeRecoveredRun params = %+v", finished)
 	}
-	last := store.casCalls[len(store.casCalls)-1]
-	if last.ExpectedStatus != statusSubmitted || last.NextStatus != statusFinished {
-		t.Fatalf("CAS = %s -> %s, want submitted -> finished", last.ExpectedStatus, last.NextStatus)
+	if finished.ExpectedRunStatus != statusSubmitted || finished.LastStatus != statusFinished {
+		t.Fatalf("terminal transition = %s -> %s, want submitted -> finished", finished.ExpectedRunStatus, finished.LastStatus)
+	}
+	if len(store.casCalls) != 0 {
+		t.Fatalf("terminal finalization must not use a separate CAS: %+v", store.casCalls)
 	}
 }
 
@@ -612,7 +615,7 @@ func TestTerminalRunByTurnIDUsesPointLookup(t *testing.T) {
 		return nil, nil
 	}
 	store.getJobFn = func(context.Context, string) (JobRecord, error) { return job, nil }
-	store.markFinishedFn = func(context.Context, MarkFinishedParams) error { return nil }
+	store.finalizeRecoveredRunFn = func(context.Context, FinalizeRecoveredRunParams) error { return nil }
 
 	if err := s.CompleteTurn(context.Background(), "turn-1", true, ""); err != nil {
 		t.Fatalf("CompleteTurn error = %v", err)
@@ -634,8 +637,8 @@ func TestSchedulerRejectsStaleTerminalWhenJobActiveTurnMovedToNewClaim(t *testin
 	run := RunRecord{ID: "run-old", JobID: job.ID, TurnID: "turn-old", Status: statusRunning, ScheduledAt: s.now().Add(-time.Hour)}
 	store.listUnresolvedFn = func(context.Context) ([]RunRecord, error) { return []RunRecord{run}, nil }
 	store.getJobFn = func(context.Context, string) (JobRecord, error) { return job, nil }
-	store.markFinishedFn = func(_ context.Context, p MarkFinishedParams) error {
-		t.Fatalf("stale terminal reached MarkFinished with params %+v", p)
+	store.finalizeRecoveredRunFn = func(_ context.Context, p FinalizeRecoveredRunParams) error {
+		t.Fatalf("stale terminal reached FinalizeRecoveredRun with params %+v", p)
 		return nil
 	}
 
@@ -663,8 +666,8 @@ func TestSchedulerTerminalEventRejectsInvalidScheduleInsteadOfReusingNextRunAt(t
 	run := RunRecord{ID: "run-1", JobID: job.ID, TurnID: "turn-1", Status: statusRunning, ScheduledAt: s.now()}
 	store.listUnresolvedFn = func(context.Context) ([]RunRecord, error) { return []RunRecord{run}, nil }
 	store.getJobFn = func(context.Context, string) (JobRecord, error) { return job, nil }
-	store.markFinishedFn = func(_ context.Context, p MarkFinishedParams) error {
-		t.Fatalf("MarkFinished reused old next_run_at on invalid schedule: %+v", p)
+	store.finalizeRecoveredRunFn = func(_ context.Context, p FinalizeRecoveredRunParams) error {
+		t.Fatalf("FinalizeRecoveredRun reused old next_run_at on invalid schedule: %+v", p)
 		return nil
 	}
 
@@ -682,8 +685,8 @@ func TestSchedulerTerminalEventMarksFailed(t *testing.T) {
 	run := RunRecord{ID: "run-1", JobID: job.ID, TurnID: "turn-1", Status: statusRunning, ScheduledAt: s.now()}
 	store.listUnresolvedFn = func(context.Context) ([]RunRecord, error) { return []RunRecord{run}, nil }
 	store.getJobFn = func(context.Context, string) (JobRecord, error) { return job, nil }
-	var failed MarkFailedParams
-	store.markFailedFn = func(_ context.Context, p MarkFailedParams) error {
+	var failed FinalizeRecoveredRunParams
+	store.finalizeRecoveredRunFn = func(_ context.Context, p FinalizeRecoveredRunParams) error {
 		failed = p
 		return nil
 	}
@@ -692,11 +695,13 @@ func TestSchedulerTerminalEventMarksFailed(t *testing.T) {
 		t.Fatalf("CompleteTurn error = %v", err)
 	}
 	if failed.ID != job.ID || failed.RunID != run.ID || failed.ExpectedActiveTurnID != "turn-1" || failed.LastTurnID != "turn-1" || failed.LastStatus != statusFailed || failed.LastError != "provider failed" {
-		t.Fatalf("MarkFailed params = %+v", failed)
+		t.Fatalf("FinalizeRecoveredRun params = %+v", failed)
 	}
-	last := store.casCalls[len(store.casCalls)-1]
-	if last.ExpectedStatus != statusRunning || last.NextStatus != statusFailed {
-		t.Fatalf("CAS = %s -> %s, want running -> failed", last.ExpectedStatus, last.NextStatus)
+	if failed.ExpectedRunStatus != statusRunning || failed.LastStatus != statusFailed {
+		t.Fatalf("terminal transition = %s -> %s, want running -> failed", failed.ExpectedRunStatus, failed.LastStatus)
+	}
+	if len(store.casCalls) != 0 {
+		t.Fatalf("terminal finalization must not use a separate CAS: %+v", store.casCalls)
 	}
 }
 
@@ -739,8 +744,8 @@ func TestCronTerminalSubscriberMarksFinished(t *testing.T) {
 	run := RunRecord{ID: "run-1", JobID: job.ID, TurnID: "turn-1", Status: statusRunning, ScheduledAt: s.now()}
 	store.listUnresolvedFn = func(context.Context) ([]RunRecord, error) { return []RunRecord{run}, nil }
 	store.getJobFn = func(context.Context, string) (JobRecord, error) { return job, nil }
-	finished := make(chan MarkFinishedParams, 1)
-	store.markFinishedFn = func(_ context.Context, p MarkFinishedParams) error {
+	finished := make(chan FinalizeRecoveredRunParams, 1)
+	store.finalizeRecoveredRunFn = func(_ context.Context, p FinalizeRecoveredRunParams) error {
 		finished <- p
 		return nil
 	}

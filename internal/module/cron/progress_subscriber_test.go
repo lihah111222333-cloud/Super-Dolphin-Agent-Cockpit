@@ -72,7 +72,7 @@ func TestCronProgressWorkerRetriesTransientTerminalError(t *testing.T) {
 	}
 	store.getJobFn = func(context.Context, string) (JobRecord, error) { return job, nil }
 	done := make(chan struct{})
-	store.markFinishedFn = func(context.Context, MarkFinishedParams) error {
+	store.finalizeRecoveredRunFn = func(context.Context, FinalizeRecoveredRunParams) error {
 		close(done)
 		return nil
 	}

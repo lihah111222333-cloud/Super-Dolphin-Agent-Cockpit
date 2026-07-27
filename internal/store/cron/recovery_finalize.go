@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 
 	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
@@ -15,7 +16,8 @@ type finalizeRecoveredRunInput struct {
 	expectedStatus, status           string
 }
 
-// FinalizeRecoveredRun 在一个事务中写入恢复 run 终态并释放带 fence 的 job claim。
+// FinalizeRecoveredRun 在一个事务中写入 run 终态并释放带 fence 的 job claim。
+// 历史名称保留给现有接口；该事务同时服务正常终态和恢复终态。
 func (s *submitStore) FinalizeRecoveredRun(ctx context.Context, p FinalizeRecoveredRunParams) error {
 	if s.db == nil || s.sqlcQuery == nil {
 		return wrap(errors.New("cron: explicit DB and sqlc queries are required for finalize_recovered_run"), "finalize_recovered_run")
@@ -32,7 +34,7 @@ func (s *submitStore) FinalizeRecoveredRun(ctx context.Context, p FinalizeRecove
 	return wrap(err, "finalize_recovered_run")
 }
 
-// validateFinalizeRecoveredRun 校验并规范化恢复终态事务所需的全部 fence 字段。
+// validateFinalizeRecoveredRun 校验并规范化终态事务所需的全部 fence 字段。
 func validateFinalizeRecoveredRun(p FinalizeRecoveredRunParams) (finalizeRecoveredRunInput, error) {
 	id, token, err := requireClaim(p.ID, p.ClaimToken)
 	if err != nil {
@@ -48,7 +50,12 @@ func validateFinalizeRecoveredRun(p FinalizeRecoveredRunParams) (finalizeRecover
 	}
 	input := finalizeRecoveredRunInput{id: id, token: token, runID: runID, expectedTurnID: expectedTurnID, expectedStatus: strings.TrimSpace(p.ExpectedRunStatus), status: strings.TrimSpace(p.LastStatus)}
 	if input.expectedStatus == "" || input.status == "" || p.NextRunAt.IsZero() {
-		return finalizeRecoveredRunInput{}, errors.New("cron: recovered finalization requires expected status, terminal status, and next_run_at")
+		return finalizeRecoveredRunInput{}, errors.New("cron: finalization requires expected status, terminal status, and next_run_at")
+	}
+	switch input.status {
+	case StatusFinished, StatusFailed, StatusObserveLost:
+	default:
+		return finalizeRecoveredRunInput{}, fmt.Errorf("cron: unsupported terminal status %q", input.status)
 	}
 	return input, nil
 }
@@ -61,7 +68,23 @@ func finalizeRecoveredRunInTx(ctx context.Context, q *sqlc.Queries, p FinalizeRe
 	if rows == 0 {
 		return ErrStatusTransitionRefused
 	}
-	rows, err = q.MarkCronJobFailed(ctx, sqlc.MarkCronJobFailedParams{LastRunAt: tsPtr(p.LastRunAt), LastTurnID: p.LastTurnID, LastStatus: input.status, LastErrorAt: tsPtr(p.LastErrorAt), LastError: p.LastError, NextRunAt: ts(p.NextRunAt), NextRetryAt: tsPtr(p.NextRetryAt), UpdatedAt: ts(p.Now), ID: input.id, ClaimToken: input.token, ExpectedActiveTurnID: input.expectedTurnID, RunID: input.runID})
+	switch input.status {
+	case StatusFinished:
+		rows, err = q.MarkCronJobFinished(ctx, sqlc.MarkCronJobFinishedParams{
+			LastRunAt: tsPtr(p.LastRunAt), LastTurnID: p.LastTurnID, NextRunAt: ts(p.NextRunAt),
+			UpdatedAt: ts(p.Now), ID: input.id, ClaimToken: input.token,
+			ExpectedActiveTurnID: input.expectedTurnID, RunID: input.runID,
+		})
+	case StatusFailed, StatusObserveLost:
+		rows, err = q.MarkCronJobFailed(ctx, sqlc.MarkCronJobFailedParams{
+			LastRunAt: tsPtr(p.LastRunAt), LastTurnID: p.LastTurnID, LastStatus: input.status,
+			LastErrorAt: tsPtr(p.LastErrorAt), LastError: p.LastError, NextRunAt: ts(p.NextRunAt),
+			NextRetryAt: tsPtr(p.NextRetryAt), UpdatedAt: ts(p.Now), ID: input.id,
+			ClaimToken: input.token, ExpectedActiveTurnID: input.expectedTurnID, RunID: input.runID,
+		})
+	default:
+		return fmt.Errorf("cron: unsupported terminal status %q", input.status)
+	}
 	if err != nil {
 		return err
 	}

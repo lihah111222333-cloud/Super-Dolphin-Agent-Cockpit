@@ -77,37 +77,29 @@ func validateTerminalFence(job JobRecord, run RunRecord, turnID string) error {
 	return nil
 }
 
-// markTerminalFailed 将 submitted/running run 标记为 failed 并计算下一次重试时间。
+// markTerminalFailed 在同一事务中将 run 与 job 标记为失败并计算下一次重试时间。
 func (s *Scheduler) markTerminalFailed(ctx context.Context, job JobRecord, run RunRecord, terminalErr string) error {
 	now := s.now().UTC()
 	nextRetryAt, nextRunAt, err := s.nextRetryAndRun(job, now)
 	if err != nil {
 		return err
 	}
-	if err := s.store.CASRunStatus(ctx, CASRunStatusParams{
-		ID: run.ID, ExpectedStatus: run.Status, NextStatus: statusFailed,
-		Error: terminalErr, UpdatedAt: now,
+	if err := s.store.FinalizeRecoveredRun(ctx, FinalizeRecoveredRunParams{
+		ExpectedRunStatus: run.Status,
+		MarkFailedParams: MarkFailedParams{
+			ID: job.ID, ClaimToken: job.ClaimToken, RunID: run.ID,
+			ExpectedActiveTurnID: run.TurnID, LastRunAt: run.ScheduledAt,
+			LastTurnID: run.TurnID, LastStatus: statusFailed, LastErrorAt: now,
+			LastError: terminalErr, NextRunAt: nextRunAt, NextRetryAt: nextRetryAt, Now: now,
+		},
 	}); err != nil {
 		return err
 	}
 	s.publishRunState(job.ID, run.ID, statusFailed, run.TurnID, terminalErr, run.ScheduledAt)
-	return s.store.MarkFailed(ctx, MarkFailedParams{
-		ID:                   job.ID,
-		ClaimToken:           job.ClaimToken,
-		RunID:                run.ID,
-		ExpectedActiveTurnID: run.TurnID,
-		LastRunAt:            run.ScheduledAt,
-		LastTurnID:           run.TurnID,
-		LastStatus:           statusFailed,
-		LastErrorAt:          now,
-		LastError:            terminalErr,
-		NextRunAt:            nextRunAt,
-		NextRetryAt:          nextRetryAt,
-		Now:                  now,
-	})
+	return nil
 }
 
-// markFinished 将 submitted/running run 标记为 finished 并推算 job 的下一次运行时间。
+// markFinished 在同一事务中将 run 与 job 标记为 finished 并推算下一次运行时间。
 func (s *Scheduler) markFinished(ctx context.Context, job JobRecord, run RunRecord, turnID string, scheduledAt time.Time) error {
 	now := s.now().UTC()
 	nextRunAt, err := ComputeNextRunAt(job.ScheduleExpr, job.Timezone, now)
@@ -117,22 +109,18 @@ func (s *Scheduler) markFinished(ctx context.Context, job JobRecord, run RunReco
 	if nextRunAt.IsZero() {
 		return errors.New("cron: computed next_run_at is zero")
 	}
-	if err := s.store.CASRunStatus(ctx, CASRunStatusParams{
-		ID: run.ID, ExpectedStatus: run.Status, NextStatus: statusFinished, UpdatedAt: now,
+	if err := s.store.FinalizeRecoveredRun(ctx, FinalizeRecoveredRunParams{
+		ExpectedRunStatus: run.Status,
+		MarkFailedParams: MarkFailedParams{
+			ID: job.ID, ClaimToken: job.ClaimToken, RunID: run.ID,
+			ExpectedActiveTurnID: turnID, LastRunAt: scheduledAt, LastTurnID: turnID,
+			LastStatus: statusFinished, NextRunAt: nextRunAt, Now: now,
+		},
 	}); err != nil {
 		return err
 	}
 	s.publishRunState(job.ID, run.ID, statusFinished, turnID, "", scheduledAt)
-	return s.store.MarkFinished(ctx, MarkFinishedParams{
-		ID:                   job.ID,
-		ClaimToken:           job.ClaimToken,
-		RunID:                run.ID,
-		ExpectedActiveTurnID: turnID,
-		LastRunAt:            scheduledAt,
-		LastTurnID:           turnID,
-		NextRunAt:            nextRunAt,
-		Now:                  now,
-	})
+	return nil
 }
 
 // nextRetryAndRun 计算失败后的 retry 时间和下一次正常 cron 时间。
