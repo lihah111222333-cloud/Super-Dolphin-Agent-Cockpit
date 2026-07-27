@@ -97,6 +97,14 @@ jobs:
             echo "build_commit must be a full 40-character commit SHA" >&2
             exit 1
           fi
+          if [[ ! "$VERSION" =~ ^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "version must be SemVer with an optional v prefix" >&2
+            exit 1
+          fi
+          if [[ ! "$PREVIOUS_VERSION" =~ ^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "previous_version must be SemVer with an optional v prefix" >&2
+            exit 1
+          fi
           if [[ "$VERSION" == "$PREVIOUS_VERSION" ]]; then
             echo "version and previous_version must differ" >&2
             exit 1
@@ -117,7 +125,7 @@ jobs:
             echo "macOS and Windows upgrade matrix evidence must differ" >&2
             exit 1
           fi
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
@@ -145,17 +153,18 @@ jobs:
       MONITORING_WINDOW_HOURS: ${{ inputs.monitoring_window_hours }}
       MACOS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.macos_upgrade_matrix_evidence }}
       WINDOWS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.windows_upgrade_matrix_evidence }}
+      SUPER_DOLPHIN_RELEASE_BUILD: "1"
       SUPER_DOLPHIN_RELEASE_PROFILE: gray
       CODESIGN_IDENTITY: ${{ secrets.CODESIGN_IDENTITY }}
       NOTARY_PROFILE: ${{ secrets.NOTARY_PROFILE }}
       SUPER_DOLPHIN_UPDATE_PUBLIC_KEY: ${{ secrets.SUPER_DOLPHIN_UPDATE_PUBLIC_KEY }}
       EXPECTED_PUBLIC_KEY_FINGERPRINT: ${{ inputs.signing_public_key_fingerprint }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ inputs.build_commit }}
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: true
@@ -199,7 +208,7 @@ jobs:
             echo "macos_upgrade_matrix_evidence=$MACOS_UPGRADE_MATRIX_EVIDENCE"
             echo "windows_upgrade_matrix_evidence=$WINDOWS_UPGRADE_MATRIX_EVIDENCE"
           } > "$RUNNER_TEMP/update-recovery-evidence/matrix-metadata.txt"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: update-recovery-native-evidence-macos-arm64
           path: |
@@ -220,13 +229,14 @@ jobs:
       MONITORING_WINDOW_HOURS: ${{ inputs.monitoring_window_hours }}
       MACOS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.macos_upgrade_matrix_evidence }}
       WINDOWS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.windows_upgrade_matrix_evidence }}
+      SUPER_DOLPHIN_RELEASE_BUILD: "1"
       SUPER_DOLPHIN_WINDOWS_ARCH: arm64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ inputs.build_commit }}
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: true
@@ -268,7 +278,7 @@ jobs:
             "windows_upgrade_matrix_evidence=$env:WINDOWS_UPGRADE_MATRIX_EVIDENCE"
             'package_owned_publishing=unsupported'
           ) | Set-Content -LiteralPath (Join-Path $evidence 'matrix-metadata.txt') -Encoding utf8
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: update-recovery-native-evidence-windows-arm64
           path: |
@@ -292,7 +302,7 @@ jobs:
       WINDOWS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.windows_upgrade_matrix_evidence }}
       STAGE_ATTESTATION_NAME: update-recovery-stage-attestation-internal-20
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
       - name: Approve exactly the internal 20-device stage
         run: |
           printf '%s\n' "internal-20 authorized; no later stage is started by this run" \
@@ -308,7 +318,7 @@ jobs:
             --arg monitoring_window_hours "$MONITORING_WINDOW_HOURS" \
             '{schema:"super-dolphin/update-recovery-attestation/v1",kind:"rollout-stage",stage:$stage,version:$version,build_commit:$build_commit,signing_public_key_fingerprint:$signing_public_key_fingerprint,previous_version:$previous_version,monitoring_window_hours:$monitoring_window_hours}' \
             > "$RUNNER_TEMP/stage-attestation/attestation.json"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ env.STAGE_ATTESTATION_NAME }}
           path: ${{ runner.temp }}/stage-attestation/attestation.json
@@ -330,7 +340,7 @@ jobs:
       WINDOWS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.windows_upgrade_matrix_evidence }}
       STAGE_ATTESTATION_NAME: update-recovery-stage-attestation-10-percent
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
       - name: Approve exactly the 10 percent stage
         run: |
           printf '%s\n' "10-percent authorized from $PREDECESSOR_EVIDENCE; no later stage is started by this run" \
@@ -346,7 +356,7 @@ jobs:
             --arg monitoring_window_hours "$MONITORING_WINDOW_HOURS" \
             '{schema:"super-dolphin/update-recovery-attestation/v1",kind:"rollout-stage",stage:$stage,version:$version,build_commit:$build_commit,signing_public_key_fingerprint:$signing_public_key_fingerprint,previous_version:$previous_version,monitoring_window_hours:$monitoring_window_hours}' \
             > "$RUNNER_TEMP/stage-attestation/attestation.json"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ env.STAGE_ATTESTATION_NAME }}
           path: ${{ runner.temp }}/stage-attestation/attestation.json
@@ -368,7 +378,7 @@ jobs:
       WINDOWS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.windows_upgrade_matrix_evidence }}
       STAGE_ATTESTATION_NAME: update-recovery-stage-attestation-30-percent
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
       - name: Approve exactly the 30 percent stage
         run: |
           printf '%s\n' "30-percent authorized from $PREDECESSOR_EVIDENCE; no later stage is started by this run" \
@@ -384,7 +394,7 @@ jobs:
             --arg monitoring_window_hours "$MONITORING_WINDOW_HOURS" \
             '{schema:"super-dolphin/update-recovery-attestation/v1",kind:"rollout-stage",stage:$stage,version:$version,build_commit:$build_commit,signing_public_key_fingerprint:$signing_public_key_fingerprint,previous_version:$previous_version,monitoring_window_hours:$monitoring_window_hours}' \
             > "$RUNNER_TEMP/stage-attestation/attestation.json"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ env.STAGE_ATTESTATION_NAME }}
           path: ${{ runner.temp }}/stage-attestation/attestation.json
@@ -406,7 +416,7 @@ jobs:
       WINDOWS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.windows_upgrade_matrix_evidence }}
       STAGE_ATTESTATION_NAME: update-recovery-stage-attestation-100-percent
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
       - name: Approve exactly the 100 percent stage
         run: |
           printf '%s\n' "100-percent authorized from $PREDECESSOR_EVIDENCE; this workflow never chains stages" \
@@ -422,7 +432,7 @@ jobs:
             --arg monitoring_window_hours "$MONITORING_WINDOW_HOURS" \
             '{schema:"super-dolphin/update-recovery-attestation/v1",kind:"rollout-stage",stage:$stage,version:$version,build_commit:$build_commit,signing_public_key_fingerprint:$signing_public_key_fingerprint,previous_version:$previous_version,monitoring_window_hours:$monitoring_window_hours}' \
             > "$RUNNER_TEMP/stage-attestation/attestation.json"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ env.STAGE_ATTESTATION_NAME }}
           path: ${{ runner.temp }}/stage-attestation/attestation.json

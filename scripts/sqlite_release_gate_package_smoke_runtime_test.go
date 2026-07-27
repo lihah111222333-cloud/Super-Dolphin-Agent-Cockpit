@@ -1,17 +1,27 @@
 package main
 
 import (
+	"bytes"
+	"database/sql"
+	"debug/buildinfo"
 	"encoding/json"
+	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
+	"golang.org/x/sync/errgroup"
+	_ "modernc.org/sqlite"
 )
 
 type sqliteReleaseGateUnsignedPackage struct {
@@ -22,31 +32,54 @@ type sqliteReleaseGateUnsignedPackage struct {
 	binaryNames []string
 }
 
+type sqlitePackageRuntimeEvidence struct {
+	schemaVersion int
+	journalMode   string
+	writeRows     int
+}
+
+type sqlitePackageCommandWaiter struct {
+	group    errgroup.Group
+	result   chan error
+	done     chan struct{}
+	joinOnce sync.Once
+}
+
 func TestSQLiteReleaseGatePackageSmokeRuntime(t *testing.T) {
+	requireExplicitSQLitePackageSmokeSelection(t)
 	stage := writeSQLiteReleaseGateUnsignedPackage(t)
 	verifySQLiteReleaseGateUnsignedPackage(t, stage)
+	assertSQLiteReleaseGateRealRuntimeEntrypoint(t, stage.entrypoint)
 	home, oldPGData := prepareSQLiteReleaseGatePackageSmokeHome(t)
-	output := runSQLiteReleaseGatePackageSmokeRuntime(t, stage, home, oldPGData)
+	output, evidence := runSQLiteReleaseGatePackageSmokeRuntime(t, stage, home, oldPGData)
 
-	if !strings.Contains(output, "sqlite package runtime smoke passed") {
-		t.Fatalf("package smoke output missing success evidence:\n%s", output)
-	}
-	t.Logf("package smoke runtime output:\n%s", output)
+	t.Logf(
+		"package smoke runtime evidence: schema_version=%d journal_mode=%s write_rows=%d\n%s",
+		evidence.schemaVersion,
+		evidence.journalMode,
+		evidence.writeRows,
+		output,
+	)
 	assertSQLiteReleaseGatePackageSmokeState(t, filepath.Join(home, "super-dolphin.db"), oldPGData)
 }
 
-func TestSQLiteReleaseGatePackageSmokeUsesRealRuntimeEntrypoint(t *testing.T) {
-	stage := writeSQLiteReleaseGateUnsignedPackage(t)
-
-	raw, err := os.ReadFile(stage.entrypoint)
-	if err != nil {
-		t.Fatalf("read package smoke runtime entrypoint: %v", err)
+func requireExplicitSQLitePackageSmokeSelection(t *testing.T) {
+	t.Helper()
+	testRun := flag.Lookup("test.run")
+	if testRun == nil || strings.TrimSpace(testRun.Value.String()) == "" {
+		t.Skip("real packaged desktop smoke runs only when explicitly selected by G12")
 	}
-	body := strings.ToLower(string(raw))
-	for _, forbidden := range []string{strings.Join([]string{"place", "holder"}, ""), strings.Join([]string{"exit", " 0"}, "")} {
-		if strings.Contains(body, forbidden) {
-			t.Fatalf("package smoke runtime entrypoint %s is a fake no-op containing %q", stage.entrypoint, forbidden)
-		}
+}
+
+func assertSQLiteReleaseGateRealRuntimeEntrypoint(t *testing.T, entrypoint string) {
+	t.Helper()
+	info, err := buildinfo.ReadFile(entrypoint)
+	if err != nil {
+		t.Fatalf("read package smoke runtime entrypoint build identity: %v", err)
+	}
+	const want = "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/agent-terminal"
+	if info.Path != want {
+		t.Fatalf("package smoke entrypoint build path = %q, want real product entrypoint %q", info.Path, want)
 	}
 }
 
@@ -96,16 +129,218 @@ func prepareSQLiteReleaseGatePackageSmokeHome(t *testing.T) (string, string) {
 	return home, oldPGData
 }
 
-func runSQLiteReleaseGatePackageSmokeRuntime(t *testing.T, stage sqliteReleaseGateUnsignedPackage, home, oldPGData string) string {
+func runSQLiteReleaseGatePackageSmokeRuntime(t *testing.T, stage sqliteReleaseGateUnsignedPackage, home, oldPGData string) (string, sqlitePackageRuntimeEvidence) {
 	t.Helper()
 
 	cmd := sqliteReleaseGatePackageSmokeCommand(t, stage)
 	cmd.Env = sqliteReleaseGatePackageSmokeEnv(stage, home, oldPGData)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("run unsigned package SQLite smoke through package entrypoint: %v\n%s", err, output)
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	cmd.Stderr = &output
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start unsigned package SQLite smoke through real product entrypoint: %v", err)
 	}
-	return string(output)
+	waiter := startSQLitePackageCommandWaiter(cmd)
+	t.Cleanup(func() {
+		waiter.cleanup(cmd.Process)
+	})
+	sqlitePath := filepath.Join(home, "super-dolphin.db")
+	evidence := waitForSQLitePackageRuntimeEvidence(t, cmd, waiter, stage, sqlitePath, &output)
+	terminateSQLitePackageRuntime(t, cmd, waiter, &output)
+	return output.String(), evidence
+}
+
+func startSQLitePackageCommandWaiter(cmd *exec.Cmd) *sqlitePackageCommandWaiter {
+	waiter := &sqlitePackageCommandWaiter{
+		result: make(chan error, 1),
+		done:   make(chan struct{}),
+	}
+	waiter.group.Go(func() error {
+		waiter.result <- cmd.Wait()
+		close(waiter.done)
+		return nil
+	})
+	return waiter
+}
+
+func (waiter *sqlitePackageCommandWaiter) cleanup(process *os.Process) {
+	select {
+	case <-waiter.done:
+	default:
+		_ = process.Kill()
+	}
+	waiter.join()
+}
+
+func (waiter *sqlitePackageCommandWaiter) join() {
+	waiter.joinOnce.Do(func() {
+		_ = waiter.group.Wait()
+	})
+}
+
+func (waiter *sqlitePackageCommandWaiter) await(timeout time.Duration) (error, bool) {
+	select {
+	case err := <-waiter.result:
+		waiter.join()
+		return err, true
+	case <-time.After(timeout):
+		return nil, false
+	}
+}
+
+func waitForSQLitePackageRuntimeEvidence(
+	t *testing.T,
+	cmd *exec.Cmd,
+	waiter *sqlitePackageCommandWaiter,
+	stage sqliteReleaseGateUnsignedPackage,
+	sqlitePath string,
+	output *bytes.Buffer,
+) sqlitePackageRuntimeEvidence {
+	t.Helper()
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		evidence, probeErr := inspectSQLitePackageRuntime(stage, sqlitePath)
+		if probeErr == nil {
+			return evidence
+		}
+		select {
+		case err := <-waiter.result:
+			waiter.join()
+			t.Fatalf("real packaged entrypoint exited before healthy SQLite evidence: %v; last probe: %v\n%s", err, probeErr, output.String())
+		default:
+		}
+		if time.Now().After(deadline) {
+			_ = cmd.Process.Kill()
+			if _, ok := waiter.await(10 * time.Second); !ok {
+				t.Fatal("real packaged entrypoint did not terminate after SQLite evidence timeout")
+			}
+			t.Fatalf("real packaged entrypoint did not produce healthy SQLite evidence before timeout: %v\n%s", probeErr, output.String())
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func terminateSQLitePackageRuntime(
+	t *testing.T,
+	cmd *exec.Cmd,
+	waiter *sqlitePackageCommandWaiter,
+	output *bytes.Buffer,
+) {
+	t.Helper()
+	if err := cmd.Process.Kill(); err != nil {
+		t.Fatalf("real packaged entrypoint exited before test-initiated termination: %v\n%s", err, output.String())
+	}
+	err, ok := waiter.await(10 * time.Second)
+	if !ok {
+		t.Fatal("real packaged entrypoint did not terminate after Process.Kill")
+	}
+	var exitErr *exec.ExitError
+	if err == nil || !errors.As(err, &exitErr) {
+		t.Fatalf("test-initiated package runtime termination returned unexpected wait result: %v", err)
+	}
+}
+
+func inspectSQLitePackageRuntime(stage sqliteReleaseGateUnsignedPackage, sqlitePath string) (sqlitePackageRuntimeEvidence, error) {
+	if info, err := os.Stat(sqlitePath); err != nil {
+		return sqlitePackageRuntimeEvidence{}, fmt.Errorf("wait for packaged runtime SQLite creation: %w", err)
+	} else if !info.Mode().IsRegular() {
+		return sqlitePackageRuntimeEvidence{}, fmt.Errorf("packaged runtime SQLite path is not a regular file: %s", sqlitePath)
+	}
+	expectedVersion, err := latestPackagedSQLiteMigrationVersion(stage.root)
+	if err != nil {
+		return sqlitePackageRuntimeEvidence{}, err
+	}
+	db, err := sql.Open("sqlite", sqlitePath)
+	if err != nil {
+		return sqlitePackageRuntimeEvidence{}, fmt.Errorf("open packaged runtime SQLite: %w", err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
+		return sqlitePackageRuntimeEvidence{}, fmt.Errorf("configure packaged runtime SQLite probe: %w", err)
+	}
+	return readSQLitePackageRuntimeHealth(db, expectedVersion)
+}
+
+func readSQLitePackageRuntimeHealth(db *sql.DB, expectedVersion int) (sqlitePackageRuntimeEvidence, error) {
+	var evidence sqlitePackageRuntimeEvidence
+	if err := db.QueryRow("SELECT COALESCE(MAX(version), 0) FROM schema_migrations").Scan(&evidence.schemaVersion); err != nil {
+		return sqlitePackageRuntimeEvidence{}, fmt.Errorf("read packaged runtime schema version: %w", err)
+	}
+	if evidence.schemaVersion < expectedVersion {
+		return sqlitePackageRuntimeEvidence{}, fmt.Errorf("packaged runtime schema version = %d, want >= %d", evidence.schemaVersion, expectedVersion)
+	}
+	if err := db.QueryRow("PRAGMA journal_mode").Scan(&evidence.journalMode); err != nil {
+		return sqlitePackageRuntimeEvidence{}, fmt.Errorf("read packaged runtime journal_mode: %w", err)
+	}
+	if !strings.EqualFold(evidence.journalMode, "wal") {
+		return sqlitePackageRuntimeEvidence{}, fmt.Errorf("packaged runtime journal_mode = %q, want WAL", evidence.journalMode)
+	}
+	if err := writeSQLitePackageRuntimeProbe(db, &evidence); err != nil {
+		return sqlitePackageRuntimeEvidence{}, err
+	}
+	return evidence, nil
+}
+
+func writeSQLitePackageRuntimeProbe(db *sql.DB, evidence *sqlitePackageRuntimeEvidence) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin packaged runtime write probe: %w", err)
+	}
+	defer tx.Rollback()
+	for _, statement := range []string{
+		"CREATE TABLE IF NOT EXISTS package_runtime_smoke_probe (id INTEGER PRIMARY KEY, evidence TEXT NOT NULL)",
+		"DELETE FROM package_runtime_smoke_probe",
+		"INSERT INTO package_runtime_smoke_probe(id, evidence) VALUES (1, 'real-entrypoint')",
+	} {
+		if _, err := tx.Exec(statement); err != nil {
+			return fmt.Errorf("execute packaged runtime write probe: %w", err)
+		}
+	}
+	if err := tx.QueryRow("SELECT COUNT(*) FROM package_runtime_smoke_probe WHERE evidence = 'real-entrypoint'").Scan(&evidence.writeRows); err != nil {
+		return fmt.Errorf("read packaged runtime write probe: %w", err)
+	}
+	if evidence.writeRows != 1 {
+		return fmt.Errorf("packaged runtime write probe rows = %d, want 1", evidence.writeRows)
+	}
+	if _, err := tx.Exec("DROP TABLE package_runtime_smoke_probe"); err != nil {
+		return fmt.Errorf("remove packaged runtime write probe: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit packaged runtime write probe: %w", err)
+	}
+	return nil
+}
+
+func latestPackagedSQLiteMigrationVersion(root string) (int, error) {
+	dir := filepath.Join(root, "internal", "platform", "db", "sqlite", "migrations")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0, fmt.Errorf("read packaged SQLite migrations: %w", err)
+	}
+	latest := 0
+	for _, entry := range entries {
+		extension := filepath.Ext(entry.Name())
+		if entry.IsDir() || extension != ".sql" {
+			continue
+		}
+		prefix := strings.TrimSuffix(entry.Name(), extension)
+		versionText, _, cut := strings.Cut(prefix, "_")
+		if !cut {
+			return 0, fmt.Errorf("packaged SQLite migration %q has no numeric prefix separator", entry.Name())
+		}
+		version, err := strconv.Atoi(versionText)
+		if err != nil {
+			return 0, fmt.Errorf("parse packaged SQLite migration %q: %w", entry.Name(), err)
+		}
+		if version > latest {
+			latest = version
+		}
+	}
+	if latest == 0 {
+		return 0, errors.New("packaged SQLite migrations contain no versioned SQL files")
+	}
+	return latest, nil
 }
 
 func sqliteReleaseGatePackageSmokeCommand(t *testing.T, stage sqliteReleaseGateUnsignedPackage) *exec.Cmd {
@@ -128,18 +363,22 @@ func sqliteReleaseGatePackageSmokeCommand(t *testing.T, stage sqliteReleaseGateU
 
 func sqliteReleaseGatePackageSmokeEnv(stage sqliteReleaseGateUnsignedPackage, home, oldPGData string) []string {
 	skip := map[string]bool{
-		contract.SQLitePathEnvKey:            true,
-		contract.InternalSQLitePathEnvKey:    true,
-		"PROJECT_ROOT":                       true,
-		"SUPER_DOLPHIN_PACKAGE_ROOT":         true,
-		"SUPER_DOLPHIN_RUNTIME_MODE":         true,
-		"SUPER_DOLPHIN_PACKAGED_LAUNCHER":    true,
-		"DATABASE_URL":                       true,
-		"POSTGRES_CONNECTION_STRING":         true,
-		"RPC_ADDR":                           true,
-		"GO_AGENT_CTL_RPC_ADDR":              true,
-		"SUPER_DOLPHIN_DEPENDENCY_BOOTSTRAP": true,
-		"SUPER_DOLPHIN_DEPENDENCY_PROFILE":   true,
+		contract.SQLitePathEnvKey:                   true,
+		contract.InternalSQLitePathEnvKey:           true,
+		"PROJECT_ROOT":                              true,
+		"SUPER_DOLPHIN_PACKAGE_ROOT":                true,
+		"SUPER_DOLPHIN_RUNTIME_MODE":                true,
+		"SUPER_DOLPHIN_PACKAGED_LAUNCHER":           true,
+		"DATABASE_URL":                              true,
+		"POSTGRES_CONNECTION_STRING":                true,
+		"RPC_ADDR":                                  true,
+		"GO_AGENT_CTL_RPC_ADDR":                     true,
+		"SUPER_DOLPHIN_DEPENDENCY_BOOTSTRAP":        true,
+		"SUPER_DOLPHIN_DEPENDENCY_PROFILE":          true,
+		"SUPER_DOLPHIN_CODEX_RELAY_BASE_URL":        true,
+		"SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN": true,
+		"SUPER_DOLPHIN_CODEX_RELAY_API_KEY":         true,
+		"CODEX_HOME":                                true,
 	}
 	env := make([]string, 0, len(os.Environ())+8)
 	for _, kv := range os.Environ() {
@@ -150,9 +389,13 @@ func sqliteReleaseGatePackageSmokeEnv(stage sqliteReleaseGateUnsignedPackage, ho
 	}
 	env = append(env,
 		"SUPER_DOLPHIN_HOME="+home,
+		contract.SQLitePathEnvKey+"="+filepath.Join(home, "super-dolphin.db"),
+		"CODEX_HOME="+filepath.Join(home, "providers", "codex"),
+		"SUPER_DOLPHIN_CODEX_RELAY_BASE_URL=http://127.0.0.1:1/v1",
+		"SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN=package-smoke-bootstrap",
 		"SUPER_DOLPHIN_PACKAGE_SMOKE_OLD_PG_DATA="+oldPGData,
-		"SUPER_DOLPHIN_DEPENDENCY_BOOTSTRAP=production",
-		"SUPER_DOLPHIN_DEPENDENCY_PROFILE=production",
+		"SUPER_DOLPHIN_DEPENDENCY_BOOTSTRAP=desktop_host",
+		"SUPER_DOLPHIN_DEPENDENCY_PROFILE=desktop_host",
 		"DATABASE_URL=postgres://127.0.0.1:1/super_dolphin?sslmode=disable",
 		"POSTGRES_CONNECTION_STRING=postgres://127.0.0.1:1/super_dolphin?sslmode=disable",
 	)
@@ -202,6 +445,11 @@ func writeSQLiteReleaseGateUnsignedPackage(t *testing.T) sqliteReleaseGateUnsign
 
 	writeFile(t, filepath.Join(pkg.root, ".env"), "# sqlite release gate smoke\n", 0o600)
 	writeFile(t, filepath.Join(pkg.root, "models.yaml"), "models: []\n", 0o644)
+	writeFile(t, filepath.Join(pkg.root, "lsp", "bin", executableForPackageSmoke("gopls")), unusedPackagePeerBody(runtime.GOOS, "gopls"), 0o755)
+	writeFile(t, filepath.Join(pkg.root, "lsp", "lsp-manifest.json"), fmt.Sprintf(
+		"{\"servers\":{\"gopls\":{\"path\":\"bin/%s\",\"languages\":[\"go\"]}}}\n",
+		executableForPackageSmoke("gopls"),
+	), 0o644)
 	copySQLiteReleaseGateMigrations(t, filepath.Join(pkg.root, "internal", "platform", "db", "sqlite", "migrations"))
 	writeSQLiteReleaseGateRuntimeManifest(t, pkg.root, runtime.GOOS == "windows")
 	for _, name := range pkg.binaryNames {
@@ -224,15 +472,26 @@ func writeSQLiteReleaseGateUnsignedPackage(t *testing.T) sqliteReleaseGateUnsign
 func buildSQLiteReleaseGatePackageSmokeEntrypoint(t *testing.T, dest string) {
 	t.Helper()
 
+	embeddedIndex := filepath.Join(scriptRepoRoot(t), "cmd", "agent-terminal", "web-dist", "index.html")
+	if info, err := os.Stat(embeddedIndex); err != nil || !info.Mode().IsRegular() {
+		t.Fatalf("real product entrypoint requires generated frontend assets at %s; run npm ci and npm run build in frontend-app first", embeddedIndex)
+	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		t.Fatalf("create package smoke entrypoint dir: %v", err)
 	}
-	cmd := exec.Command("go", "build", "-o", dest, "./internal/devtools/sqlitepackagesmoke")
+	cmd := exec.Command("go", "build", "-o", dest, "./cmd/agent-terminal")
 	cmd.Dir = scriptRepoRoot(t)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("go build package smoke runtime entrypoint: %v\n%s", err, output)
 	}
+}
+
+func executableForPackageSmoke(name string) string {
+	if runtime.GOOS == "windows" {
+		return name + ".exe"
+	}
+	return name
 }
 
 func samePackageSmokePath(left, right string) bool {

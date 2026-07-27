@@ -375,8 +375,8 @@ internal/devtools/sourceexport/path_matcher.go	internal	other	go-source	2765	开
 internal/devtools/sourceexport/policy_test.go	internal	other	go-test	6862	开发工具与生成器辅助包	internal,devtools,sourceexport,policy,test,开发工具与生成器辅助包
 internal/devtools/sourceexport/policy.go	internal	other	go-source	7384	开发工具与生成器辅助包	internal,devtools,sourceexport,policy,开发工具与生成器辅助包
 internal/devtools/sqlitepackagesmoke/main.go	internal	other	go-source	9362	开发工具与生成器辅助包	internal,devtools,sqlitepackagesmoke,main,开发工具与生成器辅助包
-internal/devtools/sqlitereleasegate/gates_test.go	internal	other	go-test	6130	开发工具与生成器辅助包	internal,devtools,sqlitereleasegate,gates,test,开发工具与生成器辅助包
-internal/devtools/sqlitereleasegate/gates.go	internal	other	go-source	15455	开发工具与生成器辅助包	internal,devtools,sqlitereleasegate,gates,开发工具与生成器辅助包
+internal/devtools/sqlitereleasegate/gates_test.go	internal	other	go-test	6501	开发工具与生成器辅助包	internal,devtools,sqlitereleasegate,gates,test,开发工具与生成器辅助包
+internal/devtools/sqlitereleasegate/gates.go	internal	other	go-source	15657	开发工具与生成器辅助包	internal,devtools,sqlitereleasegate,gates,开发工具与生成器辅助包
 internal/devtools/sqlitereleasegate/runner.go	internal	other	go-source	8302	开发工具与生成器辅助包	internal,devtools,sqlitereleasegate,runner,开发工具与生成器辅助包
 internal/devtools/typednil/analyzer_test.go	internal	other	go-test	310	开发工具与生成器辅助包	internal,devtools,typednil,analyzer,test,开发工具与生成器辅助包
 internal/devtools/typednil/analyzer.go	internal	other	go-source	10296	开发工具与生成器辅助包	internal,devtools,typednil,analyzer,开发工具与生成器辅助包
@@ -674,12 +674,12 @@ scripts/refactor/rename_codexsdk_to_agentsdk.go	scripts	other	go-source	13009	�
 scripts/refresh_generated_artifacts.sh	scripts	other	script	4122	工程自动化、测试守卫、代码地图与开发脚本	scripts,refresh,generated,artifacts,工程自动化,测试守卫,代码地图与开发脚本
 scripts/release_packaging_integrity_guard_test.go	scripts	other	go-test	4737	工程自动化、测试守卫、代码地图与开发脚本	scripts,release,packaging,integrity,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/release_rollout_validate.sh	scripts	other	script	9112	工程自动化、测试守卫、代码地图与开发脚本	scripts,release,rollout,validate,工程自动化,测试守卫,代码地图与开发脚本
-scripts/release_rollout_workflow_guard_test.go	scripts	other	go-test	32592	工程自动化、测试守卫、代码地图与开发脚本	scripts,release,rollout,workflow,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/release_rollout_workflow_guard_test.go	scripts	other	go-test	33019	工程自动化、测试守卫、代码地图与开发脚本	scripts,release,rollout,workflow,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/rpc_e2e_coverage_guard_test.go	scripts	other	go-test	7800	工程自动化、测试守卫、代码地图与开发脚本	scripts,rpc,e2e,coverage,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/sqlc_verify_worktree_guard_test.go	scripts	other	go-test	5587	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlc,verify,worktree,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/sqlc_verify_worktree.sh	scripts	other	script	1458	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlc,verify,worktree,工程自动化,测试守卫,代码地图与开发脚本
-scripts/sqlite_release_gate_package_smoke_runtime_test.go	scripts	other	go-test	13828	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlite,release,gate,package,smoke,runtime,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/sqlite_release_gates_guard_test.go	scripts	other	go-test	5908	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlite,release,gates,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/sqlite_release_gate_package_smoke_runtime_test.go	scripts	other	go-test	22960	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlite,release,gate,package,smoke,runtime,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/sqlite_release_gates_guard_test.go	scripts	other	go-test	9414	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlite,release,gates,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/sqlite_release_gates/main_test.go	scripts	other	go-test	1160	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlite,release,gates,main,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/sqlite_release_gates/main.go	scripts	other	go-source	2605	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlite,release,gates,main,工程自动化,测试守卫,代码地图与开发脚本
 scripts/test_new_ui_desktop_hot.sh	scripts	other	script	2622	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,new,ui,desktop,hot,工程自动化,测试守卫,代码地图与开发脚本

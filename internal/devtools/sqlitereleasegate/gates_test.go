@@ -1,6 +1,7 @@
 package sqlitereleasegate
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -133,15 +134,18 @@ func TestPackagingSmokeGateRunsRuntimePackageSmoke(t *testing.T) {
 			t.Fatalf("G12 command missing runtime package smoke coverage %q: %s", want, command)
 		}
 	}
+	if strings.Contains(command, "sqlitepackagesmoke") {
+		t.Fatalf("G12 must not substitute the devtool for the real product entrypoint: %s", command)
+	}
+	for _, want := range []string{"real cmd/agent-terminal", "migrated WAL SQLite", "committed write probe"} {
+		if !strings.Contains(g12.Description, want) {
+			t.Fatalf("G12 description missing runtime health evidence %q: %s", want, g12.Description)
+		}
+	}
 }
 
 func commandHasArg(command []string, want string) bool {
-	for _, arg := range command {
-		if arg == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(command, want)
 }
 
 func findGateForTest(t *testing.T, id string) Gate {

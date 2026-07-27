@@ -13,6 +13,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const (
+	checkoutActionSHA         = "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
+	setupGoActionSHA          = "actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff"
+	uploadArtifactActionSHA   = "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"
+	downloadArtifactActionSHA = "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093"
+)
+
 type releaseRolloutGuardWorkflow struct {
 	On struct {
 		WorkflowDispatch struct {
@@ -417,35 +424,35 @@ func assertReleaseRolloutJobSteps(t *testing.T, workflow releaseRolloutGuardWork
 
 func releaseRolloutMacSteps() []releaseRolloutStepContract {
 	return []releaseRolloutStepContract{
-		{Uses: "actions/checkout@v4", With: map[string]any{"ref": "${{ inputs.build_commit }}", "fetch-depth": 0}},
-		{Uses: "actions/setup-go@v5", With: map[string]any{"go-version-file": "go.mod", "cache": true}},
+		{Uses: checkoutActionSHA, With: map[string]any{"ref": "${{ inputs.build_commit }}", "fetch-depth": 0}},
+		{Uses: setupGoActionSHA, With: map[string]any{"go-version-file": "go.mod", "cache": true}},
 		{Name: "Require native macOS arm64 and exact commit", Shell: "bash", RunContains: []string{`[[ "$(uname -m)" == "arm64" ]]`, `[[ "$(git rev-parse HEAD)" == "$BUILD_COMMIT" ]]`}},
 		{Name: "Verify signing public-key fingerprint", Shell: "bash", RunContains: []string{"SUPER_DOLPHIN_UPDATE_PUBLIC_KEY:?", `[[ "$actual" == "$expected" ]]`}},
 		{Name: "Run current-commit version-independent recovery state matrix", Shell: "bash", RunContains: []string{"make release-update-gate", "native-test.log"}},
 		{Name: "Package and verify native macOS arm64 artifact", Shell: "bash", RunContains: []string{"./scripts/package_macos.sh", "package.log"}},
 		{Name: "Record macOS matrix metadata", Shell: "bash", RunContains: []string{"matrix_scope=current-commit-version-independent-recovery-state", "commit=$(git rev-parse HEAD)", "monitoring_window_hours"}},
-		{Uses: "actions/upload-artifact@v4", With: map[string]any{"name": "update-recovery-native-evidence-macos-arm64", "path": "dist/package/macos/Super Dolphin.dmg\n${{ runner.temp }}/update-recovery-evidence\n", "if-no-files-found": "error"}},
+		{Uses: uploadArtifactActionSHA, With: map[string]any{"name": "update-recovery-native-evidence-macos-arm64", "path": "dist/package/macos/Super Dolphin.dmg\n${{ runner.temp }}/update-recovery-evidence\n", "if-no-files-found": "error"}},
 	}
 }
 
 func releaseRolloutWindowsSteps() []releaseRolloutStepContract {
 	return []releaseRolloutStepContract{
-		{Uses: "actions/checkout@v4", With: map[string]any{"ref": "${{ inputs.build_commit }}", "fetch-depth": 0}},
-		{Uses: "actions/setup-go@v5", With: map[string]any{"go-version-file": "go.mod", "cache": true}},
+		{Uses: checkoutActionSHA, With: map[string]any{"ref": "${{ inputs.build_commit }}", "fetch-depth": 0}},
+		{Uses: setupGoActionSHA, With: map[string]any{"go-version-file": "go.mod", "cache": true}},
 		{Name: "Require native Windows arm64 and exact commit", Shell: "pwsh", RunContains: []string{"PROCESSOR_ARCHITECTURE -ne 'ARM64'", "git rev-parse HEAD", "BUILD_COMMIT"}},
 		{Name: "Run current-commit Windows recovery state matrix", Shell: "bash", RunContains: []string{"./scripts/test_with_guard.sh ./cmd/super-dolphin-updater", "TestGuard.*(Rollback|Probation|PIDReuse|Termination)", "native-test.log"}},
 		{Name: "Package and verify supported native Windows arm64 zip", Shell: "pwsh", RunContains: []string{"./scripts/package_windows.ps1 -Artifact zip", "package.log"}},
 		{Name: "Record Windows matrix metadata", Shell: "pwsh", RunContains: []string{"matrix_scope=current-commit-version-independent-recovery-state", "git rev-parse HEAD", "monitoring_window_hours"}},
-		{Uses: "actions/upload-artifact@v4", With: map[string]any{"name": "update-recovery-native-evidence-windows-arm64", "path": "dist/package/windows/*.zip\n${{ runner.temp }}/update-recovery-evidence\n", "if-no-files-found": "error"}},
+		{Uses: uploadArtifactActionSHA, With: map[string]any{"name": "update-recovery-native-evidence-windows-arm64", "path": "dist/package/windows/*.zip\n${{ runner.temp }}/update-recovery-evidence\n", "if-no-files-found": "error"}},
 	}
 }
 
 func releaseRolloutStageSteps(stage string) []releaseRolloutStepContract {
 	return []releaseRolloutStepContract{
-		{Uses: "actions/download-artifact@v4"},
+		{Uses: downloadArtifactActionSHA},
 		{Name: releaseRolloutStageApprovalName(stage), RunContains: []string{stage, "GITHUB_STEP_SUMMARY", releaseRolloutStageIsolationMarker(stage)}},
 		{Name: "Write exact stage attestation", Shell: "bash", RunContains: []string{"super-dolphin/update-recovery-attestation/v1", "SIGNING_PUBLIC_KEY_FINGERPRINT", "MONITORING_WINDOW_HOURS", "attestation.json"}},
-		{Uses: "actions/upload-artifact@v4", With: map[string]any{"name": "${{ env.STAGE_ATTESTATION_NAME }}", "path": "${{ runner.temp }}/stage-attestation/attestation.json", "if-no-files-found": "error"}},
+		{Uses: uploadArtifactActionSHA, With: map[string]any{"name": "${{ env.STAGE_ATTESTATION_NAME }}", "path": "${{ runner.temp }}/stage-attestation/attestation.json", "if-no-files-found": "error"}},
 	}
 }
 
@@ -513,7 +520,8 @@ func assertReleaseRolloutMacBoundary(t *testing.T, job releaseRolloutGuardJob) {
 		"VERSION": "${{ inputs.version }}", "BUILD_COMMIT": "${{ inputs.build_commit }}", "PREVIOUS_VERSION": "${{ inputs.previous_version }}",
 		"MONITORING_WINDOW_HOURS": "${{ inputs.monitoring_window_hours }}", "MACOS_UPGRADE_MATRIX_EVIDENCE": "${{ inputs.macos_upgrade_matrix_evidence }}",
 		"WINDOWS_UPGRADE_MATRIX_EVIDENCE": "${{ inputs.windows_upgrade_matrix_evidence }}", "SUPER_DOLPHIN_RELEASE_PROFILE": "gray",
-		"CODESIGN_IDENTITY": "${{ secrets.CODESIGN_IDENTITY }}", "NOTARY_PROFILE": "${{ secrets.NOTARY_PROFILE }}",
+		"SUPER_DOLPHIN_RELEASE_BUILD": "1",
+		"CODESIGN_IDENTITY":           "${{ secrets.CODESIGN_IDENTITY }}", "NOTARY_PROFILE": "${{ secrets.NOTARY_PROFILE }}",
 		"SUPER_DOLPHIN_UPDATE_PUBLIC_KEY": "${{ secrets.SUPER_DOLPHIN_UPDATE_PUBLIC_KEY }}", "EXPECTED_PUBLIC_KEY_FINGERPRINT": "${{ inputs.signing_public_key_fingerprint }}",
 	}
 	if !slices.Equal(releaseRolloutNodeStrings(job.Needs), []string{"validate-inputs"}) || job.If != "" || job.Environment != "update-recovery-${{ inputs.stage }}" || !maps.Equal(job.Env, wantEnv) {
@@ -528,6 +536,7 @@ func assertReleaseRolloutWindowsBoundary(t *testing.T, job releaseRolloutGuardJo
 		"VERSION": "${{ inputs.version }}", "BUILD_COMMIT": "${{ inputs.build_commit }}", "PREVIOUS_VERSION": "${{ inputs.previous_version }}",
 		"MONITORING_WINDOW_HOURS": "${{ inputs.monitoring_window_hours }}", "MACOS_UPGRADE_MATRIX_EVIDENCE": "${{ inputs.macos_upgrade_matrix_evidence }}",
 		"WINDOWS_UPGRADE_MATRIX_EVIDENCE": "${{ inputs.windows_upgrade_matrix_evidence }}", "SUPER_DOLPHIN_WINDOWS_ARCH": "arm64",
+		"SUPER_DOLPHIN_RELEASE_BUILD": "1",
 	}
 	if !slices.Equal(releaseRolloutNodeStrings(job.Needs), []string{"validate-inputs", "package-macos-arm64"}) || job.If != "" || job.Environment != "" || !maps.Equal(job.Env, wantEnv) {
 		t.Fatalf("Windows boundary = needs %v if %q environment %q env %v", releaseRolloutNodeStrings(job.Needs), job.If, job.Environment, job.Env)
@@ -568,7 +577,7 @@ func assertReleaseRolloutValidationBoundary(t *testing.T, validate releaseRollou
 
 func assertReleaseRolloutCheckout(t *testing.T, validate releaseRolloutGuardJob) {
 	t.Helper()
-	if len(validate.Steps) != 4 || !strings.Contains(validate.Steps[0].Run, `case "$STAGE" in`) || validate.Steps[1].Uses != "actions/checkout@v4" || validate.Steps[1].With["ref"] != "${{ github.event.repository.default_branch }}" || validate.Steps[1].With["fetch-depth"] != 0 || !strings.Contains(validate.Steps[2].Run, `git merge-base --is-ancestor "$BUILD_COMMIT" "origin/$DEFAULT_BRANCH"`) || validate.Steps[3].Run != "./scripts/release_rollout_validate.sh" {
+	if len(validate.Steps) != 4 || !strings.Contains(validate.Steps[0].Run, `case "$STAGE" in`) || validate.Steps[1].Uses != checkoutActionSHA || validate.Steps[1].With["ref"] != "${{ github.event.repository.default_branch }}" || validate.Steps[1].With["fetch-depth"] != 0 || !strings.Contains(validate.Steps[2].Run, `git merge-base --is-ancestor "$BUILD_COMMIT" "origin/$DEFAULT_BRANCH"`) || validate.Steps[3].Run != "./scripts/release_rollout_validate.sh" {
 		t.Fatalf("validate step order must be input -> checkout -> ancestry -> attestation: %#v", validate.Steps)
 	}
 }

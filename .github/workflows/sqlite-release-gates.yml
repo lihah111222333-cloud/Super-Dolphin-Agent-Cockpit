@@ -15,10 +15,10 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: true
@@ -29,10 +29,10 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: true
@@ -48,10 +48,10 @@ jobs:
     timeout-minutes: 20
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: true
@@ -62,25 +62,39 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend-app/package-lock.json
+      - name: Install Linux desktop smoke dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev xvfb
+      - name: Prepare embedded frontend assets
+        working-directory: frontend-app
+        run: |
+          npm ci
+          npm run build
       - name: Run G1-G14 SQLite release gates
-        run: go run ./scripts/sqlite_release_gates -logs .sqlite-release-gate-logs -timeout 10m
+        run: xvfb-run -a go run ./scripts/sqlite_release_gates -logs .sqlite-release-gate-logs -timeout 10m
       - name: Upload SQLite release gate report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sqlite-release-gate-report-full-ubuntu-latest
           path: docs/cc/数据库切换/sqlite-release-gate-report.md
           if-no-files-found: error
       - name: Upload SQLite release gate raw logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sqlite-release-gate-raw-logs-full-ubuntu-latest
           path: .sqlite-release-gate-logs
@@ -96,25 +110,44 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: true
-      - name: Run G12 packaging smoke
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend-app/package-lock.json
+      - name: Prepare embedded frontend assets
+        working-directory: frontend-app
+        run: |
+          npm ci
+          npm run build
+      - name: Install Linux desktop smoke dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev xvfb
+      - name: Run G12 packaging smoke on Linux
+        if: runner.os == 'Linux'
+        run: xvfb-run -a go run ./scripts/sqlite_release_gates -only G12 -allow-partial -logs .sqlite-release-gate-logs -timeout 10m
+      - name: Run G12 packaging smoke on native desktop
+        if: runner.os != 'Linux'
         run: go run ./scripts/sqlite_release_gates -only G12 -allow-partial -logs .sqlite-release-gate-logs -timeout 10m
       - name: Upload G12 packaging smoke report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sqlite-release-gate-report-g12-${{ matrix.os }}
           path: docs/cc/数据库切换/sqlite-release-gate-report.md
           if-no-files-found: error
       - name: Upload G12 packaging smoke raw logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sqlite-release-gate-raw-logs-g12-${{ matrix.os }}
           path: .sqlite-release-gate-logs
