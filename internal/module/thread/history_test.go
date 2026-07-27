@@ -402,12 +402,19 @@ func (p *historyTestSessionProvider) GetSession(agentID string) (contract.Sessio
 }
 
 func (p *historyTestSessionProvider) RemoveSession(sessionID string) {
-	_ = p
-	_ = sessionID
+	delete(p.sessions, strings.TrimSpace(sessionID))
 }
 
 func (p *historyTestSessionProvider) SessionGeneration(string) uint64 {
 	return 1
+}
+
+func (p *historyTestSessionProvider) ActivateSession(agentID string) bool {
+	if p == nil {
+		return false
+	}
+	_, ok := p.sessions[strings.TrimSpace(agentID)]
+	return ok
 }
 
 type historyReadCall struct {

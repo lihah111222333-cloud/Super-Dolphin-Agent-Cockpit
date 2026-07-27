@@ -172,9 +172,38 @@ func (s *service) kickoffForkSession(ctx context.Context, state threadStateField
 		s.stopAgent(ctx, newThreadID)
 		return err
 	}
-	if err := s.persistStartedThread(ctx, finalState, bindingOutcome); err != nil {
+	if err := s.upsertPublicThread(ctx, finalState, bindingOutcome); err != nil {
 		s.stopAgent(ctx, newThreadID)
 		return err
+	}
+	if err := s.activateForkedSession(newThreadID); err != nil {
+		stopErr := s.stopAgent(ctx, newThreadID)
+		if s.sessions != nil {
+			s.sessions.RemoveSession(newThreadID)
+		}
+		return forkKickoffError{err: errors.Join(err, stopErr), markFailed: true}
+	}
+	s.rememberStartedThread(finalState)
+	s.publishThreadStarted(finalState)
+	return nil
+}
+
+// activateForkedSession 在 durable fork 状态落盘后公开 pending session。
+// Fork 不能像兼容 resume helper 那样吞掉缺失接口或 false，否则会返回一个不可路由的 created thread。
+func (s *service) activateForkedSession(agentID string) error {
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return errors.New("thread: fork session agent id is required")
+	}
+	if s == nil || s.sessions == nil {
+		return errors.New("thread: fork session provider is not configured")
+	}
+	activator, ok := s.sessions.(resumedSessionActivator)
+	if !ok {
+		return errors.New("thread: fork session provider does not support activation")
+	}
+	if !activator.ActivateSession(agentID) {
+		return fmt.Errorf("thread: activate fork session %q failed", agentID)
 	}
 	return nil
 }
