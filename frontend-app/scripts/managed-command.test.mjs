@@ -3,7 +3,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { cwd, execPath } from 'node:process';
 import { describe, expect, it } from 'vitest';
-import { runManagedCommand, signalProcessTree, terminateManagedCommands } from './managed-command.mjs';
+import {
+  runManagedCommand,
+  signalProcessTree,
+  terminateManagedCommands,
+  terminateProcessTree,
+} from './managed-command.mjs';
 
 function processIsGone(pid) {
   try {

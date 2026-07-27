@@ -1,11 +1,18 @@
 package nested
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	memshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
 )
 
 func TestNestedRuntimeLifecycleResetAndMatcherRoot(t *testing.T) {
@@ -150,6 +157,128 @@ func TestNestedRuntimeAddsReadToolTriggersFromToolResult(t *testing.T) {
 	}
 }
 
+func TestNestedRuntimePendingTriggersAreBounded(t *testing.T) {
+	t.Parallel()
+
+	runtime := NewNestedRuntime(newTestDependencies(testDepsOptions{}))
+	root := t.TempDir()
+	buildCtx := contract.BuildCtx{GitRoot: root, CWD: root}
+	triggers := make([]string, 0, 257)
+	for i := range 257 {
+		triggers = append(triggers, filepath.Join(root, fmt.Sprintf("file-%03d.go", i)))
+	}
+	err := runtime.AddTriggers("thread-1", buildCtx, triggers)
+	if !errors.Is(err, ErrNestedPendingFull) {
+		t.Fatalf("AddTriggers(overflow) error = %v, want ErrNestedPendingFull", err)
+	}
+
+	snapshot := runtime.snapshot("thread-1")
+	if got := len(snapshot.PendingTriggers); got != 0 {
+		t.Fatalf("pending trigger count after rejected batch = %d, want 0", got)
+	}
+}
+
+func TestNestedRuntimeRejectsOversizedPersistedToolOutput(t *testing.T) {
+	t.Parallel()
+
+	cacheRoot := t.TempDir()
+	repoRoot := filepath.Join(t.TempDir(), "repo")
+	cwd := filepath.Join(repoRoot, "service")
+	target := filepath.Join(cwd, "main.go")
+	persistedPath := filepath.Join(cacheRoot, "tool-output.txt")
+	content := "Contents of " + target + ":\n" + strings.Repeat("x", (1<<20)+1)
+	if err := os.WriteFile(persistedPath, []byte(content), 0o600); err != nil {
+		t.Fatalf("write oversized persisted output: %v", err)
+	}
+
+	runtime := NewNestedRuntime(newTestDependencies(testDepsOptions{}))
+	runtime.SetToolReadCacheRoot(cacheRoot)
+	buildCtx := contract.BuildCtx{GitRoot: repoRoot, CWD: cwd}
+	runtime.ObserveBuildContext("thread-1", buildCtx)
+	err := runtime.AddToolReadResult("thread-1", "Read", "", persistedPath)
+	if !errors.Is(err, memshared.ErrSafeReadTooLarge) {
+		t.Fatalf("AddToolReadResult(oversized persisted output) error = %v, want ErrSafeReadTooLarge", err)
+	}
+
+	if got := runtime.ConsumePending("thread-1", buildCtx); len(got) != 0 {
+		t.Fatalf("ConsumePending(oversized persisted output) = %#v, want rejected output", got)
+	}
+}
+
+func TestNestedRuntimeThreadStopDeletesState(t *testing.T) {
+	t.Parallel()
+
+	runtime := NewNestedRuntime(newTestDependencies(testDepsOptions{}))
+	root := t.TempDir()
+	buildCtx := contract.BuildCtx{GitRoot: root, CWD: root}
+	runtime.OnThreadStart("thread-stop")
+	if err := runtime.AddTriggers("thread-stop", buildCtx, []string{"main.go"}); err != nil {
+		t.Fatalf("AddTriggers() error = %v", err)
+	}
+	runtime.OnThreadStop("thread-stop")
+
+	runtime.mu.Lock()
+	_, exists := runtime.sessions[nestedThreadKey("thread-stop")]
+	runtime.mu.Unlock()
+	if exists {
+		t.Fatal("nested session still exists after OnThreadStop")
+	}
+}
+
+func TestNestedRuntimeSlowReadDoesNotBlockStopOrReviveSession(t *testing.T) {
+	t.Parallel()
+
+	runtime := NewNestedRuntime(newTestDependencies(testDepsOptions{}))
+	root := t.TempDir()
+	buildCtx := contract.BuildCtx{GitRoot: root, CWD: root}
+	runtime.OnThreadStart("thread-slow")
+	runtime.ObserveBuildContext("thread-slow", buildCtx)
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	runtime.readToolPaths = func(_, _, _, _ string) ([]string, error) {
+		close(started)
+		<-release
+		return []string{filepath.Join(root, "main.go")}, nil
+	}
+	result := make(chan error, 1)
+	runtimesafe.SafeGo(t.Context(), nil, "memory.nested.test.slow-read", func(context.Context) {
+		result <- runtime.AddToolReadResult("thread-slow", "Read", "ignored", "")
+	})
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("AddToolReadResult did not enter injected slow reader")
+	}
+
+	stopped := make(chan struct{})
+	runtimesafe.SafeGo(t.Context(), nil, "memory.nested.test.thread-stop", func(context.Context) {
+		runtime.OnThreadStop("thread-slow")
+		close(stopped)
+	})
+	select {
+	case <-stopped:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("OnThreadStop blocked behind slow tool output read")
+	}
+	close(release)
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("AddToolReadResult() error = %v, want stale result discarded without error", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("AddToolReadResult did not return after slow reader release")
+	}
+
+	runtime.mu.Lock()
+	_, exists := runtime.sessions[nestedThreadKey("thread-slow")]
+	runtime.mu.Unlock()
+	if exists {
+		t.Fatal("slow stale result revived stopped nested session")
+	}
+}
+
 // TestNestedRuntimePersistedToolReadHonorsCacheRoot 验证持久化 tool read 缓存根的成功路径。
 // persistedPath 位于 SetToolReadCacheRoot 下时，shared.SafeReadEntrypoint 可以读取内容并提取 pending trigger。
 func TestNestedRuntimePersistedToolReadHonorsCacheRoot(t *testing.T) {
@@ -166,7 +295,9 @@ func TestNestedRuntimePersistedToolReadHonorsCacheRoot(t *testing.T) {
 	buildCtx := contract.BuildCtx{GitRoot: repoRoot, CWD: cwd}
 	runtime.ObserveBuildContext("thread-1", buildCtx)
 	// 空 preview 会强制 helper 读取持久化文件；SafeReadEntrypoint 接线错误时不会产生 trigger。
-	runtime.AddToolReadResult("thread-1", "Read", "", persistedPath)
+	if err := runtime.AddToolReadResult("thread-1", "Read", "", persistedPath); err != nil {
+		t.Fatalf("AddToolReadResult(persisted in cacheRoot) error = %v", err)
+	}
 	pending := runtime.ConsumePending("thread-1", buildCtx)
 	want := target
 	if len(pending) != 1 || filepath.ToSlash(pending[0]) != want {
@@ -187,7 +318,10 @@ func TestNestedRuntimePersistedToolReadRejectsOutsideCacheRoot(t *testing.T) {
 	runtime.SetToolReadCacheRoot(cacheRoot)
 	buildCtx := contract.BuildCtx{GitRoot: "/repo", CWD: "/repo/service"}
 	runtime.ObserveBuildContext("thread-1", buildCtx)
-	runtime.AddToolReadResult("thread-1", "Read", "", outsidePath)
+	err := runtime.AddToolReadResult("thread-1", "Read", "", outsidePath)
+	if !errors.Is(err, memshared.ErrSafeReadContainment) {
+		t.Fatalf("AddToolReadResult(persisted outside cacheRoot) error = %v, want ErrSafeReadContainment", err)
+	}
 	if got := runtime.ConsumePending("thread-1", buildCtx); len(got) != 0 {
 		t.Fatalf("ConsumePending(persisted outside cacheRoot) = %#v, want none (forged path must be rejected)", got)
 	}
@@ -205,7 +339,10 @@ func TestNestedRuntimePersistedToolReadFailsClosedWhenCacheRootUnset(t *testing.
 	// 特意不调用 SetToolReadCacheRoot，用来覆盖未配置缓存根的拒绝路径。
 	buildCtx := contract.BuildCtx{GitRoot: "/repo", CWD: "/repo/service"}
 	runtime.ObserveBuildContext("thread-1", buildCtx)
-	runtime.AddToolReadResult("thread-1", "Read", "", persistedPath)
+	err := runtime.AddToolReadResult("thread-1", "Read", "", persistedPath)
+	if !errors.Is(err, ErrNestedToolOutputConfig) {
+		t.Fatalf("AddToolReadResult(unset cacheRoot) error = %v, want ErrNestedToolOutputConfig", err)
+	}
 	if got := runtime.ConsumePending("thread-1", buildCtx); len(got) != 0 {
 		t.Fatalf("ConsumePending(unset cacheRoot) = %#v, want none (must fail closed)", got)
 	}

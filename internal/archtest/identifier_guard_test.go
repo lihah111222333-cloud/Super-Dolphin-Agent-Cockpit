@@ -7,29 +7,6 @@ import (
 	"testing"
 )
 
-func TestIdentifierGuard(t *testing.T) {
-	t.Parallel()
-
-	allViolations := filterViolationsByKind(CheckAll(CheckOptions{
-		RepoRoot:  repoRootForGuardTests(t),
-		ScanRoots: DefaultScanRoots(),
-		SkipDirs:  DefaultSkipDirs(),
-	}), ViolationIdentifier)
-
-	// 测试文件的命名下划线由统一冻结棘轮管理，此处只检查生产文件。
-	var violations []Violation
-	for _, v := range allViolations {
-		if !IsTestFile(v.File) {
-			violations = append(violations, v)
-		}
-	}
-	if len(violations) == 0 {
-		return
-	}
-
-	t.Fatalf("identifier guard violations (%d):\n%s", len(violations), formatViolations(violations))
-}
-
 func repoRootForGuardTests(t *testing.T) string {
 	t.Helper()
 

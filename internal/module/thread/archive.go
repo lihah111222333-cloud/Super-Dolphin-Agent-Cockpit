@@ -5,6 +5,7 @@ import (
 	"errors"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
@@ -35,10 +36,7 @@ func (s *service) Archive(ctx context.Context, threadID string) error {
 		return err
 	}
 	defer releaseResume()
-	if err := s.updateThreadStatus(ctx, stopState.stoppedID, statusArchived); err != nil {
-		return err
-	}
-	if err := s.setBindingArchived(ctx, stopState.stoppedID, true); err != nil {
+	if err := s.persistArchiveState(ctx, stopState.stoppedID, stopState.agentID, true); err != nil {
 		return err
 	}
 	cleanupErr := s.cleanupThreadScratchpad(ctx, stopState.stoppedID, stopState.binding)
@@ -96,10 +94,12 @@ func (s *service) Unarchive(ctx context.Context, threadID string) error {
 	if handled, err := s.unarchivePendingLaunchThread(ctx, threadID, caller); handled || err != nil {
 		return err
 	}
-	if err := s.updateThreadStatus(ctx, threadID, statusCreated); err != nil {
+	binding, err := s.resolveBinding(ctx, threadID)
+	if err != nil {
 		return err
 	}
-	if err := s.setBindingArchived(ctx, threadID, false); err != nil {
+	state := newThreadStopState(binding, threadID)
+	if err := s.persistArchiveState(ctx, state.stoppedID, state.agentID, false); err != nil {
 		return err
 	}
 	s.publishThreadStopped(threadID, "", statusCreated, "unarchived")
@@ -112,6 +112,19 @@ func (s *service) Unarchive(ctx context.Context, threadID string) error {
 	s.backgroundResumeIfNeeded(ctx, threadID)
 	pkglogger.Info("thread: Unarchive() COMPLETED", "thread_id", threadID, "caller", caller)
 	return nil
+}
+
+// persistArchiveState 把已冻结的 thread/agent 标识一次性提交给原子持久化端口。
+func (s *service) persistArchiveState(ctx context.Context, threadID, agentID string, archived bool) error {
+	if s == nil || s.archiveStateStore == nil {
+		return errors.New("thread archive state store is not configured")
+	}
+	return s.archiveStateStore.SetArchiveState(ctx, ArchiveStateUpdate{
+		ThreadID:  strings.TrimSpace(threadID),
+		AgentID:   strings.TrimSpace(agentID),
+		Archived:  archived,
+		UpdatedAt: time.Now().UnixMilli(),
+	})
 }
 
 // archiveCallerStack 返回触发 Archive/Unarchive 的紧凑调用栈。

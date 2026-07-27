@@ -333,10 +333,6 @@ func (historyTestBindingNoopStore) UpdateProviderThreadID(context.Context, Bindi
 	return nil
 }
 
-func (historyTestBindingNoopStore) SetArchived(context.Context, BindingArchiveUpdate) error {
-	return nil
-}
-
 func (s *historyTestBindingStore) GetByAgentID(_ context.Context, agentID string) (*BindingRecord, error) {
 	binding, ok := s.bindings[strings.TrimSpace(agentID)]
 	if !ok {
@@ -402,12 +398,19 @@ func (p *historyTestSessionProvider) GetSession(agentID string) (contract.Sessio
 }
 
 func (p *historyTestSessionProvider) RemoveSession(sessionID string) {
-	_ = p
-	_ = sessionID
+	delete(p.sessions, strings.TrimSpace(sessionID))
 }
 
 func (p *historyTestSessionProvider) SessionGeneration(string) uint64 {
 	return 1
+}
+
+func (p *historyTestSessionProvider) ActivateSession(agentID string) bool {
+	if p == nil {
+		return false
+	}
+	_, ok := p.sessions[strings.TrimSpace(agentID)]
+	return ok
 }
 
 type historyReadCall struct {

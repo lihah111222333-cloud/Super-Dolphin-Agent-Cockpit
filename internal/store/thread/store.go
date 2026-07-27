@@ -2,6 +2,7 @@ package thread
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,7 +33,7 @@ type querier interface {
 	LoadAgentThreadPromptSnapshot(ctx context.Context, arg sqlc.LoadAgentThreadPromptSnapshotParams) (json.RawMessage, error)
 	ResetRunningAgentThreads(ctx context.Context) error
 	UpdateAgentThreadPromptSnapshot(ctx context.Context, arg sqlc.UpdateAgentThreadPromptSnapshotParams) (int64, error)
-	UpdateAgentThreadStatus(ctx context.Context, arg sqlc.UpdateAgentThreadStatusParams) error
+	UpdateAgentThreadStatus(ctx context.Context, arg sqlc.UpdateAgentThreadStatusParams) (int64, error)
 	UpdateAgentThreadLaunchResult(ctx context.Context, arg sqlc.UpdateAgentThreadLaunchResultParams) error
 	UpsertAgentThread(ctx context.Context, arg sqlc.UpsertAgentThreadParams) error
 }
@@ -49,6 +50,7 @@ type threadMaintenanceStore = store
 
 type pagedStore struct {
 	*store
+	archiveState *archiveStateStore
 }
 
 type agentThreadPageQuerier interface {
@@ -67,6 +69,14 @@ type activeAgentThreadCountQuerier interface {
 // 调用方必须传入已初始化的查询器，这里不做 nil 兜底，避免启动配置错误延后暴露。
 func NewStore(q *sqlc.Queries) Store {
 	return &pagedStore{store: &store{q: q}}
+}
+
+// NewStoreWithDB 创建带跨表归档事务能力的 thread Store。
+func NewStoreWithDB(db *sql.DB, q *sqlc.Queries) Store {
+	return &pagedStore{
+		store:        &store{q: q},
+		archiveState: &archiveStateStore{db: db, queries: q},
+	}
 }
 
 // GetByThreadID 按线程ID读取线程记录，并统一包装底层数据库错误。
@@ -269,11 +279,18 @@ func (s *threadSnapshotStore) LoadPromptSnapshot(ctx context.Context, threadID s
 
 // UpdateStatus 更新线程状态和更新时间。
 func (s *threadCommandStore) UpdateStatus(ctx context.Context, params UpdateStatusParams) error {
-	return wrapThreadError(s.q.UpdateAgentThreadStatus(ctx, sqlc.UpdateAgentThreadStatusParams{
+	rows, err := s.q.UpdateAgentThreadStatus(ctx, sqlc.UpdateAgentThreadStatusParams{
 		ThreadID:  params.ThreadID,
 		Status:    params.Status,
 		UpdatedAt: params.UpdatedAt,
-	}), "update_status")
+	})
+	if err != nil {
+		return wrapThreadError(err, "update_status")
+	}
+	if rows == 0 {
+		return wrapThreadError(platformdb.ErrNotFound, "update_status")
+	}
+	return nil
 }
 
 // UpdateLaunchResult 回写启动后生成的 agent key 与 prompt 版本。

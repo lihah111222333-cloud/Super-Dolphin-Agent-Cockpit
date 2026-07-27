@@ -13,6 +13,9 @@ mkdir -p "$bin_dir" "$capture_dir"
 cat >"$bin_dir/super-dolphin-gate" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ "${1:-}" == "closure" && "${2:-}" == "check" ]]; then
+  exit 0
+fi
 : "${GATE_HOOK_CAPTURE_DIR:?}"
 printf '%s' "$#" >"$GATE_HOOK_CAPTURE_DIR/argc"
 index=0
@@ -69,8 +72,11 @@ mkdir -p "$git_repo"
 git -C "$git_repo" init -q
 git -C "$git_repo" config user.name 'Hook Fixture'
 git -C "$git_repo" config user.email 'hook-fixture@example.invalid'
+git -C "$git_repo" config superdolphin.gateLauncher "$bin_dir/super-dolphin-gate"
+mkdir -p "$git_repo/.githooks"
+cp "$repo_root/.githooks/trusted-gate-launcher.sh" "$git_repo/.githooks/trusted-gate-launcher.sh"
 printf '%s\n' 'base' >"$git_repo/tracked.txt"
-git -C "$git_repo" add tracked.txt
+git -C "$git_repo" add tracked.txt .githooks/trusted-gate-launcher.sh
 git -C "$git_repo" commit -qm 'fixture base'
 mkdir -p "$git_repo/nested"
 cli_error="$fixture_root/cli-error.expected"
@@ -84,10 +90,12 @@ clean_tree=$(git -C "$git_repo" write-tree)
     "$fixture_root/pre-commit.status" bash "$repo_root/.githooks/pre-commit" 2>"$fixture_root/pre-commit.err"
 )
 assert_file_equals "$fixture_root/pre-commit.status" 23 "pre-commit exit code"
-assert_file_equals "$capture_dir/argc" 2 "pre-commit argc"
+assert_file_equals "$capture_dir/argc" 4 "pre-commit argc"
 assert_file_equals "$capture_dir/arg.0" hook "pre-commit arg 0"
 assert_file_equals "$capture_dir/arg.1" pre-commit "pre-commit arg 1"
-assert_file_equals "$capture_dir/cwd" "$git_repo" "clean pre-commit cwd"
+assert_file_equals "$capture_dir/arg.2" --tree "pre-commit arg 2"
+assert_file_equals "$capture_dir/arg.3" "$clean_tree" "pre-commit immutable tree"
+assert_file_equals "$capture_dir/cwd" "$git_repo/nested" "clean pre-commit cwd"
 assert_file_equals "$capture_dir/staged-tree" "$clean_tree" "clean pre-commit staged tree"
 cmp -s "$cli_error" "$fixture_root/pre-commit.err" || fail "pre-commit did not return readable CLI stderr"
 [[ ! -s "$capture_dir/stdin" ]] || fail "pre-commit forwarded unexpected stdin"
@@ -103,7 +111,7 @@ reset_capture
     "$fixture_root/staged-pre-commit.status" bash "$repo_root/.githooks/pre-commit"
 )
 assert_file_equals "$fixture_root/staged-pre-commit.status" 0 "staged pre-commit exit code"
-assert_file_equals "$capture_dir/cwd" "$git_repo" "staged pre-commit cwd"
+assert_file_equals "$capture_dir/cwd" "$git_repo/nested" "staged pre-commit cwd"
 assert_file_equals "$capture_dir/staged-tree" "$staged_tree" "staged pre-commit tree"
 git -C "$git_repo" diff --quiet -- tracked.txt && fail "staged pre-commit discarded the unstaged worktree change"
 
@@ -120,7 +128,7 @@ reset_capture
     "$fixture_root/linked-pre-commit.status" bash "$repo_root/.githooks/pre-commit"
 )
 assert_file_equals "$fixture_root/linked-pre-commit.status" 0 "linked pre-commit exit code"
-assert_file_equals "$capture_dir/cwd" "$linked_repo" "linked pre-commit cwd"
+assert_file_equals "$capture_dir/cwd" "$linked_repo/nested" "linked pre-commit cwd"
 assert_file_equals "$capture_dir/staged-tree" "$linked_tree" "linked pre-commit staged tree"
 
 reset_capture
@@ -140,7 +148,7 @@ assert_file_equals "$capture_dir/arg.0" hook "pre-push arg 0"
 assert_file_equals "$capture_dir/arg.1" pre-push "pre-push arg 1"
 assert_file_equals "$capture_dir/arg.2" upstream "pre-push remote name"
 assert_file_equals "$capture_dir/arg.3" 'ssh://git@example.invalid/team/repo.git' "pre-push remote URL"
-assert_file_equals "$capture_dir/cwd" "$linked_repo" "pre-push cwd"
+assert_file_equals "$capture_dir/cwd" "$linked_repo/nested" "pre-push cwd"
 cmp -s "$push_input" "$capture_dir/stdin" || fail "pre-push stdin was not forwarded byte-for-byte"
 cmp -s "$cli_error" "$fixture_root/pre-push.err" || fail "pre-push did not return readable CLI stderr"
 
@@ -189,19 +197,27 @@ reset_capture
 )
 assert_file_equals "$fixture_root/no-repo-pre-commit.status" 1 "pre-commit unresolved worktree exit code"
 assert_file_equals "$fixture_root/no-repo-pre-push.status" 1 "pre-push unresolved worktree exit code"
-grep -Fq 'git rev-parse' "$fixture_root/no-repo-pre-commit.err" || fail "pre-commit unresolved worktree error is not actionable"
-grep -Fq 'git rev-parse' "$fixture_root/no-repo-pre-push.err" || fail "pre-push unresolved worktree error is not actionable"
+grep -Fq 'repository root is unavailable' "$fixture_root/no-repo-pre-commit.err" || fail "pre-commit unresolved worktree error is not actionable"
+grep -Fq 'repository root is unavailable' "$fixture_root/no-repo-pre-push.err" || fail "pre-push unresolved worktree error is not actionable"
 [[ ! -e "$capture_dir/argc" ]] || fail "Git hook invoked the CLI without a resolved worktree"
 
 missing_path=/usr/bin:/bin:/usr/sbin:/sbin
+git -C "$git_repo" config --unset superdolphin.gateLauncher
 set +e
-PATH=$missing_path bash "$repo_root/.githooks/pre-commit" >/dev/null 2>"$fixture_root/missing-pre-commit.err"
+(
+  cd "$git_repo/nested"
+  PATH=$missing_path bash "$repo_root/.githooks/pre-commit"
+) >/dev/null 2>"$fixture_root/missing-pre-commit.err"
 missing_commit_status=$?
-PATH=$missing_path bash "$repo_root/.githooks/pre-push" origin https://example.invalid/repo.git </dev/null >/dev/null 2>"$fixture_root/missing-pre-push.err"
+(
+  cd "$git_repo/nested"
+  PATH=$missing_path bash "$repo_root/.githooks/pre-push" origin https://example.invalid/repo.git
+) </dev/null >/dev/null 2>"$fixture_root/missing-pre-push.err"
 missing_push_status=$?
 PATH=$missing_path bash "$repo_root/scripts/codex_stop_gate.sh" <"$codex_input" >"$fixture_root/missing-codex.json"
 missing_codex_status=$?
 set -e
+git -C "$git_repo" config superdolphin.gateLauncher "$bin_dir/super-dolphin-gate"
 [[ $missing_commit_status -ne 0 ]] || fail "pre-commit accepted a missing CLI"
 [[ $missing_push_status -ne 0 ]] || fail "pre-push accepted a missing CLI"
 [[ $missing_codex_status -eq 0 ]] || fail "Codex missing-CLI decision must exit zero"

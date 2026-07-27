@@ -26,8 +26,6 @@ type Querier interface {
 	CancelExpiredHookReviews(ctx context.Context, arg CancelExpiredHookReviewsParams) (int64, error)
 	CancelHookPendingReviewsByAgent(ctx context.Context, arg CancelHookPendingReviewsByAgentParams) (int64, error)
 	CancelHookPendingReviewsByLease(ctx context.Context, arg CancelHookPendingReviewsByLeaseParams) (int64, error)
-	// Returns 1 if a review is already resolved with the given idempotency key.
-	CheckHookReviewIdempotency(ctx context.Context, arg CheckHookReviewIdempotencyParams) (int64, error)
 	// Claim / lease -----------------------------------------------------
 	// ClaimDueJobsForUpdate marks up to `limit` due rows as claimed by `claimed_by`.
 	// FOR UPDATE SKIP LOCKED removed: SQLite does not support it.
@@ -53,7 +51,7 @@ type Querier interface {
 	DeleteAgentProviderBindingByAgentID(ctx context.Context, arg DeleteAgentProviderBindingByAgentIDParams) error
 	DeleteAgentThreadByID(ctx context.Context, arg DeleteAgentThreadByIDParams) error
 	DeleteCommandCard(ctx context.Context, arg DeleteCommandCardParams) (int64, error)
-	DeleteCronJob(ctx context.Context, arg DeleteCronJobParams) error
+	DeleteCronJob(ctx context.Context, arg DeleteCronJobParams) (int64, error)
 	DeleteDatasourceDocument(ctx context.Context, arg DeleteDatasourceDocumentParams) (int64, error)
 	DeleteDatasourceV2ChunksByDocumentID(ctx context.Context, arg DeleteDatasourceV2ChunksByDocumentIDParams) (int64, error)
 	DeleteDatasourceV2Document(ctx context.Context, arg DeleteDatasourceV2DocumentParams) (int64, error)
@@ -220,7 +218,7 @@ type Querier interface {
 	SaveHookPendingReview(ctx context.Context, arg SaveHookPendingReviewParams) (int64, error)
 	SearchDatasourceV2ChunksByEmbedding(ctx context.Context, arg SearchDatasourceV2ChunksByEmbeddingParams) ([]SearchDatasourceV2ChunksByEmbeddingRow, error)
 	SetCronJobActiveTurn(ctx context.Context, arg SetCronJobActiveTurnParams) (int64, error)
-	SetCronJobEnabled(ctx context.Context, arg SetCronJobEnabledParams) error
+	SetCronJobEnabled(ctx context.Context, arg SetCronJobEnabledParams) (int64, error)
 	SetCronJobRunTurn(ctx context.Context, arg SetCronJobRunTurnParams) (int64, error)
 	// Deletes every row whose updated_at is older than cutoff. Run on a
 	// coarse interval by the scheduler so the table can never outgrow
@@ -229,14 +227,14 @@ type Querier interface {
 	TransitionWorkspaceRunStatus(ctx context.Context, arg TransitionWorkspaceRunStatusParams) (WorkspaceRun, error)
 	UnbindAgentThread(ctx context.Context, arg UnbindAgentThreadParams) error
 	UpdateAgentCwd(ctx context.Context, arg UpdateAgentCwdParams) error
-	UpdateAgentProviderBindingArchived(ctx context.Context, arg UpdateAgentProviderBindingArchivedParams) error
+	UpdateAgentProviderBindingArchived(ctx context.Context, arg UpdateAgentProviderBindingArchivedParams) (int64, error)
 	UpdateAgentProviderBindingProviderThreadID(ctx context.Context, arg UpdateAgentProviderBindingProviderThreadIDParams) error
 	UpdateAgentProviderBindingSessionUUID(ctx context.Context, arg UpdateAgentProviderBindingSessionUUIDParams) error
 	// Atomically clears pending_launch and stamps the router decision after the
 	// Claude CLI has been spawned for this thread.
 	UpdateAgentThreadLaunchResult(ctx context.Context, arg UpdateAgentThreadLaunchResultParams) error
 	UpdateAgentThreadPromptSnapshot(ctx context.Context, arg UpdateAgentThreadPromptSnapshotParams) (int64, error)
-	UpdateAgentThreadStatus(ctx context.Context, arg UpdateAgentThreadStatusParams) error
+	UpdateAgentThreadStatus(ctx context.Context, arg UpdateAgentThreadStatusParams) (int64, error)
 	UpdateCronJobSchedule(ctx context.Context, arg UpdateCronJobScheduleParams) error
 	UpdateDatasourceV2DocumentMetadata(ctx context.Context, arg UpdateDatasourceV2DocumentMetadataParams) (DatasourceV2Document, error)
 	UpdatePromptIntentDraftStatus(ctx context.Context, arg UpdatePromptIntentDraftStatusParams) (UpdatePromptIntentDraftStatusRow, error)

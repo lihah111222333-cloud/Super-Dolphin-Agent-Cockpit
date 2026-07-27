@@ -1,6 +1,8 @@
 package nested
 
 import (
+	"errors"
+	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -12,8 +14,33 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/pathutil"
 )
 
-// nestedGlobalThreadKey 承载缺少 threadID 时的全局 nested 状态。
-const nestedGlobalThreadKey = "_global"
+const (
+	// nestedGlobalThreadKey 承载缺少 threadID 时的全局 nested 状态。
+	nestedGlobalThreadKey = "_global"
+	// nestedPendingTriggerLimit 限制单个 thread 尚未消费的 nested 触发路径。
+	nestedPendingTriggerLimit = 256
+	// nestedToolOutputByteLimit 限制一次 read 工具结果进入 nested 解析的字节数。
+	nestedToolOutputByteLimit int64 = 1 << 20
+)
+
+var (
+	// ErrNestedPendingFull 表示新增路径会突破单 thread pending 上限。
+	ErrNestedPendingFull = errors.New("nested memory: pending trigger limit exceeded")
+	// ErrNestedToolOutputConfig 表示持久化工具输出缺少严格读取所需的根或规范路径。
+	ErrNestedToolOutputConfig = errors.New("nested memory: invalid persisted tool output configuration")
+)
+
+type nestedReadToolPathsFunc func(cacheRoot, toolName, preview, persistedPath string) ([]string, error)
+
+type nestedToolReadSnapshot struct {
+	key           string
+	stateIdentity *nestedSessionState
+	generation    uint64
+	matcherRoot   string
+	buildCtx      contract.BuildCtx
+	cacheRoot     string
+	readToolPaths nestedReadToolPathsFunc
+}
 
 // NestedRuntime 跟踪每个 thread 已加载和待加载的 CLAUDE.md 来源。
 // 所有会话状态都受 mu 保护，toolReadCacheRoot 在模块初始化后只读使用。
@@ -23,6 +50,7 @@ type NestedRuntime struct {
 	mu                sync.Mutex
 	sessions          map[string]*nestedSessionState
 	toolReadCacheRoot string // ToolCallEnd persistedPath 的安全读取根；空值表示禁用落盘结果读取。
+	readToolPaths     nestedReadToolPathsFunc
 }
 
 // nestedSessionState 保存单个 thread 的 nested CLAUDE.md 注入进度。
@@ -37,14 +65,15 @@ type nestedSessionState struct {
 // NewNestedRuntime 创建 nested CLAUDE.md 运行时，并延迟到首次 thread 事件再建状态。
 func NewNestedRuntime(deps Dependencies) *NestedRuntime {
 	return &NestedRuntime{
-		deps:     deps,
-		sessions: map[string]*nestedSessionState{},
+		deps:          deps,
+		sessions:      map[string]*nestedSessionState{},
+		readToolPaths: extractNestedReadToolPaths,
 	}
 }
 
 // SetToolReadCacheRoot 设置读取 ToolCallEnd persistedPath 时允许访问的缓存根。
-// 空 root 会禁用落盘结果读取，调用方将回退到内存 preview。
-// 这样可以避免信任工具事件里的任意路径。
+// 空 root 会禁用落盘结果读取；事件若仍携带 persistedPath，会明确报错而不是回退 preview。
+// 这样可以避免配置或持久化异常被静默掩盖。
 func (r *NestedRuntime) SetToolReadCacheRoot(root string) {
 	if r == nil {
 		return
@@ -62,6 +91,17 @@ func (r *NestedRuntime) OnThreadStart(threadID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.sessions[nestedThreadKey(threadID)] = newNestedSessionState(1)
+}
+
+// OnThreadStop 删除 thread 的全部 nested 状态。
+// 迟到的 worker 结果只允许更新捕获到的同一 state identity，因此不会在停止后复活 session。
+func (r *NestedRuntime) OnThreadStop(threadID string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.sessions, nestedThreadKey(threadID))
 }
 
 // OnPromptInvalidate 在 prompt、worktree 或 memory 写入失效时重置所有 nested 会话状态。
@@ -90,21 +130,30 @@ func (r *NestedRuntime) ObserveBuildContext(threadID string, buildCtx contract.B
 
 // AddTriggers 把候选文件路径规范化后加入 pending 集合。
 // remote 输入和 memory 自身路径会被拒绝。
-func (r *NestedRuntime) AddTriggers(threadID string, buildCtx contract.BuildCtx, triggers []string) {
+func (r *NestedRuntime) AddTriggers(threadID string, buildCtx contract.BuildCtx, triggers []string) error {
 	if r == nil {
-		return
+		return nil
+	}
+	candidates := make(map[string]struct{}, min(len(triggers), nestedPendingTriggerLimit+1))
+	for _, trigger := range triggers {
+		normalized, ok := r.normalizeTrigger(buildCtx, trigger)
+		if !ok {
+			continue
+		}
+		candidates[normalized] = struct{}{}
+		if len(candidates) > nestedPendingTriggerLimit {
+			return fmt.Errorf("%w: candidates=%d limit=%d", ErrNestedPendingFull, len(candidates), nestedPendingTriggerLimit)
+		}
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	state := r.stateLocked(threadID)
 	r.ensureMatcherRootLocked(state, buildCtx)
 	state.BuildCtx = cloneNestedBuildCtx(buildCtx)
-	for _, trigger := range triggers {
-		normalized, ok := r.normalizeTrigger(buildCtx, trigger)
-		if ok {
-			state.PendingTriggers[normalized] = struct{}{}
-		}
+	if err := addNestedPendingLocked(state, candidates); err != nil {
+		return err
 	}
+	return nil
 }
 
 // ConsumePending 返回并清空当前 thread 的待加载 nested 来源。
@@ -144,22 +193,70 @@ func (r *NestedRuntime) MarkLoaded(threadID string, buildCtx contract.BuildCtx, 
 }
 
 // AddToolReadResult 从 read 类工具输出中提取文件路径，并转成 nested pending trigger。
-func (r *NestedRuntime) AddToolReadResult(threadID, toolName, result, persistedPath string) {
+func (r *NestedRuntime) AddToolReadResult(threadID, toolName, result, persistedPath string) error {
 	if r == nil {
-		return
+		return nil
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	state := r.stateLocked(threadID)
-	if strings.TrimSpace(state.BuildCtx.CWD) == "" && strings.TrimSpace(state.BuildCtx.GitRoot) == "" {
-		return
+	snapshot, ok := r.snapshotToolReadState(threadID)
+	if !ok {
+		return nil
 	}
-	for _, trigger := range extractNestedReadToolPaths(r.toolReadCacheRoot, toolName, result, persistedPath) {
-		normalized, ok := r.normalizeTrigger(state.BuildCtx, trigger)
-		if ok {
-			state.PendingTriggers[normalized] = struct{}{}
+
+	triggers, err := snapshot.readToolPaths(snapshot.cacheRoot, toolName, result, persistedPath)
+	if err != nil {
+		return err
+	}
+	candidates := make(map[string]struct{}, min(len(triggers), nestedPendingTriggerLimit+1))
+	for _, trigger := range triggers {
+		normalized, accepted := r.normalizeTrigger(snapshot.buildCtx, trigger)
+		if !accepted {
+			continue
+		}
+		candidates[normalized] = struct{}{}
+		if len(candidates) > nestedPendingTriggerLimit {
+			return fmt.Errorf("%w: candidates=%d limit=%d", ErrNestedPendingFull, len(candidates), nestedPendingTriggerLimit)
 		}
 	}
+
+	return r.commitToolReadCandidates(snapshot, candidates)
+}
+
+// snapshotToolReadState 在锁内捕获 read 解析所需状态，耗时读取在锁外执行。
+func (r *NestedRuntime) snapshotToolReadState(threadID string) (nestedToolReadSnapshot, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	key := nestedThreadKey(threadID)
+	state, ok := r.sessions[key]
+	if !ok {
+		return nestedToolReadSnapshot{}, false
+	}
+	if strings.TrimSpace(state.BuildCtx.CWD) == "" && strings.TrimSpace(state.BuildCtx.GitRoot) == "" {
+		return nestedToolReadSnapshot{}, false
+	}
+	readToolPaths := r.readToolPaths
+	if readToolPaths == nil {
+		readToolPaths = extractNestedReadToolPaths
+	}
+	return nestedToolReadSnapshot{
+		key:           key,
+		stateIdentity: state,
+		generation:    state.Generation,
+		matcherRoot:   state.MatcherRoot,
+		buildCtx:      cloneNestedBuildCtx(state.BuildCtx),
+		cacheRoot:     r.toolReadCacheRoot,
+		readToolPaths: readToolPaths,
+	}, true
+}
+
+// commitToolReadCandidates 仅在会话身份与 generation 未变化时提交读取结果。
+func (r *NestedRuntime) commitToolReadCandidates(snapshot nestedToolReadSnapshot, candidates map[string]struct{}) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	current, ok := r.sessions[snapshot.key]
+	if !ok || current != snapshot.stateIdentity || current.Generation != snapshot.generation || current.MatcherRoot != snapshot.matcherRoot {
+		return nil
+	}
+	return addNestedPendingLocked(current, candidates)
 }
 
 // snapshot 返回 thread 状态的防御性副本，供测试和诊断读取。
@@ -353,41 +450,83 @@ func cloneNestedBuildCtx(buildCtx contract.BuildCtx) contract.BuildCtx {
 	}
 }
 
-// extractNestedReadToolPaths 从 read 工具输出中提取可触发 nested 注入的路径列表。
-func extractNestedReadToolPaths(cacheRoot, toolName, preview, persistedPath string) []string {
-	if !isNestedReadTool(toolName) {
+// addNestedPendingLocked 原子检查并提交 pending 路径；超限时一个新路径也不写入。
+func addNestedPendingLocked(state *nestedSessionState, candidates map[string]struct{}) error {
+	if state == nil || len(candidates) == 0 {
 		return nil
 	}
-	raw := nestedReadToolRaw(cacheRoot, preview, persistedPath)
-	if strings.TrimSpace(raw) == "" {
-		return nil
+	newCount := 0
+	for candidate := range candidates {
+		if _, exists := state.PendingTriggers[candidate]; !exists {
+			newCount++
+		}
 	}
-	return nestedReadToolContentPaths(raw)
+	if len(state.PendingTriggers)+newCount > nestedPendingTriggerLimit {
+		return fmt.Errorf(
+			"%w: pending=%d new=%d limit=%d",
+			ErrNestedPendingFull,
+			len(state.PendingTriggers),
+			newCount,
+			nestedPendingTriggerLimit,
+		)
+	}
+	for candidate := range candidates {
+		state.PendingTriggers[candidate] = struct{}{}
+	}
+	return nil
 }
 
-// nestedReadToolRaw 优先读取受 cacheRoot 约束的持久化工具输出，失败时回退到事件 preview。
-func nestedReadToolRaw(cacheRoot, preview, persistedPath string) string {
-	if content, ok := readNestedPersistedToolOutput(cacheRoot, persistedPath); ok {
-		return content
+// extractNestedReadToolPaths 从 read 工具输出中提取可触发 nested 注入的路径列表。
+func extractNestedReadToolPaths(cacheRoot, toolName, preview, persistedPath string) ([]string, error) {
+	if !isNestedReadTool(toolName) {
+		return nil, nil
 	}
-	return strings.TrimSpace(preview)
+	raw, err := nestedReadToolRaw(cacheRoot, preview, persistedPath)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	return nestedReadToolContentPaths(raw), nil
+}
+
+// nestedReadToolRaw 在存在 persistedPath 时只读取持久化结果；失败不得回退 preview。
+func nestedReadToolRaw(cacheRoot, preview, persistedPath string) (string, error) {
+	if strings.TrimSpace(persistedPath) != "" {
+		return readNestedPersistedToolOutput(cacheRoot, persistedPath)
+	}
+	if int64(len(preview)) > nestedToolOutputByteLimit {
+		return "", fmt.Errorf(
+			"%w: preview=%d limit=%d",
+			shared.ErrSafeReadTooLarge,
+			len(preview),
+			nestedToolOutputByteLimit,
+		)
+	}
+	return strings.TrimSpace(preview), nil
 }
 
 // readNestedPersistedToolOutput 只通过 shared.SafeReadEntrypoint 读取持久化工具输出。
-// cacheRoot 为空、路径非绝对或路径越界都会失败并回退 preview。
+// cacheRoot 为空、路径非绝对、路径越界或文件超限都会返回明确错误。
 // forged persistedPath 不能借此读出工作区外文件。
-func readNestedPersistedToolOutput(cacheRoot, persistedPath string) (string, bool) {
+func readNestedPersistedToolOutput(cacheRoot, persistedPath string) (string, error) {
 	root := strings.TrimSpace(cacheRoot)
 	path := strings.TrimSpace(persistedPath)
 	if root == "" || path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path {
-		return "", false
+		return "", fmt.Errorf(
+			"%w: cache_root_set=%t absolute=%t clean=%t",
+			ErrNestedToolOutputConfig,
+			root != "",
+			filepath.IsAbs(path),
+			path != "" && filepath.Clean(path) == path,
+		)
 	}
-	content, _, err := shared.SafeReadEntrypoint(root, path)
+	content, _, err := shared.SafeReadEntrypointLimit(root, path, nestedToolOutputByteLimit)
 	if err != nil {
-		return "", false
+		return "", fmt.Errorf("nested memory: read persisted tool output: %w", err)
 	}
-	raw := string(content)
-	return raw, strings.TrimSpace(raw) != ""
+	return string(content), nil
 }
 
 // nestedReadToolContentPaths 扫描工具输出里的 “Contents of ...:” 行，并去重排序。

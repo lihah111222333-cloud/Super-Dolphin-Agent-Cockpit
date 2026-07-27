@@ -109,6 +109,40 @@ func TestSafeReadEntrypointReadsInRootFile(t *testing.T) {
 	}
 }
 
+func TestSafeReadEntrypointLimitRejectsOversizedFileWithoutTruncation(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	index := filepath.Join(root, "tool-output.txt")
+	if err := os.WriteFile(index, []byte("12345"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	raw, _, err := shared.SafeReadEntrypointLimit(root, index, 4)
+	if !errors.Is(err, shared.ErrSafeReadTooLarge) {
+		t.Fatalf("SafeReadEntrypointLimit() error = %v, want ErrSafeReadTooLarge", err)
+	}
+	if raw != nil {
+		t.Fatalf("SafeReadEntrypointLimit() raw = %q, want nil on overflow", raw)
+	}
+}
+
+func TestSafeReadEntrypointLimitAcceptsExactLimit(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	index := filepath.Join(root, "tool-output.txt")
+	if err := os.WriteFile(index, []byte("1234"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	raw, _, err := shared.SafeReadEntrypointLimit(root, index, 4)
+	if err != nil {
+		t.Fatalf("SafeReadEntrypointLimit() error = %v, want nil", err)
+	}
+	if string(raw) != "1234" {
+		t.Fatalf("SafeReadEntrypointLimit() raw = %q, want %q", raw, "1234")
+	}
+}
+
 func TestSafeReadEntrypointReturnsNotFoundForMissingFile(t *testing.T) {
 	root := t.TempDir()
 	index := filepath.Join(root, "missing.md")

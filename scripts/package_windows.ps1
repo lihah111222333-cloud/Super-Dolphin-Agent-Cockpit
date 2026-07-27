@@ -38,9 +38,46 @@ function Resolve-RepoRoot() {
 $Root = Resolve-RepoRoot
 Set-Location -LiteralPath $Root
 
+function Assert-SafeWindowsPackageIdentity() {
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$ReleaseVersion
+    )
+    $namePattern = '^[A-Za-z0-9][A-Za-z0-9._ -]{0,63}$'
+    $versionPattern = '^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+    if ($Name -notmatch $namePattern) {
+        throw 'invalid APP_NAME: use 1-64 path-component characters and start with a letter or digit'
+    }
+    if ($Name.EndsWith(' ', [StringComparison]::Ordinal) -or $Name.EndsWith('.', [StringComparison]::Ordinal)) {
+        throw 'invalid APP_NAME: Windows path components must not end with a space or dot'
+    }
+    $deviceStem = $Name.Split('.')[0].ToUpperInvariant()
+    if ($deviceStem -match '^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$') {
+        throw 'invalid APP_NAME: Windows reserved device names are forbidden'
+    }
+    if ($ReleaseVersion -notmatch $versionPattern) {
+        throw 'invalid VERSION: expected SemVer with an optional v prefix'
+    }
+}
+
+function Resolve-ContainedWindowsPackagePath() {
+    param(
+        [Parameter(Mandatory)][string]$DistRoot,
+        [Parameter(Mandatory)][string]$Candidate
+    )
+    $separators = [char[]]@([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+    $canonicalRoot = [IO.Path]::GetFullPath($DistRoot).TrimEnd($separators)
+    $canonicalCandidate = [IO.Path]::GetFullPath($Candidate)
+    $requiredPrefix = $canonicalRoot + [IO.Path]::DirectorySeparatorChar
+    if (-not $canonicalCandidate.StartsWith($requiredPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "package output escapes fixed dist root: $Candidate"
+    }
+    return $canonicalCandidate
+}
 
 $AppName = if ($env:APP_NAME) { $env:APP_NAME } else { 'super-dolphin' }
 $Version = if ($env:VERSION) { $env:VERSION } else { '0.1.0' }
+Assert-SafeWindowsPackageIdentity -Name $AppName -ReleaseVersion $Version
 $GoOS = (& go env GOOS).Trim()
 
 function Resolve-WindowsPackageArch() {
@@ -1090,6 +1127,10 @@ function Package-WindowsMain() {
     $zipPath = Join-Path $dist "$AppName-$Version-$Platform.zip"
     $setupPath = Join-Path $dist "SuperDolphinSetup-$Version-$Platform.exe"
     $issPath = Join-Path $dist "SuperDolphinSetup-$Version-$Platform.iss"
+    $stage = Resolve-ContainedWindowsPackagePath -DistRoot $dist -Candidate $stage
+    $zipPath = Resolve-ContainedWindowsPackagePath -DistRoot $dist -Candidate $zipPath
+    $setupPath = Resolve-ContainedWindowsPackagePath -DistRoot $dist -Candidate $setupPath
+    $issPath = Resolve-ContainedWindowsPackagePath -DistRoot $dist -Candidate $issPath
     $keepStageRequested = $KeepStage.IsPresent -or ([Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_WINDOWS_KEEP_STAGE', 'Process') -eq '1')
     if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
     if ($Artifact -in @('all', 'zip') -and (Test-Path -LiteralPath $zipPath)) { Remove-Item -LiteralPath $zipPath -Force }

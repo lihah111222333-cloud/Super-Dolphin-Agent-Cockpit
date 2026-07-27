@@ -58,6 +58,7 @@ type sessionGenerationRemover interface {
 type service struct {
 	logger                  *slog.Logger
 	threadStore             ThreadStore
+	archiveStateStore       ArchiveStateStore
 	bindingStore            BindingStore
 	sessions                SessionProvider
 	starter                 SessionStarter
@@ -419,10 +420,14 @@ func normalizeThreadListPage(req ListPageRequest) (contract.ThreadListPageParams
 	if req.Limit > maxThreadListLimit {
 		return contract.ThreadListPageParams{}, fmt.Errorf("thread list limit exceeds maximum: %d > %d", req.Limit, maxThreadListLimit)
 	}
+	cursorThreadID := strings.TrimSpace(req.CursorThreadID)
+	if req.CursorCreatedAt != 0 && cursorThreadID == "" {
+		return contract.ThreadListPageParams{}, errors.New("thread list cursor_thread_id is required when cursor_created_at is set")
+	}
 	return contract.ThreadListPageParams{
 		Limit:           req.Limit,
 		CursorCreatedAt: req.CursorCreatedAt,
-		CursorThreadID:  strings.TrimSpace(req.CursorThreadID),
+		CursorThreadID:  cursorThreadID,
 	}, nil
 }
 
@@ -685,22 +690,4 @@ func (s *service) removeStoppedSession(agentID string, generation uint64) {
 		}
 	}
 	s.sessions.RemoveSession(agentID)
-}
-
-func (s *service) setBindingArchived(ctx context.Context, threadID string, archived bool) error {
-	if s == nil || s.threadStore == nil {
-		return errors.New("thread store is not configured")
-	}
-	if s.bindingStore == nil {
-		return errors.New("binding store is not configured")
-	}
-	binding, err := s.resolveBinding(ctx, threadID)
-	if err != nil {
-		return err
-	}
-	return s.bindingStore.SetArchived(ctx, bindingStoreArchiveUpdate{
-		AgentID:   strings.TrimSpace(binding.AgentID),
-		Archived:  archived,
-		UpdatedAt: time.Now().UnixMilli(),
-	})
 }

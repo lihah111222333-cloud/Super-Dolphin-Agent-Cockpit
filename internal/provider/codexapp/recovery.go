@@ -319,6 +319,18 @@ func (s *session) attemptRecovery(reason string) error {
 	if err := s.recoveryShutdownErr(); err != nil {
 		return err
 	}
+	observedGeneration := s.recoveryGeneration.Load()
+	s.recoveryMu.Lock()
+	defer s.recoveryMu.Unlock()
+	// runtime 已进入关闭时不再恢复，否则会和 Close 的 reader drain 互相竞争。
+	if err := s.recoveryShutdownErr(); err != nil {
+		return err
+	}
+	// 同一次断链可能同时触发同步调用和后台 worker。等待锁期间若已有恢复成功，
+	// 当前信号属于旧 transport generation，直接复用成功结果，不能再次拆掉健康 reader。
+	if s.recoveryGeneration.Load() != observedGeneration {
+		return nil
+	}
 	count := s.recoveryCount.Add(1)
 	if count > maxRecoveryAttempts {
 		s.failTurns(errors.New("codexapp: max recovery attempts exceeded"))
@@ -327,23 +339,9 @@ func (s *session) attemptRecovery(reason string) error {
 	if s.recovery == nil {
 		return errors.New("codexapp: recovery unavailable")
 	}
-	s.recoveryMu.Lock()
-	defer s.recoveryMu.Unlock()
-	// runtime 已进入关闭时不再恢复，否则会和 Close 的 reader drain 互相竞争。
-	if err := s.recoveryShutdownErr(); err != nil {
-		return err
-	}
 	s.dispatchRecoveryAttempt(reason, count)
-	if s.runtime != nil {
-		s.runtime.cancelReader()
-		if s.transport != nil {
-			s.transport.closeSocket()
-		}
-		waitCtx, cancel := withTimeout(s.ctx, 2*time.Second)
-		defer cancel()
-		if err := s.runtime.waitReader(waitCtx); err != nil {
-			return s.failRecovery(reason, err)
-		}
+	if err := s.drainRecoveryReader(); err != nil {
+		return s.failRecovery(reason, err)
 	}
 	if err := s.recovery.Reconnect(s.ctx); err != nil {
 		return s.failRecovery(reason, err)
@@ -354,8 +352,23 @@ func (s *session) attemptRecovery(reason string) error {
 		return s.failRecovery(reason, err)
 	}
 	s.recoveryCount.Store(0)
+	s.recoveryGeneration.Add(1)
 	s.noteReadActivity()
 	return nil
+}
+
+// drainRecoveryReader 停止旧 reader、关闭旧 socket，并在超时边界内等待 reader 退出。
+func (s *session) drainRecoveryReader() error {
+	if s.runtime == nil {
+		return nil
+	}
+	s.runtime.cancelReader()
+	if s.transport != nil {
+		s.transport.closeSocket()
+	}
+	waitCtx, cancel := withTimeout(s.ctx, 2*time.Second)
+	defer cancel()
+	return s.runtime.waitReader(waitCtx)
 }
 
 // dispatchRecoveryAttempt 发布恢复尝试事件。

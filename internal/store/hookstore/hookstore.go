@@ -22,7 +22,6 @@ type querier interface {
 	SaveHookPendingReview(ctx context.Context, arg sqlc.SaveHookPendingReviewParams) (int64, error)
 	GetHookPendingReviewForSave(ctx context.Context, arg sqlc.GetHookPendingReviewForSaveParams) (sqlc.GetHookPendingReviewForSaveRow, error)
 	GetHookPendingReview(ctx context.Context, arg sqlc.GetHookPendingReviewParams) (sqlc.GetHookPendingReviewRow, error)
-	CheckHookReviewIdempotency(ctx context.Context, arg sqlc.CheckHookReviewIdempotencyParams) (int64, error)
 	ResolveHookPendingReview(ctx context.Context, arg sqlc.ResolveHookPendingReviewParams) (int64, error)
 	GetHookResolvedReview(ctx context.Context, arg sqlc.GetHookResolvedReviewParams) (sqlc.GetHookResolvedReviewRow, error)
 	CancelHookPendingReviewsByLease(ctx context.Context, arg sqlc.CancelHookPendingReviewsByLeaseParams) (int64, error)
@@ -136,17 +135,8 @@ func (s *pagedStore) CountPendingReviews(ctx context.Context) (int64, error) {
 }
 
 // ResolvePendingReview 写入人工决策并关闭 pending review。
-// idempotencyKey 已存在时直接成功，确保重试不会覆盖第一次决策。
+// pending 写入与同幂等键重试由同一条条件 UPDATE 原子裁决，避免并发预检竞态。
 func (s *store) ResolvePendingReview(ctx context.Context, hookCallID, decision, reason, idempotencyKey, resolvedBy string) error {
-	if _, err := s.q.CheckHookReviewIdempotency(ctx, sqlc.CheckHookReviewIdempotencyParams{
-		HookCallID:     hookCallID,
-		IdempotencyKey: idempotencyKey,
-	}); err == nil {
-		return nil
-	} else if !platformdb.IsNotFound(err) {
-		return wrapErr(err, "resolve.idempotency_check")
-	}
-
 	rows, err := s.q.ResolveHookPendingReview(ctx, sqlc.ResolveHookPendingReviewParams{
 		HookCallID:     hookCallID,
 		Decision:       decision,

@@ -8,6 +8,7 @@ import (
 
 func TestFrontendAppBuildFeedsAgentTerminalEmbedBundle(t *testing.T) {
 	makefile := readFrontendEmbedContractFile(t, "../../Makefile")
+	packageJSON := readFrontendEmbedContractFile(t, "../../frontend-app/package.json")
 	frontendGo := readFrontendEmbedContractFile(t, "../../cmd/agent-terminal/frontend.go")
 
 	requiredMakefileTokens := []string{
@@ -17,7 +18,6 @@ func TestFrontendAppBuildFeedsAgentTerminalEmbedBundle(t *testing.T) {
 		"frontend-app-build: frontend-app-deps",
 		"cd $(FRONTEND_APP_DIR) && $(NPM) run build",
 		"test -f $(FRONTEND_APP_DIR)/dist/index.html",
-		"node $(FRONTEND_APP_DIR)/scripts/sync-frontend-dist.mjs",
 		"test -f $(EMBEDDED_FRONTEND_DIR)/index.html",
 	}
 	for _, want := range requiredMakefileTokens {
@@ -25,8 +25,13 @@ func TestFrontendAppBuildFeedsAgentTerminalEmbedBundle(t *testing.T) {
 			t.Fatalf("Makefile frontend-app embed contract missing %q", want)
 		}
 	}
-	assertFrontendEmbedContractTextOrder(t, makefile, "cd $(FRONTEND_APP_DIR) && $(NPM) run build", "node $(FRONTEND_APP_DIR)/scripts/sync-frontend-dist.mjs")
-	assertFrontendEmbedContractTextOrder(t, makefile, "node $(FRONTEND_APP_DIR)/scripts/sync-frontend-dist.mjs", "test -f $(EMBEDDED_FRONTEND_DIR)/index.html")
+	if strings.Contains(makefile, "node $(FRONTEND_APP_DIR)/scripts/sync-frontend-dist.mjs") {
+		t.Fatal("Makefile must not duplicate the npm build frontend embed sync")
+	}
+	if !strings.Contains(packageJSON, `"build": "vite build && node scripts/sync-frontend-dist.mjs"`) {
+		t.Fatal("frontend-app npm build must own the frontend embed sync")
+	}
+	assertFrontendEmbedContractTextOrder(t, makefile, "cd $(FRONTEND_APP_DIR) && $(NPM) run build", "test -f $(EMBEDDED_FRONTEND_DIR)/index.html")
 
 	if strings.Contains(makefile, "frontend-build: frontend-legacy-build") {
 		t.Fatal("frontend-build must not silently switch back to the legacy frontend package")

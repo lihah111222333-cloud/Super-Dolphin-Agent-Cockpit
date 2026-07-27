@@ -1,24 +1,24 @@
-# Documentation Archive
+# 文档归档
 
-This directory stores historical material that should not be part of the
-default agent reading path.
+本目录保存不应进入默认阅读链的历史材料。归档内容用于追溯，不属于当前实现事实。
 
-## Rules
+## 规则
 
-- Archived files are retained for provenance, not as current implementation
-  truth.
-- Prefer `git mv` when moving files here so history remains easy to inspect.
-- Do not edit archived reports to make them match current code. Add a new
-  current document elsewhere when the project needs a fresh source of truth.
-- Do not scan this directory recursively unless the task asks for historical
-  reports, old agent notes, migration evidence, or provenance.
+- 移入归档时优先使用 `git mv`，保留文件历史。
+- 不要修改旧报告或过期参考，使其看起来符合当前代码；需要新的事实来源时，应基于源码和测试创建新文档。
+- 归档后原则上保持原文，只修复迁移造成的仓库内链接。
+- 除非任务要求历史报告、旧代理笔记、迁移证据或来源追溯，否则不要递归扫描本目录。
+- 来源或代理名称只允许作为二级 provenance 分类，不能成为当前文档的长期一级分类。
 
-## Layout
+## 目录
 
-- `root-agent-notes/`: notes that previously lived at repository root.
-- `reports/`: root-level review reports and similar historical outputs.
-- `reviews/`: historical review reports and review evidence.
-- `lsp-investigations/`: old LSP investigation rounds and reproductions.
-- `generated-analysis/`: generated repository analysis snapshots.
-- `evidence/`: raw logs and other evidence that are useful only when tracing
-  past verification.
+- [change-logs](change-logs/)：开发修改记录和阶段性实施总结。
+- [reference](reference/)：已无法证明符合当前实现的旧接口与配置说明。
+- `reports/`：历史报告。
+- `reviews/`：历史审查报告和审查证据。
+- `evidence/`：仅在追溯验证时使用的日志和原始证据。
+- `lsp-investigations/`：旧 LSP 调查轮次和复现材料。
+- `generated-analysis/`：历史生成分析快照。
+- `root-agent-notes/`：曾位于仓库根目录的代理笔记。
+
+后续生命周期整理会逐步补入 `plans/`、`migrations/`、`research/`、`snapshots/` 和 `legacy/`；在对应迁移发生前不创建空分类。

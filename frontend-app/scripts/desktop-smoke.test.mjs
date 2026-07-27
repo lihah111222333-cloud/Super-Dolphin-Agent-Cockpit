@@ -10,7 +10,10 @@ import {
   buildWebSocketURL,
   desktopRunnerInvocation,
   desktopSpawnOptions,
+  openWSRPC,
   packageScriptIncludesSmoke,
+  runDesktopSmoke,
+  runTurnSmoke,
   smokeConfig,
   stopDesktop,
 } from './desktop-smoke.mjs';
@@ -105,15 +108,13 @@ describe('desktop smoke command', () => {
       exitCode: null,
       signalCode: null,
     });
-    const signals = [];
-    await stopDesktop(child, (target, signal) => {
-      signals.push(signal);
-      if (signal === 'SIGTERM') {
-        target.exitCode = 0;
-        queueMicrotask(() => target.emit('exit', 0, null));
-      }
+    const calls = [];
+    await stopDesktop(child, {
+      terminateProcessTree: async (target, options) => {
+        calls.push({ target, options });
+      },
     });
-    expect(signals).toEqual(['SIGTERM', 'SIGKILL']);
+    expect(calls).toEqual([{ target: child, options: { killGraceMs: 10_000 } }]);
   });
 
   it('uses defer_spawn for the default thread/start smoke path', () => {

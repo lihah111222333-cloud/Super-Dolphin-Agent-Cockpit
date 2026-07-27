@@ -27,7 +27,7 @@ Examples:
 USAGE
 }
 
-QUICK_ARCHTEST_SKIP='^(TestCodeSizeGuard|TestPrioritySSAGuardsUseUnifiedFreezeBaseline|TestPrioritySSALoaderExtractionPreservesCandidates|TestWideOrchestrationLoaderExtractionPreservesCandidates)$'
+QUICK_ARCHTEST_SKIP='^(TestCodeSizeGuard/size_and_freeze|TestPrioritySSAGuardsUseUnifiedFreezeBaseline|TestPrioritySSALoaderExtractionPreservesCandidates|TestWideOrchestrationLoaderExtractionPreservesCandidates)$'
 QUICK_ARCHTEST_RUN='^(TestDependencyDirection|TestValidateDefaultBackendBoundaryGovernance|TestBackendBoundaryRuleFactsHaveOneSource)$'
 
 run_guard() {
@@ -36,8 +36,8 @@ run_guard() {
   (
     cd "$ROOT_DIR"
     ./scripts/forbid_raw_go_test.sh
-    "$real_go" run ./scripts/code_size_guard.go
     if [ "$mode" = "quick" ]; then
+      "$real_go" run ./scripts/code_size_guard.go
       "$real_go" test ./internal/archtest -run "$QUICK_ARCHTEST_RUN" -count=1
     else
       "$real_go" test ./internal/archtest -count=1

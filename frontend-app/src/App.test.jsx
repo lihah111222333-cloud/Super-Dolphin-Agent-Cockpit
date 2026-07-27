@@ -635,6 +635,7 @@ function mockSettingsAndThreadDefaults() {
     filePath: '/repo/app/src/a.js',
     relative: 'src/a.js',
     totalLines: 2,
+    contentVersion: 'version-src-a-saved',
   });
 }
 
@@ -6055,7 +6056,7 @@ async function createGeneratedPromptIntent() {
     fireEvent.click(screen.getByRole('button', { name: '帮我生成' }));
 
     expect(await screen.findByText('想喝酒时给予支持性鼓励')).toBeInTheDocument();
-    expect(screen.getByText('这条内容还需要完善后才能保存，请调整描述后重新生成。')).toBeInTheDocument();
+    expect(screen.getByText('当前草稿含有必须修正的问题，因此暂不能保存；请按下方“需修正”提示补充描述后重新生成。')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '确认保存' })).toBeDisabled();
     expect(backend.commitPromptIntent).not.toHaveBeenCalled();
   });
@@ -6091,9 +6092,9 @@ async function createGeneratedPromptIntent() {
     fireEvent.click(screen.getByRole('button', { name: '确认保存' }));
 
     await waitFor(() => {
-      expect(screen.getByText('这条内容还需要完善后才能保存，请调整描述后重新生成。')).toBeInTheDocument();
+      expect(screen.getByText('当前草稿含有必须修正的问题，因此暂不能保存；请按下方“需修正”提示补充描述后重新生成。')).toBeInTheDocument();
     });
-    expect(screen.getByText('这条内容还需要完善后才能保存，请调整描述后重新生成。')).not.toHaveClass('error');
+    expect(screen.getByText('当前草稿含有必须修正的问题，因此暂不能保存；请按下方“需修正”提示补充描述后重新生成。')).not.toHaveClass('error');
     expect(screen.queryByText(/with_tx|31007|not ready to save/i)).not.toBeInTheDocument();
   });
 
@@ -8195,6 +8196,7 @@ async function designWorkflowWithAi() {
     render(<App skipBootstrap />);
 
     expect(await screen.findByTestId('composer-dock')).toHaveClass('composer', 'composer--docked');
+    expect(screen.getByRole('region', { name: '聊天记录' })).toHaveClass('timeline');
   });
 
   it('connects settings page build info and provider preferences to backend', async () => {

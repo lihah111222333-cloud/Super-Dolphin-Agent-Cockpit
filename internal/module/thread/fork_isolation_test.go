@@ -10,6 +10,7 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	threaddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/thread"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 )
 
@@ -201,6 +202,10 @@ func TestForkPersistStartedFailureCleansSnapshot(t *testing.T) {
 		return forkedSession, nil
 	}}
 	svc := NewService(silentLogger(), threads, fixture.bindings, sessions, starter, nil, fixture.orch, nil).(*service)
+	startedPublished := false
+	svc.emitStarted = func(threaddto.Started) {
+		startedPublished = true
+	}
 
 	_, err := svc.Fork(context.Background(), "thread-parent")
 	if !errors.Is(err, persistErr) {
@@ -208,6 +213,45 @@ func TestForkPersistStartedFailureCleansSnapshot(t *testing.T) {
 	}
 	assertForkFailureCleaned(t, threads, fixture.bindings)
 	assertForkNotRecoverable(t, svc, "thread-fork")
+	if startedPublished {
+		t.Fatal("Started event published despite fork persistence failure")
+	}
+}
+
+func TestForkActivationFailureMarksFailedAndRemovesPendingSession(t *testing.T) {
+	t.Parallel()
+
+	fixture := newForkServiceFixture(t)
+	threads := &recordingForkThreadStore{stubThreadStore: fixture.threads}
+	activateOK := false
+	sessions := &stubSessionProvider{session: fixture.originalSession, activateOK: &activateOK}
+	forkedSession := &stubSession{threadID: "019d5f6b-aaaa-7760-9d6f-54005553f5b3"}
+	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
+		sessions.session = forkedSession
+		return forkedSession, nil
+	}}
+	svc := NewService(silentLogger(), threads, fixture.bindings, sessions, starter, nil, fixture.orch, nil).(*service)
+	startedPublished := false
+	svc.emitStarted = func(threaddto.Started) {
+		startedPublished = true
+	}
+
+	_, err := svc.Fork(context.Background(), "thread-parent")
+	if err == nil || !strings.Contains(err.Error(), "activate fork session") {
+		t.Fatalf("Fork() error = %v, want activation failure", err)
+	}
+	if threads.status.ThreadID != "thread-fork" || threads.status.Status != statusFailed {
+		t.Fatalf("UpdateStatus = %#v, want thread-fork failed", threads.status)
+	}
+	if len(sessions.removed) != 1 || sessions.removed[0] != "thread-fork" {
+		t.Fatalf("removed sessions = %#v, want [thread-fork]", sessions.removed)
+	}
+	if sessions.session != nil {
+		t.Fatal("pending fork session remains registered after activation failure")
+	}
+	if startedPublished {
+		t.Fatal("Started event published despite fork activation failure")
+	}
 }
 
 func TestPersistedForkCreatingAndFailedRejectDirectResume(t *testing.T) {
@@ -279,11 +323,14 @@ func TestRetainedFailedForkCanBeDeleted(t *testing.T) {
 }
 
 type forkServiceFixture struct {
-	originalSession *stubSession
-	bindings        *stubBindingStore
-	threads         *stubThreadStore
-	orch            *forkOrchestrationStub
-	svc             *service
+	originalSession  *stubSession
+	forkedSession    *stubSession
+	manager          *unified.SessionManager
+	bindings         *stubBindingStore
+	threads          *stubThreadStore
+	orch             *forkOrchestrationStub
+	svc              *service
+	startedPublished bool
 }
 
 func newForkServiceFixture(t *testing.T) *forkServiceFixture {
@@ -293,16 +340,36 @@ func newForkServiceFixture(t *testing.T) *forkServiceFixture {
 		forkResult: dto.ForkResult{NewThreadID: "thread-fork"},
 	}
 	forkedSession := &stubSession{threadID: "019d5f6b-aaaa-7760-9d6f-54005553f5b3"}
-	sessions := &stubSessionProvider{session: originalSession}
+	manager := unified.NewSessionManager(silentLogger())
+	manager.Register("agent-parent", originalSession)
+	sessions := unified.NewSessionProvider(manager)
 	bindings := forkParentBindingStore()
 	threads := forkParentThreadStore()
 	starter := &stubSessionStarter{onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
 		assertForkResumeRequest(t, req)
-		sessions.session = forkedSession
+		manager.RegisterPending(req.AgentID, forkedSession)
 		return forkedSession, nil
 	}}
 	orch := &forkOrchestrationStub{}
-	return &forkServiceFixture{originalSession: originalSession, bindings: bindings, threads: threads, orch: orch, svc: NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service)}
+	fixture := &forkServiceFixture{
+		originalSession: originalSession,
+		forkedSession:   forkedSession,
+		manager:         manager,
+		bindings:        bindings,
+		threads:         threads,
+		orch:            orch,
+		svc:             NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service),
+	}
+	fixture.svc.emitStarted = func(ev threaddto.Started) {
+		if ev.ThreadID != "thread-fork" {
+			t.Fatalf("Started.ThreadID = %q, want thread-fork", ev.ThreadID)
+		}
+		if _, err := manager.Get(ev.ThreadID); err != nil {
+			t.Fatalf("Started published before fork session activation: %v", err)
+		}
+		fixture.startedPublished = true
+	}
+	return fixture
 }
 
 func forkParentBindingStore() *stubBindingStore {
@@ -407,6 +474,16 @@ func assertForkSessionAndLaunch(t *testing.T, fixture *forkServiceFixture) {
 	}
 	if fixture.orch.launch.Cwd != "/repo" || fixture.orch.launch.Name != "Forked Thread (续)" {
 		t.Fatalf("launch = %#v", fixture.orch.launch)
+	}
+	visible, err := fixture.manager.Get("thread-fork")
+	if err != nil {
+		t.Fatalf("SessionManager.Get(thread-fork) error = %v, want activated fork session", err)
+	}
+	if visible != fixture.forkedSession {
+		t.Fatalf("SessionManager.Get(thread-fork) = %T %p, want forked session %p", visible, visible, fixture.forkedSession)
+	}
+	if !fixture.startedPublished {
+		t.Fatal("fork session activated but Started event was not published")
 	}
 }
 
@@ -732,156 +809,5 @@ func TestServiceRecoverReturnsRestoreEnvelopeWhenSessionActive(t *testing.T) {
 	}
 	if len(orch.bindAgentIDs) != 0 {
 		t.Fatalf("bind session calls = %#v, want none", orch.bindAgentIDs)
-	}
-}
-
-func TestServiceRecoverDoesNotInvalidatePromptAssemblyWithoutWorktreeRestore(t *testing.T) {
-	t.Parallel()
-
-	promptAssembly := &forkPromptAssemblyStub{}
-	sessions := &stubSessionProvider{session: &stubSession{threadID: "provider-parent"}}
-	bindings := &stubBindingStore{binding: &BindingRecord{
-		AgentID:          "agent-parent",
-		Provider:         "codex",
-		ProviderThreadID: "provider-parent",
-		CodexThreadID:    "thread-parent",
-		Cwd:              "/repo",
-	}}
-	threads := &stubThreadStore{thread: &ThreadRecord{
-		ThreadID:  "thread-parent",
-		AgentID:   "agent-parent",
-		Prompt:    "Recovered Thread",
-		Model:     "gpt-5.5",
-		Cwd:       "/repo",
-		CreatedAt: 123,
-	}}
-	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
-		t.Fatal("ResumeSession should not be called when session is already active")
-		return nil, nil
-	}}
-	orch := &forkOrchestrationStub{}
-	svc := NewServiceWithPromptAssembly(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil, promptAssembly, nil, nil).(*service)
-
-	if _, err := svc.Recover(context.Background(), "thread-parent"); err != nil {
-		t.Fatalf("Recover() error = %v", err)
-	}
-	if got := promptAssembly.invalidated; len(got) != 0 {
-		t.Fatalf("Invalidate calls = %#v, want none", got)
-	}
-}
-
-func TestServiceRecoverInvalidatesPromptAssemblyForWorktreeRestore(t *testing.T) {
-	t.Parallel()
-
-	_, worktreeCWD := forkPromptGitFixture(t)
-	promptAssembly := &forkPromptAssemblyStub{}
-	sessions := &stubSessionProvider{session: &stubSession{threadID: "provider-parent"}}
-	bindings := &stubBindingStore{binding: &BindingRecord{
-		AgentID:          "agent-parent",
-		Provider:         "codex",
-		ProviderThreadID: "provider-parent",
-		CodexThreadID:    "thread-parent",
-		Cwd:              worktreeCWD,
-	}}
-	threads := &stubThreadStore{thread: &ThreadRecord{
-		ThreadID:  "thread-parent",
-		AgentID:   "agent-parent",
-		Prompt:    "Recovered Thread",
-		Model:     "gpt-5.5",
-		Cwd:       worktreeCWD,
-		CreatedAt: 123,
-	}}
-	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
-		t.Fatal("ResumeSession should not be called when session is already active")
-		return nil, nil
-	}}
-	orch := &forkOrchestrationStub{}
-	svc := NewServiceWithPromptAssembly(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil, promptAssembly, nil, nil).(*service)
-
-	if _, err := svc.Recover(context.Background(), "thread-parent"); err != nil {
-		t.Fatalf("Recover() error = %v", err)
-	}
-	if got := promptAssembly.invalidated; len(got) != 1 || got[0] != contract.InvalidateResumeRestore {
-		t.Fatalf("Invalidate calls = %#v, want [%q]", got, contract.InvalidateResumeRestore)
-	}
-}
-
-type forkOrchestrationStub struct {
-	launch       LaunchAgentRequest
-	recovered    []string
-	bindAgentIDs []string
-	recoverErr   error
-	bindErr      error
-}
-
-func (s *forkOrchestrationStub) LaunchAgent(_ context.Context, req LaunchAgentRequest) error {
-	s.launch = req
-	return nil
-}
-
-func (s *forkOrchestrationStub) StopAgent(context.Context, string) error { return nil }
-
-func (s *forkOrchestrationStub) Recover(_ context.Context, agentID string) error {
-	s.recovered = append(s.recovered, agentID)
-	return s.recoverErr
-}
-
-func (s *forkOrchestrationStub) BindSessionGeneration(_ context.Context, agentID string, _ uint64) error {
-	s.bindAgentIDs = append(s.bindAgentIDs, agentID)
-	return s.bindErr
-}
-
-type generationForkSessionProvider struct {
-	*stubSessionProvider
-	generation uint64
-}
-
-func (p *generationForkSessionProvider) SessionGeneration(string) uint64 {
-	return p.generation
-}
-
-type recordingForkThreadStore struct {
-	*stubThreadStore
-	deletedThreadIDs []string
-	failAfterUpserts int
-	failAfterErr     error
-}
-
-func (s *recordingForkThreadStore) Upsert(ctx context.Context, params ThreadUpsert) error {
-	if s.failAfterUpserts > 0 && s.upsertCount+1 >= s.failAfterUpserts {
-		return s.failAfterErr
-	}
-	return s.stubThreadStore.Upsert(ctx, params)
-}
-
-func (s *recordingForkThreadStore) DeleteByThreadID(_ context.Context, threadID string) error {
-	s.deletedThreadIDs = append(s.deletedThreadIDs, threadID)
-	if s.thread != nil && s.thread.ThreadID == threadID {
-		s.thread = nil
-	}
-	if s.promptSnapshotID == threadID {
-		s.promptSnapshotID = ""
-		s.promptSnapshot = nil
-	}
-	return nil
-}
-
-func assertForkFailureCleaned(t *testing.T, threads *recordingForkThreadStore, bindings *stubBindingStore) {
-	t.Helper()
-	if len(threads.deletedThreadIDs) == 0 || threads.deletedThreadIDs[len(threads.deletedThreadIDs)-1] != "thread-fork" {
-		t.Fatalf("DeleteByThreadID calls = %#v, want thread-fork cleanup", threads.deletedThreadIDs)
-	}
-	if len(bindings.deleteAgentIDs) == 0 || bindings.deleteAgentIDs[len(bindings.deleteAgentIDs)-1] != "thread-fork" {
-		t.Fatalf("DeleteByAgentID calls = %#v, want thread-fork cleanup", bindings.deleteAgentIDs)
-	}
-	if threads.promptSnapshot != nil || threads.promptSnapshotID == "thread-fork" {
-		t.Fatalf("prompt snapshot still present after fork failure: id=%q snapshot=%#v", threads.promptSnapshotID, threads.promptSnapshot)
-	}
-}
-
-func assertForkNotRecoverable(t *testing.T, svc *service, threadID string) {
-	t.Helper()
-	if _, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: threadID}); err == nil {
-		t.Fatalf("Resume(%q) error = nil, want failed/creating fork to be non-recoverable", threadID)
 	}
 }

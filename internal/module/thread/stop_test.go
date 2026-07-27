@@ -375,6 +375,7 @@ func TestArchiveStopsManagedAgentBeforeArchiving(t *testing.T) {
 		turns:         turns,
 		orchestration: orch,
 	}
+	attachStubArchiveStateStore(svc)
 
 	if err := svc.Archive(context.Background(), "thread-1"); err != nil {
 		t.Fatalf("Archive() error = %v", err)
@@ -396,6 +397,7 @@ func TestArchiveKeepsResumeBlockedUntilArchiveIsDurable(t *testing.T) {
 		agentID:         "agent-1",
 	}
 	svc.threadStore = store
+	attachStubArchiveStateStore(svc)
 
 	if err := svc.Archive(context.Background(), "thread-1"); err != nil {
 		t.Fatalf("Archive() error = %v", err)
@@ -440,6 +442,7 @@ func TestArchiveContinuesWhenLocalSessionAlreadyGone(t *testing.T) {
 		turns:         &stubTurnService{calls: &calls},
 		orchestration: orch,
 	}
+	attachStubArchiveStateStore(svc)
 
 	if err := svc.Archive(context.Background(), "thread-1"); err != nil {
 		t.Fatalf("Archive() error = %v", err)
@@ -526,6 +529,7 @@ func TestUnarchivePublishesCreatedLifecycleEvent(t *testing.T) {
 			stopped = evt
 		},
 	}
+	attachStubArchiveStateStore(svc)
 
 	if err := svc.Unarchive(context.Background(), "thread-1"); err != nil {
 		t.Fatalf("Unarchive() error = %v", err)
@@ -766,7 +770,7 @@ func newScratchpadCleanupService(t *testing.T) (*service, string) {
 		t.Fatalf("Marshal() error = %v", err)
 	}
 
-	return &service{
+	svc := &service{
 		bindingStore: &stubThreadBindingStore{binding: &BindingRecord{
 			AgentID:          "agent-1",
 			Provider:         "codex",
@@ -780,12 +784,14 @@ func newScratchpadCleanupService(t *testing.T) (*service, string) {
 			ConfigOverride: raw,
 		}},
 		orchestration: &stubThreadOrchestration{},
-	}, dir
+	}
+	attachStubArchiveStateStore(svc)
+	return svc, dir
 }
 
 func newResumeBlockTimingService(t *testing.T, status string) *service {
 	t.Helper()
-	return &service{
+	svc := &service{
 		bindingStore: &stubThreadBindingStore{binding: &BindingRecord{
 			AgentID:          "agent-1",
 			Provider:         "codex",
@@ -804,6 +810,8 @@ func newResumeBlockTimingService(t *testing.T, status string) *service {
 		turns:         &stubTurnService{},
 		orchestration: &stubThreadOrchestration{},
 	}
+	attachStubArchiveStateStore(svc)
+	return svc
 }
 
 type resumeBlockAssertingThreadStore struct {

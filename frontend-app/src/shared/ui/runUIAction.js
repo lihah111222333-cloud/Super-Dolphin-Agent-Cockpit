@@ -22,6 +22,7 @@ import { diagnosticIdFactoryForError, publicErrorForAction, publicErrorForSink }
  */
 
 let reportingDiagnosticSequence = 0;
+const reportedSharedPromiseFailures = new WeakMap();
 
 /** @returns {string} */
 function reportingDiagnosticIdFactory() {
@@ -126,10 +127,19 @@ function reportFailure({ action, actionId, cause, options }) {
   }
 }
 
-/** @param {unknown} value @param {{ action: () => unknown, actionId: string, options: RunUIActionOptions }} args @param {(() => void) | undefined} onSuccess */
+/** @param {object} promiseResult @param {{ action: () => unknown, actionId: string, cause?: unknown, options: RunUIActionOptions }} args */
+function reportSharedPromiseFailure(promiseResult, args) {
+  const reportedActionIds = reportedSharedPromiseFailures.get(promiseResult) ?? new Set();
+  if (reportedActionIds.has(args.actionId)) return;
+  reportedActionIds.add(args.actionId);
+  reportedSharedPromiseFailures.set(promiseResult, reportedActionIds);
+  reportFailure(args);
+}
+
+/** @param {unknown} value @param {{ action: () => unknown, actionId: string, options: RunUIActionOptions, promiseResult: object }} args @param {(() => void) | undefined} onSuccess */
 function handleActionResolution(value, args, onSuccess) {
   if (args.options.rejectFalse && value === false) {
-    reportFailure(args);
+    reportSharedPromiseFailure(args.promiseResult, args);
     return;
   }
   if (onSuccess) onSuccess();
@@ -140,10 +150,11 @@ function executeAction(actionId, action, options, onSuccess) {
   try {
     const result = action();
     if (result && typeof /** @type {{ then?: unknown }} */ (result).then === 'function') {
-      const args = { action, actionId, options };
+      const promiseResult = /** @type {object} */ (result);
+      const args = { action, actionId, options, promiseResult };
       void Promise.resolve(result).then(
         (value) => handleActionResolution(value, args, onSuccess),
-        (cause) => reportFailure({ ...args, cause }),
+        (cause) => reportSharedPromiseFailure(promiseResult, { ...args, cause }),
       );
     } else if (options.rejectFalse && result === false) {
       reportFailure({ action, actionId, options });

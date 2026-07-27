@@ -3,6 +3,7 @@ package wails
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"strings"
 	"sync"
@@ -19,8 +20,13 @@ type EventBridge struct {
 	lifecycle  *WailsLifecycle
 	logger     *slog.Logger
 
-	mu      sync.Mutex
-	cancels []context.CancelFunc
+	transitionMu sync.Mutex
+	mu           sync.Mutex
+	cancels      []context.CancelFunc
+	generation   uint64
+	active       bool
+	inflight     int
+	idle         chan struct{}
 }
 
 // NewEventBridge 创建桌面事件桥，并把后端事件面绑定到 Wails 生命周期。
@@ -37,23 +43,55 @@ func NewEventBridge(dispatcher *event.Dispatcher, lifecycle *WailsLifecycle, slo
 }
 
 // Start 绑定后端事件订阅；重复调用只保留第一次订阅。
-func (b *EventBridge) Start() {
+// 依赖或订阅为空时返回错误，让 Fx 阻断一个注定丢事件的桌面进程。
+func (b *EventBridge) Start() error {
 	if b == nil {
-		return
+		return errors.New("bridge: event bridge is not configured")
 	}
 	if b.dispatcher == nil {
-		b.logger.Warn("bridge: Start skipped", "nil_dispatcher", true)
-		return
+		return errors.New("bridge: event dispatcher is not configured")
+	}
+	if b.lifecycle == nil {
+		return errors.New("bridge: Wails lifecycle is not configured")
+	}
+	if b.lifecycle.loadEmitter() == nil {
+		return errors.New("bridge: Wails event emitter is not configured")
+	}
+
+	b.transitionMu.Lock()
+	defer b.transitionMu.Unlock()
+	b.mu.Lock()
+	if b.active {
+		subscriptions := len(b.cancels)
+		b.mu.Unlock()
+		b.logger.Info("bridge: Start skipped (already started)", "cancels", subscriptions)
+		return nil
+	}
+	b.generation++
+	if b.generation == 0 {
+		b.generation++
+	}
+	generation := b.generation
+	b.active = true
+	b.mu.Unlock()
+
+	cancels := eventsurface.Bind(b.dispatcher, b.logger, func(method string, payload any) {
+		if !b.beginPublish(generation) {
+			return
+		}
+		defer b.endPublish()
+		b.publish(method, payload)
+	})
+	if len(cancels) == 0 {
+		b.deactivateAndWait()
+		return errors.New("bridge: event subscriptions are empty")
 	}
 
 	b.mu.Lock()
-	defer b.mu.Unlock()
-	if len(b.cancels) > 0 {
-		b.logger.Info("bridge: Start skipped (already started)", "cancels", len(b.cancels))
-		return
-	}
-	b.cancels = eventsurface.Bind(b.dispatcher, b.logger, b.publish)
-	b.logger.Info("bridge: started", "subscriptions", len(b.cancels))
+	b.cancels = cancels
+	b.mu.Unlock()
+	b.logger.Info("bridge: started", "subscriptions", len(cancels), "generation", generation)
+	return nil
 }
 
 // Stop 取消所有事件订阅，并允许后续 Start 重新绑定。
@@ -62,13 +100,66 @@ func (b *EventBridge) Stop() {
 		return
 	}
 
+	b.transitionMu.Lock()
+	defer b.transitionMu.Unlock()
 	b.mu.Lock()
+	b.active = false
 	cancels := b.cancels
 	b.cancels = nil
+	var idle <-chan struct{}
+	if b.inflight > 0 {
+		idle = b.idle
+	}
 	b.mu.Unlock()
 
 	for _, cancel := range cancels {
 		cancel()
+	}
+	if idle != nil {
+		<-idle
+	}
+	b.logger.Info("bridge: stopped", "subscriptions", len(cancels))
+}
+
+// beginPublish 只允许当前活跃 generation 的回调进入，并登记 in-flight 发布。
+func (b *EventBridge) beginPublish(generation uint64) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if !b.active || b.generation != generation {
+		return false
+	}
+	if b.inflight == 0 {
+		b.idle = make(chan struct{})
+	}
+	b.inflight++
+	return true
+}
+
+// endPublish 在最后一个回调离开时唤醒 Stop，保证 Stop 返回后没有旧事件继续写入前端。
+func (b *EventBridge) endPublish() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.inflight <= 0 {
+		return
+	}
+	b.inflight--
+	if b.inflight == 0 && b.idle != nil {
+		close(b.idle)
+		b.idle = nil
+	}
+}
+
+// deactivateAndWait 回滚一次未建立任何订阅的 Start。
+func (b *EventBridge) deactivateAndWait() {
+	b.mu.Lock()
+	b.active = false
+	var idle <-chan struct{}
+	if b.inflight > 0 {
+		idle = b.idle
+	}
+	b.mu.Unlock()
+	if idle != nil {
+		<-idle
 	}
 }
 

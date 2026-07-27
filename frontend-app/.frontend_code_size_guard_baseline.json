@@ -1,6 +1,546 @@
 {
   "_meta": {
-    "updatedAt": "2026-07-22T08:30:57Z"
+    "updatedAt": "2026-07-27T13:19:15Z"
   },
-  "files": {}
+  "files": {
+    "scripts/action-producer-guard.mjs": {
+      "lines": 720,
+      "maxFuncLen": 91,
+      "maxNesting": 7,
+      "maxParams": 5,
+      "exportCount": 4,
+      "consoleLogs": 0,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "nesting\u0000最大嵌套 7 层，超过上限 4 层"
+      ]
+    },
+    "scripts/action-producer-guard.selftest.mjs": {
+      "lines": 224,
+      "maxFuncLen": 24,
+      "maxNesting": 5,
+      "maxParams": 2,
+      "exportCount": 0,
+      "consoleLogs": 0,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "nesting\u0000最大嵌套 5 层，超过上限 4 层"
+      ]
+    },
+    "scripts/action-production-runtime-runner.mjs": {
+      "lines": 271,
+      "maxFuncLen": 156,
+      "maxNesting": 6,
+      "maxParams": 4,
+      "exportCount": 1,
+      "consoleLogs": 0,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "func-length\u0000函数 runActionProductionRuntime 共 156 行，超过上限 150 行",
+        "nesting\u0000最大嵌套 6 层，超过上限 4 层"
+      ]
+    },
+    "scripts/agentic-e2e-planner.mjs": {
+      "lines": 323,
+      "maxFuncLen": 63,
+      "maxNesting": 5,
+      "maxParams": 2,
+      "exportCount": 3,
+      "consoleLogs": 0,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "nesting\u0000最大嵌套 5 层，超过上限 4 层"
+      ]
+    },
+    "scripts/agentic-e2e-wails-mock.mjs": {
+      "lines": 554,
+      "maxFuncLen": 578,
+      "maxNesting": 8,
+      "maxParams": 2,
+      "exportCount": 3,
+      "consoleLogs": 0,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "func-length\u0000函数 installAgenticE2EMockWails 共 578 行，超过上限 150 行",
+        "nesting\u0000最大嵌套 8 层，超过上限 4 层"
+      ]
+    },
+    "scripts/agentic-e2e.mjs": {
+      "lines": 591,
+      "maxFuncLen": 105,
+      "maxNesting": 5,
+      "maxParams": 8,
+      "exportCount": 11,
+      "consoleLogs": 1,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
+        "nesting\u0000最大嵌套 5 层，超过上限 4 层",
+        "params\u0000函数 writeFailureEvidence 有 8 个参数，超过上限 5 个",
+        "params\u0000函数 writeFinalEvidence 有 7 个参数，超过上限 5 个"
+      ]
+    },
+    "scripts/chat-history-benchmark.mjs": {
+      "lines": 347,
+      "maxFuncLen": 104,
+      "maxNesting": 5,
+      "maxParams": 5,
+      "exportCount": 1,
+      "consoleLogs": 0,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "nesting\u0000最大嵌套 5 层，超过上限 4 层"
+      ]
+    },
+    "scripts/critical-typecheck-guard.mjs": {
+      "lines": 200,
+      "maxFuncLen": 29,
+      "maxNesting": 3,
+      "maxParams": 3,
+      "exportCount": 8,
+      "consoleLogs": 2,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
+        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除"
+      ]
+    },
+    "scripts/desktop-failure-smoke.mjs": {
+      "lines": 469,
+      "maxFuncLen": 53,
+      "maxNesting": 6,
+      "maxParams": 6,
+      "exportCount": 12,
+      "consoleLogs": 1,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
+        "nesting\u0000最大嵌套 6 层，超过上限 4 层",
+        "params\u0000函数 commandFailureMessage 有 6 个参数，超过上限 5 个",
+        "params\u0000函数 runCommand 有 6 个参数，超过上限 5 个"
+      ]
+    },
+    "scripts/desktop-smoke.mjs": {
+      "lines": 311,
+      "maxFuncLen": 34,
+      "maxNesting": 5,
+      "maxParams": 4,
+      "exportCount": 15,
+      "consoleLogs": 5,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
+        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
+        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
+        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
+        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
+        "nesting\u0000最大嵌套 5 层，超过上限 4 层"
+      ]
+    },
+    "scripts/desktop-ux-smoke.mjs": {
+      "lines": 188,
+      "maxFuncLen": 20,
+      "maxNesting": 4,
+      "maxParams": 5,
+      "exportCount": 8,
+      "consoleLogs": 4,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
+        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
+        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
+        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除"
+      ]
+    },
+    "scripts/failure-matrix-runner.mjs": {
+      "lines": 455,
+      "maxFuncLen": 91,
+      "maxNesting": 7,
+      "maxParams": 4,
+      "exportCount": 9,
+      "consoleLogs": 1,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
+        "nesting\u0000最大嵌套 7 层，超过上限 4 层"
+      ]
+    },
+    "scripts/frontend-code-size-guard.mjs": {
+      "lines": 569,
+      "maxFuncLen": 18,
+      "maxNesting": 6,
+      "maxParams": 3,
+      "exportCount": 8,
+      "consoleLogs": 4,
+      "anyCount": 1,
+      "emptyFuncs": 0,
+      "todoCount": 5,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "any\u0000禁止使用 any 类型，请使用具体类型或 unknown",
+        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
+        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
+        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
+        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
+        "nesting\u0000最大嵌套 6 层，超过上限 4 层",
+        "todo\u0000['freeze/todo', 'todoCount', '处'],",
+        "todo\u0000if (upper.includes('TODO') || upper.includes('FIXME') || upper.includes('HACK')) {",
+        "todo\u0000todoCount: violations.filter((entry) => entry.rule === 'todo').length,",
+        "todo\u0000todoCount: violations.filter((entry) => entry.rule === 'todo').length,",
+        "todo\u0000violations.push(makeViolation(relFile, index + 1, 'todo', line.trim()));"
+      ]
+    },
+    "scripts/frontend-contract-store-guard.mjs": {
+      "lines": 467,
+      "maxFuncLen": 59,
+      "maxNesting": 4,
+      "maxParams": 6,
+      "exportCount": 5,
+      "consoleLogs": 1,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
+        "params\u0000函数 addViolation 有 6 个参数，超过上限 5 个"
+      ]
+    },
+    "scripts/frontend-dependency-direction-guard.mjs": {
+      "lines": 361,
+      "maxFuncLen": 67,
+      "maxNesting": 5,
+      "maxParams": 4,
+      "exportCount": 3,
+      "consoleLogs": 1,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
+        "nesting\u0000最大嵌套 5 层，超过上限 4 层"
+      ]
+    },
+    "scripts/frontend-maintainability-dependency-integrity.mjs": {
+      "lines": 482,
+      "maxFuncLen": 77,
+      "maxNesting": 6,
+      "maxParams": 3,
+      "exportCount": 14,
+      "consoleLogs": 0,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "nesting\u0000最大嵌套 6 层，超过上限 4 层"
+      ]
+    },
+    "scripts/frontend-maintainability-score.mjs": {
+      "lines": 2770,
+      "maxFuncLen": 207,
+      "maxNesting": 6,
+      "maxParams": 6,
+      "exportCount": 24,
+      "consoleLogs": 0,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "exports\u000024 个 export，超过上限 20 个",
+        "file-length\u0000文件有效代码 2770 行，超过上限 800 行",
+        "func-length\u0000函数 validateActionProductionBindingReport 共 207 行，超过上限 150 行",
+        "nesting\u0000最大嵌套 6 层，超过上限 4 层",
+        "params\u0000函数 validateActionProductionBindingReport 有 6 个参数，超过上限 5 个",
+        "params\u0000函数 validateDeliveryReport 有 6 个参数，超过上限 5 个",
+        "params\u0000函数 validateDesktopFailureReport 有 6 个参数，超过上限 5 个",
+        "params\u0000函数 validateFailureMatrixReport 有 6 个参数，超过上限 5 个"
+      ]
+    },
+    "scripts/frontend-state-ownership-guard.mjs": {
+      "lines": 634,
+      "maxFuncLen": 78,
+      "maxNesting": 6,
+      "maxParams": 4,
+      "exportCount": 4,
+      "consoleLogs": 1,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
+        "nesting\u0000最大嵌套 6 层，超过上限 4 层"
+      ]
+    },
+    "scripts/frontend-z-index-token-guard.mjs": {
+      "lines": 309,
+      "maxFuncLen": 51,
+      "maxNesting": 5,
+      "maxParams": 4,
+      "exportCount": 2,
+      "consoleLogs": 1,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
+        "nesting\u0000最大嵌套 5 层，超过上限 4 层"
+      ]
+    },
+    "scripts/managed-command.mjs": {
+      "lines": 196,
+      "maxFuncLen": 102,
+      "maxNesting": 5,
+      "maxParams": 4,
+      "exportCount": 4,
+      "consoleLogs": 0,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "nesting\u0000最大嵌套 5 层，超过上限 4 层"
+      ]
+    },
+    "scripts/no-critical-skip.mjs": {
+      "lines": 233,
+      "maxFuncLen": 36,
+      "maxNesting": 5,
+      "maxParams": 2,
+      "exportCount": 5,
+      "consoleLogs": 1,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
+        "nesting\u0000最大嵌套 5 层，超过上限 4 层"
+      ]
+    },
+    "scripts/no-silent-async-failure.mjs": {
+      "lines": 150,
+      "maxFuncLen": 35,
+      "maxNesting": 4,
+      "maxParams": 6,
+      "exportCount": 4,
+      "consoleLogs": 1,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
+        "params\u0000函数 addViolation 有 6 个参数，超过上限 5 个"
+      ]
+    },
+    "scripts/performance-budget-runner.mjs": {
+      "lines": 1117,
+      "maxFuncLen": 82,
+      "maxNesting": 5,
+      "maxParams": 4,
+      "exportCount": 1,
+      "consoleLogs": 0,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "file-length\u0000文件有效代码 1117 行，超过上限 800 行",
+        "nesting\u0000最大嵌套 5 层，超过上限 4 层"
+      ]
+    },
+    "scripts/rpc-contract-audit.mjs": {
+      "lines": 5223,
+      "maxFuncLen": 185,
+      "maxNesting": 8,
+      "maxParams": 6,
+      "exportCount": 10,
+      "consoleLogs": 1,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
+        "file-length\u0000文件有效代码 5223 行，超过上限 800 行",
+        "func-length\u0000函数 astReferencesFacade 共 158 行，超过上限 150 行",
+        "func-length\u0000函数 collectInvalidResponsePolicyEvidence 共 167 行，超过上限 150 行",
+        "func-length\u0000函数 runtimePassesAwaitedResultToHandler 共 185 行，超过上限 150 行",
+        "nesting\u0000最大嵌套 8 层，超过上限 4 层",
+        "params\u0000函数 findFacadeCalls 有 6 个参数，超过上限 5 个",
+        "params\u0000函数 publishedCallbackProductionProof 有 6 个参数，超过上限 5 个",
+        "params\u0000函数 resolvePolicyLocator 有 6 个参数，超过上限 5 个",
+        "params\u0000函数 shapeDominatesConsumerUse 有 6 个参数，超过上限 5 个"
+      ]
+    },
+    "scripts/stop-feedback-benchmark.mjs": {
+      "lines": 402,
+      "maxFuncLen": 102,
+      "maxNesting": 5,
+      "maxParams": 3,
+      "exportCount": 1,
+      "consoleLogs": 0,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "nesting\u0000最大嵌套 5 层，超过上限 4 层"
+      ]
+    },
+    "scripts/turn-contract-field-guard-bindings.mjs": {
+      "lines": 164,
+      "maxFuncLen": 47,
+      "maxNesting": 5,
+      "maxParams": 3,
+      "exportCount": 4,
+      "consoleLogs": 0,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "nesting\u0000最大嵌套 5 层，超过上限 4 层"
+      ]
+    },
+    "scripts/turn-contract-field-guard-evidence.mjs": {
+      "lines": 393,
+      "maxFuncLen": 34,
+      "maxNesting": 5,
+      "maxParams": 4,
+      "exportCount": 4,
+      "consoleLogs": 0,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "nesting\u0000最大嵌套 5 层，超过上限 4 层"
+      ]
+    },
+    "scripts/turn-contract-field-guard.mjs": {
+      "lines": 119,
+      "maxFuncLen": 74,
+      "maxNesting": 2,
+      "maxParams": 0,
+      "exportCount": 1,
+      "consoleLogs": 1,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除"
+      ]
+    },
+    "scripts/ui-test-mcp-acceptance.mjs": {
+      "lines": 542,
+      "maxFuncLen": 97,
+      "maxNesting": 4,
+      "maxParams": 4,
+      "exportCount": 13,
+      "consoleLogs": 3,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
+        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
+        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除"
+      ]
+    },
+    "scripts/ui-test-mcp-framing.mjs": {
+      "lines": 181,
+      "maxFuncLen": 53,
+      "maxNesting": 5,
+      "maxParams": 3,
+      "exportCount": 4,
+      "consoleLogs": 0,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "nesting\u0000最大嵌套 5 层，超过上限 4 层"
+      ]
+    },
+    "scripts/ui-test-mcp-scenario.mjs": {
+      "lines": 88,
+      "maxFuncLen": 38,
+      "maxNesting": 4,
+      "maxParams": 2,
+      "exportCount": 2,
+      "consoleLogs": 1,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除"
+      ]
+    },
+    "scripts/ui-test-mcp-server.mjs": {
+      "lines": 980,
+      "maxFuncLen": 666,
+      "maxNesting": 9,
+      "maxParams": 6,
+      "exportCount": 6,
+      "consoleLogs": 0,
+      "anyCount": 0,
+      "emptyFuncs": 0,
+      "todoCount": 0,
+      "longLineCount": 0,
+      "frozenViolations": [
+        "file-length\u0000文件有效代码 980 行，超过上限 800 行",
+        "func-length\u0000函数 createUITestMCPServer 共 666 行，超过上限 150 行",
+        "nesting\u0000最大嵌套 9 层，超过上限 4 层",
+        "params\u0000函数 toolError 有 6 个参数，超过上限 5 个"
+      ]
+    },
+    "__dir__:scripts": {
+      "lines": 55
+    }
+  }
 }

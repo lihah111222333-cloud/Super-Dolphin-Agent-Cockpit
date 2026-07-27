@@ -77,6 +77,8 @@ type WakeupDispatcher struct {
 
 	nodeRouter *NodeExecutorRouter
 
+	leaseHeartbeatInterval time.Duration
+
 	retryAlertSink DispatchRetryAlertSink
 }
 
@@ -88,7 +90,22 @@ func NewWakeupDispatcher(store taskdag.WakeupDispatchStore, launcher WakeupLaunc
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
-	return &WakeupDispatcher{store: store, launcher: launcher, logger: logger, cfg: cfg.ConfigOrDefaults()}, nil
+	normalized := cfg.ConfigOrDefaults()
+	leaseDuration, err := taskdag.ParseLeaseDuration(normalized.LeaseInterval)
+	if err != nil {
+		return nil, fmt.Errorf("wakeup dispatcher: invalid lease interval: %w", err)
+	}
+	heartbeatInterval := leaseDuration / 3
+	if heartbeatInterval <= 0 {
+		return nil, errors.New("wakeup dispatcher: lease interval too short for heartbeat")
+	}
+	return &WakeupDispatcher{
+		store:                  store,
+		launcher:               launcher,
+		logger:                 logger,
+		cfg:                    normalized,
+		leaseHeartbeatInterval: heartbeatInterval,
+	}, nil
 }
 
 // WithNodeRouter 设置 wakeup 调度器使用的节点路由器。

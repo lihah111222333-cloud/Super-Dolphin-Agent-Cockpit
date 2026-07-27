@@ -54,6 +54,7 @@ type TurnInputReceived struct {
 // TurnOutputDelta 报告 turn 的流式输出增量。
 type TurnOutputDelta struct {
 	shared.TurnHeader
+	ItemID string `json:"item_id,omitempty"`
 	Stream string `json:"stream"`
 	Delta  string `json:"delta"`
 }

@@ -1,6 +1,6 @@
 # mcp-orch 代码地图
 
-> 2026-04-24 debt banner / authoritative pointer：本卷描述 `cmd/mcp-orch` 的稳定职责与装配结构，不再是 orchestration 依赖方向 / hidden contract 的权威记录。orchestration `Module` / `handler.Map` / hidden side-channel contract、`OrchestrationTurnStarter` 与 `OrchestrationSessionCleaner` 的双树同构、`BootstrapHookAfterHandler` 等契约的 authoritative 入口是 [`docs/plans/迁移/p22/README.md`](../../plans/迁移/p22/README.md)、[`docs/plans/迁移/p22/P3_OrchestrationWaiterAlignment.md`](../../plans/迁移/p22/P3_OrchestrationWaiterAlignment.md) 与 [`docs/plans/迁移/p22/P4_DependencyDirectionAndHiddenContracts.md`](../../plans/迁移/p22/P4_DependencyDirectionAndHiddenContracts.md)。若本卷与 P22/P3/P4 冲突，以后者为准。
+> 当前导航边界：本卷描述 `cmd/mcp-orch` 的职责与装配结构；依赖方向和运行契约以源码、同包测试、`docs/契约/mcp-service-convention.md`、`docs/契约/onion-architecture-convention.md` 和生成的第 13 卷边界规则为准。历史迁移计划只用于追溯，不覆盖当前事实。
 
 ## 1. 模块概述
 

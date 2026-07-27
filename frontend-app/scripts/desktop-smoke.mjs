@@ -6,7 +6,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
 
-import { signalProcessTree } from './managed-command.mjs';
+import { terminateProcessTree } from './managed-command.mjs';
 
 const DEFAULT_HTTP_ADDR = '127.0.0.1:4512';
 const DEFAULT_VITE_URL = 'http://127.0.0.1:5175';
@@ -119,8 +119,13 @@ export async function runDesktopSmoke(config = smokeConfig(), deps = {}) {
   }
   const child = startDesktop(config, deps.spawn || spawn);
   try {
-    await waitForHTTP(`http://${config.httpAddr}/metrics`, config.timeoutMs, child);
-    const client = await openWSRPC(config.wsURL, config.wsToken, config.rpcTimeoutMs, deps.WebSocket || WebSocket);
+    await (deps.waitForHTTP || waitForHTTP)(`http://${config.httpAddr}/metrics`, config.timeoutMs, child);
+    const client = await (deps.openWSRPC || openWSRPC)(
+      config.wsURL,
+      config.wsToken,
+      config.rpcTimeoutMs,
+      deps.WebSocket || WebSocket,
+    );
     try {
       await runReadPathSmoke(client, config);
       const threadID = await runThreadStartSmoke(client, config);
@@ -133,7 +138,7 @@ export async function runDesktopSmoke(config = smokeConfig(), deps = {}) {
     }
   }
   finally {
-    await stopDesktop(child);
+    await (deps.stopDesktop || stopDesktop)(child, deps);
   }
 }
 
@@ -181,37 +186,11 @@ function runCommand(command, args, cwd, spawnImpl) {
   });
 }
 
-export async function stopDesktop(child, signalImpl = signalProcessTree) {
+export async function stopDesktop(child, deps = {}) {
   if (!child || child.exitCode != null || child.signalCode != null) return;
-  let forceTimer;
-  let forced = false;
-  let forceError;
-  const exitedOrTimedOut = new Promise((resolve) => {
-    child.once('exit', resolve);
-    forceTimer = setTimeout(async () => {
-      try {
-        if (child.exitCode == null && child.signalCode == null) {
-          forced = true;
-          await signalImpl(child, 'SIGKILL');
-        }
-      }
-      catch (error) {
-        forceError = error;
-      }
-      finally {
-        resolve();
-      }
-    }, 10000);
+  await (deps.terminateProcessTree || terminateProcessTree)(child, {
+    killGraceMs: deps.killGraceMs || 10_000,
   });
-  try {
-    await signalImpl(child, 'SIGTERM');
-    await exitedOrTimedOut;
-    if (forceError) throw forceError;
-    if (!forced) await signalImpl(child, 'SIGKILL');
-  }
-  finally {
-    clearTimeout(forceTimer);
-  }
 }
 
 async function waitForHTTP(url, timeoutMs, child) {

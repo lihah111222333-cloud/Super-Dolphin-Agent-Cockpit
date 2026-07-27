@@ -277,6 +277,97 @@ func (h handlerBase) openFile(ctx context.Context, rawPath string, languageID st
 	}, nil
 }
 
+func shouldUseLanguageOverrideDiagnostics(input fileToolInput, targets []diagnosticTarget) bool {
+	return normalizeLanguageIDOverride(input.LanguageID) != "" && len(targets) > 0
+}
+
+// fetchLanguageOverrideDiagnostics 对 file_path 与 file_paths 使用同一逐目标语言覆盖生命周期。
+func (h handlerBase) fetchLanguageOverrideDiagnostics(ctx context.Context, input fileToolInput, targets []diagnosticTarget) ([]protocol.PublishDiagnosticsParams, string, string, error) {
+	items := make([]protocol.PublishDiagnosticsParams, 0, len(targets))
+	var message string
+	for _, target := range targets {
+		fetched, _, fetchedMessage, err := h.fetchSingleFileLanguageOverrideDiagnostics(ctx, input, target)
+		if err != nil {
+			return nil, "", "", err
+		}
+		items = append(items, fetched...)
+		message = appendMessage(message, fetchedMessage)
+	}
+	return items, "language_override", message, nil
+}
+
+// fetchSingleFileLanguageOverrideDiagnostics 为 .txt 模板等扩展名不可信的单文件诊断走显式语言。
+// 它先按 override 打开文档，确保底层语言服务器收到正确 languageId，再从同一个 manager 拉取诊断。
+func (h handlerBase) fetchSingleFileLanguageOverrideDiagnostics(ctx context.Context, input fileToolInput, target diagnosticTarget) ([]protocol.PublishDiagnosticsParams, string, string, error) {
+	if _, err := h.openFile(ctx, target.AbsPath, input.LanguageID); err != nil {
+		return nil, "", "", err
+	}
+	manager, err := managerForFile(ctx, h.registry, target.AbsPath, input.LanguageID)
+	if err != nil {
+		return nil, "", "", err
+	}
+	if err := reopenManagerDocumentForDiagnostics(ctx, manager, target.URI); err != nil {
+		return nil, "", "", err
+	}
+	if err := manager.WaitDiagnosticsStable(ctx, nil); err != nil {
+		if !errors.Is(err, lspmanager.ErrDiagnosticsNotReady) {
+			return nil, "", "", err
+		}
+		if retryErr := h.waitSingleFileOverrideDiagnosticsStableWithStartupRetries(ctx, manager); retryErr != nil {
+			return nil, "", "", retryErr
+		}
+	}
+	items, err := manager.Diagnostics(ctx, nil)
+	if err != nil {
+		return nil, "", "", err
+	}
+	filtered := diagnosticsForTargetURI(target.URI, items)
+	message := diagnosticsMessageAfterFetch("", []string{target.URI}, filtered)
+	return filtered, "language_override", message, nil
+}
+
+// reopenManagerDocumentForDiagnostics 在显式语言覆盖路径中强制重开目标文档。
+// 该路径绕过 registry 的常规诊断流程，因此直接要求已解析 scope 的 manager 执行重开。
+func reopenManagerDocumentForDiagnostics(ctx context.Context, manager lspmanager.Manager, uri string) error {
+	reopener, ok := manager.(lspmanager.DiagnosticDocumentReopener)
+	if !ok {
+		return fmt.Errorf("%w: diagnostics document reopen", lspmanager.ErrUnsupportedCapability)
+	}
+	if err := reopener.ReopenDocumentForDiagnostics(ctx, uri); err != nil {
+		return fmt.Errorf("reopen diagnostics document %s: %w", uri, err)
+	}
+	return nil
+}
+
+func diagnosticsForTargetURI(uri string, items []protocol.PublishDiagnosticsParams) []protocol.PublishDiagnosticsParams {
+	for _, item := range items {
+		if item.URI == uri {
+			return []protocol.PublishDiagnosticsParams{item}
+		}
+	}
+	return []protocol.PublishDiagnosticsParams{{URI: uri}}
+}
+
+// waitSingleFileOverrideDiagnosticsStableWithStartupRetries 只服务显式语言单文件诊断的启动等待。
+// 它复用有限退避策略，但固定等待已经解析出的 manager，避免重新按 .txt 扩展名分组。
+func (h handlerBase) waitSingleFileOverrideDiagnosticsStableWithStartupRetries(ctx context.Context, manager lspmanager.Manager) error {
+	var lastErr error
+	for retry := 1; retry <= diagnosticsStartupRetryCount; retry++ {
+		if err := sleepDiagnosticsRetryBackoff(ctx, retry); err != nil {
+			return err
+		}
+		if err := manager.WaitDiagnosticsStable(ctx, nil); err != nil {
+			if !errors.Is(err, lspmanager.ErrDiagnosticsNotReady) {
+				return err
+			}
+			lastErr = err
+			continue
+		}
+		return nil
+	}
+	return lastErr
+}
+
 // readSingle 读取单文件内容；带 line 时优先尝试函数窗口，失败再降级为行窗口。
 func (h handlerBase) readSingle(ctx context.Context, req readFileRequest) (string, error) {
 	root, roots, err := toolReadableRoots(ctx)

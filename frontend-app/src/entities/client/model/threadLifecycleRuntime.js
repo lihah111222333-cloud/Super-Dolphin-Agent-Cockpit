@@ -11,6 +11,13 @@ const INTERRUPT_SUCCESS_RESPONSE_KEYS = new Set(['ok', 'accepted', 'requestId', 
 const INTERRUPT_FAILURE_RESPONSE_KEYS = new Set([...INTERRUPT_SUCCESS_RESPONSE_KEYS, 'errorCode', 'error', 'message', 'reason']);
 function threadActionRequiresActiveTurn(action) { return action === 'thread.interrupt' || action === 'thread.force_complete'; }
 
+function interruptSingleFlightKey(target) {
+  if (!target?.interruptible) return '';
+  const threadId = normalizeOptionalTextField(target.threadId);
+  const turnId = normalizeOptionalTextField(target.turnId);
+  return threadId && turnId ? `${threadId}\u0000${turnId}` : '';
+}
+
 export function createStopRequestId() {
   const randomUUID = globalThis.crypto?.randomUUID;
   if (typeof randomUUID !== 'function') throw new Error('thread.interrupt: secure request id generator is required');
@@ -209,6 +216,7 @@ export function attachActiveThreadRpcRuntime(runtime, deps) {
     }
     publishAction(message, tone, details);
   };
+  const interruptFlights = new Map();
 
   const runActiveThreadRPC = async (action, rpc, options = {}) => {
     const currentState = get();
@@ -240,17 +248,54 @@ export function attachActiveThreadRpcRuntime(runtime, deps) {
     }
   };
 
-  const activeThreadRPC = async (action, rpc) => {
+  const executeActiveThreadRPC = async (action, rpc) => {
     const outcome = await runActiveThreadRPC(action, rpc);
     if (!outcome.ok) return false;
     notifyAction(THREAD_ACTION_SUCCESS_MESSAGES[action] || '线程操作已提交', 'success', { threadId: outcome.threadId });
     return true;
   };
 
+  const activeThreadRPC = (action, rpc) => {
+    if (action !== 'thread.interrupt') return executeActiveThreadRPC(action, rpc);
+    const key = interruptSingleFlightKey(activeThreadInterruptTarget(get()));
+    if (!key) return executeActiveThreadRPC(action, rpc);
+    const existing = interruptFlights.get(key);
+    if (existing) return existing.actionPromise;
+
+    let underlyingPromise;
+    const trackedRpc = (request) => {
+      try {
+        underlyingPromise = Promise.resolve(rpc(request));
+      }
+      catch (error) {
+        underlyingPromise = Promise.reject(error);
+      }
+      return underlyingPromise;
+    };
+    const actionPromise = executeActiveThreadRPC(action, trackedRpc);
+    const flight = { actionPromise };
+    interruptFlights.set(key, flight);
+    let actionSettled = false;
+    let underlyingSettled = false;
+    const releaseSettledFlight = () => {
+      if (!actionSettled || !underlyingSettled) return;
+      if (interruptFlights.get(key) === flight) interruptFlights.delete(key);
+    };
+    void actionPromise.then(
+      () => { actionSettled = true; releaseSettledFlight(); },
+      () => { actionSettled = true; releaseSettledFlight(); },
+    );
+    void (underlyingPromise || actionPromise).then(
+      () => { underlyingSettled = true; releaseSettledFlight(); },
+      () => { underlyingSettled = true; releaseSettledFlight(); },
+    );
+    return actionPromise;
+  };
+
   const recoverActiveThreadRPC = async (rpc) => {
     const currentState = get();
     const threadId = backendThreadIdForState(currentState, currentState.activeThreadId);
-    if (!threadId) return activeThreadRPC('thread.recover', rpc);
+    if (!threadId) return executeActiveThreadRPC('thread.recover', rpc);
     if (currentState.threadRecoveryPendingByThread[threadId]) return false;
 
     setThreadRecoveryPending(set, threadId, true);

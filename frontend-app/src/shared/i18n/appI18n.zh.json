@@ -81,6 +81,7 @@
   "chat": {
     "introTitle": "我们应该在 燧元 中构建什么？",
     "introSubtitle": "探索 AI 驱动界面的可能性。开启对话、分析文件或编排复杂任务。",
+    "timelineLabel": "聊天记录",
     "introSuggestions": {
       "summarizeDocument": {
         "title": "总结文档",

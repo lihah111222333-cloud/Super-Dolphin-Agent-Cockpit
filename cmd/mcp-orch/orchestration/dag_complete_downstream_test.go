@@ -17,18 +17,22 @@ import (
 type stubNodeFlowStore struct {
 	taskdag.OrchestrationStore // nil 嵌入：未覆盖方法 panic 暴露遗漏
 
-	updateCalls   []taskdag.NodeStatusUpdate
-	completeCalls []taskdag.CompleteNodeInput
-	failCalls     []taskdag.FailNodeInput
-	completeReply *taskdag.CompleteNodeWithDownstreamResult
-	completeErr   error
-	failReply     *taskdag.FailNodeResult
-	failErr       error
-	listRunCalls  []int64
-	renewCalls    []taskdag.RenewWorkerLeaseInput
-	renewRows     int64
-	renewRowsSet  bool
-	renewErr      error
+	updateCalls    []taskdag.NodeStatusUpdate
+	completeCalls  []taskdag.CompleteNodeInput
+	failCalls      []taskdag.FailNodeInput
+	completeReply  *taskdag.CompleteNodeWithDownstreamResult
+	completeErr    error
+	failReply      *taskdag.FailNodeResult
+	failErr        error
+	listRunCalls   []int64
+	acquireCalls   []taskdag.AcquireWorkerLeaseInput
+	acquireRows    int64
+	acquireRowsSet bool
+	acquireErr     error
+	renewCalls     []taskdag.RenewWorkerLeaseInput
+	renewRows      int64
+	renewRowsSet   bool
+	renewErr       error
 
 	fromStatus string
 	assignedTo string
@@ -87,8 +91,15 @@ func (s *stubNodeFlowStore) FailNodeAndCancelDownstream(_ context.Context, input
 	}, nil
 }
 
-func (s *stubNodeFlowStore) AcquireWorkerLease(context.Context, taskdag.AcquireWorkerLeaseInput) (int64, error) {
-	return 0, errors.New("not used in this test")
+func (s *stubNodeFlowStore) AcquireWorkerLease(_ context.Context, input taskdag.AcquireWorkerLeaseInput) (int64, error) {
+	s.acquireCalls = append(s.acquireCalls, input)
+	if s.acquireErr != nil {
+		return 0, s.acquireErr
+	}
+	if s.acquireRowsSet {
+		return s.acquireRows, nil
+	}
+	return 1, nil
 }
 
 func (s *stubNodeFlowStore) RenewWorkerLease(_ context.Context, input taskdag.RenewWorkerLeaseInput) (int64, error) {
@@ -279,10 +290,10 @@ func TestUpdateNodeStatusFailed_RejectsPendingBeforeCascade(t *testing.T) {
 
 func TestTaskUpdateNodeRejectsNonLeaseHolder(t *testing.T) {
 	stub := &stubNodeFlowStore{
-		fromStatus:   "ready",
-		assignedTo:   "agent-A",
-		renewRowsSet: true,
-		renewRows:    0,
+		fromStatus:     "ready",
+		assignedTo:     "agent-A",
+		acquireRowsSet: true,
+		acquireRows:    0,
 	}
 	s := makeServiceWithStub(stub)
 	ctx := mcpcommon.WithToolScope(context.Background(), mcpcommon.ToolScope{AgentID: "agent-B"})
@@ -299,12 +310,15 @@ func TestTaskUpdateNodeRejectsNonLeaseHolder(t *testing.T) {
 		t.Fatalf("store update should not run after lease rejection: update=%d complete=%d fail=%d",
 			len(stub.updateCalls), len(stub.completeCalls), len(stub.failCalls))
 	}
-	if len(stub.renewCalls) != 1 {
-		t.Fatalf("RenewWorkerLease calls = %d, want 1", len(stub.renewCalls))
+	if len(stub.acquireCalls) != 1 {
+		t.Fatalf("AcquireWorkerLease calls = %d, want 1", len(stub.acquireCalls))
 	}
-	got := stub.renewCalls[0]
+	if len(stub.renewCalls) != 0 {
+		t.Fatalf("RenewWorkerLease calls = %d, want 0", len(stub.renewCalls))
+	}
+	got := stub.acquireCalls[0]
 	if got.TargetAgentID != "agent-A" || got.OwnerID != "agent-B" {
-		t.Fatalf("RenewWorkerLease input = %+v, want target agent-A owner agent-B", got)
+		t.Fatalf("AcquireWorkerLease input = %+v, want target agent-A owner agent-B", got)
 	}
 }
 

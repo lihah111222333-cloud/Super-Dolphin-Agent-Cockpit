@@ -153,18 +153,16 @@ func (db *hookStorePagedQuerierStub) CountHookPendingReviews(_ context.Context) 
 	return int64(len(db.pendingReviews())), nil
 }
 
-func (db *hookStoreQuerierStub) CheckHookReviewIdempotency(_ context.Context, arg sqlc.CheckHookReviewIdempotencyParams) (int64, error) {
-	record, ok := db.records[arg.HookCallID]
-	if !ok || record.status != "resolved" || record.idempotencyKey != arg.IdempotencyKey {
-		return 0, sql.ErrNoRows
-	}
-	return 1, nil
-}
-
 func (db *hookStoreQuerierStub) ResolveHookPendingReview(_ context.Context, arg sqlc.ResolveHookPendingReviewParams) (int64, error) {
 	db.execOps = append(db.execOps, "resolve")
 	record, exists := db.records[arg.HookCallID]
-	if !exists || record.status != "pending" {
+	if !exists {
+		return 0, nil
+	}
+	if record.status == "resolved" && record.idempotencyKey == arg.IdempotencyKey {
+		return 1, nil
+	}
+	if record.status != "pending" {
 		return 0, nil
 	}
 	record.status = "resolved"

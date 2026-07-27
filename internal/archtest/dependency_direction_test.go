@@ -18,15 +18,6 @@ import (
 
 const modulePath = "github.com/lihah111222333-cloud/super-dolphin-agent"
 
-var providerAllowedExternal = map[string]bool{
-	"github.com/BurntSushi/toml":   true,
-	"github.com/gorilla/websocket": true,
-	"github.com/kelindar/event":    true,
-	"golang.org/x/net":             true,
-	"golang.org/x/sync":            true,
-	"golang.org/x/sys":             true,
-}
-
 type parsedFile struct {
 	AbsPath string
 	RelPath string
@@ -76,31 +67,12 @@ func assertCoreDependencyRules(t *testing.T, root string) {
 
 func assertNoFrameworkImportsInContractDTO(t *testing.T, root string) {
 	t.Helper()
-
-	dirs := existingDirs(root, "internal/contract", "internal/dto")
-	if len(dirs) == 0 {
-		t.Skip("directory not yet created")
-	}
-	forbidden := []string{"go.uber.org/fx", "github.com/creachadair/jrpc2", "github.com/jackc/pgx/v5", "github.com/wailsapp/wails"}
-	assertNoImportPrefixes(t, parseImportFiles(t, root, dirs...), forbidden)
+	assertCanonicalBoundaryRule(t, root, "contract_dto_no_framework_imports")
 }
 
 func assertModuleImplsNoFX(t *testing.T, root string) {
 	t.Helper()
-
-	if !dirExists(root, "internal/module") {
-		t.Skip("directory not yet created")
-	}
-	var violations []string
-	for _, file := range parseImportFiles(t, root, "internal/module") {
-		if filepath.Base(file.RelPath) == "module.go" {
-			continue
-		}
-		if hasImport(file.Imports, "go.uber.org/fx") {
-			violations = append(violations, fmt.Sprintf("%s imports go.uber.org/fx outside module.go", file.RelPath))
-		}
-	}
-	failIfViolations(t, violations)
+	assertCanonicalBoundaryRule(t, root, "fx_assembly_scope")
 }
 
 func assertProviderCannotImportStore(t *testing.T, root string) {
@@ -115,62 +87,38 @@ func assertProviderCannotImportPlatformDB(t *testing.T, root string) {
 
 func assertProviderExternalWhitelist(t *testing.T, root string) {
 	t.Helper()
-
-	if !dirExists(root, "internal/provider") {
-		t.Fatal("internal/provider production tree is missing")
-	}
-	failIfViolations(t, providerExternalWhitelistViolationsForFiles(providerProductionImportFiles(t, root)))
-}
-
-// providerProductionImportFiles 扫描整个 Provider 生产树，新子包无需额外登记。
-func providerProductionImportFiles(t *testing.T, root string) []parsedFile {
-	t.Helper()
-	return parseImportFiles(t, root, "internal/provider")
-}
-
-func providerExternalWhitelistViolationsForFiles(files []parsedFile) []string {
-	var violations []string
-	for _, file := range files {
-		violations = append(violations, providerExternalWhitelistViolations(file)...)
-	}
-	return violations
-}
-
-func providerExternalWhitelistViolations(file parsedFile) []string {
-	var violations []string
-	for _, imp := range file.Imports {
-		if isStdlibImport(imp) || strings.HasPrefix(imp, modulePath+"/") {
-			continue
-		}
-		externalRoot := externalModuleRoot(imp)
-		if externalRoot == "go.uber.org/fx" {
-			if filepath.Base(file.RelPath) != "module.go" {
-				violations = append(violations, fmt.Sprintf("%s imports %s outside provider module.go Fx assembly", file.RelPath, imp))
-			}
-			continue
-		}
-		if !providerAllowedExternal[externalRoot] {
-			violations = append(violations, fmt.Sprintf("%s imports %s outside provider external whitelist", file.RelPath, imp))
-		}
-	}
-	return violations
+	assertCanonicalBoundaryRule(t, root, "provider_external_import_surface")
 }
 
 func TestProviderExternalWhitelistEnforcesFXAssemblyScope(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name string
-		file parsedFile
-		want string
+		name    string
+		relPath string
+		source  string
+		want    string
 	}{
-		{name: "runtime rejects Fx", file: parsedFile{RelPath: "internal/provider/shared/runtime.go", Imports: []string{"go.uber.org/fx"}}, want: "outside provider module.go"},
-		{name: "module permits Fx", file: parsedFile{RelPath: "internal/provider/shared/module.go", Imports: []string{"go.uber.org/fx"}}},
-		{name: "module still checks other externals", file: parsedFile{RelPath: "internal/provider/shared/module.go", Imports: []string{"example.com/unapproved/provider"}}, want: "outside provider external whitelist"},
+		{name: "runtime rejects Fx", relPath: "internal/provider/shared/runtime.go", source: "package shared\nimport _ \"go.uber.org/fx\"\n", want: "go.uber.org/fx"},
+		{name: "module permits Fx", relPath: "internal/provider/shared/module.go", source: "package shared\nimport _ \"go.uber.org/fx\"\n"},
+		{name: "module still checks other externals", relPath: "internal/provider/shared/module.go", source: "package shared\nimport _ \"example.com/unapproved/provider\"\n", want: "example.com/unapproved/provider"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			violations := strings.Join(providerExternalWhitelistViolations(tc.file), "\n")
+			path := filepath.Join(t.TempDir(), "fixture.go")
+			if err := os.WriteFile(path, []byte(tc.source), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			got, err := archtest.EvaluateBackendBoundaryFile(
+				path,
+				tc.relPath,
+				archtest.DefaultBackendBoundaryRegistry(),
+				"provider_external_import_surface",
+			)
+			if err != nil {
+				t.Fatalf("evaluate provider external fixture: %v", err)
+			}
+			violations := strings.Join(got, "\n")
 			if tc.want == "" && violations != "" {
 				t.Fatalf("provider Fx module assembly must be allowed, got: %s", violations)
 			}
@@ -192,9 +140,16 @@ func TestProviderExternalWhitelistCoversNewProductionSubtree(t *testing.T) {
 	if err := os.WriteFile(path, []byte("package futureprovider\n\nimport _ \"example.com/unapproved/provider\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	violations := providerExternalWhitelistViolationsForFiles(providerProductionImportFiles(t, root))
-	if !strings.Contains(strings.Join(violations, "\n"), "internal/provider/futureprovider/runtime.go") {
-		t.Fatalf("new provider subtree must enter external whitelist scan, got: %v", violations)
+	evaluation, err := archtest.EvaluateBackendBoundary(
+		root,
+		archtest.DefaultBackendBoundaryRegistry(),
+		"provider_external_import_surface",
+	)
+	if err != nil {
+		t.Fatalf("evaluate new provider subtree: %v", err)
+	}
+	if !strings.Contains(strings.Join(evaluation.Violations, "\n"), "internal/provider/futureprovider/runtime.go") {
+		t.Fatalf("new provider subtree must enter external whitelist scan, got: %v", evaluation.Violations)
 	}
 }
 
@@ -459,19 +414,7 @@ func importPrefixViolations(file parsedFile, prefixes []string) []string {
 	return violations
 }
 
-func hasImport(imports []string, target string) bool { return slices.Contains(imports, target) }
-
-func isStdlibImport(path string) bool { return !strings.Contains(path, ".") }
-
 func internalPrefix(rel string) string { return modulePath + "/" + strings.TrimPrefix(rel, "/") }
-
-func externalModuleRoot(path string) string {
-	parts := strings.Split(path, "/")
-	if len(parts) >= 3 {
-		return strings.Join(parts[:3], "/")
-	}
-	return path
-}
 
 func goListDeps(t *testing.T, root, relPkg string) []string {
 	t.Helper()

@@ -46,6 +46,66 @@ func TestFrontendGateCycleDetection(t *testing.T) {
 	}
 }
 
+// TestFrontendBuildSyncHasUniqueOwner 验证前端构建同步只由 npm build 触发一次。
+func TestFrontendBuildSyncHasUniqueOwner(t *testing.T) {
+	owners, err := frontendBuildSyncOwners(
+		readRepoFile(t, "../frontend-app/package.json"),
+		readRepoFile(t, "../Makefile"),
+	)
+	if err != nil {
+		t.Fatalf("collect frontend build sync owners: %v", err)
+	}
+	want := []string{"npm:build"}
+	if !slices.Equal(owners, want) {
+		t.Fatalf("frontend build sync owners = %v, want unique owner %v", owners, want)
+	}
+}
+
+// TestFrontendBuildSyncOwnerDetection 证明跨 npm/Make 和同一 owner 内的重复同步都会被计数。
+func TestFrontendBuildSyncOwnerDetection(t *testing.T) {
+	packageJSON := `{"scripts":{"build":"vite build && node scripts/sync-frontend-dist.mjs && node scripts/sync-frontend-dist.mjs"}}`
+	makefile := "frontend-app-build:\n\tnode frontend-app/scripts/sync-frontend-dist.mjs\n"
+	owners, err := frontendBuildSyncOwners(packageJSON, makefile)
+	if err != nil {
+		t.Fatalf("collect synthetic frontend build sync owners: %v", err)
+	}
+	want := []string{"make:frontend-app-build", "npm:build", "npm:build"}
+	if !slices.Equal(owners, want) {
+		t.Fatalf("duplicate frontend build sync owners = %v, want %v", owners, want)
+	}
+}
+
+func frontendBuildSyncOwners(packageJSON, makefile string) ([]string, error) {
+	const syncScript = "scripts/sync-frontend-dist.mjs"
+	var manifest struct {
+		Scripts map[string]string `json:"scripts"`
+	}
+	if err := json.Unmarshal([]byte(packageJSON), &manifest); err != nil {
+		return nil, fmt.Errorf("decode frontend-app/package.json: %w", err)
+	}
+	owners := make([]string, 0, 1)
+	for name, command := range manifest.Scripts {
+		for range strings.Count(command, syncScript) {
+			owners = append(owners, "npm:"+name)
+		}
+	}
+	var current string
+	for _, line := range strings.Split(makefile, "\n") {
+		if match := frontendMakeTargetPattern.FindStringSubmatch(line); match != nil {
+			current = match[1]
+			continue
+		}
+		if current == "" || !strings.HasPrefix(line, "\t") {
+			continue
+		}
+		for range strings.Count(line, syncScript) {
+			owners = append(owners, "make:"+current)
+		}
+	}
+	sort.Strings(owners)
+	return owners, nil
+}
+
 func frontendGateTopology(t *testing.T) map[string][]string {
 	t.Helper()
 	graph := frontendPackageScriptGraph(t)

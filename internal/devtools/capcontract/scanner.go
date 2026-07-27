@@ -13,7 +13,14 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-var canonicalTargets = []string{"darwin/amd64", "darwin/arm64", "linux/amd64", "windows/amd64"}
+var canonicalTargets = []string{
+	"darwin/amd64",
+	"darwin/arm64",
+	"linux/amd64",
+	"linux/arm64",
+	"windows/amd64",
+	"windows/arm64",
+}
 
 // ScanOptions 是能力契约扫描入口参数。
 // RepoRoot 与 Roots 分离，确保报告中保留相对路径而不是本机绝对路径。

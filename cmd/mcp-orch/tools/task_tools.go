@@ -152,7 +152,7 @@ func HandleCreateDAG(svc contract.DAGCreateRuntime) ToolHandler {
 		if err != nil {
 			return nil, err
 		}
-		if err := validateAutomationCommandNodesForCreate(req.Nodes); err != nil {
+		if err := validateAutomationCommandNodesForCreate(req.Nodes, trustedTaskWorkspaceRoots(ctx)); err != nil {
 			return nil, err
 		}
 		return svc.CreateDAG(ctx, req)
@@ -176,12 +176,12 @@ func isTaskCreateDAGName(toolName string) bool {
 
 // validateAutomationCommandNodesForCreate 在工具创建入口拦截不可执行的 automation command 配置。
 // 这里要求 cwd/workspace_roots 显式存在，避免 DAG 创建成功后到 dispatcher 才发现执行边界缺失。
-func validateAutomationCommandNodesForCreate(nodes []contract.CreateDAGNodeRequest) error {
+func validateAutomationCommandNodesForCreate(nodes []contract.CreateDAGNodeRequest, trustedRoots []string) error {
 	for i, node := range nodes {
 		if strings.TrimSpace(node.NodeType) != "automation" {
 			continue
 		}
-		if err := nodeexec.ValidateAutomationCommandDispatchConfig(node.Config); err != nil {
+		if err := nodeexec.ValidateAutomationCommandWorkspaceScope(node.Config, trustedRoots); err != nil {
 			return fmt.Errorf("nodes[%d].config invalid for automation command: %w", i, err)
 		}
 	}
@@ -194,6 +194,16 @@ func trustedAgentID(ctx context.Context) string {
 		return strings.TrimSpace(scope.AgentID)
 	}
 	return ""
+}
+
+// trustedTaskWorkspaceRoots 只读取 tools/call 顶层私有 metadata 注入的可信 workspace roots。
+// 缺失时返回 nil，由实际写入 automation config 的校验路径 fail-fast。
+func trustedTaskWorkspaceRoots(ctx context.Context) []string {
+	scope, ok := mcpcommon.ToolScopeFromContext(ctx)
+	if !ok || len(scope.WorkspaceRoots) == 0 {
+		return nil
+	}
+	return append([]string(nil), scope.WorkspaceRoots...)
 }
 
 // HandleGetDAG 解析兼容定位符并读取 DAG 模板。

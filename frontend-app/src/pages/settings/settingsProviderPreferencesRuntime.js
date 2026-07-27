@@ -48,8 +48,11 @@ function useProviderPreferences(cwd, activeProvider, copy) {
   }, { retryable: true }), [refetch, setDirty]);
   const save = useCallback(() => runUIAction('settings.provider.preferences.save', async () => {
     const saved = await saveProviderPreferenceValues({ approvalMode, copy, cwd, provider, saving, setNotice, setSaving, summaryMode });
-    if (saved) setDirty(false);
-  }), [approvalMode, copy, cwd, provider, saving, setDirty, setNotice, setSaving, summaryMode]);
+    if (saved) {
+      await refetch({ throwOnError: true });
+      setDirty(false);
+    }
+  }), [approvalMode, copy, cwd, provider, refetch, saving, setDirty, setNotice, setSaving, summaryMode]);
   const updateSummaryMode = useCallback((value) => {
     setDirty(true);
     setSummaryMode(value);

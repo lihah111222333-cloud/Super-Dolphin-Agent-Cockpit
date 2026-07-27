@@ -109,6 +109,23 @@ describe('delivery smoke runner', () => {
     },
   );
 
+  it('returns exit-2 semantics after the third command fails and never starts the fourth', async () => {
+    const inspected = inspectDeliveryCommands({ scripts: COMPLETE_SCRIPTS }, MAKEFILE);
+    const calls = [];
+    const verdict = await runDeliveryCommands(inspected, async (_program, _args, options) => {
+      calls.push(options.cwd);
+      return { status: calls.length === 3 ? 2 : 0, signal: null, timedOut: false };
+    });
+
+    expect(verdict).toEqual(expect.objectContaining({
+      status: 'FAIL',
+      executedCommands: 3,
+      reason: expect.stringContaining('desktop-start-smoke failed with exit 2'),
+    }));
+    expect(calls).toHaveLength(3);
+    expect(verdict.commands.map(({ id }) => id)).toEqual(DELIVERY_CASE_IDS.slice(0, 3));
+  });
+
   it('runs the complete integration delivery surface in final verify mode', async () => {
     const result = await runManagedCommand(execPath, [join(cwd(), 'scripts/delivery-smoke-runner.mjs'), '--verify'], {
       cwd: cwd(),

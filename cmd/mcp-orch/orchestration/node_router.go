@@ -415,6 +415,15 @@ func completeWakeupFence(fence taskdag.WakeupFence) bool {
 		!fence.LeaseExpiresAt.IsZero()
 }
 
+// currentRouteWakeupFence 优先读取 heartbeat 发布的最新 fence，并拒绝跨 wakeup 替换。
+func currentRouteWakeupFence(ctx context.Context, fallback taskdag.WakeupFence) taskdag.WakeupFence {
+	current, ok := taskdag.WakeupFenceFromContext(ctx)
+	if !ok || current.WakeupID != fallback.WakeupID {
+		return fallback
+	}
+	return current
+}
+
 func taskNodeRunID(node *taskdag.Node) int64 {
 	if node == nil || node.RunID == nil {
 		return 0
@@ -546,6 +555,7 @@ func (r *NodeExecutorRouter) advanceAgentNodeToRunning(ctx context.Context, dagK
 			"dag_key", dagKey, "node_key", nodeKey)
 		return false, err
 	}
+	wakeupFence = currentRouteWakeupFence(ctx, wakeupFence)
 	node, updateErr := runStore.UpdateRunningNodeStatus(ctx, taskdag.RunningNodeStatusUpdate{
 		Status:      "running",
 		Result:      json.RawMessage(`{}`),
@@ -595,7 +605,8 @@ func (r *NodeExecutorRouter) dispatchAutomation(ctx context.Context, node nodeex
 	}
 	// Automation 节点没有 child agent 在外面驱动 CompleteNode；路由器代为推进。
 	if outcome.Status == nodeexec.NodeStatusDone {
-		if err := r.completeAutomationNode(ctx, node.DagKey, node.NodeKey, runCtx.RunID, wakeupFence.WakeupID, wakeupFence.WakeupAttempt, outcome.Result, oldStatus); err != nil {
+		currentFence := currentRouteWakeupFence(ctx, wakeupFence)
+		if err := r.completeAutomationNode(ctx, node.DagKey, node.NodeKey, runCtx.RunID, currentFence.WakeupID, currentFence.WakeupAttempt, outcome.Result, oldStatus); err != nil {
 			r.logger.Warn("node router: automation complete propagate failed",
 				"dag_key", node.DagKey, "node_key", node.NodeKey, "error", err)
 			return outcome, fmt.Errorf("node router: automation complete propagate failed: %w", err)

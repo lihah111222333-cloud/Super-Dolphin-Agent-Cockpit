@@ -150,7 +150,7 @@ func TestCodexNativeToolPolicyUsesReadOnlySandboxForPartialWriteDisable(t *testi
 	assertJSONEqual(t, params.SandboxPolicy, `{"type":"readOnly"}`)
 }
 
-func TestCodexNativeToolPolicyUsesReadOnlySandboxForReadOnlyLaunchDenyList(t *testing.T) {
+func TestCodexNativeToolPolicyDoesNotOverrideSandboxForNativelyDisabledWriteTools(t *testing.T) {
 	params := threadStartParams{}
 	policy := mustCodexNativeToolPolicyFromConfig(t, map[string]any{
 		codexDisabledNativeToolsConfigKey: []string{
@@ -162,13 +162,15 @@ func TestCodexNativeToolPolicyUsesReadOnlySandboxForReadOnlyLaunchDenyList(t *te
 	})
 
 	policy.ApplyThreadStartParams(&params)
-	if params.ApprovalPolicy != "never" {
-		t.Fatalf("ApprovalPolicy = %q, want never", params.ApprovalPolicy)
+	if params.ApprovalPolicy != "" {
+		t.Fatalf("ApprovalPolicy = %q, want unchanged", params.ApprovalPolicy)
 	}
-	if string(params.Sandbox) != `"read-only"` {
-		t.Fatalf("Sandbox = %s, want read-only mode string", string(params.Sandbox))
+	if len(params.Sandbox) != 0 {
+		t.Fatalf("Sandbox = %s, want unchanged", string(params.Sandbox))
 	}
-	assertJSONEqual(t, params.SandboxPolicy, `{"type":"readOnly"}`)
+	if len(params.SandboxPolicy) != 0 {
+		t.Fatalf("SandboxPolicy = %s, want unchanged", string(params.SandboxPolicy))
+	}
 }
 
 func TestNewDriverFactoryCreateReturnsCodexDriver(t *testing.T) {

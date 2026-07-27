@@ -35,7 +35,7 @@ vi.mock('../../shared/api/backendApi.js', () => ({
   getPreference: backend.getPreference,
 }));
 
-function renderPromptPage(props = {}) {
+function renderPromptPage(props = {}) { const notifyAction = props.notifyAction || vi.fn();
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -43,10 +43,10 @@ function renderPromptPage(props = {}) {
     },
   });
   return {
-    queryClient,
+    notifyAction, queryClient,
     ...render(
       <QueryClientProvider client={queryClient}>
-        <PromptPageView projectPath="/repo/app" {...props} />
+        <PromptPageView projectPath="/repo/app" notifyAction={notifyAction} {...props} />
       </QueryClientProvider>,
     ),
   };
@@ -251,7 +251,7 @@ describe('PromptPageView module', () => {
       },
     });
 
-    renderPromptPage();
+    const { notifyAction } = renderPromptPage();
 
     expect(await screen.findByRole('heading', { name: '个性化' })).toBeInTheDocument();
     expect(screen.getByText('管理您的身份信息以及 燧元 的记忆内容')).toBeInTheDocument();
@@ -283,7 +283,7 @@ describe('PromptPageView module', () => {
         customInstructions: '回答要直接',
       },
     }));
-    expect(await screen.findByText('个人资料已保存')).toBeInTheDocument();
+    await waitFor(() => expect(notifyAction).toHaveBeenCalledWith('个人资料已保存', 'success', { category: 'profile' })); expect(screen.queryByText('个人资料已保存')).not.toBeInTheDocument();
   });
 
   it('preserves profile edits made while an earlier save is pending', async () => {
@@ -971,20 +971,17 @@ describe('PromptPageView backend wiring', () => {
 
   it('requires explicit review confirmation before saving risky prompt intent drafts', async () => {
     backend.commitPromptIntent.mockResolvedValueOnce({ ok: true });
-
     await openPendingDraftWizard({
       draftKey: 'intent/expert/risky',
       name: '风险审查专家',
       content: '先检查风险',
       issues: [{ code: 'default_rule_conflict', severity: 'review', message: '可能和已有规则冲突' }],
     });
-
-    const saveButton = screen.getByRole('button', { name: '确认保存' });
+    const gate = screen.getByLabelText('保存门禁说明'); expect(gate).toHaveTextContent('需确认：和已有默认规则可能重复或冲突，保存前需要确认。'); const saveButton = screen.getByRole('button', { name: '确认保存' });
     expect(saveButton).toBeDisabled();
     fireEvent.click(screen.getByLabelText('我已确认这些风险，仍要保存'));
     expect(saveButton).toBeEnabled();
     fireEvent.click(saveButton);
-
     await waitFor(() => {
       expect(backend.commitPromptIntent).toHaveBeenCalledWith({
         cwd: '/repo/app',

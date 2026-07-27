@@ -81,6 +81,7 @@
   "chat": {
     "introTitle": "What should we build in 燧元?",
     "introSubtitle": "Explore the possibilities of AI-driven interfaces. Start a conversation, analyze files, or orchestrate complex tasks.",
+    "timelineLabel": "Chat history",
     "introSuggestions": {
       "summarizeDocument": {
         "title": "Summarize Document",

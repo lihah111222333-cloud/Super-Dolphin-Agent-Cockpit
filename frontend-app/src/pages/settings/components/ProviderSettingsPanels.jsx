@@ -21,8 +21,7 @@ function ProviderSettingsPanel({ copy, runtime, viewConfig }) {
 function ProviderPropertiesCard({ copy, provider }) {
   const providerCopy = copy.provider;
   return (
-    <>
-      <div className="section-header">{providerCopy.properties}</div>
+    <Panel title={providerCopy.properties}>
       <div className="data-card-vue" data-testid="settings-provider-sandbox-card">
         <ProviderSelectRow id="provider-summary-mode-select" label={providerCopy.summary} value={provider.summaryMode} onChange={provider.setSummaryMode} options={providerOptions(providerCopy.summaryOptions)} />
         <ProviderSelectRow id="provider-approval-mode-select" label={providerCopy.approval} value={provider.approvalMode} onChange={provider.setApprovalMode} options={providerOptions(providerCopy.approvalOptions)} />
@@ -32,7 +31,7 @@ function ProviderPropertiesCard({ copy, provider }) {
           <button type="button" className="btn btn-primary btn-toolbar-sm" data-testid="provider-sandbox-save-button" onClick={provider.save} disabled={provider.saving}>{provider.saving ? providerCopy.saving : providerCopy.save}</button>
         </div>
       </div>
-    </>
+    </Panel>
   );
 }
 

@@ -483,6 +483,8 @@ function ConversationTimeline({
         className="timeline"
         data-testid="chat-timeline"
         ref={timelineRef}
+        role="region"
+        aria-label={copy.timelineLabel}
         tabIndex={0}
         onKeyDown={onTimelineKeyDown}
         onScroll={handleScroll}
@@ -553,4 +555,4 @@ function formatTime(value) {
   return firstText(timeLabelFromTimestamp(value), '--:--');
 }
 
-export { Conversation };
+export { Conversation, ConversationTimeline };

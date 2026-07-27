@@ -20,7 +20,6 @@ func TestGuardRaceOnlyModeRunsGuardsAndOneRaceInvocation(t *testing.T) {
 		t.Fatalf("race-only guard failed: %v: %s", result.err, result.output)
 	}
 	for _, required := range []string{
-		"run ./scripts/code_size_guard.go",
 		"test ./internal/archtest -count=1",
 		"vet -copylocks ./internal/provider/... ./internal/platform/... ./internal/module/thread/...",
 		"list ./...",
@@ -45,7 +44,6 @@ func TestGuardCombinedRaceModeRunsGuardsOnceAndBothTestLanes(t *testing.T) {
 		t.Fatalf("combined race guard failed: %v: %s", result.err, result.output)
 	}
 	for _, invocation := range []string{
-		"run ./scripts/code_size_guard.go",
 		"test ./internal/archtest -count=1",
 		"vet -copylocks ./internal/provider/... ./internal/platform/... ./internal/module/thread/...",
 		"test ./internal/devtools/gate -count=1",

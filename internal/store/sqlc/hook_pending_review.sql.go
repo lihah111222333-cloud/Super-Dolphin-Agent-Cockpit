@@ -67,25 +67,6 @@ func (q *Queries) CancelHookPendingReviewsByLease(ctx context.Context, arg Cance
 	return result.RowsAffected()
 }
 
-const checkHookReviewIdempotency = `-- name: CheckHookReviewIdempotency :one
-SELECT 1 AS already_resolved
-FROM hook_pending_reviews
-WHERE hook_call_id = ? AND status = 'resolved' AND idempotency_key = ?
-`
-
-type CheckHookReviewIdempotencyParams struct {
-	HookCallID     string `db:"hook_call_id" json:"hook_call_id"`
-	IdempotencyKey string `db:"idempotency_key" json:"idempotency_key"`
-}
-
-// Returns 1 if a review is already resolved with the given idempotency key.
-func (q *Queries) CheckHookReviewIdempotency(ctx context.Context, arg CheckHookReviewIdempotencyParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, checkHookReviewIdempotency, arg.HookCallID, arg.IdempotencyKey)
-	var already_resolved int64
-	err := row.Scan(&already_resolved)
-	return already_resolved, err
-}
-
 const countHookPendingReviews = `-- name: CountHookPendingReviews :one
 SELECT COUNT(*)
 FROM hook_pending_reviews
@@ -407,8 +388,17 @@ func (q *Queries) RecoverHookPendingReviews(ctx context.Context) ([]RecoverHookP
 
 const resolveHookPendingReview = `-- name: ResolveHookPendingReview :execrows
 UPDATE hook_pending_reviews
-SET status = 'resolved', decision = ?, reason = ?, idempotency_key = ?, resolved_by = ?, resolved_at = ?
-WHERE hook_call_id = ? AND status = 'pending'
+SET status = CASE WHEN status = 'pending' THEN 'resolved' ELSE status END,
+    decision = CASE WHEN status = 'pending' THEN ?1 ELSE decision END,
+    reason = CASE WHEN status = 'pending' THEN ?2 ELSE reason END,
+    idempotency_key = CASE WHEN status = 'pending' THEN ?3 ELSE idempotency_key END,
+    resolved_by = CASE WHEN status = 'pending' THEN ?4 ELSE resolved_by END,
+    resolved_at = CASE WHEN status = 'pending' THEN ?5 ELSE resolved_at END
+WHERE hook_call_id = ?6
+  AND (
+      status = 'pending'
+      OR (status = 'resolved' AND idempotency_key = ?3)
+  )
 `
 
 type ResolveHookPendingReviewParams struct {

@@ -22,6 +22,9 @@ func HandleApplyOps(svc contract.DAGRuntime) ToolHandler {
 		if err != nil {
 			return nil, err
 		}
+		if err := validateAutomationCommandApplyOps(ctx, svc, req.DagKey, req.Ops); err != nil {
+			return nil, err
+		}
 		return svc.ApplyOps(ctx, req)
 	})
 }
@@ -83,9 +86,6 @@ func validatedApplyOpsPayload(raw json.RawMessage) (json.RawMessage, error) {
 	if err := rejectReservedApplyOpsCapabilities(raw); err != nil {
 		return nil, err
 	}
-	if err := validateAutomationCommandApplyOps(raw); err != nil {
-		return nil, err
-	}
 	return raw, nil
 }
 
@@ -108,34 +108,110 @@ func rejectReservedApplyOpsCapabilities(raw json.RawMessage) error {
 	return nil
 }
 
-// validateAutomationCommandApplyOps 拦截会写入不可执行 automation command 的 ops。
-// add_node 有明确 node_type；update_node 只能在 patch.config 明显是 automation command 时校验整片配置。
-func validateAutomationCommandApplyOps(raw json.RawMessage) error {
+// validateAutomationCommandApplyOps 在 ApplyOps 落库前校验 automation command 的可信工作区边界。
+// update_node 必须先读取服务端已有 node_type；无法确认目标节点类型时直接拒绝配置替换。
+func validateAutomationCommandApplyOps(
+	ctx context.Context,
+	svc contract.DAGRuntime,
+	dagKey string,
+	raw json.RawMessage,
+) error {
 	var ops nodeexec.Ops
 	if err := json.Unmarshal(raw, &ops); err != nil {
 		return err
 	}
+	validator := applyOpsWorkspaceValidator{
+		ctx:          ctx,
+		svc:          svc,
+		dagKey:       dagKey,
+		trustedRoots: trustedTaskWorkspaceRoots(ctx),
+	}
 	for i, op := range ops {
-		switch typed := op.(type) {
-		case nodeexec.OpAddNode:
-			if strings.TrimSpace(typed.Node.NodeType) == "automation" {
-				if err := nodeexec.ValidateAutomationCommandDispatchConfig(typed.Node.Config); err != nil {
-					return fmt.Errorf("ops[%d].node.config invalid for automation command: %w", i, err)
-				}
-			}
-		case nodeexec.OpUpdateNode:
-			if looksLikeAutomationCommandConfig(typed.Patch.Config) {
-				if err := nodeexec.ValidateAutomationCommandDispatchConfig(typed.Patch.Config); err != nil {
-					return fmt.Errorf("ops[%d].patch.config invalid for automation command: %w", i, err)
-				}
-			}
+		if err := validator.validate(i, op); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-// looksLikeAutomationCommandConfig 只识别明显的 automation command 整片配置。
-// update_node 没有 node_type 上下文，不能把普通 agent config 误判成 automation。
+type applyOpsWorkspaceValidator struct {
+	ctx               context.Context
+	svc               contract.DAGRuntime
+	dagKey            string
+	trustedRoots      []string
+	existingNodeTypes map[string]string
+}
+
+func (v *applyOpsWorkspaceValidator) validate(index int, op nodeexec.Op) error {
+	switch typed := op.(type) {
+	case nodeexec.OpAddNode:
+		return v.validateAddNode(index, typed)
+	case nodeexec.OpUpdateNode:
+		return v.validateUpdateNode(index, typed)
+	default:
+		return nil
+	}
+}
+
+func (v *applyOpsWorkspaceValidator) validateAddNode(index int, op nodeexec.OpAddNode) error {
+	if strings.TrimSpace(op.Node.NodeType) != "automation" {
+		return nil
+	}
+	if err := nodeexec.ValidateAutomationCommandWorkspaceScope(op.Node.Config, v.trustedRoots); err != nil {
+		return fmt.Errorf("ops[%d].node.config invalid for automation command: %w", index, err)
+	}
+	return nil
+}
+
+// validateUpdateNode 读取服务端节点类型，并在 automation 配置替换前验证可信工作区边界。
+func (v *applyOpsWorkspaceValidator) validateUpdateNode(index int, op nodeexec.OpUpdateNode) error {
+	if !hasExplicitRawJSON(op.Patch.Config) {
+		return nil
+	}
+	nodeType, err := v.existingNodeType(op.NodeKey)
+	if err != nil {
+		return fmt.Errorf("ops[%d].patch.config %w", index, err)
+	}
+	if nodeType != "automation" {
+		if looksLikeAutomationCommandConfig(op.Patch.Config) {
+			return fmt.Errorf("ops[%d].patch.config cannot replace %s node with automation command config", index, nodeType)
+		}
+		return nil
+	}
+	if err := nodeexec.ValidateAutomationCommandWorkspaceScope(op.Patch.Config, v.trustedRoots); err != nil {
+		return fmt.Errorf("ops[%d].patch.config invalid for automation command: %w", index, err)
+	}
+	return nil
+}
+
+func (v *applyOpsWorkspaceValidator) existingNodeType(nodeKey string) (string, error) {
+	if err := v.loadExistingNodeTypes(); err != nil {
+		return "", err
+	}
+	nodeType, ok := v.existingNodeTypes[strings.TrimSpace(nodeKey)]
+	if !ok || nodeType == "" {
+		return "", fmt.Errorf("target node type cannot be verified")
+	}
+	return nodeType, nil
+}
+
+func (v *applyOpsWorkspaceValidator) loadExistingNodeTypes() error {
+	if v.existingNodeTypes != nil {
+		return nil
+	}
+	detail, err := v.svc.GetDAG(v.ctx, v.dagKey)
+	if err != nil {
+		return fmt.Errorf("load DAG for automation workspace validation: %w", err)
+	}
+	v.existingNodeTypes = make(map[string]string, len(detail.Nodes))
+	for _, node := range detail.Nodes {
+		v.existingNodeTypes[strings.TrimSpace(node.NodeKey)] = strings.TrimSpace(node.NodeType)
+	}
+	return nil
+}
+
+// looksLikeAutomationCommandConfig 识别明显的 automation command 整片配置。
+// 已知目标不是 automation 时用它阻断跨 node_type 的配置替换。
 func looksLikeAutomationCommandConfig(raw json.RawMessage) bool {
 	if !hasExplicitRawJSON(raw) {
 		return false

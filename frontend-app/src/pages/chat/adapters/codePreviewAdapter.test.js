@@ -16,7 +16,7 @@ describe('codePreviewStateAfterSave', () => {
 
     const next = codePreviewStateAfterSave(
       current,
-      { filePath: 'docs/plan.md', totalLines: 2 },
+      { filePath: 'docs/plan.md', totalLines: 2, contentVersion: 'sha256:plan-v2' },
       'docs/plan.md',
       'saved snapshot',
     );
@@ -26,6 +26,7 @@ describe('codePreviewStateAfterSave', () => {
     expect(next.draft).toBe('saved snapshot\nnew unsaved edit');
     expect(next.editing).toBe(true);
     expect(next.totalLines).toBe(2);
+    expect(next.contentVersion).toBe('sha256:plan-v2');
     expect(next.status).toBe('已保存 docs/plan.md，仍有未保存更改');
   });
 
@@ -41,13 +42,38 @@ describe('codePreviewStateAfterSave', () => {
       totalLines: 1,
     };
 
-    const next = codePreviewStateAfterSave(current, {}, 'docs/plan.md', 'saved snapshot');
+    const next = codePreviewStateAfterSave(
+      current,
+      { contentVersion: 'sha256:plan-v2' },
+      'docs/plan.md',
+      'saved snapshot',
+    );
 
     expect(next.content).toBe('saved snapshot');
     expect(next.draft).toBe('saved snapshot');
     expect(next.editing).toBe(false);
     expect(next.totalLines).toBe(1);
+    expect(next.contentVersion).toBe('sha256:plan-v2');
     expect(next.status).toBe('已保存 docs/plan.md');
+  });
+
+  it('fails fast when a successful save omits the next content version', () => {
+    expect(() => codePreviewStateAfterSave(
+      {
+        saving: true,
+        filePath: 'docs/plan.md',
+        relative: 'docs/plan.md',
+        content: 'old saved content',
+        draft: 'saved snapshot',
+        previewKind: 'markdown',
+        editing: true,
+        totalLines: 1,
+        contentVersion: 'sha256:plan-v1',
+      },
+      { filePath: 'docs/plan.md', totalLines: 1 },
+      'docs/plan.md',
+      'saved snapshot',
+    )).toThrow('code preview save result requires contentVersion');
   });
 });
 

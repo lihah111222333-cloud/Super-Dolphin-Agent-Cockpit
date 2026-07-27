@@ -84,6 +84,28 @@ func TestListThreadsRejectsOverLimit(t *testing.T) {
 	}
 }
 
+func TestThreadListRejectsTimestampOnlyCursor(t *testing.T) {
+	t.Parallel()
+
+	for _, loaded := range []bool{false, true} {
+		store := &pageAwareThreadStore{}
+		svc := &service{threadStore: store}
+		req := ListPageRequest{Limit: 2, CursorCreatedAt: 123, CursorThreadID: " "}
+		var err error
+		if loaded {
+			_, err = svc.ListLoadedPage(context.Background(), req)
+		} else {
+			_, err = svc.ListPage(context.Background(), req)
+		}
+		if err == nil || !strings.Contains(err.Error(), "cursor_thread_id is required") {
+			t.Fatalf("loaded=%v error = %v, want incomplete cursor rejection", loaded, err)
+		}
+		if store.pageParams.Limit != 0 || store.loadedPageParams.Limit != 0 {
+			t.Fatalf("loaded=%v store was called: page=%#v loaded=%#v", loaded, store.pageParams, store.loadedPageParams)
+		}
+	}
+}
+
 // TestLoadedThreadsUsesSQLFilter 验证 loaded 线程页必须使用 store 的 SQL 过滤入口。
 func TestLoadedThreadsUsesSQLFilter(t *testing.T) {
 	t.Parallel()
@@ -297,34 +319,6 @@ func TestDeletePendingLaunchStillHandlesMissingBindingRecord(t *testing.T) {
 
 	assertDeleteOK(t, err)
 	assertDeletedIDs(t, store, "thread-pending-missing-binding")
-}
-
-func TestSetArchivedFailsWhenBindingStoreMissing(t *testing.T) {
-	t.Parallel()
-
-	t.Run("binding store missing", func(t *testing.T) {
-		t.Parallel()
-
-		svc := &service{threadStore: &stubThreadStore{thread: &ThreadRecord{ThreadID: "thread-1"}}}
-
-		err := svc.setBindingArchived(context.Background(), "thread-1", true)
-
-		if err == nil || !strings.Contains(err.Error(), "binding store is not configured") {
-			t.Fatalf("setBindingArchived() error = %v, want binding store not configured", err)
-		}
-	})
-
-	t.Run("thread store missing", func(t *testing.T) {
-		t.Parallel()
-
-		svc := &service{bindingStore: &stubThreadBindingStore{binding: &BindingRecord{AgentID: "thread-1"}}}
-
-		err := svc.setBindingArchived(context.Background(), "thread-1", true)
-
-		if err == nil || !strings.Contains(err.Error(), "thread store is not configured") {
-			t.Fatalf("setBindingArchived() error = %v, want thread store not configured", err)
-		}
-	})
 }
 
 func TestDeletePinActiveThreadSoftDelete(t *testing.T) {

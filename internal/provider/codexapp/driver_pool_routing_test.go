@@ -67,6 +67,22 @@ func TestCanonicalStartRuntimeConfigPreservesRestrictedReadOnlySandboxPolicy(t *
 	assertRestrictedReadOnlyPolicyValue(t, out["sandboxPolicy"], []string{"/repo/app", "/Users/ai/shared"}, true)
 }
 
+// TestCanonicalStartRuntimeConfigPreservesDangerSandboxWhenWriteToolsAreNativelyDisabled
+// 锁定完整 unified-exec 工具组已由 App Server 原生硬禁用时，不得再把用户显式高权限沙箱降为只读。
+func TestCanonicalStartRuntimeConfigPreservesDangerSandboxWhenWriteToolsAreNativelyDisabled(t *testing.T) {
+	out := canonicalStartRuntimeConfig(map[string]any{
+		"sandbox": map[string]any{"type": "dangerFullAccess"},
+		codexDisabledNativeToolsConfigKey: []string{
+			contract.CodexNativeToolShell,
+			contract.CodexNativeToolApplyPatch,
+			contract.CodexNativeToolWriteNewFile,
+		},
+	})
+	if policy, ok := out["sandboxPolicy"].(map[string]any); !ok || policy["type"] != "dangerFullAccess" {
+		t.Fatalf("sandboxPolicy = %#v, want dangerFullAccess", out["sandboxPolicy"])
+	}
+}
+
 func assertRestrictedReadOnlyPolicyValue(t *testing.T, raw any, roots []string, includePlatformDefaults bool) {
 	t.Helper()
 	policy, ok := raw.(map[string]any)

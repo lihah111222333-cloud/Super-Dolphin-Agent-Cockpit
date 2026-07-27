@@ -141,6 +141,8 @@ function codePreviewStateFromOpenResult(result, requestedPath, fallbackRelative 
 
 function codePreviewStateAfterSave(current, result, relative, savedDraft) {
   const filePath = firstCodePreviewText([result?.filePath, current.filePath]);
+  const contentVersion = typeof result?.contentVersion === 'string' ? result.contentVersion.trim() : '';
+  if (!contentVersion) throw new Error('code preview save result requires contentVersion');
   const savedContent = normalizeCodePreviewText(savedDraft);
   const draftChangedDuringSave = current.draft !== savedContent;
   const totalLines = Number.isFinite(Number(result?.totalLines))
@@ -152,6 +154,7 @@ function codePreviewStateAfterSave(current, result, relative, savedDraft) {
     filePath,
     relative,
     content: savedContent,
+    contentVersion,
     editing: current.previewKind === 'markdown' && !draftChangedDuringSave ? false : current.editing,
     totalLines,
     status: draftChangedDuringSave ? `已保存 ${relative}，仍有未保存更改` : `已保存 ${relative}`,

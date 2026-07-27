@@ -174,6 +174,7 @@ func TestTranslateTurnEvent_MessageAliasPayloadReasoningStream(t *testing.T) {
 	payload := map[string]any{
 		"threadId": "thread-1",
 		"turnId":   "T-reasoning",
+		"itemId":   "assistant-reasoning-1",
 		"stream":   "reasoning",
 		"delta":    "thinking text",
 	}
@@ -191,6 +192,9 @@ func TestTranslateTurnEvent_MessageAliasPayloadReasoningStream(t *testing.T) {
 	}
 	if delta.Delta != "thinking text" {
 		t.Fatalf("TurnOutputDelta.Delta = %q, want reasoning text", delta.Delta)
+	}
+	if delta.ItemID != "assistant-reasoning-1" {
+		t.Fatalf("TurnOutputDelta.ItemID = %q, want assistant-reasoning-1", delta.ItemID)
 	}
 }
 

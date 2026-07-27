@@ -43,7 +43,7 @@ WHERE (created_at, id) < (CAST(sqlc.arg(cursor_created_at) AS INTEGER), CAST(sql
 ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg(limit_plus_one);
 
--- name: DeleteCronJob :exec
+-- name: DeleteCronJob :execrows
 DELETE FROM cron_jobs WHERE id = ?;
 
 -- name: UpdateCronJobSchedule :exec
@@ -65,7 +65,7 @@ SET name            = sqlc.arg(name),
     updated_at      = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id);
 
--- name: SetCronJobEnabled :exec
+-- name: SetCronJobEnabled :execrows
 UPDATE cron_jobs
 SET enabled    = sqlc.arg(enabled),
     updated_at = sqlc.arg(updated_at)

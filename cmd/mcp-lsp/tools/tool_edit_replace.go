@@ -10,6 +10,7 @@ import (
 	editpkg "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/edit"
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
 
 const (
@@ -359,7 +360,9 @@ func (h EditHandler) syncRollbackDocument(ctx context.Context, manager lspmanage
 	if manager == nil {
 		return nil
 	}
-	_, _, err := h.syncDocument(ctx, manager, path, content, nextEditVersion(version))
+	rollbackCtx, cancel := platformconfig.WithTimeout(context.WithoutCancel(ctx), editLSPSyncTimeout)
+	defer cancel()
+	_, _, err := h.syncDocument(rollbackCtx, manager, path, content, nextEditVersion(version))
 	return err
 }
 

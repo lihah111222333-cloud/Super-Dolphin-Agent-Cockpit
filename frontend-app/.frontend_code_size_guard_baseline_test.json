@@ -1,11 +1,11 @@
 {
   "_meta": {
-    "updatedAt": "2026-07-23T10:43:09Z"
+    "updatedAt": "2026-07-27T13:25:12Z"
   },
   "files": {
     "src/App.test.jsx": {
-      "lines": 7274,
-      "maxFuncLen": 80,
+      "lines": 7276,
+      "maxFuncLen": 81,
       "maxNesting": 5,
       "maxParams": 4,
       "exportCount": 0,
@@ -15,7 +15,7 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length"
+        "file-length\u0000文件有效代码 7276 行，超过上限 800 行"
       ]
     },
     "src/entities/client/model/useClientStore.test.js": {
@@ -30,7 +30,7 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length"
+        "file-length\u0000文件有效代码 8736 行，超过上限 800 行"
       ]
     },
     "src/features/prompts/PromptPageView.test.jsx": {
@@ -45,7 +45,7 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length"
+        "file-length\u0000文件有效代码 882 行，超过上限 800 行"
       ]
     },
     "src/pages/settings/SettingsPage.test.jsx": {
@@ -60,7 +60,7 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length"
+        "file-length\u0000文件有效代码 930 行，超过上限 800 行"
       ]
     },
     "src/pages/skills/SkillsPage.test.jsx": {
@@ -75,7 +75,7 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length"
+        "file-length\u0000文件有效代码 1004 行，超过上限 800 行"
       ]
     },
     "src/shared/api/backendApi.test.js": {
@@ -90,7 +90,7 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length"
+        "file-length\u0000文件有效代码 3164 行，超过上限 800 行"
       ]
     },
     "src/shared/api/wailsBridge.test.js": {
@@ -105,7 +105,7 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length"
+        "file-length\u0000文件有效代码 1838 行，超过上限 800 行"
       ]
     },
     "src/styles.test.js": {
@@ -120,7 +120,7 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length"
+        "file-length\u0000文件有效代码 2157 行，超过上限 800 行"
       ]
     },
     "scripts/agentic-e2e.test.mjs": {
@@ -135,7 +135,7 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length"
+        "file-length\u0000文件有效代码 1266 行，超过上限 800 行"
       ]
     },
     "scripts/frontend-maintainability-score.test.mjs": {
@@ -150,7 +150,7 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length",
+        "file-length\u0000文件有效代码 2794 行，超过上限 800 行",
         "func-length\u0000函数 performanceEvidence 共 235 行，超过上限 150 行"
       ]
     },
@@ -166,7 +166,7 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length"
+        "file-length\u0000文件有效代码 1138 行，超过上限 800 行"
       ]
     },
     "scripts/rpc-contract-audit.test.mjs": {
@@ -181,7 +181,7 @@
       "todoCount": 0,
       "longLineCount": 0,
       "frozenViolations": [
-        "file-length"
+        "file-length\u0000文件有效代码 3051 行，超过上限 800 行"
       ]
     }
   }

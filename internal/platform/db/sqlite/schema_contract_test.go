@@ -150,6 +150,15 @@ func TestPromptTemplatesNullableMatchWhenMigrationNormalizesLegacyScalars(t *tes
 			(2, 'legacy-string', 'body', '"x"', 1710000000000, 1710000000000),
 			(3, 'legacy-object', 'body', '{"provider":"codex"}', 1710000000000, 1710000000000)
 	`)
+	mustExec(t, db, `
+		INSERT INTO prompt_template_sections (
+			id, template_id, section_key, region, ordinal, body, enable_when,
+			enabled, created_at, updated_at, trigger_type, recall_topic
+		) VALUES (
+			41, 3, 'legacy-section', 'static', 7, 'preserve me', '{}',
+			1, 1710000000000, 1710000000001, 'recall', 'legacy-topic'
+		)
+	`)
 
 	execFile(t, db, "internal/platform/db/sqlite/migrations/111_prompt_templates_nullable_match_when.sql")
 
@@ -169,6 +178,38 @@ func TestPromptTemplatesNullableMatchWhenMigrationNormalizesLegacyScalars(t *tes
 	}
 	if objectMatch != `{"provider":"codex"}` {
 		t.Fatalf("legacy object match_when = %q, want object preserved", objectMatch)
+	}
+	assertPromptTemplateSectionMigrationPreserved(t, db)
+	assertSQLiteForeignKeyCheck(t, db)
+}
+
+type migratedPromptTemplateSection struct {
+	SectionKey, Region, Body, EnableWhen, TriggerType, RecallTopic string
+	Ordinal, Enabled, CreatedAt, UpdatedAt                         int64
+}
+
+func assertPromptTemplateSectionMigrationPreserved(t *testing.T, db *sql.DB) {
+	t.Helper()
+	var got migratedPromptTemplateSection
+	err := db.QueryRow(`
+		SELECT section_key, region, body, enable_when, trigger_type, recall_topic,
+		       ordinal, enabled, created_at, updated_at
+		FROM prompt_template_sections
+		WHERE id = 41 AND template_id = 3
+	`).Scan(
+		&got.SectionKey, &got.Region, &got.Body, &got.EnableWhen, &got.TriggerType, &got.RecallTopic,
+		&got.Ordinal, &got.Enabled, &got.CreatedAt, &got.UpdatedAt,
+	)
+	if err != nil {
+		t.Fatalf("read migrated prompt template section: %v", err)
+	}
+	want := migratedPromptTemplateSection{
+		SectionKey: "legacy-section", Region: "static", Body: "preserve me", EnableWhen: "{}",
+		TriggerType: "recall", RecallTopic: "legacy-topic", Ordinal: 7, Enabled: 1,
+		CreatedAt: 1710000000000, UpdatedAt: 1710000000001,
+	}
+	if got != want {
+		t.Fatalf("migrated prompt template section = %#v, want %#v", got, want)
 	}
 }
 

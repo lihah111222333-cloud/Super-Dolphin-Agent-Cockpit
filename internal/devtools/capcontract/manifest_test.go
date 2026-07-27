@@ -1,6 +1,7 @@
 package capcontract
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -14,7 +15,7 @@ func TestSaveLoadManifestRoundTripAndValidation(t *testing.T) {
 		Version:    "1.0",
 		Roots:      []string{"internal/contract"},
 		Targets:    canonicalTargets,
-		Provenance: []TargetProvenance{{Target: "darwin/amd64"}, {Target: "darwin/arm64"}, {Target: "linux/amd64"}, {Target: "windows/amd64"}},
+		Provenance: targetProvenanceForTests(),
 		Packages: []PackageManifest{{
 			Path:      "internal/contract",
 			Name:      "contract",
@@ -33,7 +34,18 @@ func TestSaveLoadManifestRoundTripAndValidation(t *testing.T) {
 	}
 
 	badPath := filepath.Join(t.TempDir(), "bad.json")
-	if err := os.WriteFile(badPath, []byte(`{"version":"1.0","roots":["x"],"targets":["darwin/amd64","darwin/arm64","linux/amd64","windows/amd64"],"target_provenance":[{"target":"darwin/amd64"},{"target":"darwin/arm64"},{"target":"linux/amd64"},{"target":"windows/amd64"}],"packages":[{"path":"x","name":"x"},{"path":" x ","name":"y"}]}`), 0o644); err != nil {
+	badManifest := Manifest{
+		Version:    "1.0",
+		Roots:      []string{"x"},
+		Targets:    canonicalTargets,
+		Provenance: targetProvenanceForTests(),
+		Packages:   []PackageManifest{{Path: "x", Name: "x"}, {Path: " x ", Name: "y"}},
+	}
+	badData, err := json.Marshal(badManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(badPath, badData, 0o644); err != nil {
 		t.Fatalf("write bad manifest: %v", err)
 	}
 	_, err = LoadManifest(badPath)
@@ -53,7 +65,7 @@ func TestValidateManifestRejectsMissingIdentity(t *testing.T) {
 		{name: "missing roots", manifest: &Manifest{Version: "1.0"}, want: "roots"},
 		{name: "missing targets", manifest: &Manifest{Version: "1.0", Roots: []string{"x"}}, want: "targets"},
 		{name: "missing provenance", manifest: &Manifest{Version: "1.0", Roots: []string{"x"}, Targets: canonicalTargets}, want: "provenance"},
-		{name: "missing package", manifest: &Manifest{Version: "1.0", Roots: []string{"x"}, Targets: canonicalTargets, Provenance: []TargetProvenance{{Target: "darwin/amd64"}, {Target: "darwin/arm64"}, {Target: "linux/amd64"}, {Target: "windows/amd64"}}, Packages: []PackageManifest{{Path: "x"}}}, want: "package identity"},
+		{name: "missing package", manifest: &Manifest{Version: "1.0", Roots: []string{"x"}, Targets: canonicalTargets, Provenance: targetProvenanceForTests(), Packages: []PackageManifest{{Path: "x"}}}, want: "package identity"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -63,6 +75,14 @@ func TestValidateManifestRejectsMissingIdentity(t *testing.T) {
 			}
 		})
 	}
+}
+
+func targetProvenanceForTests() []TargetProvenance {
+	provenance := make([]TargetProvenance, 0, len(canonicalTargets))
+	for _, target := range canonicalTargets {
+		provenance = append(provenance, TargetProvenance{Target: target})
+	}
+	return provenance
 }
 
 func TestDiffManifestsAddedRemovedChanged(t *testing.T) {

@@ -6,6 +6,7 @@ const CLIENT_STORE_IDENTIFIERS = Object.freeze(new Set(['store', 'sourceStore'])
 const ROUTE_CONSUMER_PATHS = Object.freeze([
   'src/App.jsx',
   'src/AppRoutes.jsx',
+  'src/features/slash-commands',
   'src/pages/chat',
   'src/pages/files',
   'src/pages/prompts',

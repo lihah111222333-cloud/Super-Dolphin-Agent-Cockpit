@@ -91,6 +91,7 @@ Thumbs.db
 /tmp/
 __pycache__/
 *.pyc
+/ISSUE.xlsx.lock
 
 # Logs
 /logs/

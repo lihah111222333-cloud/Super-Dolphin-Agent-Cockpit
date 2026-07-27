@@ -286,6 +286,8 @@ type stubSessionProvider struct {
 	session    contract.Session
 	sessions   map[string]contract.Session
 	removed    []string
+	activated  []string
+	activateOK *bool
 	generation uint64
 }
 
@@ -315,6 +317,14 @@ func (p *stubSessionProvider) SessionGeneration(string) uint64 {
 		return p.generation
 	}
 	return 1
+}
+
+func (p *stubSessionProvider) ActivateSession(agentID string) bool {
+	p.activated = append(p.activated, agentID)
+	if p.activateOK != nil {
+		return *p.activateOK
+	}
+	return p.session != nil
 }
 
 type stubSession struct {

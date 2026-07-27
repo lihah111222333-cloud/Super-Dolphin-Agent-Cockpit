@@ -270,7 +270,7 @@ fix 过程被打断或重启会话时，下一轮必须先恢复状态，而不�
 | Wails/desktop/打包 | `cmd/agent-terminal`、`scripts/package_*`、embedded assets、release docs | 相关脚本/guard 测试，加 `make build-plain` 或目标平台 smoke | 平台不可用时列出未覆盖平台和手动验证计划 |
 | MCP sidecar/tool contract | `cmd/mcp-lsp`、`cmd/mcp-orch`、`cmd/mcp-ida`、`internal/mcpserver` | sidecar 包测试，加真实 MCP/binary e2e 或 contract test | 明确是源码级 harness 还是产物级 e2e |
 | Provider/runtime | `internal/provider`、`internal/platform/rpc`、thread/turn/prompt/memory 串联 | 受影响 provider/module 测试，加原始 turn/session 复现 | 外部 CLI/API 不可用时使用明确 stub，并说明未覆盖真 provider |
-| 文档/契约 | `docs/契约`、`docs/decisions`、`docs/adr`、`docs/internal-notes` | `git diff --check` | docs-only 可跳过 Go 测试，但 final 必须说明 |
+| 文档/契约 | `docs/契约`、`docs/adr`、`docs/internal-notes` | `git diff --check` | docs-only 可跳过 Go 测试，但 final 必须说明 |
 | codemap | `docs/doc/codemap`、生成脚本 | `make codemap-check` | 如只读使用 codemap 不需跑；编辑 codemap 必须验证 |
 | skills/provider mirrors | `.agents/skills`、skill module/provider mirror 相关代码 | 相关 skill/module/provider mirror tests | provider mirrors 是生成物时不要直接编辑，先确认 canonical source |
 
@@ -278,12 +278,12 @@ fix 过程被打断或重启会话时，下一轮必须先恢复状态，而不�
 
 | 文档类型 | 推荐路径 | 用途 |
 |:---|:---|:---|
-| 复现文档 | `docs/li/YYYY-MM-DD-<area>-<bug>-repro.md` | 记录最小复现、实际/预期、验收 |
-| 实施计划 | `docs/plans/YYYY-MM-DD-<area>-<fix>.md` | 拆任务、文件范围、测试计划 |
-| 评审/返修报告 | `docs/reviews/<topic>-fix-report-YYYY-MM-DD.md` | 汇总 RED/GREEN、guard、未覆盖项 |
-| 长期契约 | `docs/契约/*.md` 或 `docs/decisions/ADR-*.md` | 固化跨团队规则和架构决策 |
+| 复现证据 | 优先使用 bug-locking 测试、fixture、Issue/任务报告；确需仓内留档时放 `docs/archive/reviews/<topic>-repro-YYYY-MM-DD.md` | 记录最小复现、实际/预期、验收；归档材料不作为当前事实源 |
+| 实施计划 | `docs/work/plans/YYYY-MM-DD-<area>-<fix>.md` | 拆任务、文件范围、测试计划，并写明状态和退出条件 |
+| 评审/返修报告 | `docs/archive/reviews/<topic>-fix-report-YYYY-MM-DD.md` | 汇总 RED/GREEN、guard、未覆盖项，作为历史证据 |
+| 长期契约 | `docs/契约/*.md` 或状态为 Accepted 的 `docs/adr/*.md` | 固化跨团队规则和架构决策 |
 
-复现文档和修复报告可以合并，但必须保留本规范要求的字段。
+复现证据和修复报告可以合并，但必须保留本规范要求的字段；一次性材料不得进入当前事实源目录。
 
 ## 5. 模板
 

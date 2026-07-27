@@ -496,16 +496,16 @@ FROM agent_threads t
 LEFT JOIN (
     SELECT agent_id, provider_thread_id, codex_thread_id FROM agent_provider_binding
 ) b ON (b.provider_thread_id = t.thread_id OR b.codex_thread_id = t.thread_id)
-WHERE ?1 = 0
-   OR t.created_at < ?1
-   OR (t.created_at = ?1 AND t.thread_id < ?2)
+WHERE ?1 = ''
+   OR t.created_at < ?2
+   OR (t.created_at = ?2 AND t.thread_id < ?1)
 ORDER BY t.created_at DESC, t.thread_id DESC
 LIMIT ?3 + 1
 `
 
 type ListAgentThreadsPageParams struct {
-	CursorCreatedAt interface{} `db:"cursor_created_at" json:"cursor_created_at"`
-	CursorThreadID  string      `db:"cursor_thread_id" json:"cursor_thread_id"`
+	CursorThreadID  interface{} `db:"cursor_thread_id" json:"cursor_thread_id"`
+	CursorCreatedAt int64       `db:"cursor_created_at" json:"cursor_created_at"`
 	Limit           interface{} `db:"limit" json:"limit"`
 }
 
@@ -537,7 +537,7 @@ type ListAgentThreadsPageRow struct {
 }
 
 func (q *Queries) ListAgentThreadsPage(ctx context.Context, arg ListAgentThreadsPageParams) ([]ListAgentThreadsPageRow, error) {
-	rows, err := q.db.QueryContext(ctx, listAgentThreadsPage, arg.CursorCreatedAt, arg.CursorThreadID, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, listAgentThreadsPage, arg.CursorThreadID, arg.CursorCreatedAt, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -593,17 +593,17 @@ LEFT JOIN (
 ) b ON (b.provider_thread_id = t.thread_id OR b.codex_thread_id = t.thread_id)
 WHERE t.status = 'created'
   AND (
-      ?1 = 0
-      OR t.created_at < ?1
-      OR (t.created_at = ?1 AND t.thread_id < ?2)
+      ?1 = ''
+      OR t.created_at < ?2
+      OR (t.created_at = ?2 AND t.thread_id < ?1)
   )
 ORDER BY t.created_at DESC, t.thread_id DESC
 LIMIT ?3 + 1
 `
 
 type ListLoadedAgentThreadsPageParams struct {
-	CursorCreatedAt interface{} `db:"cursor_created_at" json:"cursor_created_at"`
-	CursorThreadID  string      `db:"cursor_thread_id" json:"cursor_thread_id"`
+	CursorThreadID  interface{} `db:"cursor_thread_id" json:"cursor_thread_id"`
+	CursorCreatedAt int64       `db:"cursor_created_at" json:"cursor_created_at"`
 	Limit           interface{} `db:"limit" json:"limit"`
 }
 
@@ -635,7 +635,7 @@ type ListLoadedAgentThreadsPageRow struct {
 }
 
 func (q *Queries) ListLoadedAgentThreadsPage(ctx context.Context, arg ListLoadedAgentThreadsPageParams) ([]ListLoadedAgentThreadsPageRow, error) {
-	rows, err := q.db.QueryContext(ctx, listLoadedAgentThreadsPage, arg.CursorCreatedAt, arg.CursorThreadID, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, listLoadedAgentThreadsPage, arg.CursorThreadID, arg.CursorCreatedAt, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -935,7 +935,7 @@ func (q *Queries) UpdateAgentThreadLaunchResult(ctx context.Context, arg UpdateA
 	return err
 }
 
-const updateAgentThreadStatus = `-- name: UpdateAgentThreadStatus :exec
+const updateAgentThreadStatus = `-- name: UpdateAgentThreadStatus :execrows
 UPDATE agent_threads
 SET status = ?,
     updated_at = ?
@@ -948,9 +948,12 @@ type UpdateAgentThreadStatusParams struct {
 	ThreadID  string `db:"thread_id" json:"thread_id"`
 }
 
-func (q *Queries) UpdateAgentThreadStatus(ctx context.Context, arg UpdateAgentThreadStatusParams) error {
-	_, err := q.db.ExecContext(ctx, updateAgentThreadStatus, arg.Status, arg.UpdatedAt, arg.ThreadID)
-	return err
+func (q *Queries) UpdateAgentThreadStatus(ctx context.Context, arg UpdateAgentThreadStatusParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateAgentThreadStatus, arg.Status, arg.UpdatedAt, arg.ThreadID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const upsertAgentThread = `-- name: UpsertAgentThread :exec

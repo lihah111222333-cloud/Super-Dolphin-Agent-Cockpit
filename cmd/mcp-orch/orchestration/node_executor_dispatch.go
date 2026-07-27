@@ -16,6 +16,7 @@ import (
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
@@ -378,37 +379,118 @@ func isDAGWakeup(w *taskdag.Wakeup) bool {
 // agent 节点启动后只到 running，等 turn.completed 再收尾。
 // automation 没有外部 agent，所以 router 直接完成节点。
 func (d *WakeupDispatcher) handleClaimedViaRouter(ctx context.Context, w *taskdag.Wakeup) bool {
-	fence := extractFence(w)
 	if routeRunID(w) <= 0 {
 		lastErr := "dag wakeup missing run_id for runtime node dispatch"
 		d.logger.Warn("wakeup dispatcher: dag wakeup missing run_id → failed",
 			"wakeup_id", w.ID, "dag_key", w.DagKey, "node_key", w.NodeKey)
-		return d.markPermanentFail(ctx, w, fence, lastErr, errors.New(lastErr))
+		return d.markPermanentFail(ctx, w, extractFence(w), lastErr, errors.New(lastErr))
 	}
 	if d.nodeRouter == nil {
 		lastErr := "dag wakeup missing node router for runtime node dispatch"
 		err := errors.New(lastErr)
 		d.logger.Warn("wakeup dispatcher: dag wakeup missing node router → retry",
 			"wakeup_id", w.ID, "dag_key", w.DagKey, "node_key", w.NodeKey)
-		return d.markTransientRetry(ctx, w, fence, dispatchFailure{lastErr: lastErr, launchErr: err, outcome: failedWakeupOutcome(lastErr)})
+		return d.markTransientRetry(ctx, w, extractFence(w), dispatchFailure{lastErr: lastErr, launchErr: err, outcome: failedWakeupOutcome(lastErr)})
 	}
-	outcome, err := d.nodeRouter.RouteByWakeup(ctx, w)
-	if err != nil {
-		lastErr := truncateWakeupError(err.Error())
+	routed, latest, heartbeatErr := d.routeClaimedWithLeaseHeartbeat(ctx, w)
+	if latest != nil {
+		*w = *latest
+	}
+	if heartbeatErr != nil {
+		d.logger.Warn("wakeup dispatcher: lease heartbeat failed, route canceled",
+			"wakeup_id", w.ID, "dag_key", w.DagKey, "node_key", w.NodeKey,
+			"error", heartbeatErr)
+		return false
+	}
+	fence := extractFence(w)
+	if routed.err != nil {
+		lastErr := truncateWakeupError(routed.err.Error())
 		d.logger.Warn("wakeup dispatcher: router framework error → retry",
 			"wakeup_id", w.ID, "dag_key", w.DagKey, "node_key", w.NodeKey,
-			"error", err)
-		failure := dispatchFailure{lastErr: lastErr, launchErr: err, outcome: failedWakeupOutcome(lastErr)}
-		if errors.Is(err, errAgentReadyRunningWriteFailed) {
+			"error", routed.err)
+		failure := dispatchFailure{lastErr: lastErr, launchErr: routed.err, outcome: failedWakeupOutcome(lastErr)}
+		if errors.Is(routed.err, errAgentReadyRunningWriteFailed) {
 			return d.retryWakeup(ctx, w, fence, failure)
 		}
 		return d.markTransientRetry(ctx, w, fence, failure)
 	}
-	switch outcome.Status {
+	switch routed.outcome.Status {
 	case nodeexec.NodeStatusFailed:
-		return d.handleFailedRouterOutcome(ctx, w, fence, outcome)
+		return d.handleFailedRouterOutcome(ctx, w, fence, routed.outcome)
 	default:
 		// done、skipped、waiting_human 和零值都表示本次 wakeup 已由 router 收敛。
 		return d.markLaunched(ctx, w, fence)
+	}
+}
+
+type routedWakeupResult struct {
+	outcome nodeexec.NodeOutcome
+	err     error
+}
+
+// routeClaimedWithLeaseHeartbeat 在 RouteByWakeup 阻塞期间续租，并在退出前回收 route goroutine。
+func (d *WakeupDispatcher) routeClaimedWithLeaseHeartbeat(ctx context.Context, wakeup *taskdag.Wakeup) (routedWakeupResult, *taskdag.Wakeup, error) {
+	lease, err := taskdag.NewClaimedWakeupLease(wakeup)
+	if err != nil {
+		return routedWakeupResult{}, nil, err
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	leaseCtx, err := lease.Context(ctx)
+	if err != nil {
+		return routedWakeupResult{}, lease.CurrentWakeup(), err
+	}
+	routeCtx, cancelRoute := context.WithCancel(leaseCtx)
+	defer cancelRoute()
+
+	resultCh := make(chan routedWakeupResult, 1)
+	done := make(chan struct{})
+	safego.Go(routeCtx, d.logger, "mcp-orch.wakeup.route", func(runCtx context.Context) {
+		defer close(done)
+		outcome, routeErr := d.nodeRouter.RouteByWakeup(runCtx, lease.CurrentWakeup())
+		resultCh <- routedWakeupResult{outcome: outcome, err: routeErr}
+	})
+
+	ticker := time.NewTicker(d.leaseHeartbeatInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-done:
+			return readRoutedWakeupResult(resultCh), lease.CurrentWakeup(), nil
+		case <-ticker.C:
+			if renewErr := d.renewClaimedWakeup(routeCtx, lease); renewErr != nil {
+				cancelRoute()
+				<-done
+				return readRoutedWakeupResult(resultCh), lease.CurrentWakeup(), renewErr
+			}
+		case <-ctx.Done():
+			cancelRoute()
+			<-done
+			return readRoutedWakeupResult(resultCh), lease.CurrentWakeup(), ctx.Err()
+		}
+	}
+}
+
+// renewClaimedWakeup 使用当前 fence 续租，并在成功后原子发布新 fence。
+func (d *WakeupDispatcher) renewClaimedWakeup(ctx context.Context, lease *taskdag.ClaimedWakeupLease) error {
+	current := lease.CurrentWakeup()
+	renewed, err := taskdag.RenewClaimedWakeupLease(ctx, d.store, current, d.cfg.LeaseInterval)
+	if err != nil {
+		return fmt.Errorf("renew wakeup lease heartbeat: %w", err)
+	}
+	if err := lease.Update(renewed); err != nil {
+		return fmt.Errorf("update wakeup lease heartbeat: %w", err)
+	}
+	return nil
+}
+
+// readRoutedWakeupResult 在 route 退出后读取结果；panic 路径没有结果时显式报错。
+func readRoutedWakeupResult(resultCh <-chan routedWakeupResult) routedWakeupResult {
+	select {
+	case result := <-resultCh:
+		return result
+	default:
+		return routedWakeupResult{err: errors.New("wakeup route exited without result")}
 	}
 }

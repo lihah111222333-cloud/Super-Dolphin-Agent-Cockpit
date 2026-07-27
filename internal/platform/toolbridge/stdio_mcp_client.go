@@ -15,7 +15,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge/mcpwire"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
@@ -26,14 +26,24 @@ type stdioTransport interface {
 	Close() error
 }
 
+const maxStdioPendingRequests = 64
+
+var errStdioMCPClientClosed = errors.New("toolbridge: stdio MCP client closed")
+
 // stdioMCPClient 管理一个 stdio MCP 子进程及其 JSON-RPC 请求序列。
 type stdioMCPClient struct {
 	cmd       *exec.Cmd
 	guard     *stdioProcessGuard
 	transport stdioTransport
 	stdin     io.Closer
-	mu        sync.Mutex
-	nextID    int64
+
+	stateMu     sync.Mutex
+	writeMu     sync.Mutex
+	nextID      int64
+	pending     map[int64]chan stdioRequestResult
+	terminalErr error
+	readOnce    sync.Once
+
 	closeOnce sync.Once
 	closed    chan struct{}
 	closeErr  error
@@ -46,6 +56,12 @@ type stdioRPCResponse struct {
 	Error  *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
+}
+
+// stdioRequestResult 把持久读泵分派的响应或终止错误传回对应请求。
+type stdioRequestResult struct {
+	raw json.RawMessage
+	err error
 }
 
 // defaultStdioClientFactory 根据 MCP binary 配置选择 HTTP 或 stdio client。
@@ -83,16 +99,25 @@ func newStdioMCPClientForValidatedBinary(ctx context.Context, binary providerdto
 	client := &stdioMCPClient{
 		cmd:       cmd,
 		guard:     stdioAttachProcessGuard(cmd),
-		transport: common.NewStdioTransport(stdout, stdin),
+		transport: mcpwire.NewStdioTransport(stdout, stdin),
 		stdin:     stdin,
+		pending:   make(map[int64]chan stdioRequestResult),
 		closed:    make(chan struct{}),
 	}
 	// 握手版本与 HTTP proxy client 保持一致，统一使用 ProxyProtocolVersion，避免 stdio/HTTP 双通道版本漂移。
-	if _, err := client.request(ctx, "initialize", map[string]any{"protocolVersion": ProxyProtocolVersion, "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "super-agent-codex", "version": "dev"}}); err != nil {
+	raw, err := client.request(ctx, "initialize", map[string]any{"protocolVersion": ProxyProtocolVersion, "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "super-agent-codex", "version": "dev"}})
+	if err != nil {
 		_ = client.Close()
 		return nil, err
 	}
-	_ = client.transport.WriteMessage(map[string]any{"jsonrpc": "2.0", "method": "notifications/initialized"})
+	if _, err := mcpwire.DecodeInitializeProtocolVersion(raw); err != nil {
+		_ = client.Close()
+		return nil, fmt.Errorf("toolbridge: stdio MCP initialize: %w", err)
+	}
+	if err := client.writeMessage(map[string]any{"jsonrpc": "2.0", "method": "notifications/initialized"}); err != nil {
+		_ = client.Close()
+		return nil, fmt.Errorf("toolbridge: write stdio MCP initialized notification: %w", err)
+	}
 	return client, nil
 }
 
@@ -165,66 +190,167 @@ func (c *stdioMCPClient) CallTool(ctx context.Context, name string, args json.Ra
 	return adaptMCPResponse(decoded)
 }
 
-// request 串行发送一个 JSON-RPC 请求并等待匹配 id 的响应。
-// ctx 取消会关闭 client，避免读循环永久阻塞。
+// request 注册一个有界 pending 请求，串行写入后等待持久读泵按 id 分派响应。
+// ctx 取消只移除当前 pending 并通知 peer，不会关闭仍可复用的共享 transport。
 func (c *stdioMCPClient) request(ctx context.Context, method string, params any) (json.RawMessage, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.nextID++
-	id := c.nextID
-	if err := c.transport.WriteMessage(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params}); err != nil {
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+
+	id, responseCh, err := c.registerPending()
+	if err != nil {
+		return nil, err
+	}
+	c.startReadPump()
+
+	if err := c.writeMessage(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params}); err != nil {
+		writeErr := fmt.Errorf("toolbridge: write stdio MCP request: %w", err)
+		c.failAndClose(writeErr)
+		return nil, writeErr
+	}
+
+	select {
+	case result := <-responseCh:
+		return result.raw, result.err
+	case <-ctx.Done():
+		removed, cancelErr := c.cancelPending(id, ctx.Err())
+		if !removed {
+			result := <-responseCh
+			return result.raw, result.err
+		}
+		if cancelErr != nil {
+			return nil, errors.Join(ctx.Err(), cancelErr)
+		}
+		return nil, ctx.Err()
+	}
+}
+
+// registerPending 在状态锁内分配请求 id，并强制限制共享 client 的在途请求数。
+func (c *stdioMCPClient) registerPending() (int64, <-chan stdioRequestResult, error) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	if c.transport == nil || c.pending == nil {
+		return 0, nil, errors.New("toolbridge: stdio MCP client is not initialized")
+	}
+	if c.terminalErr != nil {
+		return 0, nil, c.terminalErr
+	}
+	if len(c.pending) >= maxStdioPendingRequests {
+		return 0, nil, fmt.Errorf(
+			"toolbridge: stdio MCP pending request limit %d reached",
+			maxStdioPendingRequests,
+		)
+	}
+	c.nextID++
+	id := c.nextID
+	responseCh := make(chan stdioRequestResult, 1)
+	c.pending[id] = responseCh
+	return id, responseCh, nil
+}
+
+// startReadPump 确保每个 client 只有一个持久 goroutine 拥有 ReadMessage。
+func (c *stdioMCPClient) startReadPump() {
+	c.readOnce.Do(func() {
+		safego.Go(context.Background(), pkglogger.Get(), "toolbridge.stdioMCPClient.readPump", func(context.Context) {
+			c.readPump()
+		})
+	})
+}
+
+// readPump 持续读取 peer 消息，并把乱序响应投递给对应 pending 请求。
+func (c *stdioMCPClient) readPump() {
 	for {
-		select {
-		case <-ctx.Done():
-			_ = c.Close()
-			return nil, ctx.Err()
-		default:
-		}
-		raw, err := c.readMessage(ctx)
+		raw, err := c.transport.ReadMessage()
 		if err != nil {
-			return nil, err
+			c.failAndClose(fmt.Errorf("toolbridge: read stdio MCP response: %w", err))
+			return
 		}
-		if len(raw) > common.MaxStdioMessageBytes {
-			return nil, fmt.Errorf("toolbridge: stdio MCP response size %d exceeds stdio message limit %d", len(raw), common.MaxStdioMessageBytes)
+		if len(raw) > mcpwire.MaxStdioMessageBytes {
+			c.failAndClose(fmt.Errorf(
+				"toolbridge: stdio MCP response size %d exceeds stdio message limit %d",
+				len(raw),
+				mcpwire.MaxStdioMessageBytes,
+			))
+			return
 		}
 		var resp stdioRPCResponse
 		if err := json.Unmarshal(raw, &resp); err != nil {
-			return nil, err
+			c.failAndClose(fmt.Errorf("toolbridge: decode stdio MCP response: %w", err))
+			return
 		}
 		if resp.ID == 0 {
 			continue
 		}
-		if resp.ID != id {
-			return nil, fmt.Errorf("toolbridge: unexpected stdio MCP response id %d, want %d", resp.ID, id)
-		}
+		result := stdioRequestResult{raw: resp.Result}
 		if resp.Error != nil {
-			return nil, fmt.Errorf("%s", resp.Error.Message)
+			result.err = errors.New(resp.Error.Message)
 		}
-		return resp.Result, nil
+		c.completePending(resp.ID, result)
 	}
 }
 
-// stdioReadResult 把异步读消息结果传回 request。
-type stdioReadResult struct {
-	raw json.RawMessage
-	err error
+// completePending 原子移除目标 pending；取消后迟到或未知的响应直接丢弃。
+func (c *stdioMCPClient) completePending(id int64, result stdioRequestResult) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	responseCh, ok := c.pending[id]
+	if !ok {
+		return
+	}
+	delete(c.pending, id)
+	responseCh <- result
 }
 
-// readMessage 在 goroutine 中读取 stdio 消息，让 ctx 取消可以主动关闭 client。
-func (c *stdioMCPClient) readMessage(ctx context.Context) (json.RawMessage, error) {
-	readDone := make(chan stdioReadResult, 1)
-	safego.Go(ctx, pkglogger.Get(), "toolbridge.stdioMCPClient.readMessage", func(context.Context) {
-		raw, err := c.transport.ReadMessage()
-		readDone <- stdioReadResult{raw: raw, err: err}
-	})
-	select {
-	case result := <-readDone:
-		return result.raw, result.err
-	case <-ctx.Done():
-		_ = c.Close()
-		return nil, ctx.Err()
+// cancelPending 原子移除单个 pending，并在锁外串行写入 MCP 取消通知。
+func (c *stdioMCPClient) cancelPending(id int64, cause error) (bool, error) {
+	c.stateMu.Lock()
+	if _, ok := c.pending[id]; !ok {
+		c.stateMu.Unlock()
+		return false, nil
+	}
+	delete(c.pending, id)
+	c.stateMu.Unlock()
+
+	if err := c.writeMessage(map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "notifications/cancelled",
+		"params": map[string]any{
+			"requestId": id,
+			"reason":    cause.Error(),
+		},
+	}); err != nil {
+		cancelErr := fmt.Errorf("toolbridge: write stdio MCP cancellation: %w", err)
+		c.failAndClose(cancelErr)
+		return true, cancelErr
+	}
+	return true, nil
+}
+
+// writeMessage 只串行化 transport 写入，不持有 pending 状态锁。
+func (c *stdioMCPClient) writeMessage(payload any) error {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	return c.transport.WriteMessage(payload)
+}
+
+// failPending 记录首个终止错误，并一次性唤醒全部在途请求。
+func (c *stdioMCPClient) failPending(err error) {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	if c.terminalErr == nil {
+		c.terminalErr = err
+	}
+	for id, responseCh := range c.pending {
+		delete(c.pending, id)
+		responseCh <- stdioRequestResult{err: c.terminalErr}
+	}
+}
+
+// failAndClose 只在真实 I/O 或协议终止错误后关闭共享 client。
+func (c *stdioMCPClient) failAndClose(err error) {
+	c.failPending(err)
+	if closeErr := c.Close(); closeErr != nil {
+		pkglogger.Warn("toolbridge: close stdio MCP client after terminal error failed", "error", closeErr)
 	}
 }
 
@@ -233,6 +359,7 @@ func (c *stdioMCPClient) Close() error {
 	if c == nil {
 		return nil
 	}
+	c.failPending(errStdioMCPClientClosed)
 	if c.closed == nil {
 		return c.close()
 	}
@@ -246,12 +373,14 @@ func (c *stdioMCPClient) Close() error {
 
 // close 执行实际关闭顺序：stdin、transport、等待进程，超时后终止进程树。
 func (c *stdioMCPClient) close() error {
+	c.writeMu.Lock()
 	if c.stdin != nil {
 		_ = c.stdin.Close()
 	}
 	if c.transport != nil {
 		_ = c.transport.Close()
 	}
+	c.writeMu.Unlock()
 	if c.cmd == nil || c.cmd.Process == nil {
 		return stdioCleanupProcessTree(c.cmd, c.guard)
 	}

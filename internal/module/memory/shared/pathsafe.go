@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,10 +21,13 @@ var (
 
 	// SafeReadEntrypoint 使用的哨兵错误。
 	// 调用方用 errors.Is 区分缺失、越界、目录和断链；NotFound 继续包裹 os.ErrNotExist 兼容旧判断。
-	ErrSafeReadNotFound    = fmt.Errorf("safe read: not found: %w", os.ErrNotExist)
-	ErrSafeReadContainment = errors.New("safe read: path escapes root")
-	ErrSafeReadIsDir       = errors.New("safe read: target is a directory")
-	ErrSafeReadBrokenLink  = errors.New("safe read: broken symlink or unreadable parent")
+	ErrSafeReadNotFound     = fmt.Errorf("safe read: not found: %w", os.ErrNotExist)
+	ErrSafeReadContainment  = errors.New("safe read: path escapes root")
+	ErrSafeReadIsDir        = errors.New("safe read: target is a directory")
+	ErrSafeReadNotRegular   = errors.New("safe read: target is not a regular file")
+	ErrSafeReadBrokenLink   = errors.New("safe read: broken symlink or unreadable parent")
+	ErrSafeReadTooLarge     = errors.New("safe read: target exceeds byte limit")
+	ErrSafeReadInvalidLimit = errors.New("safe read: byte limit must be positive")
 )
 
 // ValidateMemoryRoot 校验并规范化记忆根目录路径，拒绝 null byte、UNC、Windows 盘符根、相对路径、过宽路径（/ 或一级子目录）。
@@ -192,18 +196,40 @@ func isRootOrNearRoot(path string) bool {
 // 这是 MEMORY.md 与嵌套 CLAUDE.md 的统一防逃逸读取入口；失败时返回可用 errors.Is 匹配的哨兵错误。
 // 当前 Lstat/EvalSymlinks 到 ReadFile 之间仍是尽力型 TOCTOU 防护，不能把它改成静默放行。
 func SafeReadEntrypoint(root, indexPath string) ([]byte, os.FileInfo, error) {
-	rootReal, err := safeReadRoot(root)
+	candidate, err := resolveSafeReadEntrypoint(root, indexPath)
 	if err != nil {
 		return nil, nil, err
+	}
+	return readSafeResolvedFile(candidate)
+}
+
+// SafeReadEntrypointLimit 在统一路径防逃逸校验后执行有界读取。
+// 超限时返回 ErrSafeReadTooLarge，绝不截断内容后伪装成成功。
+func SafeReadEntrypointLimit(root, indexPath string, maxBytes int64) ([]byte, os.FileInfo, error) {
+	if maxBytes <= 0 {
+		return nil, nil, ErrSafeReadInvalidLimit
+	}
+	candidate, err := resolveSafeReadEntrypoint(root, indexPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	return readSafeResolvedFileLimit(candidate, maxBytes)
+}
+
+// resolveSafeReadEntrypoint 解析并校验 root 与候选路径，返回已确认仍在 root 内的真实路径。
+func resolveSafeReadEntrypoint(root, indexPath string) (string, error) {
+	rootReal, err := safeReadRoot(root)
+	if err != nil {
+		return "", err
 	}
 	candidate, err := safeReadCandidate(indexPath)
 	if err != nil {
-		return nil, nil, err
+		return "", err
 	}
 	if !pathutil.ContainsPath(rootReal, candidate) {
-		return nil, nil, ErrSafeReadContainment
+		return "", ErrSafeReadContainment
 	}
-	return readSafeResolvedFile(candidate)
+	return candidate, nil
 }
 
 // safeReadRoot 解析记忆根目录的真实路径，失败时返回 ErrSafeReadBrokenLink。
@@ -273,4 +299,58 @@ func readSafeResolvedFile(candidate string) ([]byte, os.FileInfo, error) {
 		return nil, nil, err
 	}
 	return raw, resolvedInfo, nil
+}
+
+// readSafeResolvedFileLimit 通过已打开文件的 Stat 与 LimitReader 双重检查大小。
+// 前置 size 检查快速拒绝稳定大文件，maxBytes+1 的读取检查覆盖读取期间增长的文件。
+func readSafeResolvedFileLimit(candidate string, maxBytes int64) ([]byte, os.FileInfo, error) {
+	file, err := os.Open(candidate)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil, ErrSafeReadNotFound
+		}
+		return nil, nil, err
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil, ErrSafeReadNotFound
+		}
+		return nil, nil, err
+	}
+	if info.IsDir() {
+		return nil, nil, ErrSafeReadIsDir
+	}
+	if !info.Mode().IsRegular() {
+		return nil, info, ErrSafeReadNotRegular
+	}
+	if info.Size() > maxBytes {
+		return nil, info, fmt.Errorf("%w: size=%d limit=%d", ErrSafeReadTooLarge, info.Size(), maxBytes)
+	}
+	raw, err := io.ReadAll(io.LimitReader(file, maxBytes))
+	if err != nil {
+		return nil, info, err
+	}
+	if err := checkSafeReadOverflow(file, raw, maxBytes); err != nil {
+		return nil, info, err
+	}
+	return raw, info, nil
+}
+
+// checkSafeReadOverflow 在恰好读满上限时探测一个额外字节，区分等长文件与超限文件。
+func checkSafeReadOverflow(file *os.File, raw []byte, maxBytes int64) error {
+	if int64(len(raw)) != maxBytes {
+		return nil
+	}
+	var extra [1]byte
+	n, err := file.Read(extra[:])
+	if err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	if n > 0 {
+		return fmt.Errorf("%w: read>%d limit=%d", ErrSafeReadTooLarge, maxBytes, maxBytes)
+	}
+	return nil
 }

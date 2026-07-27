@@ -65,6 +65,79 @@ func TestSQLiteUpsertAgentThreadExecutes(t *testing.T) {
 	}
 }
 
+func TestAgentThreadPageZeroTimestampCursorDoesNotRestartFirstPage(t *testing.T) {
+	t.Parallel()
+
+	db := openSQLCTestSQLiteDB(t)
+	q := New(db)
+	ctx := context.Background()
+	for _, row := range []UpsertAgentThreadParams{
+		{ThreadID: "thread-new", Name: "new", Status: "created", CreatedAt: 1, UpdatedAt: 1},
+		{ThreadID: "thread-zero-z", Name: "zero-z", Status: "created", CreatedAt: 0, UpdatedAt: 1},
+		{ThreadID: "thread-zero-y", Name: "zero-y", Status: "created", CreatedAt: 0, UpdatedAt: 1},
+	} {
+		if err := q.UpsertAgentThread(ctx, row); err != nil {
+			t.Fatalf("UpsertAgentThread(%s) error = %v", row.ThreadID, err)
+		}
+	}
+
+	first, err := q.ListAgentThreadsPage(ctx, ListAgentThreadsPageParams{
+		CursorCreatedAt: int64(0),
+		CursorThreadID:  "",
+		Limit:           int64(2),
+	})
+	if err != nil {
+		t.Fatalf("ListAgentThreadsPage(first) error = %v", err)
+	}
+	if len(first) != 3 || first[0].ThreadID != "thread-new" || first[1].ThreadID != "thread-zero-z" {
+		t.Fatalf("first page plus lookahead = %+v, want thread-new then thread-zero-z", first)
+	}
+
+	second, err := q.ListAgentThreadsPage(ctx, ListAgentThreadsPageParams{
+		CursorCreatedAt: first[1].CreatedAt,
+		CursorThreadID:  first[1].ThreadID,
+		Limit:           int64(2),
+	})
+	if err != nil {
+		t.Fatalf("ListAgentThreadsPage(second) error = %v", err)
+	}
+	if len(second) != 1 || second[0].ThreadID != "thread-zero-y" {
+		t.Fatalf("second page = %+v, want only thread-zero-y", second)
+	}
+}
+
+func TestLoadedAgentThreadPageZeroTimestampCursorDoesNotRestartFirstPage(t *testing.T) {
+	t.Parallel()
+
+	db := openSQLCTestSQLiteDB(t)
+	q := New(db)
+	ctx := context.Background()
+	for _, row := range []UpsertAgentThreadParams{
+		{ThreadID: "thread-new", Name: "new", Status: "created", CreatedAt: 1, UpdatedAt: 1},
+		{ThreadID: "thread-zero-z", Name: "zero-z", Status: "created", CreatedAt: 0, UpdatedAt: 1},
+		{ThreadID: "thread-zero-y", Name: "zero-y", Status: "created", CreatedAt: 0, UpdatedAt: 1},
+	} {
+		if err := q.UpsertAgentThread(ctx, row); err != nil {
+			t.Fatalf("UpsertAgentThread(%s) error = %v", row.ThreadID, err)
+		}
+	}
+	first, err := q.ListLoadedAgentThreadsPage(ctx, ListLoadedAgentThreadsPageParams{
+		CursorCreatedAt: 0, CursorThreadID: "", Limit: 2,
+	})
+	if err != nil {
+		t.Fatalf("ListLoadedAgentThreadsPage(first) error = %v", err)
+	}
+	second, err := q.ListLoadedAgentThreadsPage(ctx, ListLoadedAgentThreadsPageParams{
+		CursorCreatedAt: first[1].CreatedAt, CursorThreadID: first[1].ThreadID, Limit: 2,
+	})
+	if err != nil {
+		t.Fatalf("ListLoadedAgentThreadsPage(second) error = %v", err)
+	}
+	if len(second) != 1 || second[0].ThreadID != "thread-zero-y" {
+		t.Fatalf("loaded second page = %+v, want only thread-zero-y", second)
+	}
+}
+
 func openSQLCTestSQLiteDB(t *testing.T) *sql.DB {
 	t.Helper()
 

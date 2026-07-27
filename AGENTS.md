@@ -12,7 +12,7 @@
 行为阅读模式，适用于用户询问某个机制如何工作时：
 
 1. 源码和测试是事实来源。
-2. 使用 `docs/decisions/*.md` 和 `docs/adr/*.md` 查看已接受的架构决策。
+2. 使用 `docs/adr/*.md` 查看已接受的架构决策。
 3. 使用 `docs/契约/*.md` 查看 fx、rungroup、jrpc2、sqlc、stateless、MCP 服务、洋葱架构等约定。
 4. 使用 `docs/doc/codemap/*.md` 导航大型子系统。
 5. 除非用户明确询问迁移历史，否则将 `docs/plans/**`、`docs/迁移/**`、`docs/superpowers/plans/**` 和旧报告视为历史规划材料。

@@ -245,7 +245,7 @@ ShutdownResponse {
 
 P8.5 明确新增 `internal/platform/mcpcontrol/*` 的原因之一，就是避免继续把 lifecycle 业务塞进已经拥挤的 `internal/platform/rpc`。
 
-### 5.1 Input enum 校验（ADR-003）
+### 5.1 Input enum 校验
 
 MCP server 不强制按 input_schema 验证调用入参（避免引 jsonschema 库 +
 避免 wire breaking 70+ tool），因此 schema 里声明的 `enum` 不会在框架
@@ -262,8 +262,6 @@ MCP server 不强制按 input_schema 验证调用入参（避免引 jsonschema �
   其余两层兜底。
 - 错误消息中英双语，列出 allowed 候选，对齐 P19 错误约定与
   `translateStartDAGError` 风格。
-
-参见 `docs/decisions/ADR-003-mcp-input-enum-validation.md`。
 
 ## 6. 落地检查清单
 

@@ -621,6 +621,7 @@ func decodeThreadRPCResult(raw json.RawMessage) (*threadRPCResult, error) {
 func turnOutputDelta(payload map[string]any, stream string) turndto.TurnOutputDelta {
 	return turndto.TurnOutputDelta{
 		TurnHeader: buildTurnHeader(payload),
+		ItemID:     stringValue(payload, "itemId", "item_id"),
 		Stream:     normalizedTurnOutputStream(payload, stream),
 		Delta:      stringValue(payload, "delta", "content"),
 	}

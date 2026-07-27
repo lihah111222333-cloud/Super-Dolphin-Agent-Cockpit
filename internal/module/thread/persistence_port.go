@@ -22,6 +22,11 @@ type ThreadStore interface {
 	Exists(context.Context, string) (bool, error)
 }
 
+// ArchiveStateStore 原子维护 thread 状态和 binding 归档标记。
+type ArchiveStateStore interface {
+	SetArchiveState(context.Context, ArchiveStateUpdate) error
+}
+
 // BindingStore 是 Thread 业务消费的 session binding 持久化端口。
 type BindingStore interface {
 	GetByProviderThread(context.Context, string, string) (*BindingRecord, error)
@@ -29,7 +34,6 @@ type BindingStore interface {
 	DeleteByAgentID(context.Context, string) error
 	UpdateSessionUUID(context.Context, BindingSessionUUIDUpdate) error
 	UpdateProviderThreadID(context.Context, BindingProviderThreadIDUpdate) error
-	SetArchived(context.Context, BindingArchiveUpdate) error
 	GetByAgentID(context.Context, string) (*BindingRecord, error)
 	ListAgentThreadBindings(context.Context) ([]BindingRecord, error)
 	UpdateAgentCwd(context.Context, BindingCWDUpdate) error
@@ -108,6 +112,14 @@ type ThreadStatusUpdate struct {
 	UpdatedAt int64
 }
 
+// ArchiveStateUpdate 描述一次不可拆分的 thread/binding 归档状态变更。
+type ArchiveStateUpdate struct {
+	ThreadID  string
+	AgentID   string
+	Archived  bool
+	UpdatedAt int64
+}
+
 // PromptSnapshotRecord 保存 Thread 恢复所需的 prompt assembly 快照。
 type PromptSnapshotRecord struct {
 	DisplayName           string                `json:"displayName,omitempty"`
@@ -178,13 +190,6 @@ type BindingProviderThreadIDUpdate struct {
 	ProviderThreadID string
 	UpdatedAt        int64
 	AgentID          string
-}
-
-// BindingArchiveUpdate 更新 binding 归档状态。
-type BindingArchiveUpdate struct {
-	AgentID   string
-	Archived  bool
-	UpdatedAt int64
 }
 
 // BindingCWDUpdate 更新绑定的工作目录。

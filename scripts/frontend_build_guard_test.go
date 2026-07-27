@@ -49,7 +49,7 @@ func TestMakefileBuildsCurrentFrontendAppByDefault(t *testing.T) {
 	assertScriptContains(t, makefile, "frontend-app-build: frontend-app-deps")
 	assertScriptContains(t, makefile, "frontend-build: frontend-app-build")
 	assertScriptContains(t, makefile, "cd $(FRONTEND_APP_DIR) && $(NPM) run build")
-	assertScriptContains(t, makefile, "node $(FRONTEND_APP_DIR)/scripts/sync-frontend-dist.mjs")
+	assertScriptDoesNotContain(t, makefile, "node $(FRONTEND_APP_DIR)/scripts/sync-frontend-dist.mjs")
 	assertScriptContains(t, makefile, "while IFS= read -r entry")
 	assertScriptContains(t, makefile, "$(FRONTEND_REQUIRED_ENTRIES_FILE)")
 	assertScriptContains(t, makefile, "frontend dist missing required entry")

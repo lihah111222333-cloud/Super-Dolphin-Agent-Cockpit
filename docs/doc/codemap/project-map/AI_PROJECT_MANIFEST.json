@@ -4,15 +4,15 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 5041,
+  "files": 5089,
   "domains": {
-    "docs-agent": 963,
-    "other": 927,
-    "app-ui": 675,
-    "platform-provider": 1131,
-    "orchestration": 392,
-    "modules": 748,
-    "store-sql": 205
+    "docs-agent": 961,
+    "other": 940,
+    "app-ui": 685,
+    "platform-provider": 1142,
+    "orchestration": 401,
+    "modules": 751,
+    "store-sql": 209
   },
   "index_files": {
     "map_markdown": "docs/doc/codemap/project-map/AI_PROJECT_MAP.md",
@@ -21,62 +21,62 @@
       {
         "key": "app-ui",
         "file": "docs/doc/codemap/project-map/index/app-ui.tsv",
-        "file_count": 675,
-        "size_kb": 137.8,
+        "file_count": 685,
+        "size_kb": 139.9,
         "desc": "桌面应用、Wails host、React/Vite 前端与 UI 测试"
       },
       {
         "key": "orchestration",
         "file": "docs/doc/codemap/project-map/index/orchestration.tsv",
-        "file_count": 392,
-        "size_kb": 88.3,
+        "file_count": 401,
+        "size_kb": 90.6,
         "desc": "mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具"
       },
       {
         "key": "modules",
         "file": "docs/doc/codemap/project-map/index/modules.tsv",
-        "file_count": 748,
-        "size_kb": 145.4,
+        "file_count": 751,
+        "size_kb": 146.1,
         "desc": "业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等"
       },
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1131,
-        "size_kb": 208.6,
+        "file_count": 1142,
+        "size_kb": 210.9,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
         "key": "store-sql",
         "file": "docs/doc/codemap/project-map/index/store-sql.tsv",
-        "file_count": 205,
-        "size_kb": 30,
+        "file_count": 209,
+        "size_kb": 30.7,
         "desc": "持久化层：store、sqlc、SQL queries、migrations"
       },
       {
         "key": "docs-agent",
         "file": "docs/doc/codemap/project-map/index/docs-agent.tsv",
-        "file_count": 963,
-        "size_kb": 173.5,
+        "file_count": 961,
+        "size_kb": 172.6,
         "desc": "代码地图、ADR/决策、计划与 docs 项目知识"
       },
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 927,
-        "size_kb": 185,
+        "file_count": 940,
+        "size_kb": 188.1,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
   },
   "module_counts": {
     "(root)": 12,
-    "cmd": 741,
-    "docs": 955,
-    "frontend-app": 669,
-    "internal": 2425,
+    "cmd": 750,
+    "docs": 953,
+    "frontend-app": 679,
+    "internal": 2447,
     "pkg": 30,
-    "scripts": 161,
+    "scripts": 170,
     "sql": 29,
     "test": 9,
     "tests": 1,
@@ -232,7 +232,7 @@
   ],
   "drift": {
     "status": "OK",
-    "unknown_ratio": 0.0161,
+    "unknown_ratio": 0.0159,
     "unknown_files": 81,
     "thresholds": {
       "max_unknown_ratio": 0.05

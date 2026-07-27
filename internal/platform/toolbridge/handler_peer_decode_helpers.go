@@ -18,6 +18,45 @@ import (
 
 var errMCPSurfaceClientNotConfigured = errors.New("MCP client is not configured")
 
+// peerToolCallResponseIsEmptySuccess 判断 peer 是否返回了没有内容的成功响应。
+func peerToolCallResponseIsEmptySuccess(resp peerToolCallResponse, items []ToolCallContentItem) bool {
+	if resp.IsError || !peerStructuredContentIsEmpty(resp.StructuredContent) {
+		return false
+	}
+	if len(items) == 0 {
+		return true
+	}
+	for _, item := range items {
+		if !peerContentItemIsEmptyText(item) {
+			return false
+		}
+	}
+	return true
+}
+
+func peerStructuredContentIsEmpty(raw json.RawMessage) bool {
+	switch string(bytes.TrimSpace(raw)) {
+	case "", "null", "{}":
+		return true
+	default:
+		return false
+	}
+}
+
+func peerContentItemIsEmptyText(item ToolCallContentItem) bool {
+	switch item.Type {
+	case "", "inputText", "text":
+	default:
+		return false
+	}
+	switch strings.TrimSpace(item.Text) {
+	case "", "null":
+		return true
+	default:
+		return false
+	}
+}
+
 // MCPToolNamespace 描述 mcp__server__tool 形式工具名拆出的 server 和 tool。
 type MCPToolNamespace struct {
 	Server string

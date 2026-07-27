@@ -43,6 +43,7 @@ var raceSensitiveSurfaces = []struct {
 	{packagePattern: "./cmd/super-dolphin-gate/...", pathPrefix: "cmd/super-dolphin-gate/"},
 	{packagePattern: "./cmd/super-dolphin-updater", pathPrefix: "cmd/super-dolphin-updater/"},
 	{packagePattern: "./internal/app/...", pathPrefix: "internal/app/"},
+	{packagePattern: "./internal/archtest/...", pathPrefix: "internal/archtest/"},
 	{packagePattern: "./internal/contract/...", pathPrefix: "internal/contract/"},
 	{packagePattern: "./internal/devtools/gate/...", pathPrefix: "internal/devtools/gate/"},
 	{packagePattern: "./internal/devtools/localci/...", pathPrefix: "internal/devtools/localci/"},

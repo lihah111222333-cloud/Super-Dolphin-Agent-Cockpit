@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -49,6 +50,29 @@ func (r *diagnosticsTestRegistry) GetManagerForFileWithLanguage(context.Context,
 		return r.manager, nil
 	}
 	return nil, lspmanager.ErrUnsupportedLanguage
+}
+
+type languageOverrideDiagnosticsManager struct {
+	structureTestManager
+	diagnostics []protocol.Diagnostic
+	uri         string
+	languageID  string
+	reopenURI   string
+}
+
+func (m *languageOverrideDiagnosticsManager) DidOpen(_ context.Context, uri, languageID string, _ int, _ string) error {
+	m.uri = uri
+	m.languageID = languageID
+	return nil
+}
+
+func (m *languageOverrideDiagnosticsManager) ReopenDocumentForDiagnostics(_ context.Context, uri string) error {
+	m.reopenURI = uri
+	return nil
+}
+
+func (m *languageOverrideDiagnosticsManager) Diagnostics(context.Context, []string) ([]protocol.PublishDiagnosticsParams, error) {
+	return []protocol.PublishDiagnosticsParams{{URI: m.uri, Diagnostics: m.diagnostics}}, nil
 }
 
 func (r *diagnosticsTestRegistry) GetManagerForLanguage(context.Context, string) (lspmanager.Manager, error) {
@@ -532,6 +556,70 @@ func TestDiagnosticsShellScriptBootstrapsShellscriptLanguage(t *testing.T) {
 	if len(registry.bootstrapLanguageIDs) != 1 || registry.bootstrapLanguageIDs[0] != "shellscript" {
 		t.Fatalf("bootstrap language IDs = %#v, want shellscript", registry.bootstrapLanguageIDs)
 	}
+}
+
+func TestDiagnosticsLanguageOverrideSingleAndBatchShellResultsAreEquivalent(t *testing.T) {
+	root := t.TempDir()
+	hookDir := filepath.Join(root, ".githooks")
+	if err := os.MkdirAll(hookDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(hookDir, "pre-commit")
+	if err := os.WriteFile(target, []byte("#!/usr/bin/env bash\nunused=1\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	diagnostic := protocol.Diagnostic{
+		Range: protocol.Range{
+			Start: protocol.Position{Line: 1, Character: 0},
+			End:   protocol.Position{Line: 1, Character: 8},
+		},
+		Severity: protocol.SeverityWarning,
+		Source:   "shellcheck",
+		Code:     "SC2034",
+		Message:  "unused appears unused",
+	}
+
+	single, singleManager := runLanguageOverrideDiagnosticsFixture(t, root, fileToolInput{
+		Action:     "diagnostics",
+		FilePath:   target,
+		LanguageID: "shellscript",
+	}, diagnostic)
+	batch, batchManager := runLanguageOverrideDiagnosticsFixture(t, root, fileToolInput{
+		Action:     "diagnostics",
+		FilePaths:  []string{target},
+		LanguageID: "shellscript",
+	}, diagnostic)
+
+	if !reflect.DeepEqual(single.Data, batch.Data) || single.Total != batch.Total {
+		t.Fatalf("single diagnostics = %#v, batch diagnostics = %#v", single, batch)
+	}
+	for name, manager := range map[string]*languageOverrideDiagnosticsManager{"single": singleManager, "batch": batchManager} {
+		if manager.languageID != "shellscript" || manager.reopenURI != manager.uri {
+			t.Errorf("%s language override lifecycle = language %q uri %q reopen %q", name, manager.languageID, manager.uri, manager.reopenURI)
+		}
+	}
+}
+
+func runLanguageOverrideDiagnosticsFixture(
+	t *testing.T,
+	root string,
+	input fileToolInput,
+	diagnostic protocol.Diagnostic,
+) (diagnosticsResponse, *languageOverrideDiagnosticsManager) {
+	t.Helper()
+	manager := &languageOverrideDiagnosticsManager{diagnostics: []protocol.Diagnostic{diagnostic}}
+	registry := &diagnosticsTestRegistry{manager: manager}
+	handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
+	request := marshalDiagnosticsInput(t, input)
+	result, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), request)
+	if err != nil {
+		t.Fatalf("run language override diagnostics: %v", err)
+	}
+	response, ok := result.(diagnosticsResponse)
+	if !ok {
+		t.Fatalf("language override diagnostics result = %T, want diagnosticsResponse", result)
+	}
+	return response, manager
 }
 
 type diagnosticsShellRegistry struct {

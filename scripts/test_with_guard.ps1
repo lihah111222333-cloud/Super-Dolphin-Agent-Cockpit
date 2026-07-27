@@ -213,7 +213,7 @@ function Invoke-RawGoTestGuard {
     $script:LastStatus = 0
 }
 
-$QuickArchtestSkip = '^(TestCodeSizeGuard|TestPrioritySSAGuardsUseUnifiedFreezeBaseline|TestPrioritySSALoaderExtractionPreservesCandidates|TestWideOrchestrationLoaderExtractionPreservesCandidates)$'
+$QuickArchtestSkip = '^(TestCodeSizeGuard/size_and_freeze|TestPrioritySSAGuardsUseUnifiedFreezeBaseline|TestPrioritySSALoaderExtractionPreservesCandidates|TestWideOrchestrationLoaderExtractionPreservesCandidates)$'
 $QuickArchtestRun = '^(TestDependencyDirection|TestValidateDefaultBackendBoundaryGovernance|TestBackendBoundaryRuleFactsHaveOneSource)$'
 
 function Invoke-Guard {
@@ -227,12 +227,12 @@ function Invoke-Guard {
         if ($script:LastStatus -ne 0) {
             return
         }
-        & $realGo run ./scripts/code_size_guard.go
-        if ($LASTEXITCODE -ne 0) {
-            $script:LastStatus = $LASTEXITCODE
-            return
-        }
         if ($Quick) {
+            & $realGo run ./scripts/code_size_guard.go
+            if ($LASTEXITCODE -ne 0) {
+                $script:LastStatus = $LASTEXITCODE
+                return
+            }
             & $realGo test ./internal/archtest -run $QuickArchtestRun -count=1
         } else {
             & $realGo test ./internal/archtest -count=1

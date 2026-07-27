@@ -252,7 +252,7 @@ func (q *Queries) CreateCronJob(ctx context.Context, arg CreateCronJobParams) (C
 	return i, err
 }
 
-const deleteCronJob = `-- name: DeleteCronJob :exec
+const deleteCronJob = `-- name: DeleteCronJob :execrows
 DELETE FROM cron_jobs WHERE id = ?
 `
 
@@ -260,9 +260,12 @@ type DeleteCronJobParams struct {
 	ID string `db:"id" json:"id"`
 }
 
-func (q *Queries) DeleteCronJob(ctx context.Context, arg DeleteCronJobParams) error {
-	_, err := q.db.ExecContext(ctx, deleteCronJob, arg.ID)
-	return err
+func (q *Queries) DeleteCronJob(ctx context.Context, arg DeleteCronJobParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteCronJob, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const extendClaim = `-- name: ExtendClaim :execrows
@@ -1083,7 +1086,7 @@ func (q *Queries) SetCronJobActiveTurn(ctx context.Context, arg SetCronJobActive
 	return result.RowsAffected()
 }
 
-const setCronJobEnabled = `-- name: SetCronJobEnabled :exec
+const setCronJobEnabled = `-- name: SetCronJobEnabled :execrows
 UPDATE cron_jobs
 SET enabled    = ?1,
     updated_at = ?2
@@ -1096,9 +1099,12 @@ type SetCronJobEnabledParams struct {
 	ID        string `db:"id" json:"id"`
 }
 
-func (q *Queries) SetCronJobEnabled(ctx context.Context, arg SetCronJobEnabledParams) error {
-	_, err := q.db.ExecContext(ctx, setCronJobEnabled, arg.Enabled, arg.UpdatedAt, arg.ID)
-	return err
+func (q *Queries) SetCronJobEnabled(ctx context.Context, arg SetCronJobEnabledParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setCronJobEnabled, arg.Enabled, arg.UpdatedAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const setCronJobRunTurn = `-- name: SetCronJobRunTurn :execrows

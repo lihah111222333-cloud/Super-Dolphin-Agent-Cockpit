@@ -373,6 +373,9 @@ func WakeupFenceFromContext(ctx context.Context) (WakeupFence, bool) {
 	if ctx == nil {
 		return WakeupFence{}, false
 	}
+	if lease, ok := ctx.Value(wakeupLeaseContextKey{}).(*ClaimedWakeupLease); ok && lease != nil {
+		return lease.CurrentFence(), true
+	}
 	fence, ok := ctx.Value(wakeupFenceContextKey{}).(WakeupFence)
 	return fence, ok
 }

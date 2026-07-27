@@ -18,7 +18,6 @@ type querier interface {
 	ListAgentThreadBindings(ctx context.Context) ([]sqlc.AgentProviderBinding, error)
 	UnbindAgentThread(ctx context.Context, arg sqlc.UnbindAgentThreadParams) error
 	UpdateAgentCwd(ctx context.Context, arg sqlc.UpdateAgentCwdParams) error
-	UpdateAgentProviderBindingArchived(ctx context.Context, arg sqlc.UpdateAgentProviderBindingArchivedParams) error
 	UpdateAgentProviderBindingProviderThreadID(ctx context.Context, arg sqlc.UpdateAgentProviderBindingProviderThreadIDParams) error
 	UpdateAgentProviderBindingSessionUUID(ctx context.Context, arg sqlc.UpdateAgentProviderBindingSessionUUIDParams) error
 	UpsertAgentProviderBinding(ctx context.Context, arg sqlc.UpsertAgentProviderBindingParams) error
@@ -128,19 +127,6 @@ func (s *bindingCommandStore) UpdateProviderThreadID(ctx context.Context, params
 		UpdatedAt:        params.UpdatedAt,
 		AgentID:          params.AgentID,
 	}), "update_provider_thread_id")
-}
-
-// SetArchived 标记 agent 绑定归档状态，session 恢复路径据此拒绝重新拉起。
-func (s *bindingCommandStore) SetArchived(ctx context.Context, params SetArchivedParams) error {
-	archived := int64(0)
-	if params.Archived {
-		archived = 1
-	}
-	return wrapBindingError(s.q.UpdateAgentProviderBindingArchived(ctx, sqlc.UpdateAgentProviderBindingArchivedParams{
-		Archived:  archived,
-		UpdatedAt: params.UpdatedAt,
-		AgentID:   params.AgentID,
-	}), "set_archived")
 }
 
 // GetByAgentID 按 agent ID 读取绑定，供公共 thread 路径补齐 provider 恢复信息。

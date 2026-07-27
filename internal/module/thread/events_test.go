@@ -312,9 +312,6 @@ func (s *eventBindingStore) UpdateSessionUUID(_ context.Context, params BindingS
 	}
 	return nil
 }
-func (eventBindingLookupNoopStore) SetArchived(context.Context, BindingArchiveUpdate) error {
-	return nil
-}
 func (s *eventBindingStore) UpdateProviderThreadID(_ context.Context, params BindingProviderThreadIDUpdate) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

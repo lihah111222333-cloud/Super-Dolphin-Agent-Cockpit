@@ -439,6 +439,7 @@ func turnOutputMethod(ev turndto.TurnOutputDelta) string {
 
 func turnOutputDeltaPayload(ev turndto.TurnOutputDelta) map[string]any {
 	payload := turnHeaderPayload(ev.TurnHeader)
+	setString(payload, "itemId", ev.ItemID)
 	setString(payload, "stream", ev.Stream)
 	setString(payload, "delta", ev.Delta)
 	return payload

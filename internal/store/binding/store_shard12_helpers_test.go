@@ -100,11 +100,13 @@ func (q bindingProviderQuerier) GetAgentProviderBindingByProviderThread(ctx cont
 	return sqlc.AgentProviderBinding{}, nil
 }
 
-func (q bindingProviderQuerier) UpdateAgentProviderBindingArchived(ctx context.Context, arg sqlc.UpdateAgentProviderBindingArchivedParams) error {
+func (q bindingProviderQuerier) UpdateAgentProviderBindingArchived(ctx context.Context, arg sqlc.UpdateAgentProviderBindingArchivedParams) (int64, error) {
 	if q.stub.updateArchivedFn != nil {
-		return q.stub.updateArchivedFn(ctx, arg)
+		if err := q.stub.updateArchivedFn(ctx, arg); err != nil {
+			return 0, err
+		}
 	}
-	return nil
+	return 1, nil
 }
 
 type bindingMutationQuerier struct {

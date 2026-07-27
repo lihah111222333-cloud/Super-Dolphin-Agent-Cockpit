@@ -28,7 +28,7 @@ func TestGuardHookModeFailsOnBaselineOrFreezeDrift(t *testing.T) {
 		"go run",
 		"command -v super-dolphin-gate",
 	)
-	assertGuardModeFileContains(t, root, "scripts/ai_maintenance/main.go",
+	assertGuardModeFileContains(t, root, "scripts/ai_maintenance/gate_execution.go",
 		`"backend:test_with_guard"`,
 		`"./scripts/test_with_guard.sh"`,
 	)

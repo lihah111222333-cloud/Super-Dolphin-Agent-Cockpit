@@ -3,14 +3,25 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/capcontract"
 )
 
 // excludeDeferredE2EGoPackages 从快速门禁范围中移除显式延后到 make test/CI 的 provider E2E 包。
 func excludeDeferredE2EGoPackages(packages []string, manifestPath string) ([]string, error) {
 	manifest, err := os.ReadFile(manifestPath)
 	if err != nil {
-		return nil, fmt.Errorf("read deferred E2E package manifest %s: %w", manifestPath, err)
+		repoRoot, rootErr := capcontract.FindRepoRoot(".")
+		if rootErr != nil {
+			return nil, fmt.Errorf("read deferred E2E package manifest %s: %w; resolve repository root: %v", manifestPath, err, rootErr)
+		}
+		resolvedPath := filepath.Join(repoRoot, filepath.FromSlash(manifestPath))
+		manifest, err = os.ReadFile(resolvedPath)
+		if err != nil {
+			return nil, fmt.Errorf("read deferred E2E package manifest %s: %w", resolvedPath, err)
+		}
 	}
 	deferred := map[string]bool{}
 	for packageName := range strings.FieldsSeq(string(manifest)) {

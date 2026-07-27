@@ -123,10 +123,14 @@ type threadListPageService interface {
 	ListLoadedPage(ctx context.Context, req ListPageRequest) (ListPageResult, error)
 }
 
+// newThreadListPageHandler 校验分页游标完整性，并把全量或已加载列表请求委托给对应入口。
 func newThreadListPageHandler(method string, svc Service, loaded bool) handler.Func {
 	return platformrpc.StrictHandler(func(ctx context.Context, p threadListPageParams) (ListPageResult, error) {
 		if p.Limit <= 0 {
 			return ListPageResult{}, platformrpc.ErrInvalidParams(method + ": limit is required")
+		}
+		if p.CursorCreatedAt != 0 && strings.TrimSpace(p.CursorThreadID) == "" {
+			return ListPageResult{}, platformrpc.ErrInvalidParams(method + ": cursor_thread_id is required when cursor_created_at is set")
 		}
 		pager, ok := svc.(threadListPageService)
 		if !ok {

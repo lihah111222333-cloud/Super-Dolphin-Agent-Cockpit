@@ -137,11 +137,11 @@ var sqliteGateDefinitions = []Gate{
 	},
 	{
 		ID:          "G12",
-		Title:       "Packaging smoke without PostgreSQL runtime",
+		Title:       "Real packaged desktop entrypoint smoke without PostgreSQL runtime",
 		Priority:    "P0",
 		Command:     []string{"go", "test", "-v", "./scripts", "-run", "TestPackageLinux|TestPackageMacOS|TestMacOS|TestPackageWindows|TestSQLiteReleaseGatePackageSmokeRuntime|TestSQLiteReleaseGatePackageSmokeCommands", "-count=1"},
 		CWD:         ".",
-		Description: "Verify release package guards keep PostgreSQL runtime artifacts out and keep mcp-orch bundled.",
+		Description: "Build and start the real cmd/agent-terminal product entrypoint in the packaged layout, require migrated WAL SQLite plus a committed write probe, and keep PostgreSQL runtime artifacts out.",
 	},
 	{
 		ID:           "G13",
@@ -344,14 +344,20 @@ func RenderMarkdown(report Report) string {
 			string(result.Status),
 			owner,
 		}
-		b.WriteString("| " + strings.Join(escapeRow(values), " | ") + " |\n")
+		b.WriteString("| ")
+		b.WriteString(strings.Join(escapeRow(values), " | "))
+		b.WriteString(" |\n")
 	}
 	return b.String()
 }
 
 // writeRow 写入单行键值表格，并复用统一的 Markdown 单元格转义。
 func writeRow(b *strings.Builder, key, value string) {
-	b.WriteString("| " + escapeCell(key) + " | " + escapeCell(value) + " |\n")
+	b.WriteString("| ")
+	b.WriteString(escapeCell(key))
+	b.WriteString(" | ")
+	b.WriteString(escapeCell(value))
+	b.WriteString(" |\n")
 }
 
 // escapeRow 转义一整行 Markdown 单元格，保持列数和换行展示稳定。

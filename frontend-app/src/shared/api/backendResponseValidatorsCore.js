@@ -29,7 +29,7 @@ const TOKEN_USAGE_KEYS = new Set(['inputTokens', 'outputTokens', 'totalTokens', 
 const THREAD_GROUP_KEYS = new Set(['key', 'title', 'threads']);
 const FRONTEND_INGEST_RESPONSE_KEYS = new Set(['enabled', 'recorded', 'dropped', 'disabled_reason']);
 const OPEN_WINDOW_RESPONSE_KEYS = new Set(['ok', 'windowId', 'cwd']);
-const CODE_SAVE_RESPONSE_KEYS = new Set(['ok', 'filePath', 'relative', 'totalLines']);
+const CODE_SAVE_RESPONSE_KEYS = new Set(['ok', 'filePath', 'relative', 'totalLines', 'contentVersion']);
 const PROJECTS_STATE_RESPONSE_KEYS = new Set(['projects', 'active']);
 const OK_RESPONSE_KEYS = new Set(['ok']);
 const DASHBOARD_PAGE_RESPONSE_KEYS = new Set(['agents', 'dags', 'skills', 'commandCards', 'prompts', 'memory', 'finalOutputRefs', 'sharedFileRetention']);
@@ -413,7 +413,7 @@ function validateCodeSaveResponse(method, response) {
   if (value.ok !== true) {
     throw new TypeError(`${method} response ok must be true`);
   }
-  for (const key of ['filePath', 'relative']) {
+  for (const key of ['filePath', 'relative', 'contentVersion']) {
     if (typeof value[key] !== 'string' || !value[key].trim()) {
       throw new TypeError(`${method} response ${key} must be a non-empty string`);
     }

@@ -37,7 +37,9 @@ func (p *ClaudeMdSourcesProvider) ResolveTurnAttachments(
 	p.nested.ObserveBuildContext(turn.ThreadID, buildCtx)
 	// TurnInput.Attachments 是带路径输入的统一触发通道；显式 @ 文件和前端/IDE
 	// 选择的文件都会在 turn 汇编阶段规整到这里。
-	p.nested.AddTriggers(turn.ThreadID, buildCtx, turn.Attachments)
+	if err := p.nested.AddTriggers(turn.ThreadID, buildCtx, turn.Attachments); err != nil {
+		return nil, fmt.Errorf("nested memory: add turn attachment triggers: %w", err)
+	}
 	triggers := p.nested.ConsumePending(turn.ThreadID, buildCtx)
 	if len(triggers) == 0 {
 		return nil, nil

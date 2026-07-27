@@ -14,8 +14,27 @@ import (
 func TestCodeSizeGuard(t *testing.T) {
 	root := repoRoot(t)
 	opts := codeSizeGuardOptions(root)
+	cache := &archtest.RepositoryGuardScanCache{}
 
-	violations := archtest.CheckAll(opts)
+	t.Run("size and freeze", func(t *testing.T) {
+		runCodeSizeGuard(t, cache, opts, root)
+	})
+	t.Run("identifier", func(t *testing.T) {
+		runIdentifierGuard(t, cache, opts)
+	})
+	t.Run("dead key", func(t *testing.T) {
+		runDeadKeyGuard(t, cache, opts)
+	})
+}
+
+func runCodeSizeGuard(
+	t *testing.T,
+	cache *archtest.RepositoryGuardScanCache,
+	opts archtest.CheckOptions,
+	root string,
+) {
+	t.Helper()
+	violations := repositoryGuardViolations(t, cache, opts)
 	prodViolations, testFilesWithViolations := splitGuardViolations(violations)
 
 	// 生产文件违规：直接失败（与修改前行为一致）
@@ -23,6 +42,64 @@ func TestCodeSizeGuard(t *testing.T) {
 
 	freezePath := filepath.Join(root, "internal/archtest/freeze_baseline.json")
 	runUnifiedFreezeCheck(t, freezePath, opts, root, len(testFilesWithViolations) > 0, violations)
+}
+
+func runIdentifierGuard(
+	t *testing.T,
+	cache *archtest.RepositoryGuardScanCache,
+	opts archtest.CheckOptions,
+) {
+	t.Helper()
+	allViolations := filterRepositoryViolationsByKind(
+		repositoryGuardViolations(t, cache, opts),
+		archtest.ViolationIdentifier,
+	)
+	var violations []archtest.Violation
+	for _, violation := range allViolations {
+		if !archtest.IsTestFile(violation.File) {
+			violations = append(violations, violation)
+		}
+	}
+	failIfGuardViolations(t, "identifier guard violations", violations, "")
+}
+
+func runDeadKeyGuard(
+	t *testing.T,
+	cache *archtest.RepositoryGuardScanCache,
+	opts archtest.CheckOptions,
+) {
+	t.Helper()
+	violations := filterRepositoryViolationsByKind(
+		repositoryGuardViolations(t, cache, opts),
+		archtest.ViolationDeadKey,
+	)
+	failIfGuardViolations(t, "dead-key guard violations", violations, "")
+}
+
+func repositoryGuardViolations(
+	t *testing.T,
+	cache *archtest.RepositoryGuardScanCache,
+	opts archtest.CheckOptions,
+) []archtest.Violation {
+	t.Helper()
+	violations, err := archtest.CheckRepositoryGuardsOnce(cache, opts)
+	if err != nil {
+		t.Fatalf("scan repository guards: %v", err)
+	}
+	return violations
+}
+
+func filterRepositoryViolationsByKind(
+	violations []archtest.Violation,
+	kind archtest.ViolationKind,
+) []archtest.Violation {
+	filtered := make([]archtest.Violation, 0, len(violations))
+	for _, violation := range violations {
+		if violation.Kind == kind {
+			filtered = append(filtered, violation)
+		}
+	}
+	return filtered
 }
 
 func TestModularityConventionMatchesCodeSizeGuard(t *testing.T) {

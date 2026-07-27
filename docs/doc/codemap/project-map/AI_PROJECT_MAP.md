@@ -1,6 +1,6 @@
 # AI 项目地图（Super-Dolphin）
 
-> 已索引文件：**5041**
+> 已索引文件：**5089**
 >
 > 扫描规则：allowlisted project files; excludes: .git/**, .idea/**, .claude/**, .workspace/**, .worktrees/**, .agent/code_exec/**, .agent/workspaces/**, .agnet/report/**, .agnet/shared/**, bin/**, reports/**, docs/archive/**, **/node_modules/**, **/dist/**, **/web-dist/**, **/coverage/**, **/.vite/**, **/.tmp/**, **/tmp/**, **/.gocache/**, **/.gomodcache/**, **/.npm-cache/**, docs/doc/codemap/project-map/**, docs/doc/codemap/ai-index.json, go.sum, test_output.txt, naked_go.txt
 >
@@ -21,13 +21,13 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 
 | 索引文件 | 文件数 | 大小 | 覆盖范围 |
 |---|---:|---:|---|
-| `docs/doc/codemap/project-map/index/app-ui.tsv` | 675 | 137.8 KB | 桌面应用、Wails host、React/Vite 前端与 UI 测试 |
-| `docs/doc/codemap/project-map/index/orchestration.tsv` | 392 | 88.3 KB | mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具 |
-| `docs/doc/codemap/project-map/index/modules.tsv` | 748 | 145.4 KB | 业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等 |
-| `docs/doc/codemap/project-map/index/platform-provider.tsv` | 1131 | 208.6 KB | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
-| `docs/doc/codemap/project-map/index/store-sql.tsv` | 205 | 30.0 KB | 持久化层：store、sqlc、SQL queries、migrations |
-| `docs/doc/codemap/project-map/index/docs-agent.tsv` | 963 | 173.5 KB | 代码地图、ADR/决策、计划与 docs 项目知识 |
-| `docs/doc/codemap/project-map/index/other.tsv` | 927 | 185.0 KB | 公共库、脚本、测试、配置与其他根级资源 |
+| `docs/doc/codemap/project-map/index/app-ui.tsv` | 685 | 139.9 KB | 桌面应用、Wails host、React/Vite 前端与 UI 测试 |
+| `docs/doc/codemap/project-map/index/orchestration.tsv` | 401 | 90.6 KB | mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具 |
+| `docs/doc/codemap/project-map/index/modules.tsv` | 751 | 146.1 KB | 业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等 |
+| `docs/doc/codemap/project-map/index/platform-provider.tsv` | 1142 | 210.9 KB | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
+| `docs/doc/codemap/project-map/index/store-sql.tsv` | 209 | 30.7 KB | 持久化层：store、sqlc、SQL queries、migrations |
+| `docs/doc/codemap/project-map/index/docs-agent.tsv` | 961 | 172.6 KB | 代码地图、ADR/决策、计划与 docs 项目知识 |
+| `docs/doc/codemap/project-map/index/other.tsv` | 940 | 188.1 KB | 公共库、脚本、测试、配置与其他根级资源 |
 
 **检索示例：**
 
@@ -46,11 +46,11 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 
 | 模块 | 文件数 | 职责 |
 |---|---:|---|
-| `internal` | 2425 | 应用内部模块、平台、provider、store 与守卫 |
-| `docs` | 955 | 代码地图、ADR、计划、迁移和内部说明 |
-| `cmd` | 741 | 可执行入口与 MCP peer |
-| `frontend-app` | 669 | 当前 React/Vite 新 UI |
-| `scripts` | 161 | 工程自动化脚本 |
+| `internal` | 2447 | 应用内部模块、平台、provider、store 与守卫 |
+| `docs` | 953 | 代码地图、ADR、计划、迁移和内部说明 |
+| `cmd` | 750 | 可执行入口与 MCP peer |
+| `frontend-app` | 679 | 当前 React/Vite 新 UI |
+| `scripts` | 170 | 工程自动化脚本 |
 | `pkg` | 30 | 可复用公共库 |
 | `sql` | 29 | SQL query 源文件 |
 | `(root)` | 12 | 仓库根级配置和说明 |
@@ -123,7 +123,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 
 | 子系统 | 文件数 | 职责 |
 |---|---:|---|
-| `internal/module/thread` | 110 | thread start/resume/fork/stop 生命周期与绑定真相源 |
+| `internal/module/thread` | 113 | thread start/resume/fork/stop 生命周期与绑定真相源 |
 | `internal/module/turn` | 68 | turn 启动、执行、审批与 provider 调度 |
 | `internal/module/prompt` | 91 | prompt 模板、启用条件与 system prompt 组装 |
 | `internal/module/memory` | 152 | memory canonical 管理、检索与持久化接线 |
@@ -135,8 +135,8 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 | 子系统 | 文件数 | 职责 |
 |---|---:|---|
 | `internal/platform/rpc` | 44 | JSON-RPC transport、dispatch、push 与审批框架 |
-| `internal/platform/mcpcontrol` | 36 | MCP 控制平面与 peer 注册 |
-| `internal/platform/toolbridge` | 105 | provider 与 MCP tools 桥接 |
+| `internal/platform/mcpcontrol` | 37 | MCP 控制平面与 peer 注册 |
+| `internal/platform/toolbridge` | 114 | provider 与 MCP tools 桥接 |
 | `internal/platform/hooks` | 33 | hook 配置、执行与三阶段拦截 |
 | `internal/platform/config` | 8 | 运行配置、env、provider 与超时策略 |
 
@@ -153,16 +153,16 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 
 | 子系统 | 文件数 | 职责 |
 |---|---:|---|
-| `cmd/mcp-orch/tools` | 76 | mcp-orch MCP tool schema、registry 与 handler |
-| `cmd/mcp-orch/orchestration` | 176 | agent 生命周期、DAG、wakeup、report 与 hook 消费 |
+| `cmd/mcp-orch/tools` | 77 | mcp-orch MCP tool schema、registry 与 handler |
+| `cmd/mcp-orch/orchestration` | 182 | agent 生命周期、DAG、wakeup、report 与 hook 消费 |
 | `cmd/mcp-lsp/tools` | 63 | LSP MCP tools 实现 |
 | `cmd/mcp-lsp/multilsp` | 74 | 多语言 LSP manager、transport 与缓存 |
 
 ## 8. 文档与知识地图
 
-- 主线文档（L1）：`README.md`、`docs/doc/codemap/README.md`、`docs/adr/*`、`docs/decisions/*`
-- 工作文档（L2）：`docs/plans/*`、`docs/internal-notes/*`
-- 历史归档（L3）：`docs/archive/`（默认不递归索引）
+- 当前事实（L1）：`README.md`、`docs/README.md`、`docs/adr/*`、`docs/契约/*`、`docs/架构/*`、`docs/reference/*`、`docs/运维/*`
+- 开发中材料（L2）：`docs/work/proposals/*`、`docs/work/plans/*`、`docs/internal-notes/*`
+- 历史归档（L3）：`docs/archive/`，以及待迁移的 `docs/plans/*`、`docs/superpowers/plans/*`（默认不递归索引）
 - Agent 体系：`.agents/skills/*/SKILL.md` 是 repo-local skill 指令入口；不要把 `.agents` 当作普通项目源码递归扫描。
 
 ## 9. 索引字段说明

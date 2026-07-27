@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
 
 func TestShellCommandRunnerRejectsMissingCWDAndWorkspaceRoots(t *testing.T) {
 	t.Parallel()
-	runner := NewShellCommandRunner()
+	runner := newAuthorizedShellCommandRunnerForTest(t)
 
 	_, err := runner.RunCommandCard(context.Background(), AutomationCommandCard{
 		CardKey:         "cwd-required",
@@ -28,7 +29,7 @@ func TestShellCommandRunnerRejectsMissingCWDAndWorkspaceRoots(t *testing.T) {
 }
 
 func TestShellCommandRunnerDoesNotInheritSensitiveParentEnv(t *testing.T) {
-	runner := NewShellCommandRunner()
+	runner := newAuthorizedShellCommandRunnerForTest(t)
 	root := t.TempDir()
 	t.Setenv("AUTOMATION_COMMAND_SECRET_TOKEN", "leaked-secret")
 
@@ -52,7 +53,7 @@ func TestShellCommandRunnerDoesNotInheritSensitiveParentEnv(t *testing.T) {
 }
 
 func TestShellCommandRunnerRedactsSensitiveHeadersFromResultSurfaces(t *testing.T) {
-	runner := NewShellCommandRunner()
+	runner := newAuthorizedShellCommandRunnerForTest(t)
 	root := t.TempDir()
 	testBinary, err := os.Executable()
 	if err != nil {
@@ -109,12 +110,7 @@ func TestAutomationCommandRedactionHelper(t *testing.T) {
 
 func hasAutomationCommandTestArg(t *testing.T, target string) bool {
 	t.Helper()
-	for _, arg := range os.Args {
-		if arg == target {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(os.Args, target)
 }
 
 func TestAutomationExecutorPassesTrustedCommandRunOptions(t *testing.T) {
@@ -150,7 +146,7 @@ func TestAutomationCommandRejectsShellExpansionTemplates(t *testing.T) {
 	if err := os.WriteFile(root+"/matched.go", []byte("package main\n"), 0o600); err != nil {
 		t.Fatalf("write glob fixture: %v", err)
 	}
-	runner := NewShellCommandRunner()
+	runner := newShellCommandRunnerForTest(t)
 	tests := []struct {
 		name     string
 		template string

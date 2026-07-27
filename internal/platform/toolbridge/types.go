@@ -114,10 +114,22 @@ func firstStringSlice(payload map[string]json.RawMessage, keys ...string) []stri
 	return nil
 }
 
-// ToolCallContentItem 是 toolbridge 内部文本内容项。
+// ToolCallContentItem 是 toolbridge 内部的 MCP content block。
+// 每个 variant 只使用其协议规定字段；mapper 会在跨边界时严格校验并深拷贝 JSON 字段。
 type ToolCallContentItem struct {
-	Type string `json:"type"`
-	Text string `json:"text,omitempty"`
+	Type        string          `json:"type"`
+	Text        string          `json:"text,omitempty"`
+	Data        string          `json:"data,omitempty"`
+	MIMEType    string          `json:"mimeType,omitempty"`
+	Resource    json.RawMessage `json:"resource,omitempty"`
+	URI         string          `json:"uri,omitempty"`
+	Name        string          `json:"name,omitempty"`
+	Title       string          `json:"title,omitempty"`
+	Description string          `json:"description,omitempty"`
+	Size        *int64          `json:"size,omitempty"`
+	Icons       json.RawMessage `json:"icons,omitempty"`
+	Annotations json.RawMessage `json:"annotations,omitempty"`
+	Meta        json.RawMessage `json:"_meta,omitempty"`
 }
 
 // ToolCallResult 是 toolbridge 内部统一工具结果结构。
@@ -182,11 +194,8 @@ type peerToolCallResponse struct {
 	StructuredContent json.RawMessage       `json:"structuredContent,omitempty"`
 }
 
-// peerToolCallContent 是 peer tools/call 文本 content 项。
-type peerToolCallContent struct {
-	Type string `json:"type"`
-	Text string `json:"text,omitempty"`
-}
+// peerToolCallContent 与内部 content block 共用同一字段定义，避免 wire mapper 字段漂移。
+type peerToolCallContent = ToolCallContentItem
 
 // canonicalToolName 规范化当前 LSP 工具名。
 func canonicalToolName(name string) string {

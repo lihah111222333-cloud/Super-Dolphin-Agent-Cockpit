@@ -132,7 +132,7 @@ func TestHandleCreateDAGPreservesNodeConfig(t *testing.T) {
 		},
 	})
 
-	_, err := handler(context.Background(), json.RawMessage(`{
+	ctx, input, workspaceRoot := trustedTaskHandlerInput(t, `{
 		"agent_id":"designer-1",
 		"dag_key":"dag-config",
 		"title":"Runnable DAG",
@@ -143,14 +143,15 @@ func TestHandleCreateDAGPreservesNodeConfig(t *testing.T) {
 			"node_type":"automation",
 			"config":{"exec":{"kind":"command_card","command_ref":"build","cwd":"/repo","workspace_roots":["/repo"]},"outputs":{"to_node_result":true}}
 		}]
-	}`))
+	}`)
+	_, err := handler(ctx, input)
 	if err != nil {
 		t.Fatalf("HandleCreateDAG() error = %v", err)
 	}
 	if len(got.Nodes) != 1 {
 		t.Fatalf("nodes = %d, want 1", len(got.Nodes))
 	}
-	assertJSONEqual(t, got.Nodes[0].Config, `{"exec":{"kind":"command_card","command_ref":"build","cwd":"/repo","workspace_roots":["/repo"]},"outputs":{"to_node_result":true}}`)
+	assertJSONEqual(t, got.Nodes[0].Config, strings.ReplaceAll(`{"exec":{"kind":"command_card","command_ref":"build","cwd":"/repo","workspace_roots":["/repo"]},"outputs":{"to_node_result":true}}`, "/repo", workspaceRoot))
 }
 
 func TestHandleCreateDAGSynthesizesAutomationConfigFromCommandRef(t *testing.T) {
@@ -162,7 +163,7 @@ func TestHandleCreateDAGSynthesizesAutomationConfigFromCommandRef(t *testing.T) 
 		},
 	})
 
-	_, err := handler(context.Background(), json.RawMessage(`{
+	ctx, input, workspaceRoot := trustedTaskHandlerInput(t, `{
 		"agent_id":"designer-1",
 		"dag_key":"dag-command-ref",
 		"title":"Runnable DAG",
@@ -174,14 +175,15 @@ func TestHandleCreateDAGSynthesizesAutomationConfigFromCommandRef(t *testing.T) 
 			"command_ref":" build ",
 			"config":{"exec":{"cwd":"/repo","workspace_roots":["/repo"]}}
 		}]
-	}`))
+	}`)
+	_, err := handler(ctx, input)
 	if err != nil {
 		t.Fatalf("HandleCreateDAG() error = %v", err)
 	}
 	if len(got.Nodes) != 1 {
 		t.Fatalf("nodes = %d, want 1", len(got.Nodes))
 	}
-	assertJSONEqual(t, got.Nodes[0].Config, `{"exec":{"kind":"command_card","command_ref":"build","cwd":"/repo","workspace_roots":["/repo"]}}`)
+	assertJSONEqual(t, got.Nodes[0].Config, strings.ReplaceAll(`{"exec":{"kind":"command_card","command_ref":"build","cwd":"/repo","workspace_roots":["/repo"]}}`, "/repo", workspaceRoot))
 }
 
 func TestHandleCreateDAGInfersAutomationNodeTypeFromCommandRef(t *testing.T) {
@@ -193,7 +195,7 @@ func TestHandleCreateDAGInfersAutomationNodeTypeFromCommandRef(t *testing.T) {
 		},
 	})
 
-	_, err := handler(context.Background(), json.RawMessage(`{
+	ctx, input, workspaceRoot := trustedTaskHandlerInput(t, `{
 		"agent_id":"designer-1",
 		"dag_key":"dag-command-ref",
 		"title":"Runnable DAG",
@@ -204,7 +206,8 @@ func TestHandleCreateDAGInfersAutomationNodeTypeFromCommandRef(t *testing.T) {
 			"command_ref":" build ",
 			"config":{"exec":{"cwd":"/repo","workspace_roots":["/repo"]}}
 		}]
-	}`))
+	}`)
+	_, err := handler(ctx, input)
 	if err != nil {
 		t.Fatalf("HandleCreateDAG() error = %v", err)
 	}
@@ -214,7 +217,7 @@ func TestHandleCreateDAGInfersAutomationNodeTypeFromCommandRef(t *testing.T) {
 	if got.Nodes[0].NodeType != "automation" {
 		t.Fatalf("NodeType = %q, want automation", got.Nodes[0].NodeType)
 	}
-	assertJSONEqual(t, got.Nodes[0].Config, `{"exec":{"kind":"command_card","command_ref":"build","cwd":"/repo","workspace_roots":["/repo"]}}`)
+	assertJSONEqual(t, got.Nodes[0].Config, strings.ReplaceAll(`{"exec":{"kind":"command_card","command_ref":"build","cwd":"/repo","workspace_roots":["/repo"]}}`, "/repo", workspaceRoot))
 }
 
 func TestHandleCreateDAGMergesCommandRefIntoAutomationConfig(t *testing.T) {
@@ -226,7 +229,7 @@ func TestHandleCreateDAGMergesCommandRefIntoAutomationConfig(t *testing.T) {
 		},
 	})
 
-	_, err := handler(context.Background(), json.RawMessage(`{
+	ctx, input, workspaceRoot := trustedTaskHandlerInput(t, `{
 		"agent_id":"designer-1",
 		"dag_key":"dag-config-output",
 		"title":"Runnable DAG",
@@ -238,14 +241,15 @@ func TestHandleCreateDAGMergesCommandRefIntoAutomationConfig(t *testing.T) {
 			"command_ref":" build ",
 			"config":{"exec":{"cwd":"/repo","workspace_roots":["/repo"]},"outputs":{"to_node_result":true}}
 		}]
-	}`))
+	}`)
+	_, err := handler(ctx, input)
 	if err != nil {
 		t.Fatalf("HandleCreateDAG() error = %v", err)
 	}
 	if len(got.Nodes) != 1 {
 		t.Fatalf("nodes = %d, want 1", len(got.Nodes))
 	}
-	assertJSONEqual(t, got.Nodes[0].Config, `{"exec":{"kind":"command_card","command_ref":"build","cwd":"/repo","workspace_roots":["/repo"]},"outputs":{"to_node_result":true}}`)
+	assertJSONEqual(t, got.Nodes[0].Config, strings.ReplaceAll(`{"exec":{"kind":"command_card","command_ref":"build","cwd":"/repo","workspace_roots":["/repo"]},"outputs":{"to_node_result":true}}`, "/repo", workspaceRoot))
 }
 
 func TestHandleCreateDAGAcceptsFlatScheduleAndNodeExecution(t *testing.T) {
@@ -409,7 +413,7 @@ func TestHandleApplyOpsBuildsFlatAddNode(t *testing.T) {
 		},
 	})
 
-	_, err := handler(context.Background(), json.RawMessage(`{
+	ctx, input, workspaceRoot := trustedTaskHandlerInput(t, `{
 		"pos":"dag:dag-flat",
 		"base_version":5,
 		"action":"add_node",
@@ -419,14 +423,15 @@ func TestHandleApplyOpsBuildsFlatAddNode(t *testing.T) {
 		"assigned_to":"agent-score",
 		"depends_on":["plan"],
 		"config":{"exec":{"kind":"command_card","command_ref":"score","cwd":"/repo","workspace_roots":["/repo"]}}
-	}`))
+	}`)
+	_, err := handler(ctx, input)
 	if err != nil {
 		t.Fatalf("HandleApplyOps() error = %v", err)
 	}
 	if got.DagKey != "dag-flat" || got.BaseVersion != 5 {
 		t.Fatalf("ApplyOps request = %#v", got)
 	}
-	assertJSONEqual(t, got.Ops, `[{"op":"add_node","node":{"node_key":"score","title":"Score","node_type":"automation","assigned_to":"agent-score","depends_on":["plan"],"config":{"exec":{"kind":"command_card","command_ref":"score","cwd":"/repo","workspace_roots":["/repo"]}}}}]`)
+	assertJSONEqual(t, got.Ops, strings.ReplaceAll(`[{"op":"add_node","node":{"node_key":"score","title":"Score","node_type":"automation","assigned_to":"agent-score","depends_on":["plan"],"config":{"exec":{"kind":"command_card","command_ref":"score","cwd":"/repo","workspace_roots":["/repo"]}}}}]`, "/repo", workspaceRoot))
 }
 
 func TestHandleApplyOpsBuildsFlatAddNodeReadsWrites(t *testing.T) {
