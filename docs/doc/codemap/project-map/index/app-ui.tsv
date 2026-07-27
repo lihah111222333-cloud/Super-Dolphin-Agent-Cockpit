@@ -154,7 +154,8 @@ frontend-app/src/app/shell/model/useShellLayoutStore.js	frontend-app	app-ui	js-s
 frontend-app/src/app/shell/model/useShellLayoutStore.test.js	frontend-app	app-ui	js-test	4461	当前 React/Vite 前端包	frontend,app,src,shell,model,useShellLayoutStore,test,当前,React,Vite,前端包
 frontend-app/src/app/shell/SuiyuanAppWindow.jsx	frontend-app	app-ui	jsx	19014	当前 React/Vite 前端包	frontend,app,src,shell,SuiyuanAppWindow,当前,React,Vite,前端包
 frontend-app/src/AppChrome.css	frontend-app	app-ui	css	8256	当前 React/Vite 前端包	frontend,app,src,AppChrome,当前,React,Vite,前端包
-frontend-app/src/AppRoutes.jsx	frontend-app	app-ui	jsx	4154	当前 React/Vite 前端包	frontend,app,src,AppRoutes,当前,React,Vite,前端包
+frontend-app/src/AppRoutes.jsx	frontend-app	app-ui	jsx	4244	当前 React/Vite 前端包	frontend,app,src,AppRoutes,当前,React,Vite,前端包
+frontend-app/src/AppRoutes.test.jsx	frontend-app	app-ui	jsx	1309	当前 React/Vite 前端包	frontend,app,src,AppRoutes,test,当前,React,Vite,前端包
 frontend-app/src/AppShell.css	frontend-app	app-ui	css	35377	当前 React/Vite 前端包	frontend,app,src,AppShell,当前,React,Vite,前端包
 frontend-app/src/AppShellSidebarPolish.css	frontend-app	app-ui	css	2715	当前 React/Vite 前端包	frontend,app,src,AppShellSidebarPolish,当前,React,Vite,前端包
 frontend-app/src/AppShellSidebarThreadActions.css	frontend-app	app-ui	css	4614	当前 React/Vite 前端包	frontend,app,src,AppShellSidebarThreadActions,当前,React,Vite,前端包
@@ -263,7 +264,8 @@ frontend-app/src/features/prompt-history/model/promptHistoryController.test.js	f
 frontend-app/src/features/prompts/Personalization.css	frontend-app	app-ui	css	6552	当前 React/Vite 前端包	frontend,app,src,features,prompts,Personalization,当前,React,Vite,前端包
 frontend-app/src/features/prompts/PromptPagePolish.css	frontend-app	app-ui	css	3951	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPagePolish,当前,React,Vite,前端包
 frontend-app/src/features/prompts/PromptPageView.css	frontend-app	app-ui	css	9142	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,当前,React,Vite,前端包
-frontend-app/src/features/prompts/PromptPageView.jsx	frontend-app	app-ui	jsx	61961	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,当前,React,Vite,前端包
+frontend-app/src/features/prompts/PromptPageView.jsx	frontend-app	app-ui	jsx	62079	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,当前,React,Vite,前端包
+frontend-app/src/features/prompts/PromptPageView.notifyAction.test.jsx	frontend-app	app-ui	jsx	2372	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,notifyAction,test,当前,React,Vite,前端包
 frontend-app/src/features/prompts/PromptPageView.test.jsx	frontend-app	app-ui	jsx	42049	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,test,当前,React,Vite,前端包
 frontend-app/src/features/shortcut-settings/hooks/useShortcutSettings.js	frontend-app	app-ui	js-source	4643	当前 React/Vite 前端包	frontend,app,src,features,shortcut,settings,hooks,useShortcutSettings,当前,React,Vite,前端包
 frontend-app/src/features/shortcut-settings/hooks/useShortcutSettings.test.jsx	frontend-app	app-ui	jsx	6324	当前 React/Vite 前端包	frontend,app,src,features,shortcut,settings,hooks,useShortcutSettings,test,当前,React,Vite,前端包

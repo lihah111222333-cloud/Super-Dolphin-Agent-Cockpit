@@ -39,7 +39,11 @@ function ChatPageRoute(props) {
 
 function PromptPageRoute({ copy, projectPath, refreshKey, store: sourceStore }) {
   const resolveLaunchPreferences = sourceStore.resolveLaunchPreferences;
-  const store = useMemo(() => ({ resolveLaunchPreferences }), [resolveLaunchPreferences]);
+  const notifyAction = sourceStore.notifyAction;
+  const store = useMemo(
+    () => ({ notifyAction, resolveLaunchPreferences }),
+    [notifyAction, resolveLaunchPreferences],
+  );
   return <PromptPage copy={copy.prompts} projectPath={projectPath} store={store} refreshKey={refreshKey} />;
 }
 

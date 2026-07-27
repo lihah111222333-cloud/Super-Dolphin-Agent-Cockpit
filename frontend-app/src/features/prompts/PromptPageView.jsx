@@ -327,6 +327,11 @@ queryClient, queryState.refetchPromptAssets, queryState.refetchActivePrompt, ); 
 const counts = useMemo(() => promptCounts(items), [items]); const visibleItems = items; const editorActions = usePromptEditorActions({ cwd, fallbackMode, actioning, form, queryClient, refreshPromptSurface, setters,
 }); const draftActions = usePromptDraftActions({ cwd, actioning, refreshPromptSurface, setters }); const saveProfile = async () => {
 if (!cwd || saving) return;
+if (typeof notifyAction !== 'function') {
+ const feedbackError = new Error('PromptPageView requires notifyAction for profile save feedback');
+ setters.setNotice(noticeText(feedbackError, '个人资料保存失败'));
+ throw feedbackError;
+}
 const generation = profileSaveGenerationRef.current + 1;
 const draftRevision = profileDraftRevisionRef.current;
 profileSaveGenerationRef.current = generation;
@@ -341,7 +346,6 @@ if (!isCurrentRequest()) return;
 queryClient.setQueryData(['personalizationProfile', cwd], { profile: savedProfile });
 if (!isCurrentDraft()) return;
 setProfileDraft({ cwd, profile: null });
-if (typeof notifyAction !== 'function') throw new Error('PromptPageView requires notifyAction for profile save feedback');
 notifyAction('个人资料已保存', 'success', { category: 'profile' });
 } catch (err) {
  if (!isCurrentDraft()) return;
