@@ -52,6 +52,9 @@ func TestSaveScopedFileWritesWithinScope(t *testing.T) {
 	root := t.TempDir()
 	target := filepath.Join(root, "docs", "readme.md")
 	writeTestFile(t, target, "old")
+	if err := os.Chmod(target, 0o600); err != nil {
+		t.Fatalf("Chmod() error = %v", err)
+	}
 
 	result, err := saveScopedFile(target, "# Saved\n\nBody", []string{root}, false, "full", codeContentVersion([]byte("old")))
 	if err != nil {
@@ -80,7 +83,42 @@ func TestSaveScopedFileWritesWithinScope(t *testing.T) {
 	if result.ContentVersion == codeContentVersion([]byte("old")) {
 		t.Fatal("saveScopedFile() returned stale request contentVersion")
 	}
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatalf("Stat() error = %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("saveScopedFile() mode = %o, want 600", got)
+	}
 	assertCodeSaveResultJSONContentVersion(t, result, wantVersion)
+}
+
+func TestReplaceFileAtomicallyKeepsOriginalWhenPublishFails(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "notes.md")
+	writeTestFile(t, target, "original")
+	wantErr := errors.New("publish failed")
+
+	err := replaceFileAtomically(target, []byte("replacement"), 0o640, func(_, _ string) error {
+		return wantErr
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("replaceFileAtomically() error = %v, want %v", err, wantErr)
+	}
+	data, readErr := os.ReadFile(target)
+	if readErr != nil {
+		t.Fatalf("ReadFile() error = %v", readErr)
+	}
+	if string(data) != "original" {
+		t.Fatalf("target body = %q, want original content", data)
+	}
+	entries, readDirErr := os.ReadDir(root)
+	if readDirErr != nil {
+		t.Fatalf("ReadDir() error = %v", readDirErr)
+	}
+	if len(entries) != 1 || entries[0].Name() != filepath.Base(target) {
+		t.Fatalf("directory entries = %v, want only original target", entries)
+	}
 }
 
 func assertCodeSaveResultJSONContentVersion(t *testing.T, result codeSaveResult, wantVersion string) {

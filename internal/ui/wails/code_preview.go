@@ -103,10 +103,7 @@ func saveScopedFile(rawPath, content string, roots []string, createNew bool, pre
 	}
 	body := normalizeFileText(content)
 	bodyBytes := []byte(body)
-	if err := os.MkdirAll(filepath.Dir(target.Abs), 0o755); err != nil {
-		return codeSaveResult{}, err
-	}
-	if err := os.WriteFile(target.Abs, bodyBytes, writeFileMode(target.Abs)); err != nil {
+	if err := replaceFileAtomically(target.Abs, bodyBytes, writeFileMode(target.Abs), os.Rename); err != nil {
 		return codeSaveResult{}, err
 	}
 	return codeSaveResult{
@@ -116,6 +113,66 @@ func saveScopedFile(rawPath, content string, roots []string, createNew bool, pre
 		TotalLines:     countTextLines(body),
 		ContentVersion: codeContentVersion(bodyBytes),
 	}, nil
+}
+
+type codeSaveRename func(oldPath, newPath string) error
+
+// replaceFileAtomically 将完整内容先持久化到同目录临时文件，再原子替换已有目标。
+// 发布前任一步失败都只清理临时文件，不截断或改写原文件。
+func replaceFileAtomically(path string, data []byte, mode fs.FileMode, rename codeSaveRename) (retErr error) {
+	if rename == nil {
+		return errors.New("ui/code/save: atomic rename is required")
+	}
+	mode = mode.Perm()
+	if mode == 0 {
+		return errors.New("ui/code/save: target file mode is required")
+	}
+	dir := filepath.Dir(path)
+	temp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".save-*")
+	if err != nil {
+		return fmt.Errorf("ui/code/save: create temp file: %w", err)
+	}
+	tempPath := temp.Name()
+	closed := false
+	published := false
+	defer func() {
+		if !closed {
+			retErr = errors.Join(retErr, temp.Close())
+		}
+		if !published {
+			if err := os.Remove(tempPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				retErr = errors.Join(retErr, fmt.Errorf("ui/code/save: remove temp file: %w", err))
+			}
+		}
+	}()
+	if err := temp.Chmod(mode); err != nil {
+		return fmt.Errorf("ui/code/save: preserve target mode: %w", err)
+	}
+	if _, err := temp.Write(data); err != nil {
+		return fmt.Errorf("ui/code/save: write temp file: %w", err)
+	}
+	if err := temp.Sync(); err != nil {
+		return fmt.Errorf("ui/code/save: sync temp file: %w", err)
+	}
+	if err := temp.Close(); err != nil {
+		closed = true
+		return fmt.Errorf("ui/code/save: close temp file: %w", err)
+	}
+	closed = true
+	if err := rename(tempPath, path); err != nil {
+		return fmt.Errorf("ui/code/save: replace target file: %w", err)
+	}
+	published = true
+	dirHandle, err := os.Open(dir)
+	if err != nil {
+		return fmt.Errorf("ui/code/save: open target directory for sync: %w", err)
+	}
+	syncErr := dirHandle.Sync()
+	closeErr := dirHandle.Close()
+	if err := errors.Join(syncErr, closeErr); err != nil {
+		return fmt.Errorf("ui/code/save: sync target directory: %w", err)
+	}
+	return nil
 }
 
 // locateScopedFile 查找项目范围内的候选文件并补充轻量元数据。
