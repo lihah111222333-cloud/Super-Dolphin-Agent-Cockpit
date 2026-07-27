@@ -24,8 +24,10 @@ var errOrchHTTPSessionTokenRequired = errors.New("mcp-orch http: GO_AGENT_CTL_SE
 
 // httpRunner 在 peer 模式下启动 HTTP MCP 端点，供多个 Claude CLI agent 共享同一个 mcp-orch 进程。
 type httpRunner struct {
-	tools       common.ToolProvider
-	bearerToken string
+	bearerToken          string
+	startServer          func(context.Context) (string, func(context.Context) error, error)
+	writePeerDiscovery   func(string, string) error
+	cleanupPeerDiscovery func(string) error
 }
 
 // newHTTPRunner 在 peer 模式下创建 HTTP runner；非 peer 模式返回阻塞空 runner。
@@ -34,9 +36,23 @@ func newHTTPRunner(registry tools.Registry) platformrunner.Runner {
 		// Non-peer mode: return a runner that blocks until context done.
 		return blockRunner{}
 	}
+	toolProvider := registryToolProvider{registry: registry}
+	bearerToken := bootstrap.SessionTokenFromEnv()
 	return &httpRunner{
-		tools:       registryToolProvider{registry: registry},
-		bearerToken: bootstrap.SessionTokenFromEnv(),
+		bearerToken: bearerToken,
+		startServer: func(ctx context.Context) (string, func(context.Context) error, error) {
+			srv := common.NewHTTPServer(
+				httpBinaryName,
+				"dev",
+				toolProvider,
+				common.WithBearerToken(bearerToken),
+				common.WithHTTPToolErrorClassifier(tools.ToolErrorClassifier),
+			)
+			addr, err := srv.Start(ctx, "127.0.0.1:0")
+			return addr, srv.Stop, err
+		},
+		writePeerDiscovery:   discovery.WritePeerDiscovery,
+		cleanupPeerDiscovery: discovery.CleanupPeerDiscovery,
 	}
 }
 
@@ -54,23 +70,18 @@ func (r *httpRunner) Run(ctx context.Context) error {
 	if strings.TrimSpace(r.bearerToken) == "" {
 		return errOrchHTTPSessionTokenRequired
 	}
-	srv := common.NewHTTPServer(
-		httpBinaryName,
-		"dev",
-		r.tools,
-		common.WithBearerToken(r.bearerToken),
-		common.WithHTTPToolErrorClassifier(tools.ToolErrorClassifier),
-	)
-	addr, err := srv.Start(ctx, "127.0.0.1:0")
+	addr, stopServer, err := r.startServer(ctx)
 	if err != nil {
 		pkglogger.Warn("mcp-orch http: start failed", "error", err)
 		return err
 	}
 
 	// Write discovery file so BuildManifest() can find this endpoint.
-	if err := discovery.WritePeerDiscovery(httpBinaryName, addr); err != nil {
-		pkglogger.Warn("mcp-orch http: discovery write failed", "error", err)
-		// Non-fatal: Claude will fall back to stdio.
+	if discoveryErr := r.writePeerDiscovery(httpBinaryName, addr); discoveryErr != nil {
+		pkglogger.Warn("mcp-orch http: discovery write failed", "error", discoveryErr)
+		stopCtx, cancel := platformconfig.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return errors.Join(discoveryErr, stopServer(stopCtx))
 	}
 
 	pkglogger.Info("mcp-orch http: listening",
@@ -79,8 +90,8 @@ func (r *httpRunner) Run(ctx context.Context) error {
 	<-ctx.Done()
 
 	// Cleanup discovery file on shutdown.
-	_ = discovery.CleanupPeerDiscovery(httpBinaryName)
+	cleanupErr := r.cleanupPeerDiscovery(httpBinaryName)
 	stopCtx, cancel := platformconfig.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return srv.Stop(stopCtx)
+	return errors.Join(cleanupErr, stopServer(stopCtx))
 }
