@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
       - name: Commit guard
@@ -31,14 +31,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: true
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
           cache: npm
@@ -49,7 +49,7 @@ jobs:
           sudo apt-get install -y pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
       - name: Install mcp-lsp test dependencies
         run: |
-          go install golang.org/x/tools/gopls@latest
+          go install golang.org/x/tools/gopls@v0.21.1
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
           rustup component add rust-analyzer
       - name: Prepare embedded frontend assets
@@ -61,10 +61,9 @@ jobs:
       - name: Build
         run: make build-plain
       - name: Test
-        shell: bash
-        run: |
-          mapfile -t go_packages < <(go list ./cmd/... ./internal/... ./pkg/... ./scripts/...)
-          ./scripts/test_with_guard.sh "${go_packages[@]}" -count=1 -timeout 180s
+        run: make ci-l1
+      - name: Validate active nightly protocol
+        run: go run ./scripts/nightly_protocol_validator
       - name: Sqlc verify
         run: make sqlc-verify
       - name: Codemap check
@@ -81,14 +80,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: true
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
           cache: npm
@@ -102,7 +101,7 @@ jobs:
       - name: Prepare embedded frontend assets
         run: make frontend-app-build
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
           version: v2.12.2
           args: --new-from-rev=origin/main --timeout=5m
@@ -112,10 +111,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
           cache: npm
@@ -140,10 +139,10 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: true
@@ -155,10 +154,10 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: true
@@ -172,16 +171,50 @@ jobs:
           GOOS=windows GOARCH=arm64 CGO_ENABLED=0 ./scripts/go_with_guard.sh test -c -o "$RUNNER_TEMP/appupdate-arm64.test.exe" ./internal/module/appupdate
           GOOS=windows GOARCH=arm64 CGO_ENABLED=0 ./scripts/go_with_guard.sh test -c -o "$RUNNER_TEMP/appupdatefailure-arm64.test.exe" ./internal/platform/appupdatefailure
 
+  windows-core-tests:
+    needs: commit-guard
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run dynamically discovered Windows core tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t windows_packages < <(go list ./cmd/... ./internal/... ./pkg/... ./scripts/...)
+          fast_packages=()
+          deferred_packages=()
+          for package in "${windows_packages[@]}"; do
+            case "$package" in
+              */internal/provider/claudecli|*/internal/provider/codexapp)
+                deferred_packages+=("$package")
+                ;;
+              *)
+                fast_packages+=("$package")
+                ;;
+            esac
+          done
+          ./scripts/test_with_guard.sh --quick-guard "${fast_packages[@]}" -count=1 -timeout 180s
+          for package in "${deferred_packages[@]}"; do
+            ./scripts/test_with_guard.sh --quick-guard "$package" -count=1 -p 1 -timeout 180s
+          done
+
   update-recovery-release-gate-linux-supplemental:
     needs: commit-guard
     runs-on: ubuntu-latest
     timeout-minutes: 20
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: true
@@ -197,17 +230,17 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: true
       - name: Capability contract check
         shell: pwsh
         run: go run ./scripts/capcontract --check
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
           cache: npm

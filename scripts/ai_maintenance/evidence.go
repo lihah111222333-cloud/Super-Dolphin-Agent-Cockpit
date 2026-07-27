@@ -146,7 +146,7 @@ func gateEvidenceCommandFragments() map[string][]string {
 		"workflow:actionlint":          {"make actionlint"},
 		"release:semantic-guards":      {"go test ./scripts"},
 		"codex-stop:self-test":         {"bash scripts/tests/test_codex_stop_gate_plan.sh"},
-		"nightly-protocol:check":       {"make nightly-protocol-check"},
+		"nightly-protocol:check":       {"go run ./scripts/nightly_protocol_validator"},
 		"backend:test-integrity":       {"go test ./internal/guards"},
 		"codemap:check":                {"make codemap-check"},
 		"project-map:check":            {"make project-map-check"},

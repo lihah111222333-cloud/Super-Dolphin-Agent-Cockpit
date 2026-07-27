@@ -48,7 +48,7 @@ func ownedGateRunners(plan gatePlan) map[string]gateRunner {
 			return runCommand("", "bash", "scripts/tests/test_codex_stop_gate_plan.sh")
 		}},
 		"nightly-protocol:check": {run: func() error {
-			return runCommand("", "make", "nightly-protocol-check")
+			return runCommand("", "go", "run", "./scripts/nightly_protocol_validator")
 		}},
 	}
 }

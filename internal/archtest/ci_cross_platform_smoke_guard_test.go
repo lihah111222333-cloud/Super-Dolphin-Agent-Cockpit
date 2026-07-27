@@ -21,6 +21,9 @@ func TestCICrossPlatformSmokeGuardsDesktopAndSidecars(t *testing.T) {
 		"macos-latest",
 		"scripts/ci_cross_platform_smoke.ps1",
 		"cache-dependency-path: frontend-app/package-lock.json",
+		"windows-core-tests:",
+		"mapfile -t windows_packages < <(go list ./cmd/... ./internal/... ./pkg/... ./scripts/...)",
+		`./scripts/test_with_guard.sh --quick-guard "$package" -count=1 -p 1`,
 	}
 	for _, want := range requiredWorkflowTokens {
 		if !strings.Contains(workflow, want) {
