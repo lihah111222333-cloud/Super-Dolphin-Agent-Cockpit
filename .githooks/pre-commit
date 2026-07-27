@@ -47,7 +47,6 @@ CACHE_INDEX=
 CACHE_INDEX_DIR=
 GATE_WORKTREE=
 GATE_COMMIT=
-GATE_DIFF_BASE=
 cleanup() {
 	local original_status="${1:-0}"
 	local cleanup_status=0
@@ -336,18 +335,11 @@ verify_staged_go_inputs() (
 )
 
 create_staged_gate_worktree() {
-  local cache_scope=$1 original_head empty_tree merge_head merge_head_path
+  local cache_scope=$1 original_head merge_head merge_head_path
   local commit_args=("$cache_scope")
 
   if original_head=$(run_go_without_git_env git rev-parse --verify HEAD 2>/dev/null); then
-    GATE_DIFF_BASE=$original_head
     commit_args+=(-p "$original_head")
-  else
-    if ! empty_tree=$(run_go_without_git_env git hash-object -t tree /dev/null); then
-      echo "❌ 无法创建首次提交门禁的 empty tree" >&2
-      exit 1
-    fi
-    GATE_DIFF_BASE=$empty_tree
   fi
 
   if ! merge_head_path=$(run_go_without_git_env git rev-parse --git-path MERGE_HEAD); then
