@@ -10,9 +10,9 @@ import (
 	mcpcommon "github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 )
 
-// Validate 用 ToolScope 中可信 agent_id 续约当前节点 assignee 的 worker lease。
-// 续约 0 行说明调用者不是 lease holder，调用方必须在写节点状态前失败。
-func Validate(ctx context.Context, store any, node taskdag.Node, leaseInterval string) error {
+// Validate 用 ToolScope 中可信 agent_id 校验当前节点 assignee 的 worker lease。
+// ready→running 建立租约；其它合法迁移只续约，0 行时必须在写状态前失败。
+func Validate(ctx context.Context, store any, node taskdag.Node, targetStatus, leaseInterval string) error {
 	scope, ok := mcpcommon.ToolScopeFromContext(ctx)
 	ownerID := ""
 	if ok {
@@ -26,7 +26,21 @@ func Validate(ctx context.Context, store any, node taskdag.Node, leaseInterval s
 	if !ok {
 		return fmt.Errorf("task_update_node worker lease requires WorkerLeaseStore for dag_key=%s node_key=%s", node.DagKey, node.NodeKey)
 	}
-	rows, err := leases.RenewWorkerLease(ctx, taskdag.RenewWorkerLeaseInput{TargetAgentID: targetAgentID, OwnerID: ownerID, LeaseInterval: leaseInterval})
+	var rows int64
+	var err error
+	if node.Status == "ready" && targetStatus == "running" {
+		rows, err = leases.AcquireWorkerLease(ctx, taskdag.AcquireWorkerLeaseInput{
+			TargetAgentID: targetAgentID,
+			OwnerID:       ownerID,
+			LeaseInterval: leaseInterval,
+		})
+	} else {
+		rows, err = leases.RenewWorkerLease(ctx, taskdag.RenewWorkerLeaseInput{
+			TargetAgentID: targetAgentID,
+			OwnerID:       ownerID,
+			LeaseInterval: leaseInterval,
+		})
+	}
 	if err != nil {
 		return err
 	}

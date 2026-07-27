@@ -1,6 +1,6 @@
 # AI 项目地图（Super-Dolphin）
 
-> 已索引文件：**4817**
+> 已索引文件：**4818**
 >
 > 扫描规则：allowlisted project files; excludes: .git/**, .idea/**, .claude/**, .workspace/**, .worktrees/**, .agent/code_exec/**, .agent/workspaces/**, .agnet/report/**, .agnet/shared/**, bin/**, reports/**, docs/archive/**, **/node_modules/**, **/dist/**, **/web-dist/**, **/coverage/**, **/.vite/**, **/.tmp/**, **/tmp/**, **/.gocache/**, **/.gomodcache/**, **/.npm-cache/**, docs/doc/codemap/project-map/**, docs/doc/codemap/ai-index.json, go.sum, test_output.txt, naked_go.txt
 >
@@ -22,7 +22,7 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 | 索引文件 | 文件数 | 大小 | 覆盖范围 |
 |---|---:|---:|---|
 | `docs/doc/codemap/project-map/index/app-ui.tsv` | 679 | 138.6 KB | 桌面应用、Wails host、React/Vite 前端与 UI 测试 |
-| `docs/doc/codemap/project-map/index/orchestration.tsv` | 392 | 88.3 KB | mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具 |
+| `docs/doc/codemap/project-map/index/orchestration.tsv` | 393 | 88.6 KB | mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具 |
 | `docs/doc/codemap/project-map/index/modules.tsv` | 748 | 145.5 KB | 业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等 |
 | `docs/doc/codemap/project-map/index/platform-provider.tsv` | 1120 | 206.6 KB | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
 | `docs/doc/codemap/project-map/index/store-sql.tsv` | 207 | 30.4 KB | 持久化层：store、sqlc、SQL queries、migrations |
@@ -49,7 +49,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 | `internal` | 2283 | 应用内部模块、平台、provider、store 与守卫 |
 | `docs` | 951 | 代码地图、ADR、计划、迁移和内部说明 |
 | `frontend-app` | 673 | 当前 React/Vite 新 UI |
-| `cmd` | 668 | 可执行入口与 MCP peer |
+| `cmd` | 669 | 可执行入口与 MCP peer |
 | `scripts` | 152 | 工程自动化脚本 |
 | `pkg` | 30 | 可复用公共库 |
 | `sql` | 29 | SQL query 源文件 |
@@ -154,7 +154,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 | 子系统 | 文件数 | 职责 |
 |---|---:|---|
 | `cmd/mcp-orch/tools` | 76 | mcp-orch MCP tool schema、registry 与 handler |
-| `cmd/mcp-orch/orchestration` | 176 | agent 生命周期、DAG、wakeup、report 与 hook 消费 |
+| `cmd/mcp-orch/orchestration` | 177 | agent 生命周期、DAG、wakeup、report 与 hook 消费 |
 | `cmd/mcp-lsp/tools` | 63 | LSP MCP tools 实现 |
 | `cmd/mcp-lsp/multilsp` | 73 | 多语言 LSP manager、transport 与缓存 |
 

@@ -232,7 +232,7 @@ func (c *dagController) UpdateNodeStatus(ctx context.Context, req UpdateNodeStat
 		if vErr != nil {
 			return vErr
 		}
-		if err := taskupdatelease.Validate(ctx, store, current, defaultWakeupLeaseInterval); err != nil {
+		if err := taskupdatelease.Validate(ctx, store, current, input.Status, defaultWakeupLeaseInterval); err != nil {
 			return err
 		}
 		oldStatus := current.Status

@@ -43040,6 +43040,10 @@
               "type": "taskdag.Node"
             },
             {
+              "name": "targetStatus",
+              "type": "string"
+            },
+            {
               "name": "leaseInterval",
               "type": "string"
             }
