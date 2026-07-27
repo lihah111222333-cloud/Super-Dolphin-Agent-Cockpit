@@ -4,6 +4,40 @@ set -euo pipefail
 root="$(git rev-parse --show-toplevel)"
 app_name="${APP_NAME:-super-dolphin}"
 version="${VERSION:-0.1.0}"
+
+validate_linux_package_identity() {
+  local name_pattern='^[A-Za-z0-9][A-Za-z0-9._ -]{0,63}$'
+  local version_pattern='^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+  if [[ ! "$app_name" =~ $name_pattern ]]; then
+    echo "invalid APP_NAME: use 1-64 path-component characters and start with a letter or digit" >&2
+    exit 1
+  fi
+  if [[ ! "$version" =~ $version_pattern ]]; then
+    echo "invalid VERSION: expected SemVer with an optional v prefix" >&2
+    exit 1
+  fi
+}
+
+require_linux_package_path_within() {
+  local dist_root="$1"
+  local candidate="$2"
+  local canonical_root canonical_candidate
+  if ! command -v realpath >/dev/null 2>&1; then
+    echo "realpath is required to prove package output containment" >&2
+    exit 1
+  fi
+  canonical_root="$(realpath -m -- "$dist_root")"
+  canonical_candidate="$(realpath -m -- "$candidate")"
+  case "$canonical_candidate" in
+    "$canonical_root"/*) ;;
+    *)
+      echo "package output escapes fixed dist root: $candidate" >&2
+      exit 1
+      ;;
+  esac
+}
+
+validate_linux_package_identity
 goos="$(go env GOOS)"
 goarch="$(go env GOARCH)"
 platform="${goos}-${goarch}"
@@ -825,6 +859,8 @@ package_linux_main() {
 
   dist="$root/dist/package/linux"
   stage="$dist/$app_name-$version-$platform"
+  require_linux_package_path_within "$dist" "$stage"
+  require_linux_package_path_within "$dist" "$stage.tar.gz"
   rm -rf "$stage" "$stage.tar.gz"
   mkdir -p "$stage/bin"
 
