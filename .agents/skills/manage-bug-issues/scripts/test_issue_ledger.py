@@ -54,6 +54,27 @@ class IssueLedgerCliTests(unittest.TestCase):
     def digest(self) -> str:
         return hashlib.sha256(self.workbook.read_bytes()).hexdigest()
 
+    @staticmethod
+    def rehash_event(workbook: Any, row: int) -> None:
+        events: Any = workbook["Events"]
+        headers = [cell.value for cell in events[1]]
+        columns = {name: index + 1 for index, name in enumerate(headers)}
+        event = {
+            name: "" if events.cell(row, column).value is None else events.cell(row, column).value
+            for name, column in columns.items()
+        }
+        body = {key: value for key, value in event.items() if key != "event_hash"}
+        events.cell(row, columns["event_hash"]).value = hashlib.sha256(
+            json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+
+    @staticmethod
+    def set_schema_version(workbook: Any, version: int) -> None:
+        project: Any = workbook["Project"]
+        headers = [cell.value for cell in project[1]]
+        columns = {name: index + 1 for index, name in enumerate(headers)}
+        project.cell(2, columns["version"]).value = version
+
     def init(self, repositories: list[dict] | None = None) -> None:
         payload: dict[str, object] = {"project_id": "proj", "name": "isolated test"}
         if repositories is not None:
@@ -117,7 +138,9 @@ class IssueLedgerCliTests(unittest.TestCase):
         validation = self.invoke("ledger", "validate")["result"]
         self.assertTrue(validation["valid"])
         self.assertEqual(validation["counts"]["Project"], 1)
-        self.assertEqual(self.invoke("ledger", "project-info")["result"]["project"]["project_id"], "proj")
+        project = self.invoke("ledger", "project-info")["result"]["project"]
+        self.assertEqual(project["project_id"], "proj")
+        self.assertEqual(project["version"], 2)
 
     def test_report_idempotency_and_expected_version_conflict_are_atomic(self) -> None:
         self.init()
@@ -133,6 +156,54 @@ class IssueLedgerCliTests(unittest.TestCase):
         )
         self.assertIn("expected_version conflict", failure["error"])
         self.assertEqual(self.digest(), before)
+
+    def test_idempotency_key_is_bound_to_the_exact_mutation_request(self) -> None:
+        self.init()
+        first = self.report(key="bound-report")
+        before = self.digest()
+        report_conflict = self.fails(
+            "issue", "report", "--title", "different report", "--description", "reproducible symptom",
+            "--severity", "HIGH", "--actor", "tester", "--idempotency-key", "bound-report",
+        )
+        self.assertIn("idempotency_key conflict", report_conflict["error"])
+        self.assertEqual(self.digest(), before)
+
+        second = self.report("second issue")
+        third = self.report("third issue")
+        relation_key = self.key("bound-relation")
+        relation_args = (
+            "issue", "relate", "--issue-id", first["issue_id"], "--target-issue-id", second["issue_id"],
+            "--relation-type", "RELATED_TO", "--expected-version", str(first["version"]), "--actor", "tester",
+            "--idempotency-key", relation_key, "--payload-json", "{}",
+        )
+        relation_result = self.invoke(*relation_args)["result"]
+        after_relation = self.digest()
+        retried = self.invoke(*relation_args)["result"]
+        self.assertTrue(retried["idempotent"])
+        self.assertEqual(retried["relation"], relation_result["relation"])
+        self.assertEqual(self.digest(), after_relation)
+
+        changed_target = self.fails(
+            "issue", "relate", "--issue-id", first["issue_id"], "--target-issue-id", third["issue_id"],
+            "--relation-type", "RELATED_TO", "--expected-version", str(first["version"]), "--actor", "tester",
+            "--idempotency-key", relation_key, "--payload-json", "{}",
+        )
+        self.assertIn("idempotency_key conflict", changed_target["error"])
+        self.assertEqual(self.digest(), after_relation)
+        changed_issue = self.fails(
+            "issue", "relate", "--issue-id", third["issue_id"], "--target-issue-id", second["issue_id"],
+            "--relation-type", "RELATED_TO", "--expected-version", str(third["version"]), "--actor", "tester",
+            "--idempotency-key", relation_key, "--payload-json", "{}",
+        )
+        self.assertIn("idempotency_key conflict", changed_issue["error"])
+        self.assertEqual(self.digest(), after_relation)
+        changed_command = self.fails(
+            "issue", "confirm", "--issue-id", first["issue_id"],
+            "--expected-version", str(relation_result["issue"]["version"]), "--actor", "tester",
+            "--idempotency-key", relation_key, "--payload-json", "{}",
+        )
+        self.assertIn("idempotency_key conflict", changed_command["error"])
+        self.assertEqual(self.digest(), after_relation)
 
     def test_state_flow_requires_authorization_and_complete_fix_commit(self) -> None:
         repo, url, commit = self.create_git_repository()
@@ -182,6 +253,7 @@ class IssueLedgerCliTests(unittest.TestCase):
     def test_invalid_foreign_key_and_transition_fail_without_changing_workbook(self) -> None:
         self.init()
         issue = self.report()
+        target = self.report("target issue")
         before = self.digest()
         bad_transition = self.fails(
             "issue", "start-investigation", "--issue-id", issue["issue_id"], "--expected-version", "1",
@@ -189,34 +261,126 @@ class IssueLedgerCliTests(unittest.TestCase):
         )
         self.assertIn("invalid state transition", bad_transition["error"])
         self.assertEqual(self.digest(), before)
+        untriaged_merge = self.fails(
+            "issue", "resolve-without-fix", "--issue-id", issue["issue_id"],
+            "--target-issue-id", target["issue_id"], "--resolution", "MERGED",
+            "--expected-version", "1", "--actor", "tester",
+            "--idempotency-key", self.key("untriaged-merge"), "--payload-json", "{}",
+        )
+        self.assertIn("invalid state transition", untriaged_merge["error"])
+        self.assertEqual(self.digest(), before)
         bad_fk = self.fails(
             "issue", "relate", "--issue-id", issue["issue_id"], "--target-issue-id", "does-not-exist",
-            "--relation-type", "DUPLICATE_OF", "--expected-version", "1", "--actor", "tester",
+            "--relation-type", "RELATED_TO", "--expected-version", "1", "--actor", "tester",
             "--idempotency-key", self.key("bad-fk"), "--payload-json", "{}",
         )
         self.assertIn("found 0", bad_fk["error"])
         self.assertEqual(self.digest(), before)
+        bad_type = self.fails(
+            "issue", "relate", "--issue-id", issue["issue_id"], "--target-issue-id", target["issue_id"],
+            "--relation-type", "FREE_FORM", "--expected-version", "1", "--actor", "tester",
+            "--idempotency-key", self.key("bad-type"), "--payload-json", "{}",
+        )
+        self.assertIn("relation_type must be one of", bad_type["error"])
+        self.assertEqual(self.digest(), before)
+        reserved_type = self.fails(
+            "issue", "relate", "--issue-id", issue["issue_id"], "--target-issue-id", target["issue_id"],
+            "--relation-type", "DUPLICATE_OF", "--expected-version", "1", "--actor", "tester",
+            "--idempotency-key", self.key("reserved-type"), "--payload-json", "{}",
+        )
+        self.assertIn("must be created by resolve-without-fix", reserved_type["error"])
+        self.assertEqual(self.digest(), before)
 
-    def test_history_search_and_duplicate_regression_relations(self) -> None:
+    def test_history_search_and_nonterminal_relations(self) -> None:
         self.init()
         first, duplicate, regression = self.report("renderer crash"), self.report("same renderer crash"), self.report("renderer regression")
         found = self.invoke("issue", "search", "--query", "renderer")["result"]
         self.assertEqual({row["issue_id"] for row in found}, {first["issue_id"], duplicate["issue_id"], regression["issue_id"]})
         first = self.mutate("record-history-search", first, {"query": "renderer", "conclusion": "related reports found"})
-        first = self.invoke(
+        related_result = self.invoke(
             "issue", "relate", "--issue-id", first["issue_id"], "--target-issue-id", duplicate["issue_id"],
-            "--relation-type", "DUPLICATE_OF", "--expected-version", str(first["version"]), "--actor", "tester",
-            "--idempotency-key", self.key("duplicate"), "--payload-json", "{}",
-        )["result"]["issue"]
-        self.invoke(
+            "--relation-type", "RELATED_TO", "--expected-version", str(first["version"]), "--actor", "tester",
+            "--idempotency-key", self.key("related"), "--payload-json", "{}",
+        )["result"]
+        first = related_result["issue"]
+        regression_result = self.invoke(
             "issue", "relate", "--issue-id", first["issue_id"], "--target-issue-id", regression["issue_id"],
             "--relation-type", "REGRESSION_OF", "--expected-version", str(first["version"]), "--actor", "tester",
             "--idempotency-key", self.key("regression"), "--payload-json", "{}",
-        )
+        )["result"]
         history = self.invoke("issue", "history", "--issue-id", first["issue_id"])["result"]
         self.assertGreaterEqual(len(history), 3)
-        relations = list(load_workbook(self.workbook, data_only=True)["IssueRelations"].values)[1:]
-        self.assertEqual({str(row[3]) for row in relations}, {"DUPLICATE_OF", "REGRESSION_OF"})
+        relation_events = [json.loads(event["payload_json"]) for event in history if event["event_type"] == "RELATED"]
+        self.assertEqual({payload["relation_type"] for payload in relation_events}, {"RELATED_TO", "REGRESSION_OF"})
+        relations = self.invoke("issue", "relations", "--issue-id", first["issue_id"])["result"]
+        self.assertEqual({row["relation_type"] for row in relations}, {"RELATED_TO", "REGRESSION_OF"})
+        self.assertEqual(
+            self.invoke("issue", "relation-get", "--relation-id", related_result["relation"]["relation_id"])["result"],
+            related_result["relation"],
+        )
+        self.assertEqual(regression_result["relation"]["target_issue_id"], regression["issue_id"])
+
+    def test_mature_issues_can_be_atomically_merged_or_marked_duplicate(self) -> None:
+        self.init()
+        canonical = self.report("canonical issue")
+        merged = self.report("mature merge candidate")
+        merged = self.mutate("record-history-search", merged)
+        merged = self.mutate("confirm", merged)
+        merged = self.mutate("start-investigation", merged)
+        merged = self.mutate("authorize-fix", merged, {"authorized_by": "owner", "authorization_scope": "candidate only"})
+        merged = self.mutate("start-fix", merged)
+        before = self.digest()
+        missing_target = self.fails(
+            "issue", "resolve-without-fix", "--issue-id", merged["issue_id"],
+            "--expected-version", str(merged["version"]), "--actor", "tester",
+            "--resolution", "MERGED", "--idempotency-key", self.key("missing-target"),
+        )
+        self.assertIn("target_issue_id", missing_target["error"])
+        self.assertEqual(self.digest(), before)
+
+        merge_key = self.key("merge")
+        merge_args = (
+            "issue", "resolve-without-fix", "--issue-id", merged["issue_id"],
+            "--target-issue-id", canonical["issue_id"], "--expected-version", str(merged["version"]),
+            "--actor", "tester", "--resolution", "MERGED", "--idempotency-key", merge_key,
+            "--payload-json", json.dumps({"basis": "same root cause"}),
+        )
+        merge_result = self.invoke(*merge_args)["result"]
+        self.assertEqual(merge_result["issue"]["status"], "MERGED")
+        self.assertEqual(merge_result["relation"]["relation_type"], "MERGED_INTO")
+        payload = json.loads(merge_result["event"]["payload_json"])
+        self.assertEqual(payload["target_issue_id"], canonical["issue_id"])
+        self.assertEqual(payload["relation_id"], merge_result["relation"]["relation_id"])
+        after_merge = self.digest()
+        retried = self.invoke(*merge_args)["result"]
+        self.assertTrue(retried["idempotent"])
+        self.assertEqual(retried["relation"], merge_result["relation"])
+        self.assertEqual(self.digest(), after_merge)
+        self.assertEqual(self.invoke("issue", "get", "--issue-id", canonical["issue_id"])["result"]["version"], 1)
+
+        duplicate = self.report("mature duplicate candidate")
+        duplicate = self.mutate("record-history-search", duplicate)
+        duplicate = self.mutate("confirm", duplicate)
+        duplicate = self.mutate("start-investigation", duplicate)
+        duplicate_result = self.invoke(
+            "issue", "resolve-without-fix", "--issue-id", duplicate["issue_id"],
+            "--target-issue-id", canonical["issue_id"], "--expected-version", str(duplicate["version"]),
+            "--actor", "tester", "--resolution", "DUPLICATE", "--idempotency-key", self.key("resolve-duplicate"),
+        )["result"]
+        self.assertEqual(duplicate_result["issue"]["status"], "DUPLICATE")
+        self.assertEqual(duplicate_result["relation"]["relation_type"], "DUPLICATE_OF")
+        relations = self.invoke("issue", "relations", "--issue-id", canonical["issue_id"])["result"]
+        self.assertEqual({row["relation_type"] for row in relations}, {"MERGED_INTO", "DUPLICATE_OF"})
+
+        invalid = self.report("invalid report")
+        invalid = self.mutate("record-history-search", invalid)
+        invalid_result = self.invoke(
+            "issue", "resolve-without-fix", "--issue-id", invalid["issue_id"],
+            "--expected-version", str(invalid["version"]), "--actor", "tester",
+            "--resolution", "INVALID", "--idempotency-key", self.key("resolve-invalid"),
+        )["result"]
+        self.assertEqual(invalid_result["issue"]["status"], "INVALID")
+        self.assertNotIn("relation", invalid_result)
 
     def test_git_evidence_checks_commit_path_and_never_persists_checkout(self) -> None:
         repo, url, commit = self.create_git_repository()
@@ -241,6 +405,244 @@ class IssueLedgerCliTests(unittest.TestCase):
         workbook.save(self.workbook)
         failure = self.fails("ledger", "validate")
         self.assertIn("event hash", failure["error"])
+
+    def test_validate_rejects_rehashed_illegal_state_transition(self) -> None:
+        self.init()
+        issue = self.report()
+        self.mutate("record-history-search", issue)
+        workbook = load_workbook(self.workbook)
+        events: Any = workbook["Events"]
+        event_headers = [cell.value for cell in events[1]]
+        event_columns = {name: index + 1 for index, name in enumerate(event_headers)}
+        events.cell(3, event_columns["event_type"]).value = "START_FIX"
+        events.cell(3, event_columns["to_status"]).value = "FIXING"
+        event = {
+            name: "" if events.cell(3, column).value is None else events.cell(3, column).value
+            for name, column in event_columns.items()
+        }
+        body = {key: value for key, value in event.items() if key != "event_hash"}
+        events.cell(3, event_columns["event_hash"]).value = hashlib.sha256(
+            json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        issues: Any = workbook["Issues"]
+        issue_headers = [cell.value for cell in issues[1]]
+        issue_columns = {name: index + 1 for index, name in enumerate(issue_headers)}
+        issues.cell(2, issue_columns["status"]).value = "FIXING"
+        workbook.save(self.workbook)
+        failure = self.fails("ledger", "validate")
+        self.assertIn("invalid state transition", failure["error"])
+
+    def test_validate_rejects_rehashed_event_type_mismatch(self) -> None:
+        self.init()
+        issue = self.report()
+        self.mutate("record-history-search", issue)
+        workbook = load_workbook(self.workbook)
+        events: Any = workbook["Events"]
+        event_headers = [cell.value for cell in events[1]]
+        event_columns = {name: index + 1 for index, name in enumerate(event_headers)}
+        events.cell(3, event_columns["event_type"]).value = "START_FIX"
+        self.rehash_event(workbook, 3)
+        workbook.save(self.workbook)
+        failure = self.fails("ledger", "validate")
+        self.assertIn("event type has invalid target status", failure["error"])
+
+    def test_validate_cross_checks_consolidation_events_and_relations(self) -> None:
+        self.init()
+        canonical = self.report("canonical")
+        other = self.report("other")
+        merged = self.report("merge candidate")
+        merged = self.mutate("record-history-search", merged)
+        merged = self.mutate("confirm", merged)
+        merged = self.mutate("start-investigation", merged)
+        self.invoke(
+            "issue", "resolve-without-fix", "--issue-id", merged["issue_id"],
+            "--target-issue-id", canonical["issue_id"], "--expected-version", str(merged["version"]),
+            "--actor", "tester", "--resolution", "MERGED", "--idempotency-key", self.key("merge"),
+        )
+        valid_bytes = self.workbook.read_bytes()
+
+        workbook = load_workbook(self.workbook)
+        relations: Any = workbook["IssueRelations"]
+        relations.delete_rows(2)
+        workbook.save(self.workbook)
+        missing = self.fails("ledger", "validate")
+        self.assertIn("missing relation", missing["error"])
+
+        self.workbook.write_bytes(valid_bytes)
+        workbook = load_workbook(self.workbook)
+        relations = workbook["IssueRelations"]
+        relation_headers = [cell.value for cell in relations[1]]
+        relation_columns = {name: index + 1 for index, name in enumerate(relation_headers)}
+        relations.cell(2, relation_columns["target_issue_id"]).value = other["issue_id"]
+        workbook.save(self.workbook)
+        wrong_target = self.fails("ledger", "validate")
+        self.assertIn("target does not match", wrong_target["error"])
+
+        self.workbook.write_bytes(valid_bytes)
+        workbook = load_workbook(self.workbook)
+        relations = workbook["IssueRelations"]
+        relation_headers = [cell.value for cell in relations[1]]
+        relation_columns = {name: index + 1 for index, name in enumerate(relation_headers)}
+        relations.cell(2, relation_columns["relation_type"]).value = "DUPLICATE_OF"
+        workbook.save(self.workbook)
+        wrong_type = self.fails("ledger", "validate")
+        self.assertIn("does not match terminal status", wrong_type["error"])
+
+        self.workbook.write_bytes(valid_bytes)
+        workbook = load_workbook(self.workbook)
+        events: Any = workbook["Events"]
+        event_headers = [cell.value for cell in events[1]]
+        event_columns = {name: index + 1 for index, name in enumerate(event_headers)}
+        merge_row = next(
+            row for row in range(2, events.max_row + 1)
+            if events.cell(row, event_columns["event_type"]).value == "RESOLVE_WITHOUT_FIX"
+        )
+        payload = json.loads(events.cell(merge_row, event_columns["payload_json"]).value)
+        payload["resolution"] = "INVALID"
+        events.cell(merge_row, event_columns["payload_json"]).value = json.dumps(payload)
+        self.rehash_event(workbook, merge_row)
+        workbook.save(self.workbook)
+        wrong_resolution = self.fails("ledger", "validate")
+        self.assertIn("resolution payload does not match", wrong_resolution["error"])
+
+    def test_validate_rejects_rehashed_consolidation_without_relation(self) -> None:
+        self.init()
+        issue = self.report()
+        issue = self.mutate("record-history-search", issue)
+        self.mutate("confirm", issue)
+        workbook = load_workbook(self.workbook)
+        events: Any = workbook["Events"]
+        event_headers = [cell.value for cell in events[1]]
+        event_columns = {name: index + 1 for index, name in enumerate(event_headers)}
+        events.cell(4, event_columns["event_type"]).value = "RESOLVE_WITHOUT_FIX"
+        events.cell(4, event_columns["to_status"]).value = "MERGED"
+        forged_payload = json.loads(events.cell(4, event_columns["payload_json"]).value)
+        forged_payload["idempotency_key"] = "forged"
+        forged_payload["resolution"] = "MERGED"
+        events.cell(4, event_columns["payload_json"]).value = json.dumps(forged_payload)
+        event = {
+            name: "" if events.cell(4, column).value is None else events.cell(4, column).value
+            for name, column in event_columns.items()
+        }
+        body = {key: value for key, value in event.items() if key != "event_hash"}
+        events.cell(4, event_columns["event_hash"]).value = hashlib.sha256(
+            json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        issues: Any = workbook["Issues"]
+        issue_headers = [cell.value for cell in issues[1]]
+        issue_columns = {name: index + 1 for index, name in enumerate(issue_headers)}
+        issues.cell(2, issue_columns["status"]).value = "MERGED"
+        workbook.save(self.workbook)
+        failure = self.fails("ledger", "validate")
+        self.assertIn("must reference a relation_id", failure["error"])
+
+    def test_validate_requires_reported_genesis_event(self) -> None:
+        self.init()
+        self.report()
+        workbook = load_workbook(self.workbook)
+        events: Any = workbook["Events"]
+        event_headers = [cell.value for cell in events[1]]
+        event_columns = {name: index + 1 for index, name in enumerate(event_headers)}
+        events.cell(2, event_columns["event_type"]).value = "START_FIX"
+        events.cell(2, event_columns["from_status"]).value = "FIXING"
+        events.cell(2, event_columns["to_status"]).value = "FIXING"
+        event = {
+            name: "" if events.cell(2, column).value is None else events.cell(2, column).value
+            for name, column in event_columns.items()
+        }
+        body = {key: value for key, value in event.items() if key != "event_hash"}
+        events.cell(2, event_columns["event_hash"]).value = hashlib.sha256(
+            json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        issues: Any = workbook["Issues"]
+        issue_headers = [cell.value for cell in issues[1]]
+        issue_columns = {name: index + 1 for index, name in enumerate(issue_headers)}
+        issues.cell(2, issue_columns["status"]).value = "FIXING"
+        workbook.save(self.workbook)
+        failure = self.fails("ledger", "validate")
+        self.assertIn("first issue event", failure["error"])
+
+    def test_validate_binds_verification_result_to_target_status(self) -> None:
+        repo, url, commit = self.create_git_repository()
+        self.init([self.repository("core", url)])
+        issue = self.ready_to_verify()
+        issue = self.register_evidence(issue, repo, commit, "FIX_COMMIT")
+        issue = self.mutate("complete-fix", issue)
+        issue = self.register_evidence(issue, repo, commit, "VERIFICATION")
+        self.mutate("record-verification", issue, {"verification_result": "PASS", "resolution": "verified"})
+        workbook = load_workbook(self.workbook)
+        events: Any = workbook["Events"]
+        event_headers = [cell.value for cell in events[1]]
+        event_columns = {name: index + 1 for index, name in enumerate(event_headers)}
+        verification_row = next(
+            row for row in range(2, events.max_row + 1)
+            if events.cell(row, event_columns["event_type"]).value == "RECORD_VERIFICATION"
+        )
+        payload = json.loads(events.cell(verification_row, event_columns["payload_json"]).value)
+        payload["verification_result"] = "FAIL"
+        events.cell(verification_row, event_columns["payload_json"]).value = json.dumps(payload)
+        self.rehash_event(workbook, verification_row)
+        workbook.save(self.workbook)
+        failure = self.fails("ledger", "validate")
+        self.assertIn("verification_result does not match", failure["error"])
+
+    def test_schema_v1_grandfathers_legacy_consolidation_without_relation(self) -> None:
+        self.init()
+        issue = self.report()
+        self.mutate("record-history-search", issue)
+        workbook = load_workbook(self.workbook)
+        self.set_schema_version(workbook, 1)
+        events: Any = workbook["Events"]
+        event_headers = [cell.value for cell in events[1]]
+        event_columns = {name: index + 1 for index, name in enumerate(event_headers)}
+        events.cell(3, event_columns["event_type"]).value = "RESOLVE_WITHOUT_FIX"
+        events.cell(3, event_columns["to_status"]).value = "DUPLICATE"
+        legacy_payload = json.loads(events.cell(3, event_columns["payload_json"]).value)
+        legacy_payload.pop("request_fingerprint")
+        events.cell(3, event_columns["payload_json"]).value = json.dumps(legacy_payload)
+        self.rehash_event(workbook, 3)
+        issues: Any = workbook["Issues"]
+        issue_headers = [cell.value for cell in issues[1]]
+        issue_columns = {name: index + 1 for index, name in enumerate(issue_headers)}
+        issues.cell(2, issue_columns["status"]).value = "DUPLICATE"
+        workbook.save(self.workbook)
+        self.assertTrue(self.invoke("ledger", "validate")["result"]["valid"])
+
+    def test_schema_v1_grandfathers_legacy_relation_but_replay_fails_closed(self) -> None:
+        self.init()
+        source = self.report("source")
+        target = self.report("target")
+        relation_key = self.key("legacy-relation")
+        self.invoke(
+            "issue", "relate", "--issue-id", source["issue_id"], "--target-issue-id", target["issue_id"],
+            "--relation-type", "RELATED_TO", "--expected-version", str(source["version"]), "--actor", "tester",
+            "--idempotency-key", relation_key, "--payload-json", "{}",
+        )
+        workbook = load_workbook(self.workbook)
+        self.set_schema_version(workbook, 1)
+        events: Any = workbook["Events"]
+        event_headers = [cell.value for cell in events[1]]
+        event_columns = {name: index + 1 for index, name in enumerate(event_headers)}
+        legacy_payload = json.loads(events.cell(4, event_columns["payload_json"]).value)
+        for name in ("request_fingerprint", "relation_id", "target_issue_id", "relation_type"):
+            legacy_payload.pop(name)
+        events.cell(4, event_columns["payload_json"]).value = json.dumps(legacy_payload)
+        self.rehash_event(workbook, 4)
+        relations: Any = workbook["IssueRelations"]
+        relation_headers = [cell.value for cell in relations[1]]
+        relation_columns = {name: index + 1 for index, name in enumerate(relation_headers)}
+        relations.cell(2, relation_columns["created_at"]).value = "2099-01-01T00:00:00+00:00"
+        relations.cell(2, relation_columns["relation_type"]).value = "CUSTOM_LEGACY"
+        workbook.save(self.workbook)
+        self.assertTrue(self.invoke("ledger", "validate")["result"]["valid"])
+        before = self.digest()
+        replay = self.fails(
+            "issue", "relate", "--issue-id", source["issue_id"], "--target-issue-id", target["issue_id"],
+            "--relation-type", "RELATED_TO", "--expected-version", str(source["version"]), "--actor", "tester",
+            "--idempotency-key", relation_key, "--payload-json", "{}",
+        )
+        self.assertIn("legacy idempotency_key cannot be replayed", replay["error"])
+        self.assertEqual(self.digest(), before)
 
 
 if __name__ == "__main__":

@@ -43,19 +43,57 @@ SHEETS: dict[str, list[str]] = {
 
 STATES = ("REPORTED", "TRIAGED", "CONFIRMED", "INVESTIGATING", "READY_TO_FIX", "FIXING", "READY_TO_VERIFY", "CLOSED", "REOPENED", "DEFERRED", "DUPLICATE", "MERGED", "INVALID", "CANNOT_REPRODUCE", "WONT_FIX")
 TERMINAL = {"CLOSED", "DEFERRED", "DUPLICATE", "MERGED", "INVALID", "CANNOT_REPRODUCE", "WONT_FIX"}
+LEDGER_SCHEMA_VERSION = 2
+RELATION_TYPES = {"DUPLICATE_OF", "MERGED_INTO", "REGRESSION_OF", "RELATED_TO"}
+CONSOLIDATION_RELATIONS = {"DUPLICATE": "DUPLICATE_OF", "MERGED": "MERGED_INTO"}
+CONSOLIDATION_RELATION_TYPES = set(CONSOLIDATION_RELATIONS.values())
+IDEMPOTENCY_FIELDS = (
+    "issue_id", "event_id", "evidence_id", "title", "description", "severity",
+    "actor", "expected_version", "root_cause", "authorized_by",
+    "authorization_scope", "resolution", "verification_result",
+    "target_issue_id", "relation_type", "evidence_type", "repo_id", "commit",
+    "relative_path", "locator",
+)
+SELF_EVENT_TYPES = {"IDENTIFY_ROOT_CAUSE", "RELATED", "EVIDENCE_REGISTERED", "EVIDENCE_RETRACTED", "EVENT_CORRECTED"}
+EVENT_TARGETS: dict[str, set[str]] = {
+    "RECORD_HISTORY_SEARCH": {"TRIAGED"},
+    "CONFIRM": {"CONFIRMED"},
+    "START_INVESTIGATION": {"INVESTIGATING"},
+    "AUTHORIZE_FIX": {"READY_TO_FIX"},
+    "REVOKE_FIX_AUTHORIZATION": {"INVESTIGATING"},
+    "START_FIX": {"FIXING"},
+    "COMPLETE_FIX": {"READY_TO_VERIFY"},
+    "RECORD_VERIFICATION": {"CLOSED", "REOPENED"},
+    "REOPEN": {"REOPENED"},
+    "DEFER": {"DEFERRED"},
+    "RESOLVE_WITHOUT_FIX": {"DUPLICATE", "MERGED", "INVALID", "CANNOT_REPRODUCE", "WONT_FIX"},
+}
+EVENT_REQUIRED_PAYLOAD: dict[str, set[str]] = {
+    "REPORTED": {"title", "description", "severity"},
+    "IDENTIFY_ROOT_CAUSE": {"root_cause"},
+    "AUTHORIZE_FIX": {"authorized_by", "authorization_scope"},
+    "RECORD_VERIFICATION": {"verification_result", "resolution"},
+    "DEFER": {"resolution"},
+    "RESOLVE_WITHOUT_FIX": {"resolution"},
+    "EVIDENCE_REGISTERED": {"evidence_type", "repo_id", "commit_hash", "description"},
+    "EVIDENCE_RETRACTED": {"evidence_id"},
+    "EVENT_CORRECTED": {"corrected_event_id"},
+}
+LEGACY_REPORTED_TARGETS = {"DEFERRED", "DUPLICATE", "INVALID", "CANNOT_REPRODUCE"}
 TRANSITIONS: dict[str, set[str]] = {
-    "REPORTED": {"TRIAGED", "DEFERRED", "DUPLICATE", "INVALID", "CANNOT_REPRODUCE"},
-    "TRIAGED": {"CONFIRMED", "DEFERRED", "DUPLICATE", "INVALID", "CANNOT_REPRODUCE", "WONT_FIX"},
-    "CONFIRMED": {"INVESTIGATING", "DEFERRED", "WONT_FIX"},
-    "INVESTIGATING": {"READY_TO_FIX", "DEFERRED", "CANNOT_REPRODUCE", "WONT_FIX", "INVALID"},
-    "READY_TO_FIX": {"FIXING", "INVESTIGATING", "DEFERRED", "WONT_FIX"},
-    "FIXING": {"READY_TO_VERIFY", "INVESTIGATING", "DEFERRED"},
-    "READY_TO_VERIFY": {"CLOSED", "REOPENED", "FIXING", "INVESTIGATING", "DEFERRED"},
-    "REOPENED": {"CONFIRMED", "INVESTIGATING", "DEFERRED"},
+    "REPORTED": {"TRIAGED"},
+    "TRIAGED": {"CONFIRMED", "DEFERRED", "DUPLICATE", "MERGED", "INVALID", "CANNOT_REPRODUCE", "WONT_FIX"},
+    "CONFIRMED": {"INVESTIGATING", "DEFERRED", "DUPLICATE", "MERGED", "WONT_FIX"},
+    "INVESTIGATING": {"READY_TO_FIX", "DEFERRED", "DUPLICATE", "MERGED", "CANNOT_REPRODUCE", "WONT_FIX", "INVALID"},
+    "READY_TO_FIX": {"FIXING", "INVESTIGATING", "DEFERRED", "DUPLICATE", "MERGED", "WONT_FIX"},
+    "FIXING": {"READY_TO_VERIFY", "INVESTIGATING", "DEFERRED", "DUPLICATE", "MERGED"},
+    "READY_TO_VERIFY": {"CLOSED", "REOPENED", "FIXING", "INVESTIGATING", "DEFERRED", "DUPLICATE", "MERGED"},
+    "REOPENED": {"CONFIRMED", "INVESTIGATING", "DEFERRED", "DUPLICATE", "MERGED"},
     "CLOSED": {"REOPENED"}, "DEFERRED": {"REOPENED"}, "DUPLICATE": {"REOPENED"},
     "MERGED": {"REOPENED"}, "INVALID": {"REOPENED"}, "CANNOT_REPRODUCE": {"REOPENED"}, "WONT_FIX": {"REOPENED"},
 }
 SHA = re.compile(r"^[0-9a-f]{40}$")
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
 HEADER_FILL = PatternFill("solid", fgColor="1F4E78")
 HEADER_FONT = Font(color="FFFFFF", bold=True)
 TEXT_COLUMNS = {
@@ -237,6 +275,8 @@ class Ledger:
         project = self.rows("Project")
         if len(project) != 1 or not project[0]["project_id"]:
             fail("Project must contain exactly one project")
+        schema_version = project[0]["version"]
+        if schema_version not in {1, LEDGER_SCHEMA_VERSION}: fail(f"unsupported ledger schema version: {schema_version}")
         issues = self.rows("Issues")
         issue_ids = {r["issue_id"] for r in issues}
         if len(issue_ids) != len(issues): fail("duplicate issue_id")
@@ -245,9 +285,10 @@ class Ledger:
             if issue["status"] not in STATES: fail(f"unknown issue status: {issue['status']}")
             if not isinstance(issue["version"], int) or issue["version"] < 1: fail("invalid issue version")
         repos = {r["repo_id"] for r in self.rows("Repositories")}
-        event_ids: set[str] = set(); event_hashes: dict[str, str] = {}
+        events = self.rows("Events")
+        event_ids: set[str] = set(); event_hashes: dict[str, str] = {}; event_payloads: dict[str, dict[str, Any]] = {}; strict_events: dict[str, bool] = {}; idempotency_keys: set[str] = set()
         last_hash: dict[str, str] = {}; last_event: dict[str, str] = {}; last_status: dict[str, str] = {}
-        for event in self.rows("Events"):
+        for event in events:
             if event["event_id"] in event_ids: fail("duplicate event_id")
             event_ids.add(event["event_id"])
             if event["issue_id"] not in issue_ids: fail("event issue foreign key violation")
@@ -255,9 +296,42 @@ class Ledger:
             if event["event_hash"] != event_digest(event): fail("invalid event hash")
             if event["corrects_event_id"] and event["corrects_event_id"] not in event_hashes: fail("correction must reference an earlier event")
             if event["from_status"] not in STATES or event["to_status"] not in STATES: fail("event has invalid status snapshot")
-            if event["from_status"] != last_status.get(event["issue_id"], event["from_status"]): fail("event status snapshots are not continuous")
+            stored_payload = json_object(event["payload_json"], "stored event payload")
+            request_fingerprint = stored_payload.get("request_fingerprint")
+            if schema_version >= LEDGER_SCHEMA_VERSION and not request_fingerprint: fail("schema v2 event requires request_fingerprint")
+            if request_fingerprint and not SHA256.fullmatch(str(request_fingerprint)): fail("invalid request_fingerprint")
+            strict_event = schema_version >= LEDGER_SCHEMA_VERSION or bool(request_fingerprint)
+            if event["issue_id"] not in last_status:
+                if (event["event_type"], event["from_status"], event["to_status"]) != ("REPORTED", "REPORTED", "REPORTED"): fail("first issue event must be REPORTED -> REPORTED")
+            else:
+                if event["from_status"] != last_status[event["issue_id"]]: fail("event status snapshots are not continuous")
+                if event["event_type"] in SELF_EVENT_TYPES:
+                    if event["from_status"] != event["to_status"]: fail(f"{event['event_type']} must not change issue status")
+                elif event["event_type"] in EVENT_TARGETS:
+                    if event["from_status"] == event["to_status"] or event["to_status"] not in EVENT_TARGETS[event["event_type"]]: fail(f"event type has invalid target status: {event['event_type']} -> {event['to_status']}")
+                else:
+                    fail(f"unknown or misplaced event_type: {event['event_type']}")
+            if strict_event:
+                missing_payload = [
+                    name for name in EVENT_REQUIRED_PAYLOAD.get(event["event_type"], set())
+                    if stored_payload.get(name) in (None, "")
+                ]
+                if missing_payload: fail(f"event payload is missing required fields: {', '.join(sorted(missing_payload))}")
+                if event["event_type"] == "RESOLVE_WITHOUT_FIX" and stored_payload["resolution"] != event["to_status"]:
+                    fail("resolution payload does not match terminal status")
+                if event["event_type"] == "RECORD_VERIFICATION":
+                    verification_target = {"PASS": "CLOSED", "FAIL": "REOPENED"}.get(stored_payload["verification_result"])
+                    if verification_target != event["to_status"]: fail("verification_result does not match target status")
+            if event["from_status"] != event["to_status"] and event["to_status"] not in TRANSITIONS[event["from_status"]]:
+                legacy_reported_transition = not strict_event and event["from_status"] == "REPORTED" and event["to_status"] in LEGACY_REPORTED_TARGETS
+                if not legacy_reported_transition: fail(f"event has invalid state transition: {event['from_status']} -> {event['to_status']}")
             event_hashes[event["event_id"]] = event["event_hash"]; last_hash[event["issue_id"]] = event["event_hash"]; last_event[event["issue_id"]] = event["event_id"]; last_status[event["issue_id"]] = event["to_status"]
-            json_object(event["payload_json"], "stored event payload")
+            idempotency_key = stored_payload.get("idempotency_key")
+            if idempotency_key:
+                if not isinstance(idempotency_key, str) or idempotency_key in idempotency_keys: fail("duplicate or invalid idempotency_key")
+                idempotency_keys.add(idempotency_key)
+            event_payloads[event["event_id"]] = stored_payload
+            strict_events[event["event_id"]] = strict_event
         evidence_ids: set[str] = set()
         for evidence in self.rows("Evidence"):
             if evidence["evidence_id"] in evidence_ids: fail("duplicate evidence_id")
@@ -271,9 +345,67 @@ class Ledger:
             if issue["status"] != last_status.get(issue["issue_id"], ""): fail("issue snapshot status is inconsistent with latest event")
         for link in self.rows("EventEvidence"):
             if link["event_id"] not in event_ids or link["evidence_id"] not in evidence_ids: fail("EventEvidence foreign key violation")
-        for relation in self.rows("IssueRelations"):
+        relations = self.rows("IssueRelations")
+        relation_ids: set[str] = set(); relations_by_id: dict[str, dict[str, Any]] = {}
+        for relation in relations:
+            if relation["relation_id"] in relation_ids: fail("duplicate relation_id")
+            relation_ids.add(relation["relation_id"])
+            relations_by_id[relation["relation_id"]] = relation
             if relation["source_issue_id"] not in issue_ids or relation["target_issue_id"] not in issue_ids: fail("IssueRelations foreign key violation")
             if relation["source_issue_id"] == relation["target_issue_id"]: fail("self issue relation is forbidden")
+            if schema_version >= LEDGER_SCHEMA_VERSION and relation["relation_type"] not in RELATION_TYPES: fail(f"unknown issue relation type: {relation['relation_type']}")
+        relation_events: dict[str, str] = {}; legacy_related_events: list[dict[str, Any]] = []
+        for event in events:
+            payload = event_payloads[event["event_id"]]
+            strict_event = strict_events[event["event_id"]]
+            expected_type = CONSOLIDATION_RELATIONS.get(event["to_status"]) if event["from_status"] != event["to_status"] else None
+            legacy = False
+            if expected_type:
+                if event["event_type"] != "RESOLVE_WITHOUT_FIX": fail("consolidation transition must use RESOLVE_WITHOUT_FIX")
+                relation_id = payload.get("relation_id")
+                if not relation_id:
+                    if strict_event: fail("consolidation event must reference a relation_id")
+                    continue
+            elif event["event_type"] == "RELATED":
+                relation_id = payload.get("relation_id")
+                if not relation_id:
+                    if strict_event: fail("RELATED event must reference a relation_id")
+                    legacy = True
+                    candidates = [
+                        relation for relation in relations
+                        if relation["source_issue_id"] == event["issue_id"]
+                        and relation["created_at"] == event["occurred_at"]
+                        and relation["created_by"] == event["actor"]
+                    ]
+                    if len(candidates) == 1:
+                        relation_id = candidates[0]["relation_id"]
+                    else:
+                        legacy_related_events.append(event)
+                        continue
+            else:
+                if payload.get("relation_id"): fail("non-relation event must not reference relation_id")
+                continue
+            relation = relations_by_id.get(str(relation_id))
+            if not relation: fail("relation event references a missing relation")
+            if relation["relation_id"] in relation_events: fail("relation must be referenced by exactly one event")
+            if relation["source_issue_id"] != event["issue_id"]: fail("relation source does not match event issue")
+            if strict_event and relation["relation_type"] not in RELATION_TYPES: fail(f"unknown issue relation type: {relation['relation_type']}")
+            if expected_type and relation["relation_type"] != expected_type: fail("consolidation relation type does not match terminal status")
+            if not expected_type and relation["relation_type"] in CONSOLIDATION_RELATION_TYPES and strict_event: fail("generic RELATED event cannot create a consolidation relation")
+            if not legacy and payload.get("target_issue_id") != relation["target_issue_id"]: fail("relation target does not match event payload")
+            if not legacy and payload.get("relation_type") != relation["relation_type"]: fail("relation type does not match event payload")
+            if not legacy and relation["created_at"] != event["occurred_at"]: fail("relation created_at does not match event")
+            if not legacy and relation["created_by"] != event["actor"]: fail("relation created_by does not match event")
+            relation_events[relation["relation_id"]] = event["event_id"]
+        unreferenced_relations = relation_ids - set(relation_events)
+        if unreferenced_relations and schema_version >= LEDGER_SCHEMA_VERSION: fail("every relation must be referenced by exactly one event")
+        for relation_id in unreferenced_relations:
+            relation = relations_by_id[relation_id]
+            if not any(
+                event["issue_id"] == relation["source_issue_id"] and event["actor"] == relation["created_by"]
+                for event in legacy_related_events
+            ):
+                fail("legacy relation has no compatible RELATED event")
         return {"valid": True, "counts": {name: len(self.rows(name)) for name in SHEETS}}
 
     @staticmethod
@@ -336,6 +468,32 @@ def idem(ledger: Ledger, key: str) -> Optional[dict[str, Any]]:
     return None
 
 
+def idempotency_fingerprint(command: str, args: argparse.Namespace, payload: dict[str, Any]) -> str:
+    request: dict[str, Any] = {
+        "command": command,
+        "payload": {
+            key: value
+            for key, value in payload.items()
+            if key not in {"idempotency_key", "request_fingerprint"}
+        },
+    }
+    for name in IDEMPOTENCY_FIELDS:
+        value = getattr(args, name, None)
+        if value is not None:
+            request[name] = value
+    return hashlib.sha256(canonical(request).encode()).hexdigest()
+
+
+def assert_idempotent_request(event: dict[str, Any], fingerprint: str, event_type: str, issue_id: Optional[str] = None) -> None:
+    stored = json_object(event["payload_json"], "stored event payload")
+    if not stored.get("request_fingerprint"):
+        fail("legacy idempotency_key cannot be replayed; inspect current state and use a new key")
+    conflict = event["event_type"] != event_type or (issue_id is not None and event["issue_id"] != issue_id)
+    conflict = conflict or stored["request_fingerprint"] != fingerprint
+    if conflict:
+        fail("idempotency_key conflict: key is bound to a different request")
+
+
 def append_event(ledger: Ledger, issue_id: str, event_type: str, from_status: str, to_status: str, actor: str, payload: dict[str, Any], corrects: str = "") -> dict[str, Any]:
     events = [e for e in ledger.rows("Events") if e["issue_id"] == issue_id]
     previous = events[-1]["event_hash"] if events else ""
@@ -356,6 +514,49 @@ def issue_mutation(ledger: Ledger, args: argparse.Namespace, action: str, target
     updates.update({"version": old["version"] + 1, "latest_event_id": event["event_id"], "updated_at": now()})
     issue = ledger.replace("Issues", "issue_id", old["issue_id"], updates)
     return {"issue": issue, "event": event}
+
+
+def relation_record(ledger: Ledger, source: str, target: str, relation_type: str, actor: str, relation_id: Optional[str] = None) -> dict[str, Any]:
+    ledger.find("Issues", "issue_id", source); ledger.find("Issues", "issue_id", target)
+    if source == target: fail("cannot relate an issue to itself")
+    if relation_type not in RELATION_TYPES: fail(f"relation_type must be one of: {', '.join(sorted(RELATION_TYPES))}")
+    return {
+        "relation_id": relation_id or str(uuid.uuid4()),
+        "source_issue_id": source,
+        "target_issue_id": target,
+        "relation_type": relation_type,
+        "created_at": now(),
+        "created_by": required(actor, "actor"),
+    }
+
+
+def relation_for_event(ledger: Ledger, event: dict[str, Any]) -> dict[str, Any]:
+    payload = json_object(event["payload_json"], "stored event payload")
+    if payload.get("relation_id"):
+        return ledger.find("IssueRelations", "relation_id", payload["relation_id"])
+    matches = [
+        relation for relation in ledger.rows("IssueRelations")
+        if relation["source_issue_id"] == event["issue_id"]
+        and relation["created_at"] == event["occurred_at"]
+        and relation["created_by"] == event["actor"]
+    ]
+    if len(matches) != 1:
+        fail("relation event cannot be resolved to exactly one relation")
+    return matches[0]
+
+
+def idempotent_issue_result(ledger: Ledger, event: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "idempotent": True,
+        "issue": ledger.find("Issues", "issue_id", event["issue_id"]),
+        "event": event,
+    }
+    if event["event_type"] == "RELATED" or (
+        event["from_status"] != event["to_status"]
+        and event["to_status"] in CONSOLIDATION_RELATIONS
+    ):
+        result["relation"] = relation_for_event(ledger, event)
+    return result
 
 
 def command_init(args: argparse.Namespace) -> dict[str, Any]:
@@ -394,7 +595,7 @@ def command_init(args: argparse.Namespace) -> dict[str, Any]:
         table.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=True)
         ws.add_table(table)
     ledger = object.__new__(Ledger); ledger.path = path; ledger.writable = True; ledger.wb = wb
-    ledger.append("Project", {"project_id": project_id, "name": name, "created_at": now(), "version": 1})
+    ledger.append("Project", {"project_id": project_id, "name": name, "created_at": now(), "version": LEDGER_SCHEMA_VERSION})
     for state in STATES:
         ledger.append("Dictionaries", {"dictionary_type": "issue_status", "key": state, "value": state, "active": True})
     repositories = payload.get("repositories", [])
@@ -409,16 +610,19 @@ def command_init(args: argparse.Namespace) -> dict[str, Any]:
 
 def command_report(ledger: Ledger, args: argparse.Namespace) -> dict[str, Any]:
     payload = json_object(args.payload_json); key = required(args.idempotency_key, "idempotency_key")
+    title = field(payload, args, "title", True); description = field(payload, args, "description", True); actor = field(payload, args, "actor", True)
+    severity = field(payload, args, "severity", True)
+    fingerprint = idempotency_fingerprint("issue:report", args, payload)
     existing = idem(ledger, key)
-    if existing: return {"idempotent": True, "issue": ledger.find("Issues", "issue_id", existing["issue_id"]), "event": existing}
+    if existing:
+        assert_idempotent_request(existing, fingerprint, "REPORTED")
+        return {"idempotent": True, "issue": ledger.find("Issues", "issue_id", existing["issue_id"]), "event": existing}
     project = ledger.rows("Project")[0]
     pattern = re.compile(re.escape(project["project_id"]) + r"-BUG-(\d{4})$")
     sequence = max((int(match.group(1)) for row in ledger.rows("Issues") if (match := pattern.fullmatch(str(row["issue_id"])))), default=0) + 1
     issue_id = f"{project['project_id']}-BUG-{sequence:04d}"
-    title = field(payload, args, "title", True); description = field(payload, args, "description", True); actor = field(payload, args, "actor", True)
-    severity = field(payload, args, "severity", True)
     issue = {"issue_id": issue_id, "project_id": project["project_id"], "title": title, "description": description, "severity": severity, "status": "REPORTED", "version": 1, "latest_event_id": "", "reported_at": now(), "reported_by": actor, "root_cause": "", "authorization_scope": "", "authorized_by": "", "authorized_at": "", "resolution": "", "closed_at": "", "updated_at": now()}
-    ledger.append("Issues", issue); payload.update({"idempotency_key": key, "title": title, "description": description, "severity": severity})
+    ledger.append("Issues", issue); payload.update({"idempotency_key": key, "request_fingerprint": fingerprint, "title": title, "description": description, "severity": severity})
     event = append_event(ledger, issue_id, "REPORTED", "REPORTED", "REPORTED", actor, payload)
     issue = ledger.replace("Issues", "issue_id", issue_id, {"latest_event_id": event["event_id"]})
     return {"issue": issue, "event": event}
@@ -426,16 +630,33 @@ def command_report(ledger: Ledger, args: argparse.Namespace) -> dict[str, Any]:
 
 def command_transition(ledger: Ledger, args: argparse.Namespace, name: str) -> dict[str, Any]:
     payload = json_object(args.payload_json); key = required(args.idempotency_key, "idempotency_key")
+    issue_id = required(args.issue_id, "issue_id"); required(args.expected_version, "expected_version")
+    actor = field(payload, args, "actor", True)
+    event_type = name.upper().replace("-", "_")
+    fingerprint = idempotency_fingerprint(f"issue:{name}", args, payload)
     existing = idem(ledger, key)
-    if existing: return {"idempotent": True, "issue": ledger.find("Issues", "issue_id", existing["issue_id"]), "event": existing}
-    payload["idempotency_key"] = key
-    target: Optional[str] = None; updates: dict[str, Any] = {}
+    if existing:
+        requested_resolution = field(payload, args, "resolution", True) if name == "resolve-without-fix" else None
+        assert_idempotent_request(existing, fingerprint, event_type, issue_id)
+        if requested_resolution is not None and existing["to_status"] != requested_resolution:
+            fail("idempotency_key conflict: key is bound to a different request")
+        result = idempotent_issue_result(ledger, existing)
+        if requested_resolution in CONSOLIDATION_RELATIONS:
+            existing_relation: dict[str, Any] = result["relation"]
+            requested_target = field(payload, args, "target_issue_id", True)
+            if existing_relation["target_issue_id"] != requested_target or existing_relation["relation_type"] != CONSOLIDATION_RELATIONS[requested_resolution]:
+                fail("idempotency_key conflict: key is bound to a different request")
+        return result
+    payload.update({"idempotency_key": key, "request_fingerprint": fingerprint})
+    target: Optional[str] = None; updates: dict[str, Any] = {}; relation: Optional[dict[str, Any]] = None
     if name == "record-history-search": target = "TRIAGED"
     elif name == "confirm": target = "CONFIRMED"
     elif name == "start-investigation": target = "INVESTIGATING"
-    elif name == "identify-root-cause": updates["root_cause"] = field(payload, args, "root_cause", True)
+    elif name == "identify-root-cause":
+        root_cause = field(payload, args, "root_cause", True); updates["root_cause"] = root_cause; payload["root_cause"] = root_cause
     elif name == "authorize-fix":
-        target = "READY_TO_FIX"; updates.update({"authorized_by": field(payload, args, "authorized_by", True), "authorized_at": now(), "authorization_scope": field(payload, args, "authorization_scope", True)})
+        authorized_by = field(payload, args, "authorized_by", True); authorization_scope = field(payload, args, "authorization_scope", True)
+        target = "READY_TO_FIX"; updates.update({"authorized_by": authorized_by, "authorized_at": now(), "authorization_scope": authorization_scope}); payload.update({"authorized_by": authorized_by, "authorization_scope": authorization_scope})
     elif name == "revoke-fix-authorization": target = "INVESTIGATING"; updates.update({"authorized_by": "", "authorized_at": "", "authorization_scope": ""})
     elif name == "start-fix": target = "FIXING"
     elif name == "complete-fix":
@@ -446,45 +667,91 @@ def command_transition(ledger: Ledger, args: argparse.Namespace, name: str) -> d
         outcome = field(payload, args, "verification_result", True)
         if outcome not in {"PASS", "FAIL"}: fail("verification_result must be PASS or FAIL")
         target = "CLOSED" if outcome == "PASS" else "REOPENED"
-        updates.update({"resolution": field(payload, args, "resolution", True), "closed_at": now() if outcome == "PASS" else ""})
+        verification_resolution = field(payload, args, "resolution", True)
+        updates.update({"resolution": verification_resolution, "closed_at": now() if outcome == "PASS" else ""}); payload.update({"verification_result": outcome, "resolution": verification_resolution})
     elif name == "reopen": target = "REOPENED"; updates["closed_at"] = ""
-    elif name == "defer": target = "DEFERRED"; updates["resolution"] = field(payload, args, "resolution", True)
+    elif name == "defer":
+        defer_resolution = field(payload, args, "resolution", True); target = "DEFERRED"; updates["resolution"] = defer_resolution; payload["resolution"] = defer_resolution
     elif name == "resolve-without-fix":
         target = field(payload, args, "resolution", True)
         if target not in {"DUPLICATE", "MERGED", "INVALID", "CANNOT_REPRODUCE", "WONT_FIX"}: fail("resolution must be a terminal non-fix state")
+        payload["resolution"] = target
+        if target in CONSOLIDATION_RELATIONS:
+            source = issue_id
+            relation = relation_record(
+                ledger,
+                source,
+                field(payload, args, "target_issue_id", True),
+                CONSOLIDATION_RELATIONS[target],
+                actor,
+            )
+            payload.update({
+                "relation_id": relation["relation_id"],
+                "target_issue_id": relation["target_issue_id"],
+                "relation_type": relation["relation_type"],
+            })
         updates["resolution"] = target; updates["closed_at"] = now()
     else: fail(f"unsupported issue command: {name}")
-    return issue_mutation(ledger, args, name.upper().replace("-", "_"), target, updates, payload, name == "start-fix")
+    result = issue_mutation(ledger, args, event_type, target, updates, payload, name == "start-fix")
+    if relation:
+        relation["created_at"] = result["event"]["occurred_at"]
+        relation["created_by"] = result["event"]["actor"]
+        ledger.append("IssueRelations", relation)
+        result["relation"] = relation
+    return result
 
 
 def command_relate(ledger: Ledger, args: argparse.Namespace) -> dict[str, Any]:
     payload = json_object(args.payload_json); key = required(args.idempotency_key, "idempotency_key")
+    source = required(args.issue_id, "issue_id"); required(args.expected_version, "expected_version")
+    target = field(payload, args, "target_issue_id", True); relation_type = field(payload, args, "relation_type", True)
+    actor = field(payload, args, "actor", True)
+    if relation_type in CONSOLIDATION_RELATION_TYPES: fail("DUPLICATE_OF and MERGED_INTO must be created by resolve-without-fix")
+    fingerprint = idempotency_fingerprint("issue:relate", args, payload)
     existing = idem(ledger, key)
-    if existing: return {"idempotent": True, "event": existing}
-    source = required(args.issue_id, "issue_id"); target = field(payload, args, "target_issue_id", True)
-    ledger.find("Issues", "issue_id", source); ledger.find("Issues", "issue_id", target)
-    if source == target: fail("cannot relate an issue to itself")
-    payload["idempotency_key"] = key
+    if existing:
+        assert_idempotent_request(existing, fingerprint, "RELATED", source)
+        result = idempotent_issue_result(ledger, existing)
+        if result["relation"]["target_issue_id"] != target or result["relation"]["relation_type"] != relation_type:
+            fail("idempotency_key conflict: key is bound to a different request")
+        return result
+    relation = relation_record(ledger, source, target, relation_type, actor)
+    payload.update({
+        "idempotency_key": key,
+        "request_fingerprint": fingerprint,
+        "relation_id": relation["relation_id"],
+        "target_issue_id": relation["target_issue_id"],
+        "relation_type": relation["relation_type"],
+    })
     result = issue_mutation(ledger, args, "RELATED", None, {}, payload)
-    ledger.append("IssueRelations", {"relation_id": str(uuid.uuid4()), "source_issue_id": source, "target_issue_id": target, "relation_type": field(payload, args, "relation_type", True), "created_at": now(), "created_by": field(payload, args, "actor", True)})
+    relation["created_at"] = result["event"]["occurred_at"]
+    relation["created_by"] = result["event"]["actor"]
+    ledger.append("IssueRelations", relation)
+    result["relation"] = relation
     return result
 
 
 def command_evidence(ledger: Ledger, args: argparse.Namespace, mappings: dict[str, Path]) -> dict[str, Any]:
     payload = json_object(args.payload_json); key = required(args.idempotency_key, "idempotency_key")
+    event_type = "EVIDENCE_REGISTERED" if args.evidence_command == "register" else "EVIDENCE_RETRACTED"
+    fingerprint = idempotency_fingerprint(f"evidence:{args.evidence_command}", args, payload)
     existing = idem(ledger, key)
-    if existing: return {"idempotent": True, "event": existing}
+    if existing:
+        assert_idempotent_request(existing, fingerprint, event_type, field(payload, args, "issue_id"))
+        return {"idempotent": True, "event": existing}
+    payload["request_fingerprint"] = fingerprint
     if args.evidence_command == "register":
         args.issue_id = field(payload, args, "issue_id", True)
         repo_id = field(payload, args, "repo_id", True); relative_path = field(payload, args, "relative_path")
         commit = validate_evidence_git(ledger, repo_id, field(payload, args, "commit", True), relative_path, mappings)
-        payload.update({"idempotency_key": key, "repo_id": repo_id, "commit_hash": commit, "relative_path": relative_path or ""})
+        evidence_type = field(payload, args, "evidence_type", True); description = field(payload, args, "description", True)
+        payload.update({"idempotency_key": key, "evidence_type": evidence_type, "repo_id": repo_id, "commit_hash": commit, "relative_path": relative_path or "", "description": description})
         result = issue_mutation(ledger, args, "EVIDENCE_REGISTERED", None, {}, payload)
-        evidence = {"evidence_id": str(uuid.uuid4()), "issue_id": args.issue_id, "evidence_type": field(payload, args, "evidence_type", True), "repo_id": repo_id, "commit_hash": commit, "relative_path": relative_path or "", "locator": field(payload, args, "locator") or "", "description": field(payload, args, "description", True), "registered_at": now(), "registered_by": field(payload, args, "actor", True), "active": True}
+        evidence = {"evidence_id": str(uuid.uuid4()), "issue_id": args.issue_id, "evidence_type": evidence_type, "repo_id": repo_id, "commit_hash": commit, "relative_path": relative_path or "", "locator": field(payload, args, "locator") or "", "description": description, "registered_at": now(), "registered_by": field(payload, args, "actor", True), "active": True}
         ledger.append("Evidence", evidence); ledger.append("EventEvidence", {"event_id": result["event"]["event_id"], "evidence_id": evidence["evidence_id"]})
         result["evidence"] = evidence; return result
     evidence = ledger.find("Evidence", "evidence_id", required(args.evidence_id, "evidence_id")); args.issue_id = evidence["issue_id"]
-    payload["idempotency_key"] = key
+    payload["idempotency_key"] = key; payload["evidence_id"] = evidence["evidence_id"]
     result = issue_mutation(ledger, args, "EVIDENCE_RETRACTED", None, {}, payload)
     evidence = ledger.replace("Evidence", "evidence_id", evidence["evidence_id"], {"active": False})
     ledger.append("EventEvidence", {"event_id": result["event"]["event_id"], "evidence_id": evidence["evidence_id"]})
@@ -493,10 +760,13 @@ def command_evidence(ledger: Ledger, args: argparse.Namespace, mappings: dict[st
 
 def command_correct(ledger: Ledger, args: argparse.Namespace) -> dict[str, Any]:
     payload = json_object(args.payload_json); key = required(args.idempotency_key, "idempotency_key")
+    fingerprint = idempotency_fingerprint("event:correct", args, payload)
     existing = idem(ledger, key)
-    if existing: return {"idempotent": True, "event": existing}
+    if existing:
+        assert_idempotent_request(existing, fingerprint, "EVENT_CORRECTED")
+        return {"idempotent": True, "event": existing}
     original = ledger.find("Events", "event_id", required(args.event_id, "event_id")); args.issue_id = original["issue_id"]
-    payload["idempotency_key"] = key; payload["corrected_event_id"] = original["event_id"]
+    payload["idempotency_key"] = key; payload["request_fingerprint"] = fingerprint; payload["corrected_event_id"] = original["event_id"]
     result = issue_mutation(ledger, args, "EVENT_CORRECTED", None, {}, payload, corrects=original["event_id"])
     # Correcting immutable history is represented only by the appended event.
     return result
@@ -514,9 +784,12 @@ def parser() -> argparse.ArgumentParser:
     report = ip.add_parser("report"); report.add_argument("--title"); report.add_argument("--description"); report.add_argument("--severity"); report.add_argument("--actor"); report.add_argument("--payload-json"); report.add_argument("--idempotency-key")
     for name in ("get", "list", "search", "history"):
         p = ip.add_parser(name); p.add_argument("--issue-id"); p.add_argument("--query")
+    relations = ip.add_parser("relations"); relations.add_argument("--issue-id")
+    relation_get = ip.add_parser("relation-get"); relation_get.add_argument("--relation-id")
     changing = ("record-history-search", "confirm", "start-investigation", "identify-root-cause", "authorize-fix", "revoke-fix-authorization", "start-fix", "complete-fix", "record-verification", "reopen", "defer", "resolve-without-fix")
     for name in changing:
         p = ip.add_parser(name); p.add_argument("--issue-id"); p.add_argument("--expected-version", type=int); p.add_argument("--actor"); p.add_argument("--idempotency-key"); p.add_argument("--payload-json"); p.add_argument("--root-cause"); p.add_argument("--authorized-by"); p.add_argument("--authorization-scope"); p.add_argument("--resolution"); p.add_argument("--verification-result")
+        if name == "resolve-without-fix": p.add_argument("--target-issue-id")
     relate = ip.add_parser("relate"); relate.add_argument("--issue-id"); relate.add_argument("--target-issue-id"); relate.add_argument("--relation-type"); relate.add_argument("--expected-version", type=int); relate.add_argument("--actor"); relate.add_argument("--idempotency-key"); relate.add_argument("--payload-json")
     evidence = groups.add_parser("evidence"); ep = evidence.add_subparsers(dest="evidence_command", required=True)
     register = ep.add_parser("register")
@@ -546,7 +819,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         if args.group == "ledger" and args.command == "init":
             result = command_init(args); output({"ok": True, "result": result}); return 0
         path = Path(required(args.workbook, "workbook"))
-        writable = not (args.group == "ledger" and args.command in {"validate", "project-info"}) and not (args.group == "issue" and args.issue_command in {"get", "list", "search", "history"})
+        writable = not (args.group == "ledger" and args.command in {"validate", "project-info"}) and not (args.group == "issue" and args.issue_command in {"get", "list", "search", "history", "relations", "relation-get"})
         with workbook_lock(path, writable):
             ledger = Ledger(path, writable); ledger.validate()
             if args.group == "ledger": result = ledger.validate() if args.command == "validate" else {"project": ledger.rows("Project")[0], "repositories": ledger.rows("Repositories")}
@@ -557,12 +830,16 @@ def main(argv: Optional[list[str]] = None) -> int:
                     query = required(args.query, "query").casefold(); result = [r for r in ledger.rows("Issues") if query in canonical(r).casefold()]
                 elif args.issue_command == "history":
                     issue_id = required(args.issue_id, "issue_id"); ledger.find("Issues", "issue_id", issue_id); result = [e for e in ledger.rows("Events") if e["issue_id"] == issue_id]
+                elif args.issue_command == "relations":
+                    issue_id = required(args.issue_id, "issue_id"); ledger.find("Issues", "issue_id", issue_id); result = [r for r in ledger.rows("IssueRelations") if issue_id in {r["source_issue_id"], r["target_issue_id"]}]
+                elif args.issue_command == "relation-get": result = ledger.find("IssueRelations", "relation_id", required(args.relation_id, "relation_id"))
                 elif args.issue_command == "relate": result = command_relate(ledger, args)
                 elif args.issue_command == "report": result = command_report(ledger, args)
                 else: result = command_transition(ledger, args, args.issue_command)
             elif args.group == "evidence": result = command_evidence(ledger, args, repository_paths(args.repo_path))
             else: result = command_correct(ledger, args)
-            if writable: ledger.validate(); ledger.save()
+            if writable and not (isinstance(result, dict) and result.get("idempotent")):
+                ledger.validate(); ledger.save()
             output({"ok": True, "result": result})
         return 0
     except LedgerError as exc:
