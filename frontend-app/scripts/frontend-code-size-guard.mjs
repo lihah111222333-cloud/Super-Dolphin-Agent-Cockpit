@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { parse as parseJavaScriptSource } from '@babel/parser';
+import { parse as parseJavaScriptSource } from '@babel/parser'; import { canonicalViolationSignature, isCanonicalFullScan, sameCanonicalViolationBudget } from './lib/frontend-code-size-baseline.mjs';
 
 const appRoot = path.resolve(new URL('..', import.meta.url).pathname);
 const baselinePath = path.join(appRoot, '.frontend_code_size_guard_baseline.json');
@@ -20,7 +20,7 @@ export const FRONTEND_CODE_SIZE_LIMITS = Object.freeze({
 });
 
 const sourceExtensionPattern = /\.[cm]?[jt]sx?$/;
-const defaultSourceRoots = Object.freeze(['src']);
+const defaultSourceRoots = Object.freeze(['src', 'scripts']);
 const ignoreDirNames = new Set(['node_modules', 'dist', 'coverage']);
 
 function readOptionValue(args, index, flag) {
@@ -385,14 +385,8 @@ function saveBaseline(filePath, data) {
   fs.writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
 }
 
-function canonicalViolationSignature(signature) {
-  if (typeof signature !== 'string') return signature;
-  const [rule] = signature.split('\u0000');
-  return rule === 'file-length' ? rule : signature;
-}
-
 function violationSignature(entry) {
-  return canonicalViolationSignature(`${entry.rule}\u0000${entry.message}`);
+  return `${entry.rule}\u0000${entry.message}`;
 }
 
 function signatureBudget(signatures) {
@@ -408,7 +402,7 @@ function unfrozenViolations(violations, frozen) {
   const budget = signatureBudget(frozen?.frozenViolations);
   if (budget.size === 0) return violations;
   return violations.filter((entry) => {
-    const signature = violationSignature(entry);
+    const signature = canonicalViolationSignature(violationSignature(entry));
     const remaining = budget.get(signature) || 0;
     if (remaining <= 0) return true;
     budget.set(signature, remaining - 1);
@@ -435,9 +429,11 @@ function ratchetViolations(relFile, current, frozen) {
   });
 }
 
-function baselineEntryForCurrentViolations(relFile, source, currentViolations) {
+function baselineEntryForCurrentViolations(relFile, source, currentViolations, frozen) {
   const metrics = measureFrontendCodeSizeSource(relFile, source);
-  metrics.frozenViolations = currentViolations.map(violationSignature).sort();
+  metrics.frozenViolations = frozen && sameCanonicalViolationBudget(currentViolations.map(violationSignature), frozen.frozenViolations)
+    ? [...frozen.frozenViolations]
+    : currentViolations.map(violationSignature).sort();
   return metrics;
 }
 
@@ -487,32 +483,37 @@ function saveBaselineIfChanged(filePath, currentBaseline, nextBaseline) {
   });
 }
 
-function runFreeze(files) {
+function runFreeze(files, scope = 'all') {
   const meta = { updatedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z') };
-  const prodBaseline = { _meta: meta, files: {} };
-  const testBaseline = { _meta: meta, files: {} };
+  const freezeProduction = scope !== 'test';
+  const freezeTests = scope !== 'production';
+  const prodBaseline = freezeProduction ? { _meta: meta, files: {} } : loadBaseline(baselinePath);
+  const testBaseline = freezeTests ? { _meta: meta, files: {} } : loadBaseline(baselineTestPath);
   for (const file of files) {
     const source = fs.readFileSync(file.abs, 'utf8');
     const violations = rulesForSource(file.rel, source);
     if (violations.length === 0) continue;
     const metrics = baselineEntryForCurrentViolations(file.rel, source, violations);
-    if (isFrontendTestFile(file.rel)) testBaseline.files[file.rel] = metrics;
-    else prodBaseline.files[file.rel] = metrics;
+    if (isFrontendTestFile(file.rel)) {
+      if (freezeTests) testBaseline.files[file.rel] = metrics;
+    } else if (freezeProduction) prodBaseline.files[file.rel] = metrics;
   }
-  const dirCounts = new Map();
-  for (const { rel } of files.filter((file) => !isFrontendTestFile(file.rel))) {
-    const dir = path.dirname(rel);
-    dirCounts.set(dir, (dirCounts.get(dir) || 0) + 1);
+  if (freezeProduction) {
+    const dirCounts = new Map();
+    for (const { rel } of files.filter((file) => !isFrontendTestFile(file.rel))) {
+      const dir = path.dirname(rel);
+      dirCounts.set(dir, (dirCounts.get(dir) || 0) + 1);
+    }
+    for (const [dir, count] of dirCounts.entries()) {
+      if (count > FRONTEND_CODE_SIZE_LIMITS.maxDirectoryFiles) prodBaseline.files[`__dir__:${dir}`] = { lines: count };
+    }
   }
-  for (const [dir, count] of dirCounts.entries()) {
-    if (count > FRONTEND_CODE_SIZE_LIMITS.maxDirectoryFiles) prodBaseline.files[`__dir__:${dir}`] = { lines: count };
-  }
-  saveBaseline(baselinePath, prodBaseline);
-  saveBaseline(baselineTestPath, testBaseline);
+  if (freezeProduction) saveBaseline(baselinePath, prodBaseline);
+  if (freezeTests) saveBaseline(baselineTestPath, testBaseline);
   console.log(`frontend code size guard froze ${Object.keys(prodBaseline.files).length} production entries and ${Object.keys(testBaseline.files).length} test entries`);
 }
 
-function runCheck(files, { strict = false, scope = 'all' } = {}) {
+function runCheck(files, { pruneStale = false, strict = false, scope = 'all' } = {}) {
   const prodBaseline = strict ? { files: {} } : loadBaseline(baselinePath);
   const testBaseline = strict ? { files: {} } : loadBaseline(baselineTestPath);
   const nextProdBaseline = { ...prodBaseline, files: { ...(prodBaseline.files || {}) } };
@@ -532,7 +533,7 @@ function runCheck(files, { strict = false, scope = 'all' } = {}) {
       violations.push(...ratchets);
       if (currentViolations.length > 0 || ratchets.length > 0) {
         frozenFiles += 1;
-        if (ratchets.length === 0) nextBaseline.files[file.rel] = baselineEntryForCurrentViolations(file.rel, source, currentViolations);
+        if (ratchets.length === 0) nextBaseline.files[file.rel] = baselineEntryForCurrentViolations(file.rel, source, currentViolations, frozen);
       } else {
         delete nextBaseline.files[file.rel];
       }
@@ -541,14 +542,14 @@ function runCheck(files, { strict = false, scope = 'all' } = {}) {
   violations.push(...directorySizeViolations(files, strict ? { files: {} } : prodBaseline));
   if (violations.length === 0) {
     if (!strict) {
-      if (scope !== 'test') {
+      if (scope !== 'test' && pruneStale) {
         for (const key of Object.keys(nextProdBaseline.files)) {
           if (!key.startsWith('__dir__:') && (!scannedFiles.has(key) || isFrontendTestFile(key))) delete nextProdBaseline.files[key];
         }
         const refreshedProdBaseline = refreshDirectoryBaseline(files, nextProdBaseline);
         saveBaselineIfChanged(baselinePath, prodBaseline, refreshedProdBaseline);
       }
-      if (scope !== 'production') {
+      if (scope !== 'production' && pruneStale) {
         for (const key of Object.keys(nextTestBaseline.files)) {
           if (!scannedFiles.has(key) || !isFrontendTestFile(key)) delete nextTestBaseline.files[key];
         }
@@ -605,8 +606,8 @@ function main() {
     options.scope,
   );
   if (files.length === 0) throw new Error('no frontend source files found');
-  if (options.mode === 'freeze') runFreeze(files);
-  else runCheck(files, { strict: options.mode === 'strict', scope: options.scope });
+  if (options.mode === 'freeze') runFreeze(files, options.scope);
+  else runCheck(files, { pruneStale: isCanonicalFullScan(options.dirs, options.files, defaultSourceRoots.map((root) => path.join(appRoot, root))), strict: options.mode === 'strict', scope: options.scope });
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

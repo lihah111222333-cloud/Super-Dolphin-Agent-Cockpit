@@ -16,6 +16,7 @@ import {
 
 const appRoot = process.cwd();
 const guardScriptSourcePath = path.join(appRoot, 'scripts/frontend-code-size-guard.mjs');
+const guardBaselineSourcePath = path.join(appRoot, 'scripts/lib/frontend-code-size-baseline.mjs');
 
 function sourceWithEffectiveLines(lineCount) {
   return Array.from({ length: lineCount }, (_, index) => `const value${index} = ${index};`).join('\n');
@@ -37,11 +38,44 @@ function frozenFileLengthMetrics(lines) {
   };
 }
 
+function nestedSource(nesting) {
+  const lines = ['function nested() {'];
+  for (let depth = 1; depth < nesting; depth += 1) {
+    lines.push(`${'  '.repeat(depth)}if (value${depth}) {`);
+  }
+  lines.push(`${'  '.repeat(nesting)}return true;`);
+  for (let depth = nesting - 1; depth > 0; depth -= 1) {
+    lines.push(`${'  '.repeat(depth)}}`);
+  }
+  lines.push('}');
+  return lines.join('\n');
+}
+
+function functionSource(name, lineCount) {
+  return [
+    `function ${name}() {`,
+    ...Array.from({ length: lineCount - 2 }, (_, index) => `  const value${index} = ${index};`),
+    '}',
+  ].join('\n');
+}
+
+function frozenMetricsForSource(relFile, source) {
+  const violations = checkFrontendCodeSizeSource(relFile, source);
+  return {
+    ...measureFrontendCodeSizeSource(relFile, source),
+    frozenViolations: violations.map((entry) => `${entry.rule}\0${entry.message}`).sort(),
+  };
+}
+
 function runGuardWithFixture({
   currentLines,
+  currentSource,
   frozenLines,
+  frozenProductionFiles,
   guardArgs = [],
   frozenTestFiles = {},
+  relFile = 'src/fixture.js',
+  scanDir = 'src',
 }) {
   const fixtureRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'frontend-code-size-guard-')));
   const fixtureSourceDir = path.join(fixtureRoot, 'src');
@@ -49,23 +83,25 @@ function runGuardWithFixture({
   const fixtureGuardScriptPath = path.join(fixtureScriptDir, 'frontend-code-size-guard.mjs');
   const fixtureBaselinePath = path.join(fixtureRoot, '.frontend_code_size_guard_baseline.json');
   const fixtureBaselineTestPath = path.join(fixtureRoot, '.frontend_code_size_guard_baseline_test.json');
-  const sourcePath = path.join(fixtureSourceDir, 'fixture.js');
-  const relFile = 'src/fixture.js';
+  const sourcePath = path.join(fixtureRoot, relFile);
 
   try {
     fs.mkdirSync(fixtureSourceDir, { recursive: true });
     fs.mkdirSync(fixtureScriptDir, { recursive: true });
+    fs.mkdirSync(path.join(fixtureScriptDir, 'lib'), { recursive: true });
+    fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
     fs.symlinkSync(path.join(appRoot, 'node_modules'), path.join(fixtureRoot, 'node_modules'), 'dir');
     fs.copyFileSync(guardScriptSourcePath, fixtureGuardScriptPath);
-    fs.writeFileSync(sourcePath, sourceWithEffectiveLines(currentLines), 'utf8');
-    const files = frozenLines === undefined ? {} : { [relFile]: frozenFileLengthMetrics(frozenLines) };
+    fs.copyFileSync(guardBaselineSourcePath, path.join(fixtureScriptDir, 'lib/frontend-code-size-baseline.mjs'));
+    fs.writeFileSync(sourcePath, currentSource ?? sourceWithEffectiveLines(currentLines), 'utf8');
+    const files = frozenProductionFiles
+      ?? (frozenLines === undefined ? {} : { [relFile]: frozenFileLengthMetrics(frozenLines) });
     fs.writeFileSync(fixtureBaselinePath, `${JSON.stringify(baselineData(files), null, 2)}\n`, 'utf8');
     fs.writeFileSync(fixtureBaselineTestPath, `${JSON.stringify(baselineData(frozenTestFiles), null, 2)}\n`, 'utf8');
 
     const result = spawnSync(process.execPath, [
       fixtureGuardScriptPath,
-      '--dir',
-      'src',
+      ...(scanDir ? ['--dir', scanDir] : []),
       ...guardArgs,
     ], {
       cwd: fixtureRoot,
@@ -75,6 +111,7 @@ function runGuardWithFixture({
     return {
       status: result.status,
       output: `${result.stdout}${result.stderr}`,
+      productionBaseline: JSON.parse(fs.readFileSync(fixtureBaselinePath, 'utf8')),
       testBaseline: JSON.parse(fs.readFileSync(fixtureBaselineTestPath, 'utf8')),
     };
   } finally {
@@ -182,6 +219,7 @@ describe('frontend code size guard', () => {
   });
 
   it('parses scope and repeatable file filters', () => {
+    expect(parseFrontendCodeSizeGuardArgs([]).dirs.map((dir) => path.basename(dir))).toEqual(['src', 'scripts']);
     expect(parseFrontendCodeSizeGuardArgs(['--scope', 'production']).scope).toBe('production');
     expect(parseFrontendCodeSizeGuardArgs(['--scope', 'test']).scope).toBe('test');
     expect(parseFrontendCodeSizeGuardArgs(['--scope', 'all']).scope).toBe('all');
@@ -193,6 +231,99 @@ describe('frontend code size guard', () => {
       'src/AppShell.jsx',
     ]).files).toEqual(['src/App.jsx', 'src/AppShell.jsx']);
     expect(() => parseFrontendCodeSizeGuardArgs(['--scope', 'bad'])).toThrow(/invalid value for --scope/);
+  });
+
+  it('keeps the production gate scanning src and non-test scripts in one guard invocation', () => {
+    const packageJSON = JSON.parse(fs.readFileSync(path.join(appRoot, 'package.json'), 'utf8'));
+    const command = packageJSON.scripts?.['guard:critical-skip'];
+    expect(command).toEqual(expect.any(String));
+    const productionInvocations = command
+      .split('&&')
+      .map((step) => step.trim())
+      .filter((step) => step.includes('frontend-code-size-guard.mjs --scope production'));
+    expect(productionInvocations).toEqual([
+      'node scripts/frontend-code-size-guard.mjs --scope production --dir src --dir scripts',
+    ]);
+  });
+
+  it('rejects new production debt in non-test scripts', () => {
+    const result = runGuardWithFixture({
+      currentLines: FRONTEND_CODE_SIZE_LIMITS.maxFileLines + 1,
+      frozenLines: undefined,
+      guardArgs: ['--scope', 'production'],
+      relFile: 'scripts/non-test.mjs',
+      scanDir: 'scripts',
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('[file-length]');
+    expect(result.output).toContain('scripts/non-test.mjs');
+  });
+
+  it('allows frozen nesting debt to improve and rejects a nesting regression', () => {
+    const relFile = 'src/fixture.js';
+    const frozenSource = nestedSource(6);
+    const frozenProductionFiles = {
+      [relFile]: frozenMetricsForSource(relFile, frozenSource),
+    };
+    const improved = runGuardWithFixture({
+      currentSource: nestedSource(5),
+      frozenProductionFiles,
+      guardArgs: ['--scope', 'production'],
+    });
+    const regressed = runGuardWithFixture({
+      currentSource: nestedSource(7),
+      frozenProductionFiles,
+      guardArgs: ['--scope', 'production'],
+    });
+
+    expect(improved.status, improved.output).toBe(0);
+    expect(regressed.status).toBe(1);
+    expect(regressed.output).toContain('[freeze/nesting]');
+  });
+
+  it('keeps function debt attached to its function while allowing that function to improve', () => {
+    const relFile = 'src/fixture.js';
+    const frozenSource = functionSource('oldDebt', 160);
+    const frozenProductionFiles = {
+      [relFile]: frozenMetricsForSource(relFile, frozenSource),
+    };
+    const improved = runGuardWithFixture({
+      currentSource: functionSource('oldDebt', 155),
+      frozenProductionFiles,
+      guardArgs: ['--scope', 'production'],
+    });
+    const migrated = runGuardWithFixture({
+      currentSource: functionSource('newDebt', 160),
+      frozenProductionFiles,
+      guardArgs: ['--scope', 'production'],
+    });
+    const regressed = runGuardWithFixture({
+      currentSource: functionSource('oldDebt', 161),
+      frozenProductionFiles,
+      guardArgs: ['--scope', 'production'],
+    });
+
+    expect(improved.status, improved.output).toBe(0);
+    expect(migrated.status).toBe(1);
+    expect(migrated.output).toContain('[func-length]');
+    expect(regressed.status).toBe(1);
+    expect(regressed.output).toContain('[freeze/func-length]');
+  });
+
+  it('preserves the test baseline when freezing only the production scope', () => {
+    const frozenTestFiles = {
+      'src/existing.test.js': frozenFileLengthMetrics(FRONTEND_CODE_SIZE_LIMITS.maxTestFileLines + 1),
+    };
+    const result = runGuardWithFixture({
+      currentLines: FRONTEND_CODE_SIZE_LIMITS.maxFileLines + 1,
+      frozenLines: undefined,
+      guardArgs: ['--freeze', '--scope', 'production'],
+      frozenTestFiles,
+    });
+
+    expect(result.status, result.output).toBe(0);
+    expect(result.testBaseline.files).toEqual(frozenTestFiles);
   });
 
   it('preserves the opposite-scope baseline during a scoped check', () => {
@@ -208,6 +339,37 @@ describe('frontend code size guard', () => {
 
     expect(result.status, result.output).toBe(0);
     expect(result.testBaseline.files).toEqual(frozenTestFiles);
+  });
+
+  it('preserves unscanned production baseline entries during a partial file check', () => {
+    const frozenProductionFiles = {
+      'scripts/unscanned.mjs': frozenFileLengthMetrics(FRONTEND_CODE_SIZE_LIMITS.maxFileLines + 1),
+    };
+    const result = runGuardWithFixture({
+      currentSource: 'const clean = true;',
+      frozenProductionFiles,
+      guardArgs: ['--scope', 'production', '--file', 'src/fixture.js'],
+    });
+
+    expect(result.status, result.output).toBe(0);
+    expect(result.productionBaseline.files).toEqual(frozenProductionFiles);
+  });
+
+  it('prunes a missing production entry only during a canonical full scan', () => {
+    const guardRelFile = 'scripts/frontend-code-size-guard.mjs';
+    const frozenProductionFiles = {
+      [guardRelFile]: frozenMetricsForSource(guardRelFile, fs.readFileSync(guardScriptSourcePath, 'utf8')),
+      'scripts/missing.mjs': frozenFileLengthMetrics(FRONTEND_CODE_SIZE_LIMITS.maxFileLines + 1),
+    };
+    const result = runGuardWithFixture({
+      currentSource: 'const clean = true;',
+      frozenProductionFiles,
+      guardArgs: ['--scope', 'production'],
+      scanDir: null,
+    });
+
+    expect(result.status, result.output).toBe(0);
+    expect(result.productionBaseline.files).not.toHaveProperty('scripts/missing.mjs');
   });
 
   it('allows frozen file-length to decrease while remaining over the limit', () => {
