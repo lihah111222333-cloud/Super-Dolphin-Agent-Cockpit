@@ -80,11 +80,27 @@ type rawRef struct {
 	endLine   int
 }
 
+type generatedCodemapArtifacts struct {
+	index          Index
+	indexData      []byte
+	readmeCodemaps []codemapindex.ReadmeCodemap
+	anchorManifest codemapindex.AnchorManifest
+	anchorData     []byte
+}
+
 // maxRefsPerFile 限制单个源码文件的 codemap 引用数量，避免索引体积失控。
 const maxRefsPerFile = 20
 
 // main 生成或检查 codemap ai-index.json 与 README 同步内容。
 func main() {
+	if err := runCodemapIndex(); err != nil {
+		fmt.Fprintf(os.Stderr, "codemap index: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// runCodemapIndex 解析命令参数，并分派只读检查或生成物刷新流程。
+func runCodemapIndex() error {
 	check := flag.Bool("check", false, "verify docs/doc/codemap generated files without modifying the worktree")
 	flag.Parse()
 
@@ -95,49 +111,98 @@ func main() {
 	codemapDir := filepath.Join(root, "docs", "doc", "codemap")
 	outPath := filepath.Join(codemapDir, "ai-index.json")
 	readmePath := filepath.Join(codemapDir, "README.md")
+	anchorManifestPath := filepath.Join(codemapDir, "anchor-identities.json")
 
-	generatedAt := time.Now().Format("2006-01-02")
+	artifacts, err := buildGeneratedCodemapArtifacts(root, codemapDir, generatedAtForMode(*check, outPath))
+	if err != nil {
+		return err
+	}
+
 	if *check {
+		checkGeneratedFiles(
+			outPath,
+			artifacts.indexData,
+			readmePath,
+			artifacts.readmeCodemaps,
+			artifacts.index.GeneratedAt,
+			anchorManifestPath,
+			artifacts.anchorData,
+			artifacts.anchorManifest,
+		)
+		fmt.Printf("ai-index.json: %d files, %d total refs, %d sections, %d codemaps (up to date)\n",
+			len(artifacts.index.Files), countRefs(artifacts.index.Files), len(artifacts.index.SectionIndex), len(artifacts.index.Codemaps))
+		return nil
+	}
+
+	if err := refreshGeneratedCodemapFiles(outPath, readmePath, anchorManifestPath, artifacts); err != nil {
+		return err
+	}
+	fmt.Printf("ai-index.json: %d files, %d total refs, %d sections, %d codemaps\n",
+		len(artifacts.index.Files), countRefs(artifacts.index.Files), len(artifacts.index.SectionIndex), len(artifacts.index.Codemaps))
+	return nil
+}
+
+// generatedAtForMode 在检查模式复用既有日期，刷新模式使用当天日期。
+func generatedAtForMode(check bool, outPath string) string {
+	if check {
 		if existing, ok := existingGeneratedAt(outPath); ok {
-			generatedAt = existing
+			return existing
 		}
 	}
+	return time.Now().Format("2006-01-02")
+}
 
+// buildGeneratedCodemapArtifacts 一次性构建索引、README 输入和锚点身份生成物。
+func buildGeneratedCodemapArtifacts(root, codemapDir, generatedAt string) (generatedCodemapArtifacts, error) {
 	idx, readmeCodemaps, err := buildIndex(root, codemapDir, generatedAt)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "build index: %v\n", err)
-		os.Exit(1)
+		return generatedCodemapArtifacts{}, fmt.Errorf("build index: %w", err)
 	}
-	data, err := json.Marshal(idx)
+	indexData, err := json.Marshal(idx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "marshal: %v\n", err)
-		os.Exit(1)
+		return generatedCodemapArtifacts{}, fmt.Errorf("marshal index: %w", err)
 	}
+	anchorManifest, err := buildAnchorManifest(root, codemapDir)
+	if err != nil {
+		return generatedCodemapArtifacts{}, fmt.Errorf("build anchor manifest: %w", err)
+	}
+	anchorData, err := codemapindex.MarshalAnchorManifest(anchorManifest)
+	if err != nil {
+		return generatedCodemapArtifacts{}, fmt.Errorf("marshal anchor manifest: %w", err)
+	}
+	return generatedCodemapArtifacts{
+		index:          idx,
+		indexData:      indexData,
+		readmeCodemaps: readmeCodemaps,
+		anchorManifest: anchorManifest,
+		anchorData:     anchorData,
+	}, nil
+}
 
-	if *check {
-		checkGeneratedFiles(outPath, data, readmePath, readmeCodemaps, idx.GeneratedAt)
-		fmt.Printf("ai-index.json: %d files, %d total refs, %d sections, %d codemaps (up to date)\n",
-			len(idx.Files), countRefs(idx.Files), len(idx.SectionIndex), len(idx.Codemaps))
-		return
+// refreshGeneratedCodemapFiles 写入索引、README 同步区和锚点身份清单。
+func refreshGeneratedCodemapFiles(
+	outPath, readmePath, anchorManifestPath string,
+	artifacts generatedCodemapArtifacts,
+) error {
+	if err := os.WriteFile(outPath, artifacts.indexData, 0o644); err != nil {
+		return fmt.Errorf("write index: %w", err)
 	}
-
-	if err := os.WriteFile(outPath, data, 0644); err != nil {
-		fmt.Fprintf(os.Stderr, "write: %v\n", err)
-		os.Exit(1)
+	if err := codemapindex.SyncREADME(readmePath, artifacts.readmeCodemaps, artifacts.index.GeneratedAt); err != nil {
+		return fmt.Errorf("sync README: %w", err)
 	}
-	if err := codemapindex.SyncREADME(readmePath, readmeCodemaps, idx.GeneratedAt); err != nil {
-		fmt.Fprintf(os.Stderr, "sync readme: %v\n", err)
-		os.Exit(1)
+	if err := codemapindex.WriteAnchorManifest(anchorManifestPath, artifacts.anchorManifest); err != nil {
+		return fmt.Errorf("write anchor manifest: %w", err)
 	}
-
-	fmt.Printf("ai-index.json: %d files, %d total refs, %d sections, %d codemaps\n",
-		len(idx.Files), countRefs(idx.Files), len(idx.SectionIndex), len(idx.Codemaps))
+	return nil
 }
 
 // buildIndex 扫描 codemap 文档和源码文件，构建索引及 README 同步输入。
 func buildIndex(root, codemapDir, generatedAt string) (Index, []codemapindex.ReadmeCodemap, error) {
 	mds, err := loadCodemaps(codemapDir)
 	if err != nil {
+		return Index{}, nil, err
+	}
+	if err := validateCodemapSemantics(root, mds); err != nil {
 		return Index{}, nil, err
 	}
 
@@ -165,7 +230,16 @@ func buildIndex(root, codemapDir, generatedAt string) (Index, []codemapindex.Rea
 }
 
 // checkGeneratedFiles 对比索引和 README 的生成内容，发现陈旧立即退出。
-func checkGeneratedFiles(indexPath string, indexData []byte, readmePath string, readmeCodemaps []codemapindex.ReadmeCodemap, generatedAt string) {
+func checkGeneratedFiles(
+	indexPath string,
+	indexData []byte,
+	readmePath string,
+	readmeCodemaps []codemapindex.ReadmeCodemap,
+	generatedAt string,
+	anchorManifestPath string,
+	anchorData []byte,
+	expectedAnchorManifest codemapindex.AnchorManifest,
+) {
 	stale := !sameFileContent(indexPath, indexData)
 	expectedREADME, err := renderSyncedREADME(readmePath, readmeCodemaps, generatedAt)
 	if err != nil {
@@ -175,10 +249,33 @@ func checkGeneratedFiles(indexPath string, indexData []byte, readmePath string, 
 	if !sameFileContent(readmePath, expectedREADME) {
 		stale = true
 	}
+	currentAnchorData, err := os.ReadFile(anchorManifestPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "codemap-check: read %s: %v\n", anchorManifestPath, err)
+		stale = true
+	} else {
+		if err := codemapindex.ValidateAnchorManifest(currentAnchorData, expectedAnchorManifest); err != nil {
+			fmt.Fprintf(os.Stderr, "codemap-check: %v\n", err)
+			stale = true
+		}
+		if !bytes.Equal(currentAnchorData, anchorData) {
+			fmt.Fprintf(os.Stderr, "codemap-check: %s differs from canonical generated output\n", anchorManifestPath)
+			stale = true
+		}
+	}
 	if stale {
 		fmt.Fprintln(os.Stderr, "codemap-check: generated files are stale; run `make codemap-refresh`")
 		os.Exit(1)
 	}
+}
+
+// buildAnchorManifest 复用编号卷输入生成 path:line 内容身份清单。
+func buildAnchorManifest(root, codemapDir string) (codemapindex.AnchorManifest, error) {
+	mds, err := loadCodemaps(codemapDir)
+	if err != nil {
+		return codemapindex.AnchorManifest{}, err
+	}
+	return codemapindex.BuildAnchorManifest(root, semanticMarkdownDocs(mds))
 }
 
 // sameFileContent 判断磁盘文件是否与期望内容完全一致，并输出差异来源。
@@ -387,8 +484,8 @@ func readLines(p string) ([]string, error) {
 // extractTitle 返回 markdown 的第一个一级标题。
 func extractTitle(lines []string) string {
 	for _, l := range lines {
-		if strings.HasPrefix(strings.TrimSpace(l), "# ") {
-			return strings.TrimPrefix(strings.TrimSpace(l), "# ")
+		if title, ok := strings.CutPrefix(strings.TrimSpace(l), "# "); ok {
+			return title
 		}
 	}
 	return ""
@@ -565,4 +662,18 @@ func paragraphRange(lines []string, idx int) (int, int) {
 		end = i + 1
 	}
 	return start, end
+}
+
+// validateCodemapSemantics 将脚本解析结果投影到可复用的语义校验包。
+func validateCodemapSemantics(root string, mds []parsedMD) error {
+	return codemapindex.ValidateSemantics(root, semanticMarkdownDocs(mds))
+}
+
+// semanticMarkdownDocs 把生成器解析结果转换为 validator 与锚点清单的共享输入。
+func semanticMarkdownDocs(mds []parsedMD) []codemapindex.SemanticMarkdown {
+	docs := make([]codemapindex.SemanticMarkdown, 0, len(mds))
+	for _, md := range mds {
+		docs = append(docs, codemapindex.SemanticMarkdown{File: md.file, Lines: md.lines})
+	}
+	return docs
 }

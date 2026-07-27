@@ -1,6 +1,6 @@
 # 07 业务模块层代码地图（拆卷索引）
 
-> 扫描范围：`internal/module/dashboard/`、`skill/`、`thread/`、`turn/`、`uistate/`；`internal/module/lspgui/` 当前在仓内无源码目录。  
+> 扫描范围：`internal/module/dashboard/`、`skill/`、`thread/`、`turn/`、`uistate/`；旧 lspgui 模块当前在仓内无源码目录。
 > 2026-04-20 起按 **读侧 / 写侧** 拆卷；本页只保留导航、边界与总览，避免单文件继续超过 600 行。
 
 ---
@@ -16,7 +16,7 @@
 
 - **本卷只讲业务模块层**：RPC handler、Fx 装配、服务编排、UI/前端消费面。
 - **第 11 卷承接 prompt / memory 主链**：`internal/module/prompt`、`internal/module/memory` 的内部组装、provider bridge、snapshot 语义仍以第 11 卷为准。
-- **lspgui 现状以代码真值为准**：当前仓内不存在 `internal/module/lspgui/`，因此 07A 只保留“历史章节失真”说明，不再虚构文件地图。
+- **lspgui 现状以代码真值为准**：当前仓内不存在旧 lspgui 模块，因此 07A 只保留“历史章节失真”说明，不再虚构文件地图。
 
 ## 3. 模块总览
 

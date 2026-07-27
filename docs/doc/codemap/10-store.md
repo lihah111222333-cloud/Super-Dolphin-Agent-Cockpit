@@ -1,15 +1,15 @@
 # 10. 数据存储层代码地图
 
-> 范围：`internal/store/*` + `internal/store/sqlc/*` + `sql/queries/*` + `migrations/*`
+> 范围：`internal/store/*` + `internal/store/sqlc/*` + `sql/queries/*` + `internal/platform/db/sqlite/migrations/*`
 >
-> 与第 11 卷的边界：本卷聚焦 `internal/store/*`、`sql/queries/*`、`migrations/*` 的持久化职责；`prompt snapshot` 在 thread / prompt 生命周期里的运行时语义请结合 `11-memory-prompt-thread.md` 阅读。
+> 与第 11 卷的边界：本卷聚焦 store、query 与 SQLite migration 的持久化职责；`prompt snapshot` 在 thread / prompt 生命周期里的运行时语义请结合 `11-memory-prompt-thread.md` 阅读。
 
 ### 1.2 共性设计
 
 1. **接口优先**
    - 大多数包暴露 `Store` 接口。
    - `commandcard`、`sharedfile` 只暴露 `Reader`；`prompt` 模块同时提供 `Store` 与 `AsReader(store Store) Reader`，保留给 dashboard 等 caller 的只读视图。
-   - `hookstore` 暴露的是 `internal/contract.HookReviewStore`，不再重复定义本地接口。
+   - `hookstore` 暴露的是 `internal/contract/hooks.go:61` 定义的 `HookReviewStore`，不再重复定义本地接口。
 
 2. **sqlc 作为主访问层**
    - 主路径是：`sql/queries/*.sql` → `internal/store/sqlc/*.sql.go` → `internal/store/*/store.go`
@@ -29,7 +29,7 @@
 ### 1.3 按职责划分的 5 类存储面
 
 - **运行态 / 绑定**：`agentstatus`、`binding`、`thread`、`cwdlock`、`uipreference`
-- **日志 / 审计 / 追踪**：`systemlog`、`ailog`、`auditlog`、`buslog`、`tasktrace`
+- **日志 / 审计**：`systemlog`、`ailog`、`auditlog`、`buslog`；`task_traces` 仅是 baseline 中的遗留表，不再有当前 store 子包。
 - **配置 / 资产**：`prompt`、`commandcard`、`sharedfile`、`topologyapproval`
 - **交互 / 人工审批**：`interaction`、`hookstore`
 - **通用查询能力**：`dbquery`
@@ -38,7 +38,11 @@
 
 ## 2. 各子 store 详述
 
-> 下列 23 个子包均已按源码核对（以 `internal/store/module.go` 为准）；contract 接口也全部补齐。23 个子包都包含 `module.go`；`hookstore` 的例外仅是没有本地 `contract.go`，而是实现 `internal/contract.HookReviewStore`。
+> 当前 `internal/store/` 有 26 个直接 Go 子目录，其中 `internal/store/module.go` 注册 25 个 Fx 子模块，另一个是生成层 `sqlc`；两个口径分别由机器声明锁定。
+>
+> <!-- codemap-count path="internal/store" kind="go-child-dirs" expected="26" -->
+> <!-- codemap-count path="internal/store/module.go" kind="fx-module-refs" expected="25" -->
+> <!-- codemap-count path="sql/queries" kind="sql-files" expected="29" -->
 
 ### 2.1 `agentstatus`
 - **文件**：`contract.go` / `store.go` / `module.go`
@@ -164,7 +168,7 @@
 ### 2.9 `hookstore`
 - **文件**：`hookstore.go` / `module.go` / 多个测试文件
 - **职责**：保存待人工 / 订阅者决策的 Hook review。
-- **contract**：实现 `internal/contract.HookReviewStore`，完整签名为：
+- **contract**：实现 `internal/contract/hooks.go:61` 的 `HookReviewStore`，完整签名为：
   - `SavePendingReview(ctx context.Context, review mcp.PendingHookReview) error`
   - `GetPendingReview(ctx context.Context, hookCallID string) (mcp.PendingHookReview, error)`
   - `GetResolvedReview(ctx context.Context, hookCallID string) (string, time.Time, string, error)`（返回 `decision/resolved_at/subscriber_lease`）
@@ -245,17 +249,10 @@
 - **表 / SQL**：`system_logs` / `sql/queries/system_log.sql`
 - **备注**：关键词搜索覆盖 `level/logger/message/raw/source/component/trace_id/span_id/parent_span_id`，扩展元数据字段主要通过精确过滤使用。
 
-### 2.14 `tasktrace`
-- **文件**：`contract.go` / `store.go` / `module.go`
-- **职责**：任务链路追踪。
-- **contract**：
-  - `Insert(ctx context.Context, trace TaskTrace) (*TaskTrace, error)`
-  - `List(ctx context.Context, filter ListFilter) ([]TaskTrace, error)`
-- **关键实现**：
-  - `Insert`：写 `trace_id/span_id/parent_span_id/span_name/component/input_payload/output_payload/status/error_text/duration_ms/metadata`。
-  - `List`：支持 `component/since/keyword/limit`。
-- **表 / SQL**：`task_traces` / `sql/queries/task_trace.sql`
-- **备注**：SQL 固定 `started_at=NOW(), finished_at=NULL`，所以当前实现更像“插入式 trace 快照”，而不是完整 span 生命周期仓储。
+### 2.14 遗留 `task_traces`
+
+- `task_traces` 当前仅保留在 SQLite baseline schema。
+- 仓库中没有名为 internal/store/tasktrace 的当前子包，也没有独立 sqlc query 或 Fx wiring；该遗留表不能再列作当前 store 能力。
 
 ### 2.15 `thread`
 - **文件**：`contract.go` / `store.go` / `module.go` / `store_test.go` / `snapshot_test.go`
@@ -352,20 +349,17 @@
   - `json/jsonb` → `json.RawMessage`
 
 ### 3.2 schema 输入的真实组织方式
-根 `sqlc.yaml` **不是**直接读取完整历史迁移链，而是使用以下“代码生成输入集”：
+根 `sqlc.yaml` **不是**直接读取完整历史迁移链，而是使用以下代码生成输入集：
 
-- `migrations/001_baseline.sql`
-- `migrations/0022_binding_session_uuid.sql`
-- `migrations/0023_dag_watcher_phase1.sql`
-- `migrations/0024_prompt_versions_description.sql`
-- `migrations/0025_agent_thread_config_override.sql`
-- `migrations/0031_prompt_snapshot.sql`
-- `migrations/0032_agent_memory_identity.sql`
+- `internal/platform/db/sqlite/migrations/001_baseline.sql`
+- `internal/platform/db/sqlite/migrations/107_datasource_v2_chunk_embeddings.sql`
+- `internal/platform/db/sqlite/migrations/109_mcp_tool_lifecycle.sql`
+- `internal/platform/db/sqlite/migrations/119_datasource_v2_pdf_quality.sql`
 
 这意味着：
 
-- **sqlc 生成 schema**：来自“`001_baseline` + 6 个补丁”。其中 `0022` 增补 `agent_provider_binding.session_uuid`，`0023` 增补 DAG watcher 相关列 / 表，`0024` 增补 `prompt_versions.description`，`0025_agent_thread_config_override` 增补 `agent_threads.config_override`，`0031_prompt_snapshot` 再为 `agent_threads` 增补 `prompt_snapshot JSONB`，`0032_agent_memory_identity` 则把 `parent_agent_id/agent_type/agent_memory_scope` 同步补到 `agent_threads` 与 `agent_provider_binding`。
-- **不在根 sqlc 输入里的后续迁移**：`0025_hook_pending_reviews.sql`、`0026_hook_pending_reviews_resolved_by.sql`、`0027_prompt_description_columns.sql` 仍然没有被根 `sqlc.yaml` 读取；这也解释了 `hookstore` 为什么必须手写 SQL，而 `prompt_templates.description` 需要依赖 `001_baseline` 或运行时 `0027`。
+- **sqlc 生成 schema**：来自 baseline 加三个仍影响当前生成模型的增量 migration。
+- **不在根 sqlc 输入里的其他 migration**：由 runtime migration owner 顺序执行；sqlc 只读取生成所需 schema，不代表完整运行时升级链。
 - **重要审查结论**：当前 `001_baseline.sql` 是 sqlc 可解析的扁平 schema 快照；它包含表、索引、触发器函数与触发器，但没有为大多数既有表写出 `PRIMARY KEY / UNIQUE / CHECK` 约束。因此，凡涉及“约束是否存在”的描述，必须同时看历史增量迁移（如 `0001/0003/0005/0006/0012/0020/0021/0006_workspace_runs`）或真实数据库，而不能只把 `001_baseline.sql` 当成完整 runtime DDL。
 
 `hook_pending_reviews` 整张表都没有进入 `sqlc.yaml`，这与 `hookstore` 采用手写 SQL 的设计完全对应。
@@ -404,7 +398,7 @@
    - `ui_preference.sql.go`
    - `workspace_run.sql.go`
 
-> 反向核对：`internal/store/sqlc/*.sql.go` 当前能反查到 19 个 `// source:` 条目，其中新增的 `agent_thread_prompt_snapshot.sql.go` 对应 `sql/queries/agent_thread_prompt_snapshot.sql`；没有发现文档未提及的查询文件。
+> 反向核对：`internal/store/sqlc/*.sql.go` 当前能反查到 29 个唯一 `// source:` 条目，与 `sql/queries/` 的机器计数一致；其中 `agent_thread_prompt_snapshot.sql.go` 对应 `sql/queries/agent_thread_prompt_snapshot.sql`。
 >
 > 补充：只读事务封装与 `RowsFieldNames(...)` 这类运行时辅助当前位于 `internal/platform/db/tx.go`，不在 `internal/store/sqlc/` 目录下。
 
@@ -529,7 +523,7 @@ store 层的主要价值在于：
   - `CHECK status IN ('running','ok','error','cancelled')`
   - `CHECK (duration_ms >= 0)`
 - 索引：`(trace_id, started_at, id)`、`(component, started_at DESC)`
-- 对应 store：`tasktrace`
+- 当前没有对应 store；该表只保留在 baseline schema。
 
 ### 4.4 交互 / 审批 / 配置资产表
 
@@ -598,7 +592,8 @@ store 层的主要价值在于：
   - `PRIMARY KEY (id)`
   - `UNIQUE (run_key, relative_path)`
 - 索引：`(run_key, state, updated_at DESC)`、`(run_key, relative_path)`
-- 同样只有 sqlc 低层，没有 `internal/store/workspace...` 包
+- 同样只有 sqlc 低层，`internal/store` 下没有 workspace 包。
+  <!-- codemap-absent path="internal/store/workspace" -->
 
 ### 4.6 schema 中仍存在、但当前 store 根模块未直接包装的遗留 / 外围对象
 - `agent_codex_binding`
@@ -612,21 +607,21 @@ store 层的主要价值在于：
 - `task_dag_wakeups`
 - `task_dag_worker_leases`
 
-另说明：`task_dag_runs` 已由 `cmd/mcp-orch/store/taskdag.RunStore` 包装（commit eb341e54 起走 `ProvideRunStore`），**不**列在上述“未包装”清单里；它也不是 `internal/store.Module` 的成员，而是在 `cmd/mcp-orch/store/taskdag` 这个独立包里（详见下面§4.7）。
+另说明：`task_dag_runs` 已由 `cmd/mcp-orch/store/taskdag.RunStore` 包装，**不**列在上述“未包装”清单里；它也不属于 `internal/store/module.go:43` 的装配面，而是在 `cmd/mcp-orch/store/taskdag` 这个独立包里（详见下面§4.7）。
 
 其中：
 - `task_dag_*` 在 schema 中仍然有效，且 `0023_dag_watcher_phase1.sql` 还继续扩展 `task_dag_nodes` 并新增 `task_dag_wakeups / task_dag_worker_leases`；
-- 但这些对象当前都不在 `store.Module` 的 23 个子 store 注册面里（`task_dag_runs` 上面已说明，由 `cmd/mcp-orch/store/taskdag.RunStore` 在独立 fx 包里装载；commit eb341e54 之后 taskdag 包中的 RunStore binding 已被 `ProvideRunStore` 补齐，internal/store 侧子 store 计数仍以 `internal/store/module.go` 为准）；
+- 但这些对象当前都不在 `store.Module` 的 25 个子 store 注册面里（`task_dag_runs` 上面已说明，由 `cmd/mcp-orch/store/taskdag.RunStore` 在独立 fx 包里装载；internal/store 侧子 store 计数以 `internal/store/module.go` 与上方 `fx-module-refs` marker 为准）；
 - `dbquery` 的白名单也**没有**向这些表开放。
 
 ### 4.7 `cmd/mcp-orch/store/taskdag` — 独立 fx 包装的 DAG / Run 存储
 
-该包是 `internal/store/` 之外的另一块“独立 fx store 子包”，不在 §3 “23 个子 store”表内，但仍是运行时装配面的一员。
+该包是 `internal/store/` 之外的另一块“独立 fx store 子包”，不在 `internal/store/module.go` 的 25 个子模块内，但仍是运行时装配面的一员。
 
 | 子项 | 接口位置 | 实现位置 | Module 注册 | sqlc query 来源 | 关键方法 |
 | --- | --- | --- | --- | --- | --- |
 | `Store`（聚合） | `cmd/mcp-orch/store/taskdag/contract.go:13-21` | `cmd/mcp-orch/store/taskdag/store.go` | `Module` 中 `fx.Provide(NewStore)` + `ProvideOrchestrationStore` | `task_dags / task_dag_nodes` 等（sqlc 生成仓位于 `internal/store/sqlc`） | `WithTx`、`UpsertDAG`、`UpsertNode`、`UpdateNodeStatus`、`AcquireDAGLock`、节点生命周期等 |
-| `RunStore`（独立窄接口） | `cmd/mcp-orch/store/taskdag/contract.go:RunStore` 区段 | `cmd/mcp-orch/store/taskdag/store.go`（同一 `*store` 类型实现，编译期由 `store_compile_assertions_test.go` 里 `var _ RunStore = (*store)(nil)` 守住） | `Module` 中 `fx.Provide(ProvideRunStore)`，从聚合 `Store` type-assert 到 `RunStore`（commit eb341e54） | `task_dag_runs`（`sql/queries/task_dag_run.sql`） | `CreateRun`、`GetRun`、`ListRuns`、`UpdateRunStatus`、`AppendRunEvent` 等 |
+| `RunStore`（独立窄接口） | `cmd/mcp-orch/store/taskdag/contract.go:RunStore` 区段 | `cmd/mcp-orch/store/taskdag/store.go`（同一 `*store` 类型实现，编译期由 `store_compile_assertions_test.go` 里 `var _ RunStore = (*store)(nil)` 守住） | `Module` 中 `fx.Provide(ProvideRunStore)`，从聚合 `Store` type-assert 到 `RunStore` | `task_dag_runs`（`cmd/mcp-orch/sql/queries/task_dag_run.sql`） | `CreateRun`、`GetRun`、`ListRuns`、`UpdateRunStatus`、`AppendRunEvent` 等 |
 
 设计说明：`RunStore` **故意不嵌入** `taskdag.Store` 聚合接口，以保住 `OrchestrationStore` / `DAGMutationStore` 的 `InterfaceIsolation` 预算（·04 §2.1 接口隔离预算注脚同步列出；源码凭证见 `cmd/mcp-orch/store/taskdag/contract.go:25-27` 与 `:39-42`）。`cmd/mcp-orch/orchestration.service` 同时持有 `dagStore`（`OrchestrationStore`）与 `runStore`（`RunStore`）两个字段；事务内需要联合语义（例如 StartDAG 同一事务内 `CreateRun + PromoteRootNodesToReady`）时，走扩展接口 `DAGMutationWithRunStore`。
 
@@ -635,7 +630,7 @@ store 层的主要价值在于：
 - `cmd/mcp-orch/store/taskdag/store_dag_ops.go`：F4.1 / F4.2 `DAGOpsStore` 实现 add_node + update_node 同事务批写 + OCC bump；commits `13a81828` `848f1188`。
 - `cmd/mcp-orch/store/taskdag/store_complete_downstream.go`：F6.3 `CompleteNode` 同事务 promote 下游 pending→ready，返回 `PromotedDownstream`；commit `34240412`（与 F6.4 `ScheduledDownstream` 分工：promote=状态机真相 / enqueue=路由后子集）。
 - sqlc 手维 5 文件（4 W1 / 1 W3 / 1 W2 db_accessor）集中在 `cmd/mcp-orch/sqlc.yaml` 顶部 marker：`task_dag_node_write.sql.go`（F6.3 新增 `PromoteSingleNodePendingToReady`）、F1.5 加列后的 `task_dag_node_*.sql.go`、F4.1 `db_accessor.go`；不通过 `sqlc generate` 覆盖，每次重生成需对照 marker 手补。详 commit `bec17a85`（sqlc.yaml marker 注释）。
-- 新 SQL：`migrations/0083_dag_v2_spawning_thread_id.sql`（F1.5）+ `cmd/mcp-orch/sql/queries/task_dag_node_write.sql` 中 `PromoteSingleNodePendingToReady`（F6.3）+ `cmd/mcp-orch/sql/queries/task_dag_ops.sql`（F4.1 / F4.2）。
+- 当前 SQL owner：`cmd/mcp-orch/sql/queries/task_dag_node_spawning_thread.sql`、`cmd/mcp-orch/sql/queries/task_dag_node_write.sql` 与 `cmd/mcp-orch/sql/queries/task_dag_dag.sql`。
 
 ---
 
@@ -757,22 +752,31 @@ flowchart LR
 ```go
 var Module = fx.Module("store",
     fx.Provide(func(db *sql.DB) *sqlc.Queries { return sqlc.New(db) }),
+    fx.Provide(func(q *sqlc.Queries) sqlc.Querier { return q }),
     agentstatus.Module,
     ailog.Module,
     auditlog.Module,
     binding.Module,
     buslog.Module,
     commandcard.Module,
+    cronstore.Module,
     cwdlock.Module,
+    datasourcestore.Module,
+    datasourcev2store.Module,
     dbquery.Module,
+    feedback.Module,
     hookstore.Module,
+    insightstore.Module,
     interaction.Module,
-    prompt.Module,
+    mcpserverstore.Module,
+    promptstore.Module,
+    routingtest.Module,
     sharedfile.Module,
+    skilltool.Module,
     systemlog.Module,
-    tasktrace.Module,
     thread.Module,
     topologyapproval.Module,
+    turndedupestore.Module,
     uipreference.Module,
 )
 ```
@@ -789,15 +793,15 @@ var Module = fx.Module("store",
 - 特例：
   - `dbquery.Module`：`fx.Provide(newDefaultStore)`，其中注入默认超时 `10s`
   - `hookstore.Module`：`NewStore(platformdb.Queryable)` 返回 `contract.HookReviewStore`
-  - `prompt.Module`：`newStoreWithPool(...)` 返回 `Store`，再通过 `AsReader(store Store) Reader` 补一个只读 adapter
+  - `prompt.Module`：`newStoreWithDB(...)` 返回 `Store`，再通过 `AsReader(store Store) Reader` 补一个只读 adapter
 - `commandcard`：`NewStore` 返回 `Reader`
   - `sharedfile`：`provideStore(*sqlc.Queries, *platformconfig.Config)` 返回 `Store`（含 Reader+Upserter+Deleter），再分别 provide 各窄接口
 
 ### 2.3 `Store -> Reader` adapter 与 tx wiring
 - `internal/store/prompt/module.go:13`：`store.prompt` module。
-- `internal/store/prompt/module.go:20-22`：`AsReader(store Store) Reader`，保证 dashboard 继续注入只读接口。
-- `internal/store/prompt/module.go:24-42`：`newStoreWithPool(pool, q)`；这里不是直接把 pool 暴露给上层，而是预装事务 runner 后再返回 `Store`。
-- `internal/store/prompt/module.go:53`：真正把 tx 绑定回 sqlc 的动作是反射调用 `Queries.WithTx(...)`。
+- `internal/store/prompt/module.go:22-26`：`AsReader(store Store) Reader`，保证 dashboard 继续注入只读接口。
+- `internal/store/prompt/module.go:33-45`：`newStoreWithDB(db, q)` 预装 bounded write retry 与 IMMEDIATE transaction runner 后返回 `Store`。
+- `internal/store/prompt/module.go:33-46`：事务内通过 `Queries.WithTx(...)` 把同一 query 集合绑定到当前句柄。
 
 - `agentstatus.NewStore(*sqlc.Queries) Store`
 - `ailog.NewStore(*sqlc.Queries) Store`
@@ -812,7 +816,6 @@ var Module = fx.Module("store",
 - `prompt.newStoreWithDB(*sql.DB, *sqlc.Queries) Store`；同时 `prompt.AsReader(Store) Reader`
 - `sharedfile.NewStoreWithConfig(*sqlc.Queries, sharedfilefs.Config) Store`；fx 实际通过 `provideStore(*sqlc.Queries, *platformconfig.Config) Store`，再分别 `fx.Provide(func(s Store) Reader/Deleter/Upserter)`
 - `systemlog.NewStore(*sqlc.Queries) Store`
-- `tasktrace.NewStore(*sqlc.Queries) Store`
 - `thread.NewStore(*sqlc.Queries) Store`
 - `topologyapproval.NewStore(*sqlc.Queries) Store`
 - `uipreference.NewStore(*sqlc.Queries) Store`
@@ -823,7 +826,9 @@ var Module = fx.Module("store",
   - SQL 侧 `ListPromptTemplates` 只有 `$1/$2/$3`（`sql/queries/prompt_template.sql:43`）；
   - 当前 CWD scope 仍由 caller 后置过滤：dashboard 在 `internal/module/dashboard/ui_page.go:151` 传 `CWD` 后再本地过滤，prompt service 列表面仍在 `internal/module/prompt/service.go:259` 先全量查再过滤可见性。
 
-## 3. 23 个 store 子包一览
+## 3. 核心 store 子包索引
+
+> 完整 wiring 以 `internal/store/module.go` 的 25 个子模块及本卷顶部机器计数为准；下表只展开常用数据访问面，不再把遗留 schema 对象冒充为已注册 store。
 
 | 包名 | 核心实体 | 对应 SQL 文件 | 主要 caller 模块 |
 |---|---|---|---|
@@ -833,16 +838,15 @@ var Module = fx.Module("store",
 | `binding` | `Binding` | `agent_provider_binding.sql` + `thread_binding.sql` | `internal/module/thread` / `internal/module/uistate` / `internal/platform/toolbridge` / `internal/provider/unified` / `internal/platform/cachekeepalive` |
 | `buslog` | `BusExceptionLog` | `bus_log.sql` | `internal/module/dashboard` |
 | `commandcard` | `CommandCard` | `command_card.sql` | `internal/module/dashboard` |
-| `cwdlock` | `LockHolder` / cwd lock | `cwd_lock.sql` | `internal/store.Module` |
+| `cwdlock` | `LockHolder` / cwd lock | `cwd_lock.sql` | `internal/store/module.go:43` |
 | `dbquery` | runtime query result / `PlaceholderRow` | `db_query.sql` + `executor.go` | `internal/module/dashboard` |
 | `hookstore` | `mcp.PendingHookReview` | **无 sqlc SQL 文件；手写 SQL 在 `hookstore.go`** | `internal/platform/hooks` |
-| `interaction` | `Interaction` | `interaction.sql` | `internal/store.Module` |
+| `interaction` | `Interaction` | `interaction.sql` | `internal/store/module.go:43` |
 | `prompt` | `PromptTemplate` / `PromptTemplateVersion` | `prompt_template.sql` | `internal/module/prompt` / `internal/module/dashboard` / `cmd/mcp-orch/tools` |
 | `sharedfile` | `SharedFile` | `shared_file.sql` | `internal/module/dashboard` / `internal/module/uistate` |
 | `systemlog` | `SystemLog` | `system_log.sql` | `internal/module/dashboard` |
-| `tasktrace` | `TaskTrace` | `task_trace.sql` | `internal/module/dashboard` |
 | `thread` | `Thread` / `PromptSnapshot` / `ThreadCwd` | `agent_thread.sql` + `agent_thread_prompt_snapshot.sql` | `internal/module/thread` / `internal/provider/unified` / `internal/platform/cachekeepalive` / `internal/module/memory`（经 metadata adapter） |
-| `topologyapproval` | `TopologyApproval` | `topology_approval.sql` | `internal/store.Module` |
+| `topologyapproval` | `TopologyApproval` | `topology_approval.sql` | `internal/store/module.go:43` |
 | `uipreference` | `UIPreference` | `ui_preference.sql` | `internal/module/uistate` |
 
 | 子包 | fx 暴露类型 | 主要表 / 投影 | 关键 SQL 文件 |
@@ -860,14 +864,13 @@ var Module = fx.Module("store",
 | `prompt` | `prompt.Store` + `prompt.Reader` adapter | `prompt_templates` + `prompt_versions` | `prompt_template.sql` |
 | `sharedfile` | `sharedfile.Store` + `Reader`/`Upserter`/`Deleter` adapters | `shared_files` | `shared_file.sql` |
 | `systemlog` | `systemlog.Store` | `system_logs` | `system_log.sql` |
-| `tasktrace` | `tasktrace.Store` | `task_traces` | `task_trace.sql` |
 | `thread` | `thread.Store` | `agent_threads`（并关联 `agent_provider_binding`） | `agent_thread.sql` |
 | `topologyapproval` | `topologyapproval.Store` | `topology_approvals` | `topology_approval.sql` |
 | `uipreference` | `uipreference.Store` | `ui_preferences` | `ui_preference.sql` |
 
-### 7.1 测试入口 + archtest freeze 映射（23 子包）
+### 7.1 核心 store 测试入口
 
-> `internal/archtest/freeze_registry.go` 当前只登记 `internal/module/memory` 与 `internal/module/prompt`，没有 `internal/store/` 项；因此下表 freeze 一列统一记为 `—`。
+> `internal/archtest/freeze_registry.go` 当前 registry 为空，没有 `internal/store/` freeze；因此下表 freeze 一列统一记为 `—`。
 
 | 子包 | 入口测试文件 | 代表性 Test* | freeze |
 | --- | --- | --- | --- |
@@ -884,7 +887,6 @@ var Module = fx.Module("store",
 | `prompt` | `store_test.go` | `TestListForwardsAgentKeyKeywordAndLimit` | `—` |
 | `sharedfile` | `store_test.go`、`disk_integration_test.go`（Phase 3.6 落盘 7 case：small inline / large DB 空 / disk hit override DB / disk miss fallback DB / 双 miss notfound / Delete 双删 / List 不扫盘） | `TestGetMapsRow` | `—` |
 | `systemlog` | `store_test.go` | `TestListForwardsAll9ColumnsAndLimit` | `—` |
-| `tasktrace` | `store_test.go` | `TestInsertForwardsAllColumnsAndMapsResult` | `—` |
 | `thread` | `store_test.go` | `TestUpsertPersistsConfigOverride` | `—` |
 | `topologyapproval` | `store_test.go` | `TestCreateForwardsParamsAndMapsResult` | `—` |
 | `uipreference` | `store_test.go` | `TestGetValueForwardsParamsAndReturnsBytes` | `—` |
@@ -901,11 +903,11 @@ var Module = fx.Module("store",
 
 ## 5. sqlc 实现面
 - `sqlc.yaml:4`：queries 输入目录是 `sql/queries/`。
-- `sqlc.yaml:16`：生成输出目录是 `internal/store/sqlc`。
+- `sqlc.yaml:14`：生成输出目录是 `internal/store/sqlc`。
 - `internal/store/sqlc/querier.go:11`：`Querier` 是跨所有 query 文件的总接口。
 - `internal/store/sqlc/db.go:24`：`Queries` 持有底层 `DBTX`。
 - `internal/store/sqlc/db.go:28-32`：`Queries.WithTx(...)` 负责把同一组 query 方法重绑到事务句柄上。
-- `sqlc.yaml:12`：当前 sqlc schema 输入已包含 `migrations/0032_agent_memory_identity.sql`；因此“sqlc 只读到 0031”为旧结论，不再成立。
+- `sqlc.yaml:6-9`：当前 sqlc schema 输入是 SQLite baseline 加 107、109、119 三个增量 migration。
 
 ## 6. 最近 5 条 migrations
 
@@ -913,20 +915,20 @@ var Module = fx.Module("store",
 2. **对底层坚持 SQL-first**：查询定义集中在 `sql/queries/`，`sqlc` 只做生成。
 3. **允许显式例外**：`dbquery` 与 `hookstore` 都绕过了“普通静态 sqlc CRUD”路径。
 4. **读写面按场景拆分**：`commandcard / sharedfile` 仍只暴露读能力；`prompt` 同一实现同时暴露可写 `Store` 与只读 `Reader` adapter。
-5. **schema 明显大于 23 个子 store 的注册面**：workspace、dag、legacy 表仍存在于 schema 或 sqlc 低层，但未全部被注册成统一 store。
+5. **schema 大于 25 个 Fx 子 store 的注册面**：workspace、dag、legacy 表仍存在于 schema 或 sqlc 低层，但未全部被注册成统一 store。
 
 如果从代码地图视角看，`internal/store` 更像“**项目核心数据访问骨架**”，而不是“数据库全部访问能力的唯一入口”。
 
 ## 审查补遗
 
-1. 已逐一核对 `internal/store/`、`internal/store/sqlc/`、`migrations/`、`sql/queries/`，当前 `store.Module` 注册的 **23 个子 store 均已覆盖**（以 `internal/store/module.go` 为准）；`thread` 与 `hookstore` 的 contract 也已改成完整方法签名。
+1. 当前 `store.Module` 注册 **25 个 Fx 子模块**，另有一个 `sqlc` 生成子目录；两种数量分别由 `fx-module-refs` 与 `go-child-dirs` marker 校验，避免再次把目录数冒充 wiring 数。
 2. 修正了 `agent_provider_binding` 的 schema 描述：最新迁移并**没有**为它建立 `cwd / created_at DESC` 二级索引；旧描述混入了 `agent_codex_binding` 的遗留索引信息。
 3. 修正了 `binding.BindAgentThread` 的行为说明：它在插入路径会写入 `provider='codex'` 与 `provider_thread_id=thread_id`，但在 `agent_id` 冲突路径只更新 `codex_thread_id/cwd/updated_at`。
-4. 补强了 sqlc 组织描述：补充 `sql_driver`，确认 `command_card.sql.go` 还生成了 `ListCommandCardVersions`，`workspace_run.sql.go` 已完整生成但未包装成 store 子包，并反向确认 `sql/queries/` 的 19 个 `.sql` 文件没有遗漏。
+4. 补强了 sqlc 组织描述：补充 `sql_driver`，确认 `command_card.sql.go` 还生成了 `ListCommandCardVersions`，`workspace_run.sql.go` 已完整生成但未包装成 store 子包，并以 marker 锁定 `sql/queries/` 当前 29 个 `.sql` 文件。
 5. 修正了 schema 解读口径：列 / 索引以 `001_baseline.sql + 0022/0023/0024/0025_agent_thread_config_override` 为主，`hook_pending_reviews` 来自 `0025_hook_pending_reviews + 0026`；但 `001_baseline.sql` 自身缺少多数 PK/UNIQUE/CHECK，约束说明必须结合历史迁移链。
 6. 补全了 `hookstore` 手写 SQL 说明：明确 `SavePendingReview` 当前不写 `thread_id/turn_id/payload`，`GetResolvedReview` 不返回 `resolved_by`，cancel 与 expire 的更新列不同。
 7. 补全了 `dbquery` 安全校验说明：新增写明了**引号内容屏蔽、表白名单必须命中、CTE 外层 SELECT 仍需引用表、只读事务回退策略、10 秒超时、10000 行上限**等关键细节。
 8. 修正了 `prompt` store 口径：当前已是**可读写 Store + Reader adapter**，真实写路径已被 `internal/module/prompt/service.go` 生产使用；`ListFilter.CWD` 已进入 contract，但 SQL 仍未下推，继续由 caller 后置过滤。
 9. 修正了 `thread.PromptSnapshot` 口径：当前持久化 DTO 已包含 modern 字段（`DisplayName/Boundary/Provider/Version/Hash/...`），同时通过自定义 `UnmarshalJSON` 兼容 legacy snake_case payload。
 10. 修正了 `sqlc.yaml` 输入集：根配置现在已包含 `0032_agent_memory_identity.sql`，`agent_threads` / `agent_provider_binding` 的 agent identity 列不能再按“只到 0031”理解。
-11. 追加了 `dbquery` 数据流 Mermaid、23 个 store 子包测试入口 + freeze 表，以及 3 条 store 维护 how-to，便于后续按锚点增量维护。
+11. 追加了 `dbquery` 数据流 Mermaid、核心 store 测试入口与 3 条 store 维护 how-to，便于后续按锚点增量维护。

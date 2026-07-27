@@ -74,6 +74,7 @@ sequenceDiagram
 - `cmd/agent-terminal/main.go:11`：桌面可执行入口，只做 `app.RunDesktop(frontendDistFS())`。
 - `run-new-ui-desktop.sh:6,353-358`：当前新 UI 开发入口；先启动 `frontend-app` Vite，再以 `VITE_DEV_URL` 运行 `cmd/agent-terminal`。
 - `cmd/agent-terminal/frontend.go:15`：package embed 路径；从 `cmd/agent-terminal/web-dist` embed 子目录导出 `fs.FS`。
+<!-- codemap-absent path="cmd/agent-terminal/web-dist" -->
 - `internal/app/app.go:105`：桌面模式总入口；向 Fx 注入 `FrontendFS` 并 `Populate(&wailsApp, &lifecycle)`。
 - `internal/ui/wails/assets.go:34`：资源服务选择器；`VITE_DEV_URL` dev proxy / 注入 FS / placeholder 三路回退。当前新 UI dev 通过 dev proxy 指向 `frontend-app`。
 

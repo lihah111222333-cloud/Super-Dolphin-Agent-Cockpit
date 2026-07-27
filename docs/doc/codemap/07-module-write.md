@@ -3,6 +3,7 @@
 > 范围：`internal/module/thread/`、`internal/module/turn/`、`internal/module/uistate/`（含 `timeline/`）。  
 > 关联入口：[07-module.md](07-module.md) / [07-module-read.md](07-module-read.md)。
 > UI 路径校正（2026-06-28）：当前 UI 源码只在 `frontend-app/`；桌面宿主嵌入产物同步到 `cmd/agent-terminal/web-dist`。当前 React UI 入口见 [01-terminal-ui-react.md](01-terminal-ui-react.md)。
+<!-- codemap-absent path="cmd/agent-terminal/web-dist" -->
 
 ---
 
@@ -230,7 +231,7 @@ sequenceDiagram
 - **event bus**：既是生产者也是少量消费者：
   - 消费 `AgentLaunched` 同步 `SessionUUID/CWD`：`internal/module/thread/events.go:35-94`
   - 消费 `AgentFailed` 触发被动 session-level recovery：`internal/module/thread/events.go:118-152`
-  - 生产 `Started/Stopped/MessagesPage/Compacted`：`internal/module/thread/service.go:352-400`、`internal/module/thread/compact_event.go:10-26`
+  - 生产 `Started/Stopped/MessagesPage/Compacted`：`internal/module/thread/service.go:352-400`、`internal/module/thread/history.go:583-726`
 
 ### 2.7 关键锚点
 
@@ -261,7 +262,7 @@ sequenceDiagram
 
 `turn` 的边界同样是 provider-neutral：
 
-- 它只面向 `contract.Session / TurnHandle / SessionResolver / ApprovalResponder` 编程：`internal/contract/provider.go:23-48`、`internal/contract/session_resolver.go:5-7`、`internal/contract/approval.go:8-12`。
+- 它只面向 `contract.Session / TurnHandle / SessionResolver / ApprovalResponder` 编程：`internal/contract/provider.go:23-48`、`internal/contract/session.go:28`、`internal/contract/approval.go:8-12`。
 - 它**不翻译 provider 原始事件**；`turn.* / tool.*` 事件来自 `internal/provider/{codexapp,claudecli,unified}/event_map.go`。
 - 它负责把“用户这一次输入”变成 `dto.TurnRequest`，再交给 session 去执行。
 
@@ -274,7 +275,7 @@ sequenceDiagram
 | `assembler.go` | 输入 item 规范化、白名单、去重、截断。 |
 | `skills.go` | 显式技能合并、auto-match、手选技能 hydrate。 |
 | `prompt_assembly.go` | `PrepareTurn` 阶段的 `TurnAssembly` 装配。 |
-| `service_memory.go` | synthetic memory/turn context 注入。 |
+| `service_helpers.go` | synthetic memory/turn context 注入与服务辅助逻辑。 |
 | `manifest.go` | MCP manifest 构造。 |
 | `interrupt_service.go` | interrupt envelope、等待 settle。 |
 | `thread_cleanup.go` | 线程停机时的 turn 终止与 tool result reset。 |
@@ -320,7 +321,7 @@ flowchart TD
    - 只给 name-only manual skill 补 `Prompt/Summary/Version`
    - 入口：`internal/module/turn/skills.go:201-241`，正文读取走 `ReadLocal`：`skills.go:326-339`
 5. **turn assembly** 是 turn 侧 prompt 拼装边界，不等于 thread/start 的 start assembly；`PrepareTurn` 在 `internal/module/turn/service.go:176` 调 `prepareTurnAssembly(...)`，其定义在 `internal/module/turn/prompt_assembly.go:13-43`
-6. **memory context** 通过 `TurnContextProvider` 可选注入，不让 `turn` 直接依赖 memory 实现：`internal/module/turn/service_memory.go:11-34`
+6. **memory context** 通过 `TurnContextProvider` 可选注入，不让 `turn` 直接依赖 memory 实现：`internal/module/turn/service_helpers.go:550-580`
 
 ### 3.5 启动、转向、中断、强制完成
 

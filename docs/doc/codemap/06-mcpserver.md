@@ -144,9 +144,12 @@ sequenceDiagram
 
 ## 2.2 `cmd/mcp-lsp/`
 
-> 迁移后 `cmd/mcp-lsp/` 下生产源码分布为：根目录 6 个入口文件，子包合计 56 个文件；其中子包分布为 `edit` 4、`exec` 3、`format` 4、`multilsp` 16、`installer` 1、`manager` 2、`middleware` 5、`protocol` 5、`search` 2、`tools` 14；以下逐项覆盖。
+> 当前 `cmd/mcp-lsp/` 下共有 100 个生产 Go 文件：根目录 9 个，后代目录 91 个；直接子包分布为 `edit` 4、`format` 4、`installer` 1、`manager` 3、`middleware` 5、`multilsp` 31、`protocol` 5、`search` 4、`tools` 31，另有 `cmd/mcp-lsp/internal/hiddenexec` 3 个。
 >
-> 迁移补记（2026-04-17）：当前仓库 `internal/mcpserver/` 仅保留 `common/` 与 `common/bootstrap/`；LSP 真实落点已经迁到 `cmd/mcp-lsp/{tools,manager,multilsp,middleware,...}`，本仓未见 `internal/mcpserver/lsp/` 子包。
+> <!-- codemap-count path="cmd/mcp-lsp" kind="go-files" expected="9" -->
+> <!-- codemap-count path="cmd/mcp-lsp" kind="go-files-recursive" expected="100" -->
+>
+> 迁移补记：当前仓库 `internal/mcpserver/` 仅保留 `common/` 与 `common/bootstrap/`；LSP 真实落点已经迁到 `cmd/mcp-lsp/{tools,manager,multilsp,middleware,...}`，旧 internal/mcpserver/lsp 子包已删除。
 
 ### 2.2.0 入口层（`cmd/mcp-lsp/*.go`）
 - `main.go`（36 行，入口）
@@ -523,12 +526,12 @@ control plane 可反向调工具进程：
 
 ---
 
-## 7. `multilsp` / `internal/mcpserver/lsp/` 接入状态
+## 7. `multilsp` 与旧 LSP 接入路径状态
 
-截至 2026-04-20，仓内未检出 `internal/mcpserver/lsp/`：
+仓内已无旧 internal/mcpserver/lsp 目录：
 
 - `find internal/mcpserver -type f` 仅有 `common/` 与 `common/bootstrap/`
-- `grep` 未命中 `internal/mcpserver/lsp`
+- 定向检索不再命中旧目录
 - 本卷因此只能确认：framework 层已经为 LSP 类进程预留了 **ToolProvider + bootstrap callback + HTTP discovery** 三个接入点，但 **multilsp manager / ToolSearch / Router** 尚未进入 `internal/mcpserver` 目录树
 
 这也是本卷与任务说明的主要落差：LSP 迁入点在代码中尚未落地，本卷不能用旧路径充数。

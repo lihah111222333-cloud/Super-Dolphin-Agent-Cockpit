@@ -745,7 +745,7 @@ flowchart LR
 
 - **2026-04-20 / `7a1f49c`**：`internal/platform/rpc/module.go` 增补 approval restore / cleanup 生命周期，给 `skill/expand` 新接入的 approval cache 生产链兜底。
 - **2026-04-18 / `af7f81a`**：新增 `runtimesafe.SafeGo`，`shared.SafeGo` 改为 deprecated wrapper；`rpc.Server`、`memory/team`、`skill/events`、`thread`、`turn` 等后台 goroutine 改走统一安全启动。
-- **2026-04-17 / `8172367`**：memory 路径/项目 key helper 收敛，`internal/module/memory/*` 与 `cmd/mcp-orch/memory/path.go` 统一复用 `platform/shared.ContainsPath` / `SanitizeProjectKey` / `ProjectKeyFromCwd`。
+- **2026-04-17 / `8172367`**：memory 路径/项目 key helper 收敛，`internal/module/memory/*` 统一复用 `platform/shared.ContainsPath` / `SanitizeProjectKey` / `ProjectKeyFromCwd`。
 - **2026-04-14 ~ 2026-04-12**：`cachekeepalive` 补齐注册后首轮 timer 调度；`difftracker` 收敛成 git snapshot/diff 原语，`toolbridge` 只负责接线和 fallback。
 
 ## 8. 读图结论
@@ -1004,7 +1004,6 @@ Codex session 收到 inbound tool request
 - `internal/module/uistate`：使用 `bus`、`config`、`db`、`rpc`、`shared`
 - `internal/module/skill`：使用 `bus`、`config`、`rpc`、`shared`
 - `internal/module/dashboard`：使用 `rpc`、`shared`
-- `internal/module/lspgui`：使用 `config`、`rpc`、`shared`
 
 ## 7.3 Provider 层
 

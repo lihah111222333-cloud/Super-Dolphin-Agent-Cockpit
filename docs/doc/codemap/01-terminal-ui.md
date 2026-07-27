@@ -49,6 +49,7 @@
 - `01-terminal-ui.md` 只有十几行，**不代表内容少**；正文已经拆进 `01-terminal-ui-go.md` / `01-terminal-ui-react.md`。
 - Go 分卷不讲页面/store 细节；React 分卷也不重复 Wails runtime 壳。
 - `frontend-app/` 是当前且唯一的前端源码；`cmd/agent-terminal/web-dist/` 是 Go embed 产物目录。不要因为 `cmd/agent-terminal` 仍是桌面宿主，就把当前页面代码定位到 Go host 目录。
+<!-- codemap-absent path="cmd/agent-terminal/web-dist" -->
 - `dashboard/prompts` 的 readonly fallback 虽然从前端触发，但真实过滤逻辑不在 01，而在 `07-module-read.md` §2.4。
 
 ## 新增符号入口

@@ -1,6 +1,6 @@
 # 07A 业务模块层代码地图（读侧）
 
-> 范围：`internal/module/dashboard/`、`internal/module/skill/`，以及 `internal/module/lspgui/` 的现状核对。  
+> 范围：`internal/module/dashboard/`、`internal/module/skill/`，以及旧 lspgui 模块的现状核对。
 > 关联入口：[07-module.md](07-module.md) / [07-module-write.md](07-module-write.md)。
 
 ---
@@ -27,9 +27,10 @@ flowchart LR
 
 ### 1.1 跨卷一致性备忘
 
-- `internal/archtest/freeze_registry.go:29-35` 当前显式 freeze 真值仍是 **`internal/module/prompt:27`**；凡是引用 prompt 包文件数的文档都应以 `27` 为准。
+- 当前 `internal/archtest/freeze_registry.go` 没有 prompt 数字 freeze；`internal/module/prompt/` 的生产文件数由下面的机器计数声明直接锁定为 30。
+  <!-- codemap-count path="internal/module/prompt" kind="go-files" expected="30" -->
 - 旧 prompt skill-catalog 注入链已退出生产路径；prompt 不再读取 skill catalog 或 canonical skill 来生成正文、目录发现或 native suppression hints，正文/目录发现交给 provider-native mirror。
-- `internal/module/lspgui/` 当前在仓内不存在；旧文档若仍把它写成真实包，需要按代码真值纠偏。
+- 旧 lspgui 模块当前在仓内不存在；旧文档若仍把它写成真实包，需要按代码真值纠偏。
 
 ### 1.2 模块间主线关系（补）
 
@@ -242,7 +243,7 @@ flowchart TD
 
 ### 3.1 当前代码真值
 
-截至 2026-04-20，本仓 **没有** `internal/module/lspgui/`：
+当前仓库已删除旧 lspgui 子包：
 
 - `find internal/module -maxdepth 2 -type d | grep lsp` → 空
 - `grep path=. query="package lspgui"` → 0 命中

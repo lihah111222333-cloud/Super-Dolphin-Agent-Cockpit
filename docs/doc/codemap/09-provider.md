@@ -375,7 +375,7 @@ sequenceDiagram
 | 启动归一 | `config.go` | `configFromMap()`、`resolveStartAssembly()`、`normalizePromptSnapshot()`、`fallbackThreadID()` | `internal/provider/claudecli/config.go:41-69`、`internal/provider/claudecli/config.go:71-90`、`internal/provider/claudecli/config.go:116-124` |
 | CLI 参数/MCP | `transport_config.go` | `launchCLIWithManifest()`、`buildCLIArgs()`、`composeLaunchSystemPromptBlocks()`、`writeManifestConfig()` | `internal/provider/claudecli/transport_config.go:34-55`、`internal/provider/claudecli/transport_config.go:102-121`、`internal/provider/claudecli/transport_config.go:139-162`、`internal/provider/claudecli/transport_config.go:280-306` |
 | 传输 | `transport.go` | 启 CLI 子进程并建立 stdio read/write | `internal/provider/claudecli/transport.go:22`、`internal/provider/claudecli/transport.go:34-64` |
-| thread 身份 | `thread_identity.go` | placeholder/public thread 判定、`awaitResolvedThreadID()`、ready channel 语义 | `internal/provider/claudecli/thread_identity.go:11-19`、`internal/provider/claudecli/thread_identity.go:30-50`、`internal/provider/claudecli/thread_identity.go:95-160` |
+| thread 身份 | `thread_identity.go` | placeholder/public thread 判定、`awaitResolvedThreadID()`、ready channel 语义 | `internal/provider/claudecli/thread_identity.go:11-19`、`internal/provider/claudecli/thread_identity.go:30-50`、`internal/provider/claudecli/thread_identity.go:95-158` |
 | session 核心 | `session.go` | session 状态、`StartTurn / Interrupt / stop()`、runtime config snapshot | `internal/provider/claudecli/session.go:19-59`、`internal/provider/claudecli/session.go:117-167`、`internal/provider/claudecli/session.go:170-278`、`internal/provider/claudecli/session.go:288-347` |
 | turn 发送 | `session_turn.go` | 组 turn payload、skill block、重试、attachment 渲染 | `internal/provider/claudecli/session_turn.go:24-28`、`internal/provider/claudecli/session_turn.go:60-104`、`internal/provider/claudecli/session_turn.go:170-199`、`internal/provider/claudecli/session_turn.go:273-365` |
 | 运行时配置 | `session_config.go` | `Configure / ReadConfig / AllowedModels / ForceComplete` | `internal/provider/claudecli/session_config.go:17-34`、`internal/provider/claudecli/session_config.go:118-159`、`internal/provider/claudecli/session_config.go:170-197` |
@@ -401,7 +401,7 @@ sequenceDiagram
 #### 10.3.1 `StartSession`
 
 1. 先从 `req.Config` 提取 `approval_policy / sandbox / summary / effort / personality / developer_instructions`。锚点：`internal/provider/claudecli/config.go:41-49`。
-2. 再以 `ManifestContext{AgentID,CWD,ThreadCaps,BinaryDir,Env,AutoApprove,ProxyHTTPAddr}` 生成 MCP manifest。锚点：`internal/provider/claudecli/driver.go:106-116`、`internal/provider/manifestbuilder/manifest.go:16-63`。
+2. 再以 `ManifestContext{AgentID,CWD,ThreadCaps,BinaryDir,Env,AutoApprove,ProxyHTTPAddr}` 生成 MCP manifest。锚点：`internal/provider/claudecli/driver.go:106-116`、`internal/contract/manifest.go:20-74`。
 3. `resolveStartAssembly()` 保证 `BaseInstructions / DeveloperInstructions / Snapshot.Provider / Snapshot.Version` 有值。锚点：`internal/provider/claudecli/config.go:52-69`、`internal/provider/claudecli/config.go:71-90`。
 4. 最终统一落到 `driver.start()`，并在 CLI launch 前完成 mirror reconcile；只有显式配置 Claude home 时才创建/归一化 provider home。锚点：`internal/provider/claudecli/driver.go:117-128`、`internal/provider/claudecli/driver.go:160-175`、`internal/provider/claudecli/driver.go:184-205`、`internal/provider/claudecli/driver.go:254-276`。
 
@@ -566,18 +566,18 @@ sequenceDiagram
 
 | 文件 | 作用 | 锚点 |
 |---|---|---|
-| `manifest.go` | provider 外部执行器的 MCP manifest 生成器；同时管 env 标准化、HTTP peer/proxy 优先级、binary command 落点 | `internal/provider/manifestbuilder/manifest.go:16-63`、`internal/provider/manifestbuilder/manifest.go:76-102`、`internal/provider/manifestbuilder/manifest.go:109-157` |
+| `manifest.go` | provider 外部执行器的兼容入口，委托 canonical contract owner | `internal/provider/manifestbuilder/manifest.go:10-12`、`internal/contract/manifest.go:20-74` |
 
 #### 关键类型 / 数据面
 
-- 入口输入是 `dto.ManifestContext`，产物是 `dto.MCPManifest{Binaries: []dto.MCPBinary}`；真正的 DTO schema 在 `internal/dto/provider`，manifestbuilder 只负责装配。锚点：`internal/provider/manifestbuilder/manifest.go:16-63`。
-- `mcpRequiredEnvKeys` 明确了 sidecar 能回连控制面的最小 GO_AGENT_CTL_* 环境变量集合。锚点：`internal/provider/manifestbuilder/manifest.go:76-86`。
+- 入口输入是 `dto.ManifestContext`，产物是 `dto.MCPManifest{Binaries: []dto.MCPBinary}`；DTO schema 在 `internal/dto/provider`，canonical 装配实现位于 contract owner。锚点：`internal/provider/manifestbuilder/manifest.go:10-12`、`internal/contract/manifest.go:20-74`。
+- `mcpRequiredEnvKeys` 明确了 sidecar 能回连控制面的最小 GO_AGENT_CTL_* 环境变量集合。锚点：`internal/contract/manifest.go:257-269`。
 
 #### 关键流程
 
-1. 默认 family 是 `lsp + orch`；线程 capability 含 `ida` 时再补 `ida`。锚点：`internal/provider/manifestbuilder/manifest.go:17-20`。
-2. 优先级是 `ProxyHTTPAddr` > `PeerHTTPAddrs[fam]` > 本地 `BinaryDir/mcp-<family>`。锚点：`internal/provider/manifestbuilder/manifest.go:32-60`。
-3. `normalizeManifestEnv()` 会把 legacy env alias 提升为 canonical `GO_AGENT_CTL_*`，并在缺省时从进程环境补齐。锚点：`internal/provider/manifestbuilder/manifest.go:109-138`。
+1. 默认 family 固定为 `lsp + orch`。锚点：`internal/contract/manifest.go:20-21`。
+2. 优先级是 `ProxyHTTPAddr` > `PeerHTTPAddrs[fam]` > 本地 `BinaryDir/mcp-<family>`。锚点：`internal/contract/manifest.go:26-73`。
+3. `normalizeManifestEnv()` 会把 legacy env alias 提升为 canonical `GO_AGENT_CTL_*`，并在缺省时从进程环境补齐。锚点：`internal/contract/manifest.go:336-367`。
 
 ### 12.2 `provider/shared`
 
@@ -630,7 +630,7 @@ sequenceDiagram
 
 | 契约 | 接口定义 | Fx 提供者 | 直接消费者 | provider 侧真实效果 |
 |---|---|---|---|---|
-| `contract.SessionResolver` | `internal/contract/session_resolver.go:5` | `unified.NewSessionResolver()` | `rpc.NewCapabilityResolver()`、`turn.NewTurnHandlers()` | `ResolveSession()` 先查内存，再查 thread/binding store，必要时回调具体 provider `ResumeSession()`。锚点：`internal/provider/unified/session_resolver.go:44-56`、`internal/platform/rpc/handler.go:22-39`、`internal/module/turn/rpc.go:10-24` |
+| `contract.SessionResolver` | `internal/contract/session.go:28` | `unified.NewSessionResolver()` | `rpc.NewCapabilityResolver()`、`turn.NewTurnHandlers()` | `ResolveSession()` 先查内存，再查 thread/binding store，必要时回调具体 provider `ResumeSession()`。锚点：`internal/provider/unified/session_resolver.go:44-56`、`internal/platform/rpc/handler.go:22-39`、`internal/module/turn/rpc.go:10-24` |
 | `contract.ApprovalResponder` | `internal/contract/approval.go:10` | `rpc.Module` 里 `func(m *ApprovalManager) contract.ApprovalResponder { return m }` | turn RPC `approval/respond` | Claude 不消费；Codex 直接把同一个 concrete `*ApprovalManager` 注入 provider outbound approval bridge，因此是“契约入口 + provider 回调入口”同源对象。锚点：`internal/platform/rpc/module.go:18-37`、`internal/platform/rpc/module.go:25`、`internal/provider/codexapp/session_approval.go:28-70` |
 
 ### 13.2 Session 契约与 provider 对应关系

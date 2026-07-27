@@ -136,8 +136,8 @@ sequenceDiagram
 
 ### 4.2 `mcp-lsp` HTTP 入口（peer mode）
 
-- `newHTTPRunner()` 先看 `GO_AGENT_PEER_MODE`；不是 `1` 时直接返回 `lspBlockRunner`，不会起 HTTP server：`cmd/mcp-lsp/http_runner.go:22`。
-- peer mode 下，`httpRunner.Run()` 调 `common.NewHTTPServer(...).Start(ctx, "127.0.0.1:0")`，随后把真实端口写入 discovery file：`cmd/mcp-lsp/http_runner.go:37`、`cmd/mcp-lsp/http_runner.go:45`、`internal/mcpserver/common/discovery.go:60`。
+- `newHTTPRunner()` 在 `cmd/mcp-lsp/http_runner.go:33-49` 检查 `GO_AGENT_PEER_MODE`；不是 `1` 时直接返回 `lspBlockRunner`，不会起 HTTP server。
+- peer mode 下，`httpRunner.Run()` 在 `cmd/mcp-lsp/http_runner.go:42-46` 构造 HTTP server，并在 `cmd/mcp-lsp/http_runner.go:65-71` 启动后把真实端口交给 `internal/platform/discovery/discovery.go:157-162` 写入 discovery file。
 - `common.HTTPServer.dispatch()` 与 stdio 入口共享同一组 MCP 方法语义：`internal/mcpserver/common/http_transport.go:105`。
 - HTTP `tools/call` 同样委托给 `registryToolProvider.CallTool`，只差 transport 变成 `POST /mcp`：`internal/mcpserver/common/http_transport.go:161`。
 
@@ -291,7 +291,7 @@ sequenceDiagram
 | 场景 | 原始错误来源 | 最终码 | 说明 | 锚点 |
 |---|---|---|---|---|
 | `tools/call` 外层 envelope 解码失败 | `toolCallParams` 反序列化失败 | `-32602` | 这是 transport 层错误，尚未进入具体 tool handler。 | `internal/mcpserver/common/server.go:221`、`internal/mcpserver/common/http_transport.go:161` |
-| tool 内部严格参数校验失败 | `decodeStrictToolParams` / `requireFilePath` / `requirePosition` / `unsupported <tool> action` | `-32000` | 已进入具体 handler，因此统一由 `tools/call` 包装成 tool call error。 | `cmd/mcp-lsp/tools/factory.go:92`、`cmd/mcp-lsp/tools/factory.go:120`、`cmd/mcp-lsp/tools/factory.go:144`、`cmd/mcp-lsp/tools/factory.go:152`、`internal/mcpserver/common/server.go:233` |
+| tool 内部严格参数校验失败 | `decodeStrictToolParams` / `requireFilePath` / `unsupported <tool> action` | `-32000` | 已进入具体 handler，因此统一由 `tools/call` 包装成 tool call error。 | `cmd/mcp-lsp/tools/factory_bindings.go:71`、`cmd/mcp-lsp/tools/factory_results.go:13`、`cmd/mcp-lsp/tools/factory_bindings.go:227`、`internal/mcpserver/common/server.go:233` |
 | path 越界 / symlink / binary / file too large | `search.ResolvePath` / `readValidatedFile` | `-32000` | 常见于 `file` 与 `grep`。 | `cmd/mcp-lsp/search/fileutil.go:112`、`cmd/mcp-lsp/search/fileutil.go:147`、`cmd/mcp-lsp/search/fileutil.go:156`、`cmd/mcp-lsp/search/fileutil.go:162`、`cmd/mcp-lsp/search/fileutil.go:169` |
 | registry 未注册语言 | `ErrUnsupportedLanguage` | `-32000` | registry 直接拒绝；不会进入 auto-install。 | `cmd/mcp-lsp/manager/registry.go:14`、`cmd/mcp-lsp/manager/registry.go:83`、`cmd/mcp-lsp/manager/registry.go:103` |
 | LSP binary 缺失且安装失败 | `installer.EnsureInstalled` | `-32000` | LookPath 失败后尝试安装；安装失败同样按 tool error 上抛。 | `cmd/mcp-lsp/installer/installer.go:44`、`cmd/mcp-lsp/installer/installer.go:65`、`cmd/mcp-lsp/installer/installer.go:70` |
@@ -331,4 +331,4 @@ sequenceDiagram
 |---|---|---|---|---|
 | LSP tool | 新增理解/编辑/执行类工具 | `schema.go` 增 schema → `lspToolManifests` / `newToolHandlers` 接 manifest+handler → `tools/tool_*.go` 落 action，并经 `wrapToolHandler()` 接入治理 | `cmd/mcp-lsp/tools.go:27`、`cmd/mcp-lsp/tools.go:39` | `cmd/mcp-lsp/tools/tool_*_test.go` |
 | language | 引入新语言 server | `setupInstaller()` 登 binary/install cmd → `createGenericManager()` 指定 binary/args/initOpts → `registry.Register(languageID, mgr)` 暴露给文件型工具 | `cmd/mcp-lsp/runtime.go:65`、`cmd/mcp-lsp/runtime.go:107`、`cmd/mcp-lsp/manager/registry.go:70` | `cmd/mcp-lsp/manager/registry_multilang_e2e_test.go:242` |
-| action | 给已有 tool 补新 action | `schema.go` 扩 enum → `dispatchToolAction()` 分发表补 case → 视需要补 `WithOutputBudget` / timeout tier / format helper | `cmd/mcp-lsp/schema.go:56`、`cmd/mcp-lsp/tools/factory.go:120`、`cmd/mcp-lsp/middleware/budget.go:17`、`cmd/mcp-lsp/middleware/timeout.go:11` | `cmd/mcp-lsp/tools/tool_structure_test.go` / 同类 handler test |
+| action | 给已有 tool 补新 action | `schema.go` 扩 enum → `dispatchToolAction()` 分发表补 case → 视需要补 `WithOutputBudget` / timeout tier / format helper | `cmd/mcp-lsp/schema.go:56`、`cmd/mcp-lsp/tools/factory_bindings.go:212`、`cmd/mcp-lsp/middleware/budget.go:17`、`cmd/mcp-lsp/middleware/timeout.go:11` | `cmd/mcp-lsp/tools/tool_structure_test.go` / 同类 handler test |

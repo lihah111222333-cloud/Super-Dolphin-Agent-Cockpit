@@ -14,6 +14,8 @@
 - 应用主壳：`frontend-app/src/App.jsx`
 - 样式入口：`frontend-app/src/styles.css`
 - 嵌入产物目录：`cmd/agent-terminal/web-dist/`，由 `frontend-app/scripts/sync-frontend-dist.mjs` 从 `frontend-app/dist` 同步。
+<!-- codemap-absent path="cmd/agent-terminal/web-dist" -->
+<!-- codemap-absent path="frontend-app/dist" -->
 
 ## 2. 文件地图
 

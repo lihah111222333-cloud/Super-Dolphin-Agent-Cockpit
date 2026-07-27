@@ -1,9 +1,13 @@
 # 11B Prompt / Thread 代码地图
 
 > 拆卷说明：本卷只覆盖 `internal/module/prompt/`、`internal/module/thread/`、provider bridge、以及 blank-thread 首发链；memory 深水区另见 [`11-memory.md`](11-memory.md)。
-> 当前口径：以 2026-04-20 HEAD 为准；用于收口 prompt / thread / provider `start / resume / fork`、prompt store、snapshot、以及前端 blank-thread 首发真值。
+> 当前口径：用于收口 prompt / thread / provider `start / resume / fork`、prompt store、snapshot、以及前端 blank-thread 首发真值；文件数由下列机器声明而非日期快照维护。
 > UI 路径校正（2026-06-28）：当前且唯一的前端源码在 `frontend-app/`，见 [`01-terminal-ui-react.md`](01-terminal-ui-react.md)。旧 Vue/package-embed 前端已删除。
-> 必读搭配：`docs/会话习惯.md` §10.21 / §10.25；shared patches：`tmp/codemap-missing-coverage.md`、`tmp/codemap-mermaid-patches.md`、`tmp/codemap-test-freeze.md`、`tmp/codemap-howto-patches.md`。
+>
+> <!-- codemap-count path="internal/module/prompt" kind="go-files" expected="30" -->
+> <!-- codemap-count path="internal/module/prompt" kind="go-test-files" expected="51" -->
+> <!-- codemap-count path="internal/module/thread" kind="go-files" expected="31" -->
+> <!-- codemap-count path="internal/module/thread" kind="go-test-files" expected="76" -->
 
 ## 1. 这卷回答什么
 
@@ -17,12 +21,12 @@
 
 1. **start prompt 的正式入口不在 prompt 包里单独命名，而在 thread helper**：`internal/module/thread/start_session_helpers.go:82-94` 的 `resolveStartPromptAssembly()` 调 `PromptAssemblyRef.AssembleStart()`。
 2. **turn prompt 没有同名 helper**：仓内 `resolveTurnPromptAssembly` 为 0 命中；turn 侧真实入口是 `internal/module/turn/prompt_assembly.go:13-43` 的 `prepareTurnAssembly()`，再调 `prompt.AssembleTurn()`。
-3. **`PROMPT_START_CURRENT_DATE` 已上线且只影响 start 一次性 system block**：常量在 `internal/module/prompt/assembler.go:25`，读 env 在 `:289-291`，注入 “Today's date is ...” 在 `:273`。
-4. **dynamic section 不是固定 5 个 slot**：真实矩阵来自 `internal/module/prompt/dynamic.go:43-61`，当前不含旧 prompt 注入式 skill 列表 slot。
+3. **`PROMPT_START_CURRENT_DATE` 已上线且只影响 start 一次性 system block**：常量在 `internal/module/prompt/assembler.go:26`，注入在 `:406`，读 env 在 `:420-424`。
+4. **dynamic section 不是固定 5 个 slot**：真实矩阵来自 `internal/module/prompt/dynamic.go:63-82`，当前不含旧 prompt 注入式 skill 列表 slot。
 5. **skill 不再经 prompt catalog 注入**：V1 生产路径是 canonical skills -> provider-native mirrors；prompt 不从 skill store 读取 native replacement，native/tool suppression hints 只来自用户禁用工具配置。
 6. **prompt config 不再承载旧 skill 列表开关**：`internal/module/prompt/config.go` 只保留 registry / assembly / system-context cache breaker 等 prompt 开关。
 7. **prompt store 不是只读**：`internal/store/prompt/contract.go:15-22` 已暴露 `WithTx / Get / Delete / InsertVersion / Upsert`；写路径在 `internal/module/prompt/service.go:290-340,382-488`。
-8. **freeze 真值是 `prompt = 27`**：`internal/archtest/freeze_registry.go:29-35` 明写 `internal/module/prompt` 包文件数 freeze 到 27。
+8. **prompt/thread 不再有 package-count freeze**：`internal/archtest/freeze_registry.go:19` 的 registry 当前为空；本卷改用上方 `codemap-count` 声明校验真实文件数。
 9. **resume 没有独立 `resume.go`**：resume 主链分散在 `thread/lifecycle.go`、`start_session.go`、`prompt_snapshot.go`、`rpc.go`；文件树里只有 `resume_test.go`、`resume_session_uuid_test.go`。
 10. **memory 与 prompt 的交点不是共用一个 snapshot 结构**：prompt snapshot 单独存 `agent_thread_prompt_snapshot`；memory 侧读的是 thread `ConfigOverride.Runtime`，由 `MemoryLifecycleHooks.resolveThreadRuntimeMetadata()` 解释。
 11. **provider bridge 的主干是 bus，不是 thread 直接监听 driver**：driver session 只 dispatch raw event；统一翻译发生在 `internal/provider/unified/event_map.go:71-124`；thread 只订阅 bus 上的 typed event。
@@ -94,7 +98,7 @@
 
 ### 4.1 Prompt 模块装配入口
 
-- `internal/module/prompt/module.go:14-27` 定义 `prompt.Module`。
+- `internal/module/prompt/module.go:19-34` 定义 `prompt.Module`。
 - `fx.Provide(...)` 里同时放入：
   - `NewConfig`
   - `NewServiceFx`
@@ -333,7 +337,7 @@
 
 这份 snapshot 随后会被 thread 保存到持久层，并在 resume / fork / recover 时复用。
 
-## 5. Prompt store + freeze
+## 5. Prompt store + 机器计数
 
 ### 5.1 Store contract 已是读写口
 
@@ -426,30 +430,15 @@ prompt store 保存的是 dashboard / prompts 页面可编辑模板。
 
 两者都叫 prompt，但语义不同，不能混写。
 
-### 5.7 freeze：prompt 包文件数当前锁到 27
+### 5.7 文件数真值
 
-`internal/archtest/freeze_registry.go:29-35`：
+- prompt：30 个生产 Go 文件、51 个测试 Go 文件。
+- thread：31 个生产 Go 文件、75 个测试 Go 文件。
+- 四个值由卷首 `codemap-count` 实时校验；`internal/archtest/freeze_registry.go:19` 当前为空，不再保留旧 `27*` 豁免口径。
 
-| Path | Kind | Limit | Owner | 当前注释 |
-|---|---|---|---|---|
-| `internal/module/prompt` | `ViolationPackageCount` | `27` | `P20.1-Phase-10` | prompt 迁移期文件数高于默认预算 |
+### 5.8 计数与测试入口的对应关系
 
-相邻参考：
-
-| Path | Kind | Limit |
-|---|---|---|
-| `internal/module/memory` | `ViolationPackageCount` | `27` |
-
-但本卷只对 prompt freeze 负责。
-
-### 5.8 freeze 与测试入口的对应关系
-
-shared patch 已把本卷 freeze 口径收成：
-
-- `prompt = 27*`
-- `thread = —`
-
-其中 `27*` 的星号含义是：**本轮已从旧数值校正到 27，并与 `freeze_registry.go` 对齐**。
+新增、删除或拆分 prompt/thread 文件时，`make codemap-check` 会对卷首声明与工作树实际文件数做 fail-fast 对账；不得通过恢复 freeze 或手改生成物绕过。
 
 ## 6. Thread start / resume / fork 主链
 
@@ -915,17 +904,17 @@ memory 模块把 prompt handoff 分成两条：
 
 #### A. prompt 注入侧
 
-- `memory.Module` 在 `internal/module/memory/module.go:218-245` 里 `fx.Invoke(registerPromptProviders, registerMemoryHooks)`。
-- `registerPromptProviders()` 在 `memory/rules_provider.go:465-487` 注册：
+- `memory.Module` 在 `internal/module/memory/module.go:329-367` 组装 providers、workers、子模块与 `registerPromptProviders`。
+- `registerPromptProviders()` 在 `internal/module/memory/rules_provider.go:784-809` 注册：
   - `MemoryRulesProvider`
-  - `AgentProvider`
+  - `MemoryEntrypointProvider`
   - `MemoryContextProvider`
   - ClaudeMd provider
 
 #### B. durable write 侧
 
-- `registerMemoryHooks()` 在 `memory/module.go:369-393`
-- `registerThreadHookSubscriptions()` 在 `:423-447`
+- `NewMemorySubscribers()` 在 `internal/module/memory/factory.go:297-339` 声明 bus subscriber，并调用 `internal/module/memory/module_subscribers.go:53-60` 的 `registerLifecycleSubscriptions()`。
+- `registerThreadHookSubscriptions()` 在 `internal/module/memory/module_subscribers.go:85-136`
 - 它订阅：
   - `threaddto.Started`
   - `turndto.TurnInputReceived`
@@ -1272,15 +1261,15 @@ flowchart LR
   J --> K[frontend thread store]
 ```
 
-## 11. 测试入口 + freeze 映射
+## 11. 测试入口 + 计数守卫
 
 ### 11.1 prompt / thread / provider / store 测试表
 
-| 包 | 测试文件 | 核心用例 | 说明 | freeze |
+| 包 | 测试文件 | 核心用例 | 说明 | 计数守卫 |
 |---|---|---|---|---|
-| `prompt` | `assembler_test.go` | `TestAssembleStartIncludesBuiltinsAndDynamicSections` | 验 start assembly 真正包含 built-in + dynamic sections | `27*` |
-| `prompt` | `user_context_builder_untrusted_test.go` | untrusted context escaping | 验 prompt user-context 安全边界 | `27*` |
-| `prompt` | `golden_test.go` | golden start assembly | 验输出稳定性 | `27*` |
+| `prompt` | `assembler_test.go` | `TestAssembleStartIncludesBuiltinsAndDynamicSections` | 验 start assembly 真正包含 built-in + dynamic sections | 卷首 count marker |
+| `prompt` | `user_context_builder_untrusted_test.go` | untrusted context escaping | 验 prompt user-context 安全边界 | 卷首 count marker |
+| `prompt` | `golden_test.go` | golden start assembly | 验输出稳定性 | 卷首 count marker |
 | `thread` | `service_handlers_test.go` | `TestNewServiceInitializesDefaults` | 验 thread service 默认 wiring | — |
 | `thread` | `resume_test.go` | `TestServiceResumePrefersStoredPromptSnapshot` | 验 resume 优先使用 stored prompt snapshot | — |
 | `thread` | `fork_isolation_test.go` | `TestServiceForkCreatesIndependentAgentAndBinding` | 验 fork 复用 snapshot 且持久化新 binding | — |
@@ -1290,7 +1279,7 @@ flowchart LR
 | `claudecli` | `session_restart_config_test.go` | prompt snapshot restart 用例 | 验 Claude resume/start snapshot 消费 | — |
 | `codexapp` | `driver_session_test.go` | start/resume assembly instructions 用例 | 验 Codex driver 读 StartAssembly / PromptSnapshot | — |
 | `store/thread` | `snapshot_test.go` | prompt snapshot round trip | 验 thread prompt snapshot 存取与兼容 | — |
-| `archtest` | `code_size_guard_test.go` | `TestCodeSizeGuard` | 验 freeze registry 真值 | `prompt=27` |
+| `archtest` | `code_size_guard_test.go` | `TestCodeSizeGuard` | 验通用代码尺寸预算；当前没有 prompt/thread freeze | — |
 
 ### 11.2 本卷最值得先跑的回归集
 
@@ -1303,11 +1292,10 @@ flowchart LR
 5. `internal/store/thread/snapshot_test.go`
 6. `internal/archtest/code_size_guard_test.go`
 
-### 11.3 freeze 阅读口径
+### 11.3 计数阅读口径
 
-- `prompt = 27*`：表示本轮文档已按 `freeze_registry.go` 收敛到 27。
-- `thread = —`：当前 thread 包无独立 freeze 条目。
-- 如果 archtest 未来自动回收 freeze，本卷应同步改 `11.1` 与 `5.7`。
+- prompt/thread 的生产与测试文件数以卷首四个 marker 为准。
+- `freeze_registry.go` 当前为空；如未来确需新增豁免，必须走架构守卫的显式治理流程，不能在本卷先写预期数。
 
 ## 12. How-to
 
@@ -1349,7 +1337,7 @@ flowchart LR
    - ClaudeMd source -> ClaudeMd provider
 2. 在 memory 模块实现 provider。
 3. 在 `memory.Module` 的 `registerPromptProviders()` 中注册。
-4. 如有 durable write 需要，再在 `registerMemoryHooks()` 增加相应 bus 订阅。
+4. 如有 durable write 需要，再由 `NewMemorySubscribers()` / `registerLifecycleSubscriptions()` 增加相应 bus 订阅。
 5. 如果写侧会改变 prompt 可见内容，记得触发 section invalidation。
 
 验证：
@@ -1425,7 +1413,7 @@ flowchart LR
 - 想看 current date hook：看 `prompt/assembler.go:25,273,289-291`。
 - 想看 start 真入口：看 `thread/start_session_helpers.go:82-94`。
 - 想看 turn 真入口：看 `turn/prompt_assembly.go:13-43`。
-- 想看 skill 与 prompt 当前边界：看 `prompt/module.go:50-69`、`prompt/assembler_support.go:201-212` 与 `skill/module.go:17-27`。
+- 想看 skill 与 prompt 当前边界：看 `internal/module/prompt/module.go:19-34`、`internal/module/prompt/assembler_support.go:201-221` 与 `internal/module/skill/module.go:15-34`。
 - 想看 prompt store 写口：看 `store/prompt/contract.go:15-22` 与 `prompt/service.go:290-340,473-488`。
 - 想看 prompt snapshot 保存/恢复：看 `thread/prompt_snapshot.go:173-215,217-275,320-399`。
 - 想看 provider bridge：看 `provider/unified/event_map.go:28-124`、`thread/events.go:25-152`、`eventsurface/bind.go:72-197`。

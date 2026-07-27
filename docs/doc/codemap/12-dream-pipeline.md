@@ -24,11 +24,11 @@
 
 | 路径 | 职责 | 核心锚点 |
 |---|---|---|
-| `internal/provider/unified/dream_executor.go` | dispatcher: failover / timeout / size cap / metrics / 日志 | `:110 ExecuteDream` `:127 preflight` `:144 runFailover` |
+| `internal/provider/unified/dream_executor.go` | dispatcher: failover / timeout / size cap / metrics / 日志 | `:138 ExecuteDream` `:143 ExecuteDreamWithOptions` `:161 preflight` `:178 runFailover` |
 | `internal/provider/dreamexec/dreamexec.go` | 公共子进程层 + Commander 接口 + Run 整合 | `:38 Commander` `:52 NewRealCommander` `:153 Run` |
 | `internal/provider/dreamexec/parse.go` | JSON fence 移除 + balanced object 提取 | `:30 StripJSONFences` `:54 ExtractFirstJSONObject` `:69 findBalancedJSONEnd` |
-| `internal/provider/claudecli/dream_executor.go` | claude `-p` batch 真实现 | `:53 ExecuteDream` `:32 newDreamExecutor` |
-| `internal/provider/codexapp/dream_executor.go` | codex `exec` batch 真实现 | `:64 ExecuteDream` `:36 newDreamExecutor` |
+| `internal/provider/claudecli/dream_executor.go` | claude `-p` batch 真实现 | `:55 ExecuteDream` `:32 newDreamExecutor` |
+| `internal/provider/codexapp/dream_executor.go` | codex `exec` batch 真实现 | `:60 ExecuteDream` `:30 newDreamExecutor` |
 | `pkg/dreammetrics/dreammetrics.go` | 8 atomic counter（5 outcome + 3 token）+ Snapshot/Read + ResetForTesting | `:17 outcome atomic` `:27 token atomic` `:83 Snapshot` `:95 Read` |
 | `internal/platform/config/timeouts.go` | timeout 常量集中 | `:21 DreamConsolidationTimeout` |
 | `internal/contract/dream.go` | DreamExecutor 接口 + ErrDreamExecutorNotConfigured 哨兵 | `:8 sentinel` `:10 接口` |
@@ -82,9 +82,9 @@ unified.dreamExecutor.ExecuteDream (dispatcher 入口)
 
 | 项 | 实现 | 锚点 |
 |---|---|---|
-| 5min timeout | `platformconfig.WithTimeout(ctx, defaultDreamTimeout)`，0 时跳过（测试可注入） | `dream_executor.go:117-121` |
-| 256KB prompt cap | `len(prompt) > maxPromptBytes` fail-fast，`Warn + IncPromptOversize` | `dream_executor.go:131-138` |
-| DREAM_PROVIDER_ORDER env | `resolveProviderOrder(registered, override)` 纯函数：列出已注册的按 CSV 顺序在前，剩余字母序补后 | `dream_executor.go:80` |
+| 5min timeout | `platformconfig.WithTimeout(ctx, defaultDreamTimeout)`，0 时跳过（测试可注入） | `internal/provider/unified/dream_executor.go:143-157` |
+| 256KB prompt cap | `len(prompt) > maxPromptBytes` fail-fast，`Warn + IncPromptOversize` | `internal/provider/unified/dream_executor.go:159-174` |
+| DREAM_PROVIDER_ORDER env | `resolveProviderOrder(registered, override)` 纯函数：列出已注册的按 CSV 顺序在前，剩余字母序补后 | `internal/provider/unified/dream_executor.go:101-135` |
 | 8 metrics counter | outcome: `Success / ProviderSkipped / ProviderFailed / AllNotConfigured / PromptOversize`；token: `TokensInput / TokensOutput / TokensCacheRead` | `pkg/dreammetrics/dreammetrics.go:17-29` |
 
 ## 6. Provider 真实现矩阵
@@ -119,7 +119,7 @@ unified.dreamExecutor.ExecuteDream (dispatcher 入口)
 
 ## 9. 关键架构事实速查
 
-- failover order：默认字母序 `claude` < `codex`；env override 通过 `resolveProviderOrder` 纯函数；未识别名静默忽略，启动时打 Info 日志 `dream provider order overridden` 含 `resolved` 字段
+- failover order：默认字母序 `claude` < `codex`；env override 通过 `resolveProviderOrder` 解析；未识别 provider 会立即返回错误并阻断启动（`internal/provider/unified/dream_executor.go:101-135`）
 - 子进程隔离：dream 不复用 unified.SessionManager，避免污染 UI 事件流 + 历史；每次 dream 付 ~1-2s 子进程启动开销，由 SafeGo 后台触发对用户不可见
 - prompt 已自带 JSON 契约：`consolidation_prompt.go:69 buildConsolidationPrompt` 在 Phase 1 区块显式要求模型返回严格 `{"memories":[{"content","type","tags"}]}`，无需附加 system prompt
 - parse 容忍：`parseExtractedMemories` (`extract.go:67`) 容忍 envelope/list/single 三种 schema，dreamexec.ExtractFirstJSONObject 处理 prose preamble + fence + 嵌套 + 字符串内 brace
@@ -130,7 +130,7 @@ unified.dreamExecutor.ExecuteDream (dispatcher 入口)
 - 触发段（thread.stopped → SafeGo → extractFn）：见 `11-memory.md §5 写侧主链`
 - prompt 拼装段（`buildConsolidationPrompt`）：见 `11-memory.md` consolidation 节
 - thread / session 绑定（codex_home / instance_key）：见 `11-prompt-thread.md`
-- 配置中央索引（env vars 矩阵 / 凭据 / 故障排查）：见 `docs/doc/dream-provider-config.md`
+- 配置真值：order / timeout / cap / fail-fast 见 `internal/provider/unified/dream_executor.go:19-30`、`:50-84`、`:101-178`；provider binary/model 见 `internal/provider/claudecli/dream_executor.go:15-51` 与 `internal/provider/codexapp/dream_executor.go:16-55`
 
 ## 11. 历史阶段对照（session p25）
 
@@ -147,4 +147,4 @@ unified.dreamExecutor.ExecuteDream (dispatcher 入口)
 | B-4.5 | stop hook 完整 e2e | `auto_dream_e2e_manual_test.go` |
 | B-4.6 | archtest 3 项违规修复 | `ExecuteDream` 拆 3 函数 + `ExtractFirstJSONObject` 拆 3 函数 + timeout 迁移 |
 | B-4.7 / B-4.9 | binding fixture 字段对齐（latent fix） | `capturingBindingStore` + `stubBindingStore` |
-| B-4.8 / B-4.9 | dream provider 配置文档 | `docs/doc/dream-provider-config.md` |
+| B-4.8 / B-4.9 | dream provider 配置真值 | `internal/provider/unified/dream_executor.go:19-178`、`internal/provider/dreamexec/dreamexec.go:77-145` |

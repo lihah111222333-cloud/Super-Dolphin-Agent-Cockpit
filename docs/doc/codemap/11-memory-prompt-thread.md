@@ -30,13 +30,13 @@
 
 - 看 `PROMPT_START_CURRENT_DATE` 先去 [11-prompt-thread.md](11-prompt-thread.md)；只想确认 assembly 汇合点，再看 [11-memory.md](11-memory.md) §5.5 B。
 - 看 `internal/module/memory/domain_bridges.go` 去 [11-memory.md](11-memory.md) §3、§4.2、§6。
-- 看 `internal/module/memory/retrieval_bridge.go` 去 [11-memory.md](11-memory.md) §3、§4.2、§6。
+- 看 `internal/module/memory/retrieval/finder.go` 去 [11-memory.md](11-memory.md) §3、§4.2、§6。
 - 看 thread/start、resume、fork 的 runtime 链，去 [07-module-write.md](07-module-write.md) §2.4，再回 [11-prompt-thread.md](11-prompt-thread.md)。
 
 ## 最近一次重大变更摘要
 
 - **2026-04-17**：11 从旧合卷拆成 `11-memory.md` + `11-prompt-thread.md`，本页改为兼容索引。
-- **2026-04-20**：memory 卷按子包拆分真值重写，补回 `domain_bridges.go`、`retrieval_bridge.go`、provider-neutral snapshot 口径；prompt-thread 卷继续保留稳定入口位。
+- **2026-04-20**：memory 卷按子包拆分真值重写，补回 `domain_bridges.go`、retrieval 子包与 provider-neutral snapshot 口径；prompt-thread 卷继续保留稳定入口位。
 
 ## 常见误导
 
@@ -50,6 +50,6 @@
 |---|---|
 | `PROMPT_START_CURRENT_DATE` | [11-prompt-thread.md](11-prompt-thread.md)；assembly 汇合补看 [11-memory.md](11-memory.md) §5.5 B |
 | `internal/module/memory/domain_bridges.go` | [11-memory.md](11-memory.md) §3、§4.2、§6 |
-| `internal/module/memory/retrieval_bridge.go` | [11-memory.md](11-memory.md) §3、§4.2、§6 |
+| `internal/module/memory/retrieval/finder.go` | [11-memory.md](11-memory.md) §3、§4.2、§6 |
 | `MemoryRulesProvider` | [11-memory.md](11-memory.md) §5.3 |
 | `MemoryContextProvider` | [11-memory.md](11-memory.md) §5.4 |
