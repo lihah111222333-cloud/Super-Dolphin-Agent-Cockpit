@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { setTimeout as sleep } from 'node:timers/promises';
 
 const DEFAULT_MAX_BUFFER = 16 * 1024 * 1024;
 const activeTerminations = new Set();
@@ -30,26 +31,28 @@ function onTerminate() {
   terminateManagedCommands('SIGTERM');
 }
 
-function killPosixProcessGroup(child, signal) {
-  if (!child.pid) return;
+function killPosixProcessGroup(child, signal, processKill = process.kill.bind(process)) {
+  if (!child.pid) return false;
   try {
-    process.kill(-child.pid, signal);
+    processKill(-child.pid, signal);
+    return true;
   }
   catch (error) {
-    if (error.code !== 'ESRCH') throw error;
+    if (error.code === 'ESRCH') return false;
+    throw error;
   }
 }
 
-function killWindowsProcessTree(child) {
+function killWindowsProcessTree(child, spawnImpl = spawn) {
   if (!child.pid) return Promise.resolve();
   return new Promise((resolve, reject) => {
-    const killer = spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
+    const killer = spawnImpl('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
       stdio: 'ignore',
       windowsHide: true,
     });
     killer.once('error', reject);
     killer.once('close', (status) => {
-      if (status === 0 || child.exitCode != null || child.signalCode != null) {
+      if (status === 0) {
         resolve();
         return;
       }
@@ -58,19 +61,44 @@ function killWindowsProcessTree(child) {
   });
 }
 
-function signalProcessTree(child, signal) {
-  if (process.platform === 'win32') return killWindowsProcessTree(child);
-  killPosixProcessGroup(child, signal);
-  return Promise.resolve();
-}
-
-function killChildFallback(child) {
-  if (child.exitCode != null || child.signalCode != null) return;
+function posixProcessGroupExists(child, processKill) {
+  if (!child.pid) return false;
   try {
-    child.kill('SIGKILL');
+    processKill(-child.pid, 0);
+    return true;
   }
   catch (error) {
-    if (error.code !== 'ESRCH') throw error;
+    if (error.code === 'ESRCH') return false;
+    throw error;
+  }
+}
+
+async function waitForPosixProcessGroupExit(child, timeoutMs, processKill, sleepImpl) {
+  const deadline = Date.now() + timeoutMs;
+  while (posixProcessGroupExists(child, processKill)) {
+    if (Date.now() >= deadline) return false;
+    await sleepImpl(Math.min(20, Math.max(1, deadline - Date.now())));
+  }
+  return true;
+}
+
+export async function terminateProcessTree(child, {
+  platform = process.platform,
+  spawnImpl = spawn,
+  processKill = process.kill.bind(process),
+  killGraceMs = 1_000,
+  sleepImpl = sleep,
+} = {}) {
+  if (!child?.pid) return;
+  if (platform === 'win32') {
+    await killWindowsProcessTree(child, spawnImpl);
+    return;
+  }
+  if (!killPosixProcessGroup(child, 'SIGTERM', processKill)) return;
+  if (await waitForPosixProcessGroupExit(child, killGraceMs, processKill, sleepImpl)) return;
+  killPosixProcessGroup(child, 'SIGKILL', processKill);
+  if (!await waitForPosixProcessGroupExit(child, killGraceMs, processKill, sleepImpl)) {
+    throw new Error(`process group ${child.pid} remained alive after SIGKILL`);
   }
 }
 
@@ -105,29 +133,12 @@ export function runManagedCommand(command, args, {
     let outputTruncated = false;
     let terminationStarted = false;
     let processError;
-    let forceTimer;
     let timeout;
     let settled = false;
+    let terminationPromise;
 
     const recordTerminationError = (error) => {
       processError ||= error;
-      if (process.platform === 'win32') {
-        try {
-          killChildFallback(child);
-        }
-        catch (fallbackError) {
-          processError ||= fallbackError;
-        }
-      }
-    };
-
-    const signalTree = (signal) => {
-      try {
-        signalProcessTree(child, signal).catch(recordTerminationError);
-      }
-      catch (error) {
-        recordTerminationError(error);
-      }
     };
 
     const terminate = (reason) => {
@@ -137,25 +148,18 @@ export function runManagedCommand(command, args, {
       processError ||= reason === 'timeout'
         ? new Error(`managed command timed out after ${timeoutMs}ms`)
         : reason;
-      signalTree('SIGTERM');
-      if (process.platform !== 'win32') {
-        forceTimer = setTimeout(() => signalTree('SIGKILL'), killGraceMs);
-      }
+      terminationPromise = terminateProcessTree(child, { killGraceMs }).catch(recordTerminationError);
     };
 
-    const finish = (status, signal) => {
+    const finish = async (status, signal) => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
-      if (forceTimer) clearTimeout(forceTimer);
-      if (terminationStarted && process.platform !== 'win32') {
-        try {
-          killPosixProcessGroup(child, 'SIGKILL');
-        }
-        catch (error) {
-          processError ||= error;
-        }
+      if (status !== 0 && !terminationStarted) {
+        terminationStarted = true;
+        terminationPromise = terminateProcessTree(child, { killGraceMs }).catch(recordTerminationError);
       }
+      if (terminationPromise) await terminationPromise;
       activeTerminations.delete(terminate);
       removeSignalHandlers();
       resolve({
@@ -198,9 +202,9 @@ export function runManagedCommand(command, args, {
     child.stderr?.on('data', (chunk) => append('stderr', chunk));
     child.once('error', (error) => {
       processError ||= error;
-      if (!child.pid) finish(null, null);
+      if (!child.pid) void finish(null, null);
     });
     timeout = setTimeout(() => terminate('timeout'), timeoutMs);
-    child.once('close', finish);
+    child.once('close', (status, signal) => { void finish(status, signal); });
   });
 }

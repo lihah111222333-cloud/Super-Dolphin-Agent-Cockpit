@@ -5,6 +5,7 @@ import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
+import { terminateProcessTree } from './managed-command.mjs';
 
 const DEFAULT_HTTP_ADDR = '127.0.0.1:4512';
 const DEFAULT_VITE_URL = 'http://127.0.0.1:5175';
@@ -111,8 +112,8 @@ export async function runDesktopSmoke(config = smokeConfig(), deps = {}) {
   }
   const child = startDesktop(config, deps.spawn || spawn);
   try {
-    await waitForHTTP(`http://${config.httpAddr}/metrics`, config.timeoutMs, child);
-    const client = await openWSRPC(config.wsURL, config.wsToken, config.rpcTimeoutMs, deps.WebSocket || WebSocket);
+    await (deps.waitForHTTP || waitForHTTP)(`http://${config.httpAddr}/metrics`, config.timeoutMs, child);
+    const client = await (deps.openWSRPC || openWSRPC)(config.wsURL, config.wsToken, config.rpcTimeoutMs, deps.WebSocket || WebSocket);
     try {
       await runReadPathSmoke(client, config);
       const threadID = await runThreadStartSmoke(client, config);
@@ -125,7 +126,7 @@ export async function runDesktopSmoke(config = smokeConfig(), deps = {}) {
     }
   }
   finally {
-    await stopDesktop(child);
+    await (deps.stopDesktop || stopDesktop)(child, deps);
   }
 }
 
@@ -141,6 +142,7 @@ function startDesktop(config, spawnImpl) {
       SUPER_DOLPHIN_DESKTOP_SMOKE_ACTIVE: '1',
       SUPER_DOLPHIN_WAILS_WS_TOKEN: config.wsToken,
     },
+    detached: process.platform !== 'win32',
     stdio: 'inherit',
   });
 }
@@ -160,15 +162,11 @@ function runCommand(command, args, cwd, spawnImpl) {
   });
 }
 
-async function stopDesktop(child) {
+export async function stopDesktop(child, deps = {}) {
   if (!child || child.exitCode != null || child.signalCode != null) return;
-  child.kill('SIGTERM');
-  await Promise.race([
-    new Promise((resolve) => child.once('exit', resolve)),
-    sleep(10000).then(() => {
-      if (child.exitCode == null && child.signalCode == null) child.kill('SIGKILL');
-    }),
-  ]);
+  await (deps.terminateProcessTree || terminateProcessTree)(child, {
+    killGraceMs: deps.killGraceMs || 10_000,
+  });
 }
 
 async function waitForHTTP(url, timeoutMs, child) {
@@ -192,14 +190,21 @@ async function waitForHTTP(url, timeoutMs, child) {
   throw new Error(`timed out waiting for backend: ${url}`);
 }
 
-async function openWSRPC(wsURL, wsToken, timeoutMs, WebSocketImpl) {
+export async function openWSRPC(wsURL, wsToken, timeoutMs, WebSocketImpl) {
   if (typeof WebSocketImpl !== 'function') {
     throw new Error('global WebSocket is required; run with Node.js 22 or newer');
   }
   const ws = new WebSocketImpl(wsURL, [], buildWebSocketOptions(wsURL, wsToken));
   const pending = new Map();
   let nextID = 1;
-  await waitForWSOpen(ws, timeoutMs);
+  try {
+    await waitForWSOpen(ws, timeoutMs);
+  }
+  catch (error) {
+    if (typeof ws.terminate === 'function') ws.terminate();
+    else if (typeof ws.close === 'function') ws.close();
+    throw error;
+  }
   ws.addEventListener('message', (event) => {
     const message = parseWSMessage(event.data);
     const entry = pending.get(String(message.id));
@@ -230,7 +235,7 @@ async function openWSRPC(wsURL, wsToken, timeoutMs, WebSocketImpl) {
 function waitForWSOpen(ws, timeoutMs) {
   return withTimeout(new Promise((resolve, reject) => {
     ws.addEventListener('open', resolve, { once: true });
-    ws.addEventListener('error', () => reject(new Error('websocket connection failed')), { once: true });
+    ws.addEventListener('error', () => reject(new Error('websocket connection failed (handshake details redacted)')), { once: true });
   }), timeoutMs, 'websocket open timed out');
 }
 
@@ -273,9 +278,19 @@ async function runFrontendIngestSmoke(client) {
   }
 }
 
-async function runTurnSmoke(client, config, threadID) {
+export async function runTurnSmoke(client, config, threadID) {
   const turn = await assertObject(client.request('turn/start', { thread_id: threadID, cwd: config.cwd, prompt: 'desktop smoke turn' }), 'turn/start');
-  await assertObject(client.request('turn/interrupt', buildTurnInterruptParams(threadID, turn)), 'turn/interrupt');
+  const interrupt = await client.request('turn/interrupt', buildTurnInterruptParams(threadID, turn));
+  if (!interrupt || typeof interrupt !== 'object' || Array.isArray(interrupt)) {
+    throw new Error(`turn/interrupt returned non-object result: ${JSON.stringify(interrupt)}`);
+  }
+  if (interrupt.ok !== true || interrupt.accepted !== true) {
+    const errorCode = typeof interrupt.errorCode === 'string' && interrupt.errorCode.trim()
+      ? ` errorCode=${interrupt.errorCode.trim()}`
+      : '';
+    throw new Error(`turn/interrupt requires ok=true and accepted=true; received ok=${String(interrupt.ok)} accepted=${String(interrupt.accepted)}${errorCode}`);
+  }
+  console.log('rpc ok: turn/interrupt');
 }
 
 export function buildTurnInterruptParams(threadID, turn, createRequestId = randomUUID) {

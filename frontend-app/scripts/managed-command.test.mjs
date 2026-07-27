@@ -1,9 +1,10 @@
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { EventEmitter } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { cwd, execPath } from 'node:process';
 import { describe, expect, it } from 'vitest';
-import { runManagedCommand, terminateManagedCommands } from './managed-command.mjs';
+import { runManagedCommand, terminateManagedCommands, terminateProcessTree } from './managed-command.mjs';
 
 function processIsGone(pid) {
   try {
@@ -117,4 +118,48 @@ describe('managed command', () => {
     expect(result.error?.message).toContain(`maxBuffer=${maxBuffer}`);
     expect(Buffer.byteLength(result.stdout) + Buffer.byteLength(result.stderr)).toBeLessThanOrEqual(maxBuffer);
   }, 10_000);
+
+  it('sweeps descendants when the managed parent exits non-zero', async () => {
+    if (process.platform === 'win32') return;
+    const tempRoot = mkdtempSync(join(tmpdir(), 'managed-command-nonzero-'));
+    const pidPath = join(tempRoot, 'child.pid');
+    try {
+      const result = await runManagedCommand(execPath, ['-e', `
+        const { spawn } = require('node:child_process');
+        const fs = require('node:fs');
+        const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+        fs.writeFileSync(process.argv[1], String(child.pid));
+        process.exit(2);
+      `, pidPath], {
+        cwd: cwd(),
+        timeoutMs: 5_000,
+        killGraceMs: 100,
+      });
+      expect(result.status).toBe(2);
+      const childPID = Number(readFileSync(pidPath, 'utf8'));
+      expect(processIsGone(childPID)).toBe(true);
+    }
+    finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  }, 10_000);
+
+  it('awaits Windows taskkill tree cleanup with an immutable PID', async () => {
+    const calls = [];
+    const spawnImpl = (command, args, options) => {
+      calls.push({ command, args, options });
+      const killer = new EventEmitter();
+      queueMicrotask(() => killer.emit('close', 0));
+      return killer;
+    };
+    await terminateProcessTree({ pid: 2468 }, {
+      platform: 'win32',
+      spawnImpl,
+      killGraceMs: 5,
+    });
+    expect(calls).toEqual([expect.objectContaining({
+      command: 'taskkill',
+      args: ['/PID', '2468', '/T', '/F'],
+    })]);
+  });
 });

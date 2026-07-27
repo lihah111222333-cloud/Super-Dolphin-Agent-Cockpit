@@ -7,7 +7,10 @@ import {
   buildTurnInterruptParams,
   buildWebSocketOptions,
   buildWebSocketURL,
+  openWSRPC,
   packageScriptIncludesSmoke,
+  runDesktopSmoke,
+  runTurnSmoke,
   smokeConfig,
 } from './desktop-smoke.mjs';
 
@@ -63,6 +66,85 @@ describe('desktop smoke command', () => {
     expect(() => buildTurnInterruptParams('thread-1', {}, () => 'request-1')).toThrow(/turn_id/);
     expect(() => buildTurnInterruptParams('thread-1', { turn_id: 'turn-1' }, () => '')).toThrow(/request_id/);
     expect(() => buildTurnInterruptParams('', { turn_id: 'turn-1' }, () => 'request-1')).toThrow(/thread_id/);
+  });
+
+  it.each([
+    [{ ok: false, accepted: true }, /ok=true/],
+    [{ ok: true, accepted: false }, /accepted=true/],
+    [{ ok: false, accepted: false, errorCode: 'TARGET_CHANGED' }, /TARGET_CHANGED/],
+    [{ ok: false, accepted: false, errorCode: 'NOT_APPLIED' }, /NOT_APPLIED/],
+  ])('rejects a non-accepted turn interrupt result %#', async (interruptResult, errorPattern) => {
+    const client = {
+      request: (method) => Promise.resolve(
+        method === 'turn/start'
+          ? { turn_id: 'turn-1' }
+          : interruptResult,
+      ),
+    };
+
+    await expect(runTurnSmoke(client, { cwd: '/repo/app' }, 'thread-1')).rejects.toThrow(errorPattern);
+  });
+
+  it('propagates an interrupt transport timeout instead of reporting smoke success', async () => {
+    const timeout = new Error('turn/interrupt timed out');
+    const client = {
+      request: (method) => (
+        method === 'turn/start'
+          ? Promise.resolve({ turn_id: 'turn-1' })
+          : Promise.reject(timeout)
+      ),
+    };
+
+    await expect(runTurnSmoke(client, { cwd: '/repo/app' }, 'thread-1')).rejects.toBe(timeout);
+  });
+
+  it('accepts only an explicit successful interrupt result', async () => {
+    const client = {
+      request: (method) => Promise.resolve(
+        method === 'turn/start'
+          ? { turn_id: 'turn-1' }
+          : { ok: true, accepted: true },
+      ),
+    };
+
+    await expect(runTurnSmoke(client, { cwd: '/repo/app' }, 'thread-1')).resolves.toBeUndefined();
+  });
+
+  it.each([
+    ['rejected handshake', new Error('websocket connection failed (handshake details redacted)')],
+    ['handshake timeout', new Error('websocket open timed out')],
+  ])('always terminates the desktop tree after %s', async (_name, failure) => {
+    const child = { pid: 1234, exitCode: null, signalCode: null };
+    const stopCalls = [];
+    await expect(runDesktopSmoke({
+      ...smokeConfig({}, '/repo/app'),
+      skipFrontendBuild: true,
+    }, {
+      spawn: () => child,
+      waitForHTTP: async () => {},
+      openWSRPC: async () => { throw failure; },
+      stopDesktop: async (target) => { stopCalls.push(target); },
+    })).rejects.toBe(failure);
+    expect(stopCalls).toEqual([child]);
+  });
+
+  it.each([
+    ['rejection', true],
+    ['timeout', false],
+  ])('explicitly terminates the websocket after handshake %s', async (_name, rejectHandshake) => {
+    let terminated = 0;
+    class FakeWebSocket {
+      addEventListener(type, listener) {
+        if (rejectHandshake && type === 'error') queueMicrotask(listener);
+      }
+
+      terminate() {
+        terminated += 1;
+      }
+    }
+    await expect(openWSRPC('ws://127.0.0.1:4512/wails/ws', 'token', 5, FakeWebSocket))
+      .rejects.toThrow(rejectHandshake ? /details redacted/ : /timed out/);
+    expect(terminated).toBe(1);
   });
 
   it('prepares the Go embed frontend by default', () => {
