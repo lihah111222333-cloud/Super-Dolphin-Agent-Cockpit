@@ -366,9 +366,9 @@ function markdownUrlTransform(url, key, node) {
   return defaultUrlTransform(value);
 }
 
-function MarkdownRenderer({ text, actions = EMPTY_MARKDOWN_ACTIONS, fallback = null }) {
+function MarkdownRenderer({ text, actions = EMPTY_MARKDOWN_ACTIONS, fallback = null, forceMarkdown = false }) {
   const components = useMemo(() => markdownComponents(actions), [actions]);
-  if (shouldRenderPlainTextMarkdown(text)) return <p>{normalizeMessageText(text)}</p>;
+  if (!forceMarkdown && shouldRenderPlainTextMarkdown(text)) return <p>{normalizeMessageText(text)}</p>;
   const markdownText = markdownRendererText(text);
   if (!markdownText.trim()) return fallback;
   return (
@@ -382,18 +382,18 @@ function MarkdownRenderer({ text, actions = EMPTY_MARKDOWN_ACTIONS, fallback = n
   );
 }
 
-function MarkdownMessage({ text, actions }) {
+function MarkdownMessage({ text, actions, forceMarkdown }) {
   return (
     <div className="message-markdown">
-      <MarkdownRenderer text={text} actions={actions} fallback={<p />} />
+      <MarkdownRenderer text={text} actions={actions} fallback={<p />} forceMarkdown={forceMarkdown} />
     </div>
   );
 }
 
-function MessageContent({ text, actions }) {
+function MessageContent({ text, actions, forceMarkdown = false }) {
   requiredMarkdownObject({ text }, 'MessageContent payload');
   const output = detectMessageOutput(text);
-  if (output.kind === 'markdown') return <MarkdownMessage text={output.text} actions={actions} />;
+  if (output.kind === 'markdown') return <MarkdownMessage text={output.text} actions={actions} forceMarkdown={forceMarkdown} />;
   return <StructuredMessage kind={output.kind} text={output.text} />;
 }
 

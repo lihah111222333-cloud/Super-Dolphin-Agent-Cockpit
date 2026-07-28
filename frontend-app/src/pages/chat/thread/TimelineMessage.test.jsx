@@ -48,7 +48,7 @@ function localScreenshotPath(separator) {
   it('renders assistant footer actions and notifies sticky scrolling while streaming', () => {
     const onScrollIfSticky = vi.fn();
 
-    const { rerender } = render(
+    const { container, rerender } = render(
       <TimelineMessage
         message={{ id: 'assistant-1', role: 'assistant', text: 'streaming reply', time: '2026-06-15T08:00:00Z', done: false }}
         activeThreadId="thread-1"
@@ -62,6 +62,8 @@ function localScreenshotPath(separator) {
     expect(screen.getByText('\u601d\u8003\u4e2d')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /\u590d\u5236/ })).toBeInTheDocument();
     expect(onScrollIfSticky).toHaveBeenCalledWith(false);
+    const streamingMarkdownContainer = container.querySelector('.message-markdown');
+    const streamingParagraph = streamingMarkdownContainer.querySelector('p');
 
     rerender(
       <TimelineMessage
@@ -74,6 +76,8 @@ function localScreenshotPath(separator) {
     );
 
     expect(screen.queryByText('\u601d\u8003\u4e2d')).not.toBeInTheDocument();
+    expect(container.querySelector('.message-markdown')).toBe(streamingMarkdownContainer);
+    expect(streamingMarkdownContainer.querySelector('p')).toBe(streamingParagraph);
   });
 
   it('renders failed terminals with executable diagnostics copy and user cancellation as neutral status', async () => {

@@ -185,6 +185,7 @@ const TimelineMessage = memo(function TimelineMessage({
 }) {
   const streamKey = `${trimmedText(activeThreadId)}:${trimmedText(message.id)}`;
   const streamingAssistant = message.role === 'assistant' && message.done === false;
+  const [streamedMarkdown] = useState(streamingAssistant);
   const displayText = useSmoothStreamingText(message.text, {
     enabled: streamingAssistant && smoothStreaming,
     streamKey,
@@ -231,7 +232,7 @@ const TimelineMessage = memo(function TimelineMessage({
         content={(
           <>
             {isUser ? <UserMessageAttachments attachments={message.attachments} actions={actions} /> : null}
-            <MessageContent text={displayText} actions={actions} />
+            <MessageContent text={displayText} actions={actions} forceMarkdown={streamedMarkdown} />
           </>
         )}
         footer={isUser ? undefined : (
