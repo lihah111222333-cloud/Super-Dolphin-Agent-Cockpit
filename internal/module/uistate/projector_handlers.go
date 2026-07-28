@@ -38,6 +38,7 @@ func (s *service) applyAgentStateChanged(ev agentdto.StateChanged) {
 			State:      newState,
 			AgentState: agentState,
 		})
+		s.applyAgentBoardLocked(ev.Board)
 		if agentState == "idle" || agentState == "syncing" || agentState == "error" {
 			s.clearThreadActivityLocked(threadID)
 		}
@@ -84,6 +85,7 @@ func (s *service) applyAgentLaunched(ev agentdto.AgentLaunched) {
 			Provider:         strings.TrimSpace(ev.Provider),
 			CreatedAt:        createdAt,
 		})
+		s.applyAgentBoardLocked(ev.Board)
 		if currentState == "" || currentState == "starting" {
 			s.setThreadOverlayLocked(threadID, overlayTypeMCPStartup, "", overlayPriorityMCPStartup, mcpStartupOverlayTTL)
 		}
@@ -109,6 +111,7 @@ func (s *service) applyAgentStopped(ev agentdto.AgentStopped) {
 			State:      "stopped",
 			AgentState: "idle",
 		})
+		s.applyAgentBoardLocked(ev.Board)
 		s.clearThreadOverlayLocked(threadID, "")
 		s.updateDerivedThreadStateLocked(threadID, agentID)
 	}, func() uidto.UIThreadPatch {
@@ -133,6 +136,7 @@ func (s *service) applyAgentRecovering(ev agentdto.AgentRecovering) {
 			State:      "recovering",
 			AgentState: agentState,
 		})
+		s.applyAgentBoardLocked(ev.Board)
 		s.clearThreadOverlayLocked(threadID, "")
 		s.updateDerivedThreadStateLocked(threadID, agentID)
 	}, func() uidto.UIThreadPatch {
@@ -160,6 +164,7 @@ func (s *service) applyAgentFailed(ev agentdto.AgentFailed) {
 			LastReport:  errText,
 			LastMessage: errText,
 		})
+		s.applyAgentBoardLocked(ev.Board)
 		s.clearThreadOverlayLocked(threadID, "")
 		s.updateDerivedThreadStateLocked(threadID, agentID)
 	}, func() uidto.UIThreadPatch {

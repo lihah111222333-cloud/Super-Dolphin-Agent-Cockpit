@@ -264,6 +264,7 @@ func recoveryLaunchRequest(agent *agentRuntime) LaunchRequest {
 func applyLaunchRequestLocked(agent *agentRuntime, req LaunchRequest) {
 	agent.requestedAgentID, agent.name = req.AgentID, managedAgentLaunchDisplayName(req.Name)
 	agent.prompt, agent.instructions, agent.parentID = req.Prompt, req.Instructions, req.ParentID
+	agent.outcome = nil
 	agent.agentType, agent.agentKey, agent.memoryScope = req.AgentType, req.AgentKey, req.MemoryScope
 	agent.language, agent.cwd = req.Language, req.Cwd
 	agent.command, agent.env = append([]string(nil), req.Command...), append([]string(nil), req.Env...)

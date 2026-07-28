@@ -169,19 +169,23 @@ func summarizeAgents(items []contract.AgentSnapshot) []AgentSummary {
 	out := make([]AgentSummary, 0, len(items))
 	for _, item := range items {
 		out = append(out, AgentSummary{
-			ID:          strings.TrimSpace(item.ID),
-			Name:        strings.TrimSpace(item.Name),
-			ThreadID:    strings.TrimSpace(item.ThreadID),
-			ParentID:    strings.TrimSpace(item.ParentID),
-			State:       strings.TrimSpace(item.State),
-			Provider:    strings.TrimSpace(item.Provider),
-			CWD:         strings.TrimSpace(item.Cwd),
-			Port:        item.Port,
-			CreatedAt:   nonZeroTimePtr(item.CreatedAt),
-			UpdatedAt:   nonZeroTimePtr(item.UpdatedAt),
-			LastReport:  strings.TrimSpace(item.LastReport),
-			AgentState:  strings.TrimSpace(item.State),
-			LastMessage: strings.TrimSpace(item.LastReport),
+			ID:            strings.TrimSpace(item.ID),
+			Name:          strings.TrimSpace(item.Name),
+			ThreadID:      strings.TrimSpace(item.ThreadID),
+			ParentID:      strings.TrimSpace(item.ParentID),
+			ParentAgentID: strings.TrimSpace(item.ParentID),
+			Assignment:    cloneAgentAssignment(item.Assignment),
+			Progress:      cloneAgentProgress(item.Progress),
+			Outcome:       cloneAgentOutcome(item.Outcome),
+			State:         strings.TrimSpace(item.State),
+			Provider:      strings.TrimSpace(item.Provider),
+			CWD:           strings.TrimSpace(item.Cwd),
+			Port:          item.Port,
+			CreatedAt:     nonZeroTimePtr(item.CreatedAt),
+			UpdatedAt:     nonZeroTimePtr(item.UpdatedAt),
+			LastReport:    strings.TrimSpace(item.LastReport),
+			AgentState:    strings.TrimSpace(item.State),
+			LastMessage:   strings.TrimSpace(item.LastReport),
 		})
 	}
 	return out

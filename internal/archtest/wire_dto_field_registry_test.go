@@ -9,8 +9,11 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
+	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
 )
 
 type skillInfoConsumerField struct {
@@ -38,6 +41,58 @@ func TestSkillInfoConsumerRegistryMatchesProducerJSONFields(t *testing.T) {
 
 	assertRegisteredWireDTOFieldsCovered(t, "internal/contract.SkillInfo -> skillSlashCommandAdapter", fields, registered)
 	assertRegisteredWireDTORegistryCurrent(t, "internal/contract.SkillInfo -> skillSlashCommandAdapter", fields, registered)
+}
+
+func TestAgentBoardWireFieldRegistryMatchesEveryProducerLayer(t *testing.T) {
+	t.Parallel()
+	producer := collectRegisteredWireDTOJSONFields(t, reflect.TypeFor[agentdto.BoardView]())
+	registered := map[string]string{
+		"id": "runtime.id", "threadId": "runtime.threadID", "parentAgentId": "launch.parentID", "name": "launch.name",
+		"assignment": "launch.name+prompt+startedAt", "progress": "state+updatedAt", "outcome": "terminal/lifecycle event",
+	}
+	assertRegisteredWireDTOFieldsCovered(t, "agent.BoardView -> UI boundary", producer, registered)
+	assertRegisteredWireDTORegistryCurrent(t, "agent.BoardView -> UI boundary", producer, registered)
+
+	for layer, check := range map[string]struct {
+		typ    reflect.Type
+		fields []string
+	}{
+		"contract.AgentSnapshot": {reflect.TypeFor[contract.AgentSnapshot](), []string{"assignment", "progress", "outcome"}},
+		"ui.UIThreadPatch":       {reflect.TypeFor[uidto.UIThreadPatch](), []string{"agent"}},
+		"agent.StateChanged":     {reflect.TypeFor[agentdto.StateChanged](), []string{"board"}},
+		"agent.AgentLaunched":    {reflect.TypeFor[agentdto.AgentLaunched](), []string{"board"}},
+		"agent.AgentStopped":     {reflect.TypeFor[agentdto.AgentStopped](), []string{"board"}},
+		"agent.AgentRecovering":  {reflect.TypeFor[agentdto.AgentRecovering](), []string{"board"}},
+		"agent.AgentFailed":      {reflect.TypeFor[agentdto.AgentFailed](), []string{"board"}},
+	} {
+		fields := collectRegisteredWireDTOJSONFields(t, check.typ)
+		for _, field := range check.fields {
+			if !fields[field] {
+				t.Fatalf("%s missing Agent board field %q", layer, field)
+			}
+		}
+	}
+
+	now := time.Date(2026, 7, 28, 13, 0, 0, 0, time.UTC)
+	board := agentdto.BoardView{
+		ID: "agent-1", ThreadID: "thread-1", ParentAgentID: "agent-root", Name: "worker",
+		Assignment: &agentdto.Assignment{Title: "任务", Description: "说明", AssignedAt: now},
+		Progress:   agentdto.Progress{Status: "failed", UpdatedAt: now},
+		Outcome:    &agentdto.Outcome{Kind: agentdto.OutcomeKindFailure, Reason: "boom", CompletedAt: now},
+	}
+	data, err := json.Marshal(board)
+	if err != nil {
+		t.Fatalf("json.Marshal(BoardView) error = %v", err)
+	}
+	var wire map[string]json.RawMessage
+	if err := json.Unmarshal(data, &wire); err != nil {
+		t.Fatalf("json.Unmarshal(BoardView) error = %v", err)
+	}
+	for field := range producer {
+		if _, ok := wire[field]; !ok {
+			t.Fatalf("BoardView serialization missing producer field %q: %s", field, data)
+		}
+	}
 }
 
 func loadSkillInfoConsumerRegistry(t *testing.T) []skillInfoConsumerField {

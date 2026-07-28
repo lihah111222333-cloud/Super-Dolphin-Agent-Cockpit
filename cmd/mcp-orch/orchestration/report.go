@@ -12,6 +12,7 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/reportgc"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/reportstore"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
@@ -264,6 +265,10 @@ func (c *reportController) setNoReportFallbackLocked(ctx context.Context, agent 
 // applyReportEventLocked 应用 report 事件；调用方必须已持有 registry lock。
 func (c *reportController) applyReportEventLocked(ctx context.Context, agent *agentRuntime, eventType string, data json.RawMessage, report string) (ReportEventResult, error) {
 	terminal := isTerminalReportEvent(eventType, data)
+	outcome, err := terminalReportOutcome(ctx, data, report)
+	if err != nil {
+		return ReportEventResult{}, err
+	}
 	if report == "" && terminal && strings.TrimSpace(agent.lastReport) == "" {
 		report = noReportFallbackText(string(agent.state), publicOrchestrationError("Agent ended without a report.", errors.New(agent.lastError)))
 	}
@@ -276,10 +281,10 @@ func (c *reportController) applyReportEventLocked(ctx context.Context, agent *ag
 	if report == "" {
 		report = strings.TrimSpace(agent.lastReport)
 	}
-	notified := []string(nil)
-	if report != "" || terminal {
-		notified = drainReportRequestersLocked(ctx, agent)
+	if outcome != nil {
+		agent.outcome = outcome
 	}
+	notified := drainReportRequestersForEventLocked(ctx, agent, report != "" || terminal)
 	return ReportEventResult{
 		Success:              true,
 		AgentID:              agent.id,
@@ -289,6 +294,80 @@ func (c *reportController) applyReportEventLocked(ctx context.Context, agent *ag
 		UpdatedAt:            agent.lastReportUpdatedAt,
 		NotifiedRequesterIDs: notified,
 	}, nil
+}
+
+// drainReportRequestersForEventLocked 仅在报告可见或生命周期终止时唤醒等待方。
+func drainReportRequestersForEventLocked(ctx context.Context, agent *agentRuntime, shouldNotify bool) []string {
+	if !shouldNotify {
+		return nil
+	}
+	return drainReportRequestersLocked(ctx, agent)
+}
+
+// terminalReportOutcome 只从带显式 success 字段的 TurnCompleted payload 构造权威终态。
+func terminalReportOutcome(ctx context.Context, raw json.RawMessage, report string) (*agentdto.Outcome, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var presence map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &presence); err != nil {
+		return nil, fmt.Errorf("decode terminal outcome presence: %w", err)
+	}
+	if _, ok := presence["success"]; !ok {
+		return nil, nil
+	}
+	var completed turndto.TurnCompleted
+	if err := json.Unmarshal(raw, &completed); err != nil {
+		return nil, fmt.Errorf("decode terminal outcome: %w", err)
+	}
+	completedAt := resolveEventTime(ctx, completed.Timestamp)
+	if completed.Success {
+		summary := firstOutcomeText(completed.Summary, completed.Result, completed.Message, report)
+		if summary == "" {
+			// 缺少权威摘要时保持 outcome 不可用，不从日志或其他自然语言推断。
+			return nil, nil
+		}
+		outcome := &agentdto.Outcome{
+			Kind: agentdto.OutcomeKindSuccess, Summary: summary,
+			Code: strings.TrimSpace(completed.Status), CompletedAt: completedAt,
+		}
+		return outcome, nil
+	}
+	kind := agentdto.OutcomeKindFailure
+	if terminalWasStopped(completed) {
+		kind = agentdto.OutcomeKindStopped
+	}
+	reason := firstOutcomeText(completed.Error, completed.Reason, completed.StopReason, completed.Message)
+	if reason == "" {
+		// 缺少权威原因时保持 outcome 不可用，不从日志或其他自然语言推断。
+		return nil, nil
+	}
+	outcome := &agentdto.Outcome{
+		Kind: kind, Reason: reason,
+		Code: strings.TrimSpace(completed.Status), CompletedAt: completedAt,
+	}
+	return outcome, nil
+}
+
+func firstOutcomeText(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func terminalWasStopped(completed turndto.TurnCompleted) bool {
+	if strings.TrimSpace(completed.StopReason) != "" {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(completed.Status)) {
+	case "aborted", "cancelled", "canceled", "interrupted", "stopped":
+		return true
+	default:
+		return false
+	}
 }
 
 // setProcessExitFallbackReportLocked 在持有 registry lock 时为进程退出终态补写 report。

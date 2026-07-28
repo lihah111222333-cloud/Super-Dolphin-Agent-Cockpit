@@ -4,12 +4,30 @@
   "response": [
     {
       "agent_id": "agent-list-1",
+      "assignment": {
+        "assignedAt": "2026-03-25T12:00:00Z",
+        "description": "run alpha",
+        "title": "list-alpha"
+      },
       "created_at": "2026-03-25T12:00:00Z",
       "cwd": "/tmp/agent-list/alpha",
       "id": "agent-list-1",
       "last_report": "alpha finished",
       "name": "list-alpha",
+      "outcome": {
+        "completedAt": "2026-03-25T12:00:00Z",
+        "kind": "success",
+        "recoverable": null,
+        "summary": "alpha finished"
+      },
       "port": 0,
+      "progress": {
+        "completedSteps": null,
+        "currentStep": null,
+        "status": "idle",
+        "totalSteps": null,
+        "updatedAt": "2026-03-25T12:00:00Z"
+      },
       "provider": "codex",
       "state": "idle",
       "thread_id": "thread-list-1",
@@ -17,12 +35,25 @@
     },
     {
       "agent_id": "agent-list-2",
+      "assignment": {
+        "assignedAt": "2026-03-25T12:00:00Z",
+        "description": "run beta",
+        "title": "list-beta"
+      },
       "created_at": "2026-03-25T12:00:00Z",
       "cwd": "/tmp/agent-list/beta",
       "id": "agent-list-2",
       "name": "list-beta",
+      "outcome": null,
       "parent_id": "agent-list-1",
       "port": 0,
+      "progress": {
+        "completedSteps": null,
+        "currentStep": null,
+        "status": "running",
+        "totalSteps": null,
+        "updatedAt": "2026-03-25T12:00:00Z"
+      },
       "provider": "codex",
       "state": "running",
       "thread_id": "thread-list-2",

@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/kelindar/event"
@@ -77,6 +78,7 @@ func publishStateChangedEvent(bus EventBus, agent *agentState, values []any) {
 		OldState:           eventString(values, 0),
 		NewState:           agentStateValue(agent),
 		Trigger:            eventString(values, 1),
+		Board:              agentBoardView(agent),
 	})
 }
 
@@ -90,6 +92,7 @@ func publishAgentLaunchedEvent(bus EventBus, agent *agentState, values []any) {
 		CWD:                eventString(values, 0),
 		Name:               agent.name,
 		Provider:           provider,
+		Board:              agentBoardView(agent),
 	})
 }
 
@@ -97,9 +100,16 @@ func publishAgentStoppedEvent(bus EventBus, agent *agentState, values []any) {
 	if agent == nil {
 		return
 	}
+	reason := strings.TrimSpace(eventString(values, 0))
+	outcome := &agentdto.Outcome{Kind: agentdto.OutcomeKindStopped, Reason: reason, Code: reason, CompletedAt: agentEventTime(agent)}
+	agent.outcome = nil
+	if outcome.Validate() == nil {
+		agent.outcome = outcome
+	}
 	event.Publish(bus, agentdto.AgentStopped{
 		AgentSessionHeader: agentSessionHeader(agent),
-		Reason:             eventString(values, 0),
+		Reason:             reason,
+		Board:              agentBoardView(agent),
 	})
 }
 
@@ -110,6 +120,7 @@ func publishAgentRecoveringEvent(bus EventBus, agent *agentState, values []any) 
 	event.Publish(bus, agentdto.AgentRecovering{
 		AgentSessionHeader: agentSessionHeader(agent),
 		Reason:             eventString(values, 0),
+		Board:              agentBoardView(agent),
 	})
 }
 
@@ -117,10 +128,18 @@ func publishAgentFailedEvent(bus EventBus, agent *agentState, values []any) {
 	if agent == nil {
 		return
 	}
+	reason := strings.TrimSpace(eventString(values, 0))
+	recoverable := eventBool(values, 1)
+	outcome := &agentdto.Outcome{Kind: agentdto.OutcomeKindFailure, Reason: reason, Code: "agent_failed", Recoverable: &recoverable, CompletedAt: agentEventTime(agent)}
+	agent.outcome = nil
+	if outcome.Validate() == nil {
+		agent.outcome = outcome
+	}
 	event.Publish(bus, agentdto.AgentFailed{
 		AgentSessionHeader: agentSessionHeader(agent),
-		Error:              eventString(values, 0),
-		Recoverable:        eventBool(values, 1),
+		Error:              reason,
+		Recoverable:        recoverable,
+		Board:              agentBoardView(agent),
 	})
 }
 
@@ -314,14 +333,6 @@ func (s *service) publishTurnStalled(
 		agentID = agent.id
 	}
 	emitEvent(s.eventBus, eventTypeTurnStalled, agentID, agent, threadID, turnID, reason, stalled, timestamp)
-}
-
-func (s *service) publishTurnResumed(agent *agentRuntime, threadID, turnID, reason string, timestamp time.Time) {
-	agentID := ""
-	if agent != nil {
-		agentID = agent.id
-	}
-	emitEvent(s.eventBus, eventTypeTurnResumed, agentID, agent, threadID, turnID, reason, timestamp)
 }
 
 func eventAgentID(agent *agentRuntime) string {

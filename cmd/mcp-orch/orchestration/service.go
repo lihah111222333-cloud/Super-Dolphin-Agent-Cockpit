@@ -338,6 +338,7 @@ type agentRuntime struct {
 	remoteAgentID, requestedAgentID, activeTurnID, pendingProviderTurnID, lastReport          string
 	providerTurnAlias                                                                         providerTurnAlias
 	pendingProviderTerminal                                                                   *turndto.TurnCompleted
+	outcome                                                                                   *agentdto.Outcome
 	reportRequesters                                                                          []string
 	lastError                                                                                 string
 	lastReportSeq                                                                             int64

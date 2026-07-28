@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
 	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/uistate/timeline"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/clone"
@@ -66,23 +67,27 @@ type ThreadSummary struct {
 
 // AgentSummary 汇总 agent 与 provider thread 的展示状态。
 type AgentSummary struct {
-	ID               string     `json:"id"`
-	Name             string     `json:"name,omitempty"`
-	ThreadID         string     `json:"thread_id,omitempty"`
-	ProviderThreadID string     `json:"provider_thread_id,omitempty"`
-	ParentID         string     `json:"parent_id,omitempty"`
-	State            string     `json:"state,omitempty"`
-	Provider         string     `json:"provider,omitempty"`
-	Model            string     `json:"model,omitempty"`
-	CWD              string     `json:"cwd,omitempty"`
-	Port             int        `json:"port,omitempty"`
-	LogPath          string     `json:"logPath,omitempty"`
-	CreatedAt        *time.Time `json:"createdAt,omitempty"`
-	UpdatedAt        *time.Time `json:"updatedAt,omitempty"`
-	LastReport       string     `json:"last_report,omitempty"`
-	AgentState       string     `json:"agentState,omitempty"`
-	ThreadStatus     string     `json:"threadStatus,omitempty"`
-	LastMessage      string     `json:"lastMessage,omitempty"`
+	ID               string               `json:"id"`
+	Name             string               `json:"name,omitempty"`
+	ThreadID         string               `json:"thread_id,omitempty"`
+	ProviderThreadID string               `json:"provider_thread_id,omitempty"`
+	ParentID         string               `json:"parent_id,omitempty"`
+	ParentAgentID    string               `json:"parentAgentId,omitempty"`
+	Assignment       *agentdto.Assignment `json:"assignment"`
+	Progress         agentdto.Progress    `json:"progress"`
+	Outcome          *agentdto.Outcome    `json:"outcome"`
+	State            string               `json:"state,omitempty"`
+	Provider         string               `json:"provider,omitempty"`
+	Model            string               `json:"model,omitempty"`
+	CWD              string               `json:"cwd,omitempty"`
+	Port             int                  `json:"port,omitempty"`
+	LogPath          string               `json:"logPath,omitempty"`
+	CreatedAt        *time.Time           `json:"createdAt,omitempty"`
+	UpdatedAt        *time.Time           `json:"updatedAt,omitempty"`
+	LastReport       string               `json:"last_report,omitempty"`
+	AgentState       string               `json:"agentState,omitempty"`
+	ThreadStatus     string               `json:"threadStatus,omitempty"`
+	LastMessage      string               `json:"lastMessage,omitempty"`
 }
 
 // TurnSummary 表示 UI 可展示的一次 turn 执行结果。
@@ -277,8 +282,51 @@ func cloneAgents(items []AgentSummary) []AgentSummary {
 	for i := range out {
 		out[i].CreatedAt = clone.Time(items[i].CreatedAt)
 		out[i].UpdatedAt = clone.Time(items[i].UpdatedAt)
+		out[i].Assignment = cloneAgentAssignment(items[i].Assignment)
+		out[i].Progress = cloneAgentProgress(items[i].Progress)
+		out[i].Outcome = cloneAgentOutcome(items[i].Outcome)
 	}
 	return out
+}
+
+// cloneAgentAssignment 复制看板委派契约，避免快照调用方修改内部投影。
+func cloneAgentAssignment(value *agentdto.Assignment) *agentdto.Assignment {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
+}
+
+// cloneAgentProgress 复制看板进度契约及其可选结构化步骤指针。
+func cloneAgentProgress(value agentdto.Progress) agentdto.Progress {
+	copy := value
+	if value.CurrentStep != nil {
+		step := *value.CurrentStep
+		copy.CurrentStep = &step
+	}
+	if value.CompletedSteps != nil {
+		completed := *value.CompletedSteps
+		copy.CompletedSteps = &completed
+	}
+	if value.TotalSteps != nil {
+		total := *value.TotalSteps
+		copy.TotalSteps = &total
+	}
+	return copy
+}
+
+// cloneAgentOutcome 复制看板终态契约及其 recoverable 指针。
+func cloneAgentOutcome(value *agentdto.Outcome) *agentdto.Outcome {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	if value.Recoverable != nil {
+		recoverable := *value.Recoverable
+		copy.Recoverable = &recoverable
+	}
+	return &copy
 }
 
 func cloneTokenUsages(m map[string]TokenUsage) map[string]TokenUsage {
@@ -371,6 +419,7 @@ func mergeThreadSummary(dst *ThreadSummary, src ThreadSummary) {
 }
 
 func upsertAgentSummary(items []AgentSummary, next AgentSummary) []AgentSummary {
+	// Agent 看板字段由 applyAgentBoardLocked 做全量替换，普通增量合并不推断这些字段。
 	next.ID = strings.TrimSpace(next.ID)
 	if next.ID == "" {
 		return items
@@ -383,6 +432,45 @@ func upsertAgentSummary(items []AgentSummary, next AgentSummary) []AgentSummary 
 		return items
 	}
 	return append(items, next)
+}
+
+// applyAgentBoardLocked 将事件携带的权威看板模型全量写入投影。
+func (s *service) applyAgentBoardLocked(board *agentdto.BoardView) {
+	if board == nil {
+		return
+	}
+	if err := board.Validate(); err != nil {
+		s.logger.Error("uistate rejected invalid agent board payload", "agent_id", strings.TrimSpace(board.ID), "error", err)
+		return
+	}
+	next := AgentSummary{
+		ID:            strings.TrimSpace(board.ID),
+		Name:          strings.TrimSpace(board.Name),
+		ThreadID:      strings.TrimSpace(board.ThreadID),
+		ParentID:      strings.TrimSpace(board.ParentAgentID),
+		ParentAgentID: strings.TrimSpace(board.ParentAgentID),
+		Assignment:    cloneAgentAssignment(board.Assignment),
+		Progress:      cloneAgentProgress(board.Progress),
+		Outcome:       cloneAgentOutcome(board.Outcome),
+		State:         strings.TrimSpace(board.Progress.Status),
+		UpdatedAt:     nonZeroTimePtr(board.Progress.UpdatedAt),
+	}
+	for i := range s.state.Agents {
+		if strings.TrimSpace(s.state.Agents[i].ID) != next.ID {
+			continue
+		}
+		s.state.Agents[i].Name = next.Name
+		s.state.Agents[i].ThreadID = next.ThreadID
+		s.state.Agents[i].ParentID = next.ParentID
+		s.state.Agents[i].ParentAgentID = next.ParentAgentID
+		s.state.Agents[i].Assignment = next.Assignment
+		s.state.Agents[i].Progress = next.Progress
+		s.state.Agents[i].Outcome = next.Outcome
+		s.state.Agents[i].State = next.State
+		s.state.Agents[i].UpdatedAt = next.UpdatedAt
+		return
+	}
+	s.state.Agents = append(s.state.Agents, next)
 }
 
 func mergeAgentSummary(dst *AgentSummary, src AgentSummary) {

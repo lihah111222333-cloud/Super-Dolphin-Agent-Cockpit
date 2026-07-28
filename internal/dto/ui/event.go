@@ -3,6 +3,7 @@ package ui
 import (
 	"time"
 
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 )
 
@@ -109,6 +110,7 @@ type UIThreadPatch struct {
 	Sequence          int64                  `json:"sequence,omitempty"`
 	Generation        int64                  `json:"generation,omitempty"`
 	Thread            *ThreadPatchThread     `json:"thread,omitempty"`
+	Agent             *agentdto.BoardView    `json:"agent,omitempty"`
 	Status            string                 `json:"status,omitempty"`
 	StatusHeader      string                 `json:"statusHeader,omitempty"`
 	StatusDetails     string                 `json:"statusDetails,omitempty"`

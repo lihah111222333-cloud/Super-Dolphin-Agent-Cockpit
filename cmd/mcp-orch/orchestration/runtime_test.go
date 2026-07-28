@@ -3,9 +3,12 @@ package orchestration
 import (
 	"bytes"
 	"context"
-	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 	"strings"
 	"testing"
+	"time"
+
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 func TestUpdateRuntimePrefersReportedValues(t *testing.T) {
@@ -298,6 +301,42 @@ func TestUpdateRuntimePort0WithProvider(t *testing.T) {
 	ev := expectRuntimeEvent(t, reported)
 	if ev.AgentID != "agent-1" || ev.Port != 8080 || ev.Provider != "claude" {
 		t.Fatalf("runtime event = %#v", ev)
+	}
+}
+
+func TestSnapshotBuildsAgentBoardFromAuthoritativeRuntimeFields(t *testing.T) {
+	t.Parallel()
+	startedAt := time.Date(2026, 7, 28, 8, 0, 0, 0, time.UTC)
+	updatedAt := startedAt.Add(15 * time.Minute)
+	outcome := &agentdto.Outcome{Kind: agentdto.OutcomeKindFailure, Reason: "provider failed", CompletedAt: updatedAt}
+	agent := runtimeTestAgent()
+	agent.threadID = "thread-1"
+	agent.parentID = "agent-root"
+	agent.name = "worker"
+	agent.state = agentdto.StateFailed
+	agent.startedAt = startedAt
+	agent.updatedAt = updatedAt
+	agent.name = "实现看板契约"
+	agent.prompt = "只使用权威字段"
+	agent.outcome = outcome
+	svc, _, cancel := newRuntimeTestService(silentLogger(), agent)
+	defer cancel()
+
+	snapshot, err := svc.Snapshot(context.Background(), agent.id)
+	if err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+	if snapshot.Assignment == nil || snapshot.Assignment.Title != agent.name || snapshot.Assignment.Description != agent.prompt || snapshot.Assignment.AssignedAt != startedAt {
+		t.Fatalf("Snapshot().Assignment = %#v, want launch request and startedAt", snapshot.Assignment)
+	}
+	if snapshot.Progress.Status != string(agent.state) || snapshot.Progress.UpdatedAt != updatedAt {
+		t.Fatalf("Snapshot().Progress = %#v, want runtime state and updatedAt", snapshot.Progress)
+	}
+	if snapshot.Progress.CurrentStep != nil || snapshot.Progress.CompletedSteps != nil || snapshot.Progress.TotalSteps != nil {
+		t.Fatalf("Snapshot().Progress = %#v, want unavailable structured steps", snapshot.Progress)
+	}
+	if snapshot.Outcome == nil || snapshot.Outcome.Kind != agentdto.OutcomeKindFailure || snapshot.Outcome.Reason != outcome.Reason {
+		t.Fatalf("Snapshot().Outcome = %#v, want explicit runtime outcome", snapshot.Outcome)
 	}
 }
 
