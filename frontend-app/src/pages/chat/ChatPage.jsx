@@ -8,6 +8,9 @@ import { ChatActionFeedback } from './components/ChatActionFeedback.js';
 import { CodePreviewMarkdown } from './markdown/MarkdownMessage.jsx';
 import { chatHeaderFeedbackForStore } from './model/chatHeaderModel.js';
 import { RuntimePanelSlot } from './runtime/RuntimePanelSlot.jsx';
+import { AgentBoardFloating } from './agentBoard/AgentBoardFloating.jsx';
+import { AgentBoardPanelSlot } from './agentBoard/AgentBoardPanelSlot.jsx';
+import { AGENT_BOARD_COMPACT_VIEWPORT_WIDTH, useAgentBoardController } from './agentBoard/useAgentBoardController.js';
 import { ThreadRail } from './thread/ThreadRail.jsx';
 import { Conversation } from './thread/Conversation.jsx';
 import { firstText, firstTrimmedText, timeLabelFromTimestamp, trimmedText } from './markdown/markdownMessageModel.js';
@@ -33,6 +36,7 @@ import './ChatTimeline.css';
 import './ChatMessages.css';
 import './ChatReasoning.css';
 import './ChatPage.css';
+import './agentBoard/AgentBoard.css';
 
 const runtimeCodeActions = Object.freeze({ locateCodeFile, openCodeFile, saveCodeFile });
 
@@ -241,6 +245,7 @@ function ChatPage(props) {
     layoutRef: chatLayoutRef,
   });
   useActiveChatThreadSync(store, activeThreadId);
+  const agentBoard = useAgentBoardController({ store, rightPanelOpen, setRightPanelOpen });
   const layoutColumns = rightPanelOpen
     ? `minmax(0, 1fr) ${SPLITTER_WIDTH}px ${rightPanelWidth}px`
     : 'minmax(0, 1fr)';
@@ -297,14 +302,39 @@ function ChatPage(props) {
           formatTime={formatTime}
           handleKeyDown={handleRuntimeResizeKeyDown}
           maxWidth={runtimeMaxWidth}
-          open={rightPanelOpen}
+          open={rightPanelOpen && agentBoard.rightPanelView !== 'agents'}
           projectPath={runtimeProject}
           projects={store.projects}
           renderMarkdownPreview={renderCodePreviewMarkdown}
           threadData={threadData}
           width={rightPanelWidth}
         />
+        <AgentBoardPanelSlot
+          resize={{
+            beginResize: beginRuntimeResize,
+            closeThreshold: RIGHT_PANEL_CLOSE_THRESHOLD,
+            handleKeyDown: handleRuntimeResizeKeyDown,
+            maxWidth: runtimeMaxWidth,
+            open: rightPanelOpen && agentBoard.rightPanelView === 'agents',
+            width: rightPanelWidth,
+          }}
+          panel={{
+            viewModel: agentBoard.viewModel,
+            formatTime,
+            onSelectAgent: agentBoard.selectAgent,
+            onCollapse: agentBoard.collapse,
+            onShowRuntime: agentBoard.showRuntime,
+          }}
+        />
       </div>
+      {!agentBoard.docked ? (
+        <AgentBoardFloating
+          viewModel={agentBoard.viewModel}
+          compact={viewportWidth > 0 && viewportWidth < AGENT_BOARD_COMPACT_VIEWPORT_WIDTH}
+          formatTime={formatTime}
+          onExpand={agentBoard.expand}
+        />
+      ) : null}
       {codePreview.dialogs}
     </section>
   );
