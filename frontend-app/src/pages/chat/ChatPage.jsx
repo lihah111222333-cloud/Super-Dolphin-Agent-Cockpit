@@ -264,44 +264,46 @@ function ChatPage(props) {
         feedback={headerFeedback}
         onDismiss={() => store.dismissActionNotice?.(headerFeedback)}
       />
-      {!agentBoard.docked ? (
-        <AgentBoardFloating
-          viewModel={agentBoard.viewModel}
-          compact={viewportWidth > 0 && viewportWidth < AGENT_BOARD_COMPACT_VIEWPORT_WIDTH}
-          onExpand={agentBoard.expand}
-        />
-      ) : null}
       <div ref={chatLayoutRef} className="chat-layout" data-testid="chat-layout" style={{ gridTemplateColumns: layoutColumns }}>
         {introMode ? <ChatIntroSpotlight copy={copy} onSuggestion={prefillIntroSuggestion} /> : null}
         <ThreadRail copy={copy} store={store} />
         <ThreadRailResizer copy={copy} rail={rail} />
-        <Conversation
-          copy={conversationCopy}
-          messages={threadData.messages}
-          draft={store.draft}
-          setDraft={store.setDraft}
-          sendMessage={store.sendDraft}
-          attachments={store.attachments}
-          selectFiles={store.selectFilesForComposer}
-          attachPaths={store.attachPathsForComposer}
-          attachDroppedFiles={store.attachDroppedFilesForComposer}
-          removeAttachment={store.removeAttachment}
-          sending={store.sending}
-          store={store}
-          projectPath={projectPath}
-          tokenUsage={threadData.tokenUsage}
-          activeThreadId={activeThreadId}
-          activeThread={threadData.activeThread}
-          statusEntry={threadData.statusEntry}
-          activeTurn={threadData.activeTurn}
-          modelThreadId={modelThreadId}
-          messagePagination={threadData.messagePagination}
-          loadOlderThreadMessages={store.loadOlderThreadMessages}
-          timelineBlocked={threadData.timelineBlocked}
-          timelineContentBlocked={threadData.timelineContentBlocked}
-          canUseProjectActions={canUseProjectActions}
-          messageActions={messageActions}
-        />
+        <div className="chat-main-column" data-testid="chat-main-column">
+          {!rightPanelOpen ? (
+            <AgentBoardFloating
+              viewModel={agentBoard.viewModel}
+              compact={viewportWidth > 0 && viewportWidth < AGENT_BOARD_COMPACT_VIEWPORT_WIDTH}
+              onExpand={agentBoard.expand}
+            />
+          ) : null}
+          <Conversation
+            copy={conversationCopy}
+            messages={threadData.messages}
+            draft={store.draft}
+            setDraft={store.setDraft}
+            sendMessage={store.sendDraft}
+            attachments={store.attachments}
+            selectFiles={store.selectFilesForComposer}
+            attachPaths={store.attachPathsForComposer}
+            attachDroppedFiles={store.attachDroppedFilesForComposer}
+            removeAttachment={store.removeAttachment}
+            sending={store.sending}
+            store={store}
+            projectPath={projectPath}
+            tokenUsage={threadData.tokenUsage}
+            activeThreadId={activeThreadId}
+            activeThread={threadData.activeThread}
+            statusEntry={threadData.statusEntry}
+            activeTurn={threadData.activeTurn}
+            modelThreadId={modelThreadId}
+            messagePagination={threadData.messagePagination}
+            loadOlderThreadMessages={store.loadOlderThreadMessages}
+            timelineBlocked={threadData.timelineBlocked}
+            timelineContentBlocked={threadData.timelineContentBlocked}
+            canUseProjectActions={canUseProjectActions}
+            messageActions={messageActions}
+          />
+        </div>
         <RuntimePanelSlot
           beginResize={beginRuntimeResize}
           codeFileActions={runtimeCodeActions}
@@ -315,6 +317,7 @@ function ChatPage(props) {
           renderMarkdownPreview={renderCodePreviewMarkdown}
           threadData={threadData}
           width={rightPanelWidth}
+          onShowAgents={agentBoard.showAgents}
         />
         <AgentBoardPanelSlot
           resize={{

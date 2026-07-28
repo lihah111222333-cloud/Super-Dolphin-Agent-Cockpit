@@ -62,18 +62,31 @@ it('收起右侧栏后恢复悬浮看板', () => {
   expect(screen.getByTestId('agent-board-floating')).toBeInTheDocument();
 });
 
-it('与 RuntimePanel 共享右侧栏：展开看板替换内容，可切回运行时视图', () => {
+it('Runtime 右侧栏展开时悬浮看板同样隐藏', () => {
   render(<TestChatPageWrapper store={boardStore()} projectPath="/repo/app" rightPanelOpen={true} />);
 
   expect(screen.getByTestId('runtime-panel')).toBeInTheDocument();
-  expect(screen.getByTestId('agent-board-floating')).toBeInTheDocument();
+  expect(screen.queryByTestId('agent-board-floating')).toBeNull();
+});
 
-  fireEvent.click(screen.getByTestId('agent-board-expand'));
-  expect(screen.queryByTestId('runtime-panel')).toBeNull();
+it('Agent/Runtime 切换过程中悬浮看板不出现，收起后恢复', () => {
+  render(<TestChatPageWrapper store={boardStore()} projectPath="/repo/app" rightPanelOpen={true} />);
+
+  expect(screen.getByTestId('runtime-panel')).toBeInTheDocument();
+  expect(screen.queryByTestId('agent-board-floating')).toBeNull();
+
+  fireEvent.click(screen.getByTestId('runtime-show-agents'));
   expect(screen.getByTestId('agent-board-panel')).toBeInTheDocument();
+  expect(screen.queryByTestId('runtime-panel')).toBeNull();
+  expect(screen.queryByTestId('agent-board-floating')).toBeNull();
 
   fireEvent.click(screen.getByTestId('agent-board-show-runtime'));
   expect(screen.getByTestId('runtime-panel')).toBeInTheDocument();
+  expect(screen.queryByTestId('agent-board-panel')).toBeNull();
+  expect(screen.queryByTestId('agent-board-floating')).toBeNull();
+
+  fireEvent.click(screen.getByTestId('runtime-show-agents'));
+  fireEvent.click(screen.getByTestId('agent-board-collapse'));
   expect(screen.queryByTestId('agent-board-panel')).toBeNull();
   expect(screen.getByTestId('agent-board-floating')).toBeInTheDocument();
 });
@@ -123,9 +136,9 @@ it('窄窗口下收敛为紧凑卡片且不遮挡聊天输入区', () => {
   const card = screen.getByTestId('agent-board-floating');
   expect(card).toHaveClass('agent-board-floating--compact');
   expect(screen.getByTestId('agent-board-expand')).toBeInTheDocument();
-  const chatLayout = screen.getByTestId('chat-layout');
-  expect(card.compareDocumentPosition(chatLayout) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(screen.getByTestId('composer-dock')).toBeInTheDocument();
+  const mainColumn = screen.getByTestId('chat-main-column');
+  expect(mainColumn.contains(card)).toBe(true);
+  expect(mainColumn.contains(screen.getByTestId('composer-dock'))).toBe(true);
   expect(screen.getByTestId('composer-input')).toBeInTheDocument();
 });
 

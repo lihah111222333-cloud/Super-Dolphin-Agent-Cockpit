@@ -14,6 +14,7 @@ function RuntimePanelSlot({
   renderMarkdownPreview,
   threadData,
   width,
+  onShowAgents,
 }) {
   /*
    * RuntimePanelSlot 只负责右侧栏外壳：splitter 和 RuntimePanel 透传。
@@ -49,6 +50,7 @@ function RuntimePanelSlot({
         codeFileActions={codeFileActions}
         formatTime={formatTime}
         renderMarkdownPreview={renderMarkdownPreview}
+        onShowAgents={onShowAgents}
       />
     </>
   );

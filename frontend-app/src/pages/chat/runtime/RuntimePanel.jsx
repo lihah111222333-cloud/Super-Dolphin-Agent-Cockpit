@@ -23,12 +23,14 @@ function RuntimePanel({
   codeFileActions,
   formatTime,
   renderMarkdownPreview,
+  onShowAgents,
 }) {
   /*
    * RuntimePanel 不直接读 store，数据都由 ChatPage 传进来。
    * 本组件只管 diff 折叠、文件预览和右侧栏自己的 UI 状态。
    */
   const diffSummary = useMemo(() => summarizeUnifiedDiff(diffText), [diffText]);
+  const diffEmpty = !diffText;
   const runtimeLayout = useRuntimePanelLayout();
   const {
     collapsedDiffFiles,
@@ -45,11 +47,11 @@ function RuntimePanel({
   });
   return (
     <aside
-      className="runtime-panel"
+      className={`runtime-panel${diffEmpty ? ' runtime-panel--diff-empty' : ''}`}
       data-testid="runtime-panel"
       style={runtimePanelHeightVars(runtimeLayout.activityPanelHeight, runtimeLayout.viewportHeight)}
     >
-      <RuntimeToolbar diffSummary={diffSummary} />
+      <RuntimeToolbar diffSummary={diffSummary} onShowAgents={onShowAgents} />
       <RuntimeDiffView
         diffText={diffText}
         diffSummary={diffSummary}

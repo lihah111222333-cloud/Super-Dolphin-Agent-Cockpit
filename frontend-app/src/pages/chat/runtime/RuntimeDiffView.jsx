@@ -58,7 +58,16 @@ function RuntimeDiffView({
   onToggleFile,
   parseLineEntries,
 }) {
-  if (!diffText) return <div className="diff-empty">暂无代码变更</div>;
+  if (!diffText) {
+    return (
+      <div className="diff-empty diff-empty--compact" data-testid="diff-empty">
+        <p className="diff-empty__title">暂无代码变更</p>
+        <p className="diff-empty__hint">
+          当前线程还没有结构化的文件改动。继续委派修改代码的任务后，这里会按文件展示变更明细；执行过程可先查看下方「最近活动」。
+        </p>
+      </div>
+    );
+  }
   return (
     <div className="diff-empty">
       {actionNotice ? <output className="diff-action-notice">{actionNotice}</output> : null}

@@ -73,23 +73,44 @@ function renderRuntimeActivityPanel(overrides = {}) {
     />,
   );
 }
-  it('renders diff counters from the provided summary', () => {
-    render(<RuntimeToolbar diffSummary={{ fileCount: 1, changedLines: 3, additions: 2, deletions: 1 }} />);
+  it('renders labeled diff metrics with units and keyboard-accessible tooltips', () => {
+    render(<RuntimeToolbar diffSummary={{ fileCount: 1, changedLines: 3, additions: 2, deletions: 1 }} onShowAgents={vi.fn()} />);
 
-    const fileStat = screen.getByLabelText('代码变更文件数');
-    const lineStat = screen.getByLabelText('代码变更行数');
-    expect(screen.queryByRole('button', { name: '代码变更文件数' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '代码变更行数' })).not.toBeInTheDocument();
+    const fileStat = screen.getByTestId('runtime-toolbar-stat-files');
+    const lineStat = screen.getByTestId('runtime-toolbar-stat-changedLines');
+    const addStat = screen.getByTestId('runtime-toolbar-stat-additions');
+    const delStat = screen.getByTestId('runtime-toolbar-stat-deletions');
+    expect(fileStat).toHaveTextContent('文件');
     expect(fileStat).toHaveTextContent('1');
+    expect(fileStat).toHaveTextContent('个');
+    expect(lineStat).toHaveTextContent('变更');
     expect(lineStat).toHaveTextContent('3');
-    expect(fileStat.tagName).toBe('OUTPUT');
-    expect(lineStat.tagName).toBe('OUTPUT');
-    expect(fileStat).toHaveClass('runtime-stat');
-    expect(lineStat).toHaveClass('runtime-stat');
-    expect(fileStat).not.toHaveAttribute('tabindex');
-    expect(lineStat).not.toHaveAttribute('tabindex');
-    expect(screen.getByLabelText('代码新增行数')).toHaveTextContent('+2');
-    expect(screen.getByLabelText('代码删除行数')).toHaveTextContent('-1');
+    expect(lineStat).toHaveTextContent('行');
+    expect(addStat).toHaveTextContent('新增');
+    expect(addStat).toHaveTextContent('+2');
+    expect(delStat).toHaveTextContent('删除');
+    expect(delStat).toHaveTextContent('-1');
+    expect(fileStat).toHaveAttribute('aria-label', '代码变更文件数：1 个');
+    expect(lineStat).toHaveAttribute('aria-label', '代码变更行数：3 行');
+    expect(addStat).toHaveAttribute('aria-label', '代码新增行数：+2 行');
+    expect(delStat).toHaveAttribute('aria-label', '代码删除行数：-1 行');
+
+    fileStat.focus();
+    expect(fileStat).toHaveFocus();
+    fireEvent.click(fileStat);
+    expect(screen.getByTestId('runtime-toolbar-tooltip')).toHaveTextContent('本次运行中产生代码变更的文件总数');
+  });
+
+  it('renders an Agents switch entry in the runtime toolbar', () => {
+    const onShowAgents = vi.fn();
+    render(<RuntimeToolbar diffSummary={{ fileCount: 0, changedLines: 0, additions: 0, deletions: 0 }} onShowAgents={onShowAgents} />);
+
+    const switchButton = screen.getByTestId('runtime-show-agents');
+    expect(switchButton).toHaveAttribute('aria-label', '切换到 Agent 看板');
+    switchButton.focus();
+    expect(switchButton).toHaveFocus();
+    fireEvent.click(switchButton);
+    expect(onShowAgents).toHaveBeenCalledTimes(1);
   });
 
   it('renders runtime stats and context usage from props', () => {
@@ -265,7 +286,37 @@ function renderRuntimeActivityPanel(overrides = {}) {
       />,
     );
 
-    expect(screen.getByText('暂无代码变更')).toBeInTheDocument();
+    const empty = screen.getByTestId('diff-empty');
+    expect(empty).toHaveClass('diff-empty--compact');
+    expect(empty).toHaveTextContent('暂无代码变更');
+    expect(empty).toHaveTextContent('继续委派修改代码的任务后');
+    expect(empty).toHaveTextContent('最近活动');
+  });
+
+  it('shows time, type badge and summary for activity log lines', () => {
+    renderRuntimeActivityPanel({
+      warnings: [{
+        id: 'warn-1',
+        timestamp: '2026-06-11T06:00:00.123456Z',
+        message: '权限告警',
+        detail: 'missing permission',
+      }],
+      runtimeResults: [{
+        id: 'result-1',
+        timestamp: '2026-06-11T06:01:00.123456Z',
+        event: 'api.rpc.done',
+        message: 'thread/messages 返回 · {"total":1}',
+        fields: { method: 'thread/messages' },
+      }],
+    });
+
+    const panel = screen.getByTestId('warning-log-panel');
+    expect(panel).toHaveAttribute('aria-label', '最近活动');
+    expect(panel).toHaveTextContent('12:34');
+    expect(panel).toHaveTextContent('警告');
+    expect(panel).toHaveTextContent('结果');
+    expect(panel).toHaveTextContent('权限告警');
+    expect(panel).toHaveTextContent('thread/messages 返回');
   });
 
   it('renders diff files and routes file actions through props', () => {

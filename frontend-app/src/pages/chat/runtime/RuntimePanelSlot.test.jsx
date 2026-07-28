@@ -38,6 +38,7 @@ function renderSlot(overrides = {}) {
     renderMarkdownPreview: (content) => <pre>{content}</pre>,
     threadData,
     width: 240,
+    onShowAgents: vi.fn(),
     ...overrides,
   };
   return { props, ...render(<RuntimePanelSlot {...props} />) };

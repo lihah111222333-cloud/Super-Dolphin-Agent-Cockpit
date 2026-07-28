@@ -4,7 +4,11 @@ const RESIZER_KEY_STEP = 16;
 const RUNTIME_TOOLBAR_HEIGHT = 67;
 const ACTIVITY_ICON_ROW_HEIGHT = 64;
 const ACTIVITY_PANEL_MIN_HEIGHT = ACTIVITY_ICON_ROW_HEIGHT;
-const ACTIVITY_PANEL_DEFAULT_HEIGHT = ACTIVITY_ICON_ROW_HEIGHT;
+/*
+ * 默认高度比图标行高出一档，让「最近活动」日志行默认可见；
+ * 用户仍可通过拖拽或键盘收回到 64px 的图标行。
+ */
+const ACTIVITY_PANEL_DEFAULT_HEIGHT = 96;
 
 function currentViewportHeight() {
   if (typeof window === 'undefined') return 0;

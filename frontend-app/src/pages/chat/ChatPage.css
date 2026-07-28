@@ -105,6 +105,13 @@
   background: var(--surface-3);
 }
 
+.chat-main-column {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
 .timeline-shell {
   position: relative;
   min-width: 0;

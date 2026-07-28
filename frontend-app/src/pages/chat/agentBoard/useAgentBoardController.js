@@ -37,6 +37,7 @@ function useAgentBoardController({ store, rightPanelOpen, setRightPanelOpen }) {
   };
   const collapse = () => setRightPanelOpen(false);
   const showRuntime = () => setRightPanelView('runtime');
+  const showAgents = () => setRightPanelView('agents');
   return {
     docked,
     rightPanelView,
@@ -45,6 +46,7 @@ function useAgentBoardController({ store, rightPanelOpen, setRightPanelOpen }) {
     expand,
     collapse,
     showRuntime,
+    showAgents,
   };
 }
 

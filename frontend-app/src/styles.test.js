@@ -284,7 +284,7 @@ describe('layer token and overlay host contract', () => {
     expect(mainCssImports[0]).toBe(LAYER_TOKENS_FILE);
   });
 
-  it('keeps all 43 active z-index declarations in 12 files on exact known token references', () => {
+  it('keeps all 44 active z-index declarations in 12 files on exact known token references', () => {
     const declarations = activeZIndexDeclarations();
     const files = [...new Set(declarations.map((declaration) => declaration.file))].sort();
     const invalid = declarations.filter((declaration) => {
@@ -292,7 +292,7 @@ describe('layer token and overlay host contract', () => {
       return !match || !EXPECTED_Z_INDEX_TOKENS.has(match[1]);
     });
 
-    expect(declarations).toHaveLength(43);
+    expect(declarations).toHaveLength(44);
     expect(files).toEqual(EXPECTED_Z_INDEX_FILES);
     expect(invalid).toEqual([]);
   });
@@ -1910,12 +1910,12 @@ describe('runtime resize styles', () => {
     const stat = declarationsFor('.runtime-stat');
 
     expect(toolbar['min-width']).toBe('0');
-    expect(toolbar.display).toBe('grid');
-    expect(toolbar['grid-template-columns']).toBe('repeat(2, minmax(0, 1fr))');
-    expect(toolbar['align-content']).toBe('center');
-    expect(toolbar['overflow']).toBe('hidden');
+    expect(toolbar.display).toBe('flex');
+    expect(toolbar.overflow).toBe('hidden');
+    const toolbarMetrics = declarationsFor('.runtime-toolbar__metrics');
+    expect(toolbarMetrics.display).toBe('grid');
+    expect(toolbarMetrics['grid-template-columns']).toBe('repeat(4, minmax(0, 1fr))');
     expect(toolbarStat['min-width']).toBe('0');
-    expect(toolbarStat['justify-content']).toBe('center');
     expect(toolbarStat.cursor).toBeUndefined();
     expect(score['min-width']).toBe('0');
     expect(score['justify-content']).toBe('center');

@@ -2536,16 +2536,16 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
 
-    const fileCountMetric = screen.getByLabelText('代码变更文件数');
-    const changedLineMetric = screen.getByLabelText('代码变更行数');
+    const fileCountMetric = screen.getByLabelText('代码变更文件数：2 个');
+    const changedLineMetric = screen.getByLabelText('代码变更行数：5 行');
     expect(fileCountMetric).toHaveTextContent('2');
     expect(fileCountMetric.querySelector('svg')).toHaveClass('lucide-file-text');
     expect(changedLineMetric).toHaveTextContent('5');
     expect(changedLineMetric.querySelector('svg')).toHaveClass('lucide-code-xml');
-    expect(screen.getByLabelText('代码新增行数')).toHaveTextContent('+3');
-    expect(screen.getByLabelText('代码删除行数')).toHaveTextContent('-2');
-    expect(screen.getByLabelText('代码新增行数')).not.toHaveTextContent('+0');
-    expect(screen.getByLabelText('代码删除行数')).not.toHaveTextContent('-1');
+    expect(screen.getByLabelText('代码新增行数：+3 行')).toHaveTextContent('+3');
+    expect(screen.getByLabelText('代码删除行数：-2 行')).toHaveTextContent('-2');
+    expect(screen.getByLabelText('代码新增行数：+3 行')).not.toHaveTextContent('+0');
+    expect(screen.getByLabelText('代码删除行数：-2 行')).not.toHaveTextContent('-1');
   });
 
   it('renders a grouped line-by-line diff instead of raw patch text', async () => {
@@ -3734,7 +3734,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(within(container.querySelector('.runtime-panel')).getByRole('button', { name: '折叠 file' })).toBeInTheDocument();
     expect(container.querySelector('.runtime-panel')).not.toHaveTextContent('diff --git a/file b/file');
     expect(screen.getByRole('list', { name: '工具调用统计' })).toBeInTheDocument();
-    expect(screen.queryByTestId('warning-log-panel')).not.toBeInTheDocument();
+    expect(screen.getByTestId('warning-log-panel')).toBeInTheDocument();
     expect(layout).toHaveStyle({
       gridTemplateColumns: `minmax(0, 1fr) 6px ${restoredRightPanelWidth}px`,
     });
@@ -3801,12 +3801,12 @@ async function toggleInlineTraceFromRecentLogs(table) {
     const activityResizer = screen.getByRole('separator', { name: '调整工具使用面板高度' });
     expect(activityResizer.tagName).toBe('BUTTON');
 
-    expect(activityResizer).toHaveAttribute('aria-valuenow', '64');
+    expect(activityResizer).toHaveAttribute('aria-valuenow', '96');
 
     fireEvent.keyDown(activityResizer, { key: 'ArrowUp' });
 
-    expect(activityResizer).toHaveAttribute('aria-valuenow', '80');
-    expect(screen.getByTestId('runtime-panel')).toHaveStyle({ '--activity-panel-height': '80px' });
+    expect(activityResizer).toHaveAttribute('aria-valuenow', '112');
+    expect(screen.getByTestId('runtime-panel')).toHaveStyle({ '--activity-panel-height': '112px' });
   });
 
   it('opens the right sidebar at one fifth on wide screens', async () => {
@@ -4022,7 +4022,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
-    expect(screen.queryByTestId('warning-log-panel')).not.toBeInTheDocument();
+    expect(screen.getByTestId('warning-log-panel')).toBeInTheDocument();
     fireEvent.keyDown(screen.getByTestId('activity-panel-resizer'), { key: 'ArrowUp' });
 
     expect(within(screen.getByTestId('runtime-panel')).getByRole('button', { name: '折叠 a' })).toBeInTheDocument();
@@ -4202,13 +4202,13 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
 
     expect(screen.getByTestId('runtime-panel')).toHaveStyle({
-      '--activity-panel-height': '64px',
+      '--activity-panel-height': '96px',
       '--activity-panel-min-height': '64px',
       '--activity-panel-max-height': '286px',
       '--diff-panel-min-height': '286px',
       '--diff-panel-max-height': '509px',
     });
-    expect(screen.queryByTestId('warning-log-panel')).not.toBeInTheDocument();
+    expect(screen.getByTestId('warning-log-panel')).toBeInTheDocument();
     expect(screen.getByLabelText('LSP (8 tools) 调用次数')).toHaveTextContent('3');
     expect(screen.getByLabelText('LSP (8 tools) 调用次数')).not.toHaveAttribute('title');
     expect(screen.getByLabelText('工具调用总数')).toHaveTextContent('6');
