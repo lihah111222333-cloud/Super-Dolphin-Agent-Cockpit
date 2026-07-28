@@ -419,14 +419,18 @@ func (h *Handler) callPeerTool(ctx context.Context, peer mcpcontrol.Peer, req To
 	defer cancel()
 
 	snapshot := h.beginToolDiffSnapshot(ctx, req)
-	req = h.injectManagedLaunchContext(ctx, req)
+	var err error
+	req, err = h.injectManagedLaunchContext(ctx, req)
+	if err != nil {
+		return nil, err
+	}
 	h.warnManagedLaunchConfigTrace(ctx, req)
 	cwd := h.resolveAndWarnCurrentToolCallCWD(ctx, req)
 	if err := h.validatePeerToolCallInput(req); err != nil {
 		return nil, err
 	}
 	var resp peerToolCallResponse
-	err := peer.Callback(callCtx, ProxyMethodToolsCall, map[string]any{
+	err = peer.Callback(callCtx, ProxyMethodToolsCall, map[string]any{
 		"name":                    req.Name,
 		"arguments":               req.Arguments,
 		MetadataKeyAgentID:        req.AgentID,

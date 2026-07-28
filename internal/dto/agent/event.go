@@ -133,11 +133,12 @@ type StateChanged struct {
 // AgentLaunched 表示新的 agent 进程或会话已进入可用状态。
 type AgentLaunched struct {
 	shared.AgentSessionHeader
-	Model    string     `json:"model,omitempty"`
-	CWD      string     `json:"cwd,omitempty"`
-	Name     string     `json:"name,omitempty"`
-	Provider string     `json:"provider,omitempty"`
-	Board    *BoardView `json:"board,omitempty"`
+	ProviderThreadID string     `json:"provider_thread_id,omitempty"`
+	Model            string     `json:"model,omitempty"`
+	CWD              string     `json:"cwd,omitempty"`
+	Name             string     `json:"name,omitempty"`
+	Provider         string     `json:"provider,omitempty"`
+	Board            *BoardView `json:"board,omitempty"`
 }
 
 // AgentStopped 表示 agent 已按请求停止或被强制停止。

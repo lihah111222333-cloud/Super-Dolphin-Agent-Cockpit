@@ -3,30 +3,28 @@ package toolbridge
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 )
 
 // injectManagedDAGLaunchContext 为 task_create_dag 的 agent 节点注入当前 Codex 启动上下文。
-// 只有能解析当前 binding 且参数是对象时才改写 arguments，序列化失败则保留原请求。
-func (h *Handler) injectManagedDAGLaunchContext(ctx context.Context, req ToolCallRequest) ToolCallRequest {
-	binding, ok := h.resolveCurrentToolCallBinding(ctx, req)
-	if !ok || strings.TrimSpace(binding.AgentID) == "" {
-		return req
+// 父绑定或 provider thread 不完整时阻断整个 DAG，避免 agent 节点脱离父子拓扑。
+func (h *Handler) injectManagedDAGLaunchContext(ctx context.Context, req ToolCallRequest) (ToolCallRequest, error) {
+	binding, err := h.requireManagedLaunchParentBinding(ctx, req)
+	if err != nil {
+		return ToolCallRequest{}, err
 	}
 	args := decodeToolArguments(req.Arguments)
 	if args == nil {
-		return req
+		return req, nil
 	}
 	provider := managedDAGLaunchProvider(binding)
 	if !injectManagedDAGLaunchArgs(args, binding, provider) {
-		return req
+		return req, nil
 	}
 	raw, err := json.Marshal(args)
 	if err != nil {
-		h.warn("toolbridge: task_create_dag context injection failed",
-			"agent_id", binding.AgentID,
-			"error", err)
-		return req
+		return ToolCallRequest{}, fmt.Errorf("toolbridge: encode task_create_dag context for parent %q: %w", binding.AgentID, err)
 	}
 	req.Arguments = raw
 	h.warn("toolbridge: task_create_dag inherited launch context",
@@ -37,7 +35,7 @@ func (h *Handler) injectManagedDAGLaunchContext(ctx context.Context, req ToolCal
 		"has_codex_instance_key", strings.TrimSpace(binding.CodexInstanceKey) != "",
 		"has_codex_model_provider", strings.TrimSpace(binding.CodexModelProvider) != "",
 	)
-	return req
+	return req, nil
 }
 
 // isManagedDAGLaunchToolName 判断工具名是否为 DAG 创建入口。

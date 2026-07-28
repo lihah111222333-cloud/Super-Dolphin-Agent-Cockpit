@@ -387,8 +387,9 @@ func TestToolBridge_OrchestrationLaunchInheritsParentModelEffort(t *testing.T) {
 	h, _ := newHandlerForTest(newToolCallPeer(t, "launch_agent", wantArgs, "launching", nil))
 	h.bindingStore = &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
 		"agent-parent": {
-			AgentID: "agent-parent",
-			CWD:     "/repo/project",
+			AgentID:          "agent-parent",
+			ProviderThreadID: "provider-thread-parent",
+			CWD:              "/repo/project",
 		},
 	}}
 	h.threadStore = &toolCallThreadStoreStub{row: &threadstore.Thread{
@@ -422,9 +423,10 @@ func TestToolBridge_OrchestrationLaunchExplicitProviderDoesNotInheritMismatchedP
 	h, _ := newHandlerForTest(newToolCallPeer(t, "launch_agent", wantArgs, "launching", nil))
 	h.bindingStore = &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
 		"agent-parent": {
-			AgentID:  "agent-parent",
-			Provider: "codex",
-			CWD:      "/repo/project",
+			AgentID:          "agent-parent",
+			Provider:         "codex",
+			ProviderThreadID: "provider-thread-parent",
+			CWD:              "/repo/project",
 		},
 	}}
 	h.threadStore = &toolCallThreadStoreStub{row: &threadstore.Thread{
@@ -463,8 +465,9 @@ func TestToolBridge_OrchestrationLaunchFallsBackToUIPreferences(t *testing.T) {
 	h, _ := newHandlerForTest(newToolCallPeer(t, "launch_agent", wantArgs, "launching", nil))
 	h.bindingStore = &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
 		"agent-parent": {
-			AgentID: "agent-parent",
-			CWD:     "/repo/project",
+			AgentID:          "agent-parent",
+			ProviderThreadID: "provider-thread-parent",
+			CWD:              "/repo/project",
 		},
 	}}
 	h.threadStore = &toolCallThreadStoreStub{}
@@ -503,9 +506,10 @@ func TestToolBridge_OrchestrationLaunchFillsMissingProviderFromUIPreferences(t *
 	h, _ := newHandlerForTest(newToolCallPeer(t, "launch_agent", wantArgs, "launching", nil))
 	h.bindingStore = &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
 		"agent-parent": {
-			AgentID:  "agent-parent",
-			Provider: "codex",
-			CWD:      "/repo/project",
+			AgentID:          "agent-parent",
+			Provider:         "codex",
+			ProviderThreadID: "provider-thread-parent",
+			CWD:              "/repo/project",
 		},
 	}}
 	h.threadStore = &toolCallThreadStoreStub{}
@@ -537,8 +541,9 @@ func TestToolBridge_OrchestrationLaunchUsesProviderDefaultsWhenUIPreferencesUnse
 	h, _ := newHandlerForTest(newToolCallPeer(t, "launch_agent", wantArgs, "launching", nil))
 	h.bindingStore = &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
 		"agent-parent": {
-			AgentID: "agent-parent",
-			CWD:     "/repo/project",
+			AgentID:          "agent-parent",
+			ProviderThreadID: "provider-thread-parent",
+			CWD:              "/repo/project",
 		},
 	}}
 	h.threadStore = &toolCallThreadStoreStub{}
@@ -567,8 +572,9 @@ func TestToolBridge_OrchestrationLaunchPreservesExplicitParentContext(t *testing
 	h, _ := newHandlerForTest(newToolCallPeer(t, "launch_agent", args, "launching", nil))
 	h.bindingStore = &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
 		"agent-parent": {
-			AgentID: "agent-parent",
-			CWD:     "/repo/project",
+			AgentID:          "agent-parent",
+			ProviderThreadID: "provider-thread-parent",
+			CWD:              "/repo/project",
 		},
 	}}
 	h.threadStore = &toolCallThreadStoreStub{row: &threadstore.Thread{
@@ -604,8 +610,9 @@ func TestToolBridge_OrchestrationLaunchDoesNotInjectCurrentCWDOverParent(t *test
 	h, _ := newHandlerForTest(newToolCallPeer(t, "launch_agent", wantArgs, "launching", nil))
 	h.bindingStore = &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
 		"agent-parent": {
-			AgentID: "agent-parent",
-			CWD:     "/repo/stale",
+			AgentID:          "agent-parent",
+			ProviderThreadID: "provider-thread-parent",
+			CWD:              "/repo/stale",
 		},
 	}}
 

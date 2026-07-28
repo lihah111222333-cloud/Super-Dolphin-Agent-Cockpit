@@ -3,6 +3,7 @@ package toolbridge
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
@@ -11,23 +12,23 @@ import (
 // 本文件负责把当前 provider/model/effort 上下文注入 launch_agent 与 DAG agent 节点。
 
 // injectManagedLaunchContext 根据工具名分发 managed launch 参数注入逻辑。
-func (h *Handler) injectManagedLaunchContext(ctx context.Context, req ToolCallRequest) ToolCallRequest {
+func (h *Handler) injectManagedLaunchContext(ctx context.Context, req ToolCallRequest) (ToolCallRequest, error) {
 	switch {
 	case isManagedLaunchToolName(req.Name):
 		return h.injectManagedLaunchToolContext(ctx, req)
 	case isManagedDAGLaunchToolName(req.Name):
 		return h.injectManagedDAGLaunchContext(ctx, req)
 	default:
-		return req
+		return req, nil
 	}
 }
 
 // injectManagedLaunchToolContext 为单个 launch_agent 调用继承当前线程的启动上下文。
 // 只补缺省参数，不覆盖调用方显式传入的 provider/model/effort/cwd。
-func (h *Handler) injectManagedLaunchToolContext(ctx context.Context, req ToolCallRequest) ToolCallRequest {
-	binding, ok := h.resolveCurrentToolCallBinding(ctx, req)
-	if !ok || strings.TrimSpace(binding.AgentID) == "" {
-		return req
+func (h *Handler) injectManagedLaunchToolContext(ctx context.Context, req ToolCallRequest) (ToolCallRequest, error) {
+	binding, err := h.requireManagedLaunchParentBinding(ctx, req)
+	if err != nil {
+		return ToolCallRequest{}, err
 	}
 	args := decodeToolArguments(req.Arguments)
 	if args == nil {
@@ -37,14 +38,11 @@ func (h *Handler) injectManagedLaunchToolContext(ctx context.Context, req ToolCa
 	provider, model, effort := h.resolveManagedLaunchDefaults(ctx, binding, args, launchCWD)
 	changed := injectManagedLaunchArgs(args, binding, provider, model, effort)
 	if !changed {
-		return req
+		return req, nil
 	}
 	raw, err := json.Marshal(args)
 	if err != nil {
-		h.warn("toolbridge: launch_agent context injection failed",
-			"agent_id", binding.AgentID,
-			"error", err)
-		return req
+		return ToolCallRequest{}, fmt.Errorf("toolbridge: encode launch_agent context for parent %q: %w", binding.AgentID, err)
 	}
 	req.Arguments = raw
 	fields := []any{
@@ -63,7 +61,22 @@ func (h *Handler) injectManagedLaunchToolContext(ctx context.Context, req ToolCa
 		"has_codex_model_provider", strings.TrimSpace(binding.CodexModelProvider) != "",
 	)
 	h.warn("toolbridge: launch_agent inherited context", fields...)
-	return req
+	return req, nil
+}
+
+// requireManagedLaunchParentBinding 在任何子 Agent 调度前证明父 Agent 已登记且 provider thread 已建立。
+func (h *Handler) requireManagedLaunchParentBinding(ctx context.Context, req ToolCallRequest) (toolCallBinding, error) {
+	result := h.resolveCurrentToolCallBindingResult(ctx, req)
+	if result.status == toolCallLookupFailed {
+		return toolCallBinding{}, fmt.Errorf("toolbridge: parent agent binding lookup failed for %q: %w", strings.TrimSpace(req.AgentID), result.err)
+	}
+	if result.status != toolCallLookupFound || strings.TrimSpace(result.binding.AgentID) == "" {
+		return toolCallBinding{}, fmt.Errorf("toolbridge: parent agent binding is required before %s", strings.TrimSpace(req.Name))
+	}
+	if strings.TrimSpace(result.binding.ProviderThreadID) == "" {
+		return toolCallBinding{}, fmt.Errorf("toolbridge: parent agent %q provider_thread_id is required before %s", result.binding.AgentID, strings.TrimSpace(req.Name))
+	}
+	return result.binding, nil
 }
 
 // isManagedLaunchToolName 判断工具名是否为单 agent 启动入口。

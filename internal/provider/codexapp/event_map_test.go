@@ -45,6 +45,30 @@ func TestAgentSessionHeaderPrefersAgentIDAsThreadID(t *testing.T) {
 	}
 }
 
+func TestThreadStartedPreservesProviderThreadIDSeparatelyFromAgentID(t *testing.T) {
+	t.Parallel()
+
+	const agentID = "agent_1785230940369872000"
+	const providerThreadID = "019fa80e-3ddc-7d51-87a2-90a76e2f5c74"
+	event, ok := translateAgentEvent("thread/started", map[string]any{
+		"agentId":  agentID,
+		"threadId": providerThreadID,
+	})
+	if !ok {
+		t.Fatal("translateAgentEvent() ok = false, want true")
+	}
+	launched, ok := event.(agentdto.AgentLaunched)
+	if !ok {
+		t.Fatalf("event type = %T, want agentdto.AgentLaunched", event)
+	}
+	if launched.AgentID != agentID || launched.ThreadID != agentID {
+		t.Fatalf("public identity = (%q, %q), want internal agent id %q", launched.AgentID, launched.ThreadID, agentID)
+	}
+	if launched.ProviderThreadID != providerThreadID {
+		t.Fatalf("ProviderThreadID = %q, want %q", launched.ProviderThreadID, providerThreadID)
+	}
+}
+
 func TestCodexTerminalTimestampUsesProviderValue(t *testing.T) {
 	want, err := time.Parse(time.RFC3339Nano, "2026-07-16T10:11:12.123Z")
 	if err != nil {

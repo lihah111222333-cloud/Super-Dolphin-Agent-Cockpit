@@ -540,7 +540,6 @@ func (h *Handler) callCodexSurfaceTool(ctx context.Context, surface *codexToolSu
 		return result, err
 	}
 	req.Name = entry.realName
-	req = h.injectManagedLaunchContext(ctx, req)
 	result, err = h.executeCodexSurfaceEntry(ctx, surface, entry, req)
 	return result, err
 }
@@ -575,6 +574,11 @@ func (h *Handler) executeCodexSurfaceEntry(
 	entry codexToolEntry,
 	req ToolCallRequest,
 ) (*ToolCallResult, error) {
+	var err error
+	req, err = h.injectManagedLaunchContext(ctx, req)
+	if err != nil {
+		return nil, err
+	}
 	if entry.executionKind == "host" {
 		return h.callHostTool(ctx, req)
 	}
@@ -591,7 +595,7 @@ func (h *Handler) executeCodexSurfaceEntry(
 		return nil, fmt.Errorf("toolbridge: MCP authority lease is required")
 	}
 	var result *ToolCallResult
-	err := h.authorityOwner.WithMCPToolAuthority(ctx, entry.authority.token, func() error {
+	err = h.authorityOwner.WithMCPToolAuthority(ctx, entry.authority.token, func() error {
 		var callErr error
 		result, callErr = entry.client.CallTool(ctx, entry.realName, req.Arguments, req)
 		return callErr

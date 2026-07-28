@@ -61,7 +61,7 @@ func TestAgentBoardWireFieldRegistryMatchesEveryProducerLayer(t *testing.T) {
 		"contract.AgentSnapshot": {reflect.TypeFor[contract.AgentSnapshot](), []string{"assignment", "progress", "outcome"}},
 		"ui.UIThreadPatch":       {reflect.TypeFor[uidto.UIThreadPatch](), []string{"agent"}},
 		"agent.StateChanged":     {reflect.TypeFor[agentdto.StateChanged](), []string{"board"}},
-		"agent.AgentLaunched":    {reflect.TypeFor[agentdto.AgentLaunched](), []string{"board"}},
+		"agent.AgentLaunched":    {reflect.TypeFor[agentdto.AgentLaunched](), []string{"board", "provider_thread_id"}},
 		"agent.AgentStopped":     {reflect.TypeFor[agentdto.AgentStopped](), []string{"board"}},
 		"agent.AgentRecovering":  {reflect.TypeFor[agentdto.AgentRecovering](), []string{"board"}},
 		"agent.AgentFailed":      {reflect.TypeFor[agentdto.AgentFailed](), []string{"board"}},

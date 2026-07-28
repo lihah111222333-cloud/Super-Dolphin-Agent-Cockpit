@@ -2,6 +2,7 @@ package thread
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -79,8 +80,8 @@ func (s *service) onAgentLaunched(ev agentdto.AgentLaunched) {
 	s.agentLaunchedWorker.Enqueue(key, ev)
 }
 
-// processAgentLaunched 根据 provider 启动事件补写 binding 中的 session 身份。
-// 事件可能缺 agent_id，因此先用 threadID 反查 binding；只有 UUID 可恢复且历史文件存在时才写 provider_thread_id。
+// processAgentLaunched 根据 provider 启动事件补写 binding 中的 session 与 provider thread 身份。
+// 事件可能缺 agent_id，因此先用公开 threadID 反查 binding；provider thread 必须来自 provider 的权威事件字段。
 func (s *service) processAgentLaunched(ev agentdto.AgentLaunched) error {
 	if s.threadBindingStorePort() == nil {
 		return nil
@@ -88,6 +89,7 @@ func (s *service) processAgentLaunched(ev agentdto.AgentLaunched) error {
 	threadID := strings.TrimSpace(ev.ThreadID)
 	agentID := strings.TrimSpace(ev.AgentID)
 	sessionID := strings.TrimSpace(ev.SessionID)
+	providerThreadID := strings.TrimSpace(ev.ProviderThreadID)
 	ctx := context.Background()
 	// Claude system:init 可能不带 agent_id，因此用 threadID 反查 binding 作为权威身份。
 	binding, err := s.resolveBindingForEvent(ctx, agentID, threadID)
@@ -101,13 +103,15 @@ func (s *service) processAgentLaunched(ev agentdto.AgentLaunched) error {
 		return err
 	}
 	agentID = strings.TrimSpace(binding.AgentID)
-	if agentID == "" || sessionID == "" || !identifier.LooksLikeUUID(sessionID) {
+	if agentID == "" {
 		return nil
 	}
-	if err := s.recordAgentLaunchSessionUUID(ctx, binding, threadID, agentID, sessionID); err != nil {
-		return err
+	if sessionID != "" && identifier.LooksLikeUUID(sessionID) {
+		if err := s.recordAgentLaunchSessionUUID(ctx, binding, threadID, agentID, sessionID); err != nil {
+			return err
+		}
 	}
-	return s.recordAgentLaunchProviderThreadID(ctx, binding, threadID, agentID, sessionID)
+	return s.recordAgentLaunchProviderThreadID(ctx, binding, threadID, agentID, providerThreadID)
 }
 
 func (s *service) recordAgentLaunchSessionUUID(ctx context.Context, binding *threadBindingRecord, threadID, agentID, sessionID string) error {
@@ -130,31 +134,22 @@ func (s *service) recordAgentLaunchSessionUUID(ctx context.Context, binding *thr
 	return nil
 }
 
-// recordAgentLaunchProviderThreadID 从启动事件记录可恢复的 provider thread id。
-// 已存在的真实 UUID 不会被覆盖；无法定位 provider 历史文件时只记日志，避免写入不可恢复身份。
-func (s *service) recordAgentLaunchProviderThreadID(ctx context.Context, binding *threadBindingRecord, threadID, agentID, sessionID string) error {
-	providerThreadID := normalizeProviderThreadID(binding.Provider, sessionID)
+// recordAgentLaunchProviderThreadID 从 provider 启动事件记录权威 thread id。
+// 该身份不依赖历史文件是否已落盘；历史文件只用于恢复，不能阻塞活跃会话建立绑定。
+func (s *service) recordAgentLaunchProviderThreadID(ctx context.Context, binding *threadBindingRecord, threadID, agentID, observedProviderThreadID string) error {
+	providerThreadID := normalizeProviderThreadID(binding.Provider, observedProviderThreadID)
 	if providerThreadID == "" {
 		return nil
+	}
+	if err := validateProviderThreadID(binding.Provider, providerThreadID); err != nil {
+		return err
 	}
 	current := strings.TrimSpace(binding.ProviderThreadID)
 	if current == providerThreadID {
 		return nil
 	}
 	if current != "" && current != agentID && identifier.LooksLikeUUID(current) {
-		return nil
-	}
-	if !bindingRecordHasProviderHistoryForUUID(binding, providerThreadID) {
-		if s.logger != nil {
-			fields := []any{
-				"thread_id", threadID,
-				"agent_id", agentID,
-				"provider_thread_id", providerThreadID,
-			}
-			fields = append(fields, platformshared.SafePathLogFields("rollout_path", binding.RolloutPath)...)
-			s.logger.Info("thread: provider_thread_id from agent event is not recoverable", fields...)
-		}
-		return nil
+		return fmt.Errorf("agent %q provider thread identity conflict: stored %q, observed %q", agentID, current, providerThreadID)
 	}
 	store := s.threadBindingStorePort()
 	if store == nil {

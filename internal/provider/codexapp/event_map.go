@@ -431,6 +431,7 @@ func translateAgentEvent(eventType string, payload map[string]any) (any, bool) {
 	case "thread/started", "session.configured", "agent:launched":
 		return agentdto.AgentLaunched{
 			AgentSessionHeader: buildAgentSessionHeader(payload),
+			ProviderThreadID:   payloadThreadID(payload),
 			Model:              stringValue(payload, "model"),
 			CWD:                stringValue(payload, "cwd"),
 			Name:               stringValue(payload, "name"),

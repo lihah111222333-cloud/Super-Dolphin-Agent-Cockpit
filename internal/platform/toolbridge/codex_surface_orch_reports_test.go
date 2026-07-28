@@ -104,7 +104,12 @@ func TestCodexSurfaceOrchReportRegistryMapsAndCallsAllShortNames(t *testing.T) {
 func prepareOrchReportSurfaceFromShortNames(t *testing.T) (*Handler, *fakeMCPClient, []contract.DynamicToolSchema) {
 	t.Helper()
 	orch := &fakeMCPClient{tools: orchestrationToolsForTest(t)}
-	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{mcpdto.ClientKindOrch: orch})}
+	h := &Handler{
+		stdioClientFactory: fakeClientFactory(map[string]mcpClient{mcpdto.ClientKindOrch: orch}),
+		bindingStore: &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
+			"agent-1": {AgentID: "agent-1", Provider: "codex", ProviderThreadID: "provider-thread-1"},
+		}},
+	}
 	tools, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-1",
 		ProviderThreadID: "provider-thread-1",
