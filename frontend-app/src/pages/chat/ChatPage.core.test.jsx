@@ -97,6 +97,21 @@ function approvalMessage(requestId, status = 'pending', overrides = {}) {
     expect(screen.queryByRole('button', { name: '滚动到底部' })).not.toBeInTheDocument();
   });
 
+  it('reserves the open right panel for the fixed intro composer', () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1980 });
+    const store = createFakeStore();
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" rightPanelOpen />);
+
+    const layout = screen.getByTestId('chat-layout');
+    expect(layout).toHaveStyle({
+      gridTemplateColumns: 'minmax(0, 1fr) 6px 380px',
+    });
+    expect(layout.style.getPropertyValue('--composer-fixed-right')).toBe('386px');
+    expect(screen.getByTestId('composer-dock')).toHaveClass('composer--floating');
+    expect(screen.queryByTestId('agent-board-floating')).not.toBeInTheDocument();
+  });
+
   it('renders localized intro suggestions in English mode', () => {
     const store = createFakeStore();
 

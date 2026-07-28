@@ -264,7 +264,15 @@ function ChatPage(props) {
         feedback={headerFeedback}
         onDismiss={() => store.dismissActionNotice?.(headerFeedback)}
       />
-      <div ref={chatLayoutRef} className="chat-layout" data-testid="chat-layout" style={{ gridTemplateColumns: layoutColumns }}>
+      <div
+        ref={chatLayoutRef}
+        className="chat-layout"
+        data-testid="chat-layout"
+        style={{
+          gridTemplateColumns: layoutColumns,
+          '--composer-fixed-right': rightPanelOpen ? `${SPLITTER_WIDTH + rightPanelWidth}px` : '0px',
+        }}
+      >
         {introMode ? <ChatIntroSpotlight copy={copy} onSuggestion={prefillIntroSuggestion} /> : null}
         <ThreadRail copy={copy} store={store} />
         <ThreadRailResizer copy={copy} rail={rail} />
