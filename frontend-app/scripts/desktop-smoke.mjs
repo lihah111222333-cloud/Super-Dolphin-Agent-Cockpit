@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
 
 import { terminateProcessTree } from './managed-command.mjs';
+import { validateSidebarStateResponse } from '../src/shared/api/backendResponseValidatorsCore.js';
 
 const DEFAULT_HTTP_ADDR = '127.0.0.1:4512';
 const DEFAULT_VITE_URL = 'http://127.0.0.1:5175';
@@ -18,9 +19,7 @@ export function repoRootFromScript(metaURL = import.meta.url) {
   return path.resolve(path.dirname(fileURLToPath(metaURL)), '..', '..');
 }
 
-export function truthyEnv(value) {
-  return value === '1' || value === 'true' || value === 'yes';
-}
+export function truthyEnv(value) { return value === '1' || value === 'true' || value === 'yes'; }
 
 export function buildWebSocketURL(addr) {
   const value = (addr || '').trim();
@@ -52,9 +51,7 @@ function withWSPath(url) {
   return parsed.toString();
 }
 
-export function buildJSONRPCRequest(id, method, params = {}) {
-  return { jsonrpc: '2.0', id, method, params };
-}
+export function buildJSONRPCRequest(id, method, params = {}) { return { jsonrpc: '2.0', id, method, params }; }
 
 export function smokeConfig(
   env = process.env,
@@ -285,6 +282,9 @@ async function runThreadStartSmoke(client, config) {
   const result = await assertObject(client.request('thread/start', buildThreadStartParams(config)), 'thread/start');
   const threadID = String(result.threadId || result.thread_id || result.thread?.id || '').trim();
   if (!threadID) throw new Error(`thread/start did not return a thread id: ${JSON.stringify(result)}`);
+  const sidebar = await assertObject(client.request('ui/sidebar/get', { cwd: config.cwd }), 'ui/sidebar/get after thread/start');
+  validateSidebarStateResponse('ui/sidebar/get', sidebar);
+  if (!sidebar.agents?.some((item) => item.thread_id === threadID || item.id === threadID)) throw new Error(`ui/sidebar/get did not project started thread ${threadID}`);
   return threadID;
 }
 

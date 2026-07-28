@@ -1,19 +1,23 @@
 package thread
 
-import "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
+import (
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
+)
 
 // Started 报告 thread 已变为可路由状态。
 // PendingLaunch=true 时仅持久化占位 thread；首次 turn 触发 SpawnIfNeeded 后才启动 provider CLI。
 type Started struct {
 	shared.EventHeader
-	ThreadID         string `json:"thread_id"`
-	AgentID          string `json:"agent_id,omitempty"`
-	Provider         string `json:"provider,omitempty"`
-	ProviderThreadID string `json:"provider_thread_id,omitempty"`
-	CWD              string `json:"cwd,omitempty"`
-	Model            string `json:"model,omitempty"`
-	Name             string `json:"name,omitempty"`
-	PendingLaunch    bool   `json:"pending_launch,omitempty"`
+	ThreadID         string              `json:"thread_id"`
+	AgentID          string              `json:"agent_id,omitempty"`
+	Provider         string              `json:"provider,omitempty"`
+	ProviderThreadID string              `json:"provider_thread_id,omitempty"`
+	CWD              string              `json:"cwd,omitempty"`
+	Model            string              `json:"model,omitempty"`
+	Name             string              `json:"name,omitempty"`
+	PendingLaunch    bool                `json:"pending_launch,omitempty"`
+	Board            *agentdto.BoardView `json:"board,omitempty"`
 }
 
 // Launched 报告 pending_launch thread 已成功启动 provider CLI，并携带启动时的路由结果。

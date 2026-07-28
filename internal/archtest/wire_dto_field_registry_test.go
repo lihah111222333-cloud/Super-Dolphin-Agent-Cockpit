@@ -13,6 +13,7 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
+	threaddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/thread"
 	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
 )
 
@@ -64,6 +65,7 @@ func TestAgentBoardWireFieldRegistryMatchesEveryProducerLayer(t *testing.T) {
 		"agent.AgentStopped":     {reflect.TypeFor[agentdto.AgentStopped](), []string{"board"}},
 		"agent.AgentRecovering":  {reflect.TypeFor[agentdto.AgentRecovering](), []string{"board"}},
 		"agent.AgentFailed":      {reflect.TypeFor[agentdto.AgentFailed](), []string{"board"}},
+		"thread.Started":         {reflect.TypeFor[threaddto.Started](), []string{"board"}},
 	} {
 		fields := collectRegisteredWireDTOJSONFields(t, check.typ)
 		for _, field := range check.fields {

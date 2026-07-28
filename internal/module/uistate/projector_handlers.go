@@ -218,6 +218,7 @@ func (s *service) applyThreadStarted(ev threaddto.Started) {
 				AgentState:       "idle",
 				Name:             strings.TrimSpace(ev.Name),
 			})
+			s.applyAgentBoardLocked(ev.Board)
 		}
 	}, func() uidto.UIThreadPatch {
 		return s.refreshThreadPatchLocked(threadID, agentID, "thread/started")
@@ -231,12 +232,20 @@ func (s *service) replaceAgentOnThreadStarted(agentID string, next AgentSummary)
 		if s.state.Agents[i].ID != agentID {
 			continue
 		}
-		// thread.Started 不负责的展示字段继续保留，避免覆盖父子关系和最近消息。
-		next.Name = chooseString(next.Name, s.state.Agents[i].Name)
-		next.ParentID = chooseString(next.ParentID, s.state.Agents[i].ParentID)
-		next.LastReport = chooseString(next.LastReport, s.state.Agents[i].LastReport)
-		next.LastMessage = chooseString(next.LastMessage, s.state.Agents[i].LastMessage)
-		next.Port = choosePositiveInt(next.Port, s.state.Agents[i].Port)
+		// thread.Started 只负责运行身份；Agent 看板字段来自 BoardView，必须原样保留。
+		// 否则事件顺序 AgentLaunched -> thread.Started 会把合法 progress 清成零值，令前端 bootstrap fail-fast。
+		current := s.state.Agents[i]
+		next.Name = chooseString(next.Name, current.Name)
+		next.ParentID = chooseString(next.ParentID, current.ParentID)
+		next.ParentAgentID = current.ParentAgentID
+		next.Assignment = cloneAgentAssignment(current.Assignment)
+		next.Progress = cloneAgentProgress(current.Progress)
+		next.Outcome = cloneAgentOutcome(current.Outcome)
+		next.CreatedAt = clone.Time(current.CreatedAt)
+		next.UpdatedAt = clone.Time(current.UpdatedAt)
+		next.LastReport = chooseString(next.LastReport, current.LastReport)
+		next.LastMessage = chooseString(next.LastMessage, current.LastMessage)
+		next.Port = choosePositiveInt(next.Port, current.Port)
 		s.state.Agents[i] = next
 		return
 	}

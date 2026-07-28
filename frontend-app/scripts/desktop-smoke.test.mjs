@@ -10,10 +10,8 @@ import {
   buildWebSocketURL,
   desktopRunnerInvocation,
   desktopSpawnOptions,
-  openWSRPC,
   packageScriptIncludesSmoke,
   runDesktopSmoke,
-  runTurnSmoke,
   smokeConfig,
   stopDesktop,
 } from './desktop-smoke.mjs';
@@ -49,6 +47,29 @@ describe('desktop smoke command', () => {
       method: 'ui/sidebar/get',
       params: { cwd: '/repo/app' },
     });
+  });
+
+  it('fails the real Wails WS smoke when thread/start projects invalid Agent progress', async () => {
+    const invalidSidebar = { agents: [{
+      id: 'agent-1', name: 'worker', thread_id: 'thread-1',
+      assignment: { title: '任务', description: '验证 bootstrap', assignedAt: '2026-07-28T16:00:00Z' },
+      progress: { status: '', currentStep: null, completedSteps: null, totalSteps: null, updatedAt: '0001-01-01T00:00:00Z' },
+      outcome: null,
+    }] };
+    let sidebarReads = 0;
+    const client = {
+      close() {},
+      async request(method) {
+        if (method === 'ui/sidebar/get') return sidebarReads++ === 0 ? { agents: [] } : invalidSidebar;
+        if (method === 'thread/start') return { threadId: 'thread-1' };
+        return {};
+      },
+    };
+    const config = { ...smokeConfig({}, '/repo/app', () => 'token'), skipFrontendBuild: true };
+    const spawn = () => Object.assign(new EventEmitter(), { pid: 1234, exitCode: null, signalCode: null });
+    await expect(runDesktopSmoke(config, {
+      spawn, waitForHTTP: async () => {}, openWSRPC: async () => client, stopDesktop: async () => {},
+    })).rejects.toThrow(/progress\.status/);
   });
 
   it('keeps provider-spawning turn smoke opt-in', () => {
