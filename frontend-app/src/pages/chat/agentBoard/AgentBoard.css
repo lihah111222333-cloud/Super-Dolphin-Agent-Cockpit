@@ -5,18 +5,17 @@
 }
 
 .agent-board-floating {
-  position: absolute;
-  top: 12px;
-  right: 24px;
+  position: relative;
   z-index: var(--z-local-raised);
   box-sizing: border-box;
+  flex: none;
+  align-self: flex-end;
   width: 300px;
   max-width: calc(100% - 48px);
-  max-height: min(420px, calc(100% - 220px));
   display: flex;
   flex-direction: column;
   gap: 8px;
-  overflow-y: auto;
+  margin: 12px 24px 10px;
   border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
   border-radius: 12px;
   background: color-mix(in srgb, var(--surface) 96%, transparent);
@@ -27,9 +26,10 @@
 }
 
 .agent-board-floating--compact {
-  width: auto;
+  width: min(420px, calc(100% - 24px));
   min-width: 0;
-  max-height: none;
+  max-width: calc(100% - 24px);
+  margin: 8px 12px;
   padding: 8px 10px;
 }
 
@@ -90,78 +90,6 @@
   margin: 0;
   color: var(--error);
   overflow-wrap: anywhere;
-}
-
-.agent-board-floating__entries {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.agent-entry {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  border: 1px solid color-mix(in srgb, var(--line) 62%, transparent);
-  border-radius: 8px;
-  background: var(--surface-2);
-  padding: 6px 8px;
-  cursor: pointer;
-  text-align: left;
-  color: inherit;
-  font: inherit;
-}
-
-.agent-entry:hover {
-  background: var(--surface-3);
-}
-
-.agent-entry__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-width: 0;
-}
-
-.agent-entry__name {
-  font-weight: 600;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.agent-entry__title {
-  color: var(--text-sec);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.agent-entry__time {
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.agent-board-floating__show-all {
-  align-self: stretch;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--info);
-  cursor: pointer;
-  font: inherit;
-  font-weight: 600;
-  padding: 4px 0;
-}
-
-.agent-board-floating__show-all:hover {
-  text-decoration: underline;
 }
 
 .agent-status {

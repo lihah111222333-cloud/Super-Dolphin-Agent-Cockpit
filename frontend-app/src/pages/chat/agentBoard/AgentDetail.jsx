@@ -1,5 +1,4 @@
 import React from 'react';
-import { agentStatusLabel } from './agentBoardModel.js';
 import { AgentStatusBadge } from './AgentStatusBadge.jsx';
 
 function hasValue(value) {
@@ -60,7 +59,7 @@ function AgentDetail({ agent, formatTime }) {
       </div>
     );
   }
-  const status = agentStatusLabel(agent);
+  const status = agent.statusView;
   return (
     <section className="agent-detail" aria-label={`Agent ${agent.name} 详情`} data-testid="agent-detail">
       <header className="agent-detail__header">

@@ -71,6 +71,14 @@ describe('agent board data model', () => {
     ].map((agent) => normalizeBoardView(agent));
     const view = selectAgentBoardViewModel({ agents, mainAgentId: '' }, { ...selectorOptions, mode: 'floating' });
     expect(view.counts).toEqual({ running: 1, waiting: 1, completed: 1, failed: 3 });
+    expect(Object.fromEntries(view.agents.map((agent) => [agent.id, agent.statusView]))).toEqual({
+      running: { category: 'running', text: '运行中' },
+      waiting: { category: 'waiting', text: '等待中' },
+      success: { category: 'completed', text: '已完成' },
+      failure: { category: 'failed', text: '失败' },
+      stopped: { category: 'failed', text: '已停止' },
+      'terminal-without-outcome': { category: 'failed', text: '已停止' },
+    });
     expect(view.agents.find((agent) => agent.id === 'terminal-without-outcome').outcome).toBeNull();
     expect(view.agents[0].progress).toEqual(expect.objectContaining({ currentStep: null, completedSteps: null, totalSteps: null }));
   });

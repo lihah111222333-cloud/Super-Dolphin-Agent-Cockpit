@@ -5,7 +5,6 @@ import { selectAgentBoardViewModel } from '../../../entities/client/model/helper
 import { AgentBoardFloating } from './AgentBoardFloating.jsx';
 
 const at = '2026-07-28T08:00:00.000Z';
-const formatTime = (value) => `T:${value}`;
 
 function agent(id, { status = 'turn_running', outcome = null, parentAgentId = '', progress } = {}) {
   return {
@@ -34,7 +33,6 @@ function floatingViewModel(agents, options = {}) {
 function renderFloating(viewModel, overrides = {}) {
   const props = {
     viewModel,
-    formatTime,
     onExpand: vi.fn(),
     ...overrides,
   };
@@ -60,47 +58,22 @@ describe('AgentBoardFloating', () => {
     expect(screen.getByTestId('agent-count-failed')).toHaveTextContent('失败 0');
   });
 
-  it('lists key agents with name, task title, real status and update time', () => {
-    const viewModel = floatingViewModel([
-      agent('root'),
-      agent('worker', { parentAgentId: 'root' }),
-    ]);
-
-    renderFloating(viewModel);
-
-    const entry = screen.getByTestId('agent-entry-worker');
-    expect(entry).toHaveTextContent('Agent worker');
-    expect(entry).toHaveTextContent('任务 worker');
-    expect(entry).toHaveTextContent('运行中');
-    expect(entry).toHaveTextContent(`T:${at}`);
-  });
-
-  it('prioritizes failed agents and marks failure count clearly', () => {
+  it('只展示 selector 汇总，不重排或复制 Agent 业务状态', () => {
     const failure = { kind: 'failure', reason: '子任务执行失败', code: 'provider', recoverable: true, completedAt: at };
     const viewModel = floatingViewModel([
       agent('root'),
       agent('ok', { parentAgentId: 'root', status: 'idle', outcome: { kind: 'success', summary: '完成', recoverable: null, completedAt: at } }),
       agent('bad', { parentAgentId: 'root', status: 'failed', outcome: failure }),
-      agent('late', { parentAgentId: 'root' }),
     ]);
 
     renderFloating(viewModel);
 
-    const entries = screen.getAllByRole('button', { name: /在右侧栏查看 Agent/ });
-    expect(entries[0]).toHaveTextContent('Agent bad');
-    expect(entries[0]).toHaveTextContent('失败');
+    expect(screen.queryByTestId('agent-entry-root')).toBeNull();
+    expect(screen.queryByTestId('agent-entry-ok')).toBeNull();
+    expect(screen.queryByTestId('agent-entry-bad')).toBeNull();
+    expect(screen.getByLabelText('Agent 总数 3')).toHaveTextContent('3');
     expect(screen.getByTestId('agent-count-failed')).toHaveClass('agent-counts__item--alert');
-  });
-
-  it('caps entries and offers 查看全部 instead of growing without limit', () => {
-    const agents = [agent('root')];
-    for (let index = 0; index < 6; index += 1) agents.push(agent(`child-${index}`, { parentAgentId: 'root' }));
-    const viewModel = floatingViewModel(agents);
-
-    renderFloating(viewModel);
-
-    expect(screen.getAllByRole('button', { name: /在右侧栏查看 Agent/ })).toHaveLength(3);
-    expect(screen.getByTestId('agent-board-show-all')).toHaveTextContent('查看全部（7）');
+    expect(screen.getByTestId('agent-board-expand')).toBeInTheDocument();
   });
 
   it('shows loading, error and empty states without fabricating data', () => {
@@ -134,7 +107,7 @@ describe('AgentBoardFloating', () => {
     expect(screen.getByTestId('agent-board-expand')).toBeInTheDocument();
   });
 
-  it('expands via expand button, 查看全部 and entry click, all keyboard focusable', () => {
+  it('expands via the keyboard-focusable expand button', () => {
     const viewModel = floatingViewModel([agent('root'), agent('worker', { parentAgentId: 'root' })]);
     const { props } = renderFloating(viewModel);
 
@@ -144,12 +117,5 @@ describe('AgentBoardFloating', () => {
     expect(expand).toHaveFocus();
     fireEvent.click(expand);
     expect(props.onExpand).toHaveBeenCalledWith();
-
-    const entry = screen.getByTestId('agent-entry-worker');
-    expect(entry).toHaveAttribute('aria-label', '在右侧栏查看 Agent Agent worker');
-    entry.focus();
-    expect(entry).toHaveFocus();
-    fireEvent.click(entry);
-    expect(props.onExpand).toHaveBeenCalledWith('worker');
   });
 });

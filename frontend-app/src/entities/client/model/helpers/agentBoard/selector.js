@@ -1,6 +1,17 @@
 const WAITING_AGENT_STATUSES = new Set(['idle', 'turn_queued', 'awaiting_user_input']);
 const FAILED_AGENT_STATUSES = new Set(['failed', 'stopped']);
 
+function agentStatusView(agent) {
+  if (agent.outcome?.kind === 'success') return { category: 'completed', text: '已完成' };
+  if (agent.outcome?.kind === 'failure') return { category: 'failed', text: '失败' };
+  if (agent.outcome?.kind === 'stopped') return { category: 'failed', text: '已停止' };
+  if (FAILED_AGENT_STATUSES.has(agent.progress.status)) {
+    return { category: 'failed', text: agent.progress.status === 'stopped' ? '已停止' : '失败' };
+  }
+  if (WAITING_AGENT_STATUSES.has(agent.progress.status)) return { category: 'waiting', text: '等待中' };
+  return { category: 'running', text: '运行中' };
+}
+
 function compareAgents(left, right) {
   const assignedAtOrder = left.assignment.assignedAt.localeCompare(right.assignment.assignedAt);
   if (assignedAtOrder !== 0) return assignedAtOrder;
@@ -60,15 +71,7 @@ function mergeAgentBoardPatch(agents, operation) {
 function countAgentStates(agents) {
   const counts = { running: 0, waiting: 0, completed: 0, failed: 0 };
   for (const agent of agents) {
-    if (agent.outcome?.kind === 'success') {
-      counts.completed += 1;
-    } else if (agent.outcome || FAILED_AGENT_STATUSES.has(agent.progress.status)) {
-      counts.failed += 1;
-    } else if (WAITING_AGENT_STATUSES.has(agent.progress.status)) {
-      counts.waiting += 1;
-    } else {
-      counts.running += 1;
-    }
+    counts[agentStatusView(agent).category] += 1;
   }
   return counts;
 }
@@ -81,7 +84,8 @@ function selectAgentBoardViewModel(state, options) {
   if (typeof options.loading !== 'boolean') throw new TypeError('loading must be a boolean');
   if (options.error !== null && typeof options.error !== 'string') throw new TypeError('error must be a string or null');
   if (!Array.isArray(state.agents)) throw new TypeError('client store agents must be an array');
-  const agents = stableHierarchy(state.agents);
+  const orderedAgents = stableHierarchy(state.agents);
+  const agents = orderedAgents.map((agent) => ({ ...agent, statusView: agentStatusView(agent) }));
   const structuredRootAgent = agents.find((agent) => !agent.parentAgentId);
   const structuredRoot = structuredRootAgent === undefined ? '' : structuredRootAgent.id;
   const rootAgentId = agents.some((agent) => agent.id === state.mainAgentId)
@@ -91,7 +95,7 @@ function selectAgentBoardViewModel(state, options) {
     mode: options.mode,
     rootAgentId,
     selectedAgentId: options.selectedAgentId,
-    counts: countAgentStates(agents),
+    counts: countAgentStates(orderedAgents),
     agents,
     loading: options.loading,
     error: options.error,

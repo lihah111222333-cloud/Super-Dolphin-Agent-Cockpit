@@ -264,6 +264,13 @@ function ChatPage(props) {
         feedback={headerFeedback}
         onDismiss={() => store.dismissActionNotice?.(headerFeedback)}
       />
+      {!agentBoard.docked ? (
+        <AgentBoardFloating
+          viewModel={agentBoard.viewModel}
+          compact={viewportWidth > 0 && viewportWidth < AGENT_BOARD_COMPACT_VIEWPORT_WIDTH}
+          onExpand={agentBoard.expand}
+        />
+      ) : null}
       <div ref={chatLayoutRef} className="chat-layout" data-testid="chat-layout" style={{ gridTemplateColumns: layoutColumns }}>
         {introMode ? <ChatIntroSpotlight copy={copy} onSuggestion={prefillIntroSuggestion} /> : null}
         <ThreadRail copy={copy} store={store} />
@@ -327,14 +334,6 @@ function ChatPage(props) {
           }}
         />
       </div>
-      {!agentBoard.docked ? (
-        <AgentBoardFloating
-          viewModel={agentBoard.viewModel}
-          compact={viewportWidth > 0 && viewportWidth < AGENT_BOARD_COMPACT_VIEWPORT_WIDTH}
-          formatTime={formatTime}
-          onExpand={agentBoard.expand}
-        />
-      ) : null}
       {codePreview.dialogs}
     </section>
   );

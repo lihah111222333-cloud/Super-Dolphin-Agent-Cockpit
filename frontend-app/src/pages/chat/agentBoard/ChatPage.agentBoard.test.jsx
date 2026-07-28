@@ -78,10 +78,11 @@ it('与 RuntimePanel 共享右侧栏：展开看板替换内容，可切回运�
   expect(screen.getByTestId('agent-board-floating')).toBeInTheDocument();
 });
 
-it('从悬浮看板条目展开后选中对应 Agent 并展示层级', () => {
+it('展开右侧看板后可选中对应 Agent 并展示层级', () => {
   render(<TestChatPageWrapper store={boardStore()} projectPath="/repo/app" />);
 
-  fireEvent.click(screen.getByTestId('agent-entry-worker'));
+  fireEvent.click(screen.getByTestId('agent-board-expand'));
+  fireEvent.click(screen.getByTestId('agent-node-worker'));
 
   expect(screen.getByTestId('agent-node-worker')).toHaveAttribute('aria-pressed', 'true');
   expect(screen.getByTestId('agent-node-root')).toHaveAttribute('aria-pressed', 'false');
@@ -92,7 +93,8 @@ it('从悬浮看板条目展开后选中对应 Agent 并展示层级', () => {
 it('选中 Agent 消失后回退到根 Agent', async () => {
   const { rerender } = render(<TestChatPageWrapper store={boardStore()} projectPath="/repo/app" />);
 
-  fireEvent.click(screen.getByTestId('agent-entry-worker'));
+  fireEvent.click(screen.getByTestId('agent-board-expand'));
+  fireEvent.click(screen.getByTestId('agent-node-worker'));
   expect(screen.getByTestId('agent-detail')).toHaveTextContent('Agent worker');
 
   rerender(<TestChatPageWrapper store={boardStore({ agents: [agent('root')] })} projectPath="/repo/app" />);
@@ -121,6 +123,8 @@ it('窄窗口下收敛为紧凑卡片且不遮挡聊天输入区', () => {
   const card = screen.getByTestId('agent-board-floating');
   expect(card).toHaveClass('agent-board-floating--compact');
   expect(screen.getByTestId('agent-board-expand')).toBeInTheDocument();
+  const chatLayout = screen.getByTestId('chat-layout');
+  expect(card.compareDocumentPosition(chatLayout) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(screen.getByTestId('composer-dock')).toBeInTheDocument();
   expect(screen.getByTestId('composer-input')).toBeInTheDocument();
 });
