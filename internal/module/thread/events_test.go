@@ -414,10 +414,3 @@ func (s *eventBindingStore) Binding() *BindingRecord {
 	binding := *s.binding
 	return &binding
 }
-
-func bindingProviderThreadID(binding *BindingRecord) string {
-	if binding == nil {
-		return ""
-	}
-	return binding.ProviderThreadID
-}
