@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/kelindar/event"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
 	provdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 )
@@ -96,5 +97,40 @@ func TestDispatchKeepsContextWindowForUnspecifiedModel(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for raw provider event")
+	}
+}
+
+// TestRemapEventIdentityPreservesLaunchProviderThread 验证启动事件保留 provider 原生 thread id，非启动事件仍拒绝透传 alien thread。
+func TestRemapEventIdentityPreservesLaunchProviderThread(t *testing.T) {
+	t.Parallel()
+	const hostAgentID = "agent-host"
+	const providerThreadID = "019fa888-06a9-78f2-9478-a96a57794439"
+	s := &session{}
+	launchPayload := map[string]any{"threadId": providerThreadID}
+	s.remapEventIdentity("thread/started", launchPayload, hostAgentID)
+	if got := stringValue(launchPayload, "threadId"); got != hostAgentID {
+		t.Fatalf("threadId = %q, want host id %q", got, hostAgentID)
+	}
+	if got := stringValue(launchPayload, "providerThreadId"); got != providerThreadID {
+		t.Fatalf("providerThreadId = %q, want %q", got, providerThreadID)
+	}
+	translated, ok := translateAgentEvent("thread/started", launchPayload)
+	if !ok {
+		t.Fatal("translateAgentEvent() ok = false, want true")
+	}
+	launched, ok := translated.(agentdto.AgentLaunched)
+	if !ok {
+		t.Fatalf("translated type = %T, want agentdto.AgentLaunched", translated)
+	}
+	if launched.AgentID != hostAgentID || launched.ProviderThreadID != providerThreadID {
+		t.Fatalf("launched identity = (%q, %q), want (%q, %q)", launched.AgentID, launched.ProviderThreadID, hostAgentID, providerThreadID)
+	}
+	nonLaunchPayload := map[string]any{"threadId": providerThreadID}
+	s.remapEventIdentity("turn/completed", nonLaunchPayload, hostAgentID)
+	if got := stringValue(nonLaunchPayload, "providerThreadId"); got != "" {
+		t.Fatalf("non-launch providerThreadId = %q, want empty", got)
+	}
+	if got := stringValue(nonLaunchPayload, "threadId"); got != hostAgentID {
+		t.Fatalf("non-launch threadId = %q, want host id %q", got, hostAgentID)
 	}
 }
