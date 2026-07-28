@@ -1,4 +1,6 @@
 import { strictPositiveApprovalRequestId } from '../../../shared/api/approvalRequestId.js';
+import { normalizeBoardView } from '../../../shared/api/contracts/agentBoardContract.js';
+import { mergeAgentBoardPatch } from './helpers/agentBoard/selector.js';
 import { optionalTextField, normalizeOptionalTextField, systemClockMillis, currentIsoTimestamp } from './contractStoreModel.js';
 import {
   isVisibleTimelineItem,
@@ -81,6 +83,12 @@ function bridgePatchData(method, payload, threadId, deps = {}) {
   const patchProvider = bridgePatchProvider(rawRuntime, rawThread);
   const statusText = bridgePatchStatusText(payload, rawThread);
   const patchedThread = bridgePatchedThread({ payload, threadId, rawRuntime, rawThread, patchProvider, statusText, normalizeThread: deps.normalizeThread });
+  const hasAgent = Object.prototype.hasOwnProperty.call(payload, 'agent');
+  const agentOperation = !hasAgent
+    ? null
+    : payload.agent === null
+      ? { kind: 'remove', threadId }
+      : { kind: 'upsert', agent: normalizeBoardView(payload.agent, `${method} agent`) };
   return {
     method,
     payload,
@@ -95,6 +103,7 @@ function bridgePatchData(method, payload, threadId, deps = {}) {
     patchProvider,
     statusText,
     patchedThread,
+    agentOperation,
   };
 }
 
@@ -396,6 +405,7 @@ function bridgePatchState(state, patch, deps = {}) {
     threadDiffReadyByThread[patch.threadId] = true;
   }
   return {
+    agents: mergeAgentBoardPatch(state.agents, patch.agentOperation),
     threads,
     sidebarThreadsByProject: bridgePatchSidebarThreadsByProject(state, patch, deps, threads),
     activityThreadAtById: bridgePatchActivityThreadAt(state, patch, deps),

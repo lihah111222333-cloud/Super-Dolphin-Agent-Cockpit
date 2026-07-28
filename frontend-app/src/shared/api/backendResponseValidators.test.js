@@ -162,6 +162,34 @@ describe('backend response validators', () => {
     expect(validate(RPC_METHODS.UI_STATE_GET, camelResponse)).toBe(camelResponse);
   });
 
+  it('validates the authoritative Agent board fields in UI state responses', () => {
+    const agent = {
+      id: 'agent-1',
+      name: 'Worker',
+      thread_id: 'thread-1',
+      parentAgentId: 'agent-root',
+      assignment: { title: 'Worker', description: 'Inspect code', assignedAt: '2026-07-28T08:00:00Z' },
+      progress: {
+        status: 'turn_running', currentStep: null, completedSteps: null, totalSteps: null, updatedAt: '2026-07-28T08:01:00Z',
+      },
+      outcome: null,
+    };
+    const response = { threads: [], agents: [agent], token_usage: {} };
+    expect(validate(RPC_METHODS.UI_STATE_GET, response)).toBe(response);
+
+    const missingField = structuredClone(response);
+    delete missingField.agents[0].progress.currentStep;
+    expect(() => validate(RPC_METHODS.UI_STATE_GET, missingField)).toThrow('progress.currentStep is required');
+
+    const wrongEnum = structuredClone(response);
+    wrongEnum.agents[0].progress.status = 'running';
+    expect(() => validate(RPC_METHODS.UI_STATE_GET, wrongEnum)).toThrow('progress.status is invalid');
+
+    const invalidSuccess = structuredClone(response);
+    invalidSuccess.agents[0].outcome = { kind: 'success', recoverable: null, completedAt: '2026-07-28T08:02:00Z' };
+    expect(() => validate(RPC_METHODS.UI_STATE_GET, invalidSuccess)).toThrow('outcome.summary is required for success');
+  });
+
   it('requires complete sidebar snapshots and validates status map types', () => {
     const response = {
       threads: [],

@@ -92,7 +92,7 @@ function sidebarStateResponse(overrides = {}) {
       name: 'Main agent',
       thread_id: 'thread-1',
       provider_thread_id: 'provider-thread-1',
-      parent_id: '',
+      parent_id: '', parentAgentId: '', assignment: { title: 'Main agent', description: 'Run the main task', assignedAt: '2026-07-13T00:00:00Z' }, progress: { status: 'turn_running', currentStep: null, completedSteps: null, totalSteps: null, updatedAt: '2026-07-13T00:00:01Z' }, outcome: null,
       state: 'running',
       provider: 'codex',
       model: 'gpt-5.5',

@@ -36,6 +36,7 @@ import {
 } from './clientStoreRuntimeThreadModel.js';
 import { composerScopeCwd } from '../../composerAttachments.js';
 import { normalizeBackendThreadId, normalizeThreadId } from '../threadIdentity.js';
+import { normalizeSnapshotAgent } from '../../../../../shared/api/contracts/agentBoardContract.js';
 
 const runtimeResultHelpers = createRuntimeResultHelpers({
   normalizeString,
@@ -409,6 +410,10 @@ function buildSnapshotState(state, payload = {}, options = {}) {
     : sidebarThreadsByProjectWith(state, maps.scopeCwd, nextThreads);
   return {
     activeThreadId,
+    mainAgentId: hasOwn(payload, 'mainAgentId') ? payload.mainAgentId : state.mainAgentId,
+    agents: hasOwn(payload, 'agents')
+      ? payload.agents.map((agent, index) => normalizeSnapshotAgent(agent, `snapshot agents[${index}]`))
+      : state.agents,
     threads: nextThreads,
     sidebarThreadsByProject,
     pinnedThreadAtById: maps.pinnedAtById,

@@ -359,6 +359,8 @@ const baseState = {
   memoryRevision: 0,
   memoryPageCacheByCwd: {},
   chatSurfaceLoadingCwd: '',
+  agents: [],
+  mainAgentId: '',
   threads: [],
   sidebarThreadsByProject: {},
   pinnedThreadAtById: {},

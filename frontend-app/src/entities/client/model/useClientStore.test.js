@@ -866,7 +866,7 @@ function registerBridgeEventHandlersForTest() {
     backend.getThreadState.mockResolvedValueOnce({
       activeThreadId: 'thread-wire',
       threads: [{ id: 'thread-wire', agent_id: 'agent-wire', name: 'Wire thread', state: 'running' }],
-      agents: [{ id: 'agent-wire', thread_id: 'thread-wire', provider: 'codex', state: 'running' }],
+      agents: [{ id: 'agent-wire', name: 'Wire agent', thread_id: 'thread-wire', provider: 'codex', state: 'running', assignment: { title: 'Wire agent', description: 'Inspect snapshot state', assignedAt: '2026-07-28T08:00:00Z' }, progress: { status: 'turn_running', currentStep: null, completedSteps: null, totalSteps: null, updatedAt: '2026-07-28T08:01:00Z' }, outcome: null }],
       statuses: { 'thread-wire': 'running' },
       statusHeadersByThread: { 'thread-wire': 'Thinking' },
       statusDetailsByThread: { 'thread-wire': 'Inspecting snapshot state' },
@@ -928,7 +928,7 @@ function registerBridgeEventHandlersForTest() {
     backend.getThreadState.mockResolvedValueOnce({
       activeThreadId: 'thread-wire',
       threads: [{ id: 'thread-wire', agent_id: 'agent-wire', name: 'Wire thread', state: 'running' }],
-      agents: [{ id: 'agent-wire', thread_id: 'thread-wire', provider: 'codex', state: 'running' }],
+      agents: [{ id: 'agent-wire', name: 'Wire agent', thread_id: 'thread-wire', provider: 'codex', state: 'running', assignment: { title: 'Wire agent', description: 'Inspect live state', assignedAt: '2026-07-28T08:00:00Z' }, progress: { status: 'turn_running', currentStep: null, completedSteps: null, totalSteps: null, updatedAt: '2026-07-28T08:01:00Z' }, outcome: null }],
       statuses: { 'thread-wire': 'running' },
       timelinesByThread: { 'thread-wire': [] },
     });
