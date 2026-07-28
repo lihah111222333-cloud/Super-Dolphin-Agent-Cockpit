@@ -101,8 +101,12 @@ func (w *agentLaunchedWorker) Enqueue(key string, ev agentdto.AgentLaunched) {
 	default:
 	}
 	w.mu.Lock()
-	if _, dup := w.pending[key]; dup {
+	if previous, dup := w.pending[key]; dup {
 		w.coalescedTotal.Add(1)
+		// cache-keepalive 可能紧随 provider 启动事件发送空身份快照；空值不能覆盖已观察到的权威 provider thread id。
+		if strings.TrimSpace(ev.ProviderThreadID) == "" {
+			ev.ProviderThreadID = previous.ProviderThreadID
+		}
 	}
 	w.pending[key] = ev
 	w.mu.Unlock()
