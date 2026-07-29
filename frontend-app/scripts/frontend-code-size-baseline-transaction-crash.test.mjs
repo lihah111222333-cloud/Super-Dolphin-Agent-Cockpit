@@ -372,6 +372,9 @@ describe.skipIf(process.platform === 'win32')('frontend code size baseline crash
         caught = error;
       }
       expect(caught?.code).toBe('BASELINE_LOCK_PROTOCOL_ERROR');
+      expect(caught?.recoveryAction).toBe('inspect-lock-marker-without-mutating');
+      expect(caught?.message).not.toContain(fixture.root);
+      expect(caught?.message).not.toContain(lockPath);
       expect(fs.existsSync(lockPath)).toBe(true);
       expect(fs.readFileSync(fixture.filePath).equals(fixture.oldBytes)).toBe(true);
     } finally {

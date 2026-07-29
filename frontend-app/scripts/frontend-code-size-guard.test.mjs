@@ -17,6 +17,7 @@ import {
   assertBaselineUpdateOnlyImproves,
   acquireBaselineLock,
   baselineBytes,
+  formatBaselineTransactionErrorForStderr,
   hashBaselineBytes,
   writeBaselineTransaction,
 } from './lib/frontend-code-size-baseline-transaction.mjs';
@@ -173,6 +174,24 @@ function runGuardWithFixture({
 }
 
 describe('frontend code size guard', () => {
+  it('projects typed transaction failures without serializing private message, state, or cause', () => {
+    const secret = 'SENTINEL-PRIVATE-BASELINE-BYTES';
+    const error = new Error(`/private/secret/baseline.json ${secret}`, {
+      cause: new Error(`/private/secret/cause ${secret}`),
+    });
+    error.code = 'BASELINE_COMMITTED_DURABILITY_UNKNOWN';
+    error.phase = 'post-commit-cleanup';
+    error.recoveryAction = 'inspect-final-state-and-marker-without-mutating';
+    error.finalState = { bytes: secret, hash: 'raw-next-hash' };
+    const output = formatBaselineTransactionErrorForStderr(error);
+    expect(output).toBe(
+      'code=BASELINE_COMMITTED_DURABILITY_UNKNOWN phase=post-commit-cleanup recoveryAction=inspect-final-state-and-marker-without-mutating',
+    );
+    expect(output).not.toContain('/private/secret');
+    expect(output).not.toContain(secret);
+    expect(output).not.toContain('raw-next-hash');
+  });
+
   it('counts effective lines without comments and blank lines', () => {
     expect(countEffectiveLines([
       '',
@@ -660,6 +679,7 @@ describe('frontend code size baseline transaction', () => {
 
   it('keeps the committed candidate on a commit-directory-fsync failure', () => {
     const fixture = transactionFixture();
+    const privateCauseSentinel = 'SENTINEL-PRIVATE-NESTED-CAUSE';
     const now = () => new Date('2026-07-10T00:00:00Z');
     const candidateBytes = baselineBytes({
       _meta: { updatedAt: '2026-07-10T00:00:00Z' },
@@ -675,7 +695,9 @@ describe('frontend code size baseline transaction', () => {
           candidate: fixture.candidate,
           now,
           failpoint(point) {
-            if (point === 'before-commit-dir-fsync') throw new Error('injected directory fsync failure');
+            if (point === 'before-commit-dir-fsync') {
+              throw new Error(`injected directory fsync failure ${fixture.filePath} ${privateCauseSentinel}`);
+            }
           },
         });
       } catch (error) {
@@ -684,6 +706,13 @@ describe('frontend code size baseline transaction', () => {
       expect(caught?.code).toBe('BASELINE_COMMITTED_DURABILITY_UNKNOWN');
       expect(caught?.committed).toBe(true);
       expect(caught?.cause?.message).toContain('injected directory fsync failure');
+      expect(caught?.cause?.message).toContain(privateCauseSentinel);
+      expect(caught?.recoveryAction).toBe('inspect-final-state-and-marker-without-mutating');
+      expect(caught?.message).not.toContain(fixture.root);
+      expect(caught?.message).not.toContain(fixture.filePath);
+      expect(caught?.message).not.toContain(privateCauseSentinel);
+      expect(formatBaselineTransactionErrorForStderr(caught)).not.toContain(privateCauseSentinel);
+      expect(formatBaselineTransactionErrorForStderr(caught)).not.toContain(fixture.root);
       expect(fs.readFileSync(fixture.filePath).equals(candidateBytes)).toBe(true);
       expect(fs.readdirSync(fixture.root)).toEqual(['.frontend_code_size_guard_baseline.json']);
     } finally {
