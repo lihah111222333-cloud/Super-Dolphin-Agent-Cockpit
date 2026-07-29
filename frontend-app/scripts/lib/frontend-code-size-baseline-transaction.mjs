@@ -164,7 +164,7 @@ function parseLockOwner(bytes, lockPath) {
   try {
     owner = JSON.parse(bytes.toString('utf8'));
   } catch {
-    throw new Error(`baseline lock is malformed or forged: ${lockPath}`);
+    throw new Error(`baseline lock is malformed or outside the cooperative protocol: ${lockPath}`);
   }
   if (
     owner?.version !== 1
@@ -176,7 +176,7 @@ function parseLockOwner(bytes, lockPath) {
     || owner.nonce.length < 16
     || typeof owner.createdAt !== 'string'
   ) {
-    throw new Error(`baseline lock is malformed or forged: ${lockPath}`);
+    throw new Error(`baseline lock is malformed or outside the cooperative protocol: ${lockPath}`);
   }
   return owner;
 }
@@ -211,7 +211,7 @@ function recoverStaleLock(lockPath, resolveProcessIdentity) {
   }
   const liveIdentity = resolveProcessIdentity(existingOwner.pid);
   if (liveIdentity === existingOwner.startIdentity) {
-    throw new Error(`baseline lock is owned by live process ${existingOwner.pid}: ${lockPath}`);
+    throw new Error(`baseline lock is owned by live cooperative process ${existingOwner.pid}: ${lockPath}`);
   }
   const currentStat = fs.lstatSync(lockPath);
   if (!sameFileIdentity(staleStat, currentStat)) {
@@ -252,6 +252,8 @@ function installLockSignalHandlers(release, handlers) {
   }
 }
 
+// 该锁只协调遵守本模块协议的协作进程；能以同一 UID 主动改写目标或锁文件的进程位于可信边界之外。
+// PID、启动身份和 nonce 用于正常崩溃恢复与 PID reuse 判定，不构成抵御同 UID 恶意伪造的安全凭据。
 export function acquireBaselineLock(filePath, {
   resolveProcessIdentity = processStartIdentity,
   installSignalHandlers = true,
@@ -273,14 +275,33 @@ export function acquireBaselineLock(filePath, {
   return { lockPath, owner, release };
 }
 
-function durableUnknown(filePath, stage, cause) {
-  let finalState;
+function readBaselineFileState(filePath) {
+  let handle;
   try {
-    const bytes = fs.readFileSync(filePath);
-    finalState = { exists: true, hash: hashBaselineBytes(bytes), bytes: bytes.toString('utf8') };
+    handle = fs.openSync(filePath, 'r');
+    const handleStat = fs.fstatSync(handle);
+    const bytes = fs.readFileSync(handle);
+    const pathStat = fs.statSync(filePath);
+    return {
+      exists: true,
+      stable: sameFileIdentity(handleStat, pathStat),
+      identity: { dev: pathStat.dev, ino: pathStat.ino },
+      hash: hashBaselineBytes(bytes),
+      bytes: bytes.toString('utf8'),
+    };
   } catch (error) {
-    finalState = { exists: false, readError: error.message };
+    return {
+      exists: false,
+      stable: false,
+      readError: error.message,
+      readErrorCode: error.code,
+    };
+  } finally {
+    if (handle !== undefined) fs.closeSync(handle);
   }
+}
+
+function durableUnknown(filePath, stage, cause, finalState = readBaselineFileState(filePath)) {
   const result = new Error(
     `baseline durability unknown after ${stage} for ${filePath}; reconcile required; final state: ${JSON.stringify(finalState)}`,
     { cause },
@@ -288,6 +309,30 @@ function durableUnknown(filePath, stage, cause) {
   result.code = 'BASELINE_DURABILITY_UNKNOWN';
   result.finalState = finalState;
   return result;
+}
+
+function stateMatchesSnapshot(state, expectedHash) {
+  return state.exists && state.stable && state.hash === expectedHash;
+}
+
+function stateMatchesCandidate(state, candidateHash, candidateBytes, candidateIdentity) {
+  return stateMatchesSnapshot(state, candidateHash)
+    && state.bytes === candidateBytes.toString('utf8')
+    && sameFileIdentity(state.identity, candidateIdentity);
+}
+
+function classifyTransactionFailure({
+  filePath,
+  expectedHash,
+  mutationStarted,
+  committed,
+  stage,
+  error,
+}) {
+  if (!mutationStarted && !committed) return error;
+  const finalState = readBaselineFileState(filePath);
+  if (!committed && stateMatchesSnapshot(finalState, expectedHash)) return error;
+  return durableUnknown(filePath, stage, error, finalState);
 }
 
 function restoreClaimedBaseline({ filePath, backupPath, tempPath, failpoint }) {
@@ -305,6 +350,113 @@ function restoreClaimedBaseline({ filePath, backupPath, tempPath, failpoint }) {
     fsyncParentDirectory(filePath, failpoint, 'before-rollback-dir-fsync');
   } catch (error) {
     throw durableUnknown(filePath, 'rollback', error);
+  }
+}
+
+function stageBaselineCandidate(context, state) {
+  state.lock = acquireBaselineLock(context.filePath);
+  context.failpoint('after-lock');
+  const currentBytes = fs.readFileSync(context.filePath);
+  const currentMode = fs.statSync(context.filePath).mode & 0o777;
+  if (hashBaselineBytes(currentBytes) !== context.expectedHash) {
+    throw new Error(`baseline compare-and-swap failed for ${context.filePath}: tracked hash changed`);
+  }
+  assertFrontendCodeSizeBaselineSchema(JSON.parse(currentBytes.toString('utf8')), 'current baseline');
+  process.stdout.write(`frontend code size baseline update diff: ${context.filePath}\n`);
+  for (const line of context.diff) process.stdout.write(`${line}\n`);
+  context.failpoint('before-temp');
+  state.tempHandle = fs.openSync(context.tempPath, 'wx', 0o600);
+  fs.fchmodSync(state.tempHandle, currentMode);
+  fs.writeFileSync(state.tempHandle, context.nextBytes);
+  fs.fsyncSync(state.tempHandle);
+  context.failpoint('after-temp-fsync');
+  fs.closeSync(state.tempHandle);
+  state.tempHandle = undefined;
+}
+
+function claimBaselineTarget(context, state) {
+  state.mutationStarted = true;
+  context.failpoint('before-claim-rename');
+  fs.renameSync(context.filePath, context.backupPath);
+  state.claimed = true;
+  const claimedBytes = fs.readFileSync(context.backupPath);
+  if (hashBaselineBytes(claimedBytes) !== context.expectedHash) {
+    restoreClaimedBaseline(context);
+    state.claimed = false;
+    state.mutationStarted = false;
+    throw new Error(`baseline compare-and-swap failed for ${context.filePath}: target changed after check`);
+  }
+  assertFrontendCodeSizeBaselineSchema(JSON.parse(claimedBytes.toString('utf8')), 'claimed baseline');
+}
+
+function installBaselineCandidate(context, state) {
+  context.failpoint('before-install');
+  fs.linkSync(context.tempPath, context.filePath);
+  state.candidateIdentity = fs.statSync(context.tempPath);
+  try {
+    fsyncParentDirectory(context.filePath, context.failpoint, 'before-commit-dir-fsync');
+    if (hashBaselineBytes(fs.readFileSync(context.filePath)) !== context.nextHash) {
+      throw new Error(`baseline candidate changed during commit for ${context.filePath}`);
+    }
+    state.committed = true;
+  } catch (error) {
+    restoreClaimedBaseline(context);
+    state.claimed = false;
+    throw error;
+  }
+}
+
+function finalizeBaselineCandidate(context, state) {
+  fs.unlinkSync(context.backupPath);
+  state.claimed = false;
+  fs.unlinkSync(context.tempPath);
+  fsyncParentDirectory(context.filePath, context.failpoint, 'before-cleanup-dir-fsync');
+  context.failpoint('after-cleanup-dir-fsync');
+  const finalState = readBaselineFileState(context.filePath);
+  if (stateMatchesCandidate(finalState, context.nextHash, context.nextBytes, state.candidateIdentity)) return;
+  throw durableUnknown(
+    context.filePath,
+    'final candidate verification',
+    new Error(`baseline final inode, bytes, or hash does not match candidate: ${context.filePath}`),
+    finalState,
+  );
+}
+
+function handleBaselineTransactionFailure(context, state, error) {
+  if (error?.code === 'BASELINE_DURABILITY_UNKNOWN') {
+    return durableUnknown(context.filePath, 'durability reconciliation', error);
+  }
+  if (state.claimed) {
+    restoreClaimedBaseline(context);
+    state.claimed = false;
+  }
+  return classifyTransactionFailure({
+    filePath: context.filePath,
+    expectedHash: context.expectedHash,
+    mutationStarted: state.mutationStarted,
+    committed: state.committed,
+    stage: state.committed ? 'post-commit cleanup' : 'claim or install',
+    error,
+  });
+}
+
+function cleanupBaselineTransaction(context, state) {
+  try {
+    if (state.tempHandle !== undefined) fs.closeSync(state.tempHandle);
+    if (fs.existsSync(context.tempPath)) fs.unlinkSync(context.tempPath);
+    if (!state.claimed && fs.existsSync(context.backupPath)) fs.unlinkSync(context.backupPath);
+    if (state.lock === undefined) return;
+    context.failpoint('before-lock-release');
+    state.lock.release();
+  } catch (error) {
+    throw classifyTransactionFailure({
+      filePath: context.filePath,
+      expectedHash: context.expectedHash,
+      mutationStarted: state.mutationStarted,
+      committed: state.committed,
+      stage: 'resource or lock cleanup',
+      error,
+    });
   }
 }
 
@@ -328,80 +480,33 @@ export function writeBaselineTransaction({
   const diff = describeBaselineDiff(previous, next);
   if (diff.length === 0) return { changed: false, diff: [] };
   const nextBytes = baselineBytes(next);
-  const nextHash = hashBaselineBytes(nextBytes);
-
-  const tempPath = path.join(path.dirname(filePath), `.${path.basename(filePath)}.${process.pid}.${crypto.randomUUID()}.tmp`);
-  const backupPath = path.join(path.dirname(filePath), `.${path.basename(filePath)}.${process.pid}.${crypto.randomUUID()}.bak`);
-  let lock;
-  let tempHandle;
-  let claimed = false;
-  let installed = false;
-  let committed = false;
+  const context = {
+    filePath,
+    expectedHash,
+    diff,
+    nextBytes,
+    nextHash: hashBaselineBytes(nextBytes),
+    tempPath: path.join(path.dirname(filePath), `.${path.basename(filePath)}.${process.pid}.${crypto.randomUUID()}.tmp`),
+    backupPath: path.join(path.dirname(filePath), `.${path.basename(filePath)}.${process.pid}.${crypto.randomUUID()}.bak`),
+    failpoint,
+  };
+  const state = {
+    lock: undefined,
+    tempHandle: undefined,
+    claimed: false,
+    committed: false,
+    mutationStarted: false,
+    candidateIdentity: undefined,
+  };
   try {
-    lock = acquireBaselineLock(filePath);
-    failpoint('after-lock');
-
-    const currentBytes = fs.readFileSync(filePath);
-    const currentMode = fs.statSync(filePath).mode & 0o777;
-    if (hashBaselineBytes(currentBytes) !== expectedHash) {
-      throw new Error(`baseline compare-and-swap failed for ${filePath}: tracked hash changed`);
-    }
-    assertFrontendCodeSizeBaselineSchema(JSON.parse(currentBytes.toString('utf8')), 'current baseline');
-    process.stdout.write(`frontend code size baseline update diff: ${filePath}\n`);
-    for (const line of diff) process.stdout.write(`${line}\n`);
-    failpoint('before-temp');
-
-    tempHandle = fs.openSync(tempPath, 'wx', 0o600);
-    fs.fchmodSync(tempHandle, currentMode);
-    fs.writeFileSync(tempHandle, nextBytes);
-    fs.fsyncSync(tempHandle);
-    failpoint('after-temp-fsync');
-    fs.closeSync(tempHandle);
-    tempHandle = undefined;
-
-    failpoint('before-claim-rename');
-    fs.renameSync(filePath, backupPath);
-    claimed = true;
-    const claimedBytes = fs.readFileSync(backupPath);
-    if (hashBaselineBytes(claimedBytes) !== expectedHash) {
-      restoreClaimedBaseline({ filePath, backupPath, tempPath, failpoint });
-      claimed = false;
-      throw new Error(`baseline compare-and-swap failed for ${filePath}: target changed after check`);
-    }
-    assertFrontendCodeSizeBaselineSchema(JSON.parse(claimedBytes.toString('utf8')), 'claimed baseline');
-    failpoint('before-install');
-    fs.linkSync(tempPath, filePath);
-    installed = true;
-    try {
-      fsyncParentDirectory(filePath, failpoint, 'before-commit-dir-fsync');
-      if (hashBaselineBytes(fs.readFileSync(filePath)) !== nextHash) {
-        throw new Error(`baseline candidate changed during commit for ${filePath}`);
-      }
-      committed = true;
-    } catch (error) {
-      restoreClaimedBaseline({ filePath, backupPath, tempPath, failpoint });
-      claimed = false;
-      installed = false;
-      throw error;
-    }
-    fs.unlinkSync(backupPath);
-    claimed = false;
-    fs.unlinkSync(tempPath);
-    fsyncParentDirectory(filePath, failpoint, 'before-cleanup-dir-fsync');
+    stageBaselineCandidate(context, state);
+    claimBaselineTarget(context, state);
+    installBaselineCandidate(context, state);
+    finalizeBaselineCandidate(context, state);
     return { changed: true, diff };
   } catch (error) {
-    if (committed) throw durableUnknown(filePath, 'post-commit cleanup', error);
-    if (error?.code === 'BASELINE_DURABILITY_UNKNOWN') throw error;
-    if (claimed) {
-      restoreClaimedBaseline({ filePath, backupPath, tempPath, failpoint });
-      claimed = false;
-      installed = false;
-    }
-    throw error;
+    throw handleBaselineTransactionFailure(context, state, error);
   } finally {
-    if (tempHandle !== undefined) fs.closeSync(tempHandle);
-    if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
-    if (!claimed && fs.existsSync(backupPath)) fs.unlinkSync(backupPath);
-    if (lock !== undefined) lock.release();
+    cleanupBaselineTransaction(context, state);
   }
 }

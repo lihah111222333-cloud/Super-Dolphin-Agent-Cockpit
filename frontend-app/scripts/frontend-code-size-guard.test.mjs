@@ -733,17 +733,17 @@ describe('frontend code size baseline transaction', () => {
     }
   });
 
-  it('rejects a live owner and forged lock, but recovers dead and PID-reused locks', () => {
+  it('rejects a live owner and malformed non-protocol lock, but recovers dead and PID-reused locks', () => {
     const fixture = transactionFixture();
     const lockPath = `${fixture.filePath}.lock`;
     try {
       const held = acquireBaselineLock(fixture.filePath, { installSignalHandlers: false });
-      expect(() => acquireBaselineLock(fixture.filePath, { installSignalHandlers: false })).toThrow(/live process/);
+      expect(() => acquireBaselineLock(fixture.filePath, { installSignalHandlers: false })).toThrow(/live cooperative process/);
       expect(JSON.parse(fs.readFileSync(lockPath, 'utf8')).nonce).toBe(held.owner.nonce);
       held.release();
 
       fs.writeFileSync(lockPath, 'competing writer\n');
-      expect(() => acquireBaselineLock(fixture.filePath, { installSignalHandlers: false })).toThrow(/malformed or forged/);
+      expect(() => acquireBaselineLock(fixture.filePath, { installSignalHandlers: false })).toThrow(/malformed or outside the cooperative protocol/);
       expect(fs.readFileSync(lockPath, 'utf8')).toBe('competing writer\n');
       expect(fs.readFileSync(fixture.filePath).equals(fixture.bytes)).toBe(true);
       fs.unlinkSync(lockPath);
