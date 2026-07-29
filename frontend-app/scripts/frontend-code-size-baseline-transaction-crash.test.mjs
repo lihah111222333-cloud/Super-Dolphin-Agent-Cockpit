@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import { FRONTEND_CODE_SIZE_LIMITS } from './frontend-code-size-guard.mjs';
 import {
+  acquireBaselineLock,
   baselineBytes,
   hashBaselineBytes,
   writeBaselineTransaction,
@@ -104,6 +105,42 @@ function spawnTransactionChild(fixture, failurePoint) {
   return spawn(process.execPath, ['--input-type=module', '-e', childSource], {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+}
+
+function spawnRollbackCleanupFailureChild(fixture, cleanupFailurePoint) {
+  const modulePath = path.join(appRoot, 'scripts/lib/frontend-code-size-baseline-transaction.mjs');
+  const childSource = [
+    `import { writeBaselineTransaction, baselineBytes, hashBaselineBytes } from ${JSON.stringify(modulePath)};`,
+    `const previous = ${JSON.stringify(fixture.previous)};`,
+    `const candidate = ${JSON.stringify(fixture.candidate)};`,
+    'try {',
+    '  writeBaselineTransaction({',
+    `    filePath: ${JSON.stringify(fixture.filePath)},`,
+    '    previous,',
+    '    candidate,',
+    '    expectedHash: hashBaselineBytes(baselineBytes(previous)),',
+    "    now: () => new Date('2026-07-10T00:00:00Z'),",
+    '    failpoint(point) {',
+    "      if (point === 'before-atomic-replace') throw new Error('primary failure');",
+    "      if (point === 'before-rollback-rename') throw new Error('rollback failure');",
+    `      if (point === ${JSON.stringify(cleanupFailurePoint)}) throw new Error('owned artifact cleanup failure');`,
+    '    },',
+    '  });',
+    '} catch {}',
+    `process.stdout.write(${JSON.stringify(marker)});`,
+    'setInterval(() => {}, 1000);',
+  ].join('\n');
+  return spawn(process.execPath, ['--input-type=module', '-e', childSource], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
+
+function ownedArtifactPaths(filePath, owner) {
+  const prefix = path.join(path.dirname(filePath), `.${path.basename(filePath)}.${owner.pid}.${owner.nonce}`);
+  return {
+    tempPath: `${prefix}.tmp`,
+    backupPath: `${prefix}.bak`,
+  };
 }
 
 describe.skipIf(process.platform === 'win32')('frontend code size baseline crash atomicity', () => {
@@ -262,6 +299,265 @@ describe.skipIf(process.platform === 'win32')('frontend code size baseline crash
       expect(fs.readFileSync(fixture.filePath).equals(fixture.oldBytes)).toBe(true);
       expect(fs.readdirSync(fixture.root)).toEqual(['.frontend_code_size_guard_baseline.json']);
     } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it('publishes a complete versioned transaction marker atomically before staging artifacts', () => {
+    const fixture = transactionFixture();
+    try {
+      let observedOwner;
+      let observedNames;
+      expect(() => writeBaselineTransaction({
+        filePath: fixture.filePath,
+        expectedHash: hashBaselineBytes(fixture.oldBytes),
+        previous: fixture.previous,
+        candidate: fixture.candidate,
+        now: () => new Date('2026-07-10T00:00:00Z'),
+        failpoint(point) {
+          if (point !== 'after-lock') return;
+          observedOwner = JSON.parse(fs.readFileSync(`${fixture.filePath}.lock`, 'utf8'));
+          observedNames = fs.readdirSync(fixture.root);
+          throw new Error('stop after marker publication');
+        },
+      })).toThrow(/stop after marker publication/);
+      expect(observedOwner).toMatchObject({
+        version: 2,
+        transaction: {
+          expectedHash: hashBaselineBytes(fixture.oldBytes),
+          nextHash: hashBaselineBytes(fixture.newBytes),
+        },
+      });
+      expect(observedNames).toEqual([
+        '.frontend_code_size_guard_baseline.json',
+        '.frontend_code_size_guard_baseline.json.lock',
+      ]);
+      expect(fs.readdirSync(fixture.root)).toEqual(['.frontend_code_size_guard_baseline.json']);
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ['unknown top-level field', (owner) => ({ ...owner, unexpected: true })],
+    ['unknown transaction field', (owner) => ({
+      ...owner,
+      version: 2,
+      transaction: {
+        expectedHash: hashBaselineBytes(Buffer.from('old')),
+        nextHash: hashBaselineBytes(Buffer.from('new')),
+        unexpected: true,
+      },
+    })],
+    ['path-escaping nonce', (owner) => ({ ...owner, nonce: '../../outside-artifact' })],
+  ])('keeps a malformed marker for manual recovery: %s', (_label, mutateOwner) => {
+    const fixture = transactionFixture();
+    const lockPath = `${fixture.filePath}.lock`;
+    const owner = mutateOwner({
+      version: 1,
+      pid: 2147483647,
+      startIdentity: 'dead-process',
+      nonce: '0123456789abcdef',
+      createdAt: '2026-07-10T00:00:00.000Z',
+    });
+    fs.writeFileSync(lockPath, `${JSON.stringify(owner)}\n`);
+    try {
+      let caught;
+      try {
+        acquireBaselineLock(fixture.filePath, {
+          installSignalHandlers: false,
+          resolveProcessIdentity: () => null,
+        });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught?.code).toBe('BASELINE_LOCK_PROTOCOL_ERROR');
+      expect(fs.existsSync(lockPath)).toBe(true);
+      expect(fs.readFileSync(fixture.filePath).equals(fixture.oldBytes)).toBe(true);
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it('fails typed without guessing when a legacy dead marker owns artifacts', () => {
+    const fixture = transactionFixture();
+    const lockPath = `${fixture.filePath}.lock`;
+    const owner = {
+      version: 1,
+      pid: 2147483647,
+      startIdentity: 'dead-process',
+      nonce: '0123456789abcdef',
+      createdAt: '2026-07-10T00:00:00.000Z',
+    };
+    const artifacts = ownedArtifactPaths(fixture.filePath, owner);
+    fs.writeFileSync(lockPath, `${JSON.stringify(owner)}\n`);
+    fs.writeFileSync(artifacts.backupPath, fixture.oldBytes);
+    try {
+      let caught;
+      try {
+        acquireBaselineLock(fixture.filePath, {
+          installSignalHandlers: false,
+          resolveProcessIdentity: () => null,
+        });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught?.code).toBe('BASELINE_LOCK_MANUAL_RECOVERY_REQUIRED');
+      expect(caught?.recoveryAction).toBe('inspect-marker-and-owned-artifacts-without-deleting');
+      expect(caught?.message).not.toContain(fixture.root);
+      expect(caught?.message).not.toContain(fixture.filePath);
+      expect(fs.existsSync(lockPath)).toBe(true);
+      expect(fs.existsSync(artifacts.backupPath)).toBe(true);
+      expect(fs.readFileSync(fixture.filePath).equals(fixture.oldBytes)).toBe(true);
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps a typed private manual-recovery contract for mismatched owned artifact bytes', () => {
+    const fixture = transactionFixture();
+    const lockPath = `${fixture.filePath}.lock`;
+    const owner = {
+      version: 2,
+      pid: 2147483647,
+      startIdentity: 'dead-process',
+      nonce: '0123456789abcdef',
+      createdAt: '2026-07-10T00:00:00.000Z',
+      transaction: {
+        expectedHash: hashBaselineBytes(fixture.oldBytes),
+        nextHash: hashBaselineBytes(fixture.newBytes),
+      },
+    };
+    const artifacts = ownedArtifactPaths(fixture.filePath, owner);
+    fs.writeFileSync(lockPath, `${JSON.stringify(owner)}\n`);
+    fs.writeFileSync(artifacts.backupPath, fixture.newBytes);
+    try {
+      let caught;
+      try {
+        acquireBaselineLock(fixture.filePath, {
+          installSignalHandlers: false,
+          resolveProcessIdentity: () => null,
+        });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught?.code).toBe('BASELINE_LOCK_MANUAL_RECOVERY_REQUIRED');
+      expect(caught?.recoveryAction).toBe('inspect-marker-and-owned-artifacts-without-deleting');
+      expect(caught?.message).not.toContain(fixture.root);
+      expect(caught?.message).not.toContain(fixture.filePath);
+      expect(caught?.message).not.toContain(fixture.newBytes.toString('utf8'));
+      expect(fs.existsSync(lockPath)).toBe(true);
+      expect(fs.existsSync(artifacts.backupPath)).toBe(true);
+      expect(fs.readFileSync(fixture.filePath).equals(fixture.oldBytes)).toBe(true);
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps marker and artifacts when a dead transaction target is in a third state', () => {
+    const fixture = transactionFixture();
+    const lockPath = `${fixture.filePath}.lock`;
+    const owner = {
+      version: 2,
+      pid: 2147483647,
+      startIdentity: 'dead-process',
+      nonce: '0123456789abcdef',
+      createdAt: '2026-07-10T00:00:00.000Z',
+      transaction: {
+        expectedHash: hashBaselineBytes(fixture.oldBytes),
+        nextHash: hashBaselineBytes(fixture.newBytes),
+      },
+    };
+    const artifacts = ownedArtifactPaths(fixture.filePath, owner);
+    const thirdBytes = baselineBytes(baselineData({
+      'src/fixture.js': frozenFileLengthMetrics(FRONTEND_CODE_SIZE_LIMITS.maxFileLines + 2),
+    }));
+    fs.writeFileSync(lockPath, `${JSON.stringify(owner)}\n`);
+    fs.writeFileSync(artifacts.backupPath, fixture.oldBytes);
+    fs.writeFileSync(fixture.filePath, thirdBytes);
+    try {
+      let caught;
+      try {
+        acquireBaselineLock(fixture.filePath, {
+          installSignalHandlers: false,
+          resolveProcessIdentity: () => null,
+        });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught?.code).toBe('BASELINE_STALE_TARGET_CONFLICT');
+      expect(caught?.recoveryAction).toBe('inspect-target-and-marker-without-mutating');
+      expect(caught?.message).not.toContain(fixture.root);
+      expect(caught?.message).not.toContain(fixture.filePath);
+      expect(fs.existsSync(lockPath)).toBe(true);
+      expect(fs.existsSync(artifacts.backupPath)).toBe(true);
+      expect(fs.readFileSync(fixture.filePath).equals(thirdBytes)).toBe(true);
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it('never releases the recovery marker while rollback-owned artifacts remain', () => {
+    const fixture = transactionFixture();
+    try {
+      let caught;
+      try {
+        writeBaselineTransaction({
+          filePath: fixture.filePath,
+          expectedHash: hashBaselineBytes(fixture.oldBytes),
+          previous: fixture.previous,
+          candidate: fixture.candidate,
+          now: () => new Date('2026-07-10T00:00:00Z'),
+          failpoint(point) {
+            if (point === 'before-atomic-replace') throw new Error('primary failure');
+            if (point === 'before-rollback-rename') throw new Error('rollback failure');
+          },
+        });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught?.code).toBe('BASELINE_DURABILITY_UNKNOWN');
+      expect(fs.readFileSync(fixture.filePath).equals(fixture.oldBytes)).toBe(true);
+      const names = fs.readdirSync(fixture.root);
+      const lockPresent = names.some((name) => name.endsWith('.lock'));
+      const ownedArtifactPresent = names.some((name) => name.endsWith('.bak') || name.endsWith('.tmp'));
+      expect(lockPresent || !ownedArtifactPresent).toBe(true);
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    'before-cleanup-backup-unlink',
+    'before-resource-cleanup-dir-fsync',
+  ])('keeps a live recovery marker on %s failure and recovers after owner exit', async (cleanupFailurePoint) => {
+    const fixture = transactionFixture();
+    const child = spawnRollbackCleanupFailureChild(fixture, cleanupFailurePoint);
+    try {
+      await waitForMarker(child);
+      expect(fs.readFileSync(fixture.filePath).equals(fixture.oldBytes)).toBe(true);
+      expect(fs.existsSync(`${fixture.filePath}.lock`)).toBe(true);
+      expect(() => writeBaselineTransaction({
+        filePath: fixture.filePath,
+        expectedHash: hashBaselineBytes(fixture.oldBytes),
+        previous: fixture.previous,
+        candidate: fixture.candidate,
+        now: () => new Date('2026-07-10T00:00:00Z'),
+      })).toThrow(/live cooperative process/);
+
+      child.kill('SIGKILL');
+      await new Promise((resolve) => child.once('exit', resolve));
+      expect(writeBaselineTransaction({
+        filePath: fixture.filePath,
+        expectedHash: hashBaselineBytes(fixture.oldBytes),
+        previous: fixture.previous,
+        candidate: fixture.candidate,
+        now: () => new Date('2026-07-10T00:00:00Z'),
+      }).changed).toBe(true);
+      expect(fs.readFileSync(fixture.filePath).equals(fixture.newBytes)).toBe(true);
+      expect(fs.readdirSync(fixture.root)).toEqual(['.frontend_code_size_guard_baseline.json']);
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
       fs.rmSync(fixture.root, { recursive: true, force: true });
     }
   });

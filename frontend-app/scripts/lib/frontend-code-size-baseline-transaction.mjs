@@ -153,10 +153,21 @@ function processStartIdentity(pid) {
   return value ? `ps:${value}` : null;
 }
 
-function lockOwner({ pid = process.pid, nonce = crypto.randomUUID() } = {}) {
+function lockOwner({
+  pid = process.pid,
+  nonce = crypto.randomUUID(),
+  transaction,
+} = {}) {
   const startIdentity = processStartIdentity(pid);
   if (!startIdentity) throw new Error(`cannot determine baseline lock owner identity for pid ${pid}`);
-  return { version: 1, pid, startIdentity, nonce, createdAt: new Date().toISOString() };
+  return {
+    version: transaction === undefined ? 1 : 2,
+    pid,
+    startIdentity,
+    nonce,
+    createdAt: new Date().toISOString(),
+    ...(transaction === undefined ? {} : { transaction }),
+  };
 }
 
 function parseLockOwner(bytes, lockPath) {
@@ -164,19 +175,37 @@ function parseLockOwner(bytes, lockPath) {
   try {
     owner = JSON.parse(bytes.toString('utf8'));
   } catch {
-    throw new Error(`baseline lock is malformed or outside the cooperative protocol: ${lockPath}`);
+    const error = new Error(`baseline lock is malformed or outside the cooperative protocol: ${lockPath}`);
+    error.code = 'BASELINE_LOCK_PROTOCOL_ERROR';
+    throw error;
   }
+  const expectedKeys = owner?.version === 2
+    ? ['createdAt', 'nonce', 'pid', 'startIdentity', 'transaction', 'version']
+    : ['createdAt', 'nonce', 'pid', 'startIdentity', 'version'];
   if (
-    owner?.version !== 1
+    ![1, 2].includes(owner?.version)
+    || Object.keys(owner).sort().join(',') !== expectedKeys.join(',')
     || !Number.isInteger(owner.pid)
     || owner.pid <= 0
     || typeof owner.startIdentity !== 'string'
     || owner.startIdentity.length === 0
     || typeof owner.nonce !== 'string'
-    || owner.nonce.length < 16
+    || !/^[0-9a-f-]{16,64}$/i.test(owner.nonce)
     || typeof owner.createdAt !== 'string'
+    || (
+      owner.version === 2
+      && (
+        !isPlainObject(owner.transaction)
+        || Object.keys(owner.transaction).sort().join(',') !== 'expectedHash,nextHash'
+        || !/^[0-9a-f]{64}$/.test(owner.transaction.expectedHash)
+        || !/^[0-9a-f]{64}$/.test(owner.transaction.nextHash)
+      )
+    )
+    || (owner.version === 1 && owner.transaction !== undefined)
   ) {
-    throw new Error(`baseline lock is malformed or outside the cooperative protocol: ${lockPath}`);
+    const error = new Error(`baseline lock is malformed or outside the cooperative protocol: ${lockPath}`);
+    error.code = 'BASELINE_LOCK_PROTOCOL_ERROR';
+    throw error;
   }
   return owner;
 }
@@ -185,16 +214,29 @@ function sameFileIdentity(left, right) {
   return left.dev === right.dev && left.ino === right.ino;
 }
 
+function lockInitializationPath(lockPath, owner) {
+  return `${lockPath}.${owner.pid}.${owner.nonce}.init`;
+}
+
 function createLockFile(lockPath, owner) {
-  const handle = fs.openSync(lockPath, 'wx', 0o600);
+  const initializationPath = lockInitializationPath(lockPath, owner);
+  const handle = fs.openSync(initializationPath, 'wx', 0o600);
+  let installed = false;
   try {
     fs.writeFileSync(handle, `${JSON.stringify(owner)}\n`, 'utf8');
     fs.fsyncSync(handle);
+    fs.linkSync(initializationPath, lockPath);
+    installed = true;
+    fsyncParentDirectory(lockPath);
+    fs.unlinkSync(initializationPath);
     fsyncParentDirectory(lockPath);
     return handle;
   } catch (error) {
     fs.closeSync(handle);
-    if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath);
+    if (!installed && fs.existsSync(initializationPath)) {
+      fs.unlinkSync(initializationPath);
+      fsyncParentDirectory(lockPath);
+    }
     throw error;
   }
 }
@@ -207,8 +249,77 @@ function transactionArtifactPaths(filePath, owner) {
   };
 }
 
+function assertOwnedArtifactPath(filePath, artifactPath, expectedPath) {
+  const directory = path.dirname(filePath);
+  const relative = path.relative(directory, artifactPath);
+  if (
+    artifactPath !== expectedPath
+    || path.dirname(artifactPath) !== directory
+    || relative.length === 0
+    || path.isAbsolute(relative)
+    || relative.startsWith(`..${path.sep}`)
+    || relative.includes(path.sep)
+  ) {
+    throw new Error(`baseline transaction artifact escapes target directory: ${artifactPath}`);
+  }
+}
+
+function manualRecoveryRequired(message) {
+  const error = new Error(message);
+  error.code = 'BASELINE_LOCK_MANUAL_RECOVERY_REQUIRED';
+  error.recoveryAction = 'inspect-marker-and-owned-artifacts-without-deleting';
+  return error;
+}
+
+function assertRecoverableTransactionState(filePath, owner, artifacts) {
+  const existingArtifacts = [artifacts.tempPath, artifacts.backupPath].filter((artifactPath) => (
+    fs.existsSync(artifactPath)
+  ));
+  if (owner.transaction === undefined) {
+    if (existingArtifacts.length > 0) {
+      throw manualRecoveryRequired(
+        `baseline stale transaction metadata is missing; manual recovery required for ${path.basename(filePath)}`,
+      );
+    }
+    return;
+  }
+  const finalState = readBaselineFileState(filePath);
+  if (
+    !finalState.exists
+    || !finalState.stable
+    || ![owner.transaction.expectedHash, owner.transaction.nextHash].includes(finalState.hash)
+  ) {
+    const error = new Error(
+      `baseline stale transaction target does not match expected or candidate hash: ${path.basename(filePath)}`,
+    );
+    error.code = 'BASELINE_STALE_TARGET_CONFLICT';
+    error.recoveryAction = 'inspect-target-and-marker-without-mutating';
+    throw error;
+  }
+  assertFrontendCodeSizeBaselineSchema(JSON.parse(finalState.bytes), 'stale transaction target');
+  for (const [artifactPath, expectedHash] of [
+    [artifacts.tempPath, owner.transaction.nextHash],
+    [artifacts.backupPath, owner.transaction.expectedHash],
+  ]) {
+    if (!fs.existsSync(artifactPath)) continue;
+    const artifactBytes = fs.readFileSync(artifactPath);
+    if (hashBaselineBytes(artifactBytes) !== expectedHash) {
+      throw manualRecoveryRequired(
+        `baseline stale transaction artifact hash mismatch: ${path.basename(artifactPath)}`,
+      );
+    }
+    assertFrontendCodeSizeBaselineSchema(
+      JSON.parse(artifactBytes.toString('utf8')),
+      'stale transaction artifact',
+    );
+  }
+}
+
 function cleanupStaleTransactionArtifacts(filePath, owner) {
   const artifacts = transactionArtifactPaths(filePath, owner);
+  assertOwnedArtifactPath(filePath, artifacts.tempPath, transactionArtifactPaths(filePath, owner).tempPath);
+  assertOwnedArtifactPath(filePath, artifacts.backupPath, transactionArtifactPaths(filePath, owner).backupPath);
+  assertRecoverableTransactionState(filePath, owner, artifacts);
   let removed = false;
   for (const artifactPath of [artifacts.tempPath, artifacts.backupPath]) {
     if (!fs.existsSync(artifactPath)) continue;
@@ -220,6 +331,11 @@ function cleanupStaleTransactionArtifacts(filePath, owner) {
     removed = true;
   }
   if (removed) fsyncParentDirectory(filePath);
+  for (const artifactPath of [artifacts.tempPath, artifacts.backupPath]) {
+    if (fs.existsSync(artifactPath)) {
+      throw new Error(`baseline stale transaction artifact survived cleanup: ${artifactPath}`);
+    }
+  }
 }
 
 function recoverStaleLock(lockPath, resolveProcessIdentity) {
@@ -241,6 +357,22 @@ function recoverStaleLock(lockPath, resolveProcessIdentity) {
     throw new Error(`baseline lock changed during stale recovery: ${lockPath}`);
   }
   cleanupStaleTransactionArtifacts(lockPath.slice(0, -'.lock'.length), existingOwner);
+  const initializationPath = lockInitializationPath(lockPath, existingOwner);
+  if (fs.existsSync(initializationPath)) {
+    const initializationStat = fs.lstatSync(initializationPath);
+    if (!initializationStat.isFile() || !sameFileIdentity(staleStat, initializationStat)) {
+      throw manualRecoveryRequired(
+        `baseline lock initialization artifact identity mismatch: ${path.basename(initializationPath)}`,
+      );
+    }
+    fs.unlinkSync(initializationPath);
+    fsyncParentDirectory(lockPath);
+  }
+  const finalLockStat = fs.lstatSync(lockPath);
+  const finalOwner = parseLockOwner(fs.readFileSync(lockPath), lockPath);
+  if (!sameFileIdentity(staleStat, finalLockStat) || finalOwner.nonce !== existingOwner.nonce) {
+    throw new Error(`baseline lock changed during stale artifact cleanup: ${lockPath}`);
+  }
   fs.unlinkSync(lockPath);
   fsyncParentDirectory(lockPath);
 }
@@ -281,9 +413,11 @@ function installLockSignalHandlers(release, handlers) {
 export function acquireBaselineLock(filePath, {
   resolveProcessIdentity = processStartIdentity,
   installSignalHandlers = true,
+  transaction,
 } = {}) {
   const lockPath = `${filePath}.lock`;
-  const owner = lockOwner();
+  const owner = lockOwner({ transaction });
+  parseLockOwner(Buffer.from(`${JSON.stringify(owner)}\n`, 'utf8'), lockPath);
   let handle;
   try {
     handle = createLockFile(lockPath, owner);
@@ -381,7 +515,13 @@ function restoreClaimedBaseline({ filePath, backupPath, failpoint }) {
 }
 
 function stageBaselineCandidate(context, state) {
-  state.lock = acquireBaselineLock(context.filePath);
+  state.lock = acquireBaselineLock(context.filePath, {
+    installSignalHandlers: false,
+    transaction: {
+      expectedHash: context.expectedHash,
+      nextHash: context.nextHash,
+    },
+  });
   Object.assign(context, transactionArtifactPaths(context.filePath, state.lock.owner));
   context.failpoint('after-lock');
   const currentBytes = fs.readFileSync(context.filePath);
@@ -432,9 +572,11 @@ function installBaselineCandidate(context, state) {
   context.failpoint('before-atomic-replace');
   state.mutationStarted = true;
   fs.renameSync(context.tempPath, context.filePath);
+  state.cleanupDirFsyncRequired = true;
   state.committed = true;
   try {
     fsyncParentDirectory(context.filePath, context.failpoint, 'before-commit-dir-fsync');
+    state.cleanupDirFsyncRequired = false;
     if (hashBaselineBytes(fs.readFileSync(context.filePath)) !== context.nextHash) {
       throw new Error(`baseline candidate changed during commit for ${context.filePath}`);
     }
@@ -452,8 +594,10 @@ function installBaselineCandidate(context, state) {
 
 function finalizeBaselineCandidate(context, state) {
   fs.unlinkSync(context.backupPath);
+  state.cleanupDirFsyncRequired = true;
   state.claimed = false;
   fsyncParentDirectory(context.filePath, context.failpoint, 'before-cleanup-dir-fsync');
+  state.cleanupDirFsyncRequired = false;
   context.failpoint('after-cleanup-dir-fsync');
   const finalState = readBaselineFileState(context.filePath);
   if (stateMatchesCandidate(finalState, context.nextHash, context.nextBytes, state.candidateIdentity)) return;
@@ -484,19 +628,68 @@ function handleBaselineTransactionFailure(context, state, error) {
   });
 }
 
+function cleanupOwnedTransactionArtifacts(context, state) {
+  if (state.tempHandle !== undefined) {
+    fs.closeSync(state.tempHandle);
+    state.tempHandle = undefined;
+  }
+  const artifacts = [
+    [context.tempPath, 'before-cleanup-temp-unlink'],
+    [context.backupPath, 'before-cleanup-backup-unlink'],
+  ];
+  if (state.claimed) {
+    const finalState = readBaselineFileState(context.filePath);
+    const expectedHash = state.committed ? context.nextHash : context.expectedHash;
+    if (!stateMatchesSnapshot(finalState, expectedHash)) {
+      const error = new Error(
+        `baseline target changed before owned artifact cleanup: ${context.filePath}`,
+      );
+      error.code = 'BASELINE_TRANSACTION_STATE_CONFLICT';
+      throw error;
+    }
+  }
+  let removed = false;
+  for (const [artifactPath, failurePoint] of artifacts) {
+    if (!artifactPath || !fs.existsSync(artifactPath)) continue;
+    if (state.lock === undefined) {
+      throw new Error(`baseline transaction artifact exists without an owned lock: ${artifactPath}`);
+    }
+    const expectedPath = transactionArtifactPaths(context.filePath, state.lock.owner)[
+      artifactPath.endsWith('.tmp') ? 'tempPath' : 'backupPath'
+    ];
+    assertOwnedArtifactPath(context.filePath, artifactPath, expectedPath);
+    const artifactStat = fs.lstatSync(artifactPath);
+    if (!artifactStat.isFile() || artifactStat.isSymbolicLink()) {
+      throw new Error(`baseline transaction artifact is not a regular file: ${artifactPath}`);
+    }
+    context.failpoint(failurePoint);
+    fs.unlinkSync(artifactPath);
+    removed = true;
+    state.cleanupDirFsyncRequired = true;
+  }
+  if (removed || state.cleanupDirFsyncRequired) {
+    fsyncParentDirectory(
+      context.filePath,
+      context.failpoint,
+      'before-resource-cleanup-dir-fsync',
+    );
+    state.cleanupDirFsyncRequired = false;
+  }
+  for (const [artifactPath] of artifacts) {
+    if (artifactPath && fs.existsSync(artifactPath)) {
+      throw new Error(`baseline transaction artifact survived cleanup: ${artifactPath}`);
+    }
+  }
+  state.claimed = false;
+}
+
 function cleanupBaselineTransaction(context, state) {
   try {
-    if (state.tempHandle !== undefined) fs.closeSync(state.tempHandle);
-    if (context.tempPath && fs.existsSync(context.tempPath)) fs.unlinkSync(context.tempPath);
-    if (
-      (!state.claimed || state.committed)
-      && context.backupPath
-      && fs.existsSync(context.backupPath)
-    ) {
-      fs.unlinkSync(context.backupPath);
-      state.claimed = false;
-    }
+    cleanupOwnedTransactionArtifacts(context, state);
     if (state.lock === undefined) return;
+    if (state.cleanupDirFsyncRequired) {
+      throw new Error(`baseline transaction cleanup directory fsync is incomplete: ${context.filePath}`);
+    }
     context.failpoint('before-lock-release');
     state.lock.release();
   } catch (error) {
@@ -554,6 +747,7 @@ export function writeBaselineTransaction({
     committed: false,
     mutationStarted: false,
     candidateIdentity: undefined,
+    cleanupDirFsyncRequired: false,
   };
   let result;
   let transactionError;
