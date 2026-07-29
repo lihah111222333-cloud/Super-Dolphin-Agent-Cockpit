@@ -788,8 +788,10 @@ def parser() -> argparse.ArgumentParser:
     lp.add_parser("validate"); lp.add_parser("project-info")
     issue = groups.add_parser("issue"); ip = issue.add_subparsers(dest="issue_command", required=True)
     report = ip.add_parser("report"); report.add_argument("--title"); report.add_argument("--description"); report.add_argument("--severity"); report.add_argument("--actor"); report.add_argument("--payload-json"); report.add_argument("--idempotency-key")
-    for name in ("get", "list", "search", "history"):
-        p = ip.add_parser(name); p.add_argument("--issue-id"); p.add_argument("--query")
+    get = ip.add_parser("get"); get.add_argument("--issue-id")
+    ip.add_parser("list")
+    search = ip.add_parser("search"); search.add_argument("--query")
+    history = ip.add_parser("history"); history.add_argument("--issue-id")
     relations = ip.add_parser("relations"); relations.add_argument("--issue-id")
     relation_get = ip.add_parser("relation-get"); relation_get.add_argument("--relation-id")
     changing = ("record-history-search", "confirm", "start-investigation", "identify-root-cause", "authorize-fix", "revoke-fix-authorization", "start-fix", "complete-fix", "record-verification", "reopen", "defer", "resolve-without-fix")
