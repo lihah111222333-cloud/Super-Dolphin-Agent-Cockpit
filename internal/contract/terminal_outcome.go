@@ -24,7 +24,45 @@ var (
 	ErrTerminalOutcomeConflict = errors.New("terminal outcome conflicts with canonical terminal")
 	// ErrTerminalOutboxFence 表示 projector claim owner 已变化或记录不再可投影。
 	ErrTerminalOutboxFence = errors.New("terminal outcome outbox fence mismatch")
+	// ErrTerminalOutcomeActive 表示 current head 仍属于运行中的 turn，公开读端不得覆盖运行态。
+	ErrTerminalOutcomeActive = errors.New("terminal outcome current head is active")
 )
+
+// TerminalOutcomeHeadActivation 在 provider turn 身份确定时建立真实、版本化的 current head。
+type TerminalOutcomeHeadActivation struct {
+	Capability          string
+	AgentID             string
+	PublicThreadID      string
+	ProviderTurnID      string
+	SessionID           string
+	Generation          uint64
+	ExpectedActiveState string
+	ActivatedAt         time.Time
+}
+
+// TerminalOutcomeHead 是 current head 激活后返回给 runtime 的 CAS 版本。
+type TerminalOutcomeHead struct {
+	TerminalOutcomeHeadActivation
+	Version uint64
+}
+
+// Validate 拒绝缺失 active owner、代际、状态或激活时间。
+func (activation TerminalOutcomeHeadActivation) Validate() error {
+	identity := CanonicalTerminalIdentity{
+		Capability: activation.Capability, AgentID: activation.AgentID,
+		PublicThreadID: activation.PublicThreadID, ProviderTurnID: activation.ProviderTurnID,
+		SessionID: activation.SessionID, Generation: activation.Generation,
+		EventID: "activation", TerminalIdentity: "activation",
+		ExpectedActiveState: activation.ExpectedActiveState, HeadVersion: 1,
+	}
+	if err := identity.Validate(); err != nil {
+		return err
+	}
+	if activation.ActivatedAt.IsZero() {
+		return errors.New("terminal outcome head activatedAt is required")
+	}
+	return nil
+}
 
 // CanonicalTerminalIdentity 绑定一个公开 agent turn 的完整终态身份和 expected-state fence。
 type CanonicalTerminalIdentity struct {
@@ -37,6 +75,7 @@ type CanonicalTerminalIdentity struct {
 	EventID             string `json:"eventId"`
 	TerminalIdentity    string `json:"terminalIdentity"`
 	ExpectedActiveState string `json:"expectedActiveState"`
+	HeadVersion         uint64 `json:"headVersion"`
 }
 
 // Validate 拒绝缺失、旧 capability 和终态 expected state，禁止空 session/generation 兼容补齐。
@@ -57,6 +96,9 @@ func (identity CanonicalTerminalIdentity) Validate() error {
 	}
 	if identity.Generation == 0 {
 		return errors.New("canonical terminal identity generation is required")
+	}
+	if identity.HeadVersion == 0 {
+		return errors.New("canonical terminal identity head version is required")
 	}
 	if terminalOutcomeStateIsTerminal(identity.ExpectedActiveState) {
 		return fmt.Errorf("canonical terminal expected active state %q is terminal", identity.ExpectedActiveState)
@@ -170,6 +212,31 @@ type TerminalOutcomeCommit struct {
 	PublicOutcome  PublicOutcome             `json:"publicOutcome"`
 	PublicReport   string                    `json:"publicReport"`
 	OccurredAt     time.Time                 `json:"occurredAt"`
+	PrivateDAG     *OwnerScopedDAGPayload    `json:"-"`
+}
+
+// OwnerScopedDAGPayload 是只允许 DAG owner projector 消费的私有结果，不进入 public JSON。
+type OwnerScopedDAGPayload struct {
+	OwnerAgentID   string `json:"ownerAgentId"`
+	PublicThreadID string `json:"publicThreadId"`
+	ProviderTurnID string `json:"providerTurnId"`
+	Result         string `json:"result"`
+}
+
+// Validate 锁定私有 DAG payload owner 与 canonical public identity 同源。
+func (payload OwnerScopedDAGPayload) Validate(identity CanonicalTerminalIdentity) error {
+	if strings.TrimSpace(payload.OwnerAgentID) == "" ||
+		strings.TrimSpace(payload.PublicThreadID) == "" ||
+		strings.TrimSpace(payload.ProviderTurnID) == "" ||
+		strings.TrimSpace(payload.Result) == "" {
+		return errors.New("owner-scoped DAG payload requires owner, thread, turn and result")
+	}
+	if payload.OwnerAgentID != identity.AgentID ||
+		payload.PublicThreadID != identity.PublicThreadID ||
+		payload.ProviderTurnID != identity.ProviderTurnID {
+		return errors.New("owner-scoped DAG payload identity mismatch")
+	}
+	return nil
 }
 
 // Validate 对整个 terminal commit 执行 fail-fast 字段和安全合同校验。
@@ -197,7 +264,14 @@ func (commit TerminalOutcomeCommit) Validate() error {
 	if commit.OccurredAt.IsZero() || !commit.OccurredAt.Equal(commit.PublicOutcome.CompletedAt) {
 		return errors.New("terminal outcome occurredAt must equal public outcome completedAt")
 	}
-	return nil
+	return validateTerminalPrivateDAG(commit.PrivateDAG, commit.Identity)
+}
+
+func validateTerminalPrivateDAG(payload *OwnerScopedDAGPayload, identity CanonicalTerminalIdentity) error {
+	if payload == nil {
+		return nil
+	}
+	return payload.Validate(identity)
 }
 
 func expectedTerminalPublicReport(projectionKind string, outcome PublicOutcome) string {
@@ -243,14 +317,19 @@ type TerminalOutcomeCommitResult struct {
 
 // TerminalOutcomeOutboxItem 是 projector claim 后的安全公开投影载荷。
 type TerminalOutcomeOutboxItem struct {
-	ID      int64
-	Outcome TerminalOutcomeCommit
+	ID             int64
+	Outcome        TerminalOutcomeCommit
+	PrivateDAG     *OwnerScopedDAGPayload
+	ClaimToken     string
+	LeaseExpiresAt time.Time
 }
 
 // TerminalOutcomeCommitPort 是 terminal write、durable public read 与 replay 的唯一持久化端口。
 type TerminalOutcomeCommitPort interface {
+	ActivateTerminalOutcomeHead(ctx context.Context, activation TerminalOutcomeHeadActivation) (TerminalOutcomeHead, error)
 	CommitTerminalOutcome(ctx context.Context, commit TerminalOutcomeCommit) (TerminalOutcomeCommitResult, error)
 	GetPublicTerminalOutcome(ctx context.Context, agentID string) (TerminalOutcomeCommit, error)
 	ClaimTerminalOutcomeOutbox(ctx context.Context, workerID string, lease time.Duration, limit int) ([]TerminalOutcomeOutboxItem, error)
-	MarkTerminalOutcomeProjected(ctx context.Context, outboxID int64, workerID string) error
+	RenewTerminalOutcomeOutbox(ctx context.Context, outboxID int64, workerID, claimToken string, lease time.Duration) (time.Time, error)
+	MarkTerminalOutcomeProjected(ctx context.Context, outboxID int64, workerID, claimToken string) error
 }

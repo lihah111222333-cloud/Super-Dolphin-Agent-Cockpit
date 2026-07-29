@@ -2,8 +2,10 @@ package orchestration
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -38,11 +40,11 @@ func (s *service) commitTurnCompletedLocked(ctx context.Context, agent *agentRun
 	if err != nil {
 		return err
 	}
-	result, err := s.terminalOutcomes.CommitTerminalOutcome(ctx, commit)
+	_, err = s.terminalOutcomes.CommitTerminalOutcome(ctx, commit)
 	if err != nil {
 		return err
 	}
-	return s.projectTerminalOutcomeLocked(ctx, agent, result.Outcome)
+	return nil
 }
 
 func (s *service) validateTurnCompletedReplay(ctx context.Context, ev turndto.TurnCompleted) error {
@@ -89,48 +91,26 @@ func (s *service) CommitStateChangedTerminal(ctx context.Context, ev agentdto.St
 
 // CommitThreadStoppedTerminal 将 stopped hook 适配成显式 session/generation v2 terminal identity。
 func (s *service) CommitThreadStoppedTerminal(ctx context.Context, ev threaddto.Stopped) (bool, error) {
-	return s.commitAgentTerminal(ctx, ev.AgentID, ev.ThreadID, "", ev.Timestamp, "process_stopped")
+	if s == nil || s.terminalOutcomes == nil {
+		return false, nil
+	}
+	return true, errors.New("legacy thread stopped event lacks authenticated session and generation for canonical terminal v2")
 }
 
-// CommitRuntimeLossTerminal 将缺少 v2 identity 的 legacy reportEvent 绑定到当前显式 runtime fence。
+// CommitRuntimeLossTerminal 隔离缺少 session/generation 的 legacy reportEvent，禁止绑定当前 runtime。
 func (s *service) CommitRuntimeLossTerminal(ctx context.Context, agentID, eventType string) (bool, error) {
 	if s == nil || s.terminalOutcomes == nil {
 		return false, nil
 	}
-	threadID, sessionID, err := s.runtimeLossFence(agentID)
-	if err != nil {
-		return true, err
-	}
-	return s.commitAgentTerminal(
-		ctx, agentID, threadID, sessionID,
-		resolveEventTime(ctx), runtimeLossProjectionKind(eventType),
-	)
+	return true, fmt.Errorf("legacy runtime-loss event %q for agent %q lacks authenticated session and generation for canonical terminal v2",
+		strings.TrimSpace(eventType), strings.TrimSpace(agentID))
 }
 
-func (s *service) runtimeLossFence(agentID string) (string, string, error) {
-	var threadID, sessionID string
-	err := s.registry.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
-		threadID = firstNonEmpty(agent.remoteThreadID, agent.threadID)
-		sessionID = agentSessionID(agent)
-		return nil
-	})
-	return threadID, sessionID, err
-}
-
-func runtimeLossProjectionKind(eventType string) string {
-	eventType = strings.ToLower(strings.TrimSpace(eventType))
-	if strings.Contains(eventType, "shutdown") {
-		return "process_stopped"
-	}
-	return "process_failed"
-}
-
-// commitAgentTerminal 在同一 agent lock 内完成终态 fence、DB commit 和单向投影。
+// commitAgentTerminal 在同一 agent lock 内完成终态 fence 和 DB commit；可见状态只由 outbox projector 更新。
 func (s *service) commitAgentTerminal(ctx context.Context, agentID, threadID, eventSessionID string, occurredAt time.Time, projectionKind string) (bool, error) {
 	if s == nil || s.terminalOutcomes == nil {
 		return false, nil
 	}
-	var result contract.TerminalOutcomeCommitResult
 	err := s.registry.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		if terminalFailedOrStopped(agent.state) {
 			existing, err := s.terminalOutcomes.GetPublicTerminalOutcome(ctx, strings.TrimSpace(agentID))
@@ -138,7 +118,6 @@ func (s *service) commitAgentTerminal(ctx context.Context, agentID, threadID, ev
 				return err
 			}
 			if publicTerminalMatchesAgent(existing, agent, threadID) {
-				result = contract.TerminalOutcomeCommitResult{Outcome: existing, Replayed: true}
 				return nil
 			}
 			return contract.ErrTerminalOutcomeConflict
@@ -147,11 +126,11 @@ func (s *service) commitAgentTerminal(ctx context.Context, agentID, threadID, ev
 		if err != nil {
 			return err
 		}
-		result, err = s.terminalOutcomes.CommitTerminalOutcome(ctx, commit)
+		_, err = s.terminalOutcomes.CommitTerminalOutcome(ctx, commit)
 		if err != nil {
 			return err
 		}
-		return s.projectTerminalOutcomeLocked(ctx, agent, result.Outcome)
+		return nil
 	})
 	return true, err
 }
@@ -185,6 +164,7 @@ func terminalOutcomeCommitFromAgentTerminal(agent *agentRuntime, threadID, event
 		Generation: agent.sessionGeneration, EventID: eventID,
 		TerminalIdentity:    terminalIdentity(eventID, agent.id, threadID, providerTurnID, sessionID, agent.sessionGeneration),
 		ExpectedActiveState: string(agent.state),
+		HeadVersion:         agent.terminalHeadVersion,
 	}
 	return contract.TerminalOutcomeCommit{
 		SchemaVersion: 2, ProjectionKind: projectionKind, Identity: identity,
@@ -266,40 +246,60 @@ func agentTerminalEventID(agentID, threadID, providerTurnID, sessionID string, g
 
 // terminalOutcomeCommitFromEvent 把 provider TurnCompleted 映射为 v2 durable public commit。
 func terminalOutcomeCommitFromEvent(agent *agentRuntime, ev turndto.TurnCompleted) (contract.TerminalOutcomeCommit, error) {
-	if agent == nil {
-		return contract.TerminalOutcomeCommit{}, errAgentNotFound
-	}
-	if ev.Timestamp.IsZero() {
-		return contract.TerminalOutcomeCommit{}, errors.New("terminal outcome event timestamp is required")
-	}
-	threadID := strings.TrimSpace(ev.ThreadID)
-	currentThreadID := strings.TrimSpace(firstNonEmpty(agent.remoteThreadID, agent.threadID))
-	if threadID == "" || currentThreadID == "" || threadID != currentThreadID {
-		return contract.TerminalOutcomeCommit{}, fmt.Errorf("terminal outcome public thread mismatch: event=%q current=%q", threadID, currentThreadID)
-	}
-	providerTurnID, ok := canonicalProviderTurnID(agent, ev.TurnID)
-	if !ok {
-		return contract.TerminalOutcomeCommit{}, fmt.Errorf("terminal outcome provider turn mismatch: event=%q active=%q", ev.TurnID, agent.activeTurnID)
-	}
-	sessionID := agentSessionID(agent)
-	if sessionID == "" || agent.sessionGeneration == 0 {
-		return contract.TerminalOutcomeCommit{}, errors.New("terminal outcome v2 requires explicit session id and generation")
+	threadID, providerTurnID, sessionID, err := terminalTurnEventFence(agent, ev)
+	if err != nil {
+		return contract.TerminalOutcomeCommit{}, err
 	}
 	publicOutcome, report, eventID, err := publicOutcomeFromTurnCompleted(ev)
 	if err != nil {
 		return contract.TerminalOutcomeCommit{}, err
 	}
-	identity := contract.CanonicalTerminalIdentity{
+	identity := canonicalTerminalIdentityForEvent(agent, threadID, providerTurnID, sessionID, eventID)
+	commit := contract.TerminalOutcomeCommit{
+		SchemaVersion: 2, ProjectionKind: "turn_completed", Identity: identity, PublicOutcome: publicOutcome,
+		PublicReport: report, OccurredAt: ev.Timestamp.UTC(),
+	}
+	if result := strings.TrimSpace(ev.Result); result != "" {
+		commit.PrivateDAG = &contract.OwnerScopedDAGPayload{
+			OwnerAgentID: identity.AgentID, PublicThreadID: identity.PublicThreadID,
+			ProviderTurnID: identity.ProviderTurnID, Result: result,
+		}
+	}
+	return commit, nil
+}
+
+func terminalTurnEventFence(agent *agentRuntime, ev turndto.TurnCompleted) (string, string, string, error) {
+	if agent == nil {
+		return "", "", "", errAgentNotFound
+	}
+	if ev.Timestamp.IsZero() {
+		return "", "", "", errors.New("terminal outcome event timestamp is required")
+	}
+	threadID := strings.TrimSpace(ev.ThreadID)
+	currentThreadID := strings.TrimSpace(firstNonEmpty(agent.remoteThreadID, agent.threadID))
+	if threadID == "" || currentThreadID == "" || threadID != currentThreadID {
+		return "", "", "", fmt.Errorf("terminal outcome public thread mismatch: event=%q current=%q", threadID, currentThreadID)
+	}
+	providerTurnID, ok := canonicalProviderTurnID(agent, ev.TurnID)
+	if !ok {
+		return "", "", "", fmt.Errorf("terminal outcome provider turn mismatch: event=%q active=%q", ev.TurnID, agent.activeTurnID)
+	}
+	sessionID := agentSessionID(agent)
+	if sessionID == "" || agent.sessionGeneration == 0 {
+		return "", "", "", errors.New("terminal outcome v2 requires explicit session id and generation")
+	}
+	return threadID, providerTurnID, sessionID, nil
+}
+
+func canonicalTerminalIdentityForEvent(agent *agentRuntime, threadID, providerTurnID, sessionID, eventID string) contract.CanonicalTerminalIdentity {
+	return contract.CanonicalTerminalIdentity{
 		Capability: contract.TerminalOutcomeCapabilityV2, AgentID: strings.TrimSpace(agent.id),
 		PublicThreadID: threadID, ProviderTurnID: providerTurnID,
 		SessionID: sessionID, Generation: agent.sessionGeneration, EventID: eventID,
 		TerminalIdentity:    terminalIdentity(eventID, agent.id, threadID, providerTurnID, sessionID, agent.sessionGeneration),
 		ExpectedActiveState: string(agent.state),
+		HeadVersion:         agent.terminalHeadVersion,
 	}
-	return contract.TerminalOutcomeCommit{
-		SchemaVersion: 2, ProjectionKind: "turn_completed", Identity: identity, PublicOutcome: publicOutcome,
-		PublicReport: report, OccurredAt: ev.Timestamp.UTC(),
-	}, nil
 }
 
 // canonicalProviderTurnID 只接受 active turn 或已登记的 provider turn alias。
@@ -334,10 +334,10 @@ func publicOutcomeFromTurnCompleted(ev turndto.TurnCompleted) (contract.PublicOu
 	}
 	completedAt := ev.Timestamp.UTC()
 	if ev.Success {
-		summary := strings.TrimSpace(ev.Summary)
-		if canonical {
-			summary = strings.TrimSpace(firstNonEmpty(ev.Summary, ev.Result, ev.Message))
+		if !canonical {
+			return contract.PublicOutcome{}, "", "", errors.New("successful terminal outcome requires canonical v2 public summary")
 		}
+		summary := strings.TrimSpace(terminal.PublicSummary)
 		if summary == "" {
 			return contract.PublicOutcome{}, "", "", errors.New("successful terminal outcome requires explicit public-safe summary")
 		}
@@ -400,11 +400,11 @@ func terminalIdentity(eventID, agentID, threadID, turnID, sessionID string, gene
 
 // projectTerminalOutcomeLocked 是 durable commit 到 runtime/report/event 的唯一投影器。
 func (s *service) projectTerminalOutcomeLocked(ctx context.Context, agent *agentRuntime, commit contract.TerminalOutcomeCommit) error {
-	if err := validateTerminalProjectionIdentity(agent, commit.Identity); err != nil {
-		return err
-	}
 	if terminalProjectionAlreadyApplied(agent, commit) {
 		return nil
+	}
+	if err := validateTerminalProjectionIdentity(agent, commit.Identity); err != nil {
+		return err
 	}
 	if strings.TrimSpace(agent.activeTurnID) == "" && commit.ProjectionKind == "turn_completed" {
 		return errTerminalProjectionNotReady
@@ -445,12 +445,51 @@ func validateTerminalProjectionIdentity(agent *agentRuntime, identity contract.C
 	if agentSessionID(agent) != identity.SessionID || agent.sessionGeneration != identity.Generation {
 		return errTerminalProjectionNotReady
 	}
+	if agent.terminalHeadVersion != identity.HeadVersion || string(agent.state) != identity.ExpectedActiveState {
+		return errTerminalProjectionNotReady
+	}
+	if !terminalProjectionTurnMatches(agent, identity) {
+		return errTerminalProjectionNotReady
+	}
 	return nil
 }
 
+func terminalProjectionTurnMatches(agent *agentRuntime, identity contract.CanonicalTerminalIdentity) bool {
+	if strings.TrimSpace(agent.activeTurnID) == "" {
+		return identity.ProviderTurnID == "session-terminal:"+identity.SessionID
+	}
+	_, ok := canonicalProviderTurnID(agent, identity.ProviderTurnID)
+	return ok
+}
+
 func terminalProjectionAlreadyApplied(agent *agentRuntime, commit contract.TerminalOutcomeCommit) bool {
-	return strings.TrimSpace(agent.activeTurnID) == "" &&
-		strings.TrimSpace(agent.lastReport) == strings.TrimSpace(commit.PublicReport)
+	if agent == nil || strings.TrimSpace(agent.activeTurnID) != "" || agent.outcome == nil {
+		return false
+	}
+	expected := agentOutcomeFromPublic(commit.PublicOutcome)
+	return terminalProjectionReplayFenceFromAgent(agent) == terminalProjectionReplayFenceFromIdentity(commit.Identity) &&
+		string(agent.state) == publicTerminalState(commit) &&
+		strings.TrimSpace(agent.lastReport) == strings.TrimSpace(commit.PublicReport) &&
+		*agent.outcome == *expected
+}
+
+type terminalProjectionReplayFence struct {
+	agentID, publicThreadID, sessionID string
+	generation, headVersion            uint64
+}
+
+func terminalProjectionReplayFenceFromAgent(agent *agentRuntime) terminalProjectionReplayFence {
+	return terminalProjectionReplayFence{
+		agentID: strings.TrimSpace(agent.id), publicThreadID: strings.TrimSpace(firstNonEmpty(agent.remoteThreadID, agent.threadID)),
+		sessionID: agentSessionID(agent), generation: agent.sessionGeneration, headVersion: agent.terminalHeadVersion,
+	}
+}
+
+func terminalProjectionReplayFenceFromIdentity(identity contract.CanonicalTerminalIdentity) terminalProjectionReplayFence {
+	return terminalProjectionReplayFence{
+		agentID: identity.AgentID, publicThreadID: identity.PublicThreadID,
+		sessionID: identity.SessionID, generation: identity.Generation, headVersion: identity.HeadVersion,
+	}
 }
 
 func (s *service) projectAgentTerminalOutcomeLocked(ctx context.Context, agent *agentRuntime, commit contract.TerminalOutcomeCommit) error {
@@ -474,7 +513,7 @@ func (s *service) projectAgentTerminalOutcomeLocked(ctx context.Context, agent *
 	return nil
 }
 
-// CommitProcessExitTerminalLocked 在 lifecycle 已持有 registry lock 时先提交 public terminal，再允许进程清理投影。
+// CommitProcessExitTerminalLocked 在 lifecycle 已持有 registry lock 时提交 public terminal；可见终态仍由 outbox projector 投影。
 func (s *service) CommitProcessExitTerminalLocked(ctx context.Context, agent *agentRuntime, launchSeq uint64, processErr error) (bool, error) {
 	if s == nil || s.terminalOutcomes == nil {
 		return false, nil
@@ -493,12 +532,12 @@ func (s *service) CommitProcessExitTerminalLocked(ctx context.Context, agent *ag
 	if err != nil {
 		return true, err
 	}
-	result, err := s.terminalOutcomes.CommitTerminalOutcome(ctx, commit)
+	_, err = s.terminalOutcomes.CommitTerminalOutcome(ctx, commit)
 	if err != nil {
 		return true, err
 	}
 	_ = processErr
-	return true, s.projectTerminalOutcomeLocked(ctx, agent, result.Outcome)
+	return true, nil
 }
 
 func (s *service) validateExistingProcessTerminal(ctx context.Context, agent *agentRuntime) error {
@@ -544,7 +583,7 @@ func (s *service) overlayPublicTerminalOutcome(ctx context.Context, snapshot *Ag
 		return nil
 	}
 	outcome, err := s.terminalOutcomes.GetPublicTerminalOutcome(ctx, strings.TrimSpace(snapshot.AgentID))
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, sql.ErrNoRows) || errors.Is(err, contract.ErrTerminalOutcomeActive) {
 		return nil
 	}
 	if err != nil {
@@ -593,8 +632,13 @@ func NewTerminalOutcomeProjector(runtime TerminalOutcomeProjectionRuntime, logge
 	if runtime == nil {
 		return nil, errors.New("terminal outcome projector requires projection runtime")
 	}
+	var token [12]byte
+	if _, err := rand.Read(token[:]); err != nil {
+		return nil, fmt.Errorf("generate terminal outcome projector worker id: %w", err)
+	}
 	return &terminalOutcomeProjector{
-		runtime: runtime, logger: loggerOrDefault(logger), workerID: "mcp-orch-terminal-projector-v2",
+		runtime: runtime, logger: loggerOrDefault(logger),
+		workerID: "mcp-orch-terminal-projector-v2-" + hex.EncodeToString(token[:]),
 	}, nil
 }
 
@@ -627,13 +671,13 @@ func (s *service) ProcessTerminalOutcomeOutbox(ctx context.Context, workerID str
 		err := s.registry.withAgentLocked(item.Outcome.Identity.AgentID, func(agent *agentRuntime) error {
 			return s.projectTerminalOutcomeLocked(ctx, agent, item.Outcome)
 		})
-		if err != nil {
+		if err != nil && !errors.Is(err, errAgentNotFound) {
 			return err
 		}
-		if err := s.projectTerminalOutcomeDAG(ctx, item.Outcome); err != nil {
+		if err := s.projectTerminalOutcomeDAG(ctx, item); err != nil {
 			return err
 		}
-		if err := s.terminalOutcomes.MarkTerminalOutcomeProjected(ctx, item.ID, workerID); err != nil {
+		if err := s.terminalOutcomes.MarkTerminalOutcomeProjected(ctx, item.ID, workerID, item.ClaimToken); err != nil {
 			return err
 		}
 	}
@@ -641,7 +685,7 @@ func (s *service) ProcessTerminalOutcomeOutbox(ctx context.Context, workerID str
 }
 
 // projectTerminalOutcomeDAG 在 outbox ACK 前同步推进 DAG；失败会保留 claim 等待 lease replay。
-func (s *service) projectTerminalOutcomeDAG(ctx context.Context, commit contract.TerminalOutcomeCommit) error {
+func (s *service) projectTerminalOutcomeDAG(ctx context.Context, item contract.TerminalOutcomeOutboxItem) error {
 	if s == nil || s.terminalDAG == nil {
 		return nil
 	}
@@ -652,11 +696,11 @@ func (s *service) projectTerminalOutcomeDAG(ctx context.Context, commit contract
 	if deps.LookupStore == nil || deps.FlowStore == nil {
 		return errors.New("terminal outcome DAG projection requires lookup and flow stores")
 	}
-	return projectDAGTurnCompleted(ctx, deps, loggerOrDefault(s.logger), publicTurnCompletedFromCommit(commit))
+	return projectDAGTurnCompleted(ctx, deps, loggerOrDefault(s.logger), publicTurnCompletedFromCommit(item.Outcome, item.PrivateDAG))
 }
 
-// publicTurnCompletedFromCommit 只从 durable public record 重建 DAG 所需的安全事件。
-func publicTurnCompletedFromCommit(commit contract.TerminalOutcomeCommit) turndto.TurnCompleted {
+// publicTurnCompletedFromCommit 公开摘要与 owner-scoped 私有 DAG artifact 分型重建。
+func publicTurnCompletedFromCommit(commit contract.TerminalOutcomeCommit, private *contract.OwnerScopedDAGPayload) turndto.TurnCompleted {
 	success := commit.PublicOutcome.Kind == "success"
 	reason := ""
 	if !success {
@@ -664,6 +708,10 @@ func publicTurnCompletedFromCommit(commit contract.TerminalOutcomeCommit) turndt
 		if reason == "" {
 			reason = "terminal_outcome_failure"
 		}
+	}
+	result := ""
+	if private != nil {
+		result = strings.TrimSpace(private.Result)
 	}
 	return turndto.TurnCompleted{
 		TurnHeader: shareddto.TurnHeader{
@@ -679,7 +727,7 @@ func publicTurnCompletedFromCommit(commit contract.TerminalOutcomeCommit) turndt
 		Success: success,
 		Status:  strings.TrimSpace(commit.PublicOutcome.Code),
 		Reason:  reason,
-		Result:  strings.TrimSpace(commit.PublicOutcome.Summary),
+		Result:  result,
 		Summary: strings.TrimSpace(commit.PublicOutcome.Summary),
 	}
 }

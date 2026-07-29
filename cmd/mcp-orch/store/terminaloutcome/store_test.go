@@ -21,6 +21,7 @@ func TestCommitTerminalOutcomeCASReplayConflictAndPublicOnlyStorage(t *testing.T
 	store, db := newTestStore(t)
 	ctx := context.Background()
 	commit := terminalCommitFixture("terminal:event-1")
+	commit = activateCommitFixture(t, store, commit)
 
 	first, err := store.CommitTerminalOutcome(ctx, commit)
 	if err != nil {
@@ -52,7 +53,7 @@ func TestCommitTerminalOutcomeCASReplayConflictAndPublicOnlyStorage(t *testing.T
 	var durable string
 	if err := db.QueryRowContext(ctx, `
 		SELECT public_outcome_json || ' ' || public_report
-		FROM public_terminal_outcomes
+		FROM public_terminal_outcome_history
 		WHERE agent_id = ?
 	`, commit.Identity.AgentID).Scan(&durable); err != nil {
 		t.Fatalf("query durable outcome: %v", err)
@@ -67,6 +68,7 @@ func TestCommitTerminalOutcomeNormalizesTimestampForColdReplay(t *testing.T) {
 	commit := terminalCommitFixture("terminal:event-submillisecond")
 	commit.OccurredAt = commit.OccurredAt.Add(987654 * time.Nanosecond)
 	commit.PublicOutcome.CompletedAt = commit.OccurredAt
+	commit = activateCommitFixture(t, store, commit)
 
 	first, err := store.CommitTerminalOutcome(context.Background(), commit)
 	if err != nil {
@@ -84,6 +86,7 @@ func TestCommitTerminalOutcomeNormalizesTimestampForColdReplay(t *testing.T) {
 func TestCommitTerminalOutcomeConcurrentCASHasOneWinner(t *testing.T) {
 	store, _ := newTestStore(t)
 	ctx := context.Background()
+	base := activateCommitFixture(t, store, terminalCommitFixture("terminal:event-base"))
 	const workers = 24
 	var (
 		wg       sync.WaitGroup
@@ -97,6 +100,7 @@ func TestCommitTerminalOutcomeConcurrentCASHasOneWinner(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			commit := terminalCommitFixture("terminal:event-" + string(rune('a'+i)))
+			commit.Identity.HeadVersion = base.Identity.HeadVersion
 			commit.Identity.TerminalIdentity = commit.Identity.EventID + ":identity"
 			result, err := store.CommitTerminalOutcome(ctx, commit)
 			mu.Lock()
@@ -123,6 +127,7 @@ func TestOutboxCrashWindowReplaysIdempotently(t *testing.T) {
 	store, _ := newTestStore(t)
 	ctx := context.Background()
 	commit := terminalCommitFixture("terminal:event-crash")
+	commit = activateCommitFixture(t, store, commit)
 	committed, err := store.CommitTerminalOutcome(ctx, commit)
 	if err != nil {
 		t.Fatalf("CommitTerminalOutcome() error = %v", err)
@@ -133,14 +138,14 @@ func TestOutboxCrashWindowReplaysIdempotently(t *testing.T) {
 	if err != nil || len(first) != 1 || first[0].ID != committed.OutboxID {
 		t.Fatalf("first claim = %#v, %v; want outbox %d", first, err, committed.OutboxID)
 	}
-	if _, err := store.db.Exec("UPDATE terminal_outcome_outbox SET claimed_at = 0 WHERE id = ?", committed.OutboxID); err != nil {
+	if _, err := store.db.Exec("UPDATE terminal_outcome_outbox_v2 SET lease_expires_at = 0 WHERE id = ?", committed.OutboxID); err != nil {
 		t.Fatalf("expire first worker lease: %v", err)
 	}
 	replayed, err := store.ClaimTerminalOutcomeOutbox(ctx, "worker-b", time.Minute, 10)
 	if err != nil || len(replayed) != 1 || replayed[0].ID != committed.OutboxID {
 		t.Fatalf("replay claim = %#v, %v; want outbox %d", replayed, err, committed.OutboxID)
 	}
-	if err := store.MarkTerminalOutcomeProjected(ctx, replayed[0].ID, "worker-b"); err != nil {
+	if err := store.MarkTerminalOutcomeProjected(ctx, replayed[0].ID, "worker-b", replayed[0].ClaimToken); err != nil {
 		t.Fatalf("MarkTerminalOutcomeProjected() error = %v", err)
 	}
 	empty, err := store.ClaimTerminalOutcomeOutbox(ctx, "worker-c", time.Minute, 10)
@@ -151,13 +156,14 @@ func TestOutboxCrashWindowReplaysIdempotently(t *testing.T) {
 
 func TestCommitTerminalOutcomeRollsBackPublicRecordWhenOutboxEnqueueFails(t *testing.T) {
 	store, db := newTestStore(t)
-	if _, err := db.Exec("DROP TABLE terminal_outcome_outbox"); err != nil {
+	commit := activateCommitFixture(t, store, terminalCommitFixture("terminal:event-rollback"))
+	if _, err := db.Exec("DROP TABLE terminal_outcome_outbox_v2"); err != nil {
 		t.Fatalf("drop outbox table: %v", err)
 	}
-	if _, err := store.CommitTerminalOutcome(context.Background(), terminalCommitFixture("terminal:event-rollback")); err == nil {
+	if _, err := store.CommitTerminalOutcome(context.Background(), commit); err == nil {
 		t.Fatal("CommitTerminalOutcome() error = nil, want outbox enqueue failure")
 	}
-	for _, table := range []string{"terminal_outcome_heads", "public_terminal_outcomes"} {
+	for _, table := range []string{"public_terminal_outcome_history", "terminal_outcome_private_dag_payloads"} {
 		var count int
 		if err := db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&count); err != nil {
 			t.Fatalf("count %s: %v", table, err)
@@ -165,6 +171,13 @@ func TestCommitTerminalOutcomeRollsBackPublicRecordWhenOutboxEnqueueFails(t *tes
 		if count != 0 {
 			t.Fatalf("%s row count = %d, want rollback to zero", table, count)
 		}
+	}
+	var state string
+	if err := db.QueryRow("SELECT state FROM terminal_outcome_current_heads WHERE agent_id = ?", commit.Identity.AgentID).Scan(&state); err != nil {
+		t.Fatalf("read current head after rollback: %v", err)
+	}
+	if state != "active" {
+		t.Fatalf("current head state after rollback = %q, want active", state)
 	}
 }
 
@@ -182,6 +195,7 @@ func TestCanonicalTerminalIdentityRejectsMissingOrMismatchedFence(t *testing.T) 
 		{name: "event", mutate: func(v *contract.TerminalOutcomeCommit) { v.Identity.EventID = "" }},
 		{name: "terminal", mutate: func(v *contract.TerminalOutcomeCommit) { v.Identity.TerminalIdentity = "" }},
 		{name: "expected state", mutate: func(v *contract.TerminalOutcomeCommit) { v.Identity.ExpectedActiveState = "" }},
+		{name: "head version", mutate: func(v *contract.TerminalOutcomeCommit) { v.Identity.HeadVersion = 0 }},
 		{name: "terminal expected state", mutate: func(v *contract.TerminalOutcomeCommit) { v.Identity.ExpectedActiveState = "failed" }},
 	}
 	for _, test := range tests {
@@ -193,6 +207,16 @@ func TestCanonicalTerminalIdentityRejectsMissingOrMismatchedFence(t *testing.T) 
 			}
 		})
 	}
+}
+
+func activateCommitFixture(t *testing.T, store *Store, commit contract.TerminalOutcomeCommit) contract.TerminalOutcomeCommit {
+	t.Helper()
+	head, err := store.ActivateTerminalOutcomeHead(context.Background(), activationFromCommit(commit))
+	if err != nil {
+		t.Fatalf("ActivateTerminalOutcomeHead() error = %v", err)
+	}
+	commit.Identity.HeadVersion = head.Version
+	return commit
 }
 
 func TestTerminalOutcomeCommitRejectsUnknownDurableFields(t *testing.T) {
@@ -240,7 +264,7 @@ func terminalCommitFixture(eventID string) contract.TerminalOutcomeCommit {
 			Capability: contract.TerminalOutcomeCapabilityV2,
 			AgentID:    "agent-1", PublicThreadID: "thread-1", ProviderTurnID: "turn-1",
 			SessionID: "session-1", Generation: 7, EventID: eventID,
-			TerminalIdentity: eventID + ":identity", ExpectedActiveState: "turn_running",
+			TerminalIdentity: eventID + ":identity", ExpectedActiveState: "turn_running", HeadVersion: 1,
 		},
 		PublicOutcome: contract.PublicOutcome{
 			Kind: "failure", Code: "failed", PublicError: publicError, CompletedAt: occurredAt,
@@ -285,6 +309,61 @@ CREATE TABLE terminal_outcome_outbox (
 	status TEXT NOT NULL,
 	claimed_by TEXT NOT NULL DEFAULT '',
 	claimed_at INTEGER,
+	projected_at INTEGER,
+	created_at INTEGER NOT NULL
+);
+CREATE TABLE terminal_outcome_current_heads (
+	agent_id TEXT PRIMARY KEY,
+	capability TEXT NOT NULL,
+	public_thread_id TEXT NOT NULL,
+	provider_turn_id TEXT NOT NULL,
+	session_id TEXT NOT NULL,
+	generation INTEGER NOT NULL,
+	expected_active_state TEXT NOT NULL,
+	version INTEGER NOT NULL,
+	state TEXT NOT NULL,
+	terminal_event_id TEXT NOT NULL DEFAULT '',
+	terminal_identity TEXT NOT NULL DEFAULT '',
+	activated_at INTEGER NOT NULL,
+	updated_at INTEGER NOT NULL
+);
+CREATE TABLE public_terminal_outcome_history (
+	terminal_identity TEXT PRIMARY KEY,
+	event_id TEXT NOT NULL UNIQUE,
+	agent_id TEXT NOT NULL,
+	head_version INTEGER NOT NULL,
+	schema_version INTEGER NOT NULL,
+	projection_kind TEXT NOT NULL,
+	public_thread_id TEXT NOT NULL,
+	provider_turn_id TEXT NOT NULL,
+	session_id TEXT NOT NULL,
+	generation INTEGER NOT NULL,
+	expected_active_state TEXT NOT NULL,
+	public_outcome_json TEXT NOT NULL,
+	public_report TEXT NOT NULL,
+	occurred_at INTEGER NOT NULL
+);
+CREATE TABLE terminal_outcome_private_dag_payloads (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	terminal_identity TEXT NOT NULL UNIQUE,
+	owner_agent_id TEXT NOT NULL,
+	public_thread_id TEXT NOT NULL,
+	provider_turn_id TEXT NOT NULL,
+	payload_json TEXT NOT NULL,
+	created_at INTEGER NOT NULL
+);
+CREATE TABLE terminal_outcome_outbox_v2 (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	terminal_identity TEXT NOT NULL UNIQUE,
+	event_id TEXT NOT NULL UNIQUE,
+	public_payload_json TEXT NOT NULL,
+	private_dag_payload_id INTEGER,
+	status TEXT NOT NULL,
+	claimed_by TEXT NOT NULL DEFAULT '',
+	claim_token TEXT NOT NULL DEFAULT '',
+	lease_expires_at INTEGER,
+	attempt_count INTEGER NOT NULL DEFAULT 0,
+	last_error TEXT NOT NULL DEFAULT '',
 	projected_at INTEGER,
 	created_at INTEGER NOT NULL
 );`

@@ -224,6 +224,59 @@ func TestRunMigrationsAddsTerminalOutcomeTransactionTables(t *testing.T) {
 	assertIndex(t, db, "terminal_outcome_outbox", "idx_terminal_outcome_outbox_claim", false, "status IN ('pending', 'claimed')")
 }
 
+// TestTerminalOutcomeCurrentHeadMigrationUpgradesV120AndPreservesRollbackTables 锁定 forward-fix 与旧二进制回滚共存。
+func TestTerminalOutcomeCurrentHeadMigrationUpgradesV120AndPreservesRollbackTables(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrationTestDB(t)
+	createMigrationMarkerTable(t, db)
+	markBaselineApplied(t, db)
+	dir120 := t.TempDir()
+	writeMigrationTestFile(t, dir120, "120_terminal_outcome_outbox.sql", readMigrationTestFile(t, "120_terminal_outcome_outbox.sql"))
+	if err := RunMigrations(ctx, db, dir120); err != nil {
+		t.Fatalf("apply v120: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO terminal_outcome_heads VALUES
+		  ('agent-1','terminal_outcome_commit_v2','thread-1','turn-1','session-1',7,'event-1','identity-1','turn_running','terminal',1000);
+		INSERT INTO public_terminal_outcomes VALUES
+		  ('agent-1',2,'turn_completed','thread-1','turn-1','session-1',7,'event-1','identity-1',
+		   '{"kind":"success","code":"success","summary":"safe","completedAt":"2026-07-29T00:00:01Z"}','safe',1000);
+		INSERT INTO terminal_outcome_outbox(event_id,payload_json,status,claimed_by,claimed_at,created_at)
+		  VALUES ('event-1','{"schemaVersion":2,"projectionKind":"turn_completed","identity":{"capability":"terminal_outcome_commit_v2","agentId":"agent-1","publicThreadId":"thread-1","providerTurnId":"turn-1","sessionId":"session-1","generation":7,"eventId":"event-1","terminalIdentity":"identity-1","expectedActiveState":"turn_running"},"publicOutcome":{"kind":"success","code":"success","summary":"safe","completedAt":"2026-07-29T00:00:01Z"},"publicReport":"safe","occurredAt":"2026-07-29T00:00:01Z"}','claimed','old-worker',999,1000);
+	`); err != nil {
+		t.Fatalf("seed v120 terminal rows: %v", err)
+	}
+	dir121 := t.TempDir()
+	writeMigrationTestFile(t, dir121, "121_terminal_outcome_current_head.sql", readMigrationTestFile(t, "121_terminal_outcome_current_head.sql"))
+	if err := RunMigrations(ctx, db, dir121); err != nil {
+		t.Fatalf("apply v121: %v", err)
+	}
+	for _, table := range []string{"terminal_outcome_current_heads", "public_terminal_outcome_history", "terminal_outcome_private_dag_payloads", "terminal_outcome_outbox_v2"} {
+		if !sqliteTables(t, db)[table] {
+			t.Fatalf("%s missing after v121", table)
+		}
+	}
+	var status, worker string
+	if err := db.QueryRow("SELECT status, claimed_by FROM terminal_outcome_outbox_v2 WHERE event_id='event-1'").Scan(&status, &worker); err != nil {
+		t.Fatalf("read migrated outbox: %v", err)
+	}
+	if status != "pending" || worker != "" {
+		t.Fatalf("migrated claimed outbox = status:%q worker:%q, want pending/unowned", status, worker)
+	}
+	var headVersion int
+	if err := db.QueryRow("SELECT json_extract(public_payload_json, '$.identity.headVersion') FROM terminal_outcome_outbox_v2 WHERE event_id='event-1'").Scan(&headVersion); err != nil {
+		t.Fatalf("read migrated payload headVersion: %v", err)
+	}
+	if headVersion != 1 {
+		t.Fatalf("migrated payload headVersion = %d, want 1 compatibility adapter", headVersion)
+	}
+	for _, oldTable := range []string{"terminal_outcome_heads", "public_terminal_outcomes", "terminal_outcome_outbox"} {
+		if !sqliteTables(t, db)[oldTable] {
+			t.Fatalf("rollback table %s was removed", oldTable)
+		}
+	}
+}
+
 // TestTerminalOutcomeMigrationPreservesLegacyRows 锁定 v2 rollout 只新增表，不改写旧 provider/DB 数据。
 func TestTerminalOutcomeMigrationPreservesLegacyRows(t *testing.T) {
 	ctx := context.Background()

@@ -34,14 +34,20 @@ func TestCommitTurnCompletedPersistsPublicSSOTBeforeRuntimeProjection(t *testing
 	if err != nil || !handled {
 		t.Fatalf("CommitTurnCompleted() = (%v, %v), want handled nil", handled, err)
 	}
-	if agent.state != agentdto.StateIdle || agent.activeTurnID != "" {
-		t.Fatalf("runtime = state:%q turn:%q, want idle and cleared turn", agent.state, agent.activeTurnID)
+	if agent.state != agentdto.StateTurnRunning || agent.activeTurnID != "turn-1" {
+		t.Fatalf("runtime changed before outbox projection = state:%q turn:%q", agent.state, agent.activeTurnID)
 	}
-	if agent.lastReport != "public success summary" || len(agent.reportRequesters) != 0 {
-		t.Fatalf("projection = report:%q requesters:%v", agent.lastReport, agent.reportRequesters)
+	if agent.lastReport != "" || len(agent.reportRequesters) != 1 || agent.outcome != nil {
+		t.Fatalf("runtime side effects before projection = report:%q requesters:%v outcome:%#v", agent.lastReport, agent.reportRequesters, agent.outcome)
 	}
-	if agent.outcome == nil || agent.outcome.Summary != "public success summary" {
-		t.Fatalf("agent.outcome = %#v, want public success", agent.outcome)
+	if err := svc.ProcessTerminalOutcomeOutbox(context.Background(), "projector-after-commit", time.Minute, 10); err != nil {
+		t.Fatalf("ProcessTerminalOutcomeOutbox() error = %v", err)
+	}
+	if agent.state != agentdto.StateIdle || agent.activeTurnID != "" ||
+		agent.lastReport != "public success summary" || len(agent.reportRequesters) != 0 ||
+		agent.outcome == nil || agent.outcome.Summary != "public success summary" {
+		t.Fatalf("runtime after projection = state:%q turn:%q report:%q requesters:%v outcome:%#v",
+			agent.state, agent.activeTurnID, agent.lastReport, agent.reportRequesters, agent.outcome)
 	}
 	assertTerminalOutcomeRowCounts(t, db, 1, 1)
 
@@ -73,7 +79,7 @@ func TestOutboxProjectorRecoversCommitAfterRuntimeCrashWindow(t *testing.T) {
 		t.Fatalf("runtime after replay = state:%q turn:%q report:%q", agent.state, agent.activeTurnID, agent.lastReport)
 	}
 	var status string
-	if err := db.QueryRow("SELECT status FROM terminal_outcome_outbox").Scan(&status); err != nil {
+	if err := db.QueryRow("SELECT status FROM terminal_outcome_outbox_v2").Scan(&status); err != nil {
 		t.Fatalf("query outbox status: %v", err)
 	}
 	if status != "projected" {
@@ -90,7 +96,9 @@ func TestOutboxProjectorAdvancesDAGOnlyAfterDurableCommitAndReplaysOnce(t *testi
 	flow := &dagSubscriberFlowSpy{}
 	svc.terminalDAG = &DAGSubscriberDeps{LookupStore: lookup, FlowStore: flow, EventBus: svc.eventBus}
 
-	commit, err := terminalOutcomeCommitFromEvent(agent, terminalOutcomeEvent(true))
+	ev := terminalOutcomeEvent(true)
+	ev.Result = "private DAG artifact"
+	commit, err := terminalOutcomeCommitFromEvent(agent, ev)
 	if err != nil {
 		t.Fatalf("terminalOutcomeCommitFromEvent() error = %v", err)
 	}
@@ -107,14 +115,97 @@ func TestOutboxProjectorAdvancesDAGOnlyAfterDurableCommitAndReplaysOnce(t *testi
 	if len(flow.completeCalls) != 1 {
 		t.Fatalf("DAG completeCalls = %d, want 1 after durable projection", len(flow.completeCalls))
 	}
-	if got := string(flow.completeCalls[0].Result); got != `{"text":"public success summary"}` {
-		t.Fatalf("DAG public result = %s, want safe durable summary", got)
+	if got := string(flow.completeCalls[0].Result); got != `{"text":"private DAG artifact"}` {
+		t.Fatalf("DAG owner-scoped result = %s, want private artifact distinct from public summary", got)
 	}
 	if err := svc.ProcessTerminalOutcomeOutbox(context.Background(), "dag-projector-replay", time.Minute, 10); err != nil {
 		t.Fatalf("ProcessTerminalOutcomeOutbox(replay) error = %v", err)
 	}
 	if len(flow.completeCalls) != 1 {
 		t.Fatalf("DAG replay completeCalls = %d, want idempotent 1", len(flow.completeCalls))
+	}
+}
+
+func TestOutboxColdReplayProjectsOwnerDAGWithEmptyRuntimeRegistry(t *testing.T) {
+	writer, _ := newTerminalOutcomeTestService(t)
+	agent := addTerminalOutcomeTestAgent(writer)
+	ev := terminalOutcomeEvent(true)
+	ev.Result = "cold owner artifact"
+	commit, err := terminalOutcomeCommitFromEvent(agent, ev)
+	if err != nil {
+		t.Fatalf("terminalOutcomeCommitFromEvent() error = %v", err)
+	}
+	if _, err := writer.terminalOutcomes.CommitTerminalOutcome(context.Background(), commit); err != nil {
+		t.Fatalf("CommitTerminalOutcome() error = %v", err)
+	}
+
+	cold := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
+	cold.terminalOutcomes = writer.terminalOutcomes
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+		DagKey: "dag-cold", NodeKey: "node-cold", Status: "running",
+	}}}
+	flow := &dagSubscriberFlowSpy{}
+	cold.terminalDAG = &DAGSubscriberDeps{LookupStore: lookup, FlowStore: flow, EventBus: cold.eventBus}
+	if err := cold.ProcessTerminalOutcomeOutbox(context.Background(), "cold-projector", time.Minute, 10); err != nil {
+		t.Fatalf("ProcessTerminalOutcomeOutbox() error = %v", err)
+	}
+	if len(flow.completeCalls) != 1 || string(flow.completeCalls[0].Result) != `{"text":"cold owner artifact"}` {
+		t.Fatalf("cold DAG projection = %#v", flow.completeCalls)
+	}
+}
+
+func TestOutboxRuntimeFenceMismatchHasNoProjectionSideEffects(t *testing.T) {
+	svc, db := newTerminalOutcomeTestService(t)
+	agent := addTerminalOutcomeTestAgent(svc)
+	ev := terminalOutcomeEvent(true)
+	ev.Result = "must not project"
+	commit, err := terminalOutcomeCommitFromEvent(agent, ev)
+	if err != nil {
+		t.Fatalf("terminalOutcomeCommitFromEvent() error = %v", err)
+	}
+	if _, err := svc.terminalOutcomes.CommitTerminalOutcome(context.Background(), commit); err != nil {
+		t.Fatalf("CommitTerminalOutcome() error = %v", err)
+	}
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+		DagKey: "dag-stale", NodeKey: "node-stale", Status: "running",
+	}}}
+	flow := &dagSubscriberFlowSpy{}
+	svc.terminalDAG = &DAGSubscriberDeps{LookupStore: lookup, FlowStore: flow, EventBus: svc.eventBus}
+	agent.sessionGeneration++
+	beforeState, beforeTurn, beforeReport := agent.state, agent.activeTurnID, agent.lastReport
+	if err := svc.ProcessTerminalOutcomeOutbox(context.Background(), "stale-projector", time.Minute, 10); !errors.Is(err, errTerminalProjectionNotReady) {
+		t.Fatalf("ProcessTerminalOutcomeOutbox() error = %v, want projection fence", err)
+	}
+	if agent.state != beforeState || agent.activeTurnID != beforeTurn || agent.lastReport != beforeReport ||
+		len(flow.completeCalls) != 0 {
+		t.Fatalf("stale projection side effects = state:%q turn:%q report:%q DAG:%d",
+			agent.state, agent.activeTurnID, agent.lastReport, len(flow.completeCalls))
+	}
+	var status string
+	if err := db.QueryRow("SELECT status FROM terminal_outcome_outbox_v2").Scan(&status); err != nil {
+		t.Fatalf("read stale outbox status: %v", err)
+	}
+	if status != "claimed" {
+		t.Fatalf("stale outbox status = %q, want claimed for lease retry", status)
+	}
+}
+
+func TestTerminalProjectionReplayRequiresMatchingCanonicalFence(t *testing.T) {
+	svc, _ := newTerminalOutcomeTestService(t)
+	agent := addTerminalOutcomeTestAgent(svc)
+	commit, err := terminalOutcomeCommitFromEvent(agent, terminalOutcomeEvent(true))
+	if err != nil {
+		t.Fatalf("terminalOutcomeCommitFromEvent() error = %v", err)
+	}
+	if err := svc.projectTerminalOutcomeLocked(context.Background(), agent, commit); err != nil {
+		t.Fatalf("projectTerminalOutcomeLocked() error = %v", err)
+	}
+	if !terminalProjectionAlreadyApplied(agent, commit) {
+		t.Fatal("matching projected terminal must be recognized as idempotent")
+	}
+	agent.sessionGeneration++
+	if terminalProjectionAlreadyApplied(agent, commit) {
+		t.Fatal("same public report with stale generation must not bypass the canonical fence")
 	}
 }
 
@@ -131,9 +222,9 @@ func TestCommitTurnCompletedFailureNeverPersistsRawProviderDetail(t *testing.T) 
 	}
 	var durable string
 	if err := db.QueryRow(`
-		SELECT p.public_outcome_json || ' ' || p.public_report || ' ' || o.payload_json
-		FROM public_terminal_outcomes p
-		JOIN terminal_outcome_outbox o ON o.event_id = p.event_id
+		SELECT p.public_outcome_json || ' ' || p.public_report || ' ' || o.public_payload_json
+		FROM public_terminal_outcome_history p
+		JOIN terminal_outcome_outbox_v2 o ON o.event_id = p.event_id
 	`).Scan(&durable); err != nil {
 		t.Fatalf("query durable terminal outcome: %v", err)
 	}
@@ -161,6 +252,10 @@ func TestTerminalPublicSSOTOverridesRuntimeReportAndOutcomeReads(t *testing.T) {
 	if report.Report != "public success summary" || strings.Contains(report.Report, terminalSecretFixture) {
 		t.Fatalf("GetReport() = %#v, want durable public SSOT", report)
 	}
+	state, err := svc.GetState(context.Background(), agent.id)
+	if err != nil || state.State != string(agentdto.StateIdle) {
+		t.Fatalf("GetState() = %#v, %v; want durable terminal state", state, err)
+	}
 	snapshot, err := svc.Snapshot(context.Background(), agent.id)
 	if err != nil {
 		t.Fatalf("Snapshot() error = %v", err)
@@ -169,13 +264,22 @@ func TestTerminalPublicSSOTOverridesRuntimeReportAndOutcomeReads(t *testing.T) {
 		snapshot.Outcome.Kind != agentdto.OutcomeKindSuccess || strings.Contains(snapshot.LastReport, terminalSecretFixture) {
 		t.Fatalf("Snapshot() = %#v, want durable public SSOT", snapshot)
 	}
+	list, err := svc.ListAgents(context.Background())
+	if err != nil || len(list) != 1 || list[0].LastReport != "public success summary" ||
+		list[0].Outcome == nil || list[0].Outcome.Kind != agentdto.OutcomeKindSuccess {
+		t.Fatalf("ListAgents()/Board read = %#v, %v; want durable public SSOT", list, err)
+	}
 }
 
 func TestLegacySuccessMigratesOnlyExplicitSummaryAndV2CapabilityAcceptsCanonicalResult(t *testing.T) {
 	t.Run("legacy result is not public-safe", func(t *testing.T) {
 		svc, db := newTerminalOutcomeTestService(t)
 		addTerminalOutcomeTestAgent(svc)
-		ev := terminalOutcomeEvent(true)
+		wire, _ := json.Marshal(terminalOutcomeEvent(true))
+		var ev turndto.TurnCompleted
+		if err := json.Unmarshal(wire, &ev); err != nil {
+			t.Fatalf("decode legacy event: %v", err)
+		}
 		ev.Summary = ""
 		ev.Result = terminalSecretFixture
 		if handled, err := svc.CommitTurnCompleted(context.Background(), ev); err == nil || !handled {
@@ -184,33 +288,12 @@ func TestLegacySuccessMigratesOnlyExplicitSummaryAndV2CapabilityAcceptsCanonical
 		assertTerminalOutcomeRowCounts(t, db, 0, 0)
 	})
 
-	t.Run("canonical v2 result is explicitly public-safe", func(t *testing.T) {
-		svc, db := newTerminalOutcomeTestService(t)
-		addTerminalOutcomeTestAgent(svc)
+	t.Run("canonical v2 result is not public-safe", func(t *testing.T) {
 		ev := terminalOutcomeEvent(true)
 		ev.Summary = ""
 		ev.Result = "canonical public result"
-		terminal, err := turndto.NewTurnTerminalV2(ev, "provider-event-v2")
-		if err != nil {
-			t.Fatalf("NewTurnTerminalV2() error = %v", err)
-		}
-		ev, err = turndto.AttachCanonicalTurnTerminal(ev, terminal)
-		if err != nil {
-			t.Fatalf("AttachCanonicalTurnTerminal() error = %v", err)
-		}
-		if handled, err := svc.CommitTurnCompleted(context.Background(), ev); err != nil || !handled {
-			t.Fatalf("CommitTurnCompleted() = (%v, %v), want canonical v2 success", handled, err)
-		}
-		var capability, report string
-		if err := db.QueryRow(`
-			SELECT h.capability, p.public_report
-			FROM terminal_outcome_heads h
-			JOIN public_terminal_outcomes p USING (agent_id)
-		`).Scan(&capability, &report); err != nil {
-			t.Fatalf("query canonical v2 outcome: %v", err)
-		}
-		if capability != contract.TerminalOutcomeCapabilityV2 || report != "canonical public result" {
-			t.Fatalf("canonical v2 durable result = capability:%q report:%q", capability, report)
+		if _, err := turndto.NewTurnTerminalV2(ev, "provider-event-v2"); err == nil {
+			t.Fatal("NewTurnTerminalV2() error = nil, want missing trusted public summary")
 		}
 	})
 }
@@ -247,9 +330,9 @@ func TestCommitTurnCompletedRejectsFenceMismatchWithZeroSideEffects(t *testing.T
 }
 
 func TestCommitTurnCompletedStoreFailureHasZeroSideEffects(t *testing.T) {
-	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
-	svc.terminalOutcomes = failingTerminalOutcomePort{err: errors.New("commit failed")}
+	svc, _ := newTerminalOutcomeTestService(t)
 	agent := addTerminalOutcomeTestAgent(svc)
+	svc.terminalOutcomes = failingTerminalOutcomePort{err: errors.New("commit failed")}
 	agent.lastReport = "before"
 	agent.reportRequesters = []string{"requester-1"}
 
@@ -283,11 +366,17 @@ func TestCommitStateChangedTerminalRequiresExactSessionAndProjectsFailure(t *tes
 	if handled, err := svc.CommitStateChangedTerminal(context.Background(), ev); err != nil || !handled {
 		t.Fatalf("CommitStateChangedTerminal() = (%v, %v), want handled nil", handled, err)
 	}
+	if agent.state != agentdto.StateTurnRunning || agent.lastReport != "" {
+		t.Fatalf("runtime changed before outbox projection = state:%q report:%q", agent.state, agent.lastReport)
+	}
+	if err := svc.ProcessTerminalOutcomeOutbox(context.Background(), "state-projector", time.Minute, 10); err != nil {
+		t.Fatalf("ProcessTerminalOutcomeOutbox() error = %v", err)
+	}
 	if agent.state != agentdto.StateFailed || agent.activeTurnID != "" {
 		t.Fatalf("projected state terminal = state:%q turn:%q", agent.state, agent.activeTurnID)
 	}
 	var durable string
-	if err := db.QueryRow("SELECT public_outcome_json || ' ' || public_report FROM public_terminal_outcomes").Scan(&durable); err != nil {
+	if err := db.QueryRow("SELECT public_outcome_json || ' ' || public_report FROM public_terminal_outcome_history").Scan(&durable); err != nil {
 		t.Fatalf("query state terminal outcome: %v", err)
 	}
 	if strings.Contains(durable, terminalSecretFixture) {
@@ -321,9 +410,21 @@ func TestCommitStateChangedTerminalMissingSessionHasZeroSideEffects(t *testing.T
 
 func TestCommitStateChangedTerminalProjectsWithoutActiveTurn(t *testing.T) {
 	svc, db := newTerminalOutcomeTestService(t)
-	agent := addTerminalOutcomeTestAgent(svc)
-	agent.activeTurnID = ""
+	agent := svc.newAgentLocked("agent-1")
 	agent.state = agentdto.StateIdle
+	agent.threadID, agent.remoteThreadID = "thread-1", "thread-1"
+	agent.launchSeq, agent.sessionGeneration = 3, 7
+	svc.registry.agents[agent.id] = agent
+	head, err := svc.terminalOutcomes.ActivateTerminalOutcomeHead(context.Background(), contract.TerminalOutcomeHeadActivation{
+		Capability: contract.TerminalOutcomeCapabilityV2, AgentID: agent.id,
+		PublicThreadID: "thread-1", ProviderTurnID: "session-terminal:3",
+		SessionID: "3", Generation: 7, ExpectedActiveState: string(agent.state),
+		ActivatedAt: time.Date(2026, 7, 29, 2, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("activate session head: %v", err)
+	}
+	agent.terminalHeadVersion = head.Version
 	ev := agentdto.StateChanged{
 		AgentSessionHeader: sharedto.AgentSessionHeader{
 			AgentHeader: sharedto.AgentHeader{
@@ -341,13 +442,19 @@ func TestCommitStateChangedTerminalProjectsWithoutActiveTurn(t *testing.T) {
 	if handled, err := svc.CommitStateChangedTerminal(context.Background(), ev); err != nil || !handled {
 		t.Fatalf("CommitStateChangedTerminal() = (%v, %v), want handled nil", handled, err)
 	}
+	if agent.state != agentdto.StateIdle || agent.lastReport != "" {
+		t.Fatalf("runtime changed before projection = state:%q report:%q", agent.state, agent.lastReport)
+	}
+	if err := svc.ProcessTerminalOutcomeOutbox(context.Background(), "session-state-projector", time.Minute, 10); err != nil {
+		t.Fatalf("ProcessTerminalOutcomeOutbox() error = %v", err)
+	}
 	if agent.state != agentdto.StateFailed || agent.lastReport == "" {
-		t.Fatalf("runtime = state:%q report:%q, want projected failure", agent.state, agent.lastReport)
+		t.Fatalf("runtime after projection = state:%q report:%q", agent.state, agent.lastReport)
 	}
 	assertTerminalOutcomeRowCounts(t, db, 1, 1)
 }
 
-func TestLegacyThreadStoppedAdapterUsesExplicitRuntimeFenceAndDropsRawReason(t *testing.T) {
+func TestLegacyThreadStoppedWithoutSessionGenerationFailsFast(t *testing.T) {
 	svc, db := newTerminalOutcomeTestService(t)
 	agent := addTerminalOutcomeTestAgent(svc)
 	ev := threaddto.Stopped{
@@ -357,29 +464,19 @@ func TestLegacyThreadStoppedAdapterUsesExplicitRuntimeFenceAndDropsRawReason(t *
 		Status:      "stopped",
 		Reason:      terminalSecretFixture,
 	}
-	if handled, err := svc.CommitThreadStoppedTerminal(context.Background(), ev); err != nil || !handled {
-		t.Fatalf("CommitThreadStoppedTerminal() = (%v, %v), want handled nil", handled, err)
+	if handled, err := svc.CommitThreadStoppedTerminal(context.Background(), ev); err == nil || !handled {
+		t.Fatalf("CommitThreadStoppedTerminal() = (%v, %v), want handled fail-fast", handled, err)
 	}
-	if agent.state != agentdto.StateStopped || agent.activeTurnID != "" {
-		t.Fatalf("legacy stopped projection = state:%q turn:%q", agent.state, agent.activeTurnID)
+	if agent.state != agentdto.StateTurnRunning || agent.activeTurnID != "turn-1" {
+		t.Fatalf("legacy stopped mutated runtime = state:%q turn:%q", agent.state, agent.activeTurnID)
 	}
-	var sessionID, durable string
-	if err := db.QueryRow(`
-		SELECT p.session_id, p.public_outcome_json || ' ' || p.public_report || ' ' || o.payload_json
-		FROM public_terminal_outcomes p
-		JOIN terminal_outcome_outbox o ON o.event_id = p.event_id
-	`).Scan(&sessionID, &durable); err != nil {
-		t.Fatalf("query legacy stopped outcome: %v", err)
-	}
-	if sessionID != "3" || strings.Contains(durable, terminalSecretFixture) {
-		t.Fatalf("legacy adapter = session:%q durable:%q", sessionID, durable)
-	}
+	assertTerminalOutcomeRowCounts(t, db, 0, 0)
 }
 
 func TestProcessExitCommitFailureHasZeroSideEffects(t *testing.T) {
-	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
-	svc.terminalOutcomes = failingTerminalOutcomePort{err: errors.New("commit failed")}
+	svc, _ := newTerminalOutcomeTestService(t)
 	agent := addTerminalOutcomeTestAgent(svc)
+	svc.terminalOutcomes = failingTerminalOutcomePort{err: errors.New("commit failed")}
 	agent.lastReport = "before"
 	agent.reportRequesters = []string{"requester-1"}
 
@@ -397,14 +494,15 @@ func TestProcessExitPersistsSafeTerminalBeforeCleanup(t *testing.T) {
 
 	svc.handleProcessExit(context.Background(), agent.id, agent.launchSeq, errors.New(terminalSecretFixture))
 
-	if agent.lastExitedSeq != 3 || agent.state != agentdto.StateFailed || agent.activeTurnID != "" {
+	if agent.lastExitedSeq != 3 || agent.state != agentdto.StateTurnRunning || agent.activeTurnID != "turn-1" ||
+		agent.lastReport != "" || agent.outcome != nil {
 		t.Fatalf("process exit runtime = seq:%d state:%q turn:%q", agent.lastExitedSeq, agent.state, agent.activeTurnID)
 	}
 	var durable string
 	if err := db.QueryRow(`
-		SELECT p.public_outcome_json || ' ' || p.public_report || ' ' || o.payload_json
-		FROM public_terminal_outcomes p
-		JOIN terminal_outcome_outbox o ON o.event_id = p.event_id
+		SELECT p.public_outcome_json || ' ' || p.public_report || ' ' || o.public_payload_json
+		FROM public_terminal_outcome_history p
+		JOIN terminal_outcome_outbox_v2 o ON o.event_id = p.event_id
 	`).Scan(&durable); err != nil {
 		t.Fatalf("query process terminal outcome: %v", err)
 	}
@@ -430,30 +528,20 @@ func TestHandleReportEventTerminalUsesCanonicalCommitAndRejectsOuterAgentMismatc
 	assertTerminalOutcomeRowCounts(t, db, 0, 0)
 }
 
-func TestLegacyRuntimeLossReportUsesCurrentFenceAndNeverPersistsRawPayload(t *testing.T) {
+func TestLegacyRuntimeLossReportWithoutSessionGenerationFailsFast(t *testing.T) {
 	svc, db := newTerminalOutcomeTestService(t)
 	agent := addTerminalOutcomeTestAgent(svc)
-	result, err := svc.HandleReportEvent(context.Background(), ReportEvent{
+	_, err := svc.HandleReportEvent(context.Background(), ReportEvent{
 		AgentID: "agent-1", EventType: "connection.dead",
 		Report: terminalSecretFixture, EventData: json.RawMessage(`{"raw":"` + terminalSecretFixture + `"}`),
 	})
-	if err != nil {
-		t.Fatalf("HandleReportEvent() error = %v", err)
+	if err == nil {
+		t.Fatal("HandleReportEvent() error = nil, want legacy identity rejection")
 	}
-	if !result.Success || agent.state != agentdto.StateFailed || agent.activeTurnID != "" {
-		t.Fatalf("runtime-loss result=%#v state=%q turn=%q", result, agent.state, agent.activeTurnID)
+	if agent.state != agentdto.StateTurnRunning || agent.activeTurnID != "turn-1" {
+		t.Fatalf("runtime-loss mutated state=%q turn=%q", agent.state, agent.activeTurnID)
 	}
-	var sessionID, durable string
-	if err := db.QueryRow(`
-		SELECT p.session_id, p.public_outcome_json || ' ' || p.public_report || ' ' || o.payload_json
-		FROM public_terminal_outcomes p
-		JOIN terminal_outcome_outbox o ON o.event_id = p.event_id
-	`).Scan(&sessionID, &durable); err != nil {
-		t.Fatalf("query runtime-loss terminal outcome: %v", err)
-	}
-	if sessionID != "3" || strings.Contains(durable, terminalSecretFixture) {
-		t.Fatalf("runtime-loss adapter = session:%q durable:%q", sessionID, durable)
-	}
+	assertTerminalOutcomeRowCounts(t, db, 0, 0)
 }
 
 func TestRemoteLauncherTerminalUsesCanonicalCommitPort(t *testing.T) {
@@ -462,6 +550,9 @@ func TestRemoteLauncherTerminalUsesCanonicalCommitPort(t *testing.T) {
 
 	svc.handleRemoteTurnCompleted(context.Background(), terminalOutcomeEvent(true))
 
+	if err := svc.ProcessTerminalOutcomeOutbox(context.Background(), "remote-projector", time.Minute, 10); err != nil {
+		t.Fatalf("ProcessTerminalOutcomeOutbox() error = %v", err)
+	}
 	if agent.state != agentdto.StateIdle || agent.activeTurnID != "" {
 		t.Fatalf("remote terminal runtime = state:%q turn:%q", agent.state, agent.activeTurnID)
 	}
@@ -470,6 +561,10 @@ func TestRemoteLauncherTerminalUsesCanonicalCommitPort(t *testing.T) {
 
 type failingTerminalOutcomePort struct {
 	err error
+}
+
+func (p failingTerminalOutcomePort) ActivateTerminalOutcomeHead(context.Context, contract.TerminalOutcomeHeadActivation) (contract.TerminalOutcomeHead, error) {
+	return contract.TerminalOutcomeHead{}, p.err
 }
 
 func (p failingTerminalOutcomePort) CommitTerminalOutcome(context.Context, contract.TerminalOutcomeCommit) (contract.TerminalOutcomeCommitResult, error) {
@@ -484,7 +579,11 @@ func (failingTerminalOutcomePort) ClaimTerminalOutcomeOutbox(context.Context, st
 	return nil, nil
 }
 
-func (failingTerminalOutcomePort) MarkTerminalOutcomeProjected(context.Context, int64, string) error {
+func (failingTerminalOutcomePort) RenewTerminalOutcomeOutbox(context.Context, int64, string, string, time.Duration) (time.Time, error) {
+	return time.Time{}, nil
+}
+
+func (failingTerminalOutcomePort) MarkTerminalOutcomeProjected(context.Context, int64, string, string) error {
 	return nil
 }
 
@@ -500,16 +599,19 @@ func newTerminalOutcomeTestService(t *testing.T) (*service, *sql.DB) {
 			t.Errorf("close sqlite: %v", err)
 		}
 	})
-	migrationPath := filepath.Join("..", "..", "..", "internal", "platform", "db", "sqlite", "migrations", "120_terminal_outcome_outbox.sql")
-	migration, err := os.ReadFile(migrationPath)
-	if err != nil {
-		t.Fatalf("read terminal outcome migration: %v", err)
-	}
-	if _, err := db.Exec(string(migration)); err != nil {
-		t.Fatalf("apply terminal outcome migration: %v", err)
+	for _, name := range []string{"120_terminal_outcome_outbox.sql", "121_terminal_outcome_current_head.sql"} {
+		migrationPath := filepath.Join("..", "..", "..", "internal", "platform", "db", "sqlite", "migrations", name)
+		migration, err := os.ReadFile(migrationPath)
+		if err != nil {
+			t.Fatalf("read terminal outcome migration %s: %v", name, err)
+		}
+		if _, err := db.Exec(string(migration)); err != nil {
+			t.Fatalf("apply terminal outcome migration %s: %v", name, err)
+		}
 	}
 	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
 	svc.terminalOutcomes = terminaloutcomestore.New(db)
+	svc.turns.terminalOutcomes = svc.terminalOutcomes
 	return svc, db
 }
 
@@ -522,11 +624,21 @@ func addTerminalOutcomeTestAgent(svc *service) *agentRuntime {
 	agent.launchSeq = 3
 	agent.sessionGeneration = 7
 	svc.registry.agents[agent.id] = agent
+	head, err := svc.terminalOutcomes.ActivateTerminalOutcomeHead(context.Background(), contract.TerminalOutcomeHeadActivation{
+		Capability: contract.TerminalOutcomeCapabilityV2, AgentID: agent.id,
+		PublicThreadID: agent.remoteThreadID, ProviderTurnID: agent.activeTurnID,
+		SessionID: agentSessionID(agent), Generation: agent.sessionGeneration,
+		ExpectedActiveState: string(agent.state), ActivatedAt: time.Date(2026, 7, 29, 1, 2, 2, 0, time.UTC),
+	})
+	if err != nil {
+		panic(err)
+	}
+	agent.terminalHeadVersion = head.Version
 	return agent
 }
 
 func terminalOutcomeEvent(success bool) turndto.TurnCompleted {
-	return turndto.TurnCompleted{
+	ev := turndto.TurnCompleted{
 		TurnHeader: sharedto.TurnHeader{
 			AgentHeader: sharedto.AgentHeader{
 				ThreadHeader: sharedto.ThreadHeader{
@@ -540,11 +652,20 @@ func terminalOutcomeEvent(success bool) turndto.TurnCompleted {
 		Success: success, Status: map[bool]string{true: "completed", false: "failed"}[success],
 		Summary: "public success summary",
 	}
+	terminal, err := turndto.NewTurnTerminalV2(ev, "terminal:event-1")
+	if err != nil {
+		panic(err)
+	}
+	ev, err = turndto.AttachCanonicalTurnTerminal(ev, terminal)
+	if err != nil {
+		panic(err)
+	}
+	return ev
 }
 
 func assertTerminalOutcomeRowCounts(t *testing.T, db *sql.DB, wantOutcomes, wantOutbox int) {
 	t.Helper()
-	for table, want := range map[string]int{"public_terminal_outcomes": wantOutcomes, "terminal_outcome_outbox": wantOutbox} {
+	for table, want := range map[string]int{"public_terminal_outcome_history": wantOutcomes, "terminal_outcome_outbox_v2": wantOutbox} {
 		var got int
 		if err := db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&got); err != nil {
 			t.Fatalf("count %s: %v", table, err)

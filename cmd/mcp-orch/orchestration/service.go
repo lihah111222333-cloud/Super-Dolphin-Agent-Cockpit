@@ -148,14 +148,15 @@ type turnStopPort interface {
 }
 
 type turnControllerDeps struct {
-	registry     *agentRegistry
-	launcher     AgentLauncher
-	turnStarter  contract.OrchestrationTurnStarter
-	state        turnStatePort
-	terminalSink turnTerminalSink
-	rehydrator   turnRuntimeRehydrator
-	stopper      turnStopPort
-	logger       *slog.Logger
+	registry         *agentRegistry
+	launcher         AgentLauncher
+	turnStarter      contract.OrchestrationTurnStarter
+	state            turnStatePort
+	terminalOutcomes contract.TerminalOutcomeCommitPort
+	terminalSink     turnTerminalSink
+	rehydrator       turnRuntimeRehydrator
+	stopper          turnStopPort
+	logger           *slog.Logger
 }
 
 // turnController owns turn submission and active-turn state transitions.
@@ -164,6 +165,7 @@ type turnController struct {
 	launcher                        AgentLauncher
 	turnStarter                     contract.OrchestrationTurnStarter
 	state                           turnStatePort
+	terminalOutcomes                contract.TerminalOutcomeCommitPort
 	terminalSink                    turnTerminalSink
 	rehydrator                      turnRuntimeRehydrator
 	stopper                         turnStopPort
@@ -182,14 +184,15 @@ type turnController struct {
 
 func newTurnController(deps turnControllerDeps) *turnController {
 	return &turnController{
-		registry:     deps.registry,
-		launcher:     deps.launcher,
-		turnStarter:  deps.turnStarter,
-		state:        deps.state,
-		terminalSink: deps.terminalSink,
-		rehydrator:   deps.rehydrator,
-		stopper:      deps.stopper,
-		logger:       deps.logger,
+		registry:         deps.registry,
+		launcher:         deps.launcher,
+		turnStarter:      deps.turnStarter,
+		state:            deps.state,
+		terminalOutcomes: deps.terminalOutcomes,
+		terminalSink:     deps.terminalSink,
+		rehydrator:       deps.rehydrator,
+		stopper:          deps.stopper,
+		logger:           deps.logger,
 	}
 }
 
@@ -349,6 +352,7 @@ type agentRuntime struct {
 	startedAt, updatedAt, lastReportUpdatedAt                                                 time.Time
 	exitedAt                                                                                  *time.Time
 	launchSeq, lastExitedSeq, monitoredSeq, sessionGeneration                                 uint64
+	terminalHeadVersion                                                                       uint64
 	autoRecoverCount                                                                          int
 	autoRecoverSince                                                                          time.Time
 	stopRequested                                                                             bool
@@ -435,6 +439,7 @@ func NewService(
 func ProvideService(p serviceParams) *service {
 	svc := NewService(p.Logger, p.EventBus, p.Launcher, p.SessionCleaner, p.TurnStarter, p.DAGStore)
 	svc.terminalOutcomes = p.TerminalOutcomes
+	svc.turns.terminalOutcomes = p.TerminalOutcomes
 	svc.lifecycle.agentThreads = p.AgentThreads
 	svc.lifecycle.agentBindings = p.AgentBindings
 	svc.reports.agentThreads = p.AgentThreads

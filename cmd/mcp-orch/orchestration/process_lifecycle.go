@@ -14,6 +14,7 @@ import (
 	"github.com/kelindar/event"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/exitmonitor"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/processctl"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	platformrunner "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runner"
@@ -27,8 +28,28 @@ func (s *service) BindSessionGeneration(ctx context.Context, agentID string, gen
 		return errors.New("session generation is required")
 	}
 	return s.registry.withAgentLocked(agentID, func(agent *agentRuntime) error {
+		previousGeneration, previousVersion, previousUpdatedAt := agent.sessionGeneration, agent.terminalHeadVersion, agent.updatedAt
 		agent.sessionGeneration = generation
 		agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
+		if s.terminalOutcomes != nil {
+			threadID := strings.TrimSpace(firstNonEmpty(agent.remoteThreadID, agent.threadID))
+			sessionID := agentSessionID(agent)
+			if threadID == "" || sessionID == "" {
+				agent.sessionGeneration, agent.terminalHeadVersion, agent.updatedAt = previousGeneration, previousVersion, previousUpdatedAt
+				return errors.New("terminal outcome session head activation requires thread and session identity")
+			}
+			head, err := s.terminalOutcomes.ActivateTerminalOutcomeHead(ctx, contract.TerminalOutcomeHeadActivation{
+				Capability: contract.TerminalOutcomeCapabilityV2, AgentID: strings.TrimSpace(agent.id),
+				PublicThreadID: threadID, ProviderTurnID: "session-terminal:" + sessionID,
+				SessionID: sessionID, Generation: generation, ExpectedActiveState: string(agent.state),
+				ActivatedAt: agent.updatedAt,
+			})
+			if err != nil {
+				agent.sessionGeneration, agent.terminalHeadVersion, agent.updatedAt = previousGeneration, previousVersion, previousUpdatedAt
+				return fmt.Errorf("activate terminal outcome session head: %w", err)
+			}
+			agent.terminalHeadVersion = head.Version
+		}
 		return nil
 	})
 }

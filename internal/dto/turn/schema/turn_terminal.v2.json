@@ -11,6 +11,7 @@
     "threadId": { "type": "string", "minLength": 1 },
     "turnId": { "type": "string", "minLength": 1 },
     "outcome": { "type": "string", "enum": ["success", "failed", "interrupted", "cancelled"] },
+    "publicSummary": { "type": "string", "minLength": 1, "maxLength": 4096 },
     "terminationCause": { "type": "string", "enum": ["user_request", "provider", "system"] },
     "terminationRequestId": { "type": "string", "minLength": 1 },
     "publicError": { "$ref": "PublicErrorV1" },
@@ -20,19 +21,19 @@
   "allOf": [
     {
       "if": { "properties": { "outcome": { "const": "success" } }, "required": ["outcome"] },
-      "then": { "not": { "anyOf": [{ "required": ["terminationCause"] }, { "required": ["terminationRequestId"] }, { "required": ["publicError"] }] } }
+      "then": { "required": ["publicSummary"], "not": { "anyOf": [{ "required": ["terminationCause"] }, { "required": ["terminationRequestId"] }, { "required": ["publicError"] }] } }
     },
     {
       "if": { "properties": { "outcome": { "const": "failed" } }, "required": ["outcome"] },
-      "then": { "required": ["publicError"], "not": { "anyOf": [{ "required": ["terminationCause"] }, { "required": ["terminationRequestId"] }] } }
+      "then": { "required": ["publicError"], "not": { "anyOf": [{ "required": ["publicSummary"] }, { "required": ["terminationCause"] }, { "required": ["terminationRequestId"] }] } }
     },
     {
       "if": { "properties": { "outcome": { "enum": ["interrupted", "cancelled"] }, "terminationCause": { "const": "user_request" } }, "required": ["outcome", "terminationCause"] },
-      "then": { "required": ["terminationRequestId"], "not": { "required": ["publicError"] } }
+      "then": { "required": ["terminationRequestId"], "not": { "anyOf": [{ "required": ["publicSummary"] }, { "required": ["publicError"] }] } }
     },
     {
       "if": { "properties": { "outcome": { "enum": ["interrupted", "cancelled"] }, "terminationCause": { "enum": ["provider", "system"] } }, "required": ["outcome", "terminationCause"] },
-      "then": { "required": ["publicError"], "not": { "required": ["terminationRequestId"] } }
+      "then": { "required": ["publicError"], "not": { "anyOf": [{ "required": ["publicSummary"] }, { "required": ["terminationRequestId"] }] } }
     },
     {
       "if": { "properties": { "outcome": { "enum": ["interrupted", "cancelled"] } }, "required": ["outcome"] },

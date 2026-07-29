@@ -132,6 +132,9 @@ func (c *turnController) bindRemoteTurnIDLocked(ctx context.Context, agent *agen
 		}
 	}
 	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt, agent.startedAt)
+	if err := c.activateTerminalTurnHeadLocked(ctx, agent, turnID); err != nil {
+		return err
+	}
 	return nil
 }
 

@@ -21,6 +21,15 @@ import (
 
 // GetState 返回 agent 当前状态；runtime 缺失时回退到持久化 thread 快照。
 func (s *service) GetState(ctx context.Context, agentID string) (AgentStateResult, error) {
+	if s != nil && s.terminalOutcomes != nil {
+		outcome, err := s.terminalOutcomes.GetPublicTerminalOutcome(ctx, strings.TrimSpace(agentID))
+		if err == nil {
+			return AgentStateResult{AgentID: outcome.Identity.AgentID, State: publicTerminalState(outcome)}, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) && !errors.Is(err, contract.ErrTerminalOutcomeActive) {
+			return AgentStateResult{}, err
+		}
+	}
 	var result AgentStateResult
 	err := s.registry.withAgentReadLockedByAgentID(ctx, agentID, func(agent *agentRuntime) error {
 		result = AgentStateResult{AgentID: agent.id, State: string(agent.state)}
@@ -68,7 +77,7 @@ func (s *service) GetReport(ctx context.Context, agentID string) (AgentReportRes
 		if err == nil {
 			return publicTerminalReportResult(outcome), nil
 		}
-		if !errors.Is(err, sql.ErrNoRows) {
+		if !errors.Is(err, sql.ErrNoRows) && !errors.Is(err, contract.ErrTerminalOutcomeActive) {
 			return AgentReportResult{}, err
 		}
 	}
@@ -80,6 +89,14 @@ func (s *service) GetReport(ctx context.Context, agentID string) (AgentReportRes
 }
 
 func publicTerminalReportResult(outcome contract.TerminalOutcomeCommit) AgentReportResult {
+	state := publicTerminalState(outcome)
+	return AgentReportResult{
+		AgentID: outcome.Identity.AgentID, Report: outcome.PublicReport,
+		ReportSeq: 1, UpdatedAt: outcome.OccurredAt, State: state,
+	}
+}
+
+func publicTerminalState(outcome contract.TerminalOutcomeCommit) string {
 	state := string(agentdto.StateFailed)
 	switch outcome.PublicOutcome.Kind {
 	case "success":
@@ -87,10 +104,7 @@ func publicTerminalReportResult(outcome contract.TerminalOutcomeCommit) AgentRep
 	case "stopped":
 		state = string(agentdto.StateStopped)
 	}
-	return AgentReportResult{
-		AgentID: outcome.Identity.AgentID, Report: outcome.PublicReport,
-		ReportSeq: 1, UpdatedAt: outcome.OccurredAt, State: state,
-	}
+	return state
 }
 
 // RememberReportRequest 记录哪个 agent 请求了目标 agent 的最终 report。

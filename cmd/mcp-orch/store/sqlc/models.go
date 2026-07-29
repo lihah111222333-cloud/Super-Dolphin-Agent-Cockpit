@@ -441,6 +441,23 @@ type PublicTerminalOutcome struct {
 	OccurredAt        int64  `db:"occurred_at" json:"occurred_at"`
 }
 
+type PublicTerminalOutcomeHistory struct {
+	TerminalIdentity    string `db:"terminal_identity" json:"terminal_identity"`
+	EventID             string `db:"event_id" json:"event_id"`
+	AgentID             string `db:"agent_id" json:"agent_id"`
+	HeadVersion         int64  `db:"head_version" json:"head_version"`
+	SchemaVersion       int64  `db:"schema_version" json:"schema_version"`
+	ProjectionKind      string `db:"projection_kind" json:"projection_kind"`
+	PublicThreadID      string `db:"public_thread_id" json:"public_thread_id"`
+	ProviderTurnID      string `db:"provider_turn_id" json:"provider_turn_id"`
+	SessionID           string `db:"session_id" json:"session_id"`
+	Generation          int64  `db:"generation" json:"generation"`
+	ExpectedActiveState string `db:"expected_active_state" json:"expected_active_state"`
+	PublicOutcomeJson   string `db:"public_outcome_json" json:"public_outcome_json"`
+	PublicReport        string `db:"public_report" json:"public_report"`
+	OccurredAt          int64  `db:"occurred_at" json:"occurred_at"`
+}
+
 type RuntimeLock struct {
 	LockKey        string `db:"lock_key" json:"lock_key"`
 	Holder         string `db:"holder" json:"holder"`
@@ -644,6 +661,22 @@ type TaskTrace struct {
 	DurationMs    int64  `db:"duration_ms" json:"duration_ms"`
 }
 
+type TerminalOutcomeCurrentHead struct {
+	AgentID             string `db:"agent_id" json:"agent_id"`
+	Capability          string `db:"capability" json:"capability"`
+	PublicThreadID      string `db:"public_thread_id" json:"public_thread_id"`
+	ProviderTurnID      string `db:"provider_turn_id" json:"provider_turn_id"`
+	SessionID           string `db:"session_id" json:"session_id"`
+	Generation          int64  `db:"generation" json:"generation"`
+	ExpectedActiveState string `db:"expected_active_state" json:"expected_active_state"`
+	Version             int64  `db:"version" json:"version"`
+	State               string `db:"state" json:"state"`
+	TerminalEventID     string `db:"terminal_event_id" json:"terminal_event_id"`
+	TerminalIdentity    string `db:"terminal_identity" json:"terminal_identity"`
+	ActivatedAt         int64  `db:"activated_at" json:"activated_at"`
+	UpdatedAt           int64  `db:"updated_at" json:"updated_at"`
+}
+
 type TerminalOutcomeHead struct {
 	AgentID             string `db:"agent_id" json:"agent_id"`
 	Capability          string `db:"capability" json:"capability"`
@@ -667,6 +700,32 @@ type TerminalOutcomeOutbox struct {
 	ClaimedAt   *int64 `db:"claimed_at" json:"claimed_at"`
 	ProjectedAt *int64 `db:"projected_at" json:"projected_at"`
 	CreatedAt   int64  `db:"created_at" json:"created_at"`
+}
+
+type TerminalOutcomeOutboxV2 struct {
+	ID                  int64  `db:"id" json:"id"`
+	TerminalIdentity    string `db:"terminal_identity" json:"terminal_identity"`
+	EventID             string `db:"event_id" json:"event_id"`
+	PublicPayloadJson   string `db:"public_payload_json" json:"public_payload_json"`
+	PrivateDagPayloadID *int64 `db:"private_dag_payload_id" json:"private_dag_payload_id"`
+	Status              string `db:"status" json:"status"`
+	ClaimedBy           string `db:"claimed_by" json:"claimed_by"`
+	ClaimToken          string `db:"claim_token" json:"claim_token"`
+	LeaseExpiresAt      *int64 `db:"lease_expires_at" json:"lease_expires_at"`
+	AttemptCount        int64  `db:"attempt_count" json:"attempt_count"`
+	LastError           string `db:"last_error" json:"last_error"`
+	ProjectedAt         *int64 `db:"projected_at" json:"projected_at"`
+	CreatedAt           int64  `db:"created_at" json:"created_at"`
+}
+
+type TerminalOutcomePrivateDagPayload struct {
+	ID               int64  `db:"id" json:"id"`
+	TerminalIdentity string `db:"terminal_identity" json:"terminal_identity"`
+	OwnerAgentID     string `db:"owner_agent_id" json:"owner_agent_id"`
+	PublicThreadID   string `db:"public_thread_id" json:"public_thread_id"`
+	ProviderTurnID   string `db:"provider_turn_id" json:"provider_turn_id"`
+	PayloadJson      string `db:"payload_json" json:"payload_json"`
+	CreatedAt        int64  `db:"created_at" json:"created_at"`
 }
 
 type TopologyApproval struct {

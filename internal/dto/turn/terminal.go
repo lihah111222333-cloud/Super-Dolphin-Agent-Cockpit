@@ -34,6 +34,7 @@ type TurnTerminalV2 struct {
 	ThreadID             string         `json:"threadId"`
 	TurnID               string         `json:"turnId"`
 	Outcome              string         `json:"outcome"`
+	PublicSummary        string         `json:"publicSummary,omitempty"`
 	TerminationCause     string         `json:"terminationCause,omitempty"`
 	TerminationRequestID string         `json:"terminationRequestId,omitempty"`
 	PublicError          *PublicErrorV1 `json:"publicError,omitempty"`
@@ -77,6 +78,9 @@ func NewTurnTerminalV2(ev TurnCompleted, eventID string) (TurnTerminalV2, error)
 		TurnID:         turnRef.TurnID,
 		Outcome:        outcome,
 		PartialItemIDs: cloneStrings(ev.PartialItemIDs),
+	}
+	if outcome == "success" {
+		terminal.PublicSummary = strings.TrimSpace(ev.Summary)
 	}
 	if ev.Timestamp.IsZero() {
 		return TurnTerminalV2{}, errors.New("turn terminal occurredAt is required")
@@ -147,6 +151,7 @@ func cloneTurnTerminalV2(terminal TurnTerminalV2) TurnTerminalV2 {
 		ThreadID:             terminal.ThreadID,
 		TurnID:               terminal.TurnID,
 		Outcome:              terminal.Outcome,
+		PublicSummary:        terminal.PublicSummary,
 		TerminationCause:     terminal.TerminationCause,
 		TerminationRequestID: terminal.TerminationRequestID,
 		PartialItemIDs:       cloneStrings(terminal.PartialItemIDs),
