@@ -27,6 +27,7 @@ const FAILURE_SMOKE_ENV_CONFLICTS = Object.freeze([
 describe('delivery smoke runner', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.useRealTimers();
   });
 
   it('locks build, embed, start and failure smoke commands exactly', () => {
@@ -124,6 +125,186 @@ describe('delivery smoke runner', () => {
     }));
     expect(calls).toHaveLength(3);
     expect(verdict.commands.map(({ id }) => id)).toEqual(DELIVERY_CASE_IDS.slice(0, 3));
+  });
+
+  it('preserves redacted failure-only diagnostics for exit 2 with an exact schema', async () => {
+    const inspected = inspectDeliveryCommands({ scripts: COMPLETE_SCRIPTS }, MAKEFILE);
+    const secret = 't03-raw-provider-secret-do-not-persist';
+    const failure = new Error(`safe error Authorization: Bearer ${secret}`);
+    failure.stack = `leaked-stack ${secret}`;
+    const verdict = await runDeliveryCommands(inspected, async () => ({
+      status: 2,
+      signal: null,
+      timedOut: false,
+      stdout: `stdout Authorization: Bearer ${secret}`,
+      stderr: `stderr token=${secret}`,
+      error: failure,
+      outputTruncated: false,
+    }));
+
+    expect(verdict.diagnostics).toEqual({
+      availability: 'available',
+      stdout: 'stdout Authorization: Bearer [redacted]',
+      stderr: 'stderr token=[redacted]',
+      error: 'safe error Authorization: Bearer [redacted]',
+      outputTruncated: false,
+      runnerTruncated: false,
+    });
+    expect(JSON.stringify(verdict.diagnostics)).not.toContain(secret);
+    expect(JSON.stringify(verdict.diagnostics)).not.toContain('leaked-stack');
+  });
+
+  it('redacts GitHub raw tokens from exit-2 stdout diagnostics', async () => {
+    const inspected = inspectDeliveryCommands({ scripts: COMPLETE_SCRIPTS }, MAKEFILE);
+    const classicToken = 'ghp_syntheticClassicToken123456789';
+    const fineGrainedToken = 'github_pat_syntheticFineGrainedToken123456789';
+    const verdict = await runDeliveryCommands(inspected, async () => ({
+      status: 2,
+      signal: null,
+      timedOut: false,
+      stdout: `classic=${classicToken} fine-grained=${fineGrainedToken}`,
+      stderr: '',
+      error: null,
+      outputTruncated: false,
+    }));
+
+    expect(verdict.diagnostics).toEqual({
+      availability: 'available',
+      stdout: 'classic=[redacted] fine-grained=[redacted]',
+      stderr: '',
+      error: '',
+      outputTruncated: false,
+      runnerTruncated: false,
+    });
+    expect(JSON.stringify(verdict.diagnostics)).not.toContain(classicToken);
+    expect(JSON.stringify(verdict.diagnostics)).not.toContain(fineGrainedToken);
+  });
+
+  it('redacts before applying the aggregate UTF-8-safe diagnostics budget', async () => {
+    const inspected = inspectDeliveryCommands({ scripts: COMPLETE_SCRIPTS }, MAKEFILE);
+    const secret = 't03-raw-provider-secret-do-not-persist';
+    const verdict = await runDeliveryCommands(inspected, async () => ({
+      status: 2,
+      signal: null,
+      timedOut: false,
+      stdout: `${'界'.repeat(1500)} Authorization: Bearer ${secret}`,
+      stderr: `${'错'.repeat(1500)} token=${secret}`,
+      error: new Error(`失${'败'.repeat(1500)} password=${secret}`),
+      outputTruncated: false,
+    }));
+
+    expect(verdict.diagnostics.availability).toBe('available');
+    expect(verdict.diagnostics.outputTruncated).toBe(false);
+    expect(verdict.diagnostics.runnerTruncated).toBe(true);
+    expect(Buffer.byteLength(
+      verdict.diagnostics.stdout + verdict.diagnostics.stderr + verdict.diagnostics.error,
+      'utf8',
+    )).toBeLessThanOrEqual(4096);
+    expect(JSON.stringify(verdict.diagnostics)).not.toContain(secret);
+    expect(JSON.stringify(verdict.diagnostics)).not.toContain('\uFFFD');
+  });
+
+  it('keeps upstream output truncation distinct from runner truncation', async () => {
+    const inspected = inspectDeliveryCommands({ scripts: COMPLETE_SCRIPTS }, MAKEFILE);
+    const verdict = await runDeliveryCommands(inspected, async () => ({
+      status: 2,
+      signal: null,
+      timedOut: false,
+      stdout: 'partial upstream output',
+      stderr: '',
+      error: null,
+      outputTruncated: true,
+    }));
+
+    expect(verdict.diagnostics).toEqual({
+      availability: 'available',
+      stdout: 'partial upstream output',
+      stderr: '',
+      error: '',
+      outputTruncated: true,
+      runnerTruncated: false,
+    });
+  });
+
+  it('marks an exit-2 diagnostic package explicitly unavailable when no detail exists', async () => {
+    const inspected = inspectDeliveryCommands({ scripts: COMPLETE_SCRIPTS }, MAKEFILE);
+    const verdict = await runDeliveryCommands(inspected, async () => ({
+      status: 2,
+      signal: null,
+      timedOut: false,
+    }));
+
+    expect(verdict.diagnostics).toEqual({
+      availability: 'unavailable',
+      stdout: '',
+      stderr: '',
+      error: '',
+      outputTruncated: false,
+      runnerTruncated: false,
+    });
+  });
+
+  it('keeps the legacy PASS verdict schema deep-equal when every command exits zero', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-29T00:00:00.000Z'));
+    const inspected = inspectDeliveryCommands({ scripts: COMPLETE_SCRIPTS }, MAKEFILE);
+    const verdict = await runDeliveryCommands(inspected, async () => ({
+      status: 0,
+      signal: null,
+      timedOut: false,
+      stdout: 'must not be retained',
+      stderr: 'must not be retained',
+      outputTruncated: false,
+    }));
+
+    expect(verdict).toEqual({
+      status: 'PASS',
+      reason: '',
+      executedCommands: DELIVERY_COMMANDS.length,
+      commands: DELIVERY_COMMANDS.map(({ id, argv, cwd: commandCwd }) => ({
+        id,
+        argv,
+        cwd: commandCwd,
+        exitCode: 0,
+        signal: null,
+        startedAt: '2026-07-29T00:00:00.000Z',
+        finishedAt: '2026-07-29T00:00:00.000Z',
+        durationMs: 0,
+        status: 'PASS',
+      })),
+    });
+  });
+
+  it('keeps the legacy failure verdict schema deep-equal for non-exit-2 failures', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-29T00:00:00.000Z'));
+    const inspected = inspectDeliveryCommands({ scripts: COMPLETE_SCRIPTS }, MAKEFILE);
+    const verdict = await runDeliveryCommands(inspected, async () => ({
+      status: 1,
+      signal: null,
+      timedOut: false,
+      stdout: 'must not be retained',
+      stderr: 'must not be retained',
+      error: null,
+      outputTruncated: true,
+    }));
+
+    expect(verdict).toEqual({
+      status: 'FAIL',
+      reason: 'frontend-build failed with exit 1 signal ',
+      executedCommands: 1,
+      commands: [{
+        id: 'frontend-build',
+        argv: DELIVERY_COMMANDS[0].argv,
+        cwd: 'frontend-app',
+        exitCode: 1,
+        signal: null,
+        startedAt: '2026-07-29T00:00:00.000Z',
+        finishedAt: '2026-07-29T00:00:00.000Z',
+        durationMs: 0,
+        status: 'FAIL',
+      }],
+    });
   });
 
   it('runs the complete integration delivery surface in final verify mode', async () => {

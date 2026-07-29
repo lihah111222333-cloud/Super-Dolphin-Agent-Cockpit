@@ -13,6 +13,8 @@ const FRONTEND_ROOT = resolve(dirname(SCRIPT_PATH), '..');
 const REPOSITORY_ROOT = resolve(FRONTEND_ROOT, '..');
 const DELIVERY_RUNNER_CONTENT_PATHS = FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS;
 export const DELIVERY_COMMAND_TIMEOUT_MS = 900_000;
+const DELIVERY_DIAGNOSTIC_MAX_BYTES = 4 * 1024;
+const RUNNER_TRUNCATION_MARKER = '\n...[runner truncated]...\n';
 
 const DELIVERY_COMMANDS = Object.freeze([
   Object.freeze({
@@ -108,6 +110,83 @@ function inspectDeliveryCommands(packageJSON, makefile) {
   });
 }
 
+function redactDiagnostic(value) {
+  return value
+    .replace(/Authorization:\s*Bearer\s+[^\s"']+/giu, 'Authorization: Bearer [redacted]')
+    .replace(
+      /\b(api[_-]?key|access[_-]?token|token|password|passwd|secret)\b(\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;]+)/giu,
+      '$1$2[redacted]',
+    )
+    .replace(/\b(?:sk-[a-z0-9_-]{8,}|gh[pousr]_[a-z0-9_]{8,}|github_pat_[a-z0-9_]{8,})\b/giu, '[redacted]')
+    .replace(/t03-raw-provider-secret-do-not-persist/gu, '[redacted]');
+}
+
+function safeErrorMessage(error) {
+  if (typeof error === 'string') return error;
+  if (error && typeof error.message === 'string') return error.message;
+  return '';
+}
+
+function utf8Prefix(buffer, maxBytes) {
+  let end = Math.min(buffer.byteLength, Math.max(0, maxBytes));
+  while (end > 0 && end < buffer.byteLength && (buffer[end] & 0xC0) === 0x80) end -= 1;
+  return buffer.subarray(0, end).toString('utf8');
+}
+
+function utf8Suffix(buffer, maxBytes) {
+  let start = Math.max(0, buffer.byteLength - Math.max(0, maxBytes));
+  while (start < buffer.byteLength && (buffer[start] & 0xC0) === 0x80) start += 1;
+  return buffer.subarray(start).toString('utf8');
+}
+
+function truncateUtf8(value, maxBytes) {
+  const buffer = Buffer.from(value, 'utf8');
+  if (buffer.byteLength <= maxBytes) return value;
+  const markerBytes = Buffer.byteLength(RUNNER_TRUNCATION_MARKER, 'utf8');
+  if (maxBytes <= markerBytes) return utf8Prefix(Buffer.from(RUNNER_TRUNCATION_MARKER), maxBytes);
+  const retainedBytes = maxBytes - markerBytes;
+  const prefixBytes = Math.ceil(retainedBytes / 2);
+  const suffixBytes = retainedBytes - prefixBytes;
+  return `${utf8Prefix(buffer, prefixBytes)}${RUNNER_TRUNCATION_MARKER}${utf8Suffix(buffer, suffixBytes)}`;
+}
+
+function boundedDiagnostics(result) {
+  const fields = [
+    redactDiagnostic(typeof result.stdout === 'string' ? result.stdout : ''),
+    redactDiagnostic(typeof result.stderr === 'string' ? result.stderr : ''),
+    redactDiagnostic(safeErrorMessage(result.error)),
+  ];
+  const byteLengths = fields.map((value) => Buffer.byteLength(value, 'utf8'));
+  const totalBytes = byteLengths.reduce((total, length) => total + length, 0);
+  let runnerTruncated = totalBytes > DELIVERY_DIAGNOSTIC_MAX_BYTES;
+  let bounded = fields;
+  if (runnerTruncated) {
+    let low = 0;
+    let high = DELIVERY_DIAGNOSTIC_MAX_BYTES;
+    while (low < high) {
+      const candidate = Math.ceil((low + high) / 2);
+      const candidateTotal = byteLengths.reduce(
+        (total, length) => total + Math.min(length, candidate),
+        0,
+      );
+      if (candidateTotal <= DELIVERY_DIAGNOSTIC_MAX_BYTES) low = candidate;
+      else high = candidate - 1;
+    }
+    bounded = fields.map((value) => truncateUtf8(value, low));
+    runnerTruncated = bounded.some((value, index) => value !== fields[index]);
+  }
+  const [stdout, stderr, error] = bounded;
+  const outputTruncated = Boolean(result.outputTruncated);
+  return Object.freeze({
+    availability: stdout || stderr || error || outputTruncated ? 'available' : 'unavailable',
+    stdout,
+    stderr,
+    error,
+    outputTruncated,
+    runnerTruncated,
+  });
+}
+
 async function runDeliveryCommands(inspected, runCommand = runManagedCommand, repositoryRoot = REPOSITORY_ROOT) {
   if (inspected.status !== 'READY') {
     return Object.freeze({
@@ -145,14 +224,16 @@ async function runDeliveryCommands(inspected, runCommand = runManagedCommand, re
       status: !result.timedOut && !result.error && result.status === 0 ? 'PASS' : 'FAIL',
     }));
     if (result.timedOut || result.error || result.status !== 0) {
-      return Object.freeze({
+      const failure = {
         status: 'FAIL',
         reason: result.timedOut
           ? `${command.id} timed out after ${DELIVERY_COMMAND_TIMEOUT_MS}ms`
           : `${command.id} failed with exit ${result.status} signal ${result.signal || ''}`,
         executedCommands: results.length,
         commands: Object.freeze(results),
-      });
+      };
+      if (result.status === 2) failure.diagnostics = boundedDiagnostics(result);
+      return Object.freeze(failure);
     }
   }
   return Object.freeze({
