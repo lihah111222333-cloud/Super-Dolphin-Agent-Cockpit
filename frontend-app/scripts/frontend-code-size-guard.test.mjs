@@ -192,6 +192,19 @@ describe('frontend code size guard', () => {
     expect(output).not.toContain('raw-next-hash');
   });
 
+  it('fails closed for unknown codes and missing or mutated public recovery fields', () => {
+    const unknown = Object.assign(new Error('private'), {
+      code: 'BASELINE_SENTINEL_UNKNOWN', phase: 'sentinel-phase', recoveryAction: 'inspect-without-mutating',
+    });
+    expect(() => formatBaselineTransactionErrorForStderr(unknown)).toThrow(/unknown public error code/);
+
+    const missing = Object.assign(new Error('private'), { code: 'BASELINE_COMMITTED_DURABILITY_UNKNOWN' });
+    expect(() => formatBaselineTransactionErrorForStderr(missing)).toThrow(/phase/);
+
+    Object.assign(missing, { phase: 'post-commit-cleanup', recoveryAction: 'delete-everything' });
+    expect(() => formatBaselineTransactionErrorForStderr(missing)).toThrow(/recovery action/);
+  });
+
   it('counts effective lines without comments and blank lines', () => {
     expect(countEffectiveLines([
       '',

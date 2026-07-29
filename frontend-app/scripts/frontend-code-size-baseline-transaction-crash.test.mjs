@@ -233,9 +233,9 @@ describe.skipIf(process.platform === 'win32')('frontend code size baseline crash
   });
 
   it.each([
-    ['before-backup-link', 'old', 'BASELINE_PRIMARY_IO_FAILURE'],
-    ['before-commit-dir-fsync', 'new', 'BASELINE_COMMITTED_DURABILITY_UNKNOWN'],
-  ])('does not mask the %s primary error with a later cleanup error', (failurePoint, expectedVersion, expectedCode) => {
+    ['before-backup-link', 'old'],
+    ['before-commit-dir-fsync', 'new'],
+  ])('does not mask the %s primary error with a later cleanup error', (failurePoint, expectedVersion) => {
     const fixture = transactionFixture();
     try {
       let caught;
@@ -258,8 +258,8 @@ describe.skipIf(process.platform === 'win32')('frontend code size baseline crash
       } catch (error) {
         caught = error;
       }
-      expect(caught?.code).toBe(expectedCode);
-      const primaryError = expectedVersion === 'old' ? caught : caught?.cause;
+      expect(caught?.code).toBe('BASELINE_TRANSACTION_FAILED_WITH_RECOVERY_REQUIRED');
+      const primaryError = expectedVersion === 'old' ? caught?.cause : caught?.cause?.cause;
       expect(primaryError?.message).toContain(`primary ${failurePoint}`);
       expect(primaryError?.message).not.toContain('secondary cleanup failure');
       const expectedBytes = expectedVersion === 'old' ? fixture.oldBytes : fixture.newBytes;
@@ -525,6 +525,82 @@ describe.skipIf(process.platform === 'win32')('frontend code size baseline crash
       const lockPresent = names.some((name) => name.endsWith('.lock'));
       const ownedArtifactPresent = names.some((name) => name.endsWith('.bak') || name.endsWith('.tmp'));
       expect(lockPresent || !ownedArtifactPresent).toBe(true);
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it('wraps a private primary error when cleanup retains the recovery marker', () => {
+    const fixture = transactionFixture();
+    const sentinel = 'SENTINEL-PRIMARY-SECRET-RAW-BYTES';
+    try {
+      let caught;
+      try {
+        writeBaselineTransaction({
+          filePath: fixture.filePath,
+          expectedHash: hashBaselineBytes(fixture.oldBytes),
+          previous: fixture.previous,
+          candidate: fixture.candidate,
+          now: () => new Date('2026-07-10T00:00:00Z'),
+          failpoint(point) {
+            if (point === 'before-atomic-replace') {
+              throw new Error(`${fixture.filePath} ${sentinel} ${fixture.newBytes.toString('utf8')}`);
+            }
+            if (point === 'before-cleanup-backup-unlink') throw new Error('cleanup failed');
+          },
+        });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught?.code).toBe('BASELINE_TRANSACTION_FAILED_WITH_RECOVERY_REQUIRED');
+      expect(caught?.phase).toBe('resource-or-lock-cleanup');
+      expect(caught?.recoveryAction).toBe('inspect-marker-and-owned-artifacts-without-deleting');
+      expect(caught?.message).not.toContain(fixture.root);
+      expect(caught?.message).not.toContain(sentinel);
+      expect(caught?.message).not.toContain(fixture.newBytes.toString('utf8'));
+      expect(caught?.cause?.message).toContain(sentinel);
+      expect(fs.existsSync(`${fixture.filePath}.lock`)).toBe(true);
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it.each(['target', 'artifact'])('wraps malformed stale %s bytes in a typed manual-recovery error', (surface) => {
+    const fixture = transactionFixture();
+    const lockPath = `${fixture.filePath}.lock`;
+    const malformedBytes = Buffer.from('{"secret":"SENTINEL-MALFORMED"');
+    const owner = {
+      version: 2,
+      pid: 2147483647,
+      startIdentity: 'dead-process',
+      nonce: '0123456789abcdef',
+      createdAt: '2026-07-10T00:00:00.000Z',
+      transaction: {
+        expectedHash: surface === 'target' ? hashBaselineBytes(malformedBytes) : hashBaselineBytes(fixture.oldBytes),
+        nextHash: surface === 'artifact' ? hashBaselineBytes(malformedBytes) : hashBaselineBytes(fixture.newBytes),
+      },
+    };
+    const artifacts = ownedArtifactPaths(fixture.filePath, owner);
+    fs.writeFileSync(lockPath, `${JSON.stringify(owner)}\n`);
+    if (surface === 'target') fs.writeFileSync(fixture.filePath, malformedBytes);
+    else fs.writeFileSync(artifacts.tempPath, malformedBytes);
+    try {
+      let caught;
+      try {
+        acquireBaselineLock(fixture.filePath, {
+          installSignalHandlers: false,
+          resolveProcessIdentity: () => null,
+        });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught?.code).toBe('BASELINE_LOCK_MANUAL_RECOVERY_REQUIRED');
+      expect(caught?.phase).toBe('stale-lock-recovery');
+      expect(caught?.recoveryAction).toBe('inspect-marker-and-owned-artifacts-without-deleting');
+      expect(caught?.message).not.toContain(fixture.root);
+      expect(caught?.message).not.toContain('SENTINEL-MALFORMED');
+      expect(caught?.cause).toBeInstanceOf(Error);
+      expect(fs.existsSync(lockPath)).toBe(true);
     } finally {
       fs.rmSync(fixture.root, { recursive: true, force: true });
     }
