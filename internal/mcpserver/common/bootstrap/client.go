@@ -48,6 +48,8 @@ type Client struct {
 	sweeperInterval        time.Duration
 	configVersion          int64
 	serverProtocolVersion  string
+	managedToken           string
+	managedRequestID       string
 	capabilitiesNegotiated []string
 	capabilitiesRejected   []string
 	resumeGeneration       uint64
@@ -65,27 +67,29 @@ type Client struct {
 
 // Config 是创建 Client 时必须提供的静态配置。
 type Config struct {
-	RPCAddr              string
-	InstanceID           string
-	BootID               string
-	BinaryName           string
-	ClientKind           string
-	AgentID              string // optional; empty means this MCP process is a shared service
-	ThreadID             string
-	SessionToken         string
-	Capabilities         []string
-	CapabilitiesOffered  []string
-	CapabilitiesRequired []string
-	Subscriptions        []string
-	BootSnapshot         json.RawMessage
-	ReportQueueLimit     int
-	FinalReport          func() *mcp.ReportRequest
-	OnShutdown           func(mcp.ShutdownRequest)
-	OnConfigChanged      func(mcp.ConfigChangedNotify)
-	OnLSPReleaseScope    func(context.Context, mcp.LSPReleaseScopeRequest) (mcp.LSPReleaseScopeResult, error)
-	Hooks                HookConfig
-	OnToolsList          func(context.Context) (any, error)                             // tools/list 回调入口
-	OnToolsCall          func(ctx context.Context, params json.RawMessage) (any, error) // tools/call 回调入口
+	RPCAddr                string
+	InstanceID             string
+	BootID                 string
+	BinaryName             string
+	ClientKind             string
+	AgentID                string // optional; empty means this MCP process is a shared service
+	ThreadID               string
+	SessionToken           string
+	ManagedToken           string
+	ManagedProtocolVersion string
+	Capabilities           []string
+	CapabilitiesOffered    []string
+	CapabilitiesRequired   []string
+	Subscriptions          []string
+	BootSnapshot           json.RawMessage
+	ReportQueueLimit       int
+	FinalReport            func() *mcp.ReportRequest
+	OnShutdown             func(mcp.ShutdownRequest)
+	OnConfigChanged        func(mcp.ConfigChangedNotify)
+	OnLSPReleaseScope      func(context.Context, mcp.LSPReleaseScopeRequest) (mcp.LSPReleaseScopeResult, error)
+	Hooks                  HookConfig
+	OnToolsList            func(context.Context) (any, error)                             // tools/list 回调入口
+	OnToolsCall            func(ctx context.Context, params json.RawMessage) (any, error) // tools/call 回调入口
 }
 
 // New 创建控制平面 Client，并在构造阶段严格校验和归一化配置。
@@ -102,6 +106,7 @@ func New(cfg Config) (*Client, error) {
 		sendTimeout:       defaultRPCTimeout,
 		reportQueueLimit:  shared.ClampLimit(cfg.ReportQueueLimit, 1, 0, defaultReportQueueLimit),
 		boot:              boot,
+		managedToken:      cfg.ManagedToken,
 	}, nil
 }
 

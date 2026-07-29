@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	mcp "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 )
 
 const (
@@ -39,6 +40,29 @@ func (l *execPeerLauncher) peerEnvForTest(name string, parent []string) ([]strin
 		return peerProcessEnv(name, parent, nil)
 	}
 	return peerProcessEnv(name, parent, l.workspaceRoots())
+}
+
+// peerEnvForLaunch 仅给 mcp-orch 注入 managed bootstrap，其他 sidecar 只使用既有环境合同。
+func (l *execPeerLauncher) peerEnvForLaunch(
+	name string,
+	parent []string,
+	managed *mcp.ManagedAuthorityBootstrap,
+) ([]string, error) {
+	var roots []string
+	if l != nil && l.workspaceRoots != nil {
+		roots = l.workspaceRoots()
+	}
+	env, err := peerProcessEnv(name, parent, roots)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(name) != "mcp-orch" {
+		return env, nil
+	}
+	if managed == nil {
+		return nil, errors.New("mcp-orch peer requires managed authority bootstrap")
+	}
+	return injectManagedPeerBootstrap(env, *managed)
 }
 
 // peerProcessEnv 组装 sidecar peer 进程环境变量。
@@ -112,6 +136,7 @@ func trustedOrchSQLitePath(parent []string, name string) (string, bool, error) {
 	return publicSQLitePath, true, nil
 }
 
+// injectPeerBootstrapIdentity 清除父进程身份并写入当前 peer 的基础启动身份。
 func injectPeerBootstrapIdentity(env []string, name string) ([]string, error) {
 	name = strings.TrimSpace(name)
 	clientKind := map[string]string{"mcp-orch": "orch", "mcp-lsp": "lsp"}[name]
@@ -125,6 +150,8 @@ func injectPeerBootstrapIdentity(env []string, name string) ([]string, error) {
 		peerClientKindEnv, "GO_AGENT_MCP_CLIENT_KIND",
 		"GO_AGENT_CTL_AGENT_ID", "GO_AGENT_MCP_AGENT_ID",
 		"GO_AGENT_CTL_THREAD_ID", "GO_AGENT_MCP_THREAD_ID",
+		"GO_AGENT_CTL_MANAGED_TOKEN",
+		"GO_AGENT_CTL_MANAGED_PROTOCOL_VERSION",
 		peerBootstrapJSONEnv, "GO_AGENT_MCP_BOOT_CONTEXT",
 	)
 	boot, err := json.Marshal(map[string]string{
@@ -137,6 +164,37 @@ func injectPeerBootstrapIdentity(env []string, name string) ([]string, error) {
 	return append(env,
 		peerBinaryNameEnv+"="+name,
 		peerClientKindEnv+"="+clientKind,
+		peerBootstrapJSONEnv+"="+string(boot),
+	), nil
+}
+
+// injectManagedPeerBootstrap 用 registry 签发值覆盖 mcp-orch 身份和 managed authority 环境。
+func injectManagedPeerBootstrap(env []string, managed mcp.ManagedAuthorityBootstrap) ([]string, error) {
+	if managed.InstanceID == "" || managed.BootID == "" || managed.Token == "" ||
+		managed.ProtocolVersion != mcp.ManagedAuthorityProtocolVersion {
+		return nil, errors.New("mcp-orch managed authority bootstrap is incomplete")
+	}
+	env = removeEnvKeys(env,
+		"GO_AGENT_CTL_INSTANCE_ID", "GO_AGENT_MCP_INSTANCE_ID",
+		"GO_AGENT_CTL_BOOT_ID", "GO_AGENT_MCP_BOOT_ID",
+		"GO_AGENT_CTL_MANAGED_TOKEN",
+		"GO_AGENT_CTL_MANAGED_PROTOCOL_VERSION",
+		peerBootstrapJSONEnv, "GO_AGENT_MCP_BOOT_CONTEXT",
+	)
+	boot, err := json.Marshal(map[string]string{
+		"instance_id": managed.InstanceID,
+		"boot_id":     managed.BootID,
+		"binary_name": "mcp-orch",
+		"client_kind": mcp.ClientKindOrch,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return append(env,
+		"GO_AGENT_CTL_INSTANCE_ID="+managed.InstanceID,
+		"GO_AGENT_CTL_BOOT_ID="+managed.BootID,
+		"GO_AGENT_CTL_MANAGED_TOKEN="+managed.Token,
+		"GO_AGENT_CTL_MANAGED_PROTOCOL_VERSION="+managed.ProtocolVersion,
 		peerBootstrapJSONEnv+"="+string(boot),
 	), nil
 }

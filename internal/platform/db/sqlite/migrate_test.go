@@ -224,6 +224,45 @@ func TestDatasourceDocumentsTableComesFromMigration(t *testing.T) {
 	assertIndex(t, db, "datasource_documents", "idx_datasource_documents_workspace_name", false, "")
 }
 
+// TestMCPManagedGenerationTablesComeFromMigration 验证 generation owner 只由规范 migration 建表。
+func TestMCPManagedGenerationTablesComeFromMigration(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrationTestDB(t)
+	createMigrationMarkerTable(t, db)
+	markBaselineApplied(t, db)
+	dir := t.TempDir()
+	const migration = "120_mcp_managed_generations.sql"
+	writeMigrationTestFile(t, dir, migration, readMigrationTestFile(t, migration))
+
+	if err := RunMigrations(ctx, db, dir); err != nil {
+		t.Fatalf("RunMigrations() error = %v", err)
+	}
+	tables := sqliteTables(t, db)
+	for _, table := range []string{
+		"mcp_managed_generation_owner",
+		"mcp_managed_generation_instances",
+		"mcp_managed_generations",
+	} {
+		if !tables[table] {
+			t.Fatalf("%s table missing after migration 120", table)
+		}
+	}
+	assertMigrationMarkerCount(t, db, migration, 1)
+	assertPrimaryKey(t, db, "mcp_managed_generation_owner", []string{"singleton_id"})
+	assertPrimaryKey(t, db, "mcp_managed_generation_instances", []string{"instance_id"})
+	assertPrimaryKey(t, db, "mcp_managed_generations", []string{"instance_id"})
+	assertNotNullColumns(t, db, "mcp_managed_generation_owner", []string{
+		"owner_epoch",
+		"marker_initialized",
+		"ledger_initialized",
+	})
+	assertNotNullColumns(t, db, "mcp_managed_generations", []string{
+		"generation",
+		"claim_id",
+		"external_committed",
+	})
+}
+
 // TestRunMigrationsThreadTimestampMillisConvertsPersistedSeconds 验证历史 thread 秒时间戳会在持久化边界一次性升级为毫秒。
 func TestRunMigrationsThreadTimestampMillisConvertsPersistedSeconds(t *testing.T) {
 	ctx := context.Background()

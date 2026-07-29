@@ -4,6 +4,21 @@ package mcp
 
 import "strings"
 
+var orchCapabilities = []string{
+	"tools/orchestration",
+	"tools/task",
+	"tools/workspace",
+	"tools/prompt",
+	"tools/command",
+	"tools/shared_file",
+	"tools/video",
+}
+
+// OrchCapabilities 返回 mcp-orch 与 host managed profile 共享的能力真值副本。
+func OrchCapabilities() []string {
+	return append([]string(nil), orchCapabilities...)
+}
+
 const (
 	// ctl/* 控制协议方法名。
 	MethodRegister        = "ctl/register"
@@ -19,6 +34,8 @@ const (
 
 	// ProtocolVersion 是当前握手协议版本标识。
 	ProtocolVersion = "ctl/v1"
+	// ManagedAuthorityProtocolVersion 是 shared managed authority 的显式协商版本。
+	ManagedAuthorityProtocolVersion = "managed-authority/v1"
 
 	// ClientKind* 标识注册客户端的角色类型。
 	ClientKindOrch   = "orch"

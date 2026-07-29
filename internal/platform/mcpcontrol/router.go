@@ -91,7 +91,7 @@ func callbackHookDecision[T any](
 		return decision, errPeerUnavailable("mcp peer %s/%d is not available", instance.Lease.InstanceID, instance.Lease.Generation)
 	}
 	payload = shared.CloneHookPayload(payload)
-	err = registry.invokeFanoutTarget(ctx, sendTarget{key: instance.Lease, peer: instance.Peer}, fanoutOperation{
+	err = registry.invokeFanoutTarget(ctx, sendTarget{key: instance.Lease, peer: instance.Peer, runtime: instance.runtime}, fanoutOperation{
 		name: "callback",
 		invoke: func(ctx context.Context, peer Peer) error {
 			return peer.Callback(ctx, method, payload, &decision)

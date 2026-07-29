@@ -12,8 +12,9 @@ import (
 
 // sendTarget 是一次 fanout 调用的最小目标，保留租约键用于失败计数和驱逐。
 type sendTarget struct {
-	key  LeaseKey
-	peer Peer
+	key     LeaseKey
+	peer    Peer
+	runtime *leaseRuntime
 }
 
 // selectorBucket 保存某个 selector 维度命中的租约集合，交集计算会优先遍历最小桶。
@@ -80,7 +81,7 @@ func (r *ToolRegistry) snapshotTargets(index map[string]map[LeaseKey]struct{}, b
 		if instance == nil || instance.Peer == nil || instance.Status != dto.StatusActive {
 			continue
 		}
-		targets = append(targets, sendTarget{key: key, peer: instance.Peer})
+		targets = append(targets, sendTarget{key: key, peer: instance.Peer, runtime: instance.runtime})
 	}
 	return targets
 }
@@ -119,7 +120,7 @@ func (r *ToolRegistry) activeTargetLocked(key LeaseKey) (sendTarget, bool) {
 	if instance == nil || instance.Peer == nil || instance.Status != dto.StatusActive {
 		return sendTarget{}, false
 	}
-	return sendTarget{key: key, peer: instance.Peer}, true
+	return sendTarget{key: key, peer: instance.Peer, runtime: instance.runtime}, true
 }
 
 // selectorIndexBucket 读取单个 selector 维度；空维度表示不过滤，非空无命中表示整次查询失败。

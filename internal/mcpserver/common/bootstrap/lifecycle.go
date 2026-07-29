@@ -64,6 +64,7 @@ func (c *Client) registerConn(ctx context.Context, conn *jrpc2.Client) (*mcp.Reg
 	if conn == nil {
 		return nil, errors.New("bootstrap: nil rpc client")
 	}
+	managedProof := c.currentManagedProof()
 	req := mcp.RegisterRequest{
 		InstanceID:           c.instanceID,
 		BinaryName:           c.cfg.BinaryName,
@@ -77,6 +78,13 @@ func (c *Client) registerConn(ctx context.Context, conn *jrpc2.Client) (*mcp.Reg
 		CapabilitiesOffered:  shared.CloneStrings(c.offeredCapabilities()),
 		CapabilitiesRequired: shared.CloneStrings(c.cfg.CapabilitiesRequired),
 		Subscriptions:        shared.CloneStrings(c.cfg.Subscriptions),
+		ManagedAuthority:     managedProof,
+	}
+	if managedProof != nil {
+		req.AgentID = ""
+		req.ThreadID = ""
+		req.PeerKind = mcp.PeerKindSharedService
+		req.Shared = true
 	}
 	if resume := c.currentResumeGeneration(); resume != 0 {
 		req.ResumeFromGeneration = &resume
@@ -87,7 +95,19 @@ func (c *Client) registerConn(ctx context.Context, conn *jrpc2.Client) (*mcp.Reg
 	if err := conn.CallResult(callCtx, mcp.MethodRegister, req, &resp); err != nil {
 		return nil, err
 	}
-	return normalizeRegisterResponse(&resp, c.instanceID)
+	normalized, err := normalizeRegisterResponse(&resp, c.instanceID)
+	if err != nil {
+		return nil, err
+	}
+	if managedProof != nil {
+		if normalized.ManagedAuthority == nil {
+			return nil, errors.New("bootstrap: managed register response missing authority receipt")
+		}
+		if normalized.ManagedAuthority.RequestID != managedProof.RequestID {
+			return nil, errors.New("bootstrap: managed register response request_id mismatch")
+		}
+	}
+	return normalized, nil
 }
 
 // handleNotify 分发服务端推送的通知消息。
@@ -258,6 +278,10 @@ func (c *Client) applyRegisterLocked(reg *mcp.RegisterResponse) {
 	c.serverProtocolVersion = strings.TrimSpace(reg.ServerProtocolVersion)
 	c.capabilitiesNegotiated = shared.CloneStrings(reg.CapabilitiesNegotiated)
 	c.capabilitiesRejected = shared.CloneStrings(reg.CapabilitiesRejected)
+	if reg.ManagedAuthority != nil {
+		c.managedToken = reg.ManagedAuthority.NextToken
+		c.managedRequestID = ""
+	}
 	c.heartbeatInterval = durationOrDefault(reg.HeartbeatIntervalMs, defaultHeartbeatInterval)
 	c.heartbeatTimeout = durationOrDefault(reg.HeartbeatTimeoutMs, defaultHeartbeatTimeout)
 	c.sendTimeout = durationOrDefault(reg.SendTimeoutMs, defaultRPCTimeout)
@@ -267,6 +291,23 @@ func (c *Client) applyRegisterLocked(reg *mcp.RegisterResponse) {
 	}
 	if c.sendTimeout >= c.heartbeatInterval {
 		c.sendTimeout = maxDuration(time.Second, c.heartbeatInterval/2)
+	}
+}
+
+// currentManagedProof 返回当前 token 对应的 pending register 请求；RPC 失败时保持 request_id 不变。
+func (c *Client) currentManagedProof() *mcp.ManagedAuthorityProof {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if strings.TrimSpace(c.managedToken) == "" {
+		return nil
+	}
+	if c.managedRequestID == "" {
+		c.managedRequestID = generateID("mcp_register")
+	}
+	return &mcp.ManagedAuthorityProof{
+		ProtocolVersion: c.cfg.ManagedProtocolVersion,
+		RequestID:       c.managedRequestID,
+		Token:           c.managedToken,
 	}
 }
 

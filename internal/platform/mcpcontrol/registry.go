@@ -3,6 +3,7 @@ package mcpcontrol
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 
@@ -45,6 +46,8 @@ type ToolInstance struct {
 	ConfigVersion       int64     // peer 应观察的配置版本。
 	ConsecutiveFailures int       // notify/callback 连续失败次数。
 	Peer                Peer      // 当前 jrpc2 连接封装。
+	Managed             bool      // 是否由 managed authority 签发。
+	runtime             *leaseRuntime
 }
 
 // Peer 抽象已注册 MCP 工具的反向 RPC 连接，注册表通过它发送通知和回调。
@@ -56,18 +59,22 @@ type Peer interface {
 
 // ToolRegistry 管理 MCP peer 租约、索引和控制面 fanout；所有 map 写入都受 mu 保护。
 type ToolRegistry struct {
-	mu               sync.RWMutex
-	instances        map[LeaseKey]*ToolInstance
-	bySubscription   map[string]map[LeaseKey]struct{}
-	byCapability     map[string]map[LeaseKey]struct{}
-	byAgent          map[string]map[LeaseKey]struct{}
-	byThread         map[string]map[LeaseKey]struct{}
-	byClientKind     map[string]map[LeaseKey]struct{}
-	byInstance       map[string]map[LeaseKey]struct{}
-	byPeerKind       map[string]map[LeaseKey]struct{}
-	latestByInstance map[string]LeaseKey
-	reportReceipts   map[LeaseKey]map[string]reportReceipt
-	configVersion    int64
+	mu                 sync.RWMutex
+	instances          map[LeaseKey]*ToolInstance
+	bySubscription     map[string]map[LeaseKey]struct{}
+	byCapability       map[string]map[LeaseKey]struct{}
+	byAgent            map[string]map[LeaseKey]struct{}
+	byThread           map[string]map[LeaseKey]struct{}
+	byClientKind       map[string]map[LeaseKey]struct{}
+	byInstance         map[string]map[LeaseKey]struct{}
+	byPeerKind         map[string]map[LeaseKey]struct{}
+	latestByInstance   map[string]LeaseKey
+	reportReceipts     map[LeaseKey]map[string]reportReceipt
+	configVersion      int64
+	authorityMu        sync.Mutex
+	managedAuthorities map[string]*managedAuthorityState
+	generationStore    GenerationStore
+	strictManagedKinds map[string]struct{}
 
 	heartbeatInterval    time.Duration
 	notifyTimeout        time.Duration
@@ -82,6 +89,8 @@ type RegistryOptions struct {
 	NotifyTimeout        time.Duration
 	FanoutParallelism    int
 	PeerFailureThreshold int
+	GenerationStore      GenerationStore
+	StrictManagedKinds   []string
 }
 
 var (
@@ -99,6 +108,10 @@ func NewRegistry() *ToolRegistry {
 
 // NewToolRegistry 初始化所有租约索引，configVersion 从 1 开始以便 peer 首次注册即可对齐版本。
 func NewToolRegistry(opts RegistryOptions) *ToolRegistry {
+	generationStore := opts.GenerationStore
+	if generationStore == nil {
+		generationStore = NewMemoryGenerationStore()
+	}
 	return &ToolRegistry{
 		instances:            make(map[LeaseKey]*ToolInstance),
 		bySubscription:       make(map[string]map[LeaseKey]struct{}),
@@ -110,6 +123,9 @@ func NewToolRegistry(opts RegistryOptions) *ToolRegistry {
 		byPeerKind:           make(map[string]map[LeaseKey]struct{}),
 		latestByInstance:     make(map[string]LeaseKey),
 		reportReceipts:       make(map[LeaseKey]map[string]reportReceipt),
+		managedAuthorities:   make(map[string]*managedAuthorityState),
+		generationStore:      generationStore,
+		strictManagedKinds:   normalizedStringSet(opts.StrictManagedKinds),
 		configVersion:        1,
 		heartbeatInterval:    durationOrDefault(opts.HeartbeatInterval, defaultHeartbeatInterval),
 		notifyTimeout:        durationOrDefault(opts.NotifyTimeout, defaultNotifyTimeout),
@@ -120,70 +136,194 @@ func NewToolRegistry(opts RegistryOptions) *ToolRegistry {
 
 // Register 绑定当前 jrpc2 peer 并分配新租约代际；同 instance 重连会先驱逐上一代 peer。
 func (r *ToolRegistry) Register(ctx context.Context, req dto.RegisterRequest) (dto.RegisterResponse, error) {
-	normalized, err := normalizeRegisterRequest(req)
+	peer, err := peerFromContext(ctx)
 	if err != nil {
 		return dto.RegisterResponse{}, err
 	}
-	peer, err := peerFromContext(ctx)
+	normalized, response, replay, err := r.normalizeRegistration(req, peer)
 	if err != nil {
 		return dto.RegisterResponse{}, err
 	}
 
 	now := time.Now()
-	lease := LeaseKey{InstanceID: normalized.InstanceID, Generation: 1}
+	instance := newRegisteredToolInstance(normalized, response, peer, now)
+	previous, replaced, retry, err := r.installRegisteredInstance(instance, response, peer, now, replay)
+	if err != nil {
+		return dto.RegisterResponse{}, err
+	}
+	if retry {
+		return response, nil
+	}
+	_ = r.disconnectLease(replaced, disconnectLeaseOptions{
+		ctx:  ctx,
+		peer: previous,
+	})
+	if response.Generation == 0 {
+		response = r.registerResponse(normalized, instance.Lease.Generation)
+		response.ConfigVersion = instance.ConfigVersion
+	}
+	return response, nil
+}
+
+func (r *ToolRegistry) normalizeRegistration(
+	req dto.RegisterRequest,
+	peer Peer,
+) (dto.RegisterRequest, dto.RegisterResponse, bool, error) {
+	if req.ManagedAuthority != nil || r.requiresManagedAuthorityRegistration(req) {
+		normalized, err := normalizeManagedRegisterRequest(req)
+		if err != nil {
+			return dto.RegisterRequest{}, dto.RegisterResponse{}, false, err
+		}
+		response, replay, err := r.consumeManagedAuthority(normalized, peer)
+		return normalized, response, replay, err
+	}
+	normalized, err := normalizeRegisterRequest(req)
+	return normalized, dto.RegisterResponse{}, false, err
+}
+
+// requiresManagedAuthorityRegistration 同时识别显式 orch kind 和遗漏 kind 的旧 mcp-orch，禁止默认成 custom 绕过。
+func (r *ToolRegistry) requiresManagedAuthorityRegistration(req dto.RegisterRequest) bool {
+	normalizedClientKind := normalizeClientKind(req.ClientKind)
+	return r.RequiresManagedAuthority(normalizedClientKind) ||
+		(r.RequiresManagedAuthority(dto.ClientKindOrch) && strings.TrimSpace(req.BinaryName) == "mcp-orch")
+}
+
+// newRegisteredToolInstance 创建 concrete lease；只有 managed peer 才启用 pin/fence runtime。
+func newRegisteredToolInstance(
+	req dto.RegisterRequest,
+	response dto.RegisterResponse,
+	peer Peer,
+	now time.Time,
+) *ToolInstance {
+	generation := uint64(1)
+	if response.Generation != 0 {
+		generation = response.Generation
+	}
 	instance := &ToolInstance{
-		Lease:         lease,
+		Lease:         LeaseKey{InstanceID: req.InstanceID, Generation: generation},
 		LeaseID:       platformshared.NewID("mcp_lease"), // Deprecated: 为旧 contract 字段保留到 2026-06-30。
-		BinaryName:    normalized.BinaryName,
-		AgentID:       normalized.AgentID,
-		ThreadID:      normalized.ThreadID,
-		PID:           normalized.PID,
-		Capabilities:  platformshared.CloneStrings(normalized.CapabilitiesOffered),
-		Subscriptions: platformshared.CloneStrings(normalized.Subscriptions),
-		PeerKind:      normalized.PeerKind,
-		ClientKind:    normalized.ClientKind,
-		Shared:        normalized.Shared,
+		BinaryName:    req.BinaryName,
+		AgentID:       req.AgentID,
+		ThreadID:      req.ThreadID,
+		PID:           req.PID,
+		Capabilities:  platformshared.CloneStrings(req.CapabilitiesOffered),
+		Subscriptions: platformshared.CloneStrings(req.Subscriptions),
+		PeerKind:      req.PeerKind,
+		ClientKind:    req.ClientKind,
+		Shared:        req.Shared,
 		ConnectedAt:   now,
 		RegisteredAt:  now,
 		LastHeartbeat: now,
 		Status:        dto.StatusActive,
 		Peer:          peer,
+		Managed:       req.ManagedAuthority != nil,
 	}
+	if instance.Managed {
+		instance.Capabilities = platformshared.CloneStrings(response.CapabilitiesNegotiated)
+		instance.runtime = newLeaseRuntime(peer)
+	}
+	return instance
+}
 
+// installRegisteredInstance 在短临界区内完成 replacement、索引切换和同连接幂等恢复。
+func (r *ToolRegistry) installRegisteredInstance(
+	instance *ToolInstance,
+	response dto.RegisterResponse,
+	peer Peer,
+	now time.Time,
+	replay bool,
+) (Peer, LeaseKey, bool, error) {
+	if response.ManagedAuthority != nil {
+		r.authorityMu.Lock()
+		defer r.authorityMu.Unlock()
+		if err := r.validateManagedInstallPeerLocked(response, peer); err != nil {
+			return nil, LeaseKey{}, false, err
+		}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.installRegisteredInstanceLocked(instance, response, peer, now, replay)
+}
+
+// validateManagedInstallPeerLocked 阻止已通过 receipt 校验但随后失去 adoption fence 的旧连接安装。
+func (r *ToolRegistry) validateManagedInstallPeerLocked(response dto.RegisterResponse, peer Peer) error {
+	state := r.managedAuthorities[managedOrchInstanceID]
+	if state == nil || state.last == nil || response.ManagedAuthority == nil ||
+		state.last.requestID != response.ManagedAuthority.RequestID ||
+		!samePeerConnection(state.last.peer, peer) {
+		return errLeaseStale("managed authority receipt adoption is stale")
+	}
+	return nil
+}
+
+// installRegisteredInstanceLocked 在 registry 锁内完成索引切换；调用方已持有需要的 adoption fence。
+func (r *ToolRegistry) installRegisteredInstanceLocked(
+	instance *ToolInstance,
+	response dto.RegisterResponse,
+	peer Peer,
+	now time.Time,
+	replay bool,
+) (Peer, LeaseKey, bool, error) {
 	var previous Peer
 	var replaced LeaseKey
-	r.mu.Lock()
 	if latest, ok := r.latestByInstance[instance.Lease.InstanceID]; ok {
-		if current := r.instances[latest]; current != nil {
+		current := r.instances[latest]
+		if response.Generation != 0 && latest == instance.Lease && current != nil {
+			if !replay {
+				return nil, LeaseKey{}, false,
+					errLeaseStale("mcp managed generation collision without replay receipt")
+			}
+			if samePeerConnection(current.Peer, peer) {
+				current.LastHeartbeat = now
+				current.Status = dto.StatusActive
+				return nil, LeaseKey{}, true, nil
+			}
+		}
+		if response.Generation == 0 && current != nil {
 			instance.Lease.Generation = current.Lease.Generation + 1
 		}
 		previous = r.evictLocked(latest)
 		replaced = latest
 	}
-	instance.ConfigVersion = r.currentConfigVersionLocked()
+	if response.Generation != 0 {
+		instance.ConfigVersion = response.ConfigVersion
+	} else {
+		instance.ConfigVersion = r.currentConfigVersionLocked()
+	}
 	r.instances[instance.Lease] = instance
 	r.latestByInstance[instance.Lease.InstanceID] = instance.Lease
 	r.indexLocked(instance)
-	r.mu.Unlock()
+	return previous, replaced, false, nil
+}
 
-	_ = r.disconnectLease(replaced, disconnectLeaseOptions{
-		ctx:  ctx,
-		peer: previous,
-	})
+// RequiresManagedAuthority 报告指定 client kind 是否启用了 strict managed activation。
+func (r *ToolRegistry) RequiresManagedAuthority(clientKind string) bool {
+	if r == nil {
+		return false
+	}
+	_, ok := r.strictManagedKinds[normalizeClientKind(clientKind)]
+	return ok
+}
+
+func (r *ToolRegistry) registerResponse(req dto.RegisterRequest, generation uint64) dto.RegisterResponse {
+	r.mu.RLock()
+	configVersion := r.currentConfigVersionLocked()
+	r.mu.RUnlock()
+	negotiated, rejected := negotiateRegisterCapabilities(req)
 	return dto.RegisterResponse{
-		InstanceID:             instance.Lease.InstanceID,
-		Generation:             instance.Lease.Generation,
-		AcceptedGeneration:     instance.Lease.Generation,
-		PeerKind:               instance.PeerKind,
-		CapabilitiesNegotiated: platformshared.CloneStrings(instance.Capabilities),
-		CapabilitiesRejected:   []string{},
+		InstanceID:             req.InstanceID,
+		Generation:             generation,
+		AcceptedGeneration:     generation,
+		PeerKind:               req.PeerKind,
+		CapabilitiesNegotiated: negotiated,
+		CapabilitiesRejected:   rejected,
 		HeartbeatIntervalMs:    int(r.heartbeatInterval / time.Millisecond),
 		HeartbeatTimeoutMs:     int(defaultHeartbeatTTL / time.Millisecond),
 		SendTimeoutMs:          int(r.notifyTimeout / time.Millisecond),
 		SweeperIntervalMs:      int(defaultSweepTick / time.Millisecond),
 		ServerProtocolVersion:  controlPlaneProtocolVersion,
-		ConfigVersion:          instance.ConfigVersion,
-	}, nil
+		ConfigVersion:          configVersion,
+	}
 }
 
 // Heartbeat 刷新租约存活时间；peer 主动声明 disconnected 时会立即移出索引并清理 hook。
@@ -200,6 +340,17 @@ func (r *ToolRegistry) Heartbeat(ctx context.Context, req dto.HeartbeatRequest) 
 	if instance == nil {
 		r.mu.Unlock()
 		return dto.HeartbeatResponse{}, errLeaseNotFound("mcp lease %s/%d not found", key.InstanceID, key.Generation)
+	}
+	if instance.Managed && peerServer(instance.Peer) != nil {
+		caller, peerErr := peerFromContext(ctx)
+		if peerErr != nil || !samePeerConnection(instance.Peer, caller) {
+			r.mu.Unlock()
+			return dto.HeartbeatResponse{}, errLeaseStale(
+				"mcp managed lease %s/%d belongs to a different connection",
+				key.InstanceID,
+				key.Generation,
+			)
+		}
 	}
 	if status == dto.StatusDisconnected {
 		instance.Status = dto.StatusDisconnected
@@ -271,10 +422,17 @@ func (r *ToolRegistry) ShutdownInstance(ctx context.Context, key dto.LeaseKey, r
 	cleanupErr := r.shutdownHooks(ctx, key)
 	if instance.Peer == nil {
 		peerErr := errPeerUnavailable("mcp peer %s/%d is not available", key.InstanceID, key.Generation)
-		if cleanupErr != nil {
-			return errors.Join(peerErr, cleanupErr)
+		return joinCleanupError(peerErr, cleanupErr)
+	}
+	peer := instance.Peer
+	var pin *LeasePin
+	if instance.runtime != nil {
+		pin, err = instance.Pin()
+		if err != nil {
+			return err
 		}
-		return peerErr
+		defer func() { _ = pin.Release() }()
+		peer = pin.Peer()
 	}
 	req.InstanceID = key.InstanceID
 	req.Generation = key.Generation
@@ -282,7 +440,10 @@ func (r *ToolRegistry) ShutdownInstance(ctx context.Context, key dto.LeaseKey, r
 	defer cancel()
 
 	var resp map[string]any
-	err = instance.Peer.Callback(callCtx, dto.MethodShutdown, req, &resp)
+	err = peer.Callback(callCtx, dto.MethodShutdown, req, &resp)
+	if pin != nil && !pin.Current() {
+		return errLeaseStale("mcp lease %s/%d became stale during shutdown", key.InstanceID, key.Generation)
+	}
 	if err != nil {
 		peer, evicted := r.notePeerFailure(key)
 		if evicted {
@@ -294,19 +455,27 @@ func (r *ToolRegistry) ShutdownInstance(ctx context.Context, key dto.LeaseKey, r
 			closePeer(peer)
 		}
 		peerErr := errPeerUnavailable("mcp shutdown callback failed for %s/%d: %v", key.InstanceID, key.Generation, err)
-		if cleanupErr != nil {
-			return errors.Join(peerErr, cleanupErr)
-		}
-		return peerErr
+		return joinCleanupError(peerErr, cleanupErr)
 	}
 	r.resetPeerFailure(key)
 	return cleanupErr
+}
+
+func joinCleanupError(primary, cleanup error) error {
+	if cleanup == nil {
+		return primary
+	}
+	return errors.Join(primary, cleanup)
 }
 
 // OnDisconnect 标记租约断开并异步安全清理 peer，供底层连接关闭回调调用。
 func (r *ToolRegistry) OnDisconnect(key LeaseKey) {
 	r.mu.Lock()
 	instance := r.instances[key]
+	if instance != nil && instance.Managed {
+		r.mu.Unlock()
+		return
+	}
 	if instance != nil {
 		instance.Status = dto.StatusDisconnected
 	}

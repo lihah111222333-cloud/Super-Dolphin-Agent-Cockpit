@@ -15,6 +15,7 @@ func TestConfigChangeWireDTOMapperConsumesProducerFields(t *testing.T) {
 			configMapperExemption("timestamp", "thread Started producer -> MCP config notification", "config changes are ordered by fanout version", "threadStartedPayload", "internal/platform/mcpcontrol"),
 			configMapperExemption("name", "thread Started producer -> MCP config notification", "thread name changes use the dedicated metadata projection", "threadStartedPayload + config selector projection", "internal/platform/mcpcontrol"),
 			configMapperExemption("pending_launch", "thread Started producer -> MCP config notification", "pending launch is not part of MCP server selection", "threadStartedPayload + config selector projection", "internal/platform/mcpcontrol"),
+			configMapperExemption("board", "thread Started producer -> MCP config notification", "B1 board view is outside the MCP server selection payload", "threadStartedPayload omits B1 board projection by owner boundary", "internal/platform/mcpcontrol"),
 		})
 	})
 	t.Run("agent runtime reported", func(t *testing.T) {

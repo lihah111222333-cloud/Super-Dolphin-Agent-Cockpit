@@ -44,10 +44,7 @@ func buildBootstrapConfig(shutdowner fx.Shutdowner, hookAfter contract.Bootstrap
 	cfg.OnToolsCall = func(ctx context.Context, params json.RawMessage) (any, error) {
 		return handleScopedToolsCall(ctx, p, mcp.ClientKindOrch, params)
 	}
-	cfg.Capabilities = []string{
-		"tools/orchestration", "tools/task", "tools/workspace",
-		"tools/prompt", "tools/command", "tools/shared_file", "tools/video",
-	}
+	cfg.Capabilities = mcp.OrchCapabilities()
 	cfg.Subscriptions = []string{"config/agent", "config/thread"}
 	cfg.FinalReport = func() *mcp.ReportRequest {
 		return &mcp.ReportRequest{Report: mcp.ReportEnvelope{

@@ -5,9 +5,87 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/archtest"
+	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 )
 
 const testInternalSQLitePathEnvKey = "SUPER_DOLPHIN_INTERNAL_SQLITE_PATH"
+
+func TestManagedAuthorityBootstrapRealEnvMapperConsumesEveryField(t *testing.T) {
+	baseline := mcpdto.ManagedAuthorityBootstrap{
+		InstanceID:      "managed:mcp-orch",
+		BootID:          "boot-1",
+		Token:           "token-1",
+		ProtocolVersion: mcpdto.ManagedAuthorityProtocolVersion,
+	}
+	archtest.AssertWireDTOMapperConsumesProducerFieldsFrom(t, baseline, func(input mcpdto.ManagedAuthorityBootstrap) map[string]any {
+		env, err := injectManagedPeerBootstrap(nil, input)
+		output := map[string]any{"error": errorString(err)}
+		for _, item := range env {
+			key, value, ok := strings.Cut(item, "=")
+			if ok {
+				output[key] = value
+			}
+		}
+		return output
+	}, nil)
+	archtest.AssertWireDTOMapperASTReferencesProducerFields[mcpdto.ManagedAuthorityBootstrap](
+		t,
+		"sidecar_runtime_env.go",
+		"injectManagedPeerBootstrap",
+		"managed",
+	)
+}
+
+func errorString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+func TestPeerEnvStrictManagedActivationIsOrchOnly(t *testing.T) {
+	launcher := &execPeerLauncher{workspaceRoots: func() []string { return []string{"/work/repo"} }}
+	parent := append(testPeerParentEnv(),
+		"GO_AGENT_CTL_MANAGED_TOKEN=hostile-parent-token",
+		"GO_AGENT_CTL_MANAGED_PROTOCOL_VERSION=hostile-parent-version",
+	)
+	issued := &mcpdto.ManagedAuthorityBootstrap{
+		InstanceID:      "managed:mcp-orch",
+		BootID:          "boot-1",
+		Token:           "managed-token",
+		ProtocolVersion: mcpdto.ManagedAuthorityProtocolVersion,
+	}
+	orchEnv, err := launcher.peerEnvForLaunch("mcp-orch", parent, issued)
+	if err != nil {
+		t.Fatalf("peerEnvForLaunch(mcp-orch) error = %v", err)
+	}
+	requireEnvValue(t, orchEnv, "GO_AGENT_CTL_MANAGED_TOKEN", issued.Token)
+	requireEnvValue(t, orchEnv, "GO_AGENT_CTL_MANAGED_PROTOCOL_VERSION", issued.ProtocolVersion)
+	raw, ok := lookupEnvValue(orchEnv, peerBootstrapJSONEnv)
+	if !ok {
+		t.Fatal("mcp-orch bootstrap JSON missing")
+	}
+	var boot map[string]string
+	if err := json.Unmarshal([]byte(raw), &boot); err != nil {
+		t.Fatalf("decode mcp-orch bootstrap JSON: %v", err)
+	}
+	if boot["instance_id"] != issued.InstanceID || boot["boot_id"] != issued.BootID {
+		t.Fatalf("mcp-orch bootstrap identity = %#v", boot)
+	}
+
+	lspEnv, err := launcher.peerEnvForLaunch("mcp-lsp", parent, nil)
+	if err != nil {
+		t.Fatalf("peerEnvForLaunch(mcp-lsp) error = %v", err)
+	}
+	if _, ok := lookupEnvValue(lspEnv, "GO_AGENT_CTL_MANAGED_TOKEN"); ok {
+		t.Fatal("mcp-lsp unexpectedly received managed token")
+	}
+	if _, ok := lookupEnvValue(lspEnv, "GO_AGENT_CTL_MANAGED_PROTOCOL_VERSION"); ok {
+		t.Fatal("mcp-lsp unexpectedly received managed protocol version")
+	}
+}
 
 func TestPeerProcessEnvRequiresParentSidecarRuntimeContract(t *testing.T) {
 	_, err := peerProcessEnv("mcp-orch", []string{"PATH=/bin", "GO_AGENT_CTL_SESSION_TOKEN=test-peer-token"}, nil)

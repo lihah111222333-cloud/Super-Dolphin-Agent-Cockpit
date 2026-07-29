@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/discovery"
 	platformrunner "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runner"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
@@ -88,6 +90,7 @@ type PeerSupervisor struct {
 	cleanupHook func()
 
 	workspaceRoots func() []string
+	managedIssuer  contract.ManagedAuthorityIssuer
 
 	mu    sync.Mutex
 	peers []peerHandle
@@ -162,6 +165,11 @@ func WithPeerWorkspaceRoots(fn func() []string) PeerSupervisorOption {
 	return func(s *PeerSupervisor) { s.workspaceRoots = fn }
 }
 
+// WithPeerManagedAuthorityIssuer 注入 mcp-orch 启动 token 的唯一签发 owner。
+func WithPeerManagedAuthorityIssuer(issuer contract.ManagedAuthorityIssuer) PeerSupervisorOption {
+	return func(s *PeerSupervisor) { s.managedIssuer = issuer }
+}
+
 // NewPeerSupervisor 构造生产使用的 peer supervisor。
 // 实际初始化集中到 NewPeerSupervisorWithOptions，便于测试覆盖所有可变依赖。
 func NewPeerSupervisor(mgr *ServerManager, logger *slog.Logger, opts ...PeerSupervisorOption) *PeerSupervisor {
@@ -190,6 +198,7 @@ func NewPeerSupervisorWithOptions(mgr *ServerManager, logger *slog.Logger, opts 
 	}
 	if launcher, ok := s.launcher.(*execPeerLauncher); ok {
 		launcher.workspaceRoots = s.workspaceRoots
+		launcher.managedIssuer = s.managedIssuer
 	}
 	return s
 }
@@ -518,6 +527,7 @@ func (s *PeerSupervisor) snapshotPeers() []peerHandle {
 type execPeerLauncher struct {
 	logger         *slog.Logger
 	workspaceRoots func() []string
+	managedIssuer  contract.ManagedAuthorityIssuer
 }
 
 func newExecPeerLauncher(logger *slog.Logger) *execPeerLauncher {
@@ -526,7 +536,7 @@ func newExecPeerLauncher(logger *slog.Logger) *execPeerLauncher {
 
 // Launch 启动指定 peer 二进制并返回可监管 handle。
 // stdin pipe 由 supervisor 持有用于优雅关闭，启动失败会关闭已创建的 pipe，避免文件描述符泄漏。
-func (l *execPeerLauncher) Launch(_ context.Context, name string) (peerHandle, error) {
+func (l *execPeerLauncher) Launch(ctx context.Context, name string) (peerHandle, error) {
 	binDirs, err := resolvePeerBinDirs()
 	if err != nil {
 		return nil, err
@@ -539,7 +549,22 @@ func (l *execPeerLauncher) Launch(_ context.Context, name string) (peerHandle, e
 	if err != nil {
 		return nil, err
 	}
-	env, err := l.peerEnvForTest(name, os.Environ())
+	var managed *mcpdto.ManagedAuthorityBootstrap
+	if strings.TrimSpace(name) == "mcp-orch" {
+		if l.managedIssuer == nil {
+			_ = stdinR.Close()
+			_ = stdinW.Close()
+			return nil, errors.New("peer_supervisor: mcp-orch requires managed authority issuer")
+		}
+		issued, issueErr := l.managedIssuer.IssueManagedAuthority(ctx, mcpdto.ManagedAuthorityIssueRequest{BinaryName: name})
+		if issueErr != nil {
+			_ = stdinR.Close()
+			_ = stdinW.Close()
+			return nil, fmt.Errorf("peer_supervisor: issue mcp-orch managed authority: %w", issueErr)
+		}
+		managed = &issued
+	}
+	env, err := l.peerEnvForLaunch(name, os.Environ(), managed)
 	if err != nil {
 		_ = stdinR.Close()
 		_ = stdinW.Close()
