@@ -3089,7 +3089,7 @@
       "codemap_line": 80,
       "target_path": "internal/module/thread/factory.go",
       "line_spec": "138",
-      "content_sha256": "79f7dd2b136f787da35ba83971b75c62d0eb1f66260bcb343443594441a91501",
+      "content_sha256": "bbd7685877e88c9bc3f6c44465a93027a94b51f7714ec0749d66e825ec1e776a",
       "symbol": "threadConfigStorePort"
     },
     {
@@ -3882,7 +3882,7 @@
       "codemap_line": 341,
       "target_path": "internal/module/thread/factory.go",
       "line_spec": "138",
-      "content_sha256": "79f7dd2b136f787da35ba83971b75c62d0eb1f66260bcb343443594441a91501",
+      "content_sha256": "bbd7685877e88c9bc3f6c44465a93027a94b51f7714ec0749d66e825ec1e776a",
       "symbol": "threadConfigStorePort"
     },
     {
@@ -5821,7 +5821,7 @@
       "codemap_line": 84,
       "target_path": "internal/module/thread/binding_registration.go",
       "line_spec": "14-32",
-      "content_sha256": "1237740e0f192dc9f4d571e3a44f8da103d3cf65d12b350bbceff296cddb1d62"
+      "content_sha256": "7ea82a194c894ed451654636f93094694e8efbfafce0d7ee6bd8e6f56b7a07c3"
     },
     {
       "codemap_file": "07-module-write.md",
@@ -5835,7 +5835,7 @@
       "codemap_line": 86,
       "target_path": "internal/module/thread/factory.go",
       "line_spec": "138-185",
-      "content_sha256": "35295c33a088870a174918da683ada89f9957861fa22f925c2f7e685e5eaf2b3",
+      "content_sha256": "40931da4f3d53828590b904944e1ce8d388935d04431ca24a431f589d76326ee",
       "symbol": "threadConfigStorePort"
     },
     {
@@ -5935,7 +5935,7 @@
       "codemap_line": 144,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "257-301",
-      "content_sha256": "d1330b79bf98fee61742910976065a1ff49bff7cb39e80d5316c4118693f29b4",
+      "content_sha256": "2b1e2757e0b17cffc49c3aa522c594ad28a8b73b0d556bae8bd250b56ffdd5e4",
       "symbol": "*service.persistStartedSession"
     },
     {
@@ -6183,7 +6183,7 @@
       "codemap_line": 250,
       "target_path": "internal/module/thread/factory.go",
       "line_spec": "457-472",
-      "content_sha256": "ab5868562c7ef6373cced2528b379ea3e35bb241275f3c4a89a9faf2761734b6",
+      "content_sha256": "839e34d0c1e3ddc502fb260fea0b22eccebfc1f667be039e6055c8ae32bd3970",
       "symbol": "newThreadStartedBoard"
     },
     {
@@ -7281,7 +7281,7 @@
       "codemap_line": 12,
       "target_path": "internal/module/thread/start_session_helpers.go",
       "line_spec": "308-347",
-      "content_sha256": "0973223602bb380ed290b3069a80f4c3c1e36ee287611e8c850422e30a723f28",
+      "content_sha256": "e446d374a7cd908cf51f08d583426220f7e3747ddc9d0f9bd2ffa6dfc296ecbc",
       "symbol": "isKnownSubagentAgentType"
     },
     {
@@ -7846,7 +7846,7 @@
       "codemap_line": 154,
       "target_path": "internal/module/thread/start_session_helpers.go",
       "line_spec": "308-347",
-      "content_sha256": "0973223602bb380ed290b3069a80f4c3c1e36ee287611e8c850422e30a723f28",
+      "content_sha256": "e446d374a7cd908cf51f08d583426220f7e3747ddc9d0f9bd2ffa6dfc296ecbc",
       "symbol": "isKnownSubagentAgentType"
     },
     {
@@ -7924,7 +7924,7 @@
       "codemap_line": 161,
       "target_path": "internal/module/thread/start_session_helpers.go",
       "line_spec": "308-347",
-      "content_sha256": "0973223602bb380ed290b3069a80f4c3c1e36ee287611e8c850422e30a723f28",
+      "content_sha256": "e446d374a7cd908cf51f08d583426220f7e3747ddc9d0f9bd2ffa6dfc296ecbc",
       "symbol": "isKnownSubagentAgentType"
     },
     {
@@ -8154,7 +8154,7 @@
       "codemap_line": 205,
       "target_path": "internal/module/thread/start_session_helpers.go",
       "line_spec": "308-347",
-      "content_sha256": "0973223602bb380ed290b3069a80f4c3c1e36ee287611e8c850422e30a723f28",
+      "content_sha256": "e446d374a7cd908cf51f08d583426220f7e3747ddc9d0f9bd2ffa6dfc296ecbc",
       "symbol": "isKnownSubagentAgentType"
     },
     {
@@ -9471,7 +9471,7 @@
       "codemap_line": 461,
       "target_path": "internal/module/thread/start_session_helpers.go",
       "line_spec": "308-347",
-      "content_sha256": "0973223602bb380ed290b3069a80f4c3c1e36ee287611e8c850422e30a723f28",
+      "content_sha256": "e446d374a7cd908cf51f08d583426220f7e3747ddc9d0f9bd2ffa6dfc296ecbc",
       "symbol": "isKnownSubagentAgentType"
     },
     {
@@ -10831,7 +10831,7 @@
       "codemap_line": 669,
       "target_path": "internal/module/thread/start_session_helpers.go",
       "line_spec": "308-347",
-      "content_sha256": "0973223602bb380ed290b3069a80f4c3c1e36ee287611e8c850422e30a723f28",
+      "content_sha256": "e446d374a7cd908cf51f08d583426220f7e3747ddc9d0f9bd2ffa6dfc296ecbc",
       "symbol": "isKnownSubagentAgentType"
     },
     {
@@ -10855,7 +10855,7 @@
       "codemap_line": 670,
       "target_path": "internal/module/thread/start_session_helpers.go",
       "line_spec": "337-347",
-      "content_sha256": "5bdaee99be9173c8de25df9bac9fe4ad8fad97b0e3afb505d514231ea3af4499",
+      "content_sha256": "173fd2af45b7b4d6c788290e2d89f2e0877a0856ab72e0e672740bf257320c8a",
       "symbol": "toProviderPrefixShape"
     },
     {
@@ -10935,7 +10935,7 @@
       "codemap_line": 679,
       "target_path": "internal/module/thread/start_session_helpers.go",
       "line_spec": "308-347",
-      "content_sha256": "0973223602bb380ed290b3069a80f4c3c1e36ee287611e8c850422e30a723f28",
+      "content_sha256": "e446d374a7cd908cf51f08d583426220f7e3747ddc9d0f9bd2ffa6dfc296ecbc",
       "symbol": "isKnownSubagentAgentType"
     },
     {
@@ -12099,7 +12099,7 @@
       "codemap_line": 613,
       "target_path": "internal/module/thread/factory.go",
       "line_spec": "194-200",
-      "content_sha256": "50a081a515894d334693e3a1d16c003afd2a6780ba439dde97bf41d6acc9d8b8",
+      "content_sha256": "10ff472c9567269874553cc8fd9061e8caf6df35b39035f25fcba2b43383586f",
       "symbol": "PromptTemplateSection"
     },
     {
@@ -12195,7 +12195,7 @@
       "codemap_line": 766,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "257-300",
-      "content_sha256": "2630426ff991a77844cd9ccec45a7b3041ff836be5bd02f6b0c6827286401c95",
+      "content_sha256": "cefee3b8cfd9fe56117ae57fba05f44adaa8c28191d6a493be3b0f29921b2074",
       "symbol": "*service.persistStartedSession"
     },
     {
@@ -12226,7 +12226,7 @@
       "codemap_line": 857,
       "target_path": "internal/module/thread/factory.go",
       "line_spec": "194-200",
-      "content_sha256": "50a081a515894d334693e3a1d16c003afd2a6780ba439dde97bf41d6acc9d8b8",
+      "content_sha256": "10ff472c9567269874553cc8fd9061e8caf6df35b39035f25fcba2b43383586f",
       "symbol": "PromptTemplateSection"
     },
     {

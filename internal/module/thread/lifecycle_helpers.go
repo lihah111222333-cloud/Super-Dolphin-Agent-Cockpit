@@ -565,13 +565,14 @@ func historyTargetID(binding *threadBindingStoreRecord, threadID string) (string
 }
 
 // recoverableProviderThreadID 通过统一 port 解析单次启动或恢复产生的 provider UUID。
-func recoverableProviderThreadID(provider, providerUUID, rolloutPath, codexHome string) (string, error) {
+func recoverableProviderThreadID(provider, providerUUID, rolloutPath, codexHome, claudeHome string) (string, error) {
 	return resolveOptionalProviderThreadID(providerrecovery.Request{
 		Provider:         provider,
 		RolloutPath:      rolloutPath,
 		ProviderThreadID: providerUUID,
 		SessionUUID:      providerUUID,
 		CodexHome:        codexHome,
+		ClaudeHome:       claudeHome,
 	})
 }
 
@@ -601,12 +602,20 @@ func bindingHasProviderHistoryForUUID(binding *threadBindingStoreRecord, provide
 
 // providerRecoveryRequestFromThreadBinding 将 thread binding 映射到唯一 recovery port。
 func providerRecoveryRequestFromThreadBinding(binding *threadBindingStoreRecord) providerrecovery.Request {
+	codexHome := binding.CodexHome
+	claudeHome := ""
+	if strings.EqualFold(strings.TrimSpace(binding.Provider), "claude") {
+		claudeHome = binding.ProviderRecoveryHome
+	} else if strings.TrimSpace(codexHome) == "" {
+		codexHome = binding.ProviderRecoveryHome
+	}
 	return providerrecovery.Request{
 		Provider:         binding.Provider,
 		RolloutPath:      binding.RolloutPath,
 		ProviderThreadID: binding.ProviderThreadID,
 		SessionUUID:      binding.SessionUUID,
-		CodexHome:        binding.CodexHome,
+		CodexHome:        codexHome,
+		ClaudeHome:       claudeHome,
 	}
 }
 

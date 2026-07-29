@@ -23,15 +23,15 @@ func TestReadThreadHistoryUsesSessionThreadList(t *testing.T) {
 		newHistoryTestBindingStore(&BindingRecord{
 			AgentID:          "agent-1",
 			Provider:         "codex",
-			ProviderThreadID: "provider-thread-1",
+			ProviderThreadID: "11111111-2222-3333-4444-555555555591",
 			CodexThreadID:    "thread-1",
 		}),
 		&historyTestSessionProvider{sessions: map[string]contract.Session{
 			"agent-1": &historyTestSession{
-				threadID: "provider-thread-1",
+				threadID: "11111111-2222-3333-4444-555555555591",
 				threads: []dto.ThreadRef{
-					{ID: "provider-thread-1"},
-					{ID: "provider-thread-2"},
+					{ID: "11111111-2222-3333-4444-555555555591"},
+					{ID: "11111111-2222-3333-4444-555555555592"},
 				},
 			},
 		}},
@@ -50,8 +50,8 @@ func TestReadThreadHistoryUsesSessionThreadList(t *testing.T) {
 	}
 	want := &ReadHistoryResult{
 		History: []ReadHistoryThread{
-			{ThreadID: "provider-thread-1"},
-			{ThreadID: "provider-thread-2"},
+			{ThreadID: "11111111-2222-3333-4444-555555555591"},
+			{ThreadID: "11111111-2222-3333-4444-555555555592"},
 		},
 	}
 	if !reflect.DeepEqual(got, want) {

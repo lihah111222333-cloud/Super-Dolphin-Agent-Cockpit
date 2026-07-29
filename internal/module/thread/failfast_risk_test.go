@@ -328,7 +328,7 @@ func TestPersistResumedSessionCleansRuntimeOnThreadStoreFailure(t *testing.T) {
 	storeErr := errors.New("thread store unavailable")
 	threads := &stubThreadStore{upsertErr: storeErr}
 	bindings := &stubBindingStore{}
-	sessions := &stubSessionProvider{session: &stubSession{threadID: "provider-thread-1"}}
+	sessions := &stubSessionProvider{session: &stubSession{threadID: "11111111-2222-3333-4444-555555555596"}}
 	orch := &stubThreadOrchestration{}
 	svc := &service{
 		threadStore:    threads,
@@ -344,17 +344,17 @@ func TestPersistResumedSessionCleansRuntimeOnThreadStoreFailure(t *testing.T) {
 		Provider:         "claude",
 		AgentID:          "agent-resume",
 		ThreadID:         "thread-resume",
-		ProviderThreadID: "provider-thread-1",
+		ProviderThreadID: "11111111-2222-3333-4444-555555555596",
 		CWD:              "/repo",
 	}, resumeState{
 		AgentID:          "agent-resume",
 		PublicThreadID:   "thread-resume",
 		Provider:         "claude",
-		ProviderThreadID: "provider-thread-1",
-		SessionUUID:      "provider-thread-1",
+		ProviderThreadID: "11111111-2222-3333-4444-555555555596",
+		SessionUUID:      "11111111-2222-3333-4444-555555555596",
 		CWD:              "/repo",
 		CreatedAt:        123,
-	}, "resume display", &stubSession{threadID: "provider-thread-1"})
+	}, "resume display", &stubSession{threadID: "11111111-2222-3333-4444-555555555596"})
 
 	if !errors.Is(err, storeErr) {
 		t.Fatalf("persistResumedSession() error = %v, want %v", err, storeErr)
@@ -375,11 +375,11 @@ func TestRecoverFailsWhenThreadMetaLookupErrors(t *testing.T) {
 	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-parent",
 		Provider:         "codex",
-		ProviderThreadID: "provider-parent",
+		ProviderThreadID: "11111111-2222-3333-4444-555555555593",
 		CodexThreadID:    "thread-parent",
 		Cwd:              "/repo",
 	}}
-	sessions := &stubSessionProvider{session: &stubSession{threadID: "provider-parent"}}
+	sessions := &stubSessionProvider{session: &stubSession{threadID: "11111111-2222-3333-4444-555555555593"}}
 	orch := &forkOrchestrationStub{}
 	svc := NewService(silentLogger(), threads, bindings, sessions, &stubSessionStarter{}, nil, orch, nil).(*service)
 
@@ -409,11 +409,11 @@ func TestRecoverUsesPersistedSubagentIdentity(t *testing.T) {
 	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-parent",
 		Provider:         "codex",
-		ProviderThreadID: "provider-parent",
+		ProviderThreadID: "11111111-2222-3333-4444-555555555593",
 		CodexThreadID:    "thread-parent",
 		Cwd:              "/repo",
 	}}
-	sessions := &stubSessionProvider{session: &stubSession{threadID: "provider-parent"}}
+	sessions := &stubSessionProvider{session: &stubSession{threadID: "11111111-2222-3333-4444-555555555593"}}
 	orch := &forkOrchestrationStub{recoverErr: contract.ErrAgentNotFound}
 	svc := NewService(silentLogger(), threads, bindings, sessions, &stubSessionStarter{}, nil, orch, nil).(*service)
 

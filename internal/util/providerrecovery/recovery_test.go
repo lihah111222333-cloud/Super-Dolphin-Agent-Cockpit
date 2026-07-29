@@ -206,16 +206,37 @@ func TestResolveOptionalOmitsPlaceholderButRejectsUnknownProvider(t *testing.T) 
 	}
 }
 
-func TestResolveRejectsNonCanonicalUUID(t *testing.T) {
+func TestResolveCanonicalizesCompatibleHistoricUUIDForms(t *testing.T) {
 	t.Parallel()
 
 	for _, candidate := range []string{
 		"019e218fb5147733be85b3ee7f6a78a6",
 		"019E218F-B514-7733-BE85-B3EE7F6A78A6",
+		"019E218FB5147733BE85B3EE7F6A78A6",
+	} {
+		result, err := Resolve(Request{
+			Provider:         "codex",
+			ProviderThreadID: candidate,
+			CodexHome:        t.TempDir(),
+		})
+		if err != nil {
+			t.Fatalf("Resolve(%q) error = %v", candidate, err)
+		}
+		if result.ProviderThreadID != testProviderUUID {
+			t.Fatalf("Resolve(%q) ProviderThreadID = %q, want %q", candidate, result.ProviderThreadID, testProviderUUID)
+		}
+	}
+}
+
+func TestResolveOptionalRejectsMalformedPersistedIdentity(t *testing.T) {
+	t.Parallel()
+
+	for _, candidate := range []string{
+		"not-a-uuid",
 		" " + testProviderUUID,
 		"00000000-0000-0000-0000-000000000000",
 	} {
-		_, err := Resolve(Request{
+		_, err := ResolveOptional(Request{
 			Provider:         "codex",
 			ProviderThreadID: candidate,
 			CodexHome:        t.TempDir(),

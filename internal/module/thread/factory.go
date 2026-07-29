@@ -40,22 +40,23 @@ type threadStateFields struct {
 }
 
 type threadBindingRecord struct {
-	AgentID            string
-	Provider           string
-	ProviderThreadID   string
-	CodexThreadID      string
-	RolloutPath        string
-	Cwd                string
-	ParentAgentID      string
-	AgentType          string
-	AgentMemoryScope   string
-	Archived           bool
-	CreatedAt          int64
-	UpdatedAt          int64
-	SessionUUID        string
-	CodexHome          string
-	CodexInstanceKey   string
-	CodexModelProvider string
+	AgentID              string
+	Provider             string
+	ProviderThreadID     string
+	CodexThreadID        string
+	RolloutPath          string
+	Cwd                  string
+	ParentAgentID        string
+	AgentType            string
+	AgentMemoryScope     string
+	Archived             bool
+	CreatedAt            int64
+	UpdatedAt            int64
+	SessionUUID          string
+	CodexHome            string
+	ProviderRecoveryHome string
+	CodexInstanceKey     string
+	CodexModelProvider   string
 }
 
 type threadBindingUpsertParams struct {

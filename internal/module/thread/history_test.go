@@ -289,7 +289,9 @@ type historyTestBindingStore struct {
 func newHistoryTestBindingStore(binding *BindingRecord) *historyTestBindingStore {
 	store := &historyTestBindingStore{bindings: map[string]BindingRecord{}}
 	if binding != nil {
-		store.bindings[strings.TrimSpace(binding.AgentID)] = *binding
+		copy := *binding
+		authorizeRecoveryTestBinding(&copy)
+		store.bindings[strings.TrimSpace(copy.AgentID)] = copy
 	}
 	return store
 }

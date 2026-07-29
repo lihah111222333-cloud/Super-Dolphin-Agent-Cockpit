@@ -12,11 +12,11 @@ func TestServiceRecoverDoesNotInvalidatePromptAssemblyWithoutWorktreeRestore(t *
 	t.Parallel()
 
 	promptAssembly := &forkPromptAssemblyStub{}
-	sessions := &stubSessionProvider{session: &stubSession{threadID: "provider-parent"}}
+	sessions := &stubSessionProvider{session: &stubSession{threadID: "11111111-2222-3333-4444-555555555595"}}
 	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-parent",
 		Provider:         "codex",
-		ProviderThreadID: "provider-parent",
+		ProviderThreadID: "11111111-2222-3333-4444-555555555595",
 		CodexThreadID:    "thread-parent",
 		Cwd:              "/repo",
 	}}
@@ -48,11 +48,11 @@ func TestServiceRecoverInvalidatesPromptAssemblyForWorktreeRestore(t *testing.T)
 
 	_, worktreeCWD := forkPromptGitFixture(t)
 	promptAssembly := &forkPromptAssemblyStub{}
-	sessions := &stubSessionProvider{session: &stubSession{threadID: "provider-parent"}}
+	sessions := &stubSessionProvider{session: &stubSession{threadID: "11111111-2222-3333-4444-555555555595"}}
 	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-parent",
 		Provider:         "codex",
-		ProviderThreadID: "provider-parent",
+		ProviderThreadID: "11111111-2222-3333-4444-555555555595",
 		CodexThreadID:    "thread-parent",
 		Cwd:              worktreeCWD,
 	}}

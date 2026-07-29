@@ -203,7 +203,7 @@ func (v *recoveryValidator) validate(req ReadRequest) (string, error) {
 	return path, nil
 }
 
-// validateCached 通过 inode、size、mtime 和 mode fingerprint 复用已验证 artifact。
+// validateCached 复用已发现路径，但从同一已打开 fd 复验 provider identity。
 func (v *recoveryValidator) validateCached(entry recoveryCacheEntry) (string, bool, error) {
 	info, err := v.fs.lstat(entry.path)
 	if err != nil {
@@ -214,6 +214,16 @@ func (v *recoveryValidator) validateCached(entry recoveryCacheEntry) (string, bo
 		return "", false, fmt.Errorf("lstat cached recovery artifact: %w", err)
 	}
 	if sameRecoveryFile(entry.info, info) {
+		file, err := v.fs.open(entry.path)
+		if err != nil {
+			v.cache.remove(entry.key)
+			return "", false, v.pathAccessError(entry.path, err, true)
+		}
+		defer func() { _ = file.Close() }()
+		if err := v.validateCachedIdentity(file, entry, info); err != nil {
+			v.cache.remove(entry.key)
+			return "", false, err
+		}
 		return entry.path, true, nil
 	}
 	v.cache.remove(entry.key)
@@ -228,7 +238,7 @@ func (v *recoveryValidator) validateCached(entry recoveryCacheEntry) (string, bo
 // resolvePath 只使用已选 provider UUID，不接受 public thread 或其它候选。
 func (v *recoveryValidator) resolvePath(req ReadRequest, provider, identity string) (string, bool, error) {
 	explicit := strings.TrimSpace(req.RolloutPath)
-	root, err := v.recoveryRoot(req, provider, explicit)
+	root, err := v.recoveryRoot(req, provider)
 	if err != nil {
 		return "", false, err
 	}
@@ -250,26 +260,18 @@ func (v *recoveryValidator) resolvePath(req ReadRequest, provider, identity stri
 }
 
 // recoveryRoot 返回已解析 symlink 的 provider canonical artifact root。
-func (v *recoveryValidator) recoveryRoot(req ReadRequest, provider, explicitPath string) (string, error) {
+func (v *recoveryValidator) recoveryRoot(req ReadRequest, provider string) (string, error) {
 	var rawRoot string
 	var err error
 	switch provider {
 	case "codex":
-		if strings.TrimSpace(req.CodexHome) == "" && explicitPath != "" {
-			rawRoot, err = recoveryRootFromExplicitPath(explicitPath, "sessions")
-		} else {
-			var home string
-			home, err = codexRoot(req.CodexHome)
-			rawRoot = filepath.Join(home, "sessions")
-		}
+		var home string
+		home, err = codexRoot(req.CodexHome)
+		rawRoot = filepath.Join(home, "sessions")
 	case "claude":
-		if strings.TrimSpace(req.ClaudeHome) == "" && explicitPath != "" {
-			rawRoot, err = recoveryRootFromExplicitPath(explicitPath, "projects")
-		} else {
-			var home string
-			home, err = claudeRoot(req.ClaudeHome)
-			rawRoot = filepath.Join(home, "projects")
-		}
+		var home string
+		home, err = claudeRoot(req.ClaudeHome)
+		rawRoot = filepath.Join(home, "projects")
 	default:
 		return "", fmt.Errorf("unsupported provider %q", provider)
 	}
@@ -284,23 +286,6 @@ func (v *recoveryValidator) recoveryRoot(req ReadRequest, provider, explicitPath
 		return "", fmt.Errorf("canonicalize provider recovery root %s: %w", rawRoot, err)
 	}
 	return filepath.Clean(root), nil
-}
-
-// recoveryRootFromExplicitPath 从持久化 artifact 路径恢复 provider canonical root。
-func recoveryRootFromExplicitPath(path, marker string) (string, error) {
-	cleaned, err := filepath.Abs(filepath.Clean(path))
-	if err != nil {
-		return "", fmt.Errorf("resolve explicit recovery artifact path: %w", err)
-	}
-	for directory := filepath.Dir(cleaned); ; directory = filepath.Dir(directory) {
-		if filepath.Base(directory) == marker {
-			return directory, nil
-		}
-		parent := filepath.Dir(directory)
-		if parent == directory {
-			return "", fmt.Errorf("explicit recovery artifact is outside provider %s root: %s", marker, path)
-		}
-	}
 }
 
 // secureExplicitPath 验证显式 rollout 的 canonical containment、文件类型和命名身份。
@@ -428,6 +413,32 @@ func (v *recoveryValidator) validateOpenedArtifact(file *os.File, path, provider
 	return after, nil
 }
 
+// validateCachedIdentity 在 metadata 相同的 cache hit 上绑定已打开文件的 provider identity。
+func (v *recoveryValidator) validateCachedIdentity(file *os.File, entry recoveryCacheEntry, before os.FileInfo) error {
+	opened, err := file.Stat()
+	if err != nil {
+		return fmt.Errorf("stat cached recovery artifact: %w", err)
+	}
+	if !sameRecoveryFile(before, opened) {
+		return &RecoveryArtifactRaceError{Path: entry.path, Cause: errors.New("cached artifact changed between lstat and open")}
+	}
+	if err := validateRecoveryIdentity(file, entry.key.provider, entry.key.identity); err != nil {
+		return err
+	}
+	after, err := file.Stat()
+	if err != nil {
+		return fmt.Errorf("stat cached recovery artifact after identity validation: %w", err)
+	}
+	current, err := v.fs.lstat(entry.path)
+	if err != nil {
+		return v.pathAccessError(entry.path, err, true)
+	}
+	if !sameRecoveryFile(before, after) || !sameRecoveryFile(after, current) {
+		return &RecoveryArtifactRaceError{Path: entry.path, Cause: errors.New("cached artifact changed during identity validation")}
+	}
+	return nil
+}
+
 // pathAccessError 区分初始明确缺失和 discovery/cache 后消失。
 func (v *recoveryValidator) pathAccessError(path string, err error, disappearanceIsRace bool) error {
 	if errors.Is(err, os.ErrNotExist) {
@@ -471,6 +482,33 @@ func validateRecoveryContents(file *os.File, provider, identity string) error {
 		return recoveryIdentityError(provider, identity, errors.New("artifact provider identity is missing"))
 	}
 	return nil
+}
+
+// validateRecoveryIdentity 仅复验 provider-native identity，避免 cache hit 重做全量 JSONL 解析。
+func validateRecoveryIdentity(file *os.File, provider, identity string) error {
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	for scanner.Scan() {
+		raw := scanner.Bytes()
+		if len(strings.TrimSpace(string(raw))) == 0 {
+			continue
+		}
+		artifactIdentity, found, err := recoveryIdentityFromLine(raw, provider)
+		if err != nil {
+			return err
+		}
+		if !found {
+			continue
+		}
+		if !strings.EqualFold(artifactIdentity, identity) {
+			return recoveryIdentityError(provider, identity, fmt.Errorf("artifact UUID is %q", artifactIdentity))
+		}
+		return nil
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("scan cached recovery artifact identity: %w", err)
+	}
+	return recoveryIdentityError(provider, identity, errors.New("artifact provider identity is missing"))
 }
 
 // recoveryIdentityFromLine 提取 provider-native artifact identity。

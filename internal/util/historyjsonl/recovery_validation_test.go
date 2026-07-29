@@ -67,8 +67,8 @@ func TestRecoveryValidatorCachesStableLargeArtifactAndInvalidatesRevision(t *tes
 	if got := walkCalls.Load(); got != 1 {
 		t.Fatalf("stable cache WalkDir calls = %d, want 1", got)
 	}
-	if got := openCalls.Load(); got != 1 {
-		t.Fatalf("stable cache open calls = %d, want 1", got)
+	if got := openCalls.Load(); got != 2 {
+		t.Fatalf("stable cache identity revalidation open calls = %d, want 2", got)
 	}
 
 	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
@@ -88,8 +88,61 @@ func TestRecoveryValidatorCachesStableLargeArtifactAndInvalidatesRevision(t *tes
 	if got := walkCalls.Load(); got != 1 {
 		t.Fatalf("revision invalidation WalkDir calls = %d, want cached path without re-walk", got)
 	}
-	if got := openCalls.Load(); got != 2 {
-		t.Fatalf("revision invalidation open calls = %d, want 2", got)
+	if got := openCalls.Load(); got != 3 {
+		t.Fatalf("revision invalidation open calls = %d, want 3", got)
+	}
+}
+
+func TestRecoveryValidatorRejectsSameMetadataIdentityRewrite(t *testing.T) {
+	t.Parallel()
+
+	const identity = "019e218f-b514-7733-be85-b3ee7f6a78a6"
+	const otherIdentity = "019e218f-b514-7733-be85-b3ee7f6a78a7"
+	home := t.TempDir()
+	path := writeRecoveryCodexArtifact(t, home, identity, 0)
+	validator := newRecoveryValidator(defaultRecoveryFS, 8)
+	req := ReadRequest{Provider: "codex", ProviderThreadID: identity, CodexHome: home}
+	if _, err := validator.validate(req); err != nil {
+		t.Fatalf("prime validate() error = %v", err)
+	}
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat artifact: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(fmt.Sprintf(`{"type":"session_meta","payload":{"id":%q}}`+"\n", otherIdentity)), 0o600); err != nil {
+		t.Fatalf("rewrite artifact: %v", err)
+	}
+	if err := os.Chtimes(path, before.ModTime(), before.ModTime()); err != nil {
+		t.Fatalf("restore artifact timestamps: %v", err)
+	}
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat rewritten artifact: %v", err)
+	}
+	if !sameRecoveryFile(before, after) {
+		t.Fatalf("test rewrite did not preserve inode/size/mtime/mode")
+	}
+	_, err = validator.validate(req)
+	if !IsRecoveryArtifactIdentityError(err) {
+		t.Fatalf("validate() error = %v, want identity mismatch", err)
+	}
+}
+
+func TestRecoveryValidatorDoesNotInferOwnerRootFromExplicitArtifact(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CODEX_HOME", "")
+
+	const identity = "019e218f-b514-7733-be85-b3ee7f6a78a6"
+	untrustedHome := t.TempDir()
+	path := writeRecoveryCodexArtifact(t, untrustedHome, identity, 0)
+	validator := newRecoveryValidator(defaultRecoveryFS, 8)
+	_, err := validator.validate(ReadRequest{
+		Provider:         "codex",
+		ProviderThreadID: identity,
+		RolloutPath:      path,
+	})
+	if !IsMissingProviderHistory(err) {
+		t.Fatalf("validate() error = %v, want authoritative provider root missing", err)
 	}
 }
 

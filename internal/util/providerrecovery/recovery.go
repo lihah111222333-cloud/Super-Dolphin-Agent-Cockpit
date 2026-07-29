@@ -26,6 +26,8 @@ const (
 // ErrNotFound 仅表示明确缺失的 provider root 或 artifact。
 var ErrNotFound = errors.New("provider recovery artifact not found")
 
+var errNoIdentityCandidate = errors.New("official provider UUID candidate is absent")
+
 // Error 保留 recovery 分类和底层根因。
 type Error struct {
 	Kind     ErrorKind
@@ -139,39 +141,60 @@ func ResolveOptional(req Request) (Result, error) {
 	if provider != "codex" && provider != "claude" {
 		return Result{}, recoveryError(ErrorKindUnknownProvider, provider, fmt.Errorf("unsupported provider %q", provider))
 	}
-	if !hasRecoveryIdentity(req) {
+	_, _, err := resolveIdentity(req)
+	if errors.Is(err, errNoIdentityCandidate) {
 		return Result{
 			Provider:       provider,
 			IdentitySource: IdentitySourceNoCandidate,
 			ArtifactPolicy: ArtifactPolicyNotApplicable,
 		}, nil
 	}
+	if err != nil {
+		return Result{}, recoveryError(ErrorKindInvalidIdentity, provider, err)
+	}
 	return Resolve(req)
 }
 
-// hasRecoveryIdentity 判断 optional 调用是否存在官方 UUID 候选。
-func hasRecoveryIdentity(req Request) bool {
-	return isCanonicalUUID(req.ProviderThreadID) || isCanonicalUUID(req.SessionUUID)
-}
-
 func resolveIdentity(req Request) (string, IdentitySource, error) {
-	if candidate := req.ProviderThreadID; isCanonicalUUID(candidate) {
-		return candidate, IdentitySourceProviderThreadID, nil
+	if candidate := req.ProviderThreadID; candidate != "" {
+		canonical, err := CanonicalizeUUID(candidate)
+		if err == nil {
+			return canonical, IdentitySourceProviderThreadID, nil
+		}
+		if !isLegacyAgentPlaceholder(candidate) {
+			return "", "", fmt.Errorf("provider thread identity: %w", err)
+		}
 	}
-	if candidate := req.SessionUUID; isCanonicalUUID(candidate) {
-		return candidate, IdentitySourceLegacySessionUUID, nil
+	if candidate := req.SessionUUID; candidate != "" {
+		canonical, err := CanonicalizeUUID(candidate)
+		if err != nil {
+			return "", "", fmt.Errorf("legacy session identity: %w", err)
+		}
+		return canonical, IdentitySourceLegacySessionUUID, nil
+	}
+	if req.ProviderThreadID == "" || isLegacyAgentPlaceholder(req.ProviderThreadID) {
+		return "", "", errNoIdentityCandidate
 	}
 	return "", "", errors.New("official provider UUID is required")
 }
 
-// isCanonicalUUID 只接受 RFC 4122 canonical 36 字符 UUID，拒绝 nil 和宽松变体。
-func isCanonicalUUID(raw string) bool {
-	candidate := strings.TrimSpace(raw)
-	if candidate != raw {
-		return false
+// CanonicalizeUUID 严格解析合法历史 UUID 表示，并返回统一的小写带连字符形式。
+func CanonicalizeUUID(raw string) (string, error) {
+	if raw == "" || strings.TrimSpace(raw) != raw {
+		return "", errors.New("provider UUID must not be empty or contain surrounding whitespace")
 	}
-	parsed, err := uuid.Parse(candidate)
-	return err == nil && parsed != uuid.Nil && parsed.String() == candidate
+	parsed, err := uuid.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("parse provider UUID %q: %w", raw, err)
+	}
+	if parsed == uuid.Nil {
+		return "", errors.New("nil provider UUID is invalid")
+	}
+	return parsed.String(), nil
+}
+
+func isLegacyAgentPlaceholder(raw string) bool {
+	return strings.HasPrefix(raw, "agent_") || strings.HasPrefix(raw, "agent-")
 }
 
 func classifyArtifactError(err error) ErrorKind {

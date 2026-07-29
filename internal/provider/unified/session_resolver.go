@@ -340,6 +340,7 @@ func providerRecoveryRequestFromSessionBinding(binding *contract.SessionBinding)
 		ProviderThreadID: binding.ProviderThreadID,
 		SessionUUID:      binding.SessionUUID,
 		CodexHome:        binding.CodexHome,
+		ClaudeHome:       "",
 	}
 }
 

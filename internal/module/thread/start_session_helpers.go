@@ -266,6 +266,7 @@ func mergeResumeBindingState(state *resumeState, binding *threadBindingStoreReco
 	if state == nil || binding == nil {
 		return nil
 	}
+	state.CodexHome = strings.TrimSpace(binding.CodexHome)
 	providerThreadID, err := recoverableBindingProviderThreadID(binding)
 	if err != nil {
 		return err
@@ -279,7 +280,7 @@ func mergeResumeBindingState(state *resumeState, binding *threadBindingStoreReco
 	state.PublicThreadID = util.FirstNonEmpty(state.PublicThreadID, binding.CodexThreadID)
 	state.RolloutPath = strings.TrimSpace(binding.RolloutPath)
 	state.SessionUUID = strings.TrimSpace(binding.SessionUUID)
-	state.CodexHome = strings.TrimSpace(binding.CodexHome)
+	state.ProviderRecoveryHome = strings.TrimSpace(binding.ProviderRecoveryHome)
 	state.CodexInstanceKey = strings.TrimSpace(binding.CodexInstanceKey)
 	state.CodexModelProvider = strings.TrimSpace(binding.CodexModelProvider)
 	state.CWD = util.FirstNonEmpty(state.CWD, binding.Cwd)

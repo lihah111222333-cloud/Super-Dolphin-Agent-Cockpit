@@ -15,7 +15,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/clone"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/idempotency"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/identifier"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/providerrecovery"
 )
 
 // SessionStarter 是 contract.SessionStarter 的本地别名。
@@ -281,7 +281,7 @@ func (s *service) persistStartedSession(
 		return StartResult{}, idempotency.RetainOnError(err, s.cleanupFailedStartedSession(ctx, agentID))
 	}
 	rolloutPath := session.RolloutPath()
-	providerThreadID, err := recoverableProviderThreadID(req.Provider, providerUUID, rolloutPath, codexHome)
+	providerThreadID, err := recoverableProviderThreadID(req.Provider, providerUUID, rolloutPath, codexHome, "")
 	if err != nil {
 		return StartResult{}, idempotency.RetainOnError(err, s.cleanupFailedStartedSession(ctx, agentID))
 	}
@@ -401,7 +401,16 @@ func (s *service) persistResumedSession(
 	)
 	rolloutPath := util.FirstNonEmpty(state.RolloutPath, session.RolloutPath())
 	sessionUUID := util.FirstNonEmpty(resolvedProviderUUID(session), state.SessionUUID, req.ProviderThreadID, state.ProviderThreadID)
-	providerThreadID, err := s.recoverResumedProviderThreadID(ctx, req.AgentID, provider, sessionUUID, rolloutPath, codexHome)
+	recoveryHome := state.ProviderRecoveryHome
+	recoveryCodexHome := codexHome
+	if strings.EqualFold(provider, "codex") && recoveryCodexHome == "" {
+		recoveryCodexHome = recoveryHome
+	}
+	claudeHome := util.FirstNonEmpty(req.ClaudeHome, state.ClaudeHome)
+	if strings.EqualFold(provider, "claude") && claudeHome == "" {
+		claudeHome = recoveryHome
+	}
+	providerThreadID, err := s.recoverResumedProviderThreadID(ctx, req.AgentID, provider, sessionUUID, rolloutPath, recoveryCodexHome, claudeHome)
 	if err != nil {
 		return ResumeResult{}, err
 	}
@@ -472,9 +481,9 @@ func resolvedResumeCodexIdentity(
 // recoverResumedProviderThreadID 解析 resume 身份并统一执行失败清理。
 func (s *service) recoverResumedProviderThreadID(
 	ctx context.Context,
-	agentID, provider, sessionUUID, rolloutPath, codexHome string,
+	agentID, provider, sessionUUID, rolloutPath, codexHome, claudeHome string,
 ) (string, error) {
-	providerThreadID, err := recoverableProviderThreadID(provider, sessionUUID, rolloutPath, codexHome)
+	providerThreadID, err := recoverableProviderThreadID(provider, sessionUUID, rolloutPath, codexHome, claudeHome)
 	if err != nil {
 		return "", s.resumePersistFailure(ctx, agentID, err)
 	}
@@ -711,7 +720,7 @@ func resolvedProviderUUID(session contract.Session) string {
 	if session == nil {
 		return ""
 	}
-	if id := strings.TrimSpace(session.ThreadID()); identifier.LooksLikeUUID(id) {
+	if id, err := providerrecovery.CanonicalizeUUID(strings.TrimSpace(session.ThreadID())); err == nil {
 		return id
 	}
 	return ""

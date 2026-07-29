@@ -13,6 +13,7 @@ import (
 	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
 	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/identifier"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/providerrecovery"
 )
 
 // bindingRegistration 是写入 binding store 前的规范化线程绑定请求。
@@ -42,6 +43,15 @@ func normalizeThreadState(state threadState) (threadState, error) {
 	state.AgentMemoryScope, state.Provider, state.CWD = trim(state.AgentMemoryScope), trim(state.Provider), trim(state.CWD)
 	state.CodexHome, state.CodexInstanceKey, state.CodexModelProvider = trim(state.CodexHome), trim(state.CodexInstanceKey), trim(state.CodexModelProvider)
 	state.Model, state.Prompt = trim(state.Model), trim(state.Prompt)
+	var err error
+	state.ProviderThreadID, err = canonicalizeProviderIdentityField(state.ProviderThreadID, true)
+	if err != nil {
+		return threadState{}, fmt.Errorf("provider_thread_id: %w", err)
+	}
+	state.SessionUUID, err = canonicalizeProviderIdentityField(state.SessionUUID, false)
+	if err != nil {
+		return threadState{}, fmt.Errorf("session_uuid: %w", err)
+	}
 	if state.PublicThreadID == "" || state.AgentID == "" {
 		return threadState{}, errors.New("thread and agent ids are required")
 	}
@@ -68,11 +78,13 @@ func normalizeBindingRegistration(state threadState) (bindingRegistration, error
 	}, nil
 }
 
-// normalizeProviderThreadID 清理 provider 侧线程 ID。
-// Claude 只接受真实 CLI session UUID，非 UUID 值会被清空以避免错误绑定。
+// normalizeProviderThreadID 清理 provider 侧线程 ID，并规范化合法历史 UUID。
 func normalizeProviderThreadID(provider, id string) string {
 	id = strings.TrimSpace(id)
-	if strings.EqualFold(strings.TrimSpace(provider), "claude") && !identifier.IsClaudeCLISessionUUID(id) {
+	if canonical, err := providerrecovery.CanonicalizeUUID(id); err == nil {
+		return canonical
+	}
+	if strings.EqualFold(strings.TrimSpace(provider), "claude") {
 		return ""
 	}
 	return id
@@ -90,6 +102,21 @@ func validateProviderThreadID(provider, id string) error {
 		return nil
 	}
 	return fmt.Errorf("claude provider_thread_id must be a session UUID")
+}
+
+func canonicalizeProviderIdentityField(raw string, allowPlaceholder bool) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+	canonical, err := providerrecovery.CanonicalizeUUID(raw)
+	if err == nil {
+		return canonical, nil
+	}
+	if allowPlaceholder && (strings.HasPrefix(raw, "agent_") || strings.HasPrefix(raw, "agent-")) {
+		return raw, nil
+	}
+	return "", err
 }
 
 // ensurePublicThreadAvailable 确认公开线程 ID 没有被其他 agent 占用。
@@ -564,9 +591,12 @@ func (r *bindingRecoveryReporter) RecordProviderSessionUUID(ctx context.Context,
 		return nil
 	}
 	agentID = strings.TrimSpace(agentID)
-	sessionUUID = strings.TrimSpace(sessionUUID)
-	if agentID == "" || !identifier.LooksLikeUUID(sessionUUID) {
+	if agentID == "" {
 		return nil
+	}
+	sessionUUID, err := providerrecovery.CanonicalizeUUID(strings.TrimSpace(sessionUUID))
+	if err != nil {
+		return fmt.Errorf("record provider session UUID: %w", err)
 	}
 	binding, err := r.store.GetByAgentID(ctx, agentID)
 	if err != nil || binding == nil {
@@ -592,8 +622,10 @@ func (r *bindingRecoveryReporter) recordSessionUUID(ctx context.Context, agentID
 // recordProviderThreadID 记录provider线程ID。
 func (r *bindingRecoveryReporter) recordProviderThreadID(ctx context.Context, binding *threadBindingRecord, agentID, sessionUUID string, updatedAt int64) error {
 	current := strings.TrimSpace(binding.ProviderThreadID)
-	if current != "" && current != agentID && identifier.LooksLikeUUID(current) {
-		return nil
+	if current != "" && current != agentID {
+		if canonical, err := providerrecovery.CanonicalizeUUID(current); err == nil && canonical != sessionUUID {
+			return nil
+		}
 	}
 	recoverable, err := bindingRecordHasProviderHistoryForUUID(binding, sessionUUID)
 	if err != nil {

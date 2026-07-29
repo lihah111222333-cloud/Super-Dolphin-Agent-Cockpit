@@ -572,7 +572,7 @@ func TestServiceRecoverRejectsMissingCWDBeforeOrchestrationSideEffects(t *testin
 	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-parent",
 		Provider:         "codex",
-		ProviderThreadID: "provider-parent",
+		ProviderThreadID: "11111111-2222-3333-4444-555555555594",
 		CodexThreadID:    "thread-parent",
 	}}
 	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
@@ -775,11 +775,11 @@ func assertRecoverResumeEnvelope(t *testing.T, result RecoverResult) {
 func TestServiceRecoverReturnsRestoreEnvelopeWhenSessionActive(t *testing.T) {
 	t.Parallel()
 
-	sessions := &stubSessionProvider{session: &stubSession{threadID: "provider-parent"}}
+	sessions := &stubSessionProvider{session: &stubSession{threadID: "11111111-2222-3333-4444-555555555594"}}
 	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-parent",
 		Provider:         "codex",
-		ProviderThreadID: "provider-parent",
+		ProviderThreadID: "11111111-2222-3333-4444-555555555594",
 		CodexThreadID:    "thread-parent",
 		Cwd:              "/repo",
 	}}

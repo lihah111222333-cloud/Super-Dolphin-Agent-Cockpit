@@ -49,6 +49,7 @@ func (s *stubBindingStore) bindingForAgent(agentID string) (*BindingRecord, erro
 		return nil, db.ErrNotFound
 	}
 	binding := *s.binding
+	authorizeRecoveryTestBinding(&binding)
 	return &binding, nil
 }
 
@@ -60,12 +61,18 @@ func (stubBindingStoreNoopMethods) UnbindAgentThread(context.Context, string) er
 
 func (s *stubBindingStore) ListAgentThreadBindings(context.Context) ([]BindingRecord, error) {
 	if s.bindings != nil {
-		return s.bindings, nil
+		out := append([]BindingRecord(nil), s.bindings...)
+		for i := range out {
+			authorizeRecoveryTestBinding(&out[i])
+		}
+		return out, nil
 	}
 	if s.binding == nil {
 		return nil, nil
 	}
-	return []BindingRecord{*s.binding}, nil
+	binding := *s.binding
+	authorizeRecoveryTestBinding(&binding)
+	return []BindingRecord{binding}, nil
 }
 
 func (s *stubBindingStore) GetThreadByAgent(context.Context, string) (string, error) {

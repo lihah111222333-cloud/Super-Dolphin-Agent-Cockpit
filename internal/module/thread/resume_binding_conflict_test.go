@@ -64,6 +64,7 @@ func TestResumeBindingConflictSuppressesThreadStartedEvent(t *testing.T) {
 			Cwd:              "/repo",
 		},
 	}
+	authorizeRecoveryTestBinding(bindings.agentBinding)
 
 	// Agent B has an active session — this is not an orphan binding.
 	agentBSession := &stubSession{threadID: conflictUUID, rolloutPath: rolloutPath}
@@ -197,6 +198,7 @@ func TestResumeEvictsStaleBindingWhenBlockingAgentIsDead(t *testing.T) {
 			Cwd:              "/repo",
 		},
 	}
+	authorizeRecoveryTestBinding(bindings.agentBinding)
 
 	// Agent B has NO active session — it's a stale/orphan binding.
 	// Use the sessions map so GetSession("agent-B") returns not-found

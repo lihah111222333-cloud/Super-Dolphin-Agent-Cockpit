@@ -6,11 +6,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 )
+
+var recoveryTestHomeByPath sync.Map
 
 func writeExistingProviderHistoryFile(t *testing.T, args ...string) string {
 	t.Helper()
@@ -41,7 +44,21 @@ func writeExistingProviderHistoryFile(t *testing.T, args ...string) string {
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write provider history file: %v", err)
 	}
+	recoveryTestHomeByPath.Store(path, home)
 	return path
+}
+
+func authorizeRecoveryTestBinding(binding *BindingRecord) {
+	if binding == nil {
+		return
+	}
+	home, ok := recoveryTestHomeByPath.Load(binding.RolloutPath)
+	if !ok {
+		return
+	}
+	if binding.ProviderRecoveryHome == "" {
+		binding.ProviderRecoveryHome = home.(string)
+	}
 }
 
 func TestServiceResumePrefersSessionUUIDOverStaleProviderThreadID(t *testing.T) {

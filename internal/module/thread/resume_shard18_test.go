@@ -85,7 +85,7 @@ func TestBackgroundResumeIfNeededSkipsArchivedBinding(t *testing.T) {
 	starter := &stubSessionStarter{
 		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
 			resumeReqCh <- req
-			return &stubSession{threadID: "provider-thread-1"}, nil
+			return &stubSession{threadID: "11111111-2222-3333-4444-555555555597"}, nil
 		},
 	}
 
@@ -146,7 +146,7 @@ func TestResumeRejectsLifecycleBlockedAgent(t *testing.T) {
 	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
-		ProviderThreadID: "provider-thread-1",
+		ProviderThreadID: "11111111-2222-3333-4444-555555555597",
 		CodexThreadID:    "thread-1",
 		Cwd:              "/repo",
 	}}
@@ -174,7 +174,7 @@ func TestProcessSessionRecoverySkipsArchivedBinding(t *testing.T) {
 	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
-		ProviderThreadID: "provider-thread-1",
+		ProviderThreadID: "11111111-2222-3333-4444-555555555597",
 		CodexThreadID:    "thread-1",
 		Cwd:              "/repo",
 		Archived:         true,
@@ -183,7 +183,7 @@ func TestProcessSessionRecoverySkipsArchivedBinding(t *testing.T) {
 	starter := &stubSessionStarter{
 		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
 			resumeReqCh <- req
-			return &stubSession{threadID: "provider-thread-1"}, nil
+			return &stubSession{threadID: "11111111-2222-3333-4444-555555555597"}, nil
 		},
 	}
 	svc := NewService(silentLogger(), threads, bindings, &stubSessionProvider{}, starter, nil, nil, nil).(*service)
@@ -603,6 +603,7 @@ func (s *stubBindingStore) GetByProviderThread(_ context.Context, provider, prov
 		return nil, platformdb.ErrNotFound
 	}
 	binding := *s.binding
+	authorizeRecoveryTestBinding(&binding)
 	return &binding, nil
 }
 
