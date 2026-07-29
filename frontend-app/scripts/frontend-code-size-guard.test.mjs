@@ -196,13 +196,13 @@ describe('frontend code size guard', () => {
     const unknown = Object.assign(new Error('private'), {
       code: 'BASELINE_SENTINEL_UNKNOWN', phase: 'sentinel-phase', recoveryAction: 'inspect-without-mutating',
     });
-    expect(() => formatBaselineTransactionErrorForStderr(unknown)).toThrow(/unknown public error code/);
+    expect(() => formatBaselineTransactionErrorForStderr(unknown)).toThrow('baseline public error contract rejected: unknown code');
 
     const missing = Object.assign(new Error('private'), { code: 'BASELINE_COMMITTED_DURABILITY_UNKNOWN' });
-    expect(() => formatBaselineTransactionErrorForStderr(missing)).toThrow(/phase/);
+    expect(() => formatBaselineTransactionErrorForStderr(missing)).toThrow('baseline public error contract rejected: invalid or missing phase');
 
     Object.assign(missing, { phase: 'post-commit-cleanup', recoveryAction: 'delete-everything' });
-    expect(() => formatBaselineTransactionErrorForStderr(missing)).toThrow(/recovery action/);
+    expect(() => formatBaselineTransactionErrorForStderr(missing)).toThrow('baseline public error contract rejected: invalid or missing recovery action');
   });
 
   it('counts effective lines without comments and blank lines', () => {

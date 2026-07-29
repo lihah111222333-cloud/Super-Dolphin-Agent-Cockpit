@@ -67,8 +67,9 @@ frontend-app/scripts/failure-matrix-runner.mjs	frontend-app	app-ui	js-source	211
 frontend-app/scripts/failure-matrix-runner.test.mjs	frontend-app	app-ui	js-test	7261	React 前端构建与校验脚本	frontend,app,scripts,failure,matrix,runner,test,React,前端构建与校验脚本
 frontend-app/scripts/frontend-code-size-baseline-transaction-crash.test.mjs	frontend-app	app-ui	js-test	28290	React 前端构建与校验脚本	frontend,app,scripts,code,size,baseline,transaction,crash,test,React,前端构建与校验脚本
 frontend-app/scripts/frontend-code-size-baseline-transaction-final-state.test.mjs	frontend-app	app-ui	js-test	6172	React 前端构建与校验脚本	frontend,app,scripts,code,size,baseline,transaction,final,state,test,React,前端构建与校验脚本
-frontend-app/scripts/frontend-code-size-guard.mjs	frontend-app	app-ui	js-source	25578	React 前端构建与校验脚本	frontend,app,scripts,code,size,guard,React,前端构建与校验脚本
-frontend-app/scripts/frontend-code-size-guard.test.mjs	frontend-app	app-ui	js-test	36603	React 前端构建与校验脚本	frontend,app,scripts,code,size,guard,test,React,前端构建与校验脚本
+frontend-app/scripts/frontend-code-size-guard-stderr.test.mjs	frontend-app	app-ui	js-test	2862	React 前端构建与校验脚本	frontend,app,scripts,code,size,guard,stderr,test,React,前端构建与校验脚本
+frontend-app/scripts/frontend-code-size-guard.mjs	frontend-app	app-ui	js-source	25778	React 前端构建与校验脚本	frontend,app,scripts,code,size,guard,React,前端构建与校验脚本
+frontend-app/scripts/frontend-code-size-guard.test.mjs	frontend-app	app-ui	js-test	36751	React 前端构建与校验脚本	frontend,app,scripts,code,size,guard,test,React,前端构建与校验脚本
 frontend-app/scripts/frontend-contract-store-guard.mjs	frontend-app	app-ui	js-source	20112	React 前端构建与校验脚本	frontend,app,scripts,contract,store,guard,React,前端构建与校验脚本
 frontend-app/scripts/frontend-contract-store-guard.test.mjs	frontend-app	app-ui	js-test	14200	React 前端构建与校验脚本	frontend,app,scripts,contract,store,guard,test,React,前端构建与校验脚本
 frontend-app/scripts/frontend-dependency-direction-guard.mjs	frontend-app	app-ui	js-source	16702	React 前端构建与校验脚本	frontend,app,scripts,dependency,direction,guard,React,前端构建与校验脚本
@@ -90,7 +91,7 @@ frontend-app/scripts/frontend-state-ownership-guard.test.mjs	frontend-app	app-ui
 frontend-app/scripts/frontend-state-ownership-registry.json	frontend-app	app-ui	json	5222	React 前端构建与校验脚本	frontend,app,scripts,state,ownership,registry,React,前端构建与校验脚本
 frontend-app/scripts/frontend-z-index-token-guard.mjs	frontend-app	app-ui	js-source	10459	React 前端构建与校验脚本	frontend,app,scripts,z,index,token,guard,React,前端构建与校验脚本
 frontend-app/scripts/frontend-z-index-token-guard.test.mjs	frontend-app	app-ui	js-test	9746	React 前端构建与校验脚本	frontend,app,scripts,z,index,token,guard,test,React,前端构建与校验脚本
-frontend-app/scripts/lib/frontend-code-size-baseline-transaction.mjs	frontend-app	app-ui	js-source	33938	React 前端构建与校验脚本	frontend,app,scripts,lib,code,size,baseline,transaction,React,前端构建与校验脚本
+frontend-app/scripts/lib/frontend-code-size-baseline-transaction.mjs	frontend-app	app-ui	js-source	34341	React 前端构建与校验脚本	frontend,app,scripts,lib,code,size,baseline,transaction,React,前端构建与校验脚本
 frontend-app/scripts/lib/frontend-code-size-baseline.mjs	frontend-app	app-ui	js-source	1539	React 前端构建与校验脚本	frontend,app,scripts,lib,code,size,baseline,React,前端构建与校验脚本
 frontend-app/scripts/lib/frontend-code-size-guard-runner.mjs	frontend-app	app-ui	js-source	3104	React 前端构建与校验脚本	frontend,app,scripts,lib,code,size,guard,runner,React,前端构建与校验脚本
 frontend-app/scripts/managed-command.mjs	frontend-app	app-ui	js-source	7069	React 前端构建与校验脚本	frontend,app,scripts,managed,command,React,前端构建与校验脚本

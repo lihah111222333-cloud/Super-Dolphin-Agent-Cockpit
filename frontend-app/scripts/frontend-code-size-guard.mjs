@@ -4,7 +4,7 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { parse as parseJavaScriptSource } from '@babel/parser';
 import { canonicalViolationSignature, isCanonicalFullScan, sameCanonicalViolationBudget } from './lib/frontend-code-size-baseline.mjs';
-import { assertFrontendCodeSizeBaselineSchema, formatBaselineTransactionErrorForStderr, hashBaselineBytes } from './lib/frontend-code-size-baseline-transaction.mjs';
+import { assertFrontendCodeSizeBaselineSchema, BASELINE_PUBLIC_ERROR_CONTRACT_REJECTED_PROJECTION, formatBaselineTransactionErrorForStderr, hashBaselineBytes } from './lib/frontend-code-size-baseline-transaction.mjs';
 import { runFrontendCodeSizeCheck, runFrontendCodeSizeUpdate } from './lib/frontend-code-size-guard-runner.mjs';
 
 const appRoot = path.resolve(new URL('..', import.meta.url).pathname);
@@ -612,7 +612,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
     main();
   } catch (error) {
-    console.error(`frontend code size guard: ${formatBaselineTransactionErrorForStderr(error) ?? (error instanceof Error ? error.message : String(error))}`);
-    process.exit(2);
+    let publicProjection; try { publicProjection = formatBaselineTransactionErrorForStderr(error); } catch { publicProjection = BASELINE_PUBLIC_ERROR_CONTRACT_REJECTED_PROJECTION; }
+    console.error(`frontend code size guard: ${publicProjection ?? (error instanceof Error ? error.message : String(error))}`); process.exit(2);
   }
 }

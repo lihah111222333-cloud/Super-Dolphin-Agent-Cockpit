@@ -34,16 +34,18 @@ const publicErrorContracts = Object.freeze({
   BASELINE_TRANSACTION_STATE_CONFLICT: [['owned-artifact-cleanup'], 'inspect-target-and-marker-without-mutating'],
   BASELINE_TRANSACTION_FAILED_WITH_RECOVERY_REQUIRED: [['resource-or-lock-cleanup'], 'inspect-marker-and-owned-artifacts-without-deleting'],
   BASELINE_ATOMIC_REPLACE_UNSUPPORTED: [['platform-validation'], 'use-supported-platform-for-changed-update'],
+  BASELINE_PUBLIC_ERROR_CONTRACT_REJECTED: [['stderr-projection'], 'inspect-error-contract-without-outputting-private-data'],
 });
+export const BASELINE_PUBLIC_ERROR_CONTRACT_REJECTED_PROJECTION = 'code=BASELINE_PUBLIC_ERROR_CONTRACT_REJECTED phase=stderr-projection recoveryAction=inspect-error-contract-without-outputting-private-data';
 
 function isPlainObject(value) { return value !== null && typeof value === 'object' && !Array.isArray(value); }
 function safePathName(filePath) { return path.basename(filePath); }
 
 function assertPublicErrorContract(code, phase, recoveryAction) {
   const contract = publicErrorContracts[code];
-  if (contract === undefined) throw new Error(`unknown public error code: ${String(code)}`);
-  if (!contract[0].includes(phase)) throw new Error(`invalid or missing phase for ${code}`);
-  if (recoveryAction !== contract[1]) throw new Error(`invalid or missing recovery action for ${code}`);
+  if (contract === undefined) throw new Error('baseline public error contract rejected: unknown code');
+  if (!contract[0].includes(phase)) throw new Error('baseline public error contract rejected: invalid or missing phase');
+  if (recoveryAction !== contract[1]) throw new Error('baseline public error contract rejected: invalid or missing recovery action');
 }
 
 function typedRecoveryError(message, code, phase, recoveryAction, options) {
