@@ -86,7 +86,7 @@ func TestRunMigrationsProviderRecoveryVersion123FollowsLegacy120Marker(t *testin
 	ctx := context.Background()
 	db := openMigrationTestDB(t)
 	preUpgradeDir := t.TempDir()
-	copyMigrationsBefore123(t, "migrations", preUpgradeDir)
+	copyBranchLocalMigrationsBefore120(t, "migrations", preUpgradeDir)
 	if err := RunMigrations(ctx, db, preUpgradeDir); err != nil {
 		t.Fatalf("RunMigrations(pre-123) error = %v", err)
 	}
@@ -422,7 +422,7 @@ func TestRunMigrationsRealDBUpgradeCanonicalizesProviderBindingUUIDs(t *testing.
 	ctx := context.Background()
 	db := openMigrationTestDB(t)
 	preUpgradeDir := t.TempDir()
-	copyMigrationsBefore123(t, "migrations", preUpgradeDir)
+	copyBranchLocalMigrationsBefore120(t, "migrations", preUpgradeDir)
 	if err := RunMigrations(ctx, db, preUpgradeDir); err != nil {
 		t.Fatalf("RunMigrations(pre-123) error = %v", err)
 	}
@@ -460,7 +460,7 @@ func TestRunMigrationsRealDBUpgradeBackfillsLegacyProviderThreadPlaceholder(t *t
 	ctx := context.Background()
 	db := openMigrationTestDB(t)
 	preUpgradeDir := t.TempDir()
-	copyMigrationsBefore123(t, "migrations", preUpgradeDir)
+	copyBranchLocalMigrationsBefore120(t, "migrations", preUpgradeDir)
 	if err := RunMigrations(ctx, db, preUpgradeDir); err != nil {
 		t.Fatalf("RunMigrations(pre-123) error = %v", err)
 	}
@@ -519,7 +519,7 @@ func TestRunMigrationsRealDBUpgradeBackfillsLegacyProviderThreadPlaceholder(t *t
 	assertMigrationMarkerCount(t, db, "123_agent_provider_binding_recovery_owner.sql", 1)
 }
 
-func copyMigrationsBefore123(t *testing.T, sourceDir, targetDir string) {
+func copyBranchLocalMigrationsBefore120(t *testing.T, sourceDir, targetDir string) {
 	t.Helper()
 	entries, err := os.ReadDir(sourceDir)
 	if err != nil {
@@ -527,7 +527,7 @@ func copyMigrationsBefore123(t *testing.T, sourceDir, targetDir string) {
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".sql") || name >= "123_" {
+		if entry.IsDir() || !strings.HasSuffix(name, ".sql") || name >= "120_" {
 			continue
 		}
 		body, err := os.ReadFile(filepath.Join(sourceDir, name))
@@ -537,6 +537,33 @@ func copyMigrationsBefore123(t *testing.T, sourceDir, targetDir string) {
 		if err := os.WriteFile(filepath.Join(targetDir, name), body, 0o600); err != nil {
 			t.Fatalf("copy migration %s: %v", name, err)
 		}
+	}
+}
+
+func TestCopyBranchLocalMigrationsBefore120KeepsBoundaryAt119(t *testing.T) {
+	sourceDir := t.TempDir()
+	targetDir := t.TempDir()
+	for _, name := range []string{
+		"119_before_r1.sql",
+		"120_t1.sql",
+		"121_t1.sql",
+		"122_a1.sql",
+		"123_r1.sql",
+	} {
+		writeMigrationTestFile(t, sourceDir, name, "SELECT 1;\n")
+	}
+
+	copyBranchLocalMigrationsBefore120(t, sourceDir, targetDir)
+	entries, err := os.ReadDir(targetDir)
+	if err != nil {
+		t.Fatalf("read branch-local migration fixture: %v", err)
+	}
+	var names []string
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+	if !slices.Equal(names, []string{"119_before_r1.sql"}) {
+		t.Fatalf("branch-local migrations = %v, want only pre-R1 version 119", names)
 	}
 }
 

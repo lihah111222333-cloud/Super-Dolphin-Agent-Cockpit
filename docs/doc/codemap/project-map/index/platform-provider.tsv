@@ -361,7 +361,7 @@ internal/platform/db/schema_version_test.go	internal	platform-provider	go-test	4
 internal/platform/db/sqlite_helpers.go	internal	platform-provider	go-source	2502	基础设施层	internal,platform,db,sqlite,helpers,基础设施层
 internal/platform/db/sqlite_runtime_test.go	internal	platform-provider	go-test	1143	基础设施层	internal,platform,db,sqlite,runtime,test,基础设施层
 internal/platform/db/sqlite/backup_restore_smoke_test.go	internal	platform-provider	go-test	4149	基础设施层	internal,platform,db,sqlite,backup,restore,smoke,test,基础设施层
-internal/platform/db/sqlite/migrate_test.go	internal	platform-provider	go-test	30930	基础设施层	internal,platform,db,sqlite,migrate,test,基础设施层
+internal/platform/db/sqlite/migrate_test.go	internal	platform-provider	go-test	31709	基础设施层	internal,platform,db,sqlite,migrate,test,基础设施层
 internal/platform/db/sqlite/migrate.go	internal	platform-provider	go-source	20295	基础设施层	internal,platform,db,sqlite,migrate,基础设施层
 internal/platform/db/sqlite/migrations/001_baseline.sql	internal	platform-provider	sql	42128	基础设施层	internal,platform,db,sqlite,migrations,001,baseline,基础设施层
 internal/platform/db/sqlite/migrations/104_prompt_recall_topics.sql	internal	platform-provider	sql	281	基础设施层	internal,platform,db,sqlite,migrations,104,prompt,recall,topics,基础设施层
