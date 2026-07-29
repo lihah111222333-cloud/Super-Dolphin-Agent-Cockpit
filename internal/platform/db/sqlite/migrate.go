@@ -4,9 +4,11 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -155,6 +157,15 @@ func applyMigration(ctx context.Context, db *sql.DB, dir, name string) error {
 
 // executeMigrationBody 执行普通 SQL 迁移；少数需要按现有 schema 分支的迁移在这里收敛为 Go 逻辑。
 func executeMigrationBody(ctx context.Context, tx *sql.Tx, name, body string) error {
+	if name == managedGenerationCanonicalMigration {
+		adopted, err := adoptLegacyManagedGenerationMigration(ctx, tx, body)
+		if err != nil {
+			return err
+		}
+		if adopted {
+			return nil
+		}
+	}
 	if name == "112_system_logs_trace_span.sql" {
 		return migrateSystemLogsTraceSpan(ctx, tx)
 	}
@@ -162,6 +173,177 @@ func executeMigrationBody(ctx context.Context, tx *sql.Tx, name, body string) er
 		return migrateBusExceptionLogFlags(ctx, tx)
 	}
 	return execMigrationSegments(ctx, tx, body)
+}
+
+const (
+	managedGenerationCanonicalMigration = "122_mcp_managed_generations.sql"
+	managedGenerationLegacyMigration    = "120_mcp_managed_generations.sql"
+)
+
+var managedGenerationRequiredTables = []string{
+	"mcp_managed_generation_owner",
+	"mcp_managed_generation_instances",
+	"mcp_managed_generations",
+}
+
+var createTableStatementPattern = regexp.MustCompile(`(?is)\bCREATE\s+TABLE\s+([a-z_][a-z0-9_]*)\s*\(.*?\)\s*;`)
+
+// adoptLegacyManagedGenerationMigration 仅在 exact 旧 marker 存在时验证既有 schema 和 owner 身份。
+// 验证与规范 marker 写入由 applyMigration 的同一事务承载，失败不会留下 marker 或数据副作用。
+func adoptLegacyManagedGenerationMigration(ctx context.Context, tx *sql.Tx, body string) (bool, error) {
+	legacy, err := exactLegacyManagedGenerationMarker(ctx, tx)
+	if err != nil || !legacy {
+		return false, err
+	}
+	expected, err := managedGenerationTableDefinitions(body)
+	if err != nil {
+		return false, err
+	}
+	for _, table := range managedGenerationRequiredTables {
+		if err := requireExactSQLiteTableDefinition(ctx, tx, table, expected[table]); err != nil {
+			return false, fmt.Errorf("validate legacy managed generation schema: %w", err)
+		}
+	}
+	if err := requireManagedGenerationOwnerIdentity(ctx, tx); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// exactLegacyManagedGenerationMarker 要求旧 filename、version 和 name 三元组唯一且完全匹配。
+func exactLegacyManagedGenerationMarker(ctx context.Context, tx *sql.Tx) (bool, error) {
+	rows, err := tx.QueryContext(
+		ctx,
+		"SELECT version, name FROM schema_migrations WHERE filename = ?",
+		managedGenerationLegacyMigration,
+	)
+	if err != nil {
+		return false, fmt.Errorf("read legacy managed generation marker: %w", err)
+	}
+	defer rows.Close()
+	var (
+		count   int
+		version int
+		name    string
+	)
+	for rows.Next() {
+		count++
+		if err := rows.Scan(&version, &name); err != nil {
+			return false, fmt.Errorf("scan legacy managed generation marker: %w", err)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, fmt.Errorf("iterate legacy managed generation marker: %w", err)
+	}
+	if count == 0 {
+		return false, nil
+	}
+	if count != 1 || version != 120 || name != strings.TrimSuffix(managedGenerationLegacyMigration, ".sql") {
+		return false, fmt.Errorf("legacy managed generation marker identity is invalid")
+	}
+	return true, nil
+}
+
+// managedGenerationTableDefinitions 从规范 migration 动态派生三张表的完整 CREATE TABLE 定义。
+func managedGenerationTableDefinitions(body string) (map[string]string, error) {
+	matches := createTableStatementPattern.FindAllStringSubmatch(body, -1)
+	definitions := make(map[string]string, len(matches))
+	for _, match := range matches {
+		table := strings.ToLower(strings.TrimSpace(match[1]))
+		if _, exists := definitions[table]; exists {
+			return nil, fmt.Errorf("managed generation migration repeats table %s", table)
+		}
+		definitions[table] = normalizeSQLiteDefinition(match[0])
+	}
+	if len(definitions) != len(managedGenerationRequiredTables) {
+		return nil, fmt.Errorf("managed generation migration defines %d tables, want %d", len(definitions), len(managedGenerationRequiredTables))
+	}
+	for _, table := range managedGenerationRequiredTables {
+		if definitions[table] == "" {
+			return nil, fmt.Errorf("managed generation migration is missing table %s", table)
+		}
+	}
+	return definitions, nil
+}
+
+func requireExactSQLiteTableDefinition(ctx context.Context, tx *sql.Tx, table, expected string) error {
+	var actual string
+	if err := tx.QueryRowContext(
+		ctx,
+		"SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+		table,
+	).Scan(&actual); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("table %s is missing", table)
+		}
+		return fmt.Errorf("read table %s definition: %w", table, err)
+	}
+	if normalizeSQLiteDefinition(actual) != expected {
+		return fmt.Errorf("table %s definition does not match canonical migration", table)
+	}
+	return nil
+}
+
+func normalizeSQLiteDefinition(statement string) string {
+	statement = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(statement), ";"))
+	return strings.Join(strings.Fields(strings.ToLower(statement)), " ")
+}
+
+// requireManagedGenerationOwnerIdentity 验证唯一 singleton、epoch 编码和初始化状态位。
+func requireManagedGenerationOwnerIdentity(ctx context.Context, tx *sql.Tx) error {
+	rows, err := tx.QueryContext(
+		ctx,
+		"SELECT singleton_id, owner_epoch, marker_initialized, ledger_initialized FROM mcp_managed_generation_owner",
+	)
+	if err != nil {
+		return fmt.Errorf("read legacy managed generation owner identity: %w", err)
+	}
+	defer rows.Close()
+	var (
+		count                         int
+		singletonID                   int
+		ownerEpoch                    string
+		markerInitialized, ledgerInit int
+	)
+	for rows.Next() {
+		count++
+		if err := rows.Scan(&singletonID, &ownerEpoch, &markerInitialized, &ledgerInit); err != nil {
+			return fmt.Errorf("scan legacy managed generation owner identity: %w", err)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate legacy managed generation owner identity: %w", err)
+	}
+	if !validManagedGenerationOwnerIdentity(
+		count,
+		singletonID,
+		ownerEpoch,
+		markerInitialized,
+		ledgerInit,
+	) {
+		return fmt.Errorf("legacy managed generation owner identity is invalid")
+	}
+	return nil
+}
+
+// validManagedGenerationOwnerIdentity 校验旧 owner 行仍满足规范 migration 的持久身份约束。
+func validManagedGenerationOwnerIdentity(
+	count int,
+	singletonID int,
+	ownerEpoch string,
+	markerInitialized int,
+	ledgerInitialized int,
+) bool {
+	if count != 1 || singletonID != 1 {
+		return false
+	}
+	decodedEpoch, err := hex.DecodeString(ownerEpoch)
+	if err != nil || len(decodedEpoch) != 32 || ownerEpoch != strings.ToLower(ownerEpoch) {
+		return false
+	}
+	validMarker := markerInitialized == 0 || markerInitialized == 1
+	validLedger := ledgerInitialized == 0 || ledgerInitialized == 1
+	return validMarker && validLedger
 }
 
 // migrateSystemLogsTraceSpan 只支持 agent-v3 的 system_logs 形状，补齐 span 字段和查询索引。
