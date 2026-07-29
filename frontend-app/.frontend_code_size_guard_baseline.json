@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "updatedAt": "2026-07-27T13:19:15Z"
+    "updatedAt": "2026-07-29T13:12:05Z"
   },
   "files": {
     "scripts/action-producer-guard.mjs": {
@@ -207,15 +207,13 @@
       "maxNesting": 6,
       "maxParams": 3,
       "exportCount": 8,
-      "consoleLogs": 4,
+      "consoleLogs": 2,
       "anyCount": 1,
       "emptyFuncs": 0,
       "todoCount": 5,
       "longLineCount": 0,
       "frozenViolations": [
         "any\u0000禁止使用 any 类型，请使用具体类型或 unknown",
-        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
-        "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
         "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
         "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
         "nesting\u0000最大嵌套 6 层，超过上限 4 层",

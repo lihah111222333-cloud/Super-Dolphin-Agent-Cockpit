@@ -312,7 +312,7 @@ COMMANDS_RUN:
     exit: 0
   - cmd: ./scripts/test_with_guard.sh --archtest-only
     exit: 0
-  - cmd: cd frontend-app && npm run guard:architecture
+  - cmd: cd frontend-app && npm run guard:critical-skip
     exit: 0
   - cmd: cd frontend-app && npm run lint
     exit: 0

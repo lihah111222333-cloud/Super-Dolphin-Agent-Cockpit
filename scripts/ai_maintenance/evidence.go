@@ -136,7 +136,7 @@ func gateEvidenceCommandFragments() map[string][]string {
 		"lsp:changed-diagnostics":      {"go run ./scripts/lsp_diagnostics_gate"},
 		"capcontract:check":            {"make capcontract-check"},
 		"turncontract:verify":          {"go run ./scripts/turncontract --verify", "go test ./internal/dto/turn -run ^TestTurnContractFieldGuard", "node frontend-app/scripts/turn-contract-field-guard.mjs"},
-		"frontend:static-guards":       {"npm run guard:architecture"},
+		"frontend:static-guards":       {"npm run guard:critical-skip"},
 		"frontend:lint":                {"npm run lint"},
 		"frontend:typecheck-contracts": {"npm run typecheck:contracts"},
 		"frontend:changed-tests":       {"npx vitest run"},
