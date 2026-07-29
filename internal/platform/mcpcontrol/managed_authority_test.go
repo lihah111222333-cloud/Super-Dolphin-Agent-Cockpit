@@ -249,7 +249,7 @@ func TestSQLiteGenerationStoreRejectsDeletedDatabaseHistory(t *testing.T) {
 		}
 	}
 	db := openGenerationTestDB(t, dbPath)
-	migration, err := os.ReadFile(filepath.Join("..", "db", "sqlite", "migrations", "120_mcp_managed_generations.sql"))
+	migration, err := os.ReadFile(filepath.Join("..", "db", "sqlite", "migrations", "122_mcp_managed_generations.sql"))
 	if err != nil {
 		t.Fatalf("read generation migration: %v", err)
 	}
@@ -453,7 +453,7 @@ func prepareSQLiteGenerationStore(t *testing.T) (string, string) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "generation.sqlite")
 	db := openGenerationTestDB(t, dbPath)
-	migration, err := os.ReadFile(filepath.Join("..", "db", "sqlite", "migrations", "120_mcp_managed_generations.sql"))
+	migration, err := os.ReadFile(filepath.Join("..", "db", "sqlite", "migrations", "122_mcp_managed_generations.sql"))
 	if err != nil {
 		t.Fatalf("read generation migration: %v", err)
 	}

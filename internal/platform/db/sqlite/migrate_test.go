@@ -224,18 +224,21 @@ func TestDatasourceDocumentsTableComesFromMigration(t *testing.T) {
 	assertIndex(t, db, "datasource_documents", "idx_datasource_documents_workspace_name", false, "")
 }
 
-// TestMCPManagedGenerationTablesComeFromMigration 验证 generation owner 只由规范 migration 建表。
+// TestMCPManagedGenerationTablesComeFromMigration 验证 generation owner 只由规范 migration 122 建表。
 func TestMCPManagedGenerationTablesComeFromMigration(t *testing.T) {
 	ctx := context.Background()
 	db := openMigrationTestDB(t)
 	createMigrationMarkerTable(t, db)
 	markBaselineApplied(t, db)
 	dir := t.TempDir()
-	const migration = "120_mcp_managed_generations.sql"
+	const migration = "122_mcp_managed_generations.sql"
 	writeMigrationTestFile(t, dir, migration, readMigrationTestFile(t, migration))
 
 	if err := RunMigrations(ctx, db, dir); err != nil {
 		t.Fatalf("RunMigrations() error = %v", err)
+	}
+	if err := RunMigrations(ctx, db, dir); err != nil {
+		t.Fatalf("RunMigrations(repeated) error = %v", err)
 	}
 	tables := sqliteTables(t, db)
 	for _, table := range []string{
@@ -244,10 +247,11 @@ func TestMCPManagedGenerationTablesComeFromMigration(t *testing.T) {
 		"mcp_managed_generations",
 	} {
 		if !tables[table] {
-			t.Fatalf("%s table missing after migration 120", table)
+			t.Fatalf("%s table missing after migration 122", table)
 		}
 	}
 	assertMigrationMarkerCount(t, db, migration, 1)
+	assertMigrationVersion(t, db, migration, 122)
 	assertPrimaryKey(t, db, "mcp_managed_generation_owner", []string{"singleton_id"})
 	assertPrimaryKey(t, db, "mcp_managed_generation_instances", []string{"instance_id"})
 	assertPrimaryKey(t, db, "mcp_managed_generations", []string{"instance_id"})
@@ -261,6 +265,16 @@ func TestMCPManagedGenerationTablesComeFromMigration(t *testing.T) {
 		"claim_id",
 		"external_committed",
 	})
+}
+
+// TestMCPManagedGenerationFreshDatabaseReachesMigration122 锁定 fresh DB 的 0→122 完整升级路径。
+func TestMCPManagedGenerationFreshDatabaseReachesMigration122(t *testing.T) {
+	db := openMigrationTestDB(t)
+	if err := RunMigrations(context.Background(), db, sqliteMigrationsDir(t)); err != nil {
+		t.Fatalf("RunMigrations(fresh 0→122) error = %v", err)
+	}
+	assertMigrationMarkerCount(t, db, "122_mcp_managed_generations.sql", 1)
+	assertMigrationVersion(t, db, "122_mcp_managed_generations.sql", 122)
 }
 
 // TestRunMigrationsThreadTimestampMillisConvertsPersistedSeconds 验证历史 thread 秒时间戳会在持久化边界一次性升级为毫秒。
@@ -413,6 +427,17 @@ func markBaselineApplied(t *testing.T, db *sql.DB) {
 		INSERT INTO schema_migrations(version, name, filename, applied_at)
 		VALUES (103, 'sqlite baseline', '001_baseline.sql', 0)
 	`)
+}
+
+func assertMigrationVersion(t *testing.T, db *sql.DB, filename string, want int) {
+	t.Helper()
+	var got int
+	if err := db.QueryRow("SELECT version FROM schema_migrations WHERE filename = ?", filename).Scan(&got); err != nil {
+		t.Fatalf("read migration version for %s: %v", filename, err)
+	}
+	if got != want {
+		t.Fatalf("migration %s version = %d, want %d", filename, got, want)
+	}
 }
 
 type systemLogsTraceSpanWant struct {
