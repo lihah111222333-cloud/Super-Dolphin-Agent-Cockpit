@@ -49,7 +49,9 @@ func TestSessionActivationHeadAdvancesToRealTurnHead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("activate session head: %v", err)
 	}
-	turnHead, err := store.ActivateTerminalOutcomeHead(context.Background(), activationFromCommit(commit))
+	turnActivation := activationFromCommit(commit)
+	turnActivation.ExpectedHeadVersion = sessionHead.Version
+	turnHead, err := store.ActivateTerminalOutcomeHead(context.Background(), turnActivation)
 	if err != nil {
 		t.Fatalf("advance session head to turn: %v", err)
 	}
@@ -107,18 +109,16 @@ func TestSameAgentCanCompleteConsecutiveTurnsWithoutOldTerminalOverwritingCurren
 	if _, err := store.CommitTerminalOutcome(ctx, first); err != nil {
 		t.Fatalf("commit first: %v", err)
 	}
+	replayActivation := activationFromCommit(first)
+	replayActivation.ExpectedHeadVersion = firstHead.Version
+	wrongThreadActivation := replayActivation
+	wrongThreadActivation.PublicThreadID = "wrong-thread"
+	wrongSessionActivation := replayActivation
+	wrongSessionActivation.SessionID = "wrong-session"
 	for _, activation := range []contract.TerminalOutcomeHeadActivation{
-		activationFromCommit(first),
-		func() contract.TerminalOutcomeHeadActivation {
-			value := activationFromCommit(first)
-			value.PublicThreadID = "wrong-thread"
-			return value
-		}(),
-		func() contract.TerminalOutcomeHeadActivation {
-			value := activationFromCommit(first)
-			value.SessionID = "wrong-session"
-			return value
-		}(),
+		replayActivation,
+		wrongThreadActivation,
+		wrongSessionActivation,
 	} {
 		if _, err := store.ActivateTerminalOutcomeHead(ctx, activation); !errors.Is(err, contract.ErrTerminalOutcomeConflict) {
 			t.Fatalf("reactivate completed turn with thread=%q session=%q error = %v, want conflict",
@@ -131,7 +131,22 @@ func TestSameAgentCanCompleteConsecutiveTurnsWithoutOldTerminalOverwritingCurren
 	second.Identity.TerminalIdentity = "terminal:second:identity"
 	second.OccurredAt = second.OccurredAt.Add(time.Minute)
 	second.PublicOutcome.CompletedAt = second.OccurredAt
-	secondHead, err := store.ActivateTerminalOutcomeHead(ctx, activationFromCommit(second))
+	second.Identity.HeadVersion = firstHead.Version
+	for _, mutate := range []func(*contract.TerminalOutcomeCommit){
+		func(value *contract.TerminalOutcomeCommit) { value.Identity.PublicThreadID = "wrong-thread" },
+		func(value *contract.TerminalOutcomeCommit) { value.Identity.SessionID = "wrong-session" },
+	} {
+		mismatched := second
+		mutate(&mismatched)
+		activation := activationFromCommit(mismatched)
+		activation.ExpectedHeadVersion = firstHead.Version
+		if _, err := store.ActivateTerminalOutcomeHead(ctx, activation); !errors.Is(err, contract.ErrTerminalOutcomeConflict) {
+			t.Fatalf("same-generation next turn with mismatched identity error = %v, want conflict", err)
+		}
+	}
+	secondActivation := activationFromCommit(second)
+	secondActivation.ExpectedHeadVersion = firstHead.Version
+	secondHead, err := store.ActivateTerminalOutcomeHead(ctx, secondActivation)
 	if err != nil {
 		t.Fatalf("activate second: %v", err)
 	}
@@ -197,9 +212,21 @@ func TestPoisonOutboxItemDoesNotBlockLaterValidItem(t *testing.T) {
 	}
 	second := terminalCommitFixture("terminal:poison-second")
 	second.Identity.ProviderTurnID = "turn-2"
+	second.Identity.SessionID = "session-2"
+	second.Identity.Generation = 8
 	second.Identity.TerminalIdentity = "terminal:poison-second:identity"
 	second.OccurredAt = second.OccurredAt.Add(time.Minute)
-	second = activateCommitFixture(t, store, second)
+	var currentVersion uint64
+	if err := db.QueryRow("SELECT version FROM terminal_outcome_current_heads WHERE agent_id = ?", second.Identity.AgentID).Scan(&currentVersion); err != nil {
+		t.Fatalf("load current head: %v", err)
+	}
+	activation := activationFromCommit(second)
+	activation.ExpectedHeadVersion = currentVersion
+	head, err := store.ActivateTerminalOutcomeHead(context.Background(), activation)
+	if err != nil {
+		t.Fatalf("activate second head: %v", err)
+	}
+	second.Identity.HeadVersion = head.Version
 	secondResult, err := store.CommitTerminalOutcome(context.Background(), second)
 	if err != nil {
 		t.Fatalf("commit second: %v", err)

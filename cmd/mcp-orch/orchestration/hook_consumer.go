@@ -761,7 +761,10 @@ func (c *hookConsumer) failThreadStoppedFallbackNode(ctx context.Context, flow t
 		orchmetrics.IncDAGFallbackFailNodeErr()
 		c.logger.Warn("thread stopped fallback: fail node failed",
 			"dag_key", n.DagKey, "node_key", n.NodeKey, "error", failErr)
-		turncompletionretry.EnqueueTerminalFailureCompensation(ctx, flow, c.logger, &n, "thread_stopped_fallback", failErr, false)
+		if compensationErr := turncompletionretry.EnqueueTerminalFailureCompensation(ctx, flow, c.logger, &n, "thread_stopped_fallback", failErr, false); compensationErr != nil {
+			c.logger.Warn("thread stopped fallback: terminal failure compensation enqueue failed",
+				"dag_key", n.DagKey, "node_key", n.NodeKey, "error", compensationErr)
+		}
 		return
 	}
 	orchmetrics.IncDAGFallbackFailed()

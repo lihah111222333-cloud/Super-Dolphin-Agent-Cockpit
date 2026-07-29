@@ -37,6 +37,7 @@ type TerminalOutcomeHeadActivation struct {
 	SessionID           string
 	Generation          uint64
 	ExpectedActiveState string
+	ExpectedHeadVersion uint64
 	ActivatedAt         time.Time
 }
 

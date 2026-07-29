@@ -663,25 +663,72 @@ func (s *service) ProcessTerminalOutcomeOutbox(ctx context.Context, workerID str
 	if s == nil || s.terminalOutcomes == nil {
 		return errors.New("terminal outcome projection store is not configured")
 	}
+	if lease < 6*time.Millisecond {
+		return errors.New("terminal outcome projection lease must be at least 6ms")
+	}
 	items, err := s.terminalOutcomes.ClaimTerminalOutcomeOutbox(ctx, workerID, lease, limit)
 	if err != nil {
 		return err
 	}
 	for _, item := range items {
-		err := s.registry.withAgentLocked(item.Outcome.Identity.AgentID, func(agent *agentRuntime) error {
-			return s.projectTerminalOutcomeLocked(ctx, agent, item.Outcome)
-		})
-		if err != nil && !errors.Is(err, errAgentNotFound) {
-			return err
-		}
-		if err := s.projectTerminalOutcomeDAG(ctx, item); err != nil {
-			return err
-		}
-		if err := s.terminalOutcomes.MarkTerminalOutcomeProjected(ctx, item.ID, workerID, item.ClaimToken); err != nil {
+		if err := s.processTerminalOutcomeOutboxItem(ctx, workerID, lease, item); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// processTerminalOutcomeOutboxItem 在 runtime/DAG 投影期间持续续租，ACK 前等待 heartbeat 收束。
+func (s *service) processTerminalOutcomeOutboxItem(ctx context.Context, workerID string, lease time.Duration, item contract.TerminalOutcomeOutboxItem) error {
+	if _, err := s.terminalOutcomes.RenewTerminalOutcomeOutbox(ctx, item.ID, workerID, item.ClaimToken, lease); err != nil {
+		return err
+	}
+	workCtx, cancelWork := context.WithCancel(ctx)
+	heartbeatCtx, cancelHeartbeat := context.WithCancel(ctx)
+	heartbeatDone := make(chan error, 1)
+	go func() {
+		heartbeatDone <- s.renewTerminalOutcomeLease(heartbeatCtx, cancelWork, workerID, lease, item)
+	}()
+
+	workErr := s.projectTerminalOutcomeOutboxItem(workCtx, item)
+	cancelHeartbeat()
+	heartbeatErr := <-heartbeatDone
+	cancelWork()
+	if workErr != nil {
+		return workErr
+	}
+	if heartbeatErr != nil {
+		return heartbeatErr
+	}
+	return s.terminalOutcomes.MarkTerminalOutcomeProjected(ctx, item.ID, workerID, item.ClaimToken)
+}
+
+// renewTerminalOutcomeLease 只用当前 worker/token 续租；fence 丢失时取消正在执行的投影。
+func (s *service) renewTerminalOutcomeLease(ctx context.Context, cancelWork context.CancelFunc, workerID string, lease time.Duration, item contract.TerminalOutcomeOutboxItem) error {
+	ticker := time.NewTicker(lease / 3)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if _, err := s.terminalOutcomes.RenewTerminalOutcomeOutbox(ctx, item.ID, workerID, item.ClaimToken, lease); err != nil {
+				cancelWork()
+				return err
+			}
+		}
+	}
+}
+
+// projectTerminalOutcomeOutboxItem 执行公开 runtime 与 owner-scoped DAG 单向投影。
+func (s *service) projectTerminalOutcomeOutboxItem(ctx context.Context, item contract.TerminalOutcomeOutboxItem) error {
+	err := s.registry.withAgentLocked(item.Outcome.Identity.AgentID, func(agent *agentRuntime) error {
+		return s.projectTerminalOutcomeLocked(ctx, agent, item.Outcome)
+	})
+	if err != nil && !errors.Is(err, errAgentNotFound) {
+		return err
+	}
+	return s.projectTerminalOutcomeDAG(ctx, item)
 }
 
 // projectTerminalOutcomeDAG 在 outbox ACK 前同步推进 DAG；失败会保留 claim 等待 lease replay。

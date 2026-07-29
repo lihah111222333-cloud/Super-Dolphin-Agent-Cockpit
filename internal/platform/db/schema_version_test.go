@@ -94,12 +94,14 @@ func TestSchemaGateRejectsMissingRequiredColumns(t *testing.T) {
 		"hook_pending_reviews.payload",
 		"shared_files.content_location",
 		"turn_dedupe_registry.terminal_at",
-		"terminal_outcome_heads.capability",
-		"terminal_outcome_heads.terminal_identity",
-		"public_terminal_outcomes.public_outcome_json",
-		"public_terminal_outcomes.schema_version",
-		"public_terminal_outcomes.projection_kind",
-		"terminal_outcome_outbox.payload_json",
+		"terminal_outcome_current_heads.capability",
+		"terminal_outcome_current_heads.version",
+		"terminal_outcome_current_heads.terminal_identity",
+		"public_terminal_outcome_history.head_version",
+		"public_terminal_outcome_history.public_outcome_json",
+		"terminal_outcome_private_dag_payloads.payload_json",
+		"terminal_outcome_outbox_v2.public_payload_json",
+		"terminal_outcome_outbox_v2.claim_token",
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("VerifyMinSchemaVersion err = %v, want missing %s", err, want)

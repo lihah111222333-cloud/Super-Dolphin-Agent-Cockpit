@@ -94,13 +94,18 @@ func (c *turnController) finishRemoteTurnSubmitSuccess(ctx context.Context, atte
 	}
 	c.remoteTerminalMu.Lock()
 	defer c.remoteTerminalMu.Unlock()
-	pending := c.takePendingRemoteTerminalsLocked(attempt.ref())
+	pending := c.pendingRemoteTurnSubmits[attempt.ref()]
 	if pending.err != nil {
 		return nil, pending.err
 	}
 	c.registry.lock()
 	defer c.registry.unlock()
-	return c.bindRemoteTurnSubmitLocked(ctx, attempt, remoteTurnID, pending.terminals)
+	terminals, err := c.bindRemoteTurnSubmitLocked(ctx, attempt, remoteTurnID, pending.terminals)
+	if err != nil {
+		return nil, err
+	}
+	c.takePendingRemoteTerminalsLocked(attempt.ref())
+	return terminals, nil
 }
 
 func (c *turnController) bindRemoteTurnSubmitLocked(ctx context.Context, attempt remoteTurnSubmitAttempt, remoteTurnID string, pending []turndto.TurnTerminalV2) ([]turndto.TurnTerminalV2, error) {
@@ -125,6 +130,14 @@ func remoteTurnSubmitStillOwned(agent *agentRuntime, attempt remoteTurnSubmitAtt
 }
 
 func (c *turnController) bindRemoteTurnIDLocked(ctx context.Context, agent *agentRuntime, turnID string) error {
+	expectedState := string(agent.state)
+	if agent.state == agentdto.StateTurnStarting {
+		expectedState = string(agentdto.StateTurnRunning)
+	}
+	head, err := c.activateTerminalTurnHeadLocked(ctx, agent, turnID, expectedState)
+	if err != nil {
+		return err
+	}
 	agent.activeTurnID = turnID
 	if agent.state == agentdto.StateTurnStarting {
 		if err := c.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAccepted); err != nil {
@@ -132,9 +145,7 @@ func (c *turnController) bindRemoteTurnIDLocked(ctx context.Context, agent *agen
 		}
 	}
 	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt, agent.startedAt)
-	if err := c.activateTerminalTurnHeadLocked(ctx, agent, turnID); err != nil {
-		return err
-	}
+	agent.terminalHeadVersion = head.Version
 	return nil
 }
 

@@ -42,7 +42,7 @@ func (s *service) BindSessionGeneration(ctx context.Context, agentID string, gen
 				Capability: contract.TerminalOutcomeCapabilityV2, AgentID: strings.TrimSpace(agent.id),
 				PublicThreadID: threadID, ProviderTurnID: "session-terminal:" + sessionID,
 				SessionID: sessionID, Generation: generation, ExpectedActiveState: string(agent.state),
-				ActivatedAt: agent.updatedAt,
+				ExpectedHeadVersion: previousVersion, ActivatedAt: agent.updatedAt,
 			})
 			if err != nil {
 				agent.sessionGeneration, agent.terminalHeadVersion, agent.updatedAt = previousGeneration, previousVersion, previousUpdatedAt

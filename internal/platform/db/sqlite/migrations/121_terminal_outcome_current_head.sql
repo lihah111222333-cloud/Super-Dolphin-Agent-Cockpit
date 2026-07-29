@@ -111,3 +111,76 @@ SELECT o.id, p.terminal_identity, o.event_id,
        o.projected_at, o.created_at
 FROM terminal_outcome_outbox o
 JOIN public_terminal_outcomes p ON p.event_id = o.event_id;
+
+DROP TABLE terminal_outcome_outbox;
+DROP TABLE terminal_outcome_heads;
+DROP TABLE public_terminal_outcomes;
+
+CREATE VIEW terminal_outcome_heads AS
+SELECT agent_id, capability, public_thread_id, provider_turn_id, session_id, generation,
+       terminal_event_id AS event_id, terminal_identity, expected_active_state, state, updated_at
+FROM terminal_outcome_current_heads;
+
+CREATE VIEW public_terminal_outcomes AS
+SELECT h.agent_id, h.schema_version, h.projection_kind, h.public_thread_id,
+       h.provider_turn_id, h.session_id, h.generation, h.event_id, h.terminal_identity,
+       h.public_outcome_json, h.public_report, h.occurred_at
+FROM public_terminal_outcome_history h
+JOIN terminal_outcome_current_heads c
+  ON c.agent_id = h.agent_id
+ AND c.terminal_identity = h.terminal_identity
+ AND c.terminal_event_id = h.event_id
+ AND c.version = h.head_version;
+
+CREATE VIEW terminal_outcome_outbox AS
+SELECT id, event_id, public_payload_json AS payload_json, status, claimed_by,
+       lease_expires_at AS claimed_at, projected_at, created_at
+FROM terminal_outcome_outbox_v2;
+
+CREATE TRIGGER terminal_outcome_heads_v121_insert
+INSTEAD OF INSERT ON terminal_outcome_heads
+BEGIN
+    SELECT RAISE(ABORT, 'terminal outcome protocol v121 rejects legacy writer');
+END;
+CREATE TRIGGER terminal_outcome_heads_v121_update
+INSTEAD OF UPDATE ON terminal_outcome_heads
+BEGIN
+    SELECT RAISE(ABORT, 'terminal outcome protocol v121 rejects legacy writer');
+END;
+CREATE TRIGGER terminal_outcome_heads_v121_delete
+INSTEAD OF DELETE ON terminal_outcome_heads
+BEGIN
+    SELECT RAISE(ABORT, 'terminal outcome protocol v121 rejects legacy writer');
+END;
+
+CREATE TRIGGER public_terminal_outcomes_v121_insert
+INSTEAD OF INSERT ON public_terminal_outcomes
+BEGIN
+    SELECT RAISE(ABORT, 'terminal outcome protocol v121 rejects legacy writer');
+END;
+CREATE TRIGGER public_terminal_outcomes_v121_update
+INSTEAD OF UPDATE ON public_terminal_outcomes
+BEGIN
+    SELECT RAISE(ABORT, 'terminal outcome protocol v121 rejects legacy writer');
+END;
+CREATE TRIGGER public_terminal_outcomes_v121_delete
+INSTEAD OF DELETE ON public_terminal_outcomes
+BEGIN
+    SELECT RAISE(ABORT, 'terminal outcome protocol v121 rejects legacy writer');
+END;
+
+CREATE TRIGGER terminal_outcome_outbox_v121_insert
+INSTEAD OF INSERT ON terminal_outcome_outbox
+BEGIN
+    SELECT RAISE(ABORT, 'terminal outcome protocol v121 rejects legacy writer');
+END;
+CREATE TRIGGER terminal_outcome_outbox_v121_update
+INSTEAD OF UPDATE ON terminal_outcome_outbox
+BEGIN
+    SELECT RAISE(ABORT, 'terminal outcome protocol v121 rejects legacy writer');
+END;
+CREATE TRIGGER terminal_outcome_outbox_v121_delete
+INSTEAD OF DELETE ON terminal_outcome_outbox
+BEGIN
+    SELECT RAISE(ABORT, 'terminal outcome protocol v121 rejects legacy writer');
+END;

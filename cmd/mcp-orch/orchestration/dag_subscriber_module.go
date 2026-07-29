@@ -277,23 +277,24 @@ func infrastructureMaterializationFailure(reason string) *turnOutputMaterializat
 
 // materializeArtifactAfterClaim 先声明 node 输出已被 claim，再执行 artifact import。
 // import 失败会把节点推进 failed，避免 artifact 与节点状态不一致地静默成功。
-func materializeArtifactAfterClaim(ctx context.Context, deps DAGSubscriberDeps, logger *slog.Logger, node *taskdag.Node, materialized turnOutputMaterialization) (json.RawMessage, bool) {
+func materializeArtifactAfterClaim(ctx context.Context, deps DAGSubscriberDeps, logger *slog.Logger, node *taskdag.Node, materialized turnOutputMaterialization) (json.RawMessage, bool, error) {
 	if materialized.Artifact == nil {
-		return materialized.Result, true
+		return materialized.Result, true, nil
 	}
 	if deps.ArtifactImporter == nil {
-		handleMaterializationFailure(ctx, deps, logger, node, infrastructureMaterializationFailure("outputs.to_artifact: ArtifactImporter not wired"))
-		return nil, false
+		err := handleMaterializationFailure(ctx, deps, logger, node, infrastructureMaterializationFailure("outputs.to_artifact: ArtifactImporter not wired"))
+		return nil, false, err
 	}
 	defer documentartifact.CleanupSource(materialized.Artifact.Params.SourcePath)
-	if !claimNodeOutputMaterialization(ctx, deps.FlowStore, deps.EventBus, logger, node, materialized.Result) {
-		return nil, false
+	claimed, err := claimNodeOutputMaterialization(ctx, deps.FlowStore, deps.EventBus, logger, node, materialized.Result)
+	if err != nil || !claimed {
+		return nil, false, err
 	}
 	if _, err := deps.ArtifactImporter.ImportLocalFile(ctx, materialized.Artifact.Params); err != nil {
-		handleMaterializationFailure(ctx, deps, logger, node, artifactImportFailure(materialized.Artifact.Params.TargetPath, err))
-		return nil, false
+		failureErr := handleMaterializationFailure(ctx, deps, logger, node, artifactImportFailure(materialized.Artifact.Params.TargetPath, err))
+		return nil, false, failureErr
 	}
-	return materialized.Result, true
+	return materialized.Result, true, nil
 }
 
 // artifactImportFailure 根据 import 错误类型选择 validation 或 infrastructure 分类。
@@ -306,17 +307,22 @@ func artifactImportFailure(targetPath string, err error) *turnOutputMaterializat
 }
 
 // handleMaterializationFailure 记录物化失败并把节点推进 failed。
-func handleMaterializationFailure(ctx context.Context, deps DAGSubscriberDeps, logger *slog.Logger, node *taskdag.Node, failure *turnOutputMaterializationFailure) {
+func handleMaterializationFailure(ctx context.Context, deps DAGSubscriberDeps, logger *slog.Logger, node *taskdag.Node, failure *turnOutputMaterializationFailure) error {
 	if failure == nil {
-		return
+		return nil
 	}
 	if failure.SizeCapExceeded {
 		dagSubscriberMetrics.IncCompleteSizeCapExceeded()
 	}
 	logger.Warn("dag subscriber: materialize agent output failed", "dag_key", node.DagKey, "node_key", node.NodeKey, "reason", failure.Reason)
-	if advanceNodeFailedWithReason(ctx, deps.FlowStore, deps.EventBus, logger, node, failure.Reason, true) && deps.NodeRouter != nil {
+	advanced, err := advanceNodeFailedWithReason(ctx, deps.FlowStore, deps.EventBus, logger, node, failure.Reason, true)
+	if err != nil {
+		return err
+	}
+	if advanced && deps.NodeRouter != nil {
 		deps.NodeRouter.invokeTerminalFailureHooksForTaskNode(ctx, node, nodeexec.NodeOutcome{Status: nodeexec.NodeStatusFailed, ErrorSummary: failure.Reason, FailureClass: classifyMaterializationFailure(failure)})
 	}
+	return nil
 }
 
 // recordLegacyResultCapMetric 为旧输出路径记录 4KB 上限超标指标。

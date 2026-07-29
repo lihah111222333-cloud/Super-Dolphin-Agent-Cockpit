@@ -68,10 +68,16 @@ func activateTerminalHeadTx(ctx context.Context, tx *sql.Tx, activation contract
 		return contract.TerminalOutcomeHead{}, err
 	}
 	if !found {
+		if activation.ExpectedHeadVersion != 0 {
+			return contract.TerminalOutcomeHead{}, contract.ErrTerminalOutcomeConflict
+		}
 		if err := insertCurrentHeadTx(ctx, tx, activation); err != nil {
 			return contract.TerminalOutcomeHead{}, err
 		}
 		return contract.TerminalOutcomeHead{TerminalOutcomeHeadActivation: activation, Version: 1}, nil
+	}
+	if activation.ExpectedHeadVersion != current.Version {
+		return contract.TerminalOutcomeHead{}, contract.ErrTerminalOutcomeConflict
 	}
 	if current.State == "active" {
 		if sameActiveHead(current, activation) {
@@ -87,6 +93,9 @@ func activateTerminalHeadTx(ctx context.Context, tx *sql.Tx, activation contract
 
 func advanceTerminalHeadTx(ctx context.Context, tx *sql.Tx, current storedCurrentHead, activation contract.TerminalOutcomeHeadActivation) (contract.TerminalOutcomeHead, error) {
 	if activation.Generation < current.Generation {
+		return contract.TerminalOutcomeHead{}, contract.ErrTerminalOutcomeConflict
+	}
+	if activation.Generation == current.Generation && !sameGenerationHeadOwner(current, activation) {
 		return contract.TerminalOutcomeHead{}, contract.ErrTerminalOutcomeConflict
 	}
 	if terminalHeadReopensSameTurn(current, activation) {
@@ -110,6 +119,14 @@ func advanceTerminalHeadTx(ctx context.Context, tx *sql.Tx, current storedCurren
 		return contract.TerminalOutcomeHead{}, err
 	}
 	return contract.TerminalOutcomeHead{TerminalOutcomeHeadActivation: activation, Version: nextVersion}, nil
+}
+
+func sameGenerationHeadOwner(current storedCurrentHead, activation contract.TerminalOutcomeHeadActivation) bool {
+	return activation.Capability == current.Capability &&
+		activation.AgentID == current.AgentID &&
+		activation.PublicThreadID == current.PublicThreadID &&
+		activation.SessionID == current.SessionID &&
+		activation.Generation == current.Generation
 }
 
 func terminalHeadReopensSameTurn(current storedCurrentHead, activation contract.TerminalOutcomeHeadActivation) bool {

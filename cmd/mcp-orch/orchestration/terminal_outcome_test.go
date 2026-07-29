@@ -126,6 +126,95 @@ func TestOutboxProjectorAdvancesDAGOnlyAfterDurableCommitAndReplaysOnce(t *testi
 	}
 }
 
+func TestOutboxDAGWriteAndRetryFailureDoesNotAckOrLosePrivateArtifact(t *testing.T) {
+	svc, db := newTerminalOutcomeTestService(t)
+	agent := addTerminalOutcomeTestAgent(svc)
+	ev := terminalOutcomeEvent(true)
+	ev.Result = "private artifact survives replay"
+	commit, err := terminalOutcomeCommitFromEvent(agent, ev)
+	if err != nil {
+		t.Fatalf("terminalOutcomeCommitFromEvent() error = %v", err)
+	}
+	if _, err := svc.terminalOutcomes.CommitTerminalOutcome(context.Background(), commit); err != nil {
+		t.Fatalf("CommitTerminalOutcome() error = %v", err)
+	}
+	runID := int64(1)
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+		DagKey: "dag-failure", NodeKey: "node-failure", Status: "running", RunID: &runID,
+	}}}
+	flow := &dagSubscriberFlowSpy{
+		completeErr: errors.New("complete unavailable"),
+		enqueueErr:  errors.New("retry unavailable"),
+	}
+	svc.terminalDAG = &DAGSubscriberDeps{LookupStore: lookup, FlowStore: flow, EventBus: svc.eventBus}
+
+	if err := svc.ProcessTerminalOutcomeOutbox(context.Background(), "dag-failure-projector", time.Minute, 10); err == nil {
+		t.Fatal("ProcessTerminalOutcomeOutbox() error = nil, want DAG durability failure")
+	}
+	var status, privateResult string
+	if err := db.QueryRow(`
+		SELECT o.status, json_extract(d.payload_json, '$.result')
+		FROM terminal_outcome_outbox_v2 o
+		JOIN terminal_outcome_private_dag_payloads d ON d.id = o.private_dag_payload_id
+	`).Scan(&status, &privateResult); err != nil {
+		t.Fatalf("read retained private artifact: %v", err)
+	}
+	if status != "claimed" || privateResult != ev.Result {
+		t.Fatalf("failed DAG projection = status:%q private:%q", status, privateResult)
+	}
+}
+
+func TestOutboxProjectorHeartbeatPreventsConcurrentReclaimDuringSlowDAGProjection(t *testing.T) {
+	svc, db := newTerminalOutcomeTestService(t)
+	agent := addTerminalOutcomeTestAgent(svc)
+	commit, err := terminalOutcomeCommitFromEvent(agent, terminalOutcomeEvent(true))
+	if err != nil {
+		t.Fatalf("terminalOutcomeCommitFromEvent() error = %v", err)
+	}
+	if _, err := svc.terminalOutcomes.CommitTerminalOutcome(context.Background(), commit); err != nil {
+		t.Fatalf("CommitTerminalOutcome() error = %v", err)
+	}
+	lookup := &blockingTerminalOutcomeLookup{
+		started: make(chan struct{}, 1),
+		release: make(chan struct{}),
+		nodes:   []taskdag.Node{{DagKey: "dag-heartbeat", NodeKey: "node-heartbeat", Status: "running"}},
+	}
+	svc.terminalDAG = &DAGSubscriberDeps{
+		LookupStore: lookup,
+		FlowStore:   &dagSubscriberFlowSpy{},
+		EventBus:    svc.eventBus,
+	}
+	const lease = 500 * time.Millisecond
+	projected := make(chan error, 1)
+	go func() {
+		projected <- svc.ProcessTerminalOutcomeOutbox(context.Background(), "worker-heartbeat-a", lease, 1)
+	}()
+	select {
+	case <-lookup.started:
+	case <-time.After(time.Second):
+		t.Fatal("slow DAG projection did not start")
+	}
+	time.Sleep(2*lease + lease/2)
+	reclaimed, err := svc.terminalOutcomes.ClaimTerminalOutcomeOutbox(context.Background(), "worker-heartbeat-b", lease, 1)
+	if err != nil {
+		t.Fatalf("worker B claim: %v", err)
+	}
+	if len(reclaimed) != 0 {
+		t.Fatalf("worker B reclaimed live item = %#v", reclaimed)
+	}
+	close(lookup.release)
+	if err := <-projected; err != nil {
+		t.Fatalf("worker A projection: %v", err)
+	}
+	var status string
+	if err := db.QueryRow("SELECT status FROM terminal_outcome_outbox_v2").Scan(&status); err != nil {
+		t.Fatalf("read projected outbox: %v", err)
+	}
+	if status != "projected" {
+		t.Fatalf("outbox status = %q, want projected", status)
+	}
+}
+
 func TestOutboxColdReplayProjectsOwnerDAGWithEmptyRuntimeRegistry(t *testing.T) {
 	writer, _ := newTerminalOutcomeTestService(t)
 	agent := addTerminalOutcomeTestAgent(writer)
@@ -151,6 +240,25 @@ func TestOutboxColdReplayProjectsOwnerDAGWithEmptyRuntimeRegistry(t *testing.T) 
 	}
 	if len(flow.completeCalls) != 1 || string(flow.completeCalls[0].Result) != `{"text":"cold owner artifact"}` {
 		t.Fatalf("cold DAG projection = %#v", flow.completeCalls)
+	}
+}
+
+type blockingTerminalOutcomeLookup struct {
+	started chan struct{}
+	release chan struct{}
+	nodes   []taskdag.Node
+}
+
+func (l *blockingTerminalOutcomeLookup) LookupNodesBySpawningThread(ctx context.Context, _ string) ([]taskdag.Node, error) {
+	select {
+	case l.started <- struct{}{}:
+	default:
+	}
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-l.release:
+		return append([]taskdag.Node(nil), l.nodes...), nil
 	}
 }
 
@@ -342,6 +450,75 @@ func TestCommitTurnCompletedStoreFailureHasZeroSideEffects(t *testing.T) {
 	if agent.state != agentdto.StateTurnRunning || agent.activeTurnID != "turn-1" ||
 		agent.lastReport != "before" || len(agent.reportRequesters) != 1 {
 		t.Fatalf("runtime changed after store failure: %#v", agent)
+	}
+}
+
+func TestProviderTurnHeadActivationFailureHasZeroRuntimeSideEffects(t *testing.T) {
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
+	failure := errors.New("activate failed")
+	svc.terminalOutcomes = failingTerminalOutcomePort{err: failure}
+	svc.turns.terminalOutcomes = svc.terminalOutcomes
+	agent := svc.newAgentLocked("agent-1")
+	agent.state = agentdto.StateTurnStarting
+	agent.threadID, agent.remoteThreadID = "thread-1", "thread-1"
+	agent.activeTurnID = "local-turn"
+	agent.launchSeq, agent.sessionGeneration = 3, 7
+	svc.registry.agents[agent.id] = agent
+	work := turnWork{agentID: agent.id, threadID: agent.threadID, turnID: agent.activeTurnID}
+	fence, err := svc.turns.beginProviderTurnStart(work)
+	if err != nil {
+		t.Fatalf("beginProviderTurnStart() error = %v", err)
+	}
+	pending := terminalOutcomeEvent(true)
+	pending.TurnID = "provider-turn"
+	agent.pendingProviderTerminal = &pending
+	beforeState, beforeTurn := agent.state, agent.activeTurnID
+	beforePendingID, beforePending := agent.pendingProviderTurnID, agent.pendingProviderTerminal
+	beforeAlias, beforeVersion, beforeUpdatedAt := agent.providerTurnAlias, agent.terminalHeadVersion, agent.updatedAt
+
+	if _, err := svc.turns.finishTurnStartSuccessLocked(context.Background(), agent, fence, "provider-turn"); !errors.Is(err, failure) {
+		t.Fatalf("finishTurnStartSuccessLocked() error = %v, want activation failure", err)
+	}
+	if agent.state != beforeState || agent.activeTurnID != beforeTurn ||
+		agent.pendingProviderTurnID != beforePendingID || agent.pendingProviderTerminal != beforePending ||
+		agent.providerTurnAlias != beforeAlias || agent.terminalHeadVersion != beforeVersion ||
+		!agent.updatedAt.Equal(beforeUpdatedAt) {
+		t.Fatalf("activation failure mutated local runtime: %#v", agent)
+	}
+}
+
+func TestRemoteTurnHeadActivationFailureHasZeroRuntimeSideEffects(t *testing.T) {
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
+	failure := errors.New("activate failed")
+	svc.terminalOutcomes = failingTerminalOutcomePort{err: failure}
+	svc.turns.terminalOutcomes = svc.terminalOutcomes
+	agent := svc.newAgentLocked("agent-1")
+	agent.state = agentdto.StateTurnRunning
+	agent.threadID, agent.remoteThreadID = "thread-1", "thread-1"
+	agent.activeTurnID = "local-turn"
+	agent.launchSeq, agent.sessionGeneration = 3, 7
+	svc.registry.agents[agent.id] = agent
+	attempt := remoteTurnSubmitAttempt{
+		agentID: agent.id, turnID: agent.activeTurnID, threadID: agent.remoteThreadID, launchSeq: agent.launchSeq,
+	}
+	ref := attempt.ref()
+	svc.turns.pendingRemoteTurnSubmits = map[remoteTurnSubmitRef]pendingRemoteTurnSubmit{
+		ref: {terminals: []turndto.TurnTerminalV2{{TurnID: "provider-turn"}}},
+	}
+	svc.turns.pendingRemoteTerminalCount = 1
+	beforeState, beforeTurn := agent.state, agent.activeTurnID
+	beforeVersion, beforeUpdatedAt := agent.terminalHeadVersion, agent.updatedAt
+
+	if _, err := svc.turns.finishRemoteTurnSubmitSuccess(context.Background(), attempt, "provider-turn"); !errors.Is(err, failure) {
+		t.Fatalf("finishRemoteTurnSubmitSuccess() error = %v, want activation failure", err)
+	}
+	if agent.state != beforeState || agent.activeTurnID != beforeTurn ||
+		agent.terminalHeadVersion != beforeVersion || !agent.updatedAt.Equal(beforeUpdatedAt) {
+		t.Fatalf("activation failure mutated remote runtime: %#v", agent)
+	}
+	if svc.turns.pendingRemoteTerminalCount != 1 || len(svc.turns.pendingRemoteTurnSubmits[ref].terminals) != 1 {
+		t.Fatalf("activation failure consumed pending remote terminal: count=%d pending=%#v",
+			svc.turns.pendingRemoteTerminalCount, svc.turns.pendingRemoteTurnSubmits[ref])
 	}
 }
 

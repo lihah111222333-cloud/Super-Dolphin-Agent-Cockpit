@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -224,8 +225,8 @@ func TestRunMigrationsAddsTerminalOutcomeTransactionTables(t *testing.T) {
 	assertIndex(t, db, "terminal_outcome_outbox", "idx_terminal_outcome_outbox_claim", false, "status IN ('pending', 'claimed')")
 }
 
-// TestTerminalOutcomeCurrentHeadMigrationUpgradesV120AndPreservesRollbackTables 锁定 forward-fix 与旧二进制回滚共存。
-func TestTerminalOutcomeCurrentHeadMigrationUpgradesV120AndPreservesRollbackTables(t *testing.T) {
+// TestTerminalOutcomeCurrentHeadMigrationUpgradesV120AndBlocksLegacyWriter 锁定 mixed-version 旧写端 fail-fast。
+func TestTerminalOutcomeCurrentHeadMigrationUpgradesV120AndBlocksLegacyWriter(t *testing.T) {
 	ctx := context.Background()
 	db := openMigrationTestDB(t)
 	createMigrationMarkerTable(t, db)
@@ -270,11 +271,39 @@ func TestTerminalOutcomeCurrentHeadMigrationUpgradesV120AndPreservesRollbackTabl
 	if headVersion != 1 {
 		t.Fatalf("migrated payload headVersion = %d, want 1 compatibility adapter", headVersion)
 	}
-	for _, oldTable := range []string{"terminal_outcome_heads", "public_terminal_outcomes", "terminal_outcome_outbox"} {
-		if !sqliteTables(t, db)[oldTable] {
-			t.Fatalf("rollback table %s was removed", oldTable)
+	for _, legacyObject := range []string{"terminal_outcome_heads", "public_terminal_outcomes", "terminal_outcome_outbox"} {
+		var objectType string
+		if err := db.QueryRow("SELECT type FROM sqlite_master WHERE name = ?", legacyObject).Scan(&objectType); err != nil {
+			t.Fatalf("read legacy protocol object %s: %v", legacyObject, err)
+		}
+		if objectType == "table" {
+			t.Fatalf("legacy protocol object %s remains writable table", legacyObject)
 		}
 	}
+	if err := verifyLegacyTerminalWriterCanStart(db); err == nil || !strings.Contains(err.Error(), "requires writable table") {
+		t.Fatalf("legacy binary startup check = %v, want protocol fail-fast", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO terminal_outcome_heads VALUES
+		  ('legacy-agent','terminal_outcome_commit_v2','legacy-thread','legacy-turn','legacy-session',8,
+		   'legacy-event','legacy-identity','turn_running','terminal',2000)
+	`); err == nil || !strings.Contains(err.Error(), "terminal outcome protocol v121") {
+		t.Fatalf("legacy writer error = %v, want v121 protocol fail-fast", err)
+	}
+}
+
+// verifyLegacyTerminalWriterCanStart 模拟 v120 binary 对三张可写表的启动前置检查。
+func verifyLegacyTerminalWriterCanStart(db *sql.DB) error {
+	for _, name := range []string{"terminal_outcome_heads", "public_terminal_outcomes", "terminal_outcome_outbox"} {
+		var objectType string
+		if err := db.QueryRow("SELECT type FROM sqlite_master WHERE name = ?", name).Scan(&objectType); err != nil {
+			return err
+		}
+		if objectType != "table" {
+			return fmt.Errorf("legacy terminal writer requires writable table %s, got %s", name, objectType)
+		}
+	}
+	return nil
 }
 
 // TestTerminalOutcomeMigrationPreservesLegacyRows 锁定 v2 rollout 只新增表，不改写旧 provider/DB 数据。
