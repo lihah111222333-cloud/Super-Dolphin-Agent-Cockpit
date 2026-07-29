@@ -5,8 +5,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"go/ast"
-	"go/parser"
+	"go/constant"
 	"go/token"
+	"go/types"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -15,6 +16,7 @@ import (
 	"testing"
 
 	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
+	"golang.org/x/tools/go/packages"
 	"gopkg.in/yaml.v3"
 )
 
@@ -92,22 +94,22 @@ func TestProviderRecoveryMigrationVersionFieldGuardRejectsDrift(t *testing.T) {
 	}
 }
 
-func TestProviderRecoveryMigrationVersionFieldGuardRejectsDispatchASTDrift(t *testing.T) {
-	const migrationName = "123_agent_provider_binding_recovery_owner.sql"
-	tests := []struct {
-		name   string
-		source string
-	}{
-		{
-			name: "decoy literal",
-			source: `package sqlite
+type providerRecoveryDispatchMutation struct {
+	name   string
+	source string
+}
+
+var providerRecoveryDispatchMutations = []providerRecoveryDispatchMutation{
+	{
+		name: "decoy literal",
+		source: `package sqlite
 const decoy = "123_agent_provider_binding_recovery_owner.sql"
 func executeMigrationBody(ctx any, tx any, name, body string) error { return nil }
 `,
-		},
-		{
-			name: "wrong callee",
-			source: `package sqlite
+	},
+	{
+		name: "wrong callee",
+		source: `package sqlite
 func executeMigrationBody(ctx any, tx any, name, body string) error {
 	if name == "123_agent_provider_binding_recovery_owner.sql" {
 		return migrateSystemLogsTraceSpan(ctx, tx)
@@ -115,10 +117,10 @@ func executeMigrationBody(ctx any, tx any, name, body string) error {
 	return nil
 }
 `,
-		},
-		{
-			name: "wrong arguments",
-			source: `package sqlite
+	},
+	{
+		name: "wrong arguments",
+		source: `package sqlite
 func executeMigrationBody(ctx any, tx any, name, body string) error {
 	if name == "123_agent_provider_binding_recovery_owner.sql" {
 		return migrateAgentProviderBindingRecoveryOwner(tx, ctx)
@@ -126,10 +128,10 @@ func executeMigrationBody(ctx any, tx any, name, body string) error {
 	return nil
 }
 `,
-		},
-		{
-			name: "wrong condition owner",
-			source: `package sqlite
+	},
+	{
+		name: "wrong condition owner",
+		source: `package sqlite
 func executeMigrationBody(ctx any, tx any, name, body string) error {
 	if body == "123_agent_provider_binding_recovery_owner.sql" {
 		return migrateAgentProviderBindingRecoveryOwner(ctx, tx)
@@ -137,10 +139,10 @@ func executeMigrationBody(ctx any, tx any, name, body string) error {
 	return nil
 }
 `,
-		},
-		{
-			name: "duplicate branch",
-			source: `package sqlite
+	},
+	{
+		name: "duplicate branch",
+		source: `package sqlite
 func executeMigrationBody(ctx any, tx any, name, body string) error {
 	if name == "123_agent_provider_binding_recovery_owner.sql" {
 		return migrateAgentProviderBindingRecoveryOwner(ctx, tx)
@@ -151,10 +153,10 @@ func executeMigrationBody(ctx any, tx any, name, body string) error {
 	return nil
 }
 `,
-		},
-		{
-			name: "valid branch plus wrong callee duplicate",
-			source: `package sqlite
+	},
+	{
+		name: "valid branch plus wrong callee duplicate",
+		source: `package sqlite
 func executeMigrationBody(ctx any, tx any, name, body string) error {
 	if name == "123_agent_provider_binding_recovery_owner.sql" {
 		return migrateAgentProviderBindingRecoveryOwner(ctx, tx)
@@ -165,10 +167,69 @@ func executeMigrationBody(ctx any, tx any, name, body string) error {
 	return nil
 }
 `,
-		},
-		{
-			name: "stale branch",
-			source: `package sqlite
+	},
+	{
+		name: "valid branch plus stale constant alias",
+		source: `package sqlite
+const staleProviderRecoveryMigration = "120_agent_provider_binding_recovery_owner.sql"
+func executeMigrationBody(ctx any, tx any, name, body string) error {
+	if name == "123_agent_provider_binding_recovery_owner.sql" {
+		return migrateAgentProviderBindingRecoveryOwner(ctx, tx)
+	}
+	if name == staleProviderRecoveryMigration {
+		return migrateSystemLogsTraceSpan(ctx, tx)
+	}
+	return nil
+}
+`,
+	},
+	{
+		name: "valid branch plus constant concat duplicate",
+		source: `package sqlite
+func executeMigrationBody(ctx any, tx any, name, body string) error {
+	if name == "123_agent_provider_binding_recovery_owner.sql" {
+		return migrateAgentProviderBindingRecoveryOwner(ctx, tx)
+	}
+	if name == "123_agent_provider_binding_" + "recovery_owner.sql" {
+		return migrateSystemLogsTraceSpan(ctx, tx)
+	}
+	return nil
+}
+`,
+	},
+	{
+		name: "valid branch plus dynamic comparison",
+		source: `package sqlite
+var dynamicProviderRecoveryMigration string
+func executeMigrationBody(ctx any, tx any, name, body string) error {
+	if name == "123_agent_provider_binding_recovery_owner.sql" {
+		return migrateAgentProviderBindingRecoveryOwner(ctx, tx)
+	}
+	if name == dynamicProviderRecoveryMigration {
+		return migrateSystemLogsTraceSpan(ctx, tx)
+	}
+	return nil
+}
+`,
+	},
+	{
+		name: "valid branch plus switch duplicate",
+		source: `package sqlite
+func executeMigrationBody(ctx any, tx any, name, body string) error {
+	if name == "123_agent_provider_binding_recovery_owner.sql" {
+		return migrateAgentProviderBindingRecoveryOwner(ctx, tx)
+	}
+	switch name {
+	case "123_agent_provider_binding_recovery_owner.sql":
+		return migrateSystemLogsTraceSpan(ctx, tx)
+	}
+	return nil
+}
+`,
+	},
+	{
+		name: "stale branch",
+		source: `package sqlite
 func executeMigrationBody(ctx any, tx any, name, body string) error {
 	if name == "120_agent_provider_binding_recovery_owner.sql" {
 		return migrateAgentProviderBindingRecoveryOwner(ctx, tx)
@@ -176,9 +237,12 @@ func executeMigrationBody(ctx any, tx any, name, body string) error {
 	return nil
 }
 `,
-		},
-	}
-	for _, test := range tests {
+	},
+}
+
+func TestProviderRecoveryMigrationVersionFieldGuardRejectsDispatchASTDrift(t *testing.T) {
+	const migrationName = "123_agent_provider_binding_recovery_owner.sql"
+	for _, test := range providerRecoveryDispatchMutations {
 		t.Run(test.name, func(t *testing.T) {
 			root := writeProviderRecoveryDispatchSource(t, test.source)
 			contract := providerRecoveryMigrationContract{
@@ -203,7 +267,14 @@ func writeProviderRecoveryDispatchSource(t *testing.T, source string) string {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatalf("create synthetic sqlite package: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "migrate.go"), []byte(source), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module synthetic\n\ngo 1.25.7\n"), 0o600); err != nil {
+		t.Fatalf("write synthetic go.mod: %v", err)
+	}
+	body := source + `
+func migrateAgentProviderBindingRecoveryOwner(ctx, tx any) error { return nil }
+func migrateSystemLogsTraceSpan(ctx, tx any) error { return nil }
+`
+	if err := os.WriteFile(filepath.Join(dir, "migrate.go"), []byte(body), 0o600); err != nil {
 		t.Fatalf("write synthetic migrate.go: %v", err)
 	}
 	return root
@@ -274,13 +345,52 @@ func discoverProviderRecoveryMigration(t *testing.T, root string) (string, int, 
 
 func providerRecoveryDispatchNames(t *testing.T, root string) []string {
 	t.Helper()
-	path := filepath.Join(root, "internal", "platform", "db", "sqlite", "migrate.go")
-	file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
-	if err != nil {
-		t.Fatalf("parse migrate.go: %v", err)
+	loaded := loadProviderRecoveryTypedSource(t, root)
+	executeMigrationBody := findExecuteMigrationBody(t, loaded.file)
+	nameObject := findExecuteMigrationNameObject(t, executeMigrationBody, loaded.info)
+	scanner := providerRecoveryDispatchScanner{
+		info:       loaded.info,
+		nameObject: nameObject,
+		handled:    make(map[*ast.Ident]struct{}),
 	}
-	executeMigrationBody := findExecuteMigrationBody(t, file)
-	return collectProviderRecoveryDispatchNames(executeMigrationBody.Body)
+	ast.Inspect(executeMigrationBody.Body, scanner.inspect)
+	scanner.rejectUnhandledNameUses(executeMigrationBody.Body)
+	return scanner.names
+}
+
+type providerRecoveryTypedSource struct {
+	file *ast.File
+	info *types.Info
+}
+
+func loadProviderRecoveryTypedSource(t *testing.T, root string) providerRecoveryTypedSource {
+	t.Helper()
+	config := &packages.Config{Mode: packages.LoadSyntax, Dir: root}
+	loaded, err := packages.Load(config, "./internal/platform/db/sqlite")
+	if err != nil {
+		t.Fatalf("load sqlite package: %v", err)
+	}
+	if len(loaded) != 1 {
+		t.Fatalf("loaded sqlite packages = %d, want 1", len(loaded))
+	}
+	if len(loaded[0].Errors) != 0 {
+		t.Fatalf("type-check sqlite package: %v", loaded[0].Errors)
+	}
+	return providerRecoveryTypedSource{
+		file: findMigrateSyntax(t, loaded[0]),
+		info: loaded[0].TypesInfo,
+	}
+}
+
+func findMigrateSyntax(t *testing.T, loaded *packages.Package) *ast.File {
+	t.Helper()
+	for index, filename := range loaded.CompiledGoFiles {
+		if filepath.Base(filename) == "migrate.go" {
+			return loaded.Syntax[index]
+		}
+	}
+	t.Fatalf("loaded sqlite package does not contain migrate.go")
+	return nil
 }
 
 func findExecuteMigrationBody(t *testing.T, file *ast.File) *ast.FuncDecl {
@@ -302,69 +412,167 @@ func findExecuteMigrationBody(t *testing.T, file *ast.File) *ast.FuncDecl {
 	return executeMigrationBody
 }
 
-func collectProviderRecoveryDispatchNames(body *ast.BlockStmt) []string {
-	var names []string
-	ast.Inspect(body, func(node ast.Node) bool {
-		branch, ok := node.(*ast.IfStmt)
-		if !ok {
-			return true
+func findExecuteMigrationNameObject(
+	t *testing.T,
+	function *ast.FuncDecl,
+	info *types.Info,
+) types.Object {
+	t.Helper()
+	for _, field := range function.Type.Params.List {
+		for _, identifier := range field.Names {
+			if identifier.Name == "name" && info.Defs[identifier] != nil {
+				return info.Defs[identifier]
+			}
 		}
-		name, found := providerRecoveryOwnerLiteral(branch.Cond)
-		if !found {
-			return true
-		}
-		names = append(names, validateProviderRecoveryDispatchBranch(branch, name))
-		return true
-	})
-	return names
+	}
+	t.Fatalf("executeMigrationBody does not define the name parameter")
+	return nil
 }
 
-func providerRecoveryOwnerLiteral(expression ast.Expr) (string, bool) {
-	var name string
-	ast.Inspect(expression, func(node ast.Node) bool {
-		literal, ok := node.(*ast.BasicLit)
-		if !ok || literal.Kind != token.STRING || name != "" {
-			return true
-		}
-		value, err := strconv.Unquote(literal.Value)
-		if err == nil && strings.HasSuffix(value, "_agent_provider_binding_recovery_owner.sql") {
-			name = value
-		}
-		return true
-	})
-	return name, name != ""
+type providerRecoveryDispatchScanner struct {
+	info       *types.Info
+	nameObject types.Object
+	handled    map[*ast.Ident]struct{}
+	names      []string
 }
 
-func validateProviderRecoveryDispatchBranch(branch *ast.IfStmt, name string) string {
-	if !isProviderRecoveryDispatchCondition(branch.Cond, name) {
-		return "invalid-condition:" + name
+func (scanner *providerRecoveryDispatchScanner) inspect(node ast.Node) bool {
+	switch node := node.(type) {
+	case *ast.IfStmt:
+		scanner.inspectIf(node)
+	case *ast.SwitchStmt:
+		scanner.inspectSwitch(node)
+	}
+	return true
+}
+
+func (scanner *providerRecoveryDispatchScanner) inspectIf(branch *ast.IfStmt) {
+	uses := parameterUses(branch.Cond, scanner.info, scanner.nameObject)
+	candidate := len(uses) != 0 ||
+		containsRecoveryConstant(branch.Cond, scanner.info) ||
+		containsProviderRecoveryCall(branch.Body)
+	if !candidate {
+		return
+	}
+	scanner.markHandled(uses)
+	name, ok := nameComparisonConstant(branch.Cond, scanner.info, scanner.nameObject)
+	if !ok {
+		scanner.names = append(scanner.names, "invalid-condition")
+		return
+	}
+	if !strings.HasSuffix(name, "_agent_provider_binding_recovery_owner.sql") {
+		return
 	}
 	if !isProviderRecoveryDispatchReturn(branch.Body) {
-		return "invalid-return:" + name
+		scanner.names = append(scanner.names, "invalid-return:"+name)
+		return
 	}
-	return name
+	scanner.names = append(scanner.names, name)
 }
 
-func isProviderRecoveryDispatchCondition(expression ast.Expr, name string) bool {
+func (scanner *providerRecoveryDispatchScanner) inspectSwitch(branch *ast.SwitchStmt) {
+	uses := parameterUses(branch, scanner.info, scanner.nameObject)
+	candidate := len(uses) != 0 ||
+		containsRecoveryConstant(branch, scanner.info) ||
+		containsProviderRecoveryCall(branch)
+	if !candidate {
+		return
+	}
+	scanner.markHandled(uses)
+	scanner.names = append(scanner.names, "invalid-switch")
+}
+
+func (scanner *providerRecoveryDispatchScanner) markHandled(identifiers []*ast.Ident) {
+	for _, identifier := range identifiers {
+		scanner.handled[identifier] = struct{}{}
+	}
+}
+
+func (scanner *providerRecoveryDispatchScanner) rejectUnhandledNameUses(body *ast.BlockStmt) {
+	rejected := false
+	ast.Inspect(body, func(node ast.Node) bool {
+		identifier, ok := node.(*ast.Ident)
+		if !ok || scanner.info.Uses[identifier] != scanner.nameObject {
+			return true
+		}
+		if _, ok := scanner.handled[identifier]; ok || rejected {
+			return true
+		}
+		scanner.names = append(scanner.names, "invalid-name-dispatch")
+		rejected = true
+		return true
+	})
+}
+
+func parameterUses(node ast.Node, info *types.Info, object types.Object) []*ast.Ident {
+	var identifiers []*ast.Ident
+	ast.Inspect(node, func(node ast.Node) bool {
+		identifier, ok := node.(*ast.Ident)
+		if ok && info.Uses[identifier] == object {
+			identifiers = append(identifiers, identifier)
+		}
+		return true
+	})
+	return identifiers
+}
+
+func containsRecoveryConstant(node ast.Node, info *types.Info) bool {
+	found := false
+	ast.Inspect(node, func(node ast.Node) bool {
+		expression, ok := node.(ast.Expr)
+		if !ok || found {
+			return true
+		}
+		value, ok := constantStringValue(expression, info)
+		found = ok && strings.HasSuffix(value, "_agent_provider_binding_recovery_owner.sql")
+		return true
+	})
+	return found
+}
+
+func containsProviderRecoveryCall(node ast.Node) bool {
+	found := false
+	ast.Inspect(node, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok || found {
+			return true
+		}
+		callee, ok := call.Fun.(*ast.Ident)
+		found = ok && callee.Name == "migrateAgentProviderBindingRecoveryOwner"
+		return true
+	})
+	return found
+}
+
+func nameComparisonConstant(
+	expression ast.Expr,
+	info *types.Info,
+	nameObject types.Object,
+) (string, bool) {
 	comparison, ok := expression.(*ast.BinaryExpr)
 	if !ok || comparison.Op != token.EQL {
-		return false
+		return "", false
 	}
-	return isNameIdentifier(comparison.X) && isStringLiteral(comparison.Y, name)
+	if isObjectIdentifier(comparison.X, info, nameObject) {
+		return constantStringValue(comparison.Y, info)
+	}
+	if isObjectIdentifier(comparison.Y, info, nameObject) {
+		return constantStringValue(comparison.X, info)
+	}
+	return "", false
 }
 
-func isNameIdentifier(expression ast.Expr) bool {
+func isObjectIdentifier(expression ast.Expr, info *types.Info, object types.Object) bool {
 	identifier, ok := expression.(*ast.Ident)
-	return ok && identifier.Name == "name"
+	return ok && info.Uses[identifier] == object
 }
 
-func isStringLiteral(expression ast.Expr, expected string) bool {
-	literal, ok := expression.(*ast.BasicLit)
-	if !ok || literal.Kind != token.STRING {
-		return false
+func constantStringValue(expression ast.Expr, info *types.Info) (string, bool) {
+	typed, ok := info.Types[expression]
+	if !ok || typed.Value == nil || typed.Value.Kind() != constant.String {
+		return "", false
 	}
-	value, err := strconv.Unquote(literal.Value)
-	return err == nil && value == expected
+	return constant.StringVal(typed.Value), true
 }
 
 func isProviderRecoveryDispatchReturn(body *ast.BlockStmt) bool {
