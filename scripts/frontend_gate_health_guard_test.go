@@ -110,7 +110,7 @@ func frontendGateTopology(t *testing.T) map[string][]string {
 	t.Helper()
 	graph := frontendPackageScriptGraph(t)
 	frontendAddMakeGraph(t, graph)
-	frontendAddAIRunnerEdges(graph)
+	frontendAddAIRunnerEdges(t, graph)
 	for node := range graph {
 		sort.Strings(graph[node])
 	}
@@ -198,9 +198,11 @@ func frontendAddMakeNPMEdges(t *testing.T, graph map[string][]string, current, l
 	}
 }
 
-func frontendAddAIRunnerEdges(graph map[string][]string) {
+func frontendAddAIRunnerEdges(t *testing.T, graph map[string][]string) {
+	t.Helper()
+	staticGuard := frontendStaticGuardOwner(t, readRepoFile(t, "ai_maintenance/gate_execution.go"))
 	edges := map[string]string{
-		"ai:frontend:static-guards":       "npm:guard:architecture",
+		"ai:frontend:static-guards":       staticGuard,
 		"ai:frontend:lint":                "npm:lint",
 		"ai:frontend:typecheck-contracts": "npm:typecheck:contracts",
 		"ai:frontend:embed-verify":        "make:frontend-embed-verify",
@@ -209,6 +211,41 @@ func frontendAddAIRunnerEdges(graph map[string][]string) {
 	for from, to := range edges {
 		graph[from] = graph[from]
 		frontendAddUniqueEdge(graph, from, to)
+	}
+}
+
+func frontendStaticGuardOwner(t *testing.T, source string) string {
+	t.Helper()
+	pattern := regexp.MustCompile(`(?s)func frontendStaticGuardCommand\(\).*?return "frontend-app", "npm", \[\]string\{"run", "([^"]+)"\}`)
+	match := pattern.FindStringSubmatch(source)
+	if len(match) != 2 {
+		t.Fatal("cannot derive frontend static guard owner from production command")
+	}
+	return "npm:" + match[1]
+}
+
+// TestFrontendStaticGuardOwnerComesFromProductionCommand 防止健康图再次漂移到旧的 architecture 子门禁。
+func TestFrontendStaticGuardOwnerComesFromProductionCommand(t *testing.T) {
+	graph := frontendGateTopology(t)
+	want := []string{"npm:guard:critical-skip"}
+	if !slices.Equal(graph["ai:frontend:static-guards"], want) {
+		t.Fatalf("AI frontend static guard owner = %v, want %v", graph["ai:frontend:static-guards"], want)
+	}
+}
+
+// TestFrontendTurnContractHasSingleOwner 防止 AI 计划先经静态门禁再重复执行 turn-contract。
+func TestFrontendTurnContractHasSingleOwner(t *testing.T) {
+	var manifest struct {
+		Scripts map[string]string `json:"scripts"`
+	}
+	if err := json.Unmarshal([]byte(readRepoFile(t, "../frontend-app/package.json")), &manifest); err != nil {
+		t.Fatalf("decode frontend-app/package.json: %v", err)
+	}
+	if count := strings.Count(manifest.Scripts["guard:critical-skip"], "npm run guard:turn-contract"); count != 0 {
+		t.Fatalf("guard:critical-skip turn-contract owners = %d, want 0 because AI has turncontract:verify", count)
+	}
+	if count := strings.Count(manifest.Scripts["test:hook:preflight"], "npm run guard:turn-contract"); count != 1 {
+		t.Fatalf("preflight turn-contract owners = %d, want 1", count)
 	}
 }
 

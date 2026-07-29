@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -15,6 +15,7 @@ import {
 } from './frontend-code-size-guard.mjs';
 import {
   assertBaselineUpdateOnlyImproves,
+  acquireBaselineLock,
   baselineBytes,
   hashBaselineBytes,
   writeBaselineTransaction,
@@ -634,7 +635,30 @@ describe('frontend code size baseline transaction', () => {
     )).toThrow(/expected only _meta and files/);
   });
 
-  it('leaves the baseline byte-identical on an injected atomic-write failure', () => {
+  it('does not overwrite a target changed after the initial hash check', () => {
+    const fixture = transactionFixture();
+    const concurrent = baselineBytes(baselineData({
+      'src/fixture.js': frozenFileLengthMetrics(FRONTEND_CODE_SIZE_LIMITS.maxFileLines + 2),
+    }));
+    try {
+      expect(() => writeBaselineTransaction({
+        filePath: fixture.filePath,
+        expectedHash: fixture.hash,
+        previous: fixture.previous,
+        candidate: fixture.candidate,
+        failpoint(point) {
+          if (point === 'after-temp-fsync') fs.writeFileSync(fixture.filePath, concurrent);
+        },
+      })).toThrow(/target changed after check/);
+      expect(fs.readFileSync(fixture.filePath).equals(concurrent)).toBe(true);
+      expect(fs.statSync(fixture.filePath).mode & 0o777).toBe(0o644);
+      expect(fs.readdirSync(fixture.root)).toEqual(['.frontend_code_size_guard_baseline.json']);
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it('rolls back a commit-directory-fsync failure before returning ordinary failure', () => {
     const fixture = transactionFixture();
     try {
       expect(() => writeBaselineTransaction({
@@ -643,45 +667,145 @@ describe('frontend code size baseline transaction', () => {
         previous: fixture.previous,
         candidate: fixture.candidate,
         failpoint(point) {
-          if (point === 'after-temp-fsync') throw new Error('injected write failure');
+          if (point === 'before-commit-dir-fsync') throw new Error('injected directory fsync failure');
         },
-      })).toThrow(/injected write failure/);
+      })).toThrow(/injected directory fsync failure/);
       expect(fs.readFileSync(fixture.filePath).equals(fixture.bytes)).toBe(true);
-      expect(fs.statSync(fixture.filePath).mode & 0o777).toBe(0o644);
       expect(fs.readdirSync(fixture.root)).toEqual(['.frontend_code_size_guard_baseline.json']);
     } finally {
       fs.rmSync(fixture.root, { recursive: true, force: true });
     }
   });
 
-  it('enforces the lock and compare-and-swap without deleting a competing lock', () => {
+  it.each([
+    ['before-claim-rename', 'claim rename'],
+    ['before-install', 'candidate install'],
+  ])('leaves the old bytes on an injected %s failure', (failurePoint) => {
     const fixture = transactionFixture();
-    const lockPath = `${fixture.filePath}.lock`;
     try {
-      fs.writeFileSync(lockPath, 'competing writer\n');
       expect(() => writeBaselineTransaction({
         filePath: fixture.filePath,
         expectedHash: fixture.hash,
         previous: fixture.previous,
         candidate: fixture.candidate,
-      })).toThrow();
+        failpoint(point) {
+          if (point === failurePoint) throw new Error(`injected ${failurePoint}`);
+        },
+      })).toThrow(new RegExp(`injected ${failurePoint}`));
+      expect(fs.readFileSync(fixture.filePath).equals(fixture.bytes)).toBe(true);
+      expect(fs.readdirSync(fixture.root)).toEqual(['.frontend_code_size_guard_baseline.json']);
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ['before-rollback-rename', 'rollback rename'],
+    ['before-rollback-dir-fsync', 'rollback directory fsync'],
+  ])('reports durable-unknown when %s fails', (failurePoint) => {
+    const fixture = transactionFixture();
+    try {
+      let caught;
+      try {
+        writeBaselineTransaction({
+          filePath: fixture.filePath,
+          expectedHash: fixture.hash,
+          previous: fixture.previous,
+          candidate: fixture.candidate,
+          failpoint(point) {
+            if (point === 'before-commit-dir-fsync') throw new Error('force rollback');
+            if (point === failurePoint) throw new Error(`injected ${failurePoint}`);
+          },
+        });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught?.code).toBe('BASELINE_DURABILITY_UNKNOWN');
+      expect(caught?.message).toContain('reconcile required');
+      expect(caught?.finalState).toBeDefined();
+      if (caught.finalState.exists) {
+        expect(hashBaselineBytes(fs.readFileSync(fixture.filePath))).toBe(caught.finalState.hash);
+      } else {
+        expect(fs.existsSync(fixture.filePath)).toBe(false);
+      }
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a live owner and forged lock, but recovers dead and PID-reused locks', () => {
+    const fixture = transactionFixture();
+    const lockPath = `${fixture.filePath}.lock`;
+    try {
+      const held = acquireBaselineLock(fixture.filePath, { installSignalHandlers: false });
+      expect(() => acquireBaselineLock(fixture.filePath, { installSignalHandlers: false })).toThrow(/live process/);
+      expect(JSON.parse(fs.readFileSync(lockPath, 'utf8')).nonce).toBe(held.owner.nonce);
+      held.release();
+
+      fs.writeFileSync(lockPath, 'competing writer\n');
+      expect(() => acquireBaselineLock(fixture.filePath, { installSignalHandlers: false })).toThrow(/malformed or forged/);
       expect(fs.readFileSync(lockPath, 'utf8')).toBe('competing writer\n');
       expect(fs.readFileSync(fixture.filePath).equals(fixture.bytes)).toBe(true);
       fs.unlinkSync(lockPath);
 
-      const concurrent = baselineData({
-        'src/fixture.js': frozenFileLengthMetrics(FRONTEND_CODE_SIZE_LIMITS.maxFileLines + 2),
+      const staleOwner = {
+        version: 1,
+        pid: 2147483647,
+        startIdentity: 'dead-process',
+        nonce: '0123456789abcdef',
+        createdAt: new Date().toISOString(),
+      };
+      fs.writeFileSync(lockPath, `${JSON.stringify(staleOwner)}\n`);
+      const afterDeath = acquireBaselineLock(fixture.filePath, {
+        installSignalHandlers: false,
+        resolveProcessIdentity: () => null,
       });
-      const concurrentBytes = baselineBytes(concurrent);
-      fs.writeFileSync(fixture.filePath, concurrentBytes);
-      expect(() => writeBaselineTransaction({
-        filePath: fixture.filePath,
-        expectedHash: fixture.hash,
-        previous: fixture.previous,
-        candidate: fixture.candidate,
-      })).toThrow(/compare-and-swap failed/);
-      expect(fs.readFileSync(fixture.filePath).equals(concurrentBytes)).toBe(true);
+      afterDeath.release();
+
+      fs.writeFileSync(lockPath, `${JSON.stringify({ ...staleOwner, pid: process.pid })}\n`);
+      const afterReuse = acquireBaselineLock(fixture.filePath, {
+        installSignalHandlers: false,
+        resolveProcessIdentity: () => 'different-start-identity',
+      });
+      afterReuse.release();
     } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ['SIGTERM', false],
+    ['SIGKILL', true],
+  ])('handles %s lock ownership and stale recovery', async (signal, leavesStaleLock) => {
+    const fixture = transactionFixture();
+    const modulePath = path.join(appRoot, 'scripts/lib/frontend-code-size-baseline-transaction.mjs');
+    const childSource = [
+      `import { acquireBaselineLock } from ${JSON.stringify(modulePath)};`,
+      `acquireBaselineLock(${JSON.stringify(fixture.filePath)});`,
+      `process.stdout.write('ready\\n');`,
+      `setInterval(() => {}, 1000);`,
+    ].join('\n');
+    const child = spawn(process.execPath, ['--input-type=module', '-e', childSource], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    try {
+      await new Promise((resolve, reject) => {
+        let output = '';
+        child.stdout.on('data', (chunk) => {
+          output += chunk;
+          if (output.includes('ready\n')) resolve();
+        });
+        child.once('error', reject);
+        child.once('exit', (code) => reject(new Error(`lock child exited before ready: ${code}`)));
+      });
+      child.kill(signal);
+      await new Promise((resolve) => child.once('exit', resolve));
+      expect(fs.existsSync(`${fixture.filePath}.lock`)).toBe(leavesStaleLock);
+      const recovered = acquireBaselineLock(fixture.filePath, { installSignalHandlers: false });
+      recovered.release();
+      expect(fs.existsSync(`${fixture.filePath}.lock`)).toBe(false);
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
       fs.rmSync(fixture.root, { recursive: true, force: true });
     }
   });

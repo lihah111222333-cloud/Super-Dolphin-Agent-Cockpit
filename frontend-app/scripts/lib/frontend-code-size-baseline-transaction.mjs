@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { canonicalViolationSignature } from './frontend-code-size-baseline.mjs';
 
 const metricKeys = Object.freeze([
@@ -125,7 +126,8 @@ export function describeBaselineDiff(previous, next) {
   return lines;
 }
 
-function fsyncParentDirectory(filePath) {
+function fsyncParentDirectory(filePath, failpoint = noFailureInjection, stage = 'directory-fsync') {
+  failpoint(stage);
   const directoryHandle = fs.openSync(path.dirname(filePath), 'r');
   try {
     fs.fsyncSync(directoryHandle);
@@ -136,6 +138,174 @@ function fsyncParentDirectory(filePath) {
 
 function noFailureInjection() {
   return undefined;
+}
+
+function processStartIdentity(pid) {
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const fields = stat.slice(stat.lastIndexOf(')') + 2).trim().split(/\s+/);
+    if (fields[19]) return `proc:${fields[19]}`;
+  } catch {
+    // 非 Linux 平台继续使用 ps 的进程启动时间。
+  }
+  const result = spawnSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8' });
+  const value = result.status === 0 ? result.stdout.trim() : '';
+  return value ? `ps:${value}` : null;
+}
+
+function lockOwner({ pid = process.pid, nonce = crypto.randomUUID() } = {}) {
+  const startIdentity = processStartIdentity(pid);
+  if (!startIdentity) throw new Error(`cannot determine baseline lock owner identity for pid ${pid}`);
+  return { version: 1, pid, startIdentity, nonce, createdAt: new Date().toISOString() };
+}
+
+function parseLockOwner(bytes, lockPath) {
+  let owner;
+  try {
+    owner = JSON.parse(bytes.toString('utf8'));
+  } catch {
+    throw new Error(`baseline lock is malformed or forged: ${lockPath}`);
+  }
+  if (
+    owner?.version !== 1
+    || !Number.isInteger(owner.pid)
+    || owner.pid <= 0
+    || typeof owner.startIdentity !== 'string'
+    || owner.startIdentity.length === 0
+    || typeof owner.nonce !== 'string'
+    || owner.nonce.length < 16
+    || typeof owner.createdAt !== 'string'
+  ) {
+    throw new Error(`baseline lock is malformed or forged: ${lockPath}`);
+  }
+  return owner;
+}
+
+function sameFileIdentity(left, right) {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+
+function createLockFile(lockPath, owner) {
+  const handle = fs.openSync(lockPath, 'wx', 0o600);
+  try {
+    fs.writeFileSync(handle, `${JSON.stringify(owner)}\n`, 'utf8');
+    fs.fsyncSync(handle);
+    fsyncParentDirectory(lockPath);
+    return handle;
+  } catch (error) {
+    fs.closeSync(handle);
+    if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath);
+    throw error;
+  }
+}
+
+function recoverStaleLock(lockPath, resolveProcessIdentity) {
+  const staleHandle = fs.openSync(lockPath, 'r');
+  let staleStat;
+  let existingOwner;
+  try {
+    staleStat = fs.fstatSync(staleHandle);
+    existingOwner = parseLockOwner(fs.readFileSync(staleHandle), lockPath);
+  } finally {
+    fs.closeSync(staleHandle);
+  }
+  const liveIdentity = resolveProcessIdentity(existingOwner.pid);
+  if (liveIdentity === existingOwner.startIdentity) {
+    throw new Error(`baseline lock is owned by live process ${existingOwner.pid}: ${lockPath}`);
+  }
+  const currentStat = fs.lstatSync(lockPath);
+  if (!sameFileIdentity(staleStat, currentStat)) {
+    throw new Error(`baseline lock changed during stale recovery: ${lockPath}`);
+  }
+  fs.unlinkSync(lockPath);
+  fsyncParentDirectory(lockPath);
+}
+
+function createLockRelease(lockPath, owner, handle, handlers) {
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    for (const [signal, handler] of handlers) process.off(signal, handler);
+    fs.closeSync(handle);
+    if (!fs.existsSync(lockPath)) return;
+    const currentOwner = parseLockOwner(fs.readFileSync(lockPath), lockPath);
+    if (currentOwner.nonce !== owner.nonce) {
+      throw new Error(`baseline lock ownership changed before release: ${lockPath}`);
+    }
+    fs.unlinkSync(lockPath);
+    fsyncParentDirectory(lockPath);
+  };
+}
+
+function installLockSignalHandlers(release, handlers) {
+  for (const [signal, exitCode] of [['SIGTERM', 143], ['SIGINT', 130]]) {
+    const handler = () => {
+      try {
+        release();
+      } finally {
+        process.exit(exitCode);
+      }
+    };
+    handlers.set(signal, handler);
+    process.once(signal, handler);
+  }
+}
+
+export function acquireBaselineLock(filePath, {
+  resolveProcessIdentity = processStartIdentity,
+  installSignalHandlers = true,
+} = {}) {
+  const lockPath = `${filePath}.lock`;
+  const owner = lockOwner();
+  let handle;
+  try {
+    handle = createLockFile(lockPath, owner);
+  } catch (error) {
+    if (error?.code !== 'EEXIST') throw error;
+    recoverStaleLock(lockPath, resolveProcessIdentity);
+    handle = createLockFile(lockPath, owner);
+  }
+
+  const handlers = new Map();
+  const release = createLockRelease(lockPath, owner, handle, handlers);
+  if (installSignalHandlers) installLockSignalHandlers(release, handlers);
+  return { lockPath, owner, release };
+}
+
+function durableUnknown(filePath, stage, cause) {
+  let finalState;
+  try {
+    const bytes = fs.readFileSync(filePath);
+    finalState = { exists: true, hash: hashBaselineBytes(bytes), bytes: bytes.toString('utf8') };
+  } catch (error) {
+    finalState = { exists: false, readError: error.message };
+  }
+  const result = new Error(
+    `baseline durability unknown after ${stage} for ${filePath}; reconcile required; final state: ${JSON.stringify(finalState)}`,
+    { cause },
+  );
+  result.code = 'BASELINE_DURABILITY_UNKNOWN';
+  result.finalState = finalState;
+  return result;
+}
+
+function restoreClaimedBaseline({ filePath, backupPath, tempPath, failpoint }) {
+  try {
+    if (fs.existsSync(filePath)) {
+      const targetStat = fs.statSync(filePath);
+      const tempStat = fs.statSync(tempPath);
+      if (!sameFileIdentity(targetStat, tempStat)) {
+        throw new Error(`cannot rollback without overwriting an external target: ${filePath}`);
+      }
+      fs.unlinkSync(filePath);
+    }
+    failpoint('before-rollback-rename');
+    fs.renameSync(backupPath, filePath);
+    fsyncParentDirectory(filePath, failpoint, 'before-rollback-dir-fsync');
+  } catch (error) {
+    throw durableUnknown(filePath, 'rollback', error);
+  }
 }
 
 export function writeBaselineTransaction({
@@ -157,15 +327,18 @@ export function writeBaselineTransaction({
   assertFrontendCodeSizeBaselineSchema(next, 'candidate baseline');
   const diff = describeBaselineDiff(previous, next);
   if (diff.length === 0) return { changed: false, diff: [] };
+  const nextBytes = baselineBytes(next);
+  const nextHash = hashBaselineBytes(nextBytes);
 
-  const lockPath = `${filePath}.lock`;
   const tempPath = path.join(path.dirname(filePath), `.${path.basename(filePath)}.${process.pid}.${crypto.randomUUID()}.tmp`);
-  let lockHandle;
+  const backupPath = path.join(path.dirname(filePath), `.${path.basename(filePath)}.${process.pid}.${crypto.randomUUID()}.bak`);
+  let lock;
   let tempHandle;
+  let claimed = false;
+  let installed = false;
+  let committed = false;
   try {
-    lockHandle = fs.openSync(lockPath, 'wx', 0o600);
-    fs.writeFileSync(lockHandle, `${process.pid}\n`, 'utf8');
-    fs.fsyncSync(lockHandle);
+    lock = acquireBaselineLock(filePath);
     failpoint('after-lock');
 
     const currentBytes = fs.readFileSync(filePath);
@@ -180,21 +353,55 @@ export function writeBaselineTransaction({
 
     tempHandle = fs.openSync(tempPath, 'wx', 0o600);
     fs.fchmodSync(tempHandle, currentMode);
-    fs.writeFileSync(tempHandle, baselineBytes(next));
+    fs.writeFileSync(tempHandle, nextBytes);
     fs.fsyncSync(tempHandle);
     failpoint('after-temp-fsync');
     fs.closeSync(tempHandle);
     tempHandle = undefined;
 
-    fs.renameSync(tempPath, filePath);
-    fsyncParentDirectory(filePath);
+    failpoint('before-claim-rename');
+    fs.renameSync(filePath, backupPath);
+    claimed = true;
+    const claimedBytes = fs.readFileSync(backupPath);
+    if (hashBaselineBytes(claimedBytes) !== expectedHash) {
+      restoreClaimedBaseline({ filePath, backupPath, tempPath, failpoint });
+      claimed = false;
+      throw new Error(`baseline compare-and-swap failed for ${filePath}: target changed after check`);
+    }
+    assertFrontendCodeSizeBaselineSchema(JSON.parse(claimedBytes.toString('utf8')), 'claimed baseline');
+    failpoint('before-install');
+    fs.linkSync(tempPath, filePath);
+    installed = true;
+    try {
+      fsyncParentDirectory(filePath, failpoint, 'before-commit-dir-fsync');
+      if (hashBaselineBytes(fs.readFileSync(filePath)) !== nextHash) {
+        throw new Error(`baseline candidate changed during commit for ${filePath}`);
+      }
+      committed = true;
+    } catch (error) {
+      restoreClaimedBaseline({ filePath, backupPath, tempPath, failpoint });
+      claimed = false;
+      installed = false;
+      throw error;
+    }
+    fs.unlinkSync(backupPath);
+    claimed = false;
+    fs.unlinkSync(tempPath);
+    fsyncParentDirectory(filePath, failpoint, 'before-cleanup-dir-fsync');
     return { changed: true, diff };
+  } catch (error) {
+    if (committed) throw durableUnknown(filePath, 'post-commit cleanup', error);
+    if (error?.code === 'BASELINE_DURABILITY_UNKNOWN') throw error;
+    if (claimed) {
+      restoreClaimedBaseline({ filePath, backupPath, tempPath, failpoint });
+      claimed = false;
+      installed = false;
+    }
+    throw error;
   } finally {
     if (tempHandle !== undefined) fs.closeSync(tempHandle);
     if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
-    if (lockHandle !== undefined) {
-      fs.closeSync(lockHandle);
-      if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath);
-    }
+    if (!claimed && fs.existsSync(backupPath)) fs.unlinkSync(backupPath);
+    if (lock !== undefined) lock.release();
   }
 }
