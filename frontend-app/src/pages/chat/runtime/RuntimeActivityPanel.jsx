@@ -106,10 +106,7 @@ function RuntimeActivityResizer({ activityPanelMax, activityPanelHeight, activit
       title="拖动调整工具使用面板高度，最大为应用高度的 1/2"
       data-testid="activity-panel-resizer"
       onKeyDown={onResizeKeyDown}
-      onPointerDown={(event) => onResizeStart(event, 'pointer')}
-      onMouseDown={(event) => {
-        if (!window.PointerEvent) onResizeStart(event, 'mouse');
-      }}
+      onPointerDown={onResizeStart}
     >
       <span className="sr-only">调整工具使用面板高度，当前 {activityPanelHeight} 像素</span>
     </button>

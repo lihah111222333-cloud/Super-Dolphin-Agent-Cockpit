@@ -34,6 +34,8 @@ import { ActionFailureSink } from '../../shared/ui/actionFailureSink.jsx';
 import suiyuanBrandIcon from '../../assets/suiyuan-brand-icon.png';
 import { appShortcutPlatform } from './appShortcutPlatform.js';
 import { updateVersionFromResult } from './appUpdateVersion.js';
+import { useShellLayoutStore } from './model/useShellLayoutStore.js';
+import { useWorkbenchLayout } from '../../shared/layout/useWorkbenchLayout.js';
 
 const SUIYUAN_NAV_ITEMS = Object.freeze([
   { id: 'chat', label: 'Chat', labelKey: 'chat', icon: MessageSquareText },
@@ -146,7 +148,7 @@ function SuiyuanChatNavGroup({ copy, item, projectPath, sidebar, store }) {
   );
 }
 
-function SuiyuanSidebar({ copy, projectPath, sidebar, store }) {
+function SuiyuanSidebar({ copy, layout, projectPath, sidebar, store }) {
   const { activePage, closeSidebar, isOpen, memorySimilarCount, setActivePage, startNewChat } = sidebar;
   const memoryBadgeCount = Math.max(0, Number(memorySimilarCount) || 0);
 
@@ -220,6 +222,19 @@ function SuiyuanSidebar({ copy, projectPath, sidebar, store }) {
           <span>{copy.workbench.help || 'Help'}</span>
         </a>
       </div>
+      <button
+        type="button"
+        className="workbench-sidebar-resizer"
+        data-testid="workbench-sidebar-resizer"
+        role="separator"
+        aria-label={copy.workbench.resize}
+        aria-orientation="vertical"
+        aria-valuemin={layout.snapshot.aria.railMin}
+        aria-valuemax={layout.snapshot.aria.railMax}
+        aria-valuenow={layout.snapshot.aria.railNow}
+        onKeyDown={layout.actions.rail.keyDown}
+        onPointerDown={layout.actions.rail.begin}
+      />
     </aside>
   );
 }
@@ -347,6 +362,18 @@ function SuiyuanTopAppBar({ copy, currentPageLabel, locale, controls }) {
   );
 }
 
+function useSuiyuanWorkbenchLayout({ rightPanelOpen, setRightPanelOpen, shellLayoutStore, sidebarOpen }) {
+  const rightPreference = useShellLayoutStore(shellLayoutStore, (state) => state.rightPanelWidth);
+  const setRightPreference = useShellLayoutStore(shellLayoutStore, (state) => state.setRightPanelWidth);
+  return useWorkbenchLayout({
+    railOpen: sidebarOpen,
+    rightOpen: rightPanelOpen,
+    rightPreference,
+    setRightOpen: setRightPanelOpen,
+    setRightPreference,
+  });
+}
+
 export function SuiyuanAppWindow({ language, shell, shellLayoutStore, shortcutController, store }) {
   const {
     memoryBadge,
@@ -373,6 +400,9 @@ export function SuiyuanAppWindow({ language, shell, shellLayoutStore, shortcutCo
     return true;
   });
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const workbenchLayout = useSuiyuanWorkbenchLayout({ rightPanelOpen, setRightPanelOpen, shellLayoutStore, sidebarOpen });
+  const geometrySnapshot = workbenchLayout.snapshot;
+  const layoutActions = workbenchLayout.actions;
   const SidebarToggleIcon = sidebarOpen ? X : Menu;
   const activeLabel = appPageTitleLabel(store.activePage, copy);
   const currentPageLabel = currentPageLabelOverride || activeLabel;
@@ -411,6 +441,7 @@ export function SuiyuanAppWindow({ language, shell, shellLayoutStore, shortcutCo
       data-brand="suiyuan"
       data-theme={theme}
       data-testid="frontend-app"
+      style={geometrySnapshot.cssVars}
     >
       {shortcutController?.status === 'error' ? (
         <output role="alert" data-testid="shortcut-config-error">{shortcutController.error}</output>
@@ -440,6 +471,7 @@ export function SuiyuanAppWindow({ language, shell, shellLayoutStore, shortcutCo
         ) : null}
         <SuiyuanSidebar
           copy={copy}
+          layout={workbenchLayout}
           projectPath={projectPath}
           sidebar={{
             activePage: store.activePage,
@@ -473,12 +505,13 @@ export function SuiyuanAppWindow({ language, shell, shellLayoutStore, shortcutCo
                 store={store}
                 projectPath={projectPath}
                 memoryRevision={memoryBadge.memoryRevision}
+                geometrySnapshot={geometrySnapshot}
+                layoutActions={layoutActions}
                 setMemoryPageSimilarCount={memoryBadge.setMemoryPageSimilarCount}
                 onWorkflowViewChange={handleWorkflowViewChange}
                 rightPanelOpen={rightPanelOpen}
-                shellLayoutStore={shellLayoutStore}
                 shortcutController={shortcutController}
-                setRightPanelOpen={setRightPanelOpen}
+                setRightPanelOpen={layoutActions.right.setOpen}
               />
             </Suspense>
           </div>

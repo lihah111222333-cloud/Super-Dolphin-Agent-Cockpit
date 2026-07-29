@@ -2,6 +2,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import { RuntimePanelSlot } from './RuntimePanelSlot.jsx';
+import { solveWorkbenchGeometry } from '../../../shared/layout/workbenchGeometry.js';
 
 const threadData = {
   diffText: 'diff --git a/readme.md b/readme.md\n+hello',
@@ -21,6 +22,16 @@ function deferred() {
 }
 
 function renderSlot(overrides = {}) {
+  const geometrySnapshot = solveWorkbenchGeometry({
+    activityHeight: 64,
+    railOpen: false,
+    railWidth: 340,
+    rightDisplayWidth: 240,
+    rightOpen: true,
+    rightPreference: 240,
+    viewportHeight: 640,
+    viewportWidth: 800,
+  });
   const props = {
     beginResize: vi.fn(),
     codeFileActions: {
@@ -28,16 +39,17 @@ function renderSlot(overrides = {}) {
       openCodeFile: vi.fn(),
       saveCodeFile: vi.fn(),
     },
-    closeThreshold: 0,
     formatTime: (value) => value,
+    geometrySnapshot,
     handleKeyDown: vi.fn(),
-    maxWidth: 320,
+    layoutActions: {
+      activity: { begin: vi.fn(), keyDown: vi.fn() },
+    },
     open: true,
     projectPath: '/repo/app',
     projects: ['/repo/app'],
     renderMarkdownPreview: (content) => <pre>{content}</pre>,
     threadData,
-    width: 240,
     ...overrides,
   };
   return { props, ...render(<RuntimePanelSlot {...props} />) };
@@ -55,7 +67,7 @@ function renderSlot(overrides = {}) {
 
     expect(screen.getByTestId('runtime-panel')).toBeInTheDocument();
     expect(resizer).toHaveAttribute('aria-valuemin', '0');
-    expect(resizer).toHaveAttribute('aria-valuemax', '320');
+    expect(resizer).toHaveAttribute('aria-valuemax', String(props.geometrySnapshot.aria.rightMax));
     expect(resizer).toHaveAttribute('aria-valuenow', '240');
 
     fireEvent.keyDown(resizer, { key: 'ArrowLeft' });

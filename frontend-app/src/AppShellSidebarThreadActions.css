@@ -204,6 +204,7 @@
     border-right: 0 !important;
     opacity: 0 !important;
     pointer-events: none !important;
+    visibility: hidden;
   }
 
   .sa-window.sidebar-collapsed .workbench-sidebar-resizer {

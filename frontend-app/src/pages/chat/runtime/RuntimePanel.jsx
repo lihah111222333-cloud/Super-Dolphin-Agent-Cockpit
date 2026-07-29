@@ -1,11 +1,6 @@
 import React, { useMemo } from 'react';
 import { parseUnifiedDiffLineEntries } from '../adapters/runtimeDiffLineAdapter.js';
 import { summarizeUnifiedDiff } from '../adapters/runtimeDiffSummaryAdapter.js';
-import {
-  ACTIVITY_PANEL_MIN_HEIGHT,
-  runtimePanelHeightVars,
-  useRuntimePanelLayout,
-} from '../hooks/useRuntimePanelLayout.js';
 import { RuntimeActivityPanel } from './RuntimeActivityPanel.jsx';
 import { RuntimeDiffView } from './RuntimeDiffView.jsx';
 import { RuntimeToolbar } from './RuntimeToolbar.jsx';
@@ -22,6 +17,8 @@ function RuntimePanel({
   projects,
   codeFileActions,
   formatTime,
+  geometrySnapshot,
+  layoutActions,
   renderMarkdownPreview,
 }) {
   /*
@@ -29,7 +26,6 @@ function RuntimePanel({
    * 本组件只管 diff 折叠、文件预览和右侧栏自己的 UI 状态。
    */
   const diffSummary = useMemo(() => summarizeUnifiedDiff(diffText), [diffText]);
-  const runtimeLayout = useRuntimePanelLayout();
   const {
     collapsedDiffFiles,
     dialogs,
@@ -47,7 +43,7 @@ function RuntimePanel({
     <aside
       className="runtime-panel"
       data-testid="runtime-panel"
-      style={runtimePanelHeightVars(runtimeLayout.activityPanelHeight, runtimeLayout.viewportHeight)}
+      style={geometrySnapshot.cssVars}
     >
       <RuntimeToolbar diffSummary={diffSummary} />
       <RuntimeDiffView
@@ -65,12 +61,12 @@ function RuntimePanel({
         tokenUsage={tokenUsage}
         warnings={warnings}
         runtimeResults={runtimeResults}
-        activityPanelMax={runtimeLayout.activityPanelMax}
-        activityPanelHeight={runtimeLayout.activityPanelHeight}
-        activityPanelMinHeight={ACTIVITY_PANEL_MIN_HEIGHT}
+        activityPanelMax={geometrySnapshot.activity.max}
+        activityPanelHeight={geometrySnapshot.activity.displayed}
+        activityPanelMinHeight={geometrySnapshot.activity.min}
         formatTime={formatTime}
-        onResizeKeyDown={runtimeLayout.handleActivityPanelResizeKeyDown}
-        onResizeStart={runtimeLayout.beginActivityPanelResize}
+        onResizeKeyDown={layoutActions.activity.keyDown}
+        onResizeStart={layoutActions.activity.begin}
       />
       {dialogs}
     </aside>

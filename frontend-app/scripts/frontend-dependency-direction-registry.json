@@ -151,15 +151,6 @@
       "reason": "Prompt shared parsing helpers must move below features before expiry."
     },
     {
-      "from": "src/pages/chat/ChatPage.jsx",
-      "kind": "import",
-      "specifier": "../../app/shell/model/useShellLayoutStore.js",
-      "to": "src/app/shell/model/useShellLayoutStore.js",
-      "expiresOn": "2026-08-31",
-      "owner": "frontend-architecture",
-      "reason": "Chat layout access predates the page-to-app boundary; expose a lower-level layout port before expiry."
-    },
-    {
       "from": "src/shared/api/wails/wailsBridgeLogRuntime.js",
       "kind": "dynamic-import",
       "specifier": "<non-literal>",

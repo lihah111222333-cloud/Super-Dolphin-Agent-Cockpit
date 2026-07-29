@@ -3,7 +3,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { screen } from '@testing-library/react';
 import { beforeEach, vi } from 'vitest';
 import mermaid from 'mermaid';
-import { createShellLayoutStore } from '../../../app/shell/model/useShellLayoutStore.js';
+import { createShellLayoutStore, useShellLayoutStore } from '../../../app/shell/model/useShellLayoutStore.js';
+import { solveWorkbenchGeometry } from '../../../shared/layout/workbenchGeometry.js';
 import { ChatPage as ChatPageComponent } from '../ChatPage.jsx';
 
 const chatCodeServiceMocks = vi.hoisted(() => ({
@@ -162,12 +163,38 @@ function TestChatPage({ shellLayoutStore, ...props }) {
   const resolvedShellLayoutStore = shellLayoutStore === undefined
     ? defaultShellLayout.store
     : shellLayoutStore;
+  const rightPreference = useShellLayoutStore(resolvedShellLayoutStore, (state) => state.rightPanelWidth);
+  const geometrySnapshot = solveWorkbenchGeometry({
+    activityHeight: 64,
+    railOpen: false,
+    railWidth: 340,
+    rightOpen: props.rightPanelOpen === true,
+    rightPreference,
+    viewportHeight: window.innerHeight,
+    viewportWidth: window.innerWidth,
+  });
+  const layoutActions = {
+    activity: { begin: vi.fn(), keyDown: vi.fn() },
+    rail: { begin: vi.fn(), keyDown: vi.fn() },
+    right: {
+      begin: vi.fn(),
+      keyDown: vi.fn(),
+      setOpen: (next) => {
+        const open = typeof next === 'function' ? next(props.rightPanelOpen === true) : next;
+        if (open && rightPreference === 0) {
+          resolvedShellLayoutStore.getState().setRightPanelWidth(geometrySnapshot.right.defaultWidth);
+        }
+        props.setRightPanelOpen?.(open);
+      },
+    },
+  };
   return React.createElement(
     QueryClientProvider,
     { client: queryClient },
     React.createElement(ChatPageComponent, {
       ...props,
-      shellLayoutStore: resolvedShellLayoutStore,
+      geometrySnapshot,
+      layoutActions,
     }),
   );
 }

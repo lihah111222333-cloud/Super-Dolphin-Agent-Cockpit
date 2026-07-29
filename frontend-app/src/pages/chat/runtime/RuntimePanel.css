@@ -35,8 +35,8 @@
 
 .runtime-panel {
   --runtime-toolbar-height: 62px;
-  --activity-panel-height: 64px;
-  --activity-panel-min-height: 64px;
+  --activity-panel-height: 112px;
+  --activity-panel-min-height: 112px;
   --activity-panel-max-height: calc((100vh - var(--runtime-toolbar-height)) / 2);
   --diff-panel-min-height: calc((100vh - var(--runtime-toolbar-height)) / 2);
   --diff-panel-max-height: calc(100vh - var(--runtime-toolbar-height) - var(--activity-panel-min-height));

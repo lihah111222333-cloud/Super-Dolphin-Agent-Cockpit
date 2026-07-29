@@ -4,16 +4,15 @@ import { RuntimePanel } from './RuntimePanel.jsx';
 function RuntimePanelSlot({
   beginResize,
   codeFileActions,
-  closeThreshold,
   formatTime,
+  geometrySnapshot,
   handleKeyDown,
-  maxWidth,
+  layoutActions,
   open,
   projectPath,
   projects,
   renderMarkdownPreview,
   threadData,
-  width,
 }) {
   /*
    * RuntimePanelSlot 只负责右侧栏外壳：splitter 和 RuntimePanel 透传。
@@ -28,15 +27,15 @@ function RuntimePanelSlot({
         role="separator"
         aria-label="调整侧边栏宽度"
         aria-orientation="vertical"
-        aria-valuemin={closeThreshold}
-        aria-valuemax={maxWidth}
-        aria-valuenow={width}
+        aria-valuemin={geometrySnapshot.aria.rightMin}
+        aria-valuemax={geometrySnapshot.aria.rightMax}
+        aria-valuenow={geometrySnapshot.aria.rightNow}
         title="调整侧边栏宽度"
         data-testid="right-panel-resizer"
         onKeyDown={handleKeyDown}
         onPointerDown={beginResize}
       >
-        <span className="sr-only">调整侧边栏宽度，当前 {width} 像素</span>
+        <span className="sr-only">调整侧边栏宽度，当前 {geometrySnapshot.aria.rightNow} 像素</span>
       </button>
       <RuntimePanel
         diffText={threadData.diffText}
@@ -49,6 +48,8 @@ function RuntimePanelSlot({
         codeFileActions={codeFileActions}
         formatTime={formatTime}
         renderMarkdownPreview={renderMarkdownPreview}
+        geometrySnapshot={geometrySnapshot}
+        layoutActions={layoutActions}
       />
     </>
   );

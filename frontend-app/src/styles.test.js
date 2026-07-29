@@ -1449,7 +1449,7 @@ describe('workbench shell styles', () => {
       const topCommand = topLevelDeclarationsFor('.suiyuan-top-appbar');
       const mobileTopCommand = mediaDeclarationFor('(max-width: 920px)', '.suiyuan-top-appbar', 'padding');
       const mainCanvas = declarationsFor('.suiyuan-main-canvas');
-      const nonChatPage = declarationsFor('.sa-window.suiyuan-shell .suiyuan-main-canvas > .memory-page');
+      const nonChatPage = declarationsFor('.sa-window.suiyuan-shell .suiyuan-main-canvas > .chat-page');
       const skillsPage = declarationsFor('.sa-window.suiyuan-shell .suiyuan-main-canvas > .skills-tabbed-container');
       const main = declarationsFor('.sa-main');
 
@@ -1604,15 +1604,15 @@ describe('workbench shell styles', () => {
     const chatNavGroup = declarationsFor('.suiyuan-chat-nav-group');
     const projectTree = declarationsFor('.suiyuan-chat-project-tree');
     const collapseButton = declarationsFor('.suiyuan-sidebar-collapse');
-    const footer = declarationsFor('.suiyuan-sidebar-footer');
+    const collapsedSidebar = mediaDeclarationFor('(min-width: 921px)', '.sa-window.sidebar-collapsed .app-sidebar', 'visibility');
 
-    expect(sidebar.width).toBe('280px');
+    expect(sidebar.width).toBe('var(--workbench-sidebar-width)');
     expect(sidebar.position).toBe('relative');
     expect(sidebar.background).toBe('var(--sidebar-bg)');
     expect(sidebar['border-right']).toBe('1px solid var(--sidebar-border)');
     expect(sidebar.overflow).toBe('hidden');
     expect(body.height).toBe('100vh');
-    expect(body['grid-template-columns']).toBe('280px minmax(0, 1fr)');
+    expect(body['grid-template-columns']).toBe('var(--workbench-sidebar-width) minmax(0, 1fr)');
     expect(brand.display).toBe('flex');
     expect(brandMeta.display).toBe('grid');
     expect(newChat['min-height']).toBe('40px');
@@ -1627,7 +1627,7 @@ describe('workbench shell styles', () => {
     expect(collapseButton.width).toBe('32px');
     expect(collapseButton.height).toBe('32px');
     expect(collapseButton['margin-left']).toBe('auto');
-    expect(footer['margin-top']).toBe('auto');
+    expect(collapsedSidebar.visibility).toBe('hidden');
   });
 
   it('keeps the primary product nav while nesting projects under Chat', () => {
@@ -1651,17 +1651,17 @@ describe('workbench shell styles', () => {
     const openSidebar = mediaDeclarationsFor('(max-width: 920px)', '.app-sidebar.is-open')[0];
     const mobileResizer = mediaDeclarationsFor('(max-width: 920px)', '.workbench-sidebar-resizer')[0];
     const scrim = mediaDeclarationsFor('(max-width: 920px)', '.sidebar-scrim')[0];
-    const mobileSettings = mediaDeclarationsFor('(max-width: 920px)', '.sa-window .settings-page')[0];
+    const closedSidebar = mediaDeclarationsFor('(max-width: 920px)', '.app-sidebar.suiyuan-sidebar:not(.is-open)')[0];
 
     expect(desktopToggle.display).toBe('none');
     expect(mobileToggle.display).toBe('inline-flex');
     expect(mobileToggle.position).toBe('fixed');
     expect(mobileToggle['z-index']).toBe('var(--z-shell-control)');
     expect(mobileSidebar.position).toBe('fixed');
-    expect(mobileSidebar['--workbench-sidebar-width']).toBe('min(320px, calc(100vw - 52px))');
+    expect(mobileSidebar['--workbench-sidebar-width']).toBeUndefined();
     expect(mobileSidebar.width).toBe('var(--workbench-sidebar-width)');
     expect(mobileSidebar['margin-left']).toBe('calc(-1 * var(--workbench-sidebar-width))');
-    expect(mobileSidebar.transform).toBe('none');
+    expect(mobileSidebar['z-index']).toBe('var(--z-shell-control)');
     expect(mobileSidebar.transition).toBe('margin-left 180ms ease');
     expect(mobileSidebar['max-width']).toBe('var(--workbench-sidebar-width)');
     expect(mobileSidebar['box-shadow']).toBe('none');
@@ -1670,7 +1670,7 @@ describe('workbench shell styles', () => {
     expect(openSidebar['box-shadow']).toBe('var(--shadow)');
     expect(mobileResizer.display).toBe('none');
     expect(scrim.display).toBe('block');
-    expect(mobileSettings['padding-top']).toBe('78px');
+    expect(closedSidebar).toMatchObject({ 'padding-inline': '0', visibility: 'hidden' });
   });
 
   it('keeps the chat composer adaptive across desktop client widths and phones', () => {
@@ -1870,8 +1870,8 @@ describe('runtime activity panel styles', () => {
     const hostTooltip = declarationsFor('#overlay-root .runtime-stat-tooltip');
     const hostWarningPopover = declarationsFor('#overlay-root .warning-log-popover');
 
-    expect(panel['--activity-panel-height']).toBe('64px');
-    expect(panel['--activity-panel-min-height']).toBe('64px');
+    expect(panel['--activity-panel-height']).toBe('112px');
+    expect(panel['--activity-panel-min-height']).toBe('112px');
     expect(panel.overflow).toBe('hidden');
     expect(panel['grid-template-rows']).toContain('var(--activity-panel-height)');
     expect(activity.overflow).toBe('hidden');

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Bot, Code2, FileText, Sailboat, Sparkles } from 'lucide-react';
 import {
   activeThreadForStore,
@@ -12,20 +12,12 @@ import { ThreadRail } from './thread/ThreadRail.jsx';
 import { Conversation } from './thread/Conversation.jsx';
 import { firstText, firstTrimmedText, timeLabelFromTimestamp, trimmedText } from './markdown/markdownMessageModel.js';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
-import { useShellLayoutStore } from '../../app/shell/model/useShellLayoutStore.js';
 import { runUIAction } from './model/chatUiActions.js';
 import {
   canUseProjectActionsForStore,
   runtimeProjectPath,
 } from './model/projectSelectorModel.js';
-import {
-  RIGHT_PANEL_CLOSE_THRESHOLD,
-  SPLITTER_WIDTH,
-  THREAD_RAIL_MIN_WIDTH,
-  useRuntimeSidePanelLayout,
-  useThreadRailLayout,
-  useViewportWidth,
-} from './hooks/useChatWorkbenchLayout.js';
+import { useRuntimeDiffSync } from './hooks/useChatWorkbenchLayout.js';
 import { useChatThreadData } from './hooks/useChatThreadData.js';
 import { useCodePreviewController } from './hooks/useCodePreviewController.jsx';
 import { locateCodeFile, openCodeFile, saveCodeFile } from './services/chatCodeService.js';
@@ -35,14 +27,6 @@ import './ChatReasoning.css';
 import './ChatPage.css';
 
 const runtimeCodeActions = Object.freeze({ locateCodeFile, openCodeFile, saveCodeFile });
-
-function selectRightPanelWidth(state) {
-  return state.rightPanelWidth;
-}
-
-function selectSetRightPanelWidth(state) {
-  return state.setRightPanelWidth;
-}
 
 const INTRO_SUGGESTION_DEFINITIONS = Object.freeze([
   { key: 'summarizeDocument', icon: FileText },
@@ -198,7 +182,14 @@ function useActiveChatThreadSync(store, activeThreadId) {
 }
 
 function ChatPage(props) {
-  const { copy = APP_COPY.zh.chat, shellLayoutStore, store, projectPath, rightPanelOpen = false, setRightPanelOpen = () => {} } = props;
+  const {
+    copy = APP_COPY.zh.chat,
+    geometrySnapshot,
+    layoutActions,
+    store,
+    projectPath,
+    rightPanelOpen = false,
+  } = props;
   const activeThreadId = store.activeThreadId;
   const modelThreadId = composerConfigThreadId(store, activeThreadId);
   const threadData = useChatThreadData(store, activeThreadId);
@@ -214,36 +205,11 @@ function ChatPage(props) {
     onCitation: (payload) => handleTimelineCitationAction(payload, { store, openFileRef: codePreview.openFileRef }),
     onApproval: (message, approved) => store.respondApproval?.(message, approved),
   }), [codePreview.openFileRef, codePreview.openLocalPath, store]);
-  const shellRightPanelWidth = useShellLayoutStore(shellLayoutStore, selectRightPanelWidth);
-  const setShellRightPanelWidth = useShellLayoutStore(shellLayoutStore, selectSetRightPanelWidth);
-  const viewportWidth = useViewportWidth();
-  const chatLayoutRef = useRef(null);
-  const rail = useThreadRailLayout({
-    viewportWidth,
-    rightPanelOpen,
-    rightPanelWidth: shellRightPanelWidth,
-    layoutRef: chatLayoutRef,
-  });
-  const {
-    beginResize: beginRuntimeResize,
-    handleKeyDown: handleRuntimeResizeKeyDown,
-    maxWidth: runtimeMaxWidth,
-    width: rightPanelWidth,
-  } = useRuntimeSidePanelLayout({
-    activeThreadId,
-    railWidth: rail.width,
-    rightPanelWidth: shellRightPanelWidth,
-    setRightPanelWidth: setShellRightPanelWidth,
-    store,
-    viewportWidth,
-    open: rightPanelOpen,
-    setOpen: setRightPanelOpen,
-    layoutRef: chatLayoutRef,
-  });
+  if (!geometrySnapshot || !layoutActions) {
+    throw new Error('ChatPage requires one geometry snapshot and layout actions');
+  }
+  useRuntimeDiffSync({ activeThreadId, open: rightPanelOpen, store });
   useActiveChatThreadSync(store, activeThreadId);
-  const layoutColumns = rightPanelOpen
-    ? `minmax(0, 1fr) ${SPLITTER_WIDTH}px ${rightPanelWidth}px`
-    : 'minmax(0, 1fr)';
   const conversationCopy = useMemo(() => (introMode ? { ...copy, introTitle: '' } : copy), [copy, introMode]);
   const prefillIntroSuggestion = (prompt) => {
     store.setDraft(prompt);
@@ -252,17 +218,23 @@ function ChatPage(props) {
   return (
     <section className={`chat-page${introMode ? ' chat-page--intro' : ''}`} data-testid="chat-page">
       {showHeader ? (
-        <ChatPageHeader copy={copy} store={store} projectPath={projectPath} rightPanelOpen={rightPanelOpen} setRightPanelOpen={setRightPanelOpen} />
+        <ChatPageHeader copy={copy} store={store} projectPath={projectPath} rightPanelOpen={rightPanelOpen} setRightPanelOpen={layoutActions.right.setOpen} />
       ) : null}
       <ChatActionFeedback
         copy={copy}
         feedback={headerFeedback}
         onDismiss={() => store.dismissActionNotice?.(headerFeedback)}
       />
-      <div ref={chatLayoutRef} className="chat-layout" data-testid="chat-layout" style={{ gridTemplateColumns: layoutColumns }}>
+      <div
+        className="chat-layout"
+        data-testid="chat-layout"
+        style={{
+          '--composer-right-offset': geometrySnapshot.cssVars['--composer-right-offset'],
+          gridTemplateColumns: geometrySnapshot.gridTemplateColumns,
+        }}
+      >
         {introMode ? <ChatIntroSpotlight copy={copy} onSuggestion={prefillIntroSuggestion} /> : null}
         <ThreadRail copy={copy} store={store} />
-        <ThreadRailResizer copy={copy} rail={rail} />
         <Conversation
           copy={conversationCopy}
           messages={threadData.messages}
@@ -291,43 +263,21 @@ function ChatPage(props) {
           messageActions={messageActions}
         />
         <RuntimePanelSlot
-          beginResize={beginRuntimeResize}
+          beginResize={layoutActions.right.begin}
           codeFileActions={runtimeCodeActions}
-          closeThreshold={RIGHT_PANEL_CLOSE_THRESHOLD}
           formatTime={formatTime}
-          handleKeyDown={handleRuntimeResizeKeyDown}
-          maxWidth={runtimeMaxWidth}
+          geometrySnapshot={geometrySnapshot}
+          handleKeyDown={layoutActions.right.keyDown}
+          layoutActions={layoutActions}
           open={rightPanelOpen}
           projectPath={runtimeProject}
           projects={store.projects}
           renderMarkdownPreview={renderCodePreviewMarkdown}
           threadData={threadData}
-          width={rightPanelWidth}
         />
       </div>
       {codePreview.dialogs}
     </section>
-  );
-}
-
-function ThreadRailResizer({ copy = APP_COPY.zh.chat, rail }) {
-  return (
-    <button
-      type="button"
-      className="splitter splitter--left"
-      role="separator"
-      aria-label={copy.resizeRail}
-      aria-orientation="vertical"
-      aria-valuemin={THREAD_RAIL_MIN_WIDTH}
-      aria-valuemax={rail.maxWidth}
-      aria-valuenow={rail.width}
-      title={copy.resizeRail}
-      data-testid="thread-rail-resizer"
-      onKeyDown={rail.handleKeyDown}
-      onPointerDown={rail.beginResize}
-    >
-      <span className="sr-only">{copy.resizeRailStatus} {rail.width} {copy.pixels}</span>
-    </button>
   );
 }
 

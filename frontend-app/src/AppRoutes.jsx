@@ -24,14 +24,15 @@ export function PageLoadingFallback() {
 }
 
 function ChatPageRoute(props) {
-  const { copy, projectPath, rightPanelOpen, setRightPanelOpen, shellLayoutStore, store } = props;
+  const { copy, geometrySnapshot, layoutActions, projectPath, rightPanelOpen, setRightPanelOpen, store } = props;
   return (
     <ChatPage
       copy={copy.chat}
+      geometrySnapshot={geometrySnapshot}
+      layoutActions={layoutActions}
       store={store}
       projectPath={projectPath}
       rightPanelOpen={rightPanelOpen}
-      shellLayoutStore={shellLayoutStore}
       setRightPanelOpen={setRightPanelOpen}
     />
   );
@@ -59,11 +60,12 @@ export function ActivePageContent(props) {
   const {
     activePage,
     copy,
+    geometrySnapshot,
+    layoutActions,
     memoryRevision,
     onWorkflowViewChange,
     projectPath,
     rightPanelOpen,
-    shellLayoutStore,
     shortcutController,
     setMemoryPageSimilarCount,
     setRightPanelOpen,
@@ -73,9 +75,10 @@ export function ActivePageContent(props) {
     return (
       <ChatPageRoute
         copy={copy}
+        geometrySnapshot={geometrySnapshot}
+        layoutActions={layoutActions}
         projectPath={projectPath}
         rightPanelOpen={rightPanelOpen}
-        shellLayoutStore={shellLayoutStore}
         setRightPanelOpen={setRightPanelOpen}
         store={store}
       />

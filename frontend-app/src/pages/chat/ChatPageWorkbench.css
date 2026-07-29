@@ -761,12 +761,11 @@
   }
 
   .app-sidebar {
-    --workbench-sidebar-width: min(320px, calc(100vw - 52px));
     position: fixed;
     inset: 0 auto 0 0;
     width: var(--workbench-sidebar-width);
     margin-left: calc(-1 * var(--workbench-sidebar-width));
-    z-index: var(--z-local-sticky);
+    z-index: var(--z-shell-control);
     max-width: var(--workbench-sidebar-width);
     overflow-y: auto;
     overscroll-behavior: contain;
