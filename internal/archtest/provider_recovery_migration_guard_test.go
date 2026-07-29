@@ -117,6 +117,28 @@ func executeMigrationBody(ctx any, tx any, name, body string) error {
 `,
 		},
 		{
+			name: "wrong arguments",
+			source: `package sqlite
+func executeMigrationBody(ctx any, tx any, name, body string) error {
+	if name == "123_agent_provider_binding_recovery_owner.sql" {
+		return migrateAgentProviderBindingRecoveryOwner(tx, ctx)
+	}
+	return nil
+}
+`,
+		},
+		{
+			name: "wrong condition owner",
+			source: `package sqlite
+func executeMigrationBody(ctx any, tx any, name, body string) error {
+	if body == "123_agent_provider_binding_recovery_owner.sql" {
+		return migrateAgentProviderBindingRecoveryOwner(ctx, tx)
+	}
+	return nil
+}
+`,
+		},
+		{
 			name: "duplicate branch",
 			source: `package sqlite
 func executeMigrationBody(ctx any, tx any, name, body string) error {
@@ -125,6 +147,20 @@ func executeMigrationBody(ctx any, tx any, name, body string) error {
 	}
 	if name == "123_agent_provider_binding_recovery_owner.sql" {
 		return migrateAgentProviderBindingRecoveryOwner(ctx, tx)
+	}
+	return nil
+}
+`,
+		},
+		{
+			name: "valid branch plus wrong callee duplicate",
+			source: `package sqlite
+func executeMigrationBody(ctx any, tx any, name, body string) error {
+	if name == "123_agent_provider_binding_recovery_owner.sql" {
+		return migrateAgentProviderBindingRecoveryOwner(ctx, tx)
+	}
+	if name == "123_agent_provider_binding_recovery_owner.sql" {
+		return migrateSystemLogsTraceSpan(ctx, tx)
 	}
 	return nil
 }
@@ -243,6 +279,12 @@ func providerRecoveryDispatchNames(t *testing.T, root string) []string {
 	if err != nil {
 		t.Fatalf("parse migrate.go: %v", err)
 	}
+	executeMigrationBody := findExecuteMigrationBody(t, file)
+	return collectProviderRecoveryDispatchNames(executeMigrationBody.Body)
+}
+
+func findExecuteMigrationBody(t *testing.T, file *ast.File) *ast.FuncDecl {
+	t.Helper()
 	var executeMigrationBody *ast.FuncDecl
 	for _, declaration := range file.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
@@ -257,47 +299,75 @@ func providerRecoveryDispatchNames(t *testing.T, root string) []string {
 	if executeMigrationBody == nil || executeMigrationBody.Body == nil {
 		t.Fatalf("migrate.go does not define executeMigrationBody")
 	}
+	return executeMigrationBody
+}
 
+func collectProviderRecoveryDispatchNames(body *ast.BlockStmt) []string {
 	var names []string
-	ast.Inspect(executeMigrationBody.Body, func(node ast.Node) bool {
+	ast.Inspect(body, func(node ast.Node) bool {
 		branch, ok := node.(*ast.IfStmt)
 		if !ok {
 			return true
 		}
-		name, ok := providerRecoveryDispatchCondition(branch.Cond)
-		if !ok || !providerRecoveryDispatchReturn(branch.Body) {
+		name, found := providerRecoveryOwnerLiteral(branch.Cond)
+		if !found {
 			return true
 		}
-		names = append(names, name)
+		names = append(names, validateProviderRecoveryDispatchBranch(branch, name))
 		return true
 	})
 	return names
 }
 
-func providerRecoveryDispatchCondition(expression ast.Expr) (string, bool) {
-	comparison, ok := expression.(*ast.BinaryExpr)
-	if !ok || comparison.Op != token.EQL {
-		return "", false
-	}
-	for _, operands := range [][2]ast.Expr{
-		{comparison.X, comparison.Y},
-		{comparison.Y, comparison.X},
-	} {
-		identifier, identifierOK := operands[0].(*ast.Ident)
-		literal, literalOK := operands[1].(*ast.BasicLit)
-		if !identifierOK || identifier.Name != "name" || !literalOK || literal.Kind != token.STRING {
-			continue
+func providerRecoveryOwnerLiteral(expression ast.Expr) (string, bool) {
+	var name string
+	ast.Inspect(expression, func(node ast.Node) bool {
+		literal, ok := node.(*ast.BasicLit)
+		if !ok || literal.Kind != token.STRING || name != "" {
+			return true
 		}
 		value, err := strconv.Unquote(literal.Value)
-		if err != nil || !strings.HasSuffix(value, "_agent_provider_binding_recovery_owner.sql") {
-			continue
+		if err == nil && strings.HasSuffix(value, "_agent_provider_binding_recovery_owner.sql") {
+			name = value
 		}
-		return value, true
-	}
-	return "", false
+		return true
+	})
+	return name, name != ""
 }
 
-func providerRecoveryDispatchReturn(body *ast.BlockStmt) bool {
+func validateProviderRecoveryDispatchBranch(branch *ast.IfStmt, name string) string {
+	if !isProviderRecoveryDispatchCondition(branch.Cond, name) {
+		return "invalid-condition:" + name
+	}
+	if !isProviderRecoveryDispatchReturn(branch.Body) {
+		return "invalid-return:" + name
+	}
+	return name
+}
+
+func isProviderRecoveryDispatchCondition(expression ast.Expr, name string) bool {
+	comparison, ok := expression.(*ast.BinaryExpr)
+	if !ok || comparison.Op != token.EQL {
+		return false
+	}
+	return isNameIdentifier(comparison.X) && isStringLiteral(comparison.Y, name)
+}
+
+func isNameIdentifier(expression ast.Expr) bool {
+	identifier, ok := expression.(*ast.Ident)
+	return ok && identifier.Name == "name"
+}
+
+func isStringLiteral(expression ast.Expr, expected string) bool {
+	literal, ok := expression.(*ast.BasicLit)
+	if !ok || literal.Kind != token.STRING {
+		return false
+	}
+	value, err := strconv.Unquote(literal.Value)
+	return err == nil && value == expected
+}
+
+func isProviderRecoveryDispatchReturn(body *ast.BlockStmt) bool {
 	if body == nil || len(body.List) != 1 {
 		return false
 	}
@@ -306,16 +376,23 @@ func providerRecoveryDispatchReturn(body *ast.BlockStmt) bool {
 		return false
 	}
 	call, ok := returnStatement.Results[0].(*ast.CallExpr)
-	if !ok || len(call.Args) != 2 {
+	return ok && isProviderRecoveryDispatchCall(call)
+}
+
+func isProviderRecoveryDispatchCall(call *ast.CallExpr) bool {
+	if len(call.Args) != 2 {
 		return false
 	}
 	callee, ok := call.Fun.(*ast.Ident)
 	if !ok || callee.Name != "migrateAgentProviderBindingRecoveryOwner" {
 		return false
 	}
-	ctx, ctxOK := call.Args[0].(*ast.Ident)
-	tx, txOK := call.Args[1].(*ast.Ident)
-	return ctxOK && ctx.Name == "ctx" && txOK && tx.Name == "tx"
+	return isIdentifier(call.Args[0], "ctx") && isIdentifier(call.Args[1], "tx")
+}
+
+func isIdentifier(expression ast.Expr, expected string) bool {
+	identifier, ok := expression.(*ast.Ident)
+	return ok && identifier.Name == expected
 }
 
 func providerRecoverySQLCSchemaNames(t *testing.T, root string) []string {
