@@ -230,6 +230,87 @@ class IssueLedgerCliTests(unittest.TestCase):
         issue = self.mutate("complete-fix", issue)
         self.assertEqual(issue["status"], "READY_TO_VERIFY")
 
+    def test_record_progress_appends_checkpoint_without_changing_fixing_snapshot(self) -> None:
+        self.init()
+        issue = self.report()
+        issue = self.mutate("record-history-search", issue, {"query": "launch"})
+        issue = self.mutate("confirm", issue)
+        issue = self.mutate("start-investigation", issue)
+        issue = self.mutate("identify-root-cause", issue, {"root_cause": "startup race"})
+        issue = self.mutate("authorize-fix", issue, {"authorized_by": "owner", "authorization_scope": "launch only"})
+        issue = self.mutate("start-fix", issue)
+        self.assertEqual(issue["status"], "FIXING")
+
+        workbook = load_workbook(self.workbook)
+        issues: Any = workbook["Issues"]
+        issue_columns = {cell.value: cell.column for cell in issues[1]}
+        issues.cell(2, issue_columns["resolution"]).value = "preexisting conclusion"
+        workbook.save(self.workbook)
+        issue = self.invoke("issue", "get", "--issue-id", issue["issue_id"])["result"]
+        unchanged = {
+            name: value
+            for name, value in issue.items()
+            if name not in {"version", "latest_event_id", "updated_at"}
+        }
+
+        before_missing = self.digest()
+        missing = self.fails(
+            "issue", "record-progress", "--issue-id", issue["issue_id"], "--expected-version", str(issue["version"]),
+            "--actor", "tester", "--idempotency-key", self.key("missing-progress"), "--payload-json", "{}",
+        )
+        self.assertIn("missing required field: progress", missing["error"])
+        self.assertEqual(self.digest(), before_missing)
+
+        progress_key = self.key("checkpoint-cli")
+        checkpoint_args = (
+            "issue", "record-progress", "--issue-id", issue["issue_id"], "--expected-version", str(issue["version"]),
+            "--actor", "tester", "--idempotency-key", progress_key, "--progress", "parser updated; tests pending",
+        )
+        first = self.invoke(*checkpoint_args)["result"]
+        self.assertEqual(first["issue"]["status"], "FIXING")
+        self.assertEqual(first["issue"]["version"], issue["version"] + 1)
+        self.assertEqual(first["event"]["event_type"], "RECORD_PROGRESS")
+        self.assertEqual(first["event"]["from_status"], "FIXING")
+        self.assertEqual(first["event"]["to_status"], "FIXING")
+        self.assertEqual(json.loads(first["event"]["payload_json"])["progress"], "parser updated; tests pending")
+        for name, value in unchanged.items():
+            self.assertEqual(first["issue"][name], value)
+
+        after_first = self.digest()
+        replay = self.invoke(*checkpoint_args)["result"]
+        self.assertTrue(replay["idempotent"])
+        self.assertEqual(replay["event"]["event_id"], first["event"]["event_id"])
+        self.assertEqual(self.digest(), after_first)
+        conflict = self.fails(
+            "issue", "record-progress", "--issue-id", issue["issue_id"], "--expected-version", str(issue["version"]),
+            "--actor", "tester", "--idempotency-key", progress_key, "--progress", "different checkpoint",
+        )
+        self.assertIn("idempotency_key conflict", conflict["error"])
+        self.assertEqual(self.digest(), after_first)
+
+        second = self.mutate("record-progress", first["issue"], {"progress": "unit tests passing"}, key=self.key("checkpoint-json"))
+        self.assertEqual(second["status"], "FIXING")
+        self.assertEqual(second["version"], first["issue"]["version"] + 1)
+        history = self.invoke("issue", "history", "--issue-id", issue["issue_id"])["result"]
+        checkpoints = [event for event in history if event["event_type"] == "RECORD_PROGRESS"]
+        self.assertEqual(len(checkpoints), 2)
+        self.assertEqual(checkpoints[0], first["event"])
+        workbook = load_workbook(self.workbook, read_only=True)
+        self.assertEqual(workbook["Evidence"].max_row, 1)
+        self.assertEqual(workbook["EventEvidence"].max_row, 1)
+
+        deferred = self.mutate("defer", second, {"resolution": "paused by owner"})
+        before_terminal = self.digest()
+        replay_after_terminal = self.fails(*checkpoint_args)
+        self.assertIn("forbidden for terminal issue status: DEFERRED", replay_after_terminal["error"])
+        self.assertEqual(self.digest(), before_terminal)
+        terminal = self.fails(
+            "issue", "record-progress", "--issue-id", deferred["issue_id"], "--expected-version", str(deferred["version"]),
+            "--actor", "tester", "--idempotency-key", self.key("terminal-progress"), "--progress", "must not append",
+        )
+        self.assertIn("forbidden for terminal issue status: DEFERRED", terminal["error"])
+        self.assertEqual(self.digest(), before_terminal)
+
     def test_verification_pass_closes_and_failure_reopens(self) -> None:
         repo, url, commit = self.create_git_repository()
         self.init([self.repository("core", url)])
