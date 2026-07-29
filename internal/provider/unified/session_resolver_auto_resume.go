@@ -94,10 +94,19 @@ func buildAutoResumeRequest(binding *contract.SessionBinding, runtimeConfig map[
 		CWD:                cwd,
 		Config:             clone.RuntimeConfigMap(runtimeConfig),
 		PromptSnapshot:     cloneAutoResumePromptSnapshot(promptSnapshot),
+		ClaudeHome:         autoResumeClaudeHome(provider, binding.ProviderRecoveryHome),
 		CodexHome:          codexHome,
 		CodexInstanceKey:   codexInstanceKey,
 		CodexModelProvider: codexModelProvider,
 	}
+}
+
+// autoResumeClaudeHome 只把已持久化 binding owner 交给 Claude driver。
+func autoResumeClaudeHome(provider, recoveryHome string) string {
+	if !strings.EqualFold(strings.TrimSpace(provider), "claude") {
+		return ""
+	}
+	return strings.TrimSpace(recoveryHome)
 }
 
 func cloneAutoResumePromptSnapshot(snapshot contract.PromptAssemblySnapshot) dto.PromptAssemblySnapshot {

@@ -361,8 +361,8 @@ internal/platform/db/schema_version_test.go	internal	platform-provider	go-test	4
 internal/platform/db/sqlite_helpers.go	internal	platform-provider	go-source	2502	基础设施层	internal,platform,db,sqlite,helpers,基础设施层
 internal/platform/db/sqlite_runtime_test.go	internal	platform-provider	go-test	1143	基础设施层	internal,platform,db,sqlite,runtime,test,基础设施层
 internal/platform/db/sqlite/backup_restore_smoke_test.go	internal	platform-provider	go-test	4149	基础设施层	internal,platform,db,sqlite,backup,restore,smoke,test,基础设施层
-internal/platform/db/sqlite/migrate_test.go	internal	platform-provider	go-test	16580	基础设施层	internal,platform,db,sqlite,migrate,test,基础设施层
-internal/platform/db/sqlite/migrate.go	internal	platform-provider	go-source	13955	基础设施层	internal,platform,db,sqlite,migrate,基础设施层
+internal/platform/db/sqlite/migrate_test.go	internal	platform-provider	go-test	28551	基础设施层	internal,platform,db,sqlite,migrate,test,基础设施层
+internal/platform/db/sqlite/migrate.go	internal	platform-provider	go-source	20295	基础设施层	internal,platform,db,sqlite,migrate,基础设施层
 internal/platform/db/sqlite/migrations/001_baseline.sql	internal	platform-provider	sql	42128	基础设施层	internal,platform,db,sqlite,migrations,001,baseline,基础设施层
 internal/platform/db/sqlite/migrations/104_prompt_recall_topics.sql	internal	platform-provider	sql	281	基础设施层	internal,platform,db,sqlite,migrations,104,prompt,recall,topics,基础设施层
 internal/platform/db/sqlite/migrations/105_dashboard_task_dags_order_index.sql	internal	platform-provider	sql	92	基础设施层	internal,platform,db,sqlite,migrations,105,dashboard,task,dags,order,index,基础设施层
@@ -380,6 +380,7 @@ internal/platform/db/sqlite/migrations/116_datasource_documents.sql	internal	pla
 internal/platform/db/sqlite/migrations/117_cron_jobs_list_paging_index.sql	internal	platform-provider	sql	92	基础设施层	internal,platform,db,sqlite,migrations,117,cron,jobs,list,paging,index,基础设施层
 internal/platform/db/sqlite/migrations/118_thread_timestamp_millis.sql	internal	platform-provider	sql	1631	基础设施层	internal,platform,db,sqlite,migrations,118,thread,timestamp,millis,基础设施层
 internal/platform/db/sqlite/migrations/119_datasource_v2_pdf_quality.sql	internal	platform-provider	sql	1265	基础设施层	internal,platform,db,sqlite,migrations,119,datasource,v2,pdf,quality,基础设施层
+internal/platform/db/sqlite/migrations/120_agent_provider_binding_recovery_owner.sql	internal	platform-provider	sql	371	基础设施层	internal,platform,db,sqlite,migrations,120,agent,provider,binding,recovery,owner,基础设施层
 internal/platform/db/sqlite/mixed_write_pressure_test.go	internal	platform-provider	go-test	22194	基础设施层	internal,platform,db,sqlite,mixed,write,pressure,test,基础设施层
 internal/platform/db/sqlite/open.go	internal	platform-provider	go-source	9790	基础设施层	internal,platform,db,sqlite,open,基础设施层
 internal/platform/db/sqlite/query_plan_test.go	internal	platform-provider	go-test	6061	基础设施层	internal,platform,db,sqlite,query,plan,test,基础设施层
@@ -1129,17 +1130,17 @@ internal/provider/unified/manifest_test.go	internal	platform-provider	go-test	14
 internal/provider/unified/module.go	internal	platform-provider	go-source	2764	统一 provider 会话解析与 manifest	internal,provider,unified,module,统一,会话解析与,manifest
 internal/provider/unified/observability_trace_test.go	internal	platform-provider	go-test	3142	统一 provider 会话解析与 manifest	internal,provider,unified,observability,trace,test,统一,会话解析与,manifest
 internal/provider/unified/observability_trace.go	internal	platform-provider	go-source	3962	统一 provider 会话解析与 manifest	internal,provider,unified,observability,trace,统一,会话解析与,manifest
-internal/provider/unified/provider_contract_test.go	internal	platform-provider	go-test	26325	统一 provider 会话解析与 manifest	internal,provider,unified,contract,test,统一,会话解析与,manifest
+internal/provider/unified/provider_contract_test.go	internal	platform-provider	go-test	26443	统一 provider 会话解析与 manifest	internal,provider,unified,contract,test,统一,会话解析与,manifest
 internal/provider/unified/provider_recovery_error_policy_test.go	internal	platform-provider	go-test	2403	统一 provider 会话解析与 manifest	internal,provider,unified,recovery,error,policy,test,统一,会话解析与,manifest
-internal/provider/unified/provider_recovery_parity_test.go	internal	platform-provider	go-test	1026	统一 provider 会话解析与 manifest	internal,provider,unified,recovery,parity,test,统一,会话解析与,manifest
+internal/provider/unified/provider_recovery_parity_test.go	internal	platform-provider	go-test	1593	统一 provider 会话解析与 manifest	internal,provider,unified,recovery,parity,test,统一,会话解析与,manifest
 internal/provider/unified/registry_test.go	internal	platform-provider	go-test	1675	统一 provider 会话解析与 manifest	internal,provider,unified,registry,test,统一,会话解析与,manifest
 internal/provider/unified/registry.go	internal	platform-provider	go-source	2352	统一 provider 会话解析与 manifest	internal,provider,unified,registry,统一,会话解析与,manifest
 internal/provider/unified/session_adapter.go	internal	platform-provider	go-source	3001	统一 provider 会话解析与 manifest	internal,provider,unified,session,adapter,统一,会话解析与,manifest
 internal/provider/unified/session_generation_test.go	internal	platform-provider	go-test	3866	统一 provider 会话解析与 manifest	internal,provider,unified,session,generation,test,统一,会话解析与,manifest
-internal/provider/unified/session_resolver_auto_resume.go	internal	platform-provider	go-source	11916	统一 provider 会话解析与 manifest	internal,provider,unified,session,resolver,auto,resume,统一,会话解析与,manifest
-internal/provider/unified/session_resolver_identity_test.go	internal	platform-provider	go-test	25876	统一 provider 会话解析与 manifest	internal,provider,unified,session,resolver,identity,test,统一,会话解析与,manifest
-internal/provider/unified/session_resolver_test.go	internal	platform-provider	go-test	24042	统一 provider 会话解析与 manifest	internal,provider,unified,session,resolver,test,统一,会话解析与,manifest
-internal/provider/unified/session_resolver.go	internal	platform-provider	go-source	13363	统一 provider 会话解析与 manifest	internal,provider,unified,session,resolver,统一,会话解析与,manifest
+internal/provider/unified/session_resolver_auto_resume.go	internal	platform-provider	go-source	12269	统一 provider 会话解析与 manifest	internal,provider,unified,session,resolver,auto,resume,统一,会话解析与,manifest
+internal/provider/unified/session_resolver_identity_test.go	internal	platform-provider	go-test	29565	统一 provider 会话解析与 manifest	internal,provider,unified,session,resolver,identity,test,统一,会话解析与,manifest
+internal/provider/unified/session_resolver_test.go	internal	platform-provider	go-test	24491	统一 provider 会话解析与 manifest	internal,provider,unified,session,resolver,test,统一,会话解析与,manifest
+internal/provider/unified/session_resolver.go	internal	platform-provider	go-source	13647	统一 provider 会话解析与 manifest	internal,provider,unified,session,resolver,统一,会话解析与,manifest
 internal/provider/unified/session.go	internal	platform-provider	go-source	12694	统一 provider 会话解析与 manifest	internal,provider,unified,session,统一,会话解析与,manifest
 internal/provider/unified/terminal_projection_test.go	internal	platform-provider	go-test	1613	统一 provider 会话解析与 manifest	internal,provider,unified,terminal,projection,test,统一,会话解析与,manifest
 internal/provider/unified/testdata/event_snapshots/unified_common_plan_delta.json	internal	platform-provider	json	572	统一 provider 会话解析与 manifest	internal,provider,unified,testdata,event,snapshots,common,plan,delta,统一,会话解析与,manifest

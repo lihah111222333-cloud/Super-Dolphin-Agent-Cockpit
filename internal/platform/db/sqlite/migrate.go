@@ -261,11 +261,11 @@ func loadProviderBindingUUIDRows(ctx context.Context, tx *sql.Tx) ([]providerBin
 			return nil, fmt.Errorf("scan provider binding UUIDs: %w", err)
 		}
 		row.provider = strings.ToLower(strings.TrimSpace(row.provider))
-		row.providerThreadID, err = canonicalMigrationUUID("provider_thread_id", row.agentID, row.providerThreadID)
+		row.sessionUUID, err = canonicalMigrationUUID("session_uuid", row.agentID, row.sessionUUID)
 		if err != nil {
 			return nil, err
 		}
-		row.sessionUUID, err = canonicalMigrationUUID("session_uuid", row.agentID, row.sessionUUID)
+		row.providerThreadID, err = canonicalMigrationProviderThreadID(row)
 		if err != nil {
 			return nil, err
 		}
@@ -275,6 +275,20 @@ func loadProviderBindingUUIDRows(ctx context.Context, tx *sql.Tx) ([]providerBin
 		return nil, fmt.Errorf("iterate provider binding UUIDs: %w", err)
 	}
 	return result, nil
+}
+
+func canonicalMigrationProviderThreadID(row providerBindingUUIDRow) (string, error) {
+	switch row.providerThreadID {
+	case "":
+		return row.sessionUUID, nil
+	case row.agentID:
+		if row.sessionUUID == "" {
+			return "", fmt.Errorf("agent %q legacy provider_thread_id placeholder requires session_uuid", row.agentID)
+		}
+		return row.sessionUUID, nil
+	default:
+		return canonicalMigrationUUID("provider_thread_id", row.agentID, row.providerThreadID)
+	}
 }
 
 func canonicalMigrationUUID(field, agentID, raw string) (string, error) {

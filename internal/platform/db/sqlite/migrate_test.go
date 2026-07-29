@@ -3,8 +3,10 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -334,12 +336,14 @@ func TestRunMigrationsRejectsCanonicalProviderBindingUUIDCollision(t *testing.T)
 	`)
 	dir := t.TempDir()
 	writeMigrationTestFile(t, dir, "120_agent_provider_binding_recovery_owner.sql", "SELECT 1;\n")
+	before := providerBindingMigrationSnapshot(t, db)
 
 	err := RunMigrations(ctx, db, dir)
 	if err == nil || !strings.Contains(err.Error(), "canonical UUID collision") {
 		t.Fatalf("RunMigrations() error = %v, want canonical UUID collision", err)
 	}
 	assertMigrationMarkerCount(t, db, "120_agent_provider_binding_recovery_owner.sql", 0)
+	assertProviderBindingMigrationRollback(t, db, before)
 }
 
 func TestRunMigrationsRejectsInvalidProviderBindingUUID(t *testing.T) {
@@ -354,12 +358,14 @@ func TestRunMigrationsRejectsInvalidProviderBindingUUID(t *testing.T) {
 	`)
 	dir := t.TempDir()
 	writeMigrationTestFile(t, dir, "120_agent_provider_binding_recovery_owner.sql", "SELECT 1;\n")
+	before := providerBindingMigrationSnapshot(t, db)
 
 	err := RunMigrations(ctx, db, dir)
 	if err == nil || !strings.Contains(err.Error(), "provider_thread_id") {
 		t.Fatalf("RunMigrations() error = %v, want invalid provider_thread_id rejection", err)
 	}
 	assertMigrationMarkerCount(t, db, "120_agent_provider_binding_recovery_owner.sql", 0)
+	assertProviderBindingMigrationRollback(t, db, before)
 }
 
 func TestRunMigrationsRealDBUpgradeCanonicalizesProviderBindingUUIDs(t *testing.T) {
@@ -395,6 +401,67 @@ func TestRunMigrationsRealDBUpgradeCanonicalizesProviderBindingUUIDs(t *testing.
 		recoveryHome != "/instances/codex-real" {
 		t.Fatalf("real upgraded binding = %q/%q/%q", providerThreadID, sessionUUID, recoveryHome)
 	}
+}
+
+func TestRunMigrationsRealDBUpgradeBackfillsLegacyProviderThreadPlaceholder(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrationTestDB(t)
+	preUpgradeDir := t.TempDir()
+	copyMigrationsBefore120(t, "migrations", preUpgradeDir)
+	if err := RunMigrations(ctx, db, preUpgradeDir); err != nil {
+		t.Fatalf("RunMigrations(pre-120) error = %v", err)
+	}
+	mustExec(t, db, `
+		INSERT INTO agent_provider_binding (
+			agent_id, provider, provider_thread_id, codex_thread_id, session_uuid
+		) VALUES
+			(
+				'agent-legacy-placeholder', 'claude',
+				'agent-legacy-placeholder', 'public-thread-placeholder',
+				'019E218FB5147733BE85B3EE7F6A78A9'
+			),
+			(
+				'agent-empty-provider-thread', 'claude',
+				'', 'public-thread-empty',
+				'019E218F-B514-7733-BE85-B3EE7F6A78AB'
+			)
+	`)
+
+	if err := RunMigrations(ctx, db, "migrations"); err != nil {
+		t.Fatalf("RunMigrations(120) error = %v", err)
+	}
+	var providerThreadID, sessionUUID string
+	if err := db.QueryRow(`
+		SELECT provider_thread_id, session_uuid
+		FROM agent_provider_binding
+		WHERE agent_id = 'agent-legacy-placeholder'
+	`).Scan(&providerThreadID, &sessionUUID); err != nil {
+		t.Fatalf("read legacy placeholder upgrade: %v", err)
+	}
+	const canonical = "019e218f-b514-7733-be85-b3ee7f6a78a9"
+	if providerThreadID != canonical || sessionUUID != canonical {
+		t.Fatalf("legacy placeholder upgrade = %q/%q, want %q/%q", providerThreadID, sessionUUID, canonical, canonical)
+	}
+	if err := db.QueryRow(`
+		SELECT provider_thread_id, session_uuid
+		FROM agent_provider_binding
+		WHERE agent_id = 'agent-empty-provider-thread'
+	`).Scan(&providerThreadID, &sessionUUID); err != nil {
+		t.Fatalf("read empty provider thread upgrade: %v", err)
+	}
+	const emptyCanonical = "019e218f-b514-7733-be85-b3ee7f6a78ab"
+	if providerThreadID != emptyCanonical || sessionUUID != emptyCanonical {
+		t.Fatalf("empty provider thread upgrade = %q/%q, want %q/%q", providerThreadID, sessionUUID, emptyCanonical, emptyCanonical)
+	}
+	_, err := db.Exec(`
+		UPDATE agent_provider_binding
+		SET provider_thread_id = '019e218f-b514-7733-be85-b3ee7f6a78aa'
+		WHERE agent_id = 'agent-legacy-placeholder'
+	`)
+	if err == nil || !strings.Contains(err.Error(), "identity is immutable") {
+		t.Fatalf("restored trigger update error = %v, want immutable rejection", err)
+	}
+	assertMigrationMarkerCount(t, db, "120_agent_provider_binding_recovery_owner.sql", 1)
 }
 
 func copyMigrationsBefore120(t *testing.T, sourceDir, targetDir string) {
@@ -441,6 +508,94 @@ func createProviderBindingUUIDMigrationTable(t *testing.T, db *sql.DB) {
 			SELECT RAISE(ABORT, 'agent_provider_binding identity is immutable');
 		END
 	`)
+}
+
+func providerBindingMigrationSnapshot(t *testing.T, db *sql.DB) []string {
+	t.Helper()
+	var snapshot []string
+	schemaRows, err := db.Query(`
+		SELECT type, name, tbl_name, COALESCE(sql, '')
+		FROM sqlite_master
+		WHERE name NOT LIKE 'sqlite_%'
+		ORDER BY type, name
+	`)
+	if err != nil {
+		t.Fatalf("read migration schema snapshot: %v", err)
+	}
+	for schemaRows.Next() {
+		var objectType, name, tableName, sqlText string
+		if err := schemaRows.Scan(&objectType, &name, &tableName, &sqlText); err != nil {
+			schemaRows.Close()
+			t.Fatalf("scan migration schema snapshot: %v", err)
+		}
+		snapshot = append(snapshot, fmt.Sprintf("schema|%s|%s|%s|%s", objectType, name, tableName, sqlText))
+	}
+	if err := schemaRows.Err(); err != nil {
+		schemaRows.Close()
+		t.Fatalf("iterate migration schema snapshot: %v", err)
+	}
+	if err := schemaRows.Close(); err != nil {
+		t.Fatalf("close migration schema snapshot: %v", err)
+	}
+	appendProviderBindingRowsSnapshot(t, db, &snapshot)
+	appendMigrationMarkerRowsSnapshot(t, db, &snapshot)
+	return snapshot
+}
+
+func appendProviderBindingRowsSnapshot(t *testing.T, db *sql.DB, snapshot *[]string) {
+	t.Helper()
+	rows, err := db.Query(`
+		SELECT agent_id, provider, provider_thread_id, session_uuid,
+		       codex_home, codex_instance_key, codex_model_provider
+		FROM agent_provider_binding
+		ORDER BY agent_id
+	`)
+	if err != nil {
+		t.Fatalf("read provider binding row snapshot: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var values [7]string
+		if err := rows.Scan(&values[0], &values[1], &values[2], &values[3], &values[4], &values[5], &values[6]); err != nil {
+			t.Fatalf("scan provider binding row snapshot: %v", err)
+		}
+		*snapshot = append(*snapshot, "binding|"+strings.Join(values[:], "|"))
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate provider binding row snapshot: %v", err)
+	}
+}
+
+func appendMigrationMarkerRowsSnapshot(t *testing.T, db *sql.DB, snapshot *[]string) {
+	t.Helper()
+	rows, err := db.Query(`
+		SELECT version, name, filename, applied_at
+		FROM schema_migrations
+		ORDER BY version
+	`)
+	if err != nil {
+		t.Fatalf("read migration marker snapshot: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var version, appliedAt int64
+		var name, filename string
+		if err := rows.Scan(&version, &name, &filename, &appliedAt); err != nil {
+			t.Fatalf("scan migration marker snapshot: %v", err)
+		}
+		*snapshot = append(*snapshot, fmt.Sprintf("marker|%d|%s|%s|%d", version, name, filename, appliedAt))
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate migration marker snapshot: %v", err)
+	}
+}
+
+func assertProviderBindingMigrationRollback(t *testing.T, db *sql.DB, before []string) {
+	t.Helper()
+	after := providerBindingMigrationSnapshot(t, db)
+	if !slices.Equal(after, before) {
+		t.Fatalf("migration rollback snapshot changed\nbefore=%q\nafter=%q", before, after)
+	}
 }
 
 // createThreadTimestampMigrationTables 创建 118 migration 所需的最小持久化结构。

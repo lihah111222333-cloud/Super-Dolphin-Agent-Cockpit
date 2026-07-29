@@ -184,13 +184,13 @@ internal/app/storeadapter/thread/adapter_test.go	internal	other	go-test	18254	�
 internal/app/storeadapter/thread/module.go	internal	other	go-source	470	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,thread,module,业务,Store,到,窄端口的适配器
 internal/app/storeadapter/thread/port_external_test.go	internal	other	go-test	1240	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,thread,port,external,test,业务,Store,到,module,窄端口的适配器
 internal/app/storeadapter/thread/prompt.go	internal	other	go-source	11002	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,thread,prompt,业务,Store,到,module,窄端口的适配器
-internal/app/storeadapter/thread/store.go	internal	other	go-source	14793	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,thread,store,业务,Store,到,module,窄端口的适配器
+internal/app/storeadapter/thread/store.go	internal	other	go-source	14897	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,thread,store,业务,Store,到,module,窄端口的适配器
 internal/app/storeadapter/turn/adapter_test.go	internal	other	go-test	6246	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,turn,adapter,test,业务,Store,到,module,窄端口的适配器
 internal/app/storeadapter/turn/adapter.go	internal	other	go-source	2584	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,turn,adapter,业务,Store,到,module,窄端口的适配器
 internal/app/storeadapter/turn/module.go	internal	other	go-source	260	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,turn,module,业务,Store,到,窄端口的适配器
 internal/app/storeadapter/turn/port_external_test.go	internal	other	go-test	715	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,turn,port,external,test,业务,Store,到,module,窄端口的适配器
 internal/app/storeadapter/uistate/adapter_test.go	internal	other	go-test	9529	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,uistate,adapter,test,业务,Store,到,module,窄端口的适配器
-internal/app/storeadapter/uistate/adapter.go	internal	other	go-source	4766	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,uistate,adapter,业务,Store,到,module,窄端口的适配器
+internal/app/storeadapter/uistate/adapter.go	internal	other	go-source	4867	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,uistate,adapter,业务,Store,到,module,窄端口的适配器
 internal/app/storeadapter/uistate/module.go	internal	other	go-source	275	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,uistate,module,业务,Store,到,窄端口的适配器
 internal/app/storeadapter/uistate/port_external_test.go	internal	other	go-test	1280	业务 Store 到 module 窄端口的适配器	internal,app,storeadapter,uistate,port,external,test,业务,Store,到,module,窄端口的适配器
 internal/app/thread_orchestration_adapter_test.go	internal	other	go-test	7271	root Fx/app 装配、runner 与 graph closure	internal,app,thread,orchestration,adapter,test,root,Fx,装配,runner,与,graph,closure
@@ -325,7 +325,8 @@ internal/archtest/priority_ssa_wide.go	internal	other	go-source	25819	架构守�
 internal/archtest/prompt_builtin_config_test.go	internal	other	go-test	16794	架构守卫、baseline ratchet 与冻结规则	internal,archtest,prompt,builtin,config,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/prompt_external_reference_guard_helpers_test.go	internal	other	go-test	19401	架构守卫、baseline ratchet 与冻结规则	internal,archtest,prompt,external,reference,guard,helpers,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/prompt_external_reference_guard_test.go	internal	other	go-test	8557	架构守卫、baseline ratchet 与冻结规则	internal,archtest,prompt,external,reference,guard,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/provider_recovery_field_guard_test.go	internal	other	go-test	22008	架构守卫、baseline ratchet 与冻结规则	internal,archtest,provider,recovery,field,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/provider_recovery_field_guard_test.go	internal	other	go-test	22383	架构守卫、baseline ratchet 与冻结规则	internal,archtest,provider,recovery,field,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/provider_resume_owner_field_guard_test.go	internal	other	go-test	6134	架构守卫、baseline ratchet 与冻结规则	internal,archtest,provider,resume,owner,field,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/ratchet_test.go	internal	other	go-test	13584	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ratchet,test,架构守卫,baseline,与冻结规则
 internal/archtest/ratchet.go	internal	other	go-source	9899	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ratchet,架构守卫,baseline,与冻结规则
 internal/archtest/repository_guard_scan_test.go	internal	other	go-test	1066	架构守卫、baseline ratchet 与冻结规则	internal,archtest,repository,guard,scan,test,架构守卫,baseline,ratchet,与冻结规则
@@ -423,7 +424,7 @@ internal/contract/runtime_config_keys_test.go	internal	other	go-test	3634	跨模
 internal/contract/runtime_reporter.go	internal	other	go-source	4514	跨模块稳定接口、事件和 DTO 边界	internal,contract,runtime,reporter,跨模块稳定接口,事件和,DTO,边界
 internal/contract/session_ports_test.go	internal	other	go-test	426	跨模块稳定接口、事件和 DTO 边界	internal,contract,session,ports,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/session_resume_snapshot_test.go	internal	other	go-test	794	跨模块稳定接口、事件和 DTO 边界	internal,contract,session,resume,snapshot,test,跨模块稳定接口,事件和,DTO,边界
-internal/contract/session.go	internal	other	go-source	9681	跨模块稳定接口、事件和 DTO 边界	internal,contract,session,跨模块稳定接口,事件和,DTO,边界
+internal/contract/session.go	internal	other	go-source	9740	跨模块稳定接口、事件和 DTO 边界	internal,contract,session,跨模块稳定接口,事件和,DTO,边界
 internal/contract/skill.go	internal	other	go-source	8325	跨模块稳定接口、事件和 DTO 边界	internal,contract,skill,跨模块稳定接口,事件和,DTO,边界
 internal/contract/thread.go	internal	other	go-source	3778	跨模块稳定接口、事件和 DTO 边界	internal,contract,thread,跨模块稳定接口,事件和,DTO,边界
 internal/contract/toolbridge.go	internal	other	go-source	4928	跨模块稳定接口、事件和 DTO 边界	internal,contract,toolbridge,跨模块稳定接口,事件和,DTO,边界
@@ -717,8 +718,8 @@ internal/util/historyjsonl/history_test.go	internal	other	go-test	12262	Internal
 internal/util/historyjsonl/history.go	internal	other	go-source	17193	Internal shared utility packages	internal,util,historyjsonl,history,Internal,shared,utility,packages
 internal/util/historyjsonl/page.go	internal	other	go-source	13338	Internal shared utility packages	internal,util,historyjsonl,page,Internal,shared,utility,packages
 internal/util/historyjsonl/recovery_policy_test.go	internal	other	go-test	1391	Internal shared utility packages	internal,util,historyjsonl,recovery,policy,test,Internal,shared,utility,packages
-internal/util/historyjsonl/recovery_validation_test.go	internal	other	go-test	6902	Internal shared utility packages	internal,util,historyjsonl,recovery,validation,test,Internal,shared,utility,packages
-internal/util/historyjsonl/recovery.go	internal	other	go-source	19258	Internal shared utility packages	internal,util,historyjsonl,recovery,Internal,shared,utility,packages
+internal/util/historyjsonl/recovery_validation_test.go	internal	other	go-test	8302	Internal shared utility packages	internal,util,historyjsonl,recovery,validation,test,Internal,shared,utility,packages
+internal/util/historyjsonl/recovery.go	internal	other	go-source	19969	Internal shared utility packages	internal,util,historyjsonl,recovery,Internal,shared,utility,packages
 internal/util/idempotency/registry_test.go	internal	other	go-test	3061	Internal shared utility packages	internal,util,idempotency,registry,test,Internal,shared,utility,packages
 internal/util/idempotency/registry.go	internal	other	go-source	6407	Internal shared utility packages	internal,util,idempotency,registry,Internal,shared,utility,packages
 internal/util/identifier/uuid_test.go	internal	other	go-test	2051	Internal shared utility packages	internal,util,identifier,uuid,test,Internal,shared,utility,packages

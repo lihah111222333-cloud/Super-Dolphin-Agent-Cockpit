@@ -4748,6 +4748,7 @@
         "internal/provider/unified.attachCanonicalTurnTerminal",
         "internal/provider/unified.autoResumeBindingCWD",
         "internal/provider/unified.autoResumeBindingProvider",
+        "internal/provider/unified.autoResumeClaudeHome",
         "internal/provider/unified.autoResumeCodexIdentityFields",
         "internal/provider/unified.autoResumePlan",
         "internal/provider/unified.autoResumePublicThreadID",
@@ -9567,6 +9568,7 @@
         "internal/provider/unified.attachCanonicalTurnTerminal",
         "internal/provider/unified.autoResumeBindingCWD",
         "internal/provider/unified.autoResumeBindingProvider",
+        "internal/provider/unified.autoResumeClaudeHome",
         "internal/provider/unified.autoResumeCodexIdentityFields",
         "internal/provider/unified.autoResumePlan",
         "internal/provider/unified.autoResumePublicThreadID",
@@ -14386,6 +14388,7 @@
         "internal/provider/unified.attachCanonicalTurnTerminal",
         "internal/provider/unified.autoResumeBindingCWD",
         "internal/provider/unified.autoResumeBindingProvider",
+        "internal/provider/unified.autoResumeClaudeHome",
         "internal/provider/unified.autoResumeCodexIdentityFields",
         "internal/provider/unified.autoResumePlan",
         "internal/provider/unified.autoResumePublicThreadID",
@@ -19205,6 +19208,7 @@
         "internal/provider/unified.attachCanonicalTurnTerminal",
         "internal/provider/unified.autoResumeBindingCWD",
         "internal/provider/unified.autoResumeBindingProvider",
+        "internal/provider/unified.autoResumeClaudeHome",
         "internal/provider/unified.autoResumeCodexIdentityFields",
         "internal/provider/unified.autoResumePlan",
         "internal/provider/unified.autoResumePublicThreadID",
@@ -24032,6 +24036,7 @@
         "internal/provider/unified.attachCanonicalTurnTerminal",
         "internal/provider/unified.autoResumeBindingCWD",
         "internal/provider/unified.autoResumeBindingProvider",
+        "internal/provider/unified.autoResumeClaudeHome",
         "internal/provider/unified.autoResumeCodexIdentityFields",
         "internal/provider/unified.autoResumePlan",
         "internal/provider/unified.autoResumePublicThreadID",
@@ -28859,6 +28864,7 @@
         "internal/provider/unified.attachCanonicalTurnTerminal",
         "internal/provider/unified.autoResumeBindingCWD",
         "internal/provider/unified.autoResumeBindingProvider",
+        "internal/provider/unified.autoResumeClaudeHome",
         "internal/provider/unified.autoResumeCodexIdentityFields",
         "internal/provider/unified.autoResumePlan",
         "internal/provider/unified.autoResumePublicThreadID",
@@ -28949,12 +28955,12 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2355,
+    "total_functions": 2356,
     "total_methods": 1237,
     "total_interfaces": 187,
     "total_interface_methods": 371,
     "total_exported": 1271,
-    "total_unexported": 3132,
+    "total_unexported": 3133,
     "total_structs": 624
   },
   "packages": [
@@ -93738,6 +93744,23 @@
           "returns": [
             "string",
             "error"
+          ]
+        },
+        {
+          "name": "autoResumeClaudeHome",
+          "exported": false,
+          "params": [
+            {
+              "name": "provider",
+              "type": "string"
+            },
+            {
+              "name": "recoveryHome",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string"
           ]
         },
         {

@@ -2,6 +2,7 @@ package unified
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	goldentest "github.com/lihah111222333-cloud/super-dolphin-agent/internal/testutil/golden"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/providerrecovery"
 )
 
 type resumeCaptureDriver struct {
@@ -138,6 +140,101 @@ func TestSessionResolverAutoResumePassesRuntimeConfig(t *testing.T) {
 	want := map[string]any{"additionalWorkingDirectories": []any{"/repo/extra"}}
 	if !reflect.DeepEqual(driver.resumeReq.Config, want) {
 		t.Fatalf("ResumeSession Config = %#v, want %#v", driver.resumeReq.Config, want)
+	}
+}
+
+func TestSessionResolverAutoResumePassesAuthoritativeClaudeHome(t *testing.T) {
+	t.Parallel()
+
+	const providerThreadID = "11111111-aaaa-bbbb-cccc-111111111119"
+	claudeHome := t.TempDir()
+	rolloutPath := writeExistingProviderHistoryFile(t, providerThreadID, "claude", claudeHome)
+	driver := &resumeCaptureDriver{
+		name:    "claude",
+		session: &generationTestSession{threadID: providerThreadID},
+	}
+	snapshot := autoResumePromptSnapshotForTest()
+	snapshot.Provider = "claude"
+	resolver := &sessionResolver{
+		threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
+			ThreadID:       "public-thread-claude-owner",
+			AgentID:        "agent-claude-owner",
+			PromptSnapshot: snapshot,
+			RuntimeConfig: map[string]any{
+				"claudeHome": t.TempDir(),
+			},
+		}},
+		bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
+			"claude:" + providerThreadID: {
+				Provider:             "claude",
+				AgentID:              "agent-claude-owner",
+				ProviderThreadID:     providerThreadID,
+				RolloutPath:          rolloutPath,
+				Cwd:                  "/repo",
+				ProviderRecoveryHome: claudeHome,
+			},
+		}},
+		registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
+			{Name: "claude", Create: func() contract.Driver { return driver }},
+		}}),
+		sessions: NewSessionManager(nil),
+	}
+
+	if _, err := resolver.ResolveSession(context.Background(), "public-thread-claude-owner"); err != nil {
+		t.Fatalf("ResolveSession() error = %v", err)
+	}
+	if driver.resumeReq.ClaudeHome != claudeHome {
+		t.Fatalf("ResumeSessionRequest.ClaudeHome = %q, want authoritative binding owner %q", driver.resumeReq.ClaudeHome, claudeHome)
+	}
+}
+
+func TestBuildAutoResumeRequestDoesNotSetClaudeHomeForCodex(t *testing.T) {
+	t.Parallel()
+
+	request := buildAutoResumeRequest(
+		&contract.SessionBinding{
+			AgentID:              "agent-codex-owner",
+			ProviderRecoveryHome: "/instances/codex-a",
+		},
+		map[string]any{"claudeHome": "/runtime/claude-override"},
+		autoResumePromptSnapshotForTest(),
+		"codex",
+		"11111111-aaaa-bbbb-cccc-111111111120",
+		"/repo",
+		nil,
+	)
+	if request.ClaudeHome != "" {
+		t.Fatalf("Codex ResumeSessionRequest.ClaudeHome = %q, want empty", request.ClaudeHome)
+	}
+}
+
+func TestBuildAutoResumePlanRejectsEmptyClaudeOwner(t *testing.T) {
+	t.Parallel()
+
+	const providerThreadID = "11111111-aaaa-bbbb-cccc-111111111121"
+	claudeHome := t.TempDir()
+	rolloutPath := writeExistingProviderHistoryFile(t, providerThreadID, "claude", claudeHome)
+	driver := &resumeCaptureDriver{name: "claude", session: &generationTestSession{threadID: providerThreadID}}
+	resolver := &sessionResolver{
+		registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
+			{Name: "claude", Create: func() contract.Driver { return driver }},
+		}}),
+	}
+	snapshot := autoResumePromptSnapshotForTest()
+	snapshot.Provider = "claude"
+	_, err := resolver.buildAutoResumePlan(&contract.SessionBinding{
+		Provider:         "claude",
+		AgentID:          "agent-claude-empty-owner",
+		ProviderThreadID: providerThreadID,
+		RolloutPath:      rolloutPath,
+		Cwd:              "/repo",
+	}, map[string]any{"claudeHome": claudeHome}, snapshot)
+	var recoveryErr *providerrecovery.Error
+	if !errors.As(err, &recoveryErr) || recoveryErr.Kind != providerrecovery.ErrorKindInvalidIdentity {
+		t.Fatalf("buildAutoResumePlan() error = %v, want provider recovery invalid_identity", err)
+	}
+	if driver.resumed != 0 {
+		t.Fatalf("ResumeSession calls = %d, want none before owner validation", driver.resumed)
 	}
 }
 
