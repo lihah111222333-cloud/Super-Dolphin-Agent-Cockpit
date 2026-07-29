@@ -58,6 +58,7 @@ func newMCPOrchApp(remoteAddr string) *fx.App {
 			newQueries,
 			newAgentThreadStore,
 			newAgentBindingStore,
+			newTerminalOutcomeStore,
 			func(store storeworkspace.Store, dispatcher *event.Dispatcher) workspace.Service {
 				return workspace.NewService(store, dispatcher)
 			},

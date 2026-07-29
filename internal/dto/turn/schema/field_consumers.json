@@ -17,6 +17,7 @@
       "goValidator": { "path": "internal/dto/turn/contract_validator.go", "symbol": "ValidatePublicErrorV1" },
       "goConsumers": [
         { "path": "internal/dto/turn/terminal.go", "symbol": "NewTurnTerminalV2", "calls": "ValidatePublicErrorV1" },
+        { "path": "internal/contract/terminal_outcome.go", "symbol": "validatePublicOutcomeContent", "calls": "ValidatePublicErrorV1" },
         { "path": "internal/platform/eventsurface/remote_decode.go", "symbol": "safeRemoteDiagnosticID", "calls": "ValidatePublicErrorV1" }
       ],
       "jsValidator": { "path": "frontend-app/src/shared/contracts/turnContractValidators.js", "symbol": "validatePublicErrorV1" },

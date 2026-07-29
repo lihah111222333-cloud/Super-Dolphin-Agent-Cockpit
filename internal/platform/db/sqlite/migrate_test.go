@@ -202,6 +202,79 @@ func TestRunMigrationsAddsCronJobRunsTurnStatusIndex(t *testing.T) {
 	assertIndex(t, db, "cron_job_runs", "idx_cron_job_runs_turn_status", false, "turn_id <> '' AND status IN ('submitted', 'running')")
 }
 
+// TestRunMigrationsAddsTerminalOutcomeTransactionTables 锁定 v2 public outcome/CAS/outbox 的 additive migration。
+func TestRunMigrationsAddsTerminalOutcomeTransactionTables(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrationTestDB(t)
+	createMigrationMarkerTable(t, db)
+	markBaselineApplied(t, db)
+	dir := t.TempDir()
+	writeMigrationTestFile(t, dir, "120_terminal_outcome_outbox.sql", readMigrationTestFile(t, "120_terminal_outcome_outbox.sql"))
+
+	if err := RunMigrations(ctx, db, dir); err != nil {
+		t.Fatalf("RunMigrations() error = %v", err)
+	}
+	tables := sqliteTables(t, db)
+	for _, table := range []string{"terminal_outcome_heads", "public_terminal_outcomes", "terminal_outcome_outbox"} {
+		if !tables[table] {
+			t.Fatalf("%s table missing after migration 120", table)
+		}
+	}
+	assertMigrationMarkerCount(t, db, "120_terminal_outcome_outbox.sql", 1)
+	assertIndex(t, db, "terminal_outcome_outbox", "idx_terminal_outcome_outbox_claim", false, "status IN ('pending', 'claimed')")
+}
+
+// TestTerminalOutcomeMigrationPreservesLegacyRows 锁定 v2 rollout 只新增表，不改写旧 provider/DB 数据。
+func TestTerminalOutcomeMigrationPreservesLegacyRows(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrationTestDB(t)
+	createMigrationMarkerTable(t, db)
+	markBaselineApplied(t, db)
+	if _, err := db.Exec(`
+		CREATE TABLE legacy_provider_terminal (event_id TEXT PRIMARY KEY, report TEXT NOT NULL);
+		INSERT INTO legacy_provider_terminal(event_id, report) VALUES ('legacy-event', 'legacy-report');
+	`); err != nil {
+		t.Fatalf("seed legacy provider terminal row: %v", err)
+	}
+	dir := t.TempDir()
+	writeMigrationTestFile(t, dir, "120_terminal_outcome_outbox.sql", readMigrationTestFile(t, "120_terminal_outcome_outbox.sql"))
+
+	if err := RunMigrations(ctx, db, dir); err != nil {
+		t.Fatalf("RunMigrations() error = %v", err)
+	}
+	var report string
+	if err := db.QueryRow("SELECT report FROM legacy_provider_terminal WHERE event_id = 'legacy-event'").Scan(&report); err != nil {
+		t.Fatalf("query preserved legacy row: %v", err)
+	}
+	if report != "legacy-report" {
+		t.Fatalf("legacy report = %q, want unchanged", report)
+	}
+}
+
+// TestTerminalOutcomeMigrationRollbackLeavesNoPartialV2Tables 锁定 rollout 失败可回滚且不留半套 schema。
+func TestTerminalOutcomeMigrationRollbackLeavesNoPartialV2Tables(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrationTestDB(t)
+	createMigrationMarkerTable(t, db)
+	markBaselineApplied(t, db)
+	if _, err := db.Exec("CREATE TABLE terminal_outcome_outbox (broken TEXT)"); err != nil {
+		t.Fatalf("seed conflicting outbox table: %v", err)
+	}
+	dir := t.TempDir()
+	writeMigrationTestFile(t, dir, "120_terminal_outcome_outbox.sql", readMigrationTestFile(t, "120_terminal_outcome_outbox.sql"))
+
+	if err := RunMigrations(ctx, db, dir); err == nil {
+		t.Fatal("RunMigrations() error = nil, want conflicting schema failure")
+	}
+	tables := sqliteTables(t, db)
+	for _, table := range []string{"terminal_outcome_heads", "public_terminal_outcomes"} {
+		if tables[table] {
+			t.Fatalf("%s survived failed migration transaction", table)
+		}
+	}
+	assertMigrationMarkerCount(t, db, "120_terminal_outcome_outbox.sql", 0)
+}
+
 // TestDatasourceDocumentsTableComesFromMigration verifies migration 116 owns datasource_documents.
 func TestDatasourceDocumentsTableComesFromMigration(t *testing.T) {
 	ctx := context.Background()

@@ -19,6 +19,7 @@ func orchestrationDAGOptions() fx.Option {
 			fx.Annotate(provideScheduledDAGCronRunner, fx.ResultTags(`group:"runners"`)),
 		),
 		fx.Invoke(
+			orchestration.WireTerminalOutcomeDAGProjection,
 			orchestration.RegisterDAGTurnCompletedSubscriber,
 			orchestration.WireWakeupDispatcherRouter,
 			orchestration.WireWakeupDispatcherRetryAlertSink,

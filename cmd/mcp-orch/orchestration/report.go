@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/reportgc"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/reportstore"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
@@ -61,11 +63,34 @@ func newReportController(deps reportControllerDeps) *reportController {
 
 // GetReport 返回 agent 最新 report；runtime 缺失时读取磁盘持久化 report。
 func (s *service) GetReport(ctx context.Context, agentID string) (AgentReportResult, error) {
+	if s != nil && s.terminalOutcomes != nil {
+		outcome, err := s.terminalOutcomes.GetPublicTerminalOutcome(ctx, strings.TrimSpace(agentID))
+		if err == nil {
+			return publicTerminalReportResult(outcome), nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return AgentReportResult{}, err
+		}
+	}
 	reports, err := s.configuredReportController()
 	if err != nil {
 		return AgentReportResult{}, err
 	}
 	return reports.GetReport(ctx, agentID)
+}
+
+func publicTerminalReportResult(outcome contract.TerminalOutcomeCommit) AgentReportResult {
+	state := string(agentdto.StateFailed)
+	switch outcome.PublicOutcome.Kind {
+	case "success":
+		state = string(agentdto.StateIdle)
+	case "stopped":
+		state = string(agentdto.StateStopped)
+	}
+	return AgentReportResult{
+		AgentID: outcome.Identity.AgentID, Report: outcome.PublicReport,
+		ReportSeq: 1, UpdatedAt: outcome.OccurredAt, State: state,
+	}
 }
 
 // RememberReportRequest 记录哪个 agent 请求了目标 agent 的最终 report。
@@ -79,11 +104,62 @@ func (s *service) RememberReportRequest(ctx context.Context, req RememberReportR
 
 // HandleReportEvent 接收 provider/hook report 事件并更新 runtime 或持久化 fallback。
 func (s *service) HandleReportEvent(ctx context.Context, event ReportEvent) (ReportEventResult, error) {
+	if s != nil && s.terminalOutcomes != nil && isTerminalReportEvent(event.EventType, event.EventData) {
+		return s.handleTerminalReportEvent(ctx, event)
+	}
 	reports, err := s.configuredReportController()
 	if err != nil {
 		return ReportEventResult{}, err
 	}
 	return reports.HandleReportEvent(ctx, event)
+}
+
+// handleTerminalReportEvent 拒绝外层身份漂移并把 reportEvent 终态收敛到 canonical port。
+func (s *service) handleTerminalReportEvent(ctx context.Context, event ReportEvent) (ReportEventResult, error) {
+	if isRuntimeLossStopEventType(event.EventType) ||
+		strings.EqualFold(strings.TrimSpace(event.EventType), ReportEventTypeThreadStatusChanged) {
+		return s.handleRuntimeLossReportEvent(ctx, event)
+	}
+	var completed turndto.TurnCompleted
+	if err := json.Unmarshal(event.EventData, &completed); err != nil {
+		return ReportEventResult{}, fmt.Errorf("decode canonical terminal report event: %w", err)
+	}
+	if strings.TrimSpace(event.AgentID) == "" || strings.TrimSpace(event.AgentID) != strings.TrimSpace(completed.AgentID) {
+		return ReportEventResult{}, errors.New("canonical terminal report event agent identity mismatch")
+	}
+	handled, err := s.CommitTurnCompleted(ctx, completed)
+	if err != nil {
+		return ReportEventResult{}, err
+	}
+	if !handled {
+		return ReportEventResult{}, errors.New("canonical terminal report event was not handled")
+	}
+	outcome, err := s.terminalOutcomes.GetPublicTerminalOutcome(ctx, strings.TrimSpace(event.AgentID))
+	if err != nil {
+		return ReportEventResult{}, err
+	}
+	return ReportEventResult{
+		Success: true, AgentID: outcome.Identity.AgentID, EventType: event.EventType,
+		Report: outcome.PublicReport, UpdatedAt: outcome.OccurredAt,
+	}, nil
+}
+
+func (s *service) handleRuntimeLossReportEvent(ctx context.Context, event ReportEvent) (ReportEventResult, error) {
+	handled, err := s.CommitRuntimeLossTerminal(ctx, event.AgentID, event.EventType)
+	if err != nil {
+		return ReportEventResult{}, err
+	}
+	if !handled {
+		return ReportEventResult{}, errors.New("runtime-loss terminal report event was not handled")
+	}
+	outcome, err := s.terminalOutcomes.GetPublicTerminalOutcome(ctx, strings.TrimSpace(event.AgentID))
+	if err != nil {
+		return ReportEventResult{}, err
+	}
+	return ReportEventResult{
+		Success: true, AgentID: outcome.Identity.AgentID, EventType: event.EventType,
+		Report: outcome.PublicReport, UpdatedAt: outcome.OccurredAt,
+	}, nil
 }
 
 // configuredReportController 返回已接线的 report controller，缺失时立即报错。

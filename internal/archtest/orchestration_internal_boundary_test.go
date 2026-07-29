@@ -37,6 +37,8 @@ func TestOrchestrationServiceStateOwnershipRatchet(t *testing.T) {
 		"dags",
 		"turns",
 		"reports",
+		"terminalOutcomes",
+		"terminalDAG",
 	}
 	expected := orchestrationInternalBoundarySet(expectedFields)
 
@@ -46,7 +48,7 @@ func TestOrchestrationServiceStateOwnershipRatchet(t *testing.T) {
 func TestOrchestrationDAGControllerDoesNotOwnServiceOrRuntimeAgentState(t *testing.T) {
 	t.Parallel()
 
-	const relPath = "cmd/mcp-orch/orchestration/dag_controller.go"
+	const relPath = "cmd/mcp-orch/orchestration/dag.go"
 	root := repoRoot(t)
 	file := parseGoFileForInterfaceGuard(t, root, relPath)
 	typeSpec, ok := findTypeSpec(file, "dagController")

@@ -19,6 +19,7 @@ import (
 	promptstore "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/prompt"
 	sharedfilestore "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sharedfile"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlc"
+	terminaloutcomestore "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/terminaloutcome"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/tools"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/tools/modelregistry"
 	workspace "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/workspace"
@@ -94,6 +95,11 @@ func newQueries(db *sql.DB) *sqlc.Queries { return sqlc.New(db) }
 // newAgentThreadStore 创建 orchestration 读取持久化 thread 的适配 store。
 func newAgentThreadStore(db *sql.DB) orchestration.AgentThreadStore {
 	return agentstore.NewThreadStore(db)
+}
+
+// newTerminalOutcomeStore 创建 canonical terminal commit/public read/outbox 端口。
+func newTerminalOutcomeStore(db *sql.DB) contract.TerminalOutcomeCommitPort {
+	return terminaloutcomestore.New(db)
 }
 
 // newAgentBindingStore 创建 orchestration 读取 provider binding 的适配 store。

@@ -138,6 +138,15 @@ func (c *lifecycleController) handleProcessExit(
 	stateBefore := agent.state
 	shouldRecover := shouldAutoRecoverProcessExitLocked(c.launcher, agent, err)
 	recoverViaLauncher := shouldRecover && shouldRecoverViaLauncher(ctx, c.launcher, agent)
+	terminalCommitted, lookupErr := commitNonRecoveringProcessExitTerminal(
+		ctx, state, agent, launchSeq, err, shouldRecover,
+	)
+	if lookupErr != nil {
+		loggerOrDefault(logger).Warn("orchestration: process exit terminal commit failed",
+			"agent_id", agentID, "launch_seq", launchSeq, "error", lookupErr)
+		registry.unlock()
+		return
+	}
 	recoverAgentID := agent.id
 	now := resolveEventTime(ctx, agent.updatedAt, agent.startedAt)
 	closeAgentProcessGuard(agent)
@@ -147,19 +156,55 @@ func (c *lifecycleController) handleProcessExit(
 	agent.updatedAt = now
 	resetRuntimeAfterProcessExitLocked(agent, recoverViaLauncher)
 	c.removeSession(agent)
-	c.recordProcessExitError(eventBus, agent, err)
-	c.handleProcessExitTransition(ctx, state, logger, agent)
+	if !terminalCommitted {
+		c.recordProcessExitError(eventBus, agent, err)
+		c.handleProcessExitTransition(ctx, state, logger, agent)
+	}
 	loggerOrDefault(logger).Warn("orchestration: agent process exited",
 		"agent_id", agentID, "launch_seq", launchSeq,
 		"state_before", stateBefore, "state_after", agent.state,
 		"stop_requested", agent.stopRequested, "exit_error", err)
-	if agent.stopRequested && strings.TrimSpace(agent.stopReason) != "" {
+	if !terminalCommitted && agent.stopRequested && strings.TrimSpace(agent.stopReason) != "" {
 		emitEvent(eventBus, eventTypeAgentStopped, eventAgentID(agent), agent, agent.stopReason)
 	}
-	reports.setProcessExitFallbackReportLocked(ctx, agent, launchSeq, shouldRecover)
+	if !terminalCommitted {
+		reports.setProcessExitFallbackReportLocked(ctx, agent, launchSeq, shouldRecover)
+	}
 	clearAgentStopReasonLocked(agent)
 	registry.unlock()
 	c.recovery.recoverAfterProcessExit(ctx, recoverAgentID, launchSeq, shouldRecover)
+}
+
+type processExitTerminalCommitter interface {
+	CommitProcessExitTerminalLocked(context.Context, *agentRuntime, uint64, error) (bool, error)
+}
+
+func commitProcessExitTerminal(
+	ctx context.Context,
+	state lifecycleTransitionPort,
+	agent *agentRuntime,
+	launchSeq uint64,
+	processErr error,
+) (bool, error) {
+	committer, ok := state.(processExitTerminalCommitter)
+	if !ok {
+		return false, nil
+	}
+	return committer.CommitProcessExitTerminalLocked(ctx, agent, launchSeq, processErr)
+}
+
+func commitNonRecoveringProcessExitTerminal(
+	ctx context.Context,
+	state lifecycleTransitionPort,
+	agent *agentRuntime,
+	launchSeq uint64,
+	processErr error,
+	shouldRecover bool,
+) (bool, error) {
+	if shouldRecover {
+		return false, nil
+	}
+	return commitProcessExitTerminal(ctx, state, agent, launchSeq, processErr)
 }
 
 func (c *lifecycleController) recordProcessExitError(eventBus *event.Dispatcher, agent *agentRuntime, err error) {

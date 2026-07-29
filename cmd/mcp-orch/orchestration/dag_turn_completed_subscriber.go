@@ -15,6 +15,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/turncompletionretry"
 	sharedfilestore "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sharedfile"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/taskdag"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/bus"
 	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
@@ -42,13 +43,32 @@ type DAGSubscriberDeps struct {
 	EventBus         *event.Dispatcher `optional:"true"`
 	AgentThreads     AgentThreadLookup
 	SvcStopper       StopAgentService
-	SharedFileReader nodeexec.SharedFileReader `optional:"true"`
-	SharedFileWriter nodeexec.SharedFileWriter `optional:"true"`
-	ArtifactImporter sharedfilestore.Importer  `optional:"true"`
-	NodeRouter       *NodeExecutorRouter       `optional:"true"`
+	SharedFileReader nodeexec.SharedFileReader          `optional:"true"`
+	SharedFileWriter nodeexec.SharedFileWriter          `optional:"true"`
+	ArtifactImporter sharedfilestore.Importer           `optional:"true"`
+	NodeRouter       *NodeExecutorRouter                `optional:"true"`
+	TerminalOutcomes contract.TerminalOutcomeCommitPort `optional:"true"`
 }
 
-// RegisterDAGTurnCompletedSubscriber 注册 TurnCompleted 到 DAG 节点状态的桥接订阅。
+// WireTerminalOutcomeDAGProjection 把完整 DAG 投影依赖接到 canonical outbox runner。
+func WireTerminalOutcomeDAGProjection(svc *service, deps DAGSubscriberDeps) {
+	if svc == nil {
+		return
+	}
+	deps.EventBus = firstNonNilEventBus(deps.EventBus, svc.eventBus)
+	svc.terminalDAG = &deps
+}
+
+func firstNonNilEventBus(values ...*event.Dispatcher) *event.Dispatcher {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
+}
+
+// RegisterDAGTurnCompletedSubscriber 仅为未启用 v2 terminal port 的旧装配保留直接订阅。
 // lifecycle 停止时先取消上下文再取消订阅，避免 shutdown 期间继续推进节点。
 func RegisterDAGTurnCompletedSubscriber(lc fx.Lifecycle, dispatcher *event.Dispatcher, deps DAGSubscriberDeps, logger *slog.Logger) {
 	if logger == nil {
@@ -63,6 +83,9 @@ func RegisterDAGTurnCompletedSubscriber(lc fx.Lifecycle, dispatcher *event.Dispa
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
 			lifecycleCtx, lifecycleCancel = context.WithCancel(context.Background())
+			if deps.TerminalOutcomes != nil {
+				return nil
+			}
 			cancelSub = bus.ResilientSubscribe(dispatcher, func(ev turndto.TurnCompleted) {
 				if lifecycleCtx.Err() == nil {
 					handleDAGTurnCompleted(lifecycleCtx, deps, logger, ev)
@@ -83,26 +106,31 @@ func RegisterDAGTurnCompletedSubscriber(lc fx.Lifecycle, dispatcher *event.Dispa
 // handleDAGTurnCompleted 根据 thread_id 找到由该 turn 驱动的 DAG 节点并推进终态。
 // 同一 thread_id 命中多个节点会告警但逐个处理，避免脏数据导致其他节点卡住。
 func handleDAGTurnCompleted(ctx context.Context, deps DAGSubscriberDeps, logger *slog.Logger, ev turndto.TurnCompleted) {
+	_ = projectDAGTurnCompleted(ctx, deps, logger, ev)
+}
+
+// projectDAGTurnCompleted 向 canonical outbox projector 返回 lookup 基础设施错误以保留 replay。
+func projectDAGTurnCompleted(ctx context.Context, deps DAGSubscriberDeps, logger *slog.Logger, ev turndto.TurnCompleted) error {
 	threadID := strings.TrimSpace(ev.ThreadID)
 	if threadID == "" {
 		dagSubscriberMetrics.IncLookupNoNode()
-		return
+		return nil
 	}
 	if deps.LookupStore == nil || deps.FlowStore == nil {
 		logger.Warn("dag subscriber: deps not wired", "thread_id", threadID)
 		dagSubscriberMetrics.IncLookupFailed()
-		return
+		return errors.New("dag terminal projection dependencies are not wired")
 	}
 	nodes, err := deps.LookupStore.LookupNodesBySpawningThread(ctx, threadID)
 	if err != nil {
 		dagSubscriberMetrics.IncLookupFailed()
 		logger.Warn("dag subscriber: lookup nodes by spawning thread failed", "thread_id", threadID, "error", err)
-		return
+		return err
 	}
 	if len(nodes) == 0 {
 		dagSubscriberMetrics.IncLookupNoNode()
 		logger.Debug("dag subscriber: no node carries this thread id", "thread_id", threadID)
-		return
+		return nil
 	}
 	if len(nodes) > 1 {
 		dagSubscriberMetrics.IncLookupDirtyData()
@@ -110,11 +138,12 @@ func handleDAGTurnCompleted(ctx context.Context, deps DAGSubscriberDeps, logger 
 	}
 	for i := range nodes {
 		if ctx.Err() != nil {
-			return
+			return ctx.Err()
 		}
 		advanceNodeForTurnCompleted(ctx, deps, logger, &nodes[i], ev)
 	}
 	stopSpawnedAgentForSubscriber(ctx, deps, logger, threadID)
+	return nil
 }
 
 // advanceNodeForTurnCompleted 把一次 turn 完成事件映射成节点 done/failed。

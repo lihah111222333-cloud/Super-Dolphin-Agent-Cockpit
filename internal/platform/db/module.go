@@ -30,7 +30,7 @@ func NewDB(cfg *config.Config) (*sql.DB, error) {
 }
 
 // MinRequiredSchemaVersion 是当前二进制正常运行所需的 schema_migrations.version 下限。
-const MinRequiredSchemaVersion = 113
+const MinRequiredSchemaVersion = 120
 
 var requiredBaselineTables = []string{
 	// agent_codex_binding: 历史遗留表，数据合并至 agent_provider_binding.codex_thread_id，无活跃 sqlc query
@@ -38,6 +38,9 @@ var requiredBaselineTables = []string{
 	"agent_provider_binding",
 	"agent_status",
 	"agent_threads",
+	"terminal_outcome_heads",
+	"public_terminal_outcomes",
+	"terminal_outcome_outbox",
 	"audit_events",
 	"bus_exception_logs",
 	"prompts",
@@ -87,6 +90,12 @@ var requiredBaselineColumns = []requiredSQLiteColumn{
 	{table: "hook_pending_reviews", column: "payload"},
 	{table: "shared_files", column: "content_location"},
 	{table: "turn_dedupe_registry", column: "terminal_at"},
+	{table: "terminal_outcome_heads", column: "capability"},
+	{table: "terminal_outcome_heads", column: "terminal_identity"},
+	{table: "public_terminal_outcomes", column: "public_outcome_json"},
+	{table: "public_terminal_outcomes", column: "schema_version"},
+	{table: "public_terminal_outcomes", column: "projection_kind"},
+	{table: "terminal_outcome_outbox", column: "payload_json"},
 }
 
 // VerifyMinSchemaVersion 校验 SQLite schema 版本和基线表完整性。
