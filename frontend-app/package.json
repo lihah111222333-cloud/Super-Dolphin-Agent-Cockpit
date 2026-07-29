@@ -36,7 +36,7 @@
     "performance:verify": "node scripts/performance-budget-runner.mjs --verify",
     "delivery:inspect": "node scripts/delivery-smoke-runner.mjs --inspect",
     "delivery:verify": "node scripts/delivery-smoke-runner.mjs --verify",
-    "guard:critical-skip": "node scripts/no-critical-skip.mjs && node scripts/no-silent-async-failure.mjs && node scripts/frontend-contract-store-guard.mjs && npm run guard:architecture && npm run guard:turn-contract && npm run guard:action-producers && node scripts/frontend-code-size-guard.mjs --scope production --dir src --dir scripts && node scripts/frontend-code-size-guard.mjs --scope test --dir src --dir scripts && node scripts/frontend-z-index-token-guard.mjs",
+    "guard:critical-skip": "node scripts/no-critical-skip.mjs && node scripts/no-silent-async-failure.mjs && node scripts/frontend-contract-store-guard.mjs && npm run guard:architecture && npm run guard:turn-contract && npm run guard:action-producers && node scripts/frontend-code-size-guard.mjs --check --scope production --dir src --dir scripts && node scripts/frontend-code-size-guard.mjs --check --scope test --dir src --dir scripts && node scripts/frontend-z-index-token-guard.mjs",
     "lint": "eslint .",
     "preview": "vite preview --host 127.0.0.1 --port 4175",
     "test": "npm run test:full",

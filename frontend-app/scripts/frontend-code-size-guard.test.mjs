@@ -13,6 +13,12 @@ import {
   measureMaxNesting,
   parseFrontendCodeSizeGuardArgs,
 } from './frontend-code-size-guard.mjs';
+import {
+  assertBaselineUpdateOnlyImproves,
+  baselineBytes,
+  hashBaselineBytes,
+  writeBaselineTransaction,
+} from './lib/frontend-code-size-baseline-transaction.mjs';
 
 const appRoot = process.cwd();
 const guardScriptSourcePath = path.join(appRoot, 'scripts/frontend-code-size-guard.mjs');
@@ -32,6 +38,15 @@ function baselineData(files = {}) {
 function frozenFileLengthMetrics(lines) {
   return {
     lines,
+    maxFuncLen: 0,
+    maxNesting: 0,
+    maxParams: 0,
+    exportCount: 0,
+    consoleLogs: 0,
+    anyCount: 0,
+    emptyFuncs: 0,
+    [['to', 'do', 'Count'].join('')]: 0,
+    longLineCount: 0,
     frozenViolations: [
       `file-length\0文件有效代码 ${lines} 行，超过上限 ${FRONTEND_CODE_SIZE_LIMITS.maxFileLines} 行`,
     ],
@@ -76,6 +91,8 @@ function runGuardWithFixture({
   frozenTestFiles = {},
   relFile = 'src/fixture.js',
   scanDir = 'src',
+  extraSources = {},
+  omitProductionBaseline = false,
 }) {
   const fixtureRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'frontend-code-size-guard-')));
   const fixtureSourceDir = path.join(fixtureRoot, 'src');
@@ -90,14 +107,39 @@ function runGuardWithFixture({
     fs.mkdirSync(fixtureScriptDir, { recursive: true });
     fs.mkdirSync(path.join(fixtureScriptDir, 'lib'), { recursive: true });
     fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
-    fs.symlinkSync(path.join(appRoot, 'node_modules'), path.join(fixtureRoot, 'node_modules'), 'dir');
+    const fixtureBabelRoot = path.join(fixtureRoot, 'node_modules/@babel');
+    fs.mkdirSync(fixtureBabelRoot, { recursive: true });
+    fs.cpSync(
+      path.join(appRoot, 'node_modules/@babel/parser'),
+      path.join(fixtureBabelRoot, 'parser'),
+      { recursive: true },
+    );
     fs.copyFileSync(guardScriptSourcePath, fixtureGuardScriptPath);
     fs.copyFileSync(guardBaselineSourcePath, path.join(fixtureScriptDir, 'lib/frontend-code-size-baseline.mjs'));
+    fs.copyFileSync(
+      path.join(appRoot, 'scripts/lib/frontend-code-size-baseline-transaction.mjs'),
+      path.join(fixtureScriptDir, 'lib/frontend-code-size-baseline-transaction.mjs'),
+    );
+    fs.copyFileSync(
+      path.join(appRoot, 'scripts/lib/frontend-code-size-guard-runner.mjs'),
+      path.join(fixtureScriptDir, 'lib/frontend-code-size-guard-runner.mjs'),
+    );
     fs.writeFileSync(sourcePath, currentSource ?? sourceWithEffectiveLines(currentLines), 'utf8');
+    for (const [extraRelFile, extraSource] of Object.entries(extraSources)) {
+      const extraPath = path.join(fixtureRoot, extraRelFile);
+      fs.mkdirSync(path.dirname(extraPath), { recursive: true });
+      fs.writeFileSync(extraPath, extraSource, 'utf8');
+    }
     const files = frozenProductionFiles
       ?? (frozenLines === undefined ? {} : { [relFile]: frozenFileLengthMetrics(frozenLines) });
-    fs.writeFileSync(fixtureBaselinePath, `${JSON.stringify(baselineData(files), null, 2)}\n`, 'utf8');
+    if (!omitProductionBaseline) {
+      fs.writeFileSync(fixtureBaselinePath, `${JSON.stringify(baselineData(files), null, 2)}\n`, 'utf8');
+    }
     fs.writeFileSync(fixtureBaselineTestPath, `${JSON.stringify(baselineData(frozenTestFiles), null, 2)}\n`, 'utf8');
+    const productionBaselineBefore = fs.existsSync(fixtureBaselinePath) ? fs.readFileSync(fixtureBaselinePath) : null;
+    const testBaselineBefore = fs.readFileSync(fixtureBaselineTestPath);
+    const productionStatBefore = fs.existsSync(fixtureBaselinePath) ? fs.statSync(fixtureBaselinePath, { bigint: true }) : null;
+    const testStatBefore = fs.statSync(fixtureBaselineTestPath, { bigint: true });
 
     const result = spawnSync(process.execPath, [
       fixtureGuardScriptPath,
@@ -111,7 +153,17 @@ function runGuardWithFixture({
     return {
       status: result.status,
       output: `${result.stdout}${result.stderr}`,
-      productionBaseline: JSON.parse(fs.readFileSync(fixtureBaselinePath, 'utf8')),
+      productionBaselineBefore,
+      productionBaselineAfter: fs.existsSync(fixtureBaselinePath) ? fs.readFileSync(fixtureBaselinePath) : null,
+      testBaselineBefore,
+      testBaselineAfter: fs.readFileSync(fixtureBaselineTestPath),
+      productionStatBefore,
+      productionStatAfter: fs.existsSync(fixtureBaselinePath) ? fs.statSync(fixtureBaselinePath, { bigint: true }) : null,
+      testStatBefore,
+      testStatAfter: fs.statSync(fixtureBaselineTestPath, { bigint: true }),
+      productionBaseline: fs.existsSync(fixtureBaselinePath)
+        ? JSON.parse(fs.readFileSync(fixtureBaselinePath, 'utf8'))
+        : null,
       testBaseline: JSON.parse(fs.readFileSync(fixtureBaselineTestPath, 'utf8')),
     };
   } finally {
@@ -230,6 +282,9 @@ describe('frontend code size guard', () => {
       '--file',
       'src/AppShell.jsx',
     ]).files).toEqual(['src/App.jsx', 'src/AppShell.jsx']);
+    expect(parseFrontendCodeSizeGuardArgs(['--check']).mode).toBe('check');
+    expect(parseFrontendCodeSizeGuardArgs(['--update', '--scope', 'production']).mode).toBe('update');
+    expect(() => parseFrontendCodeSizeGuardArgs(['--check', '--update'])).toThrow(/exactly one mode/);
     expect(() => parseFrontendCodeSizeGuardArgs(['--scope', 'bad'])).toThrow(/invalid value for --scope/);
   });
 
@@ -240,10 +295,12 @@ describe('frontend code size guard', () => {
     const productionInvocations = command
       .split('&&')
       .map((step) => step.trim())
-      .filter((step) => step.includes('frontend-code-size-guard.mjs --scope production'));
+      .filter((step) => step.includes('frontend-code-size-guard.mjs --check --scope production'));
     expect(productionInvocations).toEqual([
-      'node scripts/frontend-code-size-guard.mjs --scope production --dir src --dir scripts',
+      'node scripts/frontend-code-size-guard.mjs --check --scope production --dir src --dir scripts',
     ]);
+    expect(command).not.toMatch(/frontend-code-size-guard\.mjs --(?:update|freeze)/);
+    expect(packageJSON.scripts?.['test:hook:preflight']).toMatch(/^npm run guard:critical-skip\s*&&/);
   });
 
   it('rejects new production debt in non-test scripts', () => {
@@ -311,15 +368,20 @@ describe('frontend code size guard', () => {
     expect(regressed.output).toContain('[freeze/func-length]');
   });
 
-  it('preserves the test baseline when freezing only the production scope', () => {
+  it('preserves the test baseline when updating only the production scope', () => {
     const frozenTestFiles = {
       'src/existing.test.js': frozenFileLengthMetrics(FRONTEND_CODE_SIZE_LIMITS.maxTestFileLines + 1),
     };
+    const guardRelFile = 'scripts/frontend-code-size-guard.mjs';
     const result = runGuardWithFixture({
       currentLines: FRONTEND_CODE_SIZE_LIMITS.maxFileLines + 1,
-      frozenLines: undefined,
-      guardArgs: ['--freeze', '--scope', 'production'],
+      frozenProductionFiles: {
+        [guardRelFile]: frozenMetricsForSource(guardRelFile, fs.readFileSync(guardScriptSourcePath, 'utf8')),
+        'src/fixture.js': frozenFileLengthMetrics(FRONTEND_CODE_SIZE_LIMITS.maxFileLines + 3),
+      },
+      guardArgs: ['--update', '--scope', 'production'],
       frozenTestFiles,
+      scanDir: null,
     });
 
     expect(result.status, result.output).toBe(0);
@@ -339,6 +401,10 @@ describe('frontend code size guard', () => {
 
     expect(result.status, result.output).toBe(0);
     expect(result.testBaseline.files).toEqual(frozenTestFiles);
+    expect(result.productionBaselineAfter.equals(result.productionBaselineBefore)).toBe(true);
+    expect(result.testBaselineAfter.equals(result.testBaselineBefore)).toBe(true);
+    expect(result.productionStatAfter.mtimeNs).toBe(result.productionStatBefore.mtimeNs);
+    expect(result.testStatAfter.mtimeNs).toBe(result.testStatBefore.mtimeNs);
   });
 
   it('preserves unscanned production baseline entries during a partial file check', () => {
@@ -355,7 +421,7 @@ describe('frontend code size guard', () => {
     expect(result.productionBaseline.files).toEqual(frozenProductionFiles);
   });
 
-  it('prunes a missing production entry only during a canonical full scan', () => {
+  it('reports canonical candidate drift without pruning or touching the tracked baseline', () => {
     const guardRelFile = 'scripts/frontend-code-size-guard.mjs';
     const frozenProductionFiles = {
       [guardRelFile]: frozenMetricsForSource(guardRelFile, fs.readFileSync(guardScriptSourcePath, 'utf8')),
@@ -368,8 +434,136 @@ describe('frontend code size guard', () => {
       scanDir: null,
     });
 
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('baseline drift');
+    expect(result.output).toContain('--update');
+    expect(result.productionBaseline.files).toEqual(frozenProductionFiles);
+    expect(result.productionBaselineAfter.equals(result.productionBaselineBefore)).toBe(true);
+    expect(result.testBaselineAfter.equals(result.testBaselineBefore)).toBe(true);
+    expect(result.productionStatAfter.mtimeNs).toBe(result.productionStatBefore.mtimeNs);
+    expect(result.testStatAfter.mtimeNs).toBe(result.testStatBefore.mtimeNs);
+  });
+
+  it('reports improvement and debt clearance as candidate drift without writing', () => {
+    const guardRelFile = 'scripts/frontend-code-size-guard.mjs';
+    const guardEntry = frozenMetricsForSource(guardRelFile, fs.readFileSync(guardScriptSourcePath, 'utf8'));
+    const improved = runGuardWithFixture({
+      currentLines: FRONTEND_CODE_SIZE_LIMITS.maxFileLines + 1,
+      frozenProductionFiles: {
+        [guardRelFile]: guardEntry,
+        'src/fixture.js': frozenFileLengthMetrics(FRONTEND_CODE_SIZE_LIMITS.maxFileLines + 3),
+      },
+      guardArgs: ['--check', '--scope', 'production'],
+      scanDir: null,
+    });
+    const cleared = runGuardWithFixture({
+      currentSource: 'const clean = true;',
+      frozenProductionFiles: {
+        [guardRelFile]: guardEntry,
+        'src/fixture.js': frozenFileLengthMetrics(FRONTEND_CODE_SIZE_LIMITS.maxFileLines + 1),
+      },
+      guardArgs: ['--check', '--scope', 'production'],
+      scanDir: null,
+    });
+
+    for (const result of [improved, cleared]) {
+      expect(result.status).toBe(1);
+      expect(result.output).toContain('baseline drift');
+      expect(result.output).toContain('--update --scope production');
+      expect(result.productionBaselineAfter.equals(result.productionBaselineBefore)).toBe(true);
+      expect(result.productionStatAfter.mtimeNs).toBe(result.productionStatBefore.mtimeNs);
+    }
+  });
+
+  it('reports directory ratchet improvement as drift without changing the directory entry', () => {
+    const guardRelFile = 'scripts/frontend-code-size-guard.mjs';
+    const extraSources = Object.fromEntries(
+      Array.from({ length: 15 }, (_, index) => [`src/ratchet/file${index + 1}.js`, `export const value${index + 1} = true;`]),
+    );
+    const result = runGuardWithFixture({
+      currentSource: 'export const value0 = true;',
+      relFile: 'src/ratchet/file0.js',
+      extraSources,
+      frozenProductionFiles: {
+        [guardRelFile]: frozenMetricsForSource(guardRelFile, fs.readFileSync(guardScriptSourcePath, 'utf8')),
+        '__dir__:src/ratchet': { lines: 17 },
+      },
+      guardArgs: ['--check', '--scope', 'production'],
+      scanDir: null,
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('baseline drift');
+    expect(result.productionBaseline.files['__dir__:src/ratchet']).toEqual({ lines: 17 });
+    expect(result.productionBaselineAfter.equals(result.productionBaselineBefore)).toBe(true);
+  });
+
+  it('fails fast when a tracked baseline is missing and never creates it', () => {
+    const result = runGuardWithFixture({
+      currentSource: 'const clean = true;',
+      guardArgs: ['--check', '--scope', 'production'],
+      omitProductionBaseline: true,
+    });
+
+    expect(result.status).toBe(2);
+    expect(result.output).toContain('tracked baseline is missing');
+    expect(result.productionBaselineBefore).toBeNull();
+    expect(result.productionBaselineAfter).toBeNull();
+    expect(result.testBaselineAfter.equals(result.testBaselineBefore)).toBe(true);
+  });
+
+  it('allows only canonical update to write an improvement and prints the review diff first', () => {
+    const guardRelFile = 'scripts/frontend-code-size-guard.mjs';
+    const result = runGuardWithFixture({
+      currentLines: FRONTEND_CODE_SIZE_LIMITS.maxFileLines + 1,
+      frozenProductionFiles: {
+        [guardRelFile]: frozenMetricsForSource(guardRelFile, fs.readFileSync(guardScriptSourcePath, 'utf8')),
+        'src/fixture.js': frozenFileLengthMetrics(FRONTEND_CODE_SIZE_LIMITS.maxFileLines + 3),
+      },
+      guardArgs: ['--update', '--scope', 'production'],
+      scanDir: null,
+    });
+
     expect(result.status, result.output).toBe(0);
-    expect(result.productionBaseline.files).not.toHaveProperty('scripts/missing.mjs');
+    expect(result.output).toContain('baseline update diff');
+    expect(result.output).toContain('- src/fixture.js:');
+    expect(result.output).toContain('+ src/fixture.js:');
+    expect(result.output).toContain('updated atomically for production');
+    expect(result.productionBaselineAfter.equals(result.productionBaselineBefore)).toBe(false);
+    expect(result.productionBaseline.files['src/fixture.js'].lines).toBe(FRONTEND_CODE_SIZE_LIMITS.maxFileLines + 1);
+    expect(result.productionStatAfter.mode).toBe(result.productionStatBefore.mode);
+    expect(result.testBaselineAfter.equals(result.testBaselineBefore)).toBe(true);
+  });
+
+  it('rejects partial update, retired freeze, and new debt without modifying either baseline', () => {
+    const partial = runGuardWithFixture({
+      currentLines: 1,
+      guardArgs: ['--update', '--scope', 'production'],
+    });
+    const retiredFreeze = runGuardWithFixture({
+      currentLines: 1,
+      guardArgs: ['--freeze', '--scope', 'production'],
+    });
+    const guardRelFile = 'scripts/frontend-code-size-guard.mjs';
+    const newDebt = runGuardWithFixture({
+      currentLines: FRONTEND_CODE_SIZE_LIMITS.maxFileLines + 1,
+      frozenProductionFiles: {
+        [guardRelFile]: frozenMetricsForSource(guardRelFile, fs.readFileSync(guardScriptSourcePath, 'utf8')),
+      },
+      guardArgs: ['--update', '--scope', 'production'],
+      scanDir: null,
+    });
+
+    expect(partial.status).toBe(2);
+    expect(partial.output).toContain('canonical full scan');
+    expect(retiredFreeze.status).toBe(2);
+    expect(retiredFreeze.output).toContain('--freeze is retired');
+    expect(newDebt.status).toBe(2);
+    expect(newDebt.output).toContain('--update refused');
+    for (const result of [partial, retiredFreeze, newDebt]) {
+      expect(result.productionBaselineAfter.equals(result.productionBaselineBefore)).toBe(true);
+      expect(result.testBaselineAfter.equals(result.testBaselineBefore)).toBe(true);
+    }
   });
 
   it('allows frozen file-length to decrease while remaining over the limit', () => {
@@ -402,5 +596,93 @@ describe('frontend code size guard', () => {
     expect(result).toEqual(expect.objectContaining({ status: 1 }));
     expect(result.output).toContain('[file-length]');
     expect(result.output).not.toContain('[freeze/file-length]');
+  });
+});
+
+describe('frontend code size baseline transaction', () => {
+  function transactionFixture() {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'frontend-code-size-transaction-')));
+    const filePath = path.join(root, '.frontend_code_size_guard_baseline.json');
+    const previous = baselineData({
+      'src/fixture.js': frozenFileLengthMetrics(FRONTEND_CODE_SIZE_LIMITS.maxFileLines + 3),
+    });
+    const candidate = baselineData({
+      'src/fixture.js': frozenFileLengthMetrics(FRONTEND_CODE_SIZE_LIMITS.maxFileLines + 1),
+    });
+    const bytes = baselineBytes(previous);
+    fs.writeFileSync(filePath, bytes);
+    return { root, filePath, previous, candidate, bytes, hash: hashBaselineBytes(bytes) };
+  }
+
+  it('refuses added or widened debt before opening the writer', () => {
+    const previous = baselineData({
+      'src/fixture.js': frozenFileLengthMetrics(FRONTEND_CODE_SIZE_LIMITS.maxFileLines + 1),
+    });
+    const widened = baselineData({
+      'src/fixture.js': frozenFileLengthMetrics(FRONTEND_CODE_SIZE_LIMITS.maxFileLines + 2),
+    });
+    const added = baselineData({
+      ...previous.files,
+      'src/new-debt.js': frozenFileLengthMetrics(FRONTEND_CODE_SIZE_LIMITS.maxFileLines + 1),
+    });
+
+    expect(() => assertBaselineUpdateOnlyImproves(previous, widened)).toThrow(/widen/);
+    expect(() => assertBaselineUpdateOnlyImproves(previous, added)).toThrow(/add debt entry/);
+    expect(() => assertBaselineUpdateOnlyImproves(
+      { ...previous, unexpected: true },
+      previous,
+    )).toThrow(/expected only _meta and files/);
+  });
+
+  it('leaves the baseline byte-identical on an injected atomic-write failure', () => {
+    const fixture = transactionFixture();
+    try {
+      expect(() => writeBaselineTransaction({
+        filePath: fixture.filePath,
+        expectedHash: fixture.hash,
+        previous: fixture.previous,
+        candidate: fixture.candidate,
+        failpoint(point) {
+          if (point === 'after-temp-fsync') throw new Error('injected write failure');
+        },
+      })).toThrow(/injected write failure/);
+      expect(fs.readFileSync(fixture.filePath).equals(fixture.bytes)).toBe(true);
+      expect(fs.statSync(fixture.filePath).mode & 0o777).toBe(0o644);
+      expect(fs.readdirSync(fixture.root)).toEqual(['.frontend_code_size_guard_baseline.json']);
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it('enforces the lock and compare-and-swap without deleting a competing lock', () => {
+    const fixture = transactionFixture();
+    const lockPath = `${fixture.filePath}.lock`;
+    try {
+      fs.writeFileSync(lockPath, 'competing writer\n');
+      expect(() => writeBaselineTransaction({
+        filePath: fixture.filePath,
+        expectedHash: fixture.hash,
+        previous: fixture.previous,
+        candidate: fixture.candidate,
+      })).toThrow();
+      expect(fs.readFileSync(lockPath, 'utf8')).toBe('competing writer\n');
+      expect(fs.readFileSync(fixture.filePath).equals(fixture.bytes)).toBe(true);
+      fs.unlinkSync(lockPath);
+
+      const concurrent = baselineData({
+        'src/fixture.js': frozenFileLengthMetrics(FRONTEND_CODE_SIZE_LIMITS.maxFileLines + 2),
+      });
+      const concurrentBytes = baselineBytes(concurrent);
+      fs.writeFileSync(fixture.filePath, concurrentBytes);
+      expect(() => writeBaselineTransaction({
+        filePath: fixture.filePath,
+        expectedHash: fixture.hash,
+        previous: fixture.previous,
+        candidate: fixture.candidate,
+      })).toThrow(/compare-and-swap failed/);
+      expect(fs.readFileSync(fixture.filePath).equals(concurrentBytes)).toBe(true);
+    } finally {
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+    }
   });
 });

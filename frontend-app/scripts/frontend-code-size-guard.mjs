@@ -2,7 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { parse as parseJavaScriptSource } from '@babel/parser'; import { canonicalViolationSignature, isCanonicalFullScan, sameCanonicalViolationBudget } from './lib/frontend-code-size-baseline.mjs';
+import { parse as parseJavaScriptSource } from '@babel/parser';
+import { canonicalViolationSignature, isCanonicalFullScan, sameCanonicalViolationBudget } from './lib/frontend-code-size-baseline.mjs';
+import { assertFrontendCodeSizeBaselineSchema, hashBaselineBytes } from './lib/frontend-code-size-baseline-transaction.mjs';
+import { runFrontendCodeSizeCheck, runFrontendCodeSizeUpdate } from './lib/frontend-code-size-guard-runner.mjs';
 
 const appRoot = path.resolve(new URL('..', import.meta.url).pathname);
 const baselinePath = path.join(appRoot, '.frontend_code_size_guard_baseline.json');
@@ -376,13 +379,12 @@ function filterFilesByScope(files, scope) {
   return files.filter((file) => isFrontendTestFile(file.rel));
 }
 
-function loadBaseline(filePath) {
-  if (!fs.existsSync(filePath)) return { _meta: null, files: {} };
-  return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-}
-
-function saveBaseline(filePath, data) {
-  fs.writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
+function loadBaselineSnapshot(filePath) {
+  if (!fs.existsSync(filePath)) throw new Error(`tracked baseline is missing: ${filePath}; restore it before running check or update`);
+  const bytes = fs.readFileSync(filePath);
+  const baseline = JSON.parse(bytes.toString('utf8'));
+  assertFrontendCodeSizeBaselineSchema(baseline, path.basename(filePath));
+  return { baseline, bytes, hash: hashBaselineBytes(bytes) };
 }
 
 function violationSignature(entry) {
@@ -475,105 +477,73 @@ function refreshDirectoryBaseline(files, baseline) {
   return { ...baseline, files: nextFiles };
 }
 
-function saveBaselineIfChanged(filePath, currentBaseline, nextBaseline) {
-  if (baselineFilesEqual(currentBaseline.files, nextBaseline.files)) return;
-  saveBaseline(filePath, {
-    _meta: { updatedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z') },
-    files: nextBaseline.files,
-  });
+function buildRecords(files) {
+  return files.map((file) => ({ rel: file.rel, source: fs.readFileSync(file.abs, 'utf8') }));
 }
 
-function runFreeze(files, scope = 'all') {
-  const meta = { updatedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z') };
-  const freezeProduction = scope !== 'test';
-  const freezeTests = scope !== 'production';
-  const prodBaseline = freezeProduction ? { _meta: meta, files: {} } : loadBaseline(baselinePath);
-  const testBaseline = freezeTests ? { _meta: meta, files: {} } : loadBaseline(baselineTestPath);
-  for (const file of files) {
-    const source = fs.readFileSync(file.abs, 'utf8');
-    const violations = rulesForSource(file.rel, source);
-    if (violations.length === 0) continue;
-    const metrics = baselineEntryForCurrentViolations(file.rel, source, violations);
-    if (isFrontendTestFile(file.rel)) {
-      if (freezeTests) testBaseline.files[file.rel] = metrics;
-    } else if (freezeProduction) prodBaseline.files[file.rel] = metrics;
-  }
-  if (freezeProduction) {
-    const dirCounts = new Map();
-    for (const { rel } of files.filter((file) => !isFrontendTestFile(file.rel))) {
-      const dir = path.dirname(rel);
-      dirCounts.set(dir, (dirCounts.get(dir) || 0) + 1);
-    }
-    for (const [dir, count] of dirCounts.entries()) {
-      if (count > FRONTEND_CODE_SIZE_LIMITS.maxDirectoryFiles) prodBaseline.files[`__dir__:${dir}`] = { lines: count };
-    }
-  }
-  if (freezeProduction) saveBaseline(baselinePath, prodBaseline);
-  if (freezeTests) saveBaseline(baselineTestPath, testBaseline);
-  console.log(`frontend code size guard froze ${Object.keys(prodBaseline.files).length} production entries and ${Object.keys(testBaseline.files).length} test entries`);
-}
-
-function runCheck(files, { pruneStale = false, strict = false, scope = 'all' } = {}) {
-  const prodBaseline = strict ? { files: {} } : loadBaseline(baselinePath);
-  const testBaseline = strict ? { files: {} } : loadBaseline(baselineTestPath);
+function planFrontendCodeSizeGuard({ records, productionBaseline, testBaseline, canonical = false, strict = false, scope = 'all' }) {
+  const prodBaseline = strict ? { _meta: productionBaseline._meta, files: {} } : productionBaseline;
+  const testBaselineForPlan = strict ? { _meta: testBaseline._meta, files: {} } : testBaseline;
   const nextProdBaseline = { ...prodBaseline, files: { ...(prodBaseline.files || {}) } };
-  const nextTestBaseline = { ...testBaseline, files: { ...(testBaseline.files || {}) } };
-  const scannedFiles = new Set(files.map((file) => file.rel));
+  const nextTestBaseline = { ...testBaselineForPlan, files: { ...(testBaselineForPlan.files || {}) } };
+  const scannedFiles = new Set(records.map((record) => record.rel));
   const violations = [];
   let frozenFiles = 0;
-  for (const file of files) {
-    const source = fs.readFileSync(file.abs, 'utf8');
-    const currentViolations = rulesForSource(file.rel, source);
-    const baseline = isFrontendTestFile(file.rel) ? testBaseline : prodBaseline;
-    const nextBaseline = isFrontendTestFile(file.rel) ? nextTestBaseline : nextProdBaseline;
-    const frozen = baseline.files?.[file.rel];
+  for (const record of records) {
+    const currentViolations = rulesForSource(record.rel, record.source);
+    const baseline = isFrontendTestFile(record.rel) ? testBaselineForPlan : prodBaseline;
+    const nextBaseline = isFrontendTestFile(record.rel) ? nextTestBaseline : nextProdBaseline;
+    const frozen = baseline.files?.[record.rel];
     violations.push(...(frozen ? unfrozenViolations(currentViolations, frozen) : currentViolations));
     if (frozen) {
-      const ratchets = ratchetViolations(file.rel, measureFrontendCodeSizeSource(file.rel, source), frozen);
+      const ratchets = ratchetViolations(record.rel, measureFrontendCodeSizeSource(record.rel, record.source), frozen);
       violations.push(...ratchets);
       if (currentViolations.length > 0 || ratchets.length > 0) {
         frozenFiles += 1;
-        if (ratchets.length === 0) nextBaseline.files[file.rel] = baselineEntryForCurrentViolations(file.rel, source, currentViolations, frozen);
+        if (canonical && ratchets.length === 0) {
+          nextBaseline.files[record.rel] = baselineEntryForCurrentViolations(record.rel, record.source, currentViolations, frozen);
+        }
       } else {
-        delete nextBaseline.files[file.rel];
+        if (canonical) delete nextBaseline.files[record.rel];
       }
     }
   }
-  violations.push(...directorySizeViolations(files, strict ? { files: {} } : prodBaseline));
-  if (violations.length === 0) {
-    if (!strict) {
-      if (scope !== 'test' && pruneStale) {
-        for (const key of Object.keys(nextProdBaseline.files)) {
-          if (!key.startsWith('__dir__:') && (!scannedFiles.has(key) || isFrontendTestFile(key))) delete nextProdBaseline.files[key];
-        }
-        const refreshedProdBaseline = refreshDirectoryBaseline(files, nextProdBaseline);
-        saveBaselineIfChanged(baselinePath, prodBaseline, refreshedProdBaseline);
+  const fileShapes = records.map((record) => ({ rel: record.rel }));
+  violations.push(...directorySizeViolations(fileShapes, strict ? { files: {} } : prodBaseline));
+  let productionCandidate = nextProdBaseline;
+  if (!strict && canonical) {
+    if (scope !== 'test') {
+      for (const key of Object.keys(nextProdBaseline.files)) {
+        if (!key.startsWith('__dir__:') && (!scannedFiles.has(key) || isFrontendTestFile(key))) delete nextProdBaseline.files[key];
       }
-      if (scope !== 'production' && pruneStale) {
-        for (const key of Object.keys(nextTestBaseline.files)) {
-          if (!scannedFiles.has(key) || !isFrontendTestFile(key)) delete nextTestBaseline.files[key];
-        }
-        saveBaselineIfChanged(baselineTestPath, testBaseline, nextTestBaseline);
+      productionCandidate = refreshDirectoryBaseline(fileShapes, nextProdBaseline);
+    }
+    if (scope !== 'production') {
+      for (const key of Object.keys(nextTestBaseline.files)) {
+        if (!scannedFiles.has(key) || !isFrontendTestFile(key)) delete nextTestBaseline.files[key];
       }
     }
-    console.log(`frontend code size guard passed: files=${files.length}, frozen=${frozenFiles}`);
-    return;
   }
-  console.error(`frontend code size guard failed: ${violations.length} violation(s)`);
-  for (const entry of violations.slice(0, 80)) {
-    const location = entry.line > 0 ? `${entry.file}:${entry.line}` : entry.file;
-    console.error(`- ${location} [${entry.rule}] ${entry.message}`);
+  const driftScopes = [];
+  if (!strict && canonical && scope !== 'test' && !baselineFilesEqual(prodBaseline.files, productionCandidate.files)) {
+    driftScopes.push('production');
   }
-  if (violations.length > 80) console.error(`- ... ${violations.length - 80} more violation(s)`);
-  process.exit(1);
+  if (!strict && canonical && scope !== 'production' && !baselineFilesEqual(testBaselineForPlan.files, nextTestBaseline.files)) {
+    driftScopes.push('test');
+  }
+  return { violations, frozenFiles, productionCandidate, testCandidate: nextTestBaseline, driftScopes };
 }
 
 export function parseFrontendCodeSizeGuardArgs(args) {
   const options = { mode: 'check', dirs: [], files: [], scope: 'all', printScanDirs: false };
+  let explicitMode = '';
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    if (arg === '--freeze') options.mode = 'freeze';
-    else if (arg === '--strict') options.mode = 'strict';
+    if (['--check', '--strict', '--update', '--freeze'].includes(arg)) {
+      if (explicitMode) throw new Error(`choose exactly one mode; received ${explicitMode} and ${arg}`);
+      explicitMode = arg;
+      options.mode = arg.slice(2);
+    }
     else if (arg === '--print-scan-dirs') options.printScanDirs = true;
     else if (arg === '--scope') {
       options.scope = readOptionValue(args, index, arg);
@@ -596,6 +566,9 @@ export function parseFrontendCodeSizeGuardArgs(args) {
 
 function main() {
   const options = parseFrontendCodeSizeGuardArgs(process.argv.slice(2));
+  if (options.mode === 'freeze') {
+    throw new Error('--freeze is retired and never writes; use the controlled canonical --update --scope production|test migration command');
+  }
   for (const dir of options.dirs) assertInsideAppRoot(dir);
   if (options.printScanDirs) {
     for (const dir of options.dirs) console.log(normalizeRel(dir));
@@ -606,8 +579,33 @@ function main() {
     options.scope,
   );
   if (files.length === 0) throw new Error('no frontend source files found');
-  if (options.mode === 'freeze') runFreeze(files, options.scope);
-  else runCheck(files, { pruneStale: isCanonicalFullScan(options.dirs, options.files, defaultSourceRoots.map((root) => path.join(appRoot, root))), strict: options.mode === 'strict', scope: options.scope });
+  const snapshots = {
+    production: loadBaselineSnapshot(baselinePath),
+    test: loadBaselineSnapshot(baselineTestPath),
+  };
+  options.canonical = isCanonicalFullScan(
+    options.dirs,
+    options.files,
+    defaultSourceRoots.map((root) => path.join(appRoot, root)),
+  );
+  const records = buildRecords(files);
+  if (options.mode === 'update') {
+    runFrontendCodeSizeUpdate({
+      records,
+      snapshots,
+      options,
+      planGuard: planFrontendCodeSizeGuard,
+      productionPath: baselinePath,
+      testPath: baselineTestPath,
+    });
+  } else if (!runFrontendCodeSizeCheck({
+    records,
+    snapshots,
+    options,
+    planGuard: planFrontendCodeSizeGuard,
+  })) {
+    process.exitCode = 1;
+  }
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

@@ -115,7 +115,8 @@ func gateRunners(plan gatePlan, executionScope gateExecutionScope) map[string]ga
 		"capcontract:check":   generatedCheck(true, "make", "capcontract-check"),
 		"turncontract:verify": {run: runTurnContractVerifyGate},
 		"frontend:static-guards": {run: func() error {
-			return runCommand("frontend-app", "npm", "run", "guard:architecture")
+			dir, name, args := frontendStaticGuardCommand()
+			return runCommand(dir, name, args...)
 		}},
 		"gate-image-closure:check": {run: func() error {
 			return runGateImageClosureCheck(".")
@@ -134,6 +135,11 @@ func gateRunners(plan gatePlan, executionScope gateExecutionScope) map[string]ga
 	}
 	maps.Copy(runners, ownedGateRunners(plan))
 	return runners
+}
+
+// frontendStaticGuardCommand 返回 hook 与 CI 共用的只读前端静态门禁命令。
+func frontendStaticGuardCommand() (string, string, []string) {
+	return "frontend-app", "npm", []string{"run", "guard:critical-skip"}
 }
 
 func runTurnContractVerifyGate() error {

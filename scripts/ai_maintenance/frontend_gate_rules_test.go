@@ -2,6 +2,14 @@ package main
 
 import "testing"
 
+// TestFrontendStaticGuardCommandUsesReadOnlyCodeSizeGate 锁定 hook/CI 的 canonical 静态门禁入口。
+func TestFrontendStaticGuardCommandUsesReadOnlyCodeSizeGate(t *testing.T) {
+	dir, name, args := frontendStaticGuardCommand()
+	if dir != "frontend-app" || name != "npm" || len(args) != 2 || args[0] != "run" || args[1] != "guard:critical-skip" {
+		t.Fatalf("frontend static guard command = dir:%q name:%q args:%v", dir, name, args)
+	}
+}
+
 // TestFrontendGatePlanUsesRiskSpecificRouting 锁定前端路径类别与日常门禁的最小风险集合。
 func TestFrontendGatePlanUsesRiskSpecificRouting(t *testing.T) {
 	tests := []struct {
