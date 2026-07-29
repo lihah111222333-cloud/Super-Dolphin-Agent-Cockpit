@@ -199,6 +199,29 @@ function createLockFile(lockPath, owner) {
   }
 }
 
+function transactionArtifactPaths(filePath, owner) {
+  const prefix = path.join(path.dirname(filePath), `.${path.basename(filePath)}.${owner.pid}.${owner.nonce}`);
+  return {
+    tempPath: `${prefix}.tmp`,
+    backupPath: `${prefix}.bak`,
+  };
+}
+
+function cleanupStaleTransactionArtifacts(filePath, owner) {
+  const artifacts = transactionArtifactPaths(filePath, owner);
+  let removed = false;
+  for (const artifactPath of [artifacts.tempPath, artifacts.backupPath]) {
+    if (!fs.existsSync(artifactPath)) continue;
+    const artifactStat = fs.lstatSync(artifactPath);
+    if (!artifactStat.isFile() || artifactStat.isSymbolicLink()) {
+      throw new Error(`baseline stale transaction artifact is not a regular file: ${artifactPath}`);
+    }
+    fs.unlinkSync(artifactPath);
+    removed = true;
+  }
+  if (removed) fsyncParentDirectory(filePath);
+}
+
 function recoverStaleLock(lockPath, resolveProcessIdentity) {
   const staleHandle = fs.openSync(lockPath, 'r');
   let staleStat;
@@ -217,6 +240,7 @@ function recoverStaleLock(lockPath, resolveProcessIdentity) {
   if (!sameFileIdentity(staleStat, currentStat)) {
     throw new Error(`baseline lock changed during stale recovery: ${lockPath}`);
   }
+  cleanupStaleTransactionArtifacts(lockPath.slice(0, -'.lock'.length), existingOwner);
   fs.unlinkSync(lockPath);
   fsyncParentDirectory(lockPath);
 }
@@ -301,12 +325,19 @@ function readBaselineFileState(filePath) {
   }
 }
 
-function durableUnknown(filePath, stage, cause, finalState = readBaselineFileState(filePath)) {
+function durableUnknown(
+  filePath,
+  stage,
+  cause,
+  finalState = readBaselineFileState(filePath),
+  { committed = false } = {},
+) {
   const result = new Error(
-    `baseline durability unknown after ${stage} for ${filePath}; reconcile required; final state: ${JSON.stringify(finalState)}`,
+    `baseline ${committed ? 'committed but ' : ''}durability unknown after ${stage} for ${filePath}; reconcile required; final state: ${JSON.stringify(finalState)}`,
     { cause },
   );
-  result.code = 'BASELINE_DURABILITY_UNKNOWN';
+  result.code = committed ? 'BASELINE_COMMITTED_DURABILITY_UNKNOWN' : 'BASELINE_DURABILITY_UNKNOWN';
+  result.committed = committed;
   result.finalState = finalState;
   return result;
 }
@@ -329,22 +360,18 @@ function classifyTransactionFailure({
   stage,
   error,
 }) {
-  if (!mutationStarted && !committed) return error;
+  if (!mutationStarted && !committed && error?.code === 'BASELINE_CAS_CONFLICT') return error;
   const finalState = readBaselineFileState(filePath);
+  if (!mutationStarted && !committed) {
+    if (stateMatchesSnapshot(finalState, expectedHash)) return error;
+    return durableUnknown(filePath, stage, error, finalState);
+  }
   if (!committed && stateMatchesSnapshot(finalState, expectedHash)) return error;
-  return durableUnknown(filePath, stage, error, finalState);
+  return durableUnknown(filePath, stage, error, finalState, { committed });
 }
 
-function restoreClaimedBaseline({ filePath, backupPath, tempPath, failpoint }) {
+function restoreClaimedBaseline({ filePath, backupPath, failpoint }) {
   try {
-    if (fs.existsSync(filePath)) {
-      const targetStat = fs.statSync(filePath);
-      const tempStat = fs.statSync(tempPath);
-      if (!sameFileIdentity(targetStat, tempStat)) {
-        throw new Error(`cannot rollback without overwriting an external target: ${filePath}`);
-      }
-      fs.unlinkSync(filePath);
-    }
     failpoint('before-rollback-rename');
     fs.renameSync(backupPath, filePath);
     fsyncParentDirectory(filePath, failpoint, 'before-rollback-dir-fsync');
@@ -355,6 +382,7 @@ function restoreClaimedBaseline({ filePath, backupPath, tempPath, failpoint }) {
 
 function stageBaselineCandidate(context, state) {
   state.lock = acquireBaselineLock(context.filePath);
+  Object.assign(context, transactionArtifactPaths(context.filePath, state.lock.owner));
   context.failpoint('after-lock');
   const currentBytes = fs.readFileSync(context.filePath);
   const currentMode = fs.statSync(context.filePath).mode & 0o777;
@@ -375,41 +403,56 @@ function stageBaselineCandidate(context, state) {
 }
 
 function claimBaselineTarget(context, state) {
-  state.mutationStarted = true;
   context.failpoint('before-claim-rename');
-  fs.renameSync(context.filePath, context.backupPath);
+  context.failpoint('before-backup-link');
+  fs.linkSync(context.filePath, context.backupPath);
   state.claimed = true;
+  const targetStat = fs.statSync(context.filePath);
+  const backupStat = fs.statSync(context.backupPath);
   const claimedBytes = fs.readFileSync(context.backupPath);
-  if (hashBaselineBytes(claimedBytes) !== context.expectedHash) {
-    restoreClaimedBaseline(context);
+  if (
+    !sameFileIdentity(targetStat, backupStat)
+    || hashBaselineBytes(claimedBytes) !== context.expectedHash
+    || hashBaselineBytes(fs.readFileSync(context.filePath)) !== context.expectedHash
+  ) {
+    fs.unlinkSync(context.backupPath);
+    fsyncParentDirectory(context.filePath);
     state.claimed = false;
-    state.mutationStarted = false;
-    throw new Error(`baseline compare-and-swap failed for ${context.filePath}: target changed after check`);
+    const error = new Error(`baseline compare-and-swap failed for ${context.filePath}: target changed after check`);
+    error.code = 'BASELINE_CAS_CONFLICT';
+    throw error;
   }
   assertFrontendCodeSizeBaselineSchema(JSON.parse(claimedBytes.toString('utf8')), 'claimed baseline');
+  fsyncParentDirectory(context.filePath, context.failpoint, 'before-backup-dir-fsync');
 }
 
 function installBaselineCandidate(context, state) {
   context.failpoint('before-install');
-  fs.linkSync(context.tempPath, context.filePath);
   state.candidateIdentity = fs.statSync(context.tempPath);
+  context.failpoint('before-atomic-replace');
+  state.mutationStarted = true;
+  fs.renameSync(context.tempPath, context.filePath);
+  state.committed = true;
   try {
     fsyncParentDirectory(context.filePath, context.failpoint, 'before-commit-dir-fsync');
     if (hashBaselineBytes(fs.readFileSync(context.filePath)) !== context.nextHash) {
       throw new Error(`baseline candidate changed during commit for ${context.filePath}`);
     }
-    state.committed = true;
+    context.failpoint('after-atomic-replace-before-cleanup');
   } catch (error) {
-    restoreClaimedBaseline(context);
-    state.claimed = false;
-    throw error;
+    throw durableUnknown(
+      context.filePath,
+      'atomic replace commit',
+      error,
+      readBaselineFileState(context.filePath),
+      { committed: true },
+    );
   }
 }
 
 function finalizeBaselineCandidate(context, state) {
   fs.unlinkSync(context.backupPath);
   state.claimed = false;
-  fs.unlinkSync(context.tempPath);
   fsyncParentDirectory(context.filePath, context.failpoint, 'before-cleanup-dir-fsync');
   context.failpoint('after-cleanup-dir-fsync');
   const finalState = readBaselineFileState(context.filePath);
@@ -419,14 +462,15 @@ function finalizeBaselineCandidate(context, state) {
     'final candidate verification',
     new Error(`baseline final inode, bytes, or hash does not match candidate: ${context.filePath}`),
     finalState,
+    { committed: true },
   );
 }
 
 function handleBaselineTransactionFailure(context, state, error) {
-  if (error?.code === 'BASELINE_DURABILITY_UNKNOWN') {
-    return durableUnknown(context.filePath, 'durability reconciliation', error);
+  if (error?.code === 'BASELINE_DURABILITY_UNKNOWN' || error?.code === 'BASELINE_COMMITTED_DURABILITY_UNKNOWN') {
+    return error;
   }
-  if (state.claimed) {
+  if (state.claimed && !state.committed) {
     restoreClaimedBaseline(context);
     state.claimed = false;
   }
@@ -443,8 +487,15 @@ function handleBaselineTransactionFailure(context, state, error) {
 function cleanupBaselineTransaction(context, state) {
   try {
     if (state.tempHandle !== undefined) fs.closeSync(state.tempHandle);
-    if (fs.existsSync(context.tempPath)) fs.unlinkSync(context.tempPath);
-    if (!state.claimed && fs.existsSync(context.backupPath)) fs.unlinkSync(context.backupPath);
+    if (context.tempPath && fs.existsSync(context.tempPath)) fs.unlinkSync(context.tempPath);
+    if (
+      (!state.claimed || state.committed)
+      && context.backupPath
+      && fs.existsSync(context.backupPath)
+    ) {
+      fs.unlinkSync(context.backupPath);
+      state.claimed = false;
+    }
     if (state.lock === undefined) return;
     context.failpoint('before-lock-release');
     state.lock.release();
@@ -467,6 +518,7 @@ export function writeBaselineTransaction({
   candidate,
   now = () => new Date(),
   failpoint = noFailureInjection,
+  platform = process.platform,
 }) {
   assertBaselineUpdateOnlyImproves(previous, candidate);
   if (hashBaselineBytes(baselineBytes(previous)) !== expectedHash) {
@@ -479,6 +531,11 @@ export function writeBaselineTransaction({
   assertFrontendCodeSizeBaselineSchema(next, 'candidate baseline');
   const diff = describeBaselineDiff(previous, next);
   if (diff.length === 0) return { changed: false, diff: [] };
+  if (platform === 'win32') {
+    const error = new Error('crash-atomic baseline replacement is not verified on win32; refusing to mutate the baseline');
+    error.code = 'BASELINE_ATOMIC_REPLACE_UNSUPPORTED';
+    throw error;
+  }
   const nextBytes = baselineBytes(next);
   const context = {
     filePath,
@@ -486,8 +543,8 @@ export function writeBaselineTransaction({
     diff,
     nextBytes,
     nextHash: hashBaselineBytes(nextBytes),
-    tempPath: path.join(path.dirname(filePath), `.${path.basename(filePath)}.${process.pid}.${crypto.randomUUID()}.tmp`),
-    backupPath: path.join(path.dirname(filePath), `.${path.basename(filePath)}.${process.pid}.${crypto.randomUUID()}.bak`),
+    tempPath: undefined,
+    backupPath: undefined,
     failpoint,
   };
   const state = {
@@ -498,15 +555,26 @@ export function writeBaselineTransaction({
     mutationStarted: false,
     candidateIdentity: undefined,
   };
+  let result;
+  let transactionError;
   try {
     stageBaselineCandidate(context, state);
     claimBaselineTarget(context, state);
     installBaselineCandidate(context, state);
     finalizeBaselineCandidate(context, state);
-    return { changed: true, diff };
+    result = { changed: true, diff };
   } catch (error) {
-    throw handleBaselineTransactionFailure(context, state, error);
-  } finally {
-    cleanupBaselineTransaction(context, state);
+    try {
+      transactionError = handleBaselineTransactionFailure(context, state, error);
+    } catch (handlingError) {
+      transactionError = handlingError;
+    }
   }
+  try {
+    cleanupBaselineTransaction(context, state);
+  } catch (cleanupError) {
+    if (transactionError === undefined) transactionError = cleanupError;
+  }
+  if (transactionError !== undefined) throw transactionError;
+  return result;
 }

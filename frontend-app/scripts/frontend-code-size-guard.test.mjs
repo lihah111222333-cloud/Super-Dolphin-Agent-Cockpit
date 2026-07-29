@@ -658,19 +658,33 @@ describe('frontend code size baseline transaction', () => {
     }
   });
 
-  it('rolls back a commit-directory-fsync failure before returning ordinary failure', () => {
+  it('keeps the committed candidate on a commit-directory-fsync failure', () => {
     const fixture = transactionFixture();
+    const now = () => new Date('2026-07-10T00:00:00Z');
+    const candidateBytes = baselineBytes({
+      _meta: { updatedAt: '2026-07-10T00:00:00Z' },
+      files: fixture.candidate.files,
+    });
     try {
-      expect(() => writeBaselineTransaction({
-        filePath: fixture.filePath,
-        expectedHash: fixture.hash,
-        previous: fixture.previous,
-        candidate: fixture.candidate,
-        failpoint(point) {
-          if (point === 'before-commit-dir-fsync') throw new Error('injected directory fsync failure');
-        },
-      })).toThrow(/injected directory fsync failure/);
-      expect(fs.readFileSync(fixture.filePath).equals(fixture.bytes)).toBe(true);
+      let caught;
+      try {
+        writeBaselineTransaction({
+          filePath: fixture.filePath,
+          expectedHash: fixture.hash,
+          previous: fixture.previous,
+          candidate: fixture.candidate,
+          now,
+          failpoint(point) {
+            if (point === 'before-commit-dir-fsync') throw new Error('injected directory fsync failure');
+          },
+        });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught?.code).toBe('BASELINE_COMMITTED_DURABILITY_UNKNOWN');
+      expect(caught?.committed).toBe(true);
+      expect(caught?.cause?.message).toContain('injected directory fsync failure');
+      expect(fs.readFileSync(fixture.filePath).equals(candidateBytes)).toBe(true);
       expect(fs.readdirSync(fixture.root)).toEqual(['.frontend_code_size_guard_baseline.json']);
     } finally {
       fs.rmSync(fixture.root, { recursive: true, force: true });
@@ -713,7 +727,7 @@ describe('frontend code size baseline transaction', () => {
           previous: fixture.previous,
           candidate: fixture.candidate,
           failpoint(point) {
-            if (point === 'before-commit-dir-fsync') throw new Error('force rollback');
+            if (point === 'before-atomic-replace') throw new Error('force rollback');
             if (point === failurePoint) throw new Error(`injected ${failurePoint}`);
           },
         });

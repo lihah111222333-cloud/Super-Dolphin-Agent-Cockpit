@@ -71,7 +71,8 @@ describe('frontend code size baseline transaction final-state reconciliation', (
       } catch (error) {
         caught = error;
       }
-      expect(caught?.code).toBe('BASELINE_DURABILITY_UNKNOWN');
+      expect(caught?.code).toBe('BASELINE_COMMITTED_DURABILITY_UNKNOWN');
+      expect(caught?.committed).toBe(true);
       expect(caught?.finalState.hash).toBe(hashBaselineBytes(concurrentBytes));
       expect(fs.readFileSync(fixture.filePath).equals(concurrentBytes)).toBe(true);
     } finally {
@@ -137,7 +138,8 @@ describe('frontend code size baseline transaction final-state reconciliation', (
       } catch (error) {
         caught = error;
       }
-      expect(caught?.code).toBe('BASELINE_DURABILITY_UNKNOWN');
+      expect(caught?.code).toBe('BASELINE_COMMITTED_DURABILITY_UNKNOWN');
+      expect(caught?.committed).toBe(true);
       expect(caught?.finalState.hash).toBe(hashBaselineBytes(candidateBytes));
       expect(fs.readFileSync(fixture.filePath).equals(candidateBytes)).toBe(true);
     } finally {
