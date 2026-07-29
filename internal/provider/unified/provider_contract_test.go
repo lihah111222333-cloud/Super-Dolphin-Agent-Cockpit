@@ -396,19 +396,23 @@ func unifiedResumeIdentityCase() contracttest.Case {
 		Run: func(t *testing.T, e *contracttest.CaseEvidence) {
 			env := newUnifiedContractEnv()
 			providerThreadID := "77777777-aaaa-bbbb-cccc-777777777777"
+			registry := NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{{
+				Name:   "codex",
+				Create: func() contract.Driver { return env.driver },
+			}}})
 			resolver := NewSessionResolver(sessionResolverParams{
-				Registry: env.registry,
+				Registry: registry,
 				Sessions: env.sessions,
 			}).(*sessionResolver)
 			binding := &contract.SessionBinding{
 				AgentID:          "agent-resume",
-				Provider:         unifiedContractProvider,
+				Provider:         "codex",
 				ProviderThreadID: providerThreadID,
 				CodexThreadID:    "public-thread-should-not-be-used",
 				Cwd:              t.TempDir(),
 				RolloutPath:      writeExistingProviderHistoryFile(t),
 			}
-			plan, err := resolver.buildAutoResumePlan(binding, map[string]any{"provider": unifiedContractProvider}, unifiedContractPromptSnapshot(), "public-thread-resume")
+			plan, err := resolver.buildAutoResumePlan(binding, map[string]any{"provider": "codex"}, unifiedContractPromptSnapshot(), "public-thread-resume")
 			if err != nil {
 				t.Fatalf("buildAutoResumePlan() error = %v", err)
 			}

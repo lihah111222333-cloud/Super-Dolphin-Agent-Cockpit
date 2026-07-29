@@ -392,8 +392,7 @@ func (s *service) runPendingSpawn(
 	}
 	cleanupOnFailure = false
 	s.pendingLaunchMu.Delete(threadID)
-	publishPendingSpawnLaunched(s, req, row, session, agentID, threadID, displayName)
-	return nil
+	return publishPendingSpawnLaunched(s, req, row, session, agentID, threadID, displayName)
 }
 
 func foldRouterOutputIntoAssemblyInput(assemblyInput *contract.StartInput, req *StartRequest) {
@@ -456,17 +455,21 @@ func publishPendingSpawnLaunched(
 	row *threadConfigStoreRecord,
 	session contract.Session,
 	agentID, threadID, displayName string,
-) {
+) error {
 	effectiveModel, effectiveCWD, _ := enrichFromSessionConfig(session, req.Model, req.CWD)
 	providerUUID := resolvedProviderUUID(session)
 	rolloutPath := session.RolloutPath()
+	providerThreadID, err := recoverableProviderThreadID(req.Provider, providerUUID, threadID, rolloutPath, "")
+	if err != nil {
+		return err
+	}
 	spawnedState := newThreadState(threadStateStartKind, threadStateFields{
 		PublicThreadID:   threadID,
 		AgentID:          agentID,
 		ParentAgentID:    req.ParentAgentID,
 		AgentType:        req.AgentType,
 		AgentMemoryScope: req.AgentMemoryScope,
-		ProviderThreadID: recoverableProviderThreadID(req.Provider, providerUUID, threadID, rolloutPath, ""),
+		ProviderThreadID: providerThreadID,
 		Provider:         req.Provider,
 		CWD:              effectiveCWD,
 		Model:            effectiveModel,
@@ -480,6 +483,7 @@ func publishPendingSpawnLaunched(
 		OwnerThreadID:    req.OwnerThreadID,
 	})
 	s.publishThreadLaunched(spawnedState)
+	return nil
 }
 
 const (

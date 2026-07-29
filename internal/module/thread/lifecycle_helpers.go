@@ -12,11 +12,11 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/historyjsonl"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/providerrecovery"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/clone"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/configutil"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/identifier"
 )
 
 const (
@@ -550,72 +550,78 @@ func (s *service) rememberStartedThread(state threadState) {
 	s.rememberThreadAgent(state.ProviderThreadID, state.AgentID)
 }
 
-func historyTargetID(binding *threadBindingStoreRecord, threadID string) string {
+// historyTargetID 选择活跃 session 读取所需的运行时 thread identity。
+func historyTargetID(binding *threadBindingStoreRecord, threadID string) (string, error) {
 	requestedID := strings.TrimSpace(threadID)
 	if binding == nil {
-		return requestedID
+		return requestedID, nil
 	}
 	publicThreadID := strings.TrimSpace(binding.CodexThreadID)
 	agentID := strings.TrimSpace(binding.AgentID)
 	if requestedID != "" && requestedID != publicThreadID && requestedID != agentID {
-		return requestedID
+		return requestedID, nil
 	}
-	return util.FirstNonEmpty(recoverableBindingProviderThreadID(binding), binding.ProviderThreadID, publicThreadID, agentID, requestedID)
+	return util.FirstNonEmpty(binding.ProviderThreadID, binding.SessionUUID, publicThreadID, requestedID), nil
 }
 
-func recoverableProviderThreadID(provider, providerUUID, publicThreadID, rolloutPath, codexHome string) string {
-	providerThreadID := normalizeProviderThreadID(provider, providerUUID)
-	if providerThreadID == "" || !identifier.LooksLikeUUID(providerThreadID) {
-		return ""
-	}
-	if _, err := historyjsonl.ExistingProviderPath(historyjsonl.ReadRequest{
+// recoverableProviderThreadID 通过统一 port 解析单次启动或恢复产生的 provider UUID。
+func recoverableProviderThreadID(provider, providerUUID, publicThreadID, rolloutPath, codexHome string) (string, error) {
+	return resolveOptionalProviderThreadID(providerrecovery.Request{
 		Provider:         provider,
 		RolloutPath:      rolloutPath,
-		ThreadID:         publicThreadID,
-		ProviderThreadID: providerThreadID,
-		SessionUUID:      providerThreadID,
+		PublicThreadID:   publicThreadID,
+		ProviderThreadID: providerUUID,
+		SessionUUID:      providerUUID,
 		CodexHome:        codexHome,
-	}); err != nil {
-		return ""
-	}
-	return providerThreadID
+	})
 }
 
 // recoverableBindingProviderThreadID 从 binding 中挑选可恢复的 provider thread UUID。
-// 只有 provider_thread_id 或 session_uuid 同时看起来是 UUID 且本地历史存在时才返回，防止 resume 指向不存在的 provider 历史。
-func recoverableBindingProviderThreadID(binding *threadBindingStoreRecord) string {
+// Codex 官方 UUID 允许无本地 rollout；Claude 只有明确 artifact missing 可降为空。
+func recoverableBindingProviderThreadID(binding *threadBindingStoreRecord) (string, error) {
 	if binding == nil {
-		return ""
+		return "", nil
 	}
-	for _, candidate := range []string{binding.ProviderThreadID, binding.SessionUUID} {
-		providerThreadID := normalizeProviderThreadID(binding.Provider, candidate)
-		if providerThreadID == "" || !identifier.LooksLikeUUID(providerThreadID) {
-			continue
-		}
-		if bindingHasProviderHistoryForUUID(binding, providerThreadID) {
-			return providerThreadID
-		}
-	}
-	return ""
+	return resolveOptionalProviderThreadID(providerRecoveryRequestFromThreadBinding(binding))
 }
 
-func bindingHasProviderHistoryForUUID(binding *threadBindingStoreRecord, providerThreadID string) bool {
+// bindingHasProviderHistoryForUUID 判断指定 UUID 是否符合统一恢复策略。
+func bindingHasProviderHistoryForUUID(binding *threadBindingStoreRecord, providerThreadID string) (bool, error) {
 	if binding == nil {
-		return false
+		return false, nil
 	}
-	providerThreadID = normalizeProviderThreadID(binding.Provider, providerThreadID)
-	if providerThreadID == "" || !identifier.LooksLikeUUID(providerThreadID) {
-		return false
+	request := providerRecoveryRequestFromThreadBinding(binding)
+	request.ProviderThreadID = providerThreadID
+	request.SessionUUID = providerThreadID
+	resolved, err := resolveOptionalProviderThreadID(request)
+	if err != nil {
+		return false, err
 	}
-	_, err := historyjsonl.ExistingProviderPath(historyjsonl.ReadRequest{
+	return resolved != "", nil
+}
+
+// providerRecoveryRequestFromThreadBinding 将 thread binding 映射到唯一 recovery port。
+func providerRecoveryRequestFromThreadBinding(binding *threadBindingStoreRecord) providerrecovery.Request {
+	return providerrecovery.Request{
 		Provider:         binding.Provider,
 		RolloutPath:      binding.RolloutPath,
-		ThreadID:         binding.CodexThreadID,
-		ProviderThreadID: providerThreadID,
-		SessionUUID:      providerThreadID,
+		PublicThreadID:   binding.CodexThreadID,
+		ProviderThreadID: binding.ProviderThreadID,
+		SessionUUID:      binding.SessionUUID,
 		CodexHome:        binding.CodexHome,
-	})
-	return err == nil
+	}
+}
+
+// resolveOptionalProviderThreadID 仅把 typed artifact missing 降为空候选。
+func resolveOptionalProviderThreadID(request providerrecovery.Request) (string, error) {
+	result, err := providerrecovery.ResolveOptional(request)
+	if errors.Is(err, providerrecovery.ErrNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return result.ProviderThreadID, nil
 }
 
 func toRef(thread threadConfigStoreRecord) Ref {
@@ -684,7 +690,10 @@ func (s *service) readMessagesPageSource(ctx context.Context, threadID string, b
 
 // readMessagesPageFromSession 从会话读取消息page。
 func (s *service) readMessagesPageFromSession(ctx context.Context, threadID string, binding *threadBindingStoreRecord, session contract.Session, req dto.MessagePageRequest) (dto.MessagePageResult, error) {
-	targetID := historyTargetID(binding, threadID)
+	targetID, err := historyTargetID(binding, threadID)
+	if err != nil {
+		return dto.MessagePageResult{}, err
+	}
 	if pager, ok := session.(messagePageReaderSession); ok {
 		return pager.ReadMessagesPage(ctx, targetID, req)
 	}

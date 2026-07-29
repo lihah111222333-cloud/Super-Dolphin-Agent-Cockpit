@@ -371,7 +371,7 @@ func TestGetPrefersSessionUUIDForResolvedIdentity(t *testing.T) {
 	}
 }
 
-func TestGetDoesNotPromoteSessionUUIDWithoutHistoryFile(t *testing.T) {
+func TestGetRecoversOfficialCodexUUIDWithoutHistoryFile(t *testing.T) {
 	t.Parallel()
 
 	const sessionUUID = "019e218f-b9c9-7c60-87f7-449577c795dc"
@@ -397,8 +397,8 @@ func TestGetDoesNotPromoteSessionUUIDWithoutHistoryFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
-	if got.ProviderThreadID != "" {
-		t.Fatalf("ProviderThreadID = %q, want empty without provider history file", got.ProviderThreadID)
+	if got.ProviderThreadID != sessionUUID {
+		t.Fatalf("ProviderThreadID = %q, want official UUID %s without provider history file", got.ProviderThreadID, sessionUUID)
 	}
 	if got.SessionID != sessionUUID {
 		t.Fatalf("SessionID = %q, want %s", got.SessionID, sessionUUID)

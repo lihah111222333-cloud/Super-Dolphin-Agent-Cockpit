@@ -225,7 +225,9 @@ func (s *service) lookupResumeState(ctx context.Context, threadID string) (resum
 	if err != nil {
 		return resumeState{}, err
 	}
-	mergeResumeBindingState(&state, binding)
+	if err := mergeResumeBindingState(&state, binding); err != nil {
+		return resumeState{}, err
+	}
 	state.StoredCWD = state.CWD
 	return state, nil
 }
@@ -259,16 +261,21 @@ func (s *service) lookupResumeThreadState(ctx context.Context, threadID string) 
 	}, nil
 }
 
-func mergeResumeBindingState(state *resumeState, binding *threadBindingStoreRecord) {
+// mergeResumeBindingState 将已验证 binding 合并到 resume 状态。
+func mergeResumeBindingState(state *resumeState, binding *threadBindingStoreRecord) error {
 	if state == nil || binding == nil {
-		return
+		return nil
+	}
+	providerThreadID, err := recoverableBindingProviderThreadID(binding)
+	if err != nil {
+		return err
 	}
 	state.AgentID = util.FirstNonEmpty(state.AgentID, binding.AgentID)
 	state.ParentAgentID = util.FirstNonEmpty(state.ParentAgentID, strings.TrimSpace(binding.ParentAgentID))
 	state.AgentType = util.FirstNonEmpty(state.AgentType, strings.TrimSpace(binding.AgentType))
 	state.AgentMemoryScope = util.FirstNonEmpty(state.AgentMemoryScope, strings.TrimSpace(binding.AgentMemoryScope))
 	state.Provider = strings.TrimSpace(binding.Provider)
-	state.ProviderThreadID = util.FirstNonEmpty(state.ProviderThreadID, recoverableBindingProviderThreadID(binding))
+	state.ProviderThreadID = util.FirstNonEmpty(state.ProviderThreadID, providerThreadID)
 	state.PublicThreadID = util.FirstNonEmpty(state.PublicThreadID, binding.CodexThreadID)
 	state.RolloutPath = strings.TrimSpace(binding.RolloutPath)
 	state.SessionUUID = strings.TrimSpace(binding.SessionUUID)
@@ -276,6 +283,7 @@ func mergeResumeBindingState(state *resumeState, binding *threadBindingStoreReco
 	state.CodexInstanceKey = strings.TrimSpace(binding.CodexInstanceKey)
 	state.CodexModelProvider = strings.TrimSpace(binding.CodexModelProvider)
 	state.CWD = util.FirstNonEmpty(state.CWD, binding.Cwd)
+	return nil
 }
 
 // providerRuntimeConfig 复制 thread runtime 配置并剥离只给本地迁移流程使用的标记。

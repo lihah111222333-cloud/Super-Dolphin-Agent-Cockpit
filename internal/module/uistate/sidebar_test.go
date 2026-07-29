@@ -213,8 +213,8 @@ func assertCompatibilitySidebarRuntime(t *testing.T, sidebar *Sidebar) {
 	if got, _ := runtime["provider"].(string); got != "claude" {
 		t.Fatalf("agentRuntimeById[thread-1].provider = %q, want claude", got)
 	}
-	if got, _ := runtime["providerThreadId"].(string); got != "thread-1" {
-		t.Fatalf("agentRuntimeById[thread-1].providerThreadId = %q, want thread-1", got)
+	if _, ok := runtime["providerThreadId"]; ok {
+		t.Fatalf("agentRuntimeById[thread-1].providerThreadId = %#v, want omitted without exact provider identity", runtime["providerThreadId"])
 	}
 	if got, _ := runtime["cwd"].(string); got != "/tmp/demo" {
 		t.Fatalf("agentRuntimeById[thread-1].cwd = %q, want /tmp/demo", got)
@@ -263,7 +263,7 @@ func TestApplyBindingToThreadRuntimeBackfillsProviderIdentity(t *testing.T) {
 	}
 }
 
-func TestApplyBindingToThreadRuntimeDoesNotBackfillProviderIdentityWithoutHistoryFile(t *testing.T) {
+func TestApplyBindingToThreadRuntimeBackfillsOfficialCodexUUIDWithoutHistoryFile(t *testing.T) {
 	t.Parallel()
 
 	const providerUUID = "019e218f-b514-7733-be85-b3ee7f6a78a6"
@@ -289,8 +289,25 @@ func TestApplyBindingToThreadRuntimeDoesNotBackfillProviderIdentityWithoutHistor
 	)
 
 	runtime := runtimeMap["thread-1"]
-	if got, _ := runtime["providerThreadId"].(string); got != "agent_1778679524655355000" {
-		t.Fatalf("runtime.providerThreadId = %q, want placeholder retained", got)
+	if got, _ := runtime["providerThreadId"].(string); got != providerUUID {
+		t.Fatalf("runtime.providerThreadId = %q, want official Codex UUID %s", got, providerUUID)
+	}
+}
+
+func TestExactSidebarProviderThreadIDRejectsFallbackIdentity(t *testing.T) {
+	t.Parallel()
+
+	const providerUUID = "019e218f-b514-7733-be85-b3ee7f6a78a6"
+	for _, invalid := range []string{"", "agent_1778679524655355000", "thread-1"} {
+		if got := exactSidebarProviderThreadID(invalid, "thread-1"); got != "" {
+			t.Fatalf("exactSidebarProviderThreadID(%q) = %q, want empty", invalid, got)
+		}
+	}
+	if got := exactSidebarProviderThreadID(providerUUID, "thread-1"); got != providerUUID {
+		t.Fatalf("exactSidebarProviderThreadID(UUID) = %q, want %s", got, providerUUID)
+	}
+	if got := exactSidebarProviderThreadID("provider-1", "thread-1"); got != "provider-1" {
+		t.Fatalf("exactSidebarProviderThreadID(provider native id) = %q, want provider-1", got)
 	}
 }
 

@@ -1,10 +1,11 @@
 package uistate
 
 import (
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/clone"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/clone"
 )
 
 const (
@@ -162,16 +163,14 @@ func normalizeSidebarAgent(agent *AgentSummary) {
 }
 
 // buildAgentRuntimeEntry 将 AgentSummary 转成 sidebar runtime wire 字段。
-// providerThreadId 优先使用 provider UUID，缺失时才回退公开 threadID，保持旧前端兼容。
+// providerThreadId 只暴露 provider 精确 identity；缺失时省略，禁止回退公开 threadID。
 func buildAgentRuntimeEntry(agent *AgentSummary, agentID, threadID string) map[string]any {
-	providerTID := agent.ProviderThreadID
-	if providerTID == "" {
-		providerTID = threadID
-	}
 	runtimeEntry := map[string]any{
-		"agentId":          agentID,
-		"state":            agent.AgentState,
-		"providerThreadId": providerTID,
+		"agentId": agentID,
+		"state":   agent.AgentState,
+	}
+	if providerThreadID := exactSidebarProviderThreadID(agent.ProviderThreadID, threadID); providerThreadID != "" {
+		runtimeEntry["providerThreadId"] = providerThreadID
 	}
 	if agent.Provider != "" {
 		runtimeEntry["provider"] = agent.Provider
@@ -201,6 +200,17 @@ func buildAgentRuntimeEntry(agent *AgentSummary, agentID, threadID string) map[s
 		runtimeEntry["capabilities"] = []string{}
 	}
 	return runtimeEntry
+}
+
+// exactSidebarProviderThreadID 拒绝空值、旧 agent placeholder 和公开 thread fallback。
+func exactSidebarProviderThreadID(raw, publicThreadID string) string {
+	providerThreadID := strings.TrimSpace(raw)
+	if providerThreadID == "" ||
+		strings.HasPrefix(providerThreadID, "agent_") ||
+		providerThreadID == strings.TrimSpace(publicThreadID) {
+		return ""
+	}
+	return providerThreadID
 }
 
 // buildLogPath 根据项目 CWD 生成 sidebar 兼容的日志目录。

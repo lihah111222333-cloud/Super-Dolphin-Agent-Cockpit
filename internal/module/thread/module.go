@@ -163,11 +163,13 @@ func threadBindingRecordToStore(binding *threadBindingRecord) *BindingRecord {
 	}
 }
 
-func bindingRecordHasProviderHistoryForUUID(binding *threadBindingRecord, providerThreadID string) bool {
+// bindingRecordHasProviderHistoryForUUID 转接 thread 模块内部 binding 类型。
+func bindingRecordHasProviderHistoryForUUID(binding *threadBindingRecord, providerThreadID string) (bool, error) {
 	return bindingHasProviderHistoryForUUID(threadBindingRecordToStore(binding), providerThreadID)
 }
 
-func historyTargetIDRecord(binding *threadBindingRecord, threadID string) string {
+// historyTargetIDRecord 转接 thread 模块内部历史目标类型。
+func historyTargetIDRecord(binding *threadBindingRecord, threadID string) (string, error) {
 	return historyTargetID(threadBindingRecordToStore(binding), threadID)
 }
 

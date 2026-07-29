@@ -43,7 +43,11 @@ func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error)
 	if err != nil {
 		return ForkResult{}, err
 	}
-	result, err := session.ForkThread(ctx, dto.ForkRequest{ThreadID: historyTargetID(binding, threadID)})
+	targetID, err := historyTargetID(binding, threadID)
+	if err != nil {
+		return ForkResult{}, err
+	}
+	result, err := session.ForkThread(ctx, dto.ForkRequest{ThreadID: targetID})
 	if err != nil {
 		return ForkResult{}, err
 	}
@@ -52,7 +56,7 @@ func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error)
 		return ForkResult{}, errors.New("fork thread id is required")
 	}
 	displayName := continuationName(strings.TrimSpace(meta.Name))
-	state := threadStateFields{PublicThreadID: newThreadID, OwnerThreadID: historyTargetID(binding, threadID), AgentID: newThreadID, ParentAgentID: meta.ParentAgentID, AgentType: meta.AgentType, AgentMemoryScope: meta.AgentMemoryScope, Provider: provider, CWD: cwd, Model: meta.Model, Name: displayName, Prompt: displayName, ConfigOverride: configOverride, CodexHome: identity.Home, CodexInstanceKey: identity.InstanceKey, CodexModelProvider: identity.ModelProvider, CreatedAt: time.Now().UnixMilli()}
+	state := threadStateFields{PublicThreadID: newThreadID, OwnerThreadID: targetID, AgentID: newThreadID, ParentAgentID: meta.ParentAgentID, AgentType: meta.AgentType, AgentMemoryScope: meta.AgentMemoryScope, Provider: provider, CWD: cwd, Model: meta.Model, Name: displayName, Prompt: displayName, ConfigOverride: configOverride, CodexHome: identity.Home, CodexInstanceKey: identity.InstanceKey, CodexModelProvider: identity.ModelProvider, CreatedAt: time.Now().UnixMilli()}
 	forkState := newThreadState(threadStateForkKind, state)
 	if err := s.persistCreatingForkStateWithPromptSnapshot(ctx, forkState, snapshot); err != nil {
 		return ForkResult{}, err
@@ -268,7 +272,10 @@ func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, 
 	agentID := strings.TrimSpace(binding.AgentID)
 	provider := strings.TrimSpace(binding.Provider)
 	publicThreadID := bindingPublicThreadID(binding, threadID)
-	providerThreadID := recoverableBindingProviderThreadID(binding)
+	providerThreadID, err := recoverableBindingProviderThreadID(binding)
+	if err != nil {
+		return RecoverResult{}, err
+	}
 	recoverCWD, err := resolveRecoverCWD(meta.CWD, binding.Cwd)
 	if err != nil {
 		return RecoverResult{}, err

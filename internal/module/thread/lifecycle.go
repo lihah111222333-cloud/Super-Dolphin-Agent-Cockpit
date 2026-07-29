@@ -281,7 +281,10 @@ func (s *service) persistStartedSession(
 		return StartResult{}, idempotency.RetainOnError(err, s.cleanupFailedStartedSession(ctx, agentID))
 	}
 	rolloutPath := session.RolloutPath()
-	providerThreadID := recoverableProviderThreadID(req.Provider, providerUUID, agentID, rolloutPath, codexHome)
+	providerThreadID, err := recoverableProviderThreadID(req.Provider, providerUUID, agentID, rolloutPath, codexHome)
+	if err != nil {
+		return StartResult{}, idempotency.RetainOnError(err, s.cleanupFailedStartedSession(ctx, agentID))
+	}
 	state := newThreadState(threadStateStartKind, threadStateFields{
 		AgentID:            agentID,
 		ParentAgentID:      req.ParentAgentID,
@@ -393,12 +396,15 @@ func (s *service) persistResumedSession(
 	if err != nil {
 		return ResumeResult{}, s.resumePersistFailure(ctx, req.AgentID, err)
 	}
-	if ok {
-		codexHome, codexInstanceKey, codexModelProvider = identity.Home, identity.InstanceKey, identity.ModelProvider
-	}
+	codexHome, codexInstanceKey, codexModelProvider = resolvedResumeCodexIdentity(
+		codexHome, codexInstanceKey, codexModelProvider, identity, ok,
+	)
 	rolloutPath := util.FirstNonEmpty(state.RolloutPath, session.RolloutPath())
 	sessionUUID := util.FirstNonEmpty(resolvedProviderUUID(session), state.SessionUUID, req.ProviderThreadID, state.ProviderThreadID)
-	providerThreadID := recoverableProviderThreadID(provider, sessionUUID, state.PublicThreadID, rolloutPath, codexHome)
+	providerThreadID, err := s.recoverResumedProviderThreadID(ctx, req.AgentID, provider, sessionUUID, state.PublicThreadID, rolloutPath, codexHome)
+	if err != nil {
+		return ResumeResult{}, err
+	}
 	threadState := newThreadState(threadStateResumeKind, threadStateFields{
 		RequestedThreadID:  req.ThreadID,
 		PublicThreadID:     state.PublicThreadID,
@@ -449,6 +455,30 @@ func (s *service) persistResumedSession(
 		Model:     model,
 		CWD:       req.CWD,
 	}, nil
+}
+
+// resolvedResumeCodexIdentity 在 canonical identity 可用时替换存量字段。
+func resolvedResumeCodexIdentity(
+	codexHome, codexInstanceKey, codexModelProvider string,
+	identity contract.CodexIdentity,
+	ok bool,
+) (string, string, string) {
+	if !ok {
+		return codexHome, codexInstanceKey, codexModelProvider
+	}
+	return identity.Home, identity.InstanceKey, identity.ModelProvider
+}
+
+// recoverResumedProviderThreadID 解析 resume 身份并统一执行失败清理。
+func (s *service) recoverResumedProviderThreadID(
+	ctx context.Context,
+	agentID, provider, sessionUUID, publicThreadID, rolloutPath, codexHome string,
+) (string, error) {
+	providerThreadID, err := recoverableProviderThreadID(provider, sessionUUID, publicThreadID, rolloutPath, codexHome)
+	if err != nil {
+		return "", s.resumePersistFailure(ctx, agentID, err)
+	}
+	return providerThreadID, nil
 }
 
 type resumedSessionActivator interface {

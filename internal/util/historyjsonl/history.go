@@ -6,13 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/sessionpaths"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
@@ -25,10 +26,43 @@ type ReadRequest struct {
 	ProviderThreadID string // provider 原生 thread/session ID，优先于内部 ID 匹配。
 	SessionUUID      string // provider 会话 UUID，Claude/Codex 历史恢复会用到。
 	CodexHome        string // Codex home 覆盖路径；为空时使用用户默认 home。
+	ClaudeHome       string // Claude home 覆盖路径；为空时按环境变量和用户 home 解析。
 }
 
 // errProviderHistoryNotFound 标记 provider 本地历史缺失，供上层转换成业务错误。
 var errProviderHistoryNotFound = errors.New("persisted thread history not found")
+
+// ParseError 表示 provider JSONL 中存在无法解码的损坏记录。
+type ParseError struct {
+	Provider string
+	Cause    error
+}
+
+// Error 返回 provider JSONL 解析失败上下文。
+func (e *ParseError) Error() string {
+	return fmt.Sprintf("parse %s provider history: %v", e.Provider, e.Cause)
+}
+
+// Unwrap 保留底层 JSON 解码错误。
+func (e *ParseError) Unwrap() error {
+	return e.Cause
+}
+
+// IsParseError 判断错误链中是否包含 provider JSONL 解析错误。
+func IsParseError(err error) bool {
+	var target *ParseError
+	return errors.As(err, &target)
+}
+
+type discoveryOps struct {
+	stat    func(string) (os.FileInfo, error)
+	walkDir func(string, fs.WalkDirFunc) error
+}
+
+var defaultDiscoveryOps = discoveryOps{
+	stat:    os.Stat,
+	walkDir: filepath.WalkDir,
+}
 
 // textItem 是 Codex/Claude JSONL 中文本 content item 的最小兼容结构。
 type textItem struct {
@@ -52,7 +86,10 @@ func ReadProviderMessages(req ReadRequest) ([]dto.Message, error) {
 	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	out := make([]dto.Message, 0, 32)
 	for scanner.Scan() {
-		msg, ok := parseLine(scanner.Bytes(), provider)
+		msg, ok, parseErr := parseLineStrict(scanner.Bytes(), provider)
+		if parseErr != nil {
+			return nil, parseErr
+		}
 		if ok {
 			out = append(out, msg)
 		}
@@ -92,7 +129,7 @@ func ReadProviderMessagesOrError(req ReadRequest, missingErr error) ([]dto.Messa
 
 // IsMissingProviderHistory 判断错误是否表示 provider 历史不存在。
 func IsMissingProviderHistory(err error) bool {
-	return errors.Is(err, os.ErrNotExist) || errors.Is(err, errProviderHistoryNotFound)
+	return errors.Is(err, errProviderHistoryNotFound)
 }
 
 // ExistingProviderPath 返回可读取的 provider 历史文件路径。
@@ -115,141 +152,247 @@ func ExistingProviderPath(req ReadRequest) (string, error) {
 	return path, nil
 }
 
+// ValidateProviderArtifact 确认 provider artifact 是可读普通文件，并严格扫描全部 JSONL 记录。
+func ValidateProviderArtifact(req ReadRequest) (string, error) {
+	path, provider, err := resolvePath(req)
+	if err != nil {
+		return "", err
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("%w: %w", errProviderHistoryNotFound, err)
+		}
+		return "", fmt.Errorf("open persisted thread history: %w", err)
+	}
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil {
+		return "", fmt.Errorf("stat persisted thread history: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("persisted thread history is not a regular file: %s", path)
+	}
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	for scanner.Scan() {
+		if len(strings.TrimSpace(scanner.Text())) == 0 {
+			continue
+		}
+		if _, _, err := parseLineStrict(scanner.Bytes(), provider); err != nil {
+			return "", err
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("scan persisted thread history: %w", err)
+	}
+	return path, nil
+}
+
 // resolvePath 优先使用显式 RolloutPath，否则按 provider 目录约定发现历史文件。
 func resolvePath(req ReadRequest) (string, string, error) {
 	provider := strings.ToLower(strings.TrimSpace(req.Provider))
+	if provider != "codex" && provider != "claude" {
+		return "", provider, fmt.Errorf("unsupported provider %q", provider)
+	}
 	if path := strings.TrimSpace(req.RolloutPath); path != "" {
 		return path, provider, nil
 	}
-	path := discoverPath(provider, req)
-	if path == "" {
-		return "", provider, errProviderHistoryNotFound
+	path, err := discoverPath(provider, req)
+	if err != nil {
+		return "", provider, err
 	}
 	return path, provider, nil
 }
 
 // discoverPath 根据 provider 类型选择本地历史发现策略。
-func discoverPath(provider string, req ReadRequest) string {
+func discoverPath(provider string, req ReadRequest) (string, error) {
 	switch provider {
 	case "claude":
 		return discoverClaudePath(req)
-	default:
+	case "codex":
 		return discoverCodexPath(req)
+	default:
+		return "", fmt.Errorf("unsupported provider %q", provider)
 	}
 }
 
 // discoverCodexPath 在 Codex sessions 目录中按候选 ID 查找最新 rollout JSONL。
-func discoverCodexPath(req ReadRequest) string {
-	root := codexRoot(req.CodexHome)
-	for _, id := range []string{
+func discoverCodexPath(req ReadRequest) (string, error) {
+	root, err := codexRoot(req.CodexHome)
+	if err != nil {
+		return "", err
+	}
+	return discoverMatchingArtifact(filepath.Join(root, "sessions"), []string{
 		req.ProviderThreadID,
 		req.ThreadID,
 		req.SessionUUID,
-	} {
-		id = strings.TrimSpace(id)
-		if id == "" {
-			continue
-		}
-		pattern, err := sessionpaths.CodexRolloutGlob(root, id)
-		if err != nil {
-			continue
-		}
-		if path := latestExistingMatch(pattern); path != "" {
-			return path
-		}
-	}
-	return ""
+	}, "rollout-", defaultDiscoveryOps)
 }
 
 // discoverClaudePath 用多个候选 ID 查找 Claude 历史文件。
 // Claude CLI 的真实 session UUID 可能异步写入，启动早期绑定库里不一定已有该值。
-func discoverClaudePath(req ReadRequest) string {
-	root := filepath.Join(claudeRoot(), "projects", "*")
-	for _, id := range []string{
+func discoverClaudePath(req ReadRequest) (string, error) {
+	return discoverClaudePathWithOps(req, defaultDiscoveryOps)
+}
+
+// discoverClaudePathWithOps 使用可注入文件系统操作发现 Claude artifact。
+func discoverClaudePathWithOps(req ReadRequest, ops discoveryOps) (string, error) {
+	root, err := claudeRoot(req.ClaudeHome)
+	if err != nil {
+		return "", err
+	}
+	return discoverMatchingArtifact(filepath.Join(root, "projects"), []string{
 		req.SessionUUID,
 		req.ProviderThreadID,
 		req.ThreadID,
-	} {
-		id = strings.TrimSpace(id)
-		if id == "" {
-			continue
-		}
-		if path := latestExistingMatch(filepath.Join(root, id+".jsonl")); path != "" {
-			return path
-		}
-	}
-	return ""
+	}, "", ops)
 }
 
-// claudeRoot 返回 Claude home；环境变量缺失或用户 home 不可读时返回空字符串。
-func claudeRoot() string {
+// claudeRoot 返回 Claude home；请求覆盖和环境变量均缺失时使用用户默认目录。
+func claudeRoot(override string) (string, error) {
+	if dir := strings.TrimSpace(override); dir != "" {
+		return dir, nil
+	}
+	if dir := strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR")); dir != "" {
+		return dir, nil
+	}
 	if dir := strings.TrimSpace(os.Getenv("CLAUDE_HOME")); dir != "" {
-		return dir
+		return dir, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("resolve claude home: %w", err)
 	}
-	return filepath.Join(home, ".claude")
+	return filepath.Join(home, ".claude"), nil
 }
 
 // codexRoot 返回 Codex home；请求覆盖为空时回退到用户默认目录。
-func codexRoot(raw string) string {
+func codexRoot(raw string) (string, error) {
 	if root := strings.TrimSpace(raw); root != "" {
-		return root
+		return root, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("resolve codex home: %w", err)
 	}
-	return filepath.Join(home, ".codex")
+	return filepath.Join(home, ".codex"), nil
 }
 
-// latestExistingMatch 从 glob 结果尾部向前找最新存在的非目录文件。
-func latestExistingMatch(pattern string) string {
-	matches, err := filepath.Glob(pattern)
-	if err != nil {
-		return ""
+// discoverMatchingArtifact 遍历 provider 根目录，并按候选 identity 顺序选择最新文件。
+func discoverMatchingArtifact(root string, ids []string, prefix string, ops discoveryOps) (string, error) {
+	if _, err := ops.stat(root); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("%w: provider root %s", errProviderHistoryNotFound, root)
+		}
+		return "", fmt.Errorf("stat provider history root %s: %w", root, err)
 	}
-	for i := len(matches) - 1; i >= 0; i-- {
-		if info, err := os.Stat(matches[i]); err == nil && !info.IsDir() {
-			return matches[i]
+	for _, rawID := range ids {
+		id := strings.TrimSpace(rawID)
+		if id == "" {
+			continue
+		}
+		matches, err := matchingArtifacts(root, prefix, id, ops)
+		if err != nil {
+			return "", fmt.Errorf("walk provider history root %s: %w", root, err)
+		}
+		if len(matches) > 0 {
+			sort.Strings(matches)
+			return matches[len(matches)-1], nil
 		}
 	}
-	return ""
+	return "", fmt.Errorf("%w: provider artifact under %s", errProviderHistoryNotFound, root)
+}
+
+// matchingArtifacts 严格遍历根目录并返回指定 identity 的普通文件。
+func matchingArtifacts(root, prefix, id string, ops discoveryOps) ([]string, error) {
+	matches := make([]string, 0, 1)
+	err := ops.walkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || !matchesArtifactName(entry.Name(), prefix, id) {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("provider history artifact is not a regular file: %s", path)
+		}
+		matches = append(matches, path)
+		return nil
+	})
+	return matches, err
+}
+
+// matchesArtifactName 判断文件名是否符合 provider artifact 约定。
+func matchesArtifactName(name, prefix, id string) bool {
+	return strings.HasPrefix(name, prefix) && strings.HasSuffix(name, "-"+id+".jsonl") ||
+		prefix == "" && name == id+".jsonl"
 }
 
 // parseLine 按 provider JSONL 结构解析单行历史，无法生成消息时返回 ok=false。
 func parseLine(raw []byte, provider string) (dto.Message, bool) {
-	if strings.EqualFold(strings.TrimSpace(provider), "claude") {
-		return parseClaudeLine(raw)
+	message, ok, _ := parseLineStrict(raw, provider)
+	return message, ok
+}
+
+// parseLineStrict 解析 provider JSONL 并传播损坏记录错误。
+func parseLineStrict(raw []byte, provider string) (dto.Message, bool, error) {
+	switch normalized := strings.ToLower(strings.TrimSpace(provider)); normalized {
+	case "claude":
+		return parseClaudeLineStrict(raw)
+	case "codex":
+		return parseCodexLineStrict(raw)
+	default:
+		return dto.Message{}, false, fmt.Errorf("unsupported provider %q", normalized)
 	}
-	return parseCodexLine(raw)
 }
 
 // parseCodexLine 解析 Codex rollout JSONL 的 response_item/message 记录。
 func parseCodexLine(raw []byte) (dto.Message, bool) {
+	message, ok, _ := parseCodexLineStrict(raw)
+	return message, ok
+}
+
+// parseCodexLineStrict 严格解析 Codex JSONL 单行。
+func parseCodexLineStrict(raw []byte) (dto.Message, bool, error) {
 	var line struct {
 		Timestamp string          `json:"timestamp"`
 		Type      string          `json:"type"`
 		Payload   json.RawMessage `json:"payload"`
 	}
-	if err := json.Unmarshal(raw, &line); err != nil || line.Type != "response_item" {
-		return dto.Message{}, false
+	if err := json.Unmarshal(raw, &line); err != nil {
+		return dto.Message{}, false, &ParseError{Provider: "codex", Cause: err}
+	}
+	if line.Type != "response_item" {
+		return dto.Message{}, false, nil
 	}
 	var payload struct {
 		Type    string     `json:"type"`
 		Role    string     `json:"role"`
 		Content []textItem `json:"content"`
 	}
-	if err := json.Unmarshal(line.Payload, &payload); err != nil || payload.Type != "message" {
-		return dto.Message{}, false
+	if err := json.Unmarshal(line.Payload, &payload); err != nil {
+		return dto.Message{}, false, &ParseError{Provider: "codex", Cause: err}
 	}
-	return buildMessage(payload.Role, collectText(payload.Content), line.Timestamp)
+	if payload.Type != "message" {
+		return dto.Message{}, false, nil
+	}
+	message, ok := buildMessage(payload.Role, collectText(payload.Content), line.Timestamp)
+	return message, ok, nil
 }
 
 // parseClaudeLine 解析 Claude CLI JSONL 的 message 记录。
 func parseClaudeLine(raw []byte) (dto.Message, bool) {
+	message, ok, _ := parseClaudeLineStrict(raw)
+	return message, ok
+}
+
+// parseClaudeLineStrict 严格解析 Claude JSONL 单行。
+func parseClaudeLineStrict(raw []byte) (dto.Message, bool, error) {
 	var line struct {
 		Type      string `json:"type"`
 		Timestamp string `json:"timestamp"`
@@ -259,9 +402,10 @@ func parseClaudeLine(raw []byte) (dto.Message, bool) {
 		} `json:"message"`
 	}
 	if err := json.Unmarshal(raw, &line); err != nil {
-		return dto.Message{}, false
+		return dto.Message{}, false, &ParseError{Provider: "claude", Cause: err}
 	}
-	return buildMessage(shared.FirstNonEmpty(line.Message.Role, line.Type), collectText(line.Message.Content), line.Timestamp)
+	message, ok := buildMessage(shared.FirstNonEmpty(line.Message.Role, line.Type), collectText(line.Message.Content), line.Timestamp)
+	return message, ok, nil
 }
 
 // buildMessage 过滤非 user/assistant 角色并标准化用户消息内容。

@@ -2,7 +2,6 @@ package unified
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -563,14 +562,24 @@ func TestSessionResolverAutoResumeDoesNotUseAgentIDAsThreadIDWithoutPublicThread
 	}
 }
 
-func TestSessionResolverAutoResumeRequiresProviderHistoryFile(t *testing.T) {
+func TestSessionResolverAutoResumeAcceptsOfficialCodexUUIDWithoutHistoryFile(t *testing.T) {
 	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "44444444-aaaa-bbbb-cccc-444444444444"}}
+	cwd := t.TempDir()
 	resolver := &sessionResolver{
+		threadStore: keyedThreadLookup{
+			"agent-4": {
+				ThreadID:       "agent-4",
+				AgentID:        "agent-4",
+				Status:         "running",
+				PromptSnapshot: autoResumePromptSnapshotForTest(),
+			},
+		},
 		bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
 			"codex:44444444-aaaa-bbbb-cccc-444444444444": {
 				Provider:         "codex",
 				AgentID:          "agent-4",
 				ProviderThreadID: "44444444-aaaa-bbbb-cccc-444444444444",
+				Cwd:              cwd,
 			},
 		}},
 		registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
@@ -579,15 +588,14 @@ func TestSessionResolverAutoResumeRequiresProviderHistoryFile(t *testing.T) {
 		sessions: NewSessionManager(nil),
 	}
 
-	_, err := resolver.ResolveSession(context.Background(), "44444444-aaaa-bbbb-cccc-444444444444")
-	if err == nil || !strings.Contains(err.Error(), "not found") {
-		t.Fatalf("ResolveSession() error = %v, want not found without provider history", err)
+	if _, err := resolver.ResolveSession(context.Background(), "44444444-aaaa-bbbb-cccc-444444444444"); err != nil {
+		t.Fatalf("ResolveSession() error = %v", err)
 	}
-	if errors.Is(err, contract.ErrSessionNotFound) {
-		t.Fatalf("ResolveSession() error = %v, want lookup not found wrapper", err)
+	if driver.resumed != 1 {
+		t.Fatalf("ResumeSession calls = %d, want 1", driver.resumed)
 	}
-	if driver.resumed != 0 {
-		t.Fatalf("ResumeSession calls = %d, want 0", driver.resumed)
+	if driver.resumeReq.ProviderThreadID != "44444444-aaaa-bbbb-cccc-444444444444" {
+		t.Fatalf("ProviderThreadID = %q, want official Codex UUID", driver.resumeReq.ProviderThreadID)
 	}
 }
 

@@ -284,7 +284,10 @@ func TestPersistedForkCreatingAndFailedAreNotBackgroundResumeCandidates(t *testi
 
 			svc, _, _, _ := newPersistedForkLifecycleFixture(t, status, "thread-parent")
 
-			agentID, ok := svc.backgroundResumeCandidate(context.Background(), "thread-fork")
+			agentID, ok, err := svc.backgroundResumeCandidate(context.Background(), "thread-fork")
+			if err != nil {
+				t.Fatalf("backgroundResumeCandidate() error = %v", err)
+			}
 
 			if ok || agentID != "" {
 				t.Fatalf("backgroundResumeCandidate() = %q/%v, want no candidate for fork status %q", agentID, ok, status)

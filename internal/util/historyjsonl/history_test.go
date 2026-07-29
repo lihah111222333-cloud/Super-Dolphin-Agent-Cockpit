@@ -66,7 +66,7 @@ func TestMissingProviderHistoryUsesSentinelNotStringMatching(t *testing.T) {
 }
 
 func TestReadProviderMessagesIfExistsTreatsMissingPathAsOptional(t *testing.T) {
-	_, ok, err := ReadProviderMessagesIfExists(ReadRequest{RolloutPath: filepath.Join(t.TempDir(), "missing.jsonl")})
+	_, ok, err := ReadProviderMessagesIfExists(ReadRequest{Provider: "codex", RolloutPath: filepath.Join(t.TempDir(), "missing.jsonl")})
 	if err != nil {
 		t.Fatalf("ReadProviderMessagesIfExists() error = %v", err)
 	}

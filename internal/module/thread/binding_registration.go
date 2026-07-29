@@ -595,7 +595,11 @@ func (r *bindingRecoveryReporter) recordProviderThreadID(ctx context.Context, bi
 	if current != "" && current != agentID && identifier.LooksLikeUUID(current) {
 		return nil
 	}
-	if !bindingRecordHasProviderHistoryForUUID(binding, sessionUUID) {
+	recoverable, err := bindingRecordHasProviderHistoryForUUID(binding, sessionUUID)
+	if err != nil {
+		return err
+	}
+	if !recoverable {
 		if r.logger != nil {
 			fields := []any{"agent_id", agentID, "session_uuid", sessionUUID}
 			fields = append(fields, platformshared.SafePathLogFields("rollout_path", binding.RolloutPath)...)
