@@ -48,6 +48,10 @@ class IssueLedgerCliTests(unittest.TestCase):
         self.assertEqual(data["ok"], expect == 0, data)
         return data
 
+    def invoke_raw(self, *args: str) -> subprocess.CompletedProcess[str]:
+        command = [sys.executable, str(SCRIPT), "--workbook", str(self.workbook), *args]
+        return subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
     def fails(self, *args: str) -> dict:
         return self.invoke(*args, expect=2)
 
@@ -141,6 +145,54 @@ class IssueLedgerCliTests(unittest.TestCase):
         project = self.invoke("ledger", "project-info")["result"]["project"]
         self.assertEqual(project["project_id"], "proj")
         self.assertEqual(project["version"], 2)
+
+    def test_read_command_argument_contracts_and_workbook_immutability(self) -> None:
+        help_contracts = {
+            "get": (("--issue-id",), ("--query",)),
+            "list": ((), ("--issue-id", "--query")),
+            "search": (("--query",), ("--issue-id",)),
+            "history": (("--issue-id",), ("--query",)),
+        }
+        for command, (present, absent) in help_contracts.items():
+            with self.subTest(command=command, behavior="help"):
+                completed = self.invoke_raw("issue", command, "--help")
+                self.assertEqual(completed.returncode, 0, completed.stderr + completed.stdout)
+                for option in present:
+                    self.assertIn(option, completed.stdout)
+                for option in absent:
+                    self.assertNotIn(option, completed.stdout)
+
+        for command, (_, absent) in help_contracts.items():
+            for option in absent:
+                with self.subTest(command=command, behavior="reject unrelated argument", option=option):
+                    completed = self.invoke_raw("issue", command, option, "irrelevant")
+                    self.assertEqual(completed.returncode, 2, completed.stderr + completed.stdout)
+                    self.assertIn("unrecognized arguments:", completed.stderr)
+
+        self.init()
+        first = self.report("renderer crash")
+        second = self.report("network timeout")
+        before = self.digest()
+        valid_results = {
+            "get": self.invoke("issue", "get", "--issue-id", first["issue_id"])["result"],
+            "list": self.invoke("issue", "list")["result"],
+            "search": self.invoke("issue", "search", "--query", "renderer")["result"],
+            "history": self.invoke("issue", "history", "--issue-id", first["issue_id"])["result"],
+        }
+        self.assertEqual(valid_results["get"]["issue_id"], first["issue_id"])
+        self.assertEqual(
+            {row["issue_id"] for row in valid_results["list"]},
+            {first["issue_id"], second["issue_id"]},
+        )
+        self.assertEqual(
+            [row["issue_id"] for row in valid_results["search"]],
+            [first["issue_id"]],
+        )
+        self.assertEqual(
+            {event["issue_id"] for event in valid_results["history"]},
+            {first["issue_id"]},
+        )
+        self.assertEqual(self.digest(), before)
 
     def test_report_idempotency_and_expected_version_conflict_are_atomic(self) -> None:
         self.init()
