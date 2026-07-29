@@ -87,7 +87,7 @@ func newResumeInvalidationService(t *testing.T, worktreeCWD string, promptAssemb
 		AgentID:       "agent-resume",
 		Provider:      "codex",
 		CodexThreadID: "thread-resume",
-		RolloutPath:   writeExistingProviderHistoryFile(t),
+		RolloutPath:   writeExistingProviderHistoryFile(t, providerThreadID),
 		SessionUUID:   providerThreadID,
 		Cwd:           worktreeCWD,
 	}}

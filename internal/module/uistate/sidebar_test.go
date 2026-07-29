@@ -3,6 +3,7 @@ package uistate
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -225,7 +226,7 @@ func TestApplyBindingToThreadRuntimeBackfillsProviderIdentity(t *testing.T) {
 	t.Parallel()
 
 	const providerUUID = "019e218f-b514-7733-be85-b3ee7f6a78a6"
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, providerUUID)
 	runtimeMap := map[string]map[string]any{
 		"thread-1": {
 			"agentId":          "agent-1",
@@ -245,6 +246,7 @@ func TestApplyBindingToThreadRuntimeBackfillsProviderIdentity(t *testing.T) {
 				Cwd:              "/repo",
 			},
 		},
+		map[string]string{"agent-1": providerUUID},
 		runtimeMap,
 	)
 
@@ -285,6 +287,7 @@ func TestApplyBindingToThreadRuntimeBackfillsOfficialCodexUUIDWithoutHistoryFile
 				Cwd:              "/repo",
 			},
 		},
+		map[string]string{"agent-1": providerUUID},
 		runtimeMap,
 	)
 
@@ -311,10 +314,50 @@ func TestExactSidebarProviderThreadIDRejectsFallbackIdentity(t *testing.T) {
 	}
 }
 
-func writeExistingProviderHistoryFile(t *testing.T) string {
+func TestResolveBindingProviderThreadsCallsResolverOncePerBinding(t *testing.T) {
+	t.Parallel()
+
+	const providerUUID = "019e218f-b514-7733-be85-b3ee7f6a78a6"
+	bindings := make(map[string]BindingEntry, 128)
+	for i := range 128 {
+		agentID := fmt.Sprintf("agent-%03d", i)
+		bindings[agentID] = BindingEntry{AgentID: agentID, Provider: "codex", SessionUUID: providerUUID}
+	}
+	calls := make(map[string]int, len(bindings))
+	resolved, err := resolveBindingProviderThreads(bindings, func(binding BindingEntry) (string, error) {
+		calls[binding.AgentID]++
+		return providerUUID, nil
+	})
+	if err != nil {
+		t.Fatalf("resolveBindingProviderThreads() error = %v", err)
+	}
+	if len(resolved) != len(bindings) {
+		t.Fatalf("resolved bindings = %d, want %d", len(resolved), len(bindings))
+	}
+	for agentID := range bindings {
+		if calls[agentID] != 1 {
+			t.Fatalf("resolver calls for %s = %d, want 1", agentID, calls[agentID])
+		}
+	}
+}
+
+func TestResolveBindingProviderThreadsRejectsMissingResolver(t *testing.T) {
+	t.Parallel()
+
+	if _, err := resolveBindingProviderThreads(map[string]BindingEntry{"agent-1": {}}, nil); err == nil {
+		t.Fatal("resolveBindingProviderThreads() error = nil, want missing resolver failure")
+	}
+}
+
+func writeExistingProviderHistoryFile(t *testing.T, identity string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "history.jsonl")
-	if err := os.WriteFile(path, []byte("{}\n"), 0o600); err != nil {
+	root := filepath.Join(t.TempDir(), "sessions", "2026", "07", "29")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatalf("create provider history root: %v", err)
+	}
+	path := filepath.Join(root, "rollout-test-"+identity+".jsonl")
+	content := fmt.Sprintf("{\"type\":\"session_meta\",\"payload\":{\"id\":%q}}\n", identity)
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write provider history file: %v", err)
 	}
 	return path

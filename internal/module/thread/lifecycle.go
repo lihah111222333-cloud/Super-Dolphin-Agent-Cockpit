@@ -281,7 +281,7 @@ func (s *service) persistStartedSession(
 		return StartResult{}, idempotency.RetainOnError(err, s.cleanupFailedStartedSession(ctx, agentID))
 	}
 	rolloutPath := session.RolloutPath()
-	providerThreadID, err := recoverableProviderThreadID(req.Provider, providerUUID, agentID, rolloutPath, codexHome)
+	providerThreadID, err := recoverableProviderThreadID(req.Provider, providerUUID, rolloutPath, codexHome)
 	if err != nil {
 		return StartResult{}, idempotency.RetainOnError(err, s.cleanupFailedStartedSession(ctx, agentID))
 	}
@@ -401,7 +401,7 @@ func (s *service) persistResumedSession(
 	)
 	rolloutPath := util.FirstNonEmpty(state.RolloutPath, session.RolloutPath())
 	sessionUUID := util.FirstNonEmpty(resolvedProviderUUID(session), state.SessionUUID, req.ProviderThreadID, state.ProviderThreadID)
-	providerThreadID, err := s.recoverResumedProviderThreadID(ctx, req.AgentID, provider, sessionUUID, state.PublicThreadID, rolloutPath, codexHome)
+	providerThreadID, err := s.recoverResumedProviderThreadID(ctx, req.AgentID, provider, sessionUUID, rolloutPath, codexHome)
 	if err != nil {
 		return ResumeResult{}, err
 	}
@@ -472,9 +472,9 @@ func resolvedResumeCodexIdentity(
 // recoverResumedProviderThreadID 解析 resume 身份并统一执行失败清理。
 func (s *service) recoverResumedProviderThreadID(
 	ctx context.Context,
-	agentID, provider, sessionUUID, publicThreadID, rolloutPath, codexHome string,
+	agentID, provider, sessionUUID, rolloutPath, codexHome string,
 ) (string, error) {
-	providerThreadID, err := recoverableProviderThreadID(provider, sessionUUID, publicThreadID, rolloutPath, codexHome)
+	providerThreadID, err := recoverableProviderThreadID(provider, sessionUUID, rolloutPath, codexHome)
 	if err != nil {
 		return "", s.resumePersistFailure(ctx, agentID, err)
 	}

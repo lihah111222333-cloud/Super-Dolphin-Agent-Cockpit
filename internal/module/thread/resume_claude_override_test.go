@@ -14,7 +14,7 @@ func TestServiceResumeClaudeWithoutStoredOverrideDoesNotInventConfigOverride(t *
 	t.Parallel()
 
 	const providerThreadID = "11111111-2222-3333-4444-555555555555"
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, providerThreadID, "claude")
 	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID: "thread-1", AgentID: "agent-1", Prompt: "resume",
 		Model: "sonnet", Cwd: "/repo", CreatedAt: 123,
@@ -51,7 +51,7 @@ func TestBackgroundResumeIfNeededRehydratesClaudeOverrideConfig(t *testing.T) {
 	model := "claude-sonnet-4-20250514[1m]"
 	effort := "max"
 	const providerThreadID = "11111111-2222-3333-4444-555555555555"
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, providerThreadID, "claude")
 	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID: "thread-1", AgentID: "agent-1", Prompt: "resume",
 		Model: "sonnet", Cwd: "/repo", CreatedAt: 123, Status: statusCreated,

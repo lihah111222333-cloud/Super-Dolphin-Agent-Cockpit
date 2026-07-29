@@ -1,0 +1,161 @@
+package historyjsonl
+
+import (
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync/atomic"
+	"testing"
+)
+
+func TestRecoveryValidatorClassifiesDiscoveryDeletionAsRace(t *testing.T) {
+	t.Parallel()
+
+	const identity = "019e218f-b514-7733-be85-b3ee7f6a78a6"
+	home := t.TempDir()
+	path := writeRecoveryCodexArtifact(t, home, identity, 0)
+	ops := defaultRecoveryFS
+	ops.walkDir = func(root string, walkFn fs.WalkDirFunc) error {
+		if err := filepath.WalkDir(root, walkFn); err != nil {
+			return err
+		}
+		return os.Remove(path)
+	}
+	validator := newRecoveryValidator(ops, 8)
+
+	_, err := validator.validate(ReadRequest{
+		Provider:         "codex",
+		ProviderThreadID: identity,
+		CodexHome:        home,
+	})
+	if !IsRecoveryArtifactRaceError(err) {
+		t.Fatalf("validate() error = %v, want RecoveryArtifactRaceError", err)
+	}
+	if IsMissingProviderHistory(err) {
+		t.Fatalf("validate() error = %v, must not downgrade discovery deletion to missing", err)
+	}
+}
+
+func TestRecoveryValidatorCachesStableLargeArtifactAndInvalidatesRevision(t *testing.T) {
+	t.Parallel()
+
+	const identity = "019e218f-b514-7733-be85-b3ee7f6a78a6"
+	home := t.TempDir()
+	path := writeRecoveryCodexArtifact(t, home, identity, 16_384)
+	var walkCalls atomic.Int64
+	var openCalls atomic.Int64
+	ops := defaultRecoveryFS
+	ops.walkDir = func(root string, walkFn fs.WalkDirFunc) error {
+		walkCalls.Add(1)
+		return filepath.WalkDir(root, walkFn)
+	}
+	ops.open = func(path string) (*os.File, error) {
+		openCalls.Add(1)
+		return os.Open(path)
+	}
+	validator := newRecoveryValidator(ops, 8)
+	req := ReadRequest{Provider: "codex", ProviderThreadID: identity, CodexHome: home}
+
+	if _, err := validator.validate(req); err != nil {
+		t.Fatalf("first validate() error = %v", err)
+	}
+	if _, err := validator.validate(req); err != nil {
+		t.Fatalf("cached validate() error = %v", err)
+	}
+	if got := walkCalls.Load(); got != 1 {
+		t.Fatalf("stable cache WalkDir calls = %d, want 1", got)
+	}
+	if got := openCalls.Load(); got != 1 {
+		t.Fatalf("stable cache open calls = %d, want 1", got)
+	}
+
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatalf("open artifact append: %v", err)
+	}
+	if _, err := file.WriteString(recoveryCodexMessageLine("revision-change")); err != nil {
+		_ = file.Close()
+		t.Fatalf("append artifact: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close artifact append: %v", err)
+	}
+	if _, err := validator.validate(req); err != nil {
+		t.Fatalf("revision validate() error = %v", err)
+	}
+	if got := walkCalls.Load(); got != 1 {
+		t.Fatalf("revision invalidation WalkDir calls = %d, want cached path without re-walk", got)
+	}
+	if got := openCalls.Load(); got != 2 {
+		t.Fatalf("revision invalidation open calls = %d, want 2", got)
+	}
+}
+
+func TestRecoveryValidatorCacheIsBounded(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	validator := newRecoveryValidator(defaultRecoveryFS, 4)
+	for i := range 12 {
+		identity := fmt.Sprintf("019e218f-b514-7733-be85-%012x", i+1)
+		writeRecoveryCodexArtifact(t, home, identity, 0)
+		if _, err := validator.validate(ReadRequest{
+			Provider:         "codex",
+			ProviderThreadID: identity,
+			CodexHome:        home,
+		}); err != nil {
+			t.Fatalf("validate(%s) error = %v", identity, err)
+		}
+	}
+	if got := validator.cache.len(); got != 4 {
+		t.Fatalf("cache len = %d, want cap 4", got)
+	}
+}
+
+func BenchmarkRecoveryValidatorCachedLargeArtifact(b *testing.B) {
+	const identity = "019e218f-b514-7733-be85-b3ee7f6a78a6"
+	home := b.TempDir()
+	writeRecoveryCodexArtifact(b, home, identity, 16_384)
+	validator := newRecoveryValidator(defaultRecoveryFS, 8)
+	req := ReadRequest{Provider: "codex", ProviderThreadID: identity, CodexHome: home}
+	if _, err := validator.validate(req); err != nil {
+		b.Fatalf("prime validate() error = %v", err)
+	}
+	b.ResetTimer()
+	for range b.N {
+		if _, err := validator.validate(req); err != nil {
+			b.Fatalf("cached validate() error = %v", err)
+		}
+	}
+}
+
+type recoveryTestTB interface {
+	Helper()
+	Fatalf(string, ...any)
+}
+
+func writeRecoveryCodexArtifact(tb recoveryTestTB, home, identity string, messages int) string {
+	tb.Helper()
+	path := filepath.Join(home, "sessions", "2026", "07", "29", "rollout-test-"+identity+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		tb.Fatalf("mkdir recovery artifact: %v", err)
+	}
+	var body strings.Builder
+	body.WriteString(fmt.Sprintf(`{"type":"session_meta","payload":{"id":%q}}`+"\n", identity))
+	for i := range messages {
+		body.WriteString(recoveryCodexMessageLine(fmt.Sprintf("message-%05d-%s", i, strings.Repeat("x", 128))))
+	}
+	if err := os.WriteFile(path, []byte(body.String()), 0o600); err != nil {
+		tb.Fatalf("write recovery artifact: %v", err)
+	}
+	return path
+}
+
+func recoveryCodexMessageLine(content string) string {
+	return fmt.Sprintf(
+		`{"timestamp":"2026-07-29T00:00:00Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":%q}]}}`+"\n",
+		content,
+	)
+}

@@ -226,7 +226,7 @@ func newAutoResumeResolverForTest(
 	providerThreadID string,
 ) *sessionResolver {
 	t.Helper()
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, providerThreadID)
 	return &sessionResolver{
 		threadStore: keyedThreadLookup{
 			publicThreadID: {
@@ -459,7 +459,7 @@ func TestConcurrentClientAndResolverResumeSharePendingSession(t *testing.T) {
 func TestConcurrentColdAutoResumeInvokesProviderResumeOnce(t *testing.T) {
 	t.Parallel()
 
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, "11111111-aaaa-bbbb-cccc-111111111119")
 	driver := newBlockingResumeDriver("codex", &generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111119"})
 	resolver := &sessionResolver{
 		threadStore: keyedThreadLookup{
@@ -592,7 +592,7 @@ func TestSessionResolverDoesNotAutoResumeStoppedOrArchivedThread(t *testing.T) {
 		t.Run(status, func(t *testing.T) {
 			t.Parallel()
 
-			rolloutPath := writeExistingProviderHistoryFile(t)
+			rolloutPath := writeExistingProviderHistoryFile(t, "11111111-aaaa-bbbb-cccc-111111111113")
 			driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111113"}}
 			resolver := &sessionResolver{
 				threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
@@ -639,7 +639,7 @@ func TestAutoResumeRejectsArchivedBinding(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			rolloutPath := writeExistingProviderHistoryFile(t)
+			rolloutPath := writeExistingProviderHistoryFile(t, "11111111-aaaa-bbbb-cccc-111111111118")
 			driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111118"}}
 			resolver := &sessionResolver{
 				threadStore: keyedThreadLookup{
@@ -681,7 +681,7 @@ func TestAutoResumeRejectsArchivedBinding(t *testing.T) {
 func TestSessionResolverProviderThreadDoesNotAutoResumeStoppedThread(t *testing.T) {
 	t.Parallel()
 
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, "11111111-aaaa-bbbb-cccc-111111111114")
 	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111114"}}
 	resolver := &sessionResolver{
 		threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
@@ -717,7 +717,7 @@ func TestSessionResolverProviderThreadDoesNotAutoResumeStoppedThread(t *testing.
 func TestAutoResumeRuntimeConfigFailsOnThreadStoreError(t *testing.T) {
 	t.Parallel()
 
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, "11111111-aaaa-bbbb-cccc-111111111115")
 	wantErr := errors.New("thread config decode failed")
 	threadStore := &sequenceThreadLookup{
 		refs: []*contract.SessionThreadRef{

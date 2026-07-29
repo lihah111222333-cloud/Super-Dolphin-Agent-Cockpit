@@ -5,14 +5,14 @@
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 4234,
+  "files": 4259,
   "domains": {
     "docs-agent": 88,
-    "other": 954,
-    "app-ui": 685,
-    "platform-provider": 1146,
+    "other": 958,
+    "app-ui": 702,
+    "platform-provider": 1147,
     "orchestration": 401,
-    "modules": 751,
+    "modules": 754,
     "store-sql": 209
   },
   "index_files": {
@@ -22,8 +22,8 @@
       {
         "key": "app-ui",
         "file": "docs/doc/codemap/project-map/index/app-ui.tsv",
-        "file_count": 685,
-        "size_kb": 139.9,
+        "file_count": 702,
+        "size_kb": 143.4,
         "desc": "桌面应用、Wails host、React/Vite 前端与 UI 测试"
       },
       {
@@ -36,15 +36,15 @@
       {
         "key": "modules",
         "file": "docs/doc/codemap/project-map/index/modules.tsv",
-        "file_count": 751,
-        "size_kb": 146.1,
+        "file_count": 754,
+        "size_kb": 146.8,
         "desc": "业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等"
       },
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1146,
-        "size_kb": 211.8,
+        "file_count": 1147,
+        "size_kb": 212,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
@@ -64,8 +64,8 @@
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 954,
-        "size_kb": 190.8,
+        "file_count": 958,
+        "size_kb": 191.6,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -74,8 +74,8 @@
     "(root)": 12,
     "cmd": 750,
     "docs": 80,
-    "frontend-app": 679,
-    "internal": 2462,
+    "frontend-app": 696,
+    "internal": 2470,
     "pkg": 30,
     "scripts": 173,
     "sql": 29,
@@ -233,7 +233,7 @@
   ],
   "drift": {
     "status": "OK",
-    "unknown_ratio": 0.0191,
+    "unknown_ratio": 0.019,
     "unknown_files": 81,
     "thresholds": {
       "max_unknown_ratio": 0.05

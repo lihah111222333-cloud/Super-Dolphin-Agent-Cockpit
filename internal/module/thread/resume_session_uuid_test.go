@@ -2,6 +2,7 @@ package thread
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,10 +12,33 @@ import (
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 )
 
-func writeExistingProviderHistoryFile(t *testing.T) string {
+func writeExistingProviderHistoryFile(t *testing.T, args ...string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "history.jsonl")
-	if err := os.WriteFile(path, []byte("{}\n"), 0o600); err != nil {
+	identity := "00000000-0000-4000-8000-000000000001"
+	provider := "codex"
+	if len(args) > 0 {
+		identity = args[0]
+	}
+	if len(args) > 1 {
+		provider = args[1]
+	}
+	home := t.TempDir()
+	if len(args) > 2 {
+		home = args[2]
+	}
+	root := filepath.Join(home, "sessions", "2026", "07", "29")
+	name := "rollout-test-" + identity + ".jsonl"
+	content := fmt.Sprintf("{\"type\":\"session_meta\",\"payload\":{\"id\":%q}}\n", identity)
+	if provider == "claude" {
+		root = filepath.Join(home, "projects", "test-project")
+		name = identity + ".jsonl"
+		content = fmt.Sprintf("{\"sessionId\":%q,\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"test\"}]}}\n", identity)
+	}
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatalf("create provider history root: %v", err)
+	}
+	path := filepath.Join(root, name)
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write provider history file: %v", err)
 	}
 	return path
@@ -36,7 +60,7 @@ func TestServiceResumePrefersSessionUUIDOverStaleProviderThreadID(t *testing.T) 
 	// SessionUUID must look like a real UUID so the resume logic prefers it
 	// over the stale ProviderThreadID placeholder when the CLI file exists.
 	const realUUID = "019d5f6b-fb3c-7760-9d6f-54005553f5b3"
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, realUUID, "claude")
 	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "claude",
@@ -113,7 +137,7 @@ func TestServiceRecoverUsesSessionUUIDForProviderResumeWhenPublicThreadIsAgentID
 	t.Parallel()
 
 	const realUUID = "019d5f6b-fb3c-7760-9d6f-54005553f5b3"
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, realUUID)
 	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "agent-1",
 		AgentID:   "agent-1",

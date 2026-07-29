@@ -421,7 +421,7 @@ func resumeCodexIdentityStores(
 	}
 	binding.ProviderThreadID = providerThreadID
 	binding.CodexThreadID = threadID
-	binding.RolloutPath = writeExistingProviderHistoryFile(t)
+	binding.RolloutPath = writeExistingProviderHistoryFile(t, providerThreadID, binding.Provider)
 	binding.Cwd = cwd
 	return threads, &stubBindingStore{binding: &binding}
 }

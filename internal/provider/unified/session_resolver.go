@@ -337,7 +337,6 @@ func providerRecoveryRequestFromSessionBinding(binding *contract.SessionBinding)
 	return providerrecovery.Request{
 		Provider:         binding.Provider,
 		RolloutPath:      binding.RolloutPath,
-		PublicThreadID:   binding.CodexThreadID,
 		ProviderThreadID: binding.ProviderThreadID,
 		SessionUUID:      binding.SessionUUID,
 		CodexHome:        binding.CodexHome,

@@ -410,7 +410,7 @@ func unifiedResumeIdentityCase() contracttest.Case {
 				ProviderThreadID: providerThreadID,
 				CodexThreadID:    "public-thread-should-not-be-used",
 				Cwd:              t.TempDir(),
-				RolloutPath:      writeExistingProviderHistoryFile(t),
+				RolloutPath:      writeExistingProviderHistoryFile(t, providerThreadID),
 			}
 			plan, err := resolver.buildAutoResumePlan(binding, map[string]any{"provider": "codex"}, unifiedContractPromptSnapshot(), "public-thread-resume")
 			if err != nil {

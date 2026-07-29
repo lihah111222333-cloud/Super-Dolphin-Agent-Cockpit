@@ -211,7 +211,7 @@ func TestResumeRestoresFromSnapshot(t *testing.T) {
 		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
 	const providerThreadID = "019d5f6b-fb3c-7760-9d6f-54005553f608"
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, providerThreadID)
 	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-assembly",
 		Provider:         "codex",
@@ -277,7 +277,7 @@ func TestResumeDoesNotInvalidatePromptAssemblyWithoutWorktreeRestore(t *testing.
 		AgentID:       "agent-resume",
 		Provider:      "codex",
 		CodexThreadID: "thread-resume",
-		RolloutPath:   writeExistingProviderHistoryFile(t),
+		RolloutPath:   writeExistingProviderHistoryFile(t, providerThreadID),
 		SessionUUID:   providerThreadID,
 		Cwd:           "/repo",
 	}}
@@ -318,7 +318,7 @@ func TestResumeInvalidatesPromptAssemblyForWorktreeRestore(t *testing.T) {
 		AgentID:       "agent-resume",
 		Provider:      "codex",
 		CodexThreadID: "thread-resume",
-		RolloutPath:   writeExistingProviderHistoryFile(t),
+		RolloutPath:   writeExistingProviderHistoryFile(t, providerThreadID),
 		SessionUUID:   providerThreadID,
 		Cwd:           worktreeCWD,
 	}}

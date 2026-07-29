@@ -170,7 +170,7 @@ func TestResumeUsesStoredRuntimeCodexIdentityWhenBindingIdentityIsEmpty(t *testi
 		AgentID:       "agent-runtime-resume",
 		Provider:      "codex",
 		CodexThreadID: "thread-runtime-resume",
-		RolloutPath:   writeExistingProviderHistoryFile(t),
+		RolloutPath:   writeExistingProviderHistoryFile(t, providerUUID),
 		SessionUUID:   providerUUID,
 		Cwd:           threads.thread.Cwd,
 	}}

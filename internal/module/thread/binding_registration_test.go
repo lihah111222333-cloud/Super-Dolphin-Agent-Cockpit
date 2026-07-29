@@ -117,7 +117,7 @@ func TestBindingRecoveryReporterRecordsProviderSessionUUID(t *testing.T) {
 		AgentID:          "agent-1",
 		Provider:         "claude",
 		ProviderThreadID: "agent-1",
-		RolloutPath:      writeExistingProviderHistoryFile(t),
+		RolloutPath:      writeExistingProviderHistoryFile(t, sessionUUID, "claude"),
 	}}
 	reporter := NewBindingRecoveryReporter(bindings, silentLogger())
 

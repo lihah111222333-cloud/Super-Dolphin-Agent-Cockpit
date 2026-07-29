@@ -459,7 +459,7 @@ func publishPendingSpawnLaunched(
 	effectiveModel, effectiveCWD, _ := enrichFromSessionConfig(session, req.Model, req.CWD)
 	providerUUID := resolvedProviderUUID(session)
 	rolloutPath := session.RolloutPath()
-	providerThreadID, err := recoverableProviderThreadID(req.Provider, providerUUID, threadID, rolloutPath, "")
+	providerThreadID, err := recoverableProviderThreadID(req.Provider, providerUUID, rolloutPath, "")
 	if err != nil {
 		return err
 	}

@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/historyjsonl"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/identifier"
 )
 
 // ErrorKind 是 provider recovery 的稳定错误分类。
@@ -76,7 +76,6 @@ const (
 type Request struct {
 	Provider         string
 	RolloutPath      string
-	PublicThreadID   string
 	ProviderThreadID string
 	SessionUUID      string
 	CodexHome        string
@@ -105,13 +104,11 @@ func Resolve(req Request) (Result, error) {
 	historyReq := historyjsonl.ReadRequest{
 		Provider:         provider,
 		RolloutPath:      strings.TrimSpace(req.RolloutPath),
-		ThreadID:         strings.TrimSpace(req.PublicThreadID),
 		ProviderThreadID: providerThreadID,
-		SessionUUID:      providerThreadID,
 		CodexHome:        strings.TrimSpace(req.CodexHome),
 		ClaudeHome:       strings.TrimSpace(req.ClaudeHome),
 	}
-	artifactPath, err := historyjsonl.ValidateProviderArtifact(historyReq)
+	artifactPath, err := historyjsonl.ValidateRecoveryArtifact(historyReq)
 	if err == nil {
 		return Result{
 			Provider:         provider,
@@ -154,18 +151,27 @@ func ResolveOptional(req Request) (Result, error) {
 
 // hasRecoveryIdentity 判断 optional 调用是否存在官方 UUID 候选。
 func hasRecoveryIdentity(req Request) bool {
-	return identifier.LooksLikeUUID(strings.TrimSpace(req.ProviderThreadID)) ||
-		identifier.LooksLikeUUID(strings.TrimSpace(req.SessionUUID))
+	return isCanonicalUUID(req.ProviderThreadID) || isCanonicalUUID(req.SessionUUID)
 }
 
 func resolveIdentity(req Request) (string, IdentitySource, error) {
-	if candidate := strings.TrimSpace(req.ProviderThreadID); identifier.LooksLikeUUID(candidate) {
+	if candidate := req.ProviderThreadID; isCanonicalUUID(candidate) {
 		return candidate, IdentitySourceProviderThreadID, nil
 	}
-	if candidate := strings.TrimSpace(req.SessionUUID); identifier.LooksLikeUUID(candidate) {
+	if candidate := req.SessionUUID; isCanonicalUUID(candidate) {
 		return candidate, IdentitySourceLegacySessionUUID, nil
 	}
 	return "", "", errors.New("official provider UUID is required")
+}
+
+// isCanonicalUUID 只接受 RFC 4122 canonical 36 字符 UUID，拒绝 nil 和宽松变体。
+func isCanonicalUUID(raw string) bool {
+	candidate := strings.TrimSpace(raw)
+	if candidate != raw {
+		return false
+	}
+	parsed, err := uuid.Parse(candidate)
+	return err == nil && parsed != uuid.Nil && parsed.String() == candidate
 }
 
 func classifyArtifactError(err error) ErrorKind {
@@ -174,6 +180,8 @@ func classifyArtifactError(err error) ErrorKind {
 		return ErrorKindPermission
 	case historyjsonl.IsParseError(err):
 		return ErrorKindParse
+	case historyjsonl.IsRecoveryArtifactIdentityError(err):
+		return ErrorKindInvalidIdentity
 	default:
 		return ErrorKindIO
 	}

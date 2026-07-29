@@ -150,7 +150,7 @@ func TestPhase45ResumeForwardsPromptSnapshot(t *testing.T) {
 		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
 	const providerThreadID = "11111111-2222-3333-4444-555555555561"
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, providerThreadID)
 	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
@@ -205,7 +205,7 @@ func TestPhaseGResumeRebuildsPromptSnapshotFromStoredAgentIdentity(t *testing.T)
 		ConfigOverride:   legacyPromptSnapshotMigrationConfig(t),
 	}}
 	const providerThreadID = "11111111-2222-3333-4444-555555555562"
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, providerThreadID)
 	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		ParentAgentID:    "agent-root",

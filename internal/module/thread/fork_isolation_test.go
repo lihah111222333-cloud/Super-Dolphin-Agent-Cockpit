@@ -77,7 +77,7 @@ func TestServiceForkUsesRecoverableSessionUUIDWhenProviderThreadIDMissing(t *tes
 		AgentID:       "agent-parent",
 		Provider:      "codex",
 		CodexThreadID: "agent-parent",
-		RolloutPath:   writeExistingProviderHistoryFile(t),
+		RolloutPath:   writeExistingProviderHistoryFile(t, parentUUID),
 		SessionUUID:   parentUUID,
 		Cwd:           "/repo",
 	}}
@@ -399,7 +399,7 @@ func forkParentThreadStore() *stubThreadStore {
 func newPersistedForkLifecycleFixture(t *testing.T, status, ownerThreadID string) (*service, *recordingForkThreadStore, *stubBindingStore, *int) {
 	t.Helper()
 	provider := "claude"
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, retainedForkProviderThreadID, provider)
 	threads := &recordingForkThreadStore{stubThreadStore: &stubThreadStore{
 		thread: &ThreadRecord{
 			ThreadID:      "thread-fork",
@@ -610,7 +610,7 @@ type recoverServiceFixture struct {
 func newResumeRecoverFixture(t *testing.T, stores ...ThreadStore) *recoverServiceFixture {
 	t.Helper()
 	const providerParentUUID = "019d5f6b-fb3c-7760-9d6f-54005553f5b3"
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, providerParentUUID)
 	resumedSession := &stubSession{threadID: providerParentUUID, rolloutPath: rolloutPath}
 	manager := unified.NewSessionManager(nil)
 	threads := resumeRecoverThreadStore()
@@ -707,7 +707,7 @@ func newClaudeRecoverService(t *testing.T) *service {
 	model := "claude-sonnet-4-20250514[1m]"
 	effort := "max"
 	const providerParentUUID = "019d5f6b-fb3c-7760-9d6f-54005553f5b3"
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, providerParentUUID, "claude")
 	resumedSession := &stubSession{threadID: providerParentUUID, rolloutPath: rolloutPath}
 	sessions := &stubSessionProvider{}
 	starter := &stubSessionStarter{onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {

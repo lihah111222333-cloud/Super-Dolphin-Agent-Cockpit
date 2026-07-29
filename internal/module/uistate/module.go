@@ -2,6 +2,8 @@ package uistate
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -100,21 +102,21 @@ func (s *service) enrichFromDB(ctx context.Context, agents []AgentSummary, threa
 			return err
 		}
 	}
+	providerThreads, err := resolveBindingProviderThreads(byAgent, resolveProviderThreadID)
+	if err != nil {
+		return err
+	}
 
 	batchConfigs, batchRuntimeRead := s.loadBatchConfigs(ctx, threads)
 
 	for _, thread := range threads {
-		if err := s.enrichThreadFromDB(ctx, thread, byAgent, runtimeMap, batchConfigs, batchRuntimeRead); err != nil {
-			return err
-		}
+		s.enrichThreadFromDB(ctx, thread, byAgent, providerThreads, runtimeMap, batchConfigs, batchRuntimeRead)
 	}
 	if len(byAgent) == 0 {
 		return nil
 	}
 	for i := range agents {
-		if err := applyBindingToAgent(&agents[i], byAgent); err != nil {
-			return err
-		}
+		applyBindingToAgent(&agents[i], byAgent, providerThreads)
 	}
 	return nil
 }
@@ -124,22 +126,20 @@ func (s *service) enrichThreadFromDB(
 	ctx context.Context,
 	thread ThreadSummary,
 	byAgent map[string]BindingEntry,
+	providerThreads map[string]string,
 	runtimeMap map[string]map[string]any,
 	batchConfigs map[string]map[string]any,
 	batchRuntimeRead bool,
-) error {
+) {
 	if len(byAgent) > 0 {
-		if err := applyBindingToThreadRuntime(thread, byAgent, runtimeMap); err != nil {
-			return err
-		}
+		applyBindingToThreadRuntime(thread, byAgent, providerThreads, runtimeMap)
 	}
 	threadID := strings.TrimSpace(thread.ID)
 	if threadID == "" {
-		return nil
+		return
 	}
 	cfg := s.threadRuntimeConfig(ctx, threadID, batchConfigs, batchRuntimeRead)
 	applyTaskRuntimeToThreadRuntimeConfig(threadID, cfg, runtimeMap)
-	return nil
 }
 
 // threadRuntimeConfig 读取单条线程的批量或单项运行时配置。
@@ -164,21 +164,22 @@ func (s *service) threadRuntimeConfig(
 
 // applyBindingToThreadRuntime 将 agent binding 回填到线程 runtime map。
 // 该路径只填补缺失字段；已有 provider/threadID 视为上游权威值，不能被历史 binding 覆盖。
-func applyBindingToThreadRuntime(thread ThreadSummary, idx map[string]BindingEntry, runtimeMap map[string]map[string]any) error {
+func applyBindingToThreadRuntime(
+	thread ThreadSummary,
+	idx map[string]BindingEntry,
+	providerThreads map[string]string,
+	runtimeMap map[string]map[string]any,
+) {
 	if thread.AgentID == "" {
-		return nil
+		return
 	}
 	entry, ok := idx[thread.AgentID]
 	if !ok || entry.Provider == "" {
-		return nil
+		return
 	}
-	providerThreadID, err := resolveProviderThreadID(entry)
-	if err != nil {
-		return err
-	}
+	providerThreadID := providerThreads[strings.TrimSpace(thread.AgentID)]
 	rt := ensureThreadRuntime(thread, providerThreadID, runtimeMap)
 	applyBindingRuntimeFields(rt, entry, providerThreadID)
-	return nil
 }
 
 // applyBindingRuntimeFields 只回填缺失的展示字段。
@@ -228,25 +229,41 @@ func (s *service) loadBindingIndex(ctx context.Context) (map[string]BindingEntry
 	return idx, nil
 }
 
-func applyBindingToAgent(agent *AgentSummary, idx map[string]BindingEntry) error {
-	b, ok := idx[strings.TrimSpace(agent.ID)]
+func applyBindingToAgent(agent *AgentSummary, idx map[string]BindingEntry, providerThreads map[string]string) {
+	agentID := strings.TrimSpace(agent.ID)
+	b, ok := idx[agentID]
 	if !ok {
-		return nil
+		return
 	}
 	if b.Provider != "" {
 		agent.Provider = b.Provider
 	}
-	ptid, err := resolveProviderThreadID(b)
-	if err != nil {
-		return err
-	}
+	ptid := providerThreads[agentID]
 	if ptid != "" {
 		agent.ProviderThreadID = ptid
 	}
 	if b.Cwd != "" {
 		agent.CWD = b.Cwd
 	}
-	return nil
+}
+
+// resolveBindingProviderThreads 为每个 binding 只解析一次 provider identity。
+func resolveBindingProviderThreads(
+	idx map[string]BindingEntry,
+	resolve func(BindingEntry) (string, error),
+) (map[string]string, error) {
+	if resolve == nil {
+		return nil, errors.New("uistate: provider recovery resolver is required")
+	}
+	resolved := make(map[string]string, len(idx))
+	for agentID, binding := range idx {
+		providerThreadID, err := resolve(binding)
+		if err != nil {
+			return nil, fmt.Errorf("uistate: recover provider identity for agent %q: %w", agentID, err)
+		}
+		resolved[strings.TrimSpace(agentID)] = providerThreadID
+	}
+	return resolved, nil
 }
 
 // resolveProviderThreadID 通过唯一 recovery port 解析展示所需的精确 provider identity。
@@ -266,7 +283,6 @@ func providerRecoveryRequestFromUIBinding(binding BindingEntry) providerrecovery
 	return providerrecovery.Request{
 		Provider:         binding.Provider,
 		RolloutPath:      binding.RolloutPath,
-		PublicThreadID:   binding.CodexThreadID,
 		ProviderThreadID: binding.ProviderThreadID,
 		SessionUUID:      binding.SessionUUID,
 		CodexHome:        binding.CodexHome,

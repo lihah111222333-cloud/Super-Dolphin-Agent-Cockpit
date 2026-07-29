@@ -285,7 +285,7 @@ func TestPostSnapshotResumeRejectsMissingPromptSnapshot(t *testing.T) {
 		Provider:         "codex",
 		ProviderThreadID: providerThreadID,
 		CodexThreadID:    "thread-resume",
-		RolloutPath:      writeExistingProviderHistoryFile(t),
+		RolloutPath:      writeExistingProviderHistoryFile(t, providerThreadID),
 		Cwd:              "/repo",
 	}}
 	sessions := &stubSessionProvider{}
@@ -641,7 +641,7 @@ func TestLegacyThreadUsesExplicitSnapshotMigrationGate(t *testing.T) {
 			Provider:         "codex",
 			ProviderThreadID: providerThreadID,
 			CodexThreadID:    "thread-legacy",
-			RolloutPath:      writeExistingProviderHistoryFile(t),
+			RolloutPath:      writeExistingProviderHistoryFile(t, providerThreadID),
 			Cwd:              "/repo",
 		}}
 		sessions := &stubSessionProvider{}
