@@ -271,6 +271,178 @@ func TestRunMigrationsThreadTimestampMillisRejectsInvalidRange(t *testing.T) {
 	assertMigrationMarkerCount(t, db, "118_thread_timestamp_millis.sql", 0)
 }
 
+func TestRunMigrationsCanonicalizesProviderBindingUUIDsAndRestoresTrigger(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrationTestDB(t)
+	createMigrationMarkerTable(t, db)
+	markBaselineApplied(t, db)
+	createProviderBindingUUIDMigrationTable(t, db)
+	mustExec(t, db, `
+		INSERT INTO agent_provider_binding (
+			agent_id, provider, provider_thread_id, session_uuid, codex_home
+		) VALUES (
+			'agent-upgrade', 'codex',
+			'019E218FB5147733BE85B3EE7F6A78A6',
+			'019E218F-B514-7733-BE85-B3EE7F6A78A7',
+			'/instances/codex-a'
+		)
+	`)
+	dir := t.TempDir()
+	writeMigrationTestFile(t, dir, "120_agent_provider_binding_recovery_owner.sql", "SELECT 1;\n")
+
+	if err := RunMigrations(ctx, db, dir); err != nil {
+		t.Fatalf("RunMigrations() error = %v", err)
+	}
+	var providerThreadID, sessionUUID, recoveryHome string
+	if err := db.QueryRow(`
+		SELECT provider_thread_id, session_uuid, provider_recovery_home
+		FROM agent_provider_binding WHERE agent_id = 'agent-upgrade'
+	`).Scan(&providerThreadID, &sessionUUID, &recoveryHome); err != nil {
+		t.Fatalf("read upgraded binding: %v", err)
+	}
+	if providerThreadID != "019e218f-b514-7733-be85-b3ee7f6a78a6" {
+		t.Fatalf("provider_thread_id = %q, want canonical UUID", providerThreadID)
+	}
+	if sessionUUID != "019e218f-b514-7733-be85-b3ee7f6a78a7" {
+		t.Fatalf("session_uuid = %q, want canonical UUID", sessionUUID)
+	}
+	if recoveryHome != "/instances/codex-a" {
+		t.Fatalf("provider_recovery_home = %q, want authoritative codex_home backfill", recoveryHome)
+	}
+	_, err := db.Exec(`
+		UPDATE agent_provider_binding
+		SET provider_thread_id = '019e218f-b514-7733-be85-b3ee7f6a78a8'
+		WHERE agent_id = 'agent-upgrade'
+	`)
+	if err == nil || !strings.Contains(err.Error(), "identity is immutable") {
+		t.Fatalf("restored trigger update error = %v, want immutable rejection", err)
+	}
+	assertMigrationMarkerCount(t, db, "120_agent_provider_binding_recovery_owner.sql", 1)
+}
+
+func TestRunMigrationsRejectsCanonicalProviderBindingUUIDCollision(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrationTestDB(t)
+	createMigrationMarkerTable(t, db)
+	markBaselineApplied(t, db)
+	createProviderBindingUUIDMigrationTable(t, db)
+	mustExec(t, db, `
+		INSERT INTO agent_provider_binding(agent_id, provider, provider_thread_id)
+		VALUES
+			('agent-a', 'claude', '019E218FB5147733BE85B3EE7F6A78A6'),
+			('agent-b', 'claude', '019e218f-b514-7733-be85-b3ee7f6a78a6')
+	`)
+	dir := t.TempDir()
+	writeMigrationTestFile(t, dir, "120_agent_provider_binding_recovery_owner.sql", "SELECT 1;\n")
+
+	err := RunMigrations(ctx, db, dir)
+	if err == nil || !strings.Contains(err.Error(), "canonical UUID collision") {
+		t.Fatalf("RunMigrations() error = %v, want canonical UUID collision", err)
+	}
+	assertMigrationMarkerCount(t, db, "120_agent_provider_binding_recovery_owner.sql", 0)
+}
+
+func TestRunMigrationsRejectsInvalidProviderBindingUUID(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrationTestDB(t)
+	createMigrationMarkerTable(t, db)
+	markBaselineApplied(t, db)
+	createProviderBindingUUIDMigrationTable(t, db)
+	mustExec(t, db, `
+		INSERT INTO agent_provider_binding(agent_id, provider, provider_thread_id)
+		VALUES ('agent-invalid', 'claude', 'not-a-provider-uuid')
+	`)
+	dir := t.TempDir()
+	writeMigrationTestFile(t, dir, "120_agent_provider_binding_recovery_owner.sql", "SELECT 1;\n")
+
+	err := RunMigrations(ctx, db, dir)
+	if err == nil || !strings.Contains(err.Error(), "provider_thread_id") {
+		t.Fatalf("RunMigrations() error = %v, want invalid provider_thread_id rejection", err)
+	}
+	assertMigrationMarkerCount(t, db, "120_agent_provider_binding_recovery_owner.sql", 0)
+}
+
+func TestRunMigrationsRealDBUpgradeCanonicalizesProviderBindingUUIDs(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrationTestDB(t)
+	preUpgradeDir := t.TempDir()
+	copyMigrationsBefore120(t, "migrations", preUpgradeDir)
+	if err := RunMigrations(ctx, db, preUpgradeDir); err != nil {
+		t.Fatalf("RunMigrations(pre-120) error = %v", err)
+	}
+	mustExec(t, db, `
+		INSERT INTO agent_provider_binding (
+			agent_id, provider, provider_thread_id, codex_thread_id,
+			session_uuid, codex_home
+		) VALUES (
+			'agent-real-upgrade', 'codex',
+			'019E218FB5147733BE85B3EE7F6A78A6', 'public-thread',
+			'019E218F-B514-7733-BE85-B3EE7F6A78A7', '/instances/codex-real'
+		)
+	`)
+	if err := RunMigrations(ctx, db, "migrations"); err != nil {
+		t.Fatalf("RunMigrations(120) error = %v", err)
+	}
+	var providerThreadID, sessionUUID, recoveryHome string
+	if err := db.QueryRow(`
+		SELECT provider_thread_id, session_uuid, provider_recovery_home
+		FROM agent_provider_binding WHERE agent_id = 'agent-real-upgrade'
+	`).Scan(&providerThreadID, &sessionUUID, &recoveryHome); err != nil {
+		t.Fatalf("read real upgraded binding: %v", err)
+	}
+	if providerThreadID != "019e218f-b514-7733-be85-b3ee7f6a78a6" ||
+		sessionUUID != "019e218f-b514-7733-be85-b3ee7f6a78a7" ||
+		recoveryHome != "/instances/codex-real" {
+		t.Fatalf("real upgraded binding = %q/%q/%q", providerThreadID, sessionUUID, recoveryHome)
+	}
+}
+
+func copyMigrationsBefore120(t *testing.T, sourceDir, targetDir string) {
+	t.Helper()
+	entries, err := os.ReadDir(sourceDir)
+	if err != nil {
+		t.Fatalf("read migration source: %v", err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".sql") || name >= "120_" {
+			continue
+		}
+		body, err := os.ReadFile(filepath.Join(sourceDir, name))
+		if err != nil {
+			t.Fatalf("read migration %s: %v", name, err)
+		}
+		if err := os.WriteFile(filepath.Join(targetDir, name), body, 0o600); err != nil {
+			t.Fatalf("copy migration %s: %v", name, err)
+		}
+	}
+}
+
+func createProviderBindingUUIDMigrationTable(t *testing.T, db *sql.DB) {
+	t.Helper()
+	mustExec(t, db, `
+		CREATE TABLE agent_provider_binding (
+			agent_id TEXT PRIMARY KEY,
+			provider TEXT NOT NULL,
+			provider_thread_id TEXT NOT NULL DEFAULT '',
+			session_uuid TEXT NOT NULL DEFAULT '',
+			codex_home TEXT NOT NULL DEFAULT '',
+			codex_instance_key TEXT NOT NULL DEFAULT '',
+			codex_model_provider TEXT NOT NULL DEFAULT ''
+		);
+		CREATE UNIQUE INDEX uq_agent_provider_binding_provider_thread
+		ON agent_provider_binding(provider, provider_thread_id)
+		WHERE provider_thread_id <> '';
+		CREATE TRIGGER trg_prevent_agent_provider_binding_rebind
+		BEFORE UPDATE ON agent_provider_binding
+		FOR EACH ROW
+		WHEN OLD.provider_thread_id <> '' AND NEW.provider_thread_id <> OLD.provider_thread_id
+		BEGIN
+			SELECT RAISE(ABORT, 'agent_provider_binding identity is immutable');
+		END
+	`)
+}
+
 // createThreadTimestampMigrationTables 创建 118 migration 所需的最小持久化结构。
 func createThreadTimestampMigrationTables(t *testing.T, db *sql.DB) {
 	t.Helper()

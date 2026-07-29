@@ -285,9 +285,17 @@ func providerRecoveryRequestFromUIBinding(binding BindingEntry) providerrecovery
 		RolloutPath:      binding.RolloutPath,
 		ProviderThreadID: binding.ProviderThreadID,
 		SessionUUID:      binding.SessionUUID,
-		CodexHome:        binding.CodexHome,
-		ClaudeHome:       "",
+		CodexHome:        providerRecoveryCodexHome(binding.CodexHome, binding.ProviderRecoveryHome),
+		ClaudeHome:       binding.ProviderRecoveryHome,
 	}
+}
+
+func providerRecoveryCodexHome(codexHome, recoveryHome string) string {
+	codexHome = strings.TrimSpace(codexHome)
+	if codexHome != "" {
+		return codexHome
+	}
+	return strings.TrimSpace(recoveryHome)
 }
 
 func runtimeProviderThreadIDNeedsBackfill(value any) bool {

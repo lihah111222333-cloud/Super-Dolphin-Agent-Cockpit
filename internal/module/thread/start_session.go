@@ -492,7 +492,7 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	if err != nil {
 		return ResumeRequest{}, resumeState{}, err
 	}
-	req.ClaudeHome = util.FirstNonEmpty(req.ClaudeHome, state.ClaudeHome, resumeRuntimeConfigString(state.ConfigOverride.Runtime, "claudeHome", "claude_home", "history_dir"))
+	req.ClaudeHome = hydrateResumeClaudeHome(req.Provider, req.ClaudeHome, state)
 	req = hydrateResumeCodexIdentity(req, state)
 	req.CodexDisabledNativeTools, err = resolveResumeCodexDisabledNativeTools(req.CodexDisabledNativeTools, state.ConfigOverride.Runtime)
 	if err != nil {
@@ -511,11 +511,12 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	req.Model = resolveResumeModel(req, state)
 	req.Effort = resolveResumeEffort(req, state)
 	req.ThreadID = state.PublicThreadID
-	if req.Provider == "" {
-		return ResumeRequest{}, resumeState{}, errors.New("provider is required")
+	if err := validateResumeIdentityOwner(req); err != nil {
+		return ResumeRequest{}, resumeState{}, err
 	}
-	if req.AgentID == "" {
-		return ResumeRequest{}, resumeState{}, errors.New("agent id is required")
+	req, err = recoverHydratedResumeProviderThread(req, &state)
+	if err != nil {
+		return ResumeRequest{}, resumeState{}, err
 	}
 	state.CWD = req.CWD
 	state.Model = req.Model
@@ -525,6 +526,17 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	state.CodexInstanceKey = util.FirstNonEmpty(state.CodexInstanceKey, req.CodexInstanceKey)
 	state.CodexModelProvider = util.FirstNonEmpty(state.CodexModelProvider, req.CodexModelProvider)
 	return req, state, nil
+}
+
+// validateResumeIdentityOwner 校验恢复请求已有明确 provider 与 agent owner。
+func validateResumeIdentityOwner(req ResumeRequest) error {
+	if req.Provider == "" {
+		return errors.New("provider is required")
+	}
+	if req.AgentID == "" {
+		return errors.New("agent id is required")
+	}
+	return nil
 }
 
 // hydrateResumeCodexIdentity 从持久化状态补齐 Codex 恢复身份。
@@ -550,6 +562,19 @@ func hydrateResumeCodexIdentity(req ResumeRequest, state resumeState) ResumeRequ
 		resumeRuntimeConfigString(runtime, contract.CodexModelProviderKey, "codex_model_provider"),
 	)
 	return req
+}
+
+// hydrateResumeClaudeHome 只把 Claude binding 的权威 recovery owner 注入 Claude 恢复请求。
+func hydrateResumeClaudeHome(provider, claudeHome string, state resumeState) string {
+	if !strings.EqualFold(strings.TrimSpace(provider), "claude") {
+		return strings.TrimSpace(claudeHome)
+	}
+	return util.FirstNonEmpty(
+		claudeHome,
+		state.ClaudeHome,
+		state.ProviderRecoveryHome,
+		resumeRuntimeConfigString(state.ConfigOverride.Runtime, "claudeHome", "claude_home", "history_dir"),
+	)
 }
 
 // trimResumeRequest 清理恢复请求并剔除不允许在线覆盖的配置字段。

@@ -570,10 +570,11 @@ func TestServiceRecoverRejectsMissingCWDBeforeOrchestrationSideEffects(t *testin
 		CreatedAt: 123,
 	}}
 	bindings := &stubBindingStore{binding: &BindingRecord{
-		AgentID:          "agent-parent",
-		Provider:         "codex",
-		ProviderThreadID: "11111111-2222-3333-4444-555555555594",
-		CodexThreadID:    "thread-parent",
+		AgentID:              "agent-parent",
+		Provider:             "codex",
+		ProviderThreadID:     "11111111-2222-3333-4444-555555555594",
+		CodexThreadID:        "thread-parent",
+		ProviderRecoveryHome: t.TempDir(),
 	}}
 	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
 		t.Fatal("ResumeSession should not be called when recover cwd is missing")
@@ -777,11 +778,12 @@ func TestServiceRecoverReturnsRestoreEnvelopeWhenSessionActive(t *testing.T) {
 
 	sessions := &stubSessionProvider{session: &stubSession{threadID: "11111111-2222-3333-4444-555555555594"}}
 	bindings := &stubBindingStore{binding: &BindingRecord{
-		AgentID:          "agent-parent",
-		Provider:         "codex",
-		ProviderThreadID: "11111111-2222-3333-4444-555555555594",
-		CodexThreadID:    "thread-parent",
-		Cwd:              "/repo",
+		AgentID:              "agent-parent",
+		Provider:             "codex",
+		ProviderThreadID:     "11111111-2222-3333-4444-555555555594",
+		CodexThreadID:        "thread-parent",
+		ProviderRecoveryHome: t.TempDir(),
+		Cwd:                  "/repo",
 	}}
 	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "thread-parent",

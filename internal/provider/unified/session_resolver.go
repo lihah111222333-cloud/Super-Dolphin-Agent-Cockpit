@@ -339,9 +339,17 @@ func providerRecoveryRequestFromSessionBinding(binding *contract.SessionBinding)
 		RolloutPath:      binding.RolloutPath,
 		ProviderThreadID: binding.ProviderThreadID,
 		SessionUUID:      binding.SessionUUID,
-		CodexHome:        binding.CodexHome,
-		ClaudeHome:       "",
+		CodexHome:        providerRecoveryCodexHome(binding.CodexHome, binding.ProviderRecoveryHome),
+		ClaudeHome:       binding.ProviderRecoveryHome,
 	}
+}
+
+func providerRecoveryCodexHome(codexHome, recoveryHome string) string {
+	codexHome = strings.TrimSpace(codexHome)
+	if codexHome != "" {
+		return codexHome
+	}
+	return strings.TrimSpace(recoveryHome)
 }
 
 // providerNames 返回去重后的 provider 查找顺序，registry 缺失时保留 codex 和 claude 的兼容顺序。

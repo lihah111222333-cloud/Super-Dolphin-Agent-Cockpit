@@ -1362,7 +1362,7 @@
       "codemap_line": 722,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "62",
-      "content_sha256": "9483acdfca89160c8039e1daa0538a55961d4ceff73f6086d37ca51a96976887",
+      "content_sha256": "69146028d1c5dc9ee15097df577f2d0676bf29f3ccf27ae3908ee5cb712b4bfb",
       "symbol": "sessionGenerationProvider"
     },
     {
@@ -3089,7 +3089,7 @@
       "codemap_line": 80,
       "target_path": "internal/module/thread/factory.go",
       "line_spec": "138",
-      "content_sha256": "bbd7685877e88c9bc3f6c44465a93027a94b51f7714ec0749d66e825ec1e776a",
+      "content_sha256": "ccdd36a72a7cffdd01f12bc58c1a89244d724df4061e0d237358724ab06466f2",
       "symbol": "threadConfigStorePort"
     },
     {
@@ -3882,7 +3882,7 @@
       "codemap_line": 341,
       "target_path": "internal/module/thread/factory.go",
       "line_spec": "138",
-      "content_sha256": "bbd7685877e88c9bc3f6c44465a93027a94b51f7714ec0749d66e825ec1e776a",
+      "content_sha256": "ccdd36a72a7cffdd01f12bc58c1a89244d724df4061e0d237358724ab06466f2",
       "symbol": "threadConfigStorePort"
     },
     {
@@ -5752,7 +5752,7 @@
       "codemap_line": 46,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "77-141",
-      "content_sha256": "35dd70acc16b85cdd1bb9874d579945024187004a4e8fe845420adce13653c3f",
+      "content_sha256": "9b3f8cbbcb5ab8df52d379012a4bd49ad450c0ed7eb02072a36182d322cf6b86",
       "symbol": "bindGenerationStatusRecord"
     },
     {
@@ -5789,7 +5789,7 @@
       "codemap_line": 78,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "62-75",
-      "content_sha256": "9ca24606b20ca0e4ef1b44745b31a92d1954c8941cd556a38ea0498a3bbeff09",
+      "content_sha256": "cfcd1e3d3d61c521349cde6d94a49a3766817120c97698d9be7cc816d249f792",
       "symbol": "sessionGenerationProvider"
     },
     {
@@ -5813,7 +5813,7 @@
       "codemap_line": 83,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "28-45",
-      "content_sha256": "3297f91c6f47d6e195a21eddc55ffe50848db6f5853a91081e2daa2b01fdb275",
+      "content_sha256": "9b202079a22335780dc094d7d1bbcf9fb2ee649083290361a6f4757f6213062a",
       "symbol": "OrchestrationFacade"
     },
     {
@@ -5821,7 +5821,7 @@
       "codemap_line": 84,
       "target_path": "internal/module/thread/binding_registration.go",
       "line_spec": "14-32",
-      "content_sha256": "7ea82a194c894ed451654636f93094694e8efbfafce0d7ee6bd8e6f56b7a07c3"
+      "content_sha256": "2efcf3b249cc8db7266a6e62047b4d622805fd58f95e0118b7e9707de1cc54c5"
     },
     {
       "codemap_file": "07-module-write.md",
@@ -5835,7 +5835,7 @@
       "codemap_line": 86,
       "target_path": "internal/module/thread/factory.go",
       "line_spec": "138-185",
-      "content_sha256": "40931da4f3d53828590b904944e1ce8d388935d04431ca24a431f589d76326ee",
+      "content_sha256": "65f2f029d92e933a2a18c47c3635e524ba4ec0da6f38d9e4299de2bf0d66f582",
       "symbol": "threadConfigStorePort"
     },
     {
@@ -5843,7 +5843,7 @@
       "codemap_line": 113,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "77-124",
-      "content_sha256": "3fec1b957887dfae90ba34ec69fbebcd3f5660f27e759bf165b0ba822868f575",
+      "content_sha256": "fdaaf390b7d60da2b9da24737f795e8a58caf72dcace19e09dae9b51bb881b99",
       "symbol": "bindGenerationStatusRecord"
     },
     {
@@ -5851,7 +5851,7 @@
       "codemap_line": 114,
       "target_path": "internal/module/thread/start_session_helpers.go",
       "line_spec": "134-189",
-      "content_sha256": "c7c7a96071030d172a0fbc08dad433e2c598fa8212a0fb8211dd9eda07704801",
+      "content_sha256": "0ec8c79bc5756449cb41a03f70c2eda1b837fa4cb42b9c144161d04f77ec1c3c",
       "symbol": "*service.hydrateResumeSessionRequest"
     },
     {
@@ -5897,7 +5897,7 @@
       "codemap_line": 140,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "126-141",
-      "content_sha256": "0d81b358b8a7c0a2ca3b415386a976cdf71f4a79e8a3253af9eba2b49257186d",
+      "content_sha256": "3834349f3d1952fd08ccf881de5948f035d2478ed3c4ec094bcf9bccde9ec3e5",
       "symbol": "*service.completeStart"
     },
     {
@@ -5920,7 +5920,7 @@
       "codemap_line": 143,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "314-344",
-      "content_sha256": "4f5ec29d610f46463891bc183959b183730d51e3400edd339c22ed2dba26f36c",
+      "content_sha256": "6ad298056c7488c268d8746d714e4b25e6f66ba5d51afcf4916fbb8f5d4af8d7",
       "symbol": "*service.persistStartedSession"
     },
     {
@@ -5935,8 +5935,8 @@
       "codemap_line": 144,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "257-301",
-      "content_sha256": "2b1e2757e0b17cffc49c3aa522c594ad28a8b73b0d556bae8bd250b56ffdd5e4",
-      "symbol": "*service.persistStartedSession"
+      "content_sha256": "c17569bc85193687e9b7391ddc5a7d0892a173a0907300078f1514421b5fc90e",
+      "symbol": "*service.establishStartedSession"
     },
     {
       "codemap_file": "07-module-write.md",
@@ -5997,7 +5997,7 @@
       "codemap_line": 209,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "314-344",
-      "content_sha256": "4f5ec29d610f46463891bc183959b183730d51e3400edd339c22ed2dba26f36c",
+      "content_sha256": "6ad298056c7488c268d8746d714e4b25e6f66ba5d51afcf4916fbb8f5d4af8d7",
       "symbol": "*service.persistStartedSession"
     },
     {
@@ -6090,7 +6090,7 @@
       "codemap_line": 238,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "77-124",
-      "content_sha256": "3fec1b957887dfae90ba34ec69fbebcd3f5660f27e759bf165b0ba822868f575",
+      "content_sha256": "fdaaf390b7d60da2b9da24737f795e8a58caf72dcace19e09dae9b51bb881b99",
       "symbol": "bindGenerationStatusRecord"
     },
     {
@@ -6098,7 +6098,7 @@
       "codemap_line": 239,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "126-141",
-      "content_sha256": "0d81b358b8a7c0a2ca3b415386a976cdf71f4a79e8a3253af9eba2b49257186d",
+      "content_sha256": "3834349f3d1952fd08ccf881de5948f035d2478ed3c4ec094bcf9bccde9ec3e5",
       "symbol": "*service.completeStart"
     },
     {
@@ -6136,7 +6136,7 @@
       "codemap_line": 244,
       "target_path": "internal/module/thread/start_session_helpers.go",
       "line_spec": "134-189",
-      "content_sha256": "c7c7a96071030d172a0fbc08dad433e2c598fa8212a0fb8211dd9eda07704801",
+      "content_sha256": "0ec8c79bc5756449cb41a03f70c2eda1b837fa4cb42b9c144161d04f77ec1c3c",
       "symbol": "*service.hydrateResumeSessionRequest"
     },
     {
@@ -6144,7 +6144,7 @@
       "codemap_line": 245,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "314-344",
-      "content_sha256": "4f5ec29d610f46463891bc183959b183730d51e3400edd339c22ed2dba26f36c",
+      "content_sha256": "6ad298056c7488c268d8746d714e4b25e6f66ba5d51afcf4916fbb8f5d4af8d7",
       "symbol": "*service.persistStartedSession"
     },
     {
@@ -6183,8 +6183,7 @@
       "codemap_line": 250,
       "target_path": "internal/module/thread/factory.go",
       "line_spec": "457-472",
-      "content_sha256": "839e34d0c1e3ddc502fb260fea0b22eccebfc1f667be039e6055c8ae32bd3970",
-      "symbol": "newThreadStartedBoard"
+      "content_sha256": "4f82cbe95da19b6a99799842a63adaf5972adc06b2e1c5c8088abb529e37eada"
     },
     {
       "codemap_file": "07-module-write.md",
@@ -7281,8 +7280,8 @@
       "codemap_line": 12,
       "target_path": "internal/module/thread/start_session_helpers.go",
       "line_spec": "308-347",
-      "content_sha256": "e446d374a7cd908cf51f08d583426220f7e3747ddc9d0f9bd2ffa6dfc296ecbc",
-      "symbol": "isKnownSubagentAgentType"
+      "content_sha256": "4ca176876f67d9ae39fa98a89d8066a02d7d03e44848c7b7c2d19f704e282ce1",
+      "symbol": "mergeResumeBindingState"
     },
     {
       "codemap_file": "09-provider.md",
@@ -7846,8 +7845,8 @@
       "codemap_line": 154,
       "target_path": "internal/module/thread/start_session_helpers.go",
       "line_spec": "308-347",
-      "content_sha256": "e446d374a7cd908cf51f08d583426220f7e3747ddc9d0f9bd2ffa6dfc296ecbc",
-      "symbol": "isKnownSubagentAgentType"
+      "content_sha256": "4ca176876f67d9ae39fa98a89d8066a02d7d03e44848c7b7c2d19f704e282ce1",
+      "symbol": "mergeResumeBindingState"
     },
     {
       "codemap_file": "09-provider.md",
@@ -7924,8 +7923,8 @@
       "codemap_line": 161,
       "target_path": "internal/module/thread/start_session_helpers.go",
       "line_spec": "308-347",
-      "content_sha256": "e446d374a7cd908cf51f08d583426220f7e3747ddc9d0f9bd2ffa6dfc296ecbc",
-      "symbol": "isKnownSubagentAgentType"
+      "content_sha256": "4ca176876f67d9ae39fa98a89d8066a02d7d03e44848c7b7c2d19f704e282ce1",
+      "symbol": "mergeResumeBindingState"
     },
     {
       "codemap_file": "09-provider.md",
@@ -8154,8 +8153,8 @@
       "codemap_line": 205,
       "target_path": "internal/module/thread/start_session_helpers.go",
       "line_spec": "308-347",
-      "content_sha256": "e446d374a7cd908cf51f08d583426220f7e3747ddc9d0f9bd2ffa6dfc296ecbc",
-      "symbol": "isKnownSubagentAgentType"
+      "content_sha256": "4ca176876f67d9ae39fa98a89d8066a02d7d03e44848c7b7c2d19f704e282ce1",
+      "symbol": "mergeResumeBindingState"
     },
     {
       "codemap_file": "09-provider.md",
@@ -9471,8 +9470,8 @@
       "codemap_line": 461,
       "target_path": "internal/module/thread/start_session_helpers.go",
       "line_spec": "308-347",
-      "content_sha256": "e446d374a7cd908cf51f08d583426220f7e3747ddc9d0f9bd2ffa6dfc296ecbc",
-      "symbol": "isKnownSubagentAgentType"
+      "content_sha256": "4ca176876f67d9ae39fa98a89d8066a02d7d03e44848c7b7c2d19f704e282ce1",
+      "symbol": "mergeResumeBindingState"
     },
     {
       "codemap_file": "09-provider.md",
@@ -10831,8 +10830,8 @@
       "codemap_line": 669,
       "target_path": "internal/module/thread/start_session_helpers.go",
       "line_spec": "308-347",
-      "content_sha256": "e446d374a7cd908cf51f08d583426220f7e3747ddc9d0f9bd2ffa6dfc296ecbc",
-      "symbol": "isKnownSubagentAgentType"
+      "content_sha256": "4ca176876f67d9ae39fa98a89d8066a02d7d03e44848c7b7c2d19f704e282ce1",
+      "symbol": "mergeResumeBindingState"
     },
     {
       "codemap_file": "09-provider.md",
@@ -10855,8 +10854,7 @@
       "codemap_line": 670,
       "target_path": "internal/module/thread/start_session_helpers.go",
       "line_spec": "337-347",
-      "content_sha256": "173fd2af45b7b4d6c788290e2d89f2e0877a0856ab72e0e672740bf257320c8a",
-      "symbol": "toProviderPrefixShape"
+      "content_sha256": "6f4ae73c50398fcc835ea0c8a262f26c238a7ff05e41e4f42ce91d4c3c9e7d56"
     },
     {
       "codemap_file": "09-provider.md",
@@ -10935,8 +10933,8 @@
       "codemap_line": 679,
       "target_path": "internal/module/thread/start_session_helpers.go",
       "line_spec": "308-347",
-      "content_sha256": "e446d374a7cd908cf51f08d583426220f7e3747ddc9d0f9bd2ffa6dfc296ecbc",
-      "symbol": "isKnownSubagentAgentType"
+      "content_sha256": "4ca176876f67d9ae39fa98a89d8066a02d7d03e44848c7b7c2d19f704e282ce1",
+      "symbol": "mergeResumeBindingState"
     },
     {
       "codemap_file": "09-provider.md",
@@ -10994,7 +10992,7 @@
       "codemap_line": 691,
       "target_path": "internal/module/thread/start_session_helpers.go",
       "line_spec": "134-180",
-      "content_sha256": "d8f190ab5c91fda985f60446c25f1ca1b7a760e47a26a69d68e99c60f6f6a868",
+      "content_sha256": "99a6856c305f014112a7e8a8ee4f299d45f90267d6fa69ade034cb8f3812b716",
       "symbol": "*service.hydrateResumeSessionRequest"
     },
     {
@@ -11224,7 +11222,7 @@
       "codemap_line": 906,
       "target_path": "sqlc.yaml",
       "line_spec": "14",
-      "content_sha256": "ba87657e248ae8648f3911a15d0244e5677357e3a7f699b558f9c0add6d05921"
+      "content_sha256": "6adc61c5ce43bcfcac405927954fe7c927f5d85e7f02e965fa0acea6bc1e59ed"
     },
     {
       "codemap_file": "10-store.md",
@@ -11906,7 +11904,7 @@
       "codemap_line": 193,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "77-124",
-      "content_sha256": "3fec1b957887dfae90ba34ec69fbebcd3f5660f27e759bf165b0ba822868f575",
+      "content_sha256": "fdaaf390b7d60da2b9da24737f795e8a58caf72dcace19e09dae9b51bb881b99",
       "symbol": "bindGenerationStatusRecord"
     },
     {
@@ -12053,7 +12051,7 @@
       "codemap_line": 483,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "77-124",
-      "content_sha256": "3fec1b957887dfae90ba34ec69fbebcd3f5660f27e759bf165b0ba822868f575",
+      "content_sha256": "fdaaf390b7d60da2b9da24737f795e8a58caf72dcace19e09dae9b51bb881b99",
       "symbol": "bindGenerationStatusRecord"
     },
     {
@@ -12083,7 +12081,7 @@
       "codemap_line": 567,
       "target_path": "internal/module/thread/start_session_helpers.go",
       "line_spec": "134-189",
-      "content_sha256": "c7c7a96071030d172a0fbc08dad433e2c598fa8212a0fb8211dd9eda07704801",
+      "content_sha256": "0ec8c79bc5756449cb41a03f70c2eda1b837fa4cb42b9c144161d04f77ec1c3c",
       "symbol": "*service.hydrateResumeSessionRequest"
     },
     {
@@ -12091,7 +12089,7 @@
       "codemap_line": 597,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "166-217",
-      "content_sha256": "9cbc5ee9785216dff98562b920c0e6212e11e77d17c2ac8bec6626dff4ceb0b4",
+      "content_sha256": "73f772f43566e502bcf3793e8ea9a46a8c697a266124dc00d1d1873a1758ff44",
       "symbol": "*service.Start"
     },
     {
@@ -12099,7 +12097,7 @@
       "codemap_line": 613,
       "target_path": "internal/module/thread/factory.go",
       "line_spec": "194-200",
-      "content_sha256": "10ff472c9567269874553cc8fd9061e8caf6df35b39035f25fcba2b43383586f",
+      "content_sha256": "63586069cd6595117a314ff02018e70ba1a36dcde1ed6420eafef83406c54772",
       "symbol": "PromptTemplateSection"
     },
     {
@@ -12139,7 +12137,7 @@
       "codemap_line": 671,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "126-141",
-      "content_sha256": "0d81b358b8a7c0a2ca3b415386a976cdf71f4a79e8a3253af9eba2b49257186d",
+      "content_sha256": "3834349f3d1952fd08ccf881de5948f035d2478ed3c4ec094bcf9bccde9ec3e5",
       "symbol": "*service.completeStart"
     },
     {
@@ -12195,8 +12193,8 @@
       "codemap_line": 766,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "257-300",
-      "content_sha256": "cefee3b8cfd9fe56117ae57fba05f44adaa8c28191d6a493be3b0f29921b2074",
-      "symbol": "*service.persistStartedSession"
+      "content_sha256": "5d732128452e891938b841c11b8b2511883abcb4c26cc655376386e089f5603a",
+      "symbol": "*service.establishStartedSession"
     },
     {
       "codemap_file": "11-prompt-thread.md",
@@ -12226,7 +12224,7 @@
       "codemap_line": 857,
       "target_path": "internal/module/thread/factory.go",
       "line_spec": "194-200",
-      "content_sha256": "10ff472c9567269874553cc8fd9061e8caf6df35b39035f25fcba2b43383586f",
+      "content_sha256": "63586069cd6595117a314ff02018e70ba1a36dcde1ed6420eafef83406c54772",
       "symbol": "PromptTemplateSection"
     },
     {

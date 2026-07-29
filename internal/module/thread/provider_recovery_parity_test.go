@@ -27,3 +27,16 @@ func TestProviderRecoveryParityUsesLegacySnapshotUUID(t *testing.T) {
 		t.Fatalf("thread recovery result = %#v, want legacy UUID optional-missing parity", result)
 	}
 }
+
+func TestProviderRecoveryMapperUsesClaudeInstanceOwner(t *testing.T) {
+	t.Parallel()
+
+	request := providerRecoveryRequestFromThreadBinding(&BindingRecord{
+		Provider:             "claude",
+		CodexHome:            "/instances/codex-other",
+		ProviderRecoveryHome: "/instances/claude-a",
+	})
+	if request.ClaudeHome != "/instances/claude-a" || request.CodexHome != "/instances/codex-other" {
+		t.Fatalf("thread recovery homes = codex %q claude %q", request.CodexHome, request.ClaudeHome)
+	}
+}

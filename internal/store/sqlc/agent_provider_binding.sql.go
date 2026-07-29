@@ -24,7 +24,7 @@ func (q *Queries) DeleteAgentProviderBindingByAgentID(ctx context.Context, arg D
 }
 
 const getAgentProviderBindingByAgentID = `-- name: GetAgentProviderBindingByAgentID :one
-SELECT agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, parent_agent_id, agent_type, agent_memory_scope, archived, created_at, updated_at, session_uuid, codex_home, codex_instance_key, codex_model_provider
+SELECT agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, parent_agent_id, agent_type, agent_memory_scope, archived, created_at, updated_at, session_uuid, codex_home, codex_instance_key, codex_model_provider, provider_recovery_home
 FROM agent_provider_binding
 WHERE agent_id = ?
 `
@@ -53,12 +53,13 @@ func (q *Queries) GetAgentProviderBindingByAgentID(ctx context.Context, arg GetA
 		&i.CodexHome,
 		&i.CodexInstanceKey,
 		&i.CodexModelProvider,
+		&i.ProviderRecoveryHome,
 	)
 	return i, err
 }
 
 const getAgentProviderBindingByProviderThread = `-- name: GetAgentProviderBindingByProviderThread :one
-SELECT agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, parent_agent_id, agent_type, agent_memory_scope, archived, created_at, updated_at, session_uuid, codex_home, codex_instance_key, codex_model_provider
+SELECT agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, parent_agent_id, agent_type, agent_memory_scope, archived, created_at, updated_at, session_uuid, codex_home, codex_instance_key, codex_model_provider, provider_recovery_home
 FROM agent_provider_binding
 WHERE provider = ? AND provider_thread_id = ?
 `
@@ -88,6 +89,7 @@ func (q *Queries) GetAgentProviderBindingByProviderThread(ctx context.Context, a
 		&i.CodexHome,
 		&i.CodexInstanceKey,
 		&i.CodexModelProvider,
+		&i.ProviderRecoveryHome,
 	)
 	return i, err
 }
@@ -162,8 +164,8 @@ func (q *Queries) UpdateAgentProviderBindingSessionUUID(ctx context.Context, arg
 
 const upsertAgentProviderBinding = `-- name: UpsertAgentProviderBinding :exec
 INSERT INTO agent_provider_binding (
-    agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, parent_agent_id, agent_type, agent_memory_scope, archived, created_at, updated_at, session_uuid, codex_home, codex_instance_key, codex_model_provider
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, false, ?, ?, ?, ?, ?, ?)
+    agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, parent_agent_id, agent_type, agent_memory_scope, archived, created_at, updated_at, session_uuid, codex_home, provider_recovery_home, codex_instance_key, codex_model_provider
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, false, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (agent_id) DO UPDATE
 SET provider = EXCLUDED.provider,
     provider_thread_id = CASE WHEN EXCLUDED.provider_thread_id = '' THEN agent_provider_binding.provider_thread_id ELSE EXCLUDED.provider_thread_id END,
@@ -175,27 +177,29 @@ SET provider = EXCLUDED.provider,
     agent_memory_scope = EXCLUDED.agent_memory_scope,
     session_uuid = CASE WHEN EXCLUDED.session_uuid = '' THEN agent_provider_binding.session_uuid ELSE EXCLUDED.session_uuid END,
     codex_home = CASE WHEN EXCLUDED.codex_home = '' THEN agent_provider_binding.codex_home ELSE EXCLUDED.codex_home END,
+    provider_recovery_home = CASE WHEN EXCLUDED.provider_recovery_home = '' THEN agent_provider_binding.provider_recovery_home ELSE EXCLUDED.provider_recovery_home END,
     codex_instance_key = CASE WHEN EXCLUDED.codex_instance_key = '' THEN agent_provider_binding.codex_instance_key ELSE EXCLUDED.codex_instance_key END,
     codex_model_provider = CASE WHEN EXCLUDED.codex_model_provider = '' THEN agent_provider_binding.codex_model_provider ELSE EXCLUDED.codex_model_provider END,
     updated_at = EXCLUDED.updated_at
 `
 
 type UpsertAgentProviderBindingParams struct {
-	AgentID            string `db:"agent_id" json:"agent_id"`
-	Provider           string `db:"provider" json:"provider"`
-	ProviderThreadID   string `db:"provider_thread_id" json:"provider_thread_id"`
-	CodexThreadID      string `db:"codex_thread_id" json:"codex_thread_id"`
-	RolloutPath        string `db:"rollout_path" json:"rollout_path"`
-	CWD                string `db:"cwd" json:"cwd"`
-	ParentAgentID      string `db:"parent_agent_id" json:"parent_agent_id"`
-	AgentType          string `db:"agent_type" json:"agent_type"`
-	AgentMemoryScope   string `db:"agent_memory_scope" json:"agent_memory_scope"`
-	CreatedAt          int64  `db:"created_at" json:"created_at"`
-	UpdatedAt          int64  `db:"updated_at" json:"updated_at"`
-	SessionUUID        string `db:"session_uuid" json:"session_uuid"`
-	CodexHome          string `db:"codex_home" json:"codex_home"`
-	CodexInstanceKey   string `db:"codex_instance_key" json:"codex_instance_key"`
-	CodexModelProvider string `db:"codex_model_provider" json:"codex_model_provider"`
+	AgentID              string `db:"agent_id" json:"agent_id"`
+	Provider             string `db:"provider" json:"provider"`
+	ProviderThreadID     string `db:"provider_thread_id" json:"provider_thread_id"`
+	CodexThreadID        string `db:"codex_thread_id" json:"codex_thread_id"`
+	RolloutPath          string `db:"rollout_path" json:"rollout_path"`
+	CWD                  string `db:"cwd" json:"cwd"`
+	ParentAgentID        string `db:"parent_agent_id" json:"parent_agent_id"`
+	AgentType            string `db:"agent_type" json:"agent_type"`
+	AgentMemoryScope     string `db:"agent_memory_scope" json:"agent_memory_scope"`
+	CreatedAt            int64  `db:"created_at" json:"created_at"`
+	UpdatedAt            int64  `db:"updated_at" json:"updated_at"`
+	SessionUUID          string `db:"session_uuid" json:"session_uuid"`
+	CodexHome            string `db:"codex_home" json:"codex_home"`
+	ProviderRecoveryHome string `db:"provider_recovery_home" json:"provider_recovery_home"`
+	CodexInstanceKey     string `db:"codex_instance_key" json:"codex_instance_key"`
+	CodexModelProvider   string `db:"codex_model_provider" json:"codex_model_provider"`
 }
 
 // Codex identity columns use "” preserves existing value" semantics so
@@ -217,6 +221,7 @@ func (q *Queries) UpsertAgentProviderBinding(ctx context.Context, arg UpsertAgen
 		arg.UpdatedAt,
 		arg.SessionUUID,
 		arg.CodexHome,
+		arg.ProviderRecoveryHome,
 		arg.CodexInstanceKey,
 		arg.CodexModelProvider,
 	)

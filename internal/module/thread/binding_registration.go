@@ -22,7 +22,7 @@ type bindingRegistration struct {
 	AgentID, Provider, ProviderThreadID, PublicThreadID, CWD string
 	RolloutPath, SessionUUID, ParentAgentID, AgentType       string
 	AgentMemoryScope, CodexHome, CodexInstanceKey            string
-	CodexModelProvider                                       string
+	ProviderRecoveryHome, CodexModelProvider                 string
 	CreatedAt                                                int64
 }
 
@@ -42,6 +42,7 @@ func normalizeThreadState(state threadState) (threadState, error) {
 	state.AgentID, state.ParentAgentID, state.AgentType = trim(state.AgentID), trim(state.ParentAgentID), trim(state.AgentType)
 	state.AgentMemoryScope, state.Provider, state.CWD = trim(state.AgentMemoryScope), trim(state.Provider), trim(state.CWD)
 	state.CodexHome, state.CodexInstanceKey, state.CodexModelProvider = trim(state.CodexHome), trim(state.CodexInstanceKey), trim(state.CodexModelProvider)
+	state.ProviderRecoveryHome = trim(state.ProviderRecoveryHome)
 	state.Model, state.Prompt = trim(state.Model), trim(state.Prompt)
 	var err error
 	state.ProviderThreadID, err = canonicalizeProviderIdentityField(state.ProviderThreadID, true)
@@ -74,7 +75,8 @@ func normalizeBindingRegistration(state threadState) (bindingRegistration, error
 	return bindingRegistration{
 		state.AgentID, state.Provider, providerThreadID, state.PublicThreadID, state.CWD,
 		state.RolloutPath, state.SessionUUID, state.ParentAgentID, state.AgentType,
-		state.AgentMemoryScope, state.CodexHome, state.CodexInstanceKey, state.CodexModelProvider, state.CreatedAt,
+		state.AgentMemoryScope, state.CodexHome, state.CodexInstanceKey,
+		state.ProviderRecoveryHome, state.CodexModelProvider, state.CreatedAt,
 	}, nil
 }
 
@@ -256,7 +258,7 @@ func validateBindingRegistration(existing *threadBindingRecord, registration bin
 	if existing == nil {
 		return nil
 	}
-	for _, validate := range []func(*threadBindingRecord, bindingRegistration) error{validateBindingProvider, validateBindingProviderThread, validateBindingPublicThread, validateBindingCWD, validateBindingParentAgentID, validateBindingAgentType, validateBindingMemoryScope, validateBindingCodexIdentity} {
+	for _, validate := range []func(*threadBindingRecord, bindingRegistration) error{validateBindingProvider, validateBindingProviderThread, validateBindingPublicThread, validateBindingCWD, validateBindingParentAgentID, validateBindingAgentType, validateBindingMemoryScope, validateBindingRecoveryHome, validateBindingCodexIdentity} {
 		if err := validate(existing, registration); err != nil {
 			return err
 		}
@@ -294,6 +296,7 @@ func (s *service) verifyThreadBinding(ctx context.Context, registration bindingR
 		{label: "agent type", actual: strings.TrimSpace(binding.AgentType), expected: registration.AgentType, optional: true},
 		{label: "memory scope", actual: strings.TrimSpace(binding.AgentMemoryScope), expected: registration.AgentMemoryScope, optional: true},
 		{label: "codex home", actual: strings.TrimSpace(binding.CodexHome), expected: registration.CodexHome, optional: true},
+		{label: "provider recovery home", actual: strings.TrimSpace(binding.ProviderRecoveryHome), expected: registration.ProviderRecoveryHome, optional: true},
 		{label: "codex instance key", actual: strings.TrimSpace(binding.CodexInstanceKey), expected: registration.CodexInstanceKey, optional: true},
 		{label: "codex model provider", actual: strings.TrimSpace(binding.CodexModelProvider), expected: registration.CodexModelProvider, optional: true},
 	} {
@@ -331,21 +334,22 @@ func (s *service) persistRegisteredBinding(ctx context.Context, registration bin
 		return nil
 	}
 	return store.Upsert(ctx, newBindingUpsertParams(threadBindingRecord{
-		AgentID:            registration.AgentID,
-		Provider:           registration.Provider,
-		ProviderThreadID:   registration.ProviderThreadID,
-		CodexThreadID:      registration.PublicThreadID,
-		RolloutPath:        registration.RolloutPath,
-		SessionUUID:        registration.SessionUUID,
-		Cwd:                registration.CWD,
-		ParentAgentID:      registration.ParentAgentID,
-		AgentType:          registration.AgentType,
-		AgentMemoryScope:   registration.AgentMemoryScope,
-		CodexHome:          registration.CodexHome,
-		CodexInstanceKey:   registration.CodexInstanceKey,
-		CodexModelProvider: registration.CodexModelProvider,
-		CreatedAt:          registration.CreatedAt,
-		UpdatedAt:          time.Now().UnixMilli(),
+		AgentID:              registration.AgentID,
+		Provider:             registration.Provider,
+		ProviderThreadID:     registration.ProviderThreadID,
+		CodexThreadID:        registration.PublicThreadID,
+		RolloutPath:          registration.RolloutPath,
+		SessionUUID:          registration.SessionUUID,
+		Cwd:                  registration.CWD,
+		ParentAgentID:        registration.ParentAgentID,
+		AgentType:            registration.AgentType,
+		AgentMemoryScope:     registration.AgentMemoryScope,
+		CodexHome:            registration.CodexHome,
+		ProviderRecoveryHome: registration.ProviderRecoveryHome,
+		CodexInstanceKey:     registration.CodexInstanceKey,
+		CodexModelProvider:   registration.CodexModelProvider,
+		CreatedAt:            registration.CreatedAt,
+		UpdatedAt:            time.Now().UnixMilli(),
 	}))
 }
 func (s *service) verifyOrRollbackThreadBinding(ctx context.Context, registration bindingRegistration, outcome bindingWriteOutcome) error {
@@ -427,7 +431,8 @@ func bindingNeedsThreadMetadataUpdate(existing *threadBindingRecord, registratio
 		bindingNeedsInitialValue(strings.TrimSpace(existing.Cwd), registration.CWD) ||
 		bindingNeedsInitialValue(strings.TrimSpace(existing.ParentAgentID), registration.ParentAgentID) ||
 		bindingNeedsInitialValue(strings.TrimSpace(existing.AgentType), registration.AgentType) ||
-		bindingNeedsInitialValue(strings.TrimSpace(existing.AgentMemoryScope), registration.AgentMemoryScope)
+		bindingNeedsInitialValue(strings.TrimSpace(existing.AgentMemoryScope), registration.AgentMemoryScope) ||
+		bindingNeedsInitialValue(strings.TrimSpace(existing.ProviderRecoveryHome), registration.ProviderRecoveryHome)
 }
 
 // bindingNeedsCodexIdentityUpdate 只在补齐空身份或修正已验证的 CodexHome alias 时触发写回。
@@ -449,6 +454,14 @@ func validateBindingAgentType(existing *threadBindingRecord, registration bindin
 }
 func validateBindingMemoryScope(existing *threadBindingRecord, registration bindingRegistration) error {
 	return validateBindingImmutableField(registration.AgentID, "agent_memory_scope", existing.AgentMemoryScope, registration.AgentMemoryScope)
+}
+func validateBindingRecoveryHome(existing *threadBindingRecord, registration bindingRegistration) error {
+	return validateBindingImmutableField(
+		registration.AgentID,
+		"provider_recovery_home",
+		existing.ProviderRecoveryHome,
+		registration.ProviderRecoveryHome,
+	)
 }
 func validateBindingImmutableField(agentID, label, old, next string) error {
 	old, next = strings.TrimSpace(old), strings.TrimSpace(next)
@@ -513,17 +526,18 @@ func (s *service) rollbackThreadBinding(ctx context.Context, outcome bindingWrit
 		return store.DeleteByAgentID(ctx, outcome.AgentID)
 	}
 	return store.Upsert(ctx, newBindingUpsertParams(threadBindingRecord{
-		AgentID:          strings.TrimSpace(outcome.Previous.AgentID),
-		Provider:         strings.TrimSpace(outcome.Previous.Provider),
-		ProviderThreadID: strings.TrimSpace(outcome.Previous.ProviderThreadID),
-		CodexThreadID:    strings.TrimSpace(outcome.Previous.CodexThreadID),
-		RolloutPath:      strings.TrimSpace(outcome.Previous.RolloutPath),
-		Cwd:              strings.TrimSpace(outcome.Previous.Cwd),
-		ParentAgentID:    strings.TrimSpace(outcome.Previous.ParentAgentID),
-		AgentType:        strings.TrimSpace(outcome.Previous.AgentType),
-		AgentMemoryScope: strings.TrimSpace(outcome.Previous.AgentMemoryScope),
-		CreatedAt:        outcome.Previous.CreatedAt,
-		UpdatedAt:        time.Now().UnixMilli(),
+		AgentID:              strings.TrimSpace(outcome.Previous.AgentID),
+		Provider:             strings.TrimSpace(outcome.Previous.Provider),
+		ProviderThreadID:     strings.TrimSpace(outcome.Previous.ProviderThreadID),
+		CodexThreadID:        strings.TrimSpace(outcome.Previous.CodexThreadID),
+		RolloutPath:          strings.TrimSpace(outcome.Previous.RolloutPath),
+		Cwd:                  strings.TrimSpace(outcome.Previous.Cwd),
+		ParentAgentID:        strings.TrimSpace(outcome.Previous.ParentAgentID),
+		AgentType:            strings.TrimSpace(outcome.Previous.AgentType),
+		AgentMemoryScope:     strings.TrimSpace(outcome.Previous.AgentMemoryScope),
+		ProviderRecoveryHome: strings.TrimSpace(outcome.Previous.ProviderRecoveryHome),
+		CreatedAt:            outcome.Previous.CreatedAt,
+		UpdatedAt:            time.Now().UnixMilli(),
 	}))
 }
 func cloneBinding(binding *threadBindingRecord) *threadBindingRecord {

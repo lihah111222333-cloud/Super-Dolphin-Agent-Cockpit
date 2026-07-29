@@ -614,21 +614,22 @@ func (s *stubBindingStore) Upsert(_ context.Context, params BindingUpsert) error
 	// 下游读到空字段产生 mismatch。B-4.7 仅修 prompt 模块 fixture，
 	// reviewer 反审指出本 fixture 同样漂移，本 commit 补全。
 	s.binding = &BindingRecord{
-		AgentID:            params.AgentID,
-		Provider:           params.Provider,
-		ProviderThreadID:   params.ProviderThreadID,
-		CodexThreadID:      params.CodexThreadID,
-		RolloutPath:        params.RolloutPath,
-		Cwd:                params.Cwd,
-		ParentAgentID:      params.ParentAgentID,
-		AgentType:          params.AgentType,
-		AgentMemoryScope:   params.AgentMemoryScope,
-		SessionUUID:        params.SessionUUID,
-		CodexHome:          params.CodexHome,
-		CodexInstanceKey:   params.CodexInstanceKey,
-		CodexModelProvider: params.CodexModelProvider,
-		CreatedAt:          params.CreatedAt,
-		UpdatedAt:          params.UpdatedAt,
+		AgentID:              params.AgentID,
+		Provider:             params.Provider,
+		ProviderThreadID:     params.ProviderThreadID,
+		CodexThreadID:        params.CodexThreadID,
+		RolloutPath:          params.RolloutPath,
+		Cwd:                  params.Cwd,
+		ParentAgentID:        params.ParentAgentID,
+		AgentType:            params.AgentType,
+		AgentMemoryScope:     params.AgentMemoryScope,
+		SessionUUID:          params.SessionUUID,
+		CodexHome:            params.CodexHome,
+		ProviderRecoveryHome: params.ProviderRecoveryHome,
+		CodexInstanceKey:     params.CodexInstanceKey,
+		CodexModelProvider:   params.CodexModelProvider,
+		CreatedAt:            params.CreatedAt,
+		UpdatedAt:            params.UpdatedAt,
 	}
 	return nil
 }

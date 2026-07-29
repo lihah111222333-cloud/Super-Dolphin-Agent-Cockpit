@@ -3,9 +3,12 @@ package historyjsonl
 import (
 	"bufio"
 	"container/list"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -85,9 +88,10 @@ type recoveryCacheKey struct {
 }
 
 type recoveryCacheEntry struct {
-	key  recoveryCacheKey
-	path string
-	info os.FileInfo
+	key      recoveryCacheKey
+	path     string
+	info     os.FileInfo
+	revision [sha256.Size]byte
 }
 
 type recoveryArtifactCache struct {
@@ -195,11 +199,11 @@ func (v *recoveryValidator) validate(req ReadRequest) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	info, err := v.validatePath(path, provider, identity, discovered)
+	info, revision, err := v.validatePath(path, provider, identity, discovered)
 	if err != nil {
 		return "", err
 	}
-	v.cache.put(recoveryCacheEntry{key: key, path: path, info: info})
+	v.cache.put(recoveryCacheEntry{key: key, path: path, info: info, revision: revision})
 	return path, nil
 }
 
@@ -227,18 +231,18 @@ func (v *recoveryValidator) validateCached(entry recoveryCacheEntry) (string, bo
 		return entry.path, true, nil
 	}
 	v.cache.remove(entry.key)
-	validated, err := v.validatePath(entry.path, entry.key.provider, entry.key.identity, true)
+	validated, revision, err := v.validatePath(entry.path, entry.key.provider, entry.key.identity, true)
 	if err != nil {
 		return "", false, err
 	}
-	v.cache.put(recoveryCacheEntry{key: entry.key, path: entry.path, info: validated})
+	v.cache.put(recoveryCacheEntry{key: entry.key, path: entry.path, info: validated, revision: revision})
 	return entry.path, true, nil
 }
 
 // resolvePath 只使用已选 provider UUID，不接受 public thread 或其它候选。
 func (v *recoveryValidator) resolvePath(req ReadRequest, provider, identity string) (string, bool, error) {
 	explicit := strings.TrimSpace(req.RolloutPath)
-	root, err := v.recoveryRoot(req, provider)
+	root, err := v.recoveryRoot(req, provider, identity)
 	if err != nil {
 		return "", false, err
 	}
@@ -260,15 +264,21 @@ func (v *recoveryValidator) resolvePath(req ReadRequest, provider, identity stri
 }
 
 // recoveryRoot 返回已解析 symlink 的 provider canonical artifact root。
-func (v *recoveryValidator) recoveryRoot(req ReadRequest, provider string) (string, error) {
+func (v *recoveryValidator) recoveryRoot(req ReadRequest, provider, identity string) (string, error) {
 	var rawRoot string
 	var err error
 	switch provider {
 	case "codex":
+		if strings.TrimSpace(req.CodexHome) == "" {
+			return "", recoveryIdentityError(provider, identity, errors.New("authoritative Codex recovery home is required"))
+		}
 		var home string
 		home, err = codexRoot(req.CodexHome)
 		rawRoot = filepath.Join(home, "sessions")
 	case "claude":
+		if strings.TrimSpace(req.ClaudeHome) == "" {
+			return "", recoveryIdentityError(provider, identity, errors.New("authoritative Claude recovery home is required"))
+		}
 		var home string
 		home, err = claudeRoot(req.ClaudeHome)
 		rawRoot = filepath.Join(home, "projects")
@@ -359,14 +369,14 @@ func recoveryArtifactPrefix(provider string) string {
 }
 
 // validatePath 打开并完整验证同一普通文件 snapshot。
-func (v *recoveryValidator) validatePath(path, provider, identity string, disappearanceIsRace bool) (os.FileInfo, error) {
+func (v *recoveryValidator) validatePath(path, provider, identity string, disappearanceIsRace bool) (os.FileInfo, [sha256.Size]byte, error) {
 	before, err := v.lstatRegularArtifact(path, provider, identity, disappearanceIsRace)
 	if err != nil {
-		return nil, err
+		return nil, [sha256.Size]byte{}, err
 	}
 	file, err := v.fs.open(path)
 	if err != nil {
-		return nil, v.pathAccessError(path, err, disappearanceIsRace)
+		return nil, [sha256.Size]byte{}, v.pathAccessError(path, err, disappearanceIsRace)
 	}
 	defer func() { _ = file.Close() }()
 	return v.validateOpenedArtifact(file, path, provider, identity, before)
@@ -388,32 +398,34 @@ func (v *recoveryValidator) lstatRegularArtifact(path, provider, identity string
 }
 
 // validateOpenedArtifact 完整解析已打开 snapshot，并确认读取期间未被替换。
-func (v *recoveryValidator) validateOpenedArtifact(file *os.File, path, provider, identity string, before os.FileInfo) (os.FileInfo, error) {
+func (v *recoveryValidator) validateOpenedArtifact(file *os.File, path, provider, identity string, before os.FileInfo) (os.FileInfo, [sha256.Size]byte, error) {
 	opened, err := file.Stat()
 	if err != nil {
-		return nil, fmt.Errorf("stat opened recovery artifact: %w", err)
+		return nil, [sha256.Size]byte{}, fmt.Errorf("stat opened recovery artifact: %w", err)
 	}
 	if !sameRecoveryFile(before, opened) {
-		return nil, &RecoveryArtifactRaceError{Path: path, Cause: errors.New("artifact changed between lstat and open")}
+		return nil, [sha256.Size]byte{}, &RecoveryArtifactRaceError{Path: path, Cause: errors.New("artifact changed between lstat and open")}
 	}
-	if err := validateRecoveryContents(file, provider, identity); err != nil {
-		return nil, err
+	digest := sha256.New()
+	if err := validateRecoveryContents(io.TeeReader(file, digest), provider, identity); err != nil {
+		return nil, [sha256.Size]byte{}, err
 	}
+	revision := [sha256.Size]byte(digest.Sum(nil))
 	after, err := file.Stat()
 	if err != nil {
-		return nil, fmt.Errorf("stat validated recovery artifact: %w", err)
+		return nil, [sha256.Size]byte{}, fmt.Errorf("stat validated recovery artifact: %w", err)
 	}
 	current, err := v.fs.lstat(path)
 	if err != nil {
-		return nil, v.pathAccessError(path, err, true)
+		return nil, [sha256.Size]byte{}, v.pathAccessError(path, err, true)
 	}
 	if !sameRecoveryFile(before, after) || !sameRecoveryFile(after, current) {
-		return nil, &RecoveryArtifactRaceError{Path: path, Cause: errors.New("artifact changed during validation")}
+		return nil, [sha256.Size]byte{}, &RecoveryArtifactRaceError{Path: path, Cause: errors.New("artifact changed during validation")}
 	}
-	return after, nil
+	return after, revision, nil
 }
 
-// validateCachedIdentity 在 metadata 相同的 cache hit 上绑定已打开文件的 provider identity。
+// validateCachedIdentity 在 metadata 相同的 cache hit 上复验完整 snapshot 内容修订。
 func (v *recoveryValidator) validateCachedIdentity(file *os.File, entry recoveryCacheEntry, before os.FileInfo) error {
 	opened, err := file.Stat()
 	if err != nil {
@@ -422,19 +434,43 @@ func (v *recoveryValidator) validateCachedIdentity(file *os.File, entry recovery
 	if !sameRecoveryFile(before, opened) {
 		return &RecoveryArtifactRaceError{Path: entry.path, Cause: errors.New("cached artifact changed between lstat and open")}
 	}
-	if err := validateRecoveryIdentity(file, entry.key.provider, entry.key.identity); err != nil {
+	if err := validateCachedRevision(file, entry); err != nil {
 		return err
 	}
+	return v.validateCachedSnapshotStable(file, entry.path, before)
+}
+
+func validateCachedRevision(file *os.File, entry recoveryCacheEntry) error {
+	digest := sha256.New()
+	if _, err := io.Copy(digest, file); err != nil {
+		return fmt.Errorf("hash cached recovery artifact: %w", err)
+	}
+	if subtle.ConstantTimeCompare(digest.Sum(nil), entry.revision[:]) != 1 {
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			return fmt.Errorf("rewind changed cached recovery artifact: %w", err)
+		}
+		if err := validateRecoveryContents(file, entry.key.provider, entry.key.identity); err != nil {
+			return err
+		}
+		return &RecoveryArtifactRaceError{
+			Path:  entry.path,
+			Cause: errors.New("cached artifact content revision changed without metadata revision"),
+		}
+	}
+	return nil
+}
+
+func (v *recoveryValidator) validateCachedSnapshotStable(file *os.File, path string, before os.FileInfo) error {
 	after, err := file.Stat()
 	if err != nil {
 		return fmt.Errorf("stat cached recovery artifact after identity validation: %w", err)
 	}
-	current, err := v.fs.lstat(entry.path)
+	current, err := v.fs.lstat(path)
 	if err != nil {
-		return v.pathAccessError(entry.path, err, true)
+		return v.pathAccessError(path, err, true)
 	}
 	if !sameRecoveryFile(before, after) || !sameRecoveryFile(after, current) {
-		return &RecoveryArtifactRaceError{Path: entry.path, Cause: errors.New("cached artifact changed during identity validation")}
+		return &RecoveryArtifactRaceError{Path: path, Cause: errors.New("cached artifact changed during identity validation")}
 	}
 	return nil
 }
@@ -451,8 +487,8 @@ func (v *recoveryValidator) pathAccessError(path string, err error, disappearanc
 }
 
 // validateRecoveryContents 完整解析 JSONL 并要求 provider-native identity 与所选 UUID 一致。
-func validateRecoveryContents(file *os.File, provider, identity string) error {
-	scanner := bufio.NewScanner(file)
+func validateRecoveryContents(reader io.Reader, provider, identity string) error {
+	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	foundIdentity := false
 	for scanner.Scan() {
@@ -482,33 +518,6 @@ func validateRecoveryContents(file *os.File, provider, identity string) error {
 		return recoveryIdentityError(provider, identity, errors.New("artifact provider identity is missing"))
 	}
 	return nil
-}
-
-// validateRecoveryIdentity 仅复验 provider-native identity，避免 cache hit 重做全量 JSONL 解析。
-func validateRecoveryIdentity(file *os.File, provider, identity string) error {
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
-	for scanner.Scan() {
-		raw := scanner.Bytes()
-		if len(strings.TrimSpace(string(raw))) == 0 {
-			continue
-		}
-		artifactIdentity, found, err := recoveryIdentityFromLine(raw, provider)
-		if err != nil {
-			return err
-		}
-		if !found {
-			continue
-		}
-		if !strings.EqualFold(artifactIdentity, identity) {
-			return recoveryIdentityError(provider, identity, fmt.Errorf("artifact UUID is %q", artifactIdentity))
-		}
-		return nil
-	}
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("scan cached recovery artifact identity: %w", err)
-	}
-	return recoveryIdentityError(provider, identity, errors.New("artifact provider identity is missing"))
 }
 
 // recoveryIdentityFromLine 提取 provider-native artifact identity。

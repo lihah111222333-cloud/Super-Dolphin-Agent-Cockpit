@@ -298,7 +298,8 @@ func bindingRecordFromStore(row *bindingstore.Binding) *thread.BindingRecord {
 		CodexThreadID: row.CodexThreadID, RolloutPath: row.RolloutPath, Cwd: row.Cwd,
 		ParentAgentID: row.ParentAgentID, AgentType: row.AgentType, AgentMemoryScope: row.AgentMemoryScope,
 		Archived: row.Archived, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, SessionUUID: row.SessionUUID,
-		CodexHome: row.CodexHome, CodexInstanceKey: row.CodexInstanceKey,
+		CodexHome: row.CodexHome, ProviderRecoveryHome: row.ProviderRecoveryHome,
+		CodexInstanceKey:   row.CodexInstanceKey,
 		CodexModelProvider: row.CodexModelProvider,
 	}
 }
@@ -309,7 +310,8 @@ func bindingUpsertToStore(row thread.BindingUpsert) bindingstore.UpsertParams {
 		CodexThreadID: row.CodexThreadID, RolloutPath: row.RolloutPath, SessionUUID: row.SessionUUID,
 		Cwd: row.Cwd, ParentAgentID: row.ParentAgentID, AgentType: row.AgentType,
 		AgentMemoryScope: row.AgentMemoryScope, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
-		CodexHome: row.CodexHome, CodexInstanceKey: row.CodexInstanceKey,
+		CodexHome: row.CodexHome, ProviderRecoveryHome: row.ProviderRecoveryHome,
+		CodexInstanceKey:   row.CodexInstanceKey,
 		CodexModelProvider: row.CodexModelProvider,
 	}
 }

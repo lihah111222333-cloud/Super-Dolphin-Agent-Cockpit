@@ -404,13 +404,15 @@ func unifiedResumeIdentityCase() contracttest.Case {
 				Registry: registry,
 				Sessions: env.sessions,
 			}).(*sessionResolver)
+			recoveryHome := t.TempDir()
 			binding := &contract.SessionBinding{
-				AgentID:          "agent-resume",
-				Provider:         "codex",
-				ProviderThreadID: providerThreadID,
-				CodexThreadID:    "public-thread-should-not-be-used",
-				Cwd:              t.TempDir(),
-				RolloutPath:      writeExistingProviderHistoryFile(t, providerThreadID),
+				AgentID:              "agent-resume",
+				Provider:             "codex",
+				ProviderThreadID:     providerThreadID,
+				CodexThreadID:        "public-thread-should-not-be-used",
+				Cwd:                  t.TempDir(),
+				RolloutPath:          writeExistingProviderHistoryFile(t, providerThreadID, "codex", recoveryHome),
+				ProviderRecoveryHome: recoveryHome,
 			}
 			plan, err := resolver.buildAutoResumePlan(binding, map[string]any{"provider": "codex"}, unifiedContractPromptSnapshot(), "public-thread-resume")
 			if err != nil {

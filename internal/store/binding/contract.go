@@ -47,9 +47,10 @@ type UpsertParams struct {
 	UpdatedAt        int64
 
 	// Codex 身份字段为空时表示 upsert 保留已有值；非空修复必须由调用方确认仍是同一实例元组。
-	CodexHome          string
-	CodexInstanceKey   string
-	CodexModelProvider string
+	CodexHome            string
+	ProviderRecoveryHome string
+	CodexInstanceKey     string
+	CodexModelProvider   string
 }
 
 // UpdateSessionUUIDParams 更新 provider session UUID，供历史恢复路径补齐线程身份。
@@ -99,7 +100,8 @@ type Binding struct {
 	SessionUUID      string
 
 	// Codex 身份字段保存规范化 home、实例 key 和模型 provider，auto-resume 用它路由回正确本地进程。
-	CodexHome          string
-	CodexInstanceKey   string
-	CodexModelProvider string
+	CodexHome            string
+	ProviderRecoveryHome string
+	CodexInstanceKey     string
+	CodexModelProvider   string
 }

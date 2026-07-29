@@ -580,6 +580,7 @@ func TestSessionResolverAutoResumeAcceptsOfficialCodexUUIDWithoutHistoryFile(t *
 				Provider:         "codex",
 				AgentID:          "agent-4",
 				ProviderThreadID: "44444444-aaaa-bbbb-cccc-444444444444",
+				CodexHome:        cwd,
 				Cwd:              cwd,
 			},
 		}},
@@ -656,6 +657,7 @@ func writeExistingProviderHistoryFile(t *testing.T, args ...string) string {
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write provider history file: %v", err)
 	}
+	unifiedRecoveryTestHomeByPath.Store(path, home)
 	return path
 }
 

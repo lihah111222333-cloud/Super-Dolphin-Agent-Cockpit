@@ -82,7 +82,7 @@ func (q *Queries) GetThreadByAgent(ctx context.Context, arg GetThreadByAgentPara
 }
 
 const listAgentThreadBindings = `-- name: ListAgentThreadBindings :many
-SELECT agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, parent_agent_id, agent_type, agent_memory_scope, archived, created_at, updated_at, session_uuid, codex_home, codex_instance_key, codex_model_provider
+SELECT agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, parent_agent_id, agent_type, agent_memory_scope, archived, created_at, updated_at, session_uuid, codex_home, codex_instance_key, codex_model_provider, provider_recovery_home
 FROM agent_provider_binding
 ORDER BY created_at DESC, agent_id DESC
 `
@@ -113,6 +113,7 @@ func (q *Queries) ListAgentThreadBindings(ctx context.Context) ([]AgentProviderB
 			&i.CodexHome,
 			&i.CodexInstanceKey,
 			&i.CodexModelProvider,
+			&i.ProviderRecoveryHome,
 		); err != nil {
 			return nil, err
 		}

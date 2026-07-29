@@ -192,21 +192,22 @@ func (s *service) resolveThreadBindingRecord(ctx context.Context, threadID strin
 
 func bindingUpsertParamsToStore(params threadBindingUpsertParams) BindingUpsert {
 	return BindingUpsert{
-		AgentID:            params.AgentID,
-		Provider:           params.Provider,
-		ProviderThreadID:   params.ProviderThreadID,
-		CodexThreadID:      params.CodexThreadID,
-		RolloutPath:        params.RolloutPath,
-		SessionUUID:        params.SessionUUID,
-		Cwd:                params.Cwd,
-		ParentAgentID:      params.ParentAgentID,
-		AgentType:          params.AgentType,
-		AgentMemoryScope:   params.AgentMemoryScope,
-		CreatedAt:          params.CreatedAt,
-		UpdatedAt:          params.UpdatedAt,
-		CodexHome:          params.CodexHome,
-		CodexInstanceKey:   params.CodexInstanceKey,
-		CodexModelProvider: params.CodexModelProvider,
+		AgentID:              params.AgentID,
+		Provider:             params.Provider,
+		ProviderThreadID:     params.ProviderThreadID,
+		CodexThreadID:        params.CodexThreadID,
+		RolloutPath:          params.RolloutPath,
+		SessionUUID:          params.SessionUUID,
+		Cwd:                  params.Cwd,
+		ParentAgentID:        params.ParentAgentID,
+		AgentType:            params.AgentType,
+		AgentMemoryScope:     params.AgentMemoryScope,
+		CreatedAt:            params.CreatedAt,
+		UpdatedAt:            params.UpdatedAt,
+		CodexHome:            params.CodexHome,
+		ProviderRecoveryHome: params.ProviderRecoveryHome,
+		CodexInstanceKey:     params.CodexInstanceKey,
+		CodexModelProvider:   params.CodexModelProvider,
 	}
 }
 

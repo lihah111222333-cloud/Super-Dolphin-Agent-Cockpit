@@ -162,21 +162,22 @@ type BindingRecord struct {
 
 // BindingUpsert 描述 provider session 绑定写入。
 type BindingUpsert struct {
-	AgentID            string
-	Provider           string
-	ProviderThreadID   string
-	CodexThreadID      string
-	RolloutPath        string
-	SessionUUID        string
-	Cwd                string
-	ParentAgentID      string
-	AgentType          string
-	AgentMemoryScope   string
-	CreatedAt          int64
-	UpdatedAt          int64
-	CodexHome          string
-	CodexInstanceKey   string
-	CodexModelProvider string
+	AgentID              string
+	Provider             string
+	ProviderThreadID     string
+	CodexThreadID        string
+	RolloutPath          string
+	SessionUUID          string
+	Cwd                  string
+	ParentAgentID        string
+	AgentType            string
+	AgentMemoryScope     string
+	CreatedAt            int64
+	UpdatedAt            int64
+	CodexHome            string
+	ProviderRecoveryHome string
+	CodexInstanceKey     string
+	CodexModelProvider   string
 }
 
 // BindingSessionUUIDUpdate 更新 provider session UUID。

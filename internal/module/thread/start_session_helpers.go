@@ -138,7 +138,7 @@ func (s *service) hydrateResumeSessionRequest(ctx context.Context, req ResumeReq
 	if err != nil {
 		return ResumeRequest{}, err
 	}
-	req.ClaudeHome = util.FirstNonEmpty(req.ClaudeHome, state.ClaudeHome, resumeRuntimeConfigString(state.ConfigOverride.Runtime, "claudeHome", "claude_home", "history_dir"))
+	req.ClaudeHome = hydrateResumeClaudeHome(req.Provider, req.ClaudeHome, state)
 	req = hydrateResumeCodexIdentity(req, state)
 	req.CodexDisabledNativeTools, err = resolveResumeCodexDisabledNativeTools(req.CodexDisabledNativeTools, state.ConfigOverride.Runtime)
 	if err != nil {
@@ -157,6 +157,31 @@ func (s *service) hydrateResumeSessionRequest(ctx context.Context, req ResumeReq
 	if err := validateHydratedResumeRequest(req); err != nil {
 		return ResumeRequest{}, err
 	}
+	return recoverHydratedResumeProviderThread(req, &state)
+}
+
+func recoverHydratedResumeProviderThread(req ResumeRequest, state *resumeState) (ResumeRequest, error) {
+	if state == nil {
+		return ResumeRequest{}, errors.New("thread resume state is required")
+	}
+	binding := &threadBindingStoreRecord{
+		Provider:         req.Provider,
+		ProviderThreadID: state.ProviderThreadID,
+		RolloutPath:      state.RolloutPath,
+		SessionUUID:      state.SessionUUID,
+		CodexHome:        req.CodexHome,
+		ProviderRecoveryHome: util.FirstNonEmpty(
+			providerRecoveryHome(req.Provider, req.CodexHome, req.ClaudeHome),
+			state.ProviderRecoveryHome,
+		),
+	}
+	providerThreadID, err := recoverableBindingProviderThreadID(binding)
+	if err != nil {
+		return ResumeRequest{}, err
+	}
+	req.ProviderThreadID = providerThreadID
+	state.ProviderThreadID = providerThreadID
+	state.ProviderRecoveryHome = binding.ProviderRecoveryHome
 	return req, nil
 }
 
@@ -267,16 +292,12 @@ func mergeResumeBindingState(state *resumeState, binding *threadBindingStoreReco
 		return nil
 	}
 	state.CodexHome = strings.TrimSpace(binding.CodexHome)
-	providerThreadID, err := recoverableBindingProviderThreadID(binding)
-	if err != nil {
-		return err
-	}
 	state.AgentID = util.FirstNonEmpty(state.AgentID, binding.AgentID)
 	state.ParentAgentID = util.FirstNonEmpty(state.ParentAgentID, strings.TrimSpace(binding.ParentAgentID))
 	state.AgentType = util.FirstNonEmpty(state.AgentType, strings.TrimSpace(binding.AgentType))
 	state.AgentMemoryScope = util.FirstNonEmpty(state.AgentMemoryScope, strings.TrimSpace(binding.AgentMemoryScope))
 	state.Provider = strings.TrimSpace(binding.Provider)
-	state.ProviderThreadID = util.FirstNonEmpty(state.ProviderThreadID, providerThreadID)
+	state.ProviderThreadID = util.FirstNonEmpty(state.ProviderThreadID, strings.TrimSpace(binding.ProviderThreadID))
 	state.PublicThreadID = util.FirstNonEmpty(state.PublicThreadID, binding.CodexThreadID)
 	state.RolloutPath = strings.TrimSpace(binding.RolloutPath)
 	state.SessionUUID = strings.TrimSpace(binding.SessionUUID)

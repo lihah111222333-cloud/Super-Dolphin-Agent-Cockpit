@@ -128,6 +128,48 @@ func TestRecoveryValidatorRejectsSameMetadataIdentityRewrite(t *testing.T) {
 	}
 }
 
+func TestRecoveryValidatorRejectsSameMetadataTailCorruption(t *testing.T) {
+	t.Parallel()
+
+	const identity = "019e218f-b514-7733-be85-b3ee7f6a78a6"
+	home := t.TempDir()
+	path := writeRecoveryCodexArtifact(t, home, identity, 1)
+	validator := newRecoveryValidator(defaultRecoveryFS, 8)
+	req := ReadRequest{Provider: "codex", ProviderThreadID: identity, CodexHome: home}
+	if _, err := validator.validate(req); err != nil {
+		t.Fatalf("prime validate() error = %v", err)
+	}
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat artifact: %v", err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read artifact: %v", err)
+	}
+	last := len(body) - 2
+	if last <= 0 || body[last] != '}' {
+		t.Fatalf("unexpected artifact tail %q", body)
+	}
+	body[last] = ']'
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatalf("rewrite artifact tail: %v", err)
+	}
+	if err := os.Chtimes(path, before.ModTime(), before.ModTime()); err != nil {
+		t.Fatalf("restore artifact timestamps: %v", err)
+	}
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat rewritten artifact: %v", err)
+	}
+	if !sameRecoveryFile(before, after) {
+		t.Fatalf("test rewrite did not preserve inode/size/mtime/mode")
+	}
+	if _, err := validator.validate(req); err == nil {
+		t.Fatal("validate() error = nil, want same-metadata content revision rejection")
+	}
+}
+
 func TestRecoveryValidatorDoesNotInferOwnerRootFromExplicitArtifact(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CODEX_HOME", "")
@@ -141,8 +183,8 @@ func TestRecoveryValidatorDoesNotInferOwnerRootFromExplicitArtifact(t *testing.T
 		ProviderThreadID: identity,
 		RolloutPath:      path,
 	})
-	if !IsMissingProviderHistory(err) {
-		t.Fatalf("validate() error = %v, want authoritative provider root missing", err)
+	if !IsRecoveryArtifactIdentityError(err) || IsMissingProviderHistory(err) {
+		t.Fatalf("validate() error = %v, want authoritative owner identity rejection", err)
 	}
 }
 

@@ -602,21 +602,25 @@ func bindingHasProviderHistoryForUUID(binding *threadBindingStoreRecord, provide
 
 // providerRecoveryRequestFromThreadBinding 将 thread binding 映射到唯一 recovery port。
 func providerRecoveryRequestFromThreadBinding(binding *threadBindingStoreRecord) providerrecovery.Request {
-	codexHome := binding.CodexHome
-	claudeHome := ""
-	if strings.EqualFold(strings.TrimSpace(binding.Provider), "claude") {
-		claudeHome = binding.ProviderRecoveryHome
-	} else if strings.TrimSpace(codexHome) == "" {
-		codexHome = binding.ProviderRecoveryHome
-	}
 	return providerrecovery.Request{
 		Provider:         binding.Provider,
 		RolloutPath:      binding.RolloutPath,
 		ProviderThreadID: binding.ProviderThreadID,
 		SessionUUID:      binding.SessionUUID,
-		CodexHome:        codexHome,
-		ClaudeHome:       claudeHome,
+		CodexHome:        providerRecoveryCodexHome(binding.CodexHome, binding.ProviderRecoveryHome),
+		ClaudeHome:       binding.ProviderRecoveryHome,
 	}
+}
+
+func providerRecoveryCodexHome(codexHome, recoveryHome string) string {
+	return util.FirstNonEmpty(strings.TrimSpace(codexHome), strings.TrimSpace(recoveryHome))
+}
+
+func providerRecoveryHome(provider, codexHome, claudeHome string) string {
+	if strings.EqualFold(strings.TrimSpace(provider), "claude") {
+		return strings.TrimSpace(claudeHome)
+	}
+	return strings.TrimSpace(codexHome)
 }
 
 // resolveOptionalProviderThreadID 仅把 typed artifact missing 降为空候选。

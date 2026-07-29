@@ -21,10 +21,11 @@ func TestReadThreadHistoryUsesSessionThreadList(t *testing.T) {
 		silentLogger(),
 		historyThreadStore(ThreadRecord{ThreadID: "thread-1", AgentID: "agent-1", Prompt: "demo"}),
 		newHistoryTestBindingStore(&BindingRecord{
-			AgentID:          "agent-1",
-			Provider:         "codex",
-			ProviderThreadID: "11111111-2222-3333-4444-555555555591",
-			CodexThreadID:    "thread-1",
+			AgentID:              "agent-1",
+			Provider:             "codex",
+			ProviderThreadID:     "11111111-2222-3333-4444-555555555591",
+			CodexThreadID:        "thread-1",
+			ProviderRecoveryHome: t.TempDir(),
 		}),
 		&historyTestSessionProvider{sessions: map[string]contract.Session{
 			"agent-1": &historyTestSession{

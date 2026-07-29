@@ -161,8 +161,8 @@ func TestProviderRecoveryFieldGuardFailsOnRealMapperSelectorMutation(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	from := []byte("ProviderThreadID: binding.ProviderThreadID,")
-	to := []byte("ProviderThreadID: binding.CodexHome,")
+	from := []byte("ClaudeHome:       binding.ProviderRecoveryHome,")
+	to := []byte(`ClaudeHome:       "",`)
 	if bytes.Count(source, from) != 1 {
 		t.Fatalf("real mapper selector count = %d, want 1", bytes.Count(source, from))
 	}
@@ -182,8 +182,8 @@ func TestProviderRecoveryFieldGuardFailsOnRealMapperSelectorMutation(t *testing.
 		inventory,
 		providerRecoveryFieldExemptions(),
 	)
-	if err == nil || !strings.Contains(err.Error(), "expression") {
-		t.Fatalf("real mapper selector mutation error = %v, want expression fail-first", err)
+	if err == nil || !strings.Contains(err.Error(), "empty constant") {
+		t.Fatalf("real mapper selector deletion error = %v, want empty constant fail-first", err)
 	}
 }
 
@@ -195,7 +195,7 @@ func providerRecoveryConstructionRegistry() map[string]providerRecoveryConstruct
 			fields: map[string]string{
 				"Provider": "binding.Provider", "RolloutPath": "binding.RolloutPath",
 				"ProviderThreadID": "binding.ProviderThreadID", "SessionUUID": "binding.SessionUUID",
-				"CodexHome": "codexHome", "ClaudeHome": "claudeHome",
+				"CodexHome": "providerRecoveryCodexHome(binding.CodexHome, binding.ProviderRecoveryHome)", "ClaudeHome": "binding.ProviderRecoveryHome",
 			},
 		},
 		"internal/provider/unified/session_resolver.go:providerRecoveryRequestFromSessionBinding": {
@@ -203,7 +203,7 @@ func providerRecoveryConstructionRegistry() map[string]providerRecoveryConstruct
 			fields: map[string]string{
 				"Provider": "binding.Provider", "RolloutPath": "binding.RolloutPath",
 				"ProviderThreadID": "binding.ProviderThreadID", "SessionUUID": "binding.SessionUUID",
-				"CodexHome": "binding.CodexHome", "ClaudeHome": `""`,
+				"CodexHome": "providerRecoveryCodexHome(binding.CodexHome, binding.ProviderRecoveryHome)", "ClaudeHome": "binding.ProviderRecoveryHome",
 			},
 		},
 		"internal/module/uistate/module.go:providerRecoveryRequestFromUIBinding": {
@@ -211,7 +211,7 @@ func providerRecoveryConstructionRegistry() map[string]providerRecoveryConstruct
 			fields: map[string]string{
 				"Provider": "binding.Provider", "RolloutPath": "binding.RolloutPath",
 				"ProviderThreadID": "binding.ProviderThreadID", "SessionUUID": "binding.SessionUUID",
-				"CodexHome": "binding.CodexHome", "ClaudeHome": `""`,
+				"CodexHome": "providerRecoveryCodexHome(binding.CodexHome, binding.ProviderRecoveryHome)", "ClaudeHome": "binding.ProviderRecoveryHome",
 			},
 		},
 		"internal/module/thread/lifecycle_helpers.go:recoverableProviderThreadID": {
@@ -504,6 +504,9 @@ func validateProviderRecoveryConstructions(
 			}
 		}
 		for field, wantExpression := range registered.fields {
+			if implementation.fields[field] == `""` {
+				return fmt.Errorf("%s field %s uses unexempted empty constant", id, field)
+			}
 			if gotExpression := implementation.fields[field]; gotExpression != wantExpression {
 				return fmt.Errorf("%s field %s expression = %q, want %q", id, field, gotExpression, wantExpression)
 			}

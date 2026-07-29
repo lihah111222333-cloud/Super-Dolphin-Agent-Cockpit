@@ -40,13 +40,15 @@ type stubBindingLookup struct {
 	agentErrs map[string]error
 }
 
+var unifiedRecoveryTestHomeByPath sync.Map
+
 func (s stubBindingLookup) GetByProviderThread(_ context.Context, provider, providerThreadID string) (*contract.SessionBinding, error) {
 	key := provider + ":" + providerThreadID
 	if err, ok := s.errs[key]; ok {
 		return nil, err
 	}
 	if binding, ok := s.bindings[key]; ok {
-		return binding, nil
+		return authorizeUnifiedRecoveryTestBinding(binding), nil
 	}
 	return nil, platformdb.ErrNotFound
 }
@@ -57,10 +59,22 @@ func (s stubBindingLookup) GetByAgentID(_ context.Context, agentID string) (*con
 	}
 	for _, b := range s.bindings {
 		if b != nil && b.AgentID == agentID {
-			return b, nil
+			return authorizeUnifiedRecoveryTestBinding(b), nil
 		}
 	}
 	return nil, platformdb.ErrNotFound
+}
+
+func authorizeUnifiedRecoveryTestBinding(binding *contract.SessionBinding) *contract.SessionBinding {
+	if binding == nil {
+		return nil
+	}
+	copy := *binding
+	home, ok := unifiedRecoveryTestHomeByPath.Load(copy.RolloutPath)
+	if ok && copy.ProviderRecoveryHome == "" {
+		copy.ProviderRecoveryHome = home.(string)
+	}
+	return &copy
 }
 
 type sequenceThreadLookup struct {

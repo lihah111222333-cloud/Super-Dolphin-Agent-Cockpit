@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
 )
 
@@ -161,8 +162,176 @@ func executeMigrationBody(ctx context.Context, tx *sql.Tx, name, body string) er
 	if name == "113_bus_exception_log_flags.sql" {
 		return migrateBusExceptionLogFlags(ctx, tx)
 	}
+	if name == "120_agent_provider_binding_recovery_owner.sql" {
+		return migrateAgentProviderBindingRecoveryOwner(ctx, tx)
+	}
 	return execMigrationSegments(ctx, tx, body)
 }
+
+// migrateAgentProviderBindingRecoveryOwner 规范化历史 UUID、补齐 provider owner，并恢复不可变 trigger。
+func migrateAgentProviderBindingRecoveryOwner(ctx context.Context, tx *sql.Tx) error {
+	columns, err := sqliteTableColumns(ctx, tx, "agent_provider_binding")
+	if err != nil {
+		return err
+	}
+	if err := requireProviderBindingRecoveryColumns(columns); err != nil {
+		return err
+	}
+	if err := ensureProviderRecoveryHomeColumn(ctx, tx, columns); err != nil {
+		return err
+	}
+	rows, err := loadProviderBindingUUIDRows(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if err := validateProviderBindingUUIDOwnership(rows); err != nil {
+		return err
+	}
+	return backfillProviderBindingRecoveryOwner(ctx, tx, rows)
+}
+
+func requireProviderBindingRecoveryColumns(columns map[string]bool) error {
+	for _, column := range []string{
+		"agent_id", "provider", "provider_thread_id", "session_uuid", "codex_home",
+		"codex_instance_key", "codex_model_provider",
+	} {
+		if !columns[column] {
+			return fmt.Errorf("agent_provider_binding missing required column %s", column)
+		}
+	}
+	return nil
+}
+
+func ensureProviderRecoveryHomeColumn(ctx context.Context, tx *sql.Tx, columns map[string]bool) error {
+	if columns["provider_recovery_home"] {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, `
+		ALTER TABLE agent_provider_binding
+		ADD COLUMN provider_recovery_home TEXT NOT NULL DEFAULT ''
+	`); err != nil {
+		return fmt.Errorf("add agent_provider_binding provider_recovery_home: %w", err)
+	}
+	return nil
+}
+
+func backfillProviderBindingRecoveryOwner(ctx context.Context, tx *sql.Tx, rows []providerBindingUUIDRow) error {
+	if _, err := tx.ExecContext(ctx, "DROP TRIGGER IF EXISTS trg_prevent_agent_provider_binding_rebind"); err != nil {
+		return fmt.Errorf("drop agent_provider_binding identity trigger: %w", err)
+	}
+	for _, row := range rows {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE agent_provider_binding
+			SET provider_thread_id = ?,
+			    session_uuid = ?,
+			    provider_recovery_home = CASE
+			        WHEN provider_recovery_home <> '' THEN provider_recovery_home
+			        WHEN provider = 'codex' THEN codex_home
+			        ELSE ''
+			    END
+			WHERE agent_id = ?
+		`, row.providerThreadID, row.sessionUUID, row.agentID); err != nil {
+			return fmt.Errorf("backfill provider binding %q: %w", row.agentID, err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, agentProviderBindingIdentityTriggerSQL); err != nil {
+		return fmt.Errorf("restore agent_provider_binding identity trigger: %w", err)
+	}
+	return nil
+}
+
+type providerBindingUUIDRow struct {
+	agentID, provider, providerThreadID, sessionUUID string
+}
+
+func loadProviderBindingUUIDRows(ctx context.Context, tx *sql.Tx) ([]providerBindingUUIDRow, error) {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT agent_id, provider, provider_thread_id, session_uuid
+		FROM agent_provider_binding
+		ORDER BY agent_id
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list provider binding UUIDs: %w", err)
+	}
+	defer rows.Close()
+	var result []providerBindingUUIDRow
+	for rows.Next() {
+		var row providerBindingUUIDRow
+		if err := rows.Scan(&row.agentID, &row.provider, &row.providerThreadID, &row.sessionUUID); err != nil {
+			return nil, fmt.Errorf("scan provider binding UUIDs: %w", err)
+		}
+		row.provider = strings.ToLower(strings.TrimSpace(row.provider))
+		row.providerThreadID, err = canonicalMigrationUUID("provider_thread_id", row.agentID, row.providerThreadID)
+		if err != nil {
+			return nil, err
+		}
+		row.sessionUUID, err = canonicalMigrationUUID("session_uuid", row.agentID, row.sessionUUID)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate provider binding UUIDs: %w", err)
+	}
+	return result, nil
+}
+
+func canonicalMigrationUUID(field, agentID, raw string) (string, error) {
+	if raw == "" {
+		return "", nil
+	}
+	if strings.TrimSpace(raw) != raw {
+		return "", fmt.Errorf("agent %q %s contains surrounding whitespace", agentID, field)
+	}
+	parsed, err := uuid.Parse(raw)
+	if err != nil || parsed == uuid.Nil {
+		return "", fmt.Errorf("agent %q %s is not a valid non-nil UUID: %q", agentID, field, raw)
+	}
+	return parsed.String(), nil
+}
+
+func validateProviderBindingUUIDOwnership(rows []providerBindingUUIDRow) error {
+	owners := make(map[string]string, len(rows)*2)
+	for _, row := range rows {
+		for _, identity := range []string{row.providerThreadID, row.sessionUUID} {
+			if identity == "" {
+				continue
+			}
+			key := row.provider + "\x00" + identity
+			if owner := owners[key]; owner != "" && owner != row.agentID {
+				return fmt.Errorf(
+					"canonical UUID collision for provider %q UUID %q between agents %q and %q",
+					row.provider, identity, owner, row.agentID,
+				)
+			}
+			owners[key] = row.agentID
+		}
+	}
+	return nil
+}
+
+const agentProviderBindingIdentityTriggerSQL = `
+CREATE TRIGGER trg_prevent_agent_provider_binding_rebind
+BEFORE UPDATE ON agent_provider_binding
+FOR EACH ROW
+WHEN NEW.agent_id <> OLD.agent_id
+  OR NEW.provider <> OLD.provider
+  OR (OLD.provider_thread_id <> '' AND NEW.provider_thread_id <> OLD.provider_thread_id)
+  OR (OLD.codex_instance_key <> '' AND NEW.codex_instance_key <> OLD.codex_instance_key)
+  OR (OLD.codex_model_provider <> '' AND NEW.codex_model_provider <> OLD.codex_model_provider)
+  OR (OLD.provider_recovery_home <> '' AND NEW.provider_recovery_home <> OLD.provider_recovery_home)
+  OR (
+      OLD.codex_home <> ''
+      AND NEW.codex_home <> OLD.codex_home
+      AND (
+          (OLD.codex_instance_key <> '' AND NEW.codex_instance_key <> OLD.codex_instance_key)
+          OR (OLD.codex_model_provider <> '' AND NEW.codex_model_provider <> OLD.codex_model_provider)
+      )
+  )
+BEGIN
+    SELECT RAISE(ABORT, 'agent_provider_binding identity is immutable');
+END`
 
 // migrateSystemLogsTraceSpan 只支持 agent-v3 的 system_logs 形状，补齐 span 字段和查询索引。
 // SQLite 不支持 ADD COLUMN IF NOT EXISTS；这里先探测列，遇到更老表形状直接 fail-fast。

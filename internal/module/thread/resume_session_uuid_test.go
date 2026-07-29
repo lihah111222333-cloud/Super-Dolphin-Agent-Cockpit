@@ -58,6 +58,13 @@ func authorizeRecoveryTestBinding(binding *BindingRecord) {
 	}
 	if binding.ProviderRecoveryHome == "" {
 		binding.ProviderRecoveryHome = home.(string)
+		if strings.EqualFold(binding.Provider, "codex") {
+			canonical, err := contract.CanonicalizeCodexHome(binding.ProviderRecoveryHome)
+			if err != nil {
+				panic(fmt.Sprintf("canonicalize recovery test Codex home: %v", err))
+			}
+			binding.ProviderRecoveryHome = canonical
+		}
 	}
 }
 

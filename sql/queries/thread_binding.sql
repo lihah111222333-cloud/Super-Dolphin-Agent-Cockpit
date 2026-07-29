@@ -38,7 +38,7 @@ DELETE FROM agent_provider_binding
 WHERE agent_id = ?;
 
 -- name: ListAgentThreadBindings :many
-SELECT agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, parent_agent_id, agent_type, agent_memory_scope, archived, created_at, updated_at, session_uuid, codex_home, codex_instance_key, codex_model_provider
+SELECT agent_id, provider, provider_thread_id, codex_thread_id, rollout_path, cwd, parent_agent_id, agent_type, agent_memory_scope, archived, created_at, updated_at, session_uuid, codex_home, codex_instance_key, codex_model_provider, provider_recovery_home
 FROM agent_provider_binding
 ORDER BY created_at DESC, agent_id DESC;
 

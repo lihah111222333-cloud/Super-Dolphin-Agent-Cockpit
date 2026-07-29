@@ -48,22 +48,23 @@ func (s *bindingQueryStore) GetByProviderThread(ctx context.Context, provider, p
 		return nil, wrapBindingError(err, "get_by_provider_thread")
 	}
 	result := mapBinding(bindingRow{
-		AgentID:            row.AgentID,
-		Provider:           row.Provider,
-		ProviderThreadID:   row.ProviderThreadID,
-		CodexThreadID:      row.CodexThreadID,
-		RolloutPath:        row.RolloutPath,
-		Cwd:                row.CWD,
-		ParentAgentID:      row.ParentAgentID,
-		AgentType:          row.AgentType,
-		AgentMemoryScope:   row.AgentMemoryScope,
-		Archived:           row.Archived != 0,
-		CreatedAt:          row.CreatedAt,
-		UpdatedAt:          row.UpdatedAt,
-		SessionUUID:        row.SessionUUID,
-		CodexHome:          row.CodexHome,
-		CodexInstanceKey:   row.CodexInstanceKey,
-		CodexModelProvider: row.CodexModelProvider,
+		AgentID:              row.AgentID,
+		Provider:             row.Provider,
+		ProviderThreadID:     row.ProviderThreadID,
+		CodexThreadID:        row.CodexThreadID,
+		RolloutPath:          row.RolloutPath,
+		Cwd:                  row.CWD,
+		ParentAgentID:        row.ParentAgentID,
+		AgentType:            row.AgentType,
+		AgentMemoryScope:     row.AgentMemoryScope,
+		Archived:             row.Archived != 0,
+		CreatedAt:            row.CreatedAt,
+		UpdatedAt:            row.UpdatedAt,
+		SessionUUID:          row.SessionUUID,
+		CodexHome:            row.CodexHome,
+		ProviderRecoveryHome: row.ProviderRecoveryHome,
+		CodexInstanceKey:     row.CodexInstanceKey,
+		CodexModelProvider:   row.CodexModelProvider,
 	})
 	return &result, nil
 }
@@ -71,21 +72,22 @@ func (s *bindingQueryStore) GetByProviderThread(ctx context.Context, provider, p
 // Upsert 写入 provider session 绑定；唯一冲突只在同一 agent/thread 元组时视为幂等。
 func (s *bindingCommandStore) Upsert(ctx context.Context, params UpsertParams) error {
 	err := s.q.UpsertAgentProviderBinding(ctx, sqlc.UpsertAgentProviderBindingParams{
-		AgentID:            params.AgentID,
-		Provider:           params.Provider,
-		ProviderThreadID:   params.ProviderThreadID,
-		CodexThreadID:      params.CodexThreadID,
-		RolloutPath:        params.RolloutPath,
-		CWD:                params.Cwd,
-		ParentAgentID:      params.ParentAgentID,
-		AgentType:          params.AgentType,
-		AgentMemoryScope:   params.AgentMemoryScope,
-		CreatedAt:          params.CreatedAt,
-		UpdatedAt:          params.UpdatedAt,
-		SessionUUID:        params.SessionUUID,
-		CodexHome:          params.CodexHome,
-		CodexInstanceKey:   params.CodexInstanceKey,
-		CodexModelProvider: params.CodexModelProvider,
+		AgentID:              params.AgentID,
+		Provider:             params.Provider,
+		ProviderThreadID:     params.ProviderThreadID,
+		CodexThreadID:        params.CodexThreadID,
+		RolloutPath:          params.RolloutPath,
+		CWD:                  params.Cwd,
+		ParentAgentID:        params.ParentAgentID,
+		AgentType:            params.AgentType,
+		AgentMemoryScope:     params.AgentMemoryScope,
+		CreatedAt:            params.CreatedAt,
+		UpdatedAt:            params.UpdatedAt,
+		SessionUUID:          params.SessionUUID,
+		CodexHome:            params.CodexHome,
+		ProviderRecoveryHome: params.ProviderRecoveryHome,
+		CodexInstanceKey:     params.CodexInstanceKey,
+		CodexModelProvider:   params.CodexModelProvider,
 	})
 	if err == nil {
 		return nil
@@ -136,22 +138,23 @@ func (s *bindingQueryStore) GetByAgentID(ctx context.Context, agentID string) (*
 		return nil, wrapBindingError(err, "get_by_agent_id")
 	}
 	result := mapBinding(bindingRow{
-		AgentID:            row.AgentID,
-		Provider:           row.Provider,
-		ProviderThreadID:   row.ProviderThreadID,
-		CodexThreadID:      row.CodexThreadID,
-		RolloutPath:        row.RolloutPath,
-		Cwd:                row.CWD,
-		ParentAgentID:      row.ParentAgentID,
-		AgentType:          row.AgentType,
-		AgentMemoryScope:   row.AgentMemoryScope,
-		Archived:           row.Archived != 0,
-		CreatedAt:          row.CreatedAt,
-		UpdatedAt:          row.UpdatedAt,
-		SessionUUID:        row.SessionUUID,
-		CodexHome:          row.CodexHome,
-		CodexInstanceKey:   row.CodexInstanceKey,
-		CodexModelProvider: row.CodexModelProvider,
+		AgentID:              row.AgentID,
+		Provider:             row.Provider,
+		ProviderThreadID:     row.ProviderThreadID,
+		CodexThreadID:        row.CodexThreadID,
+		RolloutPath:          row.RolloutPath,
+		Cwd:                  row.CWD,
+		ParentAgentID:        row.ParentAgentID,
+		AgentType:            row.AgentType,
+		AgentMemoryScope:     row.AgentMemoryScope,
+		Archived:             row.Archived != 0,
+		CreatedAt:            row.CreatedAt,
+		UpdatedAt:            row.UpdatedAt,
+		SessionUUID:          row.SessionUUID,
+		CodexHome:            row.CodexHome,
+		ProviderRecoveryHome: row.ProviderRecoveryHome,
+		CodexInstanceKey:     row.CodexInstanceKey,
+		CodexModelProvider:   row.CodexModelProvider,
 	})
 	return &result, nil
 }
@@ -188,22 +191,23 @@ func (s *bindingQueryStore) ListAgentThreadBindings(ctx context.Context) ([]Bind
 	result := make([]Binding, len(rows))
 	for i, row := range rows {
 		result[i] = mapBinding(bindingRow{
-			AgentID:            row.AgentID,
-			Provider:           row.Provider,
-			ProviderThreadID:   row.ProviderThreadID,
-			CodexThreadID:      row.CodexThreadID,
-			RolloutPath:        row.RolloutPath,
-			Cwd:                row.CWD,
-			ParentAgentID:      row.ParentAgentID,
-			AgentType:          row.AgentType,
-			AgentMemoryScope:   row.AgentMemoryScope,
-			Archived:           row.Archived != 0,
-			CreatedAt:          row.CreatedAt,
-			UpdatedAt:          row.UpdatedAt,
-			SessionUUID:        row.SessionUUID,
-			CodexHome:          row.CodexHome,
-			CodexInstanceKey:   row.CodexInstanceKey,
-			CodexModelProvider: row.CodexModelProvider,
+			AgentID:              row.AgentID,
+			Provider:             row.Provider,
+			ProviderThreadID:     row.ProviderThreadID,
+			CodexThreadID:        row.CodexThreadID,
+			RolloutPath:          row.RolloutPath,
+			Cwd:                  row.CWD,
+			ParentAgentID:        row.ParentAgentID,
+			AgentType:            row.AgentType,
+			AgentMemoryScope:     row.AgentMemoryScope,
+			Archived:             row.Archived != 0,
+			CreatedAt:            row.CreatedAt,
+			UpdatedAt:            row.UpdatedAt,
+			SessionUUID:          row.SessionUUID,
+			CodexHome:            row.CodexHome,
+			ProviderRecoveryHome: row.ProviderRecoveryHome,
+			CodexInstanceKey:     row.CodexInstanceKey,
+			CodexModelProvider:   row.CodexModelProvider,
 		})
 	}
 	return result, nil
@@ -288,22 +292,23 @@ func mapBinding(row bindingRow) Binding {
 
 // bindingRow 统一 sqlc 多种查询返回形态，避免每个查询重复维护 Binding 字段顺序。
 type bindingRow struct {
-	AgentID            string
-	Provider           string
-	ProviderThreadID   string
-	CodexThreadID      string
-	RolloutPath        string
-	Cwd                string
-	ParentAgentID      string
-	AgentType          string
-	AgentMemoryScope   string
-	Archived           bool
-	CreatedAt          int64
-	UpdatedAt          int64
-	SessionUUID        string
-	CodexHome          string
-	CodexInstanceKey   string
-	CodexModelProvider string
+	AgentID              string
+	Provider             string
+	ProviderThreadID     string
+	CodexThreadID        string
+	RolloutPath          string
+	Cwd                  string
+	ParentAgentID        string
+	AgentType            string
+	AgentMemoryScope     string
+	Archived             bool
+	CreatedAt            int64
+	UpdatedAt            int64
+	SessionUUID          string
+	CodexHome            string
+	ProviderRecoveryHome string
+	CodexInstanceKey     string
+	CodexModelProvider   string
 }
 
 // wrapBindingError 统一包装 binding store 错误，保留 operation 便于排查。

@@ -347,13 +347,14 @@ func TestPersistResumedSessionCleansRuntimeOnThreadStoreFailure(t *testing.T) {
 		ProviderThreadID: "11111111-2222-3333-4444-555555555596",
 		CWD:              "/repo",
 	}, resumeState{
-		AgentID:          "agent-resume",
-		PublicThreadID:   "thread-resume",
-		Provider:         "claude",
-		ProviderThreadID: "11111111-2222-3333-4444-555555555596",
-		SessionUUID:      "11111111-2222-3333-4444-555555555596",
-		CWD:              "/repo",
-		CreatedAt:        123,
+		AgentID:              "agent-resume",
+		PublicThreadID:       "thread-resume",
+		Provider:             "claude",
+		ProviderThreadID:     "11111111-2222-3333-4444-555555555596",
+		SessionUUID:          "11111111-2222-3333-4444-555555555596",
+		ProviderRecoveryHome: t.TempDir(),
+		CWD:                  "/repo",
+		CreatedAt:            123,
 	}, "resume display", &stubSession{threadID: "11111111-2222-3333-4444-555555555596"})
 
 	if !errors.Is(err, storeErr) {
@@ -395,6 +396,8 @@ func TestRecoverFailsWhenThreadMetaLookupErrors(t *testing.T) {
 func TestRecoverUsesPersistedSubagentIdentity(t *testing.T) {
 	t.Parallel()
 
+	const providerThreadID = "11111111-2222-3333-4444-555555555593"
+	rolloutPath := writeExistingProviderHistoryFile(t, providerThreadID)
 	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:         "thread-parent",
 		AgentID:          "agent-parent",
@@ -409,11 +412,12 @@ func TestRecoverUsesPersistedSubagentIdentity(t *testing.T) {
 	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-parent",
 		Provider:         "codex",
-		ProviderThreadID: "11111111-2222-3333-4444-555555555593",
+		ProviderThreadID: providerThreadID,
 		CodexThreadID:    "thread-parent",
+		RolloutPath:      rolloutPath,
 		Cwd:              "/repo",
 	}}
-	sessions := &stubSessionProvider{session: &stubSession{threadID: "11111111-2222-3333-4444-555555555593"}}
+	sessions := &stubSessionProvider{session: &stubSession{threadID: providerThreadID, rolloutPath: rolloutPath}}
 	orch := &forkOrchestrationStub{recoverErr: contract.ErrAgentNotFound}
 	svc := NewService(silentLogger(), threads, bindings, sessions, &stubSessionStarter{}, nil, orch, nil).(*service)
 

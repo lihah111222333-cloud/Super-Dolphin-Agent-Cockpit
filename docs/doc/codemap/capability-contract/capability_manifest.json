@@ -4804,6 +4804,7 @@
         "internal/provider/unified.payloadMap",
         "internal/provider/unified.provideClient",
         "internal/provider/unified.provideDreamExecutor",
+        "internal/provider/unified.providerRecoveryCodexHome",
         "internal/provider/unified.providerRecoveryRequestFromSessionBinding",
         "internal/provider/unified.providerSessionEvent",
         "internal/provider/unified.providerTurnEvent",
@@ -9622,6 +9623,7 @@
         "internal/provider/unified.payloadMap",
         "internal/provider/unified.provideClient",
         "internal/provider/unified.provideDreamExecutor",
+        "internal/provider/unified.providerRecoveryCodexHome",
         "internal/provider/unified.providerRecoveryRequestFromSessionBinding",
         "internal/provider/unified.providerSessionEvent",
         "internal/provider/unified.providerTurnEvent",
@@ -14440,6 +14442,7 @@
         "internal/provider/unified.payloadMap",
         "internal/provider/unified.provideClient",
         "internal/provider/unified.provideDreamExecutor",
+        "internal/provider/unified.providerRecoveryCodexHome",
         "internal/provider/unified.providerRecoveryRequestFromSessionBinding",
         "internal/provider/unified.providerSessionEvent",
         "internal/provider/unified.providerTurnEvent",
@@ -19258,6 +19261,7 @@
         "internal/provider/unified.payloadMap",
         "internal/provider/unified.provideClient",
         "internal/provider/unified.provideDreamExecutor",
+        "internal/provider/unified.providerRecoveryCodexHome",
         "internal/provider/unified.providerRecoveryRequestFromSessionBinding",
         "internal/provider/unified.providerSessionEvent",
         "internal/provider/unified.providerTurnEvent",
@@ -24084,6 +24088,7 @@
         "internal/provider/unified.payloadMap",
         "internal/provider/unified.provideClient",
         "internal/provider/unified.provideDreamExecutor",
+        "internal/provider/unified.providerRecoveryCodexHome",
         "internal/provider/unified.providerRecoveryRequestFromSessionBinding",
         "internal/provider/unified.providerSessionEvent",
         "internal/provider/unified.providerTurnEvent",
@@ -28910,6 +28915,7 @@
         "internal/provider/unified.payloadMap",
         "internal/provider/unified.provideClient",
         "internal/provider/unified.provideDreamExecutor",
+        "internal/provider/unified.providerRecoveryCodexHome",
         "internal/provider/unified.providerRecoveryRequestFromSessionBinding",
         "internal/provider/unified.providerSessionEvent",
         "internal/provider/unified.providerTurnEvent",
@@ -28943,12 +28949,12 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2354,
+    "total_functions": 2355,
     "total_methods": 1237,
     "total_interfaces": 187,
     "total_interface_methods": 371,
     "total_exported": 1271,
-    "total_unexported": 3131,
+    "total_unexported": 3132,
     "total_structs": 624
   },
   "packages": [
@@ -94445,6 +94451,23 @@
           "returns": [
             "contract.DreamExecutor",
             "error"
+          ]
+        },
+        {
+          "name": "providerRecoveryCodexHome",
+          "exported": false,
+          "params": [
+            {
+              "name": "codexHome",
+              "type": "string"
+            },
+            {
+              "name": "recoveryHome",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string"
           ]
         },
         {
