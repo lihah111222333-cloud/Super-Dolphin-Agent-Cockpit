@@ -64,15 +64,16 @@ var (
 )
 
 type service struct {
-	logger           *slog.Logger
-	eventBus         *event.Dispatcher
-	registry         *agentRegistry
-	lifecycle        *lifecycleController
-	dags             *dagController
-	turns            *turnController
-	reports          *reportController
-	terminalOutcomes contract.TerminalOutcomeCommitPort
-	terminalDAG      *DAGSubscriberDeps
+	logger             *slog.Logger
+	eventBus           *event.Dispatcher
+	registry           *agentRegistry
+	lifecycle          *lifecycleController
+	dags               *dagController
+	turns              *turnController
+	reports            *reportController
+	terminalOutcomes   contract.TerminalOutcomeCommitPort
+	terminalHeadReader contract.TerminalOutcomeHeadReadPort
+	terminalDAG        *DAGSubscriberDeps
 }
 
 // lifecycleController owns agent launch/stop/process-exit state and service-scoped async bookkeeping.
@@ -439,6 +440,9 @@ func NewService(
 func ProvideService(p serviceParams) *service {
 	svc := NewService(p.Logger, p.EventBus, p.Launcher, p.SessionCleaner, p.TurnStarter, p.DAGStore)
 	svc.terminalOutcomes = p.TerminalOutcomes
+	if reader, ok := p.TerminalOutcomes.(contract.TerminalOutcomeHeadReadPort); ok {
+		svc.terminalHeadReader = reader
+	}
 	svc.turns.terminalOutcomes = p.TerminalOutcomes
 	svc.lifecycle.agentThreads = p.AgentThreads
 	svc.lifecycle.agentBindings = p.AgentBindings

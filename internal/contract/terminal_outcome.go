@@ -26,6 +26,8 @@ var (
 	ErrTerminalOutboxFence = errors.New("terminal outcome outbox fence mismatch")
 	// ErrTerminalOutcomeActive 表示 current head 仍属于运行中的 turn，公开读端不得覆盖运行态。
 	ErrTerminalOutcomeActive = errors.New("terminal outcome current head is active")
+	// ErrTerminalOutcomeHeadNotFound 表示 durable current head 不存在；调用方不得把它伪装成既有 version=0 head。
+	ErrTerminalOutcomeHeadNotFound = errors.New("terminal outcome current head not found")
 )
 
 // TerminalOutcomeHeadActivation 在 provider turn 身份确定时建立真实、版本化的 current head。
@@ -45,6 +47,54 @@ type TerminalOutcomeHeadActivation struct {
 type TerminalOutcomeHead struct {
 	TerminalOutcomeHeadActivation
 	Version uint64
+}
+
+// DurableTerminalOutcomeHead 是冷启动恢复所需的完整 current-head 身份与 CAS 版本。
+type DurableTerminalOutcomeHead struct {
+	Capability          string    `json:"capability"`
+	AgentID             string    `json:"agentId"`
+	PublicThreadID      string    `json:"publicThreadId"`
+	ProviderTurnID      string    `json:"providerTurnId"`
+	SessionID           string    `json:"sessionId"`
+	Generation          uint64    `json:"generation"`
+	ExpectedActiveState string    `json:"expectedActiveState"`
+	Version             uint64    `json:"version"`
+	State               string    `json:"state"`
+	TerminalEventID     string    `json:"terminalEventId"`
+	TerminalIdentity    string    `json:"terminalIdentity"`
+	ActivatedAt         time.Time `json:"activatedAt"`
+	UpdatedAt           time.Time `json:"updatedAt"`
+}
+
+// Validate 拒绝缺字段、未知状态和 active/terminal 身份不闭合的 durable head。
+func (head DurableTerminalOutcomeHead) Validate() error {
+	activation := TerminalOutcomeHeadActivation{
+		Capability: head.Capability, AgentID: head.AgentID, PublicThreadID: head.PublicThreadID,
+		ProviderTurnID: head.ProviderTurnID, SessionID: head.SessionID, Generation: head.Generation,
+		ExpectedActiveState: head.ExpectedActiveState, ActivatedAt: head.ActivatedAt,
+	}
+	if err := activation.Validate(); err != nil {
+		return fmt.Errorf("durable terminal outcome head: %w", err)
+	}
+	if head.Version == 0 {
+		return errors.New("durable terminal outcome head version is required")
+	}
+	if head.UpdatedAt.IsZero() {
+		return errors.New("durable terminal outcome head updatedAt is required")
+	}
+	switch head.State {
+	case "active":
+		if strings.TrimSpace(head.TerminalEventID) != "" || strings.TrimSpace(head.TerminalIdentity) != "" {
+			return errors.New("durable active terminal outcome head contains terminal identity")
+		}
+	case "terminal":
+		if strings.TrimSpace(head.TerminalEventID) == "" || strings.TrimSpace(head.TerminalIdentity) == "" {
+			return errors.New("durable terminal outcome head is missing terminal identity")
+		}
+	default:
+		return fmt.Errorf("durable terminal outcome head state %q is unsupported", head.State)
+	}
+	return nil
 }
 
 // Validate 拒绝缺失 active owner、代际、状态或激活时间。
@@ -333,4 +383,9 @@ type TerminalOutcomeCommitPort interface {
 	ClaimTerminalOutcomeOutbox(ctx context.Context, workerID string, lease time.Duration, limit int) ([]TerminalOutcomeOutboxItem, error)
 	RenewTerminalOutcomeOutbox(ctx context.Context, outboxID int64, workerID, claimToken string, lease time.Duration) (time.Time, error)
 	MarkTerminalOutcomeProjected(ctx context.Context, outboxID int64, workerID, claimToken string) error
+}
+
+// TerminalOutcomeHeadReadPort 是冷启动恢复 current-head 完整身份与 CAS 版本的窄读端口。
+type TerminalOutcomeHeadReadPort interface {
+	LoadTerminalOutcomeCurrentHead(ctx context.Context, agentID string) (DurableTerminalOutcomeHead, error)
 }

@@ -83,6 +83,60 @@ func TestCommitTerminalOutcomeNormalizesTimestampForColdReplay(t *testing.T) {
 	}
 }
 
+func TestLoadTerminalOutcomeCurrentHeadMissingFailsFast(t *testing.T) {
+	store, _ := newTestStore(t)
+
+	if _, err := store.LoadTerminalOutcomeCurrentHead(context.Background(), "missing-agent"); !errors.Is(err, contract.ErrTerminalOutcomeHeadNotFound) {
+		t.Fatalf("LoadTerminalOutcomeCurrentHead() error = %v, want ErrTerminalOutcomeHeadNotFound", err)
+	}
+}
+
+func TestLoadTerminalOutcomeCurrentHeadRejectsCorruptDurableIdentity(t *testing.T) {
+	store, db := newTestStore(t)
+	commit := activateCommitFixture(t, store, terminalCommitFixture("terminal:corrupt-head"))
+	if _, err := store.CommitTerminalOutcome(context.Background(), commit); err != nil {
+		t.Fatalf("CommitTerminalOutcome() error = %v", err)
+	}
+	if _, err := db.Exec(`
+		UPDATE terminal_outcome_current_heads
+		SET public_thread_id = ''
+		WHERE agent_id = ?
+	`, commit.Identity.AgentID); err != nil {
+		t.Fatalf("corrupt terminal current head: %v", err)
+	}
+
+	if _, err := store.LoadTerminalOutcomeCurrentHead(context.Background(), commit.Identity.AgentID); err == nil {
+		t.Fatal("LoadTerminalOutcomeCurrentHead() error = nil, want corrupt identity rejection")
+	}
+}
+
+func TestLoadTerminalOutcomeCurrentHeadRoundTripPreservesFullIdentityAndVersion(t *testing.T) {
+	store, _ := newTestStore(t)
+	commit := activateCommitFixture(t, store, terminalCommitFixture("terminal:head-roundtrip"))
+	if _, err := store.CommitTerminalOutcome(context.Background(), commit); err != nil {
+		t.Fatalf("CommitTerminalOutcome() error = %v", err)
+	}
+
+	head, err := store.LoadTerminalOutcomeCurrentHead(context.Background(), commit.Identity.AgentID)
+	if err != nil {
+		t.Fatalf("LoadTerminalOutcomeCurrentHead() error = %v", err)
+	}
+	if head.Capability != commit.Identity.Capability ||
+		head.AgentID != commit.Identity.AgentID ||
+		head.PublicThreadID != commit.Identity.PublicThreadID ||
+		head.ProviderTurnID != commit.Identity.ProviderTurnID ||
+		head.SessionID != commit.Identity.SessionID ||
+		head.Generation != commit.Identity.Generation ||
+		head.ExpectedActiveState != commit.Identity.ExpectedActiveState ||
+		head.Version != commit.Identity.HeadVersion ||
+		head.State != "terminal" ||
+		head.TerminalEventID != commit.Identity.EventID ||
+		head.TerminalIdentity != commit.Identity.TerminalIdentity ||
+		!head.UpdatedAt.Equal(commit.OccurredAt) {
+		t.Fatalf("durable current head roundtrip = %#v, want full canonical identity %#v", head, commit.Identity)
+	}
+}
+
 func TestCommitTerminalOutcomeConcurrentCASHasOneWinner(t *testing.T) {
 	store, _ := newTestStore(t)
 	ctx := context.Background()

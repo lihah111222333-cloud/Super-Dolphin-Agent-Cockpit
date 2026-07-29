@@ -48,12 +48,14 @@ func TestTerminalOutcomeFieldGuardProducerMapperAndSchemaStayClosed(t *testing.T
 	publicFields := recursiveJSONFields(t, reflect.TypeOf(contract.PublicOutcome{}), "publicOutcome")
 	privateFields := recursiveJSONFields(t, reflect.TypeOf(contract.OwnerScopedDAGPayload{}), "privateDAG")
 	activationFields := reflectedGoFields(reflect.TypeOf(contract.TerminalOutcomeHeadActivation{}))
+	durableHeadFields := reflectedJSONFields(t, reflect.TypeOf(contract.DurableTerminalOutcomeHead{}))
 	assertExactFieldSet(t, "canonical identity registry", identityFields, terminalIdentityFieldRegistry())
 	assertExactFieldSet(t, "terminal commit payload registry", commitFields, terminalCommitPayloadFieldRegistry())
 	assertExactFieldSet(t, "recursive terminal commit registry", recursiveCommitFields, terminalCommitRecursiveRegistry())
 	assertExactFieldSet(t, "recursive public outcome registry", publicFields, publicOutcomeRecursiveRegistry())
 	assertExactFieldSet(t, "owner-scoped private DAG registry", privateFields, privateDAGRecursiveRegistry())
 	assertExactFieldSet(t, "terminal head activation registry", activationFields, terminalHeadActivationFieldRegistry())
+	assertExactFieldSet(t, "durable terminal head registry", durableHeadFields, durableTerminalHeadFieldRegistry())
 
 	source, err := os.ReadFile("store.go")
 	if err != nil {
@@ -274,11 +276,24 @@ func privateDAGRecursiveRegistry() map[string]string {
 func terminalMapperFieldRegistry() map[string][]string {
 	identity := []string{"Capability", "AgentID", "PublicThreadID", "ProviderTurnID", "SessionID", "Generation", "ExpectedActiveState"}
 	return map[string][]string{
-		"insertCurrentHeadTx,activateTerminalHeadTx": append(append([]string{}, identity...), "ExpectedHeadVersion", "Version"),
-		"sealCurrentHeadTx":                          append(append([]string{}, identity...), "EventID", "TerminalIdentity", "HeadVersion"),
-		"insertPublicHistoryTx":                      {"TerminalIdentity", "EventID", "AgentID", "HeadVersion", "PublicOutcome", "PublicReport"},
-		"loadHistoryByIdentityTx":                    {"SchemaVersion", "ProjectionKind", "Identity", "PublicOutcome", "PublicReport", "OccurredAt"},
-		"insertOutboxTx,decodeOutboxCandidate":       {"TerminalIdentity", "EventID", "PrivateDAG", "Outcome"},
+		"insertCurrentHeadTx,activateTerminalHeadTx":                    append(append([]string{}, identity...), "ExpectedHeadVersion", "Version"),
+		"LoadTerminalOutcomeCurrentHead,scanDurableTerminalOutcomeHead": {"Capability", "AgentID", "PublicThreadID", "ProviderTurnID", "SessionID", "Generation", "ExpectedActiveState", "Version", "State", "TerminalEventID", "TerminalIdentity", "ActivatedAt", "UpdatedAt"},
+		"sealCurrentHeadTx":                    append(append([]string{}, identity...), "EventID", "TerminalIdentity", "HeadVersion"),
+		"insertPublicHistoryTx":                {"TerminalIdentity", "EventID", "AgentID", "HeadVersion", "PublicOutcome", "PublicReport"},
+		"loadHistoryByIdentityTx":              {"SchemaVersion", "ProjectionKind", "Identity", "PublicOutcome", "PublicReport", "OccurredAt"},
+		"insertOutboxTx,decodeOutboxCandidate": {"TerminalIdentity", "EventID", "PrivateDAG", "Outcome"},
+	}
+}
+
+func durableTerminalHeadFieldRegistry() map[string]string {
+	return map[string]string{
+		"capability": "v2 capability", "agentId": "current-head key",
+		"publicThreadId": "canonical thread fence", "providerTurnId": "canonical turn identity",
+		"sessionId": "canonical session fence", "generation": "canonical generation fence",
+		"expectedActiveState": "runtime state fence", "version": "CAS version",
+		"state": "active/terminal discriminator", "terminalEventId": "terminal event identity",
+		"terminalIdentity": "canonical terminal identity", "activatedAt": "activation timestamp",
+		"updatedAt": "latest durable timestamp",
 	}
 }
 

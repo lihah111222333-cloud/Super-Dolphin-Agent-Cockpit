@@ -38,6 +38,7 @@ func TestOrchestrationServiceStateOwnershipRatchet(t *testing.T) {
 		"turns",
 		"reports",
 		"terminalOutcomes",
+		"terminalHeadReader",
 		"terminalDAG",
 	}
 	expected := orchestrationInternalBoundarySet(expectedFields)

@@ -30,6 +30,59 @@ func New(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
+// LoadTerminalOutcomeCurrentHead 严格读取冷启动所需的完整 canonical head；缺失和损坏均 fail-fast。
+func (s *Store) LoadTerminalOutcomeCurrentHead(ctx context.Context, agentID string) (contract.DurableTerminalOutcomeHead, error) {
+	if s == nil || s.db == nil {
+		return contract.DurableTerminalOutcomeHead{}, errors.New("terminal outcome store database is required")
+	}
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return contract.DurableTerminalOutcomeHead{}, errors.New("terminal outcome current head agent id is required")
+	}
+	row := s.db.QueryRowContext(ctx, `
+		SELECT capability, agent_id, public_thread_id, provider_turn_id, session_id, generation,
+		       expected_active_state, version, state, terminal_event_id, terminal_identity,
+		       activated_at, updated_at
+		FROM terminal_outcome_current_heads
+		WHERE agent_id = ?
+	`, agentID)
+	head, err := scanDurableTerminalOutcomeHead(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return contract.DurableTerminalOutcomeHead{}, contract.ErrTerminalOutcomeHeadNotFound
+	}
+	if err != nil {
+		return contract.DurableTerminalOutcomeHead{}, fmt.Errorf("load terminal outcome current head: %w", err)
+	}
+	return head, nil
+}
+
+type terminalOutcomeRowScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanDurableTerminalOutcomeHead(row terminalOutcomeRowScanner) (contract.DurableTerminalOutcomeHead, error) {
+	var head contract.DurableTerminalOutcomeHead
+	var generation, version, activatedAt, updatedAt int64
+	if err := row.Scan(
+		&head.Capability, &head.AgentID, &head.PublicThreadID, &head.ProviderTurnID,
+		&head.SessionID, &generation, &head.ExpectedActiveState, &version, &head.State,
+		&head.TerminalEventID, &head.TerminalIdentity, &activatedAt, &updatedAt,
+	); err != nil {
+		return contract.DurableTerminalOutcomeHead{}, err
+	}
+	if generation <= 0 || version <= 0 || activatedAt <= 0 || updatedAt <= 0 {
+		return contract.DurableTerminalOutcomeHead{}, errors.New("terminal outcome current head contains invalid numeric fields")
+	}
+	head.Generation = uint64(generation)
+	head.Version = uint64(version)
+	head.ActivatedAt = time.UnixMilli(activatedAt).UTC()
+	head.UpdatedAt = time.UnixMilli(updatedAt).UTC()
+	if err := head.Validate(); err != nil {
+		return contract.DurableTerminalOutcomeHead{}, err
+	}
+	return head, nil
+}
+
 // ActivateTerminalOutcomeHead 在 provider turn 身份确定后建立或推进真实 current head。
 func (s *Store) ActivateTerminalOutcomeHead(ctx context.Context, activation contract.TerminalOutcomeHeadActivation) (contract.TerminalOutcomeHead, error) {
 	if s == nil || s.db == nil {

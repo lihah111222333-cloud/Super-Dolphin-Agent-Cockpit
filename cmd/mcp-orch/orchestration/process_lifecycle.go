@@ -28,30 +28,76 @@ func (s *service) BindSessionGeneration(ctx context.Context, agentID string, gen
 		return errors.New("session generation is required")
 	}
 	return s.registry.withAgentLocked(agentID, func(agent *agentRuntime) error {
-		previousGeneration, previousVersion, previousUpdatedAt := agent.sessionGeneration, agent.terminalHeadVersion, agent.updatedAt
-		agent.sessionGeneration = generation
-		agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
+		nextVersion := agent.terminalHeadVersion
+		nextUpdatedAt := resolveEventTime(ctx, agent.updatedAt)
 		if s.terminalOutcomes != nil {
 			threadID := strings.TrimSpace(firstNonEmpty(agent.remoteThreadID, agent.threadID))
 			sessionID := agentSessionID(agent)
 			if threadID == "" || sessionID == "" {
-				agent.sessionGeneration, agent.terminalHeadVersion, agent.updatedAt = previousGeneration, previousVersion, previousUpdatedAt
 				return errors.New("terminal outcome session head activation requires thread and session identity")
+			}
+			var err error
+			nextVersion, err = s.resolveTerminalHeadVersion(ctx, agent, threadID, sessionID, generation)
+			if err != nil {
+				return err
 			}
 			head, err := s.terminalOutcomes.ActivateTerminalOutcomeHead(ctx, contract.TerminalOutcomeHeadActivation{
 				Capability: contract.TerminalOutcomeCapabilityV2, AgentID: strings.TrimSpace(agent.id),
 				PublicThreadID: threadID, ProviderTurnID: "session-terminal:" + sessionID,
 				SessionID: sessionID, Generation: generation, ExpectedActiveState: string(agent.state),
-				ExpectedHeadVersion: previousVersion, ActivatedAt: agent.updatedAt,
+				ExpectedHeadVersion: nextVersion, ActivatedAt: nextUpdatedAt,
 			})
 			if err != nil {
-				agent.sessionGeneration, agent.terminalHeadVersion, agent.updatedAt = previousGeneration, previousVersion, previousUpdatedAt
 				return fmt.Errorf("activate terminal outcome session head: %w", err)
 			}
-			agent.terminalHeadVersion = head.Version
+			nextVersion = head.Version
 		}
+		agent.sessionGeneration = generation
+		agent.terminalHeadVersion = nextVersion
+		agent.updatedAt = nextUpdatedAt
 		return nil
 	})
+}
+
+func (s *service) resolveTerminalHeadVersion(
+	ctx context.Context,
+	agent *agentRuntime,
+	threadID, sessionID string,
+	generation uint64,
+) (uint64, error) {
+	if agent.terminalHeadVersion != 0 || s.terminalHeadReader == nil {
+		return agent.terminalHeadVersion, nil
+	}
+	durable, err := s.terminalHeadReader.LoadTerminalOutcomeCurrentHead(ctx, strings.TrimSpace(agent.id))
+	if errors.Is(err, contract.ErrTerminalOutcomeHeadNotFound) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("rehydrate terminal outcome current head: %w", err)
+	}
+	if err := validateRehydratedTerminalHead(durable, agent, threadID, sessionID, generation); err != nil {
+		return 0, err
+	}
+	return durable.Version, nil
+}
+
+func validateRehydratedTerminalHead(
+	head contract.DurableTerminalOutcomeHead,
+	agent *agentRuntime,
+	threadID, sessionID string,
+	generation uint64,
+) error {
+	if err := head.Validate(); err != nil {
+		return fmt.Errorf("rehydrate terminal outcome current head: %w", err)
+	}
+	if head.Capability != contract.TerminalOutcomeCapabilityV2 ||
+		head.AgentID != strings.TrimSpace(agent.id) ||
+		head.PublicThreadID != threadID ||
+		head.SessionID != sessionID ||
+		head.Generation != generation {
+		return contract.ErrTerminalOutcomeConflict
+	}
+	return nil
 }
 
 // removeSession 清理 agent 绑定的 session generation，并同步重置 runtime 记录。

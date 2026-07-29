@@ -292,6 +292,121 @@ func TestTerminalOutcomeCurrentHeadMigrationUpgradesV120AndBlocksLegacyWriter(t 
 	}
 }
 
+func TestTerminalOutcomeV121ForwardOnlyBackupRestoreContract(t *testing.T) {
+	ctx := context.Background()
+	sourcePath := filepath.Join(t.TempDir(), "terminal-v120.db")
+	source, err := sql.Open(driverName, sourcePath)
+	if err != nil {
+		t.Fatalf("open v120 source: %v", err)
+	}
+	createMigrationMarkerTable(t, source)
+	markBaselineApplied(t, source)
+	dir120 := t.TempDir()
+	writeMigrationTestFile(t, dir120, "120_terminal_outcome_outbox.sql", readMigrationTestFile(t, "120_terminal_outcome_outbox.sql"))
+	if err := RunMigrations(ctx, source, dir120); err != nil {
+		t.Fatalf("apply v120: %v", err)
+	}
+	if err := verifyLegacyTerminalWriterCanStart(source); err != nil {
+		t.Fatalf("v120 compatibility preflight: %v", err)
+	}
+	mustExec(t, source, `
+		INSERT INTO terminal_outcome_heads VALUES
+		  ('backup-agent','terminal_outcome_commit_v2','backup-thread','backup-turn','backup-session',7,
+		   'backup-event','backup-identity','turn_running','terminal',1000)
+	`)
+	assertSQLiteIntegrityCheck(t, source)
+	checkpointSQLiteTruncate(t, source)
+	if err := source.Close(); err != nil {
+		t.Fatalf("close quiesced v120 source: %v", err)
+	}
+
+	backupPath := filepath.Join(t.TempDir(), "terminal-v120.backup.db")
+	copySQLiteFile(t, sourcePath, backupPath)
+	backup, err := sql.Open(driverName, backupPath)
+	if err != nil {
+		t.Fatalf("open v120 backup for verification: %v", err)
+	}
+	assertSQLiteIntegrityCheck(t, backup)
+	var backupVersion int
+	if err := backup.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&backupVersion); err != nil {
+		t.Fatalf("read backup schema version: %v", err)
+	}
+	if backupVersion != 120 {
+		t.Fatalf("backup schema version = %d, want 120", backupVersion)
+	}
+	if err := backup.Close(); err != nil {
+		t.Fatalf("close verified v120 backup: %v", err)
+	}
+
+	upgraded, err := sql.Open(driverName, sourcePath)
+	if err != nil {
+		t.Fatalf("reopen source for v121 cutover: %v", err)
+	}
+	dir121 := t.TempDir()
+	writeMigrationTestFile(t, dir121, "121_terminal_outcome_current_head.sql", readMigrationTestFile(t, "121_terminal_outcome_current_head.sql"))
+	if err := RunMigrations(ctx, upgraded, dir121); err != nil {
+		t.Fatalf("apply v121: %v", err)
+	}
+	mustExec(t, upgraded, `
+		INSERT INTO terminal_outcome_current_heads (
+			agent_id, capability, public_thread_id, provider_turn_id, session_id, generation,
+			expected_active_state, version, state, terminal_event_id, terminal_identity,
+			activated_at, updated_at
+		) VALUES (
+			'v121-agent','terminal_outcome_commit_v2','v121-thread','v121-turn','v121-session',8,
+			'turn_running',1,'active','','',2000,2000
+		)
+	`)
+	if err := verifyLegacyTerminalWriterCanStart(upgraded); err == nil {
+		t.Fatal("legacy writer accepted v121 schema after new semantic write")
+	}
+	if err := upgraded.Close(); err != nil {
+		t.Fatalf("close upgraded source: %v", err)
+	}
+
+	restoredPath := filepath.Join(t.TempDir(), "terminal-restored-v120.db")
+	copySQLiteFile(t, backupPath, restoredPath)
+	restored, err := sql.Open(driverName, restoredPath)
+	if err != nil {
+		t.Fatalf("open restored v120 database: %v", err)
+	}
+	defer restored.Close()
+	assertSQLiteIntegrityCheck(t, restored)
+	if err := verifyLegacyTerminalWriterCanStart(restored); err != nil {
+		t.Fatalf("restored v120 compatibility preflight: %v", err)
+	}
+	mustExec(t, restored, `
+		INSERT INTO terminal_outcome_heads VALUES
+		  ('restored-agent','terminal_outcome_commit_v2','restored-thread','restored-turn','restored-session',9,
+		   'restored-event','restored-identity','turn_running','terminal',3000)
+	`)
+	var restoredState string
+	if err := restored.QueryRow(`
+		SELECT state FROM terminal_outcome_heads WHERE agent_id = 'restored-agent'
+	`).Scan(&restoredState); err != nil {
+		t.Fatalf("read restored v120 write: %v", err)
+	}
+	if restoredState != "terminal" {
+		t.Fatalf("restored v120 state = %q, want terminal", restoredState)
+	}
+	var restoredVersion int
+	if err := restored.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&restoredVersion); err != nil {
+		t.Fatalf("read restored schema version: %v", err)
+	}
+	if restoredVersion != 120 {
+		t.Fatalf("restored schema version = %d, want 120", restoredVersion)
+	}
+	var v121Rows int
+	if err := restored.QueryRow(`
+		SELECT COUNT(*) FROM terminal_outcome_heads WHERE agent_id = 'v121-agent'
+	`).Scan(&v121Rows); err != nil {
+		t.Fatalf("check v121 semantic isolation: %v", err)
+	}
+	if v121Rows != 0 {
+		t.Fatalf("restored v120 contains %d v121 semantic rows, want 0", v121Rows)
+	}
+}
+
 // verifyLegacyTerminalWriterCanStart 模拟 v120 binary 对三张可写表的启动前置检查。
 func verifyLegacyTerminalWriterCanStart(db *sql.DB) error {
 	for _, name := range []string{"terminal_outcome_heads", "public_terminal_outcomes", "terminal_outcome_outbox"} {

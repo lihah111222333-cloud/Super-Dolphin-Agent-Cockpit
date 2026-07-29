@@ -13,6 +13,8 @@
 
 数据库迁移 runner 只执行向上迁移，没有自动 down migration。回滚必须先停止应用，恢复同版本 SQLite 数据库备份并验证 `schema_migrations`；禁止只修改版本记录或在生产库上逆向猜测 SQL。
 
+`121_terminal_outcome_current_head.sql` 是 forward-only、不可逆的 terminal outcome schema cutover。升级前必须停止写入，创建并验证 schema v120 SQLite 备份；若 cutover 在 v121 承接新写入前失败，只能恢复该备份并运行旧 binary。一旦 v121 已承接新语义写入，旧 binary rollback 不受支持，只允许前向修复；不得用 down migration 丢弃 current/history/private/outbox 语义。
+
 ## 核心 ER 图
 
 ```mermaid

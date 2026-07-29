@@ -453,6 +453,111 @@ func TestCommitTurnCompletedStoreFailureHasZeroSideEffects(t *testing.T) {
 	}
 }
 
+func TestBindSessionGenerationColdRehydratesDurableHeadBeforeCAS(t *testing.T) {
+	first, db := newTerminalOutcomeTestService(t)
+	firstAgent := addTerminalOutcomeTestAgent(first)
+	if handled, err := first.CommitTurnCompleted(context.Background(), terminalOutcomeEvent(true)); err != nil || !handled {
+		t.Fatalf("CommitTurnCompleted() = (%v, %v), want durable terminal", handled, err)
+	}
+	var terminalVersion uint64
+	if err := db.QueryRow(`
+		SELECT version FROM terminal_outcome_current_heads
+		WHERE agent_id = ? AND state = 'terminal'
+	`, firstAgent.id).Scan(&terminalVersion); err != nil {
+		t.Fatalf("read durable terminal head: %v", err)
+	}
+
+	restarted := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
+	restartedStore := terminaloutcomestore.New(db)
+	restarted.terminalOutcomes = restartedStore
+	restarted.terminalHeadReader = restartedStore
+	restarted.turns.terminalOutcomes = restarted.terminalOutcomes
+	restartedAgent := restarted.newAgentLocked(firstAgent.id)
+	restartedAgent.state = agentdto.StateIdle
+	restartedAgent.threadID, restartedAgent.remoteThreadID = "thread-1", "thread-1"
+	restartedAgent.launchSeq = 3
+	restarted.registry.agents[restartedAgent.id] = restartedAgent
+
+	if err := restarted.BindSessionGeneration(context.Background(), restartedAgent.id, 7); err != nil {
+		t.Fatalf("BindSessionGeneration() after restart error = %v", err)
+	}
+	if restartedAgent.terminalHeadVersion <= terminalVersion {
+		t.Fatalf("rehydrated head version = %d, want > terminal version %d", restartedAgent.terminalHeadVersion, terminalVersion)
+	}
+	restartedAgent.state = agentdto.StateTurnStarting
+	newHead, err := restarted.turns.activateTerminalTurnHeadLocked(context.Background(), restartedAgent, "turn-2", string(agentdto.StateTurnRunning))
+	if err != nil {
+		t.Fatalf("activate new turn after restart: %v", err)
+	}
+	restartedAgent.terminalHeadVersion = newHead.Version
+	restartedAgent.activeTurnID = "turn-2"
+	restartedAgent.state = agentdto.StateTurnRunning
+
+	oldReplay := terminalOutcomeEvent(true)
+	if handled, err := restarted.CommitTurnCompleted(context.Background(), oldReplay); err == nil || !handled {
+		t.Fatalf("old terminal after new running = (%v, %v), want fenced conflict", handled, err)
+	}
+	var state, providerTurnID string
+	if err := db.QueryRow(`
+		SELECT state, provider_turn_id
+		FROM terminal_outcome_current_heads
+		WHERE agent_id = ?
+	`, restartedAgent.id).Scan(&state, &providerTurnID); err != nil {
+		t.Fatalf("read current head after old terminal: %v", err)
+	}
+	if state != "active" || providerTurnID != "turn-2" {
+		t.Fatalf("current head after old terminal = state:%q turn:%q, want active turn-2", state, providerTurnID)
+	}
+}
+
+func TestBindSessionGenerationColdHeadIdentityMismatchHasZeroSideEffects(t *testing.T) {
+	tests := []struct {
+		name       string
+		threadID   string
+		launchSeq  uint64
+		generation uint64
+	}{
+		{name: "thread", threadID: "wrong-thread", launchSeq: 3, generation: 7},
+		{name: "session", threadID: "thread-1", launchSeq: 4, generation: 7},
+		{name: "generation", threadID: "thread-1", launchSeq: 3, generation: 8},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			first, db := newTerminalOutcomeTestService(t)
+			addTerminalOutcomeTestAgent(first)
+			if handled, err := first.CommitTurnCompleted(context.Background(), terminalOutcomeEvent(true)); err != nil || !handled {
+				t.Fatalf("CommitTurnCompleted() = (%v, %v)", handled, err)
+			}
+			restarted := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
+			restartedStore := terminaloutcomestore.New(db)
+			restarted.terminalOutcomes = restartedStore
+			restarted.terminalHeadReader = restartedStore
+			restarted.turns.terminalOutcomes = restarted.terminalOutcomes
+			agent := restarted.newAgentLocked("agent-1")
+			agent.state = agentdto.StateIdle
+			agent.threadID, agent.remoteThreadID = test.threadID, test.threadID
+			agent.launchSeq = test.launchSeq
+			restarted.registry.agents[agent.id] = agent
+			beforeGeneration, beforeVersion, beforeUpdatedAt := agent.sessionGeneration, agent.terminalHeadVersion, agent.updatedAt
+
+			if err := restarted.BindSessionGeneration(context.Background(), agent.id, test.generation); err == nil {
+				t.Fatal("BindSessionGeneration() error = nil, want durable identity mismatch")
+			}
+			if agent.sessionGeneration != beforeGeneration || agent.terminalHeadVersion != beforeVersion || !agent.updatedAt.Equal(beforeUpdatedAt) {
+				t.Fatalf("identity mismatch mutated runtime: generation=%d version=%d updatedAt=%s",
+					agent.sessionGeneration, agent.terminalHeadVersion, agent.updatedAt)
+			}
+			var version uint64
+			if err := db.QueryRow("SELECT version FROM terminal_outcome_current_heads WHERE agent_id = 'agent-1'").Scan(&version); err != nil {
+				t.Fatalf("read durable version: %v", err)
+			}
+			if version != 1 {
+				t.Fatalf("identity mismatch mutated durable version = %d, want 1", version)
+			}
+		})
+	}
+}
+
 func TestProviderTurnHeadActivationFailureHasZeroRuntimeSideEffects(t *testing.T) {
 	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
 	failure := errors.New("activate failed")
@@ -788,6 +893,7 @@ func newTerminalOutcomeTestService(t *testing.T) (*service, *sql.DB) {
 	}
 	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
 	svc.terminalOutcomes = terminaloutcomestore.New(db)
+	svc.terminalHeadReader = svc.terminalOutcomes.(contract.TerminalOutcomeHeadReadPort)
 	svc.turns.terminalOutcomes = svc.terminalOutcomes
 	return svc, db
 }
