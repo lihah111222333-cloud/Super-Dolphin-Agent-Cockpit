@@ -162,7 +162,7 @@ func executeMigrationBody(ctx context.Context, tx *sql.Tx, name, body string) er
 	if name == "113_bus_exception_log_flags.sql" {
 		return migrateBusExceptionLogFlags(ctx, tx)
 	}
-	if name == "120_agent_provider_binding_recovery_owner.sql" {
+	if name == "123_agent_provider_binding_recovery_owner.sql" {
 		return migrateAgentProviderBindingRecoveryOwner(ctx, tx)
 	}
 	return execMigrationSegments(ctx, tx, body)

@@ -65,6 +65,53 @@ func TestRunMigrationsAcceptsSelfRecordedBaselineMarker(t *testing.T) {
 	}
 }
 
+func TestRunMigrationsFreshDatabaseReachesProviderRecoveryVersion(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrationTestDB(t)
+
+	if err := RunMigrations(ctx, db, "migrations"); err != nil {
+		t.Fatalf("RunMigrations(fresh to 123) error = %v", err)
+	}
+	assertMaxMigrationVersion(t, db, 123)
+	assertMigrationMarkerCount(t, db, "123_agent_provider_binding_recovery_owner.sql", 1)
+
+	if err := RunMigrations(ctx, db, "migrations"); err != nil {
+		t.Fatalf("RunMigrations(fresh repeat) error = %v", err)
+	}
+	assertMaxMigrationVersion(t, db, 123)
+	assertMigrationMarkerCount(t, db, "123_agent_provider_binding_recovery_owner.sql", 1)
+}
+
+func TestRunMigrationsProviderRecoveryVersion123FollowsLegacy120Marker(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrationTestDB(t)
+	preUpgradeDir := t.TempDir()
+	copyMigrationsBefore123(t, "migrations", preUpgradeDir)
+	if err := RunMigrations(ctx, db, preUpgradeDir); err != nil {
+		t.Fatalf("RunMigrations(pre-123) error = %v", err)
+	}
+	mustExec(t, db, `
+		ALTER TABLE agent_provider_binding
+		ADD COLUMN provider_recovery_home TEXT NOT NULL DEFAULT ''
+	`)
+	mustExec(t, db, `
+		INSERT INTO schema_migrations(version, name, filename, applied_at)
+		VALUES (
+			120,
+			'120_agent_provider_binding_recovery_owner',
+			'120_agent_provider_binding_recovery_owner.sql',
+			0
+		)
+	`)
+
+	if err := RunMigrations(ctx, db, "migrations"); err != nil {
+		t.Fatalf("RunMigrations(legacy 120 marker to 123) error = %v", err)
+	}
+	assertMaxMigrationVersion(t, db, 123)
+	assertMigrationMarkerCount(t, db, "120_agent_provider_binding_recovery_owner.sql", 1)
+	assertMigrationMarkerCount(t, db, "123_agent_provider_binding_recovery_owner.sql", 1)
+}
+
 func TestRunMigrationsSystemLogsTraceSpanPreservesAgentV3Columns(t *testing.T) {
 	ctx := context.Background()
 	db := openMigrationTestDB(t)
@@ -290,10 +337,13 @@ func TestRunMigrationsCanonicalizesProviderBindingUUIDsAndRestoresTrigger(t *tes
 		)
 	`)
 	dir := t.TempDir()
-	writeMigrationTestFile(t, dir, "120_agent_provider_binding_recovery_owner.sql", "SELECT 1;\n")
+	writeMigrationTestFile(t, dir, "123_agent_provider_binding_recovery_owner.sql", "SELECT 1;\n")
 
 	if err := RunMigrations(ctx, db, dir); err != nil {
 		t.Fatalf("RunMigrations() error = %v", err)
+	}
+	if err := RunMigrations(ctx, db, dir); err != nil {
+		t.Fatalf("RunMigrations(repeat) error = %v", err)
 	}
 	var providerThreadID, sessionUUID, recoveryHome string
 	if err := db.QueryRow(`
@@ -319,7 +369,7 @@ func TestRunMigrationsCanonicalizesProviderBindingUUIDsAndRestoresTrigger(t *tes
 	if err == nil || !strings.Contains(err.Error(), "identity is immutable") {
 		t.Fatalf("restored trigger update error = %v, want immutable rejection", err)
 	}
-	assertMigrationMarkerCount(t, db, "120_agent_provider_binding_recovery_owner.sql", 1)
+	assertMigrationMarkerCount(t, db, "123_agent_provider_binding_recovery_owner.sql", 1)
 }
 
 func TestRunMigrationsRejectsCanonicalProviderBindingUUIDCollision(t *testing.T) {
@@ -335,14 +385,14 @@ func TestRunMigrationsRejectsCanonicalProviderBindingUUIDCollision(t *testing.T)
 			('agent-b', 'claude', '019e218f-b514-7733-be85-b3ee7f6a78a6')
 	`)
 	dir := t.TempDir()
-	writeMigrationTestFile(t, dir, "120_agent_provider_binding_recovery_owner.sql", "SELECT 1;\n")
+	writeMigrationTestFile(t, dir, "123_agent_provider_binding_recovery_owner.sql", "SELECT 1;\n")
 	before := providerBindingMigrationSnapshot(t, db)
 
 	err := RunMigrations(ctx, db, dir)
 	if err == nil || !strings.Contains(err.Error(), "canonical UUID collision") {
 		t.Fatalf("RunMigrations() error = %v, want canonical UUID collision", err)
 	}
-	assertMigrationMarkerCount(t, db, "120_agent_provider_binding_recovery_owner.sql", 0)
+	assertMigrationMarkerCount(t, db, "123_agent_provider_binding_recovery_owner.sql", 0)
 	assertProviderBindingMigrationRollback(t, db, before)
 }
 
@@ -357,14 +407,14 @@ func TestRunMigrationsRejectsInvalidProviderBindingUUID(t *testing.T) {
 		VALUES ('agent-invalid', 'claude', 'not-a-provider-uuid')
 	`)
 	dir := t.TempDir()
-	writeMigrationTestFile(t, dir, "120_agent_provider_binding_recovery_owner.sql", "SELECT 1;\n")
+	writeMigrationTestFile(t, dir, "123_agent_provider_binding_recovery_owner.sql", "SELECT 1;\n")
 	before := providerBindingMigrationSnapshot(t, db)
 
 	err := RunMigrations(ctx, db, dir)
 	if err == nil || !strings.Contains(err.Error(), "provider_thread_id") {
 		t.Fatalf("RunMigrations() error = %v, want invalid provider_thread_id rejection", err)
 	}
-	assertMigrationMarkerCount(t, db, "120_agent_provider_binding_recovery_owner.sql", 0)
+	assertMigrationMarkerCount(t, db, "123_agent_provider_binding_recovery_owner.sql", 0)
 	assertProviderBindingMigrationRollback(t, db, before)
 }
 
@@ -372,10 +422,11 @@ func TestRunMigrationsRealDBUpgradeCanonicalizesProviderBindingUUIDs(t *testing.
 	ctx := context.Background()
 	db := openMigrationTestDB(t)
 	preUpgradeDir := t.TempDir()
-	copyMigrationsBefore120(t, "migrations", preUpgradeDir)
+	copyMigrationsBefore123(t, "migrations", preUpgradeDir)
 	if err := RunMigrations(ctx, db, preUpgradeDir); err != nil {
-		t.Fatalf("RunMigrations(pre-120) error = %v", err)
+		t.Fatalf("RunMigrations(pre-123) error = %v", err)
 	}
+	assertMaxMigrationVersion(t, db, 119)
 	mustExec(t, db, `
 		INSERT INTO agent_provider_binding (
 			agent_id, provider, provider_thread_id, codex_thread_id,
@@ -387,8 +438,10 @@ func TestRunMigrationsRealDBUpgradeCanonicalizesProviderBindingUUIDs(t *testing.
 		)
 	`)
 	if err := RunMigrations(ctx, db, "migrations"); err != nil {
-		t.Fatalf("RunMigrations(120) error = %v", err)
+		t.Fatalf("RunMigrations(123) error = %v", err)
 	}
+	assertMaxMigrationVersion(t, db, 123)
+	assertMigrationMarkerCount(t, db, "123_agent_provider_binding_recovery_owner.sql", 1)
 	var providerThreadID, sessionUUID, recoveryHome string
 	if err := db.QueryRow(`
 		SELECT provider_thread_id, session_uuid, provider_recovery_home
@@ -407,10 +460,11 @@ func TestRunMigrationsRealDBUpgradeBackfillsLegacyProviderThreadPlaceholder(t *t
 	ctx := context.Background()
 	db := openMigrationTestDB(t)
 	preUpgradeDir := t.TempDir()
-	copyMigrationsBefore120(t, "migrations", preUpgradeDir)
+	copyMigrationsBefore123(t, "migrations", preUpgradeDir)
 	if err := RunMigrations(ctx, db, preUpgradeDir); err != nil {
-		t.Fatalf("RunMigrations(pre-120) error = %v", err)
+		t.Fatalf("RunMigrations(pre-123) error = %v", err)
 	}
+	assertMaxMigrationVersion(t, db, 119)
 	mustExec(t, db, `
 		INSERT INTO agent_provider_binding (
 			agent_id, provider, provider_thread_id, codex_thread_id, session_uuid
@@ -428,8 +482,9 @@ func TestRunMigrationsRealDBUpgradeBackfillsLegacyProviderThreadPlaceholder(t *t
 	`)
 
 	if err := RunMigrations(ctx, db, "migrations"); err != nil {
-		t.Fatalf("RunMigrations(120) error = %v", err)
+		t.Fatalf("RunMigrations(123) error = %v", err)
 	}
+	assertMaxMigrationVersion(t, db, 123)
 	var providerThreadID, sessionUUID string
 	if err := db.QueryRow(`
 		SELECT provider_thread_id, session_uuid
@@ -461,10 +516,10 @@ func TestRunMigrationsRealDBUpgradeBackfillsLegacyProviderThreadPlaceholder(t *t
 	if err == nil || !strings.Contains(err.Error(), "identity is immutable") {
 		t.Fatalf("restored trigger update error = %v, want immutable rejection", err)
 	}
-	assertMigrationMarkerCount(t, db, "120_agent_provider_binding_recovery_owner.sql", 1)
+	assertMigrationMarkerCount(t, db, "123_agent_provider_binding_recovery_owner.sql", 1)
 }
 
-func copyMigrationsBefore120(t *testing.T, sourceDir, targetDir string) {
+func copyMigrationsBefore123(t *testing.T, sourceDir, targetDir string) {
 	t.Helper()
 	entries, err := os.ReadDir(sourceDir)
 	if err != nil {
@@ -472,7 +527,7 @@ func copyMigrationsBefore120(t *testing.T, sourceDir, targetDir string) {
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".sql") || name >= "120_" {
+		if entry.IsDir() || !strings.HasSuffix(name, ".sql") || name >= "123_" {
 			continue
 		}
 		body, err := os.ReadFile(filepath.Join(sourceDir, name))
@@ -777,5 +832,16 @@ func assertMigrationMarkerCount(t *testing.T, db *sql.DB, filename string, want 
 	}
 	if got != want {
 		t.Fatalf("migration marker count for %s = %d, want %d", filename, got, want)
+	}
+}
+
+func assertMaxMigrationVersion(t *testing.T, db *sql.DB, want int) {
+	t.Helper()
+	var got int
+	if err := db.QueryRow("SELECT COALESCE(MAX(version), 0) FROM schema_migrations").Scan(&got); err != nil {
+		t.Fatalf("read max migration version: %v", err)
+	}
+	if got != want {
+		t.Fatalf("max migration version = %d, want %d", got, want)
 	}
 }

@@ -35,8 +35,8 @@ func insertVersion(t *testing.T, db *sql.DB, version int) {
 
 func TestMinRequiredSchemaVersion(t *testing.T) {
 	t.Parallel()
-	if MinRequiredSchemaVersion != 113 {
-		t.Fatalf("MinRequiredSchemaVersion = %d, want 113", MinRequiredSchemaVersion)
+	if MinRequiredSchemaVersion != 123 {
+		t.Fatalf("MinRequiredSchemaVersion = %d, want 123", MinRequiredSchemaVersion)
 	}
 }
 
@@ -88,6 +88,7 @@ func TestSchemaGateRejectsMissingRequiredColumns(t *testing.T) {
 		t.Fatal("VerifyMinSchemaVersion err = nil, want missing required column error")
 	}
 	for _, want := range []string{
+		"agent_provider_binding.provider_recovery_home",
 		"agent_threads.prompt_snapshot",
 		"hook_pending_reviews.thread_id",
 		"hook_pending_reviews.turn_id",
