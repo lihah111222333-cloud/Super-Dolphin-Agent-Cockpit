@@ -71,8 +71,13 @@ describe('frontend code size baseline transaction final-state reconciliation', (
       } catch (error) {
         caught = error;
       }
-      expect(caught?.code).toBe('BASELINE_DURABILITY_UNKNOWN');
+      expect(caught?.code).toBe('BASELINE_COMMITTED_DURABILITY_UNKNOWN');
+      expect(caught?.committed).toBe(true);
       expect(caught?.finalState.hash).toBe(hashBaselineBytes(concurrentBytes));
+      expect(caught?.recoveryAction).toBe('inspect-final-state-and-marker-without-mutating');
+      expect(caught?.message).not.toContain(fixture.root);
+      expect(caught?.message).not.toContain(fixture.filePath);
+      expect(caught?.message).not.toContain(concurrentBytes.toString('utf8'));
       expect(fs.readFileSync(fixture.filePath).equals(concurrentBytes)).toBe(true);
     } finally {
       fs.rmSync(fixture.root, { recursive: true, force: true });
@@ -98,6 +103,9 @@ describe('frontend code size baseline transaction final-state reconciliation', (
       }
       expect(caught?.code).toBe('BASELINE_DURABILITY_UNKNOWN');
       expect(caught?.finalState.exists).toBe(false);
+      expect(caught?.recoveryAction).toBe('inspect-final-state-and-marker-without-mutating');
+      expect(caught?.message).not.toContain(fixture.root);
+      expect(caught?.message).not.toContain(fixture.filePath);
       expect(fs.existsSync(fixture.filePath)).toBe(false);
     } finally {
       fs.rmSync(fixture.root, { recursive: true, force: true });
@@ -137,8 +145,13 @@ describe('frontend code size baseline transaction final-state reconciliation', (
       } catch (error) {
         caught = error;
       }
-      expect(caught?.code).toBe('BASELINE_DURABILITY_UNKNOWN');
+      expect(caught?.code).toBe('BASELINE_COMMITTED_DURABILITY_UNKNOWN');
+      expect(caught?.committed).toBe(true);
       expect(caught?.finalState.hash).toBe(hashBaselineBytes(candidateBytes));
+      expect(caught?.recoveryAction).toBe('inspect-final-state-and-marker-without-mutating');
+      expect(caught?.message).not.toContain(fixture.root);
+      expect(caught?.message).not.toContain(fixture.filePath);
+      expect(caught?.message).not.toContain(candidateBytes.toString('utf8'));
       expect(fs.readFileSync(fixture.filePath).equals(candidateBytes)).toBe(true);
     } finally {
       fs.rmSync(fixture.root, { recursive: true, force: true });

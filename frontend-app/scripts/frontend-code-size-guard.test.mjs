@@ -17,6 +17,7 @@ import {
   assertBaselineUpdateOnlyImproves,
   acquireBaselineLock,
   baselineBytes,
+  formatBaselineTransactionErrorForStderr,
   hashBaselineBytes,
   writeBaselineTransaction,
 } from './lib/frontend-code-size-baseline-transaction.mjs';
@@ -173,6 +174,37 @@ function runGuardWithFixture({
 }
 
 describe('frontend code size guard', () => {
+  it('projects typed transaction failures without serializing private message, state, or cause', () => {
+    const secret = 'SENTINEL-PRIVATE-BASELINE-BYTES';
+    const error = new Error(`/private/secret/baseline.json ${secret}`, {
+      cause: new Error(`/private/secret/cause ${secret}`),
+    });
+    error.code = 'BASELINE_COMMITTED_DURABILITY_UNKNOWN';
+    error.phase = 'post-commit-cleanup';
+    error.recoveryAction = 'inspect-final-state-and-marker-without-mutating';
+    error.finalState = { bytes: secret, hash: 'raw-next-hash' };
+    const output = formatBaselineTransactionErrorForStderr(error);
+    expect(output).toBe(
+      'code=BASELINE_COMMITTED_DURABILITY_UNKNOWN phase=post-commit-cleanup recoveryAction=inspect-final-state-and-marker-without-mutating',
+    );
+    expect(output).not.toContain('/private/secret');
+    expect(output).not.toContain(secret);
+    expect(output).not.toContain('raw-next-hash');
+  });
+
+  it('fails closed for unknown codes and missing or mutated public recovery fields', () => {
+    const unknown = Object.assign(new Error('private'), {
+      code: 'BASELINE_SENTINEL_UNKNOWN', phase: 'sentinel-phase', recoveryAction: 'inspect-without-mutating',
+    });
+    expect(() => formatBaselineTransactionErrorForStderr(unknown)).toThrow('baseline public error contract rejected: unknown code');
+
+    const missing = Object.assign(new Error('private'), { code: 'BASELINE_COMMITTED_DURABILITY_UNKNOWN' });
+    expect(() => formatBaselineTransactionErrorForStderr(missing)).toThrow('baseline public error contract rejected: invalid or missing phase');
+
+    Object.assign(missing, { phase: 'post-commit-cleanup', recoveryAction: 'delete-everything' });
+    expect(() => formatBaselineTransactionErrorForStderr(missing)).toThrow('baseline public error contract rejected: invalid or missing recovery action');
+  });
+
   it('counts effective lines without comments and blank lines', () => {
     expect(countEffectiveLines([
       '',
@@ -658,19 +690,43 @@ describe('frontend code size baseline transaction', () => {
     }
   });
 
-  it('rolls back a commit-directory-fsync failure before returning ordinary failure', () => {
+  it('keeps the committed candidate on a commit-directory-fsync failure', () => {
     const fixture = transactionFixture();
+    const privateCauseSentinel = 'SENTINEL-PRIVATE-NESTED-CAUSE';
+    const now = () => new Date('2026-07-10T00:00:00Z');
+    const candidateBytes = baselineBytes({
+      _meta: { updatedAt: '2026-07-10T00:00:00Z' },
+      files: fixture.candidate.files,
+    });
     try {
-      expect(() => writeBaselineTransaction({
-        filePath: fixture.filePath,
-        expectedHash: fixture.hash,
-        previous: fixture.previous,
-        candidate: fixture.candidate,
-        failpoint(point) {
-          if (point === 'before-commit-dir-fsync') throw new Error('injected directory fsync failure');
-        },
-      })).toThrow(/injected directory fsync failure/);
-      expect(fs.readFileSync(fixture.filePath).equals(fixture.bytes)).toBe(true);
+      let caught;
+      try {
+        writeBaselineTransaction({
+          filePath: fixture.filePath,
+          expectedHash: fixture.hash,
+          previous: fixture.previous,
+          candidate: fixture.candidate,
+          now,
+          failpoint(point) {
+            if (point === 'before-commit-dir-fsync') {
+              throw new Error(`injected directory fsync failure ${fixture.filePath} ${privateCauseSentinel}`);
+            }
+          },
+        });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught?.code).toBe('BASELINE_COMMITTED_DURABILITY_UNKNOWN');
+      expect(caught?.committed).toBe(true);
+      expect(caught?.cause?.message).toContain('injected directory fsync failure');
+      expect(caught?.cause?.message).toContain(privateCauseSentinel);
+      expect(caught?.recoveryAction).toBe('inspect-final-state-and-marker-without-mutating');
+      expect(caught?.message).not.toContain(fixture.root);
+      expect(caught?.message).not.toContain(fixture.filePath);
+      expect(caught?.message).not.toContain(privateCauseSentinel);
+      expect(formatBaselineTransactionErrorForStderr(caught)).not.toContain(privateCauseSentinel);
+      expect(formatBaselineTransactionErrorForStderr(caught)).not.toContain(fixture.root);
+      expect(fs.readFileSync(fixture.filePath).equals(candidateBytes)).toBe(true);
       expect(fs.readdirSync(fixture.root)).toEqual(['.frontend_code_size_guard_baseline.json']);
     } finally {
       fs.rmSync(fixture.root, { recursive: true, force: true });
@@ -713,7 +769,7 @@ describe('frontend code size baseline transaction', () => {
           previous: fixture.previous,
           candidate: fixture.candidate,
           failpoint(point) {
-            if (point === 'before-commit-dir-fsync') throw new Error('force rollback');
+            if (point === 'before-atomic-replace') throw new Error('force rollback');
             if (point === failurePoint) throw new Error(`injected ${failurePoint}`);
           },
         });
