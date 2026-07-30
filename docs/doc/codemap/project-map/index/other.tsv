@@ -326,7 +326,7 @@ internal/archtest/prompt_builtin_config_test.go	internal	other	go-test	16794	架
 internal/archtest/prompt_external_reference_guard_helpers_test.go	internal	other	go-test	19401	架构守卫、baseline ratchet 与冻结规则	internal,archtest,prompt,external,reference,guard,helpers,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/prompt_external_reference_guard_test.go	internal	other	go-test	8557	架构守卫、baseline ratchet 与冻结规则	internal,archtest,prompt,external,reference,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/provider_recovery_field_guard_test.go	internal	other	go-test	22383	架构守卫、baseline ratchet 与冻结规则	internal,archtest,provider,recovery,field,guard,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/provider_recovery_migration_guard_test.go	internal	other	go-test	19942	架构守卫、baseline ratchet 与冻结规则	internal,archtest,provider,recovery,migration,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/provider_recovery_migration_guard_test.go	internal	other	go-test	22492	架构守卫、baseline ratchet 与冻结规则	internal,archtest,provider,recovery,migration,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/provider_resume_owner_field_guard_test.go	internal	other	go-test	6134	架构守卫、baseline ratchet 与冻结规则	internal,archtest,provider,resume,owner,field,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/ratchet_test.go	internal	other	go-test	13584	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ratchet,test,架构守卫,baseline,与冻结规则
 internal/archtest/ratchet.go	internal	other	go-source	9899	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ratchet,架构守卫,baseline,与冻结规则
