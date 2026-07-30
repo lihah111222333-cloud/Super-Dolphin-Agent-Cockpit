@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -15,6 +16,7 @@ import (
 type schedulerReconnectState struct {
 	mu        sync.Mutex
 	workloads map[string]localci.WorkloadRequest
+	order     []string
 }
 
 type schedulerReconnectStub struct {
@@ -33,6 +35,9 @@ func (client *schedulerReconnectStub) Enqueue(_ context.Context, request localci
 		return localci.ErrSchedulerClosed
 	}
 	client.state.mu.Lock()
+	if _, exists := client.state.workloads[request.ID]; !exists {
+		client.state.order = append(client.state.order, request.ID)
+	}
 	client.state.workloads[request.ID] = request
 	client.state.mu.Unlock()
 	if client.acceptWithoutResponse {
@@ -101,6 +106,47 @@ func TestEnqueueAcceptedWithoutResponseReconnectsBeforeSnapshot(t *testing.T) {
 		t.Fatalf("enqueue accepted without response: %v", err)
 	}
 	fixture.assertReconciledEnqueue(t)
+}
+
+func TestEnsurePersistedJobScheduledEnqueuesDurablePredecessorsFirst(t *testing.T) {
+	checkpoint := coordinatorTestCheckpoint(t)
+	store, err := openCoordinatorStore(context.Background(), checkpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := &schedulerReconnectState{workloads: make(map[string]localci.WorkloadRequest)}
+	scheduler := &schedulerReconnectStub{state: state, available: true}
+	client := &coordinatorTransportClient{store: store, scheduler: scheduler}
+	t.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("close coordinator: %v", err)
+		}
+	})
+
+	first, err := store.createJob(
+		context.Background(), "hook-"+strings.Repeat("1", 64), "job-durable-first",
+		mustWorkingDirectory(t), mustTestGatePlan(t, "1"), localci.PromotionCandidatePlan{}, manualSubmissionAuthority(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.createJob(
+		context.Background(), "hook-"+strings.Repeat("2", 64), "job-durable-second",
+		mustWorkingDirectory(t), mustTestGatePlan(t, "2"), localci.PromotionCandidatePlan{}, manualSubmissionAuthority(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := client.ensurePersistedJobScheduled(context.Background(), second); err != nil {
+		t.Fatal(err)
+	}
+	state.mu.Lock()
+	order := append([]string(nil), state.order...)
+	state.mu.Unlock()
+	if got, want := order, []string{first.JobID, second.JobID}; !slices.Equal(got, want) {
+		t.Fatalf("scheduler enqueue order = %v, want %v", got, want)
+	}
 }
 
 type acceptedWithoutResponseEnqueueFixture struct {

@@ -11,6 +11,16 @@ if ! gate_bin=$(trusted_gate_launcher "$repo_root"); then
   exit 1
 fi
 
+closure_outputs=(build/gate/Dockerfile build/gate/inputs.json)
+if ! git -C "$repo_root" diff --quiet -- "${closure_outputs[@]}"; then
+  printf '%s\n' 'pre-commit blocked: gate-image closure outputs have unstaged changes; stage or revert them before automatic refresh.' >&2
+  exit 1
+fi
+if git -C "$repo_root" ls-files --others --exclude-standard -- "${closure_outputs[@]}" | grep -q .; then
+  printf '%s\n' 'pre-commit blocked: gate-image closure outputs are untracked; stage or remove them before automatic refresh.' >&2
+  exit 1
+fi
+
 if ! staged_tree=$(git write-tree); then
   printf '%s\n' 'pre-commit blocked: cannot capture the authoritative staged tree.' >&2
   exit 1
@@ -21,8 +31,56 @@ if [[ -z "$staged_tree" ]]; then
 fi
 
 if ! "$gate_bin" closure check --tree "$staged_tree"; then
-  printf '%s\n' 'pre-commit blocked: gate-image closure verification failed for the staged tree.' >&2
-  exit 1
+  printf '%s\n' 'pre-commit: gate-image closure drift detected; refreshing managed outputs once.' >&2
+  if ! "$gate_bin" closure refresh --tree "$staged_tree"; then
+    printf '%s\n' 'pre-commit blocked: gate-image closure refresh failed.' >&2
+    exit 1
+  fi
+  if ! git -C "$repo_root" add -u -- build/gate/Dockerfile build/gate/inputs.json; then
+    printf '%s\n' 'pre-commit blocked: refreshed gate-image closure outputs could not be staged.' >&2
+    exit 1
+  fi
+  if ! refreshed_tree=$(git -C "$repo_root" write-tree); then
+    printf '%s\n' 'pre-commit blocked: cannot capture the staged tree after gate-image closure refresh.' >&2
+    exit 1
+  fi
+  if [[ -z "$refreshed_tree" ]] || ! "$gate_bin" closure check --tree "$refreshed_tree"; then
+    printf '%s\n' 'pre-commit blocked: gate-image closure still drifted after one automatic refresh.' >&2
+    exit 1
+  fi
+  staged_tree=$refreshed_tree
+fi
+
+project_map_output=docs/doc/codemap/project-map
+project_map_needs_refresh=0
+if ! git -C "$repo_root" diff --quiet -- "$project_map_output"; then
+  project_map_needs_refresh=1
+fi
+if git -C "$repo_root" ls-files --others --exclude-standard -- "$project_map_output" | grep -q .; then
+  project_map_needs_refresh=1
+fi
+if ! "$gate_bin" project-map check --tree "$staged_tree"; then
+  project_map_needs_refresh=1
+fi
+if [[ "$project_map_needs_refresh" -eq 1 ]]; then
+  printf '%s\n' 'pre-commit: project-map drift detected; refreshing managed outputs once.' >&2
+  if ! "$gate_bin" project-map refresh --tree "$staged_tree"; then
+    printf '%s\n' 'pre-commit blocked: project-map refresh failed.' >&2
+    exit 1
+  fi
+  if ! git -C "$repo_root" add -A -- "$project_map_output"; then
+    printf '%s\n' 'pre-commit blocked: refreshed project-map outputs could not be staged.' >&2
+    exit 1
+  fi
+  if ! refreshed_tree=$(git -C "$repo_root" write-tree); then
+    printf '%s\n' 'pre-commit blocked: cannot capture the staged tree after project-map refresh.' >&2
+    exit 1
+  fi
+  if [[ -z "$refreshed_tree" ]] || ! "$gate_bin" project-map check --tree "$refreshed_tree"; then
+    printf '%s\n' 'pre-commit blocked: project-map still drifted after one automatic refresh.' >&2
+    exit 1
+  fi
+  staged_tree=$refreshed_tree
 fi
 
 umask 077
@@ -32,6 +90,63 @@ cleanup_output() {
   rm -f "$gate_output_file" "$wait_output_file"
 }
 trap cleanup_output EXIT HUP INT TERM
+
+gate_mode=${SUPER_DOLPHIN_GATE_MODE:-$(git config --local --get super-dolphin.gate.mode || true)}
+if [[ -z "$gate_mode" ]]; then
+  gate_mode=local
+fi
+if [[ "$gate_mode" == remote ]]; then
+  remote_config=${SUPER_DOLPHIN_GATE_REMOTE_CONFIG:-$(git config --local --get super-dolphin.remote.config || true)}
+  remote_ledger=${SUPER_DOLPHIN_GATE_LEDGER:-$(git config --local --get super-dolphin.remote.ledger || true)}
+  remote_state=${SUPER_DOLPHIN_GATE_REMOTE_STATE:-$(git config --local --get super-dolphin.remote.state || true)}
+  remote_max_shards=$(git config --local --get super-dolphin.remote.maxShards || true)
+  if [[ -z "$remote_config" || -z "$remote_ledger" ]]; then
+    printf '%s\n' 'pre-commit blocked: remote gate mode requires remote config and duration ledger paths.' >&2
+    exit 1
+  fi
+  if ! parent_commit=$(git rev-parse --verify 'HEAD^{commit}'); then
+    printf '%s\n' 'pre-commit blocked: remote gate mode requires an existing parent commit.' >&2
+    exit 1
+  fi
+  remote_args=(
+    remote hook pre-commit
+    --config "$remote_config"
+    --ledger "$remote_ledger"
+    --repository "$repo_root"
+    --tree "$staged_tree"
+    --parent "$parent_commit"
+  )
+  if [[ -n "$remote_state" ]]; then
+    remote_args+=(--state "$remote_state")
+  fi
+  if [[ -n "$remote_max_shards" ]]; then
+    remote_args+=(--max-shards "$remote_max_shards")
+  fi
+  set +e
+  "$gate_bin" "${remote_args[@]}" >"$gate_output_file" 2>&1
+  hook_rc=$?
+  set -e
+  if [[ "$hook_rc" -ne 0 ]]; then
+    cat "$gate_output_file" >&2
+    exit "$hook_rc"
+  fi
+  if ! final_tree=$(git write-tree); then
+    cat "$gate_output_file" >&2
+    printf '%s\n' 'pre-commit blocked: cannot re-read the staged tree after remote gate.' >&2
+    exit 1
+  fi
+  if [[ "$final_tree" != "$staged_tree" ]]; then
+    cat "$gate_output_file" >&2
+    printf '%s\n' "pre-commit blocked: staged tree changed during remote gate ($staged_tree -> $final_tree)." >&2
+    exit 1
+  fi
+  cat "$gate_output_file"
+  exit 0
+fi
+if [[ "$gate_mode" != local ]]; then
+  printf '%s\n' "pre-commit blocked: unsupported gate mode '$gate_mode'." >&2
+  exit 1
+fi
 
 set +e
 "$gate_bin" hook pre-commit --tree "$staged_tree" >"$gate_output_file" 2>&1

@@ -335,16 +335,22 @@ func TestGitHooksREADMEDeclaresThinHookEntrypoints(t *testing.T) {
 			documentation:  "`super-dolphin-gate closure check --tree <tree>`",
 		},
 		{
+			name:           "pre-commit project map",
+			hookPath:       ".githooks/pre-commit",
+			hookEntrypoint: `project-map check --tree "$staged_tree"`,
+			documentation:  "`super-dolphin-gate project-map check --tree <tree>`",
+		},
+		{
 			name:           "pre-commit coordinator",
 			hookPath:       ".githooks/pre-commit",
 			hookEntrypoint: `hook pre-commit --tree "$staged_tree"`,
-			documentation:  "`super-dolphin-gate hook pre-commit --tree <tree>`",
+			documentation:  "`super-dolphin-gate hook pre-commit --tree <final-tree>`",
 		},
 		{
 			name:           "pre-commit coordinator wait",
 			hookPath:       ".githooks/pre-commit",
 			hookEntrypoint: `wait --job "$job_id" --tree "$staged_tree"`,
-			documentation:  "`super-dolphin-gate wait --job <job-id> --tree <tree>`",
+			documentation:  "`super-dolphin-gate wait --job <job-id> --tree <final-tree>`",
 		},
 		{
 			name:           "pre-push coordinator",
@@ -375,7 +381,7 @@ func TestGitHooksREADMEDeclaresThinHookEntrypoints(t *testing.T) {
 			}
 		})
 	}
-	if !strings.Contains(readme, "thin hook 不直接运行 gofmt、go vet、包测试、前端检查、codemap/project-map 刷新或 AI-maintenance plan") {
+	if !strings.Contains(readme, "thin hook 不直接运行 gofmt、go vet、包测试、前端检查、候选 tree 生成器或 AI-maintenance plan") {
 		t.Fatal("README must state that thin hooks do not run the retired direct gates")
 	}
 	if !strings.Contains(readme, "这些门禁不支持绕过") {

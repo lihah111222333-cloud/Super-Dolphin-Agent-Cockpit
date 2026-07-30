@@ -36,6 +36,18 @@ function Write-Stderr {
     [Console]::Error.WriteLine($Message)
 }
 
+function Assert-RemoteTestExecution {
+    if ($env:SUPER_DOLPHIN_TEST_BACKEND -eq 'remote-worker') {
+        return
+    }
+    Write-Stderr @'
+Host test execution is forbidden.
+Every test request must pass through super-dolphin-gate test cache and lightweight admission first.
+Package, race, benchmark, Vitest, unknown-duration, and multi-miss requests run in ECI.
+'@
+    exit 2
+}
+
 function Resolve-ExistingPath {
     param([string]$Path)
     return (Get-Item -LiteralPath $Path -ErrorAction Stop).FullName
@@ -388,6 +400,13 @@ function Main {
             exit 1
         }
         $argsForRun = @($argsForRun[1..($argsForRun.Count - 1)])
+    }
+
+    if (
+        $argsForRun[0] -notin @('--help', '-h') -and
+        -not (Test-AllArgsAreGoFiles -Args $argsForRun)
+    ) {
+        Assert-RemoteTestExecution
     }
 
     switch ($argsForRun[0]) {

@@ -17,8 +17,8 @@ import (
 )
 
 // ensureCoordinatorSchemas 按依赖顺序补齐所有 coordinator schema。
-func ensureCoordinatorSchemas(ctx context.Context, db *sql.DB) error {
-	for _, ensure := range []func(context.Context, *sql.DB) error{
+func ensureCoordinatorSchemas(ctx context.Context, db coordinatorSchemaDB) error {
+	for _, ensure := range []func(context.Context, coordinatorSchemaDB) error{
 		ensureCoordinatorSubmissionAuthoritySchema,
 		ensureCoordinatorReceiptSchema,
 		ensureCoordinatorActionGrantSchema,
@@ -36,7 +36,7 @@ func ensureCoordinatorSchemas(ctx context.Context, db *sql.DB) error {
 }
 
 // ensureCoordinatorContainerExitedAtSchema 为单容器持久记录迁移独立观测到的退出时刻。
-func ensureCoordinatorContainerExitedAtSchema(ctx context.Context, db *sql.DB) error {
+func ensureCoordinatorContainerExitedAtSchema(ctx context.Context, db coordinatorSchemaDB) error {
 	columns, err := coordinatorJobColumns(ctx, db)
 	if err != nil {
 		return err
@@ -54,7 +54,7 @@ func ensureCoordinatorContainerExitedAtSchema(ctx context.Context, db *sql.DB) e
 // any read can silently misclassify historic work as a manual submission.
 // Authority cannot be backfilled safely, so operators must rebuild that local
 // durable store rather than receiving a partial ALTER TABLE migration.
-func ensureCoordinatorSubmissionAuthoritySchema(ctx context.Context, db *sql.DB) error {
+func ensureCoordinatorSubmissionAuthoritySchema(ctx context.Context, db coordinatorSchemaDB) error {
 	columns, err := coordinatorJobColumns(ctx, db)
 	if err != nil {
 		return err
@@ -72,7 +72,7 @@ func ensureCoordinatorSubmissionAuthoritySchema(ctx context.Context, db *sql.DB)
 }
 
 // ensureCoordinatorContainerEvidenceSchema 增加 typed witness 列且不伪造旧执行证据。
-func ensureCoordinatorContainerEvidenceSchema(ctx context.Context, db *sql.DB) error {
+func ensureCoordinatorContainerEvidenceSchema(ctx context.Context, db coordinatorSchemaDB) error {
 	columns, err := coordinatorJobColumns(ctx, db)
 	if err != nil {
 		return err
@@ -88,7 +88,7 @@ WHERE container_resource_witness_verified IS NULL AND container_phase IN ('', 'p
 	return nil
 }
 
-func coordinatorJobColumns(ctx context.Context, db *sql.DB) (map[string]bool, error) {
+func coordinatorJobColumns(ctx context.Context, db coordinatorSchemaDB) (map[string]bool, error) {
 	rows, err := db.QueryContext(ctx, "PRAGMA table_info(coordinator_jobs)")
 	if err != nil {
 		return nil, fmt.Errorf("inspect coordinator container evidence schema: %w", err)
@@ -109,7 +109,7 @@ func coordinatorJobColumns(ctx context.Context, db *sql.DB) (map[string]bool, er
 	return columns, nil
 }
 
-func addCoordinatorContainerEvidenceColumns(ctx context.Context, db *sql.DB, columns map[string]bool) error {
+func addCoordinatorContainerEvidenceColumns(ctx context.Context, db coordinatorSchemaDB, columns map[string]bool) error {
 	for _, migration := range []struct {
 		column string
 		query  string
@@ -252,7 +252,7 @@ var coordinatorRecoveryColumns = map[string]string{
 }
 
 // ensureCoordinatorRecoverySchema 为旧数据库逐列补齐恢复字段，任何迁移错误都阻断 owner。
-func ensureCoordinatorRecoverySchema(ctx context.Context, db *sql.DB) (retErr error) {
+func ensureCoordinatorRecoverySchema(ctx context.Context, db coordinatorSchemaDB) (retErr error) {
 	rows, err := db.QueryContext(ctx, "PRAGMA table_info(coordinator_jobs)")
 	if err != nil {
 		return fmt.Errorf("inspect coordinator recovery schema: %w", err)

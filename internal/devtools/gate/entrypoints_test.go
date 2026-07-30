@@ -14,8 +14,6 @@ func TestCIEntrypointRegistryCapabilities(t *testing.T) {
 	want := []CIEntrypoint{
 		newCIEntrypoint(CIEntrypointGitPreCommit, []SourceKind{SourceKindTree}, []Profile{ProfileLocalFast}, true, CIEntrypointOwnerManagedGitPreCommit, CIEntrypointAdapterGitPreCommit),
 		newCIEntrypoint(CIEntrypointGitPrePush, []SourceKind{SourceKindRange}, []Profile{ProfilePush}, true, CIEntrypointOwnerManagedGitPrePush, CIEntrypointAdapterGitPrePush),
-		newCIEntrypoint(CIEntrypointCodexStop, []SourceKind{SourceKindTree}, []Profile{ProfileLocalFast}, false, CIEntrypointOwnerCodexStop, CIEntrypointAdapterCodexStop),
-		newCIEntrypoint(CIEntrypointCodexSubagentStop, []SourceKind{SourceKindTree}, []Profile{ProfileLocalFast}, false, CIEntrypointOwnerCodexSubagentStop, CIEntrypointAdapterCodexSubagentStop),
 		newCIEntrypoint(CIEntrypointManualCLI, []SourceKind{SourceKindCommit, SourceKindTree, SourceKindRange}, []Profile{ProfileLocalFast, ProfilePush, ProfileRemoteRequired, ProfilePromotion, ProfileRelease}, false, CIEntrypointOwnerManualCLI, CIEntrypointAdapterManualCLI),
 		newCIEntrypoint(CIEntrypointWorkflowRequired, []SourceKind{SourceKindCommit, SourceKindRange}, []Profile{ProfileRemoteRequired}, true, CIEntrypointOwnerWorkflowRequired, CIEntrypointAdapterWorkflowRequired),
 		newCIEntrypoint(CIEntrypointRelease, []SourceKind{SourceKindCommit}, []Profile{ProfileRelease}, true, CIEntrypointOwnerRelease, CIEntrypointAdapterRelease),
@@ -27,7 +25,7 @@ func TestCIEntrypointRegistryCapabilities(t *testing.T) {
 	if err := validateCIEntrypointRegistry(got); err != nil {
 		t.Fatalf("validateCIEntrypointRegistry() error = %v", err)
 	}
-	manual := got[4]
+	manual := got[2]
 	if manual.Authoritative || !slices.Contains(manual.AllowedProfiles, ProfileRemoteRequired) || !slices.Contains(manual.AllowedProfiles, ProfileRelease) {
 		t.Fatalf("manual CLI authority contract = %#v", manual)
 	}
@@ -41,7 +39,7 @@ func TestCIEntrypointStableIDsAndExternalAuthorityOwners(t *testing.T) {
 	for _, entrypoint := range registry {
 		gotIDs = append(gotIDs, string(entrypoint.ID))
 	}
-	wantIDs := []string{"git-pre-commit", "git-pre-push", "codex-stop", "codex-subagent-stop", "manual-cli", "workflow-required", "release"}
+	wantIDs := []string{"git-pre-commit", "git-pre-push", "manual-cli", "workflow-required", "release"}
 	if !reflect.DeepEqual(gotIDs, wantIDs) {
 		t.Fatalf("CI entrypoint IDs = %v, want %v", gotIDs, wantIDs)
 	}
@@ -147,7 +145,6 @@ func TestAuthoritativeCIEntrypointRejectsUntrustedOwners(t *testing.T) {
 	untrusted := []CIEntrypointOwner{
 		CIEntrypointOwnerRepositoryGitHooks,
 		CIEntrypointOwnerManualCLI,
-		CIEntrypointOwnerCodexStop,
 	}
 	for _, owner := range untrusted {
 		t.Run(string(owner), func(t *testing.T) {
@@ -168,7 +165,7 @@ func TestValidateCIEntrypointRegistryRejectsMalformedCatalogs(t *testing.T) {
 		build func() []CIEntrypoint
 	}{
 		{name: "empty", build: func() []CIEntrypoint { return nil }},
-		{name: "missing", build: func() []CIEntrypoint { return CIEntrypointRegistry()[:6] }},
+		{name: "missing", build: func() []CIEntrypoint { return CIEntrypointRegistry()[:4] }},
 		{name: "duplicate id", build: func() []CIEntrypoint { registry := CIEntrypointRegistry(); registry[1] = registry[0]; return registry }},
 		{name: "unordered", build: func() []CIEntrypoint {
 			registry := CIEntrypointRegistry()
@@ -225,6 +222,34 @@ func TestCIEntrypointJSONContractIsStrictAndFieldComplete(t *testing.T) {
 	var decoded CIEntrypoint
 	if err := DecodeStrictJSON(unknown, &decoded); err == nil {
 		t.Fatal("unknown CI entrypoint JSON field passed strict decoding")
+	}
+}
+
+func TestResolveCIEntrypointBindsCanonicalSourceAndProfile(t *testing.T) {
+	entrypoint, err := ResolveCIEntrypoint(
+		CIEntrypointGitPreCommit,
+		SourceKindTree,
+		ProfileLocalFast,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !entrypoint.Authoritative || entrypoint.ID != CIEntrypointGitPreCommit {
+		t.Fatalf("entrypoint = %#v", entrypoint)
+	}
+	if _, err := ResolveCIEntrypoint(
+		CIEntrypointGitPreCommit,
+		SourceKindCommit,
+		ProfileLocalFast,
+	); err == nil {
+		t.Fatal("ResolveCIEntrypoint() accepted commit source for git pre-commit")
+	}
+	if _, err := ResolveCIEntrypoint(
+		CIEntrypointGitPrePush,
+		SourceKindRange,
+		ProfileLocalFast,
+	); err == nil {
+		t.Fatal("ResolveCIEntrypoint() accepted local-fast profile for git pre-push")
 	}
 }
 

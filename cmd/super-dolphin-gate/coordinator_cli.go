@@ -259,14 +259,20 @@ func manualSubmissionAuthority() submissionAuthority {
 	}
 }
 
-// runClosureCheck 对 hook 首次捕获的 staged tree 执行受信 CLI 内的不可缓存 closure witness。
+// runClosureCheck 对 staged tree 执行受信 CLI 内的 closure 校验或一次性刷新。
 func runClosureCheck(args []string) error {
-	if len(args) != 3 || args[0] != "check" || args[1] != "--tree" {
-		return protocolError("closure check requires one --tree <staged-tree-sha> argument")
+	if len(args) != 3 || args[1] != "--tree" || args[0] != "check" && args[0] != "refresh" {
+		return protocolError("closure check or refresh requires one --tree <staged-tree-sha> argument")
 	}
 	tree := strings.TrimSpace(args[2])
 	if tree == "" {
-		return protocolError("closure check staged tree sha is required")
+		return protocolError("closure staged tree sha is required")
+	}
+	if args[0] == "refresh" {
+		if err := gateclosure.Generate(tree, false); err != nil {
+			return infrastructureError("refresh gate-image closure: %v", err)
+		}
+		return nil
 	}
 	repositoryRoot, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
 	if err != nil {
@@ -719,7 +725,7 @@ type coordinatorLogClient interface {
 	GateLog(context.Context, string, gatecontract.GateID) (coordinatorGateLog, error)
 }
 
-func ensureCoordinatorGateLogSchema(ctx context.Context, db *sql.DB) error {
+func ensureCoordinatorGateLogSchema(ctx context.Context, db coordinatorSchemaDB) error {
 	if _, err := db.ExecContext(ctx, coordinatorGateLogSchema); err != nil {
 		return fmt.Errorf("initialize coordinator gate log schema: %w", err)
 	}

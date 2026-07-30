@@ -501,7 +501,7 @@ func stageProductionProvision(
 		return productionCoordinatorConfig{}, err
 	}
 	config := productionProvisionConfig(installRoot, manifest, inputs)
-	expectedFiles, err := productionProvisionExpectedFiles(config, inputs)
+	expectedFiles, err := productionProvisionExpectedFiles(installRoot, config, inputs)
 	if err != nil {
 		return productionCoordinatorConfig{}, err
 	}
@@ -586,7 +586,10 @@ func installProductionProvisionLauncher(path string, configPath string, controll
 	if err != nil {
 		return err
 	}
-	data := productionProvisionLauncherData(configPath, controllerPath)
+	data, err := productionProvisionLauncherData(path, configPath, controllerPath)
+	if err != nil {
+		return err
+	}
 	temp, err := os.CreateTemp(parent, ".super-dolphin-gate-launcher-")
 	if err != nil {
 		return err

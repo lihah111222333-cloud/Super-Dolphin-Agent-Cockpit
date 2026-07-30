@@ -33,8 +33,8 @@ cat <<EOF_MSG
   - go build ...
   - go vet ...
 - 正确做法:
-  - ./scripts/go_with_guard.sh test <args>
-  - ./scripts/go_with_guard.sh build <args>
-  - ./scripts/go_with_guard.sh vet <args>
+  - 使用受信 super-dolphin-gate test 入口并传入精确 --test 选择器
+  - 包级、race、benchmark、Vitest 和未知耗时测试自动进入 ECI
+  - guarded build / vet 通过受信 CI gate 执行
 - 退出当前 shell 或手动移除 PATH 前缀后，拦截失效
 EOF_MSG

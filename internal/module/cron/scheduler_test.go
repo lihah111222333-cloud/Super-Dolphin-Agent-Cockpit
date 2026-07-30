@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -694,7 +695,10 @@ func TestSchedulerTerminalEventMarksFailed(t *testing.T) {
 	if err := s.CompleteTurn(context.Background(), "turn-1", false, "provider failed"); err != nil {
 		t.Fatalf("CompleteTurn error = %v", err)
 	}
-	if failed.ID != job.ID || failed.RunID != run.ID || failed.ExpectedActiveTurnID != "turn-1" || failed.LastTurnID != "turn-1" || failed.LastStatus != statusFailed || failed.LastError != "provider failed" {
+	if !slices.Equal(
+		[]string{failed.ID, failed.RunID, failed.ExpectedActiveTurnID, failed.LastTurnID, failed.LastStatus, failed.LastError},
+		[]string{job.ID, run.ID, "turn-1", "turn-1", statusFailed, "provider failed"},
+	) {
 		t.Fatalf("FinalizeRecoveredRun params = %+v", failed)
 	}
 	if failed.ExpectedRunStatus != statusRunning || failed.LastStatus != statusFailed {

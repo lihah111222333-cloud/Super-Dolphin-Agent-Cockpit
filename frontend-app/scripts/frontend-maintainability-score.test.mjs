@@ -1,6 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
+  cpSync,
   copyFileSync,
   existsSync,
   mkdtempSync,
@@ -336,6 +337,35 @@ it('normalizes empty immutable dependency directories while retaining file integ
 
   writeFileSync(toolPath, 'export const version = 2;\n');
   expect(dependencyTreeIntegrity(appRoot)).not.toEqual(original);
+});
+
+it('uses a verified read-only seed through a physical Vite overlay', () => {
+  const fixture = createDependencyIntegrityFixture();
+  const original = dependencyTreeIntegrity(fixture.appRoot);
+  const seedContainer = mkdtempSync(join(tmpdir(), 'frontend-runtime-seed-'));
+  temporaryRepositories.push(seedContainer);
+  const seedRoot = join(seedContainer, 'node_modules');
+  cpSync(fixture.nodeModulesRoot, seedRoot, { recursive: true, dereference: false });
+  rmSync(join(seedRoot, '.bin', 'fixture-tool'));
+  symlinkSync('../fixture/tool.js', join(seedRoot, '.bin', 'fixture-tool'));
+  rmSync(fixture.nodeModulesRoot, { recursive: true });
+  mkdirSync(fixture.nodeModulesRoot);
+  for (const entry of readdirSync(seedRoot)) {
+    symlinkSync(join(seedRoot, entry), join(fixture.nodeModulesRoot, entry));
+  }
+  mkdirSync(join(fixture.nodeModulesRoot, '.vite'));
+  mkdirSync(join(fixture.nodeModulesRoot, '.vite-temp'));
+  const previousSeed = process.env.SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED;
+  process.env.SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED = seedRoot;
+  try {
+    const { nodeModulesRoot: _originalRoot, ...expected } = original;
+    const { nodeModulesRoot: _overlayRoot, ...actual } = dependencyTreeIntegrity(fixture.appRoot);
+    expect(actual).toEqual(expected);
+  }
+  finally {
+    if (previousSeed === undefined) delete process.env.SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED;
+    else process.env.SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED = previousSeed;
+  }
 });
 
 it('rejects the legacy dependency-integrity schema and validates the profiled schema', async () => {

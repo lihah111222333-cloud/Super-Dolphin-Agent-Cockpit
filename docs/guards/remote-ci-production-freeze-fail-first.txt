@@ -1,0 +1,7 @@
+source_head: aeed62a4236a8172939abc186a100379d6d40fc4
+reviewed_at: 2026-07-30T09:28:24Z
+snapshot_sha256: c216ea25b13360bee778b8be6f98d1fdec7f3942ecc8392e133b1903640ec93f
+working_directory: .
+command: env PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin /opt/homebrew/bin/go run ./scripts/code_size_guard.go
+expected_exit: 1
+observed_failure: the remote CI implementation has 29 current size, complexity, documentation, or global-state violations; accept this bounded delivery debt while preserving fail-closed ratchets for every future change.

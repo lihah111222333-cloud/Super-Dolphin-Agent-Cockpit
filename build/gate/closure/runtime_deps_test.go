@@ -43,6 +43,22 @@ func TestRuntimeDepsLockRejectsInputAndShapeDrift(t *testing.T) {
 	}
 }
 
+func TestRuntimeDepsLockRejectsRuntimeSeedScriptDrift(t *testing.T) {
+	root := t.TempDir()
+	writeRuntimeDepsInputs(t, root)
+	inputs, err := digestRuntimeDepsInputs(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scriptPath := filepath.Join(root, "cmd/super-dolphin-gate/remote_refresh_seed_script.go")
+	if err := os.WriteFile(scriptPath, []byte("drift\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := validRuntimeDepsLock(inputs).validateAgainstSource(root, toolchainLock{NetworkPolicy: "none"}); !errors.Is(err, errRuntimeDepsInputsDrift) {
+		t.Fatalf("runtime seed script drift error = %v", err)
+	}
+}
+
 func TestRuntimeDepsLockStrictDecodeRejectsRegistryFields(t *testing.T) {
 	root := t.TempDir()
 	writeRuntimeDepsInputs(t, root)
@@ -73,7 +89,7 @@ func TestRefreshDependencyClosureRejectsInvalidTree(t *testing.T) {
 }
 
 func TestRuntimeDepsLockEncodingContainsOnlyNodeLocalContract(t *testing.T) {
-	inputs := runtimeDepsInputs{Dockerfile: testDigest, ToolchainLock: testDigest, GoMod: testDigest, GoSum: testDigest, NilnessRunner: testDigest, NilnessGuard: testDigest, FrontendPackageLock: testDigest, LSPPackageLock: testDigest, ProxyGoMod: testDigest, ProxyGoSum: testDigest, ToolsGoMod: testDigest, ToolsGoSum: testDigest, ManifestBuilder: testDigest, ManifestAPI: testDigest}
+	inputs := runtimeDepsInputs{Dockerfile: testDigest, ToolchainLock: testDigest, GoMod: testDigest, GoSum: testDigest, NilnessRunner: testDigest, NilnessGuard: testDigest, FrontendPackageLock: testDigest, LSPPackageLock: testDigest, ProxyGoMod: testDigest, ProxyGoSum: testDigest, ToolsGoMod: testDigest, ToolsGoSum: testDigest, RuntimeSeedWorker: testDigest, RuntimeSeedRecipe: testDigest, RuntimeSeedScript: testDigest}
 	data, err := encodeRuntimeDepsLock(validRuntimeDepsLock(inputs))
 	if err != nil {
 		t.Fatal(err)
@@ -97,7 +113,8 @@ func TestRuntimeDepsDockerfileDoesNotVendorJobSource(t *testing.T) {
 		"COPY build/gate/runtime-proxy/go.mod build/gate/runtime-proxy/go.sum ./build/gate/runtime-proxy/",
 		"go mod download all",
 		"GOWORK=off GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off",
-		"go build -mod=mod -trimpath -buildvcs=false -o /out/super-dolphin-runtime-seed",
+		"go build -mod=mod -trimpath -buildvcs=false -o /out/super-dolphin-gate ./cmd/super-dolphin-gate",
+		"/tmp/super-dolphin-gate worker runtime-seed write",
 	} {
 		if !strings.Contains(dockerfile, wanted) {
 			t.Fatalf("runtime dependencies Dockerfile is missing %q", wanted)
@@ -105,6 +122,7 @@ func TestRuntimeDepsDockerfileDoesNotVendorJobSource(t *testing.T) {
 	}
 	for _, unwanted := range []string{
 		"go mod vendor",
+		"super-dolphin-runtime-seed",
 		"/out/vendor",
 		"/opt/super-dolphin-gate/runtime/vendor",
 		"COPY cmd/ ./cmd/",
@@ -128,7 +146,7 @@ func validRuntimeDepsLock(inputs runtimeDepsInputs) runtimeDepsLock {
 
 func writeRuntimeDepsInputs(t *testing.T, root string) {
 	t.Helper()
-	for _, name := range []string{gateRuntimeDepsDocker, gateToolchain, "go.mod", "go.sum", "internal/devtools/nilnessrunner/runner.go", "scripts/nilness_guard.go", "frontend-app/package-lock.json", gateRuntimeLSPLock, gateRuntimeProxyModule, gateRuntimeProxySum, gateRuntimeToolsModule, gateRuntimeToolsSum, "build/gate/cmd/runtime-seed-manifest/main.go", "internal/devtools/gate/executor_seed.go"} {
+	for _, name := range []string{gateRuntimeDepsDocker, gateToolchain, "go.mod", "go.sum", "internal/devtools/nilnessrunner/runner.go", "scripts/nilness_guard.go", "frontend-app/package-lock.json", gateRuntimeLSPLock, gateRuntimeProxyModule, gateRuntimeProxySum, gateRuntimeToolsModule, gateRuntimeToolsSum, "internal/devtools/gate/executor_seed.go", "cmd/super-dolphin-gate/remote_refresh_seed.go", "cmd/super-dolphin-gate/remote_refresh_seed_script.go"} {
 		path := filepath.Join(root, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)

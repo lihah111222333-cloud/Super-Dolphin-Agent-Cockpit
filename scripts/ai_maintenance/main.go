@@ -19,12 +19,10 @@ var aiMaintenanceFiles = map[string]bool{
 	"Makefile":                                   true,
 	"scripts/ai_maintenance_gates.sh":            true,
 	"scripts/ai_maintenance_gates_guard_test.go": true,
-	"scripts/codex_stop_gate.sh":                 true,
 	"scripts/configure_hook_node_runtime.sh":     true,
 	"scripts/frontend_embed_verify.sh":           true,
 	"scripts/refresh_generated_artifacts.sh":     true,
 	"scripts/sqlc_verify_worktree.sh":            true,
-	"scripts/tests/test_codex_stop_gate_plan.sh": true,
 	"scripts/test_with_guard.ps1":                true,
 	"scripts/test_with_guard.sh":                 true,
 }
@@ -648,6 +646,7 @@ func projectMapRelevant(file string) bool {
 	}
 }
 
+// generatedCodemapFile 判断路径是否属于代码地图生成产物。
 func generatedCodemapFile(file string) bool {
 	return file == "README.md" ||
 		file == "docs/doc/codemap/13-archtest-boundaries.md" ||
@@ -680,7 +679,6 @@ func orderedGates(values map[string]bool) []string {
 		"frontend:performance-verify",
 		"workflow:actionlint",
 		"release:semantic-guards",
-		"codex-stop:self-test",
 		"nightly-protocol:check",
 		"backend:test_with_guard",
 		"backend:test-integrity",

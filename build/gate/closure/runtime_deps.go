@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	runtimeDepsSchemaVersion = "4"
+	runtimeDepsSchemaVersion = "7"
 	runtimeDepsBuildMode     = "node-local"
 	runtimeDepsCacheScope    = "node"
 )
@@ -50,8 +50,9 @@ type runtimeDepsInputs struct {
 	ProxyGoSum          string `json:"proxy_go_sum_sha256"`
 	ToolsGoMod          string `json:"tools_go_mod_sha256"`
 	ToolsGoSum          string `json:"tools_go_sum_sha256"`
-	ManifestBuilder     string `json:"manifest_builder_sha256"`
-	ManifestAPI         string `json:"manifest_api_sha256"`
+	RuntimeSeedWorker   string `json:"runtime_seed_worker_sha256"`
+	RuntimeSeedRecipe   string `json:"runtime_seed_recipe_sha256"`
+	RuntimeSeedScript   string `json:"runtime_seed_script_sha256"`
 }
 
 type runtimeDepsPaths struct {
@@ -134,7 +135,8 @@ func runtimeDepsInputFields(inputs runtimeDepsInputs) []runtimeDepsInputField {
 		{"dockerfile", inputs.Dockerfile}, {"toolchain lock", inputs.ToolchainLock}, {"go.mod", inputs.GoMod}, {"go.sum", inputs.GoSum},
 		{"nilness runner", inputs.NilnessRunner}, {"nilness guard", inputs.NilnessGuard}, {"frontend package lock", inputs.FrontendPackageLock},
 		{"LSP package lock", inputs.LSPPackageLock}, {"proxy go.mod", inputs.ProxyGoMod}, {"proxy go.sum", inputs.ProxyGoSum},
-		{"tools go.mod", inputs.ToolsGoMod}, {"tools go.sum", inputs.ToolsGoSum}, {"manifest builder", inputs.ManifestBuilder}, {"manifest API", inputs.ManifestAPI},
+		{"tools go.mod", inputs.ToolsGoMod}, {"tools go.sum", inputs.ToolsGoSum}, {"runtime seed worker", inputs.RuntimeSeedWorker},
+		{"runtime seed recipe", inputs.RuntimeSeedRecipe}, {"runtime seed script", inputs.RuntimeSeedScript},
 	}
 }
 
@@ -179,7 +181,9 @@ func runtimeDepsDigestTargets(inputs *runtimeDepsInputs) []runtimeDepsDigestTarg
 		{"internal/devtools/nilnessrunner/runner.go", &inputs.NilnessRunner}, {"scripts/nilness_guard.go", &inputs.NilnessGuard},
 		{"frontend-app/package-lock.json", &inputs.FrontendPackageLock}, {gateRuntimeLSPLock, &inputs.LSPPackageLock},
 		{gateRuntimeProxyModule, &inputs.ProxyGoMod}, {gateRuntimeProxySum, &inputs.ProxyGoSum}, {gateRuntimeToolsModule, &inputs.ToolsGoMod}, {gateRuntimeToolsSum, &inputs.ToolsGoSum},
-		{"build/gate/cmd/runtime-seed-manifest/main.go", &inputs.ManifestBuilder}, {"internal/devtools/gate/executor_seed.go", &inputs.ManifestAPI},
+		{"internal/devtools/gate/executor_seed.go", &inputs.RuntimeSeedWorker},
+		{"cmd/super-dolphin-gate/remote_refresh_seed.go", &inputs.RuntimeSeedRecipe},
+		{"cmd/super-dolphin-gate/remote_refresh_seed_script.go", &inputs.RuntimeSeedScript},
 	}
 }
 

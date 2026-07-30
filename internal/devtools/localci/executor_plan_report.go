@@ -222,7 +222,7 @@ func decodeUniquePlanReport(logOutput []byte) (gate.PlanExecutionReport, error) 
 		if index < 0 {
 			continue
 		}
-		chunks = append(chunks, strings.TrimSpace(string(line[index:])))
+		chunks = append(chunks, strings.TrimSuffix(string(line[index:]), "\r"))
 	}
 	if len(chunks) == 0 {
 		return gate.PlanExecutionReport{}, errPlanReportMissing

@@ -340,6 +340,7 @@ func listPendingReviewsPage(ctx context.Context, q pageQuerier, params contract.
 	return pendingPageFromRows(rows, params.Limit), nil
 }
 
+// normalizeHookPendingReviewPageParams 规范化分页参数并校验 agent、limit 与 cursor 的组合约束。
 func normalizeHookPendingReviewPageParams(params contract.HookPendingReviewPageParams) (contract.HookPendingReviewPageParams, error) {
 	params.AgentID = strings.TrimSpace(params.AgentID)
 	params.CursorHookCallID = strings.TrimSpace(params.CursorHookCallID)

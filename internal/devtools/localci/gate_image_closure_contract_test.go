@@ -69,6 +69,7 @@ func TestRuntimeDependenciesDoNotCopyJobSource(t *testing.T) {
 		"COPY third_party/kelindar-event/ ./third_party/kelindar-event/",
 		"go mod download all",
 		"COPY --from=repository-module-cache /out/go-proxy /opt/super-dolphin-gate/runtime/go-proxy",
+		"COPY --from=repository-module-cache /go/pkg/mod /opt/super-dolphin-gate/runtime/go-mod-cache",
 	} {
 		if !strings.Contains(dockerfile, wanted) {
 			t.Fatalf("runtime dependency Dockerfile is missing %q", wanted)

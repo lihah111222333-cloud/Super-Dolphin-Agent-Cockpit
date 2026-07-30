@@ -48,7 +48,7 @@ func timeoutLocalityFileViolations(t *testing.T, absPath, relPath string) []stri
 	var violations []string
 	ast.Inspect(fileNode, func(n ast.Node) bool {
 		if timeoutCall, ok := contextWithTimeoutCall(n); ok {
-			violations = append(violations, fmt.Sprintf("%s:%d uses context.WithTimeout outside platform/config/timeouts.go", relPath, fset.Position(timeoutCall.Pos()).Line))
+			violations = append(violations, fmt.Sprintf("%s:%d uses context.WithTimeout outside a registered timeout owner", relPath, fset.Position(timeoutCall.Pos()).Line))
 		}
 		return true
 	})
@@ -70,6 +70,7 @@ func contextWithTimeoutCall(n ast.Node) (*ast.CallExpr, bool) {
 
 func allowedTimeoutFile(relPath string) bool {
 	return relPath == "internal/platform/config/timeouts.go" ||
+		relPath == "internal/devtools/gateprivate/timeouts.go" ||
 		relPath == "internal/platform/toolbridge/schema/client.go" ||
 		relPath == "internal/util/ctxutil/ctxutil.go" ||
 		strings.HasPrefix(relPath, "internal/transport/retry/")

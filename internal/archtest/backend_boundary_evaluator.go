@@ -580,7 +580,7 @@ func collectBackendBoundaryGoFiles(root string) ([]string, error) {
 			}
 			return nil
 		}
-		if filepath.Ext(path) == ".go" {
+		if filepath.Ext(path) == ".go" && !strings.HasSuffix(entry.Name(), "_test.go") {
 			files = append(files, path)
 		}
 		return nil

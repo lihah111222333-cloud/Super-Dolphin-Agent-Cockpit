@@ -438,6 +438,7 @@ func TestProductionBootstrapInspectAcceptsDockerHubFamiliarDigestReference(t *te
 	}
 }
 
+// super-dolphin-ci: platform=darwin
 func TestProductionBootstrapControllerSnapshotVerifiesMacOSCodeRequirementAndDigest(t *testing.T) {
 	if _, err := os.Stat("/usr/bin/codesign"); err != nil {
 		t.Skip("macOS codesign is unavailable")
@@ -478,6 +479,7 @@ func TestProductionBootstrapControllerSnapshotVerifiesMacOSCodeRequirementAndDig
 	}
 }
 
+// super-dolphin-ci: platform=darwin
 func TestProductionBootstrapExternalControllerProtocolProducesVerifiableAttestation(t *testing.T) {
 	if _, err := os.Stat("/usr/bin/codesign"); err != nil {
 		t.Skip("macOS codesign is unavailable")

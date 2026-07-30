@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -133,7 +134,7 @@ func runSQLiteReleaseGatePackageSmokeRuntime(t *testing.T, stage sqliteReleaseGa
 	t.Helper()
 
 	cmd := sqliteReleaseGatePackageSmokeCommand(t, stage)
-	cmd.Env = sqliteReleaseGatePackageSmokeEnv(stage, home, oldPGData)
+	cmd.Env = sqliteReleaseGatePackageSmokeEnv(t, stage, home, oldPGData)
 	var output bytes.Buffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output
@@ -345,23 +346,120 @@ func latestPackagedSQLiteMigrationVersion(root string) (int, error) {
 
 func sqliteReleaseGatePackageSmokeCommand(t *testing.T, stage sqliteReleaseGateUnsignedPackage) *exec.Cmd {
 	t.Helper()
+	var command *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
-		cmd := exec.Command("cmd", "/c", filepath.Base(stage.launchers[0]))
-		cmd.Dir = stage.root
-		return cmd
+		command = exec.Command("cmd", "/c", filepath.Base(stage.launchers[0]))
 	case "darwin":
-		cmd := exec.Command(stage.entrypoint)
-		cmd.Dir = stage.root
-		return cmd
+		command = exec.Command(stage.entrypoint)
 	default:
-		cmd := exec.Command(stage.launchers[0])
-		cmd.Dir = stage.root
-		return cmd
+		command = exec.Command(stage.launchers[0])
+	}
+	command.Dir = stage.root
+	if os.Getenv("SUPER_DOLPHIN_TEST_BACKEND") != "remote-worker" || runtime.GOOS == "windows" {
+		return command
+	}
+	xvfbRun := os.Getenv("SUPER_DOLPHIN_GATE_XVFB_RUN")
+	if xvfbRun == "" || !filepath.IsAbs(xvfbRun) {
+		t.Fatalf("remote worker package smoke requires absolute SUPER_DOLPHIN_GATE_XVFB_RUN")
+	}
+	if info, err := os.Stat(xvfbRun); err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
+		t.Fatalf("remote worker package smoke requires executable SUPER_DOLPHIN_GATE_XVFB_RUN %q: %v", xvfbRun, err)
+	}
+	arguments := append([]string{"--auto-servernum", "--server-args=-screen 0 1280x1024x24", command.Path}, command.Args[1:]...)
+	wrapped := exec.Command(xvfbRun, arguments...)
+	wrapped.Dir = command.Dir
+	return wrapped
+}
+
+func TestSQLiteReleaseGatePackageSmokeCommandUsesWorkerXvfb(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows package smoke uses cmd launcher")
+	}
+	fixture := newSQLitePackageSmokeCommandFixture(t)
+	assertSQLitePackageSmokeCommand(t, fixture)
+	assertSQLitePackageSmokeRuntimePath(t, fixture.gitPath, fixture.xvfbRun)
+	assertSQLitePackageSmokeMemoryOverride(t, fixture.stage)
+}
+
+type sqlitePackageSmokeCommandFixture struct {
+	stage   sqliteReleaseGateUnsignedPackage
+	command *exec.Cmd
+	gitPath string
+	xvfbRun string
+}
+
+func newSQLitePackageSmokeCommandFixture(t *testing.T) sqlitePackageSmokeCommandFixture {
+	t.Helper()
+	xvfbRun := filepath.Join(t.TempDir(), "xvfb-run")
+	if err := os.WriteFile(xvfbRun, []byte("#!/bin/sh\n:\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	gitPath := filepath.Join(t.TempDir(), "git")
+	if err := os.WriteFile(gitPath, []byte("#!/bin/sh\n:\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SUPER_DOLPHIN_TEST_BACKEND", "remote-worker")
+	t.Setenv("SUPER_DOLPHIN_GATE_GIT", gitPath)
+	t.Setenv("SUPER_DOLPHIN_GATE_XVFB_RUN", xvfbRun)
+	stage := sqliteReleaseGateUnsignedPackage{
+		root:       t.TempDir(),
+		entrypoint: "/stage/bin/agent-terminal",
+		launchers:  []string{"/stage/run.sh"},
+	}
+	return sqlitePackageSmokeCommandFixture{
+		stage:   stage,
+		command: sqliteReleaseGatePackageSmokeCommand(t, stage),
+		gitPath: gitPath,
+		xvfbRun: xvfbRun,
+	}
+
+}
+
+func assertSQLitePackageSmokeCommand(t *testing.T, fixture sqlitePackageSmokeCommandFixture) {
+	t.Helper()
+	if fixture.command.Path != fixture.xvfbRun {
+		t.Fatalf("remote worker smoke command = %q, want fixed Xvfb runner %q", fixture.command.Path, fixture.xvfbRun)
+	}
+	target := fixture.stage.launchers[0]
+	if runtime.GOOS == "darwin" {
+		target = fixture.stage.entrypoint
+	}
+	if !slices.Equal(fixture.command.Args[1:], []string{"--auto-servernum", "--server-args=-screen 0 1280x1024x24", target}) {
+		t.Fatalf("remote worker Xvfb arguments = %q", fixture.command.Args[1:])
+	}
+	if fixture.command.Dir != fixture.stage.root {
+		t.Fatalf("remote worker Xvfb directory = %q, want %q", fixture.command.Dir, fixture.stage.root)
 	}
 }
 
-func sqliteReleaseGatePackageSmokeEnv(stage sqliteReleaseGateUnsignedPackage, home, oldPGData string) []string {
+func assertSQLitePackageSmokeRuntimePath(t *testing.T, gitPath, xvfbRun string) {
+	t.Helper()
+	path := sqlitePackageSmokeRuntimePath(t)
+	for _, directory := range []string{filepath.Dir(gitPath), filepath.Dir(xvfbRun)} {
+		if !slices.Contains(filepath.SplitList(path), directory) {
+			t.Fatalf("remote worker runtime PATH = %q, missing %q", path, directory)
+		}
+	}
+}
+
+func assertSQLitePackageSmokeMemoryOverride(t *testing.T, stage sqliteReleaseGateUnsignedPackage) {
+	t.Helper()
+	home := t.TempDir()
+	inheritedOverride := filepath.Join(t.TempDir(), "inherited-memory")
+	t.Setenv("MULTI_AGENT_MEMORY_PATH_OVERRIDE", inheritedOverride)
+	env := sqliteReleaseGatePackageSmokeEnv(t, stage, home, t.TempDir())
+	wantOverride := "MULTI_AGENT_MEMORY_PATH_OVERRIDE=" + filepath.Join(home, "memory")
+	if !slices.Contains(env, wantOverride) {
+		t.Fatalf("remote worker package smoke env missing isolated memory override %q", wantOverride)
+	}
+	if slices.Contains(env, "MULTI_AGENT_MEMORY_PATH_OVERRIDE="+inheritedOverride) {
+		t.Fatalf("remote worker package smoke env retained inherited memory override %q", inheritedOverride)
+	}
+}
+
+func sqliteReleaseGatePackageSmokeEnv(t *testing.T, stage sqliteReleaseGateUnsignedPackage, home, oldPGData string) []string {
+	t.Helper()
 	skip := map[string]bool{
 		contract.SQLitePathEnvKey:                   true,
 		contract.InternalSQLitePathEnvKey:           true,
@@ -379,6 +477,9 @@ func sqliteReleaseGatePackageSmokeEnv(stage sqliteReleaseGateUnsignedPackage, ho
 		"SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN": true,
 		"SUPER_DOLPHIN_CODEX_RELAY_API_KEY":         true,
 		"CODEX_HOME":                                true,
+		"MULTI_AGENT_MEMORY_PATH_OVERRIDE":          true,
+		"CLAUDE_COWORK_MEMORY_PATH_OVERRIDE":        true,
+		"PATH":                                      true,
 	}
 	env := make([]string, 0, len(os.Environ())+8)
 	for _, kv := range os.Environ() {
@@ -388,9 +489,11 @@ func sqliteReleaseGatePackageSmokeEnv(stage sqliteReleaseGateUnsignedPackage, ho
 		}
 	}
 	env = append(env,
+		"PATH="+sqlitePackageSmokeRuntimePath(t),
 		"SUPER_DOLPHIN_HOME="+home,
 		contract.SQLitePathEnvKey+"="+filepath.Join(home, "super-dolphin.db"),
 		"CODEX_HOME="+filepath.Join(home, "providers", "codex"),
+		"MULTI_AGENT_MEMORY_PATH_OVERRIDE="+filepath.Join(home, "memory"),
 		"SUPER_DOLPHIN_CODEX_RELAY_BASE_URL=http://127.0.0.1:1/v1",
 		"SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN=package-smoke-bootstrap",
 		"SUPER_DOLPHIN_PACKAGE_SMOKE_OLD_PG_DATA="+oldPGData,
@@ -407,6 +510,31 @@ func sqliteReleaseGatePackageSmokeEnv(stage sqliteReleaseGateUnsignedPackage, ho
 		)
 	}
 	return env
+}
+
+func sqlitePackageSmokeRuntimePath(t *testing.T) string {
+	t.Helper()
+	path := os.Getenv("PATH")
+	if strings.TrimSpace(path) == "" {
+		t.Fatal("package smoke runtime PATH is empty")
+	}
+	if os.Getenv("SUPER_DOLPHIN_TEST_BACKEND") != "remote-worker" {
+		return path
+	}
+	directories := make([]string, 0, 2)
+	for _, key := range []string{"SUPER_DOLPHIN_GATE_GIT", "SUPER_DOLPHIN_GATE_XVFB_RUN"} {
+		executable := os.Getenv(key)
+		if !filepath.IsAbs(executable) {
+			t.Fatalf("remote package smoke requires absolute %s", key)
+		}
+		info, err := os.Stat(executable)
+		if err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
+			t.Fatalf("remote package smoke requires executable %s %q: %v", key, executable, err)
+		}
+		directories = append(directories, filepath.Dir(executable))
+	}
+	directories = append(directories, path)
+	return strings.Join(directories, string(os.PathListSeparator))
 }
 
 func assertSQLiteReleaseGatePackageSmokeState(t *testing.T, sqlitePath, oldPGData string) {

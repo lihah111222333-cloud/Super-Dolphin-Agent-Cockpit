@@ -27,7 +27,8 @@ func writeProductionBuildInputs(t *testing.T, repository string) {
 	inputs = append(inputs, "build/gate/inputs.json")
 	sort.Strings(inputs)
 	files["build/gate/inputs.json"] = productionFixtureJSON(t, map[string]any{
-		"schema_version": "1", "dockerfile": "build/gate/Dockerfile", "inputs": inputs,
+		"schema_version": "2", "dockerfile": "build/gate/Dockerfile", "inputs": inputs,
+		"gate_compile_inputs": []string{"cmd/super-dolphin-gate/main.go", "go.mod", "go.sum"},
 	})
 	for path, data := range files {
 		absolute := filepath.Join(repository, filepath.FromSlash(path))
@@ -47,21 +48,22 @@ func productionBuildInputFiles() map[string]string {
 			"COPY cmd/super-dolphin-gate/main.go ./cmd/super-dolphin-gate/main.go\n" +
 			"RUN --network=none go build -o /out/gate ./cmd/super-dolphin-gate\n" +
 			"FROM scratch\nCOPY --from=build /out/gate /gate\nENTRYPOINT [\"/gate\"]\n",
-		"build/gate/runtime-deps.Dockerfile":           "FROM scratch\n",
-		"build/gate/runtime-lsp/package-lock.json":     "{}\n",
-		"build/gate/runtime-proxy/go.mod":              "module example.invalid/proxy\n",
-		"build/gate/runtime-proxy/go.sum":              "proxy sum\n",
-		"build/gate/runtime-tools/go.mod":              "module example.invalid/tools\n",
-		"build/gate/runtime-tools/go.sum":              "tools sum\n",
-		"build/gate/cmd/runtime-seed-manifest/main.go": "package main\n",
-		"frontend-app/package-lock.json":               "{}\n",
-		"go.mod":                                       "module example.invalid/gate\n",
-		"go.sum":                                       "sum\n",
-		"internal/devtools/gate/executor_seed.go":      "package gate\n",
-		"internal/devtools/nilnessrunner/runner.go":    "package nilnessrunner\n",
-		"scripts/nilness_guard.go":                     "package main\n",
-		"cmd/super-dolphin-gate/main.go":               "package main\n",
-		"build/gate/toolchain.lock":                    productionToolchainLock(),
+		"build/gate/runtime-deps.Dockerfile":                   "FROM scratch\n",
+		"build/gate/runtime-lsp/package-lock.json":             "{}\n",
+		"build/gate/runtime-proxy/go.mod":                      "module example.invalid/proxy\n",
+		"build/gate/runtime-proxy/go.sum":                      "proxy sum\n",
+		"build/gate/runtime-tools/go.mod":                      "module example.invalid/tools\n",
+		"build/gate/runtime-tools/go.sum":                      "tools sum\n",
+		"frontend-app/package-lock.json":                       "{}\n",
+		"go.mod":                                               "module example.invalid/gate\n",
+		"go.sum":                                               "sum\n",
+		"internal/devtools/gate/executor_seed.go":              "package gate\n",
+		"cmd/super-dolphin-gate/remote_refresh_seed.go":        "package main\n",
+		"cmd/super-dolphin-gate/remote_refresh_seed_script.go": "package main\n",
+		"internal/devtools/nilnessrunner/runner.go":            "package nilnessrunner\n",
+		"scripts/nilness_guard.go":                             "package main\n",
+		"cmd/super-dolphin-gate/main.go":                       "package main\n",
+		"build/gate/toolchain.lock":                            productionToolchainLock(),
 	}
 }
 
@@ -83,7 +85,7 @@ func productionRuntimeDepsLock(t *testing.T, files map[string]string) string {
 		inputs[field] = productionFixtureDigest(files[path])
 	}
 	return productionFixtureJSON(t, map[string]any{
-		"schema_version": "4", "build_mode": "node-local", "cache_scope": "node",
+		"schema_version": "7", "build_mode": "node-local", "cache_scope": "node",
 		"inputs": inputs, "paths": productionRuntimePaths(),
 	})
 }
@@ -109,7 +111,7 @@ func TestProductionRuntimeDepsLockUsesNodeLocalSchema(t *testing.T) {
 	schemaVersion := productionFixtureString(t, lock, "schema_version")
 	buildMode := productionFixtureString(t, lock, "build_mode")
 	cacheScope := productionFixtureString(t, lock, "cache_scope")
-	if schemaVersion != "4" || buildMode != "node-local" || cacheScope != "node" {
+	if schemaVersion != "7" || buildMode != "node-local" || cacheScope != "node" {
 		t.Fatalf("runtime dependency lock header = (%q, %q, %q)", schemaVersion, buildMode, cacheScope)
 	}
 }
@@ -160,7 +162,9 @@ func productionRuntimeDepsInputPaths() map[string]string {
 		"frontend_package_lock_sha256": "frontend-app/package-lock.json", "lsp_package_lock_sha256": "build/gate/runtime-lsp/package-lock.json",
 		"proxy_go_mod_sha256": "build/gate/runtime-proxy/go.mod", "proxy_go_sum_sha256": "build/gate/runtime-proxy/go.sum",
 		"tools_go_mod_sha256": "build/gate/runtime-tools/go.mod", "tools_go_sum_sha256": "build/gate/runtime-tools/go.sum",
-		"manifest_builder_sha256": "build/gate/cmd/runtime-seed-manifest/main.go", "manifest_api_sha256": "internal/devtools/gate/executor_seed.go",
+		"runtime_seed_worker_sha256": "internal/devtools/gate/executor_seed.go",
+		"runtime_seed_recipe_sha256": "cmd/super-dolphin-gate/remote_refresh_seed.go",
+		"runtime_seed_script_sha256": "cmd/super-dolphin-gate/remote_refresh_seed_script.go",
 	}
 }
 
@@ -342,8 +346,21 @@ func newProductionTestFixture(t *testing.T) productionTestFixture {
 	fixture.acceptedInputDigest = baseInputs.ImageInputDigest
 	bootstrapAcceptedState(t, fixture)
 	fixture.configPath = filepath.Join(root, "production.json")
-	writePrivateJSON(t, fixture.configPath, config)
+	writeProductionCoordinatorConfigFixture(t, fixture.configPath, config)
 	return fixture
+}
+
+func writeProductionCoordinatorConfigFixture(
+	t *testing.T,
+	path string,
+	config productionCoordinatorConfig,
+) {
+	t.Helper()
+	portable, err := portableProductionCoordinatorConfig(filepath.Dir(path), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writePrivateJSON(t, path, portable)
 }
 
 func writeProductionTestBootstrapController(t *testing.T, root string) string {

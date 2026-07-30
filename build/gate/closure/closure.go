@@ -7,17 +7,23 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/ast"
 	"go/parser"
 	"go/token"
+	"golang.org/x/mod/modfile"
+	"golang.org/x/mod/module"
 	"io"
 	"io/fs"
 	"os"
 	"os/exec"
+	pathpkg "path"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 const (
@@ -36,9 +42,10 @@ const (
 )
 
 type inputManifest struct {
-	SchemaVersion string   `json:"schema_version"`
-	Dockerfile    string   `json:"dockerfile"`
-	Inputs        []string `json:"inputs"`
+	SchemaVersion     string   `json:"schema_version"`
+	Dockerfile        string   `json:"dockerfile"`
+	Inputs            []string `json:"inputs"`
+	GateCompileInputs []string `json:"gate_compile_inputs"`
 }
 
 type toolchainLock struct {
@@ -144,7 +151,7 @@ func createTemporarySourceRoot() (string, func(), error) {
 
 // generateClosureOutputs 从解包后的 Git 树构造 Dockerfile 与输入清单。
 func generateClosureOutputs(sourceRoot string) (map[string][]byte, int, error) {
-	localFiles, _, err := collectClosureFiles(sourceRoot)
+	localFiles, gateCompileFiles, err := collectClosureFiles(sourceRoot)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -156,7 +163,7 @@ func generateClosureOutputs(sourceRoot string) (map[string][]byte, int, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	manifestData, err := renderManifest(localFiles)
+	manifestData, err := renderManifest(localFiles, gateCompileFiles)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -165,15 +172,19 @@ func generateClosureOutputs(sourceRoot string) (map[string][]byte, int, error) {
 
 // collectClosureFiles 汇集环境镜像和运行时命令的最小有序闭包输入。
 func collectClosureFiles(sourceRoot string) ([]string, []string, error) {
-	localFiles, err := collectEnvironmentImageFiles(sourceRoot)
+	gateCompileFiles, err := collectGateCompileFiles(sourceRoot)
 	if err != nil {
 		return nil, nil, err
 	}
-	return localFiles, nil, nil
+	localFiles, err := collectEnvironmentImageFiles(sourceRoot, gateCompileFiles)
+	if err != nil {
+		return nil, nil, err
+	}
+	return localFiles, gateCompileFiles, nil
 }
 
 // collectEnvironmentImageFiles 只收集工具链、依赖锁和受信 CI runtime 的构建输入。
-func collectEnvironmentImageFiles(sourceRoot string) ([]string, error) {
+func collectEnvironmentImageFiles(sourceRoot string, gateCompileFiles []string) ([]string, error) {
 	files, err := collectNamedRegularInputs(sourceRoot, "environment image", []string{
 		gateDockerfile,
 		gateInputs,
@@ -187,26 +198,133 @@ func collectEnvironmentImageFiles(sourceRoot string) ([]string, error) {
 		gateRuntimeToolsModule,
 		gateRuntimeToolsSum,
 		gateRuntimeToolsSource,
-		"go.mod",
-		"go.sum",
 		"frontend-app/package.json",
 		"frontend-app/package-lock.json",
 		"internal/devtools/nilnessrunner/runner.go",
 		"scripts/nilness_guard.go",
-		"third_party/kelindar-event",
 	})
 	if err != nil {
 		return nil, err
 	}
+	return sortedUniqueStrings(append(files, gateCompileFiles...)), nil
+}
+
+// collectGateCompileFiles 只收集构建云端 gate CLI 所需的仓内源码与模块身份。
+func collectGateCompileFiles(sourceRoot string) ([]string, error) {
 	goFiles, err := collectLocalGoDependencyFiles(sourceRoot, []string{
-		"build/gate/cmd/runtime-seed-manifest",
 		"cmd/super-dolphin-gate",
-		"cmd/super-dolphin-gate-executor",
 	})
 	if err != nil {
 		return nil, err
 	}
-	return sortedUniqueStrings(append(files, goFiles...)), nil
+	replacementFiles, err := collectLocalReplacementCompileFiles(sourceRoot)
+	if err != nil {
+		return nil, err
+	}
+	embeddedFiles, err := collectGoEmbedCompileFiles(sourceRoot, append(slices.Clone(goFiles), replacementFiles...))
+	if err != nil {
+		return nil, err
+	}
+	files := append([]string{"go.mod", "go.sum"}, goFiles...)
+	files = append(files, replacementFiles...)
+	files = append(files, embeddedFiles...)
+	return sortedUniqueStrings(files), nil
+}
+
+// collectLocalReplacementCompileFiles 收集所有本地 replace 模块的非测试 Go 源码和模块锁。
+func collectLocalReplacementCompileFiles(sourceRoot string) ([]string, error) {
+	data, err := os.ReadFile(filepath.Join(sourceRoot, "go.mod"))
+	if err != nil {
+		return nil, fmt.Errorf("read root go.mod: %w", err)
+	}
+	module, err := modfile.Parse("go.mod", data, nil)
+	if err != nil {
+		return nil, fmt.Errorf("parse root go.mod: %w", err)
+	}
+	files := make([]string, 0)
+	for _, replacement := range module.Replace {
+		if replacement.New.Version != "" {
+			continue
+		}
+		root, err := canonicalLocalReplacementRoot(sourceRoot, replacement.New.Path)
+		if err != nil {
+			return nil, fmt.Errorf("local replacement %s: %w", replacement.Old.Path, err)
+		}
+		moduleFiles, err := collectReplacementModuleFiles(sourceRoot, root)
+		if err != nil {
+			return nil, fmt.Errorf("local replacement %s: %w", replacement.Old.Path, err)
+		}
+		files = append(files, moduleFiles...)
+	}
+	return sortedUniqueStrings(files), nil
+}
+
+func canonicalLocalReplacementRoot(sourceRoot, replacement string) (string, error) {
+	if replacement == "" || filepath.IsAbs(replacement) {
+		return "", errors.New("path must be a repository-relative directory")
+	}
+	cleaned := filepath.Clean(filepath.FromSlash(replacement))
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+		return "", errors.New("path escapes the repository")
+	}
+	absolute := filepath.Join(sourceRoot, cleaned)
+	relative, err := filepath.Rel(sourceRoot, absolute)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", errors.New("path escapes the repository")
+	}
+	info, err := os.Stat(absolute)
+	if err != nil {
+		return "", fmt.Errorf("stat path: %w", err)
+	}
+	if !info.IsDir() {
+		return "", errors.New("path is not a directory")
+	}
+	return filepath.ToSlash(relative), nil
+}
+
+func collectReplacementModuleFiles(sourceRoot, moduleRoot string) ([]string, error) {
+	files := make([]string, 0)
+	absoluteRoot := filepath.Join(sourceRoot, filepath.FromSlash(moduleRoot))
+	err := filepath.WalkDir(absoluteRoot, func(name string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("replacement module contains symlink %s", name)
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		base := entry.Name()
+		include := strings.HasSuffix(base, ".go") && !strings.HasSuffix(base, "_test.go")
+		if name == filepath.Join(absoluteRoot, "go.mod") || name == filepath.Join(absoluteRoot, "go.sum") {
+			include = true
+		}
+		if !include {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("replacement module input %s is not regular", name)
+		}
+		relative, err := filepath.Rel(sourceRoot, name)
+		if err != nil {
+			return err
+		}
+		files = append(files, filepath.ToSlash(relative))
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	required := filepath.ToSlash(filepath.Join(moduleRoot, "go.mod"))
+	if !slices.Contains(files, required) {
+		return nil, fmt.Errorf("required module input %s is missing", required)
+	}
+	return sortedUniqueStrings(files), nil
 }
 
 // collectLocalGoDependencyFiles 从入口包递归收集环境运行时所需的仓内 Go 源码。
@@ -596,20 +714,28 @@ func renderDockerfile(lock toolchainLock, runtimeDeps runtimeDepsLock, buildFile
 	}
 	var output strings.Builder
 	fmt.Fprintf(&output, "ARG RUNTIME_DEPS_IMAGE\nARG SOURCE_DATE_EPOCH=%s\n", lock.SourceDateEpoch)
+	output.WriteString("ARG BUILD_SOURCE_TREE\nARG IMAGE_INPUT_DIGEST\nARG POLICY_DIGEST\nARG TOOLCHAIN_DIGEST\nARG TARGET_PLATFORM\n")
 	output.WriteString("FROM ${RUNTIME_DEPS_IMAGE} AS build\nUSER root\nARG SOURCE_DATE_EPOCH\n\n")
-	output.WriteString("WORKDIR /src\nENV GOTOOLCHAIN=local GOPROXY=file:///opt/super-dolphin-gate/runtime/go-proxy GOSUMDB=off\n")
+	output.WriteString("WORKDIR /src\nENV GOCACHE=/tmp/super-dolphin-go-build-cache GOTOOLCHAIN=local GOPROXY=file:///opt/super-dolphin-gate/runtime/go-proxy GOSUMDB=off\n")
 	if err := writeDockerCopyInstructions(&output, buildFiles, "/src/", "environment build COPY"); err != nil {
 		return nil, err
 	}
 	output.WriteString("RUN --network=none CGO_ENABLED=0 go build -mod=mod -trimpath -buildvcs=false -o /out/super-dolphin-gate ./cmd/super-dolphin-gate && \\\n")
-	output.WriteString("    CGO_ENABLED=0 go build -mod=mod -trimpath -buildvcs=false -o /out/super-dolphin-gate-executor ./cmd/super-dolphin-gate-executor && \\\n")
-	output.WriteString("    touch -d \"@${SOURCE_DATE_EPOCH}\" /out/super-dolphin-gate /out/super-dolphin-gate-executor\n\n")
+	output.WriteString("    touch -d \"@${SOURCE_DATE_EPOCH}\" /out/super-dolphin-gate\n\n")
 	output.WriteString("FROM ${RUNTIME_DEPS_IMAGE}\nUSER root\n")
+	output.WriteString("ARG BUILD_SOURCE_TREE\nARG IMAGE_INPUT_DIGEST\nARG POLICY_DIGEST\nARG TOOLCHAIN_DIGEST\nARG TARGET_PLATFORM\n")
+	output.WriteString("LABEL org.super-dolphin.source-tree-sha=\"${BUILD_SOURCE_TREE}\" \\\n")
+	output.WriteString("      org.super-dolphin.image-input-digest=\"${IMAGE_INPUT_DIGEST}\" \\\n")
+	output.WriteString("      org.super-dolphin.policy-sha=\"${POLICY_DIGEST}\" \\\n")
+	output.WriteString("      org.super-dolphin.toolchain-digest=\"${TOOLCHAIN_DIGEST}\" \\\n")
+	output.WriteString("      org.super-dolphin.platform=\"${TARGET_PLATFORM}\" \\\n")
+	output.WriteString("      org.super-dolphin.schema-version=\"1\"\n")
 	output.WriteString("COPY --from=build /out/super-dolphin-gate /super-dolphin-gate\n")
-	output.WriteString("COPY --from=build /out/super-dolphin-gate-executor /usr/local/bin/super-dolphin-gate-executor\n")
+	output.WriteString("COPY --from=build --chown=65532:65532 /tmp/super-dolphin-go-build-cache /opt/super-dolphin-gate/cache-seed/go-build\n")
 	output.WriteString("RUN --network=none mkdir -p /opt/super-dolphin-gate/frontend-embed && \\\n")
 	output.WriteString("    printf '<!doctype html><title>gate compile seed</title>\\n' > /opt/super-dolphin-gate/frontend-embed/index.html && \\\n")
-	output.WriteString("    chmod -R a-w /opt/super-dolphin-gate/frontend-embed\n")
+	output.WriteString("    chmod -R a-w /opt/super-dolphin-gate/frontend-embed && \\\n")
+	output.WriteString("    chmod -R u+rwX,go-rwx /opt/super-dolphin-gate/cache-seed/go-build\n")
 	output.WriteString("ENV GOTOOLCHAIN=local GOPROXY=file:///opt/super-dolphin-gate/runtime/go-proxy GOSUMDB=off GOFLAGS=-mod=mod\\ -buildvcs=false\n")
 	output.WriteString("USER 65532:65532\nENTRYPOINT [\"/super-dolphin-gate\"]\n")
 	return []byte(output.String()), nil
@@ -659,9 +785,10 @@ func isCanonicalSourceDateEpoch(value string) bool {
 }
 
 // renderManifest 生成包含全部闭包输入的稳定 JSON 清单。
-func renderManifest(localFiles []string) ([]byte, error) {
+func renderManifest(localFiles, gateCompileFiles []string) ([]byte, error) {
 	inputs := slices.Clone(localFiles)
-	manifest := inputManifest{SchemaVersion: "1", Dockerfile: gateDockerfile, Inputs: inputs}
+	compileInputs := slices.Clone(gateCompileFiles)
+	manifest := inputManifest{SchemaVersion: "2", Dockerfile: gateDockerfile, Inputs: inputs, GateCompileInputs: compileInputs}
 	data, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("encode input manifest: %w", err)
@@ -720,4 +847,416 @@ func writeAtomic(path string, data []byte) error {
 		return fmt.Errorf("replace output %s: %w", path, err)
 	}
 	return nil
+}
+
+func collectGoEmbedCompileFiles(sourceRoot string, compileFiles []string) ([]string, error) {
+	files := make(map[string]struct{})
+	for _, compileFile := range compileFiles {
+		if !strings.HasSuffix(compileFile, ".go") || strings.HasSuffix(compileFile, "_test.go") {
+			continue
+		}
+		absolute, packageDirectory, err := secureGoCompileSource(sourceRoot, compileFile)
+		if err != nil {
+			return nil, err
+		}
+		source, err := os.ReadFile(absolute)
+		if err != nil {
+			return nil, fmt.Errorf("read Go compile source %s: %w", compileFile, err)
+		}
+		parsed, err := parser.ParseFile(token.NewFileSet(), compileFile, source, parser.ParseComments)
+		if err != nil {
+			return nil, fmt.Errorf("parse Go compile source %s: %w", compileFile, err)
+		}
+		embedded, err := collectGoEmbedFiles(sourceRoot, packageDirectory, parsed)
+		if err != nil {
+			return nil, fmt.Errorf("collect embedded files from %s: %w", compileFile, err)
+		}
+		for _, embeddedFile := range embedded {
+			files[embeddedFile] = struct{}{}
+		}
+	}
+	return sortedKeys(files), nil
+}
+
+func secureGoCompileSource(sourceRoot, compileFile string) (string, string, error) {
+	cleaned := filepath.Clean(filepath.FromSlash(compileFile))
+	if cleaned == "." || filepath.IsAbs(cleaned) || relativeEscapesRoot(cleaned) || filepath.ToSlash(cleaned) != compileFile {
+		return "", "", fmt.Errorf("Go compile source path %q is invalid or escapes source root", compileFile)
+	}
+	packageDirectory := filepath.ToSlash(filepath.Dir(cleaned))
+	packageRoot, err := secureEmbedPackageRoot(sourceRoot, packageDirectory)
+	if err != nil {
+		return "", "", fmt.Errorf("Go compile source %q: %w", compileFile, err)
+	}
+	absolute := filepath.Join(packageRoot, filepath.Base(cleaned))
+	info, err := os.Lstat(absolute)
+	if err != nil {
+		return "", "", fmt.Errorf("stat Go compile source %q: %w", compileFile, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return "", "", fmt.Errorf("Go compile source %q is not a regular file", compileFile)
+	}
+	return absolute, packageDirectory, nil
+}
+
+func collectGoEmbedFiles(sourceRoot, packageDirectory string, parsed *ast.File) ([]string, error) {
+	patterns, err := parseGoEmbedPatterns(parsed)
+	if err != nil {
+		return nil, err
+	}
+	if len(patterns) == 0 {
+		return nil, nil
+	}
+	packageRoot, err := secureEmbedPackageRoot(sourceRoot, packageDirectory)
+	if err != nil {
+		return nil, err
+	}
+	files := make(map[string]struct{})
+	for _, pattern := range patterns {
+		matches, err := resolveGoEmbedPattern(packageRoot, pattern)
+		if err != nil {
+			return nil, fmt.Errorf("pattern %q: %w", pattern, err)
+		}
+		for _, match := range matches {
+			target := filepath.Join(packageRoot, filepath.FromSlash(match))
+			relative, err := filepath.Rel(sourceRoot, target)
+			if err != nil || relativeEscapesRoot(relative) {
+				return nil, fmt.Errorf("embedded file %q escapes source root", match)
+			}
+			files[filepath.ToSlash(relative)] = struct{}{}
+		}
+	}
+	return sortedKeys(files), nil
+}
+
+func parseGoEmbedPatterns(parsed *ast.File) ([]string, error) {
+	importsEmbed := false
+	for _, imported := range parsed.Imports {
+		path, err := strconv.Unquote(imported.Path.Value)
+		if err != nil {
+			return nil, fmt.Errorf("decode import %s: %w", imported.Path.Value, err)
+		}
+		if path == "embed" {
+			importsEmbed = true
+		}
+	}
+
+	var patterns []string
+	for _, group := range parsed.Comments {
+		for _, comment := range group.List {
+			const prefix = "//go:embed"
+			if !strings.HasPrefix(comment.Text, prefix) {
+				continue
+			}
+			arguments := strings.TrimPrefix(comment.Text, prefix)
+			if arguments != "" && arguments[0] != ' ' && arguments[0] != '\t' {
+				continue
+			}
+			args, err := parseGoEmbedArguments(arguments)
+			if err != nil {
+				return nil, fmt.Errorf("parse //go:embed directive: %w", err)
+			}
+			if len(args) == 0 {
+				return nil, errors.New("//go:embed directive has no patterns")
+			}
+			patterns = append(patterns, args...)
+		}
+	}
+	if len(patterns) > 0 && !importsEmbed {
+		return nil, errors.New("//go:embed directive requires importing embed")
+	}
+	return patterns, nil
+}
+
+func parseGoEmbedArguments(arguments string) ([]string, error) {
+	var patterns []string
+	for arguments = strings.TrimLeftFunc(arguments, unicode.IsSpace); arguments != ""; arguments = strings.TrimLeftFunc(arguments, unicode.IsSpace) {
+		var pattern string
+	ParseArgument:
+		switch arguments[0] {
+		case '`':
+			var found bool
+			pattern, arguments, found = strings.Cut(arguments[1:], "`")
+			if !found {
+				return nil, fmt.Errorf("invalid quoted string in //go:embed: %s", arguments)
+			}
+		case '"':
+			end := 1
+			for ; end < len(arguments); end++ {
+				if arguments[end] == '\\' {
+					end++
+					continue
+				}
+				if arguments[end] != '"' {
+					continue
+				}
+				quoted := arguments[:end+1]
+				unquoted, err := strconv.Unquote(quoted)
+				if err != nil {
+					return nil, fmt.Errorf("invalid quoted string in //go:embed: %s", quoted)
+				}
+				pattern = unquoted
+				arguments = arguments[end+1:]
+				break ParseArgument
+			}
+			return nil, fmt.Errorf("invalid quoted string in //go:embed: %s", arguments)
+		default:
+			end := len(arguments)
+			for index, character := range arguments {
+				if unicode.IsSpace(character) {
+					end = index
+					break
+				}
+			}
+			pattern = arguments[:end]
+			arguments = arguments[end:]
+		}
+		if arguments != "" {
+			character, _ := utf8.DecodeRuneInString(arguments)
+			if !unicode.IsSpace(character) {
+				return nil, fmt.Errorf("invalid quoted string in //go:embed: %s", arguments)
+			}
+		}
+		patterns = append(patterns, pattern)
+	}
+	return patterns, nil
+}
+
+func secureEmbedPackageRoot(sourceRoot, packageDirectory string) (string, error) {
+	cleaned := filepath.Clean(filepath.FromSlash(packageDirectory))
+	if filepath.IsAbs(cleaned) || relativeEscapesRoot(cleaned) {
+		return "", fmt.Errorf("Go package path %q escapes source root", packageDirectory)
+	}
+	packageRoot := filepath.Join(sourceRoot, cleaned)
+	relative, err := filepath.Rel(sourceRoot, packageRoot)
+	if err != nil || relativeEscapesRoot(relative) {
+		return "", fmt.Errorf("Go package path %q escapes source root", packageDirectory)
+	}
+	info, err := os.Lstat(sourceRoot)
+	if err != nil {
+		return "", fmt.Errorf("stat source root: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return "", errors.New("source root is not a real directory")
+	}
+	if relative == "." {
+		return packageRoot, nil
+	}
+	current := sourceRoot
+	for element := range strings.SplitSeq(filepath.ToSlash(relative), "/") {
+		current = filepath.Join(current, filepath.FromSlash(element))
+		info, err := os.Lstat(current)
+		if err != nil {
+			return "", fmt.Errorf("stat Go package path %q: %w", packageDirectory, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return "", fmt.Errorf("Go package path %q contains a non-directory or symbolic link", packageDirectory)
+		}
+	}
+	return packageRoot, nil
+}
+
+func resolveGoEmbedPattern(packageRoot, pattern string) ([]string, error) {
+	glob, all := strings.CutPrefix(pattern, "all:")
+	if glob == "." || !fs.ValidPath(glob) {
+		return nil, errors.New("invalid pattern syntax")
+	}
+	if _, err := pathpkg.Match(glob, ""); err != nil {
+		return nil, errors.New("invalid pattern syntax")
+	}
+	matches, err := globGoEmbedMatches(packageRoot, glob)
+	if err != nil {
+		return nil, err
+	}
+	files := make(map[string]struct{})
+	for _, match := range matches {
+		info, err := inspectGoEmbedMatch(packageRoot, match)
+		if err != nil {
+			return nil, err
+		}
+		switch {
+		case info.Mode().IsRegular():
+			files[match] = struct{}{}
+		case info.IsDir():
+			children, err := collectGoEmbedDirectory(packageRoot, match, all)
+			if err != nil {
+				return nil, err
+			}
+			for _, child := range children {
+				files[child] = struct{}{}
+			}
+		default:
+			return nil, fmt.Errorf("cannot embed irregular file %s", match)
+		}
+	}
+	if len(files) == 0 {
+		return nil, errors.New("no matching files found")
+	}
+	return sortedKeys(files), nil
+}
+
+func globGoEmbedMatches(packageRoot, pattern string) ([]string, error) {
+	segments := strings.Split(pattern, "/")
+	var matches []string
+	var visit func(absolute, relative string, index int) error
+	visit = func(absolute, relative string, index int) error {
+		entries, err := os.ReadDir(absolute)
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			matched, err := pathpkg.Match(segments[index], entry.Name())
+			if err != nil {
+				return err
+			}
+			if !matched {
+				continue
+			}
+			childRelative := entry.Name()
+			if relative != "" {
+				childRelative = relative + "/" + entry.Name()
+			}
+			if index == len(segments)-1 {
+				matches = append(matches, childRelative)
+				continue
+			}
+			info, err := inspectGoEmbedMatch(packageRoot, childRelative)
+			if err != nil {
+				return err
+			}
+			if info.IsDir() {
+				if err := visit(filepath.Join(absolute, entry.Name()), childRelative, index+1); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	if err := visit(packageRoot, "", 0); err != nil {
+		return nil, fmt.Errorf("expand embed glob %q: %w", pattern, err)
+	}
+	sort.Strings(matches)
+	return matches, nil
+}
+
+func inspectGoEmbedMatch(packageRoot, relative string) (fs.FileInfo, error) {
+	if relative == "." || !fs.ValidPath(relative) {
+		return nil, fmt.Errorf("embedded path %q is invalid", relative)
+	}
+	target := filepath.Join(packageRoot, filepath.FromSlash(relative))
+	rootRelative, err := filepath.Rel(packageRoot, target)
+	if err != nil || relativeEscapesRoot(rootRelative) {
+		return nil, fmt.Errorf("embedded path %q escapes package directory", relative)
+	}
+	var info fs.FileInfo
+	current := packageRoot
+	elements := strings.Split(relative, "/")
+	for index, element := range elements {
+		if badGoEmbedName(element) {
+			return nil, fmt.Errorf("cannot embed %s: invalid name %s", relative, element)
+		}
+		current = filepath.Join(current, filepath.FromSlash(element))
+		info, err = os.Lstat(current)
+		if err != nil {
+			return nil, fmt.Errorf("stat embedded path %q: %w", relative, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("cannot embed symbolic link %s", relative)
+		}
+		if index < len(elements)-1 && !info.IsDir() {
+			return nil, fmt.Errorf("embedded path %q traverses non-directory %s", relative, strings.Join(elements[:index+1], "/"))
+		}
+		if info.IsDir() {
+			nestedModule, err := directoryContainsGoMod(current)
+			if err != nil {
+				return nil, err
+			}
+			if nestedModule {
+				return nil, fmt.Errorf("cannot embed %s: in different module", relative)
+			}
+		}
+	}
+	return info, nil
+}
+
+func collectGoEmbedDirectory(packageRoot, relative string, all bool) ([]string, error) {
+	root := filepath.Join(packageRoot, filepath.FromSlash(relative))
+	var files []string
+	err := filepath.WalkDir(root, func(name string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if name == root {
+			return nil
+		}
+		entryRelative, err := filepath.Rel(packageRoot, name)
+		if err != nil || relativeEscapesRoot(entryRelative) {
+			return fmt.Errorf("embedded directory entry %q escapes package directory", name)
+		}
+		entryRelative = filepath.ToSlash(entryRelative)
+		base := entry.Name()
+		hidden := strings.HasPrefix(base, ".") || strings.HasPrefix(base, "_")
+		if badGoEmbedName(base) || hidden && !all {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			if hidden {
+				return nil
+			}
+			return fmt.Errorf("cannot embed file %s: invalid name %s", entryRelative, base)
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("cannot embed symbolic link %s", entryRelative)
+		}
+		if entry.IsDir() {
+			nestedModule, err := directoryContainsGoMod(name)
+			if err != nil {
+				return err
+			}
+			if nestedModule {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !entry.Type().IsRegular() {
+			return fmt.Errorf("cannot embed irregular file %s", entryRelative)
+		}
+		files = append(files, entryRelative)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(files)
+	return files, nil
+}
+
+func directoryContainsGoMod(directory string) (bool, error) {
+	info, err := os.Lstat(filepath.Join(directory, "go.mod"))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("inspect nested module boundary %q: %w", directory, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return false, fmt.Errorf("nested module boundary %q is a symbolic link", filepath.Join(directory, "go.mod"))
+	}
+	return true, nil
+}
+
+func badGoEmbedName(name string) bool {
+	if module.CheckFilePath(name) != nil {
+		return true
+	}
+	switch name {
+	case "", ".bzr", ".git", ".hg", ".svn":
+		return true
+	default:
+		return false
+	}
+}
+
+func relativeEscapesRoot(relative string) bool {
+	return relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }

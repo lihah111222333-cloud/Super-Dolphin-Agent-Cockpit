@@ -1,6 +1,7 @@
 package gate
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -8,23 +9,38 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 )
 
 const (
 	ExecutorSourcePath              = "/workspace/source"
 	ExecutorWorkRoot                = "/workspace/work"
+	ExecutorGoWorkloadSourcePath    = ExecutorWorkRoot + "/lanes/lane-0/run/source"
 	ExecutorRuntimeSeedRoot         = "/opt/super-dolphin-gate/runtime"
 	ExecutorRuntimeSeedManifestPath = ExecutorRuntimeSeedRoot + "/manifest.json"
+	ExecutorPortableGoRoot          = ExecutorRuntimeSeedRoot + "/go"
+	ExecutorPortableRootFS          = ExecutorRuntimeSeedRoot + "/rootfs"
+	ExecutorPortableLibraryPath     = ExecutorPortableRootFS + "/usr/lib/x86_64-linux-gnu:" + ExecutorPortableRootFS + "/lib/x86_64-linux-gnu:" + ExecutorPortableRootFS + "/usr/lib/aarch64-linux-gnu:" + ExecutorPortableRootFS + "/lib/aarch64-linux-gnu:" + ExecutorPortableRootFS + "/usr/lib:" + ExecutorPortableRootFS + "/lib"
+	ExecutorPortableSearchPath      = ExecutorRuntimeSeedRoot + "/bin:" + ExecutorRuntimeSeedRoot + "/go/bin:" + ExecutorRuntimeSeedRoot + "/node/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin"
+	ExecutorGoBuildCacheSeedRoot    = "/opt/super-dolphin-gate/cache-seed/go-build"
+	ExecutorGoBuildCacheSeedsRoot   = "/opt/super-dolphin-gate/cache-seeds"
 	ExecutorFrontendEmbedSeedRoot   = "/opt/super-dolphin-gate/frontend-embed"
 	ExecutorActionlintBinaryPath    = ExecutorRuntimeSeedRoot + "/bin/actionlint"
+	ExecutorBashBinaryPath          = ExecutorPortableRootFS + "/usr/bin/bash"
+	ExecutorGitBinaryPath           = ExecutorRuntimeSeedRoot + "/bin/git"
 	ExecutorSQLCBinaryPath          = ExecutorRuntimeSeedRoot + "/bin/sqlc"
 	ExecutorSqruffBinaryPath        = ExecutorRuntimeSeedRoot + "/bin/sqruff"
+	ExecutorXvfbRunBinaryPath       = ExecutorRuntimeSeedRoot + "/bin/xvfb-run"
 	executorPlaywrightBrowsersPath  = ExecutorRuntimeSeedRoot + "/frontend/node_modules/.cache/ms-playwright"
-	executorGoModuleProxy           = "file://" + ExecutorRuntimeSeedRoot + "/go-proxy"
+	executorGoProxyMode             = "off"
 	executorUID                     = 65532
-	executorSearchPath              = "/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin"
+	executorSearchPath              = ExecutorPortableSearchPath
 )
 
 type executorConfig struct {
@@ -35,21 +51,51 @@ type executorConfig struct {
 	requireReadOnlySource bool
 	runtimeSeedRoot       string
 	runtimeSeedManifest   string
+	goRoot                string
+	preparedRuntimeSeeds  *executorPreparedRuntimeSeeds
+	goBuildCacheSeedRoots []string
+	// goBuildCacheSeedRoot keeps plan-executor callers built before the seed-chain materializer compatible.
+	goBuildCacheSeedRoot  string
+	goBuildCacheRoot      string
+	goBuildCacheProxy     string
 	frontendEmbedSeedRoot string
 	stdout                io.Writer
 	stderr                io.Writer
 }
 
+type executorWorkloadTimeoutKey struct{}
+
+// WithExecutorWorkloadTimeout 记录 worker 的实际 workload 时限，但不在准备缓存时提前计时。
+func WithExecutorWorkloadTimeout(parent context.Context, timeout time.Duration) (context.Context, error) {
+	if parent == nil {
+		return nil, errors.New("executor workload parent context is required")
+	}
+	if err := ValidateExecutorWorkloadTimeout(timeout); err != nil {
+		return nil, err
+	}
+	return context.WithValue(parent, executorWorkloadTimeoutKey{}, timeout), nil
+}
+
+// executorWorkloadContext 在不可变 seed 和私有缓存准备完成后启动 workload 时限。
+func executorWorkloadContext(parent context.Context) (context.Context, context.CancelFunc) {
+	timeout, configured := parent.Value(executorWorkloadTimeoutKey{}).(time.Duration)
+	if !configured {
+		return parent, func() {}
+	}
+	return gateprivate.WithTimeout(parent, timeout)
+}
+
 type executorLayout struct {
-	workRoot   string
-	runRoot    string
-	sourceCopy string
-	home       string
-	tmp        string
-	goCache    string
-	goModCache string
-	npmCache   string
-	xdgCache   string
+	workRoot    string
+	runRoot     string
+	sourceCopy  string
+	home        string
+	tmp         string
+	goCache     string
+	goModCache  string
+	npmCache    string
+	xdgCache    string
+	ownsGoCache bool
 }
 
 type resolvedStep struct {
@@ -64,10 +110,18 @@ func ExecuteExecutor(ctx context.Context, args []string, stdout io.Writer, stder
 	if ctx == nil || stdout == nil || stderr == nil {
 		return errors.New("executor context and output streams are required")
 	}
-	if len(args) > 0 && isPlanExecutorCommand(args[0]) {
-		return ExecutePlanExecutor(ctx, args, stdout, stderr)
+	if handled, err := executeExecutorSubcommand(ctx, args, stdout, stderr); handled {
+		return err
 	}
 	id, program, err := ParseExecutorCommand(args)
+	if err != nil {
+		return err
+	}
+	cacheProxy, err := executorGoBuildCacheProxyLauncher()
+	if err != nil {
+		return err
+	}
+	seedRoots, err := discoverExecutorGoBuildCacheSeedRoots(ExecutorGoBuildCacheSeedsRoot, ExecutorGoBuildCacheSeedRoot)
 	if err != nil {
 		return err
 	}
@@ -75,10 +129,31 @@ func ExecuteExecutor(ctx context.Context, args []string, stdout io.Writer, stder
 		sourcePath: ExecutorSourcePath, workRoot: ExecutorWorkRoot, searchPath: executorSearchPath,
 		expectedUID: executorUID, requireReadOnlySource: true,
 		runtimeSeedRoot: ExecutorRuntimeSeedRoot, runtimeSeedManifest: ExecutorRuntimeSeedManifestPath,
+		goRoot:                ExecutorPortableGoRoot,
+		goBuildCacheSeedRoots: seedRoots,
+		goBuildCacheProxy:     cacheProxy,
 		frontendEmbedSeedRoot: ExecutorFrontendEmbedSeedRoot,
 		stdout:                stdout, stderr: stderr,
 	}
 	return executeProgram(ctx, config, id, program)
+}
+
+// executeExecutorSubcommand 分派不进入隔离工作区的受限执行器子命令。
+func executeExecutorSubcommand(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) (bool, error) {
+	if len(args) == 0 {
+		return false, nil
+	}
+	switch args[0] {
+	case "runtime-seed":
+		return true, executeRuntimeSeedCommand(args[1:])
+	case "go-module-overlay":
+		return true, executeGoModuleOverlayCommand(args[1:])
+	default:
+		if isPlanExecutorCommand(args[0]) {
+			return true, ExecutePlanExecutor(ctx, args, stdout, stderr)
+		}
+		return false, nil
+	}
 }
 
 // ExecutorExitCode 将子进程失败映射为容器进程退出码。
@@ -132,7 +207,10 @@ func prepareExecutorRun(
 	if err := installExecutorSeeds(config, layout, program); err != nil {
 		return nil, nil, "", err
 	}
-	environment := executorEnvironment(layout, config.searchPath)
+	environment, err := prepareExecutorEnvironment(config, layout, program)
+	if err != nil {
+		return nil, nil, "", err
+	}
 	steps, err := resolveExecutorSteps(config.searchPath, layout.sourceCopy, program)
 	if err != nil {
 		return nil, nil, "", err
@@ -153,6 +231,31 @@ func prepareExecutorRun(
 	return environment, steps, gitBinary, nil
 }
 
+// prepareExecutorEnvironment 只为声明需要的运行时 seed 构造隔离执行环境。
+func prepareExecutorEnvironment(config executorConfig, layout executorLayout, program ExecutorProgram) ([]string, error) {
+	frontendSeedRoot := ""
+	if program.NeedsFrontendSeed {
+		frontendSeedRoot = filepath.Join(config.runtimeSeedRoot, "frontend", "node_modules")
+	}
+	cacheProgram, err := executorGoBuildCacheProgram(config, layout, program.NeedsGoSeed)
+	if err != nil {
+		return nil, err
+	}
+	return executorEnvironment(layout, config.searchPath, layout.goModCache, config.goRoot, frontendSeedRoot, cacheProgram), nil
+}
+
+// executorGoBuildCacheProgram 创建可选的 Go 缓存代理命令。
+func executorGoBuildCacheProgram(config executorConfig, layout executorLayout, required bool) (string, error) {
+	if !required {
+		return "", nil
+	}
+	seedRoots, err := executorGoBuildCacheSeedRoots(config)
+	if err != nil {
+		return "", err
+	}
+	return executorGoBuildCacheProxyCommand(config.goBuildCacheProxy, seedRoots, layout.goCache)
+}
+
 // runExecutorProgram 分派内建策略或逐步运行无需 shell 的固定命令。
 func runExecutorProgram(
 	ctx context.Context,
@@ -170,7 +273,7 @@ func runExecutorProgram(
 	case ExecutorStrategyChangedDiagnostics:
 		return runChangedDiagnostics(ctx, gitBinary, layout.sourceCopy, environment, config.searchPath, config.stdout, config.stderr)
 	case ExecutorStrategySQLCVerify:
-		return runSQLCVerify(ctx, gitBinary, ExecutorSQLCBinaryPath, layout.sourceCopy, environment, config.stdout, config.stderr)
+		return runSQLCVerify(ctx, gitBinary, ExecutorSQLCBinaryPath, ExecutorBashBinaryPath, layout.sourceCopy, environment, config.stdout, config.stderr)
 	}
 	for _, step := range steps {
 		if err := runResolvedStep(ctx, step, environment, config.stdout, config.stderr); err != nil {
@@ -256,14 +359,28 @@ func canonicalRelativePath(path string) bool {
 
 // validateExecutorConfig 固定运行身份、路径配置和输出流均须完整有效。
 func validateExecutorConfig(config executorConfig) error {
-	if config.sourcePath == "" || config.workRoot == "" || config.searchPath == "" || config.runtimeSeedRoot == "" || config.runtimeSeedManifest == "" {
+	if !hasExecutorPaths(config) {
 		return errors.New("executor paths are not configured")
 	}
-	if config.expectedUID < 0 || os.Geteuid() != config.expectedUID {
-		return fmt.Errorf("executor uid = %d, want %d", os.Geteuid(), config.expectedUID)
+	if err := validateExecutorUID(config.expectedUID); err != nil {
+		return err
 	}
 	if config.stdout == nil || config.stderr == nil {
 		return errors.New("executor output streams are required")
+	}
+	return nil
+}
+
+// hasExecutorPaths 确认执行器所需的只读根路径全部显式配置。
+func hasExecutorPaths(config executorConfig) bool {
+	return config.sourcePath != "" && config.workRoot != "" && config.searchPath != "" && config.runtimeSeedRoot != "" &&
+		config.runtimeSeedManifest != "" && config.goRoot != ""
+}
+
+// validateExecutorUID 拒绝未固定或与当前进程不一致的执行身份。
+func validateExecutorUID(expectedUID int) error {
+	if expectedUID < 0 || os.Geteuid() != expectedUID {
+		return fmt.Errorf("executor uid = %d, want %d", os.Geteuid(), expectedUID)
 	}
 	return nil
 }
@@ -316,6 +433,31 @@ func canonicalRepositoryExecutable(name string) bool {
 func regularExecutable(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0
+}
+
+// validateMountInfo 要求 source 自身是 mountinfo 中明确标记为只读的挂载点。
+func validateMountInfo(reader io.Reader, path string) error {
+	scanner := bufio.NewScanner(reader)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) < 6 || decodeMountPath(fields[4]) != path {
+			continue
+		}
+		if slices.Contains(strings.Split(fields[5], ","), "ro") {
+			return nil
+		}
+		return errors.New("source mount is not read-only")
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	return errors.New("source path is not an explicit mount point")
+}
+
+// decodeMountPath 还原 mountinfo 中使用八进制转义的路径。
+func decodeMountPath(path string) string {
+	replacer := strings.NewReplacer("\\040", " ", "\\011", "\t", "\\012", "\n", "\\134", "\\")
+	return replacer.Replace(path)
 }
 
 // executorStepDirectory 将规范相对目录约束在可写快照根内。
@@ -424,20 +566,71 @@ func validateProgramInputs(sourceCopy string, program ExecutorProgram) error {
 	return nil
 }
 
-func executorEnvironment(layout executorLayout, searchPath string) []string {
-	return []string{
+// executorEnvironment 构造不继承宿主秘密的固定执行环境，并按需启用共享构建缓存代理。
+func executorEnvironment(
+	layout executorLayout,
+	searchPath string,
+	goModCacheRoot string,
+	goRoot string,
+	frontendSeedRoot string,
+	goCacheProgram string,
+) []string {
+	environment := []string{
 		"CI=true", "GIT_CONFIG_NOSYSTEM=1", "GIT_OPTIONAL_LOCKS=0", "GIT_TERMINAL_PROMPT=0",
 		"GIT_AUTHOR_NAME=Super Dolphin Gate Executor", "GIT_AUTHOR_EMAIL=gate-executor@super-dolphin.invalid",
 		"GIT_AUTHOR_DATE=946684800 +0000", "GIT_COMMITTER_NAME=Super Dolphin Gate Executor",
 		"GIT_COMMITTER_EMAIL=gate-executor@super-dolphin.invalid", "GIT_COMMITTER_DATE=946684800 +0000",
-		"GOCACHE=" + layout.goCache, "GOENV=off", "GOMODCACHE=" + layout.goModCache,
-		"GOPROXY=" + executorGoModuleProxy, "GOSUMDB=off", "GOTOOLCHAIN=local",
-		"GOTMPDIR=" + layout.tmp, "HOME=" + layout.home, "LANG=C.UTF-8", "LC_ALL=C.UTF-8",
+		"GOCACHE=" + layout.goCache, "GOENV=off", "GOMODCACHE=" + goModCacheRoot,
+		"GOPROXY=" + executorGoProxyMode, "GOSUMDB=off", "GOTOOLCHAIN=local",
+		"GOROOT=" + goRoot, "GOTMPDIR=" + layout.tmp,
+		"HOME=" + layout.home, "LANG=C.UTF-8", "LC_ALL=C.UTF-8",
+		"LD_LIBRARY_PATH=" + ExecutorPortableLibraryPath,
 		"NPM_CONFIG_AUDIT=false", "NPM_CONFIG_FUND=false", "NPM_CONFIG_UPDATE_NOTIFIER=false",
 		"npm_config_cache=" + layout.npmCache, "npm_config_offline=true", "npm_config_userconfig=/dev/null",
 		"PLAYWRIGHT_BROWSERS_PATH=" + executorPlaywrightBrowsersPath,
+		"SUPER_DOLPHIN_GATE_GIT=" + ExecutorGitBinaryPath,
+		"SUPER_DOLPHIN_GATE_XVFB_RUN=" + ExecutorXvfbRunBinaryPath,
+		"SUPER_DOLPHIN_TEST_BACKEND=remote-worker",
 		"PATH=" + searchPath, "TMPDIR=" + layout.tmp, "TZ=UTC", "XDG_CACHE_HOME=" + layout.xdgCache,
 	}
+	if frontendSeedRoot != "" {
+		environment = append(environment, "SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED="+frontendSeedRoot)
+	}
+	if goCacheProgram != "" {
+		environment = append(environment, "GOCACHEPROG="+goCacheProgram)
+	}
+	return environment
+}
+
+// executorGoBuildCacheProxyLauncher 返回同一 worker 二进制的隐藏缓存代理入口。
+func executorGoBuildCacheProxyLauncher() (string, error) {
+	binary, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("resolve executor binary for Go build cache proxy: %w", err)
+	}
+	if !filepath.IsAbs(binary) {
+		return "", errors.New("executor binary for Go build cache proxy must be absolute")
+	}
+	return strconv.Quote(binary) + " worker go-cache-proxy", nil
+}
+
+// executorGoBuildCacheProxyCommand 构造只含受信任缓存根的 GOCACHEPROG 启动命令。
+func executorGoBuildCacheProxyCommand(launcher string, seedRoots []string, privateRoot string) (string, error) {
+	if strings.TrimSpace(launcher) == "" || len(seedRoots) == 0 || len(seedRoots) > goBuildCacheProxyMaxSeedRoots || !filepath.IsAbs(privateRoot) {
+		return "", errors.New("Go build cache proxy launcher and absolute cache roots are required")
+	}
+	var command strings.Builder
+	command.WriteString(launcher)
+	for _, seedRoot := range seedRoots {
+		if !filepath.IsAbs(seedRoot) {
+			return "", errors.New("Go build cache proxy launcher and absolute cache roots are required")
+		}
+		command.WriteString(" --seed ")
+		command.WriteString(strconv.Quote(seedRoot))
+	}
+	command.WriteString(" --private ")
+	command.WriteString(strconv.Quote(privateRoot))
+	return command.String(), nil
 }
 
 func environmentKeys(environment []string) []string {

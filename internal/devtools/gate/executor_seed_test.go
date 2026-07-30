@@ -2,46 +2,245 @@ package gate
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
 
 const runtimeProxyFixtureSum = "github.com/kelindar/event v1.5.2 h1:qtgssZqMh/QQMCIxlbx4wU3DoMHOrJXKdiZhphJ4YbY=\n"
 
-func TestInstallRuntimeSeedsBindsLocksAndPreventsOverwrite(t *testing.T) {
+func TestDiscoverExecutorGoBuildCacheSeedRootsOrdersGenerationsAndFallsBack(t *testing.T) {
+	legacyRoot := realTempDir(t)
+	missingRoot := filepath.Join(realTempDir(t), "cache-seeds")
+	seedRoots, err := discoverExecutorGoBuildCacheSeedRoots(missingRoot, legacyRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(seedRoots, []string{legacyRoot}) {
+		t.Fatalf("legacy seed roots = %v", seedRoots)
+	}
+
+	generationsRoot := filepath.Join(realTempDir(t), "cache-seeds")
+	for _, name := range []string{"00000000000020260728", "00000000000020260729"} {
+		if err := os.MkdirAll(filepath.Join(generationsRoot, name), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seedRoots, err = discoverExecutorGoBuildCacheSeedRoots(generationsRoot, legacyRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{filepath.Join(generationsRoot, "00000000000020260729"), filepath.Join(generationsRoot, "00000000000020260728")}
+	if !slices.Equal(seedRoots, want) {
+		t.Fatalf("generation seed roots = %v, want %v", seedRoots, want)
+	}
+}
+
+func TestDiscoverExecutorGoBuildCacheSeedRootsRejectsInvalidGenerations(t *testing.T) {
+	legacyRoot := realTempDir(t)
+	for name, prepare := range map[string]func(t *testing.T, root string){
+		"symlink": func(t *testing.T, root string) {
+			t.Helper()
+			if err := os.Symlink(legacyRoot, filepath.Join(root, "00000000000020260729")); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"file": func(t *testing.T, root string) {
+			t.Helper()
+			writeTestFile(t, filepath.Join(root, "00000000000020260729"), "not a directory", 0o600)
+		},
+		"too many": func(t *testing.T, root string) {
+			t.Helper()
+			for _, generation := range []string{"00000000000000000001", "00000000000000000002", "00000000000000000003", "00000000000000000004", "00000000000000000005", "00000000000000000006"} {
+				if err := os.Mkdir(filepath.Join(root, generation), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+		},
+		"non canonical generation": func(t *testing.T, root string) {
+			t.Helper()
+			if err := os.Mkdir(filepath.Join(root, "20260729"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := filepath.Join(realTempDir(t), "cache-seeds")
+			if err := os.Mkdir(root, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			prepare(t, root)
+			if _, err := discoverExecutorGoBuildCacheSeedRoots(root, legacyRoot); err == nil {
+				t.Fatal("discoverExecutorGoBuildCacheSeedRoots unexpectedly accepted invalid generations")
+			}
+		})
+	}
+}
+
+func TestSeedExecutorGoBuildCacheSeedsValidatesLayersWithoutCopying(t *testing.T) {
+	newest := realTempDir(t)
+	oldest := realTempDir(t)
+	privateRoot := realTempDir(t)
+	writeTestFile(t, filepath.Join(newest, "newest"), "new", 0o600)
+	writeTestFile(t, filepath.Join(oldest, "oldest"), "old", 0o600)
+	if err := seedExecutorGoBuildCacheSeeds([]string{newest, oldest}, privateRoot); err != nil {
+		t.Fatalf("validate multi-layer Go build cache seed: %v", err)
+	}
+	assertDirectoryEmpty(t, privateRoot)
+	if err := seedExecutorGoBuildCacheSeeds([]string{newest, filepath.Join(newest, "nested")}, privateRoot); err == nil {
+		t.Fatal("seed validation accepted overlapping layers")
+	}
+}
+
+func TestExecuteExecutorOwnsRuntimeSeedWriteAndVerify(t *testing.T) {
+	source := realTempDir(t)
+	writeTestFile(t, filepath.Join(source, "go.sum"), "module sum\n", 0o600)
+	writeTestFile(t, filepath.Join(source, "frontend-app", "package-lock.json"), "{\"lockfileVersion\":3}\n", 0o600)
+	runtimeRoot, manifestPath := writeRuntimeSeedFixture(t, source)
+	if err := os.Remove(manifestPath); err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range []string{"write", "verify"} {
+		err := ExecuteExecutor(
+			context.Background(),
+			[]string{"runtime-seed", action, source, runtimeRoot},
+			io.Discard,
+			io.Discard,
+		)
+		if err != nil {
+			t.Fatalf("ExecuteExecutor(runtime-seed %s) error = %v", action, err)
+		}
+	}
+}
+
+func TestExecuteExecutorOwnsGoModuleOverlay(t *testing.T) {
+	sharedRoot := realTempDir(t)
+	privateRoot := realTempDir(t)
+	metadata := filepath.Join(sharedRoot, "cache", "download", "example.com", "module", "@v", "v1.0.0.mod")
+	moduleSource := filepath.Join(sharedRoot, "example.com", "module@v1.0.0", "module.go")
+	writeTestFile(t, metadata, "module example.com/module\n", 0o444)
+	writeTestFile(t, moduleSource, "package module\n", 0o444)
+
+	err := ExecuteExecutor(
+		context.Background(),
+		[]string{"go-module-overlay", sharedRoot, privateRoot},
+		io.Discard,
+		io.Discard,
+	)
+	if err != nil {
+		t.Fatalf("ExecuteExecutor(go-module-overlay) error = %v", err)
+	}
+	assertRuntimeSeedSymlink(t, filepath.Join(privateRoot, "example.com"), filepath.Join(sharedRoot, "example.com"))
+	assertRuntimeSeedSymlink(t, filepath.Join(privateRoot, "cache", "download", "example.com", "module", "@v", "v1.0.0.mod"), metadata)
+	if err := ExecuteExecutor(context.Background(), []string{"go-module-overlay", sharedRoot}, io.Discard, io.Discard); err == nil {
+		t.Fatal("ExecuteExecutor(go-module-overlay) accepted missing private root")
+	}
+}
+
+func TestInstallRuntimeSeedsCreatesFrontendOverlayWithoutCopyingDependencies(t *testing.T) {
 	source := realTempDir(t)
 	writeTestFile(t, filepath.Join(source, "go.sum"), "module sum\n", 0o600)
 	writeTestFile(t, filepath.Join(source, "frontend-app", "package-lock.json"), "{\"lockfileVersion\":3}\n", 0o600)
 	runtimeRoot, manifestPath := writeRuntimeSeedFixture(t, source)
 	config := executorConfig{runtimeSeedRoot: runtimeRoot, runtimeSeedManifest: manifestPath}
 	npmCache := filepath.Join(realTempDir(t), "npm-cache")
-	if err := os.Mkdir(npmCache, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	requireRuntimeSeedTestNoError(t, "create npm cache", os.Mkdir(npmCache, 0o700))
 	layout := executorLayout{sourceCopy: source, npmCache: npmCache}
 	program := ExecutorProgram{NeedsGoSeed: true, NeedsFrontendSeed: true}
-	if err := installRuntimeSeeds(config, layout, program); err != nil {
-		t.Fatalf("installRuntimeSeeds: %v", err)
+	requireRuntimeSeedTestNoError(t, "install runtime seeds", installRuntimeSeeds(config, layout, program))
+	assertRuntimeSeedPathMissing(t, filepath.Join(source, "vendor"))
+	nodeModules := filepath.Join(source, "frontend-app", "node_modules")
+	assertRuntimeSeedPhysicalDirectory(t, nodeModules)
+	assertRuntimeSeedSymlink(
+		t,
+		filepath.Join(nodeModules, "tool"),
+		filepath.Join(runtimeRoot, "frontend", "node_modules", "tool"),
+	)
+	for _, name := range []string{".vite", ".vite-temp"} {
+		assertRuntimeSeedPhysicalDirectory(t, filepath.Join(nodeModules, name))
 	}
-	if _, err := os.Stat(filepath.Join(source, "vendor")); !os.IsNotExist(err) {
-		t.Fatalf("Go runtime seed unexpectedly materialized source vendor: %v", err)
-	}
-	for _, path := range []string{
-		filepath.Join(source, "frontend-app", "node_modules", "tool", "index.js"),
-		filepath.Join(npmCache, "_cacache", "content-v2", "sha512", "fixture"),
-	} {
-		if _, err := os.Stat(path); err != nil {
-			t.Fatalf("installed seed path %s: %v", path, err)
-		}
-	}
+	requireRuntimeSeedTestNoError(t, "read shared frontend seed", runtimeSeedPathExists(filepath.Join(nodeModules, "tool", "index.js")))
+	assertDirectoryEmpty(t, npmCache)
 	if err := installRuntimeSeeds(config, layout, program); err == nil {
 		t.Fatal("runtime seed unexpectedly overwrote an existing target")
 	}
+}
+
+func TestBindSharedGoModuleCacheRejectsMissingDownloadMetadata(t *testing.T) {
+	sharedRoot := realTempDir(t)
+	privateRoot := realTempDir(t)
+	err := bindSharedGoModuleCache(sharedRoot, privateRoot)
+	if err == nil || !strings.Contains(err.Error(), "shared download metadata") {
+		t.Fatalf("bindSharedGoModuleCache error = %v, want missing download metadata", err)
+	}
+	if info, statErr := os.Lstat(privateRoot); statErr != nil || !info.IsDir() {
+		t.Fatalf("private cache mountpoint changed after rejection: info=%v err=%v", info, statErr)
+	}
+}
+
+func TestBindSharedGoModuleCacheSharesFilesWithWritableMetadataDirectories(t *testing.T) {
+	sharedRoot := realTempDir(t)
+	privateRoot := realTempDir(t)
+	requireRuntimeSeedTestNoError(t, "make private cache writable", os.Chmod(privateRoot, 0o700))
+	metadata := filepath.Join(sharedRoot, "cache", "download", "example.com", "module", "@v", "v1.0.0.mod")
+	moduleSource := filepath.Join(sharedRoot, "example.com", "module@v1.0.0", "module.go")
+	writeTestFile(t, metadata, "module example.com/module\n", 0o444)
+	writeTestFile(t, moduleSource, "package module\n", 0o444)
+
+	requireRuntimeSeedTestNoError(t, "bind shared Go module cache", bindSharedGoModuleCache(sharedRoot, privateRoot))
+	assertRuntimeSeedPhysicalDirectory(t, privateRoot)
+	privateModule := filepath.Join(privateRoot, "example.com")
+	assertRuntimeSeedSymlink(t, privateModule, filepath.Join(sharedRoot, "example.com"))
+	privateMetadata := filepath.Join(privateRoot, "cache", "download", "example.com", "module", "@v", "v1.0.0.mod")
+	assertRuntimeSeedSymlink(t, privateMetadata, metadata)
+	newMetadataRoot := filepath.Join(privateRoot, "cache", "download", "new.example", "module", "@v")
+	requireRuntimeSeedTestNoError(t, "create private metadata directory", os.MkdirAll(newMetadataRoot, 0o700))
+	requireRuntimeSeedTestNoError(
+		t,
+		"write private metadata",
+		os.WriteFile(filepath.Join(newMetadataRoot, "v1.0.0.info"), []byte("{}\n"), 0o600),
+	)
+}
+
+func requireRuntimeSeedTestNoError(t *testing.T, operation string, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatalf("%s: %v", operation, err)
+	}
+}
+
+func assertRuntimeSeedPathMissing(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("runtime seed unexpectedly materialized %q: %v", path, err)
+	}
+}
+
+func assertRuntimeSeedPhysicalDirectory(t *testing.T, path string) {
+	t.Helper()
+	info, err := os.Lstat(path)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("runtime seed path %q is not a private physical directory: info=%v err=%v", path, info, err)
+	}
+}
+
+func assertRuntimeSeedSymlink(t *testing.T, path string, expected string) {
+	t.Helper()
+	target, err := os.Readlink(path)
+	if err != nil || target != expected {
+		t.Fatalf("runtime seed link %q = %q, want %q, err=%v", path, target, expected, err)
+	}
+}
+
+func runtimeSeedPathExists(path string) error {
+	_, err := os.Stat(path)
+	return err
 }
 
 func TestInstallRuntimeSeedsRejectsSnapshotLockDrift(t *testing.T) {
@@ -267,44 +466,10 @@ func TestRuntimeSeedManifestPublicAPIRoundTrip(t *testing.T) {
 	if err := EncodeRuntimeSeedManifest(io.Discard, missingProxy); err == nil {
 		t.Fatal("EncodeRuntimeSeedManifest unexpectedly accepted a missing module proxy digest")
 	}
-	missingCache := manifest
-	missingCache.NPMCacheTreeSHA256 = ""
-	if err := EncodeRuntimeSeedManifest(io.Discard, missingCache); err == nil {
-		t.Fatal("EncodeRuntimeSeedManifest unexpectedly accepted a missing npm cache digest")
-	}
-}
-
-func TestInstallPreparedRuntimeSeedCopiesCacheAndRejectsInvalidState(t *testing.T) {
-	seedRoot := realTempDir(t)
-	seedFile := filepath.Join(seedRoot, "_cacache", "content-v2", "sha512", "fixture")
-	writeTestFile(t, seedFile, "cached package\n", 0o600)
-	digest := mustRuntimeSeedTreeDigest(t, seedRoot)
-	targetParent := realTempDir(t)
-	targetRoot := filepath.Join(targetParent, "npm-cache")
-	if err := os.Mkdir(targetRoot, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := installPreparedRuntimeSeed(seedRoot, digest, targetRoot); err != nil {
-		t.Fatalf("installPreparedRuntimeSeed: %v", err)
-	}
-	installed := filepath.Join(targetRoot, "_cacache", "content-v2", "sha512", "fixture")
-	content, err := os.ReadFile(installed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(content) != "cached package\n" {
-		t.Fatalf("installed cache content = %q", content)
-	}
-	if err := installPreparedRuntimeSeed(seedRoot, digest, targetRoot); err == nil {
-		t.Fatal("installPreparedRuntimeSeed unexpectedly accepted a non-empty target")
-	}
-	tamperedTarget := filepath.Join(targetParent, "tampered-cache")
-	if err := os.Mkdir(tamperedTarget, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	writeTestFile(t, seedFile, "tampered package\n", 0o600)
-	if err := installPreparedRuntimeSeed(seedRoot, digest, tamperedTarget); err == nil {
-		t.Fatal("installPreparedRuntimeSeed unexpectedly accepted a tampered seed")
+	missingModuleCache := manifest
+	missingModuleCache.GoModCacheTreeSHA256 = ""
+	if err := EncodeRuntimeSeedManifest(io.Discard, missingModuleCache); err == nil {
+		t.Fatal("EncodeRuntimeSeedManifest unexpectedly accepted a missing Go module cache digest")
 	}
 }
 
@@ -337,7 +502,7 @@ func assertRuntimeSeedManifestField(t *testing.T, field reflect.StructField, val
 }
 
 func TestRuntimeSeedManifestRejectsUnknownFieldsAndSeedTamper(t *testing.T) {
-	unknown := strings.NewReader(`{"schema_version":1,"go_sum_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","module_proxy_lock_sha256":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","module_proxy_tree_sha256":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","package_lock_sha256":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","node_modules_tree_sha256":"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","npm_cache_tree_sha256":"sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","ripgrep_sha256":"sha256:1111111111111111111111111111111111111111111111111111111111111111","sqruff_sha256":"sha256:2222222222222222222222222222222222222222222222222222222222222222","unknown":true}`)
+	unknown := strings.NewReader(`{"schema_version":1,"go_sum_sha256":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","module_proxy_lock_sha256":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","module_proxy_tree_sha256":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","package_lock_sha256":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","node_modules_tree_sha256":"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","ripgrep_sha256":"sha256:1111111111111111111111111111111111111111111111111111111111111111","sqruff_sha256":"sha256:2222222222222222222222222222222222222222222222222222222222222222","unknown":true}`)
 	if _, err := DecodeRuntimeSeedManifest(unknown); err == nil {
 		t.Fatal("DecodeRuntimeSeedManifest unexpectedly accepted an unknown field")
 	}
@@ -376,7 +541,7 @@ func TestRuntimeSeedManifestRejectsMissingLockedModuleZip(t *testing.T) {
 	}
 }
 
-func TestRuntimeSeedManifestRejectsNPMCacheTamper(t *testing.T) {
+func TestRuntimeSeedManifestRejectsGoModuleCacheTamper(t *testing.T) {
 	source := realTempDir(t)
 	writeTestFile(t, filepath.Join(source, "go.sum"), "module sum\n", 0o600)
 	writeTestFile(t, filepath.Join(source, "frontend-app", "package-lock.json"), "{\"lockfileVersion\":3}\n", 0o600)
@@ -385,9 +550,9 @@ func TestRuntimeSeedManifestRejectsNPMCacheTamper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeTestFile(t, filepath.Join(runtimeRoot, "frontend", "npm-cache", "tampered"), "tamper\n", 0o600)
+	writeTestFile(t, filepath.Join(runtimeRoot, "go-mod-cache", "tampered"), "tamper\n", 0o600)
 	if err := manifest.Validate(source, runtimeRoot); err == nil {
-		t.Fatal("RuntimeSeedManifest.Validate unexpectedly accepted npm cache tamper")
+		t.Fatal("RuntimeSeedManifest.Validate unexpectedly accepted Go module cache tamper")
 	}
 }
 
@@ -412,16 +577,24 @@ func writeRuntimeSeedFixture(t *testing.T, source string) (string, string) {
 	writeTestFile(t, proxyLockPath, runtimeProxyFixtureSum, 0o600)
 	runtimeRoot := realTempDir(t)
 	moduleProxyRoot := filepath.Join(runtimeRoot, "go-proxy")
+	goModCacheRoot := filepath.Join(runtimeRoot, "go-mod-cache")
 	nodeModulesRoot := filepath.Join(runtimeRoot, "frontend", "node_modules")
-	npmCacheRoot := filepath.Join(runtimeRoot, "frontend", "npm-cache")
 	proxyVersionRoot := filepath.Join(moduleProxyRoot, "github.com", "kelindar", "event", "@v")
 	writeTestFile(t, filepath.Join(proxyVersionRoot, "list"), "v1.5.2\n", 0o600)
 	writeTestFile(t, filepath.Join(proxyVersionRoot, "v1.5.2.info"), "{}\n", 0o600)
 	writeTestFile(t, filepath.Join(proxyVersionRoot, "v1.5.2.mod"), "module github.com/kelindar/event\n", 0o600)
 	writeTestFile(t, filepath.Join(proxyVersionRoot, "v1.5.2.zip"), "fixture zip\n", 0o600)
 	writeTestFile(t, filepath.Join(proxyVersionRoot, "v1.5.2.ziphash"), strings.Fields(runtimeProxyFixtureSum)[2]+"\n", 0o600)
+	moduleCacheVersionRoot := filepath.Join(goModCacheRoot, "cache", "download", "github.com", "kelindar", "event", "@v")
+	writeTestFile(t, filepath.Join(moduleCacheVersionRoot, "list"), "v1.5.2\n", 0o444)
+	writeTestFile(t, filepath.Join(moduleCacheVersionRoot, "v1.5.2.info"), "{}\n", 0o444)
+	writeTestFile(t, filepath.Join(moduleCacheVersionRoot, "v1.5.2.lock"), "", 0o444)
+	writeTestFile(t, filepath.Join(moduleCacheVersionRoot, "v1.5.2.mod"), "module github.com/kelindar/event\n", 0o444)
+	writeTestFile(t, filepath.Join(moduleCacheVersionRoot, "v1.5.2.zip"), "fixture zip\n", 0o444)
+	writeTestFile(t, filepath.Join(moduleCacheVersionRoot, "v1.5.2.ziphash"), strings.Fields(runtimeProxyFixtureSum)[2]+"\n", 0o444)
+	writeTestFile(t, filepath.Join(goModCacheRoot, "github.com", "kelindar", "event@v1.5.2", "go.mod"), "module github.com/kelindar/event\n", 0o444)
+	writeTestFile(t, filepath.Join(goModCacheRoot, "github.com", "kelindar", "event@v1.5.2", "event.go"), "package event\n", 0o444)
 	writeTestFile(t, filepath.Join(nodeModulesRoot, "tool", "index.js"), "export {}\n", 0o600)
-	writeTestFile(t, filepath.Join(npmCacheRoot, "_cacache", "content-v2", "sha512", "fixture"), "cached package\n", 0o600)
 	ripgrepPath := filepath.Join(runtimeRoot, "bin", "rg")
 	writeTestFile(t, ripgrepPath, "fixture ripgrep\n", 0o700)
 	sqruffPath := filepath.Join(runtimeRoot, "bin", "sqruff")
@@ -429,15 +602,16 @@ func writeRuntimeSeedFixture(t *testing.T, source string) (string, string) {
 	goSumDigest := mustRuntimeSeedFileDigest(t, filepath.Join(source, "go.sum"))
 	packageLockDigest := mustRuntimeSeedFileDigest(t, filepath.Join(source, "frontend-app", "package-lock.json"))
 	moduleProxyDigest := mustRuntimeSeedTreeDigest(t, moduleProxyRoot)
+	goModCacheDigest := mustRuntimeSeedTreeDigest(t, goModCacheRoot)
 	nodeModulesDigest := mustRuntimeSeedTreeDigest(t, nodeModulesRoot)
-	npmCacheDigest := mustRuntimeSeedTreeDigest(t, npmCacheRoot)
 	ripgrepDigest := mustRuntimeSeedFileDigest(t, ripgrepPath)
 	sqruffDigest := mustRuntimeSeedFileDigest(t, sqruffPath)
 	proxyLockDigest := mustRuntimeSeedFileDigest(t, proxyLockPath)
 	manifest := RuntimeSeedManifest{
 		SchemaVersion: RuntimeSeedSchemaVersion, GoSumSHA256: goSumDigest,
 		ModuleProxyLockSHA256: proxyLockDigest, ModuleProxyTreeSHA256: moduleProxyDigest,
-		PackageLockSHA256: packageLockDigest, NodeModulesTreeSHA256: nodeModulesDigest, NPMCacheTreeSHA256: npmCacheDigest,
+		GoModCacheTreeSHA256: goModCacheDigest,
+		PackageLockSHA256:    packageLockDigest, NodeModulesTreeSHA256: nodeModulesDigest,
 		RipgrepSHA256: ripgrepDigest, SqruffSHA256: sqruffDigest,
 	}
 	encoded, err := json.Marshal(manifest)

@@ -325,7 +325,7 @@ func TestEnsureCandidateRejectsExternalAndUnknownCopyFrom(t *testing.T) {
 
 func TestEnsureCandidateRejectsMissingManifestField(t *testing.T) {
 	entries := candidateEntries(validCandidateDockerfile())
-	replaceEntryText(t, entries, buildInputManifestPath, "  \"schema_version\": \"1\",\n", "")
+	replaceEntryText(t, entries, buildInputManifestPath, "  \"schema_version\": \"2\",\n", "")
 	assertCandidateRejectedBeforeBuild(t, entries)
 }
 
@@ -333,6 +333,26 @@ func TestEnsureCandidateRejectsUnknownManifestField(t *testing.T) {
 	entries := candidateEntries(validCandidateDockerfile())
 	replaceEntryText(t, entries, buildInputManifestPath, "\n}\n", ",\n  \"unknown\": true\n}\n")
 	assertCandidateRejectedBeforeBuild(t, entries)
+}
+
+func TestEnsureCandidateRejectsInvalidGateCompileManifest(t *testing.T) {
+	missingRequired := candidateEntries(validCandidateDockerfile())
+	replaceEntryText(t, missingRequired, buildInputManifestPath,
+		"  \"gate_compile_inputs\": [\n    \"cmd/super-dolphin-gate/main.go\",\n",
+		"  \"gate_compile_inputs\": [\n")
+	assertCandidateRejectedBeforeBuild(t, missingRequired)
+
+	wildcard := candidateEntries(validCandidateDockerfile())
+	replaceEntryText(t, wildcard, buildInputManifestPath,
+		"  \"gate_compile_inputs\": [\n    \"cmd/super-dolphin-gate/main.go\",\n",
+		"  \"gate_compile_inputs\": [\n    \"cmd/super-dolphin-gate/*.go\",\n")
+	assertCandidateRejectedBeforeBuild(t, wildcard)
+
+	unsorted := candidateEntries(validCandidateDockerfile())
+	replaceEntryText(t, unsorted, buildInputManifestPath,
+		"    \"cmd/super-dolphin-gate/main.go\",\n    \"cmd/super-dolphin-gate/remote_refresh_seed.go\",\n",
+		"    \"cmd/super-dolphin-gate/remote_refresh_seed.go\",\n    \"cmd/super-dolphin-gate/main.go\",\n")
+	assertCandidateRejectedBeforeBuild(t, unsorted)
 }
 
 func TestEnsureCandidateRejectsStaticRuntimeDepsImageArgDefault(t *testing.T) {
@@ -370,9 +390,9 @@ func TestEnsureCandidateRejectsMissingDriftedOrUnclosedRuntimeDepsLock(t *testin
 	assertCandidateRejectedBeforeBuild(t, outsideClosure)
 }
 
-func TestPrepareCandidateAcceptsRuntimeDepsSchema4Closure(t *testing.T) {
+func TestPrepareCandidateAcceptsRuntimeDepsSchema6Closure(t *testing.T) {
 	if _, err := prepareCandidate(candidateRequest(candidateEntries(validCandidateDockerfile()), digest("f"), digest("e"))); err != nil {
-		t.Fatalf("schema4 runtime dependency closure: %v", err)
+		t.Fatalf("schema5 runtime dependency closure: %v", err)
 	}
 }
 
@@ -395,7 +415,7 @@ func TestPrepareCandidateRejectsRuntimeDepsNonLocalOrRegistryLockFields(t *testi
 
 func TestPrepareCandidateRejectsLegacyIncompleteAndDriftedRuntimeDepsInputs(t *testing.T) {
 	legacy := candidateEntries(validCandidateDockerfile())
-	replaceEntryText(t, legacy, runtimeDepsLockPath, `"schema_version":"4"`, `"schema_version":"1"`)
+	replaceEntryText(t, legacy, runtimeDepsLockPath, `"schema_version":"7"`, `"schema_version":"1"`)
 	assertCandidateRejectedBeforeBuild(t, legacy)
 
 	missingGoMod := candidateEntries(validCandidateDockerfile())
@@ -413,6 +433,10 @@ func TestPrepareCandidateRejectsLegacyIncompleteAndDriftedRuntimeDepsInputs(t *t
 	driftedNilnessGuard := candidateEntries(validCandidateDockerfile())
 	changeEntry(t, driftedNilnessGuard, "scripts/nilness_guard.go", "package main\n// drift\n")
 	assertCandidateRejectedBeforeBuild(t, driftedNilnessGuard)
+
+	driftedRuntimeSeedScript := candidateEntries(validCandidateDockerfile())
+	changeEntry(t, driftedRuntimeSeedScript, "cmd/super-dolphin-gate/remote_refresh_seed_script.go", "package main\n// drift\n")
+	assertCandidateRejectedBeforeBuild(t, driftedRuntimeSeedScript)
 }
 
 func TestEnsureCandidateRejectsMissingOrDriftedSqruffArtifactLock(t *testing.T) {
@@ -523,7 +547,7 @@ func candidateRequest(entries []sourceexport.TreeEntry, acceptedInput string, ac
 
 func testRuntimeDepsLock(files map[string]string) string {
 	lock := runtimeDepsLock{
-		SchemaVersion: "4", BuildMode: "node-local", CacheScope: "node",
+		SchemaVersion: "7", BuildMode: "node-local", CacheScope: "node",
 		Inputs: runtimeDepsInputs{
 			Dockerfile:    contentDigest(files["build/gate/runtime-deps.Dockerfile"]),
 			ToolchainLock: contentDigest(files["build/gate/toolchain.lock"]),
@@ -536,8 +560,9 @@ func testRuntimeDepsLock(files map[string]string) string {
 			ProxyGoSum:          contentDigest(files["build/gate/runtime-proxy/go.sum"]),
 			ToolsGoMod:          contentDigest(files["build/gate/runtime-tools/go.mod"]),
 			ToolsGoSum:          contentDigest(files["build/gate/runtime-tools/go.sum"]),
-			ManifestBuilder:     contentDigest(files["build/gate/cmd/runtime-seed-manifest/main.go"]),
-			ManifestAPI:         contentDigest(files["internal/devtools/gate/executor_seed.go"]),
+			RuntimeSeedWorker:   contentDigest(files["internal/devtools/gate/executor_seed.go"]),
+			RuntimeSeedRecipe:   contentDigest(files["cmd/super-dolphin-gate/remote_refresh_seed.go"]),
+			RuntimeSeedScript:   contentDigest(files["cmd/super-dolphin-gate/remote_refresh_seed_script.go"]),
 		},
 		Paths: canonicalRuntimeDepsPaths(),
 	}
@@ -552,7 +577,9 @@ func runtimeDepsTestInputPaths() []string {
 		"frontend-app/package-lock.json", "build/gate/runtime-lsp/package-lock.json",
 		"build/gate/runtime-proxy/go.mod", "build/gate/runtime-proxy/go.sum",
 		"build/gate/runtime-tools/go.mod", "build/gate/runtime-tools/go.sum",
-		"build/gate/cmd/runtime-seed-manifest/main.go", "internal/devtools/gate/executor_seed.go",
+		"internal/devtools/gate/executor_seed.go",
+		"cmd/super-dolphin-gate/remote_refresh_seed.go",
+		"cmd/super-dolphin-gate/remote_refresh_seed_script.go",
 	}
 }
 

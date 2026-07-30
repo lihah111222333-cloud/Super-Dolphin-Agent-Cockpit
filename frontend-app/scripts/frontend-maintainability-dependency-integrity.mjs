@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { immutableDependencyRoot, nodeModulesPath } from './frontend-execution-closure.mjs';
 
 export const DEPENDENCY_TREE_ALGORITHM = 'portable-node-modules-integrity-v2';
 export const DEPENDENCY_INTEGRITY_GENERATOR = Object.freeze({
@@ -202,11 +203,11 @@ function selectedForEnvironment(record, environment) {
     && allowedByConstraint(record.cpu, environment.arch);
 }
 
-function optionalDependencyClosure(appRoot, packages, environment) {
+function optionalDependencyClosure(nodeModulesRoot, packages, environment) {
   const records = platformConstrainedOptionalRecords(packages);
   const selections = records.map((record) => {
     const selected = selectedForEnvironment(record, environment);
-    const absolutePath = path.join(appRoot, record.path);
+    const absolutePath = nodeModulesPath(nodeModulesRoot, record.path);
     const present = fs.existsSync(absolutePath);
     if (present !== selected) fail(`optional dependency presence mismatch: ${record.path}`);
     if (present) {
@@ -348,18 +349,19 @@ function relativeBinTarget(record) {
 }
 
 export function assertBinLinkClosure(appRoot, environment = currentDependencyEnvironment()) {
+	const nodeModulesRoot = immutableDependencyRoot(appRoot);
   const packages = lockPackages(appRoot);
   const records = binRecords(packages);
   const expectedByDirectory = new Map();
   for (const record of records) {
-    if (!fs.existsSync(path.join(appRoot, record.packagePath))) continue;
+    if (!fs.existsSync(nodeModulesPath(nodeModulesRoot, record.packagePath))) continue;
     const names = expectedByDirectory.get(record.binDirectory) || new Map();
     const existing = names.get(record.name);
     if (!existing || (!existing.direct && record.direct)) names.set(record.name, record);
     expectedByDirectory.set(record.binDirectory, names);
   }
   for (const [relativeDirectory, names] of expectedByDirectory) {
-    const absoluteDirectory = path.join(appRoot, relativeDirectory);
+    const absoluteDirectory = nodeModulesPath(nodeModulesRoot, relativeDirectory);
     const expectedEntries = [...names.keys()].flatMap((name) => (
       environment.platform === 'win32' ? [name, `${name}.cmd`, `${name}.ps1`] : [name]
     )).sort();
@@ -391,13 +393,14 @@ export function assertBinLinkClosure(appRoot, environment = currentDependencyEnv
 
 export function assertHiddenPackageLockClosure(appRoot) {
   const packages = lockPackages(appRoot);
-  const hiddenLockPath = path.join(appRoot, 'node_modules', '.package-lock.json');
+  const nodeModulesRoot = immutableDependencyRoot(appRoot);
+  const hiddenLockPath = path.join(nodeModulesRoot, '.package-lock.json');
   const hiddenLock = readJson(hiddenLockPath, 'immutable dependency hidden package-lock');
   if (hiddenLock.lockfileVersion !== 3 || !hiddenLock.packages || typeof hiddenLock.packages !== 'object') {
     fail(`immutable dependency hidden package-lock schema mismatch: ${hiddenLockPath}`);
   }
   const expected = Object.entries(packages)
-    .filter(([packagePath]) => packagePath && fs.existsSync(path.join(appRoot, packagePath)))
+    .filter(([packagePath]) => packagePath && fs.existsSync(nodeModulesPath(nodeModulesRoot, packagePath)))
     .map(([packagePath, entry]) => immutableLockRecord(packagePath, entry))
     .sort((left, right) => left.path.localeCompare(right.path));
   const actual = Object.entries(hiddenLock.packages)
@@ -414,17 +417,13 @@ export function dependencyTreeIntegrity(appRoot, {
   environment = currentDependencyEnvironment(),
   expectedOptionalLockSha256,
 } = {}) {
-  const nodeModulesRoot = path.join(appRoot, 'node_modules');
-  const rootStat = fs.lstatSync(nodeModulesRoot);
-  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
-    fail(`immutable dependency root must be a physical directory: ${nodeModulesRoot}`);
-  }
+  const nodeModulesRoot = immutableDependencyRoot(appRoot);
   const packageLockPath = path.join(appRoot, 'package-lock.json');
   let optional = { excludedRoots: [], optionalLockSha256: canonicalHash([]), optionalSelectionSha256: canonicalHash([]) };
   let bins = { binLockSha256: canonicalHash([]), binDirectories: [] };
   if (fs.existsSync(packageLockPath)) {
     const packages = lockPackages(appRoot);
-    optional = optionalDependencyClosure(appRoot, packages, environment);
+    optional = optionalDependencyClosure(nodeModulesRoot, packages, environment);
     if (expectedOptionalLockSha256 && optional.optionalLockSha256 !== expectedOptionalLockSha256) {
       fail('optional dependency lock closure mismatch');
     }
@@ -493,7 +492,7 @@ export function dependencyIntegrityForTree(appRoot, environment = currentDepende
   const tree = dependencyTreeIntegrity(appRoot, { environment });
   assertHiddenPackageLockClosure(appRoot);
   const requiredTools = Object.fromEntries(DEPENDENCY_REQUIRED_TOOL_PATHS.map((relativePath) => {
-    const absolutePath = path.join(tree.nodeModulesRoot, relativePath);
+    const absolutePath = nodeModulesPath(tree.nodeModulesRoot, relativePath);
     if (!fs.existsSync(absolutePath)) fail(`immutable dependency tool is missing: ${relativePath}`);
     return [relativePath, hashValue(fs.readFileSync(absolutePath))];
   }));

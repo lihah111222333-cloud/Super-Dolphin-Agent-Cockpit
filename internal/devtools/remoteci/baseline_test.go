@@ -1,0 +1,124 @@
+package remoteci
+
+import (
+	"encoding/json"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestBaselineStateSingleAnchorWithDeltas(t *testing.T) {
+	state := validBaselineState()
+	if err := state.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	if got := state.CurrentAnchorRef(); got != state.Anchor {
+		t.Fatalf("CurrentAnchorRef() = %#v", got)
+	}
+	deltas := state.DeltaRefs()
+	deltas[0].Generation = 99
+	if state.Deltas[0].Generation == 99 {
+		t.Fatal("DeltaRefs() returned mutable backing slice")
+	}
+}
+
+func TestBaselineStateAcceptsCommitOnlyDelta(t *testing.T) {
+	state := validBaselineState()
+	state.Deltas[0].MainTree = state.Deltas[0].BaseTree
+	state.Deltas[1].BaseTree = state.Deltas[0].MainTree
+	if err := state.Validate(); err != nil {
+		t.Fatalf("commit-only delta rejected: %v", err)
+	}
+}
+
+func TestBaselineStateRejectsInvalidAnchorAndDeltaChains(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*BaselineState)
+	}{
+		{"anchor digest missing", func(state *BaselineState) { state.Anchor.ManifestDigest = "" }},
+		{"top cache drift", func(state *BaselineState) { state.DataCachePath = "/super-dolphin/ci/drift" }},
+		{"delta digest drift", func(state *BaselineState) { state.BaselineManifestDigest = digest("9") }},
+		{"delta order", func(state *BaselineState) { state.Deltas[1].Generation = state.Deltas[0].Generation }},
+		{"delta overflow", func(state *BaselineState) {
+			state.Deltas = append(state.Deltas, state.Deltas[1], state.Deltas[1], state.Deltas[1])
+		}},
+		{"delta base drift", func(state *BaselineState) { state.Deltas[1].BaseCommit = strings.Repeat("9", 40) }},
+		{"previous delta without anchor", func(state *BaselineState) {
+			state.PreviousDeltas = append([]BaselineDeltaRef(nil), state.Deltas...)
+		}},
+		{"retired anchor overlaps", func(state *BaselineState) { anchor := state.Anchor; state.RetiredAnchor = &anchor }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			state := validBaselineState()
+			test.mutate(&state)
+			if err := state.Validate(); err == nil {
+				t.Fatal("Validate() error = nil")
+			}
+		})
+	}
+}
+
+func TestBaselineStateMigratesV4CurrentToAnchor(t *testing.T) {
+	legacy := map[string]any{"schema_version": 4, "generation": 2, "main_commit": strings.Repeat("a", 40), "main_tree": strings.Repeat("b", 40), "platform": "linux/amd64", "policy_digest": digest("c"), "toolchain_digest": digest("d"), "runtime_image": "registry.example/runtime@" + digest("e"), "gate_binary_sha256": digest("1"), "runtime_seed_manifest_sha256": digest("2"), "baseline_manifest_digest": digest("3"), "data_cache_id": "edc-current", "data_cache_bucket": "super-dolphin-ci", "data_cache_path": "/super-dolphin/ci/baselines/2", "data_cache_size_gib": 20, "source_object_prefix": "baseline-artifacts/2/", "created_at": "2026-07-27T01:00:00Z", "accepted_at": "2026-07-27T01:01:00Z", "previous": map[string]any{"generation": 1, "data_cache_id": "edc-previous", "data_cache_bucket": "super-dolphin-ci", "data_cache_path": "/super-dolphin/ci/baselines/1", "source_object_prefix": "baseline-artifacts/1/", "accepted_at": "2026-07-27T00:01:00Z"}}
+	data, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state BaselineState
+	if err := json.Unmarshal(data, &state); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if state.Anchor.Kind != BaselineCacheKindAnchor || state.Anchor.ManifestDigest != state.BaselineManifestDigest || len(state.Deltas) != 0 || state.PreviousAnchor == nil || state.PreviousAnchor.ManifestDigest != "" {
+		t.Fatalf("migrated state = %#v", state)
+	}
+	if err := state.Validate(); err != nil {
+		t.Fatalf("migrated Validate() error = %v", err)
+	}
+}
+
+func TestBaselineStateRejectsUnknownAndMultipleValues(t *testing.T) {
+	data, err := json.Marshal(validBaselineState())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, input := range [][]byte{append(data[:len(data)-1], []byte(`,"unknown":true}`)...), append(data, []byte(` {}`)...)} {
+		var state BaselineState
+		if err := json.Unmarshal(input, &state); err == nil {
+			t.Fatal("Unmarshal() accepted invalid wire data")
+		}
+	}
+}
+
+func TestBaselineStateFieldRegistry(t *testing.T) {
+	assertBaselineFields(t, reflect.TypeFor[BaselineState](), []string{"SchemaVersion", "Generation", "MainCommit", "MainTree", "Platform", "PolicyDigest", "ToolchainDigest", "RuntimeImage", "GateBinarySHA256", "RuntimeSeedSHA256", "BaselineManifestDigest", "DataCacheID", "DataCacheBucket", "DataCachePath", "DataCacheSizeGiB", "SourceObjectPrefix", "CreatedAt", "AcceptedAt", "Anchor", "Deltas", "PreviousAnchor", "RetiredAnchor", "PreviousDeltas", "RetiredDeltas"})
+	assertBaselineFields(t, reflect.TypeFor[BaselineCacheRef](), []string{"Generation", "Kind", "ManifestDigest", "MainCommit", "MainTree", "DataCacheID", "DataCacheBucket", "DataCachePath", "SizeGiB", "SourceObjectPrefix", "AcceptedAt"})
+	assertBaselineFields(t, reflect.TypeFor[BaselineDeltaRef](), []string{"Generation", "SourceObjectPrefix", "ManifestDigest", "BaseCommit", "BaseTree", "MainCommit", "MainTree", "AcceptedAt"})
+}
+
+func validBaselineState() BaselineState {
+	created := time.Date(2026, 7, 27, 1, 0, 0, 0, time.UTC)
+	state := BaselineState{SchemaVersion: BaselineStateSchemaVersion, Generation: 3, MainCommit: strings.Repeat("a", 40), MainTree: strings.Repeat("b", 40), Platform: "linux/amd64", PolicyDigest: digest("c"), ToolchainDigest: digest("d"), RuntimeImage: "registry.example/runtime@" + digest("e"), GateBinarySHA256: digest("1"), RuntimeSeedSHA256: digest("2"), BaselineManifestDigest: digest("3"), DataCacheID: "edc-anchor", DataCacheBucket: "super-dolphin-ci", DataCachePath: "/super-dolphin/ci/baselines/1", DataCacheSizeGiB: 20, SourceObjectPrefix: "baseline-artifacts/3/", CreatedAt: created, AcceptedAt: created.Add(3 * time.Minute)}
+	anchorCommit, anchorTree := strings.Repeat("1", 40), strings.Repeat("2", 40)
+	deltaCommit, deltaTree := strings.Repeat("f", 40), strings.Repeat("e", 40)
+	state.Anchor = BaselineCacheRef{Generation: 1, Kind: BaselineCacheKindAnchor, ManifestDigest: digest("4"), MainCommit: anchorCommit, MainTree: anchorTree, DataCacheID: state.DataCacheID, DataCacheBucket: state.DataCacheBucket, DataCachePath: state.DataCachePath, SizeGiB: state.DataCacheSizeGiB, SourceObjectPrefix: "baseline-artifacts/1/", AcceptedAt: created}
+	state.Deltas = []BaselineDeltaRef{
+		{Generation: 2, SourceObjectPrefix: "baseline-artifacts/2/", ManifestDigest: digest("5"), BaseCommit: anchorCommit, BaseTree: anchorTree, MainCommit: deltaCommit, MainTree: deltaTree, AcceptedAt: created.Add(time.Minute)},
+		{Generation: state.Generation, SourceObjectPrefix: state.SourceObjectPrefix, ManifestDigest: state.BaselineManifestDigest, BaseCommit: deltaCommit, BaseTree: deltaTree, MainCommit: state.MainCommit, MainTree: state.MainTree, AcceptedAt: state.AcceptedAt},
+	}
+	return state
+}
+
+func digest(value string) string { return "sha256:" + strings.Repeat(value, 64) }
+func assertBaselineFields(t *testing.T, structType reflect.Type, expected []string) {
+	t.Helper()
+	actual := make([]string, 0, structType.NumField())
+	for index := 0; index < structType.NumField(); index++ {
+		actual = append(actual, structType.Field(index).Name)
+	}
+	if !reflect.DeepEqual(actual, expected) {
+		t.Fatalf("%s fields = %v, want %v", structType.Name(), actual, expected)
+	}
+}

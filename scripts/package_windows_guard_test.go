@@ -70,6 +70,7 @@ func TestGoWithGuardUsesHostToolchainForCrossCompileGuards(t *testing.T) {
 	assertScriptOrder(t, script, "unset GOOS GOARCH CGO_ENABLED", `run_guard "$real_go"`)
 }
 
+// super-dolphin-ci: platform=windows
 func TestPackageWindowsWhatIfRunsCrossPlatformValidation(t *testing.T) {
 	pwsh, err := exec.LookPath("pwsh")
 	if err != nil {

@@ -548,7 +548,7 @@ CREATE TABLE IF NOT EXISTS coordinator_action_grants (
 var errActionGrantNotFound = errors.New("action grant not found")
 
 // ensureCoordinatorActionGrantSchema 创建并核对 durable grant 状态表及 receipt 索引，未知表结构直接失败。
-func ensureCoordinatorActionGrantSchema(ctx context.Context, db *sql.DB) error {
+func ensureCoordinatorActionGrantSchema(ctx context.Context, db coordinatorSchemaDB) error {
 	if _, err := db.ExecContext(ctx, coordinatorActionGrantSchema); err != nil {
 		return fmt.Errorf("initialize coordinator action grant SQLite: %w", err)
 	}

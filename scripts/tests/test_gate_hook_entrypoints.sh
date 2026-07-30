@@ -14,6 +14,42 @@ cat >"$bin_dir/super-dolphin-gate" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 if [[ "${1:-}" == "closure" && "${2:-}" == "check" ]]; then
+  if [[ "${GATE_HOOK_CLOSURE_DRIFT_ONCE:-0}" == 1 && ! -f "$GATE_HOOK_CAPTURE_DIR/closure-refreshed" ]]; then
+    exit 12
+  fi
+  printf '%s' "${4:-}" >"$GATE_HOOK_CAPTURE_DIR/closure-check-tree"
+  exit 0
+fi
+if [[ "${1:-}" == "closure" && "${2:-}" == "refresh" ]]; then
+  repository=$(git rev-parse --show-toplevel)
+  printf '%s\n' 'generated Dockerfile' >"$repository/build/gate/Dockerfile"
+  printf '%s\n' '{"schema_version":"test"}' >"$repository/build/gate/inputs.json"
+  printf '%s' "${4:-}" >"$GATE_HOOK_CAPTURE_DIR/closure-refresh-tree"
+  : >"$GATE_HOOK_CAPTURE_DIR/closure-refreshed"
+  exit 0
+fi
+if [[ "${1:-}" == "project-map" && "${2:-}" == "check" ]]; then
+  [[ "${3:-}" == --tree && -n "${4:-}" ]] || exit 65
+  if [[ ! -e "$GATE_HOOK_CAPTURE_DIR/project-map-initial-check-tree" ]]; then
+    printf '%s' "$4" >"$GATE_HOOK_CAPTURE_DIR/project-map-initial-check-tree"
+  fi
+  printf '%s' "$4" >"$GATE_HOOK_CAPTURE_DIR/project-map-check-tree"
+  if [[ "${GATE_HOOK_PROJECT_MAP_ALWAYS_DRIFT:-0}" == 1 ]]; then
+    exit 12
+  fi
+  if [[ "${GATE_HOOK_PROJECT_MAP_DRIFT_ONCE:-0}" == 1 && ! -f "$GATE_HOOK_CAPTURE_DIR/project-map-refreshed" ]]; then
+    exit 12
+  fi
+  exit 0
+fi
+if [[ "${1:-}" == "project-map" && "${2:-}" == "refresh" ]]; then
+  [[ "${3:-}" == --tree && -n "${4:-}" ]] || exit 65
+  repository=$(git rev-parse --show-toplevel)
+  rm -rf -- "$repository/docs/doc/codemap/project-map"
+  mkdir -p "$repository/docs/doc/codemap/project-map"
+  printf '%s\n' 'generated project map' >"$repository/docs/doc/codemap/project-map/AI_PROJECT_MAP.md"
+  printf '%s' "$4" >"$GATE_HOOK_CAPTURE_DIR/project-map-refresh-tree"
+  : >"$GATE_HOOK_CAPTURE_DIR/project-map-refreshed"
   exit 0
 fi
 : "${GATE_HOOK_CAPTURE_DIR:?}"
@@ -37,7 +73,23 @@ fi
 exit "${GATE_HOOK_EXIT_CODE:-0}"
 EOF
 chmod 0o755 "$bin_dir/super-dolphin-gate" 2>/dev/null || chmod 755 "$bin_dir/super-dolphin-gate"
-
+for forbidden_entrypoint in node make; do
+  cat >"$bin_dir/$forbidden_entrypoint" <<EOF
+#!/usr/bin/env bash
+: >"$capture_dir/$forbidden_entrypoint-executed"
+exit 97
+EOF
+  chmod 0o755 "$bin_dir/$forbidden_entrypoint" 2>/dev/null || chmod 755 "$bin_dir/$forbidden_entrypoint"
+done
+gate_git=${SUPER_DOLPHIN_GATE_GIT:-}
+if [[ -z "$gate_git" ]]; then
+  gate_git=$(command -v git)
+fi
+[[ -x "$gate_git" ]] || {
+  printf 'FAIL: controlled git executable is unavailable\n' >&2
+  exit 1
+}
+ln -s "$gate_git" "$bin_dir/git"
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
   exit 1
@@ -74,9 +126,15 @@ git -C "$git_repo" config user.name 'Hook Fixture'
 git -C "$git_repo" config user.email 'hook-fixture@example.invalid'
 git -C "$git_repo" config superdolphin.gateLauncher "$bin_dir/super-dolphin-gate"
 mkdir -p "$git_repo/.githooks"
+mkdir -p "$git_repo/build/gate"
+mkdir -p "$git_repo/scripts" "$git_repo/docs/doc/codemap/project-map"
 cp "$repo_root/.githooks/trusted-gate-launcher.sh" "$git_repo/.githooks/trusted-gate-launcher.sh"
 printf '%s\n' 'base' >"$git_repo/tracked.txt"
-git -C "$git_repo" add tracked.txt .githooks/trusted-gate-launcher.sh
+printf '%s\n' 'stale Dockerfile' >"$git_repo/build/gate/Dockerfile"
+printf '%s\n' '{"schema_version":"stale"}' >"$git_repo/build/gate/inputs.json"
+printf '%s\n' 'trusted generator' >"$git_repo/scripts/generate_ai_project_map.mjs"
+printf '%s\n' 'stale project map' >"$git_repo/docs/doc/codemap/project-map/AI_PROJECT_MAP.md"
+git -C "$git_repo" add tracked.txt .githooks/trusted-gate-launcher.sh build/gate/Dockerfile build/gate/inputs.json scripts/generate_ai_project_map.mjs docs/doc/codemap/project-map/AI_PROJECT_MAP.md
 git -C "$git_repo" commit -qm 'fixture base'
 mkdir -p "$git_repo/nested"
 cli_error="$fixture_root/cli-error.expected"
@@ -97,6 +155,7 @@ assert_file_equals "$capture_dir/arg.2" --tree "pre-commit arg 2"
 assert_file_equals "$capture_dir/arg.3" "$clean_tree" "pre-commit immutable tree"
 assert_file_equals "$capture_dir/cwd" "$git_repo/nested" "clean pre-commit cwd"
 assert_file_equals "$capture_dir/staged-tree" "$clean_tree" "clean pre-commit staged tree"
+assert_file_equals "$capture_dir/project-map-check-tree" "$clean_tree" "clean project-map staged tree"
 cmp -s "$cli_error" "$fixture_root/pre-commit.err" || fail "pre-commit did not return readable CLI stderr"
 [[ ! -s "$capture_dir/stdin" ]] || fail "pre-commit forwarded unexpected stdin"
 
@@ -115,6 +174,129 @@ assert_file_equals "$capture_dir/cwd" "$git_repo/nested" "staged pre-commit cwd"
 assert_file_equals "$capture_dir/staged-tree" "$staged_tree" "staged pre-commit tree"
 git -C "$git_repo" diff --quiet -- tracked.txt && fail "staged pre-commit discarded the unstaged worktree change"
 
+for closure_output in build/gate/Dockerfile build/gate/inputs.json; do
+  git -C "$git_repo" restore --staged --worktree -- build/gate/Dockerfile build/gate/inputs.json
+  printf '%s\n' 'staged closure output' >"$git_repo/$closure_output"
+  git -C "$git_repo" add -- "$closure_output"
+  printf '%s\n' 'unstaged closure output' >>"$git_repo/$closure_output"
+  reset_capture
+  (
+    cd "$git_repo/nested"
+    run_with_status "$fixture_root/unstaged-${closure_output##*/}.status" bash "$repo_root/.githooks/pre-commit" \
+      2>"$fixture_root/unstaged-${closure_output##*/}.err"
+  )
+  assert_file_equals "$fixture_root/unstaged-${closure_output##*/}.status" 1 "unstaged $closure_output pre-commit exit code"
+  grep -Fq 'gate-image closure outputs have unstaged changes' "$fixture_root/unstaged-${closure_output##*/}.err" || fail "unstaged $closure_output did not fail fast"
+  [[ ! -e "$capture_dir/closure-check-tree" ]] || fail "unstaged $closure_output invoked closure check"
+  [[ ! -e "$capture_dir/argc" ]] || fail "unstaged $closure_output invoked gate execution"
+  git -C "$git_repo" diff --quiet -- "$closure_output" && fail "unstaged $closure_output was overwritten"
+done
+git -C "$git_repo" restore --staged --worktree -- build/gate/Dockerfile build/gate/inputs.json
+
+closure_drift_tree=$(git -C "$git_repo" write-tree)
+reset_capture
+(
+  cd "$git_repo/nested"
+  GATE_HOOK_CLOSURE_DRIFT_ONCE=1 GATE_HOOK_CAPTURE_SOURCE=1 run_with_status \
+    "$fixture_root/closure-refresh-pre-commit.status" bash "$repo_root/.githooks/pre-commit"
+)
+assert_file_equals "$fixture_root/closure-refresh-pre-commit.status" 0 "closure refresh pre-commit exit code"
+assert_file_equals "$capture_dir/closure-refresh-tree" "$closure_drift_tree" "closure refresh source tree"
+refreshed_tree=$(git -C "$git_repo" write-tree)
+[[ "$refreshed_tree" != "$closure_drift_tree" ]] || fail "closure refresh did not update the staged tree"
+assert_file_equals "$capture_dir/closure-check-tree" "$refreshed_tree" "closure refreshed verification tree"
+assert_file_equals "$capture_dir/staged-tree" "$refreshed_tree" "gate received refreshed staged tree"
+assert_file_equals "$git_repo/build/gate/Dockerfile" 'generated Dockerfile' "closure refreshed Dockerfile"
+assert_file_equals "$git_repo/build/gate/inputs.json" '{"schema_version":"test"}' "closure refreshed input manifest"
+git -C "$git_repo" diff --quiet -- tracked.txt && fail "closure refresh discarded the unstaged worktree change"
+
+project_map_drift_tree=$(git -C "$git_repo" write-tree)
+reset_capture
+(
+  cd "$git_repo/nested"
+  GATE_HOOK_PROJECT_MAP_DRIFT_ONCE=1 GATE_HOOK_CAPTURE_SOURCE=1 run_with_status \
+    "$fixture_root/project-map-refresh-pre-commit.status" bash "$repo_root/.githooks/pre-commit"
+)
+assert_file_equals "$fixture_root/project-map-refresh-pre-commit.status" 0 "project-map refresh pre-commit exit code"
+assert_file_equals "$capture_dir/project-map-initial-check-tree" "$project_map_drift_tree" "project-map initial check tree"
+assert_file_equals "$capture_dir/project-map-refresh-tree" "$project_map_drift_tree" "project-map refresh source tree"
+project_map_refreshed_tree=$(git -C "$git_repo" write-tree)
+[[ "$project_map_refreshed_tree" != "$project_map_drift_tree" ]] || fail "project-map refresh did not update the staged tree"
+assert_file_equals "$capture_dir/project-map-check-tree" "$project_map_refreshed_tree" "project-map refreshed verification tree"
+assert_file_equals "$capture_dir/staged-tree" "$project_map_refreshed_tree" "gate received project-map refreshed staged tree"
+assert_file_equals "$git_repo/docs/doc/codemap/project-map/AI_PROJECT_MAP.md" 'generated project map' "project-map refreshed output"
+git -C "$git_repo" diff --quiet -- tracked.txt && fail "project-map refresh discarded the unstaged worktree change"
+
+dirty_project_map_tree=$(git -C "$git_repo" write-tree)
+tracked_index_before=$(git -C "$git_repo" show :tracked.txt)
+printf '%s\n' 'unstaged project map output' >>"$git_repo/docs/doc/codemap/project-map/AI_PROJECT_MAP.md"
+printf '%s\n' 'untracked user work' >"$git_repo/untracked-user.txt"
+reset_capture
+(
+  cd "$git_repo/nested"
+  GATE_HOOK_CAPTURE_SOURCE=1 run_with_status \
+    "$fixture_root/unstaged-project-map.status" bash "$repo_root/.githooks/pre-commit"
+)
+assert_file_equals "$fixture_root/unstaged-project-map.status" 0 "unstaged project-map output pre-commit exit code"
+assert_file_equals "$capture_dir/project-map-initial-check-tree" "$dirty_project_map_tree" "unstaged project-map initial check tree"
+assert_file_equals "$capture_dir/project-map-refresh-tree" "$dirty_project_map_tree" "unstaged project-map refresh source tree"
+assert_file_equals "$capture_dir/project-map-check-tree" "$dirty_project_map_tree" "unstaged project-map refreshed verification tree"
+assert_file_equals "$capture_dir/staged-tree" "$dirty_project_map_tree" "unstaged project-map gate tree"
+assert_file_equals "$git_repo/docs/doc/codemap/project-map/AI_PROJECT_MAP.md" 'generated project map' "unstaged project-map refreshed output"
+git -C "$git_repo" diff --quiet -- docs/doc/codemap/project-map || fail "unstaged project-map output remained dirty after refresh"
+git -C "$git_repo" diff --quiet -- tracked.txt && fail "unstaged project-map refresh discarded unrelated worktree changes"
+[[ "$(git -C "$git_repo" show :tracked.txt)" == "$tracked_index_before" ]] || fail "unstaged project-map refresh changed an unrelated staged file"
+assert_file_equals "$git_repo/untracked-user.txt" 'untracked user work' "unstaged project-map refresh preserved unrelated untracked file"
+git -C "$git_repo" ls-files --error-unmatch -- untracked-user.txt >/dev/null 2>&1 && fail "unstaged project-map refresh staged an unrelated untracked file"
+rm "$git_repo/untracked-user.txt"
+
+untracked_project_map_tree=$(git -C "$git_repo" write-tree)
+printf '%s\n' 'untracked project map output' >"$git_repo/docs/doc/codemap/project-map/untracked.md"
+printf '%s\n' 'second untracked user work' >"$git_repo/untracked-user.txt"
+reset_capture
+(
+  cd "$git_repo/nested"
+  GATE_HOOK_CAPTURE_SOURCE=1 run_with_status \
+    "$fixture_root/untracked-project-map.status" bash "$repo_root/.githooks/pre-commit"
+)
+assert_file_equals "$fixture_root/untracked-project-map.status" 0 "untracked project-map output pre-commit exit code"
+assert_file_equals "$capture_dir/project-map-initial-check-tree" "$untracked_project_map_tree" "untracked project-map initial check tree"
+assert_file_equals "$capture_dir/project-map-refresh-tree" "$untracked_project_map_tree" "untracked project-map refresh source tree"
+assert_file_equals "$capture_dir/project-map-check-tree" "$untracked_project_map_tree" "untracked project-map refreshed verification tree"
+assert_file_equals "$capture_dir/staged-tree" "$untracked_project_map_tree" "untracked project-map gate tree"
+[[ ! -e "$git_repo/docs/doc/codemap/project-map/untracked.md" ]] || fail "untracked project-map output survived trusted refresh"
+git -C "$git_repo" diff --quiet -- docs/doc/codemap/project-map || fail "untracked project-map output remained dirty after refresh"
+assert_file_equals "$git_repo/untracked-user.txt" 'second untracked user work' "untracked project-map refresh preserved unrelated untracked file"
+git -C "$git_repo" ls-files --error-unmatch -- untracked-user.txt >/dev/null 2>&1 && fail "untracked project-map refresh staged an unrelated untracked file"
+rm "$git_repo/untracked-user.txt"
+
+project_map_still_drifted_tree=$(git -C "$git_repo" write-tree)
+reset_capture
+(
+  cd "$git_repo/nested"
+  GATE_HOOK_PROJECT_MAP_ALWAYS_DRIFT=1 run_with_status \
+    "$fixture_root/project-map-still-drifted.status" bash "$repo_root/.githooks/pre-commit" \
+    2>"$fixture_root/project-map-still-drifted.err"
+)
+assert_file_equals "$fixture_root/project-map-still-drifted.status" 1 "project-map persistent drift pre-commit exit code"
+assert_file_equals "$capture_dir/project-map-refresh-tree" "$project_map_still_drifted_tree" "project-map persistent drift refresh source tree"
+assert_file_equals "$capture_dir/project-map-check-tree" "$project_map_still_drifted_tree" "project-map persistent drift refreshed verification tree"
+grep -Fq 'project-map still drifted after one automatic refresh' "$fixture_root/project-map-still-drifted.err" || fail "persistent project-map drift did not block after one refresh"
+
+printf '%s\n' 'malicious generator candidate' >>"$git_repo/scripts/generate_ai_project_map.mjs"
+printf '%s\n' 'malicious Makefile candidate' >"$git_repo/Makefile"
+git -C "$git_repo" add -- scripts/generate_ai_project_map.mjs Makefile
+reset_capture
+(
+  cd "$git_repo/nested"
+  GATE_HOOK_CAPTURE_SOURCE=1 run_with_status "$fixture_root/candidate-project-map-generator.status" bash "$repo_root/.githooks/pre-commit"
+)
+assert_file_equals "$fixture_root/candidate-project-map-generator.status" 0 "candidate project-map generator pre-commit exit code"
+[[ ! -e "$capture_dir/node-executed" ]] || fail "candidate project-map generator was executed"
+[[ ! -e "$capture_dir/make-executed" ]] || fail "candidate Makefile was executed"
+assert_file_equals "$capture_dir/staged-tree" "$(git -C "$git_repo" write-tree)" "candidate project-map staged tree"
+git -C "$git_repo" restore --staged --worktree -- scripts/generate_ai_project_map.mjs Makefile
+
 linked_repo="$fixture_root/linked-repository"
 git -C "$git_repo" worktree add -q -b hook-linked "$linked_repo" HEAD
 printf '%s\n' 'linked staged' >"$linked_repo/tracked.txt"
@@ -130,6 +312,7 @@ reset_capture
 assert_file_equals "$fixture_root/linked-pre-commit.status" 0 "linked pre-commit exit code"
 assert_file_equals "$capture_dir/cwd" "$linked_repo/nested" "linked pre-commit cwd"
 assert_file_equals "$capture_dir/staged-tree" "$linked_tree" "linked pre-commit staged tree"
+assert_file_equals "$capture_dir/project-map-check-tree" "$linked_tree" "linked project-map staged tree"
 
 reset_capture
 push_input="$fixture_root/pre-push.stdin"
@@ -151,39 +334,6 @@ assert_file_equals "$capture_dir/arg.3" 'ssh://git@example.invalid/team/repo.git
 assert_file_equals "$capture_dir/cwd" "$linked_repo/nested" "pre-push cwd"
 cmp -s "$push_input" "$capture_dir/stdin" || fail "pre-push stdin was not forwarded byte-for-byte"
 cmp -s "$cli_error" "$fixture_root/pre-push.err" || fail "pre-push did not return readable CLI stderr"
-
-reset_capture
-codex_input="$fixture_root/codex.stdin"
-codex_output="$fixture_root/codex.expected"
-printf '%s\n' '{"session_id":"session-1","turn_id":"turn-1","cwd":"/tmp/repo","hook_event_name":"Stop","permission_mode":"default","stop_hook_active":false}' >"$codex_input"
-printf '%s\n' '{"decision":"block","reason":"fixture decision"}' >"$codex_output"
-GATE_HOOK_STDOUT_FILE="$codex_output" run_with_status "$fixture_root/codex.status" \
-  bash "$repo_root/scripts/codex_stop_gate.sh" <"$codex_input" >"$fixture_root/codex.actual"
-assert_file_equals "$fixture_root/codex.status" 0 "Codex exit code"
-assert_file_equals "$capture_dir/argc" 2 "Codex argc"
-assert_file_equals "$capture_dir/arg.0" hook "Codex arg 0"
-assert_file_equals "$capture_dir/arg.1" codex "Codex arg 1"
-cmp -s "$codex_input" "$capture_dir/stdin" || fail "Codex lifecycle JSON was not forwarded byte-for-byte"
-cmp -s "$codex_output" "$fixture_root/codex.actual" || fail "Codex decision JSON was not forwarded byte-for-byte"
-
-reset_capture
-GATE_HOOK_STDOUT_FILE="$codex_output" GATE_HOOK_EXIT_CODE=31 run_with_status "$fixture_root/codex-failure.status" \
-  bash "$repo_root/scripts/codex_stop_gate.sh" <"$codex_input" >"$fixture_root/codex-failure.actual"
-assert_file_equals "$fixture_root/codex-failure.status" 31 "Codex CLI failure exit code"
-cmp -s "$codex_input" "$capture_dir/stdin" || fail "Codex failure input was not forwarded byte-for-byte"
-cmp -s "$codex_output" "$fixture_root/codex-failure.actual" || fail "Codex failure notification JSON was not forwarded"
-
-reset_capture
-subagent_input="$fixture_root/subagent-stop.stdin"
-printf '%s\n' '{"session_id":"session-1","turn_id":"turn-2","cwd":"/tmp/repo","hook_event_name":"SubagentStop","permission_mode":"plan","stop_hook_active":false,"agent_id":"agent-7"}' >"$subagent_input"
-GATE_HOOK_STDOUT_FILE="$codex_output" run_with_status "$fixture_root/subagent-stop.status" \
-  bash "$repo_root/scripts/codex_stop_gate.sh" <"$subagent_input" >"$fixture_root/subagent-stop.actual"
-assert_file_equals "$fixture_root/subagent-stop.status" 0 "SubagentStop exit code"
-assert_file_equals "$capture_dir/argc" 2 "SubagentStop argc"
-assert_file_equals "$capture_dir/arg.0" hook "SubagentStop arg 0"
-assert_file_equals "$capture_dir/arg.1" codex "SubagentStop arg 1"
-cmp -s "$subagent_input" "$capture_dir/stdin" || fail "SubagentStop lifecycle JSON was not forwarded byte-for-byte"
-cmp -s "$codex_output" "$fixture_root/subagent-stop.actual" || fail "SubagentStop decision JSON was not forwarded byte-for-byte"
 
 no_repo="$fixture_root/not-a-repository"
 mkdir -p "$no_repo"
@@ -214,43 +364,17 @@ missing_commit_status=$?
   PATH=$missing_path bash "$repo_root/.githooks/pre-push" origin https://example.invalid/repo.git
 ) </dev/null >/dev/null 2>"$fixture_root/missing-pre-push.err"
 missing_push_status=$?
-PATH=$missing_path bash "$repo_root/scripts/codex_stop_gate.sh" <"$codex_input" >"$fixture_root/missing-codex.json"
-missing_codex_status=$?
 set -e
 git -C "$git_repo" config superdolphin.gateLauncher "$bin_dir/super-dolphin-gate"
 [[ $missing_commit_status -ne 0 ]] || fail "pre-commit accepted a missing CLI"
 [[ $missing_push_status -ne 0 ]] || fail "pre-push accepted a missing CLI"
-[[ $missing_codex_status -eq 0 ]] || fail "Codex missing-CLI decision must exit zero"
-python3 - "$fixture_root/missing-codex.json" <<'PY'
-import json
-import pathlib
-import sys
-
-decision = json.loads(pathlib.Path(sys.argv[1]).read_text())
-if decision.get("decision") != "block" or "not installed" not in decision.get("reason", ""):
-    raise SystemExit(f"invalid missing-CLI Codex decision: {decision!r}")
-PY
-
 for entrypoint in \
   "$repo_root/.githooks/pre-commit" \
-  "$repo_root/.githooks/pre-push" \
-  "$repo_root/scripts/codex_stop_gate.sh"; do
+  "$repo_root/.githooks/pre-push"; do
   if grep -Eq '(^|[^[:alnum:]_])(go|npm|npx|make)([^[:alnum:]_]|$)|go[[:space:]]+run' "$entrypoint"; then
     fail "$entrypoint contains a forbidden host gate command"
   fi
 done
-
-python3 - "$repo_root/.codex/hooks.json" <<'PY'
-import json
-import pathlib
-import sys
-
-document = json.loads(pathlib.Path(sys.argv[1]).read_text())
-for event in ("Stop", "SubagentStop"):
-    command = document["hooks"][event][0]["hooks"][0]["command"]
-    if "scripts/codex_stop_gate.sh" not in command:
-        raise SystemExit(f"{event} does not call the installed gate CLI launcher: {command!r}")
-PY
 
 production_e2e="$repo_root/scripts/tests/test_gate_hook_production_e2e.sh"
 [[ -x "$production_e2e" ]] || fail "production hook E2E driver is not executable"
@@ -263,7 +387,6 @@ grep -Fq 'git -C "$git_e2e_worktree/nested" push "$git_e2e_remote_name"' "$produ
 grep -Fq 'branch -D "$branch"' "$production_e2e" || fail "production E2E leaks its temporary branch"
 # shellcheck disable=SC2016
 grep -Fq 'remote remove "$remote_name"' "$production_e2e" || fail "production E2E leaks its temporary remote"
-grep -Fq 'scripts/codex_stop_gate.sh' "$production_e2e" || fail "production E2E bypasses the Codex thin entrypoint"
 if grep -Eq 'fake|mock|recordingHookCoordinator|provision production' "$production_e2e"; then
   fail "production hook E2E contains a fixture or provisioning bypass"
 fi

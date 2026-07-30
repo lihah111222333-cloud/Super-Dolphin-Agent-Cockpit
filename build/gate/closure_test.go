@@ -22,32 +22,40 @@ const (
 )
 
 type manifest struct {
-	SchemaVersion string   `json:"schema_version"`
-	Dockerfile    string   `json:"dockerfile"`
-	Inputs        []string `json:"inputs"`
+	SchemaVersion     string   `json:"schema_version"`
+	Dockerfile        string   `json:"dockerfile"`
+	Inputs            []string `json:"inputs"`
+	GateCompileInputs []string `json:"gate_compile_inputs"`
 }
 
-func TestTruthImageClosureUsesImmutableRuntimeAndRealExecutor(t *testing.T) {
+func TestTruthImageClosureUsesImmutableStandaloneRuntime(t *testing.T) {
 	root := repositoryRoot(t)
 	tracked := readManifest(t, root)
-	if tracked.SchemaVersion != "1" || tracked.Dockerfile != dockerfilePath || !sort.StringsAreSorted(tracked.Inputs) {
+	if tracked.SchemaVersion != "2" || tracked.Dockerfile != dockerfilePath ||
+		!sort.StringsAreSorted(tracked.Inputs) || !sort.StringsAreSorted(tracked.GateCompileInputs) {
 		t.Fatalf("invalid truth image manifest identity: %+v", tracked)
 	}
 	for _, required := range []string{
-		"cmd/super-dolphin-gate-executor/main.go",
+		"cmd/super-dolphin-gate/main.go",
 		"internal/devtools/gate/executor.go",
 		"internal/devtools/gate/executor_mapping.go",
-		"internal/devtools/gate/resource_witness.go",
-		"build/gate/cmd/runtime-seed-manifest/main.go",
 		toolchainPath, runtimeDepsLockPath, runtimeDepsBuildPath,
 	} {
 		if !slices.Contains(tracked.Inputs, required) {
 			t.Fatalf("truth image closure is missing %s", required)
 		}
 	}
+	for _, required := range []string{"cmd/super-dolphin-gate/main.go", "go.mod", "go.sum"} {
+		if !slices.Contains(tracked.GateCompileInputs, required) {
+			t.Fatalf("gate compile closure is missing %s", required)
+		}
+	}
 	for _, name := range tracked.Inputs {
 		if strings.Contains(name, "node_modules") || strings.HasSuffix(name, ".tar.gz") || strings.Contains(name, "runtime-tools-vendor") {
 			t.Fatalf("large dependency payload entered Git closure: %s", name)
+		}
+		if strings.Contains(name, "super-dolphin-gate-executor") || strings.Contains(name, "runtime-seed-manifest") {
+			t.Fatalf("retired secondary command entered standalone gate closure: %s", name)
 		}
 		info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(name)))
 		if err != nil || !info.Mode().IsRegular() {
@@ -66,17 +74,21 @@ func TestTruthDockerfileIsOfflineAndDigestOnly(t *testing.T) {
 	for _, required := range []string{
 		"ARG RUNTIME_DEPS_IMAGE\n",
 		"FROM ${RUNTIME_DEPS_IMAGE} AS build\nUSER root",
-		"go build -mod=mod -trimpath -buildvcs=false -o /out/super-dolphin-gate-executor",
-		"COPY --from=build /out/super-dolphin-gate-executor /usr/local/bin/super-dolphin-gate-executor",
+		"go build -mod=mod -trimpath -buildvcs=false -o /out/super-dolphin-gate ./cmd/super-dolphin-gate",
+		"COPY --from=build /out/super-dolphin-gate /super-dolphin-gate",
+		"ENV GOCACHE=/tmp/super-dolphin-go-build-cache",
+		"COPY --from=build --chown=65532:65532 /tmp/super-dolphin-go-build-cache /opt/super-dolphin-gate/cache-seed/go-build",
+		"org.super-dolphin.source-tree-sha=\"${BUILD_SOURCE_TREE}\"",
+		"org.super-dolphin.image-input-digest=\"${IMAGE_INPUT_DIGEST}\"",
+		"org.super-dolphin.policy-sha=\"${POLICY_DIGEST}\"",
+		"org.super-dolphin.toolchain-digest=\"${TOOLCHAIN_DIGEST}\"",
+		"org.super-dolphin.platform=\"${TARGET_PLATFORM}\"",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("truth Dockerfile is missing %q", required)
 		}
 	}
-	if !dockerfileCopiesSource(t, data, "internal/devtools/gate/resource_witness.go") {
-		t.Fatal("truth Dockerfile COPY closure is missing internal/devtools/gate/resource_witness.go")
-	}
-	for _, forbidden := range []string{"runtime-deps:latest", "runtime-node.tar", "runtime-tools.tar", "vendor.tar.gz", "npm ci", "go mod download"} {
+	for _, forbidden := range []string{"runtime-deps:latest", "runtime-node.tar", "runtime-tools.tar", "vendor.tar.gz", "npm ci", "go mod download", "super-dolphin-gate-executor"} {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("truth Dockerfile contains forbidden fallback %q", forbidden)
 		}
@@ -152,15 +164,17 @@ func TestRuntimeDependencyRefreshInstallsLockedChromiumOnlyInRefreshImage(t *tes
 		"USER 65532:65532",
 		"RUN --network=none xvfb-run -a sh -ec 'test -n \"$DISPLAY\"'",
 		"RUN --network=none node -e",
-		"GOPROXY=file:///opt/super-dolphin-gate/runtime/go-proxy",
+		"GOPROXY=off",
 		"NPM_CONFIG_CACHE=/out/frontend/npm-cache npm ci --ignore-scripts --no-audit --no-fund",
 		"NPM_CONFIG_CACHE=/out/frontend/npm-cache npm ci --ignore-scripts --no-audit --no-fund --offline",
-		"COPY --from=frontend-seed /out/frontend/npm-cache /opt/super-dolphin-gate/runtime/frontend/npm-cache",
-		"chmod -R a+rX /out/frontend/node_modules/.cache/ms-playwright /out/frontend/npm-cache",
+		"chmod -R a+rX /out/frontend/node_modules/.cache/ms-playwright",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("runtime dependency Dockerfile is missing %q", required)
 		}
+	}
+	if strings.Contains(text, "COPY --from=frontend-seed /out/frontend/npm-cache") {
+		t.Fatal("runtime dependency image must not retain the build-only npm download cache")
 	}
 	truth, err := os.ReadFile(filepath.Join(root, dockerfilePath))
 	if err != nil {

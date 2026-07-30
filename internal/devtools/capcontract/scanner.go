@@ -22,6 +22,9 @@ var canonicalTargets = []string{
 	"windows/arm64",
 }
 
+// scanLoadMode 保留 Go 工具链的构建约束筛选和语法树，但不递归类型检查依赖图。
+const scanLoadMode packages.LoadMode = packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedSyntax
+
 // ScanOptions 是能力契约扫描入口参数。
 // RepoRoot 与 Roots 分离，确保报告中保留相对路径而不是本机绝对路径。
 type ScanOptions struct {
@@ -144,7 +147,7 @@ func scanTarget(repoRoot string, roots []string, target string) ([]PackageManife
 	cfg := &packages.Config{
 		Dir:  repoRoot,
 		Env:  append(os.Environ(), "GOOS="+parts[0], "GOARCH="+parts[1], "CGO_ENABLED=0"),
-		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedSyntax | packages.NeedTypes,
+		Mode: scanLoadMode,
 	}
 	loaded, err := packages.Load(cfg, patterns...)
 	if err != nil {
@@ -175,7 +178,7 @@ func scanTarget(repoRoot string, roots []string, target string) ([]PackageManife
 	return result, provenance, nil
 }
 
-// scanLoadedPackage 从 go/packages 已按构建约束筛选的文件中提取单个平台包能力面。
+// scanLoadedPackage 从 go/packages 已按构建约束筛选和解析的文件中提取单个平台包能力面。
 func scanLoadedPackage(repoRoot string, loaded *packages.Package) (*PackageManifest, error) {
 	if len(loaded.Syntax) == 0 || len(loaded.CompiledGoFiles) == 0 {
 		return nil, nil

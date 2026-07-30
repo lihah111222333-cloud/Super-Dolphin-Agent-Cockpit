@@ -28,6 +28,7 @@ type productionProvisionExpectedFile struct {
 
 // productionProvisionExpectedFiles 从已验证输入唯一生成安装树内全部不可变文件。
 func productionProvisionExpectedFiles(
+	configRoot string,
 	config productionCoordinatorConfig,
 	inputs productionProvisionInputs,
 ) ([]productionProvisionExpectedFile, error) {
@@ -47,7 +48,11 @@ func productionProvisionExpectedFiles(
 	if err != nil {
 		return nil, err
 	}
-	configData, err := json.MarshalIndent(config, "", "  ")
+	portableConfig, err := portableProductionCoordinatorConfig(configRoot, config)
+	if err != nil {
+		return nil, err
+	}
+	configData, err := json.MarshalIndent(portableConfig, "", "  ")
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +89,7 @@ func verifyProductionProvisionResidue(
 		return fmt.Errorf("production provision existing root is not repairable: %w", err)
 	}
 	config := productionProvisionConfig(installRoot, manifest, inputs)
-	expectedFiles, err := productionProvisionExpectedFiles(config, inputs)
+	expectedFiles, err := productionProvisionExpectedFiles(installRoot, config, inputs)
 	if err != nil {
 		return err
 	}
@@ -193,9 +198,26 @@ func verifyProductionProvisionDirectoryIdentity(path string, info os.FileInfo) e
 	return nil
 }
 
-func productionProvisionLauncherData(configPath string, controllerPath string) []byte {
-	return []byte("#!/bin/sh\nSUPER_DOLPHIN_GATE_PRODUCTION_CONFIG=" + shellQuoteProductionProvision(configPath) +
-		" exec " + shellQuoteProductionProvision(controllerPath) + " _production-launcher \"$@\"\n")
+func productionProvisionLauncherData(
+	launcherPath string,
+	configPath string,
+	controllerPath string,
+) ([]byte, error) {
+	configRelative, err := filepath.Rel(filepath.Dir(launcherPath), configPath)
+	if err != nil || filepath.IsAbs(configRelative) {
+		return nil, errors.Join(errors.New("make production config launcher-relative"), err)
+	}
+	controllerRelative, err := filepath.Rel(filepath.Dir(launcherPath), controllerPath)
+	if err != nil || filepath.IsAbs(controllerRelative) {
+		return nil, errors.Join(errors.New("make production controller launcher-relative"), err)
+	}
+	return []byte("#!/bin/sh\nset -eu\n" +
+		"launcher_dir=$(CDPATH= cd -P -- \"$(dirname -- \"$0\")\" && pwd)\n" +
+		"SUPER_DOLPHIN_GATE_PRODUCTION_CONFIG=\"$launcher_dir\"/" +
+		shellQuoteProductionProvision(filepath.ToSlash(configRelative)) + "\n" +
+		"export SUPER_DOLPHIN_GATE_PRODUCTION_CONFIG\n" +
+		"exec \"$launcher_dir\"/" + shellQuoteProductionProvision(filepath.ToSlash(controllerRelative)) +
+		" _production-launcher \"$@\"\n"), nil
 }
 
 // inspectProductionProvisionLauncher 只把 absent 或逐字节匹配当前闭包的 launcher 视为可恢复状态。
@@ -211,8 +233,13 @@ func inspectProductionProvisionLauncher(path string, configPath string, controll
 		return false, errors.New("production provision launcher already exists and is not the verified launcher")
 	}
 	data, err := os.ReadFile(path)
-	if err != nil || !bytes.Equal(data, productionProvisionLauncherData(configPath, controllerPath)) {
-		return false, errors.Join(errors.New("production provision launcher already exists with unknown content"), err)
+	expected, expectedErr := productionProvisionLauncherData(path, configPath, controllerPath)
+	if err != nil || expectedErr != nil || !bytes.Equal(data, expected) {
+		return false, errors.Join(
+			errors.New("production provision launcher already exists with unknown content"),
+			err,
+			expectedErr,
+		)
 	}
 	return true, nil
 }

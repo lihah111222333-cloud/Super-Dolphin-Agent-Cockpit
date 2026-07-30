@@ -41,9 +41,10 @@ internal/store/cron/list_page_test.go	internal	store-sql	go-test	6059	应用级�
 internal/store/cron/list_page.go	internal	store-sql	go-source	2785	应用级持久化 store	internal,store,cron,list,page,应用级持久化
 internal/store/cron/mapping.go	internal	store-sql	go-source	2833	应用级持久化 store	internal,store,cron,mapping,应用级持久化
 internal/store/cron/module.go	internal	store-sql	go-source	206	应用级持久化 store	internal,store,cron,module,应用级持久化
-internal/store/cron/recovery_finalize.go	internal	store-sql	go-source	3822	应用级持久化 store	internal,store,cron,recovery,finalize,应用级持久化
+internal/store/cron/recovery_finalize.go	internal	store-sql	go-source	3941	应用级持久化 store	internal,store,cron,recovery,finalize,应用级持久化
 internal/store/cron/sqlc_type_contract_test.go	internal	store-sql	go-test	801	应用级持久化 store	internal,store,cron,sqlc,type,contract,test,应用级持久化
-internal/store/cron/store_test.go	internal	store-sql	go-test	32204	应用级持久化 store	internal,store,cron,test,应用级持久化
+internal/store/cron/store_test.go	internal	store-sql	go-test	24264	应用级持久化 store	internal,store,cron,test,应用级持久化
+internal/store/cron/store_transaction_test.go	internal	store-sql	go-test	8125	应用级持久化 store	internal,store,cron,transaction,test,应用级持久化
 internal/store/cron/store.go	internal	store-sql	go-source	28914	应用级持久化 store	internal,store,cron,应用级持久化
 internal/store/cwdlock/contract.go	internal	store-sql	go-source	1543	应用级持久化 store	internal,store,cwdlock,contract,应用级持久化
 internal/store/cwdlock/module.go	internal	store-sql	go-source	187	应用级持久化 store	internal,store,cwdlock,module,应用级持久化
@@ -73,7 +74,7 @@ internal/store/hookstore/hookstore_helpers_test.go	internal	store-sql	go-test	10
 internal/store/hookstore/hookstore_resolve_test.go	internal	store-sql	go-test	15860	应用级持久化 store	internal,store,hookstore,resolve,test,应用级持久化
 internal/store/hookstore/hookstore_sqlite_test.go	internal	store-sql	go-test	10707	应用级持久化 store	internal,store,hookstore,sqlite,test,应用级持久化
 internal/store/hookstore/hookstore_test.go	internal	store-sql	go-test	10252	应用级持久化 store	internal,store,hookstore,test,应用级持久化
-internal/store/hookstore/hookstore.go	internal	store-sql	go-source	14321	应用级持久化 store	internal,store,hookstore,应用级持久化
+internal/store/hookstore/hookstore.go	internal	store-sql	go-source	14436	应用级持久化 store	internal,store,hookstore,应用级持久化
 internal/store/hookstore/module.go	internal	store-sql	go-source	326	应用级持久化 store	internal,store,hookstore,module,应用级持久化
 internal/store/insight/contract.go	internal	store-sql	go-source	4562	应用级持久化 store	internal,store,insight,contract,应用级持久化
 internal/store/insight/module.go	internal	store-sql	go-source	258	应用级持久化 store	internal,store,insight,module,应用级持久化

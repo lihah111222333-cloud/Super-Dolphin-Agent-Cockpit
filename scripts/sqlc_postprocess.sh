@@ -14,7 +14,9 @@ for dir in "${generated_dirs[@]}"; do
     echo "ERROR: missing generated SQLC directory for post-processing: $dir" >&2
     exit 1
   fi
-  find "$dir" -type f -name '*.go' -exec gofmt -w -r 'interface{} -> any' {} +
+  while IFS= read -r -d '' file; do
+    gofmt -w -r 'interface{} -> any' "$file"
+  done < <(find "$dir" -type f -name '*.go' -print0)
 done
 
 if rg -n --glob '*.go' 'interface\{\}' "${generated_dirs[@]}"; then

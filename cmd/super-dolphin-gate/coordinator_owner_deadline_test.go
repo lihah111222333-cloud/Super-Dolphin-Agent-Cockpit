@@ -111,7 +111,8 @@ func TestCoordinatorTimeoutBudgetsSeparateCandidateBuildFromShardExecution(t *te
 	if coordinatorSourceSetupTimeout != 15*time.Minute {
 		t.Fatalf("source setup timeout = %v, want 15m", coordinatorSourceSetupTimeout)
 	}
-	if coordinatorNormalTimeout != 10*time.Minute || coordinatorReleaseTimeout != 30*time.Minute {
+	if coordinatorNormalTimeout != 10*time.Minute ||
+		coordinatorReleaseTimeout != 30*time.Minute {
 		t.Fatalf("execution timeouts = normal %v release %v", coordinatorNormalTimeout, coordinatorReleaseTimeout)
 	}
 }
@@ -480,11 +481,12 @@ func startDeadlineOwner(t *testing.T, imageEnsurer ImageEnsurer, runner FreshCon
 	group.Go(func() error { return owner.schedulerOwner.Serve(serveCtx) })
 	t.Cleanup(func() {
 		stopServe()
+		closeErr := owner.Close()
 		serveErr := group.Wait()
 		if errors.Is(serveErr, context.Canceled) {
 			serveErr = nil
 		}
-		if err := errors.Join(serveErr, owner.Close()); err != nil {
+		if err := errors.Join(serveErr, closeErr); err != nil {
 			t.Errorf("close deadline cleanup owner: %v", err)
 		}
 	})

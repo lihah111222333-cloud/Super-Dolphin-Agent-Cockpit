@@ -11,73 +11,128 @@ cmd/codex-worktree-setup/setup_test.go	cmd	other	go-test	6532	未细分职责：
 cmd/codex-worktree-setup/setup.go	cmd	other	go-source	9496	未细分职责：请结合路径、文件名和相邻代码判断	cmd,codex,worktree,setup,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/codex-worktree-setup/worktree_integration_test.go	cmd	other	go-test	7201	未细分职责：请结合路径、文件名和相邻代码判断	cmd,codex,worktree,setup,integration,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/mcp-schema-compiler-helper/main.go	cmd	other	go-source	2147	未细分职责：请结合路径、文件名和相邻代码判断	cmd,mcp,schema,compiler,helper,main,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate-executor/main_test.go	cmd	other	go-test	1222	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,executor,main,test,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate-executor/main.go	cmd	other	go-source	1065	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,executor,main,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_bootstrap_container.go	cmd	other	go-source	6901	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,bootstrap,container,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_bootstrap_controller_protocol_test.go	cmd	other	go-test	4031	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,bootstrap,controller,protocol,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_bootstrap_controller.go	cmd	other	go-source	11911	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,bootstrap,controller,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/coordinator_bootstrap_docker_test.go	cmd	other	go-test	21636	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,bootstrap,docker,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_bootstrap_execution.go	cmd	other	go-source	31672	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,bootstrap,execution,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_bootstrap_root.go	cmd	other	go-source	22101	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,bootstrap,root,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_bootstrap_runner.go	cmd	other	go-source	6989	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,bootstrap,runner,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/coordinator_bootstrap_test.go	cmd	other	go-test	30883	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,bootstrap,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/coordinator_bootstrap_test.go	cmd	other	go-test	30957	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,bootstrap,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_bootstrap.go	cmd	other	go-source	17130	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,bootstrap,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_cli_wait_test.go	cmd	other	go-test	5032	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,cli,wait,test,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/coordinator_cli.go	cmd	other	go-source	32088	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,cli,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/coordinator_cli.go	cmd	other	go-source	32289	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,cli,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_container_exit_test.go	cmd	other	go-test	12693	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,container,exit,test,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/coordinator_deferred_test.go	cmd	other	go-test	14781	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,deferred,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/coordinator_deferred_test.go	cmd	other	go-test	16397	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,deferred,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/coordinator_dependency_boundary_test.go	cmd	other	go-test	1476	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,dependency,boundary,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/coordinator_docker_test_helpers_test.go	cmd	other	go-test	3814	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,docker,test,helpers,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_logs_test.go	cmd	other	go-test	3636	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,logs,test,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/coordinator_owner_deadline_test.go	cmd	other	go-test	22685	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,owner,deadline,test,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/coordinator_owner.go	cmd	other	go-source	32764	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,owner,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/coordinator_plan_test.go	cmd	other	go-test	17376	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,plan,test,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/coordinator_production_config.go	cmd	other	go-source	32679	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,production,config,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/coordinator_production_fixture_test.go	cmd	other	go-test	15789	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,production,fixture,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/coordinator_owner_deadline_test.go	cmd	other	go-test	22710	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,owner,deadline,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/coordinator_owner.go	cmd	other	go-source	32828	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,owner,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/coordinator_plan_test.go	cmd	other	go-test	18372	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,plan,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/coordinator_production_config_paths.go	cmd	other	go-source	3990	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,production,config,paths,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/coordinator_production_config.go	cmd	other	go-source	31916	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,production,config,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/coordinator_production_fixture_test.go	cmd	other	go-test	16483	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,production,fixture,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_production_promotion_test.go	cmd	other	go-test	24577	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,production,promotion,test,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/coordinator_production_test.go	cmd	other	go-test	32452	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,production,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/coordinator_production_test.go	cmd	other	go-test	33196	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,production,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_production.go	cmd	other	go-source	27685	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,production,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_promotion.go	cmd	other	go-source	20477	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,promotion,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/coordinator_provision_docker_test.go	cmd	other	go-test	29477	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,provision,docker,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/coordinator_provision_docker_test.go	cmd	other	go-test	29508	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,provision,docker,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_provision_e2e_optin_test.go	cmd	other	go-test	694	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,provision,e2e,optin,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_provision_failure_logs_test.go	cmd	other	go-test	10147	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,provision,failure,logs,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_provision_helpers_test.go	cmd	other	go-test	3419	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,provision,helpers,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_provision_publish_darwin.go	cmd	other	go-source	309	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,provision,publish,darwin,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_provision_publish_unsupported.go	cmd	other	go-source	301	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,provision,publish,unsupported,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_provision_recovery_test.go	cmd	other	go-test	1598	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,provision,recovery,test,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/coordinator_provision_recovery.go	cmd	other	go-source	9380	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,provision,recovery,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/coordinator_provision_release_docker_test.go	cmd	other	go-test	27050	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,provision,release,docker,test,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/coordinator_provision_test.go	cmd	other	go-test	19493	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,provision,test,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/coordinator_provision.go	cmd	other	go-source	27454	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,provision,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/coordinator_provision_recovery.go	cmd	other	go-source	10353	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,provision,recovery,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/coordinator_provision_release_docker_test.go	cmd	other	go-test	27087	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,provision,release,docker,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/coordinator_provision_test.go	cmd	other	go-test	21772	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,provision,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/coordinator_provision.go	cmd	other	go-source	27511	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,provision,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_receipt_fixture_test.go	cmd	other	go-test	9900	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,receipt,fixture,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_recovery_plan_test.go	cmd	other	go-test	33026	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,recovery,plan,test,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/coordinator_recovery_shards.go	cmd	other	go-source	33813	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,recovery,shards,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/coordinator_recovery_store.go	cmd	other	go-source	32832	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,recovery,store,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/coordinator_recovery_shards.go	cmd	other	go-source	33837	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,recovery,shards,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/coordinator_recovery_store.go	cmd	other	go-source	32928	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,recovery,store,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_recovery.go	cmd	other	go-source	31389	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,recovery,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_resource_witness_test.go	cmd	other	go-test	15769	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,resource,witness,test,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/coordinator_runtime.go	cmd	other	go-source	30127	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,runtime,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/coordinator_runtime.go	cmd	other	go-source	30785	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,runtime,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_shard_admission.go	cmd	other	go-source	34775	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,shard,admission,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_shard_store_test.go	cmd	other	go-test	32403	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,shard,store,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/coordinator_store_concurrency_test.go	cmd	other	go-test	3657	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,store,concurrency,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_store_record.go	cmd	other	go-source	38527	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,store,record,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/coordinator_store.go	cmd	other	go-source	19612	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,store,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/coordinator_test.go	cmd	other	go-test	28421	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/coordinator_store.go	cmd	other	go-source	22343	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,store,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/coordinator_test.go	cmd	other	go-test	29050	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_workflow_config_test.go	cmd	other	go-test	5748	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,workflow,config,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_workflow_host_test.go	cmd	other	go-test	9250	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,workflow,host,test,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/coordinator_workflow_host.go	cmd	other	go-source	34770	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,workflow,host,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/coordinator_workflow_host.go	cmd	other	go-source	35099	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,workflow,host,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_workflow_test.go	cmd	other	go-test	4905	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,workflow,test,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/docker_receipt_acceptance_test.go	cmd	other	go-test	10350	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,docker,receipt,acceptance,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/docker_receipt_acceptance_test.go	cmd	other	go-test	10387	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,docker,receipt,acceptance,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/grant_authority_test.go	cmd	other	go-test	17558	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,grant,authority,test,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/grant_authority.go	cmd	other	go-source	26681	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,grant,authority,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/grant_authority.go	cmd	other	go-source	26693	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,grant,authority,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/grant_cli.go	cmd	other	go-source	18630	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,grant,cli,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/hook_bridge_test.go	cmd	other	go-test	26361	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,hook,bridge,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/hook_bridge.go	cmd	other	go-source	14159	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,hook,bridge,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/hook_cli_test.go	cmd	other	go-test	29027	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,hook,cli,test,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/hook_cli.go	cmd	other	go-source	10308	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,hook,cli,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/hook_cli_test.go	cmd	other	go-test	25470	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,hook,cli,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/hook_cli.go	cmd	other	go-source	8555	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,hook,cli,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/main_remote_baseline_source_gate.go	cmd	other	go-source	3838	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,main,remote,baseline,source,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/main_test.go	cmd	other	go-test	5526	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,main,test,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/main.go	cmd	other	go-source	8615	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,main,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/main.go	cmd	other	go-source	14025	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,main,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/owner_process_environment_test.go	cmd	other	go-test	4071	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,owner,process,environment,test,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/owner_process.go	cmd	other	go-source	7566	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,owner,process,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/owner_process.go	cmd	other	go-source	8316	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,owner,process,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/project_map_cli_test_helpers_test.go	cmd	other	go-test	1112	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,project,map,cli,test,helpers,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/project_map_cli_test.go	cmd	other	go-test	7785	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,project,map,cli,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/project_map_cli.go	cmd	other	go-source	2852	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,project,map,cli,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/receipt_authority.go	cmd	other	go-source	17504	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,receipt,authority,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/release_action_grant_test.go	cmd	other	go-test	5966	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,release,action,grant,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/release_authority_test.go	cmd	other	go-test	9212	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,release,authority,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_baseline_source_test_helpers_test.go	cmd	other	go-test	1294	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,baseline,source,test,helpers,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_baseline_source_test.go	cmd	other	go-test	5054	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,baseline,source,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_baseline_source.go	cmd	other	go-source	28359	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,baseline,source,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_hook_test_helpers_test.go	cmd	other	go-test	663	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,hook,test,helpers,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_hook_test.go	cmd	other	go-test	5492	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,hook,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_materialize_layers_test_helpers_test.go	cmd	other	go-test	657	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,materialize,layers,test,helpers,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_materialize_layers_test.go	cmd	other	go-test	14637	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,materialize,layers,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_materialize_layers.go	cmd	other	go-source	32004	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,materialize,layers,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_materialize_test.go	cmd	other	go-test	15162	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,materialize,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_materialize.go	cmd	other	go-source	23045	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,materialize,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_refresh_capacity_test.go	cmd	other	go-test	4839	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,refresh,capacity,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_refresh_capacity.go	cmd	other	go-source	4070	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,refresh,capacity,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_refresh_fakes_test.go	cmd	other	go-test	3773	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,refresh,fakes,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_refresh_fixture_test.go	cmd	other	go-test	4772	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,refresh,fixture,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_refresh_legacy_test.go	cmd	other	go-test	5728	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,refresh,legacy,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_refresh_recovery_state_test.go	cmd	other	go-test	3691	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,refresh,recovery,state,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_refresh_recovery_test.go	cmd	other	go-test	5324	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,refresh,recovery,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_refresh_recovery.go	cmd	other	go-source	2709	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,refresh,recovery,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_refresh_resolve.go	cmd	other	go-source	6269	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,refresh,resolve,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_refresh_retirement_lifecycle_test.go	cmd	other	go-test	14839	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,refresh,retirement,lifecycle,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_refresh_retirement.go	cmd	other	go-source	6468	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,refresh,retirement,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_refresh_reuse_contract_test.go	cmd	other	go-test	3859	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,refresh,reuse,contract,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_refresh_reuse_test.go	cmd	other	go-test	3500	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,refresh,reuse,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_refresh_seed_contract_test.go	cmd	other	go-test	34602	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,refresh,seed,contract,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go	cmd	other	go-source	6647	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,refresh,seed,script,runtime,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_refresh_seed_script.go	cmd	other	go-source	34075	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,refresh,seed,script,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_refresh_seed.go	cmd	other	go-source	11919	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,refresh,seed,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_refresh.go	cmd	other	go-source	38520	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,refresh,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_run_automation_test.go	cmd	other	go-test	12604	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,run,automation,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_run_calibration_automation.go	cmd	other	go-source	15309	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,run,calibration,automation,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_run_calibration_checkpoint_test.go	cmd	other	go-test	6454	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,run,calibration,checkpoint,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_run_calibration_evidence.go	cmd	other	go-source	21102	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,run,calibration,evidence,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_run_calibration_helpers_test.go	cmd	other	go-test	12506	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,run,calibration,helpers,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_run_calibration_runs.go	cmd	other	go-source	9512	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,run,calibration,runs,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_run_calibration.go	cmd	other	go-source	3220	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,run,calibration,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_run_config.go	cmd	other	go-source	4563	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,run,config,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_run_helpers_test.go	cmd	other	go-test	5010	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,run,helpers,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_run_options.go	cmd	other	go-source	4037	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,run,options,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_run_selection.go	cmd	other	go-source	7300	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,run,selection,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_run_source.go	cmd	other	go-source	14031	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,run,source,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_run_test.go	cmd	other	go-test	21937	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,run,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_run.go	cmd	other	go-source	6281	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,run,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/requester_cli_test.go	cmd	other	go-test	3487	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,requester,cli,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/requester_cli.go	cmd	other	go-source	598	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,requester,cli,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/requester_fingerprint.go	cmd	other	go-source	579	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,requester,fingerprint,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/requester_runs.go	cmd	other	go-source	3603	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,requester,runs,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/test_cli_test.go	cmd	other	go-test	7406	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,test,cli,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/test_cli.go	cmd	other	go-source	11290	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,test,cli,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/test_local_exec.go	cmd	other	go-source	10327	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,test,local,exec,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/worker_cli_test.go	cmd	other	go-test	4109	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,worker,cli,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-guard/main_test.go	cmd	other	go-test	24984	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,guard,main,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-guard/main.go	cmd	other	go-source	15872	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,guard,main,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-release-manifest/main_test.go	cmd	other	go-test	6957	Release manifest generation command	cmd,super,dolphin,release,manifest,main,test,Release,generation,command
@@ -203,16 +258,16 @@ internal/archtest/app_adapter_package_boundary_test.go	internal	other	go-test	40
 internal/archtest/archguard_ignore_test.go	internal	other	go-test	1641	架构守卫、baseline ratchet 与冻结规则	internal,archtest,archguard,ignore,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/archguard_ignore.go	internal	other	go-source	1777	架构守卫、baseline ratchet 与冻结规则	internal,archtest,archguard,ignore,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_canonical_dependencies_test.go	internal	other	go-test	7904	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,canonical,dependencies,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/backend_boundary_evaluator.go	internal	other	go-source	30731	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,evaluator,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/backend_boundary_governance_test.go	internal	other	go-test	32864	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,governance,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/backend_boundary_evaluator.go	internal	other	go-source	30779	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,evaluator,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/backend_boundary_governance_test.go	internal	other	go-test	33198	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,governance,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_governance.go	internal	other	go-source	30646	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,governance,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/backend_boundary_guard_coverage_test.go	internal	other	go-test	13841	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,guard,coverage,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/backend_boundary_guard_coverage_test.go	internal	other	go-test	13942	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,guard,coverage,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_import_evaluator.go	internal	other	go-source	7396	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,import,evaluator,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_loader_parity_test.go	internal	other	go-test	2084	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,loader,parity,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_matrix_test.go	internal	other	go-test	10161	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,matrix,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_registry_app_adapter.go	internal	other	go-source	8570	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,registry,app,adapter,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_registry_clone.go	internal	other	go-source	2034	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,registry,clone,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/backend_boundary_registry.go	internal	other	go-source	48699	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,registry,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/backend_boundary_registry.go	internal	other	go-source	47987	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,registry,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_single_source_extensions_test.go	internal	other	go-test	9635	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,single,source,extensions,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_single_source_ssa_analyzer_test.go	internal	other	go-test	26114	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,single,source,ssa,analyzer,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_single_source_ssa_test.go	internal	other	go-test	6977	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,single,source,ssa,test,架构守卫,baseline,ratchet,与冻结规则
@@ -227,9 +282,9 @@ internal/archtest/bootstrap_subscribe_desired_state_guard_test.go	internal	other
 internal/archtest/boundary_registry_test.go	internal	other	go-test	12875	架构守卫、baseline ratchet 与冻结规则	internal,archtest,boundary,registry,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/bus_callback_guard_test.go	internal	other	go-test	10818	架构守卫、baseline ratchet 与冻结规则	internal,archtest,bus,callback,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/ci_cross_platform_smoke_guard_test.go	internal	other	go-test	8469	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ci,cross,platform,smoke,guard,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/ci_truth_image_coordinator_contract_guard_test.go	internal	other	go-test	18362	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ci,truth,image,coordinator,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/ci_truth_image_gate_script_test.go	internal	other	go-test	21577	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ci,truth,image,gate,script,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/code_size_guard_test.go	internal	other	go-test	10163	架构守卫、baseline ratchet 与冻结规则	internal,archtest,code,size,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/ci_truth_image_coordinator_contract_guard_test.go	internal	other	go-test	22335	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ci,truth,image,coordinator,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/ci_truth_image_gate_script_test.go	internal	other	go-test	21818	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ci,truth,image,gate,script,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/code_size_guard_test.go	internal	other	go-test	7929	架构守卫、baseline ratchet 与冻结规则	internal,archtest,code,size,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/contract_import_boundary_test.go	internal	other	go-test	534	架构守卫、baseline ratchet 与冻结规则	internal,archtest,contract,import,boundary,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/cron_list_field_guard_test.go	internal	other	go-test	7045	架构守卫、baseline ratchet 与冻结规则	internal,archtest,cron,list,field,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/cross_domain_guard_test.go	internal	other	go-test	767	架构守卫、baseline ratchet 与冻结规则	internal,archtest,cross,domain,guard,test,架构守卫,baseline,ratchet,与冻结规则
@@ -250,10 +305,10 @@ internal/archtest/effective_lines.go	internal	other	go-source	1020	架构守卫�
 internal/archtest/error_prone_pattern_guard.go	internal	other	go-source	16538	架构守卫、baseline ratchet 与冻结规则	internal,archtest,error,prone,pattern,guard,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/error_string_match_guard_test.go	internal	other	go-test	3203	架构守卫、baseline ratchet 与冻结规则	internal,archtest,error,string,match,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/eventbus_payload_guard_test.go	internal	other	go-test	2431	架构守卫、baseline ratchet 与冻结规则	internal,archtest,eventbus,payload,guard,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/freeze_baseline.json	internal	other	json	625	架构守卫、baseline ratchet 与冻结规则	internal,archtest,freeze,baseline,架构守卫,ratchet,与冻结规则
+internal/archtest/freeze_baseline.json	internal	other	json	24931	架构守卫、baseline ratchet 与冻结规则	internal,archtest,freeze,baseline,架构守卫,ratchet,与冻结规则
 internal/archtest/freeze_registry_autofix_test.go	internal	other	go-test	4640	架构守卫、baseline ratchet 与冻结规则	internal,archtest,freeze,registry,autofix,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/freeze_registry_autofix.go	internal	other	go-source	6411	架构守卫、baseline ratchet 与冻结规则	internal,archtest,freeze,registry,autofix,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/freeze_registry.go	internal	other	go-source	5395	架构守卫、baseline ratchet 与冻结规则	internal,archtest,freeze,registry,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/freeze_registry.go	internal	other	go-source	5759	架构守卫、baseline ratchet 与冻结规则	internal,archtest,freeze,registry,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/frontend_app_shell_surface_guard_test.go	internal	other	go-test	1361	架构守卫、baseline ratchet 与冻结规则	internal,archtest,frontend,app,shell,surface,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/function_comment_guard_test.go	internal	other	go-test	5346	架构守卫、baseline ratchet 与冻结规则	internal,archtest,function,comment,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/fx_graph_test.go	internal	other	go-test	280	架构守卫、baseline ratchet 与冻结规则	internal,archtest,fx,graph,test,架构守卫,baseline,ratchet,与冻结规则
@@ -320,7 +375,7 @@ internal/archtest/priority_ssa_loader_parity_test.go	internal	other	go-test	1090
 internal/archtest/priority_ssa_production_guard_test.go	internal	other	go-test	1198	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,production,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/priority_ssa_rules_test.go	internal	other	go-test	2411	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,rules,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/priority_ssa_rules.go	internal	other	go-source	22508	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,rules,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/priority_ssa_scan.go	internal	other	go-source	7036	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,scan,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/priority_ssa_scan.go	internal	other	go-source	7141	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,scan,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/priority_ssa_util.go	internal	other	go-source	6314	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,util,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/priority_ssa_wide.go	internal	other	go-source	25819	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,wide,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/prompt_builtin_config_test.go	internal	other	go-test	16794	架构守卫、baseline ratchet 与冻结规则	internal,archtest,prompt,builtin,config,test,架构守卫,baseline,ratchet,与冻结规则
@@ -374,7 +429,7 @@ internal/archtest/testdata/golden/integration/agent_list_dispatch.golden.json	in
 internal/archtest/testdata/metrics_sample.gotxt	internal	other	gotxt	1189	架构守卫、baseline ratchet 与冻结规则	internal,archtest,testdata,metrics,sample,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/testdata/providerrecoveryguard/alias_assignment.go	internal	other	go-source	710	架构守卫、baseline ratchet 与冻结规则	internal,archtest,testdata,providerrecoveryguard,alias,assignment,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/thread_turn_side_channel_guard_test.go	internal	other	go-test	2664	架构守卫、baseline ratchet 与冻结规则	internal,archtest,thread,turn,side,channel,guard,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/timeout_locality_test.go	internal	other	go-test	2140	架构守卫、baseline ratchet 与冻结规则	internal,archtest,timeout,locality,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/timeout_locality_test.go	internal	other	go-test	2199	架构守卫、baseline ratchet 与冻结规则	internal,archtest,timeout,locality,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/toolbridge_protocol_guard_test.go	internal	other	go-test	3561	架构守卫、baseline ratchet 与冻结规则	internal,archtest,toolbridge,protocol,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/toolbridge_store_port_guard_test.go	internal	other	go-test	2249	架构守卫、baseline ratchet 与冻结规则	internal,archtest,toolbridge,store,port,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/toolpolicy_dependency_guard_test.go	internal	other	go-test	1675	架构守卫、baseline ratchet 与冻结规则	internal,archtest,toolpolicy,dependency,guard,test,架构守卫,baseline,ratchet,与冻结规则
@@ -432,13 +487,26 @@ internal/contract/thread.go	internal	other	go-source	3778	跨模块稳定接口�
 internal/contract/toolbridge.go	internal	other	go-source	4928	跨模块稳定接口、事件和 DTO 边界	internal,contract,toolbridge,跨模块稳定接口,事件和,DTO,边界
 internal/contract/ui_project_state.go	internal	other	go-source	623	跨模块稳定接口、事件和 DTO 边界	internal,contract,ui,project,state,跨模块稳定接口,事件和,DTO,边界
 internal/contract/wire_omitzero_test.go	internal	other	go-test	1832	跨模块稳定接口、事件和 DTO 边界	internal,contract,wire,omitzero,test,跨模块稳定接口,事件和,DTO,边界
+internal/devtools/alicloud/datacache/client_test.go	internal	other	go-test	17882	开发工具与生成器辅助包	internal,devtools,alicloud,datacache,client,test,开发工具与生成器辅助包
+internal/devtools/alicloud/datacache/client.go	internal	other	go-source	17026	开发工具与生成器辅助包	internal,devtools,alicloud,datacache,client,开发工具与生成器辅助包
+internal/devtools/alicloud/eci/client_test.go	internal	other	go-test	40960	开发工具与生成器辅助包	internal,devtools,alicloud,eci,client,test,开发工具与生成器辅助包
+internal/devtools/alicloud/eci/client_validation.go	internal	other	go-source	7621	开发工具与生成器辅助包	internal,devtools,alicloud,eci,client,validation,开发工具与生成器辅助包
+internal/devtools/alicloud/eci/client.go	internal	other	go-source	28028	开发工具与生成器辅助包	internal,devtools,alicloud,eci,client,开发工具与生成器辅助包
+internal/devtools/alicloud/eci/create_reconcile.go	internal	other	go-source	1852	开发工具与生成器辅助包	internal,devtools,alicloud,eci,create,reconcile,开发工具与生成器辅助包
+internal/devtools/alicloud/eci/seed_test.go	internal	other	go-test	11396	开发工具与生成器辅助包	internal,devtools,alicloud,eci,seed,test,开发工具与生成器辅助包
+internal/devtools/alicloud/eci/seed.go	internal	other	go-source	12555	开发工具与生成器辅助包	internal,devtools,alicloud,eci,seed,开发工具与生成器辅助包
+internal/devtools/alicloud/eci/spot_fallback_test.go	internal	other	go-test	6316	开发工具与生成器辅助包	internal,devtools,alicloud,eci,spot,fallback,test,开发工具与生成器辅助包
+internal/devtools/alicloud/eci/spot_fallback.go	internal	other	go-source	6603	开发工具与生成器辅助包	internal,devtools,alicloud,eci,spot,fallback,开发工具与生成器辅助包
+internal/devtools/alicloud/oss/client_test.go	internal	other	go-test	16081	开发工具与生成器辅助包	internal,devtools,alicloud,oss,client,test,开发工具与生成器辅助包
+internal/devtools/alicloud/oss/client.go	internal	other	go-source	15301	开发工具与生成器辅助包	internal,devtools,alicloud,oss,client,开发工具与生成器辅助包
 internal/devtools/capcontract/manifest_test.go	internal	other	go-test	4013	开发工具与生成器辅助包	internal,devtools,capcontract,manifest,test,开发工具与生成器辅助包
 internal/devtools/capcontract/manifest.go	internal	other	go-source	9607	开发工具与生成器辅助包	internal,devtools,capcontract,manifest,开发工具与生成器辅助包
 internal/devtools/capcontract/path_rules_test.go	internal	other	go-test	5760	开发工具与生成器辅助包	internal,devtools,capcontract,path,rules,test,开发工具与生成器辅助包
 internal/devtools/capcontract/path_rules.go	internal	other	go-source	9115	开发工具与生成器辅助包	internal,devtools,capcontract,path,rules,开发工具与生成器辅助包
-internal/devtools/capcontract/scanner_test.go	internal	other	go-test	7427	开发工具与生成器辅助包	internal,devtools,capcontract,scanner,test,开发工具与生成器辅助包
-internal/devtools/capcontract/scanner.go	internal	other	go-source	18006	开发工具与生成器辅助包	internal,devtools,capcontract,scanner,开发工具与生成器辅助包
-internal/devtools/codemapindex/absence_semantics.go	internal	other	go-source	1974	开发工具与生成器辅助包	internal,devtools,codemapindex,absence,semantics,开发工具与生成器辅助包
+internal/devtools/capcontract/scanner_test.go	internal	other	go-test	7865	开发工具与生成器辅助包	internal,devtools,capcontract,scanner,test,开发工具与生成器辅助包
+internal/devtools/capcontract/scanner.go	internal	other	go-source	18155	开发工具与生成器辅助包	internal,devtools,capcontract,scanner,开发工具与生成器辅助包
+internal/devtools/codemapindex/absence_semantics_test.go	internal	other	go-test	1007	开发工具与生成器辅助包	internal,devtools,codemapindex,absence,semantics,test,开发工具与生成器辅助包
+internal/devtools/codemapindex/absence_semantics.go	internal	other	go-source	2933	开发工具与生成器辅助包	internal,devtools,codemapindex,absence,semantics,开发工具与生成器辅助包
 internal/devtools/codemapindex/anchor_identity_test.go	internal	other	go-test	4364	开发工具与生成器辅助包	internal,devtools,codemapindex,anchor,identity,test,开发工具与生成器辅助包
 internal/devtools/codemapindex/anchor_identity.go	internal	other	go-source	10953	开发工具与生成器辅助包	internal,devtools,codemapindex,anchor,identity,开发工具与生成器辅助包
 internal/devtools/codemapindex/anchor_test.go	internal	other	go-test	3795	开发工具与生成器辅助包	internal,devtools,codemapindex,anchor,test,开发工具与生成器辅助包
@@ -453,57 +521,90 @@ internal/devtools/codemapindex/readme_sync.go	internal	other	go-source	3732	开�
 internal/devtools/codemapindex/semantics.go	internal	other	go-source	4177	开发工具与生成器辅助包	internal,devtools,codemapindex,semantics,开发工具与生成器辅助包
 internal/devtools/codemapindex/source_scan.go	internal	other	go-source	3518	开发工具与生成器辅助包	internal,devtools,codemapindex,source,scan,开发工具与生成器辅助包
 internal/devtools/codemapindex/symbol_semantics.go	internal	other	go-source	3219	开发工具与生成器辅助包	internal,devtools,codemapindex,symbol,semantics,开发工具与生成器辅助包
+internal/devtools/coordinatoradmission/dispatcher_test.go	internal	other	go-test	1278	开发工具与生成器辅助包	internal,devtools,coordinatoradmission,dispatcher,test,开发工具与生成器辅助包
+internal/devtools/coordinatoradmission/dispatcher.go	internal	other	go-source	1515	开发工具与生成器辅助包	internal,devtools,coordinatoradmission,dispatcher,开发工具与生成器辅助包
 internal/devtools/gate/action_grant_validation.go	internal	other	go-source	4754	开发工具与生成器辅助包	internal,devtools,gate,action,grant,validation,开发工具与生成器辅助包
-internal/devtools/gate/container_shards_test.go	internal	other	go-test	19680	开发工具与生成器辅助包	internal,devtools,gate,container,shards,test,开发工具与生成器辅助包
-internal/devtools/gate/container_shards.go	internal	other	go-source	31518	开发工具与生成器辅助包	internal,devtools,gate,container,shards,开发工具与生成器辅助包
+internal/devtools/gate/ci_catalog_store.go	internal	other	go-source	9848	开发工具与生成器辅助包	internal,devtools,gate,ci,catalog,store,开发工具与生成器辅助包
+internal/devtools/gate/ci_query_store_remote_run_validation.go	internal	other	go-source	5869	开发工具与生成器辅助包	internal,devtools,gate,ci,query,store,remote,run,validation,开发工具与生成器辅助包
+internal/devtools/gate/ci_query_store_remote_run_write.go	internal	other	go-source	4840	开发工具与生成器辅助包	internal,devtools,gate,ci,query,store,remote,run,write,开发工具与生成器辅助包
+internal/devtools/gate/ci_query_store_remote.go	internal	other	go-source	13948	开发工具与生成器辅助包	internal,devtools,gate,ci,query,store,remote,开发工具与生成器辅助包
+internal/devtools/gate/ci_query_store.go	internal	other	go-source	23800	开发工具与生成器辅助包	internal,devtools,gate,ci,query,store,开发工具与生成器辅助包
+internal/devtools/gate/container_shards_test.go	internal	other	go-test	22882	开发工具与生成器辅助包	internal,devtools,gate,container,shards,test,开发工具与生成器辅助包
+internal/devtools/gate/container_shards.go	internal	other	go-source	32168	开发工具与生成器辅助包	internal,devtools,gate,container,shards,开发工具与生成器辅助包
 internal/devtools/gate/contracts_test.go	internal	other	go-test	25877	开发工具与生成器辅助包	internal,devtools,gate,contracts,test,开发工具与生成器辅助包
 internal/devtools/gate/contracts_validation_release.go	internal	other	go-source	2100	开发工具与生成器辅助包	internal,devtools,gate,contracts,validation,release,开发工具与生成器辅助包
-internal/devtools/gate/contracts.go	internal	other	go-source	12845	开发工具与生成器辅助包	internal,devtools,gate,contracts,开发工具与生成器辅助包
-internal/devtools/gate/entrypoints_test.go	internal	other	go-test	10109	开发工具与生成器辅助包	internal,devtools,gate,entrypoints,test,开发工具与生成器辅助包
-internal/devtools/gate/entrypoints.go	internal	other	go-source	13211	开发工具与生成器辅助包	internal,devtools,gate,entrypoints,开发工具与生成器辅助包
-internal/devtools/gate/executor_frontend_embed_seed.go	internal	other	go-source	1437	开发工具与生成器辅助包	internal,devtools,gate,executor,frontend,embed,seed,开发工具与生成器辅助包
-internal/devtools/gate/executor_git.go	internal	other	go-source	9917	开发工具与生成器辅助包	internal,devtools,gate,executor,git,开发工具与生成器辅助包
-internal/devtools/gate/executor_mapping_test.go	internal	other	go-test	10890	开发工具与生成器辅助包	internal,devtools,gate,executor,mapping,test,开发工具与生成器辅助包
-internal/devtools/gate/executor_mapping.go	internal	other	go-source	10737	开发工具与生成器辅助包	internal,devtools,gate,executor,mapping,开发工具与生成器辅助包
+internal/devtools/gate/contracts.go	internal	other	go-source	13955	开发工具与生成器辅助包	internal,devtools,gate,contracts,开发工具与生成器辅助包
+internal/devtools/gate/entrypoints_test.go	internal	other	go-test	10432	开发工具与生成器辅助包	internal,devtools,gate,entrypoints,test,开发工具与生成器辅助包
+internal/devtools/gate/entrypoints.go	internal	other	go-source	13207	开发工具与生成器辅助包	internal,devtools,gate,entrypoints,开发工具与生成器辅助包
+internal/devtools/gate/executor_cache_test.go	internal	other	go-test	15323	开发工具与生成器辅助包	internal,devtools,gate,executor,cache,test,开发工具与生成器辅助包
+internal/devtools/gate/executor_git.go	internal	other	go-source	13229	开发工具与生成器辅助包	internal,devtools,gate,executor,git,开发工具与生成器辅助包
+internal/devtools/gate/executor_guard_helpers_test.go	internal	other	go-test	2567	开发工具与生成器辅助包	internal,devtools,gate,executor,guard,helpers,test,开发工具与生成器辅助包
+internal/devtools/gate/executor_mapping_runtime_test.go	internal	other	go-test	1335	开发工具与生成器辅助包	internal,devtools,gate,executor,mapping,runtime,test,开发工具与生成器辅助包
+internal/devtools/gate/executor_mapping_test.go	internal	other	go-test	10303	开发工具与生成器辅助包	internal,devtools,gate,executor,mapping,test,开发工具与生成器辅助包
+internal/devtools/gate/executor_mapping.go	internal	other	go-source	17818	开发工具与生成器辅助包	internal,devtools,gate,executor,mapping,开发工具与生成器辅助包
 internal/devtools/gate/executor_mount_linux.go	internal	other	go-source	237	开发工具与生成器辅助包	internal,devtools,gate,executor,mount,linux,开发工具与生成器辅助包
 internal/devtools/gate/executor_mount_other.go	internal	other	go-source	168	开发工具与生成器辅助包	internal,devtools,gate,executor,mount,other,开发工具与生成器辅助包
 internal/devtools/gate/executor_mount_test.go	internal	other	go-test	1104	开发工具与生成器辅助包	internal,devtools,gate,executor,mount,test,开发工具与生成器辅助包
-internal/devtools/gate/executor_mount.go	internal	other	go-source	833	开发工具与生成器辅助包	internal,devtools,gate,executor,mount,开发工具与生成器辅助包
-internal/devtools/gate/executor_owner_unix.go	internal	other	go-source	220	开发工具与生成器辅助包	internal,devtools,gate,executor,owner,unix,开发工具与生成器辅助包
-internal/devtools/gate/executor_owner_windows.go	internal	other	go-source	114	开发工具与生成器辅助包	internal,devtools,gate,executor,owner,windows,开发工具与生成器辅助包
-internal/devtools/gate/executor_plan_test.go	internal	other	go-test	19850	开发工具与生成器辅助包	internal,devtools,gate,executor,plan,test,开发工具与生成器辅助包
-internal/devtools/gate/executor_plan.go	internal	other	go-source	31252	开发工具与生成器辅助包	internal,devtools,gate,executor,plan,开发工具与生成器辅助包
-internal/devtools/gate/executor_seed_test.go	internal	other	go-test	20390	开发工具与生成器辅助包	internal,devtools,gate,executor,seed,test,开发工具与生成器辅助包
-internal/devtools/gate/executor_seed.go	internal	other	go-source	21756	开发工具与生成器辅助包	internal,devtools,gate,executor,seed,开发工具与生成器辅助包
+internal/devtools/gate/executor_owner_unix.go	internal	other	go-source	1177	开发工具与生成器辅助包	internal,devtools,gate,executor,owner,unix,开发工具与生成器辅助包
+internal/devtools/gate/executor_plan_json_test.go	internal	other	go-test	866	开发工具与生成器辅助包	internal,devtools,gate,executor,plan,json,test,开发工具与生成器辅助包
+internal/devtools/gate/executor_plan_report.go	internal	other	go-source	30447	开发工具与生成器辅助包	internal,devtools,gate,executor,plan,report,开发工具与生成器辅助包
+internal/devtools/gate/executor_plan_schedule_test.go	internal	other	go-test	1655	开发工具与生成器辅助包	internal,devtools,gate,executor,plan,schedule,test,开发工具与生成器辅助包
+internal/devtools/gate/executor_plan_test.go	internal	other	go-test	24804	开发工具与生成器辅助包	internal,devtools,gate,executor,plan,test,开发工具与生成器辅助包
+internal/devtools/gate/executor_plan.go	internal	other	go-source	28429	开发工具与生成器辅助包	internal,devtools,gate,executor,plan,开发工具与生成器辅助包
+internal/devtools/gate/executor_seed_test.go	internal	other	go-test	27944	开发工具与生成器辅助包	internal,devtools,gate,executor,seed,test,开发工具与生成器辅助包
+internal/devtools/gate/executor_seed.go	internal	other	go-source	27962	开发工具与生成器辅助包	internal,devtools,gate,executor,seed,开发工具与生成器辅助包
 internal/devtools/gate/executor_signal_linux_test.go	internal	other	go-test	2082	开发工具与生成器辅助包	internal,devtools,gate,executor,signal,linux,test,开发工具与生成器辅助包
 internal/devtools/gate/executor_signal_linux.go	internal	other	go-source	2299	开发工具与生成器辅助包	internal,devtools,gate,executor,signal,linux,开发工具与生成器辅助包
 internal/devtools/gate/executor_signal_nonlinux.go	internal	other	go-source	397	开发工具与生成器辅助包	internal,devtools,gate,executor,signal,nonlinux,开发工具与生成器辅助包
 internal/devtools/gate/executor_signal_unix_test.go	internal	other	go-test	2350	开发工具与生成器辅助包	internal,devtools,gate,executor,signal,unix,test,开发工具与生成器辅助包
 internal/devtools/gate/executor_signal_unix.go	internal	other	go-source	2291	开发工具与生成器辅助包	internal,devtools,gate,executor,signal,unix,开发工具与生成器辅助包
-internal/devtools/gate/executor_signal_windows.go	internal	other	go-source	305	开发工具与生成器辅助包	internal,devtools,gate,executor,signal,windows,开发工具与生成器辅助包
-internal/devtools/gate/executor_sqlc_test.go	internal	other	go-test	1420	开发工具与生成器辅助包	internal,devtools,gate,executor,sqlc,test,开发工具与生成器辅助包
-internal/devtools/gate/executor_sqlc.go	internal	other	go-source	1084	开发工具与生成器辅助包	internal,devtools,gate,executor,sqlc,开发工具与生成器辅助包
-internal/devtools/gate/executor_test.go	internal	other	go-test	26671	开发工具与生成器辅助包	internal,devtools,gate,executor,test,开发工具与生成器辅助包
-internal/devtools/gate/executor_workspace.go	internal	other	go-source	8601	开发工具与生成器辅助包	internal,devtools,gate,executor,workspace,开发工具与生成器辅助包
-internal/devtools/gate/executor.go	internal	other	go-source	16251	开发工具与生成器辅助包	internal,devtools,gate,executor,开发工具与生成器辅助包
+internal/devtools/gate/executor_signal_windows.go	internal	other	go-source	786	开发工具与生成器辅助包	internal,devtools,gate,executor,signal,windows,开发工具与生成器辅助包
+internal/devtools/gate/executor_sqlc_test.go	internal	other	go-test	2370	开发工具与生成器辅助包	internal,devtools,gate,executor,sqlc,test,开发工具与生成器辅助包
+internal/devtools/gate/executor_sqlc.go	internal	other	go-source	1206	开发工具与生成器辅助包	internal,devtools,gate,executor,sqlc,开发工具与生成器辅助包
+internal/devtools/gate/executor_test.go	internal	other	go-test	33900	开发工具与生成器辅助包	internal,devtools,gate,executor,test,开发工具与生成器辅助包
+internal/devtools/gate/executor_workspace.go	internal	other	go-source	30979	开发工具与生成器辅助包	internal,devtools,gate,executor,workspace,开发工具与生成器辅助包
+internal/devtools/gate/executor.go	internal	other	go-source	23989	开发工具与生成器辅助包	internal,devtools,gate,executor,开发工具与生成器辅助包
 internal/devtools/gate/gate_result_test.go	internal	other	go-test	1183	开发工具与生成器辅助包	internal,devtools,gate,result,test,开发工具与生成器辅助包
-internal/devtools/gate/gate_result_validation.go	internal	other	go-source	1286	开发工具与生成器辅助包	internal,devtools,gate,result,validation,开发工具与生成器辅助包
-internal/devtools/gate/registry_test.go	internal	other	go-test	9913	开发工具与生成器辅助包	internal,devtools,gate,registry,test,开发工具与生成器辅助包
-internal/devtools/gate/registry.go	internal	other	go-source	13970	开发工具与生成器辅助包	internal,devtools,gate,registry,开发工具与生成器辅助包
+internal/devtools/gate/gate_result_validation.go	internal	other	go-source	2396	开发工具与生成器辅助包	internal,devtools,gate,result,validation,开发工具与生成器辅助包
+internal/devtools/gate/ledger_store_sqlite_index_migration_test.go	internal	other	go-test	1378	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,index,migration,test,开发工具与生成器辅助包
+internal/devtools/gate/ledger_store_sqlite_legacy.go	internal	other	go-source	10978	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,legacy,开发工具与生成器辅助包
+internal/devtools/gate/ledger_store_sqlite_projection_test.go	internal	other	go-test	8531	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,projection,test,开发工具与生成器辅助包
+internal/devtools/gate/ledger_store_sqlite_read.go	internal	other	go-source	6654	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,read,开发工具与生成器辅助包
+internal/devtools/gate/ledger_store_sqlite_schema_contracts_test.go	internal	other	go-test	5177	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,schema,contracts,test,开发工具与生成器辅助包
+internal/devtools/gate/ledger_store_sqlite_schema_guard_test.go	internal	other	go-test	9957	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,schema,guard,test,开发工具与生成器辅助包
+internal/devtools/gate/ledger_store_sqlite_schema.go	internal	other	go-source	11635	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,schema,开发工具与生成器辅助包
+internal/devtools/gate/ledger_store_sqlite_test.go	internal	other	go-test	20159	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,test,开发工具与生成器辅助包
+internal/devtools/gate/ledger_store_sqlite_write.go	internal	other	go-source	10620	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,write,开发工具与生成器辅助包
+internal/devtools/gate/ledger_store_sqlite.go	internal	other	go-source	13319	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,开发工具与生成器辅助包
+internal/devtools/gate/ledger_store_test.go	internal	other	go-test	6269	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,test,开发工具与生成器辅助包
+internal/devtools/gate/ledger_store.go	internal	other	go-source	9635	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,开发工具与生成器辅助包
+internal/devtools/gate/registry_test.go	internal	other	go-test	11374	开发工具与生成器辅助包	internal,devtools,gate,registry,test,开发工具与生成器辅助包
+internal/devtools/gate/registry.go	internal	other	go-source	15242	开发工具与生成器辅助包	internal,devtools,gate,registry,开发工具与生成器辅助包
 internal/devtools/gate/release_authority_test.go	internal	other	go-test	2987	开发工具与生成器辅助包	internal,devtools,gate,release,authority,test,开发工具与生成器辅助包
-internal/devtools/gate/resource_witness.go	internal	other	go-source	1152	开发工具与生成器辅助包	internal,devtools,gate,resource,witness,开发工具与生成器辅助包
+internal/devtools/gate/remote_ci_phase_timing_test.go	internal	other	go-test	752	开发工具与生成器辅助包	internal,devtools,gate,remote,ci,phase,timing,test,开发工具与生成器辅助包
+internal/devtools/gate/remote_ci_phase_timing.go	internal	other	go-source	2333	开发工具与生成器辅助包	internal,devtools,gate,remote,ci,phase,timing,开发工具与生成器辅助包
+internal/devtools/gate/requester_fingerprint_test.go	internal	other	go-test	2519	开发工具与生成器辅助包	internal,devtools,gate,requester,fingerprint,test,开发工具与生成器辅助包
+internal/devtools/gate/requester_fingerprint.go	internal	other	go-source	2458	开发工具与生成器辅助包	internal,devtools,gate,requester,fingerprint,开发工具与生成器辅助包
 internal/devtools/gate/result_receipt_authority.go	internal	other	go-source	6157	开发工具与生成器辅助包	internal,devtools,gate,result,receipt,authority,开发工具与生成器辅助包
 internal/devtools/gate/result_receipt_v2_test.go	internal	other	go-test	4875	开发工具与生成器辅助包	internal,devtools,gate,result,receipt,v2,test,开发工具与生成器辅助包
 internal/devtools/gate/result_receipt_v2.go	internal	other	go-source	11676	开发工具与生成器辅助包	internal,devtools,gate,result,receipt,v2,开发工具与生成器辅助包
+internal/devtools/gate/testtiming/timing_test.go	internal	other	go-test	2557	开发工具与生成器辅助包	internal,devtools,gate,testtiming,timing,test,开发工具与生成器辅助包
+internal/devtools/gate/testtiming/timing.go	internal	other	go-source	5534	开发工具与生成器辅助包	internal,devtools,gate,testtiming,timing,开发工具与生成器辅助包
 internal/devtools/gate/validation.go	internal	other	go-source	25958	开发工具与生成器辅助包	internal,devtools,gate,validation,开发工具与生成器辅助包
-internal/devtools/gatehook/codex_test.go	internal	other	go-test	6410	开发工具与生成器辅助包	internal,devtools,gatehook,codex,test,开发工具与生成器辅助包
-internal/devtools/gatehook/codex.go	internal	other	go-source	6799	开发工具与生成器辅助包	internal,devtools,gatehook,codex,开发工具与生成器辅助包
-internal/devtools/gatehook/doc.go	internal	other	go-source	100	开发工具与生成器辅助包	internal,devtools,gatehook,doc,开发工具与生成器辅助包
-internal/devtools/gatehook/git_adapter_test.go	internal	other	go-test	10973	开发工具与生成器辅助包	internal,devtools,gatehook,git,adapter,test,开发工具与生成器辅助包
+internal/devtools/gate/workload_catalog_test.go	internal	other	go-test	11682	开发工具与生成器辅助包	internal,devtools,gate,workload,catalog,test,开发工具与生成器辅助包
+internal/devtools/gate/workload_catalog.go	internal	other	go-source	23640	开发工具与生成器辅助包	internal,devtools,gate,workload,catalog,开发工具与生成器辅助包
+internal/devtools/gate/workload_container_shards.go	internal	other	go-source	10581	开发工具与生成器辅助包	internal,devtools,gate,workload,container,shards,开发工具与生成器辅助包
+internal/devtools/gate/workload_model_test.go	internal	other	go-test	21761	开发工具与生成器辅助包	internal,devtools,gate,workload,model,test,开发工具与生成器辅助包
+internal/devtools/gate/workload_model.go	internal	other	go-source	21200	开发工具与生成器辅助包	internal,devtools,gate,workload,model,开发工具与生成器辅助包
+internal/devtools/gate/workload_planning.go	internal	other	go-source	15392	开发工具与生成器辅助包	internal,devtools,gate,workload,planning,开发工具与生成器辅助包
+internal/devtools/gate/workload_targets_test.go	internal	other	go-test	9863	开发工具与生成器辅助包	internal,devtools,gate,workload,targets,test,开发工具与生成器辅助包
+internal/devtools/gate/workload_targets.go	internal	other	go-source	16287	开发工具与生成器辅助包	internal,devtools,gate,workload,targets,开发工具与生成器辅助包
+internal/devtools/gatehook/doc.go	internal	other	go-source	90	开发工具与生成器辅助包	internal,devtools,gatehook,doc,开发工具与生成器辅助包
+internal/devtools/gatehook/git_adapter_test.go	internal	other	go-test	11415	开发工具与生成器辅助包	internal,devtools,gatehook,git,adapter,test,开发工具与生成器辅助包
 internal/devtools/gatehook/git_adapter.go	internal	other	go-source	9293	开发工具与生成器辅助包	internal,devtools,gatehook,git,adapter,开发工具与生成器辅助包
-internal/devtools/gatehook/git.go	internal	other	go-source	12335	开发工具与生成器辅助包	internal,devtools,gatehook,git,开发工具与生成器辅助包
+internal/devtools/gatehook/git.go	internal	other	go-source	12676	开发工具与生成器辅助包	internal,devtools,gatehook,git,开发工具与生成器辅助包
 internal/devtools/gatehook/status_test.go	internal	other	go-test	1470	开发工具与生成器辅助包	internal,devtools,gatehook,status,test,开发工具与生成器辅助包
-internal/devtools/gatehook/status.go	internal	other	go-source	4230	开发工具与生成器辅助包	internal,devtools,gatehook,status,开发工具与生成器辅助包
+internal/devtools/gatehook/status.go	internal	other	go-source	4207	开发工具与生成器辅助包	internal,devtools,gatehook,status,开发工具与生成器辅助包
 internal/devtools/gatehook/test_helpers_test.go	internal	other	go-test	2003	开发工具与生成器辅助包	internal,devtools,gatehook,test,helpers,开发工具与生成器辅助包
 internal/devtools/gatehook/testdata/codex/missing-agent-id.json	internal	other	json	183	开发工具与生成器辅助包	internal,devtools,gatehook,testdata,codex,missing,agent,id,开发工具与生成器辅助包
 internal/devtools/gatehook/testdata/codex/missing-cwd.json	internal	other	json	151	开发工具与生成器辅助包	internal,devtools,gatehook,testdata,codex,missing,cwd,开发工具与生成器辅助包
@@ -511,10 +612,18 @@ internal/devtools/gatehook/testdata/codex/stop.json	internal	other	json	298	开�
 internal/devtools/gatehook/testdata/codex/subagent-stop.json	internal	other	json	420	开发工具与生成器辅助包	internal,devtools,gatehook,testdata,codex,subagent,stop,开发工具与生成器辅助包
 internal/devtools/gatehook/testdata/git/pre-push.txt	internal	other	txt	50	开发工具与生成器辅助包	internal,devtools,gatehook,testdata,git,pre,push,开发工具与生成器辅助包
 internal/devtools/gatehook/testdata/status/decisions.json	internal	other	json	1149	开发工具与生成器辅助包	internal,devtools,gatehook,testdata,status,decisions,开发工具与生成器辅助包
-internal/devtools/gatehook/types.go	internal	other	go-source	8704	开发工具与生成器辅助包	internal,devtools,gatehook,types,开发工具与生成器辅助包
+internal/devtools/gatehook/types.go	internal	other	go-source	7423	开发工具与生成器辅助包	internal,devtools,gatehook,types,开发工具与生成器辅助包
+internal/devtools/gateprivate/exclusive_lock_test.go	internal	other	go-test	1120	开发工具与生成器辅助包	internal,devtools,gateprivate,exclusive,lock,test,开发工具与生成器辅助包
+internal/devtools/gateprivate/exclusive_lock_unix.go	internal	other	go-source	449	开发工具与生成器辅助包	internal,devtools,gateprivate,exclusive,lock,unix,开发工具与生成器辅助包
+internal/devtools/gateprivate/exclusive_lock_windows.go	internal	other	go-source	705	开发工具与生成器辅助包	internal,devtools,gateprivate,exclusive,lock,windows,开发工具与生成器辅助包
+internal/devtools/gateprivate/exclusive_lock.go	internal	other	go-source	2903	开发工具与生成器辅助包	internal,devtools,gateprivate,exclusive,lock,开发工具与生成器辅助包
+internal/devtools/gateprivate/storage_test.go	internal	other	go-test	987	开发工具与生成器辅助包	internal,devtools,gateprivate,storage,test,开发工具与生成器辅助包
+internal/devtools/gateprivate/storage.go	internal	other	go-source	4590	开发工具与生成器辅助包	internal,devtools,gateprivate,storage,开发工具与生成器辅助包
+internal/devtools/gateprivate/timeouts_test.go	internal	other	go-test	402	开发工具与生成器辅助包	internal,devtools,gateprivate,timeouts,test,开发工具与生成器辅助包
+internal/devtools/gateprivate/timeouts.go	internal	other	go-source	282	开发工具与生成器辅助包	internal,devtools,gateprivate,timeouts,开发工具与生成器辅助包
 internal/devtools/localci/bootstrap_tree_test.go	internal	other	go-test	1222	开发工具与生成器辅助包	internal,devtools,localci,bootstrap,tree,test,开发工具与生成器辅助包
 internal/devtools/localci/daemon_capacity_docker_test.go	internal	other	go-test	6119	开发工具与生成器辅助包	internal,devtools,localci,daemon,capacity,docker,test,开发工具与生成器辅助包
-internal/devtools/localci/daemon_capacity_docker.go	internal	other	go-source	28794	开发工具与生成器辅助包	internal,devtools,localci,daemon,capacity,docker,开发工具与生成器辅助包
+internal/devtools/localci/daemon_capacity_docker.go	internal	other	go-source	28775	开发工具与生成器辅助包	internal,devtools,localci,daemon,capacity,docker,开发工具与生成器辅助包
 internal/devtools/localci/daemon_capacity_test.go	internal	other	go-test	7859	开发工具与生成器辅助包	internal,devtools,localci,daemon,capacity,test,开发工具与生成器辅助包
 internal/devtools/localci/daemon_capacity.go	internal	other	go-source	7984	开发工具与生成器辅助包	internal,devtools,localci,daemon,capacity,开发工具与生成器辅助包
 internal/devtools/localci/daemon_identity_docker_test.go	internal	other	go-test	21402	开发工具与生成器辅助包	internal,devtools,localci,daemon,identity,docker,test,开发工具与生成器辅助包
@@ -522,33 +631,35 @@ internal/devtools/localci/daemon_identity_docker.go	internal	other	go-source	227
 internal/devtools/localci/execution_runner_fixture_helpers_test.go	internal	other	go-test	779	开发工具与生成器辅助包	internal,devtools,localci,execution,runner,fixture,helpers,test,开发工具与生成器辅助包
 internal/devtools/localci/execution_runner_image_reference_test.go	internal	other	go-test	921	开发工具与生成器辅助包	internal,devtools,localci,execution,runner,image,reference,test,开发工具与生成器辅助包
 internal/devtools/localci/execution_runner_smoke_test.go	internal	other	go-test	6173	开发工具与生成器辅助包	internal,devtools,localci,execution,runner,smoke,test,开发工具与生成器辅助包
-internal/devtools/localci/execution_runner_test.go	internal	other	go-test	33755	开发工具与生成器辅助包	internal,devtools,localci,execution,runner,test,开发工具与生成器辅助包
-internal/devtools/localci/executor_context_test.go	internal	other	go-test	3561	开发工具与生成器辅助包	internal,devtools,localci,executor,context,test,开发工具与生成器辅助包
-internal/devtools/localci/executor_context.go	internal	other	go-source	30752	开发工具与生成器辅助包	internal,devtools,localci,executor,context,开发工具与生成器辅助包
-internal/devtools/localci/executor_docker_test.go	internal	other	go-test	12296	开发工具与生成器辅助包	internal,devtools,localci,executor,docker,test,开发工具与生成器辅助包
-internal/devtools/localci/executor_docker.go	internal	other	go-source	33961	开发工具与生成器辅助包	internal,devtools,localci,executor,docker,开发工具与生成器辅助包
+internal/devtools/localci/execution_runner_test.go	internal	other	go-test	33698	开发工具与生成器辅助包	internal,devtools,localci,execution,runner,test,开发工具与生成器辅助包
+internal/devtools/localci/executor_context_test.go	internal	other	go-test	4208	开发工具与生成器辅助包	internal,devtools,localci,executor,context,test,开发工具与生成器辅助包
+internal/devtools/localci/executor_context.go	internal	other	go-source	30778	开发工具与生成器辅助包	internal,devtools,localci,executor,context,开发工具与生成器辅助包
+internal/devtools/localci/executor_docker_test.go	internal	other	go-test	12244	开发工具与生成器辅助包	internal,devtools,localci,executor,docker,test,开发工具与生成器辅助包
+internal/devtools/localci/executor_docker.go	internal	other	go-source	33942	开发工具与生成器辅助包	internal,devtools,localci,executor,docker,开发工具与生成器辅助包
 internal/devtools/localci/executor_image_test.go	internal	other	go-test	3296	开发工具与生成器辅助包	internal,devtools,localci,executor,image,test,开发工具与生成器辅助包
 internal/devtools/localci/executor_image.go	internal	other	go-source	29471	开发工具与生成器辅助包	internal,devtools,localci,executor,image,开发工具与生成器辅助包
 internal/devtools/localci/executor_lifecycle_cleanup_test.go	internal	other	go-test	25007	开发工具与生成器辅助包	internal,devtools,localci,executor,lifecycle,cleanup,test,开发工具与生成器辅助包
-internal/devtools/localci/executor_plan_report.go	internal	other	go-source	8961	开发工具与生成器辅助包	internal,devtools,localci,executor,plan,report,开发工具与生成器辅助包
-internal/devtools/localci/executor_source_identity.go	internal	other	go-source	20886	开发工具与生成器辅助包	internal,devtools,localci,executor,source,identity,开发工具与生成器辅助包
+internal/devtools/localci/executor_plan_report.go	internal	other	go-source	8968	开发工具与生成器辅助包	internal,devtools,localci,executor,plan,report,开发工具与生成器辅助包
+internal/devtools/localci/executor_source_identity.go	internal	other	go-source	21083	开发工具与生成器辅助包	internal,devtools,localci,executor,source,identity,开发工具与生成器辅助包
 internal/devtools/localci/executor_source_test.go	internal	other	go-test	1699	开发工具与生成器辅助包	internal,devtools,localci,executor,source,test,开发工具与生成器辅助包
 internal/devtools/localci/executor_source.go	internal	other	go-source	31359	开发工具与生成器辅助包	internal,devtools,localci,executor,source,开发工具与生成器辅助包
-internal/devtools/localci/executor_timeout_report_test.go	internal	other	go-test	9422	开发工具与生成器辅助包	internal,devtools,localci,executor,timeout,report,test,开发工具与生成器辅助包
-internal/devtools/localci/gate_image_closure_contract_test.go	internal	other	go-test	4382	开发工具与生成器辅助包	internal,devtools,localci,gate,image,closure,contract,test,开发工具与生成器辅助包
+internal/devtools/localci/executor_timeout_report_test.go	internal	other	go-test	9370	开发工具与生成器辅助包	internal,devtools,localci,executor,timeout,report,test,开发工具与生成器辅助包
+internal/devtools/localci/gate_image_closure_contract_test.go	internal	other	go-test	4480	开发工具与生成器辅助包	internal,devtools,localci,gate,image,closure,contract,test,开发工具与生成器辅助包
 internal/devtools/localci/image_builder_buildx_assertions_test.go	internal	other	go-test	3743	开发工具与生成器辅助包	internal,devtools,localci,image,builder,buildx,assertions,test,开发工具与生成器辅助包
 internal/devtools/localci/image_builder_buildx_environment_test.go	internal	other	go-test	2569	开发工具与生成器辅助包	internal,devtools,localci,image,builder,buildx,environment,test,开发工具与生成器辅助包
 internal/devtools/localci/image_builder_buildx_evidence_test.go	internal	other	go-test	13239	开发工具与生成器辅助包	internal,devtools,localci,image,builder,buildx,evidence,test,开发工具与生成器辅助包
-internal/devtools/localci/image_builder_buildx_fixture_test.go	internal	other	go-test	17540	开发工具与生成器辅助包	internal,devtools,localci,image,builder,buildx,fixture,test,开发工具与生成器辅助包
+internal/devtools/localci/image_builder_buildx_fixture_test.go	internal	other	go-test	17779	开发工具与生成器辅助包	internal,devtools,localci,image,builder,buildx,fixture,test,开发工具与生成器辅助包
 internal/devtools/localci/image_builder_buildx_metadata.go	internal	other	go-source	35761	开发工具与生成器辅助包	internal,devtools,localci,image,builder,buildx,metadata,开发工具与生成器辅助包
 internal/devtools/localci/image_builder_buildx_orphan_e2e_test.go	internal	other	go-test	4488	开发工具与生成器辅助包	internal,devtools,localci,image,builder,buildx,orphan,e2e,test,开发工具与生成器辅助包
-internal/devtools/localci/image_builder_buildx_test.go	internal	other	go-test	31683	开发工具与生成器辅助包	internal,devtools,localci,image,builder,buildx,test,开发工具与生成器辅助包
-internal/devtools/localci/image_builder_buildx.go	internal	other	go-source	33540	开发工具与生成器辅助包	internal,devtools,localci,image,builder,buildx,开发工具与生成器辅助包
+internal/devtools/localci/image_builder_buildx_test.go	internal	other	go-test	32358	开发工具与生成器辅助包	internal,devtools,localci,image,builder,buildx,test,开发工具与生成器辅助包
+internal/devtools/localci/image_builder_buildx.go	internal	other	go-source	34931	开发工具与生成器辅助包	internal,devtools,localci,image,builder,buildx,开发工具与生成器辅助包
 internal/devtools/localci/image_builder_cache_recovery_test.go	internal	other	go-test	1616	开发工具与生成器辅助包	internal,devtools,localci,image,builder,cache,recovery,test,开发工具与生成器辅助包
-internal/devtools/localci/image_builder_fixture_test.go	internal	other	go-test	3866	开发工具与生成器辅助包	internal,devtools,localci,image,builder,fixture,test,开发工具与生成器辅助包
-internal/devtools/localci/image_builder_test.go	internal	other	go-test	30929	开发工具与生成器辅助包	internal,devtools,localci,image,builder,test,开发工具与生成器辅助包
-internal/devtools/localci/image_builder.go	internal	other	go-source	31757	开发工具与生成器辅助包	internal,devtools,localci,image,builder,开发工具与生成器辅助包
-internal/devtools/localci/image_inputs_test.go	internal	other	go-test	5148	开发工具与生成器辅助包	internal,devtools,localci,image,inputs,test,开发工具与生成器辅助包
+internal/devtools/localci/image_builder_digest.go	internal	other	go-source	784	开发工具与生成器辅助包	internal,devtools,localci,image,builder,digest,开发工具与生成器辅助包
+internal/devtools/localci/image_builder_fixture_test.go	internal	other	go-test	4505	开发工具与生成器辅助包	internal,devtools,localci,image,builder,fixture,test,开发工具与生成器辅助包
+internal/devtools/localci/image_builder_test.go	internal	other	go-test	32415	开发工具与生成器辅助包	internal,devtools,localci,image,builder,test,开发工具与生成器辅助包
+internal/devtools/localci/image_builder_values.go	internal	other	go-source	1326	开发工具与生成器辅助包	internal,devtools,localci,image,builder,values,开发工具与生成器辅助包
+internal/devtools/localci/image_builder.go	internal	other	go-source	32951	开发工具与生成器辅助包	internal,devtools,localci,image,builder,开发工具与生成器辅助包
+internal/devtools/localci/image_inputs_test.go	internal	other	go-test	6703	开发工具与生成器辅助包	internal,devtools,localci,image,inputs,test,开发工具与生成器辅助包
 internal/devtools/localci/image_state_test.go	internal	other	go-test	18791	开发工具与生成器辅助包	internal,devtools,localci,image,state,test,开发工具与生成器辅助包
 internal/devtools/localci/image_state.go	internal	other	go-source	32022	开发工具与生成器辅助包	internal,devtools,localci,image,state,开发工具与生成器辅助包
 internal/devtools/localci/image_tree_loader_test.go	internal	other	go-test	3035	开发工具与生成器辅助包	internal,devtools,localci,image,tree,loader,test,开发工具与生成器辅助包
@@ -577,17 +688,97 @@ internal/devtools/localci/scheduler_transport_timeout_test.go	internal	other	go-
 internal/devtools/localci/scheduler_transport_unix_test.go	internal	other	go-test	25630	开发工具与生成器辅助包	internal,devtools,localci,scheduler,transport,unix,test,开发工具与生成器辅助包
 internal/devtools/localci/scheduler_transport_unix.go	internal	other	go-source	5844	开发工具与生成器辅助包	internal,devtools,localci,scheduler,transport,unix,开发工具与生成器辅助包
 internal/devtools/localci/scheduler_transport_windows.go	internal	other	go-source	552	开发工具与生成器辅助包	internal,devtools,localci,scheduler,transport,windows,开发工具与生成器辅助包
-internal/devtools/localci/scheduler_transport.go	internal	other	go-source	26775	开发工具与生成器辅助包	internal,devtools,localci,scheduler,transport,开发工具与生成器辅助包
+internal/devtools/localci/scheduler_transport.go	internal	other	go-source	26762	开发工具与生成器辅助包	internal,devtools,localci,scheduler,transport,开发工具与生成器辅助包
 internal/devtools/localci/scheduler_windows_test.go	internal	other	go-test	1932	开发工具与生成器辅助包	internal,devtools,localci,scheduler,windows,test,开发工具与生成器辅助包
 internal/devtools/localci/scheduler.go	internal	other	go-source	23519	开发工具与生成器辅助包	internal,devtools,localci,scheduler,开发工具与生成器辅助包
 internal/devtools/localci/source_materializer_test.go	internal	other	go-test	15902	开发工具与生成器辅助包	internal,devtools,localci,source,materializer,test,开发工具与生成器辅助包
-internal/devtools/localci/testdata/fresh-container-smoke/Dockerfile	internal	other	file	369	开发工具与生成器辅助包	internal,devtools,localci,testdata,fresh,container,smoke,Dockerfile,开发工具与生成器辅助包
+internal/devtools/localci/testdata/fresh-container-smoke/Dockerfile	internal	other	file	328	开发工具与生成器辅助包	internal,devtools,localci,testdata,fresh,container,smoke,Dockerfile,开发工具与生成器辅助包
 internal/devtools/localci/testdata/fresh-container-smoke/main.txt	internal	other	txt	29	开发工具与生成器辅助包	internal,devtools,localci,testdata,fresh,container,smoke,main,开发工具与生成器辅助包
 internal/devtools/localci/testdata/fresh-container-smoke/seccomp.json	internal	other	json	40	开发工具与生成器辅助包	internal,devtools,localci,testdata,fresh,container,smoke,seccomp,开发工具与生成器辅助包
-internal/devtools/localci/testdata/scheduler-docker-acceptance/Dockerfile	internal	other	file	369	开发工具与生成器辅助包	internal,devtools,localci,testdata,scheduler,docker,acceptance,Dockerfile,开发工具与生成器辅助包
+internal/devtools/localci/testdata/scheduler-docker-acceptance/Dockerfile	internal	other	file	328	开发工具与生成器辅助包	internal,devtools,localci,testdata,scheduler,docker,acceptance,Dockerfile,开发工具与生成器辅助包
 internal/devtools/localci/testdata/scheduler-docker-acceptance/main.txt	internal	other	txt	74	开发工具与生成器辅助包	internal,devtools,localci,testdata,scheduler,docker,acceptance,main,开发工具与生成器辅助包
 internal/devtools/localci/truth_image_ensure_test.go	internal	other	go-test	8760	开发工具与生成器辅助包	internal,devtools,localci,truth,image,ensure,test,开发工具与生成器辅助包
 internal/devtools/nilnessrunner/runner.go	internal	other	go-source	360	开发工具与生成器辅助包	internal,devtools,nilnessrunner,runner,开发工具与生成器辅助包
+internal/devtools/projectmaptrusted/assets/generate_ai_project_map.mjs.gz	internal	other	gz	14358	开发工具与生成器辅助包	internal,devtools,projectmaptrusted,assets,generate,ai,project,map,mjs,开发工具与生成器辅助包
+internal/devtools/projectmaptrusted/generator_asset_sync_test.go	internal	other	go-test	2106	开发工具与生成器辅助包	internal,devtools,projectmaptrusted,generator,asset,sync,test,开发工具与生成器辅助包
+internal/devtools/projectmaptrusted/generator_asset.go	internal	other	go-source	1249	开发工具与生成器辅助包	internal,devtools,projectmaptrusted,generator,asset,开发工具与生成器辅助包
+internal/devtools/projectmaptrusted/project_map_test.go	internal	other	go-test	11162	开发工具与生成器辅助包	internal,devtools,projectmaptrusted,project,map,test,开发工具与生成器辅助包
+internal/devtools/projectmaptrusted/project_map.go	internal	other	go-source	21302	开发工具与生成器辅助包	internal,devtools,projectmaptrusted,project,map,开发工具与生成器辅助包
+internal/devtools/remoteci/baseline_manifest_schema.go	internal	other	go-source	10435	开发工具与生成器辅助包	internal,devtools,remoteci,baseline,manifest,schema,开发工具与生成器辅助包
+internal/devtools/remoteci/baseline_manifest_test.go	internal	other	go-test	6582	开发工具与生成器辅助包	internal,devtools,remoteci,baseline,manifest,test,开发工具与生成器辅助包
+internal/devtools/remoteci/baseline_manifest.go	internal	other	go-source	17	开发工具与生成器辅助包	internal,devtools,remoteci,baseline,manifest,开发工具与生成器辅助包
+internal/devtools/remoteci/baseline_state.go	internal	other	go-source	22682	开发工具与生成器辅助包	internal,devtools,remoteci,baseline,state,开发工具与生成器辅助包
+internal/devtools/remoteci/baseline_test.go	internal	other	go-test	7320	开发工具与生成器辅助包	internal,devtools,remoteci,baseline,test,开发工具与生成器辅助包
+internal/devtools/remoteci/baseline.go	internal	other	go-source	17	开发工具与生成器辅助包	internal,devtools,remoteci,baseline,开发工具与生成器辅助包
+internal/devtools/remoteci/cache_probe.go	internal	other	go-source	2494	开发工具与生成器辅助包	internal,devtools,remoteci,cache,probe,开发工具与生成器辅助包
+internal/devtools/remoteci/calibration_checkpoint_store.go	internal	other	go-source	22755	开发工具与生成器辅助包	internal,devtools,remoteci,calibration,checkpoint,store,开发工具与生成器辅助包
+internal/devtools/remoteci/calibration_checkpoint_test.go	internal	other	go-test	9828	开发工具与生成器辅助包	internal,devtools,remoteci,calibration,checkpoint,test,开发工具与生成器辅助包
+internal/devtools/remoteci/calibration_checkpoint.go	internal	other	go-source	17	开发工具与生成器辅助包	internal,devtools,remoteci,calibration,checkpoint,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator_cache_integration_test.go	internal	other	go-test	29050	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,cache,integration,test,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator_cache_lookup.go	internal	other	go-source	7515	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,cache,lookup,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator_concurrency_test.go	internal	other	go-test	5840	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,concurrency,test,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator_diagnostics_test.go	internal	other	go-test	2612	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,diagnostics,test,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator_diagnostics.go	internal	other	go-source	6658	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,diagnostics,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator_observation_test.go	internal	other	go-test	3643	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,observation,test,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator_observation.go	internal	other	go-source	2880	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,observation,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator_request.go	internal	other	go-source	5341	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,request,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator_resources.go	internal	other	go-source	1889	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,resources,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator_results_partial_test.go	internal	other	go-test	4687	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,results,partial,test,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator_results_test.go	internal	other	go-test	4286	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,results,test,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator_results.go	internal	other	go-source	10554	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,results,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator_test_contract_test.go	internal	other	go-test	7340	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,test,contract,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator_test.go	internal	other	go-test	24610	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,test,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator_wait_test.go	internal	other	go-test	1781	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,wait,test,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator_wait.go	internal	other	go-source	10838	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,wait,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator.go	internal	other	go-source	29746	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,开发工具与生成器辅助包
+internal/devtools/remoteci/go_test_cache_test.go	internal	other	go-test	8454	开发工具与生成器辅助包	internal,devtools,remoteci,go,test,cache,开发工具与生成器辅助包
+internal/devtools/remoteci/go_test_cache.go	internal	other	go-source	17794	开发工具与生成器辅助包	internal,devtools,remoteci,go,test,cache,开发工具与生成器辅助包
+internal/devtools/remoteci/go_test_inventory_test.go	internal	other	go-test	4230	开发工具与生成器辅助包	internal,devtools,remoteci,go,test,inventory,开发工具与生成器辅助包
+internal/devtools/remoteci/go_test_inventory.go	internal	other	go-source	15997	开发工具与生成器辅助包	internal,devtools,remoteci,go,test,inventory,开发工具与生成器辅助包
+internal/devtools/remoteci/inventory_test.go	internal	other	go-test	4767	开发工具与生成器辅助包	internal,devtools,remoteci,inventory,test,开发工具与生成器辅助包
+internal/devtools/remoteci/inventory.go	internal	other	go-source	10710	开发工具与生成器辅助包	internal,devtools,remoteci,inventory,开发工具与生成器辅助包
+internal/devtools/remoteci/local_test_policy_test.go	internal	other	go-test	3906	开发工具与生成器辅助包	internal,devtools,remoteci,local,test,policy,开发工具与生成器辅助包
+internal/devtools/remoteci/local_test_policy.go	internal	other	go-source	5449	开发工具与生成器辅助包	internal,devtools,remoteci,local,test,policy,开发工具与生成器辅助包
+internal/devtools/remoteci/performance_trace_test.go	internal	other	go-test	2037	开发工具与生成器辅助包	internal,devtools,remoteci,performance,trace,test,开发工具与生成器辅助包
+internal/devtools/remoteci/performance_trace.go	internal	other	go-source	3920	开发工具与生成器辅助包	internal,devtools,remoteci,performance,trace,开发工具与生成器辅助包
+internal/devtools/remoteci/protocol_shard_request.go	internal	other	go-source	11127	开发工具与生成器辅助包	internal,devtools,remoteci,protocol,shard,request,开发工具与生成器辅助包
+internal/devtools/remoteci/protocol_test.go	internal	other	go-test	4142	开发工具与生成器辅助包	internal,devtools,remoteci,protocol,test,开发工具与生成器辅助包
+internal/devtools/remoteci/protocol.go	internal	other	go-source	17	开发工具与生成器辅助包	internal,devtools,remoteci,protocol,开发工具与生成器辅助包
+internal/devtools/remoteci/runtime_inputs_test.go	internal	other	go-test	5744	开发工具与生成器辅助包	internal,devtools,remoteci,runtime,inputs,test,开发工具与生成器辅助包
+internal/devtools/remoteci/runtime_inputs.go	internal	other	go-source	11674	开发工具与生成器辅助包	internal,devtools,remoteci,runtime,inputs,开发工具与生成器辅助包
+internal/devtools/remoteci/source/source_test.go	internal	other	go-test	7989	开发工具与生成器辅助包	internal,devtools,remoteci,source,test,开发工具与生成器辅助包
+internal/devtools/remoteci/source/source.go	internal	other	go-source	19761	开发工具与生成器辅助包	internal,devtools,remoteci,source,开发工具与生成器辅助包
+internal/devtools/remoteci/worker_execution_contract_assets_modules.go	internal	other	go-source	9680	开发工具与生成器辅助包	internal,devtools,remoteci,worker,execution,contract,assets,modules,开发工具与生成器辅助包
+internal/devtools/remoteci/worker_execution_contract_assets.go	internal	other	go-source	22012	开发工具与生成器辅助包	internal,devtools,remoteci,worker,execution,contract,assets,开发工具与生成器辅助包
+internal/devtools/remoteci/worker_execution_contract_ast.go	internal	other	go-source	14404	开发工具与生成器辅助包	internal,devtools,remoteci,worker,execution,contract,ast,开发工具与生成器辅助包
+internal/devtools/remoteci/worker_execution_contract_closure.go	internal	other	go-source	13435	开发工具与生成器辅助包	internal,devtools,remoteci,worker,execution,contract,closure,开发工具与生成器辅助包
+internal/devtools/remoteci/worker_execution_contract_digest.go	internal	other	go-source	3622	开发工具与生成器辅助包	internal,devtools,remoteci,worker,execution,contract,digest,开发工具与生成器辅助包
+internal/devtools/remoteci/worker_execution_contract_shell.go	internal	other	go-source	7892	开发工具与生成器辅助包	internal,devtools,remoteci,worker,execution,contract,shell,开发工具与生成器辅助包
+internal/devtools/remoteci/worker_execution_contract_test.go	internal	other	go-test	2353	开发工具与生成器辅助包	internal,devtools,remoteci,worker,execution,contract,test,开发工具与生成器辅助包
+internal/devtools/remoteci/worker_execution_contract.go	internal	other	go-source	4710	开发工具与生成器辅助包	internal,devtools,remoteci,worker,execution,contract,开发工具与生成器辅助包
+internal/devtools/remoteci/worker_supervisor_unix_test.go	internal	other	go-test	811	开发工具与生成器辅助包	internal,devtools,remoteci,worker,supervisor,unix,test,开发工具与生成器辅助包
+internal/devtools/remoteci/worker_supervisor.go	internal	other	go-source	2071	开发工具与生成器辅助包	internal,devtools,remoteci,worker,supervisor,开发工具与生成器辅助包
+internal/devtools/remoteci/workerio/oss_http_test.go	internal	other	go-test	11570	开发工具与生成器辅助包	internal,devtools,remoteci,workerio,oss,http,test,开发工具与生成器辅助包
+internal/devtools/remoteci/workerio/oss_test.go	internal	other	go-test	15416	开发工具与生成器辅助包	internal,devtools,remoteci,workerio,oss,test,开发工具与生成器辅助包
+internal/devtools/remoteci/workerio/oss.go	internal	other	go-source	19773	开发工具与生成器辅助包	internal,devtools,remoteci,workerio,oss,开发工具与生成器辅助包
+internal/devtools/remoteci/workload_cache_compatibility_test.go	internal	other	go-test	7517	开发工具与生成器辅助包	internal,devtools,remoteci,workload,cache,compatibility,test,开发工具与生成器辅助包
+internal/devtools/remoteci/workload_cache_compatibility.go	internal	other	go-source	9399	开发工具与生成器辅助包	internal,devtools,remoteci,workload,cache,compatibility,开发工具与生成器辅助包
+internal/devtools/remoteci/workload_cache_ledger.go	internal	other	go-source	5814	开发工具与生成器辅助包	internal,devtools,remoteci,workload,cache,ledger,开发工具与生成器辅助包
+internal/devtools/remoteci/workload_cache_object_store.go	internal	other	go-source	8770	开发工具与生成器辅助包	internal,devtools,remoteci,workload,cache,object,store,开发工具与生成器辅助包
+internal/devtools/remoteci/workload_cache_test.go	internal	other	go-test	18462	开发工具与生成器辅助包	internal,devtools,remoteci,workload,cache,test,开发工具与生成器辅助包
+internal/devtools/remoteci/workload_cache.go	internal	other	go-source	10381	开发工具与生成器辅助包	internal,devtools,remoteci,workload,cache,开发工具与生成器辅助包
+internal/devtools/remoteci/workload_fingerprint_digests.go	internal	other	go-source	8197	开发工具与生成器辅助包	internal,devtools,remoteci,workload,fingerprint,digests,开发工具与生成器辅助包
+internal/devtools/remoteci/workload_fingerprint_execution_test.go	internal	other	go-test	11506	开发工具与生成器辅助包	internal,devtools,remoteci,workload,fingerprint,execution,test,开发工具与生成器辅助包
+internal/devtools/remoteci/workload_fingerprint_git.go	internal	other	go-source	13167	开发工具与生成器辅助包	internal,devtools,remoteci,workload,fingerprint,git,开发工具与生成器辅助包
+internal/devtools/remoteci/workload_fingerprint_go_packages.go	internal	other	go-source	9986	开发工具与生成器辅助包	internal,devtools,remoteci,workload,fingerprint,go,packages,开发工具与生成器辅助包
+internal/devtools/remoteci/workload_fingerprint_go_tests.go	internal	other	go-source	19236	开发工具与生成器辅助包	internal,devtools,remoteci,workload,fingerprint,go,tests,开发工具与生成器辅助包
+internal/devtools/remoteci/workload_fingerprint_process_io_test.go	internal	other	go-test	1107	开发工具与生成器辅助包	internal,devtools,remoteci,workload,fingerprint,process,io,test,开发工具与生成器辅助包
+internal/devtools/remoteci/workload_fingerprint_sources_test.go	internal	other	go-test	4357	开发工具与生成器辅助包	internal,devtools,remoteci,workload,fingerprint,sources,test,开发工具与生成器辅助包
+internal/devtools/remoteci/workload_fingerprint_test.go	internal	other	go-test	27649	开发工具与生成器辅助包	internal,devtools,remoteci,workload,fingerprint,test,开发工具与生成器辅助包
+internal/devtools/remoteci/workload_fingerprint.go	internal	other	go-source	4326	开发工具与生成器辅助包	internal,devtools,remoteci,workload,fingerprint,开发工具与生成器辅助包
+internal/devtools/remoteci/workload_projection.go	internal	other	go-source	3150	开发工具与生成器辅助包	internal,devtools,remoteci,workload,projection,开发工具与生成器辅助包
+internal/devtools/shardresource/planner_test.go	internal	other	go-test	4703	开发工具与生成器辅助包	internal,devtools,shardresource,planner,test,开发工具与生成器辅助包
+internal/devtools/shardresource/planner.go	internal	other	go-source	10543	开发工具与生成器辅助包	internal,devtools,shardresource,planner,开发工具与生成器辅助包
 internal/devtools/sourceexport/errors.go	internal	other	go-source	1294	开发工具与生成器辅助包	internal,devtools,sourceexport,errors,开发工具与生成器辅助包
 internal/devtools/sourceexport/git_tree_test.go	internal	other	go-test	7318	开发工具与生成器辅助包	internal,devtools,sourceexport,git,tree,test,开发工具与生成器辅助包
 internal/devtools/sourceexport/git_tree.go	internal	other	go-source	11003	开发工具与生成器辅助包	internal,devtools,sourceexport,git,tree,开发工具与生成器辅助包
@@ -680,8 +871,8 @@ internal/ui/wails/clipboard_assets_test.go	internal	other	go-test	6551	Wails bin
 internal/ui/wails/clipboard_assets.go	internal	other	go-source	8501	Wails binding 与 UI RPC 桥接	internal,ui,wails,clipboard,assets,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/clipboard_cleanup_test.go	internal	other	go-test	3311	Wails binding 与 UI RPC 桥接	internal,ui,wails,clipboard,cleanup,test,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/clipboard_cleanup.go	internal	other	go-source	2936	Wails binding 与 UI RPC 桥接	internal,ui,wails,clipboard,cleanup,Wails,binding,与,UI,RPC,桥接
-internal/ui/wails/code_preview_test.go	internal	other	go-test	12462	Wails binding 与 UI RPC 桥接	internal,ui,wails,code,preview,test,Wails,binding,与,UI,RPC,桥接
-internal/ui/wails/code_preview.go	internal	other	go-source	22912	Wails binding 与 UI RPC 桥接	internal,ui,wails,code,preview,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/code_preview_test.go	internal	other	go-test	12853	Wails binding 与 UI RPC 桥接	internal,ui,wails,code,preview,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/code_preview.go	internal	other	go-source	23735	Wails binding 与 UI RPC 桥接	internal,ui,wails,code,preview,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/code_scope_test.go	internal	other	go-test	2462	Wails binding 与 UI RPC 桥接	internal,ui,wails,code,scope,test,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/code_scope_windows_test.go	internal	other	go-test	502	Wails binding 与 UI RPC 桥接	internal,ui,wails,code,scope,windows,test,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/code_scope.go	internal	other	go-source	11451	Wails binding 与 UI RPC 桥接	internal,ui,wails,code,scope,Wails,binding,与,UI,RPC,桥接
@@ -738,7 +929,7 @@ internal/util/safego/safego.go	internal	other	go-source	736	Internal shared util
 internal/util/toolresults/path_test.go	internal	other	go-test	706	Internal shared utility packages	internal,util,toolresults,path,test,Internal,shared,utility,packages
 internal/util/toolresults/path.go	internal	other	go-source	716	Internal shared utility packages	internal,util,toolresults,path,Internal,shared,utility,packages
 internal/util/util.go	internal	other	go-source	1711	Internal shared utility packages	internal,util,Internal,shared,utility,packages
-Makefile	(root)	other	file	15490	仓库根级配置、入口或说明文件	Makefile,仓库根级配置,入口或说明文件
+Makefile	(root)	other	file	15753	仓库根级配置、入口或说明文件	Makefile,仓库根级配置,入口或说明文件
 pkg/cronmetrics/cronmetrics_test.go	pkg	other	go-test	524	可复用公共库	pkg,cronmetrics,test,可复用公共库
 pkg/cronmetrics/cronmetrics.go	pkg	other	go-source	1206	可复用公共库	pkg,cronmetrics,可复用公共库
 pkg/dagmetrics/dagmetrics_test.go	pkg	other	go-test	993	DAG 指标公共库	pkg,dagmetrics,test,DAG,指标公共库
@@ -771,8 +962,8 @@ pkg/skillmetrics/skillmetrics_test.go	pkg	other	go-test	2042	skill 指标公共�
 pkg/skillmetrics/skillmetrics.go	pkg	other	go-source	4655	skill 指标公共库	pkg,skillmetrics,skill,指标公共库
 run-new-ui-desktop.ps1	(root)	other	script	31756	仓库根级配置、入口或说明文件	run,new,ui,desktop,仓库根级配置,入口或说明文件
 run-new-ui-desktop.sh	(root)	other	script	32339	仓库根级配置、入口或说明文件	run,new,ui,desktop,仓库根级配置,入口或说明文件
-scripts/activate_guard_env.sh	scripts	other	script	1148	工程自动化、测试守卫、代码地图与开发脚本	scripts,activate,guard,env,工程自动化,测试守卫,代码地图与开发脚本
-scripts/ai_maintenance_gates_guard_test.go	scripts	other	go-test	4771	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,gates,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/activate_guard_env.sh	scripts	other	script	1228	工程自动化、测试守卫、代码地图与开发脚本	scripts,activate,guard,env,工程自动化,测试守卫,代码地图与开发脚本
+scripts/ai_maintenance_gates_guard_test.go	scripts	other	go-test	5311	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,gates,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ai_maintenance_gates.sh	scripts	other	script	175	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,gates,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ai_maintenance/affected_go_packages.go	scripts	other	go-source	3082	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,affected,go,packages,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ai_maintenance/affected_packages_test.go	scripts	other	go-test	1291	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,affected,packages,test,工程自动化,测试守卫,代码地图与开发脚本
@@ -781,46 +972,44 @@ scripts/ai_maintenance/capcontract.go	scripts	other	go-source	973	工程自动�
 scripts/ai_maintenance/deferred_e2e_packages.txt	scripts	other	txt	59	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,deferred,e2e,packages,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ai_maintenance/deferred_e2e.go	scripts	other	go-source	1185	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,deferred,e2e,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ai_maintenance/diagnostics_plan.go	scripts	other	go-source	1002	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,diagnostics,plan,工程自动化,测试守卫,代码地图与开发脚本
-scripts/ai_maintenance/evidence.go	scripts	other	go-source	13486	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,evidence,工程自动化,测试守卫,代码地图与开发脚本
+scripts/ai_maintenance/evidence.go	scripts	other	go-source	13399	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,evidence,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ai_maintenance/frontend_gate_rules_test.go	scripts	other	go-test	8384	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,frontend,gate,rules,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ai_maintenance/frontend_gate_rules.go	scripts	other	go-source	5304	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,frontend,gate,rules,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ai_maintenance/gate_cache_test.go	scripts	other	go-test	18973	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,gate,cache,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ai_maintenance/gate_cache.go	scripts	other	go-source	13106	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,gate,cache,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ai_maintenance/gate_execution.go	scripts	other	go-source	13343	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,gate,execution,工程自动化,测试守卫,代码地图与开发脚本
-scripts/ai_maintenance/main_test.go	scripts	other	go-test	24128	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,main,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/ai_maintenance/main.go	scripts	other	go-source	24785	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,main,工程自动化,测试守卫,代码地图与开发脚本
-scripts/ai_maintenance/owned_gate_execution.go	scripts	other	go-source	3078	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,owned,gate,execution,工程自动化,测试守卫,代码地图与开发脚本
-scripts/ai_maintenance/owner_evidence_test.go	scripts	other	go-test	15230	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,owner,evidence,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/ai_maintenance/main_test.go	scripts	other	go-test	24094	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,main,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/ai_maintenance/main.go	scripts	other	go-source	24729	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,main,工程自动化,测试守卫,代码地图与开发脚本
+scripts/ai_maintenance/owned_gate_execution.go	scripts	other	go-source	2946	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,owned,gate,execution,工程自动化,测试守卫,代码地图与开发脚本
+scripts/ai_maintenance/owner_evidence_test.go	scripts	other	go-test	15022	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,owner,evidence,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ai_maintenance/project_map_routing_test.go	scripts	other	go-test	1884	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,project,map,routing,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ai_maintenance/push_gates.go	scripts	other	go-source	3836	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,push,gates,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ai_maintenance/push_risk_gate_test.go	scripts	other	go-test	3244	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,push,risk,gate,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/ai_maintenance/release_gate_rules.go	scripts	other	go-source	3663	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,release,gate,rules,工程自动化,测试守卫,代码地图与开发脚本
+scripts/ai_maintenance/release_gate_rules.go	scripts	other	go-source	3434	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,release,gate,rules,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ai_maintenance/turn_contract_registry.go	scripts	other	go-source	6839	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,turn,contract,registry,工程自动化,测试守卫,代码地图与开发脚本
 scripts/archtestmap/main_test.go	scripts	other	go-test	13596	工程自动化、测试守卫、代码地图与开发脚本	scripts,archtestmap,main,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/archtestmap/main.go	scripts	other	go-source	27218	工程自动化、测试守卫、代码地图与开发脚本	scripts,archtestmap,main,工程自动化,测试守卫,代码地图与开发脚本
-scripts/bash_test_helpers_test.go	scripts	other	go-test	8708	工程自动化、测试守卫、代码地图与开发脚本	scripts,bash,test,helpers,工程自动化,测试守卫,代码地图与开发脚本
+scripts/bash_test_helpers_test.go	scripts	other	go-test	9650	工程自动化、测试守卫、代码地图与开发脚本	scripts,bash,test,helpers,工程自动化,测试守卫,代码地图与开发脚本
 scripts/build_phase_cache/main_test.go	scripts	other	go-test	7496	工程自动化、测试守卫、代码地图与开发脚本	scripts,build,phase,cache,main,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/build_phase_cache/main.go	scripts	other	go-source	25188	工程自动化、测试守卫、代码地图与开发脚本	scripts,build,phase,cache,main,工程自动化,测试守卫,代码地图与开发脚本
 scripts/capcontract.go	scripts	other	go-source	579	工程自动化、测试守卫、代码地图与开发脚本	scripts,capcontract,工程自动化,测试守卫,代码地图与开发脚本
 scripts/capcontract/main_test.go	scripts	other	go-test	2455	工程自动化、测试守卫、代码地图与开发脚本	scripts,capcontract,main,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/capcontract/main.go	scripts	other	go-source	5844	工程自动化、测试守卫、代码地图与开发脚本	scripts,capcontract,main,工程自动化,测试守卫,代码地图与开发脚本
 scripts/capcontract/path_rules.sh	scripts	other	script	4125	工程自动化、测试守卫、代码地图与开发脚本	scripts,capcontract,path,rules,工程自动化,测试守卫,代码地图与开发脚本
-scripts/check_nested_go_modules.sh	scripts	other	script	1081	工程自动化、测试守卫、代码地图与开发脚本	scripts,check,nested,go,modules,工程自动化,测试守卫,代码地图与开发脚本
+scripts/check_nested_go_modules.sh	scripts	other	script	1821	工程自动化、测试守卫、代码地图与开发脚本	scripts,check,nested,go,modules,工程自动化,测试守卫,代码地图与开发脚本
 scripts/check_p1_turn_wrappers_guard_test.go	scripts	other	go-test	9307	工程自动化、测试守卫、代码地图与开发脚本	scripts,check,p1,turn,wrappers,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/check_p1_turn_wrappers.go	scripts	other	go-source	5150	工程自动化、测试守卫、代码地图与开发脚本	scripts,check,p1,turn,wrappers,工程自动化,测试守卫,代码地图与开发脚本
 scripts/check-dag-doc-sync.sh	scripts	other	script	4698	工程自动化、测试守卫、代码地图与开发脚本	scripts,check,dag,doc,sync,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ci_commit_guard.sh	scripts	other	script	3332	工程自动化、测试守卫、代码地图与开发脚本	scripts,ci,commit,guard,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ci_cross_platform_smoke.ps1	scripts	other	script	5887	工程自动化、测试守卫、代码地图与开发脚本	scripts,ci,cross,platform,smoke,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ci_truth_image_gate.sh	scripts	other	script	1794	工程自动化、测试守卫、代码地图与开发脚本	scripts,ci,truth,image,gate,工程自动化,测试守卫,代码地图与开发脚本
-scripts/ci_workflow_lint_guard_test.go	scripts	other	go-test	1204	工程自动化、测试守卫、代码地图与开发脚本	scripts,ci,workflow,lint,guard,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/code_size_guard_cli_test.go	scripts	other	go-test	19457	工程自动化、测试守卫、代码地图与开发脚本	scripts,code,size,guard,cli,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/ci_workflow_lint_guard_test.go	scripts	other	go-test	1152	工程自动化、测试守卫、代码地图与开发脚本	scripts,ci,workflow,lint,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/code_size_guard_cli_test.go	scripts	other	go-test	23502	工程自动化、测试守卫、代码地图与开发脚本	scripts,code,size,guard,cli,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/code_size_guard_priority_ssa_guard_test.go	scripts	other	go-test	1453	工程自动化、测试守卫、代码地图与开发脚本	scripts,code,size,guard,priority,ssa,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/code_size_guard.go	scripts	other	go-source	16240	工程自动化、测试守卫、代码地图与开发脚本	scripts,code,size,guard,工程自动化,测试守卫,代码地图与开发脚本
+scripts/code_size_guard.go	scripts	other	go-source	15733	工程自动化、测试守卫、代码地图与开发脚本	scripts,code,size,guard,工程自动化,测试守卫,代码地图与开发脚本
 scripts/codemap_index_test.go	scripts	other	go-test	9917	工程自动化、测试守卫、代码地图与开发脚本	scripts,codemap,index,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/codemap_index.go	scripts	other	go-source	20463	工程自动化、测试守卫、代码地图与开发脚本	scripts,codemap,index,工程自动化,测试守卫,代码地图与开发脚本
 scripts/codemap_policy.txt	scripts	other	txt	536	工程自动化、测试守卫、代码地图与开发脚本	scripts,codemap,policy,工程自动化,测试守卫,代码地图与开发脚本
-scripts/codex_stop_gate_plan_guard_test.go	scripts	other	go-test	417	工程自动化、测试守卫、代码地图与开发脚本	scripts,codex,stop,gate,plan,guard,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/codex_stop_gate.sh	scripts	other	script	343	工程自动化、测试守卫、代码地图与开发脚本	scripts,codex,stop,gate,工程自动化,测试守卫,代码地图与开发脚本
 scripts/commit_title_enforcement_baseline.txt	scripts	other	txt	41	工程自动化、测试守卫、代码地图与开发脚本	scripts,commit,title,enforcement,baseline,工程自动化,测试守卫,代码地图与开发脚本
 scripts/configure_hook_node_runtime.sh	scripts	other	script	2306	工程自动化、测试守卫、代码地图与开发脚本	scripts,configure,hook,node,runtime,工程自动化,测试守卫,代码地图与开发脚本
 scripts/dag_m3_dogfood_test.py	scripts	other	py	20323	工程自动化、测试守卫、代码地图与开发脚本	scripts,dag,m3,dogfood,test,工程自动化,测试守卫,代码地图与开发脚本
@@ -831,7 +1020,7 @@ scripts/extract_jsonrpc_methods_guard_test.go	scripts	other	go-test	663	工程�
 scripts/extract_jsonrpc_methods_main_guardrail_test.go	scripts	other	go-test	12440	工程自动化、测试守卫、代码地图与开发脚本	scripts,extract,jsonrpc,methods,main,guardrail,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/extract_jsonrpc_methods.go	scripts	other	go-source	10788	工程自动化、测试守卫、代码地图与开发脚本	scripts,extract,jsonrpc,methods,工程自动化,测试守卫,代码地图与开发脚本
 scripts/fixtures/prompt_intent_dream_fixture.json	scripts	other	json	3001	工程自动化、测试守卫、代码地图与开发脚本	scripts,fixtures,prompt,intent,dream,fixture,工程自动化,测试守卫,代码地图与开发脚本
-scripts/forbid_raw_go_test.sh	scripts	other	script	2325	工程自动化、测试守卫、代码地图与开发脚本	scripts,forbid,raw,go,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/forbid_raw_go_test.sh	scripts	other	script	2408	工程自动化、测试守卫、代码地图与开发脚本	scripts,forbid,raw,go,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/frontend_build_guard_test.go	scripts	other	go-test	4867	工程自动化、测试守卫、代码地图与开发脚本	scripts,frontend,build,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/frontend_embed_verify_guard_test.go	scripts	other	go-test	16317	工程自动化、测试守卫、代码地图与开发脚本	scripts,frontend,embed,verify,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/frontend_embed_verify.sh	scripts	other	script	3157	工程自动化、测试守卫、代码地图与开发脚本	scripts,frontend,embed,verify,工程自动化,测试守卫,代码地图与开发脚本
@@ -843,15 +1032,15 @@ scripts/generated_artifacts_auto_refresh_guard_test.go	scripts	other	go-test	111
 scripts/generated_artifacts_auto_refresh.sh	scripts	other	script	7331	工程自动化、测试守卫、代码地图与开发脚本	scripts,generated,artifacts,auto,refresh,工程自动化,测试守卫,代码地图与开发脚本
 scripts/github_release_continuity_guard_test.go	scripts	other	go-test	5263	工程自动化、测试守卫、代码地图与开发脚本	scripts,github,release,continuity,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/github_release_updater_guard_test.go	scripts	other	go-test	33523	工程自动化、测试守卫、代码地图与开发脚本	scripts,github,release,updater,guard,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/go	scripts	other	file	1043	工程自动化、测试守卫、代码地图与开发脚本	scripts,go,工程自动化,测试守卫,代码地图与开发脚本
-scripts/go_guard_shell.sh	scripts	other	script	603	工程自动化、测试守卫、代码地图与开发脚本	scripts,go,guard,shell,工程自动化,测试守卫,代码地图与开发脚本
-scripts/go_package_roots_guard_test.go	scripts	other	go-test	1245	工程自动化、测试守卫、代码地图与开发脚本	scripts,go,package,roots,guard,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/go_with_guard.sh	scripts	other	script	1025	工程自动化、测试守卫、代码地图与开发脚本	scripts,go,with,guard,工程自动化,测试守卫,代码地图与开发脚本
+scripts/go	scripts	other	file	1076	工程自动化、测试守卫、代码地图与开发脚本	scripts,go,工程自动化,测试守卫,代码地图与开发脚本
+scripts/go_guard_shell.sh	scripts	other	script	620	工程自动化、测试守卫、代码地图与开发脚本	scripts,go,guard,shell,工程自动化,测试守卫,代码地图与开发脚本
+scripts/go_package_roots_guard_test.go	scripts	other	go-test	1021	工程自动化、测试守卫、代码地图与开发脚本	scripts,go,package,roots,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/go_with_guard.sh	scripts	other	script	1090	工程自动化、测试守卫、代码地图与开发脚本	scripts,go,with,guard,工程自动化,测试守卫,代码地图与开发脚本
 scripts/guard_commit_titles.sh	scripts	other	script	4381	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,commit,titles,工程自动化,测试守卫,代码地图与开发脚本
 scripts/guard_env_test.sh	scripts	other	script	5510	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,env,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/guard_fix_commits_have_tests_agentic_test.go	scripts	other	go-test	1719	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,agentic,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/guard_fix_commits_have_tests_guard_test.go	scripts	other	go-test	22863	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/guard_fix_commits_have_tests_helpers_test.go	scripts	other	go-test	24273	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,helpers,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/guard_fix_commits_have_tests_helpers_test.go	scripts	other	go-test	24629	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,helpers,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/guard_fix_commits_have_tests_recovery_test.go	scripts	other	go-test	2652	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,recovery,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/guard_fix_commits_have_tests.sh	scripts	other	script	10448	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,工程自动化,测试守卫,代码地图与开发脚本
 scripts/hook_node_runtime_guard_test.go	scripts	other	go-test	3988	工程自动化、测试守卫、代码地图与开发脚本	scripts,hook,node,runtime,guard,test,工程自动化,测试守卫,代码地图与开发脚本
@@ -889,19 +1078,19 @@ scripts/package_macos.sh	scripts	other	script	60674	工程自动化、测试守�
 scripts/package_path_safety_guard_test.go	scripts	other	go-test	4716	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,path,safety,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/package_sqlite_migrations_guard_test.go	scripts	other	go-test	4609	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,sqlite,migrations,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/package_windows_github_release.ps1	scripts	other	script	330	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,windows,github,release,工程自动化,测试守卫,代码地图与开发脚本
-scripts/package_windows_guard_test.go	scripts	other	go-test	36450	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,windows,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/package_windows_guard_test.go	scripts	other	go-test	36488	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,windows,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/package_windows_local.ps1	scripts	other	script	9598	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,windows,local,工程自动化,测试守卫,代码地图与开发脚本
 scripts/package_windows.ps1	scripts	other	script	54234	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,windows,工程自动化,测试守卫,代码地图与开发脚本
 scripts/pre_commit_cleanup_guard_test.go	scripts	other	go-test	3509	工程自动化、测试守卫、代码地图与开发脚本	scripts,pre,commit,cleanup,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/pre_commit_merge_snapshot_test.go	scripts	other	go-test	1358	工程自动化、测试守卫、代码地图与开发脚本	scripts,pre,commit,merge,snapshot,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/pre_commit_nested_module_guard_test.go	scripts	other	go-test	2881	工程自动化、测试守卫、代码地图与开发脚本	scripts,pre,commit,nested,module,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/pre_commit_nested_module_guard_test.go	scripts	other	go-test	5578	工程自动化、测试守卫、代码地图与开发脚本	scripts,pre,commit,nested,module,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/prepare_lsp_bundle_guard_test.go	scripts	other	go-test	17439	工程自动化、测试守卫、代码地图与开发脚本	scripts,prepare,lsp,bundle,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/prepare_lsp_bundle_linux.sh	scripts	other	script	11199	工程自动化、测试守卫、代码地图与开发脚本	scripts,prepare,lsp,bundle,linux,工程自动化,测试守卫,代码地图与开发脚本
 scripts/prepare_lsp_bundle_macos.sh	scripts	other	script	10667	工程自动化、测试守卫、代码地图与开发脚本	scripts,prepare,lsp,bundle,macos,工程自动化,测试守卫,代码地图与开发脚本
 scripts/prepare_lsp_bundle_windows.ps1	scripts	other	script	22764	工程自动化、测试守卫、代码地图与开发脚本	scripts,prepare,lsp,bundle,windows,工程自动化,测试守卫,代码地图与开发脚本
 scripts/publish_github_release.sh	scripts	other	script	28378	工程自动化、测试守卫、代码地图与开发脚本	scripts,publish,github,release,工程自动化,测试守卫,代码地图与开发脚本
 scripts/readme_go_test_guard_test.go	scripts	other	go-test	507	工程自动化、测试守卫、代码地图与开发脚本	scripts,readme,go,test,guard,工程自动化,测试守卫,代码地图与开发脚本
-scripts/real_go_resolver.sh	scripts	other	script	3493	工程自动化、测试守卫、代码地图与开发脚本	scripts,real,go,resolver,工程自动化,测试守卫,代码地图与开发脚本
+scripts/real_go_resolver.sh	scripts	other	script	3960	工程自动化、测试守卫、代码地图与开发脚本	scripts,real,go,resolver,工程自动化,测试守卫,代码地图与开发脚本
 scripts/refactor/rename_codexsdk_to_agentsdk_error_path_guard_test.go	scripts	other	go-test	6570	工程自动化、测试守卫、代码地图与开发脚本	scripts,refactor,rename,codexsdk,to,agentsdk,error,path,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/refactor/rename_codexsdk_to_agentsdk_guard_strength_test.go	scripts	other	go-test	5291	工程自动化、测试守卫、代码地图与开发脚本	scripts,refactor,rename,codexsdk,to,agentsdk,guard,strength,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/refactor/rename_codexsdk_to_agentsdk_guard_test.go	scripts	other	go-test	9352	工程自动化、测试守卫、代码地图与开发脚本	scripts,refactor,rename,codexsdk,to,agentsdk,guard,test,工程自动化,测试守卫,代码地图与开发脚本
@@ -914,19 +1103,18 @@ scripts/release_packaging_integrity_guard_test.go	scripts	other	go-test	4737	工
 scripts/release_rollout_validate.sh	scripts	other	script	9112	工程自动化、测试守卫、代码地图与开发脚本	scripts,release,rollout,validate,工程自动化,测试守卫,代码地图与开发脚本
 scripts/release_rollout_workflow_guard_test.go	scripts	other	go-test	33019	工程自动化、测试守卫、代码地图与开发脚本	scripts,release,rollout,workflow,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/rpc_e2e_coverage_guard_test.go	scripts	other	go-test	7800	工程自动化、测试守卫、代码地图与开发脚本	scripts,rpc,e2e,coverage,guard,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/sqlc_postprocess.sh	scripts	other	script	655	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlc,postprocess,工程自动化,测试守卫,代码地图与开发脚本
+scripts/sqlc_postprocess.sh	scripts	other	script	710	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlc,postprocess,工程自动化,测试守卫,代码地图与开发脚本
 scripts/sqlc_verify_worktree_guard_test.go	scripts	other	go-test	7911	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlc,verify,worktree,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/sqlc_verify_worktree.sh	scripts	other	script	1458	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlc,verify,worktree,工程自动化,测试守卫,代码地图与开发脚本
-scripts/sqlite_release_gate_package_smoke_runtime_test.go	scripts	other	go-test	22960	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlite,release,gate,package,smoke,runtime,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/sqlite_release_gate_package_smoke_runtime_test.go	scripts	other	go-test	28092	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlite,release,gate,package,smoke,runtime,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/sqlite_release_gates_guard_test.go	scripts	other	go-test	8409	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlite,release,gates,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/sqlite_release_gates/main_test.go	scripts	other	go-test	1160	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlite,release,gates,main,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/sqlite_release_gates/main.go	scripts	other	go-source	2605	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlite,release,gates,main,工程自动化,测试守卫,代码地图与开发脚本
 scripts/test_new_ui_desktop_hot.sh	scripts	other	script	2622	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,new,ui,desktop,hot,工程自动化,测试守卫,代码地图与开发脚本
-scripts/test_with_guard.ps1	scripts	other	script	14515	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,工程自动化,测试守卫,代码地图与开发脚本
-scripts/test_with_guard.sh	scripts	other	script	10601	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,工程自动化,测试守卫,代码地图与开发脚本
-scripts/tests/test_codex_stop_gate_plan.sh	scripts	other	script	171	工程自动化、测试守卫、代码地图与开发脚本	scripts,tests,test,codex,stop,gate,plan,工程自动化,测试守卫,代码地图与开发脚本
-scripts/tests/test_gate_hook_entrypoints.sh	scripts	other	script	16883	工程自动化、测试守卫、代码地图与开发脚本	scripts,tests,test,gate,hook,entrypoints,工程自动化,测试守卫,代码地图与开发脚本
-scripts/tests/test_gate_hook_production_e2e.sh	scripts	other	script	12171	工程自动化、测试守卫、代码地图与开发脚本	scripts,tests,test,gate,hook,production,e2e,工程自动化,测试守卫,代码地图与开发脚本
+scripts/test_with_guard.ps1	scripts	other	script	15064	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,工程自动化,测试守卫,代码地图与开发脚本
+scripts/test_with_guard.sh	scripts	other	script	16437	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,工程自动化,测试守卫,代码地图与开发脚本
+scripts/tests/test_gate_hook_entrypoints.sh	scripts	other	script	25423	工程自动化、测试守卫、代码地图与开发脚本	scripts,tests,test,gate,hook,entrypoints,工程自动化,测试守卫,代码地图与开发脚本
+scripts/tests/test_gate_hook_production_e2e.sh	scripts	other	script	10065	工程自动化、测试守卫、代码地图与开发脚本	scripts,tests,test,gate,hook,production,e2e,工程自动化,测试守卫,代码地图与开发脚本
 scripts/turncontract/main.go	scripts	other	go-source	6740	工程自动化、测试守卫、代码地图与开发脚本	scripts,turncontract,main,工程自动化,测试守卫,代码地图与开发脚本
 scripts/turncontract/schema_support_test.go	scripts	other	go-test	7727	工程自动化、测试守卫、代码地图与开发脚本	scripts,turncontract,schema,support,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/turncontract/schema_support.go	scripts	other	go-source	16265	工程自动化、测试守卫、代码地图与开发脚本	scripts,turncontract,schema,support,工程自动化,测试守卫,代码地图与开发脚本

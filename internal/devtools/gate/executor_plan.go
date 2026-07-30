@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -13,32 +12,60 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate/testtiming"
 	"golang.org/x/sync/errgroup"
 )
 
 const (
-	ExecutorPlanReportChunkPrefix = "SUPER_DOLPHIN_GATE_PLAN_REPORT_CHUNK "
-	executorPlanReportChunkBytes  = 3 * 1024
-	executorPlanMaxReportChunks   = 10000
-	executorPlanMaxLogBytes       = 1 << 20
-	executorPlanLaneCount         = 2
+	executorPlanReportSchemaVersion    = 2
+	ExecutorPlanReportChunkPrefix      = "SUPER_DOLPHIN_GATE_PLAN_REPORT_CHUNK "
+	ExecutorWorkloadTimeoutEnvironment = "SUPER_DOLPHIN_REMOTE_EXECUTION_TIMEOUT"
+	executorPlanReportChunkBytes       = 768
+	executorPlanReportMaxLineBytes     = 1024
+	executorPlanMaxReportChunks        = 2000
+	executorPlanReportMaxOutputBytes   = 1 << 20
+	executorPlanMaxLogBytes            = 32 << 10
+	executorPlanMaxLogLines            = 64
+	executorPlanLaneCount              = 2
 )
+
+// ValidateExecutorWorkloadTimeout 只接受普通与 release 的固定安全上限；100 秒仅用于优化告警。
+func ValidateExecutorWorkloadTimeout(timeout time.Duration) error {
+	switch timeout {
+	case 10 * time.Minute, 30 * time.Minute:
+		return nil
+	default:
+		return fmt.Errorf("executor workload timeout %s is not registered", timeout)
+	}
+}
+
+// GoTestStatus 是 worker 报告中的测试终态。
+type GoTestStatus = testtiming.Status
+
+const (
+	GoTestStatusPass = testtiming.StatusPass
+	GoTestStatusFail = testtiming.StatusFail
+	GoTestStatusSkip = testtiming.StatusSkip
+)
+
+// GoTestTiming 是 worker 报告中的单测试或子测试耗时。
+type GoTestTiming = testtiming.Timing
 
 // PlanGateExecution 是 executor 对单个 gate 的有界、未签名观察结果。
 type PlanGateExecution struct {
-	GateID      GateID       `json:"gate_id"`
-	Status      ResultStatus `json:"status"`
-	ExitCode    int          `json:"exit_code"`
-	StartedAt   time.Time    `json:"started_at"`
-	CompletedAt time.Time    `json:"completed_at"`
-	ArgvDigest  string       `json:"argv_digest"`
-	Log         []byte       `json:"log"`
-	LogDigest   string       `json:"log_digest"`
+	GateID      GateID         `json:"gate_id"`
+	Status      ResultStatus   `json:"status"`
+	ExitCode    int            `json:"exit_code"`
+	StartedAt   time.Time      `json:"started_at"`
+	CompletedAt time.Time      `json:"completed_at"`
+	ArgvDigest  string         `json:"argv_digest"`
+	Log         PlainTextLog   `json:"log"`
+	LogDigest   string         `json:"log_digest"`
+	TestTimings []GoTestTiming `json:"test_timings,omitempty"`
 }
 
 // PlanExecutionReport 绑定 plan digest，并按 canonical plan 顺序汇总所有已观察 gate。
@@ -79,7 +106,7 @@ func PlanExecutorArgv(plan GatePlan) ([]string, error) {
 	for index, spec := range plan.Gates {
 		gateIDs[index] = string(spec.ID)
 	}
-	return []string{containerExecutorBinary, "run-plan", "--profile", string(plan.Profile),
+	return []string{containerGateBinary, containerWorkerNamespace, "run-plan", "--profile", string(plan.Profile),
 		"--plan-digest", plan.PlanDigest, "--gates", strings.Join(gateIDs, ",")}, nil
 }
 
@@ -95,7 +122,7 @@ func ContainerShardExecutorArgv(plan GatePlan, gateIDs []GateID) ([]string, erro
 	for index, id := range gateIDs {
 		values[index] = string(id)
 	}
-	return []string{containerExecutorBinary, "run-shard", "--profile", string(plan.Profile),
+	return []string{containerGateBinary, containerWorkerNamespace, "run-shard", "--profile", string(plan.Profile),
 		"--plan-digest", plan.PlanDigest, "--gates", strings.Join(values, ",")}, nil
 }
 
@@ -146,8 +173,36 @@ func validateExecutorGateIDs(profile Profile, gateIDs []GateID, shard bool) erro
 	return validatePlanGateIDs(profile, gateIDs)
 }
 
-// validateContainerShardGateIDs 校验 gate 列表属于某个合法动态分片布局。
+// validateContainerShardGateIDs 校验 worker 只执行当前 profile 的唯一 required-gate 子集。
+// 完整覆盖和具体分组由 coordinator 冻结的 ContainerShardSet 负责校验。
 func validateContainerShardGateIDs(profile Profile, gateIDs []GateID) error {
+	if len(gateIDs) == 0 {
+		return errors.New("shard gate list is empty")
+	}
+	required := requiredContainerShardGateIDs(profile)
+	requiredSet := make(map[GateID]struct{}, len(required))
+	for _, id := range required {
+		requiredSet[id] = struct{}{}
+	}
+	seen := make(map[GateID]struct{}, len(gateIDs))
+	for _, id := range gateIDs {
+		parent, err := workloadParentGateID(string(id))
+		if err != nil {
+			return err
+		}
+		if _, ok := requiredSet[parent]; !ok {
+			return fmt.Errorf("shard gate %q is not worker-executable for profile %q", id, profile)
+		}
+		if _, duplicate := seen[id]; duplicate {
+			return fmt.Errorf("shard gate %q is duplicated", id)
+		}
+		seen[id] = struct{}{}
+	}
+	return nil
+}
+
+// validateCanonicalReportShardGateIDs 确认报告的 gate 序列恰好等于某个规范 container shard。
+func validateCanonicalReportShardGateIDs(profile Profile, gateIDs []GateID) error {
 	for count := uint8(1); count <= MaxContainerShards && int(count) <= len(requiredContainerShardGateIDs(profile)); count++ {
 		for _, expected := range canonicalContainerShardGroups(profile, count) {
 			if slices.Equal(gateIDs, expected) {
@@ -282,10 +337,93 @@ func requiredGateIDs(profile Profile) []GateID {
 }
 
 func executeGatePlan(ctx context.Context, request executorPlanRequest) (PlanExecutionReport, error) {
-	runGate := func(ctx context.Context, laneIndex int, id GateID) (PlanGateExecution, error) {
-		return executePlanGate(ctx, laneIndex, id, time.Now)
+	preparedRuntimeSeeds, err := prepareExecutorPlanRuntimeSeeds(request.gateIDs)
+	if err != nil {
+		return PlanExecutionReport{}, err
 	}
-	return executeGatePlanWithRunner(ctx, request, runGate, time.Now)
+	goBuildCacheRoot, goBuildCacheSeedRoots, err := prepareExecutorPlanGoBuildCache(request.gateIDs)
+	if err != nil {
+		return PlanExecutionReport{}, err
+	}
+	executionCtx, cancelExecution := executorWorkloadContext(ctx)
+	defer cancelExecution()
+	runGate := func(ctx context.Context, laneIndex int, id GateID) (PlanGateExecution, error) {
+		return executePlanGate(
+			ctx,
+			laneIndex,
+			id,
+			preparedRuntimeSeeds,
+			goBuildCacheRoot,
+			goBuildCacheSeedRoots,
+			time.Now,
+		)
+	}
+	report, executionErr := executeGatePlanWithRunner(executionCtx, request, runGate, time.Now)
+	if goBuildCacheRoot != "" {
+		executionErr = errors.Join(executionErr, removeExecutorWorkspacePath(goBuildCacheRoot))
+	}
+	return report, executionErr
+}
+
+func prepareExecutorPlanRuntimeSeeds(gateIDs []GateID) (*executorPreparedRuntimeSeeds, error) {
+	needsGoSeed := false
+	needsFrontendSeed := false
+	for _, id := range gateIDs {
+		_, program, err := executorProgramForWorkload(id)
+		if err != nil {
+			return nil, err
+		}
+		needsGoSeed = needsGoSeed || program.NeedsGoSeed
+		needsFrontendSeed = needsFrontendSeed || program.NeedsFrontendSeed
+	}
+	return prepareExecutorRuntimeSeeds(
+		ExecutorRuntimeSeedRoot,
+		ExecutorRuntimeSeedManifestPath,
+		needsGoSeed,
+		needsFrontendSeed,
+	)
+}
+
+// prepareExecutorPlanGoBuildCache 为包含 Go workload 的分片创建一次私有构建缓存写层。
+func prepareExecutorPlanGoBuildCache(gateIDs []GateID) (string, []string, error) {
+	return prepareExecutorPlanGoBuildCacheAt(
+		gateIDs,
+		ExecutorWorkRoot,
+		ExecutorGoBuildCacheSeedsRoot,
+		ExecutorGoBuildCacheSeedRoot,
+	)
+}
+
+// prepareExecutorPlanGoBuildCacheAt 只为含 Go workload 的分片发现共享 seed 并创建私有写层。
+func prepareExecutorPlanGoBuildCacheAt(
+	gateIDs []GateID,
+	workRoot string,
+	seedGenerationsRoot string,
+	legacySeedRoot string,
+) (string, []string, error) {
+	needsGoCache := false
+	for _, id := range gateIDs {
+		_, program, err := executorProgramForWorkload(id)
+		if err != nil {
+			return "", nil, err
+		}
+		needsGoCache = needsGoCache || program.NeedsGoSeed
+	}
+	if !needsGoCache {
+		return "", nil, nil
+	}
+	seedRoots, err := discoverExecutorGoBuildCacheSeedRoots(seedGenerationsRoot, legacySeedRoot)
+	if err != nil {
+		return "", nil, err
+	}
+	cacheRoot := filepath.Join(workRoot, "plan-go-cache")
+	if err := os.Mkdir(cacheRoot, 0o700); err != nil {
+		return "", nil, fmt.Errorf("create plan Go build cache: %w", err)
+	}
+	if err := seedExecutorGoBuildCacheSeeds(seedRoots, cacheRoot); err != nil {
+		return "", nil, errors.Join(err, removeExecutorWorkspacePath(cacheRoot))
+	}
+	return cacheRoot, seedRoots, nil
 }
 
 type executorPlanGateRunner func(context.Context, int, GateID) (PlanGateExecution, error)
@@ -297,7 +435,7 @@ func executeGatePlanWithRunner(
 	runGate executorPlanGateRunner,
 	now func() time.Time,
 ) (PlanExecutionReport, error) {
-	report := PlanExecutionReport{SchemaVersion: 1, Profile: request.profile, PlanDigest: request.planDigest}
+	report := PlanExecutionReport{SchemaVersion: executorPlanReportSchemaVersion, Profile: request.profile, PlanDigest: request.planDigest}
 	if now == nil {
 		return report, errors.New("plan clock is required")
 	}
@@ -534,29 +672,51 @@ func executePlanGate(
 	ctx context.Context,
 	laneIndex int,
 	id GateID,
+	preparedRuntimeSeeds *executorPreparedRuntimeSeeds,
+	goBuildCacheRoot string,
+	goBuildCacheSeedRoots []string,
 	now func() time.Time,
 ) (PlanGateExecution, error) {
 	if now == nil {
 		return PlanGateExecution{}, errors.New("gate clock is required")
 	}
-	program, ok := executorPrograms[id]
-	if !ok {
-		return PlanGateExecution{}, fmt.Errorf("plan gate %q has no executor program", id)
+	_, program, err := executorProgramForWorkload(id)
+	if err != nil {
+		return PlanGateExecution{}, fmt.Errorf("plan gate %q has no executor program: %w", id, err)
 	}
 	workRoot := executorPlanLaneRoot(ExecutorWorkRoot, laneIndex)
 	if err := os.MkdirAll(workRoot, 0o700); err != nil {
 		return PlanGateExecution{}, err
 	}
+	cacheProxy, err := executorGoBuildCacheProxyLauncher()
+	if err != nil {
+		return PlanGateExecution{}, err
+	}
 	log := newBoundedPlanLog(executorPlanMaxLogBytes)
+	stdout := io.Writer(log)
+	var timingWriter *testtiming.EventWriter
+	if isGoPackageTestWorkload(id) {
+		timingWriter = testtiming.NewEventWriter(log)
+		stdout = timingWriter
+	}
 	config := executorConfig{
 		sourcePath: ExecutorSourcePath, workRoot: workRoot, searchPath: executorSearchPath,
 		expectedUID: executorUID, requireReadOnlySource: true,
 		runtimeSeedRoot: ExecutorRuntimeSeedRoot, runtimeSeedManifest: ExecutorRuntimeSeedManifestPath,
+		goRoot:                ExecutorPortableGoRoot,
+		preparedRuntimeSeeds:  preparedRuntimeSeeds,
+		goBuildCacheSeedRoots: append([]string(nil), goBuildCacheSeedRoots...),
+		goBuildCacheRoot:      goBuildCacheRoot,
+		goBuildCacheProxy:     cacheProxy,
 		frontendEmbedSeedRoot: ExecutorFrontendEmbedSeedRoot,
-		stdout:                log, stderr: log,
+		stdout:                stdout, stderr: log,
 	}
 	result := PlanGateExecution{GateID: id, StartedAt: now().UTC(), ExitCode: -1}
-	err := executeProgram(ctx, config, id, cloneExecutorProgram(program))
+	err = executeProgram(ctx, config, id, cloneExecutorProgram(program))
+	if timingWriter != nil {
+		err = errors.Join(err, timingWriter.Close())
+		result.TestTimings = timingWriter.Timings()
+	}
 	result.CompletedAt = now().UTC()
 	result.Status, result.ExitCode = classifyPlanGateOutcome(err, ctx.Err())
 	if summary := planGateFailureSummary(err, ctx.Err(), result.Status, result.ExitCode); len(summary) != 0 {
@@ -567,6 +727,11 @@ func executePlanGate(
 	result.Log = log.Bytes()
 	result.LogDigest = digestPlanLog(result.Log)
 	return result, err
+}
+
+func isGoPackageTestWorkload(id GateID) bool {
+	_, kind, _, targeted, err := parseTargetWorkloadID(string(id))
+	return err == nil && targeted && (kind == workloadTargetGoPackage || kind == workloadTargetGoTest)
 }
 
 // planGateFailureSummary 只记录稳定分类与退出码，不回显可能含秘密或宿主路径的原始错误。
@@ -609,259 +774,30 @@ func executorPlanLanes(gateIDs []GateID) ([][]GateID, error) {
 		{GateIDFrontendLint, GateIDFrontendBuild, GateIDFrontendEmbedVerify, GateIDSQLCVerify, GateIDCodemapCheck,
 			GateIDProjectMapCheck, GateIDCapabilityContractCheck, GateIDWhitespaceCheck},
 	}
+	lanes := make([][]GateID, executorPlanLaneCount)
 	wanted := make(map[GateID]bool, len(gateIDs))
 	for _, id := range gateIDs {
-		wanted[id] = true
-	}
-	lanes := make([][]GateID, executorPlanLaneCount)
-	seen := make(map[GateID]bool, len(gateIDs))
-	for laneIndex, catalog := range laneCatalog {
-		for _, id := range catalog {
-			if wanted[id] {
+		parent, err := workloadParentGateID(string(id))
+		if err != nil {
+			return nil, err
+		}
+		matched := false
+		for laneIndex, catalog := range laneCatalog {
+			if slices.Contains(catalog, parent) {
 				lanes[laneIndex] = append(lanes[laneIndex], id)
-				seen[id] = true
+				matched = true
+				break
 			}
 		}
+		if !matched {
+			return nil, fmt.Errorf("plan lane catalog does not cover workload %q", id)
+		}
+		wanted[id] = true
 	}
-	if len(seen) != len(gateIDs) {
+	if len(wanted) != len(gateIDs) {
 		return nil, errors.New("plan lane catalog does not cover every required gate")
 	}
 	return lanes, nil
-}
-
-func writePlanExecutionReport(writer io.Writer, report PlanExecutionReport) error {
-	chunks, err := EncodePlanExecutionReportChunks(report)
-	if err != nil {
-		return err
-	}
-	for _, chunk := range chunks {
-		if _, err := fmt.Fprintln(writer, chunk); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// EncodePlanExecutionReportChunks 将 report 编码为小于 Docker 日志分片阈值的 digest-bound 规范块。
-func EncodePlanExecutionReportChunks(report PlanExecutionReport) ([]string, error) {
-	data, err := json.Marshal(report)
-	if err != nil {
-		return nil, err
-	}
-	encoded := base64.StdEncoding.EncodeToString(data)
-	digest := digestPlanLog(data)
-	reportID := strings.TrimPrefix(digest, "sha256:")[:32]
-	total := (len(encoded) + executorPlanReportChunkBytes - 1) / executorPlanReportChunkBytes
-	if total == 0 || total > executorPlanMaxReportChunks {
-		return nil, errors.New("encoded plan report exceeds chunk framing limit")
-	}
-	chunks := make([]string, 0, total)
-	for index := range total {
-		start := index * executorPlanReportChunkBytes
-		end := min(start+executorPlanReportChunkBytes, len(encoded))
-		chunks = append(chunks, fmt.Sprintf("%s%s %s %06d %06d %s",
-			ExecutorPlanReportChunkPrefix, reportID, digest, index+1, total, encoded[start:end]))
-	}
-	return chunks, nil
-}
-
-// DecodePlanExecutionReportChunks 严格重组同一 digest-bound report 的连续规范分块。
-func DecodePlanExecutionReportChunks(chunks []string) (PlanExecutionReport, error) {
-	if len(chunks) == 0 || len(chunks) > executorPlanMaxReportChunks {
-		return PlanExecutionReport{}, errors.New("plan report chunk count is invalid")
-	}
-	reportID, reportDigest, encoded, err := joinPlanExecutionReportChunks(chunks)
-	if err != nil {
-		return PlanExecutionReport{}, err
-	}
-	data, err := base64.StdEncoding.Strict().DecodeString(encoded)
-	if err != nil {
-		return PlanExecutionReport{}, fmt.Errorf("decode plan report chunks: %w", err)
-	}
-	if digestPlanLog(data) != reportDigest || strings.TrimPrefix(reportDigest, "sha256:")[:32] != reportID {
-		return PlanExecutionReport{}, errors.New("plan report chunk digest does not match reassembled payload")
-	}
-	return decodePlanExecutionReportData(data)
-}
-
-// joinPlanExecutionReportChunks 验证分块身份与连续序号后重组 base64 payload。
-func joinPlanExecutionReportChunks(chunks []string) (string, string, string, error) {
-	var reportID, reportDigest string
-	var encoded strings.Builder
-	for index, chunk := range chunks {
-		id, digest, sequence, total, payload, err := parsePlanExecutionReportChunk(chunk)
-		if err != nil {
-			return "", "", "", err
-		}
-		if index == 0 {
-			reportID, reportDigest = id, digest
-		}
-		if id != reportID || digest != reportDigest || total != len(chunks) || sequence != index+1 {
-			return "", "", "", errors.New("plan report chunks are missing, duplicated, reordered, or mixed")
-		}
-		encoded.WriteString(payload)
-	}
-	return reportID, reportDigest, encoded.String(), nil
-}
-
-// parsePlanExecutionReportChunk 解析并验证单个 canonical report frame。
-func parsePlanExecutionReportChunk(chunk string) (string, string, int, int, string, error) {
-	if !strings.HasPrefix(chunk, ExecutorPlanReportChunkPrefix) {
-		return "", "", 0, 0, "", errors.New("plan report chunk prefix is invalid")
-	}
-	body := strings.TrimSuffix(strings.TrimPrefix(chunk, ExecutorPlanReportChunkPrefix), "\n")
-	fields := strings.Split(body, " ")
-	if err := validatePlanReportChunkHeader(fields, body); err != nil {
-		return "", "", 0, 0, "", errors.New("plan report chunk header is invalid")
-	}
-	if _, err := hex.DecodeString(fields[0]); err != nil {
-		return "", "", 0, 0, "", errors.New("plan report chunk id is invalid")
-	}
-	sequence, sequenceErr := parsePlanReportChunkNumber(fields[2])
-	total, totalErr := parsePlanReportChunkNumber(fields[3])
-	if !validPlanReportChunkSequence(sequence, total, sequenceErr, totalErr, fields[4]) {
-		return "", "", 0, 0, "", errors.New("plan report chunk sequence is invalid")
-	}
-	return fields[0], fields[1], sequence, total, fields[4], nil
-}
-
-func validatePlanReportChunkHeader(fields []string, body string) error {
-	if len(fields) != 5 || strings.Join(fields, " ") != body {
-		return errors.New("plan report chunk fields are invalid")
-	}
-	if len(fields[0]) != 32 || !digestPattern.MatchString(fields[1]) {
-		return errors.New("plan report chunk identity is invalid")
-	}
-	return nil
-}
-
-func validPlanReportChunkSequence(sequence int, total int, sequenceErr error, totalErr error, payload string) bool {
-	return sequenceErr == nil && totalErr == nil && sequence <= total &&
-		total <= executorPlanMaxReportChunks && payload != ""
-}
-
-func parsePlanReportChunkNumber(value string) (int, error) {
-	if len(value) != 6 || value[0] == '0' && value == "000000" {
-		return 0, errors.New("plan report chunk number is invalid")
-	}
-	return strconv.Atoi(value)
-}
-
-// DecodePlanExecutionReport 严格解码 host 从容器日志提取的 plan report。
-func DecodePlanExecutionReport(encoded string) (PlanExecutionReport, error) {
-	data, err := base64.StdEncoding.Strict().DecodeString(encoded)
-	if err != nil {
-		return PlanExecutionReport{}, fmt.Errorf("decode plan report base64: %w", err)
-	}
-	return decodePlanExecutionReportData(data)
-}
-
-// decodePlanExecutionReportData 解码 strict JSON 并验证 header 与 exact gate set。
-func decodePlanExecutionReportData(data []byte) (PlanExecutionReport, error) {
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	var report PlanExecutionReport
-	if err := decoder.Decode(&report); err != nil {
-		return PlanExecutionReport{}, fmt.Errorf("decode plan report: %w", err)
-	}
-	if err := rejectPlanReportTrailer(decoder); err != nil {
-		return PlanExecutionReport{}, err
-	}
-	if err := validatePlanExecutionReportHeader(report); err != nil {
-		return PlanExecutionReport{}, err
-	}
-	if err := validatePlanExecutionReportGates(report); err != nil {
-		return PlanExecutionReport{}, err
-	}
-	return report, nil
-}
-
-func validatePlanExecutionReportHeader(report PlanExecutionReport) error {
-	if report.SchemaVersion != 1 || report.Profile.Validate() != nil || !digestPattern.MatchString(report.PlanDigest) {
-		return errors.New("plan report header is invalid")
-	}
-	return nil
-}
-
-// validatePlanExecutionReportGates 验证完整 canonical plan 或单个 canonical shard 的精确结果集。
-func validatePlanExecutionReportGates(report PlanExecutionReport) error {
-	want := requiredGateIDs(report.Profile)
-	observed := make([]GateID, len(report.Gates))
-	for index, result := range report.Gates {
-		observed[index] = result.GateID
-	}
-	if !slices.Equal(observed, want) {
-		if err := validateContainerShardGateIDs(report.Profile, observed); err != nil {
-			return errors.New("plan report does not contain a canonical plan or shard gate set")
-		}
-	}
-	for _, result := range report.Gates {
-		if !validPlanGateResult(result) {
-			return errors.New("plan gate result is invalid")
-		}
-	}
-	return nil
-}
-
-// 仅当 gate 日志、摘要、时间顺序和状态与退出码组合均有效时返回 true；任一不满足即拒绝该结果。
-func validPlanGateResult(result PlanGateExecution) bool {
-	return len(result.Log) <= executorPlanMaxLogBytes && result.LogDigest == digestPlanLog(result.Log) &&
-		!result.StartedAt.IsZero() && !result.CompletedAt.IsZero() && !result.CompletedAt.Before(result.StartedAt) &&
-		validPlanGateExit(result.Status, result.ExitCode)
-}
-
-func rejectPlanReportTrailer(decoder *json.Decoder) error {
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return errors.New("plan report contains trailing JSON")
-		}
-		return fmt.Errorf("decode plan report trailer: %w", err)
-	}
-	return nil
-}
-
-func validPlanGateExit(status ResultStatus, exitCode int) bool {
-	switch status {
-	case ResultStatusPassed:
-		return exitCode == 0
-	case ResultStatusFailed:
-		return exitCode > 0
-	case ResultStatusCancelled, ResultStatusTimeout:
-		return exitCode == -1
-	default:
-		return false
-	}
-}
-
-type boundedPlanLog struct {
-	mu        sync.Mutex
-	remaining int
-	data      []byte
-}
-
-func newBoundedPlanLog(limit int) *boundedPlanLog {
-	return &boundedPlanLog{remaining: limit}
-}
-
-// Write 保留输入长度语义并只记录剩余证据预算内的字节。
-func (log *boundedPlanLog) Write(value []byte) (int, error) {
-	log.mu.Lock()
-	defer log.mu.Unlock()
-	written := len(value)
-	if len(value) > log.remaining {
-		value = value[:log.remaining]
-	}
-	log.data = append(log.data, value...)
-	log.remaining -= len(value)
-	return written, nil
-}
-
-// Bytes 返回当前有界日志的并发安全副本。
-func (log *boundedPlanLog) Bytes() []byte {
-	log.mu.Lock()
-	defer log.mu.Unlock()
-	return bytes.Clone(log.data)
 }
 
 func digestPlanLog(data []byte) string {

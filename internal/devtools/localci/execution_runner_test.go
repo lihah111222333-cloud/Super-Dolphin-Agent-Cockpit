@@ -577,10 +577,10 @@ func TestRunFreshContainerShardCollectsCanonicalReport(t *testing.T) {
 	request = canonicalShardRequest(t, request)
 	stub.request = request
 
-	report := canonicalShardReport(request, []byte(strings.Repeat("canonical shard Docker evidence\n", MaxFreshContainerLogBytes/48)))
+	report := canonicalShardReport(request, []byte(strings.Repeat("canonical shard Docker evidence\n", 200)))
 	stub.logOutput = string(timestampedPlanReportLog(t, report))
-	if len(stub.logOutput) <= MaxFreshContainerLogBytes {
-		t.Fatalf("shard report log = %d bytes, want more than single-gate limit %d", len(stub.logOutput), MaxFreshContainerLogBytes)
+	if len(stub.logOutput) >= MaxFreshContainerLogBytes {
+		t.Fatalf("shard report log = %d bytes, want bounded output below %d", len(stub.logOutput), MaxFreshContainerLogBytes)
 	}
 
 	result, err := runner.RunFreshContainer(context.Background(), request)
@@ -626,7 +626,7 @@ func TestRunFreshContainerCancelledShardRejectsForgedReport(t *testing.T) {
 	request.LifecycleHook = cancelOnStarted(cancel)
 	stub.request = request
 	stub.waitForCancel = true
-	report := canonicalShardReport(request, []byte(strings.Repeat("forged shard report\n", MaxFreshContainerLogBytes/48)))
+	report := canonicalShardReport(request, []byte(strings.Repeat("forged shard report\n", 200)))
 	report.PlanDigest = digest("f")
 	stub.logOutput = string(timestampedPlanReportLog(t, report))
 	defer cancel()

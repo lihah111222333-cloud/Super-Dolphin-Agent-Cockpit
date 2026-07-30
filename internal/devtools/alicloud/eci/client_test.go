@@ -1,0 +1,835 @@
+package eci
+
+import (
+	"context"
+	"errors"
+	"net"
+	"os/exec"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+)
+
+type fakeCommandRunner struct {
+	calls     [][]string
+	responses [][]byte
+	runErrors []error
+	err       error
+}
+
+type blockingCommandRunner struct {
+	calls int
+}
+
+func (runner *blockingCommandRunner) Run(ctx context.Context, _ string, _ ...string) ([]byte, error) {
+	runner.calls++
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func (f *fakeCommandRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {
+	f.calls = append(f.calls, append([]string{name}, args...))
+	if len(f.runErrors) > 0 {
+		runErr := f.runErrors[0]
+		f.runErrors = f.runErrors[1:]
+		if runErr != nil {
+			return nil, runErr
+		}
+	}
+	if f.err != nil {
+		return nil, f.err
+	}
+	response := f.responses[0]
+	f.responses = f.responses[1:]
+	return response, nil
+}
+
+func TestClient_ECIOperations(t *testing.T) {
+	runner := &fakeCommandRunner{responses: [][]byte{
+		[]byte(`{"ContainerGroupId":"eci-created"}`),
+		[]byte(`{"ContainerGroups":[{"ContainerGroupId":"eci-created","ContainerGroupName":"shard-1","Status":"Running"}]}`),
+		[]byte(`{"Content":"worker output"}`),
+		[]byte(`{"RequestId":"request-deleted"}`),
+	}}
+	client := newTestClient(t, runner)
+	request := validCreateRequest()
+	request.Environment = map[string]string{"Z_LAST": "z-value", "A_FIRST": "a-value"}
+	request.Tags = map[string]string{"z-last": "z-value", "a-first": "a-value"}
+	created, err := client.CreateContainerGroup(context.Background(), request)
+	if err != nil || created.ID != "eci-created" {
+		t.Fatalf("CreateContainerGroup() = %#v, %v", created, err)
+	}
+	groups, err := client.DescribeContainerGroups(context.Background(), "eci-created")
+	if err != nil || len(groups) != 1 || groups[0].Status != "Running" {
+		t.Fatalf("DescribeContainerGroups() = %#v, %v", groups, err)
+	}
+	log, err := client.DescribeContainerLog(context.Background(), "eci-created", "worker")
+	if err != nil || log != "worker output" {
+		t.Fatalf("DescribeContainerLog() = %q, %v", log, err)
+	}
+	if err := client.DeleteContainerGroup(context.Background(), "eci-created"); err != nil {
+		t.Fatalf("DeleteContainerGroup() error = %v", err)
+	}
+	wantCalls := [][]string{
+		{"aliyun", "eci", "CreateContainerGroup", "--RegionId", "cn-hangzhou", "--profile", "ci", "--ClientToken", testClientToken, "--VSwitchId", "vsw-1", "--SecurityGroupId", "sg-1", "--RamRoleName", "worker-role", "--Cpu", "4", "--Memory", "8", "--SpotStrategy", "SpotAsPriceGo", "--SpotDuration", "1", "--RestartPolicy", "Never", "--ActiveDeadlineSeconds", "3600", "--AutoMatchImageCache", "true", "--DataCacheBucket", "super-dolphin-ci", "--ContainerGroupName", "shard-1", "--Container.1.Name", "worker", "--Container.1.Image", testImageDigest, "--Container.1.Cpu", "4", "--Container.1.Memory", "8", "--Container.1.ImagePullPolicy", "IfNotPresent", "--Container.1.SecurityContext.ReadOnlyRootFilesystem", "true", "--Container.1.SecurityContext.RunAsUser", "65532", "--Container.1.SecurityContextRunAsGroup", "65532", "--Volume.1.Name", "base-data", "--Volume.1.Type", "HostPathVolume", "--Volume.1.HostPathVolume.Path", "/super-dolphin/ci/base/generation-1", "--Volume.1.HostPathVolume.Type", "Directory", "--Volume.2.Name", "source-data", "--Volume.2.Type", "EmptyDirVolume", "--Volume.3.Name", "work-data", "--Volume.3.Type", "EmptyDirVolume", "--Volume.4.Name", "expanded-data", "--Volume.4.Type", "EmptyDirVolume", "--Volume.5.Name", "temp-data", "--Volume.5.Type", "EmptyDirVolume", "--InitContainer.1.Name", "materializer", "--InitContainer.1.Image", testImageDigest, "--InitContainer.1.ImagePullPolicy", "IfNotPresent", "--InitContainer.1.SecurityContext.ReadOnlyRootFilesystem", "true", "--InitContainer.1.SecurityContext.RunAsUser", "0", "--Container.1.Command.1", "/runner", "--Container.1.Command.2", "execute", "--Container.1.Arg.1=--shard", "--Container.1.Arg.2", "one", "--Container.1.EnvironmentVar.1.Key", "A_FIRST", "--Container.1.EnvironmentVar.1.Value", "a-value", "--Container.1.EnvironmentVar.2.Key", "Z_LAST", "--Container.1.EnvironmentVar.2.Value", "z-value", "--Container.1.VolumeMount.1.Name", "base-data", "--Container.1.VolumeMount.1.MountPath", "/bootstrap", "--Container.1.VolumeMount.1.ReadOnly", "true", "--Container.1.VolumeMount.2.Name", "expanded-data", "--Container.1.VolumeMount.2.MountPath", "/opt/super-dolphin-gate", "--Container.1.VolumeMount.2.ReadOnly", "true", "--Container.1.VolumeMount.3.Name", "source-data", "--Container.1.VolumeMount.3.MountPath", "/input/source", "--Container.1.VolumeMount.3.ReadOnly", "true", "--Container.1.VolumeMount.4.Name", "work-data", "--Container.1.VolumeMount.4.MountPath", "/workspace", "--Container.1.VolumeMount.4.ReadOnly", "false", "--Container.1.VolumeMount.5.Name", "temp-data", "--Container.1.VolumeMount.5.MountPath", "/tmp", "--Container.1.VolumeMount.5.ReadOnly", "false", "--InitContainer.1.Command.1", "/runner", "--InitContainer.1.Command.2", "materialize", "--InitContainer.1.Arg.1=--source", "--InitContainer.1.Arg.2", "/input/source", "--InitContainer.1.Arg.3=--work", "--InitContainer.1.Arg.4", "/workspace", "--InitContainer.1.EnvironmentVar.1.Key", "A_INIT", "--InitContainer.1.EnvironmentVar.1.Value", "a-init", "--InitContainer.1.EnvironmentVar.2.Key", "Z_INIT", "--InitContainer.1.EnvironmentVar.2.Value", "z-init", "--InitContainer.1.VolumeMount.1.Name", "base-data", "--InitContainer.1.VolumeMount.1.MountPath", "/bootstrap", "--InitContainer.1.VolumeMount.1.ReadOnly", "true", "--InitContainer.1.VolumeMount.2.Name", "expanded-data", "--InitContainer.1.VolumeMount.2.MountPath", "/opt/super-dolphin-gate", "--InitContainer.1.VolumeMount.2.ReadOnly", "false", "--InitContainer.1.VolumeMount.3.Name", "source-data", "--InitContainer.1.VolumeMount.3.MountPath", "/input/source", "--InitContainer.1.VolumeMount.3.ReadOnly", "false", "--InitContainer.1.VolumeMount.4.Name", "work-data", "--InitContainer.1.VolumeMount.4.MountPath", "/workspace", "--InitContainer.1.VolumeMount.4.ReadOnly", "false", "--Tag.1.Key", "a-first", "--Tag.1.Value", "a-value", "--Tag.2.Key", "z-last", "--Tag.2.Value", "z-value"},
+		{"aliyun", "eci", "DescribeContainerGroups", "--RegionId", "cn-hangzhou", "--profile", "ci", "--ContainerGroupIds", `["eci-created"]`, "--WithEvent", "true"},
+		{"aliyun", "eci", "DescribeContainerLog", "--RegionId", "cn-hangzhou", "--profile", "ci", "--ContainerGroupId", "eci-created", "--ContainerName", "worker", "--Tail", "2000", "--LimitBytes", "1048576", "--Timestamps", "false"},
+		{"aliyun", "eci", "DeleteContainerGroup", "--RegionId", "cn-hangzhou", "--profile", "ci", "--ContainerGroupId", "eci-created"},
+	}
+	if !reflect.DeepEqual(runner.calls, wantCalls) {
+		t.Errorf("CLI calls = %#v, want %#v", runner.calls, wantCalls)
+	}
+}
+
+func TestClientCreateContainerGroupEncodesAdditionalDataCacheVolumes(t *testing.T) {
+	runner := &fakeCommandRunner{responses: [][]byte{[]byte(`{"ContainerGroupId":"eci-created"}`)}}
+	client := newTestClient(t, runner)
+	request := validCreateRequest()
+	request.AdditionalBaseVolumes = []HostPathVolume{
+		{Name: "base-g002", Path: "/super-dolphin/ci/base/generation-2", Type: "Directory"},
+		{Name: "base-g003", Path: "/super-dolphin/ci/base/generation-3", Type: "Directory"},
+	}
+	request.MainVolumeMounts = append([]VolumeMount{
+		{Name: "base-g002", MountPath: "/bootstrap-layers/g00000000000000000002", ReadOnly: true},
+		{Name: "base-g003", MountPath: "/bootstrap-layers/g00000000000000000003", ReadOnly: true},
+	}, request.MainVolumeMounts...)
+	request.InitVolumeMounts = append([]VolumeMount{
+		{Name: "base-g002", MountPath: "/bootstrap-layers/g00000000000000000002", ReadOnly: true},
+		{Name: "base-g003", MountPath: "/bootstrap-layers/g00000000000000000003", ReadOnly: true},
+	}, request.InitVolumeMounts...)
+	if _, err := client.CreateContainerGroup(context.Background(), request); err != nil {
+		t.Fatalf("CreateContainerGroup() error = %v", err)
+	}
+	call := runner.calls[0]
+	for _, pair := range [][]string{
+		{"--Volume.2.Name", "base-g002"},
+		{"--Volume.3.Name", "base-g003"},
+		{"--Volume.4.Name", "source-data"},
+		{"--Volume.7.Name", "temp-data"},
+		{"--Container.1.VolumeMount.2.Name", "base-g002"},
+		{"--Container.1.VolumeMount.3.Name", "base-g003"},
+		{"--InitContainer.1.VolumeMount.2.ReadOnly", "true"},
+		{"--InitContainer.1.VolumeMount.3.ReadOnly", "true"},
+	} {
+		if !containsArgumentPair(call, pair[0], pair[1]) {
+			t.Fatalf("call missing %v: %#v", pair, call)
+		}
+	}
+}
+
+func TestClientCreateContainerGroupEncodesRepeatedVolumeSubPathMount(t *testing.T) {
+	runner := &fakeCommandRunner{responses: [][]byte{[]byte(`{"ContainerGroupId":"eci-created"}`)}}
+	client := newTestClient(t, runner)
+	request := validCreateRequest()
+	request.MainVolumeMounts = append(request.MainVolumeMounts,
+		VolumeMount{Name: "expanded-data", MountPath: "/usr/bin/xkbcomp", SubPath: "runtime/rootfs/usr/bin/xkbcomp", ReadOnly: true},
+	)
+	if _, err := client.CreateContainerGroup(context.Background(), request); err != nil {
+		t.Fatalf("CreateContainerGroup() error = %v", err)
+	}
+	call := runner.calls[0]
+	for _, pair := range [][]string{
+		{"--Container.1.VolumeMount.3.Name", "expanded-data"},
+		{"--Container.1.VolumeMount.3.MountPath", "/usr/bin/xkbcomp"},
+		{"--Container.1.VolumeMount.3.SubPath", "runtime/rootfs/usr/bin/xkbcomp"},
+		{"--Container.1.VolumeMount.3.ReadOnly", "true"},
+	} {
+		if !containsArgumentPair(call, pair[0], pair[1]) {
+			t.Fatalf("call missing %v: %#v", pair, call)
+		}
+	}
+}
+
+func TestClientCreateContainerGroupEncodesCurrentGateOSSVolume(t *testing.T) {
+	runner := &fakeCommandRunner{responses: [][]byte{[]byte(`{"ContainerGroupId":"eci-created"}`)}}
+	client := newTestClient(t, runner)
+	request := validCreateRequest()
+	request.BootstrapVolume = OSSVolume{
+		Bucket: "super-dolphin-ci", Endpoint: "oss-cn-hangzhou-internal.aliyuncs.com",
+		Path: "/baseline-artifacts/31/output", RoleName: "worker-role",
+	}
+	request.InitVolumeMounts = append(request.InitVolumeMounts,
+		VolumeMount{Name: "temp-data", MountPath: "/tmp"},
+		VolumeMount{Name: "current-gate", MountPath: "/current-gate", ReadOnly: true},
+	)
+	if _, err := client.CreateContainerGroup(context.Background(), request); err != nil {
+		t.Fatalf("CreateContainerGroup() error = %v", err)
+	}
+	options, err := seedOSSVolumeOptions(request.BootstrapVolume)
+	if err != nil {
+		t.Fatalf("seedOSSVolumeOptions() error = %v", err)
+	}
+	call := runner.calls[0]
+	for _, pair := range [][]string{
+		{"--Volume.6.Name", "current-gate"},
+		{"--Volume.6.Type", "FlexVolume"},
+		{"--Volume.6.FlexVolume.Driver", "alicloud/oss"},
+		{"--Volume.6.FlexVolume.Options", string(options)},
+		{"--InitContainer.1.VolumeMount.5.Name", "temp-data"},
+		{"--InitContainer.1.VolumeMount.6.Name", "current-gate"},
+		{"--InitContainer.1.VolumeMount.6.ReadOnly", "true"},
+	} {
+		if !containsArgumentPair(call, pair[0], pair[1]) {
+			t.Fatalf("call missing %v: %#v", pair, call)
+		}
+	}
+}
+
+func TestClient_DescribeContainerGroupsDecodesTerminalDiagnostics(t *testing.T) {
+	runner := &fakeCommandRunner{responses: [][]byte{
+		[]byte(`{"ContainerGroups":[{"ContainerGroupId":"eci-created","ContainerGroupName":"shard-1","Status":"Failed","Containers":[{"Name":"worker","CurrentState":{"State":"Terminated","ExitCode":137,"Reason":"OOMKilled","Message":"memory limit exceeded"}}],"Events":[{"Type":"Warning","Reason":"BackOff","Message":"worker exited","Count":2,"LastTimestamp":"2026-07-27T08:00:00Z"}]}]}`),
+	}}
+	client := newTestClient(t, runner)
+	groups, err := client.DescribeContainerGroups(context.Background(), "eci-created")
+	if err != nil {
+		t.Fatalf("DescribeContainerGroups() error = %v", err)
+	}
+	exitCode := int64(137)
+	want := []ContainerGroup{{
+		ID:     "eci-created",
+		Name:   "shard-1",
+		Status: "Failed",
+		Containers: []ContainerStatus{{
+			Name: "worker",
+			CurrentState: ContainerState{
+				State:    "Terminated",
+				ExitCode: &exitCode,
+				Reason:   "OOMKilled",
+				Message:  "memory limit exceeded",
+			},
+		}},
+		Events: []ContainerGroupEvent{{
+			Type:          "Warning",
+			Reason:        "BackOff",
+			Message:       "worker exited",
+			Count:         2,
+			LastTimestamp: "2026-07-27T08:00:00Z",
+		}},
+	}}
+	if !reflect.DeepEqual(groups, want) {
+		t.Fatalf("DescribeContainerGroups() = %#v, want %#v", groups, want)
+	}
+}
+
+func TestClient_FailsFastOnCommandAndJSONErrors(t *testing.T) {
+	commandCalls := []struct {
+		name string
+		call func(*Client) error
+	}{
+		{"create", func(client *Client) error {
+			_, err := client.CreateContainerGroup(context.Background(), validCreateRequest())
+			return err
+		}},
+		{"describe", func(client *Client) error {
+			_, err := client.DescribeContainerGroups(context.Background(), "eci-1")
+			return err
+		}},
+		{"log", func(client *Client) error {
+			_, err := client.DescribeContainerLog(context.Background(), "eci-1", "worker")
+			return err
+		}},
+		{"delete", func(client *Client) error { return client.DeleteContainerGroup(context.Background(), "eci-1") }},
+	}
+	for _, testCase := range commandCalls {
+		t.Run(testCase.name+" command error", func(t *testing.T) {
+			client := newTestClient(t, &fakeCommandRunner{err: errors.New("profile unavailable")})
+			if err := testCase.call(client); err == nil {
+				t.Fatal("operation error = nil")
+			}
+		})
+	}
+	t.Run("malformed JSON", func(t *testing.T) {
+		client := newTestClient(t, &fakeCommandRunner{responses: [][]byte{[]byte(`not-json`)}})
+		if _, err := client.DescribeContainerGroups(context.Background(), "eci-1"); err == nil {
+			t.Fatal("DescribeContainerGroups() error = nil")
+		}
+	})
+	t.Run("missing required response field", func(t *testing.T) {
+		client := newTestClient(t, &fakeCommandRunner{responses: [][]byte{[]byte(`{}`)}})
+		if err := client.DeleteContainerGroup(context.Background(), "eci-1"); err == nil {
+			t.Fatal("DeleteContainerGroup() error = nil")
+		}
+	})
+}
+
+func TestClient_RetriesTransientCLIErrors(t *testing.T) {
+	testCases := []struct {
+		name string
+		err  error
+	}{
+		{"TLS handshake timeout", errors.New("net/http: TLS handshake timeout")},
+		{"I/O timeout", errors.New("read tcp: i/o timeout")},
+		{"unexpected EOF", errors.New("unexpected EOF")},
+		{"STS EOF", errors.New("Post https://sts.example.invalid: EOF")},
+		{"client timeout", errors.New("context deadline exceeded (Client.Timeout exceeded while awaiting headers)")},
+		{"STS AssumeRole header timeout", errors.New("init client failed Post \"https://sts.example.invalid?AccessKeyId=test\": context deadline exceeded (Client.Timeout exceeded while awaiting headers)")},
+		{"STS user flow control", errors.New(`init client failed refresh session token failed: {"Message":"Request was denied due to user flow control.","Code":"Throttling.User"}`)},
+		{"connection reset", errors.New("read tcp: connection reset by peer")},
+		{"temporary DNS text", errors.New("lookup eci.example.invalid: temporary failure in name resolution")},
+		{"temporary DNS error", &net.DNSError{Err: "temporary resolver failure", Name: "eci.example.invalid", IsTemporary: true}},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			runner := &fakeCommandRunner{
+				responses: [][]byte{[]byte(`{"ContainerGroups":[{"ContainerGroupId":"eci-1","ContainerGroupName":"shard-1","Status":"Running"}]}`)},
+				runErrors: []error{testCase.err},
+			}
+			client := newTestClient(t, runner)
+			var waits []time.Duration
+			client.wait = func(ctx context.Context, delay time.Duration) error {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				waits = append(waits, delay)
+				return nil
+			}
+			groups, err := client.DescribeContainerGroups(context.Background(), "eci-1")
+			if err != nil || len(groups) != 1 || groups[0].Status != "Running" {
+				t.Fatalf("DescribeContainerGroups() = %#v, %v", groups, err)
+			}
+			if len(runner.calls) != 2 || !reflect.DeepEqual(waits, []time.Duration{initialCLIRetryDelay}) {
+				t.Fatalf("calls = %d, waits = %v, want 2 calls and one initial wait", len(runner.calls), waits)
+			}
+		})
+	}
+}
+
+func TestClient_BoundsEveryTransientCLIAttempt(t *testing.T) {
+	runner := &blockingCommandRunner{}
+	client := newTestClient(t, runner)
+	client.attemptTimeout = time.Millisecond
+	client.wait = func(context.Context, time.Duration) error { return nil }
+
+	_, err := client.DescribeContainerGroups(context.Background(), "eci-1")
+	if err == nil || runner.calls != maxCLIAttempts {
+		t.Fatalf("DescribeContainerGroups() calls=%d error=%v", runner.calls, err)
+	}
+}
+
+func TestPreserveCommandContextErrorMakesAttemptTimeoutRetryable(t *testing.T) {
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	err := preserveCommandContextError(ctx, errors.New("signal: killed"))
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("preserved error = %v, want deadline cause", err)
+	}
+	if !strings.Contains(err.Error(), "signal: killed") {
+		t.Fatalf("preserved error = %v, want process exit evidence", err)
+	}
+	if !isTransientCLIError(err) {
+		t.Fatalf("attempt timeout = %v, want transient retry classification", err)
+	}
+	if isTransientCLIError(errors.New("signal: killed")) {
+		t.Fatal("unbound signal kill must not be retried")
+	}
+}
+
+func TestMaxControlPlaneRetryDurationCoversAttemptsAndBackoff(t *testing.T) {
+	want := time.Duration(maxCLIAttempts) * cliAttemptTimeout
+	for attempt := 1; attempt < maxCLIAttempts; attempt++ {
+		want += cliRetryDelay(attempt)
+	}
+	if got := MaxControlPlaneRetryDuration(); got != want {
+		t.Fatalf("MaxControlPlaneRetryDuration() = %v, want %v", got, want)
+	}
+}
+
+func TestClient_CreateRetryReusesClientToken(t *testing.T) {
+	runner := &fakeCommandRunner{
+		responses: [][]byte{[]byte(`{"ContainerGroupId":"eci-created"}`)},
+		runErrors: repeatCommandErrors(errors.New("net/http: TLS handshake timeout"), maxCLIAttempts-1),
+	}
+	client := newTestClient(t, runner)
+	client.wait = func(context.Context, time.Duration) error { return nil }
+	created, err := client.CreateContainerGroup(context.Background(), validCreateRequest())
+	if err != nil || created.ID != "eci-created" {
+		t.Fatalf("CreateContainerGroup() = %#v, %v", created, err)
+	}
+	if len(runner.calls) != maxCLIAttempts {
+		t.Fatalf("calls = %d, want %d", len(runner.calls), maxCLIAttempts)
+	}
+	for _, call := range runner.calls {
+		if !reflect.DeepEqual(call, runner.calls[0]) || !containsArgumentPair(call, "--ClientToken", testClientToken) {
+			t.Fatalf("Create retries must reuse one ClientToken: %#v", runner.calls)
+		}
+	}
+}
+
+func TestClient_CreateFallsBackToPayAsYouGoOnlyWhenSpotCapacityIsUnavailable(t *testing.T) {
+	runner := &fakeCommandRunner{
+		responses: [][]byte{[]byte(`{"ContainerGroupId":"eci-created"}`)},
+		runErrors: []error{errors.New("Code: Spot.NotMatched, Message: no matching spot capacity")},
+	}
+	client := newTestClientWithTokens(t, runner, "spot-token", "regular-token")
+
+	created, err := client.CreateContainerGroup(context.Background(), validCreateRequest())
+	if err != nil || created.ID != "eci-created" {
+		t.Fatalf("CreateContainerGroup() = %#v, %v", created, err)
+	}
+	if len(runner.calls) != 2 {
+		t.Fatalf("calls = %d, want spot attempt plus pay-as-you-go fallback", len(runner.calls))
+	}
+	if !containsArgumentPair(runner.calls[0], "--SpotStrategy", "SpotAsPriceGo") ||
+		!containsArgumentPair(runner.calls[0], "--ClientToken", "spot-token") {
+		t.Fatalf("spot call = %#v", runner.calls[0])
+	}
+	if !containsArgumentPair(runner.calls[1], "--SpotStrategy", "NoSpot") ||
+		containsArgumentPair(runner.calls[1], "--SpotDuration", "1") ||
+		!containsArgumentPair(runner.calls[1], "--ClientToken", "regular-token") {
+		t.Fatalf("pay-as-you-go call = %#v", runner.calls[1])
+	}
+}
+
+func TestClient_CreateDoesNotFallBackForNonSpotCapacityErrors(t *testing.T) {
+	for _, runErr := range []error{
+		errors.New("Code: OperationDenied.NoStock, Message: zone inventory unavailable"),
+		errors.New("Code: QuotaExceeded, Message: quota exhausted"),
+		errors.New("Code: AccessDenied, Message: denied"),
+		errors.New("net/http: TLS handshake timeout"),
+	} {
+		t.Run(runErr.Error(), func(t *testing.T) {
+			runner := &fakeCommandRunner{err: runErr}
+			client := newTestClient(t, runner)
+			if _, err := client.CreateContainerGroup(context.Background(), validCreateRequest()); err == nil {
+				t.Fatal("CreateContainerGroup() error = nil")
+			}
+			for _, call := range runner.calls {
+				if containsArgumentPair(call, "--SpotStrategy", "NoSpot") {
+					t.Fatalf("unexpected pay-as-you-go fallback: %#v", runner.calls)
+				}
+			}
+		})
+	}
+}
+
+func TestClient_CreateReconcilesAfterUncertainResponse(t *testing.T) {
+	transient := errors.New("net/http: TLS handshake timeout")
+	runner := &fakeCommandRunner{
+		responses: [][]byte{[]byte(`{"ContainerGroups":[{"ContainerGroupId":"eci-recovered","ContainerGroupName":"shard-1","Status":"Running"}]}`)},
+		runErrors: repeatCommandErrors(transient, maxCLIAttempts),
+	}
+	client := newTestClient(t, runner)
+	group, err := client.CreateContainerGroup(context.Background(), validCreateRequest())
+	if err != nil || group.ID != "eci-recovered" {
+		t.Fatalf("CreateContainerGroup() = %#v, %v", group, err)
+	}
+	if len(runner.calls) != maxCLIAttempts+1 {
+		t.Fatalf("calls = %d, want %d", len(runner.calls), maxCLIAttempts+1)
+	}
+	reconcileCall := runner.calls[len(runner.calls)-1]
+	for _, pair := range [][]string{{"--ContainerGroupName", "shard-1"}, {"--Tag.1.Key", "workload"}, {"--Tag.1.Value", "test"}} {
+		if !containsArgumentPair(reconcileCall, pair[0], pair[1]) {
+			t.Fatalf("reconcile call missing %v: %#v", pair, reconcileCall)
+		}
+	}
+}
+
+func repeatCommandErrors(err error, count int) []error {
+	errors := make([]error, count)
+	for index := range errors {
+		errors[index] = err
+	}
+	return errors
+}
+
+func TestClient_CreateReconcilesMalformedSuccessResponse(t *testing.T) {
+	runner := &fakeCommandRunner{responses: [][]byte{
+		[]byte(`not-json`),
+		[]byte(`{"ContainerGroups":[{"ContainerGroupId":"eci-recovered","ContainerGroupName":"shard-1","Status":"Pending"}]}`),
+	}}
+	client := newTestClient(t, runner)
+	group, err := client.CreateContainerGroup(context.Background(), validCreateRequest())
+	if err != nil || group.ID != "eci-recovered" || len(runner.calls) != 2 {
+		t.Fatalf("CreateContainerGroup() = %#v, %v, calls = %d", group, err, len(runner.calls))
+	}
+}
+
+func TestClient_DoesNotRetryAPIErrors(t *testing.T) {
+	for _, testCase := range []struct {
+		name string
+		err  error
+	}{
+		{"AccessDenied", errors.New("Code: AccessDenied, Message: fake policy denies this request")},
+		{"InvalidParameter", errors.New("Code: InvalidParameter, Message: fake input is invalid")},
+		{"business state", errors.New("Code: OperationDenied.NoStock, Message: zone inventory unavailable")},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			runner := &fakeCommandRunner{err: testCase.err}
+			client := newTestClient(t, runner)
+			waitCalls := 0
+			client.wait = func(context.Context, time.Duration) error {
+				waitCalls++
+				return nil
+			}
+			if _, err := client.DescribeContainerGroups(context.Background(), "eci-1"); err == nil {
+				t.Fatal("DescribeContainerGroups() error = nil")
+			}
+			if len(runner.calls) != 1 || waitCalls != 0 {
+				t.Fatalf("calls = %d, waits = %d, want one call and no wait", len(runner.calls), waitCalls)
+			}
+		})
+	}
+}
+
+func TestClient_StopsRetryWhenContextIsCanceled(t *testing.T) {
+	runner := &fakeCommandRunner{err: errors.New("net/http: TLS handshake timeout")}
+	client := newTestClient(t, runner)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	client.wait = func(ctx context.Context, _ time.Duration) error {
+		cancel()
+		return ctx.Err()
+	}
+	_, err := client.DescribeContainerGroups(ctx, "eci-1")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("DescribeContainerGroups() error = %v, want context.Canceled", err)
+	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("calls = %d, want 1", len(runner.calls))
+	}
+}
+
+func TestWaitForRetry_ReturnsContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := waitForRetry(ctx, time.Hour); !errors.Is(err, context.Canceled) {
+		t.Fatalf("waitForRetry() error = %v, want context.Canceled", err)
+	}
+}
+
+func TestClient_StopsAfterBoundedTransientRetries(t *testing.T) {
+	runner := &fakeCommandRunner{err: errors.New("net/http: TLS handshake timeout")}
+	client := newTestClient(t, runner)
+	var waits []time.Duration
+	client.wait = func(_ context.Context, delay time.Duration) error {
+		waits = append(waits, delay)
+		return nil
+	}
+	if _, err := client.DescribeContainerGroups(context.Background(), "eci-1"); err == nil {
+		t.Fatal("DescribeContainerGroups() error = nil")
+	}
+	wantWaits := []time.Duration{
+		initialCLIRetryDelay,
+		2 * initialCLIRetryDelay,
+		4 * initialCLIRetryDelay,
+		8 * initialCLIRetryDelay,
+		maxCLIRetryDelay,
+		maxCLIRetryDelay,
+		maxCLIRetryDelay,
+		maxCLIRetryDelay,
+		maxCLIRetryDelay,
+		maxCLIRetryDelay,
+		maxCLIRetryDelay,
+	}
+	if len(runner.calls) != maxCLIAttempts || !reflect.DeepEqual(waits, wantWaits) {
+		t.Fatalf("calls = %d, waits = %v, want %d calls and %v", len(runner.calls), waits, maxCLIAttempts, wantWaits)
+	}
+}
+
+func TestClient_RedactsSensitiveCLIQueryValues(t *testing.T) {
+	sensitiveValues := []string{
+		"example-access-key-id-not-a-credential",
+		"example-access-key-secret-not-a-credential",
+		"example-signature-not-a-credential%2Fvalue",
+		"example-security-token-not-a-credential",
+	}
+	requestURL := "https://eci.example.invalid/?AccessKeyId=" + sensitiveValues[0] +
+		"&AccessKeySecret=" + sensitiveValues[1] +
+		"&Signature=" + sensitiveValues[2] +
+		"&SecurityToken=" + sensitiveValues[3]
+	runner := &fakeCommandRunner{err: errors.New("Code: AccessDenied, Request URL: " + requestURL)}
+	client := newTestClient(t, runner)
+	_, err := client.DescribeContainerGroups(context.Background(), "eci-1")
+	if err == nil {
+		t.Fatal("DescribeContainerGroups() error = nil")
+	}
+	for _, value := range sensitiveValues {
+		if strings.Contains(err.Error(), value) {
+			t.Fatalf("DescribeContainerGroups() error leaked fake sensitive value: %v", err)
+		}
+	}
+	for _, parameter := range []string{"AccessKeyId", "AccessKeySecret", "Signature", "SecurityToken"} {
+		if !strings.Contains(err.Error(), parameter+"=<redacted>") {
+			t.Fatalf("DescribeContainerGroups() error = %v, want %s redacted", err, parameter)
+		}
+	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("calls = %d, want 1", len(runner.calls))
+	}
+}
+
+func TestNewWithRunner_RejectsInvalidConfig(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*Config)
+	}{
+		{"missing profile", func(config *Config) { config.Profile = "" }},
+		{"wrong spot strategy", func(config *Config) { config.SpotStrategy = "NoSpot" }},
+		{"wrong spot duration", func(config *Config) { config.SpotDurationHours = 0 }},
+		{"disabled fallback", func(config *Config) { config.FallbackToPayAsYouGo = false }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			config := testConfig()
+			test.mutate(&config)
+			if _, err := NewWithRunner(config, &fakeCommandRunner{}); err == nil {
+				t.Fatal("NewWithRunner() error = nil")
+			}
+		})
+	}
+}
+
+func TestCreateRequest_FieldRegistry(t *testing.T) {
+	assertStructFields(t, reflect.TypeFor[CreateRequest](), []string{
+		"ContainerGroupName", "ContainerName", "Resources", "Command", "Args", "Environment", "Tags",
+		"DataCacheBucket", "InitContainer", "BaseVolume", "AdditionalBaseVolumes", "BootstrapVolume", "ExpandedVolume", "SourceVolume", "WorkVolume", "TempVolume",
+		"MainVolumeMounts", "InitVolumeMounts",
+	})
+	assertStructFields(t, reflect.TypeFor[Resources](), []string{"CPU", "MemoryGiB"})
+	assertStructFields(t, reflect.TypeFor[InitContainer](), []string{"Name", "Command", "Args", "Environment"})
+	assertStructFields(t, reflect.TypeFor[HostPathVolume](), []string{"Name", "Path", "Type"})
+	assertStructFields(t, reflect.TypeFor[EmptyDirVolume](), []string{"Name"})
+	assertStructFields(t, reflect.TypeFor[VolumeMount](), []string{"Name", "MountPath", "SubPath", "ReadOnly"})
+}
+
+func TestContainerGroup_FieldRegistry(t *testing.T) {
+	assertStructFields(t, reflect.TypeFor[ContainerGroup](), []string{"ID", "Name", "Status", "Containers", "Events"})
+	assertStructFields(t, reflect.TypeFor[ContainerStatus](), []string{"Name", "CurrentState"})
+	assertStructFields(t, reflect.TypeFor[ContainerState](), []string{"State", "ExitCode", "Reason", "Message"})
+	assertStructFields(t, reflect.TypeFor[ContainerGroupEvent](), []string{"Type", "Reason", "Message", "Count", "LastTimestamp"})
+}
+
+func TestClient_CreateContainerGroupRejectsInvalidRequest(t *testing.T) {
+	for _, testCase := range invalidCreateRequestCases() {
+		t.Run(testCase.name, func(t *testing.T) {
+			runner := &fakeCommandRunner{}
+			client := newTestClient(t, runner)
+			request := validCreateRequest()
+			testCase.mutate(&request)
+			if _, err := client.CreateContainerGroup(context.Background(), request); err == nil {
+				t.Fatal("CreateContainerGroup() error = nil")
+			}
+			if len(runner.calls) != 0 {
+				t.Fatalf("runner calls = %#v, want none", runner.calls)
+			}
+		})
+	}
+}
+
+type invalidCreateRequestCase struct {
+	name   string
+	mutate func(*CreateRequest)
+}
+
+func invalidCreateRequestCases() []invalidCreateRequestCase {
+	return append(invalidCreateRequestCoreCases(), invalidCreateRequestVolumeCases()...)
+}
+
+func invalidCreateRequestCoreCases() []invalidCreateRequestCase {
+	return []invalidCreateRequestCase{
+		{"invalid group name", func(request *CreateRequest) { request.ContainerGroupName = "Shard" }},
+		{"invalid container name", func(request *CreateRequest) { request.ContainerName = "w" }},
+		{"invalid resources", func(request *CreateRequest) {
+			request.Resources = Resources{CPU: 4, MemoryGiB: 20}
+		}},
+		{"missing task command", func(request *CreateRequest) { request.Command = nil }},
+		{"too many task commands", func(request *CreateRequest) { request.Command = make([]string, 21) }},
+		{"too many task arguments", func(request *CreateRequest) { request.Args = make([]string, 11) }},
+		{"invalid task environment name", func(request *CreateRequest) { request.Environment = map[string]string{"1INVALID": "value"} }},
+		{"long task environment value", func(request *CreateRequest) {
+			request.Environment = map[string]string{"VALID": strings.Repeat("x", 257)}
+		}},
+		{"invalid init name", func(request *CreateRequest) { request.InitContainer.Name = "-init" }},
+		{"duplicate container name", func(request *CreateRequest) { request.InitContainer.Name = request.ContainerName }},
+		{"missing init command", func(request *CreateRequest) { request.InitContainer.Command = nil }},
+		{"too many init arguments", func(request *CreateRequest) { request.InitContainer.Args = make([]string, 11) }},
+		{"invalid init environment name", func(request *CreateRequest) {
+			request.InitContainer.Environment = map[string]string{"1INVALID": "value"}
+		}},
+		{"missing data cache bucket", func(request *CreateRequest) { request.DataCacheBucket = "" }},
+		{"reserved data cache bucket", func(request *CreateRequest) { request.DataCacheBucket = "eci-system" }},
+		{"invalid base volume name", func(request *CreateRequest) { request.BaseVolume.Name = "Base" }},
+		{"relative base volume path", func(request *CreateRequest) { request.BaseVolume.Path = "cache/base" }},
+		{"root base volume path", func(request *CreateRequest) { request.BaseVolume.Path = "/" }},
+		{"invalid base volume type", func(request *CreateRequest) { request.BaseVolume.Type = "File" }},
+	}
+}
+
+func invalidCreateRequestVolumeCases() []invalidCreateRequestCase {
+	return []invalidCreateRequestCase{
+		{"too many DataCache HostPath volumes", func(request *CreateRequest) {
+			request.AdditionalBaseVolumes = []HostPathVolume{
+				{Name: "base-g002", Path: "/super-dolphin/ci/base/generation-2", Type: "Directory"},
+				{Name: "base-g003", Path: "/super-dolphin/ci/base/generation-3", Type: "Directory"},
+				{Name: "base-g004", Path: "/super-dolphin/ci/base/generation-4", Type: "Directory"},
+				{Name: "base-g005", Path: "/super-dolphin/ci/base/generation-5", Type: "Directory"},
+			}
+		}},
+		{"invalid additional volume name", func(request *CreateRequest) {
+			request.AdditionalBaseVolumes = []HostPathVolume{{Name: "Base", Path: "/super-dolphin/ci/base/generation-2", Type: "Directory"}}
+		}},
+		{"invalid additional volume path", func(request *CreateRequest) {
+			request.AdditionalBaseVolumes = []HostPathVolume{{Name: "base-g002", Path: "relative", Type: "Directory"}}
+		}},
+		{"duplicate additional volume name", func(request *CreateRequest) {
+			request.AdditionalBaseVolumes = []HostPathVolume{{Name: request.BaseVolume.Name, Path: "/super-dolphin/ci/base/generation-2", Type: "Directory"}}
+		}},
+		{"invalid expanded volume name", func(request *CreateRequest) { request.ExpandedVolume.Name = "Expanded" }},
+		{"invalid source volume name", func(request *CreateRequest) { request.SourceVolume.Name = "Source" }},
+		{"invalid temp volume name", func(request *CreateRequest) { request.TempVolume.Name = "Temp" }},
+		{"base and expanded volume names collide", func(request *CreateRequest) { request.ExpandedVolume.Name = request.BaseVolume.Name }},
+		{"base and source volume names collide", func(request *CreateRequest) { request.SourceVolume.Name = request.BaseVolume.Name }},
+		{"duplicate volume name", func(request *CreateRequest) { request.WorkVolume.Name = request.SourceVolume.Name }},
+		{"duplicate temp volume name", func(request *CreateRequest) { request.TempVolume.Name = request.WorkVolume.Name }},
+		{"missing task mount", func(request *CreateRequest) { request.MainVolumeMounts = request.MainVolumeMounts[:1] }},
+		{"unknown task volume", func(request *CreateRequest) { request.MainVolumeMounts[0].Name = "other-data" }},
+		{"task base mount writable", func(request *CreateRequest) { request.MainVolumeMounts[0].ReadOnly = false }},
+		{"task expanded mount writable", func(request *CreateRequest) { request.MainVolumeMounts[1].ReadOnly = false }},
+		{"task source mount writable", func(request *CreateRequest) { request.MainVolumeMounts[2].ReadOnly = false }},
+		{"task work mount readonly", func(request *CreateRequest) { request.MainVolumeMounts[3].ReadOnly = true }},
+		{"task temp mount readonly", func(request *CreateRequest) { request.MainVolumeMounts[4].ReadOnly = true }},
+		{"init base mount writable", func(request *CreateRequest) { request.InitVolumeMounts[0].ReadOnly = false }},
+		{"init expanded mount readonly", func(request *CreateRequest) { request.InitVolumeMounts[1].ReadOnly = true }},
+		{"init source mount readonly", func(request *CreateRequest) { request.InitVolumeMounts[2].ReadOnly = true }},
+		{"init work mount readonly", func(request *CreateRequest) { request.InitVolumeMounts[3].ReadOnly = true }},
+		{"duplicate task mount path", func(request *CreateRequest) {
+			request.MainVolumeMounts[0].MountPath = request.MainVolumeMounts[1].MountPath
+		}},
+		{"absolute task mount subpath", func(request *CreateRequest) { request.MainVolumeMounts[0].SubPath = "/runtime/bin" }},
+		{"escaping task mount subpath", func(request *CreateRequest) { request.MainVolumeMounts[0].SubPath = "../runtime/bin" }},
+		{"duplicate task volume subpath", func(request *CreateRequest) {
+			request.MainVolumeMounts = append(request.MainVolumeMounts,
+				VolumeMount{Name: request.ExpandedVolume.Name, MountPath: "/second-expanded", ReadOnly: true},
+			)
+		}},
+		{"relative init mount path", func(request *CreateRequest) { request.InitVolumeMounts[0].MountPath = "workspace" }},
+		{"unclean init mount path", func(request *CreateRequest) { request.InitVolumeMounts[0].MountPath = "/input/../workspace" }},
+		{"too many tags", func(request *CreateRequest) {
+			request.Tags = map[string]string{"one": "1", "two": "2", "three": "3", "four": "4", "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9", "ten": "10", "eleven": "11", "twelve": "12", "thirteen": "13", "fourteen": "14", "fifteen": "15", "sixteen": "16", "seventeen": "17", "eighteen": "18", "nineteen": "19", "twenty": "20", "twenty-one": "21"}
+		}},
+		{"reserved tag key", func(request *CreateRequest) { request.Tags = map[string]string{"acs:reserved": "value"} }},
+		{"invalid tag value", func(request *CreateRequest) { request.Tags = map[string]string{"key": "https://invalid"} }},
+	}
+}
+
+func TestNewWithRunner_RequiresImageDigest(t *testing.T) {
+	for _, image := range []string{"registry.example/runner:1", "registry.example/runner@sha256:ABCDEF0123456789abcdef0123456789abcdef0123456789abcdef0123456789"} {
+		config := testConfig()
+		config.Image = image
+		if _, err := NewWithRunner(config, &fakeCommandRunner{}); err == nil {
+			t.Fatalf("NewWithRunner(%q) error = nil", image)
+		}
+	}
+}
+
+func TestClient_CreateContainerGroupRedactsEnvironmentValues(t *testing.T) {
+	const secret = "super-secret-value"
+	client := newTestClient(t, &fakeCommandRunner{err: errors.New("CLI stderr: " + secret)})
+	request := validCreateRequest()
+	request.InitContainer.Environment = map[string]string{"TOKEN": secret}
+	_, err := client.CreateContainerGroup(context.Background(), request)
+	if err == nil || strings.Contains(err.Error(), secret) || !strings.Contains(err.Error(), "<redacted>") {
+		t.Fatalf("CreateContainerGroup() error = %v, want redacted secret", err)
+	}
+}
+
+func TestExecRunner_CapturesStderrAndWrapsExitError(t *testing.T) {
+	_, err := (execRunner{}).Run(context.Background(), "sh", "-c", "echo runner-stderr >&2; exit 7")
+	if err == nil || !strings.Contains(err.Error(), "runner-stderr") {
+		t.Fatalf("Run() error = %v, want captured stderr", err)
+	}
+	var exitError *exec.ExitError
+	if !errors.As(err, &exitError) {
+		t.Fatalf("Run() error = %T, want wrapped *exec.ExitError", err)
+	}
+}
+
+func newTestClient(t *testing.T, runner CommandRunner) *Client {
+	t.Helper()
+	client, err := NewWithRunner(testConfig(), runner)
+	if err != nil {
+		t.Fatalf("NewWithRunner() error = %v", err)
+	}
+	client.wait = func(context.Context, time.Duration) error { return nil }
+	client.spotSchedulingTimeout = 0
+	client.newClientToken = func() (string, error) { return testClientToken, nil }
+	return client
+}
+
+func newTestClientWithTokens(t *testing.T, runner CommandRunner, tokens ...string) *Client {
+	t.Helper()
+	client := newTestClient(t, runner)
+	index := 0
+	client.newClientToken = func() (string, error) {
+		if index >= len(tokens) {
+			t.Fatal("unexpected ECI client token request")
+		}
+		token := tokens[index]
+		index++
+		return token, nil
+	}
+	return client
+}
+
+func testConfig() Config {
+	return Config{
+		Binary: "aliyun", RegionID: "cn-hangzhou", VSwitchID: "vsw-1", SecurityGroupID: "sg-1",
+		WorkerRoleName: "worker-role", Profile: "ci",
+		Image: testImageDigest, Deadline: time.Hour,
+		SpotStrategy: "SpotAsPriceGo", SpotDurationHours: 1, FallbackToPayAsYouGo: true,
+	}
+}
+
+func validCreateRequest() CreateRequest {
+	return CreateRequest{
+		ContainerGroupName: "shard-1",
+		ContainerName:      "worker",
+		Resources:          Resources{CPU: 4, MemoryGiB: 8},
+		Command:            []string{"/runner", "execute"},
+		Args:               []string{"--shard", "one"},
+		Environment:        map[string]string{"TASK_MODE": "execute"},
+		Tags:               map[string]string{"workload": "test"},
+		DataCacheBucket:    "super-dolphin-ci",
+		InitContainer: InitContainer{
+			Name:        "materializer",
+			Command:     []string{"/runner", "materialize"},
+			Args:        []string{"--source", "/input/source", "--work", "/workspace"},
+			Environment: map[string]string{"Z_INIT": "z-init", "A_INIT": "a-init"},
+		},
+		BaseVolume:     HostPathVolume{Name: "base-data", Path: "/super-dolphin/ci/base/generation-1", Type: "Directory"},
+		ExpandedVolume: EmptyDirVolume{Name: "expanded-data"},
+		SourceVolume:   EmptyDirVolume{Name: "source-data"},
+		WorkVolume:     EmptyDirVolume{Name: "work-data"},
+		TempVolume:     EmptyDirVolume{Name: "temp-data"},
+		MainVolumeMounts: []VolumeMount{
+			{Name: "base-data", MountPath: "/bootstrap", ReadOnly: true},
+			{Name: "expanded-data", MountPath: "/opt/super-dolphin-gate", ReadOnly: true},
+			{Name: "source-data", MountPath: "/input/source", ReadOnly: true},
+			{Name: "work-data", MountPath: "/workspace"},
+			{Name: "temp-data", MountPath: "/tmp"},
+		},
+		InitVolumeMounts: []VolumeMount{
+			{Name: "base-data", MountPath: "/bootstrap", ReadOnly: true},
+			{Name: "expanded-data", MountPath: "/opt/super-dolphin-gate"},
+			{Name: "source-data", MountPath: "/input/source"},
+			{Name: "work-data", MountPath: "/workspace"},
+		},
+	}
+}
+
+func assertStructFields(t *testing.T, structType reflect.Type, expected []string) {
+	t.Helper()
+	actual := make([]string, 0, structType.NumField())
+	for index := 0; index < structType.NumField(); index++ {
+		actual = append(actual, structType.Field(index).Name)
+	}
+	if !reflect.DeepEqual(actual, expected) {
+		t.Fatalf("%s fields = %v, want %v", structType.Name(), actual, expected)
+	}
+}
+
+const (
+	testImageDigest = "registry.example/runner@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	testClientToken = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+)

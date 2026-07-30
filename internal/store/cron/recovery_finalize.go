@@ -60,6 +60,7 @@ func validateFinalizeRecoveredRun(p FinalizeRecoveredRunParams) (finalizeRecover
 	return input, nil
 }
 
+// finalizeRecoveredRunInTx 在同一事务中先以 CAS 写入 run 终态，再带 fence 更新并释放 job claim。
 func finalizeRecoveredRunInTx(ctx context.Context, q *sqlc.Queries, p FinalizeRecoveredRunParams, input finalizeRecoveredRunInput) error {
 	rows, err := q.CASCronJobRunStatus(ctx, sqlc.CASCronJobRunStatusParams{ID: input.runID, ExpectedStatus: input.expectedStatus, NextStatus: input.status, Error: p.LastError, UpdatedAt: ts(p.Now)})
 	if err != nil {

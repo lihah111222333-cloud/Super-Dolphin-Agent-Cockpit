@@ -77,6 +77,7 @@ func (runtimeFixture productionProvisionDockerRuntime) VerifyTrustedRepository(
 	return verifyProductionProvisionTrustedRepository(ctx, root, destination)
 }
 
+// super-dolphin-ci: platform=darwin
 func TestProductionProvisionBootstrapOwnerHookDockerE2E(t *testing.T) {
 	requireProductionProvisionDockerE2E(t)
 	execution := prepareProductionProvisionDockerExecution(t)
@@ -187,7 +188,7 @@ func prepareProductionProvisionTruthRepository(t *testing.T, base string) produc
 	sourceRepo := filepath.Join(base, "source")
 	runProductionGit(t, "", "init", "-q", "-b", "main", "--", sourceRepo)
 	runProductionGit(t, sourceRepo, "fetch", "-q", "--", root, commit)
-	runProductionGit(t, sourceRepo, "checkout", "-q", "-B", "main", "FETCH_HEAD")
+	runProductionGit(t, sourceRepo, "checkout", "-q", "-B", "main", commit)
 	checkedOutTree := productionGitLine(t, sourceRepo, "rev-parse", "HEAD^{tree}")
 	if checkedOutTree != tree {
 		t.Fatalf("Docker E2E checkout tree = %s, want staged tree %s", checkedOutTree, tree)

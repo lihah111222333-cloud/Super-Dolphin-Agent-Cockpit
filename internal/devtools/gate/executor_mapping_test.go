@@ -90,8 +90,11 @@ func TestSQLCExecutorUsesPinnedRuntimeBinary(t *testing.T) {
 	if program.Strategy != ExecutorStrategySQLCVerify {
 		t.Fatalf("sqlc executor strategy = %q, want %q", program.Strategy, ExecutorStrategySQLCVerify)
 	}
-	if !slices.Equal(program.RequiredExecutables, []string{ExecutorSQLCBinaryPath}) {
+	if !slices.Equal(program.RequiredExecutables, []string{ExecutorSQLCBinaryPath, ExecutorBashBinaryPath}) {
 		t.Fatalf("sqlc required executables = %v, want fixed runtime binary", program.RequiredExecutables)
+	}
+	if !slices.Contains(program.RequiredPaths, "scripts/sqlc_postprocess.sh") {
+		t.Fatalf("sqlc required paths = %v, want canonical postprocessor", program.RequiredPaths)
 	}
 	if len(program.Steps) != 0 {
 		t.Fatalf("sqlc executor unexpectedly delegates to mapped commands: %v", program.Steps)
@@ -108,13 +111,28 @@ func TestAIMaintenanceExecutorRunsPinnedActionlintInsideContainer(t *testing.T) 
 	}
 }
 
+func TestProjectMapExecutorUsesTrustedCLIWithoutRepositoryGenerator(t *testing.T) {
+	program := ExecutorPrograms()[GateIDProjectMapCheck]
+	want := []string{"super-dolphin-gate", "project-map", "check", "--tree-from-index"}
+	if len(program.Steps) != 1 || !slices.Equal(program.Steps[0].Argv, want) {
+		t.Fatalf("project map executor steps = %#v, want trusted compiled CLI check", program.Steps)
+	}
+	wantPaths := []string{".git", "scripts/codemap_policy.txt", "docs/doc/codemap/project-map"}
+	if !slices.Equal(program.RequiredPaths, wantPaths) {
+		t.Fatalf("project map executor data inputs = %#v, want %#v", program.RequiredPaths, wantPaths)
+	}
+	if slices.Contains(program.RequiredPaths, "Makefile") || slices.Contains(program.RequiredPaths, "scripts/generate_ai_project_map.mjs") {
+		t.Fatalf("project map executor trusts candidate repository entrypoints: %#v", program.RequiredPaths)
+	}
+}
+
 func TestBackendProgramUsesExecutorFrontendEmbedSeed(t *testing.T) {
 	backend := ExecutorPrograms()[GateIDBackendTestWithGuard]
 	if !backend.NeedsGoSeed || backend.NeedsFrontendSeed || !backend.NeedsFrontendEmbedSeed {
 		t.Fatalf("backend gate seed contract = go:%t frontend:%t frontend_embed:%t", backend.NeedsGoSeed, backend.NeedsFrontendSeed, backend.NeedsFrontendEmbedSeed)
 	}
 	wantTest := ExecutorStep{
-		Argv:        []string{"./scripts/test_with_guard.sh", "--canonical-backend", "./cmd/...", "./internal/...", "./pkg/...", "./scripts/..."},
+		Argv:        []string{"./scripts/test_with_guard.sh", "--canonical-backend", "./..."},
 		Environment: []string{"GOFLAGS=-p=2", "GOMAXPROCS=2", "GOMEMLIMIT=1GiB"},
 	}
 	if !reflect.DeepEqual(backend.Steps, []ExecutorStep{wantTest}) {
@@ -157,31 +175,7 @@ func TestNilnessProgramUsesBoundedGoResources(t *testing.T) {
 
 func TestFrontendProgramsUsePinnedRuntimeInputs(t *testing.T) {
 	programs := ExecutorPrograms()
-	for _, id := range []GateID{GateIDFrontendLint, GateIDFrontendTest, GateIDFrontendFullTest, GateIDFrontendBuild} {
-		program := programs[id]
-		if !program.NeedsFrontendSeed {
-			t.Errorf("frontend gate %q does not require the lock-bound node_modules seed", id)
-		}
-		for _, step := range program.Steps {
-			if slices.Contains(step.Argv, "ci") {
-				t.Errorf("frontend gate %q runs npm ci against an empty cache: %v", id, step.Argv)
-			}
-		}
-	}
-	for _, test := range []struct {
-		id       GateID
-		wantArgv []string
-	}{
-		{GateIDFrontendTest, []string{"npm", "run", "test:hook"}},
-		{GateIDFrontendFullTest, []string{"npm", "test"}},
-	} {
-		t.Run(string(test.id), func(t *testing.T) {
-			program := programs[test.id]
-			if len(program.Steps) != 1 || !slices.Equal(program.Steps[0].Argv, test.wantArgv) || program.Steps[0].Directory != "frontend-app" {
-				t.Fatalf("frontend test program = %#v, want frontend-app %v", program, test.wantArgv)
-			}
-		})
-	}
+	assertFrontendProgramsUsePinnedRuntimeInputs(t, programs)
 }
 
 func TestBackendRaceExecutorCombinesCanonicalAndRegisteredPackages(t *testing.T) {
@@ -205,22 +199,7 @@ func TestBackendRaceExecutorCombinesCanonicalAndRegisteredPackages(t *testing.T)
 }
 
 func TestRaceSensitivePackageAndPathRegistriesStayAligned(t *testing.T) {
-	patterns := RaceSensitivePackagePatterns()
-	prefixes := RaceSensitivePathPrefixes()
-	if len(patterns) == 0 || len(patterns) != len(prefixes) {
-		t.Fatalf("race registry lengths = patterns:%d prefixes:%d", len(patterns), len(prefixes))
-	}
-	for index, prefix := range prefixes {
-		exactPackage := "./" + strings.TrimSuffix(prefix, "/")
-		recursivePackage := "./" + prefix + "..."
-		if prefix == "" || !strings.HasSuffix(prefix, "/") ||
-			(patterns[index] != exactPackage && patterns[index] != recursivePackage) {
-			t.Fatalf("race registry entry %d = pattern:%q prefix:%q", index, patterns[index], prefix)
-		}
-	}
-	if slices.Contains(patterns, "./cmd/...") || slices.Contains(patterns, "./cmd/agent-terminal/...") {
-		t.Fatalf("race registry includes agent-terminal through an unbounded command pattern: %v", patterns)
-	}
+	assertRaceSensitiveRegistries(t, RaceSensitivePackagePatterns(), RaceSensitivePathPrefixes())
 }
 
 func TestExecutorProgramRepositoryEntrypointsExist(t *testing.T) {

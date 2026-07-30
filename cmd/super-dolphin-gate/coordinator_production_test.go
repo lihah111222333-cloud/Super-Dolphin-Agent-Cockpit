@@ -532,9 +532,28 @@ func TestProductionCoordinatorConfigRejectsUnknownFieldsAndWorktreeRoots(t *test
 	worktree := filepath.Join(t.TempDir(), "candidate")
 	runProductionGit(t, "", "init", "-q", "--", worktree)
 	worktreeConfig := filepath.Join(worktree, "production.json")
-	writePrivateJSON(t, worktreeConfig, fixture.config)
+	writeProductionCoordinatorConfigFixture(t, worktreeConfig, fixture.config)
 	if _, err := loadProductionCoordinatorConfigFile(worktreeConfig); err == nil {
 		t.Fatal("production config accepted a candidate worktree trust path")
+	}
+}
+
+func TestLoadProductionCoordinatorConfigFileRejectsStoredAbsolutePath(t *testing.T) {
+	fixture := newProductionTestFixture(t)
+	data, err := os.ReadFile(fixture.configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var object map[string]any
+	if err := json.Unmarshal(data, &object); err != nil {
+		t.Fatal(err)
+	}
+	object["accepted_image_root"] = fixture.config.AcceptedImageRoot
+	path := filepath.Join(filepath.Dir(fixture.configPath), "absolute-path.json")
+	writePrivateJSON(t, path, object)
+	if _, err := loadProductionCoordinatorConfigFile(path); err == nil ||
+		!strings.Contains(err.Error(), "must be relative to production.json") {
+		t.Fatalf("load absolute production path error = %v", err)
 	}
 }
 
@@ -581,7 +600,7 @@ func TestLoadProductionCoordinatorConfigFileValidatesDecodedConfig(t *testing.T)
 			config := fixture.config
 			test.mutate(&config)
 			path := filepath.Join(filepath.Dir(fixture.configPath), test.name+".json")
-			writePrivateJSON(t, path, config)
+			writeProductionCoordinatorConfigFixture(t, path, config)
 			if _, err := loadProductionCoordinatorConfigFile(path); err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("loadProductionCoordinatorConfigFile() error = %v, want containing %q", err, test.want)
 			}

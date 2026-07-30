@@ -1,3 +1,9 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
+const FRONTEND_RUNTIME_SEED_ENV = 'SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED';
+const WRITABLE_OVERLAY_ENTRIES = new Set(['.vite', '.vite-temp']);
+
 export const FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS = Object.freeze([
   '.githooks/pre-commit',
   '.githooks/pre-push',
@@ -53,3 +59,47 @@ export const FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS = Object.freeze([
   'internal/dto/turn/contract_validator_test.go',
   'internal/dto/turn/turn_contract_schemas_generated.go',
 ]);
+
+function fail(message) {
+  throw new Error(message);
+}
+
+export function nodeModulesPath(root, packagePath = '') {
+  const relativePath = packagePath.replace(/^node_modules\/?/u, '');
+  return path.join(root, relativePath);
+}
+
+export function immutableDependencyRoot(appRoot) {
+  const overlayRoot = path.join(appRoot, 'node_modules');
+  const overlayStat = fs.lstatSync(overlayRoot);
+  if (!overlayStat.isDirectory() || overlayStat.isSymbolicLink()) {
+    fail(`immutable dependency root must be a physical directory: ${overlayRoot}`);
+  }
+  const configuredSeed = process.env[FRONTEND_RUNTIME_SEED_ENV];
+  if (!configuredSeed) return overlayRoot;
+  const seedRoot = path.resolve(configuredSeed);
+  const seedStat = fs.lstatSync(seedRoot);
+  if (!seedStat.isDirectory() || seedStat.isSymbolicLink()) {
+    fail(`immutable dependency seed must be a physical directory: ${seedRoot}`);
+  }
+  const seedEntries = fs.readdirSync(seedRoot).sort();
+  const overlayEntries = fs.readdirSync(overlayRoot).sort();
+  const expectedEntries = [...seedEntries, ...WRITABLE_OVERLAY_ENTRIES].sort();
+  if (JSON.stringify(overlayEntries) !== JSON.stringify(expectedEntries)) {
+    fail('immutable dependency overlay entries do not match the configured seed');
+  }
+  for (const entry of seedEntries) {
+    const overlayEntry = path.join(overlayRoot, entry);
+    const target = path.join(seedRoot, entry);
+    if (!fs.lstatSync(overlayEntry).isSymbolicLink() || fs.readlinkSync(overlayEntry) !== target) {
+      fail(`immutable dependency overlay link mismatch: ${entry}`);
+    }
+  }
+  for (const entry of WRITABLE_OVERLAY_ENTRIES) {
+    const stat = fs.lstatSync(path.join(overlayRoot, entry));
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+      fail(`immutable dependency overlay is not writable: ${entry}`);
+    }
+  }
+  return seedRoot;
+}

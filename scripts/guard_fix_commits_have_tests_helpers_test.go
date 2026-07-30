@@ -161,6 +161,17 @@ case "${1:-}" in
     fi
     printf 'fixture closure verified staged tree %s\n' "$tree"
     ;;
+  project-map)
+    if [ "$#" -ne 4 ] || [ "$2" != "check" ] || [ "$3" != "--tree" ]; then
+      printf 'fixture gate: project-map requires check --tree <tree>\n' >&2
+      exit 64
+    fi
+    tree=$4
+    if ! require_current_staged_tree project-map "$tree"; then
+      exit 1
+    fi
+    printf 'fixture project-map verified staged tree %s\n' "$tree"
+    ;;
   hook)
     if [ "$#" -ne 4 ] || [ "$2" != "pre-commit" ] || [ "$3" != "--tree" ]; then
       printf 'fixture gate: hook requires pre-commit --tree <tree>\n' >&2

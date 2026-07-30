@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
-	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 )
 
 // FreshContainerImageTruth binds the inspected image labels to accepted build truth.
@@ -155,7 +155,7 @@ func (runner *FreshContainerRunner) RunFreshContainer(ctx context.Context, reque
 		result.Status = statusForContext(err)
 		return result, err
 	}
-	provisionCtx, cancelProvision := platformconfig.WithTimeout(ctx, freshContainerPreStartTimeout)
+	provisionCtx, cancelProvision := gateprivate.WithTimeout(ctx, freshContainerPreStartTimeout)
 	defer cancelProvision()
 	prepared, err := runner.prepareRequest(request)
 	if err != nil {
@@ -343,7 +343,7 @@ func (runner *FreshContainerRunner) createPreparedContainer(provisionContext con
 		if identityErr != nil {
 			return result, errors.Join(err, identityErr)
 		}
-		cleanupContext, cancelCleanup := platformconfig.WithTimeout(
+		cleanupContext, cancelCleanup := gateprivate.WithTimeout(
 			context.WithoutCancel(parentContext), freshContainerLifecycleCleanupTimeout,
 		)
 		defer cancelCleanup()
@@ -442,7 +442,7 @@ func (runner *FreshContainerRunner) waitForContainer(runContext context.Context,
 }
 
 func (runner *FreshContainerRunner) killAndWait(parentContext context.Context, result *FreshContainerResult) (int, error) {
-	cleanupContext, cancel := platformconfig.WithTimeout(context.WithoutCancel(parentContext), 30*time.Second)
+	cleanupContext, cancel := gateprivate.WithTimeout(context.WithoutCancel(parentContext), 30*time.Second)
 	defer cancel()
 	if _, err := runner.docker.runner.Run(cleanupContext, "kill", result.Container.ContainerID); err != nil {
 		return -1, fmt.Errorf("kill gate container: %w", err)

@@ -18,7 +18,9 @@ func TestStandaloneReleaseAttestationFailsBeforeWorkspaceExecution(t *testing.T)
 	config := executorConfig{
 		sourcePath: "unreachable-source", workRoot: "unreachable-work", searchPath: "unreachable-path",
 		runtimeSeedRoot: "unreachable-seed", runtimeSeedManifest: "unreachable-manifest",
-		expectedUID: os.Geteuid(), stdout: &output, stderr: &output,
+		goRoot:               "unreachable-go-root",
+		goBuildCacheSeedRoot: "unreachable-cache-seed",
+		expectedUID:          os.Geteuid(), stdout: &output, stderr: &output,
 	}
 	err := executeProgram(context.Background(), config, GateIDReleaseLayeredCheck,
 		ExecutorPrograms()[GateIDReleaseLayeredCheck])
@@ -38,6 +40,28 @@ func TestExecuteExecutorRoutesShardToPlanExecutor(t *testing.T) {
 	}, &output, &output)
 	if err == nil || !strings.Contains(err.Error(), "unsupported gate profile") {
 		t.Fatalf("run-shard dispatch error = %v", err)
+	}
+}
+
+func TestExecutorNonGoProgramDoesNotRequireGoBuildCacheSeed(t *testing.T) {
+	source := newExecutorGitSnapshot(t, map[string]string{"clean.txt": "clean\n"})
+	config := newTestExecutorConfig(t, source)
+	config.goBuildCacheSeedRoots = nil
+	config.goBuildCacheSeedRoot = ""
+
+	if err := executeProgram(context.Background(), config, GateIDWhitespaceCheck, ExecutorPrograms()[GateIDWhitespaceCheck]); err != nil {
+		t.Fatalf("execute non-Go gate without Go build cache seed: %v", err)
+	}
+	assertDirectoryEmpty(t, config.workRoot)
+}
+
+func TestExecutorGoBuildCacheProxyCommandPreservesSeedOrder(t *testing.T) {
+	command, err := executorGoBuildCacheProxyCommand("proxy", []string{"/seed/newest", "/seed/oldest"}, "/private")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if command != "proxy --seed \"/seed/newest\" --seed \"/seed/oldest\" --private \"/private\"" {
+		t.Fatalf("Go build cache proxy command = %q", command)
 	}
 }
 
@@ -82,51 +106,115 @@ func assertWhitespaceGateFails(t *testing.T, source string, want string) {
 	assertDirectoryEmpty(t, config.workRoot)
 }
 
-func TestExecutorCleansReadOnlyGoModuleCache(t *testing.T) {
-	for _, test := range []struct {
-		name     string
-		exitLine string
-		wantErr  bool
-	}{
-		{name: "success", exitLine: "exit 0"},
-		{name: "gate failure remains primary", exitLine: "exit 23", wantErr: true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			script := "#!/bin/sh\nset -eu\nmkdir -p \"$GOMODCACHE/example\"\nprintf data > \"$GOMODCACHE/example/module.go\"\nchmod 0555 \"$GOMODCACHE/example\"\n" + test.exitLine + "\n"
-			source := newExecutorGitSnapshot(t, map[string]string{"cache.sh": script})
-			if err := os.Chmod(filepath.Join(source, "cache.sh"), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			commitExecutorSnapshot(t, source, "executable cache fixture")
-			config := newTestExecutorConfig(t, source)
-			program := ExecutorProgram{
-				Strategy:      ExecutorStrategyCommands,
-				Steps:         []ExecutorStep{{Argv: []string{"./cache.sh"}}},
-				RequiredPaths: []string{"cache.sh"},
-			}
-			err := executeProgram(context.Background(), config, GateIDBackendTestWithGuard, program)
-			if test.wantErr && (err == nil || !strings.Contains(err.Error(), "exit status 23")) {
-				t.Fatalf("gate error = %v, want exit status 23", err)
-			}
-			if !test.wantErr && err != nil {
-				t.Fatalf("execute cache fixture: %v", err)
-			}
-			if err != nil && strings.Contains(err.Error(), "remove executor workspace") {
-				t.Fatalf("cleanup error obscured gate result: %v", err)
-			}
-			assertDirectoryEmpty(t, config.workRoot)
-		})
+func TestExecutorSharesGoModuleCacheAcrossWorktreesAndIsolatesBuildCache(t *testing.T) {
+	script := "#!/bin/sh\nset -eu\ntest -d \"$GOMODCACHE\"\ntest ! -L \"$GOMODCACHE\"\ntest -L \"$GOMODCACHE/github.com\"\ntest -d \"$GOMODCACHE/cache/download\"\ntest ! -L \"$GOMODCACHE/cache/download\"\ntest \"$GOPROXY\" = off\ntest \"$(cat \"$GOMODCACHE/github.com/kelindar/event@v1.5.2/event.go\")\" = 'package event'\ntest \"$(cat \"$GOMODCACHE/cache/download/github.com/kelindar/event/@v/list\")\" = v1.5.2\nprintf private > \"$GOMODCACHE/cache/download/current-run\"\nif ! go_output=$(go list -mod=mod -deps ./... 2>&1); then printf '%s\\n' \"$go_output\" >&2; exit 18; fi\ncase \"$go_output\" in *'go: downloading'*) printf '%s\\n' \"$go_output\" >&2; exit 19;; esac\nprintf '%s\\n' \"$go_output\" | grep -qx github.com/kelindar/event\nreadlink \"$GOMODCACHE/github.com\"\nprintf updated > \"$GOCACHE/current-run\"\n"
+	files := map[string]string{
+		"cache.sh":                       script,
+		"go.mod":                         "module example.com/cache-fixture\n\ngo 1.22\n\nrequire github.com/kelindar/event v1.5.2\n",
+		"go.sum":                         "",
+		"main.go":                        "package cachefixture\n\nimport _ \"github.com/kelindar/event\"\n",
+		"frontend-app/package-lock.json": "{\"lockfileVersion\":3}\n",
+	}
+	firstSource := newExecutorGitSnapshot(t, files)
+	if err := os.Chmod(filepath.Join(firstSource, "cache.sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runtimeRoot, manifestPath := writeRuntimeSeedFixture(t, firstSource)
+	commitExecutorSnapshot(t, firstSource, "shared module cache fixture")
+	files["build/gate/runtime-proxy/go.sum"] = runtimeProxyFixtureSum
+	secondSource := newExecutorGitSnapshot(t, files)
+	if err := os.Chmod(filepath.Join(secondSource, "cache.sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	commitExecutorSnapshot(t, secondSource, "make shared cache fixture executable")
+	program := ExecutorProgram{
+		Strategy:      ExecutorStrategyCommands,
+		Steps:         []ExecutorStep{{Argv: []string{"./cache.sh"}}},
+		RequiredPaths: []string{"cache.sh"},
+		NeedsGoSeed:   true,
+	}
+	moduleCacheRoot := filepath.Join(runtimeRoot, "go-mod-cache")
+	makeRuntimeSeedTreeReadOnly(t, moduleCacheRoot)
+	rewriteRuntimeGoModuleCacheDigest(t, manifestPath, moduleCacheRoot)
+	beforeDigest := mustRuntimeSeedTreeDigest(t, moduleCacheRoot)
+	for index, source := range []string{firstSource, secondSource} {
+		var output, stderr bytes.Buffer
+		config := newTestExecutorConfig(t, source)
+		config.runtimeSeedRoot = runtimeRoot
+		config.runtimeSeedManifest = manifestPath
+		config.stdout = &output
+		config.stderr = &stderr
+		if err := executeProgram(context.Background(), config, GateIDBackendTestWithGuard, program); err != nil {
+			t.Fatalf("execute shared module cache fixture for worktree %d: %v\n%s", index, err, stderr.String())
+		}
+		moduleSourceRoot := filepath.Join(moduleCacheRoot, "github.com")
+		if strings.TrimSpace(output.String()) != moduleSourceRoot {
+			t.Fatalf("worktree %d module cache target = %q, want %q", index, output.String(), moduleSourceRoot)
+		}
+		assertDirectoryEmpty(t, config.workRoot)
+	}
+	content, err := os.ReadFile(filepath.Join(moduleCacheRoot, "github.com", "kelindar", "event@v1.5.2", "event.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "package event\n" {
+		t.Fatalf("shared module cache was mutated: %q", content)
+	}
+	if _, err := os.Stat(filepath.Join(moduleCacheRoot, "current-run")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("private build cache write reached shared module cache: %v", err)
+	}
+	if afterDigest := mustRuntimeSeedTreeDigest(t, moduleCacheRoot); afterDigest != beforeDigest {
+		t.Fatalf("shared module cache changed across worktrees: %s != %s", afterDigest, beforeDigest)
+	}
+}
+
+func makeRuntimeSeedTreeReadOnly(t *testing.T, root string) {
+	t.Helper()
+	var directories []string
+	if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			directories = append(directories, path)
+			return os.Chmod(path, 0o555)
+		}
+		return os.Chmod(path, 0o444)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		for _, directory := range slices.Backward(directories) {
+			_ = os.Chmod(directory, 0o700)
+		}
+	})
+}
+
+func rewriteRuntimeGoModuleCacheDigest(t *testing.T, manifestPath string, moduleCacheRoot string) {
+	t.Helper()
+	manifest, err := LoadRuntimeSeedManifest(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.GoModCacheTreeSHA256 = mustRuntimeSeedTreeDigest(t, moduleCacheRoot)
+	var encoded bytes.Buffer
+	if err := EncodeRuntimeSeedManifest(&encoded, manifest); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, encoded.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 
 func TestExecutorSequentialGatesDoNotRetainPriorCache(t *testing.T) {
-	script := "#!/bin/sh\nset -eu\ntest ! -e \"$GOCACHE/previous-gate\"\nprintf data > \"$GOCACHE/previous-gate\"\n"
+	script := "#!/bin/sh\nset -eu\ntest ! -e \"$GOCACHE/prewarmed\"\ntest ! -e \"$GOCACHE/previous-gate\"\nprintf data > \"$GOCACHE/previous-gate\"\n"
 	source := newExecutorGitSnapshot(t, map[string]string{"cache.sh": script})
 	if err := os.Chmod(filepath.Join(source, "cache.sh"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	commitExecutorSnapshot(t, source, "sequential cache fixture")
 	config := newTestExecutorConfig(t, source)
+	writeTestFile(t, filepath.Join(config.goBuildCacheSeedRoot, "prewarmed"), "runner-cache\n", 0o600)
 	program := ExecutorProgram{
 		Strategy:      ExecutorStrategyCommands,
 		Steps:         []ExecutorStep{{Argv: []string{"./cache.sh"}}},
@@ -140,8 +228,43 @@ func TestExecutorSequentialGatesDoNotRetainPriorCache(t *testing.T) {
 	}
 }
 
+func TestExecutorUsesSharedGoBuildCacheWithoutCopyingSeed(t *testing.T) {
+	script := "#!/bin/sh\nset -eu\ntest ! -e \"$GOCACHE/prewarmed\"\ntest -n \"$GOCACHEPROG\"\nprintf updated > \"$GOCACHE/current-run\"\n"
+	source := newExecutorGitSnapshot(t, map[string]string{
+		"cache.sh":                       script,
+		"go.sum":                         "module sum\n",
+		"frontend-app/package-lock.json": "{\"lockfileVersion\":3}\n",
+	})
+	if err := os.Chmod(filepath.Join(source, "cache.sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runtimeRoot, manifestPath := writeRuntimeSeedFixture(t, source)
+	commitExecutorSnapshot(t, source, "runner cache seed fixture")
+	config := newTestExecutorConfig(t, source)
+	config.runtimeSeedRoot = runtimeRoot
+	config.runtimeSeedManifest = manifestPath
+	config.goBuildCacheRoot = realTempDir(t)
+	writeTestFile(t, filepath.Join(config.goBuildCacheSeedRoot, "prewarmed"), "runner-cache\n", 0o600)
+	program := ExecutorProgram{
+		Strategy:      ExecutorStrategyCommands,
+		Steps:         []ExecutorStep{{Argv: []string{"./cache.sh"}}},
+		RequiredPaths: []string{"cache.sh"},
+		NeedsGoSeed:   true,
+	}
+	if err := executeProgram(context.Background(), config, GateIDBackendTestWithGuard, program); err != nil {
+		t.Fatalf("execute seeded cache fixture: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(config.goBuildCacheSeedRoot, "current-run")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("runner cache seed was mutated: %v", err)
+	}
+	if content, err := os.ReadFile(filepath.Join(config.goBuildCacheRoot, "current-run")); err != nil || string(content) != "updated" {
+		t.Fatalf("private cache write = %q, %v", content, err)
+	}
+	assertDirectoryEmpty(t, config.workRoot)
+}
+
 func TestRaceProgramRunsBoundedBackendOnlyInEachFreshExecutorWorkspace(t *testing.T) {
-	guardScript := "#!/bin/sh\nset -eu\ntest \"$1\" = --with-race\nsaw_separator=0\nsaw_normal=0\nfor arg in \"$@\"; do\n  test \"$arg\" = -- && saw_separator=1\n  test \"$arg\" = ./cmd/... && saw_normal=1\ndone\ntest \"$saw_separator\" = 1\ntest \"$saw_normal\" = 1\ntest \"$GOFLAGS\" = -p=1\ntest \"$GOMAXPROCS\" = 1\ntest \"$GOMEMLIMIT\" = 1GiB\ntest ! -e frontend-app/node_modules\ntest \"$(cat cmd/agent-terminal/web-dist/index.html)\" = \"immutable embed\"\n"
+	guardScript := "#!/bin/sh\nset -eu\ntest \"$1\" = --with-race\nsaw_separator=0\nsaw_normal=0\nfor arg in \"$@\"; do\n  test \"$arg\" = -- && saw_separator=1\n  test \"$arg\" = ./... && saw_normal=1\ndone\ntest \"$saw_separator\" = 1\ntest \"$saw_normal\" = 1\ntest \"$GOFLAGS\" = '-p=1'\ntest \"$GOMAXPROCS\" = 1\ntest \"$GOMEMLIMIT\" = 1GiB\ntest ! -e frontend-app/node_modules\ntest \"$(cat cmd/agent-terminal/web-dist/index.html)\" = \"immutable embed\"\n"
 	source := newExecutorGitSnapshot(t, map[string]string{
 		".gitignore":                         "cmd/agent-terminal/web-dist/\n",
 		"cmd/agent-terminal/frontend.go":     "package main\n",
@@ -253,6 +376,50 @@ func TestExecutorRejectsGitSnapshotTamper(t *testing.T) {
 	}
 }
 
+func TestValidateCopiedSnapshotReportsBoundedDirtyStatus(t *testing.T) {
+	source := newExecutorGitSnapshot(t, map[string]string{"clean.txt": "clean\n"})
+	runGit(t, source, "update-ref", materializedSourceRef, "HEAD")
+	for index := range 128 {
+		writeTestFile(t, filepath.Join(source, fmt.Sprintf("dirty-%04d-xxxxxxxxxxxxxxxxxxxxxxxx.txt", index)), "dirty\n", 0o600)
+	}
+
+	err := validateCopiedSnapshot(context.Background(), "git", source, []string{"GATE_SECRET=must-not-appear"})
+	if err == nil {
+		t.Fatal("validateCopiedSnapshot unexpectedly accepted a dirty snapshot")
+	}
+	message := err.Error()
+	if !strings.Contains(message, "?? dirty-0000-xxxxxxxxxxxxxxxxxxxxxxxx.txt") {
+		t.Fatalf("dirty status diagnostic does not identify a file: %q", message)
+	}
+	if !strings.Contains(message, "truncated after 4096 bytes") {
+		t.Fatalf("dirty status diagnostic is not bounded: %q", message)
+	}
+	if strings.Contains(message, "must-not-appear") {
+		t.Fatalf("dirty status diagnostic leaked environment value: %q", message)
+	}
+}
+
+func TestRepositoryIgnoresFrontendRuntimeSeedSymlink(t *testing.T) {
+	ignore, err := os.ReadFile(filepath.Join("..", "..", "..", ".gitignore"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains("\n"+string(ignore), "\n/frontend-app/node_modules\n") {
+		t.Fatal("repository .gitignore does not cover the frontend runtime seed symlink")
+	}
+	source := newExecutorGitSnapshot(t, map[string]string{
+		".gitignore":                     string(ignore),
+		"frontend-app/package-lock.json": "{}\n",
+	})
+	runGit(t, source, "update-ref", materializedSourceRef, "HEAD")
+	if err := os.Symlink(t.TempDir(), filepath.Join(source, "frontend-app", "node_modules")); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateCopiedSnapshot(context.Background(), "git", source, nil); err != nil {
+		t.Fatalf("frontend runtime seed link dirtied copied snapshot: %v", err)
+	}
+}
+
 func TestExecutorFailsClosedOnMissingCommandAndRequiredPath(t *testing.T) {
 	source := newExecutorGitSnapshot(t, map[string]string{"clean.txt": "clean\n"})
 	tests := []struct {
@@ -309,43 +476,6 @@ func TestExecutorWorkspaceRejectsSymlinksAndDirtyWorkRoot(t *testing.T) {
 	})
 }
 
-func TestExecutorEnvironmentIsClosedAndWritable(t *testing.T) {
-	layout := newExecutorLayout("/workspace/work")
-	environment := executorEnvironment(layout, executorSearchPath)
-	joined := "\n" + strings.Join(environment, "\n") + "\n"
-	for _, want := range []string{
-		"\nHOME=/workspace/work/home\n",
-		"\nGIT_AUTHOR_NAME=Super Dolphin Gate Executor\n",
-		"\nGIT_AUTHOR_EMAIL=gate-executor@super-dolphin.invalid\n",
-		"\nGIT_AUTHOR_DATE=946684800 +0000\n",
-		"\nGIT_COMMITTER_NAME=Super Dolphin Gate Executor\n",
-		"\nGIT_COMMITTER_EMAIL=gate-executor@super-dolphin.invalid\n",
-		"\nGIT_COMMITTER_DATE=946684800 +0000\n",
-		"\nGOCACHE=/workspace/work/go-cache\n",
-		"\nGOMODCACHE=/workspace/work/go-mod-cache\n",
-		"\nGOPROXY=file:///opt/super-dolphin-gate/runtime/go-proxy\n",
-		"\nGOTMPDIR=/workspace/work/tmp\n",
-		"\nnpm_config_cache=/workspace/work/npm-cache\n",
-		"\nPLAYWRIGHT_BROWSERS_PATH=/opt/super-dolphin-gate/runtime/frontend/node_modules/.cache/ms-playwright\n",
-	} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("executor environment missing %q", strings.TrimSpace(want))
-		}
-	}
-	for _, forbidden := range []string{"\nGIT_CONFIG_GLOBAL=", "\nGOFLAGS=", "\nGOWORK="} {
-		if strings.Contains(joined, forbidden) {
-			t.Errorf("executor environment leaks child-process policy %q", strings.TrimSpace(forbidden))
-		}
-	}
-	if strings.Contains(joined, "SECRET") {
-		t.Fatal("executor environment inherited an undeclared secret")
-	}
-	keys := environmentKeys(environment)
-	if compacted := slices.Compact(slices.Clone(keys)); len(compacted) != len(keys) {
-		t.Fatal("executor environment contains duplicate keys")
-	}
-}
-
 func TestExecutorDoesNotInheritHostEnvironmentAndPropagatesExitCode(t *testing.T) {
 	source := newExecutorGitSnapshot(t, map[string]string{"clean.txt": "clean\n"})
 	config := newTestExecutorConfig(t, source)
@@ -356,6 +486,15 @@ func TestExecutorDoesNotInheritHostEnvironmentAndPropagatesExitCode(t *testing.T
 	}
 	if err := os.Symlink(gitPath, filepath.Join(bin, "git")); err != nil {
 		t.Fatal(err)
+	}
+	for _, dependency := range []string{"basename", "uname"} {
+		dependencyPath, err := exec.LookPath(dependency)
+		if err != nil {
+			t.Skipf("%s is required by portable git wrappers", dependency)
+		}
+		if err := os.Symlink(dependencyPath, filepath.Join(bin, dependency)); err != nil {
+			t.Fatal(err)
+		}
 	}
 	probe := fmt.Sprintf("#!/bin/sh\n[ -z \"${LEAK_ME+x}\" ] || exit 9\n[ \"$PATH\" = %q ] || exit 8\nexit 7\n", bin)
 	writeTestFile(t, filepath.Join(bin, "probe"), probe, 0o700)
@@ -575,17 +714,40 @@ func newTestExecutorConfig(t *testing.T, source string) executorConfig {
 	root := realTempDir(t)
 	workRoot := filepath.Join(root, "work")
 	runtimeRoot := filepath.Join(root, "runtime")
-	for _, directory := range []string{workRoot, runtimeRoot} {
+	goBuildCacheSeedRoot := filepath.Join(root, "go-build-cache-seed")
+	for _, directory := range []string{workRoot, runtimeRoot, goBuildCacheSeedRoot} {
 		if err := os.Mkdir(directory, 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
+	writeTestFile(t, filepath.Join(runtimeRoot, "go-mod-cache", "example.org", "shared@v1.0.0", "module.go"), "shared-module\n", 0o444)
 	return executorConfig{
 		sourcePath: source, workRoot: workRoot, searchPath: executorSearchPath,
 		expectedUID: os.Geteuid(), requireReadOnlySource: false,
 		runtimeSeedRoot: runtimeRoot, runtimeSeedManifest: filepath.Join(runtimeRoot, "manifest.json"),
-		stdout: ioDiscard{}, stderr: ioDiscard{},
+		goRoot:                testGoRoot(t),
+		goBuildCacheSeedRoots: []string{goBuildCacheSeedRoot},
+		goBuildCacheSeedRoot:  goBuildCacheSeedRoot,
+		goBuildCacheProxy:     testGoBuildCacheProxyLauncher(),
+		stdout:                ioDiscard{}, stderr: ioDiscard{},
 	}
+}
+
+func testGoRoot(t *testing.T) string {
+	t.Helper()
+	binary, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := filepath.EvalSymlinks(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Dir(filepath.Dir(resolved))
+	if info, err := os.Stat(filepath.Join(root, "src")); err != nil || !info.IsDir() {
+		t.Fatalf("resolved Go root %q has no source tree", root)
+	}
+	return root
 }
 
 type ioDiscard struct{}
@@ -627,6 +789,9 @@ func realTempDir(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(resolved, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	return resolved
 }
 
@@ -657,14 +822,5 @@ func TestExecutorExitCodeDefaultsToFailure(t *testing.T) {
 	}
 	if code := ExecutorExitCode(nil); code != 0 {
 		t.Fatalf("success exit code = %d, want 0", code)
-	}
-}
-
-func TestExecutorAuditOutputContainsNoHostEnvironmentValues(t *testing.T) {
-	layout := newExecutorLayout("/workspace/work")
-	var output bytes.Buffer
-	fmt.Fprintf(&output, "%s", strings.Join(environmentKeys(executorEnvironment(layout, executorSearchPath)), ","))
-	if strings.Contains(output.String(), os.Getenv("HOME")) {
-		t.Fatal("audit output contains a host environment value")
 	}
 }

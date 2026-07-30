@@ -16,6 +16,6 @@ func TestCIWorkflowKeepsPinnedActionlintWithoutHostCandidateExecution(t *testing
 	assertScriptDoesNotContain(t, workflow, "go list ./cmd/...")
 	assertScriptContains(t, executorMapping, `[]string{"actionlint"}`)
 	assertScriptContains(t, executorMapping, `"./scripts/test_with_guard.sh", "--canonical-backend"`)
-	assertScriptContains(t, executorMapping, `return []string{"./cmd/...", "./internal/...", "./pkg/...", "./scripts/..."}`)
+	assertScriptContains(t, executorMapping, `return []string{"./..."}`)
 	assertScriptContains(t, runtimeDeps, `-o /out/actionlint github.com/rhysd/actionlint/cmd/actionlint`)
 }

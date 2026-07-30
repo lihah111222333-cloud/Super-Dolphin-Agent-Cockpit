@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -80,6 +82,39 @@ func TestProductionProvisionInstallsClosureWithoutAcceptedSeed(t *testing.T) {
 	}
 	assertProvisionedSchedulingPolicy(t, config, fixture.manifest)
 	assertLauncherPinsProductionClosure(t, result.LauncherPath, config.BootstrapControllerFile)
+	assertProvisionedConfigIsPortable(t, result.ProductionConfigFile)
+}
+
+func TestProductionProvisionClosureRemainsUsableAfterDirectoryMove(t *testing.T) {
+	fixture := newProductionProvisionFixture(t)
+	result, err := provisionProductionWithRuntime(
+		context.Background(),
+		fixture.manifest,
+		&productionProvisionRuntimeStub{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalRoot := filepath.Dir(fixture.manifest.InstallRoot)
+	movedRoot := originalRoot + "-moved"
+	if err := os.Rename(originalRoot, movedRoot); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(movedRoot) })
+
+	movedConfig := filepath.Join(movedRoot, filepath.Base(fixture.manifest.InstallRoot), filepath.Base(result.ProductionConfigFile))
+	config, err := loadProductionCoordinatorConfigFile(movedConfig)
+	if err != nil {
+		t.Fatalf("load moved production config: %v", err)
+	}
+	if strings.HasPrefix(config.BootstrapControllerFile, originalRoot+string(filepath.Separator)) ||
+		!strings.HasPrefix(config.BootstrapControllerFile, movedRoot+string(filepath.Separator)) {
+		t.Fatalf("moved controller path = %q", config.BootstrapControllerFile)
+	}
+	movedLauncher := filepath.Join(movedRoot, "bin", filepath.Base(result.LauncherPath))
+	if output, err := exec.Command(movedLauncher).CombinedOutput(); err != nil {
+		t.Fatalf("execute moved launcher: %v\n%s", err, output)
+	}
 }
 
 func assertProvisionedSchedulingPolicy(
@@ -99,9 +134,40 @@ func assertLauncherPinsProductionClosure(t *testing.T, launcherPath, bootstrapCo
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(launcher), productionCoordinatorConfigEnv+"='") ||
-		!strings.Contains(string(launcher), bootstrapControllerFile) {
+	content := string(launcher)
+	if !strings.Contains(content, "launcher_dir=$(CDPATH= cd -P --") ||
+		!strings.Contains(content, productionCoordinatorConfigEnv+"=\"$launcher_dir\"/") ||
+		strings.Contains(content, bootstrapControllerFile) {
 		t.Fatalf("launcher does not pin installed production closure: %s", launcher)
+	}
+}
+
+func assertProvisionedConfigIsPortable(t *testing.T, configPath string) {
+	t.Helper()
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var object map[string]any
+	if err := json.Unmarshal(data, &object); err != nil {
+		t.Fatal(err)
+	}
+	assertPortableProductionConfigObject(t, object)
+}
+
+func assertPortableProductionConfigObject(t *testing.T, object map[string]any) {
+	t.Helper()
+	for name, value := range object {
+		if nested, ok := value.(map[string]any); ok {
+			assertPortableProductionConfigObject(t, nested)
+		}
+		if !productionJSONFieldLooksLikePath(name) {
+			continue
+		}
+		path, ok := value.(string)
+		if !ok || path == "" || filepath.IsAbs(filepath.FromSlash(path)) {
+			t.Fatalf("production config field %s is not a portable relative path: %#v", name, value)
+		}
 	}
 }
 

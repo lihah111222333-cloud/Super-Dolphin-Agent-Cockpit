@@ -66,9 +66,9 @@ main() {
     echo "  请不要在 Makefile / scripts / CI workflow 中直接写裸 'go test ...'。" >&2
     echo >&2
     echo "正确做法:" >&2
-    echo "  - 使用 ./scripts/go_with_guard.sh test <args>" >&2
-    echo "  - 或使用 ./scripts/test_with_guard.sh <go test args>" >&2
-    echo "  - 或调用已经封装好的 Makefile 测试目标" >&2
+    echo "  - 使用受信 super-dolphin-gate test 入口并传入精确 --test 选择器" >&2
+    echo "  - 包级、race、benchmark、Vitest 和未知耗时测试由 CLI 自动转入 ECI" >&2
+    echo "  - 旧 go_with_guard/test_with_guard 测试入口只允许远程 worker 调用" >&2
     echo >&2
     echo "违规位置:" >&2
     local item

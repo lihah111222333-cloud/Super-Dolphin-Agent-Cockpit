@@ -261,8 +261,7 @@ func defaultBackendBoundarySurfaces() []BackendBoundarySurface {
 		backendBoundarySurface("cmd/mcp-lsp", "LSP MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("cmd/mcp-orch", "orchestration MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "fx_assembly_scope", "mcpserver_orch_family"}, nil),
 		backendBoundarySurface("cmd/mcp-schema-compiler-helper", "one-shot MCP schema compiler helper", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
-		backendBoundarySurface("cmd/super-dolphin-gate", "gate planning command assembly", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
-		backendBoundarySurface("cmd/super-dolphin-gate-executor", "isolated production gate execution command", []BoundaryRuleID{"gate_executor_narrow_import_surface", "fx_assembly_scope"}, nil),
+		backendBoundarySurface("cmd/super-dolphin-gate", "standalone gate coordinator and worker command", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("cmd/super-dolphin-release-manifest", "release manifest command assembly", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("cmd/super-dolphin-guard", "detached probation Guard command", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("cmd/super-dolphin-updater", "updater command assembly", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
@@ -306,7 +305,6 @@ type backendBoundaryPatterns struct {
 	agentTerminal   []string
 	codexWorktree   []string
 	gateCLI         []string
-	gateExecutor    []string
 	releaseManifest []string
 	guard           []string
 	updater         []string
@@ -341,7 +339,6 @@ func defaultBackendBoundaryPatterns() backendBoundaryPatterns {
 		agentTerminal:   []string{"cmd/agent-terminal/**/*.go"},
 		codexWorktree:   []string{"cmd/codex-worktree-setup/**/*.go"},
 		gateCLI:         []string{"cmd/super-dolphin-gate/**/*.go"},
-		gateExecutor:    []string{"cmd/super-dolphin-gate-executor/**/*.go"},
 		releaseManifest: []string{"cmd/super-dolphin-release-manifest/**/*.go"},
 		guard:           []string{"cmd/super-dolphin-guard/**/*.go"},
 		updater:         []string{"cmd/super-dolphin-updater/**/*.go"},
@@ -369,7 +366,6 @@ func defaultBackendBoundaryOwners(patterns backendBoundaryPatterns) []BackendBou
 		{ID: "module_boundary", FilePatterns: patterns.module, Reason: "business modules own their internals and must communicate through contract or DTO ports"},
 		{ID: "mcp_sidecar_boundary", FilePatterns: patterns.sidecar, Reason: "MCP sidecars are standalone entrypoints with only narrow shared internal dependencies"},
 		{ID: "command_boundary", FilePatterns: commandBoundaryPatterns(patterns), Reason: "standalone commands import only their registered host or runtime seams"},
-		{ID: "gate_executor_boundary", FilePatterns: patterns.gateExecutor, Reason: "the production gate executor may only enter the audited gate runtime"},
 		{ID: "internal_support_boundary", FilePatterns: internalSupportBoundaryPatterns(patterns), Reason: "shared support packages keep narrow, per-source internal dependency surfaces"},
 		{ID: "provider_runtime", FilePatterns: combineBoundaryPatterns(patterns.provider, patterns.providerModules, patterns.providerUnified), Reason: "provider adapters own transport/runtime integration and must not reach into persistence internals"},
 		{ID: "platform_runtime", FilePatterns: patterns.platform, Reason: "platform packages provide infrastructure primitives and must not depend upward on business or store ownership"},
@@ -393,7 +389,6 @@ func defaultBackendBoundaryRules(patterns backendBoundaryPatterns) []BackendBoun
 		defaultModuleStoreRule(patterns),
 		defaultMCPSidecarRule(patterns),
 		defaultCommandNarrowImportRule(patterns),
-		defaultGateExecutorNarrowImportRule(patterns),
 		defaultInternalSupportNarrowImportRule(patterns),
 		defaultProviderExternalImportRule(patterns),
 		defaultProviderStoreRule(patterns),
@@ -545,20 +540,6 @@ func defaultCommandNarrowImportRule(patterns backendBoundaryPatterns) BackendBou
 		Kind:         BoundaryRuleAllowInternalImports,
 		FilePatterns: commandBoundaryPatterns(patterns),
 		Allow:        commandNarrowAllowPolicies(patterns),
-	}
-}
-
-func defaultGateExecutorNarrowImportRule(patterns backendBoundaryPatterns) BackendBoundaryRule {
-	owner := BoundaryOwnerID("gate_executor_boundary")
-	return BackendBoundaryRule{
-		ID:           "gate_executor_narrow_import_surface",
-		Owner:        owner,
-		Reason:       "the production gate executor imports only the audited gate runtime package",
-		Kind:         BoundaryRuleAllowInternalImports,
-		FilePatterns: patterns.gateExecutor,
-		Allow: boundaryPolicies(owner, patterns.gateExecutor, []string{
-			"internal/devtools/gate",
-		}, "isolated production gate execution runtime"),
 	}
 }
 
@@ -843,10 +824,18 @@ func commandNarrowAllowPolicies(patterns backendBoundaryPatterns) []BoundaryImpo
 		"internal/util/pathutil",
 	}, "Codex worktree setup runtime primitive")...)
 	policies = append(policies, boundaryPolicies(owner, patterns.gateCLI, []string{
+		"internal/devtools/alicloud/datacache",
+		"internal/devtools/alicloud/eci",
+		"internal/devtools/alicloud/oss",
+		"internal/devtools/coordinatoradmission",
 		"internal/devtools/gate",
+		"internal/devtools/gateprivate",
 		"internal/devtools/gatehook",
 		"internal/devtools/localci",
-	}, "gate planning, typed hook adapter, and local CI runtime assembly")...)
+		"internal/devtools/projectmaptrusted",
+		"internal/devtools/remoteci",
+		"internal/devtools/shardresource",
+	}, "standalone gate coordinator, worker, hook, persistence, and local or remote CI runtime")...)
 	policies = append(policies, boundaryPolicies(owner, patterns.releaseManifest, []string{
 		"internal/module/appupdate",
 	}, "release manifest update contract")...)
@@ -875,6 +864,7 @@ func internalSupportNarrowAllowPolicies(patterns backendBoundaryPatterns) []Boun
 		"internal/devtools",
 		"internal/platform/config",
 		"internal/platform/db",
+		"internal/util/ctxutil",
 	}, "developer tool implementation or SQLite smoke seam")
 	policies = append(policies, boundaryPolicies(owner, patterns.dto, []string{
 		"internal/dto",

@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/localci"
 )
 
@@ -22,18 +22,18 @@ const (
 )
 
 type productionCoordinatorConfig struct {
-	AcceptedImageRoot          string                                 `json:"accepted_image_root"`
-	BootstrapRootFile          string                                 `json:"bootstrap_root_file"`
-	BootstrapControllerFile    string                                 `json:"bootstrap_controller_file"`
-	BootstrapControllerKeyFile string                                 `json:"bootstrap_controller_key_file"`
-	CandidateStateRoot         string                                 `json:"candidate_state_root"`
-	CandidateBuildRoot         string                                 `json:"candidate_build_root"`
-	TrustedSourceRoot          string                                 `json:"trusted_source_root"`
-	SeccompProfile             string                                 `json:"seccomp_profile"`
+	AcceptedImageRoot          string                                 `json:"accepted_image_root" production_path:"true"`
+	BootstrapRootFile          string                                 `json:"bootstrap_root_file" production_path:"true"`
+	BootstrapControllerFile    string                                 `json:"bootstrap_controller_file" production_path:"true"`
+	BootstrapControllerKeyFile string                                 `json:"bootstrap_controller_key_file" production_path:"true"`
+	CandidateStateRoot         string                                 `json:"candidate_state_root" production_path:"true"`
+	CandidateBuildRoot         string                                 `json:"candidate_build_root" production_path:"true"`
+	TrustedSourceRoot          string                                 `json:"trusted_source_root" production_path:"true"`
+	SeccompProfile             string                                 `json:"seccomp_profile" production_path:"true"`
 	Platform                   string                                 `json:"platform"`
 	RepoID                     string                                 `json:"repo_id"`
 	TrustedRef                 string                                 `json:"trusted_ref"`
-	TrustedRepository          string                                 `json:"trusted_repository"`
+	TrustedRepository          string                                 `json:"trusted_repository" production_path:"true"`
 	AcceptedImageSigners       []productionTrustedKey                 `json:"accepted_image_signers"`
 	PromotionSigner            productionPromotionKey                 `json:"promotion_signer"`
 	ResultReceiptAuthority     productionResultReceiptAuthorityConfig `json:"result_receipt_authority"`
@@ -51,13 +51,13 @@ type productionTrustedKey struct {
 
 type productionPromotionKey struct {
 	Signer         gatecontract.SignerIdentity `json:"signer"`
-	PrivateKeyFile string                      `json:"private_key_file"`
+	PrivateKeyFile string                      `json:"private_key_file" production_path:"true"`
 }
 
 type productionResultReceiptAuthorityConfig struct {
 	Signer         gatecontract.SignerIdentity `json:"signer"`
 	PublicKey      string                      `json:"public_key"`
-	PrivateKeyFile string                      `json:"private_key_file"`
+	PrivateKeyFile string                      `json:"private_key_file" production_path:"true"`
 }
 
 type productionResultReceiptPrivateKey struct {
@@ -67,7 +67,7 @@ type productionResultReceiptPrivateKey struct {
 type productionActionGrantAuthorityConfig struct {
 	Signer         gatecontract.SignerIdentity `json:"signer"`
 	PublicKey      string                      `json:"public_key"`
-	PrivateKeyFile string                      `json:"private_key_file"`
+	PrivateKeyFile string                      `json:"private_key_file" production_path:"true"`
 	TTLSeconds     int64                       `json:"ttl_seconds"`
 }
 
@@ -113,9 +113,13 @@ func loadProductionCoordinatorConfigFile(path string) (productionCoordinatorConf
 	if err != nil {
 		return productionCoordinatorConfig{}, err
 	}
-	var config productionCoordinatorConfig
-	if err := gatecontract.DecodeStrictJSON(data, &config); err != nil {
+	var stored storedProductionCoordinatorConfig
+	if err := gatecontract.DecodeStrictJSON(data, &stored); err != nil {
 		return productionCoordinatorConfig{}, fmt.Errorf("decode production coordinator config: %w", err)
+	}
+	config := productionCoordinatorConfig(stored)
+	if err := resolveProductionCoordinatorConfigPaths(filepath.Dir(canonical), &config); err != nil {
+		return productionCoordinatorConfig{}, fmt.Errorf("resolve production coordinator config paths: %w", err)
 	}
 	if err := config.Validate(); err != nil {
 		return productionCoordinatorConfig{}, fmt.Errorf("validate production coordinator config: %w", err)
@@ -125,25 +129,9 @@ func loadProductionCoordinatorConfigFile(path string) (productionCoordinatorConf
 
 // readProductionCoordinatorConfig 防止路径与已打开文件在读取期间发生身份漂移。
 func readProductionCoordinatorConfig(canonical string) ([]byte, error) {
-	file, err := os.Open(canonical)
+	data, err := gateprivate.ReadOwnerFile(canonical, productionCoordinatorConfigMaxBytes)
 	if err != nil {
-		return nil, fmt.Errorf("open production coordinator config: %w", err)
-	}
-	opened, statErr := file.Stat()
-	pathInfo, lstatErr := os.Lstat(canonical)
-	if statErr != nil || lstatErr != nil || !os.SameFile(opened, pathInfo) ||
-		!opened.Mode().IsRegular() || opened.Mode().Perm()&0o077 != 0 {
-		return nil, errors.Join(
-			errors.New("production coordinator config changed while opening"), statErr, lstatErr, file.Close(),
-		)
-	}
-	data, readErr := io.ReadAll(io.LimitReader(file, productionCoordinatorConfigMaxBytes+1))
-	closeErr := file.Close()
-	if readErr != nil || closeErr != nil {
-		return nil, errors.Join(readErr, closeErr)
-	}
-	if len(data) > productionCoordinatorConfigMaxBytes {
-		return nil, errors.New("production coordinator config exceeds size limit")
+		return nil, fmt.Errorf("read production coordinator config: %w", err)
 	}
 	return data, nil
 }
@@ -424,16 +412,9 @@ func canonicalProductionDirectory(path string) (string, error) {
 	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
 		return "", fmt.Errorf("production coordinator directory must be canonical and absolute: %q", path)
 	}
-	resolved, err := filepath.EvalSymlinks(path)
+	resolved, err := gateprivate.CanonicalOwnerDirectory(path)
 	if err != nil {
-		return "", fmt.Errorf("resolve production coordinator directory %q: %w", path, err)
-	}
-	info, err := os.Stat(resolved)
-	if err != nil || !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
-		return "", errors.Join(fmt.Errorf("production coordinator directory %q must be private", path), err)
-	}
-	if resolved != path {
-		return "", fmt.Errorf("production coordinator directory must not traverse symlinks: %q", path)
+		return "", fmt.Errorf("production coordinator directory: %w", err)
 	}
 	if err := rejectProductionWorktreePath(path); err != nil {
 		return "", err
@@ -443,19 +424,9 @@ func canonicalProductionDirectory(path string) (string, error) {
 
 // canonicalProductionFile 要求文件与其父目录均为仓库外私有路径。
 func canonicalProductionFile(name string, path string) (string, error) {
-	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
-		return "", fmt.Errorf("%s must be canonical and absolute", name)
-	}
-	info, err := os.Lstat(path)
+	resolved, err := gateprivate.CanonicalOwnerFile(path)
 	if err != nil {
-		return "", fmt.Errorf("inspect %s: %w", name, err)
-	}
-	if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
-		return "", fmt.Errorf("%s must be a private regular file", name)
-	}
-	resolved, err := filepath.EvalSymlinks(path)
-	if err != nil || resolved != path {
-		return "", errors.Join(fmt.Errorf("%s must not traverse symlinks", name), err)
+		return "", fmt.Errorf("%s: %w", name, err)
 	}
 	if _, err := canonicalProductionDirectory(filepath.Dir(path)); err != nil {
 		return "", err

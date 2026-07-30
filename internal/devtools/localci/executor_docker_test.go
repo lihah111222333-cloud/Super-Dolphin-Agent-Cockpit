@@ -25,14 +25,14 @@ type dockerRunnerStub struct {
 }
 
 func TestBuildGateResultUsesCanonicalArgvDigest(t *testing.T) {
-	command := []string{"/usr/local/bin/super-dolphin-gate-executor", "run", "--gate", "backend:test_with_guard"}
+	command := []string{"/super-dolphin-gate", "worker", "run", "--gate", "backend:test_with_guard"}
 	result, err := buildGateResult(gateexecutor.GateIDBackendTestWithGuard, command, FreshContainerResult{
 		Status: gateexecutor.ResultStatusPassed,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	const want = "sha256:20a5b5dbfb5d3b8cffd7fcb1d7a7cd463eaa94340261313bbd1d73ceeb02cc18"
+	const want = "sha256:61d69caed0b49003af9064b9de6a6b26c55279f7c70e68b42f21f175b2ec838b"
 	if result.ArgvDigest != want {
 		t.Fatalf("gate argv digest = %q, want %q", result.ArgvDigest, want)
 	}
@@ -64,7 +64,7 @@ func (stub *dockerRunnerStub) Run(ctx context.Context, args ...string) (string, 
 
 const testContainerID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
-var testGateCommand = []string{"/usr/local/bin/super-dolphin-gate-executor", "run"}
+var testGateCommand = []string{"/super-dolphin-gate", "worker", "run"}
 
 func TestDockerExecutorAppliesIsolationAndResourceContract(t *testing.T) {
 	runner := &dockerRunnerStub{}
@@ -76,7 +76,7 @@ func TestDockerExecutorAppliesIsolationAndResourceContract(t *testing.T) {
 	evidence, err := executor.Run(context.Background(), containerRequest{
 		Image:     "registry.local/gate@" + digest("1"),
 		SourceDir: sourceDir,
-		Command:   []string{"/usr/local/bin/super-dolphin-gate-executor", "run"},
+		Command:   []string{"/super-dolphin-gate", "worker", "run"},
 	})
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -95,7 +95,7 @@ func TestDockerExecutorAppliesIsolationAndResourceContract(t *testing.T) {
 		"--env=npm_config_cache=/workspace/work/npm-cache", "--env=XDG_CACHE_HOME=/workspace/work/xdg-cache",
 		"--env=PLAYWRIGHT_BROWSERS_PATH=/opt/super-dolphin-gate/runtime/frontend/node_modules/.cache/ms-playwright",
 		"--log-driver=local", "--log-opt=max-size=10m", "--log-opt=max-file=3",
-		"--entrypoint=/usr/local/bin/super-dolphin-gate-executor", "registry.local/gate@" + digest("1"), "run",
+		"--entrypoint=/super-dolphin-gate", "registry.local/gate@" + digest("1"), "worker", "run",
 	}
 	if !reflect.DeepEqual(runner.calls[0], wantCreate) {
 		t.Fatalf("docker create args = %#v\nwant %#v", runner.calls[0], wantCreate)

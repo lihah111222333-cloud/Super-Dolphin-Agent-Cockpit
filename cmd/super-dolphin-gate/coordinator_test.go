@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strconv"
@@ -608,6 +609,7 @@ func (client *scriptedCoordinatorClient) Wait(context.Context, string) (jobStatu
 
 func (*scriptedCoordinatorClient) Close() error { return nil }
 
+// super-dolphin-ci: helper
 func TestCoordinatorProcessHelper(t *testing.T) {
 	switch os.Getenv("SD_COORDINATOR_HELPER") {
 	case "":
@@ -707,6 +709,14 @@ func checkpointFromHelperEnvironment(t *testing.T) localci.DockerDaemonIdentityC
 
 func coordinatorTestCheckpoint(t *testing.T) localci.DockerDaemonIdentityCheckpoint {
 	t.Helper()
+	cacheRoot, err := os.UserCacheDir()
+	if err != nil {
+		t.Fatalf("resolve coordinator test cache root: %v", err)
+	}
+	runtimeRoot := filepath.Join(filepath.Clean(cacheRoot), "super-dolphin", "localci")
+	if err := os.MkdirAll(runtimeRoot, 0o700); err != nil {
+		t.Fatalf("create coordinator test runtime root: %v", err)
+	}
 	daemonID := fmt.Sprintf("test-daemon-%d", time.Now().UnixNano())
 	endpoint := "unix:///tmp/" + daemonID + ".sock"
 	digest := sha256.Sum256([]byte(endpoint + "\x00\x00" + daemonID))
@@ -764,9 +774,22 @@ func testCoordinatorSchedulingPolicy() coordinatorSchedulingPolicy {
 
 func dialTestCoordinator(t *testing.T, checkpoint localci.DockerDaemonIdentityCheckpoint) *coordinatorTransportClient {
 	t.Helper()
-	client, err := dialCoordinator(context.Background(), checkpoint)
-	if err != nil {
-		t.Fatalf("dialCoordinator() error = %v", err)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var (
+		client *coordinatorTransportClient
+		err    error
+	)
+	for {
+		client, err = dialCoordinator(ctx, checkpoint)
+		if err == nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("dialCoordinator() before coordinator became ready: %v", err)
+		case <-time.After(coordinatorPollInterval):
+		}
 	}
 	t.Cleanup(func() {
 		if err := client.Close(); err != nil {

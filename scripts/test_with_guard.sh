@@ -15,6 +15,16 @@ Usage:
   scripts/test_with_guard.sh --canonical-backend <package-pattern...>
   scripts/test_with_guard.sh --with-race <race-package...> -- <go-test-args...>
   scripts/test_with_guard.sh --race-only <race-package...>
+  scripts/test_with_guard.sh --ci-guard
+  scripts/test_with_guard.sh --ci-guard-source
+  scripts/test_with_guard.sh --ci-copylocks <provider|platform|thread>
+  scripts/test_with_guard.sh --ci-nested-module <exact-tracked-module>
+  scripts/test_with_guard.sh --ci-package <exact-package>
+  scripts/test_with_guard.sh --ci-package-test <exact-package> <exact-test>
+  scripts/test_with_guard.sh --ci-package-benchmark <exact-package> <exact-benchmark>
+  scripts/test_with_guard.sh --ci-race-guard
+  scripts/test_with_guard.sh --ci-race-package <exact-package>
+  scripts/test_with_guard.sh --ci-race-package-test <exact-package> <exact-test>
   scripts/test_with_guard.sh --help
 
 Examples:
@@ -22,7 +32,7 @@ Examples:
   scripts/test_with_guard.sh ./internal/provider/claudecli/... -count=1
   scripts/test_with_guard.sh -run TestFoo ./internal/module/thread/...
   scripts/test_with_guard.sh --guard-only
-  scripts/test_with_guard.sh --canonical-backend ./cmd/... ./internal/... ./pkg/... ./scripts/...
+  scripts/test_with_guard.sh --canonical-backend ./...
   scripts/test_with_guard.sh --with-race ./internal/platform/db/sqlite -- ./internal/app -count=1
 USAGE
 }
@@ -169,7 +179,7 @@ run_with_race() {
 
 canonical_backend_target_allowed() {
   local target="$1"
-  if [[ -z "$target" || "$target" == *[[:space:]]* ]]; then
+  if [[ -z "$target" || "$target" != ./* || "$target" == *[[:space:]]* || "$target" == *\\* ]]; then
     return 1
   fi
   local component remainder="$target"
@@ -183,10 +193,7 @@ canonical_backend_target_allowed() {
   if [[ "$remainder" == *..* && "$remainder" != "..." ]]; then
     return 1
   fi
-  case "$target" in
-    ./cmd/*|./internal/*|./pkg/*|./scripts/*) return 0 ;;
-    *) return 1 ;;
-  esac
+  return 0
 }
 
 CANONICAL_BACKEND_PACKAGES=()
@@ -283,6 +290,88 @@ run_race_only() {
   run_go_test "$real_go" "$@" -race -short -count=1
 }
 
+run_ci_package() {
+  local real_go="$1"
+  local race_mode="$2"
+  shift 2
+  if { [ "$#" -ne 1 ] && [ "$#" -ne 2 ]; } || ! canonical_backend_target_allowed "$1" || [[ "$1" == *...* ]]; then
+    echo "CI package mode requires one exact canonical backend package and optional exact test" >&2
+    return 2
+  fi
+  local package_name="$1"
+  local test_name="${2:-}"
+  if [ -n "$test_name" ] && { [[ ! "$test_name" =~ ^(Test|Fuzz|Example)[[:alnum:]_]*$ ]] || [[ "$test_name" == */* ]]; }; then
+    echo "CI package test mode requires one exact top-level Go test name" >&2
+    return 2
+  fi
+  local listed
+  if ! listed="$(cd "$ROOT_DIR" && "$real_go" list "$package_name")" || [ "$listed" != "${listed//$'\n'/}" ] || [ -z "$listed" ]; then
+    echo "CI package mode failed to resolve exactly one package" >&2
+    return 2
+  fi
+  run_copylocks_guard "$real_go" "$package_name"
+  local -a test_args=("$package_name" -json)
+  if [ -n "$test_name" ]; then
+    test_args+=(-run "^${test_name}$")
+  fi
+  if [ "$race_mode" = "race" ]; then
+    run_go_test "$real_go" "${test_args[@]}" -race -short -count=1 -timeout=0
+  else
+    run_go_test "$real_go" "${test_args[@]}" -count=1 -timeout=0
+  fi
+}
+
+run_ci_package_benchmark() {
+  local real_go="$1"
+  shift
+  if [ "$#" -ne 2 ] || ! canonical_backend_target_allowed "$1" || [[ "$1" == *...* ]]; then
+    echo "CI benchmark mode requires one exact canonical backend package and one exact benchmark" >&2
+    return 2
+  fi
+  local package_name="$1"
+  local benchmark_name="$2"
+  if [[ ! "$benchmark_name" =~ ^Benchmark[[:alnum:]_]*$ ]]; then
+    echo "CI benchmark mode requires one exact top-level Go benchmark name" >&2
+    return 2
+  fi
+  local listed
+  if ! listed="$(cd "$ROOT_DIR" && "$real_go" list "$package_name")" || [ "$listed" != "${listed//$'\n'/}" ] || [ -z "$listed" ]; then
+    echo "CI benchmark mode failed to resolve exactly one package" >&2
+    return 2
+  fi
+  run_copylocks_guard "$real_go" "$package_name"
+  run_go_test "$real_go" "$package_name" -json -run '^$' -bench "^${benchmark_name}$" -count=1 -timeout=0
+}
+
+run_ci_guard() {
+  local real_go="$1"
+  local guard_mode="$2"
+  run_guard "$real_go" "$guard_mode"
+  run_copylocks_guard "$real_go" ./internal/provider/... ./internal/platform/... ./internal/module/thread/...
+  run_nested_module_guard "$real_go"
+}
+
+run_ci_copylocks_guard() {
+  local real_go="$1"
+  local target="$2"
+  case "$target" in
+    provider) run_copylocks_guard "$real_go" ./internal/provider/... ;;
+    platform) run_copylocks_guard "$real_go" ./internal/platform/... ;;
+    thread) run_copylocks_guard "$real_go" ./internal/module/thread/... ;;
+    *) echo "CI copylocks mode requires provider, platform, or thread" >&2; return 2 ;;
+  esac
+}
+
+run_ci_nested_module_guard() {
+  local real_go="$1"
+  local module_dir="$2"
+  case "$module_dir" in
+    build/gate/runtime-proxy|build/gate/runtime-tools|third_party/kelindar-event) ;;
+    *) echo "CI nested module mode received an unsupported module" >&2; return 2 ;;
+  esac
+  "$ROOT_DIR/scripts/check_nested_go_modules.sh" "$real_go" "$module_dir"
+}
+
 all_args_are_go_files() {
   local arg
   for arg in "$@"; do
@@ -336,6 +425,10 @@ main() {
     fi
   fi
 
+  if [ "$1" != "--help" ] && [ "$1" != "-h" ] && ! all_args_are_go_files "$@"; then
+    require_remote_test_execution
+  fi
+
   case "$1" in
     --help|-h)
       usage
@@ -377,6 +470,94 @@ main() {
       fi
       shift
       run_race_only "$real_go" "$@"
+      ;;
+    --ci-guard)
+      local real_go
+      if ! real_go="$(resolve_real_go)"; then
+        exit 1
+      fi
+      shift
+      [ "$#" -eq 0 ] || { usage; exit 1; }
+      run_ci_guard "$real_go" quick
+      ;;
+    --ci-guard-source)
+      local real_go
+      if ! real_go="$(resolve_real_go)"; then
+        exit 1
+      fi
+      shift
+      [ "$#" -eq 0 ] || { usage; exit 1; }
+      run_guard "$real_go" quick
+      ;;
+    --ci-copylocks)
+      local real_go
+      if ! real_go="$(resolve_real_go)"; then
+        exit 1
+      fi
+      shift
+      [ "$#" -eq 1 ] || { usage; exit 1; }
+      run_ci_copylocks_guard "$real_go" "$1"
+      ;;
+    --ci-nested-module)
+      local real_go
+      if ! real_go="$(resolve_real_go)"; then
+        exit 1
+      fi
+      shift
+      [ "$#" -eq 1 ] || { usage; exit 1; }
+      run_ci_nested_module_guard "$real_go" "$1"
+      ;;
+    --ci-package)
+      local real_go
+      if ! real_go="$(resolve_real_go)"; then
+        exit 1
+      fi
+      shift
+      run_ci_package "$real_go" normal "$@"
+      ;;
+    --ci-package-test)
+      local real_go
+      if ! real_go="$(resolve_real_go)"; then
+        exit 1
+      fi
+      shift
+      [ "$#" -eq 2 ] || { usage; exit 1; }
+      run_ci_package "$real_go" normal "$@"
+      ;;
+    --ci-package-benchmark)
+      local real_go
+      if ! real_go="$(resolve_real_go)"; then
+        exit 1
+      fi
+      shift
+      [ "$#" -eq 2 ] || { usage; exit 1; }
+      run_ci_package_benchmark "$real_go" "$@"
+      ;;
+    --ci-race-guard)
+      local real_go
+      if ! real_go="$(resolve_real_go)"; then
+        exit 1
+      fi
+      shift
+      [ "$#" -eq 0 ] || { usage; exit 1; }
+      run_ci_guard "$real_go" full
+      ;;
+    --ci-race-package)
+      local real_go
+      if ! real_go="$(resolve_real_go)"; then
+        exit 1
+      fi
+      shift
+      run_ci_package "$real_go" race "$@"
+      ;;
+    --ci-race-package-test)
+      local real_go
+      if ! real_go="$(resolve_real_go)"; then
+        exit 1
+      fi
+      shift
+      [ "$#" -eq 2 ] || { usage; exit 1; }
+      run_ci_package "$real_go" race "$@"
       ;;
     --)
       local real_go

@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -53,10 +54,6 @@ func bashAbsolutePath(path string) string {
 	return slashed
 }
 
-func bashDriveMountAvailable(drive string) bool {
-	return bashDriveRoot(drive) != ""
-}
-
 func bashDriveRoot(drive string) string {
 	if runtime.GOOS != "windows" {
 		return ""
@@ -82,13 +79,6 @@ func bashDirectoryAvailable(path string) bool {
 
 func bashQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
-}
-
-func bashVerifierPlatform() string {
-	if runtime.GOOS == "windows" {
-		return "linux-amd64"
-	}
-	return runtime.GOOS + "-" + runtime.GOARCH
 }
 
 func appendWSLEnvKeys(env []string, keys ...string) []string {
@@ -136,7 +126,7 @@ func wslEnvValue(env []string) string {
 }
 
 func mergeWSLEnvParts(keySet map[string]struct{}, existing string) {
-	for _, part := range strings.Split(existing, ":") {
+	for part := range strings.SplitSeq(existing, ":") {
 		if wslEnvPartName(part) != "" {
 			keySet[part] = struct{}{}
 		}
@@ -147,14 +137,13 @@ func wslEnvPartName(part string) string {
 	if part == "" {
 		return ""
 	}
-	if idx := strings.IndexByte(part, '/'); idx >= 0 {
-		return part[:idx]
-	}
-	return part
+	name, _, _ := strings.Cut(part, "/")
+	return name
 }
 
 func appendWSLEnvKeysWithGitWorktree(t testing.TB, env []string, keys ...string) []string {
 	t.Helper()
+	env, keys = appendRemoteWorkerGitPath(t, env, keys...)
 	if runtime.GOOS == "windows" {
 		env = upsertEnv(env, "GIT_DIR", bashAbsolutePath(gitRevParseRequired(t, "--absolute-git-dir")))
 		env = upsertEnv(env, "GIT_WORK_TREE", bashAbsolutePath(gitRevParseRequired(t, "--show-toplevel")))
@@ -162,6 +151,39 @@ func appendWSLEnvKeysWithGitWorktree(t testing.TB, env []string, keys ...string)
 	}
 	env, keys = appendBashGitPathForWindows(env, keys...)
 	return appendWSLEnvKeys(env, keys...)
+}
+
+func appendRemoteWorkerGitPath(t testing.TB, env []string, keys ...string) ([]string, []string) {
+	t.Helper()
+	if os.Getenv("SUPER_DOLPHIN_TEST_BACKEND") != "remote-worker" {
+		return env, keys
+	}
+	gitBinary := os.Getenv("SUPER_DOLPHIN_GATE_GIT")
+	if !filepath.IsAbs(gitBinary) {
+		t.Fatalf("remote worker test requires absolute SUPER_DOLPHIN_GATE_GIT")
+	}
+	info, err := os.Stat(gitBinary)
+	if err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
+		t.Fatalf("remote worker test requires executable SUPER_DOLPHIN_GATE_GIT %q: %v", gitBinary, err)
+	}
+	return appendBashPathDir(env, filepath.Dir(gitBinary)), append(keys, "PATH")
+}
+
+func TestAppendWSLEnvKeysWithGitWorktreeKeepsFixedWorkerGitOnPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows path conversion is covered by the existing WSL helpers")
+	}
+	gitBinary := filepath.Join(t.TempDir(), "git")
+	if err := os.WriteFile(gitBinary, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SUPER_DOLPHIN_TEST_BACKEND", "remote-worker")
+	t.Setenv("SUPER_DOLPHIN_GATE_GIT", gitBinary)
+	env := appendWSLEnvKeysWithGitWorktree(t, []string{"PATH=/usr/bin:/bin"}, "PATH")
+	want := "PATH=/usr/bin:/bin:" + filepath.Dir(gitBinary)
+	if !slices.Contains(env, want) {
+		t.Fatalf("remote worker PATH = %q, want %q", env, want)
+	}
 }
 
 func appendWSLEnvKeysWithGitPath(t testing.TB, env []string, keys ...string) []string {
@@ -192,14 +214,6 @@ func appendBashGitPathForWindows(env []string, keys ...string) ([]string, []stri
 	}
 	env = appendBashPathDir(env, filepath.Dir(gitPath))
 	return env, keys
-}
-
-func bashCommandAvailable(name string) bool {
-	return bashCommandAvailableWithEnv(nil, name)
-}
-
-func bashCommandAvailableWithEnv(env []string, name string) bool {
-	return bashCommandPathWithEnv(env, name) != ""
 }
 
 func bashCommandDirWithEnv(env []string, name string) string {
@@ -306,6 +320,7 @@ func TestStripWSLInteropBannerKeepsScriptError(t *testing.T) {
 	}
 }
 
+// super-dolphin-ci: platform=windows
 func TestPackageScriptValidationEnvLetsWSLGitResolveWindowsWorktree(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows WSL gitdir path conversion regression")

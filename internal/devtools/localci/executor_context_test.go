@@ -3,12 +3,32 @@ package localci
 import (
 	"archive/tar"
 	"bytes"
+	"context"
+	"errors"
 	"io"
 	"testing"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
 )
+
+func TestBoundedContextsPreserveCancellationContracts(t *testing.T) {
+	parent, cancelParent := context.WithCancel(context.Background())
+	cleanup, cancelCleanup := BoundedCleanupContext(parent, time.Minute)
+	operation, cancelOperation := BoundedOperationContext(parent, time.Minute)
+	t.Cleanup(cancelCleanup)
+	t.Cleanup(cancelOperation)
+	cancelParent()
+
+	select {
+	case <-cleanup.Done():
+		t.Fatalf("cleanup context ended after parent cancellation: %v", cleanup.Err())
+	default:
+	}
+	if !errors.Is(operation.Err(), context.Canceled) {
+		t.Fatalf("operation context error = %v, want %v", operation.Err(), context.Canceled)
+	}
+}
 
 func TestCanonicalContextIsStableAndInputSensitive(t *testing.T) {
 	entries := []sourceexport.TreeEntry{

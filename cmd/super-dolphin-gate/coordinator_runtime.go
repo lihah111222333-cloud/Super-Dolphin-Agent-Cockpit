@@ -476,7 +476,7 @@ func (client *coordinatorTransportClient) createAndEnqueueSubmit(
 	return client.Status(ctx, jobID)
 }
 
-// ensurePersistedJobScheduled 对 durable queued 记录幂等补齐 scheduler workload。
+// ensurePersistedJobScheduled 先补齐所有更早的 durable queued 记录，再幂等补齐当前 workload。
 func (client *coordinatorTransportClient) ensurePersistedJobScheduled(
 	ctx context.Context,
 	record coordinatorJobRecord,
@@ -487,6 +487,22 @@ func (client *coordinatorTransportClient) ensurePersistedJobScheduled(
 	if err := client.ensureScheduler(ctx); err != nil {
 		return err
 	}
+	predecessors, err := client.store.queuedJobsBefore(ctx, record.EnqueueSequence)
+	if err != nil {
+		return fmt.Errorf("list durable FIFO predecessors for %q: %w", record.JobID, err)
+	}
+	for _, predecessor := range predecessors {
+		if err := client.ensureSinglePersistedJobScheduled(ctx, predecessor); err != nil {
+			return fmt.Errorf("schedule durable FIFO predecessor %q for %q: %w", predecessor.JobID, record.JobID, err)
+		}
+	}
+	return client.ensureSinglePersistedJobScheduled(ctx, record)
+}
+
+func (client *coordinatorTransportClient) ensureSinglePersistedJobScheduled(
+	ctx context.Context,
+	record coordinatorJobRecord,
+) error {
 	recovered, err := client.schedulerWorkloadExists(ctx, record.JobID)
 	if err != nil {
 		return fmt.Errorf("check recovered scheduler job %q: %w", record.JobID, err)

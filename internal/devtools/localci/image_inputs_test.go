@@ -29,6 +29,9 @@ func TestResolveGateImageInputsIsDeterministicAndIgnoresOrdinarySource(t *testin
 	if ordinary.ImageInputDigest != base.ImageInputDigest || ordinary.ContextDigest != base.ContextDigest {
 		t.Fatal("ordinary source change altered canonical image inputs")
 	}
+	if ordinary.GateSourceDigest != base.GateSourceDigest {
+		t.Fatal("ordinary source change altered the independent gate compile digest")
+	}
 	if slices.ContainsFunc(ordinary.SourceEntries, func(entry sourceexport.TreeEntry) bool {
 		return entry.Path == "internal/module/example/service.go"
 	}) {
@@ -46,6 +49,32 @@ func TestResolveGateImageInputsChangesForDeclaredInput(t *testing.T) {
 	changed := mustResolveGateImageInputs(t, readOnlyImageTree(t, entries))
 	if changed.ImageInputDigest == base.ImageInputDigest || changed.ContextDigest == base.ContextDigest {
 		t.Fatal("declared image input change did not alter canonical digests")
+	}
+	if changed.GateSourceDigest == base.GateSourceDigest {
+		t.Fatal("go.mod change did not alter the gate compile digest")
+	}
+}
+
+func TestResolveGateImageInputsGateDigestChangesForCompileSource(t *testing.T) {
+	entries := candidateEntries(validCandidateDockerfile())
+	base := mustResolveGateImageInputs(t, readOnlyImageTree(t, entries))
+	changeCandidateInput(t, entries, "cmd/super-dolphin-gate/main.go", "package main\n// changed compile source\n")
+	changed := mustResolveGateImageInputs(t, readOnlyImageTree(t, entries))
+	if changed.GateSourceDigest == base.GateSourceDigest {
+		t.Fatal("gate CLI source change did not alter the independent compile digest")
+	}
+}
+
+func TestResolveGateImageInputsGateDigestIgnoresNonCompileImageInput(t *testing.T) {
+	entries := candidateEntries(validCandidateDockerfile())
+	base := mustResolveGateImageInputs(t, readOnlyImageTree(t, entries))
+	changeCandidateInput(t, entries, "frontend-app/package-lock.json", "{\"changed\":true}\n")
+	changed := mustResolveGateImageInputs(t, readOnlyImageTree(t, entries))
+	if changed.ImageInputDigest == base.ImageInputDigest || changed.ContextDigest == base.ContextDigest {
+		t.Fatal("declared image input change did not alter image digests")
+	}
+	if changed.GateSourceDigest != base.GateSourceDigest {
+		t.Fatal("non-compile image input changed the independent gate compile digest")
 	}
 }
 
@@ -87,6 +116,7 @@ func TestGateImageInputFieldRegistryIsComplete(t *testing.T) {
 		"SourceEntries": "candidate builder input", "ImageInputDigest": "accepted reuse decision",
 		"ContextDigest": "context evidence", "InputManifestDigest": "manifest evidence",
 		"ToolchainDigest": "toolchain evidence", "DockerfileDigest": "Dockerfile evidence",
+		"GateSourceDigest": "independent gate compile evidence",
 	})
 }
 

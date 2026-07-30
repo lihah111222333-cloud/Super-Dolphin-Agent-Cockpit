@@ -97,8 +97,6 @@ func TestBuildGatePlanRoutesReleaseWorkflowAndArchtestInputsToOwners(t *testing.
 		{"internal/guards/guard_manifest.json", []string{"backend:archtest"}},
 		{".githooks/pre-commit", []string{"backend:archtest", "ai-maintenance:self-test"}},
 		{"internal/module/thread/session_test.go", []string{"backend:test-integrity"}},
-		{"scripts/codex_stop_gate.sh", []string{"codex-stop:self-test", "ai-maintenance:self-test"}},
-		{"scripts/tests/test_codex_stop_gate_plan.sh", []string{"codex-stop:self-test", "ai-maintenance:self-test"}},
 		{"docs/automation/全仓夜间门禁健康巡检协议.md", []string{"nightly-protocol:check"}},
 		{".github/workflows/ci.yml", []string{"nightly-protocol:check"}},
 	}

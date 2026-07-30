@@ -7,12 +7,25 @@ import (
 )
 
 func candidateEntries(dockerfile string) []sourceexport.TreeEntry {
+	inputs := candidateEntryInputs()
+	entries := []sourceexport.TreeEntry{
+		contextEntry("build/gate/runtime-deps.lock", "100644", testRuntimeDepsLock(inputs)),
+		contextEntry("cmd/super-dolphin-gate/main.go", "100644", "package main\n"),
+		contextEntry("build/gate/Dockerfile", "100644", dockerfile),
+		contextEntry("build/gate/inputs.json", "100644", candidateManifest()+"\n"),
+	}
+	for _, path := range runtimeDepsTestInputPaths() {
+		entries = append(entries, contextEntry(path, "100644", inputs[path]))
+	}
+	return entries
+}
+
+func candidateManifest() string {
 	manifest := `{
-  "schema_version": "1",
+  "schema_version": "2",
   "dockerfile": "build/gate/Dockerfile",
   "inputs": [
     "build/gate/Dockerfile",
-    "build/gate/cmd/runtime-seed-manifest/main.go",
     "build/gate/inputs.json",
     "build/gate/runtime-deps.Dockerfile",
     "build/gate/runtime-deps.lock",
@@ -23,14 +36,28 @@ func candidateEntries(dockerfile string) []sourceexport.TreeEntry {
     "build/gate/runtime-tools/go.sum",
     "build/gate/toolchain.lock",
     "cmd/super-dolphin-gate/main.go",
+    "cmd/super-dolphin-gate/remote_refresh_seed.go",
+    "cmd/super-dolphin-gate/remote_refresh_seed_script.go",
     "frontend-app/package-lock.json",
     "go.mod",
     "go.sum",
     "internal/devtools/gate/executor_seed.go",
     "internal/devtools/nilnessrunner/runner.go",
     "scripts/nilness_guard.go"
+  ],
+  "gate_compile_inputs": [
+    "cmd/super-dolphin-gate/main.go",
+    "cmd/super-dolphin-gate/remote_refresh_seed.go",
+    "cmd/super-dolphin-gate/remote_refresh_seed_script.go",
+    "go.mod",
+    "go.sum",
+    "internal/devtools/gate/executor_seed.go"
   ]
 }`
+	return manifest
+}
+
+func candidateEntryInputs() map[string]string {
 	toolchain := `{
   "schema_version": "1",
   "buildkit_version": "v0.26.2",
@@ -59,25 +86,17 @@ func candidateEntries(dockerfile string) []sourceexport.TreeEntry {
 		"build/gate/toolchain.lock":          toolchain + "\n",
 		"go.mod":                             "module example.invalid/gate\n",
 		"go.sum":                             "sum\n",
-		"internal/devtools/nilnessrunner/runner.go":    "package nilnessrunner\n",
-		"scripts/nilness_guard.go":                     "package main\n",
-		"frontend-app/package-lock.json":               "{}\n",
-		"build/gate/runtime-lsp/package-lock.json":     "{}\n",
-		"build/gate/runtime-proxy/go.mod":              "module example.invalid/proxy\n",
-		"build/gate/runtime-proxy/go.sum":              "proxy sum\n",
-		"build/gate/runtime-tools/go.mod":              "module example.invalid/tools\n",
-		"build/gate/runtime-tools/go.sum":              "tools sum\n",
-		"build/gate/cmd/runtime-seed-manifest/main.go": "package main\n",
-		"internal/devtools/gate/executor_seed.go":      "package gate\n",
+		"internal/devtools/nilnessrunner/runner.go":            "package nilnessrunner\n",
+		"scripts/nilness_guard.go":                             "package main\n",
+		"frontend-app/package-lock.json":                       "{}\n",
+		"build/gate/runtime-lsp/package-lock.json":             "{}\n",
+		"build/gate/runtime-proxy/go.mod":                      "module example.invalid/proxy\n",
+		"build/gate/runtime-proxy/go.sum":                      "proxy sum\n",
+		"build/gate/runtime-tools/go.mod":                      "module example.invalid/tools\n",
+		"build/gate/runtime-tools/go.sum":                      "tools sum\n",
+		"internal/devtools/gate/executor_seed.go":              "package gate\n",
+		"cmd/super-dolphin-gate/remote_refresh_seed.go":        "package main\n",
+		"cmd/super-dolphin-gate/remote_refresh_seed_script.go": "package main\n",
 	}
-	entries := []sourceexport.TreeEntry{
-		contextEntry("build/gate/runtime-deps.lock", "100644", testRuntimeDepsLock(inputs)),
-		contextEntry("cmd/super-dolphin-gate/main.go", "100644", "package main\n"),
-		contextEntry("build/gate/Dockerfile", "100644", dockerfile),
-		contextEntry("build/gate/inputs.json", "100644", manifest+"\n"),
-	}
-	for _, path := range runtimeDepsTestInputPaths() {
-		entries = append(entries, contextEntry(path, "100644", inputs[path]))
-	}
-	return entries
+	return inputs
 }

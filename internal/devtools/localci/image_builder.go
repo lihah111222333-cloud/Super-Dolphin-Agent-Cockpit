@@ -3,12 +3,9 @@ package localci
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/url"
 	"slices"
@@ -20,10 +17,11 @@ import (
 )
 
 const (
-	buildInputManifestPath  = "build/gate/inputs.json"
-	toolchainLockPath       = "build/gate/toolchain.lock"
-	imageInputSchemaVersion = "1"
-	sourceDateEpochArgument = "SOURCE_DATE_EPOCH"
+	buildInputManifestPath          = "build/gate/inputs.json"
+	buildInputManifestSchemaVersion = "2"
+	toolchainLockPath               = "build/gate/toolchain.lock"
+	imageInputSchemaVersion         = "1"
+	sourceDateEpochArgument         = "SOURCE_DATE_EPOCH"
 )
 
 // BuildKitRunner 只接收经过安全收敛的候选镜像构建请求。
@@ -101,15 +99,17 @@ type ImageBuilder struct {
 }
 
 type buildInputManifest struct {
-	SchemaVersion string   `json:"schema_version"`
-	Dockerfile    string   `json:"dockerfile"`
-	Inputs        []string `json:"inputs"`
+	SchemaVersion     string   `json:"schema_version"`
+	Dockerfile        string   `json:"dockerfile"`
+	Inputs            []string `json:"inputs"`
+	GateCompileInputs []string `json:"gate_compile_inputs"`
 }
 
 type preparedCandidate struct {
-	result        CandidateResult
-	buildRequest  BuildKitBuildRequest
-	sourceEntries []sourceexport.TreeEntry
+	result           CandidateResult
+	buildRequest     BuildKitBuildRequest
+	sourceEntries    []sourceexport.TreeEntry
+	gateSourceDigest string
 }
 
 type dockerfileStageTracker struct {
@@ -175,6 +175,11 @@ func prepareCandidate(request CandidateRequest) (preparedCandidate, error) {
 	if err != nil {
 		return preparedCandidate{}, err
 	}
+	return prepareCandidateBuildInputs(request, manifest, manifestData, entriesByPath, closure, closureByPath)
+}
+
+// prepareCandidateBuildInputs 解析锁定输入并形成受限的 BuildKit 请求。
+func prepareCandidateBuildInputs(request CandidateRequest, manifest buildInputManifest, manifestData []byte, entriesByPath map[string]sourceexport.TreeEntry, closure []sourceexport.TreeEntry, closureByPath map[string]sourceexport.TreeEntry) (preparedCandidate, error) {
 	lock, lockData, err := loadToolchainLock(entriesByPath, closureByPath, request.Platform)
 	if err != nil {
 		return preparedCandidate{}, err
@@ -196,9 +201,25 @@ func prepareCandidate(request CandidateRequest) (preparedCandidate, error) {
 	if err != nil {
 		return preparedCandidate{}, fmt.Errorf("build canonical candidate context: %w", err)
 	}
-	prepared := assemblePreparedCandidate(request, manifest, lock, runtimeDeps, manifestData, lockData, dockerfile, arguments, runtimeDepsArguments, canonicalContext)
-	prepared.sourceEntries = cloneTreeEntries(closure)
+	gateSourceDigest, err := gateCompileSourceDigest(manifest, closureByPath)
+	if err != nil {
+		return preparedCandidate{}, err
+	}
+	prepared := assemblePreparedCandidate(request, manifest, lock, runtimeDeps, manifestData, lockData, dockerfile, arguments, runtimeDepsArguments, canonicalContext, gateSourceDigest)
+	prepared.sourceEntries, prepared.gateSourceDigest = cloneTreeEntries(closure), gateSourceDigest
 	return prepared, nil
+}
+
+func gateCompileSourceDigest(manifest buildInputManifest, closure map[string]sourceexport.TreeEntry) (string, error) {
+	gateCompileClosure, err := resolveGateCompileClosure(manifest, closure)
+	if err != nil {
+		return "", err
+	}
+	gateContext, err := buildCanonicalContext(gateCompileClosure)
+	if err != nil {
+		return "", fmt.Errorf("build canonical gate compile context: %w", err)
+	}
+	return gateContext.ContextDigest, nil
 }
 
 func validateCandidateRequestIdentity(request CandidateRequest) error {
@@ -249,12 +270,20 @@ func loadBuildInputManifest(entries map[string]sourceexport.TreeEntry) (buildInp
 
 // validateBuildInputManifest 校验 manifest 版本、顺序和必需构建输入。
 func validateBuildInputManifest(manifest buildInputManifest) error {
-	if manifest.SchemaVersion != "1" {
+	if manifest.SchemaVersion != buildInputManifestSchemaVersion {
 		return fmt.Errorf("build input manifest schema version %q is unsupported", manifest.SchemaVersion)
 	}
 	if err := validateContextPath(manifest.Dockerfile, make(map[string]string)); err != nil {
 		return fmt.Errorf("manifest Dockerfile: %w", err)
 	}
+	if err := validateManifestInputs(manifest); err != nil {
+		return err
+	}
+	return validateGateCompileInputs(manifest)
+}
+
+// validateManifestInputs 校验构建输入列表及其必需闭包。
+func validateManifestInputs(manifest buildInputManifest) error {
 	if err := validateSortedUnique("build input manifest", manifest.Inputs); err != nil {
 		return err
 	}
@@ -266,6 +295,30 @@ func validateBuildInputManifest(manifest buildInputManifest) error {
 	for _, input := range manifest.Inputs {
 		if err := validateInputPattern(input); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// validateGateCompileInputs 校验 gate 编译输入完全属于构建闭包。
+func validateGateCompileInputs(manifest buildInputManifest) error {
+	if err := validateSortedUnique("gate compile input manifest", manifest.GateCompileInputs); err != nil {
+		return err
+	}
+	for _, input := range manifest.GateCompileInputs {
+		if strings.ContainsAny(input, "*?[") {
+			return fmt.Errorf("gate compile input %q must be an exact path", input)
+		}
+		if err := validateContextPath(input, make(map[string]string)); err != nil {
+			return fmt.Errorf("gate compile input %q: %w", input, err)
+		}
+		if !inputPatternsCover(manifest.Inputs, input) {
+			return fmt.Errorf("gate compile input %q is outside the build input closure", input)
+		}
+	}
+	for _, required := range []string{"cmd/super-dolphin-gate/main.go", "go.mod", "go.sum"} {
+		if !slices.Contains(manifest.GateCompileInputs, required) {
+			return fmt.Errorf("gate compile input manifest is missing required path %q", required)
 		}
 	}
 	return nil
@@ -309,6 +362,19 @@ func expandInputClosure(manifest buildInputManifest, entries map[string]sourceex
 	}
 	sort.Slice(ordered, func(left int, right int) bool { return ordered[left].Path < ordered[right].Path })
 	return ordered, closure, nil
+}
+
+// resolveGateCompileClosure 从已展开闭包中提取严格文件级的 gate CLI 编译输入。
+func resolveGateCompileClosure(manifest buildInputManifest, closure map[string]sourceexport.TreeEntry) ([]sourceexport.TreeEntry, error) {
+	entries := make([]sourceexport.TreeEntry, 0, len(manifest.GateCompileInputs))
+	for _, name := range manifest.GateCompileInputs {
+		entry, exists := closure[name]
+		if !exists {
+			return nil, fmt.Errorf("gate compile input %q is missing from the expanded closure", name)
+		}
+		entries = append(entries, entry)
+	}
+	return entries, nil
 }
 
 func expandInputPattern(pattern string, entries map[string]sourceexport.TreeEntry, closure map[string]sourceexport.TreeEntry) int {
@@ -409,12 +475,12 @@ func validateRemoteRegistryHost(registry string) error {
 	return nil
 }
 
-func assemblePreparedCandidate(request CandidateRequest, manifest buildInputManifest, lock toolchainLock, runtimeDeps runtimeDepsLock, manifestData []byte, lockData []byte, dockerfile []byte, arguments []BuildArgument, runtimeDepsArguments []BuildArgument, canonical canonicalContext) preparedCandidate {
+func assemblePreparedCandidate(request CandidateRequest, manifest buildInputManifest, lock toolchainLock, runtimeDeps runtimeDepsLock, manifestData []byte, lockData []byte, dockerfile []byte, arguments []BuildArgument, runtimeDepsArguments []BuildArgument, canonical canonicalContext, gateSourceDigest string) preparedCandidate {
 	manifestDigest := bytesDigest(manifestData)
 	toolchainDigest := bytesDigest(lockData)
 	dockerfileDigest := bytesDigest(dockerfile)
 	runtimeDepsInputDigest := fieldsDigest(runtimeDepsInputsDigest(runtimeDeps.Inputs), request.Platform)
-	fields := []string{canonical.ContextDigest, canonical.InputDigest, manifestDigest, toolchainDigest, dockerfileDigest, runtimeDepsInputDigest, request.PolicyDigest, request.ImageSchemaVersion, request.Platform, lock.BuildKitVersion, lock.BuildKitImage, lock.DockerfileFrontend, lock.NetworkPolicy}
+	fields := []string{canonical.ContextDigest, canonical.InputDigest, gateSourceDigest, manifestDigest, toolchainDigest, dockerfileDigest, runtimeDepsInputDigest, request.PolicyDigest, request.ImageSchemaVersion, request.Platform, lock.BuildKitVersion, lock.BuildKitImage, lock.DockerfileFrontend, lock.NetworkPolicy}
 	for _, argument := range arguments {
 		fields = append(fields, argument.Name, argument.Value)
 	}
@@ -435,14 +501,6 @@ func assemblePreparedCandidate(request CandidateRequest, manifest buildInputMani
 		NetworkPolicy: lock.NetworkPolicy, CacheNamespace: inputDigest,
 	}
 	return preparedCandidate{result: result, buildRequest: buildRequest}
-}
-
-func runtimeDepsInputsDigest(inputs runtimeDepsInputs) string {
-	fields := make([]string, 0, 28)
-	for _, binding := range runtimeDepsInputBindings(inputs) {
-		fields = append(fields, binding.path, binding.digest)
-	}
-	return fieldsDigest(fields...)
 }
 
 // validateCandidateDockerfile 绑定锁定参数，并拒绝越界构建能力和未声明输入。
@@ -823,65 +881,4 @@ func validateCopyDirectoryClosure(cleaned string, closure map[string]sourceexpor
 		return errors.New("source does not exist in the Git tree")
 	}
 	return nil
-}
-
-func validateImmutableReference(name string, reference string) error {
-	separator := strings.LastIndex(reference, "@")
-	if separator <= 0 {
-		return fmt.Errorf("%s must use an immutable repository@sha256 reference", name)
-	}
-	return validateDigest(name, reference[separator+1:])
-}
-
-func validateSourceDateEpoch(value string) error {
-	seconds, err := strconv.ParseInt(value, 10, 64)
-	if err != nil || seconds < 0 || strconv.FormatInt(seconds, 10) != value {
-		return errors.New("source_date_epoch must be a canonical non-negative integer")
-	}
-	return nil
-}
-
-func validateSortedUnique(name string, values []string) error {
-	if len(values) == 0 {
-		return fmt.Errorf("%s must not be empty", name)
-	}
-	previous := ""
-	for _, value := range values {
-		if value == "" || value <= previous {
-			return fmt.Errorf("%s must be non-empty, unique, and sorted", name)
-		}
-		previous = value
-	}
-	return nil
-}
-
-func containsString(values []string, wanted string) bool {
-	return slices.Contains(values, wanted)
-}
-
-func decodeStrictJSON(data []byte, target any) error {
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
-		return err
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return errors.New("JSON document contains trailing data")
-	}
-	return nil
-}
-
-func bytesDigest(data []byte) string {
-	sum := sha256.Sum256(data)
-	return "sha256:" + hex.EncodeToString(sum[:])
-}
-
-func fieldsDigest(fields ...string) string {
-	var payload []byte
-	for _, field := range fields {
-		payload = append(payload, field...)
-		payload = append(payload, 0)
-	}
-	return bytesDigest(payload)
 }
