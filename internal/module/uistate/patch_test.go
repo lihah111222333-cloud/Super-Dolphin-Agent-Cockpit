@@ -180,7 +180,7 @@ func TestTurnCompletedPatchIncludesLastActiveAt(t *testing.T) {
 	_ = mustReceiveThreadPatch(t, got)
 
 	turnHeader.Timestamp = completedAt
-	svc.applyTurnCompleted(canonicalPatchTurnCompleted(t, turndto.TurnCompleted{TurnHeader: turnHeader, Success: true, Status: "completed"}))
+	svc.applyTurnCompleted(canonicalPatchTurnCompleted(t, turndto.TurnCompleted{TurnHeader: turnHeader, Success: true, Status: "completed", Summary: "completed"}))
 	patch := mustReceiveThreadPatch(t, got)
 
 	if patch.Source != "turn/completed" || patch.Status != "idle" {
@@ -250,7 +250,7 @@ func TestTurnOutputDeltaUpdatesLastMessageWithoutPublishingThreadPatch(t *testin
 	}
 	assertNoThreadPatch(t, got, "turn/outputDelta")
 
-	svc.applyTurnCompleted(canonicalPatchTurnCompleted(t, turndto.TurnCompleted{TurnHeader: turnHeader, Success: true, Status: "completed"}))
+	svc.applyTurnCompleted(canonicalPatchTurnCompleted(t, turndto.TurnCompleted{TurnHeader: turnHeader, Success: true, Status: "completed", Summary: "completed"}))
 	patch := mustReceiveThreadPatch(t, got)
 	if patch.Source != "turn/completed" || patch.ThreadID != "thread-stream" {
 		t.Fatalf("completion patch = %#v", patch)

@@ -256,6 +256,13 @@ func assertFullChainCodexIdentity(t *testing.T, h *fxHarness, wantHome string) {
 			h.bindingStore.upsert.CodexModelProvider,
 			wantHome)
 	}
+	if h.bindingStore.upsert.ProviderRecoveryHome != wantHome ||
+		h.bindingStore.binding.ProviderRecoveryHome != h.bindingStore.upsert.ProviderRecoveryHome {
+		t.Fatalf("binding provider recovery home = (upsert:%q, record:%q), want (%q, parity)",
+			h.bindingStore.upsert.ProviderRecoveryHome,
+			h.bindingStore.binding.ProviderRecoveryHome,
+			wantHome)
+	}
 }
 
 func assertFullChainStartResult(t *testing.T, result thread.StartResult) {

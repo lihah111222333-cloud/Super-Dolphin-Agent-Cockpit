@@ -308,6 +308,7 @@ func TestRegisterSubscriptions_TurnCompleted(t *testing.T) {
 		},
 		Success: true,
 		Status:  "completed",
+		Summary: "public success summary",
 	}))
 
 	time.Sleep(50 * time.Millisecond)

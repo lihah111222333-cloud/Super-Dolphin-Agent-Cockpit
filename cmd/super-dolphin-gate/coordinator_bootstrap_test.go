@@ -520,7 +520,17 @@ func installProductionBootstrapTestController(t *testing.T, fixture *productionT
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(controller, data, 0o500); err != nil {
+	if err := os.WriteFile(controller, data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command(
+		"/usr/bin/codesign", "--force", "--sign", "-", "--identifier",
+		"com.super-dolphin.bootstrap.controller-protocol-e2e", controller,
+	)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("codesign bootstrap controller protocol fixture: %v: %s", err, strings.TrimSpace(string(output)))
+	}
+	if err := os.Chmod(controller, 0o500); err != nil {
 		t.Fatal(err)
 	}
 	requirement := productionBootstrapDesignatedRequirement(t, controller)

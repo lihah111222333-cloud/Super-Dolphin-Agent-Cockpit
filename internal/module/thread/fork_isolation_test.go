@@ -77,7 +77,7 @@ func TestServiceForkUsesRecoverableSessionUUIDWhenProviderThreadIDMissing(t *tes
 		AgentID:       "agent-parent",
 		Provider:      "codex",
 		CodexThreadID: "agent-parent",
-		RolloutPath:   writeExistingProviderHistoryFile(t),
+		RolloutPath:   writeExistingProviderHistoryFile(t, parentUUID),
 		SessionUUID:   parentUUID,
 		Cwd:           "/repo",
 	}}
@@ -284,7 +284,10 @@ func TestPersistedForkCreatingAndFailedAreNotBackgroundResumeCandidates(t *testi
 
 			svc, _, _, _ := newPersistedForkLifecycleFixture(t, status, "thread-parent")
 
-			agentID, ok := svc.backgroundResumeCandidate(context.Background(), "thread-fork")
+			agentID, ok, err := svc.backgroundResumeCandidate(context.Background(), "thread-fork")
+			if err != nil {
+				t.Fatalf("backgroundResumeCandidate() error = %v", err)
+			}
 
 			if ok || agentID != "" {
 				t.Fatalf("backgroundResumeCandidate() = %q/%v, want no candidate for fork status %q", agentID, ok, status)
@@ -396,7 +399,7 @@ func forkParentThreadStore() *stubThreadStore {
 func newPersistedForkLifecycleFixture(t *testing.T, status, ownerThreadID string) (*service, *recordingForkThreadStore, *stubBindingStore, *int) {
 	t.Helper()
 	provider := "claude"
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, retainedForkProviderThreadID, provider)
 	threads := &recordingForkThreadStore{stubThreadStore: &stubThreadStore{
 		thread: &ThreadRecord{
 			ThreadID:      "thread-fork",
@@ -567,10 +570,11 @@ func TestServiceRecoverRejectsMissingCWDBeforeOrchestrationSideEffects(t *testin
 		CreatedAt: 123,
 	}}
 	bindings := &stubBindingStore{binding: &BindingRecord{
-		AgentID:          "agent-parent",
-		Provider:         "codex",
-		ProviderThreadID: "provider-parent",
-		CodexThreadID:    "thread-parent",
+		AgentID:              "agent-parent",
+		Provider:             "codex",
+		ProviderThreadID:     "11111111-2222-3333-4444-555555555594",
+		CodexThreadID:        "thread-parent",
+		ProviderRecoveryHome: t.TempDir(),
 	}}
 	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
 		t.Fatal("ResumeSession should not be called when recover cwd is missing")
@@ -607,7 +611,7 @@ type recoverServiceFixture struct {
 func newResumeRecoverFixture(t *testing.T, stores ...ThreadStore) *recoverServiceFixture {
 	t.Helper()
 	const providerParentUUID = "019d5f6b-fb3c-7760-9d6f-54005553f5b3"
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, providerParentUUID)
 	resumedSession := &stubSession{threadID: providerParentUUID, rolloutPath: rolloutPath}
 	manager := unified.NewSessionManager(nil)
 	threads := resumeRecoverThreadStore()
@@ -704,7 +708,7 @@ func newClaudeRecoverService(t *testing.T) *service {
 	model := "claude-sonnet-4-20250514[1m]"
 	effort := "max"
 	const providerParentUUID = "019d5f6b-fb3c-7760-9d6f-54005553f5b3"
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, providerParentUUID, "claude")
 	resumedSession := &stubSession{threadID: providerParentUUID, rolloutPath: rolloutPath}
 	sessions := &stubSessionProvider{}
 	starter := &stubSessionStarter{onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
@@ -772,13 +776,14 @@ func assertRecoverResumeEnvelope(t *testing.T, result RecoverResult) {
 func TestServiceRecoverReturnsRestoreEnvelopeWhenSessionActive(t *testing.T) {
 	t.Parallel()
 
-	sessions := &stubSessionProvider{session: &stubSession{threadID: "provider-parent"}}
+	sessions := &stubSessionProvider{session: &stubSession{threadID: "11111111-2222-3333-4444-555555555594"}}
 	bindings := &stubBindingStore{binding: &BindingRecord{
-		AgentID:          "agent-parent",
-		Provider:         "codex",
-		ProviderThreadID: "provider-parent",
-		CodexThreadID:    "thread-parent",
-		Cwd:              "/repo",
+		AgentID:              "agent-parent",
+		Provider:             "codex",
+		ProviderThreadID:     "11111111-2222-3333-4444-555555555594",
+		CodexThreadID:        "thread-parent",
+		ProviderRecoveryHome: t.TempDir(),
+		Cwd:                  "/repo",
 	}}
 	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "thread-parent",

@@ -16,6 +16,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 	codexprotocol "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/contracttest"
@@ -28,6 +29,27 @@ func TestCodexAppProviderContract(t *testing.T) {
 		return providershared.ToolResultRecord{}, nil
 	})
 	contracttest.Run(t, CompleteCodexAppContractSpec())
+}
+
+func TestCodexAppNativeSuccessCarriesTrustedSummary(t *testing.T) {
+	payload := map[string]any{
+		"timestamp": "2026-07-07T01:02:03Z", "threadId": "thread-codex-contract",
+		"agentId": "agent-codex-contract", "turnId": "turn-codex-contract",
+		"success": true, "status": "completed", "summary": "public contract success",
+	}
+	outcome := canonicalTurnTerminalOutcome("turn/completed", payload)
+	event, ok := translateTurnEvent("turn/completed", payload, &outcome)
+	completed, typed := event.(turndto.TurnCompleted)
+	if !ok || !typed {
+		t.Fatalf("translateTurnEvent() = (%T, %v), want TurnCompleted", event, ok)
+	}
+	terminal, err := turndto.NewTurnTerminalV2(completed, "codex-native-success")
+	if err != nil {
+		t.Fatalf("NewTurnTerminalV2() error = %v", err)
+	}
+	if terminal.PublicSummary != "public contract success" {
+		t.Fatalf("terminal.PublicSummary = %q, want public contract success", terminal.PublicSummary)
+	}
 }
 
 func CompleteCodexAppContractSpec() contracttest.Spec {

@@ -146,6 +146,7 @@ it("retires a pending T1 terminal for an authoritative T2 patch while keeping T1
         threadId: "thread-1",
         turnId: "turn-2",
         outcome: "success",
+        publicSummary: "Public success summary",
         occurredAt: "2026-07-21T01:00:01Z",
       },
     });
@@ -213,6 +214,7 @@ it("rejects a late canonical terminal from a retired scope subscription", async 
       threadId: "thread-1",
       turnId: "turn-a",
       outcome: "success",
+      publicSummary: "Public success summary",
       occurredAt: "2026-07-21T01:00:00Z",
     },
   });
@@ -224,6 +226,7 @@ it("rejects a late canonical terminal from a retired scope subscription", async 
       threadId: "thread-1",
       turnId: "turn-b",
       outcome: "success",
+      publicSummary: "Public success summary",
       occurredAt: "2026-07-21T01:00:01Z",
     },
   });
@@ -347,6 +350,7 @@ it("fails closed without switching scope when the bounded scope ledger is exhaus
       threadId: "thread-1",
       turnId: "turn-1",
       outcome: "success",
+      publicSummary: "Public success summary",
       occurredAt: "2026-07-21T01:00:00Z",
     },
   });
@@ -418,6 +422,7 @@ it("keeps a retired terminal sealed across CWD return and retired-cache eviction
       threadId: "thread-1",
       turnId: "turn-2",
       outcome: "success",
+      publicSummary: "Public success summary",
       occurredAt: "2026-07-21T01:00:01Z",
     },
   });
@@ -441,6 +446,7 @@ it("keeps a retired terminal sealed across CWD return and retired-cache eviction
         threadId: "thread-1",
         turnId: `turn-${index}`,
         outcome: "success",
+        publicSummary: "Public success summary",
         occurredAt: "2026-07-21T01:00:01Z",
       },
     });
@@ -473,6 +479,7 @@ it("keeps a retired terminal sealed across CWD return and retired-cache eviction
       threadId: "thread-1",
       turnId: "turn-1",
       outcome: "success",
+      publicSummary: "Public success summary",
       occurredAt: "2026-07-21T01:00:02Z",
     },
   });
@@ -545,6 +552,7 @@ it("does not flush or finalize a newer buffered turn when an older terminal arri
         threadId: "thread-1",
         turnId: "turn-1",
         outcome: "success",
+        publicSummary: "Public success summary",
         occurredAt: "2026-07-16T01:00:00Z",
       },
     });
@@ -651,6 +659,7 @@ it("evicts sealed terminal state when a thread lifecycle ends", async () => {
       threadId: "thread-1",
       turnId: "turn-1",
       outcome: "success",
+      publicSummary: "Public success summary",
       occurredAt: "2026-07-16T01:00:00Z",
     },
   };
@@ -737,6 +746,7 @@ it("routes every typed Wails wire method without treating lifecycle events as le
           threadId: "thread-1",
           turnId: "turn-1",
           outcome: "success",
+          publicSummary: "Public success summary",
           occurredAt: "2026-07-21T01:00:00Z",
         }
         : method === "task/node/statusChanged"

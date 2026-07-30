@@ -52,6 +52,7 @@ func TestTurnCompleted_EndToEnd_AccumulatedResult(t *testing.T) {
 		"turnId":  "T-e2e",
 		"success": true,
 		"status":  "completed",
+		"summary": "public accumulated success",
 	})
 	if err != nil {
 		t.Fatalf("marshal terminal: %v", err)
@@ -89,7 +90,7 @@ func TestOnNotificationFirstTerminalWinsBeforeDispatch(t *testing.T) {
 		turns:        map[string]*turnHandle{"turn-provider": h},
 		activeTurnID: "turn-provider",
 	}
-	s.onNotification("turn/completed", json.RawMessage(`{"turnId":"turn-provider","threadId":"thread-provider","timestamp":"2026-07-16T10:11:12.123Z","success":true,"status":"completed"}`))
+	s.onNotification("turn/completed", json.RawMessage(`{"turnId":"turn-provider","threadId":"thread-provider","timestamp":"2026-07-16T10:11:12.123Z","success":true,"status":"completed","summary":"public first success"}`))
 	s.onNotification("turn/failed", json.RawMessage(`{"turnId":"turn-provider","threadId":"thread-provider","timestamp":"2026-07-16T10:11:12.123Z","success":false,"status":"failed","error":"late failure"}`))
 
 	select {
@@ -127,7 +128,7 @@ func TestOnNotificationOwnerlessTerminalIsRejected(t *testing.T) {
 	defer cancelSub()
 
 	s := &session{agentID: "agent-public", dispatcher: dispatcher}
-	s.onNotification("turn/completed", json.RawMessage(`{"turnId":"turn-provider","threadId":"thread-provider","timestamp":"2026-07-16T10:11:12.123Z","success":true,"status":"completed"}`))
+	s.onNotification("turn/completed", json.RawMessage(`{"turnId":"turn-provider","threadId":"thread-provider","timestamp":"2026-07-16T10:11:12.123Z","success":true,"status":"completed","summary":"public ownerless success"}`))
 
 	select {
 	case terminal := <-completedEvents:
@@ -152,7 +153,7 @@ func TestOnNotificationOldOwnerlessTerminalIsRejectedAfterChurn(t *testing.T) {
 	for i := range liveTerminalCount {
 		turnID := fmt.Sprintf("turn-%d", i)
 		s.turns[turnID] = newTurnHandle("local-"+turnID, turnID)
-		s.onNotification("turn/completed", json.RawMessage(`{"turnId":"`+turnID+`","timestamp":"2026-07-16T10:11:12.123Z","success":true,"status":"completed"}`))
+		s.onNotification("turn/completed", json.RawMessage(`{"turnId":"`+turnID+`","timestamp":"2026-07-16T10:11:12.123Z","success":true,"status":"completed","summary":"public live success"}`))
 	}
 	for range liveTerminalCount {
 		select {
@@ -213,6 +214,7 @@ func TestTurnCompleted_EndToEnd_ReasoningDeltaNotAccumulatedAsResult(t *testing.
 	terminal, err := json.Marshal(map[string]any{
 		"turnId":  "T-reasoning",
 		"success": true,
+		"summary": "public reasoning success",
 	})
 	if err != nil {
 		t.Fatalf("marshal terminal: %v", err)
@@ -241,6 +243,7 @@ func TestTurnCompleted_EndToEnd_TruncatedPropagatesButResultStillSet(t *testing.
 	terminal, _ := json.Marshal(map[string]any{
 		"turnId":  "T-trunc",
 		"success": true,
+		"summary": "public truncated success",
 	})
 	merged := s.sniffTurnOutput("turn/completed", terminal)
 	payload := decodeEventPayload(merged)
@@ -292,6 +295,7 @@ func TestTurnCompleted_EndToEnd_SuccessReasonDoesNotPopulateError(t *testing.T) 
 		"turnId":  "T-synthetic",
 		"success": true,
 		"status":  "completed",
+		"summary": "public synthetic success",
 		"reason":  "assistant_message_completed",
 	})
 	completed, ok := sniffAndTranslate(t, s, "turn/completed", terminal)
@@ -316,6 +320,7 @@ func TestTurnCompleted_EndToEnd_NoDeltaNoResult(t *testing.T) {
 		"turnId":  "T-quiet",
 		"success": true,
 		"status":  "completed",
+		"summary": "public quiet success",
 	})
 	completed, ok := sniffAndTranslate(t, s, "turn/completed", terminal)
 	if !ok {
@@ -666,7 +671,7 @@ func TestOnNotification_PublicThreadTerminalCompletesActiveTurn(t *testing.T) {
 	s.threadID.Store("thread-provider")
 
 	s.onNotification("turn/completed", json.RawMessage(
-		`{"threadId":"thread-public","turnId":"T-own","timestamp":"2026-07-25T04:16:48Z","success":true,"status":"completed"}`,
+		`{"threadId":"thread-public","turnId":"T-own","timestamp":"2026-07-25T04:16:48Z","success":true,"status":"completed","summary":"public thread success"}`,
 	))
 
 	select {

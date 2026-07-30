@@ -2,6 +2,7 @@ package unified
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/clone"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/providerrecovery"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
@@ -32,7 +34,7 @@ func (r *sessionResolver) buildAutoResumePlan(binding *contract.SessionBinding, 
 	providerThreadID, err := recoverableAutoResumeProviderThreadID(binding)
 	if err != nil {
 		logUnrecoverableAutoResumeBinding(binding, provider, err)
-		return autoResumePlan{}, contract.ErrSessionNotFound
+		return autoResumePlan{}, autoResumeRecoveryError(err)
 	}
 	driver, err := r.autoResumeDriver(provider)
 	if err != nil {
@@ -47,6 +49,14 @@ func (r *sessionResolver) buildAutoResumePlan(binding *contract.SessionBinding, 
 		return autoResumePlan{}, fmt.Errorf("resolve session: auto-resume prompt snapshot: %w", err)
 	}
 	return autoResumePlan{driver: driver, req: req}, nil
+}
+
+// autoResumeRecoveryError 只把明确 artifact missing 映射为 session not found。
+func autoResumeRecoveryError(err error) error {
+	if errors.Is(err, providerrecovery.ErrNotFound) {
+		return fmt.Errorf("resolve session: provider recovery missing: %w", contract.ErrSessionNotFound)
+	}
+	return fmt.Errorf("resolve session: provider recovery failed: %w", err)
 }
 
 // autoResumeBindingProvider 读取 binding 中的 provider 名称，缺失时返回可见错误。
@@ -84,10 +94,19 @@ func buildAutoResumeRequest(binding *contract.SessionBinding, runtimeConfig map[
 		CWD:                cwd,
 		Config:             clone.RuntimeConfigMap(runtimeConfig),
 		PromptSnapshot:     cloneAutoResumePromptSnapshot(promptSnapshot),
+		ClaudeHome:         autoResumeClaudeHome(provider, binding.ProviderRecoveryHome),
 		CodexHome:          codexHome,
 		CodexInstanceKey:   codexInstanceKey,
 		CodexModelProvider: codexModelProvider,
 	}
+}
+
+// autoResumeClaudeHome 只把已持久化 binding owner 交给 Claude driver。
+func autoResumeClaudeHome(provider, recoveryHome string) string {
+	if !strings.EqualFold(strings.TrimSpace(provider), "claude") {
+		return ""
+	}
+	return strings.TrimSpace(recoveryHome)
 }
 
 func cloneAutoResumePromptSnapshot(snapshot contract.PromptAssemblySnapshot) dto.PromptAssemblySnapshot {

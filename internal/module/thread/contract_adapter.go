@@ -436,7 +436,7 @@ func (s *service) providerThreadNameTargetID(ctx context.Context, threadID, agen
 	if err != nil {
 		return "", err
 	}
-	return historyTargetIDRecord(binding, threadID), nil
+	return historyTargetIDRecord(binding, threadID)
 }
 
 func (s *service) providerThreadNameBindingRecord(ctx context.Context, agentID string) (*threadBindingRecord, error) {

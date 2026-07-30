@@ -8,6 +8,7 @@ function RuntimePanelSlot({
   geometrySnapshot,
   handleKeyDown,
   layoutActions,
+  onShowAgents,
   open,
   projectPath,
   projects,
@@ -50,6 +51,7 @@ function RuntimePanelSlot({
         renderMarkdownPreview={renderMarkdownPreview}
         geometrySnapshot={geometrySnapshot}
         layoutActions={layoutActions}
+        onShowAgents={onShowAgents}
       />
     </>
   );

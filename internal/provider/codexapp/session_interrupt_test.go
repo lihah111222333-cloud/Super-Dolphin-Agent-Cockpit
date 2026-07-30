@@ -559,7 +559,7 @@ func serveEarlyTerminalTurnStart(t *testing.T, conn *websocket.Conn) {
 				"method":  "turn/completed",
 				"params": map[string]any{
 					"threadId": "thread-1", "turnId": "turn-early", "timestamp": "2026-07-16T10:11:12.123Z",
-					"success": true, "status": "completed",
+					"success": true, "status": "completed", "summary": "public early success",
 				},
 			}); err != nil {
 				return

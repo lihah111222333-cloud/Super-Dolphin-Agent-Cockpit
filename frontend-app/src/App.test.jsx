@@ -2541,16 +2541,16 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
     fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
 
-    const fileCountMetric = screen.getByLabelText('代码变更文件数');
-    const changedLineMetric = screen.getByLabelText('代码变更行数');
+    const fileCountMetric = screen.getByLabelText('代码变更文件数：2 个');
+    const changedLineMetric = screen.getByLabelText('代码变更行数：5 行');
     expect(fileCountMetric).toHaveTextContent('2');
     expect(fileCountMetric.querySelector('svg')).toHaveClass('lucide-file-text');
     expect(changedLineMetric).toHaveTextContent('5');
     expect(changedLineMetric.querySelector('svg')).toHaveClass('lucide-code-xml');
-    expect(screen.getByLabelText('代码新增行数')).toHaveTextContent('+3');
-    expect(screen.getByLabelText('代码删除行数')).toHaveTextContent('-2');
-    expect(screen.getByLabelText('代码新增行数')).not.toHaveTextContent('+0');
-    expect(screen.getByLabelText('代码删除行数')).not.toHaveTextContent('-1');
+    expect(screen.getByLabelText('代码新增行数：+3 行')).toHaveTextContent('+3');
+    expect(screen.getByLabelText('代码删除行数：-2 行')).toHaveTextContent('-2');
+    expect(screen.getByLabelText('代码新增行数：+3 行')).not.toHaveTextContent('+0');
+    expect(screen.getByLabelText('代码删除行数：-2 行')).not.toHaveTextContent('-1');
   });
 
   it('renders a grouped line-by-line diff instead of raw patch text', async () => {

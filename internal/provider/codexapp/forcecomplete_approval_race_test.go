@@ -12,9 +12,103 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/kelindar/event"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
+
+func TestForceCompletePublishesInterruptedSystemTerminal(t *testing.T) {
+	fixture := newCountingForceCompleteFixture(t)
+	defer fixture.close()
+
+	s := newForceCompleteTestSession(t, fixture.url())
+	s.runtime.Start()
+	defer closeCodexTestSession(t, s)
+	completedCh := bindForceCompleteTerminalProbe(t, s)
+	active := configureSingleForceCompleteTurn(s, "turn-1")
+
+	if err := s.ForceComplete(context.Background(), dto.ForceCompleteRequest{ThreadID: "thread-1"}); err != nil {
+		t.Fatalf("ForceComplete() error = %v", err)
+	}
+
+	completed := waitRolloutTurnCompleted(t, completedCh)
+	if completed.Success || completed.Status != "interrupted" || completed.Reason != "system" {
+		t.Fatalf("TurnCompleted = %#v, want interrupted/non-success/system", completed)
+	}
+	if completed.TerminationRequestID != "" || completed.Result != "" || completed.Summary != "" || completed.Message != "" {
+		t.Fatalf("TurnCompleted leaked fallback fields: %#v", completed)
+	}
+	terminal, canonical, err := turndto.CanonicalTurnTerminal(completed)
+	if err != nil || !canonical {
+		t.Fatalf("CanonicalTurnTerminal() = (%#v, %v, %v), want canonical terminal", terminal, canonical, err)
+	}
+	if terminal.Outcome != "interrupted" || terminal.TerminationCause != "system" {
+		t.Fatalf("terminal = %#v, want interrupted/system", terminal)
+	}
+	if terminal.TerminationRequestID != "" || terminal.PublicSummary != "" {
+		t.Fatalf("terminal terminationRequestId/publicSummary = (%q, %q), want empty", terminal.TerminationRequestID, terminal.PublicSummary)
+	}
+	if terminal.PublicError == nil || terminal.PublicError.Code != "TURN_TERMINATED" {
+		t.Fatalf("terminal publicError = %#v, want canonical TURN_TERMINATED", terminal.PublicError)
+	}
+	publishFinalAnswerItem(s, "late-final", "late duplicate")
+	assertNoRolloutTurnCompleted(t, completedCh)
+	assertTurnDone(t, active, "ForceComplete did not finish active turn")
+}
+
+func TestCompleteSyntheticTurnRejectsMissingTrustedSummary(t *testing.T) {
+	s := newInboundTestSession(context.Background(), nil, &ServerManager{})
+	completedCh := bindForceCompleteTerminalProbe(t, s)
+	active := configureSingleForceCompleteTurn(s, "turn-1")
+
+	s.completeSyntheticTurn("turn-1", "assistant_final_answer_completed", "private result", "", nil)
+
+	assertNoRolloutTurnCompleted(t, completedCh)
+	assertTurnOpen(t, active, "synthetic success without trusted public summary completed active turn")
+}
+
+func TestFinalAnswerWinsBlockedForceCompleteRace(t *testing.T) {
+	fixture := newBlockingForceCompleteFixture(t)
+	defer fixture.close()
+
+	s := newForceCompleteTestSession(t, fixture.url())
+	s.runtime.Start()
+	defer closeCodexTestSession(t, s)
+	completedCh := bindForceCompleteTerminalProbe(t, s)
+	active := configureSingleForceCompleteTurn(s, "turn-1")
+	done := startForceComplete(t, s)
+	fixture.awaitStarted(t)
+
+	publishFinalAnswerItem(s, "final-1", "trusted final answer")
+	completed := waitRolloutTurnCompleted(t, completedCh)
+	if !completed.Success || completed.Result != "trusted final answer" {
+		t.Fatalf("TurnCompleted = %#v, want first-owner final-answer success", completed)
+	}
+	assertCanonicalPublicSummary(t, completed, "trusted final answer")
+	fixture.release()
+	assertForceCompleteFinished(t, done)
+	assertNoRolloutTurnCompleted(t, completedCh)
+	assertTurnDone(t, active, "final answer did not finish active turn")
+}
+
+func bindForceCompleteTerminalProbe(t *testing.T, s *session) <-chan turndto.TurnCompleted {
+	t.Helper()
+	bus := event.NewDispatcher()
+	dispatcher := unified.NewEventDispatcher(bus, nil)
+	RegisterTranslators(dispatcher)
+	s.dispatcher = dispatcher
+	completedCh := make(chan turndto.TurnCompleted, 2)
+	cancel := event.Subscribe(bus, func(ev turndto.TurnCompleted) { completedCh <- ev })
+	t.Cleanup(func() {
+		cancel()
+		if err := bus.Close(); err != nil {
+			t.Errorf("close event dispatcher: %v", err)
+		}
+	})
+	return completedCh
+}
 
 func TestForceCompletePinsActiveTurnBeforeRemoteCall(t *testing.T) {
 	fixture := newBlockingForceCompleteFixture(t)

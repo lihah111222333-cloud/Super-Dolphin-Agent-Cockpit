@@ -375,35 +375,32 @@ func (s *session) forceCompleteTargetTurnID(providerID string) (string, bool) {
 }
 
 func (s *session) forceCompleteTurn(turnID string) {
-	s.completeSyntheticTurn(turnID, "force_complete", "", nil)
-}
-
-// completeSyntheticTurn 在 Codex 只给出 assistant message 时合成 turn 终态。
-// 若同一 active turn 已记录工具失败，终态必须标为 failed，避免 UI 误显示干净完成。
-func (s *session) completeSyntheticTurn(turnID, reason, result string, acceptedItemIDs []string) {
 	turnID = strings.TrimSpace(turnID)
 	if turnID == "" {
 		return
 	}
+	payload := map[string]any{"turnId": turnID, "timestamp": time.Now().UTC().Format(time.RFC3339Nano), "success": false, "status": "interrupted", "reason": "system", "termination_cause": "system"}
+	s.publishSyntheticTerminal(turnID, payload, &dto.TerminalOutcome{Status: "interrupted", Cause: "system"}, nil)
+}
+
+// completeSyntheticTurn 在 Codex 只给出 assistant message 时合成 turn 终态。
+// 若同一 active turn 已记录工具失败，终态必须标为 failed，避免 UI 误显示干净完成。
+func (s *session) completeSyntheticTurn(turnID, reason, result, publicSummary string, acceptedItemIDs []string) {
+	turnID, publicSummary = strings.TrimSpace(turnID), strings.TrimSpace(publicSummary)
+	if turnID == "" || publicSummary == "" {
+		return
+	}
 	failures := s.takeTurnToolFailures(turnID)
-	success := len(failures) == 0
-	status := "completed"
+	success, status := len(failures) == 0, "completed"
 	if !success {
 		status = "failed"
 	}
-	payload := map[string]any{
-		"turnId":    turnID,
-		"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
-		"success":   success,
-		"status":    status,
-		"reason":    strings.TrimSpace(reason),
+	payload := map[string]any{"turnId": turnID, "timestamp": time.Now().UTC().Format(time.RFC3339Nano), "success": success, "status": status, "reason": strings.TrimSpace(reason)}
+	if success {
+		payload["summary"] = publicSummary
 	}
 	if len(acceptedItemIDs) > 0 {
 		payload["accepted_partial_item_ids"] = slices.Clone(acceptedItemIDs)
-	}
-	if !success {
-		payload["error"] = toolFailureSummary(failures)
-		payload["tool_failure_count"] = len(failures)
 	}
 	result = strings.TrimSpace(result)
 	if result == "" {
@@ -413,7 +410,17 @@ func (s *session) completeSyntheticTurn(turnID, reason, result string, acceptedI
 	if result != "" {
 		payload["result"] = result
 	}
-	outcome := &dto.TerminalOutcome{Success: success, Status: status, Cause: strings.TrimSpace(reason)}
+	var terminalErr error
+	if !success {
+		failureSummary := toolFailureSummary(failures)
+		payload["error"], payload["tool_failure_count"] = failureSummary, len(failures)
+		terminalErr = errors.New(failureSummary)
+	}
+	s.publishSyntheticTerminal(turnID, payload, &dto.TerminalOutcome{Success: success, Status: status, Cause: strings.TrimSpace(reason)}, terminalErr)
+}
+
+// publishSyntheticTerminal 以同一 seal 顺序投影 synthetic 终态并完成原 live handle。
+func (s *session) publishSyntheticTerminal(turnID string, payload map[string]any, outcome *dto.TerminalOutcome, terminalErr error) {
 	if !s.claimTerminalSeal(payload) {
 		return
 	}
@@ -423,11 +430,7 @@ func (s *session) completeSyntheticTurn(turnID, reason, result string, acceptedI
 	if h == nil {
 		return
 	}
-	if !success {
-		h.complete(errors.New(toolFailureSummary(failures)))
-		return
-	}
-	h.complete(nil)
+	h.complete(terminalErr)
 }
 
 type turnToolFailure struct {
@@ -566,16 +569,11 @@ func toolFailureSummary(failures []turnToolFailure) string {
 		callID := strings.TrimSpace(failure.CallID)
 		toolName := strings.TrimSpace(failure.ToolName)
 		errorText := strings.TrimSpace(failure.Error)
-		switch {
-		case callID != "" && toolName != "":
-			parts = append(parts, callID+"/"+toolName+": "+errorText)
-		case callID != "":
-			parts = append(parts, callID+": "+errorText)
-		case toolName != "":
-			parts = append(parts, toolName+": "+errorText)
-		default:
-			parts = append(parts, errorText)
+		correlation := strings.Trim(strings.Join([]string{callID, toolName}, "/"), "/")
+		if correlation != "" {
+			correlation += ": "
 		}
+		parts = append(parts, correlation+errorText)
 	}
 	return strings.Join(parts, "; ")
 }

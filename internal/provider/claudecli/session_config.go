@@ -217,13 +217,13 @@ func (s *session) forceCompleteTarget(providerID string) (*transport, *turnHandl
 	return s.transport, handle, turnID
 }
 
-// forceCompleteTurn 在确认 active turn 未漂移后发布完成事件。
+// forceCompleteTurn 在确认 active turn 未漂移后发布系统中断事件。
 // 已收口 turn 的 transport 不能再承载新 turn，否则迟到 result 会被错误归属给新 handle。
 func (s *session) forceCompleteTurn(tr *transport, target *turnHandle, turnID string) {
 	if target == nil || turnID == "" {
 		return
 	}
-	var complete dto.RawProviderEvent
+	var interrupted dto.RawProviderEvent
 	s.mu.Lock()
 	if s.activeTurn != target || currentTurnID(s.activeTurn) != turnID {
 		s.mu.Unlock()
@@ -236,14 +236,12 @@ func (s *session) forceCompleteTurn(tr *transport, target *turnHandle, turnID st
 	if tr != nil && s.transport == tr {
 		s.fencedTransport = tr
 	}
-	complete = s.turnRawEventLocked("turn:complete", turnID, map[string]any{
-		"success": true,
-		"status":  "completed",
-		"reason":  "force_complete",
+	interrupted = s.turnRawEventLocked("turn:interrupted", turnID, map[string]any{
+		"termination_cause": "system",
 	})
 	handle := s.takeActiveTurnLocked()
 	s.mu.Unlock()
-	s.dispatch(complete)
+	s.dispatch(interrupted)
 	handle.finish(nil)
 }
 

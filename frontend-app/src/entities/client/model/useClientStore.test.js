@@ -4036,7 +4036,7 @@ function registerBridgeEventHandlersForTest() {
         eventId: 'terminal-turn1',
         threadId: 'agent-douyin',
         turnId: 'turn1',
-        outcome: 'success',
+        outcome: 'success', publicSummary: 'Public success summary',
         occurredAt: '2026-07-16T01:00:00Z',
       }
     });
@@ -6424,7 +6424,7 @@ function registerBridgeEventHandlersForTest() {
         eventId: 'terminal-conflicting-pending',
         threadId: 'thread-1',
         turnId: 'turn-1',
-        outcome: 'success',
+        outcome: 'success', publicSummary: 'Public success summary',
         occurredAt: '2026-07-19T01:00:01Z',
       },
     });
@@ -6470,7 +6470,7 @@ function registerBridgeEventHandlersForTest() {
           eventId: `terminal-${index}`,
           threadId: 'thread-1',
           turnId: `turn-${index}`,
-          outcome: 'success',
+          outcome: 'success', publicSummary: 'Public success summary',
           occurredAt: '2026-07-20T01:00:00Z',
         },
       });
@@ -6619,7 +6619,7 @@ function registerBridgeEventHandlersForTest() {
           eventId: `active-terminal-${index}`,
           threadId: `active-thread-${index}`,
           turnId: `active-turn-${index}`,
-          outcome: 'success',
+          outcome: 'success', publicSummary: 'Public success summary',
           occurredAt: '2026-07-20T01:00:00Z',
         },
       });
@@ -6638,7 +6638,7 @@ function registerBridgeEventHandlersForTest() {
         eventId: 'active-terminal-64',
         threadId: 'active-thread-64',
         turnId: 'active-turn-64',
-        outcome: 'success',
+        outcome: 'success', publicSummary: 'Public success summary',
         occurredAt: '2026-07-20T01:00:00Z',
       },
     });
@@ -6659,7 +6659,7 @@ function registerBridgeEventHandlersForTest() {
         eventId: 'active-terminal-conflict-0',
         threadId: 'active-thread-0',
         turnId: 'active-turn-0',
-        outcome: 'success',
+        outcome: 'success', publicSummary: 'Public success summary',
         occurredAt: '2026-07-20T01:00:01Z',
       },
     });
@@ -6718,7 +6718,7 @@ function registerBridgeEventHandlersForTest() {
           eventId: 'terminal-first',
           threadId: 'thread-1',
           turnId: 'turn-1',
-          outcome: 'success',
+          outcome: 'success', publicSummary: 'Public success summary',
           occurredAt: '2026-07-16T01:00:01Z',
         },
       });
@@ -6736,7 +6736,7 @@ function registerBridgeEventHandlersForTest() {
           eventId: 'terminal-conflict',
           threadId: 'thread-1',
           turnId: 'turn-1',
-          outcome: 'success',
+          outcome: 'success', publicSummary: 'Public success summary',
           occurredAt: '2026-07-16T01:00:01Z',
         },
       });
@@ -6822,7 +6822,7 @@ function registerBridgeEventHandlersForTest() {
         eventId: 'terminal-stale-turn-1',
         threadId: 'thread-1',
         turnId: 'turn-1',
-        outcome: 'success',
+        outcome: 'success', publicSummary: 'Public success summary',
         occurredAt: '2026-07-16T01:00:00Z',
       },
     });
@@ -6865,7 +6865,7 @@ function registerBridgeEventHandlersForTest() {
         eventId: 'terminal-turn-1',
         threadId: 'thread-1',
         turnId: 'turn-1',
-        outcome: 'success',
+        outcome: 'success', publicSummary: 'Public success summary',
         occurredAt: '2026-07-16T01:00:00Z',
       },
     });
@@ -6957,7 +6957,7 @@ function registerBridgeEventHandlersForTest() {
           eventId: 'terminal-sealed-turn-1',
           threadId: 'thread-1',
           turnId: 'turn-1',
-          outcome: 'success',
+          outcome: 'success', publicSummary: 'Public success summary',
           occurredAt: '2026-07-16T01:00:00Z',
         },
       });
@@ -7053,7 +7053,7 @@ function registerBridgeEventHandlersForTest() {
           eventId: `terminal-turn-2-after-${event.type}`,
           threadId: 'thread-1',
           turnId: 'turn-2',
-          outcome: 'success',
+          outcome: 'success', publicSummary: 'Public success summary',
           occurredAt: '2026-07-16T01:00:00Z',
         },
       });
@@ -7103,7 +7103,7 @@ function registerBridgeEventHandlersForTest() {
           eventId: `terminal-stale-turn-1-${outcome}`,
           threadId: 'thread-1',
           turnId: 'turn-1',
-          outcome,
+          outcome, ...(outcome === 'success' ? { publicSummary: 'Public success summary' } : {}),
           ...(outcome === 'failed' ? {
             publicError: {
               code: 'PROVIDER_FAILED',
@@ -7178,7 +7178,7 @@ function registerBridgeEventHandlersForTest() {
           eventId: 'terminal-active-turn-2',
           threadId: 'thread-1',
           turnId: 'turn-2',
-          outcome: 'success',
+          outcome: 'success', publicSummary: 'Public success summary',
           occurredAt: '2026-07-18T01:00:01Z',
         },
       });
@@ -7247,7 +7247,7 @@ function registerBridgeEventHandlersForTest() {
           eventId: 'terminal-t2',
           threadId: 'thread-1',
           turnId: 'turn-2',
-          outcome: 'success',
+          outcome: 'success', publicSummary: 'Public success summary',
           occurredAt: '2026-07-21T01:00:01Z',
         },
       });
@@ -7315,7 +7315,7 @@ function registerBridgeEventHandlersForTest() {
         eventId: 'terminal-from-a',
         threadId: 'thread-1',
         turnId: 'turn-a',
-        outcome: 'success',
+        outcome: 'success', publicSummary: 'Public success summary',
         occurredAt: '2026-07-21T01:00:00Z',
       },
     });
@@ -7326,7 +7326,7 @@ function registerBridgeEventHandlersForTest() {
         eventId: 'terminal-from-b',
         threadId: 'thread-1',
         turnId: 'turn-b',
-        outcome: 'success',
+        outcome: 'success', publicSummary: 'Public success summary',
         occurredAt: '2026-07-21T01:00:01Z',
       },
     });
@@ -7449,7 +7449,7 @@ function registerBridgeEventHandlersForTest() {
         eventId: 'terminal-after-scope-exhaustion',
         threadId: 'thread-1',
         turnId: 'turn-1',
-        outcome: 'success',
+        outcome: 'success', publicSummary: 'Public success summary',
         occurredAt: '2026-07-21T01:00:00Z',
       },
     });
@@ -7524,7 +7524,7 @@ function registerBridgeEventHandlersForTest() {
         eventId: 'terminal-t2',
         threadId: 'thread-1',
         turnId: 'turn-2',
-        outcome: 'success',
+        outcome: 'success', publicSummary: 'Public success summary',
         occurredAt: '2026-07-21T01:00:01Z',
       },
     });
@@ -7547,7 +7547,7 @@ function registerBridgeEventHandlersForTest() {
           eventId: `terminal-${index}`,
           threadId: 'thread-1',
           turnId: `turn-${index}`,
-          outcome: 'success',
+          outcome: 'success', publicSummary: 'Public success summary',
           occurredAt: '2026-07-21T01:00:01Z',
         },
       });
@@ -7581,7 +7581,7 @@ function registerBridgeEventHandlersForTest() {
         eventId: 'terminal-other-scope-t1',
         threadId: 'thread-1',
         turnId: 'turn-1',
-        outcome: 'success',
+        outcome: 'success', publicSummary: 'Public success summary',
         occurredAt: '2026-07-21T01:00:02Z',
       },
     });
@@ -7655,7 +7655,7 @@ function registerBridgeEventHandlersForTest() {
           eventId: 'retired-terminal-' + index,
           threadId: 'thread-' + index,
           turnId: 'turn-' + index,
-          outcome: 'success',
+          outcome: 'success', publicSummary: 'Public success summary',
           occurredAt: '2026-07-22T01:00:00Z',
         },
       });
@@ -7674,7 +7674,7 @@ function registerBridgeEventHandlersForTest() {
         eventId: 'candidate-terminal',
         threadId: candidateThreadId,
         turnId: candidateTurnId,
-        outcome: 'success',
+        outcome: 'success', publicSummary: 'Public success summary',
         occurredAt: '2026-07-22T01:00:01Z',
       },
     });
@@ -7717,7 +7717,7 @@ function registerBridgeEventHandlersForTest() {
           eventId: 'terminal-late-turn-1',
           threadId: 'thread-1',
           turnId: 'turn-1',
-          outcome: 'success',
+          outcome: 'success', publicSummary: 'Public success summary',
           occurredAt: '2026-07-16T01:00:00Z',
         },
       });
@@ -7825,7 +7825,7 @@ function registerBridgeEventHandlersForTest() {
         eventId: 'terminal-before-delete',
         threadId: 'thread-1',
         turnId: 'turn-1',
-        outcome: 'success',
+        outcome: 'success', publicSummary: 'Public success summary',
         occurredAt: '2026-07-16T01:00:00Z',
       },
     };
@@ -7909,7 +7909,7 @@ function registerBridgeEventHandlersForTest() {
             eventId: 'typed-wire-terminal',
             threadId: 'thread-1',
             turnId: 'turn-1',
-            outcome: 'success',
+            outcome: 'success', publicSummary: 'Public success summary',
             occurredAt: '2026-07-21T01:00:00Z',
           }
           : method === 'task/node/statusChanged'

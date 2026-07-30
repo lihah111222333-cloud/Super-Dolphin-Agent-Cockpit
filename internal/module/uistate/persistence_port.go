@@ -49,12 +49,13 @@ type BindingLookup interface {
 
 // BindingEntry 是 uistate 投影所需的绑定身份字段。
 type BindingEntry struct {
-	AgentID          string
-	Provider         string
-	ProviderThreadID string
-	CodexThreadID    string
-	RolloutPath      string
-	SessionUUID      string
-	CodexHome        string
-	Cwd              string
+	AgentID              string
+	Provider             string
+	ProviderThreadID     string
+	CodexThreadID        string
+	RolloutPath          string
+	SessionUUID          string
+	CodexHome            string
+	ProviderRecoveryHome string
+	Cwd                  string
 }

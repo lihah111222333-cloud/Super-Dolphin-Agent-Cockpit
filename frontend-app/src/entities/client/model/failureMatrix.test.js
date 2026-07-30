@@ -31,7 +31,7 @@ function terminal(overrides = {}) {
     threadId,
     turnId,
     outcome,
-    ...(outcome === 'success' ? {} : {
+    ...(outcome === 'success' ? { publicSummary: 'Public success summary' } : {
       publicError: {
         code: 'PROVIDER_FAILED',
         title: '运行失败',
@@ -121,6 +121,7 @@ it('matrix:FM-03 layer:frontend keeps the first failed terminal when a conflicti
     threadId,
     turnId,
     outcome: 'success',
+    publicSummary: 'Public success summary',
     occurredAt: '2026-07-17T01:02:04Z',
   });
 

@@ -66,8 +66,7 @@ func TestTruthDockerfileIsOfflineAndDigestOnly(t *testing.T) {
 	for _, required := range []string{
 		"ARG RUNTIME_DEPS_IMAGE\n",
 		"FROM ${RUNTIME_DEPS_IMAGE} AS build\nUSER root",
-		"/usr/local/bin/super-dolphin-runtime-seed verify",
-		"go build -mod=vendor -trimpath -buildvcs=false -o /out/super-dolphin-gate-executor",
+		"go build -mod=mod -trimpath -buildvcs=false -o /out/super-dolphin-gate-executor",
 		"COPY --from=build /out/super-dolphin-gate-executor /usr/local/bin/super-dolphin-gate-executor",
 	} {
 		if !strings.Contains(text, required) {
@@ -144,9 +143,7 @@ func TestRuntimeDependencyRefreshInstallsLockedChromiumOnlyInRefreshImage(t *tes
 		"/opt/super-dolphin-gate/runtime/frontend/node_modules/.cache/ms-playwright",
 		"playwright install-deps chromium",
 		"apt-get install -y --no-install-recommends ripgrep=13.0.0-4+b2",
-		"COPY --from=ripgrep-seed /out/bin/rg /runtime/bin/rg",
-		"COPY --from=repository-vendor /out/go-proxy /runtime/go-proxy",
-		"COPY --from=repository-vendor /out/go-proxy /opt/super-dolphin-gate/runtime/go-proxy",
+		"COPY --from=repository-module-cache /out/go-proxy /opt/super-dolphin-gate/runtime/go-proxy",
 		"COPY --from=ripgrep-seed /out/bin/rg /opt/super-dolphin-gate/runtime/bin/rg",
 		"libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev pkg-config procps xauth xvfb",
 		"test -x /usr/bin/Xvfb && test -x /usr/bin/xauth && test -x /usr/bin/xvfb-run",
@@ -159,7 +156,7 @@ func TestRuntimeDependencyRefreshInstallsLockedChromiumOnlyInRefreshImage(t *tes
 		"NPM_CONFIG_CACHE=/out/frontend/npm-cache npm ci --ignore-scripts --no-audit --no-fund",
 		"NPM_CONFIG_CACHE=/out/frontend/npm-cache npm ci --ignore-scripts --no-audit --no-fund --offline",
 		"COPY --from=frontend-seed /out/frontend/npm-cache /opt/super-dolphin-gate/runtime/frontend/npm-cache",
-		"chmod -R a+rX /opt/super-dolphin-gate/runtime/frontend/npm-cache",
+		"chmod -R a+rX /out/frontend/node_modules/.cache/ms-playwright /out/frontend/npm-cache",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("runtime dependency Dockerfile is missing %q", required)

@@ -15,6 +15,7 @@ function terminal(outcome) {
   return {
     schemaVersion: 2, eventId: 'event-1', threadId: 'thread-1', turnId: 'turn-1',
     outcome, occurredAt: '2026-07-16T00:00:00Z',
+    ...(outcome === 'success' ? { publicSummary: 'Public success summary' } : {}),
   };
 }
 

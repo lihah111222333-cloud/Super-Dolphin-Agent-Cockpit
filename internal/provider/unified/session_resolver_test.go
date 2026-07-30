@@ -40,13 +40,15 @@ type stubBindingLookup struct {
 	agentErrs map[string]error
 }
 
+var unifiedRecoveryTestHomeByPath sync.Map
+
 func (s stubBindingLookup) GetByProviderThread(_ context.Context, provider, providerThreadID string) (*contract.SessionBinding, error) {
 	key := provider + ":" + providerThreadID
 	if err, ok := s.errs[key]; ok {
 		return nil, err
 	}
 	if binding, ok := s.bindings[key]; ok {
-		return binding, nil
+		return authorizeUnifiedRecoveryTestBinding(binding), nil
 	}
 	return nil, platformdb.ErrNotFound
 }
@@ -57,10 +59,22 @@ func (s stubBindingLookup) GetByAgentID(_ context.Context, agentID string) (*con
 	}
 	for _, b := range s.bindings {
 		if b != nil && b.AgentID == agentID {
-			return b, nil
+			return authorizeUnifiedRecoveryTestBinding(b), nil
 		}
 	}
 	return nil, platformdb.ErrNotFound
+}
+
+func authorizeUnifiedRecoveryTestBinding(binding *contract.SessionBinding) *contract.SessionBinding {
+	if binding == nil {
+		return nil
+	}
+	copy := *binding
+	home, ok := unifiedRecoveryTestHomeByPath.Load(copy.RolloutPath)
+	if ok && copy.ProviderRecoveryHome == "" {
+		copy.ProviderRecoveryHome = home.(string)
+	}
+	return &copy
 }
 
 type sequenceThreadLookup struct {
@@ -226,7 +240,7 @@ func newAutoResumeResolverForTest(
 	providerThreadID string,
 ) *sessionResolver {
 	t.Helper()
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, providerThreadID)
 	return &sessionResolver{
 		threadStore: keyedThreadLookup{
 			publicThreadID: {
@@ -459,7 +473,7 @@ func TestConcurrentClientAndResolverResumeSharePendingSession(t *testing.T) {
 func TestConcurrentColdAutoResumeInvokesProviderResumeOnce(t *testing.T) {
 	t.Parallel()
 
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, "11111111-aaaa-bbbb-cccc-111111111119")
 	driver := newBlockingResumeDriver("codex", &generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111119"})
 	resolver := &sessionResolver{
 		threadStore: keyedThreadLookup{
@@ -592,7 +606,7 @@ func TestSessionResolverDoesNotAutoResumeStoppedOrArchivedThread(t *testing.T) {
 		t.Run(status, func(t *testing.T) {
 			t.Parallel()
 
-			rolloutPath := writeExistingProviderHistoryFile(t)
+			rolloutPath := writeExistingProviderHistoryFile(t, "11111111-aaaa-bbbb-cccc-111111111113")
 			driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111113"}}
 			resolver := &sessionResolver{
 				threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
@@ -639,7 +653,7 @@ func TestAutoResumeRejectsArchivedBinding(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			rolloutPath := writeExistingProviderHistoryFile(t)
+			rolloutPath := writeExistingProviderHistoryFile(t, "11111111-aaaa-bbbb-cccc-111111111118")
 			driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111118"}}
 			resolver := &sessionResolver{
 				threadStore: keyedThreadLookup{
@@ -681,7 +695,7 @@ func TestAutoResumeRejectsArchivedBinding(t *testing.T) {
 func TestSessionResolverProviderThreadDoesNotAutoResumeStoppedThread(t *testing.T) {
 	t.Parallel()
 
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, "11111111-aaaa-bbbb-cccc-111111111114")
 	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111114"}}
 	resolver := &sessionResolver{
 		threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
@@ -717,7 +731,7 @@ func TestSessionResolverProviderThreadDoesNotAutoResumeStoppedThread(t *testing.
 func TestAutoResumeRuntimeConfigFailsOnThreadStoreError(t *testing.T) {
 	t.Parallel()
 
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, "11111111-aaaa-bbbb-cccc-111111111115")
 	wantErr := errors.New("thread config decode failed")
 	threadStore := &sequenceThreadLookup{
 		refs: []*contract.SessionThreadRef{

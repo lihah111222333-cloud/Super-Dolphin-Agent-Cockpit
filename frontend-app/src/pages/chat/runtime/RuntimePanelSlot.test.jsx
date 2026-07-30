@@ -45,6 +45,7 @@ function renderSlot(overrides = {}) {
     layoutActions: {
       activity: { begin: vi.fn(), keyDown: vi.fn() },
     },
+    onShowAgents: vi.fn(),
     open: true,
     projectPath: '/repo/app',
     projects: ['/repo/app'],
@@ -75,6 +76,9 @@ function renderSlot(overrides = {}) {
 
     expect(props.handleKeyDown).toHaveBeenCalledTimes(1);
     expect(props.beginResize).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByTestId('runtime-show-agents'));
+    expect(props.onShowAgents).toHaveBeenCalledTimes(1);
   });
 
   it('ignores stale code preview responses from earlier diff open actions', async () => {

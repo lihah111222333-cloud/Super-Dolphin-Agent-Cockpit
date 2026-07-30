@@ -592,6 +592,7 @@ func TestStaleTurnCompletedDoesNotOverwriteCurrentProjection(t *testing.T) {
 			TurnHeader: header,
 			Success:    true,
 			Status:     "completed",
+			Summary:    "completed",
 		}))
 	})
 }
@@ -621,6 +622,7 @@ func TestLateTerminalAfterCurrentTerminalDoesNotOverwriteProjection(t *testing.T
 					TurnHeader: header,
 					Success:    true,
 					Status:     "completed",
+					Summary:    "completed",
 				}))
 			},
 		},

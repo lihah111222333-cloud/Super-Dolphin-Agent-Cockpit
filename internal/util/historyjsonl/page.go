@@ -42,8 +42,8 @@ func ReadProviderMessagesPage(req ReadRequest, pageReq dto.MessagePageRequest) (
 	if err != nil {
 		return dto.MessagePageResult{}, err
 	}
-	page, err := ReadJSONLPage(path, pageReq.Limit, pageReq.Before, func(raw []byte) (dto.Message, bool) {
-		return parseLine(raw, provider)
+	page, err := ReadJSONLPageStrict(path, pageReq.Limit, pageReq.Before, func(raw []byte) (dto.Message, bool, error) {
+		return parseLineStrict(raw, provider)
 	})
 	if err != nil {
 		return dto.MessagePageResult{}, err
@@ -65,8 +65,8 @@ func ReadProviderMessagesPageOrError(req ReadRequest, pageReq dto.MessagePageReq
 		}
 		return dto.MessagePageResult{}, err
 	}
-	page, err := ReadJSONLPage(path, pageReq.Limit, pageReq.Before, func(raw []byte) (dto.Message, bool) {
-		return parseLine(raw, provider)
+	page, err := ReadJSONLPageStrict(path, pageReq.Limit, pageReq.Before, func(raw []byte) (dto.Message, bool, error) {
+		return parseLineStrict(raw, provider)
 	})
 	if err != nil {
 		if IsMissingProviderHistory(err) {
@@ -96,6 +96,17 @@ func messagesWithPageOffsets(messages []dto.Message, offsets []int64) []dto.Mess
 // ReadJSONLPage 从文件尾部向前读取 JSONL 页，适合只取最近历史的场景。
 // parse 返回 ok=false 的行会被跳过，但文件/游标错误会 fail-fast 返回。
 func ReadJSONLPage[T any](path string, limit int, before string, parse func([]byte) (T, bool)) (JSONLPageResult[T], error) {
+	if parse == nil {
+		return JSONLPageResult[T]{}, errors.New("history page parser is required")
+	}
+	return ReadJSONLPageStrict(path, limit, before, func(raw []byte) (T, bool, error) {
+		item, ok := parse(raw)
+		return item, ok, nil
+	})
+}
+
+// ReadJSONLPageStrict 分页读取 JSONL，并传播 parser 返回的损坏记录错误。
+func ReadJSONLPageStrict[T any](path string, limit int, before string, parse func([]byte) (T, bool, error)) (JSONLPageResult[T], error) {
 	if err := validateJSONLPageRequest(limit, parse); err != nil {
 		return JSONLPageResult[T]{}, err
 	}
@@ -125,7 +136,7 @@ func ReadJSONLPage[T any](path string, limit int, before string, parse func([]by
 }
 
 // validateJSONLPageRequest 拒绝无效分页参数，避免后续循环出现空 parser 或非正 limit。
-func validateJSONLPageRequest[T any](limit int, parse func([]byte) (T, bool)) error {
+func validateJSONLPageRequest[T any](limit int, parse func([]byte) (T, bool, error)) error {
 	if limit <= 0 {
 		return errors.New("history page limit must be positive")
 	}
@@ -139,6 +150,9 @@ func validateJSONLPageRequest[T any](limit int, parse func([]byte) (T, bool)) er
 func openJSONLPageFile(path string) (*os.File, int64, error) {
 	file, err := os.Open(path)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, 0, fmt.Errorf("%w: %w", errProviderHistoryNotFound, err)
+		}
 		return nil, 0, fmt.Errorf("open history jsonl: %w", err)
 	}
 	info, err := file.Stat()
@@ -271,7 +285,7 @@ func readJSONLRecordsBackward[T any](
 	reader io.ReaderAt,
 	beforeOffset int64,
 	limit int,
-	parse func([]byte) (T, bool),
+	parse func([]byte) (T, bool, error),
 ) ([]jsonlRecord[T], error) {
 	records := make([]jsonlRecord[T], 0, limit)
 	suffix := []byte(nil)
@@ -281,11 +295,16 @@ func readJSONLRecordsBackward[T any](
 		if err != nil {
 			return nil, fmt.Errorf("read history jsonl page: %w", err)
 		}
-		suffix = collectCompleteJSONLLines(data, start, limit, parse, &records, suffix)
+		suffix, err = collectCompleteJSONLLines(data, start, limit, parse, &records, suffix)
+		if err != nil {
+			return nil, err
+		}
 		pos = start
 	}
 	if pos == 0 && len(suffix) > 0 && len(records) < limit {
-		appendParsedRecord(suffix, 0, parse, &records)
+		if err := appendParsedRecord(suffix, 0, parse, &records); err != nil {
+			return nil, err
+		}
 	}
 	return records, nil
 }
@@ -310,31 +329,38 @@ func collectCompleteJSONLLines[T any](
 	data []byte,
 	start int64,
 	limit int,
-	parse func([]byte) (T, bool),
+	parse func([]byte) (T, bool, error),
 	records *[]jsonlRecord[T],
 	suffix []byte,
-) []byte {
+) ([]byte, error) {
 	end := len(data)
 	for end > 0 && len(*records) < limit {
 		idx := bytes.LastIndexByte(data[:end], '\n')
 		if idx < 0 {
 			break
 		}
-		appendParsedRecord(data[idx+1:end], start+int64(idx+1), parse, records)
+		if err := appendParsedRecord(data[idx+1:end], start+int64(idx+1), parse, records); err != nil {
+			return nil, err
+		}
 		end = idx
 	}
-	return append(suffix[:0], data[:end]...)
+	return append(suffix[:0], data[:end]...), nil
 }
 
 // appendParsedRecord 去掉空行和 CR 后追加解析成功的 JSONL 记录。
-func appendParsedRecord[T any](line []byte, offset int64, parse func([]byte) (T, bool), records *[]jsonlRecord[T]) {
+func appendParsedRecord[T any](line []byte, offset int64, parse func([]byte) (T, bool, error), records *[]jsonlRecord[T]) error {
 	line = bytes.TrimSuffix(line, []byte{'\r'})
 	if len(bytes.TrimSpace(line)) == 0 {
-		return
+		return nil
 	}
-	if item, ok := parse(line); ok {
+	item, ok, err := parse(line)
+	if err != nil {
+		return err
+	}
+	if ok {
 		*records = append(*records, jsonlRecord[T]{item: item, offset: offset})
 	}
+	return nil
 }
 
 // pageBeforeOffset 将 before 游标解析为文件偏移，空游标表示从文件末尾开始。

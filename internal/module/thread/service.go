@@ -200,7 +200,9 @@ func (s *service) Get(ctx context.Context, id string) (*Ref, error) {
 		return nil, err
 	}
 	ref := toRef(*thread)
-	s.enrichRefIdentity(ctx, &ref)
+	if err := s.enrichRefIdentity(ctx, &ref); err != nil {
+		return nil, err
+	}
 	return &ref, nil
 }
 
@@ -524,18 +526,30 @@ func (s *service) resolveSession(ctx context.Context, threadID string) (contract
 
 // enrichRefIdentity 从 binding 补齐线程引用的 provider/session 身份。
 // binding 缺失不会让读取失败，因为列表页仍需要展示 thread store 中的存量记录。
-func (s *service) enrichRefIdentity(ctx context.Context, ref *Ref) {
+func (s *service) enrichRefIdentity(ctx context.Context, ref *Ref) error {
 	if s == nil || s.bindingStore == nil || ref == nil {
-		return
+		return nil
 	}
 	binding, err := s.resolveBinding(ctx, ref.ID)
-	if err != nil || binding == nil {
-		return
+	if err != nil {
+		return err
 	}
+	if binding == nil {
+		return nil
+	}
+	return applyBindingIdentity(ref, binding)
+}
+
+// applyBindingIdentity 把单条 binding 的已验证身份回填到线程引用。
+func applyBindingIdentity(ref *Ref, binding *bindingStoreRecord) error {
 	if provider := strings.TrimSpace(binding.Provider); provider != "" {
 		ref.Provider = provider
 	}
-	if providerThreadID := resolvedProviderThreadID(binding); providerThreadID != "" {
+	providerThreadID, err := resolvedProviderThreadID(binding)
+	if err != nil {
+		return err
+	}
+	if providerThreadID != "" {
 		ref.ProviderThreadID = providerThreadID
 	}
 	if sessionID := resolvedSessionID(binding); sessionID != "" {
@@ -544,9 +558,11 @@ func (s *service) enrichRefIdentity(ctx context.Context, ref *Ref) {
 	if ref.CWD == "" {
 		ref.CWD = strings.TrimSpace(binding.Cwd)
 	}
+	return nil
 }
 
-func resolvedProviderThreadID(binding *bindingStoreRecord) string {
+// resolvedProviderThreadID 返回 binding 的统一恢复 identity。
+func resolvedProviderThreadID(binding *bindingStoreRecord) (string, error) {
 	return recoverableBindingProviderThreadID(binding)
 }
 
@@ -593,7 +609,11 @@ func (s *service) evictZombieSession(ctx context.Context, threadID string) {
 // 这里使用 context.Background()，因为 service 没有独立生命周期 context。
 // goroutine 由 resumeInFlight 限制为每个 agent 最多一次，Resume 本身仍受 provider 超时控制。
 func (s *service) backgroundResumeIfNeeded(ctx context.Context, threadID string) {
-	agentID, ok := s.backgroundResumeCandidate(ctx, threadID)
+	agentID, ok, err := s.backgroundResumeCandidate(ctx, threadID)
+	if err != nil {
+		util.LogIgnoredError(s.logger, "thread: background resume eligibility failed", err)
+		return
+	}
 	if !ok {
 		return
 	}
@@ -618,17 +638,21 @@ func (s *service) backgroundResumeIfNeeded(ctx context.Context, threadID string)
 
 // backgroundResumeCandidate 判断线程是否需要后台恢复。
 // 只有存在可恢复 provider 历史、未被停止/归档阻断且当前没有活跃 session 时才返回 agent id。
-func (s *service) backgroundResumeCandidate(ctx context.Context, threadID string) (string, bool) {
+func (s *service) backgroundResumeCandidate(ctx context.Context, threadID string) (string, bool, error) {
 	binding, err := s.resolveBinding(ctx, threadID)
 	if err != nil || binding == nil {
-		return "", false
+		return "", false, err
 	}
 	agentID := strings.TrimSpace(binding.AgentID)
 	if agentID == "" {
-		return "", false
+		return "", false, nil
 	}
-	if recoverableBindingProviderThreadID(binding) == "" {
-		return "", false
+	providerThreadID, err := recoverableBindingProviderThreadID(binding)
+	if err != nil {
+		return "", false, err
+	}
+	if providerThreadID == "" {
+		return "", false, nil
 	}
 	if reason, blocked := s.resumeLifecycleBlockReason(ctx, threadID, binding); blocked {
 		if s.logger != nil {
@@ -638,14 +662,14 @@ func (s *service) backgroundResumeCandidate(ctx context.Context, threadID string
 				"reason", reason,
 			)
 		}
-		return "", false
+		return "", false, nil
 	}
 	if s.sessions != nil {
 		if sess, _ := s.sessions.GetSession(agentID); sess != nil {
-			return "", false
+			return "", false, nil
 		}
 	}
-	return agentID, true
+	return agentID, true, nil
 }
 
 // closeSessionForAgent 关闭并移除指定 agent 的本地 session。

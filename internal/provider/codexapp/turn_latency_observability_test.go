@@ -138,6 +138,7 @@ func TestOnNotification_CommentaryToolFinalAnswerCompletesOnlyAtFinalAnswer(t *t
 	if completed.Result != "这是完整最终回复。" || !slices.Equal(completed.PartialItemIDs, []string{"final-1"}) {
 		t.Fatalf("TurnCompleted = %+v, want complete final answer and final-1", completed)
 	}
+	assertCanonicalPublicSummary(t, completed, "这是完整最终回复。")
 	assertTurnDone(t, fixture.active, "final answer did not complete active turn")
 
 	publishNativeTerminal(fixture.session, "这是完整最终回复。")
@@ -162,6 +163,7 @@ func TestOnNotification_NativeTerminalBeforeFinalItemPublishesOnce(t *testing.T)
 	if completed.Result != "native final" {
 		t.Fatalf("TurnCompleted.Result = %q, want native final", completed.Result)
 	}
+	assertCanonicalPublicSummary(t, completed, "native final")
 	assertTurnDone(t, fixture.active, "native terminal did not complete active turn")
 	publishFinalAnswerItem(fixture.session, "late-final", "late duplicate")
 	assertNoRolloutTurnCompleted(t, fixture.completedCh)
@@ -211,7 +213,7 @@ func publishToolRoundTrip(t *testing.T, fixture terminalOwnershipFixture) {
 func publishNativeTerminal(s *session, result string) {
 	s.onNotification("turn/completed", mustJSON(map[string]any{
 		"agentId": "agent-1", "threadId": "provider-thread-1", "turnId": "turn-1",
-		"timestamp": "2026-07-23T09:11:22.831Z", "success": true, "status": "completed", "result": result,
+		"timestamp": "2026-07-23T09:11:22.831Z", "success": true, "status": "completed", "result": result, "summary": result,
 	}))
 }
 

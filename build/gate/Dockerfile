@@ -45,7 +45,7 @@ FROM ${RUNTIME_DEPS_IMAGE}
 USER root
 COPY --from=build /out/super-dolphin-gate /super-dolphin-gate
 COPY --from=build /out/super-dolphin-gate-executor /usr/local/bin/super-dolphin-gate-executor
-RUN mkdir -p /opt/super-dolphin-gate/frontend-embed && \
+RUN --network=none mkdir -p /opt/super-dolphin-gate/frontend-embed && \
     printf '<!doctype html><title>gate compile seed</title>\n' > /opt/super-dolphin-gate/frontend-embed/index.html && \
     chmod -R a-w /opt/super-dolphin-gate/frontend-embed
 ENV GOTOOLCHAIN=local GOPROXY=file:///opt/super-dolphin-gate/runtime/go-proxy GOSUMDB=off GOFLAGS=-mod=mod\ -buildvcs=false

@@ -607,7 +607,7 @@ func renderDockerfile(lock toolchainLock, runtimeDeps runtimeDepsLock, buildFile
 	output.WriteString("FROM ${RUNTIME_DEPS_IMAGE}\nUSER root\n")
 	output.WriteString("COPY --from=build /out/super-dolphin-gate /super-dolphin-gate\n")
 	output.WriteString("COPY --from=build /out/super-dolphin-gate-executor /usr/local/bin/super-dolphin-gate-executor\n")
-	output.WriteString("RUN mkdir -p /opt/super-dolphin-gate/frontend-embed && \\\n")
+	output.WriteString("RUN --network=none mkdir -p /opt/super-dolphin-gate/frontend-embed && \\\n")
 	output.WriteString("    printf '<!doctype html><title>gate compile seed</title>\\n' > /opt/super-dolphin-gate/frontend-embed/index.html && \\\n")
 	output.WriteString("    chmod -R a-w /opt/super-dolphin-gate/frontend-embed\n")
 	output.WriteString("ENV GOTOOLCHAIN=local GOPROXY=file:///opt/super-dolphin-gate/runtime/go-proxy GOSUMDB=off GOFLAGS=-mod=mod\\ -buildvcs=false\n")

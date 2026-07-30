@@ -316,7 +316,7 @@ func TestServiceStartAllowsDeferredClaudeProviderUUID(t *testing.T) {
 	}
 }
 
-func TestServiceStartDoesNotPersistProviderThreadIDWithoutHistoryFile(t *testing.T) {
+func TestServiceStartPersistsOfficialCodexUUIDWithoutHistoryFile(t *testing.T) {
 	t.Parallel()
 
 	const providerUUID = "019d5f6b-fb3c-7760-9d6f-54005553f5b8"
@@ -345,8 +345,8 @@ func TestServiceStartDoesNotPersistProviderThreadIDWithoutHistoryFile(t *testing
 	if result.SessionID != providerUUID {
 		t.Fatalf("SessionID = %q, want %s", result.SessionID, providerUUID)
 	}
-	if bindings.upsert.ProviderThreadID != "" {
-		t.Fatalf("binding provider_thread_id = %q, want empty without history file", bindings.upsert.ProviderThreadID)
+	if bindings.upsert.ProviderThreadID != providerUUID {
+		t.Fatalf("binding provider_thread_id = %q, want official UUID %s without history file", bindings.upsert.ProviderThreadID, providerUUID)
 	}
 	if bindings.upsert.SessionUUID != providerUUID {
 		t.Fatalf("binding session_uuid = %q, want %s", bindings.upsert.SessionUUID, providerUUID)

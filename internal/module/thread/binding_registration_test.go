@@ -8,6 +8,25 @@ import (
 	"testing"
 )
 
+func TestNormalizeThreadStateCanonicalizesHistoricProviderUUIDs(t *testing.T) {
+	t.Parallel()
+
+	state, err := normalizeThreadState(threadState{
+		PublicThreadID:   "thread-canonical-history",
+		AgentID:          "agent-canonical-history",
+		Provider:         "codex",
+		ProviderThreadID: "11111111222233334444555555555611",
+		SessionUUID:      "11111111-2222-3333-4444-555555555611",
+	})
+	if err != nil {
+		t.Fatalf("normalizeThreadState() error = %v", err)
+	}
+	if state.ProviderThreadID != "11111111-2222-3333-4444-555555555611" ||
+		state.SessionUUID != "11111111-2222-3333-4444-555555555611" {
+		t.Fatalf("canonical identities = (%q,%q)", state.ProviderThreadID, state.SessionUUID)
+	}
+}
+
 func TestPersistThreadStateProviderThreadImmutability(t *testing.T) {
 	t.Parallel()
 
@@ -24,7 +43,7 @@ func TestPersistThreadStateProviderThreadImmutability(t *testing.T) {
 
 		err := svc.persistThreadState(context.Background(), threadState{
 			PublicThreadID:   "thread-1",
-			ProviderThreadID: "real-uuid-123",
+			ProviderThreadID: "11111111-2222-3333-4444-555555555601",
 			AgentID:          "agent-1",
 			Provider:         "codex",
 			CWD:              "/repo",
@@ -33,8 +52,8 @@ func TestPersistThreadStateProviderThreadImmutability(t *testing.T) {
 		if err != nil {
 			t.Fatalf("persistThreadState() error = %v, want nil (empty→fill allowed)", err)
 		}
-		if bindings.upsert.ProviderThreadID != "real-uuid-123" {
-			t.Fatalf("binding upsert provider_thread_id = %q, want real-uuid-123", bindings.upsert.ProviderThreadID)
+		if bindings.upsert.ProviderThreadID != "11111111-2222-3333-4444-555555555601" {
+			t.Fatalf("binding upsert provider_thread_id = %q, want canonical UUID", bindings.upsert.ProviderThreadID)
 		}
 	})
 
@@ -43,7 +62,7 @@ func TestPersistThreadStateProviderThreadImmutability(t *testing.T) {
 		bindings := &stubBindingStore{binding: &BindingRecord{
 			AgentID:          "agent-1",
 			Provider:         "codex",
-			ProviderThreadID: "provider-thread-1", // already set
+			ProviderThreadID: "11111111-2222-3333-4444-555555555602", // already set
 			CodexThreadID:    "thread-1",
 			Cwd:              "/repo",
 		}}
@@ -51,7 +70,7 @@ func TestPersistThreadStateProviderThreadImmutability(t *testing.T) {
 
 		err := svc.persistThreadState(context.Background(), threadState{
 			PublicThreadID:   "thread-1",
-			ProviderThreadID: "provider-thread-2", // trying to change
+			ProviderThreadID: "11111111-2222-3333-4444-555555555603", // trying to change
 			AgentID:          "agent-1",
 			Provider:         "codex",
 			CWD:              "/repo",
@@ -95,7 +114,7 @@ func TestPersistThreadStateKeepsCodexProviderThreadIDCompatible(t *testing.T) {
 
 	err := svc.persistThreadState(context.Background(), threadState{
 		PublicThreadID:   "agent-1",
-		ProviderThreadID: "provider-thread-codex",
+		ProviderThreadID: "11111111-2222-3333-4444-555555555604",
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		CWD:              "/repo",
@@ -104,8 +123,8 @@ func TestPersistThreadStateKeepsCodexProviderThreadIDCompatible(t *testing.T) {
 	if err != nil {
 		t.Fatalf("persistThreadState() error = %v", err)
 	}
-	if bindings.upsert.ProviderThreadID != "provider-thread-codex" {
-		t.Fatalf("binding upsert provider_thread_id = %q, want provider-thread-codex", bindings.upsert.ProviderThreadID)
+	if bindings.upsert.ProviderThreadID != "11111111-2222-3333-4444-555555555604" {
+		t.Fatalf("binding upsert provider_thread_id = %q, want canonical UUID", bindings.upsert.ProviderThreadID)
 	}
 }
 
@@ -117,7 +136,7 @@ func TestBindingRecoveryReporterRecordsProviderSessionUUID(t *testing.T) {
 		AgentID:          "agent-1",
 		Provider:         "claude",
 		ProviderThreadID: "agent-1",
-		RolloutPath:      writeExistingProviderHistoryFile(t),
+		RolloutPath:      writeExistingProviderHistoryFile(t, sessionUUID, "claude"),
 	}}
 	reporter := NewBindingRecoveryReporter(bindings, silentLogger())
 
@@ -140,9 +159,10 @@ func TestBindingRecoveryReporterDoesNotPromoteProviderThreadIDWithoutHistoryFile
 
 	const sessionUUID = "11111111-2222-3333-4444-555555555555"
 	bindings := &stubBindingStore{binding: &BindingRecord{
-		AgentID:          "agent-1",
-		Provider:         "claude",
-		ProviderThreadID: "agent-1",
+		AgentID:              "agent-1",
+		Provider:             "claude",
+		ProviderThreadID:     "agent-1",
+		ProviderRecoveryHome: t.TempDir(),
 	}}
 	reporter := NewBindingRecoveryReporter(bindings, silentLogger())
 
@@ -157,7 +177,7 @@ func TestBindingRecoveryReporterDoesNotPromoteProviderThreadIDWithoutHistoryFile
 	}
 }
 
-func TestBindingRecoveryReporterSkipsInvalidSessionUUID(t *testing.T) {
+func TestBindingRecoveryReporterRejectsInvalidSessionUUID(t *testing.T) {
 	t.Parallel()
 
 	bindings := &stubBindingStore{binding: &BindingRecord{
@@ -167,8 +187,8 @@ func TestBindingRecoveryReporterSkipsInvalidSessionUUID(t *testing.T) {
 	}}
 	reporter := NewBindingRecoveryReporter(bindings, silentLogger())
 
-	if err := reporter.RecordProviderSessionUUID(context.Background(), "agent-1", "agent-1"); err != nil {
-		t.Fatalf("RecordProviderSessionUUID() error = %v", err)
+	if err := reporter.RecordProviderSessionUUID(context.Background(), "agent-1", "agent-1"); err == nil {
+		t.Fatal("RecordProviderSessionUUID() error = nil, want invalid identity")
 	}
 	if len(bindings.sessionUpdates) != 0 {
 		t.Fatalf("session updates = %d, want none", len(bindings.sessionUpdates))
@@ -182,22 +202,23 @@ func TestThreadBindingStoreAdapterPreservesBindingFields(t *testing.T) {
 	t.Parallel()
 
 	source := &BindingRecord{
-		AgentID:            "agent-adapter",
-		Provider:           "codex",
-		ProviderThreadID:   "provider-thread-adapter",
-		CodexThreadID:      "thread-adapter",
-		RolloutPath:        "/tmp/rollout.jsonl",
-		Cwd:                "/repo",
-		ParentAgentID:      "parent-agent",
-		AgentType:          "worker",
-		AgentMemoryScope:   "project",
-		Archived:           true,
-		CreatedAt:          101,
-		UpdatedAt:          202,
-		SessionUUID:        "019e2c35-42ef-75b3-9f73-31cf7cc4cf2e",
-		CodexHome:          "/Users/dev/.codex",
-		CodexInstanceKey:   "default",
-		CodexModelProvider: "openai",
+		AgentID:              "agent-adapter",
+		Provider:             "codex",
+		ProviderThreadID:     "provider-thread-adapter",
+		CodexThreadID:        "thread-adapter",
+		RolloutPath:          "/tmp/rollout.jsonl",
+		Cwd:                  "/repo",
+		ParentAgentID:        "parent-agent",
+		AgentType:            "worker",
+		AgentMemoryScope:     "project",
+		Archived:             true,
+		CreatedAt:            101,
+		UpdatedAt:            202,
+		SessionUUID:          "019e2c35-42ef-75b3-9f73-31cf7cc4cf2e",
+		CodexHome:            "/Users/dev/.codex",
+		ProviderRecoveryHome: "/Users/dev/.codex",
+		CodexInstanceKey:     "default",
+		CodexModelProvider:   "openai",
 	}
 	bindings := &stubBindingStore{binding: source}
 	adapter := newThreadBindingStorePort(bindings)
@@ -209,21 +230,22 @@ func TestThreadBindingStoreAdapterPreservesBindingFields(t *testing.T) {
 	assertThreadBindingRecord(t, got, *source)
 
 	err = adapter.Upsert(context.Background(), newBindingUpsertParams(threadBindingRecord{
-		AgentID:            " agent-next ",
-		Provider:           " codex ",
-		ProviderThreadID:   " provider-next ",
-		CodexThreadID:      " thread-next ",
-		RolloutPath:        " /tmp/next.jsonl ",
-		SessionUUID:        " 019e2c35-42ef-75b3-9f73-31cf7cc4cf2f ",
-		Cwd:                " /repo/next ",
-		ParentAgentID:      " parent-next ",
-		AgentType:          " worker ",
-		AgentMemoryScope:   " project ",
-		CreatedAt:          303,
-		UpdatedAt:          404,
-		CodexHome:          " /Users/dev/.codex-next ",
-		CodexInstanceKey:   " next ",
-		CodexModelProvider: " openai-compatible ",
+		AgentID:              " agent-next ",
+		Provider:             " codex ",
+		ProviderThreadID:     " provider-next ",
+		CodexThreadID:        " thread-next ",
+		RolloutPath:          " /tmp/next.jsonl ",
+		SessionUUID:          " 019e2c35-42ef-75b3-9f73-31cf7cc4cf2f ",
+		Cwd:                  " /repo/next ",
+		ParentAgentID:        " parent-next ",
+		AgentType:            " worker ",
+		AgentMemoryScope:     " project ",
+		CreatedAt:            303,
+		UpdatedAt:            404,
+		CodexHome:            " /Users/dev/.codex-next ",
+		ProviderRecoveryHome: " /Users/dev/.codex-next ",
+		CodexInstanceKey:     " next ",
+		CodexModelProvider:   " openai-compatible ",
 	}))
 	if err != nil {
 		t.Fatalf("Upsert() error = %v", err)
@@ -237,22 +259,23 @@ func assertThreadBindingRecord(t *testing.T, got *threadBindingRecord, want Bind
 		t.Fatal("binding record = nil")
 	}
 	wantRecord := threadBindingRecord{
-		AgentID:            want.AgentID,
-		Provider:           want.Provider,
-		ProviderThreadID:   want.ProviderThreadID,
-		CodexThreadID:      want.CodexThreadID,
-		RolloutPath:        want.RolloutPath,
-		Cwd:                want.Cwd,
-		ParentAgentID:      want.ParentAgentID,
-		AgentType:          want.AgentType,
-		AgentMemoryScope:   want.AgentMemoryScope,
-		Archived:           want.Archived,
-		CreatedAt:          want.CreatedAt,
-		UpdatedAt:          want.UpdatedAt,
-		SessionUUID:        want.SessionUUID,
-		CodexHome:          want.CodexHome,
-		CodexInstanceKey:   want.CodexInstanceKey,
-		CodexModelProvider: want.CodexModelProvider,
+		AgentID:              want.AgentID,
+		Provider:             want.Provider,
+		ProviderThreadID:     want.ProviderThreadID,
+		CodexThreadID:        want.CodexThreadID,
+		RolloutPath:          want.RolloutPath,
+		Cwd:                  want.Cwd,
+		ParentAgentID:        want.ParentAgentID,
+		AgentType:            want.AgentType,
+		AgentMemoryScope:     want.AgentMemoryScope,
+		Archived:             want.Archived,
+		CreatedAt:            want.CreatedAt,
+		UpdatedAt:            want.UpdatedAt,
+		SessionUUID:          want.SessionUUID,
+		CodexHome:            want.CodexHome,
+		ProviderRecoveryHome: want.ProviderRecoveryHome,
+		CodexInstanceKey:     want.CodexInstanceKey,
+		CodexModelProvider:   want.CodexModelProvider,
 	}
 	if !reflect.DeepEqual(*got, wantRecord) {
 		t.Fatalf("binding record = %#v, want %#v", *got, wantRecord)
@@ -262,21 +285,22 @@ func assertThreadBindingRecord(t *testing.T, got *threadBindingRecord, want Bind
 func assertThreadBindingUpsertParams(t *testing.T, got BindingUpsert) {
 	t.Helper()
 	want := BindingUpsert{
-		AgentID:            "agent-next",
-		Provider:           "codex",
-		ProviderThreadID:   "provider-next",
-		CodexThreadID:      "thread-next",
-		RolloutPath:        "/tmp/next.jsonl",
-		SessionUUID:        "019e2c35-42ef-75b3-9f73-31cf7cc4cf2f",
-		Cwd:                "/repo/next",
-		ParentAgentID:      "parent-next",
-		AgentType:          "worker",
-		AgentMemoryScope:   "project",
-		CreatedAt:          303,
-		UpdatedAt:          404,
-		CodexHome:          "/Users/dev/.codex-next",
-		CodexInstanceKey:   "next",
-		CodexModelProvider: "openai-compatible",
+		AgentID:              "agent-next",
+		Provider:             "codex",
+		ProviderThreadID:     "provider-next",
+		CodexThreadID:        "thread-next",
+		RolloutPath:          "/tmp/next.jsonl",
+		SessionUUID:          "019e2c35-42ef-75b3-9f73-31cf7cc4cf2f",
+		Cwd:                  "/repo/next",
+		ParentAgentID:        "parent-next",
+		AgentType:            "worker",
+		AgentMemoryScope:     "project",
+		CreatedAt:            303,
+		UpdatedAt:            404,
+		CodexHome:            "/Users/dev/.codex-next",
+		ProviderRecoveryHome: "/Users/dev/.codex-next",
+		CodexInstanceKey:     "next",
+		CodexModelProvider:   "openai-compatible",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("binding upsert params = %#v, want %#v", got, want)
@@ -296,7 +320,7 @@ func TestPersistThreadStateRejectsPublicThreadCollision(t *testing.T) {
 
 	err := svc.persistThreadState(context.Background(), threadState{
 		PublicThreadID:   "thread-1",
-		ProviderThreadID: "provider-thread-1",
+		ProviderThreadID: "11111111-2222-3333-4444-555555555605",
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		CWD:              "/repo",
@@ -321,7 +345,7 @@ func TestPersistThreadStateRejectsOrphanPublicThreadCollision(t *testing.T) {
 
 	err := svc.persistThreadState(context.Background(), threadState{
 		PublicThreadID:   "thread-1",
-		ProviderThreadID: "provider-thread-1",
+		ProviderThreadID: "11111111-2222-3333-4444-555555555605",
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		CWD:              "/repo",
@@ -341,7 +365,7 @@ func TestPersistThreadStateRollsBackInsertedBindingOnThreadUpsertFailure(t *test
 
 	err := svc.persistThreadState(context.Background(), threadState{
 		PublicThreadID:   "thread-1",
-		ProviderThreadID: "provider-thread-1",
+		ProviderThreadID: "11111111-2222-3333-4444-555555555605",
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		CWD:              "/repo",
@@ -364,7 +388,7 @@ func TestPersistThreadStateRestoresPreviousBindingOnThreadUpsertFailure(t *testi
 	previous := &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
-		ProviderThreadID: "provider-thread-1",
+		ProviderThreadID: "11111111-2222-3333-4444-555555555605",
 		CodexThreadID:    "",
 		Cwd:              "",
 		CreatedAt:        99,
@@ -375,7 +399,7 @@ func TestPersistThreadStateRestoresPreviousBindingOnThreadUpsertFailure(t *testi
 
 	err := svc.persistThreadState(context.Background(), threadState{
 		PublicThreadID:   "thread-1",
-		ProviderThreadID: "provider-thread-1",
+		ProviderThreadID: "11111111-2222-3333-4444-555555555605",
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		CWD:              "/repo",
@@ -384,7 +408,7 @@ func TestPersistThreadStateRestoresPreviousBindingOnThreadUpsertFailure(t *testi
 	if err == nil || !strings.Contains(err.Error(), "thread upsert failed") {
 		t.Fatalf("persistThreadState() error = %v, want thread upsert failure", err)
 	}
-	if got := bindings.binding; got == nil || got.CodexThreadID != "" || got.Cwd != "" || got.ProviderThreadID != "provider-thread-1" {
+	if got := bindings.binding; got == nil || got.CodexThreadID != "" || got.Cwd != "" || got.ProviderThreadID != "11111111-2222-3333-4444-555555555605" {
 		t.Fatalf("binding after rollback = %#v, want restored previous binding", got)
 	}
 	if len(bindings.upserts) != 2 {
@@ -401,7 +425,7 @@ func TestBindingRegistrationPersistsCodexIdentity(t *testing.T) {
 
 	err := svc.persistThreadState(context.Background(), threadState{
 		PublicThreadID:     "thread-identity",
-		ProviderThreadID:   "provider-thread-identity",
+		ProviderThreadID:   "11111111-2222-3333-4444-555555555606",
 		AgentID:            "agent-identity",
 		Provider:           "codex",
 		CWD:                "/repo",
@@ -431,7 +455,7 @@ func TestBindingRegistrationCanonicalizesExistingAliasCodexHome(t *testing.T) {
 	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:            "agent-canonical",
 		Provider:           "codex",
-		ProviderThreadID:   "provider-thread-canonical",
+		ProviderThreadID:   "11111111-2222-3333-4444-555555555607",
 		CodexThreadID:      "thread-canonical",
 		Cwd:                "/repo",
 		CodexHome:          aliasHome,
@@ -443,7 +467,7 @@ func TestBindingRegistrationCanonicalizesExistingAliasCodexHome(t *testing.T) {
 
 	err := svc.persistThreadState(context.Background(), threadState{
 		PublicThreadID:     "thread-canonical",
-		ProviderThreadID:   "provider-thread-canonical",
+		ProviderThreadID:   "11111111-2222-3333-4444-555555555607",
 		AgentID:            "agent-canonical",
 		Provider:           "codex",
 		CWD:                "/repo",
@@ -496,7 +520,7 @@ func TestBindingRegistrationRejectsCodexIdentityTupleConflict(t *testing.T) {
 			bindings := &stubBindingStore{binding: &BindingRecord{
 				AgentID:            "agent-conflict-" + strings.ReplaceAll(tc.name, " ", "-"),
 				Provider:           "codex",
-				ProviderThreadID:   "provider-thread-conflict-" + strings.ReplaceAll(tc.name, " ", "-"),
+				ProviderThreadID:   "11111111-2222-3333-4444-555555555608",
 				CodexThreadID:      "thread-conflict-" + strings.ReplaceAll(tc.name, " ", "-"),
 				Cwd:                "/repo",
 				CodexHome:          canonicalHome,
@@ -541,7 +565,7 @@ func TestBindingRegistrationRejectsNonAliasCodexHomeRepair(t *testing.T) {
 	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:            "agent-home-conflict",
 		Provider:           "codex",
-		ProviderThreadID:   "provider-thread-home-conflict",
+		ProviderThreadID:   "11111111-2222-3333-4444-555555555609",
 		CodexThreadID:      "thread-home-conflict",
 		Cwd:                "/repo",
 		CodexHome:          canonicalHome,
@@ -553,7 +577,7 @@ func TestBindingRegistrationRejectsNonAliasCodexHomeRepair(t *testing.T) {
 
 	err := svc.persistThreadState(context.Background(), threadState{
 		PublicThreadID:     "thread-home-conflict",
-		ProviderThreadID:   "provider-thread-home-conflict",
+		ProviderThreadID:   "11111111-2222-3333-4444-555555555609",
 		AgentID:            "agent-home-conflict",
 		Provider:           "codex",
 		CWD:                "/repo",
@@ -581,7 +605,7 @@ func TestBindingRegistrationHistoryInputUsesCanonicalCodexHome(t *testing.T) {
 	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:            "agent-history-canonical",
 		Provider:           "codex",
-		ProviderThreadID:   "provider-thread-history-canonical",
+		ProviderThreadID:   "11111111-2222-3333-4444-555555555610",
 		CodexThreadID:      "thread-history-canonical",
 		Cwd:                "/repo",
 		CodexHome:          aliasHome,
@@ -593,7 +617,7 @@ func TestBindingRegistrationHistoryInputUsesCanonicalCodexHome(t *testing.T) {
 
 	err := svc.persistThreadState(context.Background(), threadState{
 		PublicThreadID:     "thread-history-canonical",
-		ProviderThreadID:   "provider-thread-history-canonical",
+		ProviderThreadID:   "11111111-2222-3333-4444-555555555610",
 		AgentID:            "agent-history-canonical",
 		Provider:           "codex",
 		CWD:                "/repo",

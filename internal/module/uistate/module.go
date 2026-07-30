@@ -2,13 +2,14 @@ package uistate
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/observability"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/historyjsonl"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/identifier"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/providerrecovery"
 	"go.uber.org/fx"
 )
 
@@ -92,48 +93,83 @@ func (s *service) loadBatchConfigs(ctx context.Context, threads []ThreadSummary)
 
 // enrichFromDB 用 binding 和 runtime 配置补齐内存快照里的 provider/thread 运行时字段。
 // 该步骤只做展示层回填，不改变 store 中的状态；读取失败不会覆盖事件流投影结果。
-func (s *service) enrichFromDB(ctx context.Context, agents []AgentSummary, threads []ThreadSummary, runtimeMap map[string]map[string]any) {
+func (s *service) enrichFromDB(ctx context.Context, agents []AgentSummary, threads []ThreadSummary, runtimeMap map[string]map[string]any) error {
 	var byAgent map[string]BindingEntry
 	if s.bindings != nil {
-		byAgent = s.loadBindingIndex(ctx)
+		var err error
+		byAgent, err = s.loadBindingIndex(ctx)
+		if err != nil {
+			return err
+		}
+	}
+	providerThreads, err := resolveBindingProviderThreads(byAgent, resolveProviderThreadID)
+	if err != nil {
+		return err
 	}
 
 	batchConfigs, batchRuntimeRead := s.loadBatchConfigs(ctx, threads)
 
 	for _, thread := range threads {
-		if len(byAgent) > 0 {
-			applyBindingToThreadRuntime(thread, byAgent, runtimeMap)
-		}
-
-		threadID := strings.TrimSpace(thread.ID)
-		if threadID == "" {
-			continue
-		}
-
-		var cfg map[string]any
-		if batchRuntimeRead {
-			cfg = batchConfigs[threadID]
-		} else if s.runtimeConfig != nil {
-			var rcErr error
-			cfg, rcErr = s.runtimeConfig.ReadRuntimeConfig(ctx, threadID)
-			if rcErr != nil {
-				s.logger.WarnContext(ctx, "uistate: ReadRuntimeConfig failed", "threadID", threadID, "err", rcErr)
-			}
-		}
-
-		applyTaskRuntimeToThreadRuntimeConfig(threadID, cfg, runtimeMap)
+		s.enrichThreadFromDB(ctx, thread, byAgent, providerThreads, runtimeMap, batchConfigs, batchRuntimeRead)
 	}
 	if len(byAgent) == 0 {
-		return
+		return nil
 	}
 	for i := range agents {
-		applyBindingToAgent(&agents[i], byAgent)
+		applyBindingToAgent(&agents[i], byAgent, providerThreads)
 	}
+	return nil
+}
+
+// enrichThreadFromDB 回填单条线程的 binding 和运行时配置。
+func (s *service) enrichThreadFromDB(
+	ctx context.Context,
+	thread ThreadSummary,
+	byAgent map[string]BindingEntry,
+	providerThreads map[string]string,
+	runtimeMap map[string]map[string]any,
+	batchConfigs map[string]map[string]any,
+	batchRuntimeRead bool,
+) {
+	if len(byAgent) > 0 {
+		applyBindingToThreadRuntime(thread, byAgent, providerThreads, runtimeMap)
+	}
+	threadID := strings.TrimSpace(thread.ID)
+	if threadID == "" {
+		return
+	}
+	cfg := s.threadRuntimeConfig(ctx, threadID, batchConfigs, batchRuntimeRead)
+	applyTaskRuntimeToThreadRuntimeConfig(threadID, cfg, runtimeMap)
+}
+
+// threadRuntimeConfig 读取单条线程的批量或单项运行时配置。
+func (s *service) threadRuntimeConfig(
+	ctx context.Context,
+	threadID string,
+	batchConfigs map[string]map[string]any,
+	batchRuntimeRead bool,
+) map[string]any {
+	if batchRuntimeRead {
+		return batchConfigs[threadID]
+	}
+	if s.runtimeConfig == nil {
+		return nil
+	}
+	cfg, err := s.runtimeConfig.ReadRuntimeConfig(ctx, threadID)
+	if err != nil {
+		s.logger.WarnContext(ctx, "uistate: ReadRuntimeConfig failed", "threadID", threadID, "err", err)
+	}
+	return cfg
 }
 
 // applyBindingToThreadRuntime 将 agent binding 回填到线程 runtime map。
 // 该路径只填补缺失字段；已有 provider/threadID 视为上游权威值，不能被历史 binding 覆盖。
-func applyBindingToThreadRuntime(thread ThreadSummary, idx map[string]BindingEntry, runtimeMap map[string]map[string]any) {
+func applyBindingToThreadRuntime(
+	thread ThreadSummary,
+	idx map[string]BindingEntry,
+	providerThreads map[string]string,
+	runtimeMap map[string]map[string]any,
+) {
 	if thread.AgentID == "" {
 		return
 	}
@@ -141,13 +177,19 @@ func applyBindingToThreadRuntime(thread ThreadSummary, idx map[string]BindingEnt
 	if !ok || entry.Provider == "" {
 		return
 	}
-	rt := ensureThreadRuntime(thread, entry, runtimeMap)
+	providerThreadID := providerThreads[strings.TrimSpace(thread.AgentID)]
+	rt := ensureThreadRuntime(thread, providerThreadID, runtimeMap)
+	applyBindingRuntimeFields(rt, entry, providerThreadID)
+}
+
+// applyBindingRuntimeFields 只回填缺失的展示字段。
+func applyBindingRuntimeFields(rt map[string]any, entry BindingEntry, providerThreadID string) {
 	// 这里是展示层回填路径，只在 runtimeMap 缺 provider 时填充。
 	// 已存在 provider 可能来自实时事件或 thread runtime 配置，必须由上游权威来源纠正。
 	if rt["provider"] == nil || rt["provider"] == "" {
 		rt["provider"] = entry.Provider
 	}
-	if providerThreadID := resolveProviderThreadID(entry); providerThreadID != "" && runtimeProviderThreadIDNeedsBackfill(rt["providerThreadId"]) {
+	if providerThreadID != "" && runtimeProviderThreadIDNeedsBackfill(rt["providerThreadId"]) {
 		rt["providerThreadId"] = providerThreadID
 	}
 	if entry.Cwd != "" && runtimeString(rt["cwd"]) == "" {
@@ -155,7 +197,7 @@ func applyBindingToThreadRuntime(thread ThreadSummary, idx map[string]BindingEnt
 	}
 }
 
-func ensureThreadRuntime(thread ThreadSummary, entry BindingEntry, runtimeMap map[string]map[string]any) map[string]any {
+func ensureThreadRuntime(thread ThreadSummary, providerThreadID string, runtimeMap map[string]map[string]any) map[string]any {
 	rt := runtimeMap[thread.ID]
 	if rt != nil {
 		return rt
@@ -163,7 +205,7 @@ func ensureThreadRuntime(thread ThreadSummary, entry BindingEntry, runtimeMap ma
 	rt = map[string]any{
 		"agentId":          thread.AgentID,
 		"state":            "idle",
-		"providerThreadId": resolveProviderThreadID(entry),
+		"providerThreadId": providerThreadID,
 	}
 	runtimeMap[thread.ID] = rt
 	return rt
@@ -175,27 +217,28 @@ func applyTaskRuntimeToThreadRuntimeConfig(threadID string, cfg map[string]any, 
 	_ = runtimeMap
 }
 
-func (s *service) loadBindingIndex(ctx context.Context) map[string]BindingEntry {
+func (s *service) loadBindingIndex(ctx context.Context) (map[string]BindingEntry, error) {
 	entries, err := s.bindings.ListAgentThreadBindings(ctx)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	idx := make(map[string]BindingEntry, len(entries))
 	for _, e := range entries {
 		idx[strings.TrimSpace(e.AgentID)] = e
 	}
-	return idx
+	return idx, nil
 }
 
-func applyBindingToAgent(agent *AgentSummary, idx map[string]BindingEntry) {
-	b, ok := idx[strings.TrimSpace(agent.ID)]
+func applyBindingToAgent(agent *AgentSummary, idx map[string]BindingEntry, providerThreads map[string]string) {
+	agentID := strings.TrimSpace(agent.ID)
+	b, ok := idx[agentID]
 	if !ok {
 		return
 	}
 	if b.Provider != "" {
 		agent.Provider = b.Provider
 	}
-	ptid := resolveProviderThreadID(b)
+	ptid := providerThreads[agentID]
 	if ptid != "" {
 		agent.ProviderThreadID = ptid
 	}
@@ -204,24 +247,55 @@ func applyBindingToAgent(agent *AgentSummary, idx map[string]BindingEntry) {
 	}
 }
 
-func resolveProviderThreadID(b BindingEntry) string {
-	for _, candidate := range []string{b.ProviderThreadID, b.SessionUUID} {
-		ptid := strings.TrimSpace(candidate)
-		if !identifier.LooksLikeUUID(ptid) {
-			continue
-		}
-		if _, err := historyjsonl.ExistingProviderPath(historyjsonl.ReadRequest{
-			Provider:         b.Provider,
-			RolloutPath:      b.RolloutPath,
-			ThreadID:         b.CodexThreadID,
-			ProviderThreadID: ptid,
-			SessionUUID:      ptid,
-			CodexHome:        b.CodexHome,
-		}); err == nil {
-			return ptid
-		}
+// resolveBindingProviderThreads 为每个 binding 只解析一次 provider identity。
+func resolveBindingProviderThreads(
+	idx map[string]BindingEntry,
+	resolve func(BindingEntry) (string, error),
+) (map[string]string, error) {
+	if resolve == nil {
+		return nil, errors.New("uistate: provider recovery resolver is required")
 	}
-	return ""
+	resolved := make(map[string]string, len(idx))
+	for agentID, binding := range idx {
+		providerThreadID, err := resolve(binding)
+		if err != nil {
+			return nil, fmt.Errorf("uistate: recover provider identity for agent %q: %w", agentID, err)
+		}
+		resolved[strings.TrimSpace(agentID)] = providerThreadID
+	}
+	return resolved, nil
+}
+
+// resolveProviderThreadID 通过唯一 recovery port 解析展示所需的精确 provider identity。
+func resolveProviderThreadID(b BindingEntry) (string, error) {
+	result, err := providerrecovery.ResolveOptional(providerRecoveryRequestFromUIBinding(b))
+	if providerrecovery.IsKind(err, providerrecovery.ErrorKindNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return result.ProviderThreadID, nil
+}
+
+// providerRecoveryRequestFromUIBinding 将 uistate binding 映射到唯一 recovery port。
+func providerRecoveryRequestFromUIBinding(binding BindingEntry) providerrecovery.Request {
+	return providerrecovery.Request{
+		Provider:         binding.Provider,
+		RolloutPath:      binding.RolloutPath,
+		ProviderThreadID: binding.ProviderThreadID,
+		SessionUUID:      binding.SessionUUID,
+		CodexHome:        providerRecoveryCodexHome(binding.CodexHome, binding.ProviderRecoveryHome),
+		ClaudeHome:       binding.ProviderRecoveryHome,
+	}
+}
+
+func providerRecoveryCodexHome(codexHome, recoveryHome string) string {
+	codexHome = strings.TrimSpace(codexHome)
+	if codexHome != "" {
+		return codexHome
+	}
+	return strings.TrimSpace(recoveryHome)
 }
 
 func runtimeProviderThreadIDNeedsBackfill(value any) bool {

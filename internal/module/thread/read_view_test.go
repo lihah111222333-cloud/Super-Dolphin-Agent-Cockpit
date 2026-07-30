@@ -21,17 +21,18 @@ func TestReadThreadHistoryUsesSessionThreadList(t *testing.T) {
 		silentLogger(),
 		historyThreadStore(ThreadRecord{ThreadID: "thread-1", AgentID: "agent-1", Prompt: "demo"}),
 		newHistoryTestBindingStore(&BindingRecord{
-			AgentID:          "agent-1",
-			Provider:         "codex",
-			ProviderThreadID: "provider-thread-1",
-			CodexThreadID:    "thread-1",
+			AgentID:              "agent-1",
+			Provider:             "codex",
+			ProviderThreadID:     "11111111-2222-3333-4444-555555555591",
+			CodexThreadID:        "thread-1",
+			ProviderRecoveryHome: t.TempDir(),
 		}),
 		&historyTestSessionProvider{sessions: map[string]contract.Session{
 			"agent-1": &historyTestSession{
-				threadID: "provider-thread-1",
+				threadID: "11111111-2222-3333-4444-555555555591",
 				threads: []dto.ThreadRef{
-					{ID: "provider-thread-1"},
-					{ID: "provider-thread-2"},
+					{ID: "11111111-2222-3333-4444-555555555591"},
+					{ID: "11111111-2222-3333-4444-555555555592"},
 				},
 			},
 		}},
@@ -50,8 +51,8 @@ func TestReadThreadHistoryUsesSessionThreadList(t *testing.T) {
 	}
 	want := &ReadHistoryResult{
 		History: []ReadHistoryThread{
-			{ThreadID: "provider-thread-1"},
-			{ThreadID: "provider-thread-2"},
+			{ThreadID: "11111111-2222-3333-4444-555555555591"},
+			{ThreadID: "11111111-2222-3333-4444-555555555592"},
 		},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -309,7 +310,7 @@ func TestGetReturnsProviderIdentityFromBinding(t *testing.T) {
 			ProviderThreadID: providerUUID,
 			SessionUUID:      providerUUID,
 			CodexThreadID:    "agent-1",
-			RolloutPath:      writeExistingProviderHistoryFile(t),
+			RolloutPath:      writeExistingProviderHistoryFile(t, providerUUID),
 			Cwd:              "/repo",
 		}),
 		nil,
@@ -350,7 +351,7 @@ func TestGetPrefersSessionUUIDForResolvedIdentity(t *testing.T) {
 			ProviderThreadID: "agent-1",
 			SessionUUID:      sessionUUID,
 			CodexThreadID:    "agent-1",
-			RolloutPath:      writeExistingProviderHistoryFile(t),
+			RolloutPath:      writeExistingProviderHistoryFile(t, sessionUUID),
 		}),
 		nil,
 		nil,
@@ -371,7 +372,7 @@ func TestGetPrefersSessionUUIDForResolvedIdentity(t *testing.T) {
 	}
 }
 
-func TestGetDoesNotPromoteSessionUUIDWithoutHistoryFile(t *testing.T) {
+func TestGetRecoversOfficialCodexUUIDWithoutHistoryFile(t *testing.T) {
 	t.Parallel()
 
 	const sessionUUID = "019e218f-b9c9-7c60-87f7-449577c795dc"
@@ -397,8 +398,8 @@ func TestGetDoesNotPromoteSessionUUIDWithoutHistoryFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
-	if got.ProviderThreadID != "" {
-		t.Fatalf("ProviderThreadID = %q, want empty without provider history file", got.ProviderThreadID)
+	if got.ProviderThreadID != sessionUUID {
+		t.Fatalf("ProviderThreadID = %q, want official UUID %s without provider history file", got.ProviderThreadID, sessionUUID)
 	}
 	if got.SessionID != sessionUUID {
 		t.Fatalf("SessionID = %q, want %s", got.SessionID, sessionUUID)

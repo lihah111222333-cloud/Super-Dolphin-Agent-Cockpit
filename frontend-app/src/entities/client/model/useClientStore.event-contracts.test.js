@@ -124,6 +124,7 @@ it("routes every typed Wails wire method without treating lifecycle events as le
           threadId: "thread-1",
           turnId: "turn-1",
           outcome: "success",
+          publicSummary: "Public success summary",
           occurredAt: "2026-07-21T01:00:00Z",
         }
         : method === "task/node/statusChanged"

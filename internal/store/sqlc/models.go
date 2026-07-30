@@ -26,22 +26,23 @@ type AgentInteraction struct {
 }
 
 type AgentProviderBinding struct {
-	AgentID            string `db:"agent_id" json:"agent_id"`
-	Provider           string `db:"provider" json:"provider"`
-	ProviderThreadID   string `db:"provider_thread_id" json:"provider_thread_id"`
-	CodexThreadID      string `db:"codex_thread_id" json:"codex_thread_id"`
-	RolloutPath        string `db:"rollout_path" json:"rollout_path"`
-	CWD                string `db:"cwd" json:"cwd"`
-	ParentAgentID      string `db:"parent_agent_id" json:"parent_agent_id"`
-	AgentType          string `db:"agent_type" json:"agent_type"`
-	AgentMemoryScope   string `db:"agent_memory_scope" json:"agent_memory_scope"`
-	Archived           int64  `db:"archived" json:"archived"`
-	CreatedAt          int64  `db:"created_at" json:"created_at"`
-	UpdatedAt          int64  `db:"updated_at" json:"updated_at"`
-	SessionUUID        string `db:"session_uuid" json:"session_uuid"`
-	CodexHome          string `db:"codex_home" json:"codex_home"`
-	CodexInstanceKey   string `db:"codex_instance_key" json:"codex_instance_key"`
-	CodexModelProvider string `db:"codex_model_provider" json:"codex_model_provider"`
+	AgentID              string `db:"agent_id" json:"agent_id"`
+	Provider             string `db:"provider" json:"provider"`
+	ProviderThreadID     string `db:"provider_thread_id" json:"provider_thread_id"`
+	CodexThreadID        string `db:"codex_thread_id" json:"codex_thread_id"`
+	RolloutPath          string `db:"rollout_path" json:"rollout_path"`
+	CWD                  string `db:"cwd" json:"cwd"`
+	ParentAgentID        string `db:"parent_agent_id" json:"parent_agent_id"`
+	AgentType            string `db:"agent_type" json:"agent_type"`
+	AgentMemoryScope     string `db:"agent_memory_scope" json:"agent_memory_scope"`
+	Archived             int64  `db:"archived" json:"archived"`
+	CreatedAt            int64  `db:"created_at" json:"created_at"`
+	UpdatedAt            int64  `db:"updated_at" json:"updated_at"`
+	SessionUUID          string `db:"session_uuid" json:"session_uuid"`
+	CodexHome            string `db:"codex_home" json:"codex_home"`
+	CodexInstanceKey     string `db:"codex_instance_key" json:"codex_instance_key"`
+	CodexModelProvider   string `db:"codex_model_provider" json:"codex_model_provider"`
+	ProviderRecoveryHome string `db:"provider_recovery_home" json:"provider_recovery_home"`
 }
 
 type AgentStatus struct {

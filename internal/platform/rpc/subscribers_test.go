@@ -84,6 +84,7 @@ func rpcPushSubscriberTurnCompleted(t *testing.T, threadID, turnID, agentID stri
 		TurnHeader: rpcPushSubscriberTurnHeader(threadID, turnID, agentID),
 		Success:    true,
 		Status:     "completed",
+		Summary:    "public success summary",
 	}
 	terminal, err := turndto.NewTurnTerminalV2(completed, "rpc-push-subscriber-"+turnID)
 	if err != nil {

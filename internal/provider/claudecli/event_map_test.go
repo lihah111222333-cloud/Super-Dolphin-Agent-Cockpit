@@ -35,9 +35,9 @@ func TestEventTimeInvalidTimestampIsZero(t *testing.T) {
 }
 
 type claudeTerminalFixture struct {
-	name, eventType, outcome, cause, requestID string
-	publicError                                bool
-	data                                       map[string]any
+	name, eventType, outcome, summary, cause, requestID string
+	publicError                                         bool
+	data                                                map[string]any
 }
 
 type claudeTerminalPublication struct {
@@ -49,7 +49,7 @@ func TestClaudeTerminalFixturesReachCanonicalEventSurface(t *testing.T) {
 	t.Parallel()
 
 	fixtures := []claudeTerminalFixture{
-		{name: "success", eventType: "turn:complete", outcome: "success", data: map[string]any{"success": true, "status": "completed"}},
+		{name: "success", eventType: "turn:complete", outcome: "success", summary: "Claude completed the turn.", data: map[string]any{"success": true, "status": "completed", "summary": "Claude completed the turn."}},
 		{name: "failed", eventType: "turn:complete", outcome: "failed", publicError: true, data: map[string]any{"success": false, "status": "failed", "error": "raw provider failure"}},
 		{name: "user interrupted", eventType: "turn:interrupted", outcome: "interrupted", cause: "user_request", requestID: "stop-1", data: map[string]any{"termination_cause": "user_request", "termination_request_id": "stop-1", "reason": "ui stop"}},
 		{name: "provider cancelled", eventType: "turn:complete", outcome: "cancelled", cause: "provider", publicError: true, data: map[string]any{"success": false, "status": "cancelled", "termination_cause": "provider", "error": "provider cancelled"}},
@@ -118,6 +118,9 @@ func assertClaudeTerminalFixture(t *testing.T, fixture claudeTerminalFixture, go
 	}{2, terminal.EventID, "thread-1", "turn-1", fixture.outcome, "2026-07-16T10:11:12.123Z"}
 	if terminal.EventID == "" || identity != wantIdentity {
 		t.Fatalf("terminal identity/outcome = %#v", terminal)
+	}
+	if terminal.PublicSummary != fixture.summary {
+		t.Fatalf("terminal public summary = %q, want %q", terminal.PublicSummary, fixture.summary)
 	}
 	if terminal.TerminationCause != fixture.cause || terminal.TerminationRequestID != fixture.requestID {
 		t.Fatalf("terminal termination = (%q, %q), want (%q, %q)", terminal.TerminationCause, terminal.TerminationRequestID, fixture.cause, fixture.requestID)

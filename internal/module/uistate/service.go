@@ -206,7 +206,9 @@ func (s *service) GetState(ctx context.Context) (*UIState, error) {
 	}
 	// Snapshot 先来自事件流投影，再用 store 做展示层回填。
 	// enrichFromDB 只补空 provider，不会覆盖 runtimeMap 中已有的上游权威值。
-	s.enrichFromDB(ctx, snapshot.Agents, snapshot.Threads, snapshot.AgentRuntimeByID)
+	if err := s.enrichFromDB(ctx, snapshot.Agents, snapshot.Threads, snapshot.AgentRuntimeByID); err != nil {
+		return nil, err
+	}
 	return snapshot, nil
 }
 
@@ -220,7 +222,9 @@ func (s *service) GetSidebar(ctx context.Context) (*Sidebar, error) {
 	t1 := time.Now()
 	snapshot := s.sidebarSnapshot()
 	t2 := time.Now()
-	s.enrichFromDB(ctx, snapshot.Agents, snapshot.Threads, snapshot.AgentRuntimeByID)
+	if err := s.enrichFromDB(ctx, snapshot.Agents, snapshot.Threads, snapshot.AgentRuntimeByID); err != nil {
+		return nil, err
+	}
 	t3 := time.Now()
 	applyPreferencesToSidebar(snapshot, prefs)
 

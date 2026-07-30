@@ -97,7 +97,23 @@
       "name": "codex-synthetic-terminal-producer",
       "path": "internal/provider/codexapp/session_dispatch.go",
       "symbol": "completeSyntheticTurn",
-      "strings": ["turn/completed", "success", "status"]
+      "calls": ["publishSyntheticTerminal"],
+      "strings": ["success", "status", "summary"],
+      "identifiers": ["publicSummary"]
+    },
+    {
+      "name": "codex-synthetic-terminal-publisher",
+      "path": "internal/provider/codexapp/session_dispatch.go",
+      "symbol": "publishSyntheticTerminal",
+      "calls": ["claimTerminalSeal", "takeTurn", "suppressTurn", "dispatch"],
+      "strings": ["turn/completed"]
+    },
+    {
+      "name": "codex-force-complete-system-terminal-producer",
+      "path": "internal/provider/codexapp/session_dispatch.go",
+      "symbol": "forceCompleteTurn",
+      "calls": ["publishSyntheticTerminal"],
+      "strings": ["interrupted", "system", "termination_cause"]
     },
     {
       "name": "codex-interrupt-terminal-producer",
@@ -109,7 +125,8 @@
       "name": "codex-accepted-assistant-item-producer",
       "path": "internal/provider/codexapp/session_approval.go",
       "symbol": "completeAssistantMessageCompleted",
-      "calls": ["acceptedAssistantItemIDs", "completeSyntheticTurn"]
+      "calls": ["assistantMessageText", "acceptedAssistantItemIDs", "completeSyntheticTurn"],
+      "identifiers": ["publicSummary"]
     },
     {
       "name": "codex-accepted-partial-item-injection",
@@ -149,6 +166,13 @@
       "path": "internal/provider/claudecli/session_events.go",
       "symbol": "attachClaudeTerminalOutcome",
       "calls": ["ResolveRawTerminalOutcome", "ResolveRawTermination"]
+    },
+    {
+      "name": "claude-force-complete-system-terminal-producer",
+      "path": "internal/provider/claudecli/session_config.go",
+      "symbol": "forceCompleteTurn",
+      "calls": ["turnRawEventLocked"],
+      "strings": ["turn:interrupted", "termination_cause", "system"]
     },
     {
       "name": "claude-terminal-consumer",

@@ -443,28 +443,29 @@ func (s *service) lookupSession(agentID string) (contract.Session, error) {
 // resumeState 汇总恢复会话时从 thread row、binding 和 runtime config 读到的权威状态。
 // UI 请求只能补空缺字段，不能覆盖这些持久化边界里的身份、目录和 provider 信息。
 type resumeState struct {
-	AgentID            string             // 运行时 agent id
-	ParentAgentID      string             // 父 agent id，用于恢复子代理关系
-	OwnerThreadID      string             // 原始 owner thread id
-	AgentType          string             // agent 类型
-	AgentMemoryScope   string             // agent 记忆范围
-	Provider           string             // 会话 provider
-	ProviderThreadID   string             // provider 侧 thread id
-	PublicThreadID     string             // 对 UI 暴露的 thread id
-	Prompt             string             // 历史 prompt 文本
-	Model              string             // 恢复时继承的模型
-	Effort             string             // 恢复时继承的 effort
-	ConfigOverride     storedThreadConfig // 持久化的线程配置覆盖
-	ConfigOverrideRaw  json.RawMessage    // 原始配置 JSON，用于兼容旧存档
-	CWD                string             // 恢复请求最终使用的工作目录
-	StoredCWD          string             // thread row 中保存的工作目录
-	RolloutPath        string             // provider rollout 日志路径
-	SessionUUID        string             // provider session uuid
-	ClaudeHome         string             // Claude provider home
-	CodexHome          string             // Codex provider home
-	CodexInstanceKey   string             // Codex 实例隔离 key
-	CodexModelProvider string             // Codex 模型 provider
-	CreatedAt          int64              // thread row 创建时间
+	AgentID              string             // 运行时 agent id
+	ParentAgentID        string             // 父 agent id，用于恢复子代理关系
+	OwnerThreadID        string             // 原始 owner thread id
+	AgentType            string             // agent 类型
+	AgentMemoryScope     string             // agent 记忆范围
+	Provider             string             // 会话 provider
+	ProviderThreadID     string             // provider 侧 thread id
+	PublicThreadID       string             // 对 UI 暴露的 thread id
+	Prompt               string             // 历史 prompt 文本
+	Model                string             // 恢复时继承的模型
+	Effort               string             // 恢复时继承的 effort
+	ConfigOverride       storedThreadConfig // 持久化的线程配置覆盖
+	ConfigOverrideRaw    json.RawMessage    // 原始配置 JSON，用于兼容旧存档
+	CWD                  string             // 恢复请求最终使用的工作目录
+	StoredCWD            string             // thread row 中保存的工作目录
+	RolloutPath          string             // provider rollout 日志路径
+	SessionUUID          string             // provider session uuid
+	ClaudeHome           string             // Claude provider home
+	CodexHome            string             // Codex provider home
+	ProviderRecoveryHome string             // binding instance owner 提供的 recovery home
+	CodexInstanceKey     string             // Codex 实例隔离 key
+	CodexModelProvider   string             // Codex 模型 provider
+	CreatedAt            int64              // thread row 创建时间
 }
 
 // resolveResumeRequest 整理 service.Resume 要用的状态。
@@ -491,7 +492,7 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	if err != nil {
 		return ResumeRequest{}, resumeState{}, err
 	}
-	req.ClaudeHome = util.FirstNonEmpty(req.ClaudeHome, state.ClaudeHome, resumeRuntimeConfigString(state.ConfigOverride.Runtime, "claudeHome", "claude_home", "history_dir"))
+	req.ClaudeHome = hydrateResumeClaudeHome(req.Provider, req.ClaudeHome, state)
 	req = hydrateResumeCodexIdentity(req, state)
 	req.CodexDisabledNativeTools, err = resolveResumeCodexDisabledNativeTools(req.CodexDisabledNativeTools, state.ConfigOverride.Runtime)
 	if err != nil {
@@ -510,11 +511,12 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	req.Model = resolveResumeModel(req, state)
 	req.Effort = resolveResumeEffort(req, state)
 	req.ThreadID = state.PublicThreadID
-	if req.Provider == "" {
-		return ResumeRequest{}, resumeState{}, errors.New("provider is required")
+	if err := validateResumeIdentityOwner(req); err != nil {
+		return ResumeRequest{}, resumeState{}, err
 	}
-	if req.AgentID == "" {
-		return ResumeRequest{}, resumeState{}, errors.New("agent id is required")
+	req, err = recoverHydratedResumeProviderThread(req, &state)
+	if err != nil {
+		return ResumeRequest{}, resumeState{}, err
 	}
 	state.CWD = req.CWD
 	state.Model = req.Model
@@ -524,6 +526,17 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	state.CodexInstanceKey = util.FirstNonEmpty(state.CodexInstanceKey, req.CodexInstanceKey)
 	state.CodexModelProvider = util.FirstNonEmpty(state.CodexModelProvider, req.CodexModelProvider)
 	return req, state, nil
+}
+
+// validateResumeIdentityOwner 校验恢复请求已有明确 provider 与 agent owner。
+func validateResumeIdentityOwner(req ResumeRequest) error {
+	if req.Provider == "" {
+		return errors.New("provider is required")
+	}
+	if req.AgentID == "" {
+		return errors.New("agent id is required")
+	}
+	return nil
 }
 
 // hydrateResumeCodexIdentity 从持久化状态补齐 Codex 恢复身份。
@@ -549,6 +562,19 @@ func hydrateResumeCodexIdentity(req ResumeRequest, state resumeState) ResumeRequ
 		resumeRuntimeConfigString(runtime, contract.CodexModelProviderKey, "codex_model_provider"),
 	)
 	return req
+}
+
+// hydrateResumeClaudeHome 只把 Claude binding 的权威 recovery owner 注入 Claude 恢复请求。
+func hydrateResumeClaudeHome(provider, claudeHome string, state resumeState) string {
+	if !strings.EqualFold(strings.TrimSpace(provider), "claude") {
+		return strings.TrimSpace(claudeHome)
+	}
+	return util.FirstNonEmpty(
+		claudeHome,
+		state.ClaudeHome,
+		state.ProviderRecoveryHome,
+		resumeRuntimeConfigString(state.ConfigOverride.Runtime, "claudeHome", "claude_home", "history_dir"),
+	)
 }
 
 // trimResumeRequest 清理恢复请求并剔除不允许在线覆盖的配置字段。

@@ -123,34 +123,67 @@ func applyMigration(ctx context.Context, db *sql.DB, dir, name string) error {
 	if err != nil {
 		return fmt.Errorf("begin SQLite migration %s: %w", name, err)
 	}
-	if err := executeMigrationBody(ctx, tx, name, string(body)); err != nil {
+	skip, err := prepareMigrationTransaction(ctx, tx, dir, name)
+	if err != nil {
 		_ = tx.Rollback()
+		return err
+	}
+	if !skip {
+		err = executeAndRecordMigration(ctx, tx, name, string(body))
+	}
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit SQLite migration %s: %w", name, err)
+	}
+	return nil
+}
+
+func prepareMigrationTransaction(
+	ctx context.Context,
+	tx *sql.Tx,
+	dir string,
+	name string,
+) (bool, error) {
+	if isLegacy120CanonicalTarget(name) {
+		skip, err := skipRecordedCanonicalTarget(ctx, tx, dir, name)
+		if err != nil {
+			return false, fmt.Errorf("validate recorded SQLite migration %s before execution: %w", name, err)
+		}
+		if skip {
+			return true, nil
+		}
+	}
+	if name != terminalOutcomeOutboxMigration {
+		return false, nil
+	}
+	if err := reconcileLegacy120Markers(ctx, tx, dir); err != nil {
+		return false, fmt.Errorf("reconcile legacy SQLite migration 120 before %s: %w", name, err)
+	}
+	return false, nil
+}
+
+func executeAndRecordMigration(ctx context.Context, tx *sql.Tx, name, body string) error {
+	if err := executeMigrationBody(ctx, tx, name, body); err != nil {
 		return fmt.Errorf("execute SQLite migration %s: %w", name, err)
 	}
 	recorded, err := migrationMarkerExists(ctx, tx, name)
 	if err != nil {
-		_ = tx.Rollback()
 		return fmt.Errorf("detect SQLite migration marker %s: %w", name, err)
 	}
 	if recorded {
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("commit SQLite migration %s: %w", name, err)
-		}
 		return nil
 	}
 	version := parseMigrationVersion(name)
 	if version <= 0 {
-		_ = tx.Rollback()
 		return fmt.Errorf("SQLite migration %s has invalid numeric version", name)
 	}
 	if _, err := tx.ExecContext(ctx,
 		"INSERT INTO schema_migrations (version, name, filename, applied_at) VALUES (?, ?, ?, CAST(unixepoch('subsec') * 1000 AS INTEGER))",
 		version, strings.TrimSuffix(name, ".sql"), name); err != nil {
-		_ = tx.Rollback()
 		return fmt.Errorf("record SQLite migration %s: %w", name, err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit SQLite migration %s: %w", name, err)
 	}
 	return nil
 }
@@ -171,6 +204,9 @@ func executeMigrationBody(ctx context.Context, tx *sql.Tx, name, body string) er
 	}
 	if name == "113_bus_exception_log_flags.sql" {
 		return migrateBusExceptionLogFlags(ctx, tx)
+	}
+	if name == "123_agent_provider_binding_recovery_owner.sql" {
+		return migrateAgentProviderBindingRecoveryOwner(ctx, tx)
 	}
 	return execMigrationSegments(ctx, tx, body)
 }
@@ -195,19 +231,26 @@ func adoptLegacyManagedGenerationMigration(ctx context.Context, tx *sql.Tx, body
 	if err != nil || !legacy {
 		return false, err
 	}
-	expected, err := managedGenerationTableDefinitions(body)
-	if err != nil {
-		return false, err
-	}
-	for _, table := range managedGenerationRequiredTables {
-		if err := requireExactSQLiteTableDefinition(ctx, tx, table, expected[table]); err != nil {
-			return false, fmt.Errorf("validate legacy managed generation schema: %w", err)
-		}
-	}
-	if err := requireManagedGenerationOwnerIdentity(ctx, tx); err != nil {
+	if err := validateManagedGenerationMigrationState(ctx, tx, body); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+func validateManagedGenerationMigrationState(ctx context.Context, tx *sql.Tx, body string) error {
+	expected, err := managedGenerationTableDefinitions(body)
+	if err != nil {
+		return err
+	}
+	for _, table := range managedGenerationRequiredTables {
+		if err := requireExactSQLiteTableDefinition(ctx, tx, table, expected[table]); err != nil {
+			return fmt.Errorf("validate legacy managed generation schema: %w", err)
+		}
+	}
+	if err := requireManagedGenerationOwnerIdentity(ctx, tx); err != nil {
+		return err
+	}
+	return nil
 }
 
 // exactLegacyManagedGenerationMarker 要求旧 filename、version 和 name 三元组唯一且完全匹配。
@@ -344,6 +387,11 @@ func validManagedGenerationOwnerIdentity(
 	validMarker := markerInitialized == 0 || markerInitialized == 1
 	validLedger := ledgerInitialized == 0 || ledgerInitialized == 1
 	return validMarker && validLedger
+}
+
+// migrateAgentProviderBindingRecoveryOwner 规范化历史 UUID、补齐 provider owner，并恢复不可变 trigger。
+func migrateAgentProviderBindingRecoveryOwner(ctx context.Context, tx *sql.Tx) error {
+	return runAgentProviderBindingRecoveryOwnerMigration(ctx, tx)
 }
 
 // migrateSystemLogsTraceSpan 只支持 agent-v3 的 system_logs 形状，补齐 span 字段和查询索引。

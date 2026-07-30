@@ -119,22 +119,23 @@ func threadBindingRecordFromStore(binding *BindingRecord) *threadBindingRecord {
 		return nil
 	}
 	return &threadBindingRecord{
-		AgentID:            binding.AgentID,
-		Provider:           binding.Provider,
-		ProviderThreadID:   binding.ProviderThreadID,
-		CodexThreadID:      binding.CodexThreadID,
-		RolloutPath:        binding.RolloutPath,
-		Cwd:                binding.Cwd,
-		ParentAgentID:      binding.ParentAgentID,
-		AgentType:          binding.AgentType,
-		AgentMemoryScope:   binding.AgentMemoryScope,
-		Archived:           binding.Archived,
-		CreatedAt:          binding.CreatedAt,
-		UpdatedAt:          binding.UpdatedAt,
-		SessionUUID:        binding.SessionUUID,
-		CodexHome:          binding.CodexHome,
-		CodexInstanceKey:   binding.CodexInstanceKey,
-		CodexModelProvider: binding.CodexModelProvider,
+		AgentID:              binding.AgentID,
+		Provider:             binding.Provider,
+		ProviderThreadID:     binding.ProviderThreadID,
+		CodexThreadID:        binding.CodexThreadID,
+		RolloutPath:          binding.RolloutPath,
+		Cwd:                  binding.Cwd,
+		ParentAgentID:        binding.ParentAgentID,
+		AgentType:            binding.AgentType,
+		AgentMemoryScope:     binding.AgentMemoryScope,
+		Archived:             binding.Archived,
+		CreatedAt:            binding.CreatedAt,
+		UpdatedAt:            binding.UpdatedAt,
+		SessionUUID:          binding.SessionUUID,
+		CodexHome:            binding.CodexHome,
+		ProviderRecoveryHome: binding.ProviderRecoveryHome,
+		CodexInstanceKey:     binding.CodexInstanceKey,
+		CodexModelProvider:   binding.CodexModelProvider,
 	}
 }
 
@@ -144,30 +145,33 @@ func threadBindingRecordToStore(binding *threadBindingRecord) *BindingRecord {
 		return nil
 	}
 	return &BindingRecord{
-		AgentID:            binding.AgentID,
-		Provider:           binding.Provider,
-		ProviderThreadID:   binding.ProviderThreadID,
-		CodexThreadID:      binding.CodexThreadID,
-		RolloutPath:        binding.RolloutPath,
-		Cwd:                binding.Cwd,
-		ParentAgentID:      binding.ParentAgentID,
-		AgentType:          binding.AgentType,
-		AgentMemoryScope:   binding.AgentMemoryScope,
-		Archived:           binding.Archived,
-		CreatedAt:          binding.CreatedAt,
-		UpdatedAt:          binding.UpdatedAt,
-		SessionUUID:        binding.SessionUUID,
-		CodexHome:          binding.CodexHome,
-		CodexInstanceKey:   binding.CodexInstanceKey,
-		CodexModelProvider: binding.CodexModelProvider,
+		AgentID:              binding.AgentID,
+		Provider:             binding.Provider,
+		ProviderThreadID:     binding.ProviderThreadID,
+		CodexThreadID:        binding.CodexThreadID,
+		RolloutPath:          binding.RolloutPath,
+		Cwd:                  binding.Cwd,
+		ParentAgentID:        binding.ParentAgentID,
+		AgentType:            binding.AgentType,
+		AgentMemoryScope:     binding.AgentMemoryScope,
+		Archived:             binding.Archived,
+		CreatedAt:            binding.CreatedAt,
+		UpdatedAt:            binding.UpdatedAt,
+		SessionUUID:          binding.SessionUUID,
+		CodexHome:            binding.CodexHome,
+		ProviderRecoveryHome: binding.ProviderRecoveryHome,
+		CodexInstanceKey:     binding.CodexInstanceKey,
+		CodexModelProvider:   binding.CodexModelProvider,
 	}
 }
 
-func bindingRecordHasProviderHistoryForUUID(binding *threadBindingRecord, providerThreadID string) bool {
+// bindingRecordHasProviderHistoryForUUID 转接 thread 模块内部 binding 类型。
+func bindingRecordHasProviderHistoryForUUID(binding *threadBindingRecord, providerThreadID string) (bool, error) {
 	return bindingHasProviderHistoryForUUID(threadBindingRecordToStore(binding), providerThreadID)
 }
 
-func historyTargetIDRecord(binding *threadBindingRecord, threadID string) string {
+// historyTargetIDRecord 转接 thread 模块内部历史目标类型。
+func historyTargetIDRecord(binding *threadBindingRecord, threadID string) (string, error) {
 	return historyTargetID(threadBindingRecordToStore(binding), threadID)
 }
 
@@ -188,21 +192,22 @@ func (s *service) resolveThreadBindingRecord(ctx context.Context, threadID strin
 
 func bindingUpsertParamsToStore(params threadBindingUpsertParams) BindingUpsert {
 	return BindingUpsert{
-		AgentID:            params.AgentID,
-		Provider:           params.Provider,
-		ProviderThreadID:   params.ProviderThreadID,
-		CodexThreadID:      params.CodexThreadID,
-		RolloutPath:        params.RolloutPath,
-		SessionUUID:        params.SessionUUID,
-		Cwd:                params.Cwd,
-		ParentAgentID:      params.ParentAgentID,
-		AgentType:          params.AgentType,
-		AgentMemoryScope:   params.AgentMemoryScope,
-		CreatedAt:          params.CreatedAt,
-		UpdatedAt:          params.UpdatedAt,
-		CodexHome:          params.CodexHome,
-		CodexInstanceKey:   params.CodexInstanceKey,
-		CodexModelProvider: params.CodexModelProvider,
+		AgentID:              params.AgentID,
+		Provider:             params.Provider,
+		ProviderThreadID:     params.ProviderThreadID,
+		CodexThreadID:        params.CodexThreadID,
+		RolloutPath:          params.RolloutPath,
+		SessionUUID:          params.SessionUUID,
+		Cwd:                  params.Cwd,
+		ParentAgentID:        params.ParentAgentID,
+		AgentType:            params.AgentType,
+		AgentMemoryScope:     params.AgentMemoryScope,
+		CreatedAt:            params.CreatedAt,
+		UpdatedAt:            params.UpdatedAt,
+		CodexHome:            params.CodexHome,
+		ProviderRecoveryHome: params.ProviderRecoveryHome,
+		CodexInstanceKey:     params.CodexInstanceKey,
+		CodexModelProvider:   params.CodexModelProvider,
 	}
 }
 

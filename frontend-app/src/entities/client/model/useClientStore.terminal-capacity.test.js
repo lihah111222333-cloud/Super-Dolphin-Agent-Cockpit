@@ -29,6 +29,7 @@ function terminal(threadId, turnId, index) {
       threadId,
       turnId,
       outcome: 'success',
+      publicSummary: 'Public success summary',
       occurredAt: '2026-07-23T01:00:00Z',
     },
   });

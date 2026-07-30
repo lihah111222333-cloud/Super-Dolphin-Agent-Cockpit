@@ -137,7 +137,11 @@ func sendInterruptCommand(
 	threadID string,
 	args string,
 ) (threadCommandResult, error) {
-	req := dto.InterruptRequest{ThreadID: historyTargetIDRecord(binding, threadID), Source: strings.TrimSpace(args)}
+	targetID, err := historyTargetIDRecord(binding, threadID)
+	if err != nil {
+		return threadCommandResult{}, err
+	}
+	req := dto.InterruptRequest{ThreadID: targetID, Source: strings.TrimSpace(args)}
 	if err := session.Interrupt(ctx, req); err != nil {
 		return threadCommandResult{}, err
 	}

@@ -3,6 +3,7 @@ package unified
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -12,6 +13,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	goldentest "github.com/lihah111222333-cloud/super-dolphin-agent/internal/testutil/golden"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/providerrecovery"
 )
 
 type resumeCaptureDriver struct {
@@ -66,7 +68,7 @@ func (w *recordingSessionBindingUpserter) UpsertSessionBinding(_ context.Context
 }
 
 func TestSessionResolverAutoResumePassesCodexIdentityGolden(t *testing.T) {
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, "11111111-aaaa-bbbb-cccc-111111111111")
 	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111111"}}
 	resolver := &sessionResolver{
 		threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
@@ -106,7 +108,7 @@ func TestSessionResolverAutoResumePassesCodexIdentityGolden(t *testing.T) {
 }
 
 func TestSessionResolverAutoResumePassesRuntimeConfig(t *testing.T) {
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, "11111111-aaaa-bbbb-cccc-111111111112")
 	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111112"}}
 	resolver := &sessionResolver{
 		threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
@@ -141,10 +143,105 @@ func TestSessionResolverAutoResumePassesRuntimeConfig(t *testing.T) {
 	}
 }
 
+func TestSessionResolverAutoResumePassesAuthoritativeClaudeHome(t *testing.T) {
+	t.Parallel()
+
+	const providerThreadID = "11111111-aaaa-bbbb-cccc-111111111119"
+	claudeHome := t.TempDir()
+	rolloutPath := writeExistingProviderHistoryFile(t, providerThreadID, "claude", claudeHome)
+	driver := &resumeCaptureDriver{
+		name:    "claude",
+		session: &generationTestSession{threadID: providerThreadID},
+	}
+	snapshot := autoResumePromptSnapshotForTest()
+	snapshot.Provider = "claude"
+	resolver := &sessionResolver{
+		threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
+			ThreadID:       "public-thread-claude-owner",
+			AgentID:        "agent-claude-owner",
+			PromptSnapshot: snapshot,
+			RuntimeConfig: map[string]any{
+				"claudeHome": t.TempDir(),
+			},
+		}},
+		bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
+			"claude:" + providerThreadID: {
+				Provider:             "claude",
+				AgentID:              "agent-claude-owner",
+				ProviderThreadID:     providerThreadID,
+				RolloutPath:          rolloutPath,
+				Cwd:                  "/repo",
+				ProviderRecoveryHome: claudeHome,
+			},
+		}},
+		registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
+			{Name: "claude", Create: func() contract.Driver { return driver }},
+		}}),
+		sessions: NewSessionManager(nil),
+	}
+
+	if _, err := resolver.ResolveSession(context.Background(), "public-thread-claude-owner"); err != nil {
+		t.Fatalf("ResolveSession() error = %v", err)
+	}
+	if driver.resumeReq.ClaudeHome != claudeHome {
+		t.Fatalf("ResumeSessionRequest.ClaudeHome = %q, want authoritative binding owner %q", driver.resumeReq.ClaudeHome, claudeHome)
+	}
+}
+
+func TestBuildAutoResumeRequestDoesNotSetClaudeHomeForCodex(t *testing.T) {
+	t.Parallel()
+
+	request := buildAutoResumeRequest(
+		&contract.SessionBinding{
+			AgentID:              "agent-codex-owner",
+			ProviderRecoveryHome: "/instances/codex-a",
+		},
+		map[string]any{"claudeHome": "/runtime/claude-override"},
+		autoResumePromptSnapshotForTest(),
+		"codex",
+		"11111111-aaaa-bbbb-cccc-111111111120",
+		"/repo",
+		nil,
+	)
+	if request.ClaudeHome != "" {
+		t.Fatalf("Codex ResumeSessionRequest.ClaudeHome = %q, want empty", request.ClaudeHome)
+	}
+}
+
+func TestBuildAutoResumePlanRejectsEmptyClaudeOwner(t *testing.T) {
+	t.Parallel()
+
+	const providerThreadID = "11111111-aaaa-bbbb-cccc-111111111121"
+	claudeHome := t.TempDir()
+	rolloutPath := writeExistingProviderHistoryFile(t, providerThreadID, "claude", claudeHome)
+	driver := &resumeCaptureDriver{name: "claude", session: &generationTestSession{threadID: providerThreadID}}
+	resolver := &sessionResolver{
+		registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
+			{Name: "claude", Create: func() contract.Driver { return driver }},
+		}}),
+	}
+	snapshot := autoResumePromptSnapshotForTest()
+	snapshot.Provider = "claude"
+	_, err := resolver.buildAutoResumePlan(&contract.SessionBinding{
+		Provider:         "claude",
+		AgentID:          "agent-claude-empty-owner",
+		ProviderThreadID: providerThreadID,
+		RolloutPath:      rolloutPath,
+		Cwd:              "/repo",
+	}, map[string]any{"claudeHome": claudeHome}, snapshot)
+	var recoveryErr *providerrecovery.Error
+	if !errors.As(err, &recoveryErr) || recoveryErr.Kind != providerrecovery.ErrorKindInvalidIdentity {
+		t.Fatalf("buildAutoResumePlan() error = %v, want provider recovery invalid_identity", err)
+	}
+	if driver.resumed != 0 {
+		t.Fatalf("ResumeSession calls = %d, want none before owner validation", driver.resumed)
+	}
+}
+
 func TestSessionResolverAutoResumePassesPromptSnapshot(t *testing.T) {
 	t.Parallel()
 
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, "11111111-aaaa-bbbb-cccc-111111111116")
 	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111116"}}
 	resolver := &sessionResolver{
 		threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
@@ -185,7 +282,7 @@ func TestSessionResolverAutoResumePassesPromptSnapshot(t *testing.T) {
 func TestSessionResolverAutoResumeRejectsMissingPromptSnapshot(t *testing.T) {
 	t.Parallel()
 
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, "11111111-aaaa-bbbb-cccc-111111111117")
 	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111117"}}
 	resolver := &sessionResolver{
 		threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
@@ -240,7 +337,7 @@ func TestSessionResolverAutoResumeBackfillsCodexIdentityFromRuntimeConfig(t *tes
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			rolloutPath := writeExistingProviderHistoryFile(t)
+			rolloutPath := writeExistingProviderHistoryFile(t, "66666666-aaaa-bbbb-cccc-666666666666")
 			driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "66666666-aaaa-bbbb-cccc-666666666666"}}
 			resolver := &sessionResolver{
 				threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
@@ -280,7 +377,7 @@ func TestSessionResolverAutoResumeBackfillsCodexIdentityFromRuntimeConfig(t *tes
 }
 
 func TestSessionResolverAutoResumeResolvesAndBackfillsLegacyCodexIdentity(t *testing.T) {
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, "99999999-aaaa-bbbb-cccc-999999999999")
 	writer := &recordingSessionBindingUpserter{}
 	driver := &resolvingResumeCaptureDriver{resumeCaptureDriver: &resumeCaptureDriver{
 		name:    "codex",
@@ -340,7 +437,7 @@ func TestSessionResolverAutoResumeResolvesAndBackfillsLegacyCodexIdentity(t *tes
 
 func TestAutoResumeBackfillWritesCanonicalCodexIdentity(t *testing.T) {
 	canonicalHome, aliasHome := createAutoResumeCodexHomeCleanAlias(t)
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "codex", canonicalHome)
 	writer := &recordingSessionBindingUpserter{}
 	driver := &resolvingResumeCaptureDriver{
 		resumeCaptureDriver: &resumeCaptureDriver{
@@ -407,7 +504,7 @@ func TestAutoResumeBackfillWritesCanonicalCodexIdentity(t *testing.T) {
 }
 
 func TestSessionResolverAutoResumePrefersBindingCodexIdentityOverRuntimeConfig(t *testing.T) {
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, "77777777-aaaa-bbbb-cccc-777777777777")
 	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "77777777-aaaa-bbbb-cccc-777777777777"}}
 	resolver := &sessionResolver{
 		threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
@@ -478,7 +575,7 @@ func TestSessionResolverProviderThreadAutoResumeDoesNotUseCodexThreadID(t *testi
 	// claudecli, which caused the 5s system:init deadlock. After the change
 	// req.ThreadID stays empty when no public thread id is provided, even if
 	// CodexThreadID happens to hold a non-empty value.
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, "33333333-aaaa-bbbb-cccc-333333333333")
 	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "33333333-aaaa-bbbb-cccc-333333333333"}}
 	resolver := &sessionResolver{
 		threadStore: keyedThreadLookup{
@@ -523,7 +620,7 @@ func TestSessionResolverProviderThreadAutoResumeDoesNotUseCodexThreadID(t *testi
 }
 
 func TestSessionResolverAutoResumeDoesNotUseAgentIDAsThreadIDWithoutPublicThread(t *testing.T) {
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, "22222222-aaaa-bbbb-cccc-222222222222")
 	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "22222222-aaaa-bbbb-cccc-222222222222"}}
 	resolver := &sessionResolver{
 		threadStore: keyedThreadLookup{
@@ -563,14 +660,25 @@ func TestSessionResolverAutoResumeDoesNotUseAgentIDAsThreadIDWithoutPublicThread
 	}
 }
 
-func TestSessionResolverAutoResumeRequiresProviderHistoryFile(t *testing.T) {
+func TestSessionResolverAutoResumeAcceptsOfficialCodexUUIDWithoutHistoryFile(t *testing.T) {
 	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "44444444-aaaa-bbbb-cccc-444444444444"}}
+	cwd := t.TempDir()
 	resolver := &sessionResolver{
+		threadStore: keyedThreadLookup{
+			"agent-4": {
+				ThreadID:       "agent-4",
+				AgentID:        "agent-4",
+				Status:         "running",
+				PromptSnapshot: autoResumePromptSnapshotForTest(),
+			},
+		},
 		bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
 			"codex:44444444-aaaa-bbbb-cccc-444444444444": {
 				Provider:         "codex",
 				AgentID:          "agent-4",
 				ProviderThreadID: "44444444-aaaa-bbbb-cccc-444444444444",
+				CodexHome:        cwd,
+				Cwd:              cwd,
 			},
 		}},
 		registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
@@ -579,20 +687,19 @@ func TestSessionResolverAutoResumeRequiresProviderHistoryFile(t *testing.T) {
 		sessions: NewSessionManager(nil),
 	}
 
-	_, err := resolver.ResolveSession(context.Background(), "44444444-aaaa-bbbb-cccc-444444444444")
-	if err == nil || !strings.Contains(err.Error(), "not found") {
-		t.Fatalf("ResolveSession() error = %v, want not found without provider history", err)
+	if _, err := resolver.ResolveSession(context.Background(), "44444444-aaaa-bbbb-cccc-444444444444"); err != nil {
+		t.Fatalf("ResolveSession() error = %v", err)
 	}
-	if errors.Is(err, contract.ErrSessionNotFound) {
-		t.Fatalf("ResolveSession() error = %v, want lookup not found wrapper", err)
+	if driver.resumed != 1 {
+		t.Fatalf("ResumeSession calls = %d, want 1", driver.resumed)
 	}
-	if driver.resumed != 0 {
-		t.Fatalf("ResumeSession calls = %d, want 0", driver.resumed)
+	if driver.resumeReq.ProviderThreadID != "44444444-aaaa-bbbb-cccc-444444444444" {
+		t.Fatalf("ProviderThreadID = %q, want official Codex UUID", driver.resumeReq.ProviderThreadID)
 	}
 }
 
 func TestSessionResolverAutoResumeRejectsMissingBindingCWD(t *testing.T) {
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, "55555555-aaaa-bbbb-cccc-555555555555")
 	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "55555555-aaaa-bbbb-cccc-555555555555"}}
 	resolver := &sessionResolver{
 		bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
@@ -618,12 +725,36 @@ func TestSessionResolverAutoResumeRejectsMissingBindingCWD(t *testing.T) {
 	}
 }
 
-func writeExistingProviderHistoryFile(t *testing.T) string {
+func writeExistingProviderHistoryFile(t *testing.T, args ...string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "history.jsonl")
-	if err := os.WriteFile(path, []byte("{}\n"), 0o600); err != nil {
+	identity := "00000000-0000-4000-8000-000000000001"
+	provider := "codex"
+	if len(args) > 0 {
+		identity = args[0]
+	}
+	if len(args) > 1 {
+		provider = args[1]
+	}
+	home := t.TempDir()
+	if len(args) > 2 {
+		home = args[2]
+	}
+	root := filepath.Join(home, "sessions", "2026", "07", "29")
+	name := "rollout-test-" + identity + ".jsonl"
+	content := fmt.Sprintf("{\"type\":\"session_meta\",\"payload\":{\"id\":%q}}\n", identity)
+	if provider == "claude" {
+		root = filepath.Join(home, "projects", "test-project")
+		name = identity + ".jsonl"
+		content = fmt.Sprintf("{\"sessionId\":%q,\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"test\"}]}}\n", identity)
+	}
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatalf("create provider history root: %v", err)
+	}
+	path := filepath.Join(root, name)
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write provider history file: %v", err)
 	}
+	unifiedRecoveryTestHomeByPath.Store(path, home)
 	return path
 }
 

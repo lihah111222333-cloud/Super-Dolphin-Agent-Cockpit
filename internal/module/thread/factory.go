@@ -32,7 +32,8 @@ type threadStateFields struct {
 	RequestedThreadID, PublicThreadID, ProviderThreadID, OwnerThreadID string
 	AgentID, ParentAgentID, AgentType, AgentMemoryScope                string
 	Provider, CWD, Model, Name, Prompt, RolloutPath, SessionUUID       string
-	CodexHome, CodexInstanceKey, CodexModelProvider, AgentKey          string
+	CodexHome, ProviderRecoveryHome, CodexInstanceKey                  string
+	CodexModelProvider, AgentKey                                       string
 	ConfigOverride                                                     json.RawMessage
 	CreatedAt                                                          int64
 	PromptVersionID                                                    *int64
@@ -40,40 +41,42 @@ type threadStateFields struct {
 }
 
 type threadBindingRecord struct {
-	AgentID            string
-	Provider           string
-	ProviderThreadID   string
-	CodexThreadID      string
-	RolloutPath        string
-	Cwd                string
-	ParentAgentID      string
-	AgentType          string
-	AgentMemoryScope   string
-	Archived           bool
-	CreatedAt          int64
-	UpdatedAt          int64
-	SessionUUID        string
-	CodexHome          string
-	CodexInstanceKey   string
-	CodexModelProvider string
+	AgentID              string
+	Provider             string
+	ProviderThreadID     string
+	CodexThreadID        string
+	RolloutPath          string
+	Cwd                  string
+	ParentAgentID        string
+	AgentType            string
+	AgentMemoryScope     string
+	Archived             bool
+	CreatedAt            int64
+	UpdatedAt            int64
+	SessionUUID          string
+	CodexHome            string
+	ProviderRecoveryHome string
+	CodexInstanceKey     string
+	CodexModelProvider   string
 }
 
 type threadBindingUpsertParams struct {
-	AgentID            string
-	Provider           string
-	ProviderThreadID   string
-	CodexThreadID      string
-	RolloutPath        string
-	SessionUUID        string
-	Cwd                string
-	ParentAgentID      string
-	AgentType          string
-	AgentMemoryScope   string
-	CreatedAt          int64
-	UpdatedAt          int64
-	CodexHome          string
-	CodexInstanceKey   string
-	CodexModelProvider string
+	AgentID              string
+	Provider             string
+	ProviderThreadID     string
+	CodexThreadID        string
+	RolloutPath          string
+	SessionUUID          string
+	Cwd                  string
+	ParentAgentID        string
+	AgentType            string
+	AgentMemoryScope     string
+	CreatedAt            int64
+	UpdatedAt            int64
+	CodexHome            string
+	ProviderRecoveryHome string
+	CodexInstanceKey     string
+	CodexModelProvider   string
 }
 
 type threadBindingSessionUUIDUpdate struct {
@@ -263,6 +266,7 @@ func newThreadState(kind threadStateKind, fields threadStateFields) threadState 
 	state.SessionUUID = fields.SessionUUID
 	state.ConfigOverride = clone.RawMessage(fields.ConfigOverride)
 	state.CodexHome = strings.TrimSpace(fields.CodexHome)
+	state.ProviderRecoveryHome = strings.TrimSpace(fields.ProviderRecoveryHome)
 	state.CodexInstanceKey = strings.TrimSpace(fields.CodexInstanceKey)
 	state.CodexModelProvider = strings.TrimSpace(fields.CodexModelProvider)
 	state.CreatedAt = firstNonZero(fields.CreatedAt)
@@ -274,21 +278,22 @@ func newThreadState(kind threadStateKind, fields threadStateFields) threadState 
 
 func newBindingUpsertParams(binding threadBindingRecord) threadBindingUpsertParams {
 	return threadBindingUpsertParams{
-		AgentID:            strings.TrimSpace(binding.AgentID),
-		Provider:           strings.TrimSpace(binding.Provider),
-		ProviderThreadID:   strings.TrimSpace(binding.ProviderThreadID),
-		CodexThreadID:      strings.TrimSpace(binding.CodexThreadID),
-		RolloutPath:        strings.TrimSpace(binding.RolloutPath),
-		SessionUUID:        strings.TrimSpace(binding.SessionUUID),
-		Cwd:                strings.TrimSpace(binding.Cwd),
-		ParentAgentID:      strings.TrimSpace(binding.ParentAgentID),
-		AgentType:          strings.TrimSpace(binding.AgentType),
-		AgentMemoryScope:   strings.TrimSpace(binding.AgentMemoryScope),
-		CreatedAt:          binding.CreatedAt,
-		UpdatedAt:          binding.UpdatedAt,
-		CodexHome:          strings.TrimSpace(binding.CodexHome),
-		CodexInstanceKey:   strings.TrimSpace(binding.CodexInstanceKey),
-		CodexModelProvider: strings.TrimSpace(binding.CodexModelProvider),
+		AgentID:              strings.TrimSpace(binding.AgentID),
+		Provider:             strings.TrimSpace(binding.Provider),
+		ProviderThreadID:     strings.TrimSpace(binding.ProviderThreadID),
+		CodexThreadID:        strings.TrimSpace(binding.CodexThreadID),
+		RolloutPath:          strings.TrimSpace(binding.RolloutPath),
+		SessionUUID:          strings.TrimSpace(binding.SessionUUID),
+		Cwd:                  strings.TrimSpace(binding.Cwd),
+		ParentAgentID:        strings.TrimSpace(binding.ParentAgentID),
+		AgentType:            strings.TrimSpace(binding.AgentType),
+		AgentMemoryScope:     strings.TrimSpace(binding.AgentMemoryScope),
+		CreatedAt:            binding.CreatedAt,
+		UpdatedAt:            binding.UpdatedAt,
+		CodexHome:            strings.TrimSpace(binding.CodexHome),
+		ProviderRecoveryHome: strings.TrimSpace(binding.ProviderRecoveryHome),
+		CodexInstanceKey:     strings.TrimSpace(binding.CodexInstanceKey),
+		CodexModelProvider:   strings.TrimSpace(binding.CodexModelProvider),
 	}
 }
 

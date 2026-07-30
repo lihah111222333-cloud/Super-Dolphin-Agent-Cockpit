@@ -780,7 +780,8 @@ func (s *session) completeAssistantMessageCompleted(method string, params json.R
 	if !ok {
 		return false
 	}
-	s.completeSyntheticTurn(turnID, "assistant_final_answer_completed", assistantMessageText(item), acceptedAssistantItemIDs(item))
+	publicSummary := assistantMessageText(item)
+	s.completeSyntheticTurn(turnID, "assistant_final_answer_completed", publicSummary, publicSummary, acceptedAssistantItemIDs(item))
 	return true
 }
 

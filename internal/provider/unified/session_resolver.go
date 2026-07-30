@@ -8,8 +8,7 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/clone"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/historyjsonl"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/identifier"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/providerrecovery"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
@@ -326,29 +325,31 @@ func recoverableAutoResumeProviderThreadID(binding *contract.SessionBinding) (st
 	if binding == nil {
 		return "", contract.ErrSessionNotFound
 	}
-	var lastErr error
-	for _, candidate := range []string{binding.ProviderThreadID, binding.SessionUUID} {
-		providerThreadID := strings.TrimSpace(candidate)
-		if !identifier.LooksLikeUUID(providerThreadID) {
-			continue
-		}
-		if _, err := historyjsonl.ExistingProviderPath(historyjsonl.ReadRequest{
-			Provider:         binding.Provider,
-			RolloutPath:      binding.RolloutPath,
-			ThreadID:         binding.CodexThreadID,
-			ProviderThreadID: providerThreadID,
-			SessionUUID:      providerThreadID,
-			CodexHome:        binding.CodexHome,
-		}); err != nil {
-			lastErr = err
-			continue
-		}
-		return providerThreadID, nil
+	result, err := providerrecovery.Resolve(providerRecoveryRequestFromSessionBinding(binding))
+	if err != nil {
+		return "", err
 	}
-	if lastErr != nil {
-		return "", lastErr
+	return result.ProviderThreadID, nil
+}
+
+// providerRecoveryRequestFromSessionBinding 将 unified binding 映射到唯一 recovery port。
+func providerRecoveryRequestFromSessionBinding(binding *contract.SessionBinding) providerrecovery.Request {
+	return providerrecovery.Request{
+		Provider:         binding.Provider,
+		RolloutPath:      binding.RolloutPath,
+		ProviderThreadID: binding.ProviderThreadID,
+		SessionUUID:      binding.SessionUUID,
+		CodexHome:        providerRecoveryCodexHome(binding.CodexHome, binding.ProviderRecoveryHome),
+		ClaudeHome:       binding.ProviderRecoveryHome,
 	}
-	return "", contract.ErrSessionNotFound
+}
+
+func providerRecoveryCodexHome(codexHome, recoveryHome string) string {
+	codexHome = strings.TrimSpace(codexHome)
+	if codexHome != "" {
+		return codexHome
+	}
+	return strings.TrimSpace(recoveryHome)
 }
 
 // providerNames 返回去重后的 provider 查找顺序，registry 缺失时保留 codex 和 claude 的兼容顺序。

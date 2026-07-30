@@ -19,6 +19,7 @@ function RuntimePanel({
   formatTime,
   geometrySnapshot,
   layoutActions,
+  onShowAgents,
   renderMarkdownPreview,
 }) {
   /*
@@ -45,7 +46,7 @@ function RuntimePanel({
       data-testid="runtime-panel"
       style={geometrySnapshot.cssVars}
     >
-      <RuntimeToolbar diffSummary={diffSummary} />
+      <RuntimeToolbar diffSummary={diffSummary} onShowAgents={onShowAgents} />
       <RuntimeDiffView
         diffText={diffText}
         diffSummary={diffSummary}

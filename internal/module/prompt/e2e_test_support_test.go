@@ -141,21 +141,22 @@ func (s *capturingBindingStore) Upsert(_ context.Context, params thread.BindingU
 	// 因漏写 codex_home / instance_key / agent_type / agent_memory_scope 等
 	// optional 字段在未来 StartRequest 注入对应 Config 时炸（B-4.7 latent fix）
 	s.binding = &thread.BindingRecord{
-		AgentID:            params.AgentID,
-		Provider:           params.Provider,
-		ProviderThreadID:   params.ProviderThreadID,
-		CodexThreadID:      params.CodexThreadID,
-		RolloutPath:        params.RolloutPath,
-		Cwd:                params.Cwd,
-		ParentAgentID:      params.ParentAgentID,
-		AgentType:          params.AgentType,
-		AgentMemoryScope:   params.AgentMemoryScope,
-		SessionUUID:        params.SessionUUID,
-		CodexHome:          params.CodexHome,
-		CodexInstanceKey:   params.CodexInstanceKey,
-		CodexModelProvider: params.CodexModelProvider,
-		CreatedAt:          params.CreatedAt,
-		UpdatedAt:          params.UpdatedAt,
+		AgentID:              params.AgentID,
+		Provider:             params.Provider,
+		ProviderThreadID:     params.ProviderThreadID,
+		CodexThreadID:        params.CodexThreadID,
+		RolloutPath:          params.RolloutPath,
+		Cwd:                  params.Cwd,
+		ParentAgentID:        params.ParentAgentID,
+		AgentType:            params.AgentType,
+		AgentMemoryScope:     params.AgentMemoryScope,
+		SessionUUID:          params.SessionUUID,
+		CodexHome:            params.CodexHome,
+		ProviderRecoveryHome: params.ProviderRecoveryHome,
+		CodexInstanceKey:     params.CodexInstanceKey,
+		CodexModelProvider:   params.CodexModelProvider,
+		CreatedAt:            params.CreatedAt,
+		UpdatedAt:            params.UpdatedAt,
 	}
 	return nil
 }

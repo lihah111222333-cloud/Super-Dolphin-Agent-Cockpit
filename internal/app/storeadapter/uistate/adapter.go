@@ -119,7 +119,9 @@ func fromStoreUIStateBinding(value bindingstore.Binding) uistate.BindingEntry {
 		AgentID: strings.TrimSpace(value.AgentID), Provider: strings.TrimSpace(value.Provider),
 		ProviderThreadID: strings.TrimSpace(value.ProviderThreadID), CodexThreadID: strings.TrimSpace(value.CodexThreadID),
 		RolloutPath: strings.TrimSpace(value.RolloutPath), SessionUUID: strings.TrimSpace(value.SessionUUID),
-		CodexHome: strings.TrimSpace(value.CodexHome), Cwd: strings.TrimSpace(value.Cwd),
+		CodexHome:            strings.TrimSpace(value.CodexHome),
+		ProviderRecoveryHome: strings.TrimSpace(value.ProviderRecoveryHome),
+		Cwd:                  strings.TrimSpace(value.Cwd),
 	}
 }
 

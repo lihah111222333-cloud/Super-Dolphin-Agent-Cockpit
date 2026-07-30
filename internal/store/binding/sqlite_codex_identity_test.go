@@ -185,6 +185,12 @@ func newBaselineSQLiteDB(t *testing.T) *sql.DB {
 	if _, err := db.Exec(string(body)); err != nil {
 		t.Fatalf("exec baseline migration: %v", err)
 	}
+	if _, err := db.Exec(`
+		ALTER TABLE agent_provider_binding
+		ADD COLUMN provider_recovery_home TEXT NOT NULL DEFAULT ''
+	`); err != nil {
+		t.Fatalf("add current provider recovery owner column: %v", err)
+	}
 	return db
 }
 
@@ -206,16 +212,17 @@ func sqliteMigrationsDir() string {
 
 func sqliteCodexIdentityUpsertParams(agentID string) binding.UpsertParams {
 	return binding.UpsertParams{
-		AgentID:            agentID,
-		Provider:           "codex",
-		ProviderThreadID:   agentID + "-provider-thread",
-		CodexThreadID:      agentID + "-public-thread",
-		Cwd:                "/repo",
-		CreatedAt:          1_700_000_000_000,
-		UpdatedAt:          1_700_000_000_000,
-		CodexHome:          "/real/.codex",
-		CodexInstanceKey:   "default",
-		CodexModelProvider: "openai",
+		AgentID:              agentID,
+		Provider:             "codex",
+		ProviderThreadID:     "019e218f-b514-7733-be85-b3ee7f6a78a6",
+		CodexThreadID:        agentID + "-public-thread",
+		Cwd:                  "/repo",
+		CreatedAt:            1_700_000_000_000,
+		UpdatedAt:            1_700_000_000_000,
+		CodexHome:            "/real/.codex",
+		ProviderRecoveryHome: "/real/.codex",
+		CodexInstanceKey:     "default",
+		CodexModelProvider:   "openai",
 	}
 }
 

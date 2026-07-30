@@ -460,7 +460,7 @@ func TestPersistResumedSessionFailsFastOnPersistError(t *testing.T) {
 	_, err := svc.persistResumedSession(
 		context.Background(),
 		ResumeRequest{ThreadID: "thread-1", AgentID: "agent-1", Provider: "codex", CWD: wantStartCWD(t)},
-		resumeState{PublicThreadID: "thread-1", CWD: wantStartCWD(t)},
+		resumeState{PublicThreadID: "thread-1", ProviderRecoveryHome: t.TempDir(), CWD: wantStartCWD(t)},
 		"resumed thread",
 		&stubSession{threadID: "019d5f6b-fb3c-7760-9d6f-54005553f5b9"},
 	)

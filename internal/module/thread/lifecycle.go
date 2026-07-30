@@ -15,7 +15,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/clone"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/idempotency"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/identifier"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/providerrecovery"
 )
 
 // SessionStarter 是 contract.SessionStarter 的本地别名。
@@ -38,14 +38,15 @@ type SessionGenerationBinder interface {
 // threadState 是 start/resume 成功后写入 thread store 和事件的状态快照。
 // 它把 provider 身份、prompt 快照索引和 Codex 运行时身份放在一起，避免多处重复拼装。
 type threadState struct {
-	PublicThreadID, ProviderThreadID, OwnerThreadID, AgentID  string
-	ParentAgentID, AgentType, AgentMemoryScope, Provider      string
-	CWD, Model, Name, Prompt, RolloutPath, SessionUUID        string
-	CodexHome, CodexInstanceKey, CodexModelProvider, AgentKey string
-	ConfigOverride                                            json.RawMessage
-	CreatedAt                                                 int64
-	PromptVersionID                                           *int64
-	PendingLaunch                                             bool
+	PublicThreadID, ProviderThreadID, OwnerThreadID, AgentID string
+	ParentAgentID, AgentType, AgentMemoryScope, Provider     string
+	CWD, Model, Name, Prompt, RolloutPath, SessionUUID       string
+	CodexHome, ProviderRecoveryHome, CodexInstanceKey        string
+	CodexModelProvider, AgentKey                             string
+	ConfigOverride                                           json.RawMessage
+	CreatedAt                                                int64
+	PromptVersionID                                          *int64
+	PendingLaunch                                            bool
 }
 
 // threadMeta 是恢复/分叉时从持久化 thread row 读取的轻量元信息。
@@ -205,6 +206,12 @@ func (s *service) startOnce(ctx context.Context, req StartRequest) (StartResult,
 // 它复用保存过的 thread、binding 和 snapshot，不重新走 thread/start。
 func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, error) {
 	ctx = util.NonNilContext(ctx)
+	requestedThreadID := strings.TrimSpace(req.ThreadID)
+	if requestedThreadID != "" {
+		if reason, blocked := s.resumeLifecycleBlockReason(ctx, requestedThreadID, nil); blocked {
+			return ResumeResult{}, resumeLifecycleError(requestedThreadID, reason)
+		}
+	}
 	req, state, err := s.resolveResumeRequest(ctx, req)
 	if err != nil {
 		return ResumeResult{}, err
@@ -281,28 +288,33 @@ func (s *service) persistStartedSession(
 		return StartResult{}, idempotency.RetainOnError(err, s.cleanupFailedStartedSession(ctx, agentID))
 	}
 	rolloutPath := session.RolloutPath()
-	providerThreadID := recoverableProviderThreadID(req.Provider, providerUUID, agentID, rolloutPath, codexHome)
+	claudeHome := resumeRuntimeConfigString(req.Config, "claudeHome", "claude_home", "history_dir")
+	providerThreadID, err := recoverableProviderThreadID(req.Provider, providerUUID, rolloutPath, codexHome, claudeHome)
+	if err != nil {
+		return StartResult{}, idempotency.RetainOnError(err, s.cleanupFailedStartedSession(ctx, agentID))
+	}
 	state := newThreadState(threadStateStartKind, threadStateFields{
-		AgentID:            agentID,
-		ParentAgentID:      req.ParentAgentID,
-		AgentType:          req.AgentType,
-		AgentMemoryScope:   req.AgentMemoryScope,
-		ProviderThreadID:   providerThreadID,
-		Provider:           req.Provider,
-		CWD:                effectiveCWD,
-		Model:              effectiveModel,
-		Name:               displayName,
-		Prompt:             displayName,
-		RolloutPath:        rolloutPath,
-		SessionUUID:        providerUUID,
-		ConfigOverride:     configOverride,
-		CodexHome:          codexHome,
-		CodexInstanceKey:   codexInstanceKey,
-		CodexModelProvider: codexModelProvider,
-		CreatedAt:          time.Now().UnixMilli(),
-		AgentKey:           req.AgentKey,
-		PromptVersionID:    req.PromptVersionID,
-		OwnerThreadID:      req.OwnerThreadID,
+		AgentID:              agentID,
+		ParentAgentID:        req.ParentAgentID,
+		AgentType:            req.AgentType,
+		AgentMemoryScope:     req.AgentMemoryScope,
+		ProviderThreadID:     providerThreadID,
+		Provider:             req.Provider,
+		CWD:                  effectiveCWD,
+		Model:                effectiveModel,
+		Name:                 displayName,
+		Prompt:               displayName,
+		RolloutPath:          rolloutPath,
+		SessionUUID:          providerUUID,
+		ConfigOverride:       configOverride,
+		CodexHome:            codexHome,
+		ProviderRecoveryHome: providerRecoveryHome(req.Provider, codexHome, claudeHome),
+		CodexInstanceKey:     codexInstanceKey,
+		CodexModelProvider:   codexModelProvider,
+		CreatedAt:            time.Now().UnixMilli(),
+		AgentKey:             req.AgentKey,
+		PromptVersionID:      req.PromptVersionID,
+		OwnerThreadID:        req.OwnerThreadID,
 	})
 	publicThreadID := state.PublicThreadID
 	providerThreadID = state.ProviderThreadID
@@ -384,49 +396,15 @@ func (s *service) persistResumedSession(
 	displayName string,
 	session contract.Session,
 ) (ResumeResult, error) {
-	model := util.FirstNonEmpty(req.Model, state.Model)
-	provider := util.FirstNonEmpty(req.Provider, state.Provider)
-	codexHome, codexInstanceKey, codexModelProvider := util.FirstNonEmpty(req.CodexHome, state.CodexHome), util.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey), util.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
-	reqIdentityResolved := req.CodexHome != "" && req.CodexInstanceKey != "" && req.CodexModelProvider != ""
-	runtimeIdentity, hasRuntimeIdentity := sessionRuntimeCodexIdentityConfig(session)
-	configOverride, identity, ok, err := canonicalizeResumeStoredThreadConfig(provider, state.ConfigOverrideRaw, codexHome, codexInstanceKey, codexModelProvider, reqIdentityResolved, runtimeIdentity, hasRuntimeIdentity)
+	threadState, err := s.buildResumedThreadState(ctx, req, state, displayName, session)
 	if err != nil {
-		return ResumeResult{}, s.resumePersistFailure(ctx, req.AgentID, err)
+		return ResumeResult{}, err
 	}
-	if ok {
-		codexHome, codexInstanceKey, codexModelProvider = identity.Home, identity.InstanceKey, identity.ModelProvider
-	}
-	rolloutPath := util.FirstNonEmpty(state.RolloutPath, session.RolloutPath())
-	sessionUUID := util.FirstNonEmpty(resolvedProviderUUID(session), state.SessionUUID, req.ProviderThreadID, state.ProviderThreadID)
-	providerThreadID := recoverableProviderThreadID(provider, sessionUUID, state.PublicThreadID, rolloutPath, codexHome)
-	threadState := newThreadState(threadStateResumeKind, threadStateFields{
-		RequestedThreadID:  req.ThreadID,
-		PublicThreadID:     state.PublicThreadID,
-		ProviderThreadID:   providerThreadID,
-		AgentID:            req.AgentID,
-		ParentAgentID:      state.ParentAgentID,
-		AgentType:          state.AgentType,
-		AgentMemoryScope:   state.AgentMemoryScope,
-		Provider:           provider,
-		CWD:                req.CWD,
-		Model:              model,
-		Name:               displayName,
-		Prompt:             displayName,
-		RolloutPath:        rolloutPath,
-		SessionUUID:        sessionUUID,
-		ConfigOverride:     configOverride,
-		CodexHome:          codexHome,
-		CodexInstanceKey:   codexInstanceKey,
-		CodexModelProvider: codexModelProvider,
-		CreatedAt:          state.CreatedAt,
-	})
 	publicThreadID := threadState.PublicThreadID
-	providerThreadID = threadState.ProviderThreadID
+	providerThreadID := threadState.ProviderThreadID
 	if err := s.persistThreadState(ctx, threadState, true); err != nil {
 		s.logResumePersistFailure(req.AgentID, publicThreadID, providerThreadID, err)
 		if isBindingConflictError(err) {
-			// binding 冲突说明当前 codex session 带着其它 agent 已占用的 UUID。
-			// 这里关闭僵尸 agent，避免半活连接继续推送 delta，并让下一次用户输入走干净重启。
 			if s.logger != nil {
 				s.logger.Error("thread: binding conflict on resume — killing zombie session",
 					"agent_id", req.AgentID,
@@ -446,9 +424,91 @@ func (s *service) persistResumedSession(
 		ThreadID:  publicThreadID,
 		SessionID: util.FirstNonEmpty(providerThreadID, publicThreadID),
 		Status:    "resumed",
-		Model:     model,
+		Model:     threadState.Model,
 		CWD:       req.CWD,
 	}, nil
+}
+
+// buildResumedThreadState 解析 provider identity 并构造待持久化的 resume 快照。
+func (s *service) buildResumedThreadState(
+	ctx context.Context,
+	req ResumeRequest,
+	state resumeState,
+	displayName string,
+	session contract.Session,
+) (threadState, error) {
+	model, provider := util.FirstNonEmpty(req.Model, state.Model), util.FirstNonEmpty(req.Provider, state.Provider)
+	codexHome, codexInstanceKey, codexModelProvider := util.FirstNonEmpty(req.CodexHome, state.CodexHome), util.FirstNonEmpty(req.CodexInstanceKey, state.CodexInstanceKey), util.FirstNonEmpty(req.CodexModelProvider, state.CodexModelProvider)
+	reqIdentityResolved := req.CodexHome != "" && req.CodexInstanceKey != "" && req.CodexModelProvider != ""
+	runtimeIdentity, hasRuntimeIdentity := sessionRuntimeCodexIdentityConfig(session)
+	configOverride, identity, ok, err := canonicalizeResumeStoredThreadConfig(provider, state.ConfigOverrideRaw, codexHome, codexInstanceKey, codexModelProvider, reqIdentityResolved, runtimeIdentity, hasRuntimeIdentity)
+	if err != nil {
+		return threadState{}, s.resumePersistFailure(ctx, req.AgentID, err)
+	}
+	codexHome, codexInstanceKey, codexModelProvider = resolvedResumeCodexIdentity(
+		codexHome, codexInstanceKey, codexModelProvider, identity, ok,
+	)
+	rolloutPath := util.FirstNonEmpty(state.RolloutPath, session.RolloutPath())
+	sessionUUID := util.FirstNonEmpty(resolvedProviderUUID(session), state.SessionUUID, req.ProviderThreadID, state.ProviderThreadID)
+	recoveryHome := state.ProviderRecoveryHome
+	recoveryCodexHome := codexHome
+	if strings.EqualFold(provider, "codex") && recoveryCodexHome == "" {
+		recoveryCodexHome = recoveryHome
+	}
+	claudeHome := util.FirstNonEmpty(req.ClaudeHome, state.ClaudeHome)
+	if strings.EqualFold(provider, "claude") && claudeHome == "" {
+		claudeHome = recoveryHome
+	}
+	providerThreadID, err := s.recoverResumedProviderThreadID(ctx, req.AgentID, provider, sessionUUID, rolloutPath, recoveryCodexHome, claudeHome)
+	if err != nil {
+		return threadState{}, err
+	}
+	return newThreadState(threadStateResumeKind, threadStateFields{
+		RequestedThreadID:    req.ThreadID,
+		PublicThreadID:       state.PublicThreadID,
+		ProviderThreadID:     providerThreadID,
+		AgentID:              req.AgentID,
+		ParentAgentID:        state.ParentAgentID,
+		AgentType:            state.AgentType,
+		AgentMemoryScope:     state.AgentMemoryScope,
+		Provider:             provider,
+		CWD:                  req.CWD,
+		Model:                model,
+		Name:                 displayName,
+		Prompt:               displayName,
+		RolloutPath:          rolloutPath,
+		SessionUUID:          sessionUUID,
+		ConfigOverride:       configOverride,
+		CodexHome:            codexHome,
+		ProviderRecoveryHome: providerRecoveryHome(provider, recoveryCodexHome, claudeHome),
+		CodexInstanceKey:     codexInstanceKey,
+		CodexModelProvider:   codexModelProvider,
+		CreatedAt:            state.CreatedAt,
+	}), nil
+}
+
+// resolvedResumeCodexIdentity 在 canonical identity 可用时替换存量字段。
+func resolvedResumeCodexIdentity(
+	codexHome, codexInstanceKey, codexModelProvider string,
+	identity contract.CodexIdentity,
+	ok bool,
+) (string, string, string) {
+	if !ok {
+		return codexHome, codexInstanceKey, codexModelProvider
+	}
+	return identity.Home, identity.InstanceKey, identity.ModelProvider
+}
+
+// recoverResumedProviderThreadID 解析 resume 身份并统一执行失败清理。
+func (s *service) recoverResumedProviderThreadID(
+	ctx context.Context,
+	agentID, provider, sessionUUID, rolloutPath, codexHome, claudeHome string,
+) (string, error) {
+	providerThreadID, err := recoverableProviderThreadID(provider, sessionUUID, rolloutPath, codexHome, claudeHome)
+	if err != nil {
+		return "", s.resumePersistFailure(ctx, agentID, err)
+	}
+	return providerThreadID, nil
 }
 
 type resumedSessionActivator interface {
@@ -681,7 +741,7 @@ func resolvedProviderUUID(session contract.Session) string {
 	if session == nil {
 		return ""
 	}
-	if id := strings.TrimSpace(session.ThreadID()); identifier.LooksLikeUUID(id) {
+	if id, err := providerrecovery.CanonicalizeUUID(strings.TrimSpace(session.ThreadID())); err == nil {
 		return id
 	}
 	return ""

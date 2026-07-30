@@ -15,6 +15,7 @@ func TestWireDTOMapperContractConsumesProducerFields(t *testing.T) {
 			mapperExemption("timestamp", "thread Started producer -> UI notification", "thread started wire payload intentionally omits event ordering time", "threadStartedPayload", "internal/platform/eventsurface"),
 			mapperExemption("name", "thread Started producer -> UI notification", "thread name is projected by the dedicated update surface", "threadStartedPayload + thread update projection", "internal/platform/eventsurface"),
 			mapperExemption("pending_launch", "thread Started producer -> UI notification", "pending launch remains internal lazy-start state", "threadStartedPayload + launch projection", "internal/platform/eventsurface"),
+			mapperExemption("board", "thread Started producer -> UI notification", "Agent Board truth is consumed by uistate and projected through the dedicated ui/state/patch surface", "applyThreadStarted + refreshThreadPatchLocked", "internal/module/uistate"),
 		})
 	})
 	t.Run("turn output delta", func(t *testing.T) {

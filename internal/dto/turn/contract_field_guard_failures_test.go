@@ -16,6 +16,7 @@ func TestTurnContractFieldGuardFailsFirst(t *testing.T) {
 	runMissingCloneFieldCase(t, root, registry)
 	runStaleGoJSONFieldCase(t, root, registry)
 	runMissingRawTerminalFieldCase(t, root, registry)
+	runMissingCodexPublicSummaryProjectionCase(t, root, registry)
 	runLegacyTerminalWireMethodCase(t, root, registry)
 	runMissingCanonicalRemoteRepublishCase(t, root, registry)
 	runMissingWailsTerminalPayloadCase(t, root, registry)
@@ -130,6 +131,19 @@ func runMissingRawTerminalFieldCase(t *testing.T, root string, registry consumer
 			t.Fatal("raw terminal mutation did not change production source")
 		}
 		assertGuardFailure(t, validateConsumerRegistry(root, registry, map[string]string{path: mutated}), "missing string status")
+	})
+}
+
+func runMissingCodexPublicSummaryProjectionCase(t *testing.T, root string, registry consumerRegistry) {
+	t.Helper()
+	t.Run("missing Codex trusted public summary projection", func(t *testing.T) {
+		path := "internal/provider/codexapp/session_dispatch.go"
+		source := readRepositorySource(t, root, path)
+		mutated := strings.Replace(source, `payload["summary"] = publicSummary`, `payload["private_summary"] = publicSummary`, 1)
+		if mutated == source {
+			t.Fatal("Codex public summary projection mutation did not change production source")
+		}
+		assertGuardFailure(t, validateConsumerRegistry(root, registry, map[string]string{path: mutated}), "missing string summary")
 	})
 }
 

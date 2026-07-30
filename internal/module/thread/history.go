@@ -35,7 +35,10 @@ func (s *service) ReadHistory(ctx context.Context, threadID string, limit int) (
 	if err != nil {
 		return nil, err
 	}
-	targetID := historyTargetID(binding, threadID)
+	targetID, err := historyTargetID(binding, threadID)
+	if err != nil {
+		return nil, err
+	}
 	messages, err := session.ReadHistory(ctx, targetID, util.ClampLimit(limit, 0, 0, 0))
 	if err != nil {
 		return nil, err
@@ -144,9 +147,16 @@ func (s *service) readPromptHistoryPage(ctx context.Context, record ThreadRecord
 		return dto.MessagePageResult{}, err
 	}
 	if pager, ok := session.(messagePageReaderSession); ok {
-		return pager.ReadMessagesPage(ctx, historyTargetID(binding, threadID), req)
+		targetID, err := historyTargetID(binding, threadID)
+		if err != nil {
+			return dto.MessagePageResult{}, err
+		}
+		return pager.ReadMessagesPage(ctx, targetID, req)
 	}
 	historyReq := readMessagesHistoryRequestForSession(threadID, binding, session)
+	if strings.TrimSpace(historyReq.Provider) == "" {
+		return dto.MessagePageResult{}, ErrPromptHistoryRevisionUnavailable
+	}
 	page, pageErr := historyjsonl.ReadProviderMessagesPage(historyReq, req)
 	if pageErr == nil {
 		return page, nil
@@ -596,7 +606,10 @@ func (s *service) Compact(ctx context.Context, threadID, args string) (dto.Threa
 			errContextCompactUnsupported,
 		)
 	}
-	targetID := historyTargetID(binding, threadID)
+	targetID, err := historyTargetID(binding, threadID)
+	if err != nil {
+		return dto.ThreadCompactResult{}, err
+	}
 	beforeTokens, err := estimateThreadTokens(ctx, session, targetID)
 	if err != nil {
 		return dto.ThreadCompactResult{}, err

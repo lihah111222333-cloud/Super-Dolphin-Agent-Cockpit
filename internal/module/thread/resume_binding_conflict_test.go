@@ -28,7 +28,7 @@ func TestResumeBindingConflictSuppressesThreadStartedEvent(t *testing.T) {
 	t.Parallel()
 
 	const conflictUUID = "11111111-2222-3333-4444-555555555571"
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, conflictUUID)
 	// Agent A resumes. The binding for agent A has provider "codex" and
 	// provider_thread_id = conflictUUID, but that UUID is ALSO bound
 	// to agent B. This triggers ensureProviderThreadAvailable → error.
@@ -64,6 +64,7 @@ func TestResumeBindingConflictSuppressesThreadStartedEvent(t *testing.T) {
 			Cwd:              "/repo",
 		},
 	}
+	authorizeRecoveryTestBinding(bindings.agentBinding)
 
 	// Agent B has an active session — this is not an orphan binding.
 	agentBSession := &stubSession{threadID: conflictUUID, rolloutPath: rolloutPath}
@@ -113,7 +114,7 @@ func TestResumeNonConflictPersistFailureFailsFast(t *testing.T) {
 	t.Parallel()
 
 	const providerThreadID = "11111111-2222-3333-4444-555555555572"
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, providerThreadID)
 	threads := &stubThreadStore{
 		thread: &ThreadRecord{
 			ThreadID:       "thread-1",
@@ -168,7 +169,7 @@ func TestResumeEvictsStaleBindingWhenBlockingAgentIsDead(t *testing.T) {
 	t.Setenv(legacyDefaultCodexHomeEnvVar, "")
 
 	const conflictUUID = "11111111-2222-3333-4444-555555555573"
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, conflictUUID)
 	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:       "thread-A",
 		AgentID:        "agent-A",
@@ -197,6 +198,7 @@ func TestResumeEvictsStaleBindingWhenBlockingAgentIsDead(t *testing.T) {
 			Cwd:              "/repo",
 		},
 	}
+	authorizeRecoveryTestBinding(bindings.agentBinding)
 
 	// Agent B has NO active session — it's a stale/orphan binding.
 	// Use the sessions map so GetSession("agent-B") returns not-found

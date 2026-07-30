@@ -46,6 +46,7 @@ func TestOnNotification_CodexRolloutAssistantMessageCompletesActiveTurn(t *testi
 	if completed.Result != "done from resumed rollout" {
 		t.Fatalf("TurnCompleted.Result = %q, want assistant message text", completed.Result)
 	}
+	assertCanonicalPublicSummary(t, completed, "done from resumed rollout")
 	assertTurnDone(t, active, "rollout assistant message did not complete active turn")
 	s.mu.Lock()
 	activeTurnID := s.activeTurnID
@@ -88,7 +89,7 @@ func TestOnNotification_CodexAssistantItemCompletedCompletesActiveTurnFromAccumu
 		"agentId":"agent-1",
 		"threadId":"provider-thread-1",
 		"turnId":"turn-1",
-		"item":{"id":"item-accepted-1","type":"agent_message","role":"assistant","phase":"final_answer","content":[]}
+		"item":{"id":"item-accepted-1","type":"agent_message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"你好"}]}
 	}`))
 
 	completed := waitRolloutTurnCompleted(t, completedCh)
@@ -98,6 +99,7 @@ func TestOnNotification_CodexAssistantItemCompletedCompletesActiveTurnFromAccumu
 	if completed.Result != "你好" {
 		t.Fatalf("TurnCompleted.Result = %q, want accumulated assistant message", completed.Result)
 	}
+	assertCanonicalPublicSummary(t, completed, "你好")
 	if !slices.Equal(completed.PartialItemIDs, []string{"item-accepted-1"}) {
 		t.Fatalf("TurnCompleted.PartialItemIDs = %#v, want accepted assistant item id", completed.PartialItemIDs)
 	}
@@ -173,7 +175,7 @@ func TestSyntheticAssistantCompletionPreservesToolFailure(t *testing.T) {
 	toolEnd := waitToolCallEnd(t, toolEndCh)
 	assertSyntheticToolFailure(t, toolEnd)
 
-	s.completeSyntheticTurn("turn-1", "rollout_assistant_message", "assistant text", nil)
+	s.completeSyntheticTurn("turn-1", "rollout_assistant_message", "assistant text", "trusted assistant summary", nil)
 
 	completed := waitRolloutTurnCompleted(t, completedCh)
 	assertSyntheticFailedCompletion(t, completed, active)
@@ -205,6 +207,17 @@ func assertSyntheticFailedCompletion(t *testing.T, completed turndto.TurnComplet
 	assertTurnDone(t, active, "synthetic completion with tool failure did not complete active turn")
 	if active.Err() == nil || !strings.Contains(active.Err().Error(), "Tool execution failed. Diagnostic ID:") || strings.Contains(active.Err().Error(), "file read failed") {
 		t.Fatalf("turn handle error = %v, want public correlated tool failure", active.Err())
+	}
+}
+
+func assertCanonicalPublicSummary(t *testing.T, completed turndto.TurnCompleted, want string) {
+	t.Helper()
+	terminal, canonical, err := turndto.CanonicalTurnTerminal(completed)
+	if err != nil || !canonical {
+		t.Fatalf("CanonicalTurnTerminal() = (%#v, %v, %v), want canonical terminal", terminal, canonical, err)
+	}
+	if terminal.PublicSummary != want {
+		t.Fatalf("terminal.PublicSummary = %q, want %q", terminal.PublicSummary, want)
 	}
 }
 

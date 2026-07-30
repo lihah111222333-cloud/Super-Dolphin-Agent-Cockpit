@@ -15,7 +15,7 @@ func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
 	t.Parallel()
 
 	const providerThreadID = "11111111-2222-3333-4444-555555555551"
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, providerThreadID)
 	snapshot := validThreadPromptSnapshotForTest("resume")
 	threads := &stubThreadStore{
 		thread: &ThreadRecord{
@@ -171,7 +171,7 @@ func TestServiceResumeRejectsRequestCWDThatDiffersFromStoredThreadCWD(t *testing
 	t.Parallel()
 
 	const providerThreadID = "11111111-2222-3333-4444-555555555557"
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, providerThreadID)
 	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "thread-1",
 		AgentID:   "agent-1",
@@ -223,7 +223,7 @@ func TestServiceResumeRejectsMissingStoredCWD(t *testing.T) {
 		Provider:         "codex",
 		ProviderThreadID: providerThreadID,
 		CodexThreadID:    "thread-1",
-		RolloutPath:      writeExistingProviderHistoryFile(t),
+		RolloutPath:      writeExistingProviderHistoryFile(t, providerThreadID),
 	}}
 	starter := &stubSessionStarter{
 		onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
@@ -259,7 +259,7 @@ func TestServiceResumeRejectsRequestCWDWhenStoredCWDIsMissing(t *testing.T) {
 		Provider:         "codex",
 		ProviderThreadID: providerThreadID,
 		CodexThreadID:    "thread-1",
-		RolloutPath:      writeExistingProviderHistoryFile(t),
+		RolloutPath:      writeExistingProviderHistoryFile(t, providerThreadID),
 	}}
 	starter := &stubSessionStarter{
 		onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
@@ -286,7 +286,7 @@ func newResumeCodexDisabledNativeToolsService(
 	t.Helper()
 
 	const providerThreadID = "11111111-2222-3333-4444-555555555552"
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, providerThreadID)
 	snapshot := validThreadPromptSnapshotForTest("resume")
 	threads := &stubThreadStore{
 		thread: &ThreadRecord{
@@ -399,7 +399,7 @@ func TestServiceResumeDropsDefaultPlaceholderName(t *testing.T) {
 
 	const providerThreadID = "11111111-2222-3333-4444-555555555556"
 	const agentID = "agent-placeholder-name"
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, providerThreadID)
 	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:        agentID,
 		AgentID:         agentID,
@@ -464,7 +464,7 @@ func TestServiceResumeBackfillsDefaultCodexIdentityWhenPackagedRuntime(t *testin
 	wantCodexHome := canonicalCodexHomeForTest(t, codexHome)
 	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
 	const providerThreadID = "11111111-2222-3333-4444-555555555552"
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, providerThreadID, "codex", codexHome)
 	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:       "thread-1",
 		AgentID:        "agent-1",
@@ -526,7 +526,7 @@ func TestServiceResumePrefersStoredPromptSnapshot(t *testing.T) {
 	t.Parallel()
 
 	const providerThreadID = "11111111-2222-3333-4444-555555555553"
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, providerThreadID)
 	stored := PromptSnapshotRecord{
 		DisplayName:           "resume",
 		BaseInstructions:      "stored base",
@@ -589,7 +589,7 @@ func TestServiceResumeRehydratesClaudeOverrideConfig(t *testing.T) {
 	model := "claude-sonnet-4-20250514[1m]"
 	effort := "max"
 	const providerThreadID = "11111111-2222-3333-4444-555555555554"
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, providerThreadID, "claude")
 	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "thread-1",
 		AgentID:   "agent-1",
@@ -643,7 +643,7 @@ func TestServiceResumeRehydratesClaudeHomeFromStoredRuntime(t *testing.T) {
 
 	const providerThreadID = "11111111-2222-3333-4444-555555555557"
 	claudeHome := t.TempDir()
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, providerThreadID, "claude", claudeHome)
 	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "thread-claude-home",
 		AgentID:   "agent-claude-home",
@@ -689,7 +689,7 @@ func TestServiceResumeRequestClaudeHomeOverridesStoredRuntime(t *testing.T) {
 	const providerThreadID = "11111111-2222-3333-4444-555555555558"
 	storedHome := t.TempDir()
 	requestHome := t.TempDir()
-	rolloutPath := writeExistingProviderHistoryFile(t)
+	rolloutPath := writeExistingProviderHistoryFile(t, providerThreadID, "claude", requestHome)
 	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "thread-claude-home-override",
 		AgentID:   "agent-claude-home-override",

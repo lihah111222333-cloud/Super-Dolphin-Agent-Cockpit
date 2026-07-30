@@ -5,6 +5,12 @@ import {
 } from './adapters/threadStateAdapter.js';
 import { ChatPageHeader } from './components/ChatPageHeader.jsx';
 import { ChatActionFeedback } from './components/ChatActionFeedback.js';
+import { AgentBoardFloating } from './agentBoard/AgentBoardFloating.jsx';
+import { AgentBoardPanelSlot } from './agentBoard/AgentBoardPanelSlot.jsx';
+import {
+  AGENT_BOARD_COMPACT_VIEWPORT_WIDTH,
+  useAgentBoardController,
+} from './agentBoard/useAgentBoardController.js';
 import { CodePreviewMarkdown } from './markdown/MarkdownMessage.jsx';
 import { chatHeaderFeedbackForStore } from './model/chatHeaderModel.js';
 import { RuntimePanelSlot } from './runtime/RuntimePanelSlot.jsx';
@@ -25,6 +31,7 @@ import './ChatTimeline.css';
 import './ChatMessages.css';
 import './ChatReasoning.css';
 import './ChatPage.css';
+import './agentBoard/AgentBoard.css';
 
 const runtimeCodeActions = Object.freeze({ locateCodeFile, openCodeFile, saveCodeFile });
 
@@ -210,6 +217,12 @@ function ChatPage(props) {
   }
   useRuntimeDiffSync({ activeThreadId, open: rightPanelOpen, store });
   useActiveChatThreadSync(store, activeThreadId);
+  const agentBoard = useAgentBoardController({
+    store,
+    rightPanelOpen,
+    setRightPanelOpen: layoutActions.right.setOpen,
+  });
+  const agentBoardCompact = geometrySnapshot.viewport.width <= AGENT_BOARD_COMPACT_VIEWPORT_WIDTH;
   const conversationCopy = useMemo(() => (introMode ? { ...copy, introTitle: '' } : copy), [copy, introMode]);
   const prefillIntroSuggestion = (prompt) => {
     store.setDraft(prompt);
@@ -235,46 +248,76 @@ function ChatPage(props) {
       >
         {introMode ? <ChatIntroSpotlight copy={copy} onSuggestion={prefillIntroSuggestion} /> : null}
         <ThreadRail copy={copy} store={store} />
-        <Conversation
-          copy={conversationCopy}
-          messages={threadData.messages}
-          draft={store.draft}
-          setDraft={store.setDraft}
-          sendMessage={store.sendDraft}
-          attachments={store.attachments}
-          selectFiles={store.selectFilesForComposer}
-          attachPaths={store.attachPathsForComposer}
-          attachDroppedFiles={store.attachDroppedFilesForComposer}
-          removeAttachment={store.removeAttachment}
-          sending={store.sending}
-          store={store}
-          projectPath={projectPath}
-          tokenUsage={threadData.tokenUsage}
-          activeThreadId={activeThreadId}
-          activeThread={threadData.activeThread}
-          statusEntry={threadData.statusEntry}
-          activeTurn={threadData.activeTurn}
-          modelThreadId={modelThreadId}
-          messagePagination={threadData.messagePagination}
-          loadOlderThreadMessages={store.loadOlderThreadMessages}
-          timelineBlocked={threadData.timelineBlocked}
-          timelineContentBlocked={threadData.timelineContentBlocked}
-          canUseProjectActions={canUseProjectActions}
-          messageActions={messageActions}
-        />
-        <RuntimePanelSlot
-          beginResize={layoutActions.right.begin}
-          codeFileActions={runtimeCodeActions}
-          formatTime={formatTime}
-          geometrySnapshot={geometrySnapshot}
-          handleKeyDown={layoutActions.right.keyDown}
-          layoutActions={layoutActions}
-          open={rightPanelOpen}
-          projectPath={runtimeProject}
-          projects={store.projects}
-          renderMarkdownPreview={renderCodePreviewMarkdown}
-          threadData={threadData}
-        />
+        <div className="chat-main-column" data-testid="chat-main-column">
+          {!rightPanelOpen ? (
+            <AgentBoardFloating
+              compact={agentBoardCompact}
+              onExpand={agentBoard.expand}
+              viewModel={agentBoard.viewModel}
+            />
+          ) : null}
+          <Conversation
+            copy={conversationCopy}
+            messages={threadData.messages}
+            draft={store.draft}
+            setDraft={store.setDraft}
+            sendMessage={store.sendDraft}
+            attachments={store.attachments}
+            selectFiles={store.selectFilesForComposer}
+            attachPaths={store.attachPathsForComposer}
+            attachDroppedFiles={store.attachDroppedFilesForComposer}
+            removeAttachment={store.removeAttachment}
+            sending={store.sending}
+            store={store}
+            projectPath={projectPath}
+            tokenUsage={threadData.tokenUsage}
+            activeThreadId={activeThreadId}
+            activeThread={threadData.activeThread}
+            statusEntry={threadData.statusEntry}
+            activeTurn={threadData.activeTurn}
+            modelThreadId={modelThreadId}
+            messagePagination={threadData.messagePagination}
+            loadOlderThreadMessages={store.loadOlderThreadMessages}
+            timelineBlocked={threadData.timelineBlocked}
+            timelineContentBlocked={threadData.timelineContentBlocked}
+            canUseProjectActions={canUseProjectActions}
+            messageActions={messageActions}
+          />
+        </div>
+        {agentBoard.rightPanelView === 'agents' ? (
+          <AgentBoardPanelSlot
+            panel={{
+              formatTime,
+              onCollapse: agentBoard.collapse,
+              onSelectAgent: agentBoard.selectAgent,
+              onShowRuntime: agentBoard.showRuntime,
+              viewModel: agentBoard.viewModel,
+            }}
+            resize={{
+              beginResize: layoutActions.right.begin,
+              closeThreshold: geometrySnapshot.aria.rightMin,
+              handleKeyDown: layoutActions.right.keyDown,
+              maxWidth: geometrySnapshot.aria.rightMax,
+              open: rightPanelOpen,
+              width: geometrySnapshot.aria.rightNow,
+            }}
+          />
+        ) : (
+          <RuntimePanelSlot
+            beginResize={layoutActions.right.begin}
+            codeFileActions={runtimeCodeActions}
+            formatTime={formatTime}
+            geometrySnapshot={geometrySnapshot}
+            handleKeyDown={layoutActions.right.keyDown}
+            layoutActions={layoutActions}
+            onShowAgents={agentBoard.showAgents}
+            open={rightPanelOpen}
+            projectPath={runtimeProject}
+            projects={store.projects}
+            renderMarkdownPreview={renderCodePreviewMarkdown}
+            threadData={threadData}
+          />
+        )}
       </div>
       {codePreview.dialogs}
     </section>

@@ -161,21 +161,22 @@ func resumePromptBoundaryBlank(boundary *PromptAssemblyBoundary) bool {
 // SessionBinding 是重启后 auto-resume 所需的持久化绑定投影。
 // 字段保留 provider/local/runtime 身份，缺失时由恢复流程显式修复或报错。
 type SessionBinding struct {
-	AgentID            string
-	Provider           string
-	ProviderThreadID   string
-	CodexThreadID      string
-	RolloutPath        string
-	SessionUUID        string
-	Cwd                string
-	ParentAgentID      string
-	AgentType          string
-	AgentMemoryScope   string
-	Archived           bool
-	CreatedAt          int64
-	CodexHome          string
-	CodexInstanceKey   string
-	CodexModelProvider string
+	AgentID              string
+	Provider             string
+	ProviderThreadID     string
+	CodexThreadID        string
+	RolloutPath          string
+	SessionUUID          string
+	Cwd                  string
+	ParentAgentID        string
+	AgentType            string
+	AgentMemoryScope     string
+	Archived             bool
+	CreatedAt            int64
+	CodexHome            string
+	ProviderRecoveryHome string
+	CodexInstanceKey     string
+	CodexModelProvider   string
 }
 
 // SessionThreadLookup 将公开 thread ID 解析为 resolver 所需的 thread 投影。

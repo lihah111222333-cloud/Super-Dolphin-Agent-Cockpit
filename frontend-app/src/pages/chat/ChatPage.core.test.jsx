@@ -104,10 +104,11 @@ function approvalMessage(requestId, status = 'pending', overrides = {}) {
     render(<TestChatPageWrapper store={store} projectPath="/repo/app" rightPanelOpen />);
 
     const layout = screen.getByTestId('chat-layout');
+    const displayedRightWidth = Number(screen.getByTestId('right-panel-resizer').getAttribute('aria-valuenow'));
     expect(layout).toHaveStyle({
-      gridTemplateColumns: 'minmax(0, 1fr) 6px 380px',
+      gridTemplateColumns: `minmax(0, 1fr) 6px ${displayedRightWidth}px`,
     });
-    expect(layout.style.getPropertyValue('--composer-fixed-right')).toBe('386px');
+    expect(layout.style.getPropertyValue('--composer-right-offset')).toBe(`${displayedRightWidth + 6}px`);
     expect(screen.getByTestId('composer-dock')).toHaveClass('composer--floating');
     expect(screen.queryByTestId('agent-board-floating')).not.toBeInTheDocument();
   });

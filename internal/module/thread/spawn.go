@@ -392,8 +392,7 @@ func (s *service) runPendingSpawn(
 	}
 	cleanupOnFailure = false
 	s.pendingLaunchMu.Delete(threadID)
-	publishPendingSpawnLaunched(s, req, row, session, agentID, threadID, displayName)
-	return nil
+	return publishPendingSpawnLaunched(ctx, s, req, row, session, agentID, threadID, displayName)
 }
 
 func foldRouterOutputIntoAssemblyInput(assemblyInput *contract.StartInput, req *StartRequest) {
@@ -451,22 +450,31 @@ func cleanupPendingSpawn(
 // publishPendingSpawnLaunched 在 pending spawn 持久化完成后发布 thread.launched。
 // 事件使用 session 中解析出的 provider 身份和有效配置，保证 UI 收到的是可恢复的最终线程状态。
 func publishPendingSpawnLaunched(
+	ctx context.Context,
 	s *service,
 	req *StartRequest,
 	row *threadConfigStoreRecord,
 	session contract.Session,
 	agentID, threadID, displayName string,
-) {
+) error {
 	effectiveModel, effectiveCWD, _ := enrichFromSessionConfig(session, req.Model, req.CWD)
 	providerUUID := resolvedProviderUUID(session)
 	rolloutPath := session.RolloutPath()
+	binding, err := s.threadBindingStorePort().GetByAgentID(ctx, agentID)
+	if err != nil {
+		return fmt.Errorf("thread: read persisted pending spawn binding: %w", err)
+	}
+	if binding == nil {
+		return errors.New("thread: persisted pending spawn binding is required")
+	}
+	providerThreadID := strings.TrimSpace(binding.ProviderThreadID)
 	spawnedState := newThreadState(threadStateStartKind, threadStateFields{
 		PublicThreadID:   threadID,
 		AgentID:          agentID,
 		ParentAgentID:    req.ParentAgentID,
 		AgentType:        req.AgentType,
 		AgentMemoryScope: req.AgentMemoryScope,
-		ProviderThreadID: recoverableProviderThreadID(req.Provider, providerUUID, threadID, rolloutPath, ""),
+		ProviderThreadID: providerThreadID,
 		Provider:         req.Provider,
 		CWD:              effectiveCWD,
 		Model:            effectiveModel,
@@ -480,6 +488,7 @@ func publishPendingSpawnLaunched(
 		OwnerThreadID:    req.OwnerThreadID,
 	})
 	s.publishThreadLaunched(spawnedState)
+	return nil
 }
 
 const (
