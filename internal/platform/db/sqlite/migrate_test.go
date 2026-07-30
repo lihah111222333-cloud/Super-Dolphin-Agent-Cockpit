@@ -494,6 +494,216 @@ func TestDatasourceDocumentsTableComesFromMigration(t *testing.T) {
 	assertIndex(t, db, "datasource_documents", "idx_datasource_documents_workspace_name", false, "")
 }
 
+// TestMCPManagedGenerationTablesComeFromMigration 验证 generation owner 只由规范 migration 122 建表。
+func TestMCPManagedGenerationTablesComeFromMigration(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrationTestDB(t)
+	createMigrationMarkerTable(t, db)
+	markBaselineApplied(t, db)
+	dir := t.TempDir()
+	const migration = "122_mcp_managed_generations.sql"
+	writeMigrationTestFile(t, dir, migration, readMigrationTestFile(t, migration))
+
+	if err := RunMigrations(ctx, db, dir); err != nil {
+		t.Fatalf("RunMigrations() error = %v", err)
+	}
+	if err := RunMigrations(ctx, db, dir); err != nil {
+		t.Fatalf("RunMigrations(repeated) error = %v", err)
+	}
+	tables := sqliteTables(t, db)
+	for _, table := range []string{
+		"mcp_managed_generation_owner",
+		"mcp_managed_generation_instances",
+		"mcp_managed_generations",
+	} {
+		if !tables[table] {
+			t.Fatalf("%s table missing after migration 122", table)
+		}
+	}
+	assertMigrationMarkerCount(t, db, migration, 1)
+	assertMigrationVersion(t, db, migration, 122)
+	assertPrimaryKey(t, db, "mcp_managed_generation_owner", []string{"singleton_id"})
+	assertPrimaryKey(t, db, "mcp_managed_generation_instances", []string{"instance_id"})
+	assertPrimaryKey(t, db, "mcp_managed_generations", []string{"instance_id"})
+	assertNotNullColumns(t, db, "mcp_managed_generation_owner", []string{
+		"owner_epoch",
+		"marker_initialized",
+		"ledger_initialized",
+	})
+	assertNotNullColumns(t, db, "mcp_managed_generations", []string{
+		"generation",
+		"claim_id",
+		"external_committed",
+	})
+}
+
+// TestMCPManagedGenerationFreshDatabaseReachesMigration122 锁定 fresh DB 的 0→122 完整升级路径。
+func TestMCPManagedGenerationFreshDatabaseReachesMigration122(t *testing.T) {
+	db := openMigrationTestDB(t)
+	if err := RunMigrations(context.Background(), db, sqliteMigrationsDir(t)); err != nil {
+		t.Fatalf("RunMigrations(fresh 0→122) error = %v", err)
+	}
+	assertMigrationMarkerCount(t, db, "122_mcp_managed_generations.sql", 1)
+	assertMigrationVersion(t, db, "122_mcp_managed_generations.sql", 122)
+}
+
+// TestMCPManagedGenerationLegacy120MarkerAdoptsCanonical122 验证旧文件名已执行时只登记规范 marker，并保留 durable generation 数据。
+func TestMCPManagedGenerationLegacy120MarkerAdoptsCanonical122(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrationTestDB(t)
+	setupLegacyManagedGenerationMigration(t, db)
+	dir := managedGenerationMigrationDir(t)
+
+	if err := RunMigrations(ctx, db, dir); err != nil {
+		t.Fatalf("RunMigrations(legacy 120→122) error = %v", err)
+	}
+	if err := RunMigrations(ctx, db, dir); err != nil {
+		t.Fatalf("RunMigrations(legacy repeated) error = %v", err)
+	}
+	assertMigrationMarkerCount(t, db, "120_mcp_managed_generations.sql", 1)
+	assertMigrationMarkerCount(t, db, "122_mcp_managed_generations.sql", 1)
+	assertMigrationVersion(t, db, "122_mcp_managed_generations.sql", 122)
+	assertManagedGenerationRow(t, db, "legacy-instance", 7, 1)
+}
+
+func TestMCPManagedGenerationLegacy120MarkerRejectsDriftWithoutSideEffects(t *testing.T) {
+	tests := []struct {
+		name        string
+		mutate      func(*testing.T, *sql.DB)
+		wantError   string
+		assertDrift func(*testing.T, *sql.DB)
+	}{
+		{
+			name: "partial table",
+			mutate: func(t *testing.T, db *sql.DB) {
+				mustExec(t, db, "DROP TABLE mcp_managed_generations")
+			},
+			wantError: "table mcp_managed_generations is missing",
+			assertDrift: func(t *testing.T, db *sql.DB) {
+				assertMigrationTableMissing(t, db, "mcp_managed_generations")
+				assertManagedGenerationInstanceCount(t, db, "legacy-instance", 1)
+			},
+		},
+		{
+			name: "schema drift",
+			mutate: func(t *testing.T, db *sql.DB) {
+				mustExec(t, db, "ALTER TABLE mcp_managed_generation_instances ADD COLUMN unexpected TEXT")
+			},
+			wantError: "table mcp_managed_generation_instances definition does not match",
+			assertDrift: func(t *testing.T, db *sql.DB) {
+				assertManagedGenerationRow(t, db, "legacy-instance", 7, 1)
+			},
+		},
+		{
+			name: "constraint drift",
+			mutate: func(t *testing.T, db *sql.DB) {
+				mustExec(t, db, `
+					ALTER TABLE mcp_managed_generations RENAME TO mcp_managed_generations_old;
+					CREATE TABLE mcp_managed_generations (
+						instance_id TEXT PRIMARY KEY,
+						generation INTEGER NOT NULL,
+						claim_id TEXT NOT NULL,
+						external_committed INTEGER NOT NULL DEFAULT 0
+					);
+					INSERT INTO mcp_managed_generations
+					SELECT * FROM mcp_managed_generations_old;
+					DROP TABLE mcp_managed_generations_old
+				`)
+			},
+			wantError: "table mcp_managed_generations definition does not match",
+			assertDrift: func(t *testing.T, db *sql.DB) {
+				assertManagedGenerationRow(t, db, "legacy-instance", 7, 1)
+			},
+		},
+		{
+			name: "singleton identity mismatch",
+			mutate: func(t *testing.T, db *sql.DB) {
+				mustExec(t, db, `
+					PRAGMA ignore_check_constraints = ON;
+					UPDATE mcp_managed_generation_owner SET singleton_id = 2;
+					PRAGMA ignore_check_constraints = OFF
+				`)
+			},
+			wantError: "owner identity is invalid",
+			assertDrift: func(t *testing.T, db *sql.DB) {
+				assertManagedGenerationOwnerID(t, db, 2)
+				assertManagedGenerationRow(t, db, "legacy-instance", 7, 1)
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db := openMigrationTestDB(t)
+			setupLegacyManagedGenerationMigration(t, db)
+			test.mutate(t, db)
+
+			err := RunMigrations(context.Background(), db, managedGenerationMigrationDir(t))
+			if err == nil || !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("RunMigrations() error = %v, want %q", err, test.wantError)
+			}
+			assertMigrationMarkerCount(t, db, "120_mcp_managed_generations.sql", 1)
+			assertMigrationMarkerCount(t, db, "122_mcp_managed_generations.sql", 0)
+			test.assertDrift(t, db)
+		})
+	}
+}
+
+func TestMCPManagedGenerationLegacy120MarkerRollsBackCanonicalMarkerConflict(t *testing.T) {
+	db := openMigrationTestDB(t)
+	setupLegacyManagedGenerationMigration(t, db)
+	mustExec(t, db, `
+		INSERT INTO schema_migrations(version, name, filename, applied_at)
+		VALUES (122, 'conflicting migration', '122_conflicting.sql', 2)
+	`)
+
+	err := RunMigrations(context.Background(), db, managedGenerationMigrationDir(t))
+	if err == nil || !strings.Contains(err.Error(), "record SQLite migration 122_mcp_managed_generations.sql") {
+		t.Fatalf("RunMigrations() error = %v, want canonical marker conflict", err)
+	}
+	assertMigrationMarkerCount(t, db, "120_mcp_managed_generations.sql", 1)
+	assertMigrationMarkerCount(t, db, "122_mcp_managed_generations.sql", 0)
+	assertMigrationMarkerCount(t, db, "122_conflicting.sql", 1)
+	assertManagedGenerationRow(t, db, "legacy-instance", 7, 1)
+}
+
+func TestMCPManagedGenerationLegacy120MarkerRejectsForgedIdentity(t *testing.T) {
+	db := openMigrationTestDB(t)
+	setupLegacyManagedGenerationMigration(t, db)
+	mustExec(t, db, `
+		UPDATE schema_migrations
+		SET name = 'forged'
+		WHERE filename = '120_mcp_managed_generations.sql'
+	`)
+
+	err := RunMigrations(context.Background(), db, managedGenerationMigrationDir(t))
+	if err == nil || !strings.Contains(err.Error(), "legacy managed generation marker identity is invalid") {
+		t.Fatalf("RunMigrations() error = %v, want legacy marker identity rejection", err)
+	}
+	assertMigrationMarkerCount(t, db, "120_mcp_managed_generations.sql", 1)
+	assertMigrationMarkerCount(t, db, "122_mcp_managed_generations.sql", 0)
+	assertManagedGenerationRow(t, db, "legacy-instance", 7, 1)
+}
+
+// TestMCPManagedGenerationLegacyValidatorConsumesCanonicalDDL 动态修改真实 migration 约束，证明兼容校验读取规范 SQL 而非测试侧字段清单。
+func TestMCPManagedGenerationLegacyValidatorConsumesCanonicalDDL(t *testing.T) {
+	db := openMigrationTestDB(t)
+	setupLegacyManagedGenerationMigration(t, db)
+	body := readMigrationTestFile(t, "122_mcp_managed_generations.sql")
+	mutated := strings.Replace(body, "CHECK (generation > 0)", "CHECK (generation >= 0)", 1)
+	if mutated == body {
+		t.Fatal("managed generation constraint mutation did not change canonical SQL")
+	}
+	dir := t.TempDir()
+	writeMigrationTestFile(t, dir, "122_mcp_managed_generations.sql", mutated)
+
+	err := RunMigrations(context.Background(), db, dir)
+	if err == nil || !strings.Contains(err.Error(), "table mcp_managed_generations definition does not match") {
+		t.Fatalf("RunMigrations() error = %v, want canonical constraint mismatch", err)
+	}
+	assertMigrationMarkerCount(t, db, "122_mcp_managed_generations.sql", 0)
+	assertManagedGenerationRow(t, db, "legacy-instance", 7, 1)
+}
+
 // TestRunMigrationsThreadTimestampMillisConvertsPersistedSeconds 验证历史 thread 秒时间戳会在持久化边界一次性升级为毫秒。
 func TestRunMigrationsThreadTimestampMillisConvertsPersistedSeconds(t *testing.T) {
 	ctx := context.Background()
@@ -646,6 +856,17 @@ func markBaselineApplied(t *testing.T, db *sql.DB) {
 	`)
 }
 
+func assertMigrationVersion(t *testing.T, db *sql.DB, filename string, want int) {
+	t.Helper()
+	var got int
+	if err := db.QueryRow("SELECT version FROM schema_migrations WHERE filename = ?", filename).Scan(&got); err != nil {
+		t.Fatalf("read migration version for %s: %v", filename, err)
+	}
+	if got != want {
+		t.Fatalf("migration %s version = %d, want %d", filename, got, want)
+	}
+}
+
 type systemLogsTraceSpanWant struct {
 	id           int64
 	source       string
@@ -720,5 +941,73 @@ func assertMigrationMarkerCount(t *testing.T, db *sql.DB, filename string, want 
 	}
 	if got != want {
 		t.Fatalf("migration marker count for %s = %d, want %d", filename, got, want)
+	}
+}
+
+func assertManagedGenerationRow(t *testing.T, db *sql.DB, instanceID string, wantGeneration, wantExternalCommitted int) {
+	t.Helper()
+	var generation, externalCommitted int
+	if err := db.QueryRow(
+		"SELECT generation, external_committed FROM mcp_managed_generations WHERE instance_id = ?",
+		instanceID,
+	).Scan(&generation, &externalCommitted); err != nil {
+		t.Fatalf("read managed generation %s: %v", instanceID, err)
+	}
+	if generation != wantGeneration || externalCommitted != wantExternalCommitted {
+		t.Fatalf(
+			"managed generation %s = (generation=%d, external_committed=%d), want (%d, %d)",
+			instanceID,
+			generation,
+			externalCommitted,
+			wantGeneration,
+			wantExternalCommitted,
+		)
+	}
+}
+
+func setupLegacyManagedGenerationMigration(t *testing.T, db *sql.DB) {
+	t.Helper()
+	createMigrationMarkerTable(t, db)
+	markBaselineApplied(t, db)
+	mustExec(t, db, readMigrationTestFile(t, "122_mcp_managed_generations.sql"))
+	mustExec(t, db, `
+		INSERT INTO schema_migrations(version, name, filename, applied_at)
+		VALUES (120, '120_mcp_managed_generations', '120_mcp_managed_generations.sql', 1);
+		INSERT INTO mcp_managed_generation_instances(instance_id) VALUES ('legacy-instance');
+		INSERT INTO mcp_managed_generations(instance_id, generation, claim_id, external_committed)
+		VALUES ('legacy-instance', 7, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 1)
+	`)
+}
+
+func managedGenerationMigrationDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	const migration = "122_mcp_managed_generations.sql"
+	writeMigrationTestFile(t, dir, migration, readMigrationTestFile(t, migration))
+	return dir
+}
+
+func assertManagedGenerationInstanceCount(t *testing.T, db *sql.DB, instanceID string, want int) {
+	t.Helper()
+	var got int
+	if err := db.QueryRow(
+		"SELECT COUNT(*) FROM mcp_managed_generation_instances WHERE instance_id = ?",
+		instanceID,
+	).Scan(&got); err != nil {
+		t.Fatalf("count managed generation instance %s: %v", instanceID, err)
+	}
+	if got != want {
+		t.Fatalf("managed generation instance %s count = %d, want %d", instanceID, got, want)
+	}
+}
+
+func assertManagedGenerationOwnerID(t *testing.T, db *sql.DB, want int) {
+	t.Helper()
+	var got int
+	if err := db.QueryRow("SELECT singleton_id FROM mcp_managed_generation_owner").Scan(&got); err != nil {
+		t.Fatalf("read managed generation owner identity: %v", err)
+	}
+	if got != want {
+		t.Fatalf("managed generation owner singleton_id = %d, want %d", got, want)
 	}
 }

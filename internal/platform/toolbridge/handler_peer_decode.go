@@ -696,8 +696,18 @@ func (h *Handler) listPeerTools(ctx context.Context, clientKind string) ([]mcpdt
 
 	// bootstrap peer callback 使用 {"tools":[...]} 外壳，解码时保持与 MCP tools/list wire 结构一致。
 	var result peerToolsListResult
-	if err := peers[0].Peer.Callback(ctx, "tools/list", nil, &result); err != nil {
+	peer, pin, err := h.pinToolPeer(peers[0])
+	if err != nil {
 		return nil, err
+	}
+	if pin != nil {
+		defer func() { _ = pin.Release() }()
+	}
+	if err := peer.Callback(ctx, "tools/list", nil, &result); err != nil {
+		return nil, err
+	}
+	if pin != nil && !pin.Current() {
+		return nil, mcpcontrol.ErrManagedLeaseStale
 	}
 	if err := validatePeerToolsListResult(result, "peer tools/list"); err != nil {
 		return nil, err

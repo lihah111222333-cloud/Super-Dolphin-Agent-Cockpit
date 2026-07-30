@@ -21,6 +21,33 @@ type reportReceipt struct {
 
 // normalizeRegisterRequest 校验注册请求并标准化 peer/client 类型，主机托管服务会被提升为 shared-service。
 func normalizeRegisterRequest(req dto.RegisterRequest) (dto.RegisterRequest, error) {
+	return normalizeRegisterRequestWithRolePolicy(req, true)
+}
+
+// normalizeManagedRegisterRequest 只做公共载荷规范化和能力校验，不改写保留角色身份。
+func normalizeManagedRegisterRequest(req dto.RegisterRequest) (dto.RegisterRequest, error) {
+	if req.ManagedAuthority != nil {
+		proof := *req.ManagedAuthority
+		proof.ProtocolVersion = strings.TrimSpace(proof.ProtocolVersion)
+		proof.RequestID = strings.TrimSpace(proof.RequestID)
+		req.ManagedAuthority = &proof
+	}
+	normalized, err := normalizeRegisterRequestWithRolePolicy(req, false)
+	if err != nil {
+		return dto.RegisterRequest{}, err
+	}
+	negotiated, _ := negotiateRegisterCapabilities(normalized)
+	if missing := missingCapabilities(normalized.CapabilitiesRequired, negotiated); len(missing) != 0 {
+		return dto.RegisterRequest{}, errCapabilityMismatch(
+			"mcp required capabilities are rejected by managed profile: %s",
+			strings.Join(missing, ","),
+		)
+	}
+	return normalized, nil
+}
+
+// normalizeRegisterRequestWithRolePolicy 共享字段规范化，并由调用方显式决定是否改写旧 canonical role。
+func normalizeRegisterRequestWithRolePolicy(req dto.RegisterRequest, rewriteCanonicalRole bool) (dto.RegisterRequest, error) {
 	req.InstanceID = strings.TrimSpace(req.InstanceID)
 	if req.InstanceID == "" {
 		return dto.RegisterRequest{}, errInvalidParams("mcp register instance_id is required")
@@ -28,9 +55,15 @@ func normalizeRegisterRequest(req dto.RegisterRequest) (dto.RegisterRequest, err
 	req.BinaryName = strings.TrimSpace(req.BinaryName)
 	req.AgentID = strings.TrimSpace(req.AgentID)
 	req.ThreadID = strings.TrimSpace(req.ThreadID)
-	req.PeerKind = normalizePeerKind(req.PeerKind, req.ClientKind)
-	req.ClientKind = normalizeClientKind(req.ClientKind)
-	if isCanonicalServiceClientKind(req.ClientKind) {
+	req.BootID = strings.TrimSpace(req.BootID)
+	if rewriteCanonicalRole {
+		req.PeerKind = normalizePeerKind(req.PeerKind, req.ClientKind)
+		req.ClientKind = normalizeClientKind(req.ClientKind)
+	} else {
+		req.PeerKind = strings.TrimSpace(req.PeerKind)
+		req.ClientKind = strings.TrimSpace(req.ClientKind)
+	}
+	if rewriteCanonicalRole && isCanonicalServiceClientKind(req.ClientKind) {
 		// 主进程托管的单例服务没有 agent scope，注册为 shared-service 后可被各 agent 调用路由复用。
 		req.PeerKind = dto.PeerKindSharedService
 		req.Shared = true
@@ -140,6 +173,9 @@ func (r *ToolRegistry) evictLocked(key LeaseKey) Peer {
 	r.forEachInstanceBucket(instance, func(index map[string]map[LeaseKey]struct{}, bucket string, key LeaseKey) {
 		removeIndex(index, bucket, key)
 	})
+	if instance.runtime != nil {
+		return instance.runtime.retire()
+	}
 	return instance.Peer
 }
 
@@ -216,6 +252,16 @@ func uniqueTrimmed(values []string) []string {
 	return out
 }
 
+func normalizedStringSet(values []string) map[string]struct{} {
+	out := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			out[value] = struct{}{}
+		}
+	}
+	return out
+}
+
 // missingCapabilities 返回 required 中未被 offered 声明的能力列表。
 func missingCapabilities(required, offered []string) []string {
 	available := make(map[string]struct{}, len(offered))
@@ -229,6 +275,25 @@ func missingCapabilities(required, offered []string) []string {
 		}
 	}
 	return missing
+}
+
+var managedOrchAllowedCapabilities = normalizedStringSet(dto.OrchCapabilities())
+
+// negotiateRegisterCapabilities 只为 managed orch 套用服务端 profile；旧 LSP/IDA 保持全部 offered 接受。
+func negotiateRegisterCapabilities(req dto.RegisterRequest) ([]string, []string) {
+	if req.ManagedAuthority == nil || req.ClientKind != dto.ClientKindOrch {
+		return platformshared.CloneStrings(req.CapabilitiesOffered), []string{}
+	}
+	negotiated := make([]string, 0, len(req.CapabilitiesOffered))
+	rejected := make([]string, 0)
+	for _, capability := range req.CapabilitiesOffered {
+		if _, ok := managedOrchAllowedCapabilities[capability]; ok {
+			negotiated = append(negotiated, capability)
+		} else {
+			rejected = append(rejected, capability)
+		}
+	}
+	return negotiated, rejected
 }
 
 // normalizePeerKind 标准化 peer 类型；未声明时默认按工具 peer 处理。

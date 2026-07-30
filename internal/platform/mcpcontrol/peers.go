@@ -46,6 +46,23 @@ func (p jrpcPeer) Close() error {
 	return nil
 }
 
+func samePeerConnection(left, right Peer) bool {
+	leftServer := peerServer(left)
+	return leftServer != nil && leftServer == peerServer(right)
+}
+
+func peerServer(peer Peer) *jrpc2.Server {
+	switch typed := peer.(type) {
+	case jrpcPeer:
+		return typed.server
+	case *jrpcPeer:
+		if typed != nil {
+			return typed.server
+		}
+	}
+	return nil
+}
+
 // closePeer 吞掉关闭错误，控制面断链路径只负责尽力释放底层连接。
 func closePeer(peer Peer) {
 	if peer != nil {

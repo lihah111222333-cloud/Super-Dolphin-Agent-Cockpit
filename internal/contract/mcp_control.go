@@ -556,6 +556,11 @@ type ToolInstance struct {
 	ConfigVersion int64
 }
 
+// ManagedAuthorityIssuer 是 host supervisor 启动 managed singleton peer 前使用的签发端口。
+type ManagedAuthorityIssuer interface {
+	IssueManagedAuthority(context.Context, mcp.ManagedAuthorityIssueRequest) (mcp.ManagedAuthorityBootstrap, error)
+}
+
 // ToolRegistry 维护 ctl/* peer 注册、心跳、查询和关闭生命周期。
 type ToolRegistry interface {
 	Register(ctx context.Context, req mcp.RegisterRequest) (mcp.RegisterResponse, error)

@@ -299,9 +299,24 @@ func (r *ToolRegistry) runFanoutWorker(
 
 // invokeFanoutTarget 在 notifyTimeout 内调用目标 peer；连续失败达到阈值时会驱逐租约。
 func (r *ToolRegistry) invokeFanoutTarget(ctx context.Context, target sendTarget, operation fanoutOperation) error {
+	peer := target.peer
+	var pin *LeasePin
+	if target.runtime != nil {
+		var err error
+		pin, err = target.runtime.pin()
+		if err != nil {
+			return errLeaseStale("mcp lease %s/%d became stale before callback", target.key.InstanceID, target.key.Generation)
+		}
+		defer func() { _ = pin.Release() }()
+		peer = pin.Peer()
+	}
 	callCtx, cancel := withTimeoutContext(ctx, r.notifyTimeout)
 	defer cancel()
-	if err := operation.invoke(callCtx, target.peer); err != nil {
+	invokeErr := operation.invoke(callCtx, peer)
+	if pin != nil && !pin.Current() {
+		return errLeaseStale("mcp lease %s/%d became stale during callback", target.key.InstanceID, target.key.Generation)
+	}
+	if invokeErr != nil {
 		peer, evicted := r.notePeerFailure(target.key)
 		if evicted {
 			_ = r.disconnectLease(target.key, disconnectLeaseOptions{
@@ -312,7 +327,7 @@ func (r *ToolRegistry) invokeFanoutTarget(ctx context.Context, target sendTarget
 		} else {
 			closePeer(peer)
 		}
-		return fmt.Errorf("%s/%d: %w", target.key.InstanceID, target.key.Generation, err)
+		return fmt.Errorf("%s/%d: %w", target.key.InstanceID, target.key.Generation, invokeErr)
 	}
 	r.resetPeerFailure(target.key)
 	return nil

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -111,6 +112,10 @@ type activePeerRegistry interface {
 // scopedActivePeerRegistry 支持按 agent/thread/call 作用域选择 peer，避免同类 peer 冲突。
 type scopedActivePeerRegistry interface {
 	FindActiveForScope(scope mcpcontrol.ToolScope) []*mcpcontrol.ToolInstance
+}
+
+type managedAuthorityPolicy interface {
+	RequiresManagedAuthority(clientKind string) bool
 }
 
 // storedThreadRuntime 是 thread config override 中保存的运行时片段。
@@ -314,7 +319,7 @@ func (h *Handler) routeMCPPeerToolCall(ctx context.Context, req ToolCallRequest)
 	if err != nil {
 		return nil, err
 	}
-	return h.callPeerTool(ctx, peer.Peer, req)
+	return h.callPeerTool(ctx, peer, req)
 }
 
 // routeReservedHostOnlyToolCall 兜住必须由 host-direct 执行的保留工具名。
@@ -414,14 +419,23 @@ func (h *Handler) findActiveToolPeers(scope mcpcontrol.ToolScope) []*mcpcontrol.
 
 // callPeerTool 向选中的 MCP peer 发起 tools/call，并在 patch_edit 调用前后记录 diff。
 // 这里会注入 managed launch 上下文与解析后的 cwd，保证 peer 收到的是完整调用元数据。
-func (h *Handler) callPeerTool(ctx context.Context, peer mcpcontrol.Peer, req ToolCallRequest) (*ToolCallResult, error) {
+func (h *Handler) callPeerTool(ctx context.Context, instance *mcpcontrol.ToolInstance, req ToolCallRequest) (*ToolCallResult, error) {
+	peer, pin, err := h.pinToolPeer(instance)
+	if err != nil {
+		return nil, err
+	}
+	if pin != nil {
+		defer func() { _ = pin.Release() }()
+	}
 	callCtx, cancel := platformconfig.WithPeerTimeout(ctx, toolCallTimeout)
 	defer cancel()
 
 	snapshot := h.beginToolDiffSnapshot(ctx, req)
-	var err error
 	req, err = h.injectManagedLaunchContext(ctx, req)
 	if err != nil {
+		return nil, err
+	}
+	if err := requireCurrentManagedPin(pin); err != nil {
 		return nil, err
 	}
 	h.warnManagedLaunchConfigTrace(ctx, req)
@@ -439,6 +453,9 @@ func (h *Handler) callPeerTool(ctx context.Context, peer mcpcontrol.Peer, req To
 		MetadataKeyCWD:            cwd,
 		MetadataKeyWorkspaceRoots: append([]string(nil), req.WorkspaceRoots...),
 	}, &resp)
+	if err := requireCurrentManagedPin(pin); err != nil {
+		return nil, err
+	}
 	if err != nil {
 		logToolCallFailure("peer_callback", err)
 		return toolCallPublicErrorResult(err), nil
@@ -450,6 +467,32 @@ func (h *Handler) callPeerTool(ctx context.Context, peer mcpcontrol.Peer, req To
 	}
 	h.emitToolDiff(ctx, req, snapshot)
 	return result, nil
+}
+
+// pinToolPeer 只为 strict managed family 固定 concrete lease，其他产品面保持旧 peer 调用路径。
+func (h *Handler) pinToolPeer(instance *mcpcontrol.ToolInstance) (mcpcontrol.Peer, *mcpcontrol.LeasePin, error) {
+	if instance == nil || instance.Peer == nil {
+		return nil, nil, ErrNoPeerAvailable
+	}
+	policy, strict := h.registry.(managedAuthorityPolicy)
+	if !strict || !policy.RequiresManagedAuthority(instance.ClientKind) {
+		return instance.Peer, nil, nil
+	}
+	if !instance.Managed {
+		return nil, nil, errors.New("toolbridge: strict managed peer is missing authority")
+	}
+	pin, err := instance.Pin()
+	if err != nil {
+		return nil, nil, err
+	}
+	return pin.Peer(), pin, nil
+}
+
+func requireCurrentManagedPin(pin *mcpcontrol.LeasePin) error {
+	if pin == nil || pin.Current() {
+		return nil
+	}
+	return mcpcontrol.ErrManagedLeaseStale
 }
 
 // managed launch 参数注入相关 helper 位于 handler_managed_launch.go。

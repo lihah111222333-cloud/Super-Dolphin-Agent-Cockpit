@@ -8,38 +8,72 @@ type LeaseKey struct {
 	Generation uint64 `json:"generation"`  // 本次注册的世代号，用于防止旧请求覆盖新状态。
 }
 
+// ManagedAuthorityIssueRequest 是 host supervisor 向控制面申请 managed bootstrap token 的请求。
+type ManagedAuthorityIssueRequest struct {
+	BinaryName string `json:"binary_name"`
+}
+
+// ManagedAuthorityBootstrap 是控制面签发给单个 managed peer 启动周期的不可推导身份。
+type ManagedAuthorityBootstrap struct {
+	InstanceID      string `json:"instance_id"`
+	BootID          string `json:"boot_id"`
+	Token           string `json:"token"`
+	ProtocolVersion string `json:"protocol_version"`
+}
+
+// ManagedAuthorityProof 证明 register 请求持有控制面签发的当前 token。
+type ManagedAuthorityProof struct {
+	ProtocolVersion string `json:"protocol_version"`
+	RequestID       string `json:"request_id"`
+	Token           string `json:"token"`
+}
+
+// ManagedAuthorityReceipt 返回本次幂等 register 的固定收据和下一枚旋转 token。
+type ManagedAuthorityReceipt struct {
+	ProtocolVersion string `json:"protocol_version"`
+	RequestID       string `json:"request_id"`
+	NextToken       string `json:"next_token"`
+}
+
 // RegisterRequest 是 ctl/register 的注册请求载荷，peer 启动后发送以建立租约。
 type RegisterRequest struct {
-	InstanceID           string   `json:"instance_id"`
-	BinaryName           string   `json:"binary_name"`
-	AgentID              string   `json:"agent_id"`
-	ThreadID             string   `json:"thread_id,omitempty"`
-	PID                  int      `json:"pid"`
-	SessionToken         string   `json:"session_token,omitempty"`
-	BootID               string   `json:"boot_id,omitempty"`
-	ClientKind           string   `json:"client_kind"` // orch/lsp/ida/custom
-	PeerKind             string   `json:"peer_kind,omitempty"`
-	Shared               bool     `json:"shared,omitempty"`
-	CapabilitiesOffered  []string `json:"capabilities_offered,omitempty"`
-	CapabilitiesRequired []string `json:"capabilities_required,omitempty"`
-	Subscriptions        []string `json:"subscriptions,omitempty"`
-	ResumeFromGeneration *uint64  `json:"resume_from_generation,omitempty"`
+	InstanceID           string                 `json:"instance_id"`
+	BinaryName           string                 `json:"binary_name"`
+	AgentID              string                 `json:"agent_id"`
+	ThreadID             string                 `json:"thread_id,omitempty"`
+	PID                  int                    `json:"pid"`
+	SessionToken         string                 `json:"session_token,omitempty"`
+	BootID               string                 `json:"boot_id,omitempty"`
+	ClientKind           string                 `json:"client_kind"` // orch/lsp/ida/custom
+	PeerKind             string                 `json:"peer_kind,omitempty"`
+	Shared               bool                   `json:"shared,omitempty"`
+	CapabilitiesOffered  []string               `json:"capabilities_offered,omitempty"`
+	CapabilitiesRequired []string               `json:"capabilities_required,omitempty"`
+	Subscriptions        []string               `json:"subscriptions,omitempty"`
+	ResumeFromGeneration *uint64                `json:"resume_from_generation,omitempty"`
+	ManagedAuthority     *ManagedAuthorityProof `json:"managed_authority,omitempty"`
 }
 
 // RegisterResponse 是 ctl/register 的响应，包含服务端分配的世代号和心跳参数。
 type RegisterResponse struct {
-	InstanceID             string   `json:"instance_id"`
-	Generation             uint64   `json:"generation"`
-	AcceptedGeneration     uint64   `json:"accepted_generation,omitempty"`
-	PeerKind               string   `json:"peer_kind,omitempty"`
-	CapabilitiesNegotiated []string `json:"capabilities_negotiated,omitempty"`
-	CapabilitiesRejected   []string `json:"capabilities_rejected"`
-	HeartbeatIntervalMs    int      `json:"heartbeat_interval_ms"`
-	HeartbeatTimeoutMs     int      `json:"heartbeat_timeout_ms"`
-	SendTimeoutMs          int      `json:"send_timeout_ms,omitempty"`
-	SweeperIntervalMs      int      `json:"sweeper_interval_ms,omitempty"`
-	ServerProtocolVersion  string   `json:"server_protocol_version,omitempty"`
-	ConfigVersion          int64    `json:"config_version"`
+	InstanceID             string                   `json:"instance_id"`
+	Generation             uint64                   `json:"generation"`
+	AcceptedGeneration     uint64                   `json:"accepted_generation,omitempty"`
+	PeerKind               string                   `json:"peer_kind,omitempty"`
+	CapabilitiesNegotiated []string                 `json:"capabilities_negotiated,omitempty"`
+	CapabilitiesRejected   []string                 `json:"capabilities_rejected"`
+	HeartbeatIntervalMs    int                      `json:"heartbeat_interval_ms"`
+	HeartbeatTimeoutMs     int                      `json:"heartbeat_timeout_ms"`
+	SendTimeoutMs          int                      `json:"send_timeout_ms,omitempty"`
+	SweeperIntervalMs      int                      `json:"sweeper_interval_ms,omitempty"`
+	ServerProtocolVersion  string                   `json:"server_protocol_version,omitempty"`
+	ConfigVersion          int64                    `json:"config_version"`
+	ManagedAuthority       *ManagedAuthorityReceipt `json:"managed_authority,omitempty"`
+}
+
+// LeaseKey 返回响应中协商完成的规范租约键。
+func (r RegisterResponse) LeaseKey() LeaseKey {
+	return LeaseKey{InstanceID: r.InstanceID, Generation: r.Generation}
 }
 
 // HeartbeatRequest 是 ctl/heartbeat 的心跳请求载荷，peer 按协商间隔定期发送。

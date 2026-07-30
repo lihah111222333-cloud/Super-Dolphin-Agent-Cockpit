@@ -48,8 +48,18 @@ func registerTranslatorsWithRuntimeHooks(dispatcher *unified.EventDispatcher, _ 
 
 // provideDefaultPeerSupervisor 构造生产使用的 PeerSupervisor runner。
 // 独立函数让 fx.Annotate 可以把具体类型收窄为 platformrunner.Runner。
-func provideDefaultPeerSupervisor(mgr *ServerManager, logger *slog.Logger, cfg *contract.Config) platformrunner.Runner {
-	return NewPeerSupervisor(mgr, logger, WithPeerWorkspaceRoots(configuredPeerWorkspaceRoots(cfg)))
+func provideDefaultPeerSupervisor(
+	mgr *ServerManager,
+	logger *slog.Logger,
+	cfg *contract.Config,
+	issuer contract.ManagedAuthorityIssuer,
+) platformrunner.Runner {
+	return NewPeerSupervisor(
+		mgr,
+		logger,
+		WithPeerWorkspaceRoots(configuredPeerWorkspaceRoots(cfg)),
+		WithPeerManagedAuthorityIssuer(issuer),
+	)
 }
 
 func configuredPeerWorkspaceRoots(cfg *contract.Config) func() []string {

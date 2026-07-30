@@ -41,15 +41,17 @@ type bootSnapshot struct {
 // ReadBootConfig 从控制平面环境变量读取启动配置，并兼容旧环境变量名。
 func ReadBootConfig() Config {
 	return Config{
-		RPCAddr:      firstEnv("GO_AGENT_CTL_RPC_ADDR", "RPC_ADDR"),
-		InstanceID:   firstEnv("GO_AGENT_CTL_INSTANCE_ID", "GO_AGENT_MCP_INSTANCE_ID"),
-		BootID:       firstEnv("GO_AGENT_CTL_BOOT_ID", "GO_AGENT_MCP_BOOT_ID"),
-		BinaryName:   firstEnv("GO_AGENT_CTL_BINARY_NAME", "GO_AGENT_MCP_BINARY_NAME"),
-		ClientKind:   firstEnv("GO_AGENT_CTL_CLIENT_KIND", "GO_AGENT_MCP_CLIENT_KIND"),
-		AgentID:      firstEnv("GO_AGENT_CTL_AGENT_ID", "GO_AGENT_MCP_AGENT_ID"),
-		ThreadID:     firstEnv("GO_AGENT_CTL_THREAD_ID", "GO_AGENT_MCP_THREAD_ID"),
-		SessionToken: firstEnv("GO_AGENT_CTL_SESSION_TOKEN", "GO_AGENT_MCP_SESSION_TOKEN"),
-		BootSnapshot: readEnvJSON("GO_AGENT_CTL_BOOTSTRAP_JSON", "GO_AGENT_MCP_BOOT_CONTEXT"),
+		RPCAddr:                firstEnv("GO_AGENT_CTL_RPC_ADDR", "RPC_ADDR"),
+		InstanceID:             firstEnv("GO_AGENT_CTL_INSTANCE_ID", "GO_AGENT_MCP_INSTANCE_ID"),
+		BootID:                 firstEnv("GO_AGENT_CTL_BOOT_ID", "GO_AGENT_MCP_BOOT_ID"),
+		BinaryName:             firstEnv("GO_AGENT_CTL_BINARY_NAME", "GO_AGENT_MCP_BINARY_NAME"),
+		ClientKind:             firstEnv("GO_AGENT_CTL_CLIENT_KIND", "GO_AGENT_MCP_CLIENT_KIND"),
+		AgentID:                firstEnv("GO_AGENT_CTL_AGENT_ID", "GO_AGENT_MCP_AGENT_ID"),
+		ThreadID:               firstEnv("GO_AGENT_CTL_THREAD_ID", "GO_AGENT_MCP_THREAD_ID"),
+		SessionToken:           firstEnv("GO_AGENT_CTL_SESSION_TOKEN", "GO_AGENT_MCP_SESSION_TOKEN"),
+		ManagedToken:           strings.TrimSpace(os.Getenv("GO_AGENT_CTL_MANAGED_TOKEN")),
+		ManagedProtocolVersion: strings.TrimSpace(os.Getenv("GO_AGENT_CTL_MANAGED_PROTOCOL_VERSION")),
+		BootSnapshot:           readEnvJSON("GO_AGENT_CTL_BOOTSTRAP_JSON", "GO_AGENT_MCP_BOOT_CONTEXT"),
 	}
 }
 
@@ -72,6 +74,15 @@ func normalizeConfig(cfg Config) (Config, bootSnapshot, error) {
 	cfg.AgentID = strings.TrimSpace(cfg.AgentID)
 	cfg.ThreadID = shared.FirstNonEmpty(strings.TrimSpace(cfg.ThreadID), strings.TrimSpace(boot.ThreadID))
 	cfg.SessionToken = strings.TrimSpace(cfg.SessionToken)
+	cfg.ManagedToken = strings.TrimSpace(cfg.ManagedToken)
+	cfg.ManagedProtocolVersion = strings.TrimSpace(cfg.ManagedProtocolVersion)
+	if (cfg.ManagedToken == "") != (cfg.ManagedProtocolVersion == "") {
+		return Config{}, bootSnapshot{}, errors.New("bootstrap: managed authority token and protocol version must be provided together")
+	}
+	if cfg.ManagedToken != "" && (cfg.ManagedProtocolVersion != mcp.ManagedAuthorityProtocolVersion ||
+		cfg.BinaryName != "mcp-orch" || cfg.ClientKind != mcp.ClientKindOrch) {
+		return Config{}, bootSnapshot{}, errors.New("bootstrap: managed authority requires exact mcp-orch identity and protocol version")
+	}
 	cfg.Capabilities = shared.CloneStrings(cfg.Capabilities)
 	cfg.CapabilitiesOffered = shared.CloneStrings(cfg.CapabilitiesOffered)
 	cfg.CapabilitiesRequired = shared.CloneStrings(cfg.CapabilitiesRequired)
@@ -203,7 +214,22 @@ func normalizeRegisterResponse(resp *mcp.RegisterResponse, instanceID string) (*
 	if err := validateProtocolVersion(out.ServerProtocolVersion); err != nil {
 		return nil, err
 	}
+	if err := validateManagedAuthorityReceipt(out.ManagedAuthority); err != nil {
+		return nil, err
+	}
 	return &out, nil
+}
+
+func validateManagedAuthorityReceipt(receipt *mcp.ManagedAuthorityReceipt) error {
+	if receipt == nil {
+		return nil
+	}
+	if receipt.ProtocolVersion != mcp.ManagedAuthorityProtocolVersion ||
+		strings.TrimSpace(receipt.RequestID) == "" ||
+		strings.TrimSpace(receipt.NextToken) == "" {
+		return errors.New("bootstrap: invalid managed authority register receipt")
+	}
+	return nil
 }
 
 // validateProtocolVersion 校验服务端协议版本是否与客户端期望版本匹配。

@@ -357,7 +357,7 @@ func TestPeerProcessEnvRejectsExplicitInvalidMcpLSPRoots(t *testing.T) {
 
 func TestProvideDefaultPeerSupervisorWiresProjectRootIntoMcpLSPLauncher(t *testing.T) {
 	root := t.TempDir()
-	runner := provideDefaultPeerSupervisor(nil, nil, &contract.Config{ProjectRoot: root})
+	runner := provideDefaultPeerSupervisor(nil, nil, &contract.Config{ProjectRoot: root}, nil)
 	supervisor, ok := runner.(*PeerSupervisor)
 	if !ok {
 		t.Fatalf("runner type = %T, want *PeerSupervisor", runner)
@@ -381,7 +381,7 @@ func TestProvideDefaultPeerSupervisorWiresProjectRootIntoMcpLSPLauncher(t *testi
 }
 
 func TestProvideDefaultPeerSupervisorRejectsMissingProjectRootForMcpLSP(t *testing.T) {
-	runner := provideDefaultPeerSupervisor(nil, nil, &contract.Config{ProjectRoot: "relative"})
+	runner := provideDefaultPeerSupervisor(nil, nil, &contract.Config{ProjectRoot: "relative"}, nil)
 	supervisor := runner.(*PeerSupervisor)
 	launcher := supervisor.launcher.(*execPeerLauncher)
 	_, err := launcher.peerEnvForTest("mcp-lsp", testPeerParentEnv())

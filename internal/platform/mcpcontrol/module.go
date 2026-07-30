@@ -2,6 +2,10 @@ package mcpcontrol
 
 import (
 	"context"
+	"database/sql"
+	"errors"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/kelindar/event"
@@ -14,8 +18,21 @@ import (
 const activeLeaseCleanupTimeout = 5 * time.Second
 
 // provideRegistry 创建 MCP 控制面注册表，供 fx 以单例形式注入。
-func provideRegistry() *ToolRegistry {
-	return NewRegistry()
+func provideRegistry(cfg *contract.Config, database *sql.DB) (*ToolRegistry, error) {
+	if cfg == nil || strings.TrimSpace(cfg.SQLitePath) == "" {
+		return nil, errors.New("mcpcontrol requires configured SQLite path for durable generation owner")
+	}
+	store, err := NewSQLiteGenerationStore(
+		database,
+		filepath.Join(filepath.Dir(cfg.SQLitePath), "mcpcontrol-generation-owner"),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return NewToolRegistry(RegistryOptions{
+		GenerationStore:    store,
+		StrictManagedKinds: []string{"orch"},
+	}), nil
 }
 
 // Module 装配 ctl/* 控制面注册表、handler、sweeper 和配置广播 worker。
@@ -29,6 +46,7 @@ var Module = fx.Module("mcpcontrol",
 		provideToolHookCallback,
 		providePeerCallback,
 		provideToolControlPlane,
+		provideManagedAuthorityIssuer,
 		NewSweeper,
 		provideHandlers,
 		newConfigFanoutWorkerProvider,
@@ -112,6 +130,10 @@ func provideConfigVersionSource(registry *ToolRegistry) configVersionSource {
 
 // provideToolRegistry 将内部注册表暴露为 contract.ToolRegistry。
 func provideToolRegistry(registry *ToolRegistry) contract.ToolRegistry {
+	return registry
+}
+
+func provideManagedAuthorityIssuer(registry *ToolRegistry) contract.ManagedAuthorityIssuer {
 	return registry
 }
 
