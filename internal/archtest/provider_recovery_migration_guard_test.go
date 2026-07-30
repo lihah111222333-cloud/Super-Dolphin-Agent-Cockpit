@@ -240,6 +240,21 @@ func executeMigrationBody(ctx any, tx any, name, body string) error {
 `,
 	},
 	{
+		name: "valid branch plus block local wrong function value",
+		source: `package sqlite
+func executeMigrationBody(ctx any, tx any, name, body string) error {
+	{
+		migrateAgentProviderBindingRecoveryOwner := migrateSystemLogsTraceSpan
+		_ = migrateAgentProviderBindingRecoveryOwner(ctx, tx)
+	}
+	if name == "123_agent_provider_binding_recovery_owner.sql" {
+		return migrateAgentProviderBindingRecoveryOwner(ctx, tx)
+	}
+	return nil
+}
+`,
+	},
+	{
 		name: "if init shadowed ctx",
 		source: `package sqlite
 func executeMigrationBody(ctx any, tx any, name, body string) error {
@@ -264,6 +279,24 @@ func executeMigrationBody(ctx any, tx any, name, body string) error {
 	var wrong wrongRecoveryOwner
 	if body == "selector-decoy" {
 		return wrong.migrateAgentProviderBindingRecoveryOwner(ctx, tx)
+	}
+	return nil
+}
+`,
+	},
+	{
+		name: "valid branch plus top level selector wrong owner",
+		source: `package sqlite
+func migrateAgentProviderBindingRecoveryOwner(ctx, tx any) error { return nil }
+type wrongTopLevelRecoveryOwner struct{}
+func (wrongTopLevelRecoveryOwner) migrateAgentProviderBindingRecoveryOwner(ctx, tx any) error {
+	return nil
+}
+func executeMigrationBody(ctx any, tx any, name, body string) error {
+	var wrong wrongTopLevelRecoveryOwner
+	_ = wrong.migrateAgentProviderBindingRecoveryOwner(ctx, tx)
+	if name == "123_agent_provider_binding_recovery_owner.sql" {
+		return migrateAgentProviderBindingRecoveryOwner(ctx, tx)
 	}
 	return nil
 }
@@ -302,6 +335,25 @@ func TestProviderRecoveryMigrationVersionFieldGuardRejectsDispatchASTDrift(t *te
 	}
 }
 
+func TestProviderRecoveryDispatchSelectsTopLevelFunctionObject(t *testing.T) {
+	root := writeProviderRecoveryDispatchSource(t, `package sqlite
+type recoveryOwnerMethodDeclaredFirst struct{}
+func (recoveryOwnerMethodDeclaredFirst) migrateAgentProviderBindingRecoveryOwner(ctx, tx any) error {
+	return nil
+}
+func executeMigrationBody(ctx any, tx any, name, body string) error {
+	if name == "123_agent_provider_binding_recovery_owner.sql" {
+		return migrateAgentProviderBindingRecoveryOwner(ctx, tx)
+	}
+	return nil
+}
+`)
+	names := providerRecoveryDispatchNames(t, root)
+	if len(names) != 1 || names[0] != "123_agent_provider_binding_recovery_owner.sql" {
+		t.Fatalf("provider recovery dispatch names = %v, want canonical top-level dispatch", names)
+	}
+}
+
 func writeProviderRecoveryDispatchSource(t *testing.T, source string) string {
 	t.Helper()
 	root := t.TempDir()
@@ -312,10 +364,11 @@ func writeProviderRecoveryDispatchSource(t *testing.T, source string) string {
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module synthetic\n\ngo 1.25.7\n"), 0o600); err != nil {
 		t.Fatalf("write synthetic go.mod: %v", err)
 	}
-	body := source + `
-func migrateAgentProviderBindingRecoveryOwner(ctx, tx any) error { return nil }
-func migrateSystemLogsTraceSpan(ctx, tx any) error { return nil }
-`
+	body := source
+	if !strings.Contains(source, "func migrateAgentProviderBindingRecoveryOwner(") {
+		body += "\nfunc migrateAgentProviderBindingRecoveryOwner(ctx, tx any) error { return nil }\n"
+	}
+	body += "\nfunc migrateSystemLogsTraceSpan(ctx, tx any) error { return nil }\n"
 	if err := os.WriteFile(filepath.Join(dir, "migrate.go"), []byte(body), 0o600); err != nil {
 		t.Fatalf("write synthetic migrate.go: %v", err)
 	}
@@ -396,9 +449,11 @@ func providerRecoveryDispatchNames(t *testing.T, root string) []string {
 		txObject:     findFunctionParameterObject(t, executeMigrationBody, loaded.info, "tx"),
 		calleeObject: findNamedFunctionObject(t, loaded.file, loaded.info, "migrateAgentProviderBindingRecoveryOwner"),
 		handled:      make(map[*ast.Ident]struct{}),
+		handledCalls: make(map[*ast.CallExpr]struct{}),
 	}
 	ast.Inspect(executeMigrationBody.Body, scanner.inspect)
 	scanner.rejectUnhandledNameUses(executeMigrationBody.Body)
+	scanner.rejectUnexpectedProviderRecoveryCalls(executeMigrationBody.Body)
 	return scanner.names
 }
 
@@ -481,11 +536,19 @@ func findNamedFunctionObject(
 	name string,
 ) types.Object {
 	t.Helper()
+	var object types.Object
 	for _, declaration := range file.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
-		if ok && function.Name.Name == name && info.Defs[function.Name] != nil {
-			return info.Defs[function.Name]
+		if !ok || function.Recv != nil || function.Name.Name != name || info.Defs[function.Name] == nil {
+			continue
 		}
+		if object != nil {
+			t.Fatalf("migrate.go contains duplicate top-level %s declarations", name)
+		}
+		object = info.Defs[function.Name]
+	}
+	if object != nil {
+		return object
 	}
 	t.Fatalf("migrate.go does not define %s", name)
 	return nil
@@ -498,6 +561,7 @@ type providerRecoveryDispatchScanner struct {
 	txObject     types.Object
 	calleeObject types.Object
 	handled      map[*ast.Ident]struct{}
+	handledCalls map[*ast.CallExpr]struct{}
 	names        []string
 }
 
@@ -528,16 +592,14 @@ func (scanner *providerRecoveryDispatchScanner) inspectIf(branch *ast.IfStmt) {
 	if !strings.HasSuffix(name, "_agent_provider_binding_recovery_owner.sql") {
 		return
 	}
-	if !isProviderRecoveryDispatchReturn(
-		branch.Body,
-		scanner.info,
-		scanner.calleeObject,
-		scanner.ctxObject,
-		scanner.txObject,
+	call := providerRecoveryDispatchReturnCall(branch.Body)
+	if call == nil || !isProviderRecoveryDispatchCall(
+		call, scanner.info, scanner.calleeObject, scanner.ctxObject, scanner.txObject,
 	) {
 		scanner.names = append(scanner.names, "invalid-return:"+name)
 		return
 	}
+	scanner.handledCalls[call] = struct{}{}
 	scanner.names = append(scanner.names, name)
 }
 
@@ -571,6 +633,20 @@ func (scanner *providerRecoveryDispatchScanner) rejectUnhandledNameUses(body *as
 		}
 		scanner.names = append(scanner.names, "invalid-name-dispatch")
 		rejected = true
+		return true
+	})
+}
+
+func (scanner *providerRecoveryDispatchScanner) rejectUnexpectedProviderRecoveryCalls(body *ast.BlockStmt) {
+	ast.Inspect(body, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok || providerRecoveryCalleeName(call.Fun) != "migrateAgentProviderBindingRecoveryOwner" {
+			return true
+		}
+		if _, ok := scanner.handledCalls[call]; ok {
+			return true
+		}
+		scanner.names = append(scanner.names, "invalid-provider-recovery-call")
 		return true
 	})
 }
@@ -656,22 +732,19 @@ func constantStringValue(expression ast.Expr, info *types.Info) (string, bool) {
 	return constant.StringVal(typed.Value), true
 }
 
-func isProviderRecoveryDispatchReturn(
-	body *ast.BlockStmt,
-	info *types.Info,
-	calleeObject types.Object,
-	ctxObject types.Object,
-	txObject types.Object,
-) bool {
+func providerRecoveryDispatchReturnCall(body *ast.BlockStmt) *ast.CallExpr {
 	if body == nil || len(body.List) != 1 {
-		return false
+		return nil
 	}
 	returnStatement, ok := body.List[0].(*ast.ReturnStmt)
 	if !ok || len(returnStatement.Results) != 1 {
-		return false
+		return nil
 	}
 	call, ok := returnStatement.Results[0].(*ast.CallExpr)
-	return ok && isProviderRecoveryDispatchCall(call, info, calleeObject, ctxObject, txObject)
+	if !ok {
+		return nil
+	}
+	return call
 }
 
 func isProviderRecoveryDispatchCall(
