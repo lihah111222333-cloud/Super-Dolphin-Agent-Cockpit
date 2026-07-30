@@ -20,7 +20,7 @@ cmd/super-dolphin-gate/coordinator_bootstrap_docker_test.go	cmd	other	go-test	21
 cmd/super-dolphin-gate/coordinator_bootstrap_execution.go	cmd	other	go-source	31672	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,bootstrap,execution,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_bootstrap_root.go	cmd	other	go-source	22101	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,bootstrap,root,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_bootstrap_runner.go	cmd	other	go-source	6989	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,bootstrap,runner,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/coordinator_bootstrap_test.go	cmd	other	go-test	30479	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,bootstrap,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/coordinator_bootstrap_test.go	cmd	other	go-test	30883	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,bootstrap,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_bootstrap.go	cmd	other	go-source	17130	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,bootstrap,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_cli_wait_test.go	cmd	other	go-test	5032	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,cli,wait,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_cli.go	cmd	other	go-source	32088	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,cli,未细分职责：请结合路径,文件名和相邻代码判断
@@ -640,7 +640,7 @@ internal/dto/thread/prompt_history.go	internal	other	go-source	603	provider/shar
 internal/dto/tool/event.go	internal	other	go-source	2987	provider/shared DTO 与事件协议	internal,dto,tool,event,provider,shared,DTO,与事件协议
 internal/dto/turn/contract_field_guard_clone_test.go	internal	other	go-test	12604	provider/shared DTO 与事件协议	internal,dto,turn,contract,field,guard,clone,test,provider,shared,DTO,与事件协议
 internal/dto/turn/contract_field_guard_discovery_test.go	internal	other	go-test	7890	provider/shared DTO 与事件协议	internal,dto,turn,contract,field,guard,discovery,test,provider,shared,DTO,与事件协议
-internal/dto/turn/contract_field_guard_failures_test.go	internal	other	go-test	7703	provider/shared DTO 与事件协议	internal,dto,turn,contract,field,guard,failures,test,provider,shared,DTO,与事件协议
+internal/dto/turn/contract_field_guard_failures_test.go	internal	other	go-test	8442	provider/shared DTO 与事件协议	internal,dto,turn,contract,field,guard,failures,test,provider,shared,DTO,与事件协议
 internal/dto/turn/contract_field_guard_test.go	internal	other	go-test	24936	provider/shared DTO 与事件协议	internal,dto,turn,contract,field,guard,test,provider,shared,DTO,与事件协议
 internal/dto/turn/contract_generate.go	internal	other	go-source	159	provider/shared DTO 与事件协议	internal,dto,turn,contract,generate,provider,shared,DTO,与事件协议
 internal/dto/turn/contract_validator_test.go	internal	other	go-test	5172	provider/shared DTO 与事件协议	internal,dto,turn,contract,validator,test,provider,shared,DTO,与事件协议
@@ -648,7 +648,7 @@ internal/dto/turn/contract_validator.go	internal	other	go-source	10318	provider/
 internal/dto/turn/event.go	internal	other	go-source	3228	provider/shared DTO 与事件协议	internal,dto,turn,event,provider,shared,DTO,与事件协议
 internal/dto/turn/model.go	internal	other	go-source	883	provider/shared DTO 与事件协议	internal,dto,turn,model,provider,shared,DTO,与事件协议
 internal/dto/turn/progress.go	internal	other	go-source	2537	provider/shared DTO 与事件协议	internal,dto,turn,progress,provider,shared,DTO,与事件协议
-internal/dto/turn/schema/field_consumers.json	internal	other	json	13706	provider/shared DTO 与事件协议	internal,dto,turn,schema,field,consumers,provider,shared,DTO,与事件协议
+internal/dto/turn/schema/field_consumers.json	internal	other	json	14706	provider/shared DTO 与事件协议	internal,dto,turn,schema,field,consumers,provider,shared,DTO,与事件协议
 internal/dto/turn/schema/public_error.v1.json	internal	other	json	796	provider/shared DTO 与事件协议	internal,dto,turn,schema,public,error,v1,provider,shared,DTO,与事件协议
 internal/dto/turn/schema/turn_ref.v1.json	internal	other	json	329	provider/shared DTO 与事件协议	internal,dto,turn,schema,ref,v1,provider,shared,DTO,与事件协议
 internal/dto/turn/schema/turn_terminal.v2.json	internal	other	json	2523	provider/shared DTO 与事件协议	internal,dto,turn,schema,terminal,v2,provider,shared,DTO,与事件协议

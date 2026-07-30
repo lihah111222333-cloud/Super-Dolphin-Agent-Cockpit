@@ -325,8 +325,8 @@ internal/module/prompt/dynamic_cache_deps.go	internal	modules	go-source	13882	pr
 internal/module/prompt/dynamic_test.go	internal	modules	go-test	9564	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,dynamic,test,模板,启用条件,system,组装
 internal/module/prompt/dynamic.go	internal	modules	go-source	23158	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,dynamic,模板,启用条件,system,组装
 internal/module/prompt/e2e_context_test.go	internal	modules	go-test	1757	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,e2e,context,test,模板,启用条件,system,组装
-internal/module/prompt/e2e_test_support_test.go	internal	modules	go-test	9241	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,e2e,test,support,模板,启用条件,system,组装
-internal/module/prompt/e2e_test.go	internal	modules	go-test	18916	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,e2e,test,模板,启用条件,system,组装
+internal/module/prompt/e2e_test_support_test.go	internal	modules	go-test	9324	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,e2e,test,support,模板,启用条件,system,组装
+internal/module/prompt/e2e_test.go	internal	modules	go-test	19272	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,e2e,test,模板,启用条件,system,组装
 internal/module/prompt/enable_when_test.go	internal	modules	go-test	13985	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,enable,when,test,模板,启用条件,system,组装
 internal/module/prompt/enable_when.go	internal	modules	go-source	9651	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,enable,when,模板,启用条件,system,组装
 internal/module/prompt/env_provider_test.go	internal	modules	go-test	2043	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,env,provider,test,模板,启用条件,system,组装
@@ -746,7 +746,7 @@ internal/module/uistate/timeline/projector_parity_test.go	internal	modules	go-te
 internal/module/uistate/timeline/projector_parity.go	internal	modules	go-source	21915	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,projector,parity,UI,事件投影,sidebar,状态
 internal/module/uistate/timeline/projector.go	internal	modules	go-source	13576	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,projector,UI,事件投影,sidebar,状态
 internal/module/uistate/timeline/timeline_guard_shard06_test.go	internal	modules	go-test	16837	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,guard,shard06,test,UI,事件投影,sidebar,状态
-internal/module/uistate/timeline/timeline_test.go	internal	modules	go-test	11453	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,test,UI,事件投影,sidebar,状态
+internal/module/uistate/timeline/timeline_test.go	internal	modules	go-test	11490	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,test,UI,事件投影,sidebar,状态
 internal/module/uistate/timeline/timeline.go	internal	modules	go-source	9514	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,UI,事件投影,sidebar,状态
 internal/module/uistate/tracing_test.go	internal	modules	go-test	5722	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,tracing,test,UI,事件投影,sidebar,timeline,状态
 internal/module/workflowtemplate/module.go	internal	modules	go-source	3127	业务模块层	internal,module,workflowtemplate,业务模块层

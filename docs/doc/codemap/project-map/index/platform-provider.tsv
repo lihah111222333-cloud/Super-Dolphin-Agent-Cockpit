@@ -357,8 +357,8 @@ internal/platform/db/errors_test.go	internal	platform-provider	go-test	6083	基�
 internal/platform/db/errors.go	internal	platform-provider	go-source	3146	基础设施层	internal,platform,db,errors,基础设施层
 internal/platform/db/migration_split_test.go	internal	platform-provider	go-test	2823	基础设施层	internal,platform,db,migration,split,test,基础设施层
 internal/platform/db/module_config_test.go	internal	platform-provider	go-test	12467	基础设施层	internal,platform,db,module,config,test,基础设施层
-internal/platform/db/module.go	internal	platform-provider	go-source	8924	基础设施层	internal,platform,db,module,基础设施层
-internal/platform/db/schema_version_test.go	internal	platform-provider	go-test	4336	基础设施层	internal,platform,db,schema,version,test,基础设施层
+internal/platform/db/module.go	internal	platform-provider	go-source	10682	基础设施层	internal,platform,db,module,基础设施层
+internal/platform/db/schema_version_test.go	internal	platform-provider	go-test	8153	基础设施层	internal,platform,db,schema,version,test,基础设施层
 internal/platform/db/sqlite_helpers.go	internal	platform-provider	go-source	2502	基础设施层	internal,platform,db,sqlite,helpers,基础设施层
 internal/platform/db/sqlite_runtime_test.go	internal	platform-provider	go-test	1143	基础设施层	internal,platform,db,sqlite,runtime,test,基础设施层
 internal/platform/db/sqlite/backup_restore_smoke_test.go	internal	platform-provider	go-test	4149	基础设施层	internal,platform,db,sqlite,backup,restore,smoke,test,基础设施层
@@ -419,7 +419,7 @@ internal/platform/eventsurface/methods.go	internal	platform-provider	go-source	2
 internal/platform/eventsurface/remote_decode.go	internal	platform-provider	go-source	5505	基础设施层	internal,platform,eventsurface,remote,decode,基础设施层
 internal/platform/eventsurface/task_contract_test.go	internal	platform-provider	go-test	2446	基础设施层	internal,platform,eventsurface,task,contract,test,基础设施层
 internal/platform/eventsurface/terminal_order_test.go	internal	platform-provider	go-test	4015	基础设施层	internal,platform,eventsurface,terminal,order,test,基础设施层
-internal/platform/eventsurface/wire_dto_mapper_contract_test.go	internal	platform-provider	go-test	2515	基础设施层	internal,platform,eventsurface,wire,dto,mapper,contract,test,基础设施层
+internal/platform/eventsurface/wire_dto_mapper_contract_test.go	internal	platform-provider	go-test	2769	基础设施层	internal,platform,eventsurface,wire,dto,mapper,contract,test,基础设施层
 internal/platform/hooks/dispatch_worker_test.go	internal	platform-provider	go-test	10901	hook 配置、执行与三阶段拦截	internal,platform,hooks,dispatch,worker,test,hook,配置,执行与三阶段拦截
 internal/platform/hooks/dispatch_worker.go	internal	platform-provider	go-source	7044	hook 配置、执行与三阶段拦截	internal,platform,hooks,dispatch,worker,hook,配置,执行与三阶段拦截
 internal/platform/hooks/dispatcher_test.go	internal	platform-provider	go-test	14441	hook 配置、执行与三阶段拦截	internal,platform,hooks,dispatcher,test,hook,配置,执行与三阶段拦截
@@ -626,7 +626,7 @@ internal/platform/rpc/server_test.go	internal	platform-provider	go-test	4404	JSO
 internal/platform/rpc/server_trace_privacy_test.go	internal	platform-provider	go-test	5333	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,server,trace,privacy,test,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/server.go	internal	platform-provider	go-source	19119	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,server,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/strict.go	internal	platform-provider	go-source	847	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,strict,JSON-RPC,transport,dispatch,push,与审批框架
-internal/platform/rpc/subscribers_test.go	internal	platform-provider	go-test	3388	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,subscribers,test,JSON-RPC,transport,dispatch,push,与审批框架
+internal/platform/rpc/subscribers_test.go	internal	platform-provider	go-test	3428	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,subscribers,test,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/subscribers.go	internal	platform-provider	go-source	1304	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,subscribers,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/testdata/golden/transport/payload_encoder_samples.golden.json	internal	platform-provider	json	318	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,testdata,golden,transport,payload,encoder,samples,JSON-RPC,dispatch,push,与审批框架
 internal/platform/rpc/timer_jitter.go	internal	platform-provider	go-source	393	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,timer,jitter,JSON-RPC,transport,dispatch,push,与审批框架
@@ -882,7 +882,7 @@ internal/provider/claudecli/driver_cwd_test.go	internal	platform-provider	go-tes
 internal/provider/claudecli/driver_mirror_test.go	internal	platform-provider	go-test	24567	Claude CLI provider 集成	internal,provider,claudecli,driver,mirror,test,Claude,CLI,集成
 internal/provider/claudecli/driver_resume_snapshot_test.go	internal	platform-provider	go-test	986	Claude CLI provider 集成	internal,provider,claudecli,driver,resume,snapshot,test,Claude,CLI,集成
 internal/provider/claudecli/driver.go	internal	platform-provider	go-source	24133	Claude CLI provider 集成	internal,provider,claudecli,driver,Claude,CLI,集成
-internal/provider/claudecli/event_map_test.go	internal	platform-provider	go-test	10094	Claude CLI provider 集成	internal,provider,claudecli,event,map,test,Claude,CLI,集成
+internal/provider/claudecli/event_map_test.go	internal	platform-provider	go-test	10345	Claude CLI provider 集成	internal,provider,claudecli,event,map,test,Claude,CLI,集成
 internal/provider/claudecli/event_map.go	internal	platform-provider	go-source	12974	Claude CLI provider 集成	internal,provider,claudecli,event,map,Claude,CLI,集成
 internal/provider/claudecli/factory_tool_result_test.go	internal	platform-provider	go-test	1546	Claude CLI provider 集成	internal,provider,claudecli,factory,tool,result,test,Claude,CLI,集成
 internal/provider/claudecli/factory.go	internal	platform-provider	go-source	10481	Claude CLI provider 集成	internal,provider,claudecli,factory,Claude,CLI,集成
@@ -903,10 +903,10 @@ internal/provider/claudecli/observability_trace.go	internal	platform-provider	go
 internal/provider/claudecli/provider_contract_test.go	internal	platform-provider	go-test	24686	Claude CLI provider 集成	internal,provider,claudecli,contract,test,Claude,CLI,集成
 internal/provider/claudecli/runtime_hooks_test.go	internal	platform-provider	go-test	1451	Claude CLI provider 集成	internal,provider,claudecli,runtime,hooks,test,Claude,CLI,集成
 internal/provider/claudecli/session_config_pending_test.go	internal	platform-provider	go-test	7071	Claude CLI provider 集成	internal,provider,claudecli,session,config,pending,test,Claude,CLI,集成
-internal/provider/claudecli/session_config.go	internal	platform-provider	go-source	7591	Claude CLI provider 集成	internal,provider,claudecli,session,config,Claude,CLI,集成
+internal/provider/claudecli/session_config.go	internal	platform-provider	go-source	7566	Claude CLI provider 集成	internal,provider,claudecli,session,config,Claude,CLI,集成
 internal/provider/claudecli/session_events_test.go	internal	platform-provider	go-test	16332	Claude CLI provider 集成	internal,provider,claudecli,session,events,test,Claude,CLI,集成
 internal/provider/claudecli/session_events.go	internal	platform-provider	go-source	17326	Claude CLI provider 集成	internal,provider,claudecli,session,events,Claude,CLI,集成
-internal/provider/claudecli/session_force_complete_test.go	internal	platform-provider	go-test	6292	Claude CLI provider 集成	internal,provider,claudecli,session,force,complete,test,Claude,CLI,集成
+internal/provider/claudecli/session_force_complete_test.go	internal	platform-provider	go-test	10589	Claude CLI provider 集成	internal,provider,claudecli,session,force,complete,test,Claude,CLI,集成
 internal/provider/claudecli/session_history_strict_test.go	internal	platform-provider	go-test	474	Claude CLI provider 集成	internal,provider,claudecli,session,history,strict,test,Claude,CLI,集成
 internal/provider/claudecli/session_history_test.go	internal	platform-provider	go-test	8132	Claude CLI provider 集成	internal,provider,claudecli,session,history,test,Claude,CLI,集成
 internal/provider/claudecli/session_history.go	internal	platform-provider	go-source	9517	Claude CLI provider 集成	internal,provider,claudecli,session,history,Claude,CLI,集成
@@ -995,7 +995,7 @@ internal/provider/codexapp/event_map_timestamp_terminal_test.go	internal	platfor
 internal/provider/codexapp/event_map.go	internal	platform-provider	go-source	32686	Codex app/server provider 集成	internal,provider,codexapp,event,map,Codex,app,server,集成
 internal/provider/codexapp/factory.go	internal	platform-provider	go-source	22951	Codex app/server provider 集成	internal,provider,codexapp,factory,Codex,app,server,集成
 internal/provider/codexapp/failure_matrix_test.go	internal	platform-provider	go-test	6914	Codex app/server provider 集成	internal,provider,codexapp,failure,matrix,test,Codex,app,server,集成
-internal/provider/codexapp/forcecomplete_approval_race_test.go	internal	platform-provider	go-test	15586	Codex app/server provider 集成	internal,provider,codexapp,forcecomplete,approval,race,test,Codex,app,server,集成
+internal/provider/codexapp/forcecomplete_approval_race_test.go	internal	platform-provider	go-test	19627	Codex app/server provider 集成	internal,provider,codexapp,forcecomplete,approval,race,test,Codex,app,server,集成
 internal/provider/codexapp/history_rollout_path_test.go	internal	platform-provider	go-test	3187	Codex app/server provider 集成	internal,provider,codexapp,history,rollout,path,test,Codex,app,server,集成
 internal/provider/codexapp/history_rollout_test.go	internal	platform-provider	go-test	1720	Codex app/server provider 集成	internal,provider,codexapp,history,rollout,test,Codex,app,server,集成
 internal/provider/codexapp/history_rollout.go	internal	platform-provider	go-source	9107	Codex app/server provider 集成	internal,provider,codexapp,history,rollout,Codex,app,server,集成
@@ -1020,7 +1020,7 @@ internal/provider/codexapp/process_unix.go	internal	platform-provider	go-source	
 internal/provider/codexapp/process_windows_test.go	internal	platform-provider	go-test	640	Codex app/server provider 集成	internal,provider,codexapp,process,windows,test,Codex,app,server,集成
 internal/provider/codexapp/process_windows.go	internal	platform-provider	go-source	8679	Codex app/server provider 集成	internal,provider,codexapp,process,windows,Codex,app,server,集成
 internal/provider/codexapp/protocol/dynamic_tool.go	internal	platform-provider	go-source	340	Codex app/server provider 集成	internal,provider,codexapp,protocol,dynamic,tool,Codex,app,server,集成
-internal/provider/codexapp/provider_contract_test.go	internal	platform-provider	go-test	29338	Codex app/server provider 集成	internal,provider,codexapp,contract,test,Codex,app,server,集成
+internal/provider/codexapp/provider_contract_test.go	internal	platform-provider	go-test	30342	Codex app/server provider 集成	internal,provider,codexapp,contract,test,Codex,app,server,集成
 internal/provider/codexapp/recovery_escalation_test.go	internal	platform-provider	go-test	17961	Codex app/server provider 集成	internal,provider,codexapp,recovery,escalation,test,Codex,app,server,集成
 internal/provider/codexapp/recovery_replay_policy_test.go	internal	platform-provider	go-test	14221	Codex app/server provider 集成	internal,provider,codexapp,recovery,replay,policy,test,Codex,app,server,集成
 internal/provider/codexapp/recovery_toolbridge_test.go	internal	platform-provider	go-test	11603	Codex app/server provider 集成	internal,provider,codexapp,recovery,toolbridge,test,Codex,app,server,集成
@@ -1038,17 +1038,17 @@ internal/provider/codexapp/server_pool.go	internal	platform-provider	go-source	1
 internal/provider/codexapp/session_approval_restore_test.go	internal	platform-provider	go-test	3114	Codex app/server provider 集成	internal,provider,codexapp,session,approval,restore,test,Codex,app,server,集成
 internal/provider/codexapp/session_approval_shard02_test.go	internal	platform-provider	go-test	24510	Codex app/server provider 集成	internal,provider,codexapp,session,approval,shard02,test,Codex,app,server,集成
 internal/provider/codexapp/session_approval_test.go	internal	platform-provider	go-test	15981	Codex app/server provider 集成	internal,provider,codexapp,session,approval,test,Codex,app,server,集成
-internal/provider/codexapp/session_approval.go	internal	platform-provider	go-source	28906	Codex app/server provider 集成	internal,provider,codexapp,session,approval,Codex,app,server,集成
+internal/provider/codexapp/session_approval.go	internal	platform-provider	go-source	28953	Codex app/server provider 集成	internal,provider,codexapp,session,approval,Codex,app,server,集成
 internal/provider/codexapp/session_config_test.go	internal	platform-provider	go-test	1787	Codex app/server provider 集成	internal,provider,codexapp,session,config,test,Codex,app,server,集成
 internal/provider/codexapp/session_dispatch_context_window_test.go	internal	platform-provider	go-test	4664	Codex app/server provider 集成	internal,provider,codexapp,session,dispatch,context,window,test,Codex,app,server,集成
-internal/provider/codexapp/session_dispatch.go	internal	platform-provider	go-source	28741	Codex app/server provider 集成	internal,provider,codexapp,session,dispatch,Codex,app,server,集成
+internal/provider/codexapp/session_dispatch.go	internal	platform-provider	go-source	29354	Codex app/server provider 集成	internal,provider,codexapp,session,dispatch,Codex,app,server,集成
 internal/provider/codexapp/session_enrich_test.go	internal	platform-provider	go-test	11138	Codex app/server provider 集成	internal,provider,codexapp,session,enrich,test,Codex,app,server,集成
 internal/provider/codexapp/session_enrich.go	internal	platform-provider	go-source	16108	Codex app/server provider 集成	internal,provider,codexapp,session,enrich,Codex,app,server,集成
 internal/provider/codexapp/session_history_strict_test.go	internal	platform-provider	go-test	471	Codex app/server provider 集成	internal,provider,codexapp,session,history,strict,test,Codex,app,server,集成
 internal/provider/codexapp/session_history.go	internal	platform-provider	go-source	4210	Codex app/server provider 集成	internal,provider,codexapp,session,history,Codex,app,server,集成
-internal/provider/codexapp/session_interrupt_test.go	internal	platform-provider	go-test	23345	Codex app/server provider 集成	internal,provider,codexapp,session,interrupt,test,Codex,app,server,集成
+internal/provider/codexapp/session_interrupt_test.go	internal	platform-provider	go-test	23380	Codex app/server provider 集成	internal,provider,codexapp,session,interrupt,test,Codex,app,server,集成
 internal/provider/codexapp/session_rollout_events.go	internal	platform-provider	go-source	10670	Codex app/server provider 集成	internal,provider,codexapp,session,rollout,events,Codex,app,server,集成
-internal/provider/codexapp/session_rollout_test.go	internal	platform-provider	go-test	27477	Codex app/server provider 集成	internal,provider,codexapp,session,rollout,test,Codex,app,server,集成
+internal/provider/codexapp/session_rollout_test.go	internal	platform-provider	go-test	28112	Codex app/server provider 集成	internal,provider,codexapp,session,rollout,test,Codex,app,server,集成
 internal/provider/codexapp/session_runtime_test.go	internal	platform-provider	go-test	16135	Codex app/server provider 集成	internal,provider,codexapp,session,runtime,test,Codex,app,server,集成
 internal/provider/codexapp/session_runtime.go	internal	platform-provider	go-source	11919	Codex app/server provider 集成	internal,provider,codexapp,session,runtime,Codex,app,server,集成
 internal/provider/codexapp/session_test.go	internal	platform-provider	go-test	26204	Codex app/server provider 集成	internal,provider,codexapp,session,test,Codex,app,server,集成
@@ -1080,8 +1080,8 @@ internal/provider/codexapp/transport_port_race_test.go	internal	platform-provide
 internal/provider/codexapp/transport_process_env_test.go	internal	platform-provider	go-test	2478	Codex app/server provider 集成	internal,provider,codexapp,transport,process,env,test,Codex,app,server,集成
 internal/provider/codexapp/transport_process.go	internal	platform-provider	go-source	11663	Codex app/server provider 集成	internal,provider,codexapp,transport,process,Codex,app,server,集成
 internal/provider/codexapp/transport.go	internal	platform-provider	go-source	12732	Codex app/server provider 集成	internal,provider,codexapp,transport,Codex,app,server,集成
-internal/provider/codexapp/turn_completed_event_map_test.go	internal	platform-provider	go-test	24489	Codex app/server provider 集成	internal,provider,codexapp,turn,completed,event,map,test,Codex,app,server,集成
-internal/provider/codexapp/turn_latency_observability_test.go	internal	platform-provider	go-test	8259	Codex app/server provider 集成	internal,provider,codexapp,turn,latency,observability,test,Codex,app,server,集成
+internal/provider/codexapp/turn_completed_event_map_test.go	internal	platform-provider	go-test	24828	Codex app/server provider 集成	internal,provider,codexapp,turn,completed,event,map,test,Codex,app,server,集成
+internal/provider/codexapp/turn_latency_observability_test.go	internal	platform-provider	go-test	8413	Codex app/server provider 集成	internal,provider,codexapp,turn,latency,observability,test,Codex,app,server,集成
 internal/provider/codexapp/turn_output_accumulator_test.go	internal	platform-provider	go-test	4045	Codex app/server provider 集成	internal,provider,codexapp,turn,output,accumulator,test,Codex,app,server,集成
 internal/provider/codexapp/turn_output_sniff_test.go	internal	platform-provider	go-test	6819	Codex app/server provider 集成	internal,provider,codexapp,turn,output,sniff,test,Codex,app,server,集成
 internal/provider/contracttest/acceptance_test.go	internal	platform-provider	go-test	3220	AI provider 集成层	internal,provider,contracttest,acceptance,test,AI,集成层

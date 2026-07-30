@@ -102,6 +102,120 @@ func TestSchemaGateRejectsMissingRequiredColumns(t *testing.T) {
 	}
 }
 
+func TestVerifyMinSchemaVersionAcceptsCombinedV123(t *testing.T) {
+	t.Parallel()
+	db := openMigratedSchemaVersionDB(t)
+	columns, err := sqliteTableColumns(context.Background(), db, "agent_provider_binding")
+	if err != nil {
+		t.Fatalf("read agent_provider_binding columns: %v", err)
+	}
+	if _, ok := columns["provider_recovery_home"]; !ok {
+		t.Fatal("agent_provider_binding.provider_recovery_home missing after v123 migrations")
+	}
+	if err := VerifyMinSchemaVersion(context.Background(), db); err != nil {
+		t.Fatalf("VerifyMinSchemaVersion() error = %v, want valid combined v123", err)
+	}
+}
+
+func TestVerifyMinSchemaVersionRejectsMissingTerminalProtocolTables(t *testing.T) {
+	t.Parallel()
+	for _, table := range []string{
+		"terminal_outcome_current_heads",
+		"public_terminal_outcome_history",
+		"terminal_outcome_private_dag_payloads",
+		"terminal_outcome_outbox_v2",
+	} {
+		t.Run(table, func(t *testing.T) {
+			t.Parallel()
+			db := openMigratedSchemaVersionDB(t)
+			execSchemaVersionMutation(t, db, "DROP TABLE "+table)
+			assertSchemaVersionRejected(t, db, table)
+		})
+	}
+}
+
+func TestVerifyMinSchemaVersionRejectsMissingTerminalProtocolColumns(t *testing.T) {
+	t.Parallel()
+	for _, required := range []requiredSQLiteColumn{
+		{table: "terminal_outcome_current_heads", column: "capability"},
+		{table: "terminal_outcome_current_heads", column: "version"},
+		{table: "terminal_outcome_current_heads", column: "terminal_identity"},
+		{table: "public_terminal_outcome_history", column: "head_version"},
+		{table: "public_terminal_outcome_history", column: "public_outcome_json"},
+		{table: "terminal_outcome_private_dag_payloads", column: "payload_json"},
+		{table: "terminal_outcome_outbox_v2", column: "public_payload_json"},
+		{table: "terminal_outcome_outbox_v2", column: "claim_token"},
+	} {
+		t.Run(required.table+"_"+required.column, func(t *testing.T) {
+			t.Parallel()
+			db := openMigratedSchemaVersionDB(t)
+			execSchemaVersionMutation(t, db, fmt.Sprintf(
+				"ALTER TABLE %s RENAME COLUMN %s TO %s_corrupt",
+				required.table,
+				required.column,
+				required.column,
+			))
+			assertSchemaVersionRejected(t, db, required.table+"."+required.column)
+		})
+	}
+}
+
+func TestVerifyMinSchemaVersionRejectsInvalidTerminalProtocolViews(t *testing.T) {
+	t.Parallel()
+	for _, view := range []string{
+		"terminal_outcome_heads",
+		"public_terminal_outcomes",
+		"terminal_outcome_outbox",
+	} {
+		for _, mutation := range []struct {
+			name string
+			sql  string
+		}{
+			{name: "missing", sql: "DROP VIEW " + view},
+			{name: "writable_table", sql: "DROP VIEW " + view + "; CREATE TABLE " + view + " (id INTEGER)"},
+		} {
+			t.Run(view+"_"+mutation.name, func(t *testing.T) {
+				t.Parallel()
+				db := openMigratedSchemaVersionDB(t)
+				execSchemaVersionMutation(t, db, mutation.sql)
+				assertSchemaVersionRejected(t, db, view)
+			})
+		}
+	}
+}
+
+func openMigratedSchemaVersionDB(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open migrated schema version DB: %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = db.Close() })
+	if err := runFixtureMigrations(t, db); err != nil {
+		t.Fatalf("runFixtureMigrations() error = %v", err)
+	}
+	return db
+}
+
+func execSchemaVersionMutation(t *testing.T, db *sql.DB, statement string) {
+	t.Helper()
+	if _, err := db.ExecContext(context.Background(), statement); err != nil {
+		t.Fatalf("mutate migrated schema with %q: %v", statement, err)
+	}
+}
+
+func assertSchemaVersionRejected(t *testing.T, db *sql.DB, want string) {
+	t.Helper()
+	err := VerifyMinSchemaVersion(context.Background(), db)
+	if err == nil {
+		t.Fatalf("VerifyMinSchemaVersion() error = nil, want rejection for %s", want)
+	}
+	if !strings.Contains(err.Error(), want) {
+		t.Fatalf("VerifyMinSchemaVersion() error = %v, want %q", err, want)
+	}
+}
+
 func TestVerifySQLiteRequiredColumnsRejectsQueryerWithoutQueryContext(t *testing.T) {
 	t.Parallel()
 

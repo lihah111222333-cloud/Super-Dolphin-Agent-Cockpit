@@ -38,6 +38,10 @@ var requiredBaselineTables = []string{
 	"agent_provider_binding",
 	"agent_status",
 	"agent_threads",
+	"terminal_outcome_current_heads",
+	"public_terminal_outcome_history",
+	"terminal_outcome_private_dag_payloads",
+	"terminal_outcome_outbox_v2",
 	"audit_events",
 	"bus_exception_logs",
 	"prompts",
@@ -88,6 +92,20 @@ var requiredBaselineColumns = []requiredSQLiteColumn{
 	{table: "hook_pending_reviews", column: "payload"},
 	{table: "shared_files", column: "content_location"},
 	{table: "turn_dedupe_registry", column: "terminal_at"},
+	{table: "terminal_outcome_current_heads", column: "capability"},
+	{table: "terminal_outcome_current_heads", column: "version"},
+	{table: "terminal_outcome_current_heads", column: "terminal_identity"},
+	{table: "public_terminal_outcome_history", column: "head_version"},
+	{table: "public_terminal_outcome_history", column: "public_outcome_json"},
+	{table: "terminal_outcome_private_dag_payloads", column: "payload_json"},
+	{table: "terminal_outcome_outbox_v2", column: "public_payload_json"},
+	{table: "terminal_outcome_outbox_v2", column: "claim_token"},
+}
+
+var requiredTerminalProtocolViews = []string{
+	"terminal_outcome_heads",
+	"public_terminal_outcomes",
+	"terminal_outcome_outbox",
 }
 
 // VerifyMinSchemaVersion 校验 SQLite schema 版本和基线表完整性。
@@ -95,6 +113,7 @@ func VerifyMinSchemaVersion(ctx context.Context, q any) error {
 	return verifyMinSchemaVersion(ctx, q)
 }
 
+// verifyMinSchemaVersion 校验最低迁移版本以及启动所需的表、列和兼容视图。
 func verifyMinSchemaVersion(ctx context.Context, q any) error {
 	var maxVersion int
 	if err := querySchemaVersion(ctx, q, &maxVersion); err != nil {
@@ -109,6 +128,9 @@ func verifyMinSchemaVersion(ctx context.Context, q any) error {
 		return err
 	}
 	if err := verifySQLiteRequiredColumns(ctx, q); err != nil {
+		return err
+	}
+	if err := verifyTerminalProtocolViews(ctx, q); err != nil {
 		return err
 	}
 	return nil
@@ -163,6 +185,27 @@ func missingSQLiteBaselineTables(ctx context.Context, q sqlContextQueryRow) ([]s
 	}
 	sort.Strings(missing)
 	return missing, nil
+}
+
+// verifyTerminalProtocolViews 确保 v121 已把旧协议降为只读 adapter，阻断旧 binary 混写。
+func verifyTerminalProtocolViews(ctx context.Context, q any) error {
+	v, ok := q.(sqlContextQueryRow)
+	if !ok {
+		return fmt.Errorf("unsupported terminal protocol queryer %T", q)
+	}
+	for _, name := range requiredTerminalProtocolViews {
+		var objectType string
+		if err := v.QueryRowContext(ctx,
+			"SELECT type FROM sqlite_master WHERE name = ?",
+			name,
+		).Scan(&objectType); err != nil {
+			return fmt.Errorf("verify terminal outcome protocol v121 object %s: %w", name, err)
+		}
+		if objectType != "view" {
+			return fmt.Errorf("terminal outcome protocol v121 requires read-only view %s, got %s", name, objectType)
+		}
+	}
+	return nil
 }
 
 // verifySQLiteRequiredColumns 用 PRAGMA table_info 校验生产代码依赖的关键列。
