@@ -9,8 +9,8 @@ function runtimePopoverShouldCloseOnInteractOutside(element) {
 
 function RuntimeLogLines({ activeWarning, activeWarningEntry, entries, formatTime, onWarningOpenChange }) {
   return (
-    <div className="log-lines" data-testid="warning-log-panel">
-      {entries.length === 0 ? <p><time>--:--</time> runtime log 等待事件</p> : null}
+    <div className="log-lines" data-testid="warning-log-panel" aria-label="最近活动">
+      {entries.length === 0 ? <p><time>--:--</time> 最近活动 等待事件</p> : null}
       {entries.map((entry) => (
         <RuntimeLogLine
           key={entry.id}
@@ -37,7 +37,9 @@ function RuntimeLogLine({ activeWarning, activeWarningEntry, entry, formatTime, 
         aria-expanded={isOpen}
         aria-haspopup="dialog"
       >
-        <time>{formatTime(runtimeLogTimestamp(entry))}</time> <b>{runtimeLogInlineLabel(entry)}</b>
+        <time>{formatTime(runtimeLogTimestamp(entry))}</time>
+        <span className="runtime-log-kind">{entry.runtimeKind === 'result' ? '结果' : '警告'}</span>
+        <b>{runtimeLogInlineLabel(entry)}</b>
         {Number(entry.occurrenceCount) > 1 ? <span> ×{Number(entry.occurrenceCount)}</span> : null}
       </AriaButton>
       {isOpen ? <RuntimeWarningPopover entry={activeWarningEntry} formatTime={formatTime} hoverState={activeWarning} /> : null}

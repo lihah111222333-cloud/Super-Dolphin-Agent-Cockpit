@@ -13,6 +13,16 @@ const STAT_ICONS = Object.freeze({
   tool: Settings,
 });
 
+const STAT_CAPTIONS = Object.freeze({
+  command: '命令',
+  file: '文件',
+  goRun: 'go',
+  jsonRender: 'JSON',
+  lsp: 'LSP',
+  playwright: 'PW',
+  tool: '工具',
+});
+
 function runtimePopoverShouldCloseOnInteractOutside(element) {
   return !element.closest('.activity-panel-resizer');
 }
@@ -60,6 +70,7 @@ function RuntimeStatItem({ activeStat, detailEntries, item, onOpenChange }) {
         >
           <Icon size={16} aria-hidden="true" />
           <strong>{value}</strong>
+          <span className="runtime-stat-caption" aria-hidden="true">{STAT_CAPTIONS[key] || key}</span>
         </AriaButton>
         {isOpen ? <RuntimeStatTooltip activeStat={activeStat} detailEntries={detailEntries} item={item} /> : null}
       </DialogTrigger>

@@ -33,6 +33,47 @@ describe('MarkdownMessage', () => {
     }));
   });
 
+  it('keeps every streamed chunk inside one semantic Markdown container', () => {
+    const chunks = [
+      '# Streaming title',
+      '\n\n- unordered item',
+      '\n    - nested item',
+      '\n1. ordered item',
+      '\n\n**bold** [link](https://example.test) `inline`',
+      '\n\n> quoted text',
+      '\n\n```js\nconst answer = 42',
+      '\n```',
+    ];
+    let text = '';
+    const { container, rerender } = render(<MessageContent text={text} forceMarkdown />);
+    const markdownContainer = container.querySelector('.message-markdown');
+
+    chunks.forEach((chunk, index) => {
+      text += chunk;
+      rerender(<MessageContent text={text} forceMarkdown />);
+
+      expect(container.querySelector('.message-markdown')).toBe(markdownContainer);
+      expect(container.querySelector('[data-output-kind]')).toBeNull();
+      expect(screen.getByRole('heading', { name: 'Streaming title' })).toBeInTheDocument();
+      if (index >= 1) expect(screen.getByText('unordered item')).toBeInTheDocument();
+      if (index >= 2) expect(screen.getByText('nested item').closest('li')).toBeInTheDocument();
+      if (index >= 3) expect(screen.getByText('ordered item').closest('ol')).toBeInTheDocument();
+      if (index >= 4) {
+        expect(container.querySelector('strong')).toHaveTextContent('bold');
+        expect(screen.getByRole('link', { name: 'link' })).toHaveAttribute('href', 'https://example.test/');
+        expect(container.querySelector('p code')).toHaveTextContent('inline');
+      }
+      if (index >= 5) expect(container.querySelector('blockquote')).toHaveTextContent('quoted text');
+      if (index >= 6) expect(container.querySelector('pre code')).toHaveTextContent('const answer = 42');
+    });
+  });
+
+  it('parses a plain streamed chunk through the shared GFM renderer', () => {
+    render(<MessageContent text="See https://example.test while streaming" forceMarkdown />);
+
+    expect(screen.getByRole('link', { name: 'https://example.test' })).toHaveAttribute('href', 'https://example.test/');
+  });
+
   it('routes local markdown file links to direct open actions', () => {
     const onOpenPath = vi.fn();
 

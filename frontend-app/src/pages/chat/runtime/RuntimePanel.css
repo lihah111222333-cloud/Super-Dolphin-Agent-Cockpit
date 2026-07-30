@@ -65,14 +65,49 @@
   z-index: var(--z-local-raised);
   min-width: 0;
   min-height: var(--runtime-toolbar-height);
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-content: center;
-  gap: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   overflow: hidden;
   border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
   background: var(--surface-2);
   padding: 7px 10px;
+}
+
+.runtime-toolbar__metrics {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-content: center;
+  gap: 6px;
+}
+
+.runtime-view-switch {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 26px;
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  color: var(--text-sec);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 650;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.runtime-view-switch:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.runtime-view-switch:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--info) 70%, transparent);
+  outline-offset: 1px;
 }
 
 .runtime-toolbar .runtime-stat,
@@ -81,7 +116,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: 5px;
   min-height: 26px;
   border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
   border-radius: 999px;
@@ -106,6 +141,79 @@
   border-color: color-mix(in srgb, var(--error) 34%, var(--border));
 }
 
+@container (max-width: 430px) {
+  .runtime-toolbar__metrics {
+    gap: 4px;
+  }
+
+  .runtime-toolbar .runtime-stat,
+  .runtime-toolbar .score {
+    gap: 3px;
+    padding: 0 5px;
+  }
+
+  .runtime-toolbar-stat svg {
+    display: none;
+  }
+
+  .runtime-view-switch {
+    gap: 0;
+    padding: 0 8px;
+    font-size: 0;
+  }
+
+  .runtime-view-switch svg {
+    width: 14px;
+    height: 14px;
+  }
+}
+
+.runtime-toolbar-stat {
+  cursor: pointer;
+}
+
+.runtime-toolbar-stat__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.runtime-toolbar-stat strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.runtime-toolbar-stat__unit {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.runtime-toolbar-stat:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--info) 70%, transparent);
+  outline-offset: 1px;
+}
+
+#overlay-root .runtime-toolbar-tooltip {
+  z-index: var(--z-overlay-popover);
+}
+
+.runtime-toolbar-tooltip-dialog {
+  display: block;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(280px, calc(100vw - 24px));
+  border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: var(--text-sec);
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 10px 12px;
+}
+
 .diff-empty {
   position: relative;
   z-index: var(--z-local-raised);
@@ -118,6 +226,37 @@
   min-width: 0;
   overflow: hidden auto;
   padding: 10px;
+}
+
+.runtime-panel--diff-empty {
+  grid-template-rows:
+    var(--runtime-toolbar-height)
+    auto
+    minmax(0, 1fr);
+}
+
+.runtime-panel--diff-empty .runtime-activity-panel {
+  height: auto;
+  max-height: none;
+}
+
+.diff-empty--compact {
+  margin-bottom: 0;
+  padding: 14px;
+}
+
+.diff-empty__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text-sec);
+}
+
+.diff-empty__hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted);
 }
 
 .diff-view {
@@ -444,6 +583,22 @@
   color: currentColor;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+}
+
+.runtime-stat-caption {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.runtime-log-kind {
+  display: inline-block;
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  border-radius: 999px;
+  margin: 0 4px;
+  padding: 0 6px;
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--text-muted);
 }
 
 button.runtime-stat {

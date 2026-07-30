@@ -58,6 +58,9 @@ func (s *session) dispatch(raw dto.RawProviderEvent) {
 func (s *session) remapEventIdentity(eventType string, payload map[string]any, hostAgentID string) {
 	pid := payloadAgentID(payload)
 	tid := payloadThreadID(payload)
+	if providerThreadIdentityEvent(eventType) && tid != "" && tid != hostAgentID {
+		payload["providerThreadId"] = tid
+	}
 	// agent 与 thread 两套字段都强制改写，避免旧 payload 混用 snake/camel 字段时漏映射。
 	if pid != "" && pid != hostAgentID && s.logger != nil {
 		s.logger.Warn("codexapp: remapped alien agent_id in event",
@@ -71,6 +74,17 @@ func (s *session) remapEventIdentity(eventType string, payload map[string]any, h
 	payload["agent_id"] = hostAgentID
 	payload["threadId"] = hostAgentID
 	payload["thread_id"] = hostAgentID
+}
+
+// providerThreadIdentityEvent 只允许会话启动类事件保留 provider 原生 thread id。
+// 其它事件仍按宿主 agent id 严格重映射，不能借此放宽 alien thread 拒绝边界。
+func providerThreadIdentityEvent(eventType string) bool {
+	switch strings.TrimSpace(eventType) {
+	case "thread/started", "session.configured", "agent:launched":
+		return true
+	default:
+		return false
+	}
 }
 
 // finishTurn 只消费 adapter 已解析的 canonical outcome，禁止重新判定 raw success/status。

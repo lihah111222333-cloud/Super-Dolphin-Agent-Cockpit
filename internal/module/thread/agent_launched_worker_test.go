@@ -225,6 +225,26 @@ func TestAgentLaunchedWorkerCoalescesSameKey(t *testing.T) {
 	}
 }
 
+// TestAgentLaunchedWorkerCoalesceKeepsAuthoritativeProviderThread 验证空 cache-keepalive 快照不会覆盖同 key 的权威 provider thread。
+func TestAgentLaunchedWorkerCoalesceKeepsAuthoritativeProviderThread(t *testing.T) {
+	t.Parallel()
+	w := newAgentLaunchedWorker(&stubAgentLaunchedProcessor{}, pkglogger.Get())
+	authoritative := newAgentLaunchedForWorker("agent-1", "thread-1", "")
+	authoritative.ProviderThreadID = "019fa895-006b-7512-9f07-92e5aa5ee384"
+	emptyKeepalive := newAgentLaunchedForWorker("agent-1", "thread-1", "")
+	w.Enqueue("agent-1", authoritative)
+	w.Enqueue("agent-1", emptyKeepalive)
+	if got := w.pending["agent-1"].ProviderThreadID; got != authoritative.ProviderThreadID {
+		t.Fatalf("coalesced provider thread id = %q, want %q", got, authoritative.ProviderThreadID)
+	}
+	newAuthority := emptyKeepalive
+	newAuthority.ProviderThreadID = "019fa895-006b-7512-9f07-92e5aa5ee385"
+	w.Enqueue("agent-1", newAuthority)
+	if got := w.pending["agent-1"].ProviderThreadID; got != newAuthority.ProviderThreadID {
+		t.Fatalf("latest authoritative provider thread id = %q, want %q", got, newAuthority.ProviderThreadID)
+	}
+}
+
 // TestAgentLaunchedWorkerStopDrainsPending 验证 Stop 退出前会处理待办条目。
 // 这是关闭路径的可见边界，不能让已入队的 agent launched 事件静默丢失。
 func TestAgentLaunchedWorkerStopDrainsPending(t *testing.T) {

@@ -127,6 +127,7 @@ func remoteTurnCompleted(terminal turndto.TurnTerminalV2, timestamp time.Time, o
 		},
 		Success:              terminal.Outcome == "success",
 		Status:               remoteTerminalStatus(terminal.Outcome),
+		Summary:              terminal.PublicSummary,
 		Reason:               terminal.TerminationCause,
 		Error:                errorText,
 		TerminationRequestID: terminal.TerminationRequestID,

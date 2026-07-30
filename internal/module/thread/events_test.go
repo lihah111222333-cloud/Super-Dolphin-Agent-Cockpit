@@ -51,7 +51,7 @@ func TestThreadSubscriptionsUpdateSessionUUIDFromAgentLaunched(t *testing.T) {
 	assertBindingProviderThreadID(t, bindings.Binding(), realUUID)
 }
 
-func TestAgentLaunchedDoesNotPromoteProviderThreadIDWithoutHistoryFile(t *testing.T) {
+func TestAgentLaunchedPromotesAuthoritativeProviderThreadIDBeforeHistoryFileExists(t *testing.T) {
 	t.Parallel()
 
 	const realUUID = "019d5f6b-fb3c-7760-9d6f-54005553f5b3"
@@ -72,12 +72,27 @@ func TestAgentLaunchedDoesNotPromoteProviderThreadIDWithoutHistoryFile(t *testin
 	if len(bindings.SessionUpdates()) != 1 {
 		t.Fatalf("session updates = %d, want 1", len(bindings.SessionUpdates()))
 	}
-	if providerUpdates := bindings.ProviderThreadUpdates(); len(providerUpdates) != 0 {
-		t.Fatalf("provider thread updates = %#v, want none without history file", providerUpdates)
+	assertProviderThreadUpdate(t, bindings.ProviderThreadUpdates(), "agent-1", realUUID)
+	assertBindingProviderThreadID(t, bindings.Binding(), realUUID)
+}
+
+func TestAgentLaunchedKeepsSessionAndProviderThreadIdentitiesDistinct(t *testing.T) {
+	t.Parallel()
+
+	const sessionUUID = "019d5f6b-fb3c-7760-9d6f-54005553f5b3"
+	const providerThreadID = "019fa810-3386-7b20-a93a-eb5c04fa8b19"
+	bindings := &eventBindingStore{binding: &BindingRecord{AgentID: "agent-parent", Provider: "codex"}}
+	svc := NewService(silentLogger(), nil, bindings, nil, nil, nil, nil, nil).(*service)
+	ev := newAgentLaunchedEvent("agent-parent", "agent-parent", sessionUUID)
+	ev.ProviderThreadID = providerThreadID
+
+	if err := svc.processAgentLaunched(ev); err != nil {
+		t.Fatalf("processAgentLaunched: %v", err)
 	}
-	if gotBinding := bindings.Binding(); gotBinding == nil || gotBinding.ProviderThreadID != "agent-1" {
-		t.Fatalf("binding.ProviderThreadID = %q, want placeholder retained", bindingProviderThreadID(gotBinding))
-	}
+
+	assertSessionUUIDUpdate(t, bindings.SessionUpdates(), "agent-parent", sessionUUID)
+	assertProviderThreadUpdate(t, bindings.ProviderThreadUpdates(), "agent-parent", providerThreadID)
+	assertBindingProviderThreadID(t, bindings.Binding(), providerThreadID)
 }
 
 func TestProcessAgentLaunchedReturnsBindingStoreError(t *testing.T) {
@@ -250,6 +265,7 @@ func newAgentLaunchedEvent(agentID, threadID, sessionID string) agentdto.AgentLa
 			},
 			SessionID: sessionID,
 		},
+		ProviderThreadID: sessionID,
 	}
 }
 
@@ -397,11 +413,4 @@ func (s *eventBindingStore) Binding() *BindingRecord {
 	}
 	binding := *s.binding
 	return &binding
-}
-
-func bindingProviderThreadID(binding *BindingRecord) string {
-	if binding == nil {
-		return ""
-	}
-	return binding.ProviderThreadID
 }

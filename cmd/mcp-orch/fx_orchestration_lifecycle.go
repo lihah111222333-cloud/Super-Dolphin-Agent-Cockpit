@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration"
+	platformrunner "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runner"
 	"go.uber.org/fx"
 )
 
@@ -12,6 +13,11 @@ func orchestrationLifecycleOptions() fx.Option {
 			orchestration.ProvideServiceResult,
 			orchestration.ProvideHookAfterHandler,
 			orchestration.ProvideRPCFacade,
+			fx.Annotate(
+				orchestration.NewTerminalOutcomeProjector,
+				fx.As(new(platformrunner.Runner)),
+				fx.ResultTags(`group:"runners"`),
+			),
 		),
 		fx.Invoke(orchestration.RegisterTurnLifecycle),
 		fx.Invoke(orchestration.RegisterApprovalLifecycle),

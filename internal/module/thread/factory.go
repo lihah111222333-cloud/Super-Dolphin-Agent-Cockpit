@@ -9,6 +9,7 @@ import (
 
 	"github.com/kelindar/event"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
 	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 	threaddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/thread"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/bus"
@@ -403,6 +404,7 @@ func newThreadEvent(kind threadEventKind, threadID string, fields threadEventFie
 			Model:            strings.TrimSpace(state.Model),
 			Name:             strings.TrimSpace(state.Name),
 			PendingLaunch:    state.PendingLaunch,
+			Board:            newThreadStartedBoard(threadID, state, header.Timestamp),
 		}
 	case threadEventLaunchedKind:
 		state := fields.State
@@ -445,6 +447,23 @@ func newThreadEvent(kind threadEventKind, threadID string, fields threadEventFie
 		}
 	default:
 		return nil
+	}
+}
+
+// newThreadStartedBoard 把 thread/start 已持久化的权威状态投影为首个 Agent 看板快照。
+func newThreadStartedBoard(threadID string, state threadState, updatedAt time.Time) *agentdto.BoardView {
+	status := agentdto.StateIdle
+	if state.PendingLaunch {
+		status = agentdto.StateProvisioning
+	}
+	createdAt := contract.NormalizeUnixTime(state.CreatedAt)
+	return &agentdto.BoardView{
+		ID: strings.TrimSpace(state.AgentID), ThreadID: strings.TrimSpace(threadID),
+		ParentAgentID: strings.TrimSpace(state.ParentAgentID), Name: strings.TrimSpace(state.Name),
+		Assignment: &agentdto.Assignment{
+			Title: strings.TrimSpace(state.Name), Description: strings.TrimSpace(state.Prompt), AssignedAt: createdAt,
+		},
+		Progress: agentdto.Progress{Status: string(status), UpdatedAt: updatedAt},
 	}
 }
 

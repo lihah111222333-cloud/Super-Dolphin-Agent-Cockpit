@@ -64,13 +64,16 @@ var (
 )
 
 type service struct {
-	logger    *slog.Logger
-	eventBus  *event.Dispatcher
-	registry  *agentRegistry
-	lifecycle *lifecycleController
-	dags      *dagController
-	turns     *turnController
-	reports   *reportController
+	logger             *slog.Logger
+	eventBus           *event.Dispatcher
+	registry           *agentRegistry
+	lifecycle          *lifecycleController
+	dags               *dagController
+	turns              *turnController
+	reports            *reportController
+	terminalOutcomes   contract.TerminalOutcomeCommitPort
+	terminalHeadReader contract.TerminalOutcomeHeadReadPort
+	terminalDAG        *DAGSubscriberDeps
 }
 
 // lifecycleController owns agent launch/stop/process-exit state and service-scoped async bookkeeping.
@@ -146,14 +149,15 @@ type turnStopPort interface {
 }
 
 type turnControllerDeps struct {
-	registry     *agentRegistry
-	launcher     AgentLauncher
-	turnStarter  contract.OrchestrationTurnStarter
-	state        turnStatePort
-	terminalSink turnTerminalSink
-	rehydrator   turnRuntimeRehydrator
-	stopper      turnStopPort
-	logger       *slog.Logger
+	registry         *agentRegistry
+	launcher         AgentLauncher
+	turnStarter      contract.OrchestrationTurnStarter
+	state            turnStatePort
+	terminalOutcomes contract.TerminalOutcomeCommitPort
+	terminalSink     turnTerminalSink
+	rehydrator       turnRuntimeRehydrator
+	stopper          turnStopPort
+	logger           *slog.Logger
 }
 
 // turnController owns turn submission and active-turn state transitions.
@@ -162,6 +166,7 @@ type turnController struct {
 	launcher                        AgentLauncher
 	turnStarter                     contract.OrchestrationTurnStarter
 	state                           turnStatePort
+	terminalOutcomes                contract.TerminalOutcomeCommitPort
 	terminalSink                    turnTerminalSink
 	rehydrator                      turnRuntimeRehydrator
 	stopper                         turnStopPort
@@ -180,14 +185,15 @@ type turnController struct {
 
 func newTurnController(deps turnControllerDeps) *turnController {
 	return &turnController{
-		registry:     deps.registry,
-		launcher:     deps.launcher,
-		turnStarter:  deps.turnStarter,
-		state:        deps.state,
-		terminalSink: deps.terminalSink,
-		rehydrator:   deps.rehydrator,
-		stopper:      deps.stopper,
-		logger:       deps.logger,
+		registry:         deps.registry,
+		launcher:         deps.launcher,
+		turnStarter:      deps.turnStarter,
+		state:            deps.state,
+		terminalOutcomes: deps.terminalOutcomes,
+		terminalSink:     deps.terminalSink,
+		rehydrator:       deps.rehydrator,
+		stopper:          deps.stopper,
+		logger:           deps.logger,
 	}
 }
 
@@ -272,17 +278,18 @@ func (c *turnController) log() *slog.Logger {
 type serviceParams struct {
 	fx.In
 
-	Logger         *slog.Logger
-	EventBus       *event.Dispatcher
-	Launcher       AgentLauncher
-	SessionCleaner contract.OrchestrationSessionCleaner
-	TurnStarter    contract.OrchestrationTurnStarter
-	DAGStore       taskdag.OrchestrationStore `optional:"true"`
-	RunStore       taskdag.RunStore
-	ScheduledStart taskdag.ScheduledStartStore
-	AgentThreads   AgentThreadStore          `optional:"true"`
-	AgentBindings  AgentBindingStore         `optional:"true"`
-	DispatchStore  taskdag.DispatchNodeStore `optional:"true"`
+	Logger           *slog.Logger
+	EventBus         *event.Dispatcher
+	Launcher         AgentLauncher
+	SessionCleaner   contract.OrchestrationSessionCleaner
+	TurnStarter      contract.OrchestrationTurnStarter
+	DAGStore         taskdag.OrchestrationStore `optional:"true"`
+	RunStore         taskdag.RunStore
+	ScheduledStart   taskdag.ScheduledStartStore
+	AgentThreads     AgentThreadStore                   `optional:"true"`
+	AgentBindings    AgentBindingStore                  `optional:"true"`
+	DispatchStore    taskdag.DispatchNodeStore          `optional:"true"`
+	TerminalOutcomes contract.TerminalOutcomeCommitPort `optional:"true"`
 }
 
 type serviceResult struct {
@@ -314,6 +321,7 @@ type serviceResult struct {
 	RunnerRuntime       RunnerRuntimePort
 	TurnLifecycle       TurnLifecyclePort
 	ApprovalLifecycle   ApprovalLifecyclePort
+	TerminalProjection  TerminalOutcomeProjectionRuntime
 }
 
 // recoveryTurnStore 是 recoveryTurnStore 接口的本地类型别名，用于内部断言。
@@ -338,12 +346,14 @@ type agentRuntime struct {
 	remoteAgentID, requestedAgentID, activeTurnID, pendingProviderTurnID, lastReport          string
 	providerTurnAlias                                                                         providerTurnAlias
 	pendingProviderTerminal                                                                   *turndto.TurnCompleted
+	outcome                                                                                   *agentdto.Outcome
 	reportRequesters                                                                          []string
 	lastError                                                                                 string
 	lastReportSeq                                                                             int64
 	startedAt, updatedAt, lastReportUpdatedAt                                                 time.Time
 	exitedAt                                                                                  *time.Time
 	launchSeq, lastExitedSeq, monitoredSeq, sessionGeneration                                 uint64
+	terminalHeadVersion                                                                       uint64
 	autoRecoverCount                                                                          int
 	autoRecoverSince                                                                          time.Time
 	stopRequested                                                                             bool
@@ -429,6 +439,11 @@ func NewService(
 // ProvideService 从 fx 参数创建 service，并挂接可选 store 依赖。
 func ProvideService(p serviceParams) *service {
 	svc := NewService(p.Logger, p.EventBus, p.Launcher, p.SessionCleaner, p.TurnStarter, p.DAGStore)
+	svc.terminalOutcomes = p.TerminalOutcomes
+	if reader, ok := p.TerminalOutcomes.(contract.TerminalOutcomeHeadReadPort); ok {
+		svc.terminalHeadReader = reader
+	}
+	svc.turns.terminalOutcomes = p.TerminalOutcomes
 	svc.lifecycle.agentThreads = p.AgentThreads
 	svc.lifecycle.agentBindings = p.AgentBindings
 	svc.reports.agentThreads = p.AgentThreads
@@ -475,6 +490,7 @@ func ProvideServiceResult(p serviceParams) serviceResult {
 		RunnerRuntime:       svc,
 		TurnLifecycle:       svc,
 		ApprovalLifecycle:   svc,
+		TerminalProjection:  svc,
 	}
 }
 
@@ -499,14 +515,14 @@ func RegisterTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, runtim
 				if lifecycleCtx.Err() != nil {
 					return
 				}
-				handleTurnCompletedEventWithCtx(runtime, logger, ev, lifecycleCtx)
+				handleSubscribedTurnCompleted(lifecycleCtx, runtime, logger, ev)
 			}, logger)
 			// interruption 事件同样直接推进状态机；失败只记录，终态修复逻辑在 handler 内完成。
 			interruptedCancel = bus.ResilientSubscribe(dispatcher, func(ev turndto.TurnInterrupted) {
 				if lifecycleCtx.Err() != nil {
 					return
 				}
-				handleTurnInterruptedEventWithCtx(runtime, logger, ev, lifecycleCtx)
+				handleSubscribedTurnInterrupted(lifecycleCtx, runtime, logger, ev)
 			}, logger)
 			return nil
 		},
@@ -519,6 +535,40 @@ func RegisterTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, runtim
 			return nil
 		},
 	})
+}
+
+func handleSubscribedTurnCompleted(ctx context.Context, runtime TurnLifecyclePort, logger *slog.Logger, ev turndto.TurnCompleted) {
+	if committer, ok := runtime.(interface {
+		CommitTurnCompleted(context.Context, turndto.TurnCompleted) (bool, error)
+	}); ok {
+		handled, err := committer.CommitTurnCompleted(ctx, ev)
+		if err != nil {
+			logger.Warn("orchestration: canonical terminal commit failed",
+				"agent_id", ev.AgentID, "thread_id", ev.ThreadID, "turn_id", ev.TurnID, "error", err)
+			return
+		}
+		if handled {
+			return
+		}
+	}
+	handleTurnCompletedEventWithCtx(runtime, logger, ev, ctx)
+}
+
+func handleSubscribedTurnInterrupted(ctx context.Context, runtime TurnLifecyclePort, logger *slog.Logger, ev turndto.TurnInterrupted) {
+	if committer, ok := runtime.(interface {
+		CommitTurnInterrupted(context.Context, turndto.TurnInterrupted) (bool, error)
+	}); ok {
+		handled, err := committer.CommitTurnInterrupted(ctx, ev)
+		if err != nil {
+			logger.Warn("orchestration: canonical interrupted terminal commit failed",
+				"agent_id", ev.AgentID, "thread_id", ev.ThreadID, "turn_id", ev.TurnID, "error", err)
+			return
+		}
+		if handled {
+			return
+		}
+	}
+	handleTurnInterruptedEventWithCtx(runtime, logger, ev, ctx)
 }
 
 // RegisterApprovalLifecycle 注册 tool approval 事件订阅，用于驱动 awaiting_user_input 状态。
@@ -699,6 +749,11 @@ func (s *service) ListAgents(ctx context.Context) ([]AgentSnapshot, error) {
 		}
 		snapshots = mergeAgentSnapshots(persisted, snapshots)
 	}
+	for index := range snapshots {
+		if err := s.overlayPublicTerminalOutcome(ctx, &snapshots[index]); err != nil {
+			return nil, err
+		}
+	}
 	sortAgentSnapshots(snapshots)
 	return snapshots, nil
 }
@@ -711,9 +766,17 @@ func (s *service) Snapshot(ctx context.Context, agentID string) (AgentSnapshot, 
 		return nil
 	})
 	if errors.Is(err, errAgentNotFound) {
-		return s.persistedAgentSnapshot(ctx, agentID)
+		snapshot, err = s.persistedAgentSnapshot(ctx, agentID)
+		if err != nil {
+			return AgentSnapshot{}, err
+		}
+	} else if err != nil {
+		return AgentSnapshot{}, err
 	}
-	return snapshot, err
+	if err := s.overlayPublicTerminalOutcome(ctx, &snapshot); err != nil {
+		return AgentSnapshot{}, err
+	}
+	return snapshot, nil
 }
 
 // GetAgentSnapshot 是 provider 侧使用的快照读取适配器。

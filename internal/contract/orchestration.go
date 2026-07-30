@@ -10,8 +10,14 @@ import (
 	"strings"
 	"time"
 
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
+	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 )
+
+// BootstrapHookAfterHandler 是 bootstrap runtime 处理 ctl/hook/after 回调的函数边界。
+// root assembly 通过该函数类型接入 hook 实现，避免 bootstrap 包依赖 orchestration 子包接口。
+type BootstrapHookAfterHandler func(ctx context.Context, payload mcpdto.HookPayload) (mcpdto.AfterDecision, error)
 
 // ErrAgentNotFound 表示 orchestration 查询目标 agent 不存在。
 var ErrAgentNotFound = errors.New("agent not found")
@@ -298,23 +304,26 @@ type LaunchRequest struct {
 // AgentSnapshot 是 orchestration 对外展示的 agent runtime 快照。
 // PortSource、ProviderSource 等来源字段用于解释自动探测结果，不能作为强配置回写。
 type AgentSnapshot struct {
-	ID             string    `json:"id"`
-	AgentID        string    `json:"agent_id"`
-	LaunchID       string    `json:"launch_id,omitempty"`
-	Name           string    `json:"name"`
-	ParentID       string    `json:"parent_id,omitempty"`
-	Port           int       `json:"port"`
-	PortSource     string    `json:"port_source,omitempty"`
-	PID            int       `json:"pid,omitempty"`
-	ThreadID       string    `json:"thread_id"`
-	ActiveTurnID   string    `json:"active_turn_id,omitempty"`
-	Cwd            string    `json:"cwd"`
-	State          string    `json:"state"`
-	Provider       string    `json:"provider,omitempty"`
-	ProviderSource string    `json:"provider_source,omitempty"`
-	LastReport     string    `json:"last_report,omitempty"`
-	CreatedAt      time.Time `json:"created_at,omitzero"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID             string               `json:"id"`
+	AgentID        string               `json:"agent_id"`
+	LaunchID       string               `json:"launch_id,omitempty"`
+	Name           string               `json:"name"`
+	ParentID       string               `json:"parent_id,omitempty"`
+	Port           int                  `json:"port"`
+	PortSource     string               `json:"port_source,omitempty"`
+	PID            int                  `json:"pid,omitempty"`
+	ThreadID       string               `json:"thread_id"`
+	ActiveTurnID   string               `json:"active_turn_id,omitempty"`
+	Cwd            string               `json:"cwd"`
+	State          string               `json:"state"`
+	Provider       string               `json:"provider,omitempty"`
+	ProviderSource string               `json:"provider_source,omitempty"`
+	LastReport     string               `json:"last_report,omitempty"`
+	CreatedAt      time.Time            `json:"created_at,omitzero"`
+	UpdatedAt      time.Time            `json:"updated_at"`
+	Assignment     *agentdto.Assignment `json:"assignment"`
+	Progress       agentdto.Progress    `json:"progress"`
+	Outcome        *agentdto.Outcome    `json:"outcome"`
 }
 
 // NormalizeUnixTime 把秒、毫秒、微秒或纳秒级 Unix 时间规范化为 time.Time。

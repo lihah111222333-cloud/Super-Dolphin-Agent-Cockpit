@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -200,6 +201,275 @@ func TestRunMigrationsAddsCronJobRunsTurnStatusIndex(t *testing.T) {
 	}
 	assertMigrationMarkerCount(t, db, "114_cron_job_runs_turn_status_index.sql", 1)
 	assertIndex(t, db, "cron_job_runs", "idx_cron_job_runs_turn_status", false, "turn_id <> '' AND status IN ('submitted', 'running')")
+}
+
+// TestRunMigrationsAddsTerminalOutcomeTransactionTables 锁定 v2 public outcome/CAS/outbox 的 additive migration。
+func TestRunMigrationsAddsTerminalOutcomeTransactionTables(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrationTestDB(t)
+	createMigrationMarkerTable(t, db)
+	markBaselineApplied(t, db)
+	dir := t.TempDir()
+	writeMigrationTestFile(t, dir, "120_terminal_outcome_outbox.sql", readMigrationTestFile(t, "120_terminal_outcome_outbox.sql"))
+
+	if err := RunMigrations(ctx, db, dir); err != nil {
+		t.Fatalf("RunMigrations() error = %v", err)
+	}
+	tables := sqliteTables(t, db)
+	for _, table := range []string{"terminal_outcome_heads", "public_terminal_outcomes", "terminal_outcome_outbox"} {
+		if !tables[table] {
+			t.Fatalf("%s table missing after migration 120", table)
+		}
+	}
+	assertMigrationMarkerCount(t, db, "120_terminal_outcome_outbox.sql", 1)
+	assertIndex(t, db, "terminal_outcome_outbox", "idx_terminal_outcome_outbox_claim", false, "status IN ('pending', 'claimed')")
+}
+
+// TestTerminalOutcomeCurrentHeadMigrationUpgradesV120AndBlocksLegacyWriter 锁定 mixed-version 旧写端 fail-fast。
+func TestTerminalOutcomeCurrentHeadMigrationUpgradesV120AndBlocksLegacyWriter(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrationTestDB(t)
+	createMigrationMarkerTable(t, db)
+	markBaselineApplied(t, db)
+	dir120 := t.TempDir()
+	writeMigrationTestFile(t, dir120, "120_terminal_outcome_outbox.sql", readMigrationTestFile(t, "120_terminal_outcome_outbox.sql"))
+	if err := RunMigrations(ctx, db, dir120); err != nil {
+		t.Fatalf("apply v120: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO terminal_outcome_heads VALUES
+		  ('agent-1','terminal_outcome_commit_v2','thread-1','turn-1','session-1',7,'event-1','identity-1','turn_running','terminal',1000);
+		INSERT INTO public_terminal_outcomes VALUES
+		  ('agent-1',2,'turn_completed','thread-1','turn-1','session-1',7,'event-1','identity-1',
+		   '{"kind":"success","code":"success","summary":"safe","completedAt":"2026-07-29T00:00:01Z"}','safe',1000);
+		INSERT INTO terminal_outcome_outbox(event_id,payload_json,status,claimed_by,claimed_at,created_at)
+		  VALUES ('event-1','{"schemaVersion":2,"projectionKind":"turn_completed","identity":{"capability":"terminal_outcome_commit_v2","agentId":"agent-1","publicThreadId":"thread-1","providerTurnId":"turn-1","sessionId":"session-1","generation":7,"eventId":"event-1","terminalIdentity":"identity-1","expectedActiveState":"turn_running"},"publicOutcome":{"kind":"success","code":"success","summary":"safe","completedAt":"2026-07-29T00:00:01Z"},"publicReport":"safe","occurredAt":"2026-07-29T00:00:01Z"}','claimed','old-worker',999,1000);
+	`); err != nil {
+		t.Fatalf("seed v120 terminal rows: %v", err)
+	}
+	dir121 := t.TempDir()
+	writeMigrationTestFile(t, dir121, "121_terminal_outcome_current_head.sql", readMigrationTestFile(t, "121_terminal_outcome_current_head.sql"))
+	if err := RunMigrations(ctx, db, dir121); err != nil {
+		t.Fatalf("apply v121: %v", err)
+	}
+	for _, table := range []string{"terminal_outcome_current_heads", "public_terminal_outcome_history", "terminal_outcome_private_dag_payloads", "terminal_outcome_outbox_v2"} {
+		if !sqliteTables(t, db)[table] {
+			t.Fatalf("%s missing after v121", table)
+		}
+	}
+	var status, worker string
+	if err := db.QueryRow("SELECT status, claimed_by FROM terminal_outcome_outbox_v2 WHERE event_id='event-1'").Scan(&status, &worker); err != nil {
+		t.Fatalf("read migrated outbox: %v", err)
+	}
+	if status != "pending" || worker != "" {
+		t.Fatalf("migrated claimed outbox = status:%q worker:%q, want pending/unowned", status, worker)
+	}
+	var headVersion int
+	if err := db.QueryRow("SELECT json_extract(public_payload_json, '$.identity.headVersion') FROM terminal_outcome_outbox_v2 WHERE event_id='event-1'").Scan(&headVersion); err != nil {
+		t.Fatalf("read migrated payload headVersion: %v", err)
+	}
+	if headVersion != 1 {
+		t.Fatalf("migrated payload headVersion = %d, want 1 compatibility adapter", headVersion)
+	}
+	for _, legacyObject := range []string{"terminal_outcome_heads", "public_terminal_outcomes", "terminal_outcome_outbox"} {
+		var objectType string
+		if err := db.QueryRow("SELECT type FROM sqlite_master WHERE name = ?", legacyObject).Scan(&objectType); err != nil {
+			t.Fatalf("read legacy protocol object %s: %v", legacyObject, err)
+		}
+		if objectType == "table" {
+			t.Fatalf("legacy protocol object %s remains writable table", legacyObject)
+		}
+	}
+	if err := verifyLegacyTerminalWriterCanStart(db); err == nil || !strings.Contains(err.Error(), "requires writable table") {
+		t.Fatalf("legacy binary startup check = %v, want protocol fail-fast", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO terminal_outcome_heads VALUES
+		  ('legacy-agent','terminal_outcome_commit_v2','legacy-thread','legacy-turn','legacy-session',8,
+		   'legacy-event','legacy-identity','turn_running','terminal',2000)
+	`); err == nil || !strings.Contains(err.Error(), "terminal outcome protocol v121") {
+		t.Fatalf("legacy writer error = %v, want v121 protocol fail-fast", err)
+	}
+}
+
+func TestTerminalOutcomeV121ForwardOnlyBackupRestoreContract(t *testing.T) {
+	ctx := context.Background()
+	sourcePath := filepath.Join(t.TempDir(), "terminal-v120.db")
+	source, err := sql.Open(driverName, sourcePath)
+	if err != nil {
+		t.Fatalf("open v120 source: %v", err)
+	}
+	createMigrationMarkerTable(t, source)
+	markBaselineApplied(t, source)
+	dir120 := t.TempDir()
+	writeMigrationTestFile(t, dir120, "120_terminal_outcome_outbox.sql", readMigrationTestFile(t, "120_terminal_outcome_outbox.sql"))
+	if err := RunMigrations(ctx, source, dir120); err != nil {
+		t.Fatalf("apply v120: %v", err)
+	}
+	if err := verifyLegacyTerminalWriterCanStart(source); err != nil {
+		t.Fatalf("v120 compatibility preflight: %v", err)
+	}
+	mustExec(t, source, `
+		INSERT INTO terminal_outcome_heads VALUES
+		  ('backup-agent','terminal_outcome_commit_v2','backup-thread','backup-turn','backup-session',7,
+		   'backup-event','backup-identity','turn_running','terminal',1000)
+	`)
+	assertSQLiteIntegrityCheck(t, source)
+	checkpointSQLiteTruncate(t, source)
+	if err := source.Close(); err != nil {
+		t.Fatalf("close quiesced v120 source: %v", err)
+	}
+
+	backupPath := filepath.Join(t.TempDir(), "terminal-v120.backup.db")
+	copySQLiteFile(t, sourcePath, backupPath)
+	backup, err := sql.Open(driverName, backupPath)
+	if err != nil {
+		t.Fatalf("open v120 backup for verification: %v", err)
+	}
+	assertSQLiteIntegrityCheck(t, backup)
+	var backupVersion int
+	if err := backup.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&backupVersion); err != nil {
+		t.Fatalf("read backup schema version: %v", err)
+	}
+	if backupVersion != 120 {
+		t.Fatalf("backup schema version = %d, want 120", backupVersion)
+	}
+	if err := backup.Close(); err != nil {
+		t.Fatalf("close verified v120 backup: %v", err)
+	}
+
+	upgraded, err := sql.Open(driverName, sourcePath)
+	if err != nil {
+		t.Fatalf("reopen source for v121 cutover: %v", err)
+	}
+	dir121 := t.TempDir()
+	writeMigrationTestFile(t, dir121, "121_terminal_outcome_current_head.sql", readMigrationTestFile(t, "121_terminal_outcome_current_head.sql"))
+	if err := RunMigrations(ctx, upgraded, dir121); err != nil {
+		t.Fatalf("apply v121: %v", err)
+	}
+	mustExec(t, upgraded, `
+		INSERT INTO terminal_outcome_current_heads (
+			agent_id, capability, public_thread_id, provider_turn_id, session_id, generation,
+			expected_active_state, version, state, terminal_event_id, terminal_identity,
+			activated_at, updated_at
+		) VALUES (
+			'v121-agent','terminal_outcome_commit_v2','v121-thread','v121-turn','v121-session',8,
+			'turn_running',1,'active','','',2000,2000
+		)
+	`)
+	if err := verifyLegacyTerminalWriterCanStart(upgraded); err == nil {
+		t.Fatal("legacy writer accepted v121 schema after new semantic write")
+	}
+	if err := upgraded.Close(); err != nil {
+		t.Fatalf("close upgraded source: %v", err)
+	}
+
+	restoredPath := filepath.Join(t.TempDir(), "terminal-restored-v120.db")
+	copySQLiteFile(t, backupPath, restoredPath)
+	restored, err := sql.Open(driverName, restoredPath)
+	if err != nil {
+		t.Fatalf("open restored v120 database: %v", err)
+	}
+	defer restored.Close()
+	assertSQLiteIntegrityCheck(t, restored)
+	if err := verifyLegacyTerminalWriterCanStart(restored); err != nil {
+		t.Fatalf("restored v120 compatibility preflight: %v", err)
+	}
+	mustExec(t, restored, `
+		INSERT INTO terminal_outcome_heads VALUES
+		  ('restored-agent','terminal_outcome_commit_v2','restored-thread','restored-turn','restored-session',9,
+		   'restored-event','restored-identity','turn_running','terminal',3000)
+	`)
+	var restoredState string
+	if err := restored.QueryRow(`
+		SELECT state FROM terminal_outcome_heads WHERE agent_id = 'restored-agent'
+	`).Scan(&restoredState); err != nil {
+		t.Fatalf("read restored v120 write: %v", err)
+	}
+	if restoredState != "terminal" {
+		t.Fatalf("restored v120 state = %q, want terminal", restoredState)
+	}
+	var restoredVersion int
+	if err := restored.QueryRow("SELECT MAX(version) FROM schema_migrations").Scan(&restoredVersion); err != nil {
+		t.Fatalf("read restored schema version: %v", err)
+	}
+	if restoredVersion != 120 {
+		t.Fatalf("restored schema version = %d, want 120", restoredVersion)
+	}
+	var v121Rows int
+	if err := restored.QueryRow(`
+		SELECT COUNT(*) FROM terminal_outcome_heads WHERE agent_id = 'v121-agent'
+	`).Scan(&v121Rows); err != nil {
+		t.Fatalf("check v121 semantic isolation: %v", err)
+	}
+	if v121Rows != 0 {
+		t.Fatalf("restored v120 contains %d v121 semantic rows, want 0", v121Rows)
+	}
+}
+
+// verifyLegacyTerminalWriterCanStart 模拟 v120 binary 对三张可写表的启动前置检查。
+func verifyLegacyTerminalWriterCanStart(db *sql.DB) error {
+	for _, name := range []string{"terminal_outcome_heads", "public_terminal_outcomes", "terminal_outcome_outbox"} {
+		var objectType string
+		if err := db.QueryRow("SELECT type FROM sqlite_master WHERE name = ?", name).Scan(&objectType); err != nil {
+			return err
+		}
+		if objectType != "table" {
+			return fmt.Errorf("legacy terminal writer requires writable table %s, got %s", name, objectType)
+		}
+	}
+	return nil
+}
+
+// TestTerminalOutcomeMigrationPreservesLegacyRows 锁定 v2 rollout 只新增表，不改写旧 provider/DB 数据。
+func TestTerminalOutcomeMigrationPreservesLegacyRows(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrationTestDB(t)
+	createMigrationMarkerTable(t, db)
+	markBaselineApplied(t, db)
+	if _, err := db.Exec(`
+		CREATE TABLE legacy_provider_terminal (event_id TEXT PRIMARY KEY, report TEXT NOT NULL);
+		INSERT INTO legacy_provider_terminal(event_id, report) VALUES ('legacy-event', 'legacy-report');
+	`); err != nil {
+		t.Fatalf("seed legacy provider terminal row: %v", err)
+	}
+	dir := t.TempDir()
+	writeMigrationTestFile(t, dir, "120_terminal_outcome_outbox.sql", readMigrationTestFile(t, "120_terminal_outcome_outbox.sql"))
+
+	if err := RunMigrations(ctx, db, dir); err != nil {
+		t.Fatalf("RunMigrations() error = %v", err)
+	}
+	var report string
+	if err := db.QueryRow("SELECT report FROM legacy_provider_terminal WHERE event_id = 'legacy-event'").Scan(&report); err != nil {
+		t.Fatalf("query preserved legacy row: %v", err)
+	}
+	if report != "legacy-report" {
+		t.Fatalf("legacy report = %q, want unchanged", report)
+	}
+}
+
+// TestTerminalOutcomeMigrationRollbackLeavesNoPartialV2Tables 锁定 rollout 失败可回滚且不留半套 schema。
+func TestTerminalOutcomeMigrationRollbackLeavesNoPartialV2Tables(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrationTestDB(t)
+	createMigrationMarkerTable(t, db)
+	markBaselineApplied(t, db)
+	if _, err := db.Exec("CREATE TABLE terminal_outcome_outbox (broken TEXT)"); err != nil {
+		t.Fatalf("seed conflicting outbox table: %v", err)
+	}
+	dir := t.TempDir()
+	writeMigrationTestFile(t, dir, "120_terminal_outcome_outbox.sql", readMigrationTestFile(t, "120_terminal_outcome_outbox.sql"))
+
+	if err := RunMigrations(ctx, db, dir); err == nil {
+		t.Fatal("RunMigrations() error = nil, want conflicting schema failure")
+	}
+	tables := sqliteTables(t, db)
+	for _, table := range []string{"terminal_outcome_heads", "public_terminal_outcomes"} {
+		if tables[table] {
+			t.Fatalf("%s survived failed migration transaction", table)
+		}
+	}
+	assertMigrationMarkerCount(t, db, "120_terminal_outcome_outbox.sql", 0)
 }
 
 // TestDatasourceDocumentsTableComesFromMigration verifies migration 116 owns datasource_documents.

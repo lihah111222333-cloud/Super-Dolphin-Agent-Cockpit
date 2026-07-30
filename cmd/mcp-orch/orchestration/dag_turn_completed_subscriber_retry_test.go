@@ -134,7 +134,7 @@ func assertDAGSubscriberRetryIdentity(t *testing.T, enqueued taskdag.EnqueueWake
 	}
 }
 
-func TestDAGSubscriber_CompleteErrorRetryEnqueueFailureFailsNode(t *testing.T) {
+func TestDAGSubscriber_CompleteErrorRetryEnqueueFailurePreservesNodeForReplay(t *testing.T) {
 	runID := int64(43)
 	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
 		DagKey:  "dag-repair",
@@ -153,21 +153,16 @@ func TestDAGSubscriber_CompleteErrorRetryEnqueueFailureFailsNode(t *testing.T) {
 		&dagSubscriberStopSpy{},
 	)
 
-	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-repair-fail", true, `{"summary":"done"}`))
+	err := projectDAGTurnCompleted(context.Background(), deps, discardLogger(), newTurnCompletedEvent("thr-repair-fail", true, `{"summary":"done"}`))
+	if err == nil || !strings.Contains(err.Error(), "temporary store outage") || !strings.Contains(err.Error(), "insert retry wakeup failed") {
+		t.Fatalf("projectDAGTurnCompleted() error = %v, want completion and retry durability errors", err)
+	}
 
 	if len(flow.enqueueCalls) != 1 {
 		t.Fatalf("enqueueCalls = %d, want one retry enqueue attempt", len(flow.enqueueCalls))
 	}
-	if len(flow.failCalls) != 1 {
-		t.Fatalf("failCalls = %d, want diagnostic terminal failure when retry enqueue fails", len(flow.failCalls))
-	}
-	if got := flow.failCalls[0].Reason; !strings.Contains(got, "turn.completed completion retry enqueue failed") ||
-		!strings.Contains(got, "insert retry wakeup failed") ||
-		!strings.Contains(got, "temporary store outage") {
-		t.Fatalf("fail reason = %q, want retry enqueue and original complete error", got)
-	}
-	if !flow.failCalls[0].FailFast {
-		t.Fatal("FailFast = false, want true for diagnostic terminal failure")
+	if len(flow.failCalls) != 0 {
+		t.Fatalf("failCalls = %d, want zero terminal overwrite while completion is replayable", len(flow.failCalls))
 	}
 }
 

@@ -118,10 +118,14 @@ func publicErrorFixture() map[string]any {
 }
 
 func terminalFixture(outcome string) map[string]any {
-	return map[string]any{
+	value := map[string]any{
 		"schemaVersion": 2, "eventId": "event-1", "threadId": "thread-1", "turnId": "turn-1",
 		"outcome": outcome, "occurredAt": "2026-07-16T00:00:00Z",
 	}
+	if outcome == "success" {
+		value["publicSummary"] = "public success summary"
+	}
+	return value
 }
 
 func withPublicError(value map[string]any) map[string]any {

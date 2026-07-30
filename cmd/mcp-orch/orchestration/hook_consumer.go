@@ -294,6 +294,15 @@ func (c *hookConsumer) handleStateChanged(ctx context.Context, ev agentdto.State
 		c.logger.Warn("orchestration: ignoring unknown mirrored agent state", "agent_id", ev.AgentID, "thread_id", ev.ThreadID, "state", nextState)
 		return
 	}
+	if committer, ok := c.runtime.(interface {
+		CommitStateChangedTerminal(context.Context, agentdto.StateChanged) (bool, error)
+	}); ok {
+		handled, err := committer.CommitStateChangedTerminal(ctx, ev)
+		c.logUnexpectedHookError("canonical state terminal commit", ev.AgentID, ev.ThreadID, err)
+		if handled {
+			return
+		}
+	}
 	err := c.runtime.mutateHookAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
 		// session fence 防止旧进程/旧线程的状态事件写入当前会话。
 		// 空 SessionID 来自早期 provider 事件，仍按兼容输入处理。
@@ -347,6 +356,15 @@ func (c *hookConsumer) handleStateChanged(ctx context.Context, ev agentdto.State
 // handleThreadStopped 把 provider stopped 事件同步到本地 runtime，并触发 DAG 兜底失败推进。
 // 被抑制或不属于当前会话的 stopped 事件只记录为跳过，不再推进状态。
 func (c *hookConsumer) handleThreadStopped(ctx context.Context, ev threaddto.Stopped) {
+	if committer, ok := c.runtime.(interface {
+		CommitThreadStoppedTerminal(context.Context, threaddto.Stopped) (bool, error)
+	}); ok {
+		handled, err := committer.CommitThreadStoppedTerminal(ctx, ev)
+		c.logUnexpectedHookError("canonical stopped terminal commit", ev.AgentID, ev.ThreadID, err)
+		if handled {
+			return
+		}
+	}
 	stoppedAccepted := true
 	err := c.runtime.mutateHookAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
 		var err error
@@ -392,9 +410,19 @@ func (c *hookConsumer) applyThreadStoppedLocked(ctx context.Context, ev threaddt
 	return true, nil
 }
 
+// handleTurnCompleted 优先经 canonical terminal port 提交，旧 runtime 才进入 legacy 适配路径。
 func (c *hookConsumer) handleTurnCompleted(ctx context.Context, ev turndto.TurnCompleted) {
 	if c == nil || c.runtime == nil {
 		return
+	}
+	if committer, ok := c.runtime.(interface {
+		CommitTurnCompleted(context.Context, turndto.TurnCompleted) (bool, error)
+	}); ok {
+		handled, err := committer.CommitTurnCompleted(ctx, ev)
+		c.logUnexpectedHookError("canonical terminal commit", ev.AgentID, ev.ThreadID, err)
+		if handled {
+			return
+		}
 	}
 	report := turnCompletedReportText(ev)
 	var err error
@@ -423,9 +451,19 @@ func (c *hookConsumer) handleDAGTurnCompletedFromHook(ctx context.Context, ev tu
 	handleDAGTurnCompleted(ctx, c.dagTurnCompletedDeps, c.logger, ev)
 }
 
+// handleTurnInterrupted 优先经 canonical terminal port 提交固定安全失败终态。
 func (c *hookConsumer) handleTurnInterrupted(ctx context.Context, ev turndto.TurnInterrupted) {
 	if c == nil || c.runtime == nil {
 		return
+	}
+	if committer, ok := c.runtime.(interface {
+		CommitTurnInterrupted(context.Context, turndto.TurnInterrupted) (bool, error)
+	}); ok {
+		handled, err := committer.CommitTurnInterrupted(ctx, ev)
+		c.logUnexpectedHookError("canonical interrupted terminal commit", ev.AgentID, ev.ThreadID, err)
+		if handled {
+			return
+		}
 	}
 	handleTurnInterruptedEvent(c.runtime, c.logger, ev)
 	c.handleDAGTurnInterruptedFromHook(ctx, ev)
@@ -723,7 +761,10 @@ func (c *hookConsumer) failThreadStoppedFallbackNode(ctx context.Context, flow t
 		orchmetrics.IncDAGFallbackFailNodeErr()
 		c.logger.Warn("thread stopped fallback: fail node failed",
 			"dag_key", n.DagKey, "node_key", n.NodeKey, "error", failErr)
-		turncompletionretry.EnqueueTerminalFailureCompensation(ctx, flow, c.logger, &n, "thread_stopped_fallback", failErr, false)
+		if compensationErr := turncompletionretry.EnqueueTerminalFailureCompensation(ctx, flow, c.logger, &n, "thread_stopped_fallback", failErr, false); compensationErr != nil {
+			c.logger.Warn("thread stopped fallback: terminal failure compensation enqueue failed",
+				"dag_key", n.DagKey, "node_key", n.NodeKey, "error", compensationErr)
+		}
 		return
 	}
 	orchmetrics.IncDAGFallbackFailed()

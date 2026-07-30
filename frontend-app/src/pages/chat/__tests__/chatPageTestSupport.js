@@ -36,6 +36,8 @@ function createFakeStore(overrides = {}) {
     activeTurnByThread: {},
     activityStatsByThread: {},
     activityThreadAtById: {},
+    agents: [],
+    mainAgentId: '',
     addComposerCapability: vi.fn(),
     archiveThread: vi.fn(),
     attachDroppedFilesForComposer: vi.fn(),

@@ -8,6 +8,7 @@ import {
   normalizeString,
   validateStringFields,
 } from './backendResponseValidatorShared.js';
+import { normalizeSnapshotAgent } from './contracts/agentBoardContract.js';
 
 const RUNTIME_CONFIG_RESPONSE_KEYS = new Set(['model', 'modelProvider', 'cwd', 'approvalPolicy', 'sandbox', 'config', 'baseInstructions', 'developerInstructions', 'personality', 'toolRouting']);
 const RUNTIME_TOOL_ROUTING_KEYS = new Set(['mode', 'routerModel', 'routerProvider', 'routerBaseURL', 'routerHasAPIKey', 'confidenceThreshold', 'timeoutSec']);
@@ -21,7 +22,7 @@ const SIDEBAR_RESPONSE_KEYS = new Set([
   'viewPrefs.chat', 'viewPrefs.cmd', 'threadPins.chat', 'threadArchives.chat', 'groups',
 ]);
 const THREAD_SUMMARY_KEYS = new Set(['id', 'name', 'agent_id', 'createdAt', 'updatedAt', 'lifecycleStatus', 'state', 'threadStatus', 'agentState', 'lastMessage', 'overlayText', 'overlayType', 'overlayPriority']);
-const AGENT_SUMMARY_KEYS = new Set(['id', 'name', 'thread_id', 'provider_thread_id', 'parent_id', 'state', 'provider', 'model', 'cwd', 'port', 'logPath', 'createdAt', 'updatedAt', 'last_report', 'agentState', 'threadStatus', 'lastMessage']);
+const AGENT_SUMMARY_KEYS = new Set(['id', 'name', 'thread_id', 'provider_thread_id', 'parent_id', 'parentAgentId', 'assignment', 'progress', 'outcome', 'state', 'provider', 'model', 'cwd', 'port', 'logPath', 'createdAt', 'updatedAt', 'last_report', 'agentState', 'threadStatus', 'lastMessage']);
 const TURN_SUMMARY_KEYS = new Set(['id', 'agent_id', 'thread_id', 'status', 'success', 'error', 'reason', 'started_at', 'completed_at']);
 const WORKSPACE_PANEL_KEYS = new Set(['runs']);
 const WORKSPACE_RUN_KEYS = new Set(['run_key', 'dag_key', 'status', 'source_root', 'workspace_path', 'created_by', 'updated_by', 'merged_file_count', 'conflicts', 'errors', 'message', 'updated_at']);
@@ -80,6 +81,9 @@ function validateUIStateResponse(method, response) {
   }
   if (hasOwn(value, 'agents') && value.agents !== null && !Array.isArray(value.agents)) {
     throw new TypeError(`${method} response agents must be an array or null`);
+  }
+  if (Array.isArray(value.agents)) {
+    value.agents.forEach((agent, index) => validateAgentSummary(method, agent, `agents[${index}]`));
   }
   return value;
 }
@@ -224,6 +228,7 @@ function validateAgentSummary(method, value, label) {
   if (hasOwn(agent, 'port') && !Number.isInteger(agent.port)) {
     throw new TypeError(`${method} response ${label}.port must be an integer`);
   }
+  normalizeSnapshotAgent(agent, `${method} response ${label}`);
 }
 
 /** @param {string} method @param {unknown} value @param {string} label */

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/kelindar/event"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 	threaddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/thread"
 	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
@@ -605,6 +607,35 @@ func mustReceiveThreadPatch(t *testing.T, ch <-chan uidto.UIThreadPatch) uidto.U
 	case <-time.After(time.Second):
 		t.Fatal("expected thread patch")
 		return uidto.UIThreadPatch{}
+	}
+}
+
+func TestAgentBoardSnapshotAndRealtimePatchStayConsistent(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 7, 28, 12, 0, 0, 0, time.UTC)
+	outcome := &agentdto.Outcome{Kind: agentdto.OutcomeKindSuccess, Summary: "完成", CompletedAt: now}
+	assignment := &agentdto.Assignment{Title: "看板契约", Description: "打通后端链路", AssignedAt: now.Add(-time.Hour)}
+	agents := summarizeAgents([]contract.AgentSnapshot{{
+		ID: "agent-1", ThreadID: "thread-1", ParentID: "agent-root", Name: "worker", State: "idle", UpdatedAt: now,
+		Assignment: assignment, Progress: agentdto.Progress{Status: "idle", UpdatedAt: now}, Outcome: outcome,
+	}})
+	if len(agents) != 1 || agents[0].Assignment == nil || agents[0].Outcome == nil {
+		t.Fatalf("summarizeAgents() = %#v, want complete Agent board snapshot", agents)
+	}
+	svc, _ := newPatchTestService(t)
+	svc.state.Agents = agents
+	patch := svc.threadPatchLocked("thread-1", "agent/completed")
+	if patch.Agent == nil {
+		t.Fatal("threadPatchLocked().Agent = nil")
+	}
+	if patch.Agent.ID != agents[0].ID || patch.Agent.ThreadID != agents[0].ThreadID || patch.Agent.ParentAgentID != agents[0].ParentAgentID || patch.Agent.Name != agents[0].Name {
+		t.Fatalf("threadPatchLocked().Agent identity = %#v, snapshot = %#v", patch.Agent, agents[0])
+	}
+	if patch.Agent.Assignment.Title != assignment.Title || patch.Agent.Progress.Status != "idle" || patch.Agent.Outcome.Kind != agentdto.OutcomeKindSuccess {
+		t.Fatalf("threadPatchLocked().Agent = %#v, want snapshot assignment/progress/outcome", patch.Agent)
+	}
+	if patch.Agent.Progress.CurrentStep != nil || patch.Agent.Progress.CompletedSteps != nil || patch.Agent.Progress.TotalSteps != nil {
+		t.Fatalf("threadPatchLocked().Agent.Progress = %#v, want unavailable structured steps", patch.Agent.Progress)
 	}
 }
 

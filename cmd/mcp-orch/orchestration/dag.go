@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
+	"github.com/kelindar/event"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/nodeevents"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/taskupdatelease"
@@ -17,6 +19,56 @@ import (
 )
 
 const defaultDAGStatus = "draft"
+
+// dagController owns DAG stores and DAG lifecycle operations for orchestration.
+type dagController struct {
+	logger              *slog.Logger
+	eventBus            *event.Dispatcher
+	dagStore            taskdag.OrchestrationStore
+	runStore            taskdag.RunStore
+	scheduledStartStore taskdag.ScheduledStartStore
+	dispatchStore       taskdag.DispatchNodeStore
+	agentThreads        AgentThreadLookup
+	svcStopper          StopAgentService
+}
+
+type dagControllerParams struct {
+	Logger              *slog.Logger
+	EventBus            *event.Dispatcher
+	DAGStore            taskdag.OrchestrationStore
+	RunStore            taskdag.RunStore
+	ScheduledStartStore taskdag.ScheduledStartStore
+	DispatchStore       taskdag.DispatchNodeStore
+	AgentThreads        AgentThreadLookup
+	SvcStopper          StopAgentService
+}
+
+func newDAGController(p dagControllerParams) *dagController {
+	return &dagController{
+		logger:              p.Logger,
+		eventBus:            p.EventBus,
+		dagStore:            p.DAGStore,
+		runStore:            p.RunStore,
+		scheduledStartStore: p.ScheduledStartStore,
+		dispatchStore:       p.DispatchStore,
+		agentThreads:        p.AgentThreads,
+		svcStopper:          p.SvcStopper,
+	}
+}
+
+func (s *service) dagFacade() *dagController {
+	if s == nil {
+		return nil
+	}
+	return s.dags
+}
+
+func (c *dagController) withDAGStore(fn func(taskdag.OrchestrationStore) error) error {
+	if c == nil || c.dagStore == nil {
+		return errors.New("dag store is not configured")
+	}
+	return fn(c.dagStore)
+}
 
 // createDAGParams 是 task_create_dag 工具层的 JSON 入参，保留旧 camelCase 兼容。
 type createDAGParams struct {

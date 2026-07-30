@@ -161,6 +161,7 @@ func TestRemoteLauncher_RegistrationNotificationDoesNotDeadlock(t *testing.T) {
 				ThreadID:      "thread-1",
 				TurnID:        "turn-1",
 				Outcome:       "success",
+				PublicSummary: "completed",
 				OccurredAt:    "2026-07-21T00:00:00Z",
 			}))
 			return launcherRegisterResponse(req, 60000), nil
@@ -202,6 +203,7 @@ func TestRemoteLauncher_CloseDoesNotDeadlockWithInFlightNotification(t *testing.
 				ThreadID:      "thread-1",
 				TurnID:        "turn-1",
 				Outcome:       "success",
+				PublicSummary: "completed",
 				OccurredAt:    "2026-07-21T00:00:00Z",
 			}))
 			return map[string]any{"turn_id": "turn-1"}, nil
@@ -261,6 +263,7 @@ func TestRemoteLauncher_TurnCompletedNotificationClearsRemoteBusyState(t *testin
 				ThreadID:      "thread-1",
 				TurnID:        "stale-remote-turn",
 				Outcome:       "success",
+				PublicSummary: "completed",
 				OccurredAt:    "2026-07-16T10:11:11.123Z",
 			}))
 			require.NoError(t, server.Notify(context.Background(), eventsurface.MethodTurnTerminal, turndto.TurnTerminalV2{
@@ -269,6 +272,7 @@ func TestRemoteLauncher_TurnCompletedNotificationClearsRemoteBusyState(t *testin
 				ThreadID:      "thread-1",
 				TurnID:        "remote-turn-1",
 				Outcome:       "success",
+				PublicSummary: "completed",
 				OccurredAt:    "2026-07-16T10:11:12.123Z",
 			}))
 			return map[string]any{"turn_id": "remote-turn-1"}, nil
@@ -352,6 +356,7 @@ func TestRemoteTerminalFirstCanonicalTruthWins(t *testing.T) {
 		ThreadID:      "thread-1",
 		TurnID:        "remote-turn-1",
 		Outcome:       "success",
+		PublicSummary: "completed",
 		OccurredAt:    "2026-07-17T01:02:03Z",
 	}
 	svc.handleRemoteTurnTerminal(context.Background(), success)
@@ -359,7 +364,7 @@ func TestRemoteTerminalFirstCanonicalTruthWins(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, string(agentdto.StateIdle), first.State)
 	require.Equal(t, "", first.ActiveTurnID)
-	require.Equal(t, "report before terminal", first.LastReport)
+	require.Equal(t, "completed", first.LastReport)
 
 	svc.handleRemoteTurnTerminal(context.Background(), success)
 	duplicate, err := svc.Snapshot(context.Background(), "agent-1")
@@ -661,6 +666,7 @@ func remoteTerminalFixture(threadID, turnID string) turndto.TurnTerminalV2 {
 		ThreadID:      threadID,
 		TurnID:        turnID,
 		Outcome:       "success",
+		PublicSummary: "completed",
 		OccurredAt:    "2026-07-19T01:02:03Z",
 	}
 }

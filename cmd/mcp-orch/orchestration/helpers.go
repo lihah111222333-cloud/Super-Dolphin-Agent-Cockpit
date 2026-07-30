@@ -299,6 +299,10 @@ func (c *turnController) finishTurnStartSuccessLocked(
 		clearProviderTurnStartFenceLocked(agent, fence)
 		return nil, fmt.Errorf("provider turn start fence lost for agent %q turn %q", work.agentID, work.turnID)
 	}
+	head, err := c.activateTerminalTurnHeadLocked(ctx, agent, currentTurnID, string(agentdto.StateTurnRunning))
+	if err != nil {
+		return nil, err
+	}
 	if currentTurnID != work.turnID {
 		agent.providerTurnAlias = providerTurnAlias{localTurnID: work.turnID, providerTurnID: currentTurnID}
 	}
@@ -308,7 +312,38 @@ func (c *turnController) finishTurnStartSuccessLocked(
 	if err := c.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAccepted); err != nil {
 		return nil, fmt.Errorf("mark provider turn %q running: %w", currentTurnID, err)
 	}
+	agent.terminalHeadVersion = head.Version
 	return pendingTerminal, nil
+}
+
+// activateTerminalTurnHeadLocked 在 runtime 可见突变前建立真实 CAS head。
+func (c *turnController) activateTerminalTurnHeadLocked(ctx context.Context, agent *agentRuntime, providerTurnID, expectedState string) (contract.TerminalOutcomeHead, error) {
+	if c == nil || c.terminalOutcomes == nil {
+		version := uint64(0)
+		if agent != nil {
+			version = agent.terminalHeadVersion
+		}
+		return contract.TerminalOutcomeHead{Version: version}, nil
+	}
+	if agent == nil {
+		return contract.TerminalOutcomeHead{}, errAgentNotFound
+	}
+	threadID := strings.TrimSpace(firstNonEmpty(agent.remoteThreadID, agent.threadID))
+	sessionID := agentSessionID(agent)
+	if threadID == "" || strings.TrimSpace(providerTurnID) == "" || sessionID == "" || agent.sessionGeneration == 0 {
+		return contract.TerminalOutcomeHead{}, errors.New("terminal outcome v2 head activation requires thread, turn, session and generation")
+	}
+	head, err := c.terminalOutcomes.ActivateTerminalOutcomeHead(ctx, contract.TerminalOutcomeHeadActivation{
+		Capability: contract.TerminalOutcomeCapabilityV2, AgentID: strings.TrimSpace(agent.id),
+		PublicThreadID: threadID, ProviderTurnID: strings.TrimSpace(providerTurnID),
+		SessionID: sessionID, Generation: agent.sessionGeneration,
+		ExpectedActiveState: strings.TrimSpace(expectedState), ExpectedHeadVersion: agent.terminalHeadVersion,
+		ActivatedAt: resolveEventTime(ctx, agent.updatedAt, agent.startedAt),
+	})
+	if err != nil {
+		return contract.TerminalOutcomeHead{}, fmt.Errorf("activate terminal outcome current head: %w", err)
+	}
+	return head, nil
 }
 
 // clearProviderTurnStartFenceLocked 只清理旧生命周期自身建立的 pending fence。

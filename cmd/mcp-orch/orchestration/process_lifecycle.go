@@ -14,6 +14,7 @@ import (
 	"github.com/kelindar/event"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/exitmonitor"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/processctl"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	platformrunner "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runner"
@@ -27,10 +28,76 @@ func (s *service) BindSessionGeneration(ctx context.Context, agentID string, gen
 		return errors.New("session generation is required")
 	}
 	return s.registry.withAgentLocked(agentID, func(agent *agentRuntime) error {
+		nextVersion := agent.terminalHeadVersion
+		nextUpdatedAt := resolveEventTime(ctx, agent.updatedAt)
+		if s.terminalOutcomes != nil {
+			threadID := strings.TrimSpace(firstNonEmpty(agent.remoteThreadID, agent.threadID))
+			sessionID := agentSessionID(agent)
+			if threadID == "" || sessionID == "" {
+				return errors.New("terminal outcome session head activation requires thread and session identity")
+			}
+			var err error
+			nextVersion, err = s.resolveTerminalHeadVersion(ctx, agent, threadID, sessionID, generation)
+			if err != nil {
+				return err
+			}
+			head, err := s.terminalOutcomes.ActivateTerminalOutcomeHead(ctx, contract.TerminalOutcomeHeadActivation{
+				Capability: contract.TerminalOutcomeCapabilityV2, AgentID: strings.TrimSpace(agent.id),
+				PublicThreadID: threadID, ProviderTurnID: "session-terminal:" + sessionID,
+				SessionID: sessionID, Generation: generation, ExpectedActiveState: string(agent.state),
+				ExpectedHeadVersion: nextVersion, ActivatedAt: nextUpdatedAt,
+			})
+			if err != nil {
+				return fmt.Errorf("activate terminal outcome session head: %w", err)
+			}
+			nextVersion = head.Version
+		}
 		agent.sessionGeneration = generation
-		agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
+		agent.terminalHeadVersion = nextVersion
+		agent.updatedAt = nextUpdatedAt
 		return nil
 	})
+}
+
+func (s *service) resolveTerminalHeadVersion(
+	ctx context.Context,
+	agent *agentRuntime,
+	threadID, sessionID string,
+	generation uint64,
+) (uint64, error) {
+	if agent.terminalHeadVersion != 0 || s.terminalHeadReader == nil {
+		return agent.terminalHeadVersion, nil
+	}
+	durable, err := s.terminalHeadReader.LoadTerminalOutcomeCurrentHead(ctx, strings.TrimSpace(agent.id))
+	if errors.Is(err, contract.ErrTerminalOutcomeHeadNotFound) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("rehydrate terminal outcome current head: %w", err)
+	}
+	if err := validateRehydratedTerminalHead(durable, agent, threadID, sessionID, generation); err != nil {
+		return 0, err
+	}
+	return durable.Version, nil
+}
+
+func validateRehydratedTerminalHead(
+	head contract.DurableTerminalOutcomeHead,
+	agent *agentRuntime,
+	threadID, sessionID string,
+	generation uint64,
+) error {
+	if err := head.Validate(); err != nil {
+		return fmt.Errorf("rehydrate terminal outcome current head: %w", err)
+	}
+	if head.Capability != contract.TerminalOutcomeCapabilityV2 ||
+		head.AgentID != strings.TrimSpace(agent.id) ||
+		head.PublicThreadID != threadID ||
+		head.SessionID != sessionID ||
+		head.Generation != generation {
+		return contract.ErrTerminalOutcomeConflict
+	}
+	return nil
 }
 
 // removeSession 清理 agent 绑定的 session generation，并同步重置 runtime 记录。
@@ -138,6 +205,15 @@ func (c *lifecycleController) handleProcessExit(
 	stateBefore := agent.state
 	shouldRecover := shouldAutoRecoverProcessExitLocked(c.launcher, agent, err)
 	recoverViaLauncher := shouldRecover && shouldRecoverViaLauncher(ctx, c.launcher, agent)
+	terminalCommitted, lookupErr := commitNonRecoveringProcessExitTerminal(
+		ctx, state, agent, launchSeq, err, shouldRecover,
+	)
+	if lookupErr != nil {
+		loggerOrDefault(logger).Warn("orchestration: process exit terminal commit failed",
+			"agent_id", agentID, "launch_seq", launchSeq, "error", lookupErr)
+		registry.unlock()
+		return
+	}
 	recoverAgentID := agent.id
 	now := resolveEventTime(ctx, agent.updatedAt, agent.startedAt)
 	closeAgentProcessGuard(agent)
@@ -147,19 +223,55 @@ func (c *lifecycleController) handleProcessExit(
 	agent.updatedAt = now
 	resetRuntimeAfterProcessExitLocked(agent, recoverViaLauncher)
 	c.removeSession(agent)
-	c.recordProcessExitError(eventBus, agent, err)
-	c.handleProcessExitTransition(ctx, state, logger, agent)
+	if !terminalCommitted {
+		c.recordProcessExitError(eventBus, agent, err)
+		c.handleProcessExitTransition(ctx, state, logger, agent)
+	}
 	loggerOrDefault(logger).Warn("orchestration: agent process exited",
 		"agent_id", agentID, "launch_seq", launchSeq,
 		"state_before", stateBefore, "state_after", agent.state,
 		"stop_requested", agent.stopRequested, "exit_error", err)
-	if agent.stopRequested && strings.TrimSpace(agent.stopReason) != "" {
+	if !terminalCommitted && agent.stopRequested && strings.TrimSpace(agent.stopReason) != "" {
 		emitEvent(eventBus, eventTypeAgentStopped, eventAgentID(agent), agent, agent.stopReason)
 	}
-	reports.setProcessExitFallbackReportLocked(ctx, agent, launchSeq, shouldRecover)
+	if !terminalCommitted {
+		reports.setProcessExitFallbackReportLocked(ctx, agent, launchSeq, shouldRecover)
+	}
 	clearAgentStopReasonLocked(agent)
 	registry.unlock()
 	c.recovery.recoverAfterProcessExit(ctx, recoverAgentID, launchSeq, shouldRecover)
+}
+
+type processExitTerminalCommitter interface {
+	CommitProcessExitTerminalLocked(context.Context, *agentRuntime, uint64, error) (bool, error)
+}
+
+func commitProcessExitTerminal(
+	ctx context.Context,
+	state lifecycleTransitionPort,
+	agent *agentRuntime,
+	launchSeq uint64,
+	processErr error,
+) (bool, error) {
+	committer, ok := state.(processExitTerminalCommitter)
+	if !ok {
+		return false, nil
+	}
+	return committer.CommitProcessExitTerminalLocked(ctx, agent, launchSeq, processErr)
+}
+
+func commitNonRecoveringProcessExitTerminal(
+	ctx context.Context,
+	state lifecycleTransitionPort,
+	agent *agentRuntime,
+	launchSeq uint64,
+	processErr error,
+	shouldRecover bool,
+) (bool, error) {
+	if shouldRecover {
+		return false, nil
+	}
+	return commitProcessExitTerminal(ctx, state, agent, launchSeq, processErr)
 }
 
 func (c *lifecycleController) recordProcessExitError(eventBus *event.Dispatcher, agent *agentRuntime, err error) {

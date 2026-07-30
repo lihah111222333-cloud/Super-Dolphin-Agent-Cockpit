@@ -48,6 +48,117 @@ CREATE TABLE IF NOT EXISTS agent_status (
     updated_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS terminal_outcome_heads (
+    agent_id TEXT PRIMARY KEY CHECK(agent_id <> ''),
+    capability TEXT NOT NULL CHECK(capability = 'terminal_outcome_commit_v2'),
+    public_thread_id TEXT NOT NULL CHECK(public_thread_id <> ''),
+    provider_turn_id TEXT NOT NULL CHECK(provider_turn_id <> ''),
+    session_id TEXT NOT NULL CHECK(session_id <> ''),
+    generation INTEGER NOT NULL CHECK(generation > 0),
+    event_id TEXT NOT NULL CHECK(event_id <> ''),
+    terminal_identity TEXT NOT NULL CHECK(terminal_identity <> ''),
+    expected_active_state TEXT NOT NULL CHECK(expected_active_state <> ''),
+    state TEXT NOT NULL CHECK(state IN ('active', 'terminal')),
+    updated_at INTEGER NOT NULL CHECK(updated_at > 0)
+);
+
+CREATE TABLE IF NOT EXISTS public_terminal_outcomes (
+    agent_id TEXT PRIMARY KEY CHECK(agent_id <> ''),
+    schema_version INTEGER NOT NULL CHECK(schema_version = 2),
+    projection_kind TEXT NOT NULL CHECK(projection_kind IN ('turn_completed', 'agent_failed', 'agent_stopped', 'process_failed', 'process_stopped')),
+    public_thread_id TEXT NOT NULL CHECK(public_thread_id <> ''),
+    provider_turn_id TEXT NOT NULL CHECK(provider_turn_id <> ''),
+    session_id TEXT NOT NULL CHECK(session_id <> ''),
+    generation INTEGER NOT NULL CHECK(generation > 0),
+    event_id TEXT NOT NULL UNIQUE CHECK(event_id <> ''),
+    terminal_identity TEXT NOT NULL UNIQUE CHECK(terminal_identity <> ''),
+    public_outcome_json TEXT NOT NULL CHECK(json_valid(public_outcome_json)),
+    public_report TEXT NOT NULL CHECK(public_report <> ''),
+    occurred_at INTEGER NOT NULL CHECK(occurred_at > 0)
+);
+
+CREATE TABLE IF NOT EXISTS terminal_outcome_outbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id TEXT NOT NULL UNIQUE CHECK(event_id <> ''),
+    payload_json TEXT NOT NULL CHECK(json_valid(payload_json)),
+    status TEXT NOT NULL CHECK(status IN ('pending', 'claimed', 'projected')),
+    claimed_by TEXT NOT NULL DEFAULT '',
+    claimed_at INTEGER,
+    projected_at INTEGER,
+    created_at INTEGER NOT NULL CHECK(created_at > 0),
+    FOREIGN KEY(event_id) REFERENCES public_terminal_outcomes(event_id)
+);
+
+CREATE TABLE IF NOT EXISTS terminal_outcome_current_heads (
+    agent_id TEXT PRIMARY KEY CHECK(agent_id <> ''),
+    capability TEXT NOT NULL CHECK(capability = 'terminal_outcome_commit_v2'),
+    public_thread_id TEXT NOT NULL CHECK(public_thread_id <> ''),
+    provider_turn_id TEXT NOT NULL CHECK(provider_turn_id <> ''),
+    session_id TEXT NOT NULL CHECK(session_id <> ''),
+    generation INTEGER NOT NULL CHECK(generation > 0),
+    expected_active_state TEXT NOT NULL CHECK(expected_active_state <> ''),
+    version INTEGER NOT NULL CHECK(version > 0),
+    state TEXT NOT NULL CHECK(state IN ('active', 'terminal')),
+    terminal_event_id TEXT NOT NULL DEFAULT '',
+    terminal_identity TEXT NOT NULL DEFAULT '',
+    activated_at INTEGER NOT NULL CHECK(activated_at > 0),
+    updated_at INTEGER NOT NULL CHECK(updated_at > 0),
+    CHECK(
+        (state = 'active' AND terminal_event_id = '' AND terminal_identity = '') OR
+        (state = 'terminal' AND terminal_event_id <> '' AND terminal_identity <> '')
+    )
+);
+
+CREATE TABLE IF NOT EXISTS public_terminal_outcome_history (
+    terminal_identity TEXT PRIMARY KEY CHECK(terminal_identity <> ''),
+    event_id TEXT NOT NULL UNIQUE CHECK(event_id <> ''),
+    agent_id TEXT NOT NULL CHECK(agent_id <> ''),
+    head_version INTEGER NOT NULL CHECK(head_version > 0),
+    schema_version INTEGER NOT NULL CHECK(schema_version = 2),
+    projection_kind TEXT NOT NULL CHECK(projection_kind IN ('turn_completed', 'agent_failed', 'agent_stopped', 'process_failed', 'process_stopped')),
+    public_thread_id TEXT NOT NULL CHECK(public_thread_id <> ''),
+    provider_turn_id TEXT NOT NULL CHECK(provider_turn_id <> ''),
+    session_id TEXT NOT NULL CHECK(session_id <> ''),
+    generation INTEGER NOT NULL CHECK(generation > 0),
+    expected_active_state TEXT NOT NULL CHECK(expected_active_state <> ''),
+    public_outcome_json TEXT NOT NULL CHECK(json_valid(public_outcome_json)),
+    public_report TEXT NOT NULL CHECK(public_report <> ''),
+    occurred_at INTEGER NOT NULL CHECK(occurred_at > 0)
+);
+
+CREATE TABLE IF NOT EXISTS terminal_outcome_private_dag_payloads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    terminal_identity TEXT NOT NULL UNIQUE CHECK(terminal_identity <> ''),
+    owner_agent_id TEXT NOT NULL CHECK(owner_agent_id <> ''),
+    public_thread_id TEXT NOT NULL CHECK(public_thread_id <> ''),
+    provider_turn_id TEXT NOT NULL CHECK(provider_turn_id <> ''),
+    payload_json TEXT NOT NULL CHECK(json_valid(payload_json)),
+    created_at INTEGER NOT NULL CHECK(created_at > 0),
+    FOREIGN KEY(terminal_identity) REFERENCES public_terminal_outcome_history(terminal_identity)
+);
+
+CREATE TABLE IF NOT EXISTS terminal_outcome_outbox_v2 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    terminal_identity TEXT NOT NULL UNIQUE CHECK(terminal_identity <> ''),
+    event_id TEXT NOT NULL UNIQUE CHECK(event_id <> ''),
+    public_payload_json TEXT NOT NULL CHECK(json_valid(public_payload_json)),
+    private_dag_payload_id INTEGER,
+    status TEXT NOT NULL CHECK(status IN ('pending', 'claimed', 'projected', 'poisoned')),
+    claimed_by TEXT NOT NULL DEFAULT '',
+    claim_token TEXT NOT NULL DEFAULT '',
+    lease_expires_at INTEGER,
+    attempt_count INTEGER NOT NULL DEFAULT 0 CHECK(attempt_count >= 0),
+    last_error TEXT NOT NULL DEFAULT '',
+    projected_at INTEGER,
+    created_at INTEGER NOT NULL CHECK(created_at > 0),
+    FOREIGN KEY(terminal_identity) REFERENCES public_terminal_outcome_history(terminal_identity),
+    FOREIGN KEY(private_dag_payload_id) REFERENCES terminal_outcome_private_dag_payloads(id),
+    CHECK(
+        (status IN ('pending', 'projected', 'poisoned') AND claimed_by = '' AND claim_token = '' AND lease_expires_at IS NULL) OR
+        (status = 'claimed' AND claimed_by <> '' AND claim_token <> '' AND lease_expires_at IS NOT NULL)
+    )
+);
+
 CREATE TABLE IF NOT EXISTS agent_threads (
     thread_id TEXT PRIMARY KEY,
     name TEXT NOT NULL DEFAULT '',
@@ -811,6 +922,9 @@ CREATE INDEX IF NOT EXISTS idx_task_traces_component_started ON task_traces(comp
 CREATE INDEX IF NOT EXISTS idx_cwd_instance_locks_heartbeat ON cwd_instance_locks(heartbeat_at);
 CREATE INDEX IF NOT EXISTS idx_turn_dedupe_registry_updated_at ON turn_dedupe_registry(updated_at);
 CREATE INDEX IF NOT EXISTS idx_turn_dedupe_registry_live ON turn_dedupe_registry(dedupe_key) WHERE terminal_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_terminal_outcome_outbox_claim ON terminal_outcome_outbox(status, claimed_at, id) WHERE status IN ('pending', 'claimed');
+CREATE INDEX IF NOT EXISTS idx_public_terminal_history_agent_generation ON public_terminal_outcome_history(agent_id, generation, head_version);
+CREATE INDEX IF NOT EXISTS idx_terminal_outcome_outbox_v2_claim ON terminal_outcome_outbox_v2(status, lease_expires_at, id) WHERE status IN ('pending', 'claimed');
 
 CREATE INDEX IF NOT EXISTS idx_cron_jobs_due ON cron_jobs(COALESCE(next_retry_at, next_run_at)) WHERE enabled = 1;
 CREATE INDEX IF NOT EXISTS idx_cron_jobs_claim ON cron_jobs(claimed_by, lease_expires_at) WHERE claim_token <> '';

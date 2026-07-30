@@ -109,7 +109,10 @@ var generatedSchemas = map[string]string{
               ]
             }
           ]
-        }
+        },
+        "required": [
+          "publicSummary"
+        ]
       }
     },
     {
@@ -126,6 +129,11 @@ var generatedSchemas = map[string]string{
       "then": {
         "not": {
           "anyOf": [
+            {
+              "required": [
+                "publicSummary"
+              ]
+            },
             {
               "required": [
                 "terminationCause"
@@ -163,8 +171,17 @@ var generatedSchemas = map[string]string{
       },
       "then": {
         "not": {
-          "required": [
-            "publicError"
+          "anyOf": [
+            {
+              "required": [
+                "publicSummary"
+              ]
+            },
+            {
+              "required": [
+                "publicError"
+              ]
+            }
           ]
         },
         "required": [
@@ -195,8 +212,17 @@ var generatedSchemas = map[string]string{
       },
       "then": {
         "not": {
-          "required": [
-            "terminationRequestId"
+          "anyOf": [
+            {
+              "required": [
+                "publicSummary"
+              ]
+            },
+            {
+              "required": [
+                "terminationRequestId"
+              ]
+            }
           ]
         },
         "required": [
@@ -255,6 +281,11 @@ var generatedSchemas = map[string]string{
     },
     "publicError": {
       "$ref": "PublicErrorV1"
+    },
+    "publicSummary": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
     },
     "schemaVersion": {
       "const": 2

@@ -8,6 +8,7 @@ import (
 
 	"github.com/kelindar/event"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
 	sharedto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/uistate/timeline"
@@ -244,6 +245,7 @@ func (s *service) threadPatchLocked(threadID, source string) uidto.UIThreadPatch
 		patch.Interruptible = patchInterruptible(status, id, s.state.ActiveTurn)
 	}
 	patch.ActiveTurn = s.threadPatchActiveTurnLocked(id)
+	patch.Agent = s.threadPatchAgentLocked(id)
 	if runtimeEntry, ok := s.threadAgentRuntimeLocked(id); ok {
 		patch.AgentRuntime = runtimeEntry
 	}
@@ -254,6 +256,30 @@ func (s *service) threadPatchLocked(threadID, source string) uidto.UIThreadPatch
 	s.applyThreadActivityStatsLocked(&patch, id)
 	s.applyThreadDiffLocked(&patch, id, source)
 	return patch
+}
+
+// threadPatchAgentLocked 返回与 thread 绑定的完整 Agent 看板契约。
+func (s *service) threadPatchAgentLocked(threadID string) *agentdto.BoardView {
+	threadID = strings.TrimSpace(threadID)
+	for _, item := range s.state.Agents {
+		if strings.TrimSpace(item.ThreadID) != threadID && strings.TrimSpace(item.ProviderThreadID) != threadID {
+			continue
+		}
+		board := &agentdto.BoardView{
+			ID:            strings.TrimSpace(item.ID),
+			ThreadID:      strings.TrimSpace(item.ThreadID),
+			ParentAgentID: strings.TrimSpace(item.ParentAgentID),
+			Name:          strings.TrimSpace(item.Name),
+			Assignment:    cloneAgentAssignment(item.Assignment),
+			Progress:      cloneAgentProgress(item.Progress),
+			Outcome:       cloneAgentOutcome(item.Outcome),
+		}
+		if board.Validate() != nil {
+			return nil
+		}
+		return board
+	}
+	return nil
 }
 
 func (s *service) threadPatchActiveTurnLocked(threadID string) *uidto.ThreadPatchActiveTurn {

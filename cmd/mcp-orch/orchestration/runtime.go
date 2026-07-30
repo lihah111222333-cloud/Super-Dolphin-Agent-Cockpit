@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
 )
 
 // UpdateRuntime 接收 runtime 上报的端口和 provider，并在 snapshot 可见字段变化时发布事件。
@@ -90,6 +92,54 @@ func (s *service) snapshotLocked(_ context.Context, agent *agentRuntime) AgentSn
 		LastReport:     normalizeDisplayReportText(agent.lastReport),
 		CreatedAt:      createdAt,
 		UpdatedAt:      agent.updatedAt,
+		Assignment:     boardAssignment(agent.name, agent.prompt, createdAt),
+		Progress:       agentdto.Progress{Status: string(agent.state), UpdatedAt: agent.updatedAt},
+		Outcome:        cloneAgentOutcome(agent.outcome),
+	}
+}
+
+// boardAssignment 只在启动请求的标题、描述和时间都可用时建立委派契约。
+func boardAssignment(title, description string, assignedAt time.Time) *agentdto.Assignment {
+	assignment := &agentdto.Assignment{
+		Title: strings.TrimSpace(title), Description: strings.TrimSpace(description), AssignedAt: assignedAt,
+	}
+	if assignment.Validate() != nil {
+		return nil
+	}
+	return assignment
+}
+
+// cloneAgentOutcome 复制结构化终态及其可选 recoverable 指针。
+func cloneAgentOutcome(source *agentdto.Outcome) *agentdto.Outcome {
+	if source == nil {
+		return nil
+	}
+	out := *source
+	if source.Recoverable != nil {
+		recoverable := *source.Recoverable
+		out.Recoverable = &recoverable
+	}
+	return &out
+}
+
+// agentBoardView 从同一个 runtime 锁内快照构造 UI 事件载荷。
+func agentBoardView(agent *agentRuntime) *agentdto.BoardView {
+	if agent == nil {
+		return nil
+	}
+	threadID := strings.TrimSpace(agent.remoteThreadID)
+	if threadID == "" {
+		threadID = strings.TrimSpace(agent.threadID)
+	}
+	createdAt := agent.startedAt
+	if createdAt.IsZero() {
+		createdAt = agent.updatedAt
+	}
+	return &agentdto.BoardView{
+		ID: agent.id, ThreadID: threadID, ParentAgentID: strings.TrimSpace(agent.parentID), Name: strings.TrimSpace(agent.name),
+		Assignment: boardAssignment(agent.name, agent.prompt, createdAt),
+		Progress:   agentdto.Progress{Status: string(agent.state), UpdatedAt: agent.updatedAt},
+		Outcome:    cloneAgentOutcome(agent.outcome),
 	}
 }
 

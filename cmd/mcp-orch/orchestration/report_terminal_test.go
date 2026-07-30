@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -137,6 +138,42 @@ func mustWriteReportFileWithModTime(t *testing.T, cwd, agentID, name, report str
 		t.Fatalf("Chtimes(report) error = %v", err)
 	}
 	return path
+}
+
+func TestTerminalReportOutcomeUsesOnlyStructuredTerminalFields(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 7, 28, 11, 0, 0, 0, time.UTC)
+	ctx := withEventTime(context.Background(), now)
+	tests := []struct {
+		name string
+		raw  string
+		kind string
+		text string
+	}{
+		{name: "success", raw: `{"success":true,"summary":"完成契约","status":"completed"}`, kind: agentdto.OutcomeKindSuccess, text: "完成契约"},
+		{name: "failure", raw: `{"success":false,"error":"provider failed","status":"failed"}`, kind: agentdto.OutcomeKindFailure, text: "provider failed"},
+		{name: "stopped", raw: `{"success":false,"stop_reason":"user cancelled","status":"cancelled"}`, kind: agentdto.OutcomeKindStopped, text: "user cancelled"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			outcome, err := terminalReportOutcome(ctx, json.RawMessage(tc.raw), "ignored fallback")
+			if err != nil {
+				t.Fatalf("terminalReportOutcome() error = %v", err)
+			}
+			if outcome == nil || outcome.Kind != tc.kind || outcome.CompletedAt != now {
+				t.Fatalf("terminalReportOutcome() = %#v, want kind %s at %v", outcome, tc.kind, now)
+			}
+			if outcome.Summary != tc.text && outcome.Reason != tc.text {
+				t.Fatalf("terminalReportOutcome() = %#v, want text %q", outcome, tc.text)
+			}
+		})
+	}
+	for _, raw := range []string{`{"success":true}`, `{"success":false,"status":"failed"}`} {
+		outcome, err := terminalReportOutcome(ctx, json.RawMessage(raw), "")
+		if err != nil || outcome != nil {
+			t.Fatalf("terminalReportOutcome(%s) = %#v, %v; want unavailable nil outcome", raw, outcome, err)
+		}
+	}
 }
 
 func assertReportFileExists(t *testing.T, path string) {

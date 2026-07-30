@@ -8,6 +8,7 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	rpcpkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 	goldentest "github.com/lihah111222333-cloud/super-dolphin-agent/internal/testutil/golden"
@@ -65,18 +66,24 @@ func listAgentSnapshots(at time.Time) []contract.AgentSnapshot {
 			LastReport: "alpha finished",
 			CreatedAt:  at,
 			UpdatedAt:  at,
+			Assignment: &agentdto.Assignment{Title: "list-alpha", Description: "run alpha", AssignedAt: at},
+			Progress:   agentdto.Progress{Status: "idle", UpdatedAt: at},
+			Outcome:    &agentdto.Outcome{Kind: agentdto.OutcomeKindSuccess, Summary: "alpha finished", CompletedAt: at},
 		},
 		{
-			AgentID:   "agent-list-2",
-			ID:        "agent-list-2",
-			Name:      "list-beta",
-			ParentID:  "agent-list-1",
-			ThreadID:  "thread-list-2",
-			Cwd:       "/tmp/agent-list/beta",
-			State:     "running",
-			Provider:  "codex",
-			CreatedAt: at,
-			UpdatedAt: at,
+			AgentID:    "agent-list-2",
+			ID:         "agent-list-2",
+			Name:       "list-beta",
+			ParentID:   "agent-list-1",
+			ThreadID:   "thread-list-2",
+			Cwd:        "/tmp/agent-list/beta",
+			State:      "running",
+			Provider:   "codex",
+			CreatedAt:  at,
+			UpdatedAt:  at,
+			Assignment: &agentdto.Assignment{Title: "list-beta", Description: "run beta", AssignedAt: at},
+			Progress:   agentdto.Progress{Status: "running", UpdatedAt: at},
+			Outcome:    nil,
 		},
 	}
 }

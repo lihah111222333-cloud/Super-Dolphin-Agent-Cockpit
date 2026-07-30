@@ -72,21 +72,21 @@ func Enqueue(ctx context.Context, flow any, node *taskdag.Node, result json.RawM
 
 // EnqueueTerminalFailureCompensation 记录终态失败写库失败的补偿 wakeup。
 // 它只保存待人工或后续修复消费的事实，不尝试在回调里再次推进节点状态。
-func EnqueueTerminalFailureCompensation(ctx context.Context, flow any, logger *slog.Logger, node *taskdag.Node, reason string, storeErr error, failFast bool) {
+func EnqueueTerminalFailureCompensation(ctx context.Context, flow any, logger *slog.Logger, node *taskdag.Node, reason string, storeErr error, failFast bool) error {
 	enqueuer, ok := flow.(Enqueuer)
 	if !ok {
 		logger.Warn("terminal failure compensation: wakeup enqueue port not wired", "dag_key", node.DagKey, "node_key", node.NodeKey)
-		return
+		return errors.New("terminal failure compensation wakeup enqueue port not wired")
 	}
 	runID := nodeRunID(node)
 	if runID <= 0 {
 		logger.Warn("terminal failure compensation: runtime run_id required", "dag_key", node.DagKey, "node_key", node.NodeKey)
-		return
+		return errors.New("terminal failure compensation runtime run_id required")
 	}
 	payload, err := json.Marshal(terminalFailureCompensationPayload{Reason: strings.TrimSpace(reason), StoreError: errorText(storeErr), FailFast: failFast})
 	if err != nil {
 		logger.Warn("terminal failure compensation: marshal failed", "dag_key", node.DagKey, "node_key", node.NodeKey, "error", err)
-		return
+		return fmt.Errorf("marshal terminal failure compensation: %w", err)
 	}
 	if _, err := enqueuer.EnqueueWakeup(ctx, taskdag.EnqueueWakeupInput{
 		DagKey: node.DagKey, NodeKey: node.NodeKey, RunID: runID, WakeupKind: TerminalFailureCompensationKind,
@@ -94,7 +94,9 @@ func EnqueueTerminalFailureCompensation(ctx context.Context, flow any, logger *s
 		IdempotencyKey: TerminalFailureCompensationID(node.DagKey, node.NodeKey, runID),
 	}); err != nil {
 		logger.Warn("terminal failure compensation: enqueue failed", "dag_key", node.DagKey, "node_key", node.NodeKey, "error", err)
+		return fmt.Errorf("enqueue terminal failure compensation: %w", err)
 	}
+	return nil
 }
 
 type terminalFailureCompensationPayload struct {

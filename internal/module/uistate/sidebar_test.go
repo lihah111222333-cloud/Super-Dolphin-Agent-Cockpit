@@ -372,6 +372,42 @@ func TestApplyThreadUpdatedSyncsSidebarModel(t *testing.T) {
 	}
 }
 
+func TestThreadStartedProjectsAuthoritativeAgentBoardFields(t *testing.T) {
+	t.Parallel()
+
+	svc := mustNewUIStateService(t)
+	now := time.Now().UTC()
+	currentStep := "执行实现"
+	board := &agentdto.BoardView{
+		ID: "agent-1", ThreadID: "thread-1", ParentAgentID: "parent-1", Name: "worker",
+		Assignment: &agentdto.Assignment{Title: "修复 bootstrap", Description: "保持 Agent 看板权威字段", AssignedAt: now},
+		Progress:   agentdto.Progress{Status: "turn_running", CurrentStep: &currentStep, UpdatedAt: now},
+	}
+	svc.applyThreadStarted(threaddto.Started{
+		EventHeader: sharedto.EventHeader{Timestamp: now.Add(time.Second)},
+		ThreadID:    "thread-1", AgentID: "agent-1", Provider: "codex", ProviderThreadID: "provider-thread-1", Name: "worker",
+		Board: board,
+	})
+
+	sidebar, err := svc.GetSidebar(context.Background())
+	if err != nil {
+		t.Fatalf("GetSidebar() error = %v", err)
+	}
+	if len(sidebar.Agents) != 1 {
+		t.Fatalf("agents = %#v, want one agent", sidebar.Agents)
+	}
+	got := sidebar.Agents[0]
+	if got.ParentAgentID != "parent-1" || got.Assignment == nil || got.Assignment.Title != "修复 bootstrap" {
+		t.Fatalf("board identity/assignment overwritten by thread.Started: %#v", got)
+	}
+	if err := got.Progress.Validate(); err != nil {
+		t.Fatalf("progress after thread.Started is invalid: %v (%#v)", err, got.Progress)
+	}
+	if got.Progress.Status != "turn_running" || !got.Progress.UpdatedAt.Equal(now) {
+		t.Fatalf("progress overwritten by thread.Started: %#v", got.Progress)
+	}
+}
+
 func TestSetPreferencePublishesProjectionUpdatesForSettingsKeys(t *testing.T) {
 	t.Parallel()
 

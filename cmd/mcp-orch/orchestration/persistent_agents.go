@@ -185,7 +185,17 @@ func snapshotFromPersistedThread(thread PersistedThread) (AgentSnapshot, bool) {
 		return AgentSnapshot{}, false
 	}
 	name := strings.TrimSpace(platformshared.FirstNonEmpty(thread.Name, thread.Prompt, agentID))
-	return AgentSnapshot{ID: agentID, AgentID: agentID, Name: name, ParentID: strings.TrimSpace(thread.ParentAgentID), Port: int(thread.Port), PID: int(thread.PID), ThreadID: strings.TrimSpace(thread.ThreadID), Cwd: strings.TrimSpace(thread.Cwd), State: persistedThreadAgentState(thread), CreatedAt: contract.NormalizeUnixTime(thread.CreatedAt), UpdatedAt: contract.NormalizeUnixTime(thread.UpdatedAt, thread.CreatedAt)}, true
+	createdAt := contract.NormalizeUnixTime(thread.CreatedAt)
+	updatedAt := contract.NormalizeUnixTime(thread.UpdatedAt, thread.CreatedAt)
+	state := persistedThreadAgentState(thread)
+	return AgentSnapshot{
+		ID: agentID, AgentID: agentID, Name: name, ParentID: strings.TrimSpace(thread.ParentAgentID),
+		Port: int(thread.Port), PID: int(thread.PID), ThreadID: strings.TrimSpace(thread.ThreadID),
+		Cwd: strings.TrimSpace(thread.Cwd), State: state, CreatedAt: createdAt, UpdatedAt: updatedAt,
+		Assignment: &agentdto.Assignment{Title: name, Description: strings.TrimSpace(thread.Prompt), AssignedAt: createdAt},
+		Progress:   agentdto.Progress{Status: string(state), UpdatedAt: updatedAt},
+		Outcome:    nil,
+	}, true
 }
 
 func persistedThreadAgentID(thread PersistedThread) string {

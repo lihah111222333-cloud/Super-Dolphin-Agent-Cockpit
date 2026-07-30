@@ -84,6 +84,7 @@ func TestBindPublishesCanonicalTurnTerminal(t *testing.T) {
 		TurnHeader: bindTestTurnHeader(now),
 		Success:    true,
 		Status:     "completed",
+		Summary:    "public success summary",
 	}
 	terminal, err := turndto.NewTurnTerminalV2(completed, "bind-terminal-event")
 	if err != nil {
@@ -124,6 +125,7 @@ func TestRemoteTurnTerminalRequiresCanonicalPayloadAndExplicitOwner(t *testing.T
 		ThreadID:      "thread-1",
 		TurnID:        "turn-1",
 		Outcome:       "success",
+		PublicSummary: "completed",
 		OccurredAt:    "2026-07-16T10:11:12.123Z",
 	}
 	decoded, err := DecodeRemoteTurnTerminal(jsonValueDecoder(t, canonical))

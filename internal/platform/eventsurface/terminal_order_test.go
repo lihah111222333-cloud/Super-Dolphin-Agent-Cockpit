@@ -103,6 +103,7 @@ func bindTestCanonicalCompletion(t *testing.T, result string) turndto.TurnComple
 		Success:        true,
 		Status:         "completed",
 		Result:         result,
+		Summary:        "public success summary",
 		PartialItemIDs: []string{"assistant-item-1"},
 	}
 	terminal, err := turndto.NewTurnTerminalV2(completed, "bind-test-terminal")

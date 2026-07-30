@@ -60,6 +60,7 @@
     "src/shared/api/backendSchemas.js",
     "src/shared/api/bridgeSafeLogFields.js",
     "src/shared/api/browser/browserStorage.js",
+    "src/shared/api/contracts/agentBoardContract.js",
     "src/shared/api/safeDiagnosticPreview.js",
     "src/shared/api/wails/sharedFilePreviewContract.js",
     "src/shared/api/wails/wailsBridgeClipboardEvents.js",

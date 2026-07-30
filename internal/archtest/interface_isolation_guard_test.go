@@ -63,7 +63,7 @@ func TestTaskDAGStoreConsumersUseNarrowPort(t *testing.T) {
 		structName string
 		fieldName  string
 	}{
-		{relPath: "cmd/mcp-orch/orchestration/dag_controller.go", structName: "dagController", fieldName: "dagStore"},
+		{relPath: "cmd/mcp-orch/orchestration/dag.go", structName: "dagController", fieldName: "dagStore"},
 		{relPath: "cmd/mcp-orch/orchestration/service.go", structName: "serviceParams", fieldName: "DAGStore"},
 	} {
 		actual, ok := structFieldType(t, root, field.relPath, field.structName, field.fieldName)

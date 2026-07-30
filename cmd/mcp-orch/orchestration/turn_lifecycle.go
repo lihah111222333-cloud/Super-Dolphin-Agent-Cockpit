@@ -81,6 +81,15 @@ func (s *service) deferProviderTurnCompletion(ev turndto.TurnCompleted) bool {
 }
 
 func (s *service) handleBufferedProviderTurnCompletion(ctx context.Context, ev turndto.TurnCompleted) {
+	handled, err := s.CommitTurnCompleted(ctx, ev)
+	if err != nil {
+		s.logger.Warn("orchestration: buffered canonical terminal commit failed",
+			"agent_id", ev.AgentID, "thread_id", ev.ThreadID, "turn_id", ev.TurnID, "error", err)
+		return
+	}
+	if handled {
+		return
+	}
 	handleTurnCompletedEventWithCtx(s, s.logger, ev, ctx)
 }
 

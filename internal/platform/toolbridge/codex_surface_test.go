@@ -152,8 +152,11 @@ func TestPrepareCodexToolSurfaceFiltersDisabledToolsAndRejectsStaleCalls(t *test
 	orch := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "launch_agent", Description: "launch", InputSchema: strictEmptyObjectSchema()}}}
 	external := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "connect_tool_source", Description: "connect source", InputSchema: strictEmptyObjectSchema()}}}
 	h := &Handler{
-		hostTools:          host,
-		skillTools:         skills,
+		hostTools:  host,
+		skillTools: skills,
+		bindingStore: &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
+			"agent-allow": {AgentID: "agent-allow", Provider: "codex", ProviderThreadID: "provider-thread-allow"},
+		}},
 		stdioClientFactory: fakeClientFactory(map[string]mcpClient{mcpdto.ClientKindOrch: orch, "external": external}),
 	}
 	manifest := providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{
@@ -379,9 +382,10 @@ func TestCodexToolSurfaceLaunchInjectsManagedContextWithoutCWD(t *testing.T) {
 				stdioClientFactory: fakeClientFactory(map[string]mcpClient{"orch": orch}),
 				bindingStore: &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
 					"agent-parent": {
-						AgentID:  "agent-parent",
-						Provider: "codex",
-						CWD:      "/repo/project",
+						AgentID:          "agent-parent",
+						Provider:         "codex",
+						ProviderThreadID: "provider-thread-parent",
+						CWD:              "/repo/project",
 					},
 				}},
 				threadStore: &toolCallThreadStoreStub{},

@@ -35,8 +35,8 @@ func insertVersion(t *testing.T, db *sql.DB, version int) {
 
 func TestMinRequiredSchemaVersion(t *testing.T) {
 	t.Parallel()
-	if MinRequiredSchemaVersion != 113 {
-		t.Fatalf("MinRequiredSchemaVersion = %d, want 113", MinRequiredSchemaVersion)
+	if MinRequiredSchemaVersion != 121 {
+		t.Fatalf("MinRequiredSchemaVersion = %d, want 121", MinRequiredSchemaVersion)
 	}
 }
 
@@ -94,6 +94,14 @@ func TestSchemaGateRejectsMissingRequiredColumns(t *testing.T) {
 		"hook_pending_reviews.payload",
 		"shared_files.content_location",
 		"turn_dedupe_registry.terminal_at",
+		"terminal_outcome_current_heads.capability",
+		"terminal_outcome_current_heads.version",
+		"terminal_outcome_current_heads.terminal_identity",
+		"public_terminal_outcome_history.head_version",
+		"public_terminal_outcome_history.public_outcome_json",
+		"terminal_outcome_private_dag_payloads.payload_json",
+		"terminal_outcome_outbox_v2.public_payload_json",
+		"terminal_outcome_outbox_v2.claim_token",
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("VerifyMinSchemaVersion err = %v, want missing %s", err, want)

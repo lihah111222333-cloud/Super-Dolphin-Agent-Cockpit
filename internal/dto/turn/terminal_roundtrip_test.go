@@ -61,6 +61,7 @@ func TestAttachCanonicalTurnTerminalRejectsIdentityMismatch(t *testing.T) {
 		ThreadID:      "thread-1",
 		TurnID:        "turn-1",
 		Outcome:       "success",
+		PublicSummary: "completed",
 		OccurredAt:    "2026-07-17T01:02:03Z",
 	}
 	matching := terminalTestHeader(t, terminal)
@@ -87,6 +88,7 @@ func TestNewTurnTerminalV2PreservesAcceptedPartialItemIDs(t *testing.T) {
 		TurnHeader:     turnHeaderWith(time.Date(2026, 7, 17, 1, 2, 3, 0, time.UTC), "thread-1", "turn-1"),
 		Success:        true,
 		Status:         "completed",
+		Summary:        "public success summary",
 		PartialItemIDs: []string{"item-accepted-1"},
 	}
 	terminal, err := NewTurnTerminalV2(event, "event-local")

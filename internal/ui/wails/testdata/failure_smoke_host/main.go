@@ -17,6 +17,7 @@ import (
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/handler"
 	"github.com/kelindar/event"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
@@ -337,6 +338,9 @@ func fixtureResponses(project string) map[string]any {
 
 // fixtureSidebarState 同时构造旧 UI 状态和强类型 sidebar 快照，保证两条启动路径使用同一身份数据。
 func fixtureSidebarState(project string) (map[string]any, map[string]any, map[string]any, uistate.Sidebar) {
+	assignedAt := time.Date(2026, time.July, 28, 8, 0, 0, 0, time.UTC)
+	assignment := &agentdto.Assignment{Title: "Failure smoke agent", Description: "Exercise failure smoke", AssignedAt: assignedAt}
+	progress := agentdto.Progress{Status: string(agentdto.StateTurnRunning), UpdatedAt: assignedAt}
 	thread := map[string]any{
 		"id":              smokeThreadID,
 		"name":            "Failure smoke thread",
@@ -344,13 +348,9 @@ func fixtureSidebarState(project string) (map[string]any, map[string]any, map[st
 		"lifecycleStatus": "running",
 	}
 	agent := map[string]any{
-		"id":        "agent-failure-smoke",
-		"name":      "Failure smoke agent",
-		"thread_id": smokeThreadID,
-		"state":     "running",
-		"provider":  "codex",
-		"model":     "gpt-5.5",
-		"cwd":       project,
+		"id": "agent-failure-smoke", "name": "Failure smoke agent", "thread_id": smokeThreadID,
+		"parentAgentId": "", "assignment": assignment, "progress": progress, "outcome": nil,
+		"state": "running", "provider": "codex", "model": "gpt-5.5", "cwd": project,
 	}
 	tokenUsage := map[string]any{
 		"inputTokens": 0, "outputTokens": 0, "totalTokens": 0, "usedTokens": 0,
@@ -362,6 +362,7 @@ func fixtureSidebarState(project string) (map[string]any, map[string]any, map[st
 		}},
 		Agents: []uistate.AgentSummary{{
 			ID: "agent-failure-smoke", Name: "Failure smoke agent", ThreadID: smokeThreadID,
+			Assignment: assignment, Progress: progress, Outcome: nil,
 			State: "running", Provider: "codex", Model: "gpt-5.5", CWD: project,
 		}},
 		RecentTurns:    []uistate.TurnSummary{},
