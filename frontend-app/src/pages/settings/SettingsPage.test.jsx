@@ -75,7 +75,7 @@ function createTestQueryClient() {
 function settingsPageView(queryClient, projectPath, pageProps = {}) {
   return (
     <QueryClientProvider client={queryClient}>
-      <SettingsPage projectPath={projectPath} {...pageProps} />
+      <SettingsPage appearance={{ accent: 'violet', reset: () => {}, setAccent: () => {}, setThemeMode: () => {}, setUiScale: () => {}, themeMode: 'system', uiScale: 100 }} projectPath={projectPath} {...pageProps} />
     </QueryClientProvider>
   );
 }

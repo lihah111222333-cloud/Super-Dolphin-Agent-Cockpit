@@ -292,7 +292,7 @@ describe('layer token and overlay host contract', () => {
       return !match || !EXPECTED_Z_INDEX_TOKENS.has(match[1]);
     });
 
-    expect(declarations).toHaveLength(44);
+    expect(declarations).toHaveLength(48);
     expect(files).toEqual(EXPECTED_Z_INDEX_FILES);
     expect(invalid).toEqual([]);
   });
@@ -1461,8 +1461,8 @@ describe('workbench shell styles', () => {
       expect(topCommand.height).toBe('64px');
       expect(topCommand.padding).toBe('0 24px');
       expect(mobileTopCommand.padding).toBe('0 14px 0 64px');
-      expect(topCommand.background).toBe('var(--bg)');
-      expect(topCommand['border-bottom']).toBe('0');
+      expect(topCommand.background).toBe('color-mix(in srgb, var(--bg) 88%, var(--surface))');
+      expect(topCommand['border-bottom']).toBe('1px solid var(--border)');
       expect(mainCanvas.height).toBe('100%');
       expect(nonChatPage['padding-top']).toBe('64px');
       expect(skillsPage['padding-top']).toBe('64px');
@@ -1611,8 +1611,8 @@ describe('workbench shell styles', () => {
     expect(sidebar.background).toBe('var(--sidebar-bg)');
     expect(sidebar['border-right']).toBe('1px solid var(--sidebar-border)');
     expect(sidebar.overflow).toBe('hidden');
-    expect(body.height).toBe('100vh');
-    expect(body['grid-template-columns']).toBe('var(--workbench-sidebar-width) minmax(0, 1fr)');
+    expect(body.height).toBe('calc(100vh - 24px)');
+    expect(body['grid-template-columns']).toBe('48px var(--workbench-sidebar-width) minmax(0, 1fr)');
     expect(brand.display).toBe('flex');
     expect(brandMeta.display).toBe('grid');
     expect(newChat['min-height']).toBe('40px');

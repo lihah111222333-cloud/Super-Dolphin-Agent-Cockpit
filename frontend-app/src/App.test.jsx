@@ -2,7 +2,6 @@ import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App.jsx';
-import { getStoredTheme, syncThemeDOM } from './app/appShellModel.js';
 import appSource from './App.jsx?raw';
 import appRoutesSource from './AppRoutes.jsx?raw';
 import { AppErrorBoundary } from './app/AppErrorBoundary.jsx';
@@ -15,37 +14,14 @@ import { normalizeMemorySnapshot as normalizeMemorySnapshotForFacade } from './a
 import './test-utils/preloadAppRouteModules.js';
 import mermaid from 'mermaid';
 
-let createRootMock = null;
-vi.mock('react-dom/client', async (importOriginal) => {
-  const original = await importOriginal();
-  return {
-    ...original,
-    createRoot: (...args) => {
-      if (createRootMock) return createRootMock(...args);
-      return original.createRoot(...args);
-    },
-  };
-});
-
-let syncThemeDOMMock = null;
-let getStoredThemeMock = null;
-vi.mock('./app/appShellModel.js', async (importOriginal) => {
-  const original = await importOriginal();
-  return {
-    ...original,
-    syncThemeDOM: (...args) => {
-      if (syncThemeDOMMock) return syncThemeDOMMock(...args);
-      return original.syncThemeDOM(...args);
-    },
-    getStoredTheme: (...args) => {
-      if (getStoredThemeMock) return getStoredThemeMock(...args);
-      return original.getStoredTheme(...args);
-    },
-  };
-});
-
 let bridgeCallback;
 let appOverlayHost;
+
+window.matchMedia = vi.fn(() => ({
+  matches: false,
+  addEventListener: vi.fn(),
+  removeEventListener: vi.fn(),
+}));
 
 function dispatchPointer(target, type, clientX = 0, options = {}) {
   const defaultButtons = type === 'pointerup' ? 0 : 1;
@@ -670,7 +646,7 @@ it('wires one required overlay host through the App React Aria provider and exis
   expect(appSource).not.toMatch(/function\s+requiredOverlayRoot\s*\(/);
   expect(appSource).not.toMatch(/querySelectorAll\(['"]#overlay-root['"]\)/);
   expect(appSource).toMatch(/<UNSAFE_PortalProvider\b[\s\S]{0,200}getContainer=\{[^}]*overlayRoot[^}]*\}/);
-  expect(appSource).toContain('useColorTheme');
+  expect(appSource).toContain('AppearanceProvider');
   expect(appSource).not.toMatch(/overlay(?:Theme)?(?:Store|Storage|Persistence)/i);
   expect(appSource).not.toMatch(/overlayRoot\s*(?:\|\||\?\?)\s*document\.body/);
 });
@@ -949,7 +925,7 @@ async function showAllTraceDashboardEvents() {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     Object.defineProperty(window, 'localStorage', { configurable: true, value: {} });
     try {
-      expect(() => render(<App />)).toThrow(/theme storage is unavailable/);
+      expect(() => render(<App />)).toThrow(/appearance storage is unavailable/);
     } finally {
       Object.defineProperty(window, 'localStorage', { configurable: true, value: originalStorage });
       consoleError.mockRestore();
@@ -1283,7 +1259,7 @@ async function showAllTraceDashboardEvents() {
     expect(banner).not.toHaveTextContent(secret);
   });
 
-  describe('theme cold start and switching behavior', () => {
+  describe('global appearance switching behavior', () => {
     beforeEach(() => {
       window.localStorage.clear();
       document.documentElement.removeAttribute('data-theme');
@@ -1291,107 +1267,118 @@ async function showAllTraceDashboardEvents() {
     });
 
     afterEach(() => {
-      window.dispatchEvent(new Event('pagehide'));
       window.localStorage.clear();
-      document.documentElement.removeAttribute('data-theme');
-      document.body.removeAttribute('data-theme');
     });
 
-    it('performs cold start with no stored value (defaults to light)', () => {
-      const theme = getStoredTheme();
-      expect(theme).toBe('light');
-      syncThemeDOM(theme);
-      expect(document.documentElement).toHaveAttribute('data-theme', 'light');
-      expect(document.body).toHaveAttribute('data-theme', 'light');
-    });
-
-    it('performs cold start with pre-stored dark theme', () => {
-      window.localStorage.setItem('super-dolphin-theme', 'dark');
-      const theme = getStoredTheme();
-      expect(theme).toBe('dark');
-      syncThemeDOM(theme);
-      expect(document.documentElement).toHaveAttribute('data-theme', 'dark');
-      expect(document.body).toHaveAttribute('data-theme', 'dark');
-    });
-
-    it('executes main.jsx with no stored theme, calling syncThemeDOM before createRoot', async () => {
-      const rootDiv = document.createElement('div');
-      rootDiv.id = 'root';
-      document.body.appendChild(rootDiv);
-
-      const renderMock = vi.fn();
-      createRootMock = vi.fn().mockReturnValue({ render: renderMock });
-      syncThemeDOMMock = vi.fn();
-
-      await import('./main.jsx?t=no-stored-theme');
-
-      expect(syncThemeDOMMock).toHaveBeenCalledWith('light');
-      expect(createRootMock).toHaveBeenCalled();
-
-      const syncCallOrder = syncThemeDOMMock.mock.invocationCallOrder[0];
-      const renderCallOrder = createRootMock.mock.invocationCallOrder[0];
-      expect(syncCallOrder).toBeLessThan(renderCallOrder);
-
-      createRootMock = null;
-      syncThemeDOMMock = null;
-      rootDiv.remove();
-    });
-
-    it('executes main.jsx with dark stored theme, calling syncThemeDOM before createRoot', async () => {
-      window.localStorage.setItem('super-dolphin-theme', 'dark');
-
-      const rootDiv = document.createElement('div');
-      rootDiv.id = 'root';
-      document.body.appendChild(rootDiv);
-
-      const renderMock = vi.fn();
-      createRootMock = vi.fn().mockReturnValue({ render: renderMock });
-      syncThemeDOMMock = vi.fn();
-
-      await import('./main.jsx?t=dark-stored-theme');
-
-      expect(syncThemeDOMMock).toHaveBeenCalledWith('dark');
-      expect(createRootMock).toHaveBeenCalled();
-
-      const syncCallOrder = syncThemeDOMMock.mock.invocationCallOrder[0];
-      const renderCallOrder = createRootMock.mock.invocationCallOrder[0];
-      expect(syncCallOrder).toBeLessThan(renderCallOrder);
-
-      createRootMock = null;
-      syncThemeDOMMock = null;
-      rootDiv.remove();
-    });
-
-    it('toggles the local color theme without calling backend preferences', async () => {
+    it('initializes system/100/violet and projects every global attribute', async () => {
       render(<App />);
-
       const shell = await screen.findByTestId('frontend-app');
+      expect(shell).toHaveAttribute('data-theme-mode', 'system');
+      expect(shell).toHaveAttribute('data-ui-scale', '100');
+      expect(shell).toHaveAttribute('data-accent', 'violet');
+      expect(document.documentElement).toHaveAttribute('data-theme', 'light');
+      expect(appOverlayHost).toHaveAttribute('data-accent', 'violet');
+      expect(window.localStorage.getItem('super-dolphin.appearance')).toContain('"version":1');
+    });
+
+    it('toggles the single global owner without backend preferences', async () => {
+      render(<App />);
       const preferenceCallsBeforeToggle = backend.setPreference.mock.calls.length;
-
-      expect(shell).toHaveAttribute('data-theme', 'light');
-      expect(appOverlayHost).toHaveAttribute('data-theme', 'light');
-      expect(document.documentElement).toHaveAttribute('data-theme', 'light');
-      expect(document.body).toHaveAttribute('data-theme', 'light');
-
-      fireEvent.click(screen.getByRole('button', { name: '切换到黑夜模式' }));
-      expect(shell).toHaveAttribute('data-theme', 'dark');
-      expect(appOverlayHost).toHaveAttribute('data-theme', 'dark');
+      fireEvent.click(await screen.findByRole('button', { name: '切换到黑夜模式' }));
       expect(document.documentElement).toHaveAttribute('data-theme', 'dark');
-      expect(document.body).toHaveAttribute('data-theme', 'dark');
-      expect(window.localStorage.getItem('super-dolphin-theme')).toBe('dark');
-      expect(screen.getByRole('button', { name: '切换到白天模式' })).toBeInTheDocument();
-
-      appOverlayHost.setAttribute('data-theme', 'tampered');
-      fireEvent.click(screen.getByRole('button', { name: '切换到白天模式' }));
-      expect(shell).toHaveAttribute('data-theme', 'light');
-      expect(appOverlayHost).toHaveAttribute('data-theme', 'light');
-      expect(document.documentElement).toHaveAttribute('data-theme', 'light');
-      expect(document.body).toHaveAttribute('data-theme', 'light');
-      expect(window.localStorage.getItem('super-dolphin-theme')).toBe('light');
-      expect(screen.getByRole('button', { name: '切换到黑夜模式' })).toBeInTheDocument();
+      expect(appOverlayHost).toHaveAttribute('data-theme', 'dark');
+      expect(window.localStorage.getItem('super-dolphin.appearance')).toContain('"themeMode":"dark"');
       expect(backend.setPreference.mock.calls.length).toBe(preferenceCallsBeforeToggle);
     });
+
+    it('migrates the valid legacy dark value into the versioned owner once', async () => {
+      window.localStorage.setItem('super-dolphin-theme', 'dark');
+      render(<App />);
+      const shell = await screen.findByTestId('frontend-app');
+      const stored = window.localStorage.getItem('super-dolphin.appearance');
+      expect(shell).toHaveAttribute('data-theme', 'dark');
+      expect(shell).toHaveAttribute('data-theme-mode', 'dark');
+      expect(document.documentElement).toHaveAttribute('data-theme', 'dark');
+      expect(document.body).toHaveAttribute('data-theme', 'dark');
+      expect(appOverlayHost).toHaveAttribute('data-theme', 'dark');
+      expect(stored).toContain('"version":1');
+      expect(stored).toContain('"themeMode":"dark"');
+      expect(stored).toContain('"uiScale":100');
+      expect(stored).toContain('"accent":"violet"');
+      expect(window.localStorage.getItem('super-dolphin-theme')).toBeNull();
+    });
+
+    it('loads persisted scale and accent into every root projection target', async () => {
+      window.localStorage.setItem(
+        'super-dolphin.appearance',
+        JSON.stringify({
+          version: 1,
+          settings: {
+            themeMode: 'light',
+            uiScale: 125,
+            accent: 'mint',
+          },
+        }),
+      );
+      render(<App />);
+      const shell = await screen.findByTestId('frontend-app');
+      expect(shell).toHaveAttribute('data-theme', 'light');
+      expect(shell).toHaveAttribute('data-theme-mode', 'light');
+      expect(shell).toHaveAttribute('data-ui-scale', '125');
+      expect(shell).toHaveAttribute('data-accent', 'mint');
+      expect(shell.style.getPropertyValue('--ui-scale')).toBe('1.25');
+      expect(document.documentElement).toHaveAttribute('data-ui-scale', '125');
+      expect(document.documentElement).toHaveAttribute('data-accent', 'mint');
+      expect(document.body).toHaveAttribute('data-ui-scale', '125');
+      expect(document.body).toHaveAttribute('data-accent', 'mint');
+      expect(appOverlayHost).toHaveAttribute('data-ui-scale', '125');
+      expect(appOverlayHost).toHaveAttribute('data-accent', 'mint');
+    });
+
+    it('resolves system dark mode without replacing the stored system preference', async () => {
+      window.matchMedia.mockReturnValue({
+        matches: true,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      });
+      render(<App />);
+      const shell = await screen.findByTestId('frontend-app');
+      const stored = window.localStorage.getItem('super-dolphin.appearance');
+      expect(window.matchMedia).toHaveBeenCalledWith('(prefers-color-scheme: dark)');
+      expect(shell).toHaveAttribute('data-theme', 'dark');
+      expect(shell).toHaveAttribute('data-theme-mode', 'system');
+      expect(document.documentElement).toHaveAttribute('data-theme', 'dark');
+      expect(document.documentElement).toHaveAttribute('data-theme-mode', 'system');
+      expect(document.body).toHaveAttribute('data-theme', 'dark');
+      expect(document.body).toHaveAttribute('data-theme-mode', 'system');
+      expect(appOverlayHost).toHaveAttribute('data-theme', 'dark');
+      expect(appOverlayHost).toHaveAttribute('data-theme-mode', 'system');
+      expect(stored).toContain('"themeMode":"system"');
+    });
+
+    it('keeps the status surface aligned with the single appearance owner', async () => {
+      window.localStorage.setItem(
+        'super-dolphin.appearance',
+        JSON.stringify({
+          version: 1,
+          settings: { themeMode: 'dark', uiScale: 150, accent: 'rose' },
+        }),
+      );
+      render(<App />);
+      const shell = await screen.findByTestId('frontend-app');
+      const status = await screen.findByLabelText('工作台状态');
+      expect(shell).toHaveAttribute('data-theme', 'dark');
+      expect(shell).toHaveAttribute('data-ui-scale', '150');
+      expect(shell).toHaveAttribute('data-accent', 'rose');
+      expect(status).toHaveTextContent('dark');
+      expect(status).toHaveTextContent('150%');
+      expect(status).toHaveTextContent('rose');
+      expect(status).toHaveTextContent('chat');
+      expect(status).toHaveTextContent('/repo/app');
+    });
   });
+
+
 
   it('opens observability tracing dashboard and queries by trace id', async () => {
     mockTraceDashboardQueryResult();
