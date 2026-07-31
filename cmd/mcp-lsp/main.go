@@ -4,7 +4,6 @@ package main
 import (
 	"os"
 	"runtime"
-	"sync/atomic"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rlimit"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimeenv"
@@ -16,10 +15,6 @@ const (
 	binaryName    = "mcp-lsp"
 	binaryVersion = "dev"
 )
-
-// mcpStdout 保存原始 stdout 供 MCP JSON-RPC 协议独占使用。
-// main 会把普通日志输出重定向到 stderr，避免破坏 stdio 帧。
-var mcpStdout atomic.Pointer[os.File]
 
 // main 初始化 sidecar 运行环境，保护 MCP stdout 通道后启动服务，异常时以非零码退出。
 func main() {
@@ -36,15 +31,15 @@ func main() {
 	if runtime.GOMAXPROCS(0) > 2 {
 		runtime.GOMAXPROCS(2)
 	}
-	mcpStdout.Store(os.Stdout)
+	stdout := os.Stdout
 	os.Stdout = os.Stderr
-	os.Exit(runMain())
+	os.Exit(runMain(stdout))
 }
 
 // runMain 启动 LSP sidecar 并把错误转换为进程退出码。
 // 日志写 stderr，stdout 继续留给 MCP JSON-RPC 帧。
-func runMain() int {
-	if err := run(); err != nil {
+func runMain(stdout *os.File) int {
+	if err := run(stdout); err != nil {
 		pkglogger.Get().Error("mcp-lsp failed", "error", err)
 		return 1
 	}

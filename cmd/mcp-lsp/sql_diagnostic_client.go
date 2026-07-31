@@ -37,9 +37,10 @@ func (h *sqlDiagnosticNotificationHandler) LogMessage(params protocol.LogMessage
 // sqlDiagnosticClient delegates SQL navigation to the configured peer and
 // publishes SQLite diagnostics from the production SQLite parser.
 type sqlDiagnosticClient struct {
-	inner   multilsp.Client
-	root    string
-	handler protocol.NotificationHandler
+	inner       multilsp.Client
+	root        string
+	handler     protocol.NotificationHandler
+	diagnostics *sqliteDiagnosticsState
 }
 
 func newSQLDiagnosticClient(
@@ -54,7 +55,7 @@ func newSQLDiagnosticClient(
 		return nil, protocol.ErrNotificationHandlerNil
 	}
 	return &sqlDiagnosticClient{
-		inner: inner, root: root, handler: handler,
+		inner: inner, root: root, handler: handler, diagnostics: newSQLiteDiagnosticsState(),
 	}, nil
 }
 
@@ -142,7 +143,7 @@ func (c *sqlDiagnosticClient) isSQLiteURI(uri string) bool {
 }
 
 func (c *sqlDiagnosticClient) publishSQLiteDiagnostics(ctx context.Context, uri string, version int, text string) error {
-	diagnostics, err := validateSQLiteDocument(ctx, c.root, uri, text)
+	diagnostics, err := c.diagnostics.validateSQLiteDocument(ctx, c.root, uri, text)
 	if err != nil {
 		return fmt.Errorf("validate SQLite document: %w", err)
 	}

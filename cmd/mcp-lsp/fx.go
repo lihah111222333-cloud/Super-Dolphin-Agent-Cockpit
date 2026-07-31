@@ -54,13 +54,14 @@ type registryToolProvider struct {
 
 // run 组装并启动 mcp-lsp sidecar 自身的 fx 应用。
 // 该进程只暴露 ctl 工具与 manifest 元数据，stdout 必须保留给 MCP stdio 协议通道。
-func run() error {
+func run(stdout *os.File) error {
 	// MCP stdio 协议把 stdout 当作 JSON-RPC 通道；日志必须固定写 stderr。
 	// 如果这里回到 stdout，客户端会把普通日志当作协议帧解析而失败。
 	pkglogger.InitWithConsoleWriter(os.Stderr)
 
 	app := fx.New(
 		fx.NopLogger,
+		fx.Supply(stdout),
 		fx.Provide(
 			func(shutdowner fx.Shutdowner, handlers ToolHandlers, runtimeManager *Manager) bootstrap.Config {
 				cfg := bootstrap.ReadBootConfig()
@@ -126,10 +127,9 @@ func run() error {
 }
 
 // newServer 创建 stdio 传输层的 MCP server，使用受保护的 stdout 作为写端。
-func newServer(handlers ToolHandlers) (*common.Server, error) {
-	stdout := mcpStdout.Load()
+func newServer(stdout *os.File, handlers ToolHandlers) (*common.Server, error) {
 	if stdout == nil {
-		return nil, errors.New("mcp-lsp: mcpStdout not initialized; program assembly order is broken")
+		return nil, errors.New("mcp-lsp: stdout is nil; program assembly order is broken")
 	}
 	idleTimeout, err := mcpLSPProcessIdleTimeout()
 	if err != nil {

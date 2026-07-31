@@ -35,22 +35,42 @@ type sqliteSchemaCacheEntry struct {
 	lastUsed uint64
 }
 
-var (
-	sqlcParameterPattern  = regexp.MustCompile(`sqlc\.(?:arg|narg|slice)\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)`)
-	sqliteValidationCache = struct {
+var sqlcParameterPattern = regexp.MustCompile(`sqlc\.(?:arg|narg|slice)\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)`)
+
+// sqliteDiagnosticsState owns all mutable SQLite diagnostics caches for one client.
+type sqliteDiagnosticsState struct {
+	validationCache struct {
 		sync.Mutex
 		entries map[string][]protocol.Diagnostic
-	}{entries: make(map[string][]protocol.Diagnostic)}
-	sqliteMigrationChainCache = struct {
+	}
+	migrationChainCache struct {
 		sync.Mutex
 		entries map[string][]protocol.Diagnostic
-	}{entries: make(map[string][]protocol.Diagnostic)}
-	sqliteSchemaDBCache = struct {
+	}
+	schemaDBCache struct {
 		sync.Mutex
 		entries map[string]*sqliteSchemaCacheEntry
 		clock   uint64
-	}{entries: make(map[string]*sqliteSchemaCacheEntry)}
-)
+	}
+}
+
+func newSQLiteDiagnosticsState() *sqliteDiagnosticsState {
+	return &sqliteDiagnosticsState{
+		validationCache: struct {
+			sync.Mutex
+			entries map[string][]protocol.Diagnostic
+		}{entries: make(map[string][]protocol.Diagnostic)},
+		migrationChainCache: struct {
+			sync.Mutex
+			entries map[string][]protocol.Diagnostic
+		}{entries: make(map[string][]protocol.Diagnostic)},
+		schemaDBCache: struct {
+			sync.Mutex
+			entries map[string]*sqliteSchemaCacheEntry
+			clock   uint64
+		}{entries: make(map[string]*sqliteSchemaCacheEntry)},
+	}
+}
 
 const sqliteDiagnosticsModule = "module github.com/lihah111222333-cloud/super-dolphin-agent"
 
@@ -145,7 +165,7 @@ func canonicalSQLiteDiagnosticsPath(path string) (string, error) {
 
 // validateSQLiteDocument 使用生产同款 SQLite 引擎校验迁移与 sqlc 查询。
 // 基础设施错误直接返回，SQL 错误转换成 Error diagnostics。
-func validateSQLiteDocument(
+func (s *sqliteDiagnosticsState) validateSQLiteDocument(
 	ctx context.Context,
 	root string,
 	uri string,
@@ -170,20 +190,20 @@ func validateSQLiteDocument(
 	if err != nil {
 		return nil, err
 	}
-	if cached, ok := loadSQLiteValidationCache(fingerprint); ok {
+	if cached, ok := s.loadSQLiteValidationCache(fingerprint); ok {
 		return cached, nil
 	}
 
-	diagnostics, err := runSQLiteDocumentValidation(ctx, root, path, text)
+	diagnostics, err := s.runSQLiteDocumentValidation(ctx, root, path, text)
 	if err != nil {
 		return nil, err
 	}
-	storeSQLiteValidationCache(fingerprint, diagnostics)
+	s.storeSQLiteValidationCache(fingerprint, diagnostics)
 	return cloneSQLiteDiagnostics(diagnostics), nil
 }
 
 // runSQLiteDocumentValidation 按 SQL 资产类型选择对应的真实 SQLite 校验上下文。
-func runSQLiteDocumentValidation(
+func (s *sqliteDiagnosticsState) runSQLiteDocumentValidation(
 	ctx context.Context,
 	root string,
 	path string,
@@ -196,9 +216,9 @@ func runSQLiteDocumentValidation(
 	rel = filepath.ToSlash(rel)
 	switch {
 	case strings.HasPrefix(rel, "internal/platform/db/sqlite/migrations/"):
-		return validateSQLiteMigration(ctx, root, path, text)
+		return s.validateSQLiteMigration(ctx, root, path, text)
 	case strings.HasPrefix(rel, "sql/queries/"), strings.HasPrefix(rel, "cmd/mcp-orch/sql/queries/"):
-		return validateSQLiteQueries(ctx, root, text)
+		return s.validateSQLiteQueries(ctx, root, text)
 	case rel == "cmd/mcp-orch/sql/schema_sqlc_patch.sql":
 		return validateSQLiteSchemaPatch(ctx, root, text)
 	case strings.HasPrefix(rel, "internal/platform/db/sqlite/testdata/"):
@@ -209,7 +229,7 @@ func runSQLiteDocumentValidation(
 }
 
 // validateSQLiteMigration 对未改磁盘迁移复用整链结果；编辑态文件仍在临时整链中验证。
-func validateSQLiteMigration(
+func (s *sqliteDiagnosticsState) validateSQLiteMigration(
 	ctx context.Context,
 	root string,
 	path string,
@@ -227,7 +247,7 @@ func validateSQLiteMigration(
 		return nil, err
 	}
 	if unchanged {
-		return validateSQLiteMigrationChainCached(ctx, sourceDir)
+		return s.validateSQLiteMigrationChainCached(ctx, sourceDir)
 	}
 	return validateEditedSQLiteMigration(ctx, sourceDir, path, text)
 }
@@ -258,9 +278,9 @@ func validateEditedSQLiteMigration(ctx context.Context, sourceDir, path, text st
 }
 
 // validateSQLiteMigrationChainCached 按迁移目录内容指纹只执行一次未改整链，避免全仓诊断 O(N²)。
-func validateSQLiteMigrationChainCached(ctx context.Context, sourceDir string) ([]protocol.Diagnostic, error) {
-	sqliteMigrationChainCache.Lock()
-	defer sqliteMigrationChainCache.Unlock()
+func (s *sqliteDiagnosticsState) validateSQLiteMigrationChainCached(ctx context.Context, sourceDir string) ([]protocol.Diagnostic, error) {
+	s.migrationChainCache.Lock()
+	defer s.migrationChainCache.Unlock()
 	for attempt := 0; attempt < sqliteSnapshotMaxAttempts; attempt++ {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, ctxErr
@@ -269,7 +289,7 @@ func validateSQLiteMigrationChainCached(ctx context.Context, sourceDir string) (
 		if err != nil {
 			return nil, err
 		}
-		if diagnostics, ok := sqliteMigrationChainCache.entries[key]; ok {
+		if diagnostics, ok := s.migrationChainCache.entries[key]; ok {
 			return cloneSQLiteDiagnostics(diagnostics), nil
 		}
 		diagnostics, err := runSQLiteMigrationChain(ctx, sourceDir)
@@ -283,10 +303,10 @@ func validateSQLiteMigrationChainCached(ctx context.Context, sourceDir string) (
 		if verifiedKey != key {
 			continue
 		}
-		if len(sqliteMigrationChainCache.entries) >= sqliteSchemaCacheCapacity {
-			clear(sqliteMigrationChainCache.entries)
+		if len(s.migrationChainCache.entries) >= sqliteSchemaCacheCapacity {
+			clear(s.migrationChainCache.entries)
 		}
-		sqliteMigrationChainCache.entries[key] = cloneSQLiteDiagnostics(diagnostics)
+		s.migrationChainCache.entries[key] = cloneSQLiteDiagnostics(diagnostics)
 		return diagnostics, nil
 	}
 	return nil, fmt.Errorf("SQLite migration chain changed during %d validation attempts", sqliteSnapshotMaxAttempts)
@@ -422,8 +442,8 @@ func stageSQLiteMigrationFile(sourceDir, targetDir, name, editedPath, editedText
 }
 
 // validateSQLiteQueries 在完整迁移 schema 上逐个 prepare sqlc 查询块。
-func validateSQLiteQueries(ctx context.Context, root, text string) ([]protocol.Diagnostic, error) {
-	db, release, err := sqliteDiagnosticsSchemaDB(ctx, root)
+func (s *sqliteDiagnosticsState) validateSQLiteQueries(ctx context.Context, root, text string) ([]protocol.Diagnostic, error) {
+	db, release, err := s.sqliteDiagnosticsSchemaDB(ctx, root)
 	if err != nil {
 		return nil, err
 	}
@@ -455,7 +475,7 @@ func validateSQLiteQueries(ctx context.Context, root, text string) ([]protocol.D
 }
 
 // sqliteDiagnosticsSchemaDB 按迁移内容指纹复用只读 prepare schema，避免每个查询重放整链。
-func sqliteDiagnosticsSchemaDB(ctx context.Context, root string) (*sql.DB, func(), error) {
+func (s *sqliteDiagnosticsState) sqliteDiagnosticsSchemaDB(ctx context.Context, root string) (*sql.DB, func(), error) {
 	migrationsDir := filepath.Join(root, "internal", "platform", "db", "sqlite", "migrations")
 	for attempt := 0; attempt < sqliteSnapshotMaxAttempts; attempt++ {
 		if ctxErr := ctx.Err(); ctxErr != nil {
@@ -465,7 +485,7 @@ func sqliteDiagnosticsSchemaDB(ctx context.Context, root string) (*sql.DB, func(
 		if err != nil {
 			return nil, nil, err
 		}
-		if db, release := acquireCachedSQLiteSchemaDB(key); db != nil {
+		if db, release := s.acquireCachedSQLiteSchemaDB(key); db != nil {
 			return db, release, nil
 		}
 		db, err := openSQLiteValidationDB()
@@ -485,68 +505,68 @@ func sqliteDiagnosticsSchemaDB(ctx context.Context, root string) (*sql.DB, func(
 			_ = db.Close()
 			continue
 		}
-		cachedDB, release := cacheSQLiteSchemaDB(key, db)
+		cachedDB, release := s.cacheSQLiteSchemaDB(key, db)
 		return cachedDB, release, nil
 	}
 	return nil, nil, fmt.Errorf("SQLite migrations changed during %d schema build attempts", sqliteSnapshotMaxAttempts)
 }
 
-func acquireCachedSQLiteSchemaDB(key string) (*sql.DB, func()) {
-	sqliteSchemaDBCache.Lock()
-	defer sqliteSchemaDBCache.Unlock()
-	entry := sqliteSchemaDBCache.entries[key]
+func (s *sqliteDiagnosticsState) acquireCachedSQLiteSchemaDB(key string) (*sql.DB, func()) {
+	s.schemaDBCache.Lock()
+	defer s.schemaDBCache.Unlock()
+	entry := s.schemaDBCache.entries[key]
 	if entry == nil {
 		return nil, nil
 	}
-	sqliteSchemaDBCache.clock++
+	s.schemaDBCache.clock++
 	entry.refs++
-	entry.lastUsed = sqliteSchemaDBCache.clock
-	return entry.db, sqliteSchemaRelease(key, entry)
+	entry.lastUsed = s.schemaDBCache.clock
+	return entry.db, s.sqliteSchemaRelease(key, entry)
 }
 
-func cacheSQLiteSchemaDB(key string, db *sql.DB) (*sql.DB, func()) {
-	sqliteSchemaDBCache.Lock()
-	defer sqliteSchemaDBCache.Unlock()
-	if existing := sqliteSchemaDBCache.entries[key]; existing != nil {
+func (s *sqliteDiagnosticsState) cacheSQLiteSchemaDB(key string, db *sql.DB) (*sql.DB, func()) {
+	s.schemaDBCache.Lock()
+	defer s.schemaDBCache.Unlock()
+	if existing := s.schemaDBCache.entries[key]; existing != nil {
 		_ = db.Close()
-		sqliteSchemaDBCache.clock++
+		s.schemaDBCache.clock++
 		existing.refs++
-		existing.lastUsed = sqliteSchemaDBCache.clock
-		return existing.db, sqliteSchemaRelease(key, existing)
+		existing.lastUsed = s.schemaDBCache.clock
+		return existing.db, s.sqliteSchemaRelease(key, existing)
 	}
-	evictSQLiteSchemaDBLocked()
-	if len(sqliteSchemaDBCache.entries) >= sqliteSchemaCacheCapacity {
+	s.evictSQLiteSchemaDBLocked()
+	if len(s.schemaDBCache.entries) >= sqliteSchemaCacheCapacity {
 		return db, sync.OnceFunc(func() { _ = db.Close() })
 	}
-	sqliteSchemaDBCache.clock++
-	entry := &sqliteSchemaCacheEntry{db: db, refs: 1, lastUsed: sqliteSchemaDBCache.clock}
-	sqliteSchemaDBCache.entries[key] = entry
-	return db, sqliteSchemaRelease(key, entry)
+	s.schemaDBCache.clock++
+	entry := &sqliteSchemaCacheEntry{db: db, refs: 1, lastUsed: s.schemaDBCache.clock}
+	s.schemaDBCache.entries[key] = entry
+	return db, s.sqliteSchemaRelease(key, entry)
 }
 
 // evictSQLiteSchemaDBLocked 在容量满时关闭并移除最久未使用且无引用的 schema。
-func evictSQLiteSchemaDBLocked() {
-	if len(sqliteSchemaDBCache.entries) < sqliteSchemaCacheCapacity {
+func (s *sqliteDiagnosticsState) evictSQLiteSchemaDBLocked() {
+	if len(s.schemaDBCache.entries) < sqliteSchemaCacheCapacity {
 		return
 	}
 	var oldestKey string
 	var oldest *sqliteSchemaCacheEntry
-	for key, entry := range sqliteSchemaDBCache.entries {
+	for key, entry := range s.schemaDBCache.entries {
 		if entry.refs == 0 && (oldest == nil || entry.lastUsed < oldest.lastUsed) {
 			oldestKey, oldest = key, entry
 		}
 	}
 	if oldest != nil {
-		delete(sqliteSchemaDBCache.entries, oldestKey)
+		delete(s.schemaDBCache.entries, oldestKey)
 		_ = oldest.db.Close()
 	}
 }
 
-func sqliteSchemaRelease(key string, entry *sqliteSchemaCacheEntry) func() {
+func (s *sqliteDiagnosticsState) sqliteSchemaRelease(key string, entry *sqliteSchemaCacheEntry) func() {
 	return sync.OnceFunc(func() {
-		sqliteSchemaDBCache.Lock()
-		defer sqliteSchemaDBCache.Unlock()
-		if sqliteSchemaDBCache.entries[key] == entry && entry.refs > 0 {
+		s.schemaDBCache.Lock()
+		defer s.schemaDBCache.Unlock()
+		if s.schemaDBCache.entries[key] == entry && entry.refs > 0 {
 			entry.refs--
 		}
 	})
@@ -725,20 +745,20 @@ func writeSQLiteDependencyFingerprint(hash interface{ Write([]byte) (int, error)
 	return nil
 }
 
-func loadSQLiteValidationCache(key string) ([]protocol.Diagnostic, bool) {
-	sqliteValidationCache.Lock()
-	defer sqliteValidationCache.Unlock()
-	diagnostics, ok := sqliteValidationCache.entries[key]
+func (s *sqliteDiagnosticsState) loadSQLiteValidationCache(key string) ([]protocol.Diagnostic, bool) {
+	s.validationCache.Lock()
+	defer s.validationCache.Unlock()
+	diagnostics, ok := s.validationCache.entries[key]
 	return cloneSQLiteDiagnostics(diagnostics), ok
 }
 
-func storeSQLiteValidationCache(key string, diagnostics []protocol.Diagnostic) {
-	sqliteValidationCache.Lock()
-	defer sqliteValidationCache.Unlock()
-	if len(sqliteValidationCache.entries) >= sqliteDiagnosticsMaxCache {
-		clear(sqliteValidationCache.entries)
+func (s *sqliteDiagnosticsState) storeSQLiteValidationCache(key string, diagnostics []protocol.Diagnostic) {
+	s.validationCache.Lock()
+	defer s.validationCache.Unlock()
+	if len(s.validationCache.entries) >= sqliteDiagnosticsMaxCache {
+		clear(s.validationCache.entries)
 	}
-	sqliteValidationCache.entries[key] = cloneSQLiteDiagnostics(diagnostics)
+	s.validationCache.entries[key] = cloneSQLiteDiagnostics(diagnostics)
 }
 
 func cloneSQLiteDiagnostics(diagnostics []protocol.Diagnostic) []protocol.Diagnostic {

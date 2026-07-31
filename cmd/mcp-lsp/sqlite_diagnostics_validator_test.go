@@ -56,6 +56,7 @@ func TestIsSQLiteDiagnosticsWorkspace(t *testing.T) {
 
 func TestValidateSQLiteDocumentRepositoryFixtures(t *testing.T) {
 	root := sqliteDiagnosticsRepoRoot(t)
+	state := newSQLiteDiagnosticsState()
 	tests := []struct {
 		name string
 		rel  string
@@ -73,7 +74,7 @@ func TestValidateSQLiteDocumentRepositoryFixtures(t *testing.T) {
 			path := filepath.Join(root, filepath.FromSlash(test.rel))
 			text, err := os.ReadFile(path)
 			require.NoError(t, err)
-			diagnostics, err := validateSQLiteDocument(context.Background(), root, sqliteDiagnosticsFileURI(path), string(text))
+			diagnostics, err := state.validateSQLiteDocument(context.Background(), root, sqliteDiagnosticsFileURI(path), string(text))
 			require.NoError(t, err)
 			require.Empty(t, diagnostics)
 		})
@@ -82,12 +83,7 @@ func TestValidateSQLiteDocumentRepositoryFixtures(t *testing.T) {
 
 func TestValidateSQLiteDocumentReusesUnchangedMigrationChain(t *testing.T) {
 	root := sqliteDiagnosticsRepoRoot(t)
-	sqliteMigrationChainCache.Lock()
-	clear(sqliteMigrationChainCache.entries)
-	sqliteMigrationChainCache.Unlock()
-	sqliteValidationCache.Lock()
-	clear(sqliteValidationCache.entries)
-	sqliteValidationCache.Unlock()
+	state := newSQLiteDiagnosticsState()
 
 	for _, rel := range []string{
 		"internal/platform/db/sqlite/migrations/001_baseline.sql",
@@ -96,38 +92,39 @@ func TestValidateSQLiteDocumentReusesUnchangedMigrationChain(t *testing.T) {
 		path := filepath.Join(root, filepath.FromSlash(rel))
 		body, err := os.ReadFile(path)
 		require.NoError(t, err)
-		diagnostics, err := validateSQLiteDocument(context.Background(), root, sqliteDiagnosticsFileURI(path), string(body))
+		diagnostics, err := state.validateSQLiteDocument(context.Background(), root, sqliteDiagnosticsFileURI(path), string(body))
 		require.NoError(t, err)
 		require.Empty(t, diagnostics)
 	}
 
-	sqliteMigrationChainCache.Lock()
-	defer sqliteMigrationChainCache.Unlock()
-	require.Len(t, sqliteMigrationChainCache.entries, 1)
+	state.migrationChainCache.Lock()
+	defer state.migrationChainCache.Unlock()
+	require.Len(t, state.migrationChainCache.entries, 1)
 }
 
 func TestValidateSQLiteQueriesReuseMigratedSchema(t *testing.T) {
 	root := sqliteDiagnosticsRepoRoot(t)
-	sqliteSchemaDBCache.Lock()
-	for key, entry := range sqliteSchemaDBCache.entries {
+	state := newSQLiteDiagnosticsState()
+	state.schemaDBCache.Lock()
+	for key, entry := range state.schemaDBCache.entries {
 		require.NoError(t, entry.db.Close())
-		delete(sqliteSchemaDBCache.entries, key)
+		delete(state.schemaDBCache.entries, key)
 	}
-	sqliteSchemaDBCache.clock = 0
-	sqliteSchemaDBCache.Unlock()
+	state.schemaDBCache.clock = 0
+	state.schemaDBCache.Unlock()
 
 	for _, query := range []string{
 		"-- name: Agent :one\nSELECT * FROM agent_status LIMIT 1;",
 		"-- name: Thread :one\nSELECT * FROM agent_threads LIMIT 1;",
 	} {
-		diagnostics, err := validateSQLiteQueries(context.Background(), root, query)
+		diagnostics, err := state.validateSQLiteQueries(context.Background(), root, query)
 		require.NoError(t, err)
 		require.Empty(t, diagnostics)
 	}
 
-	sqliteSchemaDBCache.Lock()
-	defer sqliteSchemaDBCache.Unlock()
-	require.Len(t, sqliteSchemaDBCache.entries, 1)
+	state.schemaDBCache.Lock()
+	defer state.schemaDBCache.Unlock()
+	require.Len(t, state.schemaDBCache.entries, 1)
 }
 
 func TestValidateSQLiteQueriesEvictsOldSchemasWithoutRejectingNinthFingerprint(t *testing.T) {
@@ -137,33 +134,35 @@ func TestValidateSQLiteQueriesEvictsOldSchemasWithoutRejectingNinthFingerprint(t
 	migrationPath := filepath.Join(migrationsDir, "001_baseline.sql")
 	repoBaseline, err := os.ReadFile(filepath.Join(sqliteDiagnosticsRepoRoot(t), "internal", "platform", "db", "sqlite", "migrations", "001_baseline.sql"))
 	require.NoError(t, err)
+	state := newSQLiteDiagnosticsState()
 
-	sqliteSchemaDBCache.Lock()
-	for key, entry := range sqliteSchemaDBCache.entries {
+	state.schemaDBCache.Lock()
+	for key, entry := range state.schemaDBCache.entries {
 		require.NoError(t, entry.db.Close())
-		delete(sqliteSchemaDBCache.entries, key)
+		delete(state.schemaDBCache.entries, key)
 	}
-	sqliteSchemaDBCache.clock = 0
-	sqliteSchemaDBCache.Unlock()
+	state.schemaDBCache.clock = 0
+	state.schemaDBCache.Unlock()
 
 	for version := 0; version < sqliteSchemaCacheCapacity+1; version++ {
 		body := fmt.Sprintf("%s\n-- cache test version %d\n", repoBaseline, version)
 		require.NoError(t, os.WriteFile(migrationPath, []byte(body), 0o600))
-		diagnostics, err := validateSQLiteQueries(context.Background(), root, "-- name: Agent :one\nSELECT * FROM agent_status LIMIT 1;")
+		diagnostics, err := state.validateSQLiteQueries(context.Background(), root, "-- name: Agent :one\nSELECT * FROM agent_status LIMIT 1;")
 		require.NoError(t, err)
 		require.Empty(t, diagnostics)
 	}
 
-	sqliteSchemaDBCache.Lock()
-	defer sqliteSchemaDBCache.Unlock()
-	require.LessOrEqual(t, len(sqliteSchemaDBCache.entries), sqliteSchemaCacheCapacity)
-	for _, entry := range sqliteSchemaDBCache.entries {
+	state.schemaDBCache.Lock()
+	defer state.schemaDBCache.Unlock()
+	require.LessOrEqual(t, len(state.schemaDBCache.entries), sqliteSchemaCacheCapacity)
+	for _, entry := range state.schemaDBCache.entries {
 		require.Zero(t, entry.refs)
 	}
 }
 
 func TestValidateSQLiteDocumentRejectsInvalidSQL(t *testing.T) {
 	root := sqliteDiagnosticsRepoRoot(t)
+	state := newSQLiteDiagnosticsState()
 	tests := []struct {
 		name string
 		rel  string
@@ -198,7 +197,7 @@ func TestValidateSQLiteDocumentRejectsInvalidSQL(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			path := filepath.Join(root, filepath.FromSlash(test.rel))
-			diagnostics, err := validateSQLiteDocument(context.Background(), root, sqliteDiagnosticsFileURI(path), test.text)
+			diagnostics, err := state.validateSQLiteDocument(context.Background(), root, sqliteDiagnosticsFileURI(path), test.text)
 			require.NoError(t, err)
 			require.NotEmpty(t, diagnostics)
 			require.Equal(t, sqliteDiagnosticsSource, diagnostics[0].Source)
