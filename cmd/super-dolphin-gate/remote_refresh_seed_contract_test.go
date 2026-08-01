@@ -238,6 +238,7 @@ func assertPreviousRemoteBaselineSeedEnvironment(t *testing.T, request eci.SeedR
 		request.Environment["BASELINE_GATE_SOURCE_SHA256"] != input.GateSourceDigest ||
 		request.Environment["BASELINE_GO_TOOLCHAIN"] != input.GoToolchain ||
 		request.Environment["BASELINE_MANIFEST_SCHEMA_VERSION"] != strconv.FormatUint(uint64(remoteci.BaselineManifestSchemaVersion), 10) ||
+		request.Environment["BASELINE_MANIFEST_MIN_COMPATIBLE_VERSION"] != strconv.FormatUint(uint64(remoteci.BaselineManifestMinimumCompatibleVersion), 10) ||
 		request.Environment["BASELINE_SEED_SCRIPT_SHA256"] != digestBytes([]byte(remoteBaselineSeedScript)) ||
 		request.Environment["BASELINE_SEED_SCRIPT_SIZE"] != strconv.Itoa(len(remoteBaselineSeedScript)) ||
 		request.Environment["BASELINE_ANCHOR_MANIFEST_DIGEST"] == "" {
@@ -518,6 +519,7 @@ func assertRemoteBaselineSeedLayerFragments(t *testing.T) {
 		"mv \"$go_build_cache\" \"$stage/anchor-go-build-cache\"",
 		"export GOCACHEPROG=\"/previous/bin/super-dolphin-gate worker go-cache-proxy --seed $stage/anchor-go-build-cache --private $go_build_cache\"",
 		"previous baseline schema or storage mode is incompatible; full Anchor rebuild is forbidden",
+		"test \"$anchor_schema\" -lt \"$BASELINE_MANIFEST_MIN_COMPATIBLE_VERSION\"",
 		"for archive in runtime-deps.tar.gz source.tar.gz go-build-cache.tar.gz; do",
 		"tar -xzf \"/previous/$archive\" -C \"$payload_root\"",
 		"previous_layered=1",

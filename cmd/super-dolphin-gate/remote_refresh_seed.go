@@ -172,8 +172,9 @@ func remoteBaselineSeedEIPBandwidth(needsInternet bool) int {
 // remoteBaselineSeedEnvironment 生成脚本验证所需的全部不可变输入。
 func remoteBaselineSeedEnvironment(input remoteBaselineRefreshInput, source remoteBaselineSourceArtifact, generation uint64) map[string]string {
 	return map[string]string{
-		"BASELINE_MANIFEST_SCHEMA_VERSION": strconv.FormatUint(uint64(remoteci.BaselineManifestSchemaVersion), 10),
-		"BASELINE_GENERATION":              strconv.FormatUint(generation, 10), "BASELINE_MAIN_COMMIT": input.Identity.MainCommit,
+		"BASELINE_MANIFEST_SCHEMA_VERSION":         strconv.FormatUint(uint64(remoteci.BaselineManifestSchemaVersion), 10),
+		"BASELINE_MANIFEST_MIN_COMPATIBLE_VERSION": strconv.FormatUint(uint64(remoteci.BaselineManifestMinimumCompatibleVersion), 10),
+		"BASELINE_GENERATION":                      strconv.FormatUint(generation, 10), "BASELINE_MAIN_COMMIT": input.Identity.MainCommit,
 		"BASELINE_MAIN_TREE": input.Identity.MainTree, "BASELINE_PLATFORM": input.Identity.Platform,
 		"BASELINE_POLICY_DIGEST": input.Identity.PolicyDigest, "BASELINE_TOOLCHAIN_DIGEST": input.Identity.ToolchainDigest,
 		"BASELINE_GATE_SOURCE_SHA256": input.GateSourceDigest,

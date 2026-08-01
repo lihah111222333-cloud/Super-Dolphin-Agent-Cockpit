@@ -11,7 +11,8 @@ import (
 
 const (
 	BaselineManifestSchemaVersion            uint32 = 10
-	legacyBaselineManifestSchemaVersion      uint32 = 6
+	BaselineManifestMinimumCompatibleVersion uint32 = 6
+	legacyBaselineManifestSchemaVersion             = BaselineManifestMinimumCompatibleVersion
 	layeredBaselineManifestSchemaVersion     uint32 = 7
 	anchorDeltaBaselineManifestSchemaVersion uint32 = 8
 	BaselineStorageModeAnchor                       = "anchor"
