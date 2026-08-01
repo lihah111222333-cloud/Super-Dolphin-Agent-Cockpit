@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	goversion "go/version"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -59,6 +60,13 @@ func buildRemoteBaselineSeedRequest(
 		Input:       remoteBaselineSeedVolume(config, remoteBaselineInputPrefix(config, generation)),
 		Script:      []byte(remoteBaselineSeedBootstrapScript),
 	}
+	seedCPU := int(resources.CPU)
+	seedMemoryGiB := int(resources.MemoryGiB)
+	if seedCPU < 1 || float64(seedCPU) != resources.CPU || seedMemoryGiB < 4 || float64(seedMemoryGiB) != resources.MemoryGiB {
+		return eci.SeedRequest{}, errors.New("baseline seed resources must use whole CPU and GiB values")
+	}
+	request.Environment["BASELINE_SEED_GO_PARALLELISM"] = strconv.Itoa(seedCPU)
+	request.Environment["BASELINE_SEED_GO_MEMORY_LIMIT"] = strconv.Itoa(seedMemoryGiB*3/4) + "GiB"
 	request.Environment["BASELINE_TOOLCHAIN_CHANGED"] = strconv.FormatBool(hasAccepted && accepted.ToolchainDigest != input.Identity.ToolchainDigest)
 	if hasAccepted {
 		anchor := accepted.CurrentAnchorRef()
@@ -194,10 +202,39 @@ func remoteBaselineSeedVolume(config remoteRunConfig, prefix string) eci.OSSVolu
 		Path: "/" + strings.TrimSuffix(prefix, "/"), RoleName: config.WorkerRoleName}
 }
 
-// waitRemoteBaselineSeed 轮询 seed ECI 并校验完成标记。
-func waitRemoteBaselineSeed(ctx context.Context, runtime *eci.Client, groupID, containerName string, generation uint64, identity remoteci.BaselineIdentity) error {
-	timer := time.NewTicker(remoteBaselinePollInterval)
+type remoteBaselineSeedRuntime interface {
+	DescribeContainerGroups(context.Context, ...string) ([]eci.ContainerGroup, error)
+	DescribeContainerLog(context.Context, string, string) (string, error)
+}
+
+// waitRemoteBaselineSeed 轮询 seed ECI、转发运行中进度并校验完成标记。
+func waitRemoteBaselineSeed(ctx context.Context, runtime remoteBaselineSeedRuntime, groupID, containerName string, generation uint64, identity remoteci.BaselineIdentity) error {
+	return waitRemoteBaselineSeedWithWriter(ctx, runtime, groupID, containerName, generation, identity, os.Stderr)
+}
+
+func waitRemoteBaselineSeedWithWriter(
+	ctx context.Context,
+	runtime remoteBaselineSeedRuntime,
+	groupID, containerName string,
+	generation uint64,
+	identity remoteci.BaselineIdentity,
+	stderr io.Writer,
+) error {
+	return waitRemoteBaselineSeedWithWriterAndInterval(ctx, runtime, groupID, containerName, generation, identity, stderr, remoteBaselinePollInterval)
+}
+
+func waitRemoteBaselineSeedWithWriterAndInterval(
+	ctx context.Context,
+	runtime remoteBaselineSeedRuntime,
+	groupID, containerName string,
+	generation uint64,
+	identity remoteci.BaselineIdentity,
+	stderr io.Writer,
+	pollInterval time.Duration,
+) error {
+	timer := time.NewTicker(pollInterval)
 	defer timer.Stop()
+	forwarded := make(map[string]struct{})
 	for {
 		groups, err := runtime.DescribeContainerGroups(ctx, groupID)
 		if err != nil {
@@ -205,6 +242,15 @@ func waitRemoteBaselineSeed(ctx context.Context, runtime *eci.Client, groupID, c
 		}
 		if len(groups) != 1 || groups[0].ID != groupID {
 			return errors.New("baseline seed ECI identity is missing")
+		}
+		if groups[0].Status == "Running" {
+			log, err := runtime.DescribeContainerLog(ctx, groupID, containerName)
+			if err != nil {
+				return fmt.Errorf("read running baseline seed log: %w", err)
+			}
+			if err := forwardRemoteBaselineSeedLiveLog(stderr, log, forwarded); err != nil {
+				return fmt.Errorf("forward running baseline seed log: %w", err)
+			}
 		}
 		if err := validateRemoteBaselineSeedStatus(ctx, runtime, groupID, containerName, generation, identity, groups[0].Status); err != nil {
 			return err
@@ -220,8 +266,42 @@ func waitRemoteBaselineSeed(ctx context.Context, runtime *eci.Client, groupID, c
 	}
 }
 
+func forwardRemoteBaselineSeedLiveLog(stderr io.Writer, log string, forwarded map[string]struct{}) error {
+	for _, line := range strings.Split(log, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || !isRemoteBaselineSeedLiveProgressLine(line) {
+			continue
+		}
+		if _, alreadyForwarded := forwarded[line]; alreadyForwarded {
+			continue
+		}
+		if _, err := fmt.Fprintln(stderr, line); err != nil {
+			return err
+		}
+		forwarded[line] = struct{}{}
+	}
+	return nil
+}
+
+func isRemoteBaselineSeedLiveProgressLine(line string) bool {
+	for _, prefix := range []string{
+		"seed stage ",
+		"seed progress ",
+		"go cache compile ",
+		"go build cache ",
+		"go module cache ",
+		"runtime dependency cache ",
+		"[baseline-seed] ",
+	} {
+		if strings.HasPrefix(line, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // validateRemoteBaselineSeedStatus 校验 seed 的终态日志与成功标记。
-func validateRemoteBaselineSeedStatus(ctx context.Context, runtime *eci.Client, groupID, containerName string, generation uint64, identity remoteci.BaselineIdentity, status string) error {
+func validateRemoteBaselineSeedStatus(ctx context.Context, runtime remoteBaselineSeedRuntime, groupID, containerName string, generation uint64, identity remoteci.BaselineIdentity, status string) error {
 	if status == "Succeeded" {
 		log, err := runtime.DescribeContainerLog(ctx, groupID, containerName)
 		if err != nil {

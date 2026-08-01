@@ -404,7 +404,9 @@ func assertRemoteBaselineSeedOfflineDependencyFragments(t *testing.T) {
 		"go test -mod=readonly -exec=true -run '^$' ./...",
 		"go test -mod=readonly -tags=e2e -exec=true -run '^$' ./cmd/mcp-lsp",
 		"worker race-package-patterns",
-		"GOFLAGS=\"-p=4\" GOMAXPROCS=4 GOMEMLIMIT=6GiB",
+		"BASELINE_SEED_GO_PARALLELISM",
+		"BASELINE_SEED_GO_MEMORY_LIMIT",
+		"GOFLAGS=\"-p=$BASELINE_SEED_GO_PARALLELISM\" GOMAXPROCS=\"$BASELINE_SEED_GO_PARALLELISM\" GOMEMLIMIT=\"$BASELINE_SEED_GO_MEMORY_LIMIT\"",
 		"go test -mod=readonly -race -exec=true -run '^$' \"$@\"",
 		"GOPROXY=off GOSUMDB=off GOMODCACHE=\"$payload_root/runtime/go-mod-cache\" GOCACHE=\"$go_build_cache\"",
 		"\"$payload_root/bin/super-dolphin-gate\" worker runtime-seed verify \"$source_root\" $payload_root/runtime",
@@ -527,6 +529,11 @@ func assertRemoteBaselineSeedLayerFragments(t *testing.T) {
 		"run_logged go-cache-normal-compile compile_go_cache_normal",
 		"run_logged go-cache-e2e-compile compile_go_cache_e2e",
 		"run_logged go-cache-race-compile compile_go_cache_race",
+		"slow_threshold_ms=100000",
+		"seed stage slow: %s elapsed_ms=%s threshold_ms=%s",
+		"go_cache_compile normal env",
+		"go_cache_compile e2e env",
+		"go_cache_compile race env",
 		"archive_layer()",
 		"--use-compress-program='gzip -1 -n'",
 		"runtime_archive_path=$oss_output/runtime-deps.tar.gz",
@@ -597,6 +604,7 @@ func assertRemoteBaselineSeedForbiddenScriptFragments(t *testing.T) {
 		{"$source_root/.git/shallow", "remote baseline source must retain the complete history reachable from main"},
 		{"tool=$(basename \"$0\")", "portable runtime tools must not depend on the host basename command"},
 		{"BASELINE_STORAGE_MODE=anchor", "a previous baseline must never fall back to a full Anchor rebuild"},
+		{"timeout --signal=KILL", "100-second cache targets are slow-stage ledger thresholds, not correctness timeouts"},
 	} {
 		if strings.Contains(remoteBaselineSeedScript, forbidden.fragment) {
 			t.Fatal(forbidden.message)
