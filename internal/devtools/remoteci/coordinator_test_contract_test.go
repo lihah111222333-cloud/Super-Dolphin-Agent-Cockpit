@@ -146,6 +146,14 @@ func TestRemoteInitSearchPathUsesMaterializedRuntimeUnderECILimit(t *testing.T) 
 	}
 }
 
+func TestRemoteCandidateBootstrapCreatesInstallDirectoryBeforeCopy(t *testing.T) {
+	mkdirIndex := strings.Index(remoteCandidateGateBootstrapSH, "mkdir -p /opt/super-dolphin-gate/bin")
+	copyIndex := strings.Index(remoteCandidateGateBootstrapSH, `cp "$candidate" /opt/super-dolphin-gate/bin/super-dolphin-gate`)
+	if mkdirIndex < 0 || copyIndex < 0 || mkdirIndex > copyIndex {
+		t.Fatalf("candidate bootstrap must create the install directory before copy: %q", remoteCandidateGateBootstrapSH)
+	}
+}
+
 func TestCoordinatorCreateRequestMountsCandidateArtifactFromValidOSSVolume(t *testing.T) {
 	_, input := remoteRunFixture(t)
 	input.BaselineDeltas = []BaselineDeltaLayer{{Generation: 2, ObjectPrefix: "baseline-artifacts/deltas/2"}, {Generation: 3, ObjectPrefix: "baseline-artifacts/deltas/3"}}
