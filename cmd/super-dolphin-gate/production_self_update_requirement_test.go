@@ -76,6 +76,26 @@ func TestResolveRemoteBaselineGoToolchainUsesRootModule(t *testing.T) {
 	}
 }
 
+func TestValidateProductionGoToolchainRequirementRequiresPreferredVersion(t *testing.T) {
+	requirement := productionGoRequirement{Minimum: "go1.26.5", Preferred: "go1.26.5"}
+	for _, test := range []struct {
+		version string
+		wantErr bool
+	}{
+		{version: "go1.26.5"},
+		{version: "go1.26.4", wantErr: true},
+		{version: "go1.26.6", wantErr: true},
+		{version: "go1.27.1", wantErr: true},
+	} {
+		t.Run(test.version, func(t *testing.T) {
+			err := validateProductionGoToolchainRequirement(productionGoToolchain{Version: "go version " + test.version + " test/arch"}, requirement)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("validate version %s error = %v, wantErr %v", test.version, err, test.wantErr)
+			}
+		})
+	}
+}
+
 func TestResolveRemoteBaselineGoToolchainRejectsMissingOrInvalidModules(t *testing.T) {
 	t.Parallel()
 	if _, err := resolveRemoteBaselineGoToolchain(nil); err == nil {

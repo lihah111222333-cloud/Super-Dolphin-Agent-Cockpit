@@ -118,6 +118,7 @@ type productionGoResolverDeps struct {
 	getenv           func(string) string
 	run              func(string, ...string) ([]byte, error)
 	systemCandidates func() []string
+	bootstrap        func(productionGoRequirement) (productionGoToolchain, error)
 }
 
 func liveProductionSelfUpdateDeps() productionSelfUpdateDeps {

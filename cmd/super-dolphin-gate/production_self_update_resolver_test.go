@@ -116,17 +116,13 @@ func TestResolveProductionGoToolchainPrefersCandidateTreeVersion(t *testing.T) {
 	}
 }
 
-func TestResolveProductionGoToolchainUsesNewerCompatibleFallback(t *testing.T) {
+func TestResolveProductionGoToolchainRejectsNewerVersionDrift(t *testing.T) {
 	t.Parallel()
 	fixture := newProductionGoResolverFixture(t)
 	fixture.environment["PATH"] = fixture.newerDirectory
 
-	toolchain, err := resolveProductionGoToolchainWithDeps(fixture.requirement(), fixture.deps())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if toolchain.Executable != fixture.newerExecutable {
-		t.Fatalf("selected executable = %q, want compatible fallback %q", toolchain.Executable, fixture.newerExecutable)
+	if _, err := resolveProductionGoToolchainWithDeps(fixture.requirement(), fixture.deps()); !errors.Is(err, errNoUsableProductionGoToolchain) {
+		t.Fatalf("newer version drift error = %v, want no usable exact toolchain", err)
 	}
 }
 

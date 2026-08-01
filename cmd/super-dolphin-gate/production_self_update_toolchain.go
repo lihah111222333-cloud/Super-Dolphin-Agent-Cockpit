@@ -32,6 +32,7 @@ func liveProductionGoResolverDeps() productionGoResolverDeps {
 	return productionGoResolverDeps{
 		getenv:           os.Getenv,
 		systemCandidates: productionSystemGoCandidates,
+		bootstrap:        bootstrapProductionGoToolchain,
 		run: func(program string, args ...string) ([]byte, error) {
 			home, err := productionGoProbeHome()
 			if err != nil {
@@ -58,7 +59,18 @@ func resolveProductionGoToolchainWithDeps(
 	if explicit := deps.getenv("SUPER_DOLPHIN_GATE_GO"); explicit != "" {
 		return resolveExplicitProductionGoToolchain(explicit, requirement, deps)
 	}
-	return resolveProductionGoToolchainFromCandidates(requirement, deps)
+	toolchain, err := resolveProductionGoToolchainFromCandidates(requirement, deps)
+	if !errors.Is(err, errNoUsableProductionGoToolchain) || deps.bootstrap == nil {
+		return toolchain, err
+	}
+	toolchain, err = deps.bootstrap(requirement)
+	if err != nil {
+		return productionGoToolchain{}, fmt.Errorf("bootstrap portable Go toolchain: %w", err)
+	}
+	if err := validateProductionGoToolchainRequirement(toolchain, requirement); err != nil {
+		return productionGoToolchain{}, fmt.Errorf("bootstrapped Go toolchain: %w", err)
+	}
+	return toolchain, nil
 }
 
 func resolveExplicitProductionGoToolchain(
@@ -176,8 +188,8 @@ func validateProductionGoToolchainRequirement(
 	if err != nil {
 		return err
 	}
-	if goversion.Compare(candidate, requirement.Minimum) < 0 {
-		return fmt.Errorf("Go toolchain %s is older than required %s", candidate, requirement.Minimum)
+	if candidate != requirement.Preferred {
+		return fmt.Errorf("Go toolchain %s does not match preferred %s", candidate, requirement.Preferred)
 	}
 	return nil
 }
