@@ -10,15 +10,33 @@ import (
 // defaultOutputBudget 是未配置工具时的默认输出字节上限。
 const defaultOutputBudget = 64 * 1024
 
-// defaultToolBudgets 按工具名称预置输出字节上限。
-var defaultToolBudgets = map[string]int{
-	"grep":       16 * 1024,
-	"file":       50 * 1024,
-	"inspect":    8 * 1024,
-	"xref":       16 * 1024,
-	"structure":  16 * 1024,
-	"patch_edit": 32 * 1024,
-	"completion": 16 * 1024,
+// toolBudgetDescriptor 描述单个工具的输出字节上限。
+type toolBudgetDescriptor struct {
+	name     string
+	maxBytes int
+}
+
+// defaultToolBudgets 构造工具输出字节上限描述，避免共享可变包级状态。
+func defaultToolBudgets() []toolBudgetDescriptor {
+	return []toolBudgetDescriptor{
+		{name: "grep", maxBytes: 16 * 1024},
+		{name: "file", maxBytes: 50 * 1024},
+		{name: "inspect", maxBytes: 8 * 1024},
+		{name: "xref", maxBytes: 16 * 1024},
+		{name: "structure", maxBytes: 16 * 1024},
+		{name: "patch_edit", maxBytes: 32 * 1024},
+		{name: "completion", maxBytes: 16 * 1024},
+	}
+}
+
+// lookupToolBudget 从本地描述中查找工具输出预算。
+func lookupToolBudget(toolName string) (int, bool) {
+	for _, descriptor := range defaultToolBudgets() {
+		if descriptor.name == toolName {
+			return descriptor.maxBytes, true
+		}
+	}
+	return 0, false
 }
 
 // Budget 定义工具输出的字节上限。
@@ -29,7 +47,7 @@ type Budget struct {
 // ToolBudget 查找指定工具的输出预算。
 // 未配置的工具使用默认上限，保证新增工具也受统一截断保护。
 func ToolBudget(toolName string) int {
-	if v, ok := defaultToolBudgets[toolName]; ok {
+	if v, ok := lookupToolBudget(toolName); ok {
 		return v
 	}
 	return defaultOutputBudget
@@ -42,7 +60,7 @@ func WithOutputBudget(toolName string, next Handler, budget Budget) Handler {
 	}
 	limit := budget.MaxBytes
 	if limit <= 0 {
-		if v, ok := defaultToolBudgets[toolName]; ok {
+		if v, ok := lookupToolBudget(toolName); ok {
 			limit = v
 		} else {
 			limit = defaultOutputBudget
