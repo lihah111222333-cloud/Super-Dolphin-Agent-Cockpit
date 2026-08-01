@@ -19,98 +19,163 @@ var (
 	ErrUnsupportedCapability = errors.New("unsupported LSP capability")
 )
 
-var languageIDByBaseName = map[string]string{
-	"containerfile": "dockerfile",
-	"dockerfile":    "dockerfile",
-	"go.mod":        "gomod",
-	"go.sum":        "gosum",
-	"go.work":       "gowork",
+// languageIDForBaseName 根据不区分大小写的文件名返回语言 ID。
+func languageIDForBaseName(base string) (string, bool) {
+	switch base {
+	case "containerfile", "dockerfile":
+		return "dockerfile", true
+	case "go.mod":
+		return "gomod", true
+	case "go.sum":
+		return "gosum", true
+	case "go.work":
+		return "gowork", true
+	default:
+		return "", false
+	}
 }
 
-var gitHookShellBaseNames = map[string]struct{}{
-	"applypatch-msg":        {},
-	"commit-msg":            {},
-	"fsmonitor-watchman":    {},
-	"post-applypatch":       {},
-	"post-checkout":         {},
-	"post-commit":           {},
-	"post-index-change":     {},
-	"post-merge":            {},
-	"post-receive":          {},
-	"post-rewrite":          {},
-	"post-update":           {},
-	"pre-applypatch":        {},
-	"pre-auto-gc":           {},
-	"pre-commit":            {},
-	"pre-merge-commit":      {},
-	"pre-push":              {},
-	"pre-rebase":            {},
-	"pre-receive":           {},
-	"prepare-commit-msg":    {},
-	"proc-receive":          {},
-	"push-to-checkout":      {},
-	"reference-transaction": {},
-	"sendemail-validate":    {},
-	"update":                {},
+// isGitHookShellBaseName 判断 Git hooks 目录中的标准 shell hook 文件名。
+func isGitHookShellBaseName(base string) bool {
+	switch base {
+	case "applypatch-msg", "commit-msg", "fsmonitor-watchman",
+		"post-applypatch", "post-checkout", "post-commit", "post-index-change",
+		"post-merge", "post-receive", "post-rewrite", "post-update",
+		"pre-applypatch", "pre-auto-gc", "pre-commit", "pre-merge-commit",
+		"pre-push", "pre-rebase", "pre-receive", "prepare-commit-msg",
+		"proc-receive", "push-to-checkout", "reference-transaction",
+		"sendemail-validate", "update":
+		return true
+	default:
+		return false
+	}
 }
 
-var languageIDByExtension = map[string]string{
-	".go":         "go",
-	".js":         "javascript",
-	".jsx":        "javascriptreact",
-	".mjs":        "javascript",
-	".cjs":        "javascript",
-	".ts":         "typescript",
-	".tsx":        "typescriptreact",
-	".html":       "html",
-	".htm":        "html",
-	".vue":        "vue",
-	".svelte":     "svelte",
-	".c":          "c",
-	".cc":         "cpp",
-	".cpp":        "cpp",
-	".cxx":        "cpp",
-	".h":          "c",
-	".hh":         "cpp",
-	".hpp":        "cpp",
-	".hxx":        "cpp",
-	".m":          "objective-c",
-	".mm":         "objective-cpp",
-	".swift":      "swift",
-	".cs":         "csharp",
-	".py":         "python",
-	".pyi":        "python",
-	".php":        "php",
-	".phtml":      "php",
-	".rb":         "ruby",
-	".rake":       "ruby",
-	".kt":         "kotlin",
-	".kts":        "kotlin",
-	".dart":       "dart",
-	".lua":        "lua",
-	".rs":         "rust",
-	".java":       "java",
-	".css":        "css",
-	".scss":       "css",
-	".sass":       "css",
-	".less":       "css",
-	".sh":         "shellscript",
-	".bash":       "shellscript",
-	".zsh":        "shellscript",
-	".ksh":        "shellscript",
-	".bats":       "shellscript",
-	".dockerfile": "dockerfile",
-	".tf":         "terraform",
-	".tfvars":     "terraform",
-	".graphql":    "graphql",
-	".gql":        "graphql",
-	".prisma":     "prisma",
-	".md":         "markdown",
-	".markdown":   "markdown",
-	".jsonc":      "json",
-	".json":       "json",
-	".yaml":       "yaml",
-	".yml":        "yaml",
+// languageIDForExtension 根据不区分大小写的扩展名返回语言 ID。
+func languageIDForExtension(ext string) (string, bool) {
+	for _, resolver := range []func(string) (string, bool){
+		languageIDForCoreExtension,
+		languageIDForMarkupExtension,
+		languageIDForSystemsExtension,
+		languageIDForDataExtension,
+		languageIDForToolExtension,
+		languageIDForDocumentExtension,
+	} {
+		if languageID, ok := resolver(ext); ok {
+			return languageID, true
+		}
+	}
+	return "", false
+}
+
+// languageIDForCoreExtension 返回 Go、JavaScript 和 TypeScript 扩展名对应的语言 ID。
+func languageIDForCoreExtension(ext string) (string, bool) {
+	switch ext {
+	case ".go":
+		return "go", true
+	case ".js", ".mjs", ".cjs":
+		return "javascript", true
+	case ".jsx":
+		return "javascriptreact", true
+	case ".ts":
+		return "typescript", true
+	case ".tsx":
+		return "typescriptreact", true
+	default:
+		return "", false
+	}
+}
+
+// languageIDForMarkupExtension 返回标记、前端样式和组件扩展名对应的语言 ID。
+func languageIDForMarkupExtension(ext string) (string, bool) {
+	switch ext {
+	case ".html", ".htm":
+		return "html", true
+	case ".vue":
+		return "vue", true
+	case ".svelte":
+		return "svelte", true
+	case ".css", ".scss", ".sass", ".less":
+		return "css", true
+	default:
+		return "", false
+	}
+}
+
+// languageIDForSystemsExtension 返回系统语言和 C 系列扩展名对应的语言 ID。
+func languageIDForSystemsExtension(ext string) (string, bool) {
+	switch ext {
+	case ".c", ".h":
+		return "c", true
+	case ".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx":
+		return "cpp", true
+	case ".m":
+		return "objective-c", true
+	case ".mm":
+		return "objective-cpp", true
+	case ".swift":
+		return "swift", true
+	case ".cs":
+		return "csharp", true
+	default:
+		return "", false
+	}
+}
+
+// languageIDForDataExtension 返回脚本和数据处理语言扩展名对应的语言 ID。
+func languageIDForDataExtension(ext string) (string, bool) {
+	switch ext {
+	case ".py", ".pyi":
+		return "python", true
+	case ".php", ".phtml":
+		return "php", true
+	case ".rb", ".rake":
+		return "ruby", true
+	case ".kt", ".kts":
+		return "kotlin", true
+	case ".dart":
+		return "dart", true
+	case ".lua":
+		return "lua", true
+	default:
+		return "", false
+	}
+}
+
+// languageIDForToolExtension 返回工具链和基础设施扩展名对应的语言 ID。
+func languageIDForToolExtension(ext string) (string, bool) {
+	switch ext {
+	case ".rs":
+		return "rust", true
+	case ".java":
+		return "java", true
+	case ".sh", ".bash", ".zsh", ".ksh", ".bats":
+		return "shellscript", true
+	case ".dockerfile":
+		return "dockerfile", true
+	case ".tf", ".tfvars":
+		return "terraform", true
+	case ".graphql", ".gql":
+		return "graphql", true
+	case ".prisma":
+		return "prisma", true
+	default:
+		return "", false
+	}
+}
+
+// languageIDForDocumentExtension 返回文档和配置扩展名对应的语言 ID。
+func languageIDForDocumentExtension(ext string) (string, bool) {
+	switch ext {
+	case ".md", ".markdown":
+		return "markdown", true
+	case ".jsonc", ".json":
+		return "json", true
+	case ".yaml", ".yml":
+		return "yaml", true
+	default:
+		return "", false
+	}
 }
 
 // Registry 根据语言和目标文件把工具请求路由到对应 LSP Manager。
@@ -372,19 +437,20 @@ func (r *dynamicRegistry) Close() error {
 // DetectLanguageID 根据文件名或扩展名判断 LSP language id。
 func DetectLanguageID(path string) string {
 	base := strings.ToLower(filepath.Base(path))
-	if languageID, ok := languageIDByBaseName[base]; ok {
+	if languageID, ok := languageIDForBaseName(base); ok {
 		return languageID
 	}
 	if isGitHookShellPath(path, base) {
 		return "shellscript"
 	}
 	ext := strings.ToLower(filepath.Ext(path))
-	if languageID, ok := languageIDByExtension[ext]; ok {
+	if languageID, ok := languageIDForExtension(ext); ok {
 		return languageID
 	}
 	return strings.TrimPrefix(ext, ".")
 }
 
+// isGitHookShellPath 判断路径是否为无扩展名的 Git hooks shell 脚本。
 func isGitHookShellPath(path string, base string) bool {
 	dir := "/" + filepath.ToSlash(strings.ToLower(filepath.Dir(path))) + "/"
 	if strings.Contains(dir, "/.githooks/") {
@@ -393,8 +459,7 @@ func isGitHookShellPath(path string, base string) bool {
 	if !strings.Contains(dir, "/.git/hooks/") {
 		return false
 	}
-	_, ok := gitHookShellBaseNames[base]
-	return ok
+	return isGitHookShellBaseName(base)
 }
 
 // Diagnostics 按 manager 分组读取诊断后合并结果。
