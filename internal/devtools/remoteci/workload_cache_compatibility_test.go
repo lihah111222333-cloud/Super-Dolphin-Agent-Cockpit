@@ -4,7 +4,6 @@ import (
 	"context"
 	"maps"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -144,7 +143,7 @@ func (fixture compatiblePassFixture) promote(
 	t.Helper()
 	store := &coordinatorStore{objects: make(map[string][]byte)}
 	promoted, err := promoteCompatiblePassedWorkloadCache(
-		context.Background(), store, fixture.ledger,
+		context.Background(), fixture.ledger,
 		func() time.Time { return fixture.observedAt.Add(time.Minute) },
 		fixture.repository, []gate.Workload{fixture.packageWorkload}, entries, forceRerun,
 	)
@@ -167,16 +166,19 @@ func assertCompatiblePassPromotion(
 			t.Fatalf("codemap-only compatible PASS promotion = %#v", promoted)
 		}
 	}
-	assertCompatiblePassMarkers(t, entries, store)
+	assertNoCompatiblePassMarkers(t, entries, store)
 	assertCompatiblePassProofs(t, fixture.ledger, entries)
 }
 
-func assertCompatiblePassMarkers(t *testing.T, entries []remoteWorkloadCacheEntry, store *coordinatorStore) {
+func assertNoCompatiblePassMarkers(t *testing.T, entries []remoteWorkloadCacheEntry, store *coordinatorStore) {
 	t.Helper()
 	for _, entry := range entries {
-		if got := store.objects[entry.key]; !strings.Contains(string(got), entry.identityDigest) {
-			t.Fatalf("promoted PASS marker %q = %q", entry.workloadID, got)
+		if _, ok := store.objects[entry.key]; ok {
+			t.Fatalf("compatible PASS %q published an unverifiable stable marker", entry.workloadID)
 		}
+	}
+	if len(store.uploads) != 0 || len(store.uploadBatches) != 0 {
+		t.Fatalf("compatible PASS reuse uploaded objects=%v batches=%v", store.uploads, store.uploadBatches)
 	}
 }
 
@@ -232,6 +234,18 @@ func TestLookupExactPassedGoTestsPromotesCompatibleFingerprint(t *testing.T) {
 	if execution, ok := cached[fixture.exactWorkload.ID]; !ok || execution.Status != gate.ResultStatusPassed {
 		t.Fatalf("compatible exact-test PASS was not promoted: %#v", cached)
 	}
+	second := make(map[string]gate.PlanGateExecution)
+	if err := lookupExactPassedGoTests(
+		context.Background(), store, "source/passed-workloads/v1/",
+		func() time.Time { return fixture.observedAt.Add(2 * time.Minute) },
+		input, lookup, second,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if execution, ok := second[fixture.exactWorkload.ID]; !ok || execution.Status != gate.ResultStatusPassed {
+		t.Fatalf("second compatible exact-test lookup missed: %#v", second)
+	}
+	assertNoCompatiblePassMarkers(t, entries[1:], store)
 }
 
 func TestPromoteCompatiblePassedWorkloadCacheRejectsProductionChange(t *testing.T) {

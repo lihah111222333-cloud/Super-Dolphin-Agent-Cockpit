@@ -2,16 +2,16 @@
 
 > 状态：**OK**
 >
-> 已索引文件：4494
+> 已索引文件：4547
 >
-> 未细分职责文件：136
+> 未细分职责文件：156
 
 ## 1. 漂移指标
 
 | 指标 | 当前值 |
 |---|---:|
-| 未细分职责文件数 | 136 |
-| 未细分职责占比 | 3.03% |
+| 未细分职责文件数 | 156 |
+| 未细分职责占比 | 3.43% |
 | 最大未细分职责占比阈值 | 5.00% |
 
 ## 2. 漂移告警
@@ -22,7 +22,7 @@
 
 | 模块 | 文件数 |
 |---|---:|
-| `cmd` | 134 |
+| `cmd` | 154 |
 | `internal` | 2 |
 
 ## 4. 样例文件
@@ -37,6 +37,7 @@
 - `cmd/codex-worktree-setup/setup_test.go`
 - `cmd/codex-worktree-setup/worktree_integration_test.go`
 - `cmd/mcp-schema-compiler-helper/main.go`
+- `cmd/super-dolphin-gate/codemap_cli.go`
 - `cmd/super-dolphin-gate/coordinator_bootstrap.go`
 - `cmd/super-dolphin-gate/coordinator_bootstrap_container.go`
 - `cmd/super-dolphin-gate/coordinator_bootstrap_controller.go`
@@ -76,7 +77,6 @@
 - `cmd/super-dolphin-gate/coordinator_receipt_fixture_test.go`
 - `cmd/super-dolphin-gate/coordinator_recovery.go`
 - `cmd/super-dolphin-gate/coordinator_recovery_plan_test.go`
-- `cmd/super-dolphin-gate/coordinator_recovery_shards.go`
 
 ## 5. 修复方式
 

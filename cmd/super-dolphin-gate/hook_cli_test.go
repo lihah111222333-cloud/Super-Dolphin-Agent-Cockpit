@@ -272,8 +272,10 @@ func installAlternateIndexGate(t *testing.T, repository, hookCommand, waitComman
 		hookCommand = "printf 'container-source:%s\\n' \"$4\" >> \"$GATE_TREE_LOG\"; printf 'queued job=job-0123456789abcdef0123456789abcdef\\n'; exit 13"
 	}
 	gateScript := "#!/usr/bin/env bash\nset -euo pipefail\ncase \"$1\" in\n" +
-		"  closure) printf 'closure:%s\\n' \"$4\" >> \"$GATE_TREE_LOG\" ;;\n" +
+		"  closure) case \"$2\" in check|refresh|refresh-dependencies) printf 'closure:%s\\n' \"$4\" >> \"$GATE_TREE_LOG\" ;; *) exit 64 ;; esac ;;\n" +
+		"  frontend-code-size) exit 0 ;;\n" +
 		"  project-map) exit 0 ;;\n" +
+		"  codemap) exit 0 ;;\n" +
 		"  hook) " + hookCommand + " ;;\n" +
 		"  wait) printf 'wait:%s\\n' \"$5\" >> \"$GATE_TREE_LOG\"" + waitCommand + " ;;\n" +
 		"  *) exit 64 ;;\nesac\n"
@@ -323,10 +325,41 @@ func TestClosureVerifierIgnoresUnavailableWorktreeGeneratorSource(t *testing.T) 
 	}
 }
 
+func TestPreCommitBootstrapsOnlyCompleteFirstFrontendParserClosure(t *testing.T) {
+	repository := strings.TrimSpace(runHookTestGit(t, mustWorkingDirectory(t), "rev-parse", "--show-toplevel"))
+	hook, err := os.ReadFile(filepath.Join(repository, ".githooks", "pre-commit"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{
+		`cat-file -e "$accepted_frontend_tree:$frontend_code_size_closure"`,
+		`accepted_frontend_manifest" -ne "$accepted_frontend_generator`,
+		`cat-file -e "$staged_tree:$frontend_code_size_closure"`,
+		`bootstrapping the first candidate-bound frontend parser closure`,
+		`frontend_code_size_dependency_migration_requested=1`,
+	} {
+		if !bytes.Contains(hook, []byte(fragment)) {
+			t.Fatalf("pre-commit is missing first parser closure bootstrap contract %q", fragment)
+		}
+	}
+}
+
 func TestClosureCheckRequiresExplicitStagedTree(t *testing.T) {
 	err := runClosureCheck([]string{"check"})
 	if err == nil || !strings.Contains(err.Error(), "requires one --tree") {
 		t.Fatalf("runClosureCheck() error = %v", err)
+	}
+}
+
+func TestParseClosureCheckArgsAcceptsOnlyRegisteredActions(t *testing.T) {
+	for _, action := range []string{"check", "refresh", "refresh-dependencies"} {
+		gotAction, tree, err := parseClosureCheckArgs([]string{action, "--tree", "abc123"})
+		if err != nil || gotAction != action || tree != "abc123" {
+			t.Fatalf("parseClosureCheckArgs(%q) = (%q, %q, %v)", action, gotAction, tree, err)
+		}
+	}
+	if _, _, err := parseClosureCheckArgs([]string{"unknown", "--tree", "abc123"}); err == nil {
+		t.Fatal("parseClosureCheckArgs accepted an unregistered action")
 	}
 }
 

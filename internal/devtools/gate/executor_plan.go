@@ -21,15 +21,18 @@ import (
 )
 
 const (
-	executorPlanReportSchemaVersion    = 2
+	executorPlanReportSchemaVersion    = 3
+	executorPlanTimingSchemaVersion    = 2
 	ExecutorPlanReportChunkPrefix      = "SUPER_DOLPHIN_GATE_PLAN_REPORT_CHUNK "
 	ExecutorWorkloadTimeoutEnvironment = "SUPER_DOLPHIN_REMOTE_EXECUTION_TIMEOUT"
 	executorPlanReportChunkBytes       = 768
 	executorPlanReportMaxLineBytes     = 1024
-	executorPlanMaxReportChunks        = 2000
+	executorPlanMaxTransportRecords    = 2000
 	executorPlanReportMaxOutputBytes   = 1 << 20
 	executorPlanMaxLogBytes            = 32 << 10
-	executorPlanMaxLogLines            = 64
+	executorPlanMaxLogLines            = 2000
+	executorPlanMaxTimingRecords       = 2000
+	executorPlanMaxLogRecords          = (executorPlanMaxLogBytes*2 + executorPlanReportChunkBytes - 1) / executorPlanReportChunkBytes
 	executorPlanLaneCount              = 2
 )
 
@@ -724,7 +727,9 @@ func executePlanGate(
 			err = errors.Join(err, fmt.Errorf("persist gate failure summary: %w", writeErr))
 		}
 	}
-	result.Log = log.Bytes()
+	if result.Status != ResultStatusPassed {
+		result.Log = log.Bytes()
+	}
 	result.LogDigest = digestPlanLog(result.Log)
 	return result, err
 }

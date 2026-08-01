@@ -75,14 +75,22 @@ const (
 
 func assertTreeBoundRemotePreCommitCoordinatorCommands(t *testing.T, root string, got [][]string) {
 	t.Helper()
-	if len(got) != 3 {
-		t.Fatalf("pre-commit coordinator argv = %#v, want closure, project-map check, and synchronous remote hook", got)
+	if len(got) == 0 {
+		t.Fatal("pre-commit coordinator argv is empty")
 	}
 	tree := closureTreeForCoordinatorContractGuard(t, root, got[0])
-	if want := []string{"project-map", "check", "--tree", tree}; !slices.Equal(got[1], want) {
-		t.Fatalf("pre-commit project-map argv = %#v, want %#v", got[1], want)
+	acceptedTree := headTreeForCoordinatorContractGuard(t, root)
+	next := assertFrontendCodeSizeCoordinatorCommands(t, got, tree, acceptedTree)
+	if len(got) != next+3 {
+		t.Fatalf("pre-commit coordinator argv = %#v, want project-map, codemap, and synchronous remote hook after frontend validation", got)
 	}
-	assertRemoteCoordinatorHookCommand(t, got[2], "pre-commit", map[string]string{
+	if want := []string{"project-map", "check", "--tree", tree}; !slices.Equal(got[next], want) {
+		t.Fatalf("pre-commit project-map argv = %#v, want %#v", got[next], want)
+	}
+	if want := []string{"codemap", "check", "--tree", tree}; !slices.Equal(got[next+1], want) {
+		t.Fatalf("pre-commit codemap argv = %#v, want %#v", got[next+1], want)
+	}
+	assertRemoteCoordinatorHookCommand(t, got[next+2], "pre-commit", map[string]string{
 		"--config":     coordinatorContractRemoteConfig,
 		"--ledger":     coordinatorContractRemoteLedger,
 		"--repository": root,
@@ -90,6 +98,23 @@ func assertTreeBoundRemotePreCommitCoordinatorCommands(t *testing.T, root string
 		"--parent":     headCommitForCoordinatorContractGuard(t, root),
 		"--state":      coordinatorContractRemoteState,
 	}, nil)
+}
+
+func assertFrontendCodeSizeCoordinatorCommands(t *testing.T, got [][]string, tree, acceptedTree string) int {
+	t.Helper()
+	check := []string{"frontend-code-size", "check", "--tree", tree, "--accepted-tree", acceptedTree}
+	if len(got) > 1 && slices.Equal(got[1], check) {
+		return 2
+	}
+	migrate := []string{"frontend-code-size", "migrate", "--tree", tree, "--accepted-tree", acceptedTree}
+	if len(got) > 3 &&
+		slices.Equal(got[1], []string{"frontend-code-size", "node-path"}) &&
+		slices.Equal(got[2], migrate) &&
+		slices.Equal(got[3], migrate) {
+		return 4
+	}
+	t.Fatalf("pre-commit frontend-code-size argv = %#v, want check or deterministic migration path", got)
+	return 0
 }
 
 func assertRemotePrePushCoordinatorCommands(t *testing.T, root string, got [][]string, trailing []string) {
@@ -196,6 +221,17 @@ func headCommitForCoordinatorContractGuard(t *testing.T, root string) string {
 	output, err := command.Output()
 	if err != nil {
 		t.Fatalf("capture parent commit: %v", err)
+	}
+	return strings.TrimSpace(string(output))
+}
+
+func headTreeForCoordinatorContractGuard(t *testing.T, root string) string {
+	t.Helper()
+	command := exec.Command("git", "rev-parse", "--verify", "HEAD^{tree}")
+	command.Dir = root
+	output, err := command.Output()
+	if err != nil {
+		t.Fatalf("capture accepted baseline tree: %v", err)
 	}
 	return strings.TrimSpace(string(output))
 }
@@ -339,7 +375,11 @@ func writeCoordinatorCLIForContractGuard(t *testing.T) (logPath, binaryPath stri
 	dir := t.TempDir()
 	logPath = filepath.Join(dir, "coordinator.log")
 	binaryPath = filepath.Join(dir, "super-dolphin-gate")
-	script := fmt.Sprintf("#!/usr/bin/env bash\nset -euo pipefail\nprintf '%%s\\0' \"$@\" >> %q\nprintf '\\n' >> %q\nif [[ \"$1\" == \"hook\" && \"$2\" == \"pre-commit\" ]]; then\n  printf 'job=%s\\n'\n  exit 13\nfi\n", logPath, logPath, queuedCoordinatorJobID)
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Fatalf("locate Node for coordinator contract guard: %v", err)
+	}
+	script := fmt.Sprintf("#!/usr/bin/env bash\nset -euo pipefail\nprintf '%%s\\0' \"$@\" >> %q\nprintf '\\n' >> %q\nif [[ \"$1\" == \"frontend-code-size\" && \"$2\" == \"node-path\" ]]; then\n  printf '%%s\\n' %q\n  exit 0\nfi\nif [[ \"$1\" == \"hook\" && \"$2\" == \"pre-commit\" ]]; then\n  printf 'job=%s\\n'\n  exit 13\nfi\n", logPath, logPath, node, queuedCoordinatorJobID)
 	if err := os.WriteFile(binaryPath, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}

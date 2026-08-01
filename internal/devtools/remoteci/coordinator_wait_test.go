@@ -3,7 +3,10 @@ package remoteci
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
 func TestCoordinatorBatchesPollingCloudCalls(t *testing.T) {
@@ -47,5 +50,18 @@ func TestCoordinatorPollingHonorsCloudBatchLimit(t *testing.T) {
 		len(runtime.describes[0]) != remoteContainerGroupBatchLimit ||
 		len(runtime.describes[1]) != 1 {
 		t.Fatalf("DescribeContainerGroups batches = %#v", runtime.describes)
+	}
+}
+
+func TestDecodeReportLogRejectsRecordsBeyondShardBudgetDuringScan(t *testing.T) {
+	expected := []gate.GateID{gate.GateIDWhitespaceCheck}
+	limit, err := gate.PlanExecutionReportRecordLimit(len(expected))
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := gate.ExecutorPlanReportChunkPrefix + "over-budget\n"
+	_, err = decodeReportLog(strings.Repeat(line, limit+1), expected)
+	if err == nil || !strings.Contains(err.Error(), "exceeds shard record budget") {
+		t.Fatalf("decodeReportLog() error = %v, want shard record budget rejection", err)
 	}
 }

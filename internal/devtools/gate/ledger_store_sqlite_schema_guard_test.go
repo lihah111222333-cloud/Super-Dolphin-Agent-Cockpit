@@ -103,20 +103,19 @@ func sqliteRequiredQueryPlans() []sqliteQueryPlanTest {
 			args:  []any{"unit", "sha256:input", "sha256:environment"},
 		},
 		{
+			name: "workload identity alias lookup",
+			query: `SELECT identity_digest FROM ci_workload_identity_aliases
+				WHERE workload_id = ? ORDER BY observed_at_unix_ms DESC, identity_digest`,
+			index: "idx_ci_workload_identity_alias_lookup",
+			args:  []any{"unit"},
+		},
+		{
 			name: "fingerprint latest observation",
 			query: `SELECT source_tree_sha FROM ci_workload_fingerprint_observations
 				WHERE identity_digest = ?
 				ORDER BY observed_at_unix_ms DESC, source_tree_sha DESC`,
 			index: "idx_ci_workload_fingerprint_observation_latest",
 			args:  []any{"sha256:identity"},
-		},
-		{
-			name: "compatible pass lookup",
-			query: `SELECT identity_digest FROM ci_workload_pass_proofs
-				WHERE workload_id = ? AND execution_digest = ? AND environment_digest = ?
-				ORDER BY observed_at_unix_ms DESC`,
-			index: "idx_ci_workload_pass_compatible",
-			args:  []any{"unit", strings.Repeat("a", 64), "sha256:environment"},
 		},
 		{
 			name: "catalog observation",
@@ -324,7 +323,7 @@ func assertSQLiteSchemaTableRegistry(t *testing.T, database *sql.DB) {
 		"ci_catalog_observations", "ci_catalog_workloads", "ci_gate_executions",
 		"ci_query_meta", "ci_run_phase_timings", "ci_run_requesters", "ci_run_warnings", "ci_run_workloads", "ci_runs", "ci_schema_migrations",
 		"ci_shard_workloads", "ci_shards", "ci_workload_catalogs",
-		"ci_workload_fingerprint_observations", "ci_workload_fingerprints", "ci_workload_pass_proofs",
+		"ci_workload_fingerprint_observations", "ci_workload_fingerprints", "ci_workload_identity_aliases", "ci_workload_pass_proofs",
 		"duration_calibrations", "duration_ledger_meta", "duration_samples",
 	}
 	if !slices.Equal(actual, expected) {

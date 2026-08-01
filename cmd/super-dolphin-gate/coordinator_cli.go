@@ -259,21 +259,43 @@ func manualSubmissionAuthority() submissionAuthority {
 	}
 }
 
-// runClosureCheck 对 staged tree 执行受信 CLI 内的 closure 校验或一次性刷新。
 func runClosureCheck(args []string) error {
-	if len(args) != 3 || args[1] != "--tree" || args[0] != "check" && args[0] != "refresh" {
-		return protocolError("closure check or refresh requires one --tree <staged-tree-sha> argument")
+	action, tree, err := parseClosureCheckArgs(args)
+	if err != nil {
+		return err
+	}
+	return executeClosureCheck(action, tree)
+}
+
+func parseClosureCheckArgs(args []string) (string, string, error) {
+	if len(args) != 3 || args[1] != "--tree" || args[0] != "check" && args[0] != "refresh" && args[0] != "refresh-dependencies" {
+		return "", "", protocolError("closure check, refresh, or refresh-dependencies requires one --tree <staged-tree-sha> argument")
 	}
 	tree := strings.TrimSpace(args[2])
 	if tree == "" {
-		return protocolError("closure staged tree sha is required")
+		return "", "", protocolError("closure staged tree sha is required")
 	}
-	if args[0] == "refresh" {
-		if err := gateclosure.Generate(tree, false); err != nil {
-			return infrastructureError("refresh gate-image closure: %v", err)
-		}
-		return nil
+	return args[0], tree, nil
+}
+
+func executeClosureCheck(action, tree string) error {
+	switch action {
+	case "refresh-dependencies":
+		return runClosureRefresh(tree, "refresh gate-image dependency closure", gateclosure.RefreshDependencyClosure)
+	case "refresh":
+		return runClosureRefresh(tree, "refresh gate-image closure", func(tree string) error { return gateclosure.Generate(tree, false) })
+	case "check":
+		return checkClosureTree(tree)
 	}
+	return protocolError("closure check, refresh, or refresh-dependencies requires one --tree <staged-tree-sha> argument")
+}
+func runClosureRefresh(tree, operation string, refresh func(string) error) error {
+	if err := refresh(tree); err != nil {
+		return infrastructureError("%s: %v", operation, err)
+	}
+	return nil
+}
+func checkClosureTree(tree string) error {
 	repositoryRoot, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
 	if err != nil {
 		return infrastructureError("resolve closure repository root: %v", err)

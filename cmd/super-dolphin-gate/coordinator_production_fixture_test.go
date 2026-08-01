@@ -48,22 +48,24 @@ func productionBuildInputFiles() map[string]string {
 			"COPY cmd/super-dolphin-gate/main.go ./cmd/super-dolphin-gate/main.go\n" +
 			"RUN --network=none go build -o /out/gate ./cmd/super-dolphin-gate\n" +
 			"FROM scratch\nCOPY --from=build /out/gate /gate\nENTRYPOINT [\"/gate\"]\n",
-		"build/gate/runtime-deps.Dockerfile":                   "FROM scratch\n",
-		"build/gate/runtime-lsp/package-lock.json":             "{}\n",
-		"build/gate/runtime-proxy/go.mod":                      "module example.invalid/proxy\n",
-		"build/gate/runtime-proxy/go.sum":                      "proxy sum\n",
-		"build/gate/runtime-tools/go.mod":                      "module example.invalid/tools\n",
-		"build/gate/runtime-tools/go.sum":                      "tools sum\n",
-		"frontend-app/package-lock.json":                       "{}\n",
-		"go.mod":                                               "module example.invalid/gate\n",
-		"go.sum":                                               "sum\n",
-		"internal/devtools/gate/executor_seed.go":              "package gate\n",
-		"cmd/super-dolphin-gate/remote_refresh_seed.go":        "package main\n",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script.go": "package main\n",
-		"internal/devtools/nilnessrunner/runner.go":            "package nilnessrunner\n",
-		"scripts/nilness_guard.go":                             "package main\n",
-		"cmd/super-dolphin-gate/main.go":                       "package main\n",
-		"build/gate/toolchain.lock":                            productionToolchainLock(),
+		"build/gate/runtime-deps.Dockerfile":                           "FROM scratch\n",
+		"build/gate/runtime-lsp/package-lock.json":                     "{}\n",
+		"build/gate/runtime-proxy/go.mod":                              "module example.invalid/proxy\n",
+		"build/gate/runtime-proxy/go.sum":                              "proxy sum\n",
+		"build/gate/runtime-tools/go.mod":                              "module example.invalid/tools\n",
+		"build/gate/runtime-tools/go.sum":                              "tools sum\n",
+		"frontend-app/package-lock.json":                               "{}\n",
+		"go.mod":                                                       "module example.invalid/gate\n",
+		"go.sum":                                                       "sum\n",
+		"internal/devtools/gate/executor_seed.go":                      "package gate\n",
+		"cmd/super-dolphin-gate/remote_refresh_seed.go":                "package main\n",
+		"cmd/super-dolphin-gate/remote_refresh_seed_script.go":         "package main\n",
+		"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go": "package main\n",
+		"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go": "package main\n",
+		"internal/devtools/nilnessrunner/runner.go":                    "package nilnessrunner\n",
+		"scripts/nilness_guard.go":                                     "package main\n",
+		"cmd/super-dolphin-gate/main.go":                               "package main\n",
+		"build/gate/toolchain.lock":                                    productionToolchainLock(),
 	}
 }
 
@@ -85,7 +87,7 @@ func productionRuntimeDepsLock(t *testing.T, files map[string]string) string {
 		inputs[field] = productionFixtureDigest(files[path])
 	}
 	return productionFixtureJSON(t, map[string]any{
-		"schema_version": "7", "build_mode": "node-local", "cache_scope": "node",
+		"schema_version": "9", "build_mode": "node-local", "cache_scope": "node",
 		"inputs": inputs, "paths": productionRuntimePaths(),
 	})
 }
@@ -111,7 +113,7 @@ func TestProductionRuntimeDepsLockUsesNodeLocalSchema(t *testing.T) {
 	schemaVersion := productionFixtureString(t, lock, "schema_version")
 	buildMode := productionFixtureString(t, lock, "build_mode")
 	cacheScope := productionFixtureString(t, lock, "cache_scope")
-	if schemaVersion != "7" || buildMode != "node-local" || cacheScope != "node" {
+	if schemaVersion != "9" || buildMode != "node-local" || cacheScope != "node" {
 		t.Fatalf("runtime dependency lock header = (%q, %q, %q)", schemaVersion, buildMode, cacheScope)
 	}
 }
@@ -162,9 +164,11 @@ func productionRuntimeDepsInputPaths() map[string]string {
 		"frontend_package_lock_sha256": "frontend-app/package-lock.json", "lsp_package_lock_sha256": "build/gate/runtime-lsp/package-lock.json",
 		"proxy_go_mod_sha256": "build/gate/runtime-proxy/go.mod", "proxy_go_sum_sha256": "build/gate/runtime-proxy/go.sum",
 		"tools_go_mod_sha256": "build/gate/runtime-tools/go.mod", "tools_go_sum_sha256": "build/gate/runtime-tools/go.sum",
-		"runtime_seed_worker_sha256": "internal/devtools/gate/executor_seed.go",
-		"runtime_seed_recipe_sha256": "cmd/super-dolphin-gate/remote_refresh_seed.go",
-		"runtime_seed_script_sha256": "cmd/super-dolphin-gate/remote_refresh_seed_script.go",
+		"runtime_seed_worker_sha256":         "internal/devtools/gate/executor_seed.go",
+		"runtime_seed_recipe_sha256":         "cmd/super-dolphin-gate/remote_refresh_seed.go",
+		"runtime_seed_script_sha256":         "cmd/super-dolphin-gate/remote_refresh_seed_script.go",
+		"runtime_seed_script_browser_sha256": "cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go",
+		"runtime_seed_script_runtime_sha256": "cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go",
 	}
 }
 
@@ -293,6 +297,7 @@ func newProductionTestFixture(t *testing.T) productionTestFixture {
 		SeccompProfile:             writeProductionSeccompProfile(t, root),
 		Platform:                   "linux/arm64", RepoID: "example/repository",
 		TrustedRef: "refs/heads/main", TrustedRepository: repository.trustedRepository,
+		GitExecutable: mustResolveProductionGitExecutable(t),
 		AcceptedImageSigners: []productionTrustedKey{{
 			Signer: authority.signer, PublicKey: base64.StdEncoding.EncodeToString(authority.publicKey),
 		}},
@@ -348,6 +353,15 @@ func newProductionTestFixture(t *testing.T) productionTestFixture {
 	fixture.configPath = filepath.Join(root, "production.json")
 	writeProductionCoordinatorConfigFixture(t, fixture.configPath, config)
 	return fixture
+}
+
+func mustResolveProductionGitExecutable(t *testing.T) string {
+	t.Helper()
+	path, err := resolveProductionGitExecutable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func writeProductionCoordinatorConfigFixture(

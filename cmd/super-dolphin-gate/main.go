@@ -35,6 +35,9 @@ func main() {
 		}
 		return
 	}
+	if isProductionSelfUpdateCommand(os.Args[1:]) {
+		os.Exit(runProductionSelfUpdateCLI(os.Args[2:], os.Stderr))
+	}
 	os.Exit(runCLI(os.Args[1:], os.Stdout, os.Stderr))
 }
 
@@ -182,7 +185,7 @@ func signalExitCode(caught os.Signal) int {
 // dispatchCLI 将固定命令面分派到 plan 或未接线 scheduler 边界。
 func dispatchCLI(args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return protocolError("subcommand is required (plan, test, project-map, submit, workflow, workflow-host, run, worker, remote run, status, wait, logs, receipt verify, grant, provision)")
+		return protocolError("subcommand is required (plan, test, codemap, project-map, submit, workflow, workflow-host, run, worker, remote run, status, wait, logs, receipt verify, grant, provision)")
 	}
 	if handled, err := dispatchPrimaryCLI(args, stdout); handled {
 		return err
@@ -197,16 +200,16 @@ func dispatchPrimaryCLI(args []string, stdout io.Writer) (bool, error) {
 		return true, runPlan(args[1:], stdout)
 	case "test":
 		return true, runTestInvocation(args[1:], stdout)
-	case "project-map":
-		return true, runProjectMapCLI(args[1:], stdout)
+	case "codemap", "project-map":
+		return true, runGeneratedMapCLI(args[0], args[1:], stdout)
 	case "hook":
 		return true, runHook(args[1:], os.Stdin, stdout)
 	case "bootstrap":
 		return true, runProductionBootstrapControllerCLI(args[1:], os.Stdin, stdout)
 	case "provision":
 		return true, runProductionProvisionCLI(args[1:], stdout)
-	case "closure":
-		return true, runClosureCheck(args[1:])
+	case "closure", "frontend-code-size":
+		return true, runLocalGuardCLI(args, stdout)
 	case "remote":
 		return true, runRemote(args[1:], os.Stdin, stdout)
 	case "_remote-materialize":
@@ -214,6 +217,14 @@ func dispatchPrimaryCLI(args []string, stdout io.Writer) (bool, error) {
 	default:
 		return false, nil
 	}
+}
+
+// runGeneratedMapCLI 分派两个精确树绑定的生成地图命令。
+func runGeneratedMapCLI(command string, args []string, stdout io.Writer) error {
+	if command == "codemap" {
+		return runCodemapCLI(args, stdout)
+	}
+	return runProjectMapCLI(args, stdout)
 }
 
 // dispatchCoordinatorCLI 分派既有 coordinator 与 receipt 命令。

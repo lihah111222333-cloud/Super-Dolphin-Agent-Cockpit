@@ -44,6 +44,8 @@ type runtimeDepsInputs struct {
 	RuntimeSeedWorker   string `json:"runtime_seed_worker_sha256"`
 	RuntimeSeedRecipe   string `json:"runtime_seed_recipe_sha256"`
 	RuntimeSeedScript   string `json:"runtime_seed_script_sha256"`
+	RuntimeSeedBrowser  string `json:"runtime_seed_script_browser_sha256"`
+	RuntimeSeedRuntime  string `json:"runtime_seed_script_runtime_sha256"`
 }
 
 type runtimeDepsPaths struct {
@@ -115,6 +117,8 @@ func runtimeDepsInputBindings(inputs runtimeDepsInputs) []runtimeDepsInputBindin
 		{"internal/devtools/gate/executor_seed.go", inputs.RuntimeSeedWorker},
 		{"cmd/super-dolphin-gate/remote_refresh_seed.go", inputs.RuntimeSeedRecipe},
 		{"cmd/super-dolphin-gate/remote_refresh_seed_script.go", inputs.RuntimeSeedScript},
+		{"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go", inputs.RuntimeSeedBrowser},
+		{"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go", inputs.RuntimeSeedRuntime},
 	}
 }
 
@@ -529,6 +533,12 @@ type GateImageInputs struct {
 	ToolchainDigest     string
 	DockerfileDigest    string
 	GateSourceDigest    string
+}
+
+// BaselineGateCompileInputs 固化历史基线树中的 Gate 编译闭包与工具链身份。
+type BaselineGateCompileInputs struct {
+	ToolchainDigest  string
+	GateSourceDigest string
 }
 
 func verifyReadOnlyGitTree(tree ReadOnlyGitTree) error {

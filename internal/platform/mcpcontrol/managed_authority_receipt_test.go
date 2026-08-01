@@ -218,6 +218,7 @@ func TestManagedRegisterReplayRebindsConnectionWithoutOldConnectionAuthority(t *
 	if err := firstPeer.Client.CallResult(context.Background(), dto.MethodRegister, request, &first); err != nil {
 		t.Fatalf("first connection Register() error = %v", err)
 	}
+	pin := pinManagedInstance(t, registry, dto.ClientKindOrch)
 	secondPeer := newManagedRegistryLocal(t, registry)
 	var replay dto.RegisterResponse
 	if err := secondPeer.Client.CallResult(context.Background(), dto.MethodRegister, request, &replay); err != nil {
@@ -225,6 +226,9 @@ func TestManagedRegisterReplayRebindsConnectionWithoutOldConnectionAuthority(t *
 	}
 	if replay.Generation != first.Generation {
 		t.Fatalf("replay generation = %d, want %d", replay.Generation, first.Generation)
+	}
+	if pin.Current() {
+		t.Fatal("first connection pin remained current after replay replacement")
 	}
 	heartbeat := dto.HeartbeatRequest{InstanceID: first.InstanceID, Generation: first.Generation}
 	var heartbeatResponse dto.HeartbeatResponse
@@ -334,6 +338,24 @@ func requireOldManagedReplayRejected(
 	); err != nil {
 		t.Fatalf("replacement connection Heartbeat() after stale replay error = %v", err)
 	}
+}
+
+func pinManagedInstance(t *testing.T, registry *ToolRegistry, kind string) *LeasePin {
+	t.Helper()
+	active := registry.FindActiveByKind(kind)
+	if len(active) != 1 {
+		t.Fatalf("active managed instances = %d, want 1", len(active))
+	}
+	pin, err := active[0].Pin()
+	if err != nil {
+		t.Fatalf("managed instance Pin() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := pin.Release(); err != nil {
+			t.Errorf("managed instance pin Release() error = %v", err)
+		}
+	})
+	return pin
 }
 
 func newManagedRegistryLocal(t *testing.T, registry *ToolRegistry) jrpcserver.Local {

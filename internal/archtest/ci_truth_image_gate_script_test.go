@@ -391,6 +391,7 @@ func TestGitHooksREADMEDeclaresThinHookEntrypoints(t *testing.T) {
 		t.Fatal("README must not document hook bypasses")
 	}
 	assertPreCommitWaitsForQueuedJobs(t, root)
+	assertRemotePreCommitStreamsCoordinatorOutput(t, root)
 }
 
 func assertPreCommitWaitsForQueuedJobs(t *testing.T, root string) {
@@ -400,6 +401,22 @@ func assertPreCommitWaitsForQueuedJobs(t *testing.T, root string) {
 		if !strings.Contains(preCommit, required) {
 			t.Fatalf("pre-commit does not synchronously wait for queued jobs: missing %q", required)
 		}
+	}
+}
+
+func assertRemotePreCommitStreamsCoordinatorOutput(t *testing.T, root string) {
+	t.Helper()
+	preCommit := readGuardFile(t, filepath.Join(root, ".githooks", "pre-commit"))
+	for _, required := range []string{
+		`"$gate_bin" "${remote_args[@]}" 2>&1 | tee "$gate_output_file"`,
+		"hook_rc=${PIPESTATUS[0]}",
+	} {
+		if !strings.Contains(preCommit, required) {
+			t.Fatalf("remote pre-commit buffers coordinator output instead of streaming it: missing %q", required)
+		}
+	}
+	if strings.Contains(preCommit, `"$gate_bin" "${remote_args[@]}" >"$gate_output_file" 2>&1`) {
+		t.Fatal("remote pre-commit regressed to buffered coordinator output")
 	}
 }
 

@@ -475,7 +475,7 @@ internal/platform/mcpcontrol/handlers_hooks_test.go	internal	platform-provider	g
 internal/platform/mcpcontrol/handlers_hooks.go	internal	platform-provider	go-source	6868	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,handlers,hooks,MCP,控制平面与,peer,注册
 internal/platform/mcpcontrol/handlers_test.go	internal	platform-provider	go-test	13260	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,handlers,test,MCP,控制平面与,peer,注册
 internal/platform/mcpcontrol/handlers.go	internal	platform-provider	go-source	18974	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,handlers,MCP,控制平面与,peer,注册
-internal/platform/mcpcontrol/managed_authority_receipt_test.go	internal	platform-provider	go-test	13113	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,managed,authority,receipt,test,MCP,控制平面与,peer,注册
+internal/platform/mcpcontrol/managed_authority_receipt_test.go	internal	platform-provider	go-test	13752	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,managed,authority,receipt,test,MCP,控制平面与,peer,注册
 internal/platform/mcpcontrol/managed_authority_test.go	internal	platform-provider	go-test	29310	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,managed,authority,test,MCP,控制平面与,peer,注册
 internal/platform/mcpcontrol/managed_authority.go	internal	platform-provider	go-source	10671	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,managed,authority,MCP,控制平面与,peer,注册
 internal/platform/mcpcontrol/managed_lease.go	internal	platform-provider	go-source	2197	MCP 控制平面与 peer 注册	internal,platform,mcpcontrol,managed,lease,MCP,控制平面与,peer,注册

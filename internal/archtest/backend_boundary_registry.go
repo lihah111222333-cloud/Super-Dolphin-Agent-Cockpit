@@ -800,7 +800,7 @@ func commandBoundaryPatterns(patterns backendBoundaryPatterns) []string {
 }
 
 func internalSupportBoundaryPatterns(patterns backendBoundaryPatterns) []string {
-	return combineBoundaryPatterns(patterns.devtools, patterns.dto, patterns.testutil, patterns.util)
+	return combineBoundaryPatterns(patterns.devtools, []string{"internal/devtools/archtestmap/**/*.go"}, patterns.dto, patterns.testutil, patterns.util)
 }
 
 // commandNarrowAllowPolicies 为每个 standalone command 绑定精确内部依赖白名单。
@@ -827,7 +827,9 @@ func commandNarrowAllowPolicies(patterns backendBoundaryPatterns) []BoundaryImpo
 		"internal/devtools/alicloud/datacache",
 		"internal/devtools/alicloud/eci",
 		"internal/devtools/alicloud/oss",
+		"internal/devtools/codemapindex",
 		"internal/devtools/coordinatoradmission",
+		"internal/devtools/frontendcodesizetrusted",
 		"internal/devtools/gate",
 		"internal/devtools/gateprivate",
 		"internal/devtools/gatehook",
@@ -835,6 +837,7 @@ func commandNarrowAllowPolicies(patterns backendBoundaryPatterns) []BoundaryImpo
 		"internal/devtools/projectmaptrusted",
 		"internal/devtools/remoteci",
 		"internal/devtools/shardresource",
+		"internal/devtools/sourceexport",
 	}, "standalone gate coordinator, worker, hook, persistence, and local or remote CI runtime")...)
 	policies = append(policies, boundaryPolicies(owner, patterns.releaseManifest, []string{
 		"internal/module/appupdate",
@@ -866,6 +869,9 @@ func internalSupportNarrowAllowPolicies(patterns backendBoundaryPatterns) []Boun
 		"internal/platform/db",
 		"internal/util/ctxutil",
 	}, "developer tool implementation or SQLite smoke seam")
+	policies = append(policies, boundaryPolicies(owner, []string{"internal/devtools/archtestmap/**/*.go"}, []string{
+		"internal/archtest",
+	}, "archtest map generator renders the canonical boundary registry")...)
 	policies = append(policies, boundaryPolicies(owner, patterns.dto, []string{
 		"internal/dto",
 	}, "DTO descendant")...)

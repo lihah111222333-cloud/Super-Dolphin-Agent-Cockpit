@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"os"
 	"sort"
 	"time"
 
@@ -15,7 +14,6 @@ import (
 // 只有旧证据对应源码树按当前算法重算后仍与当前目标输入完全相同，才允许复用。
 func promoteCompatiblePassedWorkloadCache(
 	ctx context.Context,
-	objectStore ObjectStore,
 	ledgerStore *gate.DurationLedgerStore,
 	now func() time.Time,
 	repositoryRoot string,
@@ -60,9 +58,6 @@ func promoteCompatiblePassedWorkloadCache(
 	)
 	if len(promoted) == 0 {
 		return promoted, nil
-	}
-	if err := promoteLegacyPassedWorkloadCache(ctx, objectStore, entries, promoted); err != nil {
-		return nil, fmt.Errorf("publish compatible PASS markers: %w", err)
 	}
 	if err := recordPassedWorkloadCacheProofs(ledgerStore, entries, promoted, now().UTC()); err != nil {
 		return nil, fmt.Errorf("record compatible SQLite PASS proofs: %w", err)
@@ -280,44 +275,4 @@ func validateCompatiblePassCandidate(
 		)
 	}
 	return nil
-}
-
-// promoteLegacyPassedWorkloadCache 把已验证的旧标记自动写成稳定环境键，避免下一代 runner 冷重跑。
-func promoteLegacyPassedWorkloadCache(
-	ctx context.Context,
-	store ObjectStore,
-	entries []remoteWorkloadCacheEntry,
-	cached map[string]gate.PlanGateExecution,
-) error {
-	if len(cached) == 0 {
-		return nil
-	}
-	byWorkload := make(map[string]remoteWorkloadCacheEntry, len(entries))
-	for _, entry := range entries {
-		byWorkload[entry.workloadID] = entry
-	}
-	workloadIDs := make([]string, 0, len(cached))
-	for workloadID := range cached {
-		workloadIDs = append(workloadIDs, workloadID)
-	}
-	sort.Strings(workloadIDs)
-	tempRoot, err := os.MkdirTemp("", "super-dolphin-pass-cache-promote-*")
-	if err != nil {
-		return fmt.Errorf("create passed workload cache promotion root: %w", err)
-	}
-	defer os.RemoveAll(tempRoot)
-	uploads := make([]passedWorkloadCacheUpload, 0, len(workloadIDs))
-	for _, workloadID := range workloadIDs {
-		entry, ok := byWorkload[workloadID]
-		if !ok {
-			return fmt.Errorf("legacy passed workload %q has no stable cache identity", workloadID)
-		}
-		uploads = append(uploads, passedWorkloadCacheUpload{
-			workloadID: workloadID,
-			prefix:     entry.prefix,
-			key:        entry.key,
-			data:       encodeRemoteWorkloadCacheMarker(entry),
-		})
-	}
-	return uploadPassedWorkloadCache(ctx, store, tempRoot, uploads)
 }

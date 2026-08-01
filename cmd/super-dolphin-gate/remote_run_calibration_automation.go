@@ -48,7 +48,7 @@ func ensureRemoteDurationCalibrationWithRun(
 		return nil
 	}
 	ready, err := remoteDurationCalibrationReady(options.LedgerPath, state, runnerIdentity)
-	if err != nil {
+	if err != nil && !errors.Is(err, gatecontract.ErrDurationLedgerMetadataMissing) {
 		return infrastructureError("inspect automatic remote duration calibration: %v", err)
 	}
 	if ready {

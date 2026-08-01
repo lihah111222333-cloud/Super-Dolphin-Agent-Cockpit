@@ -44,25 +44,37 @@ func (runtimeFixture productionProvisionDockerRuntime) VerifyRunner(
 	return (productionDockerBootstrapRunnerVerifier{}).VerifyRunner(ctx, identity)
 }
 
+func (runtimeFixture productionProvisionDockerRuntime) ResolveGitExecutable() (string, error) {
+	return resolveProductionGitExecutable()
+}
+
 func (runtimeFixture productionProvisionDockerRuntime) CloneTrustedRepository(
 	ctx context.Context,
+	gitExecutable string,
 	root productionBootstrapRoot,
 	destination string,
 ) error {
 	command := exec.CommandContext(
-		ctx, "git", "clone", "-q", "--bare", "--", runtimeFixture.sourceRepository, destination,
+		ctx, gitExecutable, "clone", "-q", "--bare", "--", runtimeFixture.sourceRepository, destination,
 	)
+	command.Env = controlledProductionGitEnvironment(gitExecutable)
 	if output, err := command.CombinedOutput(); err != nil {
 		return fmt.Errorf("clone Docker E2E trusted repository: %w: %s", err, strings.TrimSpace(string(output)))
 	}
-	if _, err := productionProvisionGitLine(ctx, destination, "remote", "set-url", "origin", root.RemoteURL); err != nil {
+	if _, err := productionProvisionGitLine(
+		ctx, gitExecutable, destination, "remote", "set-url", "origin", root.RemoteURL,
+	); err != nil {
 		return err
 	}
-	commit, err := productionProvisionGitLine(ctx, destination, "rev-parse", "--verify", root.TrustedRef+"^{commit}")
+	commit, err := productionProvisionGitLine(
+		ctx, gitExecutable, destination, "rev-parse", "--verify", root.TrustedRef+"^{commit}",
+	)
 	if err != nil || commit != root.BaselineCommit {
 		return errors.Join(errors.New("Docker E2E trusted commit drifted"), err)
 	}
-	tree, err := productionProvisionGitLine(ctx, destination, "rev-parse", "--verify", root.BaselineCommit+"^{tree}")
+	tree, err := productionProvisionGitLine(
+		ctx, gitExecutable, destination, "rev-parse", "--verify", root.BaselineCommit+"^{tree}",
+	)
 	if err != nil || tree != root.BaselineTree {
 		return errors.Join(errors.New("Docker E2E trusted tree drifted"), err)
 	}
@@ -71,10 +83,11 @@ func (runtimeFixture productionProvisionDockerRuntime) CloneTrustedRepository(
 
 func (runtimeFixture productionProvisionDockerRuntime) VerifyTrustedRepository(
 	ctx context.Context,
+	gitExecutable string,
 	root productionBootstrapRoot,
 	destination string,
 ) error {
-	return verifyProductionProvisionTrustedRepository(ctx, root, destination)
+	return verifyProductionProvisionTrustedRepository(ctx, gitExecutable, root, destination)
 }
 
 // super-dolphin-ci: platform=darwin

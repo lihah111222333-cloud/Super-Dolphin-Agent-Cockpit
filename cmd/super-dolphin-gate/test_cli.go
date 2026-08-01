@@ -110,7 +110,7 @@ func prepareAutoTestRun(
 		return remoteRunConfig{}, remoteci.RunInput{},
 			protocolError("load accepted remote baseline: %v", err)
 	}
-	if err := validateAcceptedRemoteBaseline(config, state); err != nil {
+	if err := validateRunnableRemoteBaseline(config, state); err != nil {
 		return remoteRunConfig{}, remoteci.RunInput{},
 			protocolError("validate accepted remote baseline: %v", err)
 	}

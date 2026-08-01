@@ -77,6 +77,67 @@ func TestBaselineStateMigratesV4CurrentToAnchor(t *testing.T) {
 	if err := state.Validate(); err != nil {
 		t.Fatalf("migrated Validate() error = %v", err)
 	}
+	if state.SourceHistoryVersion != 0 {
+		t.Fatalf("migrated SourceHistoryVersion = %d, want legacy sentinel 0", state.SourceHistoryVersion)
+	}
+}
+
+func TestBaselineStateMigrationSentinelRoundTripsCurrentSchema(t *testing.T) {
+	state := validBaselineState()
+	state.SourceHistoryVersion = 0
+	data, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var loaded BaselineState
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if loaded.SourceHistoryVersion != 0 || loaded.Validate() != nil {
+		t.Fatalf("sentinel state = %#v", loaded)
+	}
+}
+
+func TestBaselineStateMigratesV5WithoutClaimingCompleteSourceHistory(t *testing.T) {
+	legacy := validBaselineState()
+	legacy.SchemaVersion = BaselineStatePreviousSchemaVersion
+	legacy.SourceHistoryVersion = 0
+	data, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacyWire map[string]json.RawMessage
+	if err := json.Unmarshal(data, &legacyWire); err != nil {
+		t.Fatal(err)
+	}
+	delete(legacyWire, "source_history_version")
+	data, err = json.Marshal(legacyWire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state BaselineState
+	if err := json.Unmarshal(data, &state); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if state.SchemaVersion != BaselineStateSchemaVersion || state.SourceHistoryVersion != 0 {
+		t.Fatalf("migrated versions = schema %d source %d", state.SchemaVersion, state.SourceHistoryVersion)
+	}
+	if err := state.Validate(); err != nil {
+		t.Fatalf("migrated Validate() error = %v", err)
+	}
+}
+
+func TestBaselineStateRejectsNewerSourceHistoryVersion(t *testing.T) {
+	state := validBaselineState()
+	state.SourceHistoryVersion = BaselineSourceHistorySchemaVersion + 1
+	data, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded BaselineState
+	if err := json.Unmarshal(data, &decoded); err == nil {
+		t.Fatal("Unmarshal() accepted a newer source history version")
+	}
 }
 
 func TestBaselineStateRejectsUnknownAndMultipleValues(t *testing.T) {
@@ -93,14 +154,14 @@ func TestBaselineStateRejectsUnknownAndMultipleValues(t *testing.T) {
 }
 
 func TestBaselineStateFieldRegistry(t *testing.T) {
-	assertBaselineFields(t, reflect.TypeFor[BaselineState](), []string{"SchemaVersion", "Generation", "MainCommit", "MainTree", "Platform", "PolicyDigest", "ToolchainDigest", "RuntimeImage", "GateBinarySHA256", "RuntimeSeedSHA256", "BaselineManifestDigest", "DataCacheID", "DataCacheBucket", "DataCachePath", "DataCacheSizeGiB", "SourceObjectPrefix", "CreatedAt", "AcceptedAt", "Anchor", "Deltas", "PreviousAnchor", "RetiredAnchor", "PreviousDeltas", "RetiredDeltas"})
+	assertBaselineFields(t, reflect.TypeFor[BaselineState](), []string{"SchemaVersion", "Generation", "MainCommit", "MainTree", "Platform", "PolicyDigest", "ToolchainDigest", "RuntimeImage", "GateBinarySHA256", "RuntimeSeedSHA256", "BaselineManifestDigest", "SourceHistoryVersion", "DataCacheID", "DataCacheBucket", "DataCachePath", "DataCacheSizeGiB", "SourceObjectPrefix", "CreatedAt", "AcceptedAt", "Anchor", "Deltas", "PreviousAnchor", "RetiredAnchor", "PreviousDeltas", "RetiredDeltas"})
 	assertBaselineFields(t, reflect.TypeFor[BaselineCacheRef](), []string{"Generation", "Kind", "ManifestDigest", "MainCommit", "MainTree", "DataCacheID", "DataCacheBucket", "DataCachePath", "SizeGiB", "SourceObjectPrefix", "AcceptedAt"})
 	assertBaselineFields(t, reflect.TypeFor[BaselineDeltaRef](), []string{"Generation", "SourceObjectPrefix", "ManifestDigest", "BaseCommit", "BaseTree", "MainCommit", "MainTree", "AcceptedAt"})
 }
 
 func validBaselineState() BaselineState {
 	created := time.Date(2026, 7, 27, 1, 0, 0, 0, time.UTC)
-	state := BaselineState{SchemaVersion: BaselineStateSchemaVersion, Generation: 3, MainCommit: strings.Repeat("a", 40), MainTree: strings.Repeat("b", 40), Platform: "linux/amd64", PolicyDigest: digest("c"), ToolchainDigest: digest("d"), RuntimeImage: "registry.example/runtime@" + digest("e"), GateBinarySHA256: digest("1"), RuntimeSeedSHA256: digest("2"), BaselineManifestDigest: digest("3"), DataCacheID: "edc-anchor", DataCacheBucket: "super-dolphin-ci", DataCachePath: "/super-dolphin/ci/baselines/1", DataCacheSizeGiB: 20, SourceObjectPrefix: "baseline-artifacts/3/", CreatedAt: created, AcceptedAt: created.Add(3 * time.Minute)}
+	state := BaselineState{SchemaVersion: BaselineStateSchemaVersion, Generation: 3, MainCommit: strings.Repeat("a", 40), MainTree: strings.Repeat("b", 40), Platform: "linux/amd64", PolicyDigest: digest("c"), ToolchainDigest: digest("d"), RuntimeImage: "registry.example/runtime@" + digest("e"), GateBinarySHA256: digest("1"), RuntimeSeedSHA256: digest("2"), BaselineManifestDigest: digest("3"), SourceHistoryVersion: BaselineSourceHistorySchemaVersion, DataCacheID: "edc-anchor", DataCacheBucket: "super-dolphin-ci", DataCachePath: "/super-dolphin/ci/baselines/1", DataCacheSizeGiB: 20, SourceObjectPrefix: "baseline-artifacts/3/", CreatedAt: created, AcceptedAt: created.Add(3 * time.Minute)}
 	anchorCommit, anchorTree := strings.Repeat("1", 40), strings.Repeat("2", 40)
 	deltaCommit, deltaTree := strings.Repeat("f", 40), strings.Repeat("e", 40)
 	state.Anchor = BaselineCacheRef{Generation: 1, Kind: BaselineCacheKindAnchor, ManifestDigest: digest("4"), MainCommit: anchorCommit, MainTree: anchorTree, DataCacheID: state.DataCacheID, DataCacheBucket: state.DataCacheBucket, DataCachePath: state.DataCachePath, SizeGiB: state.DataCacheSizeGiB, SourceObjectPrefix: "baseline-artifacts/1/", AcceptedAt: created}

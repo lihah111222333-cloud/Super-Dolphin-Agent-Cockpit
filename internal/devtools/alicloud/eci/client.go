@@ -356,6 +356,9 @@ func (c *Client) DescribeContainerLog(ctx context.Context, containerGroupID stri
 	if response.Content == nil {
 		return "", errors.New("DescribeContainerLog response is missing Content")
 	}
+	if len(*response.Content) > maxContainerLogBytes {
+		return "", errors.New("DescribeContainerLog response exceeds requested byte limit")
+	}
 	return *response.Content, nil
 }
 
@@ -511,9 +514,17 @@ func createMainMountNames(request CreateRequest) []string {
 }
 
 func createInitMountNames(request CreateRequest) []string {
+	names := append(createHostPathVolumeNames(request), request.ExpandedVolume.Name, request.SourceVolume.Name, request.WorkVolume.Name, request.TempVolume.Name)
+	if request.BootstrapVolume != (OSSVolume{}) {
+		names = append(names, "current-gate")
+	}
+	return names
+}
+
+func createRequiredInitMountNames(request CreateRequest) []string {
 	names := append(createHostPathVolumeNames(request), request.ExpandedVolume.Name, request.SourceVolume.Name, request.WorkVolume.Name)
 	if request.BootstrapVolume != (OSSVolume{}) {
-		names = append(names, request.TempVolume.Name, "current-gate")
+		names = append(names, "current-gate")
 	}
 	return names
 }

@@ -40,6 +40,16 @@ func assertWorkloadPassProofProjectionRoundTrip(
 		t.Fatalf("stale PASS proof error = %v", err)
 	}
 	assertStoredWorkloadPassProof(t, store, newerProof)
+	aliasProof := newerProof
+	aliasProof.WorkloadID = "unit-release"
+	aliasProof.ObservedAt = newerProof.ObservedAt.Add(time.Second)
+	if err := store.RecordWorkloadPassProofs([]WorkloadPassProof{aliasProof}); err != nil {
+		t.Fatalf("equivalent PASS proof alias: %v", err)
+	}
+	storedAliasProof := aliasProof
+	storedAliasProof.WorkloadID = proof.WorkloadID
+	assertStoredWorkloadPassProof(t, store, storedAliasProof)
+	assertStoredWorkloadIdentityAliases(t, store, proof.IdentityDigest, "unit", "unit-release")
 	conflictingProof := proof
 	conflictingProof.ExecutionDigest = strings.Repeat("9", 64)
 	if err := store.RecordWorkloadPassProofs([]WorkloadPassProof{conflictingProof}); err == nil {
@@ -91,13 +101,57 @@ func assertWorkloadFingerprintProjectionRoundTrip(
 	if err := store.RecordWorkloadFingerprints([]WorkloadFingerprintRecord{fingerprint}); err != nil {
 		t.Fatalf("out-of-order immutable fingerprint observation: %v", err)
 	}
-	assertStoredWorkloadFingerprintObservations(t, store, fingerprint, newerFingerprint)
+	aliasFingerprint := newerFingerprint
+	aliasFingerprint.WorkloadID = "unit-release"
+	aliasFingerprint.SourceTreeSHA = strings.Repeat("7", 40)
+	aliasFingerprint.ObservedAt = newerFingerprint.ObservedAt.Add(time.Second)
+	if err := store.RecordWorkloadFingerprints([]WorkloadFingerprintRecord{aliasFingerprint}); err != nil {
+		t.Fatalf("equivalent workload fingerprint alias: %v", err)
+	}
+	assertStoredWorkloadFingerprintObservations(t, store, fingerprint, newerFingerprint, aliasFingerprint)
+	assertStoredWorkloadIdentityAliases(t, store, proof.IdentityDigest, "unit", "unit-release")
 	conflictingFingerprint := fingerprint
 	conflictingFingerprint.InputDigest = "sha256:" + strings.Repeat("8", 64)
 	if err := store.RecordWorkloadFingerprints(
 		[]WorkloadFingerprintRecord{conflictingFingerprint},
 	); err == nil {
 		t.Fatal("conflicting workload fingerprint identity was accepted")
+	}
+}
+
+func assertStoredWorkloadIdentityAliases(
+	t *testing.T,
+	store *DurationLedgerStore,
+	identityDigest string,
+	want ...string,
+) {
+	t.Helper()
+	database, err := store.openSQLiteAuthority(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	rows, err := database.Query(`
+		SELECT workload_id FROM ci_workload_identity_aliases
+		WHERE identity_digest = ? ORDER BY workload_id
+	`, identityDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var got []string
+	for rows.Next() {
+		var workloadID string
+		if err := rows.Scan(&workloadID); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, workloadID)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("workload identity aliases = %v, want %v", got, want)
 	}
 }
 

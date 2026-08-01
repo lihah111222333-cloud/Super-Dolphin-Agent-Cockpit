@@ -3,6 +3,7 @@ package remoteci
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -63,8 +64,21 @@ func downloadPassedWorkloadCache(
 			if !found {
 				return nil
 			}
-			if err := validateRemoteWorkloadCacheMarker(localPath, entry); err != nil {
+			receiptDigest, err := validateRemoteWorkloadCacheMarker(localPath, entry)
+			if err != nil {
 				return fmt.Errorf("validate passed workload cache %q: %w", entry.workloadID, err)
+			}
+			receiptKey := remoteWorkloadCacheReceiptKey(entry, receiptDigest)
+			receiptPath := filepath.Join(tempRoot, fmt.Sprintf("%06d.receipt", index))
+			found, err = store.DownloadIfExists(downloadCtx, receiptKey, receiptPath)
+			if err != nil {
+				return fmt.Errorf("download passed workload receipt %q: %w", entry.workloadID, err)
+			}
+			if !found {
+				return nil
+			}
+			if err := validateRemoteWorkloadCacheReceipt(receiptPath, entry, receiptDigest); err != nil {
+				return fmt.Errorf("validate passed workload receipt %q: %w", entry.workloadID, err)
 			}
 			matched[index] = true
 			return nil
@@ -99,22 +113,102 @@ func projectPassedWorkloadCache(
 }
 
 // validateRemoteWorkloadCacheMarker 核对标记文件类型、大小和完整规范内容。
-func validateRemoteWorkloadCacheMarker(path string, entry remoteWorkloadCacheEntry) error {
+func validateRemoteWorkloadCacheMarker(path string, entry remoteWorkloadCacheEntry) (string, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > remoteWorkloadCacheMarkerMaxBytes {
+		return "", errors.New("remote workload cache marker size or type is invalid")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	lines := strings.Split(string(data), "\n")
+	if len(lines) != 8 || lines[7] != "" || !strings.HasPrefix(lines[6], "receipt ") {
+		return "", errors.New("remote workload cache marker shape is invalid")
+	}
+	receiptDigest := strings.TrimPrefix(lines[6], "receipt ")
+	if !validRemoteWorkloadCacheDigest(receiptDigest) {
+		return "", errors.New("remote workload cache marker receipt digest is invalid")
+	}
+	if !bytes.Equal(data, encodeRemoteWorkloadCacheMarkerWithReceipt(entry, receiptDigest)) {
+		return "", errors.New("remote workload cache marker content does not match its identity")
+	}
+	return receiptDigest, nil
+}
+
+// validateRemoteWorkloadCacheReceipt 在复用 PASS 前验证不可变执行凭据及其内容摘要。
+func validateRemoteWorkloadCacheReceipt(path string, entry remoteWorkloadCacheEntry, expectedDigest string) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		return err
 	}
 	if !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > remoteWorkloadCacheMarkerMaxBytes {
-		return errors.New("remote workload cache marker size or type is invalid")
+		return errors.New("remote workload cache receipt size or type is invalid")
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	if !bytes.Equal(data, encodeRemoteWorkloadCacheMarker(entry)) {
-		return errors.New("remote workload cache marker content does not match its identity")
+	lines := strings.Split(string(data), "\n")
+	expectedKeys := []string{
+		remoteWorkloadCacheHeader,
+		"identity",
+		"commit",
+		"tree",
+		"profile",
+		"entrypoint",
+		"runner-image",
+		"runner",
+		"runner-config",
+		"gate-binary",
+		"runtime-seed",
+		"policy",
+		"baseline-manifest",
+		"anchor-generation",
+		"anchor-manifest",
+		"anchor-commit",
+		"anchor-tree",
+		"receipt-nonce",
+	}
+	if len(lines) != len(expectedKeys)+1 || lines[len(lines)-1] != "" {
+		return errors.New("remote workload cache receipt shape is invalid")
+	}
+	for index, key := range expectedKeys {
+		prefix := key + " "
+		if !strings.HasPrefix(lines[index], prefix) {
+			return errors.New("remote workload cache receipt fields are invalid")
+		}
+		value := strings.TrimPrefix(lines[index], prefix)
+		if strings.ContainsAny(value, "\x00\r\n") {
+			return errors.New("remote workload cache receipt field is invalid")
+		}
+		if key == remoteWorkloadCacheHeader && value != "receipt/v1" {
+			return errors.New("remote workload cache receipt schema is invalid")
+		}
+		if key == "identity" && value != entry.identityDigest {
+			return errors.New("remote workload cache receipt identity does not match marker")
+		}
+		if key == "receipt-nonce" && !validRemoteWorkloadCacheDigest(value) {
+			return errors.New("remote workload cache receipt nonce is invalid")
+		}
+	}
+	sum := sha256.Sum256(data)
+	if digest := "sha256:" + hex.EncodeToString(sum[:]); digest != expectedDigest {
+		return errors.New("remote workload cache receipt digest does not match marker")
 	}
 	return nil
+}
+
+func validRemoteWorkloadCacheDigest(value string) bool {
+	encoded := strings.TrimPrefix(value, "sha256:")
+	if encoded == value || len(encoded) != sha256.Size*2 {
+		return false
+	}
+	_, err := hex.DecodeString(encoded)
+	return err == nil
 }
 
 func validateRemoteWorkloadCacheKey(prefix string, key string) error {
@@ -167,12 +261,24 @@ func (coordinator *Coordinator) storePassedWorkloadCache(
 			continue
 		}
 		stored[entry.key] = struct{}{}
+		receiptEntry, err := remoteWorkloadCacheEntryForExecution(entry)
+		if err != nil {
+			buildErr = errors.Join(buildErr, fmt.Errorf("create passed workload receipt %q: %w", workloadID, err))
+			continue
+		}
 		published[workloadID] = execution
 		uploads = append(uploads, passedWorkloadCacheUpload{
 			workloadID: workloadID,
-			prefix:     entry.prefix,
-			key:        entry.key,
-			data:       encodeRemoteWorkloadCacheMarker(entry),
+			prefix:     receiptEntry.receiptPrefix,
+			key:        receiptEntry.receiptKey,
+			data:       encodeRemoteWorkloadCacheReceipt(receiptEntry),
+		})
+		uploads = append(uploads, passedWorkloadCacheUpload{
+			workloadID: workloadID,
+			prefix:     receiptEntry.prefix,
+			key:        receiptEntry.key,
+			data:       encodeRemoteWorkloadCacheMarker(receiptEntry),
+			commit:     true,
 		})
 	}
 	if err := errors.Join(
@@ -194,9 +300,10 @@ type passedWorkloadCacheUpload struct {
 	prefix     string
 	key        string
 	data       []byte
+	commit     bool
 }
 
-// uploadPassedWorkloadCache 用一次递归 OSS 调用发布同一环境的全部不可变 PASS 标记。
+// uploadPassedWorkloadCache 先发布内容寻址 receipt，再以 marker 原子提交 PASS。
 func uploadPassedWorkloadCache(
 	ctx context.Context,
 	store ObjectStore,
@@ -206,26 +313,38 @@ func uploadPassedWorkloadCache(
 	if len(uploads) == 0 {
 		return nil
 	}
-	publishRoot, err := os.MkdirTemp(tempRoot, "passed-workloads-")
-	if err != nil {
-		return fmt.Errorf("create passed workload cache publish root: %w", err)
-	}
-	prefix := uploads[0].prefix
-	for _, upload := range uploads {
-		if upload.prefix != prefix {
-			return errors.New("passed workload cache upload spans multiple environment prefixes")
+	for _, commit := range []bool{false, true} {
+		phase := make([]passedWorkloadCacheUpload, 0, len(uploads))
+		for _, upload := range uploads {
+			if upload.commit == commit {
+				phase = append(phase, upload)
+			}
 		}
-		name := strings.TrimPrefix(upload.key, prefix)
-		if name == upload.key || name == "" || strings.Contains(name, "/") {
-			return fmt.Errorf("passed workload cache key %q is outside publish prefix %q", upload.key, prefix)
+		if len(phase) == 0 {
+			continue
 		}
-		localPath := filepath.Join(publishRoot, name)
-		if err := os.WriteFile(localPath, upload.data, 0o600); err != nil {
-			return fmt.Errorf("write passed workload cache %q: %w", upload.workloadID, err)
+		prefix := phase[0].prefix
+		for _, upload := range phase {
+			if upload.prefix != prefix {
+				return errors.New("passed workload cache upload phase spans multiple prefixes")
+			}
 		}
-	}
-	if err := store.UploadDirectory(ctx, publishRoot, prefix, min(len(uploads), 10000)); err != nil {
-		return fmt.Errorf("upload %d passed workload cache markers: %w", len(uploads), err)
+		publishRoot, err := os.MkdirTemp(tempRoot, "passed-workloads-")
+		if err != nil {
+			return fmt.Errorf("create passed workload cache publish root: %w", err)
+		}
+		for _, upload := range phase {
+			name := strings.TrimPrefix(upload.key, prefix)
+			if name == upload.key || name == "" || strings.Contains(name, "/") {
+				return fmt.Errorf("passed workload cache key %q is outside publish prefix %q", upload.key, prefix)
+			}
+			if err := os.WriteFile(filepath.Join(publishRoot, name), upload.data, 0o600); err != nil {
+				return fmt.Errorf("write passed workload cache %q: %w", upload.workloadID, err)
+			}
+		}
+		if err := store.UploadDirectory(ctx, publishRoot, prefix, min(len(phase), 10000)); err != nil {
+			return fmt.Errorf("upload %d passed workload cache objects: %w", len(phase), err)
+		}
 	}
 	return nil
 }
@@ -262,6 +381,35 @@ func passedExactGoTestTarget(target string, timings []gate.GoTestTiming) bool {
 }
 
 func encodeRemoteWorkloadCacheMarker(entry remoteWorkloadCacheEntry) []byte {
+	return encodeRemoteWorkloadCacheMarkerWithReceipt(entry, remoteWorkloadCacheReceiptDigest(entry))
+}
+
+func remoteWorkloadCacheReceiptDigest(entry remoteWorkloadCacheEntry) string {
+	sum := sha256.Sum256(encodeRemoteWorkloadCacheReceipt(entry))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// remoteWorkloadCacheEntryForExecution 为每次真实执行生成新 receipt，同时保持可复用的 PASS marker 身份不变。
+func remoteWorkloadCacheEntryForExecution(entry remoteWorkloadCacheEntry) (remoteWorkloadCacheEntry, error) {
+	var nonce [sha256.Size]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return remoteWorkloadCacheEntry{}, err
+	}
+	entry.receiptNonce = "sha256:" + hex.EncodeToString(nonce[:])
+	entry.receiptKey = remoteWorkloadCacheReceiptKey(entry, remoteWorkloadCacheReceiptDigest(entry))
+	return entry, nil
+}
+
+func remoteWorkloadCacheReceiptKey(entry remoteWorkloadCacheEntry, receiptDigest string) string {
+	return entry.receiptPrefix + strings.TrimPrefix(entry.identityDigest, "sha256:") + "." +
+		strings.TrimPrefix(receiptDigest, "sha256:") + ".receipt"
+}
+
+func remoteWorkloadCacheReceiptPrefix(prefix, environmentDigest string) string {
+	return prefix + "receipts/" + strings.TrimPrefix(environmentDigest, "sha256:") + "/"
+}
+
+func encodeRemoteWorkloadCacheMarkerWithReceipt(entry remoteWorkloadCacheEntry, receiptDigest string) []byte {
 	var data []byte
 	data = appendRemoteWorkloadCacheField(data, remoteWorkloadCacheHeader, strconv.Itoa(remoteWorkloadCacheSchemaVersion))
 	data = appendRemoteWorkloadCacheField(data, "environment", entry.environmentDigest)
@@ -269,5 +417,31 @@ func encodeRemoteWorkloadCacheMarker(entry remoteWorkloadCacheEntry) []byte {
 	data = appendRemoteWorkloadCacheField(data, "execution", entry.executionDigest)
 	data = appendRemoteWorkloadCacheField(data, "input", entry.inputDigest)
 	data = appendRemoteWorkloadCacheField(data, "status", string(gate.ResultStatusPassed))
+	data = appendRemoteWorkloadCacheField(data, "receipt", receiptDigest)
+	return data
+}
+
+// encodeRemoteWorkloadCacheReceipt keeps exact execution provenance separate
+// from the reusable semantic PASS marker.
+func encodeRemoteWorkloadCacheReceipt(entry remoteWorkloadCacheEntry) []byte {
+	var data []byte
+	data = appendRemoteWorkloadCacheField(data, remoteWorkloadCacheHeader, "receipt/v1")
+	data = appendRemoteWorkloadCacheField(data, "identity", entry.identityDigest)
+	data = appendRemoteWorkloadCacheField(data, "commit", entry.provenance.commit)
+	data = appendRemoteWorkloadCacheField(data, "tree", entry.provenance.tree)
+	data = appendRemoteWorkloadCacheField(data, "profile", entry.provenance.profile)
+	data = appendRemoteWorkloadCacheField(data, "entrypoint", entry.provenance.entrypoint)
+	data = appendRemoteWorkloadCacheField(data, "runner-image", entry.provenance.runnerImage)
+	data = appendRemoteWorkloadCacheField(data, "runner", entry.provenance.runnerIdentityDigest)
+	data = appendRemoteWorkloadCacheField(data, "runner-config", entry.provenance.runnerConfigDigest)
+	data = appendRemoteWorkloadCacheField(data, "gate-binary", entry.provenance.gateBinarySHA256)
+	data = appendRemoteWorkloadCacheField(data, "runtime-seed", entry.provenance.runtimeSeedSHA256)
+	data = appendRemoteWorkloadCacheField(data, "policy", entry.provenance.policyDigest)
+	data = appendRemoteWorkloadCacheField(data, "baseline-manifest", entry.provenance.baselineManifest)
+	data = appendRemoteWorkloadCacheField(data, "anchor-generation", strconv.FormatUint(entry.provenance.anchorGeneration, 10))
+	data = appendRemoteWorkloadCacheField(data, "anchor-manifest", entry.provenance.anchorManifest)
+	data = appendRemoteWorkloadCacheField(data, "anchor-commit", entry.provenance.anchorCommit)
+	data = appendRemoteWorkloadCacheField(data, "anchor-tree", entry.provenance.anchorTree)
+	data = appendRemoteWorkloadCacheField(data, "receipt-nonce", entry.receiptNonce)
 	return data
 }

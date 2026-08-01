@@ -734,7 +734,7 @@ internal/module/uistate/state_json_test.go	internal	modules	go-test	2004	UI 事�
 internal/module/uistate/state.go	internal	modules	go-source	23551	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,state,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/subscribers_test.go	internal	modules	go-test	3402	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,subscribers,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/subscribers.go	internal	modules	go-source	1266	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,subscribers,UI,事件投影,sidebar,timeline,状态
-internal/module/uistate/terminal_projection_test.go	internal	modules	go-test	3624	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,terminal,projection,test,UI,事件投影,sidebar,timeline,状态
+internal/module/uistate/terminal_projection_test.go	internal	modules	go-test	3245	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,terminal,projection,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/terminalstatus/status_test.go	internal	modules	go-test	1234	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,terminalstatus,status,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/terminalstatus/status.go	internal	modules	go-source	351	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,terminalstatus,status,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/timeline/approval_identity_test.go	internal	modules	go-test	3451	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,approval,identity,test,UI,事件投影,sidebar,状态

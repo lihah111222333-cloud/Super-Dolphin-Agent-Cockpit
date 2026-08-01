@@ -20,12 +20,49 @@ if [[ "${1:-}" == "closure" && "${2:-}" == "check" ]]; then
   printf '%s' "${4:-}" >"$GATE_HOOK_CAPTURE_DIR/closure-check-tree"
   exit 0
 fi
+if [[ "${1:-}" == "closure" && "${2:-}" == "refresh-dependencies" ]]; then
+  repository=$(git rev-parse --show-toplevel)
+  printf '%s\n' '{"schema_version":"generated-runtime-deps"}' >"$repository/build/gate/runtime-deps.lock"
+  printf '%s' "${4:-}" >"$GATE_HOOK_CAPTURE_DIR/closure-dependency-refresh-tree"
+  exit 0
+fi
 if [[ "${1:-}" == "closure" && "${2:-}" == "refresh" ]]; then
   repository=$(git rev-parse --show-toplevel)
   printf '%s\n' 'generated Dockerfile' >"$repository/build/gate/Dockerfile"
   printf '%s\n' '{"schema_version":"test"}' >"$repository/build/gate/inputs.json"
   printf '%s' "${4:-}" >"$GATE_HOOK_CAPTURE_DIR/closure-refresh-tree"
   : >"$GATE_HOOK_CAPTURE_DIR/closure-refreshed"
+  exit 0
+fi
+if [[ "${1:-}" == "frontend-code-size" && "${2:-}" == "check" ]]; then
+  [[ "${3:-}" == --tree && -n "${4:-}" && "${5:-}" == --accepted-tree && -n "${6:-}" ]] || exit 65
+  if [[ ! -e "$GATE_HOOK_CAPTURE_DIR/frontend-code-size-initial-check-tree" ]]; then
+    printf '%s' "$4" >"$GATE_HOOK_CAPTURE_DIR/frontend-code-size-initial-check-tree"
+  fi
+  printf '%s' "$4" >"$GATE_HOOK_CAPTURE_DIR/frontend-code-size-check-tree"
+  if [[ "${GATE_HOOK_FRONTEND_CODE_SIZE_ALWAYS_DRIFT:-0}" == 1 ]]; then
+    exit 12
+  fi
+  if [[ "${GATE_HOOK_FRONTEND_CODE_SIZE_DRIFT_ONCE:-0}" == 1 && ! -f "$GATE_HOOK_CAPTURE_DIR/frontend-code-size-refreshed" ]]; then
+    exit 12
+  fi
+  exit 0
+fi
+if [[ "${1:-}" == "frontend-code-size" && "${2:-}" == "refresh" ]]; then
+  [[ "${3:-}" == --tree && -n "${4:-}" && "${5:-}" == --accepted-tree && -n "${6:-}" ]] || exit 65
+  repository=$(git rev-parse --show-toplevel)
+  printf '%s\n' '{"scope":"production","generated":true}' >"$repository/frontend-app/.frontend_code_size_guard_baseline.json"
+  printf '%s\n' '{"scope":"test","generated":true}' >"$repository/frontend-app/.frontend_code_size_guard_baseline_test.json"
+  printf '%s' "$4" >"$GATE_HOOK_CAPTURE_DIR/frontend-code-size-refresh-tree"
+  : >"$GATE_HOOK_CAPTURE_DIR/frontend-code-size-refreshed"
+	exit 0
+fi
+if [[ "${1:-}" == "codemap" && "${2:-}" == "check" ]]; then
+  [[ "${3:-}" == --tree && -n "${4:-}" ]] || exit 65
+  exit 0
+fi
+if [[ "${1:-}" == "codemap" && "${2:-}" == "refresh" ]]; then
+  [[ "${3:-}" == --tree && -n "${4:-}" ]] || exit 65
   exit 0
 fi
 if [[ "${1:-}" == "project-map" && "${2:-}" == "check" ]]; then
@@ -127,14 +164,17 @@ git -C "$git_repo" config user.email 'hook-fixture@example.invalid'
 git -C "$git_repo" config superdolphin.gateLauncher "$bin_dir/super-dolphin-gate"
 mkdir -p "$git_repo/.githooks"
 mkdir -p "$git_repo/build/gate"
-mkdir -p "$git_repo/scripts" "$git_repo/docs/doc/codemap/project-map"
+mkdir -p "$git_repo/frontend-app" "$git_repo/scripts" "$git_repo/docs/doc/codemap/project-map"
 cp "$repo_root/.githooks/trusted-gate-launcher.sh" "$git_repo/.githooks/trusted-gate-launcher.sh"
 printf '%s\n' 'base' >"$git_repo/tracked.txt"
 printf '%s\n' 'stale Dockerfile' >"$git_repo/build/gate/Dockerfile"
 printf '%s\n' '{"schema_version":"stale"}' >"$git_repo/build/gate/inputs.json"
+printf '%s\n' '{"schema_version":"stale-runtime-deps"}' >"$git_repo/build/gate/runtime-deps.lock"
+printf '%s\n' '{"scope":"production","generated":false}' >"$git_repo/frontend-app/.frontend_code_size_guard_baseline.json"
+printf '%s\n' '{"scope":"test","generated":false}' >"$git_repo/frontend-app/.frontend_code_size_guard_baseline_test.json"
 printf '%s\n' 'trusted generator' >"$git_repo/scripts/generate_ai_project_map.mjs"
 printf '%s\n' 'stale project map' >"$git_repo/docs/doc/codemap/project-map/AI_PROJECT_MAP.md"
-git -C "$git_repo" add tracked.txt .githooks/trusted-gate-launcher.sh build/gate/Dockerfile build/gate/inputs.json scripts/generate_ai_project_map.mjs docs/doc/codemap/project-map/AI_PROJECT_MAP.md
+git -C "$git_repo" add tracked.txt .githooks/trusted-gate-launcher.sh build/gate/Dockerfile build/gate/inputs.json build/gate/runtime-deps.lock frontend-app/.frontend_code_size_guard_baseline.json frontend-app/.frontend_code_size_guard_baseline_test.json scripts/generate_ai_project_map.mjs docs/doc/codemap/project-map/AI_PROJECT_MAP.md
 git -C "$git_repo" commit -qm 'fixture base'
 mkdir -p "$git_repo/nested"
 cli_error="$fixture_root/cli-error.expected"
@@ -174,8 +214,8 @@ assert_file_equals "$capture_dir/cwd" "$git_repo/nested" "staged pre-commit cwd"
 assert_file_equals "$capture_dir/staged-tree" "$staged_tree" "staged pre-commit tree"
 git -C "$git_repo" diff --quiet -- tracked.txt && fail "staged pre-commit discarded the unstaged worktree change"
 
-for closure_output in build/gate/Dockerfile build/gate/inputs.json; do
-  git -C "$git_repo" restore --staged --worktree -- build/gate/Dockerfile build/gate/inputs.json
+for closure_output in build/gate/Dockerfile build/gate/inputs.json build/gate/runtime-deps.lock; do
+  git -C "$git_repo" restore --staged --worktree -- build/gate/Dockerfile build/gate/inputs.json build/gate/runtime-deps.lock
   printf '%s\n' 'staged closure output' >"$git_repo/$closure_output"
   git -C "$git_repo" add -- "$closure_output"
   printf '%s\n' 'unstaged closure output' >>"$git_repo/$closure_output"
@@ -191,7 +231,7 @@ for closure_output in build/gate/Dockerfile build/gate/inputs.json; do
   [[ ! -e "$capture_dir/argc" ]] || fail "unstaged $closure_output invoked gate execution"
   git -C "$git_repo" diff --quiet -- "$closure_output" && fail "unstaged $closure_output was overwritten"
 done
-git -C "$git_repo" restore --staged --worktree -- build/gate/Dockerfile build/gate/inputs.json
+git -C "$git_repo" restore --staged --worktree -- build/gate/Dockerfile build/gate/inputs.json build/gate/runtime-deps.lock
 
 closure_drift_tree=$(git -C "$git_repo" write-tree)
 reset_capture
@@ -201,14 +241,36 @@ reset_capture
     "$fixture_root/closure-refresh-pre-commit.status" bash "$repo_root/.githooks/pre-commit"
 )
 assert_file_equals "$fixture_root/closure-refresh-pre-commit.status" 0 "closure refresh pre-commit exit code"
-assert_file_equals "$capture_dir/closure-refresh-tree" "$closure_drift_tree" "closure refresh source tree"
+assert_file_equals "$capture_dir/closure-dependency-refresh-tree" "$closure_drift_tree" "closure dependency refresh source tree"
+dependency_refreshed_tree=$(cat "$capture_dir/closure-refresh-tree")
+[[ "$dependency_refreshed_tree" != "$closure_drift_tree" ]] || fail "closure refresh did not receive the dependency-refreshed tree"
 refreshed_tree=$(git -C "$git_repo" write-tree)
 [[ "$refreshed_tree" != "$closure_drift_tree" ]] || fail "closure refresh did not update the staged tree"
+[[ "$refreshed_tree" != "$dependency_refreshed_tree" ]] || fail "closure output refresh did not update the dependency-refreshed tree"
 assert_file_equals "$capture_dir/closure-check-tree" "$refreshed_tree" "closure refreshed verification tree"
 assert_file_equals "$capture_dir/staged-tree" "$refreshed_tree" "gate received refreshed staged tree"
 assert_file_equals "$git_repo/build/gate/Dockerfile" 'generated Dockerfile' "closure refreshed Dockerfile"
 assert_file_equals "$git_repo/build/gate/inputs.json" '{"schema_version":"test"}' "closure refreshed input manifest"
+assert_file_equals "$git_repo/build/gate/runtime-deps.lock" '{"schema_version":"generated-runtime-deps"}' "closure refreshed runtime dependency lock"
 git -C "$git_repo" diff --quiet -- tracked.txt && fail "closure refresh discarded the unstaged worktree change"
+
+frontend_code_size_drift_tree=$(git -C "$git_repo" write-tree)
+reset_capture
+(
+  cd "$git_repo/nested"
+  GATE_HOOK_FRONTEND_CODE_SIZE_DRIFT_ONCE=1 GATE_HOOK_CAPTURE_SOURCE=1 run_with_status \
+    "$fixture_root/frontend-code-size-refresh-pre-commit.status" bash "$repo_root/.githooks/pre-commit"
+)
+assert_file_equals "$fixture_root/frontend-code-size-refresh-pre-commit.status" 0 "frontend code-size refresh pre-commit exit code"
+assert_file_equals "$capture_dir/frontend-code-size-initial-check-tree" "$frontend_code_size_drift_tree" "frontend code-size initial check tree"
+assert_file_equals "$capture_dir/frontend-code-size-refresh-tree" "$frontend_code_size_drift_tree" "frontend code-size refresh source tree"
+frontend_code_size_refreshed_tree=$(git -C "$git_repo" write-tree)
+[[ "$frontend_code_size_refreshed_tree" != "$frontend_code_size_drift_tree" ]] || fail "frontend code-size refresh did not update the staged tree"
+assert_file_equals "$capture_dir/frontend-code-size-check-tree" "$frontend_code_size_refreshed_tree" "frontend code-size refreshed verification tree"
+assert_file_equals "$capture_dir/staged-tree" "$frontend_code_size_refreshed_tree" "gate received frontend code-size refreshed staged tree"
+assert_file_equals "$git_repo/frontend-app/.frontend_code_size_guard_baseline.json" '{"scope":"production","generated":true}' "frontend production baseline refresh"
+assert_file_equals "$git_repo/frontend-app/.frontend_code_size_guard_baseline_test.json" '{"scope":"test","generated":true}' "frontend test baseline refresh"
+git -C "$git_repo" diff --quiet -- tracked.txt && fail "frontend code-size refresh discarded the unstaged worktree change"
 
 project_map_drift_tree=$(git -C "$git_repo" write-tree)
 reset_capture

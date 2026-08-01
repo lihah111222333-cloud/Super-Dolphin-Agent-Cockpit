@@ -154,7 +154,7 @@ export function desktopSpawnOptions(config, platform = process.platform) {
       VITE_DEV_URL: config.viteURL,
       FRONTEND_DEVSERVER_URL: config.viteURL,
       SUPER_DOLPHIN_DESKTOP_SMOKE_ACTIVE: '1',
-      SUPER_DOLPHIN_WAILS_WS_TOKEN: config.wsToken,
+      SUPER_DOLPHIN_WAILS_WS_TOKEN: config.wsToken, GOTRACEBACK: 'single',
     },
     detached: platform !== 'win32',
     stdio: 'inherit',

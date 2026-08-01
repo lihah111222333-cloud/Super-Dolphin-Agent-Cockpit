@@ -91,7 +91,10 @@ func materializeRemoteBaseline(
 		return err
 	}
 	if anchor.StorageMode == "" {
-		return materializeRemoteLegacyBaseline(ctx, expandedRoot, sourceRoot, request)
+		if err := materializeRemoteLegacyBaseline(ctx, expandedRoot, sourceRoot, request); err != nil {
+			return err
+		}
+		return protectRemoteExpandedBaselineRoot(expandedRoot)
 	}
 	if err := prepareRemoteAnchorBaseline(ctx, expandedRoot, sourceRoot, request, anchor); err != nil {
 		return err
@@ -99,7 +102,22 @@ func materializeRemoteBaseline(
 	if err := materializeRemoteBaselineDeltas(ctx, expandedRoot, sourceRoot, request.BaselineDeltas, anchor, download); err != nil {
 		return err
 	}
-	return verifyRemoteSourceIdentity(ctx, sourceRoot, request.RunnerBaseCommit, request.RunnerBaseTree)
+	if err := verifyRemoteSourceIdentity(ctx, sourceRoot, request.RunnerBaseCommit, request.RunnerBaseTree); err != nil {
+		return err
+	}
+	return protectRemoteExpandedBaselineRoot(expandedRoot)
+}
+
+// protectRemoteExpandedBaselineRoot 在只读挂载交接前移除物化根的全部写权限。
+func protectRemoteExpandedBaselineRoot(expandedRoot string) error {
+	info, err := os.Lstat(expandedRoot)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.Join(errors.New("remote expanded baseline root is not a physical directory"), err)
+	}
+	if err := os.Chmod(expandedRoot, 0o555); err != nil {
+		return fmt.Errorf("protect remote expanded baseline root: %w", err)
+	}
+	return nil
 }
 
 // materializeRemoteLegacyBaseline 保留旧单包基线不带 Anchor delta 的兼容边界。

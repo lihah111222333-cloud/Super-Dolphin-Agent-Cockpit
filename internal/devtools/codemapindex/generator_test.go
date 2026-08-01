@@ -1,10 +1,12 @@
-package main
+package codemapindex
 
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 type invalidCodemapSemanticCase struct {
@@ -12,6 +14,14 @@ type invalidCodemapSemanticCase struct {
 	body       string
 	prepare    func(t *testing.T, root string)
 	wantErrSub string
+}
+
+func TestGeneratedAtForModeUsesInjectedClock(t *testing.T) {
+	if got := generatedAtForMode(false, filepath.Join(t.TempDir(), "missing-index.json"), func() time.Time {
+		return time.Date(2026, time.August, 1, 0, 0, 0, 0, time.UTC)
+	}); got != "2026-08-01" {
+		t.Fatalf("generatedAtForMode() = %q", got)
+	}
 }
 
 func TestBuildIndexFailsWhenCodemapDirMissing(t *testing.T) {
@@ -224,7 +234,7 @@ func invalidMarkdownSemanticCases() []invalidCodemapSemanticCase {
 
 func prepareCodemapSemanticPolicyFixture(t *testing.T, root string) {
 	t.Helper()
-	policy, err := os.ReadFile(filepath.Join(scriptRepoRoot(t), "scripts", "codemap_policy.txt"))
+	policy, err := os.ReadFile(filepath.Join(codemapGeneratorRepoRoot(t), "scripts", "codemap_policy.txt"))
 	if err != nil {
 		t.Fatalf("read codemap policy fixture: %v", err)
 	}
@@ -243,6 +253,15 @@ func prepareCodemapSemanticPolicyFixture(t *testing.T, root string) {
 	}
 	manifest.WriteString("]}}\n")
 	writeCodemapFixtureFile(t, root, "docs/doc/codemap/project-map/AI_PROJECT_MANIFEST.json", manifest.String())
+}
+
+func codemapGeneratorRepoRoot(t *testing.T) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve codemap generator test source path")
+	}
+	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", ".."))
 }
 
 func writeCodemapFixtureFile(t *testing.T, root, relativePath, body string) {

@@ -12,7 +12,11 @@ import (
 	"time"
 )
 
-const BaselineStateSchemaVersion uint32 = 5
+const (
+	BaselineStateSchemaVersion         uint32 = 6
+	BaselineSourceHistorySchemaVersion uint32 = 1
+	BaselineStatePreviousSchemaVersion uint32 = 5
+)
 
 const BaselineCacheKindAnchor = "anchor"
 
@@ -56,6 +60,7 @@ type BaselineState struct {
 	GateBinarySHA256       string             `json:"gate_binary_sha256"`
 	RuntimeSeedSHA256      string             `json:"runtime_seed_manifest_sha256"`
 	BaselineManifestDigest string             `json:"baseline_manifest_digest"`
+	SourceHistoryVersion   uint32             `json:"source_history_version"`
 	DataCacheID            string             `json:"data_cache_id"`
 	DataCacheBucket        string             `json:"data_cache_bucket"`
 	DataCachePath          string             `json:"data_cache_path"`
@@ -103,7 +108,7 @@ type baselineV4Ref struct {
 	AcceptedAt         time.Time `json:"accepted_at"`
 }
 
-// UnmarshalJSON 严格解码 v5 状态并在内存中迁移单个 v4 状态。
+// UnmarshalJSON 严格解码 v6 状态并在内存中迁移 v4/v5 状态。
 func (state *BaselineState) UnmarshalJSON(data []byte) error {
 	var header struct {
 		SchemaVersion uint32 `json:"schema_version"`
@@ -113,23 +118,58 @@ func (state *BaselineState) UnmarshalJSON(data []byte) error {
 	}
 	switch header.SchemaVersion {
 	case BaselineStateSchemaVersion:
-		type stateWire BaselineState
-		var wire stateWire
-		if err := decodeSingleJSON(data, &wire); err != nil {
-			return err
-		}
-		*state = BaselineState(wire)
-		return nil
+		return state.decodeCurrentBaselineState(data)
+	case BaselineStatePreviousSchemaVersion:
+		return state.decodePreviousBaselineState(data)
 	case 4:
-		var wire baselineStateV4Wire
-		if err := decodeSingleJSON(data, &wire); err != nil {
-			return err
-		}
-		*state = migrateBaselineStateV4(wire)
-		return nil
+		return state.decodeV4BaselineState(data)
 	default:
 		return errors.New("remote baseline state schema is invalid")
 	}
+}
+
+// decodeCurrentBaselineState 解码当前状态并拒绝来源历史协议漂移。
+func (state *BaselineState) decodeCurrentBaselineState(data []byte) error {
+	type stateWire BaselineState
+	var wire stateWire
+	if err := decodeSingleJSON(data, &wire); err != nil {
+		return err
+	}
+	if wire.SourceHistoryVersion > BaselineSourceHistorySchemaVersion {
+		return errors.New("remote baseline source history version is invalid")
+	}
+	*state = BaselineState(wire)
+	return nil
+}
+
+// decodePreviousBaselineState 迁移 v5 状态并保留需要重建完整历史的哨兵值。
+func (state *BaselineState) decodePreviousBaselineState(data []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if _, ok := fields["source_history_version"]; ok {
+		return errors.New("remote v5 baseline state contains a v6 source history version")
+	}
+	type stateWire BaselineState
+	var wire stateWire
+	if err := decodeSingleJSON(data, &wire); err != nil {
+		return err
+	}
+	*state = BaselineState(wire)
+	state.SchemaVersion = BaselineStateSchemaVersion
+	state.SourceHistoryVersion = 0
+	return nil
+}
+
+// decodeV4BaselineState 将 v4 线性状态迁移到当前链式状态。
+func (state *BaselineState) decodeV4BaselineState(data []byte) error {
+	var wire baselineStateV4Wire
+	if err := decodeSingleJSON(data, &wire); err != nil {
+		return err
+	}
+	*state = migrateBaselineStateV4(wire)
+	return nil
 }
 
 func decodeSingleJSON(data []byte, value any) error {
@@ -187,6 +227,9 @@ func (state BaselineState) Validate() error {
 func (state BaselineState) validateTopLevel() error {
 	if state.SchemaVersion != BaselineStateSchemaVersion || state.Generation == 0 {
 		return errors.New("remote baseline state schema or generation is invalid")
+	}
+	if state.SourceHistoryVersion > BaselineSourceHistorySchemaVersion {
+		return errors.New("remote baseline source history version is invalid")
 	}
 	if err := validateBaselineIdentity(state.identity()); err != nil {
 		return err

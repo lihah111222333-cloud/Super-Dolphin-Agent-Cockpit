@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/localci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
@@ -26,7 +27,7 @@ func resolveRemoteRunInput(
 	state remoteci.BaselineState,
 	runnerIdentity string,
 ) (remoteci.RunInput, error) {
-	if err := validateAcceptedRemoteBaseline(config, state); err != nil {
+	if err := validateRunnableRemoteBaseline(config, state); err != nil {
 		return remoteci.RunInput{}, err
 	}
 	repositoryRoot, scenario, profile, target, source, err := resolveRemoteRunSource(options)
@@ -48,6 +49,14 @@ func resolveRemoteRunInput(
 	if err != nil {
 		return remoteci.RunInput{}, err
 	}
+	candidateGateSource, candidateGateToolchain, reuseBaselineGate, err := resolveRemoteCandidateGateIdentity(
+		repositoryRoot,
+		target.tree,
+		state.MainTree,
+	)
+	if err != nil {
+		return remoteci.RunInput{}, err
+	}
 	return remoteci.RunInput{
 		RepositoryRoot:       repositoryRoot,
 		RemoteName:           options.RemoteName,
@@ -64,15 +73,36 @@ func resolveRemoteRunInput(
 		SelectedTests:   scenario == "test",
 		Calibration:     options.Calibration,
 		RunnerImage:     state.RuntimeImage, RunnerIdentityDigest: runnerIdentity,
-		BaselineManifestDigest: state.BaselineManifestDigest,
-		RunnerConfigDigest:     remoteRuntimeImageDigest(state.RuntimeImage),
-		GateBinarySHA256:       state.GateBinarySHA256,
-		RuntimeSeedSHA256:      state.RuntimeSeedSHA256, ForceRerun: options.ForceRerun,
+		BaselineManifestDigest:       state.BaselineManifestDigest,
+		RunnerConfigDigest:           remoteRuntimeImageDigest(state.RuntimeImage),
+		GateBinarySHA256:             state.GateBinarySHA256,
+		CandidateGateSourceSHA256:    candidateGateSource,
+		CandidateGateToolchainSHA256: candidateGateToolchain,
+		ReuseBaselineGateCLI:         reuseBaselineGate,
+		RuntimeSeedSHA256:            state.RuntimeSeedSHA256, ForceRerun: options.ForceRerun,
 		DataCacheBucket: state.Anchor.DataCacheBucket, DataCachePath: state.Anchor.DataCachePath,
 		AnchorGeneration: state.Anchor.Generation, AnchorManifest: state.Anchor.ManifestDigest,
 		AnchorCommit: state.Anchor.MainCommit, AnchorTree: state.Anchor.MainTree,
 		BaselineDeltas: remoteBaselineDeltaProjection(state.Deltas),
 	}, nil
+}
+
+// resolveRemoteCandidateGateIdentity 比较候选与已接受基线的精确 CLI 编译闭包。
+func resolveRemoteCandidateGateIdentity(repositoryRoot, candidateTree, baselineTree string) (string, string, bool, error) {
+	ctx := context.Background()
+	candidateSource, candidateToolchain, _, err := localci.LoadGateCLICompileClosure(ctx, repositoryRoot, candidateTree)
+	if err != nil {
+		return "", "", false, fmt.Errorf("resolve candidate gate CLI compile closure: %w", err)
+	}
+	if candidateTree == baselineTree {
+		return candidateSource, candidateToolchain, true, nil
+	}
+	baselineSource, baselineToolchain, _, err := localci.LoadGateCLICompileClosure(ctx, repositoryRoot, baselineTree)
+	if err != nil {
+		return "", "", false, fmt.Errorf("resolve baseline gate CLI compile closure: %w", err)
+	}
+	reuse := candidateSource == baselineSource && candidateToolchain == baselineToolchain
+	return candidateSource, candidateToolchain, reuse, nil
 }
 
 // remoteBaselineDeltaProjection 将已验证状态中的有序 OSS delta 转为 worker 协议投影。
@@ -306,6 +336,17 @@ func validateAcceptedRemoteBaseline(config remoteRunConfig, state remoteci.Basel
 		state.DataCacheBucket != config.DataCache.Bucket ||
 		!strings.HasPrefix(state.DataCachePath, config.DataCache.PathPrefix+"/") {
 		return errors.New("accepted baseline does not match runtime or DataCache location config")
+	}
+	return nil
+}
+
+// validateRunnableRemoteBaseline 拒绝缺少完整 Git 历史的旧基线，避免启动必然失败的云端分片。
+func validateRunnableRemoteBaseline(config remoteRunConfig, state remoteci.BaselineState) error {
+	if err := validateAcceptedRemoteBaseline(config, state); err != nil {
+		return err
+	}
+	if state.SourceHistoryVersion != remoteci.BaselineSourceHistorySchemaVersion {
+		return errors.New("accepted baseline source history is incomplete; run baseline-refresh before remote CI")
 	}
 	return nil
 }

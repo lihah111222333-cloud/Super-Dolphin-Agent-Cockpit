@@ -2,7 +2,7 @@
 
 > 更新日期：2026-07-30
 >
-> 当前结论：`NOT_VERIFIED`。深圳 ECI 已接受 manifest v9 的第 47 代 Anchor DataCache；Seed 从上一代读取完整 Go build cache、Go module、前端、LSP 和工具依赖，只在云端用 3 秒编译新的统一 CLI。第 47 代 manifest 已绑定精确 CLI 编译闭包源码指纹、`linux/amd64`、工具链摘要和二进制摘要，CLI 还能从自身读取并报告同一组构建身份。单一稳定 Anchor DataCache + OSS 不可变压缩 delta、目标级 PASS 复用和失败续跑已经进入候选实现；仍须完成 CLI 不相关源码变化的真实复用、CLI 源码变化的真实重编译、相关定向测试、commit/push/full 和 Git hook 完整放行/阻断证据后，才能把总任务改为 `VERIFIED`。
+> 当前结论：`NOT_VERIFIED`。深圳 ECI 已接受 manifest v9 的第 47 代 Anchor DataCache；Seed 从上一代读取完整 Go build cache、Go module、前端、LSP 和工具依赖，只在云端用 3 秒编译新的统一 CLI。第 47 代 manifest 已绑定精确 CLI 编译闭包源码指纹、`linux/amd64`、工具链摘要和二进制摘要，CLI 还能从自身读取并报告同一组构建身份。单一稳定 Anchor DataCache + OSS 不可变压缩 delta、目标级 PASS 复用、失败续跑、本机 CLI 更新与基线晋升规则均仍是候选实现/设计边界；仍须以真实云端场景证明不相关 tree/commit 刷新不重编译、语义 PASS 跨 provenance 复用、强制重跑、以及 promotion 不确定性恢复，连同 commit/push/full 和 Git hook 完整放行/阻断证据，才能把总任务改为 `VERIFIED`。
 
 ## 1. 最终效果
 
@@ -24,6 +24,8 @@
 生产安装闭包不得把安装机器的绝对目录写入 launcher 或 `production.json`。launcher 必须先规范解析自身目录，再以相对路径定位配置和控制器；`production.json` 的所有 `*_root`、`*_file`、`*_profile`、`*_repository` 路径字段都相对配置文件目录持久化，加载后才解析为绝对路径并执行既有 owner、mode、无符号链接、仓库外和根隔离校验。仓外远程配置的 `aliyun_cli` 保存可执行名 `aliyun`，由部署环境的 `PATH` 提供，不得写入用户主目录。Git 每个 clone 的本地配置仍由安装器记录当前受信 launcher 的规范绝对路径，因为 hook 可从任意 worktree/cwd 启动；该值是可重建的安装状态，迁盘后必须重跑安装器，不得进入仓库或版本化部署产物。
 
 CLI 本身采用独立的编译闭包和校验链。`build/gate/inputs.json` schema v2 的 `gate_compile_inputs` 必须是从 `cmd/super-dolphin-gate` 出发解析得到的精确、排序、无通配符的非测试 Go 传递闭包，并包含根模块与本地 replace 模块的锁文件；普通业务源码、前端锁文件和测试文件不进入该闭包。协调器从目标 Git tree 对这组输入计算内容摘要并写入 baseline manifest v9 的 `gate_source_sha256`。Seed 先校验上一代 CLI 的 manifest 摘要、字节数和二进制摘要，再调用 `worker cli-identity` 读取二进制通过链接参数固化的源码摘要、`GOOS/GOARCH` 和工具链摘要。三项全部匹配才允许直接复用；任一项缺失或变化都必须在 ECI 内离线重编译并再次自检，禁止由本机上传 CLI。日志固定输出 `gate CLI mode: reuse|compile`、源码摘要和编译耗时，使复用决策可以独立审计。
+
+前端代码体积守卫同样不能从候选工作树直接执行未绑定依赖。独立 CLI 把守卫脚本嵌入私有运行目录，只从共享 `node_modules` seed 复制 manifest 明确列出的 parser 闭包。闭包 manifest schema v2 同时绑定 `package-lock.json`、生成器自身 SHA-256、声明包、全部普通文件及规范闭包摘要；Go 侧从 accepted tree 和候选 tree 独立复算。普通 `check`/`refresh` 要求 lock、generator 与 closure 三元组完全等同于 accepted tree，只有显式依赖迁移可接受同一精确 staged tree 的新三元组。pre-commit 迁移前拒绝 generator 或 manifest 的 unstaged drift，生成后重新 `write-tree` 并用该 tree 复验；路径逃逸、重复路径、尾随 JSON、seed 文件漂移或共享目录在执行中变化都 fail-fast。
 
 ## 2. 明确不采用的方案
 
@@ -91,15 +93,15 @@ BaselineIdentity =
 7. 普通变化生成 `source.delta.bundle` 与 `go-build-cache.delta.tar.gz`，只包含 accepted tree 之后的 Git 对象和本代私有 GOCACHE miss；旧压缩层保持原对象和摘要，不复制、不重打。manifest v9 记录 storage mode、generation、base/target commit/tree、每层 SHA-256 和字节数，并把 CLI 编译闭包源码摘要与本代 gate 二进制作为 OSS 内容寻址制品。
 8. 只有没有可兼容 Anchor、运行时/工具链/依赖 identity 变化、source 不是 accepted tree 的后继，或 delta 层达到上限时，才生成完整 `runtime-deps.tar.gz`、`source.tar.gz` 和 `go-build-cache.tar.gz` 并创建新的 Anchor DataCache。完整压实同样必须先恢复旧 Anchor 和全部 delta，在其上只补新依赖、源码与缓存 miss 后重打完整层；“生成完整层”不等于冷构建。压实不能阻塞普通 CI，旧 accepted Anchor 和 delta 链在新 Anchor `Available` 前持续服务。
 9. 普通 delta 不创建 DataCache；完整压实才等待新 DataCache `Available` 并复验 manifest。
-10. 再次解析远程 `main`；构建期间发生漂移则拒绝晋升。
-11. 原子晋升新 logical generation。delta 晋升复用同一 Anchor 并追加一层；压实晋升替换 Anchor、清空 active delta，并保留上一套 Anchor + delta 链供已启动分片完成。
-12. 删除 seed ECI；仅当 accepted 与 previous 链均不再引用时，才回收 retired Anchor DataCache 和 OSS delta。失败时保留 retired 记录，下一次 refresh 先重试，不能伪称已回收。manifest、bundle 或工具归档发生部分上传失败时，也必须立即删除整个未接受 generation。
+10. 再次解析远程 `main`；构建期间发生漂移则拒绝晋升。提升前必须复验 successor 可运行且身份完整，禁止先清理旧链再验证新链。
+11. 将 successor 写入 accepted state 成功是唯一持久化线性化点。delta 晋升复用同一 Anchor 并追加一层；压实晋升替换 Anchor、清空 active delta，并保留上一套 Anchor + delta 链供已启动分片完成。
+12. write 后的 read 或 cleanup 若不确定，必须保留 successor 的工件和 DataCache，并让 current/previous 旧链继续可用；不得把写后不确定误判为回滚成功或提前回收。只有 successor 已复验、已持久化且最终读取确认后，才可删除 seed ECI，并按 accepted/previous 引用差集回收 retired Anchor DataCache 和 OSS delta。失败时保留 retired 记录，下一次 refresh 先重试，不能伪称已回收。manifest、bundle 或工具归档发生部分上传失败时，也必须立即删除整个未接受 generation。
 
 Anchor DataCache 和 OSS delta 链跨 Agent、clone 和 worktree 共享，不是每个工作树一份缓存。`baseline-refresh` 对 accepted state 文件旁的 `*.refresh.lock` 取得本机排他锁，避免 linked worktree 并发创建 generation；刷新间隔强制为 `1440` 分钟，续期 `ClientToken` 使用 UTC 日桶。identity 不变时只验证、续期并更新 `AcceptedAt`，不会创建 seed ECI、OSS generation 或 DataCache。候选恢复必须发生在新工件上传前，因此即使前一次上传、Anchor 创建或失败清理同时遭遇 STS 超时，下一次刷新也不会被既有 OSS 目录标记卡死或误复用半成品。源码变化、依赖变化和压实都必须读取旧 Anchor 与既有 delta：Seed 将旧层合成为只读缓存种子并把 miss 写入私有层，worker 按“私有写层 -> 最新 delta -> 较旧 delta -> Anchor”查询；禁止复制完整旧 cache 后伪称增量，也禁止忽略旧层重新冷构建。SQLite 只保存 DataCache/manifest 身份和验证结果，不能替代当前容器对实际挂载字节的校验：ECI 按 bucket/path 挂载可更新的 DataCache，而不是把不可变 `DataCacheId` 直接暴露给 worker。每个分片仍须先核对小 manifest，并对每个压缩层执行一次常规文件类型、SHA-256 与字节数校验；随后在隔离目录中把条目安全校验和解压合并为一次流式读取，完整成功后才发布到执行根，禁止再次完整解压只做预检。任何测试写入都不得回写 Anchor 或 OSS。
 
 Go 依赖缓存必须以完整 `GOMODCACHE` 为一个不可分割的只读种子，既包含已解压模块目录，也包含 `cache/download` 下的 `.mod`、`.info`、`.zip`、`.ziphash` 和版本列表。worker 为每个分片创建物理私有 `GOMODCACHE` 根：已解压模块目录和既有下载元数据文件链接到同一个不可变 seed，`cache/download` 的目录拓扑则在分片内以 `0700` 重建，使 Go 可以写入新的本地查询状态而不会修改共享 seed；不得退化为每棵工作树复制依赖。运行期固定 `GOPROXY=off`，缓存缺失立即失败，禁止从 runtime-proxy 或公网重新物化。每日刷新复用校验和最终 gate 二进制构建也必须对 accepted runtime 的 `go-mod-cache` 执行离线 `-mod=readonly` 构建，不能误读 seed 临时空目录并触发无变化重建。每个分片启动时只遍历并校验一次所需的不可变 Go/前端依赖树；同一分片内各 lane 只复验当前 Git tree 的锁文件并绑定已验证目录，不得为每个 gate 重复哈希整棵缓存。独立单 gate 执行没有分片级验证证明时仍须完整校验。
 
-所有 worktree 只以精确 Git tree 参与 workload 指纹，不得把本机路径写入依赖缓存或通过缓存键；同一输入闭包、执行语义和 runner 环境必须命中同一 OSS 通过标记。前端 `node_modules` 使用物理私有根并把顶层依赖逐项链接到同一个不可变 seed，只为 Vite 的 `.vite` 与 `.vite-temp` 建立分片内可写目录；完整性守卫必须验证链接目标和可写覆盖层拓扑，不能按 gate 复制依赖。`npm ci` 只在 seed 构建阶段使用临时下载缓存；运行期没有安装步骤，baseline 不保留 npm 下载缓存，各分片只创建空的私有 npm 日志目录。可写 `GOCACHE` 不能跨 ECI 容器并发写入；需要新 generation 且源码变化时，Seed 把精确 tree 物化到 worker 固定路径 `/workspace/work/lanes/lane-0/run/source`，分别以 `GOFLAGS="-p=2"` 和 `GOFLAGS="-p=1"` compile-only 增量补齐普通与 race 测试包。实际 Go workload 使用同一路径和参数，因此无需 `-trimpath` 也能跨工作树命中编译缓存，并保留 `runtime.Caller` 的正常绝对路径语义。每个包含 Go workload 的分片只从该 seed 复制一次可写缓存，并由该分片全部 lane 复用；纯前端或文本门禁分片不得准备它。本地合同测试必须用两棵绝对路径不同的宿主工作树依次物化到同一 worker 路径，并证明第二次不发生 compile。测试输出和源码副本继续按 lane/gate 隔离，避免并发写污染共享真值。
+所有 worktree 只以精确 Git tree 参与 workload 指纹，不得把本机路径写入依赖缓存或通过缓存键；同一输入闭包、workload 实际程序、platform 与 toolchain 必须命中同一 OSS 通过标记，runner 环境变化仅记录在该次执行 provenance receipt。前端 `node_modules` 使用物理私有根并把顶层依赖逐项链接到同一个不可变 seed，只为 Vite 的 `.vite` 与 `.vite-temp` 建立分片内可写目录；完整性守卫必须验证链接目标和可写覆盖层拓扑，不能按 gate 复制依赖。`npm ci` 只在 seed 构建阶段使用临时下载缓存；运行期没有安装步骤，baseline 不保留 npm 下载缓存，各分片只创建空的私有 npm 日志目录。可写 `GOCACHE` 不能跨 ECI 容器并发写入；需要新 generation 且源码变化时，Seed 把精确 tree 物化到 worker 固定路径 `/workspace/work/lanes/lane-0/run/source`，分别以 `GOFLAGS="-p=2"` 和 `GOFLAGS="-p=1"` compile-only 增量补齐普通与 race 测试包。实际 Go workload 使用同一路径和参数，因此无需 `-trimpath` 也能跨工作树命中编译缓存，并保留 `runtime.Caller` 的正常绝对路径语义。每个包含 Go workload 的分片只从该 seed 复制一次可写缓存，并由该分片全部 lane 复用；纯前端或文本门禁分片不得准备它。本地合同测试必须用两棵绝对路径不同的宿主工作树依次物化到同一 worker 路径，并证明第二次不发生 compile。测试输出和源码副本继续按 lane/gate 隔离，避免并发写污染共享真值。
 
 刷新锁只属于刷新命令，普通 `remote run`、Git hook 和指定测试不得读取或等待该锁。新 seed、delta 生成或 Anchor 压实期间，仓外 accepted state 保持上一代不变，所有门禁继续从上一代 Anchor + delta 链派生分片；普通 delta 在 manifest、远程 `main` 和全部对象摘要复验通过后即可原子晋升，完整压实还必须等待新 Anchor DataCache `Available`。候选失败或刷新进程中断时仍由上一代继续服务，这一顺序由 CLI 状态机和回归测试强制，不依赖 Agent 选择执行时机。
 
@@ -139,7 +141,7 @@ worker init 的固定步骤：
 10. 创建本地 synthetic commit 并 detached checkout。
 11. 再次确认 worktree clean，才交给只读挂载 expanded runtime 的非 root executor。
 
-`runner identity digest` 与 `baseline manifest digest` 是两个独立合同字段。前者只用于校准兼容性、耗时分桶、workload 通过缓存和分片身份；后者只绑定 accepted state、shard request、init 容器环境变量与 DataCache 中 `baseline-manifest.json` 的精确字节。即使纯源码刷新应保持前者稳定，也绝不能用前者代替后者完成 bootstrap 验签。
+`runner identity digest` 与 `baseline manifest digest` 是两个独立合同字段。前者只用于校准兼容性、耗时分桶和实际执行 provenance/分片身份，不进入 workload PASS；后者只绑定 accepted state、shard request、init 容器环境变量与 DataCache 中 `baseline-manifest.json` 的精确字节。即使纯源码刷新应保持前者稳定，也绝不能用前者代替后者完成 bootstrap 验签。
 
 binary-safe tree delta 支持已提交代码、暂存 tree 和活动 worktree 对应的精确 tree；worker 不依赖协调机的路径，也不读取协调机 `.git`。request、manifest 与 patch 必须位于同一 `job_id` 对象目录，目录根由仓外 `source_prefix` 配置，协议和实现不得写死某个 bucket、设备或工作树路径。
 
@@ -227,7 +229,7 @@ WorkloadPassIdentity =
   + runner_environment_digest
 ```
 
-`execution_digest` 绑定该 workload 的实际命令程序；`production_input_digest` 绑定精确 Git tree 中该目标可观察的生产代码、目标测试代码和必要构建输入；`runner_environment_digest` 绑定完整 `OS/arch` platform、不可变 runtime image、稳定 Worker 执行闭包 identity 和 toolchain。Worker identity 内含 policy 与 Worker 生产执行语义，但排除协调器、hook、统一 CLI 其他命令、整体二进制字节和 runtime seed。`linux/amd64`、`linux/arm64` 以及任何其他平台不得共享环境指纹。commit、完整 tree、CI 场景、batch、profile、job ID、分片号、LPT 账本和预计耗时不得进入缓存键。
+`execution_digest` 只绑定该 workload 的实际命令程序；`production_input_digest` 只绑定精确 Git tree 中该目标可观察的生产代码、目标测试代码和必要构建输入；`runner_environment_digest` 只绑定 platform 与 toolchain。换言之，语义 PASS 的唯一身份维度是 platform、toolchain、workload 实际程序、目标生产/测试输入。`linux/amd64`、`linux/arm64` 以及任何其他平台不得共享环境身份。runner、gate binary、runtime seed、anchor、配置、policy、coordinator、commit、完整 tree、CI 场景、batch、profile、job ID、分片号、LPT 账本和预计耗时都只能进入实际执行 provenance receipt，不得使相同目标的 PASS 失效。
 
 输入闭包采用保守 fail-fast 规则：
 
@@ -240,15 +242,17 @@ WorkloadPassIdentity =
 
 1. 构造完整 workload catalog。
 2. 计算每个 shardable workload 的输入和环境指纹。
-3. 先以预期内容寻址身份批量查询 SQLite PASS 主键。精确命中直接复用，不访问 OSS；本机索引未知的身份才按环境前缀发起一次有界 OSS 列表请求，并在内存中与未知集合求交集。只并发下载精确命中的不可变 `.pass` 标记，严格校验 schema、环境、执行和输入身份，验签通过后立即写入 SQLite 投影；对象名存在但内容缺失、损坏或不匹配时 fail-fast，不能判为命中。列表响应超过上限、越出环境前缀或解析异常同样 fail-fast。任何缺少 `RunnerIdentityDigest` 的旧环境身份一律视为 miss；兼容旧键也必须完整绑定当前 worker 执行语义，通过内容校验后才可发布当前键。每次逻辑 `oss cp` 使用独立的系统临时 checkpoint 目录，同一次 TLS/STS 重试序列复用该目录，完成后清理；禁止并发调用共享当前工作目录下的 `.ossutil_checkpoint`。
+3. 先以预期语义身份批量查询 SQLite PASS 主键。精确命中直接复用，不访问 OSS；本机索引未知的身份才按 platform/toolchain 前缀发起一次有界 OSS 列表请求，并在内存中与未知集合求交集。只并发下载精确命中的不可变 `.pass` 标记，严格校验 schema、语义身份、目标通过 marker 与 receipt；验签通过后立即写入 SQLite 投影。marker 或其 receipt 尚未完整发布时按 miss 处理，绝不能判为通过；已经下载到的非空 marker/receipt 内容损坏、摘要或 identity 不匹配则 fail-fast。列表响应超过上限、越出语义前缀或解析异常同样 fail-fast。历史键缺少当前语义维度一律视为 miss；provenance 变化不得被纳入新键或用来使已有 PASS 失效。真实 PASS 必须发布 marker 与 receipt；命中时 ECI 创建数为 0，`--force-rerun` 忽略读取并仍重新执行。每次逻辑 `oss cp` 使用独立的系统临时 checkpoint 目录，同一次 TLS/STS 重试序列复用该目录，完成后清理；禁止并发调用共享当前工作目录下的 `.ossutil_checkpoint`。
 4. 全命中时直接聚合，不生成 source delta、LPT 计划或 ECI。
 5. 部分命中时只把 miss 交给 LPT，重新紧凑分片；hit 不占分片槽位。
-6. 每个新通过 workload 立即写入内容寻址标记；其他 workload 或分片失败不撤销已确认的通过项。
+6. 每个真实云端通过 workload 先批量写入内容寻址、不可变的 provenance receipt，全部 receipt 上传成功后才批量提交 marker；读取 OSS 命中时必须下载并验证 marker 指向的 receipt 内容摘要和 identity。其他 workload 或分片失败不撤销已确认的通过项，receipt 部分上传不得产生 marker 命中。
 7. 重试只执行仍未通过的目标。该规则跨 commit、push、full、指定测试及后续所有批次生效。
 
-Go package 采用两级复用。先查询整包 PASS；整包未通过但报告中存在明确失败的顶层测试时，只为同次运行中明确 `pass` 的顶层测试发布独立标记。后续运行从精确 Git tree、runner 平台和 race 语义枚举该包实际可执行的顶层 `Test`、`Fuzz` 与有输出 `Example`，将已有标记的测试投影为复用结果，只把失败或从未完成的测试转为精确 `-run` workload。`skip`、缺少目标终态、子测试局部通过或仅有进程退出码 0 都不能发布顶层测试 PASS。测试标记仍使用该包的生产与测试输入闭包摘要，并额外绑定测试名对应的执行命令；工作树路径、Agent ID、job ID 和分片身份均不参与键计算。只要精确输入不变，任意工作树和 Agent 都可复用；生产依赖或测试代码变化、runner/toolchain 变化以及 `--force-rerun` 都回到整包执行。
+旧键或旧 SQLite proof 可以在按当前算法重算源码闭包后投影为当前 SQLite 语义证明，但它没有绑定当前 identity 的不可变执行 receipt，因此不得伪造或提升为新的稳定 OSS marker。本机有 SQLite 时，首次兼容命中写入当前主键，后续直接从索引复用；没有 SQLite 时可以继续读取并验证旧 OSS 对象，但不得留下只有 marker、没有 receipt 的半成品。稳定 marker 只由真实执行按 receipt-first 顺序发布。
 
-显式传入 `--force-rerun` 时忽略读取缓存并把本次选中的所有 shardable workload 重新交给 LPT；成功结果仍可更新相同内容寻址标记。首代校准也遵守相同规则：默认复用身份兼容的历史通过标记和成功耗时样本，只有操作者显式要求时才强制重跑。校准 checkpoint 只保存场景进度，不得生成、推断或覆盖 `ForceRerun` 策略。
+Go package 采用两级复用。先查询整包 PASS；整包未通过但报告中存在明确失败的顶层测试时，只为同次运行中明确 `pass` 的顶层测试发布独立标记。后续运行从精确 Git tree、platform 和 race 语义枚举该包实际可执行的顶层 `Test`、`Fuzz` 与有输出 `Example`，将已有标记的测试投影为复用结果，只把失败或从未完成的测试转为精确 `-run` workload。`skip`、缺少目标终态、子测试局部通过或仅有进程退出码 0 都不能发布顶层测试 PASS。测试标记仍使用该包的生产与测试输入闭包摘要，并额外绑定测试名对应的执行命令；工作树路径、Agent ID、job ID、分片身份和 runner provenance 均不参与键计算。只要精确输入、platform 与 toolchain 不变，任意工作树和 Agent 都可复用；生产依赖或测试代码变化、platform/toolchain 变化以及 `--force-rerun` 都回到整包执行。
+
+显式传入 `--force-rerun` 时忽略读取缓存并把本次选中的所有 shardable workload 重新交给 LPT；即使已有相同 marker，也必须真实重跑并以新 receipt 更新证明。首代校准也遵守相同规则：默认复用语义身份兼容的历史通过标记和成功耗时样本，只有操作者显式要求时才强制重跑。校准 checkpoint 只保存场景进度，不得生成、推断或覆盖 `ForceRerun` 策略。
 
 所有显式测试请求都必须先走同一套“SQLite 精确查询，未知项再验签 OSS”的指纹过滤，查询发生在“本地轻量执行或远程 ECI”后端选择之前。统一 CLI 的 `test` 子命令接受包、Vitest 文件、`<go-package>#<TestName>` 和 `<go-package>#<BenchmarkName>` 精确选择器。命中已验证 PASS 时直接返回 `backend=remote-cache`，不启动本地进程、Docker 或 ECI；不同 clone、Agent 和工作树通过同一仓外 SQLite 路径共享本机结果，跨机器通过 OSS 证明惰性建立本地投影。旧 `test_with_guard`、`go_with_guard` 和 PowerShell 测试包装器只接受远程 worker 注入的执行身份，宿主机调用在启动 Go、下载依赖或编译前 fail-fast。
 
@@ -273,7 +277,7 @@ Go package 采用两级复用。先查询整包 PASS；整包未通过但报告�
 4. 每片创建一个独立 ECI ContainerGroup。
 5. 预计单片可以完成时只创建一片，不为凑并发创建空容器。
 
-若不可再分的单项工作量本身超过 100 秒，容器仍必须运行到成功或报错，并记录实际耗时。结果返回具体 workload、实耗时及“优化或拆分”告警，但不能仅因慢而把分片或整批判失败。慢目标最终通过时照常发布 PASS 指纹；下次输入和执行身份不变时直接复用，整批真实失败后也只重跑失败或未完成项。
+若不可再分的单项工作量本身超过 100 秒，容器仍必须运行到成功或报错，并记录实际耗时。结果返回具体 workload、实耗时及“优化或拆分”告警，但不能仅因慢而把分片或整批判失败。慢目标最终通过时照常发布 PASS marker 与 receipt；下次语义身份不变时直接复用，整批真实失败后也只重跑失败或未完成项。
 
 远程 `--ci-package*` 包装器固定使用 `go test -timeout=0` 关闭 Go 的第二套硬超时；唯一终止权归 worker 已验证的 workload context，普通与 push 为 10 分钟，release 为 30 分钟。包装器不得另设 100 秒或 90 秒等更短硬超时。
 
@@ -301,12 +305,12 @@ Go package workload 固定以 `go test -json` 执行。worker 必须把 JSON 事
 
 1. 先调用 current 的隐藏 `_production-update` 命令，再重新打开同一路径执行 `_production-launcher`。更新进程原子替换 current 后，本次请求立即进入新版，不需要 Agent 或人工修改 launcher。
 2. 更新源只允许是配置的受信 `main` Git ref 和精确 Git object tree。活动 worktree、暂存区、未跟踪文件、候选 Makefile 或候选脚本都不能成为 updater 的源码或构建入口。
-3. updater 从该 tree 的 `build/gate/inputs.json` schema v2 动态读取并严格校验 `gate_compile_inputs`，只批量读取这些 Git blob，复用 gate CLI canonical context 算法计算 `gate_source_sha256`。该摘要和当前二进制身份相同就直接执行，普通业务源码、文档、测试或项目地图变化不得触发重编译。
-4. 摘要不同时只允许一个 updater 取得仓外跨进程锁。它把精确闭包写入私有临时目录，使用安装状态或显式环境解析出的 Go 工具链和共享模块/构建缓存离线编译；路径不得写死在仓库或 launcher。其他并发 Agent 不排队等待更新，可继续使用尚未被替换的上一版 current。
-5. 候选二进制必须通过 `worker cli-identity` 复核源码摘要、工具链摘要和本机平台，再计算二进制摘要。全部匹配后才以同目录临时文件加 `fsync` 原子替换 current，并只保留一个 `.super-dolphin-gate-previous`；失败时不得修改 current，也不得把失败候选登记为可用版本。
-6. updater 必须输出普通文本 `check|cache-hit|build|verify|switch` 阶段和耗时。成功切换后更新严格 JSON 状态；未知字段、仓库 remote/ref 漂移、工具链不可用、缓存缺失或身份不一致均 fail-fast。迁盘只需重跑安装器重建仓外路径状态，不修改仓库代码。
+3. updater 从该 tree 的 `build/gate/inputs.json` schema v2 动态读取并严格校验 `gate_compile_inputs`，只批量读取这些 Git blob，复用 gate CLI canonical context 算法计算 `gate_source_sha256`，并从候选 tree 的 `go.mod`/`toolchain` directive 动态取得所需 Go 版本。commit/tree 变化但 gate source、锁文件和 toolchain identity 都相同时，只刷新严格 state，不重编译；普通业务源码、文档、测试或项目地图变化不得触发重编译。
+4. Go 工具链选择顺序固定为显式 Go 优先、固定系统安装、再以 `PATH` 补充；固定系统安装覆盖系统 Go 和 Intel/Apple Silicon Homebrew 位置，但版本不能硬编码，必须由候选 tree 的 `go.mod`/`toolchain` 约束解析。当前机器安装 Go 1.25.7 只是可复用的部署状态，不进入仓库、计划或 launcher。每次探测和编译均隔离 `PATH`、`HOME`、`GOENV` 与 `GOROOT`，并绑定真实 `GOTOOLDIR`、stdlib 和工具清单 identity，避免宿主环境或伪造目录混入候选。候选不满足 directive/toolchain 约束、缓存缺失或 identity 不一致均 fail-fast。
+5. 摘要或工具链身份变化时只允许一个 updater 取得仓外跨进程锁。它把精确闭包写入私有临时目录，使用已验证工具链和共享模块/构建缓存离线编译；路径不得写死在仓库或 launcher。竞争者不等待构建：先验证 current，验证成功后继续使用上一代；验证失败才报错，不得运行未验证候选。
+6. 候选二进制必须通过 `worker cli-identity` 复核源码摘要、工具链摘要和本机平台，再计算二进制摘要。全部匹配后才以同目录临时文件加 `fsync` 原子替换 current，并只保留一个 `.super-dolphin-gate-previous`；失败时不得修改 current，也不得把失败候选登记为可用版本。updater 必须输出普通文本 `check|cache-hit|build|verify|switch` 阶段和耗时。成功切换或仅刷新 state 后更新严格 JSON 状态；未知字段、仓库 remote/ref 漂移、工具链不可用、缓存缺失或身份不一致均 fail-fast。迁盘只需重跑安装器重建仓外路径状态，不修改仓库代码。
 
-首次迁移允许由当前受信安装器一次性把现有已验证控制器复制为 `.super-dolphin-gate-current` 并改写稳定 launcher；从该次起，版本推进必须走上述自动闭环，不再生成持续增长的 `gate-client-vNNN` 文件。
+首次迁移允许由当前受信安装器一次性把现有已验证控制器复制为 `.super-dolphin-gate-current` 并改写稳定 launcher；只在识别精确历史模板时，迁移器可读取旧 launcher 中逐字匹配预期值的绝对路径，并允许受控祖先 alias。该只读迁移视图必须拒绝叶子 symlink、可组/全局写祖先、owner 漂移和校验期间路径换靶；新 manifest、配置和 launcher 仍全部遵守无 alias 的规范路径规则。从该次起，版本推进必须走上述自动闭环，不再生成持续增长的 `gate-client-vNNN` 文件。
 
 ## 5. 支持的远程场景
 
@@ -447,10 +451,10 @@ VSwitch 的 CIDR 创建后不可修改。容量不足时必须在同一 VPC、�
 - 本地与云端使用同一套 CLI 协议；本地只负责 Git/tree 绑定、缓存判定和调度，重型 workload 在 ECI 执行。
 - 每个分片对应一个 ECI 容器；单作业分片数、CPU 和内存档位由仓外配置决定，不设跨 Agent 的本地固定并发队列。
 - 缓存判定先于分片规划。只有未命中的 workload 进入 LPT；全命中直接返回通过，不上传源码、不创建 ECI。
-- PASS 以目标输入、执行契约和 `linux/amd64` 环境身份绑定，跨工作树共享；`--force-rerun` 是唯一主动绕过方式。
+- PASS 只以 platform、toolchain、workload 实际程序及目标生产/测试输入绑定，跨工作树共享；runner/gate/seed/anchor/config/policy/coordinator 仅记录在实际执行 provenance receipt，不能使目标 PASS 失效。真实 PASS 同时发布 marker 与 receipt；命中不创建 ECI，`--force-rerun` 仍强制重跑。
 - 失败批次保留已经通过的目标和已完成分片事实，重试只调度未通过或输入已变化的目标。
 - 100 秒是优化和自动拆分目标，不是杀容器的超时；超过目标必须记录具体 workload 耗时并返回非阻断告警。
-- accepted baseline 使用 current + previous 链。候选刷新期间继续服务旧链；候选验收并原子持久化后，才允许按引用差集回收旧资源。
+- accepted baseline 使用 current + previous 链。候选刷新期间继续服务旧链；先复验 successor，accepted state 写入成功才是线性化点。write 后 read/cleanup 不确定时保留 successor，且旧链继续可用；只有最终读取确认后才允许按引用差集回收旧资源。
 - Git hook 和任意 Agent 客户端只能调用仓外受信 launcher/已编译 CLI；候选 tree 的 Makefile、生成器或脚本不得成为门禁执行入口。
 - requester fingerprint 跨 Git hook、直接 CLI 和其他 Agent 客户端保持同一逻辑 Agent，只用于审计、续跑和请求归并；它不得改变 PASS 命中，也不得替代 owner/receipt 授权。
 
@@ -460,15 +464,15 @@ VSwitch 的 CIDR 创建后不可修改。容量不足时必须在同一 VPC、�
 
 在以下场景全部闭环前，状态保持 `NOT_VERIFIED`：
 
-1. `test`：指定一个或多个精确测试。首次未命中时只创建对应 ECI；相同目标立即复跑必须由共享 PASS 返回且 ECI 为 0；`--force-rerun` 必须重新执行。
+1. `test`：指定一个或多个精确测试。首次未命中时只创建对应 ECI 并发布 marker+receipt；只改变 runner/gate/seed/anchor/config/policy/coordinator provenance 后，相同目标立即复跑必须由共享 PASS 返回且 ECI 为 0；`--force-rerun` 必须重新执行并产生新的执行 receipt。
 2. `commit`：pre-commit 绑定精确 staged tree；closure/project-map 只通过受信 CLI 自动刷新一次，刷新后仍漂移才阻断；远程结果必须绑定同一 tree。
 3. `push`：pre-push 保留 Git stdin 的每条 ref update、远端名称和 URL，按 canonical range 执行；任一 range 失败即阻断。
 4. `full`：对当前 catalog 先做目标级缓存过滤，再只对 miss 做分片；超过 100 秒只告警并为下一次规划提供拆分耗时。
 5. 失败续跑：制造一个目标失败后，账本必须保留同批其他 PASS；修复后只执行失败或指纹变化的目标。
 6. 跨工作树：不同绝对路径下相同目标输入和环境身份必须命中同一 PASS；工作树路径不得进入缓存身份。
-7. 基线刷新：候选构建、验收或状态写入失败时 current/previous 旧链仍可用；delta 刷新不得删除仍被新链引用的 Anchor 或旧 delta。
+7. 基线刷新：候选构建、验收或状态写入失败时 current/previous 旧链仍可用；successor 先复验，state write 是线性化点，write 后 read/cleanup 不确定时必须保留 successor；delta 刷新不得删除仍被新链引用的 Anchor 或旧 delta。
 8. 云端鲁棒性：STS/TLS/瞬时网络错误有界重试且响应取消；大型对象下载不受短握手预算误杀；日志按普通文本尾部读取。
 9. 清理：所有已创建 ECI、临时 EIP 和临时 OSS 对象都进入可恢复清理；未创建的分片占位不得伪造成云端事实。
 10. requester fingerprint：CLI 生成后，同一指纹经 Git hook、直接 CLI 和任意 Agent 客户端提交的运行可按逻辑 Agent 查询和续跑；仓库不存在 Codex 专用 lifecycle 入口；更换或缺失指纹不影响相同生产输入的 PASS 复用，伪造指纹也不能取得 owner、grant 或 receipt 权限。
 
-`VERIFIED` 只由当前 tree 的 LSP 零诊断、当前聚焦合同测试、真实 ECI 场景结果和紧随其后的同 tree 缓存复跑共同证明。历史成功记录可以辅助定位，但不能替代本轮证据。
+`VERIFIED` 只由当前 tree 的 LSP 零诊断、当前聚焦合同测试、真实 ECI 场景结果和紧随其后的语义命中复跑共同证明；其中必须覆盖本机自更新的无关 tree/commit state-only 刷新与 toolchain 重编译、PASS 的 provenance 无关命中与 force 重跑、以及 baseline promotion 的 write 后不确定性。历史成功记录可以辅助定位，但不能替代本轮证据。

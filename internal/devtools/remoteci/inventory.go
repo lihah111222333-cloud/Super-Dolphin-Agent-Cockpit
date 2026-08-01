@@ -1,9 +1,12 @@
 package remoteci
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"path"
 	"slices"
@@ -32,7 +35,11 @@ func BuildWorkloadInventory(
 	if err != nil {
 		return gate.WorkloadInventory{}, err
 	}
-	fullTargets, err := inventoryFullTargets(files)
+	vitestPolicy, err := loadInventoryVitestSuitePolicy(ctx, repositoryRoot, commit)
+	if err != nil {
+		return gate.WorkloadInventory{}, err
+	}
+	fullTargets, err := inventoryFullTargets(files, vitestPolicy)
 	if err != nil {
 		return gate.WorkloadInventory{}, err
 	}
@@ -55,7 +62,7 @@ func BuildWorkloadInventory(
 		NestedGoModules:      fullTargets.nestedGoModules,
 		GoTests:              goTests,
 		GoRaceTests:          goRaceTests,
-		FrontendChangedTests: changedVitestTargets(changed, fullTargets.files),
+		FrontendChangedTests: changedVitestTargets(changed, fullTargets.files, vitestPolicy),
 		FrontendFullTests:    fullTargets.frontendTests,
 	}, nil
 }
@@ -176,8 +183,131 @@ type inventoryTargetSet struct {
 	frontendTests   []string
 }
 
+const inventoryVitestSuitePolicyPath = "frontend-app/config/vitest-suite-policy.json"
+
+type inventoryVitestSuitePolicy struct {
+	SchemaVersion   int      `json:"schemaVersion"`
+	DefaultExcludes []string `json:"defaultExcludes"`
+}
+
+// loadInventoryVitestSuitePolicy 从候选 Git tree 读取前端与远程清单共享的测试发现策略。
+func loadInventoryVitestSuitePolicy(
+	ctx context.Context,
+	repositoryRoot string,
+	revision string,
+) (inventoryVitestSuitePolicy, error) {
+	command := exec.CommandContext(ctx, "git", "show", revision+":"+inventoryVitestSuitePolicyPath)
+	command.Dir = repositoryRoot
+	output, err := command.Output()
+	if err != nil {
+		return inventoryVitestSuitePolicy{}, fmt.Errorf("read Vitest suite policy from Git tree: %w", err)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(output))
+	decoder.DisallowUnknownFields()
+	var policy inventoryVitestSuitePolicy
+	if err := decoder.Decode(&policy); err != nil {
+		return inventoryVitestSuitePolicy{}, fmt.Errorf("decode Vitest suite policy: %w", err)
+	}
+	if err := requireInventoryJSONEOF(decoder); err != nil {
+		return inventoryVitestSuitePolicy{}, err
+	}
+	if err := validateInventoryVitestSuitePolicy(policy); err != nil {
+		return inventoryVitestSuitePolicy{}, err
+	}
+	return policy, nil
+}
+
+func requireInventoryJSONEOF(decoder *json.Decoder) error {
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("Vitest suite policy has trailing JSON values")
+		}
+		return fmt.Errorf("decode trailing Vitest suite policy: %w", err)
+	}
+	return nil
+}
+
+func validateInventoryVitestSuitePolicy(policy inventoryVitestSuitePolicy) error {
+	if policy.SchemaVersion != 1 || len(policy.DefaultExcludes) == 0 {
+		return errors.New("Vitest suite policy schema is invalid")
+	}
+	seen := make(map[string]struct{}, len(policy.DefaultExcludes))
+	for _, pattern := range policy.DefaultExcludes {
+		if err := validateInventoryVitestGlob(pattern); err != nil {
+			return err
+		}
+		if _, exists := seen[pattern]; exists {
+			return fmt.Errorf("Vitest suite policy exclude %q is duplicated", pattern)
+		}
+		seen[pattern] = struct{}{}
+	}
+	return nil
+}
+
+func validateInventoryVitestGlob(pattern string) error {
+	if invalidInventoryVitestGlobPattern(pattern) {
+		return fmt.Errorf("Vitest suite policy exclude %q is invalid", pattern)
+	}
+	for segment := range strings.SplitSeq(pattern, "/") {
+		if err := validateInventoryVitestGlobSegment(pattern, segment); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func invalidInventoryVitestGlobPattern(pattern string) bool {
+	return pattern == "" || strings.TrimSpace(pattern) != pattern || path.IsAbs(pattern) ||
+		strings.ContainsAny(pattern, "\\\x00\r\n")
+}
+
+func validateInventoryVitestGlobSegment(pattern string, segment string) error {
+	if segment == "" || segment == "." || segment == ".." ||
+		(segment != "**" && strings.Contains(segment, "**")) {
+		return fmt.Errorf("Vitest suite policy exclude %q is invalid", pattern)
+	}
+	if segment == "**" {
+		return nil
+	}
+	if _, err := path.Match(segment, "probe"); err != nil {
+		return fmt.Errorf("Vitest suite policy exclude %q is invalid: %w", pattern, err)
+	}
+	return nil
+}
+
+func (policy inventoryVitestSuitePolicy) excludes(target string) bool {
+	for _, pattern := range policy.DefaultExcludes {
+		if inventoryVitestGlobMatches(pattern, target) {
+			return true
+		}
+	}
+	return false
+}
+
+func inventoryVitestGlobMatches(pattern string, target string) bool {
+	patternSegments := strings.Split(pattern, "/")
+	targetSegments := strings.Split(target, "/")
+	var match func(int, int) bool
+	match = func(patternIndex int, targetIndex int) bool {
+		if patternIndex == len(patternSegments) {
+			return targetIndex == len(targetSegments)
+		}
+		if patternSegments[patternIndex] == "**" {
+			return match(patternIndex+1, targetIndex) ||
+				targetIndex < len(targetSegments) && match(patternIndex, targetIndex+1)
+		}
+		if targetIndex == len(targetSegments) {
+			return false
+		}
+		matched, err := path.Match(patternSegments[patternIndex], targetSegments[targetIndex])
+		return err == nil && matched && match(patternIndex+1, targetIndex+1)
+	}
+	return match(0, 0)
+}
+
 // inventoryFullTargets 从完整树自动发现根模块包、嵌套模块和前端全量测试。
-func inventoryFullTargets(files []string) (inventoryTargetSet, error) {
+func inventoryFullTargets(files []string, vitestPolicy inventoryVitestSuitePolicy) (inventoryTargetSet, error) {
 	nestedModules, err := inventoryNestedGoModules(files)
 	if err != nil {
 		return inventoryTargetSet{}, err
@@ -188,7 +318,7 @@ func inventoryFullTargets(files []string) (inventoryTargetSet, error) {
 		if packageTarget, ok := gate.GoPackageTargetForSource(file); ok && !withinNestedGoModule(file, nestedModules) {
 			packages[packageTarget] = struct{}{}
 		}
-		if relative, ok := frontendVitestPath(file); ok {
+		if relative, ok := frontendVitestPath(file, vitestPolicy); ok {
 			frontend = append(frontend, relative)
 		}
 	}
@@ -263,18 +393,19 @@ func inventoryGitLines(ctx context.Context, repositoryRoot string, args ...strin
 }
 
 // frontendVitestPath 将树内 Vitest 文件映射为前端工作目录相对路径。
-func frontendVitestPath(file string) (string, bool) {
+func frontendVitestPath(file string, policy inventoryVitestSuitePolicy) (string, bool) {
 	const prefix = "frontend-app/"
 	if !strings.HasPrefix(file, prefix) {
 		return "", false
 	}
 	relative := strings.TrimPrefix(file, prefix)
 	if (!strings.HasPrefix(relative, "src/") && !strings.HasPrefix(relative, "scripts/")) ||
-		(!strings.Contains(relative, ".test.") && !strings.Contains(relative, ".spec.")) {
+		(!strings.Contains(relative, ".test.") && !strings.Contains(relative, ".spec.")) ||
+		policy.excludes(relative) {
 		return "", false
 	}
 	switch path.Ext(relative) {
-	case ".js", ".jsx", ".ts", ".tsx":
+	case ".js", ".jsx", ".mjs", ".ts", ".tsx":
 		return relative, true
 	default:
 		return "", false
@@ -282,10 +413,14 @@ func frontendVitestPath(file string) (string, bool) {
 }
 
 // changedVitestTargets 为变更的测试或前端源码选择存在的 Vitest 目标。
-func changedVitestTargets(changed []string, files map[string]struct{}) []string {
+func changedVitestTargets(
+	changed []string,
+	files map[string]struct{},
+	policy inventoryVitestSuitePolicy,
+) []string {
 	selected := make(map[string]struct{})
 	for _, file := range changed {
-		addChangedVitestTargets(selected, file, files)
+		addChangedVitestTargets(selected, file, files, policy)
 	}
 	result := make([]string, 0, len(selected))
 	for file := range selected {
@@ -296,8 +431,13 @@ func changedVitestTargets(changed []string, files map[string]struct{}) []string 
 }
 
 // addChangedVitestTargets 将一个变更文件对应的现有测试加入选择集。
-func addChangedVitestTargets(selected map[string]struct{}, file string, files map[string]struct{}) {
-	if relative, ok := frontendVitestPath(file); ok {
+func addChangedVitestTargets(
+	selected map[string]struct{},
+	file string,
+	files map[string]struct{},
+	policy inventoryVitestSuitePolicy,
+) {
+	if relative, ok := frontendVitestPath(file, policy); ok {
 		if _, exists := files[file]; exists {
 			selected[relative] = struct{}{}
 		}

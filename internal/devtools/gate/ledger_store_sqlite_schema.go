@@ -160,6 +160,41 @@ CREATE INDEX IF NOT EXISTS idx_ci_workload_fingerprint_lookup
 		workload_id, input_digest, environment_digest, observed_at_unix_ms DESC
 	);
 
+CREATE TABLE IF NOT EXISTS ci_workload_identity_aliases (
+	identity_digest TEXT NOT NULL,
+	workload_id TEXT NOT NULL,
+	observed_at_unix_ms INTEGER NOT NULL,
+	PRIMARY KEY (identity_digest, workload_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ci_workload_identity_alias_lookup
+	ON ci_workload_identity_aliases (
+		workload_id, observed_at_unix_ms DESC, identity_digest
+	);
+
+INSERT OR IGNORE INTO ci_workload_identity_aliases (
+	identity_digest, workload_id, observed_at_unix_ms
+)
+SELECT identity_digest, workload_id, observed_at_unix_ms
+FROM ci_workload_fingerprints
+WHERE NOT EXISTS (
+	SELECT 1 FROM ci_schema_migrations
+	WHERE name = 'workload-identity-aliases-v1'
+);
+
+INSERT OR IGNORE INTO ci_workload_identity_aliases (
+	identity_digest, workload_id, observed_at_unix_ms
+)
+SELECT identity_digest, workload_id, observed_at_unix_ms
+FROM ci_workload_pass_proofs
+WHERE NOT EXISTS (
+	SELECT 1 FROM ci_schema_migrations
+	WHERE name = 'workload-identity-aliases-v1'
+);
+
+INSERT OR IGNORE INTO ci_schema_migrations (name, applied_at_unix_ms)
+VALUES ('workload-identity-aliases-v1', CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+
 CREATE TABLE IF NOT EXISTS ci_workload_fingerprint_observations (
 	identity_digest TEXT NOT NULL
 		REFERENCES ci_workload_fingerprints(identity_digest) ON DELETE CASCADE,

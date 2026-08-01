@@ -209,6 +209,11 @@ func (store *DurationLedgerStore) RecordWorkloadPassProofs(proofs []WorkloadPass
 			); err != nil {
 				return mapDurationLedgerSQLiteError("store PASS proof", err)
 			}
+			if err := recordSQLiteWorkloadIdentityAlias(
+				transaction, proof.IdentityDigest, proof.WorkloadID, proof.ObservedAt,
+			); err != nil {
+				return err
+			}
 		}
 		return advanceCIQueryRevision(transaction, store.nowFunc().UTC())
 	})
@@ -236,45 +241,47 @@ func (store *DurationLedgerStore) RecordWorkloadFingerprints(
 	defer database.Close()
 	return withSQLiteWriteTransaction(database, "workload fingerprint", func(transaction *sql.Tx) error {
 		for _, record := range records {
-			if err := verifySQLiteWorkloadFingerprintIdentity(transaction, record); err != nil {
+			if err := recordSQLiteWorkloadFingerprint(transaction, record); err != nil {
 				return err
-			}
-			if _, err := transaction.Exec(`
-			INSERT INTO ci_workload_fingerprints (
-				identity_digest, workload_id, execution_digest, input_digest,
-				environment_digest, source_tree_sha, observed_at_unix_ms
-			) VALUES (?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT(identity_digest) DO NOTHING
-		`,
-				record.IdentityDigest,
-				record.WorkloadID,
-				record.ExecutionDigest,
-				record.InputDigest,
-				record.EnvironmentDigest,
-				record.SourceTreeSHA,
-				record.ObservedAt.UTC().UnixMilli(),
-			); err != nil {
-				return mapDurationLedgerSQLiteError("store workload fingerprint", err)
-			}
-			if _, err := transaction.Exec(`
-			INSERT INTO ci_workload_fingerprint_observations (
-				identity_digest, source_tree_sha, observed_at_unix_ms
-			) VALUES (?, ?, ?)
-			ON CONFLICT(identity_digest, source_tree_sha) DO UPDATE SET
-				observed_at_unix_ms = MAX(
-					ci_workload_fingerprint_observations.observed_at_unix_ms,
-					excluded.observed_at_unix_ms
-				)
-		`,
-				record.IdentityDigest,
-				record.SourceTreeSHA,
-				record.ObservedAt.UTC().UnixMilli(),
-			); err != nil {
-				return mapDurationLedgerSQLiteError("store workload fingerprint observation", err)
 			}
 		}
 		return advanceCIQueryRevision(transaction, store.nowFunc().UTC())
 	})
+}
+
+func recordSQLiteWorkloadFingerprint(transaction *sql.Tx, record WorkloadFingerprintRecord) error {
+	if err := verifySQLiteWorkloadFingerprintIdentity(transaction, record); err != nil {
+		return err
+	}
+	if _, err := transaction.Exec(`
+		INSERT INTO ci_workload_fingerprints (
+			identity_digest, workload_id, execution_digest, input_digest,
+			environment_digest, source_tree_sha, observed_at_unix_ms
+		) VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(identity_digest) DO NOTHING
+	`, record.IdentityDigest, record.WorkloadID, record.ExecutionDigest, record.InputDigest,
+		record.EnvironmentDigest, record.SourceTreeSHA, record.ObservedAt.UTC().UnixMilli(),
+	); err != nil {
+		return mapDurationLedgerSQLiteError("store workload fingerprint", err)
+	}
+	if err := recordSQLiteWorkloadIdentityAlias(
+		transaction, record.IdentityDigest, record.WorkloadID, record.ObservedAt,
+	); err != nil {
+		return err
+	}
+	if _, err := transaction.Exec(`
+		INSERT INTO ci_workload_fingerprint_observations (
+			identity_digest, source_tree_sha, observed_at_unix_ms
+		) VALUES (?, ?, ?)
+		ON CONFLICT(identity_digest, source_tree_sha) DO UPDATE SET
+			observed_at_unix_ms = MAX(
+				ci_workload_fingerprint_observations.observed_at_unix_ms,
+				excluded.observed_at_unix_ms
+			)
+	`, record.IdentityDigest, record.SourceTreeSHA, record.ObservedAt.UTC().UnixMilli()); err != nil {
+		return mapDurationLedgerSQLiteError("store workload fingerprint observation", err)
+	}
+	return nil
 }
 
 // RecordRemoteCIRun 原子替换一个 job 的 run、shard、workload 和 gate 查询投影。
@@ -410,8 +417,7 @@ func verifySQLiteWorkloadPassProofIdentity(transaction *sql.Tx, proof WorkloadPa
 	if err != nil {
 		return mapDurationLedgerSQLiteError("load existing PASS proof", err)
 	}
-	if existing.WorkloadID != proof.WorkloadID ||
-		existing.ExecutionDigest != proof.ExecutionDigest ||
+	if existing.ExecutionDigest != proof.ExecutionDigest ||
 		existing.InputDigest != proof.InputDigest ||
 		existing.EnvironmentDigest != proof.EnvironmentDigest {
 		return fmt.Errorf("PASS proof identity %q conflicts with immutable workload identity", proof.IdentityDigest)
@@ -446,14 +452,35 @@ func verifySQLiteWorkloadFingerprintIdentity(
 	if err != nil {
 		return mapDurationLedgerSQLiteError("load existing workload fingerprint", err)
 	}
-	if existing.WorkloadID != record.WorkloadID ||
-		existing.ExecutionDigest != record.ExecutionDigest ||
+	if existing.ExecutionDigest != record.ExecutionDigest ||
 		existing.InputDigest != record.InputDigest ||
 		existing.EnvironmentDigest != record.EnvironmentDigest {
 		return fmt.Errorf(
 			"workload fingerprint identity %q conflicts with immutable fields",
 			record.IdentityDigest,
 		)
+	}
+	return nil
+}
+
+// recordSQLiteWorkloadIdentityAlias 记录同一内容身份在不同 CI 场景中的 workload 名称。
+func recordSQLiteWorkloadIdentityAlias(
+	transaction *sql.Tx,
+	identityDigest string,
+	workloadID string,
+	observedAt time.Time,
+) error {
+	if _, err := transaction.Exec(`
+		INSERT INTO ci_workload_identity_aliases (
+			identity_digest, workload_id, observed_at_unix_ms
+		) VALUES (?, ?, ?)
+		ON CONFLICT(identity_digest, workload_id) DO UPDATE SET
+			observed_at_unix_ms = MAX(
+				ci_workload_identity_aliases.observed_at_unix_ms,
+				excluded.observed_at_unix_ms
+			)
+	`, identityDigest, workloadID, observedAt.UTC().UnixMilli()); err != nil {
+		return mapDurationLedgerSQLiteError("store workload identity alias", err)
 	}
 	return nil
 }
@@ -583,22 +610,23 @@ func lookupCompatibleWorkloadPassCandidateChunk(
 			VALUES `+placeholders+`
 		),
 		ranked AS (
-			SELECT proofs.identity_digest, proofs.workload_id,
+			SELECT proofs.identity_digest, requested.workload_id,
 				proofs.execution_digest, proofs.input_digest,
 				proofs.environment_digest, proofs.object_key,
 				proofs.observed_at_unix_ms, observations.source_tree_sha,
 				ROW_NUMBER() OVER (
-					PARTITION BY proofs.workload_id
+					PARTITION BY requested.workload_id
 					ORDER BY proofs.observed_at_unix_ms DESC, proofs.identity_digest DESC
 				) AS candidate_rank
 			FROM requested
+			JOIN ci_workload_identity_aliases AS aliases
+				ON aliases.workload_id = requested.workload_id
 			JOIN ci_workload_pass_proofs AS proofs
-				ON proofs.workload_id = requested.workload_id
+				ON proofs.identity_digest = aliases.identity_digest
 				AND proofs.execution_digest = requested.execution_digest
 				AND proofs.environment_digest = requested.environment_digest
 			JOIN ci_workload_fingerprints AS fingerprints
 				ON fingerprints.identity_digest = proofs.identity_digest
-				AND fingerprints.workload_id = proofs.workload_id
 				AND fingerprints.execution_digest = proofs.execution_digest
 				AND fingerprints.input_digest = proofs.input_digest
 				AND fingerprints.environment_digest = proofs.environment_digest
@@ -624,33 +652,9 @@ func lookupCompatibleWorkloadPassCandidateChunk(
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var (
-			candidate    WorkloadPassCandidate
-			observedAtMS int64
-			rank         int
-		)
-		if err := rows.Scan(
-			&candidate.Proof.IdentityDigest,
-			&candidate.Proof.WorkloadID,
-			&candidate.Proof.ExecutionDigest,
-			&candidate.Proof.InputDigest,
-			&candidate.Proof.EnvironmentDigest,
-			&candidate.Proof.ObjectKey,
-			&observedAtMS,
-			&candidate.SourceTreeSHA,
-			&rank,
-		); err != nil {
-			return mapDurationLedgerSQLiteError("scan compatible PASS candidate", err)
-		}
-		candidate.Proof.ObservedAt = time.UnixMilli(observedAtMS).UTC()
-		if err := validateWorkloadPassProof(candidate.Proof); err != nil {
-			return fmt.Errorf("compatible PASS candidate: %w", err)
-		}
-		if !validCalibrationOID(candidate.SourceTreeSHA) {
-			return errors.New("compatible PASS candidate source tree SHA is invalid")
-		}
-		if rank <= 0 || rank > perWorkloadLimit {
-			return errors.New("compatible PASS candidate rank is invalid")
+		candidate, err := scanCompatibleWorkloadPassCandidate(rows, perWorkloadLimit)
+		if err != nil {
+			return err
 		}
 		destination[candidate.Proof.WorkloadID] = append(
 			destination[candidate.Proof.WorkloadID],
@@ -658,6 +662,35 @@ func lookupCompatibleWorkloadPassCandidateChunk(
 		)
 	}
 	return mapDurationLedgerSQLiteError("iterate compatible PASS candidates", rows.Err())
+}
+
+func scanCompatibleWorkloadPassCandidate(rows *sql.Rows, perWorkloadLimit int) (WorkloadPassCandidate, error) {
+	var candidate WorkloadPassCandidate
+	var observedAtMS, rank int64
+	if err := rows.Scan(
+		&candidate.Proof.IdentityDigest,
+		&candidate.Proof.WorkloadID,
+		&candidate.Proof.ExecutionDigest,
+		&candidate.Proof.InputDigest,
+		&candidate.Proof.EnvironmentDigest,
+		&candidate.Proof.ObjectKey,
+		&observedAtMS,
+		&candidate.SourceTreeSHA,
+		&rank,
+	); err != nil {
+		return candidate, mapDurationLedgerSQLiteError("scan compatible PASS candidate", err)
+	}
+	candidate.Proof.ObservedAt = time.UnixMilli(observedAtMS).UTC()
+	if err := validateWorkloadPassProof(candidate.Proof); err != nil {
+		return candidate, fmt.Errorf("compatible PASS candidate: %w", err)
+	}
+	if !validCalibrationOID(candidate.SourceTreeSHA) {
+		return candidate, errors.New("compatible PASS candidate source tree SHA is invalid")
+	}
+	if rank <= 0 || rank > int64(perWorkloadLimit) {
+		return candidate, errors.New("compatible PASS candidate rank is invalid")
+	}
+	return candidate, nil
 }
 
 // compatibleWorkloadPassCandidateQueryArguments 生成批量兼容性查询的 VALUES 参数。

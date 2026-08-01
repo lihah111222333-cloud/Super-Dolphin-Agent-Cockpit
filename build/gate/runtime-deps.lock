@@ -1,9 +1,9 @@
 {
-  "schema_version": "7",
+  "schema_version": "9",
   "build_mode": "node-local",
   "cache_scope": "node",
   "inputs": {
-    "dockerfile_sha256": "sha256:3fbc2e2cd8bf8f05701536468450443e80cc03fdf303d417a06c3517f5dfb8bb",
+    "dockerfile_sha256": "sha256:7e26aa0196901ee60c6822fd85fa60a0fd7454c2a1c375bff441f69e102256a5",
     "toolchain_lock_sha256": "sha256:327570e26c4f5bb825fcae1ee21db9bd92c4a0e4448efd73344fe8c68490cd66",
     "go_mod_sha256": "sha256:e9daf0f8894334cc3d49ed580d98d5a3d6c7baa2415906d9f6518b2ea3d760ca",
     "go_sum_sha256": "sha256:8c717e45352a15786cac26ee3e01be1fa81ff838e249c34356a3ed95e75a530a",
@@ -15,9 +15,11 @@
     "proxy_go_sum_sha256": "sha256:0c367de5a9f3090cb8f06556d9a1997a84e1c6081f7c46b9ad9650e3178dc224",
     "tools_go_mod_sha256": "sha256:834eb97a6a57fe72a04c0c3cfe67cb2f5a3773ad63aa96cdeab7aa23d62e679f",
     "tools_go_sum_sha256": "sha256:4fb6b0daaafccfaa0024c3eebd193929957f4e49c62ed551a6289c59632f104f",
-    "runtime_seed_worker_sha256": "sha256:13feee7e33b02575605741bab9452efbe2f001db57d22cebdeecb6ec93d62c7f",
-    "runtime_seed_recipe_sha256": "sha256:8e5f0b5f7be9534cfec02c5cb3bc634a782a1855c19637072cffc3d45be3655d",
-    "runtime_seed_script_sha256": "sha256:5c970d94951ed0954dc0e488e7b13c10bb259120fa4551a6b520458cc4f04bfa"
+    "runtime_seed_worker_sha256": "sha256:17aa60ecc6a26e117fcb8e0d065b55d32347ecfee40bcb917e5c0bd7deff44cc",
+    "runtime_seed_recipe_sha256": "sha256:5f0d1362696c27d6084daa677d72321b43e8154bf57e8fe04fbdc95f778a9c10",
+    "runtime_seed_script_sha256": "sha256:90081571cc8fc346d5896ae9f53cf994a3a226ec9f51e266459451de0fdbb884",
+    "runtime_seed_script_browser_sha256": "sha256:b7452b9a3bf804a067db7156c54d5477ac49c84f20c4bd289fc243acc048c44a",
+    "runtime_seed_script_runtime_sha256": "sha256:36960b12ae53fa8d8f6c3eb89d8ad9b1e4f36ab87a26e82112e805e4e45e6a18"
   },
   "paths": {
     "manifest": "/opt/super-dolphin-gate/runtime/manifest.json",

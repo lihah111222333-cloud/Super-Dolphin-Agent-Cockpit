@@ -130,11 +130,11 @@
       ]
     },
     "scripts/desktop-failure-smoke.mjs": {
-      "lines": 469,
+      "lines": 426,
       "maxFuncLen": 53,
-      "maxNesting": 6,
+      "maxNesting": 5,
       "maxParams": 6,
-      "exportCount": 12,
+      "exportCount": 11,
       "consoleLogs": 1,
       "anyCount": 0,
       "emptyFuncs": 0,
@@ -142,8 +142,7 @@
       "longLineCount": 0,
       "frozenViolations": [
         "console-log\u0000生产代码禁止 console.log()，请用 logger 或删除",
-        "nesting\u0000最大嵌套 6 层，超过上限 4 层",
-        "params\u0000函数 commandFailureMessage 有 6 个参数，超过上限 5 个",
+        "nesting\u0000最大嵌套 5 层，超过上限 4 层",
         "params\u0000函数 runCommand 有 6 个参数，超过上限 5 个"
       ]
     },
@@ -257,8 +256,8 @@
       ]
     },
     "scripts/frontend-maintainability-dependency-integrity.mjs": {
-      "lines": 482,
-      "maxFuncLen": 77,
+      "lines": 481,
+      "maxFuncLen": 76,
       "maxNesting": 6,
       "maxParams": 3,
       "exportCount": 14,
@@ -272,7 +271,7 @@
       ]
     },
     "scripts/frontend-maintainability-score.mjs": {
-      "lines": 2770,
+      "lines": 2765,
       "maxFuncLen": 207,
       "maxNesting": 6,
       "maxParams": 6,

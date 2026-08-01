@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "defaultExcludes": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/.agents/**",
+    "**/tests/e2e/**",
+    "**/scripts/**/*benchmark.test.*",
+    "**/scripts/**/performance-*.test.*"
+  ]
+}

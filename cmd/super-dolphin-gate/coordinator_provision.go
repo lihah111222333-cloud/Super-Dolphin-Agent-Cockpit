@@ -170,8 +170,9 @@ func provisionProduction(
 
 type productionProvisionRuntime interface {
 	VerifyRunner(context.Context, gatecontract.ImageIdentity) error
-	CloneTrustedRepository(context.Context, productionBootstrapRoot, string) error
-	VerifyTrustedRepository(context.Context, productionBootstrapRoot, string) error
+	ResolveGitExecutable() (string, error)
+	CloneTrustedRepository(context.Context, string, productionBootstrapRoot, string) error
+	VerifyTrustedRepository(context.Context, string, productionBootstrapRoot, string) error
 }
 
 type productionProvisionLiveRuntime struct{}
@@ -181,22 +182,29 @@ func (productionProvisionLiveRuntime) VerifyRunner(ctx context.Context, identity
 	return (productionDockerBootstrapRunnerVerifier{}).VerifyRunner(ctx, identity)
 }
 
+// ResolveGitExecutable 固定安装机上 root 所有的系统 Git。
+func (productionProvisionLiveRuntime) ResolveGitExecutable() (string, error) {
+	return resolveProductionGitExecutable()
+}
+
 // CloneTrustedRepository 从 signed remote 建立并验证本机 bare authority。
 func (productionProvisionLiveRuntime) CloneTrustedRepository(
 	ctx context.Context,
+	gitExecutable string,
 	root productionBootstrapRoot,
 	destination string,
 ) error {
-	return cloneProductionProvisionTrustedRepository(ctx, root, destination)
+	return cloneProductionProvisionTrustedRepository(ctx, gitExecutable, root, destination)
 }
 
 // VerifyTrustedRepository 复核已发布恢复态仍固定到 signed bare baseline。
 func (productionProvisionLiveRuntime) VerifyTrustedRepository(
 	ctx context.Context,
+	gitExecutable string,
 	root productionBootstrapRoot,
 	destination string,
 ) error {
-	return verifyProductionProvisionTrustedRepository(ctx, root, destination)
+	return verifyProductionProvisionTrustedRepository(ctx, gitExecutable, root, destination)
 }
 
 // provisionProductionWithRuntime 保持 production 与测试共用同一原子发布状态机。
@@ -278,6 +286,7 @@ func preflightProductionProvision(
 	return planProductionProvisionRoot(ctx, manifest, inputs, installRoot, parent, rootExists, runtime)
 }
 
+// planProductionProvisionRoot 在既有根目录和 launcher 状态约束下生成可执行的 provision 计划。
 func planProductionProvisionRoot(
 	ctx context.Context,
 	manifest productionProvisionManifest,
@@ -289,12 +298,20 @@ func planProductionProvisionRoot(
 ) (productionProvisionPlan, error) {
 	config := productionProvisionConfig(installRoot, manifest, inputs)
 	configPath := filepath.Join(installRoot, "production.json")
+	launcherState, err := inspectProductionProvisionLauncherState(
+		manifest.LauncherPath,
+		configPath,
+		config.BootstrapControllerFile,
+	)
+	if err != nil {
+		return productionProvisionPlan{}, err
+	}
 	launcherReady, err := inspectProductionProvisionLauncher(manifest.LauncherPath, configPath, config.BootstrapControllerFile)
 	if err != nil {
 		return productionProvisionPlan{}, err
 	}
 	if !rootExists {
-		if launcherReady {
+		if launcherState != productionProvisionLauncherAbsent {
 			return productionProvisionPlan{}, errors.New("production provision launcher exists without its verified install root")
 		}
 		return productionProvisionPlan{inputs: inputs, installRoot: installRoot, parent: parent, config: config, configPath: configPath}, nil
@@ -313,6 +330,7 @@ type productionProvisionInputs struct {
 	bootstrapKey   productionBootstrapControllerPrivateKey
 	receiptKey     productionProvisionSigningKey
 	actionGrantKey productionProvisionSigningKey
+	gitExecutable  string
 	controllerData []byte
 	seccompData    []byte
 }
@@ -356,9 +374,13 @@ func verifyProductionProvisionInputs(
 	if err := runtime.VerifyRunner(ctx, root.Runner); err != nil {
 		return productionProvisionInputs{}, err
 	}
+	gitExecutable, err := runtime.ResolveGitExecutable()
+	if err != nil {
+		return productionProvisionInputs{}, fmt.Errorf("resolve production Git executable: %w", err)
+	}
 	return productionProvisionInputs{
 		root: root, bootstrapKey: bootstrapKey, receiptKey: receiptKey, actionGrantKey: actionGrantKey,
-		controllerData: controllerData, seccompData: seccompData,
+		gitExecutable: gitExecutable, controllerData: controllerData, seccompData: seccompData,
 	}, nil
 }
 
@@ -497,7 +519,9 @@ func stageProductionProvision(
 			return productionCoordinatorConfig{}, err
 		}
 	}
-	if err := runtime.CloneTrustedRepository(ctx, inputs.root, filepath.Join(staging, "trusted.git")); err != nil {
+	if err := runtime.CloneTrustedRepository(
+		ctx, inputs.gitExecutable, inputs.root, filepath.Join(staging, "trusted.git"),
+	); err != nil {
 		return productionCoordinatorConfig{}, err
 	}
 	config := productionProvisionConfig(installRoot, manifest, inputs)
@@ -531,6 +555,7 @@ func productionProvisionConfig(
 		BootstrapControllerKeyFile: filepath.Join(root, "bootstrap-controller-key.json"),
 		CandidateStateRoot:         filepath.Join(root, "candidate-state"), CandidateBuildRoot: filepath.Join(root, "candidate-build"),
 		TrustedSourceRoot: manifest.TrustedSourceRoot, TrustedRepository: filepath.Join(root, "trusted.git"),
+		GitExecutable:  inputs.gitExecutable,
 		SeccompProfile: filepath.Join(root, "seccomp.json"), Platform: manifest.Platform,
 		RepoID: inputs.root.RepoID, TrustedRef: inputs.root.TrustedRef,
 		AcceptedImageSigners: append(append([]productionTrustedKey(nil), manifest.TrustedRootKeys...), bootstrapTrust),
@@ -551,25 +576,33 @@ func productionProvisionConfig(
 // cloneProductionProvisionTrustedRepository 建立 bare mirror 并固定 ref、commit 与 tree。
 func cloneProductionProvisionTrustedRepository(
 	ctx context.Context,
+	gitExecutable string,
 	root productionBootstrapRoot,
 	destination string,
 ) error {
-	command := exec.CommandContext(ctx, "git", "clone", "--bare", "--no-tags", "--", root.RemoteURL, destination)
-	command.Env = []string{"HOME=" + os.Getenv("HOME"), "PATH=" + os.Getenv("PATH"), "LC_ALL=C", "GIT_TERMINAL_PROMPT=0"}
+	command := exec.CommandContext(
+		ctx, gitExecutable, "clone", "--bare", "--no-tags", "--", root.RemoteURL, destination,
+	)
+	command.Env = controlledProductionGitEnvironment(gitExecutable)
 	if output, err := command.CombinedOutput(); err != nil {
 		return fmt.Errorf("clone production trusted repository: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	if err := os.Chmod(destination, 0o700); err != nil {
 		return err
 	}
-	return verifyProductionProvisionTrustedRepository(ctx, root, destination)
+	return verifyProductionProvisionTrustedRepository(ctx, gitExecutable, root, destination)
 }
 
 // productionProvisionGitLine 执行无 prompt 的 bare repository 只读查询。
-func productionProvisionGitLine(ctx context.Context, repository string, args ...string) (string, error) {
+func productionProvisionGitLine(
+	ctx context.Context,
+	gitExecutable string,
+	repository string,
+	args ...string,
+) (string, error) {
 	commandArgs := append([]string{"-C", repository}, args...)
-	command := exec.CommandContext(ctx, "git", commandArgs...)
-	command.Env = []string{"HOME=" + os.Getenv("HOME"), "PATH=" + os.Getenv("PATH"), "LC_ALL=C", "GIT_TERMINAL_PROMPT=0"}
+	command := exec.CommandContext(ctx, gitExecutable, commandArgs...)
+	command.Env = controlledProductionGitEnvironment(gitExecutable)
 	output, err := command.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("git %s: %w: %s", args[0], err, strings.TrimSpace(string(output)))
@@ -579,33 +612,175 @@ func productionProvisionGitLine(ctx context.Context, repository string, args ...
 
 // installProductionProvisionLauncher 原子安装显式注入 production config 的 launcher。
 func installProductionProvisionLauncher(path string, configPath string, controllerPath string) error {
-	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
-		return errors.New("production provision launcher_path must be a canonical absolute path")
-	}
-	parent, err := canonicalProductionLauncherDirectory(filepath.Dir(path))
+	parent, err := validateCanonicalProductionProvisionLauncherPath(path)
 	if err != nil {
 		return err
+	}
+	launcherState, err := inspectProductionProvisionLauncherState(path, configPath, controllerPath)
+	if err != nil {
+		return err
+	}
+	replaceableInfo, err := snapshotReplaceableProductionLauncher(path, launcherState)
+	if err != nil {
+		return err
+	}
+	if err := installInitialProductionCurrentCLI(parent, controllerPath); err != nil {
+		return err
+	}
+	if launcherState == productionProvisionLauncherCurrent {
+		return nil
 	}
 	data, err := productionProvisionLauncherData(path, configPath, controllerPath)
 	if err != nil {
 		return err
 	}
-	temp, err := os.CreateTemp(parent, ".super-dolphin-gate-launcher-")
+	tempPath, err := writeProductionProvisionLauncherTemp(parent, data)
 	if err != nil {
 		return err
 	}
-	tempPath := temp.Name()
 	defer func() { _ = os.Remove(tempPath) }()
+	if launcherState == productionProvisionLauncherAbsent {
+		return linkProductionProvisionLauncher(tempPath, path, configPath, controllerPath)
+	}
+	return migrateReplaceableProductionProvisionLauncher(path, tempPath, parent, replaceableInfo, configPath, controllerPath)
+}
+
+// validateCanonicalProductionProvisionLauncherPath 校验 launcher 使用规范绝对路径并解析受控父目录。
+func validateCanonicalProductionProvisionLauncherPath(path string) (string, error) {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return "", errors.New("production provision launcher_path must be a canonical absolute path")
+	}
+	return canonicalProductionLauncherDirectory(filepath.Dir(path))
+}
+
+// snapshotReplaceableProductionLauncher 固化可迁移 launcher 的文件身份，供原子替换前复核。
+func snapshotReplaceableProductionLauncher(path string, state productionProvisionLauncherState) (os.FileInfo, error) {
+	if state != productionProvisionLauncherReplaceable {
+		return nil, nil
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot replaceable production launcher: %w", err)
+	}
+	return info, nil
+}
+
+// writeProductionProvisionLauncherTemp 以 owner-only 权限同步写入 launcher 临时文件。
+func writeProductionProvisionLauncherTemp(directory string, data []byte) (string, error) {
+	temp, err := os.CreateTemp(directory, ".super-dolphin-gate-launcher-")
+	if err != nil {
+		return "", err
+	}
+	tempPath := temp.Name()
 	if err := temp.Chmod(0o700); err != nil {
-		return errors.Join(err, temp.Close())
+		return "", errors.Join(err, temp.Close(), os.Remove(tempPath))
 	}
 	if _, err := temp.Write(data); err != nil {
-		return errors.Join(err, temp.Close())
+		return "", errors.Join(err, temp.Close(), os.Remove(tempPath))
 	}
 	if err := errors.Join(temp.Sync(), temp.Close()); err != nil {
+		return "", errors.Join(err, os.Remove(tempPath))
+	}
+	return tempPath, nil
+}
+
+// migrateReplaceableProductionProvisionLauncher 复核快照和模板后原子替换旧 launcher。
+func migrateReplaceableProductionProvisionLauncher(path string, tempPath string, parent string, snapshot os.FileInfo, configPath string, controllerPath string) error {
+	currentInfo, err := os.Lstat(path)
+	if err != nil || !os.SameFile(snapshot, currentInfo) {
+		return errors.Join(errors.New("replaceable production launcher changed before migration"), err)
+	}
+	confirmedState, err := inspectProductionProvisionLauncherState(path, configPath, controllerPath)
+	if err != nil || confirmedState != productionProvisionLauncherReplaceable {
+		return errors.Join(errors.New("replaceable production launcher no longer matches its verified template"), err)
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		return fmt.Errorf("atomically migrate production provision launcher: %w", err)
+	}
+	return syncProductionDirectory(parent)
+}
+
+// installInitialProductionCurrentCLI 仅在不存在 current CLI 时安装已验证的 bootstrap artifact。
+func installInitialProductionCurrentCLI(directory string, controllerPath string) (resultErr error) {
+	current := filepath.Join(directory, productionCurrentGateCLI)
+	exists, err := inspectProductionCurrentCLI(current)
+	if err != nil {
 		return err
 	}
-	return linkProductionProvisionLauncher(tempPath, path, configPath, controllerPath)
+	if exists {
+		return nil
+	}
+	source, size, err := openVerifiedProductionBootstrapController(controllerPath)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		resultErr = errors.Join(resultErr, source.Close())
+	}()
+	tempPath, err := writeInitialProductionCurrentCLITemp(directory, source, size)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tempPath)
+	if err := os.Link(tempPath, current); err != nil {
+		return fmt.Errorf("install initial production current CLI: %w", err)
+	}
+	return syncProductionDirectory(directory)
+}
+
+// inspectProductionCurrentCLI 确认 current CLI 缺失或保持 owner-only 常规文件约束。
+func inspectProductionCurrentCLI(path string) (bool, error) {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm() != 0o700 || !productionProvisionOwnedByCurrentUser(info) {
+		return false, errors.New("production current CLI already exists and is not owner-only")
+	}
+	return true, nil
+}
+
+// openVerifiedProductionBootstrapController 打开非空且归当前用户所有的 bootstrap controller。
+func openVerifiedProductionBootstrapController(path string) (*os.File, int64, error) {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || !productionProvisionOwnedByCurrentUser(info) {
+		return nil, 0, errors.Join(errors.New("verified bootstrap controller is not a usable owner-controlled file"), err)
+	}
+	source, err := os.Open(path)
+	if err != nil {
+		return nil, 0, fmt.Errorf("open verified bootstrap controller: %w", err)
+	}
+	return source, info.Size(), nil
+}
+
+// writeInitialProductionCurrentCLITemp 以 owner-only 权限复制并同步 current CLI 临时文件。
+func writeInitialProductionCurrentCLITemp(directory string, source io.Reader, size int64) (string, error) {
+	temp, err := os.CreateTemp(directory, ".super-dolphin-gate-current-")
+	if err != nil {
+		return "", err
+	}
+	tempPath := temp.Name()
+	if err := temp.Chmod(0o700); err != nil {
+		return "", errors.Join(err, temp.Close(), os.Remove(tempPath))
+	}
+	written, err := io.Copy(temp, source)
+	if err != nil {
+		return "", errors.Join(err, temp.Close(), os.Remove(tempPath))
+	}
+	if written != size {
+		return "", errors.Join(
+			fmt.Errorf("copy verified bootstrap controller: wrote %d bytes, want %d", written, size),
+			temp.Close(),
+			os.Remove(tempPath),
+		)
+	}
+	if err := errors.Join(temp.Sync(), temp.Close()); err != nil {
+		return "", errors.Join(err, os.Remove(tempPath))
+	}
+	return tempPath, nil
 }
 
 func linkProductionProvisionLauncher(tempPath string, path string, configPath string, controllerPath string) error {

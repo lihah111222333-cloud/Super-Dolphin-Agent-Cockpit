@@ -9,6 +9,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/datacache"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
 func TestParseRemoteBaselineRefreshOptions(t *testing.T) {
@@ -45,6 +48,28 @@ func TestRemoteBaselineStateRoundTrip(t *testing.T) {
 		loaded.PreviousAnchor == nil || state.PreviousAnchor == nil ||
 		loaded.PreviousAnchor.DataCacheID != state.PreviousAnchor.DataCacheID {
 		t.Fatalf("loaded state = %#v, want %#v", loaded, state)
+	}
+}
+
+func TestAcceptRemoteBaselineReverifyFailureKeepsAcceptedResources(t *testing.T) {
+	accepted := remoteBaselineStateFixture()
+	stage := remoteBaselineArtifactStage{generation: accepted.Generation + 1, generationPrefix: "baseline-artifacts/4/", createdAt: time.Now().UTC()}
+	manifest := remoteBaselineCapacityManifest(3 * remoteDataCacheGiB)
+	manifest.Generation = stage.generation
+	manifest.MainCommit, manifest.MainTree = repeatRemoteHex("c", 40), repeatRemoteHex("d", 40)
+	manifest.Platform, manifest.PolicyDigest = accepted.Platform, accepted.PolicyDigest
+	manifest.ToolchainDigest, manifest.RuntimeImage = accepted.ToolchainDigest, accepted.RuntimeImage
+	session := remoteBaselineRefreshSession{
+		accepted:   accepted,
+		input:      remoteBaselineRefreshInput{Identity: remoteci.BaselineIdentity{MainCommit: manifest.MainCommit, MainTree: manifest.MainTree, Platform: manifest.Platform, PolicyDigest: manifest.PolicyDigest, ToolchainDigest: manifest.ToolchainDigest, RuntimeImage: manifest.RuntimeImage}},
+		resolveRef: func(string, string, string) (string, error) { return "", errors.New("injected main reverify failure") },
+	}
+	cache := datacache.DataCache{ID: "edc-candidate", Status: datacache.StatusAvailable, Bucket: accepted.DataCacheBucket, Path: "/super-dolphin/ci/baselines/4", SizeGiB: 20}
+	if _, err := acceptRemoteBaseline(session, stage, manifest, "sha256:"+strings.Repeat("f", 64), cache); err == nil {
+		t.Fatal("acceptRemoteBaseline() accepted a failed main reverify")
+	}
+	if accepted.DataCacheID != "edc-anchor" || accepted.RetiredAnchor != nil || len(accepted.RetiredDeltas) != 0 {
+		t.Fatalf("failed reverify changed accepted state: %#v", accepted)
 	}
 }
 func TestRemoteBaselineRefreshLockSerializesWorktrees(t *testing.T) {

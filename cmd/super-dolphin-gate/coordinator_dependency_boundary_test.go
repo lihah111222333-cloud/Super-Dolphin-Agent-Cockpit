@@ -13,17 +13,41 @@ func TestStandaloneGateDependencyBoundary(t *testing.T) {
 	const module = "github.com/lihah111222333-cloud/super-dolphin-agent"
 	dependencies := gatePackageDependencies(t, root, "./cmd/super-dolphin-gate")
 	for _, dependency := range dependencies {
-		if !strings.HasPrefix(dependency, module+"/") {
-			continue
-		}
-		if dependency == module+"/cmd/super-dolphin-gate" ||
-			dependency == module+"/internal/devtools" ||
-			strings.HasPrefix(dependency, module+"/internal/devtools/") ||
-			dependency == module+"/build/gate/closure" ||
-			strings.HasPrefix(dependency, module+"/build/gate/closure/") {
+		if standaloneGateDependencyAllowed(module, dependency) {
 			continue
 		}
 		t.Fatalf("standalone super-dolphin-gate depends on repository package outside its dedicated roots: %q", dependency)
+	}
+}
+
+func standaloneGateDependencyAllowed(module, dependency string) bool {
+	if !strings.HasPrefix(dependency, module+"/") {
+		return true
+	}
+	for _, root := range []string{
+		module + "/cmd/super-dolphin-gate",
+		module + "/internal/devtools",
+		module + "/internal/archtest",
+		module + "/build/gate/closure",
+	} {
+		if dependency == root || strings.HasPrefix(dependency, root+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func TestStandaloneGateDependencyBoundaryRejectsProductionBackend(t *testing.T) {
+	t.Parallel()
+	const module = "github.com/lihah111222333-cloud/super-dolphin-agent"
+	for _, dependency := range []string{
+		module + "/internal/module/task",
+		module + "/internal/platform/database",
+		module + "/pkg/toolbridge",
+	} {
+		if standaloneGateDependencyAllowed(module, dependency) {
+			t.Fatalf("production backend dependency unexpectedly allowed: %q", dependency)
+		}
 	}
 }
 

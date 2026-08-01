@@ -85,6 +85,43 @@ type preparedTree struct {
 	cleanup        func() error
 }
 
+// ExactTree 是从精确 Git tree 安全解包出的临时只读候选视图。
+type ExactTree struct {
+	RepositoryRoot string
+	SourceRoot     string
+	Cleanup        func() error
+}
+
+// MaterializeExactTree 校验 tree 对象并安全解包，不读取工作区覆盖内容。
+func MaterializeExactTree(repository, tree, temporaryPrefix string) (ExactTree, error) {
+	root, err := canonicalRepository(repository)
+	if err != nil {
+		return ExactTree{}, err
+	}
+	treeSHA, err := requireExactTree(root, tree)
+	if err != nil {
+		return ExactTree{}, err
+	}
+	tempRoot, err := os.MkdirTemp("", temporaryPrefix)
+	if err != nil {
+		return ExactTree{}, fmt.Errorf("create exact-tree temporary root: %w", err)
+	}
+	cleanup := func() error {
+		if err := os.RemoveAll(tempRoot); err != nil {
+			return fmt.Errorf("remove exact-tree temporary root: %w", err)
+		}
+		return nil
+	}
+	sourceRoot := filepath.Join(tempRoot, "source")
+	if err := os.Mkdir(sourceRoot, 0o700); err != nil {
+		return ExactTree{}, errors.Join(fmt.Errorf("create exact-tree source root: %w", err), cleanup())
+	}
+	if err := extractGitTree(root, treeSHA, sourceRoot); err != nil {
+		return ExactTree{}, errors.Join(err, cleanup())
+	}
+	return ExactTree{RepositoryRoot: root, SourceRoot: sourceRoot, Cleanup: cleanup}, nil
+}
+
 // CheckTree 在临时目录中校验精确 Git tree，不读取或执行候选工作树入口。
 func CheckTree(repository, tree string, stdout io.Writer) (resultErr error) {
 	if stdout == nil {
@@ -134,43 +171,20 @@ func RefreshTree(repository, tree string, stdout io.Writer) (resultErr error) {
 
 // prepareTree 将精确 Git tree 解包到隔离目录并安装可信生成器。
 func prepareTree(repository, tree string) (preparedTree, error) {
-	root, err := canonicalRepository(repository)
+	exact, err := MaterializeExactTree(repository, tree, "super-dolphin-project-map-")
 	if err != nil {
 		return preparedTree{}, err
 	}
-	treeSHA, err := requireExactTree(root, tree)
+	tempRoot := filepath.Dir(exact.SourceRoot)
+	generatorPath, err := installTrustedGenerator(tempRoot, exact.SourceRoot)
 	if err != nil {
-		return preparedTree{}, err
-	}
-	tempRoot, err := os.MkdirTemp("", "super-dolphin-project-map-")
-	if err != nil {
-		return preparedTree{}, fmt.Errorf("create project-map temporary root: %w", err)
-	}
-	cleanup := func() error {
-		if err := os.RemoveAll(tempRoot); err != nil {
-			return fmt.Errorf("remove project-map temporary root: %w", err)
-		}
-		return nil
-	}
-	sourceRoot := filepath.Join(tempRoot, "source")
-	if err := os.Mkdir(sourceRoot, 0o700); err != nil {
-		return preparedTree{}, errors.Join(
-			fmt.Errorf("create project-map source root: %w", err),
-			cleanup(),
-		)
-	}
-	if err := extractGitTree(root, treeSHA, sourceRoot); err != nil {
-		return preparedTree{}, errors.Join(err, cleanup())
-	}
-	generatorPath, err := installTrustedGenerator(tempRoot, sourceRoot)
-	if err != nil {
-		return preparedTree{}, errors.Join(err, cleanup())
+		return preparedTree{}, errors.Join(err, exact.Cleanup())
 	}
 	return preparedTree{
-		repositoryRoot: root,
-		sourceRoot:     sourceRoot,
+		repositoryRoot: exact.RepositoryRoot,
+		sourceRoot:     exact.SourceRoot,
 		generatorPath:  generatorPath,
-		cleanup:        cleanup,
+		cleanup:        exact.Cleanup,
 	}, nil
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	goversion "go/version"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/localci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
 )
 
 // resolveRemoteBaselineRefreshInput 固化远端提交、树和运行时输入。
@@ -50,12 +52,16 @@ func resolveRemoteBaselineIdentity(ctx context.Context, repositoryRoot, commit, 
 	if err != nil {
 		return remoteBaselineRefreshInput{}, err
 	}
-	runtimeDependencyDigest, runtimeArgs, err := remoteci.ResolveRuntimeDependencyBuild(tree.Entries, platform)
+	runtimeDependencyDigest, runtimeArgs, runtimeSchemaVersion, err := remoteci.ResolveBaselineRuntimeDependencyBuild(tree.Entries, platform)
+	if err != nil {
+		return remoteBaselineRefreshInput{}, err
+	}
+	goToolchain, err := resolveRemoteBaselineGoToolchain(tree.Entries)
 	if err != nil {
 		return remoteBaselineRefreshInput{}, err
 	}
 	policyDigest := remoteBaselinePolicyDigest(registryDigest, runtimeDependencyDigest)
-	imageInputs, err := localci.ResolveGateImageInputs(tree, policyDigest, platform)
+	compileInputs, err := localci.ResolveBaselineGateCompileInputs(tree, platform)
 	if err != nil {
 		return remoteBaselineRefreshInput{}, err
 	}
@@ -64,12 +70,35 @@ func resolveRemoteBaselineIdentity(ctx context.Context, repositoryRoot, commit, 
 		return remoteBaselineRefreshInput{}, err
 	}
 	return remoteBaselineRefreshInput{
-		Identity:                remoteci.BaselineIdentity{MainCommit: commit, MainTree: treeSHA, Platform: platform, PolicyDigest: policyDigest, ToolchainDigest: imageInputs.ToolchainDigest, RuntimeImage: runtimeImage},
-		GateSourceDigest:        imageInputs.GateSourceDigest,
-		RuntimeDependencyDigest: runtimeDependencyDigest,
-		SqruffURL:               sqruffURL,
-		SqruffSHA256:            sqruffSHA,
+		Identity:                       remoteci.BaselineIdentity{MainCommit: commit, MainTree: treeSHA, Platform: platform, PolicyDigest: policyDigest, ToolchainDigest: compileInputs.ToolchainDigest, RuntimeImage: runtimeImage},
+		GateSourceDigest:               compileInputs.GateSourceDigest,
+		RuntimeDependencyDigest:        runtimeDependencyDigest,
+		RuntimeDependencySchemaVersion: runtimeSchemaVersion,
+		GoToolchain:                    goToolchain,
+		SqruffURL:                      sqruffURL,
+		SqruffSHA256:                   sqruffSHA,
 	}, nil
+}
+
+// resolveRemoteBaselineGoToolchain 从候选树全部 Go 模块选择最高的首选工具链。
+func resolveRemoteBaselineGoToolchain(entries []sourceexport.TreeEntry) (string, error) {
+	selected := ""
+	for _, entry := range entries {
+		if entry.Path != productionGoModPath && !strings.HasSuffix(entry.Path, "/"+productionGoModPath) {
+			continue
+		}
+		requirement, err := parseProductionGoRequirement(entry.Data)
+		if err != nil {
+			return "", fmt.Errorf("resolve Go toolchain from %s: %w", entry.Path, err)
+		}
+		if selected == "" || goversion.Compare(requirement.Preferred, selected) > 0 {
+			selected = requirement.Preferred
+		}
+	}
+	if selected == "" {
+		return "", errors.New("candidate tree contains no Go module")
+	}
+	return selected, nil
 }
 
 // bindAcceptedRemoteRuntimeDependency 从已验收提交重算运行时依赖摘要，使策略代码变化不会误触发 Anchor。

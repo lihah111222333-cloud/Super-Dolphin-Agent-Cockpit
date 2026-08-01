@@ -37,6 +37,28 @@ func AcquireExclusiveFileLock(ctx context.Context, path string) (*ExclusiveFileL
 	return &ExclusiveFileLock{file: file}, nil
 }
 
+// TryAcquireExclusiveFileLock 一次尝试取得规范绝对路径上的排他锁；锁忙时不等待。
+func TryAcquireExclusiveFileLock(path string) (*ExclusiveFileLock, bool, error) {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return nil, false, fmt.Errorf("exclusive file lock path must be canonical and absolute: %q", path)
+	}
+	if err := validateExclusiveFileLockParent(path); err != nil {
+		return nil, false, err
+	}
+	file, err := openExclusiveFileLock(path)
+	if err != nil {
+		return nil, false, err
+	}
+	if err := tryAcquireExclusiveFileLock(file); err != nil {
+		closeErr := file.Close()
+		if isExclusiveFileLockBusy(err) {
+			return nil, false, closeErr
+		}
+		return nil, false, errors.Join(fmt.Errorf("try acquire exclusive file lock: %w", err), closeErr)
+	}
+	return &ExclusiveFileLock{file: file}, true, nil
+}
+
 func openExclusiveFileLock(path string) (*os.File, error) {
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {

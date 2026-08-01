@@ -29,6 +29,7 @@ func TestPromoteRemoteBaselineRetiresOnlyReplacedAnchorChain(t *testing.T) {
 	assertRemoteBaselineConditions(t, "staged retired anchor", state.RetiredAnchor != nil, state.RetiredAnchor != nil && *state.RetiredAnchor == retired)
 	if persisted, err := promoteRemoteBaseline(context.Background(), remoteBaselineRefreshSession{
 		cache: cache, store: store, statePath: statePath,
+		verifySuccessor: func(context.Context, remoteBaselineRefreshSession, remoteci.BaselineState) error { return nil },
 	}, &state); err != nil || !persisted {
 		t.Fatalf("promoteRemoteBaseline() = persisted %v, error %v", persisted, err)
 	}
@@ -58,6 +59,7 @@ func TestPromoteRemoteBaselinePreservesDeltaReuseLiveResources(t *testing.T) {
 
 	if persisted, err := promoteRemoteBaseline(context.Background(), remoteBaselineRefreshSession{
 		cache: cache, store: store, statePath: filepath.Join(t.TempDir(), "baseline-state.json"),
+		verifySuccessor: func(context.Context, remoteBaselineRefreshSession, remoteci.BaselineState) error { return nil },
 	}, &state); err != nil || !persisted {
 		t.Fatalf("promoteRemoteBaseline() = persisted %v, error %v", persisted, err)
 	}
@@ -79,6 +81,7 @@ func TestPromoteRemoteBaselineStateWriteFailureDoesNotDeleteLiveResources(t *tes
 
 	persisted, err := promoteRemoteBaseline(context.Background(), remoteBaselineRefreshSession{
 		cache: cache, store: store, statePath: statePath,
+		verifySuccessor: func(context.Context, remoteBaselineRefreshSession, remoteci.BaselineState) error { return nil },
 	}, &state)
 
 	if err == nil || persisted {
@@ -86,6 +89,112 @@ func TestPromoteRemoteBaselineStateWriteFailureDoesNotDeleteLiveResources(t *tes
 	}
 	if len(cache.deleted) != 0 || len(store.deletedPrefixes) != 0 {
 		t.Fatalf("state write failure deleted live resources: caches=%v prefixes=%v", cache.deleted, store.deletedPrefixes)
+	}
+}
+
+func TestPromoteRemoteBaselineDefersCleanupUntilSuccessorIsVerifiedPersistedAndReadable(t *testing.T) {
+	state := remoteBaselineAnchorReplacementState(remoteBaselineCurrentAndPreviousFixture())
+	tests := []struct {
+		name       string
+		verifyErr  error
+		writeErr   error
+		readErr    error
+		mismatch   bool
+		persisted  bool
+		wantEvents []string
+	}{
+		{name: "reverify failure", verifyErr: errors.New("unavailable"), wantEvents: []string{"verify"}},
+		{name: "state write failure", writeErr: errors.New("disk full"), wantEvents: []string{"verify", "write"}},
+		{name: "final read failure", readErr: errors.New("corrupt read"), persisted: true, wantEvents: []string{"verify", "write", "read"}},
+		{name: "final read mismatch", mismatch: true, persisted: true, wantEvents: []string{"verify", "write", "read"}},
+		{name: "success", persisted: true, wantEvents: []string{"verify", "write", "read", "legacy", "retired"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			events := make([]string, 0, 5)
+			session := remoteBaselineRefreshSession{
+				verifySuccessor: func(context.Context, remoteBaselineRefreshSession, remoteci.BaselineState) error {
+					events = append(events, "verify")
+					return test.verifyErr
+				},
+				writeState: func(string, remoteci.BaselineState) error {
+					events = append(events, "write")
+					return test.writeErr
+				},
+				readState: func(string, bool) (remoteci.BaselineState, error) {
+					events = append(events, "read")
+					loaded := state
+					if test.mismatch {
+						loaded.Generation++
+					}
+					return loaded, test.readErr
+				},
+				cleanupLegacy: func(context.Context, remoteBaselineDataCacheClient, remoteBaselineOSSStore, *remoteLegacyBaselineMigration) error {
+					events = append(events, "legacy")
+					return nil
+				},
+				cleanupRetired: func(context.Context, remoteBaselineDataCacheClient, remoteBaselineOSSStore, string, *remoteci.BaselineState) error {
+					events = append(events, "retired")
+					return nil
+				},
+			}
+			persisted, err := promoteRemoteBaseline(context.Background(), session, &state)
+			if test.verifyErr != nil || test.writeErr != nil || test.readErr != nil || test.mismatch {
+				if err == nil || persisted != test.persisted {
+					t.Fatalf("promoteRemoteBaseline() = persisted %v, error %v", persisted, err)
+				}
+			} else if err != nil || persisted != test.persisted {
+				t.Fatalf("promoteRemoteBaseline() = persisted %v, error %v", persisted, err)
+			}
+			if !reflect.DeepEqual(events, test.wantEvents) {
+				t.Fatalf("promotion events = %v, want %v", events, test.wantEvents)
+			}
+		})
+	}
+}
+
+func TestPromoteRemoteBaselineRealWriteReadRoundTripUsesPersistentEquivalence(t *testing.T) {
+	state := remoteBaselineAnchorReplacementState(remoteBaselineCurrentAndPreviousFixture())
+	state.Deltas = []remoteci.BaselineDeltaRef{}
+	statePath := filepath.Join(t.TempDir(), "baseline-state.json")
+	persisted, err := promoteRemoteBaseline(context.Background(), remoteBaselineRefreshSession{
+		statePath:       statePath,
+		verifySuccessor: func(context.Context, remoteBaselineRefreshSession, remoteci.BaselineState) error { return nil },
+		cleanupLegacy: func(context.Context, remoteBaselineDataCacheClient, remoteBaselineOSSStore, *remoteLegacyBaselineMigration) error {
+			return nil
+		},
+		cleanupRetired: func(context.Context, remoteBaselineDataCacheClient, remoteBaselineOSSStore, string, *remoteci.BaselineState) error {
+			return nil
+		},
+	}, &state)
+	if err != nil || !persisted {
+		t.Fatalf("promoteRemoteBaseline() = persisted %v, error %v", persisted, err)
+	}
+}
+
+func TestPromotionUncertaintyRetainsSuccessorArtifactsAndCache(t *testing.T) {
+	state := remoteBaselineAnchorReplacementState(remoteBaselineCurrentAndPreviousFixture())
+	store := &fakeRemoteBaselineOSSStore{}
+	cache := &fakeRemoteBaselineDataCacheClient{}
+	persisted, err := promoteRemoteBaseline(context.Background(), remoteBaselineRefreshSession{
+		verifySuccessor: func(context.Context, remoteBaselineRefreshSession, remoteci.BaselineState) error { return nil },
+		writeState:      func(string, remoteci.BaselineState) error { return nil },
+		readState: func(string, bool) (remoteci.BaselineState, error) {
+			return remoteci.BaselineState{}, errors.New("read unavailable")
+		},
+	}, &state)
+	if err == nil || !persisted {
+		t.Fatalf("promoteRemoteBaseline() = persisted %v, error %v", persisted, err)
+	}
+	accepted := false
+	if persisted {
+		accepted = true
+	}
+	resultErr := error(err)
+	cleanupUnacceptedRemoteArtifacts(&resultErr, store, state.SourceObjectPrefix, &accepted)
+	cleanupUnacceptedRemoteCache(&resultErr, cache, datacache.DataCache{ID: state.DataCacheID, Bucket: state.DataCacheBucket, Path: state.DataCachePath}, &accepted)
+	if len(store.deletedPrefixes) != 0 || len(cache.deleted) != 0 {
+		t.Fatalf("uncertain promotion deleted successor resources: prefixes=%v caches=%v", store.deletedPrefixes, cache.deleted)
 	}
 }
 
@@ -130,7 +239,8 @@ func remoteBaselineCurrentAndPreviousFixture() remoteci.BaselineState {
 	created := time.Date(2026, 7, 30, 1, 0, 0, 0, time.UTC)
 	state := remoteci.BaselineState{
 		SchemaVersion: remoteci.BaselineStateSchemaVersion, Generation: 51,
-		MainCommit: repeatRemoteHex("a", 40), MainTree: repeatRemoteHex("b", 40),
+		SourceHistoryVersion: remoteci.BaselineSourceHistorySchemaVersion,
+		MainCommit:           repeatRemoteHex("a", 40), MainTree: repeatRemoteHex("b", 40),
 		Platform: "linux/arm64", PolicyDigest: "sha256:" + repeatRemoteHex("1", 64),
 		ToolchainDigest:        "sha256:" + repeatRemoteHex("2", 64),
 		RuntimeImage:           "registry.example/runtime@sha256:" + repeatRemoteHex("3", 64),

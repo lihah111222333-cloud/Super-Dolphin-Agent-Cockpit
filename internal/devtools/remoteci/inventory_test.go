@@ -30,11 +30,19 @@ func TestBuildWorkloadInventoryUsesExactCommitAndRange(t *testing.T) {
 	writeInventoryFile(t, repository, "tools/custom-check/check.go", "package check\n")
 	writeInventoryFile(t, repository, "frontend-app/src/widget.ts", "export const widget = 1\n")
 	writeInventoryFile(t, repository, "frontend-app/src/widget.test.ts", "test('widget', () => {})\n")
+	writeInventoryFile(t, repository, "frontend-app/scripts/runtime.test.mjs", "test('runtime', () => {})\n")
+	writeInventoryFile(t, repository, inventoryVitestSuitePolicyPath, `{
+  "schemaVersion": 1,
+  "defaultExcludes": ["**/scripts/**/*benchmark.test.*", "**/scripts/**/performance-*.test.*"]
+}`)
+	writeInventoryFile(t, repository, "frontend-app/scripts/chat-history-benchmark.test.mjs", "test('benchmark', () => {})\n")
+	writeInventoryFile(t, repository, "frontend-app/scripts/performance-budget.test.mjs", "test('performance', () => {})\n")
 	runInventoryGit(t, repository, "add", ".")
 	runInventoryGit(t, repository, "commit", "--quiet", "-m", "基础")
 	base := inventoryGitOutput(t, repository, "rev-parse", "HEAD")
 
 	writeInventoryFile(t, repository, "frontend-app/src/widget.ts", "export const widget = 2\n")
+	writeInventoryFile(t, repository, "frontend-app/scripts/chat-history-benchmark.test.mjs", "test('changed benchmark', () => {})\n")
 	writeInventoryFile(t, repository, "internal/beta/beta_test.go", "package beta\n")
 	runInventoryGit(t, repository, "add", ".")
 	runInventoryGit(t, repository, "commit", "--quiet", "-m", "更新")
@@ -47,7 +55,7 @@ func TestBuildWorkloadInventoryUsesExactCommitAndRange(t *testing.T) {
 	if !slices.Equal(inventory.GoPackages, []string{"./build/gate", "./build/gate/closure", "./internal/alpha", "./internal/archtest", "./internal/beta", "./new-root/tool"}) ||
 		!slices.Equal(inventory.NestedGoModules, []string{"build/gate/runtime-tools", "tools/custom-check"}) ||
 		!slices.Equal(inventory.FrontendChangedTests, []string{"src/widget.test.ts"}) ||
-		!slices.Equal(inventory.FrontendFullTests, []string{"src/widget.test.ts"}) {
+		!slices.Equal(inventory.FrontendFullTests, []string{"scripts/runtime.test.mjs", "src/widget.test.ts"}) {
 		t.Fatalf("inventory = %#v", inventory)
 	}
 	normalNames := make([]string, len(inventory.GoTests))
@@ -61,6 +69,51 @@ func TestBuildWorkloadInventoryUsesExactCommitAndRange(t *testing.T) {
 	if !slices.Equal(normalNames, []string{"./internal/archtest#TestCommon", "./internal/archtest#TestNormal"}) ||
 		!slices.Equal(raceNames, []string{"./internal/archtest#TestCommon", "./internal/archtest#TestRace"}) {
 		t.Fatalf("atomic Go tests normal=%v race=%v", normalNames, raceNames)
+	}
+}
+
+func TestLoadInventoryVitestSuitePolicyFailsClosed(t *testing.T) {
+	tests := []struct {
+		name   string
+		policy string
+	}{
+		{name: "missing excludes", policy: `{"schemaVersion":1}`},
+		{name: "unknown field", policy: `{"schemaVersion":1,"defaultExcludes":["scripts/*.test.mjs"],"extra":true}`},
+		{name: "duplicate", policy: `{"schemaVersion":1,"defaultExcludes":["scripts/*.test.mjs","scripts/*.test.mjs"]}`},
+		{name: "invalid globstar", policy: `{"schemaVersion":1,"defaultExcludes":["scripts/**bad/*.test.mjs"]}`},
+		{name: "trailing value", policy: `{"schemaVersion":1,"defaultExcludes":["scripts/*.test.mjs"]} {}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repository := t.TempDir()
+			runInventoryGit(t, repository, "init", "--quiet")
+			runInventoryGit(t, repository, "config", "user.name", "CI Inventory")
+			runInventoryGit(t, repository, "config", "user.email", "ci@example.invalid")
+			writeInventoryFile(t, repository, inventoryVitestSuitePolicyPath, test.policy)
+			runInventoryGit(t, repository, "add", ".")
+			runInventoryGit(t, repository, "commit", "--quiet", "-m", "策略")
+			commit := inventoryGitOutput(t, repository, "rev-parse", "HEAD")
+			if _, err := loadInventoryVitestSuitePolicy(context.Background(), repository, commit); err == nil {
+				t.Fatal("loadInventoryVitestSuitePolicy() error = nil")
+			}
+		})
+	}
+}
+
+func TestInventoryVitestGlobMatches(t *testing.T) {
+	for _, test := range []struct {
+		pattern string
+		target  string
+		want    bool
+	}{
+		{pattern: "**/scripts/**/*benchmark.test.*", target: "scripts/chat-history-benchmark.test.mjs", want: true},
+		{pattern: "**/scripts/**/*benchmark.test.*", target: "scripts/nested/stop-feedback-benchmark.test.mjs", want: true},
+		{pattern: "**/scripts/**/performance-*.test.*", target: "scripts/performance-budget.test.mjs", want: true},
+		{pattern: "**/scripts/**/performance-*.test.*", target: "src/performance-budget.test.mjs", want: false},
+	} {
+		if got := inventoryVitestGlobMatches(test.pattern, test.target); got != test.want {
+			t.Errorf("inventoryVitestGlobMatches(%q, %q) = %t, want %t", test.pattern, test.target, got, test.want)
+		}
 	}
 }
 

@@ -44,18 +44,25 @@ func TestRuntimeDepsLockRejectsInputAndShapeDrift(t *testing.T) {
 }
 
 func TestRuntimeDepsLockRejectsRuntimeSeedScriptDrift(t *testing.T) {
-	root := t.TempDir()
-	writeRuntimeDepsInputs(t, root)
-	inputs, err := digestRuntimeDepsInputs(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	scriptPath := filepath.Join(root, "cmd/super-dolphin-gate/remote_refresh_seed_script.go")
-	if err := os.WriteFile(scriptPath, []byte("drift\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := validRuntimeDepsLock(inputs).validateAgainstSource(root, toolchainLock{NetworkPolicy: "none"}); !errors.Is(err, errRuntimeDepsInputsDrift) {
-		t.Fatalf("runtime seed script drift error = %v", err)
+	for _, script := range []string{
+		"cmd/super-dolphin-gate/remote_refresh_seed_script.go",
+		"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go",
+		"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go",
+	} {
+		t.Run(filepath.Base(script), func(t *testing.T) {
+			root := t.TempDir()
+			writeRuntimeDepsInputs(t, root)
+			inputs, err := digestRuntimeDepsInputs(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(script)), []byte("drift\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := validRuntimeDepsLock(inputs).validateAgainstSource(root, toolchainLock{NetworkPolicy: "none"}); !errors.Is(err, errRuntimeDepsInputsDrift) {
+				t.Fatalf("runtime seed script drift error = %v", err)
+			}
+		})
 	}
 }
 
@@ -89,7 +96,7 @@ func TestRefreshDependencyClosureRejectsInvalidTree(t *testing.T) {
 }
 
 func TestRuntimeDepsLockEncodingContainsOnlyNodeLocalContract(t *testing.T) {
-	inputs := runtimeDepsInputs{Dockerfile: testDigest, ToolchainLock: testDigest, GoMod: testDigest, GoSum: testDigest, NilnessRunner: testDigest, NilnessGuard: testDigest, FrontendPackageLock: testDigest, LSPPackageLock: testDigest, ProxyGoMod: testDigest, ProxyGoSum: testDigest, ToolsGoMod: testDigest, ToolsGoSum: testDigest, RuntimeSeedWorker: testDigest, RuntimeSeedRecipe: testDigest, RuntimeSeedScript: testDigest}
+	inputs := runtimeDepsInputs{Dockerfile: testDigest, ToolchainLock: testDigest, GoMod: testDigest, GoSum: testDigest, NilnessRunner: testDigest, NilnessGuard: testDigest, FrontendPackageLock: testDigest, LSPPackageLock: testDigest, ProxyGoMod: testDigest, ProxyGoSum: testDigest, ToolsGoMod: testDigest, ToolsGoSum: testDigest, RuntimeSeedWorker: testDigest, RuntimeSeedRecipe: testDigest, RuntimeSeedScript: testDigest, RuntimeSeedBrowser: testDigest, RuntimeSeedRuntime: testDigest}
 	data, err := encodeRuntimeDepsLock(validRuntimeDepsLock(inputs))
 	if err != nil {
 		t.Fatal(err)
@@ -146,7 +153,7 @@ func validRuntimeDepsLock(inputs runtimeDepsInputs) runtimeDepsLock {
 
 func writeRuntimeDepsInputs(t *testing.T, root string) {
 	t.Helper()
-	for _, name := range []string{gateRuntimeDepsDocker, gateToolchain, "go.mod", "go.sum", "internal/devtools/nilnessrunner/runner.go", "scripts/nilness_guard.go", "frontend-app/package-lock.json", gateRuntimeLSPLock, gateRuntimeProxyModule, gateRuntimeProxySum, gateRuntimeToolsModule, gateRuntimeToolsSum, "internal/devtools/gate/executor_seed.go", "cmd/super-dolphin-gate/remote_refresh_seed.go", "cmd/super-dolphin-gate/remote_refresh_seed_script.go"} {
+	for _, name := range []string{gateRuntimeDepsDocker, gateToolchain, "go.mod", "go.sum", "internal/devtools/nilnessrunner/runner.go", "scripts/nilness_guard.go", "frontend-app/package-lock.json", gateRuntimeLSPLock, gateRuntimeProxyModule, gateRuntimeProxySum, gateRuntimeToolsModule, gateRuntimeToolsSum, "internal/devtools/gate/executor_seed.go", "cmd/super-dolphin-gate/remote_refresh_seed.go", "cmd/super-dolphin-gate/remote_refresh_seed_script.go", "cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go", "cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go"} {
 		path := filepath.Join(root, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)

@@ -63,11 +63,11 @@ func (fixture remoteDurationCalibrationFixture) samplesExceptRequiredWorkloads(t
 		if err != nil {
 			t.Fatal(err)
 		}
-		if missingRace.Bucket.WorkloadID == "" && parent == gatecontract.GateIDBackendTestGuardWithRace && workload.Kind == gatecontract.WorkloadKindGoTest {
+		if missingRace.Bucket.WorkloadID == "" && remoteCalibrationRaceSample(workload, parent) {
 			missingRace = sample
 			continue
 		}
-		if missingWorkload.Bucket.WorkloadID == "" && parent != gatecontract.GateIDBackendTestGuardWithRace {
+		if missingWorkload.Bucket.WorkloadID == "" && remoteCalibrationNonRaceSample(workload, parent) {
 			missingWorkload = sample
 			continue
 		}
@@ -80,6 +80,14 @@ func (fixture remoteDurationCalibrationFixture) samplesExceptRequiredWorkloads(t
 		t.Fatal("calibration catalogs contain no per-package race workload")
 	}
 	return samples, missingWorkload, missingRace
+}
+
+func remoteCalibrationRaceSample(workload gatecontract.Workload, parent gatecontract.GateID) bool {
+	return workload.Shardable && parent == gatecontract.GateIDBackendTestGuardWithRace && workload.Kind == gatecontract.WorkloadKindGoTest
+}
+
+func remoteCalibrationNonRaceSample(workload gatecontract.Workload, parent gatecontract.GateID) bool {
+	return workload.Shardable && parent != gatecontract.GateIDBackendTestGuardWithRace
 }
 
 func (fixture remoteDurationCalibrationFixture) accept() (gatecontract.DurationLedgerSnapshot, error) {
@@ -165,6 +173,11 @@ func assertRemoteRunInputAuthority(t *testing.T, input remoteci.RunInput, state 
 	}
 	if input.RunnerIdentityDigest == input.BaselineManifestDigest {
 		t.Fatalf("resolveRemoteRunInput() = %#v", input)
+	}
+	if !strings.HasPrefix(input.CandidateGateSourceSHA256, "sha256:") ||
+		!strings.HasPrefix(input.CandidateGateToolchainSHA256, "sha256:") ||
+		!input.ReuseBaselineGateCLI {
+		t.Fatalf("candidate gate identity = %#v", input)
 	}
 }
 

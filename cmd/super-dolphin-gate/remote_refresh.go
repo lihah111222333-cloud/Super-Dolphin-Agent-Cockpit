@@ -1,11 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -34,6 +34,8 @@ const (
 	remoteBaselineManifestMaxBytes           int64  = 1 << 20
 	remoteBaselineToolArtifactMaxBytes       int64  = 64 << 20
 	remoteBaselineToolArtifactTimeout               = 10 * time.Minute
+	remoteBaselineToolArtifactAttempts              = 4
+	remoteBaselineToolArtifactRetryDelay            = 250 * time.Millisecond
 	remoteBaselineDeltaLimit                        = 4
 )
 
@@ -51,6 +53,8 @@ type remoteBaselineRefreshInput struct {
 	GateSourceDigest                string
 	RuntimeDependencyDigest         string
 	AcceptedRuntimeDependencyDigest string
+	RuntimeDependencySchemaVersion  string
+	GoToolchain                     string
 	SqruffURL                       string
 	SqruffSHA256                    string
 }
@@ -89,6 +93,12 @@ type remoteBaselineRefreshSession struct {
 	input                      remoteBaselineRefreshInput
 	legacy                     *remoteLegacyBaselineMigration
 	options                    remoteBaselineRefreshOptions
+	resolveRef                 func(string, string, string) (string, error)
+	verifySuccessor            func(context.Context, remoteBaselineRefreshSession, remoteci.BaselineState) error
+	writeState                 func(string, remoteci.BaselineState) error
+	readState                  func(string, bool) (remoteci.BaselineState, error)
+	cleanupLegacy              func(context.Context, remoteBaselineDataCacheClient, remoteBaselineOSSStore, *remoteLegacyBaselineMigration) error
+	cleanupRetired             func(context.Context, remoteBaselineDataCacheClient, remoteBaselineOSSStore, string, *remoteci.BaselineState) error
 	statePath                  string
 	store                      remoteBaselineOSSStore
 }
@@ -143,11 +153,25 @@ func runRemoteBaselineRefreshLocked(ctx context.Context, options remoteBaselineR
 			return infrastructureError("finish retired remote baseline cleanup: %v", err)
 		}
 	}
-	if session.accepted.Matches(session.input.Identity) &&
-		remoteBaselineCapacityMatches(session.accepted, session.acceptedRecommendedSizeGiB) {
+	if remoteBaselineCanReuse(
+		session.accepted,
+		session.input.Identity,
+		session.acceptedRecommendedSizeGiB,
+	) {
 		return reuseRemoteBaseline(ctx, session, stdout)
 	}
 	return createRemoteBaseline(ctx, session, stdout)
+}
+
+// remoteBaselineCanReuse 只允许完整历史、身份和容量均匹配的基线跳过刷新。
+func remoteBaselineCanReuse(
+	accepted remoteci.BaselineState,
+	identity remoteci.BaselineIdentity,
+	recommendedSizeGiB int,
+) bool {
+	return accepted.SourceHistoryVersion == remoteci.BaselineSourceHistorySchemaVersion &&
+		accepted.Matches(identity) &&
+		remoteBaselineCapacityMatches(accepted, recommendedSizeGiB)
 }
 
 // newRemoteBaselineRefreshSession 加载状态并创建本次刷新所需的远端客户端。
@@ -184,7 +208,7 @@ func newRemoteBaselineRefreshSession(ctx context.Context, options remoteBaseline
 	return remoteBaselineRefreshSession{
 		accepted: accepted, acceptedRecommendedSizeGiB: recommendedSizeGiB,
 		cache: cache, config: config, input: input, legacy: legacy,
-		options: options, statePath: statePath, store: store,
+		options: options, resolveRef: resolveRemoteRef, statePath: statePath, store: store,
 	}, nil
 }
 
@@ -252,9 +276,6 @@ func prepareRemoteBaselineStorage(ctx context.Context, session remoteBaselineRef
 		cache, err = waitRemoteDataCache(ctx, session.cache, cache.ID, cache.Path, cache.Bucket)
 		if err != nil {
 			return cache, true, infrastructureError("wait for remote baseline DataCache: %v", err)
-		}
-		if err := cleanupLegacyRemoteBaselines(ctx, session.cache, session.store, session.legacy); err != nil {
-			return cache, true, infrastructureError("clean incompatible remote baseline: %v", err)
 		}
 		return cache, true, nil
 	case remoteci.BaselineStorageModeDelta:
@@ -364,36 +385,82 @@ func cleanupFailedRemoteBaselineUpload(uploadErr error, store remoteBaselineOSSS
 
 // downloadRemoteBaselineToolArtifact 在本地协调器下载并校验固定工具，再由 OSS 输入挂载交给 Seed。
 func downloadRemoteBaselineToolArtifact(ctx context.Context, root, artifactURL, expectedSHA256 string) (string, error) {
+	client := &http.Client{Timeout: remoteBaselineToolArtifactTimeout}
+	var lastErr error
+	attempts := 0
+	for attempt := 1; attempt <= remoteBaselineToolArtifactAttempts; attempt++ {
+		attempts = attempt
+		artifactPath, retryable, err := downloadRemoteBaselineToolArtifactOnce(ctx, client, root, artifactURL, expectedSHA256)
+		if err == nil {
+			return artifactPath, nil
+		}
+		lastErr = err
+		if !retryable || attempt == remoteBaselineToolArtifactAttempts {
+			break
+		}
+		if err := waitRemoteBaselineToolArtifactRetry(ctx, attempt); err != nil {
+			return "", errors.Join(lastErr, err)
+		}
+	}
+	return "", fmt.Errorf("download tool artifact after %d attempt(s): %w", attempts, lastErr)
+}
+
+// downloadRemoteBaselineToolArtifactOnce 执行一次下载，并区分可重试传输错误与确定性合同错误。
+func downloadRemoteBaselineToolArtifactOnce(ctx context.Context, client *http.Client, root, artifactURL, expectedSHA256 string) (string, bool, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, artifactURL, nil)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	response, err := (&http.Client{Timeout: remoteBaselineToolArtifactTimeout}).Do(request)
+	response, err := client.Do(request)
 	if err != nil {
-		return "", err
+		return "", ctx.Err() == nil, err
 	}
 	if response.StatusCode != http.StatusOK {
-		return "", errors.Join(fmt.Errorf("download tool artifact: HTTP %s", response.Status), response.Body.Close())
+		statusErr := errors.Join(fmt.Errorf("download tool artifact: HTTP %s", response.Status), response.Body.Close())
+		return "", retryableRemoteBaselineToolArtifactStatus(response.StatusCode), statusErr
 	}
 	artifactPath := filepath.Join(root, "sqruff.tar.gz")
 	file, err := os.OpenFile(artifactPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
-		return "", errors.Join(err, response.Body.Close())
+		return "", false, errors.Join(err, response.Body.Close())
 	}
 	hash := sha256.New()
 	size, copyErr := io.Copy(io.MultiWriter(file, hash), io.LimitReader(response.Body, remoteBaselineToolArtifactMaxBytes+1))
-	transferErr := errors.Join(copyErr, response.Body.Close(), file.Close())
+	bodyErr := response.Body.Close()
+	fileErr := file.Close()
+	transferErr := errors.Join(copyErr, bodyErr, fileErr)
 	if transferErr != nil {
-		return "", removeRemoteBaselineToolArtifact(artifactPath, transferErr)
+		return "", fileErr == nil && ctx.Err() == nil, removeRemoteBaselineToolArtifact(artifactPath, transferErr)
 	}
 	if size <= 0 || size > remoteBaselineToolArtifactMaxBytes {
-		return "", removeRemoteBaselineToolArtifact(artifactPath, fmt.Errorf("tool artifact size %d is invalid", size))
+		return "", false, removeRemoteBaselineToolArtifact(artifactPath, fmt.Errorf("tool artifact size %d is invalid", size))
 	}
 	actualSHA256 := fmt.Sprintf("%x", hash.Sum(nil))
 	if actualSHA256 != expectedSHA256 {
-		return "", removeRemoteBaselineToolArtifact(artifactPath, fmt.Errorf("tool artifact SHA-256 is %s, want %s", actualSHA256, expectedSHA256))
+		return "", false, removeRemoteBaselineToolArtifact(artifactPath, fmt.Errorf("tool artifact SHA-256 is %s, want %s", actualSHA256, expectedSHA256))
 	}
-	return artifactPath, nil
+	return artifactPath, false, nil
+}
+
+// retryableRemoteBaselineToolArtifactStatus 只允许临时 HTTP 状态进入有界重试。
+func retryableRemoteBaselineToolArtifactStatus(statusCode int) bool {
+	return statusCode == http.StatusRequestTimeout ||
+		statusCode == http.StatusTooEarly ||
+		statusCode == http.StatusTooManyRequests ||
+		statusCode >= http.StatusInternalServerError && statusCode <= 599
+}
+
+// waitRemoteBaselineToolArtifactRetry 在上下文可取消的指数退避窗口后继续下载。
+func waitRemoteBaselineToolArtifactRetry(ctx context.Context, attempt int) error {
+	delay := remoteBaselineToolArtifactRetryDelay * time.Duration(1<<(attempt-1))
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func removeRemoteBaselineToolArtifact(path string, cause error) error {
@@ -446,7 +513,11 @@ func createRemoteBaselineCache(ctx context.Context, session remoteBaselineRefres
 		return datacache.DataCache{}, protocolError("plan remote baseline DataCache capacity: %v", err)
 	}
 	path := remoteBaselineCachePath(session.config, stage.generation)
-	cache, err := session.cache.Create(ctx, datacache.CreateRequest{Name: remoteBaselineResourceName(stage.generation), Bucket: session.config.DataCache.Bucket, Path: path, SizeGiB: sizeGiB, RetentionDays: session.config.DataCache.RetentionDays, ClientToken: remoteBaselineClientToken(stage.generation, session.input.Identity.MainTree), Source: datacache.OSSDataSource{Bucket: session.config.OSS.Bucket, Endpoint: strings.TrimPrefix(session.config.OSS.InternalEndpoint, "https://"), Path: "/" + strings.TrimSuffix(stage.outputPrefix, "/"), RoleName: session.config.WorkerRoleName}, Tags: remoteBaselineResourceTags(stage.generation, session.input.Identity.MainTree)})
+	clientToken, err := remoteBaselineCacheClientToken(stage.generation, sizeGiB, manifest)
+	if err != nil {
+		return datacache.DataCache{}, protocolError("encode remote baseline DataCache idempotence identity: %v", err)
+	}
+	cache, err := session.cache.Create(ctx, datacache.CreateRequest{Name: remoteBaselineResourceName(stage.generation), Bucket: session.config.DataCache.Bucket, Path: path, SizeGiB: sizeGiB, RetentionDays: session.config.DataCache.RetentionDays, ClientToken: clientToken, Source: datacache.OSSDataSource{Bucket: session.config.OSS.Bucket, Endpoint: strings.TrimPrefix(session.config.OSS.InternalEndpoint, "https://"), Path: "/" + strings.TrimSuffix(stage.outputPrefix, "/"), RoleName: session.config.WorkerRoleName}, Tags: remoteBaselineResourceTags(stage.generation, session.input.Identity.MainTree)})
 	if err != nil {
 		return datacache.DataCache{}, infrastructureError("create remote baseline DataCache: %v", err)
 	}
@@ -466,7 +537,10 @@ func acceptRemoteBaseline(session remoteBaselineRefreshSession, stage remoteBase
 	if err := manifest.Validate(); err != nil {
 		return remoteci.BaselineState{}, protocolError("refuse invalid remote baseline manifest: %v", err)
 	}
-	latest, err := resolveRemoteRef(session.options.RepositoryRoot, session.options.Remote, session.options.Ref)
+	if session.resolveRef == nil {
+		return remoteci.BaselineState{}, infrastructureError("recheck remote main after baseline build: resolver is nil")
+	}
+	latest, err := session.resolveRef(session.options.RepositoryRoot, session.options.Remote, session.options.Ref)
 	if err != nil {
 		return remoteci.BaselineState{}, sourceError("recheck remote main after baseline build: %v", err)
 	}
@@ -481,7 +555,8 @@ func acceptRemoteBaseline(session remoteBaselineRefreshSession, stage remoteBase
 		RuntimeImage: manifest.RuntimeImage, GateBinarySHA256: manifest.GateBinarySHA256,
 		RuntimeSeedSHA256:      manifest.RuntimeSeedManifestSHA256,
 		BaselineManifestDigest: digest, SourceObjectPrefix: stage.generationPrefix,
-		CreatedAt: stage.createdAt, AcceptedAt: acceptedAt,
+		SourceHistoryVersion: remoteci.BaselineSourceHistorySchemaVersion,
+		CreatedAt:            stage.createdAt, AcceptedAt: acceptedAt,
 	}
 	switch manifest.StorageMode {
 	case remoteci.BaselineStorageModeAnchor:
@@ -499,18 +574,66 @@ func acceptRemoteBaseline(session remoteBaselineRefreshSession, stage remoteBase
 	return state, nil
 }
 
-// promoteRemoteBaseline 先持久化新状态和退役 journal，再清理已不被新状态引用的资源。
+// promoteRemoteBaseline 仅在 successor 复验、持久化和最终读取均成功后清理退休资源。
 func promoteRemoteBaseline(ctx context.Context, session remoteBaselineRefreshSession, state *remoteci.BaselineState) (bool, error) {
 	if state == nil {
 		return false, infrastructureError("persist accepted remote baseline: state is nil")
 	}
-	if err := writeRemoteBaselineState(session.statePath, *state); err != nil {
+	verify := session.verifySuccessor
+	if verify == nil {
+		verify = verifyRemoteBaselineSuccessor
+	}
+	if err := verify(ctx, session, *state); err != nil {
+		return false, infrastructureError("reverify accepted remote baseline: %v", err)
+	}
+	write := session.writeState
+	if write == nil {
+		write = writeRemoteBaselineState
+	}
+	if err := write(session.statePath, *state); err != nil {
 		return false, infrastructureError("persist accepted remote baseline: %v", err)
 	}
-	if err := cleanupRetiredRemoteBaseline(ctx, session.cache, session.store, session.statePath, state); err != nil {
+	read := session.readState
+	if read == nil {
+		read = loadRemoteBaselineState
+	}
+	persisted, err := read(session.statePath, false)
+	if err != nil {
+		return true, infrastructureError("read persisted remote baseline: %v", err)
+	}
+	if !remoteBaselineStatesEquivalent(persisted, *state) {
+		return true, infrastructureError("persisted remote baseline does not match accepted successor")
+	}
+	cleanupLegacy := session.cleanupLegacy
+	if cleanupLegacy == nil {
+		cleanupLegacy = cleanupLegacyRemoteBaselines
+	}
+	if err := cleanupLegacy(ctx, session.cache, session.store, session.legacy); err != nil {
+		return true, infrastructureError("cleanup incompatible remote baseline: %v", err)
+	}
+	cleanupRetired := session.cleanupRetired
+	if cleanupRetired == nil {
+		cleanupRetired = cleanupRetiredRemoteBaseline
+	}
+	if err := cleanupRetired(ctx, session.cache, session.store, session.statePath, state); err != nil {
 		return true, infrastructureError("cleanup retired remote baseline: %v", err)
 	}
 	return true, nil
+}
+
+// remoteBaselineStatesEquivalent 比较状态的规范 JSON 表示，忽略 Go 空切片等非持久化差异。
+func remoteBaselineStatesEquivalent(left, right remoteci.BaselineState) bool {
+	leftJSON, leftErr := json.Marshal(left)
+	rightJSON, rightErr := json.Marshal(right)
+	return leftErr == nil && rightErr == nil && bytes.Equal(leftJSON, rightJSON)
+}
+
+// verifyRemoteBaselineSuccessor 确认 successor 仍可运行，避免先退休旧链再发现新链不可用。
+func verifyRemoteBaselineSuccessor(ctx context.Context, session remoteBaselineRefreshSession, state remoteci.BaselineState) error {
+	if err := validateRunnableRemoteBaseline(session.config, state); err != nil {
+		return err
+	}
+	return verifyAvailableDataCache(ctx, session.cache, state)
 }
 
 // bindRemoteBaselineAnchor 绑定本代新建且已可用的唯一 DataCache Anchor。
@@ -660,28 +783,6 @@ func cleanupUnacceptedRemoteCache(resultErr *error, client remoteBaselineDataCac
 	}
 }
 
-// parseRemoteBaselineRefreshOptions 解析并校验 refresh 命令行参数。
-func parseRemoteBaselineRefreshOptions(args []string) (remoteBaselineRefreshOptions, error) {
-	var options remoteBaselineRefreshOptions
-	flags := flag.NewFlagSet("remote baseline-refresh", flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
-	flags.StringVar(&options.ConfigPath, "config", "", "remote CI config path")
-	flags.StringVar(&options.StatePath, "state", "", "accepted baseline state path")
-	flags.StringVar(&options.RepositoryRoot, "repository", ".", "Git repository root")
-	flags.StringVar(&options.Remote, "remote", "origin", "Git remote")
-	flags.StringVar(&options.Ref, "ref", "refs/heads/main", "remote Git ref")
-	flags.StringVar(&options.Platform, "platform", "linux/amd64", "baseline target platform")
-	if err := flags.Parse(args); err != nil {
-		return options, protocolError("parse remote baseline-refresh flags: %v", err)
-	}
-	if flags.NArg() != 0 || strings.TrimSpace(options.ConfigPath) == "" ||
-		strings.TrimSpace(options.Remote) == "" || !strings.HasPrefix(options.Ref, "refs/heads/") ||
-		(options.Platform != "linux/amd64" && options.Platform != "linux/arm64") {
-		return options, protocolError("remote baseline-refresh requires --config and valid optional flags")
-	}
-	return options, nil
-}
-
 // resolveRemoteSqruffArtifact 选择与目标平台匹配的 Sqruff 工件及摘要。
 func resolveRemoteSqruffArtifact(args []string, platform string) (string, string, error) {
 	suffix := "AMD64"
@@ -822,8 +923,20 @@ func remoteBaselineCachePath(config remoteRunConfig, generation uint64) string {
 	return config.DataCache.PathPrefix + "/" + strconv.FormatUint(generation, 10)
 }
 
-func remoteBaselineClientToken(generation uint64, tree string) string {
-	return fmt.Sprintf("sdci-%d-%s", generation, tree[:16])
+func remoteBaselineCacheClientToken(generation uint64, sizeGiB int, manifest remoteci.BaselineManifest) (string, error) {
+	payload, err := json.Marshal(struct {
+		SizeGiB  int                       `json:"size_gib"`
+		Manifest remoteci.BaselineManifest `json:"manifest"`
+	}{SizeGiB: sizeGiB, Manifest: manifest})
+	if err != nil {
+		return "", err
+	}
+	return remoteBaselineClientToken("cache", strconv.FormatUint(generation, 10), payload), nil
+}
+
+func remoteBaselineClientToken(kind, generation string, payload []byte) string {
+	sum := sha256.Sum256(payload)
+	return fmt.Sprintf("sdci-%s-%s-%x", kind, generation, sum[:8])
 }
 
 func remoteBaselineRenewToken(generation uint64, now time.Time) string {

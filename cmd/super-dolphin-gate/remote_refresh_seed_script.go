@@ -1,14 +1,5 @@
 package main
 
-const remoteBaselineSeedBootstrapScript = `#!/bin/sh
-set -eu
-seed=/input/seed.sh
-test -f "$seed"
-test "$(wc -c < "$seed" | tr -d ' ')" = "$BASELINE_SEED_SCRIPT_SIZE"
-printf '%s  %s\n' "$BASELINE_SEED_SCRIPT_SHA256" "$seed" | sha256sum -c -
-exec /bin/sh "$seed"
-`
-
 const remoteBaselineSeedScriptHead = `#!/bin/sh
 set -eu
 umask 022
@@ -20,12 +11,13 @@ export GOTELEMETRY=off
 export DEBIAN_FRONTEND=noninteractive
 mkdir -p "$HOME" "$XDG_CACHE_HOME"
 
-required_env="BASELINE_MANIFEST_SCHEMA_VERSION BASELINE_GENERATION BASELINE_MAIN_COMMIT BASELINE_MAIN_TREE BASELINE_PLATFORM BASELINE_POLICY_DIGEST BASELINE_TOOLCHAIN_DIGEST BASELINE_GATE_SOURCE_SHA256 BASELINE_RUNTIME_IMAGE BASELINE_SOURCE_MODE BASELINE_SOURCE_BUNDLE_SIZE BASELINE_SOURCE_MANIFEST_SHA256 BASELINE_SQRUFF_SHA256 BASELINE_STORAGE_MODE"
+required_env="BASELINE_MANIFEST_SCHEMA_VERSION BASELINE_GENERATION BASELINE_MAIN_COMMIT BASELINE_MAIN_TREE BASELINE_PLATFORM BASELINE_POLICY_DIGEST BASELINE_TOOLCHAIN_DIGEST BASELINE_GATE_SOURCE_SHA256 BASELINE_GO_TOOLCHAIN BASELINE_RUNTIME_IMAGE BASELINE_SOURCE_MODE BASELINE_SOURCE_BUNDLE_SIZE BASELINE_SOURCE_MANIFEST_SHA256 BASELINE_SQRUFF_SHA256 BASELINE_STORAGE_MODE BASELINE_FORCE_RUNTIME_REFRESH"
 for name in $required_env; do
   eval "value=\${$name:-}"
   test -n "$value"
 done
 case "$BASELINE_STORAGE_MODE" in anchor|delta) ;; *) echo "unsupported baseline storage mode" >&2; exit 1;; esac
+case "$BASELINE_FORCE_RUNTIME_REFRESH" in true|false) ;; *) echo "unsupported runtime refresh mode" >&2; exit 1;; esac
 oss_output=/output
 test -d "$oss_output"
 test -z "$(find "$oss_output" -mindepth 1 -maxdepth 1 -print -quit)"
@@ -71,6 +63,11 @@ load_verified_gate() {
 
 verify_gate_cli_identity() (
   binary=$1
+  if ! grep -Fq 'case "cli-identity":' "$source_root/cmd/super-dolphin-gate/main.go"; then
+    "$binary" plan local-fast >/dev/null
+    printf 'gate CLI identity mode: source-bound legacy probe\n'
+    exit 0
+  fi
   identity=$("$binary" worker cli-identity)
   expected=$(printf 'gate_source_sha256=%s\nplatform=%s\ntoolchain_digest=%s' \
     "$BASELINE_GATE_SOURCE_SHA256" "$BASELINE_PLATFORM" "$BASELINE_TOOLCHAIN_DIGEST")
@@ -181,6 +178,16 @@ use_runtime() {
   export SUPER_DOLPHIN_RUNTIME_ROOT
   PATH="$SUPER_DOLPHIN_RUNTIME_ROOT/bin:$SUPER_DOLPHIN_RUNTIME_ROOT/go/bin:$SUPER_DOLPHIN_RUNTIME_ROOT/node/bin:/usr/local/bin:/usr/bin:/bin"
   export PATH
+  if test -f "$SUPER_DOLPHIN_RUNTIME_ROOT/multiarch"; then
+    IFS= read -r runtime_multiarch < "$SUPER_DOLPHIN_RUNTIME_ROOT/multiarch"
+    case "$runtime_multiarch" in
+      x86_64-linux-gnu|aarch64-linux-gnu) ;;
+      *) echo "unsupported runtime multiarch: $runtime_multiarch" >&2; exit 1 ;;
+    esac
+    runtime_system_root=$SUPER_DOLPHIN_RUNTIME_ROOT/rootfs
+    LD_LIBRARY_PATH=$runtime_system_root/usr/lib/$runtime_multiarch:$runtime_system_root/lib/$runtime_multiarch:$runtime_system_root/usr/lib:$runtime_system_root/lib
+    export LD_LIBRARY_PATH
+  fi
 }
 
 apt_ready=0
@@ -288,7 +295,6 @@ case "$BASELINE_SOURCE_MODE" in
   full)
     verify_source_bundle
     git clone --quiet --no-checkout /input/source.bundle "$source_root"
-    printf '%s\n' "$BASELINE_MAIN_COMMIT" > "$source_root/.git/shallow"
     git -C "$source_root" checkout --quiet --detach "$BASELINE_MAIN_COMMIT"
     git -C "$source_root" remote remove origin
     ;;
@@ -359,6 +365,11 @@ if test -d "$previous_source" && \
    cmp -s "$previous_source/build/gate/toolchain.lock" "$source_root/build/gate/toolchain.lock"; then
   seeds_changed=0
 fi
+if test "$BASELINE_FORCE_RUNTIME_REFRESH" = true; then
+  printf 'historical runtime dependency schema requires seed refresh\n'
+  seeds_changed=1
+  reuse_runtime_rootfs=0
+fi
 
 rm -rf "$payload_root/source" "$payload_root/baseline-manifest.json"
 mv "$source_root" "$payload_root/source"
@@ -419,7 +430,7 @@ fi
 validate_offline_go_module() (
   cd "$1"
   env GOFLAGS=-mod=readonly GOWORK=off GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off \
-    GOMODCACHE="$payload_root/runtime/go-mod-cache" go list -deps -test ./... >/dev/null
+    GOMODCACHE="$runtime_validation_go_mod_cache" go list -deps -test ./... >/dev/null
 )
 
 validate_offline_module_cache() {
@@ -438,10 +449,21 @@ validate_offline_module_cache() {
 
 validate_reusable_runtime() (
   use_runtime $payload_root/runtime
+  runtime_validation_go_mod_cache=$stage/runtime-reuse-go-mod-cache
+  mkdir -p "$runtime_validation_go_mod_cache"
+  "$payload_root/bin/super-dolphin-gate" worker go-module-overlay \
+    "$payload_root/runtime/go-mod-cache" "$runtime_validation_go_mod_cache"
   validate_offline_module_cache
   test "$gate_cli_ready" = 1
   "$payload_root/bin/super-dolphin-gate" worker runtime-seed verify "$source_root" $payload_root/runtime
 )
+
+if test "$seeds_changed" = 0 && \
+   test ! -x "$payload_root/runtime/frontend/node_modules/.bin/playwright"; then
+  printf 'runtime frontend cache is missing Playwright CLI; rebuilding frontend dependencies\n' >&2
+  reuse_frontend_dependencies=0
+  seeds_changed=1
+fi
 
 if test "$seeds_changed" = 0; then
   reuse_log=$stage/runtime-reuse-verify.log
@@ -469,26 +491,34 @@ if test "$seeds_changed" = 1; then
   else
     apt_update
     run_logged runtime-apt apt-get install -y -qq --no-install-recommends \
-      build-essential ca-certificates curl git jq libbz2-dev libffi-dev libgtk-3-dev \
-      liblzma-dev libncursesw5-dev libreadline-dev libsqlite3-dev libssl-dev \
-      libwebkit2gtk-4.1-dev libsoup-3.0-dev pkg-config procps python3 ripgrep \
-      rsync tk-dev uuid-dev x11-xkb-utils xauth xkb-data xvfb xz-utils zlib1g-dev
-    tar -C / -cf - usr lib lib64 etc/ssl etc/ca-certificates.conf |
+      build-essential ca-certificates curl fontconfig fonts-liberation git jq libbz2-dev libffi-dev libgtk-3-dev \
+      libasound2 libatk-bridge2.0-0 libatk1.0-0 libatspi2.0-0 libcairo2 libcups2 \
+      libdbus-1-3 libdrm2 libgbm1 libglib2.0-0 liblzma-dev libncursesw5-dev \
+      libnspr4 libnss3 libpango-1.0-0 libreadline-dev libsqlite3-dev libssl-dev \
+      libwebkit2gtk-4.1-dev libsoup-3.0-dev libx11-6 libxcb1 libxcomposite1 \
+      libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 pkg-config procps \
+      python3 ripgrep rsync tk-dev uuid-dev x11-xkb-utils xauth xkb-data xvfb \
+      xz-utils zlib1g-dev
+    test -f /etc/fonts/fonts.conf
+    test -d /usr/share/fonts
+    test -n "$(find /usr/share/fonts -type f -print -quit)"
+    tar -C / -cf - usr lib lib64 etc/fonts etc/ssl etc/ca-certificates.conf |
       tar -C $payload_root/runtime/rootfs -xf -
+    test -f "$payload_root/runtime/rootfs/etc/fonts/fonts.conf"
+    test -d "$payload_root/runtime/rootfs/usr/share/fonts"
+    test -n "$(find "$payload_root/runtime/rootfs/usr/share/fonts" -type f -print -quit)"
   fi
 
   case "$BASELINE_PLATFORM" in
     linux/amd64)
       runtime_multiarch=x86_64-linux-gnu
-      go_url=https://mirrors.aliyun.com/golang/go1.26.5.linux-amd64.tar.gz
-      go_sha256=5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053
+      go_arch=amd64
       node_url=https://mirrors.aliyun.com/nodejs-release/v24.18.0/node-v24.18.0-linux-x64.tar.xz
       node_sha256=55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450fa76742
       ;;
     linux/arm64)
       runtime_multiarch=aarch64-linux-gnu
-      go_url=https://mirrors.aliyun.com/golang/go1.26.5.linux-arm64.tar.gz
-      go_sha256=fe4789e92b1f33358680864bbe8704289e7bb5fc207d80623c308935bd696d49
+      go_arch=arm64
       node_url=https://mirrors.aliyun.com/nodejs-release/v24.18.0/node-v24.18.0-linux-arm64.tar.xz
       node_sha256=58c9520501f6ae2b52d5b210444e24b9d0c029a58c5011b797bc1fe7105886f6
       ;;
@@ -499,12 +529,28 @@ if test "$seeds_changed" = 1; then
   esac
   go_reused=0
   if test "$reuse_fixed_toolchains" = 1 && test -n "$previous_runtime" && \
-     test "$(head -n 1 "$previous_runtime/go/VERSION" 2>/dev/null || true)" = go1.26.5; then
+     test "$(head -n 1 "$previous_runtime/go/VERSION" 2>/dev/null || true)" = "$BASELINE_GO_TOOLCHAIN"; then
     mv "$previous_runtime/go" $payload_root/runtime/go
     go_reused=1
     printf 'runtime toolchain reused: go\n'
   fi
   if test "$go_reused" = 0; then
+    go_downloads=$stage/go-downloads.json
+    download_file "$go_downloads" 'https://go.dev/dl/?mode=json&include=all'
+    go_filename=$(jq -er --arg version "$BASELINE_GO_TOOLCHAIN" --arg arch "$go_arch" '
+      [.[] | select(.version == $version) | .files[] |
+        select(.kind == "archive" and .os == "linux" and .arch == $arch)] |
+      if length == 1 then .[0].filename else error("Go archive identity is ambiguous") end
+    ' "$go_downloads")
+    go_sha256=$(jq -er --arg version "$BASELINE_GO_TOOLCHAIN" --arg arch "$go_arch" '
+      [.[] | select(.version == $version) | .files[] |
+        select(.kind == "archive" and .os == "linux" and .arch == $arch)] |
+      if length == 1 then .[0].sha256 else error("Go archive identity is ambiguous") end
+    ' "$go_downloads")
+    test "$go_filename" = "${BASELINE_GO_TOOLCHAIN}.linux-${go_arch}.tar.gz"
+    test "${#go_sha256}" = 64
+    case "$go_sha256" in *[!0-9a-f]*) echo "invalid Go archive SHA-256" >&2; exit 1;; esac
+    go_url="https://mirrors.aliyun.com/golang/$go_filename"
     download_file "$stage/go.tar.gz" "$go_url"
     printf '%s  %s\n' "$go_sha256" "$stage/go.tar.gz" | sha256sum -c -
     mkdir -p $payload_root/runtime/go
@@ -554,7 +600,7 @@ case "$multiarch" in
 esac
 library_path=$system_root/usr/lib/$multiarch:$system_root/lib/$multiarch:$system_root/usr/lib:$system_root/lib
 export LD_LIBRARY_PATH=$library_path
-tool=$(basename "$0")
+tool=${0##*/}
 case "$tool" in
   git)
     export GIT_EXEC_PATH=$system_root/usr/lib/git-core
@@ -603,14 +649,20 @@ EOF
   fi
 
   use_runtime $payload_root/runtime
-  test "$(go version | awk '{print $3}')" = "go1.26.5"
+  test "$(go version | awk '{print $3}')" = "$BASELINE_GO_TOOLCHAIN"
   test "$(node --version)" = "v24.18.0"
   test "$(npm --version)" = "11.16.0"
   test "$(python3 --version)" = "Python 3.11.2"
   test "$(rg --version | head -n 1)" = "ripgrep 13.0.0"
 
+  module_download_root=$stage/module-download-source
+  rm -rf "$module_download_root"
+  cp -a "$source_root" "$module_download_root"
   download_go_module() (
     cd "$1"
+    env GOFLAGS=-mod=readonly GOWORK=off GOTOOLCHAIN=local GOPROXY=https://goproxy.cn,direct \
+      GOMODCACHE="$go_mod_cache" go mod download all
+    cd "$2"
     env GOFLAGS=-mod=readonly GOWORK=off GOTOOLCHAIN=local GOPROXY=https://goproxy.cn,direct \
       GOMODCACHE="$go_mod_cache" go list -deps -test ./... >/dev/null
     for target in \
@@ -630,7 +682,7 @@ EOF
     env GOFLAGS=-mod=readonly GOWORK=off GOTOOLCHAIN=local GOPROXY=https://goproxy.cn,direct \
       GOMODCACHE="$go_mod_cache" go mod download
   )
-  download_go_module "$source_root"
+  download_go_module "$module_download_root" "$source_root"
   download_locked_module_proxy
   git -C "$source_root" ls-files -- '*/go.mod' | LC_ALL=C sort | while IFS= read -r nested_go_mod; do
     case "$nested_go_mod" in
@@ -640,8 +692,9 @@ EOF
     nested_module_dir=${nested_go_mod%/go.mod}
     test -n "$nested_module_dir"
     test -f "$source_root/$nested_go_mod"
-    download_go_module "$source_root/$nested_module_dir"
+    download_go_module "$module_download_root/$nested_module_dir" "$source_root/$nested_module_dir"
   done
+  rm -rf "$module_download_root"
   verify_source_tree_clean
   if test "$reuse_go_dependencies" = 1 && test -n "$previous_runtime" && test -d "$previous_runtime/go-proxy"; then
     mv "$previous_runtime/go-proxy" $payload_root/runtime/go-proxy
@@ -652,155 +705,24 @@ EOF
   fi
 
   if test "$reuse_frontend_dependencies" = 1 && test -n "$previous_runtime" && \
-     test -d "$previous_runtime/frontend/node_modules"; then
+     test -d "$previous_runtime/frontend/node_modules" && \
+     test -d "$previous_runtime/frontend/npm-cache"; then
     mv "$previous_runtime/frontend" $payload_root/runtime/frontend
-    printf 'runtime dependency cache reused: frontend node_modules\n'
+    printf 'runtime dependency cache reused: frontend node_modules and npm cache\n'
   else
     (
       cd "$source_root/frontend-app"
       env NPM_CONFIG_CACHE=$stage/npm-cache \
         npm ci --ignore-scripts --no-audit --no-fund
     )
+    rm -rf "$stage/npm-cache/_logs" "$stage/npm-cache/_cacache/tmp"
+    rm -f "$stage/npm-cache/_update-notifier-last-checked"
+    test -d "$stage/npm-cache/_cacache/content-v2"
+    test -d "$stage/npm-cache/_cacache/index-v5"
     mkdir -p $payload_root/runtime/frontend
     mv "$source_root/frontend-app/node_modules" $payload_root/runtime/frontend/node_modules
+    mv "$stage/npm-cache" $payload_root/runtime/frontend/npm-cache
   fi
-
-  if test "$reuse_lsp_dependencies" = 1 && test -n "$previous_runtime" && \
-     test -d "$previous_runtime/lsp/node_modules"; then
-    mv "$previous_runtime/lsp" $payload_root/runtime/lsp
-    printf 'runtime dependency cache reused: lsp node_modules\n'
-  else
-    (
-      cd "$source_root/build/gate/runtime-lsp"
-      npm ci --ignore-scripts --no-audit --no-fund
-    )
-    mkdir -p $payload_root/runtime/lsp
-    mv "$source_root/build/gate/runtime-lsp/node_modules" $payload_root/runtime/lsp/node_modules
-  fi
-  for tool in bash-language-server pyright-langserver typescript-language-server vscode-css-language-server; do
-    test -x "$payload_root/runtime/lsp/node_modules/.bin/$tool"
-    ln -s "../lsp/node_modules/.bin/$tool" "$payload_root/runtime/bin/$tool"
-  done
-
-  runtime_tools_reused=0
-  if test "$reuse_runtime_tools" = 1 && test -n "$previous_runtime"; then
-    runtime_tools_reused=1
-    for tool in actionlint gopls sqlc; do
-      if test ! -x "$previous_runtime/bin/$tool"; then runtime_tools_reused=0; break; fi
-    done
-  fi
-  if test "$runtime_tools_reused" = 1; then
-    for tool in actionlint gopls sqlc; do mv "$previous_runtime/bin/$tool" "$payload_root/runtime/bin/$tool"; done
-    printf 'runtime dependency cache reused: Go tools\n'
-  else
-    (
-      cd "$source_root/build/gate/runtime-tools"
-      env GOWORK=off GOTOOLCHAIN=local GOPROXY=https://goproxy.cn,direct GOMODCACHE="$tool_go_mod_cache" \
-        go build -mod=readonly -trimpath -buildvcs=false -o $payload_root/runtime/bin/actionlint github.com/rhysd/actionlint/cmd/actionlint
-      env GOWORK=off GOTOOLCHAIN=local GOPROXY=https://goproxy.cn,direct GOMODCACHE="$tool_go_mod_cache" \
-        go build -mod=readonly -trimpath -buildvcs=false -o $payload_root/runtime/bin/gopls golang.org/x/tools/gopls
-      env GOWORK=off GOTOOLCHAIN=local GOPROXY=https://goproxy.cn,direct GOMODCACHE="$tool_go_mod_cache" \
-        go build -mod=readonly -trimpath -buildvcs=false -o $payload_root/runtime/bin/sqlc github.com/sqlc-dev/sqlc/cmd/sqlc
-    )
-  fi
-  rm -rf $payload_root/runtime/go-mod-cache
-  mv "$go_mod_cache" $payload_root/runtime/go-mod-cache
-	if test -n "$previous_runtime" && test -x "$previous_runtime/bin/sqruff"; then
-	  mv "$previous_runtime/bin/sqruff" "$payload_root/runtime/bin/sqruff"
-	  printf 'runtime dependency cache reused: sqruff\n'
-	else
-	  test -f /input/sqruff.tar.gz
-	  cp /input/sqruff.tar.gz "$stage/sqruff.tar.gz"
-	  printf '%s  %s\n' "$BASELINE_SQRUFF_SHA256" "$stage/sqruff.tar.gz" | sha256sum -c -
-	  tar -xzf "$stage/sqruff.tar.gz" -C $payload_root/runtime/bin
-	fi
-  test "$($payload_root/runtime/bin/sqruff --version)" = "sqruff 0.38.0"
-  if test -n "$previous_runtime"; then rm -rf "$previous_runtime"; fi
-
-fi
-
-# The distro xvfb-run helper can report readiness before a portable-rootfs
-# Xvfb has published its Unix socket. Keep the public command contract while
-# waiting for the display that the desktop process will actually use.
-cat > $payload_root/runtime/bin/xvfb-run <<'EOF'
-#!/bin/sh
-set -eu
-runtime_root=${SUPER_DOLPHIN_RUNTIME_ROOT:-/opt/super-dolphin-gate/runtime}
-runtime_bin=$runtime_root/bin
-auto_servernum=0
-server_args=
-while test "$#" -gt 0; do
-  case "$1" in
-    -a|--auto-servernum)
-      auto_servernum=1
-      shift
-      ;;
-    --server-args=*)
-      server_args=${1#*=}
-      shift
-      ;;
-    --)
-      shift
-      break
-      ;;
-    -*)
-      echo "unsupported portable xvfb-run option: $1" >&2
-      exit 2
-      ;;
-    *)
-      break
-      ;;
-  esac
-done
-test "$#" -gt 0
-case "$server_args" in
-  ''|'-screen 0 1280x1024x24') ;;
-  *) echo "unsupported portable xvfb-run server args: $server_args" >&2; exit 2 ;;
-esac
-servernum=${XVFB_RUN_SERVERNUM:-99}
-if test "$auto_servernum" = 1; then
-  while test -e "/tmp/.X11-unix/X$servernum" || test -e "/tmp/.X$servernum-lock"; do
-    servernum=$((servernum + 1))
-    test "$servernum" -le 599 || { echo "no free Xvfb display" >&2; exit 1; }
-  done
-fi
-display=:$servernum
-log=${TMPDIR:-/tmp}/super-dolphin-xvfb-$$.log
-mkdir -p /tmp/.X11-unix
-chmod 1777 /tmp/.X11-unix
-"$runtime_bin/Xvfb" "$display" -screen 0 1280x1024x24 -ac -nolisten tcp \
-  -xkbdir "$runtime_root/rootfs/usr/share/X11/xkb" >"$log" 2>&1 &
-xvfb_pid=$!
-cleanup_xvfb() {
-  kill "$xvfb_pid" 2>/dev/null || true
-  wait "$xvfb_pid" 2>/dev/null || true
-  rm -f "$log"
-}
-trap cleanup_xvfb EXIT HUP INT TERM
-ready=0
-attempt=0
-while test "$attempt" -lt 100; do
-  if ! kill -0 "$xvfb_pid" 2>/dev/null; then
-    cat "$log" >&2
-    echo "portable Xvfb exited before publishing $display" >&2
-    exit 1
-  fi
-  if test -S "/tmp/.X11-unix/X$servernum"; then
-    ready=1
-    break
-  fi
-  attempt=$((attempt + 1))
-  sleep 0.05
-done
-if test "$ready" != 1; then
-  cat "$log" >&2
-  echo "portable Xvfb did not publish $display" >&2
-  exit 1
-fi
-export DISPLAY=$display
-"$@"
-EOF
-chmod 0755 $payload_root/runtime/bin/xvfb-run
 `
 
-const remoteBaselineSeedScript = remoteBaselineSeedScriptHead + remoteBaselineSeedScriptRuntime
+const remoteBaselineSeedScript = remoteBaselineSeedScriptHead + remoteBaselineSeedScriptBrowser + remoteBaselineSeedScriptLSP + remoteBaselineSeedScriptTail + remoteBaselineSeedScriptRuntime

@@ -81,6 +81,7 @@ func TestBuildExpandedWorkloadCatalogUsesAtomicTargets(t *testing.T) {
 		FrontendFullTests: []string{
 			"src/alpha.test.ts",
 			"src/beta.test.tsx",
+			"scripts/runtime.test.mjs",
 		},
 	})
 	if err != nil {
@@ -90,7 +91,7 @@ func TestBuildExpandedWorkloadCatalogUsesAtomicTargets(t *testing.T) {
 		t.Fatalf("expanded catalog = %#v", catalog)
 	}
 	parents := workloadParentCounts(t, catalog)
-	if parents[GateIDAIMaintenanceSelfTest] != 2 || parents[GateIDBackendTestWithGuard] != 10 || parents[GateIDFrontendFullTest] != 2 {
+	if parents[GateIDAIMaintenanceSelfTest] != 2 || parents[GateIDBackendTestWithGuard] != 10 || parents[GateIDFrontendFullTest] != 3 {
 		t.Fatalf("expanded parent counts = %v", parents)
 	}
 	assertAtomicExpandedWorkloads(t, catalog)

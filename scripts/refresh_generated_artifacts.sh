@@ -71,9 +71,10 @@ done
 list_codemap_outputs() {
   printf '%s\n' \
     $'file\tREADME.md' \
-    $'file\tdocs/doc/codemap/13-archtest-boundaries.md' \
-    $'file\tdocs/doc/codemap/README.md' \
-    $'file\tdocs/doc/codemap/ai-index.json'
+		$'file\tdocs/doc/codemap/13-archtest-boundaries.md' \
+		$'file\tdocs/doc/codemap/README.md' \
+		$'file\tdocs/doc/codemap/ai-index.json' \
+		$'file\tdocs/doc/codemap/anchor-identities.json'
 }
 
 list_capcontract_outputs() {

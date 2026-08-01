@@ -57,7 +57,7 @@ type remoteBaselineSourceArtifact struct {
 	BundlePath     string
 }
 
-// buildRemoteBaselineSourceArtifact 构建首代浅快照或基于已接受 main 的增量 Git bundle。
+// buildRemoteBaselineSourceArtifact 构建完整历史 Anchor 或基于已接受 main 的增量 Git bundle。
 func buildRemoteBaselineSourceArtifact(
 	ctx context.Context,
 	repositoryRoot string,
@@ -117,6 +117,10 @@ func selectRemoteBaselineSourceManifest(
 		TargetTree:    identity.MainTree,
 	}
 	if accepted.SchemaVersion == 0 {
+		manifest.Mode = remoteBaselineSourceFull
+		return manifest, nil
+	}
+	if accepted.SourceHistoryVersion != remoteci.BaselineSourceHistorySchemaVersion {
 		manifest.Mode = remoteBaselineSourceFull
 		return manifest, nil
 	}
@@ -190,7 +194,7 @@ func writeRemoteBaselineSourceBundle(
 	}
 }
 
-// buildRemoteBaselineFullBundle 从目标 commit 构建独立可校验的浅 Git bundle。
+// buildRemoteBaselineFullBundle 从目标 commit 构建包含完整可达历史的独立 Git bundle。
 func buildRemoteBaselineFullBundle(
 	ctx context.Context,
 	repositoryRoot string,
@@ -212,7 +216,6 @@ func buildRemoteBaselineFullBundle(
 		snapshotRoot,
 		"fetch",
 		"--quiet",
-		"--depth=1",
 		repositoryURL,
 		targetCommit,
 	); err != nil {
@@ -632,7 +635,7 @@ type remoteLegacyBaselineMigration struct {
 	references []remoteci.BaselineCacheRef
 }
 
-// loadRemoteBaselineStateForRefresh 允许内存迁移 v4，并把完整的 v2 状态迁移为新代。
+// loadRemoteBaselineStateForRefresh 允许内存迁移上一版和 v4，并把完整的 v2 状态迁移为新代。
 func loadRemoteBaselineStateForRefresh(path string, config remoteRunConfig) (remoteci.BaselineState, *remoteLegacyBaselineMigration, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -645,7 +648,9 @@ func loadRemoteBaselineStateForRefresh(path string, config remoteRunConfig) (rem
 	if err != nil {
 		return remoteci.BaselineState{}, nil, err
 	}
-	if schemaVersion == remoteci.BaselineStateSchemaVersion || schemaVersion == 4 {
+	if schemaVersion == remoteci.BaselineStateSchemaVersion ||
+		schemaVersion == remoteci.BaselineStatePreviousSchemaVersion ||
+		schemaVersion == 4 {
 		state, err := loadRemoteBaselineState(path, false)
 		return state, nil, err
 	}

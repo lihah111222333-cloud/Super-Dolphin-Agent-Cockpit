@@ -133,14 +133,16 @@ func validateRequestMounts(request CreateRequest) error {
 	hostNames := createHostPathVolumeNames(request)
 	mainNames := createMainMountNames(request)
 	mainReadOnly := append(append([]string{}, hostNames...), request.ExpandedVolume.Name, request.SourceVolume.Name)
-	if err := validateVolumeMounts("task container", request.MainVolumeMounts, mainNames, mainReadOnly); err != nil {
+	if err := validateVolumeMounts("task container", request.MainVolumeMounts, mainNames, mainNames, mainReadOnly); err != nil {
 		return err
 	}
 	initReadOnly := append([]string{}, hostNames...)
 	if request.BootstrapVolume != (OSSVolume{}) {
 		initReadOnly = append(initReadOnly, "current-gate")
 	}
-	return validateVolumeMounts("init container", request.InitVolumeMounts, createInitMountNames(request), initReadOnly)
+	initAllowed := createInitMountNames(request)
+	initRequired := createRequiredInitMountNames(request)
+	return validateVolumeMounts("init container", request.InitVolumeMounts, initAllowed, initRequired, initReadOnly)
 }
 
 func validateRequestTags(request CreateRequest) error {
@@ -179,27 +181,30 @@ func validateContainerInput(owner string, command []string, args []string, envir
 	return nil
 }
 
-// validateVolumeMounts 校验声明卷至少挂载一次，且每个挂载路径和子路径唯一。
+// validateVolumeMounts 校验必需卷均已挂载，且所有挂载只引用允许卷并保持路径唯一。
 func validateVolumeMounts(
 	owner string,
 	mounts []VolumeMount,
-	names []string,
+	allowedNames []string,
+	requiredNames []string,
 	readOnlyNames []string,
 ) error {
-	if len(mounts) < len(names) {
+	if len(mounts) < len(requiredNames) {
 		return fmt.Errorf("ECI %s must mount every declared volume at least once", owner)
 	}
-	if err := validateMountSet(owner, mounts, names...); err != nil {
+	if err := validateMountSet(owner, mounts, allowedNames...); err != nil {
 		return err
 	}
-	mounted := make(map[string]struct{}, len(names))
+	mounted := make(map[string]struct{}, len(allowedNames))
 	for _, mount := range mounts {
 		mounted[mount.Name] = struct{}{}
 	}
-	if len(mounted) != len(names) {
-		return fmt.Errorf("ECI %s must mount every declared volume at least once", owner)
+	for _, name := range requiredNames {
+		if _, exists := mounted[name]; !exists {
+			return fmt.Errorf("ECI %s must mount every declared volume at least once", owner)
+		}
 	}
-	expectedReadOnly := make(map[string]bool, len(names))
+	expectedReadOnly := make(map[string]bool, len(allowedNames))
 	for _, name := range readOnlyNames {
 		expectedReadOnly[name] = true
 	}

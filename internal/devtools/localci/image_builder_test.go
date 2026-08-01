@@ -390,9 +390,9 @@ func TestEnsureCandidateRejectsMissingDriftedOrUnclosedRuntimeDepsLock(t *testin
 	assertCandidateRejectedBeforeBuild(t, outsideClosure)
 }
 
-func TestPrepareCandidateAcceptsRuntimeDepsSchema6Closure(t *testing.T) {
+func TestPrepareCandidateAcceptsRuntimeDepsSchema9Closure(t *testing.T) {
 	if _, err := prepareCandidate(candidateRequest(candidateEntries(validCandidateDockerfile()), digest("f"), digest("e"))); err != nil {
-		t.Fatalf("schema5 runtime dependency closure: %v", err)
+		t.Fatalf("schema9 runtime dependency closure: %v", err)
 	}
 }
 
@@ -415,7 +415,7 @@ func TestPrepareCandidateRejectsRuntimeDepsNonLocalOrRegistryLockFields(t *testi
 
 func TestPrepareCandidateRejectsLegacyIncompleteAndDriftedRuntimeDepsInputs(t *testing.T) {
 	legacy := candidateEntries(validCandidateDockerfile())
-	replaceEntryText(t, legacy, runtimeDepsLockPath, `"schema_version":"7"`, `"schema_version":"1"`)
+	replaceEntryText(t, legacy, runtimeDepsLockPath, `"schema_version":"9"`, `"schema_version":"1"`)
 	assertCandidateRejectedBeforeBuild(t, legacy)
 
 	missingGoMod := candidateEntries(validCandidateDockerfile())
@@ -437,6 +437,14 @@ func TestPrepareCandidateRejectsLegacyIncompleteAndDriftedRuntimeDepsInputs(t *t
 	driftedRuntimeSeedScript := candidateEntries(validCandidateDockerfile())
 	changeEntry(t, driftedRuntimeSeedScript, "cmd/super-dolphin-gate/remote_refresh_seed_script.go", "package main\n// drift\n")
 	assertCandidateRejectedBeforeBuild(t, driftedRuntimeSeedScript)
+
+	driftedRuntimeSeedBrowser := candidateEntries(validCandidateDockerfile())
+	changeEntry(t, driftedRuntimeSeedBrowser, "cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go", "package main\n// drift\n")
+	assertCandidateRejectedBeforeBuild(t, driftedRuntimeSeedBrowser)
+
+	driftedRuntimeSeedRuntime := candidateEntries(validCandidateDockerfile())
+	changeEntry(t, driftedRuntimeSeedRuntime, "cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go", "package main\n// drift\n")
+	assertCandidateRejectedBeforeBuild(t, driftedRuntimeSeedRuntime)
 }
 
 func TestEnsureCandidateRejectsMissingOrDriftedSqruffArtifactLock(t *testing.T) {
@@ -547,7 +555,7 @@ func candidateRequest(entries []sourceexport.TreeEntry, acceptedInput string, ac
 
 func testRuntimeDepsLock(files map[string]string) string {
 	lock := runtimeDepsLock{
-		SchemaVersion: "7", BuildMode: "node-local", CacheScope: "node",
+		SchemaVersion: "9", BuildMode: "node-local", CacheScope: "node",
 		Inputs: runtimeDepsInputs{
 			Dockerfile:    contentDigest(files["build/gate/runtime-deps.Dockerfile"]),
 			ToolchainLock: contentDigest(files["build/gate/toolchain.lock"]),
@@ -563,6 +571,8 @@ func testRuntimeDepsLock(files map[string]string) string {
 			RuntimeSeedWorker:   contentDigest(files["internal/devtools/gate/executor_seed.go"]),
 			RuntimeSeedRecipe:   contentDigest(files["cmd/super-dolphin-gate/remote_refresh_seed.go"]),
 			RuntimeSeedScript:   contentDigest(files["cmd/super-dolphin-gate/remote_refresh_seed_script.go"]),
+			RuntimeSeedBrowser:  contentDigest(files["cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go"]),
+			RuntimeSeedRuntime:  contentDigest(files["cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go"]),
 		},
 		Paths: canonicalRuntimeDepsPaths(),
 	}
@@ -580,6 +590,8 @@ func runtimeDepsTestInputPaths() []string {
 		"internal/devtools/gate/executor_seed.go",
 		"cmd/super-dolphin-gate/remote_refresh_seed.go",
 		"cmd/super-dolphin-gate/remote_refresh_seed_script.go",
+		"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go",
+		"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go",
 	}
 }
 

@@ -1,12 +1,15 @@
 import '@testing-library/jest-dom/vitest';
 import { configure } from '@testing-library/dom';
 import { beforeEach } from 'vitest';
+import process from 'node:process';
 
 configure({ asyncUtilTimeout: 5000 });
 
 const OVERLAY_ROOT_FIXTURE_ERROR = 'Test overlay-root fixture requires at most one host.';
+const FRONTEND_RUNTIME_SEED_ENV = 'SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED';
 
 beforeEach(() => {
+  delete process.env[FRONTEND_RUNTIME_SEED_ENV];
   const hosts = document.querySelectorAll('#overlay-root');
   if (hosts.length > 1) throw new Error(OVERLAY_ROOT_FIXTURE_ERROR);
   if (hosts.length === 1) return;

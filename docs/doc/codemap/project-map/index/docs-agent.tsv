@@ -30,14 +30,14 @@ docs/doc/codemap/11-memory-prompt-thread.md	docs	docs-agent	doc	3192	手写代�
 docs/doc/codemap/11-memory.md	docs	docs-agent	doc	28339	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,memory,手写代码地图卷与自动,ai-index
 docs/doc/codemap/11-prompt-thread.md	docs	docs-agent	doc	59498	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,prompt,thread,手写代码地图卷与自动,ai-index
 docs/doc/codemap/12-dream-pipeline.md	docs	docs-agent	doc	11793	手写代码地图卷与自动 ai-index	docs,doc,codemap,12,dream,pipeline,手写代码地图卷与自动,ai-index
-docs/doc/codemap/13-archtest-boundaries.md	docs	docs-agent	doc	21298	手写代码地图卷与自动 ai-index	docs,doc,codemap,13,archtest,boundaries,手写代码地图卷与自动,ai-index
-docs/doc/codemap/anchor-identities.json	docs	docs-agent	json	465746	手写代码地图卷与自动 ai-index	docs,doc,codemap,anchor,identities,手写代码地图卷与自动,ai-index
+docs/doc/codemap/13-archtest-boundaries.md	docs	docs-agent	doc	21384	手写代码地图卷与自动 ai-index	docs,doc,codemap,13,archtest,boundaries,手写代码地图卷与自动,ai-index
+docs/doc/codemap/anchor-identities.json	docs	docs-agent	json	465736	手写代码地图卷与自动 ai-index	docs,doc,codemap,anchor,identities,手写代码地图卷与自动,ai-index
 docs/doc/codemap/capability-contract/capability_manifest.json	docs	docs-agent	json	3418817	手写代码地图卷与自动 ai-index	docs,doc,codemap,capability,contract,manifest,手写代码地图卷与自动,ai-index
 docs/doc/codemap/README.md	docs	docs-agent	doc	3133	手写代码地图卷与自动 ai-index	docs,doc,codemap,README,手写代码地图卷与自动,ai-index
 docs/git-history-analysis-2026-07-04.md	docs	docs-agent	doc	18798	项目文档体系	docs,git,history,analysis,2026,07,04,项目文档体系
 docs/git-history-v3-architecture-governance-clusters-2026-07-04.md	docs	docs-agent	doc	16065	项目文档体系	docs,git,history,v3,architecture,governance,clusters,2026,07,04,项目文档体系
 docs/guards/code-size-freeze-v3-fail-first.txt	docs	docs-agent	txt	466	项目文档体系	docs,guards,code,size,freeze,v3,fail,first,项目文档体系
-docs/guards/remote-ci-production-freeze-fail-first.txt	docs	docs-agent	txt	563	项目文档体系	docs,guards,remote,ci,production,freeze,fail,first,项目文档体系
+docs/guards/remote-ci-production-freeze-fail-first.txt	docs	docs-agent	txt	466	项目文档体系	docs,guards,remote,ci,production,freeze,fail,first,项目文档体系
 docs/guards/remote-ci-test-metrics-fail-first.txt	docs	docs-agent	txt	511	项目文档体系	docs,guards,remote,ci,test,metrics,fail,first,项目文档体系
 docs/internal-notes/lsp提示词英文版.md	docs	docs-agent	doc	2283	内部提示词与工程方法记录	docs,internal,notes,lsp提示词英文版,内部提示词与工程方法记录
 docs/internal-notes/LSP系统提示词.md	docs	docs-agent	doc	2922	内部提示词与工程方法记录	docs,internal,notes,LSP系统提示词,内部提示词与工程方法记录

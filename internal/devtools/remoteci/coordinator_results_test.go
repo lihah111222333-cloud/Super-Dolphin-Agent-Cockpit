@@ -103,6 +103,57 @@ func TestRemoteAtomicGoTestDurationUsesPackageParentIdentity(t *testing.T) {
 	}
 }
 
+func TestRemoteCalibrationParentDurationSamplesAggregateAtomicGoTests(t *testing.T) {
+	parent := mustRemoteGoPackageWorkload(t, "./internal/module/turn")
+	first := mustRemoteGoTestWorkload(t, "./internal/module/turn", "TestOne")
+	second := mustRemoteGoTestWorkload(t, "./internal/module/turn", "TestTwo")
+	startedAt := time.Date(2026, time.July, 28, 2, 0, 0, 0, time.UTC)
+	observed := map[string]gate.PlanGateExecution{
+		first.ID:  {GateID: gate.GateID(first.ID), Status: gate.ResultStatusPassed, StartedAt: startedAt, CompletedAt: startedAt.Add(40 * time.Millisecond)},
+		second.ID: {GateID: gate.GateID(second.ID), Status: gate.ResultStatusPassed, StartedAt: startedAt, CompletedAt: startedAt.Add(60 * time.Millisecond)},
+	}
+	input := RunInput{Calibration: true, Platform: "linux/amd64", RunnerIdentityDigest: "runner-v1", ToolchainDigest: "toolchain-v1"}
+	samples, err := remoteCalibrationParentDurationSamples(
+		gate.WorkloadCatalog{Version: 1, Workloads: []gate.Workload{first, second}}, observed, input,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRemoteCalibrationParentSample(t, samples, parent)
+	input.Calibration = false
+	if samples, err := remoteCalibrationParentDurationSamples(
+		gate.WorkloadCatalog{Version: 1, Workloads: []gate.Workload{first, second}}, observed, input,
+	); err != nil || len(samples) != 0 {
+		t.Fatalf("non-calibration parent samples = %#v, error = %v", samples, err)
+	}
+}
+
+func mustRemoteGoPackageWorkload(t *testing.T, packagePath string) gate.Workload {
+	t.Helper()
+	workload, err := gate.NewGoPackageWorkload(gate.GateIDBackendTestWithGuard, packagePath, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return workload
+}
+
+func mustRemoteGoTestWorkload(t *testing.T, packagePath, testName string) gate.Workload {
+	t.Helper()
+	workload, err := gate.NewGoTestWorkload(gate.GateIDBackendTestWithGuard, packagePath, testName, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return workload
+}
+
+func assertRemoteCalibrationParentSample(t *testing.T, samples []gate.DurationSample, parent gate.Workload) {
+	t.Helper()
+	if len(samples) != 1 || samples[0].Bucket.WorkloadID != parent.ID ||
+		samples[0].Bucket.CommandDigest != parent.CommandDigest || !samples[0].Succeeded || samples[0].DurationMS != 100 {
+		t.Fatalf("calibration parent samples = %#v", samples)
+	}
+}
+
 func TestRemoteOptimizationWarningsAreAdvisoryForSlowPassAndFailure(t *testing.T) {
 	warnings := remoteOptimizationWarnings([]gate.DurationSample{
 		{Bucket: gate.DurationBucket{WorkloadID: "slow-pass"}, Succeeded: true, DurationMS: gate.FullCITargetDurationMS + 1},

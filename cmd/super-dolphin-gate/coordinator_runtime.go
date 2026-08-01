@@ -842,6 +842,9 @@ func coordinatorTransitionInProgress(state jobState, schedulerState localci.Work
 	if state == jobStateQueued && schedulerState == localci.WorkloadStatusStarted {
 		return true
 	}
+	if state == jobStateInfraFailed && schedulerState == localci.WorkloadStatusQueued {
+		return true
+	}
 	if (state == jobStateQueued || state == jobStateStarted) && schedulerWorkloadTerminal(schedulerState) {
 		return true
 	}

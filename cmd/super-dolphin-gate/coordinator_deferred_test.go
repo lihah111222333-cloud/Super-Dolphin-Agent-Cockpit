@@ -431,6 +431,7 @@ func TestCoordinatorRetriesPersistedStateTransitions(t *testing.T) {
 		{durable: jobStateQueued, scheduler: localci.WorkloadStatusPassed},
 		{durable: jobStateStarted, scheduler: localci.WorkloadStatusPassed},
 		{durable: jobStatePassed, scheduler: localci.WorkloadStatusStarted},
+		{durable: jobStateInfraFailed, scheduler: localci.WorkloadStatusQueued},
 	} {
 		err := reconcileCoordinatorState(transition.durable, transition.scheduler)
 		if !errors.Is(err, errCoordinatorTransition) {
@@ -442,6 +443,7 @@ func TestCoordinatorRetriesPersistedStateTransitions(t *testing.T) {
 		scheduler localci.WorkloadStatus
 	}{
 		{durable: jobStateStarted, scheduler: localci.WorkloadStatusQueued},
+		{durable: jobStateFailed, scheduler: localci.WorkloadStatusQueued},
 		{durable: jobStatePassed, scheduler: localci.WorkloadStatusFailed},
 		{durable: jobStateInfraFailed, scheduler: localci.WorkloadStatusPassed},
 	} {

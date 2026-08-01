@@ -168,17 +168,17 @@ func TestPlanLPTUsesOnlyComparableSuccessfulSamples(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PlanLPT() error = %v", err)
 	}
-	if len(shards) != 2 {
-		t.Fatalf("len(shards) = %d, want configured parallelism 2", len(shards))
+	if len(shards) != 1 {
+		t.Fatalf("len(shards) = %d, want one non-empty shard below the 100 second target", len(shards))
 	}
 	if got := shards[0].Workloads[0]; got.Workload.ID != "alpha" || got.EstimatedDurationMS != 900 {
 		t.Fatalf("shard 0 first workload = %#v, want alpha estimated from successes only", got)
 	}
-	if got := shards[1].Workloads[0]; got.Workload.ID != "beta" || got.EstimatedDurationMS != 800 {
-		t.Fatalf("shard 1 first workload = %#v, want beta", got)
+	if got := shards[0].Workloads[1]; got.Workload.ID != "beta" || got.EstimatedDurationMS != 800 {
+		t.Fatalf("shard 0 second workload = %#v, want beta", got)
 	}
-	if got := shards[1].Workloads[1]; got.Workload.ID != "gamma" || got.EstimatedDurationMS != 300 {
-		t.Fatalf("shard 1 second workload = %#v, want bootstrap estimate", got)
+	if got := shards[0].Workloads[2]; got.Workload.ID != "gamma" || got.EstimatedDurationMS != 300 {
+		t.Fatalf("shard 0 third workload = %#v, want bootstrap estimate", got)
 	}
 }
 

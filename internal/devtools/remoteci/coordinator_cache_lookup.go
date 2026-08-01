@@ -2,6 +2,7 @@ package remoteci
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"time"
@@ -109,7 +110,7 @@ func lookupPassedWorkloads(
 		return remoteWorkloadCacheSelection{}, err
 	}
 	parentCompatibleSpan := trace.start("cache.parent_compatible", parentCounts)
-	if err := promoteCompatiblePassedWorkloads(ctx, store, now, input, lookup, allCached); err != nil {
+	if err := promoteCompatiblePassedWorkloads(ctx, now, input, lookup, allCached); err != nil {
 		parentCounts.cacheHits = len(allCached)
 		parentCounts.cacheMisses = len(lookup.workerWorkloads) - len(allCached)
 		trace.finish(parentCompatibleSpan, err, parentCounts)
@@ -128,10 +129,7 @@ func lookupPassedWorkloads(
 	parentCounts.cacheHits = len(allCached)
 	parentCounts.cacheMisses = len(lookup.workerWorkloads) - len(allCached)
 	trace.finish(parentObjectSpan, nil, parentCounts)
-	childCounts := remoteCIPhaseCounts{
-		cacheHits:   len(allCached),
-		cacheMisses: len(lookup.workerWorkloads) - len(allCached),
-	}
+	childCounts := remoteCIPhaseCounts{}
 	childExpandSpan := trace.start("cache.child_expand", childCounts)
 	if err := prepareRemoteGoTestResumeLookup(
 		ctx,
@@ -146,22 +144,19 @@ func lookupPassedWorkloads(
 		return remoteWorkloadCacheSelection{}, err
 	}
 	childCounts.workloads = len(lookup.resume.entries)
+	childCounts.cacheMisses = childCounts.workloads
 	trace.finish(childExpandSpan, nil, childCounts)
 	childLookupSpan := trace.start("cache.child_lookup", childCounts)
 	if err := lookupExactPassedGoTests(ctx, store, cachePrefix, now, input, lookup, allCached); err != nil {
-		childCounts.cacheHits = len(allCached)
-		childCounts.cacheMisses = len(lookup.workerWorkloads) - len(allCached)
 		trace.finish(childLookupSpan, err, childCounts)
 		return remoteWorkloadCacheSelection{}, err
 	}
-	childCounts.cacheHits = len(allCached)
-	childCounts.cacheMisses = len(lookup.workerWorkloads) - len(allCached)
-	trace.finish(childLookupSpan, nil, childCounts)
-	projectionCounts := remoteCIPhaseCounts{
-		workloads:   len(lookup.workerWorkloads),
-		cacheHits:   len(allCached),
-		cacheMisses: len(lookup.workerWorkloads) - len(allCached),
+	childCounts, projectionCounts, err := remoteGoTestCachePhaseCounts(lookup, allCached)
+	if err != nil {
+		trace.finish(childLookupSpan, err, childCounts)
+		return remoteWorkloadCacheSelection{}, err
 	}
+	trace.finish(childLookupSpan, nil, childCounts)
 	cacheProjectionSpan := trace.start("cache.project", projectionCounts)
 	if err := enforceRemoteCalibrationEvidence(lookup.workerWorkloads, allCached, &lookup.resume, input); err != nil {
 		trace.finish(cacheProjectionSpan, err, projectionCounts)
@@ -177,6 +172,35 @@ func lookupPassedWorkloads(
 		cacheMisses: len(selection.workloads) - len(selection.reused),
 	})
 	return selection, err
+}
+
+// remoteGoTestCachePhaseCounts 分开统计父包与展开后的逐测试命中，避免混用两个目录的基数。
+func remoteGoTestCachePhaseCounts(
+	lookup remoteWorkloadCacheLookup,
+	cached map[string]gate.PlanGateExecution,
+) (remoteCIPhaseCounts, remoteCIPhaseCounts, error) {
+	packageCached, testCached := splitRemoteGoTestCacheHits(lookup.workerWorkloads, cached)
+	childCounts := remoteCIPhaseCounts{
+		workloads: len(lookup.resume.entries),
+		cacheHits: len(testCached),
+	}
+	if childCounts.cacheHits > childCounts.workloads {
+		return childCounts, remoteCIPhaseCounts{}, errors.New("remote Go test cache hits exceed expanded test catalog")
+	}
+	childCounts.cacheMisses = childCounts.workloads - childCounts.cacheHits
+	expandedParents := len(lookup.resume.workloadsByParent)
+	if expandedParents > len(lookup.workerWorkloads) {
+		return childCounts, remoteCIPhaseCounts{}, errors.New("remote Go test expansion exceeds parent workload catalog")
+	}
+	projectionCounts := remoteCIPhaseCounts{
+		workloads: len(lookup.workerWorkloads) - expandedParents + childCounts.workloads,
+		cacheHits: len(packageCached) + childCounts.cacheHits,
+	}
+	if projectionCounts.cacheHits > projectionCounts.workloads {
+		return childCounts, projectionCounts, errors.New("remote Go test cache hits exceed effective workload catalog")
+	}
+	projectionCounts.cacheMisses = projectionCounts.workloads - projectionCounts.cacheHits
+	return childCounts, projectionCounts, nil
 }
 
 func prepareRemoteWorkloadCacheLookup(
@@ -296,14 +320,13 @@ func lookupExactPassedWorkloads(
 
 func promoteCompatiblePassedWorkloads(
 	ctx context.Context,
-	store ObjectStore,
 	now func() time.Time,
 	input RunInput,
 	lookup remoteWorkloadCacheLookup,
 	allCached map[string]gate.PlanGateExecution,
 ) error {
 	compatibleCached, err := promoteCompatiblePassedWorkloadCache(
-		ctx, store, input.LedgerStore, now, input.RepositoryRoot, lookup.workerWorkloads,
+		ctx, input.LedgerStore, now, input.RepositoryRoot, lookup.workerWorkloads,
 		remoteWorkloadCacheMissEntries(lookup.cacheEntries, allCached), input.ForceRerun,
 	)
 	if err != nil {
@@ -351,7 +374,7 @@ func lookupExactPassedGoTests(
 		return err
 	}
 	compatibleCached, err := promoteCompatiblePassedWorkloadCache(
-		ctx, store, input.LedgerStore, now, input.RepositoryRoot, lookup.workerWorkloads,
+		ctx, input.LedgerStore, now, input.RepositoryRoot, lookup.workerWorkloads,
 		testEntries, input.ForceRerun,
 	)
 	if err != nil {

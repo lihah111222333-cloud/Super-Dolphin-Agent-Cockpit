@@ -56,7 +56,7 @@ func executeRemoteRun(options remoteRunOptions) (remoteci.RunResult, remoteci.Ru
 	if err != nil {
 		return result, remoteci.RunInput{}, protocolError("load accepted remote baseline: %v", err)
 	}
-	if err := validateAcceptedRemoteBaseline(config, state); err != nil {
+	if err := validateRunnableRemoteBaseline(config, state); err != nil {
 		return result, remoteci.RunInput{}, protocolError("validate accepted remote baseline: %v", err)
 	}
 	runnerIdentity, err := resolveRemoteRunnerIdentity(options.RepositoryRoot, state)

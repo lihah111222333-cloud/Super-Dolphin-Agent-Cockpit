@@ -19,21 +19,24 @@ import (
 )
 
 const (
+	ExecutorRoot                    = "/opt/super-dolphin-gate"
+	ExecutorGateBinaryPath          = ExecutorRoot + "/bin/super-dolphin-gate"
 	ExecutorSourcePath              = "/workspace/source"
 	ExecutorWorkRoot                = "/workspace/work"
 	ExecutorGoWorkloadSourcePath    = ExecutorWorkRoot + "/lanes/lane-0/run/source"
-	ExecutorRuntimeSeedRoot         = "/opt/super-dolphin-gate/runtime"
+	ExecutorRuntimeSeedRoot         = ExecutorRoot + "/runtime"
 	ExecutorRuntimeSeedManifestPath = ExecutorRuntimeSeedRoot + "/manifest.json"
 	ExecutorPortableGoRoot          = ExecutorRuntimeSeedRoot + "/go"
 	ExecutorPortableRootFS          = ExecutorRuntimeSeedRoot + "/rootfs"
 	ExecutorPortableLibraryPath     = ExecutorPortableRootFS + "/usr/lib/x86_64-linux-gnu:" + ExecutorPortableRootFS + "/lib/x86_64-linux-gnu:" + ExecutorPortableRootFS + "/usr/lib/aarch64-linux-gnu:" + ExecutorPortableRootFS + "/lib/aarch64-linux-gnu:" + ExecutorPortableRootFS + "/usr/lib:" + ExecutorPortableRootFS + "/lib"
-	ExecutorPortableSearchPath      = ExecutorRuntimeSeedRoot + "/bin:" + ExecutorRuntimeSeedRoot + "/go/bin:" + ExecutorRuntimeSeedRoot + "/node/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin"
-	ExecutorGoBuildCacheSeedRoot    = "/opt/super-dolphin-gate/cache-seed/go-build"
-	ExecutorGoBuildCacheSeedsRoot   = "/opt/super-dolphin-gate/cache-seeds"
-	ExecutorFrontendEmbedSeedRoot   = "/opt/super-dolphin-gate/frontend-embed"
+	ExecutorPortableSearchPath      = ExecutorRoot + "/bin:" + ExecutorRuntimeSeedRoot + "/bin:" + ExecutorRuntimeSeedRoot + "/go/bin:" + ExecutorRuntimeSeedRoot + "/node/bin:" + ExecutorPortableRootFS + "/usr/bin:" + ExecutorPortableRootFS + "/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin"
+	ExecutorGoBuildCacheSeedRoot    = ExecutorRoot + "/cache-seed/go-build"
+	ExecutorGoBuildCacheSeedsRoot   = ExecutorRoot + "/cache-seeds"
+	ExecutorFrontendEmbedSeedRoot   = ExecutorRoot + "/frontend-embed"
 	ExecutorActionlintBinaryPath    = ExecutorRuntimeSeedRoot + "/bin/actionlint"
 	ExecutorBashBinaryPath          = ExecutorPortableRootFS + "/usr/bin/bash"
 	ExecutorGitBinaryPath           = ExecutorRuntimeSeedRoot + "/bin/git"
+	ExecutorNodeBinaryPath          = ExecutorRuntimeSeedRoot + "/node/bin/node"
 	ExecutorSQLCBinaryPath          = ExecutorRuntimeSeedRoot + "/bin/sqlc"
 	ExecutorSqruffBinaryPath        = ExecutorRuntimeSeedRoot + "/bin/sqruff"
 	ExecutorXvfbRunBinaryPath       = ExecutorRuntimeSeedRoot + "/bin/xvfb-run"
@@ -575,6 +578,10 @@ func executorEnvironment(
 	frontendSeedRoot string,
 	goCacheProgram string,
 ) []string {
+	npmCacheRoot := layout.npmCache
+	if frontendSeedRoot != "" {
+		npmCacheRoot = filepath.Join(filepath.Dir(frontendSeedRoot), "npm-cache")
+	}
 	environment := []string{
 		"CI=true", "GIT_CONFIG_NOSYSTEM=1", "GIT_OPTIONAL_LOCKS=0", "GIT_TERMINAL_PROMPT=0",
 		"GIT_AUTHOR_NAME=Super Dolphin Gate Executor", "GIT_AUTHOR_EMAIL=gate-executor@super-dolphin.invalid",
@@ -585,10 +592,17 @@ func executorEnvironment(
 		"GOROOT=" + goRoot, "GOTMPDIR=" + layout.tmp,
 		"HOME=" + layout.home, "LANG=C.UTF-8", "LC_ALL=C.UTF-8",
 		"LD_LIBRARY_PATH=" + ExecutorPortableLibraryPath,
+		"FONTCONFIG_SYSROOT=" + ExecutorPortableRootFS,
+		"FONTCONFIG_FILE=fonts.conf",
+		"FONTCONFIG_PATH=" + ExecutorPortableRootFS + "/etc/fonts",
+		"XDG_DATA_DIRS=" + ExecutorPortableRootFS + "/usr/local/share:" + ExecutorPortableRootFS + "/usr/share",
+		"GSETTINGS_SCHEMA_DIR=" + ExecutorPortableRootFS + "/usr/share/glib-2.0/schemas",
 		"NPM_CONFIG_AUDIT=false", "NPM_CONFIG_FUND=false", "NPM_CONFIG_UPDATE_NOTIFIER=false",
-		"npm_config_cache=" + layout.npmCache, "npm_config_offline=true", "npm_config_userconfig=/dev/null",
+		"npm_config_cache=" + npmCacheRoot, "npm_config_logs_dir=" + filepath.Join(layout.npmCache, "_logs"),
+		"npm_config_offline=true", "npm_config_userconfig=/dev/null",
 		"PLAYWRIGHT_BROWSERS_PATH=" + executorPlaywrightBrowsersPath,
 		"SUPER_DOLPHIN_GATE_GIT=" + ExecutorGitBinaryPath,
+		"SUPER_DOLPHIN_GATE_NODE=" + ExecutorNodeBinaryPath,
 		"SUPER_DOLPHIN_GATE_XVFB_RUN=" + ExecutorXvfbRunBinaryPath,
 		"SUPER_DOLPHIN_TEST_BACKEND=remote-worker",
 		"PATH=" + searchPath, "TMPDIR=" + layout.tmp, "TZ=UTC", "XDG_CACHE_HOME=" + layout.xdgCache,

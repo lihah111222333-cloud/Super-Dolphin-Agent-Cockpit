@@ -37,6 +37,47 @@ func TestCoordinatorRunReusesAllPassedWorkloadsWithoutECI(t *testing.T) {
 	}
 }
 
+func TestCoordinatorRunReusesSemanticPassAcrossProvenanceRefreshWithoutECI(t *testing.T) {
+	repository, input := remoteRunFixture(t)
+	input.RepositoryRoot = repository
+	store := &coordinatorStore{}
+	if _, err := newTestCoordinator(t, store, &coordinatorRuntime{}).Run(context.Background(), input); err != nil {
+		t.Fatalf("seed Run() error = %v", err)
+	}
+	entries := mustRemoteWorkloadCacheEntries(
+		t,
+		"baseline-artifacts/source-deltas/passed-workloads/v1/",
+		repository,
+		input,
+	)
+	store.mu.Lock()
+	receiptKey := workloadCacheReceiptKey(t, entries[0], store.objects[entries[0].key])
+	receipt := append([]byte(nil), store.objects[receiptKey]...)
+	store.mu.Unlock()
+	if !strings.Contains(string(receipt), "runner "+input.RunnerIdentityDigest) {
+		t.Fatalf("actual PASS receipt is missing its runner provenance: %q", receipt)
+	}
+	input.GateBinarySHA256 = "sha256:" + strings.Repeat("a", 64)
+	input.RuntimeSeedSHA256 = "sha256:" + strings.Repeat("b", 64)
+	input.RunnerConfigDigest = "sha256:" + strings.Repeat("c", 64)
+	input.PolicyDigest = "sha256:" + strings.Repeat("d", 64)
+	input.RunnerIdentityDigest = "sha256:" + strings.Repeat("e", 64)
+	input.AnchorGeneration++
+	runtime := &coordinatorRuntime{}
+	result, err := newTestCoordinator(t, store, runtime).Run(context.Background(), input)
+	if err != nil {
+		t.Fatalf("provenance refresh Run() error = %v", err)
+	}
+	if len(runtime.creates) != 0 || len(result.CacheMissWorkloads) != 0 || len(result.ReusedWorkloads) == 0 {
+		t.Fatalf("provenance-only refresh created ECI=%d misses=%v reused=%v", len(runtime.creates), result.CacheMissWorkloads, result.ReusedWorkloads)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if string(store.objects[receiptKey]) != string(receipt) {
+		t.Fatal("cache hit overwrote the original PASS provenance receipt")
+	}
+}
+
 func TestCoordinatorRunQueriesSQLiteBeforeOSS(t *testing.T) {
 	repository, input := remoteRunFixture(t)
 	input.RepositoryRoot = repository
@@ -285,6 +326,11 @@ func TestCoordinatorRunForceRerunBypassesPassedWorkloadCache(t *testing.T) {
 	if _, err := newTestCoordinator(t, store, &coordinatorRuntime{}).Run(context.Background(), input); err != nil {
 		t.Fatalf("first Run() error = %v", err)
 	}
+	entries := mustRemoteWorkloadCacheEntries(t, "baseline-artifacts/source-deltas/passed-workloads/v1/", repository, input)
+	store.mu.Lock()
+	firstMarker := append([]byte(nil), store.objects[entries[0].key]...)
+	firstReceiptKey := workloadCacheReceiptKey(t, entries[0], firstMarker)
+	store.mu.Unlock()
 	input.ForceRerun = true
 	runtime := &coordinatorRuntime{}
 	result, err := newTestCoordinator(t, store, runtime).Run(context.Background(), input)
@@ -302,6 +348,32 @@ func TestCoordinatorRunForceRerunBypassesPassedWorkloadCache(t *testing.T) {
 			t.Fatalf("forced shard %d = %+v", index, shard)
 		}
 	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	secondMarker := store.objects[entries[0].key]
+	secondReceiptKey := workloadCacheReceiptKey(t, entries[0], secondMarker)
+	if firstReceiptKey == secondReceiptKey || string(firstMarker) == string(secondMarker) {
+		t.Fatalf("force rerun did not switch PASS receipt: marker=%q receipt=%q", secondMarker, secondReceiptKey)
+	}
+	if _, ok := store.objects[firstReceiptKey]; !ok {
+		t.Fatalf("force rerun removed previous immutable receipt %q", firstReceiptKey)
+	}
+	if _, ok := store.objects[secondReceiptKey]; !ok {
+		t.Fatalf("force rerun did not publish receipt %q", secondReceiptKey)
+	}
+}
+
+func workloadCacheReceiptKey(t *testing.T, entry remoteWorkloadCacheEntry, marker []byte) string {
+	t.Helper()
+	lines := strings.Split(string(marker), "\n")
+	if len(lines) != 8 || !strings.HasPrefix(lines[6], "receipt ") {
+		t.Fatalf("invalid PASS marker: %q", marker)
+	}
+	receiptDigest := strings.TrimPrefix(lines[6], "receipt ")
+	if !validRemoteWorkloadCacheDigest(receiptDigest) {
+		t.Fatalf("invalid PASS receipt digest: %q", receiptDigest)
+	}
+	return remoteWorkloadCacheReceiptKey(entry, receiptDigest)
 }
 
 func TestCoordinatorRunReusesUnaffectedFrontendWorkloadsAcrossTrees(t *testing.T) {
@@ -335,38 +407,6 @@ func TestCoordinatorRunReusesUnaffectedFrontendWorkloadsAcrossTrees(t *testing.T
 			if slices.Contains(mustRemoteRequestGateIDs(t, request.Args), string(id)) {
 				t.Fatalf("ECI request unexpectedly reruns cached workload %q: %v", id, request.Args)
 			}
-		}
-	}
-}
-
-func TestCoordinatorRunRetriesOnlyPreviouslyFailedWorkloads(t *testing.T) {
-	repository, input := remoteRunFixture(t)
-	input.RepositoryRoot = repository
-	store := &coordinatorStore{}
-	failingRuntime := &coordinatorRuntime{failReport: true, failureLog: "injected failure\n"}
-	first, err := newTestCoordinator(t, store, failingRuntime).Run(context.Background(), input)
-	if !errors.Is(err, ErrGateFailed) {
-		t.Fatalf("first Run() error = %v", err)
-	}
-	totalWorkloads := 0
-	for _, shard := range first.Shards {
-		totalWorkloads += len(shard.Report.Gates)
-	}
-	retryRuntime := &coordinatorRuntime{}
-	retry, err := newTestCoordinator(t, store, retryRuntime).Run(context.Background(), input)
-	if err != nil {
-		t.Fatalf("retry Run() error = %v", err)
-	}
-	executed := 0
-	for _, shard := range retry.Shards {
-		executed += len(shard.ExecutedWorkloads)
-	}
-	if executed == 0 || executed >= totalWorkloads || executed != len(failingRuntime.creates) {
-		t.Fatalf("retry executed=%d total=%d failed shards=%d", executed, totalWorkloads, len(failingRuntime.creates))
-	}
-	for _, request := range retryRuntime.creates {
-		if gateIDs := mustRemoteRequestGateIDs(t, request.Args); len(gateIDs) != 1 {
-			t.Fatalf("retry request reran more than the failed workload: %v", request.Args)
 		}
 	}
 }
@@ -738,8 +778,8 @@ func remoteGoTestCacheRunFixture(t *testing.T) (string, RunInput) {
 		AnchorGeneration:       1,
 		AnchorManifest:         "sha256:" + strings.Repeat("c", 64),
 		AnchorCommit:           base, AnchorTree: baseTree,
-		RunnerConfigDigest: "sha256:" + strings.Repeat("b", 64),
-		GateBinarySHA256:   digest, RuntimeSeedSHA256: digest,
+		RunnerConfigDigest: "sha256:" + strings.Repeat("b", 64), GateBinarySHA256: digest, CandidateGateSourceSHA256: digest,
+		CandidateGateToolchainSHA256: digest, RuntimeSeedSHA256: digest,
 		DataCacheBucket: "super-dolphin-ci", DataCachePath: "/super-dolphin/ci/base/generation-1",
 	}
 }

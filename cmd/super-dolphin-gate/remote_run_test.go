@@ -161,6 +161,26 @@ func TestLoadRemoteRunConfigRejectsDrift(t *testing.T) {
 	}
 }
 
+func TestValidateRunnableRemoteBaselineRejectsIncompleteSourceHistory(t *testing.T) {
+	repository := initRemoteRunGitFixture(t)
+	config, err := loadRemoteRunConfig(writeRemoteRunConfigFixture(t, validRemoteRunConfigJSON()))
+	if err != nil {
+		t.Fatalf("loadRemoteRunConfig() error = %v", err)
+	}
+	state := remoteRunBaselineState(t, repository)
+	if err := validateRunnableRemoteBaseline(config, state); err != nil {
+		t.Fatalf("current baseline rejected: %v", err)
+	}
+	state.SourceHistoryVersion = 0
+	err = validateRunnableRemoteBaseline(config, state)
+	if err == nil || !strings.Contains(err.Error(), "source history is incomplete") {
+		t.Fatalf("legacy baseline error = %v, want actionable source-history rejection", err)
+	}
+	if err := validateAcceptedRemoteBaseline(config, state); err != nil {
+		t.Fatalf("legacy baseline must remain refreshable: %v", err)
+	}
+}
+
 func TestResolveRemoteRunInputUsesExactGitObjects(t *testing.T) {
 	repository := initRemoteRunGitFixture(t)
 	configPath := writeRemoteRunConfigFixture(t, validRemoteRunConfigJSON())
@@ -184,6 +204,45 @@ func TestResolveRemoteRunInputUsesExactGitObjects(t *testing.T) {
 	}
 	assertRemoteRunInputIdentity(t, input, state)
 	assertRemoteRunBaselineProjection(t, input, state)
+}
+
+func TestResolveRemoteRunInputCompilesCandidateGateWhenCLIClosureChanges(t *testing.T) {
+	repository := initRemoteRunGitFixture(t)
+	mainPath := filepath.Join(repository, "cmd", "super-dolphin-gate", "main.go")
+	if err := os.WriteFile(mainPath, []byte("package main\n\nfunc main() { println(\"candidate\") }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runRemoteRunGit(t, repository, "add", "cmd/super-dolphin-gate/main.go")
+	runRemoteRunGit(t, repository, "commit", "--quiet", "-m", "修改候选 CLI")
+	configPath := writeRemoteRunConfigFixture(t, validRemoteRunConfigJSON())
+	config, err := loadRemoteRunConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := remoteRunBaselineState(t, repository)
+	input, err := resolveRemoteRunInput(remoteRunOptions{
+		RepositoryRoot: repository,
+		Commit:         "HEAD",
+		Scenario:       "commit",
+		LedgerPath:     writeRemoteRunLedgerFixture(t),
+	}, config, state, remoteRunRunnerIdentity(state))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if input.ReuseBaselineGateCLI {
+		t.Fatal("candidate CLI closure change reused the baseline gate binary")
+	}
+	canonicalRepository, err := filepath.EvalSymlinks(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baselineSource, _, _, err := resolveRemoteCandidateGateIdentity(canonicalRepository, state.MainTree, state.MainTree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if input.CandidateGateSourceSHA256 == baselineSource {
+		t.Fatal("candidate CLI closure change kept the baseline source digest")
+	}
 }
 
 func TestRemoteBaselineDeltaProjectionPreservesOrder(t *testing.T) {
@@ -431,7 +490,7 @@ func TestRemoteCalibrationRunOptionsPropagateOnlyExplicitForceRerun(t *testing.T
 	}
 }
 
-func TestAcceptRemoteDurationCalibrationRequiresEveryWorkloadAndRacePackage(t *testing.T) {
+func TestAcceptRemoteDurationCalibrationRequiresEveryShardableWorkloadAndRacePackage(t *testing.T) {
 	fixture := newRemoteDurationCalibrationFixture(t)
 	samples, missingWorkload, missingRace := fixture.samplesExceptRequiredWorkloads(t)
 	if _, err := fixture.store.AppendSamples(samples); err != nil {
@@ -461,6 +520,40 @@ func TestAcceptRemoteDurationCalibrationRequiresEveryWorkloadAndRacePackage(t *t
 		t.Fatal(err)
 	}
 	assertAcceptedRemoteCalibration(t, snapshot, fixture)
+}
+
+func TestAcceptRemoteDurationCalibrationDoesNotRequireOwnerOnlyWorkloadDuration(t *testing.T) {
+	fixture := newRemoteDurationCalibrationFixture(t)
+	samples := make([]gatecontract.DurationSample, 0, len(fixture.expected))
+	foundOwnerOnly := false
+	for _, workload := range fixture.expected {
+		if !workload.Shardable {
+			foundOwnerOnly = true
+			continue
+		}
+		samples = append(samples, gatecontract.DurationSample{
+			Bucket: gatecontract.DurationBucket{
+				WorkloadID: workload.ID, CommandDigest: workload.CommandDigest,
+				Platform: fixture.calibration.Platform, Runner: fixture.calibration.Runner,
+				Toolchain: fixture.calibration.Toolchain,
+			},
+			Succeeded:  true,
+			DurationMS: 1_000,
+		})
+	}
+	if !foundOwnerOnly {
+		t.Fatal("calibration catalogs contain no owner-only workload")
+	}
+	if _, err := fixture.store.AppendSamples(samples); err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := fixture.acceptExistingSamples()
+	if err != nil {
+		t.Fatalf("acceptRemoteDurationCalibrationFromExistingSamples() error = %v", err)
+	}
+	if !accepted {
+		t.Fatal("complete shardable duration samples did not repair calibration metadata")
+	}
 }
 
 func TestRemoteProfileDeadlineKeeps100SecondsAdvisory(t *testing.T) {

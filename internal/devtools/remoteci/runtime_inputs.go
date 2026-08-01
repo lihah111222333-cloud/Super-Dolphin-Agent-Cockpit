@@ -14,6 +14,28 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
 )
 
+// RuntimeDependencySchemaVersion 是当前 runtime seed 构建合同版本。
+const RuntimeDependencySchemaVersion = "9"
+
+func runtimeDependencyPathsV4() []string {
+	return []string{
+		"build/gate/runtime-deps.Dockerfile",
+		"build/gate/toolchain.lock",
+		"go.mod",
+		"go.sum",
+		"internal/devtools/nilnessrunner/runner.go",
+		"scripts/nilness_guard.go",
+		"frontend-app/package-lock.json",
+		"build/gate/runtime-lsp/package-lock.json",
+		"build/gate/runtime-proxy/go.mod",
+		"build/gate/runtime-proxy/go.sum",
+		"build/gate/runtime-tools/go.mod",
+		"build/gate/runtime-tools/go.sum",
+		"build/gate/cmd/runtime-seed-manifest/main.go",
+		"internal/devtools/gate/executor_seed.go",
+	}
+}
+
 func runtimeDependencyPathsV5() []string {
 	return []string{
 		"build/gate/runtime-deps.Dockerfile",
@@ -38,9 +60,21 @@ func runtimeDependencyPathsV6() []string {
 	)
 }
 
-func runtimeDependencyPaths() []string {
+func runtimeDependencyPathsV7() []string {
 	return append(runtimeDependencyPathsV6(),
 		"cmd/super-dolphin-gate/remote_refresh_seed_script.go",
+	)
+}
+
+func runtimeDependencyPathsV8() []string {
+	return append(runtimeDependencyPathsV7(),
+		"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go",
+	)
+}
+
+func runtimeDependencyPaths() []string {
+	return append(runtimeDependencyPathsV8(),
+		"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go",
 	)
 }
 
@@ -50,6 +84,17 @@ type runtimeDependencyLock struct {
 	Paths         map[string]string `json:"paths"`
 	BuildMode     string            `json:"build_mode"`
 	CacheScope    string            `json:"cache_scope"`
+}
+
+type runtimeGoModuleManifest struct {
+	Path   string `json:"path"`
+	Digest string `json:"digest"`
+}
+
+type runtimeDependencyIdentity struct {
+	SchemaVersion     uint32                    `json:"schema_version"`
+	LockDigest        string                    `json:"lock_digest"`
+	GoModuleManifests []runtimeGoModuleManifest `json:"go_module_manifests"`
 }
 
 type runtimeToolchainLock struct {
@@ -96,6 +141,40 @@ func ResolveRuntimeDependencyBuild(entries []sourceexport.TreeEntry, platform st
 	if err := verifyRuntimeDependencyInputs(byPath, lock); err != nil {
 		return "", nil, err
 	}
+	return resolveRuntimeDependencyBuildFromLock(entries, byPath, lock, platform)
+}
+
+// ResolveBaselineRuntimeDependencyBuild 校验已验收 main 的历史依赖锁，并返回基线刷新参数。
+func ResolveBaselineRuntimeDependencyBuild(entries []sourceexport.TreeEntry, platform string) (string, []string, string, error) {
+	if !validRuntimePlatform(platform) {
+		return "", nil, "", errors.New("runtime dependency platform is invalid")
+	}
+	byPath := runtimeTreeByPath(entries)
+	lock, err := decodeRuntimeDependencyLock(byPath)
+	if err != nil {
+		return "", nil, "", err
+	}
+	paths, err := acceptedRuntimeDependencyPaths(lock.SchemaVersion)
+	if err != nil {
+		return "", nil, "", err
+	}
+	if len(lock.Inputs) != len(paths) {
+		return "", nil, "", errors.New("accepted runtime dependency lock shape is invalid")
+	}
+	if err := verifyRuntimeDependencyInputs(byPath, lock, paths); err != nil {
+		return "", nil, "", err
+	}
+	digest, buildArgs, err := resolveRuntimeDependencyBuildFromLock(entries, byPath, lock, platform)
+	return digest, buildArgs, lock.SchemaVersion, err
+}
+
+// resolveRuntimeDependencyBuildFromLock 由已按对应 schema 校验的锁生成统一构建身份。
+func resolveRuntimeDependencyBuildFromLock(
+	entries []sourceexport.TreeEntry,
+	byPath map[string][]byte,
+	lock runtimeDependencyLock,
+	platform string,
+) (string, []string, error) {
 	toolchain, err := loadRuntimeToolchainLock(byPath)
 	if err != nil {
 		return "", nil, err
@@ -104,43 +183,43 @@ func ResolveRuntimeDependencyBuild(entries []sourceexport.TreeEntry, platform st
 	if err != nil {
 		return "", nil, err
 	}
-	return runtimeLockDigest(lock), buildArgs, nil
+	digest, err := resolvedRuntimeDependencyDigest(lock, entries)
+	if err != nil {
+		return "", nil, err
+	}
+	return digest, buildArgs, nil
 }
 
-// ResolveAcceptedRuntimeDependencyDigest 只为已验收基线重算依赖摘要，并显式支持 v5/v6 迁移。
+// ResolveAcceptedRuntimeDependencyDigest 只为已验收基线重算依赖摘要，并显式支持 v4-v9 迁移。
 func ResolveAcceptedRuntimeDependencyDigest(entries []sourceexport.TreeEntry, platform string) (string, error) {
-	if !validRuntimePlatform(platform) {
-		return "", errors.New("runtime dependency platform is invalid")
-	}
-	byPath := runtimeTreeByPath(entries)
-	lock, err := decodeRuntimeDependencyLock(byPath)
-	if err != nil {
-		return "", err
-	}
-	paths := runtimeDependencyPaths()
-	switch lock.SchemaVersion {
+	digest, _, _, err := ResolveBaselineRuntimeDependencyBuild(entries, platform)
+	return digest, err
+}
+
+// acceptedRuntimeDependencyPaths 将已验收历史 schema 映射到各自的精确输入闭包。
+func acceptedRuntimeDependencyPaths(schemaVersion string) ([]string, error) {
+	switch schemaVersion {
+	case "4":
+		return runtimeDependencyPathsV4(), nil
+	case "9":
+		return runtimeDependencyPaths(), nil
+	case "8":
+		return runtimeDependencyPathsV8(), nil
 	case "7":
+		return runtimeDependencyPathsV7(), nil
 	case "6":
-		paths = runtimeDependencyPathsV6()
+		return runtimeDependencyPathsV6(), nil
 	case "5":
-		paths = runtimeDependencyPathsV5()
+		return runtimeDependencyPathsV5(), nil
 	default:
-		return "", errors.New("accepted runtime dependency lock schema is unsupported")
+		return nil, errors.New("accepted runtime dependency lock schema is unsupported")
 	}
-	if len(lock.Inputs) != len(paths) {
-		return "", errors.New("accepted runtime dependency lock shape is invalid")
-	}
-	if err := verifyRuntimeDependencyInputs(byPath, lock, paths); err != nil {
-		return "", err
-	}
-	toolchain, err := loadRuntimeToolchainLock(byPath)
-	if err != nil {
-		return "", err
-	}
-	if _, err := runtimeDependencyBuildArgs(toolchain, platform); err != nil {
-		return "", err
-	}
-	return runtimeLockDigest(lock), nil
+}
+
+// SupportsBaselineRuntimeDependencySchema 报告基线刷新器能否完整验证指定历史合同。
+func SupportsBaselineRuntimeDependencySchema(schemaVersion string) bool {
+	_, err := acceptedRuntimeDependencyPaths(schemaVersion)
+	return err == nil
 }
 
 // validRuntimePlatform 判断 runtime seed 的目标平台是否受锁文件支持。
@@ -163,7 +242,7 @@ func loadRuntimeDependencyLock(byPath map[string][]byte) (runtimeDependencyLock,
 	if err != nil {
 		return runtimeDependencyLock{}, err
 	}
-	if lock.SchemaVersion != "7" || len(lock.Inputs) != len(runtimeDependencyPaths()) {
+	if lock.SchemaVersion != RuntimeDependencySchemaVersion || len(lock.Inputs) != len(runtimeDependencyPaths()) {
 		return runtimeDependencyLock{}, errors.New("runtime dependency lock shape is invalid")
 	}
 	return lock, nil
@@ -192,7 +271,11 @@ func verifyRuntimeDependencyInputs(byPath map[string][]byte, lock runtimeDepende
 		if !exists {
 			return fmt.Errorf("runtime dependency input %s is missing from Git tree", path)
 		}
-		if lock.Inputs[runtimeDependencyLockField(path)] != remoteBytesDigest(data) {
+		field := runtimeDependencyLockField(lock.SchemaVersion, path)
+		if field == "" {
+			return fmt.Errorf("runtime dependency input %s has no schema %s lock field", path, lock.SchemaVersion)
+		}
+		if lock.Inputs[field] != remoteBytesDigest(data) {
 			return fmt.Errorf("runtime dependency input %s drifted from lock", path)
 		}
 	}
@@ -220,6 +303,48 @@ func runtimeLockDigest(lock runtimeDependencyLock) string {
 	}
 	sort.Strings(ordered)
 	return remoteBytesDigest([]byte(strings.Join(ordered, "\n") + "\n"))
+}
+
+// resolvedRuntimeDependencyDigest 把固定配方锁与候选树全部 Go 模块清单绑定为运行时身份。
+func resolvedRuntimeDependencyDigest(lock runtimeDependencyLock, entries []sourceexport.TreeEntry) (string, error) {
+	manifests, err := runtimeGoModuleManifests(entries)
+	if err != nil {
+		return "", err
+	}
+	payload, err := json.Marshal(runtimeDependencyIdentity{
+		SchemaVersion: 1, LockDigest: runtimeLockDigest(lock), GoModuleManifests: manifests,
+	})
+	if err != nil {
+		return "", fmt.Errorf("encode runtime dependency identity: %w", err)
+	}
+	return remoteBytesDigest(append(payload, '\n')), nil
+}
+
+// runtimeGoModuleManifests 自动索引精确候选树中的全部 go.mod 和 go.sum。
+func runtimeGoModuleManifests(entries []sourceexport.TreeEntry) ([]runtimeGoModuleManifest, error) {
+	manifests := make([]runtimeGoModuleManifest, 0)
+	seen := make(map[string]struct{})
+	hasRoot := false
+	for _, entry := range entries {
+		if !isRuntimeGoModuleManifest(entry.Path) {
+			continue
+		}
+		if _, duplicate := seen[entry.Path]; duplicate {
+			return nil, fmt.Errorf("runtime Go module manifest %q is duplicated", entry.Path)
+		}
+		seen[entry.Path] = struct{}{}
+		hasRoot = hasRoot || entry.Path == "go.mod"
+		manifests = append(manifests, runtimeGoModuleManifest{Path: entry.Path, Digest: remoteBytesDigest(entry.Data)})
+	}
+	if !hasRoot {
+		return nil, errors.New("runtime dependency tree is missing root go.mod")
+	}
+	sort.Slice(manifests, func(left, right int) bool { return manifests[left].Path < manifests[right].Path })
+	return manifests, nil
+}
+
+func isRuntimeGoModuleManifest(path string) bool {
+	return path == "go.mod" || path == "go.sum" || strings.HasSuffix(path, "/go.mod") || strings.HasSuffix(path, "/go.sum")
 }
 
 // runtimeDependencyBuildArgs 校验工具链镜像和 Sqruff 工件并生成 Docker 参数。
@@ -282,23 +407,33 @@ func boolCount(value bool) int {
 	return 0
 }
 
-func runtimeDependencyLockField(path string) string {
+func runtimeDependencyLockField(schemaVersion, path string) string {
+	if schemaVersion == "4" {
+		switch path {
+		case "build/gate/cmd/runtime-seed-manifest/main.go":
+			return "manifest_builder_sha256"
+		case "internal/devtools/gate/executor_seed.go":
+			return "manifest_api_sha256"
+		}
+	}
 	fields := map[string]string{
 		"build/gate/runtime-deps.Dockerfile": "dockerfile_sha256",
 		"build/gate/toolchain.lock":          "toolchain_lock_sha256",
 		"go.mod":                             "go_mod_sha256",
 		"go.sum":                             "go_sum_sha256",
-		"internal/devtools/nilnessrunner/runner.go":            "nilness_runner_sha256",
-		"scripts/nilness_guard.go":                             "nilness_guard_sha256",
-		"frontend-app/package-lock.json":                       "frontend_package_lock_sha256",
-		"build/gate/runtime-lsp/package-lock.json":             "lsp_package_lock_sha256",
-		"build/gate/runtime-proxy/go.mod":                      "proxy_go_mod_sha256",
-		"build/gate/runtime-proxy/go.sum":                      "proxy_go_sum_sha256",
-		"build/gate/runtime-tools/go.mod":                      "tools_go_mod_sha256",
-		"build/gate/runtime-tools/go.sum":                      "tools_go_sum_sha256",
-		"internal/devtools/gate/executor_seed.go":              "runtime_seed_worker_sha256",
-		"cmd/super-dolphin-gate/remote_refresh_seed.go":        "runtime_seed_recipe_sha256",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script.go": "runtime_seed_script_sha256",
+		"internal/devtools/nilnessrunner/runner.go":                    "nilness_runner_sha256",
+		"scripts/nilness_guard.go":                                     "nilness_guard_sha256",
+		"frontend-app/package-lock.json":                               "frontend_package_lock_sha256",
+		"build/gate/runtime-lsp/package-lock.json":                     "lsp_package_lock_sha256",
+		"build/gate/runtime-proxy/go.mod":                              "proxy_go_mod_sha256",
+		"build/gate/runtime-proxy/go.sum":                              "proxy_go_sum_sha256",
+		"build/gate/runtime-tools/go.mod":                              "tools_go_mod_sha256",
+		"build/gate/runtime-tools/go.sum":                              "tools_go_sum_sha256",
+		"internal/devtools/gate/executor_seed.go":                      "runtime_seed_worker_sha256",
+		"cmd/super-dolphin-gate/remote_refresh_seed.go":                "runtime_seed_recipe_sha256",
+		"cmd/super-dolphin-gate/remote_refresh_seed_script.go":         "runtime_seed_script_sha256",
+		"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go": "runtime_seed_script_browser_sha256",
+		"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go": "runtime_seed_script_runtime_sha256",
 	}
 	return fields[path]
 }

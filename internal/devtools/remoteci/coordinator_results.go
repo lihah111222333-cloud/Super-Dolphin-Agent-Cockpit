@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
@@ -157,6 +158,99 @@ func remoteDurationSample(
 		},
 		Succeeded: execution.Status == gate.ResultStatusPassed, DurationMS: duration,
 	}
+}
+
+type remoteCalibrationParentSample struct {
+	workload   gate.Workload
+	succeeded  bool
+	durationMS int64
+}
+
+// remoteCalibrationParentDurationSamples 将校准分片的完整逐测试结果聚合为可比较的包级时长事实。
+func remoteCalibrationParentDurationSamples(
+	catalog gate.WorkloadCatalog,
+	observed map[string]gate.PlanGateExecution,
+	input RunInput,
+) ([]gate.DurationSample, error) {
+	if !input.Calibration {
+		return nil, nil
+	}
+	parents := make(map[string]*remoteCalibrationParentSample)
+	for _, workload := range catalog.Workloads {
+		parent, targeted, err := remoteCalibrationGoTestParent(workload)
+		if err != nil {
+			return nil, err
+		}
+		if !targeted {
+			continue
+		}
+		execution, ok := observed[workload.ID]
+		if !ok {
+			return nil, fmt.Errorf("remote CI calibration child %q has no terminal execution", workload.ID)
+		}
+		if err := addRemoteCalibrationParentExecution(parents, parent, execution); err != nil {
+			return nil, err
+		}
+	}
+	return remoteCalibrationParentSamples(parents, input), nil
+}
+
+func remoteCalibrationGoTestParent(workload gate.Workload) (gate.Workload, bool, error) {
+	_, kind, _, targeted, err := gate.ParseWorkloadID(workload.ID)
+	if err != nil {
+		return gate.Workload{}, false, err
+	}
+	if !targeted || kind != gate.WorkloadTargetGoTest {
+		return gate.Workload{}, false, nil
+	}
+	parent, err := remoteGoTestDurationParent(workload)
+	return parent, true, err
+}
+
+func addRemoteCalibrationParentExecution(
+	parents map[string]*remoteCalibrationParentSample,
+	parent gate.Workload,
+	execution gate.PlanGateExecution,
+) error {
+	key := parent.ID + "\x00" + parent.CommandDigest
+	aggregate := parents[key]
+	if aggregate == nil {
+		aggregate = &remoteCalibrationParentSample{workload: parent, succeeded: true}
+		parents[key] = aggregate
+	}
+	duration := execution.CompletedAt.Sub(execution.StartedAt).Milliseconds()
+	if duration <= 0 {
+		duration = 1
+	}
+	if aggregate.durationMS > math.MaxInt64-duration {
+		return fmt.Errorf("remote CI calibration parent %q duration overflows", parent.ID)
+	}
+	aggregate.durationMS += duration
+	aggregate.succeeded = aggregate.succeeded && execution.Status == gate.ResultStatusPassed
+	return nil
+}
+
+func remoteCalibrationParentSamples(
+	parents map[string]*remoteCalibrationParentSample,
+	input RunInput,
+) []gate.DurationSample {
+	keys := make([]string, 0, len(parents))
+	for key := range parents {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	samples := make([]gate.DurationSample, 0, len(keys))
+	for _, key := range keys {
+		aggregate := parents[key]
+		samples = append(samples, gate.DurationSample{
+			Bucket: gate.DurationBucket{
+				WorkloadID: aggregate.workload.ID, CommandDigest: aggregate.workload.CommandDigest,
+				Platform: input.Platform, Runner: input.RunnerIdentityDigest, Toolchain: input.ToolchainDigest,
+			},
+			Succeeded: aggregate.succeeded, DurationMS: aggregate.durationMS,
+		})
+	}
+	return samples
 }
 
 // remoteOptimizationWarnings 把超过 100 秒的实际 workload 转成非阻断优化告警。

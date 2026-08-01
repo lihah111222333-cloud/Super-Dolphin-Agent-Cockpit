@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	remoteWorkloadCacheSchemaVersion                  = 2
+	remoteWorkloadCacheSchemaVersion                  = 3
 	remoteWorkloadCacheEnvironmentSchemaVersion       = 4
 	remoteWorkloadCacheLegacyEnvironmentSchemaVersion = 2
 	remoteWorkloadCacheHeader                         = "SUPER_DOLPHIN_REMOTE_WORKLOAD_CACHE"
@@ -31,7 +31,51 @@ type remoteWorkloadCacheEntry struct {
 	environmentDigest string
 	identityDigest    string
 	prefix            string
+	receiptPrefix     string
 	key               string
+	receiptKey        string
+	receiptNonce      string
+	provenance        remoteWorkloadCacheProvenance
+}
+
+// remoteWorkloadCacheProvenance records the exact execution context without
+// making coordinator-only refreshes part of the reusable PASS identity.
+type remoteWorkloadCacheProvenance struct {
+	commit               string
+	tree                 string
+	profile              string
+	entrypoint           string
+	runnerImage          string
+	runnerIdentityDigest string
+	runnerConfigDigest   string
+	gateBinarySHA256     string
+	runtimeSeedSHA256    string
+	policyDigest         string
+	baselineManifest     string
+	anchorGeneration     uint64
+	anchorManifest       string
+	anchorCommit         string
+	anchorTree           string
+}
+
+func remoteWorkloadCacheProvenanceForInput(input RunInput) remoteWorkloadCacheProvenance {
+	return remoteWorkloadCacheProvenance{
+		commit:               input.Commit,
+		tree:                 input.Tree,
+		profile:              string(input.Profile),
+		entrypoint:           string(input.Entrypoint),
+		runnerImage:          input.RunnerImage,
+		runnerIdentityDigest: input.RunnerIdentityDigest,
+		runnerConfigDigest:   input.RunnerConfigDigest,
+		gateBinarySHA256:     input.GateBinarySHA256,
+		runtimeSeedSHA256:    input.RuntimeSeedSHA256,
+		policyDigest:         input.PolicyDigest,
+		baselineManifest:     input.BaselineManifestDigest,
+		anchorGeneration:     input.AnchorGeneration,
+		anchorManifest:       input.AnchorManifest,
+		anchorCommit:         input.AnchorCommit,
+		anchorTree:           input.AnchorTree,
+	}
 }
 
 // remoteWorkloadCacheEntries 为每个 workload 生成内容寻址的通过缓存对象身份。
@@ -45,7 +89,9 @@ func remoteWorkloadCacheEntries(
 	if err != nil {
 		return nil, err
 	}
-	return remoteWorkloadCacheEntriesForEnvironment(prefix, workloads, inputDigests, environmentDigest)
+	return remoteWorkloadCacheEntriesForEnvironment(
+		prefix, workloads, inputDigests, environmentDigest, remoteWorkloadCacheProvenanceForInput(input),
+	)
 }
 
 func remoteWorkloadCacheEntriesForEnvironment(
@@ -53,8 +99,10 @@ func remoteWorkloadCacheEntriesForEnvironment(
 	workloads []gate.Workload,
 	inputDigests map[string]string,
 	environmentDigest string,
+	provenance remoteWorkloadCacheProvenance,
 ) ([]remoteWorkloadCacheEntry, error) {
 	environmentPrefix := prefix + strings.TrimPrefix(environmentDigest, "sha256:") + "/"
+	receiptPrefix := remoteWorkloadCacheReceiptPrefix(prefix, environmentDigest)
 	entries := make([]remoteWorkloadCacheEntry, len(workloads))
 	for index, workload := range workloads {
 		inputDigest, ok := inputDigests[workload.ID]
@@ -66,12 +114,17 @@ func remoteWorkloadCacheEntriesForEnvironment(
 			return nil, err
 		}
 		identityDigest := remoteWorkloadCacheIdentityDigest(environmentDigest, executionDigest, inputDigest)
-		entries[index] = remoteWorkloadCacheEntry{
+		entry := remoteWorkloadCacheEntry{
 			workloadID: workload.ID, executionDigest: executionDigest, inputDigest: inputDigest,
 			environmentDigest: environmentDigest, identityDigest: identityDigest,
-			prefix: environmentPrefix,
-			key:    environmentPrefix + strings.TrimPrefix(identityDigest, "sha256:") + ".pass",
+			prefix:        environmentPrefix,
+			receiptPrefix: receiptPrefix,
+			key:           environmentPrefix + strings.TrimPrefix(identityDigest, "sha256:") + ".pass",
+			receiptNonce:  remoteWorkloadCacheDefaultReceiptNonce(identityDigest),
+			provenance:    provenance,
 		}
+		entry.receiptKey = remoteWorkloadCacheReceiptKey(entry, remoteWorkloadCacheReceiptDigest(entry))
+		entries[index] = entry
 	}
 	return entries, nil
 }
@@ -94,13 +147,17 @@ func remoteWorkloadCacheEntriesForExistingEntries(
 	environmentDigest string,
 ) []remoteWorkloadCacheEntry {
 	environmentPrefix := prefix + strings.TrimPrefix(environmentDigest, "sha256:") + "/"
+	receiptPrefix := remoteWorkloadCacheReceiptPrefix(prefix, environmentDigest)
 	projected := make([]remoteWorkloadCacheEntry, len(entries))
 	for index, entry := range entries {
 		identityDigest := remoteWorkloadCacheIdentityDigest(environmentDigest, entry.executionDigest, entry.inputDigest)
 		entry.environmentDigest = environmentDigest
 		entry.identityDigest = identityDigest
 		entry.prefix = environmentPrefix
+		entry.receiptPrefix = receiptPrefix
 		entry.key = environmentPrefix + strings.TrimPrefix(identityDigest, "sha256:") + ".pass"
+		entry.receiptNonce = remoteWorkloadCacheDefaultReceiptNonce(identityDigest)
+		entry.receiptKey = remoteWorkloadCacheReceiptKey(entry, remoteWorkloadCacheReceiptDigest(entry))
 		projected[index] = entry
 	}
 	return projected
@@ -113,8 +170,6 @@ func remoteWorkloadCacheEnvironmentDigest(input RunInput) (string, error) {
 	var material []byte
 	material = appendRemoteWorkloadCacheField(material, "schema", strconv.Itoa(remoteWorkloadCacheEnvironmentSchemaVersion))
 	material = appendRemoteWorkloadCacheField(material, "platform", input.Platform)
-	material = appendRemoteWorkloadCacheField(material, "runner-image", input.RunnerImage)
-	material = appendRemoteWorkloadCacheField(material, "worker-execution", input.RunnerIdentityDigest)
 	material = appendRemoteWorkloadCacheField(material, "toolchain", input.ToolchainDigest)
 	sum := sha256.Sum256(material)
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
@@ -159,6 +214,11 @@ func remoteWorkloadCacheIdentityDigest(environmentDigest string, executionDigest
 	material = appendRemoteWorkloadCacheField(material, "execution", executionDigest)
 	material = appendRemoteWorkloadCacheField(material, "input", inputDigest)
 	sum := sha256.Sum256(material)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func remoteWorkloadCacheDefaultReceiptNonce(identityDigest string) string {
+	sum := sha256.Sum256([]byte("remote-workload-cache-receipt-default\n" + identityDigest))
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
@@ -226,9 +286,6 @@ func loadPassedWorkloadCacheWithLegacy(
 		if err != nil {
 			return nil, err
 		}
-		if err := promoteLegacyPassedWorkloadCache(ctx, store, entries, fallbackCached); err != nil {
-			return nil, err
-		}
 		maps.Copy(cached, fallbackCached)
 	}
 	return cached, nil
@@ -263,6 +320,16 @@ func validateRemoteWorkloadCacheEntries(entries []remoteWorkloadCacheEntry) (str
 		}
 		if entry.key != entry.prefix+strings.TrimPrefix(entry.identityDigest, "sha256:")+".pass" {
 			return "", fmt.Errorf("remote workload cache entry %q key does not match its identity", entry.workloadID)
+		}
+		expectedReceiptPrefix := remoteWorkloadCacheReceiptPrefix(
+			strings.TrimSuffix(entry.prefix, strings.TrimPrefix(entry.environmentDigest, "sha256:")+"/"),
+			entry.environmentDigest,
+		)
+		if entry.receiptPrefix != expectedReceiptPrefix {
+			return "", fmt.Errorf("remote workload cache entry %q receipt prefix does not match its environment", entry.workloadID)
+		}
+		if entry.receiptKey != "" && entry.receiptKey != remoteWorkloadCacheReceiptKey(entry, remoteWorkloadCacheReceiptDigest(entry)) {
+			return "", fmt.Errorf("remote workload cache entry %q receipt key does not match its identity", entry.workloadID)
 		}
 		if err := validateRemoteWorkloadCacheKey(entry.prefix, entry.key); err != nil {
 			return "", err

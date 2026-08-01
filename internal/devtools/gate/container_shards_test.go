@@ -533,12 +533,11 @@ func successfulShardReceipts(t *testing.T, set ContainerShardSet) []ContainerSha
 			HostConfigDigest: shardTestDigest('c'), ResourceWitness: witness, ResourceWitnessDigest: receipt.ResourceWitnessDigest,
 			NetworkPolicyDigest: shardTestDigest('e'), Removed: true, NetworkRemoved: true}
 		for _, id := range shard.GateIDs {
-			log := []byte("passed " + string(id))
 			argvDigest, err := canonicalGateArgvDigest(set.Profile, id)
 			if err != nil {
 				t.Fatal(err)
 			}
-			receipt.GateExecutions = append(receipt.GateExecutions, PlanGateExecution{GateID: id, Status: ResultStatusPassed, ExitCode: 0, StartedAt: startedAt, CompletedAt: startedAt.Add(time.Second), ArgvDigest: argvDigest, Log: log, LogDigest: digestPlanLog(log)})
+			receipt.GateExecutions = append(receipt.GateExecutions, PlanGateExecution{GateID: id, Status: ResultStatusPassed, ExitCode: 0, StartedAt: startedAt, CompletedAt: startedAt.Add(time.Second), ArgvDigest: argvDigest, LogDigest: digestPlanLog(nil)})
 		}
 		receipts[index] = receipt
 	}

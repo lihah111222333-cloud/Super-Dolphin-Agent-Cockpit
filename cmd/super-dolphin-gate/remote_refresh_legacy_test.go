@@ -71,6 +71,40 @@ func TestLoadRemoteBaselineStateForRefreshKeepsCurrentSchemaStrict(t *testing.T)
 	}
 }
 
+func TestLoadRemoteBaselineStateForRefreshMigratesPreviousSchemaForRebuild(t *testing.T) {
+	config := remoteLegacyBaselineTestConfig()
+	path := filepath.Join(t.TempDir(), "baseline-state.json")
+	previous := remoteBaselineStateFixture()
+	previous.SchemaVersion = remoteci.BaselineStatePreviousSchemaVersion
+	previous.SourceHistoryVersion = 0
+	data, err := json.Marshal(previous)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire map[string]json.RawMessage
+	if err := json.Unmarshal(data, &wire); err != nil {
+		t.Fatal(err)
+	}
+	delete(wire, "source_history_version")
+	data, err = json.Marshal(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	accepted, migration, err := loadRemoteBaselineStateForRefresh(path, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if migration != nil ||
+		accepted.SchemaVersion != remoteci.BaselineStateSchemaVersion ||
+		accepted.SourceHistoryVersion != 0 {
+		t.Fatalf("accepted = %#v, migration = %#v", accepted, migration)
+	}
+}
+
 func TestLoadRemoteBaselineStateForRefreshRejectsLegacyResourceDrift(t *testing.T) {
 	config := remoteLegacyBaselineTestConfig()
 	path := filepath.Join(t.TempDir(), "baseline-state.json")

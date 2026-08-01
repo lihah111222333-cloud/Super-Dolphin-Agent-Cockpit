@@ -21,7 +21,7 @@ func loadSQLiteMetadata(database sqliteRowQueryer) (DurationLedgerSnapshot, erro
 		WHERE singleton = 1
 	`).Scan(&schemaVersion, &generationText, &version)
 	if errors.Is(err, sql.ErrNoRows) {
-		return DurationLedgerSnapshot{}, errors.New("duration ledger SQLite metadata is missing")
+		return DurationLedgerSnapshot{}, ErrDurationLedgerMetadataMissing
 	}
 	if err != nil {
 		return DurationLedgerSnapshot{}, mapDurationLedgerSQLiteError("load duration ledger SQLite metadata", err)

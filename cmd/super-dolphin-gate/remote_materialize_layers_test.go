@@ -14,6 +14,23 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
+func TestProtectRemoteExpandedBaselineRootRemovesWritePermissions(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := protectRemoteExpandedBaselineRoot(root); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if permissions := info.Mode().Perm(); permissions != 0o555 {
+		t.Fatalf("expanded root permissions = %o, want 555", permissions)
+	}
+}
+
 func TestVerifyRemoteDeltaManifestBindsRequestedTransition(t *testing.T) {
 	delta := remoteci.BaselineDeltaLayer{
 		Generation: 12, ObjectPrefix: "baseline-artifacts/deltas/12",

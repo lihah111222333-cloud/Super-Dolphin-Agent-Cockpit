@@ -471,6 +471,7 @@ func assertProductionCoordinatorConfigFields(t *testing.T) {
 		"TrustedSourceRoot":          "snapshot mount boundary", "SeccompProfile": "container policy",
 		"Platform": "image platform", "RepoID": "repository identity", "TrustedRef": "admission ref",
 		"TrustedRepository": "external bare mirror", "AcceptedImageSigners": "signature trust root",
+		"GitExecutable":          "pinned system Git executable",
 		"ResultReceiptAuthority": "result receipt authority",
 		"ActionGrantAuthority":   "single-use action authority",
 		"PromotionSigner":        "host signing authority", "CandidateTTLSeconds": "candidate expiry",

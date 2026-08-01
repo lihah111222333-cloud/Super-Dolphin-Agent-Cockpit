@@ -1,6 +1,8 @@
 package localci
 
 import (
+	"encoding/json"
+	"errors"
 	"reflect"
 	"slices"
 	"strings"
@@ -9,6 +11,80 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
 )
+
+func TestResolveBaselineGateCompileInputsAcceptsHistoricalRuntimeLock(t *testing.T) {
+	entries := candidateEntries(validCandidateDockerfile())
+	current := mustResolveGateImageInputs(t, readOnlyImageTree(t, entries))
+	baseline, err := ResolveBaselineGateCompileInputs(readOnlyImageTree(t, entries), "linux/arm64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if baseline.GateSourceDigest != current.GateSourceDigest || baseline.ToolchainDigest != current.ToolchainDigest {
+		t.Fatalf("current baseline compile inputs = %+v, want gate=%s toolchain=%s", baseline, current.GateSourceDigest, current.ToolchainDigest)
+	}
+
+	for index := range entries {
+		if entries[index].Path != runtimeDepsLockPath {
+			continue
+		}
+		var lock map[string]any
+		if err := json.Unmarshal(entries[index].Data, &lock); err != nil {
+			t.Fatal(err)
+		}
+		lock["schema_version"] = "8"
+		delete(lock["inputs"].(map[string]any), "runtime_seed_script_browser_sha256")
+		data, err := json.Marshal(lock)
+		if err != nil {
+			t.Fatal(err)
+		}
+		entries[index] = contextEntry(runtimeDepsLockPath, entries[index].Mode, string(append(data, '\n')))
+	}
+	historicalTree := readOnlyImageTree(t, entries)
+	if _, err := ResolveGateImageInputs(historicalTree, digest("d"), "linux/arm64"); err == nil {
+		t.Fatal("current image resolver accepted a historical runtime lock")
+	}
+	historical, err := ResolveBaselineGateCompileInputs(historicalTree, "linux/arm64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if historical != baseline {
+		t.Fatalf("historical baseline compile inputs = %+v, want %+v", historical, baseline)
+	}
+}
+
+func TestResolveBaselineGateCompileInputsAcceptsHistoricalInputManifestV1(t *testing.T) {
+	entries := candidateEntries(validCandidateDockerfile())
+	for index := range entries {
+		if entries[index].Path != buildInputManifestPath {
+			continue
+		}
+		var manifest map[string]any
+		if err := json.Unmarshal(entries[index].Data, &manifest); err != nil {
+			t.Fatal(err)
+		}
+		manifest["schema_version"] = baselineBuildInputManifestSchemaVersion
+		delete(manifest, "gate_compile_inputs")
+		data, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		entries[index] = contextEntry(buildInputManifestPath, entries[index].Mode, string(append(data, '\n')))
+	}
+	tree := readOnlyImageTree(t, entries)
+	if _, err := ResolveGateImageInputs(tree, digest("d"), "linux/arm64"); err == nil {
+		t.Fatal("current image resolver accepted schema 1 build input manifest")
+	}
+	baseline, err := ResolveBaselineGateCompileInputs(tree, "linux/arm64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := errors.Join(
+		validateDigest("historical gate source digest", baseline.GateSourceDigest),
+		validateDigest("historical toolchain digest", baseline.ToolchainDigest),
+	); err != nil {
+		t.Fatalf("historical baseline compile inputs = %+v: %v", baseline, err)
+	}
+}
 
 func TestResolveGateImageInputsIsDeterministicAndIgnoresOrdinarySource(t *testing.T) {
 	baseEntries := candidateEntries(validCandidateDockerfile())

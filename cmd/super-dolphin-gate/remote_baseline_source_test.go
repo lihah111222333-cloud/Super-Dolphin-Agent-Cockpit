@@ -12,6 +12,7 @@ import (
 
 func TestBuildRemoteBaselineSourceArtifactFullThenDelta(t *testing.T) {
 	repository := initRemoteBaselineSourceRepository(t)
+	ancestorCommit, _ := commitRemoteBaselineSourceFile(t, repository, "ancestor\n")
 	firstCommit, firstTree := commitRemoteBaselineSourceFile(t, repository, "first\n")
 	full := requireRemoteBaselineSourceArtifact(t,
 		context.Background(),
@@ -24,12 +25,18 @@ func TestBuildRemoteBaselineSourceArtifactFullThenDelta(t *testing.T) {
 	materialized := filepath.Join(t.TempDir(), "materialized")
 	materializeRemoteBaselineFullBundle(t, full, materialized)
 	assertRemoteBaselineSourceIdentity(t, materialized, firstCommit, firstTree)
+	runRemoteBaselineTestGit(t, materialized, "cat-file", "-e", ancestorCommit+"^{commit}")
+	runRemoteBaselineTestGit(t, materialized, "merge-base", "--is-ancestor", ancestorCommit, firstCommit)
+	if _, err := os.Stat(filepath.Join(materialized, ".git", "shallow")); !os.IsNotExist(err) {
+		t.Fatalf("full baseline materialized a shallow repository: %v", err)
+	}
 
 	secondCommit, secondTree := commitRemoteBaselineSourceFile(t, repository, "second\n")
 	accepted := remoteci.BaselineState{
-		SchemaVersion: remoteci.BaselineStateSchemaVersion,
-		MainCommit:    firstCommit,
-		MainTree:      firstTree,
+		SchemaVersion:        remoteci.BaselineStateSchemaVersion,
+		SourceHistoryVersion: remoteci.BaselineSourceHistorySchemaVersion,
+		MainCommit:           firstCommit,
+		MainTree:             firstTree,
 	}
 	delta := requireRemoteBaselineSourceArtifact(t,
 		context.Background(),
@@ -49,9 +56,10 @@ func TestBuildRemoteBaselineSourceArtifactReusesAcceptedMain(t *testing.T) {
 	repository := initRemoteBaselineSourceRepository(t)
 	commit, tree := commitRemoteBaselineSourceFile(t, repository, "same\n")
 	accepted := remoteci.BaselineState{
-		SchemaVersion: remoteci.BaselineStateSchemaVersion,
-		MainCommit:    commit,
-		MainTree:      tree,
+		SchemaVersion:        remoteci.BaselineStateSchemaVersion,
+		SourceHistoryVersion: remoteci.BaselineSourceHistorySchemaVersion,
+		MainCommit:           commit,
+		MainTree:             tree,
 	}
 	artifact := requireRemoteBaselineSourceArtifact(t,
 		context.Background(),
@@ -67,6 +75,26 @@ func TestBuildRemoteBaselineSourceArtifactReusesAcceptedMain(t *testing.T) {
 		artifact.Manifest.BundleSize != 0 {
 		t.Fatalf("reuse artifact = %#v", artifact)
 	}
+}
+
+func TestBuildRemoteBaselineSourceArtifactRebuildsLegacyHistoryAtSameMain(t *testing.T) {
+	repository := initRemoteBaselineSourceRepository(t)
+	commit, tree := commitRemoteBaselineSourceFile(t, repository, "same\n")
+	accepted := remoteci.BaselineState{
+		SchemaVersion:        remoteci.BaselineStateSchemaVersion,
+		SourceHistoryVersion: 0,
+		MainCommit:           commit,
+		MainTree:             tree,
+	}
+	artifact := requireRemoteBaselineSourceArtifact(t,
+		context.Background(),
+		repository,
+		accepted,
+		remoteci.BaselineIdentity{MainCommit: commit, MainTree: tree},
+		t.TempDir(),
+	)
+
+	assertRemoteBaselineFullArtifact(t, artifact)
 }
 
 func initRemoteBaselineSourceRepository(t *testing.T) string {
@@ -96,13 +124,6 @@ func materializeRemoteBaselineFullBundle(
 ) {
 	t.Helper()
 	runRemoteBaselineTestGit(t, t.TempDir(), "clone", "--quiet", "--no-checkout", artifact.BundlePath, destination)
-	if err := os.WriteFile(
-		filepath.Join(destination, ".git", "shallow"),
-		[]byte(artifact.Manifest.TargetCommit+"\n"),
-		0o600,
-	); err != nil {
-		t.Fatal(err)
-	}
 	runRemoteBaselineTestGit(t, destination, "checkout", "--quiet", "--detach", artifact.Manifest.TargetCommit)
 	runRemoteBaselineTestGit(t, destination, "remote", "remove", "origin")
 	runRemoteBaselineTestGit(t, destination, "fsck", "--full")

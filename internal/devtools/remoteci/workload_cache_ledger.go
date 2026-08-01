@@ -57,9 +57,7 @@ func loadPassedWorkloadCacheWithSQLite(
 		if err != nil {
 			return nil, err
 		}
-		if err := promoteLegacyPassedWorkloadCache(ctx, store, entries, fallbackCached); err != nil {
-			return nil, err
-		}
+		// 兼容证据只迁移到 SQLite；没有当前 receipt 时不得发布新的 OSS marker。
 		maps.Copy(cached, fallbackCached)
 		if err := recordPassedWorkloadCacheProofs(
 			ledgerStore,
@@ -150,7 +148,6 @@ func lookupPassedWorkloadCacheProofsWithSQLite(
 // validRemoteWorkloadPassProof rejects stale or corrupt SQLite projections before cache reuse.
 func validRemoteWorkloadPassProof(entry remoteWorkloadCacheEntry, proof gate.WorkloadPassProof) bool {
 	return proof.IdentityDigest == entry.identityDigest &&
-		proof.WorkloadID == entry.workloadID &&
 		proof.ExecutionDigest == entry.executionDigest &&
 		proof.InputDigest == entry.inputDigest &&
 		proof.EnvironmentDigest == entry.environmentDigest &&

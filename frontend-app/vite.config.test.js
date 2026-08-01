@@ -8,6 +8,8 @@ import {
   ATH_SOURCE_ROOT_HEADER,
   agenticHarnessIdentityPlugin,
   createFrontendViteConfig,
+  validateVitestSuitePolicy,
+  VITEST_SUITE_POLICY,
 } from './vite.config.js';
 
 const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
@@ -102,10 +104,15 @@ describe('frontend vite watch config', () => {
 
 describe('frontend unit test discovery', () => {
   it('keeps benchmark and performance scorer suites out of the default unit gate', () => {
-    expect(createFrontendViteConfig({}).test.exclude).toEqual(expect.arrayContaining([
-      '**/scripts/**/*benchmark.test.*',
-      '**/scripts/**/performance-*.test.*',
-    ]));
+    expect(createFrontendViteConfig({}).test.exclude).toEqual(VITEST_SUITE_POLICY.defaultExcludes);
+  });
+
+  it.each([
+    ['missing excludes', { schemaVersion: 1 }],
+    ['unknown field', { ...VITEST_SUITE_POLICY, extra: true }],
+    ['duplicate excludes', { schemaVersion: 1, defaultExcludes: ['a', 'a'] }],
+  ])('fails fast for malformed Vitest suite policy: %s', (_name, policy) => {
+    expect(() => validateVitestSuitePolicy(policy)).toThrow(/Vitest suite policy is invalid/);
   });
 });
 

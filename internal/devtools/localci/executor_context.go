@@ -170,6 +170,37 @@ func ResolveGateImageInputs(tree ReadOnlyGitTree, policyDigest string, platform 
 	}, nil
 }
 
+// ResolveBaselineGateCompileInputs 只解析已通过版本化 runtime lock 校验的历史基线编译输入。
+func ResolveBaselineGateCompileInputs(tree ReadOnlyGitTree, platform string) (BaselineGateCompileInputs, error) {
+	if err := verifyReadOnlyGitTree(tree); err != nil {
+		return BaselineGateCompileInputs{}, err
+	}
+	entriesByPath, err := indexCandidateEntries(tree.Entries)
+	if err != nil {
+		return BaselineGateCompileInputs{}, err
+	}
+	manifest, err := loadBaselineBuildInputManifest(entriesByPath)
+	if err != nil {
+		return BaselineGateCompileInputs{}, err
+	}
+	_, closureByPath, err := expandInputClosure(manifest, entriesByPath)
+	if err != nil {
+		return BaselineGateCompileInputs{}, err
+	}
+	_, lockData, err := loadToolchainLock(entriesByPath, closureByPath, platform)
+	if err != nil {
+		return BaselineGateCompileInputs{}, err
+	}
+	gateSourceDigest, err := gateCompileSourceDigest(manifest, closureByPath)
+	if err != nil {
+		return BaselineGateCompileInputs{}, err
+	}
+	return BaselineGateCompileInputs{
+		ToolchainDigest:  bytesDigest(lockData),
+		GateSourceDigest: gateSourceDigest,
+	}, nil
+}
+
 // LoadReadOnlyGitTree 从已验证 SourceSpec 的 Git object tree 读取镜像输入，不读取工作区文件。
 func LoadReadOnlyGitTree(ctx context.Context, repoRoot string, spec gate.SourceSpec) (ReadOnlyGitTree, error) {
 	if err := errors.Join(validateContext(ctx), spec.Validate(), validateCanonicalDirectory(repoRoot, false)); err != nil {

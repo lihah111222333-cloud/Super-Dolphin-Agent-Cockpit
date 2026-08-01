@@ -123,6 +123,11 @@ describe('desktop smoke command', () => {
     expect(desktopSpawnOptions(config, 'win32').detached).toBe(false);
   });
 
+  it('keeps remote crash diagnostics within the bounded failure package', () => {
+    const config = smokeConfig({ CI: 'true', GOTRACEBACK: 'all' }, '/repo/app', () => 'token', 'linux');
+    expect(desktopSpawnOptions(config, 'linux').env.GOTRACEBACK).toBe('single');
+  });
+
   it('terminates the desktop process group and any lingering descendants', async () => {
     const child = Object.assign(new EventEmitter(), {
       pid: 1234,

@@ -407,7 +407,7 @@ func validateVitestTarget(target string) error {
 	if !strings.Contains(target, ".test.") && !strings.Contains(target, ".spec.") {
 		return errors.New("Vitest workload target is not a test file")
 	}
-	if !slices.Contains([]string{".js", ".jsx", ".ts", ".tsx"}, path.Ext(target)) {
+	if !slices.Contains([]string{".js", ".jsx", ".mjs", ".ts", ".tsx"}, path.Ext(target)) {
 		return errors.New("Vitest workload target extension is unsupported")
 	}
 	return nil

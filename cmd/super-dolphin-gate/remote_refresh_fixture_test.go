@@ -11,7 +11,8 @@ func remoteBaselineStateFixture() remoteci.BaselineState {
 	created := time.Date(2026, 7, 27, 1, 0, 0, 0, time.UTC)
 	state := remoteci.BaselineState{
 		SchemaVersion: remoteci.BaselineStateSchemaVersion, Generation: 2,
-		MainCommit: repeatRemoteHex("3", 40), MainTree: repeatRemoteHex("4", 40),
+		SourceHistoryVersion: remoteci.BaselineSourceHistorySchemaVersion,
+		MainCommit:           repeatRemoteHex("3", 40), MainTree: repeatRemoteHex("4", 40),
 		Platform: "linux/arm64", PolicyDigest: "sha256:" + repeatRemoteHex("3", 64),
 		ToolchainDigest:        "sha256:" + repeatRemoteHex("4", 64),
 		RuntimeImage:           "registry.example/runtime@sha256:" + repeatRemoteHex("5", 64),

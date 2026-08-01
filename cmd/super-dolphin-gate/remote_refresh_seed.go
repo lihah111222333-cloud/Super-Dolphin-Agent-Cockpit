@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	goversion "go/version"
 	"maps"
 	"os"
 	"path/filepath"
@@ -27,6 +29,12 @@ func buildRemoteBaselineSeedRequest(
 	if !validRemoteManifestDigest(input.GateSourceDigest) {
 		return eci.SeedRequest{}, errors.New("baseline gate source digest is invalid")
 	}
+	if !goversion.IsValid(input.GoToolchain) {
+		return eci.SeedRequest{}, errors.New("baseline Go toolchain is invalid")
+	}
+	if !remoteci.SupportsBaselineRuntimeDependencySchema(input.RuntimeDependencySchemaVersion) {
+		return eci.SeedRequest{}, errors.New("baseline runtime dependency schema is invalid")
+	}
 	resources, err := remoteBaselineSeedResources(config)
 	if err != nil {
 		return eci.SeedRequest{}, err
@@ -37,8 +45,7 @@ func buildRemoteBaselineSeedRequest(
 	needsInternet := !hasAccepted || remoteBaselineSeedNeedsInternet(accepted, input)
 	request := eci.SeedRequest{
 		ContainerGroupName: remoteBaselineResourceName(generation), ContainerName: "baseline-seed",
-		ClientToken: remoteBaselineClientToken(generation, input.Identity.MainTree),
-		Resources:   resources, Command: []string{"/bin/sh"}, Args: []string{"/bootstrap/seed.sh"},
+		Resources: resources, Command: []string{"/bin/sh"}, Args: []string{"/bootstrap/seed.sh"},
 		AutoCreateEIP: needsInternet, EIPBandwidth: remoteBaselineSeedEIPBandwidth(needsInternet),
 		Environment: remoteBaselineSeedEnvironment(input, source, generation),
 		Tags:        map[string]string{"owner": "super-dolphin-ci", "generation": strconv.FormatUint(generation, 10)},
@@ -65,15 +72,35 @@ func buildRemoteBaselineSeedRequest(
 	} else {
 		request.Environment["BASELINE_STORAGE_MODE"] = remoteci.BaselineStorageModeAnchor
 	}
+	request.ClientToken, err = remoteBaselineSeedClientToken(request)
+	if err != nil {
+		return eci.SeedRequest{}, err
+	}
 	return request, nil
+}
+
+// remoteBaselineSeedClientToken 将阿里云幂等键绑定到完整、规范化的 seed 请求。
+func remoteBaselineSeedClientToken(request eci.SeedRequest) (string, error) {
+	request.ClientToken = ""
+	payload, err := json.Marshal(request)
+	if err != nil {
+		return "", fmt.Errorf("encode baseline seed idempotence identity: %w", err)
+	}
+	return remoteBaselineClientToken("seed", request.Environment["BASELINE_GENERATION"], payload), nil
 }
 
 // remoteBaselineSeedNeedsInternet 仅在没有可复用依赖或不可变运行时身份变化时申请临时 EIP。
 func remoteBaselineSeedNeedsInternet(accepted remoteci.BaselineState, input remoteBaselineRefreshInput) bool {
 	return accepted.SchemaVersion == 0 || accepted.Platform != input.Identity.Platform ||
 		accepted.ToolchainDigest != input.Identity.ToolchainDigest || accepted.RuntimeImage != input.Identity.RuntimeImage ||
+		remoteBaselineForcesRuntimeRefresh(input) ||
 		input.RuntimeDependencyDigest == "" || input.AcceptedRuntimeDependencyDigest == "" ||
 		input.RuntimeDependencyDigest != input.AcceptedRuntimeDependencyDigest
+}
+
+// remoteBaselineForcesRuntimeRefresh 禁止历史依赖合同复用当前 seed 的完整 runtime 层。
+func remoteBaselineForcesRuntimeRefresh(input remoteBaselineRefreshInput) bool {
+	return input.RuntimeDependencySchemaVersion != remoteci.RuntimeDependencySchemaVersion
 }
 
 // remoteBaselineSeedCanAppendDelta 只允许经过连续后代验证的兼容 Anchor 追加有限 Delta。
@@ -88,6 +115,9 @@ func remoteBaselineSeedCanAppendDelta(accepted remoteci.BaselineState, input rem
 // remoteBaselineSeedHasAppendableDelta 验证 Delta 追加所需的状态、源工件和依赖连续性。
 func remoteBaselineSeedHasAppendableDelta(accepted remoteci.BaselineState, input remoteBaselineRefreshInput, source remoteBaselineSourceArtifact, generation uint64) bool {
 	if accepted.Validate() != nil || source.Manifest.Mode != remoteBaselineSourceDelta {
+		return false
+	}
+	if remoteBaselineForcesRuntimeRefresh(input) {
 		return false
 	}
 	if generation <= accepted.Generation || len(accepted.DeltaRefs()) >= remoteBaselineDeltaLimit {
@@ -138,6 +168,7 @@ func remoteBaselineSeedEnvironment(input remoteBaselineRefreshInput, source remo
 		"BASELINE_MAIN_TREE": input.Identity.MainTree, "BASELINE_PLATFORM": input.Identity.Platform,
 		"BASELINE_POLICY_DIGEST": input.Identity.PolicyDigest, "BASELINE_TOOLCHAIN_DIGEST": input.Identity.ToolchainDigest,
 		"BASELINE_GATE_SOURCE_SHA256": input.GateSourceDigest,
+		"BASELINE_GO_TOOLCHAIN":       input.GoToolchain,
 		"BASELINE_RUNTIME_IMAGE":      input.Identity.RuntimeImage, "BASELINE_SOURCE_MODE": string(source.Manifest.Mode),
 		"BASELINE_SOURCE_BASE_COMMIT": source.Manifest.BaseCommit, "BASELINE_SOURCE_BASE_TREE": source.Manifest.BaseTree,
 		"BASELINE_SOURCE_BUNDLE_SHA256":   source.Manifest.BundleSHA256,
@@ -145,6 +176,7 @@ func remoteBaselineSeedEnvironment(input remoteBaselineRefreshInput, source remo
 		"BASELINE_SOURCE_MANIFEST_SHA256": source.ManifestSHA256,
 		"BASELINE_SEED_SCRIPT_SHA256":     digestBytes([]byte(remoteBaselineSeedScript)),
 		"BASELINE_SEED_SCRIPT_SIZE":       strconv.Itoa(len(remoteBaselineSeedScript)),
+		"BASELINE_FORCE_RUNTIME_REFRESH":  strconv.FormatBool(remoteBaselineForcesRuntimeRefresh(input)),
 		"BASELINE_STORAGE_MODE":           remoteci.BaselineStorageModeAnchor,
 		"BASELINE_SQRUFF_SHA256":          input.SqruffSHA256,
 	}

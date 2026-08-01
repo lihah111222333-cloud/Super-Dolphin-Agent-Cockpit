@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS } from './frontend-execution-closure.mjs';
+import { FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS, installSubjectFrontendDependencies } from './frontend-execution-closure.mjs';
 import {
   DESKTOP_FAILURE_CASE_IDS,
   DESKTOP_FAILURE_REPORT_REQUIREMENTS,
@@ -2624,15 +2624,10 @@ export async function probeResult(probe, { repoRoot = frozenRepoRoot, subjectSha
 async function installDetachedDependencies(detachedAppRoot) {
   const detachedNodeModules = path.join(detachedAppRoot, 'node_modules');
   if (fs.existsSync(detachedNodeModules)) fail('detached SUBJECT already contains node_modules before immutable dependency installation');
-  const plan = dependencyInstallPlan(dependencyIntegrity, currentDependencyEnvironment());
-  const result = await commandResult(plan.command, plan.args, {
-    cwd: detachedAppRoot,
-    env: process.env,
-    timeoutMs: 180_000,
-  });
-  if (result.exitCode !== 0 || result.signal || result.timedOut || result.error) {
-    const output = `${result.stdout || ''}${result.stderr || ''}`.trim();
-    fail(`immutable detached dependency installation failed: ${output.slice(-1200) || result.error?.message || `exit ${result.exitCode}`}`);
+  try {
+    installSubjectFrontendDependencies(detachedAppRoot, frozenAppRoot);
+  } catch (error) {
+    fail(`immutable detached dependency installation failed: ${error instanceof Error ? error.message : String(error)}`);
   }
   assertImmutableDependencies(detachedAppRoot);
 }

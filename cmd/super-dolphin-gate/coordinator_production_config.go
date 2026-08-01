@@ -34,6 +34,7 @@ type productionCoordinatorConfig struct {
 	RepoID                     string                                 `json:"repo_id"`
 	TrustedRef                 string                                 `json:"trusted_ref"`
 	TrustedRepository          string                                 `json:"trusted_repository" production_path:"true"`
+	GitExecutable              string                                 `json:"git_executable"`
 	AcceptedImageSigners       []productionTrustedKey                 `json:"accepted_image_signers"`
 	PromotionSigner            productionPromotionKey                 `json:"promotion_signer"`
 	ResultReceiptAuthority     productionResultReceiptAuthorityConfig `json:"result_receipt_authority"`
@@ -308,6 +309,9 @@ func (config productionCoordinatorConfig) validatePaths() error {
 		}
 	}
 	if err := config.validateAuthorityFiles(); err != nil {
+		return err
+	}
+	if _, err := canonicalProductionGitExecutable(config.GitExecutable); err != nil {
 		return err
 	}
 	return config.validateAuthorityFilesOutsideRoots()

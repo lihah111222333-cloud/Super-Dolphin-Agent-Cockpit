@@ -37,14 +37,20 @@ describe('frontend hook test runner', () => {
 
   it('fails closed and terminates peer lanes after a command failure', async () => {
     const terminations = [];
+    const stdoutOutput = [];
+    const stderrOutput = [];
     await expect(runFrontendHookTests({
       runCommand: async (_command, args) => args.at(-1) === 'test:hook:core'
-        ? { ...success, status: 1, stderr: 'core failed' }
+        ? { ...success, status: 1, stdout: 'FAIL src/example.test.js > suite > case', stderr: 'core failed' }
         : success,
       terminate: (signal) => terminations.push(signal),
-      stdout: { write() {} },
-      stderr: { write() {} },
+      stdout: { write: (value) => stdoutOutput.push(value) },
+      stderr: { write: (value) => stderrOutput.push(value) },
     })).rejects.toThrow('core (status=1');
     expect(terminations).toEqual(['SIGTERM']);
+    expect(stdoutOutput).not.toContain(expect.stringContaining('FAIL src/example.test.js'));
+    expect(stderrOutput.at(-1)).toContain(
+      '[frontend-hook:core:failure-summary]\nFAIL src/example.test.js > suite > case\ncore failed',
+    );
   });
 });

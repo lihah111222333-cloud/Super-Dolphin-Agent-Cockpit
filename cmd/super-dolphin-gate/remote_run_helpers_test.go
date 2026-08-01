@@ -44,7 +44,7 @@ func remoteRunBaselineState(t *testing.T, repository string) remoteci.BaselineSt
 }
 
 func remoteRunRunnerIdentityState() remoteci.BaselineState {
-	return remoteci.BaselineState{Platform: "linux/arm64", PolicyDigest: "sha256:" + strings.Repeat("b", 64), ToolchainDigest: "sha256:" + strings.Repeat("c", 64), RuntimeImage: "registry.example/runtime@sha256:" + strings.Repeat("a", 64), GateBinarySHA256: "sha256:" + strings.Repeat("e", 64), RuntimeSeedSHA256: "sha256:" + strings.Repeat("1", 64), BaselineManifestDigest: "sha256:" + strings.Repeat("d", 64)}
+	return remoteci.BaselineState{SourceHistoryVersion: remoteci.BaselineSourceHistorySchemaVersion, Platform: "linux/arm64", PolicyDigest: "sha256:" + strings.Repeat("b", 64), ToolchainDigest: "sha256:" + strings.Repeat("c", 64), RuntimeImage: "registry.example/runtime@sha256:" + strings.Repeat("a", 64), GateBinarySHA256: "sha256:" + strings.Repeat("e", 64), RuntimeSeedSHA256: "sha256:" + strings.Repeat("1", 64), BaselineManifestDigest: "sha256:" + strings.Repeat("d", 64)}
 }
 
 func remoteRunRunnerIdentity(state remoteci.BaselineState) string {
@@ -69,15 +69,55 @@ func initRemoteRunGitFixture(t *testing.T) string {
 	if err := os.WriteFile(filepath.Join(repository, "go.mod"), []byte("module example.com/remote-run-fixture\n\ngo 1.26\n"), 0o600); err != nil {
 		t.Fatalf("write Git fixture go.mod: %v", err)
 	}
+	writeRemoteRunGateCompileFixture(t, repository)
+	writeRemoteRunVitestPolicyFixture(t, repository)
 	for index, contents := range []string{"base\n", "head\n"} {
 		path := filepath.Join(repository, "fixture.txt")
 		if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 			t.Fatalf("write Git fixture %d: %v", index, err)
 		}
-		runRemoteRunGit(t, repository, "add", "fixture.txt", "go.mod")
+		runRemoteRunGit(t, repository, "add", ".")
 		runRemoteRunGit(t, repository, "commit", "--quiet", "-m", "测试提交")
 	}
 	return repository
+}
+
+func writeRemoteRunGateCompileFixture(t *testing.T, repository string) {
+	t.Helper()
+	files := map[string]string{
+		"build/gate/Dockerfile": "FROM scratch\n",
+		"build/gate/inputs.json": `{
+  "schema_version": "2",
+  "dockerfile": "build/gate/Dockerfile",
+  "inputs": ["build/gate/Dockerfile", "build/gate/inputs.json", "build/gate/toolchain.lock", "cmd/super-dolphin-gate/main.go", "go.mod", "go.sum"],
+  "gate_compile_inputs": ["cmd/super-dolphin-gate/main.go", "go.mod", "go.sum"]
+}
+`,
+		"build/gate/toolchain.lock":      "{}\n",
+		"cmd/super-dolphin-gate/main.go": "package main\n\nfunc main() {}\n",
+		"go.sum":                         "",
+	}
+	for relativePath, contents := range files {
+		filePath := filepath.Join(repository, filepath.FromSlash(relativePath))
+		if err := os.MkdirAll(filepath.Dir(filePath), 0o700); err != nil {
+			t.Fatalf("create gate compile fixture directory: %v", err)
+		}
+		if err := os.WriteFile(filePath, []byte(contents), 0o600); err != nil {
+			t.Fatalf("write gate compile fixture %s: %v", relativePath, err)
+		}
+	}
+}
+
+func writeRemoteRunVitestPolicyFixture(t *testing.T, repository string) {
+	t.Helper()
+	path := filepath.Join(repository, "frontend-app", "config", "vitest-suite-policy.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("create Vitest policy fixture directory: %v", err)
+	}
+	contents := `{"schemaVersion":1,"defaultExcludes":["**/node_modules/**"]}`
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatalf("write Vitest policy fixture: %v", err)
+	}
 }
 
 func runRemoteRunGit(t *testing.T, directory string, args ...string) {

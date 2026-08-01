@@ -288,10 +288,10 @@ func assertCoordinatorRunSideEffects(
 	for _, shard := range plannedSet.Shards {
 		expectedCached += len(shard.GateIDs)
 	}
-	if len(persistent) != expectedCached {
-		t.Fatalf("persistent workload cache uploads=%d want=%d", len(persistent), expectedCached)
+	if len(persistent) != expectedCached*2 {
+		t.Fatalf("persistent workload cache uploads=%d want=%d", len(persistent), expectedCached*2)
 	}
-	assertCoordinatorCacheSideEffects(t, store, expectedCached)
+	assertCoordinatorCacheSideEffects(t, store, persistent, expectedCached)
 	assertRemoteSourceObjectPrefix(t, temporary, runtime.creates)
 	for _, request := range runtime.creates {
 		assertRemoteCreateRequestIdentity(t, request, input)
@@ -299,15 +299,45 @@ func assertCoordinatorRunSideEffects(
 	}
 }
 
-func assertCoordinatorCacheSideEffects(t *testing.T, store *coordinatorStore, expectedCached int) {
+func assertCoordinatorCacheSideEffects(
+	t *testing.T,
+	store *coordinatorStore,
+	persistent []string,
+	expectedCached int,
+) {
 	t.Helper()
-	if !reflect.DeepEqual(store.uploadBatches, []int{expectedCached}) {
-		t.Fatalf("persistent workload cache batches=%v want one batch of %d", store.uploadBatches, expectedCached)
+	if !reflect.DeepEqual(store.uploadBatches, []int{expectedCached, expectedCached}) {
+		t.Fatalf("persistent workload cache batches=%v want receipt and marker batches of %d", store.uploadBatches, expectedCached)
+	}
+	receipts, markers := assertPublishedCacheObjects(t, persistent)
+	if receipts != expectedCached || markers != expectedCached {
+		t.Fatalf("persistent workload cache receipts=%d markers=%d want=%d each", receipts, markers, expectedCached)
 	}
 	if len(store.deletePrefixes) != 1 ||
 		!strings.HasPrefix(store.deletePrefixes[0], "baseline-artifacts/source-deltas/job-") {
 		t.Fatalf("temporary object delete prefixes=%v", store.deletePrefixes)
 	}
+}
+
+func assertPublishedCacheObjects(t *testing.T, persistent []string) (int, int) {
+	t.Helper()
+	receipts, markers := 0, 0
+	markerPhase := false
+	for _, key := range persistent {
+		switch {
+		case strings.Contains(key, "/receipts/") && strings.HasSuffix(key, ".receipt"):
+			if markerPhase {
+				t.Fatalf("receipt %q was uploaded after marker publication began", key)
+			}
+			receipts++
+		case strings.HasSuffix(key, ".pass"):
+			markerPhase = true
+			markers++
+		default:
+			t.Fatalf("unexpected persistent workload cache object %q", key)
+		}
+	}
+	return receipts, markers
 }
 
 func TestRemoteExecutionShardResourcesUsesLargestWorkloadClass(t *testing.T) {
@@ -361,11 +391,25 @@ func assertRemoteCreateRequestIdentity(t *testing.T, request eci.CreateRequest, 
 	t.Helper()
 	if !reflect.DeepEqual(request.Command, remoteWorkerSupervisorCommand("/opt/super-dolphin-gate/bin/super-dolphin-gate")) ||
 		len(request.Args) < 2 || request.Args[0] != "worker" || request.Args[1] != "run-shard" ||
-		request.Environment[gate.ExecutorWorkloadTimeoutEnvironment] != (10*time.Minute).String() ||
-		request.InitContainer.Command[0] != "/bootstrap/bin/super-dolphin-gate" ||
+		!reflect.DeepEqual(request.Environment, remoteWorkerEnvironment(10*time.Minute)) ||
+		!reflect.DeepEqual(request.InitContainer.Command, []string{"/bin/sh"}) ||
+		!reflect.DeepEqual(request.InitContainer.Args, []string{"-c", remoteCandidateGateBootstrapSH}) ||
 		request.InitContainer.Environment["SSL_CERT_FILE"] != remoteDataCacheCAFile ||
 		request.InitContainer.Environment[remoteBaselineManifestEnvironment] != input.AnchorManifest {
 		t.Fatalf("create request identity = %+v", request)
+	}
+	assertCandidateGateEnvironment(t, request, input)
+	assertECIEnvironmentLengths(t, "worker", request.Environment)
+	assertECIEnvironmentLengths(t, "materializer", request.InitContainer.Environment)
+}
+
+func assertECIEnvironmentLengths(t *testing.T, container string, environment map[string]string) {
+	t.Helper()
+	const maxECIEnvironmentValueBytes = 256
+	for key, value := range environment {
+		if len(value) > maxECIEnvironmentValueBytes {
+			t.Fatalf("%s environment %q length=%d exceeds ECI limit %d", container, key, len(value), maxECIEnvironmentValueBytes)
+		}
 	}
 }
 
@@ -634,10 +678,13 @@ func remoteRunFixture(t *testing.T) (string, RunInput) {
 		AnchorGeneration:       1,
 		AnchorManifest:         "sha256:" + strings.Repeat("c", 64),
 		AnchorCommit:           base, AnchorTree: baseTree,
-		RunnerConfigDigest: "sha256:" + strings.Repeat("b", 64),
-		GateBinarySHA256:   digest, RuntimeSeedSHA256: digest,
-		DataCacheBucket: "super-dolphin-ci",
-		DataCachePath:   "/super-dolphin/ci/base/generation-1",
+		RunnerConfigDigest:           "sha256:" + strings.Repeat("b", 64),
+		GateBinarySHA256:             digest,
+		CandidateGateSourceSHA256:    digest,
+		CandidateGateToolchainSHA256: digest,
+		RuntimeSeedSHA256:            digest,
+		DataCacheBucket:              "super-dolphin-ci",
+		DataCachePath:                "/super-dolphin/ci/base/generation-1",
 	}
 }
 

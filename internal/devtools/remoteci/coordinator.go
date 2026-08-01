@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -67,41 +66,44 @@ type CoordinatorConfig struct {
 
 // RunInput binds one remote run to exact Git objects and one accepted runner identity.
 type RunInput struct {
-	RepositoryRoot         string
-	RemoteName             string
-	RemoteURL              string
-	RequesterFingerprint   gate.RequesterFingerprint
-	Commit                 string
-	Tree                   string
-	Base                   string
-	RunnerBaseCommit       string
-	RunnerBaseTree         string
-	Source                 gate.SourceSpec
-	Profile                gate.Profile
-	Entrypoint             gate.CIEntrypointID
-	MaxShards              uint8
-	Platform               string
-	PolicyDigest           string
-	ToolchainDigest        string
-	LedgerSnapshot         gate.DurationLedgerSnapshot
-	LedgerStore            *gate.DurationLedgerStore
-	Inventory              gate.WorkloadInventory
-	SelectedTests          bool
-	Calibration            bool
-	RunnerImage            string
-	RunnerIdentityDigest   string
-	BaselineManifestDigest string
-	RunnerConfigDigest     string
-	GateBinarySHA256       string
-	RuntimeSeedSHA256      string
-	DataCacheBucket        string
-	DataCachePath          string
-	AnchorGeneration       uint64
-	AnchorManifest         string
-	AnchorCommit           string
-	AnchorTree             string
-	BaselineDeltas         []BaselineDeltaLayer
-	ForceRerun             bool
+	RepositoryRoot               string
+	RemoteName                   string
+	RemoteURL                    string
+	RequesterFingerprint         gate.RequesterFingerprint
+	Commit                       string
+	Tree                         string
+	Base                         string
+	RunnerBaseCommit             string
+	RunnerBaseTree               string
+	Source                       gate.SourceSpec
+	Profile                      gate.Profile
+	Entrypoint                   gate.CIEntrypointID
+	MaxShards                    uint8
+	Platform                     string
+	PolicyDigest                 string
+	ToolchainDigest              string
+	LedgerSnapshot               gate.DurationLedgerSnapshot
+	LedgerStore                  *gate.DurationLedgerStore
+	Inventory                    gate.WorkloadInventory
+	SelectedTests                bool
+	Calibration                  bool
+	RunnerImage                  string
+	RunnerIdentityDigest         string
+	BaselineManifestDigest       string
+	RunnerConfigDigest           string
+	GateBinarySHA256             string
+	CandidateGateSourceSHA256    string
+	CandidateGateToolchainSHA256 string
+	ReuseBaselineGateCLI         bool
+	RuntimeSeedSHA256            string
+	DataCacheBucket              string
+	DataCachePath                string
+	AnchorGeneration             uint64
+	AnchorManifest               string
+	AnchorCommit                 string
+	AnchorTree                   string
+	BaselineDeltas               []BaselineDeltaLayer
+	ForceRerun                   bool
 }
 
 // ShardResult records directly observed ECI identity, terminal state, and worker report.
@@ -538,6 +540,12 @@ func (coordinator *Coordinator) completeRemoteRun(
 	if err != nil {
 		return result, err
 	}
+	parentSamples, err := remoteCalibrationParentDurationSamples(catalog, observed, input)
+	if err != nil {
+		return result, err
+	}
+	result.DurationSamples = append(result.DurationSamples, parentSamples...)
+	result.OptimizationWarnings = remoteOptimizationWarnings(result.DurationSamples)
 	result.GateExecutions, result.Status = executions, status
 	if status != gate.ResultStatusPassed {
 		return result, failedRemoteGateError(shards)
@@ -732,6 +740,10 @@ func validateRemotePlanInput(input RunInput) error {
 	if !completeRemotePlanInput(input) {
 		return errors.New("remote CI run input is incomplete")
 	}
+	if !remoteDigestPattern.MatchString(input.CandidateGateSourceSHA256) ||
+		!remoteDigestPattern.MatchString(input.CandidateGateToolchainSHA256) {
+		return errors.New("remote CI candidate gate identity is invalid")
+	}
 	if input.Source.SourceTreeSHA != input.Tree {
 		return errors.New("remote CI source tree does not match bundle tree")
 	}
@@ -764,7 +776,8 @@ func completeRemotePlanInput(input RunInput) bool {
 		input.RepositoryRoot, input.Tree, input.Base, input.RunnerBaseCommit, input.RunnerBaseTree,
 		input.RunnerImage, input.Platform, input.PolicyDigest, input.ToolchainDigest,
 		input.RunnerIdentityDigest, input.BaselineManifestDigest, input.RunnerConfigDigest,
-		input.GateBinarySHA256, input.RuntimeSeedSHA256,
+		input.GateBinarySHA256, input.CandidateGateSourceSHA256, input.CandidateGateToolchainSHA256,
+		input.RuntimeSeedSHA256,
 		input.DataCacheBucket, input.DataCachePath, input.AnchorManifest, input.AnchorCommit, input.AnchorTree,
 	)
 }
@@ -789,41 +802,6 @@ func remoteWorkloadCatalog(plan gate.GatePlan, input RunInput) (gate.WorkloadCat
 		return gate.BuildSelectedTestWorkloadCatalog(plan, input.Inventory)
 	}
 	return gate.BuildExpandedWorkloadCatalog(plan, policy, input.Inventory)
-}
-
-// buildShardRequests 将 canonical 分片绑定到同一作业目录下的内容寻址对象。
-func buildShardRequests(
-	sourcePrefix string,
-	jobID string,
-	shards []gate.ContainerShard,
-	artifact source.Artifact,
-	patchKey string,
-	manifestKey string,
-	manifestDigest string,
-	input RunInput,
-) ([]ShardRequest, []string, error) {
-	requests := make([]ShardRequest, len(shards))
-	keys := make([]string, len(shards))
-	jobPrefix := sourcePrefix + jobID + "/"
-	for index, shard := range shards {
-		keys[index] = fmt.Sprintf("%sshard-%02d.request.json", jobPrefix, index)
-		requests[index] = ShardRequest{
-			SchemaVersion: ShardRequestSchemaVersion, JobID: jobID, ShardIdentity: shard.IdentityDigest,
-			Profile: shard.Profile, PlanDigest: shard.PlanDigest, SourceTreeSHA: shard.SourceTreeSHA,
-			BaselineManifest: input.BaselineManifestDigest,
-			AnchorGeneration: input.AnchorGeneration, AnchorManifest: input.AnchorManifest,
-			AnchorCommit: input.AnchorCommit, AnchorTree: input.AnchorTree,
-			BaselineDeltas:   slices.Clone(input.BaselineDeltas),
-			RunnerBaseCommit: artifact.Manifest.BaseCommit, RunnerBaseTree: artifact.Manifest.BaseTree,
-			PatchFormat: artifact.Manifest.PatchFormat,
-			PatchKey:    patchKey, PatchSHA256: artifact.Manifest.PatchSHA256, PatchSize: artifact.Manifest.PatchSize,
-			ManifestKey: manifestKey, ManifestSHA256: manifestDigest, GateIDs: slices.Clone(shard.GateIDs),
-		}
-		if err := requests[index].Validate(); err != nil {
-			return nil, nil, err
-		}
-	}
-	return requests, keys, nil
 }
 
 func (coordinator *Coordinator) cleanup(jobID string, groupIDs []string, objectKeys []string) error {

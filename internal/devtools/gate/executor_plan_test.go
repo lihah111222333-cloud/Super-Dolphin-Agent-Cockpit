@@ -407,8 +407,23 @@ func TestBoundedPlanLogKeepsLatestDiagnosticWindow(t *testing.T) {
 		}
 	}
 	lines := strings.Split(strings.TrimSuffix(string(lineLog.Bytes()), "\n"), "\n")
-	if len(lines) != executorPlanMaxLogLines || lines[0] != "line-010" || lines[len(lines)-1] != "line-073" {
+	wantLast := fmt.Sprintf("line-%03d", executorPlanMaxLogLines+9)
+	if len(lines) != executorPlanMaxLogLines || lines[0] != "line-010" || lines[len(lines)-1] != wantLast {
 		t.Fatalf("bounded lines = first %q last %q count %d", lines[0], lines[len(lines)-1], len(lines))
+	}
+}
+
+func TestBoundedPlanLogNormalizesBinaryProcessOutput(t *testing.T) {
+	log := newBoundedPlanLog(32)
+	if _, err := log.Write([]byte("prefix\x00\xffsuffix")); err != nil {
+		t.Fatal(err)
+	}
+	got := log.Bytes()
+	if !bytes.Contains(got, []byte(`\x00`)) || !bytes.Contains(got, []byte("\uFFFD")) || bytes.IndexByte(got, 0) >= 0 {
+		t.Fatalf("normalized process log = %q, want escaped NUL and replacement rune", got)
+	}
+	if len(got) > 32 {
+		t.Fatalf("normalized process log length = %d, want at most 32", len(got))
 	}
 }
 
@@ -463,8 +478,11 @@ func TestDecodePlanExecutionReportRejectsGateSetAndEvidenceDrift(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			changed := clonePlanReport(t, report)
 			mutate(&changed)
-			if _, err := DecodePlanExecutionReport(encodePlanReportForTest(t, changed)); err == nil {
-				t.Fatal("decoder accepted drifted plan report")
+			chunks, encodeErr := EncodePlanExecutionReportChunks(changed)
+			if encodeErr == nil {
+				if _, err := DecodePlanExecutionReport(strings.Join(chunks, "\n")); err == nil {
+					t.Fatal("decoder accepted drifted plan report")
+				}
 			}
 		})
 	}
@@ -501,6 +519,12 @@ func TestPlanExecutionReportRoundTripsTestTimingsAndAcceptsLegacyV1(t *testing.T
 		t.Fatalf("decoded timings = %#v, want %#v", decoded.Gates[0].TestTimings, report.Gates[0].TestTimings)
 	}
 
+	legacyTiming := clonePlanReport(t, report)
+	legacyTiming.SchemaVersion = executorPlanTimingSchemaVersion
+	if _, err := DecodePlanExecutionReport(encodePlanReportForTest(t, legacyTiming)); err != nil {
+		t.Fatalf("decode legacy v2 timing report: %v", err)
+	}
+
 	legacy := clonePlanReport(t, report)
 	legacy.SchemaVersion = 1
 	for index := range legacy.Gates {
@@ -508,6 +532,74 @@ func TestPlanExecutionReportRoundTripsTestTimingsAndAcceptsLegacyV1(t *testing.T
 	}
 	if _, err := DecodePlanExecutionReport(encodePlanReportForTest(t, legacy)); err != nil {
 		t.Fatalf("decode legacy v1 report: %v", err)
+	}
+}
+
+func TestPlanExecutionReportPacksTwentyFiveWorkloadsWithinRemoteRecordBudget(t *testing.T) {
+	const (
+		workloadCount    = 25
+		timingsPerTarget = 80
+	)
+	now := executorPlanTestNow()
+	report := PlanExecutionReport{
+		SchemaVersion: executorPlanReportSchemaVersion,
+		Profile:       ProfileLocalFast,
+		PlanDigest:    testExecutorPlanRequest(t).planDigest,
+		Gates:         make([]PlanGateExecution, 0, workloadCount),
+	}
+	expected := make([]GateID, 0, workloadCount)
+	for workloadIndex := range workloadCount {
+		workloadID, err := targetWorkloadID(
+			GateIDBackendTestWithGuard,
+			workloadTargetGoPackage,
+			fmt.Sprintf("./internal/reportfixture/pkg%02d", workloadIndex),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gateID := GateID(workloadID)
+		timings := make([]GoTestTiming, 0, timingsPerTarget)
+		for timingIndex := range timingsPerTarget {
+			timings = append(timings, GoTestTiming{
+				Name:       fmt.Sprintf("TestShard%02dCase%03d", workloadIndex, timingIndex),
+				Status:     GoTestStatusPass,
+				DurationMS: int64(timingIndex + 1),
+			})
+		}
+		report.Gates = append(report.Gates, PlanGateExecution{
+			GateID: gateID, Status: ResultStatusPassed, ExitCode: 0,
+			StartedAt: now, CompletedAt: now.Add(time.Second),
+			LogDigest: digestPlanLog(nil), TestTimings: timings,
+		})
+		expected = append(expected, gateID)
+	}
+	chunks, err := EncodePlanExecutionReportChunks(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) >= workloadCount*timingsPerTarget {
+		t.Fatalf("packed report records = %d, want fewer than one record per timing", len(chunks))
+	}
+	decoded, err := DecodePlanExecutionReportChunksForGateSet(chunks, expected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(decoded.Gates); got != workloadCount {
+		t.Fatalf("decoded gates = %d, want %d", got, workloadCount)
+	}
+	for index, result := range decoded.Gates {
+		if got := len(result.TestTimings); got != timingsPerTarget {
+			t.Fatalf("decoded gate %d timings = %d, want %d", index, got, timingsPerTarget)
+		}
+	}
+}
+
+func TestPlanExecutionReportAllowsBoundedSuccessfulAttestationEvidence(t *testing.T) {
+	result := successfulPlanGateResult(GateIDReleaseLayeredCheck)
+	result.Log = []byte("prerequisite_digest=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n")
+	result.LogDigest = digestPlanLog(result.Log)
+	if !validPlanGateResult(result, executorPlanReportSchemaVersion) {
+		t.Fatal("bounded successful attestation evidence was rejected")
 	}
 }
 
@@ -614,6 +706,8 @@ func multiChunkPlanReport(t *testing.T) (PlanExecutionReport, []string) {
 	report, err := executeGatePlanWithRunner(context.Background(), request,
 		func(_ context.Context, _ int, id GateID) (PlanGateExecution, error) {
 			result := successfulPlanGateResult(id)
+			result.Status = ResultStatusFailed
+			result.ExitCode = 1
 			result.Log = bytes.Repeat([]byte(string(id)+"\n"), 400)
 			result.LogDigest = digestPlanLog(result.Log)
 			return result, nil
@@ -673,11 +767,10 @@ func (tracker *planConcurrencyTracker) run(_ context.Context, lane int, id GateI
 
 func successfulPlanGateResult(id GateID) PlanGateExecution {
 	now := executorPlanTestNow()
-	log := []byte("passed\n")
 	return PlanGateExecution{
 		GateID: id, Status: ResultStatusPassed, ExitCode: 0,
 		StartedAt: now, CompletedAt: now.Add(time.Millisecond),
-		Log: log, LogDigest: digestPlanLog(log),
+		LogDigest: digestPlanLog(nil),
 	}
 }
 

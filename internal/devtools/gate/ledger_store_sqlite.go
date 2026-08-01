@@ -263,7 +263,7 @@ func validateSQLiteLedgerGeneration(transaction *sql.Tx, expected uint64, allowA
 	}
 	if !exists {
 		if !allowAbsent {
-			return errors.New("duration ledger SQLite metadata is missing")
+			return ErrDurationLedgerMetadataMissing
 		}
 		if expected != 0 {
 			return fmt.Errorf("%w: expected generation %d, ledger is absent", ErrDurationLedgerConflict, expected)
@@ -282,7 +282,7 @@ func nextSQLiteLedgerGeneration(transaction *sql.Tx) (uint64, uint64, error) {
 		return 0, 0, err
 	}
 	if !exists {
-		return 0, 0, errors.New("duration ledger SQLite metadata is missing")
+		return 0, 0, ErrDurationLedgerMetadataMissing
 	}
 	if generation == math.MaxUint64 {
 		return 0, 0, errors.New("duration ledger generation overflow")

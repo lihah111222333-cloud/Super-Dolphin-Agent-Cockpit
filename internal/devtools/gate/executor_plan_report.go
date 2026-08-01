@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -33,6 +32,15 @@ type planReportRecord struct {
 	payload  string
 }
 
+// PlanExecutionReportRecordLimit 返回 gate 集允许的最大报告记录数，并受 ECI 日志传输合同封顶。
+func PlanExecutionReportRecordLimit(gateCount int) (int, error) {
+	if gateCount <= 0 || gateCount > 999999 {
+		return 0, errors.New("plan report gate count is invalid")
+	}
+	perGate := 1 + executorPlanMaxLogRecords + executorPlanMaxTimingRecords
+	return min(2+gateCount*perGate, executorPlanMaxTransportRecords), nil
+}
+
 // writePlanExecutionReport writes the bounded canonical report framing to the executor output.
 func writePlanExecutionReport(writer io.Writer, report PlanExecutionReport) error {
 	chunks, err := EncodePlanExecutionReportChunks(report)
@@ -52,14 +60,47 @@ func EncodePlanExecutionReportChunks(report PlanExecutionReport) ([]string, erro
 	if err := validatePlanExecutionReportHeader(report); err != nil {
 		return nil, err
 	}
+	if err := validatePlanExecutionReportResults(report); err != nil {
+		return nil, err
+	}
 	records, err := encodePlanReportRecords(report)
 	if err != nil {
 		return nil, err
 	}
-	if len(records) == 0 || len(records) > executorPlanMaxReportChunks {
+	recordLimit, err := PlanExecutionReportRecordLimit(len(report.Gates))
+	if err != nil {
+		return nil, err
+	}
+	if len(records) == 0 || len(records) > recordLimit {
 		return nil, errors.New("plan report exceeds record count limit")
 	}
 	digest := digestPlanExecutionReport(report)
+	return framePlanReportRecords(records, digest)
+}
+
+// validatePlanExecutionReportResults 校验报告内每个 gate 的状态、摘要与 schema 约束。
+func validatePlanExecutionReportResults(report PlanExecutionReport) error {
+	for _, result := range report.Gates {
+		if !validPlanGateResult(result, report.SchemaVersion) {
+			return fmt.Errorf(
+				"plan gate result %q is invalid (status=%s exit_code=%d log_bytes=%d log_utf8=%t log_nul=%t log_digest=%t time_range=%t test_timings=%t)",
+				result.GateID,
+				result.Status,
+				result.ExitCode,
+				len(result.Log),
+				utf8.Valid(result.Log),
+				bytes.IndexByte(result.Log, 0) >= 0,
+				result.LogDigest == digestPlanLog(result.Log),
+				validPlanGateTimeRange(result),
+				validPlanGateTestTimings(result.TestTimings, report.SchemaVersion),
+			)
+		}
+	}
+	return nil
+}
+
+// framePlanReportRecords 为普通文本记录添加报告身份、顺序和总字节数边界。
+func framePlanReportRecords(records []string, digest string) ([]string, error) {
 	reportID := strings.TrimPrefix(digest, "sha256:")[:32]
 	chunks := make([]string, 0, len(records))
 	totalBytes := 0
@@ -96,6 +137,10 @@ func encodePlanReportRecords(report PlanExecutionReport) ([]string, error) {
 		len(report.Gates),
 	)}
 	for index, result := range report.Gates {
+		timingRecords, err := encodePlanTimingReportRecords(index+1, result.TestTimings, report.SchemaVersion)
+		if err != nil {
+			return nil, fmt.Errorf("encode plan gate %q timings: %w", result.GateID, err)
+		}
 		encodedLog, err := encodePlanLogText(result.Log)
 		if err != nil {
 			return nil, fmt.Errorf("encode plan gate %q log: %w", result.GateID, err)
@@ -122,6 +167,9 @@ func encodePlanReportRecords(report PlanExecutionReport) ([]string, error) {
 		if report.SchemaVersion >= 2 {
 			gateRecord += fmt.Sprintf(" %06d", len(result.TestTimings))
 		}
+		if report.SchemaVersion >= 3 {
+			gateRecord += fmt.Sprintf(" %06d", len(timingRecords))
+		}
 		records = append(records, gateRecord)
 		for fragmentIndex, fragment := range fragments {
 			records = append(records, fmt.Sprintf(
@@ -133,20 +181,7 @@ func encodePlanReportRecords(report PlanExecutionReport) ([]string, error) {
 				fragment,
 			))
 		}
-		if report.SchemaVersion >= 2 {
-			for timingIndex, timing := range result.TestTimings {
-				records = append(records, fmt.Sprintf(
-					"%s %06d %06d %06d %s %d %s",
-					planReportTimingRecord,
-					index+1,
-					timingIndex+1,
-					len(result.TestTimings),
-					timing.Status,
-					timing.DurationMS,
-					timing.Name,
-				))
-			}
-		}
+		records = append(records, timingRecords...)
 	}
 	records = append(records, fmt.Sprintf("%s %06d", planReportEndRecord, len(report.Gates)))
 	return records, nil
@@ -212,7 +247,11 @@ func DecodePlanExecutionReportChunksForGateSet(chunks []string, expected []GateI
 
 // decodePlanExecutionReportChunks 解析记录并验证摘要、报告头和预期 gate 集合。
 func decodePlanExecutionReportChunks(chunks []string, expected []GateID) (PlanExecutionReport, error) {
-	records, reportID, reportDigest, err := parsePlanReportRecords(chunks)
+	recordLimit, err := planReportDecodeRecordLimit(expected)
+	if err != nil {
+		return PlanExecutionReport{}, err
+	}
+	records, reportID, reportDigest, err := parsePlanReportRecords(chunks, recordLimit)
 	if err != nil {
 		return PlanExecutionReport{}, err
 	}
@@ -220,8 +259,8 @@ func decodePlanExecutionReportChunks(chunks []string, expected []GateID) (PlanEx
 	if err != nil {
 		return PlanExecutionReport{}, err
 	}
-	if digestPlanExecutionReport(report) != reportDigest || strings.TrimPrefix(reportDigest, "sha256:")[:32] != reportID {
-		return PlanExecutionReport{}, errors.New("plan report digest does not match reassembled text")
+	if err := validateDecodedPlanReportFrame(records, reportID, reportDigest, report); err != nil {
+		return PlanExecutionReport{}, err
 	}
 	if err := validatePlanExecutionReportHeader(report); err != nil {
 		return PlanExecutionReport{}, err
@@ -232,22 +271,48 @@ func decodePlanExecutionReportChunks(chunks []string, expected []GateID) (PlanEx
 	return report, nil
 }
 
+// planReportDecodeRecordLimit 以冻结 gate 集收窄日志扫描上限；未知集合只使用传输硬上限。
+func planReportDecodeRecordLimit(expected []GateID) (int, error) {
+	if len(expected) == 0 {
+		return executorPlanMaxTransportRecords, nil
+	}
+	return PlanExecutionReportRecordLimit(len(expected))
+}
+
+// validateDecodedPlanReportFrame 将重组报告绑定到精确 gate 预算和内容摘要。
+func validateDecodedPlanReportFrame(
+	records []planReportRecord,
+	reportID string,
+	reportDigest string,
+	report PlanExecutionReport,
+) error {
+	exactRecordLimit, err := PlanExecutionReportRecordLimit(len(report.Gates))
+	if err != nil || len(records) > exactRecordLimit {
+		return errors.New("plan report record count exceeds gate-set budget")
+	}
+	if digestPlanExecutionReport(report) != reportDigest ||
+		strings.TrimPrefix(reportDigest, "sha256:")[:32] != reportID {
+		return errors.New("plan report digest does not match reassembled text")
+	}
+	return nil
+}
+
 // parsePlanReportRecords 解析并校验同一报告的连续记录帧。
-func parsePlanReportRecords(chunks []string) ([]planReportRecord, string, string, error) {
-	if len(chunks) == 0 || len(chunks) > executorPlanMaxReportChunks {
+func parsePlanReportRecords(chunks []string, recordLimit int) ([]planReportRecord, string, string, error) {
+	if !validPlanReportCollectionSize(len(chunks), recordLimit) {
 		return nil, "", "", errors.New("plan report record count is invalid")
 	}
 	records := make([]planReportRecord, 0, len(chunks))
 	var reportID, reportDigest string
 	for index, chunk := range chunks {
-		record, err := parsePlanReportRecord(chunk)
+		record, err := parsePlanReportRecord(chunk, recordLimit)
 		if err != nil {
 			return nil, "", "", err
 		}
 		if index == 0 {
 			reportID, reportDigest = record.reportID, record.digest
 		}
-		if record.reportID != reportID || record.digest != reportDigest || record.total != len(chunks) || record.sequence != index+1 {
+		if !samePlanReportFrame(record, reportID, reportDigest, index+1, len(chunks)) {
 			return nil, "", "", errors.New("plan report records are missing, duplicated, reordered, or mixed")
 		}
 		records = append(records, record)
@@ -255,15 +320,28 @@ func parsePlanReportRecords(chunks []string) ([]planReportRecord, string, string
 	return records, reportID, reportDigest, nil
 }
 
+// validPlanReportCollectionSize 校验记录集合未超过调用方冻结的扫描预算。
+func validPlanReportCollectionSize(count int, recordLimit int) bool {
+	return recordLimit > 0 && count > 0 && count <= recordLimit
+}
+
+// samePlanReportFrame 校验一条记录属于同一报告且序号连续。
+func samePlanReportFrame(record planReportRecord, reportID string, reportDigest string, sequence int, total int) bool {
+	return record.reportID == reportID &&
+		record.digest == reportDigest &&
+		record.total == total &&
+		record.sequence == sequence
+}
+
 // parsePlanReportRecord 解码单条文本记录及其位置和类型约束。
-func parsePlanReportRecord(chunk string) (planReportRecord, error) {
+func parsePlanReportRecord(chunk string, recordLimit int) (planReportRecord, error) {
 	fields, err := parsePlanReportRecordFields(chunk)
 	if err != nil {
 		return planReportRecord{}, err
 	}
 	sequence, sequenceErr := parsePlanReportRecordNumber(fields[2])
 	total, totalErr := parsePlanReportRecordNumber(fields[3])
-	if sequenceErr != nil || totalErr != nil || sequence > total || total > executorPlanMaxReportChunks {
+	if sequenceErr != nil || totalErr != nil || sequence > total || total > recordLimit {
 		return planReportRecord{}, errors.New("plan report record sequence is invalid")
 	}
 	if !validPlanReportRecordKind(fields[4]) || fields[5] == "" {
@@ -358,7 +436,7 @@ func decodePlanReportGate(records []planReportRecord, cursor int, gateIndex int,
 	if cursor >= len(records) || records[cursor].kind != planReportGateRecord {
 		return PlanGateExecution{}, 0, errors.New("plan report gate record is missing")
 	}
-	result, logBytes, logChunks, timingCount, err := decodePlanGateRecord(records[cursor].payload, gateIndex, schemaVersion)
+	result, logBytes, logChunks, timingCount, timingRecords, err := decodePlanGateRecord(records[cursor].payload, gateIndex, schemaVersion)
 	if err != nil {
 		return PlanGateExecution{}, 0, err
 	}
@@ -370,12 +448,18 @@ func decodePlanReportGate(records []planReportRecord, cursor int, gateIndex int,
 		return PlanGateExecution{}, 0, errors.New("plan report log length or digest is invalid")
 	}
 	result.Log = log
-	timings, timingRecords, err := decodePlanTimingRecords(records[cursor+1+consumed:], gateIndex, timingCount)
+	timings, consumedTimingRecords, err := decodePlanTimingReportRecords(
+		records[cursor+1+consumed:],
+		gateIndex,
+		timingCount,
+		timingRecords,
+		schemaVersion,
+	)
 	if err != nil {
 		return PlanGateExecution{}, 0, err
 	}
 	result.TestTimings = timings
-	return result, cursor + 1 + consumed + timingRecords, nil
+	return result, cursor + 1 + consumed + consumedTimingRecords, nil
 }
 
 // decodePlanReportHeader 解码报告元数据和 gate 总数。
@@ -400,33 +484,33 @@ func decodePlanReportHeader(payload string) (PlanExecutionReport, int, error) {
 }
 
 // decodePlanGateRecord 解码单个 gate 记录及其日志元数据。
-func decodePlanGateRecord(payload string, expectedIndex int, schemaVersion uint32) (PlanGateExecution, int, int, int, error) {
+func decodePlanGateRecord(payload string, expectedIndex int, schemaVersion uint32) (PlanGateExecution, int, int, int, int, error) {
 	fields, err := parsePlanGateRecordFields(payload, schemaVersion)
 	if err != nil {
-		return PlanGateExecution{}, 0, 0, 0, err
+		return PlanGateExecution{}, 0, 0, 0, 0, err
 	}
 	if err := validatePlanGateRecordIndex(fields[0], expectedIndex); err != nil {
-		return PlanGateExecution{}, 0, 0, 0, err
+		return PlanGateExecution{}, 0, 0, 0, 0, err
 	}
 	exitCode, err := parsePlanGateExitCode(fields[3])
 	if err != nil {
-		return PlanGateExecution{}, 0, 0, 0, errors.New("plan report gate exit code is invalid")
+		return PlanGateExecution{}, 0, 0, 0, 0, errors.New("plan report gate exit code is invalid")
 	}
 	startedAt, completedAt, err := parsePlanGateTimes(fields[4], fields[5])
 	if err != nil {
-		return PlanGateExecution{}, 0, 0, 0, err
+		return PlanGateExecution{}, 0, 0, 0, 0, err
 	}
 	argvDigest, logDigest, err := parsePlanGateDigests(fields[6], fields[7])
 	if err != nil {
-		return PlanGateExecution{}, 0, 0, 0, err
+		return PlanGateExecution{}, 0, 0, 0, 0, err
 	}
 	logBytes, logChunks, err := parsePlanGateLogMetadata(fields[8], fields[9])
 	if err != nil {
-		return PlanGateExecution{}, 0, 0, 0, err
+		return PlanGateExecution{}, 0, 0, 0, 0, err
 	}
-	timingCount, err := parsePlanGateTimingCount(fields, schemaVersion)
+	timingCount, timingRecords, err := parsePlanGateTimingMetadata(fields, schemaVersion)
 	if err != nil {
-		return PlanGateExecution{}, 0, 0, 0, err
+		return PlanGateExecution{}, 0, 0, 0, 0, err
 	}
 	return PlanGateExecution{
 		GateID:      GateID(fields[1]),
@@ -436,7 +520,7 @@ func decodePlanGateRecord(payload string, expectedIndex int, schemaVersion uint3
 		CompletedAt: completedAt,
 		ArgvDigest:  argvDigest,
 		LogDigest:   logDigest,
-	}, logBytes, logChunks, timingCount, nil
+	}, logBytes, logChunks, timingCount, timingRecords, nil
 }
 
 func validatePlanGateRecordIndex(value string, expected int) error {
@@ -447,22 +531,14 @@ func validatePlanGateRecordIndex(value string, expected int) error {
 	return nil
 }
 
-func parsePlanGateTimingCount(fields []string, schemaVersion uint32) (int, error) {
-	if schemaVersion < 2 {
-		return 0, nil
-	}
-	count, err := parseSixDigitCountAllowZero(fields[10])
-	if err != nil || count > executorPlanMaxReportChunks {
-		return 0, errors.New("plan report test timing count is invalid")
-	}
-	return count, nil
-}
-
 func parsePlanGateRecordFields(payload string, schemaVersion uint32) ([]string, error) {
 	fields := strings.Fields(payload)
 	expected := 10
 	if schemaVersion >= 2 {
 		expected = 11
+	}
+	if schemaVersion >= 3 {
+		expected = 12
 	}
 	if len(fields) != expected || strings.Join(fields, " ") != payload {
 		return nil, errors.New("plan report gate payload is invalid")
@@ -505,7 +581,7 @@ func parsePlanGateLogMetadata(byteCount string, recordCount string) (int, int, e
 		return 0, 0, errors.New("plan report log byte count is invalid")
 	}
 	logChunks, err := parseSixDigitCountAllowZero(recordCount)
-	if err != nil || logChunks > executorPlanMaxReportChunks {
+	if err != nil || logChunks > executorPlanMaxLogRecords {
 		return 0, 0, errors.New("plan report log record count is invalid")
 	}
 	return logBytes, logChunks, nil
@@ -563,62 +639,6 @@ func validatePlanLogRecordSequence(fields []string, gateIndex int, fragmentIndex
 	observedCount, countErr := parseSixDigitCount(fields[2])
 	if gateErr != nil || indexErr != nil || countErr != nil || observedGate != gateIndex || observedIndex != fragmentIndex || observedCount != fragmentCount {
 		return errors.New("plan report log sequence is invalid")
-	}
-	return nil
-}
-
-// decodePlanTimingRecords 解码一个 gate 的完整测试级耗时列表。
-func decodePlanTimingRecords(records []planReportRecord, gateIndex int, count int) ([]GoTestTiming, int, error) {
-	if count == 0 {
-		return nil, 0, nil
-	}
-	timings := make([]GoTestTiming, 0, count)
-	for index := 1; index <= count; index++ {
-		if index > len(records) || records[index-1].kind != planReportTimingRecord {
-			return nil, 0, errors.New("plan report test timing record is missing")
-		}
-		timing, err := decodePlanTimingRecord(records[index-1].payload, gateIndex, index, count)
-		if err != nil {
-			return nil, 0, err
-		}
-		timings = append(timings, timing)
-	}
-	return timings, count, nil
-}
-
-// decodePlanTimingRecord 严格解码并校验一条测试耗时记录。
-func decodePlanTimingRecord(payload string, gateIndex int, timingIndex int, timingCount int) (GoTestTiming, error) {
-	fields := strings.Fields(payload)
-	if len(fields) != 6 || strings.Join(fields, " ") != payload {
-		return GoTestTiming{}, errors.New("plan report test timing payload is invalid")
-	}
-	if err := validatePlanTimingRecordSequence(fields, gateIndex, timingIndex, timingCount); err != nil {
-		return GoTestTiming{}, err
-	}
-	duration, err := strconv.ParseInt(fields[4], 10, 64)
-	if err != nil {
-		return GoTestTiming{}, errors.New("plan report test timing duration is invalid")
-	}
-	timing := GoTestTiming{Name: fields[5], Status: GoTestStatus(fields[3]), DurationMS: duration}
-	if err := testtiming.Validate(timing); err != nil {
-		return GoTestTiming{}, fmt.Errorf("plan report test timing: %w", err)
-	}
-	return timing, nil
-}
-
-// validatePlanTimingRecordSequence 校验耗时记录所属 gate、序号和总数。
-func validatePlanTimingRecordSequence(fields []string, gateIndex int, timingIndex int, timingCount int) error {
-	observedGate, err := parseSixDigitCount(fields[0])
-	if err != nil || observedGate != gateIndex {
-		return errors.New("plan report test timing gate is invalid")
-	}
-	observedIndex, err := parseSixDigitCount(fields[1])
-	if err != nil || observedIndex != timingIndex {
-		return errors.New("plan report test timing index is invalid")
-	}
-	observedCount, err := parseSixDigitCount(fields[2])
-	if err != nil || observedCount != timingCount {
-		return errors.New("plan report test timing count is invalid")
 	}
 	return nil
 }
@@ -703,7 +723,9 @@ func appendPlanReportField(destination []byte, key string, value string) []byte 
 
 // validatePlanExecutionReportHeader 校验版本、profile 和计划摘要。
 func validatePlanExecutionReportHeader(report PlanExecutionReport) error {
-	if (report.SchemaVersion != 1 && report.SchemaVersion != executorPlanReportSchemaVersion) ||
+	if (report.SchemaVersion != 1 &&
+		report.SchemaVersion != executorPlanTimingSchemaVersion &&
+		report.SchemaVersion != executorPlanReportSchemaVersion) ||
 		report.Profile.Validate() != nil || !digestPattern.MatchString(report.PlanDigest) {
 		return errors.New("plan report header is invalid")
 	}
@@ -797,7 +819,7 @@ func validPlanGateTestTimings(timings []GoTestTiming, schemaVersion uint32) bool
 	if schemaVersion == 1 {
 		return len(timings) == 0
 	}
-	return testtiming.ValidateList(timings, executorPlanMaxReportChunks) == nil
+	return testtiming.ValidateList(timings, executorPlanMaxTimingRecords) == nil
 }
 
 // validPlanGateExit 校验状态与执行器退出码的稳定组合。
@@ -812,70 +834,4 @@ func validPlanGateExit(status ResultStatus, exitCode int) bool {
 	default:
 		return false
 	}
-}
-
-type boundedPlanLog struct {
-	mu    sync.Mutex
-	limit int
-	data  []byte
-}
-
-// newBoundedPlanLog 创建只保留末尾诊断窗口的并发安全日志。
-func newBoundedPlanLog(limit int) *boundedPlanLog { return &boundedPlanLog{limit: limit} }
-
-// Write 保留输入长度语义，并以固定内存保留最新日志字节。
-func (log *boundedPlanLog) Write(value []byte) (int, error) {
-	log.mu.Lock()
-	defer log.mu.Unlock()
-	written := len(value)
-	if log.limit <= 0 {
-		return written, nil
-	}
-	if len(value) >= log.limit {
-		log.data = append(log.data[:0], value[len(value)-log.limit:]...)
-		return written, nil
-	}
-	overflow := len(log.data) + len(value) - log.limit
-	if overflow > 0 {
-		copy(log.data, log.data[overflow:])
-		log.data = log.data[:len(log.data)-overflow]
-	}
-	log.data = append(log.data, value...)
-	return written, nil
-}
-
-// Bytes 返回最多固定行数的最新 UTF-8 诊断窗口。
-func (log *boundedPlanLog) Bytes() []byte {
-	log.mu.Lock()
-	defer log.mu.Unlock()
-	data := bytes.Clone(log.data)
-	for len(data) > 0 && !utf8.RuneStart(data[0]) {
-		data = data[1:]
-	}
-	return tailPlanLogLines(data, executorPlanMaxLogLines)
-}
-
-// tailPlanLogLines 返回不超过给定行数的日志尾部。
-func tailPlanLogLines(data []byte, limit int) []byte {
-	if len(data) == 0 || limit <= 0 {
-		return nil
-	}
-	lineCount := bytes.Count(data, []byte("\n"))
-	if data[len(data)-1] != '\n' {
-		lineCount++
-	}
-	drop := lineCount - limit
-	if drop <= 0 {
-		return data
-	}
-	for index, value := range data {
-		if value != '\n' {
-			continue
-		}
-		drop--
-		if drop == 0 {
-			return data[index+1:]
-		}
-	}
-	return data
 }

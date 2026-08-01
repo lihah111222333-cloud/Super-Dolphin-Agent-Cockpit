@@ -171,7 +171,7 @@ func TestDurationLedgerSQLitePassAndRunProjectionRoundTrip(t *testing.T) {
 	proof := assertWorkloadPassProofProjectionRoundTrip(t, store, now)
 	assertWorkloadFingerprintProjectionRoundTrip(t, store, proof, now)
 	assertRemoteCIRunProjectionRoundTrip(t, store, now)
-	assertCIQueryRevision(t, store, "6", now)
+	assertCIQueryRevision(t, store, "9", now)
 }
 
 func assertCIQueryRevision(t *testing.T, store *DurationLedgerStore, wantRevision string, wantUpdatedAt time.Time) {

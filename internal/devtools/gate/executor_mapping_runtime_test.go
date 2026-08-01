@@ -10,8 +10,29 @@ func assertFrontendProgramsUsePinnedRuntimeInputs(t *testing.T, programs map[Gat
 	for _, id := range []GateID{GateIDFrontendLint, GateIDFrontendTest, GateIDFrontendFullTest, GateIDFrontendBuild} {
 		assertFrontendProgramUsesPinnedRuntimeInput(t, id, programs[id])
 	}
+	for _, id := range []GateID{GateIDFrontendTest, GateIDFrontendFullTest} {
+		if !programs[id].NeedsGoSeed {
+			t.Errorf("frontend test gate %q does not mount the original image Go seed", id)
+		}
+	}
+	for _, id := range []GateID{GateIDFrontendLint, GateIDFrontendBuild} {
+		if programs[id].NeedsGoSeed {
+			t.Errorf("frontend non-test gate %q unexpectedly mounts the Go seed", id)
+		}
+	}
 	assertFrontendProgramCommand(t, GateIDFrontendTest, programs[GateIDFrontendTest], []string{"npm", "run", "test:hook"})
 	assertFrontendProgramCommand(t, GateIDFrontendFullTest, programs[GateIDFrontendFullTest], []string{"npm", "test"})
+}
+
+func TestVitestProgramMountsOriginalImageRuntimeSeeds(t *testing.T) {
+	target := "src/example.test.js"
+	program := vitestExecutorProgram(target)
+	if !program.NeedsGoSeed || !program.NeedsFrontendSeed {
+		t.Fatalf("Vitest seed contract = go:%t frontend:%t, want both original image seeds", program.NeedsGoSeed, program.NeedsFrontendSeed)
+	}
+	if !slices.Contains(program.RequiredPaths, "frontend-app/"+target) {
+		t.Fatalf("Vitest required paths = %v, want target %q", program.RequiredPaths, target)
+	}
 }
 
 func assertFrontendProgramUsesPinnedRuntimeInput(t *testing.T, id GateID, program ExecutorProgram) {

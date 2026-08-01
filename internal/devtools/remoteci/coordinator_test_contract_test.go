@@ -21,6 +21,7 @@ func TestRemoteRunContractFieldRegistry(t *testing.T) {
 		"Source", "Profile", "Entrypoint", "MaxShards", "Platform", "PolicyDigest", "ToolchainDigest",
 		"LedgerSnapshot", "LedgerStore", "Inventory", "SelectedTests", "Calibration", "RunnerImage",
 		"RunnerIdentityDigest", "BaselineManifestDigest", "RunnerConfigDigest", "GateBinarySHA256",
+		"CandidateGateSourceSHA256", "CandidateGateToolchainSHA256", "ReuseBaselineGateCLI",
 		"RuntimeSeedSHA256", "DataCacheBucket", "DataCachePath", "AnchorGeneration", "AnchorManifest", "AnchorCommit", "AnchorTree", "BaselineDeltas", "ForceRerun",
 	})
 	assertBaselineFields(t, reflect.TypeFor[RunResult](), []string{
@@ -78,6 +79,65 @@ func assertBaselineBoundShardRequest(t *testing.T, request ShardRequest, baselin
 	}
 }
 
+func TestCoordinatorCreateRequestAlwaysMountsWritableMaterializerTemp(t *testing.T) {
+	_, input := remoteRunFixture(t)
+	input.BaselineDeltas = nil
+	coordinator := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{})
+	request := coordinator.createRequest("job-0123456789abcdef01234567", gate.ContainerShard{Index: 1, Profile: input.Profile, PlanDigest: input.PolicyDigest, GateIDs: []gate.GateID{"go:test"}}, eci.Resources{CPU: 4, MemoryGiB: 8}, "baseline-artifacts/source-deltas/jobs/job/request.json", input.PolicyDigest, input)
+	if request.BootstrapVolume != (eci.OSSVolume{}) {
+		t.Fatalf("BootstrapVolume = %+v, want empty anchor volume", request.BootstrapVolume)
+	}
+	if got := request.InitContainer.Environment["TMPDIR"]; got != remoteWritableTempMountPath {
+		t.Fatalf("TMPDIR = %q, want %q", got, remoteWritableTempMountPath)
+	}
+	if got := request.InitContainer.Environment["PATH"]; got != remoteInitSearchPath {
+		t.Fatalf("init PATH = %q, want bootstrap-only %q", got, remoteInitSearchPath)
+	}
+	if !reflect.DeepEqual(request.InitContainer.Command, []string{"/bin/sh"}) ||
+		!reflect.DeepEqual(request.InitContainer.Args, []string{"-c", remoteCandidateGateBootstrapSH}) {
+		t.Fatalf("init command = %v %v", request.InitContainer.Command, request.InitContainer.Args)
+	}
+	assertCandidateGateEnvironment(t, request, input)
+	assertWritableMaterializerTempMount(t, request)
+}
+
+func TestRemoteCandidateGateBootstrapUsesPreinstalledRuntimeAndCaches(t *testing.T) {
+	required := []string{
+		`"$materializer" _remote-materialize`,
+		"/opt/super-dolphin-gate/runtime/go/bin/go build",
+		"GOPROXY=off",
+		"GOMODCACHE=/opt/super-dolphin-gate/runtime/go-mod-cache",
+		"GOCACHE=/opt/super-dolphin-gate/cache-seed/go-build",
+		"worker cli-identity",
+	}
+	for _, fragment := range required {
+		if !strings.Contains(remoteCandidateGateBootstrapSH, fragment) {
+			t.Fatalf("candidate gate bootstrap is missing %q", fragment)
+		}
+	}
+	if materializeAt, compileAt := strings.Index(remoteCandidateGateBootstrapSH, `_remote-materialize`), strings.Index(remoteCandidateGateBootstrapSH, `go build`); materializeAt < 0 || compileAt < 0 || materializeAt >= compileAt {
+		t.Fatalf("candidate gate bootstrap must materialize source before compiling: materialize=%d compile=%d", materializeAt, compileAt)
+	}
+	for _, forbidden := range []string{"apt-get", "apk add", "curl ", "wget ", "go install", "GOPROXY=http"} {
+		if strings.Contains(remoteCandidateGateBootstrapSH, forbidden) {
+			t.Fatalf("candidate gate bootstrap installs or downloads dependencies through %q", forbidden)
+		}
+	}
+}
+
+func TestRemoteInitSearchPathUsesMaterializedRuntimeUnderECILimit(t *testing.T) {
+	searchPath := strings.Split(remoteInitSearchPath, ":")
+	if searchPath[0] != gate.ExecutorRuntimeSeedRoot+"/bin" {
+		t.Fatalf("init PATH = %q, want materialized runtime tools first", remoteInitSearchPath)
+	}
+	if len(remoteInitSearchPath) > 256 {
+		t.Fatalf("init PATH length = %d, exceeds ECI environment limit", len(remoteInitSearchPath))
+	}
+	if strings.Contains(remoteInitSearchPath, gate.ExecutorPortableGoRoot+"/bin") || strings.Contains(remoteInitSearchPath, gate.ExecutorRuntimeSeedRoot+"/node/bin") {
+		t.Fatalf("init PATH = %q, must not include worker-only toolchains", remoteInitSearchPath)
+	}
+}
+
 func TestCoordinatorCreateRequestBootstrapsLatestDeltaGateBinary(t *testing.T) {
 	_, input := remoteRunFixture(t)
 	input.BaselineDeltas = []BaselineDeltaLayer{{Generation: 2, ObjectPrefix: "baseline-artifacts/deltas/2"}, {Generation: 3, ObjectPrefix: "baseline-artifacts/deltas/3"}}
@@ -88,14 +148,48 @@ func TestCoordinatorCreateRequestBootstrapsLatestDeltaGateBinary(t *testing.T) {
 	if request.BootstrapVolume != wantVolume {
 		t.Fatalf("BootstrapVolume = %+v, want %+v", request.BootstrapVolume, wantVolume)
 	}
-	if !reflect.DeepEqual(request.InitContainer.Command, []string{"/bin/sh"}) || !reflect.DeepEqual(request.InitContainer.Args, []string{"-c", remoteCurrentGateBootstrapSH}) {
+	if !reflect.DeepEqual(request.InitContainer.Command, []string{"/bin/sh"}) || !reflect.DeepEqual(request.InitContainer.Args, []string{"-c", remoteCandidateGateBootstrapSH}) {
 		t.Fatalf("init command = %v %v", request.InitContainer.Command, request.InitContainer.Args)
 	}
-	if got := request.InitContainer.Environment[remoteCurrentGateDigestEnv]; got != input.GateBinarySHA256 {
-		t.Fatalf("%s = %q, want %q", remoteCurrentGateDigestEnv, got, input.GateBinarySHA256)
-	}
-	wantTail := []eci.VolumeMount{{Name: "temp-data", MountPath: "/tmp"}, {Name: remoteCurrentGateVolumeName, MountPath: remoteCurrentGateMountPath, ReadOnly: true}}
+	assertCandidateGateEnvironment(t, request, input)
+	assertWritableMaterializerTempMount(t, request)
+	wantTail := []eci.VolumeMount{{Name: remoteCurrentGateVolumeName, MountPath: remoteCurrentGateMountPath, ReadOnly: true}}
 	if got := request.InitVolumeMounts[len(request.InitVolumeMounts)-len(wantTail):]; !reflect.DeepEqual(got, wantTail) {
 		t.Fatalf("init mount tail = %+v, want %+v", got, wantTail)
+	}
+}
+
+func assertCandidateGateEnvironment(t *testing.T, request eci.CreateRequest, input RunInput) {
+	t.Helper()
+	want := map[string]string{
+		remoteCurrentGateDigestEnv:      input.GateBinarySHA256,
+		remoteCandidateGateSourceEnv:    input.CandidateGateSourceSHA256,
+		remoteCandidateGateToolchainEnv: input.CandidateGateToolchainSHA256,
+		remoteReuseBaselineGateEnv:      "false",
+	}
+	if input.ReuseBaselineGateCLI {
+		want[remoteReuseBaselineGateEnv] = "true"
+	}
+	for name, value := range want {
+		if got := request.InitContainer.Environment[name]; got != value {
+			t.Fatalf("%s = %q, want %q", name, got, value)
+		}
+	}
+}
+
+func assertWritableMaterializerTempMount(t *testing.T, request eci.CreateRequest) {
+	t.Helper()
+	count := 0
+	for _, mount := range request.InitVolumeMounts {
+		if mount.Name != "temp-data" {
+			continue
+		}
+		count++
+		if mount.MountPath != remoteWritableTempMountPath || mount.ReadOnly {
+			t.Fatalf("materializer temp mount = %+v, want writable %q", mount, remoteWritableTempMountPath)
+		}
+	}
+	if count != 1 {
+		t.Fatalf("materializer temp mount count = %d, want 1; mounts=%+v", count, request.InitVolumeMounts)
 	}
 }

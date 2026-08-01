@@ -400,6 +400,7 @@ func verifyRemoteCalibrationIndexedEvidence(
 type remoteCalibrationWorkloadIdentity struct {
 	id, digest string
 	kind       gatecontract.WorkloadKind
+	shardable  bool
 }
 
 // verifyRemoteCalibrationEvidence 验证每个 catalog workload 都有可比较的成功样本。
@@ -411,7 +412,9 @@ func verifyRemoteCalibrationEvidence(
 	expected := make(map[string]remoteCalibrationWorkloadIdentity)
 	for _, catalog := range catalogs {
 		for _, workload := range catalog.Workloads {
-			expected[workload.ID+"\x00"+workload.CommandDigest] = remoteCalibrationWorkloadIdentity{workload.ID, workload.CommandDigest, workload.Kind}
+			expected[workload.ID+"\x00"+workload.CommandDigest] = remoteCalibrationWorkloadIdentity{
+				id: workload.ID, digest: workload.CommandDigest, kind: workload.Kind, shardable: workload.Shardable,
+			}
 		}
 	}
 	racePackages := 0
@@ -422,6 +425,9 @@ func verifyRemoteCalibrationEvidence(
 		}
 		if remoteCalibrationRacePackage(parent, workload.kind) {
 			racePackages++
+		}
+		if !workload.shardable {
+			continue
 		}
 		if !remoteCalibrationWorkloadHasPass(index, passedWorkloads, key, workload) {
 			return 0, 0, fmt.Errorf(

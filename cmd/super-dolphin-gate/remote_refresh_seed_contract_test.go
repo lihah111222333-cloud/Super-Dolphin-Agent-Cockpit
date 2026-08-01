@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -25,6 +26,16 @@ func TestBuildRemoteBaselineSeedRequestUsesPreviousGeneration(t *testing.T) {
 	invalidInput.GateSourceDigest = ""
 	if _, err := buildRemoteBaselineSeedRequest(config, invalidInput, source, accepted, accepted.DataCacheSizeGiB, accepted.Generation+1); err == nil {
 		t.Fatal("buildRemoteBaselineSeedRequest() accepted a missing gate source digest")
+	}
+	invalidInput = input
+	invalidInput.GoToolchain = ""
+	if _, err := buildRemoteBaselineSeedRequest(config, invalidInput, source, accepted, accepted.DataCacheSizeGiB, accepted.Generation+1); err == nil {
+		t.Fatal("buildRemoteBaselineSeedRequest() accepted a missing Go toolchain")
+	}
+	invalidInput = input
+	invalidInput.RuntimeDependencySchemaVersion = ""
+	if _, err := buildRemoteBaselineSeedRequest(config, invalidInput, source, accepted, accepted.DataCacheSizeGiB, accepted.Generation+1); err == nil {
+		t.Fatal("buildRemoteBaselineSeedRequest() accepted a missing runtime dependency schema")
 	}
 	request := mustBuildRemoteBaselineSeedRequest(t, config, input, source, accepted, accepted.DataCacheSizeGiB, accepted.Generation+1)
 	assertPreviousRemoteBaselineSeedRequest(t, request, accepted, input)
@@ -50,6 +61,14 @@ func TestBuildRemoteBaselineSeedRequestUsesPreviousGeneration(t *testing.T) {
 		request.Environment["BASELINE_STORAGE_MODE"] == remoteci.BaselineStorageModeDelta,
 		request.DataCacheBucket == accepted.Anchor.DataCacheBucket, request.PreviousDataCachePath == accepted.Anchor.DataCachePath,
 		request.BaselineLayers.Path == "/baseline-artifacts", request.Environment["BASELINE_DELTA_MANIFEST_1"] != "",
+	})
+	historicalInput := input
+	historicalInput.RuntimeDependencySchemaVersion = "8"
+	request = mustBuildRemoteBaselineSeedRequest(t, config, historicalInput, source, accepted, accepted.DataCacheSizeGiB, accepted.Generation+1)
+	assertRemoteBaselineSeedConditions(t, request, "historical schema migration", []bool{
+		request.AutoCreateEIP, request.EIPBandwidth == 100,
+		request.Environment["BASELINE_STORAGE_MODE"] == remoteci.BaselineStorageModeAnchor,
+		request.Environment["BASELINE_FORCE_RUNTIME_REFRESH"] == "true",
 	})
 	if accepted.PolicyDigest == input.Identity.PolicyDigest {
 		t.Fatal("fixture must prove policy changes do not rebuild compatible layers")
@@ -80,6 +99,8 @@ func remoteBaselineSeedRequestFixture(t *testing.T) (remoteRunConfig, remoteci.B
 		GateSourceDigest:                "sha256:" + repeatRemoteHex("0", 64),
 		RuntimeDependencyDigest:         "sha256:" + repeatRemoteHex("1", 64),
 		AcceptedRuntimeDependencyDigest: "sha256:" + repeatRemoteHex("2", 64),
+		RuntimeDependencySchemaVersion:  remoteci.RuntimeDependencySchemaVersion,
+		GoToolchain:                     "go1.26.0",
 		SqruffURL:                       "https://github.com/example/sqruff.tar.gz",
 		SqruffSHA256:                    repeatRemoteHex("e", 64),
 	}
@@ -191,8 +212,21 @@ func assertPreviousRemoteBaselineSeedStorage(t *testing.T, request eci.SeedReque
 	if request.DataCacheBucket != anchor.DataCacheBucket || request.PreviousDataCachePath != anchor.DataCachePath {
 		t.Fatalf("seed request = %#v", request)
 	}
-	if want := remoteBaselineClientToken(accepted.Generation+1, request.Environment["BASELINE_MAIN_TREE"]); request.ClientToken != want {
+	want, err := remoteBaselineSeedClientToken(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.ClientToken != want {
 		t.Fatalf("seed client token = %q, want %q", request.ClientToken, want)
+	}
+	changed := request
+	changed.Resources.MemoryGiB++
+	changedToken, err := remoteBaselineSeedClientToken(changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changedToken == request.ClientToken {
+		t.Fatal("seed client token did not change with the request contract")
 	}
 }
 
@@ -221,6 +255,7 @@ func assertPreviousRemoteBaselineSeedEnvironment(t *testing.T, request eci.SeedR
 	t.Helper()
 	if request.Environment["BASELINE_MAIN_TREE"] != input.Identity.MainTree ||
 		request.Environment["BASELINE_GATE_SOURCE_SHA256"] != input.GateSourceDigest ||
+		request.Environment["BASELINE_GO_TOOLCHAIN"] != input.GoToolchain ||
 		request.Environment["BASELINE_MANIFEST_SCHEMA_VERSION"] != strconv.FormatUint(uint64(remoteci.BaselineManifestSchemaVersion), 10) ||
 		request.Environment["BASELINE_SEED_SCRIPT_SHA256"] != digestBytes([]byte(remoteBaselineSeedScript)) ||
 		request.Environment["BASELINE_SEED_SCRIPT_SIZE"] != strconv.Itoa(len(remoteBaselineSeedScript)) ||
@@ -266,14 +301,14 @@ func assertRemoteBaselineSeedScriptSyntax(t *testing.T) {
 
 func assertRemoteBaselineSeedCommandCounts(t *testing.T) {
 	t.Helper()
-	if count := strings.Count(remoteBaselineSeedScript, "go mod download all"); count != 0 {
-		t.Fatalf("seed script retained %d whole-module-graph downloads", count)
+	if count := strings.Count(remoteBaselineSeedScript, "go mod download all"); count != 1 {
+		t.Fatalf("disposable source whole-module-graph downloads = %d, want 1", count)
 	}
 	if count := countRemoteSeedShellCommand(remoteBaselineSeedScript, `GOMODCACHE="$go_mod_cache" go mod download`); count != 1 {
 		t.Fatalf("locked runtime module proxy downloads = %d, want 1", count)
 	}
-	if count := strings.Count(remoteBaselineSeedScript, "GOFLAGS=-mod=readonly"); count != 4 {
-		t.Fatalf("read-only Go dependency closure commands = %d, want 4", count)
+	if count := strings.Count(remoteBaselineSeedScript, "GOFLAGS=-mod=readonly"); count != 5 {
+		t.Fatalf("read-only Go dependency closure commands = %d, want 5", count)
 	}
 	if count := strings.Count(remoteBaselineSeedScript, "go list -deps -test ./... >/dev/null"); count != 3 {
 		t.Fatalf("offline-ready Go test dependency closures = %d, want 3", count)
@@ -314,11 +349,17 @@ func assertRemoteBaselineSeedRequiredFragments(t *testing.T) {
 func assertRemoteBaselineSeedToolchainFragments(t *testing.T) {
 	t.Helper()
 	assertRemoteBaselineSeedContains(t, []string{
+		"historical runtime dependency schema requires seed refresh",
+		"BASELINE_FORCE_RUNTIME_REFRESH",
 		"export HOME=/tmp/home",
 		"export XDG_CACHE_HOME=/tmp/xdg-cache",
 		"export GOENV=off",
 		"export GOTELEMETRY=off",
-		"go1.26.5.linux-amd64.tar.gz",
+		"BASELINE_GO_TOOLCHAIN",
+		"https://go.dev/dl/?mode=json&include=all",
+		"Go archive identity is ambiguous",
+		"${BASELINE_GO_TOOLCHAIN}.linux-${go_arch}.tar.gz",
+		"test \"$(go version | awk '{print $3}')\" = \"$BASELINE_GO_TOOLCHAIN\"",
 		"node-v24.18.0-linux-x64.tar.xz",
 		"Python-3.11.2.tar.xz",
 		"https://mirrors.aliyun.com/golang/",
@@ -339,6 +380,9 @@ func assertRemoteBaselineSeedGateIdentityFragments(t *testing.T) {
 	assertRemoteBaselineSeedContains(t, []string{
 		"load_verified_gate()",
 		"verify_gate_cli_identity()",
+		"grep -Fq 'case \"cli-identity\":' \"$source_root/cmd/super-dolphin-gate/main.go\"",
+		"\"$binary\" plan local-fast >/dev/null",
+		"gate CLI identity mode: source-bound legacy probe",
 		"candidate_gate_source=$(sed -n 's/.*\"gate_source_sha256\"",
 		"test \"$previous_gate_source_sha256\" = \"$BASELINE_GATE_SOURCE_SHA256\"",
 		"test \"$previous_gate_platform\" = \"$BASELINE_PLATFORM\"",
@@ -360,7 +404,11 @@ func assertRemoteBaselineSeedOfflineDependencyFragments(t *testing.T) {
 		"module_lock_manifest()",
 		"git -C \"$1\" ls-files -s -- go.mod go.sum '*/go.mod' '*/go.sum'",
 		"validate_offline_module_cache()",
+		"module_download_root=$stage/module-download-source",
+		"cp -a \"$source_root\" \"$module_download_root\"",
 		"download_go_module()",
+		"GOMODCACHE=\"$go_mod_cache\" go mod download all",
+		"download_go_module \"$module_download_root\" \"$source_root\"",
 		"download_locked_module_proxy()",
 		"git -C \"$source_root\" ls-files -- '*/go.mod'",
 		"baseline source tree mutated:",
@@ -382,6 +430,9 @@ func assertRemoteBaselineSeedRuntimeReuseFragments(t *testing.T) {
 	t.Helper()
 	assertRemoteBaselineSeedContains(t, []string{
 		"runtime seed cache is stale; rebuilding",
+		"runtime_validation_go_mod_cache=$stage/runtime-reuse-go-mod-cache",
+		"worker go-module-overlay",
+		"GOMODCACHE=\"$runtime_validation_go_mod_cache\" go list -deps -test ./...",
 		"previous_runtime=$stage/previous-runtime",
 		"reuse_go_dependencies=0",
 		"reuse_runtime_rootfs=0",
@@ -392,7 +443,7 @@ func assertRemoteBaselineSeedRuntimeReuseFragments(t *testing.T) {
 		"if test -n \"$previous_runtime\" && test -d \"$previous_runtime/go-mod-cache\"; then",
 		"runtime dependency cache reused: go modules",
 		"runtime dependency cache reused: Go module proxy",
-		"runtime dependency cache reused: frontend node_modules",
+		"runtime dependency cache reused: frontend node_modules and npm cache",
 		"runtime dependency cache reused: lsp node_modules",
 		"runtime dependency cache reused: Go tools",
 		"runtime dependency cache reused: sqruff",
@@ -401,6 +452,7 @@ func assertRemoteBaselineSeedRuntimeReuseFragments(t *testing.T) {
 		"runtime seed changed; compacting new Anchor",
 		"test \"$BASELINE_STORAGE_MODE\" = delta && test \"$runtime_layer_reusable\" != 1",
 		"chmod 0755 $payload_root/runtime/bin/portable-tool",
+		"tool=${0##*/}",
 		"xauth|xkbcomp|xvfb-run",
 		"cat > $payload_root/runtime/bin/xvfb-run <<'EOF'",
 		"-ac -nolisten tcp",
@@ -409,14 +461,37 @@ func assertRemoteBaselineSeedRuntimeReuseFragments(t *testing.T) {
 		"portable Xvfb did not publish $display",
 		"[baseline-seed] portable runtime validated",
 		"SUPER_DOLPHIN_RUNTIME_ROOT",
+		"LD_LIBRARY_PATH=$runtime_system_root/usr/lib/$runtime_multiarch:$runtime_system_root/lib/$runtime_multiarch:$runtime_system_root/usr/lib:$runtime_system_root/lib",
+		"fontconfig fonts-liberation",
+		"test -f /etc/fonts/fonts.conf",
+		"test -d /usr/share/fonts",
+		"$payload_root/runtime/rootfs/usr/share/fonts",
 		"libwebkit2gtk-4.1-dev",
+		"libnspr4 libnss3",
+		"etc/fonts etc/ssl",
 		"x11-xkb-utils xauth xkb-data xvfb",
 		"source_manifest=/input/source-manifest.json",
 		"git clone --quiet --no-checkout /input/source.bundle",
 		"git -C \"$source_root\" fetch --quiet /input/source.bundle",
 		"cp /input/sqruff.tar.gz \"$stage/sqruff.tar.gz\"",
 		"npm ci --ignore-scripts --no-audit --no-fund",
+		"test -d \"$stage/npm-cache/_cacache/content-v2\"",
+		"test -d \"$stage/npm-cache/_cacache/index-v5\"",
+		"mv \"$stage/npm-cache\" $payload_root/runtime/frontend/npm-cache",
 		"mkdir -p $payload_root/runtime/frontend",
+		"playwright_browsers=$playwright_modules/.cache/ms-playwright",
+		"\"$playwright_cli\" install chromium",
+		"runtime dependency cache ready: Playwright Chromium",
+		"chromium_real=${chromium_executable}.super-dolphin-real",
+		"test -f \"$system_root/etc/fonts/fonts.conf\"",
+		"FONTCONFIG_SYSROOT=$system_root",
+		"FONTCONFIG_PATH=$system_root/etc/fonts",
+		"XDG_DATA_DIRS=$system_root/usr/local/share:$system_root/usr/share",
+		"GSETTINGS_SCHEMA_DIR=$system_root/usr/share/glib-2.0/schemas",
+		"exec \"$real\" \"$@\"",
+		"playwright-chromium-probe",
+		"await browser.newPage()",
+		"await page.screenshot()",
 		"tool_go_mod_cache=$stage/tool-go-mod-cache",
 		"GOMODCACHE=\"$tool_go_mod_cache\"",
 		"go_mod_cache=$payload_root/runtime/go-mod-cache",
@@ -429,6 +504,11 @@ func assertRemoteBaselineSeedRuntimeReuseFragments(t *testing.T) {
 func assertRemoteBaselineSeedLayerFragments(t *testing.T) {
 	t.Helper()
 	assertRemoteBaselineSeedContains(t, []string{
+		"runtime frontend cache is missing Playwright CLI; rebuilding frontend dependencies",
+		"reuse_frontend_dependencies=0",
+		"runtime frontend dependencies are missing the Playwright CLI",
+		"Playwright Chromium install did not produce an executable",
+		"Playwright Chromium wrapper is missing its real executable",
 		"test \"$BASELINE_STORAGE_MODE\" = delta",
 		"BASELINE_DELTA_MANIFEST_1 BASELINE_DELTA_MANIFEST_2 BASELINE_DELTA_MANIFEST_3 BASELINE_DELTA_MANIFEST_4",
 		"SUPER_DOLPHIN_RUNTIME_ROOT=$payload_root/runtime \"$payload_root/runtime/bin/git\" -C \"$payload_root/source\" fetch",
@@ -457,6 +537,14 @@ func assertRemoteBaselineSeedLayerFragments(t *testing.T) {
 		"runtime_archive_path=$oss_output/runtime-deps.tar.gz",
 		"source_archive_path=$oss_output/source.tar.gz",
 		"go_cache_archive_path=$oss_output/go-build-cache.tar.gz",
+		"run_logged layer-archive-runtime archive_layer",
+		"run_logged layer-measure-runtime measure_layer",
+		"run_logged layer-archive-source archive_layer",
+		"run_logged layer-measure-source measure_layer",
+		"run_logged layer-archive-go-cache archive_layer",
+		"run_logged layer-measure-go-cache measure_layer",
+		"run_logged layer-archive-go-cache-delta archive_layer",
+		"run_logged layer-measure-go-cache-delta measure_layer",
 		"\"storage_mode\":\"anchor\"",
 		"\"storage_mode\":\"delta\"",
 		"\"kind\":\"anchor\",\"name\":\"runtime-deps\",\"archive\":\"runtime-deps.tar.gz\"",
@@ -494,12 +582,12 @@ func assertRemoteBaselineSeedForbiddenScriptFragments(t *testing.T) {
 		fragment string
 		message  string
 	}{
-		{"playwright install chromium", "remote canonical gates must not seed an unused Playwright browser"},
 		{"BASELINE_REPOSITORY_URL", "remote baseline seed must not pull source from GitHub"},
+		{"go1.26.5", "remote baseline seed must derive the Go toolchain from the candidate tree"},
 		{"BASELINE_SQRUFF_URL", "remote baseline seed must receive the fixed sqruff artifact through OSS input"},
 		{"go mod download -json all", "remote baseline seed must resolve only source-supported target modules and must not mutate go.sum"},
 		{"GOPROXY=file://$payload_root/runtime/go-proxy", "accepted Go module cache must fail fast instead of rematerializing through the runtime proxy"},
-		{"$payload_root/runtime/frontend/npm-cache", "accepted runtime must not retain the build-only npm download cache"},
+		{"GOMODCACHE=\"$payload_root/runtime/go-mod-cache\" go list -deps -test", "runtime reuse validation must not mutate the accepted Go module cache"},
 		{"worker runtime-seed write \"$source_root\"", "runtime seed manifest must bind the immutable archived source, not the mutable build checkout"},
 		{"cp -a $previous_root/. /output/", "remote baseline seed must not write unpacked trees through OSSFS"},
 		{"cp -a \"$source_root\" /output/source", "remote baseline seed must not write unpacked trees through OSSFS"},
@@ -511,6 +599,8 @@ func assertRemoteBaselineSeedForbiddenScriptFragments(t *testing.T) {
 		{"cp -a \"$previous_runtime/lsp\" $payload_root/runtime/lsp", "incremental refresh must move accepted LSP dependencies"},
 		{"archive_path=$oss_output/baseline.tar.gz", "new baseline generations must use deterministic layered archives"},
 		{"\"archive_sha256\"", "new baseline manifests must not emit legacy single-archive fields"},
+		{"$source_root/.git/shallow", "remote baseline source must retain the complete history reachable from main"},
+		{"tool=$(basename \"$0\")", "portable runtime tools must not depend on the host basename command"},
 	} {
 		if strings.Contains(remoteBaselineSeedScript, forbidden.fragment) {
 			t.Fatal(forbidden.message)
@@ -613,14 +703,33 @@ func assertRemoteBaselineSeedOfflineValidationCount(t *testing.T) {
 	if count := strings.Count(remoteBaselineSeedScript, "GOPROXY=off GOSUMDB=off"); count != 4 {
 		t.Fatalf("offline CLI compile, accepted-cache validations, and incremental refreshes = %d, want 4", count)
 	}
+	overlay := strings.Index(remoteBaselineSeedScript, "worker go-module-overlay")
+	offlineList := strings.Index(remoteBaselineSeedScript, "GOMODCACHE=\"$runtime_validation_go_mod_cache\" go list -deps -test ./...")
+	manifestVerify := strings.Index(remoteBaselineSeedScript, "worker runtime-seed verify \"$source_root\"")
+	if overlay < 0 || offlineList < overlay || manifestVerify < offlineList {
+		t.Fatal("runtime reuse validation must route Go metadata writes through a private overlay before verifying the immutable manifest")
+	}
 }
 
 func assertRemoteBaselineSeedFrontendOrdering(t *testing.T) {
 	t.Helper()
+	frontendReuseCheck := strings.Index(remoteBaselineSeedScript, "runtime frontend cache is missing Playwright CLI")
+	reuseValidation := strings.Index(remoteBaselineSeedScript, "validate_reusable_runtime >\"$reuse_log\"")
 	frontendRoot := strings.Index(remoteBaselineSeedScript, "mkdir -p $payload_root/runtime/frontend")
 	frontendMove := strings.Index(remoteBaselineSeedScript, "mv \"$source_root/frontend-app/node_modules\" $payload_root/runtime/frontend/node_modules")
-	if frontendRoot < 0 || frontendMove < frontendRoot {
-		t.Fatal("baseline seed must create the frontend runtime parent before moving node_modules")
+	multiarchReady := strings.Index(remoteBaselineSeedScript, "printf '%s\\n' \"$runtime_multiarch\" > $payload_root/runtime/multiarch")
+	runtimeReady := -1
+	if multiarchReady >= 0 {
+		if offset := strings.Index(remoteBaselineSeedScript[multiarchReady:], "use_runtime $payload_root/runtime"); offset >= 0 {
+			runtimeReady = multiarchReady + offset
+		}
+	}
+	chromiumWrapper := strings.Index(remoteBaselineSeedScript, "chromium_real=${chromium_executable}.super-dolphin-real")
+	playwrightProbe := strings.Index(remoteBaselineSeedScript, "playwright-chromium-probe")
+	if frontendReuseCheck < 0 || reuseValidation < frontendReuseCheck || frontendRoot < reuseValidation ||
+		frontendMove < frontendRoot || multiarchReady < 0 ||
+		runtimeReady < multiarchReady || chromiumWrapper < runtimeReady || playwrightProbe < chromiumWrapper {
+		t.Fatal("baseline seed must prepare the frontend runtime and portable libraries before probing Chromium")
 	}
 }
 
@@ -628,7 +737,7 @@ func assertRemoteBaselineSeedGoEmbedOrdering(t *testing.T) {
 	t.Helper()
 	embedSeed := strings.Index(remoteBaselineSeedScript, `cp "$payload_root/frontend-embed/index.html" "$source_root/cmd/agent-terminal/web-dist/index.html"`)
 	reuseValidation := strings.Index(remoteBaselineSeedScript, "if test \"$seeds_changed\" = 0; then")
-	onlineHydration := strings.Index(remoteBaselineSeedScript, "download_go_module \"$source_root\"")
+	onlineHydration := strings.Index(remoteBaselineSeedScript, "download_go_module \"$module_download_root\" \"$source_root\"")
 	if embedSeed < 0 || reuseValidation < embedSeed || onlineHydration < reuseValidation {
 		t.Fatal("baseline seed must create the ignored Go embed placeholder before reusable-runtime validation and online dependency hydration")
 	}
@@ -640,7 +749,7 @@ func assertRemoteBaselineSeedRuntimeReuseOrdering(t *testing.T) {
 	reuseGo := strings.Index(remoteBaselineSeedScript, "runtime toolchain reused: go")
 	downloadGo := strings.Index(remoteBaselineSeedScript, `download_file "$stage/go.tar.gz"`)
 	reuseModules := strings.Index(remoteBaselineSeedScript, "runtime dependency cache reused: go modules")
-	hydrateModules := strings.Index(remoteBaselineSeedScript, `download_go_module "$source_root"`)
+	hydrateModules := strings.Index(remoteBaselineSeedScript, `download_go_module "$module_download_root" "$source_root"`)
 	retireRuntime := strings.LastIndex(remoteBaselineSeedScript, `rm -rf "$previous_runtime"`)
 	if preserveRuntime < 0 || reuseGo < preserveRuntime || downloadGo < reuseGo ||
 		reuseModules < preserveRuntime || hydrateModules < reuseModules || retireRuntime < hydrateModules {
@@ -687,6 +796,39 @@ func TestDownloadRemoteBaselineToolArtifactVerifiesDigest(t *testing.T) {
 	path, err := downloadRemoteBaselineToolArtifact(context.Background(), t.TempDir(), server.URL, fmt.Sprintf("%x", digest))
 	if err != nil {
 		t.Fatalf("downloadRemoteBaselineToolArtifact() error = %v", err)
+	}
+	actual, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(actual) != string(content) {
+		t.Fatalf("artifact content = %q, want %q", actual, content)
+	}
+}
+
+func TestDownloadRemoteBaselineToolArtifactRetriesTransientEOF(t *testing.T) {
+	content := []byte("verified sqruff retry fixture")
+	digest := sha256.Sum256(content)
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		if attempts.Add(1) == 1 {
+			writer.Header().Set("Content-Length", strconv.Itoa(len(content)))
+			if _, err := writer.Write(content[:len(content)/2]); err != nil {
+				t.Errorf("write partial fixture response: %v", err)
+			}
+			return
+		}
+		if _, err := writer.Write(content); err != nil {
+			t.Errorf("write fixture response: %v", err)
+		}
+	}))
+	defer server.Close()
+	path, err := downloadRemoteBaselineToolArtifact(context.Background(), t.TempDir(), server.URL, fmt.Sprintf("%x", digest))
+	if err != nil {
+		t.Fatalf("downloadRemoteBaselineToolArtifact() error = %v", err)
+	}
+	if attempts.Load() != 2 {
+		t.Fatalf("download attempts = %d, want 2", attempts.Load())
 	}
 	actual, err := os.ReadFile(path)
 	if err != nil {

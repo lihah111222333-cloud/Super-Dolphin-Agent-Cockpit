@@ -857,28 +857,3 @@ func installGoModuleMetadataOverlay(sharedRoot string, privateRoot string) error
 	}
 	return nil
 }
-
-// mirrorGoModuleMetadataTree 创建私有目录并把既有元数据文件链接到只读 seed。
-func mirrorGoModuleMetadataTree(sharedRoot string, privateRoot string) error {
-	return filepath.WalkDir(sharedRoot, func(sharedPath string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		relative, err := filepath.Rel(sharedRoot, sharedPath)
-		if err != nil {
-			return err
-		}
-		privatePath := filepath.Join(privateRoot, relative)
-		if entry.IsDir() {
-			return os.MkdirAll(privatePath, 0o700)
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("shared Go module metadata entry %q is not regular", relative)
-		}
-		return os.Symlink(sharedPath, privatePath)
-	})
-}

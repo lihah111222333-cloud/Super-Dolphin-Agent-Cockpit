@@ -233,8 +233,8 @@
       "codemap_line": 119,
       "target_path": "internal/app/app.go",
       "line_spec": "210",
-      "content_sha256": "d117a236c51ce32d12c499766b1dd8c4d23e0db0820337e50b6ca13df106d20b",
-      "symbol": "prepareDesktopRuntime"
+      "content_sha256": "132b7aa3602ab4c89c23b463d28db942920c09ca3df00b513cbeac104460b5fe",
+      "symbol": "RunHeadlessDesktop"
     },
     {
       "codemap_file": "01-terminal-ui-go.md",
@@ -303,16 +303,16 @@
       "codemap_line": 131,
       "target_path": "internal/app/app.go",
       "line_spec": "210",
-      "content_sha256": "d117a236c51ce32d12c499766b1dd8c4d23e0db0820337e50b6ca13df106d20b",
-      "symbol": "prepareDesktopRuntime"
+      "content_sha256": "132b7aa3602ab4c89c23b463d28db942920c09ca3df00b513cbeac104460b5fe",
+      "symbol": "RunHeadlessDesktop"
     },
     {
       "codemap_file": "01-terminal-ui-go.md",
       "codemap_line": 131,
       "target_path": "internal/app/app.go",
       "line_spec": "214",
-      "content_sha256": "9ff9ac34e6e8b29e8d9af176f7b461cd3653fccd90eb42f39b4fb092f499f024",
-      "symbol": "errDesktopNotActivated"
+      "content_sha256": "05eb33bc77301d85481063de5d3cb2f83ca80599a9be1c7c751346892fc431aa",
+      "symbol": "RunHeadlessDesktop"
     },
     {
       "codemap_file": "01-terminal-ui-go.md",

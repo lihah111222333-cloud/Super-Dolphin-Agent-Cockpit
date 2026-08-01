@@ -19,6 +19,8 @@ var (
 	ErrDurationLedgerConflict = errors.New("duration ledger generation conflict")
 	// ErrDurationLedgerBusy 表示另一个 writer 正持有账本存储锁。
 	ErrDurationLedgerBusy = errors.New("duration ledger store busy")
+	// ErrDurationLedgerMetadataMissing 表示 SQLite 权威文件存在但初始化元数据尚不可见。
+	ErrDurationLedgerMetadataMissing = errors.New("duration ledger SQLite metadata is missing")
 )
 
 const (

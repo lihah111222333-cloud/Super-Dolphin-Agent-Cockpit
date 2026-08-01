@@ -98,12 +98,12 @@ var executorPrograms = map[GateID]ExecutorProgram{
 	GateIDFrontendLint: withFrontendSeed(requirePaths(commandProgramIn("frontend-app",
 		[]string{"npm", "run", "lint"},
 	), "frontend-app/package.json", "frontend-app/package-lock.json")),
-	GateIDFrontendTest: withFrontendSeed(requirePaths(commandProgramIn("frontend-app",
+	GateIDFrontendTest: withGoSeed(withFrontendSeed(requirePaths(commandProgramIn("frontend-app",
 		[]string{"npm", "run", "test:hook"},
-	), "frontend-app/package.json", "frontend-app/package-lock.json")),
-	GateIDFrontendFullTest: withFrontendSeed(requirePaths(commandProgramIn("frontend-app",
+	), "frontend-app/package.json", "frontend-app/package-lock.json"))),
+	GateIDFrontendFullTest: withGoSeed(withFrontendSeed(requirePaths(commandProgramIn("frontend-app",
 		[]string{"npm", "test"},
-	), "frontend-app/package.json", "frontend-app/package-lock.json")),
+	), "frontend-app/package.json", "frontend-app/package-lock.json"))),
 	GateIDFrontendBuild: withFrontendSeed(requirePaths(commandProgramIn("frontend-app",
 		[]string{"npm", "run", "build"},
 	), "frontend-app/package.json", "frontend-app/package-lock.json")),
@@ -314,10 +314,10 @@ func goBenchmarkExecutorProgram(target string) (ExecutorProgram, error) {
 
 // vitestExecutorProgram 将一个前端测试文件绑定到串行 Vitest 命令。
 func vitestExecutorProgram(target string) ExecutorProgram {
-	return withFrontendSeed(requirePaths(commandProgramIn(
+	return withGoSeed(withFrontendSeed(requirePaths(commandProgramIn(
 		"frontend-app",
 		[]string{"npx", "vitest", "run", target, "--no-file-parallelism", "--maxWorkers=1"},
-	), "frontend-app/package.json", "frontend-app/package-lock.json", "frontend-app/"+target))
+	), "frontend-app/package.json", "frontend-app/package-lock.json", "frontend-app/"+target)))
 }
 
 // goTargetExecutorProgramForParent 根据父 gate 选择普通或 race argv。

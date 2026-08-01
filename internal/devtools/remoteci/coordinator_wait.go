@@ -275,12 +275,19 @@ func (coordinator *Coordinator) shardReportError(ctx context.Context, groupID st
 
 // decodeReportLog 从普通文本日志中提取有界分块报告。
 func decodeReportLog(log string, expected []gate.GateID) (gate.PlanExecutionReport, error) {
+	recordLimit, err := gate.PlanExecutionReportRecordLimit(len(expected))
+	if err != nil {
+		return gate.PlanExecutionReport{}, err
+	}
 	var chunks []string
 	scanner := bufio.NewScanner(strings.NewReader(log))
 	scanner.Buffer(make([]byte, 64*1024), 8<<20)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, gate.ExecutorPlanReportChunkPrefix) {
+			if len(chunks) >= recordLimit {
+				return gate.PlanExecutionReport{}, errors.New("remote plan report exceeds shard record budget")
+			}
 			chunks = append(chunks, line)
 		}
 	}

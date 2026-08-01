@@ -47,6 +47,43 @@ func TestReuseRemoteBaselineRejectsCapacityChange(t *testing.T) {
 	}
 }
 
+func TestRemoteBaselineCanReuseRequiresCompleteHistoryIdentityAndCapacity(t *testing.T) {
+	state := remoteBaselineStateFixture()
+	identity := remoteci.BaselineIdentity{
+		MainCommit: state.MainCommit, MainTree: state.MainTree, Platform: state.Platform,
+		PolicyDigest: state.PolicyDigest, ToolchainDigest: state.ToolchainDigest,
+		RuntimeImage: state.RuntimeImage,
+	}
+	if !remoteBaselineCanReuse(state, identity, state.DataCacheSizeGiB) {
+		t.Fatal("current complete baseline was not reusable")
+	}
+	legacy := state
+	legacy.SourceHistoryVersion = 0
+	if remoteBaselineCanReuse(legacy, identity, state.DataCacheSizeGiB) {
+		t.Fatal("legacy shallow baseline was reusable")
+	}
+	changedIdentity := identity
+	changedIdentity.MainTree = repeatRemoteHex("f", 40)
+	if remoteBaselineCanReuse(state, changedIdentity, state.DataCacheSizeGiB) {
+		t.Fatal("identity drift was reusable")
+	}
+	if remoteBaselineCanReuse(state, identity, state.DataCacheSizeGiB+1) {
+		t.Fatal("capacity drift was reusable")
+	}
+}
+
+func TestVerifyRemoteBaselineSuccessorRejectsMigrationSentinel(t *testing.T) {
+	state := remoteBaselineStateFixture()
+	state.SourceHistoryVersion = 0
+	config := remoteRunConfig{}
+	config.Runtime.Image = state.RuntimeImage
+	config.DataCache.Bucket = state.DataCacheBucket
+	config.DataCache.PathPrefix = "/super-dolphin/ci/baselines"
+	if err := verifyRemoteBaselineSuccessor(context.Background(), remoteBaselineRefreshSession{config: config}, state); err == nil || !strings.Contains(err.Error(), "source history is incomplete") {
+		t.Fatalf("verifyRemoteBaselineSuccessor() error = %v", err)
+	}
+}
+
 func assertRemoteBaselineRenewOnly(
 	t *testing.T,
 	cache *fakeRemoteBaselineDataCacheClient,

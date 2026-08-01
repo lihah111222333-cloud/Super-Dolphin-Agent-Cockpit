@@ -1,17 +1,53 @@
 import { expect, test } from '@playwright/test';
 
+function captureBrowserDiagnostics(page) {
+  const diagnostics = [];
+  const context = page.context();
+  const browser = context.browser();
+  page.on('pageerror', (error) => diagnostics.push(`pageerror: ${error.message}`));
+  page.on('close', () => diagnostics.push('page: closed'));
+  context.on('close', () => diagnostics.push('context: closed'));
+  browser?.on('disconnected', () => diagnostics.push('browser: disconnected'));
+  page.on('console', (message) => {
+    if (message.type() === 'error' || message.type() === 'warning') {
+      diagnostics.push(`console.${message.type()}: ${message.text()}`);
+    }
+  });
+  page.on('requestfailed', (request) => diagnostics.push(
+    `requestfailed: ${request.method()} ${request.url()} ${request.failure()?.errorText || ''}`,
+  ));
+  return diagnostics;
+}
+
+async function expectChatShellReady(page, browserDiagnostics) {
+  await expect(page.getByTestId('frontend-app')).toBeVisible();
+  const deadline = Date.now() + 30_000;
+  let bodyText = '';
+  let readyState = '';
+  while (Date.now() < deadline && !page.isClosed()) {
+    if (await page.getByTestId('chat-page').isVisible()) return;
+    bodyText = await page.locator('body').innerText().catch((error) => `<unavailable: ${error.message}>`);
+    readyState = await page.evaluate(() => document.readyState).catch((error) => `<unavailable: ${error.message}>`);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error([
+    `chat shell unavailable at ${page.url()}`,
+    `readyState: ${readyState}`,
+    `browser diagnostics: ${JSON.stringify(browserDiagnostics)}`,
+    `body: ${bodyText.slice(0, 2048)}`,
+  ].join('\n'));
+}
+
 test('terminal-failed crosses production Wails application and EventBridge into real DOM', {
   annotation: [
     { type: 't03-hops', description: JSON.stringify(['claudecli.raw', 'claudecli.adapter', 'turndto.TurnOutputDelta', 'wails.EventBridge', 'chromium.DOM', 'codexapp.raw', 'codexapp.adapter', 'turndto.TurnCompleted', 'turn/terminal', 'chromium.DOM']) },
     { type: 't03-dom-assertions', description: JSON.stringify(['partial-response-visible', 'safe-terminal-visible', 'raw-secret-absent', 'raw-private-path-absent', 'raw-stack-absent', 'legacy-remote-copy-absent']) },
   ],
 }, async ({ page }, testInfo) => {
-  const pageErrors = [];
-  page.on('pageerror', (error) => pageErrors.push(error.message));
+  const browserDiagnostics = captureBrowserDiagnostics(page);
 
   await page.goto('/');
-  await expect(page.getByTestId('frontend-app')).toBeVisible();
-  await expect(page.getByTestId('chat-page')).toBeVisible();
+  await expectChatShellReady(page, browserDiagnostics);
   await expect(page.getByRole('button', { name: /^Failure smoke thread/u })).toBeVisible();
 
   const trigger = await page.evaluate(async () => {
@@ -33,7 +69,7 @@ test('terminal-failed crosses production Wails application and EventBridge into 
   await expect(body).not.toContainText('stack: provider failure');
   await expect(body).not.toContainText('本次执行失败');
   await expect(body).not.toContainText('Provider 未能完成本次执行。');
-  expect(pageErrors).toEqual([]);
+  expect(browserDiagnostics).toEqual([]);
   await testInfo.attach('t03-execution-evidence', {
     body: JSON.stringify({
       hops: ['claudecli.raw', 'claudecli.adapter', 'turndto.TurnOutputDelta', 'wails.EventBridge', 'chromium.DOM', 'codexapp.raw', 'codexapp.adapter', 'turndto.TurnCompleted', 'turn/terminal', 'chromium.DOM'],
@@ -49,11 +85,10 @@ test('prompt-history-reject crosses production Wails application and preserves r
     { type: 't03-dom-assertions', description: JSON.stringify(['draft-preserved', 'cursor-preserved', 'retry-click-recovers']) },
   ],
 }, async ({ page }, testInfo) => {
-  const pageErrors = [];
-  page.on('pageerror', (error) => pageErrors.push(error.message));
+  const browserDiagnostics = captureBrowserDiagnostics(page);
 
   await page.goto('/');
-  await expect(page.getByTestId('chat-page')).toBeVisible();
+  await expectChatShellReady(page, browserDiagnostics);
   const composer = page.getByTestId('composer-input');
   await composer.fill('draft kept');
   await composer.evaluate((textarea) => textarea.setSelectionRange(3, 3));
@@ -77,7 +112,7 @@ test('prompt-history-reject crosses production Wails application and preserves r
   await expect(alert).toHaveCount(0);
   await expect(page.getByText('prompt history private token=secret')).toHaveCount(0);
   await expect(page.getByText('Authorization: Bearer t03-raw-provider-secret-do-not-persist')).toHaveCount(0);
-  expect(pageErrors).toEqual([]);
+  expect(browserDiagnostics).toEqual([]);
   await testInfo.attach('t03-execution-evidence', {
     body: JSON.stringify({
       hops: ['wails.rpc', 'thread/promptHistory', 'frontend.action', 'chromium.DOM', 'retry.control', 'wails.rpc', 'chromium.DOM'],
