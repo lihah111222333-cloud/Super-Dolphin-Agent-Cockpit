@@ -2,6 +2,7 @@ package main
 
 import (
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -183,6 +184,9 @@ func assertRemoteRunInputAuthority(t *testing.T, input remoteci.RunInput, state 
 
 func assertRemoteRunBaselineProjection(t *testing.T, input remoteci.RunInput, state remoteci.BaselineState) {
 	t.Helper()
+	if !reflect.DeepEqual(input.DirectCacheRef, state.DirectCacheRef) {
+		t.Fatalf("direct cache projection = %#v, want %#v", input.DirectCacheRef, state.DirectCacheRef)
+	}
 	if input.DataCacheBucket != state.Anchor.DataCacheBucket {
 		t.Fatalf("baseline projection = %#v", input)
 	}

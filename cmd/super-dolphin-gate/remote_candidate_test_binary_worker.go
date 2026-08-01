@@ -95,7 +95,7 @@ func runRemoteBuildTestBinaries(args []string, stdout io.Writer) error {
 }
 
 func builderRequestShard(request remoteci.CandidateTestBinaryBuilderRequest) remoteci.ShardRequest {
-	return remoteci.ShardRequest{SchemaVersion: remoteci.ShardRequestSchemaVersion, JobID: request.JobID, ShardIdentity: "sha256:" + strings.Repeat("0", 64), Profile: "local-fast", PlanDigest: "sha256:" + strings.Repeat("0", 64), BaselineManifest: request.BaselineManifest, AnchorGeneration: request.AnchorGeneration, AnchorManifest: request.AnchorManifest, AnchorCommit: request.AnchorCommit, AnchorTree: request.AnchorTree, BaselineDeltas: request.BaselineDeltas, RunnerBaseCommit: request.RunnerBaseCommit, RunnerBaseTree: request.RunnerBaseTree, SourceTreeSHA: request.CandidateTree, PatchFormat: request.PatchFormat, PatchKey: request.PatchKey, PatchSHA256: request.PatchSHA256, PatchSize: request.PatchSize, ManifestKey: request.ManifestKey, ManifestSHA256: request.ManifestSHA256, CandidateCLI: request.CandidateCLI, GateIDs: []gatecontract.GateID{"builder"}}
+	return remoteci.ShardRequest{SchemaVersion: remoteci.ShardRequestSchemaVersion, JobID: request.JobID, ShardIdentity: "sha256:" + strings.Repeat("0", 64), Profile: "local-fast", PlanDigest: "sha256:" + strings.Repeat("0", 64), BaselineManifest: request.BaselineManifest, AnchorGeneration: request.AnchorGeneration, AnchorManifest: request.AnchorManifest, AnchorCommit: request.AnchorCommit, AnchorTree: request.AnchorTree, BaselineDeltas: request.BaselineDeltas, DirectCacheRef: request.DirectCacheRef, RunnerBaseCommit: request.RunnerBaseCommit, RunnerBaseTree: request.RunnerBaseTree, SourceTreeSHA: request.CandidateTree, PatchFormat: request.PatchFormat, PatchKey: request.PatchKey, PatchSHA256: request.PatchSHA256, PatchSize: request.PatchSize, ManifestKey: request.ManifestKey, ManifestSHA256: request.ManifestSHA256, CandidateCLI: request.CandidateCLI, GateIDs: []gatecontract.GateID{"builder"}}
 }
 
 func remoteBuilderUpload(ctx context.Context, config remoteMaterializeConfig, key, file string) error {
@@ -257,6 +257,9 @@ func mergeRemoteBuilderCacheMetrics(left, right gatecontract.GoBuildCacheProxyMe
 }
 
 func remoteBuilderSeedRoots() ([]string, error) {
+	if os.Getenv(gatecontract.ExecutorDirectGoBuildCacheSeedEnv) != "" {
+		return gatecontract.ExecutorRemoteGoBuildCacheSeedRoots()
+	}
 	entries, err := os.ReadDir(gatecontract.ExecutorGoBuildCacheSeedsRoot)
 	if err != nil {
 		return nil, err

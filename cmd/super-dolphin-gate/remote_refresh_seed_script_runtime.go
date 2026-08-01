@@ -62,7 +62,11 @@ if test "$previous_layered" = 1 && test "$seeds_changed" = 0 && \
    cmp -s "$previous_runtime_manifest" "$payload_root/runtime/manifest.json"; then
   runtime_layer_reusable=1
 fi
-if test "$BASELINE_STORAGE_MODE" = delta && test "$runtime_layer_reusable" != 1 && test "$BASELINE_TOOLCHAIN_CHANGED" != true; then
+  runtime_dependency_changed=false
+  if test "$BASELINE_STORAGE_MODE" = delta && test "$BASELINE_RUNTIME_DEPENDENCY_DIGEST" != "$BASELINE_ACCEPTED_RUNTIME_DEPENDENCY_DIGEST"; then
+    runtime_dependency_changed=true
+  fi
+  if test "$BASELINE_STORAGE_MODE" = delta && test "$runtime_layer_reusable" != 1 && test "$BASELINE_TOOLCHAIN_CHANGED" != true && test "$runtime_dependency_changed" != true; then
   echo 'runtime seed changed but no incremental runtime layer was produced; full Anchor rebuild is forbidden' >&2
   exit 1
 fi
@@ -88,6 +92,76 @@ ca_bundle_digest=$(digest_file "$ca_bundle")
 ca_bundle_size=$(stat -c '%s' "$ca_bundle")
 test "$gate_size" -gt 0
 test "$ca_bundle_size" -gt 0
+direct_cache_root=$oss_output/direct-cache/cache-seed/go-build
+rm -rf "$direct_cache_root"
+install -d -m 0755 "$direct_cache_root"
+if test -d "$stage/anchor-go-build-cache"; then
+  cp -a "$stage/anchor-go-build-cache/." "$direct_cache_root/"
+fi
+cp -a "$go_build_cache/." "$direct_cache_root/"
+chmod -R a+rX,a-w "$direct_cache_root"
+DIRECT_CACHE_ROOT="$direct_cache_root" DIRECT_CACHE_MANIFEST="$oss_output/direct-cache/manifest.json" \
+  RUNTIME_GO_SHA256="$runtime_manifest_digest" RUNTIME_DEPS_SHA256="$BASELINE_RUNTIME_DEPENDENCY_DIGEST" \
+  "$payload_root/runtime/python/bin/python3" - <<'PY'
+import hashlib
+import json
+import os
+import stat
+import struct
+
+root = os.environ["DIRECT_CACHE_ROOT"]
+entries = []
+for parent, directories, files in os.walk(root, topdown=True, followlinks=False):
+    directories.sort()
+    files.sort()
+    for name in directories + files:
+        path = os.path.join(parent, name)
+        info = os.lstat(path)
+        relative = os.path.relpath(path, root).replace(os.sep, "/")
+        mode = stat.S_IMODE(info.st_mode)
+        if mode & 0o222:
+            raise SystemExit("direct cache seed entry is writable: " + relative)
+        if stat.S_ISDIR(info.st_mode):
+            entries.append({"path": relative, "size": 0, "mode": mode, "type": "directory"})
+        elif stat.S_ISREG(info.st_mode):
+            digest = hashlib.sha256()
+            with open(path, "rb") as source:
+                for block in iter(lambda: source.read(1024 * 1024), b""):
+                    digest.update(block)
+            entries.append({"path": relative, "sha256": "sha256:" + digest.hexdigest(), "size": info.st_size, "mode": mode, "type": "file"})
+        else:
+            raise SystemExit("direct cache seed entry has forbidden type: " + relative)
+if not entries:
+    raise SystemExit("direct cache seed is empty")
+entries.sort(key=lambda entry: entry["path"])
+root_mode = stat.S_IMODE(os.lstat(root).st_mode)
+if root_mode & 0o222:
+    raise SystemExit("direct cache seed root is writable")
+tree = hashlib.sha256()
+def record(kind, *fields):
+    tree.update(kind.encode("ascii"))
+    tree.update(struct.pack(">I", len(fields)))
+    for field in fields:
+        encoded = str(field).encode("utf-8")
+        tree.update(struct.pack(">Q", len(encoded)))
+        tree.update(encoded)
+record("V", "super-dolphin-go-build-cache-direct-seed", "1")
+record("R", format(root_mode, "o"))
+for entry in entries:
+    record("E", entry["path"], entry["type"], format(entry["mode"], "o"), entry.get("sha256", ""), entry["size"])
+manifest = {
+    "schema_version": 1,
+    "runtime_go_sha256": os.environ["RUNTIME_GO_SHA256"],
+    "runtime_deps_sha256": os.environ["RUNTIME_DEPS_SHA256"],
+    "root_mode": root_mode,
+    "tree_sha256": "sha256:" + tree.hexdigest(),
+    "entries": entries,
+}
+with open(os.environ["DIRECT_CACHE_MANIFEST"], "w", encoding="utf-8") as output:
+    json.dump(manifest, output, separators=(",", ":"), ensure_ascii=True)
+    output.write("\n")
+PY
+test -s "$oss_output/direct-cache/manifest.json"
 mkdir -p "$oss_output/bin"
 cp $payload_root/bin/super-dolphin-gate "$oss_output/bin/super-dolphin-gate"
 cp "$ca_bundle" "$oss_output/ca-certificates.crt"
@@ -96,8 +170,15 @@ if test "$BASELINE_STORAGE_MODE" = delta; then
   cp /input/source.bundle "$source_archive_path"
   run_logged layer-measure-source-delta measure_layer "$source_archive_path"
   source_archive_digest=$layer_digest; source_archive_size=$layer_size
-  runtime_go_layer_json=
-  if test "$BASELINE_TOOLCHAIN_CHANGED" = true; then
+   runtime_go_layer_json=
+   runtime_deps_layer_json=
+   if test "$runtime_dependency_changed" = true; then
+     runtime_deps_archive_path=$oss_output/runtime-deps.delta.tar.gz
+     run_logged layer-archive-runtime-deps-delta archive_layer "$runtime_deps_archive_path" runtime
+     run_logged layer-measure-runtime-deps-delta measure_layer "$runtime_deps_archive_path"
+     runtime_deps_archive_digest=$layer_digest; runtime_deps_archive_size=$layer_size
+     runtime_deps_layer_json=",{\"generation\":$BASELINE_GENERATION,\"kind\":\"delta\",\"name\":\"runtime-deps\",\"archive\":\"runtime-deps.delta.tar.gz\",\"sha256\":\"$runtime_deps_archive_digest\",\"size\":$runtime_deps_archive_size,\"base_runtime_dependency_digest\":\"$BASELINE_ACCEPTED_RUNTIME_DEPENDENCY_DIGEST\",\"target_runtime_dependency_digest\":\"$BASELINE_RUNTIME_DEPENDENCY_DIGEST\"}"
+   elif test "$BASELINE_TOOLCHAIN_CHANGED" = true; then
     runtime_go_archive_path=$oss_output/runtime-go.delta.tar.gz
     run_logged layer-archive-runtime-go-delta archive_layer "$runtime_go_archive_path" runtime/go runtime/manifest.json
     run_logged layer-measure-runtime-go-delta measure_layer "$runtime_go_archive_path"
@@ -109,7 +190,7 @@ if test "$BASELINE_STORAGE_MODE" = delta; then
   run_logged layer-measure-go-cache-delta measure_layer "$go_cache_archive_path"
   go_cache_archive_digest=$layer_digest; go_cache_archive_size=$layer_size
   cat > "$oss_output/baseline-manifest.json" <<EOF
-{"schema_version":$BASELINE_MANIFEST_SCHEMA_VERSION,"generation":$BASELINE_GENERATION,"main_commit":"$BASELINE_MAIN_COMMIT","main_tree":"$BASELINE_MAIN_TREE","platform":"$BASELINE_PLATFORM","policy_digest":"$BASELINE_POLICY_DIGEST","toolchain_digest":"$BASELINE_TOOLCHAIN_DIGEST","runtime_image":"$BASELINE_RUNTIME_IMAGE","gate_source_sha256":"$BASELINE_GATE_SOURCE_SHA256","gate_binary_sha256":"$gate_digest","gate_binary_size":$gate_size,"runtime_seed_manifest_sha256":"$runtime_manifest_digest","ca_bundle_sha256":"$ca_bundle_digest","ca_bundle_size":$ca_bundle_size,"storage_mode":"delta","layers":[{"generation":$BASELINE_GENERATION,"kind":"delta","name":"source","archive":"source.delta.bundle","sha256":"$source_archive_digest","size":$source_archive_size,"base_commit":"$BASELINE_SOURCE_BASE_COMMIT","base_tree":"$BASELINE_SOURCE_BASE_TREE","target_commit":"$BASELINE_MAIN_COMMIT","target_tree":"$BASELINE_MAIN_TREE"}$runtime_go_layer_json,{"generation":$BASELINE_GENERATION,"kind":"delta","name":"go-build-cache","archive":"go-build-cache.delta.tar.gz","sha256":"$go_cache_archive_digest","size":$go_cache_archive_size}]}
+   {"schema_version":$BASELINE_MANIFEST_SCHEMA_VERSION,"generation":$BASELINE_GENERATION,"main_commit":"$BASELINE_MAIN_COMMIT","main_tree":"$BASELINE_MAIN_TREE","platform":"$BASELINE_PLATFORM","policy_digest":"$BASELINE_POLICY_DIGEST","toolchain_digest":"$BASELINE_TOOLCHAIN_DIGEST","runtime_image":"$BASELINE_RUNTIME_IMAGE","gate_source_sha256":"$BASELINE_GATE_SOURCE_SHA256","gate_binary_sha256":"$gate_digest","gate_binary_size":$gate_size,"runtime_seed_manifest_sha256":"$runtime_manifest_digest","runtime_dependency_digest":"$BASELINE_RUNTIME_DEPENDENCY_DIGEST","ca_bundle_sha256":"$ca_bundle_digest","ca_bundle_size":$ca_bundle_size,"storage_mode":"delta","layers":[{"generation":$BASELINE_GENERATION,"kind":"delta","name":"source","archive":"source.delta.bundle","sha256":"$source_archive_digest","size":$source_archive_size,"base_commit":"$BASELINE_SOURCE_BASE_COMMIT","base_tree":"$BASELINE_SOURCE_BASE_TREE","target_commit":"$BASELINE_MAIN_COMMIT","target_tree":"$BASELINE_MAIN_TREE"}$runtime_deps_layer_json$runtime_go_layer_json,{"generation":$BASELINE_GENERATION,"kind":"delta","name":"go-build-cache","archive":"go-build-cache.delta.tar.gz","sha256":"$go_cache_archive_digest","size":$go_cache_archive_size}]}
 EOF
 else
   runtime_archive_path=$oss_output/runtime-deps.tar.gz
@@ -125,7 +206,7 @@ else
   run_logged layer-measure-go-cache measure_layer "$go_cache_archive_path"
   go_cache_archive_digest=$layer_digest; go_cache_archive_size=$layer_size
   cat > "$oss_output/baseline-manifest.json" <<EOF
-{"schema_version":$BASELINE_MANIFEST_SCHEMA_VERSION,"generation":$BASELINE_GENERATION,"main_commit":"$BASELINE_MAIN_COMMIT","main_tree":"$BASELINE_MAIN_TREE","platform":"$BASELINE_PLATFORM","policy_digest":"$BASELINE_POLICY_DIGEST","toolchain_digest":"$BASELINE_TOOLCHAIN_DIGEST","runtime_image":"$BASELINE_RUNTIME_IMAGE","gate_source_sha256":"$BASELINE_GATE_SOURCE_SHA256","gate_binary_sha256":"$gate_digest","gate_binary_size":$gate_size,"runtime_seed_manifest_sha256":"$runtime_manifest_digest","ca_bundle_sha256":"$ca_bundle_digest","ca_bundle_size":$ca_bundle_size,"storage_mode":"anchor","layers":[{"generation":$BASELINE_GENERATION,"kind":"anchor","name":"runtime-deps","archive":"runtime-deps.tar.gz","sha256":"$runtime_archive_digest","size":$runtime_archive_size},{"generation":$BASELINE_GENERATION,"kind":"anchor","name":"source","archive":"source.tar.gz","sha256":"$source_archive_digest","size":$source_archive_size},{"generation":$BASELINE_GENERATION,"kind":"anchor","name":"go-build-cache","archive":"go-build-cache.tar.gz","sha256":"$go_cache_archive_digest","size":$go_cache_archive_size}]}
+   {"schema_version":$BASELINE_MANIFEST_SCHEMA_VERSION,"generation":$BASELINE_GENERATION,"main_commit":"$BASELINE_MAIN_COMMIT","main_tree":"$BASELINE_MAIN_TREE","platform":"$BASELINE_PLATFORM","policy_digest":"$BASELINE_POLICY_DIGEST","toolchain_digest":"$BASELINE_TOOLCHAIN_DIGEST","runtime_image":"$BASELINE_RUNTIME_IMAGE","gate_source_sha256":"$BASELINE_GATE_SOURCE_SHA256","gate_binary_sha256":"$gate_digest","gate_binary_size":$gate_size,"runtime_seed_manifest_sha256":"$runtime_manifest_digest","runtime_dependency_digest":"$BASELINE_RUNTIME_DEPENDENCY_DIGEST","ca_bundle_sha256":"$ca_bundle_digest","ca_bundle_size":$ca_bundle_size,"storage_mode":"anchor","layers":[{"generation":$BASELINE_GENERATION,"kind":"anchor","name":"runtime-deps","archive":"runtime-deps.tar.gz","sha256":"$runtime_archive_digest","size":$runtime_archive_size},{"generation":$BASELINE_GENERATION,"kind":"anchor","name":"source","archive":"source.tar.gz","sha256":"$source_archive_digest","size":$source_archive_size},{"generation":$BASELINE_GENERATION,"kind":"anchor","name":"go-build-cache","archive":"go-build-cache.tar.gz","sha256":"$go_cache_archive_digest","size":$go_cache_archive_size}]}
 EOF
 fi
 

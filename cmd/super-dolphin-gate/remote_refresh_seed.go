@@ -49,7 +49,7 @@ func buildRemoteBaselineSeedRequest(
 	if hasAccepted && !appendDelta {
 		return eci.SeedRequest{}, errors.New("accepted baseline exists but this refresh cannot be represented as a Delta; full Anchor rebuild is forbidden")
 	}
-	needsInternet := !hasAccepted || remoteBaselineSeedNeedsInternet(accepted, input)
+	needsInternet := !hasAccepted
 	request := eci.SeedRequest{
 		ContainerGroupName: remoteBaselineResourceName(generation), ContainerName: "baseline-seed",
 		Resources: resources, Command: []string{"/bin/sh"}, Args: []string{"/bootstrap/seed.sh"},
@@ -105,12 +105,8 @@ func remoteBaselineSeedClientToken(request eci.SeedRequest) (string, error) {
 }
 
 // remoteBaselineSeedNeedsInternet 仅在没有可复用依赖或不可变运行时身份变化时申请临时 EIP。
-func remoteBaselineSeedNeedsInternet(accepted remoteci.BaselineState, input remoteBaselineRefreshInput) bool {
-	return accepted.SchemaVersion == 0 || accepted.Platform != input.Identity.Platform ||
-		accepted.ToolchainDigest != input.Identity.ToolchainDigest || accepted.RuntimeImage != input.Identity.RuntimeImage ||
-		remoteBaselineForcesRuntimeRefresh(input) ||
-		input.RuntimeDependencyDigest == "" || input.AcceptedRuntimeDependencyDigest == "" ||
-		input.RuntimeDependencyDigest != input.AcceptedRuntimeDependencyDigest
+func remoteBaselineSeedNeedsInternet(accepted remoteci.BaselineState, _ remoteBaselineRefreshInput) bool {
+	return accepted.SchemaVersion == 0
 }
 
 // remoteBaselineForcesRuntimeRefresh 禁止历史依赖合同复用当前 seed 的完整 runtime 层。
@@ -141,8 +137,7 @@ func remoteBaselineSeedHasAppendableDelta(accepted remoteci.BaselineState, input
 	if !remoteBaselineSeedSourceExtendsAccepted(source.Manifest, accepted, input.Identity) {
 		return false
 	}
-	return input.RuntimeDependencyDigest != "" && input.AcceptedRuntimeDependencyDigest != "" &&
-		input.RuntimeDependencyDigest == input.AcceptedRuntimeDependencyDigest
+	return validRemoteManifestDigest(input.RuntimeDependencyDigest) && validRemoteManifestDigest(input.AcceptedRuntimeDependencyDigest)
 }
 
 // remoteBaselineSeedSourceExtendsAccepted 验证 Delta source manifest 的连续提交与树身份。
@@ -185,14 +180,16 @@ func remoteBaselineSeedEnvironment(input remoteBaselineRefreshInput, source remo
 		"BASELINE_GO_TOOLCHAIN":       input.GoToolchain,
 		"BASELINE_RUNTIME_IMAGE":      input.Identity.RuntimeImage, "BASELINE_SOURCE_MODE": string(source.Manifest.Mode),
 		"BASELINE_SOURCE_BASE_COMMIT": source.Manifest.BaseCommit, "BASELINE_SOURCE_BASE_TREE": source.Manifest.BaseTree,
-		"BASELINE_SOURCE_BUNDLE_SHA256":   source.Manifest.BundleSHA256,
-		"BASELINE_SOURCE_BUNDLE_SIZE":     strconv.FormatInt(source.Manifest.BundleSize, 10),
-		"BASELINE_SOURCE_MANIFEST_SHA256": source.ManifestSHA256,
-		"BASELINE_SEED_SCRIPT_SHA256":     digestBytes([]byte(remoteBaselineSeedScript)),
-		"BASELINE_SEED_SCRIPT_SIZE":       strconv.Itoa(len(remoteBaselineSeedScript)),
-		"BASELINE_FORCE_RUNTIME_REFRESH":  strconv.FormatBool(remoteBaselineForcesRuntimeRefresh(input)),
-		"BASELINE_STORAGE_MODE":           remoteci.BaselineStorageModeAnchor,
-		"BASELINE_SQRUFF_SHA256":          input.SqruffSHA256,
+		"BASELINE_SOURCE_BUNDLE_SHA256":               source.Manifest.BundleSHA256,
+		"BASELINE_SOURCE_BUNDLE_SIZE":                 strconv.FormatInt(source.Manifest.BundleSize, 10),
+		"BASELINE_SOURCE_MANIFEST_SHA256":             source.ManifestSHA256,
+		"BASELINE_SEED_SCRIPT_SHA256":                 digestBytes([]byte(remoteBaselineSeedScript)),
+		"BASELINE_SEED_SCRIPT_SIZE":                   strconv.Itoa(len(remoteBaselineSeedScript)),
+		"BASELINE_FORCE_RUNTIME_REFRESH":              strconv.FormatBool(remoteBaselineForcesRuntimeRefresh(input)),
+		"BASELINE_RUNTIME_DEPENDENCY_DIGEST":          input.RuntimeDependencyDigest,
+		"BASELINE_ACCEPTED_RUNTIME_DEPENDENCY_DIGEST": input.AcceptedRuntimeDependencyDigest,
+		"BASELINE_STORAGE_MODE":                       remoteci.BaselineStorageModeAnchor,
+		"BASELINE_SQRUFF_SHA256":                      input.SqruffSHA256,
 	}
 }
 

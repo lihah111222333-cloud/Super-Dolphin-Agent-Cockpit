@@ -9,16 +9,19 @@ import (
 )
 
 type fakeRemoteBaselineDataCacheClient struct {
-	describe     [][]datacache.DataCache
-	find         [][]datacache.DataCache
-	findBucket   []string
-	findPath     []string
-	findTags     []map[string]string
-	deleted      []string
-	events       *[]string
-	createCalls  int
-	renewAllowed bool
-	renewed      []struct {
+	describe       [][]datacache.DataCache
+	find           [][]datacache.DataCache
+	findBucket     []string
+	findPath       []string
+	findTags       []map[string]string
+	deleted        []string
+	events         *[]string
+	createCalls    int
+	createRequests []datacache.CreateRequest
+	createResults  []datacache.DataCache
+	createErrors   []error
+	renewAllowed   bool
+	renewed        []struct {
 		id            string
 		retentionDays int
 		token         string
@@ -26,10 +29,21 @@ type fakeRemoteBaselineDataCacheClient struct {
 }
 
 func (client *fakeRemoteBaselineDataCacheClient) Create(
-	context.Context,
-	datacache.CreateRequest,
+	_ context.Context,
+	request datacache.CreateRequest,
 ) (datacache.DataCache, error) {
 	client.createCalls++
+	client.createRequests = append(client.createRequests, request)
+	if len(client.createResults) != 0 {
+		result := client.createResults[0]
+		client.createResults = client.createResults[1:]
+		var err error
+		if len(client.createErrors) != 0 {
+			err = client.createErrors[0]
+			client.createErrors = client.createErrors[1:]
+		}
+		return result, err
+	}
 	return datacache.DataCache{}, errors.New("unexpected Create call")
 }
 

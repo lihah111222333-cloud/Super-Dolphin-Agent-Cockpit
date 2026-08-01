@@ -160,6 +160,21 @@ func TestGoBuildCacheProxyConfigAcceptsOrderedSeedChain(t *testing.T) {
 	}
 }
 
+func TestExecutorRemoteGoBuildCacheSeedRootsOnlyAcceptsFixedDirectRoot(t *testing.T) {
+	t.Setenv(ExecutorDirectGoBuildCacheSeedEnv, "1")
+	roots, err := ExecutorRemoteGoBuildCacheSeedRoots()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(roots, []string{ExecutorDirectGoBuildCacheSeedRoot}) {
+		t.Fatalf("direct seed roots = %v", roots)
+	}
+	t.Setenv(ExecutorDirectGoBuildCacheSeedEnv, "/tmp/untrusted")
+	if _, err := ExecutorRemoteGoBuildCacheSeedRoots(); err == nil {
+		t.Fatal("ExecutorRemoteGoBuildCacheSeedRoots accepted an arbitrary direct root")
+	}
+}
+
 func TestGoBuildCacheIndexUsesInjectedTimestamp(t *testing.T) {
 	actionID := bytes.Repeat([]byte{0x5a}, goBuildCacheHashBytes)
 	content := []byte("cached output")

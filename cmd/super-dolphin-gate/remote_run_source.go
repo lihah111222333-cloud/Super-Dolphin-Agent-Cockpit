@@ -81,6 +81,7 @@ func resolveRemoteRunInput(
 		ReuseBaselineGateCLI:         reuseBaselineGate,
 		RuntimeSeedSHA256:            state.RuntimeSeedSHA256, ForceRerun: options.ForceRerun,
 		DataCacheBucket: state.Anchor.DataCacheBucket, DataCachePath: state.Anchor.DataCachePath,
+		DirectCacheRef:   state.DirectCacheRef,
 		AnchorGeneration: state.Anchor.Generation, AnchorManifest: state.Anchor.ManifestDigest,
 		AnchorCommit: state.Anchor.MainCommit, AnchorTree: state.Anchor.MainTree,
 		BaselineDeltas: remoteBaselineDeltaProjection(state.Deltas),

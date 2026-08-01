@@ -73,6 +73,34 @@ func TestBaselineManifestV9RuntimeGoDeltaIsStrict(t *testing.T) {
 	}
 }
 
+func TestBaselineManifestV10RuntimeDepsDeltaBindsDigestTransition(t *testing.T) {
+	manifest := validDeltaManifest()
+	runtimeDeps := BaselineLayer{
+		Generation: manifest.Generation, Kind: BaselineLayerKindDelta,
+		Name: "runtime-deps", Archive: "runtime-deps.delta.tar.gz", SHA256: digest("8"), Size: 8192,
+		BaseRuntimeDependencyDigest: digest("6"), TargetRuntimeDependencyDigest: manifest.RuntimeDependencyDigest,
+	}
+	manifest.Layers = []BaselineLayer{manifest.Layers[0], runtimeDeps, manifest.Layers[1]}
+	if err := manifest.Validate(); err != nil {
+		t.Fatalf("runtime dependency delta rejected: %v", err)
+	}
+	for name, mutate := range map[string]func(*BaselineManifest){
+		"missing base": func(value *BaselineManifest) { value.Layers[1].BaseRuntimeDependencyDigest = "" },
+		"unchanged transition": func(value *BaselineManifest) {
+			value.Layers[1].BaseRuntimeDependencyDigest = value.Layers[1].TargetRuntimeDependencyDigest
+		},
+		"target drift":        func(value *BaselineManifest) { value.Layers[1].TargetRuntimeDependencyDigest = digest("9") },
+		"mixed runtime layer": func(value *BaselineManifest) { value.Layers[1].Name = "runtime-go" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			invalid := manifest
+			invalid.Layers = append([]BaselineLayer(nil), manifest.Layers...)
+			mutate(&invalid)
+			assertBaselineManifestRejected(t, invalid)
+		})
+	}
+}
+
 func TestBaselineManifestReadsV6V7AndV8(t *testing.T) {
 	legacy := validManifestIdentity(6)
 	legacy.ArchiveSHA256, legacy.ArchiveSize = digest("4"), 1024
@@ -106,11 +134,11 @@ func TestBaselineManifestRejectsUnknownAndMultipleJSONValues(t *testing.T) {
 }
 
 func TestBaselineManifestFieldRegistry(t *testing.T) {
-	if BaselineManifestSchemaVersion != 9 {
+	if BaselineManifestSchemaVersion != 10 {
 		t.Fatalf("BaselineManifestSchemaVersion = %d", BaselineManifestSchemaVersion)
 	}
-	assertBaselineFields(t, reflect.TypeFor[BaselineManifest](), []string{"SchemaVersion", "Generation", "MainCommit", "MainTree", "Platform", "PolicyDigest", "ToolchainDigest", "RuntimeImage", "GateSourceSHA256", "GateBinarySHA256", "GateBinarySize", "RuntimeSeedManifestSHA256", "CABundleSHA256", "CABundleSize", "StorageMode", "Layers", "ArchiveSHA256", "ArchiveSize"})
-	assertBaselineFields(t, reflect.TypeFor[BaselineLayer](), []string{"Generation", "Kind", "Name", "Archive", "SHA256", "Size", "BaseCommit", "BaseTree", "TargetCommit", "TargetTree"})
+	assertBaselineFields(t, reflect.TypeFor[BaselineManifest](), []string{"SchemaVersion", "Generation", "MainCommit", "MainTree", "Platform", "PolicyDigest", "ToolchainDigest", "RuntimeImage", "GateSourceSHA256", "GateBinarySHA256", "GateBinarySize", "RuntimeSeedManifestSHA256", "RuntimeDependencyDigest", "CABundleSHA256", "CABundleSize", "StorageMode", "Layers", "ArchiveSHA256", "ArchiveSize"})
+	assertBaselineFields(t, reflect.TypeFor[BaselineLayer](), []string{"Generation", "Kind", "Name", "Archive", "SHA256", "Size", "BaseCommit", "BaseTree", "TargetCommit", "TargetTree", "BaseRuntimeDependencyDigest", "TargetRuntimeDependencyDigest"})
 }
 
 func assertBaselineManifestRejected(t *testing.T, manifest BaselineManifest) {
@@ -128,6 +156,7 @@ func validManifestIdentity(schema uint32) BaselineManifest {
 	manifest := BaselineManifest{SchemaVersion: schema, Generation: 2, MainCommit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", MainTree: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Platform: "linux/amd64", PolicyDigest: digest("c"), ToolchainDigest: digest("d"), RuntimeImage: "registry.example/runtime@" + digest("e"), GateBinarySHA256: digest("1"), GateBinarySize: 2048, RuntimeSeedManifestSHA256: digest("2"), CABundleSHA256: digest("3"), CABundleSize: 2048}
 	if schema == BaselineManifestSchemaVersion {
 		manifest.GateSourceSHA256 = digest("f")
+		manifest.RuntimeDependencyDigest = digest("7")
 	}
 	return manifest
 }

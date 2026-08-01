@@ -2,6 +2,7 @@ package remoteci
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -22,7 +23,7 @@ func TestRemoteRunContractFieldRegistry(t *testing.T) {
 		"LedgerSnapshot", "LedgerStore", "Inventory", "SelectedTests", "Calibration", "RunnerImage",
 		"RunnerIdentityDigest", "BaselineManifestDigest", "RunnerConfigDigest", "GateBinarySHA256",
 		"CandidateGateSourceSHA256", "CandidateGateToolchainSHA256", "ReuseBaselineGateCLI",
-		"RuntimeSeedSHA256", "DataCacheBucket", "DataCachePath", "AnchorGeneration", "AnchorManifest", "AnchorCommit", "AnchorTree", "BaselineDeltas", "ForceRerun",
+		"RuntimeSeedSHA256", "DataCacheBucket", "DataCachePath", "DirectCacheRef", "AnchorGeneration", "AnchorManifest", "AnchorCommit", "AnchorTree", "BaselineDeltas", "ForceRerun",
 	})
 	assertBaselineFields(t, reflect.TypeFor[RunResult](), []string{
 		"SchemaVersion", "JobID", "RemoteName", "RemoteURL", "RequesterFingerprint", "Entrypoint", "Profile", "PlanDigest", "CatalogDigest", "SourceTreeSHA",
@@ -30,14 +31,14 @@ func TestRemoteRunContractFieldRegistry(t *testing.T) {
 		"ReusedWorkloads", "CacheMissWorkloads", "GateExecutions", "WorkloadExecutions", "DurationSamples", "PerformanceTimings", "OptimizationWarnings", "CleanupComplete",
 	})
 	assertBaselineFields(t, reflect.TypeFor[ShardRequest](), []string{
-		"SchemaVersion", "JobID", "ShardIdentity", "Profile", "PlanDigest", "BaselineManifest", "AnchorGeneration", "AnchorManifest", "AnchorCommit", "AnchorTree", "BaselineDeltas", "RunnerBaseCommit", "RunnerBaseTree", "SourceTreeSHA", "PatchFormat", "PatchKey", "PatchSHA256", "PatchSize", "ManifestKey", "ManifestSHA256", "CandidateCLI", "CandidateTestBinaries", "GateIDs",
+		"SchemaVersion", "JobID", "ShardIdentity", "Profile", "PlanDigest", "BaselineManifest", "AnchorGeneration", "AnchorManifest", "AnchorCommit", "AnchorTree", "BaselineDeltas", "DirectCacheRef", "RunnerBaseCommit", "RunnerBaseTree", "SourceTreeSHA", "PatchFormat", "PatchKey", "PatchSHA256", "PatchSize", "ManifestKey", "ManifestSHA256", "CandidateCLI", "CandidateTestBinaries", "GateIDs",
 	})
 	assertBaselineFields(t, reflect.TypeFor[CandidateCLIArtifactRef](), []string{
 		"CandidateTree", "SourceSHA256", "ToolchainSHA256", "Platform", "ManifestKey", "ManifestSHA256", "BinaryKey", "BinarySHA256", "BinarySize", "CLIIdentity",
 	})
 	assertBaselineFields(t, reflect.TypeFor[CandidateTestBinaryArtifactRef](), []string{"CandidateTree", "Package", "Mode", "Platform", "GoToolchain", "CGOEnabled", "ToolchainSHA256", "BuildFlags", "CompileClosureSHA256", "ManifestKey", "ManifestSHA256", "BinaryKey", "BinarySHA256", "BinarySize"})
 	assertBaselineFields(t, reflect.TypeFor[CandidateTestBinaryBuildTarget](), []string{"Package", "Mode", "CGOEnabled"})
-	assertBaselineFields(t, reflect.TypeFor[CandidateTestBinaryBuilderRequest](), []string{"SchemaVersion", "JobID", "CandidateTree", "BaselineManifest", "AnchorGeneration", "AnchorManifest", "AnchorCommit", "AnchorTree", "BaselineDeltas", "RunnerBaseCommit", "RunnerBaseTree", "PatchFormat", "PatchKey", "PatchSHA256", "PatchSize", "ManifestKey", "ManifestSHA256", "CandidateCLI", "CGOEnabled", "Targets", "OutputPrefix"})
+	assertBaselineFields(t, reflect.TypeFor[CandidateTestBinaryBuilderRequest](), []string{"SchemaVersion", "JobID", "CandidateTree", "BaselineManifest", "AnchorGeneration", "AnchorManifest", "AnchorCommit", "AnchorTree", "BaselineDeltas", "DirectCacheRef", "RunnerBaseCommit", "RunnerBaseTree", "PatchFormat", "PatchKey", "PatchSHA256", "PatchSize", "ManifestKey", "ManifestSHA256", "CandidateCLI", "CGOEnabled", "Targets", "OutputPrefix"})
 	assertBaselineFields(t, reflect.TypeFor[CandidateTestBinaryCacheGenerationHit](), []string{"Generation", "Hits", "AnchorGeneration", "AnchorManifestDigest", "ManifestDigest", "CacheRootIdentity"})
 	assertBaselineFields(t, reflect.TypeFor[CandidateTestBinaryBuildMetrics](), []string{"GoListWallMS", "BuildWallMS", "CompileActionMS", "LinkActionMS", "CompileCriticalWallMS", "GOCachePrivateHits", "GOCacheBaselineHitsByGeneration", "GOCacheMisses", "GOCachePuts", "GOCachePrivateRootIdentity"})
 	assertBaselineFields(t, reflect.TypeFor[CandidateTestBinaryBuilderBuild](), []string{"Artifact", "Metrics"})
@@ -118,6 +119,12 @@ func TestCoordinatorCreateRequestAlwaysMountsWritableMaterializerTemp(t *testing
 	}
 	assertCandidateGateEnvironment(t, request, input)
 	assertWritableMaterializerTempMount(t, request)
+	if len(request.AdditionalBaseVolumes) != 0 {
+		t.Fatalf("legacy request additional DataCache volumes = %#v", request.AdditionalBaseVolumes)
+	}
+	if _, found := request.Environment[gate.ExecutorDirectGoBuildCacheSeedEnv]; found {
+		t.Fatal("legacy request unexpectedly enables direct cache")
+	}
 }
 
 func TestRemoteCandidateCLIArtifactMaterializesWithoutShardBuild(t *testing.T) {
@@ -242,4 +249,59 @@ func assertWritableMaterializerTempMount(t *testing.T, request eci.CreateRequest
 	if count != 1 {
 		t.Fatalf("materializer temp mount count = %d, want 1; mounts=%+v", count, request.InitVolumeMounts)
 	}
+}
+
+func TestCoordinatorDirectCacheMountAndValidation(t *testing.T) {
+	_, input := remoteRunFixture(t)
+	input.DirectCacheRef = testDirectCacheRef(t, input)
+	coordinator := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{})
+	request := coordinator.createRequest("job-0123456789abcdef01234567", gate.ContainerShard{Index: 1, Profile: input.Profile, PlanDigest: input.PolicyDigest, GateIDs: []gate.GateID{"go:test"}}, eci.Resources{CPU: 4, MemoryGiB: 8}, "baseline-artifacts/source-deltas/jobs/job/request.json", input.PolicyDigest, testCandidateCLI(input), input)
+	if len(request.AdditionalBaseVolumes) != 1 || request.AdditionalBaseVolumes[0].Name != remoteDirectCacheVolumeName || request.AdditionalBaseVolumes[0].Path != input.DirectCacheRef.DataCachePath {
+		t.Fatalf("direct additional DataCache volumes = %#v", request.AdditionalBaseVolumes)
+	}
+	for _, mounts := range [][]eci.VolumeMount{request.MainVolumeMounts, request.InitVolumeMounts} {
+		if !slices.ContainsFunc(mounts, func(mount eci.VolumeMount) bool {
+			return mount.Name == remoteDirectCacheVolumeName && mount.MountPath == remoteDirectCacheMountPath && mount.ReadOnly
+		}) {
+			t.Fatalf("direct cache mount missing or writable: %#v", mounts)
+		}
+	}
+	if got := request.Environment[gate.ExecutorDirectGoBuildCacheSeedEnv]; got != "1" {
+		t.Fatalf("direct cache executor environment = %q", got)
+	}
+	if got := request.InitContainer.Environment[remoteDirectCacheManifestEnv]; got != input.DirectCacheRef.ManifestDigest {
+		t.Fatalf("direct cache manifest environment = %q", got)
+	}
+	for name, mutate := range map[string]func(*RunInput){
+		"invalid path": func(value *RunInput) { value.DirectCacheRef.DataCachePath = "relative" },
+		"bucket drift": func(value *RunInput) { value.DirectCacheRef.DataCacheBucket = "other-ci" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			invalid := input
+			invalid.DirectCacheRef = cloneDirectCacheRef(input.DirectCacheRef)
+			mutate(&invalid)
+			if err := validateRemotePlanInput(invalid); err == nil {
+				t.Fatal("validateRemotePlanInput() error = nil")
+			}
+		})
+	}
+}
+
+func testDirectCacheRef(t *testing.T, input RunInput) *DirectCacheRef {
+	t.Helper()
+	digest := func(value string) string { return "sha256:" + strings.Repeat(value, 64) }
+	anchor := baselineParentChainAnchorIdentity{Generation: input.AnchorGeneration, ManifestDigest: input.AnchorManifest, MainCommit: input.AnchorCommit, MainTree: input.AnchorTree}
+	deltas := make([]baselineParentChainDeltaIdentity, 0, len(input.BaselineDeltas))
+	for _, delta := range input.BaselineDeltas {
+		deltas = append(deltas, baselineParentChainDeltaIdentity{Generation: delta.Generation, ManifestDigest: delta.ManifestDigest, BaseCommit: delta.BaseCommit, BaseTree: delta.BaseTree, MainCommit: delta.MainCommit, MainTree: delta.MainTree})
+	}
+	parent, err := baselineParentChainIdentityDigest(anchor, deltas)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation := input.AnchorGeneration
+	if len(input.BaselineDeltas) != 0 {
+		generation = input.BaselineDeltas[len(input.BaselineDeltas)-1].Generation
+	}
+	return &DirectCacheRef{DataCacheID: "edc-directcache", DataCacheBucket: input.DataCacheBucket, DataCachePath: "/super-dolphin/ci/direct-cache/2", SizeGiB: 20, Generation: generation, SourceObjectPrefix: "baseline-artifacts/2/output/direct-cache/", ManifestDigest: digest("a"), TreeSHA256: digest("b"), ParentChainSHA256: parent, RuntimeGoSHA256: digest("d"), RuntimeDepsSHA256: digest("e")}
 }

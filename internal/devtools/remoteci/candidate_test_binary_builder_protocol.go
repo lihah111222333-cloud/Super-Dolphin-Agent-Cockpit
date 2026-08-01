@@ -13,7 +13,7 @@ import (
 )
 
 // CandidateTestBinaryBuilderRequestSchemaVersion is the only accepted remote builder request format.
-const CandidateTestBinaryBuilderRequestSchemaVersion uint32 = 1
+const CandidateTestBinaryBuilderRequestSchemaVersion uint32 = 2
 
 // CandidateTestBinaryBuilderResultSchemaVersion is the only accepted remote builder result format.
 const CandidateTestBinaryBuilderResultSchemaVersion uint32 = 1
@@ -36,6 +36,7 @@ type CandidateTestBinaryBuilderRequest struct {
 	AnchorCommit     string                           `json:"anchor_commit"`
 	AnchorTree       string                           `json:"anchor_tree"`
 	BaselineDeltas   []BaselineDeltaLayer             `json:"baseline_deltas,omitempty"`
+	DirectCacheRef   *DirectCacheRef                  `json:"direct_cache_ref,omitempty"`
 	RunnerBaseCommit string                           `json:"runner_base_commit"`
 	RunnerBaseTree   string                           `json:"runner_base_tree"`
 	PatchFormat      string                           `json:"patch_format"`
@@ -102,8 +103,8 @@ func (request CandidateTestBinaryBuilderRequest) validate(objectPrefix string) e
 	if request.SchemaVersion != CandidateTestBinaryBuilderRequestSchemaVersion || !remoteIDPattern.MatchString(request.JobID) || !remoteOIDPattern.MatchString(request.CandidateTree) || !validObjectPrefix(request.OutputPrefix) || path.Base(strings.TrimSuffix(request.OutputPrefix, "/")) != "test-binaries" {
 		return errors.New("candidate test binary builder request identity is invalid")
 	}
-	shard := ShardRequest{SchemaVersion: ShardRequestSchemaVersion, JobID: request.JobID, ShardIdentity: "sha256:" + strings.Repeat("0", sha256.Size*2), Profile: "local-fast", PlanDigest: "sha256:" + strings.Repeat("0", sha256.Size*2), BaselineManifest: request.BaselineManifest, AnchorGeneration: request.AnchorGeneration, AnchorManifest: request.AnchorManifest, AnchorCommit: request.AnchorCommit, AnchorTree: request.AnchorTree, BaselineDeltas: slices.Clone(request.BaselineDeltas), RunnerBaseCommit: request.RunnerBaseCommit, RunnerBaseTree: request.RunnerBaseTree, SourceTreeSHA: request.CandidateTree, PatchFormat: request.PatchFormat, PatchKey: request.PatchKey, PatchSHA256: request.PatchSHA256, PatchSize: request.PatchSize, ManifestKey: request.ManifestKey, ManifestSHA256: request.ManifestSHA256, CandidateCLI: request.CandidateCLI, GateIDs: []gate.GateID{"builder"}}
-	if err := shard.validateBaselineChain(); err != nil || shard.validateSource() != nil || request.CandidateCLI.Validate(objectPrefix, request.CandidateTree) != nil {
+	shard := ShardRequest{SchemaVersion: ShardRequestSchemaVersion, JobID: request.JobID, ShardIdentity: "sha256:" + strings.Repeat("0", sha256.Size*2), Profile: "local-fast", PlanDigest: "sha256:" + strings.Repeat("0", sha256.Size*2), BaselineManifest: request.BaselineManifest, AnchorGeneration: request.AnchorGeneration, AnchorManifest: request.AnchorManifest, AnchorCommit: request.AnchorCommit, AnchorTree: request.AnchorTree, BaselineDeltas: slices.Clone(request.BaselineDeltas), DirectCacheRef: cloneDirectCacheRef(request.DirectCacheRef), RunnerBaseCommit: request.RunnerBaseCommit, RunnerBaseTree: request.RunnerBaseTree, SourceTreeSHA: request.CandidateTree, PatchFormat: request.PatchFormat, PatchKey: request.PatchKey, PatchSHA256: request.PatchSHA256, PatchSize: request.PatchSize, ManifestKey: request.ManifestKey, ManifestSHA256: request.ManifestSHA256, CandidateCLI: request.CandidateCLI, GateIDs: []gate.GateID{"builder"}}
+	if err := shard.validateBaselineChain(); err != nil || validateOptionalDirectCacheRef(request.DirectCacheRef) != nil || shard.validateDirectCacheParentChain() != nil || shard.validateSource() != nil || request.CandidateCLI.Validate(objectPrefix, request.CandidateTree) != nil {
 		return errors.New("candidate test binary builder request source binding is invalid")
 	}
 	if len(request.Targets) == 0 || len(request.Targets) > 64 {

@@ -102,6 +102,7 @@ type RunInput struct {
 	RuntimeSeedSHA256            string
 	DataCacheBucket              string
 	DataCachePath                string
+	DirectCacheRef               *DirectCacheRef
 	AnchorGeneration             uint64
 	AnchorManifest               string
 	AnchorCommit                 string
@@ -719,6 +720,15 @@ func validateRemotePlanInput(input RunInput) error {
 	if !remoteDigestPattern.MatchString(input.CandidateGateSourceSHA256) ||
 		!remoteDigestPattern.MatchString(input.CandidateGateToolchainSHA256) {
 		return errors.New("remote CI candidate gate identity is invalid")
+	}
+	if err := validateOptionalDirectCacheRef(input.DirectCacheRef); err != nil {
+		return err
+	}
+	if input.DirectCacheRef != nil && input.DirectCacheRef.DataCacheBucket != input.DataCacheBucket {
+		return errors.New("remote direct cache bucket does not match anchor DataCache bucket")
+	}
+	if err := (ShardRequest{AnchorGeneration: input.AnchorGeneration, AnchorManifest: input.AnchorManifest, AnchorCommit: input.AnchorCommit, AnchorTree: input.AnchorTree, BaselineDeltas: input.BaselineDeltas, DirectCacheRef: input.DirectCacheRef}).validateDirectCacheParentChain(); err != nil {
+		return err
 	}
 	if input.Source.SourceTreeSHA != input.Tree {
 		return errors.New("remote CI source tree does not match bundle tree")

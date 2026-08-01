@@ -37,6 +37,7 @@ func cleanupRetiredRemoteBaseline(
 		}
 	}
 	state.RetiredAnchor = nil
+	state.RetiredDirectCacheRef = nil
 	state.RetiredDeltas = nil
 	if err := writeRemoteBaselineState(statePath, *state); err != nil {
 		return fmt.Errorf("persist retired baseline cleanup: %w", err)
@@ -67,10 +68,36 @@ func collectRetiredRemoteBaselinePrefixes(
 		}
 		prefixes = append(prefixes, state.RetiredAnchor.SourceObjectPrefix)
 	}
+	if state.RetiredDirectCacheRef != nil {
+		retired := state.RetiredDirectCacheRef
+		if err := removeRetiredRemoteDirectDataCache(ctx, client, *retired); err != nil {
+			return nil, err
+		}
+		prefixes = append(prefixes, retired.SourceObjectPrefix)
+	}
 	for _, delta := range state.RetiredDeltas {
 		prefixes = append(prefixes, delta.SourceObjectPrefix)
 	}
 	return uniqueRemoteBaselinePrefixes(prefixes), nil
+}
+
+// removeRetiredRemoteDirectDataCache 在删除前额外绑定直读缓存的规范资源名。
+func removeRetiredRemoteDirectDataCache(ctx context.Context, client remoteBaselineDataCacheClient, retired remoteci.DirectCacheRef) error {
+	caches, err := client.Describe(ctx, retired.DataCacheID)
+	if err != nil {
+		return fmt.Errorf("describe retired direct DataCache: %w", err)
+	}
+	if len(caches) > 1 {
+		return errors.New("retired direct DataCache identity is ambiguous")
+	}
+	if len(caches) == 0 {
+		return nil
+	}
+	expectedName := remoteBaselineResourceName(retired.Generation) + "-direct-cache"
+	if caches[0].Name != expectedName {
+		return errors.New("retired direct DataCache resource name drifted")
+	}
+	return removeRetiredRemoteDataCache(ctx, client, remoteci.BaselineCacheRef{DataCacheID: retired.DataCacheID, DataCacheBucket: retired.DataCacheBucket, DataCachePath: retired.DataCachePath})
 }
 
 func uniqueRemoteBaselinePrefixes(prefixes []string) []string {

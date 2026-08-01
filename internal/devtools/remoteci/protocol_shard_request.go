@@ -15,13 +15,39 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
-const ShardRequestSchemaVersion uint32 = 5
+const ShardRequestSchemaVersion uint32 = 6
 
 var (
 	remoteDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 	remoteIDPattern     = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,127}$`)
 	remoteOIDPattern    = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
 )
+
+// cloneDirectCacheRef 复制跨请求边界传递的可选直读缓存身份。
+func cloneDirectCacheRef(reference *DirectCacheRef) *DirectCacheRef {
+	if reference == nil {
+		return nil
+	}
+	copy := *reference
+	return &copy
+}
+
+// validateOptionalDirectCacheRef 拒绝不完整或可变的直读缓存身份。
+func validateOptionalDirectCacheRef(reference *DirectCacheRef) error {
+	if reference == nil {
+		return nil
+	}
+	if !dataCacheIDPattern.MatchString(reference.DataCacheID) ||
+		!dataCacheBucketPattern.MatchString(reference.DataCacheBucket) || reference.DataCacheBucket == "eci-system" ||
+		!validBaselinePath(reference.DataCachePath) || reference.SizeGiB <= 0 || reference.Generation == 0 ||
+		!validSourceObjectPrefix(reference.SourceObjectPrefix) || !reference.hasCanonicalLocation() ||
+		!remoteDigestPattern.MatchString(reference.ManifestDigest) || !remoteDigestPattern.MatchString(reference.TreeSHA256) ||
+		!remoteDigestPattern.MatchString(reference.ParentChainSHA256) || !remoteDigestPattern.MatchString(reference.RuntimeGoSHA256) ||
+		!remoteDigestPattern.MatchString(reference.RuntimeDepsSHA256) {
+		return errors.New("remote direct cache identity is invalid")
+	}
+	return nil
+}
 
 // BaselineDeltaLayer 绑定一个可从 OSS 独立校验并顺序应用的基线差量。
 type BaselineDeltaLayer struct {
@@ -80,6 +106,7 @@ type ShardRequest struct {
 	AnchorCommit          string                           `json:"anchor_commit"`
 	AnchorTree            string                           `json:"anchor_tree"`
 	BaselineDeltas        []BaselineDeltaLayer             `json:"baseline_deltas,omitempty"`
+	DirectCacheRef        *DirectCacheRef                  `json:"direct_cache_ref,omitempty"`
 	RunnerBaseCommit      string                           `json:"runner_base_commit"`
 	RunnerBaseTree        string                           `json:"runner_base_tree"`
 	SourceTreeSHA         string                           `json:"source_tree_sha"`
@@ -102,6 +129,12 @@ func (request ShardRequest) Validate() error {
 	if err := request.validateBaselineChain(); err != nil {
 		return err
 	}
+	if err := validateOptionalDirectCacheRef(request.DirectCacheRef); err != nil {
+		return err
+	}
+	if err := request.validateDirectCacheParentChain(); err != nil {
+		return err
+	}
 	if err := request.validateSource(); err != nil {
 		return err
 	}
@@ -109,6 +142,30 @@ func (request ShardRequest) Validate() error {
 		return err
 	}
 	return validateGateIDs(request.GateIDs)
+}
+
+// validateDirectCacheParentChain 将直读缓存绑定到请求携带的 Anchor 与有序 Delta 链。
+func (request ShardRequest) validateDirectCacheParentChain() error {
+	if request.DirectCacheRef == nil {
+		return nil
+	}
+	anchor := baselineParentChainAnchorIdentity{Generation: request.AnchorGeneration, ManifestDigest: request.AnchorManifest, MainCommit: request.AnchorCommit, MainTree: request.AnchorTree}
+	deltas := make([]baselineParentChainDeltaIdentity, 0, len(request.BaselineDeltas))
+	for _, delta := range request.BaselineDeltas {
+		deltas = append(deltas, baselineParentChainDeltaIdentity{Generation: delta.Generation, ManifestDigest: delta.ManifestDigest, BaseCommit: delta.BaseCommit, BaseTree: delta.BaseTree, MainCommit: delta.MainCommit, MainTree: delta.MainTree})
+	}
+	digest, err := baselineParentChainIdentityDigest(anchor, deltas)
+	if err != nil {
+		return err
+	}
+	tipGeneration := request.AnchorGeneration
+	if len(request.BaselineDeltas) != 0 {
+		tipGeneration = request.BaselineDeltas[len(request.BaselineDeltas)-1].Generation
+	}
+	if request.DirectCacheRef.ParentChainSHA256 != digest || request.DirectCacheRef.Generation != tipGeneration {
+		return errors.New("remote direct cache does not match the requested baseline chain")
+	}
+	return nil
 }
 
 // Validate checks that a shard cannot replay a candidate CLI from another source tree or toolchain.

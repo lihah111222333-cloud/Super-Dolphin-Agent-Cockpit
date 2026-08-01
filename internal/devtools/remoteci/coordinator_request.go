@@ -41,6 +41,7 @@ func buildShardRequestsWithCandidate(
 			AnchorGeneration: input.AnchorGeneration, AnchorManifest: input.AnchorManifest,
 			AnchorCommit: input.AnchorCommit, AnchorTree: input.AnchorTree,
 			BaselineDeltas:   slices.Clone(input.BaselineDeltas),
+			DirectCacheRef:   cloneDirectCacheRef(input.DirectCacheRef),
 			RunnerBaseCommit: artifact.Manifest.BaseCommit, RunnerBaseTree: artifact.Manifest.BaseTree,
 			PatchFormat: artifact.Manifest.PatchFormat,
 			PatchKey:    patchKey, PatchSHA256: artifact.Manifest.PatchSHA256, PatchSize: artifact.Manifest.PatchSize,
@@ -89,6 +90,8 @@ const (
 	remoteCurrentGateMountPath      = "/current-gate"
 	remoteCurrentGateDigestEnv      = "SUPER_DOLPHIN_CURRENT_GATE_SHA256"
 	remoteCurrentGateVolumeName     = "current-gate"
+	remoteDirectCacheVolumeName     = "direct-cache-data"
+	remoteDirectCacheMountPath      = "/bootstrap-direct"
 	remoteCandidateGateSourceEnv    = "SUPER_DOLPHIN_CANDIDATE_GATE_SOURCE_SHA256"
 	remoteCandidateGateToolchainEnv = "SUPER_DOLPHIN_CANDIDATE_GATE_TOOLCHAIN_SHA256"
 	remoteReuseBaselineGateEnv      = "SUPER_DOLPHIN_REUSE_BASELINE_GATE_CLI"
@@ -100,6 +103,13 @@ const (
 	remoteXKBDataSubPath            = "runtime/rootfs/usr/share/X11/xkb"
 	remoteInitSearchPath            = gate.ExecutorRuntimeSeedRoot + "/bin:" + gate.ExecutorPortableRootFS + "/usr/bin:" + gate.ExecutorPortableRootFS + "/bin:/usr/local/bin:/usr/bin:/bin"
 	remoteCandidateTestBinaryIndex  = "/opt/super-dolphin-gate/test-binaries/candidate-test-binaries.json"
+	remoteDirectCacheManifestEnv    = "SUPER_DOLPHIN_REMOTE_DIRECT_CACHE_MANIFEST_SHA256"
+	remoteDirectCacheTreeEnv        = "SUPER_DOLPHIN_REMOTE_DIRECT_CACHE_TREE_SHA256"
+	remoteDirectCacheParentChainEnv = "SUPER_DOLPHIN_REMOTE_DIRECT_CACHE_PARENT_CHAIN_SHA256"
+	remoteDirectCacheRuntimeGoEnv   = "SUPER_DOLPHIN_REMOTE_DIRECT_CACHE_RUNTIME_GO_SHA256"
+	remoteDirectCacheRuntimeDepsEnv = "SUPER_DOLPHIN_REMOTE_DIRECT_CACHE_RUNTIME_DEPS_SHA256"
+	remoteDirectCacheGenerationEnv  = "SUPER_DOLPHIN_REMOTE_DIRECT_CACHE_GENERATION"
+	remoteDirectCacheIDEnv          = "SUPER_DOLPHIN_REMOTE_DIRECT_CACHE_DATA_CACHE_ID"
 )
 
 // createRequest 将分片、请求摘要和 DataCache 身份绑定为 ECI 创建请求。
@@ -144,6 +154,30 @@ func (coordinator *Coordinator) createRequest(
 		{Name: "work-data", MountPath: gate.ExecutorWorkRoot},
 		{Name: "temp-data", MountPath: remoteWritableTempMountPath},
 	}
+	mainEnvironment := remoteWorkerEnvironment(coordinator.config.WorkerTimeout)
+	mainMounts := []eci.VolumeMount{
+		{Name: "base-data", MountPath: "/bootstrap", ReadOnly: true},
+		{Name: "expanded-data", MountPath: "/opt/super-dolphin-gate", ReadOnly: true},
+		{Name: "expanded-data", MountPath: remoteXKBCompMountPath, SubPath: remoteXKBCompSubPath, ReadOnly: true},
+		{Name: "expanded-data", MountPath: remoteXKBDataMountPath, SubPath: remoteXKBDataSubPath, ReadOnly: true},
+		{Name: "source-data", MountPath: gate.ExecutorSourcePath, ReadOnly: true},
+		{Name: "work-data", MountPath: gate.ExecutorWorkRoot},
+		{Name: "temp-data", MountPath: remoteWritableTempMountPath},
+	}
+	if input.DirectCacheRef != nil {
+		direct := input.DirectCacheRef
+		initContainer.Environment[remoteDirectCacheManifestEnv] = direct.ManifestDigest
+		initContainer.Environment[remoteDirectCacheTreeEnv] = direct.TreeSHA256
+		initContainer.Environment[remoteDirectCacheParentChainEnv] = direct.ParentChainSHA256
+		initContainer.Environment[remoteDirectCacheRuntimeGoEnv] = direct.RuntimeGoSHA256
+		initContainer.Environment[remoteDirectCacheRuntimeDepsEnv] = direct.RuntimeDepsSHA256
+		initContainer.Environment[remoteDirectCacheGenerationEnv] = strconv.FormatUint(direct.Generation, 10)
+		initContainer.Environment[remoteDirectCacheIDEnv] = direct.DataCacheID
+		mainEnvironment[gate.ExecutorDirectGoBuildCacheSeedEnv] = "1"
+		directMount := eci.VolumeMount{Name: remoteDirectCacheVolumeName, MountPath: remoteDirectCacheMountPath, ReadOnly: true}
+		initMounts = append(initMounts, directMount)
+		mainMounts = append(mainMounts, directMount)
+	}
 	return eci.CreateRequest{
 		ContainerGroupName: groupName, ContainerName: "worker",
 		Resources: resources,
@@ -152,27 +186,28 @@ func (coordinator *Coordinator) createRequest(
 			"worker", "run-shard", "--profile", string(shard.Profile), "--plan-digest", shard.PlanDigest,
 			"--gates", joinGateIDs(shard.GateIDs),
 		},
-		Environment:     remoteWorkerEnvironment(coordinator.config.WorkerTimeout),
-		Tags:            map[string]string{"super-dolphin-job": jobID, "super-dolphin-shard": fmt.Sprintf("%d", shard.Index)},
-		DataCacheBucket: input.DataCacheBucket,
-		InitContainer:   initContainer,
-		BaseVolume:      eci.HostPathVolume{Name: "base-data", Path: input.DataCachePath, Type: "Directory"},
-		BootstrapVolume: eci.OSSVolume{Bucket: coordinator.config.Bucket, Endpoint: strings.TrimPrefix(coordinator.config.InternalOSSEndpoint, "https://"), Path: "/" + path.Dir(candidateCLI.ManifestKey), RoleName: coordinator.config.WorkerRoleName},
-		ExpandedVolume:  eci.EmptyDirVolume{Name: "expanded-data"},
-		SourceVolume:    eci.EmptyDirVolume{Name: "source-data"},
-		WorkVolume:      eci.EmptyDirVolume{Name: "work-data"},
-		TempVolume:      eci.EmptyDirVolume{Name: "temp-data"},
-		MainVolumeMounts: []eci.VolumeMount{
-			{Name: "base-data", MountPath: "/bootstrap", ReadOnly: true},
-			{Name: "expanded-data", MountPath: "/opt/super-dolphin-gate", ReadOnly: true},
-			{Name: "expanded-data", MountPath: remoteXKBCompMountPath, SubPath: remoteXKBCompSubPath, ReadOnly: true},
-			{Name: "expanded-data", MountPath: remoteXKBDataMountPath, SubPath: remoteXKBDataSubPath, ReadOnly: true},
-			{Name: "source-data", MountPath: gate.ExecutorSourcePath, ReadOnly: true},
-			{Name: "work-data", MountPath: gate.ExecutorWorkRoot},
-			{Name: "temp-data", MountPath: remoteWritableTempMountPath},
-		},
-		InitVolumeMounts: initMounts,
+		Environment:           mainEnvironment,
+		Tags:                  map[string]string{"super-dolphin-job": jobID, "super-dolphin-shard": fmt.Sprintf("%d", shard.Index)},
+		DataCacheBucket:       input.DataCacheBucket,
+		InitContainer:         initContainer,
+		BaseVolume:            eci.HostPathVolume{Name: "base-data", Path: input.DataCachePath, Type: "Directory"},
+		AdditionalBaseVolumes: directCacheAdditionalVolumes(input.DirectCacheRef),
+		BootstrapVolume:       eci.OSSVolume{Bucket: coordinator.config.Bucket, Endpoint: strings.TrimPrefix(coordinator.config.InternalOSSEndpoint, "https://"), Path: "/" + path.Dir(candidateCLI.ManifestKey), RoleName: coordinator.config.WorkerRoleName},
+		ExpandedVolume:        eci.EmptyDirVolume{Name: "expanded-data"},
+		SourceVolume:          eci.EmptyDirVolume{Name: "source-data"},
+		WorkVolume:            eci.EmptyDirVolume{Name: "work-data"},
+		TempVolume:            eci.EmptyDirVolume{Name: "temp-data"},
+		MainVolumeMounts:      mainMounts,
+		InitVolumeMounts:      initMounts,
 	}
+}
+
+// directCacheAdditionalVolumes 通过 ECI 同桶附加卷暴露可选的已验证直读缓存。
+func directCacheAdditionalVolumes(reference *DirectCacheRef) []eci.HostPathVolume {
+	if reference == nil {
+		return nil
+	}
+	return []eci.HostPathVolume{{Name: remoteDirectCacheVolumeName, Path: reference.DataCachePath, Type: "Directory"}}
 }
 
 // remoteWorkerEnvironment 仅绑定 worker 入口所需的运行时根与单目标超时。

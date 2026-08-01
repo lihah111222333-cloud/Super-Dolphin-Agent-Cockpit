@@ -21,6 +21,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/datacache"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/eci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/oss"
+	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
@@ -178,8 +179,6 @@ func remoteBaselineIncrementalRefreshRejection(session remoteBaselineRefreshSess
 		return "runtime dependency schema changed"
 	case session.input.RuntimeDependencyDigest == "" || session.input.AcceptedRuntimeDependencyDigest == "":
 		return "runtime dependency identity is missing"
-	case session.input.RuntimeDependencyDigest != session.input.AcceptedRuntimeDependencyDigest:
-		return "runtime dependency content changed"
 	case !remoteBaselineSeedIdentityMatches(session.accepted, session.input.Identity):
 		return "platform or runtime image changed"
 	case len(session.accepted.DeltaRefs()) >= remoteBaselineDeltaLimit:
@@ -249,6 +248,9 @@ func reuseRemoteBaseline(ctx context.Context, session remoteBaselineRefreshSessi
 	if err := renewRemoteBaselineAnchor(ctx, session); err != nil {
 		return infrastructureError("renew unchanged remote baseline: %v", err)
 	}
+	if err := renewRemoteBaselineDirectCache(ctx, session); err != nil {
+		return infrastructureError("renew unchanged remote direct cache: %v", err)
+	}
 	session.accepted.AcceptedAt = time.Now().UTC()
 	if err := writeRemoteBaselineState(session.statePath, session.accepted); err != nil {
 		return infrastructureError("persist renewed remote baseline: %v", err)
@@ -280,7 +282,20 @@ func createRemoteBaseline(ctx context.Context, session remoteBaselineRefreshSess
 	if err != nil {
 		return err
 	}
-	state, err := acceptRemoteBaseline(session, stage, manifest, digest, cache)
+	directCache, err := createRemoteBaselineDirectCache(ctx, session, stage, manifest)
+	if err != nil {
+		return err
+	}
+	defer cleanupUnacceptedRemoteCache(&resultErr, session.cache, directCache, &accepted)
+	directCache, err = waitRemoteDataCache(ctx, session.cache, directCache.ID, directCache.Path, directCache.Bucket)
+	if err != nil {
+		return infrastructureError("wait for remote direct cache: %v", err)
+	}
+	directManifest, directManifestDigest, err := downloadRemoteBaselineDirectCacheManifest(ctx, session.store, stage)
+	if err != nil {
+		return infrastructureError("verify remote direct cache manifest: %v", err)
+	}
+	state, err := acceptRemoteBaselineWithDirectCache(session, stage, manifest, digest, cache, directCache, directManifest, directManifestDigest)
 	if err != nil {
 		return err
 	}
@@ -330,6 +345,26 @@ func renewRemoteBaselineAnchor(ctx context.Context, session remoteBaselineRefres
 		return err
 	}
 	return verifyAvailableDataCache(ctx, session.cache, session.accepted)
+}
+
+// renewRemoteBaselineDirectCache 验证并续期未变化状态引用的直读缓存。
+func renewRemoteBaselineDirectCache(ctx context.Context, session remoteBaselineRefreshSession) error {
+	if session.accepted.DirectCacheRef == nil {
+		return nil
+	}
+	reference := session.accepted.DirectCacheRef
+	cache, err := waitRemoteDataCache(ctx, session.cache, reference.DataCacheID, reference.DataCachePath, reference.DataCacheBucket)
+	if err != nil {
+		return err
+	}
+	if cache.SizeGiB != reference.SizeGiB {
+		return errors.New("direct DataCache size drifted")
+	}
+	if err := session.cache.Renew(ctx, reference.DataCacheID, session.config.DataCache.RetentionDays, remoteBaselineDirectRenewToken(reference.Generation, time.Now().UTC())); err != nil {
+		return err
+	}
+	_, err = waitRemoteDataCache(ctx, session.cache, reference.DataCacheID, reference.DataCachePath, reference.DataCacheBucket)
+	return err
 }
 
 // prepareRemoteBaselineArtifacts 生成并上传本次 generation 的输入工件。
@@ -553,6 +588,36 @@ func createRemoteBaselineCache(ctx context.Context, session remoteBaselineRefres
 	return cache, nil
 }
 
+// createRemoteBaselineDirectCache 为预展开且只读的 Go build cache 创建独立小型 DataCache。
+func createRemoteBaselineDirectCache(ctx context.Context, session remoteBaselineRefreshSession, stage remoteBaselineArtifactStage, manifest remoteci.BaselineManifest) (datacache.DataCache, error) {
+	const sizeGiB = remoteDataCacheMinimumSizeGiB
+	if session.config.DataCache.MaxSizeGiB < sizeGiB {
+		return datacache.DataCache{}, protocolError("direct cache minimum capacity %d GiB exceeds configured maximum %d GiB", sizeGiB, session.config.DataCache.MaxSizeGiB)
+	}
+	payload, err := json.Marshal(struct {
+		Generation uint64
+		Manifest   remoteci.BaselineManifest
+	}{Generation: stage.generation, Manifest: manifest})
+	if err != nil {
+		return datacache.DataCache{}, protocolError("encode remote direct cache idempotence identity: %v", err)
+	}
+	path := remoteBaselineDirectCachePath(session.config, stage.generation)
+	cache, err := session.cache.Create(ctx, datacache.CreateRequest{
+		Name: remoteBaselineResourceName(stage.generation) + "-direct-cache", Bucket: session.config.DataCache.Bucket,
+		Path: path, SizeGiB: sizeGiB, RetentionDays: session.config.DataCache.RetentionDays,
+		ClientToken: remoteBaselineClientToken("direct-cache", strconv.FormatUint(stage.generation, 10), payload),
+		Source: datacache.OSSDataSource{
+			Bucket: session.config.OSS.Bucket, Endpoint: strings.TrimPrefix(session.config.OSS.InternalEndpoint, "https://"),
+			Path: "/" + strings.TrimSuffix(remoteBaselineDirectCacheOutputPrefix(stage), "/"), RoleName: session.config.WorkerRoleName,
+		},
+		Tags: remoteBaselineResourceTags(stage.generation, session.input.Identity.MainTree),
+	})
+	if err != nil {
+		return datacache.DataCache{}, infrastructureError("create remote direct cache: %v", err)
+	}
+	return cache, nil
+}
+
 func remoteBaselineResourceTags(generation uint64, mainTree string) map[string]string {
 	return map[string]string{
 		"owner":      "super-dolphin-ci",
@@ -565,6 +630,9 @@ func remoteBaselineResourceTags(generation uint64, mainTree string) map[string]s
 func acceptRemoteBaseline(session remoteBaselineRefreshSession, stage remoteBaselineArtifactStage, manifest remoteci.BaselineManifest, digest string, cache datacache.DataCache) (remoteci.BaselineState, error) {
 	if err := manifest.Validate(); err != nil {
 		return remoteci.BaselineState{}, protocolError("refuse invalid remote baseline manifest: %v", err)
+	}
+	if manifest.SchemaVersion >= remoteci.BaselineManifestSchemaVersion && manifest.RuntimeDependencyDigest != session.input.RuntimeDependencyDigest {
+		return remoteci.BaselineState{}, protocolError("remote baseline runtime dependency digest drifted from refresh input")
 	}
 	if session.resolveRef == nil {
 		return remoteci.BaselineState{}, infrastructureError("recheck remote main after baseline build: resolver is nil")
@@ -593,6 +661,9 @@ func acceptRemoteBaseline(session remoteBaselineRefreshSession, stage remoteBase
 			return remoteci.BaselineState{}, err
 		}
 	case remoteci.BaselineStorageModeDelta:
+		if !remoteBaselineRuntimeDependencyDeltaMatchesInput(manifest, session.input.AcceptedRuntimeDependencyDigest) {
+			return remoteci.BaselineState{}, protocolError("remote runtime dependency delta does not extend the accepted runtime identity")
+		}
 		if err := bindRemoteBaselineDelta(&state, session.accepted, stage, manifest, digest, acceptedAt); err != nil {
 			return remoteci.BaselineState{}, err
 		}
@@ -601,6 +672,95 @@ func acceptRemoteBaseline(session remoteBaselineRefreshSession, stage remoteBase
 	}
 	carryRemoteBaselineHistory(&state, session.accepted)
 	return state, nil
+}
+
+// acceptRemoteBaselineWithDirectCache 在基线链验收后绑定同代直读缓存，任一身份不一致都不发布状态。
+func acceptRemoteBaselineWithDirectCache(
+	session remoteBaselineRefreshSession,
+	stage remoteBaselineArtifactStage,
+	manifest remoteci.BaselineManifest,
+	digest string,
+	cache datacache.DataCache,
+	directCache datacache.DataCache,
+	directManifest gatecontract.GoBuildCacheDirectSeedManifest,
+	directManifestDigest string,
+) (remoteci.BaselineState, error) {
+	state, err := acceptRemoteBaseline(session, stage, manifest, digest, cache)
+	if err != nil {
+		return remoteci.BaselineState{}, err
+	}
+	if directManifest.RuntimeGoSHA256 != manifest.RuntimeSeedManifestSHA256 ||
+		directManifest.RuntimeDepsSHA256 != manifest.RuntimeDependencyDigest {
+		return remoteci.BaselineState{}, protocolError("remote direct cache runtime binding drifted from baseline manifest")
+	}
+	if err := bindRemoteBaselineDirectCache(&state, stage, directCache, directManifest, directManifestDigest); err != nil {
+		return remoteci.BaselineState{}, err
+	}
+	if session.accepted.DirectCacheRef != nil && session.accepted.DirectCacheRef.DataCacheID != directCache.ID {
+		retired := *session.accepted.DirectCacheRef
+		state.RetiredDirectCacheRef = &retired
+	}
+	return state, nil
+}
+
+func downloadRemoteBaselineDirectCacheManifest(ctx context.Context, store remoteBaselineOSSStore, stage remoteBaselineArtifactStage) (gatecontract.GoBuildCacheDirectSeedManifest, string, error) {
+	root, err := os.MkdirTemp("", "super-dolphin-direct-cache-manifest-*")
+	if err != nil {
+		return gatecontract.GoBuildCacheDirectSeedManifest{}, "", err
+	}
+	defer os.RemoveAll(root)
+	path := filepath.Join(root, "manifest.json")
+	if err := store.Download(ctx, remoteBaselineDirectCacheOutputPrefix(stage)+"manifest.json", path); err != nil {
+		return gatecontract.GoBuildCacheDirectSeedManifest{}, "", err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return gatecontract.GoBuildCacheDirectSeedManifest{}, "", err
+	}
+	if len(data) == 0 || len(data) > 64<<20 {
+		return gatecontract.GoBuildCacheDirectSeedManifest{}, "", errors.New("direct cache manifest size is invalid")
+	}
+	var manifest gatecontract.GoBuildCacheDirectSeedManifest
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&manifest); err != nil {
+		return gatecontract.GoBuildCacheDirectSeedManifest{}, "", err
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return gatecontract.GoBuildCacheDirectSeedManifest{}, "", errors.New("direct cache manifest has trailing data")
+	}
+	if err := gatecontract.ValidateGoBuildCacheDirectSeedManifest(manifest); err != nil {
+		return gatecontract.GoBuildCacheDirectSeedManifest{}, "", err
+	}
+	return manifest, digestBytes(data), nil
+}
+
+func bindRemoteBaselineDirectCache(state *remoteci.BaselineState, stage remoteBaselineArtifactStage, cache datacache.DataCache, manifest gatecontract.GoBuildCacheDirectSeedManifest, manifestDigest string) error {
+	if state == nil || cache.Status != datacache.StatusAvailable || cache.ID == "" || cache.SizeGiB <= 0 ||
+		cache.Bucket != state.DataCacheBucket || cache.Path == state.DataCachePath || !validRemoteManifestDigest(manifestDigest) {
+		return infrastructureError("refuse unready remote direct cache")
+	}
+	parentChainDigest, err := remoteci.CurrentBaselineParentChainDigest(*state)
+	if err != nil {
+		return protocolError("compute remote direct cache parent chain: %v", err)
+	}
+	state.DirectCacheRef = &remoteci.DirectCacheRef{
+		DataCacheID: cache.ID, DataCacheBucket: cache.Bucket, DataCachePath: cache.Path, SizeGiB: cache.SizeGiB,
+		Generation: stage.generation, SourceObjectPrefix: remoteBaselineDirectCacheOutputPrefix(stage), ManifestDigest: manifestDigest,
+		TreeSHA256: manifest.TreeSHA256, ParentChainSHA256: parentChainDigest,
+		RuntimeGoSHA256: manifest.RuntimeGoSHA256, RuntimeDepsSHA256: manifest.RuntimeDepsSHA256,
+	}
+	return nil
+}
+
+// remoteBaselineRuntimeDependencyDeltaMatchesInput 把 runtime 迁移的父摘要绑定到本轮从已验收源码重算的身份。
+func remoteBaselineRuntimeDependencyDeltaMatchesInput(manifest remoteci.BaselineManifest, acceptedDigest string) bool {
+	for _, layer := range manifest.Layers {
+		if layer.Name == "runtime-deps" && layer.Archive == "runtime-deps.delta.tar.gz" {
+			return validRemoteManifestDigest(acceptedDigest) && layer.BaseRuntimeDependencyDigest == acceptedDigest
+		}
+	}
+	return true
 }
 
 // promoteRemoteBaseline 仅在 successor 复验、持久化和最终读取均成功后清理退休资源。
@@ -662,7 +822,21 @@ func verifyRemoteBaselineSuccessor(ctx context.Context, session remoteBaselineRe
 	if err := validateRunnableRemoteBaseline(session.config, state); err != nil {
 		return err
 	}
-	return verifyAvailableDataCache(ctx, session.cache, state)
+	if err := verifyAvailableDataCache(ctx, session.cache, state); err != nil {
+		return err
+	}
+	if state.DirectCacheRef == nil {
+		return nil
+	}
+	direct := state.DirectCacheRef
+	cache, err := waitRemoteDataCache(ctx, session.cache, direct.DataCacheID, direct.DataCachePath, direct.DataCacheBucket)
+	if err != nil {
+		return err
+	}
+	if cache.SizeGiB != direct.SizeGiB {
+		return errors.New("accepted direct DataCache size drifted")
+	}
+	return nil
 }
 
 // bindRemoteBaselineAnchor 绑定本代新建且已可用的唯一 DataCache Anchor。
@@ -720,11 +894,17 @@ func remoteBaselineDeltaAnchorMatchesManifest(accepted remoteci.BaselineState, m
 		return false
 	}
 	runtimeGoDelta := false
+	runtimeDepsDelta := false
 	for _, layer := range manifest.Layers {
 		if layer.Name == "runtime-go" && layer.Archive == "runtime-go.delta.tar.gz" {
 			runtimeGoDelta = true
-			break
 		}
+		if layer.Name == "runtime-deps" && layer.Archive == "runtime-deps.delta.tar.gz" {
+			runtimeDepsDelta = true
+		}
+	}
+	if runtimeDepsDelta {
+		return true
 	}
 	if runtimeGoDelta {
 		return accepted.ToolchainDigest != manifest.ToolchainDigest
@@ -913,6 +1093,15 @@ func remoteBaselineCachePath(config remoteRunConfig, generation uint64) string {
 	return config.DataCache.PathPrefix + "/" + strconv.FormatUint(generation, 10)
 }
 
+// remoteBaselineDirectCachePath 把只读 Go 构建缓存与基线 Anchor 放入彼此隔离的 DataCache 路径。
+func remoteBaselineDirectCachePath(config remoteRunConfig, generation uint64) string {
+	return config.DataCache.PathPrefix + "/direct-cache/" + strconv.FormatUint(generation, 10)
+}
+
+func remoteBaselineDirectCacheOutputPrefix(stage remoteBaselineArtifactStage) string {
+	return stage.outputPrefix + "direct-cache/"
+}
+
 func remoteBaselineCacheClientToken(generation uint64, sizeGiB int, manifest remoteci.BaselineManifest) (string, error) {
 	payload, err := json.Marshal(struct {
 		SizeGiB  int                       `json:"size_gib"`
@@ -931,6 +1120,10 @@ func remoteBaselineClientToken(kind, generation string, payload []byte) string {
 
 func remoteBaselineRenewToken(generation uint64, now time.Time) string {
 	return fmt.Sprintf("sdci-renew-%d-%s", generation, now.UTC().Format("20060102"))
+}
+
+func remoteBaselineDirectRenewToken(generation uint64, now time.Time) string {
+	return fmt.Sprintf("sdci-renew-direct-%d-%s", generation, now.UTC().Format("20060102"))
 }
 
 func encodeRemoteBaselineRefreshResult(stdout io.Writer, result remoteBaselineRefreshResult) error {

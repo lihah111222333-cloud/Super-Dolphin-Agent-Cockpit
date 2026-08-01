@@ -153,6 +153,7 @@ func remoteBaselineCapacityManifest(payloadBytes int64) remoteci.BaselineManifes
 		GateBinarySHA256:          "sha256:" + repeatRemoteHex("6", 64),
 		GateBinarySize:            1,
 		RuntimeSeedManifestSHA256: "sha256:" + repeatRemoteHex("7", 64),
+		RuntimeDependencyDigest:   "sha256:" + repeatRemoteHex("d", 64),
 		CABundleSHA256:            "sha256:" + repeatRemoteHex("8", 64),
 		CABundleSize:              1,
 		StorageMode:               remoteci.BaselineStorageModeAnchor,

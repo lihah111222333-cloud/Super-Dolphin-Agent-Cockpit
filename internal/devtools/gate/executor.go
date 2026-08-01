@@ -32,18 +32,21 @@ const (
 	ExecutorPortableSearchPath      = ExecutorRoot + "/bin:" + ExecutorRuntimeSeedRoot + "/bin:" + ExecutorRuntimeSeedRoot + "/go/bin:" + ExecutorRuntimeSeedRoot + "/node/bin:" + ExecutorPortableRootFS + "/usr/bin:" + ExecutorPortableRootFS + "/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin"
 	ExecutorGoBuildCacheSeedRoot    = ExecutorRoot + "/cache-seed/go-build"
 	ExecutorGoBuildCacheSeedsRoot   = ExecutorRoot + "/cache-seeds"
-	ExecutorFrontendEmbedSeedRoot   = ExecutorRoot + "/frontend-embed"
-	ExecutorActionlintBinaryPath    = ExecutorRuntimeSeedRoot + "/bin/actionlint"
-	ExecutorBashBinaryPath          = ExecutorPortableRootFS + "/usr/bin/bash"
-	ExecutorGitBinaryPath           = ExecutorRuntimeSeedRoot + "/bin/git"
-	ExecutorNodeBinaryPath          = ExecutorRuntimeSeedRoot + "/node/bin/node"
-	ExecutorSQLCBinaryPath          = ExecutorRuntimeSeedRoot + "/bin/sqlc"
-	ExecutorSqruffBinaryPath        = ExecutorRuntimeSeedRoot + "/bin/sqruff"
-	ExecutorXvfbRunBinaryPath       = ExecutorRuntimeSeedRoot + "/bin/xvfb-run"
-	executorPlaywrightBrowsersPath  = ExecutorRuntimeSeedRoot + "/frontend/node_modules/.cache/ms-playwright"
-	executorGoProxyMode             = "off"
-	executorUID                     = 65532
-	executorSearchPath              = ExecutorPortableSearchPath
+	// ExecutorDirectGoBuildCacheSeedRoot 固定指向独立挂载且已验证的只读 DataCache 缓存树。
+	ExecutorDirectGoBuildCacheSeedRoot = "/bootstrap-direct/cache-seed/go-build"
+	ExecutorDirectGoBuildCacheSeedEnv  = "SUPER_DOLPHIN_DIRECT_GO_BUILD_CACHE_SEED"
+	ExecutorFrontendEmbedSeedRoot      = ExecutorRoot + "/frontend-embed"
+	ExecutorActionlintBinaryPath       = ExecutorRuntimeSeedRoot + "/bin/actionlint"
+	ExecutorBashBinaryPath             = ExecutorPortableRootFS + "/usr/bin/bash"
+	ExecutorGitBinaryPath              = ExecutorRuntimeSeedRoot + "/bin/git"
+	ExecutorNodeBinaryPath             = ExecutorRuntimeSeedRoot + "/node/bin/node"
+	ExecutorSQLCBinaryPath             = ExecutorRuntimeSeedRoot + "/bin/sqlc"
+	ExecutorSqruffBinaryPath           = ExecutorRuntimeSeedRoot + "/bin/sqruff"
+	ExecutorXvfbRunBinaryPath          = ExecutorRuntimeSeedRoot + "/bin/xvfb-run"
+	executorPlaywrightBrowsersPath     = ExecutorRuntimeSeedRoot + "/frontend/node_modules/.cache/ms-playwright"
+	executorGoProxyMode                = "off"
+	executorUID                        = 65532
+	executorSearchPath                 = ExecutorPortableSearchPath
 )
 
 type executorConfig struct {
@@ -125,7 +128,7 @@ func ExecuteExecutor(ctx context.Context, args []string, stdout io.Writer, stder
 	if err != nil {
 		return err
 	}
-	seedRoots, err := discoverExecutorGoBuildCacheSeedRoots(ExecutorGoBuildCacheSeedsRoot, ExecutorGoBuildCacheSeedRoot)
+	seedRoots, err := ExecutorRemoteGoBuildCacheSeedRoots()
 	if err != nil {
 		return err
 	}
@@ -140,6 +143,18 @@ func ExecuteExecutor(ctx context.Context, args []string, stdout io.Writer, stder
 		stdout:                stdout, stderr: stderr,
 	}
 	return executeProgram(ctx, config, id, program)
+}
+
+// ExecutorRemoteGoBuildCacheSeedRoots 仅在受控开关启用后选择固定 DataCache 根目录。
+func ExecutorRemoteGoBuildCacheSeedRoots() ([]string, error) {
+	switch os.Getenv(ExecutorDirectGoBuildCacheSeedEnv) {
+	case "":
+		return discoverExecutorGoBuildCacheSeedRoots(ExecutorGoBuildCacheSeedsRoot, ExecutorGoBuildCacheSeedRoot)
+	case "1":
+		return []string{ExecutorDirectGoBuildCacheSeedRoot}, nil
+	default:
+		return nil, errors.New("remote direct Go build cache seed enablement is invalid")
+	}
 }
 
 // executeExecutorSubcommand 分派不进入隔离工作区的受限执行器子命令。

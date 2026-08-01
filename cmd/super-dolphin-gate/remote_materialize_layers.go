@@ -86,7 +86,8 @@ func materializeRemoteBaseline(
 	request remoteci.ShardRequest,
 	download remoteObjectDownload,
 ) error {
-	anchor, err := extractRemoteDataCacheBase(ctx, cacheRoot, expandedRoot, request.AnchorManifest)
+	useDirectCache := request.DirectCacheRef != nil
+	anchor, err := extractRemoteDataCacheBaseWithOptions(ctx, cacheRoot, expandedRoot, request.AnchorManifest, useDirectCache)
 	if err != nil {
 		return err
 	}
@@ -96,10 +97,10 @@ func materializeRemoteBaseline(
 		}
 		return protectRemoteExpandedBaselineRoot(expandedRoot)
 	}
-	if err := prepareRemoteAnchorBaseline(ctx, expandedRoot, sourceRoot, request, anchor); err != nil {
+	if err := prepareRemoteAnchorBaseline(ctx, expandedRoot, sourceRoot, request, anchor, useDirectCache); err != nil {
 		return err
 	}
-	if err := materializeRemoteBaselineDeltas(ctx, expandedRoot, sourceRoot, request.BaselineDeltas, anchor, download); err != nil {
+	if err := materializeRemoteBaselineDeltas(ctx, expandedRoot, sourceRoot, request.BaselineDeltas, anchor, download, useDirectCache); err != nil {
 		return err
 	}
 	if err := verifyRemoteSourceIdentity(ctx, sourceRoot, request.RunnerBaseCommit, request.RunnerBaseTree); err != nil {
@@ -129,12 +130,14 @@ func materializeRemoteLegacyBaseline(ctx context.Context, expandedRoot, sourceRo
 }
 
 // prepareRemoteAnchorBaseline 验证并恢复唯一的 Anchor 基线。
-func prepareRemoteAnchorBaseline(ctx context.Context, expandedRoot, sourceRoot string, request remoteci.ShardRequest, anchor remoteci.BaselineManifest) error {
+func prepareRemoteAnchorBaseline(ctx context.Context, expandedRoot, sourceRoot string, request remoteci.ShardRequest, anchor remoteci.BaselineManifest, useDirectCache bool) error {
 	if anchor.StorageMode != remoteci.BaselineStorageModeAnchor || anchor.Generation != request.AnchorGeneration || anchor.MainCommit != request.AnchorCommit || anchor.MainTree != request.AnchorTree {
 		return errors.New("remote Anchor manifest does not match shard request")
 	}
-	if err := materializeRemoteCacheSeed(expandedRoot, anchor.Generation); err != nil {
-		return err
+	if !useDirectCache {
+		if err := materializeRemoteCacheSeed(expandedRoot, anchor.Generation); err != nil {
+			return err
+		}
 	}
 	if err := cloneRemoteDataCacheBase(ctx, filepath.Join(expandedRoot, "source"), sourceRoot); err != nil {
 		return err
@@ -146,11 +149,11 @@ func prepareRemoteAnchorBaseline(ctx context.Context, expandedRoot, sourceRoot s
 }
 
 // materializeRemoteBaselineDeltas 按请求顺序应用 delta，并只发布最后一层 CLI。
-func materializeRemoteBaselineDeltas(ctx context.Context, expandedRoot, sourceRoot string, deltas []remoteci.BaselineDeltaLayer, anchor remoteci.BaselineManifest, download remoteObjectDownload) error {
+func materializeRemoteBaselineDeltas(ctx context.Context, expandedRoot, sourceRoot string, deltas []remoteci.BaselineDeltaLayer, anchor remoteci.BaselineManifest, download remoteObjectDownload, useDirectCache bool) error {
 	var latestManifest *remoteci.BaselineManifest
 	var latestDelta remoteci.BaselineDeltaLayer
 	for index, delta := range deltas {
-		manifest, err := materializeRemoteBaselineDelta(ctx, expandedRoot, sourceRoot, anchor, delta, download)
+		manifest, err := materializeRemoteBaselineDelta(ctx, expandedRoot, sourceRoot, anchor, delta, download, useDirectCache)
 		if err != nil {
 			return fmt.Errorf("materialize remote baseline delta %d: %w", index, err)
 		}
@@ -164,7 +167,7 @@ func materializeRemoteBaselineDeltas(ctx context.Context, expandedRoot, sourceRo
 }
 
 // materializeRemoteBaselineDelta 下载同代的 manifest、Git bundle 与缓存层，全部验明后才变更 source。
-func materializeRemoteBaselineDelta(ctx context.Context, expandedRoot string, sourceRoot string, anchor remoteci.BaselineManifest, delta remoteci.BaselineDeltaLayer, download remoteObjectDownload) (remoteci.BaselineManifest, error) {
+func materializeRemoteBaselineDelta(ctx context.Context, expandedRoot string, sourceRoot string, anchor remoteci.BaselineManifest, delta remoteci.BaselineDeltaLayer, download remoteObjectDownload, useDirectCache bool) (remoteci.BaselineManifest, error) {
 	if download == nil {
 		return remoteci.BaselineManifest{}, errors.New("remote object downloader is required")
 	}
@@ -184,10 +187,17 @@ func materializeRemoteBaselineDelta(ctx context.Context, expandedRoot string, so
 	if err := verifyRemoteDeltaCompatibility(anchor, manifest); err != nil {
 		return remoteci.BaselineManifest{}, err
 	}
-	if err := downloadRemoteDeltaLayers(ctx, download, manifest, paths); err != nil {
+	if err := downloadRemoteDeltaLayers(ctx, download, manifest, paths, useDirectCache); err != nil {
 		return remoteci.BaselineManifest{}, err
 	}
-	if hasRuntimeGoDeltaLayer(manifest) {
+	if hasRuntimeDepsDeltaLayer(manifest) {
+		if err := materializeRemoteRuntimeDepsDelta(ctx, paths.runtimeDeps, expandedRoot); err != nil {
+			return remoteci.BaselineManifest{}, fmt.Errorf("materialize remote runtime dependency delta: %w", err)
+		}
+		if err := resetRemoteCacheSeeds(expandedRoot); err != nil {
+			return remoteci.BaselineManifest{}, fmt.Errorf("reset remote cache seeds for runtime dependency delta: %w", err)
+		}
+	} else if hasRuntimeGoDeltaLayer(manifest) {
 		if err := materializeRemoteRuntimeGoDelta(ctx, paths.runtimeGo, expandedRoot); err != nil {
 			return remoteci.BaselineManifest{}, fmt.Errorf("materialize remote runtime-go delta: %w", err)
 		}
@@ -195,8 +205,10 @@ func materializeRemoteBaselineDelta(ctx context.Context, expandedRoot string, so
 			return remoteci.BaselineManifest{}, fmt.Errorf("reset remote cache seeds for runtime-go delta: %w", err)
 		}
 	}
-	if err := materializeRemoteCacheDelta(ctx, paths.cache, expandedRoot, delta.Generation); err != nil {
-		return remoteci.BaselineManifest{}, fmt.Errorf("extract remote cache delta: %w", err)
+	if !useDirectCache {
+		if err := materializeRemoteCacheDelta(ctx, paths.cache, expandedRoot, delta.Generation); err != nil {
+			return remoteci.BaselineManifest{}, fmt.Errorf("extract remote cache delta: %w", err)
+		}
 	}
 	if err := verifyRemoteSourceIdentity(ctx, sourceRoot, delta.BaseCommit, delta.BaseTree); err != nil {
 		return remoteci.BaselineManifest{}, fmt.Errorf("verify remote delta base: %w", err)
@@ -207,11 +219,11 @@ func materializeRemoteBaselineDelta(ctx context.Context, expandedRoot string, so
 	return manifest, nil
 }
 
-type remoteDeltaPaths struct{ manifest, bundle, cache, runtimeGo, prefix string }
+type remoteDeltaPaths struct{ manifest, bundle, cache, runtimeGo, runtimeDeps, prefix string }
 
 // newRemoteDeltaPaths 汇总同一个 delta 暂存目录及对象前缀。
 func newRemoteDeltaPaths(staging, objectPrefix string) remoteDeltaPaths {
-	return remoteDeltaPaths{manifest: filepath.Join(staging, "baseline-manifest.json"), bundle: filepath.Join(staging, "source.delta.bundle"), cache: filepath.Join(staging, "go-build-cache.delta.tar.gz"), runtimeGo: filepath.Join(staging, "runtime-go.delta.tar.gz"), prefix: path.Join(strings.TrimSuffix(objectPrefix, "/"), "output")}
+	return remoteDeltaPaths{manifest: filepath.Join(staging, "baseline-manifest.json"), bundle: filepath.Join(staging, "source.delta.bundle"), cache: filepath.Join(staging, "go-build-cache.delta.tar.gz"), runtimeGo: filepath.Join(staging, "runtime-go.delta.tar.gz"), runtimeDeps: filepath.Join(staging, "runtime-deps.delta.tar.gz"), prefix: path.Join(strings.TrimSuffix(objectPrefix, "/"), "output")}
 }
 
 // loadRemoteDeltaManifest 下载并解码当前 generation 的唯一 manifest。
@@ -226,33 +238,44 @@ func loadRemoteDeltaManifest(ctx context.Context, download remoteObjectDownload,
 	return remoteci.DecodeBaselineManifest(data)
 }
 
-// downloadRemoteDeltaLayers 验证下载 source bundle、可选 runtime-go 与 go-build-cache layer。
-func downloadRemoteDeltaLayers(ctx context.Context, download remoteObjectDownload, manifest remoteci.BaselineManifest, paths remoteDeltaPaths) error {
+// downloadRemoteDeltaLayers 验证下载 source、可选 runtime 层以及需要本地展开的缓存层。
+func downloadRemoteDeltaLayers(ctx context.Context, download remoteObjectDownload, manifest remoteci.BaselineManifest, paths remoteDeltaPaths, useDirectCache bool) error {
 	if err := downloadVerifiedFile(ctx, download, path.Join(paths.prefix, "source.delta.bundle"), manifest.Layers[0].SHA256, manifest.Layers[0].Size, paths.bundle); err != nil {
 		return fmt.Errorf("download remote source delta: %w", err)
 	}
-	if hasRuntimeGoDeltaLayer(manifest) {
+	if hasRuntimeDepsDeltaLayer(manifest) {
+		layer := manifest.Layers[1]
+		if err := downloadVerifiedFile(ctx, download, path.Join(paths.prefix, layer.Archive), layer.SHA256, layer.Size, paths.runtimeDeps); err != nil {
+			return fmt.Errorf("download remote runtime dependency delta: %w", err)
+		}
+	} else if hasRuntimeGoDeltaLayer(manifest) {
 		layer := manifest.Layers[1]
 		if err := downloadVerifiedFile(ctx, download, path.Join(paths.prefix, layer.Archive), layer.SHA256, layer.Size, paths.runtimeGo); err != nil {
 			return fmt.Errorf("download remote runtime-go delta: %w", err)
 		}
 	}
-	cache := manifest.Layers[len(manifest.Layers)-1]
-	if err := downloadVerifiedFile(ctx, download, path.Join(paths.prefix, cache.Archive), cache.SHA256, cache.Size, paths.cache); err != nil {
-		return fmt.Errorf("download remote cache delta: %w", err)
+	if !useDirectCache {
+		cache := manifest.Layers[len(manifest.Layers)-1]
+		if err := downloadVerifiedFile(ctx, download, path.Join(paths.prefix, cache.Archive), cache.SHA256, cache.Size, paths.cache); err != nil {
+			return fmt.Errorf("download remote cache delta: %w", err)
+		}
 	}
 	return nil
 }
 
-// hasRuntimeGoDeltaLayer reports the only schema-permitted optional delta layer.
+// hasRuntimeGoDeltaLayer 判断清单是否携带旧版 runtime-go 差量层。
 func hasRuntimeGoDeltaLayer(manifest remoteci.BaselineManifest) bool {
 	return len(manifest.Layers) == 3 && manifest.Layers[1].Name == "runtime-go" && manifest.Layers[1].Archive == "runtime-go.delta.tar.gz"
+}
+
+func hasRuntimeDepsDeltaLayer(manifest remoteci.BaselineManifest) bool {
+	return len(manifest.Layers) == 3 && manifest.Layers[1].Name == "runtime-deps" && manifest.Layers[1].Archive == "runtime-deps.delta.tar.gz"
 }
 
 // verifyRemoteDeltaManifest 将 OSS 对象和 source 迁移严格绑定到请求中的唯一 generation。
 func verifyRemoteDeltaManifest(manifest remoteci.BaselineManifest, delta remoteci.BaselineDeltaLayer) error {
 	if manifest.StorageMode != remoteci.BaselineStorageModeDelta || manifest.Generation != delta.Generation ||
-		manifest.MainCommit != delta.MainCommit || manifest.MainTree != delta.MainTree || (len(manifest.Layers) != 2 && !hasRuntimeGoDeltaLayer(manifest)) {
+		manifest.MainCommit != delta.MainCommit || manifest.MainTree != delta.MainTree || (len(manifest.Layers) != 2 && !hasRuntimeGoDeltaLayer(manifest) && !hasRuntimeDepsDeltaLayer(manifest)) {
 		return errors.New("remote delta manifest does not match requested generation")
 	}
 	sourceLayer := manifest.Layers[0]
@@ -268,6 +291,16 @@ func verifyRemoteDeltaCompatibility(anchor, delta remoteci.BaselineManifest) err
 	if delta.Platform != anchor.Platform || delta.RuntimeImage != anchor.RuntimeImage ||
 		delta.CABundleSHA256 != anchor.CABundleSHA256 || delta.CABundleSize != anchor.CABundleSize {
 		return errors.New("remote delta changed an immutable Anchor runtime identity")
+	}
+	if hasRuntimeDepsDeltaLayer(delta) {
+		layer := delta.Layers[1]
+		if (anchor.RuntimeDependencyDigest != "" && layer.BaseRuntimeDependencyDigest != anchor.RuntimeDependencyDigest) || layer.TargetRuntimeDependencyDigest != delta.RuntimeDependencyDigest {
+			return errors.New("remote runtime dependency delta does not bind the previous runtime")
+		}
+		return nil
+	}
+	if anchor.RuntimeDependencyDigest != "" && delta.RuntimeDependencyDigest != "" && anchor.RuntimeDependencyDigest != delta.RuntimeDependencyDigest {
+		return errors.New("remote delta changed runtime dependency digest without a runtime dependency layer")
 	}
 	if !hasRuntimeGoDeltaLayer(delta) && (delta.ToolchainDigest != anchor.ToolchainDigest || delta.RuntimeSeedManifestSHA256 != anchor.RuntimeSeedManifestSHA256) {
 		return errors.New("remote delta changed toolchain or runtime seed without a runtime-go layer")
@@ -366,6 +399,37 @@ func materializeRemoteRuntimeGoDelta(ctx context.Context, archivePath string, ex
 		return fmt.Errorf("validate staged runtime manifest: %w", err)
 	}
 	return replaceRemoteRuntimeGoEntries(runtimeRoot, staging, stagedGo, stagedManifest)
+}
+
+// materializeRemoteRuntimeDepsDelta 验证完整暂存 runtime 后再以一次替换发布。
+func materializeRemoteRuntimeDepsDelta(ctx context.Context, archivePath string, expandedRoot string) (returnErr error) {
+	if err := validateRemoteArchiveLayer(archivePath, "runtime-deps"); err != nil {
+		return err
+	}
+	staging, err := os.MkdirTemp(expandedRoot, ".runtime-deps-")
+	if err != nil {
+		return fmt.Errorf("create remote runtime dependency staging root: %w", err)
+	}
+	defer func() { returnErr = errors.Join(returnErr, os.RemoveAll(staging)) }()
+	if err := extractRemoteArchiveWithRoots(ctx, archivePath, staging, map[string]struct{}{"runtime": {}}); err != nil {
+		return fmt.Errorf("extract remote runtime dependency delta: %w", err)
+	}
+	staged := filepath.Join(staging, "runtime")
+	if err := requireRemoteRuntimeGoEntry(staged, true); err != nil {
+		return fmt.Errorf("validate staged runtime dependency root: %w", err)
+	}
+	target := filepath.Join(expandedRoot, "runtime")
+	backup := filepath.Join(staging, "previous-runtime")
+	if err := requireRemoteRuntimeGoEntry(target, true); err != nil {
+		return fmt.Errorf("validate existing runtime dependency root: %w", err)
+	}
+	if err := os.Rename(target, backup); err != nil {
+		return fmt.Errorf("stage existing runtime dependency root: %w", err)
+	}
+	if err := os.Rename(staged, target); err != nil {
+		return errors.Join(fmt.Errorf("publish runtime dependency root: %w", err), os.Rename(backup, target))
+	}
+	return nil
 }
 
 func requireRemoteRuntimeGoEntry(entry string, directory bool) error {

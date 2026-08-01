@@ -68,7 +68,7 @@ func TestBuildRemoteBaselineSeedRequestUsesPreviousGeneration(t *testing.T) {
 	assertRemoteBaselineSeedConditions(t, request, "toolchain-changing incremental refresh", []bool{
 		request.Environment["BASELINE_STORAGE_MODE"] == remoteci.BaselineStorageModeDelta,
 		request.Environment["BASELINE_TOOLCHAIN_CHANGED"] == "true",
-		request.AutoCreateEIP, request.EIPBandwidth == 100,
+		!request.AutoCreateEIP, request.EIPBandwidth == 0,
 	})
 	historicalInput := input
 	historicalInput.RuntimeDependencySchemaVersion = "8"
@@ -552,6 +552,13 @@ func assertRemoteBaselineSeedLayerFragments(t *testing.T) {
 		"run_logged layer-measure-go-cache measure_layer",
 		"run_logged layer-archive-go-cache-delta archive_layer",
 		"run_logged layer-measure-go-cache-delta measure_layer",
+		"direct_cache_root=$oss_output/direct-cache/cache-seed/go-build",
+		"cp -a \"$stage/anchor-go-build-cache/.\" \"$direct_cache_root/\"",
+		"cp -a \"$go_build_cache/.\" \"$direct_cache_root/\"",
+		"chmod -R a+rX,a-w \"$direct_cache_root\"",
+		"DIRECT_CACHE_MANIFEST=\"$oss_output/direct-cache/manifest.json\"",
+		"\"runtime_go_sha256\": os.environ[\"RUNTIME_GO_SHA256\"]",
+		"\"tree_sha256\": \"sha256:\" + tree.hexdigest()",
 		"\"storage_mode\":\"anchor\"",
 		"\"storage_mode\":\"delta\"",
 		"\"kind\":\"anchor\",\"name\":\"runtime-deps\",\"archive\":\"runtime-deps.tar.gz\"",

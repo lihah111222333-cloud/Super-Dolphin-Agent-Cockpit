@@ -36,6 +36,45 @@ func TestReuseRemoteBaselineOnlyRenewsAcceptedGeneration(t *testing.T) {
 	assertRemoteBaselineReusedState(t, statePath, state, stdout.String())
 }
 
+func TestCreateRemoteBaselineDirectCacheUsesDedicatedReadOnlyPrefix(t *testing.T) {
+	config := remoteRunConfig{}
+	config.DataCache.Bucket = "cache-bucket"
+	config.DataCache.PathPrefix = "/super-dolphin/ci/baselines"
+	config.DataCache.MaxSizeGiB = remoteDataCacheMinimumSizeGiB
+	config.DataCache.RetentionDays = 2
+	config.OSS.Bucket = "oss-bucket"
+	config.OSS.InternalEndpoint = "https://oss-internal.example"
+	config.WorkerRoleName = "seed-role"
+	cache := &fakeRemoteBaselineDataCacheClient{createResults: []datacache.DataCache{{ID: "edc-direct"}}}
+	stage := remoteBaselineArtifactStage{generation: 12, outputPrefix: "baselines/12/output/"}
+	manifest := remoteci.BaselineManifest{
+		SchemaVersion: remoteci.BaselineManifestSchemaVersion, Generation: stage.generation,
+		MainCommit: repeatRemoteHex("b", 40), MainTree: repeatRemoteHex("a", 40),
+		Platform: "linux/amd64", PolicyDigest: "sha256:" + repeatRemoteHex("c", 64),
+		ToolchainDigest: "sha256:" + repeatRemoteHex("d", 64), RuntimeImage: "example/runtime@sha256:" + repeatRemoteHex("e", 64),
+		GateSourceSHA256: "sha256:" + repeatRemoteHex("f", 64), GateBinarySHA256: "sha256:" + repeatRemoteHex("1", 64),
+		GateBinarySize: 1, RuntimeSeedManifestSHA256: "sha256:" + repeatRemoteHex("2", 64),
+		CABundleSHA256: "sha256:" + repeatRemoteHex("3", 64), CABundleSize: 1, StorageMode: remoteci.BaselineStorageModeAnchor,
+		Layers: []remoteci.BaselineLayer{{Generation: stage.generation, Kind: remoteci.BaselineLayerKindAnchor, Name: "runtime-deps", Archive: "runtime-deps.tar.gz", SHA256: "sha256:" + repeatRemoteHex("4", 64), Size: 1}},
+	}
+	created, err := createRemoteBaselineDirectCache(context.Background(), remoteBaselineRefreshSession{
+		cache: cache, config: config, input: remoteBaselineRefreshInput{Identity: remoteci.BaselineIdentity{MainTree: repeatRemoteHex("a", 40)}},
+	}, stage, manifest)
+	if err != nil {
+		t.Fatalf("createRemoteBaselineDirectCache() error = %v", err)
+	}
+	if created.ID != "edc-direct" || len(cache.createRequests) != 1 {
+		t.Fatalf("direct cache create = %#v, requests = %#v", created, cache.createRequests)
+	}
+	request := cache.createRequests[0]
+	if request.Path != remoteBaselineDirectCachePath(config, stage.generation) || request.SizeGiB != remoteDataCacheMinimumSizeGiB {
+		t.Fatalf("direct cache path/size = %q/%d", request.Path, request.SizeGiB)
+	}
+	if request.Source.Path != "/baselines/12/output/direct-cache" || request.Source.Bucket != config.OSS.Bucket {
+		t.Fatalf("direct cache source = %#v", request.Source)
+	}
+}
+
 func TestReuseRemoteBaselineRejectsCapacityChange(t *testing.T) {
 	state := remoteBaselineStateFixture()
 	config := remoteRunConfig{}

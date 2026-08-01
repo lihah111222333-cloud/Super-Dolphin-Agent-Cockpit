@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	BaselineManifestSchemaVersion            uint32 = 9
+	BaselineManifestSchemaVersion            uint32 = 10
 	legacyBaselineManifestSchemaVersion      uint32 = 6
 	layeredBaselineManifestSchemaVersion     uint32 = 7
 	anchorDeltaBaselineManifestSchemaVersion uint32 = 8
@@ -22,16 +22,18 @@ const (
 
 // BaselineLayer binds one deterministic archive to a cache generation.
 type BaselineLayer struct {
-	Generation   uint64 `json:"generation,omitempty"`
-	Kind         string `json:"kind,omitempty"`
-	Name         string `json:"name"`
-	Archive      string `json:"archive"`
-	SHA256       string `json:"sha256"`
-	Size         int64  `json:"size"`
-	BaseCommit   string `json:"base_commit,omitempty"`
-	BaseTree     string `json:"base_tree,omitempty"`
-	TargetCommit string `json:"target_commit,omitempty"`
-	TargetTree   string `json:"target_tree,omitempty"`
+	Generation                    uint64 `json:"generation,omitempty"`
+	Kind                          string `json:"kind,omitempty"`
+	Name                          string `json:"name"`
+	Archive                       string `json:"archive"`
+	SHA256                        string `json:"sha256"`
+	Size                          int64  `json:"size"`
+	BaseCommit                    string `json:"base_commit,omitempty"`
+	BaseTree                      string `json:"base_tree,omitempty"`
+	TargetCommit                  string `json:"target_commit,omitempty"`
+	TargetTree                    string `json:"target_tree,omitempty"`
+	BaseRuntimeDependencyDigest   string `json:"base_runtime_dependency_digest,omitempty"`
+	TargetRuntimeDependencyDigest string `json:"target_runtime_dependency_digest,omitempty"`
 }
 
 // BaselineManifest is emitted by the remote seed after immutable artifacts exist.
@@ -48,6 +50,7 @@ type BaselineManifest struct {
 	GateBinarySHA256          string          `json:"gate_binary_sha256"`
 	GateBinarySize            int64           `json:"gate_binary_size"`
 	RuntimeSeedManifestSHA256 string          `json:"runtime_seed_manifest_sha256"`
+	RuntimeDependencyDigest   string          `json:"runtime_dependency_digest,omitempty"`
 	CABundleSHA256            string          `json:"ca_bundle_sha256"`
 	CABundleSize              int64           `json:"ca_bundle_size"`
 	StorageMode               string          `json:"storage_mode,omitempty"`
@@ -108,11 +111,16 @@ func validateBaselineManifestLayers(manifest BaselineManifest) error {
 			return errors.New("remote v8 baseline contains a v9 gate source digest")
 		}
 		return validateAnchorDeltaBaselineManifest(manifest, "v8")
-	case BaselineManifestSchemaVersion:
+	case 9:
 		if !remoteDigestPattern.MatchString(manifest.GateSourceSHA256) {
 			return errors.New("remote v9 baseline gate source digest is invalid")
 		}
 		return validateAnchorDeltaBaselineManifest(manifest, "v9")
+	case BaselineManifestSchemaVersion:
+		if !remoteDigestPattern.MatchString(manifest.GateSourceSHA256) || !remoteDigestPattern.MatchString(manifest.RuntimeDependencyDigest) {
+			return errors.New("remote v10 baseline runtime dependency or gate source digest is invalid")
+		}
+		return validateAnchorDeltaBaselineManifest(manifest, "v10")
 	default:
 		return errors.New("remote baseline manifest schema or generation is invalid")
 	}
@@ -144,12 +152,24 @@ func validateAnchorDeltaBaselineManifest(manifest BaselineManifest, version stri
 	case BaselineStorageModeDelta:
 		expected := []layerContract{{"source", "source.delta.bundle", BaselineLayerKindDelta}, {"go-build-cache", "go-build-cache.delta.tar.gz", BaselineLayerKindDelta}}
 		if len(manifest.Layers) == 3 {
-			expected = []layerContract{{"source", "source.delta.bundle", BaselineLayerKindDelta}, {"runtime-go", "runtime-go.delta.tar.gz", BaselineLayerKindDelta}, {"go-build-cache", "go-build-cache.delta.tar.gz", BaselineLayerKindDelta}}
+			if manifest.Layers[1].Name == "runtime-go" {
+				expected = []layerContract{{"source", "source.delta.bundle", BaselineLayerKindDelta}, {"runtime-go", "runtime-go.delta.tar.gz", BaselineLayerKindDelta}, {"go-build-cache", "go-build-cache.delta.tar.gz", BaselineLayerKindDelta}}
+			} else {
+				expected = []layerContract{{"source", "source.delta.bundle", BaselineLayerKindDelta}, {"runtime-deps", "runtime-deps.delta.tar.gz", BaselineLayerKindDelta}, {"go-build-cache", "go-build-cache.delta.tar.gz", BaselineLayerKindDelta}}
+			}
 		}
 		if err := validateLayerSet(manifest.Layers, expected, manifest.Generation, BaselineStorageModeDelta); err != nil {
 			return err
 		}
-		return validateSourceDelta(manifest, manifest.Layers[0])
+		if err := validateSourceDelta(manifest, manifest.Layers[0]); err != nil {
+			return err
+		}
+		for _, layer := range manifest.Layers {
+			if layer.Name == "runtime-deps" && (!remoteDigestPattern.MatchString(layer.BaseRuntimeDependencyDigest) || !remoteDigestPattern.MatchString(layer.TargetRuntimeDependencyDigest) || layer.BaseRuntimeDependencyDigest == layer.TargetRuntimeDependencyDigest || layer.TargetRuntimeDependencyDigest != manifest.RuntimeDependencyDigest) {
+				return errors.New("remote runtime dependency delta digest transition is invalid")
+			}
+		}
+		return nil
 	default:
 		return fmt.Errorf("remote %s baseline storage mode is invalid", version)
 	}

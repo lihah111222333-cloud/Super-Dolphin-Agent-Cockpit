@@ -32,6 +32,47 @@ func TestBaselineStateAcceptsCommitOnlyDelta(t *testing.T) {
 	}
 }
 
+func TestBaselineStateDirectCacheReference(t *testing.T) {
+	state := validBaselineState()
+	reference := validDirectCacheRef(t, state)
+	state.DirectCacheRef = &reference
+	if err := state.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	data, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var loaded BaselineState
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if loaded.DirectCacheRef == nil || loaded.Validate() != nil {
+		t.Fatalf("round-tripped state = %#v", loaded)
+	}
+	for name, mutate := range map[string]func(*DirectCacheRef){
+		"missing cache ID":        func(value *DirectCacheRef) { value.DataCacheID = "" },
+		"cache bucket drift":      func(value *DirectCacheRef) { value.DataCacheBucket = "another-bucket" },
+		"cache path generation":   func(value *DirectCacheRef) { value.DataCachePath = "/super-dolphin/ci/direct-cache/2" },
+		"broad source prefix":     func(value *DirectCacheRef) { value.SourceObjectPrefix = "baseline-artifacts/" },
+		"parent chain drift":      func(value *DirectCacheRef) { value.ParentChainSHA256 = digest("9") },
+		"runtime Go binding":      func(value *DirectCacheRef) { value.RuntimeGoSHA256 = digest("8") },
+		"runtime deps binding":    func(value *DirectCacheRef) { value.RuntimeDepsSHA256 = "" },
+		"tree digest malformed":   func(value *DirectCacheRef) { value.TreeSHA256 = "sha256:bad" },
+		"generation does not tie": func(value *DirectCacheRef) { value.Generation-- },
+	} {
+		t.Run(name, func(t *testing.T) {
+			invalid := validBaselineState()
+			invalidReference := validDirectCacheRef(t, invalid)
+			mutate(&invalidReference)
+			invalid.DirectCacheRef = &invalidReference
+			if err := invalid.Validate(); err == nil {
+				t.Fatal("Validate() error = nil")
+			}
+		})
+	}
+}
+
 func TestBaselineStateRejectsInvalidAnchorAndDeltaChains(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -98,9 +139,28 @@ func TestBaselineStateMigrationSentinelRoundTripsCurrentSchema(t *testing.T) {
 	}
 }
 
-func TestBaselineStateMigratesV5WithoutClaimingCompleteSourceHistory(t *testing.T) {
+func TestBaselineStateMigratesV6WithoutDirectCacheReference(t *testing.T) {
 	legacy := validBaselineState()
 	legacy.SchemaVersion = BaselineStatePreviousSchemaVersion
+	data, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state BaselineState
+	if err := json.Unmarshal(data, &state); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if state.SchemaVersion != BaselineStateSchemaVersion || state.DirectCacheRef != nil || state.SourceHistoryVersion != BaselineSourceHistorySchemaVersion {
+		t.Fatalf("migrated state = %#v", state)
+	}
+	if err := state.Validate(); err != nil {
+		t.Fatalf("migrated Validate() error = %v", err)
+	}
+}
+
+func TestBaselineStateMigratesV5WithoutClaimingCompleteSourceHistory(t *testing.T) {
+	legacy := validBaselineState()
+	legacy.SchemaVersion = baselineStateLegacySchemaVersion
 	legacy.SourceHistoryVersion = 0
 	data, err := json.Marshal(legacy)
 	if err != nil {
@@ -154,9 +214,10 @@ func TestBaselineStateRejectsUnknownAndMultipleValues(t *testing.T) {
 }
 
 func TestBaselineStateFieldRegistry(t *testing.T) {
-	assertBaselineFields(t, reflect.TypeFor[BaselineState](), []string{"SchemaVersion", "Generation", "MainCommit", "MainTree", "Platform", "PolicyDigest", "ToolchainDigest", "RuntimeImage", "GateBinarySHA256", "RuntimeSeedSHA256", "BaselineManifestDigest", "SourceHistoryVersion", "DataCacheID", "DataCacheBucket", "DataCachePath", "DataCacheSizeGiB", "SourceObjectPrefix", "CreatedAt", "AcceptedAt", "Anchor", "Deltas", "PreviousAnchor", "RetiredAnchor", "PreviousDeltas", "RetiredDeltas"})
+	assertBaselineFields(t, reflect.TypeFor[BaselineState](), []string{"SchemaVersion", "Generation", "MainCommit", "MainTree", "Platform", "PolicyDigest", "ToolchainDigest", "RuntimeImage", "GateBinarySHA256", "RuntimeSeedSHA256", "BaselineManifestDigest", "SourceHistoryVersion", "DataCacheID", "DataCacheBucket", "DataCachePath", "DataCacheSizeGiB", "SourceObjectPrefix", "CreatedAt", "AcceptedAt", "Anchor", "Deltas", "DirectCacheRef", "RetiredDirectCacheRef", "PreviousAnchor", "RetiredAnchor", "PreviousDeltas", "RetiredDeltas"})
 	assertBaselineFields(t, reflect.TypeFor[BaselineCacheRef](), []string{"Generation", "Kind", "ManifestDigest", "MainCommit", "MainTree", "DataCacheID", "DataCacheBucket", "DataCachePath", "SizeGiB", "SourceObjectPrefix", "AcceptedAt"})
 	assertBaselineFields(t, reflect.TypeFor[BaselineDeltaRef](), []string{"Generation", "SourceObjectPrefix", "ManifestDigest", "BaseCommit", "BaseTree", "MainCommit", "MainTree", "AcceptedAt"})
+	assertBaselineFields(t, reflect.TypeFor[DirectCacheRef](), []string{"DataCacheID", "DataCacheBucket", "DataCachePath", "SizeGiB", "Generation", "SourceObjectPrefix", "ManifestDigest", "TreeSHA256", "ParentChainSHA256", "RuntimeGoSHA256", "RuntimeDepsSHA256"})
 }
 
 func validBaselineState() BaselineState {
@@ -170,6 +231,27 @@ func validBaselineState() BaselineState {
 		{Generation: state.Generation, SourceObjectPrefix: state.SourceObjectPrefix, ManifestDigest: state.BaselineManifestDigest, BaseCommit: deltaCommit, BaseTree: deltaTree, MainCommit: state.MainCommit, MainTree: state.MainTree, AcceptedAt: state.AcceptedAt},
 	}
 	return state
+}
+
+func validDirectCacheRef(t *testing.T, state BaselineState) DirectCacheRef {
+	t.Helper()
+	parentChainDigest, err := CurrentBaselineParentChainDigest(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return DirectCacheRef{
+		DataCacheID:        "edc-direct",
+		DataCacheBucket:    "super-dolphin-ci",
+		DataCachePath:      "/super-dolphin/ci/direct-cache/3",
+		SizeGiB:            20,
+		Generation:         state.Generation,
+		SourceObjectPrefix: "baseline-artifacts/3/output/direct-cache/",
+		ManifestDigest:     digest("6"),
+		TreeSHA256:         digest("7"),
+		ParentChainSHA256:  parentChainDigest,
+		RuntimeGoSHA256:    state.RuntimeSeedSHA256,
+		RuntimeDepsSHA256:  digest("9"),
+	}
 }
 
 func digest(value string) string { return "sha256:" + strings.Repeat(value, 64) }

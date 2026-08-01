@@ -261,6 +261,7 @@ func writeRemoteBaselineLayerArchiveFixture(t *testing.T, schemaVersion uint32) 
 	}
 	if schemaVersion == remoteci.BaselineManifestSchemaVersion {
 		manifest.GateSourceSHA256 = "sha256:" + strings.Repeat("6", 64)
+		manifest.RuntimeDependencyDigest = "sha256:" + strings.Repeat("7", 64)
 		manifest.StorageMode = remoteci.BaselineStorageModeAnchor
 	}
 	return writeRemoteBaselineManifestFixture(t, cacheRoot, expandedRoot, manifest)

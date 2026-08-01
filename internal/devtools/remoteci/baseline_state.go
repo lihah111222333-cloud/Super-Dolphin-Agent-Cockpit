@@ -2,20 +2,23 @@ package remoteci
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
 
 const (
-	BaselineStateSchemaVersion         uint32 = 6
+	BaselineStateSchemaVersion         uint32 = 7
 	BaselineSourceHistorySchemaVersion uint32 = 1
-	BaselineStatePreviousSchemaVersion uint32 = 5
+	BaselineStatePreviousSchemaVersion uint32 = 6
+	baselineStateLegacySchemaVersion   uint32 = 5
 )
 
 const BaselineCacheKindAnchor = "anchor"
@@ -47,6 +50,21 @@ type BaselineDeltaRef struct {
 	AcceptedAt         time.Time `json:"accepted_at"`
 }
 
+// DirectCacheRef 绑定 sidecar 直读缓存的 DataCache、父链和不可变运行时种子输入。
+type DirectCacheRef struct {
+	DataCacheID        string `json:"data_cache_id"`
+	DataCacheBucket    string `json:"data_cache_bucket"`
+	DataCachePath      string `json:"data_cache_path"`
+	SizeGiB            int    `json:"size_gib"`
+	Generation         uint64 `json:"generation"`
+	SourceObjectPrefix string `json:"source_object_prefix"`
+	ManifestDigest     string `json:"manifest_digest"`
+	TreeSHA256         string `json:"tree_sha256"`
+	ParentChainSHA256  string `json:"parent_chain_sha256"`
+	RuntimeGoSHA256    string `json:"runtime_go_sha256"`
+	RuntimeDepsSHA256  string `json:"runtime_deps_sha256"`
+}
+
 // BaselineState is the accepted remote CI identity with one Anchor and bounded OSS deltas.
 type BaselineState struct {
 	SchemaVersion          uint32             `json:"schema_version"`
@@ -70,6 +88,8 @@ type BaselineState struct {
 	AcceptedAt             time.Time          `json:"accepted_at"`
 	Anchor                 BaselineCacheRef   `json:"anchor"`
 	Deltas                 []BaselineDeltaRef `json:"deltas,omitempty"`
+	DirectCacheRef         *DirectCacheRef    `json:"direct_cache_ref,omitempty"`
+	RetiredDirectCacheRef  *DirectCacheRef    `json:"retired_direct_cache_ref,omitempty"`
 	PreviousAnchor         *BaselineCacheRef  `json:"previous_anchor,omitempty"`
 	RetiredAnchor          *BaselineCacheRef  `json:"retired_anchor,omitempty"`
 	PreviousDeltas         []BaselineDeltaRef `json:"previous_deltas,omitempty"`
@@ -108,7 +128,7 @@ type baselineV4Ref struct {
 	AcceptedAt         time.Time `json:"accepted_at"`
 }
 
-// UnmarshalJSON 严格解码 v6 状态并在内存中迁移 v4/v5 状态。
+// UnmarshalJSON 严格解码 v7 状态并在内存中迁移 v4-v6 状态。
 func (state *BaselineState) UnmarshalJSON(data []byte) error {
 	var header struct {
 		SchemaVersion uint32 `json:"schema_version"`
@@ -121,6 +141,8 @@ func (state *BaselineState) UnmarshalJSON(data []byte) error {
 		return state.decodeCurrentBaselineState(data)
 	case BaselineStatePreviousSchemaVersion:
 		return state.decodePreviousBaselineState(data)
+	case baselineStateLegacySchemaVersion:
+		return state.decodeLegacyBaselineState(data)
 	case 4:
 		return state.decodeV4BaselineState(data)
 	default:
@@ -142,14 +164,42 @@ func (state *BaselineState) decodeCurrentBaselineState(data []byte) error {
 	return nil
 }
 
-// decodePreviousBaselineState 迁移 v5 状态并保留需要重建完整历史的哨兵值。
+// decodePreviousBaselineState 迁移 v6 状态，保留需要重建完整历史的哨兵值。
 func (state *BaselineState) decodePreviousBaselineState(data []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if _, ok := fields["direct_cache_ref"]; ok {
+		return errors.New("remote v6 baseline state contains a v7 direct cache reference")
+	}
+	if _, ok := fields["retired_direct_cache_ref"]; ok {
+		return errors.New("remote v6 baseline state contains a v7 retired direct cache reference")
+	}
+	type stateWire BaselineState
+	var wire stateWire
+	if err := decodeSingleJSON(data, &wire); err != nil {
+		return err
+	}
+	*state = BaselineState(wire)
+	state.SchemaVersion = BaselineStateSchemaVersion
+	return nil
+}
+
+// decodeLegacyBaselineState 迁移 v5 状态并保留需要重建完整历史的哨兵值。
+func (state *BaselineState) decodeLegacyBaselineState(data []byte) error {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return err
 	}
 	if _, ok := fields["source_history_version"]; ok {
 		return errors.New("remote v5 baseline state contains a v6 source history version")
+	}
+	if _, ok := fields["direct_cache_ref"]; ok {
+		return errors.New("remote v5 baseline state contains a v7 direct cache reference")
+	}
+	if _, ok := fields["retired_direct_cache_ref"]; ok {
+		return errors.New("remote v5 baseline state contains a v7 retired direct cache reference")
 	}
 	type stateWire BaselineState
 	var wire stateWire
@@ -219,6 +269,14 @@ func (state BaselineState) Validate() error {
 	}
 	if err := state.validateChains(); err != nil {
 		return err
+	}
+	if err := state.validateDirectCacheRef(); err != nil {
+		return err
+	}
+	if state.RetiredDirectCacheRef != nil {
+		if err := state.RetiredDirectCacheRef.validateIdentity(state.DataCacheBucket); err != nil {
+			return err
+		}
 	}
 	return state.validateCurrentChain()
 }
@@ -303,6 +361,14 @@ func (state BaselineState) validateCurrentChain() error {
 		return errors.New("remote baseline retired chain is not older than current chain")
 	}
 	return nil
+}
+
+// validateDirectCacheRef 校验可选直读缓存与当前父链及运行时输入完全绑定。
+func (state BaselineState) validateDirectCacheRef() error {
+	if state.DirectCacheRef == nil {
+		return nil
+	}
+	return state.DirectCacheRef.validate(state)
 }
 
 func validateAnchorReference(reference *BaselineCacheRef, bucket string) error {
@@ -413,6 +479,51 @@ func (state BaselineState) currentDeltaOrAnchor() BaselineDeltaRef {
 	return BaselineDeltaRef{Generation: state.Anchor.Generation, SourceObjectPrefix: state.Anchor.SourceObjectPrefix, ManifestDigest: state.Anchor.ManifestDigest, MainCommit: state.Anchor.MainCommit, MainTree: state.Anchor.MainTree, AcceptedAt: state.Anchor.AcceptedAt}
 }
 
+// CurrentBaselineParentChainDigest 返回当前 Anchor 和有序 Delta 链的确定性父链摘要。
+func CurrentBaselineParentChainDigest(state BaselineState) (string, error) {
+	anchor := baselineParentChainAnchorIdentity{Generation: state.Anchor.Generation, ManifestDigest: state.Anchor.ManifestDigest, MainCommit: state.Anchor.MainCommit, MainTree: state.Anchor.MainTree}
+	deltas := make([]baselineParentChainDeltaIdentity, 0, len(state.DeltaRefs()))
+	for _, delta := range state.DeltaRefs() {
+		deltas = append(deltas, baselineParentChainDeltaIdentity{Generation: delta.Generation, ManifestDigest: delta.ManifestDigest, BaseCommit: delta.BaseCommit, BaseTree: delta.BaseTree, MainCommit: delta.MainCommit, MainTree: delta.MainTree})
+	}
+	return baselineParentChainIdentityDigest(anchor, deltas)
+}
+
+type baselineParentChainAnchorIdentity struct {
+	Generation     uint64 `json:"generation"`
+	ManifestDigest string `json:"manifest_digest"`
+	MainCommit     string `json:"main_commit"`
+	MainTree       string `json:"main_tree"`
+}
+
+type baselineParentChainDeltaIdentity struct {
+	Generation     uint64 `json:"generation"`
+	ManifestDigest string `json:"manifest_digest"`
+	BaseCommit     string `json:"base_commit"`
+	BaseTree       string `json:"base_tree"`
+	MainCommit     string `json:"main_commit"`
+	MainTree       string `json:"main_tree"`
+}
+
+func baselineParentChainIdentityDigest(anchor baselineParentChainAnchorIdentity, deltas []baselineParentChainDeltaIdentity) (string, error) {
+	chain := struct {
+		Version uint32                             `json:"version"`
+		Anchor  baselineParentChainAnchorIdentity  `json:"anchor"`
+		Deltas  []baselineParentChainDeltaIdentity `json:"deltas"`
+	}{Version: 1, Anchor: anchor, Deltas: deltas}
+	encoded, err := json.Marshal(chain)
+	if err != nil {
+		return "", fmt.Errorf("marshal remote baseline parent chain: %w", err)
+	}
+	sum := sha256.Sum256(encoded)
+	return fmt.Sprintf("sha256:%x", sum), nil
+}
+
+// CurrentBaselineParentChainDigest 返回当前状态的确定性 Anchor-Delta 父链摘要。
+func (state BaselineState) CurrentBaselineParentChainDigest() (string, error) {
+	return CurrentBaselineParentChainDigest(state)
+}
+
 func (state BaselineState) topAnchor() BaselineCacheRef {
 	return BaselineCacheRef{Generation: state.Generation, Kind: BaselineCacheKindAnchor, ManifestDigest: state.BaselineManifestDigest, MainCommit: state.MainCommit, MainTree: state.MainTree, DataCacheID: state.DataCacheID, DataCacheBucket: state.DataCacheBucket, DataCachePath: state.DataCachePath, SizeGiB: state.DataCacheSizeGiB, SourceObjectPrefix: state.SourceObjectPrefix, AcceptedAt: state.AcceptedAt}
 }
@@ -427,7 +538,7 @@ func (state BaselineState) DeltaRefs() []BaselineDeltaRef {
 
 // HasRetiredReferences 报告刷新是否必须先完成远端清理。
 func (state BaselineState) HasRetiredReferences() bool {
-	return state.RetiredAnchor != nil || len(state.RetiredDeltas) != 0
+	return state.RetiredAnchor != nil || state.RetiredDirectCacheRef != nil || len(state.RetiredDeltas) != 0
 }
 
 func (state BaselineState) identity() BaselineIdentity {
@@ -446,6 +557,52 @@ func (reference BaselineCacheRef) validate(bucket string, allowMissingManifestDi
 		return errors.New("DataCache anchor is invalid")
 	}
 	return nil
+}
+
+// validate 校验直读缓存的存储身份、父链和运行时种子绑定。
+func (reference DirectCacheRef) validate(state BaselineState) error {
+	if reference.Generation != state.Generation {
+		return errors.New("direct cache reference is invalid")
+	}
+	if reference.RuntimeGoSHA256 != state.RuntimeSeedSHA256 {
+		return errors.New("direct cache reference runtime Go digest does not match current baseline")
+	}
+	if err := reference.validateIdentity(state.DataCacheBucket); err != nil {
+		return err
+	}
+	parentChainDigest, err := CurrentBaselineParentChainDigest(state)
+	if err != nil {
+		return err
+	}
+	if reference.ParentChainSHA256 != parentChainDigest {
+		return errors.New("direct cache reference parent chain digest does not match current baseline")
+	}
+	return nil
+}
+
+func (reference DirectCacheRef) validateIdentity(bucket string) error {
+	if !dataCacheIDPattern.MatchString(reference.DataCacheID) ||
+		!dataCacheBucketPattern.MatchString(reference.DataCacheBucket) ||
+		reference.DataCacheBucket == "eci-system" ||
+		reference.DataCacheBucket != bucket ||
+		!validBaselinePath(reference.DataCachePath) ||
+		reference.SizeGiB <= 0 ||
+		!validSourceObjectPrefix(reference.SourceObjectPrefix) || !reference.hasCanonicalLocation() ||
+		!remoteDigestPattern.MatchString(reference.ManifestDigest) ||
+		!remoteDigestPattern.MatchString(reference.TreeSHA256) ||
+		!remoteDigestPattern.MatchString(reference.ParentChainSHA256) ||
+		!remoteDigestPattern.MatchString(reference.RuntimeGoSHA256) ||
+		!remoteDigestPattern.MatchString(reference.RuntimeDepsSHA256) {
+		return errors.New("direct cache reference is invalid")
+	}
+	return nil
+}
+
+func (reference DirectCacheRef) hasCanonicalLocation() bool {
+	generation := strconv.FormatUint(reference.Generation, 10)
+	return reference.Generation > 0 &&
+		strings.HasSuffix(reference.DataCachePath, "/direct-cache/"+generation) &&
+		strings.HasSuffix(reference.SourceObjectPrefix, "/"+generation+"/output/direct-cache/")
 }
 
 // validIdentity 校验 anchor 的 generation、种类、摘要和可选 Git 身份。
