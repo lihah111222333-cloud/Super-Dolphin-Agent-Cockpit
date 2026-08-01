@@ -47,10 +47,26 @@ func TestBackendBoundaryLoaderSelectsUniqueExternalTestVariant(t *testing.T) {
 	}
 }
 
-// TestWideOrchestrationLoaderExtractionPreservesCandidates 固定 seam 的候选集与空违规基线。
+// TestWideOrchestrationLoaderExtractionPreservesCandidates 固定 seam 的候选集，并避免在 parity 检查中重复全仓加载。
 func TestWideOrchestrationLoaderExtractionPreservesCandidates(t *testing.T) {
 	root := repoRoot(t)
-	pkgs := loadWideOrchestrationTypeGuardPackages(t, root)
+	loads := 0
+	assertWideOrchestrationLoaderCandidates(t, root, func(t *testing.T, path string) []*orchestrationServiceCheckedPackage {
+		loads++
+		return loadWideOrchestrationTypeGuardPackages(t, path)
+	})
+	if loads != 1 {
+		t.Fatalf("wide orchestration loader calls=%d, want 1", loads)
+	}
+}
+
+func assertWideOrchestrationLoaderCandidates(
+	t *testing.T,
+	root string,
+	load func(*testing.T, string) []*orchestrationServiceCheckedPackage,
+) {
+	t.Helper()
+	pkgs := load(t, root)
 	paths := make([]string, len(pkgs))
 	for i, pkg := range pkgs {
 		paths[i] = pkg.pkgPath
@@ -60,8 +76,5 @@ func TestWideOrchestrationLoaderExtractionPreservesCandidates(t *testing.T) {
 	const wantDigest = "d16682eb40c864a3f90e2f154bffc768a75c6e3dbf5fbefa6861066b57e57afc"
 	if len(paths) != wantCount || stablePathDigest(paths) != wantDigest {
 		t.Fatalf("seam cd81d4c9a wide candidates count=%d digest=%s", len(paths), stablePathDigest(paths))
-	}
-	if violations := collectWideOrchestrationProductionViolationMessagesFromPackages(pkgs); len(violations) != 0 {
-		t.Fatalf("wide violations=%v", violations)
 	}
 }

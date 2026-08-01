@@ -29,7 +29,7 @@ const DELIVERY_COMMANDS = Object.freeze([
   Object.freeze({
     id: 'frontend-embed-verify',
     cwd: '.',
-    argv: Object.freeze(['make', 'frontend-embed-verify']),
+    argv: Object.freeze(['make', 'frontend-embed-verify-after-build']),
   }),
   Object.freeze({
     id: 'desktop-start-smoke',
@@ -95,7 +95,7 @@ function inspectDeliveryCommands(packageJSON, makefile) {
         actual: actual ?? null,
       });
     }
-    const targetPresent = /^frontend-embed-verify:\s*frontend-app-build$/m.test(makefile)
+    const targetPresent = /^frontend-embed-verify-after-build:\s*$/m.test(makefile)
       && /^\t\.\/scripts\/frontend_embed_verify\.sh$/m.test(makefile);
     return Object.freeze({
       ...command,

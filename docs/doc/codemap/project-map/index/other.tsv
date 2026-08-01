@@ -23,7 +23,7 @@ cmd/super-dolphin-gate/coordinator_bootstrap.go	cmd	other	go-source	17130	未细
 cmd/super-dolphin-gate/coordinator_cli_wait_test.go	cmd	other	go-test	5032	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,cli,wait,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_cli.go	cmd	other	go-source	33092	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,cli,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_container_exit_test.go	cmd	other	go-test	12693	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,container,exit,test,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/coordinator_deferred_test.go	cmd	other	go-test	16542	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,deferred,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/coordinator_deferred_test.go	cmd	other	go-test	18031	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,deferred,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_dependency_boundary_test.go	cmd	other	go-test	2073	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,dependency,boundary,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_docker_test_helpers_test.go	cmd	other	go-test	3814	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,docker,test,helpers,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/coordinator_logs_test.go	cmd	other	go-test	3636	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,coordinator,logs,test,未细分职责：请结合路径,文件名和相邻代码判断
@@ -283,7 +283,7 @@ internal/archtest/backend_boundary_governance_test.go	internal	other	go-test	334
 internal/archtest/backend_boundary_governance.go	internal	other	go-source	30646	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,governance,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_guard_coverage_test.go	internal	other	go-test	13942	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,guard,coverage,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_import_evaluator.go	internal	other	go-source	7396	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,import,evaluator,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/backend_boundary_loader_parity_test.go	internal	other	go-test	2093	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,loader,parity,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/backend_boundary_loader_parity_test.go	internal	other	go-test	2384	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,loader,parity,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_matrix_test.go	internal	other	go-test	10161	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,matrix,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_registry_app_adapter.go	internal	other	go-source	8570	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,registry,app,adapter,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_registry_clone.go	internal	other	go-source	2034	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,registry,clone,架构守卫,baseline,ratchet,与冻结规则
@@ -391,7 +391,7 @@ internal/archtest/priority_ssa_baseline_test.go	internal	other	go-test	6255	架�
 internal/archtest/priority_ssa_baseline.go	internal	other	go-source	6416	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,baseline,架构守卫,ratchet,与冻结规则
 internal/archtest/priority_ssa_guard_helpers_test.go	internal	other	go-test	19782	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,guard,helpers,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/priority_ssa_guard_test.go	internal	other	go-test	11963	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,guard,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/priority_ssa_loader_parity_test.go	internal	other	go-test	1078	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,loader,parity,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/priority_ssa_loader_parity_test.go	internal	other	go-test	1286	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,loader,parity,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/priority_ssa_production_guard_test.go	internal	other	go-test	1198	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,production,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/priority_ssa_rules_test.go	internal	other	go-test	2411	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,rules,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/priority_ssa_rules.go	internal	other	go-source	22508	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,rules,架构守卫,baseline,ratchet,与冻结规则
@@ -628,8 +628,8 @@ internal/devtools/gate/result_receipt_v2.go	internal	other	go-source	11676	开�
 internal/devtools/gate/testtiming/timing_test.go	internal	other	go-test	2557	开发工具与生成器辅助包	internal,devtools,gate,testtiming,timing,test,开发工具与生成器辅助包
 internal/devtools/gate/testtiming/timing.go	internal	other	go-source	5534	开发工具与生成器辅助包	internal,devtools,gate,testtiming,timing,开发工具与生成器辅助包
 internal/devtools/gate/validation.go	internal	other	go-source	25958	开发工具与生成器辅助包	internal,devtools,gate,validation,开发工具与生成器辅助包
-internal/devtools/gate/workload_catalog_test.go	internal	other	go-test	11713	开发工具与生成器辅助包	internal,devtools,gate,workload,catalog,test,开发工具与生成器辅助包
-internal/devtools/gate/workload_catalog.go	internal	other	go-source	23640	开发工具与生成器辅助包	internal,devtools,gate,workload,catalog,开发工具与生成器辅助包
+internal/devtools/gate/workload_catalog_test.go	internal	other	go-test	12991	开发工具与生成器辅助包	internal,devtools,gate,workload,catalog,test,开发工具与生成器辅助包
+internal/devtools/gate/workload_catalog.go	internal	other	go-source	24466	开发工具与生成器辅助包	internal,devtools,gate,workload,catalog,开发工具与生成器辅助包
 internal/devtools/gate/workload_container_shards.go	internal	other	go-source	10581	开发工具与生成器辅助包	internal,devtools,gate,workload,container,shards,开发工具与生成器辅助包
 internal/devtools/gate/workload_model_test.go	internal	other	go-test	22452	开发工具与生成器辅助包	internal,devtools,gate,workload,model,test,开发工具与生成器辅助包
 internal/devtools/gate/workload_model.go	internal	other	go-source	21200	开发工具与生成器辅助包	internal,devtools,gate,workload,model,开发工具与生成器辅助包
@@ -783,8 +783,8 @@ internal/devtools/remoteci/go_test_cache_test.go	internal	other	go-test	8454	开
 internal/devtools/remoteci/go_test_cache.go	internal	other	go-source	17794	开发工具与生成器辅助包	internal,devtools,remoteci,go,test,cache,开发工具与生成器辅助包
 internal/devtools/remoteci/go_test_inventory_test.go	internal	other	go-test	4230	开发工具与生成器辅助包	internal,devtools,remoteci,go,test,inventory,开发工具与生成器辅助包
 internal/devtools/remoteci/go_test_inventory.go	internal	other	go-source	15997	开发工具与生成器辅助包	internal,devtools,remoteci,go,test,inventory,开发工具与生成器辅助包
-internal/devtools/remoteci/inventory_test.go	internal	other	go-test	7642	开发工具与生成器辅助包	internal,devtools,remoteci,inventory,test,开发工具与生成器辅助包
-internal/devtools/remoteci/inventory.go	internal	other	go-source	15307	开发工具与生成器辅助包	internal,devtools,remoteci,inventory,开发工具与生成器辅助包
+internal/devtools/remoteci/inventory_test.go	internal	other	go-test	8444	开发工具与生成器辅助包	internal,devtools,remoteci,inventory,test,开发工具与生成器辅助包
+internal/devtools/remoteci/inventory.go	internal	other	go-source	15500	开发工具与生成器辅助包	internal,devtools,remoteci,inventory,开发工具与生成器辅助包
 internal/devtools/remoteci/local_test_policy_test.go	internal	other	go-test	3906	开发工具与生成器辅助包	internal,devtools,remoteci,local,test,policy,开发工具与生成器辅助包
 internal/devtools/remoteci/local_test_policy.go	internal	other	go-source	5449	开发工具与生成器辅助包	internal,devtools,remoteci,local,test,policy,开发工具与生成器辅助包
 internal/devtools/remoteci/performance_trace_test.go	internal	other	go-test	5130	开发工具与生成器辅助包	internal,devtools,remoteci,performance,trace,test,开发工具与生成器辅助包
@@ -977,7 +977,7 @@ internal/util/safego/safego.go	internal	other	go-source	736	Internal shared util
 internal/util/toolresults/path_test.go	internal	other	go-test	706	Internal shared utility packages	internal,util,toolresults,path,test,Internal,shared,utility,packages
 internal/util/toolresults/path.go	internal	other	go-source	716	Internal shared utility packages	internal,util,toolresults,path,Internal,shared,utility,packages
 internal/util/util.go	internal	other	go-source	1711	Internal shared utility packages	internal,util,Internal,shared,utility,packages
-Makefile	(root)	other	file	16057	仓库根级配置、入口或说明文件	Makefile,仓库根级配置,入口或说明文件
+Makefile	(root)	other	file	16322	仓库根级配置、入口或说明文件	Makefile,仓库根级配置,入口或说明文件
 pkg/cronmetrics/cronmetrics_test.go	pkg	other	go-test	524	可复用公共库	pkg,cronmetrics,test,可复用公共库
 pkg/cronmetrics/cronmetrics.go	pkg	other	go-source	1206	可复用公共库	pkg,cronmetrics,可复用公共库
 pkg/dagmetrics/dagmetrics_test.go	pkg	other	go-test	993	DAG 指标公共库	pkg,dagmetrics,test,DAG,指标公共库

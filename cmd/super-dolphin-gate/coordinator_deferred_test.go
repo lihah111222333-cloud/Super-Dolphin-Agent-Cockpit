@@ -11,6 +11,7 @@ import (
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/localci"
+	"golang.org/x/sync/errgroup"
 )
 
 type schedulerReconnectState struct {
@@ -265,9 +266,9 @@ func TestDeferredCoordinatorPlansBeforeSchedulerConnect(t *testing.T) {
 		ReceiptSigner:    mustTestResultReceiptSigner(t),
 		SchedulingPolicy: testCoordinatorSchedulingPolicy(),
 	}}
-	delay := coordinatorConnectTimeout + 100*time.Millisecond
+	planner := newBlockingDeferredCandidatePlanner()
 	client, err := newDeferredCoordinatorClient(
-		context.Background(), checkpoint, delayedCandidatePlanner{delay: delay},
+		context.Background(), checkpoint, planner,
 		func(ctx context.Context) (*localci.SchedulerClient, error) {
 			return connectScheduler(ctx, checkpoint, starter)
 		},
@@ -275,10 +276,30 @@ func TestDeferredCoordinatorPlansBeforeSchedulerConnect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	started := time.Now()
-	status := submitTestPlan(t, client, "b")
-	if elapsed := time.Since(started); elapsed < delay {
-		t.Fatalf("Submit() elapsed = %v, planner delay = %v", elapsed, delay)
+	t.Cleanup(planner.unblock)
+	request := submitRequest{
+		RepositoryRoot: mustWorkingDirectory(t), Plan: mustTestGatePlan(t, "b"),
+		Entrypoint: manualSubmissionAuthority().Entrypoint, AuthorityOwner: manualSubmissionAuthority().Owner,
+	}
+	statusResult := make(chan jobStatus, 1)
+	var submitGroup errgroup.Group
+	submitGroup.Go(func() error {
+		status, submitErr := client.Submit(context.Background(), request)
+		statusResult <- status
+		return submitErr
+	})
+	select {
+	case <-planner.started:
+	case <-time.After(time.Second):
+		t.Fatal("candidate planner did not start")
+	}
+	if client.scheduler != nil {
+		t.Fatal("scheduler connected before candidate planning completed")
+	}
+	planner.unblock()
+	status := <-statusResult
+	if err := submitGroup.Wait(); err != nil {
+		t.Fatalf("Submit() error = %v", err)
 	}
 	if client.scheduler == nil {
 		t.Fatal("Submit() did not connect scheduler after candidate planning")
@@ -295,6 +316,42 @@ func TestDeferredCoordinatorPlansBeforeSchedulerConnect(t *testing.T) {
 		t.Errorf("client.Close() error = %v", err)
 	}
 	starter.stop(t)
+}
+
+type blockingDeferredCandidatePlanner struct {
+	started     chan struct{}
+	release     chan struct{}
+	releaseOnce sync.Once
+}
+
+func newBlockingDeferredCandidatePlanner() *blockingDeferredCandidatePlanner {
+	return &blockingDeferredCandidatePlanner{
+		started: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+}
+
+func (planner *blockingDeferredCandidatePlanner) PlanCandidate(
+	ctx context.Context,
+	_ imageEnsureRequest,
+) (localci.PromotionCandidatePlan, error) {
+	select {
+	case planner.started <- struct{}{}:
+	case <-ctx.Done():
+		return localci.PromotionCandidatePlan{}, ctx.Err()
+	}
+	select {
+	case <-planner.release:
+		return localci.PromotionCandidatePlan{}, nil
+	case <-ctx.Done():
+		return localci.PromotionCandidatePlan{}, ctx.Err()
+	}
+}
+
+func (planner *blockingDeferredCandidatePlanner) unblock() {
+	planner.releaseOnce.Do(func() {
+		close(planner.release)
+	})
 }
 
 func TestDeferredCoordinatorPlannerFailureDoesNotConnectScheduler(t *testing.T) {

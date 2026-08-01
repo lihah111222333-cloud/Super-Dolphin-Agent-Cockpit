@@ -13,7 +13,7 @@ import {
   validateDeliveryCaseResult,
 } from './delivery-smoke-runner.mjs';
 
-const MAKEFILE = 'frontend-embed-verify: frontend-app-build\n\t./scripts/frontend_embed_verify.sh\n';
+const MAKEFILE = 'frontend-embed-verify-after-build:\n\t./scripts/frontend_embed_verify.sh\n';
 const COMPLETE_SCRIPTS = {
   build: 'vite build && node scripts/sync-frontend-dist.mjs',
   'smoke:desktop:rpc': 'node scripts/desktop-smoke.mjs',
@@ -33,7 +33,7 @@ describe('delivery smoke runner', () => {
   it('locks build, embed, start and failure smoke commands exactly', () => {
     expect(DELIVERY_COMMANDS.map(({ id, cwd: commandCwd, argv }) => ({ id, cwd: commandCwd, argv }))).toEqual([
       { id: 'frontend-build', cwd: 'frontend-app', argv: ['npm', 'run', 'build'] },
-      { id: 'frontend-embed-verify', cwd: '.', argv: ['make', 'frontend-embed-verify'] },
+      { id: 'frontend-embed-verify', cwd: '.', argv: ['make', 'frontend-embed-verify-after-build'] },
       { id: 'desktop-start-smoke', cwd: 'frontend-app', argv: ['npm', 'run', 'smoke:desktop:rpc'] },
       { id: 'desktop-failure-smoke', cwd: 'frontend-app', argv: ['npm', 'run', 'smoke:desktop:failure'] },
     ]);
@@ -58,7 +58,7 @@ describe('delivery smoke runner', () => {
 
   it.each([
     ['missing failure smoke', { ...COMPLETE_SCRIPTS, 'smoke:desktop:failure': undefined }, MAKEFILE],
-    ['stale embed target', COMPLETE_SCRIPTS, 'frontend-embed-verify:\n\t@true\n'],
+    ['stale embed target', COMPLETE_SCRIPTS, 'frontend-embed-verify-after-build:\n\t@true\n'],
     ['weak build script', { ...COMPLETE_SCRIPTS, build: 'echo PASS' }, MAKEFILE],
   ])('keeps T05 NOT_VERIFIED for %s', (_name, scripts, makefile) => {
     const inspected = inspectDeliveryCommands({ scripts }, makefile);
@@ -322,11 +322,11 @@ describe('delivery smoke runner', () => {
     });
   });
 
-  it('runs the complete integration delivery surface in final verify mode', async () => {
-    const result = await runManagedCommand(execPath, [join(cwd(), 'scripts/delivery-smoke-runner.mjs'), '--verify'], {
+  it('keeps T05 verification independently invocable while checking its hashed runner contract', async () => {
+    const result = await runManagedCommand(execPath, [join(cwd(), 'scripts/delivery-smoke-runner.mjs'), '--inspect'], {
       cwd: cwd(),
-      timeoutMs: 300_000,
-      killGraceMs: 20_000,
+      timeoutMs: 30_000,
+      killGraceMs: 1_000,
     });
     expect(result.timedOut).toBe(false);
     expect(
@@ -337,18 +337,12 @@ describe('delivery smoke runner', () => {
     expect(report.caseIds).toEqual(DELIVERY_CASE_IDS);
     expect(report.testCount).toBe(DELIVERY_CASE_IDS.length);
     expect(report.verdict).toEqual(expect.objectContaining({
-      status: 'PASS',
-      executedCommands: DELIVERY_COMMANDS.length,
+      status: 'READY',
       commands: DELIVERY_COMMANDS.map(({ id, argv, cwd: commandCwd }) => expect.objectContaining({
         id,
         argv,
         cwd: commandCwd,
-        exitCode: 0,
-        signal: null,
-        startedAt: expect.any(String),
-        finishedAt: expect.any(String),
-        durationMs: expect.any(Number),
-        status: 'PASS',
+        status: 'AVAILABLE',
       })),
     }));
     expect(report.provenance).toEqual(expect.objectContaining({

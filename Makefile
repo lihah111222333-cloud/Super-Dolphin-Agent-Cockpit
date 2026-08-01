@@ -1,4 +1,4 @@
-.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain frontend-deps frontend-build frontend-app-deps frontend-app-build frontend-embed-verify frontend-gate-health run run-plain dev-hot run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries package-macos package-linux package-windows release-update-gate test test-deferred test-e2e test-e2e-rpc-runtime test-e2e-mcp-lsp-resource-cohort vet clean guard code-size-guard guard-shell actionlint lsp-diagnostics-check protocol-sync-check rpc-regression-check archtest-map-check archtest-map-refresh codemap-check codemap-refresh project-map-check project-map-refresh capcontract-check capcontract-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report sqlc-generate sqlc-verify sqlc-verify-worktree codex-worktree-ready
+.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain frontend-deps frontend-build frontend-app-deps frontend-app-build frontend-embed-verify frontend-embed-verify-after-build frontend-gate-health run run-plain dev-hot run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries package-macos package-linux package-windows release-update-gate test test-deferred test-e2e test-e2e-rpc-runtime test-e2e-mcp-lsp-resource-cohort vet clean guard code-size-guard guard-shell actionlint lsp-diagnostics-check protocol-sync-check rpc-regression-check archtest-map-check archtest-map-refresh codemap-check codemap-refresh project-map-check project-map-refresh capcontract-check capcontract-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report sqlc-generate sqlc-verify sqlc-verify-worktree codex-worktree-ready
 
 # Auto-detect macOS version to avoid ld warnings about version mismatch.
 # Override with: make MIN_MACOS_VERSION=15.0 build
@@ -75,6 +75,11 @@ frontend-app-build: frontend-app-deps
 	done < "$(FRONTEND_REQUIRED_ENTRIES_FILE)"
 
 frontend-embed-verify: frontend-app-build
+	./scripts/frontend_embed_verify.sh
+
+# The delivery runner already builds and synchronizes the frontend. This target
+# verifies those artifacts without compiling the same candidate a second time.
+frontend-embed-verify-after-build:
 	./scripts/frontend_embed_verify.sh
 
 frontend-gate-health:

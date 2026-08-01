@@ -11,8 +11,10 @@ import (
 const (
 	expandedGoPackageBootstrapEstimateMS     int64 = 4_000
 	expandedGoRacePackageBootstrapEstimateMS int64 = 8_000
-	// AtomicArchtestPackageTarget 是必须拆成顶层测试以满足单 workload 时限的包。
+	// AtomicArchtestPackageTarget 与 AtomicCodexAppPackageTarget 必须拆成顶层测试，
+	// 以满足单 workload 时限，同时保留同一 release/race gate 的完整覆盖。
 	AtomicArchtestPackageTarget = "./internal/archtest"
+	AtomicCodexAppPackageTarget = "./internal/provider/codexapp"
 )
 
 // isKnownWorkloadKind 报告 workload 的执行类别是否属于当前协议。
@@ -494,16 +496,17 @@ func noExpandedGateTargets(targets []string, guards []splitGoGuardWorkloadSpec, 
 
 // splitAtomicGoTestTargets 将已知超时包替换为精确顶层测试；缺少清单时保留整包覆盖。
 func splitAtomicGoTestTargets(gateID GateID, packages []string, inventory WorkloadInventory) ([]string, []string, error) {
-	if !slices.Contains(packages, AtomicArchtestPackageTarget) {
-		return packages, nil, nil
-	}
 	tests := inventory.GoTests
 	if gateID == GateIDBackendTestGuardWithRace {
 		tests = inventory.GoRaceTests
 	}
+	atomicPackages := atomicGoTestPackages(packages, tests)
+	if len(atomicPackages) == 0 {
+		return packages, nil, nil
+	}
 	encoded := make([]string, 0, len(tests))
 	for _, test := range tests {
-		if test.Package != AtomicArchtestPackageTarget {
+		if !slices.Contains(atomicPackages, test.Package) {
 			continue
 		}
 		target, err := encodeGoTestTarget(test)
@@ -515,13 +518,34 @@ func splitAtomicGoTestTargets(gateID GateID, packages []string, inventory Worklo
 	if len(encoded) == 0 {
 		return packages, nil, nil
 	}
-	filtered := make([]string, 0, len(packages)-1)
+	filtered := make([]string, 0, len(packages)-len(atomicPackages))
 	for _, packageTarget := range packages {
-		if packageTarget != AtomicArchtestPackageTarget {
+		if !slices.Contains(atomicPackages, packageTarget) {
 			filtered = append(filtered, packageTarget)
 		}
 	}
 	return filtered, encoded, nil
+}
+
+func atomicGoTestPackages(packages []string, tests []GoTestTarget) []string {
+	atomicTargets := []string{AtomicArchtestPackageTarget, AtomicCodexAppPackageTarget}
+	selected := make([]string, 0, len(atomicTargets))
+	for _, packageTarget := range atomicTargets {
+		if !slices.Contains(packages, packageTarget) || !hasAtomicGoTestPackage(tests, packageTarget) {
+			continue
+		}
+		selected = append(selected, packageTarget)
+	}
+	return selected
+}
+
+func hasAtomicGoTestPackage(tests []GoTestTarget, packageTarget string) bool {
+	for _, test := range tests {
+		if test.Package == packageTarget {
+			return true
+		}
+	}
+	return false
 }
 
 type splitGoGuardWorkloadSpec struct {

@@ -156,9 +156,23 @@ func TestBuildExpandedWorkloadCatalogSplitsArchtestTopLevelTests(t *testing.T) {
 		t.Fatal(err)
 	}
 	inventory := WorkloadInventory{
-		GoPackages:  []string{"./internal/alpha", AtomicArchtestPackageTarget},
-		GoTests:     []GoTestTarget{{Package: AtomicArchtestPackageTarget, Name: "TestAlpha"}, {Package: AtomicArchtestPackageTarget, Name: "TestBeta"}},
-		GoRaceTests: []GoTestTarget{{Package: AtomicArchtestPackageTarget, Name: "TestAlpha"}, {Package: AtomicArchtestPackageTarget, Name: "TestRace"}},
+		GoPackages: []string{
+			"./internal/alpha",
+			AtomicArchtestPackageTarget,
+			AtomicCodexAppPackageTarget,
+		},
+		GoTests: []GoTestTarget{
+			{Package: AtomicArchtestPackageTarget, Name: "TestAlpha"},
+			{Package: AtomicArchtestPackageTarget, Name: "TestBeta"},
+			{Package: AtomicCodexAppPackageTarget, Name: "TestTransportStart"},
+			{Package: AtomicCodexAppPackageTarget, Name: "TestTransportClose"},
+		},
+		GoRaceTests: []GoTestTarget{
+			{Package: AtomicArchtestPackageTarget, Name: "TestAlpha"},
+			{Package: AtomicArchtestPackageTarget, Name: "TestRace"},
+			{Package: AtomicCodexAppPackageTarget, Name: "TestTransportStart"},
+			{Package: AtomicCodexAppPackageTarget, Name: "TestTransportRace"},
+		},
 	}
 	normal, err := BuildExpandedWorkloadCatalog(plan, DefaultWorkloadBootstrapPolicy(), inventory)
 	if err != nil {
@@ -170,6 +184,16 @@ func TestBuildExpandedWorkloadCatalogSplitsArchtestTopLevelTests(t *testing.T) {
 	}
 	assertAtomicArchtestCatalog(t, normal, GateIDBackendTestWithGuard, []string{"TestAlpha", "TestBeta"})
 	assertAtomicArchtestCatalog(t, calibration, GateIDBackendTestGuardWithRace, []string{"TestAlpha", "TestRace"})
+	assertAtomicCodexAppCatalog(t, normal, GateIDBackendTestWithGuard, []string{"TestTransportClose", "TestTransportStart"})
+	assertAtomicCodexAppCatalog(t, calibration, GateIDBackendTestGuardWithRace, []string{"TestTransportRace", "TestTransportStart"})
+}
+
+func assertAtomicCodexAppCatalog(t *testing.T, catalog WorkloadCatalog, parent GateID, want []string) {
+	t.Helper()
+	packageFound, got := atomicPackageCatalogTargets(t, catalog, parent, AtomicCodexAppPackageTarget)
+	if !packageFound || !slices.Equal(got, want) {
+		t.Fatalf("parent %q codexapp=%v tests=%v want=%v", parent, packageFound, got, want)
+	}
 }
 
 func assertAtomicArchtestCatalog(t *testing.T, catalog WorkloadCatalog, parent GateID, want []string) {
@@ -181,9 +205,13 @@ func assertAtomicArchtestCatalog(t *testing.T, catalog WorkloadCatalog, parent G
 }
 
 func atomicArchtestCatalogTargets(t *testing.T, catalog WorkloadCatalog, parent GateID) (bool, []string) {
+	return atomicPackageCatalogTargets(t, catalog, parent, AtomicArchtestPackageTarget)
+}
+
+func atomicPackageCatalogTargets(t *testing.T, catalog WorkloadCatalog, parent GateID, atomicPackage string) (bool, []string) {
 	t.Helper()
 	var tests []string
-	alphaPackageFound := false
+	packageFound := false
 	for _, workload := range catalog.Workloads {
 		workloadParent, kind, target, targeted, err := ParseWorkloadID(workload.ID)
 		if err != nil {
@@ -192,29 +220,34 @@ func atomicArchtestCatalogTargets(t *testing.T, catalog WorkloadCatalog, parent 
 		if workloadParent != parent || !targeted {
 			continue
 		}
-		switch kind {
-		case WorkloadTargetGoPackage:
-			if target == AtomicArchtestPackageTarget {
-				t.Fatalf("archtest remained a package workload for %q", parent)
-			}
-			alphaPackageFound = alphaPackageFound || target == "./internal/alpha"
-		case WorkloadTargetGoTest:
-			tests = append(tests, parseAtomicArchtestName(t, target))
+		found, testName := classifyAtomicPackageWorkload(t, parent, kind, target, atomicPackage)
+		packageFound = packageFound || found
+		if testName != "" {
+			tests = append(tests, testName)
 		}
 	}
-	return alphaPackageFound, tests
+	return packageFound, tests
 }
 
-func parseAtomicArchtestName(t *testing.T, target string) string {
+func classifyAtomicPackageWorkload(t *testing.T, parent GateID, kind WorkloadTargetKind, target, atomicPackage string) (bool, string) {
 	t.Helper()
+	if kind == WorkloadTargetGoPackage {
+		if target == atomicPackage {
+			t.Fatalf("%s remained a package workload for %q", atomicPackage, parent)
+		}
+		return target == "./internal/alpha", ""
+	}
+	if kind != WorkloadTargetGoTest {
+		return false, ""
+	}
 	parsed, err := ParseGoTestTarget(target)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if parsed.Package != AtomicArchtestPackageTarget {
-		t.Fatalf("unexpected atomic Go test package %q", parsed.Package)
+	if parsed.Package == atomicPackage {
+		return false, parsed.Name
 	}
-	return parsed.Name
+	return false, ""
 }
 
 func TestBuildExpandedWorkloadCatalogKeepsCanonicalGateWithoutGoInventory(t *testing.T) {

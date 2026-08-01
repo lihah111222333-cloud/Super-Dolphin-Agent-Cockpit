@@ -110,9 +110,6 @@ func inventoryAtomicGoTests(
 	platform string,
 	packages []string,
 ) ([]gate.GoTestTarget, []gate.GoTestTarget, error) {
-	if !slices.Contains(packages, gate.AtomicArchtestPackageTarget) {
-		return nil, nil, nil
-	}
 	goos, goarch, err := remoteGoTestPlatform(platform)
 	if err != nil {
 		return nil, nil, err
@@ -121,25 +118,32 @@ func inventoryAtomicGoTests(
 	if err != nil {
 		return nil, nil, err
 	}
-	directory := strings.TrimPrefix(gate.AtomicArchtestPackageTarget, "./")
-	paths := atomicGoTestSourcePaths(snapshot, directory)
-	if len(paths) == 0 {
-		return nil, nil, nil
+	var normalTargets, raceTargets []gate.GoTestTarget
+	for _, packageTarget := range []string{gate.AtomicArchtestPackageTarget, gate.AtomicCodexAppPackageTarget} {
+		if !slices.Contains(packages, packageTarget) {
+			continue
+		}
+		directory := strings.TrimPrefix(packageTarget, "./")
+		paths := atomicGoTestSourcePaths(snapshot, directory)
+		if len(paths) == 0 {
+			continue
+		}
+		snapshot.goSources, err = snapshot.readGitBlobs(ctx, paths)
+		if err != nil {
+			return nil, nil, err
+		}
+		normal, err := snapshot.remoteGoPackageTestInventory(directory, goos, goarch, false)
+		if err != nil {
+			return nil, nil, err
+		}
+		race, err := snapshot.remoteGoPackageTestInventory(directory, goos, goarch, true)
+		if err != nil {
+			return nil, nil, err
+		}
+		normalTargets = append(normalTargets, inventoryGoTestTargets(packageTarget, normal)...)
+		raceTargets = append(raceTargets, inventoryGoTestTargets(packageTarget, race)...)
 	}
-	snapshot.goSources, err = snapshot.readGitBlobs(ctx, paths)
-	if err != nil {
-		return nil, nil, err
-	}
-	normal, err := snapshot.remoteGoPackageTestInventory(directory, goos, goarch, false)
-	if err != nil {
-		return nil, nil, err
-	}
-	race, err := snapshot.remoteGoPackageTestInventory(directory, goos, goarch, true)
-	if err != nil {
-		return nil, nil, err
-	}
-	return inventoryGoTestTargets(gate.AtomicArchtestPackageTarget, normal),
-		inventoryGoTestTargets(gate.AtomicArchtestPackageTarget, race), nil
+	return normalTargets, raceTargets, nil
 }
 
 // atomicGoTestSourcePaths 返回目标包中可由 Git tree 批量读取的测试源码路径。

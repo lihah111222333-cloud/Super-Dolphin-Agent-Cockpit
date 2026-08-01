@@ -25,6 +25,9 @@ func TestBuildWorkloadInventoryUsesExactCommitAndRange(t *testing.T) {
 	writeInventoryFile(t, repository, "internal/archtest/common_test.go", "package archtest\n\nimport \"testing\"\n\nfunc TestCommon(t *testing.T) {}\n")
 	writeInventoryFile(t, repository, "internal/archtest/normal_test.go", "//go:build !race\n\npackage archtest\n\nimport \"testing\"\n\nfunc TestNormal(t *testing.T) {}\n")
 	writeInventoryFile(t, repository, "internal/archtest/race_test.go", "//go:build race\n\npackage archtest\n\nimport \"testing\"\n\nfunc TestRace(t *testing.T) {}\n")
+	writeInventoryFile(t, repository, "internal/provider/codexapp/common_test.go", "package codexapp\n\nimport \"testing\"\n\nfunc TestTransportCommon(t *testing.T) {}\n")
+	writeInventoryFile(t, repository, "internal/provider/codexapp/normal_test.go", "//go:build !race\n\npackage codexapp\n\nimport \"testing\"\n\nfunc TestTransportNormal(t *testing.T) {}\n")
+	writeInventoryFile(t, repository, "internal/provider/codexapp/race_test.go", "//go:build race\n\npackage codexapp\n\nimport \"testing\"\n\nfunc TestTransportRace(t *testing.T) {}\n")
 	writeInventoryFile(t, repository, "new-root/tool/tool.go", "package tool\n")
 	writeInventoryFile(t, repository, "tools/custom-check/go.mod", "module example.test/custom-check\n\ngo 1.25\n")
 	writeInventoryFile(t, repository, "tools/custom-check/check.go", "package check\n")
@@ -52,7 +55,7 @@ func TestBuildWorkloadInventoryUsesExactCommitAndRange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildWorkloadInventory() error = %v", err)
 	}
-	if !slices.Equal(inventory.GoPackages, []string{"./build/gate", "./build/gate/closure", "./internal/alpha", "./internal/archtest", "./internal/beta", "./new-root/tool"}) ||
+	if !slices.Equal(inventory.GoPackages, []string{"./build/gate", "./build/gate/closure", "./internal/alpha", "./internal/archtest", "./internal/beta", "./internal/provider/codexapp", "./new-root/tool"}) ||
 		!slices.Equal(inventory.NestedGoModules, []string{"build/gate/runtime-tools", "tools/custom-check"}) ||
 		!slices.Equal(inventory.FrontendChangedTests, []string{"src/widget.test.ts"}) ||
 		!slices.Equal(inventory.FrontendFullTests, []string{"scripts/runtime.test.mjs", "src/widget.test.ts"}) {
@@ -66,8 +69,17 @@ func TestBuildWorkloadInventoryUsesExactCommitAndRange(t *testing.T) {
 	for index, target := range inventory.GoRaceTests {
 		raceNames[index] = target.Package + "#" + target.Name
 	}
-	if !slices.Equal(normalNames, []string{"./internal/archtest#TestCommon", "./internal/archtest#TestNormal"}) ||
-		!slices.Equal(raceNames, []string{"./internal/archtest#TestCommon", "./internal/archtest#TestRace"}) {
+	if !slices.Equal(normalNames, []string{
+		"./internal/archtest#TestCommon",
+		"./internal/archtest#TestNormal",
+		"./internal/provider/codexapp#TestTransportCommon",
+		"./internal/provider/codexapp#TestTransportNormal",
+	}) || !slices.Equal(raceNames, []string{
+		"./internal/archtest#TestCommon",
+		"./internal/archtest#TestRace",
+		"./internal/provider/codexapp#TestTransportCommon",
+		"./internal/provider/codexapp#TestTransportRace",
+	}) {
 		t.Fatalf("atomic Go tests normal=%v race=%v", normalNames, raceNames)
 	}
 }
