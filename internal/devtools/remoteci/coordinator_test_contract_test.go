@@ -146,11 +146,13 @@ func TestRemoteInitSearchPathUsesMaterializedRuntimeUnderECILimit(t *testing.T) 
 	}
 }
 
-func TestRemoteCandidateBootstrapCreatesInstallDirectoryBeforeCopy(t *testing.T) {
-	mkdirIndex := strings.Index(remoteCandidateGateBootstrapSH, "mkdir -p /opt/super-dolphin-gate/bin")
-	copyIndex := strings.Index(remoteCandidateGateBootstrapSH, `cp "$candidate" /opt/super-dolphin-gate/bin/super-dolphin-gate`)
-	if mkdirIndex < 0 || copyIndex < 0 || mkdirIndex > copyIndex {
-		t.Fatalf("candidate bootstrap must create the install directory before copy: %q", remoteCandidateGateBootstrapSH)
+func TestRemoteCandidateBootstrapExecutesOutsideEmptyMaterializationRoot(t *testing.T) {
+	if !strings.Contains(remoteCandidateGateBootstrapSH, `bootstrap_cli="$TMPDIR/candidate-super-dolphin-gate"`) ||
+		!strings.Contains(remoteCandidateGateBootstrapSH, `exec "$bootstrap_cli" _remote-materialize`) {
+		t.Fatalf("candidate bootstrap must execute from the writable temp volume: %q", remoteCandidateGateBootstrapSH)
+	}
+	if strings.Contains(remoteCandidateGateBootstrapSH, `cp "$candidate" /opt/super-dolphin-gate`) {
+		t.Fatalf("candidate bootstrap must preserve the empty materialization root: %q", remoteCandidateGateBootstrapSH)
 	}
 }
 
