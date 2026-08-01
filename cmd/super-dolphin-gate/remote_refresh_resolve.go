@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	goversion "go/version"
@@ -65,12 +66,13 @@ func resolveRemoteBaselineIdentity(ctx context.Context, repositoryRoot, commit, 
 	if err != nil {
 		return remoteBaselineRefreshInput{}, err
 	}
+	toolchainDigest := remoteBaselineToolchainDigest(compileInputs.ToolchainDigest, goToolchain)
 	sqruffURL, sqruffSHA, err := resolveRemoteSqruffArtifact(runtimeArgs, platform)
 	if err != nil {
 		return remoteBaselineRefreshInput{}, err
 	}
 	return remoteBaselineRefreshInput{
-		Identity:                       remoteci.BaselineIdentity{MainCommit: commit, MainTree: treeSHA, Platform: platform, PolicyDigest: policyDigest, ToolchainDigest: compileInputs.ToolchainDigest, RuntimeImage: runtimeImage},
+		Identity:                       remoteci.BaselineIdentity{MainCommit: commit, MainTree: treeSHA, Platform: platform, PolicyDigest: policyDigest, ToolchainDigest: toolchainDigest, RuntimeImage: runtimeImage},
 		GateSourceDigest:               compileInputs.GateSourceDigest,
 		RuntimeDependencyDigest:        runtimeDependencyDigest,
 		RuntimeDependencySchemaVersion: runtimeSchemaVersion,
@@ -78,6 +80,12 @@ func resolveRemoteBaselineIdentity(ctx context.Context, repositoryRoot, commit, 
 		SqruffURL:                      sqruffURL,
 		SqruffSHA256:                   sqruffSHA,
 	}, nil
+}
+
+// remoteBaselineToolchainDigest 将镜像工具链锁与项目 Go 版本绑定为同一基准身份。
+func remoteBaselineToolchainDigest(lockDigest, goToolchain string) string {
+	payload := "super-dolphin.remote-baseline-toolchain.v1\x00" + lockDigest + "\x00" + goToolchain
+	return fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(payload)))
 }
 
 // resolveRemoteBaselineGoToolchain 从候选树全部 Go 模块选择最高的首选工具链。
