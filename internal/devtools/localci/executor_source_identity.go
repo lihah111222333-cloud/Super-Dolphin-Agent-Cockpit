@@ -21,11 +21,12 @@ import (
 )
 
 type runtimeDepsLock struct {
-	SchemaVersion string            `json:"schema_version"`
-	BuildMode     string            `json:"build_mode"`
-	CacheScope    string            `json:"cache_scope"`
-	Inputs        runtimeDepsInputs `json:"inputs"`
-	Paths         runtimeDepsPaths  `json:"paths"`
+	SchemaVersion string                  `json:"schema_version"`
+	BuildMode     string                  `json:"build_mode"`
+	CacheScope    string                  `json:"cache_scope"`
+	Inputs        runtimeDepsInputs       `json:"inputs"`
+	RecipeInputs  runtimeDepsRecipeInputs `json:"recipe_inputs"`
+	Paths         runtimeDepsPaths        `json:"paths"`
 }
 
 type runtimeDepsInputs struct {
@@ -42,10 +43,13 @@ type runtimeDepsInputs struct {
 	ToolsGoMod          string `json:"tools_go_mod_sha256"`
 	ToolsGoSum          string `json:"tools_go_sum_sha256"`
 	RuntimeSeedWorker   string `json:"runtime_seed_worker_sha256"`
-	RuntimeSeedRecipe   string `json:"runtime_seed_recipe_sha256"`
 	RuntimeSeedScript   string `json:"runtime_seed_script_sha256"`
 	RuntimeSeedBrowser  string `json:"runtime_seed_script_browser_sha256"`
 	RuntimeSeedRuntime  string `json:"runtime_seed_script_runtime_sha256"`
+}
+
+type runtimeDepsRecipeInputs struct {
+	RuntimeSeedRecipe string `json:"runtime_seed_recipe_sha256"`
 }
 
 type runtimeDepsPaths struct {
@@ -77,6 +81,11 @@ func validateRuntimeDepsClosure(lock runtimeDepsLock, closure map[string]sourcee
 		return errors.New("runtime dependencies paths drifted from the executor contract")
 	}
 	for _, binding := range runtimeDepsInputBindings(lock.Inputs) {
+		if err := validateRuntimeDepsInput(binding, closure); err != nil {
+			return err
+		}
+	}
+	for _, binding := range runtimeDepsRecipeInputBindings(lock.RecipeInputs) {
 		if err := validateRuntimeDepsInput(binding, closure); err != nil {
 			return err
 		}
@@ -115,10 +124,15 @@ func runtimeDepsInputBindings(inputs runtimeDepsInputs) []runtimeDepsInputBindin
 		{"build/gate/runtime-tools/go.mod", inputs.ToolsGoMod},
 		{"build/gate/runtime-tools/go.sum", inputs.ToolsGoSum},
 		{"internal/devtools/gate/executor_seed.go", inputs.RuntimeSeedWorker},
-		{"cmd/super-dolphin-gate/remote_refresh_seed.go", inputs.RuntimeSeedRecipe},
 		{"cmd/super-dolphin-gate/remote_refresh_seed_script.go", inputs.RuntimeSeedScript},
 		{"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go", inputs.RuntimeSeedBrowser},
 		{"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go", inputs.RuntimeSeedRuntime},
+	}
+}
+
+func runtimeDepsRecipeInputBindings(inputs runtimeDepsRecipeInputs) []runtimeDepsInputBinding {
+	return []runtimeDepsInputBinding{
+		{"cmd/super-dolphin-gate/remote_refresh_seed.go", inputs.RuntimeSeedRecipe},
 	}
 }
 

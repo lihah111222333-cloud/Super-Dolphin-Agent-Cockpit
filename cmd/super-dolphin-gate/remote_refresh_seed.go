@@ -286,7 +286,7 @@ func forwardRemoteBaselineSeedLiveLog(stderr io.Writer, log string, forwarded ma
 func isRemoteBaselineSeedLiveProgressLine(line string) bool {
 	for _, prefix := range []string{
 		"seed stage ",
-		"seed progress ",
+		"seed progress: ",
 		"go cache compile ",
 		"go build cache ",
 		"go module cache ",

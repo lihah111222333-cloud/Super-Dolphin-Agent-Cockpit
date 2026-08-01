@@ -387,6 +387,9 @@ func assertRemoteBaselineSeedOfflineDependencyFragments(t *testing.T) {
 	assertRemoteBaselineSeedContains(t, []string{
 		"verify_source_tree_clean()",
 		"module_lock_manifest()",
+		"runtime_dependency_manifest()",
+		"unsupported runtime dependency lock schema",
+		"test \"$BASELINE_FORCE_RUNTIME_REFRESH\" != true",
 		"git -C \"$1\" ls-files -s -- go.mod go.sum '*/go.mod' '*/go.sum'",
 		"validate_offline_module_cache()",
 		"module_download_root=$stage/module-download-source",
@@ -418,6 +421,8 @@ func assertRemoteBaselineSeedRuntimeReuseFragments(t *testing.T) {
 	t.Helper()
 	assertRemoteBaselineSeedContains(t, []string{
 		"runtime seed cache is stale; rebuilding",
+		"previous-runtime-dependencies",
+		"current-runtime-dependencies",
 		"runtime_validation_go_mod_cache=$stage/runtime-reuse-go-mod-cache",
 		"worker go-module-overlay",
 		"GOMODCACHE=\"$runtime_validation_go_mod_cache\" go list -deps -test ./...",

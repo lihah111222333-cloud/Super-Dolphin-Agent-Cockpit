@@ -15,7 +15,7 @@ import (
 )
 
 // RuntimeDependencySchemaVersion 是当前 runtime seed 构建合同版本。
-const RuntimeDependencySchemaVersion = "9"
+const RuntimeDependencySchemaVersion = "10"
 
 func runtimeDependencyPathsV4() []string {
 	return []string{
@@ -72,15 +72,31 @@ func runtimeDependencyPathsV8() []string {
 	)
 }
 
-func runtimeDependencyPaths() []string {
-	return append(runtimeDependencyPathsV8(),
+// runtimeDependencyRecipePaths 返回须审计但不标识可复用运行时依赖内容的 seed 控制面输入。
+func runtimeDependencyRecipePaths() []string {
+	return []string{
+		"cmd/super-dolphin-gate/remote_refresh_seed.go",
+	}
+}
+
+func runtimeDependencyPathsV9() []string {
+	return append(append([]string(nil), runtimeDependencyPathsV8()...),
 		"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go",
+	)
+}
+
+func runtimeDependencyPaths() []string {
+	return append(append([]string(nil), runtimeDependencyPathsV5()...),
+		"cmd/super-dolphin-gate/remote_refresh_seed_script.go",
+		"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go",
+		"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go",
 	)
 }
 
 type runtimeDependencyLock struct {
 	SchemaVersion string            `json:"schema_version"`
 	Inputs        map[string]string `json:"inputs"`
+	RecipeInputs  map[string]string `json:"recipe_inputs"`
 	Paths         map[string]string `json:"paths"`
 	BuildMode     string            `json:"build_mode"`
 	CacheScope    string            `json:"cache_scope"`
@@ -158,7 +174,14 @@ func ResolveBaselineRuntimeDependencyBuild(entries []sourceexport.TreeEntry, pla
 	if err != nil {
 		return "", nil, "", err
 	}
-	if len(lock.Inputs) != len(paths) {
+	if lock.SchemaVersion == RuntimeDependencySchemaVersion {
+		if len(lock.Inputs) != len(paths) || len(lock.RecipeInputs) != len(runtimeDependencyRecipePaths()) {
+			return "", nil, "", errors.New("accepted runtime dependency lock shape is invalid")
+		}
+		if err := verifyRuntimeDependencyRecipeInputs(byPath, lock); err != nil {
+			return "", nil, "", err
+		}
+	} else if len(lock.Inputs) != len(paths) {
 		return "", nil, "", errors.New("accepted runtime dependency lock shape is invalid")
 	}
 	if err := verifyRuntimeDependencyInputs(byPath, lock, paths); err != nil {
@@ -202,6 +225,8 @@ func acceptedRuntimeDependencyPaths(schemaVersion string) ([]string, error) {
 	case "4":
 		return runtimeDependencyPathsV4(), nil
 	case "9":
+		return runtimeDependencyPathsV9(), nil
+	case "10":
 		return runtimeDependencyPaths(), nil
 	case "8":
 		return runtimeDependencyPathsV8(), nil
@@ -242,8 +267,12 @@ func loadRuntimeDependencyLock(byPath map[string][]byte) (runtimeDependencyLock,
 	if err != nil {
 		return runtimeDependencyLock{}, err
 	}
-	if lock.SchemaVersion != RuntimeDependencySchemaVersion || len(lock.Inputs) != len(runtimeDependencyPaths()) {
+	if lock.SchemaVersion != RuntimeDependencySchemaVersion || len(lock.Inputs) != len(runtimeDependencyPaths()) ||
+		len(lock.RecipeInputs) != len(runtimeDependencyRecipePaths()) {
 		return runtimeDependencyLock{}, errors.New("runtime dependency lock shape is invalid")
+	}
+	if err := verifyRuntimeDependencyRecipeInputs(byPath, lock); err != nil {
+		return runtimeDependencyLock{}, err
 	}
 	return lock, nil
 }
@@ -282,6 +311,21 @@ func verifyRuntimeDependencyInputs(byPath map[string][]byte, lock runtimeDepende
 	return nil
 }
 
+// verifyRuntimeDependencyRecipeInputs 保持 seed 配方可审计，同时不让协调器控制面改动使不可变依赖缓存失效。
+func verifyRuntimeDependencyRecipeInputs(byPath map[string][]byte, lock runtimeDependencyLock) error {
+	for _, path := range runtimeDependencyRecipePaths() {
+		data, exists := byPath[path]
+		if !exists {
+			return fmt.Errorf("runtime dependency recipe input %s is missing from Git tree", path)
+		}
+		field := runtimeDependencyRecipeLockField(path)
+		if field == "" || lock.RecipeInputs[field] != remoteBytesDigest(data) {
+			return fmt.Errorf("runtime dependency recipe input %s drifted from lock", path)
+		}
+	}
+	return nil
+}
+
 // loadRuntimeToolchainLock 严格读取工具链锁文件。
 func loadRuntimeToolchainLock(byPath map[string][]byte) (runtimeToolchainLock, error) {
 	data, ok := byPath["build/gate/toolchain.lock"]
@@ -300,7 +344,7 @@ func runtimeLockDigest(lock runtimeDependencyLock) string {
 	ordered := make([]string, 0, len(lock.Inputs))
 	for name, digest := range lock.Inputs {
 		switch name {
-		case "runtime_seed_recipe_sha256", "runtime_seed_script_sha256", "runtime_seed_script_runtime_sha256",
+		case "runtime_seed_recipe_sha256",
 			"go_mod_sha256", "go_sum_sha256", "proxy_go_mod_sha256", "proxy_go_sum_sha256",
 			"tools_go_mod_sha256", "tools_go_sum_sha256":
 			continue
@@ -446,12 +490,26 @@ func runtimeDependencyLockField(schemaVersion, path string) string {
 		"build/gate/runtime-tools/go.mod":                              "tools_go_mod_sha256",
 		"build/gate/runtime-tools/go.sum":                              "tools_go_sum_sha256",
 		"internal/devtools/gate/executor_seed.go":                      "runtime_seed_worker_sha256",
-		"cmd/super-dolphin-gate/remote_refresh_seed.go":                "runtime_seed_recipe_sha256",
 		"cmd/super-dolphin-gate/remote_refresh_seed_script.go":         "runtime_seed_script_sha256",
 		"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go": "runtime_seed_script_browser_sha256",
 		"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go": "runtime_seed_script_runtime_sha256",
 	}
-	return fields[path]
+	if field := fields[path]; field != "" {
+		return field
+	}
+	if schemaVersion != RuntimeDependencySchemaVersion {
+		return runtimeDependencyRecipeLockField(path)
+	}
+	return ""
+}
+
+func runtimeDependencyRecipeLockField(path string) string {
+	return map[string]string{
+		"cmd/super-dolphin-gate/remote_refresh_seed.go":                "runtime_seed_recipe_sha256",
+		"cmd/super-dolphin-gate/remote_refresh_seed_script.go":         "runtime_seed_script_sha256",
+		"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go": "runtime_seed_script_browser_sha256",
+		"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go": "runtime_seed_script_runtime_sha256",
+	}[path]
 }
 
 func decodeRemoteStrictJSON(data []byte, target any) error {

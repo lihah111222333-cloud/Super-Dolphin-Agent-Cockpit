@@ -86,9 +86,13 @@ func productionRuntimeDepsLock(t *testing.T, files map[string]string) string {
 	for field, path := range productionRuntimeDepsInputPaths() {
 		inputs[field] = productionFixtureDigest(files[path])
 	}
+	recipeInputs := make(map[string]string, len(productionRuntimeDepsRecipePaths()))
+	for field, path := range productionRuntimeDepsRecipePaths() {
+		recipeInputs[field] = productionFixtureDigest(files[path])
+	}
 	return productionFixtureJSON(t, map[string]any{
-		"schema_version": "9", "build_mode": "node-local", "cache_scope": "node",
-		"inputs": inputs, "paths": productionRuntimePaths(),
+		"schema_version": "10", "build_mode": "node-local", "cache_scope": "node",
+		"inputs": inputs, "recipe_inputs": recipeInputs, "paths": productionRuntimePaths(),
 	})
 }
 
@@ -100,7 +104,7 @@ func TestProductionRuntimeDepsLockUsesNodeLocalSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]struct{}{
-		"schema_version": {}, "build_mode": {}, "cache_scope": {}, "inputs": {}, "paths": {},
+		"schema_version": {}, "build_mode": {}, "cache_scope": {}, "inputs": {}, "recipe_inputs": {}, "paths": {},
 	}
 	if len(lock) != len(want) {
 		t.Fatalf("runtime dependency lock fields = %v, want only %v", sortedProductionFixtureKeys(lock), sortedProductionFixtureKeys(want))
@@ -113,7 +117,7 @@ func TestProductionRuntimeDepsLockUsesNodeLocalSchema(t *testing.T) {
 	schemaVersion := productionFixtureString(t, lock, "schema_version")
 	buildMode := productionFixtureString(t, lock, "build_mode")
 	cacheScope := productionFixtureString(t, lock, "cache_scope")
-	if schemaVersion != "9" || buildMode != "node-local" || cacheScope != "node" {
+	if schemaVersion != "10" || buildMode != "node-local" || cacheScope != "node" {
 		t.Fatalf("runtime dependency lock header = (%q, %q, %q)", schemaVersion, buildMode, cacheScope)
 	}
 }
@@ -165,10 +169,15 @@ func productionRuntimeDepsInputPaths() map[string]string {
 		"proxy_go_mod_sha256": "build/gate/runtime-proxy/go.mod", "proxy_go_sum_sha256": "build/gate/runtime-proxy/go.sum",
 		"tools_go_mod_sha256": "build/gate/runtime-tools/go.mod", "tools_go_sum_sha256": "build/gate/runtime-tools/go.sum",
 		"runtime_seed_worker_sha256":         "internal/devtools/gate/executor_seed.go",
-		"runtime_seed_recipe_sha256":         "cmd/super-dolphin-gate/remote_refresh_seed.go",
 		"runtime_seed_script_sha256":         "cmd/super-dolphin-gate/remote_refresh_seed_script.go",
 		"runtime_seed_script_browser_sha256": "cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go",
 		"runtime_seed_script_runtime_sha256": "cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go",
+	}
+}
+
+func productionRuntimeDepsRecipePaths() map[string]string {
+	return map[string]string{
+		"runtime_seed_recipe_sha256": "cmd/super-dolphin-gate/remote_refresh_seed.go",
 	}
 }
 

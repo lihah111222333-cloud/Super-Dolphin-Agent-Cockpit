@@ -415,7 +415,7 @@ func TestPrepareCandidateRejectsRuntimeDepsNonLocalOrRegistryLockFields(t *testi
 
 func TestPrepareCandidateRejectsLegacyIncompleteAndDriftedRuntimeDepsInputs(t *testing.T) {
 	legacy := candidateEntries(validCandidateDockerfile())
-	replaceEntryText(t, legacy, runtimeDepsLockPath, `"schema_version":"9"`, `"schema_version":"1"`)
+	replaceEntryText(t, legacy, runtimeDepsLockPath, `"schema_version":"10"`, `"schema_version":"1"`)
 	assertCandidateRejectedBeforeBuild(t, legacy)
 
 	missingGoMod := candidateEntries(validCandidateDockerfile())
@@ -555,7 +555,7 @@ func candidateRequest(entries []sourceexport.TreeEntry, acceptedInput string, ac
 
 func testRuntimeDepsLock(files map[string]string) string {
 	lock := runtimeDepsLock{
-		SchemaVersion: "9", BuildMode: "node-local", CacheScope: "node",
+		SchemaVersion: "10", BuildMode: "node-local", CacheScope: "node",
 		Inputs: runtimeDepsInputs{
 			Dockerfile:    contentDigest(files["build/gate/runtime-deps.Dockerfile"]),
 			ToolchainLock: contentDigest(files["build/gate/toolchain.lock"]),
@@ -569,10 +569,12 @@ func testRuntimeDepsLock(files map[string]string) string {
 			ToolsGoMod:          contentDigest(files["build/gate/runtime-tools/go.mod"]),
 			ToolsGoSum:          contentDigest(files["build/gate/runtime-tools/go.sum"]),
 			RuntimeSeedWorker:   contentDigest(files["internal/devtools/gate/executor_seed.go"]),
-			RuntimeSeedRecipe:   contentDigest(files["cmd/super-dolphin-gate/remote_refresh_seed.go"]),
 			RuntimeSeedScript:   contentDigest(files["cmd/super-dolphin-gate/remote_refresh_seed_script.go"]),
 			RuntimeSeedBrowser:  contentDigest(files["cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go"]),
 			RuntimeSeedRuntime:  contentDigest(files["cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go"]),
+		},
+		RecipeInputs: runtimeDepsRecipeInputs{
+			RuntimeSeedRecipe: contentDigest(files["cmd/super-dolphin-gate/remote_refresh_seed.go"]),
 		},
 		Paths: canonicalRuntimeDepsPaths(),
 	}
@@ -780,8 +782,8 @@ func assertJSONFieldsMatchProducer(t *testing.T, data []byte, producer any) {
 	}
 	producerType := reflect.TypeOf(producer)
 	wanted := make([]string, 0, producerType.NumField())
-	for index := 0; index < producerType.NumField(); index++ {
-		name, _, _ := strings.Cut(producerType.Field(index).Tag.Get("json"), ",")
+	for field := range producerType.Fields() {
+		name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
 		if name != "" && name != "-" {
 			wanted = append(wanted, name)
 		}

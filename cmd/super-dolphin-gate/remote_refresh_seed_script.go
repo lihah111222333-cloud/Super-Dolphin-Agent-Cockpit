@@ -439,6 +439,16 @@ module_lock_manifest() {
   git -C "$1" ls-files -s -- go.mod go.sum '*/go.mod' '*/go.sum'
 }
 
+runtime_dependency_manifest() {
+  jq -S -e '
+    if .schema_version == "10" then .inputs
+    elif .schema_version == "9" then
+      .inputs | del(.runtime_seed_recipe_sha256)
+    else error("unsupported runtime dependency lock schema")
+    end
+  ' "$1"
+}
+
 seeds_changed=1
 reuse_go_dependencies=0
 reuse_fixed_toolchains=0
@@ -466,15 +476,19 @@ if test -d "$previous_source"; then
   if cmp -s "$previous_source/build/gate/toolchain.lock" "$source_root/build/gate/toolchain.lock"; then
     reuse_fixed_toolchains=1
   fi
-  if cmp -s "$previous_source/build/gate/runtime-deps.lock" "$source_root/build/gate/runtime-deps.lock"; then
-    reuse_runtime_rootfs=1
+  if test "$BASELINE_FORCE_RUNTIME_REFRESH" != true; then
+    runtime_dependency_manifest "$previous_source/build/gate/runtime-deps.lock" > "$stage/previous-runtime-dependencies"
+    runtime_dependency_manifest "$source_root/build/gate/runtime-deps.lock" > "$stage/current-runtime-dependencies"
+    if cmp -s "$stage/previous-runtime-dependencies" "$stage/current-runtime-dependencies"; then
+      reuse_runtime_rootfs=1
+    fi
   fi
 fi
-if test -d "$previous_source" && \
+if test "$BASELINE_FORCE_RUNTIME_REFRESH" != true && test -d "$previous_source" && \
    cmp -s "$stage/previous-go-module-locks" "$stage/current-go-module-locks" && \
    cmp -s "$previous_source/frontend-app/package-lock.json" "$source_root/frontend-app/package-lock.json" && \
    cmp -s "$previous_source/build/gate/runtime-lsp/package-lock.json" "$source_root/build/gate/runtime-lsp/package-lock.json" && \
-   cmp -s "$previous_source/build/gate/runtime-deps.lock" "$source_root/build/gate/runtime-deps.lock" && \
+   cmp -s "$stage/previous-runtime-dependencies" "$stage/current-runtime-dependencies" && \
    cmp -s "$previous_source/build/gate/toolchain.lock" "$source_root/build/gate/toolchain.lock"; then
   seeds_changed=0
 fi

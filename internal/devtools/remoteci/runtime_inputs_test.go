@@ -36,21 +36,22 @@ func TestResolveRuntimeDependencyBuildUsesLockedGitTree(t *testing.T) {
 func TestRuntimeLockDigestIgnoresOnlyIncrementalSeedControlPlane(t *testing.T) {
 	lock := runtimeDependencyLock{Inputs: map[string]string{
 		"toolchain_lock_sha256":              "sha256:toolchain",
-		"runtime_seed_recipe_sha256":         "sha256:recipe-a",
 		"runtime_seed_script_sha256":         "sha256:script-a",
 		"runtime_seed_script_runtime_sha256": "sha256:runtime-a",
 		"runtime_seed_script_browser_sha256": "sha256:browser-a",
+	}, RecipeInputs: map[string]string{
+		"runtime_seed_recipe_sha256": "sha256:recipe-a",
 	}}
 	baseline := runtimeLockDigest(lock)
-	for _, name := range []string{"runtime_seed_recipe_sha256", "runtime_seed_script_sha256", "runtime_seed_script_runtime_sha256"} {
-		changed := runtimeDependencyLock{Inputs: maps.Clone(lock.Inputs)}
-		changed.Inputs[name] += "-changed"
+	for _, name := range []string{"runtime_seed_recipe_sha256"} {
+		changed := runtimeDependencyLock{Inputs: maps.Clone(lock.Inputs), RecipeInputs: maps.Clone(lock.RecipeInputs)}
+		changed.RecipeInputs[name] += "-changed"
 		if digest := runtimeLockDigest(changed); digest != baseline {
 			t.Fatalf("control-plane input %s invalidated reusable runtime digest", name)
 		}
 	}
-	for _, name := range []string{"toolchain_lock_sha256", "runtime_seed_script_browser_sha256"} {
-		changed := runtimeDependencyLock{Inputs: maps.Clone(lock.Inputs)}
+	for _, name := range []string{"toolchain_lock_sha256", "runtime_seed_script_sha256", "runtime_seed_script_runtime_sha256", "runtime_seed_script_browser_sha256"} {
+		changed := runtimeDependencyLock{Inputs: maps.Clone(lock.Inputs), RecipeInputs: maps.Clone(lock.RecipeInputs)}
 		changed.Inputs[name] += "-changed"
 		if digest := runtimeLockDigest(changed); digest == baseline {
 			t.Fatalf("runtime content input %s did not invalidate reusable runtime digest", name)
@@ -167,7 +168,34 @@ func TestResolveRuntimeDependencyBuildRejectsRuntimeSeedRecipeDrift(t *testing.T
 	}
 }
 
-func TestResolveAcceptedRuntimeDependencyDigestAllowsLegacyV5ThroughV8(t *testing.T) {
+func TestResolveRuntimeDependencyBuildKeepsRecipeChangesAuditableWithoutChangingRuntimeIdentity(t *testing.T) {
+	entries := loadRuntimeDependencyEntries(t)
+	baseline, _, err := ResolveRuntimeDependencyBuild(entries, "linux/amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockIndex, document, _ := runtimeDependencyLockDocument(t, entries)
+	recipeInputs, ok := document["recipe_inputs"].(map[string]any)
+	if !ok {
+		t.Fatal("runtime dependency fixture recipe inputs are not an object")
+	}
+	for index := range entries {
+		if entries[index].Path == "cmd/super-dolphin-gate/remote_refresh_seed.go" {
+			entries[index].Data = append(entries[index].Data, []byte("\n// audited recipe change\n")...)
+			recipeInputs["runtime_seed_recipe_sha256"] = remoteBytesDigest(entries[index].Data)
+		}
+	}
+	updateRuntimeDependencyLock(t, entries, lockIndex, document)
+	changed, _, err := ResolveRuntimeDependencyBuild(entries, "linux/amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed != baseline {
+		t.Fatal("audited recipe change invalidated reusable runtime dependency identity")
+	}
+}
+
+func TestResolveAcceptedRuntimeDependencyDigestAllowsLegacyV5ThroughV9(t *testing.T) {
 	entries := loadRuntimeDependencyEntries(t)
 	current, _, err := ResolveRuntimeDependencyBuild(entries, "linux/amd64")
 	if err != nil {
@@ -175,7 +203,19 @@ func TestResolveAcceptedRuntimeDependencyDigestAllowsLegacyV5ThroughV8(t *testin
 	}
 	assertAcceptedRuntimeDependencyDigest(t, entries, current)
 	lockIndex, document, inputs := runtimeDependencyLockDocument(t, entries)
-	seen := map[string]string{current: "v9"}
+	recipeInputs, ok := document["recipe_inputs"].(map[string]any)
+	if !ok {
+		t.Fatal("runtime dependency fixture recipe inputs are not an object")
+	}
+	maps.Copy(inputs, recipeInputs)
+	delete(document, "recipe_inputs")
+	document["schema_version"] = "9"
+	updateRuntimeDependencyLock(t, entries, lockIndex, document)
+	legacyV9 := assertAcceptedLegacyRuntimeDigest(t, entries, "v9")
+	if legacyV9 != current {
+		t.Fatalf("legacy v9 dependency digest = %q, want v10 reusable %q", legacyV9, current)
+	}
+	seen := map[string]string{current: "v10"}
 	reusable := current
 	migrations := []struct {
 		version         string
@@ -184,8 +224,8 @@ func TestResolveAcceptedRuntimeDependencyDigestAllowsLegacyV5ThroughV8(t *testin
 		wantDistinct    bool
 	}{
 		{version: "v8", removedInput: "runtime_seed_script_browser_sha256", rejectedCurrent: true, wantDistinct: true},
-		{version: "v7", removedInput: "runtime_seed_script_runtime_sha256", rejectedCurrent: true},
-		{version: "v6", removedInput: "runtime_seed_script_sha256", rejectedCurrent: true},
+		{version: "v7", removedInput: "runtime_seed_script_runtime_sha256", rejectedCurrent: true, wantDistinct: true},
+		{version: "v6", removedInput: "runtime_seed_script_sha256", rejectedCurrent: true, wantDistinct: true},
 		{version: "v5", removedInput: "runtime_seed_recipe_sha256"},
 	}
 	for _, migration := range migrations {
@@ -331,7 +371,8 @@ func assertAcceptedLegacyRuntimeDigest(t *testing.T, entries []sourceexport.Tree
 func loadRuntimeDependencyEntries(t *testing.T) []sourceexport.TreeEntry {
 	t.Helper()
 	root := filepath.Clean(filepath.Join("..", "..", ".."))
-	paths := append(runtimeDependencyPaths(), "build/gate/runtime-deps.lock")
+	paths := append(runtimeDependencyPaths(), runtimeDependencyRecipePaths()...)
+	paths = append(paths, "build/gate/runtime-deps.lock")
 	entries := make([]sourceexport.TreeEntry, 0, len(paths))
 	for _, path := range paths {
 		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
