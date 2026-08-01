@@ -116,6 +116,13 @@ func selectRemoteBaselineSourceManifest(
 		TargetCommit:  identity.MainCommit,
 		TargetTree:    identity.MainTree,
 	}
+	targetMatches, err := remoteBaselineGitCommitMatchesTree(ctx, repositoryRoot, identity.MainCommit, identity.MainTree)
+	if err != nil {
+		return remoteBaselineSourceManifest{}, err
+	}
+	if !targetMatches {
+		return remoteBaselineSourceManifest{}, errors.New("remote baseline target commit does not match target tree")
+	}
 	if accepted.SchemaVersion == 0 {
 		manifest.Mode = remoteBaselineSourceFull
 		return manifest, nil
@@ -128,13 +135,11 @@ func selectRemoteBaselineSourceManifest(
 		manifest.Mode = remoteBaselineSourceReuse
 		return manifest, nil
 	}
-	ancestor, err := remoteBaselineGitIsAncestor(
-		ctx, repositoryRoot, accepted.MainCommit, identity.MainCommit,
-	)
+	baseMatches, err := remoteBaselineGitCommitMatchesTree(ctx, repositoryRoot, accepted.MainCommit, accepted.MainTree)
 	if err != nil {
 		return remoteBaselineSourceManifest{}, err
 	}
-	if !ancestor {
+	if !baseMatches {
 		manifest.Mode = remoteBaselineSourceFull
 		return manifest, nil
 	}
@@ -271,31 +276,57 @@ func buildRemoteBaselineDeltaBundle(
 	); err != nil {
 		return err
 	}
-	return remoteBaselineGitRun(ctx, repositoryRoot, "bundle", "verify", bundlePath)
+	if err := remoteBaselineGitRun(ctx, repositoryRoot, "bundle", "verify", bundlePath); err != nil {
+		return err
+	}
+	return verifyRemoteBaselineDeltaBundle(ctx, repositoryRoot, baseCommit, targetCommit, bundlePath)
 }
 
-// remoteBaselineGitIsAncestor 确认已接受提交是否为目标提交的祖先。
-func remoteBaselineGitIsAncestor(
+// remoteBaselineGitCommitMatchesTree 确认已接受提交对象存在且仍绑定已验收树。
+func remoteBaselineGitCommitMatchesTree(
 	ctx context.Context,
 	repositoryRoot string,
-	baseCommit string,
-	targetCommit string,
+	commit string,
+	tree string,
 ) (bool, error) {
-	command := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", baseCommit, targetCommit)
+	command := exec.CommandContext(ctx, "git", "rev-parse", "--verify", "--end-of-options", commit+"^{tree}")
 	command.Dir = repositoryRoot
 	output, err := command.CombinedOutput()
-	if err == nil {
-		return true, nil
+	if err != nil {
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) && exitError.ExitCode() == 128 {
+			return false, nil
+		}
+		return false, fmt.Errorf("git rev-parse accepted baseline tree: %w: %s", err, strings.TrimSpace(string(output)))
 	}
-	var exitError *exec.ExitError
-	if errors.As(err, &exitError) && exitError.ExitCode() == 1 {
-		return false, nil
+	return strings.TrimSpace(string(output)) == tree, nil
+}
+
+// verifyRemoteBaselineDeltaBundle 从仅含 accepted base 的仓库重放差量并验证目标对象可达。
+func verifyRemoteBaselineDeltaBundle(ctx context.Context, repositoryRoot, baseCommit, targetCommit, bundlePath string) error {
+	tempRoot, err := os.MkdirTemp("", "super-dolphin-baseline-delta-verify-*")
+	if err != nil {
+		return err
 	}
-	return false, fmt.Errorf(
-		"git merge-base --is-ancestor: %w: %s",
-		err,
-		strings.TrimSpace(string(output)),
-	)
+	defer os.RemoveAll(tempRoot)
+	verificationRoot := filepath.Join(tempRoot, "repository")
+	if err := remoteBaselineGitRun(ctx, tempRoot, "init", "--quiet", verificationRoot); err != nil {
+		return err
+	}
+	repositoryURL := (&url.URL{Scheme: "file", Path: repositoryRoot}).String()
+	if err := remoteBaselineGitRun(ctx, verificationRoot, "fetch", "--quiet", repositoryURL, baseCommit); err != nil {
+		return err
+	}
+	if err := remoteBaselineGitRun(ctx, verificationRoot, "checkout", "--quiet", "--detach", "FETCH_HEAD"); err != nil {
+		return err
+	}
+	if err := remoteBaselineGitRun(ctx, verificationRoot, "fetch", "--quiet", bundlePath, targetCommit); err != nil {
+		return err
+	}
+	if err := remoteBaselineGitRun(ctx, verificationRoot, "checkout", "--quiet", "--detach", "FETCH_HEAD"); err != nil {
+		return err
+	}
+	return remoteBaselineGitRun(ctx, verificationRoot, "fsck", "--connectivity-only")
 }
 
 // remoteBaselineGitRun 在指定目录执行 Git 命令并保留失败输出。

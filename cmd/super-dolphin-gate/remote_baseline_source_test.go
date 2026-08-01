@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
@@ -52,6 +53,34 @@ func TestBuildRemoteBaselineSourceArtifactFullThenDelta(t *testing.T) {
 	assertRemoteBaselineSourceIdentity(t, materialized, secondCommit, secondTree)
 }
 
+func TestBuildRemoteBaselineSourceArtifactDeltaAcrossRewrittenMain(t *testing.T) {
+	repository := initRemoteBaselineSourceRepository(t)
+	commonCommit, _ := commitRemoteBaselineSourceFile(t, repository, "common\n")
+	acceptedCommit, acceptedTree := commitRemoteBaselineSourceFile(t, repository, "accepted\n")
+	runRemoteBaselineTestGit(t, repository, "checkout", "--quiet", "--detach", commonCommit)
+	targetCommit, targetTree := commitRemoteBaselineSourceFile(t, repository, "rewritten-main\n")
+	accepted := remoteci.BaselineState{
+		SchemaVersion:        remoteci.BaselineStateSchemaVersion,
+		SourceHistoryVersion: remoteci.BaselineSourceHistorySchemaVersion,
+		MainCommit:           acceptedCommit,
+		MainTree:             acceptedTree,
+	}
+	artifact := requireRemoteBaselineSourceArtifact(t,
+		context.Background(), repository, accepted,
+		remoteci.BaselineIdentity{MainCommit: targetCommit, MainTree: targetTree},
+		filepath.Join(t.TempDir(), "delta"),
+	)
+	assertRemoteBaselineDeltaArtifact(t, artifact, acceptedCommit, acceptedTree)
+	materialized := filepath.Join(t.TempDir(), "materialized")
+	runRemoteBaselineTestGit(t, t.TempDir(), "init", "--quiet", materialized)
+	runRemoteBaselineTestGit(t, materialized, "fetch", "--quiet", repository, acceptedCommit)
+	runRemoteBaselineTestGit(t, materialized, "checkout", "--quiet", "--detach", "FETCH_HEAD")
+	runRemoteBaselineTestGit(t, materialized, "fetch", "--quiet", artifact.BundlePath, targetCommit)
+	runRemoteBaselineTestGit(t, materialized, "checkout", "--quiet", "--detach", "FETCH_HEAD")
+	runRemoteBaselineTestGit(t, materialized, "fsck", "--connectivity-only")
+	assertRemoteBaselineSourceIdentity(t, materialized, targetCommit, targetTree)
+}
+
 func TestBuildRemoteBaselineSourceArtifactReusesAcceptedMain(t *testing.T) {
 	repository := initRemoteBaselineSourceRepository(t)
 	commit, tree := commitRemoteBaselineSourceFile(t, repository, "same\n")
@@ -95,6 +124,37 @@ func TestBuildRemoteBaselineSourceArtifactRebuildsLegacyHistoryAtSameMain(t *tes
 	)
 
 	assertRemoteBaselineFullArtifact(t, artifact)
+}
+
+func TestBuildRemoteBaselineSourceArtifactRebuildsWhenAcceptedTreeDoesNotMatchCommit(t *testing.T) {
+	repository := initRemoteBaselineSourceRepository(t)
+	acceptedCommit, _ := commitRemoteBaselineSourceFile(t, repository, "accepted\n")
+	targetCommit, targetTree := commitRemoteBaselineSourceFile(t, repository, "target\n")
+	accepted := remoteci.BaselineState{
+		SchemaVersion:        remoteci.BaselineStateSchemaVersion,
+		SourceHistoryVersion: remoteci.BaselineSourceHistorySchemaVersion,
+		MainCommit:           acceptedCommit,
+		MainTree:             targetTree,
+	}
+	artifact := requireRemoteBaselineSourceArtifact(t,
+		context.Background(), repository, accepted,
+		remoteci.BaselineIdentity{MainCommit: targetCommit, MainTree: targetTree},
+		t.TempDir(),
+	)
+	assertRemoteBaselineFullArtifact(t, artifact)
+}
+
+func TestBuildRemoteBaselineSourceArtifactRejectsTargetTreeMismatch(t *testing.T) {
+	repository := initRemoteBaselineSourceRepository(t)
+	commit, tree := commitRemoteBaselineSourceFile(t, repository, "target\n")
+	_, err := buildRemoteBaselineSourceArtifact(
+		context.Background(), repository, remoteci.BaselineState{},
+		remoteci.BaselineIdentity{MainCommit: commit, MainTree: strings.Repeat("f", len(tree))},
+		t.TempDir(),
+	)
+	if err == nil || !strings.Contains(err.Error(), "target commit does not match target tree") {
+		t.Fatalf("buildRemoteBaselineSourceArtifact() error = %v, want target tree mismatch", err)
+	}
 }
 
 func initRemoteBaselineSourceRepository(t *testing.T) string {

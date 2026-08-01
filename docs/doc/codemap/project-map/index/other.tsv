@@ -100,8 +100,8 @@ cmd/super-dolphin-gate/receipt_authority.go	cmd	other	go-source	17504	未细分�
 cmd/super-dolphin-gate/release_action_grant_test.go	cmd	other	go-test	5966	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,release,action,grant,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/release_authority_test.go	cmd	other	go-test	9212	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,release,authority,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/remote_baseline_source_test_helpers_test.go	cmd	other	go-test	1294	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,baseline,source,test,helpers,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/remote_baseline_source_test.go	cmd	other	go-test	6152	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,baseline,source,test,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/remote_baseline_source.go	cmd	other	go-source	28593	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,baseline,source,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_baseline_source_test.go	cmd	other	go-test	9297	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,baseline,source,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/remote_baseline_source.go	cmd	other	go-source	30348	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,baseline,source,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/remote_candidate_cli_artifact_test.go	cmd	other	go-test	4943	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,candidate,cli,artifact,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/remote_candidate_cli_artifact.go	cmd	other	go-source	5554	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,candidate,cli,artifact,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/remote_candidate_cli_builder.go	cmd	other	go-source	1828	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,remote,candidate,cli,builder,未细分职责：请结合路径,文件名和相邻代码判断
@@ -777,12 +777,12 @@ internal/devtools/remoteci/coordinator_diagnostics_test.go	internal	other	go-tes
 internal/devtools/remoteci/coordinator_diagnostics.go	internal	other	go-source	6658	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,diagnostics,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_observation_test.go	internal	other	go-test	3643	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,observation,test,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_observation.go	internal	other	go-source	2880	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,observation,开发工具与生成器辅助包
-internal/devtools/remoteci/coordinator_request.go	internal	other	go-source	8316	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,request,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator_request.go	internal	other	go-source	8250	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,request,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_resources.go	internal	other	go-source	1889	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,resources,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_results_partial_test.go	internal	other	go-test	4687	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,results,partial,test,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_results_test.go	internal	other	go-test	8600	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,results,test,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_results.go	internal	other	go-source	13476	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,results,开发工具与生成器辅助包
-internal/devtools/remoteci/coordinator_test_contract_test.go	internal	other	go-test	14267	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,test,contract,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator_test_contract_test.go	internal	other	go-test	15037	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,test,contract,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_test.go	internal	other	go-test	30662	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,test,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_wait_test.go	internal	other	go-test	2410	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,wait,test,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_wait.go	internal	other	go-source	11111	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,wait,开发工具与生成器辅助包

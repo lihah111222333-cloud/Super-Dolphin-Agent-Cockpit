@@ -173,6 +173,11 @@ func TestCoordinatorCreateRequestMountsCandidateArtifactFromValidOSSVolume(t *te
 	}
 	assertCandidateGateEnvironment(t, request, input)
 	assertWritableMaterializerTempMount(t, request)
+	assertCandidateArtifactMount(t, request)
+}
+
+func assertCandidateArtifactMount(t *testing.T, request eci.CreateRequest) {
+	t.Helper()
 	foundCandidateMount := false
 	for _, mount := range request.InitVolumeMounts {
 		if mount.Name == remoteCurrentGateVolumeName && mount.MountPath == "/candidate-bootstrap" && mount.ReadOnly {
