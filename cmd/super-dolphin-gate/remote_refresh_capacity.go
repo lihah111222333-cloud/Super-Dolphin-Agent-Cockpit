@@ -109,17 +109,18 @@ func loadAcceptedRemoteBaselineRecommendedSize(
 	if err != nil {
 		return 0, err
 	}
-	identity := remoteci.BaselineIdentity{
-		MainCommit:      anchor.MainCommit,
-		MainTree:        anchor.MainTree,
-		Platform:        accepted.Platform,
-		PolicyDigest:    accepted.PolicyDigest,
-		ToolchainDigest: accepted.ToolchainDigest,
-		RuntimeImage:    accepted.RuntimeImage,
-	}
-	if manifest.StorageMode != remoteci.BaselineStorageModeAnchor ||
-		!manifest.Matches(anchor.Generation, identity) {
+	if !remoteBaselineAnchorManifestMatchesReference(anchor, manifest, accepted.Platform, accepted.RuntimeImage) {
 		return 0, errors.New("accepted Anchor manifest identity drifted")
 	}
 	return remoteBaselineRecommendedSizeGiB(config, manifest)
+}
+
+// remoteBaselineAnchorManifestMatchesReference 只按 Anchor 自身引用和跨层不变量复验历史 manifest。
+func remoteBaselineAnchorManifestMatchesReference(anchor remoteci.BaselineCacheRef, manifest remoteci.BaselineManifest, platform, runtimeImage string) bool {
+	return manifest.StorageMode == remoteci.BaselineStorageModeAnchor &&
+		manifest.Generation == anchor.Generation &&
+		manifest.MainCommit == anchor.MainCommit &&
+		manifest.MainTree == anchor.MainTree &&
+		manifest.Platform == platform &&
+		manifest.RuntimeImage == runtimeImage
 }

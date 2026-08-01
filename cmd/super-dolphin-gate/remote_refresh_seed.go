@@ -267,7 +267,7 @@ func waitRemoteBaselineSeedWithWriterAndInterval(
 }
 
 func forwardRemoteBaselineSeedLiveLog(stderr io.Writer, log string, forwarded map[string]struct{}) error {
-	for _, line := range strings.Split(log, "\n") {
+	for line := range strings.SplitSeq(log, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || !isRemoteBaselineSeedLiveProgressLine(line) {
 			continue

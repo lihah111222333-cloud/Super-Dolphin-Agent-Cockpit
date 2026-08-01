@@ -80,6 +80,56 @@ func TestLoadAcceptedRemoteBaselineRecommendedSizeVerifiesAnchorManifest(t *test
 		t.Fatalf("downloaded keys = %#v, want %q", store.downloadedKeys, key)
 	}
 
+	// runtime-go Delta 会推进已接受链的身份，但保留的 Anchor manifest
+	// 仍必须按自身引用复验，不能误判为随链顶漂移。
+	state.PolicyDigest = "sha256:" + repeatRemoteHex("c", 64)
+	state.ToolchainDigest = "sha256:" + repeatRemoteHex("d", 64)
+	state.RuntimeSeedSHA256 = "sha256:" + repeatRemoteHex("e", 64)
+	if err := state.Validate(); err != nil {
+		t.Fatalf("runtime-go Delta state is invalid: %v", err)
+	}
+	if got, err := loadAcceptedRemoteBaselineRecommendedSize(context.Background(), config, store, state); err != nil || got != remoteDataCacheMinimumSizeGiB {
+		t.Fatalf("retained Anchor after runtime-go Delta = %d, %v", got, err)
+	}
+
+	manifest.MainCommit = repeatRemoteHex("f", 40)
+	data, err = json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.Anchor.ManifestDigest = remoteci.BaselineManifestDigest(data)
+	store.downloads[key] = data
+	if _, err := loadAcceptedRemoteBaselineRecommendedSize(context.Background(), config, store, state); err == nil ||
+		!strings.Contains(err.Error(), "identity drifted") {
+		t.Fatalf("anchor reference identity drift error = %v", err)
+	}
+
+	manifest.MainCommit = state.Anchor.MainCommit
+	manifest.Platform = "linux/amd64"
+	data, err = json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.Anchor.ManifestDigest = remoteci.BaselineManifestDigest(data)
+	store.downloads[key] = data
+	if _, err := loadAcceptedRemoteBaselineRecommendedSize(context.Background(), config, store, state); err == nil ||
+		!strings.Contains(err.Error(), "identity drifted") {
+		t.Fatalf("anchor platform drift error = %v", err)
+	}
+
+	manifest.Platform = state.Platform
+	manifest.RuntimeImage = "registry.example.invalid/drifted@sha256:" + repeatRemoteHex("a", 64)
+	data, err = json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.Anchor.ManifestDigest = remoteci.BaselineManifestDigest(data)
+	store.downloads[key] = data
+	if _, err := loadAcceptedRemoteBaselineRecommendedSize(context.Background(), config, store, state); err == nil ||
+		!strings.Contains(err.Error(), "identity drifted") {
+		t.Fatalf("anchor runtime image drift error = %v", err)
+	}
+
 	state.Anchor.ManifestDigest = "sha256:" + repeatRemoteHex("f", 64)
 	if _, err := loadAcceptedRemoteBaselineRecommendedSize(context.Background(), config, store, state); err == nil ||
 		!strings.Contains(err.Error(), "digest drifted") {
