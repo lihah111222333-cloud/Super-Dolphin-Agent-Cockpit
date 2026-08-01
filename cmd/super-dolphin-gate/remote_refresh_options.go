@@ -13,6 +13,7 @@ func parseRemoteBaselineRefreshOptions(args []string) (remoteBaselineRefreshOpti
 	flags.SetOutput(io.Discard)
 	flags.StringVar(&options.ConfigPath, "config", "", "remote CI config path")
 	flags.StringVar(&options.StatePath, "state", "", "accepted baseline state path")
+	flags.StringVar(&options.LedgerPath, "ledger", "", "duration ledger SQLite authority path")
 	flags.StringVar(&options.RepositoryRoot, "repository", ".", "Git repository root")
 	flags.StringVar(&options.Remote, "remote", "origin", "Git remote")
 	flags.StringVar(&options.Ref, "ref", "refs/heads/main", "remote Git ref")
@@ -20,7 +21,7 @@ func parseRemoteBaselineRefreshOptions(args []string) (remoteBaselineRefreshOpti
 	if err := flags.Parse(args); err != nil {
 		return options, protocolError("parse remote baseline-refresh flags: %v", err)
 	}
-	if flags.NArg() != 0 || strings.TrimSpace(options.ConfigPath) == "" ||
+	if flags.NArg() != 0 || strings.TrimSpace(options.ConfigPath) == "" || strings.TrimSpace(options.LedgerPath) == "" ||
 		strings.TrimSpace(options.Remote) == "" || !strings.HasPrefix(options.Ref, "refs/heads/") ||
 		(options.Platform != "linux/amd64" && options.Platform != "linux/arm64") {
 		return options, protocolError("remote baseline-refresh requires --config and valid optional flags")

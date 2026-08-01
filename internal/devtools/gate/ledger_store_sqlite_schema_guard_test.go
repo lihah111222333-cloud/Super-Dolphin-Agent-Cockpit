@@ -250,11 +250,10 @@ func sqliteProducerFieldPaths(
 	expand map[string]reflect.Type,
 ) []string {
 	fields := make([]string, 0, producer.NumField())
-	for index := 0; index < producer.NumField(); index++ {
-		field := producer.Field(index)
+	for field := range producer.Fields() {
 		if nested, ok := expand[field.Name]; ok {
-			for nestedIndex := 0; nestedIndex < nested.NumField(); nestedIndex++ {
-				fields = append(fields, field.Name+"."+nested.Field(nestedIndex).Name)
+			for nestedField := range nested.Fields() {
+				fields = append(fields, field.Name+"."+nestedField.Name)
 			}
 			continue
 		}
@@ -321,11 +320,11 @@ func assertSQLiteSchemaTableRegistry(t *testing.T, database *sql.DB) {
 	}
 	expected := []string{
 		"ci_candidate_test_binary_builds", "ci_catalog_observations", "ci_catalog_workloads", "ci_gate_executions",
-		"ci_query_meta", "ci_run_phase_timings", "ci_run_requesters", "ci_run_warnings", "ci_run_workloads", "ci_runs", "ci_schema_migrations",
+		"ci_query_meta", "ci_remote_baseline_state", "ci_run_phase_timings", "ci_run_requesters", "ci_run_warnings", "ci_run_workloads", "ci_runs", "ci_schema_migrations",
 		"ci_shard_workloads", "ci_shards", "ci_workload_catalogs",
 		"ci_workload_executions",
 		"ci_workload_fingerprint_observations", "ci_workload_fingerprints", "ci_workload_identity_aliases", "ci_workload_pass_proofs",
-		"duration_calibrations", "duration_ledger_meta", "duration_samples",
+		"duration_calibrations", "duration_ledger_meta", "duration_samples", "remote_ci_calibration_checkpoint_scenarios", "remote_ci_calibration_checkpoints",
 	}
 	if !slices.Equal(actual, expected) {
 		t.Fatalf("SQLite tables = %v, want %v", actual, expected)

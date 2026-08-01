@@ -3,6 +3,7 @@ package localci
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -41,12 +42,35 @@ type RefAncestryVerifier interface {
 
 // AcceptedImageState 持有 owner-private canonical 文件 authority。
 type AcceptedImageState struct {
-	root      string
-	statePath string
-	lockPath  string
-	ownerUID  int
-	verifier  AcceptedImageSignatureVerifier
-	ancestry  RefAncestryVerifier
+	db           *sql.DB
+	authorityKey string
+	root         string
+	statePath    string
+	lockPath     string
+	ownerUID     int
+	verifier     AcceptedImageSignatureVerifier
+	ancestry     RefAncestryVerifier
+}
+
+// NewAcceptedImageStateSQLite makes the coordinator-owned SQLite ledger the
+// authority while retaining root solely as a strictly one-time legacy import
+// location.  No operation writes accepted-image.json in this mode.
+func NewAcceptedImageStateSQLite(
+	db *sql.DB,
+	legacyRoot string,
+	verifier AcceptedImageSignatureVerifier,
+	ancestry RefAncestryVerifier,
+) (*AcceptedImageState, error) {
+	state, err := NewAcceptedImageState(legacyRoot, verifier, ancestry)
+	if err != nil {
+		return nil, err
+	}
+	if db == nil {
+		return nil, errors.New("accepted image SQLite database is required")
+	}
+	state.db = db
+	state.authorityKey = legacyRoot
+	return state, state.importLegacyAcceptedImage(context.Background())
 }
 
 // NewAcceptedImageState 构造不持有私钥的 accepted image authority。
@@ -84,6 +108,9 @@ func (s *AcceptedImageState) Load(ctx context.Context) (record gate.AcceptedImag
 	if err := s.validateCall(ctx); err != nil {
 		return record, err
 	}
+	if s.db != nil {
+		return s.loadSQLite(ctx)
+	}
 	lock, err := s.acquireLock(ctx)
 	if err != nil {
 		return record, err
@@ -102,6 +129,9 @@ func (s *AcceptedImageState) Bootstrap(ctx context.Context, record gate.Accepted
 	}
 	if err := s.verifyRecord(ctx, record); err != nil {
 		return err
+	}
+	if s.db != nil {
+		return s.bootstrapSQLite(ctx, record)
 	}
 	lock, err := s.acquireLock(ctx)
 	if err != nil {
@@ -125,6 +155,9 @@ func (s *AcceptedImageState) PromoteCAS(ctx context.Context, promotion gate.Prom
 	}
 	if err := promotion.Validate(); err != nil {
 		return err
+	}
+	if s.db != nil {
+		return s.promoteSQLite(ctx, promotion)
 	}
 	lock, err := s.acquireLock(ctx)
 	if err != nil {
@@ -245,6 +278,9 @@ func (s *AcceptedImageState) validateCall(ctx context.Context) error {
 	}
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if s.db != nil {
+		return nil
 	}
 	return s.validateRoot()
 }

@@ -4,21 +4,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	_ "modernc.org/sqlite"
 )
 
 const (
-	calibrationCheckpointSchemaVersion            uint32 = 5
-	previousCalibrationCheckpointSchemaVersion    uint32 = 3
-	prePreviousCalibrationCheckpointSchemaVersion uint32 = 2
-	legacyCalibrationCheckpointSchemaVersion      uint32 = 1
-	calibrationCheckpointMaxBytes                        = 4 << 20
+	calibrationCheckpointSchemaVersion       uint32 = 1
+	legacyCalibrationCheckpointSchemaVersion uint32 = 5
+	calibrationCheckpointMaxBytes                   = 4 << 20
 )
 
 type calibrationCheckpointDocument struct {
@@ -47,6 +44,13 @@ type calibrationCheckpointInput struct {
 	RunnerImage          string                         `json:"runner_image"`
 }
 
+func (input *calibrationCheckpointInput) Validate() error {
+	if input == nil {
+		return errors.New("calibration checkpoint input is required")
+	}
+	return nil
+}
+
 type calibrationCheckpointResult struct {
 	JobID                                   string                      `json:"job_id"`
 	PlanDigest                              string                      `json:"plan_digest"`
@@ -62,98 +66,306 @@ type calibrationCheckpointResult struct {
 	CompletedAt                             time.Time                   `json:"completed_at"`
 }
 
+func (result *calibrationCheckpointResult) Validate() error {
+	if result == nil {
+		return errors.New("calibration checkpoint result is required")
+	}
+	return nil
+}
+
 // Validate 拒绝版本漂移、空身份和无法恢复的场景状态。
 func (document *calibrationCheckpointDocument) Validate() error {
-	if document.SchemaVersion != calibrationCheckpointSchemaVersion ||
+	if (document.SchemaVersion != calibrationCheckpointSchemaVersion && document.SchemaVersion != legacyCalibrationCheckpointSchemaVersion) ||
 		strings.TrimSpace(document.Identity) == "" || document.Scenarios == nil {
 		return errors.New("calibration checkpoint schema or identity is invalid")
 	}
 	return validateCalibrationCheckpointDocument(*document)
 }
 
-// CalibrationCheckpoint 保存校准场景的真实执行进度，失败重试时复用已通过 workload。
+// CalibrationCheckpoint 将校准场景进度持久化在 duration ledger 的 SQLite 权威库中。
 type CalibrationCheckpoint struct {
-	path     string
-	document calibrationCheckpointDocument
+	store      *gatecontract.DurationLedgerStore
+	legacyPath string
+	identity   string
 }
 
-// NewCalibrationCheckpoint 加载与当前候选身份一致的校准断点。
-func NewCalibrationCheckpoint(path string, identity string) (*CalibrationCheckpoint, error) {
-	if strings.TrimSpace(path) == "" || strings.TrimSpace(identity) == "" {
-		return nil, errors.New("calibration checkpoint path and identity are required")
+// NewCalibrationCheckpoint 打开 duration ledger SQLite 权威库，并严格一次性导入旧 JSON 断点。
+func NewCalibrationCheckpoint(store *gatecontract.DurationLedgerStore, identity string) (*CalibrationCheckpoint, error) {
+	if store == nil || strings.TrimSpace(identity) == "" {
+		return nil, errors.New("calibration checkpoint duration ledger store and identity are required")
 	}
-	document, replace, err := loadCalibrationCheckpoint(path, identity)
-	if err != nil {
+	checkpoint := &CalibrationCheckpoint{
+		store:      store,
+		legacyPath: store.AuthorityPath() + ".calibration.checkpoint",
+		identity:   identity,
+	}
+	if err := checkpoint.ensure(); err != nil {
 		return nil, err
-	}
-	checkpoint := &CalibrationCheckpoint{path: path, document: document}
-	if replace {
-		if err := checkpoint.persist(); err != nil {
-			return nil, err
-		}
 	}
 	return checkpoint, nil
 }
 
-// loadCalibrationCheckpoint 加载当前身份的断点，并迁移已支持的旧版本。
-func loadCalibrationCheckpoint(path string, identity string) (calibrationCheckpointDocument, bool, error) {
-	info, err := os.Stat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return newCalibrationCheckpointDocument(identity), false, nil
-	}
+func (checkpoint *CalibrationCheckpoint) ensure() error {
+	_, _, err := checkpoint.store.LoadCalibrationCheckpoint(checkpoint.identity)
 	if err != nil {
-		return calibrationCheckpointDocument{}, false, err
+		return err
 	}
-	version, storedIdentity, err := readCalibrationCheckpointHeader(path)
-	if err != nil {
-		return calibrationCheckpointDocument{}, false, err
-	}
-	if storedIdentity != identity {
-		return newCalibrationCheckpointDocument(identity), true, nil
-	}
-	return loadVersionedCalibrationCheckpoint(path, identity, version, info.Size())
+	return checkpoint.importLegacyJSONOnce()
 }
 
-// loadVersionedCalibrationCheckpoint 加载当前版本或迁移受支持的历史版本。
-func loadVersionedCalibrationCheckpoint(path, identity string, version uint32, size int64) (calibrationCheckpointDocument, bool, error) {
-	if version != calibrationCheckpointSchemaVersion {
-		// Older checkpoint documents lack the candidate-binary binding. They
-		// may retain progress only after a fresh authoritative run, never reuse.
-		return newCalibrationCheckpointDocument(identity), true, nil
+func (checkpoint *CalibrationCheckpoint) importLegacyJSONOnce() error {
+	content, err := readLegacyCalibrationCheckpoint(checkpoint.legacyPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
 	}
-	if size > calibrationCheckpointMaxBytes {
-		return calibrationCheckpointDocument{}, false, fmt.Errorf("calibration checkpoint exceeds %d bytes", calibrationCheckpointMaxBytes)
-	}
-	content, err := os.ReadFile(path)
 	if err != nil {
-		return calibrationCheckpointDocument{}, false, err
+		return err
 	}
 	var document calibrationCheckpointDocument
 	if err := gatecontract.DecodeStrictJSON(content, &document); err != nil {
-		return calibrationCheckpointDocument{}, false, fmt.Errorf("decode calibration checkpoint: %w", err)
+		return fmt.Errorf("decode legacy calibration checkpoint: %w", err)
+	}
+	if document.SchemaVersion != legacyCalibrationCheckpointSchemaVersion {
+		return fmt.Errorf("legacy calibration checkpoint schema %d is unsupported", document.SchemaVersion)
+	}
+	document.SchemaVersion = calibrationCheckpointSchemaVersion
+	if err := document.Validate(); err != nil {
+		return fmt.Errorf("validate legacy calibration checkpoint: %w", err)
+	}
+	if document.Identity != checkpoint.identity {
+		return nil
+	}
+	_, exists, err := checkpoint.store.LoadCalibrationCheckpoint(checkpoint.identity)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		if err := checkpoint.persist(document); err != nil {
+			return fmt.Errorf("import legacy calibration checkpoint: %w", err)
+		}
+	}
+	if err := os.Remove(checkpoint.legacyPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove imported legacy calibration checkpoint: %w", err)
+	}
+	return nil
+}
+
+func readLegacyCalibrationCheckpoint(path string) ([]byte, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if info.Size() > calibrationCheckpointMaxBytes {
+		return nil, fmt.Errorf("legacy calibration checkpoint exceeds %d bytes", calibrationCheckpointMaxBytes)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read legacy calibration checkpoint: %w", err)
+	}
+	return content, nil
+}
+
+// Completed 返回已经权威完成的场景输入与结果。
+func (checkpoint *CalibrationCheckpoint) Completed(scenario string) (RunInput, RunResult, bool) {
+	document, err := checkpoint.loadDocument()
+	if err != nil {
+		return RunInput{}, RunResult{}, false
+	}
+	state, ok := document.Scenarios[scenario]
+	if !ok || !state.Completed || state.Input == nil || state.Result == nil {
+		return RunInput{}, RunResult{}, false
+	}
+	return state.Input.expand(), state.Result.expand(), true
+}
+
+// Reopen 清除场景的完成载荷，但保留已开始状态供缓存恢复执行。
+func (checkpoint *CalibrationCheckpoint) Reopen(scenario string) error {
+	document, err := checkpoint.loadDocument()
+	if err != nil {
+		return err
+	}
+	state, ok := document.Scenarios[scenario]
+	if !ok || !state.Completed {
+		return nil
+	}
+	return checkpoint.compareAndSwapScenario(scenario, &state, calibrationScenarioState{Started: true})
+}
+
+// Observe 原子保存包含成功时长样本的执行结果。
+func (checkpoint *CalibrationCheckpoint) Observe(scenario string, input RunInput, result RunResult, completed bool) error {
+	if strings.TrimSpace(scenario) == "" {
+		return errors.New("calibration checkpoint scenario is required")
+	}
+	if !input.Calibration {
+		return errors.New("calibration checkpoint input is not a calibration run")
+	}
+	if completed {
+		if err := validateCompletedCalibrationCheckpoint(*compactCalibrationCheckpointInput(input), *compactCalibrationCheckpointResult(result)); err != nil {
+			return err
+		}
+	}
+	document, err := checkpoint.loadDocument()
+	if err != nil {
+		return err
+	}
+	if len(result.DurationSamples) == 0 {
+		state, ok := document.Scenarios[scenario]
+		if !ok || !state.Started || !completed {
+			return nil
+		}
+		previous := state
+		state.Completed = true
+		state.Input = compactCalibrationCheckpointInput(input)
+		state.Result = compactCalibrationCheckpointResult(result)
+		return checkpoint.compareAndSwapScenario(scenario, &previous, state)
+	}
+	state := calibrationScenarioState{Started: true, Completed: completed}
+	if completed {
+		state.Input = compactCalibrationCheckpointInput(input)
+		state.Result = compactCalibrationCheckpointResult(result)
+	}
+	previous, exists := document.Scenarios[scenario]
+	if !exists {
+		return checkpoint.compareAndSwapScenario(scenario, nil, state)
+	}
+	return checkpoint.compareAndSwapScenario(scenario, &previous, state)
+}
+
+func (checkpoint *CalibrationCheckpoint) loadDocument() (calibrationCheckpointDocument, error) {
+	document := calibrationCheckpointDocument{SchemaVersion: calibrationCheckpointSchemaVersion, Identity: checkpoint.identity, Scenarios: make(map[string]calibrationScenarioState)}
+	record, found, err := checkpoint.store.LoadCalibrationCheckpoint(checkpoint.identity)
+	if err != nil {
+		return calibrationCheckpointDocument{}, err
+	}
+	if !found {
+		return document, nil
+	}
+	document.SchemaVersion = record.SchemaVersion
+	for _, persisted := range record.Scenarios {
+		state, err := decodeCalibrationCheckpointState(boolToInt(persisted.Started), boolToInt(persisted.Completed), persisted.InputJSON, persisted.ResultJSON)
+		if err != nil {
+			return calibrationCheckpointDocument{}, fmt.Errorf("decode calibration checkpoint scenario %q: %w", persisted.Scenario, err)
+		}
+		document.Scenarios[persisted.Scenario] = state
 	}
 	if err := document.Validate(); err != nil {
-		return calibrationCheckpointDocument{}, false, err
+		return calibrationCheckpointDocument{}, err
 	}
-	return document, false, nil
+	return document, nil
 }
 
-func newCalibrationCheckpointDocument(identity string) calibrationCheckpointDocument {
-	return calibrationCheckpointDocument{
-		SchemaVersion: calibrationCheckpointSchemaVersion,
-		Identity:      identity,
-		Scenarios:     make(map[string]calibrationScenarioState),
+func decodeCalibrationCheckpointState(started, completed int, inputJSON, resultJSON string) (calibrationScenarioState, error) {
+	if started != 1 || (completed != 0 && completed != 1) {
+		return calibrationScenarioState{}, errors.New("invalid persisted state")
 	}
+	state := calibrationScenarioState{Started: true, Completed: completed == 1}
+	if !state.Completed {
+		if inputJSON != "" || resultJSON != "" {
+			return calibrationScenarioState{}, errors.New("incomplete state retained execution payload")
+		}
+		return state, nil
+	}
+	state.Input = &calibrationCheckpointInput{}
+	state.Result = &calibrationCheckpointResult{}
+	if err := gatecontract.DecodeStrictJSON([]byte(inputJSON), state.Input); err != nil {
+		return calibrationScenarioState{}, fmt.Errorf("decode input: %w", err)
+	}
+	if err := gatecontract.DecodeStrictJSON([]byte(resultJSON), state.Result); err != nil {
+		return calibrationScenarioState{}, fmt.Errorf("decode result: %w", err)
+	}
+	return state, nil
 }
 
-// validateCalibrationCheckpointDocument 严格校验断点中的场景全集和已观察结果。
+func (checkpoint *CalibrationCheckpoint) persist(document calibrationCheckpointDocument) error {
+	if document.Identity != checkpoint.identity {
+		return errors.New("calibration checkpoint identity does not match authority")
+	}
+	if err := document.Validate(); err != nil {
+		return err
+	}
+	record := gatecontract.CalibrationCheckpointRecord{Identity: document.Identity, SchemaVersion: document.SchemaVersion, Scenarios: make([]gatecontract.CalibrationCheckpointScenarioRecord, 0, len(document.Scenarios))}
+	for scenario, state := range document.Scenarios {
+		inputJSON, resultJSON, err := encodeCalibrationCheckpointState(state)
+		if err != nil {
+			return fmt.Errorf("encode calibration checkpoint scenario %q: %w", scenario, err)
+		}
+		record.Scenarios = append(record.Scenarios, gatecontract.CalibrationCheckpointScenarioRecord{Scenario: scenario, Started: state.Started, Completed: state.Completed, InputJSON: inputJSON, ResultJSON: resultJSON})
+	}
+	_, err := checkpoint.store.CreateCalibrationCheckpointIfAbsent(record)
+	return err
+}
+
+func (checkpoint *CalibrationCheckpoint) compareAndSwapScenario(scenario string, expected *calibrationScenarioState, next calibrationScenarioState) error {
+	nextRecord, err := calibrationCheckpointScenarioRecord(scenario, next)
+	if err != nil {
+		return err
+	}
+	var expectedRecord *gatecontract.CalibrationCheckpointScenarioRecord
+	if expected != nil {
+		record, err := calibrationCheckpointScenarioRecord(scenario, *expected)
+		if err != nil {
+			return err
+		}
+		expectedRecord = &record
+	}
+	return checkpoint.store.CompareAndSwapCalibrationCheckpointScenario(checkpoint.identity, calibrationCheckpointSchemaVersion, expectedRecord, nextRecord)
+}
+
+func calibrationCheckpointScenarioRecord(scenario string, state calibrationScenarioState) (gatecontract.CalibrationCheckpointScenarioRecord, error) {
+	inputJSON, resultJSON, err := encodeCalibrationCheckpointState(state)
+	if err != nil {
+		return gatecontract.CalibrationCheckpointScenarioRecord{}, err
+	}
+	return gatecontract.CalibrationCheckpointScenarioRecord{Scenario: scenario, Started: state.Started, Completed: state.Completed, InputJSON: inputJSON, ResultJSON: resultJSON}, nil
+}
+
+func encodeCalibrationCheckpointState(state calibrationScenarioState) (string, string, error) {
+	if !state.Completed {
+		return "", "", nil
+	}
+	inputJSON, err := json.Marshal(state.Input)
+	if err != nil {
+		return "", "", err
+	}
+	resultJSON, err := json.Marshal(state.Result)
+	if err != nil {
+		return "", "", err
+	}
+	return string(inputJSON), string(resultJSON), nil
+}
+
+func boolToInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
+}
+
+// Remove 删除已经接受的校准断点。
+func (checkpoint *CalibrationCheckpoint) Remove() error {
+	return checkpoint.store.DeleteCalibrationCheckpoint(checkpoint.identity)
+}
+
+func compactCalibrationCheckpointInput(input RunInput) *calibrationCheckpointInput {
+	return &calibrationCheckpointInput{Tree: input.Tree, Source: input.Source, Profile: input.Profile, Entrypoint: input.Entrypoint, Platform: input.Platform, ToolchainDigest: input.ToolchainDigest, Inventory: input.Inventory, Calibration: input.Calibration, RunnerIdentityDigest: input.RunnerIdentityDigest, RunnerImage: input.RunnerImage}
+}
+
+func (input calibrationCheckpointInput) expand() RunInput {
+	return RunInput{Tree: input.Tree, Source: input.Source, Profile: input.Profile, Entrypoint: input.Entrypoint, Platform: input.Platform, ToolchainDigest: input.ToolchainDigest, Inventory: input.Inventory, Calibration: input.Calibration, RunnerIdentityDigest: input.RunnerIdentityDigest, RunnerImage: input.RunnerImage}
+}
+
+func compactCalibrationCheckpointResult(result RunResult) *calibrationCheckpointResult {
+	return &calibrationCheckpointResult{JobID: result.JobID, PlanDigest: result.PlanDigest, CatalogDigest: result.CatalogDigest, SourceTreeSHA: result.SourceTreeSHA, Entrypoint: result.Entrypoint, Profile: result.Profile, CandidateCLIManifestSHA256: result.CandidateCLIManifestSHA256, CandidateTestBinaryReceiptBindingDigest: result.CandidateTestBinaryReceiptBindingDigest, Status: result.Status, Authoritative: result.Authoritative, CleanupComplete: result.CleanupComplete, CompletedAt: result.CompletedAt}
+}
+
+func (result calibrationCheckpointResult) expand() RunResult {
+	return RunResult{JobID: result.JobID, PlanDigest: result.PlanDigest, CatalogDigest: result.CatalogDigest, SourceTreeSHA: result.SourceTreeSHA, Entrypoint: result.Entrypoint, Profile: result.Profile, CandidateCLIManifestSHA256: result.CandidateCLIManifestSHA256, CandidateTestBinaryReceiptBindingDigest: result.CandidateTestBinaryReceiptBindingDigest, Status: result.Status, Authoritative: result.Authoritative, CleanupComplete: result.CleanupComplete, CompletedAt: result.CompletedAt}
+}
+
 func validateCalibrationCheckpointDocument(document calibrationCheckpointDocument) error {
 	for scenario, state := range document.Scenarios {
-		if strings.TrimSpace(scenario) == "" {
-			return errors.New("calibration checkpoint contains an empty scenario")
-		}
-		if !state.Started {
-			return fmt.Errorf("calibration checkpoint scenario %q has invalid observed state", scenario)
+		if strings.TrimSpace(scenario) == "" || !state.Started {
+			return errors.New("calibration checkpoint contains invalid scenario state")
 		}
 		if !state.Completed {
 			if state.Input != nil || state.Result != nil {
@@ -171,477 +383,15 @@ func validateCalibrationCheckpointDocument(document calibrationCheckpointDocumen
 	return nil
 }
 
-// Completed 返回已经权威完成的场景输入与结果。
-func (checkpoint *CalibrationCheckpoint) Completed(scenario string) (RunInput, RunResult, bool) {
-	state, ok := checkpoint.document.Scenarios[scenario]
-	if !ok || !state.Completed || state.Input == nil || state.Result == nil {
-		return RunInput{}, RunResult{}, false
-	}
-	return state.Input.expand(), state.Result.expand(), true
-}
-
-// Reopen 清除场景的完成载荷，但保留已开始状态供缓存恢复执行。
-func (checkpoint *CalibrationCheckpoint) Reopen(scenario string) error {
-	state, ok := checkpoint.document.Scenarios[scenario]
-	if !ok || !state.Completed {
-		return nil
-	}
-	checkpoint.document.Scenarios[scenario] = calibrationScenarioState{Started: true}
-	return checkpoint.persist()
-}
-
-// Observe 原子保存包含成功时长样本的执行结果。
-func (checkpoint *CalibrationCheckpoint) Observe(
-	scenario string,
-	input RunInput,
-	result RunResult,
-	completed bool,
-) error {
-	if strings.TrimSpace(scenario) == "" {
-		return errors.New("calibration checkpoint scenario is required")
-	}
-	if !input.Calibration {
-		return errors.New("calibration checkpoint input is not a calibration run")
-	}
-	if completed {
-		compactInput := compactCalibrationCheckpointInput(input)
-		compactResult := compactCalibrationCheckpointResult(result)
-		if err := validateCompletedCalibrationCheckpoint(*compactInput, *compactResult); err != nil {
-			return err
-		}
-	}
-	if len(result.DurationSamples) == 0 {
-		return checkpoint.observeCachedCompletion(scenario, input, result, completed)
-	}
-	state := calibrationScenarioState{Started: true, Completed: completed}
-	if completed {
-		state.Input = compactCalibrationCheckpointInput(input)
-		state.Result = compactCalibrationCheckpointResult(result)
-	}
-	checkpoint.document.Scenarios[scenario] = state
-	return checkpoint.persist()
-}
-
-func (checkpoint *CalibrationCheckpoint) observeCachedCompletion(
-	scenario string,
-	input RunInput,
-	result RunResult,
-	completed bool,
-) error {
-	state, ok := checkpoint.document.Scenarios[scenario]
-	if !ok || !state.Started || !completed {
-		return nil
-	}
-	state.Completed = true
-	state.Input = compactCalibrationCheckpointInput(input)
-	state.Result = compactCalibrationCheckpointResult(result)
-	checkpoint.document.Scenarios[scenario] = state
-	return checkpoint.persist()
-}
-
-func compactCalibrationCheckpointInput(input RunInput) *calibrationCheckpointInput {
-	return &calibrationCheckpointInput{
-		Tree: input.Tree, Source: input.Source, Profile: input.Profile, Entrypoint: input.Entrypoint,
-		Platform: input.Platform, ToolchainDigest: input.ToolchainDigest, Inventory: input.Inventory,
-		Calibration: input.Calibration, RunnerIdentityDigest: input.RunnerIdentityDigest,
-		RunnerImage: input.RunnerImage,
-	}
-}
-
-func (input calibrationCheckpointInput) expand() RunInput {
-	return RunInput{
-		Tree: input.Tree, Source: input.Source, Profile: input.Profile, Entrypoint: input.Entrypoint,
-		Platform: input.Platform, ToolchainDigest: input.ToolchainDigest, Inventory: input.Inventory,
-		Calibration: input.Calibration, RunnerIdentityDigest: input.RunnerIdentityDigest,
-		RunnerImage: input.RunnerImage,
-	}
-}
-
-func compactCalibrationCheckpointResult(result RunResult) *calibrationCheckpointResult {
-	return &calibrationCheckpointResult{
-		JobID: result.JobID, PlanDigest: result.PlanDigest, CatalogDigest: result.CatalogDigest,
-		SourceTreeSHA: result.SourceTreeSHA, Entrypoint: result.Entrypoint, Profile: result.Profile,
-		CandidateCLIManifestSHA256:              result.CandidateCLIManifestSHA256,
-		CandidateTestBinaryReceiptBindingDigest: result.CandidateTestBinaryReceiptBindingDigest,
-		Status:                                  result.Status, Authoritative: result.Authoritative,
-		CleanupComplete: result.CleanupComplete, CompletedAt: result.CompletedAt,
-	}
-}
-
-func (result calibrationCheckpointResult) expand() RunResult {
-	return RunResult{
-		JobID: result.JobID, PlanDigest: result.PlanDigest, CatalogDigest: result.CatalogDigest,
-		SourceTreeSHA: result.SourceTreeSHA, Entrypoint: result.Entrypoint, Profile: result.Profile,
-		CandidateCLIManifestSHA256:              result.CandidateCLIManifestSHA256,
-		CandidateTestBinaryReceiptBindingDigest: result.CandidateTestBinaryReceiptBindingDigest,
-		Status:                                  result.Status, Authoritative: result.Authoritative,
-		CleanupComplete: result.CleanupComplete, CompletedAt: result.CompletedAt,
-	}
-}
-
-// validateCompletedCalibrationCheckpoint 校验完成场景的输入、结果和身份绑定。
-func validateCompletedCalibrationCheckpoint(
-	input calibrationCheckpointInput,
-	result calibrationCheckpointResult,
-) error {
-	if !validCompletedCalibrationInput(input) {
+func validateCompletedCalibrationCheckpoint(input calibrationCheckpointInput, result calibrationCheckpointResult) error {
+	if !input.Calibration || strings.TrimSpace(input.Tree) == "" || strings.TrimSpace(input.RunnerIdentityDigest) == "" || strings.TrimSpace(input.RunnerImage) == "" {
 		return errors.New("completed calibration checkpoint input identity is incomplete")
 	}
-	if !validCompletedCalibrationResult(result) {
+	if strings.TrimSpace(result.JobID) == "" || strings.TrimSpace(result.PlanDigest) == "" || strings.TrimSpace(result.CatalogDigest) == "" || strings.TrimSpace(result.SourceTreeSHA) == "" || !validObjectDigest(result.CandidateCLIManifestSHA256) || !remoteDigestPattern.MatchString(result.CandidateTestBinaryReceiptBindingDigest) || result.Entrypoint == "" || result.Profile == "" || result.Status != gatecontract.ResultStatusPassed || !result.Authoritative || !result.CleanupComplete || result.CompletedAt.IsZero() {
 		return errors.New("completed calibration checkpoint result identity is incomplete")
 	}
-	if !matchesCompletedCalibrationInput(input, result) {
+	if result.SourceTreeSHA != input.Tree || result.Entrypoint != input.Entrypoint || result.Profile != input.Profile {
 		return errors.New("completed calibration checkpoint result does not match its input")
 	}
 	return nil
-}
-
-// validCompletedCalibrationInput 校验可恢复完成记录的输入身份。
-func validCompletedCalibrationInput(input calibrationCheckpointInput) bool {
-	return input.Calibration && strings.TrimSpace(input.Tree) != "" &&
-		strings.TrimSpace(input.RunnerIdentityDigest) != "" && strings.TrimSpace(input.RunnerImage) != ""
-}
-
-// validCompletedCalibrationResult 校验可恢复完成记录的权威结果。
-func validCompletedCalibrationResult(result calibrationCheckpointResult) bool {
-	return validCompletedCalibrationResultIdentity(result) && validCompletedCalibrationResultStatus(result)
-}
-
-// validCompletedCalibrationResultIdentity 判断已完成结果的不可变标识完整。
-func validCompletedCalibrationResultIdentity(result calibrationCheckpointResult) bool {
-	return strings.TrimSpace(result.JobID) != "" && strings.TrimSpace(result.PlanDigest) != "" &&
-		strings.TrimSpace(result.CatalogDigest) != "" && strings.TrimSpace(result.SourceTreeSHA) != "" &&
-		validObjectDigest(result.CandidateCLIManifestSHA256) &&
-		remoteDigestPattern.MatchString(result.CandidateTestBinaryReceiptBindingDigest)
-}
-
-// validCompletedCalibrationResultStatus 判断已完成结果具备可接受终态。
-func validCompletedCalibrationResultStatus(result calibrationCheckpointResult) bool {
-	return result.Entrypoint != "" && result.Profile != "" && result.Status == gatecontract.ResultStatusPassed &&
-		result.Authoritative && result.CleanupComplete && !result.CompletedAt.IsZero()
-}
-
-// matchesCompletedCalibrationInput 校验完成结果仍绑定到原始输入。
-func matchesCompletedCalibrationInput(input calibrationCheckpointInput, result calibrationCheckpointResult) bool {
-	return result.SourceTreeSHA == input.Tree && result.Entrypoint == input.Entrypoint && result.Profile == input.Profile
-}
-
-// readCalibrationCheckpointHeader 只读取并验证文档的版本和身份头部。
-func readCalibrationCheckpointHeader(path string) (uint32, string, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return 0, "", err
-	}
-	defer file.Close()
-	decoder := json.NewDecoder(file)
-	if err := expectJSONDelimiter(decoder, '{'); err != nil {
-		return 0, "", err
-	}
-	var version uint32
-	var identity string
-	seen := make(map[string]struct{}, 2)
-	for decoder.More() {
-		key, err := nextJSONObjectKey(decoder, seen)
-		if err != nil {
-			return 0, "", err
-		}
-		switch key {
-		case "schema_version":
-			err = decoder.Decode(&version)
-		case "identity":
-			err = decoder.Decode(&identity)
-		default:
-			return 0, "", errors.New("calibration checkpoint header must precede scenario payload")
-		}
-		if err != nil {
-			return 0, "", err
-		}
-		if version != 0 && strings.TrimSpace(identity) != "" {
-			return version, identity, nil
-		}
-	}
-	return 0, "", errors.New("calibration checkpoint header is incomplete")
-}
-
-// migrateLegacyCalibrationCheckpointDocument 流式迁移旧版本断点文档。
-func migrateLegacyCalibrationCheckpointDocument(
-	decoder *json.Decoder,
-	identity string,
-	expectedVersion uint32,
-) (calibrationCheckpointDocument, error) {
-	if err := expectJSONDelimiter(decoder, '{'); err != nil {
-		return calibrationCheckpointDocument{}, err
-	}
-	document := newCalibrationCheckpointDocument(identity)
-	seen := make(map[string]struct{}, 3)
-	var version uint32
-	var storedIdentity string
-	for decoder.More() {
-		key, err := nextJSONObjectKey(decoder, seen)
-		if err != nil {
-			return calibrationCheckpointDocument{}, err
-		}
-		err = migrateLegacyCalibrationCheckpointField(decoder, key, &version, &storedIdentity, &document)
-		if err != nil {
-			return calibrationCheckpointDocument{}, err
-		}
-	}
-	if err := expectJSONDelimiter(decoder, '}'); err != nil {
-		return calibrationCheckpointDocument{}, err
-	}
-	if err := rejectTrailingJSON(decoder); err != nil {
-		return calibrationCheckpointDocument{}, err
-	}
-	if err := validateLegacyCalibrationCheckpointDocument(
-		document,
-		version,
-		expectedVersion,
-		storedIdentity,
-		identity,
-		seen,
-	); err != nil {
-		return calibrationCheckpointDocument{}, err
-	}
-	return document, nil
-}
-
-func validateLegacyCalibrationCheckpointDocument(
-	document calibrationCheckpointDocument,
-	version uint32,
-	expectedVersion uint32,
-	storedIdentity string,
-	identity string,
-	seen map[string]struct{},
-) error {
-	if version != expectedVersion || storedIdentity != identity || len(seen) != 3 {
-		return errors.New("legacy calibration checkpoint identity or schema is invalid")
-	}
-	return document.Validate()
-}
-
-func migrateLegacyCalibrationCheckpointField(
-	decoder *json.Decoder,
-	key string,
-	version *uint32,
-	identity *string,
-	document *calibrationCheckpointDocument,
-) error {
-	switch key {
-	case "schema_version":
-		return decoder.Decode(version)
-	case "identity":
-		return decoder.Decode(identity)
-	case "scenarios":
-		scenarios, err := migrateLegacyCalibrationScenarios(decoder)
-		if err != nil {
-			return err
-		}
-		document.Scenarios = scenarios
-		return nil
-	default:
-		return fmt.Errorf("legacy calibration checkpoint contains unknown field %q", key)
-	}
-}
-
-// migrateLegacyCalibrationScenarios 严格迁移旧场景对象。
-func migrateLegacyCalibrationScenarios(decoder *json.Decoder) (map[string]calibrationScenarioState, error) {
-	if err := expectJSONDelimiter(decoder, '{'); err != nil {
-		return nil, err
-	}
-	states := make(map[string]calibrationScenarioState)
-	seen := make(map[string]struct{})
-	for decoder.More() {
-		scenario, err := nextJSONObjectKey(decoder, seen)
-		if err != nil {
-			return nil, err
-		}
-		if strings.TrimSpace(scenario) == "" {
-			return nil, errors.New("legacy calibration checkpoint contains an empty scenario")
-		}
-		state, err := migrateLegacyCalibrationScenario(decoder)
-		if err != nil {
-			return nil, fmt.Errorf("migrate legacy calibration scenario %q: %w", scenario, err)
-		}
-		states[scenario] = state
-	}
-	if err := expectJSONDelimiter(decoder, '}'); err != nil {
-		return nil, err
-	}
-	return states, nil
-}
-
-// migrateLegacyCalibrationScenario 严格读取旧场景状态并仅保留可安全恢复的开始标记。
-func migrateLegacyCalibrationScenario(decoder *json.Decoder) (calibrationScenarioState, error) {
-	if err := expectJSONDelimiter(decoder, '{'); err != nil {
-		return calibrationScenarioState{}, err
-	}
-	seen := make(map[string]struct{}, 4)
-	var (
-		started   bool
-		completed bool
-	)
-	for decoder.More() {
-		if err := decodeLegacyCalibrationScenarioField(decoder, seen, &started, &completed); err != nil {
-			return calibrationScenarioState{}, err
-		}
-	}
-	if err := expectJSONDelimiter(decoder, '}'); err != nil {
-		return calibrationScenarioState{}, err
-	}
-	_, hasStarted := seen["started"]
-	_, hasCompleted := seen["completed"]
-	_, hasInput := seen["input"]
-	_, hasResult := seen["result"]
-	if !validLegacyCalibrationScenarioFields(hasStarted, hasCompleted, started, hasInput, hasResult) {
-		return calibrationScenarioState{}, errors.New("legacy calibration scenario is incomplete")
-	}
-	if completed != hasInput {
-		return calibrationScenarioState{}, errors.New("legacy calibration scenario payload does not match completion")
-	}
-	return calibrationScenarioState{Started: true}, nil
-}
-
-// decodeLegacyCalibrationScenarioField 解码一个旧场景字段并拒绝未知字段。
-func decodeLegacyCalibrationScenarioField(decoder *json.Decoder, seen map[string]struct{}, started, completed *bool) error {
-	key, err := nextJSONObjectKey(decoder, seen)
-	if err != nil {
-		return err
-	}
-	switch key {
-	case "started":
-		return decoder.Decode(started)
-	case "completed":
-		return decoder.Decode(completed)
-	case "input", "result":
-		return skipJSONValue(decoder)
-	default:
-		return fmt.Errorf("unknown legacy scenario field %q", key)
-	}
-}
-
-// validLegacyCalibrationScenarioFields 校验旧场景字段集合与开始标记。
-func validLegacyCalibrationScenarioFields(hasStarted, hasCompleted, started, hasInput, hasResult bool) bool {
-	return hasStarted && hasCompleted && started && hasInput == hasResult
-}
-
-func nextJSONObjectKey(decoder *json.Decoder, seen map[string]struct{}) (string, error) {
-	token, err := decoder.Token()
-	if err != nil {
-		return "", err
-	}
-	key, ok := token.(string)
-	if !ok || key == "" {
-		return "", errors.New("JSON object key is invalid")
-	}
-	if _, duplicate := seen[key]; duplicate {
-		return "", fmt.Errorf("JSON object field %q is duplicated", key)
-	}
-	seen[key] = struct{}{}
-	return key, nil
-}
-
-func expectJSONDelimiter(decoder *json.Decoder, expected json.Delim) error {
-	token, err := decoder.Token()
-	if err != nil {
-		return err
-	}
-	delimiter, ok := token.(json.Delim)
-	if !ok || delimiter != expected {
-		return fmt.Errorf("expected JSON delimiter %q", expected)
-	}
-	return nil
-}
-
-// skipJSONValue 跳过一个完整 JSON 值，同时保持流式结构校验。
-func skipJSONValue(decoder *json.Decoder) error {
-	token, err := decoder.Token()
-	if err != nil {
-		return err
-	}
-	delimiter, compound := token.(json.Delim)
-	if !compound {
-		return nil
-	}
-	switch delimiter {
-	case '{':
-		return skipJSONObject(decoder)
-	case '[':
-		return skipJSONArray(decoder)
-	default:
-		return errors.New("JSON value has an unexpected closing delimiter")
-	}
-}
-
-// skipJSONObject 跳过对象的每个键和值。
-func skipJSONObject(decoder *json.Decoder) error {
-	for decoder.More() {
-		key, err := decoder.Token()
-		if err != nil {
-			return err
-		}
-		if _, ok := key.(string); !ok {
-			return errors.New("JSON object key is invalid")
-		}
-		if err := skipJSONValue(decoder); err != nil {
-			return err
-		}
-	}
-	return expectJSONDelimiter(decoder, '}')
-}
-
-// skipJSONArray 跳过数组的每个值。
-func skipJSONArray(decoder *json.Decoder) error {
-	for decoder.More() {
-		if err := skipJSONValue(decoder); err != nil {
-			return err
-		}
-	}
-	return expectJSONDelimiter(decoder, ']')
-}
-
-func rejectTrailingJSON(decoder *json.Decoder) error {
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return errors.New("calibration checkpoint has trailing JSON")
-		}
-		return err
-	}
-	return nil
-}
-
-// persist 通过同目录原子替换持久化断点，避免中断留下半份文档。
-func (checkpoint *CalibrationCheckpoint) persist() error {
-	content, err := json.Marshal(checkpoint.document)
-	if err != nil {
-		return fmt.Errorf("encode calibration checkpoint: %w", err)
-	}
-	directory := filepath.Dir(checkpoint.path)
-	temporary, err := os.CreateTemp(directory, filepath.Base(checkpoint.path)+".tmp-*")
-	if err != nil {
-		return err
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return err
-	}
-	if _, err := temporary.Write(content); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	return os.Rename(temporaryPath, checkpoint.path)
-}
-
-// Remove 删除已经接受的校准断点。
-func (checkpoint *CalibrationCheckpoint) Remove() error {
-	err := os.Remove(checkpoint.path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	return err
 }

@@ -48,9 +48,13 @@ func connectProductionCoordinator(ctx context.Context) (coordinatorClient, error
 	if err != nil {
 		return nil, fmt.Errorf("establish Docker scheduler authority: %w", err)
 	}
-	return newDeferredCoordinatorClient(ctx, checkpoint, planner, func(connectCtx context.Context) (*localci.SchedulerClient, error) {
+	client, err := newDeferredCoordinatorClient(ctx, checkpoint, planner, func(connectCtx context.Context) (*localci.SchedulerClient, error) {
 		return connectScheduler(connectCtx, checkpoint, executableOwnerStarter{})
 	})
+	if err != nil {
+		return nil, errors.Join(err, planner.Close())
+	}
+	return client, nil
 }
 
 // runSubmit 先生成 canonical plan，再持久化独立 invocation/job 并提交 scheduler。

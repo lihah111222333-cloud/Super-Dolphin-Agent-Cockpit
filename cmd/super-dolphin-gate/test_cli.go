@@ -105,7 +105,7 @@ func prepareAutoTestRun(
 		return remoteRunConfig{}, remoteci.RunInput{},
 			protocolError("load remote CI config: %v", err)
 	}
-	state, err := loadAcceptedRemoteBaseline(options.ConfigPath, options.StatePath)
+	state, err := loadAcceptedRemoteBaseline(options.ConfigPath, options.StatePath, options.LedgerPath)
 	if err != nil {
 		return remoteRunConfig{}, remoteci.RunInput{},
 			protocolError("load accepted remote baseline: %v", err)

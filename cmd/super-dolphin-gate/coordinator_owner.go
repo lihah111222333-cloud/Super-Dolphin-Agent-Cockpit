@@ -536,7 +536,11 @@ func (owner *coordinatorOwner) Close() error {
 		return localci.ErrSchedulerClosed
 	}
 	owner.closeOnce.Do(func() {
-		owner.closeErr = errors.Join(owner.schedulerClient.Close(), owner.schedulerOwner.Close(), owner.store.close())
+		var promotionErr error
+		if closer, ok := owner.dependencies.CandidateBuilder.(interface{ Close() error }); ok {
+			promotionErr = closer.Close()
+		}
+		owner.closeErr = errors.Join(owner.schedulerClient.Close(), owner.schedulerOwner.Close(), promotionErr, owner.store.close())
 	})
 	return owner.closeErr
 }

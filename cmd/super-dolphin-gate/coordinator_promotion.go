@@ -15,6 +15,7 @@ import (
 )
 
 type productionPromotionAuthority struct {
+	store      *coordinatorStore
 	state      *localci.AcceptedImageState
 	accepted   *productionAcceptedImageLoader
 	authority  *productionGitAuthority
@@ -25,6 +26,34 @@ type productionPromotionAuthority struct {
 type productionAcceptedImageSigner struct {
 	identity gatecontract.SignerIdentity
 	key      ed25519.PrivateKey
+}
+
+// openProductionPromotionAuthorityDB resolves the same daemon-identity keyed
+// coordinator ledger used by the owner.  It deliberately does not create an
+// authority database under either legacy JSON root.
+func openProductionPromotionAuthorityStore(
+	ctx context.Context,
+	config productionCoordinatorConfig,
+) (*coordinatorStore, error) {
+	checkpoint, err := localci.ProbeDockerSchedulerAuthorityWithCapacity(ctx, config.MaxActiveCIWorkloads)
+	if err != nil {
+		return nil, fmt.Errorf("probe coordinator authority for promotion state: %w", err)
+	}
+	store, err := openCoordinatorStore(ctx, checkpoint)
+	if err != nil {
+		return nil, err
+	}
+	return store, nil
+}
+
+// Close releases the independently opened coordinator ledger.
+func (authority *productionPromotionAuthority) Close() error {
+	if authority == nil || authority.store == nil {
+		return errors.New("production promotion authority store is not open")
+	}
+	err := authority.store.close()
+	authority.store = nil
+	return err
 }
 
 // SignerIdentity 返回宿主 authority 身份而不暴露私钥材料。
@@ -59,20 +88,24 @@ func newProductionPromotionAuthority(
 	if err != nil {
 		return nil, err
 	}
-	state, err := localci.NewAcceptedImageState(config.AcceptedImageRoot, verifier, authority)
-	if err != nil {
-		return nil, fmt.Errorf("open accepted image state: %w", err)
-	}
-	candidates, err := localci.NewPromotionCandidateStore(config.CandidateStateRoot)
-	if err != nil {
-		return nil, fmt.Errorf("open promotion candidate state: %w", err)
-	}
-	signer, err := newProductionAcceptedImageSigner(config)
+	store, err := openProductionPromotionAuthorityStore(ctx, config)
 	if err != nil {
 		return nil, err
 	}
+	state, err := localci.NewAcceptedImageStateSQLite(store.db, config.AcceptedImageRoot, verifier, authority)
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("open accepted image state: %w", err), store.close())
+	}
+	candidates, err := localci.NewPromotionCandidateStoreSQLite(store.db, config.CandidateStateRoot)
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("open promotion candidate state: %w", err), store.close())
+	}
+	signer, err := newProductionAcceptedImageSigner(config)
+	if err != nil {
+		return nil, errors.Join(err, store.close())
+	}
 	return &productionPromotionAuthority{
-		state: state, accepted: &productionAcceptedImageLoader{state: state, authority: authority},
+		store: store, state: state, accepted: &productionAcceptedImageLoader{state: state, authority: authority},
 		authority: authority, candidates: candidates, signer: signer,
 	}, nil
 }
@@ -122,11 +155,22 @@ func configuredPromotionPublicKey(config productionCoordinatorConfig) (ed25519.P
 }
 
 type productionCandidateSubmissionPlanner struct {
+	store      *coordinatorStore
 	accepted   *productionAcceptedImageLoader
 	authority  *productionGitAuthority
 	candidates *localci.PromotionCandidateStore
 	config     productionCoordinatorConfig
 	now        func() time.Time
+}
+
+// Close releases the coordinator SQLite handle opened for submit-time planning.
+func (planner *productionCandidateSubmissionPlanner) Close() error {
+	if planner == nil || planner.store == nil {
+		return errors.New("production candidate planner store is not open")
+	}
+	err := planner.store.close()
+	planner.store = nil
+	return err
 }
 
 func newProductionCandidateSubmissionPlanner(
@@ -141,16 +185,20 @@ func newProductionCandidateSubmissionPlanner(
 	if err != nil {
 		return nil, err
 	}
-	state, err := localci.NewAcceptedImageState(config.AcceptedImageRoot, verifier, authority)
+	store, err := openProductionPromotionAuthorityStore(ctx, config)
 	if err != nil {
 		return nil, err
 	}
-	candidates, err := localci.NewPromotionCandidateStore(config.CandidateStateRoot)
+	state, err := localci.NewAcceptedImageStateSQLite(store.db, config.AcceptedImageRoot, verifier, authority)
 	if err != nil {
-		return nil, err
+		return nil, errors.Join(err, store.close())
+	}
+	candidates, err := localci.NewPromotionCandidateStoreSQLite(store.db, config.CandidateStateRoot)
+	if err != nil {
+		return nil, errors.Join(err, store.close())
 	}
 	return &productionCandidateSubmissionPlanner{
-		accepted: &productionAcceptedImageLoader{state: state, authority: authority}, authority: authority,
+		store: store, accepted: &productionAcceptedImageLoader{state: state, authority: authority}, authority: authority,
 		candidates: candidates, config: config, now: time.Now,
 	}, nil
 }
@@ -292,12 +340,23 @@ func promotionCommitFromSource(source gatecontract.SourceSpec) (string, error) {
 }
 
 type productionCandidateBuildService struct {
+	promotion     *productionPromotionAuthority
 	store         *localci.PromotionCandidateStore
 	accepted      *productionAcceptedImageLoader
 	authority     *productionGitAuthority
 	builder       localci.CandidateImageBuilder
 	resolver      localci.CandidateImageIdentityResolver
 	promotionPoll time.Duration
+}
+
+// Close releases the promotion authority shared by the long-lived build and watcher services.
+func (service *productionCandidateBuildService) Close() error {
+	if service == nil || service.promotion == nil {
+		return errors.New("production candidate build service promotion authority is not open")
+	}
+	err := service.promotion.Close()
+	service.promotion = nil
+	return err
 }
 
 // ExecuteBuild 持久化候选镜像后才推进 canonical trusted ref。
@@ -354,10 +413,7 @@ func (service *productionCandidateBuildService) waitForAcceptedCandidate(
 	ctx context.Context,
 	candidate localci.PromotionCandidate,
 ) error {
-	poll := service.promotionPoll
-	if poll < 250*time.Millisecond {
-		poll = 250 * time.Millisecond
-	}
+	poll := max(service.promotionPoll, 250*time.Millisecond)
 	ticker := time.NewTicker(poll)
 	defer ticker.Stop()
 	for {

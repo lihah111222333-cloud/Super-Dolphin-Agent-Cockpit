@@ -298,10 +298,10 @@ run_logged() {
   shift
   log_file=$stage/$label.log
   slow_threshold_ms=100000
-  started_at_ms=$(date +%s%3N)
+  started_at_ms=$(($(date +%s) * 1000))
   printf 'seed stage start: %s elapsed_ms=0\n' "$label"
   if "$@" >"$log_file" 2>&1; then
-    elapsed_ms=$(($(date +%s%3N) - started_at_ms))
+    elapsed_ms=$(($(date +%s) * 1000 - started_at_ms))
     printf 'seed stage complete: %s elapsed_ms=%s\n' "$label" "$elapsed_ms"
     if test "$elapsed_ms" -gt "$slow_threshold_ms"; then
       printf 'seed stage slow: %s elapsed_ms=%s threshold_ms=%s\n' "$label" "$elapsed_ms" "$slow_threshold_ms"
@@ -309,7 +309,7 @@ run_logged() {
     return 0
   else
     status=$?
-    elapsed_ms=$(($(date +%s%3N) - started_at_ms))
+    elapsed_ms=$(($(date +%s) * 1000 - started_at_ms))
     printf 'seed stage failed: %s elapsed_ms=%s (tail 160)\n' "$label" "$elapsed_ms" >&2
     if test "$elapsed_ms" -gt "$slow_threshold_ms"; then
       printf 'seed stage slow: %s elapsed_ms=%s threshold_ms=%s\n' "$label" "$elapsed_ms" "$slow_threshold_ms" >&2

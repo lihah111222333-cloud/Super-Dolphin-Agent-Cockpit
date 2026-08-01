@@ -478,7 +478,7 @@ func loadProductionCurrentUpdateState(
 	bootstrapController string,
 ) (*productionSelfUpdateState, error) {
 	state, err := loadProductionSelfUpdateState(statePath)
-	if errors.Is(err, os.ErrNotExist) {
+	if errors.Is(err, errProductionSelfUpdateStateNotFound) || errors.Is(err, os.ErrNotExist) {
 		if err := verifyProductionBootstrapCurrentCLI(currentDigest, bootstrapController); err != nil {
 			return nil, err
 		}

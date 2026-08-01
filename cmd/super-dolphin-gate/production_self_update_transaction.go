@@ -3,14 +3,11 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-
-	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
 type productionSwitchOps struct {
@@ -25,11 +22,11 @@ type productionSwitchTransaction struct {
 	candidate    string
 	current      string
 	statePath    string
-	stateTemp    string
 	previous     string
 	previousTemp string
 	directory    string
-	oldState     []byte
+	state        productionSelfUpdateState
+	oldState     productionSelfUpdateState
 	stateExisted bool
 	ops          productionSwitchOps
 }
@@ -144,7 +141,7 @@ func verifyProductionSwitchDigest(path, want, label string) error {
 	return nil
 }
 
-// prepareProductionSwitchTransaction 保存旧状态并暂存 state 与 previous。
+// prepareProductionSwitchTransaction 保存 SQLite 旧状态并暂存 previous。
 func prepareProductionSwitchTransaction(
 	candidate string,
 	current string,
@@ -154,26 +151,23 @@ func prepareProductionSwitchTransaction(
 	state productionSelfUpdateState,
 	ops productionSwitchOps,
 ) (productionSwitchTransaction, error) {
-	oldState, stateExisted, err := readOptionalProductionStateBytes(statePath)
-	if err != nil {
-		return productionSwitchTransaction{}, err
-	}
-	stateTemp, err := stageProductionSelfUpdateState(directory, state)
-	if err != nil {
+	oldState, err := loadProductionSelfUpdateState(statePath)
+	stateExisted := err == nil
+	if err != nil && !errors.Is(err, errProductionSelfUpdateStateNotFound) {
 		return productionSwitchTransaction{}, err
 	}
 	previousTemp, err := stageProductionPreviousLink(current, directory, ops)
 	if err != nil {
-		return productionSwitchTransaction{}, errors.Join(err, removeProductionTemp(ops.remove, stateTemp))
+		return productionSwitchTransaction{}, err
 	}
 	return productionSwitchTransaction{
 		candidate:    candidate,
 		current:      current,
 		statePath:    statePath,
-		stateTemp:    stateTemp,
 		previous:     previous,
 		previousTemp: previousTemp,
 		directory:    directory,
+		state:        state,
 		oldState:     oldState,
 		stateExisted: stateExisted,
 		ops:          ops,
@@ -182,10 +176,7 @@ func prepareProductionSwitchTransaction(
 
 // cleanup 删除尚未被 rename 消费的事务临时文件。
 func (transaction productionSwitchTransaction) cleanup() error {
-	return errors.Join(
-		removeProductionTemp(transaction.ops.remove, transaction.stateTemp),
-		removeProductionTemp(transaction.ops.remove, transaction.previousTemp),
-	)
+	return removeProductionTemp(transaction.ops.remove, transaction.previousTemp)
 }
 
 // publish 按 state、previous、current 顺序发布并在失败时回滚。
@@ -193,8 +184,8 @@ func (transaction productionSwitchTransaction) publish() error {
 	if err := transaction.ops.syncFile(transaction.candidate); err != nil {
 		return err
 	}
-	if err := transaction.ops.rename(transaction.stateTemp, transaction.statePath); err != nil {
-		return fmt.Errorf("publish production update state before switch: %w", err)
+	if err := writeProductionSelfUpdateState(transaction.statePath, transaction.state); err != nil {
+		return fmt.Errorf("publish production update SQLite state before switch: %w", err)
 	}
 	if err := transaction.ops.syncDir(transaction.directory); err != nil {
 		return transaction.rollback(fmt.Errorf("sync production state before switch: %w", err), false)
@@ -211,7 +202,7 @@ func (transaction productionSwitchTransaction) publish() error {
 	return nil
 }
 
-// rollback 恢复切换前的 current 和状态文件，并同步目录元数据。
+// rollback 恢复切换前的 current 和 SQLite 状态，并同步目录元数据。
 func (transaction productionSwitchTransaction) rollback(cause error, currentSwitched bool) error {
 	var rollbackErr error
 	if currentSwitched {
@@ -224,13 +215,7 @@ func (transaction productionSwitchTransaction) rollback(cause error, currentSwit
 	}
 	rollbackErr = errors.Join(
 		rollbackErr,
-		restoreProductionState(
-			transaction.statePath,
-			transaction.directory,
-			transaction.oldState,
-			transaction.stateExisted,
-			transaction.ops,
-		),
+		restoreProductionSelfUpdateState(transaction.statePath, transaction.oldState, transaction.stateExisted),
 		transaction.ops.syncDir(transaction.directory),
 	)
 	return errors.Join(cause, rollbackErr)
@@ -247,72 +232,6 @@ func verifyOptionalProductionPrevious(path string) error {
 		return errors.Join(errors.New("production previous CLI is not an owner-only regular executable"), err)
 	}
 	return nil
-}
-
-// readOptionalProductionStateBytes 严格读取可回滚的旧状态快照。
-func readOptionalProductionStateBytes(path string) ([]byte, bool, error) {
-	info, err := os.Lstat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, false, nil
-	}
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 ||
-		!productionProvisionOwnedByCurrentUser(info) {
-		return nil, false, errors.Join(errors.New("production update state is not an owner-only regular file"), err)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, false, err
-	}
-	var state productionSelfUpdateState
-	if err := gatecontract.DecodeStrictJSON(data, &state); err != nil {
-		return nil, false, err
-	}
-	if err := state.Validate(); err != nil {
-		return nil, false, err
-	}
-	return data, true, nil
-}
-
-// stageProductionSelfUpdateState 以 0600 模式持久化待发布状态临时文件。
-func stageProductionSelfUpdateState(directory string, state productionSelfUpdateState) (string, error) {
-	if err := state.Validate(); err != nil {
-		return "", err
-	}
-	data, err := json.Marshal(state)
-	if err != nil {
-		return "", err
-	}
-	return stageProductionPrivateFile(directory, ".super-dolphin-gate-state-", append(data, '\n'), 0o600)
-}
-
-// stageProductionPrivateFile 写入并 fsync 一个仅所有者可访问的临时文件。
-func stageProductionPrivateFile(
-	directory string,
-	prefix string,
-	data []byte,
-	mode os.FileMode,
-) (string, error) {
-	temp, err := os.CreateTemp(directory, prefix)
-	if err != nil {
-		return "", err
-	}
-	tempPath := temp.Name()
-	closeWithError := func(cause error) error {
-		return errors.Join(cause, temp.Close(), removeProductionTemp(os.Remove, tempPath))
-	}
-	if err := temp.Chmod(mode); err != nil {
-		return "", closeWithError(err)
-	}
-	if _, err := temp.Write(data); err != nil {
-		return "", closeWithError(err)
-	}
-	if err := temp.Sync(); err != nil {
-		return "", closeWithError(err)
-	}
-	if err := temp.Close(); err != nil {
-		return "", errors.Join(err, removeProductionTemp(os.Remove, tempPath))
-	}
-	return tempPath, nil
 }
 
 // stageProductionPreviousLink 为当前二进制创建同目录硬链接快照。
@@ -356,30 +275,6 @@ func restoreProductionCurrent(
 		return err
 	}
 	return ops.syncDir(directory)
-}
-
-// restoreProductionState 恢复旧状态文件或删除原本不存在的状态。
-func restoreProductionState(
-	statePath string,
-	directory string,
-	oldState []byte,
-	existed bool,
-	ops productionSwitchOps,
-) (resultErr error) {
-	if !existed {
-		if err := ops.remove(statePath); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-		return nil
-	}
-	temp, err := stageProductionPrivateFile(directory, ".super-dolphin-gate-state-rollback-", oldState, 0o600)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		resultErr = errors.Join(resultErr, removeProductionTemp(ops.remove, temp))
-	}()
-	return ops.rename(temp, statePath)
 }
 
 // removeProductionTemp 幂等删除事务临时文件。
@@ -431,40 +326,4 @@ func productionBinaryDigest(path string) (string, error) {
 		return "", err
 	}
 	return "sha256:" + hex.EncodeToString(hash.Sum(nil)), nil
-}
-
-// writeProductionSelfUpdateState 原子发布单独的状态元数据更新。
-func writeProductionSelfUpdateState(path string, state productionSelfUpdateState) (resultErr error) {
-	tempPath, err := stageProductionSelfUpdateState(filepath.Dir(path), state)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		resultErr = errors.Join(resultErr, removeProductionTemp(os.Remove, tempPath))
-	}()
-	if err := os.Rename(tempPath, path); err != nil {
-		return err
-	}
-	return syncProductionDirectory(filepath.Dir(path))
-}
-
-// loadProductionSelfUpdateState 仅接受严格字段和 owner-only 模式的状态文件。
-func loadProductionSelfUpdateState(path string) (productionSelfUpdateState, error) {
-	info, err := os.Lstat(path)
-	if err != nil {
-		return productionSelfUpdateState{}, err
-	}
-	if !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 ||
-		!productionProvisionOwnedByCurrentUser(info) {
-		return productionSelfUpdateState{}, errors.New("production update state is not an owner-only regular file")
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return productionSelfUpdateState{}, err
-	}
-	var state productionSelfUpdateState
-	if err := gatecontract.DecodeStrictJSON(data, &state); err != nil {
-		return state, err
-	}
-	return state, state.Validate()
 }

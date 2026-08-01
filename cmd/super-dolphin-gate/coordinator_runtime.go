@@ -121,6 +121,11 @@ type candidateSubmissionPlanner interface {
 	PlanCandidate(context.Context, imageEnsureRequest) (localci.PromotionCandidatePlan, error)
 }
 
+type candidateSubmissionPlannerCloser interface {
+	candidateSubmissionPlanner
+	Close() error
+}
+
 type candidateBuildService interface {
 	ExecuteBuild(context.Context, string) error
 }
@@ -812,7 +817,11 @@ func (client *coordinatorTransportClient) Close() error {
 	if scheduler != nil {
 		schedulerErr = scheduler.Close()
 	}
-	return errors.Join(schedulerErr, client.store.close())
+	var plannerErr error
+	if planner, ok := client.candidatePlanner.(candidateSubmissionPlannerCloser); ok {
+		plannerErr = planner.Close()
+	}
+	return errors.Join(schedulerErr, plannerErr, client.store.close())
 }
 
 // reconcileCoordinatorState 拒绝 durable store 与 scheduler 的状态漂移。

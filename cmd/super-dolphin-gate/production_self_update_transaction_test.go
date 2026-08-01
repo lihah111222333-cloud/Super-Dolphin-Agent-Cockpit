@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -18,6 +17,7 @@ func TestProductionSelfUpdateSwitchTransactionMatrix(t *testing.T) {
 	t.Run("success", testProductionSwitchSuccess)
 	t.Run("state publish fails", testProductionSwitchStatePublishFailure)
 	t.Run("current publish fails", testProductionSwitchCurrentPublishFailure)
+	t.Run("current publish restores prior SQLite state", testProductionSwitchCurrentPublishRestoresPriorSQLiteState)
 	t.Run("post-switch fsync fails", testProductionSwitchPostSyncFailure)
 }
 
@@ -53,25 +53,18 @@ func testProductionSwitchSuccess(t *testing.T) {
 
 func testProductionSwitchStatePublishFailure(t *testing.T) {
 	fixture := newProductionSwitchFixture(t)
-	ops := liveProductionSwitchOps()
-	liveRename := ops.rename
-	ops.rename = func(oldPath, newPath string) error {
-		if newPath == fixture.statePath {
-			return errors.New("injected state rename failure")
-		}
-		return liveRename(oldPath, newPath)
-	}
+	fixture.state.SchemaVersion = 0
 	if err := switchProductionCurrentCLI(
 		fixture.candidate,
 		fixture.current,
 		fixture.statePath,
 		fixture.state,
-		ops,
+		liveProductionSwitchOps(),
 	); err == nil {
-		t.Fatal("state rename failure succeeded")
+		t.Fatal("invalid SQLite state publish succeeded")
 	}
 	fixture.assertOldCurrent(t, fixture.current)
-	assertProductionPathAbsent(t, fixture.statePath)
+	assertProductionStateNotFound(t, fixture.statePath)
 }
 
 func testProductionSwitchCurrentPublishFailure(t *testing.T) {
@@ -94,7 +87,42 @@ func testProductionSwitchCurrentPublishFailure(t *testing.T) {
 		t.Fatal("current rename failure succeeded")
 	}
 	fixture.assertOldCurrent(t, fixture.current)
-	assertProductionPathAbsent(t, fixture.statePath)
+	assertProductionStateNotFound(t, fixture.statePath)
+}
+
+func testProductionSwitchCurrentPublishRestoresPriorSQLiteState(t *testing.T) {
+	fixture := newProductionSwitchFixture(t)
+	prior := fixture.state
+	prior.BinaryDigest = prior.PreviousBinaryDigest
+	prior.PreviousBinaryDigest = productionTestDigest("7")
+	if err := writeProductionSelfUpdateState(fixture.statePath, prior); err != nil {
+		t.Fatal(err)
+	}
+	ops := liveProductionSwitchOps()
+	liveRename := ops.rename
+	ops.rename = func(oldPath, newPath string) error {
+		if oldPath == fixture.candidate && newPath == fixture.current {
+			return errors.New("injected current rename failure")
+		}
+		return liveRename(oldPath, newPath)
+	}
+	if err := switchProductionCurrentCLI(
+		fixture.candidate,
+		fixture.current,
+		fixture.statePath,
+		fixture.state,
+		ops,
+	); err == nil {
+		t.Fatal("current rename failure succeeded")
+	}
+	fixture.assertOldCurrent(t, fixture.current)
+	loaded, err := loadProductionSelfUpdateState(fixture.statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded != prior {
+		t.Fatalf("rollback state = %#v, want %#v", loaded, prior)
+	}
 }
 
 func testProductionSwitchPostSyncFailure(t *testing.T) {
@@ -162,7 +190,7 @@ func testProductionStateSourceChange(t *testing.T) {
 
 func testProductionStateFirstMigration(t *testing.T) {
 	fixture := newProductionUpdateStateFixture(t)
-	if err := os.Remove(fixture.statePath); err != nil {
+	if err := deleteProductionSelfUpdateState(fixture.statePath); err != nil {
 		t.Fatal(err)
 	}
 	if err := copyProductionTestFile(fixture.bootstrap, fixture.current, 0o700); err != nil {
@@ -266,24 +294,21 @@ func TestProductionCurrentCacheHitRejectsStateTOCTOU(t *testing.T) {
 
 func testProductionStateUnknownField(t *testing.T) {
 	fixture := newProductionUpdateStateFixture(t)
-	data, err := os.ReadFile(fixture.statePath)
+	database, installRoot, ownerUID, err := openProductionSelfUpdateStateStore(fixture.statePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var object map[string]any
-	if err := json.Unmarshal(data, &object); err != nil {
-		t.Fatal(err)
-	}
-	object["unknown"] = true
-	data, err = json.Marshal(object)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(fixture.statePath, data, 0o600); err != nil {
+	defer database.Close()
+	if _, err := database.Exec(
+		"UPDATE production_self_update_state SET state_json = ? WHERE install_root = ? AND owner_uid = ?",
+		[]byte(`{"unknown":true}`),
+		installRoot,
+		ownerUID,
+	); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := loadProductionSelfUpdateState(fixture.statePath); err == nil {
-		t.Fatal("strict state decoder accepted an unknown field")
+		t.Fatal("strict SQLite state decoder accepted an unknown field")
 	}
 }
 
@@ -308,10 +333,10 @@ func TestProductionSelfUpdateStateFieldRegistry(t *testing.T) {
 	}
 	var produced []string
 	stateType := reflect.TypeFor[productionSelfUpdateState]()
-	for index := range stateType.NumField() {
-		name, _, _ := strings.Cut(stateType.Field(index).Tag.Get("json"), ",")
+	for field := range stateType.Fields() {
+		name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
 		if name == "" || name == "-" {
-			t.Fatalf("state field %s has no JSON owner", stateType.Field(index).Name)
+			t.Fatalf("state field %s has no JSON owner", field.Name)
 		}
 		produced = append(produced, name)
 	}
@@ -333,7 +358,13 @@ type productionSwitchFixture struct {
 
 func newProductionSwitchFixture(t *testing.T) productionSwitchFixture {
 	t.Helper()
-	directory := t.TempDir()
+	directory, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	staging := filepath.Join(directory, "staging")
 	if err := os.Mkdir(staging, 0o700); err != nil {
 		t.Fatal(err)
@@ -399,6 +430,9 @@ func newProductionUpdateStateFixture(t *testing.T) productionUpdateStateFixture 
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	fixture := productionUpdateStateFixture{
 		current:   filepath.Join(directory, productionCurrentGateCLI),
 		bootstrap: filepath.Join(directory, "bootstrap-controller"),
@@ -460,6 +494,13 @@ func assertProductionPathAbsent(t *testing.T, path string) {
 	t.Helper()
 	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("path %q remains: %v", path, err)
+	}
+}
+
+func assertProductionStateNotFound(t *testing.T, path string) {
+	t.Helper()
+	if _, err := loadProductionSelfUpdateState(path); !errors.Is(err, errProductionSelfUpdateStateNotFound) {
+		t.Fatalf("state error = %v, want not found", err)
 	}
 }
 

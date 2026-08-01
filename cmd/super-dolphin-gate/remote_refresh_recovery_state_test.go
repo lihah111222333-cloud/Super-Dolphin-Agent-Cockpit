@@ -17,6 +17,7 @@ import (
 func TestParseRemoteBaselineRefreshOptions(t *testing.T) {
 	options, err := parseRemoteBaselineRefreshOptions([]string{
 		"--config", "/tmp/remote-ci.json",
+		"--ledger", "/tmp/duration-ledger.sqlite",
 		"--repository", "/tmp/repository",
 		"--remote", "upstream",
 		"--ref", "refs/heads/main",
@@ -96,8 +97,10 @@ func TestRemoteBaselineRefreshLockSerializesWorktrees(t *testing.T) {
 	}
 }
 func TestLoadAcceptedRemoteBaselineRequiresStateLedger(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "remote-ci.json")
-	if _, err := loadAcceptedRemoteBaseline(configPath, ""); err == nil {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "remote-ci.json")
+	ledgerPath := filepath.Join(root, "duration-ledger.json")
+	if _, err := loadAcceptedRemoteBaseline(configPath, "", ledgerPath); err == nil {
 		t.Fatal("loadAcceptedRemoteBaseline() unexpectedly accepted missing state")
 	}
 }

@@ -189,7 +189,7 @@ func remoteCalibrationCheckpointFixture(
 		t.Fatal(err)
 	}
 	checkpoint, err := remoteci.NewCalibrationCheckpoint(
-		filepath.Join(t.TempDir(), "duration-ledger.json.calibration.checkpoint"), "sha256:checkpoint",
+		ledgerStore, "sha256:checkpoint",
 	)
 	if err != nil {
 		t.Fatal(err)

@@ -20,7 +20,7 @@ func TestLoadRemoteBaselineStateForRefreshMigratesV2WithoutAcceptingIt(t *testin
 	legacy := remoteLegacyBaselineTestState(config)
 	writeRemoteLegacyBaselineTestState(t, path, legacy)
 
-	accepted, migration, err := loadRemoteBaselineStateForRefresh(path, config)
+	accepted, migration, err := loadRemoteBaselineStateForRefresh(path+".ledger.sqlite", path, config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestLoadRemoteBaselineStateForRefreshKeepsCurrentSchemaStrict(t *testing.T)
 		t.Fatal(err)
 	}
 
-	accepted, migration, err := loadRemoteBaselineStateForRefresh(path, config)
+	accepted, migration, err := loadRemoteBaselineStateForRefresh(path+".ledger.sqlite", path, config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,8 +66,9 @@ func TestLoadRemoteBaselineStateForRefreshKeepsCurrentSchemaStrict(t *testing.T)
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := loadRemoteBaselineStateForRefresh(path, config); err == nil {
-		t.Fatal("current state with an unknown field was accepted")
+	loaded, migration, err := loadRemoteBaselineStateForRefresh(path+".ledger.sqlite", path, config)
+	if err != nil || migration != nil || loaded.Generation != current.Generation {
+		t.Fatalf("legacy JSON mutation changed SQLite authority: state=%#v migration=%#v err=%v", loaded, migration, err)
 	}
 }
 
@@ -94,7 +95,7 @@ func TestLoadRemoteBaselineStateForRefreshMigratesPreviousSchemaForRebuild(t *te
 		t.Fatal(err)
 	}
 
-	accepted, migration, err := loadRemoteBaselineStateForRefresh(path, config)
+	accepted, migration, err := loadRemoteBaselineStateForRefresh(path+".ledger.sqlite", path, config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +113,7 @@ func TestLoadRemoteBaselineStateForRefreshRejectsLegacyResourceDrift(t *testing.
 	legacy.DataCachePath = "/different/12"
 	writeRemoteLegacyBaselineTestState(t, path, legacy)
 
-	if _, _, err := loadRemoteBaselineStateForRefresh(path, config); err == nil ||
+	if _, _, err := loadRemoteBaselineStateForRefresh(path+".ledger.sqlite", path, config); err == nil ||
 		!strings.Contains(err.Error(), "resource identity") {
 		t.Fatalf("load drifted legacy state error = %v", err)
 	}

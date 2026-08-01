@@ -89,6 +89,12 @@ func newProductionImageServices(
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	keepPromotion := false
+	defer func() {
+		if !keepPromotion {
+			_ = promotion.Close()
+		}
+	}()
 	provisionCtx, cancel := localci.BoundedOperationContext(ctx, coordinatorProvisioningTimeout)
 	defer cancel()
 	if err := recoverInterruptedProductionCandidate(
@@ -126,6 +132,7 @@ func newProductionImageServices(
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	keepPromotion = true
 	return &productionImageEnsurer{truth: truth, platform: config.Platform}, buildService, watcher, nil
 }
 
@@ -149,7 +156,7 @@ func newProductionCandidateBuildService(
 		return nil, err
 	}
 	return &productionCandidateBuildService{
-		store: promotion.candidates, accepted: promotion.accepted, authority: promotion.authority,
+		promotion: promotion, store: promotion.candidates, accepted: promotion.accepted, authority: promotion.authority,
 		builder: builder, resolver: localci.NewDockerCandidateIdentityResolver(), promotionPoll: promotionPoll,
 	}, nil
 }
@@ -282,13 +289,19 @@ func newProductionAcceptedImageLoader(
 	if err != nil {
 		return nil, gatecontract.AcceptedImageRecord{}, err
 	}
-	state, err := localci.NewAcceptedImageState(config.AcceptedImageRoot, verifier, authority)
+	store, err := openProductionPromotionAuthorityStore(ctx, config)
 	if err != nil {
+		return nil, gatecontract.AcceptedImageRecord{}, err
+	}
+	state, err := localci.NewAcceptedImageStateSQLite(store.db, config.AcceptedImageRoot, verifier, authority)
+	if err != nil {
+		_ = store.close()
 		return nil, gatecontract.AcceptedImageRecord{}, fmt.Errorf("open accepted image state: %w", err)
 	}
 	accepted := &productionAcceptedImageLoader{state: state, authority: authority}
 	record, err := accepted.Load(ctx)
 	if err != nil {
+		_ = store.close()
 		return nil, gatecontract.AcceptedImageRecord{}, fmt.Errorf("load production accepted image: %w", err)
 	}
 	return accepted, record, nil

@@ -118,7 +118,17 @@ func startProductionSelfUpdateLockHolder(t *testing.T, lockPath string) func() {
 
 func TestProductionSelfUpdateContenderRejectsCorruptState(t *testing.T) {
 	fixture := newProductionUpdateStateFixture(t)
-	if err := os.WriteFile(fixture.statePath, []byte("{not-json"), 0o600); err != nil {
+	database, installRoot, ownerUID, err := openProductionSelfUpdateStateStore(fixture.statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if _, err := database.Exec(
+		"UPDATE production_self_update_state SET state_json = ? WHERE install_root = ? AND owner_uid = ?",
+		[]byte("{not-json"),
+		installRoot,
+		ownerUID,
+	); err != nil {
 		t.Fatal(err)
 	}
 	owner, err := gateprivate.AcquireExclusiveFileLock(
@@ -133,6 +143,29 @@ func TestProductionSelfUpdateContenderRejectsCorruptState(t *testing.T) {
 	}
 	if err := reuseProductionCurrentDuringUpdate(context.Background(), productionUpdateReuseSession(fixture), fixture.identityRun); err == nil {
 		t.Fatal("corrupt state was accepted while another process updates")
+	}
+}
+
+func TestProductionSelfUpdateContenderRejectsCorruptLegacyStateBeforeImport(t *testing.T) {
+	fixture := newProductionUpdateStateFixture(t)
+	if err := deleteProductionSelfUpdateState(fixture.statePath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fixture.statePath, []byte("{not-json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := gateprivate.AcquireExclusiveFileLock(
+		context.Background(), filepath.Join(filepath.Dir(fixture.current), ".super-dolphin-gate-update.lock"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = owner.Release() }()
+	if _, acquired, err := tryAcquireProductionSelfUpdateLock(fixture.current); err != nil || acquired {
+		t.Fatalf("contender lock acquired=%t error=%v", acquired, err)
+	}
+	if err := reuseProductionCurrentDuringUpdate(context.Background(), productionUpdateReuseSession(fixture), fixture.identityRun); err == nil {
+		t.Fatal("corrupt legacy state was accepted while another process updates")
 	}
 }
 

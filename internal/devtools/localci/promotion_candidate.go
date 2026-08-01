@@ -3,6 +3,7 @@ package localci
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -85,6 +86,7 @@ type PromotionCandidate struct {
 type promotionCandidateSnapshot struct {
 	SchemaVersion uint32               `json:"schema_version"`
 	Candidates    []PromotionCandidate `json:"candidates"`
+	Revision      uint64               `json:"-"`
 }
 
 // PromotionCandidatePlanRequest binds a submitted immutable tree to production trust configuration.
@@ -112,13 +114,30 @@ type CandidateImageIdentityResolver interface {
 
 // PromotionCandidateStore owns the canonical candidate file and its cross-process lock.
 type PromotionCandidateStore struct {
-	root       string
-	statePath  string
-	lockPath   string
-	ownerUID   int
-	now        func() time.Time
-	beforeSave func() error
-	afterSave  func() error
+	db           *sql.DB
+	authorityKey string
+	root         string
+	statePath    string
+	lockPath     string
+	ownerUID     int
+	now          func() time.Time
+	beforeSave   func() error
+	afterSave    func() error
+}
+
+// NewPromotionCandidateStoreSQLite uses the coordinator-owned SQLite ledger.
+// root is retained only to perform the strictly one-time legacy JSON import.
+func NewPromotionCandidateStoreSQLite(db *sql.DB, root string) (*PromotionCandidateStore, error) {
+	store, err := NewPromotionCandidateStore(root)
+	if err != nil {
+		return nil, err
+	}
+	if db == nil {
+		return nil, errors.New("promotion candidate SQLite database is required")
+	}
+	store.db = db
+	store.authorityKey = root
+	return store, store.importLegacyPromotionCandidates(context.Background())
 }
 
 // NewPromotionCandidateStore 打开 owner-private 且仓库外的 candidate authority 根。
@@ -493,6 +512,9 @@ func (s *PromotionCandidateStore) validateCall(ctx context.Context) error {
 	}
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if s.db != nil {
+		return nil
 	}
 	return s.validateRoot()
 }

@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
@@ -668,14 +669,27 @@ type remoteLegacyBaselineMigration struct {
 	references []remoteci.BaselineCacheRef
 }
 
-// loadRemoteBaselineStateForRefresh 允许内存迁移上一版和 v4，并把完整的 v2 状态迁移为新代。
-func loadRemoteBaselineStateForRefresh(path string, config remoteRunConfig) (remoteci.BaselineState, *remoteLegacyBaselineMigration, error) {
-	data, err := os.ReadFile(path)
+// loadRemoteBaselineStateForRefresh 只从 SQLite 读取决策状态；旧 JSON 仅可在空账本时严格导入一次。
+func loadRemoteBaselineStateForRefresh(ledgerPath, legacyPath string, config remoteRunConfig) (remoteci.BaselineState, *remoteLegacyBaselineMigration, error) {
+	databasePath := remoteBaselineDatabasePath(ledgerPath)
+	stored, err := loadStoredRemoteBaselineState(databasePath)
+	if err == nil {
+		return stored.state, stored.legacy, nil
+	}
+	if !errors.Is(err, errRemoteBaselineStateNotFound) && !errors.Is(err, os.ErrNotExist) {
+		return remoteci.BaselineState{}, nil, err
+	}
+	if err := validateRemoteBaselineLegacyFile(legacyPath); errors.Is(err, os.ErrNotExist) {
+		return remoteci.BaselineState{}, nil, nil
+	} else if err != nil {
+		return remoteci.BaselineState{}, nil, err
+	}
+	data, err := os.ReadFile(legacyPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return remoteci.BaselineState{}, nil, nil
 	}
 	if err != nil {
-		return remoteci.BaselineState{}, nil, err
+		return remoteci.BaselineState{}, nil, fmt.Errorf("read legacy remote baseline JSON: %w", err)
 	}
 	schemaVersion, err := remoteBaselineStateSchemaVersion(data)
 	if err != nil {
@@ -684,8 +698,20 @@ func loadRemoteBaselineStateForRefresh(path string, config remoteRunConfig) (rem
 	if schemaVersion == remoteci.BaselineStateSchemaVersion ||
 		schemaVersion == remoteci.BaselineStatePreviousSchemaVersion ||
 		schemaVersion == 4 {
-		state, err := loadRemoteBaselineState(path, false)
-		return state, nil, err
+		var state remoteci.BaselineState
+		if err := decodeRemoteBaselineRefreshJSON(data, &state); err != nil {
+			return remoteci.BaselineState{}, nil, fmt.Errorf("decode legacy remote baseline state: %w", err)
+		}
+		if err := state.Validate(); err != nil {
+			return remoteci.BaselineState{}, nil, fmt.Errorf("validate legacy remote baseline state: %w", err)
+		}
+		if err := writeRemoteBaselineState(databasePath, state); err != nil {
+			return remoteci.BaselineState{}, nil, fmt.Errorf("import legacy remote baseline JSON into SQLite: %w", err)
+		}
+		if err := retireRemoteBaselineLegacyFile(legacyPath); err != nil {
+			return remoteci.BaselineState{}, nil, fmt.Errorf("retire imported legacy remote baseline JSON: %w", err)
+		}
+		return state, nil, nil
 	}
 	if schemaVersion != remoteLegacyBaselineStateSchemaVersionV2 {
 		return remoteci.BaselineState{}, nil, fmt.Errorf("remote baseline state schema %d cannot be refreshed", schemaVersion)
@@ -698,7 +724,38 @@ func loadRemoteBaselineStateForRefresh(path string, config remoteRunConfig) (rem
 	if err != nil {
 		return remoteci.BaselineState{}, nil, err
 	}
+	if err := storeRemoteBaselineState(databasePath, remoteBaselineStoredState{legacy: migration}); err != nil {
+		return remoteci.BaselineState{}, nil, fmt.Errorf("import legacy remote baseline marker into SQLite: %w", err)
+	}
+	if err := retireRemoteBaselineLegacyFile(legacyPath); err != nil {
+		return remoteci.BaselineState{}, nil, fmt.Errorf("retire imported legacy remote baseline JSON: %w", err)
+	}
 	return remoteci.BaselineState{}, migration, nil
+}
+
+func retireRemoteBaselineLegacyFile(path string) error {
+	if err := os.Remove(path); err != nil {
+		return err
+	}
+	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+		return errors.New("legacy remote baseline JSON remains after retirement")
+	}
+	return nil
+}
+
+func validateRemoteBaselineLegacyFile(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o600 {
+		return errors.New("legacy remote baseline JSON must be an owner-only regular file")
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || stat.Uid != uint32(os.Getuid()) {
+		return errors.New("legacy remote baseline JSON owner is invalid")
+	}
+	return nil
 }
 
 // remoteBaselineStateSchemaVersion 严格读取状态对象中的唯一 schema_version。

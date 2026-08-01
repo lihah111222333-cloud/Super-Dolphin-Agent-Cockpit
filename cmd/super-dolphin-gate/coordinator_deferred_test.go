@@ -30,6 +30,34 @@ type schedulerReconnectStub struct {
 	closeCalls            int
 }
 
+type closeTrackingCandidatePlanner struct{ closed bool }
+
+func (*closeTrackingCandidatePlanner) PlanCandidate(context.Context, imageEnsureRequest) (localci.PromotionCandidatePlan, error) {
+	return localci.PromotionCandidatePlan{}, nil
+}
+
+func (planner *closeTrackingCandidatePlanner) Close() error {
+	planner.closed = true
+	return nil
+}
+
+func TestDeferredCoordinatorClientClosesOwnedCandidatePlanner(t *testing.T) {
+	planner := &closeTrackingCandidatePlanner{}
+	checkpoint := coordinatorTestCheckpoint(t)
+	client, err := newDeferredCoordinatorClient(context.Background(), checkpoint, planner, func(context.Context) (*localci.SchedulerClient, error) {
+		return nil, errors.New("scheduler must not connect during client close")
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if !planner.closed {
+		t.Fatal("candidate planner store was not closed with coordinator client")
+	}
+}
+
 func (client *schedulerReconnectStub) Enqueue(_ context.Context, request localci.WorkloadRequest) error {
 	client.enqueueCalls++
 	if !client.available {

@@ -41,6 +41,41 @@ CREATE TABLE IF NOT EXISTS duration_calibrations (
 	completed_at_unix_ms INTEGER NOT NULL
 );
 
+-- remote baseline 的接受状态与 legacy 导入标记共用 duration ledger SQLite authority。
+-- state_json 与 legacy_json 必须恰有一个存在，防止 JSON 文件和 SQLite 共同参与决策。
+CREATE TABLE IF NOT EXISTS ci_remote_baseline_state (
+	singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+	schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+	generation TEXT NOT NULL,
+	state_json TEXT NOT NULL DEFAULT '',
+	state_sha256 TEXT NOT NULL DEFAULT '',
+	legacy_json TEXT NOT NULL DEFAULT '',
+	updated_at_unix_ms INTEGER NOT NULL,
+	CHECK (
+		(state_json <> '' AND state_sha256 <> '' AND legacy_json = '') OR
+		(state_json = '' AND state_sha256 = '' AND legacy_json <> '')
+	)
+);
+
+-- remote calibration checkpoint 与 duration samples 共用同一 SQLite authority。
+CREATE TABLE IF NOT EXISTS remote_ci_calibration_checkpoints (
+	identity TEXT PRIMARY KEY,
+	schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+	updated_at_unix_ms INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS remote_ci_calibration_checkpoint_scenarios (
+	identity TEXT NOT NULL REFERENCES remote_ci_calibration_checkpoints(identity) ON DELETE CASCADE,
+	scenario TEXT NOT NULL CHECK (length(trim(scenario)) > 0),
+	started INTEGER NOT NULL CHECK (started IN (0, 1)),
+	completed INTEGER NOT NULL CHECK (completed IN (0, 1)),
+	input_json TEXT NOT NULL DEFAULT '',
+	result_json TEXT NOT NULL DEFAULT '',
+	PRIMARY KEY (identity, scenario),
+	CHECK ((completed = 0 AND input_json = '' AND result_json = '') OR
+		(completed = 1 AND input_json <> '' AND result_json <> ''))
+);
+
 CREATE INDEX IF NOT EXISTS idx_duration_calibrations_environment
 	ON duration_calibrations (
 		platform, runner, toolchain, completed_at_unix_ms DESC
@@ -431,13 +466,41 @@ func ensureDurationLedgerSQLiteSchema(database *sql.DB) error {
 }
 
 func ensureDurationLedgerCandidateTestBinaryBuildIdentityColumns(database *sql.DB) error {
+	existing, err := durationLedgerCandidateTestBinaryBuildColumns(database)
+	if err != nil {
+		return err
+	}
 	columns := []string{"candidate_tree TEXT NOT NULL DEFAULT ''", "platform TEXT NOT NULL DEFAULT ''", "go_toolchain TEXT NOT NULL DEFAULT ''", "cgo_enabled INTEGER NOT NULL DEFAULT 0", "toolchain_sha256 TEXT NOT NULL DEFAULT ''", "build_flags_json TEXT NOT NULL DEFAULT '[]'", "compile_closure_sha256 TEXT NOT NULL DEFAULT ''", "manifest_sha256 TEXT NOT NULL DEFAULT ''", "binary_size INTEGER NOT NULL DEFAULT 0", "gocache_private_root_identity TEXT NOT NULL DEFAULT ''", "gocache_baseline_hit_records_json TEXT NOT NULL DEFAULT '[]'"}
 	for _, column := range columns {
-		if _, err := database.Exec("ALTER TABLE ci_candidate_test_binary_builds ADD COLUMN " + column); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		name, _, _ := strings.Cut(column, " ")
+		if existing[name] {
+			continue
+		}
+		if _, err := database.Exec("ALTER TABLE ci_candidate_test_binary_builds ADD COLUMN " + column); err != nil {
 			return mapDurationLedgerSQLiteError("migrate candidate test binary build identity", err)
 		}
 	}
 	return nil
+}
+
+func durationLedgerCandidateTestBinaryBuildColumns(database *sql.DB) (map[string]bool, error) {
+	rows, err := database.Query(`SELECT name FROM pragma_table_info('ci_candidate_test_binary_builds')`)
+	if err != nil {
+		return nil, mapDurationLedgerSQLiteError("inspect candidate test binary build identity", err)
+	}
+	defer rows.Close()
+	columns := make(map[string]bool)
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, mapDurationLedgerSQLiteError("scan candidate test binary build identity", err)
+		}
+		columns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, mapDurationLedgerSQLiteError("iterate candidate test binary build identity", err)
+	}
+	return columns, nil
 }
 
 func ensureDurationLedgerCandidateTestBinaryReceiptBindingColumn(database *sql.DB) error {
@@ -596,8 +659,7 @@ func mapDurationLedgerSQLiteError(operation string, err error) error {
 	if err == nil {
 		return nil
 	}
-	var sqliteError *sqlitedriver.Error
-	if errors.As(err, &sqliteError) {
+	if sqliteError, ok := errors.AsType[*sqlitedriver.Error](err); ok {
 		primary := sqliteError.Code() & 0xff
 		if primary == sqlite3.SQLITE_BUSY || primary == sqlite3.SQLITE_LOCKED {
 			return fmt.Errorf("%w: %s: %v", ErrDurationLedgerBusy, operation, err)

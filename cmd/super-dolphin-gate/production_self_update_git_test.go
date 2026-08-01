@@ -120,6 +120,9 @@ func TestLoadProductionSelfUpdateInputsSkipsGoForUnchangedTrustedHead(t *testing
 	runProductionSelfUpdateGitTest(t, "", "clone", "--bare", "--", source, authority)
 	tree := productionSelfUpdateGitOutput(t, authority, "rev-parse", commits["main"]+"^{tree}")
 	installRoot := t.TempDir()
+	if err := os.Chmod(installRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	current := filepath.Join(installRoot, productionCurrentGateCLI)
 	if err := os.WriteFile(current, []byte("installed gate"), 0o700); err != nil {
 		t.Fatal(err)

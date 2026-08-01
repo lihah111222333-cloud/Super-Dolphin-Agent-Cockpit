@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -20,7 +21,6 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/datacache"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/eci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/oss"
-	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
@@ -42,6 +42,7 @@ const (
 type remoteBaselineRefreshOptions struct {
 	ConfigPath     string
 	StatePath      string
+	LedgerPath     string
 	RepositoryRoot string
 	Remote         string
 	Ref            string
@@ -164,7 +165,7 @@ func runRemoteBaselineRefreshLocked(ctx context.Context, options remoteBaselineR
 		if reason := remoteBaselineIncrementalRefreshRejection(session); reason != "" {
 			return protocolError("accepted baseline exists but this refresh cannot be represented as a Delta (%s); full Anchor rebuild is forbidden", reason)
 		}
-		fmt.Fprintf(os.Stderr, "remote baseline refresh mode: incremental delta parent_generation=%d existing_deltas=%d toolchain_changed=%t\n", session.accepted.Generation, len(session.accepted.DeltaRefs()), session.accepted.ToolchainDigest != session.input.Identity.ToolchainDigest)
+		slog.Info("remote baseline refresh uses incremental delta", "parent_generation", session.accepted.Generation, "existing_deltas", len(session.accepted.DeltaRefs()), "toolchain_changed", session.accepted.ToolchainDigest != session.input.Identity.ToolchainDigest)
 	}
 	return createRemoteBaseline(ctx, session, stdout)
 }
@@ -201,7 +202,7 @@ func remoteBaselineCanReuse(
 
 // newRemoteBaselineRefreshSession 加载状态并创建本次刷新所需的远端客户端。
 func newRemoteBaselineRefreshSession(ctx context.Context, options remoteBaselineRefreshOptions, config remoteRunConfig, statePath string) (remoteBaselineRefreshSession, error) {
-	accepted, legacy, err := loadRemoteBaselineStateForRefresh(statePath, config)
+	accepted, legacy, err := loadRemoteBaselineStateForRefresh(options.LedgerPath, statePath, config)
 	if err != nil {
 		return remoteBaselineRefreshSession{}, protocolError("load remote baseline state: %v", err)
 	}
@@ -882,61 +883,10 @@ func remoteBaselineStatePath(configPath, explicit string) string {
 	return strings.TrimSuffix(configPath, extension) + ".baseline-state.json"
 }
 
-func loadRemoteBaselineState(path string, allowMissing bool) (remoteci.BaselineState, error) {
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) && allowMissing {
-		return remoteci.BaselineState{}, nil
-	}
-	if err != nil {
-		return remoteci.BaselineState{}, err
-	}
-	var state remoteci.BaselineState
-	if err := gatecontract.DecodeStrictJSON(data, &state); err != nil {
-		return remoteci.BaselineState{}, err
-	}
-	return state, nil
-}
-
-// writeRemoteBaselineState 原子写入已经通过校验的基线状态。
-func writeRemoteBaselineState(path string, state remoteci.BaselineState) error {
-	if err := state.Validate(); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return err
-	}
-	data = append(data, '\n')
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	temporary, err := os.CreateTemp(filepath.Dir(path), ".baseline-state-*.json")
-	if err != nil {
-		return err
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return err
-	}
-	if _, err := temporary.Write(data); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Sync(); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	return os.Rename(temporaryPath, path)
-}
-
-func loadAcceptedRemoteBaseline(configPath, statePath string) (remoteci.BaselineState, error) {
-	path := remoteBaselineStatePath(configPath, statePath)
-	state, err := loadRemoteBaselineState(path, false)
+func loadAcceptedRemoteBaseline(configPath, statePath, ledgerPath string) (remoteci.BaselineState, error) {
+	_ = configPath
+	_ = statePath
+	state, err := loadRemoteBaselineState(ledgerPath, false)
 	if err != nil {
 		return remoteci.BaselineState{}, err
 	}

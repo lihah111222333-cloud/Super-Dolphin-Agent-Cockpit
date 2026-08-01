@@ -146,8 +146,15 @@ func changeProductionBuildInput(t *testing.T, repository string, path string, co
 	if err := os.WriteFile(absolute, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	files := make(map[string]string, len(productionRuntimeDepsInputPaths()))
+	files := make(map[string]string, len(productionRuntimeDepsInputPaths())+len(productionRuntimeDepsRecipePaths()))
 	for _, inputPath := range productionRuntimeDepsInputPaths() {
+		data, err := os.ReadFile(filepath.Join(repository, filepath.FromSlash(inputPath)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		files[inputPath] = string(data)
+	}
+	for _, inputPath := range productionRuntimeDepsRecipePaths() {
 		data, err := os.ReadFile(filepath.Join(repository, filepath.FromSlash(inputPath)))
 		if err != nil {
 			t.Fatal(err)

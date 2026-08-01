@@ -401,6 +401,9 @@ func removeAcceptedImageTemp(path string) error {
 
 // loadLocked 在持锁状态下严格读取 canonical candidate snapshot。
 func (s *PromotionCandidateStore) loadLocked() (promotionCandidateSnapshot, error) {
+	if s.db != nil {
+		return s.loadSQLite()
+	}
 	snapshot := promotionCandidateSnapshot{SchemaVersion: promotionCandidateSchemaVersion, Candidates: []PromotionCandidate{}}
 	exists, err := validateCurrentUIDPrivatePath(s.statePath, s.ownerUID)
 	if err != nil {
@@ -460,6 +463,9 @@ func readPromotionCandidateState(file *os.File, info os.FileInfo) ([]byte, error
 
 // saveLocked 通过私有临时文件、fsync 与 rename 原子替换 canonical snapshot。
 func (s *PromotionCandidateStore) saveLocked(snapshot promotionCandidateSnapshot) (retErr error) {
+	if s.db != nil {
+		return s.saveSQLite(snapshot)
+	}
 	data, err := encodePromotionCandidateSnapshot(snapshot)
 	if err != nil {
 		return err

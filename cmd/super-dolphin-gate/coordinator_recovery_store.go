@@ -32,6 +32,11 @@ func ensureCoordinatorSchemas(ctx context.Context, db coordinatorSchemaDB) error
 			return err
 		}
 	}
+	// The promotion authorities are coordinator-owned rows, not independent
+	// JSON ledgers.  Schema setup is part of this same transaction.
+	if err := localci.EnsurePromotionAuthoritySQLiteSchema(ctx, db); err != nil {
+		return err
+	}
 	return nil
 }
 
