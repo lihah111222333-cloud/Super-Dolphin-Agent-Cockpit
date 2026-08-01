@@ -14,6 +14,17 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
 )
 
+func TestRetryDelayDescriptorsRemainCompileTimeConstants(t *testing.T) {
+	const hierarchyDelayMillis = int(emptyHierarchyPrepareRetryDelay / time.Millisecond)
+	const documentSymbolDelayMillis = int(emptyDocumentSymbolRetryDelay / time.Millisecond)
+	if hierarchyDelayMillis != 120 {
+		t.Fatalf("hierarchy retry delay = %dms, want 120ms", hierarchyDelayMillis)
+	}
+	if documentSymbolDelayMillis != 80 {
+		t.Fatalf("document symbol retry delay = %dms, want 80ms", documentSymbolDelayMillis)
+	}
+}
+
 func TestHoverRetriesRustAnalyzerContentModified(t *testing.T) {
 	root := t.TempDir()
 	writeGenericTestFile(t, filepath.Join(root, "Cargo.toml"), "[package]\nname = \"retry-hover\"\nversion = \"0.1.0\"\n")
