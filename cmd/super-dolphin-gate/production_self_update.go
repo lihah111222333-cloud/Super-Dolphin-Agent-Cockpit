@@ -331,6 +331,10 @@ func loadProductionSelfUpdateInputs(
 	if err != nil {
 		return productionSelfUpdateInputs{}, false, err
 	}
+	toolchain, err = bindProductionSelfUpdateGoCache(session.config.TrustedSourceRoot, toolchain)
+	if err != nil {
+		return productionSelfUpdateInputs{}, false, err
+	}
 	localToolchainDigest, err := productionLocalToolchainDigest(source.lockDigest, toolchain)
 	if err != nil {
 		return productionSelfUpdateInputs{}, false, fmt.Errorf("bind local Go toolchain identity: %w", err)

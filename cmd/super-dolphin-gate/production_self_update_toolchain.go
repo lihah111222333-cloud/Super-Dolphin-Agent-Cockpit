@@ -526,6 +526,33 @@ func productionToolOwnedByCurrentOrRoot(info os.FileInfo) bool {
 	return ok && (stat.Uid == uint32(os.Getuid()) || stat.Uid == 0)
 }
 
+// bindProductionSelfUpdateGoCache 让所有工作树复用生产运行根中的 Go 缓存。
+func bindProductionSelfUpdateGoCache(root string, toolchain productionGoToolchain) (productionGoToolchain, error) {
+	canonicalRoot, err := canonicalProductionDirectory(root)
+	if err != nil {
+		return productionGoToolchain{}, fmt.Errorf("validate production self-update cache root: %w", err)
+	}
+	cacheRoot := filepath.Join(canonicalRoot, "go-self-update")
+	directories := []string{
+		cacheRoot,
+		filepath.Join(cacheRoot, "gopath"),
+		filepath.Join(cacheRoot, "build"),
+		filepath.Join(cacheRoot, "modules"),
+	}
+	for _, directory := range directories {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			return productionGoToolchain{}, fmt.Errorf("create production self-update Go cache: %w", err)
+		}
+		if _, err := canonicalProductionDirectory(directory); err != nil {
+			return productionGoToolchain{}, fmt.Errorf("validate production self-update Go cache: %w", err)
+		}
+	}
+	toolchain.GoPath = directories[1]
+	toolchain.GoCache = directories[2]
+	toolchain.GoModCache = directories[3]
+	return toolchain, nil
+}
+
 // controlledProductionGoEnvironment 构造隔离且确定的 Go 执行环境。
 func controlledProductionGoEnvironment(toolchain productionGoToolchain) []string {
 	return []string{

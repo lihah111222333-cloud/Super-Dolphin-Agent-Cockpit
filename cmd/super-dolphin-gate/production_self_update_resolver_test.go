@@ -422,6 +422,40 @@ func TestCanonicalProductionGitExecutableRejectsOwnerControlledBinary(t *testing
 	}
 }
 
+func TestBindProductionSelfUpdateGoCacheUsesSharedRuntimeRoot(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	toolchain, err := bindProductionSelfUpdateGoCache(root, productionGoToolchain{
+		GoPath: "/isolated/gopath", GoCache: "/isolated/build", GoModCache: "/isolated/modules",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cacheRoot := filepath.Join(root, "go-self-update")
+	wants := map[string]string{
+		"GOPATH":     filepath.Join(cacheRoot, "gopath"),
+		"GOCACHE":    filepath.Join(cacheRoot, "build"),
+		"GOMODCACHE": filepath.Join(cacheRoot, "modules"),
+	}
+	got := map[string]string{
+		"GOPATH": toolchain.GoPath, "GOCACHE": toolchain.GoCache, "GOMODCACHE": toolchain.GoModCache,
+	}
+	for name, want := range wants {
+		if got[name] != want {
+			t.Fatalf("%s = %q, want shared cache %q", name, got[name], want)
+		}
+		info, statErr := os.Stat(want)
+		if statErr != nil || !info.IsDir() || info.Mode().Perm()&0o022 != 0 {
+			t.Fatalf("%s cache is not an owner-safe directory: info=%v err=%v", name, info, statErr)
+		}
+	}
+}
+
 func TestControlledProductionGitEnvironmentDisablesHostConfiguration(t *testing.T) {
 	t.Setenv("PATH", "/host/bin")
 	t.Setenv("HOME", "/host/home")

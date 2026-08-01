@@ -86,13 +86,13 @@ cmd/super-dolphin-gate/production_self_update_git_test.go	cmd	other	go-test	9409
 cmd/super-dolphin-gate/production_self_update_git.go	cmd	other	go-source	7738	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,production,self,update,git,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/production_self_update_requirement_test.go	cmd	other	go-test	3297	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,production,self,update,requirement,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/production_self_update_requirement.go	cmd	other	go-source	2185	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,production,self,update,requirement,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/production_self_update_resolver_test.go	cmd	other	go-test	20970	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,production,self,update,resolver,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/production_self_update_resolver_test.go	cmd	other	go-test	22110	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,production,self,update,resolver,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/production_self_update_test.go	cmd	other	go-test	6251	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,production,self,update,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/production_self_update_toolchain_manifest.go	cmd	other	go-source	3511	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,production,self,update,toolchain,manifest,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/production_self_update_toolchain.go	cmd	other	go-source	20890	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,production,self,update,toolchain,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/production_self_update_toolchain.go	cmd	other	go-source	22004	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,production,self,update,toolchain,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/production_self_update_transaction_test.go	cmd	other	go-test	14790	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,production,self,update,transaction,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/production_self_update_transaction.go	cmd	other	go-source	14154	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,production,self,update,transaction,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-gate/production_self_update.go	cmd	other	go-source	28473	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,production,self,update,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-gate/production_self_update.go	cmd	other	go-source	28638	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,production,self,update,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/project_map_cli_test_helpers_test.go	cmd	other	go-test	1112	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,project,map,cli,test,helpers,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/project_map_cli_test.go	cmd	other	go-test	7785	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,project,map,cli,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-gate/project_map_cli.go	cmd	other	go-source	2852	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,gate,project,map,cli,未细分职责：请结合路径,文件名和相邻代码判断
