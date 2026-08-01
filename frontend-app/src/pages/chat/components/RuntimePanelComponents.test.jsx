@@ -4,6 +4,7 @@ import { expect, it, vi } from 'vitest';
 import { RuntimeActivityPanel } from '../runtime/RuntimeActivityPanel.jsx';
 import { RuntimeDiffView } from '../runtime/RuntimeDiffView.jsx';
 import { RuntimeToolbar } from '../runtime/RuntimeToolbar.jsx';
+import { RightPanelHeader } from './RightPanelHeader.jsx';
 
 const diffFile = {
   filename: 'src/App.jsx',
@@ -103,7 +104,11 @@ function renderRuntimeActivityPanel(overrides = {}) {
 
   it('renders an Agents switch entry in the runtime toolbar', () => {
     const onShowAgents = vi.fn();
-    render(<RuntimeToolbar diffSummary={{ fileCount: 0, changedLines: 0, additions: 0, deletions: 0 }} onShowAgents={onShowAgents} />);
+    render(
+      <RightPanelHeader activeView="runtime" onCollapse={vi.fn()} onShowAgents={onShowAgents}>
+        <RuntimeToolbar diffSummary={{ fileCount: 0, changedLines: 0, additions: 0, deletions: 0 }} />
+      </RightPanelHeader>,
+    );
 
     const switchButton = screen.getByTestId('runtime-show-agents');
     expect(switchButton).toHaveAttribute('aria-label', '切换到 Agent 看板');
@@ -270,6 +275,16 @@ function renderRuntimeActivityPanel(overrides = {}) {
 
     expect(screen.getByLabelText('工具使用面板')).toHaveClass('is-log-collapsed');
     expect(screen.queryByTestId('warning-log-panel')).not.toBeInTheDocument();
+  });
+
+  it('renders an actionable empty state when there is no runtime activity', () => {
+    renderRuntimeActivityPanel();
+
+    const panel = screen.getByTestId('warning-log-panel');
+    expect(panel).toHaveTextContent('暂无运行活动');
+    expect(panel).toHaveTextContent('任务开始后，事件与结果会显示在这里。');
+    expect(panel).not.toHaveTextContent('--:--');
+    expect(panel).not.toHaveTextContent('等待事件');
   });
 
   it('renders an empty state when there is no diff text', () => {

@@ -1,4 +1,9 @@
 .sa-window.suiyuan-shell {
+  height: 100vh;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 24px;
+  overflow: hidden;
   background: var(--bg);
 }
 
@@ -35,22 +40,24 @@
 }
 
 .sa-body.suiyuan-shell-body {
-  height: 100vh;
+  grid-row: 1;
+  height: 100%;
   min-height: 0;
   display: grid;
   grid-template-columns: var(--workbench-sidebar-width) minmax(0, 1fr);
+  overflow: hidden;
   background: var(--bg);
 }
 
 .app-sidebar.suiyuan-sidebar {
   position: relative;
   width: var(--workbench-sidebar-width);
-  height: 100vh;
+  height: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  padding: 24px 18px 18px;
+  gap: 12px;
+  padding: 10px 12px;
   background: var(--sidebar-bg);
   border-right: 1px solid var(--sidebar-border);
   color: var(--text-sec);
@@ -59,7 +66,7 @@
 
 .suiyuan-brand-block {
   min-width: 0;
-  min-height: 42px;
+  min-height: 36px;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -99,10 +106,10 @@
 }
 
 .suiyuan-sidebar-collapse {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   margin-left: auto;
-  flex: 0 0 32px;
+  flex: 0 0 36px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -457,8 +464,30 @@
 }
 
 .sa-window.suiyuan-shell .chat-page-header {
-  min-height: 0;
-  padding-top: 12px;
+  min-height: 44px;
+  flex: 0 0 44px;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0;
+  padding: 0;
+}
+
+.sa-window.suiyuan-shell .chat-page-title {
+  align-self: stretch;
+  gap: 0;
+}
+
+.sa-window.suiyuan-shell .chat-more-button,
+.sa-window.suiyuan-shell .chat-header-tool {
+  width: 44px;
+  height: 44px;
+  border-radius: 0;
+}
+
+.sa-window.suiyuan-shell .chat-header-tools {
+  align-self: stretch;
+  gap: 0;
+  margin: 0 0 0 auto;
 }
 
 .sa-window.suiyuan-shell .chat-page-title h1,
@@ -1614,7 +1643,12 @@
 /* Make suiyuan-sidebar footer simpler since profile is at bottom */
 .suiyuan-sidebar-footer {
   margin-top: auto;
-  padding-top: 12px;
+  height: 36px;
+  min-height: 36px;
+  flex: 0 0 36px;
+  align-items: stretch;
+  padding: 0;
+  border-top: 0;
   display: flex;
   gap: 8px;
 }
@@ -1671,11 +1705,12 @@
 
 /* UI-CODEG D2: one production workbench shell, split into activity/main/content/bottom/status regions. */
 .sa-body.suiyuan-shell-body {
-  height: calc(100vh - 24px);
-  grid-template-columns: 48px var(--workbench-sidebar-width) minmax(0, 1fr);
+  height: 100%;
+  grid-template-columns: 0 var(--workbench-sidebar-width) minmax(0, 1fr);
 }
 
 .workbench-activity-bar {
+  grid-column: 1;
   position: relative;
   z-index: var(--z-local-sticky);
   display: flex;
@@ -1692,6 +1727,7 @@
   display: grid;
   gap: 5px;
   width: 100%;
+  margin-top: 50px;
 }
 
 .workbench-activity-button {
@@ -1741,17 +1777,33 @@
   margin-bottom: 6px;
 }
 
+.sa-window.sidebar-open .workbench-activity-bar {
+  overflow: hidden;
+  border-right: 0;
+  padding-inline: 0;
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+
 .sidebar-expand-trigger {
   display: none;
 }
 
 .app-sidebar.suiyuan-sidebar {
-  height: calc(100vh - 24px);
-  transition: width var(--motion-overlay), padding var(--motion-overlay), border var(--motion-overlay);
+  grid-column: 2;
+  min-width: var(--workbench-sidebar-width);
+  max-width: var(--workbench-sidebar-width);
+  height: 100%;
+  transform: translateX(0);
+  transform-origin: left center;
+  visibility: visible;
+  transition: transform var(--motion-overlay), visibility 0s linear 0s;
 }
 
 .suiyuan-main {
-  height: calc(100vh - 24px);
+  grid-column: 3;
+  height: 100%;
 }
 
 .suiyuan-top-appbar {
@@ -1923,8 +1975,9 @@
 }
 
 .workbench-status-bar {
-  position: fixed;
-  inset: auto 0 0;
+  grid-row: 2;
+  position: relative;
+  inset: auto;
   z-index: var(--z-local-sticky);
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
@@ -1949,8 +2002,12 @@
 }
 
 @media (max-width: 920px) {
+  .sa-window.suiyuan-shell {
+    grid-template-rows: minmax(0, 1fr);
+  }
+
   .sa-body.suiyuan-shell-body {
-    height: 100vh;
+    height: 100%;
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -1960,12 +2017,12 @@
   }
 
   .app-sidebar.suiyuan-sidebar {
-    height: 100vh;
+    height: 100%;
     transition: margin-left var(--motion-overlay), box-shadow var(--motion-overlay);
   }
 
   .suiyuan-main {
-    height: 100vh;
+    height: 100%;
   }
 
   .workbench-bottom-panel {

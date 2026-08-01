@@ -2,17 +2,24 @@ import { textValue } from '../../shared/pageShared.js';
 import { activeThreadForStore } from '../adapters/threadIdentityAdapter.js';
 
 const BACKEND_CONNECTION_FAILED_PREFIX = '\u8fde\u63a5\u540e\u7aef\u5931\u8d25\uff1a';
+const BACKEND_CONNECTION_FAILED_LABEL = '\u8fde\u63a5\u540e\u7aef\u5931\u8d25';
+
+function bootstrapFailureMessage(error) {
+  const message = textValue(error) || '未知错误';
+  if (message.startsWith(BACKEND_CONNECTION_FAILED_LABEL)) return message;
+  return `${BACKEND_CONNECTION_FAILED_PREFIX}${message}`;
+}
 
 function chatHeaderFeedbackForStore(store) {
   const bootstrapStatus = textValue(store?.bootstrapStatus);
   const bootstrapError = textValue(store?.error);
   const bootstrapRecovery = bootstrapStatus === 'failed'
     || (bootstrapStatus === 'loading' && Boolean(bootstrapError));
-  const bootstrapFailureMessage = bootstrapRecovery
-    ? `${BACKEND_CONNECTION_FAILED_PREFIX}${bootstrapError || '未知错误'}`
+  const failureMessage = bootstrapRecovery
+    ? bootstrapFailureMessage(bootstrapError)
     : '';
-  if (bootstrapFailureMessage) return {
-    message: bootstrapFailureMessage,
+  if (failureMessage) return {
+    message: failureMessage,
     tone: 'error',
     bootstrapRecovery: true,
     retrying: bootstrapStatus === 'loading',

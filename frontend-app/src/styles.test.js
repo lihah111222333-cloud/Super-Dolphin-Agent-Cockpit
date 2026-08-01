@@ -40,8 +40,7 @@ const cssFiles = [
   'src/pages/chat/components/RuntimePanelPolish.css',
   'src/pages/skills/DatasourcePage.css',
   'src/AppShellSidebarThreadActions.css',
-  'src/shared/styles/MarkdownReferences.css',
-  'src/shared/styles/TechGlowPolish.css',
+  'src/shared/styles/MarkdownReferences.css', 'src/shared/styles/TechGlowPolish.css', 'src/shared/styles/GlassCardPolish.css',
 ];
 
 const mainSource = readFileSync(path.join(cwd(), 'src/main.jsx'), 'utf8');
@@ -444,7 +443,7 @@ const TOKEN_COLOR_RULES = [
   ['.model-dropdown', ['background']],
   ['.model-dropdown select', ['background', 'color']],
   ['.model-inherit', ['border', 'background', 'color']],
-  ['.runtime-toolbar .runtime-stat', ['background', 'color']],
+  ['.runtime-toolbar__metrics .runtime-stat', ['background', 'color']],
   ['.score', ['background', 'color']],
   ['.score.good', ['border-color', 'color']],
   ['.score.bad', ['border-color', 'color']],
@@ -539,11 +538,11 @@ describe('composer layout styles', () => {
   });
 
   it('keeps the fixed floating composer aligned when the product nav collapses', () => {
-    const expandedFloatingComposer = topLevelDeclarationsFor('.sa-window .composer.composer--floating[data-file-drop-target]');
+    const fixedFloatingComposer = topLevelDeclarationsFor('.composer.composer--floating[data-file-drop-target]'); const expandedFloatingComposer = topLevelDeclarationsFor('.sa-window .composer.composer--floating[data-file-drop-target]');
     const collapsedFloatingComposer = topLevelDeclarationsFor('.sa-window.sidebar-collapsed .composer.composer--floating[data-file-drop-target]');
 
-    expect(expandedFloatingComposer['--composer-fixed-left']).toBe('var(--suiyuan-sidebar-width, 280px)');
-    expect(collapsedFloatingComposer['--composer-fixed-left']).toBe('0px');
+    expect(expandedFloatingComposer['--composer-fixed-left']).toBe('var(--workbench-sidebar-width)'); expect(fixedFloatingComposer.inset).toBe('auto var(--composer-fixed-right, 0px) calc(24px + var(--workbench-bottom-height, 0px)) var(--composer-fixed-left)');
+    expect(collapsedFloatingComposer['--composer-fixed-left']).toBe('48px');
   });
 
   it('keeps composer send controls aligned with the shell theme', () => {
@@ -691,7 +690,7 @@ describe('composer layout styles', () => {
 
   it('keeps runtime panel details shrink-safe inside the right rail', () => {
     const panel = declarationsFor('.runtime-panel');
-    const toolbar = declarationsFor('.runtime-toolbar');
+    const toolbar = declarationsFor('.right-panel-header');
     const activityPanel = declarationsFor('.runtime-activity-panel');
     const diffGroup = declarationsFor('.diff-file-group');
     const icons = declarationsFor('.runtime-icons');
@@ -753,10 +752,11 @@ describe('theme-aware component styles', () => {
     });
 
     it('keeps the Suiyuan workbench aliases available for shell and chat surfaces', () => {
-      const rootTokens = declarationsFor(':root');
+      const rootTokens = declarationsFor(':root'); const glass = cssSources.get('src/shared/styles/GlassCardPolish.css');
 
       expect(rootTokens['--suiyuan-sidebar-width']).toBe('280px');
       expect(rootTokens['--suiyuan-content-max-width']).toBe('1100px');
+      expect(glass).toContain('backdrop-filter: blur(20px) saturate(145%)'); expect(glass).toContain('.chat-intro-card'); expect(glass).toContain('.mcp-tool-title-line h2');
       expect(rootTokens['--suiyuan-gutter']).toBe('24px');
       expect(rootTokens['--suiyuan-card-shadow']).toBe('0 20px 40px -10px rgba(30, 38, 68, 0.08)');
       expect(rootTokens['--suiyuan-input-shadow']).toBe('0 8px 30px rgba(30, 38, 68, 0.06)');
@@ -1509,9 +1509,9 @@ describe('workbench shell styles', () => {
       const activeIndicator = declarationsFor('.sa-window[data-theme="light"] .suiyuan-nav-item.active::before');
       const appbarTitle = topLevelDeclarationsFor('.suiyuan-appbar-title h1');
 
-      expect(sharedSidebar.gap).toBe('20px');
-      expect(sharedSidebar.padding).toBe('24px 18px 18px');
-      expect(sharedBrand['min-height']).toBe('42px');
+      expect(sharedSidebar.gap).toBe('12px');
+      expect(sharedSidebar.padding).toBe('10px 12px');
+      expect(sharedBrand['min-height']).toBe('36px');
       expect(sharedBrand.gap).toBe('12px');
       expect(sharedBrandTitle['font-size']).toBe('17px');
       expect(sharedNewChat.width).toBe('100%');
@@ -1595,7 +1595,7 @@ describe('workbench shell styles', () => {
   });
 
   it('keeps the screenshot-style sidebar fixed and branded', () => {
-    const sidebar = topLevelDeclarationsFor('.app-sidebar.suiyuan-sidebar');
+    const shell = topLevelDeclarationsFor('.sa-window.suiyuan-shell'); const sidebar = topLevelDeclarationsFor('.app-sidebar.suiyuan-sidebar');
     const body = topLevelDeclarationsFor('.sa-body.suiyuan-shell-body');
     const brand = declarationsFor('.suiyuan-brand-block');
     const brandMeta = declarationsFor('.suiyuan-brand-meta');
@@ -1603,16 +1603,16 @@ describe('workbench shell styles', () => {
     const nav = declarationsFor('.suiyuan-nav');
     const chatNavGroup = declarationsFor('.suiyuan-chat-nav-group');
     const projectTree = declarationsFor('.suiyuan-chat-project-tree');
-    const collapseButton = declarationsFor('.suiyuan-sidebar-collapse');
-    const collapsedSidebar = mediaDeclarationFor('(min-width: 921px)', '.sa-window.sidebar-collapsed .app-sidebar', 'visibility');
+    const collapseButton = declarationsFor('.suiyuan-sidebar-collapse'); const activityDestinations = topLevelDeclarationsFor('.workbench-activity-destinations'); const statusBar = topLevelDeclarationsFor('.workbench-status-bar');
+    const collapsedSidebar = mediaDeclarationFor('(min-width: 921px)', '.sa-window.sidebar-collapsed .app-sidebar', 'visibility'); const collapsedBody = mediaDeclarationFor('(min-width: 921px)', '.sa-window.sidebar-collapsed .sa-body.suiyuan-shell-body', 'grid-template-columns');
 
+    expect(shell.display).toBe('grid'); expect(shell['grid-template-rows']).toBe('minmax(0, 1fr) 24px'); expect(shell.overflow).toBe('hidden');
     expect(sidebar.width).toBe('var(--workbench-sidebar-width)');
     expect(sidebar.position).toBe('relative');
     expect(sidebar.background).toBe('var(--sidebar-bg)');
     expect(sidebar['border-right']).toBe('1px solid var(--sidebar-border)');
     expect(sidebar.overflow).toBe('hidden');
-    expect(body.height).toBe('calc(100vh - 24px)');
-    expect(body['grid-template-columns']).toBe('48px var(--workbench-sidebar-width) minmax(0, 1fr)');
+    expect(body.height).toBe('100%'); expect(body['grid-row']).toBe('1'); expect(body['grid-template-columns']).toBe('0 var(--workbench-sidebar-width) minmax(0, 1fr)');
     expect(brand.display).toBe('flex');
     expect(brandMeta.display).toBe('grid');
     expect(newChat['min-height']).toBe('40px');
@@ -1624,10 +1624,10 @@ describe('workbench shell styles', () => {
     expect(projectTree['overflow-y']).toBe('auto');
     expect(projectTree['overscroll-behavior']).toBe('contain');
     expect(projectTree['scrollbar-gutter']).toBe('stable');
-    expect(collapseButton.width).toBe('32px');
-    expect(collapseButton.height).toBe('32px');
+    expect(collapseButton.width).toBe('36px');
+    expect(collapseButton.height).toBe('36px');
     expect(collapseButton['margin-left']).toBe('auto');
-    expect(collapsedSidebar.visibility).toBe('hidden');
+    expect(activityDestinations['margin-top']).toBe('50px'); expect(statusBar.position).toBe('relative'); expect(statusBar['grid-row']).toBe('2'); expect(collapsedSidebar.visibility).toBe('hidden'); expect(collapsedBody['grid-template-columns']).toBe('48px 0 minmax(0, 1fr)');
   });
 
   it('keeps the primary product nav while nesting projects under Chat', () => {
@@ -1893,8 +1893,8 @@ describe('runtime activity panel styles', () => {
 
 describe('runtime resize styles', () => {
   it('keeps resized runtime sidebar content visible instead of requiring horizontal scrolling', () => {
-    const toolbar = declarationsFor('.runtime-toolbar');
-    const toolbarStat = declarationsFor('.runtime-toolbar .runtime-stat');
+    const toolbar = declarationsFor('.right-panel-header');
+    const toolbarStat = declarationsFor('.runtime-toolbar__metrics .runtime-stat');
     const score = declarationsFor('.score');
     const goodScore = declarationsFor('.score.good');
     const diffView = declarationsFor('.diff-view');
@@ -1910,8 +1910,8 @@ describe('runtime resize styles', () => {
     const stat = declarationsFor('.runtime-stat');
 
     expect(toolbar['min-width']).toBe('0');
-    expect(toolbar.display).toBe('flex');
-    expect(toolbar.overflow).toBe('hidden');
+    expect(toolbar.display).toBe('grid'); expect(toolbar.overflow).toBe('hidden');
+    const toolbarPrimary = declarationsFor('.right-panel-header__primary'); const viewTabs = declarationsFor('.right-panel-view-tabs'); expect(toolbarPrimary['grid-template-columns']).toBe('28px minmax(0, 1fr) 28px'); expect(viewTabs.width).toBe('128px'); expect(viewTabs.display).toBe('grid'); expect(viewTabs['grid-template-columns']).toBe('repeat(2, minmax(0, 1fr))');
     const toolbarMetrics = declarationsFor('.runtime-toolbar__metrics');
     expect(toolbarMetrics.display).toBe('grid');
     expect(toolbarMetrics['grid-template-columns']).toBe('repeat(4, minmax(0, 1fr))');
@@ -2013,19 +2013,19 @@ describe('light theme baseline usability', () => {
   });
 
   it('keeps light-mode runtime summary pills on matching surfaces', () => {
-    const toolbar = declarationsFor('.sa-window[data-theme="light"] .runtime-toolbar');
-    const stat = declarationsFor('.sa-window[data-theme="light"] .runtime-toolbar .runtime-stat');
+    const toolbar = declarationsFor('.right-panel-header');
+    const stat = declarationsFor('.runtime-toolbar__metrics .runtime-stat');
     const score = declarationsFor('.sa-window[data-theme="light"] .score');
     const goodScore = declarationsFor('.sa-window[data-theme="light"] .score.good');
     const badScore = declarationsFor('.sa-window[data-theme="light"] .score.bad');
 
     expect(toolbar.background).toBe('var(--surface-2)');
-    expect(toolbar['border-bottom-color']).toBe('var(--line)');
-    expect(stat.background).toBe('var(--surface)');
+    expect(toolbar['border-bottom']).toContain('var(--line)');
+    expect(stat.background).toContain('var(--surface)');
     expect(stat.color).toBe('var(--text-sec)');
-    expect(stat['border-color']).toBe('var(--line)');
-    expect(declarationsFor('.sa-window[data-theme="light"] .runtime-toolbar .runtime-stat:hover')).toEqual({});
-    expect(declarationsFor('.sa-window[data-theme="light"] .runtime-toolbar .runtime-stat:focus-visible')).toEqual({});
+    expect(stat.border).toContain('var(--line)');
+    expect(declarationsFor('.runtime-toolbar__metrics .runtime-stat:hover')).toEqual({});
+    expect(declarationsFor('.runtime-toolbar__metrics .runtime-stat:focus-visible')).toEqual({});
     expect(score.background).toBe('var(--surface)');
     expect(score.color).toBe('var(--text-sec)');
     expect(goodScore.background).toBe('color-mix(in srgb, var(--success) 9%, var(--surface))');

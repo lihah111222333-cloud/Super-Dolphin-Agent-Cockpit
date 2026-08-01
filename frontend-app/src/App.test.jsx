@@ -1589,7 +1589,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     render(<App skipBootstrap />);
 
     const shell = screen.getByTestId('frontend-app');
-    fireEvent.click(screen.getByRole('button', { name: '展开侧栏' }));
+    fireEvent.click(screen.getByRole('button', { name: '展开主侧栏' }));
     expect(shell).toHaveClass('sidebar-open');
 
     const collapseButton = within(screen.getByTestId('app-sidebar')).getByRole('button', { name: '折叠侧栏' });
@@ -1598,7 +1598,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.click(collapseButton);
 
     expect(shell).toHaveClass('sidebar-collapsed');
-    expect(screen.getByRole('button', { name: '展开侧栏' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: '展开主侧栏' })).toHaveLength(1);
   });
 
   it('renders the Stitch Suiyuan sidebar primary navigation order', () => {
@@ -1761,7 +1761,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     render(<App />);
 
-    expect(await screen.findByText('连接后端失败：连接后端失败，请重试。')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '重新连接后端' })).toBeInTheDocument(); expect(screen.queryByText('连接后端失败：连接后端失败，请重试。')).not.toBeInTheDocument();
     expect(screen.queryByText(/127\.0\.0\.1/)).not.toBeInTheDocument();
     expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
       expect.objectContaining({ actionId: 'app.bootstrap.background' }),

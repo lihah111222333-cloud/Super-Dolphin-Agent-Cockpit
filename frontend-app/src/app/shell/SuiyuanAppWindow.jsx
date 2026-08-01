@@ -10,7 +10,6 @@ import {
   MessageSquareText,
   Moon,
   PanelLeftClose,
-  PanelLeftOpen,
   Puzzle,
   Sailboat,
   Settings as SettingsIcon,
@@ -378,8 +377,12 @@ function useSuiyuanWorkbenchLayout({ rightPanelOpen, setRightPanelOpen, shellLay
 
 function SuiyuanMainSurface(model) {
   const { appearance, content, copy, header, store, updateBanner } = model;
+  const [bottomPanelHeight, setBottomPanelHeight] = useState(36);
   return (
-    <main className="sa-main suiyuan-main">
+    <main
+      className="sa-main suiyuan-main"
+      style={{ '--workbench-bottom-height': `${store.activePage === 'chat' ? bottomPanelHeight : 0}px` }}
+    >
       <SuiyuanTopAppBar
         copy={copy}
         currentPageLabel={header.currentPageLabel}
@@ -408,6 +411,7 @@ function SuiyuanMainSurface(model) {
       </div>
       <WorkbenchBottomPanel
         activePage={store.activePage}
+        onHeightChange={setBottomPanelHeight}
         projectPath={content.projectPath}
         rightPanelOpen={content.rightPanelOpen}
       />
@@ -505,23 +509,14 @@ export function SuiyuanAppWindow({ language, shell, shellLayoutStore, shortcutCo
       </button>
       {sidebarOpen ? <button type="button" className="sidebar-scrim" aria-label={copy.workbench.close} onClick={closeSidebar} /> : null}
       <div className="sa-body suiyuan-shell-body">
-        <WorkbenchActivityBar
-          activePage={store.activePage}
-          items={SUIYUAN_NAV_ITEMS}
-          onSelect={setActivePageFromSidebar}
-          onToggleSidebar={() => setSidebarOpen((open) => !open)}
-          sidebarOpen={sidebarOpen}
-        />
         {!sidebarOpen ? (
-          <button
-            type="button"
-            className="sidebar-expand-trigger"
-            aria-label={copy.workbench.expand}
-            title={copy.workbench.expand}
-            onClick={() => setSidebarOpen(true)}
-          >
-            <PanelLeftOpen size={20} aria-hidden="true" />
-          </button>
+          <WorkbenchActivityBar
+            activePage={store.activePage}
+            items={SUIYUAN_NAV_ITEMS}
+            onSelect={setActivePageFromSidebar}
+            onToggleSidebar={() => setSidebarOpen(true)}
+            sidebarOpen={false}
+          />
         ) : null}
         <SuiyuanSidebar
           copy={copy}

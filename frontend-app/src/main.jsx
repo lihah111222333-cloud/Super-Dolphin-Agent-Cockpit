@@ -44,6 +44,8 @@ import './AppShellSidebarThreadActions.css';
 import './shared/styles/MarkdownReferences.css';
 // 深色科技感光效层（v2）：仅 dark 作用域，置于所有抛光层之后。
 import './shared/styles/TechGlowPolish.css';
+// 全局卡片材质层：覆盖各页面卡片的实色背景，统一为主题感知的毛玻璃。
+import './shared/styles/GlassCardPolish.css';
 import App, { APP_PROFILER_ID } from './App.jsx';
 import { AppErrorBoundary } from './app/AppErrorBoundary.jsx';
 import { AppearanceBootstrapGate } from './app/appearance/AppearanceProvider.jsx';

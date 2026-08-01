@@ -1,18 +1,22 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ChevronDown, ChevronUp, CircleDot, TerminalSquare } from 'lucide-react';
 
 const MIN_HEIGHT = 132;
 const MAX_HEIGHT = 360;
 
-export function WorkbenchBottomPanel({ activePage, projectPath, rightPanelOpen }) {
-  const [open, setOpen] = useState(true);
+export function WorkbenchBottomPanel({ activePage, onHeightChange, projectPath, rightPanelOpen }) {
+  const [open, setOpen] = useState(false);
   const [height, setHeight] = useState(188);
   const [tab, setTab] = useState('activity');
+  const effectiveHeight = open ? height : 36;
+  useEffect(() => onHeightChange?.(activePage === 'chat' ? effectiveHeight : 0), [activePage, effectiveHeight, onHeightChange]);
+  if (activePage !== 'chat') return null;
+
   return (
     <section
       className={`workbench-bottom-panel${open ? ' is-open' : ' is-collapsed'}`}
       aria-label="底部工作台"
-      style={{ '--workbench-bottom-height': `${open ? height : 36}px` }}
+      style={{ '--workbench-bottom-height': `${effectiveHeight}px` }}
     >
       <div className="workbench-bottom-resize">
         <label>

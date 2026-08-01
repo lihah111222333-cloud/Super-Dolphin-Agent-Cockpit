@@ -33,14 +33,25 @@ describe('workbench chrome', () => {
   });
 
   it('keeps terminal unmistakably demo-only and bottom panel adjustable', () => {
-    render(<WorkbenchBottomPanel activePage="chat" projectPath="/workspace" rightPanelOpen />);
-    expect(screen.getByRole('region', { name: '底部工作台' })).toHaveStyle({ '--workbench-bottom-height': '188px' });
+    const onHeightChange = vi.fn();
+    render(<WorkbenchBottomPanel activePage="chat" onHeightChange={onHeightChange} projectPath="/workspace" rightPanelOpen />);
+    expect(screen.getByRole('region', { name: '底部工作台' })).toHaveStyle({ '--workbench-bottom-height': '36px' });
+    expect(onHeightChange).toHaveBeenLastCalledWith(36);
+    fireEvent.click(screen.getByRole('button', { name: '展开底部面板' }));
+    expect(onHeightChange).toHaveBeenLastCalledWith(188);
     fireEvent.click(screen.getByRole('tab', { name: /Terminal/ }));
     expect(screen.getByText('Demo · 只读')).toBeInTheDocument();
     expect(screen.getByText(/不会执行命令/)).toBeInTheDocument();
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '收起底部面板' }));
     expect(screen.getByRole('region', { name: '底部工作台' })).toHaveClass('is-collapsed');
+    expect(onHeightChange).toHaveBeenLastCalledWith(36);
+  });
+
+  it('keeps the bottom workbench out of non-chat pages', () => {
+    render(<WorkbenchBottomPanel activePage="observability" projectPath="/workspace" rightPanelOpen={false} />);
+
+    expect(screen.queryByRole('region', { name: '底部工作台' })).not.toBeInTheDocument();
   });
 
   it('renders real workspace and appearance status', () => {

@@ -1,9 +1,9 @@
 import React from 'react';
-import { X } from 'lucide-react';
 import { hasOnlyRootAgent } from './agentBoardModel.js';
 import { AgentCountsSummary } from './AgentCountsSummary.jsx';
 import { AgentDetail } from './AgentDetail.jsx';
 import { AgentHierarchyList } from './AgentHierarchyList.jsx';
+import { RightPanelHeader } from '../components/RightPanelHeader.jsx';
 
 function PanelBody({ viewModel, formatTime, onSelectAgent }) {
   if (viewModel.loading) {
@@ -38,39 +38,7 @@ function PanelBody({ viewModel, formatTime, onSelectAgent }) {
 function AgentBoardPanel({ viewModel, formatTime, onSelectAgent, onCollapse, onShowRuntime }) {
   return (
     <aside className="agent-board-panel" aria-label="Agent 看板详情栏" data-testid="agent-board-panel">
-      <header className="agent-board-panel__header">
-        <div className="agent-board-panel__tabs" role="group" aria-label="右侧栏视图切换">
-          <button
-            type="button"
-            className="agent-board-panel__tab agent-board-panel__tab--active"
-            aria-pressed="true"
-            aria-label="Agent 看板视图"
-            data-testid="agent-board-tab-agents"
-          >
-            Agents
-          </button>
-          <button
-            type="button"
-            className="agent-board-panel__tab"
-            aria-pressed="false"
-            aria-label="切换到运行时视图"
-            data-testid="agent-board-show-runtime"
-            onClick={onShowRuntime}
-          >
-            运行时
-          </button>
-        </div>
-        <button
-          type="button"
-          className="agent-board-panel__collapse"
-          aria-label="收起 Agent 看板"
-          title="收起 Agent 看板"
-          data-testid="agent-board-collapse"
-          onClick={onCollapse}
-        >
-          <X size={14} aria-hidden="true" />
-        </button>
-      </header>
+      <RightPanelHeader activeView="agents" onCollapse={onCollapse} onShowRuntime={onShowRuntime} />
       <div className="agent-board-panel__body">
         <PanelBody viewModel={viewModel} formatTime={formatTime} onSelectAgent={onSelectAgent} />
       </div>

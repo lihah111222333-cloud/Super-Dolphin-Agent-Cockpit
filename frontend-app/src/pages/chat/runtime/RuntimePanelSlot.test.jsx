@@ -44,6 +44,7 @@ function renderSlot(overrides = {}) {
     handleKeyDown: vi.fn(),
     layoutActions: {
       activity: { begin: vi.fn(), keyDown: vi.fn() },
+      right: { setOpen: vi.fn() },
     },
     onShowAgents: vi.fn(),
     open: true,
@@ -79,6 +80,9 @@ function renderSlot(overrides = {}) {
 
     fireEvent.click(screen.getByTestId('runtime-show-agents'));
     expect(props.onShowAgents).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByTestId('runtime-panel-collapse'));
+    expect(props.layoutActions.right.setOpen).toHaveBeenCalledWith(false);
   });
 
   it('ignores stale code preview responses from earlier diff open actions', async () => {
