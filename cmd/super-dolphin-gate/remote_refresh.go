@@ -161,17 +161,31 @@ func runRemoteBaselineRefreshLocked(ctx context.Context, options remoteBaselineR
 		return reuseRemoteBaseline(ctx, session, stdout)
 	}
 	if session.accepted.SchemaVersion != 0 {
-		if !remoteBaselineCapacityMatches(session.accepted, session.acceptedRecommendedSizeGiB) ||
-			remoteBaselineForcesRuntimeRefresh(session.input) ||
-			session.input.RuntimeDependencyDigest == "" || session.input.AcceptedRuntimeDependencyDigest == "" ||
-			session.input.RuntimeDependencyDigest != session.input.AcceptedRuntimeDependencyDigest ||
-			!remoteBaselineSeedIdentityMatches(session.accepted, session.input.Identity) ||
-			len(session.accepted.DeltaRefs()) >= remoteBaselineDeltaLimit {
-			return protocolError("accepted baseline exists but this refresh cannot be represented as a Delta; full Anchor rebuild is forbidden")
+		if reason := remoteBaselineIncrementalRefreshRejection(session); reason != "" {
+			return protocolError("accepted baseline exists but this refresh cannot be represented as a Delta (%s); full Anchor rebuild is forbidden", reason)
 		}
 		fmt.Fprintf(os.Stderr, "remote baseline refresh mode: incremental delta parent_generation=%d existing_deltas=%d toolchain_changed=%t\n", session.accepted.Generation, len(session.accepted.DeltaRefs()), session.accepted.ToolchainDigest != session.input.Identity.ToolchainDigest)
 	}
 	return createRemoteBaseline(ctx, session, stdout)
+}
+
+func remoteBaselineIncrementalRefreshRejection(session remoteBaselineRefreshSession) string {
+	switch {
+	case !remoteBaselineCapacityMatches(session.accepted, session.acceptedRecommendedSizeGiB):
+		return "capacity changed"
+	case remoteBaselineForcesRuntimeRefresh(session.input):
+		return "runtime dependency schema changed"
+	case session.input.RuntimeDependencyDigest == "" || session.input.AcceptedRuntimeDependencyDigest == "":
+		return "runtime dependency identity is missing"
+	case session.input.RuntimeDependencyDigest != session.input.AcceptedRuntimeDependencyDigest:
+		return "runtime dependency content changed"
+	case !remoteBaselineSeedIdentityMatches(session.accepted, session.input.Identity):
+		return "platform or runtime image changed"
+	case len(session.accepted.DeltaRefs()) >= remoteBaselineDeltaLimit:
+		return "Delta chain is full"
+	default:
+		return ""
+	}
 }
 
 // remoteBaselineCanReuse 只允许完整历史、身份和容量均匹配的基线跳过刷新。

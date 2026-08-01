@@ -13,7 +13,7 @@
     "lsp_package_lock_sha256": "sha256:f46be2baa736bd8c47bfe8a038f3fdda6a09353a97c46af46df5105df448b54f",
     "proxy_go_mod_sha256": "sha256:cba6f12730b8a3765b3b1ff9e596f64af325d36d651dd4933893792e928963a4",
     "proxy_go_sum_sha256": "sha256:0c367de5a9f3090cb8f06556d9a1997a84e1c6081f7c46b9ad9650e3178dc224",
-    "tools_go_mod_sha256": "sha256:834eb97a6a57fe72a04c0c3cfe67cb2f5a3773ad63aa96cdeab7aa23d62e679f",
+    "tools_go_mod_sha256": "sha256:17628b21cc39bd5ecb9f7ced60ce369378207b16c2bd7fd2df0296066ab782c6",
     "tools_go_sum_sha256": "sha256:4fb6b0daaafccfaa0024c3eebd193929957f4e49c62ed551a6289c59632f104f",
     "runtime_seed_worker_sha256": "sha256:17aa60ecc6a26e117fcb8e0d065b55d32347ecfee40bcb917e5c0bd7deff44cc",
     "runtime_seed_recipe_sha256": "sha256:e29337e64e5845df5158cef1973628da3dfd72ec0178c9626a33894b0d861963",

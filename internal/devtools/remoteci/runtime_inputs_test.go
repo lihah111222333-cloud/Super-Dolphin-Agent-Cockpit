@@ -2,8 +2,10 @@ package remoteci
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -27,6 +29,31 @@ func TestResolveRuntimeDependencyBuildUsesLockedGitTree(t *testing.T) {
 	} {
 		if !strings.Contains(joined, required) {
 			t.Fatalf("ResolveRuntimeDependencyBuild() arguments missing %q", required)
+		}
+	}
+}
+
+func TestRuntimeLockDigestIgnoresOnlyIncrementalSeedControlPlane(t *testing.T) {
+	lock := runtimeDependencyLock{Inputs: map[string]string{
+		"toolchain_lock_sha256":              "sha256:toolchain",
+		"runtime_seed_recipe_sha256":         "sha256:recipe-a",
+		"runtime_seed_script_sha256":         "sha256:script-a",
+		"runtime_seed_script_runtime_sha256": "sha256:runtime-a",
+		"runtime_seed_script_browser_sha256": "sha256:browser-a",
+	}}
+	baseline := runtimeLockDigest(lock)
+	for _, name := range []string{"runtime_seed_recipe_sha256", "runtime_seed_script_sha256", "runtime_seed_script_runtime_sha256"} {
+		changed := runtimeDependencyLock{Inputs: maps.Clone(lock.Inputs)}
+		changed.Inputs[name] += "-changed"
+		if digest := runtimeLockDigest(changed); digest != baseline {
+			t.Fatalf("control-plane input %s invalidated reusable runtime digest", name)
+		}
+	}
+	for _, name := range []string{"toolchain_lock_sha256", "runtime_seed_script_browser_sha256"} {
+		changed := runtimeDependencyLock{Inputs: maps.Clone(lock.Inputs)}
+		changed.Inputs[name] += "-changed"
+		if digest := runtimeLockDigest(changed); digest == baseline {
+			t.Fatalf("runtime content input %s did not invalidate reusable runtime digest", name)
 		}
 	}
 }
@@ -78,6 +105,35 @@ func TestRuntimeGoModuleManifestsRejectsDuplicatePaths(t *testing.T) {
 	}
 }
 
+func TestRuntimeGoModuleManifestsIgnoreOnlyGoDirective(t *testing.T) {
+	entries := []sourceexport.TreeEntry{
+		{Path: "go.mod", Mode: "100644", Data: []byte("module example.com/root\n\ngo 1.25.7\n\nrequire example.com/dependency v1.0.0\n")},
+		{Path: "go.sum", Mode: "100644", Data: []byte("example.com/dependency v1.0.0 h1:first\n")},
+	}
+	baseline, err := runtimeGoModuleManifests(entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directiveChanged := append([]sourceexport.TreeEntry(nil), entries...)
+	directiveChanged[0].Data = []byte(strings.ReplaceAll(string(entries[0].Data), "go 1.25.7", "go 1.26.0"))
+	directiveManifests, err := runtimeGoModuleManifests(directiveChanged)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(directiveManifests, baseline) {
+		t.Fatal("Go directive invalidated reusable dependency content")
+	}
+	requireChanged := append([]sourceexport.TreeEntry(nil), entries...)
+	requireChanged[0].Data = []byte(strings.ReplaceAll(string(entries[0].Data), "v1.0.0", "v1.1.0"))
+	requireManifests, err := runtimeGoModuleManifests(requireChanged)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reflect.DeepEqual(requireManifests, baseline) {
+		t.Fatal("Go requirement change did not invalidate reusable dependency content")
+	}
+}
+
 func TestResolveRuntimeDependencyBuildRejectsLockDrift(t *testing.T) {
 	entries := loadRuntimeDependencyEntries(t)
 	for index := range entries {
@@ -120,12 +176,14 @@ func TestResolveAcceptedRuntimeDependencyDigestAllowsLegacyV5ThroughV8(t *testin
 	assertAcceptedRuntimeDependencyDigest(t, entries, current)
 	lockIndex, document, inputs := runtimeDependencyLockDocument(t, entries)
 	seen := map[string]string{current: "v9"}
+	reusable := current
 	migrations := []struct {
 		version         string
 		removedInput    string
 		rejectedCurrent bool
+		wantDistinct    bool
 	}{
-		{version: "v8", removedInput: "runtime_seed_script_browser_sha256", rejectedCurrent: true},
+		{version: "v8", removedInput: "runtime_seed_script_browser_sha256", rejectedCurrent: true, wantDistinct: true},
 		{version: "v7", removedInput: "runtime_seed_script_runtime_sha256", rejectedCurrent: true},
 		{version: "v6", removedInput: "runtime_seed_script_sha256", rejectedCurrent: true},
 		{version: "v5", removedInput: "runtime_seed_recipe_sha256"},
@@ -135,7 +193,12 @@ func TestResolveAcceptedRuntimeDependencyDigestAllowsLegacyV5ThroughV8(t *testin
 		delete(inputs, migration.removedInput)
 		updateRuntimeDependencyLock(t, entries, lockIndex, document)
 		digest := acceptedLegacyRuntimeDigest(t, entries, migration)
-		assertDistinctRuntimeDependencyDigest(t, seen, digest, migration.version)
+		if migration.wantDistinct {
+			assertDistinctRuntimeDependencyDigest(t, seen, digest, migration.version)
+			reusable = digest
+		} else if digest != reusable {
+			t.Fatalf("legacy control-plane schema %s digest = %q, want reusable %q", migration.version, digest, reusable)
+		}
 	}
 	entries[lockIndex].Data = []byte(`{"schema_version":"3"}`)
 	if _, err := ResolveAcceptedRuntimeDependencyDigest(entries, "linux/amd64"); err == nil {
@@ -187,6 +250,7 @@ func acceptedLegacyRuntimeDigest(
 		version         string
 		removedInput    string
 		rejectedCurrent bool
+		wantDistinct    bool
 	},
 ) string {
 	t.Helper()

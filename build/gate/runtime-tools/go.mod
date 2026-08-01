@@ -1,6 +1,6 @@
 module github.com/lihah111222333-cloud/super-dolphin-gate-runtime-tools
 
-go 1.26.0
+go 1.25.7
 
 require (
 	github.com/rhysd/actionlint v1.7.12

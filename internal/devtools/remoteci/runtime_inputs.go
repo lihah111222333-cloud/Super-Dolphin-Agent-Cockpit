@@ -295,10 +295,16 @@ func loadRuntimeToolchainLock(byPath map[string][]byte) (runtimeToolchainLock, e
 	return lock, nil
 }
 
-// runtimeLockDigest 返回排序后输入摘要的稳定身份。
+// runtimeLockDigest 返回可复用运行时内容的稳定身份；seed 控制面实现由候选 CLI 身份单独绑定，不得使依赖缓存失效。
 func runtimeLockDigest(lock runtimeDependencyLock) string {
 	ordered := make([]string, 0, len(lock.Inputs))
 	for name, digest := range lock.Inputs {
+		switch name {
+		case "runtime_seed_recipe_sha256", "runtime_seed_script_sha256", "runtime_seed_script_runtime_sha256",
+			"go_mod_sha256", "go_sum_sha256", "proxy_go_mod_sha256", "proxy_go_sum_sha256",
+			"tools_go_mod_sha256", "tools_go_sum_sha256":
+			continue
+		}
 		ordered = append(ordered, name+"="+digest)
 	}
 	sort.Strings(ordered)
@@ -334,7 +340,17 @@ func runtimeGoModuleManifests(entries []sourceexport.TreeEntry) ([]runtimeGoModu
 		}
 		seen[entry.Path] = struct{}{}
 		hasRoot = hasRoot || entry.Path == "go.mod"
-		manifests = append(manifests, runtimeGoModuleManifest{Path: entry.Path, Digest: remoteBytesDigest(entry.Data)})
+		data := entry.Data
+		if strings.HasSuffix(entry.Path, "go.mod") {
+			lines := strings.Split(string(data), "\n")
+			for index, line := range lines {
+				if strings.HasPrefix(strings.TrimSpace(line), "go ") {
+					lines[index] = ""
+				}
+			}
+			data = []byte(strings.Join(lines, "\n"))
+		}
+		manifests = append(manifests, runtimeGoModuleManifest{Path: entry.Path, Digest: remoteBytesDigest(data)})
 	}
 	if !hasRoot {
 		return nil, errors.New("runtime dependency tree is missing root go.mod")
