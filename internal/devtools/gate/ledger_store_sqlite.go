@@ -339,6 +339,17 @@ func (store *DurationLedgerStore) prepareSQLiteAuthorityPath(create bool) error 
 }
 
 func openSQLiteLedgerDatabase(path string) (*sql.DB, error) {
+	for attempt := range 16 {
+		database, err := openSQLiteLedgerDatabaseOnce(path)
+		if !errors.Is(err, ErrDurationLedgerBusy) {
+			return database, err
+		}
+		time.Sleep(time.Duration(attempt+1) * 10 * time.Millisecond)
+	}
+	return nil, fmt.Errorf("open duration ledger SQLite authority exceeded busy retry limit")
+}
+
+func openSQLiteLedgerDatabaseOnce(path string) (*sql.DB, error) {
 	database, err := sql.Open("sqlite", durationLedgerSQLiteDSN(path))
 	if err != nil {
 		return nil, fmt.Errorf("open duration ledger SQLite authority: %w", err)
