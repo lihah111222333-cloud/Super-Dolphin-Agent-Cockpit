@@ -178,6 +178,7 @@ func productionRuntimeDepsInputPaths() map[string]string {
 		"runtime_seed_worker_sha256":         "internal/devtools/gate/executor_seed.go",
 		"runtime_seed_script_browser_sha256": "cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go",
 		"runtime_seed_script_runtime_sha256": "cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go",
+		"runtime_seed_script_tail_sha256":    "cmd/super-dolphin-gate/remote_refresh_seed_script_tail.go",
 	}
 }
 

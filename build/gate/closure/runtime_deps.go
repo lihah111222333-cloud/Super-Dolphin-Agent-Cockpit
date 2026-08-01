@@ -54,6 +54,7 @@ type runtimeDepsInputs struct {
 	RuntimeSeedWorker   string `json:"runtime_seed_worker_sha256"`
 	RuntimeSeedBrowser  string `json:"runtime_seed_script_browser_sha256"`
 	RuntimeSeedRuntime  string `json:"runtime_seed_script_runtime_sha256"`
+	RuntimeSeedTail     string `json:"runtime_seed_script_tail_sha256"`
 }
 
 type runtimeDepsRecipeInputs struct {
@@ -143,7 +144,7 @@ func runtimeDepsInputFields(inputs runtimeDepsInputs, recipeInputs runtimeDepsRe
 		{"LSP package lock", inputs.LSPPackageLock}, {"proxy go.mod", inputs.ProxyGoMod}, {"proxy go.sum", inputs.ProxyGoSum},
 		{"tools go.mod", inputs.ToolsGoMod}, {"tools go.sum", inputs.ToolsGoSum}, {"runtime seed worker", inputs.RuntimeSeedWorker},
 		{"runtime seed script browser", inputs.RuntimeSeedBrowser},
-		{"runtime seed script runtime", inputs.RuntimeSeedRuntime}, {"runtime seed recipe", recipeInputs.RuntimeSeedRecipe},
+		{"runtime seed script runtime", inputs.RuntimeSeedRuntime}, {"runtime seed script tail", inputs.RuntimeSeedTail}, {"runtime seed recipe", recipeInputs.RuntimeSeedRecipe},
 		{"runtime seed script", recipeInputs.RuntimeSeedScript},
 	}
 }
@@ -211,6 +212,7 @@ func runtimeDepsDigestTargets(inputs *runtimeDepsInputs) []runtimeDepsDigestTarg
 		{"internal/devtools/gate/executor_seed.go", &inputs.RuntimeSeedWorker},
 		{"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go", &inputs.RuntimeSeedBrowser},
 		{"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go", &inputs.RuntimeSeedRuntime},
+		{"cmd/super-dolphin-gate/remote_refresh_seed_script_tail.go", &inputs.RuntimeSeedTail},
 	}
 }
 

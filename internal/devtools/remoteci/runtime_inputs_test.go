@@ -38,6 +38,7 @@ func TestRuntimeLockDigestIgnoresOnlyIncrementalSeedControlPlane(t *testing.T) {
 		"toolchain_lock_sha256":              "sha256:toolchain",
 		"runtime_seed_script_runtime_sha256": "sha256:runtime-a",
 		"runtime_seed_script_browser_sha256": "sha256:browser-a",
+		"runtime_seed_script_tail_sha256":    "sha256:tail-a",
 	}, RecipeInputs: map[string]string{
 		"runtime_seed_recipe_sha256": "sha256:recipe-a",
 		"runtime_seed_script_sha256": "sha256:script-a",
@@ -50,7 +51,7 @@ func TestRuntimeLockDigestIgnoresOnlyIncrementalSeedControlPlane(t *testing.T) {
 			t.Fatalf("control-plane input %s invalidated reusable runtime digest", name)
 		}
 	}
-	for _, name := range []string{"toolchain_lock_sha256", "runtime_seed_script_runtime_sha256", "runtime_seed_script_browser_sha256"} {
+	for _, name := range []string{"toolchain_lock_sha256", "runtime_seed_script_runtime_sha256", "runtime_seed_script_browser_sha256", "runtime_seed_script_tail_sha256"} {
 		changed := runtimeDependencyLock{Inputs: maps.Clone(lock.Inputs), RecipeInputs: maps.Clone(lock.RecipeInputs)}
 		changed.Inputs[name] += "-changed"
 		if digest := runtimeLockDigest(changed); digest == baseline {
@@ -216,6 +217,7 @@ func TestResolveAcceptedRuntimeDependencyDigestAllowsLegacyV5ThroughV10(t *testi
 	}
 	inputs["runtime_seed_script_sha256"] = recipeInputs["runtime_seed_script_sha256"]
 	delete(recipeInputs, "runtime_seed_script_sha256")
+	delete(inputs, "runtime_seed_script_tail_sha256")
 	document["schema_version"] = "10"
 	updateRuntimeDependencyLock(t, entries, lockIndex, document)
 	legacyV10 := assertAcceptedLegacyRuntimeDigest(t, entries, "v10")
@@ -275,6 +277,7 @@ func TestResolveAcceptedRuntimeDependencyDigestAllowsLegacyV4(t *testing.T) {
 	for _, field := range []string{
 		"runtime_seed_worker_sha256", "runtime_seed_recipe_sha256", "runtime_seed_script_sha256",
 		"runtime_seed_script_browser_sha256", "runtime_seed_script_runtime_sha256",
+		"runtime_seed_script_tail_sha256",
 	} {
 		delete(inputs, field)
 	}

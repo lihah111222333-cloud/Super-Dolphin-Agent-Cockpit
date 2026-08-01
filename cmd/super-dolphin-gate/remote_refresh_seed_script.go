@@ -780,12 +780,16 @@ EOF
   module_download_root=$stage/module-download-source
   rm -rf "$module_download_root"
   cp -a "$source_root" "$module_download_root"
+  runtime_dependency_goproxy=https://goproxy.cn,direct
+  if test -n "$previous_runtime"; then
+    runtime_dependency_goproxy=off
+  fi
   download_go_module() (
     cd "$1"
-    env GOFLAGS=-mod=readonly GOWORK=off GOTOOLCHAIN=local GOPROXY=https://goproxy.cn,direct \
+    env GOFLAGS=-mod=readonly GOWORK=off GOTOOLCHAIN=local GOPROXY="$runtime_dependency_goproxy" GOSUMDB=off \
       GOMODCACHE="$go_mod_cache" go mod download all
     cd "$2"
-    env GOFLAGS=-mod=readonly GOWORK=off GOTOOLCHAIN=local GOPROXY=https://goproxy.cn,direct \
+    env GOFLAGS=-mod=readonly GOWORK=off GOTOOLCHAIN=local GOPROXY="$runtime_dependency_goproxy" GOSUMDB=off \
       GOMODCACHE="$go_mod_cache" go list -deps -test ./... >/dev/null
     for target in \
       windows/amd64 windows/arm64 \
@@ -794,14 +798,14 @@ EOF
       freebsd/amd64 freebsd/arm64; do
       target_goos=${target%/*}
       target_goarch=${target#*/}
-      env GOFLAGS=-mod=readonly GOWORK=off GOTOOLCHAIN=local GOPROXY=https://goproxy.cn,direct \
+      env GOFLAGS=-mod=readonly GOWORK=off GOTOOLCHAIN=local GOPROXY="$runtime_dependency_goproxy" GOSUMDB=off \
         GOMODCACHE="$go_mod_cache" GOOS="$target_goos" GOARCH="$target_goarch" CGO_ENABLED=0 \
         go list -deps -test ./... >/dev/null
     done
   )
   download_locked_module_proxy() (
     cd "$source_root/build/gate/runtime-proxy"
-    env GOFLAGS=-mod=readonly GOWORK=off GOTOOLCHAIN=local GOPROXY=https://goproxy.cn,direct \
+    env GOFLAGS=-mod=readonly GOWORK=off GOTOOLCHAIN=local GOPROXY="$runtime_dependency_goproxy" GOSUMDB=off \
       GOMODCACHE="$go_mod_cache" go mod download
   )
   download_go_module "$module_download_root" "$source_root"

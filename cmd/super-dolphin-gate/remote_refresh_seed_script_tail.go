@@ -13,11 +13,11 @@ const remoteBaselineSeedScriptTail = `  runtime_tools_reused=0
   else
     (
       cd "$source_root/build/gate/runtime-tools"
-      env GOWORK=off GOTOOLCHAIN=local GOPROXY=https://goproxy.cn,direct GOMODCACHE="$tool_go_mod_cache" \
+      env GOWORK=off GOTOOLCHAIN=local GOPROXY="$runtime_dependency_goproxy" GOSUMDB=off GOMODCACHE="$tool_go_mod_cache" \
         go build -mod=readonly -trimpath -buildvcs=false -o $payload_root/runtime/bin/actionlint github.com/rhysd/actionlint/cmd/actionlint
-      env GOWORK=off GOTOOLCHAIN=local GOPROXY=https://goproxy.cn,direct GOMODCACHE="$tool_go_mod_cache" \
+      env GOWORK=off GOTOOLCHAIN=local GOPROXY="$runtime_dependency_goproxy" GOSUMDB=off GOMODCACHE="$tool_go_mod_cache" \
         go build -mod=readonly -trimpath -buildvcs=false -o $payload_root/runtime/bin/gopls golang.org/x/tools/gopls
-      env GOWORK=off GOTOOLCHAIN=local GOPROXY=https://goproxy.cn,direct GOMODCACHE="$tool_go_mod_cache" \
+      env GOWORK=off GOTOOLCHAIN=local GOPROXY="$runtime_dependency_goproxy" GOSUMDB=off GOMODCACHE="$tool_go_mod_cache" \
         go build -mod=readonly -trimpath -buildvcs=false -o $payload_root/runtime/bin/sqlc github.com/sqlc-dev/sqlc/cmd/sqlc
     )
   fi

@@ -98,6 +98,7 @@ func runtimeDependencyPaths() []string {
 	return append(append([]string(nil), runtimeDependencyPathsV5()...),
 		"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go",
 		"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go",
+		"cmd/super-dolphin-gate/remote_refresh_seed_script_tail.go",
 	)
 }
 
@@ -503,6 +504,7 @@ func runtimeDependencyLockField(schemaVersion, path string) string {
 		"cmd/super-dolphin-gate/remote_refresh_seed_script.go":         "runtime_seed_script_sha256",
 		"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go": "runtime_seed_script_browser_sha256",
 		"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go": "runtime_seed_script_runtime_sha256",
+		"cmd/super-dolphin-gate/remote_refresh_seed_script_tail.go":    "runtime_seed_script_tail_sha256",
 	}
 	if field := fields[path]; field != "" {
 		return field

@@ -54,6 +54,7 @@ func TestRuntimeDepsLockRejectsRuntimeSeedScriptDrift(t *testing.T) {
 		"cmd/super-dolphin-gate/remote_refresh_seed_script.go",
 		"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go",
 		"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go",
+		"cmd/super-dolphin-gate/remote_refresh_seed_script_tail.go",
 	} {
 		t.Run(filepath.Base(script), func(t *testing.T) {
 			root := t.TempDir()
@@ -108,7 +109,7 @@ func TestRefreshDependencyClosureRejectsInvalidTree(t *testing.T) {
 }
 
 func TestRuntimeDepsLockEncodingContainsOnlyNodeLocalContract(t *testing.T) {
-	inputs := runtimeDepsInputs{Dockerfile: testDigest, ToolchainLock: testDigest, GoMod: testDigest, GoSum: testDigest, NilnessRunner: testDigest, NilnessGuard: testDigest, FrontendPackageLock: testDigest, LSPPackageLock: testDigest, ProxyGoMod: testDigest, ProxyGoSum: testDigest, ToolsGoMod: testDigest, ToolsGoSum: testDigest, RuntimeSeedWorker: testDigest, RuntimeSeedBrowser: testDigest, RuntimeSeedRuntime: testDigest}
+	inputs := runtimeDepsInputs{Dockerfile: testDigest, ToolchainLock: testDigest, GoMod: testDigest, GoSum: testDigest, NilnessRunner: testDigest, NilnessGuard: testDigest, FrontendPackageLock: testDigest, LSPPackageLock: testDigest, ProxyGoMod: testDigest, ProxyGoSum: testDigest, ToolsGoMod: testDigest, ToolsGoSum: testDigest, RuntimeSeedWorker: testDigest, RuntimeSeedBrowser: testDigest, RuntimeSeedRuntime: testDigest, RuntimeSeedTail: testDigest}
 	recipeInputs := runtimeDepsRecipeInputs{RuntimeSeedRecipe: testDigest, RuntimeSeedScript: testDigest}
 	lock := validRuntimeDepsLock(inputs)
 	lock.RecipeInputs = recipeInputs
@@ -168,7 +169,7 @@ func validRuntimeDepsLock(inputs runtimeDepsInputs) runtimeDepsLock {
 
 func writeRuntimeDepsInputs(t *testing.T, root string) {
 	t.Helper()
-	for _, name := range []string{gateRuntimeDepsDocker, gateToolchain, "go.mod", "go.sum", "internal/devtools/nilnessrunner/runner.go", "scripts/nilness_guard.go", "frontend-app/package-lock.json", gateRuntimeLSPLock, gateRuntimeProxyModule, gateRuntimeProxySum, gateRuntimeToolsModule, gateRuntimeToolsSum, "internal/devtools/gate/executor_seed.go", "cmd/super-dolphin-gate/remote_refresh_seed.go", "cmd/super-dolphin-gate/remote_refresh_seed_script.go", "cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go", "cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go"} {
+	for _, name := range []string{gateRuntimeDepsDocker, gateToolchain, "go.mod", "go.sum", "internal/devtools/nilnessrunner/runner.go", "scripts/nilness_guard.go", "frontend-app/package-lock.json", gateRuntimeLSPLock, gateRuntimeProxyModule, gateRuntimeProxySum, gateRuntimeToolsModule, gateRuntimeToolsSum, "internal/devtools/gate/executor_seed.go", "cmd/super-dolphin-gate/remote_refresh_seed.go", "cmd/super-dolphin-gate/remote_refresh_seed_script.go", "cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go", "cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go", "cmd/super-dolphin-gate/remote_refresh_seed_script_tail.go"} {
 		path := filepath.Join(root, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)
