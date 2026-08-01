@@ -264,7 +264,7 @@ func TestExecutorUsesSharedGoBuildCacheWithoutCopyingSeed(t *testing.T) {
 }
 
 func TestRaceProgramRunsBoundedBackendOnlyInEachFreshExecutorWorkspace(t *testing.T) {
-	guardScript := "#!/bin/sh\nset -eu\ntest \"$1\" = --with-race\nsaw_separator=0\nsaw_normal=0\nfor arg in \"$@\"; do\n  test \"$arg\" = -- && saw_separator=1\n  test \"$arg\" = ./... && saw_normal=1\ndone\ntest \"$saw_separator\" = 1\ntest \"$saw_normal\" = 1\ntest \"$GOFLAGS\" = '-p=1'\ntest \"$GOMAXPROCS\" = 1\ntest \"$GOMEMLIMIT\" = 1GiB\ntest ! -e frontend-app/node_modules\ntest \"$(cat cmd/agent-terminal/web-dist/index.html)\" = \"immutable embed\"\n"
+	guardScript := "#!/bin/sh\nset -eu\ntest \"$1\" = --with-race\nsaw_separator=0\nsaw_normal=0\nfor arg in \"$@\"; do\n  test \"$arg\" = -- && saw_separator=1\n  test \"$arg\" = ./... && saw_normal=1\ndone\ntest \"$saw_separator\" = 1\ntest \"$saw_normal\" = 1\ntest \"$GOFLAGS\" = '-p=4'\ntest \"$GOMAXPROCS\" = 4\ntest \"$GOMEMLIMIT\" = 6GiB\ntest ! -e frontend-app/node_modules\ntest \"$(cat cmd/agent-terminal/web-dist/index.html)\" = \"immutable embed\"\n"
 	source := newExecutorGitSnapshot(t, map[string]string{
 		".gitignore":                         "cmd/agent-terminal/web-dist/\n",
 		"cmd/agent-terminal/frontend.go":     "package main\n",
@@ -515,8 +515,8 @@ func TestExecutorStepPassesOnlyAllowedResourceBounds(t *testing.T) {
 		goMaxProc  string
 		goMemLimit string
 	}{
-		{name: "normal backend", step: normalGoExecutorStep, goFlags: "-p=2", goMaxProc: "2", goMemLimit: "1GiB"},
-		{name: "release race", step: raceGoExecutorStep, goFlags: "-p=1", goMaxProc: "1", goMemLimit: "1GiB"},
+		{name: "normal backend", step: normalGoExecutorStep, goFlags: "-p=4", goMaxProc: "4", goMemLimit: "6GiB"},
+		{name: "release race", step: raceGoExecutorStep, goFlags: "-p=4", goMaxProc: "4", goMemLimit: "6GiB"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -43,9 +43,11 @@ if test "$previous_baseline" = 1 && test "$seeds_changed" = 0 && \
      { test "$BASELINE_SOURCE_MODE" = delta && test "$BASELINE_SOURCE_BASE_TREE" = "$BASELINE_MAIN_TREE"; }; }; then
   printf 'go build cache mode: unchanged reuse; refresh skipped\n'
 elif test "$previous_baseline" = 1; then
-  run_logged go-cache-incremental-refresh refresh_go_build_cache
+  printf 'go build cache mode: incremental refresh\n'
+  refresh_go_build_cache
 else
-  run_logged go-cache-bootstrap refresh_go_build_cache
+  printf 'go build cache mode: bootstrap refresh\n'
+  refresh_go_build_cache
 fi
 test -d "$go_build_cache"
 verify_source_tree_clean

@@ -25,11 +25,11 @@ type ExecutorStep struct {
 }
 
 const (
-	executorNormalGoFlagsResourceBound    = "GOFLAGS=-p=2"
-	executorNormalGoMaxProcsResourceBound = "GOMAXPROCS=2"
-	executorRaceGoFlagsResourceBound      = "GOFLAGS=-p=1"
-	executorRaceGoMaxProcsResourceBound   = "GOMAXPROCS=1"
-	executorGoMemoryLimitResourceBound    = "GOMEMLIMIT=1GiB"
+	executorNormalGoFlagsResourceBound    = "GOFLAGS=-p=4"
+	executorNormalGoMaxProcsResourceBound = "GOMAXPROCS=4"
+	executorRaceGoFlagsResourceBound      = "GOFLAGS=-p=4"
+	executorRaceGoMaxProcsResourceBound   = "GOMAXPROCS=4"
+	executorGoMemoryLimitResourceBound    = "GOMEMLIMIT=6GiB"
 )
 
 var raceSensitiveSurfaces = []struct {

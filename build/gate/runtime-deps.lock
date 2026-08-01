@@ -17,9 +17,9 @@
     "tools_go_sum_sha256": "sha256:4fb6b0daaafccfaa0024c3eebd193929957f4e49c62ed551a6289c59632f104f",
     "runtime_seed_worker_sha256": "sha256:17aa60ecc6a26e117fcb8e0d065b55d32347ecfee40bcb917e5c0bd7deff44cc",
     "runtime_seed_recipe_sha256": "sha256:e29337e64e5845df5158cef1973628da3dfd72ec0178c9626a33894b0d861963",
-    "runtime_seed_script_sha256": "sha256:429b0a43ed9b765608ebdfb8650c57d90515b5849f5b2e62ca206bdae976f174",
+    "runtime_seed_script_sha256": "sha256:67cc82f2ca21df2bad55eac35f0c01c8048c12f1fe68af7826ce4eb9922ad369",
     "runtime_seed_script_browser_sha256": "sha256:b7452b9a3bf804a067db7156c54d5477ac49c84f20c4bd289fc243acc048c44a",
-    "runtime_seed_script_runtime_sha256": "sha256:8703c435c6c34fcc7d1d1d1e5c14a7d9fd40ba5564a6bf8f07f704d64c921f1b"
+    "runtime_seed_script_runtime_sha256": "sha256:d7cb9e4e2c6a793694c65a9fd628fc8167e931ea9f56c14e6a9c8a6b4ca79496"
   },
   "paths": {
     "manifest": "/opt/super-dolphin-gate/runtime/manifest.json",

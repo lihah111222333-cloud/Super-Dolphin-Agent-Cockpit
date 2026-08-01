@@ -303,8 +303,11 @@ func assertRemoteBaselineSeedCommandCounts(t *testing.T) {
 	if count := countRemoteSeedShellCommand(remoteBaselineSeedScript, "verify_source_tree_clean"); count != 4 {
 		t.Fatalf("source tree clean checks = %d, want 4", count)
 	}
-	if count := strings.Count(remoteBaselineSeedScript, "-exec=true -run '^$' ./..."); count != 2 {
-		t.Fatalf("compile-only Go cache prewarm commands = %d, want 2", count)
+	if count := strings.Count(remoteBaselineSeedScript, "-exec=true -run '^$' ./..."); count != 1 {
+		t.Fatalf("full-tree compile-only Go cache refreshes = %d, want 1 normal build", count)
+	}
+	if strings.Contains(remoteBaselineSeedScript, "go test -mod=readonly -race -exec=true -run '^$' ./...") {
+		t.Fatal("race cache refresh must use the canonical race package registry, not the full repository")
 	}
 }
 
@@ -398,10 +401,11 @@ func assertRemoteBaselineSeedOfflineDependencyFragments(t *testing.T) {
 		"go build -mod=readonly -trimpath -buildvcs=false",
 		"GOPROXY=off GOSUMDB=off",
 		"worker_source=" + gatecontract.ExecutorGoWorkloadSourcePath,
-		"GOFLAGS=\"-p=2\"",
-		"GOFLAGS=\"-p=1\"",
 		"go test -mod=readonly -exec=true -run '^$' ./...",
-		"go test -mod=readonly -race -exec=true -run '^$' ./...",
+		"go test -mod=readonly -tags=e2e -exec=true -run '^$' ./cmd/mcp-lsp",
+		"worker race-package-patterns",
+		"GOFLAGS=\"-p=4\" GOMAXPROCS=4 GOMEMLIMIT=6GiB",
+		"go test -mod=readonly -race -exec=true -run '^$' \"$@\"",
 		"GOPROXY=off GOSUMDB=off GOMODCACHE=\"$payload_root/runtime/go-mod-cache\" GOCACHE=\"$go_build_cache\"",
 		"\"$payload_root/bin/super-dolphin-gate\" worker runtime-seed verify \"$source_root\" $payload_root/runtime",
 		"$payload_root/bin/super-dolphin-gate worker runtime-seed write \"$payload_root/source\" $payload_root/runtime",
@@ -518,8 +522,11 @@ func assertRemoteBaselineSeedLayerFragments(t *testing.T) {
 		"go build cache mode: unchanged reuse; refresh skipped",
 		"test \"$BASELINE_SOURCE_MODE\" = reuse ||",
 		"test \"$BASELINE_SOURCE_MODE\" = delta && test \"$BASELINE_SOURCE_BASE_TREE\" = \"$BASELINE_MAIN_TREE\"",
-		"run_logged go-cache-incremental-refresh refresh_go_build_cache",
-		"run_logged go-cache-bootstrap refresh_go_build_cache",
+		"go build cache mode: incremental refresh",
+		"go build cache mode: bootstrap refresh",
+		"run_logged go-cache-normal-compile compile_go_cache_normal",
+		"run_logged go-cache-e2e-compile compile_go_cache_e2e",
+		"run_logged go-cache-race-compile compile_go_cache_race",
 		"archive_layer()",
 		"--use-compress-program='gzip -1 -n'",
 		"runtime_archive_path=$oss_output/runtime-deps.tar.gz",
@@ -674,14 +681,15 @@ func assertRemoteBaselineSeedArchiveOrdering(t *testing.T) {
 	manifestRefresh := strings.LastIndex(remoteBaselineSeedScript, "worker runtime-seed write \"$payload_root/source\"")
 	manifestVerify := strings.LastIndex(remoteBaselineSeedScript, "worker runtime-seed verify \"$payload_root/source\"")
 	unchangedReuse := strings.LastIndex(remoteBaselineSeedScript, "go build cache mode: unchanged reuse; refresh skipped")
-	incrementalRefresh := strings.LastIndex(remoteBaselineSeedScript, "run_logged go-cache-incremental-refresh refresh_go_build_cache")
-	bootstrapRefresh := strings.LastIndex(remoteBaselineSeedScript, "run_logged go-cache-bootstrap refresh_go_build_cache")
+	incrementalRefresh := strings.LastIndex(remoteBaselineSeedScript, "go build cache mode: incremental refresh")
+	bootstrapRefresh := strings.LastIndex(remoteBaselineSeedScript, "go build cache mode: bootstrap refresh")
+	finalRefresh := strings.LastIndex(remoteBaselineSeedScript, "\n  refresh_go_build_cache\n")
 	buildCacheReused := strings.Contains(remoteBaselineSeedScript, "go_build_cache=$payload_root/cache-seed/go-build")
 	sourceVerify := strings.LastIndex(remoteBaselineSeedScript, "\nverify_source_tree_clean\n")
 	finalPermissions := strings.LastIndex(remoteBaselineSeedScript, "chmod -R a+rX $payload_root")
 	archiveBuild := strings.LastIndex(remoteBaselineSeedScript, "runtime_archive_path=$oss_output/runtime-deps.tar.gz")
 	if !buildCacheReused || incrementalRefresh < unchangedReuse || bootstrapRefresh < incrementalRefresh ||
-		sourceVerify < bootstrapRefresh || finalPermissions < sourceVerify || manifestRefresh < finalPermissions ||
+		finalRefresh < bootstrapRefresh || sourceVerify < finalRefresh || finalPermissions < sourceVerify || manifestRefresh < finalPermissions ||
 		manifestVerify < manifestRefresh ||
 		archiveBuild < manifestVerify {
 		t.Fatal("baseline must refresh private cache overlays, normalize permissions, and seal the final runtime manifest before archiving")
@@ -693,18 +701,19 @@ func assertRemoteBaselineSeedDeltaReuseOrdering(t *testing.T) {
 	restorePriorDelta := strings.Index(remoteBaselineSeedScript, "tar -xzf \"$cache_delta\" -C \"$payload_root\"")
 	isolatePriorCache := strings.Index(remoteBaselineSeedScript, "mv \"$go_build_cache\" \"$stage/anchor-go-build-cache\"")
 	enableLayeredReads := strings.Index(remoteBaselineSeedScript, "export GOCACHEPROG=\"/previous/bin/super-dolphin-gate worker go-cache-proxy --seed $stage/anchor-go-build-cache --private $go_build_cache\"")
-	incrementalRefresh := strings.LastIndex(remoteBaselineSeedScript, "run_logged go-cache-incremental-refresh refresh_go_build_cache")
+	incrementalRefresh := strings.Index(remoteBaselineSeedScript, "go build cache mode: incremental refresh")
+	incrementalRefreshComplete := strings.Index(remoteBaselineSeedScript[incrementalRefresh:], "\n  refresh_go_build_cache\n")
 	archiveDelta := strings.Index(remoteBaselineSeedScript, "go_cache_archive_path=$oss_output/go-build-cache.delta.tar.gz")
 	if restorePriorDelta < 0 || isolatePriorCache < restorePriorDelta || enableLayeredReads < isolatePriorCache ||
-		incrementalRefresh < enableLayeredReads || archiveDelta < incrementalRefresh {
+		incrementalRefresh < enableLayeredReads || incrementalRefreshComplete < 0 || archiveDelta < incrementalRefresh+incrementalRefreshComplete {
 		t.Fatal("changed source must read the Anchor plus prior delta caches and archive only the current private miss layer")
 	}
 }
 
 func assertRemoteBaselineSeedOfflineValidationCount(t *testing.T) {
 	t.Helper()
-	if count := strings.Count(remoteBaselineSeedScript, "GOPROXY=off GOSUMDB=off"); count != 4 {
-		t.Fatalf("offline CLI compile, accepted-cache validations, and incremental refreshes = %d, want 4", count)
+	if count := strings.Count(remoteBaselineSeedScript, "GOPROXY=off GOSUMDB=off"); count != 5 {
+		t.Fatalf("offline CLI compile, accepted-cache validations, and incremental refreshes = %d, want 5", count)
 	}
 	overlay := strings.Index(remoteBaselineSeedScript, "worker go-module-overlay")
 	offlineList := strings.Index(remoteBaselineSeedScript, "GOMODCACHE=\"$runtime_validation_go_mod_cache\" go list -deps -test ./...")

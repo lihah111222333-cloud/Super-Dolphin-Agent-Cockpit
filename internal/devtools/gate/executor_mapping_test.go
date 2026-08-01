@@ -153,7 +153,7 @@ func TestBackendProgramUsesExecutorFrontendEmbedSeed(t *testing.T) {
 	}
 	wantTest := ExecutorStep{
 		Argv:        []string{"./scripts/test_with_guard.sh", "--canonical-backend", "./..."},
-		Environment: []string{"GOFLAGS=-p=2", "GOMAXPROCS=2", "GOMEMLIMIT=1GiB"},
+		Environment: []string{"GOFLAGS=-p=4", "GOMAXPROCS=4", "GOMEMLIMIT=6GiB"},
 	}
 	if !reflect.DeepEqual(backend.Steps, []ExecutorStep{wantTest}) {
 		t.Fatalf("backend gate steps = %#v, want only canonical Go test", backend.Steps)
@@ -173,7 +173,7 @@ func TestRaceProgramUsesExecutorFrontendEmbedSeed(t *testing.T) {
 	wantRaceArgv = append(wantRaceArgv, "--")
 	wantRaceArgv = append(wantRaceArgv, canonicalBackendPackagePatterns()...)
 	wantRaceArgv = append(wantRaceArgv, "-count=1", "-timeout=180s")
-	wantRaceStep := ExecutorStep{Argv: wantRaceArgv, Environment: []string{"GOFLAGS=-p=1", "GOMAXPROCS=1", "GOMEMLIMIT=1GiB"}}
+	wantRaceStep := ExecutorStep{Argv: wantRaceArgv, Environment: []string{"GOFLAGS=-p=4", "GOMAXPROCS=4", "GOMEMLIMIT=6GiB"}}
 	if !reflect.DeepEqual(race.Steps, []ExecutorStep{wantRaceStep}) {
 		t.Fatalf("race executor steps = %#v, want only bounded Go race test", race.Steps)
 	}
@@ -186,7 +186,7 @@ func TestNilnessProgramUsesBoundedGoResources(t *testing.T) {
 	nilness := ExecutorPrograms()[GateIDBackendNilness]
 	want := ExecutorStep{
 		Argv:        []string{"go", "run", "./scripts/nilness_guard.go", "-test=false", "--", "./..."},
-		Environment: []string{"GOFLAGS=-p=2", "GOMAXPROCS=2", "GOMEMLIMIT=1GiB"},
+		Environment: []string{"GOFLAGS=-p=4", "GOMAXPROCS=4", "GOMEMLIMIT=6GiB"},
 	}
 	if !reflect.DeepEqual(nilness.Steps, []ExecutorStep{want}) {
 		t.Fatalf("nilness gate steps = %#v, want bounded Go execution", nilness.Steps)

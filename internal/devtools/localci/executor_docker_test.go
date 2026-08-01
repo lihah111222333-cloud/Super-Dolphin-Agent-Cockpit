@@ -115,8 +115,8 @@ func TestRaceExecutorIsBoundedForFixedContainerResources(t *testing.T) {
 		t.Fatalf("race executor steps = %d, want one bounded backend step", len(program.Steps))
 	}
 	raceStep := program.Steps[0]
-	if !reflect.DeepEqual(raceStep.Environment, []string{"GOFLAGS=-p=1", "GOMAXPROCS=1", "GOMEMLIMIT=1GiB"}) {
-		t.Fatalf("race executor environment = %v, want 8 GiB resource bounds", raceStep.Environment)
+	if !reflect.DeepEqual(raceStep.Environment, []string{"GOFLAGS=-p=4", "GOMAXPROCS=4", "GOMEMLIMIT=6GiB"}) {
+		t.Fatalf("race executor environment = %v, want 4 CPU and 6 GiB Go resource bounds", raceStep.Environment)
 	}
 }
 

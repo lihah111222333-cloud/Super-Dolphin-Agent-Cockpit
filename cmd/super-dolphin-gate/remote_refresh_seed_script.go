@@ -297,13 +297,16 @@ run_logged() {
   label=$1
   shift
   log_file=$stage/$label.log
-  printf 'seed stage start: %s\n' "$label"
+  started_at_ms=$(date +%s%3N)
+  printf 'seed stage start: %s elapsed_ms=0\n' "$label"
   if "$@" >"$log_file" 2>&1; then
-    printf 'seed stage complete: %s\n' "$label"
+    elapsed_ms=$(($(date +%s%3N) - started_at_ms))
+    printf 'seed stage complete: %s elapsed_ms=%s\n' "$label" "$elapsed_ms"
     return 0
   else
     status=$?
-    printf 'seed stage failed: %s (tail 160)\n' "$label" >&2
+    elapsed_ms=$(($(date +%s%3N) - started_at_ms))
+    printf 'seed stage failed: %s elapsed_ms=%s (tail 160)\n' "$label" "$elapsed_ms" >&2
     tail -n 160 "$log_file" >&2 || true
     return "$status"
   fi
@@ -317,7 +320,7 @@ build_python_runtime() (
   make -s install
 )
 
-# refresh_go_build_cache 使用 worker 的实际编译参数，仅补齐普通与 race 编译缓存 miss。
+# refresh_go_build_cache 使用 worker 的实际编译参数，并按编译模式分别报告耗时。
 refresh_go_build_cache() (
 	private_go_mod_cache=$stage/go-mod-cache-refresh
 	rm -rf "$private_go_mod_cache"
@@ -332,14 +335,31 @@ refresh_go_build_cache() (
   cd "$worker_source"
   mkdir -p cmd/agent-terminal/web-dist
   cp "$payload_root/frontend-embed/index.html" cmd/agent-terminal/web-dist/index.html
-  env CGO_ENABLED=1 GOWORK=off GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off \
-	  GOMODCACHE="$private_go_mod_cache" GOCACHE="$go_build_cache" \
-	  GOFLAGS="-p=2" GOMAXPROCS=2 GOMEMLIMIT=1GiB \
-	  go test -mod=readonly -exec=true -run '^$' ./...
-	env CGO_ENABLED=1 GOWORK=off GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off \
-	  GOMODCACHE="$private_go_mod_cache" GOCACHE="$go_build_cache" \
-    GOFLAGS="-p=1" GOMAXPROCS=1 GOMEMLIMIT=1GiB \
-    go test -mod=readonly -race -exec=true -run '^$' ./...
+  compile_go_cache_normal() {
+    env CGO_ENABLED=1 GOWORK=off GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off \
+	    GOMODCACHE="$private_go_mod_cache" GOCACHE="$go_build_cache" \
+	    GOFLAGS="-p=4" GOMAXPROCS=4 GOMEMLIMIT=6GiB \
+	    go test -mod=readonly -exec=true -run '^$' ./...
+  }
+  compile_go_cache_e2e() {
+    env CGO_ENABLED=1 GOWORK=off GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off \
+	    GOMODCACHE="$private_go_mod_cache" GOCACHE="$go_build_cache" \
+	    GOFLAGS="-p=4" GOMAXPROCS=4 GOMEMLIMIT=6GiB \
+	    go test -mod=readonly -tags=e2e -exec=true -run '^$' ./cmd/mcp-lsp
+  }
+  compile_go_cache_race() {
+    race_packages=$("$payload_root/bin/super-dolphin-gate" worker race-package-patterns)
+    test -n "$race_packages"
+    # registry patterns do not contain whitespace; deliberate splitting preserves the go CLI argv.
+    set -- $race_packages
+	  env CGO_ENABLED=1 GOWORK=off GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off \
+	    GOMODCACHE="$private_go_mod_cache" GOCACHE="$go_build_cache" \
+	    GOFLAGS="-p=4" GOMAXPROCS=4 GOMEMLIMIT=6GiB \
+      go test -mod=readonly -race -exec=true -run '^$' "$@"
+  }
+  run_logged go-cache-normal-compile compile_go_cache_normal
+  run_logged go-cache-e2e-compile compile_go_cache_e2e
+  run_logged go-cache-race-compile compile_go_cache_race
 )
 
 source_manifest=/input/source-manifest.json
