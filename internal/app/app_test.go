@@ -111,6 +111,12 @@ func TestRunDesktopPreDrain(t *testing.T) {
 	}
 }
 
+func TestRunHeadlessDesktopRejectsMissingReadyCallback(t *testing.T) {
+	if err := RunHeadlessDesktop(context.Background(), nil, nil); err == nil || !strings.Contains(err.Error(), "ready callback") {
+		t.Fatalf("RunHeadlessDesktop(nil ready) error = %v, want ready callback error", err)
+	}
+}
+
 func TestRootCtxSymmetry(t *testing.T) {
 	parent, cancelParent := context.WithCancel(context.Background())
 	owner := newAppOwnerContext(parent)

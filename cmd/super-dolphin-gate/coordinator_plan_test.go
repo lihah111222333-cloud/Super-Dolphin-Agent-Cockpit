@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"sync"
 	"testing"
@@ -498,17 +499,42 @@ func assertCoordinatorShardGroupsRunFIFO(
 		case <-time.After(10 * time.Second):
 			t.Fatalf("timed out waiting for shard group %d", index)
 		}
-		if request.JobSourceTreeSHA != submitted.JobSourceTreeSHA {
-			t.Fatalf("shard FIFO drift at %d: source=%s want=%s", index, request.JobSourceTreeSHA, submitted.JobSourceTreeSHA)
-		}
 		snapshot, err := client.scheduler.Snapshot(context.Background())
 		if err != nil {
 			t.Fatal(err)
+		}
+		if request.JobSourceTreeSHA != submitted.JobSourceTreeSHA {
+			t.Fatalf(
+				"shard FIFO drift at %d: source=%s want=%s ordered_jobs=%v stored_jobs=%v scheduler=%+v",
+				index, request.JobSourceTreeSHA, submitted.JobSourceTreeSHA, coordinatorFIFOStatusSummary(statuses),
+				coordinatorFIFOStoredSummary(client, statuses), snapshot.Workloads,
+			)
 		}
 		assertSingleThreeShardGang(t, snapshot, submitted.JobID)
 		runner.release <- struct{}{}
 	}
 	runner.waitForLifecycle(t, len(statuses))
+}
+
+func coordinatorFIFOStatusSummary(statuses []jobStatus) []string {
+	summary := make([]string, 0, len(statuses))
+	for _, status := range statuses {
+		summary = append(summary, fmt.Sprintf("%d:%s:%s", status.EnqueueSequence, status.JobID, status.JobSourceTreeSHA))
+	}
+	return summary
+}
+
+func coordinatorFIFOStoredSummary(client *coordinatorTransportClient, statuses []jobStatus) []string {
+	summary := make([]string, 0, len(statuses))
+	for _, status := range statuses {
+		record, err := client.store.job(context.Background(), status.JobID)
+		if err != nil {
+			summary = append(summary, fmt.Sprintf("%d:%s:read=%v", status.EnqueueSequence, status.JobID, err))
+			continue
+		}
+		summary = append(summary, fmt.Sprintf("%d:%s:%s:%s", record.EnqueueSequence, record.JobID, record.State, record.Error))
+	}
+	return summary
 }
 
 func assertCoordinatorFIFOJobsTerminal(t *testing.T, client *coordinatorTransportClient, statuses []jobStatus) {

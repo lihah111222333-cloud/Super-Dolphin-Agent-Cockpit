@@ -20,6 +20,10 @@ import {
   dependencyTreeIntegrity,
   validateDependencyIntegrity,
 } from './frontend-maintainability-dependency-integrity.mjs';
+import {
+  materializeImmutableDependencyOverlay,
+  resolveImmutableDependencySeed,
+} from './frontend-execution-closure.mjs';
 
 const scriptRoot = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(scriptRoot, '..');
@@ -66,12 +70,17 @@ if (check) {
   try {
     copyFileSync(path.join(appRoot, 'package.json'), path.join(temporaryAppRoot, 'package.json'));
     copyFileSync(path.join(appRoot, 'package-lock.json'), path.join(temporaryAppRoot, 'package-lock.json'));
-    execFileSync(DEPENDENCY_INSTALL_COMMAND, [...DEPENDENCY_INSTALL_ARGS], {
-      cwd: temporaryAppRoot,
-      env: process.env,
-      stdio: 'ignore',
-      timeout: 180_000,
-    });
+    const runtimeSeed = resolveImmutableDependencySeed(appRoot);
+    if (runtimeSeed) {
+      materializeImmutableDependencyOverlay(temporaryAppRoot, runtimeSeed);
+    } else {
+      execFileSync(DEPENDENCY_INSTALL_COMMAND, [...DEPENDENCY_INSTALL_ARGS], {
+        cwd: temporaryAppRoot,
+        env: process.env,
+        stdio: 'ignore',
+        timeout: 180_000,
+      });
+    }
     const document = dependencyIntegrityForTree(temporaryAppRoot, environment);
     validateDependencyIntegrity(document);
     const tree = dependencyTreeIntegrity(temporaryAppRoot, {

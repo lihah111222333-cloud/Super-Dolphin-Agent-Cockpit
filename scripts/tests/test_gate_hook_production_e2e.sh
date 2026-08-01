@@ -14,7 +14,7 @@ fi
 
 mode=${1:-}
 case "$mode" in
-  git|codex) ;;
+  git) ;;
   _cleanup-contract)
     [[ ${GATE_HOOK_E2E_CLEANUP_CONTRACT:-} == 1 ]] || {
       printf '%s\n' 'production hook E2E: cleanup contract mode is test-only' >&2
@@ -22,7 +22,7 @@ case "$mode" in
     }
     ;;
   *)
-    printf '%s\n' 'usage: test_gate_hook_production_e2e.sh git|codex' >&2
+    printf '%s\n' 'usage: test_gate_hook_production_e2e.sh git' >&2
     exit 2
     ;;
 esac
@@ -287,57 +287,7 @@ run_git_cleanup_contract() {
   esac
 }
 
-run_codex_e2e() {
-  local input output
-  input="$evidence_root/codex-input.json"
-  output="$evidence_root/codex-output.json"
-  cat >"$input"
-  python3 - "$input" "$repo_root" <<'PY'
-import json
-import os
-import pathlib
-import subprocess
-import sys
-
-payload = json.loads(pathlib.Path(sys.argv[1]).read_text())
-event = payload.get("hook_event_name")
-if event not in {"Stop", "SubagentStop"}:
-    raise SystemExit("production hook E2E: expected an actual Stop or SubagentStop event")
-cwd = payload.get("cwd")
-if not isinstance(cwd, str) or not os.path.isabs(cwd):
-    raise SystemExit("production hook E2E: lifecycle cwd must be absolute")
-root = subprocess.check_output(["git", "-C", cwd, "rev-parse", "--show-toplevel"], text=True).strip()
-if os.path.realpath(root) != os.path.realpath(sys.argv[2]):
-    raise SystemExit(f"production hook E2E: lifecycle cwd resolved to {root!r}, want active worktree {sys.argv[2]!r}")
-agent_id = payload.get("agent_id")
-if event == "Stop" and agent_id is not None:
-    raise SystemExit("production hook E2E: Stop must not fabricate agent_id")
-if event == "SubagentStop" and (not isinstance(agent_id, str) or not agent_id.strip()):
-    raise SystemExit("production hook E2E: SubagentStop requires the public agent_id")
-PY
-  bash "$repo_root/scripts/codex_stop_gate.sh" <"$input" >"$output"
-  python3 - "$output" <<'PY'
-import json
-import pathlib
-import sys
-
-raw = pathlib.Path(sys.argv[1]).read_text()
-decoder = json.JSONDecoder()
-decision, end = decoder.raw_decode(raw)
-if raw[end:].strip():
-    raise SystemExit("production hook E2E: Codex hook emitted trailing non-JSON output")
-if decision.get("continue") is not True:
-    raise SystemExit(f"production hook E2E: Codex gate blocked: {decision!r}")
-reason = decision.get("reason", "")
-for token in ("job=", "receipt=", "source_tree=", "status: super-dolphin-gate status --job"):
-    if token not in reason:
-        raise SystemExit(f"production hook E2E: passed decision lacks {token!r}: {decision!r}")
-PY
-  printf 'production Codex hook E2E: PASS evidence=%s\n' "$evidence_root"
-}
-
 case "$mode" in
   git) run_git_e2e ;;
-  codex) run_codex_e2e ;;
   _cleanup-contract) run_git_cleanup_contract ;;
 esac

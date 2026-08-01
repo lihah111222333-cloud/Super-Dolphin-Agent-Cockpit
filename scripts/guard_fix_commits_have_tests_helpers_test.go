@@ -151,15 +151,58 @@ trap 'finish_cleanup 129; exit $?' HUP
 
 case "${1:-}" in
   closure)
-    if [ "$#" -ne 4 ] || [ "$2" != "check" ] || [ "$3" != "--tree" ]; then
-      printf 'fixture gate: closure requires check --tree <tree>\n' >&2
+    if [ "$#" -ne 4 ] || [ "$3" != "--tree" ] || [[ "$2" != "check" && "$2" != "refresh" && "$2" != "refresh-dependencies" ]]; then
+      printf 'fixture gate: closure requires check, refresh, or refresh-dependencies --tree <tree>\n' >&2
       exit 64
     fi
     tree=$4
     if ! require_current_staged_tree closure "$tree"; then
       exit 1
     fi
-    printf 'fixture closure verified staged tree %s\n' "$tree"
+    if [ "$2" = "check" ]; then
+      printf 'fixture closure verified staged tree %s\n' "$tree"
+    else
+      printf 'fixture closure %s verified staged tree %s\n' "$2" "$tree"
+    fi
+    ;;
+  project-map)
+    if [ "$#" -ne 4 ] || [ "$3" != "--tree" ] || [[ "$2" != "check" && "$2" != "refresh" ]]; then
+      printf 'fixture gate: project-map requires check or refresh --tree <tree>\n' >&2
+      exit 64
+    fi
+    tree=$4
+    if ! require_current_staged_tree project-map "$tree"; then
+      exit 1
+    fi
+    printf 'fixture project-map %s verified staged tree %s\n' "$2" "$tree"
+    ;;
+  codemap)
+    if [ "$#" -ne 4 ] || [ "$3" != "--tree" ] || [[ "$2" != "check" && "$2" != "refresh" ]]; then
+      printf 'fixture gate: codemap requires check or refresh --tree <tree>\n' >&2
+      exit 64
+    fi
+    tree=$4
+    if ! require_current_staged_tree codemap "$tree"; then
+      exit 1
+    fi
+    printf 'fixture codemap %s verified staged tree %s\n' "$2" "$tree"
+    ;;
+  frontend-code-size)
+    if [ "$#" -ne 6 ] || [ "$2" != "check" ] || [ "$3" != "--tree" ] || [ "$5" != "--accepted-tree" ]; then
+      printf 'fixture gate: frontend-code-size requires check --tree <tree> --accepted-tree <tree>\n' >&2
+      exit 64
+    fi
+    tree=$4
+    if ! require_current_staged_tree frontend-code-size "$tree"; then
+      exit 1
+    fi
+    accepted_tree=$6
+    head_tree=$(git -C "$repository_root" rev-parse --verify 'HEAD^{tree}')
+    if [ "$accepted_tree" != "$head_tree" ]; then
+      printf 'fixture gate: frontend-code-size accepted tree does not match HEAD (%s != %s)\n' "$accepted_tree" "$head_tree" >&2
+      exit 1
+    fi
+    printf 'fixture frontend-code-size verified staged tree %s accepted tree %s\n' "$tree" "$accepted_tree"
     ;;
   hook)
     if [ "$#" -ne 4 ] || [ "$2" != "pre-commit" ] || [ "$3" != "--tree" ]; then
@@ -400,7 +443,7 @@ func TestPreCommitFixtureGateRejectsUnsupportedClosureCommand(t *testing.T) {
 	if err == nil {
 		t.Fatalf("fixture gate accepted unsupported closure command:\n%s", out)
 	}
-	assertOutputContainsAll(t, string(out), "fixture gate: closure requires check --tree <tree>")
+	assertOutputContainsAll(t, string(out), "fixture gate: closure requires check, refresh, or refresh-dependencies --tree <tree>")
 }
 
 func runPreCommitHookWithEnv(t *testing.T, root string, extra map[string]string) (string, error) {

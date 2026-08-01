@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -32,13 +31,7 @@ func runHookWithConnector(
 	connector hookCoordinatorConnector,
 ) error {
 	if len(args) == 0 {
-		return protocolError("hook requires an adapter (pre-commit, pre-push, codex)")
-	}
-	if args[0] == "codex" {
-		if len(args) != 1 {
-			return protocolError("codex hook accepts no adapter arguments")
-		}
-		return runCodexHook(input, stdout, connector)
+		return protocolError("hook requires an adapter (pre-commit, pre-push)")
 	}
 	return runGitHookWithConnector(args, input, stdout, cwd, connector)
 }
@@ -168,29 +161,6 @@ func newActionGrantAttemptID() (string, error) {
 	return "attempt:v1:" + hex.EncodeToString(entropy), nil
 }
 
-func runCodexHook(input io.Reader, stdout io.Writer, connector hookCoordinatorConnector) error {
-	ctx := context.Background()
-	request, err := gatehook.NormalizeCodexHook(ctx, input)
-	if err != nil {
-		return encodeCodexDecision(stdout, blockedCodexDecision(gatehook.JobStatus{}, err))
-	}
-	var status gatehook.JobStatus
-	executeErr := withHookCoordinator(ctx, connector, func(ctx context.Context, coordinator hookCoordinator) error {
-		status, err = executeHookRequest(ctx, coordinator, request)
-		return err
-	})
-	if executeErr != nil {
-		return encodeCodexDecision(stdout, blockedCodexDecision(status, executeErr))
-	}
-	decision, err := gatehook.DecisionForStatus(status, requestSourceTree(request))
-	if err != nil {
-		decision = blockedCodexDecision(status, err)
-	} else if decision.Continue {
-		decision.Reason = hookPassedEvidence(status)
-	}
-	return encodeCodexDecision(stdout, decision)
-}
-
 func writeGitHookPassedEvidence(stdout io.Writer, status gatehook.JobStatus) error {
 	if _, err := fmt.Fprintln(stdout, hookPassedEvidence(status)); err != nil {
 		return infrastructureError("write passed hook evidence: %v", err)
@@ -252,10 +222,6 @@ func gitHookDecision(status gatehook.JobStatus, sourceTree string, executeErr er
 	return gatecontract.WithExitCode(hookStateExitCode(status.State), errors.New(decision.Reason))
 }
 
-func blockedCodexDecision(status gatehook.JobStatus, err error) gatehook.CodexDecision {
-	return gatehook.CodexDecision{Decision: "block", Reason: "gate hook blocked: " + hookStatusReason(status, err)}
-}
-
 func hookStatusReason(status gatehook.JobStatus, err error) string {
 	reason := err.Error()
 	if status.JobID == "" {
@@ -270,16 +236,6 @@ func hookStatusReason(status gatehook.JobStatus, err error) string {
 	)
 }
 
-func requestSourceTree(request gatehook.Request) string {
-	if request.Submit != nil {
-		return request.Submit.Source.SourceTreeSHA
-	}
-	if request.Status != nil {
-		return request.Status.ExpectedSourceTreeSHA
-	}
-	return ""
-}
-
 func hookStateExitCode(state gatehook.JobState) gatecontract.ExitCode {
 	switch state {
 	case gatehook.JobStateFailed:
@@ -291,13 +247,6 @@ func hookStateExitCode(state gatehook.JobState) gatecontract.ExitCode {
 	default:
 		return gatecontract.ExitInfrastructure
 	}
-}
-
-func encodeCodexDecision(stdout io.Writer, decision gatehook.CodexDecision) error {
-	if err := json.NewEncoder(stdout).Encode(decision); err != nil {
-		return infrastructureError("encode Codex hook decision: %v", err)
-	}
-	return nil
 }
 
 func withHookCoordinator(

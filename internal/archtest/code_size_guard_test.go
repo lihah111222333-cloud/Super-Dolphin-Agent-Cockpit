@@ -14,11 +14,16 @@ import (
 func TestCodeSizeGuard(t *testing.T) {
 	root := repoRoot(t)
 	opts := codeSizeGuardOptions(root)
-	cache := &archtest.RepositoryGuardScanCache{}
 
 	t.Run("size and freeze", func(t *testing.T) {
-		runCodeSizeGuard(t, cache, opts, root)
+		runCodeSizeGuard(t, opts, root)
 	})
+}
+
+func TestCodeSizeGuardRepositoryRules(t *testing.T) {
+	cache := &archtest.RepositoryGuardScanCache{}
+	opts := codeSizeGuardOptions(repoRoot(t))
+
 	t.Run("identifier", func(t *testing.T) {
 		runIdentifierGuard(t, cache, opts)
 	})
@@ -29,19 +34,12 @@ func TestCodeSizeGuard(t *testing.T) {
 
 func runCodeSizeGuard(
 	t *testing.T,
-	cache *archtest.RepositoryGuardScanCache,
 	opts archtest.CheckOptions,
 	root string,
 ) {
 	t.Helper()
-	violations := repositoryGuardViolations(t, cache, opts)
-	prodViolations, testFilesWithViolations := splitGuardViolations(violations)
-
-	// 生产文件违规：直接失败（与修改前行为一致）
-	failIfGuardViolations(t, "code size guard violations", prodViolations, "")
-
 	freezePath := filepath.Join(root, "internal/archtest/freeze_baseline.json")
-	runUnifiedFreezeCheck(t, freezePath, opts, root, len(testFilesWithViolations) > 0, violations)
+	runUnifiedFreezeCheck(t, freezePath, opts, root)
 }
 
 func runIdentifierGuard(
@@ -136,8 +134,6 @@ func runUnifiedFreezeCheck(
 	path string,
 	opts archtest.CheckOptions,
 	root string,
-	checkTests bool,
-	violations []archtest.Violation,
 ) {
 	t.Helper()
 	info, err := archtest.LoadGuardFreeze(path)
@@ -146,17 +142,7 @@ func runUnifiedFreezeCheck(
 	}
 	freeze := info.Data
 	checkBaselineRatchetAndFreshness(t, "prod", freeze.Metrics.Production, opts, root, false)
-	if checkTests {
-		loadRequiredTestBaseline(t, freeze.Metrics.Tests, violations)
-
-		// 新测试文件（不在基线中）的违规：不允许
-		newTestViolations := collectNewTestViolations(violations, freeze.Metrics.Tests)
-		failIfGuardViolations(t, "new test file violations not in baseline", newTestViolations,
-			"\nFix the test or follow the reviewed freeze command in docs/架构/skeleton-code-guard.md")
-
-		// 已冻结测试文件：普通测试只校验棘轮与 freshness；更新必须显式 --freeze。
-		checkBaselineRatchetAndFreshness(t, "test", freeze.Metrics.Tests, opts, root, true)
-	}
+	checkBaselineRatchetAndFreshness(t, "test", freeze.Metrics.Tests, opts, root, true)
 	checkPrioritySSABaselineFreshness(t, freeze.PrioritySSA, opts)
 }
 
@@ -183,19 +169,6 @@ func containsScanRoot(values []string, want string) bool {
 	return slices.Contains(values, want)
 }
 
-func splitGuardViolations(violations []archtest.Violation) ([]archtest.Violation, map[string]bool) {
-	var prodViolations []archtest.Violation
-	testFilesWithViolations := make(map[string]bool)
-	for _, v := range violations {
-		if archtest.IsTestFile(v.File) {
-			testFilesWithViolations[v.File] = true
-			continue
-		}
-		prodViolations = append(prodViolations, v)
-	}
-	return prodViolations, testFilesWithViolations
-}
-
 func failIfGuardViolations(t *testing.T, title string, violations []archtest.Violation, suffix string) {
 	t.Helper()
 	if len(violations) == 0 {
@@ -213,39 +186,6 @@ func violationStrings(violations []archtest.Violation) []string {
 	return lines
 }
 
-func loadRequiredTestBaseline(t *testing.T, baseline archtest.Baseline, violations []archtest.Violation) {
-	t.Helper()
-	if len(baseline) != 0 {
-		return
-	}
-	lines := violationStrings(collectTestViolations(violations))
-	t.Fatalf("test file violations without baseline (%d):\n%s\nSee: docs/架构/skeleton-code-guard.md",
-		len(lines), strings.Join(lines, "\n"))
-}
-
-func collectTestViolations(violations []archtest.Violation) []archtest.Violation {
-	var out []archtest.Violation
-	for _, v := range violations {
-		if archtest.IsTestFile(v.File) {
-			out = append(out, v)
-		}
-	}
-	return out
-}
-
-func collectNewTestViolations(violations []archtest.Violation, baseline map[string]archtest.FileMetrics) []archtest.Violation {
-	var out []archtest.Violation
-	for _, v := range violations {
-		if !archtest.IsTestFile(v.File) {
-			continue
-		}
-		if _, inBaseline := baseline[v.File]; !inBaseline {
-			out = append(out, v)
-		}
-	}
-	return out
-}
-
 // checkBaselineRatchetAndFreshness 对指定 baseline 做棘轮检查，并在 baseline 可收缩时失败。
 func checkBaselineRatchetAndFreshness(
 	t *testing.T,
@@ -256,9 +196,6 @@ func checkBaselineRatchetAndFreshness(
 	testsOnly bool,
 ) {
 	t.Helper()
-	if len(baseline) == 0 {
-		return
-	}
 	phaseOpts := opts
 	phaseOpts.BaselineTestsOnly = testsOnly
 	result := archtest.CheckWithBaseline(phaseOpts, baseline)

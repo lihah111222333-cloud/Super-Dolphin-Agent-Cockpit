@@ -529,7 +529,6 @@ func TestGatePlanProducerMatchesRunnerAndEvidenceRegistries(t *testing.T) {
 		{"scripts/package_linux.sh"},
 		{"frontend-app/tests/e2e/business-flows.spec.js"},
 		{"internal/module/thread/session_test.go"},
-		{"scripts/codex_stop_gate.sh"},
 		{"docs/automation/全仓夜间门禁健康巡检协议.md"},
 	} {
 		for _, gate := range mustGatePlanForScope(t, files, true).RequiredGates {

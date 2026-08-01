@@ -51,9 +51,10 @@ func TestBackendBoundaryGuardsFailClosed(t *testing.T) {
 	}
 }
 
-func TestBackendBoundaryCollectorSkipsForeignWorktreesAndCaches(t *testing.T) {
+func TestBackendBoundaryCollectorSkipsForeignWorktreesCachesAndTestFiles(t *testing.T) {
 	root := t.TempDir()
 	expected := writeBackendBoundaryFixture(t, root, "internal/contract/ok.go", "package contract\n")
+	writeBackendBoundaryFixture(t, root, "internal/contract/ok_test.go", "package contract\n")
 	for _, dir := range []string{".worktrees", ".workspace", ".build-cache"} {
 		writeBackendBoundaryFixture(
 			t,

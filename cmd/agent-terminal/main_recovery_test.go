@@ -70,6 +70,24 @@ func restoreAgentTerminalTestEnv(key, value string, present bool) error {
 	return os.Unsetenv(key)
 }
 
+func TestUseHeadlessDesktopBackendOnlyForRemoteWorker(t *testing.T) {
+	for _, testCase := range []struct {
+		name    string
+		backend string
+		want    bool
+	}{
+		{name: "remote worker", backend: "remote-worker", want: true},
+		{name: "local light", backend: "local-light", want: false},
+		{name: "desktop", backend: "", want: false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := useHeadlessDesktopBackend(testCase.backend); got != testCase.want {
+				t.Fatalf("useHeadlessDesktopBackend(%q) = %t, want %t", testCase.backend, got, testCase.want)
+			}
+		})
+	}
+}
+
 func agentTerminalRollbackHoldPath(launch runtimeenv.RecoveryLaunch) string {
 	return filepath.Join(filepath.Dir(launch.TransactionRoot), ".agent-terminal-rollback-hold-"+launch.TransactionID)
 }

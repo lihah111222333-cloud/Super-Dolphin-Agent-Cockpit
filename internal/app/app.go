@@ -170,13 +170,7 @@ func RunDesktop(
 	defer cancelStart()
 	stopper := newDesktopFXStopper(ctx, app)
 	if err := prepareDesktopRuntime(startCtx, app.Start, func() error {
-		if wailsApp == nil {
-			return errors.New("wails application not available")
-		}
-		if lifecycle == nil {
-			return errors.New("wails lifecycle not available")
-		}
-		return nil
+		return validateDesktopRuntime(wailsApp, lifecycle)
 	}, stopper.Stop); err != nil {
 		return err
 	}
@@ -189,6 +183,78 @@ func RunDesktop(
 
 	stopErr := stopper.Stop()
 	return errors.Join(runErr, preDrainErr, stopErr)
+}
+
+// RunHeadlessDesktop 启动真实桌面后端图和 RPC bridge，但不创建原生 Wails 窗口。
+// 该入口供无桌面会话的远程 worker 验证后端 RPC；原生桌面验证仍使用 RunDesktop。
+func RunHeadlessDesktop(
+	parent context.Context,
+	frontendFS fs.FS,
+	ready func(context.Context, DesktopACKPublisher) error,
+) error {
+	if parent == nil || ready == nil {
+		return errors.New("headless desktop parent context and ready callback are required")
+	}
+	owner := newAppOwnerContext(parent)
+	defer owner.Cancel()
+	ctx := owner.RootContext()
+	if err := runDesktopPreflight(ctx); err != nil {
+		return err
+	}
+	var wailsApp *application.App
+	var lifecycle *uiwails.WailsLifecycle
+
+	app := newDesktopFXApp(
+		fx.Supply(fx.Annotate(owner, fx.As(new(RootCtxProvider)))),
+		fx.Supply(uiwails.FrontendFS{FS: frontendFS}),
+		fx.Populate(&wailsApp, &lifecycle),
+	)
+	startCtx, cancelStart := platformconfig.WithTimeout(ctx, platformconfig.StartupTimeout)
+	defer cancelStart()
+	stopper := newDesktopFXStopper(ctx, app)
+	if err := prepareDesktopRuntime(startCtx, app.Start, func() error {
+		return validateDesktopRuntime(wailsApp, lifecycle)
+	}, stopper.Stop); err != nil {
+		return err
+	}
+	if err := runHeadlessDesktopReady(ctx, ready); err != nil {
+		return errors.Join(err, stopper.Stop())
+	}
+
+	var runErr error
+	select {
+	case <-ctx.Done():
+		runErr = context.Cause(ctx)
+	case <-app.Done():
+	}
+	owner.Cancel()
+	preDrainErr := preDrainDesktopRuntime(ctx, owner)
+	stopErr := stopper.Stop()
+	return errors.Join(runErr, preDrainErr, stopErr)
+}
+
+// validateDesktopRuntime 校验 Fx 已提供真实 Wails 应用与生命周期组件。
+func validateDesktopRuntime(wailsApp *application.App, lifecycle *uiwails.WailsLifecycle) error {
+	if wailsApp == nil {
+		return errors.New("wails application not available")
+	}
+	if lifecycle == nil {
+		return errors.New("wails lifecycle not available")
+	}
+	return nil
+}
+
+// runHeadlessDesktopReady 发布无窗口运行时 ACK，并拒绝空写入动作。
+func runHeadlessDesktopReady(
+	ctx context.Context,
+	ready func(context.Context, DesktopACKPublisher) error,
+) error {
+	return ready(ctx, func(write func() error) error {
+		if write == nil {
+			return errors.New("headless desktop ACK write is required")
+		}
+		return write()
+	})
 }
 
 // prepareDesktopRuntime 串行执行 Fx Start 与 Wails 依赖校验；ACK 由前端 RPC 握手驱动。

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/coordinatoradmission"
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/localci"
 	"golang.org/x/sync/errgroup"
@@ -25,6 +26,7 @@ type coordinatorOwner struct {
 	schedulingPolicy    coordinatorSchedulingPolicy
 	recovered           []coordinatorJobRecord
 	fatal               chan error
+	jobAdmissions       *coordinatoradmission.Dispatcher
 	workers             errgroup.Group
 	closeOnce           sync.Once
 	closeErr            error
@@ -38,6 +40,10 @@ func openCoordinatorOwner(
 ) (*coordinatorOwner, error) {
 	if err := dependencies.validate(); err != nil {
 		return nil, err
+	}
+	jobAdmissions, err := coordinatoradmission.New(dependencies.SchedulingPolicy.MaxActiveCIWorkloads)
+	if err != nil {
+		return nil, fmt.Errorf("create coordinator admission dispatcher: %w", err)
 	}
 	schedulerConfig := checkpoint.SchedulerConfig
 	schedulerConfig.MaxActiveWorkloads = dependencies.SchedulingPolicy.MaxActiveCIWorkloads
@@ -54,6 +60,7 @@ func openCoordinatorOwner(
 		daemonIdentityKey: checkpoint.IdentityKey, shardCleanupTimeout: coordinatorCleanupTimeout,
 		schedulingPolicy: dependencies.SchedulingPolicy,
 		fatal:            make(chan error, 1),
+		jobAdmissions:    jobAdmissions,
 	}
 	reconcileCtx, cancelReconcile := localci.BoundedOperationContext(context.WithoutCancel(ctx), coordinatorCleanupTimeout)
 	owner.recovered, err = owner.reconcileRecovery(reconcileCtx)
@@ -89,6 +96,7 @@ func (owner *coordinatorOwner) Serve(ctx context.Context) error {
 	})
 	group, runCtx := errgroup.WithContext(ctx)
 	owner.startRecovered(runCtx)
+	group.Go(func() error { return owner.jobAdmissions.Run(runCtx, owner.executeReservation) })
 	group.Go(func() error { return owner.dispatch(runCtx) })
 	group.Go(func() error { return owner.dependencies.PromotionWatcher.Run(runCtx) })
 	runErr := group.Wait()
@@ -112,7 +120,9 @@ func (owner *coordinatorOwner) dispatch(ctx context.Context) error {
 			}
 			return fmt.Errorf("reserve coordinator jobs: %w", err)
 		}
-		owner.startReservations(ctx, reservations)
+		if err := owner.startReservations(ctx, reservations); err != nil {
+			return err
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -120,22 +130,6 @@ func (owner *coordinatorOwner) dispatch(ctx context.Context) error {
 			return err
 		case <-ticker.C:
 		}
-	}
-}
-
-// startReservations 在 lease 持久化后按 workload 类型分派执行器。
-func (owner *coordinatorOwner) startReservations(ctx context.Context, reservations []localci.WorkloadReservation) {
-	for _, reservation := range reservations {
-		owner.workers.Go(func() error {
-			if err := owner.executeReservation(ctx, reservation); err != nil {
-				select {
-				case owner.fatal <- err:
-				default:
-				}
-				return err
-			}
-			return nil
-		})
 	}
 }
 

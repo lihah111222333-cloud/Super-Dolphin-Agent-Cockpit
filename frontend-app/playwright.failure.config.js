@@ -1,5 +1,6 @@
 /* global process */
 import { defineConfig } from '@playwright/test';
+import { resolveDesktopFailureSmokeTimeout } from './scripts/desktop-failure-contract.mjs';
 
 const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE;
 if (!executablePath) {
@@ -9,9 +10,9 @@ if (!executablePath) {
 export default defineConfig({
   testDir: './tests/e2e',
   testMatch: 'desktop-failure.spec.js',
-  timeout: 60000,
+  timeout: resolveDesktopFailureSmokeTimeout(process.env),
   expect: {
-    timeout: 15000,
+    timeout: 45000,
   },
   reporter: [['list']],
   outputDir: '../.tmp/playwright-desktop-failure',
@@ -20,6 +21,7 @@ export default defineConfig({
     browserName: 'chromium',
     launchOptions: {
       executablePath,
+      args: ['--disable-dev-shm-usage'],
     },
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',

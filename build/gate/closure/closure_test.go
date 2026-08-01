@@ -45,7 +45,7 @@ func TestCollectClosureFilesIncludesOnlyEnvironmentImageInputs(t *testing.T) {
 	if err := extractGitTree(repositoryRoot, "HEAD^{tree}", sourceRoot); err != nil {
 		t.Fatal(err)
 	}
-	localFiles, ownerFiles, err := collectClosureFiles(sourceRoot)
+	localFiles, gateCompileFiles, err := collectClosureFiles(sourceRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,6 @@ func TestCollectClosureFilesIncludesOnlyEnvironmentImageInputs(t *testing.T) {
 		"build/gate/toolchain.lock",
 		"build/gate/runtime-deps.lock",
 		"cmd/super-dolphin-gate/main.go",
-		"cmd/super-dolphin-gate-executor/main.go",
 		"internal/devtools/localci/image_builder.go",
 	} {
 		if !slices.Contains(localFiles, path) {
@@ -61,12 +60,29 @@ func TestCollectClosureFilesIncludesOnlyEnvironmentImageInputs(t *testing.T) {
 		}
 	}
 	for _, path := range []string{
+		"cmd/super-dolphin-gate/main.go",
+		"go.mod",
+		"go.sum",
+		"third_party/kelindar-event/event.go",
+		"third_party/kelindar-event/go.mod",
+	} {
+		if !slices.Contains(gateCompileFiles, path) {
+			t.Fatalf("gate compile closure does not contain %s", path)
+		}
+	}
+	for _, path := range []string{"frontend-app/package-lock.json", "third_party/kelindar-event/event_test.go"} {
+		if slices.Contains(gateCompileFiles, path) {
+			t.Fatalf("gate compile closure unexpectedly contains %s", path)
+		}
+	}
+	for _, path := range []string{
 		"README.md",
+		"cmd/super-dolphin-gate-executor/main.go",
 		"cmd/mcp-lsp/main.go",
 		"frontend-app/src/App.jsx",
 		"internal/module/skill/service.go",
 	} {
-		if slices.Contains(localFiles, path) || slices.Contains(ownerFiles, path) {
+		if slices.Contains(localFiles, path) || slices.Contains(gateCompileFiles, path) {
 			t.Fatalf("environment image closure unexpectedly contains ordinary job source %s", path)
 		}
 	}
@@ -89,7 +105,6 @@ func TestRenderDockerfileBuildsOnlyGateRuntime(t *testing.T) {
 	output := string(dockerfile)
 	for _, wanted := range []string{
 		"go build -mod=mod -trimpath -buildvcs=false -o /out/super-dolphin-gate ./cmd/super-dolphin-gate",
-		"go build -mod=mod -trimpath -buildvcs=false -o /out/super-dolphin-gate-executor ./cmd/super-dolphin-gate-executor",
 		"printf '<!doctype html><title>gate compile seed</title>\\n' > /opt/super-dolphin-gate/frontend-embed/index.html",
 	} {
 		if !strings.Contains(output, wanted) {
@@ -100,6 +115,7 @@ func TestRenderDockerfileBuildsOnlyGateRuntime(t *testing.T) {
 		"COPY . .",
 		"npm run build",
 		"frontend-app",
+		"super-dolphin-gate-executor",
 		"/opt/super-dolphin-gate/owners",
 		"nilness-guard",
 		"go test",
@@ -117,4 +133,183 @@ func testRepositoryRoot(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return repositoryRoot
+}
+
+func TestCollectGoEmbedCompileFilesDiscoversEmbeddedFiles(t *testing.T) {
+	tests := []struct {
+		name      string
+		directive string
+		assets    map[string]string
+		want      []string
+		notWant   string
+	}{
+		{
+			name:      "single quoted file",
+			directive: `"assets/single file.txt"`,
+			assets: map[string]string{
+				"assets/single file.txt": "single\n",
+			},
+			want: []string{"fixture/assets/single file.txt"},
+		},
+		{
+			name:      "glob",
+			directive: "assets/*.txt",
+			assets: map[string]string{
+				"assets/first.txt":   "first\n",
+				"assets/second.txt":  "second\n",
+				"assets/ignored.bin": "ignored\n",
+			},
+			want:    []string{"fixture/assets/first.txt", "fixture/assets/second.txt"},
+			notWant: "fixture/assets/ignored.bin",
+		},
+		{
+			name:      "quoted raw and multiple patterns",
+			directive: "\"assets/double file.txt\" `assets/raw file.txt` assets/plain.txt",
+			assets: map[string]string{
+				"assets/double file.txt": "double\n",
+				"assets/raw file.txt":    "raw\n",
+				"assets/plain.txt":       "plain\n",
+			},
+			want: []string{
+				"fixture/assets/double file.txt",
+				"fixture/assets/plain.txt",
+				"fixture/assets/raw file.txt",
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			sourceRoot := t.TempDir()
+			writeClosureEmbedTestFile(t, sourceRoot, "fixture/embed.go", "package fixture\n\nimport \"embed\"\n\n//go:embed "+test.directive+"\nvar content embed.FS\n")
+			for name, content := range test.assets {
+				writeClosureEmbedTestFile(t, sourceRoot, filepath.ToSlash(filepath.Join("fixture", name)), content)
+			}
+
+			files, err := collectGoEmbedCompileFiles(sourceRoot, []string{"fixture/embed.go"})
+			if err != nil {
+				t.Fatalf("collect Go embed compile files: %v", err)
+			}
+			for _, want := range test.want {
+				if !slices.Contains(files, want) {
+					t.Fatalf("compile inputs do not contain embedded file %s", want)
+				}
+			}
+			if test.notWant != "" {
+				if slices.Contains(files, test.notWant) {
+					t.Fatalf("compile inputs unexpectedly contain unmatched file %s", test.notWant)
+				}
+			}
+		})
+	}
+}
+
+func TestCollectGoEmbedCompileFilesRejectsInvalidOrEmptyPatterns(t *testing.T) {
+	tests := []struct {
+		name      string
+		directive string
+		wantError string
+	}{
+		{name: "path escape", directive: "../escape", wantError: "invalid pattern syntax"},
+		{name: "malformed glob", directive: "assets/[", wantError: "invalid pattern syntax"},
+		{name: "empty match", directive: "assets/*.missing", wantError: "no matching files found"},
+		{name: "unterminated double quote", directive: `"assets/present.txt`, wantError: "invalid quoted string"},
+		{name: "unterminated raw quote", directive: "`assets/present.txt", wantError: "invalid quoted string"},
+		{name: "quoted patterns without separator", directive: `"assets/present.txt"assets/other.txt`, wantError: "invalid quoted string"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			sourceRoot := t.TempDir()
+			writeClosureEmbedTestFile(t, sourceRoot, "fixture/embed.go", "package fixture\n\nimport \"embed\"\n\n//go:embed "+test.directive+"\nvar content embed.FS\n")
+			writeClosureEmbedTestFile(t, sourceRoot, "fixture/assets/present.txt", "present\n")
+
+			_, err := collectGoEmbedCompileFiles(sourceRoot, []string{"fixture/embed.go"})
+			if err == nil || !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("collectGoEmbedCompileFiles() error = %v, want text %q", err, test.wantError)
+			}
+		})
+	}
+}
+
+func TestCollectGoEmbedCompileFilesIgnoresEmptyMatchedDirectories(t *testing.T) {
+	sourceRoot := t.TempDir()
+	writeClosureEmbedTestFile(t, sourceRoot, "fixture/embed.go", "package fixture\n\nimport \"embed\"\n\n//go:embed assets/*\nvar content embed.FS\n")
+	for _, directory := range []string{
+		"fixture/assets/empty",
+		"fixture/assets/hidden-only",
+		"fixture/assets/nested-only/module",
+	} {
+		if err := os.MkdirAll(filepath.Join(sourceRoot, filepath.FromSlash(directory)), 0o755); err != nil {
+			t.Fatalf("create directory %s: %v", directory, err)
+		}
+	}
+	writeClosureEmbedTestFile(t, sourceRoot, "fixture/assets/hidden-only/.excluded", "hidden\n")
+	writeClosureEmbedTestFile(t, sourceRoot, "fixture/assets/nested-only/module/go.mod", "module example.invalid/nested\n")
+	writeClosureEmbedTestFile(t, sourceRoot, "fixture/assets/full/file.txt", "full\n")
+
+	files, err := collectGoEmbedCompileFiles(sourceRoot, []string{"fixture/embed.go"})
+	if err != nil {
+		t.Fatalf("collect Go embed compile files: %v", err)
+	}
+	want := []string{"fixture/assets/full/file.txt"}
+	if !slices.Equal(files, want) {
+		t.Fatalf("compile inputs = %v, want %v", files, want)
+	}
+}
+
+func TestCollectGoEmbedCompileFilesRejectsPatternMatchingOnlyEmptyDirectories(t *testing.T) {
+	sourceRoot := t.TempDir()
+	writeClosureEmbedTestFile(t, sourceRoot, "fixture/embed.go", "package fixture\n\nimport \"embed\"\n\n//go:embed assets/*\nvar content embed.FS\n")
+	for _, directory := range []string{"fixture/assets/empty-a", "fixture/assets/empty-b"} {
+		if err := os.MkdirAll(filepath.Join(sourceRoot, filepath.FromSlash(directory)), 0o755); err != nil {
+			t.Fatalf("create directory %s: %v", directory, err)
+		}
+	}
+
+	_, err := collectGoEmbedCompileFiles(sourceRoot, []string{"fixture/embed.go"})
+	if err == nil || !strings.Contains(err.Error(), "no matching files found") {
+		t.Fatalf("collectGoEmbedCompileFiles() error = %v, want pattern-level no-match rejection", err)
+	}
+}
+
+func TestCollectGoEmbedCompileFilesRejectsSymbolicLink(t *testing.T) {
+	sourceRoot := t.TempDir()
+	writeClosureEmbedTestFile(t, sourceRoot, "fixture/embed.go", "package fixture\n\nimport \"embed\"\n\n//go:embed assets/link.txt\nvar content embed.FS\n")
+	writeClosureEmbedTestFile(t, sourceRoot, "outside.txt", "outside\n")
+	assetDirectory := filepath.Join(sourceRoot, "fixture", "assets")
+	if err := os.MkdirAll(assetDirectory, 0o755); err != nil {
+		t.Fatalf("create asset directory: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(sourceRoot, "outside.txt"), filepath.Join(assetDirectory, "link.txt")); err != nil {
+		t.Fatalf("create embedded symbolic link: %v", err)
+	}
+
+	_, err := collectGoEmbedCompileFiles(sourceRoot, []string{"fixture/embed.go"})
+	if err == nil || !strings.Contains(err.Error(), "symbolic link") {
+		t.Fatalf("collectGoEmbedCompileFiles() error = %v, want symbolic-link rejection", err)
+	}
+}
+
+func TestCollectGateCompileFilesDiscoversProjectMapGeneratorAsset(t *testing.T) {
+	repositoryRoot := testRepositoryRoot(t)
+	files, err := collectGateCompileFiles(repositoryRoot)
+	if err != nil {
+		t.Fatalf("collect gate compile files: %v", err)
+	}
+	wantAsset := "internal/devtools/projectmaptrusted/assets/generate_ai_project_map.mjs.gz"
+	if !slices.Contains(files, wantAsset) {
+		t.Fatalf("compile inputs do not contain auto-discovered asset %s", wantAsset)
+	}
+}
+
+func writeClosureEmbedTestFile(t *testing.T, root, relative, content string) {
+	t.Helper()
+	target := filepath.Join(root, filepath.FromSlash(relative))
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatalf("create parent for %s: %v", relative, err)
+	}
+	if err := os.WriteFile(target, []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", relative, err)
+	}
 }

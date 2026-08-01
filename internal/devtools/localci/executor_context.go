@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
-	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
 
 const (
@@ -24,12 +24,12 @@ const (
 
 // BoundedCleanupContext 从已取消的执行上下文派生仍受限时长的 CI 清理上下文。
 func BoundedCleanupContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	return platformconfig.WithTimeout(context.WithoutCancel(parent), timeout)
+	return gateprivate.WithTimeout(context.WithoutCancel(parent), timeout)
 }
 
 // BoundedOperationContext 为调用方保留取消链并附加固定操作上限。
 func BoundedOperationContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	return platformconfig.WithTimeout(parent, timeout)
+	return gateprivate.WithTimeout(parent, timeout)
 }
 
 // statusForContext 将执行上下文终态映射为公开容器结果状态。
@@ -166,7 +166,38 @@ func ResolveGateImageInputs(tree ReadOnlyGitTree, policyDigest string, platform 
 		ImageSchemaVersion: imageInputSchemaVersion, Platform: platform, SourceEntries: cloneTreeEntries(prepared.sourceEntries),
 		ImageInputDigest: result.InputDigest, ContextDigest: result.ContextDigest,
 		InputManifestDigest: result.InputManifestDigest, ToolchainDigest: result.ToolchainDigest,
-		DockerfileDigest: result.DockerfileDigest,
+		DockerfileDigest: result.DockerfileDigest, GateSourceDigest: prepared.gateSourceDigest,
+	}, nil
+}
+
+// ResolveBaselineGateCompileInputs 只解析已通过版本化 runtime lock 校验的历史基线编译输入。
+func ResolveBaselineGateCompileInputs(tree ReadOnlyGitTree, platform string) (BaselineGateCompileInputs, error) {
+	if err := verifyReadOnlyGitTree(tree); err != nil {
+		return BaselineGateCompileInputs{}, err
+	}
+	entriesByPath, err := indexCandidateEntries(tree.Entries)
+	if err != nil {
+		return BaselineGateCompileInputs{}, err
+	}
+	manifest, err := loadBaselineBuildInputManifest(entriesByPath)
+	if err != nil {
+		return BaselineGateCompileInputs{}, err
+	}
+	_, closureByPath, err := expandInputClosure(manifest, entriesByPath)
+	if err != nil {
+		return BaselineGateCompileInputs{}, err
+	}
+	_, lockData, err := loadToolchainLock(entriesByPath, closureByPath, platform)
+	if err != nil {
+		return BaselineGateCompileInputs{}, err
+	}
+	gateSourceDigest, err := gateCompileSourceDigest(manifest, closureByPath)
+	if err != nil {
+		return BaselineGateCompileInputs{}, err
+	}
+	return BaselineGateCompileInputs{
+		ToolchainDigest:  bytesDigest(lockData),
+		GateSourceDigest: gateSourceDigest,
 	}, nil
 }
 
@@ -770,7 +801,7 @@ func (runner *FreshContainerRunner) terminateUnprovedRecovery(
 	result FreshContainerResult,
 	cause error,
 ) (FreshContainerResult, error) {
-	cleanupContext, cancel := platformconfig.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	cleanupContext, cancel := gateprivate.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancel()
 	_, killErr := runner.docker.runner.Run(cleanupContext, "kill", result.Container.ContainerID)
 	if killErr == nil {

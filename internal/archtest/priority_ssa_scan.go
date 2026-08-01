@@ -44,13 +44,13 @@ func CollectPrioritySSAViolations(opts CheckOptions) ([]PrioritySSAViolation, er
 	if err != nil {
 		return nil, err
 	}
+	ssaPackages, err := buildPrioritySSAPackages(pkgs)
+	if err != nil {
+		return nil, err
+	}
 	var violations []PrioritySSAViolation
-	for _, pkg := range pkgs {
-		ssaPkg, err := buildPrioritySSAPackage(pkg)
-		if err != nil {
-			return nil, err
-		}
-		violations = append(violations, collectPrioritySSAPackageViolations(pkg, ssaPkg, targets)...)
+	for index, pkg := range pkgs {
+		violations = append(violations, collectPrioritySSAPackageViolations(pkg, ssaPackages[index], targets)...)
 	}
 	sortPrioritySSAViolations(violations)
 	return dedupePrioritySSAViolations(violations), nil
@@ -141,22 +141,26 @@ func prioritySSAWidePortTarget(byPath map[string]*prioritySSAPackage, spec prior
 	return obj, nil
 }
 
-func buildPrioritySSAPackage(pkg *prioritySSAPackage) (*ssa.Package, error) {
-	prog := ssa.NewProgram(pkg.fset, ssa.SanityCheckFunctions|ssa.InstantiateGenerics)
-	for _, imported := range pkg.types.Imports() {
-		prog.CreatePackage(imported, nil, nil, true)
+func buildPrioritySSAPackages(pkgs []*prioritySSAPackage) ([]*ssa.Package, error) {
+	loaded := make([]*packages.Package, len(pkgs))
+	for index, pkg := range pkgs {
+		loaded[index] = &packages.Package{
+			ID:        pkg.pkgPath,
+			PkgPath:   pkg.pkgPath,
+			Fset:      pkg.fset,
+			Syntax:    pkg.syntax,
+			Types:     pkg.types,
+			TypesInfo: pkg.typesInfo,
+		}
 	}
-	ssaPkg := prog.CreatePackage(pkg.types, pkg.syntax, pkg.typesInfo, true)
-	var buildErr error
-	func() {
-		defer func() {
-			if recovered := recover(); recovered != nil {
-				buildErr = fmt.Errorf("build SSA for %s: %v", pkg.pkgPath, recovered)
-			}
-		}()
-		ssaPkg.Build()
-	}()
-	return ssaPkg, buildErr
+	_, built, err := ssaload.Build(loaded)
+	if err != nil {
+		return nil, fmt.Errorf("build priority SSA packages: %w", err)
+	}
+	if len(built) != len(pkgs) {
+		return nil, fmt.Errorf("build priority SSA packages: got %d packages, want %d", len(built), len(pkgs))
+	}
+	return built, nil
 }
 
 func collectPrioritySSAPackageViolations(

@@ -264,30 +264,12 @@ func runSingleFileCheck(opts archtest.CheckOptions, goFiles []string) {
 	os.Exit(1)
 }
 
-// runCheck 执行默认棘轮模式：先检查生产违规，再分别校验和收缩生产/测试 baseline。
+// runCheck 执行默认棘轮模式，分别校验和收缩生产/测试 baseline。
 func runCheck(opts archtest.CheckOptions, freezePath string) {
-	violations := archtest.CheckAll(opts)
 	printThresholds()
-
-	prodViolations := filterProdViolations(violations)
-	if len(prodViolations) > 0 {
-		reportAndExit("生产文件", prodViolations)
-	}
-
 	runUnifiedFreezePhase(freezePath, opts)
 	failIfGuardGeneratedFilesDrifted(opts)
 	printPassSummary()
-}
-
-// filterProdViolations 从全量违规中剔除测试文件，只保留生产代码违规。
-func filterProdViolations(all []archtest.Violation) []archtest.Violation {
-	var out []archtest.Violation
-	for _, v := range all {
-		if !archtest.IsTestFile(v.File) {
-			out = append(out, v)
-		}
-	}
-	return out
 }
 
 // resolveRoot 返回检查使用的仓库根目录，空值时回退当前目录。

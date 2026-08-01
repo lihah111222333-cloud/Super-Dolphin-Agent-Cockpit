@@ -13,8 +13,11 @@ import (
 	"time"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/localci"
 )
+
+const coordinatorStoreInitializationAttempts = 20
 
 const coordinatorStoreSchema = `
 CREATE TABLE IF NOT EXISTS coordinator_jobs (
@@ -59,6 +62,11 @@ type coordinatorStore struct {
 	db              *sql.DB
 	now             func() time.Time
 	shardDeadlineMu sync.Mutex
+}
+
+type coordinatorSchemaDB interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 }
 
 type coordinatorJobRecord struct {
@@ -111,28 +119,69 @@ func openCoordinatorStore(
 		return nil, errors.New("coordinator identity key must be a SHA-256 hex digest")
 	}
 	path := filepath.Join(runtimeRoot, "localci-coordinator-"+checkpoint.IdentityKey+".db")
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
+	db, err := gateprivate.OpenSQLite(path)
 	if err != nil {
 		return nil, fmt.Errorf("open coordinator SQLite: %w", err)
 	}
-	if _, err := db.ExecContext(ctx, coordinatorStoreSchema); err != nil {
-		return nil, errors.Join(fmt.Errorf("initialize coordinator SQLite: %w", err), db.Close())
-	}
-	if err := ensureCoordinatorSchemas(ctx, db); err != nil {
+	if err := configureCoordinatorJournal(ctx, db); err != nil {
 		return nil, errors.Join(err, db.Close())
 	}
-	if err := ensureCoordinatorShardAdmissionSchema(ctx, db); err != nil {
+	if err := initializeCoordinatorSchema(ctx, db); err != nil {
 		return nil, errors.Join(err, db.Close())
 	}
-	if err := os.Chmod(path, 0o600); err != nil {
+	if err := gateprivate.RestrictOwnerFile(path); err != nil {
 		return nil, errors.Join(fmt.Errorf("protect coordinator SQLite: %w", err), db.Close())
 	}
-	db.SetMaxOpenConns(1)
 	return &coordinatorStore{db: db, now: time.Now}, nil
 }
 
+func configureCoordinatorJournal(ctx context.Context, db *sql.DB) error {
+	return gateprivate.RetrySQLiteWrite(ctx, coordinatorStoreInitializationAttempts, func() error {
+		var mode string
+		if err := db.QueryRowContext(ctx, "PRAGMA journal_mode=WAL").Scan(&mode); err != nil {
+			return fmt.Errorf("configure coordinator SQLite journal: %w", err)
+		}
+		if mode != "wal" {
+			return fmt.Errorf("coordinator SQLite journal mode = %q, want wal", mode)
+		}
+		return nil
+	})
+}
+
+func initializeCoordinatorSchema(ctx context.Context, db *sql.DB) error {
+	return gateprivate.RetrySQLiteWrite(ctx, coordinatorStoreInitializationAttempts, func() error {
+		return initializeCoordinatorSchemaAttempt(ctx, db)
+	})
+}
+
+// initializeCoordinatorSchemaAttempt 在单一 immediate 事务内原子完成建表与全部迁移。
+func initializeCoordinatorSchemaAttempt(ctx context.Context, db *sql.DB) (retErr error) {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin coordinator SQLite initialization: %w", err)
+	}
+	defer func() {
+		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+			retErr = errors.Join(retErr, rollbackErr)
+		}
+	}()
+	if _, err := tx.ExecContext(ctx, coordinatorStoreSchema); err != nil {
+		return fmt.Errorf("initialize coordinator SQLite: %w", err)
+	}
+	if err := ensureCoordinatorSchemas(ctx, tx); err != nil {
+		return err
+	}
+	if err := ensureCoordinatorShardAdmissionSchema(ctx, tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit coordinator SQLite initialization: %w", err)
+	}
+	return nil
+}
+
 // ensureCoordinatorReceiptSchema 校验 receipt 列完整存在，拒绝旧 schema 静默运行。
-func ensureCoordinatorReceiptSchema(ctx context.Context, db *sql.DB) error {
+func ensureCoordinatorReceiptSchema(ctx context.Context, db coordinatorSchemaDB) error {
 	rows, err := db.QueryContext(ctx, "PRAGMA table_info(coordinator_jobs)")
 	if err != nil {
 		return fmt.Errorf("inspect coordinator receipt schema: %w", err)
@@ -296,6 +345,41 @@ func (store *coordinatorStore) jobByReceiptID(
 	receiptID string,
 ) (coordinatorJobRecord, error) {
 	return store.readCoordinatorJobSnapshot(ctx, coordinatorJobSelect+" WHERE receipt_id = ?", receiptID)
+}
+
+// queuedJobsBefore 按权威 enqueue sequence 返回尚未开始的 durable 前驱。
+func (store *coordinatorStore) queuedJobsBefore(
+	ctx context.Context,
+	sequence uint64,
+) (records []coordinatorJobRecord, retErr error) {
+	if sequence == 0 {
+		return nil, fmt.Errorf("%w: enqueue sequence is required", errCoordinatorState)
+	}
+	rows, err := store.db.QueryContext(
+		ctx,
+		coordinatorJobSelect+" WHERE state = ? AND enqueue_sequence < ? ORDER BY enqueue_sequence",
+		jobStateQueued,
+		sequence,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list queued coordinator predecessors: %w", err)
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			retErr = errors.Join(retErr, closeErr)
+		}
+	}()
+	records, err = scanCoordinatorJobRows(rows)
+	if err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("close queued coordinator predecessors: %w", err)
+	}
+	if err := store.hydrateRecoveredCoordinatorJobs(ctx, records); err != nil {
+		return nil, err
+	}
+	return records, nil
 }
 
 // readCoordinatorJobSnapshot 在一个只读事务快照内读取 job 与分片，避免并发生命周期写入产生撕裂记录。

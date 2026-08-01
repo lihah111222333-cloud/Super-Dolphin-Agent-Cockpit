@@ -23,7 +23,10 @@ import {
 import { runManagedCommand } from './managed-command.mjs';
 import { DELIVERY_RUNNER_CONTENT_PATHS } from './delivery-smoke-runner.mjs';
 import { RUNNER_CONTENT_PATHS } from './evidence-provenance.mjs';
-import { FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS } from './frontend-execution-closure.mjs';
+import {
+  FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS,
+  installSubjectFrontendDependencies,
+} from './frontend-execution-closure.mjs';
 import { productionActionFailureMatrixTitle } from '../src/shared/ui/productionActionFailureMatrixTitles.js';
 import { HEAP_MEASUREMENT_CLOCK } from './resource-budget.mjs';
 import {
@@ -141,11 +144,7 @@ function createSubjectFrontendSnapshot(context) {
   const repoRoot = mkdtempSync(join(tmpdir(), 'frontend-maintainability-action-subject-'));
   temporaryRepositories.push(repoRoot);
   cloneSparseRepository(repoRoot, context.subjectSha, ['frontend-app']);
-  execFileSync('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund', '--offline'], {
-    cwd: join(repoRoot, 'frontend-app'),
-    stdio: 'ignore',
-    timeout: 180_000,
-  });
+  installSubjectFrontendDependencies(join(repoRoot, 'frontend-app'), join(frozenRepoRoot, 'frontend-app'));
   return repoRoot;
 }
 

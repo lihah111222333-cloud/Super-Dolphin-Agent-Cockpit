@@ -9,6 +9,10 @@ import (
 func validateAIMaintenanceHookRoutes(preCommit, prePush, gateScript string) error {
 	for _, required := range []string{
 		`"$gate_bin" closure check --tree "$staged_tree"`,
+		`"$gate_bin" closure refresh-dependencies --tree "$staged_tree"`,
+		`git -C "$repo_root" add -u -- build/gate/runtime-deps.lock`,
+		`"$gate_bin" closure refresh --tree "$staged_tree"`,
+		`git -C "$repo_root" add -u -- "${closure_outputs[@]}"`,
 		`"$gate_bin" hook pre-commit --tree "$staged_tree"`,
 		`"$gate_bin" wait --job "$job_id" --tree "$staged_tree"`,
 	} {
@@ -35,6 +39,10 @@ func TestAIMaintenanceGateVerifiesLocalHookArtifacts(t *testing.T) {
 	}
 	assertScriptContains(t, script, "go run ./scripts/ai_maintenance run \"$@\"")
 	assertScriptContains(t, preCommit, `if ! "$gate_bin" closure check --tree "$staged_tree"; then`)
+	assertScriptContains(t, preCommit, `"$gate_bin" closure refresh-dependencies --tree "$staged_tree"`)
+	assertScriptContains(t, preCommit, `git -C "$repo_root" add -u -- build/gate/runtime-deps.lock`)
+	assertScriptContains(t, preCommit, `"$gate_bin" closure refresh --tree "$staged_tree"`)
+	assertScriptContains(t, preCommit, `git -C "$repo_root" add -u -- "${closure_outputs[@]}"`)
 	assertScriptContains(t, preCommit, `"$gate_bin" hook pre-commit --tree "$staged_tree" >"$gate_output_file" 2>&1`)
 	assertScriptContains(t, preCommit, `"$gate_bin" wait --job "$job_id" --tree "$staged_tree" >"$wait_output_file" 2>&1`)
 	assertScriptContains(t, prePush, `exec "$gate_bin" hook pre-push "$1" "$2"`)
@@ -60,6 +68,12 @@ func TestAIMaintenanceGateRouteDeletionMutations(t *testing.T) {
 			name: "pre-commit CLI invocation",
 			mutate: func(preCommit, _, _ *string) {
 				*preCommit = strings.Replace(*preCommit, `"$gate_bin" hook pre-commit --tree "$staged_tree"`, "", 1)
+			},
+		},
+		{
+			name: "pre-commit closure refresh",
+			mutate: func(preCommit, _, _ *string) {
+				*preCommit = strings.Replace(*preCommit, `"$gate_bin" closure refresh --tree "$staged_tree"`, "", 1)
 			},
 		},
 		{

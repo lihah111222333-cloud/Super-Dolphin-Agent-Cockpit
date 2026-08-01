@@ -37,6 +37,9 @@ main() {
       usage
       exit 0
       ;;
+    test|build|vet)
+      require_remote_test_execution
+      ;;
   esac
 
   local real_go

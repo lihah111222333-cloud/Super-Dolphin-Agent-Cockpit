@@ -1,0 +1,1016 @@
+{
+  "schemaVersion": 2,
+  "generator": "frontend-app/scripts/lib/generate-frontend-code-size-dependency-closure.mjs",
+  "generatorSha256": "32579ce76444949aee20bf72a7d33b940e25f37b16c5a23a0cd6fc867c6876be",
+  "packageLockSha256": "a558027d0cc2ca66844a6ac3e77079b94ff1a2f19c89ff0b2609af82f478b882",
+  "rootPackage": "@babel/parser",
+  "packages": [
+    "node_modules/@babel/helper-string-parser",
+    "node_modules/@babel/helper-validator-identifier",
+    "node_modules/@babel/parser",
+    "node_modules/@babel/types"
+  ],
+  "files": [
+    {
+      "path": "node_modules/@babel/helper-string-parser/lib/index.js",
+      "mode": 420,
+      "sha256": "c1b1b25a48d3b44710984b894db71f5e8c335ca52c35da43e73967c20cf18bfd"
+    },
+    {
+      "path": "node_modules/@babel/helper-string-parser/lib/index.js.map",
+      "mode": 420,
+      "sha256": "8d49df564003e81b15c27acfc2cf3f7bd87813584e36955b709b4dcbbbfd84b2"
+    },
+    {
+      "path": "node_modules/@babel/helper-string-parser/LICENSE",
+      "mode": 420,
+      "sha256": "117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76"
+    },
+    {
+      "path": "node_modules/@babel/helper-string-parser/package.json",
+      "mode": 420,
+      "sha256": "ecbd1aaffa9ad000d3bc5a526067b89244cb3ec64c738fbae8b64a9e805f401b"
+    },
+    {
+      "path": "node_modules/@babel/helper-string-parser/README.md",
+      "mode": 420,
+      "sha256": "3de867b681c9c54aae76d6211dd50b2d271d6475ef394954e935f050bb0b2636"
+    },
+    {
+      "path": "node_modules/@babel/helper-validator-identifier/lib/identifier.js",
+      "mode": 420,
+      "sha256": "1f6f6c5d3b2ed3bc6613ad93fc0c9eb54c04be5013241bf391f3825c16b4432c"
+    },
+    {
+      "path": "node_modules/@babel/helper-validator-identifier/lib/identifier.js.map",
+      "mode": 420,
+      "sha256": "de9b9683f1e8258256db82b7df7e1019c6d3322ae8f6b77e99c6f1464c1ed524"
+    },
+    {
+      "path": "node_modules/@babel/helper-validator-identifier/lib/index.js",
+      "mode": 420,
+      "sha256": "98df6c259dc29b4082858573ffd24930ca68a7bf531a10f48d856ae813b9acbb"
+    },
+    {
+      "path": "node_modules/@babel/helper-validator-identifier/lib/index.js.map",
+      "mode": 420,
+      "sha256": "f259f5d9c9f57990390d948c1c77254a1da17849c941ae1604e1e8022094751b"
+    },
+    {
+      "path": "node_modules/@babel/helper-validator-identifier/lib/keyword.js",
+      "mode": 420,
+      "sha256": "1f27b5bd2ad2601730b85d1391a242604414a66026651d762179d5639b0b4c73"
+    },
+    {
+      "path": "node_modules/@babel/helper-validator-identifier/lib/keyword.js.map",
+      "mode": 420,
+      "sha256": "d00ea3fc5b5b4f32bcc48d5d897760b8ea00f7bcad609a90de718a4021261668"
+    },
+    {
+      "path": "node_modules/@babel/helper-validator-identifier/LICENSE",
+      "mode": 420,
+      "sha256": "117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76"
+    },
+    {
+      "path": "node_modules/@babel/helper-validator-identifier/package.json",
+      "mode": 420,
+      "sha256": "1ad6aeced8b186ac259da45fea50ab9d65d3d958f6458c80e3c8013649d1b12d"
+    },
+    {
+      "path": "node_modules/@babel/helper-validator-identifier/README.md",
+      "mode": 420,
+      "sha256": "42b17e7ea124f5656c2f1bb33dd7c80043a72d3dc061d7ee28bb411ac66f32cb"
+    },
+    {
+      "path": "node_modules/@babel/parser/bin/babel-parser.js",
+      "mode": 493,
+      "sha256": "c7c62937ddbdad55475054a193073fca01092879a86b278182b28a850b8d4ebd"
+    },
+    {
+      "path": "node_modules/@babel/parser/CHANGELOG.md",
+      "mode": 420,
+      "sha256": "e7c7856ef0f982e21ae0b650e257ad2907db4ad3d0b3966cbd138289962d492d"
+    },
+    {
+      "path": "node_modules/@babel/parser/lib/index.js",
+      "mode": 420,
+      "sha256": "201724d1415df7749087d9d6e88af50f2bcafe2eb68dfbe9347f49d3361ff426"
+    },
+    {
+      "path": "node_modules/@babel/parser/lib/index.js.map",
+      "mode": 420,
+      "sha256": "c874e49de10b8ba53e50969f020908f5a4c1b9b9ed0f548c1518d99caf57a903"
+    },
+    {
+      "path": "node_modules/@babel/parser/LICENSE",
+      "mode": 420,
+      "sha256": "2e97627cb278aa7556fb9e8817368302301a595b6c7582512b8d74c57b773652"
+    },
+    {
+      "path": "node_modules/@babel/parser/package.json",
+      "mode": 420,
+      "sha256": "808c30900ff9e55aafff6361e55c21a39556bdcd2d349e0474fde1e985d855af"
+    },
+    {
+      "path": "node_modules/@babel/parser/README.md",
+      "mode": 420,
+      "sha256": "73c03df678cff2141c7f1949cf171a6b44257f4159ff0783dd61ecee9b1f6e54"
+    },
+    {
+      "path": "node_modules/@babel/parser/typings/babel-parser.d.ts",
+      "mode": 420,
+      "sha256": "95aba78013d782537cc5e23868e736bec5d377b918990e28ed56110e3ae8b958"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/asserts/assertNode.js",
+      "mode": 420,
+      "sha256": "f5daa3d19be4871e94dc56fc97b412c9a2db30e60d3431d5e21b4a8f15fc254a"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/asserts/assertNode.js.map",
+      "mode": 420,
+      "sha256": "d021e5653e0675a36a36ce81113f5feeb688ac591bdbddddd76515319216feec"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/asserts/generated/index.js",
+      "mode": 420,
+      "sha256": "0be5395e6c70928b772a0dce8e7783e9ddc9322e3a1a5f0c9643cb2ddfd9a4ed"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/asserts/generated/index.js.map",
+      "mode": 420,
+      "sha256": "4ba18df8e18522a47b368409d72f85558f1c8f4fe7813d6c5beb01143ed8b5c2"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/ast-types/generated/index.js",
+      "mode": 420,
+      "sha256": "16acd61ca84ff5bf3ea9738e5d83b3e9fe3d8dc9220d8c62a0c67d9780683633"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/ast-types/generated/index.js.map",
+      "mode": 420,
+      "sha256": "fdd9644df13d4c79d3f3ece3974d3ec27b4d193a3f125b849db65aa1792368fd"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/builders/flow/createFlowUnionType.js",
+      "mode": 420,
+      "sha256": "d956848a9ebd7c485908f46c0ce527c83509e952872b4aec8de995434f2369a1"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/builders/flow/createFlowUnionType.js.map",
+      "mode": 420,
+      "sha256": "3c8b10a308669c1bdba929d77fc833b67abfdea5a92aacbac17dc3854ce5801b"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/builders/flow/createTypeAnnotationBasedOnTypeof.js",
+      "mode": 420,
+      "sha256": "5a48d7d1ffabb37f39398d080ced7dab04f45a45b0e373b1c90b2bd8f36ed727"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/builders/flow/createTypeAnnotationBasedOnTypeof.js.map",
+      "mode": 420,
+      "sha256": "49ac7e3eaa9f6b0959ebc23b47d97955bb6ff6ad1f455aba81f02f0d4935ff38"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/builders/generated/index.js",
+      "mode": 420,
+      "sha256": "a7c533725a73a24bff6d299f056c977204ee53ee4180d007b6c2f74b6c8ef142"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/builders/generated/index.js.map",
+      "mode": 420,
+      "sha256": "83cf4eab2edbe82db8999f27f82cfee0974efc028c10d6e3cd2b5201007131f7"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/builders/generated/lowercase.js",
+      "mode": 420,
+      "sha256": "7ebd7d082bed0349a3f1f6e9361029cecd0a4064d1b0d866805c35fc5d2cda0d"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/builders/generated/lowercase.js.map",
+      "mode": 420,
+      "sha256": "98ab9b8729216378996d5f4225523ae4476b04e1f4a87d174f7b18b02b0ca166"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/builders/generated/uppercase.js",
+      "mode": 420,
+      "sha256": "f4ec3b4f98b9d6f4af4eebd4e81f4529097b8eb8d908a8a49f3ba137237a9108"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/builders/generated/uppercase.js.map",
+      "mode": 420,
+      "sha256": "ae7d30d2dbc01c17d225745c990a182f03bd7f4a1a5be19319056b8e66d10cc6"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/builders/productions.js",
+      "mode": 420,
+      "sha256": "ade4f557ede9b5efc677944db55387d17d34787f259b6cb4a69334b52f84a224"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/builders/productions.js.map",
+      "mode": 420,
+      "sha256": "8bfa4ad90098aa8219e0eb1aedcfba45e701ecf5f0db62bd8d62e6ee74a0586d"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/builders/react/buildChildren.js",
+      "mode": 420,
+      "sha256": "80cee92f7e6c583065b8b10e83b1d0f90ae5b54e41052e452fb08463945c272a"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/builders/react/buildChildren.js.map",
+      "mode": 420,
+      "sha256": "5327b8cffeb05eb9665f2a8e4adf7c184a4db0ed0a3b7920dcf12fb3f8d60696"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/builders/typescript/createTSUnionType.js",
+      "mode": 420,
+      "sha256": "0b8303cee403bcd242adac77b969b3470935469a530f4241675015235e827e10"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/builders/typescript/createTSUnionType.js.map",
+      "mode": 420,
+      "sha256": "041c24efa033e674142de89447585b56213decfa86d977651a1e3e507ffac471"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/builders/validateNode.js",
+      "mode": 420,
+      "sha256": "3172d2191555f5ee702394f15c00dfff27145cf67e88b78237fd9ca92e93235f"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/builders/validateNode.js.map",
+      "mode": 420,
+      "sha256": "55d5ba0f2f9012cb54d0c376b15b290c11b60bfaf761c7fc6e78d4c4f7496b6d"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/clone/clone.js",
+      "mode": 420,
+      "sha256": "e111ca75eaceb1f7df18f83ddea547562e9f7fb344e6a9b14b613a587b34bbaf"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/clone/clone.js.map",
+      "mode": 420,
+      "sha256": "cf3e400bd5dac0f186fc00d1d8953b44efee7988a9a2f895ea6f2a97559ede3b"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/clone/cloneDeep.js",
+      "mode": 420,
+      "sha256": "952c6eec4f23534d5a3f8ce0902fde9473ddd8f19a51a8ec841f414acc3bea1c"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/clone/cloneDeep.js.map",
+      "mode": 420,
+      "sha256": "d0f98dd63d3d2ac5aa53a851435251f076c42a17974bef18e7fb09d46cc0bbc4"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/clone/cloneDeepWithoutLoc.js",
+      "mode": 420,
+      "sha256": "1262732b2d97398c6fc1347cf749a4a7e35b8fc13e24cf0563544e26f52f395a"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/clone/cloneDeepWithoutLoc.js.map",
+      "mode": 420,
+      "sha256": "80e0a3d88a8f16f516eb5b3967cb6a47439e8d0b17c473f07d5fb9eab5f78e5e"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/clone/cloneNode.js",
+      "mode": 420,
+      "sha256": "7db899dfa4caeade05d282c25f3dafe4ce296cfc6c011658b455f46e12a5273d"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/clone/cloneNode.js.map",
+      "mode": 420,
+      "sha256": "b70bf5df6d1eb1e6b95b91aeb50eb3bab70d6a926299981ae0c9272ac341de6e"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/clone/cloneWithoutLoc.js",
+      "mode": 420,
+      "sha256": "11400139de42cb806781efe3f1ef1c37868be98574faba096e46abab67ccb404"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/clone/cloneWithoutLoc.js.map",
+      "mode": 420,
+      "sha256": "8fa1f87b6d5ee8ba90367e82263884fe87d9a718c04a26ab4e98c0f74bf304c7"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/comments/addComment.js",
+      "mode": 420,
+      "sha256": "f1e5431cba374c103a614e1db06e197fb9c99feb0c09fb81617eb5941717a3ab"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/comments/addComment.js.map",
+      "mode": 420,
+      "sha256": "de739d483c401911ed83a61e3227591fda7980ee8a414f79d31ff905f355491c"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/comments/addComments.js",
+      "mode": 420,
+      "sha256": "7a421e7c608ac0ca7790fd17a1abc2e48367f56eb1f99d4de6eeaaef99d7590d"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/comments/addComments.js.map",
+      "mode": 420,
+      "sha256": "893db0e7113fe2ba57e2bcd0fa6538030978d459121793360039acd08be83bca"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/comments/inheritInnerComments.js",
+      "mode": 420,
+      "sha256": "e4f19c43943fb5b6877396941ad43d5b8870fcdcf20ab741456d29f38b857b46"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/comments/inheritInnerComments.js.map",
+      "mode": 420,
+      "sha256": "7026987497a30505fbdb0833a60c859e811c5b7b338a394bf60cadcb275640bd"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/comments/inheritLeadingComments.js",
+      "mode": 420,
+      "sha256": "31839b52f4d08f4a1e1dd91ce812c51e329b2f942840e683bfa5395a97b8fdd8"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/comments/inheritLeadingComments.js.map",
+      "mode": 420,
+      "sha256": "aaf6b38da8a53d3fa18af4cb29075e9513a88ef971bf5065a52bec47dc5369b6"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/comments/inheritsComments.js",
+      "mode": 420,
+      "sha256": "bdb71fca3509759b0d865d69f3245df126aa3d822748f0ecc8e716f28876a31f"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/comments/inheritsComments.js.map",
+      "mode": 420,
+      "sha256": "952957dc22d79dbf7aa870a78a7f902a6496f18ef390ca34aa17e67057473e7b"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/comments/inheritTrailingComments.js",
+      "mode": 420,
+      "sha256": "33c5268d1904b88b29766c60324a2e5711628b0be643e25b3fd2b9b48fa430d3"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/comments/inheritTrailingComments.js.map",
+      "mode": 420,
+      "sha256": "5b721c0eb507fde1083252c2d1d06273fc89918f790322ca5cdc638a218f7e44"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/comments/removeComments.js",
+      "mode": 420,
+      "sha256": "0eef78919eccd6ae358620c4c11ed72f31ba302b3cf194143b45556e73c354f3"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/comments/removeComments.js.map",
+      "mode": 420,
+      "sha256": "7ac1d3fdef43b8cef48796f31398cd25b9f4aee6d6eee0d00e0da499005c233c"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/constants/generated/index.js",
+      "mode": 420,
+      "sha256": "539fecb078ee358d5fe9c5a011237481589c829c28d7775d00675fd1e4d63ddb"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/constants/generated/index.js.map",
+      "mode": 420,
+      "sha256": "81ef467fff60d4aebf466d9cd5472cf8a133214dbd1a50d2621f7e2474bf6be0"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/constants/index.js",
+      "mode": 420,
+      "sha256": "299fe69d83a7611c257e86d8fa2ebaea69aa7291a3ab265cd20d3e36958050a4"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/constants/index.js.map",
+      "mode": 420,
+      "sha256": "7bdc4cdda0a4bec7e3543774d8f0eef365c00d56a950cd53a7581bc5338b3d73"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/converters/ensureBlock.js",
+      "mode": 420,
+      "sha256": "d18069705c1be7f10c5e2c2123abdfdfd5182bea1b5c16903c5e5150bbac2262"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/converters/ensureBlock.js.map",
+      "mode": 420,
+      "sha256": "8d3c4f82d194cea4296e6967be94ea06f4d2f23295a54298d9617adec4d4ac6d"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/converters/gatherSequenceExpressions.js",
+      "mode": 420,
+      "sha256": "a5d59cdaa56e7c7a40e7bbb131417c19ac2dbd56948f41c410d90937a2948b2a"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/converters/gatherSequenceExpressions.js.map",
+      "mode": 420,
+      "sha256": "b0781de250ab8380d0c366d021ecd6930ec2dcfa7284c220db4cdcaf48b65c9f"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/converters/toBindingIdentifierName.js",
+      "mode": 420,
+      "sha256": "1b838848c87490d0b24ce4cd1d0f40619810e90cf69d8e6dae6b87642427e465"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/converters/toBindingIdentifierName.js.map",
+      "mode": 420,
+      "sha256": "6570fbf3370fb27f476da64d1effa1300e8e7a10c9ef058ccb1327725806863b"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/converters/toBlock.js",
+      "mode": 420,
+      "sha256": "6cee442fe41f7775d2086eff3fc3d1617c45c3958408c314824020ee262529ca"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/converters/toBlock.js.map",
+      "mode": 420,
+      "sha256": "9c05013b99a512bc2c93b3a5cd573bbf6f0fd2f0aedcdb64d624c70988270180"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/converters/toComputedKey.js",
+      "mode": 420,
+      "sha256": "c54a9b025a4c5e7ec4c9b93e9f2b795aa8a6f928e0de1793590f012c78e01b46"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/converters/toComputedKey.js.map",
+      "mode": 420,
+      "sha256": "177c3bd70b823195ac63ad1ab51bbb8babb97b98446b3171d17399a2fed7784f"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/converters/toExpression.js",
+      "mode": 420,
+      "sha256": "6c836808e3deaf27abb812cdb8fa481c9e075ae1608c5fc4fef441b2742b1281"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/converters/toExpression.js.map",
+      "mode": 420,
+      "sha256": "ef082f62c4f03d45ca723f6519f5bec19fa9d31db6ad40079a0c97328d3cff43"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/converters/toIdentifier.js",
+      "mode": 420,
+      "sha256": "d7cdc2be7b2f4fb21ee65727893880a33d18582bf6d01f7f24b9b6c4ecbf441c"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/converters/toIdentifier.js.map",
+      "mode": 420,
+      "sha256": "8d22dff127fe301fe34ac5b67347e6829196ab44398a88a18280d5fc09c7794c"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/converters/toKeyAlias.js",
+      "mode": 420,
+      "sha256": "35ab0be1595ec7ba03a2c25e5ee865fa73656e50b7ea8a44867268a2b930f62f"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/converters/toKeyAlias.js.map",
+      "mode": 420,
+      "sha256": "afa905d05cb53b35c7c1fa15ec237c9f969be6ec3a9d790883dc512f0417abf2"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/converters/toSequenceExpression.js",
+      "mode": 420,
+      "sha256": "be7b9a125dc7e2ac25181d766b1cf5c7cf176e09e682aa7f7b57b696c7fde825"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/converters/toSequenceExpression.js.map",
+      "mode": 420,
+      "sha256": "71d7ad06a458b0beed26bb2f5caf9e6034526c7aab5e2d61a71a0463816fe858"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/converters/toStatement.js",
+      "mode": 420,
+      "sha256": "af4719777970692f5a17a549a585eeb93c604cdd7697da3816deb52add4cee11"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/converters/toStatement.js.map",
+      "mode": 420,
+      "sha256": "0de6685b380f907db0f62270c8649bfa199b1007c5ec1066e20d0b684608706a"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/converters/valueToNode.js",
+      "mode": 420,
+      "sha256": "553b89b77a6d123fcfb1318f7d00261d2bcb1f1f9ace4007e54cbbeba70dd403"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/converters/valueToNode.js.map",
+      "mode": 420,
+      "sha256": "29bfba0f79b2ae54ca9c4cc1da30cc71c9403d118ca5a97a7546b1e03b82d6e4"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/definitions/core.js",
+      "mode": 420,
+      "sha256": "ea80a76ae5d0107980f7e3532c031c03e6239bdbb88e3a00869d210a1a927200"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/definitions/core.js.map",
+      "mode": 420,
+      "sha256": "b56762c2223a810b590f0170d77a1ffbae1b6b63028da9ff37158098f2bc914b"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/definitions/deprecated-aliases.js",
+      "mode": 420,
+      "sha256": "a5e38c38380667ea4573622ff0661e6bc9b98c967c68789463773d60f72e9852"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/definitions/deprecated-aliases.js.map",
+      "mode": 420,
+      "sha256": "5635721eef123a907a718d8fbf765cf814139669c3e69d7b7ba677c51f5dcbd7"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/definitions/experimental.js",
+      "mode": 420,
+      "sha256": "1ea71bade729a27a22217f93d9b465b5cbfef33b833840489daf5158c130e82c"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/definitions/experimental.js.map",
+      "mode": 420,
+      "sha256": "4217404e36645dae174e79de1278e90e1a92109368c275127e052c9077f548a7"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/definitions/flow.js",
+      "mode": 420,
+      "sha256": "38b7051e26c448f4696a4c9a0e3c1ee539d23c34dd2fa3c5d1817bf922a415d3"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/definitions/flow.js.map",
+      "mode": 420,
+      "sha256": "db71eaa54f6850dbc15f803f855dab22a86add0def2d7f81f688dbaf5382488b"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/definitions/index.js",
+      "mode": 420,
+      "sha256": "7e8c2e0f299ba5e7871ed4667fc7a33256056917c7960d930c96f1f90bb95e0f"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/definitions/index.js.map",
+      "mode": 420,
+      "sha256": "020303e6801851c39f323e647f1d69527b5bbe62e059a3dcc291365d12718648"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/definitions/jsx.js",
+      "mode": 420,
+      "sha256": "2454af3ab8ae6d43fd8d53fcb5043feaa1a4cbb34d341c34a7629cabf4d5aea8"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/definitions/jsx.js.map",
+      "mode": 420,
+      "sha256": "11ebeabe18bbe348b1881ac4f3453ca6fae4c74676febd0d21f1e48f24492799"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/definitions/misc.js",
+      "mode": 420,
+      "sha256": "606ea8b29f67f66939f04d6d362e7f7a154bad7ddaf749fcd37b7609e942daee"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/definitions/misc.js.map",
+      "mode": 420,
+      "sha256": "1ccd52395e6133e2784dd37fe777210a2740f6dbc80dd0e8fec16ac32af6ee17"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/definitions/placeholders.js",
+      "mode": 420,
+      "sha256": "01152a0cefd7494a25b1a76a89294d89cfa8b59f3443baa5278d2a9d1932d3a4"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/definitions/placeholders.js.map",
+      "mode": 420,
+      "sha256": "a0873c14d8df76b430014a57f8f20e1ca4c3b0cf8490439adbf4f4ad78b54e2f"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/definitions/typescript.js",
+      "mode": 420,
+      "sha256": "fbb7f546b449698e6615ffbde4e7649b9bda0c4621ad360fc2da7ecd8ed340d3"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/definitions/typescript.js.map",
+      "mode": 420,
+      "sha256": "3d5f210ef75fd01fe373aee13be1a16fe3a33564d5343ef303a03785e80638a6"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/definitions/utils.js",
+      "mode": 420,
+      "sha256": "75abf6f8c7a04776867a1c0891684c4a0e090743cd8a6dc9d127bc957888908f"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/definitions/utils.js.map",
+      "mode": 420,
+      "sha256": "367ca50ed8558afa6775b74c4aa33b881a8c794eeffd1594a256d9f51ebdb7e3"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/index-legacy.d.ts",
+      "mode": 420,
+      "sha256": "fd3d3fe138419ef752c1bab4d11a6c827990fbfa2e6b6941b6226d88a825bcf0"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/index.d.ts",
+      "mode": 420,
+      "sha256": "556ccd493ec36c7d7cb130d51be66e147b91cc1415be383d71da0f1e49f742a9"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/index.js",
+      "mode": 420,
+      "sha256": "21af18add84dbb64a624552e04abad89a40affacf701776d4a662aedef6accfd"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/index.js.flow",
+      "mode": 420,
+      "sha256": "853904ea6fb63797157b4db056e2a6559ed5699b004be767fb9b1d1bf1ed9961"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/index.js.map",
+      "mode": 420,
+      "sha256": "4d68374417d017974026c4baa04510e214e677eff72cee528972066a7ffd85ba"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/modifications/appendToMemberExpression.js",
+      "mode": 420,
+      "sha256": "51af6c925e4f4e14331a4c54367ee5d394ba078383ca859e0bc581c43dc022bf"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/modifications/appendToMemberExpression.js.map",
+      "mode": 420,
+      "sha256": "d19187fd4a99f28428909d38f589910a3bde9550a966d330c0607831b938d7f9"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/modifications/flow/removeTypeDuplicates.js",
+      "mode": 420,
+      "sha256": "a12aeb6657af4ad7f5eea9ac5f8cc684a687ca586616bd745254b10faeb86e98"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/modifications/flow/removeTypeDuplicates.js.map",
+      "mode": 420,
+      "sha256": "0928360158de95146621ae108fce2b1f5d222f8327f3726b85dc212b07849d0c"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/modifications/inherits.js",
+      "mode": 420,
+      "sha256": "8fa7c6417ccadb35ec3900deb4daa612c186ba957b539ad0656c4cb7698b09c5"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/modifications/inherits.js.map",
+      "mode": 420,
+      "sha256": "4c90d4a3101971427644bd4befd4fa90dde77132d217a80a8fd58448c690e2ac"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/modifications/prependToMemberExpression.js",
+      "mode": 420,
+      "sha256": "1789396d148146e2685138e11edad51986c30d0f2c051071ac4c1da4408e01bc"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/modifications/prependToMemberExpression.js.map",
+      "mode": 420,
+      "sha256": "6bca83e494fed2c84f9dca8fa5a29b60774cd479375787ea756bfb047dc9ceb0"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/modifications/removeProperties.js",
+      "mode": 420,
+      "sha256": "714f0cbd42d973ade613b6814c9a07bf8238535ce8c9b597b434a8b23e4d4b94"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/modifications/removeProperties.js.map",
+      "mode": 420,
+      "sha256": "aab1ad6b8209b4b174c879749bce043fb19a52bb5f950a5e8063240334018082"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/modifications/removePropertiesDeep.js",
+      "mode": 420,
+      "sha256": "ddcfeee97410e2b2aa35222224f0ff8edd89560f01188853dcc9cde1b2abdfb6"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/modifications/removePropertiesDeep.js.map",
+      "mode": 420,
+      "sha256": "8583e4690ab42982e9c42e804057c80aa6028e923ac4ea7f8a1d8621e9d93bfe"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/modifications/typescript/removeTypeDuplicates.js",
+      "mode": 420,
+      "sha256": "42bfd0042bb92172fac115f2e3ded4fa313a02557a4b70b6f11485fa527b56f9"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/modifications/typescript/removeTypeDuplicates.js.map",
+      "mode": 420,
+      "sha256": "6ebccb41d4e093d93d9d22c24353aad87d9fd693650384bebc33f5ff0910c9a5"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/retrievers/getAssignmentIdentifiers.js",
+      "mode": 420,
+      "sha256": "6790244265636511a227992e7dab908dad0a1029ff9a1503cd009e7fced08178"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/retrievers/getAssignmentIdentifiers.js.map",
+      "mode": 420,
+      "sha256": "75a28f15f984e0245d511ab8c77664b9c0c1f3e13e0651c973b06e7254550a0e"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/retrievers/getBindingIdentifiers.js",
+      "mode": 420,
+      "sha256": "2318058e37fb5116fec4a8e76a7a8ee0996d5ef75642b4a8d1f10b761eaa73da"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/retrievers/getBindingIdentifiers.js.map",
+      "mode": 420,
+      "sha256": "bae8f6485217a9ed6a49e49e28035598522729c04d7c2ad5961cbb6ee527e051"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/retrievers/getFunctionName.js",
+      "mode": 420,
+      "sha256": "36ee7283e1ed17e87af9fd5fc64b5b6d7ab63ecb3a9d48814dbdc23060fd441c"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/retrievers/getFunctionName.js.map",
+      "mode": 420,
+      "sha256": "f2aa9a765ddd6814e38ca75869c285878eb09fdd696045465e459ad349624e44"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/retrievers/getOuterBindingIdentifiers.js",
+      "mode": 420,
+      "sha256": "9d7e2c5923df3c7e51b4f75e29772a7f824a98395fe70a7ad0134b6ec812a954"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/retrievers/getOuterBindingIdentifiers.js.map",
+      "mode": 420,
+      "sha256": "a309f5b814e6e2ed572b413e541c40754508c346f8b9119dd65c5b8f5d56e3e3"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/traverse/traverse.js",
+      "mode": 420,
+      "sha256": "7d4292d3b498d77982806c864dda6f39f6b6f1cc758ba117b66cc0430d45986e"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/traverse/traverse.js.map",
+      "mode": 420,
+      "sha256": "8db912a29efef0dbe5b575d7855db58dfec98aadd561a90c3b538a9a2a73b8bb"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/traverse/traverseFast.js",
+      "mode": 420,
+      "sha256": "ef4a51459c82a1b9471a55fb09bf763f8c6fa4000418256c78511e479161ac4e"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/traverse/traverseFast.js.map",
+      "mode": 420,
+      "sha256": "b52f16f7737736689413ab199b5f0ddfc7f6bc85e17719b557922fcca841c95e"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/utils/deprecationWarning.js",
+      "mode": 420,
+      "sha256": "862ddff494adab4e5e9000da2c44c373a76f54670489a79b590ac91264f72a7a"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/utils/deprecationWarning.js.map",
+      "mode": 420,
+      "sha256": "1aa2d7fc5500cbf79098eb9376f8e753040d20add159672983647d94093c6c14"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/utils/inherit.js",
+      "mode": 420,
+      "sha256": "2c9e7f2b7ce5a57441c4ced2077059d32fc41e38975c8f4a52b6723767d85e33"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/utils/inherit.js.map",
+      "mode": 420,
+      "sha256": "e1219f3a079b1783fb3fd9722bdf3515b8eae46b2e0384539dbd72f44f96feda"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/utils/react/cleanJSXElementLiteralChild.js",
+      "mode": 420,
+      "sha256": "595c06790b4cefa2e47ca3758eb51b9d2db1d5b230260d05a5f80fe777839d3d"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/utils/react/cleanJSXElementLiteralChild.js.map",
+      "mode": 420,
+      "sha256": "48de67782c911b63462758f34046c264efccd1a8dcd6c7a224c57b7ef241de09"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/utils/shallowEqual.js",
+      "mode": 420,
+      "sha256": "6ab4703ffc14fb106909ec9be593b6aa0d39e157995dc5b9ea7f8b0f1d85c15c"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/utils/shallowEqual.js.map",
+      "mode": 420,
+      "sha256": "aba932f795f99273f58f5a7813dcf06a5314cda486eda0a300ea1bdca5fe4683"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/buildMatchMemberExpression.js",
+      "mode": 420,
+      "sha256": "7ff24ec89331024cb6422d4d6ade44f4ade60116df4f6e3b6fd9485ece7f2c59"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/buildMatchMemberExpression.js.map",
+      "mode": 420,
+      "sha256": "ff0262122baeef634e0989e9386f54313750726a74ca548832d9b54c572469dd"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/generated/index.js",
+      "mode": 420,
+      "sha256": "f2b78a20cc9fa7d3b83a60cb12253523262ad2f689f36456caf7ce72a2e307f9"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/generated/index.js.map",
+      "mode": 420,
+      "sha256": "11d97010fa977ddaf02928e92b470cb28278132b3e0b5a202672e7dc99f54e43"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/is.js",
+      "mode": 420,
+      "sha256": "89ddaccb18dc3625cf702e8f66a33d909831b4dd93ac3590cd0ad399b24fb800"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/is.js.map",
+      "mode": 420,
+      "sha256": "c02ada385b1f832e134e504e0d0781ea00e9cd0a392f84e0632fcc3ca362d0e8"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/isBinding.js",
+      "mode": 420,
+      "sha256": "2b64706bb281368be68016f12d62b4fe45de096c71645ba284604211aa8459e7"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/isBinding.js.map",
+      "mode": 420,
+      "sha256": "5eef20a5133ec768d0b2ec39d540138bbf7289ddd251155fef8c6a2ef46e825d"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/isBlockScoped.js",
+      "mode": 420,
+      "sha256": "c35fefb463b241d03e0b83d42aec85159d1895d89aff9937b604d20f5cb55d02"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/isBlockScoped.js.map",
+      "mode": 420,
+      "sha256": "a0243c54ada67088fd0925f49580b0d26efe9608c2a1daed9f905e5c15be0714"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/isImmutable.js",
+      "mode": 420,
+      "sha256": "b4663c9b9c8f11807f0eff92b31e03015201ebb42aedde754f9f94a154c97ea3"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/isImmutable.js.map",
+      "mode": 420,
+      "sha256": "1275eb601d363ac069d1c8512babea0df53342398d00fc67c3fb6c562787fbcd"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/isLet.js",
+      "mode": 420,
+      "sha256": "3c75b0ff25ffbb6793ed34139b4679b0a7faa0c18c9137e01784703dd0466b6a"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/isLet.js.map",
+      "mode": 420,
+      "sha256": "a0b71abce646ec9b08038305b2c55deeabb91140351ba55cf5c9e26255cf31fa"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/isNode.js",
+      "mode": 420,
+      "sha256": "d242dc73415c4647b3e88f559a5763572363ae01e478d7a1aa2e7d480bf096b1"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/isNode.js.map",
+      "mode": 420,
+      "sha256": "3bc79930f2f704ad6ac4eaf46f212592d48632fcabeee5eb6ca6ffdf8eacb2da"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/isNodesEquivalent.js",
+      "mode": 420,
+      "sha256": "c4908e3249f4e93cdaad3e7efa92277d0fd62cdefc1bc2c3cc18ad8c0ba5d569"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/isNodesEquivalent.js.map",
+      "mode": 420,
+      "sha256": "ee82b7d12372f9dfc684db147ec8a794515e184936af628447aa9ed2f8664444"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/isPlaceholderType.js",
+      "mode": 420,
+      "sha256": "59c03db071add873f0ca6ff79745a665601a0ee8e28e6a620dee536461b1b7d2"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/isPlaceholderType.js.map",
+      "mode": 420,
+      "sha256": "9caee3884789719ce9d404fed0ebd8903db2987f2ca5d3d8deec0849fb0bc7df"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/isReferenced.js",
+      "mode": 420,
+      "sha256": "992376883825ab5701ef51fb2960da07e96e67e76d45a557c5ab8ca00eb8ff0b"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/isReferenced.js.map",
+      "mode": 420,
+      "sha256": "dcc9e1a2c471bb1a2deb415d24c10f8c0de2533019e4f037e7a8a96f4fea8134"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/isScope.js",
+      "mode": 420,
+      "sha256": "f97deafe49aaca76c24143e861038f1e69642462a37d8cfdb5c6d98c41fc9ad4"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/isScope.js.map",
+      "mode": 420,
+      "sha256": "5dcd2e80fdfcdb23f0ee600ae22919376d3a296fc59dc063555dcc8f5ef11107"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/isSpecifierDefault.js",
+      "mode": 420,
+      "sha256": "db7aa4126961faae630f403eeef141303433b2876f211e03c225eb42bfbbfeb2"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/isSpecifierDefault.js.map",
+      "mode": 420,
+      "sha256": "c9635bdafb0e88e28168be8db216bfacdef9bc597eb4ebb914361f41e967737e"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/isType.js",
+      "mode": 420,
+      "sha256": "989abd2b9fd3d8eccd07747ce1b02b00394072772c5b9d9e6e0c7a06350ae181"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/isType.js.map",
+      "mode": 420,
+      "sha256": "62339c0b843c6998fd9a358963c4565054e966b042501af1537587bfb31a16dd"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/isValidES3Identifier.js",
+      "mode": 420,
+      "sha256": "3b140e2e1f8196b5512e39482ca86816e935f5da044a2bf98592f54c6aeb3243"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/isValidES3Identifier.js.map",
+      "mode": 420,
+      "sha256": "af34614d34a71ce522db641e5a0a9cd6b18f7907ac97a1f5918808b3243e1fdd"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/isValidIdentifier.js",
+      "mode": 420,
+      "sha256": "bd3786c08dfc34a4c3d7a91dead2eb4b5019feff9b9b5142be239dc131540b18"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/isValidIdentifier.js.map",
+      "mode": 420,
+      "sha256": "57621c37b3893b02870d0fa8f60e9816b51a0246bb0a7428cf40e540c2efb138"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/isVar.js",
+      "mode": 420,
+      "sha256": "90543c9b06bff6cb76a51bc683ae4a157be17894c207e9990c2392c14414810c"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/isVar.js.map",
+      "mode": 420,
+      "sha256": "e75b05673fc7f3850cefd19484891023b67847c971f9916d6c307252525ec0c2"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/matchesPattern.js",
+      "mode": 420,
+      "sha256": "faa0f46205a18caed21f64bfd188ddec38385ec4e0434d4a6b60416cd3121347"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/matchesPattern.js.map",
+      "mode": 420,
+      "sha256": "a970c598eee63251fd9ca7b719fe41165aa6d9b03cc24c38c8fbf774276c8241"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/react/isCompatTag.js",
+      "mode": 420,
+      "sha256": "7e84ca002aa1b6a2f32c789fdffd270fe09cfcf77d6cb0e3a6293abc9b49f764"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/react/isCompatTag.js.map",
+      "mode": 420,
+      "sha256": "058327e0c118c4f3a56f9dfab76356bc1403409ac6446f2d8668d97e403024af"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/react/isReactComponent.js",
+      "mode": 420,
+      "sha256": "281f08ec2c69731afd438f59f338230ee86e1cc763227ddc4a9685cbc0ad8e7e"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/react/isReactComponent.js.map",
+      "mode": 420,
+      "sha256": "a85662a598dc590e495d8a4aff08ab2f6b17e56cbe2cff58174de70e7ba488e6"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/validate.js",
+      "mode": 420,
+      "sha256": "33812a6c26391ae424b121032b6c8817b2165bb03c368f0751d9e54c62031092"
+    },
+    {
+      "path": "node_modules/@babel/types/lib/validators/validate.js.map",
+      "mode": 420,
+      "sha256": "6f14ce5dc312e60969d61b71f674b72bbb922e7f3def76be8b72e0ebbfcf2929"
+    },
+    {
+      "path": "node_modules/@babel/types/LICENSE",
+      "mode": 420,
+      "sha256": "117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76"
+    },
+    {
+      "path": "node_modules/@babel/types/package.json",
+      "mode": 420,
+      "sha256": "cf060ee0e8063ec7e48a504170e90b6dd9658bdcb7c037776db67b817474a036"
+    },
+    {
+      "path": "node_modules/@babel/types/README.md",
+      "mode": 420,
+      "sha256": "6bcc4f75267bf106320136bf9c8d60b2bf53a9f230a8c3ce8962c4717b2f0d77"
+    }
+  ],
+  "closureSha256": "186bd4ca197d2870d08967e921ec70ddaf0dc7120139799c1b8a8464bf780a61"
+}

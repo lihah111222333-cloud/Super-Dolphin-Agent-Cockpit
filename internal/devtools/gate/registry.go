@@ -55,12 +55,17 @@ const (
 )
 
 const (
-	containerExecutionOwner = "container-executor"
-	containerExecutorBinary = "/usr/local/bin/super-dolphin-gate-executor"
-	commandIdentityPrefix   = "container-executor/v1/"
+	containerExecutionOwner  = "container-worker"
+	containerGateBinary      = "/super-dolphin-gate"
+	containerWorkerNamespace = "worker"
+	commandIdentityPrefix    = "container-worker/v2/"
+
+	retiredContainerExecutionOwner = "container-executor"
+	retiredContainerGateBinary     = "/usr/local/bin/super-dolphin-gate-executor"
+	retiredCommandIdentityPrefix   = "container-executor/v1/"
 )
 
-// GateSpec is the canonical catalog entry consumed only by the container executor.
+// GateSpec is the canonical catalog entry consumed only by the container worker.
 type GateSpec struct {
 	ID               GateID    `json:"id"`
 	ExecutionOwner   string    `json:"execution_owner"`
@@ -84,6 +89,34 @@ func (s GateSpec) Validate() error {
 	if !slices.Equal(s.Argv, containerGateArgv(s.ID)) {
 		return fmt.Errorf("gate %q argv is not the canonical container executor command", s.ID)
 	}
+	return validateGateSpecProfiles(s)
+}
+
+// validateStored 校验当前 worker 或唯一已退役 executor 身份及 profile 闭包。
+func (s GateSpec) validateStored() error {
+	if strings.TrimSpace(string(s.ID)) == "" {
+		return errors.New("gate id is required")
+	}
+	if !matchesCurrentGateExecution(s) && !matchesRetiredGateExecution(s) {
+		return fmt.Errorf("gate %q has unsupported stored execution identity", s.ID)
+	}
+	return validateGateSpecProfiles(s)
+}
+
+func matchesCurrentGateExecution(spec GateSpec) bool {
+	return spec.ExecutionOwner == containerExecutionOwner &&
+		spec.CommandIdentity == commandIdentityPrefix+string(spec.ID) &&
+		slices.Equal(spec.Argv, containerGateArgv(spec.ID))
+}
+
+func matchesRetiredGateExecution(spec GateSpec) bool {
+	id := string(spec.ID)
+	return spec.ExecutionOwner == retiredContainerExecutionOwner &&
+		spec.CommandIdentity == retiredCommandIdentityPrefix+id &&
+		slices.Equal(spec.Argv, []string{retiredContainerGateBinary, "run", "--gate", id})
+}
+
+func validateGateSpecProfiles(s GateSpec) error {
 	if err := validateProfileSet("profiles", s.Profiles); err != nil {
 		return fmt.Errorf("gate %q: %w", s.ID, err)
 	}
@@ -136,7 +169,7 @@ func newGateSpec(id GateID, profiles, required []Profile) GateSpec {
 }
 
 func containerGateArgv(id GateID) []string {
-	return []string{containerExecutorBinary, "run", "--gate", string(id)}
+	return []string{containerGateBinary, containerWorkerNamespace, "run", "--gate", string(id)}
 }
 
 func allProfiles() []Profile {
@@ -308,7 +341,7 @@ func validateStoredPlanIdentity(p GatePlan) error {
 func validateStoredPlanGates(p GatePlan) error {
 	seen := make(map[GateID]bool, len(p.Gates))
 	for _, spec := range p.Gates {
-		if err := spec.Validate(); err != nil {
+		if err := spec.validateStored(); err != nil {
 			return err
 		}
 		if seen[spec.ID] {

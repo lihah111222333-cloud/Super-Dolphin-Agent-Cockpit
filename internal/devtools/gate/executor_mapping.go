@@ -45,8 +45,10 @@ var raceSensitiveSurfaces = []struct {
 	{packagePattern: "./internal/app/...", pathPrefix: "internal/app/"},
 	{packagePattern: "./internal/archtest/...", pathPrefix: "internal/archtest/"},
 	{packagePattern: "./internal/contract/...", pathPrefix: "internal/contract/"},
+	{packagePattern: "./internal/devtools/coordinatoradmission/...", pathPrefix: "internal/devtools/coordinatoradmission/"},
 	{packagePattern: "./internal/devtools/gate/...", pathPrefix: "internal/devtools/gate/"},
 	{packagePattern: "./internal/devtools/localci/...", pathPrefix: "internal/devtools/localci/"},
+	{packagePattern: "./internal/devtools/remoteci/...", pathPrefix: "internal/devtools/remoteci/"},
 	{packagePattern: "./internal/mcpserver/...", pathPrefix: "internal/mcpserver/"},
 	{packagePattern: "./internal/module/...", pathPrefix: "internal/module/"},
 	{packagePattern: "./internal/platform/...", pathPrefix: "internal/platform/"},
@@ -96,12 +98,12 @@ var executorPrograms = map[GateID]ExecutorProgram{
 	GateIDFrontendLint: withFrontendSeed(requirePaths(commandProgramIn("frontend-app",
 		[]string{"npm", "run", "lint"},
 	), "frontend-app/package.json", "frontend-app/package-lock.json")),
-	GateIDFrontendTest: withFrontendSeed(requirePaths(commandProgramIn("frontend-app",
+	GateIDFrontendTest: withGoSeed(withFrontendSeed(requirePaths(commandProgramIn("frontend-app",
 		[]string{"npm", "run", "test:hook"},
-	), "frontend-app/package.json", "frontend-app/package-lock.json")),
-	GateIDFrontendFullTest: withFrontendSeed(requirePaths(commandProgramIn("frontend-app",
+	), "frontend-app/package.json", "frontend-app/package-lock.json"))),
+	GateIDFrontendFullTest: withGoSeed(withFrontendSeed(requirePaths(commandProgramIn("frontend-app",
 		[]string{"npm", "test"},
-	), "frontend-app/package.json", "frontend-app/package-lock.json")),
+	), "frontend-app/package.json", "frontend-app/package-lock.json"))),
 	GateIDFrontendBuild: withFrontendSeed(requirePaths(commandProgramIn("frontend-app",
 		[]string{"npm", "run", "build"},
 	), "frontend-app/package.json", "frontend-app/package-lock.json")),
@@ -123,13 +125,13 @@ var executorPrograms = map[GateID]ExecutorProgram{
 	}, "scripts/nilness_guard.go")),
 	GateIDSQLCVerify: requireExecutables(requirePaths(ExecutorProgram{
 		Strategy: ExecutorStrategySQLCVerify,
-	}, "sqlc.yaml", "cmd/mcp-orch/sqlc.yaml"), ExecutorSQLCBinaryPath),
+	}, "sqlc.yaml", "cmd/mcp-orch/sqlc.yaml", "scripts/sqlc_postprocess.sh"), ExecutorSQLCBinaryPath, ExecutorBashBinaryPath),
 	GateIDCodemapCheck: withGoSeed(requirePaths(commandProgram(
 		[]string{"make", "codemap-check"},
 	), "Makefile", "scripts/codemap_index.go", "scripts/archtestmap/main.go")),
 	GateIDProjectMapCheck: requirePaths(commandProgram(
-		[]string{"make", "project-map-check", "PROJECT_MAP_ARGS="},
-	), "Makefile", "scripts/generate_ai_project_map.mjs"),
+		[]string{"super-dolphin-gate", "project-map", "check", "--tree-from-index"},
+	), ".git", "scripts/codemap_policy.txt", "docs/doc/codemap/project-map"),
 	GateIDCapabilityContractCheck: withGoSeed(requirePaths(commandProgram(
 		[]string{"make", "capcontract-check"},
 	), "Makefile", "scripts/capcontract/main.go")),
@@ -160,6 +162,182 @@ func ExecutorPrograms() map[GateID]ExecutorProgram {
 		programs[id] = cloneExecutorProgram(program)
 	}
 	return programs
+}
+
+// executorProgramForWorkload 将 canonical gate 或受控测试目标映射为固定 argv。
+func executorProgramForWorkload(id GateID) (GateID, ExecutorProgram, error) {
+	if program, ok := executorPrograms[id]; ok {
+		return id, cloneExecutorProgram(program), nil
+	}
+	parent, targetKind, target, targeted, err := parseTargetWorkloadID(string(id))
+	if err != nil {
+		return "", ExecutorProgram{}, err
+	}
+	if !targeted {
+		return "", ExecutorProgram{}, fmt.Errorf("unknown workload id %q", id)
+	}
+	switch targetKind {
+	case workloadTargetGoGuard:
+		program, err := goGuardExecutorProgram(parent, target)
+		return parent, program, err
+	case workloadTargetGoPackage:
+		return parent, goPackageExecutorProgram(parent, target), nil
+	case workloadTargetGoTest:
+		program, err := goTestExecutorProgram(parent, target)
+		return parent, program, err
+	case workloadTargetGoBenchmark:
+		program, err := goBenchmarkExecutorProgram(target)
+		return parent, program, err
+	case workloadTargetVitest:
+		return parent, vitestExecutorProgram(target), nil
+	default:
+		return "", ExecutorProgram{}, fmt.Errorf("unsupported workload target kind %q", targetKind)
+	}
+}
+
+// goGuardExecutorProgram 将历史 canonical 或新的原子守卫映射为固定 argv。
+func goGuardExecutorProgram(parent GateID, target string) (ExecutorProgram, error) {
+	if parent == GateIDAIMaintenanceSelfTest {
+		return aiMaintenanceGuardExecutorProgram(target)
+	}
+	if program, ok := splitSourceGoGuardExecutorProgram(target); ok {
+		return program, nil
+	}
+	var argv []string
+	needsFrontendEmbed := false
+	switch target {
+	case GoGuardTargetCanonical:
+		argv = []string{"./scripts/test_with_guard.sh", "--ci-guard"}
+		needsFrontendEmbed = true
+		if parent == GateIDBackendTestGuardWithRace {
+			argv = []string{"./scripts/test_with_guard.sh", "--ci-race-guard"}
+		}
+	case GoGuardTargetSource:
+		argv = []string{"./scripts/test_with_guard.sh", "--ci-guard-source"}
+		needsFrontendEmbed = true
+	case GoGuardTargetCopylocksProvider:
+		argv = []string{"./scripts/test_with_guard.sh", "--ci-copylocks", "provider"}
+	case GoGuardTargetCopylocksPlatform:
+		argv = []string{"./scripts/test_with_guard.sh", "--ci-copylocks", "platform"}
+	case GoGuardTargetCopylocksThread:
+		argv = []string{"./scripts/test_with_guard.sh", "--ci-copylocks", "thread"}
+	default:
+		module, err := ParseNestedGoModuleGuardTarget(target)
+		if err != nil {
+			return ExecutorProgram{}, fmt.Errorf("unsupported Go guard target %q", target)
+		}
+		argv = []string{"./scripts/test_with_guard.sh", "--ci-nested-module", module}
+	}
+	program := goTargetExecutorProgram(argv, false)
+	program.NeedsFrontendEmbedSeed = needsFrontendEmbed
+	return program, nil
+}
+
+// splitSourceGoGuardExecutorProgram 将源码策略和规模检查映射成互不阻塞的原子命令。
+func splitSourceGoGuardExecutorProgram(target string) (ExecutorProgram, bool) {
+	var argv []string
+	var requiredPath string
+	switch target {
+	case GoGuardTargetSourceRawGoTest:
+		argv = []string{"./scripts/forbid_raw_go_test.sh"}
+		requiredPath = "scripts/forbid_raw_go_test.sh"
+	case GoGuardTargetSourceCodeSize:
+		argv = []string{"go", "run", "./scripts/code_size_guard.go"}
+		requiredPath = "scripts/code_size_guard.go"
+	default:
+		return ExecutorProgram{}, false
+	}
+	program := goTargetExecutorProgram(argv, false)
+	program.NeedsFrontendEmbedSeed = false
+	program.RequiredPaths = append(program.RequiredPaths, requiredPath)
+	return program, true
+}
+
+// aiMaintenanceGuardExecutorProgram 将维护工具单测与入口契约测试拆成独立命令。
+func aiMaintenanceGuardExecutorProgram(target string) (ExecutorProgram, error) {
+	var argv []string
+	switch target {
+	case GoGuardTargetAIMaintenanceUnit:
+		argv = []string{"go", "test", "./scripts/ai_maintenance", "-count=1"}
+	case GoGuardTargetAIMaintenanceGate:
+		argv = []string{"go", "test", "./scripts", "-run", "^TestAIMaintenanceGate", "-count=1"}
+	default:
+		return ExecutorProgram{}, fmt.Errorf("unsupported AI maintenance target %q", target)
+	}
+	return requireExecutables(withGoSeed(requirePaths(commandProgram(argv),
+		".github/workflows", "scripts/ai_maintenance/main.go", "scripts/ai_maintenance_gates_guard_test.go",
+	)), ExecutorActionlintBinaryPath), nil
+}
+
+// goPackageExecutorProgram 为一个 Go 包选择普通或 race 执行语义。
+func goPackageExecutorProgram(parent GateID, target string) ExecutorProgram {
+	normal := []string{"./scripts/test_with_guard.sh", "--ci-package", target}
+	race := []string{"./scripts/test_with_guard.sh", "--ci-race-package", target}
+	return goTargetExecutorProgramForParent(parent, normal, race)
+}
+
+// goTestExecutorProgram 解析顶层测试并选择普通或 race 执行语义。
+func goTestExecutorProgram(parent GateID, target string) (ExecutorProgram, error) {
+	testTarget, err := ParseGoTestTarget(target)
+	if err != nil {
+		return ExecutorProgram{}, err
+	}
+	normal := []string{
+		"./scripts/test_with_guard.sh",
+		"--ci-package-test",
+		testTarget.Package,
+		testTarget.Name,
+	}
+	race := []string{
+		"./scripts/test_with_guard.sh",
+		"--ci-race-package-test",
+		testTarget.Package,
+		testTarget.Name,
+	}
+	return goTargetExecutorProgramForParent(parent, normal, race), nil
+}
+
+// goBenchmarkExecutorProgram 解析 benchmark 并构造仅远程执行的命令。
+func goBenchmarkExecutorProgram(target string) (ExecutorProgram, error) {
+	benchmarkTarget, err := ParseGoBenchmarkTarget(target)
+	if err != nil {
+		return ExecutorProgram{}, err
+	}
+	argv := []string{
+		"./scripts/test_with_guard.sh",
+		"--ci-package-benchmark",
+		benchmarkTarget.Package,
+		benchmarkTarget.Name,
+	}
+	return goTargetExecutorProgram(argv, false), nil
+}
+
+// vitestExecutorProgram 将一个前端测试文件绑定到串行 Vitest 命令。
+func vitestExecutorProgram(target string) ExecutorProgram {
+	return withGoSeed(withFrontendSeed(requirePaths(commandProgramIn(
+		"frontend-app",
+		[]string{"npx", "vitest", "run", target, "--no-file-parallelism", "--maxWorkers=1"},
+	), "frontend-app/package.json", "frontend-app/package-lock.json", "frontend-app/"+target)))
+}
+
+// goTargetExecutorProgramForParent 根据父 gate 选择普通或 race argv。
+func goTargetExecutorProgramForParent(parent GateID, normal []string, race []string) ExecutorProgram {
+	if parent == GateIDBackendTestGuardWithRace {
+		return goTargetExecutorProgram(race, true)
+	}
+	return goTargetExecutorProgram(normal, false)
+}
+
+// goTargetExecutorProgram 为 Go 目标添加固定 seed、脚本和资源约束。
+func goTargetExecutorProgram(argv []string, race bool) ExecutorProgram {
+	step := normalGoExecutorStep(argv)
+	if race {
+		step = raceGoExecutorStep(argv)
+	}
+	return withFrontendEmbedSeed(withGoSeed(requirePaths(ExecutorProgram{
+		Strategy: ExecutorStrategyCommands,
+		Steps:    []ExecutorStep{step},
+	}, "scripts/test_with_guard.sh", "scripts/check_nested_go_modules.sh")))
 }
 
 func commandProgram(commands ...[]string) ExecutorProgram {
@@ -214,7 +392,7 @@ func backendRaceExecutorProgram() ExecutorProgram {
 }
 
 func canonicalBackendPackagePatterns() []string {
-	return []string{"./cmd/...", "./internal/...", "./pkg/...", "./scripts/..."}
+	return []string{"./..."}
 }
 
 func normalGoExecutorStep(argv []string) ExecutorStep {

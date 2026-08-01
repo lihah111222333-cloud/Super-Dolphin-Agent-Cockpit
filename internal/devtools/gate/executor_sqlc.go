@@ -12,6 +12,7 @@ func runSQLCVerify(
 	ctx context.Context,
 	gitBinary string,
 	sqlcBinary string,
+	bashBinary string,
 	sourceCopy string,
 	environment []string,
 	stdout io.Writer,
@@ -20,6 +21,7 @@ func runSQLCVerify(
 	steps := []resolvedStep{
 		{directory: sourceCopy, binary: sqlcBinary, argv: []string{"sqlc", "generate"}},
 		{directory: sourceCopy, binary: sqlcBinary, argv: []string{"sqlc", "generate", "-f", "cmd/mcp-orch/sqlc.yaml"}},
+		{directory: sourceCopy, binary: bashBinary, argv: []string{"bash", "scripts/sqlc_postprocess.sh"}},
 	}
 	for _, step := range steps {
 		if err := runResolvedStep(ctx, step, environment, stdout, stderr); err != nil {

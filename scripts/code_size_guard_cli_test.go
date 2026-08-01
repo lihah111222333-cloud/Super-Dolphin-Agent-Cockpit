@@ -14,6 +14,99 @@ func TestGuardRaceOnlyModeUsesShortTestScope(t *testing.T) {
 	assertScriptContains(t, body, `run_go_test "$real_go" "$@" -race -short -count=1`)
 }
 
+func TestHostTestWrappersRequireRemoteAdmission(t *testing.T) {
+	for _, command := range [][]string{
+		{"scripts/test_with_guard.sh", "--ci-package-test", "./internal/devtools/gate", "TestBoundary"},
+		{"scripts/go_with_guard.sh", "test", "./internal/devtools/gate", "-run", "^TestBoundary$"},
+	} {
+		cmd := exec.Command("bash", command...)
+		cmd.Dir = ".."
+		environment := upsertEnv(os.Environ(), "SUPER_DOLPHIN_TEST_BACKEND", "")
+		cmd.Env = appendWSLEnvKeysWithGitWorktree(t, environment, "SUPER_DOLPHIN_TEST_BACKEND")
+		output, err := cmd.CombinedOutput()
+		if err == nil {
+			t.Fatalf("%s unexpectedly admitted an unfiltered host test", command[0])
+		}
+		if !strings.Contains(string(output), "super-dolphin-gate test") {
+			t.Fatalf("%s rejection omitted the trusted test entrypoint:\n%s", command[0], output)
+		}
+	}
+}
+
+func TestCIPackageModeAllowsExactScriptsPackageForRemoteWorker(t *testing.T) {
+	result := runTestWithGuardFakeGoWithListOutput(
+		t,
+		"example.test/scripts",
+		"--ci-package-test",
+		"./scripts",
+		"TestHostTestWrappersRequireRemoteAdmission",
+	)
+	if result.err != nil {
+		t.Fatalf("exact scripts package was rejected: %v: %s", result.err, result.output)
+	}
+	for _, required := range []string{
+		"list ./scripts",
+		"test ./scripts -json -run ^TestHostTestWrappersRequireRemoteAdmission$ -count=1 -timeout=0",
+	} {
+		if !strings.Contains(result.invocations, required) {
+			t.Fatalf("exact scripts package omitted %q:\n%s", required, result.invocations)
+		}
+	}
+}
+
+func TestCIPackageModesDelegateTimeoutToWorker(t *testing.T) {
+	for _, testCase := range []struct {
+		name     string
+		args     []string
+		required string
+	}{
+		{
+			name:     "package",
+			args:     []string{"--ci-package", "./scripts"},
+			required: "test ./scripts -json -count=1 -timeout=0",
+		},
+		{
+			name:     "race test",
+			args:     []string{"--ci-race-package-test", "./scripts", "TestBoundary"},
+			required: "test ./scripts -json -run ^TestBoundary$ -race -short -count=1 -timeout=0",
+		},
+		{
+			name:     "benchmark",
+			args:     []string{"--ci-package-benchmark", "./scripts", "BenchmarkBoundary"},
+			required: "test ./scripts -json -run ^$ -bench ^BenchmarkBoundary$ -count=1 -timeout=0",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			result := runTestWithGuardFakeGoWithListOutput(t, "example.test/scripts", testCase.args...)
+			if result.err != nil {
+				t.Fatalf("CI package mode failed: %v: %s", result.err, result.output)
+			}
+			if !strings.Contains(result.invocations, testCase.required) {
+				t.Fatalf("CI package mode did not delegate timeout to the worker %q:\n%s", testCase.required, result.invocations)
+			}
+		})
+	}
+}
+
+func TestCIPackageModeAcceptsAnyCanonicalPackageResolvedByGoList(t *testing.T) {
+	for _, target := range []string{"./build/gate", "./build/gate/closure", "./new-root/tool"} {
+		result := runTestWithGuardFakeGoWithListOutput(t, "example.test/"+strings.TrimPrefix(target, "./"), "--ci-package", target)
+		if result.err != nil {
+			t.Fatalf("exact root-module package %q was rejected: %v: %s", target, result.err, result.output)
+		}
+		for _, required := range []string{"list " + target, "test " + target + " -json -count=1 -timeout=0"} {
+			if !strings.Contains(result.invocations, required) {
+				t.Fatalf("exact root-module package %q omitted %q:\n%s", target, required, result.invocations)
+			}
+		}
+	}
+	t.Setenv("FAKE_GO_FAIL_PATTERN", "list ./build/gate/runtime-tools")
+	result := runTestWithGuardFakeGoWithListOutput(t, "example.test/build/gate/runtime-tools", "--ci-package", "./build/gate/runtime-tools")
+	if result.err == nil || !strings.Contains(result.output, "CI package mode failed to resolve exactly one package") {
+		t.Fatalf("package rejected by root-module go list was admitted: err=%v output=%q", result.err, result.output)
+	}
+}
+
 func TestGuardRaceOnlyModeRunsGuardsAndOneRaceInvocation(t *testing.T) {
 	result := runTestWithGuardFakeGo(t, "--race-only", "./internal/devtools/gate")
 	if result.err != nil {
@@ -60,22 +153,24 @@ func TestGuardCombinedRaceModeRunsGuardsOnceAndBothTestLanes(t *testing.T) {
 
 func TestCanonicalBackendModeExcludesOnlyExactArchtestPackage(t *testing.T) {
 	result := runTestWithGuardFakeGoWithListOutput(t, strings.Join([]string{
+		"example.test/build/gate/closure",
 		"example.test/cmd/control",
 		"example.test/internal/archtest",
 		"example.test/internal/archtest/child",
+		"example.test/new-root/tool",
 		"example.test/pkg/api",
 		"example.test/scripts/tool",
-	}, "\n"), "--canonical-backend", "./cmd/...", "./internal/...", "./pkg/...", "./scripts/...")
+	}, "\n"), "--canonical-backend", "./...")
 	if result.err != nil {
 		t.Fatalf("canonical backend guard failed: %v: %s", result.err, result.output)
 	}
-	if !strings.Contains(result.invocations, "list ./cmd/... ./internal/... ./pkg/... ./scripts/...") {
+	if !strings.Contains(result.invocations, "list ./...") {
 		t.Fatalf("canonical backend mode did not resolve the complete package target set:\n%s", result.invocations)
 	}
 	if !strings.Contains(result.invocations, "test ./internal/archtest -count=1") {
 		t.Fatalf("canonical backend mode omitted the full archtest guard:\n%s", result.invocations)
 	}
-	want := "test example.test/cmd/control example.test/internal/archtest/child example.test/pkg/api example.test/scripts/tool -count=1 -timeout=180s"
+	want := "test example.test/build/gate/closure example.test/cmd/control example.test/internal/archtest/child example.test/new-root/tool example.test/pkg/api example.test/scripts/tool -count=1 -timeout=180s"
 	if !strings.Contains(result.invocations, want) {
 		t.Fatalf("canonical backend package set missing %q:\n%s", want, result.invocations)
 	}
@@ -306,6 +401,8 @@ func TestTestWithGuardPowerShellWrapperMatchesBashContract(t *testing.T) {
 		"$ErrorActionPreference = 'Stop'",
 		"Set-StrictMode -Version Latest",
 		"function Resolve-RealGo",
+		"function Assert-RemoteTestExecution",
+		"$env:SUPER_DOLPHIN_TEST_BACKEND -eq 'remote-worker'",
 		"$env:REAL_GO_BIN",
 		"Get-Command go -All",
 		"function Invoke-RawGoTestGuard",
@@ -475,8 +572,10 @@ func runTestWithGuardFakeGoWithListOutput(t *testing.T, listOutput string, args 
 	environment = upsertEnv(environment, "FAKE_GO_LIST_OUTPUT", listOutput)
 	environment = upsertEnv(environment, "FAKE_GO_FAIL_PATTERN", os.Getenv("FAKE_GO_FAIL_PATTERN"))
 	environment = upsertEnv(environment, "SUPER_DOLPHIN_GATE_PRODUCTION_DOCKER_E2E", "1")
+	environment = upsertEnv(environment, "SUPER_DOLPHIN_TEST_BACKEND", "remote-worker")
 	cmd.Env = appendWSLEnvKeysWithGitWorktree(
-		t, environment, "REAL_GO_BIN", "FAKE_GO_LOG", "FAKE_GO_LIST_OUTPUT", "FAKE_GO_FAIL_PATTERN", "SUPER_DOLPHIN_GATE_PRODUCTION_DOCKER_E2E",
+		t, environment, "REAL_GO_BIN", "FAKE_GO_LOG", "FAKE_GO_LIST_OUTPUT", "FAKE_GO_FAIL_PATTERN",
+		"SUPER_DOLPHIN_GATE_PRODUCTION_DOCKER_E2E", "SUPER_DOLPHIN_TEST_BACKEND",
 	)
 	output, runErr := cmd.CombinedOutput()
 	data, err := os.ReadFile(logPath)

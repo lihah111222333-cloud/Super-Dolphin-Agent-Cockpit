@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -273,7 +272,10 @@ func installAlternateIndexGate(t *testing.T, repository, hookCommand, waitComman
 		hookCommand = "printf 'container-source:%s\\n' \"$4\" >> \"$GATE_TREE_LOG\"; printf 'queued job=job-0123456789abcdef0123456789abcdef\\n'; exit 13"
 	}
 	gateScript := "#!/usr/bin/env bash\nset -euo pipefail\ncase \"$1\" in\n" +
-		"  closure) printf 'closure:%s\\n' \"$4\" >> \"$GATE_TREE_LOG\" ;;\n" +
+		"  closure) case \"$2\" in check|refresh|refresh-dependencies) printf 'closure:%s\\n' \"$4\" >> \"$GATE_TREE_LOG\" ;; *) exit 64 ;; esac ;;\n" +
+		"  frontend-code-size) exit 0 ;;\n" +
+		"  project-map) exit 0 ;;\n" +
+		"  codemap) exit 0 ;;\n" +
 		"  hook) " + hookCommand + " ;;\n" +
 		"  wait) printf 'wait:%s\\n' \"$5\" >> \"$GATE_TREE_LOG\"" + waitCommand + " ;;\n" +
 		"  *) exit 64 ;;\nesac\n"
@@ -298,7 +300,13 @@ func stageAlternateIndexTree(t *testing.T, repository string) ([]string, string)
 
 func TestClosureVerifierIgnoresUnavailableWorktreeGeneratorSource(t *testing.T) {
 	repository := strings.TrimSpace(runHookTestGit(t, mustWorkingDirectory(t), "rev-parse", "--show-toplevel"))
-	tree := strings.TrimSpace(runHookTestGit(t, repository, "write-tree"))
+	candidateIndex := filepath.Join(t.TempDir(), "candidate.index")
+	candidateEnvironment := []string{"GIT_INDEX_FILE=" + candidateIndex}
+	runHookTestGitWithEnvironment(t, repository, candidateEnvironment, "read-tree", "HEAD")
+	runHookTestGitWithEnvironment(t, repository, candidateEnvironment, "add", "-A")
+	tree := strings.TrimSpace(
+		runHookTestGitWithEnvironment(t, repository, candidateEnvironment, "write-tree"),
+	)
 	generator := filepath.Join(repository, "build", "gate", "cmd", "generate-closure", "main.go")
 	backup := generator + ".closure-test-backup"
 	if err := os.Rename(generator, backup); err != nil {
@@ -317,10 +325,41 @@ func TestClosureVerifierIgnoresUnavailableWorktreeGeneratorSource(t *testing.T) 
 	}
 }
 
+func TestPreCommitBootstrapsOnlyCompleteFirstFrontendParserClosure(t *testing.T) {
+	repository := strings.TrimSpace(runHookTestGit(t, mustWorkingDirectory(t), "rev-parse", "--show-toplevel"))
+	hook, err := os.ReadFile(filepath.Join(repository, ".githooks", "pre-commit"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{
+		`cat-file -e "$accepted_frontend_tree:$frontend_code_size_closure"`,
+		`accepted_frontend_manifest" -ne "$accepted_frontend_generator`,
+		`cat-file -e "$staged_tree:$frontend_code_size_closure"`,
+		`bootstrapping the first candidate-bound frontend parser closure`,
+		`frontend_code_size_dependency_migration_requested=1`,
+	} {
+		if !bytes.Contains(hook, []byte(fragment)) {
+			t.Fatalf("pre-commit is missing first parser closure bootstrap contract %q", fragment)
+		}
+	}
+}
+
 func TestClosureCheckRequiresExplicitStagedTree(t *testing.T) {
 	err := runClosureCheck([]string{"check"})
 	if err == nil || !strings.Contains(err.Error(), "requires one --tree") {
 		t.Fatalf("runClosureCheck() error = %v", err)
+	}
+}
+
+func TestParseClosureCheckArgsAcceptsOnlyRegisteredActions(t *testing.T) {
+	for _, action := range []string{"check", "refresh", "refresh-dependencies"} {
+		gotAction, tree, err := parseClosureCheckArgs([]string{action, "--tree", "abc123"})
+		if err != nil || gotAction != action || tree != "abc123" {
+			t.Fatalf("parseClosureCheckArgs(%q) = (%q, %q, %v)", action, gotAction, tree, err)
+		}
+	}
+	if _, _, err := parseClosureCheckArgs([]string{"unknown", "--tree", "abc123"}); err == nil {
+		t.Fatal("parseClosureCheckArgs accepted an unregistered action")
 	}
 }
 
@@ -416,47 +455,6 @@ func TestPrePushHookWaitsQueuedJobWithinSameInvocation(t *testing.T) {
 	}
 }
 
-func TestPreCommitAndCodexPassedEvidenceBindsReceiptAndStatus(t *testing.T) {
-	repository := newHookTestRepository(t)
-	tree := strings.TrimSpace(runHookTestGit(t, repository, "write-tree"))
-	coordinator := &recordingHookCoordinator{passWithReceipt: true}
-	gitOutput := &bytes.Buffer{}
-	if err := runHookWithConnector(
-		[]string{"pre-commit", "--tree", tree}, bytes.NewReader(nil), gitOutput, repository, hookTestConnector(coordinator),
-	); err != nil {
-		t.Fatalf("pre-commit error = %v", err)
-	}
-	for _, want := range []string{
-		"job=job-passed", "receipt=receipt-valid", "source_tree=", "status: super-dolphin-gate status --job job-passed",
-	} {
-		if !strings.Contains(gitOutput.String(), want) {
-			t.Fatalf("pre-commit passed evidence missing %q: %q", want, gitOutput.String())
-		}
-	}
-
-	codexOutput := &bytes.Buffer{}
-	if err := runHookWithConnector(
-		[]string{"codex"}, strings.NewReader(codexHookPayload(repository, false)), codexOutput,
-		repository, hookTestConnector(coordinator),
-	); err != nil {
-		t.Fatalf("Codex hook error = %v", err)
-	}
-	var decision gatehook.CodexDecision
-	if err := json.Unmarshal(codexOutput.Bytes(), &decision); err != nil {
-		t.Fatalf("Codex decision JSON error = %v: %s", err, codexOutput.Bytes())
-	}
-	if !decision.Continue || decision.Decision != "" {
-		t.Fatalf("Codex passed decision = %#v", decision)
-	}
-	for _, want := range []string{
-		"job=job-passed", "receipt=receipt-valid", "source_tree=", "status: super-dolphin-gate status --job job-passed",
-	} {
-		if !strings.Contains(decision.Reason, want) {
-			t.Fatalf("Codex passed evidence missing %q: %#v", want, decision)
-		}
-	}
-}
-
 func TestPrePushHookNewAttemptAfterPartialGrantFailure(t *testing.T) {
 	repository := newHookTestRepository(t)
 	head := strings.TrimSpace(runHookTestGit(t, repository, "rev-parse", "HEAD"))
@@ -492,48 +490,6 @@ func TestPrePushHookNewAttemptAfterPartialGrantFailure(t *testing.T) {
 	if newAttempt == failedAttempt || newAttempt != coordinator.grantRequests[3].ActionAttemptID {
 		t.Fatalf("new multi-ref attempt boundary failed=%q new=%q final=%q", failedAttempt, newAttempt, coordinator.grantRequests[3].ActionAttemptID)
 	}
-}
-
-func TestCodexHookQueuedAndMaliciousInputAlwaysEmitJSON(t *testing.T) {
-	repository := newHookTestRepository(t)
-	coordinator := &recordingHookCoordinator{queuePosition: 3}
-	payload := codexHookPayload(repository, false)
-	stdout := &bytes.Buffer{}
-	if err := runHookWithConnector(
-		[]string{"codex"}, strings.NewReader(payload), stdout, repository, hookTestConnector(coordinator),
-	); err != nil {
-		t.Fatalf("runHookWithConnector() error = %v", err)
-	}
-	assertBlockedCodexJSON(t, stdout.Bytes(), "queue_position=3")
-	if coordinator.grantCount != 0 {
-		t.Fatalf("Codex hook issued %d action grants", coordinator.grantCount)
-	}
-
-	stdout.Reset()
-	malicious := strings.TrimSuffix(payload, "}\n") + `,"unknown":"\"}\nnot-json"}` + "\n"
-	if err := runHookWithConnector(
-		[]string{"codex"}, strings.NewReader(malicious), stdout, repository, hookTestConnector(coordinator),
-	); err != nil {
-		t.Fatalf("malicious hook error = %v", err)
-	}
-	assertBlockedCodexJSON(t, stdout.Bytes(), "unknown field")
-}
-
-func TestCodexRecursiveStopUsesInvocationStatus(t *testing.T) {
-	repository := newHookTestRepository(t)
-	coordinator := &recordingHookCoordinator{queuePosition: 1}
-	stdout := &bytes.Buffer{}
-	err := runHookWithConnector(
-		[]string{"codex"}, strings.NewReader(codexHookPayload(repository, true)), stdout,
-		repository, hookTestConnector(coordinator),
-	)
-	if err != nil {
-		t.Fatalf("recursive hook error = %v", err)
-	}
-	if coordinator.statusCount != 1 || coordinator.submitCount != 0 {
-		t.Fatalf("status=%d submit=%d", coordinator.statusCount, coordinator.submitCount)
-	}
-	assertBlockedCodexJSON(t, stdout.Bytes(), "status: super-dolphin-gate status --job")
 }
 
 func TestGitHookInvalidQueuedStatusIncludesJobActions(t *testing.T) {
@@ -686,23 +642,4 @@ func hookTestEnvironment(extraEnvironment ...string) []string {
 	}
 	environment = append(environment, "GIT_CONFIG_NOSYSTEM=1")
 	return append(environment, extraEnvironment...)
-}
-
-func codexHookPayload(repository string, stopActive bool) string {
-	return fmt.Sprintf(
-		`{"session_id":"session-1","turn_id":"turn-1","cwd":%q,"hook_event_name":"Stop","permission_mode":"default","stop_hook_active":%t}`+"\n",
-		repository,
-		stopActive,
-	)
-}
-
-func assertBlockedCodexJSON(t *testing.T, payload []byte, contains string) {
-	t.Helper()
-	var decision gatehook.CodexDecision
-	if err := json.Unmarshal(payload, &decision); err != nil {
-		t.Fatalf("decision JSON error = %v: %s", err, payload)
-	}
-	if decision.Decision != "block" || !strings.Contains(decision.Reason, contains) {
-		t.Fatalf("decision = %#v", decision)
-	}
 }

@@ -7,6 +7,7 @@ APP_COMMIT ?= $(shell git rev-parse HEAD)
 SCHEMA_BUILD_IDENTITY_LDFLAG = -X github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge/schema.buildAppCommit=$(APP_COMMIT)
 ACTIONLINT_VERSION := v1.7.12
 AGENT_TERMINAL_DEBUG_PORT ?= 4501
+PROJECT_MAP_ARGS ?=
 FRONTEND_APP_DIR := frontend-app
 EMBEDDED_FRONTEND_DIR := cmd/agent-terminal/web-dist
 FRONTEND_REQUIRED_ENTRIES_FILE := $(FRONTEND_APP_DIR)/required-dist-entries.txt
@@ -50,7 +51,11 @@ frontend-build: frontend-app-build
 
 frontend-app-deps:
 	cd $(FRONTEND_APP_DIR) && \
-	if [ ! -d node_modules ] || [ package-lock.json -nt node_modules ] || [ package.json -nt node_modules ]; then \
+	if [ -n "$$SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED" ]; then \
+		test -d node_modules && test ! -L node_modules && \
+		test -L node_modules/.package-lock.json && \
+		test "$$(readlink node_modules/.package-lock.json)" = "$$SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED/.package-lock.json"; \
+	elif [ ! -d node_modules ] || [ package-lock.json -nt node_modules ] || [ package.json -nt node_modules ]; then \
 		$(NPM) $(NPM_INSTALL); \
 	else \
 		echo "frontend-app dependencies are up to date"; \
@@ -165,7 +170,7 @@ codex-worktree-ready:
 DEFERRED_TEST_PKGS := $(shell tr '\n' ' ' < scripts/ai_maintenance/deferred_e2e_packages.txt)
 TEST_WITH_GUARD := ./scripts/test_with_guard.sh
 # Explicit source-package roots keep generated package artifacts under dist/package out of Go package discovery.
-GO_PACKAGE_PATTERNS := ./cmd/... ./internal/... ./pkg/... ./scripts/...
+GO_PACKAGE_PATTERNS := ./...
 
 test: frontend-build
 	$(TEST_WITH_GUARD) $$(go list $(GO_PACKAGE_PATTERNS) | grep -v -E '/(provider/claudecli|provider/codexapp)$$') -race -count=1

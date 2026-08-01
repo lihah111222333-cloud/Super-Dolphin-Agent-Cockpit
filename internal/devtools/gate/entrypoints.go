@@ -13,13 +13,11 @@ import (
 type CIEntrypointID string
 
 const (
-	CIEntrypointGitPreCommit      CIEntrypointID = "git-pre-commit"
-	CIEntrypointGitPrePush        CIEntrypointID = "git-pre-push"
-	CIEntrypointCodexStop         CIEntrypointID = "codex-stop"
-	CIEntrypointCodexSubagentStop CIEntrypointID = "codex-subagent-stop"
-	CIEntrypointManualCLI         CIEntrypointID = "manual-cli"
-	CIEntrypointWorkflowRequired  CIEntrypointID = "workflow-required"
-	CIEntrypointRelease           CIEntrypointID = "release"
+	CIEntrypointGitPreCommit     CIEntrypointID = "git-pre-commit"
+	CIEntrypointGitPrePush       CIEntrypointID = "git-pre-push"
+	CIEntrypointManualCLI        CIEntrypointID = "manual-cli"
+	CIEntrypointWorkflowRequired CIEntrypointID = "workflow-required"
+	CIEntrypointRelease          CIEntrypointID = "release"
 )
 
 // CIEntrypointOwner identifies the authority owner assigned to one adapter boundary.
@@ -29,8 +27,6 @@ const (
 	CIEntrypointOwnerManagedGitPreCommit CIEntrypointOwner = "managed-launcher/git-pre-commit"
 	CIEntrypointOwnerManagedGitPrePush   CIEntrypointOwner = "managed-launcher/git-pre-push"
 	CIEntrypointOwnerRepositoryGitHooks  CIEntrypointOwner = "repository-git-hooks"
-	CIEntrypointOwnerCodexStop           CIEntrypointOwner = "repository-codex-hooks/stop"
-	CIEntrypointOwnerCodexSubagentStop   CIEntrypointOwner = "repository-codex-hooks/subagent-stop"
 	CIEntrypointOwnerManualCLI           CIEntrypointOwner = "gate-cli/manual"
 	CIEntrypointOwnerWorkflowRequired    CIEntrypointOwner = "protected-reusable-workflow/github-app-oidc"
 	CIEntrypointOwnerRelease             CIEntrypointOwner = "external-release-authority"
@@ -40,13 +36,11 @@ const (
 type CIEntrypointAdapter string
 
 const (
-	CIEntrypointAdapterGitPreCommit      CIEntrypointAdapter = "git-hook/pre-commit"
-	CIEntrypointAdapterGitPrePush        CIEntrypointAdapter = "git-hook/pre-push"
-	CIEntrypointAdapterCodexStop         CIEntrypointAdapter = "codex-hook/stop"
-	CIEntrypointAdapterCodexSubagentStop CIEntrypointAdapter = "codex-hook/subagent-stop"
-	CIEntrypointAdapterManualCLI         CIEntrypointAdapter = "cmd/super-dolphin-gate/manual"
-	CIEntrypointAdapterWorkflowRequired  CIEntrypointAdapter = "workflow/required"
-	CIEntrypointAdapterRelease           CIEntrypointAdapter = "release/pipeline"
+	CIEntrypointAdapterGitPreCommit     CIEntrypointAdapter = "git-hook/pre-commit"
+	CIEntrypointAdapterGitPrePush       CIEntrypointAdapter = "git-hook/pre-push"
+	CIEntrypointAdapterManualCLI        CIEntrypointAdapter = "cmd/super-dolphin-gate/manual"
+	CIEntrypointAdapterWorkflowRequired CIEntrypointAdapter = "workflow/required"
+	CIEntrypointAdapterRelease          CIEntrypointAdapter = "release/pipeline"
 )
 
 // CIEntrypoint declares the canonical source, profile, authority, and adapter boundary.
@@ -173,8 +167,8 @@ func (w ciEntrypointJSON) validatePresence() error {
 // Validate 校验 CI 入口 ID 是否属于固定公开集合。
 func (id CIEntrypointID) Validate() error {
 	switch id {
-	case CIEntrypointGitPreCommit, CIEntrypointGitPrePush, CIEntrypointCodexStop,
-		CIEntrypointCodexSubagentStop, CIEntrypointManualCLI, CIEntrypointWorkflowRequired,
+	case CIEntrypointGitPreCommit, CIEntrypointGitPrePush, CIEntrypointManualCLI,
+		CIEntrypointWorkflowRequired,
 		CIEntrypointRelease:
 		return nil
 	default:
@@ -186,8 +180,7 @@ func (id CIEntrypointID) Validate() error {
 func (owner CIEntrypointOwner) Validate() error {
 	switch owner {
 	case CIEntrypointOwnerManagedGitPreCommit, CIEntrypointOwnerManagedGitPrePush,
-		CIEntrypointOwnerRepositoryGitHooks, CIEntrypointOwnerCodexStop,
-		CIEntrypointOwnerCodexSubagentStop, CIEntrypointOwnerManualCLI,
+		CIEntrypointOwnerRepositoryGitHooks, CIEntrypointOwnerManualCLI,
 		CIEntrypointOwnerWorkflowRequired, CIEntrypointOwnerRelease:
 		return nil
 	default:
@@ -208,8 +201,8 @@ func (owner CIEntrypointOwner) isTrusted() bool {
 // Validate 校验 adapter 是否属于固定身份集合。
 func (adapter CIEntrypointAdapter) Validate() error {
 	switch adapter {
-	case CIEntrypointAdapterGitPreCommit, CIEntrypointAdapterGitPrePush, CIEntrypointAdapterCodexStop,
-		CIEntrypointAdapterCodexSubagentStop, CIEntrypointAdapterManualCLI,
+	case CIEntrypointAdapterGitPreCommit, CIEntrypointAdapterGitPrePush,
+		CIEntrypointAdapterManualCLI,
 		CIEntrypointAdapterWorkflowRequired, CIEntrypointAdapterRelease:
 		return nil
 	default:
@@ -236,12 +229,46 @@ func CIEntrypointRegistryDigest() (string, error) {
 	return fmt.Sprintf("sha256:%x", digest), nil
 }
 
+// ResolveCIEntrypoint 返回与 source/profile 精确兼容的 canonical 入口声明。
+func ResolveCIEntrypoint(
+	id CIEntrypointID,
+	source SourceKind,
+	profile Profile,
+) (CIEntrypoint, error) {
+	entrypoint, ok := canonicalCIEntrypoint(id)
+	if !ok {
+		return CIEntrypoint{}, fmt.Errorf("canonical CI entrypoint %q is missing", id)
+	}
+	if err := entrypoint.Validate(); err != nil {
+		return CIEntrypoint{}, err
+	}
+	if !slices.Contains(allSourceKinds(), source) {
+		return CIEntrypoint{}, fmt.Errorf("unsupported source kind %q", source)
+	}
+	if err := profile.Validate(); err != nil {
+		return CIEntrypoint{}, err
+	}
+	if !slices.Contains(entrypoint.AllowedSources, source) {
+		return CIEntrypoint{}, fmt.Errorf(
+			"CI entrypoint %q does not allow source kind %q",
+			id,
+			source,
+		)
+	}
+	if !slices.Contains(entrypoint.AllowedProfiles, profile) {
+		return CIEntrypoint{}, fmt.Errorf(
+			"CI entrypoint %q does not allow profile %q",
+			id,
+			profile,
+		)
+	}
+	return cloneCIEntrypoints([]CIEntrypoint{entrypoint})[0], nil
+}
+
 func canonicalCIEntrypoints() []CIEntrypoint {
 	return []CIEntrypoint{
 		newCIEntrypoint(CIEntrypointGitPreCommit, []SourceKind{SourceKindTree}, []Profile{ProfileLocalFast}, true, CIEntrypointOwnerManagedGitPreCommit, CIEntrypointAdapterGitPreCommit),
 		newCIEntrypoint(CIEntrypointGitPrePush, []SourceKind{SourceKindRange}, []Profile{ProfilePush}, true, CIEntrypointOwnerManagedGitPrePush, CIEntrypointAdapterGitPrePush),
-		newCIEntrypoint(CIEntrypointCodexStop, []SourceKind{SourceKindTree}, []Profile{ProfileLocalFast}, false, CIEntrypointOwnerCodexStop, CIEntrypointAdapterCodexStop),
-		newCIEntrypoint(CIEntrypointCodexSubagentStop, []SourceKind{SourceKindTree}, []Profile{ProfileLocalFast}, false, CIEntrypointOwnerCodexSubagentStop, CIEntrypointAdapterCodexSubagentStop),
 		newCIEntrypoint(CIEntrypointManualCLI, allSourceKinds(), allProfiles(), false, CIEntrypointOwnerManualCLI, CIEntrypointAdapterManualCLI),
 		newCIEntrypoint(CIEntrypointWorkflowRequired, []SourceKind{SourceKindCommit, SourceKindRange}, []Profile{ProfileRemoteRequired}, true, CIEntrypointOwnerWorkflowRequired, CIEntrypointAdapterWorkflowRequired),
 		newCIEntrypoint(CIEntrypointRelease, []SourceKind{SourceKindCommit}, []Profile{ProfileRelease}, true, CIEntrypointOwnerRelease, CIEntrypointAdapterRelease),

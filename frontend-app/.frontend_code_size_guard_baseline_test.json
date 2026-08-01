@@ -139,7 +139,7 @@
       ]
     },
     "scripts/frontend-maintainability-score.test.mjs": {
-      "lines": 2794,
+      "lines": 2793,
       "maxFuncLen": 235,
       "maxNesting": 8,
       "maxParams": 4,

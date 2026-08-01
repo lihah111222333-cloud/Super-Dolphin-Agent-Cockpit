@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kelindar/event"
 	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
@@ -18,21 +17,15 @@ const terminalProjectionRawSecret = "Authorization: Bearer terminal-projection-s
 func TestCanonicalTerminalIsTheOnlyFailureTextInUIStatePatchAndSnapshot(t *testing.T) {
 	t.Parallel()
 
-	dispatcher := event.NewDispatcher()
-	t.Cleanup(func() { _ = dispatcher.Close() })
 	svc := newProjectionTestService(t)
-	svc.bindDispatcher(dispatcher)
-	cancelSubscriptions := registerProjectionSubscriptions(dispatcher, svc)
-	t.Cleanup(func() { cancelAll(cancelSubscriptions) })
-	patches := make(chan uidto.UIThreadPatch, 4)
-	cancelPatches := event.Subscribe(dispatcher, func(ev uidto.UIThreadPatch) { patches <- ev })
-	t.Cleanup(cancelPatches)
+	patches := make([]uidto.UIThreadPatch, 0, 2)
+	svc.emitThreadPatch = func(patch uidto.UIThreadPatch) { patches = append(patches, patch) }
 
 	completed := canonicalTestTurnCompleted(t)
-	event.Publish(dispatcher, turndto.TurnStarted{TurnHeader: completed.TurnHeader})
-	event.Publish(dispatcher, completed)
+	svc.applyTurnStarted(turndto.TurnStarted{TurnHeader: completed.TurnHeader})
+	svc.applyTurnCompleted(completed)
 
-	patch := waitForCanonicalCompletionPatch(t, patches)
+	patch := canonicalCompletionPatch(t, patches)
 	assertNoTerminalProjectionRawSecret(t, patch)
 	snapshot, err := svc.GetState(context.Background())
 	if err != nil {
@@ -69,19 +62,15 @@ func canonicalTestTurnCompleted(t *testing.T) turndto.TurnCompleted {
 	return attached
 }
 
-func waitForCanonicalCompletionPatch(t *testing.T, patches <-chan uidto.UIThreadPatch) uidto.UIThreadPatch {
+func canonicalCompletionPatch(t *testing.T, patches []uidto.UIThreadPatch) uidto.UIThreadPatch {
 	t.Helper()
-	deadline := time.After(time.Second)
-	for {
-		select {
-		case patch := <-patches:
-			if patch.Source == "turn/completed" {
-				return patch
-			}
-		case <-deadline:
-			t.Fatal("timed out waiting for canonical completion snapshot patch")
+	for _, patch := range patches {
+		if patch.Source == "turn/completed" {
+			return patch
 		}
 	}
+	t.Fatal("canonical completion snapshot patch was not emitted")
+	return uidto.UIThreadPatch{}
 }
 
 func assertTerminalProjectionHasNoRawSecret(t *testing.T, value any) {

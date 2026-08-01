@@ -1,6 +1,44 @@
 package gate
 
-import "time"
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+	"unicode/utf8"
+)
+
+// PlainTextLog 是 JSON 中保持普通 UTF-8 文本语义的有界门禁日志。
+type PlainTextLog []byte
+
+// MarshalJSON 将日志编码为普通 JSON 字符串，拒绝二进制或 NUL 数据。
+func (log PlainTextLog) MarshalJSON() ([]byte, error) {
+	if !utf8.Valid(log) || bytes.IndexByte(log, 0) >= 0 {
+		return nil, errors.New("gate log must be NUL-free UTF-8 text")
+	}
+	encoded, err := json.Marshal(string(log))
+	if err != nil {
+		return nil, fmt.Errorf("marshal gate log text: %w", err)
+	}
+	return encoded, nil
+}
+
+// UnmarshalJSON 从普通 JSON 字符串恢复日志原始 UTF-8 字节。
+func (log *PlainTextLog) UnmarshalJSON(data []byte) error {
+	if log == nil {
+		return errors.New("gate log destination is nil")
+	}
+	var text string
+	if err := json.Unmarshal(data, &text); err != nil {
+		return fmt.Errorf("unmarshal gate log text: %w", err)
+	}
+	if !utf8.ValidString(text) || bytes.IndexByte([]byte(text), 0) >= 0 {
+		return errors.New("gate log must be NUL-free UTF-8 text")
+	}
+	*log = append((*log)[:0], text...)
+	return nil
+}
 
 // SourceKind identifies the single Git object form carried by a SourceSpec.
 type SourceKind string

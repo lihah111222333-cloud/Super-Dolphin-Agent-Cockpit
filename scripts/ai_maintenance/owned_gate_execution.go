@@ -44,9 +44,6 @@ func ownedGateRunners(plan gatePlan) map[string]gateRunner {
 		"release:semantic-guards": {run: func() error {
 			return runCommand("", "go", "test", "./scripts", "-count=1")
 		}},
-		"codex-stop:self-test": {run: func() error {
-			return runCommand("", "bash", "scripts/tests/test_codex_stop_gate_plan.sh")
-		}},
 		"nightly-protocol:check": {run: func() error {
 			return runCommand("", "go", "run", "./scripts/nightly_protocol_validator")
 		}},

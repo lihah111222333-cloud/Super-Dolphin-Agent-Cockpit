@@ -113,9 +113,9 @@ func validateRuntimeDepsLock(lock runtimeDepsLock, platform string, closure map[
 	return validateRuntimeDepsClosure(lock, closure)
 }
 
-// validateRuntimeDepsLockHeader 约束节点本地 schema v4，不允许 registry 镜像输入。
+// validateRuntimeDepsLockHeader 约束节点本地 schema v9，不允许 registry 镜像输入。
 func validateRuntimeDepsLockHeader(lock runtimeDepsLock) error {
-	if lock.SchemaVersion != "4" {
+	if lock.SchemaVersion != "9" {
 		return fmt.Errorf("runtime dependencies lock schema version %q is unsupported", lock.SchemaVersion)
 	}
 	if lock.BuildMode != "node-local" || lock.CacheScope != "node" {

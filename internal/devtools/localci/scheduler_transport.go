@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 )
 
 const (
@@ -386,7 +386,7 @@ func (o *SchedulerOwner) serveFrame(ctx context.Context, conn net.Conn) bool {
 // schedulerRequestContext gives an accepted durable operation a fixed bound
 // while owner cancellation stops the listener and the next frame loop.
 func schedulerRequestContext(parent context.Context) (context.Context, context.CancelFunc) {
-	return platformconfig.WithTimeout(context.WithoutCancel(parent), schedulerTransportIOWait)
+	return gateprivate.WithTimeout(context.WithoutCancel(parent), schedulerTransportIOWait)
 }
 
 func (o *SchedulerOwner) recordServeError(err error) {

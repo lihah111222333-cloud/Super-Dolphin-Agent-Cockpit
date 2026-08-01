@@ -33,6 +33,36 @@ type ownerHandshake struct {
 
 type executableOwnerStarter struct{}
 
+// startReservations 在 lease 持久化后将 job 保序送入 admission 队列，其余 workload 继续并发执行。
+func (owner *coordinatorOwner) startReservations(
+	ctx context.Context,
+	reservations []localci.WorkloadReservation,
+) error {
+	for _, reservation := range reservations {
+		kind, err := reservationWorkloadKind(reservation)
+		if err != nil {
+			return err
+		}
+		if kind == localci.WorkloadKindJob {
+			if err := owner.jobAdmissions.Enqueue(ctx, reservation); err != nil {
+				return err
+			}
+			continue
+		}
+		owner.workers.Go(func() error {
+			if err := owner.executeReservation(ctx, reservation); err != nil {
+				select {
+				case owner.fatal <- err:
+				default:
+				}
+				return err
+			}
+			return nil
+		})
+	}
+	return nil
+}
+
 // StartCoordinatorOwner 启动隐藏 owner，并等待单行严格握手后才返回。
 func (executableOwnerStarter) StartCoordinatorOwner(ctx context.Context, checkpoint localci.DockerDaemonIdentityCheckpoint) error {
 	executable, err := os.Executable()

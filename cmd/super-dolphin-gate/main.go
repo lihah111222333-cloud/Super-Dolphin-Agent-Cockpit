@@ -1,19 +1,31 @@
-// Package main provides the scheduler-only Super Dolphin gate CLI boundary.
+// Package main provides the standalone Super Dolphin gate coordinator and worker CLI.
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
+	"runtime"
 	"strings"
+	"syscall"
+	"time"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 )
 
-var errSchedulerNotWired = gatecontract.WithExitCode(gatecontract.ExitInfrastructure, errors.New("scheduler client not wired"))
+const remoteWorkerSetupAllowance = 2 * time.Minute
+
+var (
+	errSchedulerNotWired = gatecontract.WithExitCode(gatecontract.ExitInfrastructure, errors.New("scheduler client not wired"))
+	gateSourceDigest     string
+	gateToolchainDigest  string
+)
 
 func main() {
 	if productionBootstrapRunnerProgram(os.Args[0]) {
@@ -23,10 +35,16 @@ func main() {
 		}
 		return
 	}
+	if isProductionSelfUpdateCommand(os.Args[1:]) {
+		os.Exit(runProductionSelfUpdateCLI(os.Args[2:], os.Stderr))
+	}
 	os.Exit(runCLI(os.Args[1:], os.Stdout, os.Stderr))
 }
 
 func runCLI(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "worker" {
+		return runWorkerCLI(args[1:], stdout, stderr)
+	}
 	err := dispatchCLI(args, stdout)
 	if err == nil {
 		return int(gatecontract.ExitOK)
@@ -45,25 +63,168 @@ func writeCLIError(stderr io.Writer, commandErr error) error {
 	return nil
 }
 
+// runWorkerCLI 绑定容器信号并执行同一二进制内的 worker 命令空间。
+func runWorkerCLI(args []string, stdout, stderr io.Writer) int {
+	if handled, exitCode := runWorkerBuiltinCommand(args, stdout, stderr); handled {
+		return exitCode
+	}
+	return runWorkerExecutor(args, stdout, stderr)
+}
+
+// runWorkerBuiltinCommand 处理不需要 executor 生命周期的内建 worker 子命令。
+func runWorkerBuiltinCommand(args []string, stdout, stderr io.Writer) (bool, int) {
+	if len(args) == 0 {
+		return false, 0
+	}
+	switch args[0] {
+	case "cli-identity":
+		if err := writeGateCLIIdentity(args[1:], stdout); err != nil {
+			_ = writeCLIError(stderr, err)
+			return true, int(gatecontract.ExitCodeOf(err))
+		}
+		return true, int(gatecontract.ExitOK)
+	case "go-cache-proxy":
+		return true, runWorkerGoCacheProxy(args[1:], stdout, stderr)
+	default:
+		return false, 0
+	}
+}
+
+// runWorkerGoCacheProxy 透传构建缓存代理的退出语义。
+func runWorkerGoCacheProxy(args []string, stdout, stderr io.Writer) int {
+	if err := gatecontract.ExecuteGoBuildCacheProxy(args, os.Stdin, stdout); err != nil {
+		if writeErr := writeCLIError(stderr, err); writeErr != nil {
+			return int(gatecontract.ExitInfrastructure)
+		}
+		return 1
+	}
+	return 0
+}
+
+// runWorkerExecutor 为普通 worker 命令绑定信号和执行生命周期。
+func runWorkerExecutor(args []string, stdout, stderr io.Writer) int {
+	termContext, stopTerm := signal.NotifyContext(context.Background(), syscall.SIGTERM)
+	defer stopTerm()
+	interruptContext, stopInterrupt := signal.NotifyContext(termContext, os.Interrupt)
+	defer stopInterrupt()
+
+	executionContext, stopExecution, contextErr := workerExecutionContext(interruptContext)
+	defer stopExecution()
+	commandErr := contextErr
+	if commandErr == nil {
+		commandErr = gatecontract.ExecuteExecutor(executionContext, args, stdout, stderr)
+	}
+	if commandErr != nil {
+		if err := writeCLIError(stderr, commandErr); err != nil {
+			return int(gatecontract.ExitInfrastructure)
+		}
+	}
+
+	exitCode := gatecontract.ExecutorExitCode(commandErr)
+	return workerSignalExitCode(termContext, interruptContext, exitCode)
+}
+
+// workerSignalExitCode 让容器信号优先覆盖 executor 返回码。
+func workerSignalExitCode(termContext, interruptContext context.Context, exitCode int) int {
+	if termContext.Err() != nil {
+		return signalExitCode(syscall.SIGTERM)
+	}
+	if interruptContext.Err() != nil {
+		return signalExitCode(syscall.SIGINT)
+	}
+	return exitCode
+}
+
+// writeGateCLIIdentity 输出由链接器绑定的编译闭包身份，供 Seed 在复用前独立核对。
+func writeGateCLIIdentity(args []string, stdout io.Writer) error {
+	if len(args) != 0 {
+		return protocolError("worker cli-identity does not accept arguments")
+	}
+	if gateSourceDigest == "" || gateToolchainDigest == "" {
+		return gatecontract.WithExitCode(gatecontract.ExitInfrastructure, errors.New("gate CLI build identity is not linked"))
+	}
+	if _, err := fmt.Fprintf(stdout, "gate_source_sha256=%s\nplatform=%s/%s\ntoolchain_digest=%s\n", gateSourceDigest, runtime.GOOS, runtime.GOARCH, gateToolchainDigest); err != nil {
+		return gatecontract.WithExitCode(gatecontract.ExitInfrastructure, fmt.Errorf("write gate CLI identity: %w", err))
+	}
+	return nil
+}
+
+// workerExecutionContext 为缓存准备保留独立租约，并把实际 workload 时限延迟到 executor 内启动。
+func workerExecutionContext(parent context.Context) (context.Context, context.CancelFunc, error) {
+	raw, configured := os.LookupEnv(gatecontract.ExecutorWorkloadTimeoutEnvironment)
+	if !configured {
+		return parent, func() {}, nil
+	}
+	timeout, err := time.ParseDuration(raw)
+	if err == nil {
+		err = gatecontract.ValidateExecutorWorkloadTimeout(timeout)
+	}
+	if err != nil {
+		ctx, cancel := context.WithCancel(parent)
+		cancel()
+		return ctx, func() {}, fmt.Errorf("invalid executor workload timeout: %w", err)
+	}
+	workloadCtx, err := gatecontract.WithExecutorWorkloadTimeout(parent, timeout)
+	if err != nil {
+		ctx, cancel := context.WithCancel(parent)
+		cancel()
+		return ctx, func() {}, fmt.Errorf("configure executor workload timeout: %w", err)
+	}
+	ctx, cancel := gateprivate.WithTimeout(workloadCtx, timeout+remoteWorkerSetupAllowance)
+	return ctx, cancel, nil
+}
+
+func signalExitCode(caught os.Signal) int {
+	signalValue, ok := caught.(syscall.Signal)
+	if !ok {
+		return 1
+	}
+	return 128 + int(signalValue)
+}
+
 // dispatchCLI 将固定命令面分派到 plan 或未接线 scheduler 边界。
 func dispatchCLI(args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return protocolError("subcommand is required (plan, submit, workflow, workflow-host, run, status, wait, logs, receipt verify, grant, provision)")
+		return protocolError("subcommand is required (plan, test, codemap, project-map, submit, workflow, workflow-host, run, worker, remote run, status, wait, logs, receipt verify, grant, provision)")
 	}
+	if handled, err := dispatchPrimaryCLI(args, stdout); handled {
+		return err
+	}
+	return dispatchCoordinatorCLI(args, stdout)
+}
+
+// dispatchPrimaryCLI 分派 coordinator 命令空间之外的固定子命令。
+func dispatchPrimaryCLI(args []string, stdout io.Writer) (bool, error) {
 	switch args[0] {
 	case "plan":
-		return runPlan(args[1:], stdout)
+		return true, runPlan(args[1:], stdout)
+	case "test":
+		return true, runTestInvocation(args[1:], stdout)
+	case "codemap", "project-map":
+		return true, runGeneratedMapCLI(args[0], args[1:], stdout)
 	case "hook":
-		return runHook(args[1:], os.Stdin, stdout)
+		return true, runHook(args[1:], os.Stdin, stdout)
 	case "bootstrap":
-		return runProductionBootstrapControllerCLI(args[1:], os.Stdin, stdout)
+		return true, runProductionBootstrapControllerCLI(args[1:], os.Stdin, stdout)
 	case "provision":
-		return runProductionProvisionCLI(args[1:], stdout)
-	case "closure":
-		return runClosureCheck(args[1:])
+		return true, runProductionProvisionCLI(args[1:], stdout)
+	case "closure", "frontend-code-size":
+		return true, runLocalGuardCLI(args, stdout)
+	case "remote":
+		return true, runRemote(args[1:], os.Stdin, stdout)
+	case "_remote-materialize":
+		return true, runRemoteMaterialize(args[1:], stdout)
 	default:
-		return dispatchCoordinatorCLI(args, stdout)
+		return false, nil
 	}
+}
+
+// runGeneratedMapCLI 分派两个精确树绑定的生成地图命令。
+func runGeneratedMapCLI(command string, args []string, stdout io.Writer) error {
+	if command == "codemap" {
+		return runCodemapCLI(args, stdout)
+	}
+	return runProjectMapCLI(args, stdout)
 }
 
 // dispatchCoordinatorCLI 分派既有 coordinator 与 receipt 命令。
@@ -102,6 +263,8 @@ func dispatchCoordinatorOperationsCLI(args []string, stdout io.Writer) error {
 		return runReceipt(args[1:])
 	case "grant":
 		return runGrant(args[1:], stdout)
+	case "requester":
+		return runRequesterCLI(args[1:], stdout)
 	default:
 		return protocolError("unknown subcommand %q", args[0])
 	}

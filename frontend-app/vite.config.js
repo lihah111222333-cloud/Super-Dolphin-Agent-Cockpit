@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import process from 'node:process';
+import vitestSuitePolicyDefinition from './config/vitest-suite-policy.json';
 
 const WAILS_RUNTIME_PATHNAME = '/wails/runtime.js';
 const DEV_WAILS_RUNTIME_SHIM_PATH = join(process.cwd(), 'public', 'wails', 'runtime.js');
@@ -10,6 +11,26 @@ export const ATH_HEALTH_PATH = '/__ath_health';
 export const ATH_NONCE_HEADER = 'x-agentic-testing-harness-nonce';
 export const ATH_SOURCE_ROOT_HEADER = 'x-super-dolphin-source-root';
 export const ATH_BUILD_IDENTITY_HEADER = 'x-super-dolphin-build-identity';
+
+export function validateVitestSuitePolicy(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || Object.keys(value).sort().join(',') !== 'defaultExcludes,schemaVersion'
+    || value.schemaVersion !== 1
+    || !Array.isArray(value.defaultExcludes)
+    || value.defaultExcludes.length === 0
+    || value.defaultExcludes.some((pattern) => typeof pattern !== 'string' || pattern.trim() !== pattern || pattern === '')
+    || new Set(value.defaultExcludes).size !== value.defaultExcludes.length) {
+    throw new Error('Vitest suite policy is invalid');
+  }
+  return Object.freeze({
+    schemaVersion: value.schemaVersion,
+    defaultExcludes: Object.freeze([...value.defaultExcludes]),
+  });
+}
+
+export const VITEST_SUITE_POLICY = validateVitestSuitePolicy(
+  vitestSuitePolicyDefinition,
+);
 
 function requiredAthValue(env, name) {
   const value = env[name];
@@ -241,14 +262,7 @@ export function createFrontendViteConfig(env = process.env, viteEnv = {}) {
           url: 'http://127.0.0.1:5175/',
         },
       },
-      exclude: [
-        '**/node_modules/**',
-        '**/dist/**',
-        '**/.agents/**',
-        '**/tests/e2e/**',
-        '**/scripts/**/*benchmark.test.*',
-        '**/scripts/**/performance-*.test.*',
-      ],
+      exclude: VITEST_SUITE_POLICY.defaultExcludes,
       globals: true,
       setupFiles: './src/test-setup.js',
     },

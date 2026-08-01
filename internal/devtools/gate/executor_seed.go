@@ -20,7 +20,8 @@ import (
 )
 
 // RuntimeSeedSchemaVersion is the shared image-builder/executor manifest schema.
-const RuntimeSeedSchemaVersion = 7
+const RuntimeSeedSchemaVersion = 11
+const runtimeSeedLegacySchemaVersion = 10
 
 // RuntimeSeedManifest binds immutable runtime seeds to repository lock files.
 type RuntimeSeedManifest struct {
@@ -28,6 +29,7 @@ type RuntimeSeedManifest struct {
 	GoSumSHA256           string `json:"go_sum_sha256"`
 	ModuleProxyLockSHA256 string `json:"module_proxy_lock_sha256"`
 	ModuleProxyTreeSHA256 string `json:"module_proxy_tree_sha256"`
+	GoModCacheTreeSHA256  string `json:"go_mod_cache_tree_sha256"`
 	PackageLockSHA256     string `json:"package_lock_sha256"`
 	NodeModulesTreeSHA256 string `json:"node_modules_tree_sha256"`
 	NPMCacheTreeSHA256    string `json:"npm_cache_tree_sha256"`
@@ -35,53 +37,273 @@ type RuntimeSeedManifest struct {
 	SqruffSHA256          string `json:"sqruff_sha256"`
 }
 
+type executorPreparedRuntimeSeeds struct {
+	runtimeSeedRoot      string
+	runtimeSeedManifest  string
+	manifest             RuntimeSeedManifest
+	goTreesVerified      bool
+	frontendTreeVerified bool
+}
+
 // installRuntimeSeeds 按门禁需要校验 manifest 后安装锁文件绑定的依赖种子。
 func installRuntimeSeeds(config executorConfig, layout executorLayout, program ExecutorProgram) error {
 	if !program.NeedsGoSeed && !program.NeedsFrontendSeed {
 		return nil
 	}
-	manifest, err := LoadRuntimeSeedManifest(config.runtimeSeedManifest)
+	manifest, prepared, err := runtimeSeedManifestForProgram(config, program)
 	if err != nil {
 		return err
 	}
 	if program.NeedsGoSeed {
-		if err := validateGoRuntimeSeeds(config, layout, manifest); err != nil {
+		if err := validateGoRuntimeSeedLocks(layout, manifest); err != nil {
 			return err
+		}
+		if !prepared.goTreesVerified {
+			if err := validateGoRuntimeSeedTrees(config.runtimeSeedRoot, manifest); err != nil {
+				return err
+			}
 		}
 	}
 	if program.NeedsFrontendSeed {
-		if err := installBoundSeed(
-			filepath.Join(layout.sourceCopy, "frontend-app", "package-lock.json"), manifest.PackageLockSHA256,
-			filepath.Join(config.runtimeSeedRoot, "frontend", "node_modules"), manifest.NodeModulesTreeSHA256,
-			filepath.Join(layout.sourceCopy, "frontend-app", "node_modules"),
-		); err != nil {
+		return installFrontendRuntimeSeed(config, layout, manifest, prepared.frontendTreeVerified)
+	}
+	return nil
+}
+
+// installFrontendRuntimeSeed 校验前端锁和依赖树，再为当前分片安装私有可写覆盖层。
+func installFrontendRuntimeSeed(
+	config executorConfig,
+	layout executorLayout,
+	manifest RuntimeSeedManifest,
+	treeVerified bool,
+) error {
+	boundFile := filepath.Join(layout.sourceCopy, "frontend-app", "package-lock.json")
+	seedRoot := filepath.Join(config.runtimeSeedRoot, "frontend", "node_modules")
+	targetRoot := filepath.Join(layout.sourceCopy, "frontend-app", "node_modules")
+	if err := validateBoundRuntimeFile(boundFile, manifest.PackageLockSHA256); err != nil {
+		return fmt.Errorf("install frontend runtime seed: digest bound source file: %w", err)
+	}
+	seedPath, err := trustedDirectory(seedRoot, false, -1)
+	if err != nil {
+		return fmt.Errorf("install frontend runtime seed: runtime seed directory: %w", err)
+	}
+	if !treeVerified {
+		treeDigest, err := RuntimeSeedTreeDigest(seedPath)
+		if err != nil {
 			return fmt.Errorf("install frontend runtime seed: %w", err)
 		}
-		if err := installPreparedRuntimeSeed(
-			filepath.Join(config.runtimeSeedRoot, "frontend", "npm-cache"), manifest.NPMCacheTreeSHA256,
-			layout.npmCache,
-		); err != nil {
-			return fmt.Errorf("install frontend npm cache seed: %w", err)
+		if treeDigest != manifest.NodeModulesTreeSHA256 {
+			return errors.New("install frontend runtime seed: runtime seed tree digest does not match manifest")
+		}
+		npmCacheDigest, err := RuntimeSeedTreeDigest(filepath.Join(config.runtimeSeedRoot, "frontend", "npm-cache"))
+		if err != nil {
+			return fmt.Errorf("install frontend runtime seed: digest npm cache: %w", err)
+		}
+		if npmCacheDigest != manifest.NPMCacheTreeSHA256 {
+			return errors.New("install frontend runtime seed: npm cache tree digest does not match manifest")
+		}
+	}
+	if err := installFrontendRuntimeOverlay(seedPath, targetRoot); err != nil {
+		return fmt.Errorf("install frontend runtime overlay: %w", err)
+	}
+	return nil
+}
+
+// installFrontendRuntimeOverlay 把只读依赖链接到私有物理根，并只为 Vite 缓存保留写目录。
+func installFrontendRuntimeOverlay(seedRoot string, targetRoot string) error {
+	if _, err := os.Lstat(targetRoot); !errors.Is(err, os.ErrNotExist) {
+		return errors.New("runtime seed target already exists")
+	}
+	if err := os.Mkdir(targetRoot, 0o700); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(seedRoot)
+	if err != nil {
+		return err
+	}
+	writable := map[string]bool{".vite": true, ".vite-temp": true}
+	for _, entry := range entries {
+		if writable[entry.Name()] {
+			return fmt.Errorf("runtime seed reserves writable overlay entry %q", entry.Name())
+		}
+		if err := os.Symlink(filepath.Join(seedRoot, entry.Name()), filepath.Join(targetRoot, entry.Name())); err != nil {
+			return err
+		}
+	}
+	for name := range writable {
+		if err := os.Mkdir(filepath.Join(targetRoot, name), 0o700); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-// validateGoRuntimeSeeds 校验提交锁与环境镜像中的共享 Go module proxy。
-func validateGoRuntimeSeeds(config executorConfig, layout executorLayout, manifest RuntimeSeedManifest) error {
-	if err := validateBoundRuntimeFile(filepath.Join(layout.sourceCopy, "go.sum"), manifest.GoSumSHA256); err != nil {
-		return fmt.Errorf("validate Go dependency lock: %w", err)
+// runtimeSeedManifestForProgram 返回当前程序所需且已完成边界验证的 seed manifest。
+func runtimeSeedManifestForProgram(
+	config executorConfig,
+	program ExecutorProgram,
+) (RuntimeSeedManifest, executorPreparedRuntimeSeeds, error) {
+	if config.preparedRuntimeSeeds == nil {
+		prepared, err := prepareExecutorRuntimeSeeds(
+			config.runtimeSeedRoot,
+			config.runtimeSeedManifest,
+			program.NeedsGoSeed,
+			program.NeedsFrontendSeed,
+		)
+		if err != nil {
+			return RuntimeSeedManifest{}, executorPreparedRuntimeSeeds{}, err
+		}
+		if prepared == nil {
+			return RuntimeSeedManifest{}, executorPreparedRuntimeSeeds{}, errors.New("runtime seed preparation produced no result")
+		}
+		return prepared.manifest, *prepared, nil
 	}
-	proxyLock := filepath.Join(layout.sourceCopy, "build", "gate", "runtime-proxy", "go.sum")
-	if err := validateBoundRuntimeFile(proxyLock, manifest.ModuleProxyLockSHA256); err != nil {
-		return fmt.Errorf("validate Go module proxy lock: %w", err)
+	prepared := *config.preparedRuntimeSeeds
+	if prepared.runtimeSeedRoot != config.runtimeSeedRoot || prepared.runtimeSeedManifest != config.runtimeSeedManifest {
+		return RuntimeSeedManifest{}, executorPreparedRuntimeSeeds{}, errors.New("prepared runtime seed identity does not match executor config")
+	}
+	if program.NeedsGoSeed && !prepared.goTreesVerified {
+		return RuntimeSeedManifest{}, executorPreparedRuntimeSeeds{}, errors.New("prepared runtime seeds do not cover Go dependencies")
+	}
+	if program.NeedsFrontendSeed && !prepared.frontendTreeVerified {
+		return RuntimeSeedManifest{}, executorPreparedRuntimeSeeds{}, errors.New("prepared runtime seeds do not cover frontend dependencies")
+	}
+	return prepared.manifest, prepared, nil
+}
+
+// prepareExecutorRuntimeSeeds 每个分片只校验一次不可变依赖树，lane 仅复用已验证结果。
+func prepareExecutorRuntimeSeeds(
+	runtimeSeedRoot string,
+	runtimeSeedManifest string,
+	needsGoSeed bool,
+	needsFrontendSeed bool,
+) (*executorPreparedRuntimeSeeds, error) {
+	if !needsGoSeed && !needsFrontendSeed {
+		return nil, nil
+	}
+	manifest, err := LoadRuntimeSeedManifest(runtimeSeedManifest)
+	if err != nil {
+		return nil, err
+	}
+	legacySchema := manifest.SchemaVersion == runtimeSeedLegacySchemaVersion
+	manifest, err = normalizePreparedRuntimeSeedManifest(runtimeSeedRoot, manifest, needsFrontendSeed)
+	if err != nil {
+		return nil, err
+	}
+	if needsGoSeed {
+		if err := validateGoRuntimeSeedTrees(runtimeSeedRoot, manifest); err != nil {
+			return nil, err
+		}
+	}
+	if needsFrontendSeed {
+		if err := validateFrontendRuntimeSeed(runtimeSeedRoot, manifest, legacySchema); err != nil {
+			return nil, err
+		}
+	}
+	return &executorPreparedRuntimeSeeds{
+		runtimeSeedRoot: runtimeSeedRoot, runtimeSeedManifest: runtimeSeedManifest, manifest: manifest,
+		goTreesVerified: needsGoSeed, frontendTreeVerified: needsFrontendSeed,
+	}, nil
+}
+
+// normalizePreparedRuntimeSeedManifest 为旧基线补齐可验证的 npm cache 身份。
+func normalizePreparedRuntimeSeedManifest(
+	runtimeSeedRoot string,
+	manifest RuntimeSeedManifest,
+	needsFrontendSeed bool,
+) (RuntimeSeedManifest, error) {
+	if manifest.SchemaVersion != runtimeSeedLegacySchemaVersion || !needsFrontendSeed {
+		return manifest, nil
+	}
+	npmCacheDigest, err := RuntimeSeedTreeDigest(filepath.Join(runtimeSeedRoot, "frontend", "npm-cache"))
+	if err != nil {
+		return RuntimeSeedManifest{}, fmt.Errorf("bind legacy frontend npm cache seed: %w", err)
+	}
+	manifest.SchemaVersion = RuntimeSeedSchemaVersion
+	manifest.NPMCacheTreeSHA256 = npmCacheDigest
+	return manifest, nil
+}
+
+// validateFrontendRuntimeSeed 校验 node_modules，并为当前 schema 额外校验 npm cache。
+func validateFrontendRuntimeSeed(
+	runtimeSeedRoot string,
+	manifest RuntimeSeedManifest,
+	legacySchema bool,
+) error {
+	if err := validateRuntimeSeedTree(
+		filepath.Join(runtimeSeedRoot, "frontend", "node_modules"),
+		manifest.NodeModulesTreeSHA256,
+	); err != nil {
+		return fmt.Errorf("validate frontend runtime seed: %w", err)
+	}
+	if legacySchema {
+		return nil
 	}
 	if err := validateRuntimeSeedTree(
-		filepath.Join(config.runtimeSeedRoot, "go-proxy"), manifest.ModuleProxyTreeSHA256,
+		filepath.Join(runtimeSeedRoot, "frontend", "npm-cache"),
+		manifest.NPMCacheTreeSHA256,
 	); err != nil {
-		return fmt.Errorf("validate Go module proxy seed: %w", err)
+		return fmt.Errorf("validate frontend npm cache seed: %w", err)
 	}
 	return nil
+}
+
+// installExecutorSeeds 组合锁文件绑定的运行时依赖与 Go embed 编译占位种子。
+func installExecutorSeeds(config executorConfig, layout executorLayout, program ExecutorProgram) error {
+	if err := installRuntimeSeeds(config, layout, program); err != nil {
+		return err
+	}
+	if program.NeedsGoSeed {
+		seedRoots, err := executorGoBuildCacheSeedRoots(config)
+		if err != nil {
+			return err
+		}
+		if config.goBuildCacheRoot == "" {
+			if err := seedExecutorGoBuildCacheSeeds(seedRoots, layout.goCache); err != nil {
+				return err
+			}
+		}
+		if err := bindSharedGoModuleCache(filepath.Join(config.runtimeSeedRoot, "go-mod-cache"), layout.goModCache); err != nil {
+			return fmt.Errorf("bind shared Go module cache: %w", err)
+		}
+	}
+	if !program.NeedsFrontendEmbedSeed {
+		return nil
+	}
+	return installFrontendEmbedSeed(config, layout)
+}
+
+func executorGoBuildCacheSeedRoots(config executorConfig) ([]string, error) {
+	if len(config.goBuildCacheSeedRoots) != 0 {
+		return append([]string(nil), config.goBuildCacheSeedRoots...), nil
+	}
+	if config.goBuildCacheSeedRoot == ExecutorGoBuildCacheSeedRoot {
+		return discoverExecutorGoBuildCacheSeedRoots(ExecutorGoBuildCacheSeedsRoot, ExecutorGoBuildCacheSeedRoot)
+	}
+	if config.goBuildCacheSeedRoot != "" {
+		return []string{config.goBuildCacheSeedRoot}, nil
+	}
+	return nil, errors.New("Go build cache seeds are not configured")
+}
+
+// validateSharedGoModuleCache 确认共享模块缓存和下载元数据均已由基线预热。
+func validateSharedGoModuleCache(sharedRoot string) (string, error) {
+	sharedPath, err := trustedDirectory(sharedRoot, false, -1)
+	if err != nil {
+		return "", fmt.Errorf("shared cache: %w", err)
+	}
+	downloadPath, err := trustedDirectory(filepath.Join(sharedPath, "cache", "download"), false, -1)
+	if err != nil {
+		return "", fmt.Errorf("shared download metadata: %w", err)
+	}
+	entries, err := os.ReadDir(downloadPath)
+	if err != nil {
+		return "", fmt.Errorf("read shared Go module download metadata: %w", err)
+	}
+	if len(entries) == 0 {
+		return "", errors.New("shared Go module download metadata is empty")
+	}
+	return sharedPath, nil
 }
 
 // validateBoundRuntimeFile 校验候选快照中的运行时锁文件与镜像清单一致。
@@ -104,6 +326,37 @@ func validateRuntimeSeedTree(path string, expectedDigest string) error {
 	}
 	if actualDigest != expectedDigest {
 		return fmt.Errorf("runtime seed tree digest %s does not match manifest %s", actualDigest, expectedDigest)
+	}
+	return nil
+}
+
+var errGoBuildCacheMiss = errors.New("Go build cache entry is missing")
+
+func goBuildCachePath(root string, identity []byte, kind string) (string, error) {
+	if len(identity) != goBuildCacheHashBytes || (kind != "a" && kind != "d") {
+		return "", errors.New("Go build cache path identity is invalid")
+	}
+	encoded := hex.EncodeToString(identity)
+	return filepath.Join(root, encoded[:2], encoded+"-"+kind), nil
+}
+
+// installFrontendEmbedSeed 注入与产品代码无关的 Go embed 编译占位种子，不替代前端构建门禁。
+func installFrontendEmbedSeed(config executorConfig, layout executorLayout) error {
+	seedRoot, err := trustedDirectory(config.frontendEmbedSeedRoot, false, -1)
+	if err != nil {
+		return fmt.Errorf("frontend embed seed directory: %w", err)
+	}
+	if err := requireRegularRuntimeSeedFile(filepath.Join(seedRoot, "index.html")); err != nil {
+		return fmt.Errorf("frontend embed seed index.html: %w", err)
+	}
+	targetRoot := filepath.Join(layout.sourceCopy, "cmd", "agent-terminal", "web-dist")
+	if _, err := os.Lstat(targetRoot); err == nil {
+		return errors.New("frontend embed seed target already exists")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect frontend embed seed target: %w", err)
+	}
+	if err := copyRuntimeSeed(seedRoot, targetRoot); err != nil {
+		return fmt.Errorf("install frontend embed seed: %w", err)
 	}
 	return nil
 }
@@ -132,7 +385,7 @@ func DecodeRuntimeSeedManifest(reader io.Reader) (RuntimeSeedManifest, error) {
 	if err := rejectTrailingJSON(decoder); err != nil {
 		return RuntimeSeedManifest{}, err
 	}
-	if err := manifest.validateShape(); err != nil {
+	if err := manifest.validateDecodedShape(); err != nil {
 		return RuntimeSeedManifest{}, err
 	}
 	return manifest, nil
@@ -154,18 +407,95 @@ func EncodeRuntimeSeedManifest(writer io.Writer, manifest RuntimeSeedManifest) e
 	return nil
 }
 
+// executeRuntimeSeedCommand 通过统一 worker 命令写入或复验运行时清单。
+func executeRuntimeSeedCommand(args []string) error {
+	if len(args) != 3 {
+		return errors.New("usage: super-dolphin-gate worker runtime-seed <write|verify> <snapshot-root> <runtime-root>")
+	}
+	manifest, err := BuildRuntimeSeedManifest(args[1], args[2])
+	if err != nil {
+		return err
+	}
+	if _, err := RuntimeSeedTreeDigest(filepath.Join(args[2], "frontend", "node_modules")); err != nil {
+		return err
+	}
+	if _, err := RuntimeSeedTreeDigest(filepath.Join(args[2], "frontend", "npm-cache")); err != nil {
+		return err
+	}
+	switch args[0] {
+	case "write":
+		return writeRuntimeSeedManifest(args[2], manifest)
+	case "verify":
+		return verifyRuntimeSeedManifest(args[1], args[2], manifest)
+	default:
+		return errors.New("runtime seed action must be write or verify")
+	}
+}
+
+func writeRuntimeSeedManifest(runtimeRoot string, manifest RuntimeSeedManifest) error {
+	path := filepath.Join(runtimeRoot, "manifest.json")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	encodeErr := EncodeRuntimeSeedManifest(file, manifest)
+	closeErr := file.Close()
+	return errors.Join(encodeErr, closeErr)
+}
+
+func verifyRuntimeSeedManifest(snapshotRoot, runtimeRoot string, manifest RuntimeSeedManifest) error {
+	tracked, err := LoadRuntimeSeedManifest(filepath.Join(runtimeRoot, "manifest.json"))
+	if err != nil {
+		return err
+	}
+	if tracked != manifest {
+		return errors.New("runtime seed manifest does not match the immutable image seeds")
+	}
+	return tracked.Validate(snapshotRoot, runtimeRoot)
+}
+
 func (manifest RuntimeSeedManifest) validateShape() error {
 	if manifest.SchemaVersion != RuntimeSeedSchemaVersion {
 		return fmt.Errorf("runtime seed schema = %d, want %d", manifest.SchemaVersion, RuntimeSeedSchemaVersion)
 	}
-	for name, digest := range map[string]string{
+	return manifest.validateDigestFields(true)
+}
+
+// validateDecodedShape 仅为已验收原始镜像接受一代旧清单；新清单的编码仍只允许当前 schema。
+func (manifest RuntimeSeedManifest) validateDecodedShape() error {
+	switch manifest.SchemaVersion {
+	case RuntimeSeedSchemaVersion:
+		return manifest.validateDigestFields(true)
+	case runtimeSeedLegacySchemaVersion:
+		if manifest.NPMCacheTreeSHA256 != "" {
+			return errors.New("legacy runtime seed manifest declares an npm cache digest")
+		}
+		return manifest.validateDigestFields(false)
+	default:
+		return fmt.Errorf(
+			"runtime seed schema = %d, want %d or rolling predecessor %d",
+			manifest.SchemaVersion,
+			RuntimeSeedSchemaVersion,
+			runtimeSeedLegacySchemaVersion,
+		)
+	}
+}
+
+func (manifest RuntimeSeedManifest) validateDigestFields(requireNPMCache bool) error {
+	digests := map[string]string{
 		"go_sum_sha256":            manifest.GoSumSHA256,
 		"module_proxy_lock_sha256": manifest.ModuleProxyLockSHA256,
 		"module_proxy_tree_sha256": manifest.ModuleProxyTreeSHA256,
-		"package_lock_sha256":      manifest.PackageLockSHA256, "node_modules_tree_sha256": manifest.NodeModulesTreeSHA256,
-		"npm_cache_tree_sha256": manifest.NPMCacheTreeSHA256,
-		"ripgrep_sha256":        manifest.RipgrepSHA256, "sqruff_sha256": manifest.SqruffSHA256,
-	} {
+		"go_mod_cache_tree_sha256": manifest.GoModCacheTreeSHA256,
+		"package_lock_sha256":      manifest.PackageLockSHA256,
+		"node_modules_tree_sha256": manifest.NodeModulesTreeSHA256,
+		"ripgrep_sha256":           manifest.RipgrepSHA256,
+		"sqruff_sha256":            manifest.SqruffSHA256,
+	}
+	if requireNPMCache {
+		digests["npm_cache_tree_sha256"] = manifest.NPMCacheTreeSHA256
+	}
+	for name, digest := range digests {
 		if !validSHA256Digest(digest) {
 			return fmt.Errorf("runtime seed manifest %s is invalid", name)
 		}
@@ -191,6 +521,10 @@ func BuildRuntimeSeedManifest(snapshotRoot string, runtimeRoot string) (RuntimeS
 	if err != nil {
 		return RuntimeSeedManifest{}, err
 	}
+	goModCache, err := RuntimeSeedTreeDigest(filepath.Join(runtimePath, "go-mod-cache"))
+	if err != nil {
+		return RuntimeSeedManifest{}, fmt.Errorf("digest Go module cache: %w", err)
+	}
 	packageLock, nodeModules, npmCache, err := runtimeFrontendSeedDigests(snapshotPath, runtimePath)
 	if err != nil {
 		return RuntimeSeedManifest{}, err
@@ -206,12 +540,13 @@ func BuildRuntimeSeedManifest(snapshotRoot string, runtimeRoot string) (RuntimeS
 	return RuntimeSeedManifest{
 		SchemaVersion: RuntimeSeedSchemaVersion, GoSumSHA256: goSum,
 		ModuleProxyLockSHA256: moduleProxyLock, ModuleProxyTreeSHA256: moduleProxy,
-		PackageLockSHA256: packageLock, NodeModulesTreeSHA256: nodeModules, NPMCacheTreeSHA256: npmCache,
+		GoModCacheTreeSHA256: goModCache,
+		PackageLockSHA256:    packageLock, NodeModulesTreeSHA256: nodeModules, NPMCacheTreeSHA256: npmCache,
 		RipgrepSHA256: ripgrep, SqruffSHA256: sqruff,
 	}, nil
 }
 
-// runtimeFrontendSeedDigests 绑定前端锁文件、安装树和离线缓存种子。
+// runtimeFrontendSeedDigests 绑定前端锁文件和不可变安装树。
 func runtimeFrontendSeedDigests(snapshotPath string, runtimePath string) (string, string, string, error) {
 	packageLock, err := fileSHA256(filepath.Join(snapshotPath, "frontend-app", "package-lock.json"))
 	if err != nil {
@@ -345,52 +680,6 @@ func validSHA256Digest(value string) bool {
 	}
 	_, err := hex.DecodeString(strings.TrimPrefix(value, "sha256:"))
 	return err == nil
-}
-
-// installBoundSeed 校验锁摘要和种子树摘要后防覆盖复制依赖目录。
-func installBoundSeed(boundFile string, expectedBoundDigest string, seedRoot string, expectedTreeDigest string, targetRoot string) error {
-	boundDigest, err := fileSHA256(boundFile)
-	if err != nil {
-		return fmt.Errorf("digest bound source file: %w", err)
-	}
-	if boundDigest != expectedBoundDigest {
-		return errors.New("runtime seed source lock digest does not match snapshot")
-	}
-	seedPath, err := trustedDirectory(seedRoot, false, -1)
-	if err != nil {
-		return fmt.Errorf("runtime seed directory: %w", err)
-	}
-	treeDigest, err := RuntimeSeedTreeDigest(seedPath)
-	if err != nil {
-		return err
-	}
-	if treeDigest != expectedTreeDigest {
-		return errors.New("runtime seed tree digest does not match manifest")
-	}
-	if _, err := os.Lstat(targetRoot); !errors.Is(err, os.ErrNotExist) {
-		return errors.New("runtime seed target already exists")
-	}
-	return copyRuntimeSeed(seedPath, targetRoot)
-}
-
-// installPreparedRuntimeSeed 将已验证种子复制到执行器预建的空目录。
-func installPreparedRuntimeSeed(seedRoot string, expectedTreeDigest string, targetRoot string) error {
-	seedPath, err := trustedDirectory(seedRoot, false, -1)
-	if err != nil {
-		return fmt.Errorf("runtime seed directory: %w", err)
-	}
-	treeDigest, err := RuntimeSeedTreeDigest(seedPath)
-	if err != nil {
-		return err
-	}
-	if treeDigest != expectedTreeDigest {
-		return errors.New("runtime seed tree digest does not match manifest")
-	}
-	preparedTarget, err := trustedDirectory(targetRoot, true, -1)
-	if err != nil {
-		return fmt.Errorf("runtime seed target: %w", err)
-	}
-	return copyRuntimeSeedContents(seedPath, preparedTarget)
 }
 
 func fileSHA256(path string) (string, error) {
@@ -536,21 +825,6 @@ func copyRuntimeSeed(sourceRoot string, targetRoot string) error {
 	copier := runtimeSeedCopier{sourceRoot: sourceRoot, targetRoot: targetRoot, directories: &directories}
 	err := filepath.WalkDir(sourceRoot, copier.copy)
 	if err != nil {
-		return fmt.Errorf("copy runtime seed: %w", err)
-	}
-	for _, directory := range slices.Backward(directories) {
-		if err := os.Chmod(directory.path, directory.mode); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// copyRuntimeSeedContents 将已验证种子复制到已存在的空目标目录。
-func copyRuntimeSeedContents(sourceRoot string, targetRoot string) error {
-	directories := []copiedDirectory{}
-	copier := runtimeSeedCopier{sourceRoot: sourceRoot, targetRoot: targetRoot, directories: &directories}
-	if err := filepath.WalkDir(sourceRoot, copier.copy); err != nil {
 		return fmt.Errorf("copy runtime seed: %w", err)
 	}
 	for _, directory := range slices.Backward(directories) {

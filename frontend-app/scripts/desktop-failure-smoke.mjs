@@ -8,18 +8,19 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { chromium } from '@playwright/test';
 import {
+  commandFailureMessage,
   DESKTOP_FAILURE_CASE_IDS,
   DESKTOP_FAILURE_REPORT_REQUIREMENTS,
   DESKTOP_FAILURE_SMOKE_COMMAND,
   DESKTOP_FAILURE_SOURCE_PATHS,
+  mergeDebugNamespace,
+  resolveDesktopFailureSmokeTimeout,
 } from './desktop-failure-contract.mjs';
 
 export { DESKTOP_FAILURE_SOURCE_PATHS } from './desktop-failure-contract.mjs';
 
 const DEFAULT_BACKEND_ADDR = '127.0.0.1:4514';
 const DEFAULT_VITE_URL = 'http://127.0.0.1:5178';
-const DEFAULT_TIMEOUT_MS = 180000;
-
 export const DESKTOP_FAILURE_CASES = Object.freeze([
   Object.freeze({
     caseId: 'terminal-failed',
@@ -83,19 +84,12 @@ export function desktopFailureSmokeConfig(env = process.env, repoRoot = repoRoot
     frontendRoot: path.join(repoRoot, 'frontend-app'),
     backendAddr: env.SUPER_DOLPHIN_FAILURE_SMOKE_BACKEND_ADDR || DEFAULT_BACKEND_ADDR,
     viteURL: env.SUPER_DOLPHIN_FAILURE_SMOKE_VITE_URL || DEFAULT_VITE_URL,
-    timeoutMs: positiveInt(env.SUPER_DOLPHIN_FAILURE_SMOKE_TIMEOUT_MS, DEFAULT_TIMEOUT_MS),
+    timeoutMs: resolveDesktopFailureSmokeTimeout(env),
     chromeExecutable: resolveChromiumExecutable(env),
     backendBinary: path.join(repoRoot, '.tmp', 'desktop-failure-smoke', `failure-smoke-host-${process.pid}`),
     reportPath: env.SUPER_DOLPHIN_FAILURE_SMOKE_REPORT
       || path.join(repoRoot, '.tmp', 'desktop-failure-smoke', 'report.json'),
   };
-}
-
-function positiveInt(value, fallback) {
-  if (value == null || value === '') return fallback;
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) throw new Error(`expected positive integer, got ${value}`);
-  return parsed;
 }
 
 export async function runDesktopFailureSmoke(config = desktopFailureSmokeConfig(), deps = {}) {
@@ -131,7 +125,7 @@ export async function runDesktopFailureSmoke(config = desktopFailureSmokeConfig(
     if (!existsSync(playwright)) throw new Error(`missing Playwright binary: ${playwright}`);
     playwrightRun = await runCommand(playwright, ['test', '--config', 'playwright.failure.config.js', '--reporter=json'], config.frontendRoot, {
       ...process.env,
-      PLAYWRIGHT_CHROMIUM_EXECUTABLE: config.chromeExecutable,
+      DEBUG: mergeDebugNamespace(process.env.DEBUG, 'pw:browser*'), PLAYWRIGHT_CHROMIUM_EXECUTABLE: config.chromeExecutable,
       SUPER_DOLPHIN_FAILURE_SMOKE_BASE_URL: config.viteURL,
     }, spawnImpl, config.timeoutMs);
   } catch (error) {
@@ -398,51 +392,9 @@ function runCommand(command, args, cwd, env, spawnImpl, timeoutMs) {
         finish(() => resolve({ command, args, exitCode: 0, signal: null, stdout, stderr }));
         return;
       }
-      finish(() => reject(new Error(commandFailureMessage(command, args, code, signal, stdout, stderr))));
+      finish(() => reject(new Error(commandFailureMessage({ command, args, code, signal, stdout, stderr }))));
     });
   });
-}
-
-export function commandFailureMessage(command, args, code, signal, stdout, stderr) {
-  const output = `${stdout}\n${stderr}`
-    .replace(/Authorization:\s*Bearer\s+[^\s"']+/giu, "Authorization: Bearer [redacted]")
-    .replace(/t03-raw-provider-secret-do-not-persist/gu, '[redacted]')
-    .trim()
-  const diagnostic = output.length <= 4000
-    ? output
-    : `${output.slice(0, 2000)}\n...[truncated]...\n${output.slice(-2000)}`;
-  const playwrightFailure = playwrightFailureSummary(output);
-  return `${command} ${args.join(' ')} failed: exit=${code} signal=${signal || ''}${playwrightFailure ? `\n${playwrightFailure}` : ''}${diagnostic ? `\n${diagnostic}` : ''}`;
-}
-
-function playwrightFailureSummary(output) {
-  try {
-    const report = JSON.parse(output);
-    const failure = firstPlaywrightFailure(report.suites);
-    if (!failure) return '';
-    return `Playwright failure: ${failure.title}${failure.message ? `: ${failure.message}` : ''}`;
-  } catch {
-    return '';
-  }
-}
-
-function firstPlaywrightFailure(suites) {
-  for (const suite of suites || []) {
-    for (const spec of suite.specs || []) {
-      for (const test of spec.tests || []) {
-        for (const result of test.results || []) {
-          if (result.status === 'passed') continue;
-          return {
-            title: spec.title,
-            message: result.errors?.[0]?.message || '',
-          };
-        }
-      }
-    }
-    const nested = firstPlaywrightFailure(suite.suites);
-    if (nested) return nested;
-  }
-  return null;
 }
 
 function captureCommand(command, args, cwd) {

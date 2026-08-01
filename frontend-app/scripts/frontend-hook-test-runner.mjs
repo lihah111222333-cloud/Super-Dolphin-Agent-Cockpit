@@ -7,6 +7,9 @@ import { runManagedCommand, terminateManagedCommands } from './managed-command.m
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const LANE_TIMEOUT_MS = 9 * 60_000;
 const LANE_MAX_BUFFER = 32 * 1024 * 1024;
+const FAILURE_SUMMARY_MAX_LINES = 40;
+const ANSI_ESCAPE_PATTERN = /\u001b\[[0-?]*[ -/]*[@-~]/g;
+const FAILURE_SIGNAL_PATTERN = /\b(?:FAIL|failed|AssertionError|Error:|Expected|Received)\b/i;
 
 export const FRONTEND_HOOK_TEST_LANES = Object.freeze([
   Object.freeze({ name: 'preflight', script: 'test:hook:preflight' }),
@@ -31,6 +34,16 @@ function writeLaneOutput(lane, result, stdout, stderr) {
   if (result.stderr) stderr.write(`\n[frontend-hook:${lane.name}:stderr]\n${result.stderr}`);
 }
 
+function writeLaneFailureSummary(lane, result, stderr) {
+  const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`.replace(ANSI_ESCAPE_PATTERN, '');
+  const lines = output.split(/\r?\n/).map((line) => line.trimEnd()).filter(Boolean);
+  const failureLines = lines.filter((line) => FAILURE_SIGNAL_PATTERN.test(line));
+  const summary = (failureLines.length > 0 ? failureLines : lines)
+    .slice(-FAILURE_SUMMARY_MAX_LINES)
+    .join('\n');
+  if (summary) stderr.write(`\n[frontend-hook:${lane.name}:failure-summary]\n${summary}\n`);
+}
+
 export async function runFrontendHookTests({
   runCommand = runManagedCommand,
   terminate = terminateManagedCommands,
@@ -41,22 +54,27 @@ export async function runFrontendHookTests({
 } = {}) {
   const npmCommand = platform === 'win32' ? 'npm.cmd' : 'npm';
   let terminating = false;
-  const failures = await Promise.all(FRONTEND_HOOK_TEST_LANES.map(async (lane) => {
+  const outcomes = await Promise.all(FRONTEND_HOOK_TEST_LANES.map(async (lane) => {
     const result = await runCommand(npmCommand, ['run', lane.script], {
       cwd,
       timeoutMs: LANE_TIMEOUT_MS,
       maxBuffer: LANE_MAX_BUFFER,
     });
-    writeLaneOutput(lane, result, stdout, stderr);
     const failure = laneFailure(lane, result);
     if (failure && !terminating) {
       terminating = true;
       terminate('SIGTERM');
     }
-    return failure;
+    return { lane, result, failure };
   }));
-  const failed = failures.filter(Boolean);
-  if (failed.length > 0) throw new Error(`frontend hook lanes failed: ${failed.join('; ')}`);
+  const failed = outcomes.filter(({ failure }) => failure);
+  for (const { lane, result, failure } of outcomes) {
+    if (!failure) writeLaneOutput(lane, result, stdout, stderr);
+  }
+  for (const { lane, result } of failed) writeLaneFailureSummary(lane, result, stderr);
+  if (failed.length > 0) {
+    throw new Error(`frontend hook lanes failed: ${failed.map(({ failure }) => failure).join('; ')}`);
+  }
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === SCRIPT_PATH) {

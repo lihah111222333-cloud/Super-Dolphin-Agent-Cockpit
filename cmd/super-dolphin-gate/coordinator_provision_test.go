@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -31,8 +34,13 @@ func (stub *productionProvisionRuntimeStub) VerifyRunner(
 	return stub.verifyErr
 }
 
+func (stub *productionProvisionRuntimeStub) ResolveGitExecutable() (string, error) {
+	return resolveProductionGitExecutable()
+}
+
 func (stub *productionProvisionRuntimeStub) CloneTrustedRepository(
 	_ context.Context,
+	_ string,
 	_ productionBootstrapRoot,
 	destination string,
 ) error {
@@ -51,6 +59,7 @@ func (stub *productionProvisionRuntimeStub) CloneTrustedRepository(
 
 func (stub *productionProvisionRuntimeStub) VerifyTrustedRepository(
 	_ context.Context,
+	_ string,
 	_ productionBootstrapRoot,
 	destination string,
 ) error {
@@ -80,6 +89,39 @@ func TestProductionProvisionInstallsClosureWithoutAcceptedSeed(t *testing.T) {
 	}
 	assertProvisionedSchedulingPolicy(t, config, fixture.manifest)
 	assertLauncherPinsProductionClosure(t, result.LauncherPath, config.BootstrapControllerFile)
+	assertProvisionedConfigIsPortable(t, result.ProductionConfigFile)
+}
+
+func TestProductionProvisionClosureRemainsUsableAfterDirectoryMove(t *testing.T) {
+	fixture := newProductionProvisionFixture(t)
+	result, err := provisionProductionWithRuntime(
+		context.Background(),
+		fixture.manifest,
+		&productionProvisionRuntimeStub{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalRoot := filepath.Dir(fixture.manifest.InstallRoot)
+	movedRoot := originalRoot + "-moved"
+	if err := os.Rename(originalRoot, movedRoot); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(movedRoot) })
+
+	movedConfig := filepath.Join(movedRoot, filepath.Base(fixture.manifest.InstallRoot), filepath.Base(result.ProductionConfigFile))
+	config, err := loadProductionCoordinatorConfigFile(movedConfig)
+	if err != nil {
+		t.Fatalf("load moved production config: %v", err)
+	}
+	if strings.HasPrefix(config.BootstrapControllerFile, originalRoot+string(filepath.Separator)) ||
+		!strings.HasPrefix(config.BootstrapControllerFile, movedRoot+string(filepath.Separator)) {
+		t.Fatalf("moved controller path = %q", config.BootstrapControllerFile)
+	}
+	movedLauncher := filepath.Join(movedRoot, "bin", filepath.Base(result.LauncherPath))
+	if output, err := exec.Command(movedLauncher).CombinedOutput(); err != nil {
+		t.Fatalf("execute moved launcher: %v\n%s", err, output)
+	}
 }
 
 func assertProvisionedSchedulingPolicy(
@@ -99,9 +141,40 @@ func assertLauncherPinsProductionClosure(t *testing.T, launcherPath, bootstrapCo
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(launcher), productionCoordinatorConfigEnv+"='") ||
-		!strings.Contains(string(launcher), bootstrapControllerFile) {
+	content := string(launcher)
+	if !strings.Contains(content, "launcher_dir=$(CDPATH= cd -P --") ||
+		!strings.Contains(content, productionCoordinatorConfigEnv+"=\"$launcher_dir\"/") ||
+		strings.Contains(content, bootstrapControllerFile) {
 		t.Fatalf("launcher does not pin installed production closure: %s", launcher)
+	}
+}
+
+func assertProvisionedConfigIsPortable(t *testing.T, configPath string) {
+	t.Helper()
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var object map[string]any
+	if err := json.Unmarshal(data, &object); err != nil {
+		t.Fatal(err)
+	}
+	assertPortableProductionConfigObject(t, object)
+}
+
+func assertPortableProductionConfigObject(t *testing.T, object map[string]any) {
+	t.Helper()
+	for name, value := range object {
+		if nested, ok := value.(map[string]any); ok {
+			assertPortableProductionConfigObject(t, nested)
+		}
+		if !productionJSONFieldLooksLikePath(name) {
+			continue
+		}
+		path, ok := value.(string)
+		if !ok || path == "" || filepath.IsAbs(filepath.FromSlash(path)) {
+			t.Fatalf("production config field %s is not a portable relative path: %#v", name, value)
+		}
 	}
 }
 
@@ -118,6 +191,360 @@ func TestProductionProvisionRepeatReusesVerifiedRoot(t *testing.T) {
 	}
 	if repeated != first || runtimeStub.clones != 1 {
 		t.Fatalf("repeat provision result = %#v, clones = %d", repeated, runtimeStub.clones)
+	}
+}
+
+func TestProductionProvisionMigratesVerifiedLegacyLauncher(t *testing.T) {
+	fixture := newProductionProvisionFixture(t)
+	runtimeStub := &productionProvisionRuntimeStub{}
+	first, err := provisionProductionWithRuntime(context.Background(), fixture.manifest, runtimeStub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	controllerData, current := installLegacyProductionLauncherFixture(t, first)
+	repeated, err := provisionProductionWithRuntime(context.Background(), fixture.manifest, runtimeStub)
+	if err != nil {
+		t.Fatalf("migrate verified legacy launcher: %v", err)
+	}
+	if repeated != first || runtimeStub.clones != 1 {
+		t.Fatalf("repeat result = %#v, clones = %d", repeated, runtimeStub.clones)
+	}
+	config, err := loadProductionCoordinatorConfigFile(first.ProductionConfigFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected, err := productionProvisionLauncherData(first.LauncherPath, first.ProductionConfigFile, config.BootstrapControllerFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertFileData(t, first.LauncherPath, expected)
+	assertFileData(t, current, controllerData)
+}
+
+func TestProductionProvisionMigratesHistoricalAbsoluteLauncherAndIsIdempotent(t *testing.T) {
+	fixture := newProductionProvisionFixture(t)
+	runtimeStub := &productionProvisionRuntimeStub{}
+	first, err := provisionProductionWithRuntime(context.Background(), fixture.manifest, runtimeStub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := installHistoricalProductionLauncherFixture(t, first)
+	for attempt := 0; attempt < 2; attempt++ {
+		repeated, err := provisionProductionWithRuntime(context.Background(), fixture.manifest, runtimeStub)
+		if err != nil {
+			t.Fatalf("historical launcher migration attempt %d: %v", attempt+1, err)
+		}
+		if repeated != first || runtimeStub.clones != 1 {
+			t.Fatalf("attempt %d result=%#v clones=%d", attempt+1, repeated, runtimeStub.clones)
+		}
+	}
+	config, err := loadProductionCoordinatorConfigFile(first.ProductionConfigFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected, err := productionProvisionLauncherData(first.LauncherPath, first.ProductionConfigFile, config.BootstrapControllerFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertFileData(t, first.LauncherPath, expected)
+	controllerData, err := os.ReadFile(config.BootstrapControllerFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertFileData(t, current, controllerData)
+}
+
+func installLegacyProductionLauncherFixture(
+	t *testing.T,
+	result productionProvisionResult,
+) ([]byte, string) {
+	t.Helper()
+	config, err := loadProductionCoordinatorConfigFile(result.ProductionConfigFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyController := filepath.Join(filepath.Dir(result.LauncherPath), "gate-client-v283")
+	controllerData, err := os.ReadFile(config.BootstrapControllerFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacyController, controllerData, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	configRelative, err := filepath.Rel(filepath.Dir(result.LauncherPath), result.ProductionConfigFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	controllerRelative, err := filepath.Rel(filepath.Dir(result.LauncherPath), legacyController)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := legacyProductionProvisionLauncherData(
+		filepath.ToSlash(configRelative),
+		filepath.ToSlash(controllerRelative),
+	)
+	if err := os.WriteFile(result.LauncherPath, legacy, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	current := filepath.Join(filepath.Dir(result.LauncherPath), productionCurrentGateCLI)
+	if err := os.Remove(current); err != nil {
+		t.Fatal(err)
+	}
+	return controllerData, current
+}
+
+func installHistoricalProductionLauncherFixture(t *testing.T, result productionProvisionResult) string {
+	t.Helper()
+	config, err := loadProductionCoordinatorConfigFile(result.ProductionConfigFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	historical := historicalProductionProvisionLauncherData(
+		result.ProductionConfigFile,
+		config.BootstrapControllerFile,
+	)
+	if err := os.WriteFile(result.LauncherPath, historical, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	current := filepath.Join(filepath.Dir(result.LauncherPath), productionCurrentGateCLI)
+	if err := os.Remove(current); err != nil {
+		t.Fatal(err)
+	}
+	return current
+}
+
+func TestParseLegacyProductionLauncherIsExact(t *testing.T) {
+	t.Parallel()
+	data := legacyProductionProvisionLauncherData("../installed/root-v63/production.json", "gate-client-v283")
+	config, controller, ok := parseLegacyProductionLauncher(data)
+	if !ok || config != "../installed/root-v63/production.json" || controller != "gate-client-v283" {
+		t.Fatalf("parsed config=%q controller=%q ok=%t", config, controller, ok)
+	}
+	tampered := bytes.Replace(data, []byte("set -eu"), []byte("set +e"), 1)
+	if _, _, ok := parseLegacyProductionLauncher(tampered); ok {
+		t.Fatal("legacy parser accepted modified shell behavior")
+	}
+}
+
+func TestParseHistoricalProductionLauncherIsExact(t *testing.T) {
+	t.Parallel()
+	configPath := "/private/var/lib/super-dolphin/root-v64/production.json"
+	controllerPath := "/private/var/lib/super-dolphin/root-v64/bootstrap-controller"
+	data := historicalProductionProvisionLauncherData(configPath, controllerPath)
+	config, controller, ok := parseHistoricalProductionLauncher(data)
+	if !ok || config != configPath || controller != controllerPath {
+		t.Fatalf("parsed config=%q controller=%q ok=%t", config, controller, ok)
+	}
+	for name, tampered := range map[string][]byte{
+		"command substitution": bytes.Replace(data, []byte(configPath), []byte("$(id)"), 1),
+		"extra argument":       bytes.Replace(data, []byte(" _production-launcher \"$@\"\n"), []byte(" _production-launcher \"$@\" extra\n"), 1),
+		"extra command":        append(append([]byte(nil), data...), []byte("true\n")...),
+		"unterminated quote":   bytes.Replace(data, []byte(controllerPath+"'"), []byte(controllerPath), 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, _, ok := parseHistoricalProductionLauncher(tampered); ok {
+				t.Fatal("historical parser accepted non-template shell content")
+			}
+		})
+	}
+}
+
+func TestHistoricalProductionLauncherAllowsMatchingAncestorAlias(t *testing.T) {
+	fixture := newProductionProvisionFixture(t)
+	result, err := provisionProductionWithRuntime(context.Background(), fixture.manifest, &productionProvisionRuntimeStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := loadProductionCoordinatorConfigFile(result.ProductionConfigFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := filepath.Dir(fixture.manifest.InstallRoot)
+	alias := base + "-alias"
+	if err := os.Symlink(base, alias); err != nil {
+		t.Fatal(err)
+	}
+	configRelative, err := filepath.Rel(base, result.ProductionConfigFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	controllerRelative, err := filepath.Rel(base, config.BootstrapControllerFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedConfigPath := filepath.Join(alias, configRelative)
+	expectedControllerPath := filepath.Join(alias, controllerRelative)
+	canonicalConfigPath, err := filepath.EvalSymlinks(expectedConfigPath)
+	if err != nil || canonicalConfigPath != result.ProductionConfigFile {
+		t.Fatalf("config alias canonical=%q err=%v", canonicalConfigPath, err)
+	}
+	canonicalControllerPath, err := filepath.EvalSymlinks(expectedControllerPath)
+	if err != nil || canonicalControllerPath != config.BootstrapControllerFile {
+		t.Fatalf("controller alias canonical=%q err=%v", canonicalControllerPath, err)
+	}
+	if err := os.WriteFile(
+		result.LauncherPath,
+		historicalProductionProvisionLauncherData(expectedConfigPath, expectedControllerPath),
+		0o700,
+	); err != nil {
+		t.Fatal(err)
+	}
+	state, err := inspectProductionProvisionLauncherState(
+		result.LauncherPath,
+		expectedConfigPath,
+		expectedControllerPath,
+	)
+	if err != nil || state != productionProvisionLauncherReplaceable {
+		t.Fatalf("matching ancestor alias state=%d err=%v", state, err)
+	}
+	if _, err := inspectProductionProvisionLauncherState(
+		result.LauncherPath,
+		result.ProductionConfigFile,
+		config.BootstrapControllerFile,
+	); err == nil {
+		t.Fatal("historical launcher accepted canonical-equivalent but raw-mismatched paths")
+	}
+}
+
+func TestHistoricalProductionLauncherProductionPreflight(t *testing.T) {
+	if os.Getenv("SUPER_DOLPHIN_PRODUCTION_PREFLIGHT") != "1" {
+		t.Skip("production preflight is opt-in")
+	}
+	manifest, err := loadHistoricalProductionMigrationManifest(
+		"/Volumes/hello/wj/super-dolphin-gate-production/provision-v64/provision.json",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedConfigPath := filepath.Join(manifest.InstallRoot, "production.json")
+	config, err := loadHistoricalProductionMigrationConfig(expectedConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := inspectProductionProvisionLauncherState(
+		manifest.LauncherPath,
+		expectedConfigPath,
+		config.BootstrapControllerFile,
+	)
+	if err != nil || state != productionProvisionLauncherReplaceable {
+		t.Fatalf("production historical launcher state=%d err=%v", state, err)
+	}
+}
+
+func TestHistoricalProductionLauncherRejectsMismatchedAndSymlinkPaths(t *testing.T) {
+	fixture := newProductionProvisionFixture(t)
+	result, err := provisionProductionWithRuntime(context.Background(), fixture.manifest, &productionProvisionRuntimeStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := loadProductionCoordinatorConfigFile(result.ProductionConfigFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	symlinkConfig := filepath.Join(filepath.Dir(result.LauncherPath), "historical-production.json")
+	if err := os.Symlink(result.ProductionConfigFile, symlinkConfig); err != nil {
+		t.Fatal(err)
+	}
+	wrongController := filepath.Join(filepath.Dir(result.LauncherPath), "bootstrap-controller-other")
+	if err := os.WriteFile(wrongController, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string][]byte{
+		"config symlink":      historicalProductionProvisionLauncherData(symlinkConfig, config.BootstrapControllerFile),
+		"controller mismatch": historicalProductionProvisionLauncherData(result.ProductionConfigFile, wrongController),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := os.WriteFile(result.LauncherPath, data, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := provisionProductionWithRuntime(context.Background(), fixture.manifest, &productionProvisionRuntimeStub{}); err == nil {
+				t.Fatal("provision accepted an unverified historical launcher path")
+			}
+		})
+	}
+	if err := os.Chmod(config.BootstrapControllerFile, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(config.BootstrapControllerFile, 0o700); err != nil {
+			t.Error(err)
+		}
+	})
+	if err := os.WriteFile(
+		result.LauncherPath,
+		historicalProductionProvisionLauncherData(result.ProductionConfigFile, config.BootstrapControllerFile),
+		0o700,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := inspectProductionProvisionLauncherState(
+		result.LauncherPath,
+		result.ProductionConfigFile,
+		config.BootstrapControllerFile,
+	); err == nil {
+		t.Fatal("historical launcher accepted a non-owner-only controller")
+	}
+}
+
+func historicalProductionProvisionLauncherData(configPath, controllerPath string) []byte {
+	return []byte("#!/bin/sh\n" +
+		"SUPER_DOLPHIN_GATE_PRODUCTION_CONFIG='" + configPath + "' exec '" + controllerPath + "' _production-launcher \"$@\"\n")
+}
+
+func TestReplaceableProductionLauncherPinsProvisionConfigAndSiblingController(t *testing.T) {
+	fixture := newProductionProvisionFixture(t)
+	result, err := provisionProductionWithRuntime(context.Background(), fixture.manifest, &productionProvisionRuntimeStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	installLegacyProductionLauncherFixture(t, result)
+	config, err := loadProductionCoordinatorConfigFile(result.ProductionConfigFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wrongConfig := filepath.Join(filepath.Dir(result.ProductionConfigFile), "other-production.json")
+	if _, err := inspectProductionProvisionLauncherState(
+		result.LauncherPath,
+		wrongConfig,
+		config.BootstrapControllerFile,
+	); err == nil {
+		t.Fatal("legacy launcher was accepted for a different provision config")
+	}
+
+	configRelative, err := filepath.Rel(filepath.Dir(result.LauncherPath), result.ProductionConfigFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	escapedController := legacyProductionProvisionLauncherData(
+		filepath.ToSlash(configRelative),
+		"../gate-client-v283",
+	)
+	if err := os.WriteFile(result.LauncherPath, escapedController, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := inspectProductionProvisionLauncherState(
+		result.LauncherPath,
+		result.ProductionConfigFile,
+		config.BootstrapControllerFile,
+	); err == nil {
+		t.Fatal("legacy launcher was accepted with a non-sibling controller")
+	}
+}
+
+func TestWriteInitialProductionCurrentCLITempRejectsShortRead(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	path, err := writeInitialProductionCurrentCLITemp(directory, bytes.NewReader([]byte("short")), 10)
+	if err == nil || path != "" {
+		t.Fatalf("path=%q err=%v, want cleaned short-read failure", path, err)
+	}
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("short-read failure left temporary entries: %#v", entries)
 	}
 }
 

@@ -32,12 +32,17 @@ const (
 	buildxBuilderMemoryBytes   = "8589934592"
 	buildxBuilderPidsLimit     = "512"
 	buildxBuilderCleanupLimit  = 30 * time.Second
+	buildxBuilderInspectTries  = 10
+	buildxBuilderInspectDelay  = 500 * time.Millisecond
 	buildxSharedCacheDirectory = "shared"
+	buildxSharedCacheMode      = "min"
 )
 
 var forbiddenBuildArgumentNames = map[string]struct{}{
 	"ALL_PROXY": {}, "HTTP_PROXY": {}, "HTTPS_PROXY": {}, "NO_PROXY": {},
 }
+
+var errBuildxBuilderVersionMissing = errors.New("controlled buildx builder inspection is missing the BuildKit version field")
 
 var controlledBuildxBuilderNamePattern = regexp.MustCompile(`^super-dolphin-gate-[0-9a-f]{12}-candidate-[a-z0-9]+$`)
 
@@ -58,6 +63,7 @@ type DockerBuildxRunner struct {
 	workRoot  string
 	cacheRoot string
 	ownerRoot string
+	wait      func(context.Context, time.Duration) error
 }
 
 type controlledBuildxOwner struct {
@@ -95,7 +101,10 @@ func newDockerBuildxRunner(executor buildxCommandExecutor, trustedRoot string) (
 	if err := makePrivateDirectories(workRoot, cacheRoot, ownerRoot); err != nil {
 		return nil, err
 	}
-	return &DockerBuildxRunner{executor: executor, root: root, workRoot: workRoot, cacheRoot: cacheRoot, ownerRoot: ownerRoot}, nil
+	return &DockerBuildxRunner{
+		executor: executor, root: root, workRoot: workRoot, cacheRoot: cacheRoot, ownerRoot: ownerRoot,
+		wait: waitForBuildxBuilder,
+	}, nil
 }
 
 // Run 执行 Docker CLI，并在成功时只返回单一 config digest 输出。
@@ -276,7 +285,7 @@ func runtimeDepsBuildxArgs(request BuildKitBuildRequest, layout string, metadata
 	if useCache {
 		args = append(args, "--cache-from=type=local,src="+cachePath)
 	}
-	args = append(args, "--cache-to=type=local,dest="+cachePath+",mode=max")
+	args = append(args, "--cache-to=type=local,dest="+cachePath+",mode="+buildxSharedCacheMode)
 	for _, argument := range request.RuntimeDepsBuildArguments {
 		args = append(args, "--build-arg="+argument.Name+"="+argument.Value)
 	}
@@ -312,9 +321,9 @@ func (runner *DockerBuildxRunner) createControlledBuilder(ctx context.Context, r
 			}
 		}
 	}()
-	inspectOutput, err := runner.executor.Run(ctx, bytes.NewReader(nil), "buildx", "inspect", "--builder", builderName, "--bootstrap")
+	inspectOutput, err := runner.inspectControlledBuilder(ctx, builderName, request.BuildKitVersion)
 	if err != nil {
-		return "", fmt.Errorf("inspect controlled buildx builder: %w", err)
+		return "", err
 	}
 	if err := runner.configureControlledBuilder(ctx, inspectOutput, request.BuildKitVersion, builderName); err != nil {
 		return "", err
@@ -323,6 +332,38 @@ func (runner *DockerBuildxRunner) createControlledBuilder(ctx context.Context, r
 		return "", err
 	}
 	return builderName, nil
+}
+
+// inspectControlledBuilder 等待受控 BuildKit builder 就绪并校验锁定版本。
+func (runner *DockerBuildxRunner) inspectControlledBuilder(ctx context.Context, builderName string, buildKitVersion string) (string, error) {
+	for attempt := 1; attempt <= buildxBuilderInspectTries; attempt++ {
+		output, err := runner.executor.Run(ctx, bytes.NewReader(nil), "buildx", "inspect", "--builder", builderName, "--bootstrap")
+		if err != nil {
+			return "", fmt.Errorf("inspect controlled buildx builder: %w", err)
+		}
+		err = validateBuildxInspectVersion(output, buildKitVersion)
+		if err == nil {
+			return output, nil
+		}
+		if !errors.Is(err, errBuildxBuilderVersionMissing) || attempt == buildxBuilderInspectTries {
+			return "", err
+		}
+		if err := runner.wait(ctx, buildxBuilderInspectDelay); err != nil {
+			return "", fmt.Errorf("wait for controlled buildx builder readiness: %w", err)
+		}
+	}
+	return "", errBuildxBuilderVersionMissing
+}
+
+func waitForBuildxBuilder(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (runner *DockerBuildxRunner) configureControlledBuilder(ctx context.Context, inspectOutput string, buildKitVersion string, builderName string) error {
@@ -404,7 +445,7 @@ func (runner *DockerBuildxRunner) commandArgs(request BuildKitBuildRequest, meta
 	if useCache {
 		args = append(args, "--cache-from=type=local,src="+cachePath)
 	}
-	args = append(args, "--cache-to=type=local,dest="+cachePath+",mode=max")
+	args = append(args, "--cache-to=type=local,dest="+cachePath+",mode="+buildxSharedCacheMode)
 	for _, argument := range request.BuildArguments {
 		args = append(args, "--build-arg="+argument.Name+"="+argument.Value)
 	}
@@ -663,7 +704,7 @@ func validateBuildxInspectVersion(output string, expectedVersion string) error {
 		found = true
 	}
 	if !found {
-		return errors.New("controlled buildx builder inspection is missing the BuildKit version field")
+		return errBuildxBuilderVersionMissing
 	}
 	return nil
 }

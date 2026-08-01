@@ -76,11 +76,6 @@ func archtestNonGoInputRelevant(file string) bool {
 	return false
 }
 
-func codexStopGateRelevant(file string) bool {
-	return file == "scripts/codex_stop_gate.sh" ||
-		file == "scripts/tests/test_codex_stop_gate_plan.sh"
-}
-
 func nightlyProtocolRelevant(file string) bool {
 	return nightlyProtocolFiles[file] ||
 		strings.HasPrefix(file, "scripts/nightly_protocol_validator/") ||
@@ -105,9 +100,6 @@ func applyOwnedGateRules(file string, gates map[string]bool) {
 	}
 	if strings.HasSuffix(file, "_test.go") {
 		gates["backend:test-integrity"] = true
-	}
-	if codexStopGateRelevant(file) {
-		gates["codex-stop:self-test"] = true
 	}
 	if nightlyProtocolRelevant(file) {
 		gates["nightly-protocol:check"] = true

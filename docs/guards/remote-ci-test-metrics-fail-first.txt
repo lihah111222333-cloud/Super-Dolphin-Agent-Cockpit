@@ -1,0 +1,7 @@
+source_head: 2e0cec4da5a6367f126af6e285e0d07ff309b1c8
+reviewed_at: 2026-07-27T16:56:32Z
+snapshot_sha256: 1349826b41fa60065a2502abdf173734819f819e2473b37471f59da07e24cdf6
+working_directory: .
+command: env PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin /opt/homebrew/bin/go run ./scripts/code_size_guard.go
+expected_exit: 1
+observed_failure: remote CI integration test metrics improved beyond the accepted ratchet, leaving a stale graduated baseline while production structure checks passed.

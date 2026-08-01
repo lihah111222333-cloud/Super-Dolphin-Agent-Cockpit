@@ -11,28 +11,6 @@ import (
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
-// PermissionMode 是 Codex command hook 当前公开的权限模式。
-type PermissionMode string
-
-const (
-	PermissionModeDefault           PermissionMode = "default"
-	PermissionModeAcceptEdits       PermissionMode = "acceptEdits"
-	PermissionModePlan              PermissionMode = "plan"
-	PermissionModeDontAsk           PermissionMode = "dontAsk"
-	PermissionModeBypassPermissions PermissionMode = "bypassPermissions"
-)
-
-// Validate 校验 permission mode 是否属于 Codex 公开枚举。
-func (m PermissionMode) Validate() error {
-	switch m {
-	case PermissionModeDefault, PermissionModeAcceptEdits, PermissionModePlan,
-		PermissionModeDontAsk, PermissionModeBypassPermissions:
-		return nil
-	default:
-		return fmt.Errorf("unsupported Codex permission_mode %q", m)
-	}
-}
-
 // RepositoryIdentity 绑定 hook cwd 所在的活动 Git worktree。
 type RepositoryIdentity struct {
 	WorktreeRoot string                       `json:"worktree_root"`
@@ -77,12 +55,11 @@ func (i InvocationIdentity) Validate() error {
 
 // SubmitRequest 是 hook adapter 交给统一 submit 边界的唯一请求。
 type SubmitRequest struct {
-	Entrypoint     gatecontract.CIEntrypointID `json:"entrypoint"`
-	Profile        gatecontract.Profile        `json:"profile"`
-	Repository     RepositoryIdentity          `json:"repository"`
-	Invocation     InvocationIdentity          `json:"invocation"`
-	Source         gatecontract.SourceSpec     `json:"source"`
-	PermissionMode PermissionMode              `json:"permission_mode,omitempty"`
+	Entrypoint gatecontract.CIEntrypointID `json:"entrypoint"`
+	Profile    gatecontract.Profile        `json:"profile"`
+	Repository RepositoryIdentity          `json:"repository"`
+	Invocation InvocationIdentity          `json:"invocation"`
+	Source     gatecontract.SourceSpec     `json:"source"`
 }
 
 // Validate 复用 canonical entrypoint registry 和 SourceSpec，不复制 gate registry。
@@ -112,7 +89,7 @@ func (r SubmitRequest) Validate() error {
 	if !slices.Contains(entrypoint.AllowedProfiles, r.Profile) {
 		return fmt.Errorf("entrypoint %q rejects profile %q", r.Entrypoint, r.Profile)
 	}
-	return validateSubmitPermissionMode(r)
+	return nil
 }
 
 // StatusRequest 是 hook adapter 交给统一 status 边界的查询。
@@ -218,18 +195,6 @@ func canonicalEntrypoint(id gatecontract.CIEntrypointID) (gatecontract.CIEntrypo
 		}
 	}
 	return gatecontract.CIEntrypoint{}, fmt.Errorf("unknown CI entrypoint %q", id)
-}
-
-func validateSubmitPermissionMode(request SubmitRequest) error {
-	switch request.Entrypoint {
-	case gatecontract.CIEntrypointCodexStop, gatecontract.CIEntrypointCodexSubagentStop:
-		return request.PermissionMode.Validate()
-	default:
-		if request.PermissionMode != "" {
-			return fmt.Errorf("entrypoint %q must not carry permission_mode", request.Entrypoint)
-		}
-		return nil
-	}
 }
 
 // validSHA256Identity 校验带算法前缀的小写 SHA-256 identity。

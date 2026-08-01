@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDockerBuildxRunnerUsesFixedCommandAndCanonicalStdin(t *testing.T) {
@@ -85,7 +86,7 @@ func TestBuildxSharedCachePathIsNodeConfiguredAndWorktreeIndependent(t *testing.
 			t.Fatal(err)
 		}
 		cachePath := filepath.Join(runner.cacheRoot, buildxSharedCacheDirectory)
-		wantCacheTo := "--cache-to=type=local,dest=" + cachePath + ",mode=max"
+		wantCacheTo := "--cache-to=type=local,dest=" + cachePath + ",mode=min"
 		for _, request := range requests {
 			runtimeArgs := runtimeDepsBuildxArgs(request, "/tmp/runtime", "/tmp/runtime.json", cachePath, true, "builder")
 			candidateArgs := runner.commandArgs(request, "/tmp/candidate.json", "candidate", true, "builder")
@@ -394,6 +395,22 @@ func TestDockerBuildxRunnerRejectsBuilderVersionAndResourceDrift(t *testing.T) {
 	}
 }
 
+func TestDockerBuildxRunnerWaitsForBuilderVersion(t *testing.T) {
+	request := validBuildxRequest(t)
+	executor := validBuildxExecutor(t, request)
+	executor.inspectOutputs = []string{
+		"Name: controlled\nStatus: running\n",
+		"Name: controlled\nStatus: running\nBuildKit version: " + request.BuildKitVersion + "\n",
+	}
+	runner, _ := newTestDockerBuildxRunner(t, executor)
+	if _, err := runner.Build(context.Background(), request); err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if executor.inspectCalls != 2 {
+		t.Fatalf("buildx inspect calls = %d, want 2", executor.inspectCalls)
+	}
+}
+
 func TestDockerBuildxRunnerCleansUpWithBoundedContextAfterBuildCancellation(t *testing.T) {
 	request := validBuildxRequest(t)
 	executor := validBuildxExecutor(t, request)
@@ -626,6 +643,7 @@ func newTestDockerBuildxRunner(t *testing.T, executor buildxCommandExecutor) (*D
 	if err != nil {
 		t.Fatal(err)
 	}
+	runner.wait = func(context.Context, time.Duration) error { return nil }
 	return runner, runner.root
 }
 
@@ -671,7 +689,7 @@ func assertBuildxArgumentsContain(t *testing.T, args []string, required []string
 }
 
 func assertSharedBuildxCache(t *testing.T, args []string, root string) {
-	cacheArgument := "--cache-to=type=local,dest=" + filepath.Join(root, "cache", buildxSharedCacheDirectory) + ",mode=max"
+	cacheArgument := "--cache-to=type=local,dest=" + filepath.Join(root, "cache", buildxSharedCacheDirectory) + ",mode=min"
 	if !slices.Contains(args, cacheArgument) {
 		t.Fatalf("buildx command does not export the node shared cache: %v", args)
 	}
@@ -757,8 +775,8 @@ func assertRuntimeDepsBuildxArgs(t *testing.T, args []string, request BuildKitBu
 	assertBuildxCommandShape(t, args)
 	assertControlledBuilderArgument(t, args)
 	assertBuildxArgumentsContain(t, args, []string{"--progress=plain", "--platform=" + request.Platform, "--file=" + request.RuntimeDepsDockerfilePath, "--network=default"}, "runtime dependencies buildx command")
-	if cacheTo := valueWithPrefix(args, "--cache-to="); !strings.HasPrefix(cacheTo, "--cache-to=type=local,dest=") || !strings.HasSuffix(cacheTo, ",mode=max") {
-		t.Fatalf("runtime dependencies cache export = %q, want node-local mode=max", cacheTo)
+	if cacheTo := valueWithPrefix(args, "--cache-to="); !strings.HasPrefix(cacheTo, "--cache-to=type=local,dest=") || !strings.HasSuffix(cacheTo, ",mode=min") {
+		t.Fatalf("runtime dependencies cache export = %q, want node-local mode=min", cacheTo)
 	}
 	if output := valueWithPrefix(args, "--output="); !strings.Contains(output, "/runtime-deps,tar=false") {
 		t.Fatalf("runtime dependencies OCI layout output = %q", output)

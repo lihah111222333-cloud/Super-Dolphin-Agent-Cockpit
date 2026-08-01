@@ -93,6 +93,7 @@ func assertProductionProvisionTrustedSourceRoot(
 	}
 }
 
+// super-dolphin-ci: platform=darwin
 func TestProductionProvisionBootstrapOwnerReleaseCLIDockerE2E(t *testing.T) {
 	requireProductionProvisionDockerE2E(t)
 	execution := prepareProductionProvisionDockerExecution(t)

@@ -43,6 +43,20 @@ real_go_resolver_error() {
   echo "❌ 未找到真实 go 二进制。请设置 REAL_GO_BIN=/absolute/path/to/go (absolute path)，或安装 Go 并确保 PATH 可见。" >&2
 }
 
+require_remote_test_execution() {
+  if [[ "${SUPER_DOLPHIN_TEST_BACKEND:-}" == "remote-worker" ]]; then
+    return 0
+  fi
+  cat >&2 <<'EOF_MSG'
+❌ 禁止在宿主机直接执行仓库测试
+
+所有测试请求必须先经过 super-dolphin-gate test 的共享 PASS 缓存与轻量判定。
+包级、race、benchmark、Vitest、未知耗时或多个 cache miss 会自动进入 ECI；
+宿主机只允许 CLI 放行的单个精确轻量 Go Test。
+EOF_MSG
+  return 2
+}
+
 resolve_real_go() {
   local scripts_dir wrapper_go global_wrapper candidate candidate_abs
   scripts_dir="$(real_go_resolver_script_dir)"

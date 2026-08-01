@@ -707,7 +707,14 @@ func writeWorkflowProductionConfig(outputPath string, config productionCoordinat
 	if _, err := os.Lstat(outputPath); !errors.Is(err, os.ErrNotExist) {
 		return errors.New("workflow production config output already exists")
 	}
-	encoded, err := json.Marshal(config)
+	portable, err := portableProductionCoordinatorConfig(filepath.Dir(outputPath), config)
+	if err != nil {
+		return fmt.Errorf("make relocated workflow config portable: %w", err)
+	}
+	if err := storedProductionCoordinatorConfig(portable).Validate(); err != nil {
+		return fmt.Errorf("validate stored workflow config: %w", err)
+	}
+	encoded, err := json.Marshal(portable)
 	if err != nil {
 		return fmt.Errorf("encode relocated workflow config: %w", err)
 	}

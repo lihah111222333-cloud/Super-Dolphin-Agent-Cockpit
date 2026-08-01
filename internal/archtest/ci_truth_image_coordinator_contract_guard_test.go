@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -27,15 +28,15 @@ func TestCIEntrypointsRequireCoordinatorCLI(t *testing.T) {
 	configureCoordinatorContractGuardLauncher(t, root, fakeBin)
 
 	for _, test := range []struct {
-		name          string
-		path          string
-		args          []string
-		want          []string
-		treeBoundHook bool
+		name           string
+		path           string
+		args           []string
+		want           []string
+		treeBoundHook  bool
+		remotePushHook bool
 	}{
 		{name: "pre-commit", path: ".githooks/pre-commit", treeBoundHook: true},
-		{name: "pre-push", path: ".githooks/pre-push", args: []string{"origin", "https://example.invalid/repository.git"}, want: []string{"hook pre-push origin https://example.invalid/repository.git"}},
-		{name: "codex-stop", path: "scripts/codex_stop_gate.sh", want: []string{"hook codex"}},
+		{name: "pre-push", path: ".githooks/pre-push", args: []string{"origin", "https://example.invalid/repository.git"}, remotePushHook: true},
 		{name: "candidate-ci", path: "scripts/ci_truth_image_gate.sh", want: []string{"workflow-host"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -50,10 +51,14 @@ func TestCIEntrypointsRequireCoordinatorCLI(t *testing.T) {
 			}
 			got := contractGuardCommandLog(t, logPath)
 			if test.treeBoundHook {
-				assertTreeBoundPreCommitCoordinatorCommands(t, root, got)
+				assertTreeBoundRemotePreCommitCoordinatorCommands(t, root, got)
 				return
 			}
-			if !slices.Equal(got, test.want) {
+			if test.remotePushHook {
+				assertRemotePrePushCoordinatorCommands(t, root, got, test.args)
+				return
+			}
+			if len(got) != 1 || !slices.Equal(got[0], test.want) {
 				t.Fatalf("%s coordinator argv = %#v, want %#v", test.path, got, test.want)
 			}
 		})
@@ -62,14 +67,136 @@ func TestCIEntrypointsRequireCoordinatorCLI(t *testing.T) {
 
 const queuedCoordinatorJobID = "job-00000000000000000000000000000000"
 
-func assertTreeBoundPreCommitCoordinatorCommands(t *testing.T, root string, got []string) {
+const (
+	coordinatorContractRemoteConfig = "/contract/remote-ci.json"
+	coordinatorContractRemoteLedger = "/contract/ci-duration-ledger.json"
+	coordinatorContractRemoteState  = "/contract/baseline-state.json"
+)
+
+func assertTreeBoundRemotePreCommitCoordinatorCommands(t *testing.T, root string, got [][]string) {
 	t.Helper()
-	if len(got) != 3 {
-		t.Fatalf("pre-commit coordinator argv = %#v, want closure, hook, and wait", got)
+	if len(got) == 0 {
+		t.Fatal("pre-commit coordinator argv is empty")
 	}
-	tree := closureTreeForCoordinatorContractGuard(t, root, strings.Fields(got[0]))
-	assertCoordinatorCommandBindsTree(t, "hook", strings.Fields(got[1]), []string{"hook", "pre-commit", "--tree"}, tree)
-	assertCoordinatorCommandBindsTree(t, "wait", strings.Fields(got[2]), []string{"wait", "--job", queuedCoordinatorJobID, "--tree"}, tree)
+	tree := closureTreeForCoordinatorContractGuard(t, root, got[0])
+	acceptedTree := headTreeForCoordinatorContractGuard(t, root)
+	next := assertFrontendCodeSizeCoordinatorCommands(t, got, tree, acceptedTree)
+	if len(got) != next+3 {
+		t.Fatalf("pre-commit coordinator argv = %#v, want project-map, codemap, and synchronous remote hook after frontend validation", got)
+	}
+	if want := []string{"project-map", "check", "--tree", tree}; !slices.Equal(got[next], want) {
+		t.Fatalf("pre-commit project-map argv = %#v, want %#v", got[next], want)
+	}
+	if want := []string{"codemap", "check", "--tree", tree}; !slices.Equal(got[next+1], want) {
+		t.Fatalf("pre-commit codemap argv = %#v, want %#v", got[next+1], want)
+	}
+	assertRemoteCoordinatorHookCommand(t, got[next+2], "pre-commit", map[string]string{
+		"--config":     coordinatorContractRemoteConfig,
+		"--ledger":     coordinatorContractRemoteLedger,
+		"--repository": root,
+		"--tree":       tree,
+		"--parent":     headCommitForCoordinatorContractGuard(t, root),
+		"--state":      coordinatorContractRemoteState,
+	}, nil)
+}
+
+func assertFrontendCodeSizeCoordinatorCommands(t *testing.T, got [][]string, tree, acceptedTree string) int {
+	t.Helper()
+	check := []string{"frontend-code-size", "check", "--tree", tree, "--accepted-tree", acceptedTree}
+	if len(got) > 1 && slices.Equal(got[1], check) {
+		return 2
+	}
+	migrate := []string{"frontend-code-size", "migrate", "--tree", tree, "--accepted-tree", acceptedTree}
+	if len(got) > 3 &&
+		slices.Equal(got[1], []string{"frontend-code-size", "node-path"}) &&
+		slices.Equal(got[2], migrate) &&
+		slices.Equal(got[3], migrate) {
+		return 4
+	}
+	t.Fatalf("pre-commit frontend-code-size argv = %#v, want check or deterministic migration path", got)
+	return 0
+}
+
+func assertRemotePrePushCoordinatorCommands(t *testing.T, root string, got [][]string, trailing []string) {
+	t.Helper()
+	if len(got) != 1 {
+		t.Fatalf("pre-push coordinator argv = %#v, want one synchronous remote hook", got)
+	}
+	assertRemoteCoordinatorHookCommand(t, got[0], "pre-push", map[string]string{
+		"--config":     coordinatorContractRemoteConfig,
+		"--ledger":     coordinatorContractRemoteLedger,
+		"--repository": root,
+		"--state":      coordinatorContractRemoteState,
+	}, trailing)
+}
+
+func assertRemoteCoordinatorHookCommand(
+	t *testing.T,
+	command []string,
+	hook string,
+	required map[string]string,
+	trailing []string,
+) {
+	t.Helper()
+	prefix := []string{"remote", "hook", hook}
+	flagArgs := remoteCoordinatorHookFlagArgs(t, command, prefix, trailing)
+	observed := remoteCoordinatorHookFlags(t, hook, flagArgs)
+	assertRequiredRemoteCoordinatorHookFlags(t, hook, observed, required)
+	assertOptionalRemoteMaxShards(t, hook, observed)
+	if len(observed) != 0 {
+		t.Errorf("remote %s coordinator has unexpected flags: %v", hook, observed)
+	}
+}
+
+func remoteCoordinatorHookFlagArgs(t *testing.T, command, prefix, trailing []string) []string {
+	t.Helper()
+	if len(command) < len(prefix)+len(trailing) || !slices.Equal(command[:len(prefix)], prefix) {
+		t.Fatalf("remote coordinator argv = %#v, want prefix %#v", command, prefix)
+	}
+	if len(trailing) != 0 {
+		if !slices.Equal(command[len(command)-len(trailing):], trailing) {
+			t.Fatalf("remote coordinator argv = %#v, want trailing argv %#v", command, trailing)
+		}
+		command = command[:len(command)-len(trailing)]
+	}
+	return command[len(prefix):]
+}
+
+func remoteCoordinatorHookFlags(t *testing.T, hook string, flagArgs []string) map[string]string {
+	t.Helper()
+	if len(flagArgs)%2 != 0 {
+		t.Fatalf("remote %s coordinator flag argv = %#v, want flag/value pairs", hook, flagArgs)
+	}
+	observed := make(map[string]string, len(flagArgs)/2)
+	for index := 0; index < len(flagArgs); index += 2 {
+		flag, value := flagArgs[index], flagArgs[index+1]
+		if _, duplicate := observed[flag]; duplicate {
+			t.Fatalf("remote %s coordinator flag %q is duplicated", hook, flag)
+		}
+		observed[flag] = value
+	}
+	return observed
+}
+
+func assertRequiredRemoteCoordinatorHookFlags(t *testing.T, hook string, observed, required map[string]string) {
+	t.Helper()
+	for flag, want := range required {
+		if got := observed[flag]; got != want {
+			t.Errorf("remote %s coordinator %s = %q, want %q", hook, flag, got, want)
+		}
+		delete(observed, flag)
+	}
+}
+
+func assertOptionalRemoteMaxShards(t *testing.T, hook string, observed map[string]string) {
+	t.Helper()
+	if value, ok := observed["--max-shards"]; ok {
+		maxShards, err := strconv.Atoi(value)
+		if err != nil || maxShards <= 0 || maxShards > 128 {
+			t.Errorf("remote %s coordinator --max-shards = %q, want 1..128", hook, value)
+		}
+		delete(observed, "--max-shards")
+	}
 }
 
 func closureTreeForCoordinatorContractGuard(t *testing.T, root string, closure []string) string {
@@ -87,17 +214,26 @@ func closureTreeForCoordinatorContractGuard(t *testing.T, root string, closure [
 	return tree
 }
 
-func assertCoordinatorCommandBindsTree(t *testing.T, name string, command, wantPrefix []string, tree string) {
+func headCommitForCoordinatorContractGuard(t *testing.T, root string) string {
 	t.Helper()
-	if len(command) != len(wantPrefix)+1 {
-		t.Fatalf("%s coordinator argv = %#v, want %#v followed by tree %q", name, command, wantPrefix, tree)
+	command := exec.Command("git", "rev-parse", "--verify", "HEAD^{commit}")
+	command.Dir = root
+	output, err := command.Output()
+	if err != nil {
+		t.Fatalf("capture parent commit: %v", err)
 	}
-	if !slices.Equal(command[:len(wantPrefix)], wantPrefix) {
-		t.Fatalf("%s coordinator argv = %#v, want %#v followed by tree %q", name, command, wantPrefix, tree)
+	return strings.TrimSpace(string(output))
+}
+
+func headTreeForCoordinatorContractGuard(t *testing.T, root string) string {
+	t.Helper()
+	command := exec.Command("git", "rev-parse", "--verify", "HEAD^{tree}")
+	command.Dir = root
+	output, err := command.Output()
+	if err != nil {
+		t.Fatalf("capture accepted baseline tree: %v", err)
 	}
-	if command[len(wantPrefix)] != tree {
-		t.Fatalf("%s coordinator tree = %q, want %q", name, command[len(wantPrefix)], tree)
-	}
+	return strings.TrimSpace(string(output))
 }
 
 func stagedTreeForCoordinatorContractGuard(t *testing.T, root string) string {
@@ -196,13 +332,13 @@ func TestProductionCoordinatorUsesDynamicContainerShardProtocol(t *testing.T) {
 
 // TestShardResourceAndAggregationContract fixes the contract at the dynamically
 // parsed producer source: each worker is 4 CPU / 8 GiB / 512 PIDs, with at most
-// 64 workers, and the coordinator budgets remain 10m normal / 30m release.
+// 128 workers, and the coordinator budgets remain 10m normal / 30m release.
 func TestShardResourceAndAggregationContract(t *testing.T) {
 	root := coordinatorContractRepoRoot(t)
 	shards := parseContractGuardFile(t, filepath.Join(root, "internal", "devtools", "gate", "container_shards.go"))
 	consts := contractGuardConsts(t, shards)
 	for name, want := range map[string]string{
-		"MaxContainerShards":          "64",
+		"MaxContainerShards":          "128",
 		"legacyContainerShardCount":   "3",
 		"containerShardSchemaVersion": "2",
 		"containerShardCPUNanos":      "4000000000",
@@ -239,7 +375,11 @@ func writeCoordinatorCLIForContractGuard(t *testing.T) (logPath, binaryPath stri
 	dir := t.TempDir()
 	logPath = filepath.Join(dir, "coordinator.log")
 	binaryPath = filepath.Join(dir, "super-dolphin-gate")
-	script := fmt.Sprintf("#!/usr/bin/env bash\nset -euo pipefail\nprintf '%%s\\n' \"$*\" >> %q\nif [[ \"$1\" == \"hook\" && \"$2\" == \"pre-commit\" ]]; then\n  printf 'job=%s\\n'\n  exit 13\nfi\n", logPath, queuedCoordinatorJobID)
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Fatalf("locate Node for coordinator contract guard: %v", err)
+	}
+	script := fmt.Sprintf("#!/usr/bin/env bash\nset -euo pipefail\nprintf '%%s\\0' \"$@\" >> %q\nprintf '\\n' >> %q\nif [[ \"$1\" == \"frontend-code-size\" && \"$2\" == \"node-path\" ]]; then\n  printf '%%s\\n' %q\n  exit 0\nfi\nif [[ \"$1\" == \"hook\" && \"$2\" == \"pre-commit\" ]]; then\n  printf 'job=%s\\n'\n  exit 13\nfi\n", logPath, logPath, node, queuedCoordinatorJobID)
 	if err := os.WriteFile(binaryPath, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +415,7 @@ func configureCoordinatorContractGuardLauncher(t *testing.T, root, launcher stri
 	})
 }
 
-func contractGuardCommandLog(t *testing.T, path string) []string {
+func contractGuardCommandLog(t *testing.T, path string) [][]string {
 	t.Helper()
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -285,17 +425,45 @@ func contractGuardCommandLog(t *testing.T, path string) []string {
 	if trimmed == "" {
 		return nil
 	}
-	return strings.Split(trimmed, "\n")
+	lines := strings.Split(trimmed, "\n")
+	commands := make([][]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSuffix(line, "\x00")
+		commands = append(commands, strings.Split(line, "\x00"))
+	}
+	return commands
 }
 
 func coordinatorContractEnv(path string) []string {
-	environment := make([]string, 0, len(os.Environ())+1)
+	environment := make([]string, 0, len(os.Environ())+5)
 	for _, item := range os.Environ() {
-		if !strings.HasPrefix(item, "PATH=") {
+		if !coordinatorContractEnvironmentOverride(item) {
 			environment = append(environment, item)
 		}
 	}
-	return append(environment, "PATH="+path)
+	return append(
+		environment,
+		"PATH="+path,
+		"SUPER_DOLPHIN_GATE_MODE=remote",
+		"SUPER_DOLPHIN_GATE_REMOTE_CONFIG="+coordinatorContractRemoteConfig,
+		"SUPER_DOLPHIN_GATE_LEDGER="+coordinatorContractRemoteLedger,
+		"SUPER_DOLPHIN_GATE_REMOTE_STATE="+coordinatorContractRemoteState,
+	)
+}
+
+func coordinatorContractEnvironmentOverride(item string) bool {
+	for _, key := range []string{
+		"PATH=",
+		"SUPER_DOLPHIN_GATE_MODE=",
+		"SUPER_DOLPHIN_GATE_REMOTE_CONFIG=",
+		"SUPER_DOLPHIN_GATE_LEDGER=",
+		"SUPER_DOLPHIN_GATE_REMOTE_STATE=",
+	} {
+		if strings.HasPrefix(item, key) {
+			return true
+		}
+	}
+	return false
 }
 
 func coordinatorContractRepoRoot(t *testing.T) string {

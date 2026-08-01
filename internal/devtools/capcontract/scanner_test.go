@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"golang.org/x/tools/go/packages"
 )
 
 func TestScanExtractsCapabilitySurface(t *testing.T) {
@@ -159,6 +161,16 @@ func TestCanonicalTargetsCoverReleasePackageMatrix(t *testing.T) {
 	}
 	if !reflect.DeepEqual(canonicalTargets, want) {
 		t.Fatalf("canonicalTargets = %#v, want release package matrix %#v", canonicalTargets, want)
+	}
+}
+
+func TestScanLoadModeAvoidsTypeChecking(t *testing.T) {
+	if scanLoadMode&packages.NeedTypes != 0 {
+		t.Fatalf("scan load mode must not request type checking: %v", scanLoadMode)
+	}
+	needSyntax := packages.NeedName | packages.NeedCompiledGoFiles | packages.NeedSyntax
+	if scanLoadMode&needSyntax != needSyntax {
+		t.Fatalf("scan load mode must retain package identity and syntax: %v", scanLoadMode)
 	}
 }
 

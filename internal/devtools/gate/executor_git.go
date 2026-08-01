@@ -6,15 +6,19 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 )
 
 const (
-	materializedSourceRef = "refs/source/materialized"
-	baseSourceRef         = "refs/source/base"
+	materializedSourceRef        = "refs/source/materialized"
+	baseSourceRef                = "refs/source/base"
+	copiedSnapshotStatusMaxBytes = 4 << 10
 )
 
 // validateCopiedSnapshot 以固定 ref、脱离分支的 HEAD 和 clean 状态验证副本可信度。
@@ -39,9 +43,17 @@ func validateCopiedSnapshot(ctx context.Context, gitBinary string, sourceCopy st
 		return fmt.Errorf("verify copied snapshot status: %w", err)
 	}
 	if len(status) != 0 {
-		return errors.New("copied snapshot is not clean")
+		return fmt.Errorf("copied snapshot is not clean: git status --porcelain: %s", copiedSnapshotStatusDiagnostic(status))
 	}
 	return nil
+}
+
+// copiedSnapshotStatusDiagnostic 对脏状态做 ASCII 转义和固定上限，便于远程日志安全携带。
+func copiedSnapshotStatusDiagnostic(status []byte) string {
+	if len(status) <= copiedSnapshotStatusMaxBytes {
+		return strconv.QuoteToASCII(string(status))
+	}
+	return fmt.Sprintf("%s (truncated after %d bytes)", strconv.QuoteToASCII(string(status[:copiedSnapshotStatusMaxBytes])), copiedSnapshotStatusMaxBytes)
 }
 
 // runFullTreeWhitespace 对可信 base 到 HEAD 的对象变更执行空白检查；缺失 base 时保守扫描整树。
@@ -289,4 +301,88 @@ func gitOutput(
 		return nil, fmt.Errorf("git %q: %w: %s", args, err, strings.TrimSpace(stderr.String()))
 	}
 	return stdout.Bytes(), nil
+}
+
+// copySourceSnapshot 完整复制可信 Git 快照并拒绝链接和特殊文件。
+func copySourceSnapshot(sourceRoot string, targetRoot string) error {
+	if err := os.Mkdir(targetRoot, 0o700); err != nil {
+		return fmt.Errorf("create writable source copy: %w", err)
+	}
+	directories := []copiedDirectory{{path: targetRoot, mode: 0o700}}
+	copier := sourceSnapshotCopier{sourceRoot: sourceRoot, targetRoot: targetRoot, directories: &directories}
+	err := filepath.WalkDir(sourceRoot, copier.copy)
+	if err != nil {
+		return fmt.Errorf("copy source snapshot: %w", err)
+	}
+	for _, directory := range slices.Backward(directories) {
+		if err := os.Chmod(directory.path, directory.mode); err != nil {
+			return fmt.Errorf("preserve source directory permissions: %w", err)
+		}
+	}
+	return nil
+}
+
+type sourceSnapshotCopier struct {
+	sourceRoot  string
+	targetRoot  string
+	directories *[]copiedDirectory
+}
+
+// copy 校验快照条目路径与类型后复制一个遍历项。
+func (copier sourceSnapshotCopier) copy(sourcePath string, entry fs.DirEntry, walkErr error) error {
+	if walkErr != nil {
+		return walkErr
+	}
+	relative, err := filepath.Rel(copier.sourceRoot, sourcePath)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return errors.New("source entry escapes snapshot root")
+	}
+	if relative == "." {
+		return nil
+	}
+	if entry.Type()&os.ModeSymlink != 0 {
+		return fmt.Errorf("source symlink is forbidden: %s", relative)
+	}
+	info, err := entry.Info()
+	if err != nil {
+		return err
+	}
+	return copier.copyEntry(sourcePath, relative, info)
+}
+
+func (copier sourceSnapshotCopier) copyEntry(sourcePath string, relative string, info fs.FileInfo) error {
+	targetPath := filepath.Join(copier.targetRoot, relative)
+	if info.IsDir() {
+		if err := os.Mkdir(targetPath, 0o700); err != nil {
+			return err
+		}
+		*copier.directories = append(*copier.directories, copiedDirectory{path: targetPath, mode: info.Mode().Perm()})
+		return nil
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("source entry is not a regular file: %s", relative)
+	}
+	return copyRegularFile(sourcePath, targetPath, info.Mode().Perm())
+}
+
+type copiedDirectory struct {
+	path string
+	mode fs.FileMode
+}
+
+func copyRegularFile(sourcePath string, targetPath string, mode fs.FileMode) (retErr error) {
+	source, err := os.Open(sourcePath)
+	if err != nil {
+		return err
+	}
+	defer func() { retErr = errors.Join(retErr, source.Close()) }()
+	target, err := os.OpenFile(targetPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	defer func() { retErr = errors.Join(retErr, target.Close()) }()
+	if _, err := io.Copy(target, source); err != nil {
+		return err
+	}
+	return os.Chmod(targetPath, mode)
 }

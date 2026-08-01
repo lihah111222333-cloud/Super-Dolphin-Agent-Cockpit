@@ -136,33 +136,53 @@ func replaceFileAtomically(path string, data []byte, mode fs.FileMode, rename co
 	closed := false
 	published := false
 	defer func() {
-		if !closed {
-			retErr = errors.Join(retErr, temp.Close())
-		}
-		if !published {
-			if err := os.Remove(tempPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
-				retErr = errors.Join(retErr, fmt.Errorf("ui/code/save: remove temp file: %w", err))
-			}
-		}
+		retErr = errors.Join(retErr, cleanupUnpublishedAtomicTemp(temp, tempPath, closed, published))
 	}()
-	if err := temp.Chmod(mode); err != nil {
-		return fmt.Errorf("ui/code/save: preserve target mode: %w", err)
+	closed, err = writeAndCloseAtomicTemp(temp, data, mode)
+	if err != nil {
+		return err
 	}
-	if _, err := temp.Write(data); err != nil {
-		return fmt.Errorf("ui/code/save: write temp file: %w", err)
-	}
-	if err := temp.Sync(); err != nil {
-		return fmt.Errorf("ui/code/save: sync temp file: %w", err)
-	}
-	if err := temp.Close(); err != nil {
-		closed = true
-		return fmt.Errorf("ui/code/save: close temp file: %w", err)
-	}
-	closed = true
 	if err := rename(tempPath, path); err != nil {
 		return fmt.Errorf("ui/code/save: replace target file: %w", err)
 	}
 	published = true
+	return syncAtomicTargetDirectory(dir)
+}
+
+// writeAndCloseAtomicTemp 保留目标权限，持久化完整内容并确保关闭只尝试一次。
+func writeAndCloseAtomicTemp(temp *os.File, data []byte, mode fs.FileMode) (bool, error) {
+	if err := temp.Chmod(mode); err != nil {
+		return false, fmt.Errorf("ui/code/save: preserve target mode: %w", err)
+	}
+	if _, err := temp.Write(data); err != nil {
+		return false, fmt.Errorf("ui/code/save: write temp file: %w", err)
+	}
+	if err := temp.Sync(); err != nil {
+		return false, fmt.Errorf("ui/code/save: sync temp file: %w", err)
+	}
+	if err := temp.Close(); err != nil {
+		return true, fmt.Errorf("ui/code/save: close temp file: %w", err)
+	}
+	return true, nil
+}
+
+// cleanupUnpublishedAtomicTemp 关闭未关闭的临时文件，并仅在尚未发布时删除它。
+func cleanupUnpublishedAtomicTemp(temp *os.File, tempPath string, closed, published bool) error {
+	var cleanupErr error
+	if !closed {
+		cleanupErr = temp.Close()
+	}
+	if published {
+		return cleanupErr
+	}
+	if err := os.Remove(tempPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("ui/code/save: remove temp file: %w", err))
+	}
+	return cleanupErr
+}
+
+// syncAtomicTargetDirectory 持久化目录项，并聚合目录同步与关闭错误。
+func syncAtomicTargetDirectory(dir string) error {
 	dirHandle, err := os.Open(dir)
 	if err != nil {
 		return fmt.Errorf("ui/code/save: open target directory for sync: %w", err)

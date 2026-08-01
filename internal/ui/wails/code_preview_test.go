@@ -60,6 +60,32 @@ func TestSaveScopedFileWritesWithinScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("saveScopedFile() error = %v", err)
 	}
+	data := assertSavedFileContentAndMode(t, target, "# Saved\n\nBody", 0o600)
+	wantVersion := codeContentVersion(data)
+	assertSuccessfulSaveResult(t, result, wantVersion, codeContentVersion([]byte("old")))
+}
+
+func assertSavedFileContentAndMode(t *testing.T, target, wantBody string, wantMode os.FileMode) []byte {
+	t.Helper()
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(data) != wantBody {
+		t.Fatalf("saveScopedFile() body = %q, want %q", string(data), wantBody)
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatalf("Stat() error = %v", err)
+	}
+	if got := info.Mode().Perm(); got != wantMode {
+		t.Fatalf("saveScopedFile() mode = %o, want %o", got, wantMode)
+	}
+	return data
+}
+
+func assertSuccessfulSaveResult(t *testing.T, result codeSaveResult, wantVersion, staleVersion string) {
+	t.Helper()
 	if !result.Ok {
 		t.Fatal("saveScopedFile() ok = false, want true")
 	}
@@ -69,26 +95,11 @@ func TestSaveScopedFileWritesWithinScope(t *testing.T) {
 	if result.TotalLines != 3 {
 		t.Fatalf("saveScopedFile() totalLines = %d, want 3", result.TotalLines)
 	}
-	data, err := os.ReadFile(target)
-	if err != nil {
-		t.Fatalf("ReadFile() error = %v", err)
-	}
-	if string(data) != "# Saved\n\nBody" {
-		t.Fatalf("saveScopedFile() body = %q, want normalized markdown", string(data))
-	}
-	wantVersion := codeContentVersion(data)
 	if result.ContentVersion != wantVersion {
 		t.Fatalf("saveScopedFile() contentVersion = %q, want hash of written bytes %q", result.ContentVersion, wantVersion)
 	}
-	if result.ContentVersion == codeContentVersion([]byte("old")) {
+	if result.ContentVersion == staleVersion {
 		t.Fatal("saveScopedFile() returned stale request contentVersion")
-	}
-	info, err := os.Stat(target)
-	if err != nil {
-		t.Fatalf("Stat() error = %v", err)
-	}
-	if got := info.Mode().Perm(); got != 0o600 {
-		t.Fatalf("saveScopedFile() mode = %o, want 600", got)
 	}
 	assertCodeSaveResultJSONContentVersion(t, result, wantVersion)
 }

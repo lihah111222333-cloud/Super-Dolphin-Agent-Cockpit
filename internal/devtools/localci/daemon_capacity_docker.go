@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 )
 
 const (
@@ -291,7 +291,7 @@ func (executor *dockerExecutor) Run(ctx context.Context, request containerReques
 	if err := executor.verifySeccomp(); err != nil {
 		return evidence, err
 	}
-	runContext, cancel := platformconfig.WithTimeout(ctx, executionTimeout(request.Release))
+	runContext, cancel := gateprivate.WithTimeout(ctx, executionTimeout(request.Release))
 	defer cancel()
 	evidence.SeccompDigest = executor.seccompDigest
 	evidence.Deadline, _ = runContext.Deadline()
@@ -313,7 +313,7 @@ func (executor *dockerExecutor) Run(ctx context.Context, request containerReques
 func (executor *dockerExecutor) wait(runContext context.Context, parentContext context.Context, evidence containerLifecycleEvidence) (containerLifecycleEvidence, error) {
 	exitCode, err := executor.runner.Run(runContext, "wait", evidence.ContainerID)
 	if err != nil {
-		killContext, killCancel := platformconfig.WithTimeout(context.WithoutCancel(parentContext), 30*time.Second)
+		killContext, killCancel := gateprivate.WithTimeout(context.WithoutCancel(parentContext), 30*time.Second)
 		defer killCancel()
 		if _, killErr := executor.runner.Run(killContext, "kill", evidence.ContainerID); killErr != nil {
 			return evidence, errors.Join(fmt.Errorf("wait for gate container: %w", err), fmt.Errorf("kill gate container: %w", killErr))
@@ -355,7 +355,7 @@ func (executor *dockerExecutor) create(ctx context.Context, request containerReq
 }
 
 func (executor *dockerExecutor) remove(parentContext context.Context, containerID string) error {
-	cleanupContext, cleanupCancel := platformconfig.WithTimeout(context.WithoutCancel(parentContext), 30*time.Second)
+	cleanupContext, cleanupCancel := gateprivate.WithTimeout(context.WithoutCancel(parentContext), 30*time.Second)
 	defer cleanupCancel()
 	_, err := executor.runner.Run(cleanupContext, "rm", "--force", containerID)
 	return err

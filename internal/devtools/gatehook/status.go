@@ -72,27 +72,27 @@ func (s JobStatus) validateStateFields() error {
 	return nil
 }
 
-// CodexDecision 是 Stop 和 SubagentStop stdout 的唯一 JSON 输出。
-type CodexDecision struct {
+// HookDecision 是供应商无关的 hook 状态判定。
+type HookDecision struct {
 	Continue bool   `json:"continue,omitempty"`
 	Decision string `json:"decision,omitempty"`
 	Reason   string `json:"reason,omitempty"`
 }
 
 // DecisionForStatus 仅在有效 passed receipt 与当前 tree 完全一致时继续。
-func DecisionForStatus(status JobStatus, currentTreeSHA string) (CodexDecision, error) {
+func DecisionForStatus(status JobStatus, currentTreeSHA string) (HookDecision, error) {
 	if err := status.Validate(); err != nil {
-		return CodexDecision{}, err
+		return HookDecision{}, err
 	}
 	if strings.TrimSpace(currentTreeSHA) == "" {
-		return CodexDecision{}, errors.New("current tree sha is required")
+		return HookDecision{}, errors.New("current tree sha is required")
 	}
 	if status.SourceTreeSHA != currentTreeSHA {
 		return blockDecision(status, JobStateTreeChanged,
 			fmt.Sprintf("tree changed: job tree %s, current tree %s", status.SourceTreeSHA, currentTreeSHA)), nil
 	}
 	if status.State == JobStatePassed {
-		return CodexDecision{Continue: true}, nil
+		return HookDecision{Continue: true}, nil
 	}
 	return blockDecision(status, status.State, status.Summary), nil
 }
@@ -106,7 +106,7 @@ func WaitRequestForStatus(repository RepositoryIdentity, invocation InvocationId
 	return request, request.Validate()
 }
 
-func blockDecision(status JobStatus, state JobState, detail string) CodexDecision {
+func blockDecision(status JobStatus, state JobState, detail string) HookDecision {
 	reason := fmt.Sprintf(
 		"gate status=%s job=%s queue_position=%d; status: super-dolphin-gate status --job %s; wait: super-dolphin-gate wait --job %s",
 		state,
@@ -121,5 +121,5 @@ func blockDecision(status JobStatus, state JobState, detail string) CodexDecisio
 	if strings.TrimSpace(status.LogRef) != "" {
 		reason += "; log: " + status.LogRef
 	}
-	return CodexDecision{Decision: "block", Reason: reason}
+	return HookDecision{Decision: "block", Reason: reason}
 }

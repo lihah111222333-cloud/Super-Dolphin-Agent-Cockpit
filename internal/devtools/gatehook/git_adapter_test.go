@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -177,18 +178,29 @@ func TestVerifyActiveWorktreeIgnoresMissingUnrelatedWorktree(t *testing.T) {
 
 func TestCountTargetWorktreeRejectsMissingAndDuplicateTarget(t *testing.T) {
 	target := "/repo/current"
-	if count, err := countTargetWorktree("worktree /repo/other\x00\x00", target); err != nil || count != 0 {
+	if count, err := countTargetWorktree("worktree /repo/other\n\n", target); err != nil || count != 0 {
 		t.Fatalf("missing target count=%d err=%v", count, err)
 	}
 	if err := validateTargetWorktreeCount(0, target); err == nil {
 		t.Fatal("missing target was accepted")
 	}
-	duplicate := "worktree " + target + "\x00\x00worktree " + target + "\x00\x00"
+	duplicate := "worktree " + target + "\n\nworktree " + target + "\n\n"
 	if count, err := countTargetWorktree(duplicate, target); err != nil || count != 2 {
 		t.Fatalf("duplicate target count=%d err=%v", count, err)
 	}
 	if err := validateTargetWorktreeCount(2, target); err == nil {
 		t.Fatal("duplicate target was accepted")
+	}
+}
+
+func TestCountTargetWorktreeDecodesQuotedPath(t *testing.T) {
+	target := "/repo/line\nbreak"
+	output := "worktree " + strconv.Quote(target) + "\n\n"
+	if count, err := countTargetWorktree(output, target); err != nil || count != 1 {
+		t.Fatalf("quoted target count=%d err=%v", count, err)
+	}
+	if _, err := countTargetWorktree(strings.TrimRight(output, "\n"), target); err == nil {
+		t.Fatal("unterminated worktree inventory was accepted")
 	}
 }
 

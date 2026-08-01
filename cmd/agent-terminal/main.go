@@ -373,11 +373,20 @@ func runNormalDesktop(ctx context.Context, selection app.StartupSelection) error
 	if err != nil {
 		return err
 	}
-	return app.RunDesktop(ctx, frontendFS, func(readyCtx context.Context, publish app.DesktopACKPublisher) error {
+	runDesktop := app.RunDesktop
+	if useHeadlessDesktopBackend(os.Getenv("SUPER_DOLPHIN_TEST_BACKEND")) {
+		runDesktop = app.RunHeadlessDesktop
+	}
+	return runDesktop(ctx, frontendFS, func(readyCtx context.Context, publish app.DesktopACKPublisher) error {
 		return publish(func() error {
 			return selection.RecordReadyACK(readyCtx, time.Now())
 		})
 	})
+}
+
+// useHeadlessDesktopBackend 只允许远程 worker 绕开宿主原生窗口，其他入口保留真实桌面运行时。
+func useHeadlessDesktopBackend(testBackend string) bool {
+	return testBackend == "remote-worker"
 }
 
 // runRecoveryRuntime 只构造 frozen Recovery graph 与独立 Wails recovery surface。

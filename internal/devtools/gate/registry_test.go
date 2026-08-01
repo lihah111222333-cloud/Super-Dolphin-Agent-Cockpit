@@ -31,18 +31,34 @@ func TestGateRegistryIsCanonicalAndIsolated(t *testing.T) {
 		t.Fatalf("validateGateRegistry() error = %v", err)
 	}
 	digest, err := GateRegistryDigest()
-	if err != nil || !strings.HasPrefix(digest, "sha256:") {
-		t.Fatalf("GateRegistryDigest() = %q, %v", digest, err)
-	}
+	assertCanonicalRegistryDigest(t, digest, err)
 	registry[0].ExecutionOwner = "tampered"
 	registry[0].Argv[0] = "host-shell"
 	registry[0].Profiles[0] = ProfileRelease
 	registry[0].RequiredProfiles[0] = ProfileRelease
 	fresh := GateRegistry()[0]
+	assertGateRegistryCloneUnmodified(t, fresh)
+	assertContainerWorkerCommand(t, fresh)
+}
+
+func assertCanonicalRegistryDigest(t *testing.T, digest string, err error) {
+	t.Helper()
+	if err != nil || !strings.HasPrefix(digest, "sha256:") {
+		t.Fatalf("GateRegistryDigest() = %q, %v", digest, err)
+	}
+}
+
+func assertGateRegistryCloneUnmodified(t *testing.T, fresh GateSpec) {
+	t.Helper()
 	if fresh.ExecutionOwner == "tampered" || fresh.Argv[0] == "host-shell" || fresh.Profiles[0] == ProfileRelease || fresh.RequiredProfiles[0] == ProfileRelease {
 		t.Fatal("GateRegistry() leaked nested mutable canonical state")
 	}
-	if fresh.ExecutionOwner != containerExecutionOwner || fresh.Argv[0] != containerExecutorBinary {
+}
+
+func assertContainerWorkerCommand(t *testing.T, fresh GateSpec) {
+	t.Helper()
+	if fresh.ExecutionOwner != containerExecutionOwner || fresh.Argv[0] != containerGateBinary ||
+		fresh.Argv[1] != containerWorkerNamespace {
 		t.Fatalf("gate command is not container-owned: %#v", fresh)
 	}
 }
@@ -195,6 +211,37 @@ func TestGatePlanValidateStoredAcceptsIntactHistoricalRegistry(t *testing.T) {
 	}
 	if err := plan.Validate(); err == nil {
 		t.Fatal("Validate() accepted a historical plan as current")
+	}
+}
+
+func TestGatePlanValidateStoredAcceptsRetiredExecutorIdentity(t *testing.T) {
+	plan := mustBuildPlan(t, ProfileLocalFast)
+	for index := range plan.Gates {
+		id := string(plan.Gates[index].ID)
+		plan.Gates[index].ExecutionOwner = "container-executor"
+		plan.Gates[index].CommandIdentity = "container-executor/v1/" + id
+		plan.Gates[index].Argv = []string{"/usr/local/bin/super-dolphin-gate-executor", "run", "--gate", id}
+	}
+	digest, err := plan.digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.PlanDigest = digest
+
+	if err := plan.ValidateStored(); err != nil {
+		t.Fatalf("ValidateStored() retired executor error = %v", err)
+	}
+	if err := plan.Validate(); err == nil {
+		t.Fatal("Validate() accepted a retired executor plan as current")
+	}
+
+	plan.Gates[0].CommandIdentity = "container-executor/v2/" + string(plan.Gates[0].ID)
+	plan.PlanDigest, err = plan.digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := plan.ValidateStored(); err == nil {
+		t.Fatal("ValidateStored() accepted a mixed retired executor identity")
 	}
 }
 

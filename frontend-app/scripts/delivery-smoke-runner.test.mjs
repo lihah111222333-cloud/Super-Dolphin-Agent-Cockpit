@@ -45,6 +45,7 @@ describe('delivery smoke runner', () => {
     ]);
     expect(DELIVERY_COMMAND_TIMEOUT_MS).toBe(900_000);
     expect(DELIVERY_RUNNER_CONTENT_PATHS).toBe(FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS);
+    expect(DELIVERY_RUNNER_CONTENT_PATHS).toContain('frontend-app/config/vitest-suite-policy.json');
   });
 
   it.each([
@@ -275,7 +276,7 @@ describe('delivery smoke runner', () => {
     });
   });
 
-  it('keeps the legacy failure verdict schema deep-equal for non-exit-2 failures', async () => {
+  it('attaches bounded diagnostics to non-exit-2 failures', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-29T00:00:00.000Z'));
     const inspected = inspectDeliveryCommands({ scripts: COMPLETE_SCRIPTS }, MAKEFILE);
@@ -304,6 +305,14 @@ describe('delivery smoke runner', () => {
         durationMs: 0,
         status: 'FAIL',
       }],
+      diagnostics: {
+        availability: 'available',
+        stdout: 'must not be retained',
+        stderr: 'must not be retained',
+        error: '',
+        outputTruncated: true,
+        runnerTruncated: false,
+      },
     });
   });
 
@@ -314,7 +323,10 @@ describe('delivery smoke runner', () => {
       killGraceMs: 20_000,
     });
     expect(result.timedOut).toBe(false);
-    expect(result.status, result.stderr).toBe(0);
+    expect(
+      result.status,
+      [result.stdout, result.stderr].filter(Boolean).join('\n'),
+    ).toBe(0);
     const report = JSON.parse(result.stdout);
     expect(report.caseIds).toEqual(DELIVERY_CASE_IDS);
     expect(report.testCount).toBe(DELIVERY_CASE_IDS.length);

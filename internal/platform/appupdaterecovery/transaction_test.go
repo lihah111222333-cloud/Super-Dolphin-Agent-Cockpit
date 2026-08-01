@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -215,6 +216,7 @@ func TestCommitReplayCompletesAfterDiscardIdentityPersistedBeforeRename(t *testi
 }
 
 func TestCommitPendingReplayRejectsMatchingReplacementWithoutDiscardIdentity(t *testing.T) {
+	requireDesktopDiscardIdentitySemantics(t)
 	store, identity, paths := createDirectoryProbationTransaction(t)
 	ackProbationTransaction(t, store, identity)
 	beginCommitPending(t, store, identity)
@@ -292,6 +294,7 @@ func TestCommittedReplayRemovesPartiallyDeletedDiscardTree(t *testing.T) {
 }
 
 func TestCommittedReplayRejectsReplacedDiscardRoot(t *testing.T) {
+	requireDesktopDiscardIdentitySemantics(t)
 	store, identity, paths := createDirectoryProbationTransaction(t)
 	lease := ackProbationTransaction(t, store, identity)
 	crashAfterEffect(store, StateCommitted)
@@ -315,6 +318,13 @@ func TestCommittedReplayRejectsReplacedDiscardRoot(t *testing.T) {
 		t.Fatalf("Replay() error = %v, want root identity mismatch", err)
 	}
 	assertPathExists(t, replacement)
+}
+
+func requireDesktopDiscardIdentitySemantics(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "linux" {
+		t.Skip("discard root identity is enforced by the supported desktop filesystem implementations")
+	}
 }
 
 func assertCommittedDiscardCrash(t *testing.T, store *Store, identity Identity) {

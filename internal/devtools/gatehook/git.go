@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
@@ -121,7 +122,7 @@ func gitAbsolutePath(ctx context.Context, cwd, selector string) (string, error) 
 
 // verifyActiveWorktree 要求 canonical root 在 Git worktree inventory 中恰好出现一次。
 func verifyActiveWorktree(ctx context.Context, identity RepositoryIdentity) error {
-	output, err := runGit(ctx, identity.WorktreeRoot, nil, "worktree", "list", "--porcelain", "-z")
+	output, err := runGit(ctx, identity.WorktreeRoot, nil, "worktree", "list", "--porcelain")
 	if err != nil {
 		return err
 	}
@@ -143,25 +144,39 @@ func validateTargetWorktreeCount(count int, targetRoot string) error {
 	return nil
 }
 
-// countTargetWorktree 解析 NUL porcelain，只比较目标 canonical root 的原始绝对路径。
+// countTargetWorktree 解析换行 porcelain，并严格解码 Git 引用的绝对路径。
 func countTargetWorktree(output, targetRoot string) (int, error) {
-	if output == "" || output[len(output)-1] != 0 {
-		return 0, errors.New("Git worktree porcelain output is not NUL terminated")
+	if output == "" || output[len(output)-1] != '\n' {
+		return 0, errors.New("Git worktree porcelain output is not newline terminated")
 	}
 	count := 0
-	for field := range strings.SplitSeq(output, "\x00") {
-		if !strings.HasPrefix(field, "worktree ") {
+	for line := range strings.SplitSeq(output, "\n") {
+		if !strings.HasPrefix(line, "worktree ") {
 			continue
 		}
-		candidate := strings.TrimPrefix(field, "worktree ")
-		if candidate == "" || !filepath.IsAbs(candidate) {
-			return 0, errors.New("Git worktree porcelain contains an invalid worktree path")
+		candidate, err := decodeWorktreePath(strings.TrimPrefix(line, "worktree "))
+		if err != nil {
+			return 0, err
 		}
-		if filepath.Clean(candidate) == targetRoot {
+		if candidate == targetRoot {
 			count++
 		}
 	}
 	return count, nil
+}
+
+func decodeWorktreePath(candidate string) (string, error) {
+	if strings.HasPrefix(candidate, "\"") {
+		decoded, err := strconv.Unquote(candidate)
+		if err != nil {
+			return "", fmt.Errorf("decode Git worktree path: %w", err)
+		}
+		candidate = decoded
+	}
+	if candidate == "" || !filepath.IsAbs(candidate) {
+		return "", errors.New("Git worktree porcelain contains an invalid worktree path")
+	}
+	return filepath.Clean(candidate), nil
 }
 
 func (r gitRepository) headCommit(ctx context.Context) (string, error) {

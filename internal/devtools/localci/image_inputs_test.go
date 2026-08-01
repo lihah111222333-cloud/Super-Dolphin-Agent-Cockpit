@@ -1,6 +1,8 @@
 package localci
 
 import (
+	"encoding/json"
+	"errors"
 	"reflect"
 	"slices"
 	"strings"
@@ -9,6 +11,80 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
 )
+
+func TestResolveBaselineGateCompileInputsAcceptsHistoricalRuntimeLock(t *testing.T) {
+	entries := candidateEntries(validCandidateDockerfile())
+	current := mustResolveGateImageInputs(t, readOnlyImageTree(t, entries))
+	baseline, err := ResolveBaselineGateCompileInputs(readOnlyImageTree(t, entries), "linux/arm64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if baseline.GateSourceDigest != current.GateSourceDigest || baseline.ToolchainDigest != current.ToolchainDigest {
+		t.Fatalf("current baseline compile inputs = %+v, want gate=%s toolchain=%s", baseline, current.GateSourceDigest, current.ToolchainDigest)
+	}
+
+	for index := range entries {
+		if entries[index].Path != runtimeDepsLockPath {
+			continue
+		}
+		var lock map[string]any
+		if err := json.Unmarshal(entries[index].Data, &lock); err != nil {
+			t.Fatal(err)
+		}
+		lock["schema_version"] = "8"
+		delete(lock["inputs"].(map[string]any), "runtime_seed_script_browser_sha256")
+		data, err := json.Marshal(lock)
+		if err != nil {
+			t.Fatal(err)
+		}
+		entries[index] = contextEntry(runtimeDepsLockPath, entries[index].Mode, string(append(data, '\n')))
+	}
+	historicalTree := readOnlyImageTree(t, entries)
+	if _, err := ResolveGateImageInputs(historicalTree, digest("d"), "linux/arm64"); err == nil {
+		t.Fatal("current image resolver accepted a historical runtime lock")
+	}
+	historical, err := ResolveBaselineGateCompileInputs(historicalTree, "linux/arm64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if historical != baseline {
+		t.Fatalf("historical baseline compile inputs = %+v, want %+v", historical, baseline)
+	}
+}
+
+func TestResolveBaselineGateCompileInputsAcceptsHistoricalInputManifestV1(t *testing.T) {
+	entries := candidateEntries(validCandidateDockerfile())
+	for index := range entries {
+		if entries[index].Path != buildInputManifestPath {
+			continue
+		}
+		var manifest map[string]any
+		if err := json.Unmarshal(entries[index].Data, &manifest); err != nil {
+			t.Fatal(err)
+		}
+		manifest["schema_version"] = baselineBuildInputManifestSchemaVersion
+		delete(manifest, "gate_compile_inputs")
+		data, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		entries[index] = contextEntry(buildInputManifestPath, entries[index].Mode, string(append(data, '\n')))
+	}
+	tree := readOnlyImageTree(t, entries)
+	if _, err := ResolveGateImageInputs(tree, digest("d"), "linux/arm64"); err == nil {
+		t.Fatal("current image resolver accepted schema 1 build input manifest")
+	}
+	baseline, err := ResolveBaselineGateCompileInputs(tree, "linux/arm64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := errors.Join(
+		validateDigest("historical gate source digest", baseline.GateSourceDigest),
+		validateDigest("historical toolchain digest", baseline.ToolchainDigest),
+	); err != nil {
+		t.Fatalf("historical baseline compile inputs = %+v: %v", baseline, err)
+	}
+}
 
 func TestResolveGateImageInputsIsDeterministicAndIgnoresOrdinarySource(t *testing.T) {
 	baseEntries := candidateEntries(validCandidateDockerfile())
@@ -29,6 +105,9 @@ func TestResolveGateImageInputsIsDeterministicAndIgnoresOrdinarySource(t *testin
 	if ordinary.ImageInputDigest != base.ImageInputDigest || ordinary.ContextDigest != base.ContextDigest {
 		t.Fatal("ordinary source change altered canonical image inputs")
 	}
+	if ordinary.GateSourceDigest != base.GateSourceDigest {
+		t.Fatal("ordinary source change altered the independent gate compile digest")
+	}
 	if slices.ContainsFunc(ordinary.SourceEntries, func(entry sourceexport.TreeEntry) bool {
 		return entry.Path == "internal/module/example/service.go"
 	}) {
@@ -46,6 +125,32 @@ func TestResolveGateImageInputsChangesForDeclaredInput(t *testing.T) {
 	changed := mustResolveGateImageInputs(t, readOnlyImageTree(t, entries))
 	if changed.ImageInputDigest == base.ImageInputDigest || changed.ContextDigest == base.ContextDigest {
 		t.Fatal("declared image input change did not alter canonical digests")
+	}
+	if changed.GateSourceDigest == base.GateSourceDigest {
+		t.Fatal("go.mod change did not alter the gate compile digest")
+	}
+}
+
+func TestResolveGateImageInputsGateDigestChangesForCompileSource(t *testing.T) {
+	entries := candidateEntries(validCandidateDockerfile())
+	base := mustResolveGateImageInputs(t, readOnlyImageTree(t, entries))
+	changeCandidateInput(t, entries, "cmd/super-dolphin-gate/main.go", "package main\n// changed compile source\n")
+	changed := mustResolveGateImageInputs(t, readOnlyImageTree(t, entries))
+	if changed.GateSourceDigest == base.GateSourceDigest {
+		t.Fatal("gate CLI source change did not alter the independent compile digest")
+	}
+}
+
+func TestResolveGateImageInputsGateDigestIgnoresNonCompileImageInput(t *testing.T) {
+	entries := candidateEntries(validCandidateDockerfile())
+	base := mustResolveGateImageInputs(t, readOnlyImageTree(t, entries))
+	changeCandidateInput(t, entries, "frontend-app/package-lock.json", "{\"changed\":true}\n")
+	changed := mustResolveGateImageInputs(t, readOnlyImageTree(t, entries))
+	if changed.ImageInputDigest == base.ImageInputDigest || changed.ContextDigest == base.ContextDigest {
+		t.Fatal("declared image input change did not alter image digests")
+	}
+	if changed.GateSourceDigest != base.GateSourceDigest {
+		t.Fatal("non-compile image input changed the independent gate compile digest")
 	}
 }
 
@@ -87,6 +192,7 @@ func TestGateImageInputFieldRegistryIsComplete(t *testing.T) {
 		"SourceEntries": "candidate builder input", "ImageInputDigest": "accepted reuse decision",
 		"ContextDigest": "context evidence", "InputManifestDigest": "manifest evidence",
 		"ToolchainDigest": "toolchain evidence", "DockerfileDigest": "Dockerfile evidence",
+		"GateSourceDigest": "independent gate compile evidence",
 	})
 }
 

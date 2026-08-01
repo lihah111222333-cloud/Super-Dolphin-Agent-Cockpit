@@ -61,6 +61,11 @@ assert_contains "$DESKTOP_SCRIPT" 'SUPER_DOLPHIN_HOME="${SUPER_DOLPHIN_HOME:-/tm
 assert_contains "$DESKTOP_SCRIPT" 'make APP_COMMIT="$APP_COMMIT" build-peer-binaries'
 }
 assert_contains "$DESKTOP_SCRIPT" 'schema_helper_package_current'
+assert_contains "$DESKTOP_SCRIPT" 'backend failure summary:'
+assert_contains "$DESKTOP_SCRIPT" '"log.level":"error"'
+assert_contains "$DESKTOP_SCRIPT" 'SIG[A-Z]+:'
+assert_contains "$DESKTOP_SCRIPT" 'grep -B 12 -m 1'
+assert_contains "$DESKTOP_SCRIPT" 'out of memory'
 assert_contains "$DESKTOP_SCRIPT" "npm run dev"
 
 echo "✅ new UI desktop hot reload script contract ok"

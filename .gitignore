@@ -22,6 +22,7 @@
 /dist/
 cmd/agent-terminal/frontend/node_modules/
 **/node_modules/
+/frontend-app/node_modules
 cmd/agent-terminal/frontend/dist/*
 !cmd/agent-terminal/frontend/dist/.gitkeep
 cmd/agent-terminal/web-dist/

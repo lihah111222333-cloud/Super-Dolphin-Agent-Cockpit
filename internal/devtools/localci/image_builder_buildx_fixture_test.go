@@ -30,6 +30,8 @@ type recordingBuildxCommandExecutor struct {
 	builderName       string
 	request           BuildKitBuildRequest
 	inspectOutput     string
+	inspectOutputs    []string
+	inspectCalls      int
 	containerOutput   string
 	imageOutput       string
 	attachmentOutput  string
@@ -121,6 +123,12 @@ func (executor *recordingBuildxCommandExecutor) ensureManagedState() {
 }
 
 func (executor *recordingBuildxCommandExecutor) recordBuildxInspect([]string) string {
+	if executor.inspectCalls < len(executor.inspectOutputs) {
+		output := executor.inspectOutputs[executor.inspectCalls]
+		executor.inspectCalls++
+		return output
+	}
+	executor.inspectCalls++
 	return testBuildxOutput(executor.inspectOutput, "Name: "+executor.builderName+"\nDriver: docker-container\nNodes:\n  Name: node\n  Status: running\n  BuildKit version: "+executor.request.BuildKitVersion+"\n")
 }
 

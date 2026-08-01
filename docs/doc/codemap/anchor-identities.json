@@ -233,8 +233,8 @@
       "codemap_line": 119,
       "target_path": "internal/app/app.go",
       "line_spec": "210",
-      "content_sha256": "d117a236c51ce32d12c499766b1dd8c4d23e0db0820337e50b6ca13df106d20b",
-      "symbol": "prepareDesktopRuntime"
+      "content_sha256": "132b7aa3602ab4c89c23b463d28db942920c09ca3df00b513cbeac104460b5fe",
+      "symbol": "RunHeadlessDesktop"
     },
     {
       "codemap_file": "01-terminal-ui-go.md",
@@ -303,16 +303,16 @@
       "codemap_line": 131,
       "target_path": "internal/app/app.go",
       "line_spec": "210",
-      "content_sha256": "d117a236c51ce32d12c499766b1dd8c4d23e0db0820337e50b6ca13df106d20b",
-      "symbol": "prepareDesktopRuntime"
+      "content_sha256": "132b7aa3602ab4c89c23b463d28db942920c09ca3df00b513cbeac104460b5fe",
+      "symbol": "RunHeadlessDesktop"
     },
     {
       "codemap_file": "01-terminal-ui-go.md",
       "codemap_line": 131,
       "target_path": "internal/app/app.go",
       "line_spec": "214",
-      "content_sha256": "9ff9ac34e6e8b29e8d9af176f7b461cd3653fccd90eb42f39b4fb092f499f024",
-      "symbol": "errDesktopNotActivated"
+      "content_sha256": "05eb33bc77301d85481063de5d3cb2f83ca80599a9be1c7c751346892fc431aa",
+      "symbol": "RunHeadlessDesktop"
     },
     {
       "codemap_file": "01-terminal-ui-go.md",
@@ -724,8 +724,8 @@
       "codemap_line": 189,
       "target_path": "internal/ui/wails/code_preview.go",
       "line_spec": "476",
-      "content_sha256": "6211cc5b5732775019b046184af863eb83bdda8a72b9772d720e3663d69012c7",
-      "symbol": "openCodeEditor"
+      "content_sha256": "db419b5b9a14b1a6006ade0a2f9f4dbd4830a06744eae9133a7b120242a43519",
+      "symbol": "imageMediaTypeFromMagic"
     },
     {
       "codemap_file": "01-terminal-ui-go.md",
@@ -1076,7 +1076,7 @@
       "codemap_line": 316,
       "target_path": "internal/archtest/freeze_registry.go",
       "line_spec": "19-28",
-      "content_sha256": "514d081539228f87b073d6e71ebe9f7248d24409e2134a3579c313652e0d2917",
+      "content_sha256": "43359c646a04a9b557659de347aedafd6f1d868ab22a2035e2e6a1a708fd0334",
       "symbol": "explicitFreezeRegistry"
     },
     {
@@ -1399,7 +1399,8 @@
       "codemap_line": 74,
       "target_path": "cmd/mcp-lsp/main.go",
       "line_spec": "20",
-      "content_sha256": "b7e031b99a2c1069f2dd7b3800f2f5dc5cd1dbc14539d712230d5a45830389c7"
+      "content_sha256": "0e95e67a97fbd0f99940f6cb46a32b71bcb2cedad4aba0b8714a9a0fcadc41d2",
+      "symbol": "binaryVersion"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
@@ -1414,8 +1415,8 @@
       "codemap_line": 75,
       "target_path": "cmd/mcp-lsp/fx.go",
       "line_spec": "37",
-      "content_sha256": "4f94e4962d18abae72a6a7e874fc838b5499a8aa55504873871ae36d3c78ba47",
-      "symbol": "bootstrapRunner"
+      "content_sha256": "54caa077bfcad1cd454662250ba2d24bc5ac8ab787b1e9a16b56309b5d61e81d",
+      "symbol": "runtimeParams"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
@@ -1483,22 +1484,23 @@
       "codemap_line": 90,
       "target_path": "cmd/mcp-lsp/main.go",
       "line_spec": "20",
-      "content_sha256": "b7e031b99a2c1069f2dd7b3800f2f5dc5cd1dbc14539d712230d5a45830389c7"
+      "content_sha256": "0e95e67a97fbd0f99940f6cb46a32b71bcb2cedad4aba0b8714a9a0fcadc41d2",
+      "symbol": "binaryVersion"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
       "codemap_line": 91,
       "target_path": "cmd/mcp-lsp/fx.go",
       "line_spec": "37",
-      "content_sha256": "4f94e4962d18abae72a6a7e874fc838b5499a8aa55504873871ae36d3c78ba47",
-      "symbol": "bootstrapRunner"
+      "content_sha256": "54caa077bfcad1cd454662250ba2d24bc5ac8ab787b1e9a16b56309b5d61e81d",
+      "symbol": "runtimeParams"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
       "codemap_line": 92,
       "target_path": "cmd/mcp-lsp/fx.go",
       "line_spec": "105",
-      "content_sha256": "d8ae94286809cc88ec917cc222b5927e6156bd283dee3442696d9a1595723884",
+      "content_sha256": "db3464ca867c326c46dc8b804951d0acdf7b297911dd4c31e09e850f8994120a",
       "symbol": "run"
     },
     {
@@ -1513,16 +1515,16 @@
       "codemap_line": 94,
       "target_path": "cmd/mcp-lsp/fx.go",
       "line_spec": "136",
-      "content_sha256": "27f642374fd74ba145fc92709407a76d79da55cd3ffd94a81d797727311ab613",
-      "symbol": "newServer"
+      "content_sha256": "79f7dd2b136f787da35ba83971b75c62d0eb1f66260bcb343443594441a91501",
+      "symbol": "newBootstrapRunner"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
       "codemap_line": 94,
       "target_path": "cmd/mcp-lsp/fx.go",
       "line_spec": "151",
-      "content_sha256": "1e235807824f89c742211d87e0ad312eb6f1519adce89d3e95d2d0d134d12985",
-      "symbol": "mcpLSPProcessIdleTimeout"
+      "content_sha256": "74fd0f32fa66f2b1b55ba05eee338155bf07fb6787d3ea04c6d847457f89cd3b",
+      "symbol": "registryToolProvider.ListTools"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
@@ -1763,8 +1765,8 @@
       "codemap_line": 213,
       "target_path": "cmd/mcp-lsp/fx.go",
       "line_spec": "136",
-      "content_sha256": "27f642374fd74ba145fc92709407a76d79da55cd3ffd94a81d797727311ab613",
-      "symbol": "newServer"
+      "content_sha256": "79f7dd2b136f787da35ba83971b75c62d0eb1f66260bcb343443594441a91501",
+      "symbol": "newBootstrapRunner"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
@@ -1786,8 +1788,8 @@
       "codemap_line": 214,
       "target_path": "cmd/mcp-lsp/fx.go",
       "line_spec": "151",
-      "content_sha256": "1e235807824f89c742211d87e0ad312eb6f1519adce89d3e95d2d0d134d12985",
-      "symbol": "mcpLSPProcessIdleTimeout"
+      "content_sha256": "74fd0f32fa66f2b1b55ba05eee338155bf07fb6787d3ea04c6d847457f89cd3b",
+      "symbol": "registryToolProvider.ListTools"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
@@ -2750,7 +2752,7 @@
       "codemap_line": 945,
       "target_path": "internal/archtest/freeze_registry.go",
       "line_spec": "19-28",
-      "content_sha256": "514d081539228f87b073d6e71ebe9f7248d24409e2134a3579c313652e0d2917",
+      "content_sha256": "43359c646a04a9b557659de347aedafd6f1d868ab22a2035e2e6a1a708fd0334",
       "symbol": "explicitFreezeRegistry"
     },
     {
@@ -11757,7 +11759,7 @@
       "codemap_line": 341,
       "target_path": "internal/archtest/freeze_registry.go",
       "line_spec": "19",
-      "content_sha256": "d59dab1faa94f674dba5074d9e9de0014d2ce42d3df0e624d770f8a54d57974d",
+      "content_sha256": "e56b9e4c493f064307998b2ba57bcfb5f81a2befadf6be43b2ec3c6ce650085d",
       "symbol": "explicitFreezeRegistry"
     },
     {
@@ -11809,7 +11811,7 @@
       "codemap_line": 29,
       "target_path": "internal/archtest/freeze_registry.go",
       "line_spec": "19",
-      "content_sha256": "d59dab1faa94f674dba5074d9e9de0014d2ce42d3df0e624d770f8a54d57974d",
+      "content_sha256": "e56b9e4c493f064307998b2ba57bcfb5f81a2befadf6be43b2ec3c6ce650085d",
       "symbol": "explicitFreezeRegistry"
     },
     {
@@ -12024,7 +12026,7 @@
       "codemap_line": 437,
       "target_path": "internal/archtest/freeze_registry.go",
       "line_spec": "19",
-      "content_sha256": "d59dab1faa94f674dba5074d9e9de0014d2ce42d3df0e624d770f8a54d57974d",
+      "content_sha256": "e56b9e4c493f064307998b2ba57bcfb5f81a2befadf6be43b2ec3c6ce650085d",
       "symbol": "explicitFreezeRegistry"
     },
     {

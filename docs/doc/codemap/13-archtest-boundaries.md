@@ -2,10 +2,10 @@
 
 > 由 `go run ./scripts/archtestmap` 从 `DefaultBackendBoundaryRegistry()` 自动生成。请勿手工维护本页事实。
 
-- Owners: 15
-- Canonical rules: 26
+- Owners: 14
+- Canonical rules: 25
 - Specialized guards: 9
-- Governed backend surfaces: 33
+- Governed backend surfaces: 32
 
 ## Rule owners
 
@@ -15,8 +15,7 @@
 | `command_boundary` | `cmd/agent-runtime/**/*.go`<br>`cmd/agent-terminal/**/*.go`<br>`cmd/codex-worktree-setup/**/*.go`<br>`cmd/mcp-schema-compiler-helper/**/*.go`<br>`cmd/super-dolphin-gate/**/*.go`<br>`cmd/super-dolphin-guard/**/*.go`<br>`cmd/super-dolphin-release-manifest/**/*.go`<br>`cmd/super-dolphin-updater/**/*.go` | standalone commands import only their registered host or runtime seams |
 | `contract_boundary` | `internal/contract/**/*.go`<br>`internal/dto/**/*.go` | contract and DTO packages are the stable transport-neutral port surface |
 | `fx_assembly` | `cmd/**/*.go`<br>`internal/**/*.go` | Fx belongs only to typed assembly scopes |
-| `gate_executor_boundary` | `cmd/super-dolphin-gate-executor/**/*.go` | the production gate executor may only enter the audited gate runtime |
-| `internal_support_boundary` | `internal/devtools/**/*.go`<br>`internal/dto/**/*.go`<br>`internal/testutil/**/*.go`<br>`internal/util/**/*.go` | shared support packages keep narrow, per-source internal dependency surfaces |
+| `internal_support_boundary` | `internal/devtools/**/*.go`<br>`internal/devtools/archtestmap/**/*.go`<br>`internal/dto/**/*.go`<br>`internal/testutil/**/*.go`<br>`internal/util/**/*.go` | shared support packages keep narrow, per-source internal dependency surfaces |
 | `mcp_sidecar_boundary` | `cmd/mcp-ida/**/*.go`<br>`cmd/mcp-lsp/**/*.go`<br>`cmd/mcp-orch/**/*.go` | MCP sidecars are standalone entrypoints with only narrow shared internal dependencies |
 | `mcpserver_family` | `cmd/mcp-ida/**/*.go`<br>`cmd/mcp-orch/**/*.go` | MCP server families must not couple to sibling tool implementations |
 | `module_boundary` | `internal/module/**/*.go` | business modules own their internals and must communicate through contract or DTO ports |
@@ -32,14 +31,13 @@
 | Rule | Owner | Kind | Files | Allow | Deny | Scope allow | Exceptions | Reason |
 |---|---|---|---|---|---|---|---|---|
 | `app_adapter_narrow_import_surface` | `app_adapter_boundary` | `allow_internal_imports` | `internal/app/runtimeadapter/**/*.go`<br>`internal/app/runtimeadapter/builtintools/adapter.go`<br>`internal/app/runtimeadapter/cachekeepalive/adapter.go`<br>`internal/app/runtimeadapter/mcpcontrol/adapter.go`<br>`internal/app/runtimeadapter/module.go`<br>`internal/app/runtimeadapter/toolbridge/adapter.go`<br>`internal/app/storeadapter/**/*.go`<br>`internal/app/storeadapter/cron/adapter.go`<br>`internal/app/storeadapter/dashboard/adapter.go`<br>`internal/app/storeadapter/datasourcev2/adapter.go`<br>`internal/app/storeadapter/feedback/adapter.go`<br>`internal/app/storeadapter/insight/adapter.go`<br>`internal/app/storeadapter/memory/adapter.go`<br>`internal/app/storeadapter/module.go`<br>`internal/app/storeadapter/personalization/adapter.go`<br>`internal/app/storeadapter/prompt/adapter.go`<br>`internal/app/storeadapter/skill/adapter.go`<br>`internal/app/storeadapter/thread/prompt.go`<br>`internal/app/storeadapter/thread/store.go`<br>`internal/app/storeadapter/turn/adapter.go`<br>`internal/app/storeadapter/uistate/adapter.go` | 90 policies across 19 file patterns | — | — | — | split app adapters may import only their actual child, domain, contract, platform, provider, and store dependencies |
-| `command_narrow_import_surface` | `command_boundary` | `allow_internal_imports` | `cmd/agent-runtime/**/*.go`<br>`cmd/agent-terminal/**/*.go`<br>`cmd/codex-worktree-setup/**/*.go`<br>`cmd/mcp-schema-compiler-helper/**/*.go`<br>`cmd/super-dolphin-gate/**/*.go`<br>`cmd/super-dolphin-guard/**/*.go`<br>`cmd/super-dolphin-release-manifest/**/*.go`<br>`cmd/super-dolphin-updater/**/*.go` | 25 policies across 8 file patterns | — | — | — | standalone commands may import only their registered application or runtime seams |
+| `command_narrow_import_surface` | `command_boundary` | `allow_internal_imports` | `cmd/agent-runtime/**/*.go`<br>`cmd/agent-terminal/**/*.go`<br>`cmd/codex-worktree-setup/**/*.go`<br>`cmd/mcp-schema-compiler-helper/**/*.go`<br>`cmd/super-dolphin-gate/**/*.go`<br>`cmd/super-dolphin-guard/**/*.go`<br>`cmd/super-dolphin-release-manifest/**/*.go`<br>`cmd/super-dolphin-updater/**/*.go` | 36 policies across 8 file patterns | — | — | — | standalone commands may import only their registered application or runtime seams |
 | `contract_dto_no_framework_imports` | `contract_boundary` | `deny_imports` | `internal/contract/**/*.go`<br>`internal/dto/**/*.go` | — | `internal/contract/**/*.go` → `github.com/creachadair/jrpc2`<br>`internal/contract/**/*.go` → `github.com/jackc/pgx/v5`<br>`internal/contract/**/*.go` → `github.com/wailsapp/wails`<br>`internal/contract/**/*.go` → `go.uber.org/fx`<br>`internal/dto/**/*.go` → `github.com/creachadair/jrpc2`<br>`internal/dto/**/*.go` → `github.com/jackc/pgx/v5`<br>`internal/dto/**/*.go` → `github.com/wailsapp/wails`<br>`internal/dto/**/*.go` → `go.uber.org/fx` | — | — | contract and DTO packages stay transport-neutral and must not depend on runtime frameworks |
 | `contract_reverse_pollution` | `contract_boundary` | `allow_repository_imports` | `internal/contract/**/*.go` | `internal/contract/**/*.go` → `internal/contract`<br>`internal/contract/**/*.go` → `internal/dto/agent`<br>`internal/contract/**/*.go` → `internal/dto/mcp`<br>`internal/contract/**/*.go` → `internal/dto/provider`<br>`internal/contract/**/*.go` → `internal/dto/shared`<br>`internal/contract/**/*.go` → `internal/dto/thread`<br>`internal/contract/**/*.go` → `internal/dto/turn`<br>`internal/contract/**/*.go` → `internal/dto/ui` | — | — | — | contract may only define stable DTOs and ports, never depend on implementation details |
 | `fx_assembly_scope` | `fx_assembly` | `scoped_import` | `cmd/**/*.go`<br>`internal/**/*.go` | — | `cmd/**/*.go` → `go.uber.org/fx`<br>`internal/**/*.go` → `go.uber.org/fx` | `cmd/*/main.go` (`fx_command_entrypoint`)<br>`cmd/mcp-ida/**/*.go` (`fx_mcp_ida`)<br>`cmd/mcp-lsp/fx.go` (`fx_mcp_lsp`)<br>`cmd/mcp-orch/**/*.go` (`fx_mcp_orch`)<br>`internal/**/module.go` (`fx_module_file`)<br>`internal/app/**/*.go` (`fx_internal_app`) | — | Fx imports belong only to registered assembly entrypoints |
-| `gate_executor_narrow_import_surface` | `gate_executor_boundary` | `allow_internal_imports` | `cmd/super-dolphin-gate-executor/**/*.go` | `cmd/super-dolphin-gate-executor/**/*.go` → `internal/devtools/gate` | — | — | — | the production gate executor imports only the audited gate runtime package |
 | `hooks_no_mcpcontrol` | `platform_control_boundary` | `deny_imports` | `internal/platform/hooks/**/*.go` | — | `internal/platform/hooks/**/*.go` → `internal/platform/mcpcontrol` | — | — | hooks publish contracts instead of importing MCP control implementations |
 | `hooks_no_platform_db` | `platform_control_boundary` | `deny_imports` | `internal/platform/hooks/**/*.go` | — | `internal/platform/hooks/**/*.go` → `internal/platform/db` | — | — | hooks must not own database lifecycle in production or test helpers |
-| `internal_support_narrow_import_surface` | `internal_support_boundary` | `allow_internal_imports` | `internal/devtools/**/*.go`<br>`internal/dto/**/*.go`<br>`internal/testutil/**/*.go`<br>`internal/util/**/*.go` | 12 policies across 4 file patterns | — | — | — | support packages may import only descendants and explicitly registered shared seams |
+| `internal_support_narrow_import_surface` | `internal_support_boundary` | `allow_internal_imports` | `internal/devtools/**/*.go`<br>`internal/devtools/archtestmap/**/*.go`<br>`internal/dto/**/*.go`<br>`internal/testutil/**/*.go`<br>`internal/util/**/*.go` | 14 policies across 5 file patterns | — | — | — | support packages may import only descendants and explicitly registered shared seams |
 | `mcp_sidecar_narrow_import_surface` | `mcp_sidecar_boundary` | `allow_internal_imports` | `cmd/mcp-ida/**/*.go`<br>`cmd/mcp-lsp/**/*.go`<br>`cmd/mcp-orch/**/*.go` | 51 policies across 3 file patterns | 21 policies across 3 file patterns | — | — | cmd/mcp-* may use local sidecar packages and explicit shared contracts/platform primitives, but not app host, provider, or module services |
 | `mcpcontrol_no_hooks` | `platform_control_boundary` | `deny_imports` | `internal/platform/mcpcontrol/**/*.go` | — | `internal/platform/mcpcontrol/**/*.go` → `internal/platform/hooks` | — | — | MCP control consumes injected hook ports instead of hook implementations |
 | `mcpserver_ida_family` | `mcpserver_family` | `deny_imports` | `cmd/mcp-ida/**/*.go` | — | `cmd/mcp-ida/**/*.go` → `internal/tool/lsp`<br>`cmd/mcp-ida/**/*.go` → `internal/tool/orchestration` | — | — | IDA MCP servers must not depend on LSP or orchestration tool families |
@@ -83,8 +81,7 @@
 | `cmd/mcp-lsp` | `fx_assembly_scope`<br>`mcp_sidecar_narrow_import_surface` | — | LSP MCP sidecar boundary |
 | `cmd/mcp-orch` | `fx_assembly_scope`<br>`mcp_sidecar_narrow_import_surface`<br>`mcpserver_orch_family` | — | orchestration MCP sidecar boundary |
 | `cmd/mcp-schema-compiler-helper` | `command_narrow_import_surface`<br>`fx_assembly_scope` | — | one-shot MCP schema compiler helper |
-| `cmd/super-dolphin-gate` | `command_narrow_import_surface`<br>`fx_assembly_scope` | — | gate planning command assembly |
-| `cmd/super-dolphin-gate-executor` | `fx_assembly_scope`<br>`gate_executor_narrow_import_surface` | — | isolated production gate execution command |
+| `cmd/super-dolphin-gate` | `command_narrow_import_surface`<br>`fx_assembly_scope` | — | standalone gate coordinator and worker command |
 | `cmd/super-dolphin-guard` | `command_narrow_import_surface`<br>`fx_assembly_scope` | — | detached probation Guard command |
 | `cmd/super-dolphin-release-manifest` | `command_narrow_import_surface`<br>`fx_assembly_scope` | — | release manifest command assembly |
 | `cmd/super-dolphin-updater` | `command_narrow_import_surface`<br>`fx_assembly_scope` | — | updater command assembly |

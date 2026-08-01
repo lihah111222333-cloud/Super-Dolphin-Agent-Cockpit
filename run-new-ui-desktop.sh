@@ -463,9 +463,19 @@ stop_stale_vite_for_port() {
 }
 
 print_backend_log_tail() {
+  local failure_pattern
+  failure_pattern='panic:|fatal error:|runtime: |SIG[A-Z]+:|signal:|killed|out of memory|cannot allocate memory|"log.level":"error"|exit status [1-9]'
   if [ -f "$SUPER_DOLPHIN_BACKEND_LOG" ]; then
     echo "  → backend log tail: $SUPER_DOLPHIN_BACKEND_LOG" >&2
     tail -80 "$SUPER_DOLPHIN_BACKEND_LOG" >&2 || true
+    if grep -Eiq "$failure_pattern" "$SUPER_DOLPHIN_BACKEND_LOG"; then
+      echo "  → backend failure summary:" >&2
+      if grep -Eq 'SIG[A-Z]+:' "$SUPER_DOLPHIN_BACKEND_LOG"; then
+        grep -B 12 -m 1 -E 'SIG[A-Z]+:' "$SUPER_DOLPHIN_BACKEND_LOG" >&2 || true
+      else
+        grep -Ei "$failure_pattern" "$SUPER_DOLPHIN_BACKEND_LOG" | head -24 >&2 || true
+      fi
+    fi
   fi
 }
 

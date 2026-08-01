@@ -335,16 +335,22 @@ func TestGitHooksREADMEDeclaresThinHookEntrypoints(t *testing.T) {
 			documentation:  "`super-dolphin-gate closure check --tree <tree>`",
 		},
 		{
+			name:           "pre-commit project map",
+			hookPath:       ".githooks/pre-commit",
+			hookEntrypoint: `project-map check --tree "$staged_tree"`,
+			documentation:  "`super-dolphin-gate project-map check --tree <tree>`",
+		},
+		{
 			name:           "pre-commit coordinator",
 			hookPath:       ".githooks/pre-commit",
 			hookEntrypoint: `hook pre-commit --tree "$staged_tree"`,
-			documentation:  "`super-dolphin-gate hook pre-commit --tree <tree>`",
+			documentation:  "`super-dolphin-gate hook pre-commit --tree <final-tree>`",
 		},
 		{
 			name:           "pre-commit coordinator wait",
 			hookPath:       ".githooks/pre-commit",
 			hookEntrypoint: `wait --job "$job_id" --tree "$staged_tree"`,
-			documentation:  "`super-dolphin-gate wait --job <job-id> --tree <tree>`",
+			documentation:  "`super-dolphin-gate wait --job <job-id> --tree <final-tree>`",
 		},
 		{
 			name:           "pre-push coordinator",
@@ -375,7 +381,7 @@ func TestGitHooksREADMEDeclaresThinHookEntrypoints(t *testing.T) {
 			}
 		})
 	}
-	if !strings.Contains(readme, "thin hook 不直接运行 gofmt、go vet、包测试、前端检查、codemap/project-map 刷新或 AI-maintenance plan") {
+	if !strings.Contains(readme, "thin hook 不直接运行 gofmt、go vet、包测试、前端检查、候选 tree 生成器或 AI-maintenance plan") {
 		t.Fatal("README must state that thin hooks do not run the retired direct gates")
 	}
 	if !strings.Contains(readme, "这些门禁不支持绕过") {
@@ -385,6 +391,7 @@ func TestGitHooksREADMEDeclaresThinHookEntrypoints(t *testing.T) {
 		t.Fatal("README must not document hook bypasses")
 	}
 	assertPreCommitWaitsForQueuedJobs(t, root)
+	assertRemotePreCommitStreamsCoordinatorOutput(t, root)
 }
 
 func assertPreCommitWaitsForQueuedJobs(t *testing.T, root string) {
@@ -394,6 +401,22 @@ func assertPreCommitWaitsForQueuedJobs(t *testing.T, root string) {
 		if !strings.Contains(preCommit, required) {
 			t.Fatalf("pre-commit does not synchronously wait for queued jobs: missing %q", required)
 		}
+	}
+}
+
+func assertRemotePreCommitStreamsCoordinatorOutput(t *testing.T, root string) {
+	t.Helper()
+	preCommit := readGuardFile(t, filepath.Join(root, ".githooks", "pre-commit"))
+	for _, required := range []string{
+		`"$gate_bin" "${remote_args[@]}" 2>&1 | tee "$gate_output_file"`,
+		"hook_rc=${PIPESTATUS[0]}",
+	} {
+		if !strings.Contains(preCommit, required) {
+			t.Fatalf("remote pre-commit buffers coordinator output instead of streaming it: missing %q", required)
+		}
+	}
+	if strings.Contains(preCommit, `"$gate_bin" "${remote_args[@]}" >"$gate_output_file" 2>&1`) {
+		t.Fatal("remote pre-commit regressed to buffered coordinator output")
 	}
 }
 

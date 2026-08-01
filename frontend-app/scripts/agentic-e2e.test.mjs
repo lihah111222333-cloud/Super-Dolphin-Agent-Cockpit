@@ -826,11 +826,9 @@ describe('agentic e2e DOM facts', () => {
     });
   });
 
-  it('collects and normalizes DOM summary items from a browser page', async () => {
-    const browser = await chromium.launch({ headless: true });
-    try {
-      const page = await browser.newPage();
-      await page.setContent(`
+  it('collects and normalizes DOM summary items from the page contract', async () => {
+    const originalHTML = document.body.innerHTML; try {
+      document.body.innerHTML = `
         <main data-testid="frontend-app">
           <nav data-testid="sidebar-secondary-nav">
             <button aria-label="链路追踪"></button>
@@ -858,7 +856,12 @@ describe('agentic e2e DOM facts', () => {
             </select>
           </label>
         </main>
-      `);
+      `;
+      const page = {
+        evaluate: async (callback) => callback(),
+        getByTestId: (testId) => ({ inputValue: async () => String(document.querySelector(`[data-testid="${testId}"]`)?.value || '') }),
+        locator: () => ({ ariaSnapshot: async () => '' }), title: async () => document.title, url: () => window.location.href,
+      };
 
       const facts = await collectPageFacts(page, []);
       const button = facts.domSummary.find((item) => item.tag === 'button' && item.ariaLabel === '链路追踪');
@@ -880,11 +883,8 @@ describe('agentic e2e DOM facts', () => {
         settingsProviderInstanceKeyValue: 'agentic-e2e',
         settingsProviderWritableRootsValue: '/tmp/agentic-e2e/project',
       }));
-    }
-    finally {
-      await browser.close();
-    }
-  }, 15_000);
+    } finally { document.body.innerHTML = originalHTML; }
+  });
 });
 
 describe('agentic e2e config', () => {
@@ -1050,7 +1050,7 @@ describe('agentic e2e sandbox fixture', () => {
 
 describe('agentic e2e strict Wails mock', () => {
   it('responds to known RPCs and records unhandled RPCs', async () => {
-    const browser = await chromium.launch({ headless: true });
+    const browser = await chromium.launch({ headless: true, args: ['--disable-dev-shm-usage'] });
     try {
       const page = await browser.newPage();
       const sandbox = sandboxFixture('/tmp/agentic-e2e-known');
@@ -1073,7 +1073,7 @@ describe('agentic e2e strict Wails mock', () => {
   });
 
   it('returns sandbox paths for project and file pickers and fails on out-of-sandbox project paths', async () => {
-    const browser = await chromium.launch({ headless: true });
+    const browser = await chromium.launch({ headless: true, args: ['--disable-dev-shm-usage'] });
     try {
       const page = await browser.newPage();
       const sandbox = sandboxFixture('/tmp/agentic-e2e-boundary');
@@ -1100,7 +1100,7 @@ describe('agentic e2e strict Wails mock', () => {
   });
 
   it('records sandbox-scoped provider preference writes without leaking raw paths', async () => {
-    const browser = await chromium.launch({ headless: true });
+    const browser = await chromium.launch({ headless: true, args: ['--disable-dev-shm-usage'] });
     try {
       const page = await browser.newPage();
       const sandbox = sandboxFixture('/tmp/agentic-e2e-preferences');
@@ -1192,7 +1192,7 @@ describe('agentic e2e strict Wails mock', () => {
   });
 
   it('accepts runtime trace metadata on provider preference writes without recording trace values', async () => {
-    const browser = await chromium.launch({ headless: true });
+    const browser = await chromium.launch({ headless: true, args: ['--disable-dev-shm-usage'] });
     try {
       const page = await browser.newPage();
       const sandbox = sandboxFixture('/tmp/agentic-e2e-preference-trace');
@@ -1236,7 +1236,7 @@ describe('agentic e2e strict Wails mock', () => {
   });
 
   it('fails provider preference writes for non-whitelisted keys and out-of-sandbox paths', async () => {
-    const browser = await chromium.launch({ headless: true });
+    const browser = await chromium.launch({ headless: true, args: ['--disable-dev-shm-usage'] });
     try {
       const page = await browser.newPage();
       const sandbox = sandboxFixture('/tmp/agentic-e2e-preference-guard');

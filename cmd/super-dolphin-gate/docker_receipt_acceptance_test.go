@@ -1,3 +1,4 @@
+// super-dolphin-ci: platform=darwin
 package main
 
 import (

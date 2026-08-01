@@ -73,7 +73,7 @@ type coordinatorShardRecord struct {
 }
 
 // ensureCoordinatorShardSchema 创建分片子表并迁移可空的 exited_at 证据列。
-func ensureCoordinatorShardSchema(ctx context.Context, db *sql.DB) error {
+func ensureCoordinatorShardSchema(ctx context.Context, db coordinatorSchemaDB) error {
 	if _, err := db.ExecContext(ctx, coordinatorShardStoreSchema); err != nil {
 		return fmt.Errorf("initialize coordinator shard schema: %w", err)
 	}
@@ -97,7 +97,7 @@ func ensureCoordinatorShardSchema(ctx context.Context, db *sql.DB) error {
 }
 
 // coordinatorShardColumns 读取已存在分片表的列集，供迁移与快速失败的表结构校验共同使用。
-func coordinatorShardColumns(ctx context.Context, db *sql.DB) (map[string]bool, error) {
+func coordinatorShardColumns(ctx context.Context, db coordinatorSchemaDB) (map[string]bool, error) {
 	rows, err := db.QueryContext(ctx, "PRAGMA table_info(coordinator_job_shards)")
 	if err != nil {
 		return nil, fmt.Errorf("inspect coordinator shard schema: %w", err)

@@ -41,8 +41,11 @@ type runtimeDepsInputs struct {
 	ProxyGoSum          string `json:"proxy_go_sum_sha256"`
 	ToolsGoMod          string `json:"tools_go_mod_sha256"`
 	ToolsGoSum          string `json:"tools_go_sum_sha256"`
-	ManifestBuilder     string `json:"manifest_builder_sha256"`
-	ManifestAPI         string `json:"manifest_api_sha256"`
+	RuntimeSeedWorker   string `json:"runtime_seed_worker_sha256"`
+	RuntimeSeedRecipe   string `json:"runtime_seed_recipe_sha256"`
+	RuntimeSeedScript   string `json:"runtime_seed_script_sha256"`
+	RuntimeSeedBrowser  string `json:"runtime_seed_script_browser_sha256"`
+	RuntimeSeedRuntime  string `json:"runtime_seed_script_runtime_sha256"`
 }
 
 type runtimeDepsPaths struct {
@@ -111,8 +114,11 @@ func runtimeDepsInputBindings(inputs runtimeDepsInputs) []runtimeDepsInputBindin
 		{"build/gate/runtime-proxy/go.sum", inputs.ProxyGoSum},
 		{"build/gate/runtime-tools/go.mod", inputs.ToolsGoMod},
 		{"build/gate/runtime-tools/go.sum", inputs.ToolsGoSum},
-		{"build/gate/cmd/runtime-seed-manifest/main.go", inputs.ManifestBuilder},
-		{"internal/devtools/gate/executor_seed.go", inputs.ManifestAPI},
+		{"internal/devtools/gate/executor_seed.go", inputs.RuntimeSeedWorker},
+		{"cmd/super-dolphin-gate/remote_refresh_seed.go", inputs.RuntimeSeedRecipe},
+		{"cmd/super-dolphin-gate/remote_refresh_seed_script.go", inputs.RuntimeSeedScript},
+		{"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go", inputs.RuntimeSeedBrowser},
+		{"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go", inputs.RuntimeSeedRuntime},
 	}
 }
 
@@ -526,6 +532,13 @@ type GateImageInputs struct {
 	InputManifestDigest string
 	ToolchainDigest     string
 	DockerfileDigest    string
+	GateSourceDigest    string
+}
+
+// BaselineGateCompileInputs 固化历史基线树中的 Gate 编译闭包与工具链身份。
+type BaselineGateCompileInputs struct {
+	ToolchainDigest  string
+	GateSourceDigest string
 }
 
 func verifyReadOnlyGitTree(tree ReadOnlyGitTree) error {
