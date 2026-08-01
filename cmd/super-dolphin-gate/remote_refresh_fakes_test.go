@@ -108,7 +108,7 @@ type fakeRemoteBaselineOSSStore struct {
 	events             *[]string
 }
 
-func (store *fakeRemoteBaselineOSSStore) Upload(_ context.Context, _ string, key string) error {
+func (store *fakeRemoteBaselineOSSStore) Create(_ context.Context, _ string, key string) error {
 	store.uploadedKeys = append(store.uploadedKeys, key)
 	if len(store.uploadErrors) == 0 {
 		return nil

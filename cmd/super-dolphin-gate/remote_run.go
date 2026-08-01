@@ -162,6 +162,9 @@ func emitRemoteRunResult(stdout io.Writer, result remoteci.RunResult, runErr err
 		if err := encoder.Encode(result); err != nil {
 			return infrastructureError("encode remote CI result: %v", err)
 		}
+		if err := remoteci.RenderHumanTimingLedger(os.Stderr, result); err != nil {
+			return infrastructureError("render remote CI timing ledger: %v", err)
+		}
 	}
 	if runErr == nil {
 		return nil

@@ -58,12 +58,13 @@ type executorConfig struct {
 	preparedRuntimeSeeds  *executorPreparedRuntimeSeeds
 	goBuildCacheSeedRoots []string
 	// goBuildCacheSeedRoot keeps plan-executor callers built before the seed-chain materializer compatible.
-	goBuildCacheSeedRoot  string
-	goBuildCacheRoot      string
-	goBuildCacheProxy     string
-	frontendEmbedSeedRoot string
-	stdout                io.Writer
-	stderr                io.Writer
+	goBuildCacheSeedRoot    string
+	goBuildCacheRoot        string
+	goBuildCacheProxy       string
+	goBuildCacheMetricsPath string
+	frontendEmbedSeedRoot   string
+	stdout                  io.Writer
+	stderr                  io.Writer
 }
 
 type executorWorkloadTimeoutKey struct{}
@@ -256,7 +257,11 @@ func executorGoBuildCacheProgram(config executorConfig, layout executorLayout, r
 	if err != nil {
 		return "", err
 	}
-	return executorGoBuildCacheProxyCommand(config.goBuildCacheProxy, seedRoots, layout.goCache)
+	command, err := executorGoBuildCacheProxyCommand(config.goBuildCacheProxy, seedRoots, layout.goCache)
+	if err != nil || config.goBuildCacheMetricsPath == "" {
+		return command, err
+	}
+	return command + " --metrics " + strconv.Quote(config.goBuildCacheMetricsPath), nil
 }
 
 // runExecutorProgram 分派内建策略或逐步运行无需 shell 的固定命令。

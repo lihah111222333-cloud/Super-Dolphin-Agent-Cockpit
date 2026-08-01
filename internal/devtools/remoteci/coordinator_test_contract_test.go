@@ -14,7 +14,7 @@ import (
 func TestRemoteRunContractFieldRegistry(t *testing.T) {
 	assertBaselineFields(t, reflect.TypeFor[CoordinatorConfig](), []string{
 		"Bucket", "SourcePrefix", "WorkloadCachePrefix", "InternalOSSEndpoint", "WorkerRoleName", "WorkerTimeout", "PollInterval", "CleanupTimeout",
-		"ResourcePolicy", "ResourceObservations", "CandidateCLIBuilder",
+		"ResourcePolicy", "ResourceObservations", "CandidateCLIBuilder", "CandidateTestBinaryBuilder",
 	})
 	assertBaselineFields(t, reflect.TypeFor[RunInput](), []string{
 		"RepositoryRoot", "RemoteName", "RemoteURL", "RequesterFingerprint", "Commit", "Tree", "Base", "RunnerBaseCommit", "RunnerBaseTree",
@@ -26,15 +26,22 @@ func TestRemoteRunContractFieldRegistry(t *testing.T) {
 	})
 	assertBaselineFields(t, reflect.TypeFor[RunResult](), []string{
 		"SchemaVersion", "JobID", "RemoteName", "RemoteURL", "RequesterFingerprint", "Entrypoint", "Profile", "PlanDigest", "CatalogDigest", "SourceTreeSHA",
-		"CandidateCLIManifestSHA256", "RunnerImage", "Status", "Authoritative", "StartedAt", "CompletedAt", "Shards",
-		"ReusedWorkloads", "CacheMissWorkloads", "GateExecutions", "DurationSamples", "PerformanceTimings", "OptimizationWarnings", "CleanupComplete",
+		"CandidateCLIManifestSHA256", "CandidateTestBinaryBuilds", "CandidateTestBinaryReceiptBindingDigest", "RunnerImage", "Status", "Authoritative", "StartedAt", "CompletedAt", "Shards",
+		"ReusedWorkloads", "CacheMissWorkloads", "GateExecutions", "WorkloadExecutions", "DurationSamples", "PerformanceTimings", "OptimizationWarnings", "CleanupComplete",
 	})
 	assertBaselineFields(t, reflect.TypeFor[ShardRequest](), []string{
-		"SchemaVersion", "JobID", "ShardIdentity", "Profile", "PlanDigest", "BaselineManifest", "AnchorGeneration", "AnchorManifest", "AnchorCommit", "AnchorTree", "BaselineDeltas", "RunnerBaseCommit", "RunnerBaseTree", "SourceTreeSHA", "PatchFormat", "PatchKey", "PatchSHA256", "PatchSize", "ManifestKey", "ManifestSHA256", "CandidateCLI", "GateIDs",
+		"SchemaVersion", "JobID", "ShardIdentity", "Profile", "PlanDigest", "BaselineManifest", "AnchorGeneration", "AnchorManifest", "AnchorCommit", "AnchorTree", "BaselineDeltas", "RunnerBaseCommit", "RunnerBaseTree", "SourceTreeSHA", "PatchFormat", "PatchKey", "PatchSHA256", "PatchSize", "ManifestKey", "ManifestSHA256", "CandidateCLI", "CandidateTestBinaries", "GateIDs",
 	})
 	assertBaselineFields(t, reflect.TypeFor[CandidateCLIArtifactRef](), []string{
 		"CandidateTree", "SourceSHA256", "ToolchainSHA256", "Platform", "ManifestKey", "ManifestSHA256", "BinaryKey", "BinarySHA256", "BinarySize", "CLIIdentity",
 	})
+	assertBaselineFields(t, reflect.TypeFor[CandidateTestBinaryArtifactRef](), []string{"CandidateTree", "Package", "Mode", "Platform", "GoToolchain", "CGOEnabled", "ToolchainSHA256", "BuildFlags", "CompileClosureSHA256", "ManifestKey", "ManifestSHA256", "BinaryKey", "BinarySHA256", "BinarySize"})
+	assertBaselineFields(t, reflect.TypeFor[CandidateTestBinaryBuildTarget](), []string{"Package", "Mode", "CGOEnabled"})
+	assertBaselineFields(t, reflect.TypeFor[CandidateTestBinaryBuilderRequest](), []string{"SchemaVersion", "JobID", "CandidateTree", "BaselineManifest", "AnchorGeneration", "AnchorManifest", "AnchorCommit", "AnchorTree", "BaselineDeltas", "RunnerBaseCommit", "RunnerBaseTree", "PatchFormat", "PatchKey", "PatchSHA256", "PatchSize", "ManifestKey", "ManifestSHA256", "CandidateCLI", "CGOEnabled", "Targets", "OutputPrefix"})
+	assertBaselineFields(t, reflect.TypeFor[CandidateTestBinaryCacheGenerationHit](), []string{"Generation", "Hits", "AnchorGeneration", "AnchorManifestDigest", "ManifestDigest", "CacheRootIdentity"})
+	assertBaselineFields(t, reflect.TypeFor[CandidateTestBinaryBuildMetrics](), []string{"GoListWallMS", "BuildWallMS", "CompileActionMS", "LinkActionMS", "CompileCriticalWallMS", "GOCachePrivateHits", "GOCacheBaselineHitsByGeneration", "GOCacheMisses", "GOCachePuts", "GOCachePrivateRootIdentity"})
+	assertBaselineFields(t, reflect.TypeFor[CandidateTestBinaryBuilderBuild](), []string{"Artifact", "Metrics"})
+	assertBaselineFields(t, reflect.TypeFor[CandidateTestBinaryBuilderResult](), []string{"SchemaVersion", "JobID", "CandidateTree", "Platform", "GoToolchain", "CGOEnabled", "ToolchainSHA256", "Builds"})
 }
 
 func TestNewRunResultEchoesRequesterFingerprint(t *testing.T) {
@@ -70,7 +77,8 @@ func baselineBoundShardRequests(t *testing.T) ([]ShardRequest, []string, string,
 	jobPrefix := sourcePrefix + jobID + "/"
 	candidateManifest := strings.Repeat("9", 64)
 	candidateCLI := CandidateCLIArtifactRef{CandidateTree: gitObject, SourceSHA256: runnerIdentity, ToolchainSHA256: runnerIdentity, Platform: "linux/amd64", ManifestKey: jobPrefix + candidateManifest + ".manifest.json", ManifestSHA256: candidateManifest, BinaryKey: jobPrefix + strings.Repeat("8", 64) + ".candidate-cli", BinarySHA256: strings.Repeat("8", 64), BinarySize: 42, CLIIdentity: CandidateCLIIdentity(runnerIdentity, runnerIdentity)}
-	requests, keys, err := buildShardRequestsWithCandidate(sourcePrefix, jobID, []gate.ContainerShard{{Index: 0, IdentityDigest: runnerIdentity, Profile: gate.ProfileLocalFast, PlanDigest: runnerIdentity, SourceTreeSHA: gitObject, GateIDs: []gate.GateID{gate.GateIDWhitespaceCheck}}}, source.Artifact{Manifest: source.Manifest{BaseCommit: runnerBaseCommit, BaseTree: runnerBaseTree, PatchFormat: "git-binary-v1", PatchSHA256: objectDigest}}, jobPrefix+objectDigest+".patch", jobPrefix+objectDigest+".manifest.json", objectDigest, candidateCLI, RunInput{BaselineManifestDigest: baselineManifest, AnchorGeneration: 1, AnchorManifest: anchorManifest, AnchorCommit: gitObject, AnchorTree: gitObject, BaselineDeltas: []BaselineDeltaLayer{{Generation: 2, ObjectPrefix: "baseline-artifacts/2/", ManifestDigest: baselineManifest, BaseCommit: gitObject, BaseTree: gitObject, MainCommit: runnerBaseCommit, MainTree: runnerBaseTree}}, RunnerBaseCommit: runnerBaseCommit, RunnerBaseTree: runnerBaseTree})
+	candidateTestBinaries := []CandidateTestBinaryArtifactRef{{CandidateTree: gitObject, Package: "example.invalid/test", Mode: "test", Platform: "linux/amd64", GoToolchain: "go1.25.7", CGOEnabled: true, ToolchainSHA256: runnerIdentity, BuildFlags: []string{"-trimpath"}, CompileClosureSHA256: runnerIdentity, ManifestKey: jobPrefix + strings.Repeat("7", 64) + ".manifest.json", ManifestSHA256: strings.Repeat("7", 64), BinaryKey: jobPrefix + strings.Repeat("6", 64) + ".test-bin", BinarySHA256: strings.Repeat("6", 64), BinarySize: 42}}
+	requests, keys, err := buildShardRequestsWithCandidate(sourcePrefix, jobID, []gate.ContainerShard{{Index: 0, IdentityDigest: runnerIdentity, Profile: gate.ProfileLocalFast, PlanDigest: runnerIdentity, SourceTreeSHA: gitObject, GateIDs: []gate.GateID{gate.GateIDWhitespaceCheck}}}, source.Artifact{Manifest: source.Manifest{BaseCommit: runnerBaseCommit, BaseTree: runnerBaseTree, PatchFormat: "git-binary-v1", PatchSHA256: objectDigest}}, jobPrefix+objectDigest+".patch", jobPrefix+objectDigest+".manifest.json", objectDigest, candidateCLI, candidateTestBinaries, RunInput{BaselineManifestDigest: baselineManifest, AnchorGeneration: 1, AnchorManifest: anchorManifest, AnchorCommit: gitObject, AnchorTree: gitObject, BaselineDeltas: []BaselineDeltaLayer{{Generation: 2, ObjectPrefix: "baseline-artifacts/2/", ManifestDigest: baselineManifest, BaseCommit: gitObject, BaseTree: gitObject, MainCommit: runnerBaseCommit, MainTree: runnerBaseTree}}, RunnerBaseCommit: runnerBaseCommit, RunnerBaseTree: runnerBaseTree})
 	if err != nil {
 		t.Fatalf("buildShardRequests() error = %v", err)
 	}
@@ -196,6 +204,12 @@ func testCandidateCLI(input RunInput) CandidateCLIArtifactRef {
 	keyPrefix := "baseline-artifacts/source-deltas/job-0123456789abcdef01234567/"
 	digest := strings.Repeat("a", 64)
 	return CandidateCLIArtifactRef{CandidateTree: input.Tree, SourceSHA256: input.CandidateGateSourceSHA256, ToolchainSHA256: input.CandidateGateToolchainSHA256, Platform: "linux/amd64", ManifestKey: keyPrefix + digest + ".manifest.json", ManifestSHA256: digest, BinaryKey: keyPrefix + strings.Repeat("b", 64) + ".candidate-cli", BinarySHA256: strings.Repeat("b", 64), BinarySize: 42, CLIIdentity: CandidateCLIIdentity(input.CandidateGateSourceSHA256, input.CandidateGateToolchainSHA256)}
+}
+
+func testCandidateTestBinary(input RunInput) CandidateTestBinaryArtifactRef {
+	keyPrefix := "baseline-artifacts/source-deltas/job-0123456789abcdef01234567/"
+	digest := strings.Repeat("c", 64)
+	return CandidateTestBinaryArtifactRef{CandidateTree: input.Tree, Package: "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci", Mode: "test", Platform: "linux/amd64", GoToolchain: "go1.25.7", CGOEnabled: true, ToolchainSHA256: input.CandidateGateToolchainSHA256, BuildFlags: []string{"-trimpath"}, CompileClosureSHA256: input.CandidateGateSourceSHA256, ManifestKey: keyPrefix + digest + ".manifest.json", ManifestSHA256: digest, BinaryKey: keyPrefix + strings.Repeat("d", 64) + ".test-bin", BinarySHA256: strings.Repeat("d", 64), BinarySize: 42}
 }
 
 func assertCandidateGateEnvironment(t *testing.T, request eci.CreateRequest, input RunInput) {

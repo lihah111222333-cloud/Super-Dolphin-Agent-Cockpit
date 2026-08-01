@@ -31,6 +31,7 @@ var (
 	bucketPattern                  = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$`)
 	profilePattern                 = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 	objectNotFoundPattern          = regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9])(NoSuchKey|ObjectNotExist)(?:[^A-Za-z0-9]|$)`)
+	objectConflictPattern          = regexp.MustCompile(`(?i)(?:FileAlreadyExists|PreconditionFailed|(?:HTTP|status)[ :=]+(?:409|412)|\b(?:409|412)\b)`)
 	sensitiveQueryParameterPattern = regexp.MustCompile(`(?i)((?:AccessKeyId|AccessKeySecret|Signature|SecurityToken)=)[^&#\s"'<>]+`)
 )
 
@@ -93,16 +94,17 @@ func NewCLI(config Config) (*client, error) {
 	return New(config, execRunner{})
 }
 
-// Upload 将本地文件上传到已限定前缀内的对象 key。
-func (c *client) Upload(ctx context.Context, localPath string, key string) error {
+// Create 将本地文件创建为已限定前缀内的全新对象。
+// 同名对象必须由 OSS 原子拒绝，绝不允许覆盖。
+func (c *client) Create(ctx context.Context, localPath string, key string) error {
 	if strings.TrimSpace(localPath) == "" {
-		return errors.New("oss upload source path must not be empty")
+		return errors.New("oss create source path must not be empty")
 	}
 	objectURL, err := c.objectURL(key)
 	if err != nil {
 		return err
 	}
-	return c.copy(ctx, "upload", localPath, objectURL)
+	return c.copy(ctx, "create", localPath, objectURL, "--meta", "x-oss-forbid-overwrite:true")
 }
 
 // UploadDirectory 用单个 OSS 进程并行上传目录中的全部普通文件。
@@ -311,7 +313,7 @@ func (c *client) DeletePrefix(ctx context.Context, prefix string) error {
 	return err
 }
 
-func (c *client) copy(ctx context.Context, operation string, source string, destination string) (returnErr error) {
+func (c *client) copy(ctx context.Context, operation string, source string, destination string, extraArgs ...string) (returnErr error) {
 	if destination == "" {
 		return errors.New("oss object destination must not be empty")
 	}
@@ -322,10 +324,9 @@ func (c *client) copy(ctx context.Context, operation string, source string, dest
 	defer func() {
 		returnErr = errors.Join(returnErr, os.RemoveAll(checkpointRoot))
 	}()
-	_, returnErr = c.run(
-		ctx, operation, "oss", "cp", source, destination,
-		"--checkpoint-dir", filepath.Join(checkpointRoot, "checkpoint"),
-	)
+	args := append([]string{"oss", "cp", source, destination}, extraArgs...)
+	args = append(args, "--checkpoint-dir", filepath.Join(checkpointRoot, "checkpoint"))
+	_, returnErr = c.run(ctx, operation, args...)
 	return returnErr
 }
 
@@ -357,6 +358,9 @@ func (c *client) run(ctx context.Context, operation string, args ...string) ([]b
 			return stdout, nil
 		}
 		safeStderr := redactSensitiveCLIText(strings.TrimSpace(string(stderr)))
+		if operation == "create" && objectConflictPattern.MatchString(safeStderr) {
+			return nil, &CommandError{Operation: operation, Stderr: safeStderr, Err: err}
+		}
 		if !isTransientCLIError(err, safeStderr) || attempt == maxCLIAttempts {
 			return nil, &CommandError{Operation: operation, Stderr: safeStderr, Err: err}
 		}

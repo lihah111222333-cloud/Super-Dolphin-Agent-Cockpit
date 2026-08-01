@@ -22,7 +22,57 @@ func validateRemoteCIRunRecord(record RemoteCIRunRecord) error {
 	if err := validateRemoteCIPhaseTimings(record.PhaseTimings); err != nil {
 		return err
 	}
+	if err := validateRemoteCIRunWorkloadExecutions(record.WorkloadExecutions); err != nil {
+		return err
+	}
+	hasPreBindingBuild := false
+	for _, build := range record.CandidateTestBinaryBuilds {
+		if build.CandidateTree == "" {
+			// Pre-binding ledger rows are audit-only and cannot satisfy a
+			// checkpoint reuse comparison because they lack artifact identity.
+			hasPreBindingBuild = true
+			continue
+		}
+		if err := validateCandidateTestBinaryBuildRecord(build); err != nil {
+			return err
+		}
+	}
+	if record.Authoritative && !isPrefixedSHA256Digest(record.CandidateTestBinaryReceiptBindingDigest) {
+		return errors.New("candidate test binary receipt binding digest is invalid")
+	}
+	if record.Authoritative && len(record.CandidateTestBinaryBuilds) != 0 {
+		if hasPreBindingBuild {
+			return errors.New("authoritative candidate test binary builds contain pre-binding audit rows")
+		}
+		digest, err := CandidateTestBinaryReceiptBindingDigest(record.CandidateTestBinaryBuilds, record.SourceTreeSHA)
+		if err != nil || digest != record.CandidateTestBinaryReceiptBindingDigest {
+			return errors.New("candidate test binary receipt binding does not match persisted builds")
+		}
+	}
 	return validatePassedRemoteCIRunWorkloads(record.Status, workloads, shardWorkloads)
+}
+
+func validateCandidateTestBinaryBuildRecord(build CandidateTestBinaryBuildRecord) error {
+	if strings.TrimSpace(build.CandidateTree) == "" || strings.TrimSpace(build.Package) == "" || build.Mode != "test" || build.Platform != "linux/amd64" || build.GoToolchain != "go1.25.7" || !build.CGOEnabled || !isPrefixedSHA256Digest(build.ToolchainSHA256) || !isPrefixedSHA256Digest(build.CompileClosureSHA256) || len(build.ManifestSHA256) != 64 || !isPrefixedSHA256Digest(build.ArtifactSHA256) || build.BinarySize <= 0 {
+		return errors.New("candidate test binary build identity is invalid")
+	}
+	if !isPrefixedSHA256Digest(build.GOCachePrivateRootIdentity) {
+		return errors.New("candidate test binary private cache identity is invalid")
+	}
+	for _, baseline := range build.GOCacheBaselineHitRecords {
+		if baseline.Generation == 0 || baseline.Hits == 0 || baseline.AnchorGeneration == 0 || !isPrefixedSHA256Digest(baseline.AnchorManifestDigest) || !isPrefixedSHA256Digest(baseline.ManifestDigest) || !isPrefixedSHA256Digest(baseline.CacheRootIdentity) {
+			return errors.New("candidate test binary baseline cache generation is invalid")
+		}
+	}
+	if len(build.GOCacheBaselineHitsByGeneration) != len(build.GOCacheBaselineHitRecords) {
+		return errors.New("candidate test binary baseline cache provenance is incomplete")
+	}
+	for _, baseline := range build.GOCacheBaselineHitRecords {
+		if build.GOCacheBaselineHitsByGeneration[fmt.Sprintf("%020d", baseline.Generation)] != baseline.Hits {
+			return errors.New("candidate test binary baseline cache provenance does not match counts")
+		}
+	}
+	return nil
 }
 
 func validateRemoteCIRunIdentity(record RemoteCIRunRecord) error {
@@ -146,13 +196,34 @@ func validateRemoteCIRunWorkloads(record RemoteCIRunRecord) (map[GateID]string, 
 	return seenWorkloads, nil
 }
 
+func validateRemoteCIRunWorkloadExecutions(executions []PlanGateExecution) error {
+	seen := make(map[GateID]struct{}, len(executions))
+	for _, execution := range executions {
+		if strings.TrimSpace(string(execution.GateID)) == "" {
+			return errors.New("remote CI workload execution ID is required")
+		}
+		if _, duplicate := seen[execution.GateID]; duplicate {
+			return fmt.Errorf("remote CI workload execution %q is duplicated", execution.GateID)
+		}
+		seen[execution.GateID] = struct{}{}
+		if execution.StartedAt.IsZero() || execution.CompletedAt.Before(execution.StartedAt) {
+			return fmt.Errorf("remote CI workload execution %q timing is invalid", execution.GateID)
+		}
+		if err := execution.ExecutionProfile.Validate(); err != nil {
+			return fmt.Errorf("remote CI workload execution %q profile: %w", execution.GateID, err)
+		}
+	}
+	return nil
+}
+
 func validateRemoteCIRunShards(record RemoteCIRunRecord) (map[GateID]string, error) {
 	seenWorkloads := make(map[GateID]string)
 	for _, shard := range record.Shards {
-		if strings.TrimSpace(shard.ShardIdentity) == "" ||
-			strings.TrimSpace(shard.ContainerGroup) == "" ||
-			strings.TrimSpace(shard.ContainerStatus) == "" {
+		if strings.TrimSpace(shard.ShardIdentity) == "" || strings.TrimSpace(shard.ContainerStatus) == "" {
 			return nil, errors.New("remote CI shard identity and status are required")
+		}
+		if err := validateRemoteCIShardMaterializationTiming(shard); err != nil {
+			return nil, errors.New("remote CI shard materialization timing is invalid")
 		}
 		shardWorkloads := make(map[GateID]struct{}, len(shard.Workloads))
 		for _, workloadID := range shard.Workloads {
@@ -173,6 +244,35 @@ func validateRemoteCIRunShards(record RemoteCIRunRecord) (map[GateID]string, err
 		}
 	}
 	return seenWorkloads, nil
+}
+
+func validateRemoteCIShardMaterializationTiming(shard RemoteCIShardRecord) error {
+	timing := shard.MaterializationTiming
+	if err := timing.Validate(); err != nil {
+		return err
+	}
+	if shard.ContainerGroup == "" {
+		if shard.ContainerStatus != "Unknown" || timing.Measurement != MaterializationMeasurementNotMeasured {
+			return errors.New("uncreated remote CI shard timing is invalid")
+		}
+		return nil
+	}
+	if timing.Measurement == MaterializationMeasurementMeasured && timing.ShardIdentity != shard.ShardIdentity {
+		return errors.New("measured remote CI shard timing identity does not match shard")
+	}
+	if remoteCIShardTerminalStatus(shard.ContainerStatus) && timing.Measurement != MaterializationMeasurementMeasured {
+		return errors.New("terminal remote CI shard materialization timing evidence is required")
+	}
+	return nil
+}
+
+func remoteCIShardTerminalStatus(status string) bool {
+	switch status {
+	case "Succeeded", "Failed", "ScheduleFailed", "Expired":
+		return true
+	default:
+		return false
+	}
 }
 
 func validatePassedRemoteCIRunWorkloads(

@@ -2,12 +2,79 @@ package remoteci
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
+
+func TestGoWorkloadFingerprintsIsolateCanonicalOnlyRunnerSemantics(t *testing.T) {
+	repository := newFingerprintRepository(t)
+	commitFingerprintChange(t, repository, "scripts/test_with_guard.sh", fingerprintGuardScriptWithCanonicalBlock(1, 1))
+	packageBefore := goPackageFingerprint(t, repository, "./internal/a")
+	testWorkload := fingerprintGoTestWorkload(t, "TestValue", "./internal/a")
+	testBefore := fingerprintDigests(t, repository, []gate.Workload{testWorkload})[testWorkload.ID]
+	canonicalWorkload := gate.Workload{ID: string(gate.GateIDBackendTestWithGuard)}
+	canonicalBefore := fingerprintDigests(t, repository, []gate.Workload{canonicalWorkload})[canonicalWorkload.ID]
+
+	commitFingerprintChange(t, repository, "scripts/test_with_guard.sh", fingerprintGuardScriptWithCanonicalBlock(1, 2))
+	if got := goPackageFingerprint(t, repository, "./internal/a"); got != packageBefore {
+		t.Fatal("canonical-only runner helper changed package workload fingerprint")
+	}
+	if got := fingerprintDigests(t, repository, []gate.Workload{testWorkload})[testWorkload.ID]; got != testBefore {
+		t.Fatal("canonical-only runner helper changed exact test workload fingerprint")
+	}
+	if got := fingerprintDigests(t, repository, []gate.Workload{canonicalWorkload})[canonicalWorkload.ID]; got == canonicalBefore {
+		t.Fatal("canonical runner helper did not change canonical workload fingerprint")
+	}
+
+	commitFingerprintChange(t, repository, "scripts/test_with_guard.sh", fingerprintGuardScriptWithCanonicalBlock(2, 2))
+	if got := goPackageFingerprint(t, repository, "./internal/a"); got == packageBefore {
+		t.Fatal("shared runner semantics did not change package workload fingerprint")
+	}
+	if got := fingerprintDigests(t, repository, []gate.Workload{testWorkload})[testWorkload.ID]; got == testBefore {
+		t.Fatal("shared runner semantics did not change exact test workload fingerprint")
+	}
+
+	packageAfterShared := goPackageFingerprint(t, repository, "./internal/a")
+	testAfterShared := fingerprintDigests(t, repository, []gate.Workload{testWorkload})[testWorkload.ID]
+	commitFingerprintChange(t, repository, "internal/devtools/gate/executor_mapping.go", "package gate\n\nconst CandidateExecutorMapping = 2\n")
+	if got := goPackageFingerprint(t, repository, "./internal/a"); got == packageAfterShared {
+		t.Fatal("candidate executor mapping changed without invalidating package workload fingerprint")
+	}
+	if got := fingerprintDigests(t, repository, []gate.Workload{testWorkload})[testWorkload.ID]; got == testAfterShared {
+		t.Fatal("candidate executor mapping changed without invalidating exact test workload fingerprint")
+	}
+}
+
+func TestGoWorkloadSharedScriptRejectsAmbiguousCanonicalBoundaries(t *testing.T) {
+	tests := []struct {
+		name   string
+		script string
+	}{
+		{name: "missing", script: "#!/bin/sh\n"},
+		{name: "duplicate begin", script: remoteCanonicalScriptFingerprintBegin + remoteCanonicalScriptFingerprintBegin + remoteCanonicalScriptFingerprintEnd},
+		{name: "reversed", script: remoteCanonicalScriptFingerprintEnd + remoteCanonicalScriptFingerprintBegin},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := remoteGoWorkloadSharedScript([]byte(test.script)); err == nil {
+				t.Fatal("ambiguous canonical script boundary was accepted")
+			}
+		})
+	}
+}
+
+func fingerprintGuardScriptWithCanonicalBlock(sharedMarker int, canonicalMarker int) string {
+	return fmt.Sprintf(`#!/bin/sh
+shared_runner=%d
+# REMOTE_WORKLOAD_FINGERPRINT_CANONICAL_BEGIN
+canonical_runner=%d
+# REMOTE_WORKLOAD_FINGERPRINT_CANONICAL_END
+`, sharedMarker, canonicalMarker)
+}
 
 func TestRemoteWorkloadInputDigestsTrackProductionInputs(t *testing.T) {
 	repository := newFingerprintRepository(t)

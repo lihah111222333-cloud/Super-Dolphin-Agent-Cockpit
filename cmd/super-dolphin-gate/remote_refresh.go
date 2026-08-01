@@ -67,7 +67,7 @@ type remoteBaselineRefreshResult struct {
 }
 
 type remoteBaselineOSSStore interface {
-	Upload(context.Context, string, string) error
+	Create(context.Context, string, string) error
 	Download(context.Context, string, string) error
 	EnsurePrefix(context.Context, string) error
 	DeletePrefix(context.Context, string) error
@@ -354,19 +354,19 @@ func uploadRemoteBaselineArtifacts(ctx context.Context, store remoteBaselineOSSS
 	if stage.seedScriptPath == "" {
 		return protocolError("baseline seed script path is empty")
 	}
-	if err := store.Upload(ctx, stage.seedScriptPath, stage.inputPrefix+"seed.sh"); err != nil {
+	if err := store.Create(ctx, stage.seedScriptPath, stage.inputPrefix+"seed.sh"); err != nil {
 		return infrastructureError("upload baseline seed script: %v", err)
 	}
-	if err := store.Upload(ctx, stage.source.ManifestPath, stage.inputPrefix+"source-manifest.json"); err != nil {
+	if err := store.Create(ctx, stage.source.ManifestPath, stage.inputPrefix+"source-manifest.json"); err != nil {
 		return infrastructureError("upload baseline source manifest: %v", err)
 	}
 	if stage.source.BundlePath != "" {
-		if err := store.Upload(ctx, stage.source.BundlePath, stage.inputPrefix+"source.bundle"); err != nil {
+		if err := store.Create(ctx, stage.source.BundlePath, stage.inputPrefix+"source.bundle"); err != nil {
 			return infrastructureError("upload baseline source bundle: %v", err)
 		}
 	}
 	if stage.sqruffPath != "" {
-		if err := store.Upload(ctx, stage.sqruffPath, stage.inputPrefix+"sqruff.tar.gz"); err != nil {
+		if err := store.Create(ctx, stage.sqruffPath, stage.inputPrefix+"sqruff.tar.gz"); err != nil {
 			return infrastructureError("upload baseline sqruff artifact: %v", err)
 		}
 	}

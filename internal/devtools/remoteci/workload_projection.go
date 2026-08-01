@@ -51,7 +51,11 @@ func remoteShardWorkloadIDs(shards []gate.ContainerShard) []gate.GateID {
 }
 
 // remoteFreshWorkloadExecutions 汇总新分片结果并拒绝重复执行同一 workload。
-func remoteFreshWorkloadExecutions(results []ShardResult) (map[string]gate.PlanGateExecution, error) {
+func remoteFreshWorkloadExecutions(workloads []gate.Workload, results []ShardResult) (map[string]gate.PlanGateExecution, error) {
+	catalog := make(map[string]gate.Workload, len(workloads))
+	for _, workload := range workloads {
+		catalog[workload.ID] = workload
+	}
 	executions := make(map[string]gate.PlanGateExecution)
 	for _, result := range results {
 		for _, execution := range result.Report.Gates {
@@ -59,10 +63,72 @@ func remoteFreshWorkloadExecutions(results []ShardResult) (map[string]gate.PlanG
 			if _, duplicate := executions[workloadID]; duplicate {
 				return nil, fmt.Errorf("remote workload %q was executed more than once", workloadID)
 			}
+			workload, ok := catalog[workloadID]
+			if !ok {
+				return nil, fmt.Errorf("remote workload result %q is outside the current catalog", workloadID)
+			}
+			var err error
+			execution, err = normalizeRemoteWorkloadExecutionProfile(workload, result.Report.SchemaVersion, execution)
+			if err != nil {
+				return nil, err
+			}
+			if err := execution.ExecutionProfile.Validate(); err != nil {
+				return nil, fmt.Errorf("remote workload %q execution profile: %w", workloadID, err)
+			}
 			executions[workloadID] = execution
 		}
 	}
 	return executions, nil
+}
+
+// normalizeRemoteWorkloadExecutionProfile makes an omitted profile explicit only where
+// legacy reports or non-exact workloads could not have produced cache measurements.
+func normalizeRemoteWorkloadExecutionProfile(
+	workload gate.Workload,
+	reportSchemaVersion uint32,
+	execution gate.PlanGateExecution,
+) (gate.PlanGateExecution, error) {
+	if !zeroExecutionProfile(execution.ExecutionProfile) {
+		return execution, nil
+	}
+	exact, err := remoteExactGoTestWorkload(workload)
+	if err != nil {
+		return gate.PlanGateExecution{}, err
+	}
+	if reportSchemaVersion >= 4 && exact {
+		return execution, nil
+	}
+	execution.ExecutionProfile = gate.ExecutionProfile{
+		CacheSource: "none", CacheStatus: "not_applicable", CacheMeasurement: "not_measured",
+	}
+	return execution, nil
+}
+
+func remoteExactGoTestWorkload(workload gate.Workload) (bool, error) {
+	_, kind, _, targeted, err := gate.ParseWorkloadID(workload.ID)
+	if err != nil {
+		return false, err
+	}
+	return targeted && kind == gate.WorkloadTargetGoTest, nil
+}
+
+func zeroExecutionProfile(profile gate.ExecutionProfile) bool {
+	return profile.CandidateTestBinaryPackage == "" &&
+		profile.CandidateTestBinaryMode == "" &&
+		profile.CacheSource == "" &&
+		profile.CacheStatus == "" &&
+		profile.CacheMeasurement == "" &&
+		profile.PrivateHitCount == 0 &&
+		profile.BaselineHitCount == 0 &&
+		len(profile.BaselineHitByGeneration) == 0 &&
+		profile.CacheMissCount == 0 &&
+		profile.CachePutCount == 0 &&
+		profile.MaterializeMS == 0 &&
+		profile.DownloadMS == 0 &&
+		profile.VerifyMS == 0 &&
+		profile.StartupMS == 0 &&
+		profile.TestBodyMS == 0 &&
+		profile.TotalMS == 0
 }
 
 // mergeRemoteWorkloadExecutions 合并复用与新执行结果，并验证目录覆盖完整且互斥。
@@ -84,6 +150,11 @@ func mergeRemoteWorkloadExecutions(
 		}
 		if !ok || execution.GateID != gate.GateID(workload.ID) {
 			return nil, fmt.Errorf("remote workload %q has no matching result", workload.ID)
+		}
+		var err error
+		execution, err = normalizeRemoteWorkloadExecutionProfile(workload, 1, execution)
+		if err != nil {
+			return nil, err
 		}
 		observed[workload.ID] = execution
 	}

@@ -1,7 +1,11 @@
 package remoteci
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"path"
 	"sort"
@@ -56,6 +60,9 @@ func (snapshot *remoteGitTreeSnapshot) goExactTestInputDigest(ctx context.Contex
 	if err != nil {
 		return "", err
 	}
+	if err := snapshot.addGoWorkloadSharedScriptEntry(ctx, selected); err != nil {
+		return "", err
+	}
 	if err := snapshot.addGoExactTestCompileEntries(targetDirectory, selected); err != nil {
 		return "", err
 	}
@@ -98,7 +105,7 @@ func (snapshot *remoteGitTreeSnapshot) goGuardInputDigest(ctx context.Context, t
 		if err != nil {
 			return "", fmt.Errorf("Go guard target %q has no source fingerprint policy", target)
 		}
-		return snapshot.nestedGoModuleInputDigest(module)
+		return snapshot.nestedGoModuleInputDigest(ctx, module)
 	}
 }
 
@@ -129,6 +136,9 @@ func (snapshot *remoteGitTreeSnapshot) goPackageTreeInputDigest(ctx context.Cont
 	if err != nil {
 		return "", err
 	}
+	if err := snapshot.addGoWorkloadSharedScriptEntry(ctx, selected); err != nil {
+		return "", err
+	}
 	directories := make(map[string]struct{})
 	for _, entry := range snapshot.entries {
 		if directory, ok := remoteGoPackageTreeDirectory(entry, directoryPrefix); ok {
@@ -157,16 +167,21 @@ func remoteGoPackageTreeDirectory(entry remoteGitTreeEntry, prefix string) (stri
 }
 
 // nestedGoModuleInputDigest 仅包含指定嵌套模块和其固定守卫脚本。
-func (snapshot *remoteGitTreeSnapshot) nestedGoModuleInputDigest(moduleDirectory string) (string, error) {
+func (snapshot *remoteGitTreeSnapshot) nestedGoModuleInputDigest(ctx context.Context, moduleDirectory string) (string, error) {
 	if _, ok := snapshot.byPath[moduleDirectory+"/go.mod"]; !ok {
 		return "", fmt.Errorf("nested Go guard module %q has no tracked go.mod", moduleDirectory)
 	}
-	return snapshot.digestMatching(func(entry remoteGitTreeEntry) bool {
-		return strings.HasPrefix(entry.path, moduleDirectory+"/") ||
-			entry.path == "scripts/test_with_guard.sh" ||
-			entry.path == "scripts/check_nested_go_modules.sh" ||
-			entry.path == "scripts/real_go_resolver.sh"
-	})
+	selected := make(map[string]remoteGitTreeEntry)
+	for _, entry := range snapshot.entries {
+		if strings.HasPrefix(entry.path, moduleDirectory+"/") ||
+			entry.path == "scripts/check_nested_go_modules.sh" || entry.path == "scripts/real_go_resolver.sh" {
+			selected[entry.path] = entry
+		}
+	}
+	if err := snapshot.addGoWorkloadSharedScriptEntry(ctx, selected); err != nil {
+		return "", err
+	}
+	return snapshot.digestEntries(sortedRemoteGitTreeEntries(selected))
 }
 
 // canonicalGateInputDigest 按父门禁语义选择精确 Git tree 输入集合。
@@ -210,6 +225,9 @@ func (snapshot *remoteGitTreeSnapshot) goPackageInputDigest(ctx context.Context,
 	if err != nil {
 		return "", err
 	}
+	if err := snapshot.addGoWorkloadSharedScriptEntry(ctx, selected); err != nil {
+		return "", err
+	}
 	files, err := snapshot.addGoTestPackageCompileEntries(targetDirectory, selected)
 	if err != nil {
 		return "", err
@@ -219,4 +237,63 @@ func (snapshot *remoteGitTreeSnapshot) goPackageInputDigest(ctx context.Context,
 	}
 	entries := sortedRemoteGitTreeEntries(selected)
 	return snapshot.digestEntries(entries)
+}
+
+const (
+	remoteCanonicalScriptFingerprintBegin = "# REMOTE_WORKLOAD_FINGERPRINT_CANONICAL_BEGIN\n"
+	remoteCanonicalScriptFingerprintEnd   = "# REMOTE_WORKLOAD_FINGERPRINT_CANONICAL_END\n"
+	remoteGoWorkloadSharedScriptPath      = "scripts/test_with_guard.sh#shared-execution"
+)
+
+// addGoWorkloadSharedScriptEntry binds every Go workload to the common test
+// runner semantics, while canonical-backend-only helpers remain isolated.
+func (snapshot *remoteGitTreeSnapshot) addGoWorkloadSharedScriptEntry(
+	ctx context.Context,
+	selected map[string]remoteGitTreeEntry,
+) error {
+	snapshot.cacheMu.Lock()
+	cached := snapshot.goWorkloadSharedScript
+	snapshot.cacheMu.Unlock()
+	if cached != nil {
+		selected[cached.path] = *cached
+		return nil
+	}
+	entry, ok := snapshot.byPath["scripts/test_with_guard.sh"]
+	if !ok || entry.kind != "blob" {
+		return errors.New("Go workload fingerprint test runner script is absent")
+	}
+	blobs, err := snapshot.readGitBlobs(ctx, []string{"scripts/test_with_guard.sh"})
+	if err != nil {
+		return err
+	}
+	shared, err := remoteGoWorkloadSharedScript(blobs["scripts/test_with_guard.sh"])
+	if err != nil {
+		return err
+	}
+	sum := sha256.Sum256(shared)
+	semantic := remoteGitTreeEntry{
+		mode: "100644", kind: "semantic", objectID: hex.EncodeToString(sum[:]), path: remoteGoWorkloadSharedScriptPath,
+	}
+	snapshot.cacheMu.Lock()
+	if snapshot.goWorkloadSharedScript == nil {
+		snapshot.goWorkloadSharedScript = &semantic
+	}
+	semantic = *snapshot.goWorkloadSharedScript
+	snapshot.cacheMu.Unlock()
+	selected[semantic.path] = semantic
+	return nil
+}
+
+func remoteGoWorkloadSharedScript(script []byte) ([]byte, error) {
+	if bytes.Count(script, []byte(remoteCanonicalScriptFingerprintBegin)) != 1 ||
+		bytes.Count(script, []byte(remoteCanonicalScriptFingerprintEnd)) != 1 {
+		return nil, errors.New("Go workload fingerprint canonical script boundary is ambiguous")
+	}
+	start := bytes.Index(script, []byte(remoteCanonicalScriptFingerprintBegin))
+	end := bytes.Index(script, []byte(remoteCanonicalScriptFingerprintEnd))
+	if start < 0 || end < start {
+		return nil, errors.New("Go workload fingerprint canonical script boundary is invalid")
+	}
+	end += len(remoteCanonicalScriptFingerprintEnd)
+	return append(append([]byte(nil), script[:start]...), script[end:]...), nil
 }

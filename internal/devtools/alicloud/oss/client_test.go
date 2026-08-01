@@ -73,8 +73,8 @@ func TestClient_TransfersAndMetadata(t *testing.T) {
 	client := newTestClient(t, runner)
 	ctx := context.Background()
 
-	if err := client.Upload(ctx, "/tmp/input.tar", "source-bundles/input.tar"); err != nil {
-		t.Fatalf("Upload() error = %v", err)
+	if err := client.Create(ctx, "/tmp/input.tar", "source-bundles/input.tar"); err != nil {
+		t.Fatalf("Create() error = %v", err)
 	}
 	if err := client.Download(ctx, "source-bundles/input.tar", "/tmp/output.tar"); err != nil {
 		t.Fatalf("Download() error = %v", err)
@@ -97,7 +97,7 @@ func TestClient_TransfersAndMetadata(t *testing.T) {
 	}
 
 	want := []runCall{
-		{name: "aliyun", args: []string{"oss", "cp", "/tmp/input.tar", "oss://ci-bucket/source-bundles/input.tar", "--checkpoint-dir", "<checkpoint-dir>", "--profile", "ci", "--endpoint", "https://oss-cn-hangzhou.aliyuncs.com"}},
+		{name: "aliyun", args: []string{"oss", "cp", "/tmp/input.tar", "oss://ci-bucket/source-bundles/input.tar", "--meta", "x-oss-forbid-overwrite:true", "--checkpoint-dir", "<checkpoint-dir>", "--profile", "ci", "--endpoint", "https://oss-cn-hangzhou.aliyuncs.com"}},
 		{name: "aliyun", args: []string{"oss", "cp", "oss://ci-bucket/source-bundles/input.tar", "/tmp/output.tar", "--checkpoint-dir", "<checkpoint-dir>", "--profile", "ci", "--endpoint", "https://oss-cn-hangzhou.aliyuncs.com"}},
 		{name: "aliyun", args: []string{"oss", "stat", "oss://ci-bucket/source-bundles/input.tar", "--profile", "ci", "--endpoint", "https://oss-cn-hangzhou.aliyuncs.com"}},
 		{name: "aliyun", args: []string{"oss", "rm", "oss://ci-bucket/source-bundles/input.tar", "--profile", "ci", "--endpoint", "https://oss-cn-hangzhou.aliyuncs.com"}},
@@ -218,8 +218,8 @@ func TestClient_RejectsEscapingOrOutOfPrefixKeys(t *testing.T) {
 	client := newTestClient(t, &fakeRunner{})
 	for _, key := range []string{"../source-bundles/input.tar", "source-bundles/../results/output.tar", "results/output.tar", "/source-bundles/input.tar"} {
 		t.Run(key, func(t *testing.T) {
-			if err := client.Upload(context.Background(), "/tmp/input.tar", key); err == nil {
-				t.Fatalf("Upload(%q) error = nil", key)
+			if err := client.Create(context.Background(), "/tmp/input.tar", key); err == nil {
+				t.Fatalf("Create(%q) error = nil", key)
 			}
 		})
 	}
@@ -235,6 +235,30 @@ func TestClient_RejectsEscapingOrOutOfPrefixKeys(t *testing.T) {
 			}
 			if err := client.DeletePrefix(context.Background(), prefix); err == nil {
 				t.Fatalf("DeletePrefix(%q) error = nil", prefix)
+			}
+		})
+	}
+}
+
+func TestClient_CreateFailsFastOnObjectCollision(t *testing.T) {
+	for _, stderr := range []string{"FileAlreadyExists", "HTTP 409 Conflict", "HTTP 412 PreconditionFailed"} {
+		t.Run(stderr, func(t *testing.T) {
+			runner := &fakeRunner{
+				stderr: []byte(stderr),
+				errors: []error{errors.New("i/o timeout")},
+			}
+			client := newTestClient(t, runner)
+			client.wait = func(context.Context, time.Duration) error { return nil }
+
+			err := client.Create(context.Background(), "/tmp/input.tar", "source-bundles/input.tar")
+			if err == nil {
+				t.Fatal("Create() collision error = nil")
+			}
+			if len(runner.calls) != 1 {
+				t.Fatalf("Create() attempts = %d, want 1", len(runner.calls))
+			}
+			if !strings.Contains(err.Error(), stderr) {
+				t.Fatalf("Create() error = %v, want collision detail", err)
 			}
 		})
 	}

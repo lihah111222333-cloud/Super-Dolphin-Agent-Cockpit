@@ -239,7 +239,8 @@ func (snapshot *remoteGitTreeSnapshot) requiredGoPackageEntries() (map[string]re
 	for _, required := range []string{
 		"go.mod", "go.sum",
 		"build/gate/runtime-proxy/go.mod", "build/gate/runtime-proxy/go.sum",
-		"scripts/test_with_guard.sh", "scripts/check_nested_go_modules.sh", "scripts/real_go_resolver.sh",
+		"internal/devtools/gate/executor_mapping.go",
+		"scripts/check_nested_go_modules.sh", "scripts/real_go_resolver.sh",
 	} {
 		entry, ok := snapshot.byPath[required]
 		if !ok {

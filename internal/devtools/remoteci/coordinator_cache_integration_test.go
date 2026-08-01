@@ -833,6 +833,8 @@ func allPassedGoTestsButPackageFailsFixtureReport(report *gate.PlanExecutionRepo
 }
 
 func passGoTestCacheFixtureReport(report *gate.PlanExecutionReport) {
+	// This synthetic runtime predates materializer-timing v4 records. Its stored
+	// executions are intentionally migrated to explicit not_measured profiles.
 	report.SchemaVersion = 2
 	for index := range report.Gates {
 		_, kind, target, targeted, err := gate.ParseWorkloadID(string(report.Gates[index].GateID))

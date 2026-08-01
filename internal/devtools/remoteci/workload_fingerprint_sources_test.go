@@ -205,7 +205,10 @@ func fingerprintWorkerGuardScript(marker int) string {
 	return fmt.Sprintf(`#!/bin/sh
 source "$ROOT_DIR/scripts/real_go_resolver.sh"
 ./scripts/worker_command.sh --marker=%d
-`, marker)
+# REMOTE_WORKLOAD_FINGERPRINT_CANONICAL_BEGIN
+canonical_worker_command --marker=%d
+# REMOTE_WORKLOAD_FINGERPRINT_CANONICAL_END
+`, marker, marker)
 }
 
 func fingerprintWorkerMakefile(workerMarker int, unrelatedMarker int) string {

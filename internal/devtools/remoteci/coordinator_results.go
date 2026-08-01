@@ -281,16 +281,49 @@ func aggregateRemoteReports(
 	catalog gate.WorkloadCatalog,
 	observed map[string]gate.PlanGateExecution,
 	shards []ShardResult,
-) ([]gate.PlanGateExecution, gate.ResultStatus, error) {
+) ([]gate.PlanGateExecution, []gate.PlanGateExecution, gate.ResultStatus, error) {
 	status := remoteContainerStatus(shards)
+	workloadExecutions, err := remoteWorkloadExecutions(catalog, observed)
+	if err != nil {
+		return nil, nil, gate.ResultStatusFailed, err
+	}
 	executions, aggregateStatus, err := aggregateCatalogWorkloads(catalog, observed)
 	if err != nil {
-		return nil, gate.ResultStatusFailed, err
+		return nil, nil, gate.ResultStatusFailed, err
 	}
 	if aggregateStatus != gate.ResultStatusPassed {
 		status = gate.ResultStatusFailed
 	}
-	return executions, status, nil
+	return executions, workloadExecutions, status, nil
+}
+
+// remoteWorkloadExecutions keeps each worker-owned workload profile separate from parent gate aggregation.
+func remoteWorkloadExecutions(
+	catalog gate.WorkloadCatalog,
+	observed map[string]gate.PlanGateExecution,
+) ([]gate.PlanGateExecution, error) {
+	workloads := make([]gate.PlanGateExecution, 0, len(catalog.Workloads))
+	for _, spec := range catalog.Workloads {
+		if !spec.Shardable {
+			continue
+		}
+		execution, ok := observed[spec.ID]
+		if !ok || execution.GateID != gate.GateID(spec.ID) {
+			return nil, fmt.Errorf("remote CI workload %q has no matching observation", spec.ID)
+		}
+		execution, err := normalizeRemoteWorkloadExecutionProfile(spec, 1, execution)
+		if err != nil {
+			return nil, fmt.Errorf("remote CI workload %q execution profile: %w", spec.ID, err)
+		}
+		if err := execution.ExecutionProfile.Validate(); err != nil {
+			return nil, fmt.Errorf("remote CI workload %q execution profile: %w", spec.ID, err)
+		}
+		workloads = append(workloads, execution)
+	}
+	if len(workloads) != len(observed) {
+		return nil, errors.New("remote CI workload observation coverage is not exact")
+	}
+	return workloads, nil
 }
 
 func remoteContainerStatus(shards []ShardResult) gate.ResultStatus {
@@ -404,6 +437,11 @@ func aggregateWorkloadGate(
 			workload.LogDigest,
 		)
 	}
+	total := result.CompletedAt.Sub(result.StartedAt).Milliseconds()
+	if total < 0 {
+		return gate.PlanGateExecution{}, gate.ResultStatusFailed, errors.New("aggregated remote CI gate time is invalid")
+	}
+	result.ExecutionProfile = gate.ExecutionProfile{CacheSource: "none", CacheStatus: "not_applicable", CacheMeasurement: "not_measured", StartupMS: total, TotalMS: total}
 	result.Log = []byte(proof.String())
 	sum := sha256.Sum256(result.Log)
 	result.LogDigest = fmt.Sprintf("sha256:%x", sum)

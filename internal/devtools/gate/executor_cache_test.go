@@ -1,6 +1,7 @@
 package gate
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -216,6 +217,55 @@ func TestGoBuildCacheProxyReadsPrivateThenNewestSeed(t *testing.T) {
 	}
 	if content, err := os.ReadFile(entry.path); err != nil || string(content) != "private" {
 		t.Fatalf("private cache content = %q, %v", content, err)
+	}
+}
+
+func TestGoBuildCacheProxyMetricsAttributePrivateAndGenerationHits(t *testing.T) {
+	actionID := bytes.Repeat([]byte{0x4a}, goBuildCacheHashBytes)
+	seedRoot := filepath.Join(realTempDir(t), "00000000000000000042")
+	if err := os.Mkdir(seedRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	privateRoot := realTempDir(t)
+	writeGoBuildCacheEntryFixture(t, seedRoot, actionID, "seed")
+	config, err := parseGoBuildCacheProxyConfig([]string{"--seed", seedRoot, "--private", privateRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := goBuildCacheProxyRequest{ID: 1, Command: "get", ActionID: actionID}
+	if _, _, err := handleGoBuildCacheProxyRequest(config, bufio.NewReader(strings.NewReader("")), request); err != nil {
+		t.Fatal(err)
+	}
+	writeGoBuildCacheEntryFixture(t, privateRoot, actionID, "private")
+	request.ID = 2
+	if _, _, err := handleGoBuildCacheProxyRequest(config, bufio.NewReader(strings.NewReader("")), request); err != nil {
+		t.Fatal(err)
+	}
+	request.ID = 3
+	request.ActionID = bytes.Repeat([]byte{0x5b}, goBuildCacheHashBytes)
+	if _, _, err := handleGoBuildCacheProxyRequest(config, bufio.NewReader(strings.NewReader("")), request); err != nil {
+		t.Fatal(err)
+	}
+	if config.metrics.BaselineHitCount != 1 || config.metrics.BaselineHitByGeneration["00000000000000000042"] != 1 ||
+		config.metrics.PrivateHitCount != 1 || config.metrics.MissCount != 1 {
+		t.Fatalf("cache metrics = %#v", config.metrics)
+	}
+}
+
+func TestLoadGoBuildCacheProxyMetricsRejectsForgedSeedIdentity(t *testing.T) {
+	privateRoot := realTempDir(t)
+	seedRoot := filepath.Join(realTempDir(t), "00000000000000000042")
+	if err := os.Mkdir(seedRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	metrics := newGoBuildCacheProxyMetrics([]string{seedRoot})
+	metrics.BaselineHitCount = 1
+	metrics.BaselineHitByGeneration["00000000000000000042"] = 1
+	if err := writeGoBuildCacheProxyMetrics(GoBuildCacheProxyMetricsPath(privateRoot), metrics); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadGoBuildCacheProxyMetrics(privateRoot, []string{filepath.Join(realTempDir(t), "00000000000000000042")}); err == nil {
+		t.Fatal("LoadGoBuildCacheProxyMetrics accepted forged seed identity")
 	}
 }
 

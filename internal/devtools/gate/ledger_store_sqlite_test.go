@@ -387,8 +387,9 @@ func TestRecordRemoteCIRunRejectsUncoveredPassedCatalogWorkload(t *testing.T) {
 	err = store.RecordRemoteCIRun(RemoteCIRunRecord{
 		JobID: "uncovered", Entrypoint: CIEntrypointGitPreCommit, Profile: ProfileLocalFast,
 		PlanDigest: "sha256:plan", CatalogDigest: digest, SourceTreeSHA: strings.Repeat("b", 40),
-		CandidateCLIManifestSHA256: strings.Repeat("c", 64),
-		RunnerImage: "ubuntu:22.04", Status: ResultStatusPassed, Authoritative: true,
+		CandidateCLIManifestSHA256:              strings.Repeat("c", 64),
+		CandidateTestBinaryReceiptBindingDigest: "sha256:" + strings.Repeat("d", 64),
+		RunnerImage:                             "ubuntu:22.04", Status: ResultStatusPassed, Authoritative: true,
 		StartedAt: now, CompletedAt: now,
 	})
 	if err == nil || !strings.Contains(err.Error(), "does not cover") {
@@ -427,8 +428,9 @@ func TestRecordRemoteCIRunRejectsUnknownStatusAndFailedCatalogDrift(t *testing.T
 	}
 	record.ReusedWorkloads = nil
 	record.Shards = []RemoteCIShardRecord{{
-		ShardIdentity: "shard-000", ContainerGroup: "eci-123", ContainerStatus: "Failed",
-		Workloads: []GateID{GateIDAIMaintenanceSelfTest},
+		ShardIdentity: "sha256:" + strings.Repeat("6", 64), ContainerGroup: "eci-123", ContainerStatus: "Failed",
+		Workloads:             []GateID{GateIDAIMaintenanceSelfTest},
+		MaterializationTiming: ShardMaterializationTiming{Measurement: MaterializationMeasurementMeasured, ShardIdentity: "sha256:" + strings.Repeat("6", 64)},
 	}}
 	if err := store.RecordRemoteCIRun(record); err == nil || !strings.Contains(err.Error(), "absent from its catalog") {
 		t.Fatalf("failed run shard workload catalog error = %v", err)
@@ -468,7 +470,7 @@ func TestRecordRemoteCIRunAcceptsPassedManualSelectionCatalog(t *testing.T) {
 		JobID: "manual-selection", Entrypoint: CIEntrypointManualCLI, Profile: ProfileLocalFast,
 		PlanDigest: "sha256:plan", CatalogDigest: digest, SourceTreeSHA: strings.Repeat("d", 40),
 		CandidateCLIManifestSHA256: strings.Repeat("e", 64),
-		RunnerImage: "ubuntu:22.04", Status: ResultStatusPassed, Authoritative: false,
+		RunnerImage:                "ubuntu:22.04", Status: ResultStatusPassed, Authoritative: false,
 		StartedAt: now, CompletedAt: now, CleanupComplete: true,
 		ReusedWorkloads: []GateID{GateIDWhitespaceCheck},
 	}
@@ -478,6 +480,7 @@ func TestRecordRemoteCIRunAcceptsPassedManualSelectionCatalog(t *testing.T) {
 	record.JobID = "authoritative-selection"
 	record.Entrypoint = CIEntrypointGitPreCommit
 	record.Authoritative = true
+	record.CandidateTestBinaryReceiptBindingDigest = "sha256:" + strings.Repeat("f", 64)
 	if err := store.RecordRemoteCIRun(record); err == nil ||
 		!strings.Contains(err.Error(), "requires an authoritative workload catalog") {
 		t.Fatalf("authoritative run with selection catalog error = %v", err)
@@ -522,7 +525,8 @@ func TestRecordRemoteCIRunRejectsPassedShardDispositionDrift(t *testing.T) {
 		CatalogDigest: digest, SourceTreeSHA: strings.Repeat("2", 40),
 		RunnerImage: "ubuntu:22.04", Status: ResultStatusPassed,
 		Authoritative: true, StartedAt: now, CompletedAt: now.Add(time.Second),
-		CleanupComplete: true, CacheMisses: []GateID{GateIDWhitespaceCheck},
+		CandidateTestBinaryReceiptBindingDigest: "sha256:" + strings.Repeat("3", 64),
+		CleanupComplete:                         true, CacheMisses: []GateID{GateIDWhitespaceCheck},
 	}
 	if err := store.RecordRemoteCIRun(record); err == nil {
 		t.Fatal("passed cache miss without a shard was accepted")

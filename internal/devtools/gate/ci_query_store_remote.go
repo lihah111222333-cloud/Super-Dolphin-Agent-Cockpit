@@ -2,6 +2,7 @@ package gate
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -19,7 +20,7 @@ func loadRemoteCIRunRow(database sqliteRowQueryer, jobID string) (RemoteCIRunRec
 	err := database.QueryRow(`
 		SELECT runs.job_id, COALESCE(requesters.requester_fingerprint, ''),
 			runs.entrypoint, runs.profile, runs.plan_digest, runs.catalog_digest,
-			runs.source_tree_sha, runs.candidate_cli_manifest_sha256, runs.runner_image, runs.status, runs.authoritative,
+			runs.source_tree_sha, runs.candidate_cli_manifest_sha256, runs.candidate_test_binary_receipt_binding_digest, runs.runner_image, runs.status, runs.authoritative,
 			runs.started_at_unix_ms, runs.completed_at_unix_ms,
 			runs.cleanup_complete, runs.error_text
 		FROM ci_runs AS runs
@@ -34,6 +35,7 @@ func loadRemoteCIRunRow(database sqliteRowQueryer, jobID string) (RemoteCIRunRec
 		&record.CatalogDigest,
 		&record.SourceTreeSHA,
 		&record.CandidateCLIManifestSHA256,
+		&record.CandidateTestBinaryReceiptBindingDigest,
 		&record.RunnerImage,
 		&status,
 		&authoritative,
@@ -69,6 +71,10 @@ func loadRemoteCIRunDetails(transaction *sql.Tx, jobID string, record *RemoteCIR
 	if err != nil {
 		return err
 	}
+	record.WorkloadExecutions, err = loadRemoteCIWorkloadExecutionRows(transaction, jobID)
+	if err != nil {
+		return err
+	}
 	record.ReusedWorkloads, record.CacheMisses, err = loadRemoteCIRunWorkloadRows(transaction, jobID)
 	if err != nil {
 		return err
@@ -78,7 +84,70 @@ func loadRemoteCIRunDetails(transaction *sql.Tx, jobID string, record *RemoteCIR
 		return err
 	}
 	record.PhaseTimings, err = loadRemoteCIRunPhaseTimingRows(transaction, jobID)
+	if err != nil {
+		return err
+	}
+	record.CandidateTestBinaryBuilds, err = loadCandidateTestBinaryBuildRows(transaction, jobID)
 	return err
+}
+
+func loadRemoteCIWorkloadExecutionRows(database sqliteRowQueryer, jobID string) ([]PlanGateExecution, error) {
+	rows, err := database.Query(`
+		SELECT workload_id, status, exit_code, started_at_unix_ms, completed_at_unix_ms,
+			argv_digest, log_digest, execution_profile_json
+		FROM ci_workload_executions
+		WHERE job_id = ?
+		ORDER BY workload_id
+	`, jobID)
+	if err != nil {
+		return nil, mapDurationLedgerSQLiteError("query remote CI workload executions", err)
+	}
+	defer rows.Close()
+	var executions []PlanGateExecution
+	for rows.Next() {
+		var execution PlanGateExecution
+		var startedMS, completedMS int64
+		var profileJSON string
+		if err := rows.Scan(&execution.GateID, &execution.Status, &execution.ExitCode, &startedMS, &completedMS, &execution.ArgvDigest, &execution.LogDigest, &profileJSON); err != nil {
+			return nil, mapDurationLedgerSQLiteError("scan remote CI workload execution", err)
+		}
+		execution.StartedAt = time.UnixMilli(startedMS).UTC()
+		execution.CompletedAt = time.UnixMilli(completedMS).UTC()
+		if json.Unmarshal([]byte(profileJSON), &execution.ExecutionProfile) != nil || execution.ExecutionProfile.Validate() != nil {
+			return nil, errors.New("stored remote CI workload execution profile is invalid")
+		}
+		executions = append(executions, execution)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, mapDurationLedgerSQLiteError("iterate remote CI workload executions", err)
+	}
+	return executions, nil
+}
+
+func loadCandidateTestBinaryBuildRows(database sqliteRowQueryer, jobID string) ([]CandidateTestBinaryBuildRecord, error) {
+	rows, err := database.Query(`SELECT candidate_tree, package, mode, platform, go_toolchain, cgo_enabled, toolchain_sha256, build_flags_json, compile_closure_sha256, manifest_sha256, artifact_sha256, binary_size, go_list_wall_ms, build_wall_ms, compile_action_ms, link_action_ms, compile_critical_wall_ms, gocache_private_hits, gocache_private_root_identity, gocache_baseline_hits_by_generation_json, gocache_baseline_hit_records_json, gocache_misses, gocache_puts FROM ci_candidate_test_binary_builds WHERE job_id = ? ORDER BY package, mode`, jobID)
+	if err != nil {
+		return nil, mapDurationLedgerSQLiteError("query candidate test binary builds", err)
+	}
+	defer rows.Close()
+	var builds []CandidateTestBinaryBuildRecord
+	for rows.Next() {
+		var build CandidateTestBinaryBuildRecord
+		var generations, hitRecords, flags string
+		var cgo int
+		if err := rows.Scan(&build.CandidateTree, &build.Package, &build.Mode, &build.Platform, &build.GoToolchain, &cgo, &build.ToolchainSHA256, &flags, &build.CompileClosureSHA256, &build.ManifestSHA256, &build.ArtifactSHA256, &build.BinarySize, &build.GoListWallMS, &build.BuildWallMS, &build.CompileActionMS, &build.LinkActionMS, &build.CompileCriticalWallMS, &build.GOCachePrivateHits, &build.GOCachePrivateRootIdentity, &generations, &hitRecords, &build.GOCacheMisses, &build.GOCachePuts); err != nil {
+			return nil, mapDurationLedgerSQLiteError("scan candidate test binary build", err)
+		}
+		build.CGOEnabled = cgo == 1
+		if json.Unmarshal([]byte(flags), &build.BuildFlags) != nil || json.Unmarshal([]byte(generations), &build.GOCacheBaselineHitsByGeneration) != nil || json.Unmarshal([]byte(hitRecords), &build.GOCacheBaselineHitRecords) != nil || validateCandidateTestBinaryBuildRecord(build) != nil {
+			return nil, errors.New("stored candidate test binary build is invalid")
+		}
+		builds = append(builds, build)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, mapDurationLedgerSQLiteError("iterate candidate test binary builds", err)
+	}
+	return builds, nil
 }
 
 // loadRemoteCIShardRows 从读取快照恢复 run 的 shard 投影。
@@ -87,7 +156,7 @@ func loadRemoteCIShardRows(
 	jobID string,
 ) ([]RemoteCIShardRecord, error) {
 	rows, err := database.Query(`
-		SELECT shards.shard_identity, shards.container_group_id, shards.container_status,
+		SELECT shards.shard_identity, shards.container_group_id, shards.container_status, shards.materialization_timing_json,
 			workloads.workload_id
 		FROM ci_shards AS shards
 		LEFT JOIN ci_shard_workloads AS workloads
@@ -108,14 +177,23 @@ func loadRemoteCIShardRows(
 		var (
 			shard      RemoteCIShardRecord
 			workloadID sql.NullString
+			timingJSON string
 		)
 		if err := rows.Scan(
 			&shard.ShardIdentity,
 			&shard.ContainerGroup,
 			&shard.ContainerStatus,
+			&timingJSON,
 			&workloadID,
 		); err != nil {
 			return nil, mapDurationLedgerSQLiteError("scan remote CI shard", err)
+		}
+		if timingJSON == "" {
+			shard.MaterializationTiming.Measurement = MaterializationMeasurementUnavailable
+		} else if DecodeStrictJSON([]byte(timingJSON), &shard.MaterializationTiming) != nil ||
+			shard.MaterializationTiming.Validate() != nil ||
+			shard.MaterializationTiming.Measurement == MaterializationMeasurementMeasured && shard.MaterializationTiming.ShardIdentity != shard.ShardIdentity {
+			return nil, errors.New("stored remote CI shard materialization timing is invalid")
 		}
 		index, exists := shardIndex[shard.ShardIdentity]
 		if !exists {
@@ -140,7 +218,7 @@ func loadRemoteCIExecutionRows(
 ) ([]PlanGateExecution, error) {
 	rows, err := database.Query(`
 		SELECT workload_id, status, exit_code, started_at_unix_ms,
-			completed_at_unix_ms, argv_digest, log_digest
+			completed_at_unix_ms, argv_digest, log_digest, execution_profile_json
 		FROM ci_gate_executions
 		WHERE job_id = ?
 		ORDER BY workload_id
@@ -155,6 +233,7 @@ func loadRemoteCIExecutionRows(
 			execution                  PlanGateExecution
 			workloadID, status         string
 			startedAtMS, completedAtMS int64
+			profileJSON                string
 		)
 		if err := rows.Scan(
 			&workloadID,
@@ -164,6 +243,7 @@ func loadRemoteCIExecutionRows(
 			&completedAtMS,
 			&execution.ArgvDigest,
 			&execution.LogDigest,
+			&profileJSON,
 		); err != nil {
 			return nil, mapDurationLedgerSQLiteError("scan remote CI gate execution", err)
 		}
@@ -171,12 +251,23 @@ func loadRemoteCIExecutionRows(
 		execution.Status = ResultStatus(status)
 		execution.StartedAt = time.UnixMilli(startedAtMS).UTC()
 		execution.CompletedAt = time.UnixMilli(completedAtMS).UTC()
+		if profileJSON == "" {
+			execution.ExecutionProfile = legacyNotMeasuredExecutionProfile(execution.StartedAt, execution.CompletedAt)
+		} else if json.Unmarshal([]byte(profileJSON), &execution.ExecutionProfile) != nil || execution.ExecutionProfile.Validate() != nil {
+			return nil, errors.New("stored remote CI execution profile is invalid")
+		}
 		executions = append(executions, execution)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, mapDurationLedgerSQLiteError("iterate remote CI gate executions", err)
 	}
 	return executions, nil
+}
+
+func legacyNotMeasuredExecutionProfile(started, completed time.Time) ExecutionProfile {
+	total := completed.Sub(started).Milliseconds()
+	total = max(total, 0)
+	return ExecutionProfile{CacheSource: "none", CacheStatus: "not_applicable", CacheMeasurement: "not_measured", StartupMS: total, TotalMS: total}
 }
 
 // replaceSQLiteRemoteRunWorkloads 用当前 run 的缓存命中和未命中集替换投影。

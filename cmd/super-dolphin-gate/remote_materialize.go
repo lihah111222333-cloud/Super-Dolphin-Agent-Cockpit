@@ -80,7 +80,7 @@ func runRemoteMaterialize(args []string, stdout io.Writer) error {
 	defer stop()
 	ctx, cancel := gateprivate.WithTimeout(signalCtx, remoteMaterializeTimeout)
 	defer cancel()
-	request, err := materializeRemoteSource(
+	request, timing, err := materializeRemoteSourceWithTiming(
 		ctx,
 		config,
 		remoteDataCacheRootPath,
@@ -95,6 +95,13 @@ func runRemoteMaterialize(args []string, stdout io.Writer) error {
 	if _, err := fmt.Fprintf(stdout, "remote source materialized job=%s shard=%s tree=%s\n",
 		request.JobID, request.ShardIdentity, request.SourceTreeSHA); err != nil {
 		return infrastructureError("write remote materialize status: %v", err)
+	}
+	record, err := gatecontract.EncodeShardMaterializationTimingRecord(timing)
+	if err != nil {
+		return infrastructureError("encode remote materialization timing: %v", err)
+	}
+	if _, err := fmt.Fprintln(stdout, record); err != nil {
+		return infrastructureError("write remote materialization timing: %v", err)
 	}
 	return nil
 }
@@ -171,8 +178,8 @@ func validRemoteRequestObjectKey(key string) bool {
 		strings.HasSuffix(key, ".request.json")
 }
 
-// materializeRemoteSource 校验请求和 source 对象后，从受验基线克隆并交接执行根目录。
-func materializeRemoteSource(
+// materializeRemoteSourceWithTiming records init-container wall time without assigning it to gates.
+func materializeRemoteSourceWithTiming(
 	ctx context.Context,
 	config remoteMaterializeConfig,
 	cacheRoot string,
@@ -180,36 +187,58 @@ func materializeRemoteSource(
 	sourceRoot string,
 	workRoot string,
 	download remoteObjectDownload,
-) (remoteci.ShardRequest, error) {
+) (remoteci.ShardRequest, gatecontract.ShardMaterializationTiming, error) {
+	timing := gatecontract.ShardMaterializationTiming{Measurement: gatecontract.MaterializationMeasurementMeasured}
 	if download == nil {
-		return remoteci.ShardRequest{}, errors.New("remote object downloader is required")
+		return remoteci.ShardRequest{}, timing, errors.New("remote object downloader is required")
 	}
 	request, err := loadRemoteShardRequest(ctx, config, download)
 	if err != nil {
-		return remoteci.ShardRequest{}, err
+		return remoteci.ShardRequest{}, timing, err
 	}
+	timing.ShardIdentity = request.ShardIdentity
+	baselineStarted := time.Now()
 	if err := materializeRemoteBaseline(ctx, cacheRoot, expandedRoot, sourceRoot, request, download); err != nil {
-		return remoteci.ShardRequest{}, err
+		return remoteci.ShardRequest{}, timing, err
 	}
+	timing.Baseline.MaterializeMS = time.Since(baselineStarted).Milliseconds()
+	sourceStarted := time.Now()
+	downloadStarted := time.Now()
 	tempRoot, manifestPath, patchPath, err := stageRemoteSourceObjects(ctx, workRoot, request, download)
 	if err != nil {
-		return remoteci.ShardRequest{}, err
+		return remoteci.ShardRequest{}, timing, err
 	}
+	timing.Source.DownloadMS = time.Since(downloadStarted).Milliseconds()
 	defer os.RemoveAll(tempRoot)
+	verifyStarted := time.Now()
 	if err := verifyRemoteMaterializedSource(ctx, sourceRoot, manifestPath, patchPath, request); err != nil {
-		return remoteci.ShardRequest{}, err
+		return remoteci.ShardRequest{}, timing, err
 	}
+	timing.Source.VerifyMS = time.Since(verifyStarted).Milliseconds()
+	cliStarted := time.Now()
 	if _, err := materializeRemoteCandidateCLIArtifact(ctx, expandedRoot, request.CandidateCLI.ManifestKey, request.CandidateCLI.ManifestSHA256, request.CandidateCLI.CandidateTree, request.CandidateCLI.SourceSHA256, request.CandidateCLI.ToolchainSHA256, download); err != nil {
-		return remoteci.ShardRequest{}, fmt.Errorf("materialize remote candidate CLI artifact: %w", err)
+		return remoteci.ShardRequest{}, timing, fmt.Errorf("materialize remote candidate CLI artifact: %w", err)
 	}
+	timing.CandidateCLI.MaterializeMS = time.Since(cliStarted).Milliseconds()
+	testBinariesStarted := time.Now()
+	if _, err := materializeRemoteCandidateTestBinaries(ctx, expandedRoot, request.SourceTreeSHA, request.CandidateTestBinaries, download); err != nil {
+		return remoteci.ShardRequest{}, timing, fmt.Errorf("materialize remote candidate test binaries: %w", err)
+	}
+	timing.CandidateTestBinaries.MaterializeMS = time.Since(testBinariesStarted).Milliseconds()
 	if err := os.RemoveAll(tempRoot); err != nil {
-		return remoteci.ShardRequest{}, fmt.Errorf("remove remote materialize staging root: %w", err)
+		return remoteci.ShardRequest{}, timing, fmt.Errorf("remove remote materialize staging root: %w", err)
 	}
 	tempRoot = ""
+	installStarted := time.Now()
 	if err := handoffRemoteWorkRoot(workRoot, os.Chmod, os.Chown); err != nil {
-		return remoteci.ShardRequest{}, err
+		return remoteci.ShardRequest{}, timing, err
 	}
-	return request, nil
+	timing.Source.InstallMS = time.Since(installStarted).Milliseconds()
+	timing.Source.MaterializeMS = time.Since(sourceStarted).Milliseconds()
+	if err := timing.Validate(); err != nil {
+		return remoteci.ShardRequest{}, timing, fmt.Errorf("validate remote materialization timing: %w", err)
+	}
+	return request, timing, nil
 }
 
 // verifyRemoteMaterializedSource 将 job patch 全字段绑定到已经逐层物化的 source 基线。

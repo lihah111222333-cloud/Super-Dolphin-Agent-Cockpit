@@ -35,6 +35,7 @@ type remoteGitTreeSnapshot struct {
 	cacheMu                sync.Mutex
 	productionClosureCache map[string]remoteProductionClosureCache
 	goTestDeclarationCache map[string]remoteGoTestDeclarationCache
+	goWorkloadSharedScript *remoteGitTreeEntry
 }
 
 type remoteProductionClosureCache struct {

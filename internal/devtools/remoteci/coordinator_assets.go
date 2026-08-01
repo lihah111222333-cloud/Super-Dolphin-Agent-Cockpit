@@ -9,14 +9,17 @@ import (
 )
 
 type remoteAssets struct {
-	artifact              source.Artifact
-	manifestDigest        string
-	patchKey              string
-	manifestKey           string
-	candidateCLI          CandidateCLIArtifactRef
-	candidatePath         string
-	candidateManifestPath string
-	candidateBinaryKey    string
+	artifact                  source.Artifact
+	manifestDigest            string
+	patchKey                  string
+	manifestKey               string
+	candidateCLI              CandidateCLIArtifactRef
+	candidatePath             string
+	candidateManifestPath     string
+	candidateBinaryKey        string
+	candidateTestBinaries     []candidateTestBinaryAsset
+	candidateTestBinaryRefs   []CandidateTestBinaryArtifactRef
+	candidateTestBinaryBuilds []CandidateTestBinaryBuilderBuild
 }
 
 // remoteCIShardRecords 仅持久化已观测到的 ECI 分片，并保留尚未取得终态的已创建分片。
@@ -31,7 +34,7 @@ func remoteCIShardRecords(shardResults []ShardResult) []gate.RemoteCIShardRecord
 		if containerStatus == "" {
 			containerStatus = "Unknown"
 		}
-		shards = append(shards, gate.RemoteCIShardRecord{ShardIdentity: shard.ShardIdentity, ContainerGroup: shard.ContainerGroup, ContainerStatus: containerStatus, Workloads: append([]gate.GateID(nil), shard.ExecutedWorkloads...)})
+		shards = append(shards, gate.RemoteCIShardRecord{ShardIdentity: shard.ShardIdentity, ContainerGroup: shard.ContainerGroup, ContainerStatus: containerStatus, Workloads: append([]gate.GateID(nil), shard.ExecutedWorkloads...), MaterializationTiming: shard.MaterializationTiming})
 	}
 	return shards
 }
@@ -46,34 +49,27 @@ func remotePlanningContext(input RunInput) gate.PlanningContext {
 	return gate.PlanningContext{Platform: input.Platform, Runner: input.RunnerIdentityDigest, Toolchain: input.ToolchainDigest, MaxShards: int(input.MaxShards), TargetDurationMS: gate.FullCITargetDurationMS}
 }
 
-// prepareRemoteShardRequests 构建候选源和 CLI 资产，并生成消费二者的分片请求。
-func (coordinator *Coordinator) prepareRemoteShardRequests(
+// prepareRemoteAssets 构建将由远端 builder 与执行分片共同消费的源和候选 CLI 资产。
+func (coordinator *Coordinator) prepareRemoteAssets(
 	ctx context.Context,
 	input RunInput,
 	jobID, tempRoot string,
-	shards []gate.ContainerShard,
 	counts remoteCIPhaseCounts,
 	trace *remoteRunPerformanceTrace,
-) (remoteAssets, []ShardRequest, []string, error) {
+) (remoteAssets, error) {
 	sourceBuildSpan := trace.start("source.build", counts)
 	assets, err := buildRemoteAssets(ctx, input, jobID, tempRoot, coordinator.config.SourcePrefix)
 	trace.finish(sourceBuildSpan, err, counts)
 	if err != nil {
-		return remoteAssets{}, nil, nil, err
+		return remoteAssets{}, err
 	}
 	candidateBuildSpan := trace.start("candidate_cli.build", counts)
 	assets.candidateCLI, assets.candidatePath, assets.candidateManifestPath, assets.candidateBinaryKey, err = buildRemoteCandidateCLIArtifact(ctx, coordinator.config.CandidateCLIBuilder, input, jobID, tempRoot, coordinator.config.SourcePrefix)
 	trace.finish(candidateBuildSpan, err, counts)
 	if err != nil {
-		return remoteAssets{}, nil, nil, err
+		return remoteAssets{}, err
 	}
-	requestBuildSpan := trace.start("request.build", counts)
-	requests, keys, err := buildShardRequestsWithCandidate(coordinator.config.SourcePrefix, jobID, shards, assets.artifact, assets.patchKey, assets.manifestKey, assets.manifestDigest, assets.candidateCLI, input)
-	trace.finish(requestBuildSpan, err, counts)
-	if err != nil {
-		return remoteAssets{}, nil, nil, err
-	}
-	return assets, requests, keys, nil
+	return assets, nil
 }
 
 // buildRemoteAssets 从精确树构建源差分及其绑定对象键。
@@ -98,7 +94,7 @@ func (coordinator *Coordinator) uploadSourceAssets(ctx context.Context, assets r
 		{assets.candidatePath, assets.candidateBinaryKey, "candidate CLI binary"},
 		{assets.candidateManifestPath, assets.candidateCLI.ManifestKey, "candidate CLI manifest"},
 	} {
-		if err := coordinator.store.Upload(ctx, item.path, item.key); err != nil {
+		if err := coordinator.store.Create(ctx, item.path, item.key); err != nil {
 			return fmt.Errorf("upload remote CI %s: %w", item.label, err)
 		}
 		*objectKeys = append(*objectKeys, item.key)

@@ -87,7 +87,7 @@ func TestPlanExecutionReportJSONFieldCoverage(t *testing.T) {
 			name:     "gate execution",
 			producer: reflect.TypeFor[PlanGateExecution](),
 			fields: []string{
-				"argv_digest", "completed_at", "exit_code", "gate_id", "log", "log_digest",
+				"argv_digest", "completed_at", "execution_profile", "exit_code", "gate_id", "log", "log_digest",
 				"started_at", "status", "test_timings",
 			},
 		},
@@ -570,6 +570,7 @@ func TestPlanExecutionReportPacksTwentyFiveWorkloadsWithinRemoteRecordBudget(t *
 			GateID: gateID, Status: ResultStatusPassed, ExitCode: 0,
 			StartedAt: now, CompletedAt: now.Add(time.Second),
 			LogDigest: digestPlanLog(nil), TestTimings: timings,
+			ExecutionProfile: ExecutionProfile{CacheSource: "go_build_cache", CacheStatus: "miss", CacheMeasurement: "measured", TestBodyMS: 1000, TotalMS: 1000},
 		})
 		expected = append(expected, gateID)
 	}
@@ -770,7 +771,27 @@ func successfulPlanGateResult(id GateID) PlanGateExecution {
 	return PlanGateExecution{
 		GateID: id, Status: ResultStatusPassed, ExitCode: 0,
 		StartedAt: now, CompletedAt: now.Add(time.Millisecond),
-		LogDigest: digestPlanLog(nil),
+		LogDigest:        digestPlanLog(nil),
+		ExecutionProfile: ExecutionProfile{CacheSource: "none", CacheStatus: "not_applicable", CacheMeasurement: "not_measured", TestBodyMS: 1, TotalMS: 1},
+	}
+}
+
+func TestExecutionProfileUsesOnlyExactTopLevelTestTiming(t *testing.T) {
+	workload, err := NewGoTestWorkload(GateIDBackendTestWithGuard, "./internal/archtest", "TestBoundary", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := executorPlanTestNow()
+	completed := started.Add(1500 * time.Millisecond)
+	profile, err := executionProfileForGate(GateID(workload.ID), candidateTestBinaryBundleIndex{}, []GoTestTiming{{Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 400}, {Name: "TestBoundary/subcase", Status: GoTestStatusPass, DurationMS: 900}}, started, completed)
+	if err != nil || profile.TestBodyMS != 400 || profile.StartupMS != 1100 {
+		t.Fatalf("profile=%#v err=%v", profile, err)
+	}
+	if _, err := executionProfileForGate(GateID(workload.ID), candidateTestBinaryBundleIndex{}, []GoTestTiming{{Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 400}, {Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 401}}, started, completed); err == nil {
+		t.Fatal("duplicate top-level timing was accepted")
+	}
+	if _, err := executionProfileForGate(GateID(workload.ID), candidateTestBinaryBundleIndex{}, []GoTestTiming{{Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 1501}}, started, completed); err == nil {
+		t.Fatal("overlong top-level timing was accepted")
 	}
 }
 

@@ -22,12 +22,17 @@ func buildShardRequestsWithCandidate(
 	manifestKey string,
 	manifestDigest string,
 	candidateCLI CandidateCLIArtifactRef,
+	candidateTestBinaries []CandidateTestBinaryArtifactRef,
 	input RunInput,
 ) ([]ShardRequest, []string, error) {
 	requests := make([]ShardRequest, len(shards))
 	keys := make([]string, len(shards))
 	jobPrefix := sourcePrefix + jobID + "/"
 	for index, shard := range shards {
+		shardBinaries, binaryErr := shardCandidateTestBinaries(shard, candidateTestBinaries)
+		if binaryErr != nil {
+			return nil, nil, binaryErr
+		}
 		keys[index] = fmt.Sprintf("%sshard-%02d.request.json", jobPrefix, index)
 		requests[index] = ShardRequest{
 			SchemaVersion: ShardRequestSchemaVersion, JobID: jobID, ShardIdentity: shard.IdentityDigest,
@@ -39,13 +44,44 @@ func buildShardRequestsWithCandidate(
 			RunnerBaseCommit: artifact.Manifest.BaseCommit, RunnerBaseTree: artifact.Manifest.BaseTree,
 			PatchFormat: artifact.Manifest.PatchFormat,
 			PatchKey:    patchKey, PatchSHA256: artifact.Manifest.PatchSHA256, PatchSize: artifact.Manifest.PatchSize,
-			ManifestKey: manifestKey, ManifestSHA256: manifestDigest, CandidateCLI: candidateCLI, GateIDs: slices.Clone(shard.GateIDs),
+			ManifestKey: manifestKey, ManifestSHA256: manifestDigest, CandidateCLI: candidateCLI, CandidateTestBinaries: shardBinaries, GateIDs: slices.Clone(shard.GateIDs),
 		}
 		if err := requests[index].Validate(); err != nil {
 			return nil, nil, err
 		}
 	}
 	return requests, keys, nil
+}
+
+func shardCandidateTestBinaries(shard gate.ContainerShard, candidates []CandidateTestBinaryArtifactRef) ([]CandidateTestBinaryArtifactRef, error) {
+	byPackage := make(map[string]CandidateTestBinaryArtifactRef, len(candidates))
+	for _, ref := range candidates {
+		byPackage[ref.Package] = ref
+	}
+	var selected []CandidateTestBinaryArtifactRef
+	for _, id := range shard.GateIDs {
+		parent, kind, target, targeted, err := gate.ParseWorkloadID(string(id))
+		if err != nil {
+			return nil, err
+		}
+		if !targeted || kind != gate.WorkloadTargetGoTest || parent != gate.GateIDBackendTestWithGuard {
+			continue
+		}
+		goTarget, err := gate.ParseGoTestTarget(target)
+		if err != nil {
+			return nil, err
+		}
+		ref, ok := byPackage[goTarget.Package]
+		if !ok || ref.Mode != "test" {
+			return nil, fmt.Errorf("remote shard exact Go test %q has no candidate test binary", goTarget.Package)
+		}
+		if !slices.ContainsFunc(selected, func(value CandidateTestBinaryArtifactRef) bool {
+			return value.Package == ref.Package && value.Mode == ref.Mode
+		}) {
+			selected = append(selected, ref)
+		}
+	}
+	return selected, nil
 }
 
 const (
@@ -63,6 +99,7 @@ const (
 	remoteXKBDataMountPath          = "/usr/share/X11/xkb"
 	remoteXKBDataSubPath            = "runtime/rootfs/usr/share/X11/xkb"
 	remoteInitSearchPath            = gate.ExecutorRuntimeSeedRoot + "/bin:" + gate.ExecutorPortableRootFS + "/usr/bin:" + gate.ExecutorPortableRootFS + "/bin:/usr/local/bin:/usr/bin:/bin"
+	remoteCandidateTestBinaryIndex  = "/opt/super-dolphin-gate/test-binaries/candidate-test-binaries.json"
 )
 
 // createRequest 将分片、请求摘要和 DataCache 身份绑定为 ECI 创建请求。
@@ -89,6 +126,7 @@ func (coordinator *Coordinator) createRequest(
 			"SUPER_DOLPHIN_REMOTE_OSS_BUCKET":           coordinator.config.Bucket,
 			"SUPER_DOLPHIN_REMOTE_REQUEST_KEY":          requestKey,
 			"SUPER_DOLPHIN_REMOTE_REQUEST_SHA256":       requestDigest,
+			"SUPER_DOLPHIN_REMOTE_SHARD_IDENTITY":       shard.IdentityDigest,
 			"SUPER_DOLPHIN_REMOTE_CANDIDATE_CLI_KEY":    candidateCLI.BinaryKey,
 			"SUPER_DOLPHIN_REMOTE_CANDIDATE_CLI_SHA256": candidateCLI.BinarySHA256,
 			"SUPER_DOLPHIN_REMOTE_CANDIDATE_CLI_SIZE":   strconv.FormatInt(candidateCLI.BinarySize, 10),
@@ -140,8 +178,9 @@ func (coordinator *Coordinator) createRequest(
 // remoteWorkerEnvironment 仅绑定 worker 入口所需的运行时根与单目标超时。
 func remoteWorkerEnvironment(timeout time.Duration) map[string]string {
 	return map[string]string{
-		gate.ExecutorWorkloadTimeoutEnvironment: timeout.String(),
-		"SUPER_DOLPHIN_RUNTIME_ROOT":            gate.ExecutorRuntimeSeedRoot,
+		gate.ExecutorWorkloadTimeoutEnvironment:     timeout.String(),
+		"SUPER_DOLPHIN_RUNTIME_ROOT":                gate.ExecutorRuntimeSeedRoot,
+		"SUPER_DOLPHIN_CANDIDATE_TEST_BINARY_INDEX": remoteCandidateTestBinaryIndex,
 	}
 }
 

@@ -11,7 +11,7 @@ import (
 )
 
 func TestRemoteCIRunRecordFieldRegistry(t *testing.T) {
-	want := []string{"JobID", "RequesterFingerprint", "Entrypoint", "Profile", "PlanDigest", "CatalogDigest", "SourceTreeSHA", "CandidateCLIManifestSHA256", "RunnerImage", "Status", "Authoritative", "StartedAt", "CompletedAt", "CleanupComplete", "ErrorText", "Shards", "Executions", "ReusedWorkloads", "CacheMisses", "Warnings", "PhaseTimings"}
+	want := []string{"JobID", "RequesterFingerprint", "Entrypoint", "Profile", "PlanDigest", "CatalogDigest", "SourceTreeSHA", "CandidateCLIManifestSHA256", "CandidateTestBinaryReceiptBindingDigest", "RunnerImage", "Status", "Authoritative", "StartedAt", "CompletedAt", "CleanupComplete", "ErrorText", "Shards", "Executions", "WorkloadExecutions", "ReusedWorkloads", "CacheMisses", "Warnings", "PhaseTimings", "CandidateTestBinaryBuilds"}
 	typeOfRecord := reflect.TypeFor[RemoteCIRunRecord]()
 	got := make([]string, typeOfRecord.NumField())
 	for index := range got {
@@ -238,13 +238,15 @@ func assertRemoteCIRunProjectionRoundTrip(t *testing.T, store *DurationLedgerSto
 }
 
 func sqliteProjectionRemoteCIRun(now time.Time) RemoteCIRunRecord {
+	shardIdentity := "sha256:" + strings.Repeat("9", 64)
 	return RemoteCIRunRecord{
 		JobID: "job-sqlite-round-trip", RequesterFingerprint: RequesterFingerprint("sha256:" + strings.Repeat("a", 64)),
 		Entrypoint: CIEntrypointGitPreCommit, Profile: ProfileLocalFast, PlanDigest: "sha256:plan", SourceTreeSHA: strings.Repeat("5", 40),
-		CandidateCLIManifestSHA256: strings.Repeat("c", 64),
-		RunnerImage:                "ubuntu:22.04", Status: ResultStatusPassed, Authoritative: true, StartedAt: now, CompletedAt: now.Add(time.Second), CleanupComplete: true,
-		Shards:          []RemoteCIShardRecord{{ShardIdentity: "shard-000", ContainerGroup: "eci-123", ContainerStatus: "Succeeded", Workloads: []GateID{GateIDAIMaintenanceSelfTest}}},
-		Executions:      []PlanGateExecution{{GateID: GateIDAIMaintenanceSelfTest, Status: ResultStatusPassed, StartedAt: now, CompletedAt: now.Add(time.Second), ArgvDigest: "sha256:argv", LogDigest: "sha256:log"}},
+		CandidateCLIManifestSHA256:              strings.Repeat("c", 64),
+		CandidateTestBinaryReceiptBindingDigest: "sha256:" + strings.Repeat("d", 64),
+		RunnerImage:                             "ubuntu:22.04", Status: ResultStatusPassed, Authoritative: true, StartedAt: now, CompletedAt: now.Add(time.Second), CleanupComplete: true,
+		Shards:          []RemoteCIShardRecord{{ShardIdentity: shardIdentity, ContainerGroup: "eci-123", ContainerStatus: "Succeeded", Workloads: []GateID{GateIDAIMaintenanceSelfTest}, MaterializationTiming: ShardMaterializationTiming{Measurement: MaterializationMeasurementMeasured, ShardIdentity: shardIdentity}}},
+		Executions:      []PlanGateExecution{{GateID: GateIDAIMaintenanceSelfTest, Status: ResultStatusPassed, StartedAt: now, CompletedAt: now.Add(time.Second), ArgvDigest: "sha256:argv", LogDigest: "sha256:log", ExecutionProfile: ExecutionProfile{CacheSource: "none", CacheStatus: "not_applicable", CacheMeasurement: "not_measured", TestBodyMS: 1000, TotalMS: 1000}}},
 		ReusedWorkloads: []GateID{GateIDWhitespaceCheck}, CacheMisses: []GateID{GateIDAIMaintenanceSelfTest}, Warnings: []string{"unit exceeded the planning target"},
 		PhaseTimings: []RemoteCIPhaseTiming{{
 			Phase: "cache.parent_prepare", StartedAt: now, DurationMillis: 17,
@@ -252,6 +254,122 @@ func sqliteProjectionRemoteCIRun(now time.Time) RemoteCIRunRecord {
 			CacheHitCount: 1, CacheMissCount: 1,
 		}},
 	}
+}
+
+func TestLoadRemoteCIRunRejectsNonStrictMaterializationTimingJSON(t *testing.T) {
+	store := newInitializedDurationLedgerProjectionStore(t)
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	run := sqliteProjectionRemoteCIRun(now)
+	run.Shards[0].ShardIdentity = "sha256:" + strings.Repeat("a", 64)
+	run.Shards[0].MaterializationTiming.ShardIdentity = run.Shards[0].ShardIdentity
+	catalog := sqliteProjectionWorkloadCatalog()
+	digest, err := WorkloadCatalogDigest(catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.CatalogDigest = digest
+	if err := store.RecordWorkloadCatalog(catalog, WorkloadCatalogObservation{SourceTreeSHA: run.SourceTreeSHA, Entrypoint: run.Entrypoint, Profile: run.Profile, ObservedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordRemoteCIRun(run); err != nil {
+		t.Fatal(err)
+	}
+	validTiming := `{"measurement":"measured","shard_identity":"` + run.Shards[0].ShardIdentity + `","source":{"download_ms":0,"verify_ms":0,"install_ms":0,"materialize_ms":0},"baseline":{"download_ms":0,"verify_ms":0,"install_ms":0,"materialize_ms":0},"candidate_cli":{"download_ms":0,"verify_ms":0,"install_ms":0,"materialize_ms":0},"candidate_test_binaries":{"download_ms":0,"verify_ms":0,"install_ms":0,"materialize_ms":0}}`
+	for name, timingJSON := range map[string]string{
+		"missing measurement": strings.Replace(validTiming, `"measurement":"measured",`, "", 1),
+		"unknown field":       validTiming[:len(validTiming)-1] + `,"forged_metric":1}`,
+		"trailing object":     validTiming + `{}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			database, openErr := store.openSQLiteAuthority(true)
+			if openErr != nil {
+				t.Fatal(openErr)
+			}
+			_, updateErr := database.Exec(`UPDATE ci_shards SET materialization_timing_json = ? WHERE job_id = ?`, timingJSON, run.JobID)
+			closeErr := database.Close()
+			if updateErr != nil || closeErr != nil {
+				t.Fatalf("write malformed timing JSON: update=%v close=%v", updateErr, closeErr)
+			}
+			if _, loadErr := store.LoadRemoteCIRun(run.JobID); loadErr == nil || !strings.Contains(loadErr.Error(), "stored remote CI shard materialization timing is invalid") {
+				t.Fatalf("LoadRemoteCIRun() error = %v, want strict timing decode rejection", loadErr)
+			}
+		})
+	}
+}
+
+func TestRecordRemoteCIRunRejectsTerminalShardWithoutMeasuredTiming(t *testing.T) {
+	store := newInitializedDurationLedgerProjectionStore(t)
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	run := sqliteProjectionRemoteCIRun(now)
+	run.Shards[0].MaterializationTiming = ShardMaterializationTiming{Measurement: MaterializationMeasurementUnavailable}
+	catalog := sqliteProjectionWorkloadCatalog()
+	digest, err := WorkloadCatalogDigest(catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.CatalogDigest = digest
+	if err := store.RecordWorkloadCatalog(catalog, WorkloadCatalogObservation{SourceTreeSHA: run.SourceTreeSHA, Entrypoint: run.Entrypoint, Profile: run.Profile, ObservedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordRemoteCIRun(run); err == nil || !strings.Contains(err.Error(), "materialization timing") {
+		t.Fatalf("RecordRemoteCIRun() error = %v, want terminal shard timing rejection", err)
+	}
+}
+
+func TestValidateRemoteCIRunRejectsAuthoritativePreBindingBuildRows(t *testing.T) {
+	run := sqliteProjectionRemoteCIRun(time.Now().UTC().Truncate(time.Millisecond))
+	digest, err := WorkloadCatalogDigest(sqliteProjectionWorkloadCatalog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.CatalogDigest = digest
+	run.CandidateTestBinaryBuilds = []CandidateTestBinaryBuildRecord{{}}
+	if validationErr := validateRemoteCIRunRecord(run); validationErr == nil || !strings.Contains(validationErr.Error(), "pre-binding audit rows") {
+		t.Fatalf("validateRemoteCIRunRecord() error = %v, want pre-binding rejection", validationErr)
+	}
+}
+
+func TestLoadRemoteCIRunMarksLegacyMissingTimingUnavailable(t *testing.T) {
+	store := newInitializedDurationLedgerProjectionStore(t)
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	run := sqliteProjectionRemoteCIRun(now)
+	catalog := sqliteProjectionWorkloadCatalog()
+	digest, err := WorkloadCatalogDigest(catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.CatalogDigest = digest
+	if err := store.RecordWorkloadCatalog(catalog, WorkloadCatalogObservation{SourceTreeSHA: run.SourceTreeSHA, Entrypoint: run.Entrypoint, Profile: run.Profile, ObservedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordRemoteCIRun(run); err != nil {
+		t.Fatal(err)
+	}
+	database, err := store.openSQLiteAuthority(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, updateErr := database.Exec(`UPDATE ci_shards SET materialization_timing_json = '' WHERE job_id = ?`, run.JobID)
+	closeErr := database.Close()
+	if updateErr != nil || closeErr != nil {
+		t.Fatalf("write legacy timing: update=%v close=%v", updateErr, closeErr)
+	}
+	loaded, err := store.LoadRemoteCIRun(run.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Shards[0].MaterializationTiming.Measurement != MaterializationMeasurementUnavailable {
+		t.Fatalf("legacy timing measurement = %q, want unavailable", loaded.Shards[0].MaterializationTiming.Measurement)
+	}
+}
+
+func newInitializedDurationLedgerProjectionStore(t *testing.T) *DurationLedgerStore {
+	t.Helper()
+	store := newTestDurationLedgerStore(t)
+	if _, err := store.CompareAndSwap(0, NewDurationLedger()); err != nil {
+		t.Fatal(err)
+	}
+	return store
 }
 
 func sqliteProjectionWorkloadCatalog() WorkloadCatalog {

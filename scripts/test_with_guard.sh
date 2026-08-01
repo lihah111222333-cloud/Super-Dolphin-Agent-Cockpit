@@ -199,9 +199,10 @@ canonical_backend_target_allowed() {
 
 CANONICAL_BACKEND_PACKAGES=()
 
+# REMOTE_WORKLOAD_FINGERPRINT_CANONICAL_BEGIN
 canonical_backend_includes_mcp_lsp() {
   local package
-  for package in "${CANONICAL_BACKEND_PACKAGES[@]}"; do
+  for package in ${CANONICAL_BACKEND_PACKAGES[@]+"${CANONICAL_BACKEND_PACKAGES[@]}"}; do
     case "$package" in
       */cmd/mcp-lsp) return 0 ;;
     esac
@@ -300,6 +301,7 @@ run_canonical_backend() {
   fi
   run_mcp_lsp_resource_cohort_e2e "$real_go"
 }
+# REMOTE_WORKLOAD_FINGERPRINT_CANONICAL_END
 
 run_race_only() {
   local real_go="$1"

@@ -214,6 +214,8 @@ func dispatchPrimaryCLI(args []string, stdout io.Writer) (bool, error) {
 		return true, runRemote(args[1:], os.Stdin, stdout)
 	case "_remote-materialize":
 		return true, runRemoteMaterialize(args[1:], stdout)
+	case "_remote-build-test-binaries":
+		return true, runRemoteBuildTestBinaries(args[1:], stdout)
 	default:
 		return false, nil
 	}

@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	calibrationCheckpointSchemaVersion            uint32 = 4
+	calibrationCheckpointSchemaVersion            uint32 = 5
 	previousCalibrationCheckpointSchemaVersion    uint32 = 3
 	prePreviousCalibrationCheckpointSchemaVersion uint32 = 2
 	legacyCalibrationCheckpointSchemaVersion      uint32 = 1
@@ -48,17 +48,18 @@ type calibrationCheckpointInput struct {
 }
 
 type calibrationCheckpointResult struct {
-	JobID                      string                      `json:"job_id"`
-	PlanDigest                 string                      `json:"plan_digest"`
-	CatalogDigest              string                      `json:"catalog_digest"`
-	SourceTreeSHA              string                      `json:"source_tree_sha"`
-	CandidateCLIManifestSHA256 string                      `json:"candidate_cli_manifest_sha256"`
-	Entrypoint                 gatecontract.CIEntrypointID `json:"entrypoint"`
-	Profile                    gatecontract.Profile        `json:"profile"`
-	Status                     gatecontract.ResultStatus   `json:"status"`
-	Authoritative              bool                        `json:"authoritative"`
-	CleanupComplete            bool                        `json:"cleanup_complete"`
-	CompletedAt                time.Time                   `json:"completed_at"`
+	JobID                                   string                      `json:"job_id"`
+	PlanDigest                              string                      `json:"plan_digest"`
+	CatalogDigest                           string                      `json:"catalog_digest"`
+	SourceTreeSHA                           string                      `json:"source_tree_sha"`
+	CandidateCLIManifestSHA256              string                      `json:"candidate_cli_manifest_sha256"`
+	CandidateTestBinaryReceiptBindingDigest string                      `json:"candidate_test_binary_receipt_binding_digest"`
+	Entrypoint                              gatecontract.CIEntrypointID `json:"entrypoint"`
+	Profile                                 gatecontract.Profile        `json:"profile"`
+	Status                                  gatecontract.ResultStatus   `json:"status"`
+	Authoritative                           bool                        `json:"authoritative"`
+	CleanupComplete                         bool                        `json:"cleanup_complete"`
+	CompletedAt                             time.Time                   `json:"completed_at"`
 }
 
 // Validate 拒绝版本漂移、空身份和无法恢复的场景状态。
@@ -115,12 +116,10 @@ func loadCalibrationCheckpoint(path string, identity string) (calibrationCheckpo
 
 // loadVersionedCalibrationCheckpoint 加载当前版本或迁移受支持的历史版本。
 func loadVersionedCalibrationCheckpoint(path, identity string, version uint32, size int64) (calibrationCheckpointDocument, bool, error) {
-	if isLegacyCalibrationCheckpointVersion(version) {
-		document, err := migrateLegacyCalibrationCheckpoint(path, identity, version)
-		return document, err == nil, err
-	}
 	if version != calibrationCheckpointSchemaVersion {
-		return calibrationCheckpointDocument{}, false, errors.New("calibration checkpoint schema is unsupported")
+		// Older checkpoint documents lack the candidate-binary binding. They
+		// may retain progress only after a fresh authoritative run, never reuse.
+		return newCalibrationCheckpointDocument(identity), true, nil
 	}
 	if size > calibrationCheckpointMaxBytes {
 		return calibrationCheckpointDocument{}, false, fmt.Errorf("calibration checkpoint exceeds %d bytes", calibrationCheckpointMaxBytes)
@@ -137,13 +136,6 @@ func loadVersionedCalibrationCheckpoint(path, identity string, version uint32, s
 		return calibrationCheckpointDocument{}, false, err
 	}
 	return document, false, nil
-}
-
-// isLegacyCalibrationCheckpointVersion 判断版本是否需要流式迁移。
-func isLegacyCalibrationCheckpointVersion(version uint32) bool {
-	return version == legacyCalibrationCheckpointSchemaVersion ||
-		version == prePreviousCalibrationCheckpointSchemaVersion ||
-		version == previousCalibrationCheckpointSchemaVersion
 }
 
 func newCalibrationCheckpointDocument(identity string) calibrationCheckpointDocument {
@@ -269,8 +261,9 @@ func compactCalibrationCheckpointResult(result RunResult) *calibrationCheckpoint
 	return &calibrationCheckpointResult{
 		JobID: result.JobID, PlanDigest: result.PlanDigest, CatalogDigest: result.CatalogDigest,
 		SourceTreeSHA: result.SourceTreeSHA, Entrypoint: result.Entrypoint, Profile: result.Profile,
-		CandidateCLIManifestSHA256: result.CandidateCLIManifestSHA256,
-		Status:                     result.Status, Authoritative: result.Authoritative,
+		CandidateCLIManifestSHA256:              result.CandidateCLIManifestSHA256,
+		CandidateTestBinaryReceiptBindingDigest: result.CandidateTestBinaryReceiptBindingDigest,
+		Status:                                  result.Status, Authoritative: result.Authoritative,
 		CleanupComplete: result.CleanupComplete, CompletedAt: result.CompletedAt,
 	}
 }
@@ -279,8 +272,9 @@ func (result calibrationCheckpointResult) expand() RunResult {
 	return RunResult{
 		JobID: result.JobID, PlanDigest: result.PlanDigest, CatalogDigest: result.CatalogDigest,
 		SourceTreeSHA: result.SourceTreeSHA, Entrypoint: result.Entrypoint, Profile: result.Profile,
-		CandidateCLIManifestSHA256: result.CandidateCLIManifestSHA256,
-		Status:                     result.Status, Authoritative: result.Authoritative,
+		CandidateCLIManifestSHA256:              result.CandidateCLIManifestSHA256,
+		CandidateTestBinaryReceiptBindingDigest: result.CandidateTestBinaryReceiptBindingDigest,
+		Status:                                  result.Status, Authoritative: result.Authoritative,
 		CleanupComplete: result.CleanupComplete, CompletedAt: result.CompletedAt,
 	}
 }
@@ -317,7 +311,8 @@ func validCompletedCalibrationResult(result calibrationCheckpointResult) bool {
 func validCompletedCalibrationResultIdentity(result calibrationCheckpointResult) bool {
 	return strings.TrimSpace(result.JobID) != "" && strings.TrimSpace(result.PlanDigest) != "" &&
 		strings.TrimSpace(result.CatalogDigest) != "" && strings.TrimSpace(result.SourceTreeSHA) != "" &&
-		validObjectDigest(result.CandidateCLIManifestSHA256)
+		validObjectDigest(result.CandidateCLIManifestSHA256) &&
+		remoteDigestPattern.MatchString(result.CandidateTestBinaryReceiptBindingDigest)
 }
 
 // validCompletedCalibrationResultStatus 判断已完成结果具备可接受终态。
@@ -366,27 +361,6 @@ func readCalibrationCheckpointHeader(path string) (uint32, string, error) {
 		}
 	}
 	return 0, "", errors.New("calibration checkpoint header is incomplete")
-}
-
-func migrateLegacyCalibrationCheckpoint(
-	path string,
-	identity string,
-	expectedVersion uint32,
-) (calibrationCheckpointDocument, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return calibrationCheckpointDocument{}, err
-	}
-	defer file.Close()
-	document, err := migrateLegacyCalibrationCheckpointDocument(
-		json.NewDecoder(file),
-		identity,
-		expectedVersion,
-	)
-	if err != nil {
-		return calibrationCheckpointDocument{}, err
-	}
-	return document, nil
 }
 
 // migrateLegacyCalibrationCheckpointDocument 流式迁移旧版本断点文档。

@@ -375,19 +375,35 @@ func TestTestWithGuardSingleGoFileWrapperFiltersGoRunExitStatus(t *testing.T) {
 
 func bad_identifier_with_too_many_underscores() {}
 `)
-
-	result := runTestWithGuardCLI(t, path)
-	if result.exitCode != 1 {
-		t.Fatalf("exit code = %d, want 1\nstdout:\n%s\nstderr:\n%s", result.exitCode, result.stdout, result.stderr)
+	fakeGo := filepath.Join(t.TempDir(), "fake-go")
+	fakeScript := "#!/usr/bin/env bash\n" +
+		"if [[ \"$1\" == version ]]; then printf 'go version go1.25.7 linux/amd64\\n'; exit 0; fi\n" +
+		"printf 'bad_identifier_with_too_many_underscores\\nexit status 1\\n' >&2\n" +
+		"exit 1\n"
+	if err := os.WriteFile(fakeGo, []byte(fakeScript), 0o700); err != nil {
+		t.Fatalf("write fake go: %v", err)
 	}
-	if result.stdout != "" {
-		t.Fatalf("single-file wrapper should not write stdout, got:\n%s", result.stdout)
+	cmd := exec.Command("bash", "scripts/test_with_guard.sh", filepath.ToSlash(path))
+	cmd.Dir = ".."
+	environment := upsertEnv(os.Environ(), "REAL_GO_BIN", bashAbsolutePath(fakeGo))
+	environment = upsertEnv(environment, "SUPER_DOLPHIN_TEST_BACKEND", "remote-worker")
+	cmd.Env = appendWSLEnvKeysWithGitWorktree(t, environment, "REAL_GO_BIN", "SUPER_DOLPHIN_TEST_BACKEND")
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+		t.Fatalf("exit error = %v, want exit code 1\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(result.stderr, "bad_identifier_with_too_many_underscores") {
-		t.Fatalf("stderr missing concrete violation, got:\n%s", result.stderr)
+	if stdout.String() != "" {
+		t.Fatalf("single-file wrapper should not write stdout, got:\n%s", stdout.String())
 	}
-	if strings.Contains(result.stderr, "exit status") {
-		t.Fatalf("stderr should filter go run status noise, got:\n%s", result.stderr)
+	if !strings.Contains(stderr.String(), "bad_identifier_with_too_many_underscores") {
+		t.Fatalf("stderr missing concrete violation, got:\n%s", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "exit status") {
+		t.Fatalf("stderr should filter go run status noise, got:\n%s", stderr.String())
 	}
 }
 
@@ -495,36 +511,6 @@ func runCodeSizeGuardArgs(t *testing.T, args ...string) codeSizeGuardCLIResult {
 	return result
 }
 
-func runTestWithGuardCLI(t *testing.T, goFile string) codeSizeGuardCLIResult {
-	t.Helper()
-	cmd := exec.Command("bash", "scripts/test_with_guard.sh", filepath.ToSlash(goFile))
-	cmd.Dir = ".."
-	if realGo, err := exec.LookPath("go"); err == nil {
-		env := upsertEnv(os.Environ(), "REAL_GO_BIN", bashAbsolutePath(realGo))
-		env = upsertEnv(env, "PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
-		cmd.Env = appendWSLEnvKeysWithGitWorktree(t, env, "REAL_GO_BIN", "PATH")
-	}
-	var stdout, stderr strings.Builder
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	result := codeSizeGuardCLIResult{
-		exitCode: 0,
-		stdout:   stdout.String(),
-		stderr:   stderr.String(),
-	}
-	if err == nil {
-		return result
-	}
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		result.exitCode = exitErr.ExitCode()
-		return result
-	}
-	t.Fatalf("run test_with_guard.sh: %v", err)
-	return result
-}
-
 func captureTestWithGuardGoTestInvocation(t *testing.T, args ...string) string {
 	t.Helper()
 	result := runTestWithGuardFakeGo(t, args...)
@@ -558,6 +544,7 @@ func runTestWithGuardFakeGoWithListOutput(t *testing.T, listOutput string, args 
 	fakeGo := filepath.Join(root, "fake-go")
 	logPath := filepath.Join(root, "go-invocations.log")
 	script := "#!/usr/bin/env bash\n" +
+		"if [[ \"$1\" == version ]]; then printf 'go version go1.25.7 linux/amd64\\n'; exit 0; fi\n" +
 		"printf '%s ' \"$@\" >> \"$FAKE_GO_LOG\"\n" +
 		"printf '\\n' >> \"$FAKE_GO_LOG\"\n" +
 		"if [[ \"$1\" == list ]]; then printf '%s\\n' \"$FAKE_GO_LIST_OUTPUT\"; fi\n" +

@@ -15,7 +15,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
-const ShardRequestSchemaVersion uint32 = 4
+const ShardRequestSchemaVersion uint32 = 5
 
 var (
 	remoteDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
@@ -49,30 +49,49 @@ type CandidateCLIArtifactRef struct {
 	CLIIdentity     string `json:"cli_identity"`
 }
 
+// CandidateTestBinaryArtifactRef 是每个分片消费的候选绑定 go test 二进制引用。
+type CandidateTestBinaryArtifactRef struct {
+	CandidateTree        string   `json:"candidate_tree"`
+	Package              string   `json:"package"`
+	Mode                 string   `json:"mode"`
+	Platform             string   `json:"platform"`
+	GoToolchain          string   `json:"go_toolchain"`
+	CGOEnabled           bool     `json:"cgo_enabled"`
+	ToolchainSHA256      string   `json:"toolchain_sha256"`
+	BuildFlags           []string `json:"build_flags"`
+	CompileClosureSHA256 string   `json:"compile_closure_sha256"`
+	ManifestKey          string   `json:"manifest_key"`
+	ManifestSHA256       string   `json:"manifest_sha256"`
+	BinaryKey            string   `json:"binary_key"`
+	BinarySHA256         string   `json:"binary_sha256"`
+	BinarySize           int64    `json:"binary_size"`
+}
+
 // ShardRequest 将一个 ECI 容器绑定到精确 Anchor、OSS delta 链、目标树和 canonical gate 分片。
 type ShardRequest struct {
-	SchemaVersion    uint32                  `json:"schema_version"`
-	JobID            string                  `json:"job_id"`
-	ShardIdentity    string                  `json:"shard_identity"`
-	Profile          gate.Profile            `json:"profile"`
-	PlanDigest       string                  `json:"plan_digest"`
-	BaselineManifest string                  `json:"runner_manifest_digest"`
-	AnchorGeneration uint64                  `json:"anchor_generation"`
-	AnchorManifest   string                  `json:"anchor_manifest_digest"`
-	AnchorCommit     string                  `json:"anchor_commit"`
-	AnchorTree       string                  `json:"anchor_tree"`
-	BaselineDeltas   []BaselineDeltaLayer    `json:"baseline_deltas,omitempty"`
-	RunnerBaseCommit string                  `json:"runner_base_commit"`
-	RunnerBaseTree   string                  `json:"runner_base_tree"`
-	SourceTreeSHA    string                  `json:"source_tree_sha"`
-	PatchFormat      string                  `json:"patch_format"`
-	PatchKey         string                  `json:"patch_key"`
-	PatchSHA256      string                  `json:"patch_sha256"`
-	PatchSize        int64                   `json:"patch_size"`
-	ManifestKey      string                  `json:"manifest_key"`
-	ManifestSHA256   string                  `json:"manifest_sha256"`
-	CandidateCLI     CandidateCLIArtifactRef `json:"candidate_cli_artifact"`
-	GateIDs          []gate.GateID           `json:"gate_ids"`
+	SchemaVersion         uint32                           `json:"schema_version"`
+	JobID                 string                           `json:"job_id"`
+	ShardIdentity         string                           `json:"shard_identity"`
+	Profile               gate.Profile                     `json:"profile"`
+	PlanDigest            string                           `json:"plan_digest"`
+	BaselineManifest      string                           `json:"runner_manifest_digest"`
+	AnchorGeneration      uint64                           `json:"anchor_generation"`
+	AnchorManifest        string                           `json:"anchor_manifest_digest"`
+	AnchorCommit          string                           `json:"anchor_commit"`
+	AnchorTree            string                           `json:"anchor_tree"`
+	BaselineDeltas        []BaselineDeltaLayer             `json:"baseline_deltas,omitempty"`
+	RunnerBaseCommit      string                           `json:"runner_base_commit"`
+	RunnerBaseTree        string                           `json:"runner_base_tree"`
+	SourceTreeSHA         string                           `json:"source_tree_sha"`
+	PatchFormat           string                           `json:"patch_format"`
+	PatchKey              string                           `json:"patch_key"`
+	PatchSHA256           string                           `json:"patch_sha256"`
+	PatchSize             int64                            `json:"patch_size"`
+	ManifestKey           string                           `json:"manifest_key"`
+	ManifestSHA256        string                           `json:"manifest_sha256"`
+	CandidateCLI          CandidateCLIArtifactRef          `json:"candidate_cli_artifact"`
+	CandidateTestBinaries []CandidateTestBinaryArtifactRef `json:"candidate_test_binary_artifacts"`
+	GateIDs               []gate.GateID                    `json:"gate_ids"`
 }
 
 // Validate 拒绝缺字段、可变身份、路径逃逸和重复 gate。
@@ -105,6 +124,23 @@ func (ref CandidateCLIArtifactRef) Validate(objectPrefix, sourceTree string) err
 	}
 	if !validCandidateCLIReferenceBinaryBinding(ref) {
 		return errors.New("remote shard candidate CLI binary binding is invalid")
+	}
+	return nil
+}
+
+// Validate rejects absent or replayed candidate test binary metadata before worker admission.
+func (ref CandidateTestBinaryArtifactRef) Validate(objectPrefix, sourceTree string) error {
+	if ref.CandidateTree != sourceTree || !remoteOIDPattern.MatchString(ref.CandidateTree) || !validGoTestBinaryBuild(ref.Package, ref.Mode, ref.Platform, ref.GoToolchain, ref.CGOEnabled, ref.BuildFlags) || !remoteDigestPattern.MatchString(ref.ToolchainSHA256) || !remoteDigestPattern.MatchString(ref.CompileClosureSHA256) {
+		return errors.New("remote shard candidate test binary identity is invalid")
+	}
+	if err := validateObjectBinding(ref.ManifestKey, ref.ManifestSHA256, ".manifest.json", objectPrefix); err != nil {
+		return fmt.Errorf("remote shard candidate test binary manifest: %w", err)
+	}
+	if err := validateObjectBinding(ref.BinaryKey, ref.BinarySHA256, ".test-bin", objectPrefix); err != nil {
+		return fmt.Errorf("remote shard candidate test binary binary: %w", err)
+	}
+	if path.Dir(ref.BinaryKey) != path.Dir(ref.ManifestKey) || ref.BinarySize <= 0 || ref.BinarySize > 512<<20 {
+		return errors.New("remote shard candidate test binary binary binding is invalid")
 	}
 	return nil
 }
@@ -241,6 +277,20 @@ func (request ShardRequest) validateObjects() error {
 	}
 	if err := request.CandidateCLI.Validate(prefix, request.SourceTreeSHA); err != nil {
 		return err
+	}
+	if len(request.CandidateTestBinaries) > 64 {
+		return errors.New("remote shard candidate test binary count is invalid")
+	}
+	seen := make(map[string]struct{}, len(request.CandidateTestBinaries))
+	for _, binary := range request.CandidateTestBinaries {
+		if err := binary.Validate(prefix, request.SourceTreeSHA); err != nil {
+			return err
+		}
+		identity := binary.Package + "\x00" + binary.Mode
+		if _, exists := seen[identity]; exists {
+			return errors.New("remote shard candidate test binary package and mode are duplicated")
+		}
+		seen[identity] = struct{}{}
 	}
 	return nil
 }

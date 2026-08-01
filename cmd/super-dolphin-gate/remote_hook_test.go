@@ -78,6 +78,7 @@ func TestValidateAuthoritativeRemoteHookResultRejectsManualOrDirtyCleanup(t *tes
 		Profile:    gatecontract.ProfileLocalFast, SourceTreeSHA: tree,
 		Status: gatecontract.ResultStatusPassed, Authoritative: true, CleanupComplete: true,
 	}
+	result.CandidateTestBinaryReceiptBindingDigest = remoteHookEmptyCandidateTestBinaryBinding(t, tree)
 	if err := validateAuthoritativeRemoteHookResult(
 		result,
 		gatecontract.CIEntrypointGitPreCommit,
@@ -117,6 +118,11 @@ func TestValidateAuthoritativeRemoteHookResultRejectsManualOrDirtyCleanup(t *tes
 		t.Fatal("manual result unexpectedly accepted")
 	}
 	result.Authoritative = true
+	result.CandidateTestBinaryReceiptBindingDigest = "sha256:" + strings.Repeat("d", 64)
+	if err := validateAuthoritativeRemoteHookResult(result, gatecontract.CIEntrypointGitPreCommit, gatecontract.ProfileLocalFast, tree, "", "", ""); err == nil {
+		t.Fatal("result with a tampered candidate binary binding unexpectedly accepted")
+	}
+	result.CandidateTestBinaryReceiptBindingDigest = remoteHookEmptyCandidateTestBinaryBinding(t, tree)
 	result.CleanupComplete = false
 	if err := validateAuthoritativeRemoteHookResult(
 		result,
@@ -155,10 +161,20 @@ func TestValidateAuthoritativeRemoteHookResultRejectsDifferentRemote(t *testing.
 		RemoteName: "origin", RemoteURL: "ssh://git@example.invalid/repository.git",
 		Status: gatecontract.ResultStatusPassed, Authoritative: true, CleanupComplete: true,
 	}
+	result.CandidateTestBinaryReceiptBindingDigest = remoteHookEmptyCandidateTestBinaryBinding(t, tree)
 	if err := validateAuthoritativeRemoteHookResult(result, gatecontract.CIEntrypointGitPrePush, gatecontract.ProfilePush, tree, "mirror", "ssh://git@example.invalid/repository.git", ""); err == nil {
 		t.Fatal("authority result for a different remote name unexpectedly accepted")
 	}
 	if err := validateAuthoritativeRemoteHookResult(result, gatecontract.CIEntrypointGitPrePush, gatecontract.ProfilePush, tree, "origin", "ssh://git@other.invalid/repository.git", ""); err == nil {
 		t.Fatal("authority result for a different remote URL unexpectedly accepted")
 	}
+}
+
+func remoteHookEmptyCandidateTestBinaryBinding(t *testing.T, tree string) string {
+	t.Helper()
+	digest, err := remoteci.CandidateTestBinaryReceiptBindingDigestFromBuilds(nil, tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return digest
 }

@@ -112,7 +112,7 @@ func TestCalibrationCheckpointMarksCachedRetryComplete(t *testing.T) {
 
 func TestCalibrationCheckpointRejectsCorruptedObservedState(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "duration-ledger.json.calibration.checkpoint")
-	content := `{"schema_version":4,"identity":"sha256:checkpoint","scenarios":{"full":{"started":true,"completed":true,"input":{"calibration":true},"result":{"authoritative":false}}}}`
+	content := `{"schema_version":5,"identity":"sha256:checkpoint","scenarios":{"full":{"started":true,"completed":true,"input":{"calibration":true},"result":{"authoritative":false}}}}`
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestCalibrationCheckpointRejectsCorruptedObservedState(t *testing.T) {
 
 func TestCalibrationCheckpointRejectsUnknownField(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "duration-ledger.json.calibration.checkpoint")
-	content := `{"schema_version":4,"identity":"sha256:checkpoint","scenarios":{},"unexpected":true}`
+	content := `{"schema_version":5,"identity":"sha256:checkpoint","scenarios":{},"unexpected":true}`
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestCalibrationCheckpointDoesNotPersistLedgerOrExecutionPayload(t *testing.
 	}
 }
 
-func TestCalibrationCheckpointMigratesLargeLegacyPayloadToResumeOnly(t *testing.T) {
+func TestCalibrationCheckpointResetsLargeLegacyPayloadToIncomplete(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "duration-ledger.json.calibration.checkpoint")
 	largePayload := strings.Repeat("x", 2<<20)
 	content := `{"schema_version":1,"identity":"sha256:checkpoint","scenarios":{"commit":{"started":true,"completed":true,"input":{"LedgerSnapshot":"` + largePayload + `"},"result":{"DurationSamples":"` + largePayload + `"}}}}`
@@ -187,11 +187,11 @@ func TestCalibrationCheckpointMigratesLargeLegacyPayloadToResumeOnly(t *testing.
 		t.Fatal(err)
 	}
 	if info.Size() >= 1024 {
-		t.Fatalf("migrated checkpoint bytes = %d, want < 1 KiB", info.Size())
+		t.Fatalf("reset checkpoint bytes = %d, want < 1 KiB", info.Size())
 	}
 }
 
-func TestCalibrationCheckpointMigratesSchemaV2CompletionToResumeOnly(t *testing.T) {
+func TestCalibrationCheckpointResetsSchemaV2CompletionToIncomplete(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "duration-ledger.json.calibration.checkpoint")
 	content := `{"schema_version":2,"identity":"sha256:checkpoint","scenarios":{"commit":{"started":true,"completed":true,"input":{"calibration":true},"result":{"job_id":"job-old","authoritative":true,"completed_at":"2026-07-30T00:00:00Z"}}}}`
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
@@ -206,7 +206,7 @@ func TestCalibrationCheckpointMigratesSchemaV2CompletionToResumeOnly(t *testing.
 	}
 }
 
-func TestCalibrationCheckpointMigratesSchemaV2IncompleteScenario(t *testing.T) {
+func TestCalibrationCheckpointResetsSchemaV2IncompleteScenario(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "duration-ledger.json.calibration.checkpoint")
 	content := `{"schema_version":2,"identity":"sha256:checkpoint","scenarios":{"commit":{"started":true,"completed":false}}}`
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
@@ -223,8 +223,55 @@ func TestCalibrationCheckpointMigratesSchemaV2IncompleteScenario(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(persisted), `"schema_version":4`) {
-		t.Fatalf("migrated checkpoint = %s, want schema v4", persisted)
+	if !strings.Contains(string(persisted), `"schema_version":5`) {
+		t.Fatalf("reset checkpoint = %s, want schema v5", persisted)
+	}
+}
+
+func TestCalibrationCheckpointResetsEveryPreV5SchemaToIncomplete(t *testing.T) {
+	for _, schemaVersion := range []string{"1", "2", "3", "4"} {
+		t.Run("schema-v"+schemaVersion, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "duration-ledger.json.calibration.checkpoint")
+			content := `{"schema_version":` + schemaVersion + `,"identity":"sha256:checkpoint","scenarios":{"commit":{"started":true,"completed":true,"input":{"calibration":true},"result":{"authoritative":true}}}}`
+			if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			checkpoint, err := NewCalibrationCheckpoint(path, "sha256:checkpoint")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, _, completed := checkpoint.Completed("commit"); completed {
+				t.Fatalf("schema v%s completion was reused", schemaVersion)
+			}
+		})
+	}
+}
+
+func TestCalibrationCheckpointRejectsEmptyCandidateTestBinaryReceiptBindingDigest(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "duration-ledger.json.calibration.checkpoint")
+	checkpoint, err := NewCalibrationCheckpoint(path, "sha256:checkpoint")
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := testCalibrationCheckpointInput()
+	result := testCalibrationCheckpointResult(input)
+	result.CandidateTestBinaryReceiptBindingDigest = ""
+	if err := checkpoint.Observe("commit", input, result, true); err == nil {
+		t.Fatal("empty candidate test-binary receipt binding digest was accepted")
+	}
+	validResult := testCalibrationCheckpointResult(input)
+	validResult.DurationSamples = []gatecontract.DurationSample{{DurationMS: 1}}
+	if err := checkpoint.Observe("commit", input, validResult, true); err != nil {
+		t.Fatal(err)
+	}
+	state := checkpoint.document.Scenarios["commit"]
+	state.Result.CandidateTestBinaryReceiptBindingDigest = ""
+	checkpoint.document.Scenarios["commit"] = state
+	if err := checkpoint.persist(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewCalibrationCheckpoint(path, "sha256:checkpoint"); err == nil {
+		t.Fatal("persisted empty candidate test-binary receipt binding digest was accepted")
 	}
 }
 
@@ -250,17 +297,22 @@ func testCalibrationCheckpointInput() RunInput {
 }
 
 func testCalibrationCheckpointResult(input RunInput) RunResult {
+	binding, err := CandidateTestBinaryReceiptBindingDigestFromBuilds(nil, input.Tree)
+	if err != nil {
+		panic(err)
+	}
 	return RunResult{
-		JobID:                      "job-checkpoint",
-		Entrypoint:                 input.Entrypoint,
-		Profile:                    input.Profile,
-		PlanDigest:                 "sha256:" + strings.Repeat("5", 64),
-		CatalogDigest:              "sha256:" + strings.Repeat("6", 64),
-		SourceTreeSHA:              input.Tree,
-		CandidateCLIManifestSHA256: strings.Repeat("c", 64),
-		Status:                     gatecontract.ResultStatusPassed,
-		Authoritative:              true,
-		CleanupComplete:            true,
-		CompletedAt:                time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC),
+		JobID:                                   "job-checkpoint",
+		Entrypoint:                              input.Entrypoint,
+		Profile:                                 input.Profile,
+		PlanDigest:                              "sha256:" + strings.Repeat("5", 64),
+		CatalogDigest:                           "sha256:" + strings.Repeat("6", 64),
+		SourceTreeSHA:                           input.Tree,
+		CandidateCLIManifestSHA256:              strings.Repeat("c", 64),
+		CandidateTestBinaryReceiptBindingDigest: binding,
+		Status:                                  gatecontract.ResultStatusPassed,
+		Authoritative:                           true,
+		CleanupComplete:                         true,
+		CompletedAt:                             time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC),
 	}
 }

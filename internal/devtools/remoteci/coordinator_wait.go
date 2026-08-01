@@ -61,6 +61,15 @@ func initializeRemoteShardResults(
 	groupIDs []string,
 ) ([]ShardResult, []pendingRemoteShard) {
 	results := make([]ShardResult, len(shards))
+	for index, shard := range shards {
+		results[index] = ShardResult{
+			ShardIdentity:     shard.IdentityDigest,
+			ExecutedWorkloads: slices.Clone(shard.GateIDs),
+			MaterializationTiming: gate.ShardMaterializationTiming{
+				Measurement: gate.MaterializationMeasurementNotMeasured,
+			},
+		}
+	}
 	pending := make([]pendingRemoteShard, 0, len(groupIDs))
 	for index, groupID := range groupIDs {
 		if groupID == "" || index >= len(shards) {
@@ -69,6 +78,9 @@ func initializeRemoteShardResults(
 		results[index] = ShardResult{
 			ShardIdentity: shards[index].IdentityDigest, ContainerGroup: groupID,
 			ExecutedWorkloads: slices.Clone(shards[index].GateIDs),
+			MaterializationTiming: gate.ShardMaterializationTiming{
+				Measurement: gate.MaterializationMeasurementUnavailable,
+			},
 		}
 		pending = append(pending, pendingRemoteShard{index: index, groupID: groupID})
 	}
@@ -158,6 +170,19 @@ func (coordinator *Coordinator) collectTerminalShardReports(
 				return failure
 			}
 			results[item.index].Report = report
+			materializerLog, err := coordinator.runtime.DescribeContainerLog(ctx, item.groupID, "materializer")
+			if err != nil {
+				failure := remoteShardExecutionError(shards[item.index], fmt.Errorf("describe remote CI materializer log: %w", err))
+				failures[item.index] = failure
+				return failure
+			}
+			timing, err := decodeShardMaterializationTimingLog(materializerLog, shards[item.index].IdentityDigest)
+			if err != nil {
+				failure := remoteShardExecutionError(shards[item.index], fmt.Errorf("decode remote CI materializer timing: %w", err))
+				failures[item.index] = failure
+				return failure
+			}
+			results[item.index].MaterializationTiming = timing
 			results[item.index].workerDiagnostic = remoteShardLogTail(workerLog)
 			return nil
 		})
@@ -190,6 +215,15 @@ func (coordinator *Coordinator) waitShard(ctx context.Context, shard gate.Contai
 				return result, remoteShardExecutionError(shard, err)
 			}
 			result.Report = report
+			materializerLog, err := coordinator.runtime.DescribeContainerLog(ctx, groupID, "materializer")
+			if err != nil {
+				return result, remoteShardExecutionError(shard, fmt.Errorf("describe remote CI materializer log: %w", err))
+			}
+			timing, err := decodeShardMaterializationTimingLog(materializerLog, shard.IdentityDigest)
+			if err != nil {
+				return result, remoteShardExecutionError(shard, fmt.Errorf("decode remote CI materializer timing: %w", err))
+			}
+			result.MaterializationTiming = timing
 			result.workerDiagnostic = remoteShardLogTail(workerLog)
 			return result, nil
 		}

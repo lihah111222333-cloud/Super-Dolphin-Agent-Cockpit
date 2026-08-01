@@ -10,6 +10,7 @@ main() {
     if ! real_go="$(resolve_real_go)"; then
       exit 1
     fi
+    export GOTOOLCHAIN=local
     exec "$real_go" "$@"
   fi
 

@@ -320,9 +320,10 @@ func assertSQLiteSchemaTableRegistry(t *testing.T, database *sql.DB) {
 		t.Fatal(err)
 	}
 	expected := []string{
-		"ci_catalog_observations", "ci_catalog_workloads", "ci_gate_executions",
+		"ci_candidate_test_binary_builds", "ci_catalog_observations", "ci_catalog_workloads", "ci_gate_executions",
 		"ci_query_meta", "ci_run_phase_timings", "ci_run_requesters", "ci_run_warnings", "ci_run_workloads", "ci_runs", "ci_schema_migrations",
 		"ci_shard_workloads", "ci_shards", "ci_workload_catalogs",
+		"ci_workload_executions",
 		"ci_workload_fingerprint_observations", "ci_workload_fingerprints", "ci_workload_identity_aliases", "ci_workload_pass_proofs",
 		"duration_calibrations", "duration_ledger_meta", "duration_samples",
 	}

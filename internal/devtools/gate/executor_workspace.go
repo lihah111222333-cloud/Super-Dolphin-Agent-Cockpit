@@ -174,6 +174,8 @@ const (
 type goBuildCacheProxyConfig struct {
 	seedRoots   []string
 	privateRoot string
+	metricsPath string
+	metrics     *GoBuildCacheProxyMetrics
 	now         func() time.Time
 }
 
@@ -212,7 +214,11 @@ func ExecuteGoBuildCacheProxy(args []string, input io.Reader, output io.Writer) 
 	if err != nil {
 		return err
 	}
-	return serveGoBuildCacheProxy(config, input, output)
+	err = serveGoBuildCacheProxy(config, input, output)
+	if config.metricsPath == "" {
+		return err
+	}
+	return errors.Join(err, writeGoBuildCacheProxyMetrics(config.metricsPath, *config.metrics))
 }
 
 // parseGoBuildCacheProxyConfig 严格解析并验证有序只读 seed 链与唯一私有写层。
@@ -236,7 +242,12 @@ func parseGoBuildCacheProxyConfig(args []string) (goBuildCacheProxyConfig, error
 	if err != nil {
 		return config, err
 	}
+	if config.metricsPath != "" && !validGoBuildCacheProxyMetricsPath(privateRoot, config.metricsPath) {
+		return config, errors.New("Go build cache proxy metrics path must belong to the private layer")
+	}
 	config.seedRoots, config.privateRoot = seedRoots, privateRoot
+	metrics := newGoBuildCacheProxyMetrics(seedRoots)
+	config.metrics = &metrics
 	return config, nil
 }
 
@@ -251,6 +262,11 @@ func parseGoBuildCacheProxyOptions(args []string, config *goBuildCacheProxyConfi
 				return errors.New("Go build cache proxy requires exactly one --private value")
 			}
 			config.privateRoot = args[index+1]
+		case "--metrics":
+			if config.metricsPath != "" {
+				return errors.New("Go build cache proxy accepts at most one metrics path")
+			}
+			config.metricsPath = args[index+1]
 		default:
 			return fmt.Errorf("unknown Go build cache proxy option %q", args[index])
 		}
@@ -343,13 +359,15 @@ func getGoBuildCacheProxyEntry(
 	if len(request.ActionID) != goBuildCacheHashBytes || request.BodySize != 0 || len(request.OutputID) != 0 {
 		return goBuildCacheProxyResponse{}, errors.New("Go build cache get request is malformed")
 	}
-	entry, err := findGoBuildCacheEntry(config, request.ActionID)
+	entry, layer, err := findGoBuildCacheEntryWithLayer(config, request.ActionID)
 	if errors.Is(err, errGoBuildCacheMiss) {
+		config.metrics.recordMiss()
 		return goBuildCacheProxyResponse{ID: request.ID, Miss: true}, nil
 	}
 	if err != nil {
 		return goBuildCacheProxyResponse{}, err
 	}
+	config.metrics.recordHit(layer)
 	return goBuildCacheProxyResponse{
 		ID: request.ID, OutputID: entry.outputID, Size: entry.size,
 		Time: &entry.storedAt, DiskPath: entry.path,
@@ -357,20 +375,25 @@ func getGoBuildCacheProxyEntry(
 }
 
 func findGoBuildCacheEntry(config goBuildCacheProxyConfig, actionID []byte) (goBuildCacheProxyEntry, error) {
+	entry, _, err := findGoBuildCacheEntryWithLayer(config, actionID)
+	return entry, err
+}
+
+func findGoBuildCacheEntryWithLayer(config goBuildCacheProxyConfig, actionID []byte) (goBuildCacheProxyEntry, int, error) {
 	roots := make([]string, 0, len(config.seedRoots)+1)
 	roots = append(roots, config.privateRoot)
 	roots = append(roots, config.seedRoots...)
-	for _, root := range roots {
+	for layer, root := range roots {
 		entry, err := readGoBuildCacheEntry(root, actionID)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
 		if err != nil {
-			return goBuildCacheProxyEntry{}, err
+			return goBuildCacheProxyEntry{}, 0, err
 		}
-		return entry, nil
+		return entry, layer, nil
 	}
-	return goBuildCacheProxyEntry{}, errGoBuildCacheMiss
+	return goBuildCacheProxyEntry{}, 0, errGoBuildCacheMiss
 }
 
 // readGoBuildCacheEntry 解析 Go 磁盘缓存 v1 索引并验证对应输出文件。
@@ -468,6 +491,7 @@ func putGoBuildCacheProxyEntry(
 	if err := writeGoBuildCacheIndex(config.privateRoot, request, config.now()); err != nil {
 		return goBuildCacheProxyResponse{}, err
 	}
+	config.metrics.recordPut()
 	return goBuildCacheProxyResponse{
 		ID: request.ID, DiskPath: outputPath,
 	}, nil

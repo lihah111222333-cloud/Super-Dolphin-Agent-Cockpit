@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -16,11 +17,12 @@ import (
 )
 
 const (
-	planReportHeaderRecord = "H"
-	planReportGateRecord   = "G"
-	planReportLogRecord    = "L"
-	planReportTimingRecord = "T"
-	planReportEndRecord    = "E"
+	planReportHeaderRecord  = "H"
+	planReportGateRecord    = "G"
+	planReportLogRecord     = "L"
+	planReportTimingRecord  = "T"
+	planReportProfileRecord = "P"
+	planReportEndRecord     = "E"
 )
 
 type planReportRecord struct {
@@ -37,7 +39,7 @@ func PlanExecutionReportRecordLimit(gateCount int) (int, error) {
 	if gateCount <= 0 || gateCount > 999999 {
 		return 0, errors.New("plan report gate count is invalid")
 	}
-	perGate := 1 + executorPlanMaxLogRecords + executorPlanMaxTimingRecords
+	perGate := 2 + executorPlanMaxLogRecords + executorPlanMaxTimingRecords
 	return min(2+gateCount*perGate, executorPlanMaxTransportRecords), nil
 }
 
@@ -171,6 +173,13 @@ func encodePlanReportRecords(report PlanExecutionReport) ([]string, error) {
 			gateRecord += fmt.Sprintf(" %06d", len(timingRecords))
 		}
 		records = append(records, gateRecord)
+		if report.SchemaVersion >= 4 {
+			profile, err := encodeExecutionProfileRecord(index+1, result.ExecutionProfile)
+			if err != nil {
+				return nil, err
+			}
+			records = append(records, profile)
+		}
 		for fragmentIndex, fragment := range fragments {
 			records = append(records, fmt.Sprintf(
 				"%s %06d %06d %06d %s",
@@ -379,7 +388,7 @@ func parsePlanReportRecordFields(chunk string) ([]string, error) {
 
 func validPlanReportRecordKind(value string) bool {
 	switch value {
-	case planReportHeaderRecord, planReportGateRecord, planReportLogRecord, planReportTimingRecord, planReportEndRecord:
+	case planReportHeaderRecord, planReportGateRecord, planReportLogRecord, planReportTimingRecord, planReportProfileRecord, planReportEndRecord:
 		return true
 	default:
 		return false
@@ -440,7 +449,18 @@ func decodePlanReportGate(records []planReportRecord, cursor int, gateIndex int,
 	if err != nil {
 		return PlanGateExecution{}, 0, err
 	}
-	log, consumed, err := decodePlanLogRecords(records[cursor+1:], gateIndex, logChunks)
+	profileOffset := 0
+	if schemaVersion >= 4 {
+		if cursor+1 >= len(records) || records[cursor+1].kind != planReportProfileRecord {
+			return PlanGateExecution{}, 0, errors.New("plan report execution profile record is missing")
+		}
+		profile, profileErr := decodeExecutionProfileRecord(records[cursor+1].payload, gateIndex)
+		if profileErr != nil {
+			return PlanGateExecution{}, 0, profileErr
+		}
+		result.ExecutionProfile, profileOffset = profile, 1
+	}
+	log, consumed, err := decodePlanLogRecords(records[cursor+1+profileOffset:], gateIndex, logChunks)
 	if err != nil {
 		return PlanGateExecution{}, 0, err
 	}
@@ -449,7 +469,7 @@ func decodePlanReportGate(records []planReportRecord, cursor int, gateIndex int,
 	}
 	result.Log = log
 	timings, consumedTimingRecords, err := decodePlanTimingReportRecords(
-		records[cursor+1+consumed:],
+		records[cursor+1+profileOffset+consumed:],
 		gateIndex,
 		timingCount,
 		timingRecords,
@@ -459,7 +479,7 @@ func decodePlanReportGate(records []planReportRecord, cursor int, gateIndex int,
 		return PlanGateExecution{}, 0, err
 	}
 	result.TestTimings = timings
-	return result, cursor + 1 + consumed + consumedTimingRecords, nil
+	return result, cursor + 1 + profileOffset + consumed + consumedTimingRecords, nil
 }
 
 // decodePlanReportHeader 解码报告元数据和 gate 总数。
@@ -725,7 +745,7 @@ func appendPlanReportField(destination []byte, key string, value string) []byte 
 func validatePlanExecutionReportHeader(report PlanExecutionReport) error {
 	if (report.SchemaVersion != 1 &&
 		report.SchemaVersion != executorPlanTimingSchemaVersion &&
-		report.SchemaVersion != executorPlanReportSchemaVersion) ||
+		report.SchemaVersion != 3 && report.SchemaVersion != executorPlanReportSchemaVersion) ||
 		report.Profile.Validate() != nil || !digestPattern.MatchString(report.PlanDigest) {
 		return errors.New("plan report header is invalid")
 	}
@@ -795,9 +815,148 @@ func validateExpectedPlanReportGateSet(profile Profile, expected []GateID) error
 // validPlanGateResult 仅接受有界文本证据、单调时钟和有效退出状态。
 func validPlanGateResult(result PlanGateExecution, schemaVersion uint32) bool {
 	return validPlanGateTestTimings(result.TestTimings, schemaVersion) &&
+		(schemaVersion < 4 || result.ExecutionProfile.Validate() == nil) &&
 		validPlanGateLog(result) &&
 		validPlanGateTimeRange(result) &&
 		validPlanGateExit(result.Status, result.ExitCode)
+}
+
+func (profile ExecutionProfile) Validate() error {
+	if profile.CacheSource != "none" && profile.CacheSource != "go_build_cache" && profile.CacheSource != "candidate-test-binary" {
+		return errors.New("execution profile cache source is invalid")
+	}
+	if profile.CacheStatus != "not_applicable" && profile.CacheStatus != "hit" && profile.CacheStatus != "miss" && profile.CacheStatus != "put" {
+		return errors.New("execution profile cache status is invalid")
+	}
+	if profile.CacheMeasurement != "measured" && profile.CacheMeasurement != "not_measured" {
+		return errors.New("execution profile cache measurement is invalid")
+	}
+	if (profile.CacheSource == "candidate-test-binary") != (profile.CandidateTestBinaryPackage != "" && profile.CandidateTestBinaryMode == "test") {
+		return errors.New("execution profile candidate test binary binding is invalid")
+	}
+	if profile.CacheSource == "none" && profile.CacheStatus != "not_applicable" {
+		return errors.New("execution profile absent cache is not applicable")
+	}
+	var baselineTotal uint64
+	for generation, count := range profile.BaselineHitByGeneration {
+		if !validExecutorGoBuildCacheGeneration(generation) || count == 0 {
+			return errors.New("execution profile baseline generations are invalid")
+		}
+		baselineTotal += count
+	}
+	if baselineTotal != profile.BaselineHitCount {
+		return errors.New("execution profile baseline hit total does not match generations")
+	}
+	if profile.MaterializeMS < 0 || profile.DownloadMS < 0 || profile.VerifyMS < 0 || profile.StartupMS < 0 || profile.TestBodyMS < 0 || profile.TotalMS < 0 || profile.TotalMS < profile.MaterializeMS+profile.DownloadMS+profile.VerifyMS+profile.StartupMS+profile.TestBodyMS {
+		return errors.New("execution profile timing is invalid")
+	}
+	return nil
+}
+
+func encodeExecutionProfileRecord(index int, profile ExecutionProfile) (string, error) {
+	if err := profile.Validate(); err != nil {
+		return "", err
+	}
+	pkg := profile.CandidateTestBinaryPackage
+	if pkg == "" {
+		pkg = "-"
+	}
+	mode := profile.CandidateTestBinaryMode
+	if mode == "" {
+		mode = "-"
+	}
+	generations, err := encodeBaselineGenerationMap(profile.BaselineHitByGeneration)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s %06d %s %s %s %s %s %d %d %d %d %s %d %d %d %d %d %d", planReportProfileRecord, index, pkg, mode, profile.CacheSource, profile.CacheStatus, profile.CacheMeasurement, profile.PrivateHitCount, profile.BaselineHitCount, profile.CacheMissCount, profile.CachePutCount, generations, profile.MaterializeMS, profile.DownloadMS, profile.VerifyMS, profile.StartupMS, profile.TestBodyMS, profile.TotalMS), nil
+}
+
+func decodeExecutionProfileRecord(payload string, expectedIndex int) (ExecutionProfile, error) {
+	f := strings.Fields(payload)
+	if len(f) != 17 || strings.Join(f, " ") != payload {
+		return ExecutionProfile{}, errors.New("plan report execution profile is invalid")
+	}
+	if err := validatePlanGateRecordIndex(f[0], expectedIndex); err != nil {
+		return ExecutionProfile{}, err
+	}
+	parse := func(v string) (int64, error) { return strconv.ParseInt(v, 10, 64) }
+	values := make([]int64, 6)
+	for i := range values {
+		var err error
+		values[i], err = parse(f[i+11])
+		if err != nil {
+			return ExecutionProfile{}, errors.New("plan report execution profile duration is invalid")
+		}
+	}
+	parseCount := func(value string) (uint64, error) { return strconv.ParseUint(value, 10, 64) }
+	privateHits, privateErr := parseCount(f[6])
+	baselineHits, baselineErr := parseCount(f[7])
+	misses, missErr := parseCount(f[8])
+	puts, putErr := parseCount(f[9])
+	if privateErr != nil || baselineErr != nil || missErr != nil || putErr != nil {
+		return ExecutionProfile{}, errors.New("plan report execution profile cache count is invalid")
+	}
+	generations, generationErr := decodeBaselineGenerationMap(f[10])
+	if generationErr != nil {
+		return ExecutionProfile{}, generationErr
+	}
+	p := ExecutionProfile{CandidateTestBinaryPackage: f[1], CandidateTestBinaryMode: f[2], CacheSource: f[3], CacheStatus: f[4], CacheMeasurement: f[5], PrivateHitCount: privateHits, BaselineHitCount: baselineHits, CacheMissCount: misses, CachePutCount: puts, BaselineHitByGeneration: generations, MaterializeMS: values[0], DownloadMS: values[1], VerifyMS: values[2], StartupMS: values[3], TestBodyMS: values[4], TotalMS: values[5]}
+	if p.CandidateTestBinaryPackage == "-" {
+		p.CandidateTestBinaryPackage = ""
+	}
+	if p.CandidateTestBinaryMode == "-" {
+		p.CandidateTestBinaryMode = ""
+	}
+	if err := p.Validate(); err != nil {
+		return ExecutionProfile{}, err
+	}
+	return p, nil
+}
+
+func encodeBaselineGenerationMap(generations map[string]uint64) (string, error) {
+	if len(generations) == 0 {
+		return "-", nil
+	}
+	keys := make([]string, 0, len(generations))
+	for generation, count := range generations {
+		if !validExecutorGoBuildCacheGeneration(generation) || count == 0 {
+			return "", errors.New("execution profile baseline generation is invalid")
+		}
+		keys = append(keys, generation)
+	}
+	sort.Strings(keys)
+	values := make([]string, 0, len(keys))
+	for _, generation := range keys {
+		values = append(values, generation+":"+strconv.FormatUint(generations[generation], 10))
+	}
+	return strings.Join(values, ","), nil
+}
+
+func decodeBaselineGenerationMap(value string) (map[string]uint64, error) {
+	if value == "-" {
+		return nil, nil
+	}
+	generations := make(map[string]uint64)
+	for pair := range strings.SplitSeq(value, ",") {
+		generation, countText, ok := strings.Cut(pair, ":")
+		if !ok || !validExecutorGoBuildCacheGeneration(generation) {
+			return nil, errors.New("plan report baseline generation is invalid")
+		}
+		count, err := strconv.ParseUint(countText, 10, 64)
+		if err != nil || count == 0 {
+			return nil, errors.New("plan report baseline generation count is invalid")
+		}
+		if _, duplicate := generations[generation]; duplicate {
+			return nil, errors.New("plan report baseline generation is duplicated")
+		}
+		generations[generation] = count
+	}
+	canonical, err := encodeBaselineGenerationMap(generations)
+	if err != nil || canonical != value {
+		return nil, errors.New("plan report baseline generations are not canonical")
+	}
+	return generations, nil
 }
 
 // validPlanGateLog 校验日志边界、文本编码和内容摘要。

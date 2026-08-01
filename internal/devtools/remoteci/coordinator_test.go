@@ -28,10 +28,11 @@ type coordinatorStore struct {
 	uploadBatches  []int
 	deletePrefixes []string
 	objects        map[string][]byte
+	uploadContents map[string][]byte
 	uploadBarrier  *coordinatorOverlapBarrier
 }
 
-func (store *coordinatorStore) Upload(ctx context.Context, localPath string, key string) error {
+func (store *coordinatorStore) Create(ctx context.Context, localPath string, key string) error {
 	if info, err := os.Stat(localPath); err != nil || !info.Mode().IsRegular() {
 		return fmt.Errorf("upload source is not a regular file")
 	}
@@ -50,7 +51,14 @@ func (store *coordinatorStore) Upload(ctx context.Context, localPath string, key
 	if store.objects == nil {
 		store.objects = make(map[string][]byte)
 	}
+	if _, exists := store.objects[key]; exists {
+		return fmt.Errorf("object %q already exists", key)
+	}
 	store.objects[key] = data
+	if store.uploadContents == nil {
+		store.uploadContents = make(map[string][]byte)
+	}
+	store.uploadContents[key] = append([]byte(nil), data...)
 	return nil
 }
 
@@ -60,6 +68,9 @@ func (store *coordinatorStore) UploadDirectory(
 	prefix string,
 	_ int,
 ) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	entries, err := os.ReadDir(localPath)
 	if err != nil {
 		return err
@@ -71,9 +82,22 @@ func (store *coordinatorStore) UploadDirectory(
 		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
 			return errors.New("batch upload fixture contains a non-file entry")
 		}
-		if err := store.Upload(ctx, filepath.Join(localPath, entry.Name()), prefix+entry.Name()); err != nil {
+		data, err := os.ReadFile(filepath.Join(localPath, entry.Name()))
+		if err != nil {
 			return err
 		}
+		key := prefix + entry.Name()
+		store.mu.Lock()
+		store.uploads = append(store.uploads, key)
+		if store.objects == nil {
+			store.objects = make(map[string][]byte)
+		}
+		store.objects[key] = append([]byte(nil), data...)
+		if store.uploadContents == nil {
+			store.uploadContents = make(map[string][]byte)
+		}
+		store.uploadContents[key] = append([]byte(nil), data...)
+		store.mu.Unlock()
 	}
 	return nil
 }
@@ -133,6 +157,7 @@ type coordinatorRuntime struct {
 	failureLog    string
 	status        string
 	initLog       string
+	initLogs      map[string]string
 	groupState    eci.ContainerGroup
 	createBarrier *coordinatorOverlapBarrier
 	deleteBarrier *coordinatorOverlapBarrier
@@ -153,6 +178,16 @@ func (runtime *coordinatorRuntime) CreateContainerGroup(ctx context.Context, req
 		return eci.ContainerGroup{}, fmt.Errorf("injected create failure")
 	}
 	id := fmt.Sprintf("eci-%d", len(runtime.creates))
+	if runtime.initLog == "" {
+		timing, timingErr := gate.EncodeShardMaterializationTimingRecord(gate.ShardMaterializationTiming{Measurement: gate.MaterializationMeasurementMeasured, ShardIdentity: request.InitContainer.Environment["SUPER_DOLPHIN_REMOTE_SHARD_IDENTITY"]})
+		if timingErr != nil {
+			return eci.ContainerGroup{}, timingErr
+		}
+		if runtime.initLogs == nil {
+			runtime.initLogs = make(map[string]string)
+		}
+		runtime.initLogs[id] = timing
+	}
 	log, err := runtime.reportLog(request)
 	if err != nil {
 		return eci.ContainerGroup{}, err
@@ -221,6 +256,9 @@ func (runtime *coordinatorRuntime) DescribeContainerLog(_ context.Context, group
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 	if containerName == "materializer" {
+		if runtime.initLog == "" {
+			return runtime.initLogs[groupID], nil
+		}
 		return runtime.initLog, nil
 	}
 	return runtime.logs[groupID], nil
@@ -284,8 +322,16 @@ func assertCoordinatorRunSideEffects(
 		t.Fatalf("runtime creates=%d deletes=%d", len(runtime.creates), len(runtime.deletes))
 	}
 	temporary, persistent := partitionCoordinatorUploads(store.uploads)
-	if len(temporary) != 4+len(plannedSet.Shards) || len(store.deletes) != len(temporary) {
+	candidateTestBinaryCount := assertCandidateTestBinaryTemporaryAssets(t, store, temporary)
+	wantTemporary := 4 + candidateTestBinaryCount*2 + len(plannedSet.Shards)
+	if len(temporary) != wantTemporary || len(store.deletes) != len(temporary) {
 		t.Fatalf("store temporary=%v persistent=%v deletes=%v", temporary, persistent, store.deletes)
+	}
+	deleted := slices.Clone(store.deletes)
+	sort.Strings(deleted)
+	sort.Strings(temporary)
+	if !slices.Equal(temporary, deleted) {
+		t.Fatalf("temporary uploads=%v must exactly equal cleanup deletes=%v", temporary, store.deletes)
 	}
 	expectedCached := 0
 	for _, shard := range plannedSet.Shards {
@@ -300,6 +346,28 @@ func assertCoordinatorRunSideEffects(
 		assertRemoteCreateRequestIdentity(t, request, input)
 		assertRemoteCreateRequestVolumes(t, request, input)
 	}
+}
+
+func assertCandidateTestBinaryTemporaryAssets(t *testing.T, store *coordinatorStore, temporary []string) int {
+	t.Helper()
+	binaries, manifests := 0, 0
+	for _, key := range temporary {
+		if strings.HasSuffix(key, ".test-bin") {
+			binaries++
+			continue
+		}
+		manifest, err := DecodeCandidateTestBinaryArtifactManifest(store.uploadContents[key])
+		if err == nil {
+			manifests++
+			if !strings.HasSuffix(manifest.BinaryKey, ".test-bin") {
+				t.Fatalf("candidate test manifest %q binary key=%q", key, manifest.BinaryKey)
+			}
+		}
+	}
+	if binaries == 0 || manifests != binaries {
+		t.Fatalf("candidate test binary temporary assets binaries=%d manifests=%d uploads=%v", binaries, manifests, temporary)
+	}
+	return binaries
 }
 
 func assertCoordinatorCacheSideEffects(
@@ -599,8 +667,9 @@ func newTestCoordinator(t *testing.T, store ObjectStore, runtime Runtime) *Coord
 		InternalOSSEndpoint: "oss-cn-shenzhen-internal.aliyuncs.com",
 		WorkerRoleName:      "worker-role", WorkerTimeout: 10 * time.Minute,
 		PollInterval: time.Millisecond, CleanupTimeout: time.Second,
-		ResourcePolicy:      testRemoteResourcePolicy(),
-		CandidateCLIBuilder: testCandidateCLIBuilder(t),
+		ResourcePolicy:             testRemoteResourcePolicy(),
+		CandidateCLIBuilder:        testCandidateCLIBuilder(t),
+		CandidateTestBinaryBuilder: testCandidateTestBinaryBuilder(t),
 	}, store, runtime)
 	if err != nil {
 		t.Fatal(err)
@@ -618,6 +687,28 @@ func testCandidateCLIBuilder(t *testing.T) CandidateCLIBuilder {
 			return "", err
 		}
 		return path, nil
+	}
+}
+
+func testCandidateTestBinaryBuilder(t *testing.T) CandidateTestBinaryBuilder {
+	t.Helper()
+	return func(_ context.Context, input RunInput, shards []gate.ContainerShard, tempRoot string) ([]CandidateTestBinaryBuild, error) {
+		targets, err := remoteCandidateTestBinaryTargets(shards)
+		if err != nil {
+			return nil, err
+		}
+		if len(targets) == 0 {
+			targets = []CandidateTestBinaryBuildTarget{{Package: "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci", Mode: "test", CGOEnabled: true}}
+		}
+		builds := make([]CandidateTestBinaryBuild, 0, len(targets))
+		for index, target := range targets {
+			binaryPath := filepath.Join(tempRoot, fmt.Sprintf("candidate-test-bin-%d", index))
+			if err := os.WriteFile(binaryPath, []byte("candidate test binary\n"), 0o700); err != nil {
+				return nil, err
+			}
+			builds = append(builds, CandidateTestBinaryBuild{BinaryPath: binaryPath, Package: target.Package, Mode: target.Mode, GoToolchain: "go1.25.7", ToolchainSHA256: input.CandidateGateToolchainSHA256, BuildFlags: []string{"-mod=readonly", "-buildvcs=false", "-trimpath"}, CompileClosureSHA256: input.CandidateGateSourceSHA256})
+		}
+		return builds, nil
 	}
 }
 
@@ -668,7 +759,7 @@ func TestBuildShardRequestsSharesOneCandidateCLIArtifactAcrossThreeShards(t *tes
 	for index := range shards {
 		shards[index] = gate.ContainerShard{Index: uint8(index), IdentityDigest: input.RunnerIdentityDigest, Profile: input.Profile, PlanDigest: input.PolicyDigest, SourceTreeSHA: input.Tree, GateIDs: []gate.GateID{gate.GateID(fmt.Sprintf("test:shard:%d", index))}}
 	}
-	requests, _, err := buildShardRequestsWithCandidate("baseline-artifacts/source-deltas/", "job-0123456789abcdef01234567", shards, assets.artifact, assets.patchKey, assets.manifestKey, assets.manifestDigest, candidate, input)
+	requests, _, err := buildShardRequestsWithCandidate("baseline-artifacts/source-deltas/", "job-0123456789abcdef01234567", shards, assets.artifact, assets.patchKey, assets.manifestKey, assets.manifestDigest, candidate, []CandidateTestBinaryArtifactRef{testCandidateTestBinary(input)}, input)
 	if err != nil {
 		t.Fatalf("buildShardRequestsWithCandidate() error = %v", err)
 	}

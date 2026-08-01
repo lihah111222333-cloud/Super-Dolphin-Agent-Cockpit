@@ -49,35 +49,77 @@ type WorkloadPassCandidate struct {
 
 // RemoteCIRunRecord 是一次协调器执行及其分片和 gate 终态的查询投影。
 type RemoteCIRunRecord struct {
-	JobID                      string
-	RequesterFingerprint       RequesterFingerprint
-	Entrypoint                 CIEntrypointID
-	Profile                    Profile
-	PlanDigest                 string
-	CatalogDigest              string
-	SourceTreeSHA              string
-	CandidateCLIManifestSHA256 string
-	RunnerImage                string
-	Status                     ResultStatus
-	Authoritative              bool
-	StartedAt                  time.Time
-	CompletedAt                time.Time
-	CleanupComplete            bool
-	ErrorText                  string
-	Shards                     []RemoteCIShardRecord
-	Executions                 []PlanGateExecution
-	ReusedWorkloads            []GateID
-	CacheMisses                []GateID
-	Warnings                   []string
-	PhaseTimings               []RemoteCIPhaseTiming
+	JobID                                   string
+	RequesterFingerprint                    RequesterFingerprint
+	Entrypoint                              CIEntrypointID
+	Profile                                 Profile
+	PlanDigest                              string
+	CatalogDigest                           string
+	SourceTreeSHA                           string
+	CandidateCLIManifestSHA256              string
+	CandidateTestBinaryReceiptBindingDigest string
+	RunnerImage                             string
+	Status                                  ResultStatus
+	Authoritative                           bool
+	StartedAt                               time.Time
+	CompletedAt                             time.Time
+	CleanupComplete                         bool
+	ErrorText                               string
+	Shards                                  []RemoteCIShardRecord
+	Executions                              []PlanGateExecution
+	WorkloadExecutions                      []PlanGateExecution
+	ReusedWorkloads                         []GateID
+	CacheMisses                             []GateID
+	Warnings                                []string
+	PhaseTimings                            []RemoteCIPhaseTiming
+	CandidateTestBinaryBuilds               []CandidateTestBinaryBuildRecord
+}
+
+// CandidateTestBinaryBuildRecord is one coordinator-validated package build; it is never charged to an individual test execution.
+type CandidateTestBinaryBuildRecord struct {
+	CandidateTree                   string
+	Package                         string
+	Mode                            string
+	Platform                        string
+	GoToolchain                     string
+	CGOEnabled                      bool
+	ToolchainSHA256                 string
+	BuildFlags                      []string
+	CompileClosureSHA256            string
+	ManifestSHA256                  string
+	ArtifactSHA256                  string
+	BinarySize                      int64
+	GoListWallMS                    uint64
+	BuildWallMS                     uint64
+	CompileActionMS                 uint64
+	LinkActionMS                    uint64
+	CompileCriticalWallMS           uint64
+	GOCachePrivateHits              uint64
+	GOCachePrivateRootIdentity      string
+	GOCacheBaselineHitsByGeneration map[string]uint64
+	GOCacheBaselineHitRecords       []CandidateTestBinaryCacheGenerationRecord
+	GOCacheMisses                   uint64
+	GOCachePuts                     uint64
+}
+
+// CandidateTestBinaryCacheGenerationRecord retains the baseline cache provenance
+// observed for one immutable generation.
+type CandidateTestBinaryCacheGenerationRecord struct {
+	Generation           uint64 `json:"generation"`
+	Hits                 uint64 `json:"hits"`
+	AnchorGeneration     uint64 `json:"anchor_generation"`
+	AnchorManifestDigest string `json:"anchor_manifest_digest"`
+	ManifestDigest       string `json:"manifest_digest"`
+	CacheRootIdentity    string `json:"cache_root_identity"`
 }
 
 // RemoteCIShardRecord 保存一个远程分片的稳定云资源身份和终态。
 type RemoteCIShardRecord struct {
-	ShardIdentity   string
-	ContainerGroup  string
-	ContainerStatus string
-	Workloads       []GateID
+	ShardIdentity         string
+	ContainerGroup        string
+	ContainerStatus       string
+	Workloads             []GateID
+	MaterializationTiming ShardMaterializationTiming
 }
 
 // LookupWorkloadPassProofs 用内容身份主键批量查询已验证 PASS，不访问 OSS。

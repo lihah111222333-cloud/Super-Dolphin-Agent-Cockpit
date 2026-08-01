@@ -17,6 +17,7 @@ source "$ROOT_DIR/scripts/real_go_resolver.sh"
 if ! REAL_GO_BIN_VALUE="$(resolve_real_go)"; then
   return 1
 fi
+export GOTOOLCHAIN=local
 
 export REAL_GO_BIN="$REAL_GO_BIN_VALUE"
 case ":$PATH:" in

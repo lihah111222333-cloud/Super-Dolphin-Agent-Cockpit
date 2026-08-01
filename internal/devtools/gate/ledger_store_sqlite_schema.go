@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strings"
 	"time"
 
 	sqlitedriver "modernc.org/sqlite"
@@ -244,6 +245,7 @@ CREATE TABLE IF NOT EXISTS ci_runs (
 	catalog_digest TEXT NOT NULL,
 	source_tree_sha TEXT NOT NULL,
 	candidate_cli_manifest_sha256 TEXT NOT NULL DEFAULT '',
+	candidate_test_binary_receipt_binding_digest TEXT NOT NULL DEFAULT '',
 	runner_image TEXT NOT NULL,
 	status TEXT NOT NULL,
 	authoritative INTEGER NOT NULL CHECK (authoritative IN (0, 1)),
@@ -285,6 +287,7 @@ CREATE TABLE IF NOT EXISTS ci_shards (
 	shard_identity TEXT NOT NULL,
 	container_group_id TEXT NOT NULL,
 	container_status TEXT NOT NULL,
+	materialization_timing_json TEXT NOT NULL DEFAULT '',
 	PRIMARY KEY (job_id, shard_identity)
 );
 
@@ -312,11 +315,41 @@ CREATE TABLE IF NOT EXISTS ci_gate_executions (
 	completed_at_unix_ms INTEGER NOT NULL,
 	argv_digest TEXT NOT NULL,
 	log_digest TEXT NOT NULL,
+	execution_profile_json TEXT NOT NULL DEFAULT '',
 	PRIMARY KEY (job_id, workload_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_ci_gate_executions_lookup
 	ON ci_gate_executions (workload_id, status, completed_at_unix_ms DESC);
+
+CREATE TABLE IF NOT EXISTS ci_workload_executions (
+	job_id TEXT NOT NULL REFERENCES ci_runs(job_id) ON DELETE CASCADE,
+	workload_id TEXT NOT NULL,
+	status TEXT NOT NULL,
+	exit_code INTEGER NOT NULL,
+	started_at_unix_ms INTEGER NOT NULL,
+	completed_at_unix_ms INTEGER NOT NULL,
+	argv_digest TEXT NOT NULL,
+	log_digest TEXT NOT NULL,
+	execution_profile_json TEXT NOT NULL,
+	PRIMARY KEY (job_id, workload_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ci_workload_executions_lookup
+	ON ci_workload_executions (workload_id, status, completed_at_unix_ms DESC);
+
+CREATE TABLE IF NOT EXISTS ci_candidate_test_binary_builds (
+	job_id TEXT NOT NULL REFERENCES ci_runs(job_id) ON DELETE CASCADE,
+	candidate_tree TEXT NOT NULL DEFAULT '', package TEXT NOT NULL, mode TEXT NOT NULL,
+	platform TEXT NOT NULL DEFAULT '', go_toolchain TEXT NOT NULL DEFAULT '', cgo_enabled INTEGER NOT NULL DEFAULT 0,
+	toolchain_sha256 TEXT NOT NULL DEFAULT '', build_flags_json TEXT NOT NULL DEFAULT '[]', compile_closure_sha256 TEXT NOT NULL DEFAULT '',
+	manifest_sha256 TEXT NOT NULL DEFAULT '', artifact_sha256 TEXT NOT NULL, binary_size INTEGER NOT NULL DEFAULT 0,
+	go_list_wall_ms INTEGER NOT NULL, build_wall_ms INTEGER NOT NULL,
+	compile_action_ms INTEGER NOT NULL, link_action_ms INTEGER NOT NULL, compile_critical_wall_ms INTEGER NOT NULL,
+	gocache_private_hits INTEGER NOT NULL, gocache_private_root_identity TEXT NOT NULL DEFAULT '', gocache_baseline_hits_by_generation_json TEXT NOT NULL, gocache_baseline_hit_records_json TEXT NOT NULL DEFAULT '[]',
+	gocache_misses INTEGER NOT NULL, gocache_puts INTEGER NOT NULL,
+	PRIMARY KEY (job_id, package, mode)
+);
 
 CREATE TABLE IF NOT EXISTS ci_run_phase_timings (
 	job_id TEXT NOT NULL REFERENCES ci_runs(job_id) ON DELETE CASCADE,
@@ -376,11 +409,85 @@ func ensureDurationLedgerSQLiteSchema(database *sql.DB) error {
 		if err := ensureDurationLedgerCandidateCLIManifestColumn(database); err != nil {
 			return err
 		}
+		if err := ensureDurationLedgerCandidateTestBinaryReceiptBindingColumn(database); err != nil {
+			return err
+		}
+		if err := ensureDurationLedgerCandidateTestBinaryBuildIdentityColumns(database); err != nil {
+			return err
+		}
+		if err := ensureDurationLedgerExecutionProfileColumn(database); err != nil {
+			return err
+		}
+		if err := ensureDurationLedgerShardMaterializationTimingColumn(database); err != nil {
+			return err
+		}
 	default:
 		return fmt.Errorf(
 			"duration ledger SQLite schema version %d is unsupported",
 			schemaVersion,
 		)
+	}
+	return nil
+}
+
+func ensureDurationLedgerCandidateTestBinaryBuildIdentityColumns(database *sql.DB) error {
+	columns := []string{"candidate_tree TEXT NOT NULL DEFAULT ''", "platform TEXT NOT NULL DEFAULT ''", "go_toolchain TEXT NOT NULL DEFAULT ''", "cgo_enabled INTEGER NOT NULL DEFAULT 0", "toolchain_sha256 TEXT NOT NULL DEFAULT ''", "build_flags_json TEXT NOT NULL DEFAULT '[]'", "compile_closure_sha256 TEXT NOT NULL DEFAULT ''", "manifest_sha256 TEXT NOT NULL DEFAULT ''", "binary_size INTEGER NOT NULL DEFAULT 0", "gocache_private_root_identity TEXT NOT NULL DEFAULT ''", "gocache_baseline_hit_records_json TEXT NOT NULL DEFAULT '[]'"}
+	for _, column := range columns {
+		if _, err := database.Exec("ALTER TABLE ci_candidate_test_binary_builds ADD COLUMN " + column); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+			return mapDurationLedgerSQLiteError("migrate candidate test binary build identity", err)
+		}
+	}
+	return nil
+}
+
+func ensureDurationLedgerCandidateTestBinaryReceiptBindingColumn(database *sql.DB) error {
+	rows, err := database.Query(`PRAGMA table_info(ci_runs)`)
+	if err != nil {
+		return mapDurationLedgerSQLiteError("inspect remote CI run schema", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return mapDurationLedgerSQLiteError("scan remote CI run schema", err)
+		}
+		if name == "candidate_test_binary_receipt_binding_digest" {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return mapDurationLedgerSQLiteError("iterate remote CI run schema", err)
+	}
+	if _, err := database.Exec(`ALTER TABLE ci_runs ADD COLUMN candidate_test_binary_receipt_binding_digest TEXT NOT NULL DEFAULT ''`); err != nil {
+		return mapDurationLedgerSQLiteError("migrate remote CI candidate test binary receipt binding", err)
+	}
+	return nil
+}
+
+func ensureDurationLedgerShardMaterializationTimingColumn(database *sql.DB) error {
+	rows, err := database.Query(`PRAGMA table_info(ci_shards)`)
+	if err != nil {
+		return mapDurationLedgerSQLiteError("inspect remote CI shard schema", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return mapDurationLedgerSQLiteError("scan remote CI shard schema", err)
+		}
+		if name == "materialization_timing_json" {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return mapDurationLedgerSQLiteError("iterate remote CI shard schema", err)
+	}
+	if _, err := database.Exec(`ALTER TABLE ci_shards ADD COLUMN materialization_timing_json TEXT NOT NULL DEFAULT ''`); err != nil {
+		return mapDurationLedgerSQLiteError("migrate remote CI shard materialization timing", err)
 	}
 	return nil
 }
@@ -408,6 +515,32 @@ func ensureDurationLedgerCandidateCLIManifestColumn(database *sql.DB) error {
 	}
 	if _, err := database.Exec(`ALTER TABLE ci_runs ADD COLUMN candidate_cli_manifest_sha256 TEXT NOT NULL DEFAULT ''`); err != nil {
 		return mapDurationLedgerSQLiteError("migrate remote CI candidate CLI manifest", err)
+	}
+	return nil
+}
+
+func ensureDurationLedgerExecutionProfileColumn(database *sql.DB) error {
+	rows, err := database.Query(`PRAGMA table_info(ci_gate_executions)`)
+	if err != nil {
+		return mapDurationLedgerSQLiteError("inspect remote CI execution schema", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return mapDurationLedgerSQLiteError("scan remote CI execution schema", err)
+		}
+		if name == "execution_profile_json" {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return mapDurationLedgerSQLiteError("iterate remote CI execution schema", err)
+	}
+	if _, err := database.Exec(`ALTER TABLE ci_gate_executions ADD COLUMN execution_profile_json TEXT NOT NULL DEFAULT ''`); err != nil {
+		return mapDurationLedgerSQLiteError("migrate remote CI execution profile", err)
 	}
 	return nil
 }

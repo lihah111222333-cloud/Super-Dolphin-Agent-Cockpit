@@ -40,7 +40,32 @@ real_go_resolver_real_path() {
 }
 
 real_go_resolver_error() {
-  echo "❌ 未找到真实 go 二进制。请设置 REAL_GO_BIN=/absolute/path/to/go (absolute path)，或安装 Go 并确保 PATH 可见。" >&2
+  local required_version="${1:-unknown}"
+  echo "❌ 未找到与仓库要求 go${required_version} 精确匹配的真实 go 二进制。请设置 REAL_GO_BIN=/absolute/path/to/go。" >&2
+}
+
+real_go_resolver_required_version() {
+  local scripts_dir root_dir
+  scripts_dir="$(real_go_resolver_script_dir)"
+  root_dir="${scripts_dir%/*}"
+  /usr/bin/awk '
+    $1 == "toolchain" && $2 ~ /^go[0-9]+\.[0-9]+\.[0-9]+$/ { print substr($2, 3); found=1; exit }
+    $1 == "go" && $2 ~ /^[0-9]+\.[0-9]+\.[0-9]+$/ { fallback=$2 }
+    END { if (!found && fallback != "") print fallback }
+  ' "$root_dir/go.mod"
+}
+
+real_go_resolver_probe() {
+  local candidate="$1" required_version="$2" output version
+  output="$(
+    (
+      export GOTOOLCHAIN=local
+      "$candidate" version
+    ) 2>/dev/null
+  )" || return 1
+  version="${output#go version }"
+  version="${version%% *}"
+  [[ "$version" == "go$required_version" ]] || return 1
 }
 
 require_remote_test_execution() {
@@ -58,8 +83,13 @@ EOF_MSG
 }
 
 resolve_real_go() {
-  local scripts_dir wrapper_go global_wrapper candidate candidate_abs
+  local scripts_dir wrapper_go global_wrapper candidate candidate_abs required_version
   scripts_dir="$(real_go_resolver_script_dir)"
+  required_version="$(real_go_resolver_required_version)"
+  if [[ -z "$required_version" ]]; then
+    echo "❌ 无法从仓库 go.mod 解析精确 Go 版本" >&2
+    return 1
+  fi
   wrapper_go="$scripts_dir/go"
   global_wrapper=""
   if [[ -n "${GLOBAL_GO_WRAPPER:-}" ]]; then
@@ -101,8 +131,29 @@ resolve_real_go() {
       echo "❌ REAL_GO_BIN 指向 GLOBAL_GO_WRAPPER，不是真实 go 二进制: $real_go_real" >&2
       return 1
     fi
+    if ! real_go_resolver_probe "$real_go_real" "$required_version"; then
+      echo "❌ REAL_GO_BIN 与仓库要求 go$required_version 不匹配或无法隔离探测: $real_go_real" >&2
+      return 1
+    fi
     printf '%s\n' "$real_go_real"
     return 0
+  fi
+
+  if [[ -n "${GOROOT:-}" ]]; then
+    candidate="$GOROOT/bin/go"
+    if [[ -x "$candidate" ]]; then
+      candidate_abs="$(real_go_resolver_real_path "$candidate")"
+      if [[ "${SUPER_DOLPHIN_TEST_BACKEND:-}" == "remote-worker" ]]; then
+        printf '%s\n' "$candidate_abs"
+        return 0
+      fi
+      if real_go_resolver_probe "$candidate_abs" "$required_version"; then
+        printf '%s\n' "$candidate_abs"
+        return 0
+      fi
+    fi
+    echo "❌ GOROOT 未提供仓库要求的 go$required_version 工具链: $GOROOT" >&2
+    return 1
   fi
 
   while IFS= read -r candidate; do
@@ -117,10 +168,11 @@ resolve_real_go() {
     if [[ -n "$global_wrapper" && "$candidate_abs" == "$global_wrapper" ]]; then
       continue
     fi
+    real_go_resolver_probe "$candidate_abs" "$required_version" || continue
     printf '%s\n' "$candidate_abs"
     return 0
   done < <(type -P -a go 2>/dev/null || true)
 
-  real_go_resolver_error
+  real_go_resolver_error "$required_version"
   return 1
 }
