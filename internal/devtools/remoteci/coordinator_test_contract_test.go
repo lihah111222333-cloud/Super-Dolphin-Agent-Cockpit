@@ -95,7 +95,7 @@ func TestCoordinatorCreateRequestAlwaysMountsWritableMaterializerTemp(t *testing
 	input.BaselineDeltas = nil
 	coordinator := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{})
 	request := coordinator.createRequest("job-0123456789abcdef01234567", gate.ContainerShard{Index: 1, Profile: input.Profile, PlanDigest: input.PolicyDigest, GateIDs: []gate.GateID{"go:test"}}, eci.Resources{CPU: 4, MemoryGiB: 8}, "baseline-artifacts/source-deltas/jobs/job/request.json", input.PolicyDigest, testCandidateCLI(input), input)
-	if request.BootstrapVolume.Path != "baseline-artifacts/source-deltas/job-0123456789abcdef01234567" {
+	if request.BootstrapVolume.Path != "/baseline-artifacts/source-deltas/job-0123456789abcdef01234567" {
 		t.Fatalf("BootstrapVolume = %+v, want candidate job directory", request.BootstrapVolume)
 	}
 	if got := request.InitContainer.Environment["TMPDIR"]; got != remoteWritableTempMountPath {
@@ -146,13 +146,16 @@ func TestRemoteInitSearchPathUsesMaterializedRuntimeUnderECILimit(t *testing.T) 
 	}
 }
 
-func TestCoordinatorCreateRequestDoesNotMountCurrentGate(t *testing.T) {
+func TestCoordinatorCreateRequestMountsCandidateArtifactFromValidOSSVolume(t *testing.T) {
 	_, input := remoteRunFixture(t)
 	input.BaselineDeltas = []BaselineDeltaLayer{{Generation: 2, ObjectPrefix: "baseline-artifacts/deltas/2"}, {Generation: 3, ObjectPrefix: "baseline-artifacts/deltas/3"}}
 	coordinator := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{})
 	coordinator.config.InternalOSSEndpoint = "https://oss-cn-shenzhen-internal.aliyuncs.com"
 	request := coordinator.createRequest("job-0123456789abcdef01234567", gate.ContainerShard{Index: 1, Profile: input.Profile, PlanDigest: input.PolicyDigest, GateIDs: []gate.GateID{"go:test"}}, eci.Resources{CPU: 4, MemoryGiB: 8}, "baseline-artifacts/source-deltas/jobs/job/request.json", input.PolicyDigest, testCandidateCLI(input), input)
-	if request.BootstrapVolume.Path != "baseline-artifacts/source-deltas/job-0123456789abcdef01234567" {
+	if request.BootstrapVolume.Bucket != coordinator.config.Bucket ||
+		request.BootstrapVolume.Endpoint != "oss-cn-shenzhen-internal.aliyuncs.com" ||
+		request.BootstrapVolume.Path != "/baseline-artifacts/source-deltas/job-0123456789abcdef01234567" ||
+		request.BootstrapVolume.RoleName != coordinator.config.WorkerRoleName {
 		t.Fatalf("BootstrapVolume = %+v, want candidate job directory", request.BootstrapVolume)
 	}
 	if !reflect.DeepEqual(request.InitContainer.Command, []string{"/bin/sh"}) || !reflect.DeepEqual(request.InitContainer.Args, []string{"-c", remoteCandidateGateBootstrapSH}) {
@@ -160,10 +163,17 @@ func TestCoordinatorCreateRequestDoesNotMountCurrentGate(t *testing.T) {
 	}
 	assertCandidateGateEnvironment(t, request, input)
 	assertWritableMaterializerTempMount(t, request)
+	foundCandidateMount := false
 	for _, mount := range request.InitVolumeMounts {
-		if mount.Name == remoteCurrentGateVolumeName || mount.MountPath == remoteCurrentGateMountPath {
-			t.Fatalf("init mount unexpectedly retains current gate volume: %+v", mount)
+		if mount.Name == remoteCurrentGateVolumeName && mount.MountPath == "/candidate-bootstrap" && mount.ReadOnly {
+			foundCandidateMount = true
 		}
+		if mount.MountPath == remoteCurrentGateMountPath {
+			t.Fatalf("init mount unexpectedly retains legacy current-gate path: %+v", mount)
+		}
+	}
+	if !foundCandidateMount {
+		t.Fatal("init mounts do not bind the candidate artifact OSS volume")
 	}
 }
 

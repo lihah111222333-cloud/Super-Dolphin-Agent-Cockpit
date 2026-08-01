@@ -777,13 +777,13 @@ internal/devtools/remoteci/coordinator_diagnostics_test.go	internal	other	go-tes
 internal/devtools/remoteci/coordinator_diagnostics.go	internal	other	go-source	6658	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,diagnostics,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_observation_test.go	internal	other	go-test	3643	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,observation,test,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_observation.go	internal	other	go-source	2880	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,observation,开发工具与生成器辅助包
-internal/devtools/remoteci/coordinator_request.go	internal	other	go-source	8272	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,request,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator_request.go	internal	other	go-source	8316	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,request,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_resources.go	internal	other	go-source	1889	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,resources,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_results_partial_test.go	internal	other	go-test	4687	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,results,partial,test,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_results_test.go	internal	other	go-test	8600	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,results,test,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_results.go	internal	other	go-source	13476	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,results,开发工具与生成器辅助包
-internal/devtools/remoteci/coordinator_test_contract_test.go	internal	other	go-test	13789	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,test,contract,开发工具与生成器辅助包
-internal/devtools/remoteci/coordinator_test.go	internal	other	go-test	30656	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,test,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator_test_contract_test.go	internal	other	go-test	14267	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,test,contract,开发工具与生成器辅助包
+internal/devtools/remoteci/coordinator_test.go	internal	other	go-test	30662	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,test,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_wait_test.go	internal	other	go-test	2410	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,wait,test,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator_wait.go	internal	other	go-source	11111	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,wait,开发工具与生成器辅助包
 internal/devtools/remoteci/coordinator.go	internal	other	go-source	31389	开发工具与生成器辅助包	internal,devtools,remoteci,coordinator,开发工具与生成器辅助包

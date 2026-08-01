@@ -100,7 +100,7 @@ func (coordinator *Coordinator) createRequest(
 	}
 	initMounts := []eci.VolumeMount{
 		{Name: "base-data", MountPath: "/bootstrap", ReadOnly: true},
-		{Name: "candidate-bootstrap", MountPath: "/candidate-bootstrap", ReadOnly: true},
+		{Name: remoteCurrentGateVolumeName, MountPath: "/candidate-bootstrap", ReadOnly: true},
 		{Name: "expanded-data", MountPath: "/opt/super-dolphin-gate"},
 		{Name: "source-data", MountPath: gate.ExecutorSourcePath},
 		{Name: "work-data", MountPath: gate.ExecutorWorkRoot},
@@ -119,7 +119,7 @@ func (coordinator *Coordinator) createRequest(
 		DataCacheBucket: input.DataCacheBucket,
 		InitContainer:   initContainer,
 		BaseVolume:      eci.HostPathVolume{Name: "base-data", Path: input.DataCachePath, Type: "Directory"},
-		BootstrapVolume: eci.OSSVolume{Bucket: coordinator.config.Bucket, Endpoint: coordinator.config.InternalOSSEndpoint, Path: path.Dir(candidateCLI.ManifestKey), RoleName: coordinator.config.WorkerRoleName},
+		BootstrapVolume: eci.OSSVolume{Bucket: coordinator.config.Bucket, Endpoint: strings.TrimPrefix(coordinator.config.InternalOSSEndpoint, "https://"), Path: "/" + path.Dir(candidateCLI.ManifestKey), RoleName: coordinator.config.WorkerRoleName},
 		ExpandedVolume:  eci.EmptyDirVolume{Name: "expanded-data"},
 		SourceVolume:    eci.EmptyDirVolume{Name: "source-data"},
 		WorkVolume:      eci.EmptyDirVolume{Name: "work-data"},

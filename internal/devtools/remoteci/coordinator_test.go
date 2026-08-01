@@ -425,7 +425,7 @@ func assertRemoteCreateRequestVolumes(t *testing.T, request eci.CreateRequest, i
 	assertCoordinatorVolumeMount(t, request.MainVolumeMounts[1], "/opt/super-dolphin-gate", "", true)
 	assertCoordinatorVolumeMount(t, request.MainVolumeMounts[2], remoteXKBCompMountPath, remoteXKBCompSubPath, true)
 	assertCoordinatorVolumeMount(t, request.MainVolumeMounts[3], remoteXKBDataMountPath, remoteXKBDataSubPath, true)
-	if request.InitVolumeMounts[1].Name != "candidate-bootstrap" || request.InitVolumeMounts[1].MountPath != "/candidate-bootstrap" || !request.InitVolumeMounts[1].ReadOnly {
+	if request.InitVolumeMounts[1].Name != remoteCurrentGateVolumeName || request.InitVolumeMounts[1].MountPath != "/candidate-bootstrap" || !request.InitVolumeMounts[1].ReadOnly {
 		t.Fatalf("candidate bootstrap mount = %+v, want read-only candidate artifact directory", request.InitVolumeMounts[1])
 	}
 }
