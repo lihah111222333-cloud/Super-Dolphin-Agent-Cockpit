@@ -10,6 +10,18 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+func TestRemoteCIRunRecordFieldRegistry(t *testing.T) {
+	want := []string{"JobID", "RequesterFingerprint", "Entrypoint", "Profile", "PlanDigest", "CatalogDigest", "SourceTreeSHA", "CandidateCLIManifestSHA256", "RunnerImage", "Status", "Authoritative", "StartedAt", "CompletedAt", "CleanupComplete", "ErrorText", "Shards", "Executions", "ReusedWorkloads", "CacheMisses", "Warnings", "PhaseTimings"}
+	typeOfRecord := reflect.TypeFor[RemoteCIRunRecord]()
+	got := make([]string, typeOfRecord.NumField())
+	for index := range got {
+		got[index] = typeOfRecord.Field(index).Name
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("RemoteCIRunRecord fields = %v, want %v", got, want)
+	}
+}
+
 func assertWorkloadPassProofProjectionRoundTrip(
 	t *testing.T,
 	store *DurationLedgerStore,
@@ -229,7 +241,8 @@ func sqliteProjectionRemoteCIRun(now time.Time) RemoteCIRunRecord {
 	return RemoteCIRunRecord{
 		JobID: "job-sqlite-round-trip", RequesterFingerprint: RequesterFingerprint("sha256:" + strings.Repeat("a", 64)),
 		Entrypoint: CIEntrypointGitPreCommit, Profile: ProfileLocalFast, PlanDigest: "sha256:plan", SourceTreeSHA: strings.Repeat("5", 40),
-		RunnerImage: "ubuntu:22.04", Status: ResultStatusPassed, Authoritative: true, StartedAt: now, CompletedAt: now.Add(time.Second), CleanupComplete: true,
+		CandidateCLIManifestSHA256: strings.Repeat("c", 64),
+		RunnerImage:                "ubuntu:22.04", Status: ResultStatusPassed, Authoritative: true, StartedAt: now, CompletedAt: now.Add(time.Second), CleanupComplete: true,
 		Shards:          []RemoteCIShardRecord{{ShardIdentity: "shard-000", ContainerGroup: "eci-123", ContainerStatus: "Succeeded", Workloads: []GateID{GateIDAIMaintenanceSelfTest}}},
 		Executions:      []PlanGateExecution{{GateID: GateIDAIMaintenanceSelfTest, Status: ResultStatusPassed, StartedAt: now, CompletedAt: now.Add(time.Second), ArgvDigest: "sha256:argv", LogDigest: "sha256:log"}},
 		ReusedWorkloads: []GateID{GateIDWhitespaceCheck}, CacheMisses: []GateID{GateIDAIMaintenanceSelfTest}, Warnings: []string{"unit exceeded the planning target"},

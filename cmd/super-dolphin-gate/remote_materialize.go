@@ -199,6 +199,9 @@ func materializeRemoteSource(
 	if err := verifyRemoteMaterializedSource(ctx, sourceRoot, manifestPath, patchPath, request); err != nil {
 		return remoteci.ShardRequest{}, err
 	}
+	if _, err := materializeRemoteCandidateCLIArtifact(ctx, expandedRoot, request.CandidateCLI.ManifestKey, request.CandidateCLI.ManifestSHA256, request.CandidateCLI.CandidateTree, request.CandidateCLI.SourceSHA256, request.CandidateCLI.ToolchainSHA256, download); err != nil {
+		return remoteci.ShardRequest{}, fmt.Errorf("materialize remote candidate CLI artifact: %w", err)
+	}
 	if err := os.RemoveAll(tempRoot); err != nil {
 		return remoteci.ShardRequest{}, fmt.Errorf("remove remote materialize staging root: %w", err)
 	}

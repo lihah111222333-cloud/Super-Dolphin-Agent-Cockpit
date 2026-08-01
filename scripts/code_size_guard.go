@@ -308,11 +308,16 @@ func runUnifiedFreezePhase(freezePath string, opts archtest.CheckOptions) {
 		fmt.Fprintf(os.Stderr, "❌  加载统一冻结失败: %v\n", err)
 		os.Exit(1)
 	}
-	root := resolveRoot(opts)
+	snapshot, err := archtest.NewBaselineFileSnapshot(opts)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "❌  收集冻结文件快照失败: %v\n", err)
+		os.Exit(1)
+	}
+	metrics := archtest.NewBaselineMetricCache()
 	freeze := info.Data
 	changed := false
-	freeze.Metrics.Production, changed = runMetricFreezePhase("生产", freeze.Metrics.Production, opts, root, false, changed)
-	freeze.Metrics.Tests, changed = runMetricFreezePhase("测试", freeze.Metrics.Tests, opts, root, true, changed)
+	freeze.Metrics.Production, changed = runMetricFreezePhase("生产", freeze.Metrics.Production, opts, false, changed, snapshot, metrics)
+	freeze.Metrics.Tests, changed = runMetricFreezePhase("测试", freeze.Metrics.Tests, opts, true, changed, snapshot, metrics)
 	priorityChanged := runPrioritySSAFreezePhase(&freeze, opts)
 	if changed || priorityChanged {
 		if err := archtest.SaveGuardFreeze(freezePath, freeze); err != nil {
@@ -323,8 +328,7 @@ func runUnifiedFreezePhase(freezePath string, opts archtest.CheckOptions) {
 }
 
 // checkRatchetResult 比对当前度量与 baseline，发现恶化立即退出。
-func checkRatchetResult(label string, opts archtest.CheckOptions, bl archtest.Baseline) {
-	result := archtest.CheckWithBaseline(opts, bl)
+func checkRatchetResult(label string, result archtest.CheckResult) {
 	if result.OK() {
 		return
 	}
@@ -345,22 +349,26 @@ func runMetricFreezePhase(
 	label string,
 	bl archtest.Baseline,
 	opts archtest.CheckOptions,
-	root string,
 	testsOnly bool,
 	changed bool,
+	snapshot *archtest.BaselineFileSnapshot,
+	metrics *archtest.BaselineMetricCache,
 ) (archtest.Baseline, bool) {
 	phaseOpts := opts
 	phaseOpts.BaselineTestsOnly = testsOnly
-	checkRatchetResult(label, phaseOpts, bl)
-	fileSet, err := buildFileSet(root, opts, testsOnly)
+	result, err := archtest.CheckWithBaselineCachedFiles(phaseOpts, bl, metrics, snapshot.Files(testsOnly))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌  收集 %s 冻结文件集合失败: %v\n", label, err)
+		fmt.Fprintf(os.Stderr, "❌  %s 棘轮检查失败: %v\n", label, err)
 		os.Exit(1)
 	}
-	measure := func(rel string) archtest.FileMetrics {
-		return archtest.MeasureBaselineFileMetrics(filepath.Join(root, filepath.FromSlash(rel)))
+	if !result.OK() {
+		checkRatchetResult(label, result)
 	}
-	newBL, stats := archtest.ShrinkBaseline(bl, fileSet, measure)
+	newBL, stats, err := snapshot.Shrink(bl, testsOnly, metrics)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "❌  %s 冻结收缩失败: %v\n", label, err)
+		os.Exit(1)
+	}
 	if stats.Changed() {
 		changed = true
 		fmt.Printf("🧹  %s 冻结收缩 — 收紧 %d, 毕业 %d, 清理 %d\n",
@@ -426,49 +434,6 @@ func printThresholds() {
 // printPassSummary 输出默认检查全部通过的摘要。
 func printPassSummary() {
 	fmt.Println("✅  代码守卫: 全部通过")
-}
-
-// buildFileSet 收集生产或测试 baseline 需要覆盖的 Go 文件集合。
-func buildFileSet(root string, opts archtest.CheckOptions, testsOnly bool) (map[string]bool, error) {
-	scanRoots := opts.ScanRoots
-	if len(scanRoots) == 0 {
-		scanRoots = archtest.DefaultScanRoots()
-	}
-	skipDirs := opts.SkipDirs
-	if len(skipDirs) == 0 {
-		skipDirs = archtest.DefaultSkipDirs()
-	}
-	out := make(map[string]bool)
-	for _, sr := range scanRoots {
-		if err := walkCollect(filepath.Join(root, sr), root, skipDirs, testsOnly, out); err != nil {
-			return nil, err
-		}
-	}
-	return out, nil
-}
-
-// walkCollect 递归收集 baseline 棘轮需要比对的生产或测试文件。
-func walkCollect(absRoot, repoRoot string, skip map[string]bool, testsOnly bool, out map[string]bool) error {
-	return filepath.Walk(absRoot, func(p string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() && skip[info.Name()] {
-			return filepath.SkipDir
-		}
-		if info.IsDir() || filepath.Ext(p) != ".go" {
-			return nil
-		}
-		if testsOnly != strings.HasSuffix(p, "_test.go") {
-			return nil
-		}
-		rel, err := filepath.Rel(repoRoot, p)
-		if err != nil {
-			return err
-		}
-		out[filepath.ToSlash(rel)] = true
-		return nil
-	})
 }
 
 // findRepoRoot 从当前目录向上查找包含 go.mod 的仓库根目录。

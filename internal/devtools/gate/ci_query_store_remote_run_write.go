@@ -120,17 +120,18 @@ func upsertSQLiteRemoteCIRun(transaction *sql.Tx, record RemoteCIRunRecord) erro
 	if _, err := transaction.Exec(`
 		INSERT INTO ci_runs (
 			job_id, entrypoint, profile, plan_digest, catalog_digest, source_tree_sha,
-			runner_image, status, authoritative, started_at_unix_ms, completed_at_unix_ms,
+			candidate_cli_manifest_sha256, runner_image, status, authoritative, started_at_unix_ms, completed_at_unix_ms,
 			cleanup_complete, error_text
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(job_id) DO UPDATE SET
 			status = excluded.status,
 			authoritative = excluded.authoritative,
+			candidate_cli_manifest_sha256 = excluded.candidate_cli_manifest_sha256,
 			completed_at_unix_ms = excluded.completed_at_unix_ms,
 			cleanup_complete = excluded.cleanup_complete,
 			error_text = excluded.error_text
 	`, record.JobID, string(record.Entrypoint), string(record.Profile), record.PlanDigest,
-		record.CatalogDigest, record.SourceTreeSHA, record.RunnerImage, string(record.Status),
+		record.CatalogDigest, record.SourceTreeSHA, record.CandidateCLIManifestSHA256, record.RunnerImage, string(record.Status),
 		authoritative, record.StartedAt.UTC().UnixMilli(), record.CompletedAt.UTC().UnixMilli(),
 		cleanupComplete, record.ErrorText,
 	); err != nil {

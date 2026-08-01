@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -34,6 +35,56 @@ func TestCheckWithBaselineCachedRejectsNilMetricCache(t *testing.T) {
 	}
 	if !result.OK() {
 		t.Fatalf("CheckWithBaselineCached() result = %#v, want empty result with error", result)
+	}
+}
+
+func TestBaselineFileSnapshotMatchesIndependentRatchetCheck(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	if err := os.MkdirAll(source, 0o755); err != nil {
+		t.Fatalf("make source directory: %v", err)
+	}
+	writeBaselineSnapshotFixtures(t, source)
+	opts := CheckOptions{RepoRoot: root, ScanRoots: []string{"source"}}
+	baseline := Baseline{"source/existing.go": {}}
+	want, err := CheckWithBaselineCached(opts, baseline, NewBaselineMetricCache())
+	if err != nil {
+		t.Fatalf("independent check: %v", err)
+	}
+	snapshot, err := NewBaselineFileSnapshot(opts)
+	if err != nil {
+		t.Fatalf("build snapshot: %v", err)
+	}
+	cache := NewBaselineMetricCache()
+	got, err := CheckWithBaselineCachedFiles(opts, baseline, cache, snapshot.Files(false))
+	if err != nil {
+		t.Fatalf("snapshot check: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("snapshot result = %#v, want %#v", got, want)
+	}
+	if _, ok := snapshot.Files(true)["source/new_test.go"]; !ok {
+		t.Fatalf("test file missing from snapshot: %#v", snapshot.Files(true))
+	}
+	if _, _, err := snapshot.Shrink(baseline, false, cache); err != nil {
+		t.Fatalf("snapshot shrink: %v", err)
+	}
+	if got := len(cache.metrics); got != 2 {
+		t.Fatalf("snapshot cache paths = %d, want 2 after check and shrink", got)
+	}
+}
+
+func writeBaselineSnapshotFixtures(t *testing.T, source string) {
+	t.Helper()
+	for name, contents := range map[string]string{
+		"existing.go": "package source\nfunc existing() {}\n",
+		"new.go":      "package source\nfunc newFile() {}\n",
+		"new_test.go": "package source\nfunc TestNew(t *testing.T) {}\n",
+	} {
+		if err := os.WriteFile(filepath.Join(source, name), []byte(contents), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
 	}
 }
 

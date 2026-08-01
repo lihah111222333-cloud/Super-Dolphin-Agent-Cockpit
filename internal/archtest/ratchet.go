@@ -142,6 +142,32 @@ func CheckWithBaselineCached(opts CheckOptions, bl Baseline, cache *BaselineMetr
 	return checkWithBaseline(opts, bl, cache), nil
 }
 
+// CheckWithBaselineCachedFiles 执行棘轮检查，并复用调用方已采集的文件快照。
+// files 的键必须是仓库相对 slash 路径，值为对应的绝对路径。
+func CheckWithBaselineCachedFiles(opts CheckOptions, bl Baseline, cache *BaselineMetricCache, files map[string]string) (CheckResult, error) {
+	if cache == nil {
+		return CheckResult{}, fmt.Errorf("baseline metric cache is required")
+	}
+	if files == nil {
+		return CheckResult{}, fmt.Errorf("baseline file snapshot is required")
+	}
+	repoRoot := opts.RepoRoot
+	if repoRoot == "" {
+		repoRoot = "."
+	}
+	var result CheckResult
+	for path, frozen := range bl {
+		absPath := filepath.Join(repoRoot, filepath.FromSlash(path))
+		cur := cache.Measure(absPath)
+		if cur.Lines == 0 {
+			continue
+		}
+		result.Violations = append(result.Violations, RatchetCheck(path, cur, frozen)...)
+	}
+	result.NewFileViolations = newFileMetricViolationsForFiles(repoRoot, bl, files, cache.Measure)
+	return result, nil
+}
+
 func checkWithBaseline(opts CheckOptions, bl Baseline, cache *BaselineMetricCache) CheckResult {
 	repoRoot := opts.RepoRoot
 	if repoRoot == "" {
@@ -216,6 +242,24 @@ func newFileMetricViolations(
 			continue
 		}
 		relPath = filepath.ToSlash(relPath)
+		if !shouldCheckNewBaselineFile(repoRoot, relPath, bl) {
+			continue
+		}
+		metrics := measure(absPath)
+		violations = append(violations, metricViolationsForNewFile(relPath, metrics)...)
+	}
+	sortViolations(violations)
+	return violations
+}
+
+func newFileMetricViolationsForFiles(
+	repoRoot string,
+	bl Baseline,
+	files map[string]string,
+	measure func(string) FileMetrics,
+) []Violation {
+	var violations []Violation
+	for relPath, absPath := range files {
 		if !shouldCheckNewBaselineFile(repoRoot, relPath, bl) {
 			continue
 		}

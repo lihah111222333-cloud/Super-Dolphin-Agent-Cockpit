@@ -49,26 +49,27 @@ type WorkloadPassCandidate struct {
 
 // RemoteCIRunRecord 是一次协调器执行及其分片和 gate 终态的查询投影。
 type RemoteCIRunRecord struct {
-	JobID                string
-	RequesterFingerprint RequesterFingerprint
-	Entrypoint           CIEntrypointID
-	Profile              Profile
-	PlanDigest           string
-	CatalogDigest        string
-	SourceTreeSHA        string
-	RunnerImage          string
-	Status               ResultStatus
-	Authoritative        bool
-	StartedAt            time.Time
-	CompletedAt          time.Time
-	CleanupComplete      bool
-	ErrorText            string
-	Shards               []RemoteCIShardRecord
-	Executions           []PlanGateExecution
-	ReusedWorkloads      []GateID
-	CacheMisses          []GateID
-	Warnings             []string
-	PhaseTimings         []RemoteCIPhaseTiming
+	JobID                      string
+	RequesterFingerprint       RequesterFingerprint
+	Entrypoint                 CIEntrypointID
+	Profile                    Profile
+	PlanDigest                 string
+	CatalogDigest              string
+	SourceTreeSHA              string
+	CandidateCLIManifestSHA256 string
+	RunnerImage                string
+	Status                     ResultStatus
+	Authoritative              bool
+	StartedAt                  time.Time
+	CompletedAt                time.Time
+	CleanupComplete            bool
+	ErrorText                  string
+	Shards                     []RemoteCIShardRecord
+	Executions                 []PlanGateExecution
+	ReusedWorkloads            []GateID
+	CacheMisses                []GateID
+	Warnings                   []string
+	PhaseTimings               []RemoteCIPhaseTiming
 }
 
 // RemoteCIShardRecord 保存一个远程分片的稳定云资源身份和终态。

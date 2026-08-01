@@ -133,7 +133,8 @@ func newRemoteRunCoordinator(
 		InternalOSSEndpoint: config.OSS.InternalEndpoint,
 		WorkerRoleName:      config.WorkerRoleName, WorkerTimeout: workerTimeout,
 		PollInterval: 2 * time.Second, CleanupTimeout: 2 * time.Minute,
-		ResourcePolicy: config.Capacity.ResourcePolicy,
+		ResourcePolicy:      config.Capacity.ResourcePolicy,
+		CandidateCLIBuilder: buildRemoteCandidateCLI,
 	}, store, runtime, phaseObserver)
 	if err != nil {
 		return nil, 0, infrastructureError("create remote CI coordinator: %v", err)

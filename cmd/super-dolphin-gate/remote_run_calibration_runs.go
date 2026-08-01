@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/hex"
 	"errors"
 	"io"
+	"strings"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
@@ -176,7 +178,17 @@ func remoteCheckpointIdentityMatches(input remoteci.RunInput, result remoteci.Ru
 // remoteCheckpointExecutionMatches 验证 checkpoint 的计划、catalog、源树和镜像没有漂移。
 func remoteCheckpointExecutionMatches(input remoteci.RunInput, result remoteci.RunResult, record gatecontract.RemoteCIRunRecord) bool {
 	return record.PlanDigest == result.PlanDigest && record.CatalogDigest == result.CatalogDigest &&
-		record.SourceTreeSHA == result.SourceTreeSHA && record.RunnerImage == input.RunnerImage
+		record.SourceTreeSHA == result.SourceTreeSHA && record.RunnerImage == input.RunnerImage &&
+		record.CandidateCLIManifestSHA256 == result.CandidateCLIManifestSHA256 &&
+		validRemoteCandidateCLIManifestSHA256(record.CandidateCLIManifestSHA256)
+}
+
+func validRemoteCandidateCLIManifestSHA256(value string) bool {
+	if len(value) != 64 || strings.ToLower(value) != value {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
 }
 
 // remoteCheckpointCompletionMatches 仅接受干净且权威的成功记录。
@@ -195,22 +207,23 @@ func remoteRunResultFromLedgerRecord(record gatecontract.RemoteCIRunRecord) remo
 		}
 	}
 	return remoteci.RunResult{
-		JobID:                record.JobID,
-		RequesterFingerprint: record.RequesterFingerprint,
-		Entrypoint:           record.Entrypoint,
-		Profile:              record.Profile,
-		PlanDigest:           record.PlanDigest,
-		CatalogDigest:        record.CatalogDigest,
-		SourceTreeSHA:        record.SourceTreeSHA,
-		RunnerImage:          record.RunnerImage,
-		Status:               record.Status,
-		Authoritative:        record.Authoritative,
-		StartedAt:            record.StartedAt,
-		CompletedAt:          record.CompletedAt,
-		Shards:               shards,
-		ReusedWorkloads:      append([]gatecontract.GateID(nil), record.ReusedWorkloads...),
-		GateExecutions:       record.Executions,
-		CleanupComplete:      record.CleanupComplete,
+		JobID:                      record.JobID,
+		RequesterFingerprint:       record.RequesterFingerprint,
+		Entrypoint:                 record.Entrypoint,
+		Profile:                    record.Profile,
+		PlanDigest:                 record.PlanDigest,
+		CatalogDigest:              record.CatalogDigest,
+		SourceTreeSHA:              record.SourceTreeSHA,
+		CandidateCLIManifestSHA256: record.CandidateCLIManifestSHA256,
+		RunnerImage:                record.RunnerImage,
+		Status:                     record.Status,
+		Authoritative:              record.Authoritative,
+		StartedAt:                  record.StartedAt,
+		CompletedAt:                record.CompletedAt,
+		Shards:                     shards,
+		ReusedWorkloads:            append([]gatecontract.GateID(nil), record.ReusedWorkloads...),
+		GateExecutions:             record.Executions,
+		CleanupComplete:            record.CleanupComplete,
 	}
 }
 

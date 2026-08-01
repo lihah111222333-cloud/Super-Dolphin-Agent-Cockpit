@@ -15,7 +15,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
-const ShardRequestSchemaVersion uint32 = 3
+const ShardRequestSchemaVersion uint32 = 4
 
 var (
 	remoteDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
@@ -34,29 +34,45 @@ type BaselineDeltaLayer struct {
 	MainTree       string `json:"main_tree"`
 }
 
+// CandidateCLIArtifactRef 是每个分片消费的不可变候选 CLI 制品引用。
+// 该清单包含二进制摘要与大小，使用前必须完成校验。
+type CandidateCLIArtifactRef struct {
+	CandidateTree   string `json:"candidate_tree"`
+	SourceSHA256    string `json:"source_sha256"`
+	ToolchainSHA256 string `json:"toolchain_sha256"`
+	Platform        string `json:"platform"`
+	ManifestKey     string `json:"manifest_key"`
+	ManifestSHA256  string `json:"manifest_sha256"`
+	BinaryKey       string `json:"binary_key"`
+	BinarySHA256    string `json:"binary_sha256"`
+	BinarySize      int64  `json:"binary_size"`
+	CLIIdentity     string `json:"cli_identity"`
+}
+
 // ShardRequest 将一个 ECI 容器绑定到精确 Anchor、OSS delta 链、目标树和 canonical gate 分片。
 type ShardRequest struct {
-	SchemaVersion    uint32               `json:"schema_version"`
-	JobID            string               `json:"job_id"`
-	ShardIdentity    string               `json:"shard_identity"`
-	Profile          gate.Profile         `json:"profile"`
-	PlanDigest       string               `json:"plan_digest"`
-	BaselineManifest string               `json:"runner_manifest_digest"`
-	AnchorGeneration uint64               `json:"anchor_generation"`
-	AnchorManifest   string               `json:"anchor_manifest_digest"`
-	AnchorCommit     string               `json:"anchor_commit"`
-	AnchorTree       string               `json:"anchor_tree"`
-	BaselineDeltas   []BaselineDeltaLayer `json:"baseline_deltas,omitempty"`
-	RunnerBaseCommit string               `json:"runner_base_commit"`
-	RunnerBaseTree   string               `json:"runner_base_tree"`
-	SourceTreeSHA    string               `json:"source_tree_sha"`
-	PatchFormat      string               `json:"patch_format"`
-	PatchKey         string               `json:"patch_key"`
-	PatchSHA256      string               `json:"patch_sha256"`
-	PatchSize        int64                `json:"patch_size"`
-	ManifestKey      string               `json:"manifest_key"`
-	ManifestSHA256   string               `json:"manifest_sha256"`
-	GateIDs          []gate.GateID        `json:"gate_ids"`
+	SchemaVersion    uint32                  `json:"schema_version"`
+	JobID            string                  `json:"job_id"`
+	ShardIdentity    string                  `json:"shard_identity"`
+	Profile          gate.Profile            `json:"profile"`
+	PlanDigest       string                  `json:"plan_digest"`
+	BaselineManifest string                  `json:"runner_manifest_digest"`
+	AnchorGeneration uint64                  `json:"anchor_generation"`
+	AnchorManifest   string                  `json:"anchor_manifest_digest"`
+	AnchorCommit     string                  `json:"anchor_commit"`
+	AnchorTree       string                  `json:"anchor_tree"`
+	BaselineDeltas   []BaselineDeltaLayer    `json:"baseline_deltas,omitempty"`
+	RunnerBaseCommit string                  `json:"runner_base_commit"`
+	RunnerBaseTree   string                  `json:"runner_base_tree"`
+	SourceTreeSHA    string                  `json:"source_tree_sha"`
+	PatchFormat      string                  `json:"patch_format"`
+	PatchKey         string                  `json:"patch_key"`
+	PatchSHA256      string                  `json:"patch_sha256"`
+	PatchSize        int64                   `json:"patch_size"`
+	ManifestKey      string                  `json:"manifest_key"`
+	ManifestSHA256   string                  `json:"manifest_sha256"`
+	CandidateCLI     CandidateCLIArtifactRef `json:"candidate_cli_artifact"`
+	GateIDs          []gate.GateID           `json:"gate_ids"`
 }
 
 // Validate 拒绝缺字段、可变身份、路径逃逸和重复 gate。
@@ -74,6 +90,39 @@ func (request ShardRequest) Validate() error {
 		return err
 	}
 	return validateGateIDs(request.GateIDs)
+}
+
+// Validate checks that a shard cannot replay a candidate CLI from another source tree or toolchain.
+func (ref CandidateCLIArtifactRef) Validate(objectPrefix, sourceTree string) error {
+	if !validCandidateCLIReferenceIdentity(ref, sourceTree) {
+		return errors.New("remote shard candidate CLI identity is invalid")
+	}
+	if err := validateObjectBinding(ref.ManifestKey, ref.ManifestSHA256, ".manifest.json", objectPrefix); err != nil {
+		return fmt.Errorf("remote shard candidate CLI manifest: %w", err)
+	}
+	if err := validateObjectBinding(ref.BinaryKey, ref.BinarySHA256, ".candidate-cli", objectPrefix); err != nil {
+		return fmt.Errorf("remote shard candidate CLI binary: %w", err)
+	}
+	if !validCandidateCLIReferenceBinaryBinding(ref) {
+		return errors.New("remote shard candidate CLI binary binding is invalid")
+	}
+	return nil
+}
+
+// validCandidateCLIReferenceIdentity 判断分片引用没有跨候选或跨工具链重放。
+func validCandidateCLIReferenceIdentity(ref CandidateCLIArtifactRef, sourceTree string) bool {
+	return ref.CandidateTree == sourceTree &&
+		remoteOIDPattern.MatchString(ref.CandidateTree) &&
+		remoteDigestPattern.MatchString(ref.SourceSHA256) &&
+		remoteDigestPattern.MatchString(ref.ToolchainSHA256) &&
+		ref.Platform == "linux/amd64"
+}
+
+// validCandidateCLIReferenceBinaryBinding 判断二进制的目录、大小和报告身份相互绑定。
+func validCandidateCLIReferenceBinaryBinding(ref CandidateCLIArtifactRef) bool {
+	return path.Dir(ref.BinaryKey) == path.Dir(ref.ManifestKey) &&
+		ref.BinarySize > 0 && ref.BinarySize <= 512<<20 &&
+		ref.CLIIdentity == CandidateCLIIdentity(ref.SourceSHA256, ref.ToolchainSHA256)
 }
 
 // validateIdentity 校验请求模式、任务号、摘要和 gate profile。
@@ -189,6 +238,9 @@ func (request ShardRequest) validateObjects() error {
 	}
 	if err := validateObjectBinding(request.ManifestKey, request.ManifestSHA256, ".manifest.json", prefix); err != nil {
 		return fmt.Errorf("remote shard manifest: %w", err)
+	}
+	if err := request.CandidateCLI.Validate(prefix, request.SourceTreeSHA); err != nil {
+		return err
 	}
 	return nil
 }

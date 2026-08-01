@@ -1,6 +1,7 @@
 package gate
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -103,10 +104,21 @@ func validateRemoteCIRunStatus(record RemoteCIRunRecord) error {
 	switch record.Status {
 	case ResultStatusPassed, ResultStatusFailed, ResultStatusCancelled, ResultStatusTimeout,
 		ResultStatusInfraFailed, ResultStatusPassedStalePolicy:
-		return nil
 	default:
 		return fmt.Errorf("remote CI run status %q is not supported", record.Status)
 	}
+	if record.Status == ResultStatusPassed && !isCanonicalBareSHA256(record.CandidateCLIManifestSHA256) {
+		return errors.New("passed remote CI run candidate CLI manifest SHA-256 is required and canonical")
+	}
+	return nil
+}
+
+func isCanonicalBareSHA256(value string) bool {
+	if len(value) != 64 || strings.ToLower(value) != value {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
 }
 
 func validateRemoteCIRunWorkloads(record RemoteCIRunRecord) (map[GateID]string, error) {

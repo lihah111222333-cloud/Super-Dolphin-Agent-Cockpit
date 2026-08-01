@@ -243,6 +243,7 @@ CREATE TABLE IF NOT EXISTS ci_runs (
 	plan_digest TEXT NOT NULL,
 	catalog_digest TEXT NOT NULL,
 	source_tree_sha TEXT NOT NULL,
+	candidate_cli_manifest_sha256 TEXT NOT NULL DEFAULT '',
 	runner_image TEXT NOT NULL,
 	status TEXT NOT NULL,
 	authoritative INTEGER NOT NULL CHECK (authoritative IN (0, 1)),
@@ -372,11 +373,41 @@ func ensureDurationLedgerSQLiteSchema(database *sql.DB) error {
 		if _, err := database.Exec(durationLedgerSQLiteSchema); err != nil {
 			return mapDurationLedgerSQLiteError("reconcile duration ledger SQLite v1 schema", err)
 		}
+		if err := ensureDurationLedgerCandidateCLIManifestColumn(database); err != nil {
+			return err
+		}
 	default:
 		return fmt.Errorf(
 			"duration ledger SQLite schema version %d is unsupported",
 			schemaVersion,
 		)
+	}
+	return nil
+}
+
+func ensureDurationLedgerCandidateCLIManifestColumn(database *sql.DB) error {
+	rows, err := database.Query(`PRAGMA table_info(ci_runs)`)
+	if err != nil {
+		return mapDurationLedgerSQLiteError("inspect remote CI run schema", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull, primaryKey int
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return mapDurationLedgerSQLiteError("scan remote CI run schema", err)
+		}
+		if name == "candidate_cli_manifest_sha256" {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return mapDurationLedgerSQLiteError("iterate remote CI run schema", err)
+	}
+	if _, err := database.Exec(`ALTER TABLE ci_runs ADD COLUMN candidate_cli_manifest_sha256 TEXT NOT NULL DEFAULT ''`); err != nil {
+		return mapDurationLedgerSQLiteError("migrate remote CI candidate CLI manifest", err)
 	}
 	return nil
 }

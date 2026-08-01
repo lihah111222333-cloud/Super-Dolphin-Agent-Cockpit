@@ -19,7 +19,7 @@ func loadRemoteCIRunRow(database sqliteRowQueryer, jobID string) (RemoteCIRunRec
 	err := database.QueryRow(`
 		SELECT runs.job_id, COALESCE(requesters.requester_fingerprint, ''),
 			runs.entrypoint, runs.profile, runs.plan_digest, runs.catalog_digest,
-			runs.source_tree_sha, runs.runner_image, runs.status, runs.authoritative,
+			runs.source_tree_sha, runs.candidate_cli_manifest_sha256, runs.runner_image, runs.status, runs.authoritative,
 			runs.started_at_unix_ms, runs.completed_at_unix_ms,
 			runs.cleanup_complete, runs.error_text
 		FROM ci_runs AS runs
@@ -33,6 +33,7 @@ func loadRemoteCIRunRow(database sqliteRowQueryer, jobID string) (RemoteCIRunRec
 		&record.PlanDigest,
 		&record.CatalogDigest,
 		&record.SourceTreeSHA,
+		&record.CandidateCLIManifestSHA256,
 		&record.RunnerImage,
 		&status,
 		&authoritative,

@@ -31,11 +31,15 @@ func TestShardRequestRejectsDrift(t *testing.T) {
 		mutate func(*ShardRequest)
 	}{
 		{"duplicate gate", func(request *ShardRequest) { request.GateIDs = append(request.GateIDs, request.GateIDs[0]) }},
+		{"previous schema", func(request *ShardRequest) { request.SchemaVersion = ShardRequestSchemaVersion - 1 }},
 		{"tag digest", func(request *ShardRequest) { request.PlanDigest = "latest" }},
 		{"outside prefix", func(request *ShardRequest) { request.PatchKey = "results/source.patch" }},
 		{"unclean key", func(request *ShardRequest) { request.ManifestKey = "source-deltas/a/../source.manifest.json" }},
 		{"cross-job manifest", func(request *ShardRequest) {
 			request.ManifestKey = "baseline-artifacts/source-deltas/job-5678/source.manifest.json"
+		}},
+		{"cross-job candidate binary", func(request *ShardRequest) {
+			request.CandidateCLI.BinaryKey = "baseline-artifacts/source-deltas/job-5678/candidate.candidate-cli"
 		}},
 		{"uppercase digest", func(request *ShardRequest) { request.PatchSHA256 = strings.ToUpper(request.PatchSHA256) }},
 		{"negative size", func(request *ShardRequest) { request.PatchSize = -1 }},
@@ -77,6 +81,17 @@ func TestDecodeShardRequestRejectsUnknownField(t *testing.T) {
 	}
 }
 
+func TestDecodeShardRequestRejectsUnknownCandidateCLIField(t *testing.T) {
+	data, _, err := EncodeShardRequest(validShardRequest())
+	if err != nil {
+		t.Fatalf("EncodeShardRequest() error = %v", err)
+	}
+	data = []byte(strings.Replace(string(data), `"candidate_cli_artifact":{`, `"candidate_cli_artifact":{"unknown":true,`, 1))
+	if _, err := DecodeShardRequest(data); err == nil {
+		t.Fatal("DecodeShardRequest() accepted unknown candidate CLI field")
+	}
+}
+
 func validShardRequest() ShardRequest {
 	digest := "sha256:" + strings.Repeat("a", 64)
 	return ShardRequest{
@@ -94,6 +109,11 @@ func validShardRequest() ShardRequest {
 		SourceTreeSHA: strings.Repeat("c", 40), PatchFormat: "git-binary-v1",
 		PatchKey: "baseline-artifacts/source-deltas/job-1234/source.patch", PatchSHA256: strings.Repeat("d", 64), PatchSize: 42,
 		ManifestKey: "baseline-artifacts/source-deltas/job-1234/source.manifest.json", ManifestSHA256: strings.Repeat("e", 64),
+		CandidateCLI: CandidateCLIArtifactRef{
+			CandidateTree: strings.Repeat("c", 40), SourceSHA256: digest, ToolchainSHA256: digest, Platform: "linux/amd64",
+			ManifestKey: "baseline-artifacts/source-deltas/job-1234/" + strings.Repeat("f", 64) + ".manifest.json", ManifestSHA256: strings.Repeat("f", 64),
+			BinaryKey: "baseline-artifacts/source-deltas/job-1234/" + strings.Repeat("1", 64) + ".candidate-cli", BinarySHA256: strings.Repeat("1", 64), BinarySize: 42, CLIIdentity: CandidateCLIIdentity(digest, digest),
+		},
 		GateIDs: []gate.GateID{"go:format"},
 	}
 }

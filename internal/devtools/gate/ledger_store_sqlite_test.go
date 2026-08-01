@@ -387,6 +387,7 @@ func TestRecordRemoteCIRunRejectsUncoveredPassedCatalogWorkload(t *testing.T) {
 	err = store.RecordRemoteCIRun(RemoteCIRunRecord{
 		JobID: "uncovered", Entrypoint: CIEntrypointGitPreCommit, Profile: ProfileLocalFast,
 		PlanDigest: "sha256:plan", CatalogDigest: digest, SourceTreeSHA: strings.Repeat("b", 40),
+		CandidateCLIManifestSHA256: strings.Repeat("c", 64),
 		RunnerImage: "ubuntu:22.04", Status: ResultStatusPassed, Authoritative: true,
 		StartedAt: now, CompletedAt: now,
 	})
@@ -466,6 +467,7 @@ func TestRecordRemoteCIRunAcceptsPassedManualSelectionCatalog(t *testing.T) {
 	record := RemoteCIRunRecord{
 		JobID: "manual-selection", Entrypoint: CIEntrypointManualCLI, Profile: ProfileLocalFast,
 		PlanDigest: "sha256:plan", CatalogDigest: digest, SourceTreeSHA: strings.Repeat("d", 40),
+		CandidateCLIManifestSHA256: strings.Repeat("e", 64),
 		RunnerImage: "ubuntu:22.04", Status: ResultStatusPassed, Authoritative: false,
 		StartedAt: now, CompletedAt: now, CleanupComplete: true,
 		ReusedWorkloads: []GateID{GateIDWhitespaceCheck},

@@ -13,8 +13,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci/source"
 )
 
-// buildShardRequests 将 canonical 分片绑定到同一作业目录下的内容寻址对象。
-func buildShardRequests(
+func buildShardRequestsWithCandidate(
 	sourcePrefix string,
 	jobID string,
 	shards []gate.ContainerShard,
@@ -22,6 +21,7 @@ func buildShardRequests(
 	patchKey string,
 	manifestKey string,
 	manifestDigest string,
+	candidateCLI CandidateCLIArtifactRef,
 	input RunInput,
 ) ([]ShardRequest, []string, error) {
 	requests := make([]ShardRequest, len(shards))
@@ -39,7 +39,7 @@ func buildShardRequests(
 			RunnerBaseCommit: artifact.Manifest.BaseCommit, RunnerBaseTree: artifact.Manifest.BaseTree,
 			PatchFormat: artifact.Manifest.PatchFormat,
 			PatchKey:    patchKey, PatchSHA256: artifact.Manifest.PatchSHA256, PatchSize: artifact.Manifest.PatchSize,
-			ManifestKey: manifestKey, ManifestSHA256: manifestDigest, GateIDs: slices.Clone(shard.GateIDs),
+			ManifestKey: manifestKey, ManifestSHA256: manifestDigest, CandidateCLI: candidateCLI, GateIDs: slices.Clone(shard.GateIDs),
 		}
 		if err := requests[index].Validate(); err != nil {
 			return nil, nil, err
@@ -49,54 +49,20 @@ func buildShardRequests(
 }
 
 const (
+	// Deprecated names remain test-only compatibility identifiers; no production request mounts or executes them.
 	remoteCurrentGateMountPath      = "/current-gate"
 	remoteCurrentGateDigestEnv      = "SUPER_DOLPHIN_CURRENT_GATE_SHA256"
 	remoteCurrentGateVolumeName     = "current-gate"
 	remoteCandidateGateSourceEnv    = "SUPER_DOLPHIN_CANDIDATE_GATE_SOURCE_SHA256"
 	remoteCandidateGateToolchainEnv = "SUPER_DOLPHIN_CANDIDATE_GATE_TOOLCHAIN_SHA256"
 	remoteReuseBaselineGateEnv      = "SUPER_DOLPHIN_REUSE_BASELINE_GATE_CLI"
+	remoteCandidateGateBootstrapSH  = `set -eu; candidate="/candidate-bootstrap/${SUPER_DOLPHIN_REMOTE_CANDIDATE_CLI_KEY##*/}"; test "$(sha256sum "$candidate" | awk '{print $1}')" = "${SUPER_DOLPHIN_REMOTE_CANDIDATE_CLI_SHA256#sha256:}"; test "$(wc -c < "$candidate" | tr -d ' ')" = "$SUPER_DOLPHIN_REMOTE_CANDIDATE_CLI_SIZE"; cp "$candidate" /opt/super-dolphin-gate/bin/super-dolphin-gate; chmod 0755 /opt/super-dolphin-gate/bin/super-dolphin-gate; expected="$(printf 'gate_source_sha256=%s\nplatform=linux/amd64\ntoolchain_digest=%s' "$SUPER_DOLPHIN_CANDIDATE_GATE_SOURCE_SHA256" "$SUPER_DOLPHIN_CANDIDATE_GATE_TOOLCHAIN_SHA256")"; test "$(/opt/super-dolphin-gate/bin/super-dolphin-gate worker cli-identity)" = "$expected"; exec /opt/super-dolphin-gate/bin/super-dolphin-gate _remote-materialize`
 	remoteWritableTempMountPath     = "/tmp"
 	remoteXKBCompMountPath          = "/usr/bin/xkbcomp"
 	remoteXKBCompSubPath            = "runtime/rootfs/usr/bin/xkbcomp"
 	remoteXKBDataMountPath          = "/usr/share/X11/xkb"
 	remoteXKBDataSubPath            = "runtime/rootfs/usr/share/X11/xkb"
 	remoteInitSearchPath            = gate.ExecutorRuntimeSeedRoot + "/bin:" + gate.ExecutorPortableRootFS + "/usr/bin:" + gate.ExecutorPortableRootFS + "/bin:/usr/local/bin:/usr/bin:/bin"
-	remoteCandidateGateBootstrapSH  = `set -eu
-materializer=/bootstrap/bin/super-dolphin-gate
-if test -f /current-gate/bin/super-dolphin-gate; then
-  cp /current-gate/bin/super-dolphin-gate /tmp/super-dolphin-gate-current
-  test "sha256:$(sha256sum /tmp/super-dolphin-gate-current | awk '{print $1}')" = "$SUPER_DOLPHIN_CURRENT_GATE_SHA256"
-  chmod 0755 /tmp/super-dolphin-gate-current
-  materializer=/tmp/super-dolphin-gate-current
-fi
-"$materializer" _remote-materialize
-
-candidate_binary=/opt/super-dolphin-gate/bin/super-dolphin-gate
-expected_identity=$(printf 'gate_source_sha256=%s\nplatform=linux/amd64\ntoolchain_digest=%s' \
-  "$SUPER_DOLPHIN_CANDIDATE_GATE_SOURCE_SHA256" "$SUPER_DOLPHIN_CANDIDATE_GATE_TOOLCHAIN_SHA256")
-verify_candidate_gate() {
-  test "$("$1" worker cli-identity)" = "$expected_identity"
-}
-if test "$SUPER_DOLPHIN_REUSE_BASELINE_GATE_CLI" = true; then
-  verify_candidate_gate "$candidate_binary"
-  printf 'candidate gate CLI mode: baseline-reuse; source=%s\n' "$SUPER_DOLPHIN_CANDIDATE_GATE_SOURCE_SHA256"
-  exit 0
-fi
-
-temporary=$(mktemp /opt/super-dolphin-gate/bin/.super-dolphin-gate-candidate-XXXXXX)
-trap 'rm -f "$temporary"' EXIT HUP INT TERM
-cd /workspace/source
-env CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOENV=off GOWORK=off GOTOOLCHAIN=local \
-  GOPROXY=off GOSUMDB=off GOMODCACHE=/opt/super-dolphin-gate/runtime/go-mod-cache \
-  GOCACHE=/opt/super-dolphin-gate/cache-seed/go-build GOTMPDIR=/tmp HOME=/tmp \
-  /opt/super-dolphin-gate/runtime/go/bin/go build -mod=readonly -trimpath -buildvcs=false \
-  -ldflags="-X main.gateSourceDigest=$SUPER_DOLPHIN_CANDIDATE_GATE_SOURCE_SHA256 -X main.gateToolchainDigest=$SUPER_DOLPHIN_CANDIDATE_GATE_TOOLCHAIN_SHA256" \
-  -o "$temporary" ./cmd/super-dolphin-gate
-verify_candidate_gate "$temporary"
-chmod 0755 "$temporary"
-mv "$temporary" "$candidate_binary"
-trap - EXIT HUP INT TERM
-printf 'candidate gate CLI mode: compiled; source=%s\n' "$SUPER_DOLPHIN_CANDIDATE_GATE_SOURCE_SHA256"`
 )
 
 // createRequest 将分片、请求摘要和 DataCache 身份绑定为 ECI 创建请求。
@@ -106,6 +72,7 @@ func (coordinator *Coordinator) createRequest(
 	resources eci.Resources,
 	requestKey string,
 	requestDigest string,
+	candidateCLI CandidateCLIArtifactRef,
 	input RunInput,
 ) eci.CreateRequest {
 	groupName := fmt.Sprintf("sdci-%s-s%02d", strings.TrimPrefix(jobID, "job-"), shard.Index)
@@ -114,34 +81,30 @@ func (coordinator *Coordinator) createRequest(
 		Command: []string{"/bin/sh"},
 		Args:    []string{"-c", remoteCandidateGateBootstrapSH},
 		Environment: map[string]string{
-			"PATH":                                remoteInitSearchPath,
-			"SSL_CERT_FILE":                       remoteDataCacheCAFile,
-			"SUPER_DOLPHIN_RUNTIME_ROOT":          gate.ExecutorRuntimeSeedRoot,
-			"SUPER_DOLPHIN_REMOTE_WORKER_ROLE":    coordinator.config.WorkerRoleName,
-			"SUPER_DOLPHIN_REMOTE_OSS_ENDPOINT":   coordinator.config.InternalOSSEndpoint,
-			"SUPER_DOLPHIN_REMOTE_OSS_BUCKET":     coordinator.config.Bucket,
-			"SUPER_DOLPHIN_REMOTE_REQUEST_KEY":    requestKey,
-			"SUPER_DOLPHIN_REMOTE_REQUEST_SHA256": requestDigest,
-			"TMPDIR":                              remoteWritableTempMountPath,
-			remoteBaselineManifestEnvironment:     input.AnchorManifest,
-			remoteCurrentGateDigestEnv:            input.GateBinarySHA256,
-			remoteCandidateGateSourceEnv:          input.CandidateGateSourceSHA256,
-			remoteCandidateGateToolchainEnv:       input.CandidateGateToolchainSHA256,
-			remoteReuseBaselineGateEnv:            strconv.FormatBool(input.ReuseBaselineGateCLI),
+			"PATH":                                      remoteInitSearchPath,
+			"SSL_CERT_FILE":                             remoteDataCacheCAFile,
+			"SUPER_DOLPHIN_RUNTIME_ROOT":                gate.ExecutorRuntimeSeedRoot,
+			"SUPER_DOLPHIN_REMOTE_WORKER_ROLE":          coordinator.config.WorkerRoleName,
+			"SUPER_DOLPHIN_REMOTE_OSS_ENDPOINT":         coordinator.config.InternalOSSEndpoint,
+			"SUPER_DOLPHIN_REMOTE_OSS_BUCKET":           coordinator.config.Bucket,
+			"SUPER_DOLPHIN_REMOTE_REQUEST_KEY":          requestKey,
+			"SUPER_DOLPHIN_REMOTE_REQUEST_SHA256":       requestDigest,
+			"SUPER_DOLPHIN_REMOTE_CANDIDATE_CLI_KEY":    candidateCLI.BinaryKey,
+			"SUPER_DOLPHIN_REMOTE_CANDIDATE_CLI_SHA256": candidateCLI.BinarySHA256,
+			"SUPER_DOLPHIN_REMOTE_CANDIDATE_CLI_SIZE":   strconv.FormatInt(candidateCLI.BinarySize, 10),
+			remoteCandidateGateSourceEnv:                candidateCLI.SourceSHA256,
+			remoteCandidateGateToolchainEnv:             candidateCLI.ToolchainSHA256,
+			"TMPDIR":                                    remoteWritableTempMountPath,
+			remoteBaselineManifestEnvironment:           input.AnchorManifest,
 		},
 	}
 	initMounts := []eci.VolumeMount{
 		{Name: "base-data", MountPath: "/bootstrap", ReadOnly: true},
+		{Name: "candidate-bootstrap", MountPath: "/candidate-bootstrap", ReadOnly: true},
 		{Name: "expanded-data", MountPath: "/opt/super-dolphin-gate"},
 		{Name: "source-data", MountPath: gate.ExecutorSourcePath},
 		{Name: "work-data", MountPath: gate.ExecutorWorkRoot},
 		{Name: "temp-data", MountPath: remoteWritableTempMountPath},
-	}
-	bootstrapVolume := remoteCurrentGateVolume(coordinator.config, input)
-	if bootstrapVolume != (eci.OSSVolume{}) {
-		initMounts = append(initMounts,
-			eci.VolumeMount{Name: remoteCurrentGateVolumeName, MountPath: remoteCurrentGateMountPath, ReadOnly: true},
-		)
 	}
 	return eci.CreateRequest{
 		ContainerGroupName: groupName, ContainerName: "worker",
@@ -156,7 +119,7 @@ func (coordinator *Coordinator) createRequest(
 		DataCacheBucket: input.DataCacheBucket,
 		InitContainer:   initContainer,
 		BaseVolume:      eci.HostPathVolume{Name: "base-data", Path: input.DataCachePath, Type: "Directory"},
-		BootstrapVolume: bootstrapVolume,
+		BootstrapVolume: eci.OSSVolume{Bucket: coordinator.config.Bucket, Endpoint: coordinator.config.InternalOSSEndpoint, Path: path.Dir(candidateCLI.ManifestKey), RoleName: coordinator.config.WorkerRoleName},
 		ExpandedVolume:  eci.EmptyDirVolume{Name: "expanded-data"},
 		SourceVolume:    eci.EmptyDirVolume{Name: "source-data"},
 		WorkVolume:      eci.EmptyDirVolume{Name: "work-data"},
@@ -179,17 +142,6 @@ func remoteWorkerEnvironment(timeout time.Duration) map[string]string {
 	return map[string]string{
 		gate.ExecutorWorkloadTimeoutEnvironment: timeout.String(),
 		"SUPER_DOLPHIN_RUNTIME_ROOT":            gate.ExecutorRuntimeSeedRoot,
-	}
-}
-
-func remoteCurrentGateVolume(config CoordinatorConfig, input RunInput) eci.OSSVolume {
-	if len(input.BaselineDeltas) == 0 {
-		return eci.OSSVolume{}
-	}
-	latest := input.BaselineDeltas[len(input.BaselineDeltas)-1]
-	return eci.OSSVolume{
-		Bucket: config.Bucket, Endpoint: strings.TrimPrefix(config.InternalOSSEndpoint, "https://"),
-		Path: path.Join("/", latest.ObjectPrefix, "output"), RoleName: config.WorkerRoleName,
 	}
 }
 

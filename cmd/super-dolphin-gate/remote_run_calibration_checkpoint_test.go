@@ -63,6 +63,7 @@ func remoteCalibrationCheckpointVerifiedPass(t *testing.T, input remoteci.RunInp
 		PlanDigest:      "sha256:plan",
 		CatalogDigest:   catalogDigest,
 		SourceTreeSHA:   input.Source.SourceTreeSHA,
+		CandidateCLIManifestSHA256: strings.Repeat("f", 64),
 		RunnerImage:     "ubuntu:22.04",
 		Authoritative:   true,
 		Status:          gatecontract.ResultStatusPassed,
@@ -91,6 +92,7 @@ func remoteCalibrationCheckpointRecordVerifiedPass(t *testing.T, ledgerStore *ga
 		PlanDigest:      result.PlanDigest,
 		CatalogDigest:   result.CatalogDigest,
 		SourceTreeSHA:   result.SourceTreeSHA,
+		CandidateCLIManifestSHA256: result.CandidateCLIManifestSHA256,
 		RunnerImage:     result.RunnerImage,
 		Status:          result.Status,
 		Authoritative:   result.Authoritative,
@@ -155,6 +157,7 @@ func remoteCalibrationCheckpointFixture(
 	completed := remoteci.RunResult{
 		JobID: "job-missing-checkpoint", Entrypoint: input.Entrypoint, Profile: input.Profile,
 		PlanDigest: "sha256:plan", CatalogDigest: catalogDigest, SourceTreeSHA: input.Tree,
+		CandidateCLIManifestSHA256: strings.Repeat("f", 64),
 		RunnerImage: input.RunnerImage, Status: gatecontract.ResultStatusPassed,
 		Authoritative: true, CleanupComplete: true, CompletedAt: time.Now().UTC(),
 		DurationSamples: []gatecontract.DurationSample{{DurationMS: 1}},

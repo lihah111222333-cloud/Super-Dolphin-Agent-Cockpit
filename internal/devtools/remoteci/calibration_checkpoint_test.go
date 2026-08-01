@@ -48,7 +48,7 @@ func TestCalibrationCheckpointRestoresCompletedScenarioOnlyForSameIdentity(t *te
 		t.Fatal(err)
 	}
 	gotInput, gotResult, ok := checkpoint.Completed("push")
-	if !ok || !gotInput.Calibration || !gotResult.Authoritative {
+	if !ok || !gotInput.Calibration || !gotResult.Authoritative || gotResult.CandidateCLIManifestSHA256 != result.CandidateCLIManifestSHA256 {
 		t.Fatalf("completed checkpoint = %#v, %#v, %t", gotInput, gotResult, ok)
 	}
 	fresh, err := NewCalibrationCheckpoint(path, "sha256:another-checkpoint")
@@ -112,7 +112,7 @@ func TestCalibrationCheckpointMarksCachedRetryComplete(t *testing.T) {
 
 func TestCalibrationCheckpointRejectsCorruptedObservedState(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "duration-ledger.json.calibration.checkpoint")
-	content := `{"schema_version":3,"identity":"sha256:checkpoint","scenarios":{"full":{"started":true,"completed":true,"input":{"calibration":true},"result":{"authoritative":false}}}}`
+	content := `{"schema_version":4,"identity":"sha256:checkpoint","scenarios":{"full":{"started":true,"completed":true,"input":{"calibration":true},"result":{"authoritative":false}}}}`
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestCalibrationCheckpointRejectsCorruptedObservedState(t *testing.T) {
 
 func TestCalibrationCheckpointRejectsUnknownField(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "duration-ledger.json.calibration.checkpoint")
-	content := `{"schema_version":3,"identity":"sha256:checkpoint","scenarios":{},"unexpected":true}`
+	content := `{"schema_version":4,"identity":"sha256:checkpoint","scenarios":{},"unexpected":true}`
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -223,8 +223,8 @@ func TestCalibrationCheckpointMigratesSchemaV2IncompleteScenario(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(persisted), `"schema_version":3`) {
-		t.Fatalf("migrated checkpoint = %s, want schema v3", persisted)
+	if !strings.Contains(string(persisted), `"schema_version":4`) {
+		t.Fatalf("migrated checkpoint = %s, want schema v4", persisted)
 	}
 }
 
@@ -251,15 +251,16 @@ func testCalibrationCheckpointInput() RunInput {
 
 func testCalibrationCheckpointResult(input RunInput) RunResult {
 	return RunResult{
-		JobID:           "job-checkpoint",
-		Entrypoint:      input.Entrypoint,
-		Profile:         input.Profile,
-		PlanDigest:      "sha256:" + strings.Repeat("5", 64),
-		CatalogDigest:   "sha256:" + strings.Repeat("6", 64),
-		SourceTreeSHA:   input.Tree,
-		Status:          gatecontract.ResultStatusPassed,
-		Authoritative:   true,
-		CleanupComplete: true,
-		CompletedAt:     time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC),
+		JobID:                      "job-checkpoint",
+		Entrypoint:                 input.Entrypoint,
+		Profile:                    input.Profile,
+		PlanDigest:                 "sha256:" + strings.Repeat("5", 64),
+		CatalogDigest:              "sha256:" + strings.Repeat("6", 64),
+		SourceTreeSHA:              input.Tree,
+		CandidateCLIManifestSHA256: strings.Repeat("c", 64),
+		Status:                     gatecontract.ResultStatusPassed,
+		Authoritative:              true,
+		CleanupComplete:            true,
+		CompletedAt:                time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC),
 	}
 }

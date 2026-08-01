@@ -14,7 +14,7 @@ import (
 func TestRemoteRunContractFieldRegistry(t *testing.T) {
 	assertBaselineFields(t, reflect.TypeFor[CoordinatorConfig](), []string{
 		"Bucket", "SourcePrefix", "WorkloadCachePrefix", "InternalOSSEndpoint", "WorkerRoleName", "WorkerTimeout", "PollInterval", "CleanupTimeout",
-		"ResourcePolicy", "ResourceObservations",
+		"ResourcePolicy", "ResourceObservations", "CandidateCLIBuilder",
 	})
 	assertBaselineFields(t, reflect.TypeFor[RunInput](), []string{
 		"RepositoryRoot", "RemoteName", "RemoteURL", "RequesterFingerprint", "Commit", "Tree", "Base", "RunnerBaseCommit", "RunnerBaseTree",
@@ -26,8 +26,14 @@ func TestRemoteRunContractFieldRegistry(t *testing.T) {
 	})
 	assertBaselineFields(t, reflect.TypeFor[RunResult](), []string{
 		"SchemaVersion", "JobID", "RemoteName", "RemoteURL", "RequesterFingerprint", "Entrypoint", "Profile", "PlanDigest", "CatalogDigest", "SourceTreeSHA",
-		"RunnerImage", "Status", "Authoritative", "StartedAt", "CompletedAt", "Shards",
+		"CandidateCLIManifestSHA256", "RunnerImage", "Status", "Authoritative", "StartedAt", "CompletedAt", "Shards",
 		"ReusedWorkloads", "CacheMissWorkloads", "GateExecutions", "DurationSamples", "PerformanceTimings", "OptimizationWarnings", "CleanupComplete",
+	})
+	assertBaselineFields(t, reflect.TypeFor[ShardRequest](), []string{
+		"SchemaVersion", "JobID", "ShardIdentity", "Profile", "PlanDigest", "BaselineManifest", "AnchorGeneration", "AnchorManifest", "AnchorCommit", "AnchorTree", "BaselineDeltas", "RunnerBaseCommit", "RunnerBaseTree", "SourceTreeSHA", "PatchFormat", "PatchKey", "PatchSHA256", "PatchSize", "ManifestKey", "ManifestSHA256", "CandidateCLI", "GateIDs",
+	})
+	assertBaselineFields(t, reflect.TypeFor[CandidateCLIArtifactRef](), []string{
+		"CandidateTree", "SourceSHA256", "ToolchainSHA256", "Platform", "ManifestKey", "ManifestSHA256", "BinaryKey", "BinarySHA256", "BinarySize", "CLIIdentity",
 	})
 }
 
@@ -62,7 +68,9 @@ func baselineBoundShardRequests(t *testing.T) ([]ShardRequest, []string, string,
 	runnerBaseCommit := strings.Repeat("e", 40)
 	runnerBaseTree := strings.Repeat("f", 40)
 	jobPrefix := sourcePrefix + jobID + "/"
-	requests, keys, err := buildShardRequests(sourcePrefix, jobID, []gate.ContainerShard{{Index: 0, IdentityDigest: runnerIdentity, Profile: gate.ProfileLocalFast, PlanDigest: runnerIdentity, SourceTreeSHA: gitObject, GateIDs: []gate.GateID{gate.GateIDWhitespaceCheck}}}, source.Artifact{Manifest: source.Manifest{BaseCommit: runnerBaseCommit, BaseTree: runnerBaseTree, PatchFormat: "git-binary-v1", PatchSHA256: objectDigest}}, jobPrefix+objectDigest+".patch", jobPrefix+objectDigest+".manifest.json", objectDigest, RunInput{BaselineManifestDigest: baselineManifest, AnchorGeneration: 1, AnchorManifest: anchorManifest, AnchorCommit: gitObject, AnchorTree: gitObject, BaselineDeltas: []BaselineDeltaLayer{{Generation: 2, ObjectPrefix: "baseline-artifacts/2/", ManifestDigest: baselineManifest, BaseCommit: gitObject, BaseTree: gitObject, MainCommit: runnerBaseCommit, MainTree: runnerBaseTree}}, RunnerBaseCommit: runnerBaseCommit, RunnerBaseTree: runnerBaseTree})
+	candidateManifest := strings.Repeat("9", 64)
+	candidateCLI := CandidateCLIArtifactRef{CandidateTree: gitObject, SourceSHA256: runnerIdentity, ToolchainSHA256: runnerIdentity, Platform: "linux/amd64", ManifestKey: jobPrefix + candidateManifest + ".manifest.json", ManifestSHA256: candidateManifest, BinaryKey: jobPrefix + strings.Repeat("8", 64) + ".candidate-cli", BinarySHA256: strings.Repeat("8", 64), BinarySize: 42, CLIIdentity: CandidateCLIIdentity(runnerIdentity, runnerIdentity)}
+	requests, keys, err := buildShardRequestsWithCandidate(sourcePrefix, jobID, []gate.ContainerShard{{Index: 0, IdentityDigest: runnerIdentity, Profile: gate.ProfileLocalFast, PlanDigest: runnerIdentity, SourceTreeSHA: gitObject, GateIDs: []gate.GateID{gate.GateIDWhitespaceCheck}}}, source.Artifact{Manifest: source.Manifest{BaseCommit: runnerBaseCommit, BaseTree: runnerBaseTree, PatchFormat: "git-binary-v1", PatchSHA256: objectDigest}}, jobPrefix+objectDigest+".patch", jobPrefix+objectDigest+".manifest.json", objectDigest, candidateCLI, RunInput{BaselineManifestDigest: baselineManifest, AnchorGeneration: 1, AnchorManifest: anchorManifest, AnchorCommit: gitObject, AnchorTree: gitObject, BaselineDeltas: []BaselineDeltaLayer{{Generation: 2, ObjectPrefix: "baseline-artifacts/2/", ManifestDigest: baselineManifest, BaseCommit: gitObject, BaseTree: gitObject, MainCommit: runnerBaseCommit, MainTree: runnerBaseTree}}, RunnerBaseCommit: runnerBaseCommit, RunnerBaseTree: runnerBaseTree})
 	if err != nil {
 		t.Fatalf("buildShardRequests() error = %v", err)
 	}
@@ -77,15 +85,18 @@ func assertBaselineBoundShardRequest(t *testing.T, request ShardRequest, baselin
 	if request.BaselineDeltas[0].ManifestDigest != baselineManifest || request.RunnerBaseCommit != runnerBaseCommit || request.RunnerBaseTree != runnerBaseTree || request.BaselineManifest == runnerIdentity {
 		t.Fatalf("shard request identity = %#v", request)
 	}
+	if err := request.CandidateCLI.Validate("baseline-artifacts/source-deltas/job-0123456789abcdef01234567/", request.SourceTreeSHA); err != nil {
+		t.Fatalf("shard request candidate CLI = %#v: %v", request.CandidateCLI, err)
+	}
 }
 
 func TestCoordinatorCreateRequestAlwaysMountsWritableMaterializerTemp(t *testing.T) {
 	_, input := remoteRunFixture(t)
 	input.BaselineDeltas = nil
 	coordinator := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{})
-	request := coordinator.createRequest("job-0123456789abcdef01234567", gate.ContainerShard{Index: 1, Profile: input.Profile, PlanDigest: input.PolicyDigest, GateIDs: []gate.GateID{"go:test"}}, eci.Resources{CPU: 4, MemoryGiB: 8}, "baseline-artifacts/source-deltas/jobs/job/request.json", input.PolicyDigest, input)
-	if request.BootstrapVolume != (eci.OSSVolume{}) {
-		t.Fatalf("BootstrapVolume = %+v, want empty anchor volume", request.BootstrapVolume)
+	request := coordinator.createRequest("job-0123456789abcdef01234567", gate.ContainerShard{Index: 1, Profile: input.Profile, PlanDigest: input.PolicyDigest, GateIDs: []gate.GateID{"go:test"}}, eci.Resources{CPU: 4, MemoryGiB: 8}, "baseline-artifacts/source-deltas/jobs/job/request.json", input.PolicyDigest, testCandidateCLI(input), input)
+	if request.BootstrapVolume.Path != "baseline-artifacts/source-deltas/job-0123456789abcdef01234567" {
+		t.Fatalf("BootstrapVolume = %+v, want candidate job directory", request.BootstrapVolume)
 	}
 	if got := request.InitContainer.Environment["TMPDIR"]; got != remoteWritableTempMountPath {
 		t.Fatalf("TMPDIR = %q, want %q", got, remoteWritableTempMountPath)
@@ -101,26 +112,23 @@ func TestCoordinatorCreateRequestAlwaysMountsWritableMaterializerTemp(t *testing
 	assertWritableMaterializerTempMount(t, request)
 }
 
-func TestRemoteCandidateGateBootstrapUsesPreinstalledRuntimeAndCaches(t *testing.T) {
-	required := []string{
-		`"$materializer" _remote-materialize`,
-		"/opt/super-dolphin-gate/runtime/go/bin/go build",
-		"GOPROXY=off",
-		"GOMODCACHE=/opt/super-dolphin-gate/runtime/go-mod-cache",
-		"GOCACHE=/opt/super-dolphin-gate/cache-seed/go-build",
-		"worker cli-identity",
-	}
-	for _, fragment := range required {
-		if !strings.Contains(remoteCandidateGateBootstrapSH, fragment) {
-			t.Fatalf("candidate gate bootstrap is missing %q", fragment)
+func TestRemoteCandidateCLIArtifactMaterializesWithoutShardBuild(t *testing.T) {
+	for _, required := range []string{"sha256sum", "wc -c", "chmod 0755", "worker cli-identity", "_remote-materialize"} {
+		if !strings.Contains(remoteCandidateGateBootstrapSH, required) {
+			t.Fatalf("candidate artifact materializer missing %q: %q", required, remoteCandidateGateBootstrapSH)
 		}
 	}
-	if materializeAt, compileAt := strings.Index(remoteCandidateGateBootstrapSH, `_remote-materialize`), strings.Index(remoteCandidateGateBootstrapSH, `go build`); materializeAt < 0 || compileAt < 0 || materializeAt >= compileAt {
-		t.Fatalf("candidate gate bootstrap must materialize source before compiling: materialize=%d compile=%d", materializeAt, compileAt)
+	previous := -1
+	for _, step := range []string{"sha256sum", "wc -c", "chmod 0755", "worker cli-identity", "_remote-materialize"} {
+		current := strings.Index(remoteCandidateGateBootstrapSH, step)
+		if current <= previous {
+			t.Fatalf("candidate artifact bootstrap order = %q, %q appears out of order", remoteCandidateGateBootstrapSH, step)
+		}
+		previous = current
 	}
-	for _, forbidden := range []string{"apt-get", "apk add", "curl ", "wget ", "go install", "GOPROXY=http"} {
+	for _, forbidden := range []string{"go build", "go install", "apt-get", "apk add", "curl ", "wget ", "GOPROXY=http", "current-gate", "/bootstrap/bin/super-dolphin-gate"} {
 		if strings.Contains(remoteCandidateGateBootstrapSH, forbidden) {
-			t.Fatalf("candidate gate bootstrap installs or downloads dependencies through %q", forbidden)
+			t.Fatalf("candidate artifact materializer violates immutable artifact contract through %q", forbidden)
 		}
 	}
 }
@@ -138,41 +146,44 @@ func TestRemoteInitSearchPathUsesMaterializedRuntimeUnderECILimit(t *testing.T) 
 	}
 }
 
-func TestCoordinatorCreateRequestBootstrapsLatestDeltaGateBinary(t *testing.T) {
+func TestCoordinatorCreateRequestDoesNotMountCurrentGate(t *testing.T) {
 	_, input := remoteRunFixture(t)
 	input.BaselineDeltas = []BaselineDeltaLayer{{Generation: 2, ObjectPrefix: "baseline-artifacts/deltas/2"}, {Generation: 3, ObjectPrefix: "baseline-artifacts/deltas/3"}}
 	coordinator := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{})
 	coordinator.config.InternalOSSEndpoint = "https://oss-cn-shenzhen-internal.aliyuncs.com"
-	request := coordinator.createRequest("job-0123456789abcdef01234567", gate.ContainerShard{Index: 1, Profile: input.Profile, PlanDigest: input.PolicyDigest, GateIDs: []gate.GateID{"go:test"}}, eci.Resources{CPU: 4, MemoryGiB: 8}, "baseline-artifacts/source-deltas/jobs/job/request.json", input.PolicyDigest, input)
-	wantVolume := eci.OSSVolume{Bucket: "ci-bucket", Endpoint: "oss-cn-shenzhen-internal.aliyuncs.com", Path: "/baseline-artifacts/deltas/3/output", RoleName: "worker-role"}
-	if request.BootstrapVolume != wantVolume {
-		t.Fatalf("BootstrapVolume = %+v, want %+v", request.BootstrapVolume, wantVolume)
+	request := coordinator.createRequest("job-0123456789abcdef01234567", gate.ContainerShard{Index: 1, Profile: input.Profile, PlanDigest: input.PolicyDigest, GateIDs: []gate.GateID{"go:test"}}, eci.Resources{CPU: 4, MemoryGiB: 8}, "baseline-artifacts/source-deltas/jobs/job/request.json", input.PolicyDigest, testCandidateCLI(input), input)
+	if request.BootstrapVolume.Path != "baseline-artifacts/source-deltas/job-0123456789abcdef01234567" {
+		t.Fatalf("BootstrapVolume = %+v, want candidate job directory", request.BootstrapVolume)
 	}
 	if !reflect.DeepEqual(request.InitContainer.Command, []string{"/bin/sh"}) || !reflect.DeepEqual(request.InitContainer.Args, []string{"-c", remoteCandidateGateBootstrapSH}) {
 		t.Fatalf("init command = %v %v", request.InitContainer.Command, request.InitContainer.Args)
 	}
 	assertCandidateGateEnvironment(t, request, input)
 	assertWritableMaterializerTempMount(t, request)
-	wantTail := []eci.VolumeMount{{Name: remoteCurrentGateVolumeName, MountPath: remoteCurrentGateMountPath, ReadOnly: true}}
-	if got := request.InitVolumeMounts[len(request.InitVolumeMounts)-len(wantTail):]; !reflect.DeepEqual(got, wantTail) {
-		t.Fatalf("init mount tail = %+v, want %+v", got, wantTail)
+	for _, mount := range request.InitVolumeMounts {
+		if mount.Name == remoteCurrentGateVolumeName || mount.MountPath == remoteCurrentGateMountPath {
+			t.Fatalf("init mount unexpectedly retains current gate volume: %+v", mount)
+		}
 	}
+}
+
+func testCandidateCLI(input RunInput) CandidateCLIArtifactRef {
+	keyPrefix := "baseline-artifacts/source-deltas/job-0123456789abcdef01234567/"
+	digest := strings.Repeat("a", 64)
+	return CandidateCLIArtifactRef{CandidateTree: input.Tree, SourceSHA256: input.CandidateGateSourceSHA256, ToolchainSHA256: input.CandidateGateToolchainSHA256, Platform: "linux/amd64", ManifestKey: keyPrefix + digest + ".manifest.json", ManifestSHA256: digest, BinaryKey: keyPrefix + strings.Repeat("b", 64) + ".candidate-cli", BinarySHA256: strings.Repeat("b", 64), BinarySize: 42, CLIIdentity: CandidateCLIIdentity(input.CandidateGateSourceSHA256, input.CandidateGateToolchainSHA256)}
 }
 
 func assertCandidateGateEnvironment(t *testing.T, request eci.CreateRequest, input RunInput) {
 	t.Helper()
-	want := map[string]string{
-		remoteCurrentGateDigestEnv:      input.GateBinarySHA256,
-		remoteCandidateGateSourceEnv:    input.CandidateGateSourceSHA256,
-		remoteCandidateGateToolchainEnv: input.CandidateGateToolchainSHA256,
-		remoteReuseBaselineGateEnv:      "false",
-	}
-	if input.ReuseBaselineGateCLI {
-		want[remoteReuseBaselineGateEnv] = "true"
-	}
+	want := map[string]string{remoteBaselineManifestEnvironment: input.AnchorManifest, remoteCandidateGateSourceEnv: input.CandidateGateSourceSHA256, remoteCandidateGateToolchainEnv: input.CandidateGateToolchainSHA256}
 	for name, value := range want {
 		if got := request.InitContainer.Environment[name]; got != value {
 			t.Fatalf("%s = %q, want %q", name, got, value)
+		}
+	}
+	for _, name := range []string{remoteCurrentGateDigestEnv, remoteReuseBaselineGateEnv} {
+		if _, found := request.InitContainer.Environment[name]; found {
+			t.Fatalf("init environment unexpectedly retains deprecated gate setting %q", name)
 		}
 	}
 }
