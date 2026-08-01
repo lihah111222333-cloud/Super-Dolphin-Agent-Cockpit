@@ -37,47 +37,46 @@ func TestBuildRemoteBaselineSeedRequestUsesPreviousGeneration(t *testing.T) {
 	if _, err := buildRemoteBaselineSeedRequest(config, invalidInput, source, accepted, accepted.DataCacheSizeGiB, accepted.Generation+1); err == nil {
 		t.Fatal("buildRemoteBaselineSeedRequest() accepted a missing runtime dependency schema")
 	}
-	request := mustBuildRemoteBaselineSeedRequest(t, config, input, source, accepted, accepted.DataCacheSizeGiB, accepted.Generation+1)
-	assertPreviousRemoteBaselineSeedRequest(t, request, accepted, input)
-	assertRemoteBaselineSeedConditions(t, request, "dependency-changing Anchor request", []bool{
-		request.Environment["BASELINE_STORAGE_MODE"] == remoteci.BaselineStorageModeAnchor,
-		request.BaselineLayers.Path == "/baseline-artifacts", request.Environment["BASELINE_DELTA_MANIFEST_1"] != "",
-	})
+	invalidAccepted := accepted
+	invalidAccepted.MainCommit = ""
+	if _, err := buildRemoteBaselineSeedRequest(config, input, source, invalidAccepted, invalidAccepted.DataCacheSizeGiB, invalidAccepted.Generation+1); err == nil || !strings.Contains(err.Error(), "full Anchor rebuild is forbidden") {
+		t.Fatalf("buildRemoteBaselineSeedRequest() invalid previous state error = %v", err)
+	}
+	assertRemoteBaselineFullRefreshForbidden(t, config, input, source, accepted, accepted.DataCacheSizeGiB, accepted.Generation+1)
 	source.Manifest.Mode, source.Manifest.BaseCommit, source.Manifest.BaseTree = remoteBaselineSourceFull, "", ""
-	request = mustBuildRemoteBaselineSeedRequest(t, config, input, source, remoteci.BaselineState{}, 0, 1)
+	request := mustBuildRemoteBaselineSeedRequest(t, config, input, source, remoteci.BaselineState{}, 0, 1)
 	assertRemoteBaselineSeedConditions(t, request, "first seed request unexpectedly uses previous DataCache", []bool{
 		request.DataCacheBucket == "", request.PreviousDataCachePath == "",
 	})
 	accepted.Platform, accepted.ToolchainDigest, accepted.RuntimeImage = input.Identity.Platform, input.Identity.ToolchainDigest, input.Identity.RuntimeImage
-	request = mustBuildRemoteBaselineSeedRequest(t, config, input, source, accepted, accepted.DataCacheSizeGiB, accepted.Generation+1)
-	assertRemoteBaselineSeedConditions(t, request, "dependency-changing refresh EIP", []bool{
-		request.AutoCreateEIP, request.EIPBandwidth == 100,
-	})
+	assertRemoteBaselineFullRefreshForbidden(t, config, input, source, accepted, accepted.DataCacheSizeGiB, accepted.Generation+1)
 	input.AcceptedRuntimeDependencyDigest = input.RuntimeDependencyDigest
 	source.Manifest.Mode, source.Manifest.BaseCommit, source.Manifest.BaseTree = remoteBaselineSourceDelta, accepted.MainCommit, accepted.MainTree
 	request = mustBuildRemoteBaselineSeedRequest(t, config, input, source, accepted, accepted.DataCacheSizeGiB, accepted.Generation+1)
+	assertPreviousRemoteBaselineSeedRequest(t, request, accepted, input)
 	assertRemoteBaselineSeedConditions(t, request, "compatible delta refresh", []bool{
 		!request.AutoCreateEIP, request.EIPBandwidth == 0,
 		request.Environment["BASELINE_STORAGE_MODE"] == remoteci.BaselineStorageModeDelta,
+		request.Environment["BASELINE_TOOLCHAIN_CHANGED"] == "false",
 		request.DataCacheBucket == accepted.Anchor.DataCacheBucket, request.PreviousDataCachePath == accepted.Anchor.DataCachePath,
 		request.BaselineLayers.Path == "/baseline-artifacts", request.Environment["BASELINE_DELTA_MANIFEST_1"] != "",
 	})
+	toolchainInput := input
+	toolchainInput.Identity.ToolchainDigest = "sha256:" + repeatRemoteHex("9", 64)
+	toolchainInput.GoToolchain = "go1.25.7"
+	request = mustBuildRemoteBaselineSeedRequest(t, config, toolchainInput, source, accepted, accepted.DataCacheSizeGiB, accepted.Generation+1)
+	assertRemoteBaselineSeedConditions(t, request, "toolchain-changing incremental refresh", []bool{
+		request.Environment["BASELINE_STORAGE_MODE"] == remoteci.BaselineStorageModeDelta,
+		request.Environment["BASELINE_TOOLCHAIN_CHANGED"] == "true",
+		request.AutoCreateEIP, request.EIPBandwidth == 100,
+	})
 	historicalInput := input
 	historicalInput.RuntimeDependencySchemaVersion = "8"
-	request = mustBuildRemoteBaselineSeedRequest(t, config, historicalInput, source, accepted, accepted.DataCacheSizeGiB, accepted.Generation+1)
-	assertRemoteBaselineSeedConditions(t, request, "historical schema migration", []bool{
-		request.AutoCreateEIP, request.EIPBandwidth == 100,
-		request.Environment["BASELINE_STORAGE_MODE"] == remoteci.BaselineStorageModeAnchor,
-		request.Environment["BASELINE_FORCE_RUNTIME_REFRESH"] == "true",
-	})
+	assertRemoteBaselineFullRefreshForbidden(t, config, historicalInput, source, accepted, accepted.DataCacheSizeGiB, accepted.Generation+1)
 	if accepted.PolicyDigest == input.Identity.PolicyDigest {
 		t.Fatal("fixture must prove policy changes do not rebuild compatible layers")
 	}
-	request = mustBuildRemoteBaselineSeedRequest(t, config, input, source, accepted, accepted.DataCacheSizeGiB+80, accepted.Generation+1)
-	assertRemoteBaselineSeedConditions(t, request, "capacity-changing Anchor request", []bool{
-		!request.AutoCreateEIP, request.Environment["BASELINE_STORAGE_MODE"] == remoteci.BaselineStorageModeAnchor,
-		request.PreviousDataCachePath == accepted.Anchor.DataCachePath, request.BaselineLayers.Path == "/baseline-artifacts",
-	})
+	assertRemoteBaselineFullRefreshForbidden(t, config, input, source, accepted, accepted.DataCacheSizeGiB+80, accepted.Generation+1)
 	assertRemoteBaselineSeedCompaction(t, config, input, source, accepted)
 }
 
@@ -138,24 +137,14 @@ func assertRemoteBaselineSeedCompaction(t *testing.T, config remoteRunConfig, in
 		})
 	}
 	source.Manifest.BaseCommit, source.Manifest.BaseTree = compaction.MainCommit, compaction.MainTree
-	request := mustBuildRemoteBaselineSeedRequest(t, config, input, source, compaction, compaction.DataCacheSizeGiB, compaction.Generation+1)
-	assertRemoteBaselineSeedConditions(t, request, "bounded delta compaction request", []bool{
-		!request.AutoCreateEIP, request.Environment["BASELINE_STORAGE_MODE"] == remoteci.BaselineStorageModeAnchor,
-		request.PreviousDataCachePath == compaction.Anchor.DataCachePath, request.BaselineLayers.Path == "/baseline-artifacts",
-	})
-	assertRemoteBaselineSeedBoundedManifests(t, request)
+	assertRemoteBaselineFullRefreshForbidden(t, config, input, source, compaction, compaction.DataCacheSizeGiB, compaction.Generation+1)
 }
 
-func assertRemoteBaselineSeedBoundedManifests(t *testing.T, request eci.SeedRequest) {
+func assertRemoteBaselineFullRefreshForbidden(t *testing.T, config remoteRunConfig, input remoteBaselineRefreshInput, source remoteBaselineSourceArtifact, accepted remoteci.BaselineState, acceptedRecommendedSizeGiB int, generation uint64) {
 	t.Helper()
-	for index := 1; index <= remoteBaselineDeltaLimit; index++ {
-		name := fmt.Sprintf("BASELINE_DELTA_MANIFEST_%d", index)
-		if value := request.Environment[name]; value == "" || len(value) > 256 {
-			t.Fatalf("%s = %q, want a bounded manifest reference", name, value)
-		}
-	}
-	if _, exists := request.Environment["BASELINE_DELTA_MANIFESTS"]; exists {
-		t.Fatal("seed request retained the unbounded Delta manifest environment value")
+	_, err := buildRemoteBaselineSeedRequest(config, input, source, accepted, acceptedRecommendedSizeGiB, generation)
+	if err == nil || !strings.Contains(err.Error(), "full Anchor rebuild is forbidden") {
+		t.Fatalf("buildRemoteBaselineSeedRequest() error = %v, want full Anchor rebuild rejection", err)
 	}
 }
 
@@ -202,7 +191,6 @@ func assertPreviousRemoteBaselineSeedRequest(
 	assertPreviousRemoteBaselineSeedStorage(t, request, accepted)
 	assertPreviousRemoteBaselineSeedResources(t, request)
 	assertPreviousRemoteBaselineSeedPaths(t, request)
-	assertPreviousRemoteBaselineSeedNetwork(t, request)
 	assertPreviousRemoteBaselineSeedEnvironment(t, request, input)
 }
 
@@ -240,13 +228,6 @@ func assertPreviousRemoteBaselineSeedResources(t *testing.T, request eci.SeedReq
 func assertPreviousRemoteBaselineSeedPaths(t *testing.T, request eci.SeedRequest) {
 	t.Helper()
 	if request.Input.Path != "/baseline-artifacts/3/input" || request.Output.Path != "/baseline-artifacts/3/output" {
-		t.Fatalf("seed request = %#v", request)
-	}
-}
-
-func assertPreviousRemoteBaselineSeedNetwork(t *testing.T, request eci.SeedRequest) {
-	t.Helper()
-	if !request.AutoCreateEIP || request.EIPBandwidth != 100 {
 		t.Fatalf("seed request = %#v", request)
 	}
 }
@@ -449,7 +430,7 @@ func assertRemoteBaselineSeedRuntimeReuseFragments(t *testing.T) {
 		"runtime dependency cache reused: sqruff",
 		"mv \"$previous_runtime/go-mod-cache\" \"$go_mod_cache\"",
 		"mv \"$go_mod_cache\" $payload_root/runtime/go-mod-cache",
-		"runtime seed changed; compacting new Anchor",
+		"runtime seed changed but no incremental runtime layer was produced; full Anchor rebuild is forbidden",
 		"test \"$BASELINE_STORAGE_MODE\" = delta && test \"$runtime_layer_reusable\" != 1",
 		"chmod 0755 $payload_root/runtime/bin/portable-tool",
 		"tool=${0##*/}",
@@ -516,9 +497,15 @@ func assertRemoteBaselineSeedLayerFragments(t *testing.T) {
 		"source.delta.bundle",
 		"go-build-cache.delta.tar.gz",
 		"go build cache source: private delta",
+		"go build cache source: empty toolchain-scoped delta",
+		"runtime-go.delta.tar.gz",
+		"archive_layer \"$runtime_go_archive_path\" runtime/go runtime/manifest.json",
+		"runtime_go_delta=$layer_root/runtime-go.delta.tar.gz",
+		"rm -rf \"$previous_go\" \"$previous_manifest\" \"$go_build_cache\"",
+		"member.issym() or member.islnk()",
 		"mv \"$go_build_cache\" \"$stage/anchor-go-build-cache\"",
 		"export GOCACHEPROG=\"/previous/bin/super-dolphin-gate worker go-cache-proxy --seed $stage/anchor-go-build-cache --private $go_build_cache\"",
-		"previous baseline is not a v%s Anchor; compacting full Anchor",
+		"previous baseline schema or storage mode is incompatible; full Anchor rebuild is forbidden",
 		"for archive in runtime-deps.tar.gz source.tar.gz go-build-cache.tar.gz; do",
 		"tar -xzf \"/previous/$archive\" -C \"$payload_root\"",
 		"previous_layered=1",
@@ -601,6 +588,7 @@ func assertRemoteBaselineSeedForbiddenScriptFragments(t *testing.T) {
 		{"\"archive_sha256\"", "new baseline manifests must not emit legacy single-archive fields"},
 		{"$source_root/.git/shallow", "remote baseline source must retain the complete history reachable from main"},
 		{"tool=$(basename \"$0\")", "portable runtime tools must not depend on the host basename command"},
+		{"BASELINE_STORAGE_MODE=anchor", "a previous baseline must never fall back to a full Anchor rebuild"},
 	} {
 		if strings.Contains(remoteBaselineSeedScript, forbidden.fragment) {
 			t.Fatal(forbidden.message)
@@ -639,10 +627,24 @@ func assertRemoteBaselineSeedCacheOrdering(t *testing.T) {
 	assertRemoteBaselineSeedBuildOrdering(t)
 	assertRemoteBaselineSeedArchiveOrdering(t)
 	assertRemoteBaselineSeedDeltaReuseOrdering(t)
+	assertRemoteBaselineSeedRuntimeGoChainOrdering(t)
 	assertRemoteBaselineSeedOfflineValidationCount(t)
 	assertRemoteBaselineSeedFrontendOrdering(t)
 	assertRemoteBaselineSeedGoEmbedOrdering(t)
 	assertRemoteBaselineSeedRuntimeReuseOrdering(t)
+}
+
+func assertRemoteBaselineSeedRuntimeGoChainOrdering(t *testing.T) {
+	t.Helper()
+	detect := strings.Index(remoteBaselineSeedScript, `runtime_go_count=$(grep -o '"name":"runtime-go"'`)
+	validate := strings.Index(remoteBaselineSeedScript, `member.issym() or member.islnk()`)
+	publishGo := strings.Index(remoteBaselineSeedScript, `mv "$runtime_go_stage/runtime/go" "$payload_root/runtime/go"`)
+	publishManifest := strings.Index(remoteBaselineSeedScript, `mv "$runtime_go_stage/runtime/manifest.json" "$payload_root/runtime/manifest.json"`)
+	resetCache := strings.Index(remoteBaselineSeedScript, `rm -rf "$previous_go" "$previous_manifest" "$go_build_cache"`)
+	restoreCurrentCache := strings.Index(remoteBaselineSeedScript, `tar -xzf "$cache_delta" -C "$payload_root"`)
+	if detect < 0 || validate < detect || publishGo < validate || publishManifest < publishGo || resetCache < publishManifest || restoreCurrentCache < resetCache {
+		t.Fatal("runtime-go delta must be validated and published before old caches are discarded and the current toolchain cache is restored")
+	}
 }
 
 func assertRemoteBaselineSeedBuildOrdering(t *testing.T) {

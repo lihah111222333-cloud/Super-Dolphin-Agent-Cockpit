@@ -142,7 +142,11 @@ func validateAnchorDeltaBaselineManifest(manifest BaselineManifest, version stri
 	case BaselineStorageModeAnchor:
 		return validateLayerSet(manifest.Layers, []layerContract{{"runtime-deps", "runtime-deps.tar.gz", BaselineLayerKindAnchor}, {"source", "source.tar.gz", BaselineLayerKindAnchor}, {"go-build-cache", "go-build-cache.tar.gz", BaselineLayerKindAnchor}}, manifest.Generation, BaselineStorageModeAnchor)
 	case BaselineStorageModeDelta:
-		if err := validateLayerSet(manifest.Layers, []layerContract{{"source", "source.delta.bundle", BaselineLayerKindDelta}, {"go-build-cache", "go-build-cache.delta.tar.gz", BaselineLayerKindDelta}}, manifest.Generation, BaselineStorageModeDelta); err != nil {
+		expected := []layerContract{{"source", "source.delta.bundle", BaselineLayerKindDelta}, {"go-build-cache", "go-build-cache.delta.tar.gz", BaselineLayerKindDelta}}
+		if len(manifest.Layers) == 3 {
+			expected = []layerContract{{"source", "source.delta.bundle", BaselineLayerKindDelta}, {"runtime-go", "runtime-go.delta.tar.gz", BaselineLayerKindDelta}, {"go-build-cache", "go-build-cache.delta.tar.gz", BaselineLayerKindDelta}}
+		}
+		if err := validateLayerSet(manifest.Layers, expected, manifest.Generation, BaselineStorageModeDelta); err != nil {
 			return err
 		}
 		return validateSourceDelta(manifest, manifest.Layers[0])

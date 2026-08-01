@@ -106,7 +106,7 @@ func TestBuildRemoteBaselineSourceArtifactReusesAcceptedMain(t *testing.T) {
 	}
 }
 
-func TestBuildRemoteBaselineSourceArtifactRebuildsLegacyHistoryAtSameMain(t *testing.T) {
+func TestBuildRemoteBaselineSourceArtifactRejectsLegacyHistoryAtSameMain(t *testing.T) {
 	repository := initRemoteBaselineSourceRepository(t)
 	commit, tree := commitRemoteBaselineSourceFile(t, repository, "same\n")
 	accepted := remoteci.BaselineState{
@@ -115,18 +115,19 @@ func TestBuildRemoteBaselineSourceArtifactRebuildsLegacyHistoryAtSameMain(t *tes
 		MainCommit:           commit,
 		MainTree:             tree,
 	}
-	artifact := requireRemoteBaselineSourceArtifact(t,
+	_, err := buildRemoteBaselineSourceArtifact(
 		context.Background(),
 		repository,
 		accepted,
 		remoteci.BaselineIdentity{MainCommit: commit, MainTree: tree},
 		t.TempDir(),
 	)
-
-	assertRemoteBaselineFullArtifact(t, artifact)
+	if err == nil || !strings.Contains(err.Error(), "full source rebuild is forbidden") {
+		t.Fatalf("buildRemoteBaselineSourceArtifact() error = %v", err)
+	}
 }
 
-func TestBuildRemoteBaselineSourceArtifactRebuildsWhenAcceptedTreeDoesNotMatchCommit(t *testing.T) {
+func TestBuildRemoteBaselineSourceArtifactRejectsWhenAcceptedTreeDoesNotMatchCommit(t *testing.T) {
 	repository := initRemoteBaselineSourceRepository(t)
 	acceptedCommit, _ := commitRemoteBaselineSourceFile(t, repository, "accepted\n")
 	targetCommit, targetTree := commitRemoteBaselineSourceFile(t, repository, "target\n")
@@ -136,12 +137,14 @@ func TestBuildRemoteBaselineSourceArtifactRebuildsWhenAcceptedTreeDoesNotMatchCo
 		MainCommit:           acceptedCommit,
 		MainTree:             targetTree,
 	}
-	artifact := requireRemoteBaselineSourceArtifact(t,
+	_, err := buildRemoteBaselineSourceArtifact(
 		context.Background(), repository, accepted,
 		remoteci.BaselineIdentity{MainCommit: targetCommit, MainTree: targetTree},
 		t.TempDir(),
 	)
-	assertRemoteBaselineFullArtifact(t, artifact)
+	if err == nil || !strings.Contains(err.Error(), "full source rebuild is forbidden") {
+		t.Fatalf("buildRemoteBaselineSourceArtifact() error = %v", err)
+	}
 }
 
 func TestBuildRemoteBaselineSourceArtifactRejectsTargetTreeMismatch(t *testing.T) {

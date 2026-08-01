@@ -128,8 +128,7 @@ func selectRemoteBaselineSourceManifest(
 		return manifest, nil
 	}
 	if accepted.SourceHistoryVersion != remoteci.BaselineSourceHistorySchemaVersion {
-		manifest.Mode = remoteBaselineSourceFull
-		return manifest, nil
+		return remoteBaselineSourceManifest{}, errors.New("accepted baseline source history cannot be represented as a Delta; full source rebuild is forbidden")
 	}
 	if accepted.MainCommit == identity.MainCommit && accepted.MainTree == identity.MainTree {
 		manifest.Mode = remoteBaselineSourceReuse
@@ -140,8 +139,7 @@ func selectRemoteBaselineSourceManifest(
 		return remoteBaselineSourceManifest{}, err
 	}
 	if !baseMatches {
-		manifest.Mode = remoteBaselineSourceFull
-		return manifest, nil
+		return remoteBaselineSourceManifest{}, errors.New("accepted baseline commit does not match its tree; full source rebuild is forbidden")
 	}
 	manifest.Mode = remoteBaselineSourceDelta
 	manifest.BaseCommit = accepted.MainCommit

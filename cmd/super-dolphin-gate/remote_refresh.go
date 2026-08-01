@@ -160,6 +160,17 @@ func runRemoteBaselineRefreshLocked(ctx context.Context, options remoteBaselineR
 	) {
 		return reuseRemoteBaseline(ctx, session, stdout)
 	}
+	if session.accepted.SchemaVersion != 0 {
+		if !remoteBaselineCapacityMatches(session.accepted, session.acceptedRecommendedSizeGiB) ||
+			remoteBaselineForcesRuntimeRefresh(session.input) ||
+			session.input.RuntimeDependencyDigest == "" || session.input.AcceptedRuntimeDependencyDigest == "" ||
+			session.input.RuntimeDependencyDigest != session.input.AcceptedRuntimeDependencyDigest ||
+			!remoteBaselineSeedIdentityMatches(session.accepted, session.input.Identity) ||
+			len(session.accepted.DeltaRefs()) >= remoteBaselineDeltaLimit {
+			return protocolError("accepted baseline exists but this refresh cannot be represented as a Delta; full Anchor rebuild is forbidden")
+		}
+		fmt.Fprintf(os.Stderr, "remote baseline refresh mode: incremental delta parent_generation=%d existing_deltas=%d toolchain_changed=%t\n", session.accepted.Generation, len(session.accepted.DeltaRefs()), session.accepted.ToolchainDigest != session.input.Identity.ToolchainDigest)
+	}
 	return createRemoteBaseline(ctx, session, stdout)
 }
 
@@ -179,6 +190,9 @@ func newRemoteBaselineRefreshSession(ctx context.Context, options remoteBaseline
 	accepted, legacy, err := loadRemoteBaselineStateForRefresh(statePath, config)
 	if err != nil {
 		return remoteBaselineRefreshSession{}, protocolError("load remote baseline state: %v", err)
+	}
+	if legacy != nil && len(legacy.references) != 0 {
+		return remoteBaselineRefreshSession{}, protocolError("legacy accepted baseline exists but cannot be represented as a Delta; full Anchor rebuild is forbidden")
 	}
 	if accepted.SchemaVersion != 0 {
 		if err := validateAcceptedRemoteBaseline(config, accepted); err != nil {
@@ -687,8 +701,20 @@ func remoteBaselineDeltaAnchorReusable(accepted remoteci.BaselineState) bool {
 
 // remoteBaselineDeltaAnchorMatchesManifest 验证 Delta 不改变所复用 Anchor 的不可变身份。
 func remoteBaselineDeltaAnchorMatchesManifest(accepted remoteci.BaselineState, manifest remoteci.BaselineManifest) bool {
-	return accepted.Platform == manifest.Platform && accepted.ToolchainDigest == manifest.ToolchainDigest &&
-		accepted.RuntimeImage == manifest.RuntimeImage && accepted.RuntimeSeedSHA256 == manifest.RuntimeSeedManifestSHA256
+	if accepted.Platform != manifest.Platform || accepted.RuntimeImage != manifest.RuntimeImage {
+		return false
+	}
+	runtimeGoDelta := false
+	for _, layer := range manifest.Layers {
+		if layer.Name == "runtime-go" && layer.Archive == "runtime-go.delta.tar.gz" {
+			runtimeGoDelta = true
+			break
+		}
+	}
+	if runtimeGoDelta {
+		return accepted.ToolchainDigest != manifest.ToolchainDigest
+	}
+	return accepted.ToolchainDigest == manifest.ToolchainDigest && accepted.RuntimeSeedSHA256 == manifest.RuntimeSeedManifestSHA256
 }
 
 // remoteBaselineDeltaSourceExtendsAccepted 验证 source Delta 连接已接受主线和新 manifest。

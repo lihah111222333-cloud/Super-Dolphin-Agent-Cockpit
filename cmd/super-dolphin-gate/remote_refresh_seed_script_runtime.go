@@ -60,9 +60,9 @@ if test "$previous_layered" = 1 && test "$seeds_changed" = 0 && \
    cmp -s "$previous_runtime_manifest" "$payload_root/runtime/manifest.json"; then
   runtime_layer_reusable=1
 fi
-if test "$BASELINE_STORAGE_MODE" = delta && test "$runtime_layer_reusable" != 1; then
-  printf 'runtime seed changed; compacting new Anchor\n'
-  BASELINE_STORAGE_MODE=anchor
+if test "$BASELINE_STORAGE_MODE" = delta && test "$runtime_layer_reusable" != 1 && test "$BASELINE_TOOLCHAIN_CHANGED" != true; then
+  echo 'runtime seed changed but no incremental runtime layer was produced; full Anchor rebuild is forbidden' >&2
+  exit 1
 fi
 
 archive_layer() {
@@ -94,12 +94,20 @@ if test "$BASELINE_STORAGE_MODE" = delta; then
   cp /input/source.bundle "$source_archive_path"
   run_logged layer-measure-source-delta measure_layer "$source_archive_path"
   source_archive_digest=$layer_digest; source_archive_size=$layer_size
+  runtime_go_layer_json=
+  if test "$BASELINE_TOOLCHAIN_CHANGED" = true; then
+    runtime_go_archive_path=$oss_output/runtime-go.delta.tar.gz
+    run_logged layer-archive-runtime-go-delta archive_layer "$runtime_go_archive_path" runtime/go runtime/manifest.json
+    run_logged layer-measure-runtime-go-delta measure_layer "$runtime_go_archive_path"
+    runtime_go_archive_digest=$layer_digest; runtime_go_archive_size=$layer_size
+    runtime_go_layer_json=",{\"generation\":$BASELINE_GENERATION,\"kind\":\"delta\",\"name\":\"runtime-go\",\"archive\":\"runtime-go.delta.tar.gz\",\"sha256\":\"$runtime_go_archive_digest\",\"size\":$runtime_go_archive_size}"
+  fi
   go_cache_archive_path=$oss_output/go-build-cache.delta.tar.gz
   run_logged layer-archive-go-cache-delta archive_layer "$go_cache_archive_path" cache-seed
   run_logged layer-measure-go-cache-delta measure_layer "$go_cache_archive_path"
   go_cache_archive_digest=$layer_digest; go_cache_archive_size=$layer_size
   cat > "$oss_output/baseline-manifest.json" <<EOF
-{"schema_version":$BASELINE_MANIFEST_SCHEMA_VERSION,"generation":$BASELINE_GENERATION,"main_commit":"$BASELINE_MAIN_COMMIT","main_tree":"$BASELINE_MAIN_TREE","platform":"$BASELINE_PLATFORM","policy_digest":"$BASELINE_POLICY_DIGEST","toolchain_digest":"$BASELINE_TOOLCHAIN_DIGEST","runtime_image":"$BASELINE_RUNTIME_IMAGE","gate_source_sha256":"$BASELINE_GATE_SOURCE_SHA256","gate_binary_sha256":"$gate_digest","gate_binary_size":$gate_size,"runtime_seed_manifest_sha256":"$runtime_manifest_digest","ca_bundle_sha256":"$ca_bundle_digest","ca_bundle_size":$ca_bundle_size,"storage_mode":"delta","layers":[{"generation":$BASELINE_GENERATION,"kind":"delta","name":"source","archive":"source.delta.bundle","sha256":"$source_archive_digest","size":$source_archive_size,"base_commit":"$BASELINE_SOURCE_BASE_COMMIT","base_tree":"$BASELINE_SOURCE_BASE_TREE","target_commit":"$BASELINE_MAIN_COMMIT","target_tree":"$BASELINE_MAIN_TREE"},{"generation":$BASELINE_GENERATION,"kind":"delta","name":"go-build-cache","archive":"go-build-cache.delta.tar.gz","sha256":"$go_cache_archive_digest","size":$go_cache_archive_size}]}
+{"schema_version":$BASELINE_MANIFEST_SCHEMA_VERSION,"generation":$BASELINE_GENERATION,"main_commit":"$BASELINE_MAIN_COMMIT","main_tree":"$BASELINE_MAIN_TREE","platform":"$BASELINE_PLATFORM","policy_digest":"$BASELINE_POLICY_DIGEST","toolchain_digest":"$BASELINE_TOOLCHAIN_DIGEST","runtime_image":"$BASELINE_RUNTIME_IMAGE","gate_source_sha256":"$BASELINE_GATE_SOURCE_SHA256","gate_binary_sha256":"$gate_digest","gate_binary_size":$gate_size,"runtime_seed_manifest_sha256":"$runtime_manifest_digest","ca_bundle_sha256":"$ca_bundle_digest","ca_bundle_size":$ca_bundle_size,"storage_mode":"delta","layers":[{"generation":$BASELINE_GENERATION,"kind":"delta","name":"source","archive":"source.delta.bundle","sha256":"$source_archive_digest","size":$source_archive_size,"base_commit":"$BASELINE_SOURCE_BASE_COMMIT","base_tree":"$BASELINE_SOURCE_BASE_TREE","target_commit":"$BASELINE_MAIN_COMMIT","target_tree":"$BASELINE_MAIN_TREE"}$runtime_go_layer_json,{"generation":$BASELINE_GENERATION,"kind":"delta","name":"go-build-cache","archive":"go-build-cache.delta.tar.gz","sha256":"$go_cache_archive_digest","size":$go_cache_archive_size}]}
 EOF
 else
   runtime_archive_path=$oss_output/runtime-deps.tar.gz

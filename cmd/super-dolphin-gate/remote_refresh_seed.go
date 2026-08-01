@@ -40,8 +40,14 @@ func buildRemoteBaselineSeedRequest(
 		return eci.SeedRequest{}, err
 	}
 	hasAccepted := accepted.Validate() == nil
+	if accepted.SchemaVersion != 0 && !hasAccepted {
+		return eci.SeedRequest{}, errors.New("previous baseline state is invalid; full Anchor rebuild is forbidden")
+	}
 	appendDelta := remoteBaselineCapacityMatches(accepted, acceptedRecommendedSizeGiB) &&
 		remoteBaselineSeedCanAppendDelta(accepted, input, source, generation)
+	if hasAccepted && !appendDelta {
+		return eci.SeedRequest{}, errors.New("accepted baseline exists but this refresh cannot be represented as a Delta; full Anchor rebuild is forbidden")
+	}
 	needsInternet := !hasAccepted || remoteBaselineSeedNeedsInternet(accepted, input)
 	request := eci.SeedRequest{
 		ContainerGroupName: remoteBaselineResourceName(generation), ContainerName: "baseline-seed",
@@ -53,6 +59,7 @@ func buildRemoteBaselineSeedRequest(
 		Input:       remoteBaselineSeedVolume(config, remoteBaselineInputPrefix(config, generation)),
 		Script:      []byte(remoteBaselineSeedBootstrapScript),
 	}
+	request.Environment["BASELINE_TOOLCHAIN_CHANGED"] = strconv.FormatBool(hasAccepted && accepted.ToolchainDigest != input.Identity.ToolchainDigest)
 	if hasAccepted {
 		anchor := accepted.CurrentAnchorRef()
 		request.DataCacheBucket = anchor.DataCacheBucket
@@ -67,7 +74,7 @@ func buildRemoteBaselineSeedRequest(
 		}
 		maps.Copy(request.Environment, remoteBaselineSeedDeltaEnvironment(deltas))
 	}
-	if appendDelta {
+	if hasAccepted {
 		request.Environment["BASELINE_STORAGE_MODE"] = remoteci.BaselineStorageModeDelta
 	} else {
 		request.Environment["BASELINE_STORAGE_MODE"] = remoteci.BaselineStorageModeAnchor
@@ -136,10 +143,9 @@ func remoteBaselineSeedSourceExtendsAccepted(manifest remoteBaselineSourceManife
 		manifest.TargetCommit == identity.MainCommit && manifest.TargetTree == identity.MainTree
 }
 
-// remoteBaselineSeedIdentityMatches 验证 Delta 沿用 Anchor 所需的平台、工具链和镜像身份。
+// remoteBaselineSeedIdentityMatches 验证 Delta 沿用 Anchor 所需的平台和基础镜像身份；工具链由 runtime-go Delta 更新。
 func remoteBaselineSeedIdentityMatches(accepted remoteci.BaselineState, identity remoteci.BaselineIdentity) bool {
-	return accepted.Platform == identity.Platform && accepted.ToolchainDigest == identity.ToolchainDigest &&
-		accepted.RuntimeImage == identity.RuntimeImage
+	return accepted.Platform == identity.Platform && accepted.RuntimeImage == identity.RuntimeImage
 }
 
 // remoteBaselineSeedDeltaEnvironment 把有限 Delta 链分散到独立环境槽，避免单值长度随链增长。

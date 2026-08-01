@@ -54,6 +54,25 @@ func TestBaselineManifestV9AcceptsCommitOnlySourceDelta(t *testing.T) {
 	}
 }
 
+func TestBaselineManifestV9RuntimeGoDeltaIsStrict(t *testing.T) {
+	manifest := validDeltaManifest()
+	runtimeGo := BaselineLayer{Generation: manifest.Generation, Kind: BaselineLayerKindDelta, Name: "runtime-go", Archive: "runtime-go.delta.tar.gz", SHA256: digest("7"), Size: 8192}
+	manifest.Layers = []BaselineLayer{manifest.Layers[0], runtimeGo, manifest.Layers[1]}
+	if err := manifest.Validate(); err != nil {
+		t.Fatalf("runtime-go delta rejected: %v", err)
+	}
+	for _, mutate := range []func(*BaselineManifest){
+		func(value *BaselineManifest) { value.Layers[1], value.Layers[2] = value.Layers[2], value.Layers[1] },
+		func(value *BaselineManifest) { value.Layers[1].Archive = "runtime-deps.tar.gz" },
+		func(value *BaselineManifest) { value.Layers = append(value.Layers, runtimeGo) },
+	} {
+		invalid := manifest
+		invalid.Layers = append([]BaselineLayer(nil), manifest.Layers...)
+		mutate(&invalid)
+		assertBaselineManifestRejected(t, invalid)
+	}
+}
+
 func TestBaselineManifestReadsV6V7AndV8(t *testing.T) {
 	legacy := validManifestIdentity(6)
 	legacy.ArchiveSHA256, legacy.ArchiveSize = digest("4"), 1024

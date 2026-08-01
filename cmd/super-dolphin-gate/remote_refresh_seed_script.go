@@ -11,12 +11,13 @@ export GOTELEMETRY=off
 export DEBIAN_FRONTEND=noninteractive
 mkdir -p "$HOME" "$XDG_CACHE_HOME"
 
-required_env="BASELINE_MANIFEST_SCHEMA_VERSION BASELINE_GENERATION BASELINE_MAIN_COMMIT BASELINE_MAIN_TREE BASELINE_PLATFORM BASELINE_POLICY_DIGEST BASELINE_TOOLCHAIN_DIGEST BASELINE_GATE_SOURCE_SHA256 BASELINE_GO_TOOLCHAIN BASELINE_RUNTIME_IMAGE BASELINE_SOURCE_MODE BASELINE_SOURCE_BUNDLE_SIZE BASELINE_SOURCE_MANIFEST_SHA256 BASELINE_SQRUFF_SHA256 BASELINE_STORAGE_MODE BASELINE_FORCE_RUNTIME_REFRESH"
+required_env="BASELINE_MANIFEST_SCHEMA_VERSION BASELINE_GENERATION BASELINE_MAIN_COMMIT BASELINE_MAIN_TREE BASELINE_PLATFORM BASELINE_POLICY_DIGEST BASELINE_TOOLCHAIN_DIGEST BASELINE_GATE_SOURCE_SHA256 BASELINE_GO_TOOLCHAIN BASELINE_TOOLCHAIN_CHANGED BASELINE_RUNTIME_IMAGE BASELINE_SOURCE_MODE BASELINE_SOURCE_BUNDLE_SIZE BASELINE_SOURCE_MANIFEST_SHA256 BASELINE_SQRUFF_SHA256 BASELINE_STORAGE_MODE BASELINE_FORCE_RUNTIME_REFRESH"
 for name in $required_env; do
   eval "value=\${$name:-}"
   test -n "$value"
 done
 case "$BASELINE_STORAGE_MODE" in anchor|delta) ;; *) echo "unsupported baseline storage mode" >&2; exit 1;; esac
+case "$BASELINE_TOOLCHAIN_CHANGED" in true|false) ;; *) echo "invalid toolchain change marker" >&2; exit 1;; esac
 case "$BASELINE_FORCE_RUNTIME_REFRESH" in true|false) ;; *) echo "unsupported runtime refresh mode" >&2; exit 1;; esac
 oss_output=/output
 test -d "$oss_output"
@@ -94,8 +95,8 @@ if test -f /previous/runtime-deps.tar.gz || test -f /previous/source.tar.gz || t
   anchor_schema=$(sed -n 's/.*"schema_version":\([0-9][0-9]*\).*/\1/p' "$anchor_manifest")
   anchor_mode=$(sed -n 's/.*"storage_mode":"\([^"]*\)".*/\1/p' "$anchor_manifest")
   if test "$BASELINE_STORAGE_MODE" = delta && { test "$anchor_schema" != "$BASELINE_MANIFEST_SCHEMA_VERSION" || test "$anchor_mode" != anchor; }; then
-    printf 'previous baseline is not a v%s Anchor; compacting full Anchor\n' "$BASELINE_MANIFEST_SCHEMA_VERSION"
-    BASELINE_STORAGE_MODE=anchor
+    echo 'previous baseline schema or storage mode is incompatible; full Anchor rebuild is forbidden' >&2
+    exit 1
   fi
   expected_commit=$(sed -n 's/.*"main_commit":"\([0-9a-f]*\)".*/\1/p' "$anchor_manifest")
   expected_tree=$(sed -n 's/.*"main_tree":"\([0-9a-f]*\)".*/\1/p' "$anchor_manifest")
@@ -133,6 +134,72 @@ if test -f /previous/runtime-deps.tar.gz || test -f /previous/source.tar.gz || t
       test "$(digest_file "$cache_delta")" = "$cache_digest"
       test "$(stat -c '%s' "$source_delta")" = "$source_size"
       test "$(stat -c '%s' "$cache_delta")" = "$cache_size"
+      runtime_go_count=$(grep -o '"name":"runtime-go"' "$manifest" | wc -l | tr -d ' ')
+      case "$runtime_go_count" in 0) ;; 1)
+        runtime_go_delta=$layer_root/runtime-go.delta.tar.gz
+        runtime_go_digest=$(sed -n 's/.*"name":"runtime-go","archive":"runtime-go.delta.tar.gz","sha256":"\([^"]*\)".*/\1/p' "$manifest")
+        runtime_go_size=$(sed -n 's/.*"name":"runtime-go","archive":"runtime-go.delta.tar.gz","sha256":"[^"]*","size":\([0-9][0-9]*\).*/\1/p' "$manifest")
+        test -n "$runtime_go_digest"; test -n "$runtime_go_size"; test -f "$runtime_go_delta"
+        test "$(digest_file "$runtime_go_delta")" = "$runtime_go_digest"
+        test "$(stat -c '%s' "$runtime_go_delta")" = "$runtime_go_size"
+        "$payload_root/runtime/python/bin/python3" - "$runtime_go_delta" <<'PY'
+import posixpath
+import sys
+import tarfile
+
+archive_path = sys.argv[1]
+seen = set()
+has_go = False
+has_manifest = False
+expanded = 0
+with tarfile.open(archive_path, "r:gz") as archive:
+    for member in archive:
+        name = member.name.rstrip("/")
+        clean = posixpath.normpath(name)
+        if not name or name.startswith("/") or clean != name or clean == ".." or clean.startswith("../"):
+            raise SystemExit("runtime-go delta contains an unsafe path")
+        if clean in seen:
+            raise SystemExit("runtime-go delta contains a duplicate path")
+        seen.add(clean)
+        if member.issym() or member.islnk() or not (member.isdir() or member.isfile()):
+            raise SystemExit("runtime-go delta contains an unsupported entry type")
+        if clean == "runtime/go" or clean.startswith("runtime/go/"):
+            has_go = True
+        elif clean == "runtime/manifest.json" and member.isfile():
+            has_manifest = True
+        elif clean != "runtime":
+            raise SystemExit("runtime-go delta contains a forbidden path")
+        expanded += member.size
+        if expanded > 20 << 30:
+            raise SystemExit("runtime-go delta expanded size is too large")
+if not has_go or not has_manifest:
+    raise SystemExit("runtime-go delta is incomplete")
+PY
+        runtime_go_stage=$stage/runtime-go-$generation
+        mkdir -p "$runtime_go_stage"
+        tar -xzf "$runtime_go_delta" -C "$runtime_go_stage"
+        test -d "$runtime_go_stage/runtime/go"; test -f "$runtime_go_stage/runtime/manifest.json"
+        previous_go=$runtime_go_stage/previous-go
+        previous_manifest=$runtime_go_stage/previous-manifest.json
+        mv "$payload_root/runtime/go" "$previous_go"
+        if ! mv "$payload_root/runtime/manifest.json" "$previous_manifest"; then
+          mv "$previous_go" "$payload_root/runtime/go"
+          exit 1
+        fi
+        if ! mv "$runtime_go_stage/runtime/go" "$payload_root/runtime/go"; then
+          mv "$previous_manifest" "$payload_root/runtime/manifest.json"
+          mv "$previous_go" "$payload_root/runtime/go"
+          exit 1
+        fi
+        if ! mv "$runtime_go_stage/runtime/manifest.json" "$payload_root/runtime/manifest.json"; then
+          mv "$payload_root/runtime/go" "$runtime_go_stage/runtime/go"
+          mv "$previous_manifest" "$payload_root/runtime/manifest.json"
+          mv "$previous_go" "$payload_root/runtime/go"
+          exit 1
+        fi
+        rm -rf "$previous_go" "$previous_manifest" "$go_build_cache"
+        install -d -m 0700 "$go_build_cache"
+        ;; *) echo "baseline delta contains duplicate runtime-go layers" >&2; exit 1;; esac
       load_verified_gate "$manifest" "$layer_root/bin/super-dolphin-gate"
       test -x "$payload_root/runtime/bin/git"
       SUPER_DOLPHIN_RUNTIME_ROOT=$payload_root/runtime "$payload_root/runtime/bin/git" -C "$payload_root/source" fetch --quiet "$source_delta" "$target_commit"
@@ -164,13 +231,21 @@ else
   printf 'go build cache source: empty bootstrap\n'
 fi
 if test "$BASELINE_STORAGE_MODE" = delta; then
-  mv "$go_build_cache" "$stage/anchor-go-build-cache"
-  install -d -m 0700 "$go_build_cache"
-  test -x /previous/bin/super-dolphin-gate
-  test -n "$(find "$stage/anchor-go-build-cache" -type f -print -quit)"
-  export GOCACHE="$go_build_cache"
-  export GOCACHEPROG="/previous/bin/super-dolphin-gate worker go-cache-proxy --seed $stage/anchor-go-build-cache --private $go_build_cache"
-  printf 'go build cache source: private delta\n'
+  if test "$BASELINE_TOOLCHAIN_CHANGED" = true; then
+    rm -rf "$go_build_cache"
+    install -d -m 0700 "$go_build_cache"
+    unset GOCACHEPROG
+    export GOCACHE="$go_build_cache"
+    printf 'go build cache source: empty toolchain-scoped delta\n'
+  else
+    mv "$go_build_cache" "$stage/anchor-go-build-cache"
+    install -d -m 0700 "$go_build_cache"
+    test -x /previous/bin/super-dolphin-gate
+    test -n "$(find "$stage/anchor-go-build-cache" -type f -print -quit)"
+    export GOCACHE="$go_build_cache"
+    export GOCACHEPROG="/previous/bin/super-dolphin-gate worker go-cache-proxy --seed $stage/anchor-go-build-cache --private $go_build_cache"
+    printf 'go build cache source: private delta\n'
+  fi
 fi
 
 use_runtime() {

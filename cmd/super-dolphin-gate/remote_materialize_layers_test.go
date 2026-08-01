@@ -228,6 +228,21 @@ func TestMaterializeRemoteCacheDeltaStagesInsideExpandedVolume(t *testing.T) {
 	}
 }
 
+func TestResetRemoteCacheSeedsRemovesEveryPriorGeneration(t *testing.T) {
+	expandedRoot := t.TempDir()
+	for _, generation := range []string{"00000000000000000001", "00000000000000000002"} {
+		if err := os.MkdirAll(filepath.Join(expandedRoot, "cache-seeds", generation, "stale"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := resetRemoteCacheSeeds(expandedRoot); err != nil {
+		t.Fatalf("resetRemoteCacheSeeds() error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(expandedRoot, "cache-seeds")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("cache-seeds remains after reset: %v", err)
+	}
+}
+
 func TestRunRemoteBaselineLayerStageStartsAllLayersConcurrently(t *testing.T) {
 	layers := []remoteci.BaselineLayer{
 		{Name: "runtime-deps", Archive: "runtime-deps.tar.gz"},

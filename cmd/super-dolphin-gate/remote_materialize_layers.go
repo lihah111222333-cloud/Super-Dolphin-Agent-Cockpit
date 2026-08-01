@@ -155,6 +155,7 @@ func materializeRemoteBaselineDeltas(ctx context.Context, expandedRoot, sourceRo
 			return fmt.Errorf("materialize remote baseline delta %d: %w", index, err)
 		}
 		latestManifest, latestDelta = &manifest, delta
+		anchor = manifest
 	}
 	if latestManifest == nil {
 		return nil
@@ -186,6 +187,14 @@ func materializeRemoteBaselineDelta(ctx context.Context, expandedRoot string, so
 	if err := downloadRemoteDeltaLayers(ctx, download, manifest, paths); err != nil {
 		return remoteci.BaselineManifest{}, err
 	}
+	if hasRuntimeGoDeltaLayer(manifest) {
+		if err := materializeRemoteRuntimeGoDelta(ctx, paths.runtimeGo, expandedRoot); err != nil {
+			return remoteci.BaselineManifest{}, fmt.Errorf("materialize remote runtime-go delta: %w", err)
+		}
+		if err := resetRemoteCacheSeeds(expandedRoot); err != nil {
+			return remoteci.BaselineManifest{}, fmt.Errorf("reset remote cache seeds for runtime-go delta: %w", err)
+		}
+	}
 	if err := materializeRemoteCacheDelta(ctx, paths.cache, expandedRoot, delta.Generation); err != nil {
 		return remoteci.BaselineManifest{}, fmt.Errorf("extract remote cache delta: %w", err)
 	}
@@ -198,11 +207,11 @@ func materializeRemoteBaselineDelta(ctx context.Context, expandedRoot string, so
 	return manifest, nil
 }
 
-type remoteDeltaPaths struct{ manifest, bundle, cache, prefix string }
+type remoteDeltaPaths struct{ manifest, bundle, cache, runtimeGo, prefix string }
 
 // newRemoteDeltaPaths 汇总同一个 delta 暂存目录及对象前缀。
 func newRemoteDeltaPaths(staging, objectPrefix string) remoteDeltaPaths {
-	return remoteDeltaPaths{manifest: filepath.Join(staging, "baseline-manifest.json"), bundle: filepath.Join(staging, "source.delta.bundle"), cache: filepath.Join(staging, "go-build-cache.delta.tar.gz"), prefix: path.Join(strings.TrimSuffix(objectPrefix, "/"), "output")}
+	return remoteDeltaPaths{manifest: filepath.Join(staging, "baseline-manifest.json"), bundle: filepath.Join(staging, "source.delta.bundle"), cache: filepath.Join(staging, "go-build-cache.delta.tar.gz"), runtimeGo: filepath.Join(staging, "runtime-go.delta.tar.gz"), prefix: path.Join(strings.TrimSuffix(objectPrefix, "/"), "output")}
 }
 
 // loadRemoteDeltaManifest 下载并解码当前 generation 的唯一 manifest。
@@ -217,21 +226,33 @@ func loadRemoteDeltaManifest(ctx context.Context, download remoteObjectDownload,
 	return remoteci.DecodeBaselineManifest(data)
 }
 
-// downloadRemoteDeltaLayers 验证下载 source bundle 和 go-build-cache layer。
+// downloadRemoteDeltaLayers 验证下载 source bundle、可选 runtime-go 与 go-build-cache layer。
 func downloadRemoteDeltaLayers(ctx context.Context, download remoteObjectDownload, manifest remoteci.BaselineManifest, paths remoteDeltaPaths) error {
 	if err := downloadVerifiedFile(ctx, download, path.Join(paths.prefix, "source.delta.bundle"), manifest.Layers[0].SHA256, manifest.Layers[0].Size, paths.bundle); err != nil {
 		return fmt.Errorf("download remote source delta: %w", err)
 	}
-	if err := downloadVerifiedFile(ctx, download, path.Join(paths.prefix, "go-build-cache.delta.tar.gz"), manifest.Layers[1].SHA256, manifest.Layers[1].Size, paths.cache); err != nil {
+	if hasRuntimeGoDeltaLayer(manifest) {
+		layer := manifest.Layers[1]
+		if err := downloadVerifiedFile(ctx, download, path.Join(paths.prefix, layer.Archive), layer.SHA256, layer.Size, paths.runtimeGo); err != nil {
+			return fmt.Errorf("download remote runtime-go delta: %w", err)
+		}
+	}
+	cache := manifest.Layers[len(manifest.Layers)-1]
+	if err := downloadVerifiedFile(ctx, download, path.Join(paths.prefix, cache.Archive), cache.SHA256, cache.Size, paths.cache); err != nil {
 		return fmt.Errorf("download remote cache delta: %w", err)
 	}
 	return nil
 }
 
+// hasRuntimeGoDeltaLayer reports the only schema-permitted optional delta layer.
+func hasRuntimeGoDeltaLayer(manifest remoteci.BaselineManifest) bool {
+	return len(manifest.Layers) == 3 && manifest.Layers[1].Name == "runtime-go" && manifest.Layers[1].Archive == "runtime-go.delta.tar.gz"
+}
+
 // verifyRemoteDeltaManifest 将 OSS 对象和 source 迁移严格绑定到请求中的唯一 generation。
 func verifyRemoteDeltaManifest(manifest remoteci.BaselineManifest, delta remoteci.BaselineDeltaLayer) error {
 	if manifest.StorageMode != remoteci.BaselineStorageModeDelta || manifest.Generation != delta.Generation ||
-		manifest.MainCommit != delta.MainCommit || manifest.MainTree != delta.MainTree || len(manifest.Layers) != 2 {
+		manifest.MainCommit != delta.MainCommit || manifest.MainTree != delta.MainTree || (len(manifest.Layers) != 2 && !hasRuntimeGoDeltaLayer(manifest)) {
 		return errors.New("remote delta manifest does not match requested generation")
 	}
 	sourceLayer := manifest.Layers[0]
@@ -242,12 +263,14 @@ func verifyRemoteDeltaManifest(manifest remoteci.BaselineManifest, delta remotec
 	return nil
 }
 
-// verifyRemoteDeltaCompatibility 拒绝 delta 改变 Anchor 固定运行时身份。
+// verifyRemoteDeltaCompatibility 拒绝 delta 改变 Anchor 固定运行时身份，runtime-go 例外只可更新 toolchain 和 runtime seed。
 func verifyRemoteDeltaCompatibility(anchor, delta remoteci.BaselineManifest) error {
-	if delta.Platform != anchor.Platform || delta.ToolchainDigest != anchor.ToolchainDigest || delta.RuntimeImage != anchor.RuntimeImage ||
-		delta.RuntimeSeedManifestSHA256 != anchor.RuntimeSeedManifestSHA256 ||
+	if delta.Platform != anchor.Platform || delta.RuntimeImage != anchor.RuntimeImage ||
 		delta.CABundleSHA256 != anchor.CABundleSHA256 || delta.CABundleSize != anchor.CABundleSize {
 		return errors.New("remote delta changed an immutable Anchor runtime identity")
+	}
+	if !hasRuntimeGoDeltaLayer(delta) && (delta.ToolchainDigest != anchor.ToolchainDigest || delta.RuntimeSeedManifestSHA256 != anchor.RuntimeSeedManifestSHA256) {
+		return errors.New("remote delta changed toolchain or runtime seed without a runtime-go layer")
 	}
 	return nil
 }
@@ -314,6 +337,87 @@ func materializeRemoteCacheDelta(ctx context.Context, archivePath string, expand
 	}
 	_, err = publishRemoteCacheSeed(layerRoot, expandedRoot, generation, true)
 	return err
+}
+
+func resetRemoteCacheSeeds(expandedRoot string) error {
+	return os.RemoveAll(filepath.Join(expandedRoot, "cache-seeds"))
+}
+
+// materializeRemoteRuntimeGoDelta validates, isolates, and publishes only runtime/go and runtime/manifest.json.
+func materializeRemoteRuntimeGoDelta(ctx context.Context, archivePath string, expandedRoot string) (returnErr error) {
+	if err := validateRemoteRuntimeGoArchive(archivePath); err != nil {
+		return err
+	}
+	staging, err := os.MkdirTemp(expandedRoot, ".runtime-go-")
+	if err != nil {
+		return fmt.Errorf("create remote runtime-go staging root: %w", err)
+	}
+	defer func() { returnErr = errors.Join(returnErr, os.RemoveAll(staging)) }()
+	if err := extractRemoteArchiveWithRoots(ctx, archivePath, staging, map[string]struct{}{"runtime": {}}); err != nil {
+		return fmt.Errorf("extract remote runtime-go archive: %w", err)
+	}
+	runtimeRoot := filepath.Join(expandedRoot, "runtime")
+	stagedGo := filepath.Join(staging, "runtime", "go")
+	stagedManifest := filepath.Join(staging, "runtime", "manifest.json")
+	if err := requireRemoteRuntimeGoEntry(stagedGo, true); err != nil {
+		return fmt.Errorf("validate staged runtime-go: %w", err)
+	}
+	if err := requireRemoteRuntimeGoEntry(stagedManifest, false); err != nil {
+		return fmt.Errorf("validate staged runtime manifest: %w", err)
+	}
+	return replaceRemoteRuntimeGoEntries(runtimeRoot, staging, stagedGo, stagedManifest)
+}
+
+func requireRemoteRuntimeGoEntry(entry string, directory bool) error {
+	info, err := os.Lstat(entry)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || info.IsDir() != directory || (!directory && !info.Mode().IsRegular()) {
+		return errors.New("entry is not the required non-symlink type")
+	}
+	return nil
+}
+
+func replaceRemoteRuntimeGoEntries(runtimeRoot string, staging string, stagedGo string, stagedManifest string) (returnErr error) {
+	if err := requireRemoteRuntimeGoEntry(runtimeRoot, true); err != nil {
+		return fmt.Errorf("validate runtime root: %w", err)
+	}
+	targets := []struct{ staged, target, backup string }{
+		{stagedGo, filepath.Join(runtimeRoot, "go"), filepath.Join(staging, "previous-go")},
+		{stagedManifest, filepath.Join(runtimeRoot, "manifest.json"), filepath.Join(staging, "previous-manifest.json")},
+	}
+	for index, entry := range targets {
+		if err := requireRemoteRuntimeGoEntry(entry.target, index == 0); err != nil {
+			return fmt.Errorf("validate existing runtime entry: %w", err)
+		}
+	}
+	backedUp := 0
+	published := 0
+	defer func() {
+		if returnErr == nil {
+			return
+		}
+		for index := published - 1; index >= 0; index-- {
+			returnErr = errors.Join(returnErr, os.Rename(targets[index].target, targets[index].staged))
+		}
+		for index := backedUp - 1; index >= 0; index-- {
+			returnErr = errors.Join(returnErr, os.Rename(targets[index].backup, targets[index].target))
+		}
+	}()
+	for index, entry := range targets {
+		if err := os.Rename(entry.target, entry.backup); err != nil {
+			return fmt.Errorf("stage existing runtime entry: %w", err)
+		}
+		backedUp = index + 1
+	}
+	for index, entry := range targets {
+		if err := os.Rename(entry.staged, entry.target); err != nil {
+			return fmt.Errorf("publish runtime-go entry: %w", err)
+		}
+		published = index + 1
+	}
+	return nil
 }
 
 // materializeRemoteDeltaGateBinary 仅下载最后一层当前 CLI，并原子替换 Anchor 引导二进制。
@@ -404,7 +508,61 @@ func validateRemoteArchiveLayer(archivePath string, layerName string) error {
 	if !ok {
 		return fmt.Errorf("remote archive layer %q is unsupported", layerName)
 	}
+	if layerName == "runtime-go" {
+		return validateRemoteRuntimeGoArchive(archivePath)
+	}
 	return validateRemoteArchiveWithRoots(archivePath, roots)
+}
+
+func validateRemoteRuntimeGoArchive(archivePath string) error {
+	file, err := os.Open(archivePath)
+	if err != nil {
+		return fmt.Errorf("open remote runtime-go archive: %w", err)
+	}
+	defer file.Close()
+	reader, err := gzip.NewReader(file)
+	if err != nil {
+		return fmt.Errorf("open remote runtime-go gzip: %w", err)
+	}
+	defer reader.Close()
+	archive := tar.NewReader(reader)
+	var hasGo, hasManifest bool
+	var total int64
+	for {
+		header, err := archive.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("read remote runtime-go archive: %w", err)
+		}
+		if err := validateRemoteArchiveHeader(header); err != nil {
+			return fmt.Errorf("remote runtime-go header %q: %w", header.Name, err)
+		}
+		if header.Typeflag == tar.TypeSymlink || header.Typeflag == tar.TypeLink {
+			return fmt.Errorf("remote runtime-go archive contains unsupported link %q", header.Name)
+		}
+		if header.Size > remoteExpandedArchiveMaxBytes-total {
+			return fmt.Errorf("remote runtime-go archive expanded size exceeds %d bytes", remoteExpandedArchiveMaxBytes)
+		}
+		total += header.Size
+		name := strings.TrimSuffix(header.Name, "/")
+		if name == "runtime/go" || strings.HasPrefix(name, "runtime/go/") {
+			hasGo = true
+			continue
+		}
+		if name == "runtime/manifest.json" && header.Typeflag != tar.TypeDir {
+			hasManifest = true
+			continue
+		}
+		if name != "runtime" {
+			return fmt.Errorf("remote runtime-go archive contains forbidden path %q", header.Name)
+		}
+	}
+	if !hasGo || !hasManifest {
+		return errors.New("remote runtime-go archive is missing runtime/go or runtime/manifest.json")
+	}
+	return nil
 }
 
 // validateRemoteArchiveWithRoots 完整预检归档，并可选限制所有条目和链接的顶层目录。
@@ -448,6 +606,8 @@ func validateRemoteArchiveWithRoots(archivePath string, allowedRoots map[string]
 func remoteArchiveLayerRoots(layerName string) (map[string]struct{}, bool) {
 	switch layerName {
 	case "runtime-deps":
+		return map[string]struct{}{"runtime": {}}, true
+	case "runtime-go":
 		return map[string]struct{}{"runtime": {}}, true
 	case "source":
 		return map[string]struct{}{"source": {}, "frontend-embed": {}}, true
