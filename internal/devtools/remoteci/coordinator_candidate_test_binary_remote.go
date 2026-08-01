@@ -99,7 +99,7 @@ func (coordinator *Coordinator) buildCandidateTestBinaryArtifacts(ctx context.Co
 }
 
 func candidateTestBinaryBuilderRequest(input RunInput, jobID string, assets *remoteAssets, targets []CandidateTestBinaryBuildTarget, sourcePrefix string) CandidateTestBinaryBuilderRequest {
-	prefix := sourcePrefix + jobID + "/"
+	prefix := sourcePrefix + jobID + "/test-binaries/"
 	return CandidateTestBinaryBuilderRequest{SchemaVersion: CandidateTestBinaryBuilderRequestSchemaVersion, JobID: jobID, CandidateTree: input.Tree, BaselineManifest: input.BaselineManifestDigest, AnchorGeneration: input.AnchorGeneration, AnchorManifest: input.AnchorManifest, AnchorCommit: input.AnchorCommit, AnchorTree: input.AnchorTree, BaselineDeltas: slices.Clone(input.BaselineDeltas), RunnerBaseCommit: assets.artifact.Manifest.BaseCommit, RunnerBaseTree: assets.artifact.Manifest.BaseTree, PatchFormat: assets.artifact.Manifest.PatchFormat, PatchKey: assets.patchKey, PatchSHA256: assets.artifact.Manifest.PatchSHA256, PatchSize: assets.artifact.Manifest.PatchSize, ManifestKey: assets.manifestKey, ManifestSHA256: assets.manifestDigest, CandidateCLI: assets.candidateCLI, CGOEnabled: true, Targets: targets, OutputPrefix: prefix}
 }
 
