@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	goversion "go/version"
 	"os"
 	"path/filepath"
 	"strings"
@@ -88,25 +87,13 @@ func remoteBaselineToolchainDigest(lockDigest, goToolchain string) string {
 	return fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(payload)))
 }
 
-// resolveRemoteBaselineGoToolchain 从候选树全部 Go 模块选择最高的首选工具链。
+// resolveRemoteBaselineGoToolchain 仅以仓库根模块选择生产测试工具链。
 func resolveRemoteBaselineGoToolchain(entries []sourceexport.TreeEntry) (string, error) {
-	selected := ""
-	for _, entry := range entries {
-		if entry.Path != productionGoModPath && !strings.HasSuffix(entry.Path, "/"+productionGoModPath) {
-			continue
-		}
-		requirement, err := parseProductionGoRequirement(entry.Data)
-		if err != nil {
-			return "", fmt.Errorf("resolve Go toolchain from %s: %w", entry.Path, err)
-		}
-		if selected == "" || goversion.Compare(requirement.Preferred, selected) > 0 {
-			selected = requirement.Preferred
-		}
+	requirement, err := productionGoRequirementFromEntries(entries)
+	if err != nil {
+		return "", fmt.Errorf("resolve production Go toolchain: %w", err)
 	}
-	if selected == "" {
-		return "", errors.New("candidate tree contains no Go module")
-	}
-	return selected, nil
+	return requirement.Preferred, nil
 }
 
 // bindAcceptedRemoteRuntimeDependency 从已验收提交重算运行时依赖摘要，使策略代码变化不会误触发 Anchor。

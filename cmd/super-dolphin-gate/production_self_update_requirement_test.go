@@ -58,7 +58,7 @@ func TestProductionGoRequirementRejectsMissingAndDuplicateGoMod(t *testing.T) {
 	}
 }
 
-func TestResolveRemoteBaselineGoToolchainSelectsHighestCandidateModule(t *testing.T) {
+func TestResolveRemoteBaselineGoToolchainUsesRootModule(t *testing.T) {
 	t.Parallel()
 	entries := []sourceexport.TreeEntry{
 		{Path: "go.mod", Data: []byte("module root\n\ngo 1.25.7\n")},
@@ -71,8 +71,8 @@ func TestResolveRemoteBaselineGoToolchainSelectsHighestCandidateModule(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if toolchain != "go1.26.1" {
-		t.Fatalf("remote baseline Go toolchain = %q, want go1.26.1", toolchain)
+	if toolchain != "go1.25.7" {
+		t.Fatalf("remote baseline Go toolchain = %q, want go1.25.7", toolchain)
 	}
 }
 
