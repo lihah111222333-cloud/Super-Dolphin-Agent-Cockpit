@@ -141,40 +141,6 @@ type typeScriptTextSpan struct {
 	Length int `json:"length"`
 }
 
-var typeScriptNavigationSymbolKinds = map[string]protocol.SymbolKind{
-	"module":               protocol.SymbolKindModule,
-	"external module name": protocol.SymbolKindModule,
-	"class":                protocol.SymbolKindClass,
-	"local class":          protocol.SymbolKindClass,
-	"interface":            protocol.SymbolKindInterface,
-	"enum":                 protocol.SymbolKindEnum,
-	"enum member":          protocol.SymbolKindEnumMember,
-	"const":                protocol.SymbolKindConstant,
-	"let":                  protocol.SymbolKindVariable,
-	"var":                  protocol.SymbolKindVariable,
-	"local var":            protocol.SymbolKindVariable,
-	"using":                protocol.SymbolKindVariable,
-	"await using":          protocol.SymbolKindVariable,
-	"function":             protocol.SymbolKindFunction,
-	"local function":       protocol.SymbolKindFunction,
-	"method":               protocol.SymbolKindMethod,
-	"getter":               protocol.SymbolKindMethod,
-	"setter":               protocol.SymbolKindMethod,
-	"call signature":       protocol.SymbolKindMethod,
-	"construct signature":  protocol.SymbolKindMethod,
-	"index signature":      protocol.SymbolKindMethod,
-	"property":             protocol.SymbolKindProperty,
-	"accessor":             protocol.SymbolKindProperty,
-	"jsx attribute":        protocol.SymbolKindProperty,
-	"member variable":      protocol.SymbolKindProperty,
-	"constructor":          protocol.SymbolKindConstructor,
-	"type":                 protocol.SymbolKindStruct,
-	"type parameter":       protocol.SymbolKindTypeParameter,
-	"parameter":            protocol.SymbolKindVariable,
-	"directory":            protocol.SymbolKindPackage,
-	"string":               protocol.SymbolKindString,
-}
-
 // typeScriptNavigationDocumentSymbols 用 TypeScript 官方 LanguageService 生成大纲。
 // 它只在 LSP 返回空结果后运行，失败会直接返回错误，避免重新落回手写猜测。
 func (m *manager) typeScriptNavigationDocumentSymbols(ctx context.Context, ref documentRef) ([]protocol.DocumentSymbol, error) {
@@ -349,7 +315,40 @@ func typeScriptUTF16Width(r rune) int {
 // typeScriptNavigationSymbolKind 将 TypeScript ScriptElementKind 映射成 LSP SymbolKind。
 // 未识别的 kind 保持变量类型，避免因为新枚举值导致整个 document_symbol 失败。
 func typeScriptNavigationSymbolKind(kind string) protocol.SymbolKind {
-	if symbolKind, ok := typeScriptNavigationSymbolKinds[strings.ToLower(strings.TrimSpace(kind))]; ok {
+	symbolKinds := map[string]protocol.SymbolKind{
+		"module":               protocol.SymbolKindModule,
+		"external module name": protocol.SymbolKindModule,
+		"class":                protocol.SymbolKindClass,
+		"local class":          protocol.SymbolKindClass,
+		"interface":            protocol.SymbolKindInterface,
+		"enum":                 protocol.SymbolKindEnum,
+		"enum member":          protocol.SymbolKindEnumMember,
+		"const":                protocol.SymbolKindConstant,
+		"let":                  protocol.SymbolKindVariable,
+		"var":                  protocol.SymbolKindVariable,
+		"local var":            protocol.SymbolKindVariable,
+		"using":                protocol.SymbolKindVariable,
+		"await using":          protocol.SymbolKindVariable,
+		"function":             protocol.SymbolKindFunction,
+		"local function":       protocol.SymbolKindFunction,
+		"method":               protocol.SymbolKindMethod,
+		"getter":               protocol.SymbolKindMethod,
+		"setter":               protocol.SymbolKindMethod,
+		"call signature":       protocol.SymbolKindMethod,
+		"construct signature":  protocol.SymbolKindMethod,
+		"index signature":      protocol.SymbolKindMethod,
+		"property":             protocol.SymbolKindProperty,
+		"accessor":             protocol.SymbolKindProperty,
+		"jsx attribute":        protocol.SymbolKindProperty,
+		"member variable":      protocol.SymbolKindProperty,
+		"constructor":          protocol.SymbolKindConstructor,
+		"type":                 protocol.SymbolKindStruct,
+		"type parameter":       protocol.SymbolKindTypeParameter,
+		"parameter":            protocol.SymbolKindVariable,
+		"directory":            protocol.SymbolKindPackage,
+		"string":               protocol.SymbolKindString,
+	}
+	if symbolKind, ok := symbolKinds[strings.ToLower(strings.TrimSpace(kind))]; ok {
 		return symbolKind
 	}
 	return protocol.SymbolKindVariable
