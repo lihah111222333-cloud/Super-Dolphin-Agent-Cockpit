@@ -107,7 +107,7 @@ func normalizePrePushLine(
 	if err != nil {
 		return Request{}, err
 	}
-	treeSHA, err := validateLocalPushHead(ctx, repository, update)
+	treeSHA, err := validateLocalPushRef(ctx, repository, update)
 	if err != nil {
 		return Request{}, err
 	}
@@ -195,8 +195,8 @@ func validateCanonicalOID(name, oid, zeroOID string) error {
 	return nil
 }
 
-// validateLocalPushHead 证明 stdin local ref、SHA 与活动 worktree HEAD 完全一致。
-func validateLocalPushHead(ctx context.Context, repository gitRepository, update prePushUpdate) (string, error) {
+// validateLocalPushRef 证明 stdin local ref 与 SHA 指向仓库中的同一个提交对象。
+func validateLocalPushRef(ctx context.Context, repository gitRepository, update prePushUpdate) (string, error) {
 	resolvedLocalSHA, err := repository.resolveCommit(ctx, update.localRef)
 	if err != nil {
 		return "", fmt.Errorf("resolve local ref %q: %w", update.localRef, err)
@@ -205,13 +205,6 @@ func validateLocalPushHead(ctx context.Context, repository gitRepository, update
 		return "", fmt.Errorf(
 			"local ref %q resolves to %s, stdin supplied %s", update.localRef, resolvedLocalSHA, update.localSHA,
 		)
-	}
-	headSHA, err := repository.headCommit(ctx)
-	if err != nil {
-		return "", err
-	}
-	if headSHA != update.localSHA {
-		return "", fmt.Errorf("pre-push local sha %s does not equal active worktree HEAD %s", update.localSHA, headSHA)
 	}
 	treeSHA, err := repository.commitTree(ctx, update.localSHA)
 	if err != nil {

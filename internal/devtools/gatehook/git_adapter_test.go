@@ -80,6 +80,27 @@ func TestNormalizePrePushClassifiesExactUpdates(t *testing.T) {
 	}
 }
 
+func TestNormalizePrePushAcceptsLocalRefOutsideActiveWorktree(t *testing.T) {
+	repository := newTestRepository(t)
+	baseSHA := strings.TrimSpace(runTestGit(t, repository, "rev-parse", "HEAD"))
+	headSHA := commitTestFile(t, repository, "active worktree head\n", "活动工作树提交")
+	runTestGit(t, repository, "branch", "push-candidate", baseSHA)
+	zeroOID, err := gatecontract.ZeroOID(gatecontract.GitObjectFormatSHA1)
+	if err != nil {
+		t.Fatalf("ZeroOID: %v", err)
+	}
+	input := strings.Join([]string{"refs/heads/push-candidate", baseSHA, "refs/heads/main", zeroOID}, " ") + "\n"
+
+	requests, err := NormalizePrePush(context.Background(), repository, "hook-push-detached-ref", strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("NormalizePrePush rejected non-HEAD local ref: %v", err)
+	}
+	rangeSource := requests[0].Submit.Source.Range
+	if rangeSource.HeadSHA != baseSHA {
+		t.Fatalf("range head = %s, want pushed local ref %s; active HEAD is %s", rangeSource.HeadSHA, baseSHA, headSHA)
+	}
+}
+
 func TestNormalizePrePushRejectsSHAFromAnotherWorktreeRepository(t *testing.T) {
 	firstRepository := newTestRepository(t)
 	foreignSHA := commitTestFile(t, firstRepository, "foreign\n", "外部提交")

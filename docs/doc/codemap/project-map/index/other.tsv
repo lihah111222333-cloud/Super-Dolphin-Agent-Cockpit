@@ -637,8 +637,8 @@ internal/devtools/gate/workload_planning.go	internal	other	go-source	17794	开�
 internal/devtools/gate/workload_targets_test.go	internal	other	go-test	9863	开发工具与生成器辅助包	internal,devtools,gate,workload,targets,test,开发工具与生成器辅助包
 internal/devtools/gate/workload_targets.go	internal	other	go-source	16295	开发工具与生成器辅助包	internal,devtools,gate,workload,targets,开发工具与生成器辅助包
 internal/devtools/gatehook/doc.go	internal	other	go-source	90	开发工具与生成器辅助包	internal,devtools,gatehook,doc,开发工具与生成器辅助包
-internal/devtools/gatehook/git_adapter_test.go	internal	other	go-test	11415	开发工具与生成器辅助包	internal,devtools,gatehook,git,adapter,test,开发工具与生成器辅助包
-internal/devtools/gatehook/git_adapter.go	internal	other	go-source	9293	开发工具与生成器辅助包	internal,devtools,gatehook,git,adapter,开发工具与生成器辅助包
+internal/devtools/gatehook/git_adapter_test.go	internal	other	go-test	12413	开发工具与生成器辅助包	internal,devtools,gatehook,git,adapter,test,开发工具与生成器辅助包
+internal/devtools/gatehook/git_adapter.go	internal	other	go-source	9064	开发工具与生成器辅助包	internal,devtools,gatehook,git,adapter,开发工具与生成器辅助包
 internal/devtools/gatehook/git.go	internal	other	go-source	12676	开发工具与生成器辅助包	internal,devtools,gatehook,git,开发工具与生成器辅助包
 internal/devtools/gatehook/status_test.go	internal	other	go-test	1470	开发工具与生成器辅助包	internal,devtools,gatehook,status,test,开发工具与生成器辅助包
 internal/devtools/gatehook/status.go	internal	other	go-source	4207	开发工具与生成器辅助包	internal,devtools,gatehook,status,开发工具与生成器辅助包
