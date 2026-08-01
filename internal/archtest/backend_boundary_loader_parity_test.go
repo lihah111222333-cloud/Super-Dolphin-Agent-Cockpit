@@ -61,7 +61,7 @@ func TestWideOrchestrationLoaderExtractionPreservesCandidates(t *testing.T) {
 	if len(paths) != wantCount || stablePathDigest(paths) != wantDigest {
 		t.Fatalf("seam cd81d4c9a wide candidates count=%d digest=%s", len(paths), stablePathDigest(paths))
 	}
-	if violations := collectWideOrchestrationProductionViolationMessages(t, root); len(violations) != 0 {
+	if violations := collectWideOrchestrationProductionViolationMessagesFromPackages(pkgs); len(violations) != 0 {
 		t.Fatalf("wide violations=%v", violations)
 	}
 }

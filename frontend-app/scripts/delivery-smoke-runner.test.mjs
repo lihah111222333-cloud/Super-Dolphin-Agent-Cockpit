@@ -84,6 +84,7 @@ describe('delivery smoke runner', () => {
     async (conflictingVariable) => {
       vi.stubEnv(conflictingVariable, 'http://127.0.0.1:5999');
       vi.stubEnv('SUPER_DOLPHIN_FAILURE_SMOKE_VITE_URL', 'http://127.0.0.1:5178');
+      vi.stubEnv('SUPER_DOLPHIN_DESKTOP_SMOKE_SKIP_FRONTEND_BUILD', 'inherited');
       vi.stubEnv('DELIVERY_SMOKE_COMMON_SENTINEL', 'preserved');
       const inheritedPath = process.env.PATH;
       const inspected = inspectDeliveryCommands({ scripts: COMPLETE_SCRIPTS }, MAKEFILE);
@@ -103,6 +104,11 @@ describe('delivery smoke runner', () => {
         expect(options.env.DELIVERY_SMOKE_COMMON_SENTINEL).toBe('preserved');
       }
       const failureCall = calls[DELIVERY_COMMANDS.findIndex(({ id }) => id === 'desktop-failure-smoke')];
+      const startCall = calls[DELIVERY_COMMANDS.findIndex(({ id }) => id === 'desktop-start-smoke')];
+      expect(startCall.options.env.SUPER_DOLPHIN_DESKTOP_SMOKE_SKIP_FRONTEND_BUILD).toBe('1');
+      expect(calls.filter(({ options }) => options.env.SUPER_DOLPHIN_DESKTOP_SMOKE_SKIP_FRONTEND_BUILD !== undefined))
+        .toEqual([startCall]);
+      expect(process.env.SUPER_DOLPHIN_DESKTOP_SMOKE_SKIP_FRONTEND_BUILD).toBe('inherited');
       expect(failureCall.options.env).not.toHaveProperty(conflictingVariable);
       expect(process.env[conflictingVariable]).toBe('http://127.0.0.1:5999');
       for (const call of calls.slice(0, -1)) {

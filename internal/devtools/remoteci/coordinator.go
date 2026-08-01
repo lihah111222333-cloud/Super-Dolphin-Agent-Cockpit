@@ -544,8 +544,8 @@ func (coordinator *Coordinator) completeRemoteRun(
 	if err != nil {
 		return result, err
 	}
-	result.DurationSamples = append(result.DurationSamples, parentSamples...)
 	result.OptimizationWarnings = remoteOptimizationWarnings(result.DurationSamples)
+	result.DurationSamples = append(result.DurationSamples, parentSamples...)
 	result.GateExecutions, result.Status = executions, status
 	if status != gate.ResultStatusPassed {
 		return result, failedRemoteGateError(shards)

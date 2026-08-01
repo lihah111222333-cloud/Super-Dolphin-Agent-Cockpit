@@ -8,6 +8,35 @@ import (
 	"testing"
 )
 
+func TestBaselineMetricCacheReusesPathMetrics(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "fixture.go")
+	if err := os.WriteFile(path, []byte("package fixture\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	cache := NewBaselineMetricCache()
+	first := cache.Measure(path)
+	second := cache.Measure(path)
+	if first != second {
+		t.Fatalf("Measure() = %#v then %#v, want stable metrics", first, second)
+	}
+	if got := len(cache.metrics); got != 1 {
+		t.Fatalf("cached paths = %d, want 1", got)
+	}
+}
+
+func TestCheckWithBaselineCachedRejectsNilMetricCache(t *testing.T) {
+	t.Parallel()
+	result, err := CheckWithBaselineCached(CheckOptions{}, Baseline{}, nil)
+	if err == nil || err.Error() != "baseline metric cache is required" {
+		t.Fatalf("CheckWithBaselineCached() error = %v, want deterministic cache rejection", err)
+	}
+	if !result.OK() {
+		t.Fatalf("CheckWithBaselineCached() result = %#v, want empty result with error", result)
+	}
+}
+
 func TestGuardHookModeFailsOnBaselineOrFreezeDrift(t *testing.T) {
 	root := findRepoRootForGuardModeTest(t)
 	assertGuardModeFileContains(t, root, "scripts/code_size_guard.go",

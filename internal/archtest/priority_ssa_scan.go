@@ -40,6 +40,11 @@ func CollectPrioritySSAViolations(opts CheckOptions) ([]PrioritySSAViolation, er
 	if err != nil {
 		return nil, err
 	}
+	return collectPrioritySSAViolationsFromPackages(pkgs)
+}
+
+// collectPrioritySSAViolationsFromPackages 扫描已加载的 priority 候选包，避免同一调用重复加载。
+func collectPrioritySSAViolationsFromPackages(pkgs []*prioritySSAPackage) ([]PrioritySSAViolation, error) {
 	targets, err := prioritySSAWidePortTargets(pkgs)
 	if err != nil {
 		return nil, err

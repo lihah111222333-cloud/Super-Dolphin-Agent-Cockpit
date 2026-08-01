@@ -171,3 +171,40 @@ func TestRemoteOptimizationWarningsAreAdvisoryForSlowPassAndFailure(t *testing.T
 		t.Fatalf("pass warning = %q", warnings[1])
 	}
 }
+
+func TestCompleteRemoteRunExcludesCalibrationParentAggregateFromOptimizationWarnings(t *testing.T) {
+	first := mustRemoteGoTestWorkload(t, "./internal/module/turn", "TestSlow")
+	second := mustRemoteGoTestWorkload(t, "./internal/module/turn", "TestFast")
+	startedAt := time.Date(2026, time.July, 28, 3, 0, 0, 0, time.UTC)
+	firstExecution := gate.PlanGateExecution{
+		GateID: gate.GateID(first.ID), Status: gate.ResultStatusPassed, ExitCode: 0,
+		StartedAt: startedAt, CompletedAt: startedAt.Add(gate.FullCITargetDuration + time.Millisecond),
+	}
+	secondExecution := gate.PlanGateExecution{
+		GateID: gate.GateID(second.ID), Status: gate.ResultStatusPassed, ExitCode: 0,
+		StartedAt: startedAt, CompletedAt: startedAt.Add(time.Millisecond),
+	}
+	catalog := gate.WorkloadCatalog{Version: 1, Workloads: []gate.Workload{first, second}}
+	observed := map[string]gate.PlanGateExecution{first.ID: firstExecution, second.ID: secondExecution}
+	shards := []ShardResult{{
+		ContainerStatus:   "Succeeded",
+		ExecutedWorkloads: []gate.GateID{gate.GateID(first.ID), gate.GateID(second.ID)},
+		Report:            gate.PlanExecutionReport{Gates: []gate.PlanGateExecution{firstExecution, secondExecution}},
+	}}
+	result, err := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{}).completeRemoteRun(
+		catalog,
+		RunInput{Calibration: true, Platform: "linux/amd64", RunnerIdentityDigest: "runner-v1", ToolchainDigest: "toolchain-v1"},
+		shards,
+		observed,
+		RunResult{},
+	)
+	if err != nil {
+		t.Fatalf("completeRemoteRun() error = %v", err)
+	}
+	if len(result.OptimizationWarnings) != 1 || result.OptimizationWarnings[0] != "CI optimization warning: workload \""+first.ID+"\" passed in 100001ms (target 100000ms); optimize or split this shard" {
+		t.Fatalf("optimization warnings = %#v, want only the actual slow workload warning", result.OptimizationWarnings)
+	}
+	if len(result.DurationSamples) != 3 {
+		t.Fatalf("duration samples = %#v, want two actual workloads plus one calibration parent aggregate", result.DurationSamples)
+	}
+}

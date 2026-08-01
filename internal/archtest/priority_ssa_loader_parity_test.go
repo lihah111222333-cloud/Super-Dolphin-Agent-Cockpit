@@ -30,7 +30,7 @@ func TestPrioritySSALoaderExtractionPreservesCandidates(t *testing.T) {
 	if len(paths) != wantCount || digest != wantDigest {
 		t.Fatalf("seam cd81d4c9a priority candidates count=%d digest=%s", len(paths), digest)
 	}
-	violations, err := CollectPrioritySSAViolations(CheckOptions{RepoRoot: root})
+	violations, err := collectPrioritySSAViolationsFromPackages(pkgs)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -106,10 +106,43 @@ func HasViolationForPath(path string, m FileMetrics) bool {
 	return m.HasInit
 }
 
+// BaselineMetricCache 在一次显式 baseline 检查内复用文件度量。
+// 该缓存不跨调用或跨源码快照复用，避免重复读取同一不可变工作树中的文件。
+type BaselineMetricCache struct {
+	metrics map[string]FileMetrics
+}
+
+// NewBaselineMetricCache 创建只供单次 baseline 检查使用的文件度量缓存。
+func NewBaselineMetricCache() *BaselineMetricCache {
+	return &BaselineMetricCache{metrics: make(map[string]FileMetrics)}
+}
+
+// Measure 返回当前检查快照中 path 的文件度量。
+func (c *BaselineMetricCache) Measure(path string) FileMetrics {
+	if metrics, ok := c.metrics[path]; ok {
+		return metrics
+	}
+	metrics := MeasureBaselineFileMetrics(path)
+	c.metrics[path] = metrics
+	return metrics
+}
+
 // CheckWithBaseline 执行全仓棘轮检查。
 //   - 新文件（不在 baseline 中）：对 HasViolation 的指标调用现有 CheckAll 逻辑。
 //   - 已冻结文件：RatchetCheck，拒绝恶化。
 func CheckWithBaseline(opts CheckOptions, bl Baseline) CheckResult {
+	return checkWithBaseline(opts, bl, NewBaselineMetricCache())
+}
+
+// CheckWithBaselineCached 执行全仓棘轮检查，并在同一源码快照内复用文件度量。
+func CheckWithBaselineCached(opts CheckOptions, bl Baseline, cache *BaselineMetricCache) (CheckResult, error) {
+	if cache == nil {
+		return CheckResult{}, fmt.Errorf("baseline metric cache is required")
+	}
+	return checkWithBaseline(opts, bl, cache), nil
+}
+
+func checkWithBaseline(opts CheckOptions, bl Baseline, cache *BaselineMetricCache) CheckResult {
 	repoRoot := opts.RepoRoot
 	if repoRoot == "" {
 		repoRoot = "."
@@ -117,14 +150,14 @@ func CheckWithBaseline(opts CheckOptions, bl Baseline) CheckResult {
 	var result CheckResult
 	for path, frozen := range bl {
 		absPath := filepath.Join(repoRoot, filepath.FromSlash(path))
-		cur := MeasureBaselineFileMetrics(absPath)
+		cur := cache.Measure(absPath)
 		if cur.Lines == 0 {
 			continue // 文件已删除，shrink 负责清理
 		}
 		vs := RatchetCheck(path, cur, frozen)
 		result.Violations = append(result.Violations, vs...)
 	}
-	result.NewFileViolations = newFileMetricViolations(repoRoot, opts, bl)
+	result.NewFileViolations = newFileMetricViolations(repoRoot, opts, bl, cache.Measure)
 	return result
 }
 
@@ -158,7 +191,12 @@ func parseMetricFile(path string) (*ast.File, bool) {
 
 // newFileMetricViolations 对不在 baseline 中的扫描文件执行所有硬阈值检查。
 // 这里与 RatchetCheck 分开，避免新文件因为没有 frozen 值而绕过零容忍指标。
-func newFileMetricViolations(repoRoot string, opts CheckOptions, bl Baseline) []Violation {
+func newFileMetricViolations(
+	repoRoot string,
+	opts CheckOptions,
+	bl Baseline,
+	measure func(string) FileMetrics,
+) []Violation {
 	files, err := collectGoFilesFiltered(repoRoot, opts.scanRoots(), opts.skipDirs(), opts.BaselineTestsOnly)
 	if err != nil {
 		return []Violation{{
@@ -181,7 +219,7 @@ func newFileMetricViolations(repoRoot string, opts CheckOptions, bl Baseline) []
 		if !shouldCheckNewBaselineFile(repoRoot, relPath, bl) {
 			continue
 		}
-		metrics := MeasureBaselineFileMetrics(absPath)
+		metrics := measure(absPath)
 		violations = append(violations, metricViolationsForNewFile(relPath, metrics)...)
 	}
 	sortViolations(violations)

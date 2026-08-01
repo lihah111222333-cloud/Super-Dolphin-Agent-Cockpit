@@ -201,6 +201,8 @@ async function runDeliveryCommands(inspected, runCommand = runManagedCommand, re
     const [program, ...args] = command.argv;
     const cwd = command.cwd === '.' ? repositoryRoot : resolve(repositoryRoot, command.cwd);
     const env = { ...process.env };
+    delete env.SUPER_DOLPHIN_DESKTOP_SMOKE_SKIP_FRONTEND_BUILD;
+    if (command.id === 'desktop-start-smoke') env.SUPER_DOLPHIN_DESKTOP_SMOKE_SKIP_FRONTEND_BUILD = '1';
     if (command.id === 'desktop-failure-smoke') {
       for (const key of DESKTOP_FAILURE_SMOKE_CONFLICT_ENV_KEYS) delete env[key];
     }

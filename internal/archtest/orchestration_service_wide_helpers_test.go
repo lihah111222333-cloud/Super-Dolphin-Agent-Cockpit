@@ -197,8 +197,12 @@ func wideOrchestrationMethodFamily(method string) string {
 func collectWideOrchestrationProductionViolationMessages(t *testing.T, root string) []string {
 	t.Helper()
 
+	return collectWideOrchestrationProductionViolationMessagesFromPackages(loadWideOrchestrationTypeGuardPackages(t, root))
+}
+
+func collectWideOrchestrationProductionViolationMessagesFromPackages(pkgs []*orchestrationServiceCheckedPackage) []string {
 	var violations []string
-	for _, pkg := range loadWideOrchestrationTypeGuardPackages(t, root) {
+	for _, pkg := range pkgs {
 		for _, use := range collectOrchestrationServiceTypeUses(pkg, nil) {
 			if isAllowedOrchestrationServiceTypeUse(use) {
 				continue

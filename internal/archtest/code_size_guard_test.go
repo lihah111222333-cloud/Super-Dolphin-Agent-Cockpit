@@ -136,13 +136,14 @@ func runUnifiedFreezeCheck(
 	root string,
 ) {
 	t.Helper()
+	metrics := archtest.NewBaselineMetricCache()
 	info, err := archtest.LoadGuardFreeze(path)
 	if err != nil {
 		t.Fatalf("load unified freeze failed: %v", err)
 	}
 	freeze := info.Data
-	checkBaselineRatchetAndFreshness(t, "prod", freeze.Metrics.Production, opts, root, false)
-	checkBaselineRatchetAndFreshness(t, "test", freeze.Metrics.Tests, opts, root, true)
+	checkBaselineRatchetAndFreshness(t, "prod", freeze.Metrics.Production, opts, root, false, metrics)
+	checkBaselineRatchetAndFreshness(t, "test", freeze.Metrics.Tests, opts, root, true, metrics)
 	checkPrioritySSABaselineFreshness(t, freeze.PrioritySSA, opts)
 }
 
@@ -194,11 +195,15 @@ func checkBaselineRatchetAndFreshness(
 	opts archtest.CheckOptions,
 	root string,
 	testsOnly bool,
+	metrics *archtest.BaselineMetricCache,
 ) {
 	t.Helper()
 	phaseOpts := opts
 	phaseOpts.BaselineTestsOnly = testsOnly
-	result := archtest.CheckWithBaseline(phaseOpts, baseline)
+	result, err := archtest.CheckWithBaselineCached(phaseOpts, baseline, metrics)
+	if err != nil {
+		t.Fatalf("%s baseline ratchet check: %v", label, err)
+	}
 	if !result.OK() {
 		lines := make([]string, 0, len(result.Violations)+len(result.NewFileViolations))
 		for _, v := range result.Violations {
@@ -211,7 +216,7 @@ func checkBaselineRatchetAndFreshness(
 	}
 	fileSet := buildFileSetFiltered(t, phaseOpts, root, testsOnly)
 	newBL, stats := archtest.ShrinkBaseline(baseline, fileSet, func(relPath string) archtest.FileMetrics {
-		return archtest.MeasureBaselineFileMetrics(filepath.Join(root, filepath.FromSlash(relPath)))
+		return metrics.Measure(filepath.Join(root, filepath.FromSlash(relPath)))
 	})
 	if stats.Changed() {
 		t.Fatalf("%s baseline is stale: shrunk=%d graduated=%d removed=%d current_entries=%d\nRun: go run ./scripts/code_size_guard.go --freeze",
