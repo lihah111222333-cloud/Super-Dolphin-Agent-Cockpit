@@ -1546,8 +1546,8 @@
       "codemap_line": 95,
       "target_path": "cmd/mcp-lsp/multilsp/client.go",
       "line_spec": "98",
-      "content_sha256": "a0e78fd2b9963a0a3b5f88a15056768bb3f68747adfb1319d81d4924b8d3af06",
-      "symbol": "dynamicRegistrationRequestHandler"
+      "content_sha256": "58be3c715807dae09f908d33a3a7de3c8e1e84cf8dc44290f05d5936da7de722",
+      "symbol": "concreteClient"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
@@ -1895,7 +1895,7 @@
       "codemap_line": 223,
       "target_path": "cmd/mcp-lsp/runtime.go",
       "line_spec": "65",
-      "content_sha256": "a34d9be754dbca6cff9ea566c465a800424a7f7e77c6324c8af2dd0076c9c660",
+      "content_sha256": "f3144167fd23fbd5970bb7dcdb226b9d7cff20609b860578f7ef7cd50fbeb210",
       "symbol": "newManager"
     },
     {
@@ -1903,7 +1903,7 @@
       "codemap_line": 224,
       "target_path": "cmd/mcp-lsp/runtime.go",
       "line_spec": "107",
-      "content_sha256": "591f13a2a876a0f3504607220ae38392c3618475d71a7f1b2f01dbac64919311",
+      "content_sha256": "b6663aa0e2e2a4edae6de7b17f1022e431d4f53205bdf0db1dc09504b1a7ef60",
       "symbol": "runtimeRoot"
     },
     {
@@ -1911,15 +1911,14 @@
       "codemap_line": 224,
       "target_path": "cmd/mcp-lsp/runtime.go",
       "line_spec": "112",
-      "content_sha256": "f3144167fd23fbd5970bb7dcdb226b9d7cff20609b860578f7ef7cd50fbeb210",
-      "symbol": "runtimeWorkspaceRoots"
+      "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
       "codemap_line": 224,
       "target_path": "cmd/mcp-lsp/runtime.go",
       "line_spec": "114",
-      "content_sha256": "b67d3d86206f77dd936fdd88a992d528bd33dfa8b5f119279245b2b19f3660cf",
+      "content_sha256": "94fdcb0ff8a5977d383efc0649250d153d441cbf28b16aeb3adfb1c1226cde9b",
       "symbol": "runtimeWorkspaceRoots"
     },
     {
@@ -1927,8 +1926,7 @@
       "codemap_line": 224,
       "target_path": "cmd/mcp-lsp/runtime.go",
       "line_spec": "127",
-      "content_sha256": "13fe88a7aa155a700ce1e6c2c824d6494077c9248a2a139ffd299d45ea23ab25",
-      "symbol": "runtimeWorkspaceRootsFromEnv"
+      "content_sha256": "428e1d2ba6201228e839688c652f78b6b8746ad2fd8817112608c03e89b25c93"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
@@ -1982,7 +1980,7 @@
       "codemap_line": 227,
       "target_path": "cmd/mcp-lsp/multilsp/manager.go",
       "line_spec": "151",
-      "content_sha256": "3924dac6140a91705a7c90c4f3b462f04ebe20610a99ebb2eb734e6e9e4a0be2",
+      "content_sha256": "30268dd6750719d79ff46059a2ba58e1919e6dae034ca96fef227969a42360cd",
       "symbol": "workspaceClient"
     },
     {
@@ -1990,8 +1988,8 @@
       "codemap_line": 228,
       "target_path": "cmd/mcp-lsp/multilsp/client.go",
       "line_spec": "98",
-      "content_sha256": "a0e78fd2b9963a0a3b5f88a15056768bb3f68747adfb1319d81d4924b8d3af06",
-      "symbol": "dynamicRegistrationRequestHandler"
+      "content_sha256": "58be3c715807dae09f908d33a3a7de3c8e1e84cf8dc44290f05d5936da7de722",
+      "symbol": "concreteClient"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
@@ -2006,8 +2004,8 @@
       "codemap_line": 228,
       "target_path": "cmd/mcp-lsp/multilsp/manager_lifecycle.go",
       "line_spec": "30",
-      "content_sha256": "847850e9c45e66e1600f4d6f6975cd8ffe83a8161fc86842e860fed9ebb3ba3a",
-      "symbol": "*manager.EnsureClient"
+      "content_sha256": "79f7dd2b136f787da35ba83971b75c62d0eb1f66260bcb343443594441a91501",
+      "symbol": "*manager.BackgroundRunner"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
@@ -2628,7 +2626,7 @@
       "codemap_line": 333,
       "target_path": "cmd/mcp-lsp/runtime.go",
       "line_spec": "107",
-      "content_sha256": "591f13a2a876a0f3504607220ae38392c3618475d71a7f1b2f01dbac64919311",
+      "content_sha256": "b6663aa0e2e2a4edae6de7b17f1022e431d4f53205bdf0db1dc09504b1a7ef60",
       "symbol": "runtimeRoot"
     },
     {
@@ -2636,7 +2634,7 @@
       "codemap_line": 333,
       "target_path": "cmd/mcp-lsp/runtime.go",
       "line_spec": "65",
-      "content_sha256": "a34d9be754dbca6cff9ea566c465a800424a7f7e77c6324c8af2dd0076c9c660",
+      "content_sha256": "f3144167fd23fbd5970bb7dcdb226b9d7cff20609b860578f7ef7cd50fbeb210",
       "symbol": "newManager"
     },
     {

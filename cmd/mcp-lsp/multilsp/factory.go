@@ -117,25 +117,34 @@ func (m *manager) notifyDocument(
 	if err != nil {
 		return err
 	}
-	m.touchWorkspaceActivity(client)
 	return m.withPooledClient(client, func() error {
 		return notify(ctx, client, ref)
 	})
 }
 
+// withPooledClient 在回调发送前原子确认 client 绑定并持有租约，回调返回后立即释放。
+// ErrClientNotBound 只允许表示回调尚未执行；回调内部返回该保留值时会转换为普通错误。
 func (m *manager) withPooledClient(client Client, fn func() error) error {
 	if client == nil {
-		return fn()
+		callbackErr := fn()
+		if errors.Is(callbackErr, ErrClientNotBound) {
+			return fmt.Errorf("LSP client callback returned reserved ErrClientNotBound after dispatch: %v", callbackErr)
+		}
+		return callbackErr
 	}
 	leased, ok, err := m.leaseBoundClient(client)
 	if err != nil {
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("LSP client is no longer bound to an active workspace")
+		return ErrClientNotBound
 	}
 	defer leased.Release()
-	return fn()
+	callbackErr := fn()
+	if errors.Is(callbackErr, ErrClientNotBound) {
+		return fmt.Errorf("LSP client callback returned reserved ErrClientNotBound after dispatch: %v", callbackErr)
+	}
+	return callbackErr
 }
 
 // queryHierarchy 统一执行 call/type hierarchy 的 prepare 和方向查询。

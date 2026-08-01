@@ -30,10 +30,10 @@ func TestGoLanguageAdapterEnvPolicyOverridesForeignBuildContext(t *testing.T) {
 }
 
 func TestGoLanguageAdapterBoundsSharedDaemonMemory(t *testing.T) {
-	t.Setenv(lspGoRSSLimitEnv, "512")
+	t.Setenv(lspGoplsHeapLimitEnv, "3072")
 	env := envMap(goLanguageAdapter{}.EnvPolicy(ResolvedLanguageScope{}))
-	if got := env["GOMEMLIMIT"]; got != "512MiB" {
-		t.Fatalf("GOMEMLIMIT = %q, want 512MiB for shared gopls daemon", got)
+	if got := env["GOMEMLIMIT"]; got != "3072MiB" {
+		t.Fatalf("GOMEMLIMIT = %q, want independent shared gopls daemon heap limit", got)
 	}
 }
 
@@ -76,7 +76,7 @@ func hostGoEnv(extra ...string) []string {
 	return append([]string{
 		"GOOS=" + runtime.GOOS,
 		"GOARCH=" + runtime.GOARCH,
-		"GOMEMLIMIT=384MiB",
+		"GOMEMLIMIT=3584MiB",
 	}, extra...)
 }
 

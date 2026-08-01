@@ -262,7 +262,7 @@ export function createFrontendViteConfig(env = process.env, viteEnv = {}) {
           url: 'http://127.0.0.1:5175/',
         },
       },
-      exclude: VITEST_SUITE_POLICY.defaultExcludes,
+      exclude: [...VITEST_SUITE_POLICY.defaultExcludes],
       globals: true,
       setupFiles: './src/test-setup.js',
     },

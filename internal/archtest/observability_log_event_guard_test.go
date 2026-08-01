@@ -28,7 +28,7 @@ func TestObservabilityLogEventAnchorsWired(t *testing.T) {
 			},
 		},
 		{
-			producerPath: "../../cmd/mcp-lsp/multilsp/transport_compat.go",
+			producerPath: "../../cmd/mcp-lsp/multilsp/transport.go",
 			anchors: []string{
 				"\"gopls.compat_fallback.hit\"",
 			},

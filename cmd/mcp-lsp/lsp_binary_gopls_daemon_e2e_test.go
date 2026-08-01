@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/multilsp"
 )
 
 const fakeGoplsArgsLogEnv = "MCP_LSP_FAKE_GOPLS_ARGS_LOG"
@@ -19,6 +21,9 @@ const fakeGoplsArgsLogEnv = "MCP_LSP_FAKE_GOPLS_ARGS_LOG"
 func TestMcpLSPBinaryConcurrentAgentsUseSharedGoplsDaemon_E2E(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping mcp-lsp binary e2e test in short mode")
+	}
+	if gostdruntime.GOOS == "windows" {
+		t.Skip("Windows uses independent gopls processes plus the cross-worktree RSS cohort ledger")
 	}
 
 	roots := []string{t.TempDir(), t.TempDir()}
@@ -59,7 +64,7 @@ func TestMcpLSPBinaryConcurrentAgentsUseSharedGoplsDaemon_E2E(t *testing.T) {
 		}) {
 			t.Fatalf("gopls invocation %d args = %v, want product-owned remote cohort", index, args)
 		}
-		if !slices.Contains(args, "-remote.listen.timeout=1m") {
+		if !slices.Contains(args, "-remote.listen.timeout=1s") {
 			t.Fatalf("gopls invocation %d args = %v, want explicit daemon idle timeout", index, args)
 		}
 	}
@@ -71,6 +76,9 @@ func TestMcpLSPBinaryConcurrentAgentsUseSharedGoplsDaemon_E2E(t *testing.T) {
 func TestMcpLSPBinaryRealGoplsDaemonExitsAfterLastForwarder_E2E(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping real gopls daemon lifecycle e2e test in short mode")
+	}
+	if gostdruntime.GOOS == "windows" {
+		t.Skip("gopls auto daemon IDs are unsupported on Windows")
 	}
 	goplsPath, err := exec.LookPath("gopls")
 	if err != nil {
@@ -95,6 +103,7 @@ func TestMcpLSPBinaryRealGoplsDaemonExitsAfterLastForwarder_E2E(t *testing.T) {
 	goplsBinDir := filepath.Dir(goplsPath)
 	env := []string{
 		"XDG_RUNTIME_DIR=" + runtimeDir,
+		"AGENT_LSP_SHARED_CACHE_DIR=" + filepath.Join(runtimeDir, "lsp-resource"),
 		"AGENT_LSP_GO_RSS_LIMIT_MB=384",
 		"GOWORK=off",
 		"MCP_LSP_GOPLS_DAEMON_IDLE_TIMEOUT=2s",
@@ -135,7 +144,7 @@ func waitForGoplsDaemonState(t *testing.T, goplsPath, runtimeDir string, wantRun
 	var lastOutput []byte
 	var lastErr error
 	for {
-		cmd := exec.Command(goplsPath, goplsE2ERemoteArg(filepath.Dir(goplsPath)), "remote", "sessions")
+		cmd := exec.Command(goplsPath, goplsE2ERemoteArg(t, goplsPath, filepath.Dir(goplsPath)), "remote", "sessions")
 		cmd.Env = append(os.Environ(), "XDG_RUNTIME_DIR="+runtimeDir)
 		lastOutput, lastErr = cmd.CombinedOutput()
 		if (lastErr == nil) == wantRunning {
@@ -148,20 +157,27 @@ func waitForGoplsDaemonState(t *testing.T, goplsPath, runtimeDir string, wantRun
 	}
 }
 
-func goplsE2ERemoteArg(goplsBinDir string) string {
+func goplsE2ERemoteArg(t *testing.T, goplsPath, goplsBinDir string) string {
+	t.Helper()
 	env := runtimeServerGoplsEnvironment([]string{
 		"GOOS=" + gostdruntime.GOOS,
 		"GOARCH=" + gostdruntime.GOARCH,
-		"GOMEMLIMIT=384MiB",
+		"GOMEMLIMIT=3584MiB",
 		"GOWORK=off",
 		"PATH=" + goplsBinDir + string(os.PathListSeparator) + os.Getenv("PATH"),
 	})
-	env = append(env, runtimeServerGoplsDaemonArgs([]string{
-		"-remote=auto;sdmcp2",
-		"-remote.listen.timeout=2s",
-	}))
-	fingerprint := runtimeServerEnvironmentFingerprint(env)
-	return "-remote=auto;sdmcp2-" + fingerprint
+	command := multilsp.ServerCommand{
+		Executable: "gopls",
+		Args: []string{
+			"-remote=auto;sdmcp2",
+			"-remote.listen.timeout=2s",
+		},
+	}
+	cohortID, err := runtimeServerGoplsCohortID(command, goplsPath, env)
+	if err != nil {
+		t.Fatalf("derive real gopls E2E cohort ID: %v", err)
+	}
+	return "-remote=auto;" + cohortID
 }
 
 func writeFakeGoplsArgsLangserver(t *testing.T) string {

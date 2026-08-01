@@ -528,7 +528,13 @@ function loadGitTrackedBlobSizes() {
       if (!match) return null;
       return { oid: match[1], rel: normalize(match[2]) };
     })
-    .filter((record) => record && shouldIndexPath(record.rel) && !shouldSkipPath(record.rel));
+    .filter(
+      (record) =>
+        record &&
+        shouldIndexPath(record.rel) &&
+        !shouldSkipPath(record.rel) &&
+        trackedWorktreeFileExists(record.rel),
+    );
 
   const objectSizes = loadGitObjectSizes([...new Set(records.map((record) => record.oid))]);
   const sizes = new Map();
@@ -538,6 +544,15 @@ function loadGitTrackedBlobSizes() {
     sizes.set(record.rel, size);
   }
   return sizes;
+}
+
+function trackedWorktreeFileExists(relative) {
+  try {
+    return fs.lstatSync(path.join(ROOT, relative)).isFile();
+  } catch (error) {
+    if (error?.code === 'ENOENT') return false;
+    throw error;
+  }
 }
 
 function loadGitObjectSizes(objectIds) {

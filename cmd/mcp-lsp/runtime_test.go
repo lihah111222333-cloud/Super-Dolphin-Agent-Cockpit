@@ -337,13 +337,14 @@ func TestRuntimeServerBinaryPrefersInstalledBinaryOverride(t *testing.T) {
 }
 
 func TestRuntimeServerArgsSharesOnlyCompatibleGoplsEnvironments(t *testing.T) {
+	binary := writeRuntimeServerCacheFixture(t, "gopls", "#!/bin/sh\nexit 0\n")
 	command := multilsp.ServerCommand{
 		Executable: "gopls",
 		Args:       []string{"-remote=auto;sdmcp2", "-remote.listen.timeout=1m"},
 	}
-	first := runtimeServerArgs(command, []string{"GOOS=darwin", "GOARCH=arm64"})
-	reordered := runtimeServerArgs(command, []string{"GOARCH=arm64", "GOOS=darwin"})
-	incompatible := runtimeServerArgs(command, []string{"GOOS=darwin", "GOARCH=arm64", "GOWORK=off"})
+	first := mustRuntimeServerArgs(t, command, binary, []string{"GOOS=darwin", "GOARCH=arm64"})
+	reordered := mustRuntimeServerArgs(t, command, binary, []string{"GOARCH=arm64", "GOOS=darwin"})
+	incompatible := mustRuntimeServerArgs(t, command, binary, []string{"GOOS=darwin", "GOARCH=arm64", "GOWORK=off"})
 	if !slices.Equal(first, reordered) {
 		t.Fatalf("equivalent gopls environments produced different cohorts: first=%v reordered=%v", first, reordered)
 	}
@@ -356,28 +357,30 @@ func TestRuntimeServerArgsSharesOnlyCompatibleGoplsEnvironments(t *testing.T) {
 }
 
 func TestRuntimeServerArgsSeparatesAmbientGoBuildEnvironments(t *testing.T) {
+	binary := writeRuntimeServerCacheFixture(t, "gopls", "#!/bin/sh\nexit 0\n")
 	command := multilsp.ServerCommand{
 		Executable: "gopls",
 		Args:       []string{"-remote=auto;sdmcp2", "-remote.listen.timeout=1m"},
 	}
 	t.Setenv("GOPROXY", "https://proxy-one.invalid")
-	first := runtimeServerArgs(command, []string{"GOOS=darwin", "GOARCH=arm64"})
+	first := mustRuntimeServerArgs(t, command, binary, []string{"GOOS=darwin", "GOARCH=arm64"})
 	t.Setenv("GOPROXY", "https://proxy-two.invalid")
-	second := runtimeServerArgs(command, []string{"GOOS=darwin", "GOARCH=arm64"})
+	second := mustRuntimeServerArgs(t, command, binary, []string{"GOOS=darwin", "GOARCH=arm64"})
 	if slices.Equal(first, second) {
 		t.Fatalf("different ambient Go build environments reused one cohort: first=%v second=%v", first, second)
 	}
 }
 
 func TestRuntimeServerArgsSeparatesDaemonIdleTimeouts(t *testing.T) {
+	binary := writeRuntimeServerCacheFixture(t, "gopls", "#!/bin/sh\nexit 0\n")
 	firstCommand := multilsp.ServerCommand{
 		Executable: "gopls",
 		Args:       []string{"-remote=auto;sdmcp2", "-remote.listen.timeout=1m"},
 	}
 	secondCommand := firstCommand
 	secondCommand.Args = []string{"-remote=auto;sdmcp2", "-remote.listen.timeout=2s"}
-	first := runtimeServerArgs(firstCommand, []string{"GOOS=darwin", "GOARCH=arm64"})
-	second := runtimeServerArgs(secondCommand, []string{"GOOS=darwin", "GOARCH=arm64"})
+	first := mustRuntimeServerArgs(t, firstCommand, binary, []string{"GOOS=darwin", "GOARCH=arm64"})
+	second := mustRuntimeServerArgs(t, secondCommand, binary, []string{"GOOS=darwin", "GOARCH=arm64"})
 	if slices.Equal(first[:1], second[:1]) {
 		t.Fatalf("different daemon idle timeouts reused one cohort: first=%v second=%v", first, second)
 	}
@@ -385,9 +388,47 @@ func TestRuntimeServerArgsSeparatesDaemonIdleTimeouts(t *testing.T) {
 
 func TestRuntimeServerArgsLeavesNonSharedServerUnchanged(t *testing.T) {
 	command := multilsp.ServerCommand{Executable: "pyright-langserver", Args: []string{"--stdio"}}
-	if got := runtimeServerArgs(command, []string{"GOOS=darwin"}); !slices.Equal(got, command.Args) {
+	got := mustRuntimeServerArgs(t, command, "pyright-langserver", []string{"GOOS=darwin"})
+	if !slices.Equal(got, command.Args) {
 		t.Fatalf("runtimeServerArgs(non-shared) = %v, want %v", got, command.Args)
 	}
+}
+
+func TestRuntimeServerArgsDisablesUnsupportedWindowsGoplsAutoDaemon(t *testing.T) {
+	command := multilsp.ServerCommand{
+		Executable: "gopls.exe",
+		Args:       []string{"-remote=auto;sdmcp2", "-remote.listen.timeout=1m"},
+	}
+	got, err := runtimeServerArgsForOS(command, "gopls.exe", nil, "windows")
+	if err != nil {
+		t.Fatalf("runtimeServerArgsForOS(windows) error = %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("runtimeServerArgsForOS(windows) = %v, want local gopls without unsupported auto daemon flags", got)
+	}
+}
+
+func TestRuntimeServerArgsSeparatesDifferentGoplsBinaryContents(t *testing.T) {
+	command := multilsp.ServerCommand{
+		Executable: "gopls",
+		Args:       []string{"-remote=auto;sdmcp2", "-remote.listen.timeout=1m"},
+	}
+	firstBinary := writeRuntimeServerCacheFixture(t, "gopls", "#!/bin/sh\nexit 0\n")
+	secondBinary := writeRuntimeServerCacheFixture(t, "gopls", "#!/bin/sh\nexit 1\n")
+	first := mustRuntimeServerArgs(t, command, firstBinary, []string{"GOOS=darwin"})
+	second := mustRuntimeServerArgs(t, command, secondBinary, []string{"GOOS=darwin"})
+	if runtimeServerGoplsRemoteID(first) == runtimeServerGoplsRemoteID(second) {
+		t.Fatalf("different gopls contents reused remote ID: first=%v second=%v", first, second)
+	}
+}
+
+func mustRuntimeServerArgs(t *testing.T, command multilsp.ServerCommand, binary string, env []string) []string {
+	t.Helper()
+	args, err := runtimeServerArgs(command, binary, env)
+	if err != nil {
+		t.Fatalf("runtimeServerArgs() error = %v", err)
+	}
+	return args
 }
 
 func TestRuntimeAdapterDiagnosticsMaxWaitCoversAllLSPClientAdapters(t *testing.T) {
@@ -463,6 +504,26 @@ func TestRuntimeJSTSInitOptionsResolveInstalledTSServerPath(t *testing.T) {
 	}
 	if got := runtimeStringOption(tsserver["fallbackPath"]); got != typeScriptRoot {
 		t.Fatalf("tsserver fallbackPath = %q, want %q", got, typeScriptRoot)
+	}
+}
+
+func TestRuntimeJSTSInitOptionsUseSingleBoundedTSServer(t *testing.T) {
+	registry := multilsp.NewDefaultLanguageAdapterRegistry()
+	adapter, ok := registry.AdapterForLanguage("typescript")
+	if !ok {
+		t.Fatal("missing typescript adapter")
+	}
+
+	initOptions := runtimeAdapterInitOptionsWithBinary(adapter, false, "")
+	if got := initOptions["maxTsServerMemory"]; got != runtimeJSTSMaxMemoryMB {
+		t.Fatalf("maxTsServerMemory = %#v, want %d", got, runtimeJSTSMaxMemoryMB)
+	}
+	tsserver, ok := initOptions["tsserver"].(map[string]any)
+	if !ok {
+		t.Fatalf("typescript init options = %#v, want tsserver map", initOptions)
+	}
+	if got := tsserver["useSyntaxServer"]; got != runtimeJSTSUseSyntaxServer {
+		t.Fatalf("tsserver.useSyntaxServer = %#v, want %q", got, runtimeJSTSUseSyntaxServer)
 	}
 }
 

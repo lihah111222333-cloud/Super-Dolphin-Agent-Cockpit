@@ -5,27 +5,59 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/multilsp"
 )
 
-// runtimeServerArgs 按 Go 构建环境指纹派生共享 cohort；同环境 worktree 复用，不兼容环境隔离。
-func runtimeServerArgs(command multilsp.ServerCommand, env []string) []string {
+// runtimeServerArgs 按 gopls 二进制内容、Go 构建环境和 daemon 参数派生唯一共享 cohort。
+func runtimeServerArgs(command multilsp.ServerCommand, binary string, env []string) ([]string, error) {
+	return runtimeServerArgsForOS(command, binary, env, runtime.GOOS)
+}
+
+// runtimeServerArgsForOS 在支持 auto daemon 的平台派生 cohort，在 Windows 移除不受支持的 remote 参数。
+func runtimeServerArgsForOS(command multilsp.ServerCommand, binary string, env []string, goos string) ([]string, error) {
 	args := slices.Clone(command.Args)
 	if !runtimeServerUsesSharedGoplsDaemon(command) {
-		return args
+		return args, nil
+	}
+	if goos == "windows" {
+		return slices.DeleteFunc(args, func(arg string) bool {
+			return strings.HasPrefix(arg, "-remote=") || strings.HasPrefix(arg, "-remote.listen.timeout=")
+		}), nil
+	}
+	cohortID, err := runtimeServerGoplsCohortID(command, binary, env)
+	if err != nil {
+		return nil, err
+	}
+	for index, arg := range args {
+		if strings.HasPrefix(arg, "-remote=auto;") {
+			args[index] = "-remote=auto;" + cohortID
+		}
+	}
+	return args, nil
+}
+
+func runtimeServerGoplsCohortID(command multilsp.ServerCommand, binary string, env []string) (string, error) {
+	_, binaryDigest, err := runtimeServerBinaryIdentity(binary, env)
+	if err != nil {
+		return "", err
 	}
 	cohortEnv := runtimeServerGoplsEnvironment(env)
 	cohortEnv = append(cohortEnv, runtimeServerGoplsDaemonArgs(command.Args))
-	fingerprint := runtimeServerEnvironmentFingerprint(cohortEnv)
-	for index, arg := range args {
-		if strings.HasPrefix(arg, "-remote=auto;") {
-			args[index] = arg + "-" + fingerprint
+	cohortEnv = append(cohortEnv, "GOPLS_BINARY_SHA256="+binaryDigest)
+	return "sdmcp2-" + runtimeServerEnvironmentFingerprint(cohortEnv), nil
+}
+
+func runtimeServerGoplsRemoteID(args []string) string {
+	for _, arg := range args {
+		if value, ok := strings.CutPrefix(arg, "-remote=auto;"); ok {
+			return strings.TrimSpace(value)
 		}
 	}
-	return args
+	return ""
 }
 
 // runtimeServerGoplsEnvironment 合并父环境与适配器覆盖，只保留会影响 Go 构建或工具链选择的变量。

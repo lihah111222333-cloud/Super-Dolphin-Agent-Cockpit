@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
@@ -13,23 +12,31 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
-	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	platformrunner "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runner"
 	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
 const (
-	defaultRecyclerInterval = 30 * time.Second
-	defaultRSSLimitBytes    = 768 * 1024 * 1024
-	defaultGoRSSLimitBytes  = 384 * 1024 * 1024
-	lspRSSLimitEnv          = "AGENT_LSP_RSS_LIMIT_MB"
-	lspGoRSSLimitEnv        = "AGENT_LSP_GO_RSS_LIMIT_MB"
+	defaultRecyclerInterval    = 30 * time.Second
+	defaultGoRSSLimitBytes     = 512 * 1024 * 1024
+	defaultGoplsHeapLimitBytes = 3584 * 1024 * 1024
+	lspRSSLimitEnv             = "AGENT_LSP_RSS_LIMIT_MB"
+	lspGoRSSLimitEnv           = "AGENT_LSP_GO_RSS_LIMIT_MB"
+	lspGoplsHeapLimitEnv       = "AGENT_LSP_GOPLS_HEAP_LIMIT_MB"
 
-	idleTimeout                    = 10 * time.Minute
+	idleTimeout                    = 15 * time.Minute
 	recyclerProbeDegradedThreshold = 3
 )
 
 type recyclerRSSProbe func(Client) (uint64, int, error)
+
+type recyclerMemoryDecision struct {
+	processExceeded bool
+	processLimit    uint64
+	activeLeases    int
+	cohort          resourceCohortDecision
+	cohortErr       error
+}
 
 type recyclerHealthSnapshot struct {
 	ProbeFailuresTotal       int64
@@ -84,14 +91,14 @@ func (r *poolRecycler) HealthSnapshot() recyclerHealthSnapshot {
 	return r.health
 }
 
-func (r *poolRecycler) recordProbeFailure(summary string) recyclerHealthSnapshot {
+func (r *poolRecycler) recordProbeFailure(summary string, consecutive int) recyclerHealthSnapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.health.ProbeFailuresTotal++
-	r.health.ConsecutiveProbeFailures++
+	r.health.ConsecutiveProbeFailures = int64(consecutive)
 	r.health.LastProbeError = summary
 	r.health.LastProbeAt = time.Now()
-	r.health.Degraded = r.health.ConsecutiveProbeFailures >= recyclerProbeDegradedThreshold
+	r.health.Degraded = consecutive >= recyclerProbeDegradedThreshold
 	return r.health
 }
 
@@ -148,11 +155,8 @@ func (r *poolRecycler) evictIdleEmptyClones() {
 	}
 }
 
-func (r *poolRecycler) checkManager(index int, mgr *manager, scope ResolvedLSPToolScope) {
+func (r *poolRecycler) checkManager(_ int, mgr *manager, scope ResolvedLSPToolScope) {
 	if mgr == nil || managerIsClosed(mgr) {
-		return
-	}
-	if !r.shouldCheck(index) {
 		return
 	}
 
@@ -164,66 +168,179 @@ func (r *poolRecycler) checkManager(index int, mgr *manager, scope ResolvedLSPTo
 // recycleIfNeeded 在单个 workspace client 超过 RSS 上限时尝试回收。
 // 仍有活跃租约时只记录日志不关闭进程，避免正在执行的 LSP 请求被异步切断。
 func (r *poolRecycler) recycleIfNeeded(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient) {
-	rssBytes, pid, ok := r.probeWorkspace(mgr, scope, workspace)
+	rssBytes, pid, ok, probeDegraded := r.probeWorkspace(mgr, scope, workspace)
 	if !ok {
+		r.failClosedAfterProbeDegradation(mgr, workspace, probeDegraded)
 		return
 	}
-	limit := rssLimitBytesForLanguage(workspace.languageID)
-	if rssBytes <= limit {
+	decision := r.memoryDecision(workspace, rssBytes, pid)
+	logResourceCohortHealth(mgr, scope, workspace, pid, rssBytes, decision.cohort, decision.cohortErr)
+	if !decision.exceeded() {
 		return
 	}
-	activeLeases := r.pool.activeLeases(workspace.client)
-	logRSSWindowExceeded(mgr, scope, workspace, pid, rssBytes, limit, activeLeases)
-	if activeLeases > 0 {
-		if mgr.logger != nil {
-			mgr.logger.Info("LSP recycle skipped: active leases",
-				"manager_key", scope.ManagerKey,
-				"scope_key", scope.ScopeKey,
-				"workspace", workspace.key,
-				"language", normalizeLanguageID(workspace.languageID),
-				"pid", pid,
-				"rss_bytes", rssBytes,
-				"rss_limit_bytes", limit,
-				"active_leases", activeLeases,
-				"reason", "rss_limit",
-			)
-		}
+	reason, limit := decision.reasonAndLimit()
+	logRSSWindowExceeded(mgr, scope, workspace, pid, rssBytes, limit, decision.activeLeases, reason, decision.cohort)
+	if decision.activeLeases > 0 {
+		logRSSRecycleActiveLease(mgr, scope, workspace, pid, rssBytes, limit, decision.activeLeases, reason)
 		return
 	}
-	recycled, err := recycleWorkspaceClient(mgr, scope, workspace)
-	if err != nil && mgr.logger != nil {
-		mgr.logger.Warn("LSP recycle failed",
-			"manager_key", scope.ManagerKey,
-			"scope_key", scope.ScopeKey,
-			"workspace", workspace.key,
-			"language", normalizeLanguageID(workspace.languageID),
-			"pid", pid,
-			"rss_bytes", rssBytes,
-			"rss_limit_bytes", limit,
-			"reason", "rss_limit",
-			"err", err,
+	recycled, err := executeMemoryRecycle(mgr, scope, workspace, decision.cohort.EvictSelf)
+	logMemoryRecycleOutcome(mgr, scope, workspace, pid, rssBytes, limit, reason, decision.cohort, recycled, err)
+}
+
+// failClosedAfterProbeDegradation 在连续探测失败后关闭无租约 client，避免预算永久失效。
+func (r *poolRecycler) failClosedAfterProbeDegradation(
+	mgr *manager,
+	workspace workspaceClient,
+	probeDegraded bool,
+) {
+	if !probeDegraded {
+		return
+	}
+	if r.pool != nil && r.pool.activeLeases(workspace.client) > 0 {
+		return
+	}
+	_, _ = shutdownResourceCohortWorkspace(mgr, workspace)
+}
+
+// memoryDecision 合并创建期进程预算与跨 owner 总账；策略缺失时保持 fail-closed。
+func (r *poolRecycler) memoryDecision(workspace workspaceClient, rssBytes uint64, pid int) recyclerMemoryDecision {
+	activeLeases := 0
+	if r.pool != nil {
+		activeLeases = r.pool.activeLeases(workspace.client)
+	}
+	processLimit := rssLimitBytesForLanguage(workspace.languageID)
+	processExceeded := false
+	policy, policyErr := resourceProcessPolicyForClient(workspace.client, workspace.languageID)
+	cohortDecision := resourceCohortDecision{}
+	var cohortErr error
+	if policyErr == nil {
+		processLimit = policy.rssLimitBytes
+		processExceeded = rssBytes > processLimit
+		cohortDecision, cohortErr = evaluateResourceCohort(
+			workspace.client,
+			workspace,
+			policy,
+			rssBytes,
+			pid,
+			activeLeases,
+			time.Now(),
 		)
+	} else {
+		// 创建期主次策略丢失或被篡改时 fail-closed；活跃请求租约只延迟关闭，不扩大预算。
+		processExceeded = true
 	}
-	if recycled && mgr.logger != nil {
-		mgr.logger.Warn("recycled LSP process",
-			"manager_key", scope.ManagerKey,
-			"scope_key", scope.ScopeKey,
-			"workspace", workspace.key,
-			"language", normalizeLanguageID(workspace.languageID),
-			"pid", pid,
-			"rss_bytes", rssBytes,
-			"rss_limit_bytes", limit,
-			"reason", "rss_limit",
-		)
+	return recyclerMemoryDecision{
+		processExceeded: processExceeded,
+		processLimit:    processLimit,
+		activeLeases:    activeLeases,
+		cohort:          cohortDecision,
+		cohortErr:       errors.Join(policyErr, cohortErr),
 	}
 }
 
-func (r *poolRecycler) shouldCheck(index int) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (d recyclerMemoryDecision) exceeded() bool {
+	return d.processExceeded || d.cohort.EvictSelf
+}
 
-	last := r.lastActive[index]
-	return last.IsZero() || time.Since(last) >= r.interval/2
+func (d recyclerMemoryDecision) reasonAndLimit() (string, uint64) {
+	if d.cohort.EvictSelf {
+		return "cohort_rss_limit", d.cohort.HardLimit
+	}
+	return "process_tree_rss_limit", d.processLimit
+}
+
+// logResourceCohortHealth 记录跨 worktree RSS 报告的陈旧或异常状态。
+func logResourceCohortHealth(
+	mgr *manager,
+	scope ResolvedLSPToolScope,
+	workspace workspaceClient,
+	pid int,
+	rssBytes uint64,
+	cohort resourceCohortDecision,
+	probeErr error,
+) {
+	if mgr == nil || mgr.logger == nil ||
+		(probeErr == nil && cohort.StaleMembers == 0 && cohort.UnhealthyMembers == 0) {
+		return
+	}
+	args := recyclerWorkspaceLogArgs(scope, workspace,
+		"pid", pid,
+		"rss_bytes", rssBytes,
+		"reason", "resource_cohort_probe",
+		"stale_members", cohort.StaleMembers,
+		"unhealthy_members", cohort.UnhealthyMembers,
+	)
+	if probeErr != nil {
+		args = append(args, platformshared.SafePayloadLogFields("probe_error", probeErr.Error())...)
+	}
+	mgr.logger.Warn("LSP resource cohort degraded", args...)
+}
+
+func logRSSRecycleActiveLease(
+	mgr *manager,
+	scope ResolvedLSPToolScope,
+	workspace workspaceClient,
+	pid int,
+	rssBytes, limit uint64,
+	activeLeases int,
+	reason string,
+) {
+	if mgr == nil || mgr.logger == nil {
+		return
+	}
+	args := recyclerWorkspaceLogArgs(scope, workspace,
+		"pid", pid,
+		"rss_bytes", rssBytes,
+		"rss_limit_bytes", limit,
+		"active_leases", activeLeases,
+		"reason", reason,
+	)
+	mgr.logger.Info("LSP recycle skipped: active leases", args...)
+}
+
+func executeMemoryRecycle(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient, cohortEviction bool) (bool, error) {
+	if cohortEviction {
+		return shutdownResourceCohortWorkspace(mgr, workspace)
+	}
+	return recycleWorkspaceClient(mgr, scope, workspace)
+}
+
+// logMemoryRecycleOutcome 统一记录本地重建或 cohort 懒回收的错误与最终结果。
+func logMemoryRecycleOutcome(
+	mgr *manager,
+	scope ResolvedLSPToolScope,
+	workspace workspaceClient,
+	pid int,
+	rssBytes, limit uint64,
+	reason string,
+	cohort resourceCohortDecision,
+	recycled bool,
+	recycleErr error,
+) {
+	if mgr == nil || mgr.logger == nil {
+		return
+	}
+	if recycleErr != nil {
+		args := recyclerWorkspaceLogArgs(scope, workspace,
+			"pid", pid,
+			"rss_bytes", rssBytes,
+			"rss_limit_bytes", limit,
+			"reason", reason,
+		)
+		args = append(args, platformshared.SafePayloadLogFields("recycle_error", recycleErr.Error())...)
+		mgr.logger.Warn("LSP recycle failed", args...)
+	}
+	if recycled {
+		args := recyclerWorkspaceLogArgs(scope, workspace,
+			"pid", pid,
+			"rss_bytes", rssBytes,
+			"rss_limit_bytes", limit,
+			"cohort_rss_bytes", cohort.AggregateRSS,
+			"reason", reason,
+		)
+		mgr.logger.Warn("recycled LSP process", args...)
+	}
 }
 
 // checkIdleWorkspaces 关闭超过 idleTimeout 未收到请求的 workspace client。
@@ -238,46 +355,57 @@ func (r *poolRecycler) checkIdleWorkspaces(mgr *manager, scope ResolvedLSPToolSc
 			continue
 		}
 		idleDuration := now.Sub(workspace.lastActivity)
-		if idleDuration < idleTimeout {
+		workspaceIdleTimeout := idleTimeoutForLanguage(workspace.languageID)
+		if idleDuration < workspaceIdleTimeout {
 			continue
 		}
 		activeLeases := 0
 		if r.pool != nil {
 			activeLeases = r.pool.activeLeases(workspace.client)
 		}
-		r.logIdleWindowExceeded(mgr, scope, workspace, idleDuration, activeLeases)
+		r.logIdleWindowExceeded(mgr, scope, workspace, idleDuration, workspaceIdleTimeout, activeLeases)
 		if activeLeases > 0 {
 			continue
 		}
-		r.shutdownIdleWorkspace(mgr, scope, workspace)
+		r.shutdownIdleWorkspace(mgr, scope, workspace, now.Add(-workspaceIdleTimeout))
 	}
 }
 
-func (r *poolRecycler) shutdownIdleWorkspace(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient) {
-	detached := detachWorkspaceClientIfIdle(mgr, workspace.key, workspace.client)
+// shutdownIdleWorkspace 二次确认空闲状态后摘除 client，并完整关闭其进程树。
+func (r *poolRecycler) shutdownIdleWorkspace(
+	mgr *manager,
+	scope ResolvedLSPToolScope,
+	workspace workspaceClient,
+	cutoff time.Time,
+) {
+	detached, shutdownErr, closeErr := detachAndShutdownWorkspaceClient(mgr, workspace, cutoff)
 	if detached == nil || detached.client == nil {
 		return
 	}
 	mgr.AdvanceDiagnosticGeneration()
-
-	ctx, cancel := platformconfig.WithTimeout(context.Background(), managerShutdownTimeout)
-	_ = detached.client.Shutdown(ctx)
-	cancel()
-	_ = detached.client.Close()
+	if cleanupErr := errors.Join(shutdownErr, closeErr); cleanupErr != nil && mgr.logger != nil {
+		args := recyclerWorkspaceLogArgs(scope, workspace, "reason", "idle_timeout")
+		args = append(args, platformshared.SafePayloadLogFields("cleanup_error", cleanupErr.Error())...)
+		mgr.logger.Warn("LSP idle shutdown cleanup failed", args...)
+	}
 
 	if mgr.logger != nil {
-		mgr.logger.Info("LSP idle shutdown",
-			"manager_key", scope.ManagerKey,
-			"scope_key", scope.ScopeKey,
-			"workspace", workspace.key,
-			"language", normalizeLanguageID(workspace.languageID),
+		args := recyclerWorkspaceLogArgs(scope, workspace,
 			"idle_duration", time.Since(workspace.lastActivity).String(),
 			"reason", "idle_timeout",
 		)
+		mgr.logger.Info("LSP idle shutdown", args...)
 	}
 }
 
-func (r *poolRecycler) logIdleWindowExceeded(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient, idleDuration time.Duration, activeLeases int) {
+func (r *poolRecycler) logIdleWindowExceeded(
+	mgr *manager,
+	scope ResolvedLSPToolScope,
+	workspace workspaceClient,
+	idleDuration time.Duration,
+	workspaceIdleTimeout time.Duration,
+	activeLeases int,
+) {
 	if mgr == nil || mgr.logger == nil {
 		return
 	}
@@ -287,7 +415,7 @@ func (r *poolRecycler) logIdleWindowExceeded(mgr *manager, scope ResolvedLSPTool
 	}
 	args := recyclerWorkspaceLogArgs(scope, workspace,
 		"idle_duration", idleDuration.String(),
-		"idle_timeout", idleTimeout.String(),
+		"idle_timeout", workspaceIdleTimeout.String(),
 		"active_leases", activeLeases,
 		"action", action,
 		"reason", "idle_timeout",
@@ -296,7 +424,22 @@ func (r *poolRecycler) logIdleWindowExceeded(mgr *manager, scope ResolvedLSPTool
 	mgr.logger.Debug("LSP recycler idle window exceeded", args...)
 }
 
-func logRSSWindowExceeded(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient, pid int, rssBytes, limit uint64, activeLeases int) {
+// idleTimeoutForLanguage 统一返回 15 分钟空闲窗口；到期关闭 client，下一次请求再懒启动。
+func idleTimeoutForLanguage(string) time.Duration {
+	return idleTimeout
+}
+
+// logRSSWindowExceeded 记录单进程树或跨 worktree cohort 的超限窗口。
+func logRSSWindowExceeded(
+	mgr *manager,
+	scope ResolvedLSPToolScope,
+	workspace workspaceClient,
+	pid int,
+	rssBytes, limit uint64,
+	activeLeases int,
+	reason string,
+	cohort resourceCohortDecision,
+) {
 	if mgr == nil || mgr.logger == nil {
 		return
 	}
@@ -310,8 +453,17 @@ func logRSSWindowExceeded(mgr *manager, scope ResolvedLSPToolScope, workspace wo
 		"rss_limit_bytes", limit,
 		"active_leases", activeLeases,
 		"action", action,
-		"reason", "rss_limit",
+		"reason", reason,
 	)
+	if cohort.Enabled {
+		args = append(args,
+			"cohort_rss_bytes", cohort.AggregateRSS,
+			"cohort_hard_limit_bytes", cohort.HardLimit,
+			"cohort_soft_limit_bytes", cohort.SoftLimit,
+			"cohort_stale_members", cohort.StaleMembers,
+			"cohort_unhealthy_members", cohort.UnhealthyMembers,
+		)
+	}
 	mgr.logger.Debug("LSP recycler RSS threshold exceeded", args...)
 }
 
@@ -326,14 +478,18 @@ func recyclerWorkspaceLogArgs(scope ResolvedLSPToolScope, workspace workspaceCli
 }
 
 func (r *poolRecycler) appendRecyclerRSSProbeArgs(args []any, mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient) []any {
-	rssBytes, pid, ok := r.probeWorkspace(mgr, scope, workspace)
+	rssBytes, pid, ok, _ := r.probeWorkspace(mgr, scope, workspace)
 	if !ok {
 		return append(args, "rss_probe_failed", true)
 	}
 	return append(args, "pid", pid, "rss_bytes", rssBytes)
 }
 
-func (r *poolRecycler) probeWorkspace(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient) (uint64, int, bool) {
+func (r *poolRecycler) probeWorkspace(
+	mgr *manager,
+	scope ResolvedLSPToolScope,
+	workspace workspaceClient,
+) (uint64, int, bool, bool) {
 	rssBytes, pid, err := r.clientRSSBytes(workspace.client)
 	summary := "rss_probe_error"
 	if err == nil && pid <= 0 {
@@ -341,12 +497,41 @@ func (r *poolRecycler) probeWorkspace(mgr *manager, scope ResolvedLSPToolScope, 
 		summary = "rss_probe_invalid_pid"
 	}
 	if err != nil {
-		health := r.recordProbeFailure(summary)
+		fallback := int(r.HealthSnapshot().ConsecutiveProbeFailures) + 1
+		consecutive := incrementWorkspaceProbeFailures(mgr, workspace, fallback)
+		health := r.recordProbeFailure(summary, consecutive)
 		r.logProbeFailure(mgr, scope, workspace, err, health)
-		return 0, 0, false
+		return 0, 0, false, consecutive >= recyclerProbeDegradedThreshold
 	}
+	resetWorkspaceProbeFailures(mgr, workspace)
 	r.recordProbeSuccess()
-	return rssBytes, pid, true
+	return rssBytes, pid, true, false
+}
+
+func incrementWorkspaceProbeFailures(mgr *manager, expected workspaceClient, fallback int) int {
+	if mgr == nil {
+		return fallback
+	}
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+	current := mgr.workspaces[expected.key]
+	if current == nil || current.client != expected.client {
+		return fallback
+	}
+	current.rssProbeFailures++
+	return current.rssProbeFailures
+}
+
+func resetWorkspaceProbeFailures(mgr *manager, expected workspaceClient) {
+	if mgr == nil {
+		return
+	}
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+	current := mgr.workspaces[expected.key]
+	if current != nil && current.client == expected.client {
+		current.rssProbeFailures = 0
+	}
 }
 
 func (r *poolRecycler) logProbeFailure(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient, probeErr error, health recyclerHealthSnapshot) {
@@ -372,16 +557,14 @@ func (r *poolRecycler) clientRSSBytes(current Client) (uint64, int, error) {
 // recycleWorkspaceClient 从 manager 中摘除目标 workspace client 后重建同一 workspace。
 // 摘除阶段会再次确认租约，关闭和重启错误合并返回，调用方据此记录一次完整回收结果。
 func recycleWorkspaceClient(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient) (bool, error) {
-	detached := detachWorkspaceClientIfIdle(mgr, workspace.key, workspace.client)
+	detached, shutdownErr, closeErr := detachAndShutdownWorkspaceClient(mgr, workspace, time.Time{})
 	if detached == nil || detached.client == nil {
 		return false, nil
 	}
 	mgr.AdvanceDiagnosticGeneration()
-
-	ctx, cancel := platformconfig.WithTimeout(context.Background(), managerShutdownTimeout)
-	shutdownErr := detached.client.Shutdown(ctx)
-	cancel()
-	closeErr := detached.client.Close()
+	if closeErr != nil {
+		return false, errors.Join(shutdownErr, closeErr)
+	}
 
 	languageID := workspace.languageID
 	if languageID == "" {
@@ -403,6 +586,45 @@ func recycleWorkspaceClient(mgr *manager, scope ResolvedLSPToolScope, workspace 
 	_, ensureErr := mgr.ensureClient(restoreCtx, cfg)
 	restoreErr := restoreBootstrappedWorkspace(restoreCtx, mgr, cfg)
 	return true, errors.Join(shutdownErr, closeErr, ensureErr, restoreErr)
+}
+
+// shutdownResourceCohortWorkspace 在跨 worktree cohort 超限时只关闭当前 owner 的空闲 client。
+// 它不立即重建；下一次真实请求会懒启动，从而让总账回到软水位而不跨进程 kill。
+func shutdownResourceCohortWorkspace(mgr *manager, workspace workspaceClient) (bool, error) {
+	detached, shutdownErr, closeErr := detachAndShutdownWorkspaceClient(mgr, workspace, time.Time{})
+	if detached == nil || detached.client == nil {
+		return false, nil
+	}
+	mgr.AdvanceDiagnosticGeneration()
+	if closeErr != nil {
+		return false, errors.Join(shutdownErr, closeErr)
+	}
+	return true, errors.Join(shutdownErr, closeErr)
+}
+
+// detachAndShutdownWorkspaceClient 串行化摘除与进程关闭；Close 失败时恢复 cleanup owner。
+func detachAndShutdownWorkspaceClient(
+	mgr *manager,
+	workspace workspaceClient,
+	idleCutoff time.Time,
+) (*workspaceClient, error, error) {
+	if mgr == nil {
+		return nil, nil, nil
+	}
+	mgr.ensureMu.Lock()
+	defer mgr.ensureMu.Unlock()
+	if managerIsClosed(mgr) {
+		return nil, nil, nil
+	}
+	detached := detachWorkspaceClient(mgr, workspace.key, workspace.client, idleCutoff)
+	if detached == nil || detached.client == nil {
+		return nil, nil, nil
+	}
+	shutdownErr, closeErr := shutdownWorkspaceClient(detached.client)
+	if closeErr != nil {
+		restoreDetachedWorkspaceClient(mgr, detached)
+	}
+	return detached, shutdownErr, closeErr
 }
 
 func recycleRestoreContext(scope ResolvedLSPToolScope, cfg workspaceConfig) context.Context {
@@ -468,9 +690,17 @@ func snapshotWorkspaceClients(mgr *manager) []workspaceClient {
 	return items
 }
 
-// detachWorkspaceClientIfIdle 在持锁状态下摘除指定 workspace client。
-// expected 用于防止快照过期误删新 client；存在活跃租约时直接返回 nil。
-func detachWorkspaceClientIfIdle(mgr *manager, key string, expected Client) *workspaceClient {
+func detachWorkspaceClientIfStillIdle(
+	mgr *manager,
+	key string,
+	expected Client,
+	cutoff time.Time,
+) *workspaceClient {
+	return detachWorkspaceClient(mgr, key, expected, cutoff)
+}
+
+// detachWorkspaceClient 在 manager 锁内校验 client 身份、空闲窗口和租约后移交清理所有权。
+func detachWorkspaceClient(mgr *manager, key string, expected Client, idleCutoff time.Time) *workspaceClient {
 	if mgr == nil {
 		return nil
 	}
@@ -484,11 +714,24 @@ func detachWorkspaceClientIfIdle(mgr *manager, key string, expected Client) *wor
 	if expected != nil && workspace.client != expected {
 		return nil
 	}
+	if !workspaceLastActivityBeforeCutoff(workspace, idleCutoff) {
+		return nil
+	}
 	if mgr.pool != nil && mgr.pool.activeLeases(workspace.client) > 0 {
 		return nil
 	}
 	delete(mgr.workspaces, key)
 	return workspace
+}
+
+func workspaceLastActivityBeforeCutoff(workspace *workspaceClient, cutoff time.Time) bool {
+	if cutoff.IsZero() {
+		return true
+	}
+	if workspace.lastActivity.IsZero() {
+		return false
+	}
+	return !workspace.lastActivity.After(cutoff)
 }
 
 func managerIsClosed(mgr *manager) bool {
@@ -501,78 +744,125 @@ func managerIsClosed(mgr *manager) bool {
 }
 
 func clientRSSBytes(current Client) (uint64, int, error) {
-	typed, ok := current.(*client)
+	typed, ok := concreteClient(current)
 	if !ok || typed.transport == nil || typed.transport.cmd == nil || typed.transport.cmd.Process == nil {
 		return 0, 0, nil
 	}
 	pid := typed.transport.cmd.Process.Pid
-	rss, err := processRSSBytes(pid)
+	rss, err := typed.transport.processTreeRSSBytes()
 	return rss, pid, err
 }
 
-func processRSSBytes(pid int) (uint64, error) {
-	switch runtime.GOOS {
-	case "linux":
-		return linuxRSSBytes(pid)
-	case "darwin":
-		return psRSSBytes(pid)
-	default:
-		return 0, fmt.Errorf("unsupported platform: %s", runtime.GOOS)
-	}
-}
-
-func linuxRSSBytes(pid int) (uint64, error) {
-	payload, err := os.ReadFile(fmt.Sprintf("/proc/%d/statm", pid))
-	if err != nil {
-		return 0, err
-	}
-	fields := strings.Fields(string(payload))
-	if len(fields) < 2 {
-		return 0, fmt.Errorf("unexpected statm payload for pid %d", pid)
-	}
-	pages, err := strconv.ParseUint(fields[1], 10, 64)
-	if err != nil {
-		return 0, err
-	}
-	return pages * uint64(os.Getpagesize()), nil
-}
-
-func psRSSBytes(pid int) (uint64, error) {
-	output, err := exec.Command("ps", "-o", "rss=", "-p", strconv.Itoa(pid)).Output()
-	if err != nil {
-		return 0, err
-	}
-	value := strings.TrimSpace(string(output))
-	if value == "" {
-		return 0, nil
-	}
-	kilobytes, err := strconv.ParseUint(value, 10, 64)
-	if err != nil {
-		return 0, err
-	}
-	return kilobytes * 1024, nil
-}
-
-// rssLimitBytesForLanguage 返回指定语言的 LSP RSS 回收阈值。
-// Go 系列语言默认阈值更低且有独立环境变量，其余语言使用通用阈值。
+// rssLimitBytesForLanguage 返回指定语言的单进程树紧急回收阈值。
+// 非 gopls 默认不早于全局 15GiB 池触发；POSIX gopls forwarder 独立使用轻量阈值。
 func rssLimitBytesForLanguage(languageID string) uint64 {
+	return rssLimitBytesForLanguageOnOS(languageID, runtime.GOOS)
+}
+
+// rssLimitBytesForLanguageOnOS 按语言与平台选择单进程树的紧急回收阈值。
+func rssLimitBytesForLanguageOnOS(languageID, goos string) uint64 {
 	lang := normalizeLanguageID(languageID)
 	if lang == "go" || lang == "gomod" || lang == "gosum" || lang == "gowork" {
 		if value, ok := rssLimitBytesFromEnv(lspGoRSSLimitEnv); ok {
 			return value
+		}
+		if goos == "windows" {
+			return defaultGoplsCohortHardLimitBytes
 		}
 		return defaultGoRSSLimitBytes
 	}
 	if value, ok := rssLimitBytesFromEnv(lspRSSLimitEnv); ok {
 		return value
 	}
-	return defaultRSSLimitBytes
+	return defaultCohortHardLimitBytes
+}
+
+// goplsHeapLimitBytes 返回共享 gopls daemon 的 Go heap 软上限。
+// 该值与轻量 forwarder 的进程树 RSS 阈值分离，并为 4 GiB cohort RSS 回收高水位预留 native/非堆空间。
+func goplsHeapLimitBytes() uint64 {
+	if value, ok := rssLimitBytesFromEnv(lspGoplsHeapLimitEnv); ok {
+		return value
+	}
+	return defaultGoplsHeapLimitBytes
 }
 
 func rssLimitBytesFromEnv(envKey string) (uint64, bool) {
-	value, err := strconv.ParseUint(strings.TrimSpace(os.Getenv(envKey)), 10, 64)
-	if err != nil || value == 0 {
+	value, configured, err := strictRSSLimitBytesFromEnv(envKey)
+	if err != nil {
 		return 0, false
 	}
-	return value * 1024 * 1024, true
+	return value, configured
+}
+
+// ValidateResourceLimitEnvironment 在启动语言服务前严格校验 RSS/heap 配置及两层预算关系。
+func ValidateResourceLimitEnvironment() error {
+	if _, configured := os.LookupEnv(DeprecatedResourceCohortHardLimitMBEnv); configured {
+		return fmt.Errorf(
+			"%s is no longer supported; use %s",
+			DeprecatedResourceCohortHardLimitMBEnv,
+			ResourceCohortHardLimitMBEnv,
+		)
+	}
+	for _, key := range []string{
+		lspRSSLimitEnv,
+		lspGoRSSLimitEnv,
+		lspGoplsHeapLimitEnv,
+		ResourceCohortHardLimitMBEnv,
+		goplsCohortHardLimitEnv,
+	} {
+		if _, _, err := strictRSSLimitBytesFromEnv(key); err != nil {
+			return err
+		}
+	}
+	nonGoplsLocal := uint64(defaultCohortHardLimitBytes)
+	if value, ok := rssLimitBytesFromEnv(lspRSSLimitEnv); ok {
+		nonGoplsLocal = value
+	}
+	nonGoplsCohort := uint64(defaultCohortHardLimitBytes)
+	if value, ok := rssLimitBytesFromEnv(ResourceCohortHardLimitMBEnv); ok {
+		nonGoplsCohort = value
+	}
+	if nonGoplsLocal < nonGoplsCohort {
+		return fmt.Errorf(
+			"%s (%d bytes) must not be lower than %s (%d bytes)",
+			lspRSSLimitEnv,
+			nonGoplsLocal,
+			ResourceCohortHardLimitMBEnv,
+			nonGoplsCohort,
+		)
+	}
+	goplsHeap := uint64(defaultGoplsHeapLimitBytes)
+	if value, ok := rssLimitBytesFromEnv(lspGoplsHeapLimitEnv); ok {
+		goplsHeap = value
+	}
+	goplsCohort := uint64(defaultGoplsCohortHardLimitBytes)
+	if value, ok := rssLimitBytesFromEnv(goplsCohortHardLimitEnv); ok {
+		goplsCohort = value
+	}
+	if goplsHeap >= goplsCohort {
+		return fmt.Errorf(
+			"%s (%d bytes) must be lower than %s (%d bytes)",
+			lspGoplsHeapLimitEnv,
+			goplsHeap,
+			goplsCohortHardLimitEnv,
+			goplsCohort,
+		)
+	}
+	return nil
+}
+
+func strictRSSLimitBytesFromEnv(envKey string) (uint64, bool, error) {
+	raw := strings.TrimSpace(os.Getenv(envKey))
+	if raw == "" {
+		return 0, false, nil
+	}
+	value, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil || value == 0 {
+		return 0, true, fmt.Errorf("%s must be a positive integer MiB value: %q", envKey, raw)
+	}
+	const mib = uint64(1024 * 1024)
+	if value > ^uint64(0)/mib {
+		return 0, true, fmt.Errorf("%s overflows bytes: %q MiB", envKey, raw)
+	}
+	return value * mib, true, nil
 }

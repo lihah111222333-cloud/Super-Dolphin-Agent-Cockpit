@@ -44,6 +44,7 @@ CLI 为本次 Git action 生成新的 delivery identity，规范化 staged tree 
 - 远程模式只为指纹 miss 创建 ECI：一个分片对应一个隔离 ContainerGroup，分片数由仓外 `maxShards` 和当前 miss 目录动态决定，多个 Agent 不共享固定本地队列。CPU/内存按 workload 资源画像选择并受仓外上限约束，抢占资源 30 秒内未取得时自动删除并回退同规格按量实例。源码准备不占分片执行时钟；普通执行时限 10 分钟，release 执行时限 30 分钟，100 秒只是分片优化告警阈值，不会杀死容器。
 - 不存在独立的 GitHub `commit-guard` 旁路。缺少受信 CLI、source/commit 不匹配、镜像或 receipt/provenance 校验失败、超时或任何 gate 失败都会 fail closed；本地提交信息与 fix 测试证据仍由 `commit-msg` 的两个直接 guards 检查。正文为空允许；正文一旦存在，纯英文正文会失败。
 - 所有显式测试入口统一使用受信 CLI 的 `test` 子命令。每次测试请求都必须先查询与 ECI 相同的 OSS PASS 指纹；全命中时不启动本地进程或 ECI。一次请求只有一个 cache miss，且该目标是云端已观测到测试耗时和对应 workload 总耗时均不超过 1 秒的精确普通 Go `Test` 时，才可在单个跨工作树本地锁下以 `-p=1`、`GOMAXPROCS=1`、`GOMEMLIMIT=768MiB` 和 3 秒时限执行；本机同时固定 `GOPROXY=off`、`GOTOOLCHAIN=local` 和 `-mod=readonly`，不允许为测试下载或准备依赖。多个 cache miss、包级、race、fuzz、example、Vitest、未知耗时、强制重跑和所有 benchmark 都进入 ECI。本地结果非权威且不得写入云端通过缓存。旧 `test_with_guard`/`go_with_guard` 测试入口只接受远程 worker 注入的执行身份，宿主机直接调用会 fail-fast。
+- canonical `backend:test_with_guard` 在 fresh container 内调用 `scripts/test_with_guard.sh --canonical-backend`；当解析后的包集合包含 `cmd/mcp-lsp` 时，脚本必须追加定向 `-tags=e2e` resource-cohort binary 测试。普通 `--quick-guard` 或不带 build tag 的包测试不能替代这条证据；`make test-e2e-mcp-lsp-resource-cohort` 是同一场景的显式复现入口，`TestAIMaintenanceGateSelectsMcpLSPResourceCohortE2E` 锁定选择映射。
 
 ## 远程 CI 模式契约
 

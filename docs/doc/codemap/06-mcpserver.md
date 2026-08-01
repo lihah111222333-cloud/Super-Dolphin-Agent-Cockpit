@@ -144,10 +144,10 @@ sequenceDiagram
 
 ## 2.2 `cmd/mcp-lsp/`
 
-> 当前 `cmd/mcp-lsp/` 下共有 100 个生产 Go 文件：根目录 9 个，后代目录 91 个；直接子包分布为 `edit` 4、`format` 4、`installer` 1、`manager` 3、`middleware` 5、`multilsp` 31、`protocol` 5、`search` 4、`tools` 31，另有 `cmd/mcp-lsp/internal/hiddenexec` 3 个。
+> 当前 `cmd/mcp-lsp/` 下共有 108 个 Go 文件：根目录 14 个，后代目录 94 个；直接子包分布为 `edit` 4、`format` 4、`installer` 1、`manager` 3、`middleware` 5、`multilsp` 31、`protocol` 5、`search` 4、`tools` 31，另有 `cmd/mcp-lsp/internal/hiddenexec` 6 个。
 >
-> <!-- codemap-count path="cmd/mcp-lsp" kind="go-files" expected="9" -->
-> <!-- codemap-count path="cmd/mcp-lsp" kind="go-files-recursive" expected="100" -->
+> <!-- codemap-count path="cmd/mcp-lsp" kind="go-files" expected="14" -->
+> <!-- codemap-count path="cmd/mcp-lsp" kind="go-files-recursive" expected="108" -->
 >
 > 迁移补记：当前仓库 `internal/mcpserver/` 仅保留 `common/` 与 `common/bootstrap/`；LSP 真实落点已经迁到 `cmd/mcp-lsp/{tools,manager,multilsp,middleware,...}`，旧 internal/mcpserver/lsp 子包已删除。
 
@@ -156,14 +156,30 @@ sequenceDiagram
   - 进程入口；限制 `GOMAXPROCS`、重定向 MCP stdout/stderr，并把 `run()` 的错误转换为退出码。
 - `fx.go`（237 行，DI 组装）
   - Fx 装配根文件；注册 bootstrap / stdio / HTTP runners，并把 tool manifest 通过 `registryToolProvider` 暴露给 `common` 层。
-- `runtime.go`（172 行，生命周期）
-  - 运行时资源装配；构建多语言 manager registry、installer 与 stdio runner，并在退出时统一关闭 manager。
+- `runtime.go`（生命周期）
+  - 运行时资源装配；构建全部语言的 manager registry、installer 与 stdio runner，并在退出时统一关闭 manager。
+- `runtime_client_factory.go`（语言服务进程工厂）
+  - 每个 workspace 保持独立协议 session，并注入共享 RSS cohort、兼容缓存目录及语言专属初始化参数。
+- `cmd/mcp-lsp/runtime_server_cache.go`（跨 worktree 资源 cohort）
+  - 所有非 gopls 服务进入同一个跨 worktree 资源池，汇总实际 RSS；全池默认高水位 15GiB、回收目标 12GiB。该水位只回收无活跃租约的 owner，不会中断正在执行的请求。
+  - gopls 的二进制内容、Go 构建环境和 daemon 参数共同派生唯一 remote ID；资源目录直接使用同一 ID，避免 daemon 与 RSS 总账身份漂移。
+  - Node 系服务的单进程 old-space 默认 2GiB；仅 Node 24.12+ 才启用 portable `NODE_COMPILE_CACHE`。它只优化启动编译成本，不作为语义内存复用证据，也不会全局覆盖 `XDG_CACHE_HOME`。
 - `http_runner.go`（58 行，HTTP transport runner）
   - peer mode 下启动 HTTP MCP server，写入/清理 discovery 文件，并处理优雅停机。
 - `schema.go`（138 行，工具 schema 注册）
   - 集中定义 9 个 MCP tool 的 input schema 与字段 helper。
 - `tools.go`（87 行，tool handler 绑定）
   - 声明 tool manifest 列表，并把 cmd 层 handler 名称映射到 `cmd/mcp-lsp/tools` 的具体实现。
+
+### `cmd/mcp-lsp/internal/hiddenexec/`：跨平台子进程树控制
+- `cmd/mcp-lsp/internal/hiddenexec/process.go`
+  - 统一构造普通/可取消命令；context 取消也会终止整棵派生进程树。
+- `cmd/mcp-lsp/internal/hiddenexec/process_default.go`、`cmd/mcp-lsp/internal/hiddenexec/process_tree_unix.go`
+  - Darwin/Linux 启动独立进程组，并通过组信号回收语言服务器及其 worker。
+- `cmd/mcp-lsp/internal/hiddenexec/process_windows.go`、`cmd/mcp-lsp/internal/hiddenexec/process_tree_windows.go`
+  - Windows 先创建 KillOnClose Job Object，再以 `CREATE_SUSPENDED` 启动语言服务器，按 `AssignProcessToJobObject → ResumeThread` 顺序消除 Start→Assign 逃逸窗口；绑定或恢复失败会终止进程并关闭 Job/进程/线程句柄。仅旧进程无 Job 时使用 `taskkill /T`，其失败不会被父 PID kill 伪装成整树成功。
+- `cmd/mcp-lsp/internal/hiddenexec/process_other.go`
+  - 其他平台保留父进程回收实现，避免平台文件缺失导致构建失败。
 
 ### `edit/`：补丁与 replace_range 算法层
 - `patchparse.go`
@@ -225,7 +241,7 @@ sequenceDiagram
     - `workspace/inlayHint/refresh`
     - `workspace/diagnostic/refresh`
 - `transport_conn.go`
-  - 启动子进程、读写 `Content-Length` framed 消息、收集 stderr（8KB ring buffer）、关闭/kill/等待退出。
+  - 启动独立语言服务器进程组、绑定平台进程树所有权、读写 `Content-Length` framed 消息、收集 stderr（8KB ring buffer）、关闭/kill 整棵进程树并等待父进程退出。
 - `manager.go`
   - `multilsp.Manager` 现在只组合三段端口：`ClientEnsurer + lspmanager.Manager + BackgroundRunnerProvider`；具体 LSP 能力来自 `lspmanager.Manager`，不再在本接口里直铺方法签名。
   - `manager` 主结构：workspace root、workspace->client 映射、diagnostics generation、logger、pool。
@@ -275,9 +291,17 @@ sequenceDiagram
   - `ManagerPool` 会跟踪 client lease 计数并启动 recycler。
   - `AGENT_LSP_POOL_SIZE` 控制 size（默认 10，最大 20），但当前 `snapshotManagers()` 只返回 primary manager，说明多 shard 仍处于预留态。
 - `recycler.go`
-  - 周期性检查 client RSS，超过阈值（默认 768MB，`AGENT_LSP_RSS_LIMIT_MB` 可调）时回收空闲 client。
-  - 回收后会重新 ensure client，并恢复 workspace bootstrap 状态。
-  - `recycleWorkspaceClient()` 的重建路径当前把 `workspaceConfig.languageID` 写死成 `"go"`，仍带明显 Go-centric 痕迹。
+  - 每 30 秒由 owner 汇总自己语言服务器的整棵进程树 RSS，Node 派生的 tsserver/worker 会计入同一 client；非 gopls 默认单 client 紧急阈值与 15GiB 全局高水位一致，不会在 2.5GiB 提前重启，POSIX gopls 轻 forwarder 阈值为 512MiB。
+  - gopls daemon heap 软限默认 3.5GiB，与 forwarder 阈值分离；POSIX 上共享 daemon 的实际 RSS 也计入对应 cohort，cohort 回收高水位默认 4GiB。
+  - 所有语言的 worktree client 连续 15 分钟没有客户端请求且没有活跃租约后关闭，不因服务端后台 progress 延长，并且不立即重建；下一次真实 LSP 调用才懒启动。最后一个 gopls forwarder 关闭后，共享 daemon 默认再等待 1 秒退出。
+  - 跨 worktree cohort 超过回收高水位（gopls 默认 4GiB，其他服务默认 15GiB）时按 idle LRU 选择各 owner 自己的 client，关闭到 80% 目标水位且不立即重建。该值是 30 秒采样的空闲回收阈值，不会中断活跃请求，因此不是操作系统级硬内存上限。
+- `resource_cohort.go`
+  - 使用权限收紧的原子成员报告维护跨 mcp-lsp/worktree RSS 总账；报告包含 owner/client PID 与启动身份、语言、匿名 workspace hash、租约、活动时间和当前进程树 RSS。
+  - owner 只探测并发布自己的 RSS；其他 reader 在两分钟新鲜窗口内只读报告，避免多 worktree 下形成平方级远端进程树探测。陈旧 live 报告会原位刷新并标成不可跨 owner 驱逐；坏报告当轮按整个高水位保守计量并改为 `.bad` 隔离，使下一轮恢复而不永久毒化总账。
+  - 总账动态校验所有 JSON 必填字段并拒绝未知字段；只发布 owner-only 回收决策，不允许一个 mcp-lsp 直接 kill 另一个进程拥有的语言服务器。
+  - POSIX 上按 canonical `-remote=auto;<cohort>` 归集独立 gopls daemon RSS，避免只看到 forwarder；Windows 不使用不受支持的带 ID auto daemon，而是独立 gopls + 4GiB cohort 约束。
+- `cmd/mcp-lsp/internal/hiddenexec/process_tree_unix.go`、`cmd/mcp-lsp/internal/hiddenexec/process_tree_windows.go`
+  - 汇总受管进程组/Job 对应语言服务器树 RSS；Windows 通过 `JobObjectBasicProcessIdList` 枚举 Job 成员并汇总 working set，Linux 进程启动身份使用 boot ID 加 `/proc/<pid>/stat` start time。Windows 先以 `CREATE_SUSPENDED` 启动，绑定 KillOnClose Job 后再恢复初始线程；真机 Win32 运行时验证仍需 Windows runner。
 
 ### `installer/`：LSP 安装器
 - `installer.go`

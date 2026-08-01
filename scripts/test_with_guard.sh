@@ -39,6 +39,7 @@ USAGE
 
 QUICK_ARCHTEST_SKIP='^(TestCodeSizeGuard/size_and_freeze|TestPrioritySSAGuardsUseUnifiedFreezeBaseline|TestPrioritySSALoaderExtractionPreservesCandidates|TestWideOrchestrationLoaderExtractionPreservesCandidates)$'
 QUICK_ARCHTEST_RUN='^(TestDependencyDirection|TestValidateDefaultBackendBoundaryGovernance|TestBackendBoundaryRuleFactsHaveOneSource)$'
+MCP_LSP_RESOURCE_COHORT_E2E_RUN='^TestMcpLSPBinary(LinkedWorktreesResourceCohortRecycleAndRecover|ResourceCohortMalformedReportQuarantine)_E2E$'
 
 run_guard() {
   local real_go="$1"
@@ -198,6 +199,28 @@ canonical_backend_target_allowed() {
 
 CANONICAL_BACKEND_PACKAGES=()
 
+canonical_backend_includes_mcp_lsp() {
+  local package
+  for package in "${CANONICAL_BACKEND_PACKAGES[@]}"; do
+    case "$package" in
+      */cmd/mcp-lsp) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+run_mcp_lsp_resource_cohort_e2e() {
+  local real_go="$1"
+  if ! canonical_backend_includes_mcp_lsp; then
+    echo "[test-with-guard] mcp-lsp resource cohort E2E skip: package not selected"
+    return 0
+  fi
+  run_go_test "$real_go" \
+    -tags=e2e ./cmd/mcp-lsp \
+    -run "$MCP_LSP_RESOURCE_COHORT_E2E_RUN" \
+    -v -timeout=240s -count=1
+}
+
 resolve_canonical_backend_packages() {
   local real_go="$1"
   shift
@@ -275,6 +298,7 @@ run_canonical_backend() {
     echo "canonical backend lanes failed: guard=$guard_status test=$test_status" >&2
     return 1
   fi
+  run_mcp_lsp_resource_cohort_e2e "$real_go"
 }
 
 run_race_only() {

@@ -24,7 +24,7 @@ import (
 const goBuildTagsLanguageSpecificKey = "goBuildTags"
 const goDefaultStandaloneTag = "ignore"
 const goplsRemoteAutoArg = "-remote=auto;sdmcp2"
-const defaultGoplsRemoteListenTimeoutArg = "-remote.listen.timeout=1m"
+const defaultGoplsRemoteListenTimeoutArg = "-remote.listen.timeout=1s"
 const goplsDaemonIdleTimeoutEnv = "MCP_LSP_GOPLS_DAEMON_IDLE_TIMEOUT"
 
 const (
@@ -399,7 +399,7 @@ func (a goLanguageAdapter) resolvedDirectoryFilters() []string {
 // EnvPolicy 为 gopls 进程生成与当前 Go scope 匹配的环境覆盖。
 // GOOS/GOARCH 固定为当前 peer 的宿主平台，避免父进程的交叉编译环境污染诊断。
 func (goLanguageAdapter) EnvPolicy(scope ResolvedLanguageScope) []string {
-	memoryLimit := rssLimitBytesForLanguage("go") / (1024 * 1024)
+	memoryLimit := goplsHeapLimitBytes() / (1024 * 1024)
 	env := []string{
 		"GOOS=" + runtime.GOOS,
 		"GOARCH=" + runtime.GOARCH,

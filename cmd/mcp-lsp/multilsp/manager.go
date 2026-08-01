@@ -112,11 +112,12 @@ type manager struct {
 	disableInitialWorkspaceBootstrap bool                     // 跳过初始化预热的开关。
 	retryBaseDelay                   time.Duration            // transient retry 的基础退避时间。
 
-	mu         sync.RWMutex                // 保护 closed 与 workspaces。
-	ensureMu   sync.Mutex                  // 串行化客户端创建，避免同一 workspace 重复启动。
-	closed     bool                        // manager 关闭后禁止再创建客户端。
-	retiring   bool                        // release drain 已建立代际栅栏，禁止新增租约。
-	workspaces map[string]*workspaceClient // workspace key 到客户端状态。
+	mu                  sync.RWMutex                       // 保护 closed、workspaces 与 provisionalCleanups。
+	ensureMu            sync.Mutex                         // 串行化客户端创建，避免同一 workspace 重复启动。
+	closed              bool                               // manager 关闭后禁止再创建客户端。
+	retiring            bool                               // release drain 已建立代际栅栏，禁止新增租约。
+	workspaces          map[string]*workspaceClient        // workspace key 到客户端状态。
+	provisionalCleanups map[string][]pendingClientShutdown // 未登记且进程级 Close 尚未成功的 client owner。
 
 	closeMu          sync.Mutex              // 串行化关闭与失败重试，避免同一 client 并发 Close。
 	closeInitialized bool                    // 是否已经摘除 workspace client 并进入关闭阶段。
@@ -151,6 +152,7 @@ type workspaceClient struct {
 	workspaceFolders []protocol.WorkspaceFolder // 发送给语言服务器的 workspace folders。
 	client           Client                     // 实际 LSP 客户端。
 	lastActivity     time.Time                  // recycler 判断闲置的依据。
+	rssProbeFailures int                        // 当前 client 连续 RSS 探测失败次数。
 }
 
 // diagnosticSnapshot 是诊断缓存中的一条不可变快照，按 scope 与 URI 精确隔离。

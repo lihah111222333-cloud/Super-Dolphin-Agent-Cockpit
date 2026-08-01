@@ -160,6 +160,8 @@ type p2LifecycleClient struct {
 	requestLog        []string
 	initializeFailure error
 	requestFailure    error
+	shutdownFailure   error
+	closeFailure      error
 }
 
 func (c *p2LifecycleClient) Healthy() bool {
@@ -182,7 +184,7 @@ func (c *p2LifecycleClient) Initialize(context.Context, string) error {
 	return nil
 }
 
-func (c *p2LifecycleClient) Shutdown(context.Context) error { return nil }
+func (c *p2LifecycleClient) Shutdown(context.Context) error { return c.shutdownFailure }
 
 func (c *p2LifecycleClient) Request(_ context.Context, method string, _ any) (json.RawMessage, error) {
 	c.mu.Lock()
@@ -226,7 +228,7 @@ func (c *p2LifecycleClient) Close() error {
 	defer c.mu.Unlock()
 	c.closed = true
 	c.healthy = false
-	return nil
+	return c.closeFailure
 }
 
 func (c *p2LifecycleClient) opened(uri, languageID string) bool {

@@ -16,6 +16,10 @@ import (
 
 const managerShutdownTimeout = 5 * time.Second
 
+// ErrClientNotBound 表示 client 在回调发送前已被 workspace 回收。
+// 调用方可据此区分“尚未发送”与 transport 发送后失败，避免重放非幂等通知。
+var ErrClientNotBound = errors.New("LSP client is no longer bound to an active workspace")
+
 // BackgroundRunner 返回由 ManagerPool 持有的后台回收 runner。
 // nil manager 或 nil pool 表示当前实例没有独立后台任务，根 runner 聚合器会直接跳过。
 func (m *manager) BackgroundRunner() platformrunner.Runner {
@@ -89,13 +93,7 @@ func (m *manager) initializeClose() {
 
 	// 等待正在初始化的 client 先看到 closed 状态并完成清理，再统一 shutdown。
 	m.waitForEnsureOperations()
-	clients := m.collectAndClearClients()
-	m.closingClients = make([]pendingClientShutdown, 0, len(clients))
-	for _, client := range clients {
-		if client != nil {
-			m.closingClients = append(m.closingClients, pendingClientShutdown{client: client})
-		}
-	}
+	m.closingClients = m.collectAndClearClientShutdowns()
 	m.AdvanceDiagnosticGeneration()
 	closeBootstrapCoordinator(m)
 	m.closeInitialized = true
@@ -107,34 +105,26 @@ func (m *manager) waitForEnsureOperations() {
 	_ = m.closed
 }
 
-func (m *manager) collectAndClearClients() []Client {
+// collectAndClearClientShutdowns 取得 registered 与 provisional client 的唯一 cleanup owner。
+func (m *manager) collectAndClearClientShutdowns() []pendingClientShutdown {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	clients := make([]Client, 0, len(m.workspaces))
+	count := len(m.workspaces)
+	for _, states := range m.provisionalCleanups {
+		count += len(states)
+	}
+	states := make([]pendingClientShutdown, 0, count)
+	for _, pending := range m.provisionalCleanups {
+		states = append(states, pending...)
+	}
 	for _, workspace := range m.workspaces {
 		if workspace != nil && workspace.client != nil {
-			clients = append(clients, workspace.client)
+			states = append(states, pendingClientShutdown{client: workspace.client})
 		}
 	}
 	clear(m.workspaces)
-	return clients
-}
-
-// shutdownClients 依次关闭已摘除的 LSP client。
-// 每个 client 都有固定超时；函数保留第一个失败用于上报，但仍继续清理后续资源。
-func shutdownClients(clients []Client) error {
-	var firstErr error
-	for _, client := range clients {
-		shutCtx, cancel := platformconfig.WithTimeout(context.Background(), managerShutdownTimeout)
-		if err := client.Shutdown(shutCtx); err != nil && firstErr == nil {
-			firstErr = err
-		}
-		cancel()
-		if err := client.Close(); err != nil && firstErr == nil {
-			firstErr = err
-		}
-	}
-	return firstErr
+	clear(m.provisionalCleanups)
+	return states
 }
 
 func firstNonNilError(current, next error) error {
@@ -238,15 +228,13 @@ func (m *manager) logBootstrapPolicy(message string, args ...any) {
 }
 
 func (m *manager) ensureClient(ctx context.Context, cfg workspaceConfig) (Client, error) {
-	client, err := m.lookupExistingClient(cfg.key)
-	if client != nil || err != nil {
-		return client, err
-	}
-
 	m.ensureMu.Lock()
 	defer m.ensureMu.Unlock()
 
-	client, err = m.lookupExistingClient(cfg.key)
+	if err := m.retryProvisionalClientCleanups(cfg.key); err != nil {
+		return nil, fmt.Errorf("cleanup provisional LSP client before ensure: %w", err)
+	}
+	client, err := m.lookupExistingClient(cfg.key)
 	if client != nil || err != nil {
 		return client, err
 	}
@@ -254,8 +242,8 @@ func (m *manager) ensureClient(ctx context.Context, cfg workspaceConfig) (Client
 	return m.createAndRegisterClient(ctx, cfg)
 }
 
-// leaseBoundClient 只为仍绑定在当前 manager 的 client 创建租约。
-// client 已被回收或 manager 已关闭时返回未绑定状态，调用方据此重建或报错。
+// leaseBoundClient 在同一临界区内确认绑定、更新活动时间并创建租约。
+// 返回后 manager 锁已释放，调用方不得持锁执行 LSP 或网络调用。
 func (m *manager) leaseBoundClient(client Client) (leasedClient, bool, error) {
 	if client == nil {
 		return leasedClient{client: client}, true, nil
@@ -263,13 +251,14 @@ func (m *manager) leaseBoundClient(client Client) (leasedClient, bool, error) {
 	if m == nil {
 		return leasedClient{}, false, ErrManagerClosed
 	}
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.closed || m.retiring {
 		return leasedClient{}, false, ErrManagerClosed
 	}
 	for _, workspace := range m.workspaces {
 		if workspace != nil && workspace.client == client {
+			workspace.lastActivity = time.Now()
 			return m.leaseClientLocked(client), true, nil
 		}
 	}
@@ -305,7 +294,14 @@ func (m *manager) lookupExistingClient(key string) (Client, error) {
 		detached := m.detachWorkspaceClient(key, client)
 		if detached != nil && detached.client != nil {
 			m.AdvanceDiagnosticGeneration()
-			_ = shutdownClients([]Client{detached.client})
+			shutdownErr, closeErr := shutdownWorkspaceClient(detached.client)
+			if closeErr != nil {
+				restoreDetachedWorkspaceClient(m, detached)
+				return nil, errors.Join(
+					fmt.Errorf("close unhealthy LSP client before rebuild: %w", closeErr),
+					shutdownErr,
+				)
+			}
 		}
 		return nil, nil
 	}
@@ -313,8 +309,102 @@ func (m *manager) lookupExistingClient(key string) (Client, error) {
 	return nil, nil
 }
 
+func shutdownWorkspaceClient(client Client) (error, error) {
+	shutCtx, cancel := platformconfig.WithTimeout(context.Background(), managerShutdownTimeout)
+	shutdownErr := client.Shutdown(shutCtx)
+	cancel()
+	return shutdownErr, client.Close()
+}
+
+// restoreDetachedWorkspaceClient 在进程级 Close 失败时归还唯一 cleanup owner。
+func restoreDetachedWorkspaceClient(mgr *manager, workspace *workspaceClient) {
+	if mgr == nil || workspace == nil || workspace.client == nil {
+		return
+	}
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+	if mgr.workspaces == nil {
+		mgr.workspaces = make(map[string]*workspaceClient)
+	}
+	if mgr.workspaces[workspace.key] == nil {
+		mgr.workspaces[workspace.key] = workspace
+	}
+}
+
+// retryProvisionalClientCleanups 在创建同 workspace client 前重试全部未完成 cleanup。
+// Close 尚未成功时 owner 会归还 manager，调用方不得继续创建第二个 client。
+func (m *manager) retryProvisionalClientCleanups(key string) error {
+	states := m.takeProvisionalClientCleanups(key)
+	remaining, cleanupErr := retryProvisionalClientShutdowns(states)
+	m.retainProvisionalClientCleanups(key, remaining)
+	return cleanupErr
+}
+
+// cleanupProvisionalClient 清理尚未登记的 client，并在进程级 Close 失败时保留唯一 owner。
+func (m *manager) cleanupProvisionalClient(key string, client Client, initialized bool) error {
+	if client == nil {
+		return nil
+	}
+	state := pendingClientShutdown{client: client, shutdownDone: !initialized}
+	remaining, cleanupErr := retryProvisionalClientShutdowns([]pendingClientShutdown{state})
+	m.retainProvisionalClientCleanups(key, remaining)
+	return cleanupErr
+}
+
+// retryProvisionalClientShutdowns 重试 provisional client cleanup，保留 Shutdown 与 Close 的全部错误。
+func retryProvisionalClientShutdowns(states []pendingClientShutdown) (remaining []pendingClientShutdown, cleanupErr error) {
+	remaining = make([]pendingClientShutdown, 0, len(states))
+	for _, state := range states {
+		if state.client == nil {
+			continue
+		}
+		if !state.shutdownDone {
+			shutCtx, cancel := platformconfig.WithTimeout(context.Background(), managerShutdownTimeout)
+			state.shutdownErr = state.client.Shutdown(shutCtx)
+			cancel()
+			state.shutdownDone = true
+		}
+		closeErr := state.client.Close()
+		cleanupErr = errors.Join(cleanupErr, state.shutdownErr, closeErr)
+		if closeErr != nil {
+			remaining = append(remaining, state)
+		}
+	}
+	return remaining, cleanupErr
+}
+
+// takeProvisionalClientCleanups 原子摘取指定 workspace 的 pending cleanup owner。
+func (m *manager) takeProvisionalClientCleanups(key string) []pendingClientShutdown {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	states := m.provisionalCleanups[key]
+	delete(m.provisionalCleanups, key)
+	return states
+}
+
+// retainProvisionalClientCleanups 归还 Close 仍失败的 provisional client owner。
+func (m *manager) retainProvisionalClientCleanups(key string, states []pendingClientShutdown) {
+	if len(states) == 0 {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.provisionalCleanups == nil {
+		m.provisionalCleanups = make(map[string][]pendingClientShutdown)
+	}
+	m.provisionalCleanups[key] = append(m.provisionalCleanups[key], states...)
+}
+
+// joinProvisionalClientError 合并主流程失败与 provisional cleanup 失败并保留根因链。
+func joinProvisionalClientError(primary, cleanupErr error) error {
+	if cleanupErr == nil {
+		return primary
+	}
+	return errors.Join(primary, fmt.Errorf("cleanup provisional LSP client: %w", cleanupErr))
+}
+
 // createAndRegisterClient 创建、初始化并登记新的 workspace client。
-// 初始化失败会立即关闭临时 client；登记时若已有并发创建成功的 client，则关闭当前实例并复用已有实例。
+// 任一登记前失败都会同步尝试 cleanup；Close 失败时保留 owner 供 EnsureClient 或 Manager.Close 重试。
 func (m *manager) createAndRegisterClient(ctx context.Context, cfg workspaceConfig) (Client, error) {
 	if m.factory == nil {
 		return nil, ErrClientFactoryNil
@@ -336,21 +426,21 @@ func (m *manager) createAndRegisterClient(ctx context.Context, cfg workspaceConf
 	}
 	configureClientWorkspace(client, cfg)
 	if err := client.Initialize(ctx, cfg.rootURI); err != nil {
-		_ = client.Close()
-		return nil, fmt.Errorf("initialize LSP client: %w", err)
+		cleanupErr := m.cleanupProvisionalClient(cfg.key, client, false)
+		return nil, joinProvisionalClientError(fmt.Errorf("initialize LSP client: %w", err), cleanupErr)
 	}
 
 	m.mu.Lock()
 	if m.closed || m.retiring {
 		m.mu.Unlock()
-		_ = shutdownClients([]Client{client})
-		return nil, ErrManagerClosed
+		cleanupErr := m.cleanupProvisionalClient(cfg.key, client, true)
+		return nil, joinProvisionalClientError(ErrManagerClosed, cleanupErr)
 	}
 	if workspace := m.workspaces[cfg.key]; workspace != nil && workspace.client != nil {
 		existing := workspace.client
 		m.mu.Unlock()
-		_ = shutdownClients([]Client{client})
-		return existing, nil
+		cleanupErr := m.cleanupProvisionalClient(cfg.key, client, true)
+		return existing, joinProvisionalClientError(nil, cleanupErr)
 	}
 	m.workspaces[cfg.key] = &workspaceClient{
 		key:              cfg.key,
@@ -411,7 +501,6 @@ func (m *manager) DidChange(ctx context.Context, uri string, version int, change
 	if err != nil {
 		return err
 	}
-	m.touchWorkspaceActivity(client)
 	err = m.withPooledClient(client, func() error {
 		return client.DidChange(ctx, ref.uri, version, changes)
 	})
@@ -683,23 +772,6 @@ func clientHealthy(client Client) bool {
 	return true
 }
 
-// touchWorkspaceActivity 更新拥有该 client 的 workspace 最近活动时间。
-// recycler 依赖这个时间判断 idle shutdown，所有请求/通知路径都应在使用 client 后触发。
-func (m *manager) touchWorkspaceActivity(client Client) {
-	if m == nil || client == nil {
-		return
-	}
-	now := time.Now()
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, workspace := range m.workspaces {
-		if workspace != nil && workspace.client == client {
-			workspace.lastActivity = now
-			return
-		}
-	}
-}
-
 // isClientDeadError 判断错误是否代表底层 LSP client 已不可继续复用。
 // 除显式 sentinel 外，也兼容常见进程管道关闭文本，便于触发重建而不是继续写死连接。
 func isClientDeadError(err error) bool {
@@ -712,7 +784,6 @@ func isClientDeadError(err error) bool {
 	message := strings.ToLower(err.Error())
 	return strings.Contains(message, "transport closed") ||
 		strings.Contains(message, "client closed") ||
-		strings.Contains(message, "no longer bound to an active workspace") ||
 		strings.Contains(message, "broken pipe") ||
 		strings.Contains(message, "connection reset") ||
 		strings.Contains(message, "use of closed")

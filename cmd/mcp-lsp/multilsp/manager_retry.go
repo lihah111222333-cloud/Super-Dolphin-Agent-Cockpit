@@ -68,7 +68,6 @@ func (m *manager) request(ctx context.Context, client Client, method string, par
 }
 
 func (m *manager) requestOnce(ctx context.Context, client Client, method string, params any) (json.RawMessage, error) {
-	m.touchWorkspaceActivity(client)
 	var raw json.RawMessage
 	err := m.withPooledClient(client, func() error {
 		var requestErr error
@@ -78,7 +77,19 @@ func (m *manager) requestOnce(ctx context.Context, client Client, method string,
 	return raw, err
 }
 
+// handleRequestFailure 区分发送前失绑定、可重放死连接与不可重放失败。
+// 只有白名单内的幂等读请求能在发送前失绑定后按显式 URI 重建并重放。
 func (m *manager) handleRequestFailure(ctx context.Context, client Client, method string, params any, err error) (json.RawMessage, error) {
+	if errors.Is(err, ErrClientNotBound) {
+		if !canAutoRetryDeadClientRequest(method) {
+			return nil, fmt.Errorf("%s: %w", method, err)
+		}
+		retried, retryErr := m.retryRequestAfterUnboundClient(ctx, method, params, err)
+		if retryErr != nil {
+			return nil, fmt.Errorf("%s: %w", method, retryErr)
+		}
+		return retried, nil
+	}
 	if !isClientDeadError(err) {
 		return nil, fmt.Errorf("%s: %w", method, err)
 	}
@@ -159,6 +170,73 @@ func (m *manager) retryRequestAfterDeadClient(ctx context.Context, client Client
 	return m.requestOnce(ctx, replacement, method, params)
 }
 
+// retryRequestAfterUnboundClient 仅重放尚未发送的幂等读请求。
+// workspace 必须来自请求参数中的 URI；提取失败时立即返回，禁止猜测或跨 workspace 重建。
+func (m *manager) retryRequestAfterUnboundClient(
+	ctx context.Context,
+	method string,
+	params any,
+	originalErr error,
+) (json.RawMessage, error) {
+	cfg, err := m.workspaceConfigForRetryableRequest(ctx, params)
+	if err != nil {
+		return nil, errors.Join(originalErr, err)
+	}
+	replacement, err := m.ensureClient(ctx, cfg)
+	if err != nil {
+		return nil, errors.Join(originalErr, err)
+	}
+	if replacement == nil {
+		return nil, errors.Join(originalErr, ErrClientClosed)
+	}
+	if err := restoreBootstrappedWorkspace(ctx, m, cfg); err != nil {
+		return nil, errors.Join(originalErr, err)
+	}
+	raw, err := m.requestOnce(ctx, replacement, method, params)
+	if err != nil {
+		return nil, errors.Join(originalErr, err)
+	}
+	return raw, nil
+}
+
+type retryableRequestWorkspaceTarget struct {
+	TextDocument struct {
+		URI string
+	}
+	Item struct {
+		URI string
+	}
+}
+
+// workspaceConfigForRetryableRequest 只从请求参数的 textDocument/item URI 解析目标 workspace。
+// URI 缺失、编码失败或解析失败均立即返回错误，禁止使用当前上下文猜测 workspace。
+func (m *manager) workspaceConfigForRetryableRequest(ctx context.Context, params any) (workspaceConfig, error) {
+	payload, err := json.Marshal(params)
+	if err != nil {
+		return workspaceConfig{}, fmt.Errorf("encode retryable LSP request workspace target: %w", err)
+	}
+	var target retryableRequestWorkspaceTarget
+	if err := json.Unmarshal(payload, &target); err != nil {
+		return workspaceConfig{}, fmt.Errorf("decode retryable LSP request workspace target: %w", err)
+	}
+	uri := target.TextDocument.URI
+	if uri == "" {
+		uri = target.Item.URI
+	}
+	if uri == "" {
+		return workspaceConfig{}, fmt.Errorf("retryable LSP request %T has no document URI", params)
+	}
+	ref, err := m.resolveDocumentRef(ctx, uri, "")
+	if err != nil {
+		return workspaceConfig{}, fmt.Errorf("resolve retryable LSP request document %q: %w", uri, err)
+	}
+	cfg, err := m.resolveWorkspaceForDocument(ctx, ref)
+	if err != nil {
+		return workspaceConfig{}, fmt.Errorf("resolve retryable LSP request workspace %q: %w", uri, err)
+	}
+	return cfg, nil
+}
+
 func (m *manager) nonReplayableDeadClientError(ctx context.Context, client Client, err error) error {
 	if repairErr := m.rebuildClientAfterNonReplayableFailure(ctx, client); repairErr != nil {
 		return errors.Join(ErrClientClosed, err, repairErr)
@@ -180,23 +258,34 @@ func (m *manager) rebuildClientAfterNonReplayableFailure(ctx context.Context, cl
 // rebuildClientAfterFailure 在 client 失效后摘除旧连接并按原 workspace 配置重建。
 // restore=true 时会恢复 bootstrap 过的文档状态；诊断代际会先推进，防止旧推送覆盖新 client。
 func (m *manager) rebuildClientAfterFailure(ctx context.Context, client Client, restore bool) (Client, error) {
+	m.ensureMu.Lock()
 	detached := m.detachClient(client)
 	if detached == nil || detached.client == nil {
+		m.ensureMu.Unlock()
 		return nil, ErrClientClosed
 	}
 	m.AdvanceDiagnosticGeneration()
-	_ = shutdownClients([]Client{detached.client})
+	shutdownErr, closeErr := shutdownWorkspaceClient(detached.client)
+	if closeErr != nil {
+		restoreDetachedWorkspaceClient(m, detached)
+		m.ensureMu.Unlock()
+		return nil, errors.Join(
+			fmt.Errorf("close failed LSP client before rebuild: %w", closeErr),
+			shutdownErr,
+		)
+	}
 	cfg := workspaceConfigFromClient(*detached)
+	m.ensureMu.Unlock()
 	replacement, ensureErr := m.ensureClient(ctx, cfg)
 	if ensureErr != nil {
-		return nil, ensureErr
+		return nil, errors.Join(shutdownErr, ensureErr)
 	}
 	if restore {
 		if err := restoreBootstrappedWorkspace(ctx, m, cfg); err != nil {
-			return replacement, err
+			return replacement, errors.Join(shutdownErr, err)
 		}
 	}
-	return replacement, nil
+	return replacement, shutdownErr
 }
 
 func workspaceConfigFromClient(workspace workspaceClient) workspaceConfig {

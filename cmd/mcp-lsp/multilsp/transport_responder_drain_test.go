@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
 )
 
 // newTestTransport builds an in-memory transport shell (no subprocess)
@@ -127,5 +129,284 @@ func TestTransportReadFailureWaitsForProcessErrorOnEOF(t *testing.T) {
 	got := tr.readFailure(io.EOF)
 	if !errors.Is(got, want) {
 		t.Fatalf("readFailure(io.EOF) = %v, want process error %v", got, want)
+	}
+}
+
+type countingProcessTreeOwner struct {
+	terminateCalls atomic.Int32
+	releaseCalls   atomic.Int32
+	rssCalls       atomic.Int32
+	rss            uint64
+	releaseErr     error
+}
+
+func (o *countingProcessTreeOwner) Terminate() error {
+	o.terminateCalls.Add(1)
+	return nil
+}
+
+func (o *countingProcessTreeOwner) Release() error {
+	call := o.releaseCalls.Add(1)
+	if call == 1 && o.releaseErr != nil {
+		return o.releaseErr
+	}
+	return nil
+}
+
+func (o *countingProcessTreeOwner) RSSBytes() (uint64, error) {
+	o.rssCalls.Add(1)
+	return o.rss, nil
+}
+
+func TestTransportConcurrentCloseTerminatesExplicitOwnerOnce(t *testing.T) {
+	owner := &countingProcessTreeOwner{}
+	done := make(chan struct{})
+	close(done)
+	tr := &transport{
+		processTree: owner,
+		pending:     map[string]chan pendingResult{},
+		done:        done,
+	}
+	const closeCount = 16
+	errs := make(chan error, closeCount)
+	var closers sync.WaitGroup
+	for range closeCount {
+		closers.Go(func() {
+			errs <- tr.Close()
+		})
+	}
+	closers.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent Close() error = %v", err)
+		}
+	}
+	if got := owner.terminateCalls.Load(); got != 1 {
+		t.Fatalf("Terminate() calls = %d, want 1", got)
+	}
+	if got := owner.releaseCalls.Load(); got != 1 {
+		t.Fatalf("Release() calls = %d, want 1", got)
+	}
+}
+
+func TestTransportCloseRetriesProcessTreeReleaseAfterFailure(t *testing.T) {
+	releaseErr := errors.New("injected process-tree release failure")
+	owner := &countingProcessTreeOwner{releaseErr: releaseErr}
+	tr := newTestTransportWithExitedProcess()
+	tr.processTree = owner
+
+	if err := tr.Close(); !errors.Is(err, releaseErr) {
+		t.Fatalf("first Close() error = %v, want %v", err, releaseErr)
+	}
+	if err := tr.Close(); err != nil {
+		t.Fatalf("retry Close() error = %v, want nil", err)
+	}
+	if got := owner.terminateCalls.Load(); got != 1 {
+		t.Fatalf("Terminate() calls = %d, want 1", got)
+	}
+	if got := owner.releaseCalls.Load(); got != 2 {
+		t.Fatalf("Release() calls = %d, want 2", got)
+	}
+	if err := tr.Close(); err != nil {
+		t.Fatalf("completed Close() error = %v, want nil", err)
+	}
+	if got := owner.releaseCalls.Load(); got != 2 {
+		t.Fatalf("Release() calls after completed Close = %d, want 2", got)
+	}
+}
+
+func TestTransportProcessTreeRSSUsesExplicitOwner(t *testing.T) {
+	owner := &countingProcessTreeOwner{rss: 4096}
+	tr := &transport{processTree: owner}
+	got, err := tr.processTreeRSSBytes()
+	if err != nil {
+		t.Fatalf("processTreeRSSBytes() error = %v", err)
+	}
+	if got != owner.rss {
+		t.Fatalf("processTreeRSSBytes() = %d, want %d", got, owner.rss)
+	}
+	if calls := owner.rssCalls.Load(); calls != 1 {
+		t.Fatalf("RSSBytes() calls = %d, want 1", calls)
+	}
+}
+
+func TestTransportResponderHandlerUsesActorContext(t *testing.T) {
+	type actorContextKey struct{}
+	actorCtx, cancelActors := context.WithCancel(context.WithValue(context.Background(), actorContextKey{}, "actor"))
+	releaseHandler := make(chan struct{})
+	defer close(releaseHandler)
+	handlerEntered := make(chan struct{})
+	handlerExited := make(chan struct{})
+	var actorContextMatched atomic.Bool
+
+	tr := newTestTransport()
+	tr.actorCtx = actorCtx
+	tr.cancelActors = cancelActors
+	tr.requestHandler = func(ctx context.Context, _ string, _ json.RawMessage) (any, error) {
+		actorContextMatched.Store(ctx.Value(actorContextKey{}) == "actor")
+		close(handlerEntered)
+		defer close(handlerExited)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-releaseHandler:
+			return struct{}{}, nil
+		}
+	}
+
+	tr.spawnResponder(protocol.Envelope{Method: "client/registerCapability", ID: json.RawMessage(`1`)})
+	<-handlerEntered
+	tr.cancelActorContext()
+	if err := tr.drainResponders(250 * time.Millisecond); err != nil {
+		t.Fatalf("drainResponders() after actor cancellation error = %v", err)
+	}
+	if !actorContextMatched.Load() {
+		t.Fatal("request handler did not receive transport actor context")
+	}
+	select {
+	case <-handlerExited:
+	default:
+		t.Fatal("request handler did not exit after actor context cancellation")
+	}
+}
+
+func TestTransportConcurrentCloseSharesResponderDrain(t *testing.T) {
+	handlerEntered := make(chan struct{})
+	releaseHandler := make(chan struct{})
+	tr := newTestTransportWithExitedProcess()
+	tr.requestHandler = func(context.Context, string, json.RawMessage) (any, error) {
+		close(handlerEntered)
+		<-releaseHandler
+		return struct{}{}, nil
+	}
+	tr.spawnResponder(protocol.Envelope{Method: "client/registerCapability", ID: json.RawMessage(`1`)})
+	<-handlerEntered
+
+	const closeCount = 8
+	results := make(chan error, closeCount)
+	runtimesafe.SafeGo(t.Context(), nil, "multilsp.transport.concurrent-close.owner.test", func(context.Context) {
+		results <- tr.Close()
+	})
+	waitForTransportClosed(t, tr)
+	for range closeCount - 1 {
+		runtimesafe.SafeGo(t.Context(), nil, "multilsp.transport.concurrent-close.peer.test", func(context.Context) {
+			results <- tr.Close()
+		})
+	}
+	select {
+	case err := <-results:
+		close(releaseHandler)
+		t.Fatalf("concurrent Close returned before shared responder drain completed: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(releaseHandler)
+	for range closeCount {
+		if err := <-results; err != nil {
+			t.Fatalf("concurrent Close() error = %v", err)
+		}
+	}
+}
+
+func TestTransportCloseRetriesResponderDrainAfterTimeout(t *testing.T) {
+	handlerEntered := make(chan struct{})
+	releaseHandler := make(chan struct{})
+	tr := newTestTransportWithExitedProcess()
+	tr.requestHandler = func(context.Context, string, json.RawMessage) (any, error) {
+		close(handlerEntered)
+		<-releaseHandler
+		return struct{}{}, nil
+	}
+	tr.spawnResponder(protocol.Envelope{Method: "client/registerCapability", ID: json.RawMessage(`1`)})
+	<-handlerEntered
+
+	if err := tr.Close(); err == nil {
+		close(releaseHandler)
+		t.Fatal("first Close() error = nil, want responder drain timeout")
+	}
+	retryResult := make(chan error, 1)
+	runtimesafe.SafeGo(t.Context(), nil, "multilsp.transport.retry-close.test", func(context.Context) {
+		retryResult <- tr.Close()
+	})
+	select {
+	case err := <-retryResult:
+		close(releaseHandler)
+		t.Fatalf("retry Close returned before responder cleanup completed: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(releaseHandler)
+	if err := <-retryResult; err != nil {
+		t.Fatalf("retry Close() error = %v, want successful retained cleanup", err)
+	}
+}
+
+func newTestTransportWithExitedProcess() *transport {
+	tr := newTestTransport()
+	close(tr.done)
+	return tr
+}
+
+func waitForTransportClosed(t *testing.T, tr *transport) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for !tr.closed.Load() && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if !tr.closed.Load() {
+		t.Fatal("timed out waiting for transport Close to seal admission")
+	}
+}
+
+func TestTransportResponderAdmissionAndCloseUseSameBarrier(t *testing.T) {
+	tr := newTestTransportWithExitedProcess()
+	tr.responderMu.Lock()
+	barrierLocked := true
+	defer func() {
+		if barrierLocked {
+			tr.responderMu.Unlock()
+		}
+	}()
+
+	start := make(chan struct{})
+	ready := make(chan struct{}, 2)
+	spawnReturned := make(chan struct{})
+	closeReturned := make(chan error, 1)
+	runtimesafe.SafeGo(t.Context(), nil, "multilsp.transport.admission-spawn.test", func(context.Context) {
+		ready <- struct{}{}
+		<-start
+		tr.spawnResponder(protocol.Envelope{Method: "client/registerCapability", ID: json.RawMessage(`1`)})
+		close(spawnReturned)
+	})
+	runtimesafe.SafeGo(t.Context(), nil, "multilsp.transport.admission-close.test", func(context.Context) {
+		ready <- struct{}{}
+		<-start
+		closeReturned <- tr.Close()
+	})
+	<-ready
+	<-ready
+	close(start)
+
+	select {
+	case <-spawnReturned:
+		t.Fatal("spawnResponder bypassed the responder admission barrier")
+	case err := <-closeReturned:
+		t.Fatalf("Close bypassed the responder admission barrier: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	tr.responderMu.Unlock()
+	barrierLocked = false
+
+	select {
+	case <-spawnReturned:
+	case <-time.After(time.Second):
+		t.Fatal("spawnResponder remained blocked after admission barrier release")
+	}
+	select {
+	case err := <-closeReturned:
+		if err != nil {
+			t.Fatalf("Close() after admission barrier release error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Close remained blocked after admission barrier release")
 	}
 }

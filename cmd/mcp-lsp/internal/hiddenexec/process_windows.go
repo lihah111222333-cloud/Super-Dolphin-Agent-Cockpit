@@ -9,6 +9,7 @@ import (
 
 const (
 	createNewProcessGroup = 0x00000200
+	createSuspended       = 0x00000004
 	createNoWindow        = 0x08000000
 )
 

@@ -379,6 +379,7 @@ func defaultBackendBoundaryOwners(patterns backendBoundaryPatterns) []BackendBou
 	}
 }
 
+// defaultBackendBoundaryRules 汇总仓库默认启用的后端依赖边界规则。
 func defaultBackendBoundaryRules(patterns backendBoundaryPatterns) []BackendBoundaryRule {
 	return []BackendBoundaryRule{
 		defaultContractReversePollutionRule(patterns),

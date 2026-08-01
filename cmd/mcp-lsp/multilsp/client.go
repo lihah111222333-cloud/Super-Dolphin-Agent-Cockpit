@@ -12,11 +12,15 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 )
 
-const methodExit = "exit"
+const (
+	methodExit                 = "exit"
+	gracefulProcessExitTimeout = 500 * time.Millisecond
+)
 
 var (
 	ErrClientClosed       = errors.New("LSP client closed")
@@ -49,6 +53,12 @@ type HealthCheckedClient interface {
 	Healthy() bool
 }
 
+// WrappedClient 允许装饰器暴露真实 transport owner，供进程树、RSS 与跨 worktree 总账统一管理。
+type WrappedClient interface {
+	Client
+	UnderlyingLSPClient() Client
+}
+
 // Options 描述启动 LSP client 时传给 transport、initialize 和回调处理器的配置。
 type Options struct {
 	Binary              string
@@ -68,12 +78,34 @@ type client struct {
 	workspaceFolders     []protocol.WorkspaceFolder
 	dynamicRegistrations *dynamicRegistrationTracker
 
-	lifecycleMu  sync.Mutex
-	stateMu      sync.RWMutex
-	rootURI      string
-	initialized  bool
-	shutdown     bool
-	capabilities protocol.ServerCapabilities
+	lifecycleMu                 sync.Mutex
+	resourceCleanupMu           sync.Mutex
+	stateMu                     sync.RWMutex
+	rootURI                     string
+	initialized                 bool
+	shutdown                    bool
+	resourceReportsReleased     bool
+	resourceCohortLeaseReleased bool
+	capabilities                protocol.ServerCapabilities
+}
+
+// concreteClient 穿透有限层包装器，定位拥有 transport 与进程资源的真实 client。
+func concreteClient(current Client) (*client, bool) {
+	for range 16 {
+		if typed, ok := current.(*client); ok {
+			return typed, true
+		}
+		wrapped, ok := current.(WrappedClient)
+		if !ok {
+			return nil, false
+		}
+		next := wrapped.UnderlyingLSPClient()
+		if next == nil || next == current {
+			return nil, false
+		}
+		current = next
+	}
+	return nil, false
 }
 
 type dynamicRegistrationTracker struct {
@@ -292,8 +324,19 @@ func (c *client) Shutdown(ctx context.Context) error {
 	if err := c.transport.notify(ctx, methodExit, nil); err != nil && !errors.Is(err, ErrTransportClosed) {
 		return fmt.Errorf("LSP exit notification: %w", err)
 	}
+	// 给整棵服务进程树一个固定的正常退出与缓存落盘窗口；之后由 Close 强制回收残留后代。
+	waitForGracefulProcessTreeExit(ctx, gracefulProcessExitTimeout)
 	c.markShutdown()
 	return nil
+}
+
+func waitForGracefulProcessTreeExit(ctx context.Context, timeout time.Duration) {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-ctx.Done():
+	}
 }
 
 // Request 在 client 仍开放时发送 LSP request 并等待响应。
@@ -363,7 +406,10 @@ func (c *client) DidClose(ctx context.Context, uri string) error {
 // 这是本地资源收尾入口，不会再发送 LSP shutdown 请求。
 func (c *client) Close() error {
 	c.markShutdown()
-	return c.transport.Close()
+	return errors.Join(
+		c.transport.Close(),
+		removeOwnedResourceCohortMember(c),
+	)
 }
 
 // Healthy 报告 client 是否还能被 pool 复用。

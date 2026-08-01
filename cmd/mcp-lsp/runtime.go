@@ -58,6 +58,9 @@ func newManager(cfg *platformconfig.Config) (*Manager, error) {
 	if cfg == nil {
 		return nil, errors.New("platform config is required")
 	}
+	if err := multilsp.ValidateResourceLimitEnvironment(); err != nil {
+		return nil, err
+	}
 	root, err := runtimeRoot()
 	if err != nil {
 		return nil, err
@@ -510,37 +513,16 @@ func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *
 		DiagnosticsMaxWait:               runtimeAdapterDiagnosticsMaxWait(adapter),
 		DisableInitialWorkspaceBootstrap: true,
 		ClientFactory: multilsp.ClientFactoryWithEnvFunc(func(rootDir string, env []string, h protocol.NotificationHandler) (multilsp.Client, error) {
-			// rootDir 来自本次 workspace 解析结果；语言服务器子进程跟随项目启动。
-			// gopls 只在 Go 构建环境兼容时共享 cohort，避免首个 session 的基础环境污染后续 workspace。
-			dir := rootDir
-			if strings.TrimSpace(dir) == "" {
-				dir = root
-			}
-			serverArgs := runtimeServerArgs(command, env)
-			sqliteWorkspace := false
-			if adapterSupportsLanguage(adapter, "sql") {
-				var workspaceErr error
-				sqliteWorkspace, workspaceErr = isSQLiteDiagnosticsWorkspace(dir)
-				if workspaceErr != nil {
-					return nil, workspaceErr
-				}
-			}
-			notificationHandler := h
-			if sqliteWorkspace {
-				notificationHandler = &sqlDiagnosticNotificationHandler{root: dir, next: h}
-			}
-			client, err := multilsp.NewClientWithOptions(multilsp.Options{
-				Binary:              binary.Get(),
-				Args:                serverArgs,
-				Dir:                 dir,
-				Env:                 env,
-				InitOptions:         runtimeAdapterInitOptionsWithBinary(adapter, packagedLSP, binary.Get()),
-				NotificationHandler: notificationHandler,
-			})
-			if err != nil || !sqliteWorkspace {
-				return client, err
-			}
-			return newSQLDiagnosticClient(client, dir, h)
+			return createRuntimeLSPClient(
+				adapter,
+				command,
+				root,
+				packagedLSP,
+				binary,
+				rootDir,
+				env,
+				h,
+			)
 		}),
 		Logger: log,
 	})
@@ -555,6 +537,31 @@ func runtimeAdapterDiagnosticsMaxWait(adapter multilsp.LanguageAdapter) time.Dur
 }
 
 const packagedPyrightNoSystemPythonPath = "/__super_dolphin_no_system_python__/python"
+
+const (
+	runtimeJSTSMaxMemoryMB     = runtimeNodeMaxOldSpaceMB
+	runtimeJSTSUseSyntaxServer = "never"
+)
+
+var runtimeNodeLanguageIDs = map[string]struct{}{
+	"css": {}, "dockerfile": {}, "graphql": {}, "html": {},
+	"javascript": {}, "javascriptreact": {}, "json": {}, "markdown": {},
+	"php": {}, "prisma": {}, "python": {}, "shellscript": {},
+	"svelte": {}, "typescript": {}, "typescriptreact": {}, "vue": {}, "yaml": {},
+}
+
+// runtimeAdapterUsesNode 只为已知 Node 驱动的 adapter 开启 Node 专属堆与编译缓存策略。
+func runtimeAdapterUsesNode(adapter multilsp.LanguageAdapter) bool {
+	if adapter == nil {
+		return false
+	}
+	for _, languageID := range adapter.LanguageIDs() {
+		if _, ok := runtimeNodeLanguageIDs[strings.ToLower(strings.TrimSpace(languageID))]; ok {
+			return true
+		}
+	}
+	return false
+}
 
 // runtimeAdapterInitOptions 复制适配器 init options 并补充打包 LSP 的运行约束。
 // 打包 Pyright 使用哨兵 pythonPath，防止它隐式探测系统 Python 造成跨环境差异。
@@ -586,8 +593,8 @@ func runtimeAdapterInitOptionsWithBinary(adapter multilsp.LanguageAdapter, packa
 	return initOptions
 }
 
-// runtimeJSTSInitOptions 为 JS/TS language server 注入 tsserver 后备路径。
-// typescript-language-server 只有在工作区 TypeScript 查找失败后才会使用该后备路径。
+// runtimeJSTSInitOptions 为 JS/TS language server 注入受管 tsserver 运行策略和后备路径。
+// 每个 worktree 保留独立语义服务，但禁用额外 syntax server，并由跨进程 cohort RSS 总账约束总内存。
 func runtimeJSTSInitOptions(adapter multilsp.LanguageAdapter, initOptions map[string]any, serverBinary string) map[string]any {
 	if !runtimeAdapterUsesJSTS(adapter) {
 		return initOptions
@@ -600,6 +607,8 @@ func runtimeJSTSInitOptions(adapter multilsp.LanguageAdapter, initOptions map[st
 		tsserver = map[string]any{}
 		initOptions["tsserver"] = tsserver
 	}
+	initOptions["maxTsServerMemory"] = runtimeJSTSMaxMemoryMB
+	tsserver["useSyntaxServer"] = runtimeJSTSUseSyntaxServer
 	configuredPath := runtimeStringOption(tsserver["path"])
 	fallbackPath := runtimeStringOption(tsserver["fallbackPath"])
 	if configuredPath == "" && (fallbackPath == "" || fallbackPath == jstsTSServerFallbackPath) {

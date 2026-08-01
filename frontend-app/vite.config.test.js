@@ -104,7 +104,13 @@ describe('frontend vite watch config', () => {
 
 describe('frontend unit test discovery', () => {
   it('keeps benchmark and performance scorer suites out of the default unit gate', () => {
-    expect(createFrontendViteConfig({}).test.exclude).toEqual(VITEST_SUITE_POLICY.defaultExcludes);
+    const excludes = createFrontendViteConfig({}).test.exclude;
+    expect(excludes).toEqual(VITEST_SUITE_POLICY.defaultExcludes);
+    expect(excludes).not.toBe(VITEST_SUITE_POLICY.defaultExcludes);
+    expect(Object.isFrozen(VITEST_SUITE_POLICY.defaultExcludes)).toBe(true);
+    expect(Object.isFrozen(excludes)).toBe(false);
+    excludes.push('cli-added-pattern');
+    expect(VITEST_SUITE_POLICY.defaultExcludes).not.toContain('cli-added-pattern');
   });
 
   it.each([

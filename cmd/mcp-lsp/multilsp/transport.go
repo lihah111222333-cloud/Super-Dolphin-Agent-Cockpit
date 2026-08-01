@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -18,6 +19,7 @@ import (
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 const (
@@ -37,9 +39,21 @@ type transportOptions struct {
 	RequestHandler      ServerRequestHandler
 }
 
+type processTreeOwner interface {
+	Terminate() error
+	Release() error
+	RSSBytes() (uint64, error)
+}
+
+type transportCloseAttempt struct {
+	done   chan struct{}
+	result error
+}
+
 // transport 封装 LSP 子进程的 stdin/stdout 通信，管理 pending 请求和响应派发。
 type transport struct {
 	cmd                 *exec.Cmd
+	processTree         processTreeOwner
 	stdin               io.WriteCloser
 	stdinMu             sync.Mutex
 	stdout              *bufio.Reader
@@ -51,16 +65,23 @@ type transport struct {
 	pending             map[string]chan pendingResult
 	nextID              atomic.Int64
 	closed              atomic.Bool
+	closeMu             sync.Mutex
+	closeAttempt        *transportCloseAttempt
+	closeComplete       bool
+	closeResult         error
 	done                chan struct{}
 	doneMu              sync.Mutex
 	doneErr             error
+	terminationOnce     sync.Once
+	terminationErr      error
+	treeReleaseMu       sync.Mutex
+	treeReleased        bool
 	actorCtx            context.Context
 	cancelActors        context.CancelFunc
 
-	// responderWG 跟踪服务端主动请求产生的响应 goroutine。
-	// dispatchMessage 必须先 Add 再启动 goroutine；Close 在固定超时内等待它们退出，
-	// 避免 transport 已关闭后仍有写响应的后台任务泄漏。
-	responderWG sync.WaitGroup
+	responderMu              sync.Mutex
+	responderAdmissionClosed bool
+	responderWG              sync.WaitGroup
 }
 
 // pendingResult 保存单次 LSP 请求的响应结果，通过 channel 传回调用方。
@@ -71,13 +92,14 @@ type pendingResult struct {
 
 // newTransport 启动 LSP 子进程并初始化 transport，启动 readLoop 和 wait goroutine。
 func newTransport(options transportOptions) (*transport, error) {
-	cmd, stdin, stdout, stderr, err := startTransport(options)
+	cmd, processTree, stdin, stdout, stderr, err := startTransport(options)
 	if err != nil {
 		return nil, err
 	}
 	actorCtx, cancelActors := context.WithCancel(context.Background())
 	t := &transport{
 		cmd:                 cmd,
+		processTree:         processTree,
 		stdin:               stdin,
 		stdout:              bufio.NewReader(stdout),
 		stderr:              stderr,
@@ -164,7 +186,9 @@ func (t *transport) dispatchMessage(payload json.RawMessage) error {
 // spawnResponder 为服务端主动请求启动受 transport 管理的响应 goroutine。
 // 它在启动前登记 WaitGroup，Close 可等待响应写入完成；若已关闭则直接丢弃，避免关停阶段新增后台写入。
 func (t *transport) spawnResponder(envelope protocol.Envelope) {
-	if t.closed.Load() {
+	t.responderMu.Lock()
+	defer t.responderMu.Unlock()
+	if t.responderAdmissionClosed || t.closed.Load() {
 		return
 	}
 	t.responderWG.Go(func() {
@@ -175,6 +199,16 @@ func (t *transport) spawnResponder(envelope protocol.Envelope) {
 		}()
 		t.respondToServerRequest(envelope)
 	})
+}
+
+// sealResponderAdmission 与 spawnResponder 共用互斥闸门，确保 Wait 开始后不会再登记 responder。
+func (t *transport) sealResponderAdmission() bool {
+	t.responderMu.Lock()
+	defer t.responderMu.Unlock()
+	first := !t.responderAdmissionClosed
+	t.responderAdmissionClosed = true
+	t.closed.Store(true)
+	return first
 }
 
 // handleResponse 将收到的响应分发给对应的 pending 等待通道。
@@ -213,7 +247,7 @@ func (t *transport) handleNotification(payload json.RawMessage) error {
 
 // respondToServerRequest 执行服务端请求并写回响应。
 func (t *transport) respondToServerRequest(request protocol.Envelope) {
-	result, err := t.serverRequestResult(context.Background(), request.Method, request.Params)
+	result, err := t.serverRequestResult(platformshared.NonNilContext(t.actorCtx), request.Method, request.Params)
 	message, err := buildServerResponse(request.ID, result, err)
 	if err != nil {
 		t.stopWithError(err)
@@ -246,8 +280,67 @@ func buildServerResponse(id json.RawMessage, result any, err error) (any, error)
 	return protocol.BuildErrorResponse(id, jsonRPCInternalError, err.Error(), nil)
 }
 
+// 以下声明集中维护多语言 LSP transport 允许自动 ACK 的服务端主动请求。
+// 未列入集合的方法必须返回 ErrMethodNotSupported，由上层映射为 JSON-RPC MethodNotFound，
+// 避免未知服务端请求被静默确认。
+
+// 服务端主动请求中可用空 struct 结果 ACK 的方法集合。
+const (
+	LSPCompatMethodClientRegisterCapability     = "client/registerCapability"
+	LSPCompatMethodClientUnregisterCapability   = "client/unregisterCapability"
+	LSPCompatMethodWindowWorkDoneProgressCreate = "window/workDoneProgress/create"
+)
+
+// workspace/*/refresh 系列请求同样只需要空 struct 结果。
+const (
+	LSPCompatMethodWorkspaceSemanticTokensRefresh = "workspace/semanticTokens/refresh"
+	LSPCompatMethodWorkspaceCodeLensRefresh       = "workspace/codeLens/refresh"
+	LSPCompatMethodWorkspaceInlayHintRefresh      = "workspace/inlayHint/refresh"
+	LSPCompatMethodWorkspaceDiagnosticRefresh     = "workspace/diagnostic/refresh"
+)
+
+// workspace/configuration 需要返回与请求 items 等长的空配置数组。
+const LSPCompatMethodWorkspaceConfiguration = "workspace/configuration"
+
+// lspCompatEmptyStructMethods 是 transport 会以 struct{}{} ACK 的完整方法表。
+// 新增兼容方法必须先落到这里，避免分散在 transport 分支里形成隐式放行。
+var lspCompatEmptyStructMethods = []string{
+	LSPCompatMethodClientRegisterCapability,
+	LSPCompatMethodClientUnregisterCapability,
+	LSPCompatMethodWindowWorkDoneProgressCreate,
+	LSPCompatMethodWorkspaceSemanticTokensRefresh,
+	LSPCompatMethodWorkspaceCodeLensRefresh,
+	LSPCompatMethodWorkspaceInlayHintRefresh,
+	LSPCompatMethodWorkspaceDiagnosticRefresh,
+}
+
+func isLSPCompatEmptyStructMethod(method string) bool {
+	return slices.Contains(lspCompatEmptyStructMethods, method)
+}
+
+// dispatchCompatServerRequest 根据兼容方法表处理服务端主动请求。
+// 命中兼容表时记录稳定事件供诊断统计；未命中的方法返回 ErrMethodNotSupported，不做静默 ACK。
+func dispatchCompatServerRequest(method string, params json.RawMessage) (any, error) {
+	if isLSPCompatEmptyStructMethod(method) {
+		pkglogger.Get().Info("LSP compat fallback hit",
+			"event", "gopls.compat_fallback.hit",
+			"method", method,
+			"variant", "empty_struct",
+		)
+		return struct{}{}, nil
+	}
+	if method == LSPCompatMethodWorkspaceConfiguration {
+		pkglogger.Get().Info("LSP compat fallback hit",
+			"event", "gopls.compat_fallback.hit",
+			"method", method,
+			"variant", "workspace_configuration",
+		)
+		return emptyConfigurationResult(params), nil
+	}
+	return nil, fmt.Errorf("%w: %s", ErrMethodNotSupported, method)
+}
+
 // defaultServerRequestResult 是 transport 回答服务端主动请求的默认入口。
-// 支持的方法集合和响应形状集中在 transport_compat.go，本文件只负责 JSON-RPC 分发胶水。
 func defaultServerRequestResult(method string, params json.RawMessage) (any, error) {
 	return dispatchCompatServerRequest(method, params)
 }

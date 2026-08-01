@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -143,8 +144,104 @@ func TestGoRSSLimitUsesLanguageSpecificDefault(t *testing.T) {
 }
 
 func TestGenericRSSLimitUsesDefaultLimit(t *testing.T) {
-	if got := rssLimitBytesForLanguage("typescript"); got != defaultRSSLimitBytes {
-		t.Fatalf("rssLimitBytesForLanguage(typescript) = %d, want %d", got, defaultRSSLimitBytes)
+	if got := rssLimitBytesForLanguage("typescript"); got != defaultCohortHardLimitBytes {
+		t.Fatalf("rssLimitBytesForLanguage(typescript) = %d, want %d", got, defaultCohortHardLimitBytes)
+	}
+}
+
+func TestWindowsGoplsUsesStandaloneFourGiBProcessLimit(t *testing.T) {
+	if got := rssLimitBytesForLanguageOnOS("go", "windows"); got != defaultGoplsCohortHardLimitBytes {
+		t.Fatalf("Windows standalone gopls RSS limit = %d, want %d", got, defaultGoplsCohortHardLimitBytes)
+	}
+}
+
+func TestValidateResourceLimitEnvironmentRejectsInvalidAndInconsistentValues(t *testing.T) {
+	tests := []struct {
+		name  string
+		key   string
+		value string
+	}{
+		{name: "nonnumeric", key: ResourceCohortHardLimitMBEnv, value: "large"},
+		{name: "deprecated owner", key: DeprecatedResourceCohortHardLimitMBEnv, value: "15360"},
+		{name: "zero", key: goplsCohortHardLimitEnv, value: "0"},
+		{
+			name:  "overflow",
+			key:   ResourceCohortHardLimitMBEnv,
+			value: strconv.FormatUint(^uint64(0)/(1024*1024)+1, 10),
+		},
+		{name: "local below cohort", key: lspRSSLimitEnv, value: "2048"},
+		{name: "gopls heap reaches cohort", key: lspGoplsHeapLimitEnv, value: "4096"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			clearResourceLimitEnvironmentForTest(t)
+			t.Setenv(test.key, test.value)
+			if err := ValidateResourceLimitEnvironment(); err == nil {
+				t.Fatalf("ValidateResourceLimitEnvironment() accepted %s=%q", test.key, test.value)
+			}
+		})
+	}
+}
+
+func TestValidateResourceLimitEnvironmentAcceptsConsistentOverrides(t *testing.T) {
+	clearResourceLimitEnvironmentForTest(t)
+	t.Setenv(lspRSSLimitEnv, "16384")
+	t.Setenv(ResourceCohortHardLimitMBEnv, "15360")
+	t.Setenv(lspGoplsHeapLimitEnv, "3584")
+	t.Setenv(goplsCohortHardLimitEnv, "4096")
+	if err := ValidateResourceLimitEnvironment(); err != nil {
+		t.Fatalf("ValidateResourceLimitEnvironment() error = %v", err)
+	}
+}
+
+func clearResourceLimitEnvironmentForTest(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{
+		lspRSSLimitEnv,
+		lspGoRSSLimitEnv,
+		lspGoplsHeapLimitEnv,
+		ResourceCohortHardLimitMBEnv,
+		goplsCohortHardLimitEnv,
+	} {
+		t.Setenv(key, "")
+	}
+}
+
+func TestIdleTimeoutUsesLanguageRuntimeBudget(t *testing.T) {
+	tests := []struct {
+		languageID string
+		want       time.Duration
+	}{
+		{languageID: "go", want: idleTimeout},
+		{languageID: "typescript", want: idleTimeout},
+		{languageID: "python", want: idleTimeout},
+		{languageID: "rust", want: idleTimeout},
+	}
+	for _, test := range tests {
+		t.Run(test.languageID, func(t *testing.T) {
+			if got := idleTimeoutForLanguage(test.languageID); got != test.want {
+				t.Fatalf("idleTimeoutForLanguage(%q) = %s, want %s", test.languageID, got, test.want)
+			}
+		})
+	}
+}
+
+func TestDetachIdleWorkspaceRechecksConcurrentActivity(t *testing.T) {
+	client := &p2LifecycleClient{}
+	key := "workspace"
+	cutoff := time.Now().Add(-idleTimeout)
+	mgr := &manager{workspaces: map[string]*workspaceClient{
+		key: {
+			key:          key,
+			client:       client,
+			lastActivity: time.Now(),
+		},
+	}}
+	if detached := detachWorkspaceClientIfStillIdle(mgr, key, client, cutoff); detached != nil {
+		t.Fatal("detachWorkspaceClientIfStillIdle() removed a workspace touched after the stale snapshot")
+	}
+	if got := mgr.workspaces[key]; got == nil || got.client != client {
+		t.Fatal("recently touched workspace was not preserved")
 	}
 }
 
@@ -189,6 +286,71 @@ func TestPoolRecyclerIdleWorkspaceWinsOverRSSRecycle(t *testing.T) {
 	assertIdleRecyclerDebugLog(t, logs.String())
 }
 
+func TestPoolRecyclerIdleShutdownReportsCleanupFailure(t *testing.T) {
+	root := canonicalScopePath(t.TempDir(), "")
+	target := filepath.Join(root, "main.go")
+	writeGenericTestFile(t, target, "package main\n")
+	factory := &p2LifecycleFactory{}
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory, Logger: logger}).(*manager)
+	t.Cleanup(func() { _ = mgr.Close() })
+	scoped := scopedManagerForTest(t, mgr, testLSPToolScope(root, "agent-idle-error", "thread-1"))
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: root})
+	client, err := scoped.EnsureClient(ctx, target, "go")
+	if err != nil {
+		t.Fatalf("EnsureClient(scoped): %v", err)
+	}
+	first := factory.clientAt(t, 0)
+	first.shutdownFailure = errors.New("shutdown failed at " + root)
+	first.closeFailure = errors.New("close failed at " + root)
+	forceWorkspaceLastActivity(t, scoped, client, time.Now().Add(-idleTimeout-time.Minute))
+	mgr.pool.recycler.checkIdleWorkspaces(scoped, ResolvedLSPToolScope{
+		ManagerKey: "manager-idle-error",
+		ScopeKey:   "scope-idle-error",
+		LSPToolScope: LSPToolScope{
+			LanguageID: "go",
+		},
+	})
+	if got := logs.String(); !strings.Contains(got, "LSP idle shutdown cleanup failed") || strings.Contains(got, root) {
+		t.Fatalf("idle cleanup failure log is missing or leaked root: %s", got)
+	}
+	if got := snapshotWorkspaceClients(scoped); len(got) != 1 || got[0].client != client {
+		t.Fatalf("cleanup owner after Close failure = %#v, want original client retained", got)
+	}
+	first.closeFailure = nil
+	mgr.pool.recycler.checkIdleWorkspaces(scoped, ResolvedLSPToolScope{
+		ManagerKey: "manager-idle-error",
+		ScopeKey:   "scope-idle-error",
+		LSPToolScope: LSPToolScope{
+			LanguageID: "go",
+		},
+	})
+	if got := snapshotWorkspaceClients(scoped); len(got) != 0 {
+		t.Fatalf("cleanup owner after successful retry = %d, want 0", len(got))
+	}
+}
+
+func TestRecyclerDoesNotStealCleanupOwnerFromClosingManager(t *testing.T) {
+	client := &p2LifecycleClient{healthy: true}
+	workspace := &workspaceClient{key: "workspace-closing-manager", languageID: "go", client: client}
+	mgr := &manager{
+		closed:     true,
+		retiring:   true,
+		workspaces: map[string]*workspaceClient{workspace.key: workspace},
+	}
+	recycled, err := shutdownResourceCohortWorkspace(mgr, *workspace)
+	if err != nil {
+		t.Fatalf("shutdownResourceCohortWorkspace() error = %v", err)
+	}
+	if recycled || client.closed {
+		t.Fatal("recycler stole cleanup ownership from a closing manager")
+	}
+	if got := snapshotWorkspaceClients(mgr); len(got) != 1 || got[0].client != client {
+		t.Fatalf("closing manager cleanup owner = %#v, want original client", got)
+	}
+}
+
 func TestRecyclerProbeFailureHealthAndRecovery(t *testing.T) {
 	root := t.TempDir()
 	secretPath := filepath.Join(root, "private", "workspace")
@@ -219,6 +381,59 @@ func TestRecyclerProbeFailureHealthAndRecovery(t *testing.T) {
 	recycler.recycleIfNeeded(mgr, scope, workspace)
 	health = recycler.HealthSnapshot()
 	assertRecyclerProbeRecoveryHealth(t, health)
+}
+
+func TestRecyclerProbeDegradationFailsClosedForIdleClient(t *testing.T) {
+	client := &p2LifecycleClient{healthy: true}
+	workspace := &workspaceClient{
+		key:          "workspace-probe-degraded",
+		languageID:   "typescript",
+		client:       client,
+		lastActivity: time.Now(),
+	}
+	mgr := &manager{workspaces: map[string]*workspaceClient{workspace.key: workspace}}
+	recycler := newPoolRecycler(nil)
+	recycler.rssProbe = func(Client) (uint64, int, error) {
+		return 0, 0, errors.New("probe unavailable")
+	}
+	for range recyclerProbeDegradedThreshold {
+		recycler.recycleIfNeeded(mgr, ResolvedLSPToolScope{}, *workspace)
+	}
+	if !client.closed {
+		t.Fatal("degraded RSS probe did not fail closed")
+	}
+	if got := snapshotWorkspaceClients(mgr); len(got) != 0 {
+		t.Fatalf("workspace clients after fail-closed probe = %d, want 0", len(got))
+	}
+}
+
+func TestRecyclerProbeFailuresAreTrackedPerClient(t *testing.T) {
+	failingClient := &p2LifecycleClient{healthy: true}
+	healthyClient := &p2LifecycleClient{healthy: true}
+	failing := &workspaceClient{key: "workspace-failing-probe", languageID: "typescript", client: failingClient}
+	// 该测试只覆盖 probe 计数；使用无需 repository lease 的 gopls policy，避免伪 client 绕过非 gopls fail-fast 契约。
+	healthy := &workspaceClient{key: "workspace-healthy-probe", languageID: "go", client: healthyClient}
+	mgr := &manager{workspaces: map[string]*workspaceClient{
+		failing.key: failing,
+		healthy.key: healthy,
+	}}
+	recycler := newPoolRecycler(nil)
+	recycler.rssProbe = func(current Client) (uint64, int, error) {
+		if current == failingClient {
+			return 0, 0, errors.New("probe unavailable")
+		}
+		return 1, 42, nil
+	}
+	for range recyclerProbeDegradedThreshold {
+		recycler.recycleIfNeeded(mgr, ResolvedLSPToolScope{}, *failing)
+		recycler.recycleIfNeeded(mgr, ResolvedLSPToolScope{}, *healthy)
+	}
+	if !failingClient.closed {
+		t.Fatal("healthy client probes reset the failing client's fail-closed threshold")
+	}
+	if healthyClient.closed {
+		t.Fatal("per-client probe accounting closed a healthy client")
+	}
 }
 
 func assertRecyclerProbeFailureHealth(t *testing.T, health recyclerHealthSnapshot) {
@@ -267,7 +482,7 @@ func TestRecyclerInvalidPIDAndMultiWorkspaceFailuresAreObservable(t *testing.T) 
 	}
 	recycler.checkManager(0, mgr, ResolvedLSPToolScope{})
 	health := recycler.HealthSnapshot()
-	if health.ProbeFailuresTotal != 2 || health.ConsecutiveProbeFailures != 2 {
+	if health.ProbeFailuresTotal != 2 || health.ConsecutiveProbeFailures != 1 {
 		t.Fatalf("multi-workspace invalid pid health = %#v", health)
 	}
 	if clientA.closed || clientB.closed {
@@ -279,10 +494,10 @@ func assertIdleRecyclerDebugLog(t *testing.T, logText string) {
 	t.Helper()
 	for _, want := range []string{
 		"LSP recycler idle window exceeded",
-		`"idle_timeout":"10m0s"`,
+		`"idle_timeout":"15m0s"`,
 		`"action":"shutdown"`,
 		`"pid":4242`,
-		`"rss_bytes":402653185`,
+		`"rss_bytes":536870913`,
 	} {
 		if !strings.Contains(logText, want) {
 			t.Fatalf("idle recycler debug log missing %q; log=%s", want, logText)
@@ -602,201 +817,5 @@ func TestReleaseScopeRejectsEmptyIdentityWithoutExplicitScopeKind(t *testing.T) 
 	mgr := newManagerPoolTestManager(t, canonicalScopePath(t.TempDir(), ""))
 	if _, err := mgr.pool.ReleaseScope(ReleaseScopeRequest{}); err == nil {
 		t.Fatalf("ReleaseScope(empty) error = nil, want explicit scope kind/identity rejection")
-	}
-}
-
-func TestManagerPoolEvictsOldIdleCloneAtCap(t *testing.T) {
-	t.Setenv(lspPoolSizeEnv, "1")
-	t.Setenv("AGENT_LSP_POOL_SHARD_CAP", "2")
-	root := canonicalScopePath(t.TempDir(), "")
-	mgr := NewManager(Config{WorkspaceRoot: root}).(*manager)
-	t.Cleanup(func() { _ = mgr.Close() })
-
-	first := scopedManagerForTest(t, mgr, testLSPToolScope(root, "agent-1", "thread"))
-	_ = scopedManagerForTest(t, mgr, testLSPToolScope(root, "agent-2", "thread"))
-	_ = scopedManagerForTest(t, mgr, testLSPToolScope(root, "agent-3", "thread"))
-
-	snapshots := cloneSnapshotsForShard(t, mgr.pool, 0)
-	if len(snapshots) != 2 {
-		t.Fatalf("clone count after cap eviction = %d, want 2; snapshots=%#v", len(snapshots), snapshots)
-	}
-	if !managerIsClosed(first) {
-		t.Fatalf("oldest idle clone was not closed during cap eviction")
-	}
-}
-
-func TestManagerPoolCapDetachRejectsNewClientBeforeClose(t *testing.T) {
-	t.Setenv(lspPoolSizeEnv, "1")
-	t.Setenv("AGENT_LSP_POOL_SHARD_CAP", "2")
-	root := canonicalScopePath(t.TempDir(), "")
-	writeGenericTestFile(t, filepath.Join(root, "go.mod"), "module cap-gate\n\ngo 1.25.0\n")
-	target := filepath.Join(root, "main.go")
-	writeGenericTestFile(t, target, "package main\n")
-	factory := &p2LifecycleFactory{}
-	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
-	t.Cleanup(func() { _ = mgr.Close() })
-	firstScope := testLSPToolScope(root, "agent-cap-old", "thread")
-	secondScope := testLSPToolScope(root, "agent-cap-keep", "thread")
-	first := scopedManagerForTest(t, mgr, firstScope)
-	_ = scopedManagerForTest(t, mgr, secondScope)
-	firstResolved, err := ResolveLSPToolScope(firstScope)
-	if err != nil {
-		t.Fatalf("ResolveLSPToolScope(first): %v", err)
-	}
-	secondResolved, err := ResolveLSPToolScope(secondScope)
-	if err != nil {
-		t.Fatalf("ResolveLSPToolScope(second): %v", err)
-	}
-	shard := mgr.pool.shardForKey(firstResolved.ShardKey)
-	shard.mu.Lock()
-	shard.clones[firstResolved.ManagerKey].lastUsedAt = time.Now().Add(-time.Minute)
-	mgr.pool.shardCap = 1
-	toClose := mgr.pool.evictIdleClonesLocked(shard, secondResolved.ManagerKey)
-	shard.mu.Unlock()
-	t.Cleanup(func() {
-		for _, release := range toClose {
-			if release.manager != nil {
-				_ = release.manager.closeWithoutPool()
-			}
-		}
-	})
-	if len(toClose) != 1 || toClose[0].manager != first {
-		t.Fatalf("evictIdleClonesLocked() = %#v, want first manager", toClose)
-	}
-
-	_, err = first.EnsureClient(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), target, "go")
-	if !errors.Is(err, ErrManagerClosed) {
-		t.Fatalf("EnsureClient() error = %v, want ErrManagerClosed after cap detach", err)
-	}
-	if got := factory.callCount(); got != 0 {
-		t.Fatalf("factory calls after cap detach = %d, want 0", got)
-	}
-}
-
-func TestManagerPoolCapEvictionPropagatesCloseFailure(t *testing.T) {
-	t.Setenv(lspPoolSizeEnv, "1")
-	t.Setenv("AGENT_LSP_POOL_SHARD_CAP", "1")
-	root := canonicalScopePath(t.TempDir(), "")
-	mgr := newManagerPoolTestManager(t, root)
-	firstScope := testLSPToolScope(root, "agent-cap-close-failure", "thread-old")
-	first := scopedManagerForTest(t, mgr, firstScope)
-	closeErr := errors.New("cap eviction close failed")
-	first.mu.Lock()
-	first.workspaces["close-failure"] = &workspaceClient{
-		key:    "close-failure",
-		client: &failingCloseP2Client{p2LifecycleClient: &p2LifecycleClient{}, err: closeErr},
-	}
-	first.mu.Unlock()
-
-	_, err := mgr.pool.ForScope(testLSPToolScope(root, "agent-cap-close-failure", "thread-new"))
-	if !errors.Is(err, closeErr) {
-		t.Fatalf("ForScope() error = %v, want %v", err, closeErr)
-	}
-}
-
-func TestManagerPoolDoesNotEvictActiveLeaseClone(t *testing.T) {
-	t.Setenv(lspPoolSizeEnv, "1")
-	t.Setenv("AGENT_LSP_POOL_SHARD_CAP", "1")
-	root := canonicalScopePath(t.TempDir(), "")
-	writeGenericTestFile(t, filepath.Join(root, "go.mod"), "module active\n\ngo 1.25.0\n")
-	target := filepath.Join(root, "main.go")
-	writeGenericTestFile(t, target, "package main\n")
-	factory := &p2LifecycleFactory{}
-	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
-	t.Cleanup(func() { _ = mgr.Close() })
-
-	active := scopedManagerForTest(t, mgr, testLSPToolScope(root, "agent-active", "thread"))
-	client, err := active.EnsureClient(common.WithToolScope(common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), target, "go")
-	if err != nil {
-		t.Fatalf("EnsureClient(active): %v", err)
-	}
-	mgr.pool.acquire(client)
-	defer mgr.pool.release(client)
-
-	_ = scopedManagerForTest(t, mgr, testLSPToolScope(root, "agent-new", "thread"))
-	if managerIsClosed(active) {
-		t.Fatalf("active-lease clone was evicted")
-	}
-	if len(cloneSnapshotsForShard(t, mgr.pool, 0)) != 2 {
-		t.Fatalf("active clone should be retained even if cap is exceeded by active lease")
-	}
-}
-
-func TestDeadClientRebuildPreservesTypeScriptWorkspace(t *testing.T) {
-	root := canonicalScopePath(t.TempDir(), "")
-	writeGenericTestFile(t, filepath.Join(root, "package.json"), `{"name":"web"}`)
-	target := filepath.Join(root, "src", "app.ts")
-	writeGenericTestFile(t, target, "export const value = 1\n")
-	factory := &p2LifecycleFactory{}
-	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
-	t.Cleanup(func() { _ = mgr.Close() })
-
-	firstClient, err := mgr.EnsureClient(common.WithToolScope(common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), target, "typescript")
-	if err != nil {
-		t.Fatalf("EnsureClient(first): %v", err)
-	}
-	firstClient.(*p2LifecycleClient).markUnhealthy()
-	if _, err := mgr.EnsureClient(common.WithToolScope(common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), target, "typescript"); err != nil {
-		t.Fatalf("EnsureClient(second): %v", err)
-	}
-	if factory.callAt(t, 1).rootDir != root {
-		t.Fatalf("rebuilt TypeScript rootDir = %q, want %q", factory.callAt(t, 1).rootDir, root)
-	}
-	if containsEnvKey(factory.callAt(t, 1).env, "GOWORK") {
-		t.Fatalf("rebuilt TypeScript env leaked GOWORK: %#v", factory.callAt(t, 1).env)
-	}
-}
-
-func TestRecyclerRebuildDoesNotDefaultNonGoLanguageToGo(t *testing.T) {
-	root := canonicalScopePath(t.TempDir(), "")
-	writeGenericTestFile(t, filepath.Join(root, "package.json"), `{"name":"web"}`)
-	target := filepath.Join(root, "src", "app.ts")
-	writeGenericTestFile(t, target, "export const value = 1\n")
-	factory := &genericMatrixClientFactory{}
-	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
-	t.Cleanup(func() { _ = mgr.Close() })
-	if err := mgr.BootstrapDocument(common.WithToolScope(common.WithToolScope(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), common.ToolScope{CWD: root}), target); err != nil {
-		t.Fatalf("BootstrapDocument: %v", err)
-	}
-	workspace := snapshotWorkspaceClients(mgr)
-	if len(workspace) != 1 {
-		t.Fatalf("workspace clients = %d, want 1", len(workspace))
-	}
-	if _, err := recycleWorkspaceClient(mgr, ResolvedLSPToolScope{}, workspace[0]); err != nil {
-		t.Fatalf("recycleWorkspaceClient: %v", err)
-	}
-	if got := factory.clientAt(t, 1).initLanguageID; got != "typescript" {
-		t.Fatalf("recycled non-Go language = %q, want typescript", got)
-	}
-}
-
-func TestEvictionKeepsJavaWorkspaceKeyAndLanguageSpecificHash(t *testing.T) {
-	t.Setenv(lspPoolSizeEnv, "1")
-	t.Setenv("AGENT_LSP_POOL_SHARD_CAP", "1")
-	root := canonicalScopePath(t.TempDir(), "")
-	mgr := NewManager(Config{WorkspaceRoot: root}).(*manager)
-	t.Cleanup(func() { _ = mgr.Close() })
-	scopeA := testLSPToolScopeForLanguage(root, "agent-java-a", "thread", "java")
-	scopeA.LanguageSpecific = map[string]string{"classpath": "a"}
-	scopeB := testLSPToolScopeForLanguage(root, "agent-java-b", "thread", "java")
-	scopeB.LanguageSpecific = map[string]string{"classpath": "b"}
-
-	_ = scopedManagerForTest(t, mgr, scopeA)
-	_ = scopedManagerForTest(t, mgr, scopeB)
-
-	snapshots := cloneSnapshotsForShard(t, mgr.pool, 0)
-	if len(snapshots) != 1 {
-		t.Fatalf("clone count = %d, want 1 after cap eviction", len(snapshots))
-	}
-	remaining := snapshots[0].resolvedScope
-	if remaining.LanguageID != "java" {
-		t.Fatalf("remaining language = %q, want java", remaining.LanguageID)
-	}
-	if remaining.WorkspaceKey == "" || !strings.Contains(remaining.WorkspaceKey, "java") {
-		t.Fatalf("remaining WorkspaceKey = %q, want Java-specific key", remaining.WorkspaceKey)
-	}
-	key := remaining.cacheKey("java", "file:///repo/Main.java")
-	if key.LanguageSpecificHash == "" {
-		t.Fatalf("Java cache key lost LanguageSpecificHash: %#v", key)
 	}
 }

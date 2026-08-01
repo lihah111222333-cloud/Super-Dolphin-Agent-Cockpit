@@ -8,13 +8,14 @@ import (
 )
 
 // TestMultiLSPTransportCompatFreeze 固定 multilsp server-request 兼容表的唯一来源。
-// 所有冻结的方法字面量必须集中在 transport_compat.go，不能散落到 transport.go 或其他实现文件。
+// 所有冻结的方法字面量必须集中在 transport.go，不能散落到其他实现文件。
 //
-// 该守卫让后续兼容项新增集中成单文件 diff，便于代码审查和下游适配方确认协议变化。
+// 兼容逻辑与 transport 生命周期共享同一责任文件；该守卫确保后续兼容项仍形成单文件 diff，
+// 便于代码审查和下游适配方确认协议变化。
 func TestMultiLSPTransportCompatFreeze(t *testing.T) {
 	const (
 		dir      = "../../cmd/mcp-lsp/multilsp"
-		producer = "transport_compat.go"
+		producer = "transport.go"
 	)
 	frozen := frozenMultilspTransportCompatLiterals()
 	assertFrozenCompatLiteralsOutsideProducer(t, dir, producer, frozen)

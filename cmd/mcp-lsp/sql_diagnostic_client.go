@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
@@ -37,10 +36,12 @@ func (h *sqlDiagnosticNotificationHandler) LogMessage(params protocol.LogMessage
 // sqlDiagnosticClient delegates SQL navigation to the configured peer and
 // publishes SQLite diagnostics from the production SQLite parser.
 type sqlDiagnosticClient struct {
-	inner   multilsp.Client
+	multilsp.Client
 	root    string
 	handler protocol.NotificationHandler
 }
+
+var _ multilsp.WrappedClient = (*sqlDiagnosticClient)(nil)
 
 func newSQLDiagnosticClient(
 	inner multilsp.Client,
@@ -54,26 +55,8 @@ func newSQLDiagnosticClient(
 		return nil, protocol.ErrNotificationHandlerNil
 	}
 	return &sqlDiagnosticClient{
-		inner: inner, root: root, handler: handler,
+		Client: inner, root: root, handler: handler,
 	}, nil
-}
-
-// Initialize 初始化底层 SQL peer，组合层不改变其语义能力声明。
-func (c *sqlDiagnosticClient) Initialize(ctx context.Context, root string) error {
-	return c.inner.Initialize(ctx, root)
-}
-
-// Shutdown 请求底层 SQL peer 完成协议关闭。
-func (c *sqlDiagnosticClient) Shutdown(ctx context.Context) error { return c.inner.Shutdown(ctx) }
-
-// Request 将语义请求原样交给底层 SQL peer。
-func (c *sqlDiagnosticClient) Request(ctx context.Context, method string, params any) (json.RawMessage, error) {
-	return c.inner.Request(ctx, method, params)
-}
-
-// Notify 将非文档通知原样交给底层 SQL peer。
-func (c *sqlDiagnosticClient) Notify(ctx context.Context, method string, params any) error {
-	return c.inner.Notify(ctx, method, params)
 }
 
 // DidOpen 同步底层 peer 后，用真实 SQLite 引擎发布诊断快照。
@@ -84,7 +67,7 @@ func (c *sqlDiagnosticClient) DidOpen(
 	version int,
 	text string,
 ) error {
-	if err := c.inner.DidOpen(ctx, uri, languageID, version, text); err != nil {
+	if err := c.Client.DidOpen(ctx, uri, languageID, version, text); err != nil {
 		return err
 	}
 	if !c.isSQLiteURI(uri) {
@@ -103,7 +86,7 @@ func (c *sqlDiagnosticClient) DidChange(
 	if c.isSQLiteURI(uri) && (len(changes) != 1 || changes[0].Range != nil || changes[0].RangeLength != nil) {
 		return fmt.Errorf("SQLite diagnostics require one full-document change for %s", uri)
 	}
-	if err := c.inner.DidChange(ctx, uri, version, changes); err != nil {
+	if err := c.Client.DidChange(ctx, uri, version, changes); err != nil {
 		return err
 	}
 	if !c.isSQLiteURI(uri) {
@@ -113,23 +96,18 @@ func (c *sqlDiagnosticClient) DidChange(
 	return c.publishSQLiteDiagnostics(ctx, uri, version, text)
 }
 
-// DidClose 关闭底层文档；组合层不保存文档副本。
-func (c *sqlDiagnosticClient) DidClose(ctx context.Context, uri string) error {
-	return c.inner.DidClose(ctx, uri)
-}
-
-// Close 释放底层 SQL peer 进程与传输资源。
-func (c *sqlDiagnosticClient) Close() error { return c.inner.Close() }
+// UnderlyingLSPClient 暴露真实 transport owner，使 wrapper 仍参与统一进程树与 RSS 生命周期管理。
+func (c *sqlDiagnosticClient) UnderlyingLSPClient() multilsp.Client { return c.Client }
 
 // Healthy 复用底层 peer 的健康状态。
 func (c *sqlDiagnosticClient) Healthy() bool {
-	healthy, ok := c.inner.(multilsp.HealthCheckedClient)
+	healthy, ok := c.Client.(multilsp.HealthCheckedClient)
 	return !ok || healthy.Healthy()
 }
 
 // ServerCapabilities 暴露底层 peer 的语义能力，避免组合层伪造能力。
 func (c *sqlDiagnosticClient) ServerCapabilities() protocol.ServerCapabilities {
-	capabilities, ok := c.inner.(multilsp.ServerCapabilitiesClient)
+	capabilities, ok := c.Client.(multilsp.ServerCapabilitiesClient)
 	if !ok {
 		return protocol.ServerCapabilities{}
 	}

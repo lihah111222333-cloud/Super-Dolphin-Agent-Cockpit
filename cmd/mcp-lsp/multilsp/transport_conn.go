@@ -26,7 +26,10 @@ const (
 	stderrLimitBytes             = 8 * 1024
 )
 
-func startTransport(options transportOptions) (*exec.Cmd, io.WriteCloser, io.ReadCloser, *limitedBuffer, error) {
+// startTransport 建立 stdio 管道、启动语言服务器并绑定平台进程树所有权。
+func startTransport(
+	options transportOptions,
+) (*exec.Cmd, *hiddenexec.ProcessTree, io.WriteCloser, io.ReadCloser, *limitedBuffer, error) {
 	cmd := hiddenexec.Command(options.Binary, options.Args...)
 	cmd.Dir = options.Dir
 	if len(options.Env) > 0 {
@@ -34,21 +37,22 @@ func startTransport(options transportOptions) (*exec.Cmd, io.WriteCloser, io.Rea
 	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("LSP server start stdin pipe: %w", err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("LSP server start stdin pipe: %w", err)
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		_ = stdin.Close()
-		return nil, nil, nil, nil, fmt.Errorf("LSP server start stdout pipe: %w", err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("LSP server start stdout pipe: %w", err)
 	}
 	stderr := &limitedBuffer{limit: stderrLimitBytes}
 	cmd.Stderr = stderr
-	if err := cmd.Start(); err != nil {
+	processTree, err := hiddenexec.StartProcessTree(cmd)
+	if err != nil {
 		_ = stdin.Close()
 		_ = stdout.Close()
-		return nil, nil, nil, nil, fmt.Errorf("LSP server start process: %w", err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("LSP server start process tree: %w", err)
 	}
-	return cmd, stdin, stdout, stderr, nil
+	return cmd, processTree, stdin, stdout, stderr, nil
 }
 
 // Close 关闭 LSP 管理器资源。
@@ -56,19 +60,48 @@ func (t *transport) Close() error {
 	if t == nil {
 		return nil
 	}
-	if !t.closed.CompareAndSwap(false, true) {
-		return t.waitForExit(defaultShutdownTimeout)
+	t.closeMu.Lock()
+	if t.closeComplete {
+		result := t.closeResult
+		t.closeMu.Unlock()
+		return result
 	}
-	t.cancelActorContext()
-	t.closeInput()
-	t.clearPending(ErrTransportClosed)
+	if attempt := t.closeAttempt; attempt != nil {
+		t.closeMu.Unlock()
+		<-attempt.done
+		return attempt.result
+	}
+	attempt := &transportCloseAttempt{done: make(chan struct{})}
+	t.closeAttempt = attempt
+	t.closeMu.Unlock()
+
+	firstClose := t.sealResponderAdmission()
+	if firstClose {
+		t.cancelActorContext()
+		t.closeInput()
+		t.clearPending(ErrTransportClosed)
+	}
 	drainErr := t.drainResponders(defaultResponderDrainTimeout)
-	return errors.Join(t.killProcess(), t.waitForExit(defaultShutdownTimeout), drainErr)
+	terminationErr, releaseComplete := t.terminateProcessTreeAttempt()
+	waitErr := t.waitForExit(defaultShutdownTimeout)
+	result := errors.Join(terminationErr, waitErr, drainErr)
+
+	t.closeMu.Lock()
+	attempt.result = result
+	if drainErr == nil && waitErr == nil && releaseComplete {
+		t.closeComplete = true
+		t.closeResult = result
+	}
+	t.closeAttempt = nil
+	close(attempt.done)
+	t.closeMu.Unlock()
+	return result
 }
 
 // drainResponders 在 timeout 内等待所有已登记的服务端请求响应 goroutine。
 // 返回错误只表示排空超时；调用方仍会继续 killProcess，避免卡住的语言服务器阻塞关闭。
 func (t *transport) drainResponders(timeout time.Duration) error {
+	t.sealResponderAdmission()
 	drainCtx, cancel := platformconfig.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	done := make(chan struct{})
@@ -219,13 +252,52 @@ func (t *transport) waitForExit(timeout time.Duration) error {
 }
 
 func (t *transport) killProcess() error {
-	if t.cmd == nil || t.cmd.Process == nil {
-		return nil
+	return t.terminateProcessTree()
+}
+
+// terminateProcessTree 统一所有关闭路径的进程树终止与 owner 释放。
+func (t *transport) terminateProcessTree() error {
+	err, _ := t.terminateProcessTreeAttempt()
+	return err
+}
+
+// terminateProcessTreeAttempt 只执行一次终止，并在 Release 成功前串行重试 owner 释放。
+func (t *transport) terminateProcessTreeAttempt() (error, bool) {
+	if t == nil {
+		return nil, true
 	}
-	if err := t.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return err
+	t.terminationOnce.Do(func() {
+		if t.processTree != nil {
+			t.terminationErr = t.processTree.Terminate()
+			return
+		}
+		if t.cmd == nil || t.cmd.Process == nil {
+			return
+		}
+		t.terminationErr = hiddenexec.KillProcessTree(t.cmd)
+	})
+	if t.processTree == nil {
+		return t.terminationErr, true
 	}
-	return nil
+
+	t.treeReleaseMu.Lock()
+	defer t.treeReleaseMu.Unlock()
+	if t.treeReleased {
+		return t.terminationErr, true
+	}
+	releaseErr := t.processTree.Release()
+	if releaseErr == nil {
+		t.treeReleased = true
+	}
+	return errors.Join(t.terminationErr, releaseErr), t.treeReleased
+}
+
+// processTreeRSSBytes 通过 transport 显式 owner 读取平台进程树 RSS。
+func (t *transport) processTreeRSSBytes() (uint64, error) {
+	if t == nil || t.processTree == nil {
+		return 0, errors.New("LSP transport process-tree owner is unavailable")
+	}
+	return t.processTree.RSSBytes()
 }
 
 func (t *transport) closeInput() {
@@ -270,21 +342,21 @@ func (t *transport) readFailure(err error) error {
 }
 
 func (t *transport) stopWithError(err error) {
-	t.closed.Store(true)
+	t.sealResponderAdmission()
 	t.cancelActorContext()
 	t.clearPending(err)
 	t.closeInput()
 	// 先排空服务端请求响应，再杀进程，避免 writeMessage 失败继续扩散成 goroutine 泄漏。
 	_ = t.drainResponders(defaultResponderDrainTimeout)
-	_ = t.killProcess()
+	_ = t.terminateProcessTree()
 }
 
 // abortBlockedWrite 在 request ctx 到期时打断正在阻塞的 stdin 写入。
 // 这里不等待 responder 排空，避免取消路径再次被语言服务器背压拖住。
 func (t *transport) abortBlockedWrite(err error) {
-	t.closed.Store(true)
+	t.sealResponderAdmission()
 	t.cancelActorContext()
 	t.clearPending(err)
 	t.closeInput()
-	_ = t.killProcess()
+	_ = t.terminateProcessTree()
 }

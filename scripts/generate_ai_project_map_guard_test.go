@@ -81,6 +81,26 @@ func TestProjectMapGeneratorIndexesOnlyTrackedCodeAndDocs(t *testing.T) {
 	}
 }
 
+// TestProjectMapGeneratorOmitsTrackedFilesDeletedFromWorktree 锁定未暂存删除不能留在可导航 TSV 中。
+func TestProjectMapGeneratorOmitsTrackedFilesDeletedFromWorktree(t *testing.T) {
+	requireNodeForProjectMap(t)
+	root := prepareProjectMapFixture(t, true)
+	deleted := filepath.Join(root, "internal", "app", "app.go")
+	if err := os.Remove(deleted); err != nil {
+		t.Fatalf("remove tracked project-map fixture: %v", err)
+	}
+
+	out, err := runProjectMapGenerator(t, root)
+	if err != nil {
+		t.Fatalf("project map generator failed after tracked worktree deletion: %v\n%s", err, out)
+	}
+	shard, err := os.ReadFile(filepath.Join(root, "docs", "doc", "codemap", "project-map", "index", "other.tsv"))
+	if err != nil {
+		t.Fatalf("read project-map other shard: %v", err)
+	}
+	assertOutputOmitsAll(t, string(shard), "internal/app/app.go")
+}
+
 func prepareTrackedProjectMapFixtures(t *testing.T, root string) {
 	t.Helper()
 	writeFixTestGuardFile(t, root, ".agent/report/noise.md", "agent report\n")
