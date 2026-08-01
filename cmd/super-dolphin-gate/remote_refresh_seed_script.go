@@ -610,18 +610,12 @@ if test "$seeds_changed" = 1; then
     printf 'runtime toolchain reused: go\n'
   fi
   if test "$go_reused" = 0; then
-    go_downloads=$stage/go-downloads.json
-    download_file "$go_downloads" 'https://go.dev/dl/?mode=json&include=all'
-    go_filename=$(jq -er --arg version "$BASELINE_GO_TOOLCHAIN" --arg arch "$go_arch" '
-      [.[] | select(.version == $version) | .files[] |
-        select(.kind == "archive" and .os == "linux" and .arch == $arch)] |
-      if length == 1 then .[0].filename else error("Go archive identity is ambiguous") end
-    ' "$go_downloads")
-    go_sha256=$(jq -er --arg version "$BASELINE_GO_TOOLCHAIN" --arg arch "$go_arch" '
-      [.[] | select(.version == $version) | .files[] |
-        select(.kind == "archive" and .os == "linux" and .arch == $arch)] |
-      if length == 1 then .[0].sha256 else error("Go archive identity is ambiguous") end
-    ' "$go_downloads")
+    case "$BASELINE_GO_TOOLCHAIN/$go_arch" in
+      go1.25.7/amd64) go_sha256=12e6d6a191091ae27dc31f6efc630e3a3b8ba409baf3573d955b196fdf086005 ;;
+      go1.25.7/arm64) go_sha256=ba611a53534135a81067240eff9508cd7e256c560edd5d8c2fef54f083c07129 ;;
+      *) echo "unsupported locked Go archive: $BASELINE_GO_TOOLCHAIN/$go_arch" >&2; exit 1 ;;
+    esac
+    go_filename=${BASELINE_GO_TOOLCHAIN}.linux-${go_arch}.tar.gz
     test "$go_filename" = "${BASELINE_GO_TOOLCHAIN}.linux-${go_arch}.tar.gz"
     test "${#go_sha256}" = 64
     case "$go_sha256" in *[!0-9a-f]*) echo "invalid Go archive SHA-256" >&2; exit 1;; esac

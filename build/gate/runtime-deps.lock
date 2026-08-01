@@ -17,7 +17,7 @@
     "tools_go_sum_sha256": "sha256:4fb6b0daaafccfaa0024c3eebd193929957f4e49c62ed551a6289c59632f104f",
     "runtime_seed_worker_sha256": "sha256:17aa60ecc6a26e117fcb8e0d065b55d32347ecfee40bcb917e5c0bd7deff44cc",
     "runtime_seed_recipe_sha256": "sha256:e29337e64e5845df5158cef1973628da3dfd72ec0178c9626a33894b0d861963",
-    "runtime_seed_script_sha256": "sha256:1b04ebc9624cf59db280d844891e42ccef574ed2bf1c78790487965fa08170f1",
+    "runtime_seed_script_sha256": "sha256:5cd545ffc7cdc79ee95fa194d765f3a0c0cb7307715c002d17201d90eb12b538",
     "runtime_seed_script_browser_sha256": "sha256:b7452b9a3bf804a067db7156c54d5477ac49c84f20c4bd289fc243acc048c44a",
     "runtime_seed_script_runtime_sha256": "sha256:8703c435c6c34fcc7d1d1d1e5c14a7d9fd40ba5564a6bf8f07f704d64c921f1b"
   },
