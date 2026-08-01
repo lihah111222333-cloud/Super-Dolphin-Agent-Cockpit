@@ -441,7 +441,8 @@ module_lock_manifest() {
 
 runtime_dependency_manifest() {
   jq -S -e '
-    if .schema_version == "10" then .inputs
+    if .schema_version == "11" then .inputs
+    elif .schema_version == "10" then .inputs
     elif .schema_version == "9" then
       .inputs | del(.runtime_seed_recipe_sha256)
     else error("unsupported runtime dependency lock schema")

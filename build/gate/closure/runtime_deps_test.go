@@ -108,8 +108,8 @@ func TestRefreshDependencyClosureRejectsInvalidTree(t *testing.T) {
 }
 
 func TestRuntimeDepsLockEncodingContainsOnlyNodeLocalContract(t *testing.T) {
-	inputs := runtimeDepsInputs{Dockerfile: testDigest, ToolchainLock: testDigest, GoMod: testDigest, GoSum: testDigest, NilnessRunner: testDigest, NilnessGuard: testDigest, FrontendPackageLock: testDigest, LSPPackageLock: testDigest, ProxyGoMod: testDigest, ProxyGoSum: testDigest, ToolsGoMod: testDigest, ToolsGoSum: testDigest, RuntimeSeedWorker: testDigest, RuntimeSeedScript: testDigest, RuntimeSeedBrowser: testDigest, RuntimeSeedRuntime: testDigest}
-	recipeInputs := runtimeDepsRecipeInputs{RuntimeSeedRecipe: testDigest}
+	inputs := runtimeDepsInputs{Dockerfile: testDigest, ToolchainLock: testDigest, GoMod: testDigest, GoSum: testDigest, NilnessRunner: testDigest, NilnessGuard: testDigest, FrontendPackageLock: testDigest, LSPPackageLock: testDigest, ProxyGoMod: testDigest, ProxyGoSum: testDigest, ToolsGoMod: testDigest, ToolsGoSum: testDigest, RuntimeSeedWorker: testDigest, RuntimeSeedBrowser: testDigest, RuntimeSeedRuntime: testDigest}
+	recipeInputs := runtimeDepsRecipeInputs{RuntimeSeedRecipe: testDigest, RuntimeSeedScript: testDigest}
 	lock := validRuntimeDepsLock(inputs)
 	lock.RecipeInputs = recipeInputs
 	data, err := encodeRuntimeDepsLock(lock)
@@ -163,7 +163,7 @@ func TestRuntimeDepsDockerfileDoesNotVendorJobSource(t *testing.T) {
 const testDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 func validRuntimeDepsLock(inputs runtimeDepsInputs) runtimeDepsLock {
-	return runtimeDepsLock{SchemaVersion: runtimeDepsSchemaVersion, BuildMode: runtimeDepsBuildMode, CacheScope: runtimeDepsCacheScope, Inputs: inputs, RecipeInputs: runtimeDepsRecipeInputs{RuntimeSeedRecipe: testDigest}, Paths: canonicalRuntimeDepsPaths()}
+	return runtimeDepsLock{SchemaVersion: runtimeDepsSchemaVersion, BuildMode: runtimeDepsBuildMode, CacheScope: runtimeDepsCacheScope, Inputs: inputs, RecipeInputs: runtimeDepsRecipeInputs{RuntimeSeedRecipe: testDigest, RuntimeSeedScript: testDigest}, Paths: canonicalRuntimeDepsPaths()}
 }
 
 func writeRuntimeDepsInputs(t *testing.T, root string) {

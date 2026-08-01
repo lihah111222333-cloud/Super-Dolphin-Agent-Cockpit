@@ -91,7 +91,7 @@ func productionRuntimeDepsLock(t *testing.T, files map[string]string) string {
 		recipeInputs[field] = productionFixtureDigest(files[path])
 	}
 	return productionFixtureJSON(t, map[string]any{
-		"schema_version": "10", "build_mode": "node-local", "cache_scope": "node",
+		"schema_version": "11", "build_mode": "node-local", "cache_scope": "node",
 		"inputs": inputs, "recipe_inputs": recipeInputs, "paths": productionRuntimePaths(),
 	})
 }
@@ -117,7 +117,7 @@ func TestProductionRuntimeDepsLockUsesNodeLocalSchema(t *testing.T) {
 	schemaVersion := productionFixtureString(t, lock, "schema_version")
 	buildMode := productionFixtureString(t, lock, "build_mode")
 	cacheScope := productionFixtureString(t, lock, "cache_scope")
-	if schemaVersion != "10" || buildMode != "node-local" || cacheScope != "node" {
+	if schemaVersion != "11" || buildMode != "node-local" || cacheScope != "node" {
 		t.Fatalf("runtime dependency lock header = (%q, %q, %q)", schemaVersion, buildMode, cacheScope)
 	}
 }
@@ -176,7 +176,6 @@ func productionRuntimeDepsInputPaths() map[string]string {
 		"proxy_go_mod_sha256": "build/gate/runtime-proxy/go.mod", "proxy_go_sum_sha256": "build/gate/runtime-proxy/go.sum",
 		"tools_go_mod_sha256": "build/gate/runtime-tools/go.mod", "tools_go_sum_sha256": "build/gate/runtime-tools/go.sum",
 		"runtime_seed_worker_sha256":         "internal/devtools/gate/executor_seed.go",
-		"runtime_seed_script_sha256":         "cmd/super-dolphin-gate/remote_refresh_seed_script.go",
 		"runtime_seed_script_browser_sha256": "cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go",
 		"runtime_seed_script_runtime_sha256": "cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go",
 	}
@@ -185,6 +184,7 @@ func productionRuntimeDepsInputPaths() map[string]string {
 func productionRuntimeDepsRecipePaths() map[string]string {
 	return map[string]string{
 		"runtime_seed_recipe_sha256": "cmd/super-dolphin-gate/remote_refresh_seed.go",
+		"runtime_seed_script_sha256": "cmd/super-dolphin-gate/remote_refresh_seed_script.go",
 	}
 }
 

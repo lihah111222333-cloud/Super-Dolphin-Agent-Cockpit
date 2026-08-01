@@ -15,7 +15,7 @@ import (
 )
 
 // RuntimeDependencySchemaVersion 是当前 runtime seed 构建合同版本。
-const RuntimeDependencySchemaVersion = "10"
+const RuntimeDependencySchemaVersion = "11"
 
 func runtimeDependencyPathsV4() []string {
 	return []string{
@@ -76,6 +76,7 @@ func runtimeDependencyPathsV8() []string {
 func runtimeDependencyRecipePaths() []string {
 	return []string{
 		"cmd/super-dolphin-gate/remote_refresh_seed.go",
+		"cmd/super-dolphin-gate/remote_refresh_seed_script.go",
 	}
 }
 
@@ -85,9 +86,16 @@ func runtimeDependencyPathsV9() []string {
 	)
 }
 
-func runtimeDependencyPaths() []string {
+func runtimeDependencyPathsV10() []string {
 	return append(append([]string(nil), runtimeDependencyPathsV5()...),
 		"cmd/super-dolphin-gate/remote_refresh_seed_script.go",
+		"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go",
+		"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go",
+	)
+}
+
+func runtimeDependencyPaths() []string {
+	return append(append([]string(nil), runtimeDependencyPathsV5()...),
 		"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go",
 		"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go",
 	)
@@ -213,7 +221,7 @@ func resolveRuntimeDependencyBuildFromLock(
 	return digest, buildArgs, nil
 }
 
-// ResolveAcceptedRuntimeDependencyDigest 只为已验收基线重算依赖摘要，并显式支持 v4-v9 迁移。
+// ResolveAcceptedRuntimeDependencyDigest 只为已验收基线重算依赖摘要，并显式支持 v4-v10 迁移。
 func ResolveAcceptedRuntimeDependencyDigest(entries []sourceexport.TreeEntry, platform string) (string, error) {
 	digest, _, _, err := ResolveBaselineRuntimeDependencyBuild(entries, platform)
 	return digest, err
@@ -227,6 +235,8 @@ func acceptedRuntimeDependencyPaths(schemaVersion string) ([]string, error) {
 	case "9":
 		return runtimeDependencyPathsV9(), nil
 	case "10":
+		return runtimeDependencyPathsV10(), nil
+	case "11":
 		return runtimeDependencyPaths(), nil
 	case "8":
 		return runtimeDependencyPathsV8(), nil
