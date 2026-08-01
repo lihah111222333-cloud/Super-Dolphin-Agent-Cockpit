@@ -195,7 +195,7 @@ Calculations remain fallible even after earlier validation. Schedule, identity, 
 
 ### Prerequisites
 
-- Go 1.25.7
+- Go 1.26.5
 - Node.js matching `^20.19.0 || ^22.13.0 || >=24` and npm
 - OpenAI Codex CLI (`codex`), installed and authenticated
 - `gopls`

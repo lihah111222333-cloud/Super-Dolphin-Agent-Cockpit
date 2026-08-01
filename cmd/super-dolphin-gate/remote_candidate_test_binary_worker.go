@@ -136,7 +136,7 @@ func buildRemoteWorkerCandidateTestBinaries(ctx context.Context, request remotec
 	if !request.CGOEnabled {
 		return remoteci.CandidateTestBinaryBuilderResult{}, nil, errors.New("candidate test builder requires CGO_ENABLED=1")
 	}
-	result := remoteci.CandidateTestBinaryBuilderResult{SchemaVersion: remoteci.CandidateTestBinaryBuilderResultSchemaVersion, JobID: request.JobID, CandidateTree: request.CandidateTree, Platform: "linux/amd64", GoToolchain: "go1.25.7", CGOEnabled: true, ToolchainSHA256: request.CandidateCLI.ToolchainSHA256}
+	result := remoteci.CandidateTestBinaryBuilderResult{SchemaVersion: remoteci.CandidateTestBinaryBuilderResultSchemaVersion, JobID: request.JobID, CandidateTree: request.CandidateTree, Platform: "linux/amd64", GoToolchain: "go1.26.5", CGOEnabled: true, ToolchainSHA256: request.CandidateCLI.ToolchainSHA256}
 	files := map[string]string{}
 	for index, target := range request.Targets {
 		if !target.CGOEnabled {
@@ -314,7 +314,7 @@ func verifyRemoteBuilderToolchain(
 	}
 	env := []string{"GOENV=off", "GOTOOLCHAIN=local", "GOROOT=" + goRoot, "PATH=" + gatecontract.ExecutorPortableSearchPath}
 	version, err := run(ctx, goBinary, []string{"version"}, env)
-	if err != nil || strings.TrimSpace(string(version)) != "go version go1.25.7 linux/amd64" {
+	if err != nil || strings.TrimSpace(string(version)) != "go version go1.26.5 linux/amd64" {
 		return errors.Join(errors.New("candidate test builder Go version drift"), err)
 	}
 	identity, err := run(ctx, goBinary, []string{"env", "GOROOT", "GOTOOLDIR"}, env)
@@ -336,7 +336,7 @@ func remoteBuilderManifest(request remoteci.CandidateTestBinaryBuilderRequest, t
 	}
 	digest := fmt.Sprintf("%x", sha256.Sum256(data))
 	key := path.Join(request.OutputPrefix, digest+".test-bin")
-	manifest := remoteci.CandidateTestBinaryArtifactManifest{SchemaVersion: remoteci.CandidateTestBinaryArtifactSchemaVersion, CandidateTree: request.CandidateTree, Package: target.Package, Mode: target.Mode, Platform: "linux/amd64", GoToolchain: "go1.25.7", CGOEnabled: true, ToolchainSHA256: request.CandidateCLI.ToolchainSHA256, BuildFlags: []string{"-mod=readonly", "-buildvcs=false", "-trimpath"}, CompileClosureSHA256: closure, BinaryKey: key, BinarySHA256: "sha256:" + digest, BinarySize: int64(len(data))}
+	manifest := remoteci.CandidateTestBinaryArtifactManifest{SchemaVersion: remoteci.CandidateTestBinaryArtifactSchemaVersion, CandidateTree: request.CandidateTree, Package: target.Package, Mode: target.Mode, Platform: "linux/amd64", GoToolchain: "go1.26.5", CGOEnabled: true, ToolchainSHA256: request.CandidateCLI.ToolchainSHA256, BuildFlags: []string{"-mod=readonly", "-buildvcs=false", "-trimpath"}, CompileClosureSHA256: closure, BinaryKey: key, BinarySHA256: "sha256:" + digest, BinarySize: int64(len(data))}
 	encoded, mdigest, err := remoteci.EncodeCandidateTestBinaryArtifactManifest(manifest)
 	if err != nil {
 		return remoteci.CandidateTestBinaryArtifactRef{}, "", err
@@ -345,5 +345,5 @@ func remoteBuilderManifest(request remoteci.CandidateTestBinaryBuilderRequest, t
 	if err := os.WriteFile(manifestPath, encoded, 0600); err != nil {
 		return remoteci.CandidateTestBinaryArtifactRef{}, "", err
 	}
-	return remoteci.CandidateTestBinaryArtifactRef{CandidateTree: request.CandidateTree, Package: target.Package, Mode: target.Mode, Platform: "linux/amd64", GoToolchain: "go1.25.7", CGOEnabled: true, ToolchainSHA256: request.CandidateCLI.ToolchainSHA256, BuildFlags: manifest.BuildFlags, CompileClosureSHA256: closure, ManifestKey: path.Join(request.OutputPrefix, strings.TrimPrefix(mdigest, "sha256:")+".manifest.json"), ManifestSHA256: strings.TrimPrefix(mdigest, "sha256:"), BinaryKey: key, BinarySHA256: digest, BinarySize: int64(len(data))}, manifestPath, nil
+	return remoteci.CandidateTestBinaryArtifactRef{CandidateTree: request.CandidateTree, Package: target.Package, Mode: target.Mode, Platform: "linux/amd64", GoToolchain: "go1.26.5", CGOEnabled: true, ToolchainSHA256: request.CandidateCLI.ToolchainSHA256, BuildFlags: manifest.BuildFlags, CompileClosureSHA256: closure, ManifestKey: path.Join(request.OutputPrefix, strings.TrimPrefix(mdigest, "sha256:")+".manifest.json"), ManifestSHA256: strings.TrimPrefix(mdigest, "sha256:"), BinaryKey: key, BinarySHA256: digest, BinarySize: int64(len(data))}, manifestPath, nil
 }

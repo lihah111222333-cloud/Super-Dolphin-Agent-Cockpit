@@ -115,7 +115,7 @@ func validShardRequest() ShardRequest {
 			BinaryKey: "baseline-artifacts/source-deltas/job-1234/" + strings.Repeat("1", 64) + ".candidate-cli", BinarySHA256: strings.Repeat("1", 64), BinarySize: 42, CLIIdentity: CandidateCLIIdentity(digest, digest),
 		},
 		CandidateTestBinaries: []CandidateTestBinaryArtifactRef{{
-			CandidateTree: strings.Repeat("c", 40), Package: "example.invalid/test", Mode: "test", Platform: "linux/amd64", GoToolchain: "go1.25.7", CGOEnabled: true, ToolchainSHA256: digest, BuildFlags: []string{"-trimpath"}, CompileClosureSHA256: digest,
+			CandidateTree: strings.Repeat("c", 40), Package: "example.invalid/test", Mode: "test", Platform: "linux/amd64", GoToolchain: "go1.26.5", CGOEnabled: true, ToolchainSHA256: digest, BuildFlags: []string{"-trimpath"}, CompileClosureSHA256: digest,
 			ManifestKey: "baseline-artifacts/source-deltas/job-1234/" + strings.Repeat("2", 64) + ".manifest.json", ManifestSHA256: strings.Repeat("2", 64), BinaryKey: "baseline-artifacts/source-deltas/job-1234/" + strings.Repeat("3", 64) + ".test-bin", BinarySHA256: strings.Repeat("3", 64), BinarySize: 42,
 		}},
 		GateIDs: []gate.GateID{"go:format"},

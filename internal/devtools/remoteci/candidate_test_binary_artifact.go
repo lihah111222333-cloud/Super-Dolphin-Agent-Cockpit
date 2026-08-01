@@ -48,7 +48,7 @@ func (manifest CandidateTestBinaryArtifactManifest) Validate() error {
 
 func validGoTestBinaryBuild(pkg, mode, platform, toolchain string, cgoEnabled bool, flags []string) bool {
 	cleanPackage := path.Clean(pkg)
-	if pkg == "" || len(pkg) > 512 || strings.HasPrefix(pkg, "/") || (cleanPackage != pkg && pkg != "./"+cleanPackage) || (mode != "test" && mode != "race") || platform != "linux/amd64" || toolchain != "go1.25.7" || !cgoEnabled {
+	if pkg == "" || len(pkg) > 512 || strings.HasPrefix(pkg, "/") || (cleanPackage != pkg && pkg != "./"+cleanPackage) || (mode != "test" && mode != "race") || platform != "linux/amd64" || toolchain != "go1.26.5" || !cgoEnabled {
 		return false
 	}
 	for _, flag := range flags {

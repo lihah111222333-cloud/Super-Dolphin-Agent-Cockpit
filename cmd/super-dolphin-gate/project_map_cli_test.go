@@ -115,7 +115,7 @@ func newProjectMapCLIRepository(t *testing.T) string {
 		"docs/契约/README.md":                  "Architecture decisions live in docs/adr.\n",
 		"docs/契约/fix-workflow-convention.md": "docs/work/plans/\ndocs/archive/reviews/\ndocs/adr/\n",
 		"docs/契约/mcp-service-convention.md":  "Current MCP service convention.\n",
-		"go.mod":                             "module example.invalid/project-map-cli\n\ngo 1.25.7\n",
+		"go.mod":                             "module example.invalid/project-map-cli\n\ngo 1.26.5\n",
 		"scripts/codemap_policy.txt": strings.Join([]string{
 			"schema\t1",
 			"historical\tdocs/archive",

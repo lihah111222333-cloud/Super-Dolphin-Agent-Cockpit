@@ -42,9 +42,21 @@ func TestCandidateTestBinaryArtifactManifestRejectsRequiredBindingDrift(t *testi
 	}
 }
 
+func TestCandidateTestBinaryArtifactManifestRejectsNonBaselineToolchains(t *testing.T) {
+	for _, toolchain := range []string{"go1.25.7", "go1.26.4", "go1.26.6"} {
+		t.Run(toolchain, func(t *testing.T) {
+			manifest := validCandidateTestBinaryArtifactManifest()
+			manifest.GoToolchain = toolchain
+			if err := manifest.Validate(); err == nil {
+				t.Fatalf("Validate() accepted non-baseline toolchain %q", toolchain)
+			}
+		})
+	}
+}
+
 func validCandidateTestBinaryArtifactManifest() CandidateTestBinaryArtifactManifest {
 	digest := "sha256:" + strings.Repeat("a", 64)
-	return CandidateTestBinaryArtifactManifest{SchemaVersion: CandidateTestBinaryArtifactSchemaVersion, CandidateTree: strings.Repeat("b", 40), Package: "example.invalid/project/pkg", Mode: "test", Platform: "linux/amd64", GoToolchain: "go1.25.7", CGOEnabled: true, ToolchainSHA256: digest, BuildFlags: []string{"-trimpath", "-tags=integration"}, CompileClosureSHA256: digest, BinaryKey: "candidate-artifacts/job-012/package.test-bin", BinarySHA256: digest, BinarySize: 42}
+	return CandidateTestBinaryArtifactManifest{SchemaVersion: CandidateTestBinaryArtifactSchemaVersion, CandidateTree: strings.Repeat("b", 40), Package: "example.invalid/project/pkg", Mode: "test", Platform: "linux/amd64", GoToolchain: "go1.26.5", CGOEnabled: true, ToolchainSHA256: digest, BuildFlags: []string{"-trimpath", "-tags=integration"}, CompileClosureSHA256: digest, BinaryKey: "candidate-artifacts/job-012/package.test-bin", BinarySHA256: digest, BinarySize: 42}
 }
 
 func equalCandidateTestBinaryManifest(left, right CandidateTestBinaryArtifactManifest) bool {

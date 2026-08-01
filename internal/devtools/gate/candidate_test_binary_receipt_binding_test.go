@@ -61,6 +61,18 @@ func TestCandidateTestBinaryBuildRecordRejectsUnmappedBaselineProvenance(t *test
 	}
 }
 
+func TestCandidateTestBinaryBuildRecordRejectsNonBaselineToolchains(t *testing.T) {
+	for _, toolchain := range []string{"go1.25.7", "go1.26.4", "go1.26.6"} {
+		t.Run(toolchain, func(t *testing.T) {
+			build := candidateTestBinaryBuildRecordForBindingTest()
+			build.GoToolchain = toolchain
+			if err := validateCandidateTestBinaryBuildRecord(build); err == nil {
+				t.Fatalf("validateCandidateTestBinaryBuildRecord() accepted non-baseline toolchain %q", toolchain)
+			}
+		})
+	}
+}
+
 func TestCandidateTestBinaryCacheMetricsSQLiteRoundTrip(t *testing.T) {
 	store := newTestDurationLedgerStore(t)
 	if _, err := store.CompareAndSwap(0, NewDurationLedger()); err != nil {
@@ -98,7 +110,7 @@ func TestCandidateTestBinaryCacheMetricsSQLiteRoundTrip(t *testing.T) {
 
 func candidateTestBinaryBuildRecordForBindingTest() CandidateTestBinaryBuildRecord {
 	return CandidateTestBinaryBuildRecord{
-		CandidateTree: strings.Repeat("a", 40), Package: "./internal/example", Mode: "test", Platform: "linux/amd64", GoToolchain: "go1.25.7", CGOEnabled: true,
+		CandidateTree: strings.Repeat("a", 40), Package: "./internal/example", Mode: "test", Platform: "linux/amd64", GoToolchain: "go1.26.5", CGOEnabled: true,
 		ToolchainSHA256: "sha256:" + strings.Repeat("b", 64), BuildFlags: []string{"-trimpath"}, CompileClosureSHA256: "sha256:" + strings.Repeat("c", 64), ManifestSHA256: strings.Repeat("d", 64), ArtifactSHA256: "sha256:" + strings.Repeat("e", 64), BinarySize: 1,
 		GoListWallMS: 1, BuildWallMS: 2, CompileActionMS: 3, LinkActionMS: 4, CompileCriticalWallMS: 5, GOCachePrivateHits: 6, GOCachePrivateRootIdentity: "sha256:" + strings.Repeat("f", 64), GOCacheBaselineHitsByGeneration: map[string]uint64{"00000000000000000001": 7}, GOCacheBaselineHitRecords: []CandidateTestBinaryCacheGenerationRecord{{Generation: 1, Hits: 7, AnchorGeneration: 1, AnchorManifestDigest: "sha256:" + strings.Repeat("b", 64), ManifestDigest: "sha256:" + strings.Repeat("c", 64), CacheRootIdentity: "sha256:" + strings.Repeat("d", 64)}}, GOCacheMisses: 8, GOCachePuts: 9,
 	}

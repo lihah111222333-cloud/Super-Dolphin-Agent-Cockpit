@@ -107,7 +107,7 @@ func TestRuntimeGoModuleManifestsRejectsDuplicatePaths(t *testing.T) {
 
 func TestRuntimeGoModuleManifestsIgnoreOnlyGoDirective(t *testing.T) {
 	entries := []sourceexport.TreeEntry{
-		{Path: "go.mod", Mode: "100644", Data: []byte("module example.com/root\n\ngo 1.25.7\n\nrequire example.com/dependency v1.0.0\n")},
+		{Path: "go.mod", Mode: "100644", Data: []byte("module example.com/root\n\ngo 1.26.5\n\nrequire example.com/dependency v1.0.0\n")},
 		{Path: "go.sum", Mode: "100644", Data: []byte("example.com/dependency v1.0.0 h1:first\n")},
 	}
 	baseline, err := runtimeGoModuleManifests(entries)
@@ -115,7 +115,7 @@ func TestRuntimeGoModuleManifestsIgnoreOnlyGoDirective(t *testing.T) {
 		t.Fatal(err)
 	}
 	directiveChanged := append([]sourceexport.TreeEntry(nil), entries...)
-	directiveChanged[0].Data = []byte(strings.ReplaceAll(string(entries[0].Data), "go 1.25.7", "go 1.26.0"))
+	directiveChanged[0].Data = []byte(strings.ReplaceAll(string(entries[0].Data), "go 1.26.5", "go 1.26.0"))
 	directiveManifests, err := runtimeGoModuleManifests(directiveChanged)
 	if err != nil {
 		t.Fatal(err)

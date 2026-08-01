@@ -63,7 +63,7 @@ func TestBuildRemoteBaselineSeedRequestUsesPreviousGeneration(t *testing.T) {
 	})
 	toolchainInput := input
 	toolchainInput.Identity.ToolchainDigest = "sha256:" + repeatRemoteHex("9", 64)
-	toolchainInput.GoToolchain = "go1.25.7"
+	toolchainInput.GoToolchain = "go1.26.5"
 	request = mustBuildRemoteBaselineSeedRequest(t, config, toolchainInput, source, accepted, accepted.DataCacheSizeGiB, accepted.Generation+1)
 	assertRemoteBaselineSeedConditions(t, request, "toolchain-changing incremental refresh", []bool{
 		request.Environment["BASELINE_STORAGE_MODE"] == remoteci.BaselineStorageModeDelta,
@@ -99,7 +99,7 @@ func remoteBaselineSeedRequestFixture(t *testing.T) (remoteRunConfig, remoteci.B
 		RuntimeDependencyDigest:         "sha256:" + repeatRemoteHex("1", 64),
 		AcceptedRuntimeDependencyDigest: "sha256:" + repeatRemoteHex("2", 64),
 		RuntimeDependencySchemaVersion:  remoteci.RuntimeDependencySchemaVersion,
-		GoToolchain:                     "go1.26.0",
+		GoToolchain:                     "go1.26.5",
 		SqruffURL:                       "https://github.com/example/sqruff.tar.gz",
 		SqruffSHA256:                    repeatRemoteHex("e", 64),
 	}
@@ -337,8 +337,8 @@ func assertRemoteBaselineSeedToolchainFragments(t *testing.T) {
 		"export GOENV=off",
 		"export GOTELEMETRY=off",
 		"BASELINE_GO_TOOLCHAIN",
-		"go1.25.7/amd64) go_sha256=12e6d6a191091ae27dc31f6efc630e3a3b8ba409baf3573d955b196fdf086005",
-		"go1.25.7/arm64) go_sha256=ba611a53534135a81067240eff9508cd7e256c560edd5d8c2fef54f083c07129",
+		"go1.26.5/amd64) go_sha256=5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053",
+		"go1.26.5/arm64) go_sha256=fe4789e92b1f33358680864bbe8704289e7bb5fc207d80623c308935bd696d49",
 		"unsupported locked Go archive",
 		"${BASELINE_GO_TOOLCHAIN}.linux-${go_arch}.tar.gz",
 		"test \"$(go version | awk '{print $3}')\" = \"$BASELINE_GO_TOOLCHAIN\"",
@@ -571,7 +571,7 @@ func assertRemoteBaselineSeedForbiddenScriptFragments(t *testing.T) {
 		message  string
 	}{
 		{"BASELINE_REPOSITORY_URL", "remote baseline seed must not pull source from GitHub"},
-		{"go1.26.5", "remote baseline seed must derive the Go toolchain from the candidate tree"},
+		{"BASELINE_GO_TOOLCHAIN=go1.26.5", "remote baseline seed must derive the Go toolchain from the candidate tree"},
 		{"BASELINE_SQRUFF_URL", "remote baseline seed must receive the fixed sqruff artifact through OSS input"},
 		{"go mod download -json all", "remote baseline seed must resolve only source-supported target modules and must not mutate go.sum"},
 		{"GOPROXY=file://$payload_root/runtime/go-proxy", "accepted Go module cache must fail fast instead of rematerializing through the runtime proxy"},

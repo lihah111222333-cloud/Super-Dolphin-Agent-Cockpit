@@ -195,7 +195,7 @@ Component の責務、data flow、真実源、既知の範囲は [Architecture](
 
 ### 前提条件
 
-- Go 1.25.7
+- Go 1.26.5
 - Node.js `^20.19.0 || ^22.13.0 || >=24` と npm
 - インストールおよび認証済みの OpenAI Codex CLI（`codex`）
 - `gopls`

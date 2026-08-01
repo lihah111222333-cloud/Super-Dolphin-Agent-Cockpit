@@ -287,7 +287,7 @@ func TestProductionLocalToolchainDigestChangesWithIdentity(t *testing.T) {
 	}
 	runtimeSource := filepath.Join(goRoot, "src", "runtime", "runtime.go")
 	for path, data := range map[string]string{
-		filepath.Join(goRoot, "VERSION"):                    "go1.25.7\n",
+		filepath.Join(goRoot, "VERSION"):                    "go1.26.5\n",
 		filepath.Join(goRoot, "go.env"):                     "GOTOOLCHAIN=local\n",
 		runtimeSource:                                       "package runtime\n",
 		filepath.Join(goRoot, "pkg", "include", "go_asm.h"): "#define GO 1\n",
@@ -299,7 +299,7 @@ func TestProductionLocalToolchainDigestChangesWithIdentity(t *testing.T) {
 	}
 	base := productionGoToolchain{
 		Executable: binary,
-		Version:    "go version go1.25.7 test/arch",
+		Version:    "go version go1.26.5 test/arch",
 		GoRoot:     goRoot,
 		GoToolDir:  toolDirectory,
 		GOOS:       "test",
@@ -557,14 +557,14 @@ func newProductionGoResolverFixture(t *testing.T) *productionGoResolverFixture {
 	if err := os.Symlink(fixture.executable, filepath.Join(fixture.symlinkDirectory, "go")); err != nil {
 		t.Fatal(err)
 	}
-	fixture.versions[fixture.executable] = "go1.25.7"
-	fixture.versions[fixture.newerExecutable] = "go1.26.5"
+	fixture.versions[fixture.executable] = "go1.26.5"
+	fixture.versions[fixture.newerExecutable] = "go1.27.1"
 	fixture.environment["PATH"] = fixture.symlinkDirectory
 	return fixture
 }
 
 func (fixture *productionGoResolverFixture) requirement() productionGoRequirement {
-	return productionGoRequirement{Minimum: "go1.25.7", Preferred: "go1.25.7"}
+	return productionGoRequirement{Minimum: "go1.26.5", Preferred: "go1.26.5"}
 }
 
 func (fixture *productionGoResolverFixture) deps() productionGoResolverDeps {

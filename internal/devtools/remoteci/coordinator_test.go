@@ -706,7 +706,7 @@ func testCandidateTestBinaryBuilder(t *testing.T) CandidateTestBinaryBuilder {
 			if err := os.WriteFile(binaryPath, []byte("candidate test binary\n"), 0o700); err != nil {
 				return nil, err
 			}
-			builds = append(builds, CandidateTestBinaryBuild{BinaryPath: binaryPath, Package: target.Package, Mode: target.Mode, GoToolchain: "go1.25.7", ToolchainSHA256: input.CandidateGateToolchainSHA256, BuildFlags: []string{"-mod=readonly", "-buildvcs=false", "-trimpath"}, CompileClosureSHA256: input.CandidateGateSourceSHA256})
+			builds = append(builds, CandidateTestBinaryBuild{BinaryPath: binaryPath, Package: target.Package, Mode: target.Mode, GoToolchain: "go1.26.5", ToolchainSHA256: input.CandidateGateToolchainSHA256, BuildFlags: []string{"-mod=readonly", "-buildvcs=false", "-trimpath"}, CompileClosureSHA256: input.CandidateGateSourceSHA256})
 		}
 		return builds, nil
 	}

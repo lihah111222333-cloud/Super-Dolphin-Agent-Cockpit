@@ -111,7 +111,7 @@ func (request CandidateTestBinaryBuilderRequest) validate(objectPrefix string) e
 	}
 	seen := make(map[string]struct{}, len(request.Targets))
 	for _, target := range request.Targets {
-		if !request.CGOEnabled || !validGoTestBinaryBuild(target.Package, target.Mode, "linux/amd64", "go1.25.7", target.CGOEnabled, []string{"-mod=readonly", "-buildvcs=false", "-trimpath"}) {
+		if !request.CGOEnabled || !validGoTestBinaryBuild(target.Package, target.Mode, "linux/amd64", "go1.26.5", target.CGOEnabled, []string{"-mod=readonly", "-buildvcs=false", "-trimpath"}) {
 			return errors.New("candidate test binary builder request target is invalid")
 		}
 		identity := target.Package + "\x00" + target.Mode
@@ -124,7 +124,7 @@ func (request CandidateTestBinaryBuilderRequest) validate(objectPrefix string) e
 }
 
 func (result CandidateTestBinaryBuilderResult) Validate() error {
-	if result.SchemaVersion != CandidateTestBinaryBuilderResultSchemaVersion || !remoteIDPattern.MatchString(result.JobID) || !remoteOIDPattern.MatchString(result.CandidateTree) || result.Platform != "linux/amd64" || result.GoToolchain != "go1.25.7" || !result.CGOEnabled || !remoteDigestPattern.MatchString(result.ToolchainSHA256) || len(result.Builds) == 0 || len(result.Builds) > 64 {
+	if result.SchemaVersion != CandidateTestBinaryBuilderResultSchemaVersion || !remoteIDPattern.MatchString(result.JobID) || !remoteOIDPattern.MatchString(result.CandidateTree) || result.Platform != "linux/amd64" || result.GoToolchain != "go1.26.5" || !result.CGOEnabled || !remoteDigestPattern.MatchString(result.ToolchainSHA256) || len(result.Builds) == 0 || len(result.Builds) > 64 {
 		return errors.New("candidate test binary builder result identity is invalid")
 	}
 	return nil
@@ -135,7 +135,7 @@ func (result CandidateTestBinaryBuilderResult) ValidateAgainst(request Candidate
 	if err := result.Validate(); err != nil {
 		return err
 	}
-	if result.SchemaVersion != CandidateTestBinaryBuilderResultSchemaVersion || result.JobID != request.JobID || result.CandidateTree != request.CandidateTree || result.Platform != "linux/amd64" || result.GoToolchain != "go1.25.7" || result.CGOEnabled != request.CGOEnabled || result.ToolchainSHA256 != request.CandidateCLI.ToolchainSHA256 || len(result.Builds) != len(request.Targets) {
+	if result.SchemaVersion != CandidateTestBinaryBuilderResultSchemaVersion || result.JobID != request.JobID || result.CandidateTree != request.CandidateTree || result.Platform != "linux/amd64" || result.GoToolchain != "go1.26.5" || result.CGOEnabled != request.CGOEnabled || result.ToolchainSHA256 != request.CandidateCLI.ToolchainSHA256 || len(result.Builds) != len(request.Targets) {
 		return errors.New("candidate test binary builder result identity is invalid")
 	}
 	seen := make(map[string]struct{}, len(result.Builds))

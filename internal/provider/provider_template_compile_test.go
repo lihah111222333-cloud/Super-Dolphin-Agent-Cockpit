@@ -123,7 +123,7 @@ func writeTemplateFile(t *testing.T, dir, name, content string) {
 func renderedTemplateGoMod(repoRoot string) string {
 	return fmt.Sprintf(`module github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/renderedtemplate
 
-go 1.25.7
+go 1.26.5
 
 require github.com/lihah111222333-cloud/super-dolphin-agent v0.0.0
 

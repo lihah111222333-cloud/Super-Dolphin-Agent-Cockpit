@@ -53,7 +53,7 @@ func validateRemoteCIRunRecord(record RemoteCIRunRecord) error {
 }
 
 func validateCandidateTestBinaryBuildRecord(build CandidateTestBinaryBuildRecord) error {
-	if strings.TrimSpace(build.CandidateTree) == "" || strings.TrimSpace(build.Package) == "" || build.Mode != "test" || build.Platform != "linux/amd64" || build.GoToolchain != "go1.25.7" || !build.CGOEnabled || !isPrefixedSHA256Digest(build.ToolchainSHA256) || !isPrefixedSHA256Digest(build.CompileClosureSHA256) || len(build.ManifestSHA256) != 64 || !isPrefixedSHA256Digest(build.ArtifactSHA256) || build.BinarySize <= 0 {
+	if strings.TrimSpace(build.CandidateTree) == "" || strings.TrimSpace(build.Package) == "" || build.Mode != "test" || build.Platform != "linux/amd64" || build.GoToolchain != "go1.26.5" || !build.CGOEnabled || !isPrefixedSHA256Digest(build.ToolchainSHA256) || !isPrefixedSHA256Digest(build.CompileClosureSHA256) || len(build.ManifestSHA256) != 64 || !isPrefixedSHA256Digest(build.ArtifactSHA256) || build.BinarySize <= 0 {
 		return errors.New("candidate test binary build identity is invalid")
 	}
 	if !isPrefixedSHA256Digest(build.GOCachePrivateRootIdentity) {

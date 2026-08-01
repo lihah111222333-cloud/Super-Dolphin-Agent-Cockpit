@@ -114,7 +114,7 @@ func assertPrioritySSAFreezeAccepts(
 func writePrioritySSAFixtureRepo(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	writePrioritySSAFile(t, root, "go.mod", "module github.com/lihah111222333-cloud/super-dolphin-agent\n\ngo 1.25.7\n")
+	writePrioritySSAFile(t, root, "go.mod", "module github.com/lihah111222333-cloud/super-dolphin-agent\n\ngo 1.26.5\n")
 	writePrioritySSAFile(t, root, "cmd/mcp-orch/store/taskdag/store.go", `package taskdag
 
 type Store interface {

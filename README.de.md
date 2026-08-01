@@ -195,7 +195,7 @@ Berechnungen dürfen auch nach vorheriger Validierung explizit fehlschlagen. Sch
 
 ### Voraussetzungen
 
-- Go 1.25.7
+- Go 1.26.5
 - Node.js gemäß `^20.19.0 || ^22.13.0 || >=24` und npm
 - Installierte und authentifizierte OpenAI Codex CLI (`codex`)
 - `gopls`

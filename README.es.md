@@ -195,7 +195,7 @@ Los cálculos pueden fallar explícitamente incluso después de una validación 
 
 ### Requisitos previos
 
-- Go 1.25.7
+- Go 1.26.5
 - Node.js compatible con `^20.19.0 || ^22.13.0 || >=24` y npm
 - OpenAI Codex CLI (`codex`), instalado y autenticado
 - `gopls`

@@ -377,7 +377,7 @@ func bad_identifier_with_too_many_underscores() {}
 `)
 	fakeGo := filepath.Join(t.TempDir(), "fake-go")
 	fakeScript := "#!/usr/bin/env bash\n" +
-		"if [[ \"$1\" == version ]]; then printf 'go version go1.25.7 linux/amd64\\n'; exit 0; fi\n" +
+		"if [[ \"$1\" == version ]]; then printf 'go version go1.26.5 linux/amd64\\n'; exit 0; fi\n" +
 		"printf 'bad_identifier_with_too_many_underscores\\nexit status 1\\n' >&2\n" +
 		"exit 1\n"
 	if err := os.WriteFile(fakeGo, []byte(fakeScript), 0o700); err != nil {
@@ -392,8 +392,8 @@ func bad_identifier_with_too_many_underscores() {}
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
-	var exitErr *exec.ExitError
-	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+	exitErr, ok := errors.AsType[*exec.ExitError](err)
+	if !ok || exitErr.ExitCode() != 1 {
 		t.Fatalf("exit error = %v, want exit code 1\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
 	}
 	if stdout.String() != "" {
@@ -502,8 +502,7 @@ func runCodeSizeGuardArgs(t *testing.T, args ...string) codeSizeGuardCLIResult {
 	if err == nil {
 		return result
 	}
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
+	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 		result.exitCode = exitErr.ExitCode()
 		return result
 	}
@@ -544,7 +543,7 @@ func runTestWithGuardFakeGoWithListOutput(t *testing.T, listOutput string, args 
 	fakeGo := filepath.Join(root, "fake-go")
 	logPath := filepath.Join(root, "go-invocations.log")
 	script := "#!/usr/bin/env bash\n" +
-		"if [[ \"$1\" == version ]]; then printf 'go version go1.25.7 linux/amd64\\n'; exit 0; fi\n" +
+		"if [[ \"$1\" == version ]]; then printf 'go version go1.26.5 linux/amd64\\n'; exit 0; fi\n" +
 		"printf '%s ' \"$@\" >> \"$FAKE_GO_LOG\"\n" +
 		"printf '\\n' >> \"$FAKE_GO_LOG\"\n" +
 		"if [[ \"$1\" == list ]]; then printf '%s\\n' \"$FAKE_GO_LIST_OUTPUT\"; fi\n" +

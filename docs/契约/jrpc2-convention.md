@@ -3,7 +3,7 @@
 - 目标版本: `github.com/creachadair/jrpc2` `v1.3.5`
 - 核验时间: `2026-03-19`
 - 核验依据: `README.md`, `doc.go`, `handler/*`, `channel/*`, `jhttp/*`, `server/*`, `v1.3.5` tag 源码
-- 说明: 下文所有 Go 示例均已按 `Go 1.25 + jrpc2 v1.3.5` 在临时 module 中完成 `go build` 校验
+- 说明: 下文所有 Go 示例均按仓库基线 `Go 1.26.5 + jrpc2 v1.3.5` 维护；本次工具链迁移已重新执行仓库构建与测试验证
 
 ## 总体结论
 

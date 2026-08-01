@@ -637,7 +637,7 @@ verify_packaged_go_lsp_smoke() {
   cat >"$workspace/go.mod" <<'EOF_GO_MOD'
 module smoke.test
 
-go 1.25
+go 1.26.5
 EOF_GO_MOD
   cat >"$workspace/main.go" <<'EOF_GO'
 package main

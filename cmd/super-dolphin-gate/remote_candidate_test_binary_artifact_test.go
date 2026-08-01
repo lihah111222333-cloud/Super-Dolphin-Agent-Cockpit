@@ -17,7 +17,7 @@ func TestMaterializeRemoteCandidateTestBinariesInstallsOnlyVerifiedBundle(t *tes
 	binaryDigest := digestBytes(binary)
 	manifest := remoteci.CandidateTestBinaryArtifactManifest{
 		SchemaVersion: remoteci.CandidateTestBinaryArtifactSchemaVersion, CandidateTree: tree,
-		Package: "example.test/internal/gate", Mode: "test", Platform: "linux/amd64", GoToolchain: "go1.25.7", CGOEnabled: true,
+		Package: "example.test/internal/gate", Mode: "test", Platform: "linux/amd64", GoToolchain: "go1.26.5", CGOEnabled: true,
 		BuildFlags:      []string{"-mod=readonly", "-buildvcs=false", "-trimpath"},
 		ToolchainSHA256: "sha256:" + strings.Repeat("b", 64), CompileClosureSHA256: "sha256:" + strings.Repeat("c", 64),
 		BinaryKey: "candidate/job/" + binaryDigest + ".test-bin", BinarySHA256: "sha256:" + binaryDigest, BinarySize: int64(len(binary)),

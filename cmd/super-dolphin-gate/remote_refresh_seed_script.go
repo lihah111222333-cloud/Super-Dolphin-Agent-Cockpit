@@ -611,8 +611,8 @@ if test "$seeds_changed" = 1; then
   fi
   if test "$go_reused" = 0; then
     case "$BASELINE_GO_TOOLCHAIN/$go_arch" in
-      go1.25.7/amd64) go_sha256=12e6d6a191091ae27dc31f6efc630e3a3b8ba409baf3573d955b196fdf086005 ;;
-      go1.25.7/arm64) go_sha256=ba611a53534135a81067240eff9508cd7e256c560edd5d8c2fef54f083c07129 ;;
+      go1.26.5/amd64) go_sha256=5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053 ;;
+      go1.26.5/arm64) go_sha256=fe4789e92b1f33358680864bbe8704289e7bb5fc207d80623c308935bd696d49 ;;
       *) echo "unsupported locked Go archive: $BASELINE_GO_TOOLCHAIN/$go_arch" >&2; exit 1 ;;
     esac
     go_filename=${BASELINE_GO_TOOLCHAIN}.linux-${go_arch}.tar.gz

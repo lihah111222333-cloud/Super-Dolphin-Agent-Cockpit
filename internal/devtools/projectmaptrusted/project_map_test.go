@@ -184,21 +184,21 @@ func newTrustedProjectMapRepository(t *testing.T) string {
 	trustedProjectMapGit(t, repository, "config", "user.email", "project-map-trusted@example.invalid")
 
 	files := map[string]string{
-		".ai-project-map.overrides.json":         `{"drift_thresholds_patch":{"max_unknown_ratio":1}}` + "\n",
-		"AGENTS.md":                              "Use docs/adr/*.md as current decisions.\n",
-		"CLAUDE.md":                              "Trusted project-map fixture.\n",
-		"Makefile":                               "$(shell touch candidate-make-executed)\nall:\n\t@false\n",
-		"README.md":                              "Trusted project-map fixture.\n",
-		"docs/README.md":                         "Current documentation.\n",
-		"docs/adr/current.md":                    "Current ADR.\n",
-		"docs/archive/reviews/old.md":            "Historical review.\n",
-		"docs/work/plans/current.md":             "Current plan.\n",
-		"docs/契约/README.md":                       "Architecture decisions live in docs/adr.\n",
-		"docs/契约/fix-workflow-convention.md":      "docs/work/plans/\ndocs/archive/reviews/\ndocs/adr/\n",
-		"docs/契约/mcp-service-convention.md":       "Current MCP service convention.\n",
-		"go.mod":                                 "module example.invalid/project-map-trusted\n\ngo 1.25.7\n",
-		"scripts/codemap_policy.txt":             trustedProjectMapPolicy(),
-		"scripts/generate_ai_project_map.mjs":    "import fs from 'node:fs';\nfs.writeFileSync('candidate-generator-executed', 'executed');\n",
+		".ai-project-map.overrides.json":      `{"drift_thresholds_patch":{"max_unknown_ratio":1}}` + "\n",
+		"AGENTS.md":                           "Use docs/adr/*.md as current decisions.\n",
+		"CLAUDE.md":                           "Trusted project-map fixture.\n",
+		"Makefile":                            "$(shell touch candidate-make-executed)\nall:\n\t@false\n",
+		"README.md":                           "Trusted project-map fixture.\n",
+		"docs/README.md":                      "Current documentation.\n",
+		"docs/adr/current.md":                 "Current ADR.\n",
+		"docs/archive/reviews/old.md":         "Historical review.\n",
+		"docs/work/plans/current.md":          "Current plan.\n",
+		"docs/契约/README.md":                   "Architecture decisions live in docs/adr.\n",
+		"docs/契约/fix-workflow-convention.md":  "docs/work/plans/\ndocs/archive/reviews/\ndocs/adr/\n",
+		"docs/契约/mcp-service-convention.md":   "Current MCP service convention.\n",
+		"go.mod":                              "module example.invalid/project-map-trusted\n\ngo 1.26.5\n",
+		"scripts/codemap_policy.txt":          trustedProjectMapPolicy(),
+		"scripts/generate_ai_project_map.mjs": "import fs from 'node:fs';\nfs.writeFileSync('candidate-generator-executed', 'executed');\n",
 	}
 	for relative, content := range files {
 		writeTrustedProjectMapTestFile(t, repository, relative, content)

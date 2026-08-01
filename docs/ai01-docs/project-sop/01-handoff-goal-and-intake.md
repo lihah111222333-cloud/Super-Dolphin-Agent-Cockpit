@@ -58,7 +58,7 @@
 | 仓库根目录 | `D:/project/Super-Dolphin` | 无 |
 | Git 分支 | `main` | 直接在 main 上工作需谨慎 |
 | HEAD | `47ee7608` | 后续文档应记录更新后的 commit |
-| Go | `go1.26.3 windows/amd64` | `go.mod` 声明 `go 1.25.7`，存在版本漂移 |
+| Go | 历史快照：`go1.26.3 windows/amd64` | 当前仓库基线为 `Go 1.26.5`；历史机器快照不得作为当前构建依据 |
 | Node | `v26.1.0` | README 提到 Node 20+，CI 使用 Node 20，需确认本地兼容性 |
 | npm | `11.13.0` | 与 CI 不完全一致 |
 | `.env` | 未发现 | 启动时可能依赖脚本默认值或本机外部环境 |

@@ -41,7 +41,7 @@ test_resolve_real_go_from_real_go_bin() {
   tmpdir="$(mktemp -d)"
   trap 'rm -rf "$tmpdir"' RETURN
   real_go="$tmpdir/real-go"
-  write_fake_go "$real_go" "1.25.7"
+  write_fake_go "$real_go" "1.26.5"
 
   resolved="$(REAL_GO_BIN="$real_go" "$BASH" -c 'source scripts/real_go_resolver.sh; resolve_real_go')"
   [[ "$resolved" -ef "$real_go" ]] || fail "resolve_real_go returned $resolved, want $real_go"
@@ -54,7 +54,7 @@ test_resolve_real_go_prefers_matching_goroot_over_newer_path() {
   mkdir -p "$tmpdir/go-root/bin" "$tmpdir/path"
   matching="$tmpdir/go-root/bin/go"
   newer="$tmpdir/path/go"
-  write_fake_go "$matching" "1.25.7"
+  write_fake_go "$matching" "1.26.5"
   write_fake_go "$newer" "1.26.5"
 
   resolved="$(GOROOT="$tmpdir/go-root" PATH="$tmpdir/path:$PATH" "$BASH" -c 'source scripts/real_go_resolver.sh; resolve_real_go')"
@@ -74,7 +74,7 @@ test_real_go_bin_rejects_wrong_repo_version() {
   status=$?
   set -e
   [[ "$status" -ne 0 ]] || fail "wrong-version REAL_GO_BIN unexpectedly succeeded"
-  assert_contains "$stderr" "go1.25.7"
+  assert_contains "$stderr" "go1.26.5"
 }
 
 test_remote_worker_uses_manifest_verified_goroot_binary() {
