@@ -111,6 +111,10 @@ func TestCandidateRequestFromInputsCarriesAcceptedConfigDigest(t *testing.T) {
 	if request.AcceptedConfigDigest != accepted.Image.ConfigDigest || request.AcceptedImageDigest != accepted.Image.PlatformManifestDigest {
 		t.Fatalf("candidate accepted identity = %#v", request)
 	}
+	wantReference := accepted.Image.Registry + "@" + accepted.Image.PlatformManifestDigest
+	if request.AcceptedImageReference != wantReference {
+		t.Fatalf("candidate accepted image reference = %q, want %q", request.AcceptedImageReference, wantReference)
+	}
 }
 
 func TestTruthImageEnsurerBuildFailureKeepsAcceptedRecord(t *testing.T) {

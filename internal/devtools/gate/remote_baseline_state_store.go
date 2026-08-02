@@ -57,7 +57,7 @@ func (store *DurationLedgerStore) CompareAndSwapRemoteBaselineState(expected uin
 			return 0, durationLedgerConflict(expected, current)
 		}
 	}
-	if _, err = tx.Exec(`INSERT INTO ci_remote_baseline_state(singleton,schema_version,generation,state_json,state_sha256,legacy_json,updated_at_unix_ms) VALUES(1,2,?,?,?,NULL,?) ON CONFLICT(singleton) DO UPDATE SET schema_version=excluded.schema_version,generation=excluded.generation,state_json=excluded.state_json,state_sha256=excluded.state_sha256,legacy_json=NULL,updated_at_unix_ms=excluded.updated_at_unix_ms`, strconv.FormatUint(record.Generation, 10), string(record.StateJSON), record.StateSHA256, store.nowFunc().UTC().UnixMilli()); err != nil {
+	if _, err = tx.Exec(`INSERT INTO ci_remote_baseline_state(singleton,schema_version,generation,state_json,state_sha256,updated_at_unix_ms) VALUES(1,2,?,?,?,?) ON CONFLICT(singleton) DO UPDATE SET schema_version=excluded.schema_version,generation=excluded.generation,state_json=excluded.state_json,state_sha256=excluded.state_sha256,updated_at_unix_ms=excluded.updated_at_unix_ms`, strconv.FormatUint(record.Generation, 10), string(record.StateJSON), record.StateSHA256, store.nowFunc().UTC().UnixMilli()); err != nil {
 		return 0, err
 	}
 	if err = tx.Commit(); err != nil {
@@ -70,8 +70,7 @@ func loadRemoteBaselineStateRecord(db *sql.DB) (RemoteBaselineStateRecord, error
 	var generation string
 	var schemaVersion uint32
 	var record RemoteBaselineStateRecord
-	var legacyJSON []byte
-	err := db.QueryRow(`SELECT schema_version,generation,state_json,state_sha256,legacy_json FROM ci_remote_baseline_state WHERE singleton=1`).Scan(&schemaVersion, &generation, &record.StateJSON, &record.StateSHA256, &legacyJSON)
+	err := db.QueryRow(`SELECT schema_version,generation,state_json,state_sha256 FROM ci_remote_baseline_state WHERE singleton=1`).Scan(&schemaVersion, &generation, &record.StateJSON, &record.StateSHA256)
 	if errors.Is(err, sql.ErrNoRows) {
 		return RemoteBaselineStateRecord{}, ErrRemoteBaselineStateNotFound
 	}
@@ -83,7 +82,7 @@ func loadRemoteBaselineStateRecord(db *sql.DB) (RemoteBaselineStateRecord, error
 		return RemoteBaselineStateRecord{}, errors.New("remote baseline stored generation is invalid")
 	}
 	record.Generation = value
-	if schemaVersion != 2 || len(legacyJSON) != 0 {
+	if schemaVersion != 2 {
 		return RemoteBaselineStateRecord{}, ErrRemoteBaselineStateMigrationRequired
 	}
 	if len(record.StateJSON) == 0 || record.StateSHA256 == "" {

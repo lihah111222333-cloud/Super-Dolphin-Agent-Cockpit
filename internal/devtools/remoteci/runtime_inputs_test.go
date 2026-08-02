@@ -2,7 +2,6 @@ package remoteci
 
 import (
 	"encoding/json"
-	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -33,30 +32,20 @@ func TestResolveRuntimeDependencyBuildUsesLockedGitTree(t *testing.T) {
 	}
 }
 
-func TestRuntimeLockDigestIgnoresOnlyIncrementalSeedControlPlane(t *testing.T) {
+func TestRuntimeLockDigestIgnoresSeedWorkerRecipe(t *testing.T) {
 	lock := runtimeDependencyLock{Inputs: map[string]string{
-		"toolchain_lock_sha256":              "sha256:toolchain",
-		"runtime_seed_script_runtime_sha256": "sha256:runtime-a",
-		"runtime_seed_script_browser_sha256": "sha256:browser-a",
-		"runtime_seed_script_tail_sha256":    "sha256:tail-a",
+		"toolchain_lock_sha256": "sha256:toolchain",
 	}, RecipeInputs: map[string]string{
-		"runtime_seed_recipe_sha256": "sha256:recipe-a",
-		"runtime_seed_script_sha256": "sha256:script-a",
+		"runtime_seed_worker_sha256": "sha256:worker-a",
 	}}
 	baseline := runtimeLockDigest(lock)
-	for _, name := range []string{"runtime_seed_recipe_sha256", "runtime_seed_script_sha256"} {
-		changed := runtimeDependencyLock{Inputs: maps.Clone(lock.Inputs), RecipeInputs: maps.Clone(lock.RecipeInputs)}
-		changed.RecipeInputs[name] += "-changed"
-		if digest := runtimeLockDigest(changed); digest != baseline {
-			t.Fatalf("control-plane input %s invalidated reusable runtime digest", name)
-		}
+	changedRecipe := runtimeDependencyLock{Inputs: map[string]string{"toolchain_lock_sha256": "sha256:toolchain"}, RecipeInputs: map[string]string{"runtime_seed_worker_sha256": "sha256:worker-b"}}
+	if digest := runtimeLockDigest(changedRecipe); digest != baseline {
+		t.Fatal("seed worker recipe invalidated reusable runtime digest")
 	}
-	for _, name := range []string{"toolchain_lock_sha256", "runtime_seed_script_runtime_sha256", "runtime_seed_script_browser_sha256", "runtime_seed_script_tail_sha256"} {
-		changed := runtimeDependencyLock{Inputs: maps.Clone(lock.Inputs), RecipeInputs: maps.Clone(lock.RecipeInputs)}
-		changed.Inputs[name] += "-changed"
-		if digest := runtimeLockDigest(changed); digest == baseline {
-			t.Fatalf("runtime content input %s did not invalidate reusable runtime digest", name)
-		}
+	changedContent := runtimeDependencyLock{Inputs: map[string]string{"toolchain_lock_sha256": "sha256:toolchain-b"}, RecipeInputs: lock.RecipeInputs}
+	if digest := runtimeLockDigest(changedContent); digest == baseline {
+		t.Fatal("runtime content input did not invalidate reusable runtime digest")
 	}
 }
 
@@ -148,127 +137,66 @@ func TestResolveRuntimeDependencyBuildRejectsLockDrift(t *testing.T) {
 	}
 }
 
-func TestResolveRuntimeDependencyBuildRejectsRuntimeSeedRecipeDrift(t *testing.T) {
-	for _, recipePath := range []string{
-		"cmd/super-dolphin-gate/remote_refresh_seed.go",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script.go",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go",
-	} {
-		t.Run(filepath.Base(recipePath), func(t *testing.T) {
-			entries := loadRuntimeDependencyEntries(t)
-			for index := range entries {
-				if entries[index].Path == recipePath {
-					entries[index].Data = append(entries[index].Data, []byte("\n// drift\n")...)
-				}
-			}
-			if _, _, err := ResolveRuntimeDependencyBuild(entries, "linux/amd64"); err == nil {
-				t.Fatal("ResolveRuntimeDependencyBuild() unexpectedly accepted runtime seed recipe drift")
-			}
-		})
-	}
-}
-
-func TestResolveRuntimeDependencyBuildKeepsRecipeChangesAuditableWithoutChangingRuntimeIdentity(t *testing.T) {
-	for field, targetPath := range map[string]string{
-		"runtime_seed_recipe_sha256": "cmd/super-dolphin-gate/remote_refresh_seed.go",
-		"runtime_seed_script_sha256": "cmd/super-dolphin-gate/remote_refresh_seed_script.go",
-	} {
-		t.Run(field, func(t *testing.T) {
-			entries := loadRuntimeDependencyEntries(t)
-			baseline, _, err := ResolveRuntimeDependencyBuild(entries, "linux/amd64")
-			if err != nil {
-				t.Fatal(err)
-			}
-			lockIndex, document, _ := runtimeDependencyLockDocument(t, entries)
-			recipeInputs, ok := document["recipe_inputs"].(map[string]any)
-			if !ok {
-				t.Fatal("runtime dependency fixture recipe inputs are not an object")
-			}
-			for index := range entries {
-				if entries[index].Path == targetPath {
-					entries[index].Data = append(entries[index].Data, []byte("\n// audited recipe change\n")...)
-					recipeInputs[field] = remoteBytesDigest(entries[index].Data)
-				}
-			}
-			updateRuntimeDependencyLock(t, entries, lockIndex, document)
-			changed, _, err := ResolveRuntimeDependencyBuild(entries, "linux/amd64")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if changed != baseline {
-				t.Fatal("audited recipe change invalidated reusable runtime dependency identity")
-			}
-		})
-	}
-}
-
-func TestResolveAcceptedRuntimeDependencyDigestAllowsLegacyV5ThroughV10(t *testing.T) {
+func TestResolveRuntimeDependencyBuildRejectsRuntimeSeedWorkerRecipeDrift(t *testing.T) {
 	entries := loadRuntimeDependencyEntries(t)
-	current, _, err := ResolveRuntimeDependencyBuild(entries, "linux/amd64")
+	for index := range entries {
+		if entries[index].Path == "internal/devtools/gate/executor_seed.go" {
+			entries[index].Data = append(entries[index].Data, []byte("\n// drift\n")...)
+		}
+	}
+	if _, _, err := ResolveRuntimeDependencyBuild(entries, "linux/amd64"); err == nil {
+		t.Fatal("ResolveRuntimeDependencyBuild() unexpectedly accepted runtime seed worker recipe drift")
+	}
+}
+
+func TestResolveRuntimeDependencyBuildKeepsSeedWorkerRecipeChangesAuditableWithoutChangingRuntimeIdentity(t *testing.T) {
+	entries := loadRuntimeDependencyEntries(t)
+	baseline, _, err := ResolveRuntimeDependencyBuild(entries, "linux/amd64")
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertAcceptedRuntimeDependencyDigest(t, entries, current)
-	lockIndex, document, inputs := runtimeDependencyLockDocument(t, entries)
+	lockIndex, document, _ := runtimeDependencyLockDocument(t, entries)
 	recipeInputs, ok := document["recipe_inputs"].(map[string]any)
 	if !ok {
 		t.Fatal("runtime dependency fixture recipe inputs are not an object")
 	}
-	inputs["runtime_seed_worker_sha256"] = recipeInputs["runtime_seed_worker_sha256"]
-	delete(recipeInputs, "runtime_seed_worker_sha256")
-	delete(recipeInputs, "runtime_seed_script_control_sha256")
-	document["schema_version"] = "11"
-	updateRuntimeDependencyLock(t, entries, lockIndex, document)
-	legacyV11 := assertAcceptedLegacyRuntimeDigest(t, entries, "v11")
-	if legacyV11 != current {
-		t.Fatalf("legacy v11 dependency digest = %q, want v12 %q", legacyV11, current)
-	}
-	inputs["runtime_seed_script_sha256"] = recipeInputs["runtime_seed_script_sha256"]
-	delete(recipeInputs, "runtime_seed_script_sha256")
-	delete(inputs, "runtime_seed_script_tail_sha256")
-	document["schema_version"] = "10"
-	updateRuntimeDependencyLock(t, entries, lockIndex, document)
-	legacyV10 := assertAcceptedLegacyRuntimeDigest(t, entries, "v10")
-	if legacyV10 == current {
-		t.Fatal("legacy v10 digest unexpectedly ignored the seed orchestration script")
-	}
-	maps.Copy(inputs, recipeInputs)
-	delete(document, "recipe_inputs")
-	document["schema_version"] = "9"
-	updateRuntimeDependencyLock(t, entries, lockIndex, document)
-	legacyV9 := assertAcceptedLegacyRuntimeDigest(t, entries, "v9")
-	if legacyV9 != legacyV10 {
-		t.Fatalf("legacy v9 dependency digest = %q, want v10 %q", legacyV9, legacyV10)
-	}
-	seen := map[string]string{current: "v12", legacyV10: "v10"}
-	reusable := legacyV10
-	migrations := []struct {
-		version         string
-		removedInput    string
-		rejectedCurrent bool
-		wantDistinct    bool
-	}{
-		{version: "v8", removedInput: "runtime_seed_script_browser_sha256", rejectedCurrent: true, wantDistinct: true},
-		{version: "v7", removedInput: "runtime_seed_script_runtime_sha256", rejectedCurrent: true, wantDistinct: true},
-		{version: "v6", removedInput: "runtime_seed_script_sha256", rejectedCurrent: true, wantDistinct: true},
-		{version: "v5", removedInput: "runtime_seed_recipe_sha256"},
-	}
-	for _, migration := range migrations {
-		document["schema_version"] = strings.TrimPrefix(migration.version, "v")
-		delete(inputs, migration.removedInput)
-		updateRuntimeDependencyLock(t, entries, lockIndex, document)
-		digest := acceptedLegacyRuntimeDigest(t, entries, migration)
-		if migration.wantDistinct {
-			assertDistinctRuntimeDependencyDigest(t, seen, digest, migration.version)
-			reusable = digest
-		} else if digest != reusable {
-			t.Fatalf("legacy control-plane schema %s digest = %q, want reusable %q", migration.version, digest, reusable)
+	for index := range entries {
+		if entries[index].Path == "internal/devtools/gate/executor_seed.go" {
+			entries[index].Data = append(entries[index].Data, []byte("\n// audited recipe change\n")...)
+			recipeInputs["runtime_seed_worker_sha256"] = remoteBytesDigest(entries[index].Data)
 		}
 	}
-	entries[lockIndex].Data = []byte(`{"schema_version":"3"}`)
+	updateRuntimeDependencyLock(t, entries, lockIndex, document)
+	changed, _, err := ResolveRuntimeDependencyBuild(entries, "linux/amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed != baseline {
+		t.Fatal("audited seed worker recipe change invalidated reusable runtime dependency identity")
+	}
+}
+
+func TestResolveRuntimeDependencyBuildRejectsRemovedSeedLockShape(t *testing.T) {
+	entries := loadRuntimeDependencyEntries(t)
+	lockIndex, document, inputs := runtimeDependencyLockDocument(t, entries)
+	inputs["runtime_seed_script_tail_sha256"] = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	updateRuntimeDependencyLock(t, entries, lockIndex, document)
+	if _, _, err := ResolveRuntimeDependencyBuild(entries, "linux/amd64"); err == nil {
+		t.Fatal("current runtime dependency resolver accepted removed seed input")
+	}
 	if _, err := ResolveAcceptedRuntimeDependencyDigest(entries, "linux/amd64"); err == nil {
-		t.Fatal("accepted runtime dependency resolver accepted unsupported schema")
+		t.Fatal("baseline resolver accepted removed seed input")
+	}
+
+	entries = loadRuntimeDependencyEntries(t)
+	lockIndex, document, _ = runtimeDependencyLockDocument(t, entries)
+	document["schema_version"] = "12"
+	updateRuntimeDependencyLock(t, entries, lockIndex, document)
+	if _, _, err := ResolveRuntimeDependencyBuild(entries, "linux/amd64"); err == nil {
+		t.Fatal("current runtime dependency resolver accepted schema v12")
+	}
+	if _, err := ResolveAcceptedRuntimeDependencyDigest(entries, "linux/amd64"); err == nil {
+		t.Fatal("baseline resolver accepted schema v12 without its removed inputs")
 	}
 }
 

@@ -48,34 +48,24 @@ func TestRuntimeDepsLockRejectsInputAndShapeDrift(t *testing.T) {
 	}
 }
 
-func TestRuntimeDepsLockRejectsRuntimeSeedScriptDrift(t *testing.T) {
-	for _, script := range []string{
-		"cmd/super-dolphin-gate/remote_refresh_seed.go",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script.go",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script_tail.go",
-	} {
-		t.Run(filepath.Base(script), func(t *testing.T) {
-			root := t.TempDir()
-			writeRuntimeDepsInputs(t, root)
-			inputs, err := digestRuntimeDepsInputs(root)
-			if err != nil {
-				t.Fatal(err)
-			}
-			recipeInputs, err := digestRuntimeDepsRecipeInputs(root)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(script)), []byte("drift\n"), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			lock := validRuntimeDepsLock(inputs)
-			lock.RecipeInputs = recipeInputs
-			if err := lock.validateAgainstSource(root, toolchainLock{NetworkPolicy: "none"}); !errors.Is(err, errRuntimeDepsInputsDrift) {
-				t.Fatalf("runtime seed script drift error = %v", err)
-			}
-		})
+func TestRuntimeDepsLockRejectsRuntimeSeedWorkerDrift(t *testing.T) {
+	root := t.TempDir()
+	writeRuntimeDepsInputs(t, root)
+	inputs, err := digestRuntimeDepsInputs(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipeInputs, err := digestRuntimeDepsRecipeInputs(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "internal/devtools/gate/executor_seed.go"), []byte("drift\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lock := validRuntimeDepsLock(inputs)
+	lock.RecipeInputs = recipeInputs
+	if err := lock.validateAgainstSource(root, toolchainLock{NetworkPolicy: "none"}); !errors.Is(err, errRuntimeDepsInputsDrift) {
+		t.Fatalf("runtime seed worker drift error = %v", err)
 	}
 }
 
@@ -109,15 +99,15 @@ func TestRefreshDependencyClosureRejectsInvalidTree(t *testing.T) {
 }
 
 func TestRuntimeDepsLockEncodingContainsOnlyNodeLocalContract(t *testing.T) {
-	inputs := runtimeDepsInputs{Dockerfile: testDigest, ToolchainLock: testDigest, GoMod: testDigest, GoSum: testDigest, NilnessRunner: testDigest, NilnessGuard: testDigest, FrontendPackageLock: testDigest, LSPPackageLock: testDigest, ProxyGoMod: testDigest, ProxyGoSum: testDigest, ToolsGoMod: testDigest, ToolsGoSum: testDigest, RuntimeSeedBrowser: testDigest, RuntimeSeedRuntime: testDigest, RuntimeSeedTail: testDigest}
-	recipeInputs := runtimeDepsRecipeInputs{RuntimeSeedRecipe: testDigest, RuntimeSeedScript: testDigest, RuntimeSeedWorker: testDigest, RuntimeSeedControl: testDigest}
+	inputs := runtimeDepsInputs{Dockerfile: testDigest, ToolchainLock: testDigest, GoMod: testDigest, GoSum: testDigest, NilnessRunner: testDigest, NilnessGuard: testDigest, FrontendPackageLock: testDigest, LSPPackageLock: testDigest, ProxyGoMod: testDigest, ProxyGoSum: testDigest, ToolsGoMod: testDigest, ToolsGoSum: testDigest}
+	recipeInputs := runtimeDepsRecipeInputs{RuntimeSeedWorker: testDigest}
 	lock := validRuntimeDepsLock(inputs)
 	lock.RecipeInputs = recipeInputs
 	data, err := encodeRuntimeDepsLock(lock)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, unwanted := range []string{"registry_pull_policy", "images", "oci_index_digest", "platform_manifest_digest"} {
+	for _, unwanted := range []string{"registry_pull_policy", "images", "oci_index_digest", "platform_manifest_digest", "runtime_seed_recipe_sha256", "runtime_seed_script_sha256", "runtime_seed_script_browser_sha256", "runtime_seed_script_runtime_sha256", "runtime_seed_script_tail_sha256", "runtime_seed_script_control_sha256"} {
 		if bytes.Contains(data, []byte(unwanted)) {
 			t.Fatalf("lock retains %q", unwanted)
 		}
@@ -164,12 +154,12 @@ func TestRuntimeDepsDockerfileDoesNotVendorJobSource(t *testing.T) {
 const testDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 func validRuntimeDepsLock(inputs runtimeDepsInputs) runtimeDepsLock {
-	return runtimeDepsLock{SchemaVersion: runtimeDepsSchemaVersion, BuildMode: runtimeDepsBuildMode, CacheScope: runtimeDepsCacheScope, Inputs: inputs, RecipeInputs: runtimeDepsRecipeInputs{RuntimeSeedRecipe: testDigest, RuntimeSeedScript: testDigest, RuntimeSeedWorker: testDigest, RuntimeSeedControl: testDigest}, Paths: canonicalRuntimeDepsPaths()}
+	return runtimeDepsLock{SchemaVersion: runtimeDepsSchemaVersion, BuildMode: runtimeDepsBuildMode, CacheScope: runtimeDepsCacheScope, Inputs: inputs, RecipeInputs: runtimeDepsRecipeInputs{RuntimeSeedWorker: testDigest}, Paths: canonicalRuntimeDepsPaths()}
 }
 
 func writeRuntimeDepsInputs(t *testing.T, root string) {
 	t.Helper()
-	for _, name := range []string{gateRuntimeDepsDocker, gateToolchain, "go.mod", "go.sum", "internal/devtools/nilnessrunner/runner.go", "scripts/nilness_guard.go", "frontend-app/package-lock.json", gateRuntimeLSPLock, gateRuntimeProxyModule, gateRuntimeProxySum, gateRuntimeToolsModule, gateRuntimeToolsSum, "internal/devtools/gate/executor_seed.go", "cmd/super-dolphin-gate/remote_refresh_seed.go", "cmd/super-dolphin-gate/remote_refresh_seed_script.go", "cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go", "cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go", "cmd/super-dolphin-gate/remote_refresh_seed_script_tail.go", "cmd/super-dolphin-gate/remote_refresh_seed_script_control.go"} {
+	for _, name := range []string{gateRuntimeDepsDocker, gateToolchain, "go.mod", "go.sum", "internal/devtools/nilnessrunner/runner.go", "scripts/nilness_guard.go", "frontend-app/package-lock.json", gateRuntimeLSPLock, gateRuntimeProxyModule, gateRuntimeProxySum, gateRuntimeToolsModule, gateRuntimeToolsSum, "internal/devtools/gate/executor_seed.go"} {
 		path := filepath.Join(root, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)

@@ -507,10 +507,11 @@ func loadAcceptedTruthImage(ctx context.Context, loader AcceptedImageLoader) (ga
 	return accepted, nil
 }
 
-// validateCandidateInputs 阻断 resolver 与 builder 之间的任何摘要或复用身份漂移。
+// validateCandidateInputs 验证候选构建仍绑定到 resolver 的 Git 输入闭包。
+// Candidate InputDigest 还绑定上一代 OCI 引用，不能与 tree-only 摘要直接比较。
 func validateCandidateInputs(inputs GateImageInputs, accepted gate.AcceptedImageRecord, candidate CandidateResult) error {
-	if candidate.SourceTreeSHA != inputs.SubmittedSourceTree || candidate.InputDigest != inputs.ImageInputDigest {
-		return errors.New("candidate image source or input digest drifted from resolved Git inputs")
+	if candidate.SourceTreeSHA != inputs.SubmittedSourceTree {
+		return errors.New("candidate image source tree drifted from resolved Git inputs")
 	}
 	if candidate.ContextDigest != inputs.ContextDigest || candidate.InputManifestDigest != inputs.InputManifestDigest {
 		return errors.New("candidate image context or manifest digest drifted from resolved Git inputs")
@@ -529,9 +530,10 @@ func candidateRequestFromInputs(inputs GateImageInputs, accepted gate.AcceptedIm
 		SourceTreeSHA: inputs.SubmittedSourceTree, PolicyDigest: inputs.PolicyDigest,
 		ImageSchemaVersion: inputs.ImageSchemaVersion, SourceEntries: cloneTreeEntries(inputs.SourceEntries),
 		Platform: inputs.Platform, AcceptedInputDigest: accepted.ImageInputDigest,
-		AcceptedPolicyDigest: accepted.PolicyDigest,
-		AcceptedImageDigest:  accepted.Image.PlatformManifestDigest,
-		AcceptedConfigDigest: accepted.Image.ConfigDigest,
+		AcceptedPolicyDigest:   accepted.PolicyDigest,
+		AcceptedImageDigest:    accepted.Image.PlatformManifestDigest,
+		AcceptedConfigDigest:   accepted.Image.ConfigDigest,
+		AcceptedImageReference: accepted.Image.Registry + "@" + accepted.Image.PlatformManifestDigest,
 	}
 }
 

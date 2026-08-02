@@ -22,7 +22,7 @@ func TestOrdinaryJobSourceChangeReusesAcceptedEnvironmentImage(t *testing.T) {
 
 	changedEntries := slices.Clone(entries)
 	appendEntryByte(t, changedEntries, "docs/README.md")
-	changed, err := prepareCandidate(candidateRequest(changedEntries, base.result.InputDigest, digest("8")))
+	changed, err := prepareCandidate(candidateRequest(changedEntries, base.result.InputDigest, digest("e")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,8 +30,7 @@ func TestOrdinaryJobSourceChangeReusesAcceptedEnvironmentImage(t *testing.T) {
 		t.Fatal("ordinary job source change altered the environment image identity")
 	}
 	runner := &recordingBuildKitRunner{digest: digest("9")}
-	request := candidateRequest(changedEntries, base.result.InputDigest, digest("8"))
-	request.AcceptedImageDigest = digest("7")
+	request := candidateRequest(changedEntries, base.result.InputDigest, digest("e"))
 	request.AcceptedConfigDigest = digest("6")
 	mustEnsureCandidate(t, runner, request)
 	if len(runner.requests) != 0 {

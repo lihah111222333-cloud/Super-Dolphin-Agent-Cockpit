@@ -15,7 +15,7 @@ import (
 )
 
 // RuntimeDependencySchemaVersion 是当前 runtime seed 构建合同版本。
-const RuntimeDependencySchemaVersion = "12"
+const RuntimeDependencySchemaVersion = "13"
 
 func runtimeDependencyPathsV4() []string {
 	return []string{
@@ -86,8 +86,26 @@ func runtimeDependencyPathsV11() []string {
 	return runtimeDependencyPathsV5()
 }
 
+// runtimeDependencyPathsV13 返回当前 OCI runtime 的实际内容依赖；seed worker 仅作配方审计。
+func runtimeDependencyPathsV13() []string {
+	return []string{
+		"build/gate/runtime-deps.Dockerfile",
+		"build/gate/toolchain.lock",
+		"go.mod",
+		"go.sum",
+		"internal/devtools/nilnessrunner/runner.go",
+		"scripts/nilness_guard.go",
+		"frontend-app/package-lock.json",
+		"build/gate/runtime-lsp/package-lock.json",
+		"build/gate/runtime-proxy/go.mod",
+		"build/gate/runtime-proxy/go.sum",
+		"build/gate/runtime-tools/go.mod",
+		"build/gate/runtime-tools/go.sum",
+	}
+}
+
 func runtimeDependencyPaths() []string {
-	return runtimeDependencyPathsV5()
+	return runtimeDependencyPathsV13()
 }
 
 type runtimeDependencyLock struct {
@@ -227,7 +245,7 @@ func acceptedRuntimeDependencyPaths(schemaVersion string) ([]string, error) {
 		return runtimeDependencyPathsV10(), nil
 	case "11":
 		return runtimeDependencyPathsV11(), nil
-	case "12":
+	case "13":
 		return runtimeDependencyPaths(), nil
 	case "8":
 		return runtimeDependencyPathsV8(), nil
@@ -485,19 +503,15 @@ func runtimeDependencyLockField(schemaVersion, path string) string {
 		"build/gate/toolchain.lock":          "toolchain_lock_sha256",
 		"go.mod":                             "go_mod_sha256",
 		"go.sum":                             "go_sum_sha256",
-		"internal/devtools/nilnessrunner/runner.go":                    "nilness_runner_sha256",
-		"scripts/nilness_guard.go":                                     "nilness_guard_sha256",
-		"frontend-app/package-lock.json":                               "frontend_package_lock_sha256",
-		"build/gate/runtime-lsp/package-lock.json":                     "lsp_package_lock_sha256",
-		"build/gate/runtime-proxy/go.mod":                              "proxy_go_mod_sha256",
-		"build/gate/runtime-proxy/go.sum":                              "proxy_go_sum_sha256",
-		"build/gate/runtime-tools/go.mod":                              "tools_go_mod_sha256",
-		"build/gate/runtime-tools/go.sum":                              "tools_go_sum_sha256",
-		"internal/devtools/gate/executor_seed.go":                      "runtime_seed_worker_sha256",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script.go":         "runtime_seed_script_sha256",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go": "runtime_seed_script_browser_sha256",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go": "runtime_seed_script_runtime_sha256",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script_tail.go":    "runtime_seed_script_tail_sha256",
+		"internal/devtools/nilnessrunner/runner.go": "nilness_runner_sha256",
+		"scripts/nilness_guard.go":                  "nilness_guard_sha256",
+		"frontend-app/package-lock.json":            "frontend_package_lock_sha256",
+		"build/gate/runtime-lsp/package-lock.json":  "lsp_package_lock_sha256",
+		"build/gate/runtime-proxy/go.mod":           "proxy_go_mod_sha256",
+		"build/gate/runtime-proxy/go.sum":           "proxy_go_sum_sha256",
+		"build/gate/runtime-tools/go.mod":           "tools_go_mod_sha256",
+		"build/gate/runtime-tools/go.sum":           "tools_go_sum_sha256",
+		"internal/devtools/gate/executor_seed.go":   "runtime_seed_worker_sha256",
 	}
 	if field := fields[path]; field != "" {
 		return field
@@ -510,10 +524,7 @@ func runtimeDependencyLockField(schemaVersion, path string) string {
 
 func runtimeDependencyRecipeLockField(path string) string {
 	return map[string]string{
-		"cmd/super-dolphin-gate/remote_refresh_seed.go":                "runtime_seed_recipe_sha256",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script.go":         "runtime_seed_script_sha256",
-		"internal/devtools/gate/executor_seed.go":                      "runtime_seed_worker_sha256",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script_control.go": "runtime_seed_script_control_sha256",
+		"internal/devtools/gate/executor_seed.go": "runtime_seed_worker_sha256",
 	}[path]
 }
 

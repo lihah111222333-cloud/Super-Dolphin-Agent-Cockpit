@@ -225,11 +225,15 @@ func TestEnsureCandidateReusesMatchingInputDigest(t *testing.T) {
 		t.Fatal(err)
 	}
 	entries := candidateEntries(validCandidateDockerfile())
-	built, err := builder.EnsureCandidate(context.Background(), candidateRequest(entries, digest("f"), digest("e")))
+	request := candidateRequest(entries, digest("f"), digest("9"))
+	request.AcceptedImageReference = "registry.example.com/super-dolphin/baseline@" + digest("9")
+	built, err := builder.EnsureCandidate(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	reused, err := builder.EnsureCandidate(context.Background(), candidateRequest(entries, built.InputDigest, digest("9")))
+	reuseRequest := request
+	reuseRequest.AcceptedInputDigest = built.InputDigest
+	reused, err := builder.EnsureCandidate(context.Background(), reuseRequest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,6 +245,14 @@ func TestEnsureCandidateReusesMatchingInputDigest(t *testing.T) {
 	}
 	if len(runner.requests) != 1 {
 		t.Fatalf("matching input digest did not reuse immutable accepted image: %+v", reused)
+	}
+	changedReference := reuseRequest
+	changedReference.AcceptedImageReference = "registry.example.com/super-dolphin/baseline@" + digest("a")
+	if _, err := builder.EnsureCandidate(context.Background(), changedReference); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.requests) != 2 {
+		t.Fatal("changed prior immutable runtime reference reused a candidate")
 	}
 }
 
@@ -440,7 +452,7 @@ func TestPrepareCandidateRejectsRuntimeDepsNonLocalOrRegistryLockFields(t *testi
 
 func TestPrepareCandidateRejectsLegacyIncompleteAndDriftedRuntimeDepsInputs(t *testing.T) {
 	legacy := candidateEntries(validCandidateDockerfile())
-	replaceEntryText(t, legacy, runtimeDepsLockPath, `"schema_version":"12"`, `"schema_version":"1"`)
+	replaceEntryText(t, legacy, runtimeDepsLockPath, `"schema_version":"13"`, `"schema_version":"1"`)
 	assertCandidateRejectedBeforeBuild(t, legacy)
 
 	missingGoMod := candidateEntries(validCandidateDockerfile())
@@ -459,17 +471,9 @@ func TestPrepareCandidateRejectsLegacyIncompleteAndDriftedRuntimeDepsInputs(t *t
 	changeEntry(t, driftedNilnessGuard, "scripts/nilness_guard.go", "package main\n// drift\n")
 	assertCandidateRejectedBeforeBuild(t, driftedNilnessGuard)
 
-	driftedRuntimeSeedScript := candidateEntries(validCandidateDockerfile())
-	changeEntry(t, driftedRuntimeSeedScript, "cmd/super-dolphin-gate/remote_refresh_seed_script.go", "package main\n// drift\n")
-	assertCandidateRejectedBeforeBuild(t, driftedRuntimeSeedScript)
-
-	driftedRuntimeSeedBrowser := candidateEntries(validCandidateDockerfile())
-	changeEntry(t, driftedRuntimeSeedBrowser, "cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go", "package main\n// drift\n")
-	assertCandidateRejectedBeforeBuild(t, driftedRuntimeSeedBrowser)
-
-	driftedRuntimeSeedRuntime := candidateEntries(validCandidateDockerfile())
-	changeEntry(t, driftedRuntimeSeedRuntime, "cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go", "package main\n// drift\n")
-	assertCandidateRejectedBeforeBuild(t, driftedRuntimeSeedRuntime)
+	driftedRuntimeSeedWorker := candidateEntries(validCandidateDockerfile())
+	changeEntry(t, driftedRuntimeSeedWorker, "internal/devtools/gate/executor_seed.go", "package gate\n// drift\n")
+	assertCandidateRejectedBeforeBuild(t, driftedRuntimeSeedWorker)
 }
 
 func TestEnsureCandidateRejectsMissingOrDriftedSqruffArtifactLock(t *testing.T) {
@@ -580,7 +584,7 @@ func candidateRequest(entries []sourceexport.TreeEntry, acceptedInput string, ac
 
 func testRuntimeDepsLock(files map[string]string) string {
 	lock := runtimeDepsLock{
-		SchemaVersion: "12", BuildMode: "node-local", CacheScope: "node",
+		SchemaVersion: "13", BuildMode: "node-local", CacheScope: "node",
 		Inputs: runtimeDepsInputs{
 			Dockerfile:    contentDigest(files["build/gate/runtime-deps.Dockerfile"]),
 			ToolchainLock: contentDigest(files["build/gate/toolchain.lock"]),
@@ -593,15 +597,9 @@ func testRuntimeDepsLock(files map[string]string) string {
 			ProxyGoSum:          contentDigest(files["build/gate/runtime-proxy/go.sum"]),
 			ToolsGoMod:          contentDigest(files["build/gate/runtime-tools/go.mod"]),
 			ToolsGoSum:          contentDigest(files["build/gate/runtime-tools/go.sum"]),
-			RuntimeSeedBrowser:  contentDigest(files["cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go"]),
-			RuntimeSeedRuntime:  contentDigest(files["cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go"]),
-			RuntimeSeedTail:     contentDigest(files["cmd/super-dolphin-gate/remote_refresh_seed_script_tail.go"]),
 		},
 		RecipeInputs: runtimeDepsRecipeInputs{
-			RuntimeSeedRecipe:  contentDigest(files["cmd/super-dolphin-gate/remote_refresh_seed.go"]),
-			RuntimeSeedScript:  contentDigest(files["cmd/super-dolphin-gate/remote_refresh_seed_script.go"]),
-			RuntimeSeedWorker:  contentDigest(files["internal/devtools/gate/executor_seed.go"]),
-			RuntimeSeedControl: contentDigest(files["cmd/super-dolphin-gate/remote_refresh_seed_script_control.go"]),
+			RuntimeSeedWorker: contentDigest(files["internal/devtools/gate/executor_seed.go"]),
 		},
 		Paths: canonicalRuntimeDepsPaths(),
 	}

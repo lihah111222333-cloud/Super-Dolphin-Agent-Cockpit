@@ -43,6 +43,31 @@ func TestRemoteBaselineStateStoreCASRoundTripsOCIOnlyState(t *testing.T) {
 	}
 }
 
+func TestRemoteBaselineStateStoreCASRejectsStaleGeneration(t *testing.T) {
+	state := validOCIOnlyState()
+	data, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(data)
+	store, err := gate.NewDurationLedgerStore(filepath.Join(t.TempDir(), "duration-ledger.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CompareAndSwapRemoteBaselineState(0, gate.RemoteBaselineStateRecord{Generation: state.Generation, StateJSON: data, StateSHA256: fmt.Sprintf("sha256:%x", sum)}); err != nil {
+		t.Fatal(err)
+	}
+	state.Generation = 2
+	data, err = json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum = sha256.Sum256(data)
+	if _, err := store.CompareAndSwapRemoteBaselineState(0, gate.RemoteBaselineStateRecord{Generation: state.Generation, StateJSON: data, StateSHA256: fmt.Sprintf("sha256:%x", sum)}); err == nil {
+		t.Fatal("CompareAndSwapRemoteBaselineState() accepted stale generation")
+	}
+}
+
 func validOCIOnlyState() remoteci.BaselineState {
 	digest := func(value string) string { return "sha256:" + strings.Repeat(value, 64) }
 	tree := strings.Repeat("a", 40)
