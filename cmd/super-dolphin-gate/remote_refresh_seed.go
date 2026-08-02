@@ -286,7 +286,7 @@ func waitRemoteBaselineSeedWithWriterAndInterval(
 				return fmt.Errorf("forward running baseline seed log: %w", err)
 			}
 		}
-		if err := validateRemoteBaselineSeedStatus(ctx, runtime, groupID, containerName, generation, identity, groups[0].Status); err != nil {
+		if err := validateRemoteBaselineSeedStatus(ctx, runtime, groupID, containerName, generation, identity, groups[0]); err != nil {
 			return err
 		}
 		if groups[0].Status == "Succeeded" {
@@ -335,8 +335,8 @@ func isRemoteBaselineSeedLiveProgressLine(line string) bool {
 }
 
 // validateRemoteBaselineSeedStatus 校验 seed 的终态日志与成功标记。
-func validateRemoteBaselineSeedStatus(ctx context.Context, runtime remoteBaselineSeedRuntime, groupID, containerName string, generation uint64, identity remoteci.BaselineIdentity, status string) error {
-	if status == "Succeeded" {
+func validateRemoteBaselineSeedStatus(ctx context.Context, runtime remoteBaselineSeedRuntime, groupID, containerName string, generation uint64, identity remoteci.BaselineIdentity, group eci.ContainerGroup) error {
+	if group.Status == "Succeeded" {
 		log, err := runtime.DescribeContainerLog(ctx, groupID, containerName)
 		if err != nil {
 			return err
@@ -347,14 +347,32 @@ func validateRemoteBaselineSeedStatus(ctx context.Context, runtime remoteBaselin
 		}
 		return nil
 	}
-	if status != "Failed" {
+	if group.Status != "Failed" {
 		return nil
 	}
 	log, err := runtime.DescribeContainerLog(ctx, groupID, containerName)
 	if err != nil {
 		return errors.Join(errors.New("baseline seed ECI failed"), err)
 	}
-	return fmt.Errorf("baseline seed ECI failed: %s", strings.TrimSpace(log))
+	return fmt.Errorf("baseline seed ECI failed: %s; %s", remoteBaselineSeedFailureEvidence(group, containerName), strings.TrimSpace(log))
+}
+
+// remoteBaselineSeedFailureEvidence 保留 seed 容器退出码和平台事件，避免成功校验行掩盖真实失败。
+func remoteBaselineSeedFailureEvidence(group eci.ContainerGroup, containerName string) string {
+	for _, container := range group.Containers {
+		if container.Name == containerName {
+			exitCode := "missing"
+			if container.CurrentState.ExitCode != nil {
+				exitCode = strconv.FormatInt(*container.CurrentState.ExitCode, 10)
+			}
+			return fmt.Sprintf("container=%s state=%s exit_code=%s reason=%q message=%q", container.Name, container.CurrentState.State, exitCode, container.CurrentState.Reason, container.CurrentState.Message)
+		}
+	}
+	if len(group.Events) != 0 {
+		event := group.Events[len(group.Events)-1]
+		return fmt.Sprintf("event_type=%q reason=%q message=%q count=%d", event.Type, event.Reason, event.Message, event.Count)
+	}
+	return "terminal container evidence is missing"
 }
 
 // downloadRemoteBaselineManifest 下载并校验新 generation 的 manifest。

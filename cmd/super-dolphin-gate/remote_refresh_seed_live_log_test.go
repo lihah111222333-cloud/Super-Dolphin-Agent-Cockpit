@@ -125,10 +125,22 @@ func TestValidateRemoteBaselineSeedStatusReadsTerminalLogOnce(t *testing.T) {
 		log: "SUPER_DOLPHIN_BASELINE_READY generation=7 commit=commit tree=tree",
 	}
 
-	if err := validateRemoteBaselineSeedStatus(context.Background(), runtime, "eci-seed", "seed", 7, identity, "Succeeded"); err != nil {
+	if err := validateRemoteBaselineSeedStatus(context.Background(), runtime, "eci-seed", "seed", 7, identity, eci.ContainerGroup{Status: "Succeeded"}); err != nil {
 		t.Fatalf("validateRemoteBaselineSeedStatus() error = %v", err)
 	}
 	if runtime.logCalls != 1 {
 		t.Fatalf("DescribeContainerLog calls = %d, want one terminal read", runtime.logCalls)
+	}
+}
+
+func TestValidateRemoteBaselineSeedStatusPreservesExitEvidence(t *testing.T) {
+	exitCode := int64(23)
+	runtime := &remoteBaselineSeedRuntimeStub{log: "/input/seed.sh: OK"}
+	group := eci.ContainerGroup{Status: "Failed", Containers: []eci.ContainerStatus{{
+		Name: "seed", CurrentState: eci.ContainerState{State: "Terminated", ExitCode: &exitCode, Reason: "Error", Message: "delta replay failed"},
+	}}}
+	err := validateRemoteBaselineSeedStatus(context.Background(), runtime, "eci-seed", "seed", 7, remoteci.BaselineIdentity{}, group)
+	if err == nil || !strings.Contains(err.Error(), "exit_code=23") || !strings.Contains(err.Error(), "delta replay failed") {
+		t.Fatalf("terminal seed error = %v", err)
 	}
 }

@@ -34,46 +34,7 @@ previous_source=$payload_root/source
 mkdir -p "$payload_root" "$go_mod_cache" "$tool_go_mod_cache"
 
 digest_file() { printf 'sha256:%s' "$(sha256sum "$1" | awk '{print $1}')"; }
-
-previous_gate_source_sha256=
-previous_gate_platform=
-previous_gate_toolchain_digest=
-load_verified_gate() {
-  manifest=$1
-  binary=$2
-  test -f "$manifest"
-  test -x "$binary"
-  candidate_gate_source=$(sed -n 's/.*"gate_source_sha256":"\([^"]*\)".*/\1/p' "$manifest")
-  candidate_gate_digest=$(sed -n 's/.*"gate_binary_sha256":"\([^"]*\)".*/\1/p' "$manifest")
-  candidate_gate_size=$(sed -n 's/.*"gate_binary_size":\([0-9][0-9]*\).*/\1/p' "$manifest")
-  candidate_gate_platform=$(sed -n 's/.*"platform":"\([^"]*\)".*/\1/p' "$manifest")
-  candidate_gate_toolchain=$(sed -n 's/.*"toolchain_digest":"\([^"]*\)".*/\1/p' "$manifest")
-  test -n "$candidate_gate_digest"
-  test -n "$candidate_gate_size"
-  test -n "$candidate_gate_platform"
-  test -n "$candidate_gate_toolchain"
-  test "$(digest_file "$binary")" = "$candidate_gate_digest"
-  test "$(stat -c '%s' "$binary")" = "$candidate_gate_size"
-  install -d -m 0755 "$payload_root/bin"
-  cp "$binary" "$payload_root/bin/super-dolphin-gate"
-  chmod 0755 "$payload_root/bin/super-dolphin-gate"
-  previous_gate_source_sha256=$candidate_gate_source
-  previous_gate_platform=$candidate_gate_platform
-  previous_gate_toolchain_digest=$candidate_gate_toolchain
-}
-
-verify_gate_cli_identity() (
-  binary=$1
-  if ! grep -Fq 'case "cli-identity":' "$source_root/cmd/super-dolphin-gate/main.go"; then
-    "$binary" plan local-fast >/dev/null
-    printf 'gate CLI identity mode: source-bound legacy probe\n'
-    exit 0
-  fi
-  identity=$("$binary" worker cli-identity)
-  expected=$(printf 'gate_source_sha256=%s\nplatform=%s\ntoolchain_digest=%s' \
-    "$BASELINE_GATE_SOURCE_SHA256" "$BASELINE_PLATFORM" "$BASELINE_TOOLCHAIN_DIGEST")
-  test "$identity" = "$expected"
-)
+` + remoteBaselineSeedScriptGateHelpers + `
 
 command -v tar >/dev/null
 command -v gzip >/dev/null
@@ -108,7 +69,7 @@ if test -f /previous/runtime-deps.tar.gz || test -f /previous/source.tar.gz || t
     for name in BASELINE_DELTA_MANIFEST_1 BASELINE_DELTA_MANIFEST_2 BASELINE_DELTA_MANIFEST_3 BASELINE_DELTA_MANIFEST_4; do
       eval "entry=\${$name:-}"
       if test -z "$entry"; then delta_gap=1; continue; fi
-      test "$delta_gap" = 0
+      test "$delta_gap" = 0; printf 'seed stage start: delta-replay generation=%s\n' "${entry%%@*}"
       generation=${entry%%@*}; manifest_digest=${entry#*@}
       case "$generation" in ''|*[!0-9]*) echo "invalid baseline delta generation" >&2; exit 1;; esac
       layer_root=/layers/$generation/output
@@ -133,7 +94,7 @@ if test -f /previous/runtime-deps.tar.gz || test -f /previous/source.tar.gz || t
       test "$(digest_file "$source_delta")" = "$source_digest"
       test "$(digest_file "$cache_delta")" = "$cache_digest"
       test "$(stat -c '%s' "$source_delta")" = "$source_size"
-      test "$(stat -c '%s' "$cache_delta")" = "$cache_size"
+      test "$(stat -c '%s' "$cache_delta")" = "$cache_size"; printf 'seed stage complete: delta-artifacts generation=%s\n' "$generation"
       runtime_go_count=$(grep -o '"name":"runtime-go"' "$manifest" | wc -l | tr -d ' ')
       case "$runtime_go_count" in 0) ;; 1)
         runtime_go_delta=$layer_root/runtime-go.delta.tar.gz
@@ -200,13 +161,13 @@ PY
         rm -rf "$previous_go" "$previous_manifest" "$go_build_cache"
         install -d -m 0700 "$go_build_cache"
         ;; *) echo "baseline delta contains duplicate runtime-go layers" >&2; exit 1;; esac
-      load_verified_gate "$manifest" "$layer_root/bin/super-dolphin-gate"
+      load_verified_gate "$manifest" "$layer_root/bin/super-dolphin-gate"; printf 'seed stage complete: delta-gate generation=%s\n' "$generation"
       test -x "$payload_root/runtime/bin/git"
       SUPER_DOLPHIN_RUNTIME_ROOT=$payload_root/runtime "$payload_root/runtime/bin/git" -C "$payload_root/source" fetch --quiet "$source_delta" "$target_commit"
       SUPER_DOLPHIN_RUNTIME_ROOT=$payload_root/runtime "$payload_root/runtime/bin/git" -C "$payload_root/source" checkout --quiet --detach FETCH_HEAD
       test "$(SUPER_DOLPHIN_RUNTIME_ROOT=$payload_root/runtime "$payload_root/runtime/bin/git" -C "$payload_root/source" rev-parse 'HEAD^{tree}')" = "$target_tree"
-      test -z "$(SUPER_DOLPHIN_RUNTIME_ROOT=$payload_root/runtime "$payload_root/runtime/bin/git" -C "$payload_root/source" status --porcelain=v1 --untracked-files=all)"
-      tar -xzf "$cache_delta" -C "$payload_root"
+      test -z "$(SUPER_DOLPHIN_RUNTIME_ROOT=$payload_root/runtime "$payload_root/runtime/bin/git" -C "$payload_root/source" status --porcelain=v1 --untracked-files=all)"; printf 'seed stage complete: delta-source generation=%s\n' "$generation"
+      tar -xzf "$cache_delta" -C "$payload_root"; printf 'seed stage complete: delta-cache generation=%s\n' "$generation"
       expected_commit=$target_commit
       expected_tree=$target_tree
     done
