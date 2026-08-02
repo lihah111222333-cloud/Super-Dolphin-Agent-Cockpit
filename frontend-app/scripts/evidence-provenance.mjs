@@ -4,11 +4,13 @@ import { readFileSync } from 'node:fs';
 import { arch, cpus, loadavg, platform, release, totalmem } from 'node:os';
 import { resolve } from 'node:path';
 import process from 'node:process';
+import { repositoryLocalGitEnvironment } from './runtime/git-environment.mjs';
 
 const RUNNER_CONTENT_PATHS = Object.freeze([
   'frontend-app/scripts/chat-history-benchmark.mjs',
   'frontend-app/scripts/evidence-provenance.mjs',
   'frontend-app/scripts/frontend-performance-cases.json',
+  'frontend-app/scripts/runtime/git-environment.mjs',
   'frontend-app/scripts/managed-command.mjs',
   'frontend-app/scripts/performance-baseline-provenance.mjs',
   'frontend-app/scripts/performance-budget-config.mjs',
@@ -41,11 +43,11 @@ const BASELINE_AUDIT_ALLOWED_PATHS = Object.freeze(new Set([
 const BASELINE_AUDIT_ALLOWED_PREFIXES = Object.freeze([
   'docs/doc/codemap/project-map/',
 ]);
-
 function commandOutput(command, args, cwd) {
   const output = execFileSync(command, args, {
     cwd,
     encoding: 'utf8',
+    env: repositoryLocalGitEnvironment(),
     stdio: ['ignore', 'pipe', 'pipe'],
   }).trim();
   if (!output) throw new Error(`${command} ${args.join(' ')} returned empty output`);
@@ -113,6 +115,7 @@ function collectEvidenceProvenance({
   const status = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], {
     cwd: runnerRepositoryRoot,
     encoding: 'utf8',
+    env: repositoryLocalGitEnvironment(),
     stdio: ['ignore', 'pipe', 'pipe'],
   }).trim();
   let baselineAudit = null;
@@ -122,6 +125,7 @@ function collectEvidenceProvenance({
     try {
       execFileSync('git', ['merge-base', '--is-ancestor', ...ancestry], {
         cwd: repositoryRoot,
+        env: repositoryLocalGitEnvironment(),
         stdio: ['ignore', 'ignore', 'pipe'],
       });
     } catch (error) {

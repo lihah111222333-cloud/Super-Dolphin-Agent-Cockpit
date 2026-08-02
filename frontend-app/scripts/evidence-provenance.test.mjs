@@ -18,6 +18,7 @@ import {
   validateBaselineAuditDiff,
 } from './evidence-provenance.mjs';
 import { isAllowedPerformanceBaselinePath } from './performance-baseline-provenance.mjs';
+import { repositoryLocalGitEnvironment } from './runtime/git-environment.mjs';
 import {
   P03_SUBJECT_FEEDBACK_COMPONENT_PATH,
   P03_SUBJECT_CONTENT_PATHS,
@@ -143,6 +144,31 @@ describe('evidence provenance', () => {
       runnerContentHash: expect.stringMatching(/^[0-9a-f]{64}$/),
       baselineAudit: null,
     }));
+  });
+
+  it('does not mutate an inherited alternate index while collecting Git evidence', () => {
+    const temporaryRoot = mkdtempSync(resolve(tmpdir(), 'evidence-provenance-index-'));
+    const alternateIndex = resolve(temporaryRoot, 'index');
+    const subjectSha = provenanceHead();
+    execFileSync('git', ['read-tree', 'HEAD'], {
+      cwd: REPOSITORY_ROOT,
+      env: { ...repositoryLocalGitEnvironment(), GIT_INDEX_FILE: alternateIndex },
+    });
+    const before = readFileSync(alternateIndex);
+    const inherited = process.env.GIT_INDEX_FILE;
+    process.env.GIT_INDEX_FILE = alternateIndex;
+    try {
+      expect(collectEvidenceProvenance({
+        repositoryRoot: REPOSITORY_ROOT,
+        runnerId: 'alternate-index-proof',
+        subjectSha,
+      }).subjectTree).toMatch(/^[0-9a-f]{40}$/u);
+      expect(readFileSync(alternateIndex)).toEqual(before);
+    } finally {
+      if (inherited === undefined) delete process.env.GIT_INDEX_FILE;
+      else process.env.GIT_INDEX_FILE = inherited;
+      rmSync(temporaryRoot, { recursive: true, force: true });
+    }
   });
 });
 

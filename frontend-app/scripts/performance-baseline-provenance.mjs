@@ -1,15 +1,16 @@
 import { execFileSync } from 'node:child_process';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { repositoryLocalGitEnvironment } from './runtime/git-environment.mjs';
 
 const FROZEN_PLAN_BASE_SHA = '314a8e240b2fe58de23651a00b74f05c985cf5e4';
-
 const PURE_PERFORMANCE_RUNNER_PATHS = Object.freeze(new Set([
   'frontend-app/scripts/chat-history-benchmark.mjs',
   'frontend-app/scripts/chat-history-benchmark.test.mjs',
   'frontend-app/scripts/evidence-provenance.mjs',
   'frontend-app/scripts/evidence-provenance.test.mjs',
   'frontend-app/scripts/frontend-performance-cases.json',
+  'frontend-app/scripts/runtime/git-environment.mjs',
   'frontend-app/scripts/managed-command.mjs',
   'frontend-app/scripts/managed-command.test.mjs',
   'frontend-app/scripts/performance-baseline-provenance.mjs',
@@ -56,6 +57,7 @@ function git(repositoryRoot, args, options = {}) {
     return execFileSync('git', args, {
       cwd: repositoryRoot,
       encoding: options.encoding || 'utf8',
+      env: repositoryLocalGitEnvironment(),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
   } catch (error) {
