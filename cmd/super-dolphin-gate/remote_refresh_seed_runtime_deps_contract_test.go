@@ -45,4 +45,7 @@ func TestRemoteBaselineSeedRuntimeDependencyIdentityChainContract(t *testing.T) 
 			t.Fatalf("direct-cache publish argument binding is missing %q", fragment)
 		}
 	}
+	if strings.Contains(remoteBaselineSeedScriptDirectCachePublish, `find "$direct_cache_root" -type d -exec chmod`) {
+		t.Fatal("direct-cache publish must not recursively mutate OSSFS directory metadata after upload")
+	}
 }

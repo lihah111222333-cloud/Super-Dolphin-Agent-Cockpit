@@ -23,7 +23,6 @@ const remoteBaselineSeedScriptDirectCachePublish = `publish_direct_cache() {
       install -D -m 0444 "$source_path" "$target_root/$relative"
     done
   ' sh "$go_build_cache" "$direct_cache_root"
-  find "$direct_cache_root" -type d -exec chmod 0555 '{}' +
 }`
 
 // remoteBaselineSeedScriptGateHelpers 验证重放层中的 gate 二进制及候选身份。
