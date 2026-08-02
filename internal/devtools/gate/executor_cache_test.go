@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -272,6 +273,81 @@ func TestGoBuildCacheProxyMetricsAttributePrivateAndGenerationHits(t *testing.T)
 	if config.metrics.BaselineHitCount != 1 || config.metrics.BaselineHitByGeneration["00000000000000000042"] != 1 ||
 		config.metrics.PrivateHitCount != 1 || config.metrics.MissCount != 1 {
 		t.Fatalf("cache metrics = %#v", config.metrics)
+	}
+}
+
+func TestGoBuildCacheProxyPromotesOnlyAccessedSeedEntry(t *testing.T) {
+	actionID := bytes.Repeat([]byte{0x61}, goBuildCacheHashBytes)
+	untouchedID := bytes.Repeat([]byte{0x62}, goBuildCacheHashBytes)
+	seedRoot := filepath.Join(realTempDir(t), "00000000000000000042")
+	if err := os.Mkdir(seedRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	privateRoot := realTempDir(t)
+	writeGoBuildCacheEntryFixture(t, seedRoot, actionID, "accessed")
+	writeGoBuildCacheEntryFixture(t, seedRoot, untouchedID, "untouched")
+	seedDigest := mustRuntimeSeedTreeDigest(t, seedRoot)
+	config, err := parseGoBuildCacheProxyConfig([]string{"--seed", seedRoot, "--private", privateRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := getGoBuildCacheProxyEntry(config, goBuildCacheProxyRequest{ID: 1, ActionID: actionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	promoted, err := readGoBuildCacheEntry(privateRoot, actionID)
+	if err != nil {
+		t.Fatalf("read promoted entry: %v", err)
+	}
+	if response.DiskPath != promoted.path || !strings.HasPrefix(response.DiskPath, privateRoot+string(os.PathSeparator)) {
+		t.Fatalf("promoted response path = %q, entry path = %q", response.DiskPath, promoted.path)
+	}
+	if _, err := readGoBuildCacheEntry(privateRoot, untouchedID); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unaccessed entry was promoted: %v", err)
+	}
+	if after := mustRuntimeSeedTreeDigest(t, seedRoot); after != seedDigest {
+		t.Fatalf("seed mutated: %s != %s", after, seedDigest)
+	}
+	if config.metrics.BaselineHitCount != 1 || config.metrics.PrivateHitCount != 0 {
+		t.Fatalf("promotion changed hit attribution: %#v", config.metrics)
+	}
+}
+
+func TestGoBuildCacheProxyConcurrentSeedPromotion(t *testing.T) {
+	actionID := bytes.Repeat([]byte{0x63}, goBuildCacheHashBytes)
+	seedRoot := filepath.Join(realTempDir(t), "00000000000000000043")
+	if err := os.Mkdir(seedRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	privateRoot := realTempDir(t)
+	writeGoBuildCacheEntryFixture(t, seedRoot, actionID, "concurrent")
+	seedEntry, err := readGoBuildCacheEntry(seedRoot, actionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const readers = 8
+	errorsByReader := make(chan error, readers)
+	var group sync.WaitGroup
+	for index := 0; index < readers; index++ {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			promoted, promoteErr := promoteGoBuildCacheSeedEntry(privateRoot, actionID, seedEntry)
+			if promoteErr == nil && !strings.HasPrefix(promoted.path, privateRoot+string(os.PathSeparator)) {
+				promoteErr = fmt.Errorf("promoted path is outside private root: %q", promoted.path)
+			}
+			errorsByReader <- promoteErr
+		}()
+	}
+	group.Wait()
+	close(errorsByReader)
+	for err := range errorsByReader {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := readGoBuildCacheEntry(privateRoot, actionID); err != nil {
+		t.Fatalf("read concurrently promoted entry: %v", err)
 	}
 }
 

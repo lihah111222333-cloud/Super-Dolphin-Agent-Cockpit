@@ -351,7 +351,7 @@ func handleGoBuildCacheProxyRequest(
 	}
 }
 
-// getGoBuildCacheProxyEntry 优先读取私有层，未命中时读取共享 seed。
+// getGoBuildCacheProxyEntry 优先读取私有层；seed 命中会原子提升到私有层，以便发布完整本次工作集。
 func getGoBuildCacheProxyEntry(
 	config goBuildCacheProxyConfig,
 	request goBuildCacheProxyRequest,
@@ -367,11 +367,145 @@ func getGoBuildCacheProxyEntry(
 	if err != nil {
 		return goBuildCacheProxyResponse{}, err
 	}
+	if layer != 0 {
+		entry, err = promoteGoBuildCacheSeedEntry(config.privateRoot, request.ActionID, entry)
+		if err != nil {
+			return goBuildCacheProxyResponse{}, err
+		}
+	}
 	config.metrics.recordHit(layer)
 	return goBuildCacheProxyResponse{
 		ID: request.ID, OutputID: entry.outputID, Size: entry.size,
 		Time: &entry.storedAt, DiskPath: entry.path,
 	}, nil
+}
+
+// promoteGoBuildCacheSeedEntry 仅把已验证命中的一个 seed action 复制到私有层，避免首次执行全量复制历史缓存。
+func promoteGoBuildCacheSeedEntry(
+	privateRoot string,
+	actionID []byte,
+	seedEntry goBuildCacheProxyEntry,
+) (goBuildCacheProxyEntry, error) {
+	if len(actionID) != goBuildCacheHashBytes || len(seedEntry.outputID) != goBuildCacheHashBytes || seedEntry.size < 0 {
+		return goBuildCacheProxyEntry{}, errors.New("Go build cache seed entry is malformed")
+	}
+	if err := promoteGoBuildCacheOutput(privateRoot, seedEntry); err != nil {
+		return goBuildCacheProxyEntry{}, err
+	}
+	indexCreated, err := writeGoBuildCacheIndexIfAbsent(privateRoot, actionID, seedEntry)
+	if err != nil {
+		return goBuildCacheProxyEntry{}, err
+	}
+	promoted, err := readGoBuildCacheEntry(privateRoot, actionID)
+	if err != nil {
+		return goBuildCacheProxyEntry{}, fmt.Errorf("read promoted Go build cache entry: %w", err)
+	}
+	if !slices.Equal(promoted.outputID, seedEntry.outputID) || promoted.size != seedEntry.size {
+		return goBuildCacheProxyEntry{}, errors.New("promoted Go build cache entry conflicts with seed identity")
+	}
+	if !indexCreated && !promoted.storedAt.Equal(seedEntry.storedAt) {
+		return goBuildCacheProxyEntry{}, errors.New("promoted Go build cache entry conflicts with seed timestamp")
+	}
+	return promoted, nil
+}
+
+// promoteGoBuildCacheOutput 通过同目录临时文件和不覆盖链接发布输出，并复核内容哈希与大小。
+func promoteGoBuildCacheOutput(privateRoot string, seedEntry goBuildCacheProxyEntry) error {
+	outputPath, err := goBuildCachePath(privateRoot, seedEntry.outputID, "d")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o700); err != nil {
+		return err
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(outputPath), ".cache-promote-*")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	seedOutput, err := os.Open(seedEntry.path)
+	if err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("open Go build cache seed output: %w", err)
+	}
+	digest := sha256.New()
+	written, copyErr := io.Copy(io.MultiWriter(temporary, digest), seedOutput)
+	seedCloseErr := seedOutput.Close()
+	closeErr := temporary.Close()
+	if copyErr != nil || seedCloseErr != nil || closeErr != nil {
+		return errors.Join(copyErr, seedCloseErr, closeErr)
+	}
+	if written != seedEntry.size || !slices.Equal(digest.Sum(nil), seedEntry.outputID) {
+		return errors.New("Go build cache seed output does not match its declared identity")
+	}
+	if err := os.Link(temporaryPath, outputPath); err != nil {
+		if !errors.Is(err, fs.ErrExist) {
+			return err
+		}
+		existingPath, resolveErr := resolveGoBuildCacheOutput(privateRoot, seedEntry.outputID, seedEntry.size)
+		if resolveErr != nil {
+			return fmt.Errorf("read concurrent promoted Go build cache output: %w", resolveErr)
+		}
+		return validateGoBuildCacheOutputIdentity(existingPath, seedEntry.size, seedEntry.outputID)
+	}
+	return nil
+}
+
+func validateGoBuildCacheOutputIdentity(path string, size int64, outputID []byte) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	digest := sha256.New()
+	written, err := io.Copy(digest, file)
+	if err != nil {
+		return err
+	}
+	if written != size || !slices.Equal(digest.Sum(nil), outputID) {
+		return errors.New("Go build cache output does not match its declared identity")
+	}
+	return nil
+}
+
+func writeGoBuildCacheIndexIfAbsent(
+	privateRoot string,
+	actionID []byte,
+	entry goBuildCacheProxyEntry,
+) (bool, error) {
+	indexPath, err := goBuildCachePath(privateRoot, actionID, "a")
+	if err != nil {
+		return false, err
+	}
+	content := []byte(fmt.Sprintf("v1 %x %x %20d %20d\n", actionID, entry.outputID, entry.size, entry.storedAt.UnixNano()))
+	return writeAtomicGoBuildCacheFileIfAbsent(indexPath, content)
+}
+
+func writeAtomicGoBuildCacheFileIfAbsent(path string, content []byte) (bool, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return false, err
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".cache-index-*")
+	if err != nil {
+		return false, err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if _, err := temporary.Write(content); err != nil {
+		_ = temporary.Close()
+		return false, err
+	}
+	if err := temporary.Close(); err != nil {
+		return false, err
+	}
+	if err := os.Link(temporaryPath, path); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 func findGoBuildCacheEntry(config goBuildCacheProxyConfig, actionID []byte) (goBuildCacheProxyEntry, error) {
