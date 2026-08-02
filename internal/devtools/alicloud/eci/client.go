@@ -33,7 +33,6 @@ const (
 	initialCLIRetryDelay    = 500 * time.Millisecond
 	maxCLIRetryDelay        = 8 * time.Second
 	clientTokenEntropyBytes = 32
-	maxDataCacheHostPaths   = 4
 )
 
 // Config describes the fixed infrastructure and image used by every ECI shard.
@@ -54,24 +53,22 @@ type Config struct {
 
 // CreateRequest describes the caller-controlled identity of one ECI shard.
 type CreateRequest struct {
-	ContainerGroupName    string
-	ContainerName         string
-	Resources             Resources
-	Command               []string
-	Args                  []string
-	Environment           map[string]string
-	Tags                  map[string]string
-	DataCacheBucket       string
-	InitContainer         InitContainer
-	BaseVolume            HostPathVolume
-	AdditionalBaseVolumes []HostPathVolume
-	BootstrapVolume       OSSVolume
-	ExpandedVolume        EmptyDirVolume
-	SourceVolume          EmptyDirVolume
-	WorkVolume            EmptyDirVolume
-	TempVolume            EmptyDirVolume
-	MainVolumeMounts      []VolumeMount
-	InitVolumeMounts      []VolumeMount
+	ContainerGroupName string
+	ContainerName      string
+	Resources          Resources
+	Command            []string
+	Args               []string
+	Environment        map[string]string
+	Tags               map[string]string
+	InitContainer      InitContainer
+	BootstrapVolume    OSSVolume
+	ExpandedVolume     EmptyDirVolume
+	SourceVolume       EmptyDirVolume
+	WorkVolume         EmptyDirVolume
+	TempVolume         EmptyDirVolume
+	MainVolumeMounts   []VolumeMount
+	InitVolumeMounts   []VolumeMount
+	RegistryAccess     RegistryAccess
 }
 
 // Resources is an exact CPU and memory tier requested for one ECI container group.
@@ -86,13 +83,6 @@ type InitContainer struct {
 	Command     []string
 	Args        []string
 	Environment map[string]string
-}
-
-// HostPathVolume binds one immutable DataCache path made available by ECI.
-type HostPathVolume struct {
-	Name string
-	Path string
-	Type string
 }
 
 // EmptyDirVolume names one shard-local ECI EmptyDir volume.
@@ -186,6 +176,9 @@ func NewWithRunner(config Config, runner CommandRunner) (*Client, error) {
 
 // CreateContainerGroup 创建一个分片容器组；CLI 或响应不完整时立即返回错误。
 func (c *Client) CreateContainerGroup(ctx context.Context, request CreateRequest) (ContainerGroup, error) {
+	if err := ValidateRegistryAccess(request.RegistryAccess, c.config.Image); err != nil {
+		return ContainerGroup{}, err
+	}
 	if err := validateCreateRequest(request); err != nil {
 		return ContainerGroup{}, err
 	}
@@ -199,7 +192,7 @@ func (c *Client) createContainerGroup(ctx context.Context, request CreateRequest
 	var bootstrapOptions []byte
 	if request.BootstrapVolume != (OSSVolume{}) {
 		var err error
-		bootstrapOptions, err = seedOSSVolumeOptions(request.BootstrapVolume)
+		bootstrapOptions, err = ossVolumeOptions(request.BootstrapVolume)
 		if err != nil {
 			return ContainerGroup{}, fmt.Errorf("encode ECI bootstrap OSS volume: %w", err)
 		}
@@ -214,7 +207,6 @@ func (c *Client) createContainerGroup(ctx context.Context, request CreateRequest
 		"--RestartPolicy", "Never",
 		"--ActiveDeadlineSeconds", strconv.FormatInt(int64(c.config.Deadline/time.Second), 10),
 		"--AutoMatchImageCache", "true",
-		"--DataCacheBucket", request.DataCacheBucket,
 		"--ContainerGroupName", request.ContainerGroupName,
 		"--Container.1.Name", request.ContainerName,
 		"--Container.1.Image", c.config.Image,
@@ -233,15 +225,15 @@ func (c *Client) createContainerGroup(ctx context.Context, request CreateRequest
 	if spotStrategy != SpotStrategyNoSpot {
 		args = append(args[:12], append([]string{"--SpotDuration", strconv.FormatInt(c.config.SpotDurationHours, 10)}, args[12:]...)...)
 	}
-	hostPaths := createHostPathVolumes(request)
-	volumeArgs := appendHostPathVolumes(nil, 1, hostPaths)
+	volumeArgs := make([]string, 0)
 	emptyDirs := createEmptyDirVolumes(request)
-	volumeArgs = appendEmptyDirVolumes(volumeArgs, 1+len(hostPaths), emptyDirs)
+	volumeArgs = appendEmptyDirVolumes(volumeArgs, 1, emptyDirs)
 	if len(bootstrapOptions) != 0 {
-		volumeArgs = appendSeedOSSFlexVolume(volumeArgs, 1+len(hostPaths)+len(emptyDirs), "current-gate", bootstrapOptions)
+		volumeArgs = appendOSSFlexVolume(volumeArgs, 1+len(emptyDirs), "current-gate", bootstrapOptions)
 	}
 	initIndex := slices.Index(args, "--InitContainer.1.Name")
 	args = append(args[:initIndex], append(volumeArgs, args[initIndex:]...)...)
+	args = appendRegistryAccess(args, request.RegistryAccess)
 	args = appendIndexedValues(args, "--Container.1.Command", request.Command)
 	args = appendIndexedValues(args, "--Container.1.Arg", request.Args)
 	args = appendIndexedMap(args, "--Container.1.EnvironmentVar", request.Environment)
@@ -259,7 +251,7 @@ func (c *Client) createContainerGroup(ctx context.Context, request CreateRequest
 	args = appendIndexedMap(args, "--Tag", request.Tags)
 	output, err := c.run(ctx, "CreateContainerGroup", args...)
 	if err != nil {
-		createErr := fmt.Errorf("create ECI container group: %w", redactEnvironmentValues(err, request.Environment, request.InitContainer.Environment))
+		createErr := fmt.Errorf("create ECI container group: %w", redactRegistryCredential(redactEnvironmentValues(err, request.Environment, request.InitContainer.Environment), request.RegistryAccess))
 		if !isTransientCLIError(createErr) {
 			return ContainerGroup{}, createErr
 		}
@@ -492,29 +484,16 @@ func isTransientCLIError(err error) bool {
 	return false
 }
 
-func createHostPathVolumes(request CreateRequest) []HostPathVolume {
-	return append([]HostPathVolume{request.BaseVolume}, request.AdditionalBaseVolumes...)
-}
-
-func createHostPathVolumeNames(request CreateRequest) []string {
-	volumes := createHostPathVolumes(request)
-	names := make([]string, 0, len(volumes))
-	for _, volume := range volumes {
-		names = append(names, volume.Name)
-	}
-	return names
-}
-
 func createEmptyDirVolumes(request CreateRequest) []EmptyDirVolume {
 	return []EmptyDirVolume{request.SourceVolume, request.WorkVolume, request.ExpandedVolume, request.TempVolume}
 }
 
 func createMainMountNames(request CreateRequest) []string {
-	return append(createHostPathVolumeNames(request), request.ExpandedVolume.Name, request.SourceVolume.Name, request.WorkVolume.Name, request.TempVolume.Name)
+	return []string{request.ExpandedVolume.Name, request.SourceVolume.Name, request.WorkVolume.Name, request.TempVolume.Name}
 }
 
 func createInitMountNames(request CreateRequest) []string {
-	names := append(createHostPathVolumeNames(request), request.ExpandedVolume.Name, request.SourceVolume.Name, request.WorkVolume.Name, request.TempVolume.Name)
+	names := []string{request.ExpandedVolume.Name, request.SourceVolume.Name, request.WorkVolume.Name, request.TempVolume.Name}
 	if request.BootstrapVolume != (OSSVolume{}) {
 		names = append(names, "current-gate")
 	}
@@ -522,19 +501,11 @@ func createInitMountNames(request CreateRequest) []string {
 }
 
 func createRequiredInitMountNames(request CreateRequest) []string {
-	names := append(createHostPathVolumeNames(request), request.ExpandedVolume.Name, request.SourceVolume.Name, request.WorkVolume.Name)
+	names := []string{request.ExpandedVolume.Name, request.SourceVolume.Name, request.WorkVolume.Name}
 	if request.BootstrapVolume != (OSSVolume{}) {
 		names = append(names, "current-gate")
 	}
 	return names
-}
-
-func appendHostPathVolumes(args []string, start int, volumes []HostPathVolume) []string {
-	for index, volume := range volumes {
-		prefix := fmt.Sprintf("--Volume.%d", start+index)
-		args = append(args, prefix+".Name", volume.Name, prefix+".Type", "HostPathVolume", prefix+".HostPathVolume.Path", volume.Path, prefix+".HostPathVolume.Type", volume.Type)
-	}
-	return args
 }
 
 func appendEmptyDirVolumes(args []string, start int, volumes []EmptyDirVolume) []string {

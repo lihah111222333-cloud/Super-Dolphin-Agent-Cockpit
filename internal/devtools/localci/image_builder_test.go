@@ -99,6 +99,30 @@ func TestPrepareCandidateBindsNodeLocalRuntimeDepsForRequestedPlatform(t *testin
 	}
 }
 
+func TestPrepareCandidateBindsPriorImmutableImageAsCrossDeviceCacheSeed(t *testing.T) {
+	request := candidateRequest(candidateEntries(validCandidateDockerfile()), digest("f"), digest("e"))
+	prepared, err := prepareCandidate(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := CandidateImageReference(request.AcceptedImageDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(prepared.buildRequest.BuildArguments, BuildArgument{Name: "BASELINE_CACHE_IMAGE", Value: want}) {
+		t.Fatalf("BuildKit request did not bind previous immutable cache image: %#v", prepared.buildRequest.BuildArguments)
+	}
+	bootstrap := request
+	bootstrap.AcceptedImageDigest = ""
+	prepared, err = prepareCandidate(bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(prepared.buildRequest.BuildArguments, BuildArgument{Name: "BASELINE_CACHE_IMAGE", Value: "runtime-deps"}) {
+		t.Fatalf("cold bootstrap did not use the explicit runtime-deps seed: %#v", prepared.buildRequest.BuildArguments)
+	}
+}
+
 func TestEnsureCandidateSeparatesSourceTreeProvenanceFromInputDigest(t *testing.T) {
 	entries := candidateEntries(validCandidateDockerfile())
 	firstRunner := &recordingBuildKitRunner{digest: digest("8")}
@@ -158,9 +182,10 @@ func TestCandidateAndBuildKitFieldRegistriesAreComplete(t *testing.T) {
 		"PolicyDigest":       "input digest and image label",
 		"ImageSchemaVersion": "input digest and image label", "SourceEntries": "canonical context",
 		"Platform": "input digest and platform", "AcceptedInputDigest": "reuse decision",
-		"AcceptedPolicyDigest": "policy reuse decision",
-		"AcceptedImageDigest":  "reuse result",
-		"AcceptedConfigDigest": "reuse result",
+		"AcceptedPolicyDigest":   "policy reuse decision",
+		"AcceptedImageDigest":    "reuse result",
+		"AcceptedImageReference": "immutable prior-cache build argument and input digest",
+		"AcceptedConfigDigest":   "reuse result",
 	})
 	assertRegisteredFields(t, reflect.TypeFor[BuildKitBuildRequest](), map[string]string{
 		"SourceTreeSHA": "source label", "PolicyDigest": "policy label", "ImageSchemaVersion": "schema label",
@@ -607,7 +632,7 @@ func contentDigest(content string) string {
 }
 
 func validCandidateDockerfile() string {
-	return "ARG RUNTIME_DEPS_IMAGE\nARG SOURCE_DATE_EPOCH=0\nFROM ${RUNTIME_DEPS_IMAGE} AS build\nUSER root\nCOPY go.mod go.sum ./\nCOPY cmd/super-dolphin-gate/main.go ./cmd/super-dolphin-gate/main.go\nRUN --network=none go build -o /out/gate ./cmd/super-dolphin-gate\nFROM scratch\nCOPY --from=build /out/gate /gate\nENTRYPOINT [\"/gate\"]\n"
+	return "ARG RUNTIME_DEPS_IMAGE\nARG BASELINE_CACHE_IMAGE\nARG SOURCE_DATE_EPOCH=0\nFROM ${BASELINE_CACHE_IMAGE} AS baseline-cache\nFROM ${RUNTIME_DEPS_IMAGE} AS build\nUSER root\nCOPY --from=baseline-cache /opt/super-dolphin/cache/go-build /root/.cache/go-build\nCOPY go.mod go.sum ./\nCOPY cmd/super-dolphin-gate/main.go ./cmd/super-dolphin-gate/main.go\nRUN --network=none go build -o /out/gate ./cmd/super-dolphin-gate\nFROM scratch\nCOPY --from=build /out/gate /gate\nENTRYPOINT [\"/gate\"]\n"
 }
 
 func forwardStageDockerfile() string {

@@ -9,6 +9,9 @@ import (
 	"unicode/utf8"
 )
 
+// RequiredGoToolchain 定义生产门禁唯一接受的 Go 发行版身份。
+const RequiredGoToolchain = "go1.26.5"
+
 // PlainTextLog 是 JSON 中保持普通 UTF-8 文本语义的有界门禁日志。
 type PlainTextLog []byte
 

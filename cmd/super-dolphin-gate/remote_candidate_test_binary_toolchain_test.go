@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
 func TestVerifyRemoteBuilderToolchainBindsCandidateLockAndPortableGo(t *testing.T) {
@@ -32,10 +34,10 @@ func TestVerifyRemoteBuilderToolchainBindsCandidateLockAndPortableGo(t *testing.
 		identity string
 		wantErr  string
 	}{
-		{name: "exact identity", digest: expected, version: "go version go1.26.5 linux/amd64\n", identity: goRoot + "\n" + filepath.Join(goRoot, "pkg", "tool", "linux_amd64") + "\n"},
+		{name: "exact identity", digest: expected, version: "go version " + gatecontract.RequiredGoToolchain + " linux/amd64\n", identity: goRoot + "\n" + filepath.Join(goRoot, "pkg", "tool", "linux_amd64") + "\n"},
 		{name: "candidate lock drift", digest: "sha256:" + strings.Repeat("0", 64), wantErr: "toolchain lock identity drift"},
 		{name: "Go version drift", digest: expected, version: "go version go1.25.6 linux/amd64\n", wantErr: "Go version drift"},
-		{name: "GOROOT drift", digest: expected, version: "go version go1.26.5 linux/amd64\n", identity: goRoot + "\n" + filepath.Join(goRoot, "pkg", "tool", "linux_arm64") + "\n", wantErr: "GOROOT identity drift"},
+		{name: "GOROOT drift", digest: expected, version: "go version " + gatecontract.RequiredGoToolchain + " linux/amd64\n", identity: goRoot + "\n" + filepath.Join(goRoot, "pkg", "tool", "linux_arm64") + "\n", wantErr: "GOROOT identity drift"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			run := func(_ context.Context, binary string, args, environment []string) ([]byte, error) {

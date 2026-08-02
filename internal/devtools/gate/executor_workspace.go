@@ -90,9 +90,36 @@ func trustedExecutorGoBuildCacheSeeds(seedRoots []string, targetPath string) ([]
 		if executorGoBuildCacheSeedOverlaps(seedPath, trustedSeeds) {
 			return nil, errors.New("Go build cache seed roots must be unique and disjoint")
 		}
+		if seedPath == ExecutorOCIProjectGoBuildCacheSeedRoot {
+			if err := validateExecutorOCIProjectGoBuildCacheSeed(seedPath); err != nil {
+				return nil, err
+			}
+		}
 		trustedSeeds = append(trustedSeeds, seedPath)
 	}
 	return trustedSeeds, nil
+}
+
+// validateExecutorOCIProjectGoBuildCacheSeed requires the image-owned seed to be
+// an actual read-only mount and rejects mutable or linked entries before it can
+// participate in GOCACHEPROG reads.
+func validateExecutorOCIProjectGoBuildCacheSeed(root string) error {
+	if err := validateReadOnlyMount(root); err != nil {
+		return fmt.Errorf("OCI Go build cache seed mount: %w", err)
+	}
+	return filepath.WalkDir(root, func(entryPath string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o222 != 0 {
+			return errors.New("OCI Go build cache seed contains a symlink or writable entry")
+		}
+		return nil
+	})
 }
 
 // executorGoBuildCacheSeedOverlaps 报告候选 seed 是否与已经接受的根重叠。

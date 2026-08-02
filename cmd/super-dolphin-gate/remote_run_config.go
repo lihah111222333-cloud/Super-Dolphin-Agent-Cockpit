@@ -2,21 +2,20 @@ package main
 
 import (
 	"errors"
+	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/eci"
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/shardresource"
 )
 
-const remoteRunConfigSchemaVersion uint32 = 4
+const remoteRunConfigSchemaVersion uint32 = 5
 
 const (
-	remoteContainerReportAllowance        = 30 * time.Second
-	remoteDataCacheRefreshIntervalMinutes = 24 * 60
-	remoteDataCacheMinimumSizeGiB         = 20
-	remoteDataCacheMaximumSizeGiB         = 100
-	remoteDataCacheFreeReserveGiB         = 5
+	remoteContainerReportAllowance = 30 * time.Second
 )
 
 const remoteCalibrationResultSchemaVersion uint32 = 2
@@ -43,13 +42,13 @@ type remoteRunConfig struct {
 	Runtime struct {
 		Image string `json:"image"`
 	} `json:"runtime"`
-	DataCache struct {
-		Bucket                 string `json:"bucket"`
-		PathPrefix             string `json:"path_prefix"`
-		MaxSizeGiB             int    `json:"max_size_gib"`
-		RetentionDays          int    `json:"retention_days"`
-		RefreshIntervalMinutes int    `json:"refresh_interval_minutes"`
-	} `json:"data_cache"`
+	ACRRegistryInfo *eci.ACRRegistryInfo `json:"acr_registry_info,omitempty"`
+	OCICache        struct {
+		RegistryRepository string `json:"registry_repository"`
+		BuildKitVersion    string `json:"buildkit_version"`
+		BuildKitImage      string `json:"buildkit_image"`
+		BuildxRoot         string `json:"buildx_root"`
+	} `json:"oci_cache"`
 	Capacity struct {
 		MaxShardsPerJob uint8                `json:"max_shards_per_job"`
 		SeedClass       string               `json:"seed_class"`
@@ -60,7 +59,7 @@ type remoteRunConfig struct {
 // Validate 校验远程运行需要的云身份、不可变镜像、缓存容量上限和分片资源。
 func (config remoteRunConfig) Validate() error {
 	if config.SchemaVersion != remoteRunConfigSchemaVersion {
-		return errors.New("remote CI config schema_version must equal 4")
+		return errors.New("remote CI config schema_version must equal 5")
 	}
 	if err := validateRemoteCloudIdentity(config); err != nil {
 		return err
@@ -71,11 +70,46 @@ func (config remoteRunConfig) Validate() error {
 	if !validRemoteRuntimeImage(config.Runtime.Image) {
 		return errors.New("remote CI runtime image must use an immutable digest")
 	}
-	if err := validateRemoteDataCacheConfig(config); err != nil {
+	if err := validateRemoteACRRegistryInfo(config); err != nil {
+		return err
+	}
+	if err := validateRemoteOCICacheConfig(config); err != nil {
 		return err
 	}
 	if err := validateRemoteShardCapacity(config); err != nil {
 		return err
+	}
+	return nil
+}
+
+func validateRemoteACRRegistryInfo(config remoteRunConfig) error {
+	if config.ACRRegistryInfo == nil {
+		return nil
+	}
+	access := eci.RegistryAccess{ACR: config.ACRRegistryInfo}
+	if err := eci.ValidateRegistryAccess(access, config.Runtime.Image); err != nil {
+		return fmt.Errorf("remote CI acr_registry_info does not match runtime image: %w", err)
+	}
+	if err := eci.ValidateRegistryAccessForRepository(access, config.OCICache.RegistryRepository); err != nil {
+		return fmt.Errorf("remote CI acr_registry_info does not match OCI cache repository: %w", err)
+	}
+	return nil
+}
+
+// validateRemoteOCICacheConfig 拒绝未固定的 OCI 构建身份和隐式凭据回退。
+func validateRemoteOCICacheConfig(config remoteRunConfig) error {
+	cache := config.OCICache
+	if cache.RegistryRepository == "" || strings.Contains(cache.RegistryRepository, "@") || strings.Contains(cache.RegistryRepository, "://") {
+		return errors.New("remote OCI cache registry_repository is invalid")
+	}
+	if cache.BuildKitVersion == "" || !strings.HasPrefix(cache.BuildKitVersion, "v") {
+		return errors.New("remote OCI cache buildkit_version is invalid")
+	}
+	if !validRemoteRuntimeImage(cache.BuildKitImage) {
+		return errors.New("remote OCI cache buildkit_image must use an immutable digest")
+	}
+	if !filepath.IsAbs(cache.BuildxRoot) || filepath.Clean(cache.BuildxRoot) != cache.BuildxRoot {
+		return errors.New("remote OCI cache buildx_root must be a clean absolute path")
 	}
 	return nil
 }

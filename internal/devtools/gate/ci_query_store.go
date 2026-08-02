@@ -77,40 +77,28 @@ type RemoteCIRunRecord struct {
 
 // CandidateTestBinaryBuildRecord is one coordinator-validated package build; it is never charged to an individual test execution.
 type CandidateTestBinaryBuildRecord struct {
-	CandidateTree                   string
-	Package                         string
-	Mode                            string
-	Platform                        string
-	GoToolchain                     string
-	CGOEnabled                      bool
-	ToolchainSHA256                 string
-	BuildFlags                      []string
-	CompileClosureSHA256            string
-	ManifestSHA256                  string
-	ArtifactSHA256                  string
-	BinarySize                      int64
-	GoListWallMS                    uint64
-	BuildWallMS                     uint64
-	CompileActionMS                 uint64
-	LinkActionMS                    uint64
-	CompileCriticalWallMS           uint64
-	GOCachePrivateHits              uint64
-	GOCachePrivateRootIdentity      string
-	GOCacheBaselineHitsByGeneration map[string]uint64
-	GOCacheBaselineHitRecords       []CandidateTestBinaryCacheGenerationRecord
-	GOCacheMisses                   uint64
-	GOCachePuts                     uint64
-}
-
-// CandidateTestBinaryCacheGenerationRecord retains the baseline cache provenance
-// observed for one immutable generation.
-type CandidateTestBinaryCacheGenerationRecord struct {
-	Generation           uint64 `json:"generation"`
-	Hits                 uint64 `json:"hits"`
-	AnchorGeneration     uint64 `json:"anchor_generation"`
-	AnchorManifestDigest string `json:"anchor_manifest_digest"`
-	ManifestDigest       string `json:"manifest_digest"`
-	CacheRootIdentity    string `json:"cache_root_identity"`
+	CandidateTree              string
+	Package                    string
+	Mode                       string
+	Platform                   string
+	GoToolchain                string
+	CGOEnabled                 bool
+	ToolchainSHA256            string
+	BuildFlags                 []string
+	CompileClosureSHA256       string
+	ManifestSHA256             string
+	ArtifactSHA256             string
+	BinarySize                 int64
+	GoListWallMS               uint64
+	BuildWallMS                uint64
+	CompileActionMS            uint64
+	LinkActionMS               uint64
+	CompileCriticalWallMS      uint64
+	GOCachePrivateHits         uint64
+	GOCacheOCIProjectCacheHits uint64
+	GOCachePrivateRootIdentity string
+	GOCacheMisses              uint64
+	GOCachePuts                uint64
 }
 
 // RemoteCIShardRecord 保存一个远程分片的稳定云资源身份和终态。

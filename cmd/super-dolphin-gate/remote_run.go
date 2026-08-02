@@ -134,6 +134,7 @@ func newRemoteRunCoordinator(
 		WorkerRoleName:      config.WorkerRoleName, WorkerTimeout: workerTimeout,
 		PollInterval: 2 * time.Second, CleanupTimeout: 2 * time.Minute,
 		ResourcePolicy:      config.Capacity.ResourcePolicy,
+		RegistryAccess:      input.RegistryAccess,
 		CandidateCLIBuilder: buildRemoteCandidateCLI,
 	}, store, runtime, phaseObserver)
 	if err != nil {

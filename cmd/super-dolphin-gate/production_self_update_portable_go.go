@@ -19,10 +19,11 @@ import (
 	"strings"
 	"time"
 
+	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 )
 
-const portableGoVersion = "go1.26.5"
+const portableGoVersion = gatecontract.RequiredGoToolchain
 
 type portableGoAsset struct {
 	URL    string
@@ -32,9 +33,9 @@ type portableGoAsset struct {
 
 // portableGoAssets 是唯一内置的生产下载清单，值来自 go.dev/dl。
 var portableGoAssets = map[string]portableGoAsset{
-	"darwin/amd64": {"https://go.dev/dl/go1.26.5.darwin-amd64.tar.gz", "6231d8d3b8f5552ec6cbf6d685bdd5482e1e703214b120e89b3bf0d7bf1ef725", 67836304},
-	"darwin/arm64": {"https://go.dev/dl/go1.26.5.darwin-arm64.tar.gz", "efb87ff28af9a188d0536ef5d42e63dd52ba8263cd7344a993cc48dd11dedb6a", 64738542},
-	"linux/amd64":  {"https://go.dev/dl/go1.26.5.linux-amd64.tar.gz", "5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053", 66879095},
+	"darwin/amd64": {fmt.Sprintf("https://go.dev/dl/%s.darwin-amd64.tar.gz", portableGoVersion), "6231d8d3b8f5552ec6cbf6d685bdd5482e1e703214b120e89b3bf0d7bf1ef725", 67836304},
+	"darwin/arm64": {fmt.Sprintf("https://go.dev/dl/%s.darwin-arm64.tar.gz", portableGoVersion), "efb87ff28af9a188d0536ef5d42e63dd52ba8263cd7344a993cc48dd11dedb6a", 64738542},
+	"linux/amd64":  {fmt.Sprintf("https://go.dev/dl/%s.linux-amd64.tar.gz", portableGoVersion), "5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053", 66879095},
 }
 
 type portableGoReady struct {

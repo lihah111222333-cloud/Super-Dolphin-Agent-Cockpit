@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/datacache"
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 	"golang.org/x/sync/errgroup"
@@ -23,9 +22,6 @@ func TestRemoteRunnerIdentityDigestIgnoresSourceOnlyBaselineRefresh(t *testing.T
 	refreshed.MainCommit = strings.Repeat("2", 40)
 	refreshed.MainTree = strings.Repeat("3", 40)
 	refreshed.BaselineManifestDigest = "sha256:" + strings.Repeat("4", 64)
-	refreshed.DataCacheID = "edc-next"
-	refreshed.DataCachePath = "/super-dolphin/ci/baselines/42"
-	refreshed.SourceObjectPrefix = "baseline-artifacts/42/"
 	refreshed.CreatedAt = time.Now().UTC()
 	refreshed.AcceptedAt = refreshed.CreatedAt.Add(time.Minute)
 	refreshed.GateBinarySHA256 = "sha256:" + strings.Repeat("5", 64)
@@ -291,24 +287,6 @@ func TestPrepareAutomaticRemoteCalibrationLedgerMigratesSameBaselineIdentity(t *
 		len(snapshot.Ledger.Samples) != 1 ||
 		snapshot.Ledger.Samples[0].Bucket.Runner != runnerIdentity {
 		t.Fatalf("migrated ledger = %#v", snapshot.Ledger)
-	}
-}
-
-func TestAcceptRemoteBaselineRejectsUnreadyCandidateBeforeStateSwap(t *testing.T) {
-	statePath := filepath.Join(t.TempDir(), "remote-ci.baseline-state.json")
-	session := remoteBaselineRefreshSession{statePath: statePath}
-	_, err := acceptRemoteBaseline(
-		session,
-		remoteBaselineArtifactStage{},
-		remoteci.BaselineManifest{},
-		"",
-		datacache.DataCache{Status: "Creating"},
-	)
-	if err == nil {
-		t.Fatal("acceptRemoteBaseline() accepted an unready DataCache")
-	}
-	if _, statErr := os.Stat(statePath); !errors.Is(statErr, os.ErrNotExist) {
-		t.Fatalf("accepted state changed before DataCache became Available: %v", statErr)
 	}
 }
 

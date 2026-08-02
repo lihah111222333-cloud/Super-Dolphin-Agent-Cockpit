@@ -29,6 +29,27 @@ type BuildKitRunner interface {
 	Build(ctx context.Context, request BuildKitBuildRequest) (BuildKitResult, error)
 }
 
+// RegistryCredential is an ephemeral, request-scoped registry credential. It
+// is deliberately kept out of CandidateRequest and any persisted build state.
+type RegistryCredential struct {
+	Server   string
+	Username string
+	Password string
+}
+
+// RegistryPushRequest identifies the immutable repository destination for one
+// controlled BuildKit build. The result must be consumed by digest, never tag.
+type RegistryPushRequest struct {
+	Repository string
+	Credential RegistryCredential
+}
+
+// RegistryBuildKitRunner is the narrow optional capability required to publish
+// a controlled candidate image directly to a registry.
+type RegistryBuildKitRunner interface {
+	BuildAndPush(ctx context.Context, request BuildKitBuildRequest, destination RegistryPushRequest) (BuildKitResult, error)
+}
+
 // BuildKitResult binds the platform manifest to the config digest emitted by
 // the same controlled BuildKit invocation.
 type BuildKitResult struct {
@@ -69,15 +90,16 @@ type BuildKitBuildRequest struct {
 
 // CandidateRequest 绑定单一 Git tree、已验证输入条目和当前 accepted 镜像。
 type CandidateRequest struct {
-	SourceTreeSHA        string                   `json:"source_tree_sha"`
-	PolicyDigest         string                   `json:"policy_digest"`
-	ImageSchemaVersion   string                   `json:"image_schema_version"`
-	SourceEntries        []sourceexport.TreeEntry `json:"source_entries"`
-	Platform             string                   `json:"platform"`
-	AcceptedInputDigest  string                   `json:"accepted_input_digest"`
-	AcceptedPolicyDigest string                   `json:"accepted_policy_digest"`
-	AcceptedImageDigest  string                   `json:"accepted_image_digest"`
-	AcceptedConfigDigest string                   `json:"accepted_config_digest"`
+	SourceTreeSHA          string                   `json:"source_tree_sha"`
+	PolicyDigest           string                   `json:"policy_digest"`
+	ImageSchemaVersion     string                   `json:"image_schema_version"`
+	SourceEntries          []sourceexport.TreeEntry `json:"source_entries"`
+	Platform               string                   `json:"platform"`
+	AcceptedInputDigest    string                   `json:"accepted_input_digest"`
+	AcceptedPolicyDigest   string                   `json:"accepted_policy_digest"`
+	AcceptedImageDigest    string                   `json:"accepted_image_digest"`
+	AcceptedImageReference string                   `json:"accepted_image_reference,omitempty"`
+	AcceptedConfigDigest   string                   `json:"accepted_config_digest"`
 }
 
 // CandidateResult 返回候选输入闭包和唯一不可变镜像产物。
@@ -158,6 +180,39 @@ func (builder *ImageBuilder) EnsureCandidate(ctx context.Context, request Candid
 	return prepared.result, nil
 }
 
+// EnsureCandidatePushed builds the same verified candidate closure, but only
+// accepts runners that can push it directly to a request-scoped registry.
+func (builder *ImageBuilder) EnsureCandidatePushed(ctx context.Context, request CandidateRequest, destination RegistryPushRequest) (CandidateResult, error) {
+	if err := validateImageBuilderEntry(builder, ctx); err != nil {
+		return CandidateResult{}, err
+	}
+	if err := validateAcceptedCandidateDigests(request); err != nil {
+		return CandidateResult{}, err
+	}
+	prepared, err := prepareCandidate(request)
+	if err != nil {
+		return CandidateResult{}, err
+	}
+	runner, ok := builder.runner.(RegistryBuildKitRunner)
+	if !ok {
+		return CandidateResult{}, errors.New("BuildKit runner does not support registry push")
+	}
+	built, err := runner.BuildAndPush(ctx, prepared.buildRequest, destination)
+	if err != nil {
+		return CandidateResult{}, fmt.Errorf("build and push candidate image: %w", err)
+	}
+	if err := validateDigest("candidate image digest", built.PlatformManifestDigest); err != nil {
+		return CandidateResult{}, err
+	}
+	if err := validateDigest("candidate config digest", built.ConfigDigest); err != nil {
+		return CandidateResult{}, err
+	}
+	prepared.result.ImageDigest = built.PlatformManifestDigest
+	prepared.result.ConfigDigest = built.ConfigDigest
+	prepared.result.Built = true
+	return prepared.result, nil
+}
+
 // prepareCandidate 从单一 Git tree 构造闭包、策略摘要和安全 BuildKit 请求。
 func prepareCandidate(request CandidateRequest) (preparedCandidate, error) {
 	if err := validateCandidateRequestIdentity(request); err != nil {
@@ -193,7 +248,17 @@ func prepareCandidateBuildInputs(request CandidateRequest, manifest buildInputMa
 		return preparedCandidate{}, err
 	}
 	dockerfile := closureByPath[manifest.Dockerfile].Data
-	arguments := []BuildArgument{{Name: "RUNTIME_DEPS_IMAGE", Value: "runtime-deps"}, {Name: sourceDateEpochArgument, Value: lock.SourceDateEpoch}}
+	baselineCacheImage, err := baselineCacheImageArgument(request)
+	if err != nil {
+		return preparedCandidate{}, err
+	}
+	runtimeDepsImage := "runtime-deps"
+	if request.AcceptedImageReference != "" {
+		// An accepted OCI image already contains the complete runtime closure.
+		// Rebuilding runtime-deps here would make local cache state authoritative.
+		runtimeDepsImage = baselineCacheImage
+	}
+	arguments := []BuildArgument{{Name: "BASELINE_CACHE_IMAGE", Value: baselineCacheImage}, {Name: "RUNTIME_DEPS_IMAGE", Value: runtimeDepsImage}, {Name: sourceDateEpochArgument, Value: lock.SourceDateEpoch}}
 	if err := validateCandidateDockerfile(dockerfile, arguments, closureByPath, entriesByPath); err != nil {
 		return preparedCandidate{}, err
 	}
@@ -208,6 +273,22 @@ func prepareCandidateBuildInputs(request CandidateRequest, manifest buildInputMa
 	prepared := assemblePreparedCandidate(request, manifest, lock, runtimeDeps, manifestData, lockData, dockerfile, arguments, runtimeDepsArguments, canonicalContext, gateSourceDigest)
 	prepared.sourceEntries, prepared.gateSourceDigest = cloneTreeEntries(closure), gateSourceDigest
 	return prepared, nil
+}
+
+// baselineCacheImageArgument binds every candidate build to its prior immutable
+// runtime cache image. The only cold-bootstrap seed is the separately materialized
+// runtime-deps named context; there is no tag, latest, or host-cache fallback.
+func baselineCacheImageArgument(request CandidateRequest) (string, error) {
+	if request.AcceptedImageReference != "" {
+		if err := validateRemoteImageReference(request.AcceptedImageReference); err != nil {
+			return "", fmt.Errorf("candidate accepted image reference: %w", err)
+		}
+		return request.AcceptedImageReference, nil
+	}
+	if request.AcceptedImageDigest == "" {
+		return "runtime-deps", nil
+	}
+	return CandidateImageReference(request.AcceptedImageDigest)
 }
 
 func gateCompileSourceDigest(manifest buildInputManifest, closure map[string]sourceexport.TreeEntry) (string, error) {
@@ -481,6 +562,9 @@ func assemblePreparedCandidate(request CandidateRequest, manifest buildInputMani
 	dockerfileDigest := bytesDigest(dockerfile)
 	runtimeDepsInputDigest := fieldsDigest(runtimeDepsInputsDigest(runtimeDeps.Inputs), request.Platform)
 	fields := []string{canonical.ContextDigest, canonical.InputDigest, gateSourceDigest, manifestDigest, toolchainDigest, dockerfileDigest, runtimeDepsInputDigest, request.PolicyDigest, request.ImageSchemaVersion, request.Platform, lock.BuildKitVersion, lock.BuildKitImage, lock.DockerfileFrontend, lock.NetworkPolicy}
+	if request.AcceptedImageReference != "" {
+		fields = append(fields, "accepted-image-reference", request.AcceptedImageReference)
+	}
 	for _, argument := range arguments {
 		fields = append(fields, argument.Name, argument.Value)
 	}
@@ -514,7 +598,7 @@ func validateCandidateDockerfile(data []byte, arguments []BuildArgument, closure
 	}
 	lockedDefaults := make(map[string]string, len(arguments))
 	for _, argument := range arguments {
-		if argument.Name == "RUNTIME_DEPS_IMAGE" {
+		if argument.Name == "RUNTIME_DEPS_IMAGE" || argument.Name == "BASELINE_CACHE_IMAGE" {
 			continue
 		}
 		lockedDefaults[argument.Name] = argument.Value

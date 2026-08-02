@@ -92,10 +92,8 @@ func TestRemoteWorkloadCacheIdentityIgnoresAnchorProvenance(t *testing.T) {
 	beforeInput := remoteWorkloadCacheInputFixture()
 	before := remoteWorkloadCacheEntryFixture(t, workload, beforeInput)
 	afterInput := beforeInput
-	afterInput.AnchorManifest = "refreshed-anchor-manifest"
-	afterInput.AnchorCommit = strings.Repeat("a", 40)
-	afterInput.AnchorTree = strings.Repeat("b", 40)
-	afterInput.AnchorGeneration++
+	afterInput.OCIProjectCache = cloneBaselineOCIProjectCache(afterInput.OCIProjectCache)
+	afterInput.OCIProjectCache.ContentManifestSHA256 = "sha256:" + strings.Repeat("a", 64)
 	after := remoteWorkloadCacheEntryFixture(t, workload, afterInput)
 	if before.key != after.key {
 		t.Fatalf("anchor provenance changed semantic cache key: %q != %q", before.key, after.key)
@@ -642,5 +640,9 @@ func remoteWorkloadCacheInputFixture() RunInput {
 		LedgerSnapshot:         gate.DurationLedgerSnapshot{Generation: 1},
 		RunnerIdentityDigest:   "sha256:" + strings.Repeat("9", 64),
 		BaselineManifestDigest: "sha256:" + strings.Repeat("8", 64),
+		OCIProjectCache: &BaselineOCIProjectCache{
+			Image: "registry.example/runtime@sha256:" + strings.Repeat("4", 64), ContentManifestSHA256: "sha256:" + strings.Repeat("a", 64),
+			MainTree: strings.Repeat("1", 40), ToolchainDigest: "sha256:" + strings.Repeat("3", 64), Platform: "linux/amd64", CachePath: OCIProjectGoBuildCachePath,
+		},
 	}
 }

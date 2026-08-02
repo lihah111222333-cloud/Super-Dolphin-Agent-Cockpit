@@ -4,6 +4,8 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -124,6 +126,9 @@ func (execBuildxCommandExecutor) Run(ctx context.Context, stdin io.Reader, args 
 	command := exec.CommandContext(ctx, "docker", args...)
 	command.Stdin = stdin
 	command.Env = sanitizedBuildxEnvironment(os.Environ())
+	if dockerConfig, ok := ctx.Value(buildxDockerConfigContextKey{}).(string); ok && dockerConfig != "" {
+		command.Env = append(command.Env, "DOCKER_CONFIG="+dockerConfig)
+	}
 	output, err := command.CombinedOutput()
 	if err != nil {
 		subject := strings.Join(args[:min(len(args), 2)], " ")
@@ -137,6 +142,31 @@ func (execBuildxCommandExecutor) Run(ctx context.Context, stdin io.Reader, args 
 
 // Build 执行一次隔离候选构建，并从严格绑定的 metadata 返回 platform manifest digest。
 func (runner *DockerBuildxRunner) Build(ctx context.Context, request BuildKitBuildRequest) (result BuildKitResult, err error) {
+	return runner.build(ctx, request, nil)
+}
+
+// BuildAndPush publishes a controlled build through a request-scoped Docker
+// auth directory. It never uses ambient Docker credentials or a local output.
+func (runner *DockerBuildxRunner) BuildAndPush(ctx context.Context, request BuildKitBuildRequest, destination RegistryPushRequest) (result BuildKitResult, err error) {
+	if err := validateRegistryPushRequest(destination); err != nil {
+		return BuildKitResult{}, err
+	}
+	dockerConfig, err := runner.writeRequestScopedDockerConfig(destination.Credential)
+	if err != nil {
+		return BuildKitResult{}, err
+	}
+	defer func() {
+		if cleanupErr := os.RemoveAll(dockerConfig); cleanupErr != nil {
+			result = BuildKitResult{}
+			err = errors.Join(err, fmt.Errorf("remove request-scoped Docker registry auth: %w", cleanupErr))
+		}
+	}()
+	return runner.build(context.WithValue(ctx, buildxDockerConfigContextKey{}, dockerConfig), request, &destination)
+}
+
+type buildxDockerConfigContextKey struct{}
+
+func (runner *DockerBuildxRunner) build(ctx context.Context, request BuildKitBuildRequest, destination *RegistryPushRequest) (result BuildKitResult, err error) {
 	if err := runner.validateBuild(ctx, request); err != nil {
 		return BuildKitResult{}, err
 	}
@@ -163,11 +193,14 @@ func (runner *DockerBuildxRunner) Build(ctx context.Context, request BuildKitBui
 		return BuildKitResult{}, err
 	}
 	defer runner.cleanupControlledBuilder(ctx, builderName, &result, &err)
-	runtimeDepsDigest, err := runner.buildRuntimeDeps(ctx, request, workspace, builderName)
-	if err != nil {
-		return BuildKitResult{}, err
+	runtimeDepsDigest := ""
+	if usesPreparedRuntimeDeps(request) {
+		runtimeDepsDigest, err = runner.buildRuntimeDeps(ctx, request, workspace, builderName)
+		if err != nil {
+			return BuildKitResult{}, err
+		}
 	}
-	return runner.buildCandidate(ctx, request, workspace, candidateTag, useCache, builderName, runtimeDepsDigest)
+	return runner.buildCandidate(ctx, request, workspace, candidateTag, useCache, builderName, runtimeDepsDigest, destination)
 }
 
 // createPrivateBuildxWorkspace 创建仅当前构建可访问的临时工作区。
@@ -213,9 +246,9 @@ func (runner *DockerBuildxRunner) cleanupControlledBuilder(ctx context.Context, 
 }
 
 // buildCandidate 执行候选构建并验证严格绑定的 metadata。
-func (runner *DockerBuildxRunner) buildCandidate(ctx context.Context, request BuildKitBuildRequest, workspace string, candidateTag string, useCache bool, builderName string, runtimeDepsDigest string) (BuildKitResult, error) {
+func (runner *DockerBuildxRunner) buildCandidate(ctx context.Context, request BuildKitBuildRequest, workspace string, candidateTag string, useCache bool, builderName string, runtimeDepsDigest string, destination *RegistryPushRequest) (BuildKitResult, error) {
 	metadataPath := filepath.Join(workspace, "metadata.json")
-	_, err := runner.executor.Run(ctx, bytes.NewReader(request.ContextTar), runner.commandArgs(request, metadataPath, candidateTag, useCache, builderName)...)
+	_, err := runner.executor.Run(ctx, bytes.NewReader(request.ContextTar), runner.commandArgs(request, metadataPath, candidateTag, useCache, builderName, destination)...)
 	if err != nil {
 		return BuildKitResult{}, fmt.Errorf("run candidate buildx command: %w", err)
 	}
@@ -431,7 +464,11 @@ func (runner *DockerBuildxRunner) validateBuild(ctx context.Context, request Bui
 	return validateBuildxRequest(request)
 }
 
-func (runner *DockerBuildxRunner) commandArgs(request BuildKitBuildRequest, metadataPath string, candidateTag string, useCache bool, builderName string) []string {
+func (runner *DockerBuildxRunner) commandArgs(request BuildKitBuildRequest, metadataPath string, candidateTag string, useCache bool, builderName string, destinations ...*RegistryPushRequest) []string {
+	var destination *RegistryPushRequest
+	if len(destinations) != 0 {
+		destination = destinations[0]
+	}
 	cachePath := filepath.Join(runner.cacheRoot, buildxSharedCacheDirectory)
 	args := []string{
 		"buildx", "build", "--builder=" + builderName, "--output=type=docker,oci-mediatypes=false", "--progress=plain", "--provenance=false",
@@ -440,7 +477,17 @@ func (runner *DockerBuildxRunner) commandArgs(request BuildKitBuildRequest, meta
 		"--network=none",
 		"--tag=" + candidateTag,
 		"--metadata-file=" + metadataPath,
-		"--build-context=runtime-deps=oci-layout://" + filepath.Join(filepath.Dir(metadataPath), "runtime-deps"),
+	}
+	if usesPreparedRuntimeDeps(request) {
+		args = append(args, "--build-context=runtime-deps=oci-layout://"+filepath.Join(filepath.Dir(metadataPath), "runtime-deps"))
+	}
+	if destination != nil {
+		pushTag, err := registryPushTag(destination.Repository, request.InputDigest)
+		if err != nil {
+			return nil
+		}
+		args[3] = "--output=type=image,push=true,oci-mediatypes=true"
+		args[9] = "--tag=" + pushTag
 	}
 	if useCache {
 		args = append(args, "--cache-from=type=local,src="+cachePath)
@@ -453,6 +500,59 @@ func (runner *DockerBuildxRunner) commandArgs(request BuildKitBuildRequest, meta
 		args = append(args, "--label="+label)
 	}
 	return append(args, "-")
+}
+
+func usesPreparedRuntimeDeps(request BuildKitBuildRequest) bool {
+	for _, argument := range request.BuildArguments {
+		if argument.Name == "RUNTIME_DEPS_IMAGE" {
+			return argument.Value == "runtime-deps"
+		}
+	}
+	return false
+}
+
+func (runner *DockerBuildxRunner) writeRequestScopedDockerConfig(credential RegistryCredential) (string, error) {
+	directory, err := os.MkdirTemp(runner.workRoot, "registry-auth-")
+	if err != nil {
+		return "", fmt.Errorf("create request-scoped Docker registry auth: %w", err)
+	}
+	if err := os.Chmod(directory, 0o700); err != nil {
+		return "", errors.Join(fmt.Errorf("protect request-scoped Docker registry auth: %w", err), os.RemoveAll(directory))
+	}
+	config := struct {
+		Auths map[string]struct {
+			Auth string `json:"auth"`
+		} `json:"auths"`
+	}{Auths: map[string]struct {
+		Auth string `json:"auth"`
+	}{credential.Server: {Auth: base64.StdEncoding.EncodeToString([]byte(credential.Username + ":" + credential.Password))}}}
+	data, err := json.Marshal(config)
+	if err != nil {
+		return "", errors.Join(fmt.Errorf("encode request-scoped Docker registry auth: %w", err), os.RemoveAll(directory))
+	}
+	path := filepath.Join(directory, "config.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return "", errors.Join(fmt.Errorf("write request-scoped Docker registry auth: %w", err), os.RemoveAll(directory))
+	}
+	return directory, nil
+}
+
+func validateRegistryPushRequest(destination RegistryPushRequest) error {
+	if destination.Repository == "" || strings.ContainsAny(destination.Repository, "@ \t\r\n\\?") || strings.Contains(destination.Repository, "://") || destination.Repository != strings.ToLower(destination.Repository) {
+		return errors.New("registry push repository is invalid")
+	}
+	domain, _, ok := strings.Cut(destination.Repository, "/")
+	if !ok || validateRemoteRegistryHost(domain) != nil || destination.Credential.Server != domain || strings.TrimSpace(destination.Credential.Username) != destination.Credential.Username || strings.TrimSpace(destination.Credential.Password) != destination.Credential.Password || destination.Credential.Username == "" || destination.Credential.Password == "" || strings.ContainsAny(destination.Credential.Username+destination.Credential.Password, "\x00\r\n") {
+		return errors.New("request-scoped registry push credentials are invalid")
+	}
+	return nil
+}
+
+func registryPushTag(repository, inputDigest string) (string, error) {
+	if err := validateDigest("registry push input digest", inputDigest); err != nil {
+		return "", err
+	}
+	return repository + ":baseline-" + strings.TrimPrefix(inputDigest, "sha256:")[:24], nil
 }
 
 // cacheAvailable 校验节点唯一共享 cache，并报告是否可作为 cache source。
@@ -885,7 +985,7 @@ func sanitizedBuildxEnvironment(environment []string) []string {
 	blocked := map[string]struct{}{
 		"ALL_PROXY": {}, "HTTP_PROXY": {}, "HTTPS_PROXY": {}, "NO_PROXY": {},
 		"BUILDX_METADATA_PROVENANCE": {}, "BUILDX_METADATA_WARNINGS": {}, "BUILDX_NO_DEFAULT_ATTESTATIONS": {},
-		"BUILDX_BUILDER": {}, "DOCKER_CONTEXT": {}, "DOCKER_HOST": {}, "DOCKER_TLS_VERIFY": {}, "DOCKER_CERT_PATH": {},
+		"BUILDX_BUILDER": {}, "DOCKER_CONFIG": {}, "DOCKER_CONTEXT": {}, "DOCKER_HOST": {}, "DOCKER_TLS_VERIFY": {}, "DOCKER_CERT_PATH": {},
 	}
 	filtered := make([]string, 0, len(environment)+3)
 	for _, entry := range environment {

@@ -6,6 +6,7 @@ import (
 	"net"
 	"os/exec"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,15 @@ type fakeCommandRunner struct {
 	responses [][]byte
 	runErrors []error
 	err       error
+}
+
+func containsArgumentPair(values []string, key string, value string) bool {
+	for index := 0; index+1 < len(values); index++ {
+		if values[index] == key && values[index+1] == value {
+			return true
+		}
+	}
+	return false
 }
 
 type blockingCommandRunner struct {
@@ -71,49 +81,9 @@ func TestClient_ECIOperations(t *testing.T) {
 	if err := client.DeleteContainerGroup(context.Background(), "eci-created"); err != nil {
 		t.Fatalf("DeleteContainerGroup() error = %v", err)
 	}
-	wantCalls := [][]string{
-		{"aliyun", "eci", "CreateContainerGroup", "--RegionId", "cn-hangzhou", "--profile", "ci", "--ClientToken", testClientToken, "--VSwitchId", "vsw-1", "--SecurityGroupId", "sg-1", "--RamRoleName", "worker-role", "--Cpu", "4", "--Memory", "8", "--SpotStrategy", "SpotAsPriceGo", "--SpotDuration", "1", "--RestartPolicy", "Never", "--ActiveDeadlineSeconds", "3600", "--AutoMatchImageCache", "true", "--DataCacheBucket", "super-dolphin-ci", "--ContainerGroupName", "shard-1", "--Container.1.Name", "worker", "--Container.1.Image", testImageDigest, "--Container.1.Cpu", "4", "--Container.1.Memory", "8", "--Container.1.ImagePullPolicy", "IfNotPresent", "--Container.1.SecurityContext.ReadOnlyRootFilesystem", "true", "--Container.1.SecurityContext.RunAsUser", "65532", "--Container.1.SecurityContextRunAsGroup", "65532", "--Volume.1.Name", "base-data", "--Volume.1.Type", "HostPathVolume", "--Volume.1.HostPathVolume.Path", "/super-dolphin/ci/base/generation-1", "--Volume.1.HostPathVolume.Type", "Directory", "--Volume.2.Name", "source-data", "--Volume.2.Type", "EmptyDirVolume", "--Volume.3.Name", "work-data", "--Volume.3.Type", "EmptyDirVolume", "--Volume.4.Name", "expanded-data", "--Volume.4.Type", "EmptyDirVolume", "--Volume.5.Name", "temp-data", "--Volume.5.Type", "EmptyDirVolume", "--InitContainer.1.Name", "materializer", "--InitContainer.1.Image", testImageDigest, "--InitContainer.1.ImagePullPolicy", "IfNotPresent", "--InitContainer.1.SecurityContext.ReadOnlyRootFilesystem", "true", "--InitContainer.1.SecurityContext.RunAsUser", "0", "--Container.1.Command.1", "/runner", "--Container.1.Command.2", "execute", "--Container.1.Arg.1=--shard", "--Container.1.Arg.2", "one", "--Container.1.EnvironmentVar.1.Key", "A_FIRST", "--Container.1.EnvironmentVar.1.Value", "a-value", "--Container.1.EnvironmentVar.2.Key", "Z_LAST", "--Container.1.EnvironmentVar.2.Value", "z-value", "--Container.1.VolumeMount.1.Name", "base-data", "--Container.1.VolumeMount.1.MountPath", "/bootstrap", "--Container.1.VolumeMount.1.ReadOnly", "true", "--Container.1.VolumeMount.2.Name", "expanded-data", "--Container.1.VolumeMount.2.MountPath", "/opt/super-dolphin-gate", "--Container.1.VolumeMount.2.ReadOnly", "true", "--Container.1.VolumeMount.3.Name", "source-data", "--Container.1.VolumeMount.3.MountPath", "/input/source", "--Container.1.VolumeMount.3.ReadOnly", "true", "--Container.1.VolumeMount.4.Name", "work-data", "--Container.1.VolumeMount.4.MountPath", "/workspace", "--Container.1.VolumeMount.4.ReadOnly", "false", "--Container.1.VolumeMount.5.Name", "temp-data", "--Container.1.VolumeMount.5.MountPath", "/tmp", "--Container.1.VolumeMount.5.ReadOnly", "false", "--InitContainer.1.Command.1", "/runner", "--InitContainer.1.Command.2", "materialize", "--InitContainer.1.Arg.1=--source", "--InitContainer.1.Arg.2", "/input/source", "--InitContainer.1.Arg.3=--work", "--InitContainer.1.Arg.4", "/workspace", "--InitContainer.1.EnvironmentVar.1.Key", "A_INIT", "--InitContainer.1.EnvironmentVar.1.Value", "a-init", "--InitContainer.1.EnvironmentVar.2.Key", "Z_INIT", "--InitContainer.1.EnvironmentVar.2.Value", "z-init", "--InitContainer.1.VolumeMount.1.Name", "base-data", "--InitContainer.1.VolumeMount.1.MountPath", "/bootstrap", "--InitContainer.1.VolumeMount.1.ReadOnly", "true", "--InitContainer.1.VolumeMount.2.Name", "expanded-data", "--InitContainer.1.VolumeMount.2.MountPath", "/opt/super-dolphin-gate", "--InitContainer.1.VolumeMount.2.ReadOnly", "false", "--InitContainer.1.VolumeMount.3.Name", "source-data", "--InitContainer.1.VolumeMount.3.MountPath", "/input/source", "--InitContainer.1.VolumeMount.3.ReadOnly", "false", "--InitContainer.1.VolumeMount.4.Name", "work-data", "--InitContainer.1.VolumeMount.4.MountPath", "/workspace", "--InitContainer.1.VolumeMount.4.ReadOnly", "false", "--Tag.1.Key", "a-first", "--Tag.1.Value", "a-value", "--Tag.2.Key", "z-last", "--Tag.2.Value", "z-value"},
-		{"aliyun", "eci", "DescribeContainerGroups", "--RegionId", "cn-hangzhou", "--profile", "ci", "--ContainerGroupIds", `["eci-created"]`, "--WithEvent", "true"},
-		{"aliyun", "eci", "DescribeContainerLog", "--RegionId", "cn-hangzhou", "--profile", "ci", "--ContainerGroupId", "eci-created", "--ContainerName", "worker", "--Tail", "2000", "--LimitBytes", "1048576", "--Timestamps", "false"},
-		{"aliyun", "eci", "DeleteContainerGroup", "--RegionId", "cn-hangzhou", "--profile", "ci", "--ContainerGroupId", "eci-created"},
-	}
-	if !reflect.DeepEqual(runner.calls, wantCalls) {
-		t.Errorf("CLI calls = %#v, want %#v", runner.calls, wantCalls)
-	}
-}
-
-func TestClientCreateContainerGroupEncodesAdditionalDataCacheVolumes(t *testing.T) {
-	runner := &fakeCommandRunner{responses: [][]byte{[]byte(`{"ContainerGroupId":"eci-created"}`)}}
-	client := newTestClient(t, runner)
-	request := validCreateRequest()
-	request.AdditionalBaseVolumes = []HostPathVolume{
-		{Name: "base-g002", Path: "/super-dolphin/ci/base/generation-2", Type: "Directory"},
-		{Name: "base-g003", Path: "/super-dolphin/ci/base/generation-3", Type: "Directory"},
-	}
-	request.MainVolumeMounts = append([]VolumeMount{
-		{Name: "base-g002", MountPath: "/bootstrap-layers/g00000000000000000002", ReadOnly: true},
-		{Name: "base-g003", MountPath: "/bootstrap-layers/g00000000000000000003", ReadOnly: true},
-	}, request.MainVolumeMounts...)
-	request.InitVolumeMounts = append([]VolumeMount{
-		{Name: "base-g002", MountPath: "/bootstrap-layers/g00000000000000000002", ReadOnly: true},
-		{Name: "base-g003", MountPath: "/bootstrap-layers/g00000000000000000003", ReadOnly: true},
-	}, request.InitVolumeMounts...)
-	if _, err := client.CreateContainerGroup(context.Background(), request); err != nil {
-		t.Fatalf("CreateContainerGroup() error = %v", err)
-	}
-	call := runner.calls[0]
-	for _, pair := range [][]string{
-		{"--Volume.2.Name", "base-g002"},
-		{"--Volume.3.Name", "base-g003"},
-		{"--Volume.4.Name", "source-data"},
-		{"--Volume.7.Name", "temp-data"},
-		{"--Container.1.VolumeMount.2.Name", "base-g002"},
-		{"--Container.1.VolumeMount.3.Name", "base-g003"},
-		{"--InitContainer.1.VolumeMount.2.ReadOnly", "true"},
-		{"--InitContainer.1.VolumeMount.3.ReadOnly", "true"},
-	} {
-		if !containsArgumentPair(call, pair[0], pair[1]) {
-			t.Fatalf("call missing %v: %#v", pair, call)
+	for _, legacy := range []string{"--DataCacheBucket", "HostPathVolume", "base-data"} {
+		if slices.Contains(runner.calls[0], legacy) {
+			t.Fatalf("CreateContainerGroup encoded legacy DataCache input %q: %#v", legacy, runner.calls[0])
 		}
 	}
 }
@@ -130,10 +100,10 @@ func TestClientCreateContainerGroupEncodesRepeatedVolumeSubPathMount(t *testing.
 	}
 	call := runner.calls[0]
 	for _, pair := range [][]string{
-		{"--Container.1.VolumeMount.3.Name", "expanded-data"},
-		{"--Container.1.VolumeMount.3.MountPath", "/usr/bin/xkbcomp"},
-		{"--Container.1.VolumeMount.3.SubPath", "runtime/rootfs/usr/bin/xkbcomp"},
-		{"--Container.1.VolumeMount.3.ReadOnly", "true"},
+		{"--Container.1.VolumeMount.2.Name", "expanded-data"},
+		{"--Container.1.VolumeMount.2.MountPath", "/usr/bin/xkbcomp"},
+		{"--Container.1.VolumeMount.2.SubPath", "runtime/rootfs/usr/bin/xkbcomp"},
+		{"--Container.1.VolumeMount.2.ReadOnly", "true"},
 	} {
 		if !containsArgumentPair(call, pair[0], pair[1]) {
 			t.Fatalf("call missing %v: %#v", pair, call)
@@ -141,7 +111,7 @@ func TestClientCreateContainerGroupEncodesRepeatedVolumeSubPathMount(t *testing.
 	}
 }
 
-func TestClientCreateContainerGroupEncodesAnchorMaterializerTempVolume(t *testing.T) {
+func TestClientCreateContainerGroupEncodesOCIMaterializerTempVolume(t *testing.T) {
 	runner := &fakeCommandRunner{responses: [][]byte{[]byte(`{"ContainerGroupId":"eci-created"}`)}}
 	client := newTestClient(t, runner)
 	request := validCreateRequest()
@@ -153,10 +123,10 @@ func TestClientCreateContainerGroupEncodesAnchorMaterializerTempVolume(t *testin
 	}
 	call := runner.calls[0]
 	for _, pair := range [][]string{
-		{"--Volume.5.Name", "temp-data"},
-		{"--InitContainer.1.VolumeMount.5.Name", "temp-data"},
-		{"--InitContainer.1.VolumeMount.5.MountPath", "/tmp"},
-		{"--InitContainer.1.VolumeMount.5.ReadOnly", "false"},
+		{"--Volume.4.Name", "temp-data"},
+		{"--InitContainer.1.VolumeMount.4.Name", "temp-data"},
+		{"--InitContainer.1.VolumeMount.4.MountPath", "/tmp"},
+		{"--InitContainer.1.VolumeMount.4.ReadOnly", "false"},
 	} {
 		if !containsArgumentPair(call, pair[0], pair[1]) {
 			t.Fatalf("call missing %v: %#v", pair, call)
@@ -179,19 +149,19 @@ func TestClientCreateContainerGroupEncodesCurrentGateOSSVolume(t *testing.T) {
 	if _, err := client.CreateContainerGroup(context.Background(), request); err != nil {
 		t.Fatalf("CreateContainerGroup() error = %v", err)
 	}
-	options, err := seedOSSVolumeOptions(request.BootstrapVolume)
+	options, err := ossVolumeOptions(request.BootstrapVolume)
 	if err != nil {
-		t.Fatalf("seedOSSVolumeOptions() error = %v", err)
+		t.Fatalf("ossVolumeOptions() error = %v", err)
 	}
 	call := runner.calls[0]
 	for _, pair := range [][]string{
-		{"--Volume.6.Name", "current-gate"},
-		{"--Volume.6.Type", "FlexVolume"},
-		{"--Volume.6.FlexVolume.Driver", "alicloud/oss"},
-		{"--Volume.6.FlexVolume.Options", string(options)},
-		{"--InitContainer.1.VolumeMount.5.Name", "temp-data"},
-		{"--InitContainer.1.VolumeMount.6.Name", "current-gate"},
-		{"--InitContainer.1.VolumeMount.6.ReadOnly", "true"},
+		{"--Volume.5.Name", "current-gate"},
+		{"--Volume.5.Type", "FlexVolume"},
+		{"--Volume.5.FlexVolume.Driver", "alicloud/oss"},
+		{"--Volume.5.FlexVolume.Options", string(options)},
+		{"--InitContainer.1.VolumeMount.4.Name", "temp-data"},
+		{"--InitContainer.1.VolumeMount.5.Name", "current-gate"},
+		{"--InitContainer.1.VolumeMount.5.ReadOnly", "true"},
 	} {
 		if !containsArgumentPair(call, pair[0], pair[1]) {
 			t.Fatalf("call missing %v: %#v", pair, call)
@@ -615,12 +585,11 @@ func TestNewWithRunner_RejectsInvalidConfig(t *testing.T) {
 func TestCreateRequest_FieldRegistry(t *testing.T) {
 	assertStructFields(t, reflect.TypeFor[CreateRequest](), []string{
 		"ContainerGroupName", "ContainerName", "Resources", "Command", "Args", "Environment", "Tags",
-		"DataCacheBucket", "InitContainer", "BaseVolume", "AdditionalBaseVolumes", "BootstrapVolume", "ExpandedVolume", "SourceVolume", "WorkVolume", "TempVolume",
-		"MainVolumeMounts", "InitVolumeMounts",
+		"InitContainer", "BootstrapVolume", "ExpandedVolume", "SourceVolume", "WorkVolume", "TempVolume",
+		"MainVolumeMounts", "InitVolumeMounts", "RegistryAccess",
 	})
 	assertStructFields(t, reflect.TypeFor[Resources](), []string{"CPU", "MemoryGiB"})
 	assertStructFields(t, reflect.TypeFor[InitContainer](), []string{"Name", "Command", "Args", "Environment"})
-	assertStructFields(t, reflect.TypeFor[HostPathVolume](), []string{"Name", "Path", "Type"})
 	assertStructFields(t, reflect.TypeFor[EmptyDirVolume](), []string{"Name"})
 	assertStructFields(t, reflect.TypeFor[VolumeMount](), []string{"Name", "MountPath", "SubPath", "ReadOnly"})
 }
@@ -726,27 +695,23 @@ func validCreateRequest() CreateRequest {
 		Args:               []string{"--shard", "one"},
 		Environment:        map[string]string{"TASK_MODE": "execute"},
 		Tags:               map[string]string{"workload": "test"},
-		DataCacheBucket:    "super-dolphin-ci",
 		InitContainer: InitContainer{
 			Name:        "materializer",
 			Command:     []string{"/runner", "materialize"},
 			Args:        []string{"--source", "/input/source", "--work", "/workspace"},
 			Environment: map[string]string{"Z_INIT": "z-init", "A_INIT": "a-init"},
 		},
-		BaseVolume:     HostPathVolume{Name: "base-data", Path: "/super-dolphin/ci/base/generation-1", Type: "Directory"},
 		ExpandedVolume: EmptyDirVolume{Name: "expanded-data"},
 		SourceVolume:   EmptyDirVolume{Name: "source-data"},
 		WorkVolume:     EmptyDirVolume{Name: "work-data"},
 		TempVolume:     EmptyDirVolume{Name: "temp-data"},
 		MainVolumeMounts: []VolumeMount{
-			{Name: "base-data", MountPath: "/bootstrap", ReadOnly: true},
 			{Name: "expanded-data", MountPath: "/opt/super-dolphin-gate", ReadOnly: true},
 			{Name: "source-data", MountPath: "/input/source", ReadOnly: true},
 			{Name: "work-data", MountPath: "/workspace"},
 			{Name: "temp-data", MountPath: "/tmp"},
 		},
 		InitVolumeMounts: []VolumeMount{
-			{Name: "base-data", MountPath: "/bootstrap", ReadOnly: true},
 			{Name: "expanded-data", MountPath: "/opt/super-dolphin-gate"},
 			{Name: "source-data", MountPath: "/input/source"},
 			{Name: "work-data", MountPath: "/workspace"},

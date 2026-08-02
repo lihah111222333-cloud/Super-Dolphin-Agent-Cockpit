@@ -82,36 +82,16 @@ func validateRequestContainers(request CreateRequest) error {
 	return validateContainerInput("init container", request.InitContainer.Command, request.InitContainer.Args, request.InitContainer.Environment)
 }
 
-// validateRequestVolumes 校验 DataCache 卷身份、卷名唯一性和宿主挂载路径。
+// validateRequestVolumes 校验 shard-local 和 bootstrap 卷名唯一性。
 func validateRequestVolumes(request CreateRequest) error {
-	hostPaths := createHostPathVolumes(request)
-	if err := validateDataCacheHostPaths(request.DataCacheBucket, hostPaths); err != nil {
-		return err
-	}
-	names := append(createHostPathVolumeNames(request), request.ExpandedVolume.Name, request.SourceVolume.Name, request.WorkVolume.Name, request.TempVolume.Name)
+	names := []string{request.ExpandedVolume.Name, request.SourceVolume.Name, request.WorkVolume.Name, request.TempVolume.Name}
 	return validateRequestVolumeNames(request.BootstrapVolume, names)
-}
-
-// validateDataCacheHostPaths 校验 DataCache 身份与每个宿主路径卷。
-func validateDataCacheHostPaths(bucket string, hostPaths []HostPathVolume) error {
-	if !dataCacheBucketPattern.MatchString(bucket) || bucket == "eci-system" {
-		return errors.New("ECI DataCache volume identity is invalid")
-	}
-	if len(hostPaths) > maxDataCacheHostPaths {
-		return fmt.Errorf("ECI supports at most %d DataCache HostPath volumes", maxDataCacheHostPaths)
-	}
-	for _, volume := range hostPaths {
-		if volume.Type != "Directory" || validateMountPath(volume.Path) != nil {
-			return errors.New("ECI DataCache volume identity is invalid")
-		}
-	}
-	return nil
 }
 
 // validateRequestVolumeNames 校验卷名集合及可选 bootstrap 卷。
 func validateRequestVolumeNames(bootstrap OSSVolume, names []string) error {
 	if bootstrap != (OSSVolume{}) {
-		if !validSeedOSSVolume(bootstrap) {
+		if !validOSSVolume(bootstrap) {
 			return errors.New("ECI bootstrap OSS volume identity is invalid")
 		}
 		names = append(names, "current-gate")
@@ -130,13 +110,12 @@ func validateRequestVolumeNames(bootstrap OSSVolume, names []string) error {
 }
 
 func validateRequestMounts(request CreateRequest) error {
-	hostNames := createHostPathVolumeNames(request)
 	mainNames := createMainMountNames(request)
-	mainReadOnly := append(append([]string{}, hostNames...), request.ExpandedVolume.Name, request.SourceVolume.Name)
+	mainReadOnly := []string{request.ExpandedVolume.Name, request.SourceVolume.Name}
 	if err := validateVolumeMounts("task container", request.MainVolumeMounts, mainNames, mainNames, mainReadOnly); err != nil {
 		return err
 	}
-	initReadOnly := append([]string{}, hostNames...)
+	initReadOnly := []string{}
 	if request.BootstrapVolume != (OSSVolume{}) {
 		initReadOnly = append(initReadOnly, "current-gate")
 	}

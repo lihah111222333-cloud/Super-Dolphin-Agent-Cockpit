@@ -39,7 +39,7 @@ func TestExtractArchiveAcceptsRegularFile(t *testing.T) {
 	}
 }
 
-func TestCollectClosureFilesIncludesOnlyEnvironmentImageInputs(t *testing.T) {
+func TestCollectClosureFilesIncludesPrecompiledGateTestInputs(t *testing.T) {
 	repositoryRoot := testRepositoryRoot(t)
 	sourceRoot := t.TempDir()
 	if err := extractGitTree(repositoryRoot, "HEAD^{tree}", sourceRoot); err != nil {
@@ -53,6 +53,7 @@ func TestCollectClosureFilesIncludesOnlyEnvironmentImageInputs(t *testing.T) {
 		"build/gate/toolchain.lock",
 		"build/gate/runtime-deps.lock",
 		"cmd/super-dolphin-gate/main.go",
+		"cmd/mcp-lsp/main.go",
 		"internal/devtools/localci/image_builder.go",
 	} {
 		if !slices.Contains(localFiles, path) {
@@ -78,9 +79,7 @@ func TestCollectClosureFilesIncludesOnlyEnvironmentImageInputs(t *testing.T) {
 	for _, path := range []string{
 		"README.md",
 		"cmd/super-dolphin-gate-executor/main.go",
-		"cmd/mcp-lsp/main.go",
 		"frontend-app/src/App.jsx",
-		"internal/module/skill/service.go",
 	} {
 		if slices.Contains(localFiles, path) || slices.Contains(gateCompileFiles, path) {
 			t.Fatalf("environment image closure unexpectedly contains ordinary job source %s", path)
@@ -88,7 +87,7 @@ func TestCollectClosureFilesIncludesOnlyEnvironmentImageInputs(t *testing.T) {
 	}
 }
 
-func TestRenderDockerfileBuildsOnlyGateRuntime(t *testing.T) {
+func TestRenderDockerfilePrecompilesGateModesIntoReadOnlyRuntimeCache(t *testing.T) {
 	repositoryRoot := testRepositoryRoot(t)
 	lock, err := readToolchainLock(filepath.Join(repositoryRoot, gateToolchain))
 	if err != nil {
@@ -105,6 +104,20 @@ func TestRenderDockerfileBuildsOnlyGateRuntime(t *testing.T) {
 	output := string(dockerfile)
 	for _, wanted := range []string{
 		"go build -mod=mod -trimpath -buildvcs=false -o /out/super-dolphin-gate ./cmd/super-dolphin-gate",
+		"--mount=type=cache,target=/root/.cache/go-build,sharing=locked --mount=type=bind,from=baseline-cache,source=/,target=/baseline-cache,ro",
+		"ARG BASELINE_CACHE_IMAGE",
+		"FROM ${BASELINE_CACHE_IMAGE} AS baseline-cache",
+		"worker go-cache-proxy --seed /baseline-cache/opt/super-dolphin/cache/go-build --private /root/.cache/go-build",
+		"env GOCACHEPROG=\"$go_cache_proxy\"",
+		"compile phase=%s seconds=%s cache_entries=%s",
+		"cache-export seconds=%s cache_entries=%s",
+		"go test -mod=mod -run \"^$\" ./...",
+		"go test -mod=mod -tags=e2e -run \"^$\" ./cmd/mcp-lsp",
+		"worker race-package-patterns",
+		"go test -mod=mod -race -run \"^$\" \"$@\"",
+		"cp -a /root/.cache/go-build/. /out/go-build-cache",
+		"COPY --from=build --chown=65532:65532 /out/go-build-cache /opt/super-dolphin/cache/go-build",
+		"chmod -R a-w /opt/super-dolphin/cache/go-build",
 		"printf '<!doctype html><title>gate compile seed</title>\\n' > /opt/super-dolphin-gate/frontend-embed/index.html",
 	} {
 		if !strings.Contains(output, wanted) {
@@ -118,7 +131,10 @@ func TestRenderDockerfileBuildsOnlyGateRuntime(t *testing.T) {
 		"super-dolphin-gate-executor",
 		"/opt/super-dolphin-gate/owners",
 		"nilness-guard",
-		"go test",
+		"node_modules",
+		"/opt/super-dolphin-gate/cache-seed/go-build",
+		"COPY --from=baseline-cache /opt/super-dolphin/cache/go-build /root/.cache/go-build",
+		"cp -a /baseline-cache",
 	} {
 		if strings.Contains(output, unwanted) {
 			t.Fatalf("generated environment Dockerfile unexpectedly contains job-source build step %q", unwanted)

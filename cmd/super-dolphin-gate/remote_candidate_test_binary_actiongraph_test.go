@@ -23,11 +23,11 @@ func TestReadCandidateTestBinaryActionGraphSeparatesActionSumAndCriticalWall(t *
 	}
 }
 
-func TestMergeRemoteBuilderCacheMetricsAccumulatesGenerationHits(t *testing.T) {
-	left := gatecontract.GoBuildCacheProxyMetrics{PrivateHitCount: 2, MissCount: 3, PutCount: 5, BaselineHitByGeneration: map[string]uint64{"00000000000000000001": 7}}
-	right := gatecontract.GoBuildCacheProxyMetrics{PrivateHitCount: 11, MissCount: 13, PutCount: 17, BaselineHitByGeneration: map[string]uint64{"00000000000000000001": 19, "00000000000000000002": 23}}
+func TestMergeRemoteBuilderCacheMetricsAccumulatesOCIProjectCacheHits(t *testing.T) {
+	left := gatecontract.GoBuildCacheProxyMetrics{PrivateHitCount: 2, BaselineHitCount: 7, MissCount: 3, PutCount: 5}
+	right := gatecontract.GoBuildCacheProxyMetrics{PrivateHitCount: 11, BaselineHitCount: 19, MissCount: 13, PutCount: 17}
 	got := mergeRemoteBuilderCacheMetrics(left, right)
-	if got.PrivateHitCount != 13 || got.MissCount != 16 || got.PutCount != 22 || got.BaselineHitByGeneration["00000000000000000001"] != 26 || got.BaselineHitByGeneration["00000000000000000002"] != 23 {
+	if got.PrivateHitCount != 13 || got.BaselineHitCount != 26 || got.MissCount != 16 || got.PutCount != 22 {
 		t.Fatalf("metrics=%+v", got)
 	}
 }

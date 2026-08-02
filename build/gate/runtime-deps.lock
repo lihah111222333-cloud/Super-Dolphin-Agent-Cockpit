@@ -21,7 +21,7 @@
   },
   "recipe_inputs": {
     "runtime_seed_recipe_sha256": "sha256:6c4e37e9c49c189d79d1ffa63cb1ca2b8dacbc5623db1d79e5bad44f6049eedc",
-    "runtime_seed_script_sha256": "sha256:e02624d46fad0fdfd6ad28cadc857d03442a264fe552ab17dd9c0a76a2732f68",
+    "runtime_seed_script_sha256": "sha256:000ff1cabd453b16138a74a49f3b2ea874a543f156415aa3584c95fc00db0876",
     "runtime_seed_worker_sha256": "sha256:d28bfd29763c113723a836c205515a1a1e3858729fa3062b8c397e0668e4dd80",
     "runtime_seed_script_control_sha256": "sha256:77d503673695fe0a57ec07a0f49d0e8da50f4a7fbe8dd32e2d1c7962fceedfd5"
   },

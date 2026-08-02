@@ -589,7 +589,7 @@ func testSQLiteDurationCalibration() DurationCalibration {
 		Tree:                 strings.Repeat("2", 40),
 		Platform:             "linux/amd64",
 		Runner:               "runner-v1",
-		Toolchain:            "go1.26.5",
+		Toolchain:            RequiredGoToolchain,
 		CommitEntrypoint:     CIEntrypointGitPreCommit,
 		PushEntrypoint:       CIEntrypointGitPrePush,
 		ReleaseEntrypoint:    CIEntrypointRelease,

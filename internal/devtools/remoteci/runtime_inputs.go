@@ -55,64 +55,39 @@ func runtimeDependencyPathsV5() []string {
 }
 
 func runtimeDependencyPathsV6() []string {
-	return append(runtimeDependencyPathsV5(),
-		"cmd/super-dolphin-gate/remote_refresh_seed.go",
-	)
+	return runtimeDependencyPathsV5()
 }
 
 func runtimeDependencyPathsV7() []string {
-	return append(runtimeDependencyPathsV6(),
-		"cmd/super-dolphin-gate/remote_refresh_seed_script.go",
-	)
+	return runtimeDependencyPathsV5()
 }
 
 func runtimeDependencyPathsV8() []string {
-	return append(runtimeDependencyPathsV7(),
-		"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go",
-	)
+	return runtimeDependencyPathsV5()
 }
 
 // runtimeDependencyRecipePaths 返回须审计但不标识可复用运行时依赖内容的 seed 控制面输入。
 func runtimeDependencyRecipePaths() []string {
 	return []string{
-		"cmd/super-dolphin-gate/remote_refresh_seed.go",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script.go",
 		"internal/devtools/gate/executor_seed.go",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script_control.go",
 	}
 }
 
 func runtimeDependencyPathsV9() []string {
-	return append(append([]string(nil), runtimeDependencyPathsV8()...),
-		"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go",
-	)
+	return append([]string(nil), runtimeDependencyPathsV8()...)
 }
 
 func runtimeDependencyPathsV10() []string {
-	return append(append([]string(nil), runtimeDependencyPathsV5()...),
-		"cmd/super-dolphin-gate/remote_refresh_seed_script.go",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go",
-	)
+	return runtimeDependencyPathsV5()
 }
 
 // runtimeDependencyPathsV11 保留 v11 已验收锁的内容输入闭包。
 func runtimeDependencyPathsV11() []string {
-	return append(append([]string(nil), runtimeDependencyPathsV5()...),
-		"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script_tail.go",
-	)
+	return runtimeDependencyPathsV5()
 }
 
 func runtimeDependencyPaths() []string {
-	paths := runtimeDependencyPathsV5()
-	paths = paths[:len(paths)-1] // v12 将 worker 控制面移入 RecipeInputs。
-	return append(append([]string(nil), paths...),
-		"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script_tail.go",
-	)
+	return runtimeDependencyPathsV5()
 }
 
 type runtimeDependencyLock struct {

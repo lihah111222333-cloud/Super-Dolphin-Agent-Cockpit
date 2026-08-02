@@ -185,29 +185,8 @@ func assertRemoteRunInputAuthority(t *testing.T, input remoteci.RunInput, state 
 
 func assertRemoteRunBaselineProjection(t *testing.T, input remoteci.RunInput, state remoteci.BaselineState) {
 	t.Helper()
-	if !reflect.DeepEqual(input.DirectCacheRef, state.DirectCacheRef) {
-		t.Fatalf("direct cache projection = %#v, want %#v", input.DirectCacheRef, state.DirectCacheRef)
-	}
-	if input.DataCacheBucket != state.Anchor.DataCacheBucket {
-		t.Fatalf("baseline projection = %#v", input)
-	}
-	if input.DataCachePath != state.Anchor.DataCachePath {
-		t.Fatalf("baseline projection = %#v", input)
-	}
-	if input.AnchorGeneration != state.Anchor.Generation {
-		t.Fatalf("baseline projection = %#v", input)
-	}
-	if input.AnchorManifest != state.Anchor.ManifestDigest {
-		t.Fatalf("baseline projection = %#v", input)
-	}
-	if input.AnchorCommit != state.Anchor.MainCommit {
-		t.Fatalf("baseline projection = %#v", input)
-	}
-	if input.AnchorTree != state.Anchor.MainTree {
-		t.Fatalf("baseline projection = %#v", input)
-	}
-	if len(input.BaselineDeltas) != len(state.Deltas) {
-		t.Fatalf("baseline projection = %#v", input)
+	if !reflect.DeepEqual(input.OCIProjectCache, state.OCIProjectCache) {
+		t.Fatalf("OCI project cache projection = %#v, want %#v", input.OCIProjectCache, state.OCIProjectCache)
 	}
 }
 

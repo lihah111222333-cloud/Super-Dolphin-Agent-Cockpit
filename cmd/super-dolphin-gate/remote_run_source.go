@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/eci"
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/localci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
@@ -80,11 +81,8 @@ func resolveRemoteRunInput(
 		CandidateGateToolchainSHA256: candidateGateToolchain,
 		ReuseBaselineGateCLI:         reuseBaselineGate,
 		RuntimeSeedSHA256:            state.RuntimeSeedSHA256, ForceRerun: options.ForceRerun,
-		DataCacheBucket: state.Anchor.DataCacheBucket, DataCachePath: state.Anchor.DataCachePath,
-		DirectCacheRef:   state.DirectCacheRef,
-		AnchorGeneration: state.Anchor.Generation, AnchorManifest: state.Anchor.ManifestDigest,
-		AnchorCommit: state.Anchor.MainCommit, AnchorTree: state.Anchor.MainTree,
-		BaselineDeltas: remoteBaselineDeltaProjection(state.Deltas),
+		OCIProjectCache: state.OCIProjectCache,
+		RegistryAccess:  eci.RegistryAccess{ACR: config.ACRRegistryInfo},
 	}, nil
 }
 
@@ -104,19 +102,6 @@ func resolveRemoteCandidateGateIdentity(repositoryRoot, candidateTree, baselineT
 	}
 	reuse := candidateSource == baselineSource && candidateToolchain == baselineToolchain
 	return candidateSource, candidateToolchain, reuse, nil
-}
-
-// remoteBaselineDeltaProjection 将已验证状态中的有序 OSS delta 转为 worker 协议投影。
-func remoteBaselineDeltaProjection(deltas []remoteci.BaselineDeltaRef) []remoteci.BaselineDeltaLayer {
-	projection := make([]remoteci.BaselineDeltaLayer, len(deltas))
-	for index, delta := range deltas {
-		projection[index] = remoteci.BaselineDeltaLayer{
-			Generation: delta.Generation, ObjectPrefix: delta.SourceObjectPrefix,
-			ManifestDigest: delta.ManifestDigest, BaseCommit: delta.BaseCommit, BaseTree: delta.BaseTree,
-			MainCommit: delta.MainCommit, MainTree: delta.MainTree,
-		}
-	}
-	return projection
 }
 
 // resolveRemoteRunSource 固定仓库根、场景、目标对象及 source 契约。
@@ -328,26 +313,24 @@ func remoteRuntimeImageDigest(reference string) string {
 	return digest
 }
 
-// validateAcceptedRemoteBaseline 绑定运行配置与已接受的镜像和 DataCache 位置；容量迁移期间仍允许上一代服务。
+// validateAcceptedRemoteBaseline 绑定运行配置与已接受的 OCI 基线镜像。
 func validateAcceptedRemoteBaseline(config remoteRunConfig, state remoteci.BaselineState) error {
 	if err := state.Validate(); err != nil {
 		return err
 	}
-	if state.RuntimeImage != config.Runtime.Image ||
-		state.DataCacheBucket != config.DataCache.Bucket ||
-		!strings.HasPrefix(state.DataCachePath, config.DataCache.PathPrefix+"/") {
-		return errors.New("accepted baseline does not match runtime or DataCache location config")
+	if state.RuntimeImage != config.Runtime.Image {
+		return errors.New("accepted baseline does not match runtime image config")
 	}
-	return nil
+	if state.OCIProjectCache == nil {
+		return errors.New("accepted baseline must use OCI project cache")
+	}
+	return state.OCIProjectCache.ValidateForBaseline(state.MainTree, state.ToolchainDigest, state.Platform, state.RuntimeImage)
 }
 
-// validateRunnableRemoteBaseline 拒绝缺少完整 Git 历史的旧基线，避免启动必然失败的云端分片。
+// validateRunnableRemoteBaseline rejects an accepted baseline whose OCI identity cannot run.
 func validateRunnableRemoteBaseline(config remoteRunConfig, state remoteci.BaselineState) error {
 	if err := validateAcceptedRemoteBaseline(config, state); err != nil {
 		return err
-	}
-	if state.SourceHistoryVersion != remoteci.BaselineSourceHistorySchemaVersion {
-		return errors.New("accepted baseline source history is incomplete; run baseline-refresh before remote CI")
 	}
 	return nil
 }

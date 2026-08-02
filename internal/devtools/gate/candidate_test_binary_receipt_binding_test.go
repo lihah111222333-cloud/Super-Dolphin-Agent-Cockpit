@@ -7,40 +7,27 @@ import (
 	"time"
 )
 
-func TestCandidateTestBinaryReceiptBindingDigestBindsCacheMetricsAndProvenance(t *testing.T) {
+func TestCandidateTestBinaryReceiptBindingDigestBindsOCICacheMetricsAndTimings(t *testing.T) {
 	build := candidateTestBinaryBuildRecordForBindingTest()
 	first, err := CandidateTestBinaryReceiptBindingDigest([]CandidateTestBinaryBuildRecord{build}, build.CandidateTree)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The canonical encoding must not depend on baseline observation order.
-	build.GOCacheBaselineHitRecords = append(build.GOCacheBaselineHitRecords, CandidateTestBinaryCacheGenerationRecord{Generation: 2, Hits: 5, AnchorGeneration: 1, AnchorManifestDigest: "sha256:" + strings.Repeat("c", 64), ManifestDigest: "sha256:" + strings.Repeat("d", 64), CacheRootIdentity: "sha256:" + strings.Repeat("e", 64)})
-	build.GOCacheBaselineHitsByGeneration["00000000000000000002"] = 5
-	second, err := CandidateTestBinaryReceiptBindingDigest([]CandidateTestBinaryBuildRecord{build}, build.CandidateTree)
-	if err != nil {
-		t.Fatal(err)
-	}
-	build.GOCacheBaselineHitRecords[0], build.GOCacheBaselineHitRecords[1] = build.GOCacheBaselineHitRecords[1], build.GOCacheBaselineHitRecords[0]
-	reordered, err := CandidateTestBinaryReceiptBindingDigest([]CandidateTestBinaryBuildRecord{build}, build.CandidateTree)
-	if err != nil || second != reordered {
-		t.Fatalf("baseline record order must be canonical: digest=%q err=%v", reordered, err)
-	}
-	if first == second {
-		t.Fatal("baseline provenance is not bound into the receipt digest")
-	}
 
 	for name, mutate := range map[string]func(*CandidateTestBinaryBuildRecord){
-		"wall_time": func(record *CandidateTestBinaryBuildRecord) { record.BuildWallMS++ },
+		"go_list_wall_time": func(record *CandidateTestBinaryBuildRecord) { record.GoListWallMS++ },
+		"build_wall_time":   func(record *CandidateTestBinaryBuildRecord) { record.BuildWallMS++ },
+		"compile_action_time": func(record *CandidateTestBinaryBuildRecord) {
+			record.CompileActionMS++
+		},
+		"link_action_time": func(record *CandidateTestBinaryBuildRecord) { record.LinkActionMS++ },
+		"compile_critical_wall_time": func(record *CandidateTestBinaryBuildRecord) {
+			record.CompileCriticalWallMS++
+		},
 		"private_identity": func(record *CandidateTestBinaryBuildRecord) {
 			record.GOCachePrivateRootIdentity = "sha256:" + strings.Repeat("a", 64)
 		},
-		"baseline_anchor": func(record *CandidateTestBinaryBuildRecord) { record.GOCacheBaselineHitRecords[0].AnchorGeneration++ },
-		"baseline_manifest": func(record *CandidateTestBinaryBuildRecord) {
-			record.GOCacheBaselineHitRecords[0].ManifestDigest = "sha256:" + strings.Repeat("f", 64)
-		},
-		"baseline_cache_root": func(record *CandidateTestBinaryBuildRecord) {
-			record.GOCacheBaselineHitRecords[0].CacheRootIdentity = "sha256:" + strings.Repeat("f", 64)
-		},
+		"oci_baseline_hits": func(record *CandidateTestBinaryBuildRecord) { record.GOCacheOCIProjectCacheHits++ },
 	} {
 		t.Run(name, func(t *testing.T) {
 			candidate := candidateTestBinaryBuildRecordForBindingTest()
@@ -50,14 +37,6 @@ func TestCandidateTestBinaryReceiptBindingDigestBindsCacheMetricsAndProvenance(t
 				t.Fatalf("metric tamper must change digest: digest=%q err=%v", digest, err)
 			}
 		})
-	}
-}
-
-func TestCandidateTestBinaryBuildRecordRejectsUnmappedBaselineProvenance(t *testing.T) {
-	build := candidateTestBinaryBuildRecordForBindingTest()
-	build.GOCacheBaselineHitRecords[0].Hits++
-	if err := validateCandidateTestBinaryBuildRecord(build); err == nil {
-		t.Fatal("expected baseline count/provenance drift to be rejected")
 	}
 }
 
@@ -110,8 +89,8 @@ func TestCandidateTestBinaryCacheMetricsSQLiteRoundTrip(t *testing.T) {
 
 func candidateTestBinaryBuildRecordForBindingTest() CandidateTestBinaryBuildRecord {
 	return CandidateTestBinaryBuildRecord{
-		CandidateTree: strings.Repeat("a", 40), Package: "./internal/example", Mode: "test", Platform: "linux/amd64", GoToolchain: "go1.26.5", CGOEnabled: true,
+		CandidateTree: strings.Repeat("a", 40), Package: "./internal/example", Mode: "test", Platform: "linux/amd64", GoToolchain: RequiredGoToolchain, CGOEnabled: true,
 		ToolchainSHA256: "sha256:" + strings.Repeat("b", 64), BuildFlags: []string{"-trimpath"}, CompileClosureSHA256: "sha256:" + strings.Repeat("c", 64), ManifestSHA256: strings.Repeat("d", 64), ArtifactSHA256: "sha256:" + strings.Repeat("e", 64), BinarySize: 1,
-		GoListWallMS: 1, BuildWallMS: 2, CompileActionMS: 3, LinkActionMS: 4, CompileCriticalWallMS: 5, GOCachePrivateHits: 6, GOCachePrivateRootIdentity: "sha256:" + strings.Repeat("f", 64), GOCacheBaselineHitsByGeneration: map[string]uint64{"00000000000000000001": 7}, GOCacheBaselineHitRecords: []CandidateTestBinaryCacheGenerationRecord{{Generation: 1, Hits: 7, AnchorGeneration: 1, AnchorManifestDigest: "sha256:" + strings.Repeat("b", 64), ManifestDigest: "sha256:" + strings.Repeat("c", 64), CacheRootIdentity: "sha256:" + strings.Repeat("d", 64)}}, GOCacheMisses: 8, GOCachePuts: 9,
+		GoListWallMS: 1, BuildWallMS: 2, CompileActionMS: 3, LinkActionMS: 4, CompileCriticalWallMS: 5, GOCachePrivateHits: 6, GOCacheOCIProjectCacheHits: 7, GOCachePrivateRootIdentity: "sha256:" + strings.Repeat("f", 64), GOCacheMisses: 8, GOCachePuts: 9,
 	}
 }

@@ -7,9 +7,34 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/eci"
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
+
+func TestLoadRemoteRunConfigBindsACRRegistryInfoToRuntimeAndCacheImages(t *testing.T) {
+	document := strings.Replace(
+		validRemoteRunConfigJSON(),
+		`"runtime": {"image": "registry.example/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},`,
+		`"runtime": {"image": "registry.example/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+  "acr_registry_info": {"instance_id":"cri-test","instance_name":"ci-registry","region_id":"cn-shenzhen","domain":"registry.example"},`,
+		1,
+	)
+	config, err := loadRemoteRunConfig(writeRemoteRunConfigFixture(t, document))
+	if err != nil {
+		t.Fatalf("loadRemoteRunConfig() error = %v", err)
+	}
+	if config.ACRRegistryInfo == nil || *config.ACRRegistryInfo != (eci.ACRRegistryInfo{InstanceID: "cri-test", InstanceName: "ci-registry", RegionID: "cn-shenzhen", Domain: "registry.example"}) {
+		t.Fatalf("acr_registry_info = %#v", config.ACRRegistryInfo)
+	}
+	wrongDomain := strings.Replace(document, `"domain":"registry.example"`, `"domain":"other.example"`, 1)
+	if _, err := loadRemoteRunConfig(writeRemoteRunConfigFixture(t, wrongDomain)); err == nil || !strings.Contains(err.Error(), "does not match runtime image") {
+		t.Fatalf("wrong ACR domain error = %v", err)
+	}
+	wrongCache := strings.Replace(document, `"registry_repository": "registry.example/runtime"`, `"registry_repository": "other.example/runtime"`, 1)
+	if _, err := loadRemoteRunConfig(writeRemoteRunConfigFixture(t, wrongCache)); err == nil || !strings.Contains(err.Error(), "does not match OCI cache repository") {
+		t.Fatalf("wrong ACR cache domain error = %v", err)
+	}
+}
 
 func TestAppendRemoteDurationSamplesRefreshesSQLiteAuthority(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ci-duration-ledger.json")
@@ -141,7 +166,7 @@ func TestLoadRemoteRunConfig(t *testing.T) {
 		t.Fatalf("loadRemoteRunConfig() error = %v", err)
 	}
 	if config.RegionID != "cn-shenzhen" || config.OSS.SourcePrefix != "baseline-artifacts/source-deltas/" ||
-		config.DataCache.MaxSizeGiB != 100 ||
+		config.OCICache.RegistryRepository != "registry.example/runtime" ||
 		config.Capacity.MaxShardsPerJob != 5 ||
 		config.Capacity.SeedClass != "memory" ||
 		len(config.Capacity.ResourcePolicy.Classes) != 4 ||
@@ -152,22 +177,21 @@ func TestLoadRemoteRunConfig(t *testing.T) {
 
 func TestLoadRemoteRunConfigRejectsDrift(t *testing.T) {
 	cases := map[string]string{
-		"unknown field":        strings.Replace(validRemoteRunConfigJSON(), `"schema_version": 4`, `"schema_version": 4, "unknown": true`, 1),
-		"refresh interval":     strings.Replace(validRemoteRunConfigJSON(), `"refresh_interval_minutes": 1440`, `"refresh_interval_minutes": 60`, 1),
-		"unpinned image":       strings.Replace(validRemoteRunConfigJSON(), `"image": "registry.example/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"`, `"image": "registry.example/runtime:latest"`, 1),
-		"missing network":      strings.Replace(validRemoteRunConfigJSON(), `"vswitch_id": "vsw-test"`, `"vswitch_id": ""`, 1),
-		"missing seed class":   strings.Replace(validRemoteRunConfigJSON(), `"seed_class": "memory"`, `"seed_class": ""`, 1),
-		"wrong cpu":            strings.Replace(validRemoteRunConfigJSON(), `"vcpu": 2`, `"vcpu": 3`, 1),
-		"wrong memory":         strings.Replace(validRemoteRunConfigJSON(), `"memory_gib": 32`, `"memory_gib": 64`, 1),
-		"unknown bootstrap":    strings.Replace(validRemoteRunConfigJSON(), `"go_test": "memory"`, `"go_test": "missing"`, 1),
-		"legacy shard field":   strings.Replace(validRemoteRunConfigJSON(), `"max_shards_per_job": 5`, `"shards": 5`, 1),
-		"small cache maximum":  strings.Replace(validRemoteRunConfigJSON(), `"max_size_gib": 100`, `"max_size_gib": 19`, 1),
-		"large cache maximum":  strings.Replace(validRemoteRunConfigJSON(), `"max_size_gib": 100`, `"max_size_gib": 101`, 1),
-		"legacy fixed cache":   strings.Replace(validRemoteRunConfigJSON(), `"max_size_gib": 100`, `"size_gib": 100`, 1),
-		"absolute source":      strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "/source-deltas/"`, 1),
-		"traversal source":     strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "../source-deltas/"`, 1),
-		"unterminated source":  strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "source-deltas"`, 1),
-		"overlapping prefixes": strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "baseline-artifacts/"`, 1),
+		"unknown field":         strings.Replace(validRemoteRunConfigJSON(), `"schema_version": 5`, `"schema_version": 5, "unknown": true`, 1),
+		"legacy schema":         strings.Replace(validRemoteRunConfigJSON(), `"schema_version": 5`, `"schema_version": 4`, 1),
+		"legacy data cache":     strings.Replace(validRemoteRunConfigJSON(), `"oci_cache":`, `"data_cache": {}, "oci_cache":`, 1),
+		"unpinned image":        strings.Replace(validRemoteRunConfigJSON(), `"image": "registry.example/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"`, `"image": "registry.example/runtime:latest"`, 1),
+		"unpinned OCI BuildKit": strings.Replace(validRemoteRunConfigJSON(), `"buildkit_image": "registry.example/buildkit@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"`, `"buildkit_image": "registry.example/buildkit:latest"`, 1),
+		"missing network":       strings.Replace(validRemoteRunConfigJSON(), `"vswitch_id": "vsw-test"`, `"vswitch_id": ""`, 1),
+		"missing seed class":    strings.Replace(validRemoteRunConfigJSON(), `"seed_class": "memory"`, `"seed_class": ""`, 1),
+		"wrong cpu":             strings.Replace(validRemoteRunConfigJSON(), `"vcpu": 2`, `"vcpu": 3`, 1),
+		"wrong memory":          strings.Replace(validRemoteRunConfigJSON(), `"memory_gib": 32`, `"memory_gib": 64`, 1),
+		"unknown bootstrap":     strings.Replace(validRemoteRunConfigJSON(), `"go_test": "memory"`, `"go_test": "missing"`, 1),
+		"legacy shard field":    strings.Replace(validRemoteRunConfigJSON(), `"max_shards_per_job": 5`, `"shards": 5`, 1),
+		"absolute source":       strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "/source-deltas/"`, 1),
+		"traversal source":      strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "../source-deltas/"`, 1),
+		"unterminated source":   strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "source-deltas"`, 1),
+		"overlapping prefixes":  strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "baseline-artifacts/"`, 1),
 	}
 	for name, document := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -179,7 +203,7 @@ func TestLoadRemoteRunConfigRejectsDrift(t *testing.T) {
 	}
 }
 
-func TestValidateRunnableRemoteBaselineRejectsIncompleteSourceHistory(t *testing.T) {
+func TestValidateRunnableRemoteBaselineRejectsMissingOCIProjectCache(t *testing.T) {
 	repository := initRemoteRunGitFixture(t)
 	config, err := loadRemoteRunConfig(writeRemoteRunConfigFixture(t, validRemoteRunConfigJSON()))
 	if err != nil {
@@ -189,13 +213,10 @@ func TestValidateRunnableRemoteBaselineRejectsIncompleteSourceHistory(t *testing
 	if err := validateRunnableRemoteBaseline(config, state); err != nil {
 		t.Fatalf("current baseline rejected: %v", err)
 	}
-	state.SourceHistoryVersion = 0
+	state.OCIProjectCache = nil
 	err = validateRunnableRemoteBaseline(config, state)
-	if err == nil || !strings.Contains(err.Error(), "source history is incomplete") {
-		t.Fatalf("legacy baseline error = %v, want actionable source-history rejection", err)
-	}
-	if err := validateAcceptedRemoteBaseline(config, state); err != nil {
-		t.Fatalf("legacy baseline must remain refreshable: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "OCI project cache") {
+		t.Fatalf("legacy baseline error = %v, want OCI cache rejection", err)
 	}
 }
 
@@ -208,20 +229,6 @@ func TestResolveRemoteRunInputUsesExactGitObjects(t *testing.T) {
 		t.Fatalf("loadRemoteRunConfig() error = %v", err)
 	}
 	state := remoteRunBaselineState(t, repository)
-	parentChain, err := remoteci.CurrentBaselineParentChainDigest(state)
-	if err != nil {
-		t.Fatal(err)
-	}
-	state.DirectCacheRef = &remoteci.DirectCacheRef{Layers: []remoteci.DirectCacheLayerRef{{
-		DataCacheID: "edc-direct1", DataCacheBucket: state.DataCacheBucket,
-		DataCachePath: "/super-dolphin/ci/direct-cache/1", SizeGiB: 20, Generation: state.Generation,
-		SourceObjectPrefix: "baseline-artifacts/1/output/direct-cache/", ManifestDigest: "sha256:" + strings.Repeat("2", 64),
-		TreeSHA256: "sha256:" + strings.Repeat("3", 64), ParentChainSHA256: parentChain,
-		RuntimeGoSHA256: state.RuntimeSeedSHA256, RuntimeDepsSHA256: "sha256:" + strings.Repeat("4", 64),
-	}}}
-	if state.DataCacheSizeGiB == config.DataCache.MaxSizeGiB {
-		t.Fatal("fixture must prove an accepted prior-capacity Anchor remains runnable during migration")
-	}
 	input, err := resolveRemoteRunInput(remoteRunOptions{
 		RepositoryRoot: repository,
 		Commit:         "HEAD",
@@ -274,23 +281,6 @@ func TestResolveRemoteRunInputCompilesCandidateGateWhenCLIClosureChanges(t *test
 	}
 }
 
-func TestRemoteBaselineDeltaProjectionPreservesOrder(t *testing.T) {
-	deltas := []remoteci.BaselineDeltaRef{{
-		Generation: 2, SourceObjectPrefix: "baseline-artifacts/2/", ManifestDigest: "sha256:" + strings.Repeat("a", 64),
-		BaseCommit: strings.Repeat("1", 40), BaseTree: strings.Repeat("2", 40),
-		MainCommit: strings.Repeat("3", 40), MainTree: strings.Repeat("4", 40),
-	}, {
-		Generation: 3, SourceObjectPrefix: "baseline-artifacts/3/", ManifestDigest: "sha256:" + strings.Repeat("b", 64),
-		BaseCommit: strings.Repeat("3", 40), BaseTree: strings.Repeat("4", 40),
-		MainCommit: strings.Repeat("5", 40), MainTree: strings.Repeat("6", 40),
-	}}
-	projection := remoteBaselineDeltaProjection(deltas)
-	if len(projection) != len(deltas) || projection[0].Generation != 2 || projection[1].Generation != 3 ||
-		projection[0].ObjectPrefix != deltas[0].SourceObjectPrefix || projection[1].MainTree != deltas[1].MainTree {
-		t.Fatalf("delta projection = %#v", projection)
-	}
-}
-
 func TestResolveRemoteRunInputCalibrationReusesPassedWorkloadsUnlessForced(t *testing.T) {
 	repository := initRemoteRunGitFixture(t)
 	configPath := writeRemoteRunConfigFixture(t, validRemoteRunConfigJSON())
@@ -299,6 +289,7 @@ func TestResolveRemoteRunInputCalibrationReusesPassedWorkloadsUnlessForced(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
+	config.ACRRegistryInfo = &eci.ACRRegistryInfo{InstanceID: "cri-test", InstanceName: "ci-registry", RegionID: "cn-shenzhen", Domain: "registry.example"}
 	options := remoteRunOptions{
 		RepositoryRoot: repository,
 		Commit:         "HEAD",
@@ -314,6 +305,9 @@ func TestResolveRemoteRunInputCalibrationReusesPassedWorkloadsUnlessForced(t *te
 	}
 	if input.ForceRerun {
 		t.Fatal("calibration unexpectedly bypassed the passed-workload cache")
+	}
+	if input.RegistryAccess.ACR != config.ACRRegistryInfo {
+		t.Fatalf("resolved registry access = %#v, want config ACR registry info", input.RegistryAccess)
 	}
 	options.ForceRerun = true
 	input, err = resolveRemoteRunInput(options, config, state, runnerIdentity)
@@ -444,17 +438,17 @@ func writeRemoteRunLedgerFixture(t *testing.T) string {
 	ledger := gatecontract.NewDurationLedger()
 	ledger.Calibration = &gatecontract.DurationCalibration{
 		SchemaVersion:        gatecontract.DurationCalibrationSchemaVersion,
-		Commit:               repeatRemoteHex("1", 40),
-		Tree:                 repeatRemoteHex("2", 40),
-		Platform:             "linux/arm64",
+		Commit:               strings.Repeat("1", 40),
+		Tree:                 strings.Repeat("2", 40),
+		Platform:             "linux/amd64",
 		Runner:               remoteRunRunnerIdentity(remoteRunRunnerIdentityState()),
-		Toolchain:            "sha256:" + repeatRemoteHex("c", 64),
+		Toolchain:            "sha256:" + strings.Repeat("c", 64),
 		CommitEntrypoint:     gatecontract.CIEntrypointGitPreCommit,
 		PushEntrypoint:       gatecontract.CIEntrypointGitPrePush,
 		ReleaseEntrypoint:    gatecontract.CIEntrypointRelease,
-		CommitCatalogDigest:  "sha256:" + repeatRemoteHex("7", 64),
-		PushCatalogDigest:    "sha256:" + repeatRemoteHex("8", 64),
-		ReleaseCatalogDigest: "sha256:" + repeatRemoteHex("9", 64),
+		CommitCatalogDigest:  "sha256:" + strings.Repeat("7", 64),
+		PushCatalogDigest:    "sha256:" + strings.Repeat("8", 64),
+		ReleaseCatalogDigest: "sha256:" + strings.Repeat("9", 64),
 		WorkloadCount:        1,
 		RacePackageCount:     1,
 		CompletedAt:          time.Date(2026, 7, 27, 1, 0, 0, 0, time.UTC),

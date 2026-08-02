@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -52,11 +51,8 @@ func runRemoteBuildTestBinaries(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := verifyRemoteBootstrapTLS(remoteDataCacheRootPath, config.CAFile, request.BaselineManifest); err != nil {
-		return err
-	}
 	shard := builderRequestShard(request)
-	if err := materializeRemoteBaseline(ctx, remoteDataCacheRootPath, remoteExpandedBasePath, gatecontract.ExecutorSourcePath, shard, transfer); err != nil {
+	if err := materializeRemoteBaseline(ctx, remoteExpandedBasePath, gatecontract.ExecutorSourcePath, gatecontract.ExecutorWorkRoot, shard, transfer); err != nil {
 		return err
 	}
 	temp, manifestPath, patchPath, err := stageRemoteSourceObjects(ctx, gatecontract.ExecutorWorkRoot, shard, transfer)
@@ -95,7 +91,7 @@ func runRemoteBuildTestBinaries(args []string, stdout io.Writer) error {
 }
 
 func builderRequestShard(request remoteci.CandidateTestBinaryBuilderRequest) remoteci.ShardRequest {
-	return remoteci.ShardRequest{SchemaVersion: remoteci.ShardRequestSchemaVersion, JobID: request.JobID, ShardIdentity: "sha256:" + strings.Repeat("0", 64), Profile: "local-fast", PlanDigest: "sha256:" + strings.Repeat("0", 64), BaselineManifest: request.BaselineManifest, AnchorGeneration: request.AnchorGeneration, AnchorManifest: request.AnchorManifest, AnchorCommit: request.AnchorCommit, AnchorTree: request.AnchorTree, BaselineDeltas: request.BaselineDeltas, DirectCacheRef: request.DirectCacheRef, RunnerBaseCommit: request.RunnerBaseCommit, RunnerBaseTree: request.RunnerBaseTree, SourceTreeSHA: request.CandidateTree, PatchFormat: request.PatchFormat, PatchKey: request.PatchKey, PatchSHA256: request.PatchSHA256, PatchSize: request.PatchSize, ManifestKey: request.ManifestKey, ManifestSHA256: request.ManifestSHA256, CandidateCLI: request.CandidateCLI, GateIDs: []gatecontract.GateID{"builder"}}
+	return remoteci.ShardRequest{SchemaVersion: remoteci.ShardRequestSchemaVersion, JobID: request.JobID, ShardIdentity: "sha256:" + strings.Repeat("0", 64), Profile: "local-fast", PlanDigest: "sha256:" + strings.Repeat("0", 64), BaselineManifest: request.BaselineManifest, OCIProjectCache: request.OCIProjectCache, RunnerBaseCommit: request.RunnerBaseCommit, RunnerBaseTree: request.RunnerBaseTree, SourceTreeSHA: request.CandidateTree, PatchFormat: request.PatchFormat, PatchKey: request.PatchKey, PatchSHA256: request.PatchSHA256, PatchSize: request.PatchSize, ManifestKey: request.ManifestKey, ManifestSHA256: request.ManifestSHA256, CandidateCLI: request.CandidateCLI, GateIDs: []gatecontract.GateID{"builder"}}
 }
 
 func remoteBuilderUpload(ctx context.Context, config remoteMaterializeConfig, key, file string) error {
@@ -121,10 +117,10 @@ func buildRemoteWorkerCandidateTestBinaries(ctx context.Context, request remotec
 	if err := os.MkdirAll(private, 0700); err != nil {
 		return remoteci.CandidateTestBinaryBuilderResult{}, nil, err
 	}
-	seeds, err := remoteBuilderSeedRoots()
-	if err != nil {
-		return remoteci.CandidateTestBinaryBuilderResult{}, nil, err
+	if request.OCIProjectCache == nil {
+		return remoteci.CandidateTestBinaryBuilderResult{}, nil, errors.New("candidate test builder OCI project cache is required")
 	}
+	ociCacheRoot := request.OCIProjectCache.CachePath
 	executable, err := os.Executable()
 	if err != nil || !filepath.IsAbs(executable) {
 		return remoteci.CandidateTestBinaryBuilderResult{}, nil, errors.New("candidate builder cache proxy executable is invalid")
@@ -136,7 +132,7 @@ func buildRemoteWorkerCandidateTestBinaries(ctx context.Context, request remotec
 	if !request.CGOEnabled {
 		return remoteci.CandidateTestBinaryBuilderResult{}, nil, errors.New("candidate test builder requires CGO_ENABLED=1")
 	}
-	result := remoteci.CandidateTestBinaryBuilderResult{SchemaVersion: remoteci.CandidateTestBinaryBuilderResultSchemaVersion, JobID: request.JobID, CandidateTree: request.CandidateTree, Platform: "linux/amd64", GoToolchain: "go1.26.5", CGOEnabled: true, ToolchainSHA256: request.CandidateCLI.ToolchainSHA256}
+	result := remoteci.CandidateTestBinaryBuilderResult{SchemaVersion: remoteci.CandidateTestBinaryBuilderResultSchemaVersion, JobID: request.JobID, CandidateTree: request.CandidateTree, Platform: "linux/amd64", GoToolchain: gatecontract.RequiredGoToolchain, CGOEnabled: true, ToolchainSHA256: request.CandidateCLI.ToolchainSHA256}
 	files := map[string]string{}
 	for index, target := range request.Targets {
 		if !target.CGOEnabled {
@@ -152,10 +148,8 @@ func buildRemoteWorkerCandidateTestBinaries(ctx context.Context, request remotec
 		}
 		var cacheCommand strings.Builder
 		cacheCommand.WriteString(launcher)
-		for _, seed := range seeds {
-			cacheCommand.WriteString(" --seed ")
-			cacheCommand.WriteString(strconv.Quote(seed))
-		}
+		cacheCommand.WriteString(" --seed ")
+		cacheCommand.WriteString(strconv.Quote(ociCacheRoot))
 		cacheCommand.WriteString(" --private ")
 		cacheCommand.WriteString(strconv.Quote(private))
 		cacheCommandText := cacheCommand.String()
@@ -182,11 +176,11 @@ func buildRemoteWorkerCandidateTestBinaries(ctx context.Context, request remotec
 		if err != nil {
 			return result, nil, err
 		}
-		listCache, err := gatecontract.LoadGoBuildCacheProxyMetricsAt(private, listMetricsPath, seeds)
+		listCache, err := gatecontract.LoadGoBuildCacheProxyMetricsAt(private, listMetricsPath, []string{ociCacheRoot})
 		if err != nil {
 			return result, nil, err
 		}
-		buildCache, err := gatecontract.LoadGoBuildCacheProxyMetricsAt(private, buildMetricsPath, seeds)
+		buildCache, err := gatecontract.LoadGoBuildCacheProxyMetricsAt(private, buildMetricsPath, []string{ociCacheRoot})
 		if err != nil {
 			return result, nil, err
 		}
@@ -199,43 +193,7 @@ func buildRemoteWorkerCandidateTestBinaries(ctx context.Context, request remotec
 		if err != nil {
 			return result, nil, err
 		}
-		hits := make([]remoteci.CandidateTestBinaryCacheGenerationHit, 0, len(cache.BaselineHitByGeneration))
-		for generation, h := range cache.BaselineHitByGeneration {
-			n, conv := strconv.ParseUint(generation, 10, 64)
-			if conv != nil {
-				return result, nil, conv
-			}
-			manifestDigest := request.BaselineManifest
-			if n != request.AnchorGeneration {
-				matched := false
-				for _, delta := range request.BaselineDeltas {
-					if delta.Generation == n {
-						manifestDigest, matched = delta.ManifestDigest, true
-						break
-					}
-				}
-				if !matched {
-					return result, nil, fmt.Errorf("unbound baseline cache generation %d", n)
-				}
-			}
-			seedRoot := ""
-			for _, root := range cache.SeedRoots {
-				if filepath.Base(root) == generation {
-					seedRoot = root
-					break
-				}
-			}
-			if seedRoot == "" {
-				return result, nil, fmt.Errorf("missing baseline cache root for generation %d", n)
-			}
-			rootIdentity, digestErr := gatecontract.RuntimeSeedTreeDigest(seedRoot)
-			if digestErr != nil {
-				return result, nil, digestErr
-			}
-			hits = append(hits, remoteci.CandidateTestBinaryCacheGenerationHit{Generation: n, Hits: h, AnchorGeneration: request.AnchorGeneration, AnchorManifestDigest: request.AnchorManifest, ManifestDigest: manifestDigest, CacheRootIdentity: rootIdentity})
-		}
-		sort.Slice(hits, func(i, j int) bool { return hits[i].Generation < hits[j].Generation })
-		result.Builds = append(result.Builds, remoteci.CandidateTestBinaryBuilderBuild{Artifact: manifest, Metrics: remoteci.CandidateTestBinaryBuildMetrics{GoListWallMS: listMS, BuildWallMS: buildWallMS, CompileActionMS: graphMetrics.compileActionMS, LinkActionMS: graphMetrics.linkActionMS, CompileCriticalWallMS: graphMetrics.compileCriticalWallMS, GOCachePrivateHits: cache.PrivateHitCount, GOCacheBaselineHitsByGeneration: hits, GOCacheMisses: cache.MissCount, GOCachePuts: cache.PutCount, GOCachePrivateRootIdentity: privateIdentity}})
+		result.Builds = append(result.Builds, remoteci.CandidateTestBinaryBuilderBuild{Artifact: manifest, Metrics: remoteci.CandidateTestBinaryBuildMetrics{GoListWallMS: listMS, BuildWallMS: buildWallMS, CompileActionMS: graphMetrics.compileActionMS, LinkActionMS: graphMetrics.linkActionMS, CompileCriticalWallMS: graphMetrics.compileCriticalWallMS, GOCachePrivateHits: cache.PrivateHitCount, GOCacheOCIProjectCacheHits: cache.BaselineHitCount, GOCacheMisses: cache.MissCount, GOCachePuts: cache.PutCount, GOCachePrivateRootIdentity: privateIdentity}})
 		files[manifest.BinaryKey] = binary
 		files[manifest.ManifestKey] = manifestPath
 	}
@@ -248,34 +206,10 @@ func buildRemoteWorkerCandidateTestBinaries(ctx context.Context, request remotec
 func mergeRemoteBuilderCacheMetrics(left, right gatecontract.GoBuildCacheProxyMetrics) gatecontract.GoBuildCacheProxyMetrics {
 	merged := left
 	merged.PrivateHitCount += right.PrivateHitCount
+	merged.BaselineHitCount += right.BaselineHitCount
 	merged.MissCount += right.MissCount
 	merged.PutCount += right.PutCount
-	for generation, hits := range right.BaselineHitByGeneration {
-		merged.BaselineHitByGeneration[generation] += hits
-	}
 	return merged
-}
-
-func remoteBuilderSeedRoots() ([]string, error) {
-	if os.Getenv(gatecontract.ExecutorDirectGoBuildCacheSeedEnv) != "" {
-		return gatecontract.ExecutorRemoteGoBuildCacheSeedRoots()
-	}
-	entries, err := os.ReadDir(gatecontract.ExecutorGoBuildCacheSeedsRoot)
-	if err != nil {
-		return nil, err
-	}
-	roots := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			return nil, errors.New("builder cache seed is invalid")
-		}
-		roots = append(roots, filepath.Join(gatecontract.ExecutorGoBuildCacheSeedsRoot, entry.Name()))
-	}
-	sort.Strings(roots)
-	if len(roots) == 0 {
-		return nil, errors.New("builder cache seeds are missing")
-	}
-	return roots, nil
 }
 func runRemoteBuilderGo(ctx context.Context, binary string, args, env []string) error {
 	_, err := runRemoteBuilderGoOutput(ctx, binary, args, env)
@@ -317,7 +251,7 @@ func verifyRemoteBuilderToolchain(
 	}
 	env := []string{"GOENV=off", "GOTOOLCHAIN=local", "GOROOT=" + goRoot, "PATH=" + gatecontract.ExecutorPortableSearchPath}
 	version, err := run(ctx, goBinary, []string{"version"}, env)
-	if err != nil || strings.TrimSpace(string(version)) != "go version go1.26.5 linux/amd64" {
+	if err != nil || strings.TrimSpace(string(version)) != "go version "+gatecontract.RequiredGoToolchain+" linux/amd64" {
 		return errors.Join(errors.New("candidate test builder Go version drift"), err)
 	}
 	identity, err := run(ctx, goBinary, []string{"env", "GOROOT", "GOTOOLDIR"}, env)
@@ -339,7 +273,7 @@ func remoteBuilderManifest(request remoteci.CandidateTestBinaryBuilderRequest, t
 	}
 	digest := fmt.Sprintf("%x", sha256.Sum256(data))
 	key := path.Join(request.OutputPrefix, digest+".test-bin")
-	manifest := remoteci.CandidateTestBinaryArtifactManifest{SchemaVersion: remoteci.CandidateTestBinaryArtifactSchemaVersion, CandidateTree: request.CandidateTree, Package: target.Package, Mode: target.Mode, Platform: "linux/amd64", GoToolchain: "go1.26.5", CGOEnabled: true, ToolchainSHA256: request.CandidateCLI.ToolchainSHA256, BuildFlags: []string{"-mod=readonly", "-buildvcs=false", "-trimpath"}, CompileClosureSHA256: closure, BinaryKey: key, BinarySHA256: "sha256:" + digest, BinarySize: int64(len(data))}
+	manifest := remoteci.CandidateTestBinaryArtifactManifest{SchemaVersion: remoteci.CandidateTestBinaryArtifactSchemaVersion, CandidateTree: request.CandidateTree, Package: target.Package, Mode: target.Mode, Platform: "linux/amd64", GoToolchain: gatecontract.RequiredGoToolchain, CGOEnabled: true, ToolchainSHA256: request.CandidateCLI.ToolchainSHA256, BuildFlags: []string{"-mod=readonly", "-buildvcs=false", "-trimpath"}, CompileClosureSHA256: closure, BinaryKey: key, BinarySHA256: "sha256:" + digest, BinarySize: int64(len(data))}
 	encoded, mdigest, err := remoteci.EncodeCandidateTestBinaryArtifactManifest(manifest)
 	if err != nil {
 		return remoteci.CandidateTestBinaryArtifactRef{}, "", err
@@ -348,5 +282,5 @@ func remoteBuilderManifest(request remoteci.CandidateTestBinaryBuilderRequest, t
 	if err := os.WriteFile(manifestPath, encoded, 0600); err != nil {
 		return remoteci.CandidateTestBinaryArtifactRef{}, "", err
 	}
-	return remoteci.CandidateTestBinaryArtifactRef{CandidateTree: request.CandidateTree, Package: target.Package, Mode: target.Mode, Platform: "linux/amd64", GoToolchain: "go1.26.5", CGOEnabled: true, ToolchainSHA256: request.CandidateCLI.ToolchainSHA256, BuildFlags: manifest.BuildFlags, CompileClosureSHA256: closure, ManifestKey: path.Join(request.OutputPrefix, strings.TrimPrefix(mdigest, "sha256:")+".manifest.json"), ManifestSHA256: strings.TrimPrefix(mdigest, "sha256:"), BinaryKey: key, BinarySHA256: digest, BinarySize: int64(len(data))}, manifestPath, nil
+	return remoteci.CandidateTestBinaryArtifactRef{CandidateTree: request.CandidateTree, Package: target.Package, Mode: target.Mode, Platform: "linux/amd64", GoToolchain: gatecontract.RequiredGoToolchain, CGOEnabled: true, ToolchainSHA256: request.CandidateCLI.ToolchainSHA256, BuildFlags: manifest.BuildFlags, CompileClosureSHA256: closure, ManifestKey: path.Join(request.OutputPrefix, strings.TrimPrefix(mdigest, "sha256:")+".manifest.json"), ManifestSHA256: strings.TrimPrefix(mdigest, "sha256:"), BinaryKey: key, BinarySHA256: digest, BinarySize: int64(len(data))}, manifestPath, nil
 }

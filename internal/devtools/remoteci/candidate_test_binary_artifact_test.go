@@ -3,6 +3,8 @@ package remoteci
 import (
 	"strings"
 	"testing"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
 func TestCandidateTestBinaryArtifactManifestStrictRoundTrip(t *testing.T) {
@@ -56,7 +58,7 @@ func TestCandidateTestBinaryArtifactManifestRejectsNonBaselineToolchains(t *test
 
 func validCandidateTestBinaryArtifactManifest() CandidateTestBinaryArtifactManifest {
 	digest := "sha256:" + strings.Repeat("a", 64)
-	return CandidateTestBinaryArtifactManifest{SchemaVersion: CandidateTestBinaryArtifactSchemaVersion, CandidateTree: strings.Repeat("b", 40), Package: "example.invalid/project/pkg", Mode: "test", Platform: "linux/amd64", GoToolchain: "go1.26.5", CGOEnabled: true, ToolchainSHA256: digest, BuildFlags: []string{"-trimpath", "-tags=integration"}, CompileClosureSHA256: digest, BinaryKey: "candidate-artifacts/job-012/package.test-bin", BinarySHA256: digest, BinarySize: 42}
+	return CandidateTestBinaryArtifactManifest{SchemaVersion: CandidateTestBinaryArtifactSchemaVersion, CandidateTree: strings.Repeat("b", 40), Package: "example.invalid/project/pkg", Mode: "test", Platform: "linux/amd64", GoToolchain: gate.RequiredGoToolchain, CGOEnabled: true, ToolchainSHA256: digest, BuildFlags: []string{"-trimpath", "-tags=integration"}, CompileClosureSHA256: digest, BinaryKey: "candidate-artifacts/job-012/package.test-bin", BinarySHA256: digest, BinarySize: 42}
 }
 
 func equalCandidateTestBinaryManifest(left, right CandidateTestBinaryArtifactManifest) bool {

@@ -9,60 +9,18 @@ import (
 	"fmt"
 	"path"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
-const ShardRequestSchemaVersion uint32 = 7
+const ShardRequestSchemaVersion uint32 = 9
 
 var (
 	remoteDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 	remoteIDPattern     = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,127}$`)
 	remoteOIDPattern    = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
 )
-
-// cloneDirectCacheRef 深拷贝跨请求边界传递的可选直读缓存层集合。
-func cloneDirectCacheRef(reference *DirectCacheRef) *DirectCacheRef {
-	if reference == nil {
-		return nil
-	}
-	copy := *reference
-	copy.Layers = append([]DirectCacheLayerRef(nil), reference.Layers...)
-	return &copy
-}
-
-// validateOptionalDirectCacheRef 拒绝不完整或可变的直读缓存身份。
-func validateOptionalDirectCacheRef(reference *DirectCacheRef) error {
-	if reference == nil {
-		return nil
-	}
-	if len(reference.Layers) == 0 {
-		return errors.New("remote direct cache identity is invalid")
-	}
-	newest := reference.Layers[0]
-	if err := reference.validateLayers(newest.DataCacheBucket, 0, newest.RuntimeGoSHA256, ""); err != nil {
-		return err
-	}
-	for _, layer := range reference.Layers[1:] {
-		if layer.RuntimeGoSHA256 != newest.RuntimeGoSHA256 || layer.RuntimeDepsSHA256 != newest.RuntimeDepsSHA256 {
-			return errors.New("remote direct cache layer runtime identity is inconsistent")
-		}
-	}
-	return nil
-}
-
-// BaselineDeltaLayer 绑定一个可从 OSS 独立校验并顺序应用的基线差量。
-type BaselineDeltaLayer struct {
-	Generation     uint64 `json:"generation"`
-	ObjectPrefix   string `json:"object_prefix"`
-	ManifestDigest string `json:"manifest_digest"`
-	BaseCommit     string `json:"base_commit"`
-	BaseTree       string `json:"base_tree"`
-	MainCommit     string `json:"main_commit"`
-	MainTree       string `json:"main_tree"`
-}
 
 // CandidateCLIArtifactRef 是每个分片消费的不可变候选 CLI 制品引用。
 // 该清单包含二进制摘要与大小，使用前必须完成校验。
@@ -97,32 +55,30 @@ type CandidateTestBinaryArtifactRef struct {
 	BinarySize           int64    `json:"binary_size"`
 }
 
-// ShardRequest 将一个 ECI 容器绑定到精确 Anchor、OSS delta 链、目标树和 canonical gate 分片。
+// ShardRequest binds one ECI container to an immutable OCI project cache,
+// exact target tree, and canonical gate shard.
 type ShardRequest struct {
-	SchemaVersion         uint32                           `json:"schema_version"`
-	JobID                 string                           `json:"job_id"`
-	ShardIdentity         string                           `json:"shard_identity"`
-	Profile               gate.Profile                     `json:"profile"`
-	PlanDigest            string                           `json:"plan_digest"`
-	BaselineManifest      string                           `json:"runner_manifest_digest"`
-	AnchorGeneration      uint64                           `json:"anchor_generation"`
-	AnchorManifest        string                           `json:"anchor_manifest_digest"`
-	AnchorCommit          string                           `json:"anchor_commit"`
-	AnchorTree            string                           `json:"anchor_tree"`
-	BaselineDeltas        []BaselineDeltaLayer             `json:"baseline_deltas,omitempty"`
-	DirectCacheRef        *DirectCacheRef                  `json:"direct_cache_ref,omitempty"`
-	RunnerBaseCommit      string                           `json:"runner_base_commit"`
-	RunnerBaseTree        string                           `json:"runner_base_tree"`
-	SourceTreeSHA         string                           `json:"source_tree_sha"`
-	PatchFormat           string                           `json:"patch_format"`
-	PatchKey              string                           `json:"patch_key"`
-	PatchSHA256           string                           `json:"patch_sha256"`
-	PatchSize             int64                            `json:"patch_size"`
-	ManifestKey           string                           `json:"manifest_key"`
-	ManifestSHA256        string                           `json:"manifest_sha256"`
-	CandidateCLI          CandidateCLIArtifactRef          `json:"candidate_cli_artifact"`
-	CandidateTestBinaries []CandidateTestBinaryArtifactRef `json:"candidate_test_binary_artifacts"`
-	GateIDs               []gate.GateID                    `json:"gate_ids"`
+	SchemaVersion           uint32                           `json:"schema_version"`
+	JobID                   string                           `json:"job_id"`
+	ShardIdentity           string                           `json:"shard_identity"`
+	Profile                 gate.Profile                     `json:"profile"`
+	PlanDigest              string                           `json:"plan_digest"`
+	BaselineManifest        string                           `json:"runner_manifest_digest"`
+	OCIProjectCache         *BaselineOCIProjectCache         `json:"oci_project_cache"`
+	RunnerBaseCommit        string                           `json:"runner_base_commit"`
+	RunnerBaseTree          string                           `json:"runner_base_tree"`
+	BaselineRuntimeImage    string                           `json:"baseline_runtime_image,omitempty"`
+	BaselineToolchainDigest string                           `json:"baseline_toolchain_digest,omitempty"`
+	SourceTreeSHA           string                           `json:"source_tree_sha"`
+	PatchFormat             string                           `json:"patch_format"`
+	PatchKey                string                           `json:"patch_key"`
+	PatchSHA256             string                           `json:"patch_sha256"`
+	PatchSize               int64                            `json:"patch_size"`
+	ManifestKey             string                           `json:"manifest_key"`
+	ManifestSHA256          string                           `json:"manifest_sha256"`
+	CandidateCLI            CandidateCLIArtifactRef          `json:"candidate_cli_artifact"`
+	CandidateTestBinaries   []CandidateTestBinaryArtifactRef `json:"candidate_test_binary_artifacts"`
+	GateIDs                 []gate.GateID                    `json:"gate_ids"`
 }
 
 // Validate 拒绝缺字段、可变身份、路径逃逸和重复 gate。
@@ -130,13 +86,7 @@ func (request ShardRequest) Validate() error {
 	if err := request.validateIdentity(); err != nil {
 		return err
 	}
-	if err := request.validateBaselineChain(); err != nil {
-		return err
-	}
-	if err := validateOptionalDirectCacheRef(request.DirectCacheRef); err != nil {
-		return err
-	}
-	if err := request.validateDirectCacheParentChain(); err != nil {
+	if err := request.validateOCIProjectCache(); err != nil {
 		return err
 	}
 	if err := request.validateSource(); err != nil {
@@ -148,27 +98,18 @@ func (request ShardRequest) Validate() error {
 	return validateGateIDs(request.GateIDs)
 }
 
-// validateDirectCacheParentChain 将直读缓存绑定到请求携带的 Anchor 与有序 Delta 链。
-func (request ShardRequest) validateDirectCacheParentChain() error {
-	if request.DirectCacheRef == nil {
-		return nil
+// validateOCIProjectCache binds the required image seed to the exact baseline
+// tree consumed by this shard. The materializer must still verify the image
+// filesystem is read-only before handing its cache path to GOCACHEPROG.
+func (request ShardRequest) validateOCIProjectCache() error {
+	if request.OCIProjectCache == nil {
+		return errors.New("remote shard OCI project cache is required")
 	}
-	anchor := baselineParentChainAnchorIdentity{Generation: request.AnchorGeneration, ManifestDigest: request.AnchorManifest, MainCommit: request.AnchorCommit, MainTree: request.AnchorTree}
-	deltas := make([]baselineParentChainDeltaIdentity, 0, len(request.BaselineDeltas))
-	for _, delta := range request.BaselineDeltas {
-		deltas = append(deltas, baselineParentChainDeltaIdentity{Generation: delta.Generation, ManifestDigest: delta.ManifestDigest, BaseCommit: delta.BaseCommit, BaseTree: delta.BaseTree, MainCommit: delta.MainCommit, MainTree: delta.MainTree})
-	}
-	digest, err := baselineParentChainIdentityDigest(anchor, deltas)
-	if err != nil {
+	if err := request.OCIProjectCache.validate(); err != nil {
 		return err
 	}
-	tipGeneration := request.AnchorGeneration
-	if len(request.BaselineDeltas) != 0 {
-		tipGeneration = request.BaselineDeltas[len(request.BaselineDeltas)-1].Generation
-	}
-	newest := request.DirectCacheRef.Layers[0]
-	if newest.ParentChainSHA256 != digest || newest.Generation != tipGeneration {
-		return errors.New("remote direct cache does not match the requested baseline chain")
+	if err := request.OCIProjectCache.ValidateForBaseline(request.RunnerBaseTree, request.BaselineToolchainDigest, "linux/amd64", request.BaselineRuntimeImage); err != nil {
+		return err
 	}
 	return nil
 }
@@ -244,66 +185,7 @@ func (request ShardRequest) validateIdentity() error {
 func validRequestDigests(request ShardRequest) bool {
 	return remoteDigestPattern.MatchString(request.ShardIdentity) &&
 		remoteDigestPattern.MatchString(request.PlanDigest) &&
-		remoteDigestPattern.MatchString(request.BaselineManifest) &&
-		remoteDigestPattern.MatchString(request.AnchorManifest)
-}
-
-// validateBaselineChain 校验单 Anchor 与有界 delta 链连续到 worker 基线。
-func (request ShardRequest) validateBaselineChain() error {
-	if !request.hasValidBaselineAnchor() {
-		return errors.New("remote shard baseline anchor or delta count is invalid")
-	}
-	previousGeneration := request.AnchorGeneration
-	previousCommit, previousTree := request.AnchorCommit, request.AnchorTree
-	for index, delta := range request.BaselineDeltas {
-		if !validShardBaselineDelta(delta, previousGeneration, previousCommit, previousTree) {
-			return fmt.Errorf("remote shard baseline delta %d is invalid or discontinuous", index)
-		}
-		previousGeneration, previousCommit, previousTree = delta.Generation, delta.MainCommit, delta.MainTree
-	}
-	if previousCommit != request.RunnerBaseCommit || previousTree != request.RunnerBaseTree {
-		return errors.New("remote shard baseline chain does not reach runner base")
-	}
-	expectedManifest := request.AnchorManifest
-	if len(request.BaselineDeltas) > 0 {
-		expectedManifest = request.BaselineDeltas[len(request.BaselineDeltas)-1].ManifestDigest
-	}
-	if request.BaselineManifest != expectedManifest {
-		return errors.New("remote shard current manifest does not match baseline chain")
-	}
-	return nil
-}
-
-// hasValidBaselineAnchor 校验 anchor 的不可变身份与 delta 上限。
-func (request ShardRequest) hasValidBaselineAnchor() bool {
-	return request.AnchorGeneration != 0 &&
-		remoteOIDPattern.MatchString(request.AnchorCommit) &&
-		remoteOIDPattern.MatchString(request.AnchorTree) &&
-		len(request.BaselineDeltas) <= 4
-}
-
-// validShardBaselineDelta 校验一个 delta 是否连续衔接到前一层。
-func validShardBaselineDelta(delta BaselineDeltaLayer, generation uint64, commit, tree string) bool {
-	return validShardBaselineDeltaIdentity(delta, generation) &&
-		delta.BaseCommit == commit && delta.BaseTree == tree &&
-		delta.BaseCommit != delta.MainCommit
-}
-
-// validShardBaselineDeltaIdentity 校验 delta 自身的 generation、对象与 Git 身份。
-func validShardBaselineDeltaIdentity(delta BaselineDeltaLayer, generation uint64) bool {
-	return delta.Generation != 0 && delta.Generation > generation &&
-		validBaselineDeltaPrefix(delta.ObjectPrefix, delta.Generation) &&
-		remoteDigestPattern.MatchString(delta.ManifestDigest) &&
-		remoteOIDPattern.MatchString(delta.BaseCommit) && remoteOIDPattern.MatchString(delta.BaseTree) &&
-		remoteOIDPattern.MatchString(delta.MainCommit) && remoteOIDPattern.MatchString(delta.MainTree)
-}
-
-// validBaselineDeltaPrefix 确认 delta 对象前缀以其不可变 generation 收束。
-func validBaselineDeltaPrefix(prefix string, generation uint64) bool {
-	if !validObjectPrefix(prefix) {
-		return false
-	}
-	return path.Base(strings.TrimSuffix(prefix, "/")) == strconv.FormatUint(generation, 10)
+		remoteDigestPattern.MatchString(request.BaselineManifest)
 }
 
 // validateSource 校验源 Git 对象和二进制补丁格式。
@@ -389,6 +271,9 @@ func DecodeShardRequest(data []byte) (ShardRequest, error) {
 	var request ShardRequest
 	if err := gate.DecodeStrictJSON(data, &request); err != nil {
 		return ShardRequest{}, fmt.Errorf("decode remote shard request: %w", err)
+	}
+	if err := request.Validate(); err != nil {
+		return ShardRequest{}, fmt.Errorf("validate remote shard request: %w", err)
 	}
 	return request, nil
 }

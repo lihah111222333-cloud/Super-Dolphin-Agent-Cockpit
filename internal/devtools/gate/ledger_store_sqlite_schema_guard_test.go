@@ -39,7 +39,7 @@ func TestDurationLedgerSQLiteSchemaCoversQueryableProducerFields(t *testing.T) {
 }
 
 func TestDurationLedgerSQLiteFieldGuardFailsWhenProducerMappingIsRemoved(t *testing.T) {
-	contract := sqliteProjectionContracts()[0]
+	contract := sqliteProjectionContractForTable(t, "ci_gate_executions")
 	columns := make([]string, 0, len(contract.columns)+len(contract.synthetic))
 	for _, column := range contract.columns {
 		columns = append(columns, column)
@@ -47,11 +47,39 @@ func TestDurationLedgerSQLiteFieldGuardFailsWhenProducerMappingIsRemoved(t *test
 	for column := range contract.synthetic {
 		columns = append(columns, column)
 	}
-	delete(contract.columns, "CompletedAt")
+	delete(contract.columns, "TestTimings")
 	err := validateSQLiteProjectionContract(contract, columns)
-	if err == nil || !strings.Contains(err.Error(), "CompletedAt") {
+	if err == nil || !strings.Contains(err.Error(), "TestTimings") {
 		t.Fatalf("field guard error = %v", err)
 	}
+}
+
+func TestDurationLedgerSQLiteFieldGuardFailsWhenProducerMappingIsStale(t *testing.T) {
+	contract := sqliteProjectionContractForTable(t, "ci_workload_executions")
+	columns := make([]string, 0, len(contract.columns)+len(contract.synthetic)+1)
+	for _, column := range contract.columns {
+		columns = append(columns, column)
+	}
+	for column := range contract.synthetic {
+		columns = append(columns, column)
+	}
+	contract.columns["RetiredTestTimings"] = "retired_test_timings_json"
+	columns = append(columns, "retired_test_timings_json")
+	err := validateSQLiteProjectionContract(contract, columns)
+	if err == nil || !strings.Contains(err.Error(), "stale producer mapping RetiredTestTimings") {
+		t.Fatalf("field guard error = %v", err)
+	}
+}
+
+func sqliteProjectionContractForTable(t *testing.T, table string) sqliteProjectionContract {
+	t.Helper()
+	for _, contract := range sqliteProjectionContracts() {
+		if contract.table == table {
+			return contract
+		}
+	}
+	t.Fatalf("projection contract for table %q is not registered", table)
+	return sqliteProjectionContract{}
 }
 
 func TestDurationLedgerSQLiteQueryPlansUseRequiredIndexes(t *testing.T) {

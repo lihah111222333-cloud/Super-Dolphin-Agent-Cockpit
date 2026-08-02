@@ -1,6 +1,7 @@
 package remoteci
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -44,10 +45,9 @@ func TestShardRequestRejectsDrift(t *testing.T) {
 		{"uppercase digest", func(request *ShardRequest) { request.PatchSHA256 = strings.ToUpper(request.PatchSHA256) }},
 		{"negative size", func(request *ShardRequest) { request.PatchSize = -1 }},
 		{"wrong format", func(request *ShardRequest) { request.PatchFormat = "text" }},
-		{"discontinuous delta", func(request *ShardRequest) { request.BaselineDeltas[0].BaseTree = strings.Repeat("f", 40) }},
-		{"delta chain misses runner base", func(request *ShardRequest) { request.RunnerBaseCommit = strings.Repeat("f", 40) }},
-		{"too many deltas", func(request *ShardRequest) {
-			request.BaselineDeltas = append(request.BaselineDeltas, request.BaselineDeltas[0], request.BaselineDeltas[0], request.BaselineDeltas[0], request.BaselineDeltas[0])
+		{"missing OCI cache", func(request *ShardRequest) { request.OCIProjectCache = nil }},
+		{"OCI cache tree drift", func(request *ShardRequest) {
+			request.OCIProjectCache = validBaselineOCIProjectCache(strings.Repeat("f", 40), "sha256:"+strings.Repeat("a", 64), "linux/amd64", "registry.example/runtime@sha256:"+strings.Repeat("b", 64))
 		}},
 	}
 	for _, testCase := range tests {
@@ -58,15 +58,6 @@ func TestShardRequestRejectsDrift(t *testing.T) {
 				t.Fatal("Validate() error = nil")
 			}
 		})
-	}
-}
-
-func TestShardRequestAcceptsCommitOnlyBaselineDelta(t *testing.T) {
-	request := validShardRequest()
-	request.AnchorTree = request.BaselineDeltas[0].MainTree
-	request.BaselineDeltas[0].BaseTree = request.AnchorTree
-	if err := request.Validate(); err != nil {
-		t.Fatalf("commit-only baseline delta rejected: %v", err)
 	}
 }
 
@@ -92,21 +83,45 @@ func TestDecodeShardRequestRejectsUnknownCandidateCLIField(t *testing.T) {
 	}
 }
 
+func TestDecodeShardRequestRejectsValidatedFieldDrift(t *testing.T) {
+	for name, mutate := range map[string]func(map[string]any){
+		"schema":     func(wire map[string]any) { wire["schema_version"] = float64(1) },
+		"tree":       func(wire map[string]any) { wire["runner_base_tree"] = strings.Repeat("f", 40) },
+		"toolchain":  func(wire map[string]any) { wire["baseline_toolchain_digest"] = "sha256:" + strings.Repeat("f", 64) },
+		"OCI cache":  func(wire map[string]any) { wire["oci_project_cache"].(map[string]any)["cache_path"] = "/tmp/cache" },
+		"patch path": func(wire map[string]any) { wire["patch_key"] = "../escape.patch" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			data, _, err := EncodeShardRequest(validShardRequest())
+			if err != nil {
+				t.Fatal(err)
+			}
+			var wire map[string]any
+			if err := json.Unmarshal(data, &wire); err != nil {
+				t.Fatal(err)
+			}
+			mutate(wire)
+			data, err = json.Marshal(wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := DecodeShardRequest(data); err == nil {
+				t.Fatal("DecodeShardRequest() accepted validation drift")
+			}
+		})
+	}
+}
+
 func validShardRequest() ShardRequest {
 	digest := "sha256:" + strings.Repeat("a", 64)
 	return ShardRequest{
 		SchemaVersion: ShardRequestSchemaVersion,
 		JobID:         "job-1234", ShardIdentity: digest,
 		Profile: gate.ProfileLocalFast, PlanDigest: digest, BaselineManifest: digest,
-		AnchorGeneration: 1, AnchorManifest: digest,
-		AnchorCommit: strings.Repeat("a", 40), AnchorTree: strings.Repeat("b", 40),
-		BaselineDeltas: []BaselineDeltaLayer{{
-			Generation: 2, ObjectPrefix: "baseline-artifacts/2/", ManifestDigest: digest,
-			BaseCommit: strings.Repeat("a", 40), BaseTree: strings.Repeat("b", 40),
-			MainCommit: strings.Repeat("c", 40), MainTree: strings.Repeat("d", 40),
-		}},
 		RunnerBaseCommit: strings.Repeat("c", 40), RunnerBaseTree: strings.Repeat("d", 40),
-		SourceTreeSHA: strings.Repeat("c", 40), PatchFormat: "git-binary-v1",
+		BaselineRuntimeImage: "registry.example/runtime@sha256:" + strings.Repeat("b", 64), BaselineToolchainDigest: "sha256:" + strings.Repeat("a", 64),
+		OCIProjectCache: validBaselineOCIProjectCache(strings.Repeat("d", 40), "sha256:"+strings.Repeat("a", 64), "linux/amd64", "registry.example/runtime@sha256:"+strings.Repeat("b", 64)),
+		SourceTreeSHA:   strings.Repeat("c", 40), PatchFormat: "git-binary-v1",
 		PatchKey: "baseline-artifacts/source-deltas/job-1234/source.patch", PatchSHA256: strings.Repeat("d", 64), PatchSize: 42,
 		ManifestKey: "baseline-artifacts/source-deltas/job-1234/source.manifest.json", ManifestSHA256: strings.Repeat("e", 64),
 		CandidateCLI: CandidateCLIArtifactRef{

@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestSanitizedBuildxEnvironmentPreservesDockerConfigAndLocksControls(t *testing.T) {
+func TestSanitizedBuildxEnvironmentRejectsAmbientDockerConfigAndLocksControls(t *testing.T) {
 	environment := []string{
 		"PATH=/usr/bin",
 		"HTTP_PROXY=http://proxy.invalid",
@@ -23,7 +23,6 @@ func TestSanitizedBuildxEnvironmentPreservesDockerConfigAndLocksControls(t *test
 	actual := sanitizedBuildxEnvironment(environment)
 	wanted := []string{
 		"PATH=/usr/bin",
-		"DOCKER_CONFIG=/tmp/docker-config",
 		"BUILDX_METADATA_PROVENANCE=max",
 		"BUILDX_METADATA_WARNINGS=0",
 		"BUILDX_NO_DEFAULT_ATTESTATIONS=1",

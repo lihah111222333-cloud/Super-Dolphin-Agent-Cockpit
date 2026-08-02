@@ -41,40 +41,36 @@ type remoteWorkloadCacheEntry struct {
 // remoteWorkloadCacheProvenance records the exact execution context without
 // making coordinator-only refreshes part of the reusable PASS identity.
 type remoteWorkloadCacheProvenance struct {
-	commit               string
-	tree                 string
-	profile              string
-	entrypoint           string
-	runnerImage          string
-	runnerIdentityDigest string
-	runnerConfigDigest   string
-	gateBinarySHA256     string
-	runtimeSeedSHA256    string
-	policyDigest         string
-	baselineManifest     string
-	anchorGeneration     uint64
-	anchorManifest       string
-	anchorCommit         string
-	anchorTree           string
+	commit                string
+	tree                  string
+	profile               string
+	entrypoint            string
+	runnerImage           string
+	runnerIdentityDigest  string
+	runnerConfigDigest    string
+	gateBinarySHA256      string
+	runtimeSeedSHA256     string
+	policyDigest          string
+	baselineManifest      string
+	ociProjectCacheImage  string
+	ociProjectCacheDigest string
 }
 
 func remoteWorkloadCacheProvenanceForInput(input RunInput) remoteWorkloadCacheProvenance {
 	return remoteWorkloadCacheProvenance{
-		commit:               input.Commit,
-		tree:                 input.Tree,
-		profile:              string(input.Profile),
-		entrypoint:           string(input.Entrypoint),
-		runnerImage:          input.RunnerImage,
-		runnerIdentityDigest: input.RunnerIdentityDigest,
-		runnerConfigDigest:   input.RunnerConfigDigest,
-		gateBinarySHA256:     input.GateBinarySHA256,
-		runtimeSeedSHA256:    input.RuntimeSeedSHA256,
-		policyDigest:         input.PolicyDigest,
-		baselineManifest:     input.BaselineManifestDigest,
-		anchorGeneration:     input.AnchorGeneration,
-		anchorManifest:       input.AnchorManifest,
-		anchorCommit:         input.AnchorCommit,
-		anchorTree:           input.AnchorTree,
+		commit:                input.Commit,
+		tree:                  input.Tree,
+		profile:               string(input.Profile),
+		entrypoint:            string(input.Entrypoint),
+		runnerImage:           input.RunnerImage,
+		runnerIdentityDigest:  input.RunnerIdentityDigest,
+		runnerConfigDigest:    input.RunnerConfigDigest,
+		gateBinarySHA256:      input.GateBinarySHA256,
+		runtimeSeedSHA256:     input.RuntimeSeedSHA256,
+		policyDigest:          input.PolicyDigest,
+		baselineManifest:      input.BaselineManifestDigest,
+		ociProjectCacheImage:  input.OCIProjectCache.Image,
+		ociProjectCacheDigest: input.OCIProjectCache.ContentManifestSHA256,
 	}
 }
 
@@ -85,6 +81,9 @@ func remoteWorkloadCacheEntries(
 	inputDigests map[string]string,
 	input RunInput,
 ) ([]remoteWorkloadCacheEntry, error) {
+	if input.OCIProjectCache == nil {
+		return nil, errors.New("remote workload cache OCI project cache is required")
+	}
 	environmentDigest, err := remoteWorkloadCacheEnvironmentDigest(input)
 	if err != nil {
 		return nil, err

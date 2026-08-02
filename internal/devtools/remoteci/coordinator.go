@@ -66,6 +66,7 @@ type CoordinatorConfig struct {
 	ResourceObservations       []shardresource.Observation
 	CandidateCLIBuilder        CandidateCLIBuilder
 	CandidateTestBinaryBuilder CandidateTestBinaryBuilder
+	RegistryAccess             eci.RegistryAccess
 }
 
 // RunInput binds one remote run to exact Git objects and one accepted runner identity.
@@ -100,14 +101,8 @@ type RunInput struct {
 	CandidateGateToolchainSHA256 string
 	ReuseBaselineGateCLI         bool
 	RuntimeSeedSHA256            string
-	DataCacheBucket              string
-	DataCachePath                string
-	DirectCacheRef               *DirectCacheRef
-	AnchorGeneration             uint64
-	AnchorManifest               string
-	AnchorCommit                 string
-	AnchorTree                   string
-	BaselineDeltas               []BaselineDeltaLayer
+	OCIProjectCache              *BaselineOCIProjectCache
+	RegistryAccess               eci.RegistryAccess
 	ForceRerun                   bool
 }
 
@@ -375,14 +370,8 @@ func recordRemoteCIRun(
 func remoteCandidateTestBinaryBuildRecords(builds []CandidateTestBinaryBuilderBuild) []gate.CandidateTestBinaryBuildRecord {
 	records := make([]gate.CandidateTestBinaryBuildRecord, 0, len(builds))
 	for _, build := range builds {
-		hits := make(map[string]uint64, len(build.Metrics.GOCacheBaselineHitsByGeneration))
-		hitRecords := make([]gate.CandidateTestBinaryCacheGenerationRecord, 0, len(build.Metrics.GOCacheBaselineHitsByGeneration))
-		for _, generation := range build.Metrics.GOCacheBaselineHitsByGeneration {
-			hits[fmt.Sprintf("%020d", generation.Generation)] = generation.Hits
-			hitRecords = append(hitRecords, gate.CandidateTestBinaryCacheGenerationRecord{Generation: generation.Generation, Hits: generation.Hits, AnchorGeneration: generation.AnchorGeneration, AnchorManifestDigest: generation.AnchorManifestDigest, ManifestDigest: generation.ManifestDigest, CacheRootIdentity: generation.CacheRootIdentity})
-		}
 		artifact := build.Artifact
-		records = append(records, gate.CandidateTestBinaryBuildRecord{CandidateTree: artifact.CandidateTree, Package: artifact.Package, Mode: artifact.Mode, Platform: artifact.Platform, GoToolchain: artifact.GoToolchain, CGOEnabled: artifact.CGOEnabled, ToolchainSHA256: artifact.ToolchainSHA256, BuildFlags: append([]string(nil), artifact.BuildFlags...), CompileClosureSHA256: artifact.CompileClosureSHA256, ManifestSHA256: artifact.ManifestSHA256, ArtifactSHA256: "sha256:" + strings.TrimPrefix(artifact.BinarySHA256, "sha256:"), BinarySize: artifact.BinarySize, GoListWallMS: build.Metrics.GoListWallMS, BuildWallMS: build.Metrics.BuildWallMS, CompileActionMS: build.Metrics.CompileActionMS, LinkActionMS: build.Metrics.LinkActionMS, CompileCriticalWallMS: build.Metrics.CompileCriticalWallMS, GOCachePrivateHits: build.Metrics.GOCachePrivateHits, GOCachePrivateRootIdentity: build.Metrics.GOCachePrivateRootIdentity, GOCacheBaselineHitsByGeneration: hits, GOCacheBaselineHitRecords: hitRecords, GOCacheMisses: build.Metrics.GOCacheMisses, GOCachePuts: build.Metrics.GOCachePuts})
+		records = append(records, gate.CandidateTestBinaryBuildRecord{CandidateTree: artifact.CandidateTree, Package: artifact.Package, Mode: artifact.Mode, Platform: artifact.Platform, GoToolchain: artifact.GoToolchain, CGOEnabled: artifact.CGOEnabled, ToolchainSHA256: artifact.ToolchainSHA256, BuildFlags: append([]string(nil), artifact.BuildFlags...), CompileClosureSHA256: artifact.CompileClosureSHA256, ManifestSHA256: artifact.ManifestSHA256, ArtifactSHA256: "sha256:" + strings.TrimPrefix(artifact.BinarySHA256, "sha256:"), BinarySize: artifact.BinarySize, GoListWallMS: build.Metrics.GoListWallMS, BuildWallMS: build.Metrics.BuildWallMS, CompileActionMS: build.Metrics.CompileActionMS, LinkActionMS: build.Metrics.LinkActionMS, CompileCriticalWallMS: build.Metrics.CompileCriticalWallMS, GOCachePrivateHits: build.Metrics.GOCachePrivateHits, GOCacheOCIProjectCacheHits: build.Metrics.GOCacheOCIProjectCacheHits, GOCachePrivateRootIdentity: build.Metrics.GOCachePrivateRootIdentity, GOCacheMisses: build.Metrics.GOCacheMisses, GOCachePuts: build.Metrics.GOCachePuts})
 	}
 	return records
 }
@@ -721,13 +710,10 @@ func validateRemotePlanInput(input RunInput) error {
 		!remoteDigestPattern.MatchString(input.CandidateGateToolchainSHA256) {
 		return errors.New("remote CI candidate gate identity is invalid")
 	}
-	if err := validateOptionalDirectCacheRef(input.DirectCacheRef); err != nil {
-		return err
+	if input.OCIProjectCache == nil {
+		return errors.New("remote CI OCI project cache is required")
 	}
-	if input.DirectCacheRef != nil && input.DirectCacheRef.Layers[0].DataCacheBucket != input.DataCacheBucket {
-		return errors.New("remote direct cache bucket does not match anchor DataCache bucket")
-	}
-	if err := (ShardRequest{AnchorGeneration: input.AnchorGeneration, AnchorManifest: input.AnchorManifest, AnchorCommit: input.AnchorCommit, AnchorTree: input.AnchorTree, BaselineDeltas: input.BaselineDeltas, DirectCacheRef: input.DirectCacheRef}).validateDirectCacheParentChain(); err != nil {
+	if err := input.OCIProjectCache.ValidateForBaseline(input.RunnerBaseTree, input.ToolchainDigest, input.Platform, input.RunnerImage); err != nil {
 		return err
 	}
 	if input.Source.SourceTreeSHA != input.Tree {
@@ -741,30 +727,17 @@ func validateRemotePlanInput(input RunInput) error {
 			return fmt.Errorf("remote CI requester fingerprint: %w", err)
 		}
 	}
-	if err := (ShardRequest{
-		BaselineManifest: input.BaselineManifestDigest,
-		AnchorGeneration: input.AnchorGeneration,
-		AnchorManifest:   input.AnchorManifest,
-		AnchorCommit:     input.AnchorCommit,
-		AnchorTree:       input.AnchorTree,
-		BaselineDeltas:   input.BaselineDeltas,
-		RunnerBaseCommit: input.RunnerBaseCommit,
-		RunnerBaseTree:   input.RunnerBaseTree,
-	}).validateBaselineChain(); err != nil {
-		return fmt.Errorf("remote CI baseline projection: %w", err)
-	}
 	return nil
 }
 
-// completeRemotePlanInput 判断计划所需的仓库、镜像、平台与 DataCache 身份是否齐全。
+// completeRemotePlanInput 判断计划所需的仓库、镜像、平台与 OCI 身份是否齐全。
 func completeRemotePlanInput(input RunInput) bool {
-	return input.MaxShards != 0 && input.AnchorGeneration != 0 && allRemotePlanStrings(
+	return input.MaxShards != 0 && input.OCIProjectCache != nil && allRemotePlanStrings(
 		input.RepositoryRoot, input.Tree, input.Base, input.RunnerBaseCommit, input.RunnerBaseTree,
 		input.RunnerImage, input.Platform, input.PolicyDigest, input.ToolchainDigest,
 		input.RunnerIdentityDigest, input.BaselineManifestDigest, input.RunnerConfigDigest,
 		input.GateBinarySHA256, input.CandidateGateSourceSHA256, input.CandidateGateToolchainSHA256,
 		input.RuntimeSeedSHA256,
-		input.DataCacheBucket, input.DataCachePath, input.AnchorManifest, input.AnchorCommit, input.AnchorTree,
 	)
 }
 

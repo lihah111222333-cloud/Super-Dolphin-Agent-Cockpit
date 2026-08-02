@@ -108,19 +108,11 @@ func replaceCandidateTestBinaryBuilds(transaction *sql.Tx, record RemoteCIRunRec
 		if err := validateCandidateTestBinaryBuildRecord(build); err != nil {
 			return err
 		}
-		generations, err := json.Marshal(build.GOCacheBaselineHitsByGeneration)
-		if err != nil {
-			return err
-		}
-		hitRecords, err := json.Marshal(build.GOCacheBaselineHitRecords)
-		if err != nil {
-			return err
-		}
 		flags, err := json.Marshal(build.BuildFlags)
 		if err != nil {
 			return err
 		}
-		if _, err = transaction.Exec(`INSERT INTO ci_candidate_test_binary_builds (job_id,candidate_tree,package,mode,platform,go_toolchain,cgo_enabled,toolchain_sha256,build_flags_json,compile_closure_sha256,manifest_sha256,artifact_sha256,binary_size,go_list_wall_ms,build_wall_ms,compile_action_ms,link_action_ms,compile_critical_wall_ms,gocache_private_hits,gocache_private_root_identity,gocache_baseline_hits_by_generation_json,gocache_baseline_hit_records_json,gocache_misses,gocache_puts) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, record.JobID, build.CandidateTree, build.Package, build.Mode, build.Platform, build.GoToolchain, boolToSQLite(build.CGOEnabled), build.ToolchainSHA256, string(flags), build.CompileClosureSHA256, build.ManifestSHA256, build.ArtifactSHA256, build.BinarySize, build.GoListWallMS, build.BuildWallMS, build.CompileActionMS, build.LinkActionMS, build.CompileCriticalWallMS, build.GOCachePrivateHits, build.GOCachePrivateRootIdentity, string(generations), string(hitRecords), build.GOCacheMisses, build.GOCachePuts); err != nil {
+		if _, err = transaction.Exec(`INSERT INTO ci_candidate_test_binary_builds (job_id,candidate_tree,package,mode,platform,go_toolchain,cgo_enabled,toolchain_sha256,build_flags_json,compile_closure_sha256,manifest_sha256,artifact_sha256,binary_size,go_list_wall_ms,build_wall_ms,compile_action_ms,link_action_ms,compile_critical_wall_ms,gocache_private_hits,gocache_oci_project_cache_hits,gocache_private_root_identity,gocache_misses,gocache_puts) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, record.JobID, build.CandidateTree, build.Package, build.Mode, build.Platform, build.GoToolchain, boolToSQLite(build.CGOEnabled), build.ToolchainSHA256, string(flags), build.CompileClosureSHA256, build.ManifestSHA256, build.ArtifactSHA256, build.BinarySize, build.GoListWallMS, build.BuildWallMS, build.CompileActionMS, build.LinkActionMS, build.CompileCriticalWallMS, build.GOCachePrivateHits, build.GOCacheOCIProjectCacheHits, build.GOCachePrivateRootIdentity, build.GOCacheMisses, build.GOCachePuts); err != nil {
 			return mapDurationLedgerSQLiteError("store candidate test binary build", err)
 		}
 	}
@@ -245,14 +237,18 @@ func replaceSQLiteRemoteCIRunExecutions(transaction *sql.Tx, record RemoteCIRunR
 		if err != nil {
 			return fmt.Errorf("encode remote CI execution profile: %w", err)
 		}
+		testTimings, err := json.Marshal(execution.TestTimings)
+		if err != nil {
+			return fmt.Errorf("encode remote CI execution test timings: %w", err)
+		}
 		if _, err := transaction.Exec(`
 			INSERT INTO ci_gate_executions (
 				job_id, workload_id, status, exit_code, started_at_unix_ms,
-				completed_at_unix_ms, argv_digest, log_digest, execution_profile_json
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+				completed_at_unix_ms, argv_digest, log_digest, test_timings_json, execution_profile_json
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`, record.JobID, string(execution.GateID), string(execution.Status), execution.ExitCode,
 			execution.StartedAt.UTC().UnixMilli(), execution.CompletedAt.UTC().UnixMilli(),
-			execution.ArgvDigest, execution.LogDigest, string(profile),
+			execution.ArgvDigest, execution.LogDigest, string(testTimings), string(profile),
 		); err != nil {
 			return mapDurationLedgerSQLiteError("store remote CI gate execution", err)
 		}
@@ -269,14 +265,18 @@ func replaceSQLiteRemoteCIWorkloadExecutions(transaction *sql.Tx, record RemoteC
 		if err != nil {
 			return fmt.Errorf("encode remote CI workload execution profile: %w", err)
 		}
+		testTimings, err := json.Marshal(execution.TestTimings)
+		if err != nil {
+			return fmt.Errorf("encode remote CI workload execution test timings: %w", err)
+		}
 		if _, err := transaction.Exec(`
 			INSERT INTO ci_workload_executions (
 				job_id, workload_id, status, exit_code, started_at_unix_ms,
-				completed_at_unix_ms, argv_digest, log_digest, execution_profile_json
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+				completed_at_unix_ms, argv_digest, log_digest, test_timings_json, execution_profile_json
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`, record.JobID, string(execution.GateID), string(execution.Status), execution.ExitCode,
 			execution.StartedAt.UTC().UnixMilli(), execution.CompletedAt.UTC().UnixMilli(),
-			execution.ArgvDigest, execution.LogDigest, string(profile),
+			execution.ArgvDigest, execution.LogDigest, string(testTimings), string(profile),
 		); err != nil {
 			return mapDurationLedgerSQLiteError("store remote CI workload execution", err)
 		}

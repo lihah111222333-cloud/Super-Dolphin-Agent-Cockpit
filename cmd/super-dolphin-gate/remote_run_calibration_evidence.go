@@ -508,20 +508,6 @@ func validRemoteOSSPrefix(value string) bool {
 	return path.Clean(withoutSlash) == withoutSlash
 }
 
-// validateRemoteDataCacheConfig 校验 DataCache 地址、容量、保留期和刷新节奏。
-func validateRemoteDataCacheConfig(config remoteRunConfig) error {
-	cache := config.DataCache
-	if strings.TrimSpace(cache.Bucket) == "" || !strings.HasPrefix(cache.PathPrefix, "/") || strings.HasSuffix(cache.PathPrefix, "/") ||
-		cache.MaxSizeGiB < remoteDataCacheMinimumSizeGiB || cache.MaxSizeGiB > remoteDataCacheMaximumSizeGiB ||
-		cache.RetentionDays < 1 || cache.RetentionDays > 2 {
-		return errors.New("remote CI DataCache settings are invalid")
-	}
-	if cache.RefreshIntervalMinutes != remoteDataCacheRefreshIntervalMinutes {
-		return errors.New("remote CI DataCache refresh interval must equal 1440 minutes")
-	}
-	return nil
-}
-
 // validateRemoteShardCapacity 校验每个作业的并行上限和可配置 ECI 资源档位。
 func validateRemoteShardCapacity(config remoteRunConfig) error {
 	if config.Capacity.MaxShardsPerJob == 0 || config.Capacity.MaxShardsPerJob > gatecontract.MaxContainerShards {

@@ -87,8 +87,8 @@ func validateBuildxArgument(argument BuildArgument, previous string) (bool, erro
 		}
 		return true, nil
 	case "RUNTIME_DEPS_IMAGE":
-		if argument.Value != "runtime-deps" {
-			return false, errors.New("buildx RUNTIME_DEPS_IMAGE argument must name the controlled context")
+		if argument.Value != "runtime-deps" && !immutableImageReference(argument.Value) {
+			return false, errors.New("buildx RUNTIME_DEPS_IMAGE argument must name the controlled context or an immutable accepted image")
 		}
 		return false, nil
 	default:

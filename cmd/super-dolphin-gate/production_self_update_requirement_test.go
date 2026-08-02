@@ -1,10 +1,24 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
 )
+
+func TestProductionGoRequirementMatchesPortableGoContract(t *testing.T) {
+	requirement, err := productionGoRequirementFromEntries([]sourceexport.TreeEntry{{
+		Path: productionGoModPath,
+		Data: []byte("module example.test/repo\n\ngo " + strings.TrimPrefix(portableGoVersion, "go") + "\n"),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requirement.Minimum != portableGoVersion || requirement.Preferred != portableGoVersion {
+		t.Fatalf("requirement = %#v, want portable version %q", requirement, portableGoVersion)
+	}
+}
 
 func TestProductionGoRequirementFromEntries(t *testing.T) {
 	t.Parallel()

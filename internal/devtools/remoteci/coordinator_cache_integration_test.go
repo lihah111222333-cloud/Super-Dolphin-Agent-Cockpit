@@ -62,7 +62,8 @@ func TestCoordinatorRunReusesSemanticPassAcrossProvenanceRefreshWithoutECI(t *te
 	input.RunnerConfigDigest = "sha256:" + strings.Repeat("c", 64)
 	input.PolicyDigest = "sha256:" + strings.Repeat("d", 64)
 	input.RunnerIdentityDigest = "sha256:" + strings.Repeat("e", 64)
-	input.AnchorGeneration++
+	input.OCIProjectCache = cloneBaselineOCIProjectCache(input.OCIProjectCache)
+	input.OCIProjectCache.ContentManifestSHA256 = "sha256:" + strings.Repeat("f", 64)
 	runtime := &coordinatorRuntime{}
 	result, err := newTestCoordinator(t, store, runtime).Run(context.Background(), input)
 	if err != nil {
@@ -775,12 +776,9 @@ func remoteGoTestCacheRunFixture(t *testing.T) (string, RunInput) {
 		Inventory:      inventory, SelectedTests: true,
 		RunnerImage: "registry.example/runner@" + digest, RunnerIdentityDigest: digest,
 		BaselineManifestDigest: "sha256:" + strings.Repeat("c", 64),
-		AnchorGeneration:       1,
-		AnchorManifest:         "sha256:" + strings.Repeat("c", 64),
-		AnchorCommit:           base, AnchorTree: baseTree,
-		RunnerConfigDigest: "sha256:" + strings.Repeat("b", 64), GateBinarySHA256: digest, CandidateGateSourceSHA256: digest,
+		RunnerConfigDigest:     "sha256:" + strings.Repeat("b", 64), GateBinarySHA256: digest, CandidateGateSourceSHA256: digest,
 		CandidateGateToolchainSHA256: digest, RuntimeSeedSHA256: digest,
-		DataCacheBucket: "super-dolphin-ci", DataCachePath: "/super-dolphin/ci/base/generation-1",
+		OCIProjectCache: &BaselineOCIProjectCache{Image: "registry.example/runner@" + digest, ContentManifestSHA256: "sha256:" + strings.Repeat("c", 64), MainTree: baseTree, ToolchainDigest: digest, Platform: "linux/amd64", CachePath: OCIProjectGoBuildCachePath},
 	}
 }
 

@@ -503,13 +503,15 @@ func validateBuildxMaterials(materials []buildxMaterial, source buildxConfigSour
 // expectedBuildxMaterials 从源码、运行时依赖和锁定基础镜像生成期望 material 集合。
 func expectedBuildxMaterials(source buildxConfigSource, request BuildKitBuildRequest, runtimeDepsDigest string) (map[string]buildxContextDigests, error) {
 	expected := map[string]buildxContextDigests{source.URI: source.Digest}
-	runtimeMaterial, err := expectedRuntimeDepsBuildxMaterial(runtimeDepsDigest, request.Platform)
-	if err != nil {
-		return nil, err
+	if usesPreparedRuntimeDeps(request) {
+		runtimeMaterial, err := expectedRuntimeDepsBuildxMaterial(runtimeDepsDigest, request.Platform)
+		if err != nil {
+			return nil, err
+		}
+		expected[runtimeMaterial.URI] = runtimeMaterial.Digest
 	}
-	expected[runtimeMaterial.URI] = runtimeMaterial.Digest
 	for _, argument := range request.BuildArguments {
-		if argument.Name == sourceDateEpochArgument || argument.Name == "RUNTIME_DEPS_IMAGE" {
+		if argument.Name == sourceDateEpochArgument || argument.Name == "RUNTIME_DEPS_IMAGE" && argument.Value == "runtime-deps" || argument.Name == "BASELINE_CACHE_IMAGE" && argument.Value == "runtime-deps" {
 			continue
 		}
 		material, err := expectedBuildxImageMaterial(argument.Value, request.Platform)
@@ -627,16 +629,21 @@ func validateBuildxParameters(parameters buildxParameters, request BuildKitBuild
 	if len(parameters.Secrets) != 0 || len(parameters.SSH) != 0 {
 		return errors.New("buildx provenance contains forbidden secret or SSH inputs")
 	}
-	runtimeContext, exists := parameters.Args["context:runtime-deps"]
-	if !exists {
-		return errors.New("buildx provenance is missing the runtime dependencies named context")
-	}
-	if err := validateRuntimeDepsBuildxContext(runtimeContext, runtimeDepsDigest); err != nil {
-		return err
+	if usesPreparedRuntimeDeps(request) {
+		runtimeContext, exists := parameters.Args["context:runtime-deps"]
+		if !exists {
+			return errors.New("buildx provenance is missing the runtime dependencies named context")
+		}
+		if err := validateRuntimeDepsBuildxContext(runtimeContext, runtimeDepsDigest); err != nil {
+			return err
+		}
 	}
 	expected := expectedBuildxProvenanceArgs(request)
-	expected["context:runtime-deps"] = runtimeContext
-	expected["frontend.caps"] = buildxNamedContextCaps
+	if usesPreparedRuntimeDeps(request) {
+		runtimeContext := parameters.Args["context:runtime-deps"]
+		expected["context:runtime-deps"] = runtimeContext
+		expected["frontend.caps"] = buildxNamedContextCaps
+	}
 	if !maps.Equal(parameters.Args, expected) {
 		return errors.New("buildx provenance arguments do not match the locked command")
 	}

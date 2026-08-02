@@ -350,6 +350,7 @@ CREATE TABLE IF NOT EXISTS ci_gate_executions (
 	completed_at_unix_ms INTEGER NOT NULL,
 	argv_digest TEXT NOT NULL,
 	log_digest TEXT NOT NULL,
+	test_timings_json TEXT NOT NULL DEFAULT '[]',
 	execution_profile_json TEXT NOT NULL DEFAULT '',
 	PRIMARY KEY (job_id, workload_id)
 );
@@ -366,6 +367,7 @@ CREATE TABLE IF NOT EXISTS ci_workload_executions (
 	completed_at_unix_ms INTEGER NOT NULL,
 	argv_digest TEXT NOT NULL,
 	log_digest TEXT NOT NULL,
+	test_timings_json TEXT NOT NULL DEFAULT '[]',
 	execution_profile_json TEXT NOT NULL,
 	PRIMARY KEY (job_id, workload_id)
 );
@@ -381,7 +383,7 @@ CREATE TABLE IF NOT EXISTS ci_candidate_test_binary_builds (
 	manifest_sha256 TEXT NOT NULL DEFAULT '', artifact_sha256 TEXT NOT NULL, binary_size INTEGER NOT NULL DEFAULT 0,
 	go_list_wall_ms INTEGER NOT NULL, build_wall_ms INTEGER NOT NULL,
 	compile_action_ms INTEGER NOT NULL, link_action_ms INTEGER NOT NULL, compile_critical_wall_ms INTEGER NOT NULL,
-	gocache_private_hits INTEGER NOT NULL, gocache_private_root_identity TEXT NOT NULL DEFAULT '', gocache_baseline_hits_by_generation_json TEXT NOT NULL, gocache_baseline_hit_records_json TEXT NOT NULL DEFAULT '[]',
+	gocache_private_hits INTEGER NOT NULL, gocache_oci_project_cache_hits INTEGER NOT NULL DEFAULT 0, gocache_private_root_identity TEXT NOT NULL DEFAULT '',
 	gocache_misses INTEGER NOT NULL, gocache_puts INTEGER NOT NULL,
 	PRIMARY KEY (job_id, package, mode)
 );
@@ -453,6 +455,9 @@ func ensureDurationLedgerSQLiteSchema(database *sql.DB) error {
 		if err := ensureDurationLedgerExecutionProfileColumn(database); err != nil {
 			return err
 		}
+		if err := ensureDurationLedgerTestTimingsColumns(database); err != nil {
+			return err
+		}
 		if err := ensureDurationLedgerShardMaterializationTimingColumn(database); err != nil {
 			return err
 		}
@@ -470,7 +475,7 @@ func ensureDurationLedgerCandidateTestBinaryBuildIdentityColumns(database *sql.D
 	if err != nil {
 		return err
 	}
-	columns := []string{"candidate_tree TEXT NOT NULL DEFAULT ''", "platform TEXT NOT NULL DEFAULT ''", "go_toolchain TEXT NOT NULL DEFAULT ''", "cgo_enabled INTEGER NOT NULL DEFAULT 0", "toolchain_sha256 TEXT NOT NULL DEFAULT ''", "build_flags_json TEXT NOT NULL DEFAULT '[]'", "compile_closure_sha256 TEXT NOT NULL DEFAULT ''", "manifest_sha256 TEXT NOT NULL DEFAULT ''", "binary_size INTEGER NOT NULL DEFAULT 0", "gocache_private_root_identity TEXT NOT NULL DEFAULT ''", "gocache_baseline_hit_records_json TEXT NOT NULL DEFAULT '[]'"}
+	columns := []string{"candidate_tree TEXT NOT NULL DEFAULT ''", "platform TEXT NOT NULL DEFAULT ''", "go_toolchain TEXT NOT NULL DEFAULT ''", "cgo_enabled INTEGER NOT NULL DEFAULT 0", "toolchain_sha256 TEXT NOT NULL DEFAULT ''", "build_flags_json TEXT NOT NULL DEFAULT '[]'", "compile_closure_sha256 TEXT NOT NULL DEFAULT ''", "manifest_sha256 TEXT NOT NULL DEFAULT ''", "binary_size INTEGER NOT NULL DEFAULT 0", "gocache_private_root_identity TEXT NOT NULL DEFAULT ''", "gocache_oci_project_cache_hits INTEGER NOT NULL DEFAULT 0"}
 	for _, column := range columns {
 		name, _, _ := strings.Cut(column, " ")
 		if existing[name] {
@@ -578,6 +583,38 @@ func ensureDurationLedgerCandidateCLIManifestColumn(database *sql.DB) error {
 	}
 	if _, err := database.Exec(`ALTER TABLE ci_runs ADD COLUMN candidate_cli_manifest_sha256 TEXT NOT NULL DEFAULT ''`); err != nil {
 		return mapDurationLedgerSQLiteError("migrate remote CI candidate CLI manifest", err)
+	}
+	return nil
+}
+
+func ensureDurationLedgerTestTimingsColumns(database *sql.DB) error {
+	for _, table := range []string{"ci_gate_executions", "ci_workload_executions"} {
+		rows, err := database.Query(`SELECT name FROM pragma_table_info(?)`, table)
+		if err != nil {
+			return mapDurationLedgerSQLiteError("inspect remote CI test timing schema", err)
+		}
+		var found bool
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				rows.Close()
+				return mapDurationLedgerSQLiteError("scan remote CI test timing schema", err)
+			}
+			found = found || name == "test_timings_json"
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return mapDurationLedgerSQLiteError("iterate remote CI test timing schema", err)
+		}
+		if err := rows.Close(); err != nil {
+			return mapDurationLedgerSQLiteError("close remote CI test timing schema", err)
+		}
+		if found {
+			continue
+		}
+		if _, err := database.Exec(`ALTER TABLE ` + table + ` ADD COLUMN test_timings_json TEXT NOT NULL DEFAULT '[]'`); err != nil {
+			return mapDurationLedgerSQLiteError("migrate remote CI test timings", err)
+		}
 	}
 	return nil
 }

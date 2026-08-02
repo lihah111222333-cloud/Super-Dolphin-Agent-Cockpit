@@ -161,27 +161,14 @@ func TestGoBuildCacheProxyConfigAcceptsOrderedSeedChain(t *testing.T) {
 	}
 }
 
-func TestExecutorRemoteGoBuildCacheSeedRootsOnlyAcceptsFixedDirectRoots(t *testing.T) {
-	t.Setenv(ExecutorDirectGoBuildCacheSeedEnv, "1")
-	t.Setenv(ExecutorDirectGoBuildCacheSeedCountEnv, "3")
+func TestExecutorRemoteGoBuildCacheSeedRootsUsesOnlyFixedOCIImageRoot(t *testing.T) {
 	roots, err := ExecutorRemoteGoBuildCacheSeedRoots()
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{
-		"/bootstrap-direct/layer-0/cache-seed/go-build",
-		"/bootstrap-direct/layer-1/cache-seed/go-build",
-		"/bootstrap-direct/layer-2/cache-seed/go-build",
-		ExecutorGoBuildCacheSeedRoot,
-	}
+	want := []string{ExecutorOCIProjectGoBuildCacheSeedRoot}
 	if !slices.Equal(roots, want) {
 		t.Fatalf("direct seed roots = %v", roots)
-	}
-	for _, count := range []string{"", "0", "4", "01"} {
-		t.Setenv(ExecutorDirectGoBuildCacheSeedCountEnv, count)
-		if _, err := ExecutorRemoteGoBuildCacheSeedRoots(); err == nil {
-			t.Fatalf("ExecutorRemoteGoBuildCacheSeedRoots accepted count %q", count)
-		}
 	}
 }
 

@@ -53,24 +53,11 @@ func validateRemoteCIRunRecord(record RemoteCIRunRecord) error {
 }
 
 func validateCandidateTestBinaryBuildRecord(build CandidateTestBinaryBuildRecord) error {
-	if strings.TrimSpace(build.CandidateTree) == "" || strings.TrimSpace(build.Package) == "" || build.Mode != "test" || build.Platform != "linux/amd64" || build.GoToolchain != "go1.26.5" || !build.CGOEnabled || !isPrefixedSHA256Digest(build.ToolchainSHA256) || !isPrefixedSHA256Digest(build.CompileClosureSHA256) || len(build.ManifestSHA256) != 64 || !isPrefixedSHA256Digest(build.ArtifactSHA256) || build.BinarySize <= 0 {
+	if strings.TrimSpace(build.CandidateTree) == "" || strings.TrimSpace(build.Package) == "" || build.Mode != "test" || build.Platform != "linux/amd64" || build.GoToolchain != RequiredGoToolchain || !build.CGOEnabled || !isPrefixedSHA256Digest(build.ToolchainSHA256) || !isPrefixedSHA256Digest(build.CompileClosureSHA256) || len(build.ManifestSHA256) != 64 || !isPrefixedSHA256Digest(build.ArtifactSHA256) || build.BinarySize <= 0 {
 		return errors.New("candidate test binary build identity is invalid")
 	}
 	if !isPrefixedSHA256Digest(build.GOCachePrivateRootIdentity) {
 		return errors.New("candidate test binary private cache identity is invalid")
-	}
-	for _, baseline := range build.GOCacheBaselineHitRecords {
-		if baseline.Generation == 0 || baseline.Hits == 0 || baseline.AnchorGeneration == 0 || !isPrefixedSHA256Digest(baseline.AnchorManifestDigest) || !isPrefixedSHA256Digest(baseline.ManifestDigest) || !isPrefixedSHA256Digest(baseline.CacheRootIdentity) {
-			return errors.New("candidate test binary baseline cache generation is invalid")
-		}
-	}
-	if len(build.GOCacheBaselineHitsByGeneration) != len(build.GOCacheBaselineHitRecords) {
-		return errors.New("candidate test binary baseline cache provenance is incomplete")
-	}
-	for _, baseline := range build.GOCacheBaselineHitRecords {
-		if build.GOCacheBaselineHitsByGeneration[fmt.Sprintf("%020d", baseline.Generation)] != baseline.Hits {
-			return errors.New("candidate test binary baseline cache provenance does not match counts")
-		}
 	}
 	return nil
 }

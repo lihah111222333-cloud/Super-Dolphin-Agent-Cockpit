@@ -19,37 +19,32 @@ import (
 )
 
 const (
-	ExecutorRoot                    = "/opt/super-dolphin-gate"
-	ExecutorGateBinaryPath          = ExecutorRoot + "/bin/super-dolphin-gate"
-	ExecutorSourcePath              = "/workspace/source"
-	ExecutorWorkRoot                = "/workspace/work"
-	ExecutorGoWorkloadSourcePath    = ExecutorWorkRoot + "/lanes/lane-0/run/source"
-	ExecutorRuntimeSeedRoot         = ExecutorRoot + "/runtime"
-	ExecutorRuntimeSeedManifestPath = ExecutorRuntimeSeedRoot + "/manifest.json"
-	ExecutorPortableGoRoot          = ExecutorRuntimeSeedRoot + "/go"
-	ExecutorPortableRootFS          = ExecutorRuntimeSeedRoot + "/rootfs"
-	ExecutorPortableLibraryPath     = ExecutorPortableRootFS + "/usr/lib/x86_64-linux-gnu:" + ExecutorPortableRootFS + "/lib/x86_64-linux-gnu:" + ExecutorPortableRootFS + "/usr/lib/aarch64-linux-gnu:" + ExecutorPortableRootFS + "/lib/aarch64-linux-gnu:" + ExecutorPortableRootFS + "/usr/lib:" + ExecutorPortableRootFS + "/lib"
-	ExecutorPortableSearchPath      = ExecutorRoot + "/bin:" + ExecutorRuntimeSeedRoot + "/bin:" + ExecutorRuntimeSeedRoot + "/go/bin:" + ExecutorRuntimeSeedRoot + "/node/bin:" + ExecutorPortableRootFS + "/usr/bin:" + ExecutorPortableRootFS + "/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin"
-	ExecutorGoBuildCacheSeedRoot    = ExecutorRoot + "/cache-seed/go-build"
-	ExecutorGoBuildCacheSeedsRoot   = ExecutorRoot + "/cache-seeds"
-	// ExecutorDirectGoBuildCacheSeedRoot 固定指向独立挂载且已验证的只读 DataCache 缓存树。
-	ExecutorDirectGoBuildCacheSeedRoot      = "/bootstrap-direct/layer-0/cache-seed/go-build"
-	ExecutorDirectGoBuildCacheSeedMountRoot = "/bootstrap-direct"
-	ExecutorDirectGoBuildCacheSeedMaxLayers = 3
-	ExecutorDirectGoBuildCacheSeedEnv       = "SUPER_DOLPHIN_DIRECT_GO_BUILD_CACHE_SEED"
-	ExecutorDirectGoBuildCacheSeedCountEnv  = "SUPER_DOLPHIN_DIRECT_GO_BUILD_CACHE_SEED_COUNT"
-	ExecutorFrontendEmbedSeedRoot           = ExecutorRoot + "/frontend-embed"
-	ExecutorActionlintBinaryPath            = ExecutorRuntimeSeedRoot + "/bin/actionlint"
-	ExecutorBashBinaryPath                  = ExecutorPortableRootFS + "/usr/bin/bash"
-	ExecutorGitBinaryPath                   = ExecutorRuntimeSeedRoot + "/bin/git"
-	ExecutorNodeBinaryPath                  = ExecutorRuntimeSeedRoot + "/node/bin/node"
-	ExecutorSQLCBinaryPath                  = ExecutorRuntimeSeedRoot + "/bin/sqlc"
-	ExecutorSqruffBinaryPath                = ExecutorRuntimeSeedRoot + "/bin/sqruff"
-	ExecutorXvfbRunBinaryPath               = ExecutorRuntimeSeedRoot + "/bin/xvfb-run"
-	executorPlaywrightBrowsersPath          = ExecutorRuntimeSeedRoot + "/frontend/node_modules/.cache/ms-playwright"
-	executorGoProxyMode                     = "off"
-	executorUID                             = 65532
-	executorSearchPath                      = ExecutorPortableSearchPath
+	ExecutorRoot                           = "/opt/super-dolphin-gate"
+	ExecutorGateBinaryPath                 = ExecutorRoot + "/bin/super-dolphin-gate"
+	ExecutorSourcePath                     = "/workspace/source"
+	ExecutorWorkRoot                       = "/workspace/work"
+	ExecutorGoWorkloadSourcePath           = ExecutorWorkRoot + "/lanes/lane-0/run/source"
+	ExecutorRuntimeSeedRoot                = ExecutorRoot + "/runtime"
+	ExecutorRuntimeSeedManifestPath        = ExecutorRuntimeSeedRoot + "/manifest.json"
+	ExecutorPortableGoRoot                 = ExecutorRuntimeSeedRoot + "/go"
+	ExecutorPortableRootFS                 = ExecutorRuntimeSeedRoot + "/rootfs"
+	ExecutorPortableLibraryPath            = ExecutorPortableRootFS + "/usr/lib/x86_64-linux-gnu:" + ExecutorPortableRootFS + "/lib/x86_64-linux-gnu:" + ExecutorPortableRootFS + "/usr/lib/aarch64-linux-gnu:" + ExecutorPortableRootFS + "/lib/aarch64-linux-gnu:" + ExecutorPortableRootFS + "/usr/lib:" + ExecutorPortableRootFS + "/lib"
+	ExecutorPortableSearchPath             = ExecutorRoot + "/bin:" + ExecutorRuntimeSeedRoot + "/bin:" + ExecutorRuntimeSeedRoot + "/go/bin:" + ExecutorRuntimeSeedRoot + "/node/bin:" + ExecutorPortableRootFS + "/usr/bin:" + ExecutorPortableRootFS + "/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin"
+	ExecutorGoBuildCacheSeedRoot           = ExecutorRoot + "/cache-seed/go-build"
+	ExecutorGoBuildCacheSeedsRoot          = ExecutorRoot + "/cache-seeds"
+	ExecutorOCIProjectGoBuildCacheSeedRoot = "/opt/super-dolphin/cache/go-build"
+	ExecutorFrontendEmbedSeedRoot          = ExecutorRoot + "/frontend-embed"
+	ExecutorActionlintBinaryPath           = ExecutorRuntimeSeedRoot + "/bin/actionlint"
+	ExecutorBashBinaryPath                 = ExecutorPortableRootFS + "/usr/bin/bash"
+	ExecutorGitBinaryPath                  = ExecutorRuntimeSeedRoot + "/bin/git"
+	ExecutorNodeBinaryPath                 = ExecutorRuntimeSeedRoot + "/node/bin/node"
+	ExecutorSQLCBinaryPath                 = ExecutorRuntimeSeedRoot + "/bin/sqlc"
+	ExecutorSqruffBinaryPath               = ExecutorRuntimeSeedRoot + "/bin/sqruff"
+	ExecutorXvfbRunBinaryPath              = ExecutorRuntimeSeedRoot + "/bin/xvfb-run"
+	executorPlaywrightBrowsersPath         = ExecutorRuntimeSeedRoot + "/frontend/node_modules/.cache/ms-playwright"
+	executorGoProxyMode                    = "off"
+	executorUID                            = 65532
+	executorSearchPath                     = ExecutorPortableSearchPath
 )
 
 type executorConfig struct {
@@ -155,26 +150,10 @@ func ExecuteExecutor(ctx context.Context, args []string, stdout io.Writer, stder
 	return executeProgram(ctx, config, id, program)
 }
 
-// ExecutorRemoteGoBuildCacheSeedRoots 选择 newest-first 的直读 Delta，最后回落到只读 Anchor 缓存。
+// ExecutorRemoteGoBuildCacheSeedRoots returns the fixed read-only OCI cache seed.
+// Candidate execution writes misses only to its private layer through GOCACHEPROG.
 func ExecutorRemoteGoBuildCacheSeedRoots() ([]string, error) {
-	switch os.Getenv(ExecutorDirectGoBuildCacheSeedEnv) {
-	case "":
-		return discoverExecutorGoBuildCacheSeedRoots(ExecutorGoBuildCacheSeedsRoot, ExecutorGoBuildCacheSeedRoot)
-	case "1":
-		count, err := strconv.ParseUint(os.Getenv(ExecutorDirectGoBuildCacheSeedCountEnv), 10, 8)
-		if err != nil || count == 0 || count > ExecutorDirectGoBuildCacheSeedMaxLayers ||
-			strconv.FormatUint(count, 10) != os.Getenv(ExecutorDirectGoBuildCacheSeedCountEnv) {
-			return nil, errors.New("remote direct Go build cache seed count is invalid")
-		}
-		roots := make([]string, int(count), int(count)+1)
-		for index := range int(count) {
-			roots[index] = filepath.Join(ExecutorDirectGoBuildCacheSeedMountRoot, fmt.Sprintf("layer-%d", index), "cache-seed", "go-build")
-		}
-		roots = append(roots, ExecutorGoBuildCacheSeedRoot)
-		return roots, nil
-	default:
-		return nil, errors.New("remote direct Go build cache seed enablement is invalid")
-	}
+	return []string{ExecutorOCIProjectGoBuildCacheSeedRoot}, nil
 }
 
 // executeExecutorSubcommand 分派不进入隔离工作区的受限执行器子命令。

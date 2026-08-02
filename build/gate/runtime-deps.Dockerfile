@@ -168,6 +168,8 @@ RUN --network=none /tmp/super-dolphin-gate worker runtime-seed write /tmp/runtim
     rm -rf /tmp/runtime-manifest-source && \
     test -s /opt/super-dolphin-gate/runtime/manifest.json && \
     /opt/super-dolphin-gate/runtime/bin/sqlc version >/dev/null
+RUN --network=none mkdir -p /opt/super-dolphin/cache/go-build && \
+    chmod 0555 /opt/super-dolphin/cache /opt/super-dolphin/cache/go-build
 ENV PATH=/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin \
     PLAYWRIGHT_BROWSERS_PATH=/opt/super-dolphin-gate/runtime/frontend/node_modules/.cache/ms-playwright \
     GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off

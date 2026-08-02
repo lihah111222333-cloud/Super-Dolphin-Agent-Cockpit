@@ -18,11 +18,17 @@ var errRemoteBaselineStateNotFound = gatecontract.ErrRemoteBaselineStateNotFound
 
 type remoteBaselineStoredState struct {
 	state      remoteci.BaselineState
-	legacy     *remoteLegacyBaselineMigration
 	generation uint64
 }
 
 func remoteBaselineDatabasePath(path string) string { return path }
+
+func remoteBaselineStatePath(configPath, configuredPath string) string {
+	if strings.TrimSpace(configuredPath) != "" {
+		return configuredPath
+	}
+	return filepath.Join(filepath.Dir(configPath), "remote-oci-baseline-state.json")
+}
 
 // normalizeRemoteSQLiteAuthority 将远程基准状态和耗时账本收敛到同一个 SQLite 真相源。
 func normalizeRemoteSQLiteAuthority(configPath string, statePath *string, ledgerPath *string) error {
@@ -59,30 +65,18 @@ func loadStoredRemoteBaselineState(path string) (remoteBaselineStoredState, erro
 	if err != nil {
 		return remoteBaselineStoredState{}, err
 	}
-	if len(record.StateJSON) != 0 {
-		digest := sha256.Sum256(record.StateJSON)
-		if subtle.ConstantTimeCompare([]byte(hex.EncodeToString(digest[:])), []byte(record.StateSHA256)) != 1 {
-			return remoteBaselineStoredState{}, errors.New("remote baseline SQLite state digest is invalid")
-		}
-		var state remoteci.BaselineState
-		if err := decodeRemoteBaselineRefreshJSON(record.StateJSON, &state); err != nil {
-			return remoteBaselineStoredState{}, err
-		}
-		if err := state.Validate(); err != nil {
-			return remoteBaselineStoredState{}, err
-		}
-		return remoteBaselineStoredState{state: state, generation: record.Generation}, nil
+	digest := sha256.Sum256(record.StateJSON)
+	if subtle.ConstantTimeCompare([]byte(hex.EncodeToString(digest[:])), []byte(record.StateSHA256)) != 1 {
+		return remoteBaselineStoredState{}, errors.New("remote baseline SQLite state digest is invalid")
 	}
-	var marker remoteBaselineLegacyMarker
-	if err := decodeRemoteBaselineRefreshJSON(record.LegacyJSON, &marker); err != nil {
+	var state remoteci.BaselineState
+	if err := gatecontract.DecodeStrictJSON(record.StateJSON, &state); err != nil {
 		return remoteBaselineStoredState{}, err
 	}
-	return remoteBaselineStoredState{legacy: &remoteLegacyBaselineMigration{generation: marker.Generation, references: marker.References}, generation: record.Generation}, nil
-}
-
-type remoteBaselineLegacyMarker struct {
-	Generation uint64                      `json:"generation"`
-	References []remoteci.BaselineCacheRef `json:"references"`
+	if err := state.Validate(); err != nil {
+		return remoteBaselineStoredState{}, err
+	}
+	return remoteBaselineStoredState{state: state, generation: record.Generation}, nil
 }
 
 func storeRemoteBaselineState(path string, stored remoteBaselineStoredState) error {
@@ -91,14 +85,6 @@ func storeRemoteBaselineState(path string, stored remoteBaselineStoredState) err
 		return err
 	}
 	expected := stored.generation
-	if stored.legacy != nil {
-		payload, err := jsonMarshal(remoteBaselineLegacyMarker{Generation: stored.legacy.generation, References: stored.legacy.references})
-		if err != nil {
-			return err
-		}
-		_, err = store.CompareAndSwapRemoteBaselineState(expected, gatecontract.RemoteBaselineStateRecord{Generation: stored.legacy.generation, LegacyJSON: payload})
-		return err
-	}
 	payload, err := jsonMarshal(stored.state)
 	if err != nil {
 		return err
@@ -116,11 +102,28 @@ func loadRemoteBaselineState(path string, allowMissing bool) (remoteci.BaselineS
 	if err != nil {
 		return remoteci.BaselineState{}, err
 	}
-	if stored.legacy != nil {
-		return remoteci.BaselineState{}, errRemoteBaselineStateNotFound
-	}
 	return stored.state, nil
 }
+
+// loadAcceptedRemoteBaseline reads the accepted OCI-only baseline from the
+// normalized SQLite authority and rejects legacy DataCache state.
+func loadAcceptedRemoteBaseline(configPath, statePath, ledgerPath string) (remoteci.BaselineState, error) {
+	if strings.TrimSpace(ledgerPath) == "" {
+		return remoteci.BaselineState{}, errors.New("remote OCI baseline state store is required")
+	}
+	if strings.TrimSpace(statePath) != "" && remoteBaselineStatePath(configPath, statePath) != statePath {
+		return remoteci.BaselineState{}, errors.New("remote OCI baseline state path is invalid")
+	}
+	state, err := loadRemoteBaselineState(remoteBaselineDatabasePath(ledgerPath), false)
+	if err != nil {
+		return remoteci.BaselineState{}, err
+	}
+	if state.OCIProjectCache == nil {
+		return remoteci.BaselineState{}, errors.New("accepted baseline must use OCI project cache")
+	}
+	return state, state.OCIProjectCache.ValidateForBaseline(state.MainTree, state.ToolchainDigest, state.Platform, state.RuntimeImage)
+}
+
 func writeRemoteBaselineState(path string, state remoteci.BaselineState) error {
 	if err := state.Validate(); err != nil {
 		return err

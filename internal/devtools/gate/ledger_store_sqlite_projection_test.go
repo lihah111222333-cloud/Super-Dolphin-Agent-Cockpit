@@ -245,9 +245,10 @@ func sqliteProjectionRemoteCIRun(now time.Time) RemoteCIRunRecord {
 		CandidateCLIManifestSHA256:              strings.Repeat("c", 64),
 		CandidateTestBinaryReceiptBindingDigest: "sha256:" + strings.Repeat("d", 64),
 		RunnerImage:                             "ubuntu:22.04", Status: ResultStatusPassed, Authoritative: true, StartedAt: now, CompletedAt: now.Add(time.Second), CleanupComplete: true,
-		Shards:          []RemoteCIShardRecord{{ShardIdentity: shardIdentity, ContainerGroup: "eci-123", ContainerStatus: "Succeeded", Workloads: []GateID{GateIDAIMaintenanceSelfTest}, MaterializationTiming: ShardMaterializationTiming{Measurement: MaterializationMeasurementMeasured, ShardIdentity: shardIdentity}}},
-		Executions:      []PlanGateExecution{{GateID: GateIDAIMaintenanceSelfTest, Status: ResultStatusPassed, StartedAt: now, CompletedAt: now.Add(time.Second), ArgvDigest: "sha256:argv", LogDigest: "sha256:log", ExecutionProfile: ExecutionProfile{CacheSource: "none", CacheStatus: "not_applicable", CacheMeasurement: "not_measured", TestBodyMS: 1000, TotalMS: 1000}}},
-		ReusedWorkloads: []GateID{GateIDWhitespaceCheck}, CacheMisses: []GateID{GateIDAIMaintenanceSelfTest}, Warnings: []string{"unit exceeded the planning target"},
+		Shards:             []RemoteCIShardRecord{{ShardIdentity: shardIdentity, ContainerGroup: "eci-123", ContainerStatus: "Succeeded", Workloads: []GateID{GateIDAIMaintenanceSelfTest}, MaterializationTiming: ShardMaterializationTiming{Measurement: MaterializationMeasurementMeasured, ShardIdentity: shardIdentity}}},
+		Executions:         []PlanGateExecution{{GateID: GateIDAIMaintenanceSelfTest, Status: ResultStatusPassed, StartedAt: now, CompletedAt: now.Add(time.Second), ArgvDigest: "sha256:argv", LogDigest: "sha256:log", TestTimings: []GoTestTiming{{Name: "TestGate", Status: GoTestStatusPass, DurationMS: 1000}}, ExecutionProfile: ExecutionProfile{CacheSource: "none", CacheStatus: "not_applicable", CacheMeasurement: "not_measured", TestBodyMS: 1000, TotalMS: 1000}}},
+		WorkloadExecutions: []PlanGateExecution{{GateID: GateIDAIMaintenanceSelfTest, Status: ResultStatusPassed, StartedAt: now, CompletedAt: now.Add(time.Second), ArgvDigest: "sha256:argv", LogDigest: "sha256:log", TestTimings: []GoTestTiming{{Name: "TestWorkload", Status: GoTestStatusPass, DurationMS: 1000}}, ExecutionProfile: ExecutionProfile{CacheSource: "none", CacheStatus: "not_applicable", CacheMeasurement: "not_measured", TestBodyMS: 1000, TotalMS: 1000}}},
+		ReusedWorkloads:    []GateID{GateIDWhitespaceCheck}, CacheMisses: []GateID{GateIDAIMaintenanceSelfTest}, Warnings: []string{"unit exceeded the planning target"},
 		PhaseTimings: []RemoteCIPhaseTiming{{
 			Phase: "cache.parent_prepare", StartedAt: now, DurationMillis: 17,
 			Outcome: RemoteCIPhaseOutcomeSucceeded, WorkloadCount: 2,
@@ -292,6 +293,20 @@ func TestLoadRemoteCIRunRejectsNonStrictMaterializationTimingJSON(t *testing.T) 
 			}
 			if _, loadErr := store.LoadRemoteCIRun(run.JobID); loadErr == nil || !strings.Contains(loadErr.Error(), "stored remote CI shard materialization timing is invalid") {
 				t.Fatalf("LoadRemoteCIRun() error = %v, want strict timing decode rejection", loadErr)
+			}
+		})
+	}
+}
+
+func TestDecodeStoredRemoteCIExecutionTestTimingsRejectsNonStrictJSON(t *testing.T) {
+	for name, encoded := range map[string]string{
+		"missing status":   `[{"name":"TestStrict","duration_ms":1}]`,
+		"unknown field":    `[{"name":"TestStrict","status":"pass","duration_ms":1,"forged":true}]`,
+		"trailing payload": `[{"name":"TestStrict","status":"pass","duration_ms":1}][]`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := decodeStoredRemoteCIExecutionTestTimings(encoded); err == nil || !strings.Contains(err.Error(), "stored remote CI execution test timings are invalid") {
+				t.Fatalf("decodeStoredRemoteCIExecutionTestTimings() error = %v, want strict rejection", err)
 			}
 		})
 	}

@@ -464,9 +464,7 @@ func assertRemoteCreateRequestIdentity(t *testing.T, request eci.CreateRequest, 
 		len(request.Args) < 2 || request.Args[0] != "worker" || request.Args[1] != "run-shard" ||
 		!reflect.DeepEqual(request.Environment, remoteWorkerEnvironment(10*time.Minute)) ||
 		!reflect.DeepEqual(request.InitContainer.Command, []string{"/bin/sh"}) ||
-		!reflect.DeepEqual(request.InitContainer.Args, []string{"-c", remoteCandidateGateBootstrapSH}) ||
-		request.InitContainer.Environment["SSL_CERT_FILE"] != remoteDataCacheCAFile ||
-		request.InitContainer.Environment[remoteBaselineManifestEnvironment] != input.AnchorManifest {
+		!reflect.DeepEqual(request.InitContainer.Args, []string{"-c", remoteCandidateGateBootstrapSH}) {
 		t.Fatalf("create request identity = %+v", request)
 	}
 	assertCandidateGateEnvironment(t, request, input)
@@ -486,14 +484,11 @@ func assertECIEnvironmentLengths(t *testing.T, container string, environment map
 
 func assertRemoteCreateRequestVolumes(t *testing.T, request eci.CreateRequest, input RunInput) {
 	t.Helper()
-	assertCoordinatorVolumeField(t, "data cache bucket", request.DataCacheBucket, input.DataCacheBucket)
-	assertCoordinatorVolumeField(t, "base volume path", request.BaseVolume.Path, input.DataCachePath)
 	assertCoordinatorVolumeField(t, "expanded volume name", request.ExpandedVolume.Name, "expanded-data")
-	assertCoordinatorVolumeMount(t, request.MainVolumeMounts[0], "/bootstrap", "", true)
-	assertCoordinatorVolumeMount(t, request.MainVolumeMounts[1], "/opt/super-dolphin-gate", "", true)
-	assertCoordinatorVolumeMount(t, request.MainVolumeMounts[2], remoteXKBCompMountPath, remoteXKBCompSubPath, true)
-	assertCoordinatorVolumeMount(t, request.MainVolumeMounts[3], remoteXKBDataMountPath, remoteXKBDataSubPath, true)
-	if request.InitVolumeMounts[1].Name != remoteCurrentGateVolumeName || request.InitVolumeMounts[1].MountPath != "/candidate-bootstrap" || !request.InitVolumeMounts[1].ReadOnly {
+	assertCoordinatorVolumeMount(t, request.MainVolumeMounts[0], "/opt/super-dolphin-gate", "", true)
+	assertCoordinatorVolumeMount(t, request.MainVolumeMounts[1], remoteXKBCompMountPath, remoteXKBCompSubPath, true)
+	assertCoordinatorVolumeMount(t, request.MainVolumeMounts[2], remoteXKBDataMountPath, remoteXKBDataSubPath, true)
+	if request.InitVolumeMounts[0].Name != remoteCurrentGateVolumeName || request.InitVolumeMounts[0].MountPath != "/candidate-bootstrap" || !request.InitVolumeMounts[0].ReadOnly {
 		t.Fatalf("candidate bootstrap mount = %+v, want read-only candidate artifact directory", request.InitVolumeMounts[1])
 	}
 }
@@ -730,7 +725,7 @@ func TestCoordinatorRunBuildsCandidateCLIOnceBeforeShardFanout(t *testing.T) {
 	if _, err := coordinator.Run(context.Background(), input); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if builds != 1 || len(runtime.creates) != 2 {
+	if builds != 1 || len(runtime.creates) != 3 {
 		t.Fatalf("candidate CLI builds = %d, shard creates = %d", builds, len(runtime.creates))
 	}
 	if len(store.uploads) < 4 || !strings.HasSuffix(store.uploads[2], ".candidate-cli") || !strings.HasSuffix(store.uploads[3], ".manifest.json") {
@@ -852,23 +847,19 @@ func remoteRunFixture(t *testing.T) (string, RunInput) {
 			Commit: &gate.CommitSource{SHA: commit}, SourceTreeSHA: tree,
 		},
 		Profile: gate.ProfileLocalFast, Entrypoint: gate.CIEntrypointManualCLI,
-		MaxShards: 2, Platform: "linux/arm64",
-		PolicyDigest:           digest,
-		ToolchainDigest:        digest,
-		LedgerSnapshot:         gate.DurationLedgerSnapshot{Generation: 1, Ledger: ledger},
-		RunnerImage:            "registry.example/runner@" + digest,
-		RunnerIdentityDigest:   digest,
-		BaselineManifestDigest: "sha256:" + strings.Repeat("c", 64),
-		AnchorGeneration:       1,
-		AnchorManifest:         "sha256:" + strings.Repeat("c", 64),
-		AnchorCommit:           base, AnchorTree: baseTree,
+		MaxShards: 2, Platform: "linux/amd64",
+		PolicyDigest:                 digest,
+		ToolchainDigest:              digest,
+		LedgerSnapshot:               gate.DurationLedgerSnapshot{Generation: 1, Ledger: ledger},
+		RunnerImage:                  "registry.example/runner@" + digest,
+		RunnerIdentityDigest:         digest,
+		BaselineManifestDigest:       "sha256:" + strings.Repeat("c", 64),
 		RunnerConfigDigest:           "sha256:" + strings.Repeat("b", 64),
 		GateBinarySHA256:             digest,
 		CandidateGateSourceSHA256:    digest,
 		CandidateGateToolchainSHA256: digest,
 		RuntimeSeedSHA256:            digest,
-		DataCacheBucket:              "super-dolphin-ci",
-		DataCachePath:                "/super-dolphin/ci/base/generation-1",
+		OCIProjectCache:              &BaselineOCIProjectCache{Image: "registry.example/runner@" + digest, ContentManifestSHA256: "sha256:" + strings.Repeat("c", 64), MainTree: baseTree, ToolchainDigest: digest, Platform: "linux/amd64", CachePath: OCIProjectGoBuildCachePath},
 	}
 }
 

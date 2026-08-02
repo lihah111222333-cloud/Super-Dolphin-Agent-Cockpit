@@ -73,11 +73,24 @@ func TestTruthDockerfileIsOfflineAndDigestOnly(t *testing.T) {
 	text := string(data)
 	for _, required := range []string{
 		"ARG RUNTIME_DEPS_IMAGE\n",
+		"ARG BASELINE_CACHE_IMAGE\n",
+		"FROM ${BASELINE_CACHE_IMAGE} AS baseline-cache",
+		"--mount=type=bind,from=baseline-cache,source=/,target=/baseline-cache,ro",
+		"worker go-cache-proxy --seed /baseline-cache/opt/super-dolphin/cache/go-build --private /root/.cache/go-build",
+		"env GOCACHEPROG=\"$go_cache_proxy\"",
 		"FROM ${RUNTIME_DEPS_IMAGE} AS build\nUSER root",
 		"go build -mod=mod -trimpath -buildvcs=false -o /out/super-dolphin-gate ./cmd/super-dolphin-gate",
+		"--mount=type=cache,target=/root/.cache/go-build,sharing=locked",
+		"go test -mod=mod -run \"^$\" ./...",
+		"go test -mod=mod -tags=e2e -run \"^$\" ./cmd/mcp-lsp",
+		"go test -mod=mod -race -run \"^$\" \"$@\"",
+		"compile phase=%s seconds=%s cache_entries=%s",
+		"cache-export seconds=%s cache_entries=%s",
 		"COPY --from=build /out/super-dolphin-gate /super-dolphin-gate",
-		"ENV GOCACHE=/tmp/super-dolphin-go-build-cache",
-		"COPY --from=build --chown=65532:65532 /tmp/super-dolphin-go-build-cache /opt/super-dolphin-gate/cache-seed/go-build",
+		"ENV GOCACHE=/root/.cache/go-build",
+		"cp -a /root/.cache/go-build/. /out/go-build-cache",
+		"COPY --from=build --chown=65532:65532 /out/go-build-cache /opt/super-dolphin/cache/go-build",
+		"chmod -R a-w /opt/super-dolphin/cache/go-build",
 		"org.super-dolphin.source-tree-sha=\"${BUILD_SOURCE_TREE}\"",
 		"org.super-dolphin.image-input-digest=\"${IMAGE_INPUT_DIGEST}\"",
 		"org.super-dolphin.policy-sha=\"${POLICY_DIGEST}\"",
@@ -88,7 +101,7 @@ func TestTruthDockerfileIsOfflineAndDigestOnly(t *testing.T) {
 			t.Fatalf("truth Dockerfile is missing %q", required)
 		}
 	}
-	for _, forbidden := range []string{"runtime-deps:latest", "runtime-node.tar", "runtime-tools.tar", "vendor.tar.gz", "npm ci", "go mod download", "super-dolphin-gate-executor"} {
+	for _, forbidden := range []string{"runtime-deps:latest", "runtime-node.tar", "runtime-tools.tar", "vendor.tar.gz", "npm ci", "go mod download", "super-dolphin-gate-executor", "node_modules", "/opt/super-dolphin-gate/cache-seed/go-build", "COPY --from=baseline-cache /opt/super-dolphin/cache/go-build /root/.cache/go-build", "cp -a /baseline-cache"} {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("truth Dockerfile contains forbidden fallback %q", forbidden)
 		}

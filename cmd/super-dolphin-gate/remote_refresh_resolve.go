@@ -52,7 +52,7 @@ func resolveRemoteBaselineIdentity(ctx context.Context, repositoryRoot, commit, 
 	if err != nil {
 		return remoteBaselineRefreshInput{}, err
 	}
-	runtimeDependencyDigest, runtimeArgs, runtimeSchemaVersion, err := remoteci.ResolveBaselineRuntimeDependencyBuild(tree.Entries, platform)
+	runtimeDependencyDigest, _, runtimeSchemaVersion, err := remoteci.ResolveBaselineRuntimeDependencyBuild(tree.Entries, platform)
 	if err != nil {
 		return remoteBaselineRefreshInput{}, err
 	}
@@ -66,19 +66,24 @@ func resolveRemoteBaselineIdentity(ctx context.Context, repositoryRoot, commit, 
 		return remoteBaselineRefreshInput{}, err
 	}
 	toolchainDigest := remoteBaselineToolchainDigest(compileInputs.ToolchainDigest, goToolchain)
-	sqruffURL, sqruffSHA, err := resolveRemoteSqruffArtifact(runtimeArgs, platform)
-	if err != nil {
-		return remoteBaselineRefreshInput{}, err
-	}
 	return remoteBaselineRefreshInput{
 		Identity:                       remoteci.BaselineIdentity{MainCommit: commit, MainTree: treeSHA, Platform: platform, PolicyDigest: policyDigest, ToolchainDigest: toolchainDigest, RuntimeImage: runtimeImage},
 		GateSourceDigest:               compileInputs.GateSourceDigest,
 		RuntimeDependencyDigest:        runtimeDependencyDigest,
 		RuntimeDependencySchemaVersion: runtimeSchemaVersion,
 		GoToolchain:                    goToolchain,
-		SqruffURL:                      sqruffURL,
-		SqruffSHA256:                   sqruffSHA,
+		SourceEntries:                  append([]sourceexport.TreeEntry(nil), tree.Entries...),
 	}, nil
+}
+
+func remoteBaselinePolicyDigest(registryDigest, runtimeDependencyDigest string) string {
+	payload := "super-dolphin.remote-oci-baseline-policy.v1\x00" + registryDigest + "\x00" + runtimeDependencyDigest
+	return fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(payload)))
+}
+
+func resolveRemoteRef(repositoryRoot, remote, ref string) (string, error) {
+	branch := strings.TrimPrefix(ref, "refs/heads/")
+	return remoteGitOutput(repositoryRoot, "rev-parse", "--verify", "--end-of-options", remote+"/"+branch+"^{commit}")
 }
 
 // remoteBaselineToolchainDigest 将镜像工具链锁与项目 Go 版本绑定为同一基准身份。

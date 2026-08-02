@@ -240,14 +240,6 @@ func remoteRunResultFromLedgerRecord(record gatecontract.RemoteCIRunRecord) remo
 func remoteCandidateTestBinaryBuildsFromLedgerRecords(records []gatecontract.CandidateTestBinaryBuildRecord) []remoteci.CandidateTestBinaryBuilderBuild {
 	builds := make([]remoteci.CandidateTestBinaryBuilderBuild, 0, len(records))
 	for _, record := range records {
-		generations := make([]remoteci.CandidateTestBinaryCacheGenerationHit, 0, len(record.GOCacheBaselineHitRecords))
-		for _, hit := range record.GOCacheBaselineHitRecords {
-			generations = append(generations, remoteci.CandidateTestBinaryCacheGenerationHit{
-				Generation: hit.Generation, Hits: hit.Hits, AnchorGeneration: hit.AnchorGeneration,
-				AnchorManifestDigest: hit.AnchorManifestDigest, ManifestDigest: hit.ManifestDigest,
-				CacheRootIdentity: hit.CacheRootIdentity,
-			})
-		}
 		builds = append(builds, remoteci.CandidateTestBinaryBuilderBuild{
 			Artifact: remoteci.CandidateTestBinaryArtifactRef{
 				CandidateTree: record.CandidateTree, Package: record.Package, Mode: record.Mode,
@@ -259,8 +251,8 @@ func remoteCandidateTestBinaryBuildsFromLedgerRecords(records []gatecontract.Can
 			Metrics: remoteci.CandidateTestBinaryBuildMetrics{
 				GoListWallMS: record.GoListWallMS, BuildWallMS: record.BuildWallMS,
 				CompileActionMS: record.CompileActionMS, LinkActionMS: record.LinkActionMS,
-				CompileCriticalWallMS: record.CompileCriticalWallMS, GOCachePrivateHits: record.GOCachePrivateHits, GOCachePrivateRootIdentity: record.GOCachePrivateRootIdentity,
-				GOCacheBaselineHitsByGeneration: generations, GOCacheMisses: record.GOCacheMisses, GOCachePuts: record.GOCachePuts,
+				CompileCriticalWallMS: record.CompileCriticalWallMS, GOCachePrivateHits: record.GOCachePrivateHits, GOCacheOCIProjectCacheHits: record.GOCacheOCIProjectCacheHits, GOCachePrivateRootIdentity: record.GOCachePrivateRootIdentity,
+				GOCacheMisses: record.GOCacheMisses, GOCachePuts: record.GOCachePuts,
 			},
 		})
 	}

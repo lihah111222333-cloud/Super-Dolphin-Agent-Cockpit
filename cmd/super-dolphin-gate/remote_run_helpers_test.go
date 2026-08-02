@@ -13,7 +13,7 @@ import (
 
 func validRemoteRunConfigJSON() string {
 	return `{
-  "schema_version": 4,
+  "schema_version": 5,
   "aliyun_cli": "aliyun",
   "credential_profile": "super-dolphin-ci",
   "region_id": "cn-shenzhen",
@@ -22,7 +22,7 @@ func validRemoteRunConfigJSON() string {
   "worker_role_name": "super-dolphin-ci-worker",
   "oss": {"bucket": "super-dolphin-ci-test", "endpoint": "https://oss-cn-shenzhen.aliyuncs.com", "internal_endpoint": "https://oss-cn-shenzhen-internal.aliyuncs.com", "source_prefix": "source-deltas/", "baseline_prefix": "baseline-artifacts/"},
   "runtime": {"image": "registry.example/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-  "data_cache": {"bucket": "super-dolphin-ci", "path_prefix": "/super-dolphin/ci/baselines", "max_size_gib": 100, "retention_days": 2, "refresh_interval_minutes": 1440},
+  "oci_cache": {"registry_repository": "registry.example/runtime", "buildkit_version": "v0.26.2", "buildkit_image": "registry.example/buildkit@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "buildx_root": "/var/lib/super-dolphin/buildx"},
   "capacity": {"max_shards_per_job": 5, "seed_class": "memory", "resource_policy": {"classes": [{"id": "small", "vcpu": 2, "memory_gib": 4}, {"id": "standard", "vcpu": 4, "memory_gib": 8}, {"id": "memory", "vcpu": 4, "memory_gib": 16}, {"id": "maximum", "vcpu": 8, "memory_gib": 32}], "bootstrap": {"guard": "small", "node_test": "standard", "go_test": "memory"}, "headroom_percent": 25, "min_samples_to_downsize": 5}}
 }`
 }
@@ -35,16 +35,13 @@ func remoteRunBaselineState(t *testing.T, repository string) remoteci.BaselineSt
 	state := remoteRunRunnerIdentityState()
 	state.SchemaVersion, state.Generation = remoteci.BaselineStateSchemaVersion, 1
 	state.MainCommit, state.MainTree = commit, tree
-	state.DataCacheID, state.DataCacheBucket = "edc-baseline1", "super-dolphin-ci"
-	state.DataCachePath, state.DataCacheSizeGiB = "/super-dolphin/ci/baselines/1", 20
-	state.SourceObjectPrefix = "baseline-artifacts/1/"
 	state.CreatedAt, state.AcceptedAt = created, created.Add(time.Minute)
-	state.Anchor = remoteci.BaselineCacheRef{Generation: state.Generation, Kind: remoteci.BaselineCacheKindAnchor, ManifestDigest: state.BaselineManifestDigest, MainCommit: state.MainCommit, MainTree: state.MainTree, DataCacheID: state.DataCacheID, DataCacheBucket: state.DataCacheBucket, DataCachePath: state.DataCachePath, SizeGiB: state.DataCacheSizeGiB, SourceObjectPrefix: state.SourceObjectPrefix, AcceptedAt: state.AcceptedAt}
+	state.OCIProjectCache = &remoteci.BaselineOCIProjectCache{Image: state.RuntimeImage, ContentManifestSHA256: "sha256:" + strings.Repeat("a", 64), MainTree: state.MainTree, ToolchainDigest: state.ToolchainDigest, Platform: state.Platform, CachePath: remoteci.OCIProjectGoBuildCachePath}
 	return state
 }
 
 func remoteRunRunnerIdentityState() remoteci.BaselineState {
-	return remoteci.BaselineState{SourceHistoryVersion: remoteci.BaselineSourceHistorySchemaVersion, Platform: "linux/arm64", PolicyDigest: "sha256:" + strings.Repeat("b", 64), ToolchainDigest: "sha256:" + strings.Repeat("c", 64), RuntimeImage: "registry.example/runtime@sha256:" + strings.Repeat("a", 64), GateBinarySHA256: "sha256:" + strings.Repeat("e", 64), RuntimeSeedSHA256: "sha256:" + strings.Repeat("1", 64), BaselineManifestDigest: "sha256:" + strings.Repeat("d", 64)}
+	return remoteci.BaselineState{Platform: "linux/amd64", PolicyDigest: "sha256:" + strings.Repeat("b", 64), ToolchainDigest: "sha256:" + strings.Repeat("c", 64), RuntimeImage: "registry.example/runtime@sha256:" + strings.Repeat("a", 64), GateBinarySHA256: "sha256:" + strings.Repeat("e", 64), RuntimeSeedSHA256: "sha256:" + strings.Repeat("1", 64), BaselineManifestDigest: "sha256:" + strings.Repeat("d", 64)}
 }
 
 func remoteRunRunnerIdentity(state remoteci.BaselineState) string {

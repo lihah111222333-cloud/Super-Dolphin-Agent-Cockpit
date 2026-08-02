@@ -1,9 +1,7 @@
 package remoteci
 
 import (
-	"fmt"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +14,7 @@ import (
 func TestRemoteRunContractFieldRegistry(t *testing.T) {
 	assertBaselineFields(t, reflect.TypeFor[CoordinatorConfig](), []string{
 		"Bucket", "SourcePrefix", "WorkloadCachePrefix", "InternalOSSEndpoint", "WorkerRoleName", "WorkerTimeout", "PollInterval", "CleanupTimeout",
-		"ResourcePolicy", "ResourceObservations", "CandidateCLIBuilder", "CandidateTestBinaryBuilder",
+		"ResourcePolicy", "ResourceObservations", "CandidateCLIBuilder", "CandidateTestBinaryBuilder", "RegistryAccess",
 	})
 	assertBaselineFields(t, reflect.TypeFor[RunInput](), []string{
 		"RepositoryRoot", "RemoteName", "RemoteURL", "RequesterFingerprint", "Commit", "Tree", "Base", "RunnerBaseCommit", "RunnerBaseTree",
@@ -24,7 +22,7 @@ func TestRemoteRunContractFieldRegistry(t *testing.T) {
 		"LedgerSnapshot", "LedgerStore", "Inventory", "SelectedTests", "Calibration", "RunnerImage",
 		"RunnerIdentityDigest", "BaselineManifestDigest", "RunnerConfigDigest", "GateBinarySHA256",
 		"CandidateGateSourceSHA256", "CandidateGateToolchainSHA256", "ReuseBaselineGateCLI",
-		"RuntimeSeedSHA256", "DataCacheBucket", "DataCachePath", "DirectCacheRef", "AnchorGeneration", "AnchorManifest", "AnchorCommit", "AnchorTree", "BaselineDeltas", "ForceRerun",
+		"RuntimeSeedSHA256", "OCIProjectCache", "RegistryAccess", "ForceRerun",
 	})
 	assertBaselineFields(t, reflect.TypeFor[RunResult](), []string{
 		"SchemaVersion", "JobID", "RemoteName", "RemoteURL", "RequesterFingerprint", "Entrypoint", "Profile", "PlanDigest", "CatalogDigest", "SourceTreeSHA",
@@ -32,16 +30,15 @@ func TestRemoteRunContractFieldRegistry(t *testing.T) {
 		"ReusedWorkloads", "CacheMissWorkloads", "GateExecutions", "WorkloadExecutions", "DurationSamples", "PerformanceTimings", "OptimizationWarnings", "CleanupComplete",
 	})
 	assertBaselineFields(t, reflect.TypeFor[ShardRequest](), []string{
-		"SchemaVersion", "JobID", "ShardIdentity", "Profile", "PlanDigest", "BaselineManifest", "AnchorGeneration", "AnchorManifest", "AnchorCommit", "AnchorTree", "BaselineDeltas", "DirectCacheRef", "RunnerBaseCommit", "RunnerBaseTree", "SourceTreeSHA", "PatchFormat", "PatchKey", "PatchSHA256", "PatchSize", "ManifestKey", "ManifestSHA256", "CandidateCLI", "CandidateTestBinaries", "GateIDs",
+		"SchemaVersion", "JobID", "ShardIdentity", "Profile", "PlanDigest", "BaselineManifest", "OCIProjectCache", "RunnerBaseCommit", "RunnerBaseTree", "BaselineRuntimeImage", "BaselineToolchainDigest", "SourceTreeSHA", "PatchFormat", "PatchKey", "PatchSHA256", "PatchSize", "ManifestKey", "ManifestSHA256", "CandidateCLI", "CandidateTestBinaries", "GateIDs",
 	})
 	assertBaselineFields(t, reflect.TypeFor[CandidateCLIArtifactRef](), []string{
 		"CandidateTree", "SourceSHA256", "ToolchainSHA256", "Platform", "ManifestKey", "ManifestSHA256", "BinaryKey", "BinarySHA256", "BinarySize", "CLIIdentity",
 	})
 	assertBaselineFields(t, reflect.TypeFor[CandidateTestBinaryArtifactRef](), []string{"CandidateTree", "Package", "Mode", "Platform", "GoToolchain", "CGOEnabled", "ToolchainSHA256", "BuildFlags", "CompileClosureSHA256", "ManifestKey", "ManifestSHA256", "BinaryKey", "BinarySHA256", "BinarySize"})
 	assertBaselineFields(t, reflect.TypeFor[CandidateTestBinaryBuildTarget](), []string{"Package", "Mode", "CGOEnabled"})
-	assertBaselineFields(t, reflect.TypeFor[CandidateTestBinaryBuilderRequest](), []string{"SchemaVersion", "JobID", "CandidateTree", "BaselineManifest", "AnchorGeneration", "AnchorManifest", "AnchorCommit", "AnchorTree", "BaselineDeltas", "DirectCacheRef", "RunnerBaseCommit", "RunnerBaseTree", "PatchFormat", "PatchKey", "PatchSHA256", "PatchSize", "ManifestKey", "ManifestSHA256", "CandidateCLI", "CGOEnabled", "Targets", "OutputPrefix"})
-	assertBaselineFields(t, reflect.TypeFor[CandidateTestBinaryCacheGenerationHit](), []string{"Generation", "Hits", "AnchorGeneration", "AnchorManifestDigest", "ManifestDigest", "CacheRootIdentity"})
-	assertBaselineFields(t, reflect.TypeFor[CandidateTestBinaryBuildMetrics](), []string{"GoListWallMS", "BuildWallMS", "CompileActionMS", "LinkActionMS", "CompileCriticalWallMS", "GOCachePrivateHits", "GOCacheBaselineHitsByGeneration", "GOCacheMisses", "GOCachePuts", "GOCachePrivateRootIdentity"})
+	assertBaselineFields(t, reflect.TypeFor[CandidateTestBinaryBuilderRequest](), []string{"SchemaVersion", "JobID", "CandidateTree", "BaselineManifest", "OCIProjectCache", "RunnerBaseCommit", "RunnerBaseTree", "PatchFormat", "PatchKey", "PatchSHA256", "PatchSize", "ManifestKey", "ManifestSHA256", "CandidateCLI", "CGOEnabled", "Targets", "OutputPrefix"})
+	assertBaselineFields(t, reflect.TypeFor[CandidateTestBinaryBuildMetrics](), []string{"GoListWallMS", "BuildWallMS", "CompileActionMS", "LinkActionMS", "CompileCriticalWallMS", "GOCachePrivateHits", "GOCacheOCIProjectCacheHits", "GOCacheMisses", "GOCachePuts", "GOCachePrivateRootIdentity"})
 	assertBaselineFields(t, reflect.TypeFor[CandidateTestBinaryBuilderBuild](), []string{"Artifact", "Metrics"})
 	assertBaselineFields(t, reflect.TypeFor[CandidateTestBinaryBuilderResult](), []string{"SchemaVersion", "JobID", "CandidateTree", "Platform", "GoToolchain", "CGOEnabled", "ToolchainSHA256", "Builds"})
 }
@@ -57,20 +54,19 @@ func TestNewRunResultEchoesRequesterFingerprint(t *testing.T) {
 }
 
 func TestBuildShardRequestsBindsExactBaselineManifest(t *testing.T) {
-	requests, keys, baselineManifest, anchorManifest, runnerBaseCommit, runnerBaseTree, runnerIdentity := baselineBoundShardRequests(t)
+	requests, keys, baselineManifest, runnerBaseCommit, runnerBaseTree, runnerIdentity := baselineBoundShardRequests(t)
 	if len(requests) != 1 || len(keys) != 1 {
 		t.Fatalf("shard requests = %#v, keys = %v", requests, keys)
 	}
 	request := requests[0]
-	assertBaselineBoundShardRequest(t, request, baselineManifest, anchorManifest, runnerBaseCommit, runnerBaseTree, runnerIdentity)
+	assertBaselineBoundShardRequest(t, request, baselineManifest, runnerBaseCommit, runnerBaseTree, runnerIdentity)
 }
 
-func baselineBoundShardRequests(t *testing.T) ([]ShardRequest, []string, string, string, string, string, string) {
+func baselineBoundShardRequests(t *testing.T) ([]ShardRequest, []string, string, string, string, string) {
 	t.Helper()
 	const jobID = "job-0123456789abcdef01234567"
 	const sourcePrefix = "baseline-artifacts/source-deltas/"
 	runnerIdentity := "sha256:" + strings.Repeat("a", 64)
-	anchorManifest := "sha256:" + strings.Repeat("b", 64)
 	baselineManifest := "sha256:" + strings.Repeat("e", 64)
 	objectDigest := strings.Repeat("c", 64)
 	gitObject := strings.Repeat("d", 40)
@@ -80,20 +76,27 @@ func baselineBoundShardRequests(t *testing.T) ([]ShardRequest, []string, string,
 	candidateManifest := strings.Repeat("9", 64)
 	candidateCLI := CandidateCLIArtifactRef{CandidateTree: gitObject, SourceSHA256: runnerIdentity, ToolchainSHA256: runnerIdentity, Platform: "linux/amd64", ManifestKey: jobPrefix + candidateManifest + ".manifest.json", ManifestSHA256: candidateManifest, BinaryKey: jobPrefix + strings.Repeat("8", 64) + ".candidate-cli", BinarySHA256: strings.Repeat("8", 64), BinarySize: 42, CLIIdentity: CandidateCLIIdentity(runnerIdentity, runnerIdentity)}
 	candidateTestBinaries := []CandidateTestBinaryArtifactRef{{CandidateTree: gitObject, Package: "example.invalid/test", Mode: "test", Platform: "linux/amd64", GoToolchain: "go1.26.5", CGOEnabled: true, ToolchainSHA256: runnerIdentity, BuildFlags: []string{"-trimpath"}, CompileClosureSHA256: runnerIdentity, ManifestKey: jobPrefix + strings.Repeat("7", 64) + ".manifest.json", ManifestSHA256: strings.Repeat("7", 64), BinaryKey: jobPrefix + strings.Repeat("6", 64) + ".test-bin", BinarySHA256: strings.Repeat("6", 64), BinarySize: 42}}
-	requests, keys, err := buildShardRequestsWithCandidate(sourcePrefix, jobID, []gate.ContainerShard{{Index: 0, IdentityDigest: runnerIdentity, Profile: gate.ProfileLocalFast, PlanDigest: runnerIdentity, SourceTreeSHA: gitObject, GateIDs: []gate.GateID{gate.GateIDWhitespaceCheck}}}, source.Artifact{Manifest: source.Manifest{BaseCommit: runnerBaseCommit, BaseTree: runnerBaseTree, PatchFormat: "git-binary-v1", PatchSHA256: objectDigest}}, jobPrefix+objectDigest+".patch", jobPrefix+objectDigest+".manifest.json", objectDigest, candidateCLI, candidateTestBinaries, RunInput{BaselineManifestDigest: baselineManifest, AnchorGeneration: 1, AnchorManifest: anchorManifest, AnchorCommit: gitObject, AnchorTree: gitObject, BaselineDeltas: []BaselineDeltaLayer{{Generation: 2, ObjectPrefix: "baseline-artifacts/2/", ManifestDigest: baselineManifest, BaseCommit: gitObject, BaseTree: gitObject, MainCommit: runnerBaseCommit, MainTree: runnerBaseTree}}, RunnerBaseCommit: runnerBaseCommit, RunnerBaseTree: runnerBaseTree})
+	ociCache := validBaselineOCIProjectCache(runnerBaseTree, "sha256:"+strings.Repeat("7", 64), "linux/amd64", "registry.example/runtime@sha256:"+strings.Repeat("8", 64))
+	requests, keys, err := buildShardRequestsWithCandidate(sourcePrefix, jobID, []gate.ContainerShard{{Index: 0, IdentityDigest: runnerIdentity, Profile: gate.ProfileLocalFast, PlanDigest: runnerIdentity, SourceTreeSHA: gitObject, GateIDs: []gate.GateID{gate.GateIDWhitespaceCheck}}}, source.Artifact{Manifest: source.Manifest{BaseCommit: runnerBaseCommit, BaseTree: runnerBaseTree, PatchFormat: "git-binary-v1", PatchSHA256: objectDigest}}, jobPrefix+objectDigest+".patch", jobPrefix+objectDigest+".manifest.json", objectDigest, candidateCLI, candidateTestBinaries, RunInput{BaselineManifestDigest: baselineManifest, RunnerBaseCommit: runnerBaseCommit, RunnerBaseTree: runnerBaseTree, RunnerImage: ociCache.Image, ToolchainDigest: ociCache.ToolchainDigest, OCIProjectCache: ociCache})
 	if err != nil {
 		t.Fatalf("buildShardRequests() error = %v", err)
 	}
-	return requests, keys, baselineManifest, anchorManifest, runnerBaseCommit, runnerBaseTree, runnerIdentity
+	if len(requests) != 1 || requests[0].OCIProjectCache == nil || requests[0].OCIProjectCache == ociCache || *requests[0].OCIProjectCache != *ociCache {
+		t.Fatalf("shard request OCI cache = %#v, want cloned %#v", requests, ociCache)
+	}
+	return requests, keys, baselineManifest, runnerBaseCommit, runnerBaseTree, runnerIdentity
 }
 
-func assertBaselineBoundShardRequest(t *testing.T, request ShardRequest, baselineManifest string, anchorManifest string, runnerBaseCommit string, runnerBaseTree string, runnerIdentity string) {
+func assertBaselineBoundShardRequest(t *testing.T, request ShardRequest, baselineManifest string, runnerBaseCommit string, runnerBaseTree string, runnerIdentity string) {
 	t.Helper()
-	if request.BaselineManifest != baselineManifest || request.AnchorManifest != anchorManifest || len(request.BaselineDeltas) != 1 {
+	if request.BaselineManifest != baselineManifest {
 		t.Fatalf("shard request baseline = %#v", request)
 	}
-	if request.BaselineDeltas[0].ManifestDigest != baselineManifest || request.RunnerBaseCommit != runnerBaseCommit || request.RunnerBaseTree != runnerBaseTree || request.BaselineManifest == runnerIdentity {
+	if request.RunnerBaseCommit != runnerBaseCommit || request.RunnerBaseTree != runnerBaseTree || request.BaselineManifest == runnerIdentity {
 		t.Fatalf("shard request identity = %#v", request)
+	}
+	if request.OCIProjectCache == nil || request.OCIProjectCache.MainTree != runnerBaseTree || request.OCIProjectCache.CachePath != OCIProjectGoBuildCachePath {
+		t.Fatalf("shard request OCI cache = %#v", request.OCIProjectCache)
 	}
 	if err := request.CandidateCLI.Validate("baseline-artifacts/source-deltas/job-0123456789abcdef01234567/", request.SourceTreeSHA); err != nil {
 		t.Fatalf("shard request candidate CLI = %#v: %v", request.CandidateCLI, err)
@@ -102,7 +105,6 @@ func assertBaselineBoundShardRequest(t *testing.T, request ShardRequest, baselin
 
 func TestCoordinatorCreateRequestAlwaysMountsWritableMaterializerTemp(t *testing.T) {
 	_, input := remoteRunFixture(t)
-	input.BaselineDeltas = nil
 	coordinator := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{})
 	request := coordinator.createRequest("job-0123456789abcdef01234567", gate.ContainerShard{Index: 1, Profile: input.Profile, PlanDigest: input.PolicyDigest, GateIDs: []gate.GateID{"go:test"}}, eci.Resources{CPU: 4, MemoryGiB: 8}, "baseline-artifacts/source-deltas/jobs/job/request.json", input.PolicyDigest, testCandidateCLI(input), input)
 	if request.BootstrapVolume.Path != "/baseline-artifacts/source-deltas/job-0123456789abcdef01234567" {
@@ -120,12 +122,6 @@ func TestCoordinatorCreateRequestAlwaysMountsWritableMaterializerTemp(t *testing
 	}
 	assertCandidateGateEnvironment(t, request, input)
 	assertWritableMaterializerTempMount(t, request)
-	if len(request.AdditionalBaseVolumes) != 0 {
-		t.Fatalf("legacy request additional DataCache volumes = %#v", request.AdditionalBaseVolumes)
-	}
-	if _, found := request.Environment[gate.ExecutorDirectGoBuildCacheSeedEnv]; found {
-		t.Fatal("legacy request unexpectedly enables direct cache")
-	}
 }
 
 func TestRemoteCandidateCLIArtifactMaterializesWithoutShardBuild(t *testing.T) {
@@ -174,7 +170,6 @@ func TestRemoteCandidateBootstrapExecutesOutsideEmptyMaterializationRoot(t *test
 
 func TestCoordinatorCreateRequestMountsCandidateArtifactFromValidOSSVolume(t *testing.T) {
 	_, input := remoteRunFixture(t)
-	input.BaselineDeltas = []BaselineDeltaLayer{{Generation: 2, ObjectPrefix: "baseline-artifacts/deltas/2"}, {Generation: 3, ObjectPrefix: "baseline-artifacts/deltas/3"}}
 	coordinator := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{})
 	coordinator.config.InternalOSSEndpoint = "https://oss-cn-shenzhen-internal.aliyuncs.com"
 	request := coordinator.createRequest("job-0123456789abcdef01234567", gate.ContainerShard{Index: 1, Profile: input.Profile, PlanDigest: input.PolicyDigest, GateIDs: []gate.GateID{"go:test"}}, eci.Resources{CPU: 4, MemoryGiB: 8}, "baseline-artifacts/source-deltas/jobs/job/request.json", input.PolicyDigest, testCandidateCLI(input), input)
@@ -222,7 +217,7 @@ func testCandidateTestBinary(input RunInput) CandidateTestBinaryArtifactRef {
 
 func assertCandidateGateEnvironment(t *testing.T, request eci.CreateRequest, input RunInput) {
 	t.Helper()
-	want := map[string]string{remoteBaselineManifestEnvironment: input.AnchorManifest, remoteCandidateGateSourceEnv: input.CandidateGateSourceSHA256, remoteCandidateGateToolchainEnv: input.CandidateGateToolchainSHA256}
+	want := map[string]string{remoteCandidateGateSourceEnv: input.CandidateGateSourceSHA256, remoteCandidateGateToolchainEnv: input.CandidateGateToolchainSHA256}
 	for name, value := range want {
 		if got := request.InitContainer.Environment[name]; got != value {
 			t.Fatalf("%s = %q, want %q", name, got, value)
@@ -232,6 +227,9 @@ func assertCandidateGateEnvironment(t *testing.T, request eci.CreateRequest, inp
 		if _, found := request.InitContainer.Environment[name]; found {
 			t.Fatalf("init environment unexpectedly retains deprecated gate setting %q", name)
 		}
+	}
+	if _, found := request.InitContainer.Environment[remoteBaselineManifestEnvironment]; found {
+		t.Fatal("init environment unexpectedly retains retired baseline manifest")
 	}
 }
 
@@ -252,77 +250,13 @@ func assertWritableMaterializerTempMount(t *testing.T, request eci.CreateRequest
 	}
 }
 
-func TestCoordinatorDirectCacheMountAndValidation(t *testing.T) {
+func TestCoordinatorOCIProjectCacheValidation(t *testing.T) {
 	_, input := remoteRunFixture(t)
-	input.DirectCacheRef = testDirectCacheRef(t, input)
 	if err := validateRemotePlanInput(input); err != nil {
-		t.Fatalf("validateRemotePlanInput(valid direct cache layers) error = %v", err)
+		t.Fatalf("validateRemotePlanInput() error = %v", err)
 	}
-	validInput := input
-	for index := 1; index < gate.ExecutorDirectGoBuildCacheSeedMaxLayers; index++ {
-		layer := input.DirectCacheRef.Layers[0]
-		layer.DataCacheID = fmt.Sprintf("edc-directcache-%d", index)
-		layer.DataCachePath = fmt.Sprintf("/super-dolphin/ci/direct-cache/%d", index+2)
-		input.DirectCacheRef.Layers = append(input.DirectCacheRef.Layers, layer)
+	input.OCIProjectCache = nil
+	if err := validateRemotePlanInput(input); err == nil {
+		t.Fatal("validateRemotePlanInput() accepted missing OCI cache")
 	}
-	coordinator := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{})
-	request := coordinator.createRequest("job-0123456789abcdef01234567", gate.ContainerShard{Index: 1, Profile: input.Profile, PlanDigest: input.PolicyDigest, GateIDs: []gate.GateID{"go:test"}}, eci.Resources{CPU: 4, MemoryGiB: 8}, "baseline-artifacts/source-deltas/jobs/job/request.json", input.PolicyDigest, testCandidateCLI(input), input)
-	if len(request.AdditionalBaseVolumes) != gate.ExecutorDirectGoBuildCacheSeedMaxLayers {
-		t.Fatalf("direct additional DataCache volumes = %#v", request.AdditionalBaseVolumes)
-	}
-	for index, layer := range input.DirectCacheRef.Layers {
-		if volume := request.AdditionalBaseVolumes[index]; volume.Name != remoteDirectCacheVolumeNameForLayer(index) || volume.Path != layer.DataCachePath {
-			t.Fatalf("direct cache layer %d volume = %#v", index, volume)
-		}
-	}
-	for _, mounts := range [][]eci.VolumeMount{request.MainVolumeMounts, request.InitVolumeMounts} {
-		for index := range input.DirectCacheRef.Layers {
-			if !slices.ContainsFunc(mounts, func(mount eci.VolumeMount) bool {
-				return mount.Name == remoteDirectCacheVolumeNameForLayer(index) && mount.MountPath == remoteDirectCacheMountPathForLayer(index) && mount.ReadOnly
-			}) {
-				t.Fatalf("direct cache layer %d mount missing or writable: %#v", index, mounts)
-			}
-		}
-	}
-	if got := request.Environment[gate.ExecutorDirectGoBuildCacheSeedEnv]; got != "1" || request.Environment[gate.ExecutorDirectGoBuildCacheSeedCountEnv] != "3" {
-		t.Fatalf("direct cache executor environment = %#v", request.Environment)
-	}
-	for index, layer := range input.DirectCacheRef.Layers {
-		manifestEnvironment := fmt.Sprintf("SUPER_DOLPHIN_REMOTE_DIRECT_CACHE_LAYER_%d_MANIFEST_SHA256", index)
-		if got := request.InitContainer.Environment[manifestEnvironment]; got != layer.ManifestDigest {
-			t.Fatalf("direct cache layer %d manifest environment = %q", index, got)
-		}
-	}
-	for name, mutate := range map[string]func(*RunInput){
-		"invalid path": func(value *RunInput) { value.DirectCacheRef.Layers[0].DataCachePath = "relative" },
-		"bucket drift": func(value *RunInput) { value.DirectCacheRef.Layers[0].DataCacheBucket = "other-ci" },
-	} {
-		t.Run(name, func(t *testing.T) {
-			invalid := validInput
-			invalid.DirectCacheRef = cloneDirectCacheRef(validInput.DirectCacheRef)
-			mutate(&invalid)
-			if err := validateRemotePlanInput(invalid); err == nil {
-				t.Fatal("validateRemotePlanInput() error = nil")
-			}
-		})
-	}
-}
-
-func testDirectCacheRef(t *testing.T, input RunInput) *DirectCacheRef {
-	t.Helper()
-	digest := func(value string) string { return "sha256:" + strings.Repeat(value, 64) }
-	anchor := baselineParentChainAnchorIdentity{Generation: input.AnchorGeneration, ManifestDigest: input.AnchorManifest, MainCommit: input.AnchorCommit, MainTree: input.AnchorTree}
-	deltas := make([]baselineParentChainDeltaIdentity, 0, len(input.BaselineDeltas))
-	for _, delta := range input.BaselineDeltas {
-		deltas = append(deltas, baselineParentChainDeltaIdentity{Generation: delta.Generation, ManifestDigest: delta.ManifestDigest, BaseCommit: delta.BaseCommit, BaseTree: delta.BaseTree, MainCommit: delta.MainCommit, MainTree: delta.MainTree})
-	}
-	parent, err := baselineParentChainIdentityDigest(anchor, deltas)
-	if err != nil {
-		t.Fatal(err)
-	}
-	generation := input.AnchorGeneration
-	if len(input.BaselineDeltas) != 0 {
-		generation = input.BaselineDeltas[len(input.BaselineDeltas)-1].Generation
-	}
-	return &DirectCacheRef{Layers: []DirectCacheLayerRef{{DataCacheID: "edc-directcache", DataCacheBucket: input.DataCacheBucket, DataCachePath: fmt.Sprintf("/super-dolphin/ci/direct-cache/%d", generation), SizeGiB: 20, Generation: generation, SourceObjectPrefix: fmt.Sprintf("baseline-artifacts/%d/output/direct-cache/", generation), ManifestDigest: digest("a"), TreeSHA256: digest("b"), ParentChainSHA256: parent, RuntimeGoSHA256: digest("d"), RuntimeDepsSHA256: digest("e")}}}
 }

@@ -167,10 +167,8 @@ func validateRemoteWorkloadCacheReceipt(path string, entry remoteWorkloadCacheEn
 		"runtime-seed",
 		"policy",
 		"baseline-manifest",
-		"anchor-generation",
-		"anchor-manifest",
-		"anchor-commit",
-		"anchor-tree",
+		"oci-project-cache-image",
+		"oci-project-cache-manifest",
 		"receipt-nonce",
 	}
 	if len(lines) != len(expectedKeys)+1 || lines[len(lines)-1] != "" {
@@ -185,7 +183,7 @@ func validateRemoteWorkloadCacheReceipt(path string, entry remoteWorkloadCacheEn
 		if strings.ContainsAny(value, "\x00\r\n") {
 			return errors.New("remote workload cache receipt field is invalid")
 		}
-		if key == remoteWorkloadCacheHeader && value != "receipt/v1" {
+		if key == remoteWorkloadCacheHeader && value != "receipt/v2" {
 			return errors.New("remote workload cache receipt schema is invalid")
 		}
 		if key == "identity" && value != entry.identityDigest {
@@ -425,7 +423,7 @@ func encodeRemoteWorkloadCacheMarkerWithReceipt(entry remoteWorkloadCacheEntry, 
 // from the reusable semantic PASS marker.
 func encodeRemoteWorkloadCacheReceipt(entry remoteWorkloadCacheEntry) []byte {
 	var data []byte
-	data = appendRemoteWorkloadCacheField(data, remoteWorkloadCacheHeader, "receipt/v1")
+	data = appendRemoteWorkloadCacheField(data, remoteWorkloadCacheHeader, "receipt/v2")
 	data = appendRemoteWorkloadCacheField(data, "identity", entry.identityDigest)
 	data = appendRemoteWorkloadCacheField(data, "commit", entry.provenance.commit)
 	data = appendRemoteWorkloadCacheField(data, "tree", entry.provenance.tree)
@@ -438,10 +436,8 @@ func encodeRemoteWorkloadCacheReceipt(entry remoteWorkloadCacheEntry) []byte {
 	data = appendRemoteWorkloadCacheField(data, "runtime-seed", entry.provenance.runtimeSeedSHA256)
 	data = appendRemoteWorkloadCacheField(data, "policy", entry.provenance.policyDigest)
 	data = appendRemoteWorkloadCacheField(data, "baseline-manifest", entry.provenance.baselineManifest)
-	data = appendRemoteWorkloadCacheField(data, "anchor-generation", strconv.FormatUint(entry.provenance.anchorGeneration, 10))
-	data = appendRemoteWorkloadCacheField(data, "anchor-manifest", entry.provenance.anchorManifest)
-	data = appendRemoteWorkloadCacheField(data, "anchor-commit", entry.provenance.anchorCommit)
-	data = appendRemoteWorkloadCacheField(data, "anchor-tree", entry.provenance.anchorTree)
+	data = appendRemoteWorkloadCacheField(data, "oci-project-cache-image", entry.provenance.ociProjectCacheImage)
+	data = appendRemoteWorkloadCacheField(data, "oci-project-cache-manifest", entry.provenance.ociProjectCacheDigest)
 	data = appendRemoteWorkloadCacheField(data, "receipt-nonce", entry.receiptNonce)
 	return data
 }

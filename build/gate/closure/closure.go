@@ -183,7 +183,7 @@ func collectClosureFiles(sourceRoot string) ([]string, []string, error) {
 	return localFiles, gateCompileFiles, nil
 }
 
-// collectEnvironmentImageFiles 只收集工具链、依赖锁和受信 CI runtime 的构建输入。
+// collectEnvironmentImageFiles 收集受信 CI runtime 和预编译门禁缓存所需的闭包输入。
 func collectEnvironmentImageFiles(sourceRoot string, gateCompileFiles []string) ([]string, error) {
 	files, err := collectNamedRegularInputs(sourceRoot, "environment image", []string{
 		gateDockerfile,
@@ -206,7 +206,55 @@ func collectEnvironmentImageFiles(sourceRoot string, gateCompileFiles []string) 
 	if err != nil {
 		return nil, err
 	}
-	return sortedUniqueStrings(append(files, gateCompileFiles...)), nil
+	testCompileFiles, err := collectGoTestCompileFiles(sourceRoot)
+	if err != nil {
+		return nil, err
+	}
+	embeddedFiles, err := collectGoEmbedCompileFiles(sourceRoot, testCompileFiles)
+	if err != nil {
+		return nil, err
+	}
+	files = append(files, gateCompileFiles...)
+	files = append(files, testCompileFiles...)
+	files = append(files, embeddedFiles...)
+	return sortedUniqueStrings(files), nil
+}
+
+// collectGoTestCompileFiles 收集根模块全部 Go 测试编译单元。镜像内 normal、e2e
+// 与 race 的预热必须与实际 gate 使用相同的测试源码，不能只缓存 gate CLI 依赖图。
+func collectGoTestCompileFiles(sourceRoot string) ([]string, error) {
+	files := make([]string, 0)
+	err := filepath.WalkDir(sourceRoot, func(name string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("Go test compile input contains symlink %s", name)
+		}
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("Go test compile input %s is not regular", name)
+		}
+		relative, err := filepath.Rel(sourceRoot, name)
+		if err != nil {
+			return err
+		}
+		files = append(files, filepath.ToSlash(relative))
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("collect Go test compile inputs: %w", err)
+	}
+	if len(files) == 0 {
+		return nil, errors.New("Go test compile closure is empty")
+	}
+	return sortedUniqueStrings(files), nil
 }
 
 // collectGateCompileFiles 只收集构建云端 gate CLI 所需的仓内源码与模块身份。
@@ -707,21 +755,31 @@ func validateToolchainBaseImages(lock toolchainLock) error {
 	return nil
 }
 
-// renderDockerfile 生成只包含受信 CI runtime 的确定性环境镜像。
+// renderDockerfile 生成带有只读门禁 Go 编译缓存的确定性环境镜像。
 func renderDockerfile(lock toolchainLock, runtimeDeps runtimeDepsLock, buildFiles []string) ([]byte, error) {
 	if err := validateDockerfileInputs(lock, runtimeDeps); err != nil {
 		return nil, err
 	}
 	var output strings.Builder
-	fmt.Fprintf(&output, "ARG RUNTIME_DEPS_IMAGE\nARG SOURCE_DATE_EPOCH=%s\n", lock.SourceDateEpoch)
+	fmt.Fprintf(&output, "ARG RUNTIME_DEPS_IMAGE\nARG BASELINE_CACHE_IMAGE\nARG SOURCE_DATE_EPOCH=%s\n", lock.SourceDateEpoch)
 	output.WriteString("ARG BUILD_SOURCE_TREE\nARG IMAGE_INPUT_DIGEST\nARG POLICY_DIGEST\nARG TOOLCHAIN_DIGEST\nARG TARGET_PLATFORM\n")
-	output.WriteString("FROM ${RUNTIME_DEPS_IMAGE} AS build\nUSER root\nARG SOURCE_DATE_EPOCH\n\n")
-	output.WriteString("WORKDIR /src\nENV GOCACHE=/tmp/super-dolphin-go-build-cache GOTOOLCHAIN=local GOPROXY=file:///opt/super-dolphin-gate/runtime/go-proxy GOSUMDB=off\n")
+	output.WriteString("FROM ${BASELINE_CACHE_IMAGE} AS baseline-cache\nFROM ${RUNTIME_DEPS_IMAGE} AS build\nUSER root\nARG BASELINE_CACHE_IMAGE\nARG SOURCE_DATE_EPOCH\n\n")
+	output.WriteString("WORKDIR /src\nENV GOCACHE=/root/.cache/go-build GOTOOLCHAIN=local GOPROXY=file:///opt/super-dolphin-gate/runtime/go-proxy GOSUMDB=off\n")
 	if err := writeDockerCopyInstructions(&output, buildFiles, "/src/", "environment build COPY"); err != nil {
 		return nil, err
 	}
-	output.WriteString("RUN --network=none CGO_ENABLED=0 go build -mod=mod -trimpath -buildvcs=false -o /out/super-dolphin-gate ./cmd/super-dolphin-gate && \\\n")
-	output.WriteString("    touch -d \"@${SOURCE_DATE_EPOCH}\" /out/super-dolphin-gate\n\n")
+	output.WriteString("RUN --network=none --mount=type=cache,target=/root/.cache/go-build,sharing=locked --mount=type=bind,from=baseline-cache,source=/,target=/baseline-cache,ro sh -ec '\\\n")
+	output.WriteString("    mkdir -p cmd/agent-terminal/web-dist; printf \"<!doctype html><title>gate compile seed</title>\\n\" > cmd/agent-terminal/web-dist/index.html; \\\n")
+	output.WriteString("    go_cache_proxy=; if test \"$BASELINE_CACHE_IMAGE\" != runtime-deps; then test -x /baseline-cache/super-dolphin-gate && test -d /baseline-cache/opt/super-dolphin/cache/go-build; go_cache_proxy=\"/baseline-cache/super-dolphin-gate worker go-cache-proxy --seed /baseline-cache/opt/super-dolphin/cache/go-build --private /root/.cache/go-build\"; fi; \\\n")
+	output.WriteString("    compile_go() { if test -n \"$go_cache_proxy\"; then env GOCACHEPROG=\"$go_cache_proxy\" \"$@\"; else \"$@\"; fi; }; \\\n")
+	output.WriteString("    compile_phase() { phase=$1; shift; started=$(date +%s); compile_go \"$@\"; finished=$(date +%s); entries=$(find /root/.cache/go-build -type f | wc -l); printf \"[gate-image] compile phase=%s seconds=%s cache_entries=%s\\n\" \"$phase\" \"$((finished-started))\" \"$entries\"; }; \\\n")
+	output.WriteString("    compile_phase gate-cli env CGO_ENABLED=0 go build -mod=mod -trimpath -buildvcs=false -o /out/super-dolphin-gate ./cmd/super-dolphin-gate; \\\n")
+	output.WriteString("    compile_phase normal env CGO_ENABLED=1 go test -mod=mod -run \"^$\" ./...; \\\n")
+	output.WriteString("    compile_phase e2e env CGO_ENABLED=1 go test -mod=mod -tags=e2e -run \"^$\" ./cmd/mcp-lsp; \\\n")
+	output.WriteString("    set -- $(/out/super-dolphin-gate worker race-package-patterns); test $# -gt 0; \\\n")
+	output.WriteString("    compile_phase race env CGO_ENABLED=1 go test -mod=mod -race -run \"^$\" \"$@\"; \\\n")
+	output.WriteString("    cache_started=$(date +%s); rm -rf /out/go-build-cache; mkdir -p /out/go-build-cache; cp -a /root/.cache/go-build/. /out/go-build-cache/; cache_finished=$(date +%s); printf \"[gate-image] cache-export seconds=%s cache_entries=%s\\n\" \"$((cache_finished-cache_started))\" \"$(find /out/go-build-cache -type f | wc -l)\"; \\\n")
+	output.WriteString("    touch -d \"@${SOURCE_DATE_EPOCH}\" /out/super-dolphin-gate\n\n')\n\n")
 	output.WriteString("FROM ${RUNTIME_DEPS_IMAGE}\nUSER root\n")
 	output.WriteString("ARG BUILD_SOURCE_TREE\nARG IMAGE_INPUT_DIGEST\nARG POLICY_DIGEST\nARG TOOLCHAIN_DIGEST\nARG TARGET_PLATFORM\n")
 	output.WriteString("LABEL org.super-dolphin.source-tree-sha=\"${BUILD_SOURCE_TREE}\" \\\n")
@@ -731,11 +789,11 @@ func renderDockerfile(lock toolchainLock, runtimeDeps runtimeDepsLock, buildFile
 	output.WriteString("      org.super-dolphin.platform=\"${TARGET_PLATFORM}\" \\\n")
 	output.WriteString("      org.super-dolphin.schema-version=\"1\"\n")
 	output.WriteString("COPY --from=build /out/super-dolphin-gate /super-dolphin-gate\n")
-	output.WriteString("COPY --from=build --chown=65532:65532 /tmp/super-dolphin-go-build-cache /opt/super-dolphin-gate/cache-seed/go-build\n")
+	output.WriteString("COPY --from=build --chown=65532:65532 /out/go-build-cache /opt/super-dolphin/cache/go-build\n")
 	output.WriteString("RUN --network=none mkdir -p /opt/super-dolphin-gate/frontend-embed && \\\n")
 	output.WriteString("    printf '<!doctype html><title>gate compile seed</title>\\n' > /opt/super-dolphin-gate/frontend-embed/index.html && \\\n")
 	output.WriteString("    chmod -R a-w /opt/super-dolphin-gate/frontend-embed && \\\n")
-	output.WriteString("    chmod -R u+rwX,go-rwx /opt/super-dolphin-gate/cache-seed/go-build\n")
+	output.WriteString("    chmod -R a-w /opt/super-dolphin/cache/go-build\n")
 	output.WriteString("ENV GOTOOLCHAIN=local GOPROXY=file:///opt/super-dolphin-gate/runtime/go-proxy GOSUMDB=off GOFLAGS=-mod=mod\\ -buildvcs=false\n")
 	output.WriteString("USER 65532:65532\nENTRYPOINT [\"/super-dolphin-gate\"]\n")
 	return []byte(output.String()), nil
@@ -852,7 +910,7 @@ func writeAtomic(path string, data []byte) error {
 func collectGoEmbedCompileFiles(sourceRoot string, compileFiles []string) ([]string, error) {
 	files := make(map[string]struct{})
 	for _, compileFile := range compileFiles {
-		if !strings.HasSuffix(compileFile, ".go") || strings.HasSuffix(compileFile, "_test.go") {
+		if !strings.HasSuffix(compileFile, ".go") {
 			continue
 		}
 		absolute, packageDirectory, err := secureGoCompileSource(sourceRoot, compileFile)
@@ -913,6 +971,11 @@ func collectGoEmbedFiles(sourceRoot, packageDirectory string, parsed *ast.File) 
 	}
 	files := make(map[string]struct{})
 	for _, pattern := range patterns {
+		if packageDirectory == "cmd/agent-terminal" && pattern == "all:web-dist" {
+			// web-dist 是候选构建前由前端 gate 生成的产物；预热闭包只放入
+			// 最小占位文件以满足 Go embed 的编译期约束，绝不复制 node_modules。
+			continue
+		}
 		matches, err := resolveGoEmbedPattern(packageRoot, pattern)
 		if err != nil {
 			return nil, fmt.Errorf("pattern %q: %w", pattern, err)

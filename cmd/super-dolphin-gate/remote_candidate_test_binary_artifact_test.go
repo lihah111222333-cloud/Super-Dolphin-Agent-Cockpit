@@ -11,14 +11,6 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
-func TestBuilderRequestShardPreservesDirectCacheReference(t *testing.T) {
-	reference := &remoteci.DirectCacheRef{DataCacheID: "edc-direct"}
-	shard := builderRequestShard(remoteci.CandidateTestBinaryBuilderRequest{DirectCacheRef: reference})
-	if shard.DirectCacheRef != reference {
-		t.Fatalf("builder shard direct cache = %#v, want %#v", shard.DirectCacheRef, reference)
-	}
-}
-
 func TestMaterializeRemoteCandidateTestBinariesInstallsOnlyVerifiedBundle(t *testing.T) {
 	tree := strings.Repeat("a", 40)
 	binary := []byte("#!/bin/sh\nexit 0\n")

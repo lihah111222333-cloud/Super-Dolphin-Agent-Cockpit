@@ -5,16 +5,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -27,40 +24,27 @@ import (
 )
 
 const (
-	remoteWorkerRoleEnv       = "SUPER_DOLPHIN_REMOTE_WORKER_ROLE"
-	remoteOSSEndpointEnv      = "SUPER_DOLPHIN_REMOTE_OSS_ENDPOINT"
-	remoteOSSBucketEnv        = "SUPER_DOLPHIN_REMOTE_OSS_BUCKET"
-	remoteRequestKeyEnv       = "SUPER_DOLPHIN_REMOTE_REQUEST_KEY"
-	remoteRequestSHA256Env    = "SUPER_DOLPHIN_REMOTE_REQUEST_SHA256"
-	remoteBaselineManifestEnv = "SUPER_DOLPHIN_REMOTE_RUNNER_MANIFEST"
-	remoteSSLCAFileEnv        = "SSL_CERT_FILE"
-	remoteRequestMaxBytes     = 64 << 10
-	remoteDirectCacheRootPath = "/bootstrap-direct"
-	remoteManifestMaxBytes    = 1 << 20
-	remoteSourcePatchMaxSize  = 1 << 30
-	remoteDataCacheRootPath   = "/bootstrap"
-	remoteExpandedBasePath    = "/opt/super-dolphin-gate"
-	remoteExecutorUID         = 65532
-	remoteExecutorGID         = 65532
-	remoteMaterializeTimeout  = 45 * time.Minute
+	remoteWorkerRoleEnv      = "SUPER_DOLPHIN_REMOTE_WORKER_ROLE"
+	remoteOSSEndpointEnv     = "SUPER_DOLPHIN_REMOTE_OSS_ENDPOINT"
+	remoteOSSBucketEnv       = "SUPER_DOLPHIN_REMOTE_OSS_BUCKET"
+	remoteRequestKeyEnv      = "SUPER_DOLPHIN_REMOTE_REQUEST_KEY"
+	remoteRequestSHA256Env   = "SUPER_DOLPHIN_REMOTE_REQUEST_SHA256"
+	remoteRequestMaxBytes    = 64 << 10
+	remoteManifestMaxBytes   = 1 << 20
+	remoteSourcePatchMaxSize = 1 << 30
+	remoteExpandedBasePath   = "/opt/super-dolphin-gate"
+	remoteExecutorUID        = 65532
+	remoteExecutorGID        = 65532
+	remoteMaterializeTimeout = 45 * time.Minute
 )
 
 type remoteMaterializeConfig struct {
-	RoleName          string
-	Endpoint          string
-	Bucket            string
-	RequestKey        string
-	RequestSHA256     string
-	BaselineManifest  string
-	CAFile            string
-	DirectCacheLayers []remoteMaterializeDirectCacheConfig
-}
-
-type remoteMaterializeDirectCacheConfig struct {
-	ManifestSHA256, TreeSHA256, ParentChainSHA256 string
-	RuntimeGoSHA256, RuntimeDepsSHA256            string
-	Generation                                    uint64
-	DataCacheID                                   string
+	RoleName      string
+	Endpoint      string
+	Bucket        string
+	RequestKey    string
+	RequestSHA256 string
+	CAFile        string
 }
 
 type remoteObjectDownload func(context.Context, string, int64, io.Writer) (int64, error)
@@ -73,9 +57,6 @@ func runRemoteMaterialize(args []string, stdout io.Writer) error {
 	config, err := loadRemoteMaterializeConfig(os.LookupEnv)
 	if err != nil {
 		return infrastructureError("load remote materialize config: %v", err)
-	}
-	if err := verifyRemoteBootstrapTLS(remoteDataCacheRootPath, config.CAFile, config.BaselineManifest); err != nil {
-		return infrastructureError("verify remote bootstrap TLS: %v", err)
 	}
 	download := func(ctx context.Context, key string, maxBytes int64, destination io.Writer) (int64, error) {
 		client, err := workerio.NewClient(workerio.Config{
@@ -94,7 +75,6 @@ func runRemoteMaterialize(args []string, stdout io.Writer) error {
 	request, timing, err := materializeRemoteSourceWithTiming(
 		ctx,
 		config,
-		remoteDataCacheRootPath,
 		remoteExpandedBasePath,
 		gatecontract.ExecutorSourcePath,
 		gatecontract.ExecutorWorkRoot,
@@ -126,12 +106,7 @@ func loadRemoteMaterializeConfig(getenv func(string) (string, bool)) (remoteMate
 	config := remoteMaterializeConfig{
 		RoleName: values[remoteWorkerRoleEnv], Endpoint: values[remoteOSSEndpointEnv],
 		Bucket: values[remoteOSSBucketEnv], RequestKey: values[remoteRequestKeyEnv],
-		RequestSHA256: values[remoteRequestSHA256Env], BaselineManifest: values[remoteBaselineManifestEnv],
-		CAFile: values[remoteSSLCAFileEnv],
-	}
-	config.DirectCacheLayers, err = loadRemoteMaterializeDirectCacheConfig(getenv)
-	if err != nil {
-		return remoteMaterializeConfig{}, err
+		RequestSHA256: values[remoteRequestSHA256Env],
 	}
 	if err := validateRemoteMaterializeConfig(config); err != nil {
 		return remoteMaterializeConfig{}, err
@@ -139,112 +114,31 @@ func loadRemoteMaterializeConfig(getenv func(string) (string, bool)) (remoteMate
 	return config, nil
 }
 
-const (
-	remoteDirectCacheLayerCountEnv = "SUPER_DOLPHIN_REMOTE_DIRECT_CACHE_LAYER_COUNT"
-)
-
-// loadRemoteMaterializeDirectCacheConfig 要求固定上限内的直读层完整出现，并保持 newest-first 顺序。
-func loadRemoteMaterializeDirectCacheConfig(getenv func(string) (string, bool)) ([]remoteMaterializeDirectCacheConfig, error) {
-	countText, countPresent := getenv(remoteDirectCacheLayerCountEnv)
-	if !countPresent {
-		for index := range gatecontract.ExecutorDirectGoBuildCacheSeedMaxLayers {
-			for _, name := range remoteDirectCacheLayerEnvironmentNames(index) {
-				if _, present := getenv(name); present {
-					return nil, errors.New("remote direct cache layer count is required")
-				}
-			}
-		}
-		return nil, nil
-	}
-	count, err := strconv.ParseUint(countText, 10, 8)
-	if err != nil || count == 0 || count > gatecontract.ExecutorDirectGoBuildCacheSeedMaxLayers || strconv.FormatUint(count, 10) != countText {
-		return nil, errors.New("remote direct cache layer count is invalid")
-	}
-	layers := make([]remoteMaterializeDirectCacheConfig, int(count))
-	for index := range layers {
-		values := make(map[string]string, 7)
-		for _, name := range remoteDirectCacheLayerEnvironmentNames(index) {
-			value, ok := getenv(name)
-			if !ok || value == "" || strings.TrimSpace(value) != value || strings.ContainsAny(value, "\x00\r\n") {
-				return nil, fmt.Errorf("%s is required and canonical", name)
-			}
-			values[name] = value
-		}
-		generation, parseErr := strconv.ParseUint(values[remoteDirectCacheLayerEnvironmentName(index, "GENERATION")], 10, 64)
-		if parseErr != nil || generation == 0 {
-			return nil, errors.New("remote direct cache generation is invalid")
-		}
-		layers[index] = remoteMaterializeDirectCacheConfig{
-			ManifestSHA256: values[remoteDirectCacheLayerEnvironmentName(index, "MANIFEST_SHA256")], TreeSHA256: values[remoteDirectCacheLayerEnvironmentName(index, "TREE_SHA256")], ParentChainSHA256: values[remoteDirectCacheLayerEnvironmentName(index, "PARENT_CHAIN_SHA256")],
-			RuntimeGoSHA256: values[remoteDirectCacheLayerEnvironmentName(index, "RUNTIME_GO_SHA256")], RuntimeDepsSHA256: values[remoteDirectCacheLayerEnvironmentName(index, "RUNTIME_DEPS_SHA256")], Generation: generation, DataCacheID: values[remoteDirectCacheLayerEnvironmentName(index, "DATA_CACHE_ID")],
-		}
-		for _, digest := range []string{layers[index].ManifestSHA256, layers[index].TreeSHA256, layers[index].ParentChainSHA256, layers[index].RuntimeGoSHA256, layers[index].RuntimeDepsSHA256} {
-			if !validRemoteManifestDigest(digest) {
-				return nil, errors.New("remote direct cache digest is invalid")
-			}
-		}
-	}
-	for index := len(layers); index < gatecontract.ExecutorDirectGoBuildCacheSeedMaxLayers; index++ {
-		for _, name := range remoteDirectCacheLayerEnvironmentNames(index) {
-			if _, present := getenv(name); present {
-				return nil, errors.New("remote direct cache layer environment exceeds declared count")
-			}
-		}
-	}
-	return layers, nil
-}
-
-func remoteDirectCacheLayerEnvironmentName(index int, suffix string) string {
-	return fmt.Sprintf("SUPER_DOLPHIN_REMOTE_DIRECT_CACHE_LAYER_%d_%s", index, suffix)
-}
-
-func remoteDirectCacheLayerEnvironmentNames(index int) []string {
-	return []string{
-		remoteDirectCacheLayerEnvironmentName(index, "MANIFEST_SHA256"), remoteDirectCacheLayerEnvironmentName(index, "TREE_SHA256"), remoteDirectCacheLayerEnvironmentName(index, "PARENT_CHAIN_SHA256"),
-		remoteDirectCacheLayerEnvironmentName(index, "RUNTIME_GO_SHA256"), remoteDirectCacheLayerEnvironmentName(index, "RUNTIME_DEPS_SHA256"), remoteDirectCacheLayerEnvironmentName(index, "GENERATION"), remoteDirectCacheLayerEnvironmentName(index, "DATA_CACHE_ID"),
-	}
-}
-
-// verifyRemoteDirectCache 把有序 DataCache 层、请求身份和 init 环境绑定为同一组只读缓存树。
-func verifyRemoteDirectCache(configs []remoteMaterializeDirectCacheConfig, request remoteci.ShardRequest) error {
-	if len(configs) == 0 && request.DirectCacheRef == nil {
+// verifyRemoteOCIProjectCache verifies the cache path supplied by the immutable
+// runtime image before the main worker enables it as a GOCACHEPROG seed.
+func verifyRemoteOCIProjectCache(request remoteci.ShardRequest) error {
+	if request.OCIProjectCache == nil {
 		return nil
 	}
-	if request.DirectCacheRef == nil || len(configs) != len(request.DirectCacheRef.Layers) {
-		return errors.New("remote direct cache request and environment disagree")
+	return verifyRemoteOCIProjectCacheAtPath(request, request.OCIProjectCache.CachePath)
+}
+
+// verifyRemoteOCIProjectCacheAtPath is split for filesystem-isolated tests; the
+// production caller always supplies the fixed path carried by the request.
+func verifyRemoteOCIProjectCacheAtPath(request remoteci.ShardRequest, cachePath string) error {
+	cache := request.OCIProjectCache
+	if cache == nil {
+		return errors.New("remote OCI project cache is required")
 	}
-	for index, reference := range request.DirectCacheRef.Layers {
-		config := configs[index]
-		if config.ManifestSHA256 != reference.ManifestDigest || config.TreeSHA256 != reference.TreeSHA256 ||
-			config.ParentChainSHA256 != reference.ParentChainSHA256 || config.RuntimeGoSHA256 != reference.RuntimeGoSHA256 ||
-			config.RuntimeDepsSHA256 != reference.RuntimeDepsSHA256 || config.Generation != reference.Generation ||
-			config.DataCacheID != reference.DataCacheID {
-			return fmt.Errorf("remote direct cache layer %d environment drifted from shard request", index)
-		}
-		manifestPath := filepath.Join(remoteDirectCacheRootPath, fmt.Sprintf("layer-%d", index), "manifest.json")
-		data, err := os.ReadFile(manifestPath)
-		if err != nil {
-			return fmt.Errorf("read remote direct cache layer %d manifest: %w", index, err)
-		}
-		if len(data) == 0 || len(data) > 64<<20 || "sha256:"+digestBytes(data) != reference.ManifestDigest {
-			return fmt.Errorf("remote direct cache layer %d manifest digest is invalid", index)
-		}
-		var manifest gatecontract.GoBuildCacheDirectSeedManifest
-		decoder := json.NewDecoder(bytes.NewReader(data))
-		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&manifest); err != nil {
-			return fmt.Errorf("decode remote direct cache layer %d manifest: %w", index, err)
-		}
-		if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-			return fmt.Errorf("remote direct cache layer %d manifest has trailing data", index)
-		}
-		if manifest.TreeSHA256 != reference.TreeSHA256 || manifest.RuntimeGoSHA256 != reference.RuntimeGoSHA256 || manifest.RuntimeDepsSHA256 != reference.RuntimeDepsSHA256 {
-			return fmt.Errorf("remote direct cache layer %d manifest drifted from shard request", index)
-		}
-		mountRoot := filepath.Join(remoteDirectCacheRootPath, fmt.Sprintf("layer-%d", index), "cache-seed", "go-build")
-		if err := gatecontract.ValidateGoBuildCacheDirectSeedMount(mountRoot, manifest); err != nil {
-			return fmt.Errorf("verify remote direct cache layer %d tree: %w", index, err)
-		}
+	if err := cache.ValidateForBaseline(request.RunnerBaseTree, request.BaselineToolchainDigest, "linux/amd64", request.BaselineRuntimeImage); err != nil {
+		return err
+	}
+	info, err := os.Lstat(cachePath)
+	if err != nil {
+		return fmt.Errorf("stat remote OCI project cache: %w", err)
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o222 != 0 {
+		return errors.New("remote OCI project cache path is not a read-only physical directory")
 	}
 	return nil
 }
@@ -257,8 +151,6 @@ func loadRequiredRemoteMaterializeValues(getenv func(string) (string, bool)) (ma
 		remoteOSSBucketEnv,
 		remoteRequestKeyEnv,
 		remoteRequestSHA256Env,
-		remoteBaselineManifestEnv,
-		remoteSSLCAFileEnv,
 	}
 	values := make(map[string]string, len(names))
 	for _, name := range names {
@@ -279,21 +171,7 @@ func validateRemoteMaterializeConfig(config remoteMaterializeConfig) error {
 	if _, err := hex.DecodeString(config.RequestSHA256); err != nil || strings.ToLower(config.RequestSHA256) != config.RequestSHA256 {
 		return errors.New("remote request SHA-256 is invalid")
 	}
-	if !validRemoteManifestDigest(config.BaselineManifest) || config.CAFile != filepath.Join(remoteDataCacheRootPath, "ca-certificates.crt") {
-		return errors.New("remote bootstrap TLS identity is invalid")
-	}
 	return nil
-}
-
-// validRemoteManifestDigest 判断 DataCache manifest 摘要为规范 SHA-256。
-func validRemoteManifestDigest(value string) bool {
-	const prefix = "sha256:"
-	if !strings.HasPrefix(value, prefix) || len(value) != len(prefix)+sha256.Size*2 {
-		return false
-	}
-	encoded := strings.TrimPrefix(value, prefix)
-	_, err := hex.DecodeString(encoded)
-	return err == nil && encoded == strings.ToLower(encoded)
 }
 
 // validRemoteRequestObjectKey 判断请求对象键为规范相对路径且具有固定后缀。
@@ -307,7 +185,6 @@ func validRemoteRequestObjectKey(key string) bool {
 func materializeRemoteSourceWithTiming(
 	ctx context.Context,
 	config remoteMaterializeConfig,
-	cacheRoot string,
 	expandedRoot string,
 	sourceRoot string,
 	workRoot string,
@@ -323,10 +200,7 @@ func materializeRemoteSourceWithTiming(
 	}
 	timing.ShardIdentity = request.ShardIdentity
 	baselineStarted := time.Now()
-	if err := verifyRemoteDirectCache(config.DirectCacheLayers, request); err != nil {
-		return remoteci.ShardRequest{}, timing, err
-	}
-	if err := materializeRemoteBaseline(ctx, cacheRoot, expandedRoot, sourceRoot, request, download); err != nil {
+	if err := verifyRemoteOCIProjectCache(request); err != nil {
 		return remoteci.ShardRequest{}, timing, err
 	}
 	timing.Baseline.MaterializeMS = time.Since(baselineStarted).Milliseconds()
@@ -394,9 +268,6 @@ func loadRemoteShardRequest(ctx context.Context, config remoteMaterializeConfig,
 	if err != nil {
 		return remoteci.ShardRequest{}, err
 	}
-	if request.AnchorManifest != config.BaselineManifest {
-		return remoteci.ShardRequest{}, errors.New("remote shard request Anchor manifest does not match bootstrap")
-	}
 	if path.Dir(config.RequestKey) != path.Dir(request.PatchKey) {
 		return remoteci.ShardRequest{}, errors.New("remote shard request object directory does not match source objects")
 	}
@@ -419,256 +290,6 @@ func stageRemoteSourceObjects(ctx context.Context, workRoot string, request remo
 		return "", "", "", fmt.Errorf("download source patch: %w", err)
 	}
 	return tempRoot, manifestPath, patchPath, nil
-}
-
-// extractRemoteDataCacheBase 校验 DataCache 清单、文件与解压结果后展开远程基线。
-func extractRemoteDataCacheBase(
-	ctx context.Context,
-	cacheRoot string,
-	expandedRoot string,
-	expectedManifestDigest string,
-) (remoteci.BaselineManifest, error) {
-	return extractRemoteDataCacheBaseWithOptions(ctx, cacheRoot, expandedRoot, expectedManifestDigest, false)
-}
-
-func extractRemoteDataCacheBaseWithOptions(
-	ctx context.Context,
-	cacheRoot string,
-	expandedRoot string,
-	expectedManifestDigest string,
-	skipGoBuildCache bool,
-) (remoteci.BaselineManifest, error) {
-	if err := validateRemoteDataCacheRoots(cacheRoot, expandedRoot); err != nil {
-		return remoteci.BaselineManifest{}, err
-	}
-	manifest, err := readRemoteBaselineManifest(cacheRoot, expectedManifestDigest)
-	if err != nil {
-		return remoteci.BaselineManifest{}, err
-	}
-	if err := verifyRemoteCachedBinaries(cacheRoot, manifest); err != nil {
-		return remoteci.BaselineManifest{}, err
-	}
-	if err := materializeRemoteBaselineArchivesWithOptions(ctx, cacheRoot, expandedRoot, manifest, skipGoBuildCache); err != nil {
-		return remoteci.BaselineManifest{}, err
-	}
-	if err := verifyExpandedRemoteBaselineWithOptions(expandedRoot, manifest, skipGoBuildCache); err != nil {
-		return remoteci.BaselineManifest{}, err
-	}
-	return manifest, nil
-}
-
-func materializeRemoteBaselineArchivesWithOptions(
-	ctx context.Context,
-	cacheRoot string,
-	expandedRoot string,
-	manifest remoteci.BaselineManifest,
-	skipGoBuildCache bool,
-) error {
-	if len(manifest.Layers) == 0 {
-		archivePath := filepath.Join(cacheRoot, "baseline.tar.gz")
-		if err := verifyRemoteBaselineFile(archivePath, manifest.ArchiveSHA256, manifest.ArchiveSize); err != nil {
-			return err
-		}
-		return extractRemoteBaselineArchive(ctx, archivePath, expandedRoot)
-	}
-	if err := runRemoteBaselineLayerStage(ctx, cacheRoot, expandedRoot, manifest.Layers, "verify",
-		func(_ context.Context, archivePath string, _ string, layer remoteci.BaselineLayer) error {
-			if skipGoBuildCache && layer.Name == "go-build-cache" {
-				return nil
-			}
-			return verifyRemoteBaselineFile(archivePath, layer.SHA256, layer.Size)
-		}); err != nil {
-		return err
-	}
-	if err := runRemoteBaselineLayerStage(ctx, cacheRoot, expandedRoot, manifest.Layers, "extract",
-		func(ctx context.Context, archivePath string, expandedRoot string, layer remoteci.BaselineLayer) error {
-			if skipGoBuildCache && layer.Name == "go-build-cache" {
-				return nil
-			}
-			return extractRemoteBaselineLayer(ctx, archivePath, expandedRoot, layer.Name)
-		}); err != nil {
-		return err
-	}
-	return copyRemoteBaselineGateBinary(cacheRoot, expandedRoot)
-}
-
-// extractRemoteBaselineArchive 展开一个已验证的确定性归档。
-func extractRemoteBaselineArchive(ctx context.Context, archivePath string, expandedRoot string) error {
-	return extractValidatedRemoteArchive(ctx, archivePath, expandedRoot)
-}
-
-// copyRemoteBaselineGateBinary 将顶层已验证 CLI 复制进分层基线的运行目录。
-func copyRemoteBaselineGateBinary(cacheRoot string, expandedRoot string) error {
-	source, err := os.Open(filepath.Join(cacheRoot, "bin", "super-dolphin-gate"))
-	if err != nil {
-		return fmt.Errorf("open remote gate binary: %w", err)
-	}
-	defer source.Close()
-	binRoot := filepath.Join(expandedRoot, "bin")
-	if err := os.Mkdir(binRoot, 0o755); err != nil {
-		return fmt.Errorf("create expanded remote bin root: %w", err)
-	}
-	destinationPath := filepath.Join(binRoot, "super-dolphin-gate")
-	destination, err := os.OpenFile(destinationPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o755)
-	if err != nil {
-		return fmt.Errorf("create expanded remote gate binary: %w", err)
-	}
-	_, copyErr := io.Copy(destination, source)
-	closeErr := destination.Close()
-	if err := errors.Join(copyErr, closeErr); err != nil {
-		return fmt.Errorf("copy expanded remote gate binary: %w", err)
-	}
-	if err := os.Chmod(destinationPath, 0o755); err != nil {
-		return fmt.Errorf("make expanded remote gate binary executable: %w", err)
-	}
-	return nil
-}
-
-// verifyRemoteBootstrapTLS 在首次 OSS 请求前验证 DataCache 顶层 CA 制品。
-func verifyRemoteBootstrapTLS(cacheRoot, caFile, expectedManifestDigest string) error {
-	if caFile != filepath.Join(cacheRoot, "ca-certificates.crt") {
-		return errors.New("remote bootstrap CA path does not match DataCache root")
-	}
-	manifest, err := readRemoteBaselineManifest(cacheRoot, expectedManifestDigest)
-	if err != nil {
-		return err
-	}
-	return verifyRemoteBaselineFile(caFile, manifest.CABundleSHA256, manifest.CABundleSize)
-}
-
-// validateRemoteDataCacheRoots 确认物化目录是不同的规范绝对路径且目标为空。
-func validateRemoteDataCacheRoots(cacheRoot string, expandedRoot string) error {
-	if !filepath.IsAbs(cacheRoot) || filepath.Clean(cacheRoot) != cacheRoot || !filepath.IsAbs(expandedRoot) || filepath.Clean(expandedRoot) != expandedRoot || cacheRoot == expandedRoot {
-		return errors.New("remote DataCache roots are invalid")
-	}
-	entries, err := os.ReadDir(expandedRoot)
-	if err != nil {
-		return fmt.Errorf("read remote expanded baseline root: %w", err)
-	}
-	if len(entries) != 0 {
-		return errors.New("remote expanded baseline root must be empty")
-	}
-	return nil
-}
-
-// readRemoteBaselineManifest 读取、限长并按请求中的 digest 验证 DataCache 清单。
-func readRemoteBaselineManifest(cacheRoot string, expectedDigest string) (remoteci.BaselineManifest, error) {
-	manifestData, err := os.ReadFile(filepath.Join(cacheRoot, "baseline-manifest.json"))
-	if err != nil {
-		return remoteci.BaselineManifest{}, fmt.Errorf("read remote baseline manifest: %w", err)
-	}
-	if len(manifestData) == 0 || len(manifestData) > remoteManifestMaxBytes ||
-		(expectedDigest != "" && remoteci.BaselineManifestDigest(manifestData) != expectedDigest) {
-		return remoteci.BaselineManifest{}, errors.New("remote baseline manifest identity mismatch")
-	}
-	return remoteci.DecodeBaselineManifest(manifestData)
-}
-
-// verifyRemoteCachedBinaries 在解压前验证 DataCache 中唯一 gate 二进制的身份。
-func verifyRemoteCachedBinaries(cacheRoot string, manifest remoteci.BaselineManifest) error {
-	for _, expected := range []struct {
-		path, digest string
-		size         int64
-	}{
-		{filepath.Join(cacheRoot, "bin", "super-dolphin-gate"), manifest.GateBinarySHA256, manifest.GateBinarySize},
-	} {
-		if err := verifyRemoteBaselineFile(expected.path, expected.digest, expected.size); err != nil {
-			return err
-		}
-	}
-	if err := verifyRemoteBaselineFile(filepath.Join(cacheRoot, "ca-certificates.crt"), manifest.CABundleSHA256, manifest.CABundleSize); err != nil {
-		return err
-	}
-	return nil
-}
-
-// verifyRemoteBaselineFile 校验远程基线文件的规则类型、大小和 SHA-256。
-func verifyRemoteBaselineFile(path string, expectedDigest string, expectedSize int64) error {
-	file, err := os.Open(path)
-	if err != nil {
-		return fmt.Errorf("open remote baseline file: %w", err)
-	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		return fmt.Errorf("stat remote baseline file: %w", err)
-	}
-	if !info.Mode().IsRegular() || info.Size() <= 0 || expectedSize > 0 && info.Size() != expectedSize {
-		return errors.New("remote baseline file size or type mismatch")
-	}
-	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return fmt.Errorf("hash remote baseline file: %w", err)
-	}
-	if "sha256:"+hex.EncodeToString(hash.Sum(nil)) != expectedDigest {
-		return errors.New("remote baseline file SHA-256 mismatch")
-	}
-	return nil
-}
-
-func verifyExpandedRemoteBaselineWithOptions(root string, manifest remoteci.BaselineManifest, skipGoBuildCache bool) error {
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return fmt.Errorf("read expanded remote baseline: %w", err)
-	}
-	required := map[string]bool{
-		"bin": false, "cache-seed": false, "frontend-embed": false, "runtime": false, "source": false,
-	}
-	if skipGoBuildCache {
-		delete(required, "cache-seed")
-	}
-	for _, entry := range entries {
-		if _, ok := required[entry.Name()]; !ok || !entry.IsDir() {
-			return errors.New("expanded remote baseline contains an unexpected top-level entry")
-		}
-		required[entry.Name()] = true
-	}
-	for _, present := range required {
-		if !present {
-			return errors.New("expanded remote baseline is incomplete")
-		}
-	}
-	for _, expected := range []struct {
-		path   string
-		digest string
-		size   int64
-	}{
-		{
-			path:   filepath.Join(root, "bin", "super-dolphin-gate"),
-			digest: manifest.GateBinarySHA256, size: manifest.GateBinarySize,
-		},
-		{
-			path:   filepath.Join(root, "runtime", "manifest.json"),
-			digest: manifest.RuntimeSeedManifestSHA256,
-		},
-	} {
-		if err := verifyRemoteBaselineFile(expected.path, expected.digest, expected.size); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// cloneRemoteDataCacheBase 从已展开的只读基线复制 source，且要求目标为空。
-func cloneRemoteDataCacheBase(ctx context.Context, cacheBase string, destination string) error {
-	if strings.TrimSpace(cacheBase) == "" || strings.TrimSpace(destination) == "" {
-		return errors.New("remote DataCache base and destination are required")
-	}
-	entries, err := os.ReadDir(destination)
-	if err != nil {
-		return fmt.Errorf("read remote source mount: %w", err)
-	}
-	if len(entries) != 0 {
-		return errors.New("remote source mount must be empty before image base clone")
-	}
-	command := exec.CommandContext(ctx, "git", "-c", "credential.interactive=never",
-		"clone", "--quiet", "--no-hardlinks", cacheBase, destination)
-	command.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GCM_INTERACTIVE=Never")
-	output, err := command.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("clone DataCache base source: %w: %s", err, strings.TrimSpace(string(output)))
-	}
-	return nil
 }
 
 // handoffRemoteWorkRoot 在确认空目录后收紧权限并移交给固定 executor UID/GID。

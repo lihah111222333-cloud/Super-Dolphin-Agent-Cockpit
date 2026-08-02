@@ -65,33 +65,6 @@ func TestClient_SpotPendingWithinThirtySecondsDoesNotFallBack(t *testing.T) {
 	}
 }
 
-func TestClient_SeedUsesSameThirtySecondSpotFallback(t *testing.T) {
-	runner := &fakeCommandRunner{responses: [][]byte{
-		[]byte(`{"ContainerGroupId":"eci-seed-spot"}`),
-		spotGroupResponseWithID("eci-seed-spot", "Scheduling"),
-		spotGroupResponseWithID("eci-seed-spot", "Scheduling"),
-		spotGroupResponseWithID("eci-seed-spot", "Scheduling"),
-		spotGroupResponseWithID("eci-seed-spot", "Scheduling"),
-		[]byte(`{"RequestId":"delete-seed-spot"}`),
-		[]byte(`{"ContainerGroups":[]}`),
-		[]byte(`{"ContainerGroupId":"eci-seed-regular"}`),
-	}}
-	client := newTestClient(t, runner)
-	elapsed := enableSpotFallbackClock(client)
-
-	group, err := client.CreateSeedContainerGroup(context.Background(), validSeedRequest())
-	if err != nil || group.ID != "eci-seed-regular" {
-		t.Fatalf("CreateSeedContainerGroup() = %#v, %v", group, err)
-	}
-	if got := elapsed(); got != 30*time.Second {
-		t.Fatalf("seed spot scheduling wait = %s, want 30s", got)
-	}
-	order := fallbackActionOrder(runner.calls)
-	if order[len(order)-1] != "CreateContainerGroup:NoSpot" {
-		t.Fatalf("seed fallback action order = %v", order)
-	}
-}
-
 func TestClient_SpotScheduleFailureFallsBackImmediately(t *testing.T) {
 	runner := &fakeCommandRunner{responses: [][]byte{
 		[]byte(`{"ContainerGroupId":"eci-spot"}`),
