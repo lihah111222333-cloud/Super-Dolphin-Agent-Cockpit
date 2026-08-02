@@ -5,6 +5,9 @@ const remoteBaselineSeedScriptGateHelpers = `
 previous_gate_source_sha256=
 previous_gate_platform=
 previous_gate_toolchain_digest=
+require_sha256_digest() {
+  printf '%s\n' "$1" | LC_ALL=C grep -Eq '^sha256:[0-9a-f]{64}$'
+}
 load_verified_gate() {
   manifest=$1
   binary=$2
@@ -46,15 +49,27 @@ verify_gate_cli_identity() (
 // remoteBaselineSeedScriptRuntimeDepsReplay 安全重放逐代完整运行时依赖层。
 const remoteBaselineSeedScriptRuntimeDepsReplay = `      runtime_deps_count=$(grep -o '"name":"runtime-deps"' "$manifest" | wc -l | tr -d ' ')
       case "$runtime_deps_count" in 0)
-        test "$manifest_runtime_dependency_digest" = "$expected_runtime_dependency_digest"
+        if test -z "$expected_runtime_dependency_digest"; then
+          test -z "$manifest_runtime_dependency_digest"
+        else
+          require_sha256_digest "$manifest_runtime_dependency_digest"
+          test "$manifest_runtime_dependency_digest" = "$expected_runtime_dependency_digest"
+        fi
         ;; 1)
         runtime_deps_delta=$layer_root/runtime-deps.delta.tar.gz
         runtime_deps_digest=$(sed -n 's/.*"name":"runtime-deps","archive":"runtime-deps.delta.tar.gz","sha256":"\([^"]*\)".*/\1/p' "$manifest")
         runtime_deps_size=$(sed -n 's/.*"name":"runtime-deps","archive":"runtime-deps.delta.tar.gz","sha256":"[^"]*","size":\([0-9][0-9]*\).*/\1/p' "$manifest")
         runtime_deps_base_digest=$(sed -n 's/.*"name":"runtime-deps".*"base_runtime_dependency_digest":"\([^"]*\)".*/\1/p' "$manifest")
         runtime_deps_target_digest=$(sed -n 's/.*"name":"runtime-deps".*"target_runtime_dependency_digest":"\([^"]*\)".*/\1/p' "$manifest")
-        test -n "$runtime_deps_digest"; test -n "$runtime_deps_size"; test -f "$runtime_deps_delta"
-        test "$runtime_deps_base_digest" = "$expected_runtime_dependency_digest"
+        require_sha256_digest "$runtime_deps_digest"; test -n "$runtime_deps_size"; test -f "$runtime_deps_delta"
+        require_sha256_digest "$manifest_runtime_dependency_digest"
+        require_sha256_digest "$runtime_deps_target_digest"
+        if test -z "$expected_runtime_dependency_digest"; then
+          require_sha256_digest "$runtime_deps_base_digest"
+        else
+          require_sha256_digest "$runtime_deps_base_digest"
+          test "$runtime_deps_base_digest" = "$expected_runtime_dependency_digest"
+        fi
         test "$runtime_deps_target_digest" = "$manifest_runtime_dependency_digest"
         test "$(digest_file "$runtime_deps_delta")" = "$runtime_deps_digest"
         test "$(stat -c '%s' "$runtime_deps_delta")" = "$runtime_deps_size"
