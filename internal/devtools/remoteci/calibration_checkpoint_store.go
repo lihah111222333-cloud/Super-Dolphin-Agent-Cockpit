@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -13,9 +12,7 @@ import (
 )
 
 const (
-	calibrationCheckpointSchemaVersion       uint32 = 1
-	legacyCalibrationCheckpointSchemaVersion uint32 = 5
-	calibrationCheckpointMaxBytes                   = 4 << 20
+	calibrationCheckpointSchemaVersion uint32 = 1
 )
 
 type calibrationCheckpointDocument struct {
@@ -75,7 +72,7 @@ func (result *calibrationCheckpointResult) Validate() error {
 
 // Validate 拒绝版本漂移、空身份和无法恢复的场景状态。
 func (document *calibrationCheckpointDocument) Validate() error {
-	if (document.SchemaVersion != calibrationCheckpointSchemaVersion && document.SchemaVersion != legacyCalibrationCheckpointSchemaVersion) ||
+	if document.SchemaVersion != calibrationCheckpointSchemaVersion ||
 		strings.TrimSpace(document.Identity) == "" || document.Scenarios == nil {
 		return errors.New("calibration checkpoint schema or identity is invalid")
 	}
@@ -84,20 +81,18 @@ func (document *calibrationCheckpointDocument) Validate() error {
 
 // CalibrationCheckpoint 将校准场景进度持久化在 duration ledger 的 SQLite 权威库中。
 type CalibrationCheckpoint struct {
-	store      *gatecontract.DurationLedgerStore
-	legacyPath string
-	identity   string
+	store    *gatecontract.DurationLedgerStore
+	identity string
 }
 
-// NewCalibrationCheckpoint 打开 duration ledger SQLite 权威库，并严格一次性导入旧 JSON 断点。
+// NewCalibrationCheckpoint 打开 duration ledger SQLite 权威库。
 func NewCalibrationCheckpoint(store *gatecontract.DurationLedgerStore, identity string) (*CalibrationCheckpoint, error) {
 	if store == nil || strings.TrimSpace(identity) == "" {
 		return nil, errors.New("calibration checkpoint duration ledger store and identity are required")
 	}
 	checkpoint := &CalibrationCheckpoint{
-		store:      store,
-		legacyPath: store.AuthorityPath() + ".calibration.checkpoint",
-		identity:   identity,
+		store:    store,
+		identity: identity,
 	}
 	if err := checkpoint.ensure(); err != nil {
 		return nil, err
@@ -110,59 +105,7 @@ func (checkpoint *CalibrationCheckpoint) ensure() error {
 	if err != nil {
 		return err
 	}
-	return checkpoint.importLegacyJSONOnce()
-}
-
-func (checkpoint *CalibrationCheckpoint) importLegacyJSONOnce() error {
-	content, err := readLegacyCalibrationCheckpoint(checkpoint.legacyPath)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	var document calibrationCheckpointDocument
-	if err := gatecontract.DecodeStrictJSON(content, &document); err != nil {
-		return fmt.Errorf("decode legacy calibration checkpoint: %w", err)
-	}
-	if document.SchemaVersion != legacyCalibrationCheckpointSchemaVersion {
-		return fmt.Errorf("legacy calibration checkpoint schema %d is unsupported", document.SchemaVersion)
-	}
-	document.SchemaVersion = calibrationCheckpointSchemaVersion
-	if err := document.Validate(); err != nil {
-		return fmt.Errorf("validate legacy calibration checkpoint: %w", err)
-	}
-	if document.Identity != checkpoint.identity {
-		return nil
-	}
-	_, exists, err := checkpoint.store.LoadCalibrationCheckpoint(checkpoint.identity)
-	if err != nil {
-		return err
-	}
-	if !exists {
-		if err := checkpoint.persist(document); err != nil {
-			return fmt.Errorf("import legacy calibration checkpoint: %w", err)
-		}
-	}
-	if err := os.Remove(checkpoint.legacyPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("remove imported legacy calibration checkpoint: %w", err)
-	}
 	return nil
-}
-
-func readLegacyCalibrationCheckpoint(path string) ([]byte, error) {
-	info, err := os.Stat(path)
-	if err != nil {
-		return nil, err
-	}
-	if info.Size() > calibrationCheckpointMaxBytes {
-		return nil, fmt.Errorf("legacy calibration checkpoint exceeds %d bytes", calibrationCheckpointMaxBytes)
-	}
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read legacy calibration checkpoint: %w", err)
-	}
-	return content, nil
 }
 
 // Completed 返回已经权威完成的场景输入与结果。

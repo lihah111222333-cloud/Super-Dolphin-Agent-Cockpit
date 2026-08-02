@@ -44,7 +44,7 @@ func newCompatiblePassFixture(t *testing.T) compatiblePassFixture {
 
 func newCompatiblePassLedger(t *testing.T) *gate.DurationLedgerStore {
 	t.Helper()
-	ledger, err := gate.NewDurationLedgerStore(filepath.Join(t.TempDir(), "duration-ledger.json"))
+	ledger, err := gate.NewDurationLedgerStore(filepath.Join(t.TempDir(), "duration-ledger.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}

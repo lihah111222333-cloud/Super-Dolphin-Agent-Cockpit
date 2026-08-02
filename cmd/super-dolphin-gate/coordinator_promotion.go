@@ -29,8 +29,7 @@ type productionAcceptedImageSigner struct {
 }
 
 // openProductionPromotionAuthorityDB resolves the same daemon-identity keyed
-// coordinator ledger used by the owner.  It deliberately does not create an
-// authority database under either legacy JSON root.
+// coordinator ledger used by the owner.
 func openProductionPromotionAuthorityStore(
 	ctx context.Context,
 	config productionCoordinatorConfig,

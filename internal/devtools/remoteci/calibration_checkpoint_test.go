@@ -2,7 +2,6 @@ package remoteci
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -37,48 +36,6 @@ func TestCalibrationCheckpointPersistsInAuthoritySQLite(t *testing.T) {
 	}
 	if _, err := os.Stat(authorityPath + ".calibration.checkpoint"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("checkpoint JSON was written: %v", err)
-	}
-}
-
-func TestCalibrationCheckpointImportsCurrentLegacyJSONOnce(t *testing.T) {
-	store := calibrationCheckpointStore(t)
-	authorityPath := store.AuthorityPath()
-	input := testCalibrationCheckpointInput()
-	result := testCalibrationCheckpointResult(input)
-	legacy := calibrationCheckpointDocument{SchemaVersion: legacyCalibrationCheckpointSchemaVersion, Identity: "sha256:checkpoint", Scenarios: map[string]calibrationScenarioState{"commit": {Started: true, Completed: true, Input: compactCalibrationCheckpointInput(input), Result: compactCalibrationCheckpointResult(result)}}}
-	content, err := json.Marshal(legacy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacyPath := authorityPath + ".calibration.checkpoint"
-	if err := os.WriteFile(legacyPath, content, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	checkpoint, err := NewCalibrationCheckpoint(store, "sha256:checkpoint")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, got, ok := checkpoint.Completed("commit"); !ok || got.JobID != result.JobID {
-		t.Fatalf("legacy checkpoint was not imported: %#v, %t", got, ok)
-	}
-	if _, err := os.Stat(legacyPath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("imported legacy JSON remained: %v", err)
-	}
-}
-
-func TestCalibrationCheckpointRejectsInvalidLegacyJSON(t *testing.T) {
-	store := calibrationCheckpointStore(t)
-	authorityPath := store.AuthorityPath()
-	legacyPath := authorityPath + ".calibration.checkpoint"
-	content := `{"schema_version":1,"identity":"sha256:checkpoint","scenarios":{},"unexpected":true}`
-	if err := os.WriteFile(legacyPath, []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := NewCalibrationCheckpoint(store, "sha256:checkpoint"); err == nil {
-		t.Fatal("invalid legacy JSON was accepted")
-	}
-	if _, err := os.Stat(legacyPath); err != nil {
-		t.Fatalf("invalid legacy JSON was removed: %v", err)
 	}
 }
 

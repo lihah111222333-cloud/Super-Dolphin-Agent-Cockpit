@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS duration_calibrations (
 );
 
 -- remote baseline 的接受状态共用 duration ledger SQLite authority。
--- v2 只接受 OCI state；legacy JSON 必须由显式迁移流程处理，不能参与该 authority。
+-- v2 只接受 OCI state；历史形状不得参与该 authority。
 CREATE TABLE IF NOT EXISTS ci_remote_baseline_state (
 	singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
 	schema_version INTEGER NOT NULL CHECK (schema_version = 2),

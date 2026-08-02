@@ -287,8 +287,7 @@ func validateAuthoritativeRemoteHookResult(
 }
 
 // loadRemoteBaselineStateForRefresh 只从 SQLite 读取已接受的 OCI 基线。
-// 旧 JSON 状态必须由显式迁移工具处理；刷新路径不得导入、复制或删除其资源。
-func loadRemoteBaselineStateForRefresh(configPath, ledgerPath string) (remoteci.BaselineState, error) {
+func loadRemoteBaselineStateForRefresh(ledgerPath string) (remoteci.BaselineState, error) {
 	databasePath := remoteBaselineDatabasePath(ledgerPath)
 	stored, err := loadStoredRemoteBaselineState(databasePath)
 	if err == nil {
@@ -296,11 +295,6 @@ func loadRemoteBaselineStateForRefresh(configPath, ledgerPath string) (remoteci.
 	}
 	if !errors.Is(err, errRemoteBaselineStateNotFound) && !errors.Is(err, os.ErrNotExist) {
 		return remoteci.BaselineState{}, err
-	}
-	if _, legacyErr := os.Lstat(remoteLegacyBaselineStatePath(configPath)); legacyErr == nil {
-		return remoteci.BaselineState{}, errors.New("remote baseline OCI migration is required; refusing legacy JSON DataCache state")
-	} else if !errors.Is(legacyErr, os.ErrNotExist) {
-		return remoteci.BaselineState{}, fmt.Errorf("inspect legacy remote baseline state: %w", legacyErr)
 	}
 	return remoteci.BaselineState{}, nil
 }

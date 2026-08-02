@@ -10,28 +10,6 @@ import (
 	"time"
 )
 
-func TestDurationLedgerStoreMigratesLegacyJSONOnceAndLoadsPlanningIndex(t *testing.T) {
-	root := t.TempDir()
-	legacyPath := filepath.Join(root, "duration-ledger.json")
-	writeLegacyDurationLedger(t, legacyPath, DurationLedgerSnapshot{
-		Generation: 7,
-		Ledger:     testDurationLedger(101),
-	})
-	store, err := NewDurationLedgerStore(legacyPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	planning := testDurationPlanningContext()
-	assertSQLitePlanningEstimate(t, store, planning, 7, 101)
-	assertSQLiteAuthorityPath(t, store)
-
-	writeLegacyDurationLedger(t, legacyPath, DurationLedgerSnapshot{
-		Generation: 8,
-		Ledger:     testDurationLedger(999),
-	})
-	assertSQLitePlanningEstimate(t, store, planning, 7, 101)
-}
-
 func assertSQLitePlanningEstimate(
 	t *testing.T,
 	store *DurationLedgerStore,
@@ -68,7 +46,7 @@ func assertSQLiteAuthorityPath(t *testing.T, store *DurationLedgerStore) {
 }
 
 func TestNewDurationLedgerStoreRequiresAbsoluteCanonicalParent(t *testing.T) {
-	if _, err := NewDurationLedgerStore("duration-ledger.json"); err == nil {
+	if _, err := NewDurationLedgerStore("duration-ledger.sqlite"); err == nil {
 		t.Fatal("relative duration ledger path was accepted")
 	}
 	root := t.TempDir()
@@ -76,7 +54,7 @@ func TestNewDurationLedgerStoreRequiresAbsoluteCanonicalParent(t *testing.T) {
 	if err := os.Symlink(root, alias); err != nil {
 		t.Fatal(err)
 	}
-	store, err := NewDurationLedgerStore(filepath.Join(alias, "duration-ledger.json"))
+	store, err := NewDurationLedgerStore(filepath.Join(alias, "duration-ledger.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -551,25 +529,6 @@ func calibrationAtMillisecond(calibration *DurationCalibration) *DurationCalibra
 	copy := *calibration
 	copy.CompletedAt = copy.CompletedAt.UTC().Truncate(time.Millisecond)
 	return &copy
-}
-
-func writeLegacyDurationLedger(
-	t *testing.T,
-	path string,
-	snapshot DurationLedgerSnapshot,
-) {
-	t.Helper()
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := writeDurationLedgerFile(file, snapshot); err != nil {
-		file.Close()
-		t.Fatal(err)
-	}
-	if err := file.Close(); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func testDurationPlanningContext() PlanningContext {

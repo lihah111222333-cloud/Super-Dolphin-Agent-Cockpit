@@ -77,7 +77,7 @@ func (store *DurationLedgerStore) LoadCalibrationCheckpoint(identity string) (Ca
 	return record, true, nil
 }
 
-// CreateCalibrationCheckpointIfAbsent 在单个事务中创建从 legacy JSON 导入的完整 checkpoint。
+// CreateCalibrationCheckpointIfAbsent 在单个事务中创建完整 checkpoint。
 func (store *DurationLedgerStore) CreateCalibrationCheckpointIfAbsent(record CalibrationCheckpointRecord) (bool, error) {
 	if strings.TrimSpace(record.Identity) == "" || record.SchemaVersion == 0 {
 		return false, fmt.Errorf("calibration checkpoint identity and schema version are required")

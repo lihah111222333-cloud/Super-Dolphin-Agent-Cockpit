@@ -80,7 +80,7 @@ func runRemoteBaselineRefreshWithBuilder(args []string, stdout io.Writer, builde
 	}
 	defer func() { resultErr = errors.Join(resultErr, lock.close()) }()
 
-	accepted, err := loadRemoteBaselineStateForRefresh(options.ConfigPath, options.LedgerPath)
+	accepted, err := loadRemoteBaselineStateForRefresh(options.LedgerPath)
 	if err != nil {
 		return protocolError("load remote baseline state: %v", err)
 	}

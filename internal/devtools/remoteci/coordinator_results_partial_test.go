@@ -87,7 +87,7 @@ func TestRecordRemoteCIRunFiltersUncreatedShardPlaceholder(t *testing.T) {
 
 func newPartialResultsLedgerStore(t *testing.T) *gate.DurationLedgerStore {
 	t.Helper()
-	ledgerStore, err := gate.NewDurationLedgerStore(filepath.Join(t.TempDir(), "duration-ledger.json"))
+	ledgerStore, err := gate.NewDurationLedgerStore(filepath.Join(t.TempDir(), "duration-ledger.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}

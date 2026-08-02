@@ -85,7 +85,7 @@ func TestEnsureRemoteDurationCalibrationSingleFlightsConcurrentAgents(t *testing
 	if err := os.Chmod(root, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	ledgerPath := filepath.Join(root, "duration-ledger.json")
+	ledgerPath := filepath.Join(root, "duration-ledger.sqlite")
 	state := remoteRunRunnerIdentityState()
 	state.MainCommit = strings.Repeat("a", 40)
 	runnerIdentity := remoteRunRunnerIdentity(state)
@@ -136,7 +136,7 @@ func TestEnsureRemoteDurationCalibrationUsesExplicitCandidateWithoutMovingReposi
 	if err != nil {
 		t.Fatal(err)
 	}
-	ledgerPath := filepath.Join(ledgerRoot, "duration-ledger.json")
+	ledgerPath := filepath.Join(ledgerRoot, "duration-ledger.sqlite")
 	state := remoteRunRunnerIdentityState()
 	state.MainCommit = remoteRunGitOutput(t, repository, "rev-parse", "HEAD^1^{commit}")
 	runnerIdentity := remoteRunRunnerIdentity(state)
@@ -209,7 +209,7 @@ func storeRemoteAutomationCalibration(ledgerPath string, state remoteci.Baseline
 }
 
 func TestPrepareAutomaticRemoteCalibrationLedgerPreservesSamples(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "duration-ledger.json")
+	path := filepath.Join(t.TempDir(), "duration-ledger.sqlite")
 	store, err := gatecontract.NewDurationLedgerStore(path)
 	if err != nil {
 		t.Fatal(err)
@@ -249,7 +249,7 @@ func TestPrepareAutomaticRemoteCalibrationLedgerPreservesSamples(t *testing.T) {
 }
 
 func TestPrepareAutomaticRemoteCalibrationLedgerMigratesSameBaselineIdentity(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "duration-ledger.json")
+	path := filepath.Join(t.TempDir(), "duration-ledger.sqlite")
 	store, err := gatecontract.NewDurationLedgerStore(path)
 	if err != nil {
 		t.Fatal(err)

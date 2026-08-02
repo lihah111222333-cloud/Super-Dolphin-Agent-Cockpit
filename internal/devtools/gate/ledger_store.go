@@ -3,7 +3,6 @@ package gate
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -132,18 +131,12 @@ func (store *DurationLedgerStore) AppendSamplesFast(samples []DurationSample) (u
 
 // DurationLedgerStore 在 SQLite 权威文件中持久化 duration ledger。
 type DurationLedgerStore struct {
-	path       string
-	legacyPath string
-	nowFunc    func() time.Time
-}
-
-type durationLedgerFile struct {
-	Generation uint64         `json:"generation"`
-	Ledger     DurationLedger `json:"ledger"`
+	path    string
+	nowFunc func() time.Time
 }
 
 // NewDurationLedgerStore 构造存储，不隐式创建文件或目录。
-// 旧 .json 路径自动映射到同名 .sqlite 权威文件，并仅在首次创建时导入 JSON。
+// 路径必须直接指定 SQLite 权威文件。
 func NewDurationLedgerStore(path string) (*DurationLedgerStore, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -161,8 +154,10 @@ func NewDurationLedgerStore(path string) (*DurationLedgerStore, error) {
 		return nil, fmt.Errorf("resolve duration ledger store parent: %w", err)
 	}
 	canonicalPath := filepath.Join(parent, filepath.Base(cleanedPath))
-	authorityPath, legacyPath := durationLedgerAuthorityPaths(canonicalPath)
-	return &DurationLedgerStore{path: authorityPath, legacyPath: legacyPath, nowFunc: time.Now}, nil
+	if strings.ToLower(filepath.Ext(canonicalPath)) != ".sqlite" {
+		return nil, fmt.Errorf("duration ledger store path must use .sqlite: %q", path)
+	}
+	return &DurationLedgerStore{path: canonicalPath, nowFunc: time.Now}, nil
 }
 
 // AuthorityPath 返回 SQLite 权威文件路径。
@@ -229,44 +224,4 @@ func (store *DurationLedgerStore) CompareAndSwapCalibration(
 		}
 	}
 	return store.compareAndSwapSQLiteCalibration(expectedGeneration, calibration)
-}
-
-// ExportLegacyJSON 按需导出兼容快照；导出文件不参与后续权威读取。
-func (store *DurationLedgerStore) ExportLegacyJSON(writer io.Writer) error {
-	if store == nil {
-		return errors.New("duration ledger store is nil")
-	}
-	snapshot, err := store.Load()
-	if err != nil {
-		return err
-	}
-	return writeDurationLedgerFile(writer, snapshot)
-}
-
-// writeDurationLedgerFile 校验快照并在 writer 支持时同步文件内容。
-func writeDurationLedgerFile(writer io.Writer, snapshot DurationLedgerSnapshot) error {
-	if snapshot.Generation == 0 {
-		return errors.New("duration ledger generation must be positive")
-	}
-	if err := ValidateDurationLedger(snapshot.Ledger); err != nil {
-		return fmt.Errorf("validate duration ledger: %w", err)
-	}
-	stored := durationLedgerFile{Generation: snapshot.Generation, Ledger: snapshot.Ledger}
-	if err := encodeDurationLedgerFile(writer, stored); err != nil {
-		return err
-	}
-	if syncer, ok := writer.(interface{ Sync() error }); ok {
-		if err := syncer.Sync(); err != nil {
-			return fmt.Errorf("sync duration ledger temporary file: %w", err)
-		}
-	}
-	return nil
-}
-
-func encodeDurationLedgerFile(writer io.Writer, stored durationLedgerFile) error {
-	encoder := json.NewEncoder(writer)
-	if err := encoder.Encode(stored); err != nil {
-		return fmt.Errorf("encode duration ledger file: %w", err)
-	}
-	return nil
 }

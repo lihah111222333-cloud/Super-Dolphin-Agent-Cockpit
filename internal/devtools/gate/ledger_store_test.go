@@ -181,7 +181,7 @@ func TestDurationLedgerStoreAppendSamplesRetainsThreeRecentExecutions(t *testing
 
 func newTestDurationLedgerStore(t *testing.T) *DurationLedgerStore {
 	t.Helper()
-	store, err := NewDurationLedgerStore(filepath.Join(t.TempDir(), "duration-ledger.json"))
+	store, err := NewDurationLedgerStore(filepath.Join(t.TempDir(), "duration-ledger.sqlite"))
 	if err != nil {
 		t.Fatalf("NewDurationLedgerStore() error = %v", err)
 	}

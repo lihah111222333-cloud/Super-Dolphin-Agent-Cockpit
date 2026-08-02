@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -17,18 +16,6 @@ const (
 	durationLedgerSQLiteSchemaVersion = 1
 	durationLedgerSQLiteBusyTimeoutMS = 5_000
 )
-
-func durationLedgerAuthorityPaths(configuredPath string) (string, string) {
-	extension := strings.ToLower(filepath.Ext(configuredPath))
-	switch extension {
-	case ".json":
-		return strings.TrimSuffix(configuredPath, filepath.Ext(configuredPath)) + ".sqlite", configuredPath
-	case ".sqlite", ".sqlite3", ".db":
-		return configuredPath, strings.TrimSuffix(configuredPath, filepath.Ext(configuredPath)) + ".json"
-	default:
-		return configuredPath + ".sqlite", configuredPath
-	}
-}
 
 // loadSQLiteSnapshot 在单个只读事务中加载账本快照及其请求的数据投影。
 func (store *DurationLedgerStore) loadSQLiteSnapshot(
@@ -299,14 +286,6 @@ func (store *DurationLedgerStore) openSQLiteAuthority(create bool) (*sql.DB, err
 	if err != nil {
 		return nil, err
 	}
-	migrated, err := store.migrateMissingSQLiteAuthority(database)
-	if err != nil {
-		database.Close()
-		return nil, err
-	}
-	if migrated {
-		return store.openSQLiteAuthority(create)
-	}
 	if err := os.Chmod(store.path, 0o600); err != nil {
 		database.Close()
 		return nil, fmt.Errorf("restrict duration ledger SQLite authority permissions: %w", err)
@@ -314,19 +293,13 @@ func (store *DurationLedgerStore) openSQLiteAuthority(create bool) (*sql.DB, err
 	return database, nil
 }
 
-// prepareSQLiteAuthorityPath 在打开数据库前处理路径和遗留 JSON 迁移。
+// prepareSQLiteAuthorityPath 在打开数据库前校验 SQLite 权威路径。
 func (store *DurationLedgerStore) prepareSQLiteAuthorityPath(create bool) error {
 	if _, err := os.Stat(store.path); err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("stat duration ledger SQLite authority: %w", err)
 		}
-		if legacyExists, legacyErr := regularFileExists(store.legacyPath); legacyErr != nil {
-			return legacyErr
-		} else if legacyExists {
-			if err := store.migrateLegacyJSON(); err != nil {
-				return err
-			}
-		} else if !create {
+		if !create {
 			return fmt.Errorf("open duration ledger SQLite authority: %w", os.ErrNotExist)
 		}
 	}
@@ -365,45 +338,6 @@ func openSQLiteLedgerDatabaseOnce(path string) (*sql.DB, error) {
 		return nil, err
 	}
 	return database, nil
-}
-
-// migrateMissingSQLiteAuthority 在空 SQLite 库仍有遗留 JSON 时完成迁移。
-func (store *DurationLedgerStore) migrateMissingSQLiteAuthority(database *sql.DB) (bool, error) {
-	metadataExists, err := sqliteLedgerMetadataExists(database)
-	if err != nil {
-		return false, err
-	}
-	if metadataExists {
-		return false, nil
-	}
-	legacyExists, err := regularFileExists(store.legacyPath)
-	if err != nil || !legacyExists {
-		return false, err
-	}
-	if err := database.Close(); err != nil {
-		return false, fmt.Errorf("close duration ledger before migration: %w", err)
-	}
-	if err := store.migrateLegacyJSON(); err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-func sqliteLedgerMetadataExists(database *sql.DB) (bool, error) {
-	var marker int
-	err := database.QueryRow(`
-		SELECT singleton FROM duration_ledger_meta WHERE singleton = 1
-	`).Scan(&marker)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
-	if err != nil {
-		return false, mapDurationLedgerSQLiteError("probe duration ledger metadata", err)
-	}
-	if marker != 1 {
-		return false, errors.New("duration ledger SQLite metadata marker is invalid")
-	}
-	return true, nil
 }
 
 func regularFileExists(path string) (bool, error) {

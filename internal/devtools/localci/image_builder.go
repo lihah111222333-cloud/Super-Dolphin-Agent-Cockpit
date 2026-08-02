@@ -147,6 +147,24 @@ func NewImageBuilder(runner BuildKitRunner) (*ImageBuilder, error) {
 	return &ImageBuilder{runner: runner}, nil
 }
 
+// PrepareCandidateBuildRequest derives the complete, deterministic BuildKit
+// request without selecting or invoking a BuildKit runtime. Remote builders use
+// this boundary so the request-side can bind its receipt to the exact source
+// closure while keeping Docker daemon access out of the caller.
+func PrepareCandidateBuildRequest(request CandidateRequest) (CandidateResult, BuildKitBuildRequest, error) {
+	if err := validateCandidateRequestIdentity(request); err != nil {
+		return CandidateResult{}, BuildKitBuildRequest{}, err
+	}
+	if err := validateAcceptedCandidateDigests(request); err != nil {
+		return CandidateResult{}, BuildKitBuildRequest{}, err
+	}
+	prepared, err := prepareCandidate(request)
+	if err != nil {
+		return CandidateResult{}, BuildKitBuildRequest{}, err
+	}
+	return prepared.result, prepared.buildRequest, nil
+}
+
 // EnsureCandidate 在输入摘要变化时构建候选镜像，否则复用不可变 accepted digest。
 func (builder *ImageBuilder) EnsureCandidate(ctx context.Context, request CandidateRequest) (CandidateResult, error) {
 	if err := validateImageBuilderEntry(builder, ctx); err != nil {

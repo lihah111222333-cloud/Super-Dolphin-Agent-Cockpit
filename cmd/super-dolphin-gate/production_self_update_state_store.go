@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
@@ -20,17 +19,11 @@ CREATE TABLE IF NOT EXISTS production_self_update_state (
 	owner_uid INTEGER NOT NULL,
 	state_json BLOB NOT NULL,
 	PRIMARY KEY (install_root, owner_uid)
-);
-CREATE TABLE IF NOT EXISTS production_self_update_legacy_import (
-	install_root TEXT NOT NULL,
-	owner_uid INTEGER NOT NULL,
-	retired INTEGER NOT NULL CHECK (retired IN (0, 1)),
-	PRIMARY KEY (install_root, owner_uid)
 );`
 
 var errProductionSelfUpdateStateNotFound = errors.New("production self-update state is not initialized")
 
-// productionSelfUpdateDatabasePath 将旧 JSON 路径映射到安装根专属 SQLite 权威账本。
+// productionSelfUpdateDatabasePath 校验安装根专属 SQLite 权威账本路径。
 func productionSelfUpdateDatabasePath(path string) (string, error) {
 	if filepath.Base(path) != productionSelfUpdateStateFile || !filepath.IsAbs(path) || filepath.Clean(path) != path {
 		return "", errors.New("production self-update state path must be canonical and absolute")
@@ -47,7 +40,7 @@ func productionSelfUpdateDatabasePath(path string) (string, error) {
 	if err != nil || !productionProvisionOwnedByCurrentUser(info) {
 		return "", errors.Join(errors.New("production self-update install root is not owned by the current user"), err)
 	}
-	return filepath.Join(installRoot, strings.TrimSuffix(productionSelfUpdateStateFile, ".json")+".sqlite"), nil
+	return filepath.Join(installRoot, productionSelfUpdateStateFile), nil
 }
 
 func openProductionSelfUpdateStateStore(path string) (*sql.DB, string, int, error) {
@@ -119,17 +112,7 @@ func loadProductionSelfUpdateState(path string) (productionSelfUpdateState, erro
 		return productionSelfUpdateState{}, err
 	}
 	defer database.Close()
-	state, err := loadProductionSelfUpdateStateFromStore(database, installRoot, ownerUID)
-	if err == nil {
-		if err := requireProductionSelfUpdateLegacyRetired(database, installRoot, ownerUID, path); err != nil {
-			return productionSelfUpdateState{}, err
-		}
-		return state, nil
-	}
-	if errors.Is(err, errProductionSelfUpdateStateNotFound) {
-		return importProductionSelfUpdateLegacyJSON(database, installRoot, ownerUID, path)
-	}
-	return state, err
+	return loadProductionSelfUpdateStateFromStore(database, installRoot, ownerUID)
 }
 
 func loadProductionSelfUpdateStateFromStore(database *sql.DB, installRoot string, ownerUID int) (productionSelfUpdateState, error) {
@@ -156,122 +139,7 @@ func loadProductionSelfUpdateStateFromStore(database *sql.DB, installRoot string
 	return state, nil
 }
 
-// importProductionSelfUpdateLegacyJSON 只在当前安装根和 owner 尚无 SQLite 状态时导入一次旧 JSON。
-func importProductionSelfUpdateLegacyJSON(database *sql.DB, installRoot string, ownerUID int, legacyPath string) (productionSelfUpdateState, error) {
-	retired, err := productionSelfUpdateLegacyRetired(database, installRoot, ownerUID)
-	if err != nil {
-		return productionSelfUpdateState{}, err
-	}
-	if retired {
-		return productionSelfUpdateState{}, errProductionSelfUpdateStateNotFound
-	}
-	state, err := loadProductionSelfUpdateLegacyJSON(legacyPath)
-	if errors.Is(err, os.ErrNotExist) {
-		return productionSelfUpdateState{}, errProductionSelfUpdateStateNotFound
-	}
-	if err != nil {
-		return productionSelfUpdateState{}, fmt.Errorf("load legacy production self-update JSON: %w", err)
-	}
-	if err := storeProductionSelfUpdateLegacyImport(database, installRoot, ownerUID, state); err != nil {
-		return productionSelfUpdateState{}, fmt.Errorf("import legacy production self-update JSON into SQLite: %w", err)
-	}
-	if err := retireProductionSelfUpdateLegacyJSON(legacyPath); err != nil {
-		return productionSelfUpdateState{}, fmt.Errorf("retire legacy production self-update JSON: %w", err)
-	}
-	if _, err := database.ExecContext(context.Background(), "UPDATE production_self_update_legacy_import SET retired = 1 WHERE install_root = ? AND owner_uid = ?", installRoot, ownerUID); err != nil {
-		return productionSelfUpdateState{}, fmt.Errorf("mark legacy production self-update JSON retired: %w", err)
-	}
-	return state, nil
-}
-
-func storeProductionSelfUpdateLegacyImport(database *sql.DB, installRoot string, ownerUID int, state productionSelfUpdateState) error {
-	if err := state.Validate(); err != nil {
-		return err
-	}
-	data, err := json.Marshal(state)
-	if err != nil {
-		return fmt.Errorf("encode legacy production self-update SQLite state: %w", err)
-	}
-	transaction, err := database.BeginTx(context.Background(), nil)
-	if err != nil {
-		return fmt.Errorf("begin legacy production self-update import: %w", err)
-	}
-	if _, err := transaction.ExecContext(context.Background(), "INSERT INTO production_self_update_state(install_root, owner_uid, state_json) VALUES (?, ?, ?)", installRoot, ownerUID, data); err != nil {
-		return errors.Join(fmt.Errorf("write legacy production self-update state: %w", err), transaction.Rollback())
-	}
-	if _, err := transaction.ExecContext(context.Background(), "INSERT INTO production_self_update_legacy_import(install_root, owner_uid, retired) VALUES (?, ?, 0)", installRoot, ownerUID); err != nil {
-		return errors.Join(fmt.Errorf("write legacy production self-update marker: %w", err), transaction.Rollback())
-	}
-	if err := transaction.Commit(); err != nil {
-		return fmt.Errorf("commit legacy production self-update import: %w", err)
-	}
-	return nil
-}
-
-func productionSelfUpdateLegacyRetired(database *sql.DB, installRoot string, ownerUID int) (bool, error) {
-	var retired int
-	err := database.QueryRowContext(context.Background(), "SELECT retired FROM production_self_update_legacy_import WHERE install_root = ? AND owner_uid = ?", installRoot, ownerUID).Scan(&retired)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
-	if err != nil || (retired != 0 && retired != 1) {
-		return false, errors.Join(errors.New("production self-update legacy marker is invalid"), err)
-	}
-	return retired == 1, nil
-}
-
-func requireProductionSelfUpdateLegacyRetired(database *sql.DB, installRoot string, ownerUID int, legacyPath string) error {
-	var retired int
-	err := database.QueryRowContext(context.Background(), "SELECT retired FROM production_self_update_legacy_import WHERE install_root = ? AND owner_uid = ?", installRoot, ownerUID).Scan(&retired)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil
-	}
-	if err != nil || retired != 1 {
-		return errors.Join(errors.New("production self-update legacy retirement is incomplete"), err)
-	}
-	if _, err := os.Lstat(legacyPath); !errors.Is(err, os.ErrNotExist) {
-		return errors.Join(errors.New("retired production self-update legacy JSON reappeared"), err)
-	}
-	return nil
-}
-
-func retireProductionSelfUpdateLegacyJSON(path string) error {
-	if _, err := loadProductionSelfUpdateLegacyJSON(path); err != nil {
-		return err
-	}
-	if err := os.Remove(path); err != nil {
-		return err
-	}
-	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
-		return errors.Join(errors.New("legacy production self-update JSON remains after retirement"), err)
-	}
-	return nil
-}
-
-func loadProductionSelfUpdateLegacyJSON(path string) (productionSelfUpdateState, error) {
-	info, err := os.Lstat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return productionSelfUpdateState{}, os.ErrNotExist
-	}
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || !productionProvisionOwnedByCurrentUser(info) {
-		return productionSelfUpdateState{}, errors.Join(errors.New("legacy production self-update JSON is not an owner-only regular file"), err)
-	}
-	resolved, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		return productionSelfUpdateState{}, fmt.Errorf("resolve legacy production self-update JSON: %w", err)
-	}
-	data, err := gateprivate.ReadOwnerFile(resolved, 64<<10)
-	if err != nil {
-		return productionSelfUpdateState{}, fmt.Errorf("read legacy production self-update JSON: %w", err)
-	}
-	var state productionSelfUpdateState
-	if err := gatecontract.DecodeStrictJSON(data, &state); err != nil {
-		return productionSelfUpdateState{}, err
-	}
-	return state, state.Validate()
-}
-
-// writeProductionSelfUpdateState 只写 SQLite 权威账本；不会重新发布旧 JSON。
+// writeProductionSelfUpdateState 只写 SQLite 权威账本。
 func writeProductionSelfUpdateState(path string, state productionSelfUpdateState) error {
 	database, installRoot, ownerUID, err := openProductionSelfUpdateStateStore(path)
 	if err != nil {
@@ -311,14 +179,20 @@ func deleteProductionSelfUpdateState(path string) error {
 	if err != nil {
 		return err
 	}
-	defer database.Close()
 	if _, err := database.ExecContext(
 		context.Background(),
 		"DELETE FROM production_self_update_state WHERE install_root = ? AND owner_uid = ?",
 		installRoot,
 		ownerUID,
 	); err != nil {
+		database.Close()
 		return fmt.Errorf("delete production self-update SQLite state: %w", err)
+	}
+	if err := database.Close(); err != nil {
+		return fmt.Errorf("close production self-update SQLite state before removal: %w", err)
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove empty production self-update SQLite state: %w", err)
 	}
 	return nil
 }

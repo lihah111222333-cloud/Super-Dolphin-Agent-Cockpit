@@ -23,10 +23,6 @@ type remoteBaselineStoredState struct {
 
 func remoteBaselineDatabasePath(path string) string { return path }
 
-func remoteLegacyBaselineStatePath(configPath string) string {
-	return strings.TrimSuffix(configPath, filepath.Ext(configPath)) + ".baseline-state.json"
-}
-
 func remoteBaselineSQLiteAuthorityPath(configPath string) string {
 	return strings.TrimSuffix(configPath, filepath.Ext(configPath)) + ".baseline-state.sqlite"
 }

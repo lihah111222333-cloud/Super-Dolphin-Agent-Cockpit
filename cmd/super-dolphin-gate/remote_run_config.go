@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -12,7 +11,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/shardresource"
 )
 
-const remoteRunConfigSchemaVersion uint32 = 5
+const remoteRunConfigSchemaVersion uint32 = 6
 
 const (
 	remoteContainerReportAllowance = 30 * time.Second
@@ -45,9 +44,7 @@ type remoteRunConfig struct {
 	ACRRegistryInfo *eci.ACRRegistryInfo `json:"acr_registry_info,omitempty"`
 	OCICache        struct {
 		RegistryRepository string `json:"registry_repository"`
-		BuildKitVersion    string `json:"buildkit_version"`
-		BuildKitImage      string `json:"buildkit_image"`
-		BuildxRoot         string `json:"buildx_root"`
+		RemoteBuilderImage string `json:"remote_builder_image"`
 	} `json:"oci_cache"`
 	Capacity struct {
 		MaxShardsPerJob uint8                `json:"max_shards_per_job"`
@@ -59,7 +56,7 @@ type remoteRunConfig struct {
 // Validate 校验远程运行需要的云身份、不可变镜像、缓存容量上限和分片资源。
 func (config remoteRunConfig) Validate() error {
 	if config.SchemaVersion != remoteRunConfigSchemaVersion {
-		return errors.New("remote CI config schema_version must equal 5")
+		return errors.New("remote CI config schema_version must equal 6")
 	}
 	if err := validateRemoteCloudIdentity(config); err != nil {
 		return err
@@ -96,20 +93,15 @@ func validateRemoteACRRegistryInfo(config remoteRunConfig) error {
 	return nil
 }
 
-// validateRemoteOCICacheConfig 拒绝未固定的 OCI 构建身份和隐式凭据回退。
+// validateRemoteOCICacheConfig 仅接受远程 OCI 缓存仓库和固定 ECI builder
+// 镜像，不接受宿主 BuildKit 或 Buildx 配置。
 func validateRemoteOCICacheConfig(config remoteRunConfig) error {
 	cache := config.OCICache
 	if cache.RegistryRepository == "" || strings.Contains(cache.RegistryRepository, "@") || strings.Contains(cache.RegistryRepository, "://") {
 		return errors.New("remote OCI cache registry_repository is invalid")
 	}
-	if cache.BuildKitVersion == "" || !strings.HasPrefix(cache.BuildKitVersion, "v") {
-		return errors.New("remote OCI cache buildkit_version is invalid")
-	}
-	if !validRemoteRuntimeImage(cache.BuildKitImage) {
-		return errors.New("remote OCI cache buildkit_image must use an immutable digest")
-	}
-	if !filepath.IsAbs(cache.BuildxRoot) || filepath.Clean(cache.BuildxRoot) != cache.BuildxRoot {
-		return errors.New("remote OCI cache buildx_root must be a clean absolute path")
+	if !validRemoteRuntimeImage(cache.RemoteBuilderImage) {
+		return errors.New("remote OCI cache remote_builder_image must use an immutable digest")
 	}
 	return nil
 }

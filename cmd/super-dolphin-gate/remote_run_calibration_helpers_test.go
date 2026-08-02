@@ -21,7 +21,7 @@ type remoteDurationCalibrationFixture struct {
 
 func newRemoteDurationCalibrationFixture(t *testing.T) remoteDurationCalibrationFixture {
 	t.Helper()
-	store, err := prepareRemoteCalibrationLedger(filepath.Join(t.TempDir(), "duration-ledger.json"))
+	store, err := prepareRemoteCalibrationLedger(filepath.Join(t.TempDir(), "duration-ledger.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}

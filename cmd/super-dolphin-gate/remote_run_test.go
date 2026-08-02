@@ -37,7 +37,7 @@ func TestLoadRemoteRunConfigBindsACRRegistryInfoToRuntimeAndCacheImages(t *testi
 }
 
 func TestAppendRemoteDurationSamplesRefreshesSQLiteAuthority(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "ci-duration-ledger.json")
+	path := filepath.Join(t.TempDir(), "ci-duration-ledger.sqlite")
 	store, err := gatecontract.NewDurationLedgerStore(path)
 	if err != nil {
 		t.Fatalf("NewDurationLedgerStore() error = %v", err)
@@ -80,9 +80,6 @@ func TestAppendRemoteDurationSamplesRefreshesSQLiteAuthority(t *testing.T) {
 	if _, err := os.Stat(store.AuthorityPath()); err != nil {
 		t.Fatalf("stat duration ledger SQLite authority: %v", err)
 	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatalf("legacy JSON unexpectedly remained authoritative: err=%v", err)
-	}
 }
 
 func TestParseRemoteRunOptions(t *testing.T) {
@@ -118,13 +115,6 @@ func TestParseRemoteRunOptionsDerivesSingleSQLiteAuthority(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "SQLite authority") {
 		t.Fatalf("second SQLite truth source error = %v", err)
-	}
-	_, err = parseRemoteRunOptions([]string{
-		"--config", "/tmp/remote-ci.json",
-		"--state", "/tmp/remote-ci.baseline-state.json",
-	})
-	if err == nil || !strings.Contains(err.Error(), "flag provided but not defined") {
-		t.Fatalf("legacy JSON state option error = %v", err)
 	}
 }
 
@@ -183,21 +173,22 @@ func TestLoadRemoteRunConfig(t *testing.T) {
 
 func TestLoadRemoteRunConfigRejectsDrift(t *testing.T) {
 	cases := map[string]string{
-		"unknown field":         strings.Replace(validRemoteRunConfigJSON(), `"schema_version": 5`, `"schema_version": 5, "unknown": true`, 1),
-		"legacy schema":         strings.Replace(validRemoteRunConfigJSON(), `"schema_version": 5`, `"schema_version": 4`, 1),
-		"legacy data cache":     strings.Replace(validRemoteRunConfigJSON(), `"oci_cache":`, `"data_cache": {}, "oci_cache":`, 1),
-		"unpinned image":        strings.Replace(validRemoteRunConfigJSON(), `"image": "registry.example/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"`, `"image": "registry.example/runtime:latest"`, 1),
-		"unpinned OCI BuildKit": strings.Replace(validRemoteRunConfigJSON(), `"buildkit_image": "registry.example/buildkit@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"`, `"buildkit_image": "registry.example/buildkit:latest"`, 1),
-		"missing network":       strings.Replace(validRemoteRunConfigJSON(), `"vswitch_id": "vsw-test"`, `"vswitch_id": ""`, 1),
-		"missing seed class":    strings.Replace(validRemoteRunConfigJSON(), `"seed_class": "memory"`, `"seed_class": ""`, 1),
-		"wrong cpu":             strings.Replace(validRemoteRunConfigJSON(), `"vcpu": 2`, `"vcpu": 3`, 1),
-		"wrong memory":          strings.Replace(validRemoteRunConfigJSON(), `"memory_gib": 32`, `"memory_gib": 64`, 1),
-		"unknown bootstrap":     strings.Replace(validRemoteRunConfigJSON(), `"go_test": "memory"`, `"go_test": "missing"`, 1),
-		"legacy shard field":    strings.Replace(validRemoteRunConfigJSON(), `"max_shards_per_job": 5`, `"shards": 5`, 1),
-		"absolute source":       strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "/source-deltas/"`, 1),
-		"traversal source":      strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "../source-deltas/"`, 1),
-		"unterminated source":   strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "source-deltas"`, 1),
-		"overlapping prefixes":  strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "baseline-artifacts/"`, 1),
+		"unknown field":        strings.Replace(validRemoteRunConfigJSON(), `"schema_version": 6`, `"schema_version": 6, "unknown": true`, 1),
+		"legacy schema":        strings.Replace(validRemoteRunConfigJSON(), `"schema_version": 6`, `"schema_version": 5`, 1),
+		"legacy data cache":    strings.Replace(validRemoteRunConfigJSON(), `"oci_cache":`, `"data_cache": {}, "oci_cache":`, 1),
+		"unpinned image":       strings.Replace(validRemoteRunConfigJSON(), `"image": "registry.example/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"`, `"image": "registry.example/runtime:latest"`, 1),
+		"legacy OCI BuildKit":  strings.Replace(validRemoteRunConfigJSON(), `"oci_cache": {`, `"oci_cache": {"buildkit_image": "registry.example/buildkit@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", `, 1),
+		"legacy OCI Buildx":    strings.Replace(validRemoteRunConfigJSON(), `"oci_cache": {`, `"oci_cache": {"buildx_root": "/var/lib/super-dolphin/buildx", `, 1),
+		"missing network":      strings.Replace(validRemoteRunConfigJSON(), `"vswitch_id": "vsw-test"`, `"vswitch_id": ""`, 1),
+		"missing seed class":   strings.Replace(validRemoteRunConfigJSON(), `"seed_class": "memory"`, `"seed_class": ""`, 1),
+		"wrong cpu":            strings.Replace(validRemoteRunConfigJSON(), `"vcpu": 2`, `"vcpu": 3`, 1),
+		"wrong memory":         strings.Replace(validRemoteRunConfigJSON(), `"memory_gib": 32`, `"memory_gib": 64`, 1),
+		"unknown bootstrap":    strings.Replace(validRemoteRunConfigJSON(), `"go_test": "memory"`, `"go_test": "missing"`, 1),
+		"legacy shard field":   strings.Replace(validRemoteRunConfigJSON(), `"max_shards_per_job": 5`, `"shards": 5`, 1),
+		"absolute source":      strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "/source-deltas/"`, 1),
+		"traversal source":     strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "../source-deltas/"`, 1),
+		"unterminated source":  strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "source-deltas"`, 1),
+		"overlapping prefixes": strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "baseline-artifacts/"`, 1),
 	}
 	for name, document := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -476,7 +467,7 @@ func TestResolveRemoteRunInputBindsPushCreateToEmptyTree(t *testing.T) {
 
 func writeRemoteRunLedgerFixture(t *testing.T) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "ci-duration-ledger.json")
+	path := filepath.Join(t.TempDir(), "ci-duration-ledger.sqlite")
 	store, err := gatecontract.NewDurationLedgerStore(path)
 	if err != nil {
 		t.Fatal(err)
@@ -506,7 +497,7 @@ func writeRemoteRunLedgerFixture(t *testing.T) string {
 }
 
 func TestPrepareRemoteCalibrationLedgerInitializesAndResumes(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "duration-ledger.json")
+	path := filepath.Join(t.TempDir(), "duration-ledger.sqlite")
 	store, err := prepareRemoteCalibrationLedger(path)
 	if err != nil {
 		t.Fatalf("prepareRemoteCalibrationLedger() error = %v", err)

@@ -83,7 +83,7 @@ func TestCoordinatorRunQueriesSQLiteBeforeOSS(t *testing.T) {
 	repository, input := remoteRunFixture(t)
 	input.RepositoryRoot = repository
 	ledgerStore, err := gate.NewDurationLedgerStore(
-		filepath.Join(t.TempDir(), "duration-ledger.json"),
+		filepath.Join(t.TempDir(), "duration-ledger.sqlite"),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -508,7 +508,7 @@ func TestCoordinatorRunDoesNotProjectAllPassedTestsAfterPackageFinalFailure(t *t
 func TestCoordinatorRunBindsResultCatalogDigestToEffectiveProjection(t *testing.T) {
 	_, input := remoteGoTestCacheRunFixture(t)
 	ledgerStore, err := gate.NewDurationLedgerStore(
-		filepath.Join(t.TempDir(), "duration-ledger.json"),
+		filepath.Join(t.TempDir(), "duration-ledger.sqlite"),
 	)
 	if err != nil {
 		t.Fatal(err)

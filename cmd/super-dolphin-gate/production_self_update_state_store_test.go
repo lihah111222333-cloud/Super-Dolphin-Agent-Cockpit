@@ -1,38 +1,15 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
-func TestProductionSelfUpdateStateImportsLegacyJSONExactlyOnce(t *testing.T) {
-	statePath := newPrivateProductionStatePath(t)
-	state := validProductionSelfUpdateState(productionTestDigest("a"), productionTestDigest("b"))
-	legacy, err := json.Marshal(state)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(statePath, legacy, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	loaded, err := loadProductionSelfUpdateState(statePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if loaded != state {
-		t.Fatalf("imported state = %#v, want %#v", loaded, state)
-	}
-	if _, err := os.Lstat(statePath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("legacy JSON remains after import: %v", err)
-	}
-	if err := os.WriteFile(statePath, []byte(`{"unknown":true}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := loadProductionSelfUpdateState(statePath); err == nil {
-		t.Fatal("retired legacy JSON reappeared without failing closed")
+func TestProductionSelfUpdateStateMissingSQLiteIsNoState(t *testing.T) {
+	if _, err := loadProductionSelfUpdateState(newPrivateProductionStatePath(t)); !errors.Is(err, errProductionSelfUpdateStateNotFound) {
+		t.Fatalf("missing SQLite state error = %v, want state not found", err)
 	}
 }
 
@@ -64,58 +41,18 @@ func TestProductionSelfUpdateStateStoreIsolatedByOwner(t *testing.T) {
 	}
 }
 
-func TestProductionSelfUpdateStateWriteDoesNotRepublishLegacyJSON(t *testing.T) {
+func TestProductionSelfUpdateStateWriteCreatesOwnerOnlySQLite(t *testing.T) {
 	statePath := newPrivateProductionStatePath(t)
 	state := validProductionSelfUpdateState(productionTestDigest("e"), productionTestDigest("f"))
 	if err := writeProductionSelfUpdateState(statePath, state); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Lstat(statePath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("legacy JSON state path exists after SQLite write: %v", err)
-	}
-}
-
-func TestProductionSelfUpdateStateDoesNotReviveRetiredLegacyJSON(t *testing.T) {
-	statePath := newPrivateProductionStatePath(t)
-	state := validProductionSelfUpdateState(productionTestDigest("9"), productionTestDigest("0"))
-	legacy, err := json.Marshal(state)
+	info, err := os.Lstat(statePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(statePath, legacy, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := loadProductionSelfUpdateState(statePath); err != nil {
-		t.Fatal(err)
-	}
-	if err := deleteProductionSelfUpdateState(statePath); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := loadProductionSelfUpdateState(statePath); !errors.Is(err, errProductionSelfUpdateStateNotFound) {
-		t.Fatalf("deleted SQLite state revived from legacy JSON: %v", err)
-	}
-}
-
-func TestProductionSelfUpdateStateBlocksIncompleteLegacyRetirement(t *testing.T) {
-	statePath := newPrivateProductionStatePath(t)
-	state := validProductionSelfUpdateState(productionTestDigest("8"), productionTestDigest("9"))
-	if err := writeProductionSelfUpdateState(statePath, state); err != nil {
-		t.Fatal(err)
-	}
-	database, installRoot, ownerUID, err := openProductionSelfUpdateStateStore(statePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer database.Close()
-	if _, err := database.Exec(
-		"INSERT INTO production_self_update_legacy_import(install_root, owner_uid, retired) VALUES (?, ?, 0)",
-		installRoot,
-		ownerUID,
-	); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := loadProductionSelfUpdateState(statePath); err == nil {
-		t.Fatal("incomplete legacy retirement was accepted")
+	if !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || !productionProvisionOwnedByCurrentUser(info) {
+		t.Fatalf("SQLite state permissions = %v, want owner-only regular file", info.Mode())
 	}
 }
 

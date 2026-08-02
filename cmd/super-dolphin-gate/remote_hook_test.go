@@ -34,15 +34,6 @@ func TestParseRemotePrePushOptions(t *testing.T) {
 		remoteURL != "ssh://git@example.invalid/repository.git" {
 		t.Fatalf("options=%#v remote=%q url=%q", options, remoteName, remoteURL)
 	}
-	_, _, _, err = parseRemotePrePushOptions([]string{
-		"--config", "/tmp/remote-ci.json",
-		"--state", "/tmp/remote-ci.baseline-state.json",
-		"origin",
-		"ssh://git@example.invalid/repository.git",
-	})
-	if err == nil || !strings.Contains(err.Error(), "flag provided but not defined") {
-		t.Fatalf("legacy JSON state option error = %v", err)
-	}
 }
 
 func TestRemotePushRunOptionsUsesCanonicalNormalizedRange(t *testing.T) {

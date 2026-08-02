@@ -13,7 +13,7 @@ import (
 
 func validRemoteRunConfigJSON() string {
 	return `{
-  "schema_version": 5,
+  "schema_version": 6,
   "aliyun_cli": "aliyun",
   "credential_profile": "super-dolphin-ci",
   "region_id": "cn-shenzhen",
@@ -22,7 +22,7 @@ func validRemoteRunConfigJSON() string {
   "worker_role_name": "super-dolphin-ci-worker",
   "oss": {"bucket": "super-dolphin-ci-test", "endpoint": "https://oss-cn-shenzhen.aliyuncs.com", "internal_endpoint": "https://oss-cn-shenzhen-internal.aliyuncs.com", "source_prefix": "source-deltas/", "baseline_prefix": "baseline-artifacts/"},
   "runtime": {"image": "registry.example/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-  "oci_cache": {"registry_repository": "registry.example/runtime", "buildkit_version": "v0.26.2", "buildkit_image": "registry.example/buildkit@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "buildx_root": "/var/lib/super-dolphin/buildx"},
+  "oci_cache": {"registry_repository": "registry.example/runtime", "remote_builder_image": "registry.example/oci-builder@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
   "capacity": {"max_shards_per_job": 5, "seed_class": "memory", "resource_policy": {"classes": [{"id": "small", "vcpu": 2, "memory_gib": 4}, {"id": "standard", "vcpu": 4, "memory_gib": 8}, {"id": "memory", "vcpu": 4, "memory_gib": 16}, {"id": "maximum", "vcpu": 8, "memory_gib": 32}], "bootstrap": {"guard": "small", "node_test": "standard", "go_test": "memory"}, "headroom_percent": 25, "min_samples_to_downsize": 5}}
 }`
 }

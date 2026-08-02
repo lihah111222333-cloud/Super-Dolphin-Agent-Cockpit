@@ -146,29 +146,6 @@ func TestProductionSelfUpdateContenderRejectsCorruptState(t *testing.T) {
 	}
 }
 
-func TestProductionSelfUpdateContenderRejectsCorruptLegacyStateBeforeImport(t *testing.T) {
-	fixture := newProductionUpdateStateFixture(t)
-	if err := deleteProductionSelfUpdateState(fixture.statePath); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(fixture.statePath, []byte("{not-json"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	owner, err := gateprivate.AcquireExclusiveFileLock(
-		context.Background(), filepath.Join(filepath.Dir(fixture.current), ".super-dolphin-gate-update.lock"),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = owner.Release() }()
-	if _, acquired, err := tryAcquireProductionSelfUpdateLock(fixture.current); err != nil || acquired {
-		t.Fatalf("contender lock acquired=%t error=%v", acquired, err)
-	}
-	if err := reuseProductionCurrentDuringUpdate(context.Background(), productionUpdateReuseSession(fixture), fixture.identityRun); err == nil {
-		t.Fatal("corrupt legacy state was accepted while another process updates")
-	}
-}
-
 func productionUpdateReuseSession(fixture productionUpdateStateFixture) productionSelfUpdateSession {
 	return productionSelfUpdateSession{
 		current: fixture.current, statePath: fixture.statePath,

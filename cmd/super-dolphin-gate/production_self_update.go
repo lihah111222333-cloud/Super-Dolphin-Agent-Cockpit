@@ -23,7 +23,7 @@ import (
 const (
 	productionCurrentGateCLI      = ".super-dolphin-gate-current"
 	productionPreviousGateCLI     = ".super-dolphin-gate-previous"
-	productionSelfUpdateStateFile = ".super-dolphin-gate-state.json"
+	productionSelfUpdateStateFile = ".super-dolphin-gate-state.sqlite"
 	productionSelfUpdateStateV1   = 1
 	productionSelfUpdateDeadline  = 45 * time.Second
 )

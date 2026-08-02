@@ -184,7 +184,7 @@ func remoteCalibrationCheckpointFixture(
 	t *testing.T,
 ) (*gatecontract.DurationLedgerStore, *remoteci.CalibrationCheckpoint, remoteci.RunInput, gatecontract.DurationSample) {
 	t.Helper()
-	ledgerStore, err := prepareRemoteCalibrationLedger(filepath.Join(t.TempDir(), "duration-ledger.json"))
+	ledgerStore, err := prepareRemoteCalibrationLedger(filepath.Join(t.TempDir(), "duration-ledger.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
