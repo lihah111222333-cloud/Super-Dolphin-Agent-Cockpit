@@ -9,7 +9,7 @@ import (
 
 // canonicalEmptyCandidateTestBinaryReceiptBindingDigest is SHA-256 of the
 // canonical JSON empty array. It cannot fail and is not an omitted field.
-const canonicalEmptyCandidateTestBinaryReceiptBindingDigest = "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4e1f7d4f5cfd8b2d66c9c5e79"
+const canonicalEmptyCandidateTestBinaryReceiptBindingDigest = "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
 
 // CandidateTestBinaryReceiptBindingDigest returns the canonical binding of every
 // candidate test binary and its observed build/cache metrics. An empty list is

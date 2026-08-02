@@ -34,4 +34,7 @@ func TestCandidateTestBinaryReceiptBindingDigestIsCanonicalAndBindsBinary(t *tes
 	if err != nil || !remoteDigestPattern.MatchString(empty) || empty == "" {
 		t.Fatalf("canonical empty candidate test binary receipt binding = %q, %v", empty, err)
 	}
+	if emptyCandidateTestBinaryReceiptBindingDigest() != empty {
+		t.Fatalf("precomputed empty binding = %q, want %q", emptyCandidateTestBinaryReceiptBindingDigest(), empty)
+	}
 }
