@@ -61,7 +61,8 @@ if test -f /previous/runtime-deps.tar.gz || test -f /previous/source.tar.gz || t
   fi
   expected_commit=$(sed -n 's/.*"main_commit":"\([0-9a-f]*\)".*/\1/p' "$anchor_manifest")
   expected_tree=$(sed -n 's/.*"main_tree":"\([0-9a-f]*\)".*/\1/p' "$anchor_manifest")
-  test -n "$expected_commit"; test -n "$expected_tree"
+  expected_runtime_dependency_digest=$(sed -n 's/.*"runtime_dependency_digest":"\([^"]*\)".*/\1/p' "$anchor_manifest")
+  test -n "$expected_commit"; test -n "$expected_tree"; test -n "$expected_runtime_dependency_digest"
   load_verified_gate "$anchor_manifest" /previous/bin/super-dolphin-gate
   if test -n "${BASELINE_DELTA_MANIFEST_1:-}${BASELINE_DELTA_MANIFEST_2:-}${BASELINE_DELTA_MANIFEST_3:-}${BASELINE_DELTA_MANIFEST_4:-}"; then
     test -d /layers
@@ -82,8 +83,10 @@ if test -f /previous/runtime-deps.tar.gz || test -f /previous/source.tar.gz || t
       base_tree=$(sed -n 's/.*"base_tree":"\([0-9a-f]*\)".*/\1/p' "$manifest")
       target_commit=$(sed -n 's/.*"target_commit":"\([0-9a-f]*\)".*/\1/p' "$manifest")
       target_tree=$(sed -n 's/.*"target_tree":"\([0-9a-f]*\)".*/\1/p' "$manifest")
+      manifest_runtime_dependency_digest=$(sed -n 's/.*"runtime_dependency_digest":"\([^"]*\)".*/\1/p' "$manifest")
       test "$manifest_generation" = "$generation"; test "$manifest_mode" = delta
       test "$base_commit" = "$expected_commit"; test "$base_tree" = "$expected_tree"
+      test -n "$manifest_runtime_dependency_digest"
       source_delta=$layer_root/source.delta.bundle
       cache_delta=$layer_root/go-build-cache.delta.tar.gz
       source_digest=$(sed -n 's/.*"name":"source","archive":"source.delta.bundle","sha256":"\([^"]*\)".*/\1/p' "$manifest")
@@ -95,6 +98,7 @@ if test -f /previous/runtime-deps.tar.gz || test -f /previous/source.tar.gz || t
       test "$(digest_file "$cache_delta")" = "$cache_digest"
       test "$(stat -c '%s' "$source_delta")" = "$source_size"
       test "$(stat -c '%s' "$cache_delta")" = "$cache_size"; printf 'seed stage complete: delta-artifacts generation=%s\n' "$generation"
+` + remoteBaselineSeedScriptRuntimeDepsReplay + `
       runtime_go_count=$(grep -o '"name":"runtime-go"' "$manifest" | wc -l | tr -d ' ')
       case "$runtime_go_count" in 0) ;; 1)
         runtime_go_delta=$layer_root/runtime-go.delta.tar.gz
