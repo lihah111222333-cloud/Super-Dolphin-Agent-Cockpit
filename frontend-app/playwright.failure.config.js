@@ -26,5 +26,10 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
   },
-  workers: 1,
+  // The two failure flows use isolated browser contexts and the same read-only
+  // smoke host, so run them as independent workloads. This preserves both
+  // production DOM assertions while preventing one startup failure from
+  // consuming two sequential assertion timeouts.
+  fullyParallel: true,
+  workers: 2,
 });

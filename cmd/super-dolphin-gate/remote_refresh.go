@@ -93,15 +93,23 @@ func runRemoteBaselineRefreshWithBuilder(args []string, stdout io.Writer, builde
 	if err != nil {
 		return sourceError("resolve remote baseline input: %v", err)
 	}
-	if accepted.SchemaVersion != 0 {
-		// A successor is built from the accepted immutable runtime image; this
-		// also makes unchanged input comparable with the accepted state.
+	parent := accepted
+	registryMigration, err := remoteBaselineRegistryMigrationRequired(config, accepted)
+	if err != nil {
+		return protocolError("validate accepted OCI baseline registry: %v", err)
+	}
+	if registryMigration {
+		// 单个 ECI 请求只能绑定一个私有 ACR 权限。Enterprise 目标不得
+		// 拉取 Personal parent，改由已配置的不可变 runtime 建立干净首代。
+		parent = remoteci.BaselineState{}
+	} else if accepted.SchemaVersion != 0 {
+		// 同一 registry 内的 successor 从已接受的 parent 构建。
 		input.Identity.RuntimeImage = accepted.RuntimeImage
 	}
-	if accepted.Matches(input.Identity) {
+	if !registryMigration && accepted.Matches(input.Identity) {
 		return encodeRemoteBaselineRefreshResult(stdout, remoteBaselineRefreshResult{SchemaVersion: remoteBaselineRefreshResultSchemaVersion, Reused: true, State: accepted})
 	}
-	cache, err := builder(ctx, config, accepted, input)
+	cache, err := builder(ctx, config, parent, input)
 	if err != nil {
 		return infrastructureError("build OCI baseline cache: %v", err)
 	}
@@ -123,6 +131,20 @@ func runRemoteBaselineRefreshWithBuilder(args []string, stdout io.Writer, builde
 		return infrastructureError("persisted OCI baseline does not match accepted successor")
 	}
 	return encodeRemoteBaselineRefreshResult(stdout, remoteBaselineRefreshResult{SchemaVersion: remoteBaselineRefreshResultSchemaVersion, State: state})
+}
+
+// remoteBaselineRegistryMigrationRequired 判断已接受 OCI 基线是否属于当前 ACR 权限无法服务的仓库。
+func remoteBaselineRegistryMigrationRequired(config remoteRunConfig, accepted remoteci.BaselineState) (bool, error) {
+	if accepted.SchemaVersion == 0 {
+		return false, nil
+	}
+	if err := accepted.Validate(); err != nil {
+		return false, err
+	}
+	if config.ACRRegistryInfo == nil {
+		return false, errors.New("remote CI ACR registry info is required")
+	}
+	return remoteRuntimeImageRepository(accepted.RuntimeImage) != config.OCICache.RegistryRepository, nil
 }
 
 func newRemoteBaselineRefreshContext() (context.Context, func()) {

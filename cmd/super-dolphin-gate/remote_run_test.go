@@ -34,6 +34,10 @@ func TestLoadRemoteRunConfigBindsACRRegistryInfoToRuntimeAndCacheImages(t *testi
 	if _, err := loadRemoteRunConfig(writeRemoteRunConfigFixture(t, wrongCache)); err == nil || !strings.Contains(err.Error(), "does not match OCI cache repository") {
 		t.Fatalf("wrong ACR cache domain error = %v", err)
 	}
+	wrongBuilder := strings.Replace(document, `"remote_builder_image": "registry.example/oci-builder@`, `"remote_builder_image": "personal.example/oci-builder@`, 1)
+	if _, err := loadRemoteRunConfig(writeRemoteRunConfigFixture(t, wrongBuilder)); err == nil || !strings.Contains(err.Error(), "does not match configured ECI images") {
+		t.Fatalf("wrong ACR builder domain error = %v", err)
+	}
 }
 
 func TestAppendRemoteDurationSamplesRefreshesSQLiteAuthority(t *testing.T) {
