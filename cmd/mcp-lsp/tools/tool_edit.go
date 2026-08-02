@@ -33,8 +33,9 @@ type EditRequest struct {
 
 // EditHandler 持有 LSP 管理器和工作区根目录，处理文件编辑请求。
 type EditHandler struct {
-	registry lspmanager.Registry
-	root     string
+	registry     lspmanager.Registry
+	root         string
+	lockRegistry *editLockRegistry
 }
 
 // editEnvelope 是 patch_edit 工具的通用响应信封，包含状态、计数和持久化标记。
@@ -51,14 +52,20 @@ type editEnvelope struct {
 
 // NewEditHandler 注册 patch_edit 工具处理器。
 // 默认不绑定额外根目录，路径解析依赖调用上下文中的可信 workspace。
+// 返回值应由调用方复用；factory wrapper 统一提供 scope、timeout、recovery、logging 和 budget。
 func NewEditHandler(registry lspmanager.Registry) middleware.Handler {
-	return wrapToolHandlerWithTimeoutResolver("patch_edit", middleware.TierNormal, patchEditTimeoutTier, EditHandler{registry: registry}.Handle)
+	return wrapToolHandlerWithTimeoutResolver("patch_edit", middleware.TierNormal, patchEditTimeoutTier, newEditHandler("", registry).Handle)
 }
 
 // NewEditHandlerWithRoot 注册绑定固定根目录的 patch_edit 工具处理器。
 // 该入口用于 sidecar 初始化已知根目录的场景，所有写入仍需通过后续路径校验。
+// 返回值应由调用方复用；factory wrapper 统一提供 scope、timeout、recovery、logging 和 budget。
 func NewEditHandlerWithRoot(root string, registry lspmanager.Registry) middleware.Handler {
-	return wrapToolHandlerWithTimeoutResolver("patch_edit", middleware.TierNormal, patchEditTimeoutTier, EditHandler{registry: registry, root: resolveRoot(root)}.Handle)
+	return wrapToolHandlerWithTimeoutResolver("patch_edit", middleware.TierNormal, patchEditTimeoutTier, newEditHandler(resolveRoot(root), registry).Handle)
+}
+
+func newEditHandler(root string, registry lspmanager.Registry) EditHandler {
+	return EditHandler{registry: registry, root: root, lockRegistry: &editLockRegistry{}}
 }
 
 func patchEditTimeoutTier(params json.RawMessage) time.Duration {
@@ -69,11 +76,6 @@ func patchEditTimeoutTier(params json.RawMessage) time.Duration {
 		return toolTimeoutDisabled
 	}
 	return middleware.TierNormal
-}
-
-// HandleEdit 是旧版函数式入口，转交给 EditHandler 以复用统一校验和响应信封。
-func HandleEdit(ctx context.Context, registry lspmanager.Registry, params json.RawMessage) (any, error) {
-	return EditHandler{registry: registry}.Handle(ctx, params)
 }
 
 // Handle 执行 LSP 工具请求。

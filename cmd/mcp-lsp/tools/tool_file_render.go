@@ -272,7 +272,9 @@ func symbolBounds(symbol protocol.DocumentSymbol) (startLine, endLine int, ok bo
 	return startLine, endLine, true
 }
 
-var singleLineCommentPrefixes = []string{"//", "#", "--"}
+func singleLineCommentPrefixes() []string {
+	return []string{"//", "#", "--"}
+}
 
 // isCommentLine 判断上一行是否属于可随读取窗口一起带出的注释。
 // 只识别常见单行注释和块注释边界，避免把空行或普通代码误并入上下文。
@@ -281,12 +283,12 @@ func isCommentLine(line string) bool {
 	if trimmed == "" {
 		return false
 	}
-	for _, prefix := range singleLineCommentPrefixes {
+	for _, prefix := range singleLineCommentPrefixes() {
 		if strings.HasPrefix(trimmed, prefix) {
 			return true
 		}
 	}
-	for _, item := range blockCommentSuffixes {
+	for _, item := range blockCommentSuffixes() {
 		if isBlockCommentMarkerMatch(trimmed, item.Prefix, item.Suffix) {
 			return true
 		}
@@ -322,20 +324,24 @@ func isLicenseLine(line string) bool {
 	return false
 }
 
-var blockCommentSuffixes = []struct {
+type blockCommentSuffix struct {
 	Suffix string
 	Prefix string
-}{
-	{"*/", "/*"},
-	{`"""`, `"""`},
-	{"'''", "'''"},
+}
+
+func blockCommentSuffixes() []blockCommentSuffix {
+	return []blockCommentSuffix{
+		{"*/", "/*"},
+		{`"""`, `"""`},
+		{"'''", "'''"},
+	}
 }
 
 // checkBlockCommentMarker 检查上一行是否是块注释结束或完整块注释。
 // 返回 marker 让 expandStartToIncludeComments 能继续向上追溯多行块的起点。
 func checkBlockCommentMarker(line string) (isBlock bool, marker string, singleLine bool) {
 	trimmed := strings.TrimSpace(line)
-	for _, item := range blockCommentSuffixes {
+	for _, item := range blockCommentSuffixes() {
 		if strings.HasSuffix(trimmed, item.Suffix) {
 			firstIdx := strings.Index(trimmed, item.Prefix)
 			lastIdx := strings.LastIndex(trimmed, item.Suffix)
