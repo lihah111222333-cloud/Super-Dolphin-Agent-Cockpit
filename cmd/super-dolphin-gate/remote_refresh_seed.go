@@ -124,10 +124,8 @@ func remoteBaselineSeedDirectCacheEnvironment(layers []eci.DirectCacheLayer) map
 	}
 	environment["BASELINE_DIRECT_CACHE_LAYER_COUNT"] = strconv.Itoa(len(layers))
 	for index, layer := range layers {
-		environment[fmt.Sprintf("BASELINE_DIRECT_CACHE_LAYER_%d", index+1)] = strings.Join([]string{
-			layer.DataCacheID, layer.DataCacheBucket, layer.DataCachePath, strconv.FormatUint(layer.Generation, 10),
-			layer.ManifestDigest, layer.TreeSHA256, layer.ParentChainSHA256, layer.RuntimeGoSHA256, layer.RuntimeDepsSHA256,
-		}, "|")
+		environment[fmt.Sprintf("BASELINE_DIRECT_CACHE_LAYER_%d", index+1)] =
+			strconv.FormatUint(layer.Generation, 10) + "|" + layer.ManifestDigest
 	}
 	return environment
 }
