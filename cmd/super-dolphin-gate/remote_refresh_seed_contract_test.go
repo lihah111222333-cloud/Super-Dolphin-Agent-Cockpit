@@ -717,20 +717,20 @@ func assertRemoteBaselineSeedRuntimeDepsChainOrdering(t *testing.T) {
 	targetIdentity := strings.Index(remoteBaselineSeedScript, `test "$runtime_deps_target_digest" = "$manifest_runtime_dependency_digest"`)
 	digest := strings.Index(remoteBaselineSeedScript, `test "$(digest_file "$runtime_deps_delta")" = "$runtime_deps_digest"`)
 	size := strings.Index(remoteBaselineSeedScript, `test "$(stat -c '%s' "$runtime_deps_delta")" = "$runtime_deps_size"`)
-	validate := strings.Index(remoteBaselineSeedScript, `runtime dependency delta contains an unsupported entry type`)
 	stage := strings.Index(remoteBaselineSeedScript, `runtime_deps_stage=$stage/runtime-deps-$generation`)
+	validate := strings.Index(remoteBaselineSeedScript, `runtime dependency delta contains an unsupported entry type`)
 	backup := strings.Index(remoteBaselineSeedScript, `mv "$payload_root/runtime" "$previous_runtime"`)
 	publish := strings.Index(remoteBaselineSeedScript, `mv "$runtime_deps_stage/runtime" "$payload_root/runtime"`)
 	rollback := strings.Index(remoteBaselineSeedScript, `mv "$previous_runtime" "$payload_root/runtime"`)
 	resetCache := strings.Index(remoteBaselineSeedScript, `rm -rf "$go_build_cache" || ! install -d -m 0700 "$go_build_cache"`)
 	advanceIdentity := strings.Index(remoteBaselineSeedScript, `expected_runtime_dependency_digest=$manifest_runtime_dependency_digest`)
-	if detect < 0 || baseIdentity < detect || targetIdentity < baseIdentity || digest < targetIdentity || size < digest || validate < size ||
-		stage < validate || backup < stage || publish < backup || rollback < publish || resetCache < publish || advanceIdentity < resetCache {
+	if detect < 0 || baseIdentity < detect || targetIdentity < baseIdentity || digest < targetIdentity || size < digest || stage < size ||
+		validate < stage || backup < validate || publish < backup || rollback < publish || resetCache < publish || advanceIdentity < resetCache {
 		t.Fatal("runtime-deps delta must bind the dependency identity chain, validate the archive, and replace runtime with rollback before advancing the generation")
 	}
 	for _, fragment := range []string{
 		`;; *) echo "baseline delta contains duplicate runtime-deps layers"`,
-		`clean != "runtime" and not clean.startswith("runtime/")`,
+		`return name == "runtime" or name.startswith("runtime/")`,
 		`runtime dependency delta contains a duplicate path`,
 		`runtime dependency delta contains an escaping symbolic link`,
 		`runtime dependency delta contains entries below a symbolic link`,
