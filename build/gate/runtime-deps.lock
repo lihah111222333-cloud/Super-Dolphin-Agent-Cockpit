@@ -16,14 +16,14 @@
     "tools_go_mod_sha256": "sha256:2f5387886a2a58b3b047d3c31449a58ddf071e6790bf7225c71e05c1349bfbad",
     "tools_go_sum_sha256": "sha256:4fb6b0daaafccfaa0024c3eebd193929957f4e49c62ed551a6289c59632f104f",
     "runtime_seed_script_browser_sha256": "sha256:b7452b9a3bf804a067db7156c54d5477ac49c84f20c4bd289fc243acc048c44a",
-    "runtime_seed_script_runtime_sha256": "sha256:1e4c80ca311613191df8025ba1ff0bcce2e4bcc614ee2f76b773e0ef37aec3ed",
+    "runtime_seed_script_runtime_sha256": "sha256:d5cdb1cda624589d19e34530734ccfcaa52d9c0f68ce546f6025271f4e72c76c",
     "runtime_seed_script_tail_sha256": "sha256:59b212c36402953a455e8a5d5224db50fde3ee21a042fd66ba04270e5421baeb"
   },
   "recipe_inputs": {
     "runtime_seed_recipe_sha256": "sha256:207cc09615c7b346034a0048f7e5e65b09640ecca137d961a438a32698b5aa4e",
-    "runtime_seed_script_sha256": "sha256:ff6ecc261e8b947654668eed12d7acbffa8ba878b0218da0f3933941abac4be8",
+    "runtime_seed_script_sha256": "sha256:c926a69384dd2152ee6e796c45b9bc87c3e9d65f015aa80a6046c478bb02bd5f",
     "runtime_seed_worker_sha256": "sha256:d28bfd29763c113723a836c205515a1a1e3858729fa3062b8c397e0668e4dd80",
-    "runtime_seed_script_control_sha256": "sha256:7b5b47d7fad59af37150d0a53f5834ae813517bd741c8e090e1ae2397a7321df"
+    "runtime_seed_script_control_sha256": "sha256:3e478b466b1b8271b09ab0435b364cb50e73bdd2251fffe3a4796c23f451933f"
   },
   "paths": {
     "manifest": "/opt/super-dolphin-gate/runtime/manifest.json",

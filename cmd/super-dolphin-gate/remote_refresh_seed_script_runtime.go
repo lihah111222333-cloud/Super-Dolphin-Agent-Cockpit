@@ -160,8 +160,14 @@ with open(os.environ["DIRECT_CACHE_MANIFEST"], "w", encoding="utf-8") as output:
 PY
 test -s "$oss_output/direct-cache/manifest.json"
 publish_direct_cache() {
-  cp -a "$go_build_cache/." "$direct_cache_root/"
-  find "$direct_cache_root" -type f -exec chmod 0444 '{}' +
+  publish_parallelism=$((BASELINE_SEED_GO_PARALLELISM * 8))
+  find "$go_build_cache" -type f -print0 | xargs -0 -r -P "$publish_parallelism" -n 1 sh -c '
+    source_path=$1
+    source_root=$2
+    target_root=$3
+    relative=${source_path#"$source_root"/}
+    install -D -m 0444 "$source_path" "$target_root/$relative"
+  ' sh '{}' "$go_build_cache" "$direct_cache_root"
   find "$direct_cache_root" -type d -exec chmod 0555 '{}' +
 }
 run_logged direct-cache-publish publish_direct_cache

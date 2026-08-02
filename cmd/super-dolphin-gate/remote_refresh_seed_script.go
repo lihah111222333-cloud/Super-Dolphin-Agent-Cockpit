@@ -1,5 +1,7 @@
 package main
 
+import "strings"
+
 const remoteBaselineSeedScriptHead = `#!/bin/sh
 set -eu
 umask 022
@@ -825,4 +827,12 @@ EOF
   fi
 `
 
-const remoteBaselineSeedScript = remoteBaselineSeedScriptHead + remoteBaselineSeedScriptBrowser + remoteBaselineSeedScriptLSP + remoteBaselineSeedScriptTail + remoteBaselineSeedScriptRuntime
+var remoteBaselineSeedScript = assembleRemoteBaselineSeedScript()
+
+func assembleRemoteBaselineSeedScript() string {
+	if strings.Count(remoteBaselineSeedScriptRuntime, remoteBaselineSeedScriptDirectCachePublishLegacy) != 1 {
+		panic("remote baseline seed direct-cache publish recipe is missing or duplicated")
+	}
+	runtimeScript := strings.Replace(remoteBaselineSeedScriptRuntime, remoteBaselineSeedScriptDirectCachePublishLegacy, remoteBaselineSeedScriptDirectCachePublish, 1)
+	return remoteBaselineSeedScriptHead + remoteBaselineSeedScriptBrowser + remoteBaselineSeedScriptLSP + remoteBaselineSeedScriptTail + runtimeScript
+}

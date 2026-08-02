@@ -1,5 +1,23 @@
 package main
 
+const remoteBaselineSeedScriptDirectCachePublishLegacy = `publish_direct_cache() {
+  publish_parallelism=$((BASELINE_SEED_GO_PARALLELISM * 8))
+  find "$go_build_cache" -type f -print0 | xargs -0 -r -P "$publish_parallelism" -n 1 sh -c '
+    source_path=$1
+    source_root=$2
+    target_root=$3
+    relative=${source_path#"$source_root"/}
+    install -D -m 0444 "$source_path" "$target_root/$relative"
+  ' sh '{}' "$go_build_cache" "$direct_cache_root"
+  find "$direct_cache_root" -type d -exec chmod 0555 '{}' +
+}`
+
+const remoteBaselineSeedScriptDirectCachePublish = `publish_direct_cache() {
+  cp -a "$go_build_cache/." "$direct_cache_root/"
+  find "$direct_cache_root" -type f -exec chmod 0444 '{}' +
+  find "$direct_cache_root" -type d -exec chmod 0555 '{}' +
+}`
+
 // remoteBaselineSeedScriptGateHelpers 验证重放层中的 gate 二进制及候选身份。
 const remoteBaselineSeedScriptGateHelpers = `
 previous_gate_source_sha256=
