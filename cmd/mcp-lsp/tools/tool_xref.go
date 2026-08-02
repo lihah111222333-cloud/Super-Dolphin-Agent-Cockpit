@@ -24,7 +24,7 @@ type xrefParams struct {
 
 // NewXRefHandler 创建 xref 工具处理器，并为引用结果补充函数范围。
 func NewXRefHandler(registry lspmanager.Registry) ToolHandler {
-	return newManagerTool("xref", middleware.TierNormal, registry, decodeLenient, func(ctx context.Context, registry lspmanager.Registry, req xrefParams) (any, error) {
+	return newManagerToolWithoutOuterTimeout("xref", middleware.TierNormal, registry, decodeLenient, func(ctx context.Context, registry lspmanager.Registry, req xrefParams) (any, error) {
 		filePath, position, err := resolveFilePositionRequest(ctx, filePositionParams{
 			Pos:        req.Pos,
 			LanguageID: req.LanguageID,

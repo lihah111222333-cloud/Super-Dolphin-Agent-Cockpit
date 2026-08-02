@@ -26,7 +26,7 @@ type inspectParams struct {
 
 // NewInspectHandler 创建 inspect 工具处理器，按位置执行 hover/definition 等 LSP 查询。
 func NewInspectHandler(registry lspmanager.Registry) ToolHandler {
-	return newManagerTool("inspect", middleware.TierNormal, registry, decodeLenient, func(ctx context.Context, registry lspmanager.Registry, req inspectParams) (any, error) {
+	return newManagerToolWithoutOuterTimeout("inspect", middleware.TierNormal, registry, decodeLenient, func(ctx context.Context, registry lspmanager.Registry, req inspectParams) (any, error) {
 		filePath, position, err := resolveFilePositionRequest(ctx, req.filePositionParams)
 		if err != nil {
 			return nil, err

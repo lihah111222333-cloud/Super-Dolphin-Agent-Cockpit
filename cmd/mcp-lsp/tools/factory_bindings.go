@@ -31,10 +31,36 @@ func newManagerTool[T any](
 	mode decodeMode,
 	dispatch func(context.Context, lspmanager.Registry, T) (any, error),
 ) ToolHandler {
+	return newManagerToolWithTimeoutResolver(name, tier, nil, registry, mode, dispatch)
+}
+
+// newManagerToolWithoutOuterTimeout 创建不共享工具级总 deadline 的 manager 工具。
+// 适用于由底层 LSP 单步 deadline 独立约束的多步骤导航请求。
+func newManagerToolWithoutOuterTimeout[T any](
+	name string,
+	tier time.Duration,
+	registry lspmanager.Registry,
+	mode decodeMode,
+	dispatch func(context.Context, lspmanager.Registry, T) (any, error),
+) ToolHandler {
+	return newManagerToolWithTimeoutResolver(name, tier, func(json.RawMessage) time.Duration {
+		return toolTimeoutDisabled
+	}, registry, mode, dispatch)
+}
+
+// newManagerToolWithTimeoutResolver 统一组装 manager 工具，并允许动作级选择工具层 deadline。
+func newManagerToolWithTimeoutResolver[T any](
+	name string,
+	tier time.Duration,
+	timeoutTier func(json.RawMessage) time.Duration,
+	registry lspmanager.Registry,
+	mode decodeMode,
+	dispatch func(context.Context, lspmanager.Registry, T) (any, error),
+) ToolHandler {
 	if registry == nil {
 		return missingManagerHandler()
 	}
-	return wrapToolHandler(name, tier, func(ctx context.Context, params json.RawMessage) (any, error) {
+	return wrapToolHandlerWithTimeoutResolver(name, tier, timeoutTier, func(ctx context.Context, params json.RawMessage) (any, error) {
 		req, err := decodeToolParams[T](params, mode)
 		if err != nil {
 			return nil, err

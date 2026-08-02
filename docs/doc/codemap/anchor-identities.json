@@ -2312,16 +2312,15 @@
       "codemap_line": 294,
       "target_path": "cmd/mcp-lsp/tools/factory_bindings.go",
       "line_spec": "227",
-      "content_sha256": "09471dd74b3941819862bf0d630842efdcef3c1b165829892a53fc510dde0ef8",
-      "symbol": "unsupportedActionError"
+      "content_sha256": "d117a236c51ce32d12c499766b1dd8c4d23e0db0820337e50b6ca13df106d20b",
+      "symbol": "unmarshalToolParams"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
       "codemap_line": 294,
       "target_path": "cmd/mcp-lsp/tools/factory_bindings.go",
       "line_spec": "71",
-      "content_sha256": "3ac6bd8a4169ee645f3fb9bdde9ae6824061f834243a65a67080720f939aa08f",
-      "symbol": "decodeStrictToolParams"
+      "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
@@ -2665,8 +2664,8 @@
       "codemap_line": 334,
       "target_path": "cmd/mcp-lsp/tools/factory_bindings.go",
       "line_spec": "212",
-      "content_sha256": "3bdd1c4527d7ab4ea08edbec064e7c333327651cb38c0e3ae8575674911d2a37",
-      "symbol": "dispatchToolAction"
+      "content_sha256": "b7ed5c0197ef373e7e2af9868740debcc3eb5a7f3b81a8d1a895c3f4f893feb6",
+      "symbol": "stripToolWrapperFields"
     },
     {
       "codemap_file": "04-app-contract.md",

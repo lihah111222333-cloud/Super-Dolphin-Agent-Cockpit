@@ -47,7 +47,7 @@ func retryPendingClientShutdowns(states []pendingClientShutdown) (remaining []pe
 }
 
 // request 包装一次可重试的 LSP JSON-RPC 请求。
-// 只对幂等读类能力重试瞬时 content modified 或死连接；非可重放方法会先重建 client 再返回错误。
+// inspect/xref 读链路的单步超时会重建 client 后重试一次；其余重试仍只覆盖瞬时 content modified 或死连接。
 func (m *manager) request(ctx context.Context, client Client, method string, params any) (json.RawMessage, error) {
 	if client == nil {
 		return nil, fmt.Errorf("request %s: client is nil", method)
@@ -56,6 +56,13 @@ func (m *manager) request(ctx context.Context, client Client, method string, par
 		raw, err := m.requestOnce(ctx, client, method, params)
 		if err == nil {
 			return raw, nil
+		}
+		if isRetryableNavigationTimeout(ctx, method, err) {
+			retried, retryErr := m.retryRequestAfterDeadClient(ctx, client, method, params, err)
+			if retryErr == nil {
+				return retried, nil
+			}
+			return nil, fmt.Errorf("%s: %w", method, retryErr)
 		}
 		if isRetryableTransientLSPRequestError(method, err) && attempt < transientLSPRequestMaxRetries {
 			if waitErr := m.waitBeforeTransientLSPRequestRetry(ctx, attempt); waitErr != nil {
@@ -124,6 +131,32 @@ func canAutoRetryDeadClientRequest(method string) bool {
 		protocol.MethodTypeHierarchySupertypes,
 		protocol.MethodTypeHierarchySubtypes,
 		protocol.MethodWorkspaceSymbol:
+		return true
+	default:
+		return false
+	}
+}
+
+// isRetryableNavigationTimeout 只允许 inspect/xref 读链路在单步内部 deadline 后重建 client 并重试一次。
+// 调用方 deadline 或取消已生效时必须立即返回，不能通过重试延长上层预算。
+func isRetryableNavigationTimeout(ctx context.Context, method string, err error) bool {
+	if ctx == nil || ctx.Err() != nil || !errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	switch method {
+	case protocol.MethodHover,
+		protocol.MethodDefinition,
+		protocol.MethodImplementation,
+		protocol.MethodTypeDefinition,
+		protocol.MethodReferences,
+		protocol.MethodDocumentSymbol,
+		protocol.MethodSignatureHelp,
+		protocol.MethodPrepareCallHierarchy,
+		protocol.MethodCallHierarchyIncoming,
+		protocol.MethodCallHierarchyOutgoing,
+		protocol.MethodPrepareTypeHierarchy,
+		protocol.MethodTypeHierarchySupertypes,
+		protocol.MethodTypeHierarchySubtypes:
 		return true
 	default:
 		return false

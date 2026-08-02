@@ -210,6 +210,30 @@ func TestFileDiagnosticsDisablesOuterTimeout(t *testing.T) {
 	}
 }
 
+func TestInspectAndXRefDisableSharedOuterTimeout(t *testing.T) {
+	for _, toolName := range []string{"inspect", "xref"} {
+		t.Run(toolName, func(t *testing.T) {
+			deadlinePresent := false
+			handler := newManagerToolWithoutOuterTimeout(
+				toolName,
+				middleware.TierNormal,
+				lspmanager.NewRegistry(nil),
+				decodeLenient,
+				func(ctx context.Context, _ lspmanager.Registry, _ struct{}) (any, error) {
+					_, deadlinePresent = ctx.Deadline()
+					return "ok", nil
+				},
+			)
+			if _, err := handler(testToolContext(t.TempDir()), json.RawMessage("{}")); err != nil {
+				t.Fatalf("%s handler returned error: %v", toolName, err)
+			}
+			if deadlinePresent {
+				t.Fatalf("%s received a shared tool deadline, want independent per-LSP-step deadlines", toolName)
+			}
+		})
+	}
+}
+
 func TestFileReadKeepsNormalTimeoutTier(t *testing.T) {
 	deadline, ok := fileToolDeadlineForAction(t, "read_file")
 	if !ok {

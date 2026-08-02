@@ -21,6 +21,57 @@ const fakeGoplsSuppressDiagnosticProviderEnv = "MCP_LSP_FAKE_GOPLS_SUPPRESS_DIAG
 const fakeGoplsRequireE2EBuildFlagEnv = "MCP_LSP_FAKE_GOPLS_REQUIRE_E2E_BUILDFLAG"
 const fakeGoplsRejectIgnoreBuildFlagEnv = "MCP_LSP_FAKE_GOPLS_REJECT_IGNORE_BUILDFLAG"
 const fakeGoplsRequireTxtTemplateGoLanguageEnv = "MCP_LSP_FAKE_GOPLS_REQUIRE_TXT_TEMPLATE_GO_LANGUAGE"
+const fakeGoplsNavigationTimeoutLaunchLogEnv = "MCP_LSP_FAKE_GOPLS_NAVIGATION_TIMEOUT_LAUNCH_LOG"
+
+// TestMcpLSPBinaryGoCallHierarchyRetriesOnceAfterPerStepTimeout_E2E 经过真实 MCP stdio 边界验证：
+// 首个 gopls sidecar 的调用层级准备请求超时后只重建并重试一次，且单步 60 秒预算不被 MCP 工具外层提前截断。
+func TestMcpLSPBinaryGoCallHierarchyRetriesOnceAfterPerStepTimeout_E2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping 60-second mcp-lsp navigation retry e2e test in short mode")
+	}
+
+	root := t.TempDir()
+	target := writeFakeGoplsGoFixture(t, root)
+	binary := buildMcpLSPBinaryForTest(t)
+	fakeGoplsBinDir := writeFakeGoplsShutdownWarningLangserver(t)
+	launchLog := filepath.Join(t.TempDir(), "navigation-launches.log")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
+	defer cancel()
+	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, fakeGoplsBinDir, []string{
+		fakeGoplsNavigationTimeoutLaunchLogEnv + "=" + launchLog,
+	})
+	defer client.close(t)
+	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+
+	started := time.Now()
+	result := client.callTool(t, "xref", map[string]any{
+		"action":      "call_hierarchy",
+		"pos":         target + ":3:6",
+		"language_id": "go",
+		"direction":   "both",
+	})
+	elapsed := time.Since(started)
+	if result.Result.IsError {
+		t.Fatalf("call hierarchy reported timeout instead of succeeding after one retry; elapsed=%s text=%q structured=%s stderr=%s",
+			elapsed, result.Result.ContentText(), result.Result.StructuredContent, client.stderrString())
+	}
+	if elapsed < 58*time.Second {
+		t.Fatalf("call hierarchy completed in %s, want first per-step timeout to consume the 60-second budget before retry", elapsed)
+	}
+	if !strings.Contains(string(result.Result.StructuredContent), `"name":"main"`) {
+		t.Fatalf("call hierarchy structured result = %s, want retried main hierarchy; text=%q stderr=%s",
+			result.Result.StructuredContent, result.Result.ContentText(), client.stderrString())
+	}
+	payload, err := os.ReadFile(launchLog)
+	if err != nil {
+		t.Fatalf("read fake gopls navigation launch log: %v", err)
+	}
+	if launches := strings.Count(string(payload), "launch\n"); launches != 2 {
+		t.Fatalf("fake gopls launches = %d, want exactly 2 (initial attempt plus one retry); log=%q stderr=%s",
+			launches, payload, client.stderrString())
+	}
+}
 
 func TestMcpLSPBinaryGoplsOrphanedFilesShutdownWarningIsNotErrorLog_E2E(t *testing.T) {
 	if testing.Short() {
@@ -218,7 +269,7 @@ func TestFakeGoplsShutdownWarningHelper(t *testing.T) {
 	if os.Getenv("MCP_LSP_FAKE_GOPLS_SHUTDOWN_WARNING") != "1" {
 		return
 	}
-	runFakeGoplsShutdownWarningLangserver()
+	runFakeGoplsShutdownWarningLangserver(t)
 	os.Exit(0)
 }
 
@@ -314,7 +365,8 @@ func writeFakeGoplsShutdownWarningLangserver(t *testing.T) string {
 	return dir
 }
 
-func runFakeGoplsShutdownWarningLangserver() {
+func runFakeGoplsShutdownWarningLangserver(t *testing.T) {
+	hangFirstNavigationRequest := recordFakeGoplsNavigationLaunch(t)
 	reader := bufio.NewReader(os.Stdin)
 	var goroutines sync.WaitGroup
 	defer goroutines.Wait()
@@ -337,12 +389,39 @@ func runFakeGoplsShutdownWarningLangserver() {
 		if len(bytes.TrimSpace(req.ID)) == 0 {
 			continue
 		}
+		if hangFirstNavigationRequest && req.Method == "textDocument/prepareCallHierarchy" {
+			time.Sleep(2 * time.Minute)
+		}
 		if message := fakeGoplsInitializePolicyError(req); message != "" {
 			_ = writer.writeError(req.ID, -32002, message)
 			continue
 		}
 		_ = writer.writeResponse(req.ID, fakeGoplsResult(req))
 	}
+}
+
+func recordFakeGoplsNavigationLaunch(t *testing.T) bool {
+	t.Helper()
+	path := os.Getenv(fakeGoplsNavigationTimeoutLaunchLogEnv)
+	if path == "" {
+		return false
+	}
+	payload, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("read fake gopls navigation launch log: %v", err)
+	}
+	logFile, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatalf("open fake gopls navigation launch log: %v", err)
+	}
+	if _, err := logFile.WriteString("launch\n"); err != nil {
+		_ = logFile.Close()
+		t.Fatalf("write fake gopls navigation launch log: %v", err)
+	}
+	if err := logFile.Close(); err != nil {
+		t.Fatalf("close fake gopls navigation launch log: %v", err)
+	}
+	return len(payload) == 0
 }
 
 func fakeGoplsInitializePolicyError(req fakeLSPRequest) string {
@@ -465,6 +544,7 @@ func fakeGoplsResult(req fakeLSPRequest) any {
 			"textDocumentSync":       1,
 			"hoverProvider":          true,
 			"documentSymbolProvider": true,
+			"callHierarchyProvider":  true,
 		}
 		if os.Getenv(fakeGoplsSuppressDiagnosticProviderEnv) != "1" {
 			capabilities["diagnosticProvider"] = map[string]any{
@@ -493,6 +573,10 @@ func fakeGoplsResult(req fakeLSPRequest) any {
 				"value": "```go\nfunc main()\n```",
 			},
 		}
+	case "textDocument/prepareCallHierarchy":
+		return []map[string]any{fakeGoplsCallHierarchyItem(req)}
+	case "callHierarchy/incomingCalls", "callHierarchy/outgoingCalls":
+		return []any{}
 	case "textDocument/diagnostic":
 		return map[string]any{
 			"kind":  "full",
@@ -502,6 +586,32 @@ func fakeGoplsResult(req fakeLSPRequest) any {
 		return nil
 	default:
 		return nil
+	}
+}
+
+func fakeGoplsCallHierarchyItem(req fakeLSPRequest) map[string]any {
+	var params struct {
+		TextDocument struct {
+			URI string `json:"uri"`
+		} `json:"textDocument"`
+	}
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return nil
+	}
+	rangeValue := map[string]any{
+		"start": map[string]any{"line": 2, "character": 0},
+		"end":   map[string]any{"line": 2, "character": 14},
+	}
+	selectionRange := map[string]any{
+		"start": map[string]any{"line": 2, "character": 5},
+		"end":   map[string]any{"line": 2, "character": 9},
+	}
+	return map[string]any{
+		"name":           "main",
+		"kind":           12,
+		"uri":            params.TextDocument.URI,
+		"range":          rangeValue,
+		"selectionRange": selectionRange,
 	}
 }
 

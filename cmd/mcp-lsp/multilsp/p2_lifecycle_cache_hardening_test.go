@@ -76,6 +76,50 @@ func TestRequestFailureReturnsRetriedResultAfterRebootstrap(t *testing.T) {
 	}
 }
 
+func TestNavigationRequestTimeoutRetriesOnceAfterRebuild(t *testing.T) {
+	root := canonicalScopePath(t.TempDir(), "")
+	writeGenericTestFile(t, filepath.Join(root, "package.json"), `{"name":"timeout-web"}`)
+	target := filepath.Join(root, "src", "app.ts")
+	writeGenericTestFile(t, target, "export const value = 1\n")
+	factory := &p2LifecycleFactory{requestFailures: []error{context.DeadlineExceeded, nil}}
+	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory, DiagnosticsMaxWait: 1}).(*manager)
+	t.Cleanup(func() { _ = mgr.Close() })
+
+	symbols, err := mgr.DocumentSymbol(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), target)
+	if err != nil {
+		t.Fatalf("DocumentSymbol error = %v, want one retry after the first step timeout", err)
+	}
+	if len(symbols) != 1 || symbols[0].Name != "rebuilt" {
+		t.Fatalf("DocumentSymbol = %#v, want result from the single retry", symbols)
+	}
+	if got := factory.callCount(); got != 2 {
+		t.Fatalf("factory calls = %d, want original plus one retry client", got)
+	}
+}
+
+func TestNavigationRequestSecondTimeoutIsReportedWithoutThirdAttempt(t *testing.T) {
+	root := canonicalScopePath(t.TempDir(), "")
+	writeGenericTestFile(t, filepath.Join(root, "package.json"), `{"name":"timeout-twice-web"}`)
+	target := filepath.Join(root, "src", "app.ts")
+	writeGenericTestFile(t, target, "export const value = 1\n")
+	factory := &p2LifecycleFactory{requestFailures: []error{context.DeadlineExceeded, context.DeadlineExceeded, nil}}
+	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory, DiagnosticsMaxWait: 1}).(*manager)
+	t.Cleanup(func() { _ = mgr.Close() })
+
+	_, err := mgr.DocumentSymbol(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), target)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("DocumentSymbol error = %v, want second timeout", err)
+	}
+	if got := factory.callCount(); got != 2 {
+		t.Fatalf("factory calls = %d, want exactly two attempts", got)
+	}
+	for index := range 2 {
+		if got := factory.clientAt(t, index).requestCount(); got != 1 {
+			t.Fatalf("client %d request count = %d, want one", index, got)
+		}
+	}
+}
+
 func TestRequestDeadClientDoesNotAutoReplayRename(t *testing.T) {
 	root := canonicalScopePath(t.TempDir(), "")
 	writeGenericTestFile(t, filepath.Join(root, "package.json"), `{"name":"rename-web"}`)

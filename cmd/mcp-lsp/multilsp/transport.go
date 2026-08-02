@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	defaultRequestTimeout = 30 * time.Second
+	defaultRequestTimeout = 60 * time.Second
 	jsonRPCMethodNotFound = -32601
 	jsonRPCInternalError  = -32603
 )

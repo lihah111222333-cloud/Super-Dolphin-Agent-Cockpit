@@ -10,6 +10,12 @@ import (
 	"time"
 )
 
+func TestDefaultLSPRequestTimeoutIsSixtySeconds(t *testing.T) {
+	if defaultRequestTimeout != 60*time.Second {
+		t.Fatalf("defaultRequestTimeout = %s, want 60s per LSP step", defaultRequestTimeout)
+	}
+}
+
 type gatedWriteCloser struct {
 	entered     chan struct{}
 	release     chan struct{}
