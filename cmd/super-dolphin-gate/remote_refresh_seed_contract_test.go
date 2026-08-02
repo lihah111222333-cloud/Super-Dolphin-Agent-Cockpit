@@ -597,7 +597,7 @@ func assertRemoteBaselineSeedLayerFragments(t *testing.T) {
 		"go direct cache publish: current private delta only",
 		"go direct cache migration: current accessed working set only",
 		"run_logged direct-cache-publish publish_direct_cache",
-		"publish_parallelism=$((BASELINE_SEED_GO_PARALLELISM * 4))",
+		"publish_parallelism=$((BASELINE_SEED_GO_PARALLELISM * 8))",
 		"install -D -m 0444 \"$source_path\" \"$target_root/$relative\"",
 		"DIRECT_CACHE_MANIFEST=\"$oss_output/direct-cache/manifest.json\"",
 		"\"runtime_go_sha256\": os.environ[\"RUNTIME_GO_SHA256\"]",

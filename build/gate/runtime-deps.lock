@@ -17,7 +17,7 @@
     "tools_go_sum_sha256": "sha256:4fb6b0daaafccfaa0024c3eebd193929957f4e49c62ed551a6289c59632f104f",
     "runtime_seed_worker_sha256": "sha256:17aa60ecc6a26e117fcb8e0d065b55d32347ecfee40bcb917e5c0bd7deff44cc",
     "runtime_seed_script_browser_sha256": "sha256:b7452b9a3bf804a067db7156c54d5477ac49c84f20c4bd289fc243acc048c44a",
-    "runtime_seed_script_runtime_sha256": "sha256:b9573af7c9a490f1df4ba8d4b696ca0d5c03aa1a08cef17f14a633bff141d611",
+    "runtime_seed_script_runtime_sha256": "sha256:d5cdb1cda624589d19e34530734ccfcaa52d9c0f68ce546f6025271f4e72c76c",
     "runtime_seed_script_tail_sha256": "sha256:59b212c36402953a455e8a5d5224db50fde3ee21a042fd66ba04270e5421baeb"
   },
   "recipe_inputs": {
