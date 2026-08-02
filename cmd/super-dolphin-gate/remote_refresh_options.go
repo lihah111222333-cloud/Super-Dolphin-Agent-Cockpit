@@ -21,10 +21,13 @@ func parseRemoteBaselineRefreshOptions(args []string) (remoteBaselineRefreshOpti
 	if err := flags.Parse(args); err != nil {
 		return options, protocolError("parse remote baseline-refresh flags: %v", err)
 	}
-	if flags.NArg() != 0 || strings.TrimSpace(options.ConfigPath) == "" || strings.TrimSpace(options.LedgerPath) == "" ||
+	if flags.NArg() != 0 || strings.TrimSpace(options.ConfigPath) == "" ||
 		strings.TrimSpace(options.Remote) == "" || !strings.HasPrefix(options.Ref, "refs/heads/") ||
 		(options.Platform != "linux/amd64" && options.Platform != "linux/arm64") {
 		return options, protocolError("remote baseline-refresh requires --config and valid optional flags")
+	}
+	if err := normalizeRemoteSQLiteAuthority(options.ConfigPath, &options.StatePath, &options.LedgerPath); err != nil {
+		return options, err
 	}
 	return options, nil
 }

@@ -142,7 +142,7 @@ func TestLocalLightTestEnvironmentDisablesPreparation(t *testing.T) {
 func TestParseAutoTestRunOptionsRequiresSelectorsAndOwnsScenario(t *testing.T) {
 	options, err := parseAutoTestRunOptions([]string{
 		"--config", "/tmp/config.json",
-		"--ledger", "/tmp/ledger.json",
+		"--ledger", "/tmp/config.baseline-state.sqlite",
 		"--test", "./internal/module/turn#TestRedact",
 	})
 	if err != nil {
@@ -153,13 +153,13 @@ func TestParseAutoTestRunOptionsRequiresSelectorsAndOwnsScenario(t *testing.T) {
 	}
 	if _, err := parseAutoTestRunOptions([]string{
 		"--config", "/tmp/config.json",
-		"--ledger", "/tmp/ledger.json",
+		"--ledger", "/tmp/config.baseline-state.sqlite",
 	}); err == nil {
 		t.Fatal("test command accepted no selectors")
 	}
 	if _, err := parseAutoTestRunOptions([]string{
 		"--config", "/tmp/config.json",
-		"--ledger", "/tmp/ledger.json",
+		"--ledger", "/tmp/config.baseline-state.sqlite",
 		"--scenario", "test",
 		"--test", "./internal/module/turn#TestRedact",
 	}); err == nil {

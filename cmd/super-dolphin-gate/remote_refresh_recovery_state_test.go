@@ -17,7 +17,7 @@ import (
 func TestParseRemoteBaselineRefreshOptions(t *testing.T) {
 	options, err := parseRemoteBaselineRefreshOptions([]string{
 		"--config", "/tmp/remote-ci.json",
-		"--ledger", "/tmp/duration-ledger.sqlite",
+		"--ledger", "/tmp/remote-ci.baseline-state.sqlite",
 		"--repository", "/tmp/repository",
 		"--remote", "upstream",
 		"--ref", "refs/heads/main",
@@ -26,7 +26,9 @@ func TestParseRemoteBaselineRefreshOptions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseRemoteBaselineRefreshOptions() error = %v", err)
 	}
-	if options.Remote != "upstream" || options.Ref != "refs/heads/main" ||
+	if options.StatePath != "/tmp/remote-ci.baseline-state.json" ||
+		options.LedgerPath != "/tmp/remote-ci.baseline-state.sqlite" ||
+		options.Remote != "upstream" || options.Ref != "refs/heads/main" ||
 		options.Platform != "linux/amd64" {
 		t.Fatalf("parseRemoteBaselineRefreshOptions() = %#v", options)
 	}

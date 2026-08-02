@@ -69,7 +69,7 @@ func TestParseRemoteRunOptions(t *testing.T) {
 		"--commit", "main",
 		"--base", "main^",
 		"--profile", string(gatecontract.ProfileRelease),
-		"--ledger", "/tmp/ledger.json",
+		"--ledger", "/tmp/remote-ci.baseline-state.sqlite",
 		"--max-shards", "7",
 		"--force-rerun",
 	})
@@ -79,6 +79,24 @@ func TestParseRemoteRunOptions(t *testing.T) {
 	assertParsedRemoteRunOptions(t, options, requesterFingerprint)
 }
 
+func TestParseRemoteRunOptionsDerivesSingleSQLiteAuthority(t *testing.T) {
+	options, err := parseRemoteRunOptions([]string{"--config", "/tmp/remote-ci.json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if options.StatePath != "/tmp/remote-ci.baseline-state.json" ||
+		options.LedgerPath != "/tmp/remote-ci.baseline-state.sqlite" {
+		t.Fatalf("remote SQLite authority = state %q ledger %q", options.StatePath, options.LedgerPath)
+	}
+	_, err = parseRemoteRunOptions([]string{
+		"--config", "/tmp/remote-ci.json",
+		"--ledger", "/tmp/another-truth-source.sqlite",
+	})
+	if err == nil || !strings.Contains(err.Error(), "same SQLite authority") {
+		t.Fatalf("second SQLite truth source error = %v", err)
+	}
+}
+
 func TestParseRemoteRunOptionsRejectsConflictingRequesterFingerprint(t *testing.T) {
 	t.Setenv(
 		gatecontract.RequesterFingerprintEnvironment,
@@ -86,7 +104,7 @@ func TestParseRemoteRunOptionsRejectsConflictingRequesterFingerprint(t *testing.
 	)
 	_, err := parseRemoteRunOptions([]string{
 		"--config", "/tmp/remote-ci.json",
-		"--ledger", "/tmp/ledger.json",
+		"--ledger", "/tmp/remote-ci.baseline-state.sqlite",
 		"--requester-fingerprint", "sha256:" + strings.Repeat("b", 64),
 	})
 	if err == nil || !strings.Contains(err.Error(), "conflict") {

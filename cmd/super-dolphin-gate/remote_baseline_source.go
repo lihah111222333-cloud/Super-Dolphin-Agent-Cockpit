@@ -527,8 +527,11 @@ func parseRemotePrePushOptions(args []string) (remoteRunOptions, string, string,
 	if err := flags.Parse(args); err != nil {
 		return options, "", "", protocolError("parse remote pre-push flags: %v", err)
 	}
-	if flags.NArg() != 2 || strings.TrimSpace(options.ConfigPath) == "" || strings.TrimSpace(options.LedgerPath) == "" || options.MaxShards > gatecontract.MaxContainerShards {
-		return options, "", "", protocolError("remote pre-push requires --config, --ledger, and exact remote name and URL")
+	if flags.NArg() != 2 || strings.TrimSpace(options.ConfigPath) == "" || options.MaxShards > gatecontract.MaxContainerShards {
+		return options, "", "", protocolError("remote pre-push requires --config and exact remote name and URL")
+	}
+	if err := normalizeRemoteSQLiteAuthority(options.ConfigPath, &options.StatePath, &options.LedgerPath); err != nil {
+		return options, "", "", err
 	}
 	requester, err := resolveRequesterFingerprint(
 		requesterFingerprint,

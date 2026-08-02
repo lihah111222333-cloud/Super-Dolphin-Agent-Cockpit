@@ -16,7 +16,7 @@ func TestParseRemotePrePushOptions(t *testing.T) {
 	t.Setenv(gatecontract.RequesterFingerprintEnvironment, requesterFingerprint)
 	options, remoteName, remoteURL, err := parseRemotePrePushOptions([]string{
 		"--config", "/tmp/remote-ci.json",
-		"--ledger", "/tmp/duration-ledger.json",
+		"--ledger", "/tmp/remote-ci.baseline-state.sqlite",
 		"--repository", "/tmp/repository",
 		"--max-shards", "12",
 		"origin",
@@ -26,7 +26,8 @@ func TestParseRemotePrePushOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	if options.ConfigPath != "/tmp/remote-ci.json" ||
-		options.LedgerPath != "/tmp/duration-ledger.json" ||
+		options.StatePath != "/tmp/remote-ci.baseline-state.json" ||
+		options.LedgerPath != "/tmp/remote-ci.baseline-state.sqlite" ||
 		options.RepositoryRoot != "/tmp/repository" ||
 		options.MaxShards != 12 ||
 		options.RequesterFingerprint.String() != requesterFingerprint ||

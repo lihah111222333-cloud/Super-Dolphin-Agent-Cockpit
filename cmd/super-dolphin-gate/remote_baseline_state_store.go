@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
+	"strings"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
@@ -21,6 +23,29 @@ type remoteBaselineStoredState struct {
 }
 
 func remoteBaselineDatabasePath(path string) string { return path }
+
+// normalizeRemoteSQLiteAuthority 将远程基准状态和耗时账本收敛到同一个 SQLite 真相源。
+func normalizeRemoteSQLiteAuthority(configPath string, statePath *string, ledgerPath *string) error {
+	resolvedState := remoteBaselineStatePath(configPath, *statePath)
+	extension := filepath.Ext(resolvedState)
+	authorityPath := strings.TrimSuffix(resolvedState, extension) + ".sqlite"
+	if strings.TrimSpace(*ledgerPath) != "" {
+		given, err := filepath.Abs(*ledgerPath)
+		if err != nil {
+			return protocolError("resolve remote SQLite authority: %v", err)
+		}
+		want, err := filepath.Abs(authorityPath)
+		if err != nil {
+			return protocolError("resolve remote SQLite authority: %v", err)
+		}
+		if filepath.Clean(given) != filepath.Clean(want) {
+			return protocolError("remote baseline state and duration ledger must use the same SQLite authority %q", want)
+		}
+	}
+	*statePath = resolvedState
+	*ledgerPath = authorityPath
+	return nil
+}
 
 func baselineLedger(path string) (*gatecontract.DurationLedgerStore, error) {
 	return gatecontract.NewDurationLedgerStore(path)

@@ -46,6 +46,9 @@ func parseRemoteRunOptions(args []string) (remoteRunOptions, error) {
 	if err := validateRemoteRunFlags(flags, options); err != nil {
 		return options, err
 	}
+	if err := normalizeRemoteSQLiteAuthority(options.ConfigPath, &options.StatePath, &options.LedgerPath); err != nil {
+		return options, err
+	}
 	if err := normalizeRemoteRunSource(&options); err != nil {
 		return options, err
 	}
@@ -63,8 +66,8 @@ func parseRemoteRunOptions(args []string) (remoteRunOptions, error) {
 
 // validateRemoteRunFlags 校验解析后必须存在的存储参数和分片上限。
 func validateRemoteRunFlags(flags *flag.FlagSet, options remoteRunOptions) error {
-	if flags.NArg() != 0 || strings.TrimSpace(options.ConfigPath) == "" || strings.TrimSpace(options.LedgerPath) == "" || options.MaxShards > gatecontract.MaxContainerShards {
-		return protocolError("remote run requires --config, --ledger, and valid optional flags")
+	if flags.NArg() != 0 || strings.TrimSpace(options.ConfigPath) == "" || options.MaxShards > gatecontract.MaxContainerShards {
+		return protocolError("remote run requires --config and valid optional flags")
 	}
 	return nil
 }
