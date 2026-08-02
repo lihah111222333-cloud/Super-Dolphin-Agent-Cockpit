@@ -42,15 +42,16 @@ type runtimeDepsInputs struct {
 	ProxyGoSum          string `json:"proxy_go_sum_sha256"`
 	ToolsGoMod          string `json:"tools_go_mod_sha256"`
 	ToolsGoSum          string `json:"tools_go_sum_sha256"`
-	RuntimeSeedWorker   string `json:"runtime_seed_worker_sha256"`
 	RuntimeSeedBrowser  string `json:"runtime_seed_script_browser_sha256"`
 	RuntimeSeedRuntime  string `json:"runtime_seed_script_runtime_sha256"`
 	RuntimeSeedTail     string `json:"runtime_seed_script_tail_sha256"`
 }
 
 type runtimeDepsRecipeInputs struct {
-	RuntimeSeedRecipe string `json:"runtime_seed_recipe_sha256"`
-	RuntimeSeedScript string `json:"runtime_seed_script_sha256"`
+	RuntimeSeedRecipe  string `json:"runtime_seed_recipe_sha256"`
+	RuntimeSeedScript  string `json:"runtime_seed_script_sha256"`
+	RuntimeSeedWorker  string `json:"runtime_seed_worker_sha256"`
+	RuntimeSeedControl string `json:"runtime_seed_script_control_sha256"`
 }
 
 type runtimeDepsPaths struct {
@@ -124,7 +125,6 @@ func runtimeDepsInputBindings(inputs runtimeDepsInputs) []runtimeDepsInputBindin
 		{"build/gate/runtime-proxy/go.sum", inputs.ProxyGoSum},
 		{"build/gate/runtime-tools/go.mod", inputs.ToolsGoMod},
 		{"build/gate/runtime-tools/go.sum", inputs.ToolsGoSum},
-		{"internal/devtools/gate/executor_seed.go", inputs.RuntimeSeedWorker},
 		{"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go", inputs.RuntimeSeedBrowser},
 		{"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go", inputs.RuntimeSeedRuntime},
 		{"cmd/super-dolphin-gate/remote_refresh_seed_script_tail.go", inputs.RuntimeSeedTail},
@@ -135,6 +135,8 @@ func runtimeDepsRecipeInputBindings(inputs runtimeDepsRecipeInputs) []runtimeDep
 	return []runtimeDepsInputBinding{
 		{"cmd/super-dolphin-gate/remote_refresh_seed.go", inputs.RuntimeSeedRecipe},
 		{"cmd/super-dolphin-gate/remote_refresh_seed_script.go", inputs.RuntimeSeedScript},
+		{"internal/devtools/gate/executor_seed.go", inputs.RuntimeSeedWorker},
+		{"cmd/super-dolphin-gate/remote_refresh_seed_script_control.go", inputs.RuntimeSeedControl},
 	}
 }
 

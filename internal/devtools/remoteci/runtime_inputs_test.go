@@ -215,6 +215,15 @@ func TestResolveAcceptedRuntimeDependencyDigestAllowsLegacyV5ThroughV10(t *testi
 	if !ok {
 		t.Fatal("runtime dependency fixture recipe inputs are not an object")
 	}
+	inputs["runtime_seed_worker_sha256"] = recipeInputs["runtime_seed_worker_sha256"]
+	delete(recipeInputs, "runtime_seed_worker_sha256")
+	delete(recipeInputs, "runtime_seed_script_control_sha256")
+	document["schema_version"] = "11"
+	updateRuntimeDependencyLock(t, entries, lockIndex, document)
+	legacyV11 := assertAcceptedLegacyRuntimeDigest(t, entries, "v11")
+	if legacyV11 != current {
+		t.Fatalf("legacy v11 dependency digest = %q, want v12 %q", legacyV11, current)
+	}
 	inputs["runtime_seed_script_sha256"] = recipeInputs["runtime_seed_script_sha256"]
 	delete(recipeInputs, "runtime_seed_script_sha256")
 	delete(inputs, "runtime_seed_script_tail_sha256")
@@ -232,7 +241,7 @@ func TestResolveAcceptedRuntimeDependencyDigestAllowsLegacyV5ThroughV10(t *testi
 	if legacyV9 != legacyV10 {
 		t.Fatalf("legacy v9 dependency digest = %q, want v10 %q", legacyV9, legacyV10)
 	}
-	seen := map[string]string{current: "v11", legacyV10: "v10"}
+	seen := map[string]string{current: "v12", legacyV10: "v10"}
 	reusable := legacyV10
 	migrations := []struct {
 		version         string
@@ -250,13 +259,6 @@ func TestResolveAcceptedRuntimeDependencyDigestAllowsLegacyV5ThroughV10(t *testi
 		delete(inputs, migration.removedInput)
 		updateRuntimeDependencyLock(t, entries, lockIndex, document)
 		digest := acceptedLegacyRuntimeDigest(t, entries, migration)
-		if migration.version == "v6" {
-			if digest != current {
-				t.Fatalf("legacy v6 dependency digest = %q, want script-independent v11 %q", digest, current)
-			}
-			reusable = digest
-			continue
-		}
 		if migration.wantDistinct {
 			assertDistinctRuntimeDependencyDigest(t, seen, digest, migration.version)
 			reusable = digest
@@ -277,7 +279,11 @@ func TestResolveAcceptedRuntimeDependencyDigestAllowsLegacyV4(t *testing.T) {
 	manifestBuilder := sourceexport.TreeEntry{
 		Path: "build/gate/cmd/runtime-seed-manifest/main.go", Mode: "100644", Data: []byte("package main\n"),
 	}
-	manifestAPI, ok := inputs["runtime_seed_worker_sha256"]
+	recipeInputs, ok := document["recipe_inputs"].(map[string]any)
+	if !ok {
+		t.Fatal("runtime dependency fixture recipe inputs are not an object")
+	}
+	manifestAPI, ok := recipeInputs["runtime_seed_worker_sha256"]
 	if !ok {
 		t.Fatal("current runtime dependency fixture is missing runtime seed worker digest")
 	}
@@ -290,6 +296,7 @@ func TestResolveAcceptedRuntimeDependencyDigestAllowsLegacyV4(t *testing.T) {
 	}
 	inputs["manifest_builder_sha256"] = remoteBytesDigest(manifestBuilder.Data)
 	inputs["manifest_api_sha256"] = manifestAPI
+	delete(document, "recipe_inputs")
 	entries = append(entries, manifestBuilder)
 	updateRuntimeDependencyLock(t, entries, lockIndex, document)
 

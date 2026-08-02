@@ -185,6 +185,8 @@ func executeExecutorSubcommand(ctx context.Context, args []string, stdout io.Wri
 	switch args[0] {
 	case "runtime-seed":
 		return true, executeRuntimeSeedCommand(args[1:])
+	case "runtime-seed-inspect":
+		return true, executeRuntimeSeedInspectCommand(args[1:], stdout)
 	case "go-module-overlay":
 		return true, executeGoModuleOverlayCommand(args[1:])
 	default:

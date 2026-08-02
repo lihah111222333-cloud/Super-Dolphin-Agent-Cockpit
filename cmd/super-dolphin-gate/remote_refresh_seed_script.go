@@ -407,7 +407,8 @@ module_lock_manifest() {
 
 runtime_dependency_manifest() {
   jq -S -e '
-    if .schema_version == "11" then
+    if .schema_version == "12" then .inputs
+    elif .schema_version == "11" then
       .inputs | with_entries(select(.key | startswith("runtime_seed_script_") | not))
     elif .schema_version == "10" then .inputs
     elif .schema_version == "9" then

@@ -15,7 +15,7 @@ import (
 )
 
 // RuntimeDependencySchemaVersion 是当前 runtime seed 构建合同版本。
-const RuntimeDependencySchemaVersion = "11"
+const RuntimeDependencySchemaVersion = "12"
 
 func runtimeDependencyPathsV4() []string {
 	return []string{
@@ -77,6 +77,8 @@ func runtimeDependencyRecipePaths() []string {
 	return []string{
 		"cmd/super-dolphin-gate/remote_refresh_seed.go",
 		"cmd/super-dolphin-gate/remote_refresh_seed_script.go",
+		"internal/devtools/gate/executor_seed.go",
+		"cmd/super-dolphin-gate/remote_refresh_seed_script_control.go",
 	}
 }
 
@@ -94,8 +96,19 @@ func runtimeDependencyPathsV10() []string {
 	)
 }
 
-func runtimeDependencyPaths() []string {
+// runtimeDependencyPathsV11 保留 v11 已验收锁的内容输入闭包。
+func runtimeDependencyPathsV11() []string {
 	return append(append([]string(nil), runtimeDependencyPathsV5()...),
+		"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go",
+		"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go",
+		"cmd/super-dolphin-gate/remote_refresh_seed_script_tail.go",
+	)
+}
+
+func runtimeDependencyPaths() []string {
+	paths := runtimeDependencyPathsV5()
+	paths = paths[:len(paths)-1] // v12 将 worker 控制面移入 RecipeInputs。
+	return append(append([]string(nil), paths...),
 		"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go",
 		"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go",
 		"cmd/super-dolphin-gate/remote_refresh_seed_script_tail.go",
@@ -238,6 +251,8 @@ func acceptedRuntimeDependencyPaths(schemaVersion string) ([]string, error) {
 	case "10":
 		return runtimeDependencyPathsV10(), nil
 	case "11":
+		return runtimeDependencyPathsV11(), nil
+	case "12":
 		return runtimeDependencyPaths(), nil
 	case "8":
 		return runtimeDependencyPathsV8(), nil
@@ -354,7 +369,7 @@ func loadRuntimeToolchainLock(byPath map[string][]byte) (runtimeToolchainLock, e
 func runtimeLockDigest(lock runtimeDependencyLock) string {
 	ordered := make([]string, 0, len(lock.Inputs))
 	for name, digest := range lock.Inputs {
-		if lock.SchemaVersion == RuntimeDependencySchemaVersion && strings.HasPrefix(name, "runtime_seed_script_") {
+		if lock.SchemaVersion == "11" && name == "runtime_seed_worker_sha256" {
 			continue
 		}
 		switch name {
@@ -522,8 +537,8 @@ func runtimeDependencyRecipeLockField(path string) string {
 	return map[string]string{
 		"cmd/super-dolphin-gate/remote_refresh_seed.go":                "runtime_seed_recipe_sha256",
 		"cmd/super-dolphin-gate/remote_refresh_seed_script.go":         "runtime_seed_script_sha256",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go": "runtime_seed_script_browser_sha256",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go": "runtime_seed_script_runtime_sha256",
+		"internal/devtools/gate/executor_seed.go":                      "runtime_seed_worker_sha256",
+		"cmd/super-dolphin-gate/remote_refresh_seed_script_control.go": "runtime_seed_script_control_sha256",
 	}[path]
 }
 

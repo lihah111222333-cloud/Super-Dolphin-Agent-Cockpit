@@ -1,5 +1,5 @@
 {
-  "schema_version": "11",
+  "schema_version": "12",
   "build_mode": "node-local",
   "cache_scope": "node",
   "inputs": {
@@ -15,14 +15,15 @@
     "proxy_go_sum_sha256": "sha256:0c367de5a9f3090cb8f06556d9a1997a84e1c6081f7c46b9ad9650e3178dc224",
     "tools_go_mod_sha256": "sha256:2f5387886a2a58b3b047d3c31449a58ddf071e6790bf7225c71e05c1349bfbad",
     "tools_go_sum_sha256": "sha256:4fb6b0daaafccfaa0024c3eebd193929957f4e49c62ed551a6289c59632f104f",
-    "runtime_seed_worker_sha256": "sha256:29b72e7657e6a7d2b32cd68c757c27dd76eb9d497ca66a5e1236b2949e541aca",
     "runtime_seed_script_browser_sha256": "sha256:b7452b9a3bf804a067db7156c54d5477ac49c84f20c4bd289fc243acc048c44a",
     "runtime_seed_script_runtime_sha256": "sha256:d5cdb1cda624589d19e34530734ccfcaa52d9c0f68ce546f6025271f4e72c76c",
-    "runtime_seed_script_tail_sha256": "sha256:e9140d9d6a8374e2af65e661fe57b1c7e2aea21232aa96bfb3aeb7d1dfbf1cd9"
+    "runtime_seed_script_tail_sha256": "sha256:9273205626f06bfcb51f02f8541f122c7f4254dd379f9536038ac38f1720e5f9"
   },
   "recipe_inputs": {
     "runtime_seed_recipe_sha256": "sha256:207cc09615c7b346034a0048f7e5e65b09640ecca137d961a438a32698b5aa4e",
-    "runtime_seed_script_sha256": "sha256:2f641ff5c2d148cd5ba82bffadf914706afac178877ce2481c9ba8ad4ade1c46"
+    "runtime_seed_script_sha256": "sha256:878c029d2b3c1d3cab755fa99348aa18c5f5ad9fd4509571c80468daffed42d1",
+    "runtime_seed_worker_sha256": "sha256:17aa60ecc6a26e117fcb8e0d065b55d32347ecfee40bcb917e5c0bd7deff44cc",
+    "runtime_seed_script_control_sha256": "sha256:0e86105b5e6862dd958418b465d4b3c180a9c72e511973e6625c365f1af08f44"
   },
   "paths": {
     "manifest": "/opt/super-dolphin-gate/runtime/manifest.json",

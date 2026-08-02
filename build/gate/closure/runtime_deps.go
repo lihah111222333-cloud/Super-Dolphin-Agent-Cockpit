@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	runtimeDepsSchemaVersion = "11"
+	runtimeDepsSchemaVersion = "12"
 	runtimeDepsBuildMode     = "node-local"
 	runtimeDepsCacheScope    = "node"
 )
@@ -51,15 +51,16 @@ type runtimeDepsInputs struct {
 	ProxyGoSum          string `json:"proxy_go_sum_sha256"`
 	ToolsGoMod          string `json:"tools_go_mod_sha256"`
 	ToolsGoSum          string `json:"tools_go_sum_sha256"`
-	RuntimeSeedWorker   string `json:"runtime_seed_worker_sha256"`
 	RuntimeSeedBrowser  string `json:"runtime_seed_script_browser_sha256"`
 	RuntimeSeedRuntime  string `json:"runtime_seed_script_runtime_sha256"`
 	RuntimeSeedTail     string `json:"runtime_seed_script_tail_sha256"`
 }
 
 type runtimeDepsRecipeInputs struct {
-	RuntimeSeedRecipe string `json:"runtime_seed_recipe_sha256"`
-	RuntimeSeedScript string `json:"runtime_seed_script_sha256"`
+	RuntimeSeedRecipe  string `json:"runtime_seed_recipe_sha256"`
+	RuntimeSeedScript  string `json:"runtime_seed_script_sha256"`
+	RuntimeSeedWorker  string `json:"runtime_seed_worker_sha256"`
+	RuntimeSeedControl string `json:"runtime_seed_script_control_sha256"`
 }
 
 type runtimeDepsPaths struct {
@@ -142,10 +143,11 @@ func runtimeDepsInputFields(inputs runtimeDepsInputs, recipeInputs runtimeDepsRe
 		{"dockerfile", inputs.Dockerfile}, {"toolchain lock", inputs.ToolchainLock}, {"go.mod", inputs.GoMod}, {"go.sum", inputs.GoSum},
 		{"nilness runner", inputs.NilnessRunner}, {"nilness guard", inputs.NilnessGuard}, {"frontend package lock", inputs.FrontendPackageLock},
 		{"LSP package lock", inputs.LSPPackageLock}, {"proxy go.mod", inputs.ProxyGoMod}, {"proxy go.sum", inputs.ProxyGoSum},
-		{"tools go.mod", inputs.ToolsGoMod}, {"tools go.sum", inputs.ToolsGoSum}, {"runtime seed worker", inputs.RuntimeSeedWorker},
+		{"tools go.mod", inputs.ToolsGoMod}, {"tools go.sum", inputs.ToolsGoSum},
 		{"runtime seed script browser", inputs.RuntimeSeedBrowser},
 		{"runtime seed script runtime", inputs.RuntimeSeedRuntime}, {"runtime seed script tail", inputs.RuntimeSeedTail}, {"runtime seed recipe", recipeInputs.RuntimeSeedRecipe},
-		{"runtime seed script", recipeInputs.RuntimeSeedScript},
+		{"runtime seed script", recipeInputs.RuntimeSeedScript}, {"runtime seed worker", recipeInputs.RuntimeSeedWorker},
+		{"runtime seed script control", recipeInputs.RuntimeSeedControl},
 	}
 }
 
@@ -209,7 +211,6 @@ func runtimeDepsDigestTargets(inputs *runtimeDepsInputs) []runtimeDepsDigestTarg
 		{"internal/devtools/nilnessrunner/runner.go", &inputs.NilnessRunner}, {"scripts/nilness_guard.go", &inputs.NilnessGuard},
 		{"frontend-app/package-lock.json", &inputs.FrontendPackageLock}, {gateRuntimeLSPLock, &inputs.LSPPackageLock},
 		{gateRuntimeProxyModule, &inputs.ProxyGoMod}, {gateRuntimeProxySum, &inputs.ProxyGoSum}, {gateRuntimeToolsModule, &inputs.ToolsGoMod}, {gateRuntimeToolsSum, &inputs.ToolsGoSum},
-		{"internal/devtools/gate/executor_seed.go", &inputs.RuntimeSeedWorker},
 		{"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go", &inputs.RuntimeSeedBrowser},
 		{"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go", &inputs.RuntimeSeedRuntime},
 		{"cmd/super-dolphin-gate/remote_refresh_seed_script_tail.go", &inputs.RuntimeSeedTail},
@@ -220,6 +221,8 @@ func runtimeDepsRecipeDigestTargets(inputs *runtimeDepsRecipeInputs) []runtimeDe
 	return []runtimeDepsDigestTarget{
 		{"cmd/super-dolphin-gate/remote_refresh_seed.go", &inputs.RuntimeSeedRecipe},
 		{"cmd/super-dolphin-gate/remote_refresh_seed_script.go", &inputs.RuntimeSeedScript},
+		{"internal/devtools/gate/executor_seed.go", &inputs.RuntimeSeedWorker},
+		{"cmd/super-dolphin-gate/remote_refresh_seed_script_control.go", &inputs.RuntimeSeedControl},
 	}
 }
 
