@@ -166,7 +166,7 @@ func runRemoteBaselineRefreshLocked(ctx context.Context, options remoteBaselineR
 		if reason := remoteBaselineIncrementalRefreshRejection(session); reason != "" {
 			return protocolError("accepted baseline exists but this refresh cannot be represented as a Delta (%s); full Anchor rebuild is forbidden", reason)
 		}
-		slog.Info("remote baseline refresh uses incremental delta", "parent_generation", session.accepted.Generation, "existing_deltas", len(session.accepted.DeltaRefs()), "toolchain_changed", session.accepted.ToolchainDigest != session.input.Identity.ToolchainDigest)
+		slog.Info("remote baseline refresh uses incremental delta", "parent_generation", session.accepted.Generation, "existing_deltas", len(session.accepted.DeltaRefs()), "toolchain_changed", session.accepted.ToolchainDigest != session.input.Identity.ToolchainDigest, "runtime_dependency_digest", session.input.RuntimeDependencyDigest, "accepted_runtime_dependency_digest", session.input.AcceptedRuntimeDependencyDigest)
 	}
 	return createRemoteBaseline(ctx, session, stdout)
 }
