@@ -49,19 +49,17 @@ type Runtime interface {
 
 // CoordinatorConfig contains only fixed non-secret remote execution settings.
 type CoordinatorConfig struct {
-	Bucket                     string
-	SourcePrefix               string
-	WorkloadCachePrefix        string
-	InternalOSSEndpoint        string
-	WorkerRoleName             string
-	WorkerTimeout              time.Duration
-	PollInterval               time.Duration
-	CleanupTimeout             time.Duration
-	ResourcePolicy             shardresource.Policy
-	ResourceObservations       []shardresource.Observation
-	CandidateCLIBuilder        CandidateCLIBuilder
-	CandidateTestBinaryBuilder CandidateTestBinaryBuilder
-	RegistryAccess             eci.RegistryAccess
+	Bucket               string
+	SourcePrefix         string
+	WorkloadCachePrefix  string
+	InternalOSSEndpoint  string
+	WorkerRoleName       string
+	ImageCacheID         string
+	WorkerTimeout        time.Duration
+	PollInterval         time.Duration
+	CleanupTimeout       time.Duration
+	ResourcePolicy       shardresource.Policy
+	ResourceObservations []shardresource.Observation
 }
 
 // RunInput binds one remote run to exact Git objects and one accepted runner identity.
@@ -87,6 +85,7 @@ type RunInput struct {
 	SelectedTests                bool
 	Calibration                  bool
 	RunnerImage                  string
+	ImageCacheID                 string
 	RunnerIdentityDigest         string
 	BaselineManifestDigest       string
 	RunnerConfigDigest           string
@@ -96,7 +95,6 @@ type RunInput struct {
 	ReuseBaselineGateCLI         bool
 	RuntimeSeedSHA256            string
 	OCIProjectCache              *BaselineOCIProjectCache
-	RegistryAccess               eci.RegistryAccess
 	ForceRerun                   bool
 }
 
@@ -113,33 +111,30 @@ type ShardResult struct {
 
 // RunResult is an unsigned remote execution observation. Authority receipts are minted separately.
 type RunResult struct {
-	SchemaVersion                           uint32                            `json:"schema_version"`
-	JobID                                   string                            `json:"job_id"`
-	RemoteName                              string                            `json:"remote_name,omitempty"`
-	RemoteURL                               string                            `json:"remote_url,omitempty"`
-	RequesterFingerprint                    gate.RequesterFingerprint         `json:"requester_fingerprint,omitempty"`
-	Entrypoint                              gate.CIEntrypointID               `json:"entrypoint"`
-	Profile                                 gate.Profile                      `json:"profile"`
-	PlanDigest                              string                            `json:"plan_digest"`
-	CatalogDigest                           string                            `json:"catalog_digest"`
-	SourceTreeSHA                           string                            `json:"source_tree_sha"`
-	CandidateCLIManifestSHA256              string                            `json:"candidate_cli_manifest_sha256"`
-	CandidateTestBinaryBuilds               []CandidateTestBinaryBuilderBuild `json:"candidate_test_binary_builds,omitempty"`
-	CandidateTestBinaryReceiptBindingDigest string                            `json:"candidate_test_binary_receipt_binding_digest"`
-	RunnerImage                             string                            `json:"runner_image"`
-	Status                                  gate.ResultStatus                 `json:"status"`
-	Authoritative                           bool                              `json:"authoritative"`
-	StartedAt                               time.Time                         `json:"started_at"`
-	CompletedAt                             time.Time                         `json:"completed_at"`
-	Shards                                  []ShardResult                     `json:"shards"`
-	ReusedWorkloads                         []gate.GateID                     `json:"reused_workloads"`
-	CacheMissWorkloads                      []gate.GateID                     `json:"cache_miss_workloads"`
-	GateExecutions                          []gate.PlanGateExecution          `json:"gate_executions"`
-	WorkloadExecutions                      []gate.PlanGateExecution          `json:"workload_executions,omitempty"`
-	DurationSamples                         []gate.DurationSample             `json:"duration_samples"`
-	PerformanceTimings                      []gate.RemoteCIPhaseTiming        `json:"performance_timings,omitempty"`
-	OptimizationWarnings                    []string                          `json:"optimization_warnings,omitempty"`
-	CleanupComplete                         bool                              `json:"cleanup_complete"`
+	SchemaVersion        uint32                     `json:"schema_version"`
+	JobID                string                     `json:"job_id"`
+	RemoteName           string                     `json:"remote_name,omitempty"`
+	RemoteURL            string                     `json:"remote_url,omitempty"`
+	RequesterFingerprint gate.RequesterFingerprint  `json:"requester_fingerprint,omitempty"`
+	Entrypoint           gate.CIEntrypointID        `json:"entrypoint"`
+	Profile              gate.Profile               `json:"profile"`
+	PlanDigest           string                     `json:"plan_digest"`
+	CatalogDigest        string                     `json:"catalog_digest"`
+	SourceTreeSHA        string                     `json:"source_tree_sha"`
+	RunnerImage          string                     `json:"runner_image"`
+	Status               gate.ResultStatus          `json:"status"`
+	Authoritative        bool                       `json:"authoritative"`
+	StartedAt            time.Time                  `json:"started_at"`
+	CompletedAt          time.Time                  `json:"completed_at"`
+	Shards               []ShardResult              `json:"shards"`
+	ReusedWorkloads      []gate.GateID              `json:"reused_workloads"`
+	CacheMissWorkloads   []gate.GateID              `json:"cache_miss_workloads"`
+	GateExecutions       []gate.PlanGateExecution   `json:"gate_executions"`
+	WorkloadExecutions   []gate.PlanGateExecution   `json:"workload_executions,omitempty"`
+	DurationSamples      []gate.DurationSample      `json:"duration_samples"`
+	PerformanceTimings   []gate.RemoteCIPhaseTiming `json:"performance_timings,omitempty"`
+	OptimizationWarnings []string                   `json:"optimization_warnings,omitempty"`
+	CleanupComplete      bool                       `json:"cleanup_complete"`
 }
 
 // Coordinator executes exact Git sources with one ECI container per canonical shard.
@@ -201,8 +196,8 @@ func validateCoordinatorConfig(config CoordinatorConfig) error {
 	if err := config.ResourcePolicy.Validate(); err != nil {
 		return fmt.Errorf("remote CI resource policy: %w", err)
 	}
-	if config.CandidateCLIBuilder == nil {
-		return errors.New("remote CI candidate CLI builder is required")
+	if !validImageCacheIdentifier(config.ImageCacheID) {
+		return errors.New("remote CI accepted ImageCacheID is required")
 	}
 	return nil
 }
@@ -221,6 +216,9 @@ func validCoordinatorObjectConfig(config CoordinatorConfig) bool {
 func (coordinator *Coordinator) Run(ctx context.Context, input RunInput) (result RunResult, returnErr error) {
 	if ctx == nil {
 		return result, errors.New("remote CI context is required")
+	}
+	if err := validateRunImageCacheAuthority(coordinator.config, input); err != nil {
+		return result, err
 	}
 	jobID, err := coordinator.newID()
 	if err != nil {
@@ -308,6 +306,21 @@ func (coordinator *Coordinator) Run(ctx context.Context, input RunInput) (result
 	)
 }
 
+// validateRunImageCacheAuthority keeps every shard on the exact accepted ECI
+// ImageCache; OCIProjectCache is evidence for the same immutable runtime image.
+func validateRunImageCacheAuthority(config CoordinatorConfig, input RunInput) error {
+	if !validImageCacheIdentifier(input.ImageCacheID) || input.ImageCacheID != config.ImageCacheID {
+		return errors.New("remote CI run ImageCacheID must equal the accepted coordinator ImageCacheID")
+	}
+	if input.OCIProjectCache == nil {
+		return errors.New("remote CI run OCI project cache is required for ImageCache binding")
+	}
+	if err := input.OCIProjectCache.ValidateForBaseline(input.RunnerBaseTree, input.ToolchainDigest, input.Platform, input.RunnerImage); err != nil {
+		return fmt.Errorf("remote CI run ImageCache OCI project cache binding: %w", err)
+	}
+	return nil
+}
+
 func recordRemoteCIRun(
 	store *gate.DurationLedgerStore,
 	result RunResult,
@@ -317,41 +330,32 @@ func recordRemoteCIRun(
 	if store == nil {
 		return nil
 	}
-	if result.Status == gate.ResultStatusPassed && result.CandidateCLIManifestSHA256 == "" &&
-		len(result.CacheMissWorkloads) == 0 && len(result.ReusedWorkloads) > 0 {
-		// A cache-only aggregation did not execute or materialize a candidate CLI, so it
-		// has no candidate artifact identity to append as a remote execution ledger row.
-		return nil
-	}
 	if len(traces) > 1 {
 		return errors.New("remote CI run persistence accepts at most one performance trace")
 	}
 	shards := remoteCIShardRecords(result.Shards)
 	projectionTimings, err := store.RecordRemoteCIRunProfiled(gate.RemoteCIRunRecord{
-		JobID:                                   result.JobID,
-		RequesterFingerprint:                    result.RequesterFingerprint,
-		Entrypoint:                              result.Entrypoint,
-		Profile:                                 result.Profile,
-		PlanDigest:                              result.PlanDigest,
-		CatalogDigest:                           result.CatalogDigest,
-		SourceTreeSHA:                           result.SourceTreeSHA,
-		CandidateCLIManifestSHA256:              result.CandidateCLIManifestSHA256,
-		CandidateTestBinaryReceiptBindingDigest: result.CandidateTestBinaryReceiptBindingDigest,
-		CandidateTestBinaryBuilds:               remoteCandidateTestBinaryBuildRecords(result.CandidateTestBinaryBuilds),
-		RunnerImage:                             result.RunnerImage,
-		Status:                                  result.Status,
-		Authoritative:                           result.Authoritative,
-		StartedAt:                               result.StartedAt,
-		CompletedAt:                             result.CompletedAt,
-		CleanupComplete:                         result.CleanupComplete,
-		ErrorText:                               boundedRemoteRunErrorText(runErr),
-		Shards:                                  shards,
-		Executions:                              result.GateExecutions,
-		WorkloadExecutions:                      result.WorkloadExecutions,
-		ReusedWorkloads:                         append([]gate.GateID(nil), result.ReusedWorkloads...),
-		CacheMisses:                             append([]gate.GateID(nil), result.CacheMissWorkloads...),
-		Warnings:                                append([]string(nil), result.OptimizationWarnings...),
-		PhaseTimings:                            append([]gate.RemoteCIPhaseTiming(nil), result.PerformanceTimings...),
+		JobID:                result.JobID,
+		RequesterFingerprint: result.RequesterFingerprint,
+		Entrypoint:           result.Entrypoint,
+		Profile:              result.Profile,
+		PlanDigest:           result.PlanDigest,
+		CatalogDigest:        result.CatalogDigest,
+		SourceTreeSHA:        result.SourceTreeSHA,
+		RunnerImage:          result.RunnerImage,
+		Status:               result.Status,
+		Authoritative:        result.Authoritative,
+		StartedAt:            result.StartedAt,
+		CompletedAt:          result.CompletedAt,
+		CleanupComplete:      result.CleanupComplete,
+		ErrorText:            boundedRemoteRunErrorText(runErr),
+		Shards:               shards,
+		Executions:           result.GateExecutions,
+		WorkloadExecutions:   result.WorkloadExecutions,
+		ReusedWorkloads:      append([]gate.GateID(nil), result.ReusedWorkloads...),
+		CacheMisses:          append([]gate.GateID(nil), result.CacheMissWorkloads...),
+		Warnings:             append([]string(nil), result.OptimizationWarnings...),
+		PhaseTimings:         append([]gate.RemoteCIPhaseTiming(nil), result.PerformanceTimings...),
 	})
 	if len(traces) == 1 {
 		for _, timing := range projectionTimings {
@@ -361,19 +365,10 @@ func recordRemoteCIRun(
 	return err
 }
 
-func remoteCandidateTestBinaryBuildRecords(builds []CandidateTestBinaryBuilderBuild) []gate.CandidateTestBinaryBuildRecord {
-	records := make([]gate.CandidateTestBinaryBuildRecord, 0, len(builds))
-	for _, build := range builds {
-		artifact := build.Artifact
-		records = append(records, gate.CandidateTestBinaryBuildRecord{CandidateTree: artifact.CandidateTree, Package: artifact.Package, Mode: artifact.Mode, Platform: artifact.Platform, GoToolchain: artifact.GoToolchain, CGOEnabled: artifact.CGOEnabled, ToolchainSHA256: artifact.ToolchainSHA256, BuildFlags: append([]string(nil), artifact.BuildFlags...), CompileClosureSHA256: artifact.CompileClosureSHA256, ManifestSHA256: artifact.ManifestSHA256, ArtifactSHA256: "sha256:" + strings.TrimPrefix(artifact.BinarySHA256, "sha256:"), BinarySize: artifact.BinarySize, GoListWallMS: build.Metrics.GoListWallMS, BuildWallMS: build.Metrics.BuildWallMS, CompileActionMS: build.Metrics.CompileActionMS, LinkActionMS: build.Metrics.LinkActionMS, CompileCriticalWallMS: build.Metrics.CompileCriticalWallMS, GOCachePrivateHits: build.Metrics.GOCachePrivateHits, GOCacheOCIProjectCacheHits: build.Metrics.GOCacheOCIProjectCacheHits, GOCachePrivateRootIdentity: build.Metrics.GOCachePrivateRootIdentity, GOCacheMisses: build.Metrics.GOCacheMisses, GOCachePuts: build.Metrics.GOCachePuts})
-	}
-	return records
-}
-
 // runCacheMissWorkloads 仅为缓存未命中 workload 规划、创建和聚合远程分片。
 //
-// 源差分、候选 CLI 和分片请求由 prepareRemoteShardRequests 作为同一资产边界构造。
-// 该边界确保候选制品在任一 ECI group 创建前已绑定到请求。
+// 源差分和分片请求由 prepareRemoteShardRequests 作为同一资产边界构造。
+// 每个分片随后只在物化后的候选源码内增量构建其 worker CLI。
 // 上传、创建、等待和结果汇总仍在这里顺序编排，以保留可观测 phase。
 // 任一步失败都会保留已获得的执行证据并由调用方统一清理临时对象。
 // 缓存写入错误会与远程执行错误一起返回，避免将局部成功误报为通过。
@@ -440,26 +435,14 @@ func (coordinator *Coordinator) runCacheMissWorkloads(
 	if err != nil {
 		return result, err
 	}
-	result.CandidateCLIManifestSHA256 = assets.candidateCLI.ManifestSHA256
 	sourceUploadSpan := trace.start("source.upload", sourceCounts)
 	if err := coordinator.uploadSourceAssets(ctx, assets, objectKeys); err != nil {
 		trace.finish(sourceUploadSpan, err, sourceCounts)
 		return result, err
 	}
 	trace.finish(sourceUploadSpan, nil, sourceCounts)
-	candidateBuildSpan := trace.start("candidate_test_binary.builder", sourceCounts)
-	if err := coordinator.buildCandidateTestBinaryArtifacts(ctx, input, executionShards, jobID, tempRoot, &assets, objectKeys, createdGroups); err != nil {
-		trace.finish(candidateBuildSpan, err, sourceCounts)
-		return result, err
-	}
-	trace.finish(candidateBuildSpan, nil, sourceCounts)
-	result.CandidateTestBinaryBuilds = append([]CandidateTestBinaryBuilderBuild(nil), assets.candidateTestBinaryBuilds...)
-	result.CandidateTestBinaryReceiptBindingDigest, err = CandidateTestBinaryReceiptBindingDigest(result.CandidateTestBinaryBuilds, result.SourceTreeSHA)
-	if err != nil {
-		return result, err
-	}
 	requestBuildSpan := trace.start("request.build", sourceCounts)
-	requests, requestKeys, err := buildShardRequestsWithCandidate(coordinator.config.SourcePrefix, jobID, executionShards, assets.artifact, assets.patchKey, assets.manifestKey, assets.manifestDigest, assets.candidateCLI, assets.candidateTestBinaryRefs, input)
+	requests, requestKeys, err := buildShardRequests(coordinator.config.SourcePrefix, jobID, executionShards, assets.artifact, assets.patchKey, assets.manifestKey, assets.manifestDigest, input)
 	trace.finish(requestBuildSpan, err, sourceCounts)
 	if err != nil {
 		return result, err
@@ -579,7 +562,7 @@ func (coordinator *Coordinator) newRunResult(
 	input RunInput,
 	jobID string,
 ) RunResult {
-	return RunResult{SchemaVersion: RunResultSchemaVersion, JobID: jobID, RemoteName: input.RemoteName, RemoteURL: input.RemoteURL, RequesterFingerprint: input.RequesterFingerprint, Entrypoint: entrypoint.ID, Profile: plan.Profile, PlanDigest: plan.PlanDigest, CatalogDigest: catalogDigest, SourceTreeSHA: plan.Source.SourceTreeSHA, CandidateTestBinaryReceiptBindingDigest: emptyCandidateTestBinaryReceiptBindingDigest(), RunnerImage: input.RunnerImage, Status: gate.ResultStatusFailed, Authoritative: entrypoint.Authoritative && catalog.Authoritative, StartedAt: coordinator.now().UTC()}
+	return RunResult{SchemaVersion: RunResultSchemaVersion, JobID: jobID, RemoteName: input.RemoteName, RemoteURL: input.RemoteURL, RequesterFingerprint: input.RequesterFingerprint, Entrypoint: entrypoint.ID, Profile: plan.Profile, PlanDigest: plan.PlanDigest, CatalogDigest: catalogDigest, SourceTreeSHA: plan.Source.SourceTreeSHA, RunnerImage: input.RunnerImage, Status: gate.ResultStatusFailed, Authoritative: entrypoint.Authoritative && catalog.Authoritative, StartedAt: coordinator.now().UTC()}
 }
 
 // createRemoteTempRoot 创建每次远程运行独占的临时源目录。
@@ -642,7 +625,7 @@ func (coordinator *Coordinator) uploadAndCreateRemoteGroup(ctx context.Context, 
 	if err := coordinator.store.Create(ctx, path, objectKey); err != nil {
 		return "", false, fmt.Errorf("upload remote shard request: %w", err)
 	}
-	group, err := coordinator.runtime.CreateContainerGroup(ctx, coordinator.createRequest(jobID, shard, resources, objectKey, digest, request.CandidateCLI, input))
+	group, err := coordinator.runtime.CreateContainerGroup(ctx, coordinator.createRequest(jobID, shard, resources, objectKey, digest, input))
 	if err != nil {
 		return "", true, fmt.Errorf("create remote CI shard %d: %w", index, err)
 	}

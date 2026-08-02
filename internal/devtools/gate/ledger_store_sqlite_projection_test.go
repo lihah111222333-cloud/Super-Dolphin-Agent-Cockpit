@@ -11,7 +11,7 @@ import (
 )
 
 func TestRemoteCIRunRecordFieldRegistry(t *testing.T) {
-	want := []string{"JobID", "RequesterFingerprint", "Entrypoint", "Profile", "PlanDigest", "CatalogDigest", "SourceTreeSHA", "CandidateCLIManifestSHA256", "CandidateTestBinaryReceiptBindingDigest", "RunnerImage", "Status", "Authoritative", "StartedAt", "CompletedAt", "CleanupComplete", "ErrorText", "Shards", "Executions", "WorkloadExecutions", "ReusedWorkloads", "CacheMisses", "Warnings", "PhaseTimings", "CandidateTestBinaryBuilds"}
+	want := []string{"JobID", "RequesterFingerprint", "Entrypoint", "Profile", "PlanDigest", "CatalogDigest", "SourceTreeSHA", "RunnerImage", "Status", "Authoritative", "StartedAt", "CompletedAt", "CleanupComplete", "ErrorText", "Shards", "Executions", "WorkloadExecutions", "ReusedWorkloads", "CacheMisses", "Warnings", "PhaseTimings"}
 	typeOfRecord := reflect.TypeFor[RemoteCIRunRecord]()
 	got := make([]string, typeOfRecord.NumField())
 	for index := range got {
@@ -242,9 +242,7 @@ func sqliteProjectionRemoteCIRun(now time.Time) RemoteCIRunRecord {
 	return RemoteCIRunRecord{
 		JobID: "job-sqlite-round-trip", RequesterFingerprint: RequesterFingerprint("sha256:" + strings.Repeat("a", 64)),
 		Entrypoint: CIEntrypointGitPreCommit, Profile: ProfileLocalFast, PlanDigest: "sha256:plan", SourceTreeSHA: strings.Repeat("5", 40),
-		CandidateCLIManifestSHA256:              strings.Repeat("c", 64),
-		CandidateTestBinaryReceiptBindingDigest: "sha256:" + strings.Repeat("d", 64),
-		RunnerImage:                             "ubuntu:22.04", Status: ResultStatusPassed, Authoritative: true, StartedAt: now, CompletedAt: now.Add(time.Second), CleanupComplete: true,
+		RunnerImage: "ubuntu:22.04", Status: ResultStatusPassed, Authoritative: true, StartedAt: now, CompletedAt: now.Add(time.Second), CleanupComplete: true,
 		Shards:             []RemoteCIShardRecord{{ShardIdentity: shardIdentity, ContainerGroup: "eci-123", ContainerStatus: "Succeeded", Workloads: []GateID{GateIDAIMaintenanceSelfTest}, MaterializationTiming: ShardMaterializationTiming{Measurement: MaterializationMeasurementMeasured, ShardIdentity: shardIdentity}}},
 		Executions:         []PlanGateExecution{{GateID: GateIDAIMaintenanceSelfTest, Status: ResultStatusPassed, StartedAt: now, CompletedAt: now.Add(time.Second), ArgvDigest: "sha256:argv", LogDigest: "sha256:log", TestTimings: []GoTestTiming{{Name: "TestGate", Status: GoTestStatusPass, DurationMS: 1000}}, ExecutionProfile: ExecutionProfile{CacheSource: "none", CacheStatus: "not_applicable", CacheMeasurement: "not_measured", TestBodyMS: 1000, TotalMS: 1000}}},
 		WorkloadExecutions: []PlanGateExecution{{GateID: GateIDAIMaintenanceSelfTest, Status: ResultStatusPassed, StartedAt: now, CompletedAt: now.Add(time.Second), ArgvDigest: "sha256:argv", LogDigest: "sha256:log", TestTimings: []GoTestTiming{{Name: "TestWorkload", Status: GoTestStatusPass, DurationMS: 1000}}, ExecutionProfile: ExecutionProfile{CacheSource: "none", CacheStatus: "not_applicable", CacheMeasurement: "not_measured", TestBodyMS: 1000, TotalMS: 1000}}},
@@ -275,7 +273,7 @@ func TestLoadRemoteCIRunRejectsNonStrictMaterializationTimingJSON(t *testing.T) 
 	if err := store.RecordRemoteCIRun(run); err != nil {
 		t.Fatal(err)
 	}
-	validTiming := `{"measurement":"measured","shard_identity":"` + run.Shards[0].ShardIdentity + `","source":{"download_ms":0,"verify_ms":0,"install_ms":0,"materialize_ms":0},"baseline":{"download_ms":0,"verify_ms":0,"install_ms":0,"materialize_ms":0},"candidate_cli":{"download_ms":0,"verify_ms":0,"install_ms":0,"materialize_ms":0},"candidate_test_binaries":{"download_ms":0,"verify_ms":0,"install_ms":0,"materialize_ms":0}}`
+	validTiming := `{"measurement":"measured","shard_identity":"` + run.Shards[0].ShardIdentity + `","source":{"download_ms":0,"verify_ms":0,"install_ms":0,"materialize_ms":0},"baseline":{"download_ms":0,"verify_ms":0,"install_ms":0,"materialize_ms":0},"candidate_compile":{"download_ms":0,"verify_ms":0,"install_ms":0,"materialize_ms":0},"candidate_test_binaries":{"download_ms":0,"verify_ms":0,"install_ms":0,"materialize_ms":0}}`
 	for name, timingJSON := range map[string]string{
 		"missing measurement": strings.Replace(validTiming, `"measurement":"measured",`, "", 1),
 		"unknown field":       validTiming[:len(validTiming)-1] + `,"forged_metric":1}`,
@@ -328,19 +326,6 @@ func TestRecordRemoteCIRunRejectsTerminalShardWithoutMeasuredTiming(t *testing.T
 	}
 	if err := store.RecordRemoteCIRun(run); err == nil || !strings.Contains(err.Error(), "materialization timing") {
 		t.Fatalf("RecordRemoteCIRun() error = %v, want terminal shard timing rejection", err)
-	}
-}
-
-func TestValidateRemoteCIRunRejectsAuthoritativePreBindingBuildRows(t *testing.T) {
-	run := sqliteProjectionRemoteCIRun(time.Now().UTC().Truncate(time.Millisecond))
-	digest, err := WorkloadCatalogDigest(sqliteProjectionWorkloadCatalog())
-	if err != nil {
-		t.Fatal(err)
-	}
-	run.CatalogDigest = digest
-	run.CandidateTestBinaryBuilds = []CandidateTestBinaryBuildRecord{{}}
-	if validationErr := validateRemoteCIRunRecord(run); validationErr == nil || !strings.Contains(validationErr.Error(), "pre-binding audit rows") {
-		t.Fatalf("validateRemoteCIRunRecord() error = %v, want pre-binding rejection", validationErr)
 	}
 }
 

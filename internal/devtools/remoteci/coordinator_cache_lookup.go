@@ -11,12 +11,11 @@ import (
 )
 
 type remoteWorkloadCacheLookup struct {
-	snapshot             *remoteGitTreeSnapshot
-	workerWorkloads      []gate.Workload
-	inputDigests         map[string]string
-	cacheEntries         []remoteWorkloadCacheEntry
-	packageLegacyEntries []remoteWorkloadCacheEntry
-	resume               remoteGoTestResumeSet
+	snapshot        *remoteGitTreeSnapshot
+	workerWorkloads []gate.Workload
+	inputDigests    map[string]string
+	cacheEntries    []remoteWorkloadCacheEntry
+	resume          remoteGoTestResumeSet
 }
 
 func (coordinator *Coordinator) runWithWorkloadCache(
@@ -119,7 +118,7 @@ func lookupPassedWorkloads(
 	parentCounts.cacheHits = len(allCached)
 	parentCounts.cacheMisses = len(lookup.workerWorkloads) - len(allCached)
 	trace.finish(parentCompatibleSpan, nil, parentCounts)
-	parentObjectSpan := trace.start("cache.parent_object_fallback", parentCounts)
+	parentObjectSpan := trace.start("cache.parent_object_lookup", parentCounts)
 	if err := loadUnknownPassedWorkloadsFromOSS(ctx, store, now, input, lookup, allCached); err != nil {
 		parentCounts.cacheHits = len(allCached)
 		parentCounts.cacheMisses = len(lookup.workerWorkloads) - len(allCached)
@@ -147,7 +146,7 @@ func lookupPassedWorkloads(
 	childCounts.cacheMisses = childCounts.workloads
 	trace.finish(childExpandSpan, nil, childCounts)
 	childLookupSpan := trace.start("cache.child_lookup", childCounts)
-	if err := lookupExactPassedGoTests(ctx, store, cachePrefix, now, input, lookup, allCached); err != nil {
+	if err := lookupExactPassedGoTests(ctx, store, now, input, lookup, allCached); err != nil {
 		trace.finish(childLookupSpan, err, childCounts)
 		return remoteWorkloadCacheSelection{}, err
 	}
@@ -226,13 +225,9 @@ func prepareRemoteWorkloadCacheLookup(
 	if err := recordRemoteWorkloadFingerprints(input.LedgerStore, cacheEntries, input.Tree, now().UTC()); err != nil {
 		return remoteWorkloadCacheLookup{}, err
 	}
-	packageLegacyEntries, err := remoteLegacyWorkloadCacheEntries(cachePrefix, cacheEntries, input)
-	if err != nil {
-		return remoteWorkloadCacheLookup{}, err
-	}
 	return remoteWorkloadCacheLookup{
 		snapshot: snapshot, workerWorkloads: workerWorkloads, inputDigests: inputDigests,
-		cacheEntries: cacheEntries, packageLegacyEntries: packageLegacyEntries,
+		cacheEntries: cacheEntries,
 	}, nil
 }
 
@@ -310,7 +305,7 @@ func lookupExactPassedWorkloads(
 ) (map[string]gate.PlanGateExecution, error) {
 	if input.LedgerStore == nil {
 		return loadPassedWorkloadCacheWithSQLite(
-			ctx, store, nil, now, lookup.cacheEntries, lookup.packageLegacyEntries, input.ForceRerun,
+			ctx, store, nil, now, lookup.cacheEntries, input.ForceRerun,
 		)
 	}
 	return lookupPassedWorkloadCacheProofsWithSQLite(
@@ -350,7 +345,6 @@ func loadUnknownPassedWorkloadsFromOSS(
 	objectCached, err := loadPassedWorkloadCacheWithSQLite(
 		ctx, store, input.LedgerStore, now,
 		remoteWorkloadCacheMissEntries(lookup.cacheEntries, allCached),
-		remoteWorkloadCacheMissEntries(lookup.packageLegacyEntries, allCached),
 		input.ForceRerun,
 	)
 	if err != nil {
@@ -363,7 +357,6 @@ func loadUnknownPassedWorkloadsFromOSS(
 func lookupExactPassedGoTests(
 	ctx context.Context,
 	store ObjectStore,
-	cachePrefix string,
 	now func() time.Time,
 	input RunInput,
 	lookup remoteWorkloadCacheLookup,
@@ -385,12 +378,8 @@ func lookupExactPassedGoTests(
 	if err != nil {
 		return err
 	}
-	testLegacyEntries, err := remoteLegacyWorkloadCacheEntries(cachePrefix, testEntries, input)
-	if err != nil {
-		return err
-	}
 	testCached, err := loadPassedWorkloadCacheWithSQLite(
-		ctx, store, input.LedgerStore, now, testEntries, testLegacyEntries, input.ForceRerun,
+		ctx, store, input.LedgerStore, now, testEntries, input.ForceRerun,
 	)
 	if err != nil {
 		return err

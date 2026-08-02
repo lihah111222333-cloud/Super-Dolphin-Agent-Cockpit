@@ -200,82 +200,29 @@ func TestRemoteWorkloadCachePassMarkerIsSharedAcrossWorktrees(t *testing.T) {
 	}
 }
 
-func TestLoadPassedWorkloadCachePromotesFallbackMarkersToWorkerKey(t *testing.T) {
+func TestLoadPassedWorkloadCacheDoesNotReuseLegacyObjects(t *testing.T) {
 	workload := remoteWorkloadCacheWorkloadFixture()
-	input := remoteWorkloadCacheInputFixture()
-	stable := remoteWorkloadCacheEntryFixture(t, workload, input)
-	fallbacks := map[string]func(string, []remoteWorkloadCacheEntry, RunInput) ([]remoteWorkloadCacheEntry, error){
-		"legacy exact identity": remoteLegacyWorkloadCacheEntries,
+	entry := remoteWorkloadCacheEntryFixture(t, workload, remoteWorkloadCacheInputFixture())
+	legacyKey := "source/passed-workloads/v1/legacy-environment/legacy.pass"
+	store := &countingWorkloadCacheStore{
+		coordinatorStore: &coordinatorStore{objects: map[string][]byte{
+			legacyKey: []byte("legacy pass marker"),
+		}},
 	}
-	for name, build := range fallbacks {
-		t.Run(name, func(t *testing.T) {
-			fallbackEntries, err := build(
-				"source/passed-workloads/v1/", []remoteWorkloadCacheEntry{stable}, input,
-			)
-			if err != nil {
-				t.Fatal(err)
-			}
-			fallback := fallbackEntries[0]
-			store := &coordinatorStore{objects: map[string][]byte{
-				fallback.key:        encodeRemoteWorkloadCacheMarker(fallback),
-				fallback.receiptKey: encodeRemoteWorkloadCacheReceipt(fallback),
-			}}
-			cached, err := loadPassedWorkloadCacheWithLegacy(
-				context.Background(), store, time.Now,
-				[]remoteWorkloadCacheEntry{stable}, []remoteWorkloadCacheEntry{fallback}, false,
-			)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, ok := cached[workload.ID]; !ok {
-				t.Fatalf("fallback PASS marker was not reused: %#v", cached)
-			}
-			if _, ok := store.objects[stable.key]; ok {
-				t.Fatal("fallback reuse published a stable marker without an execution receipt")
-			}
-			second, err := loadPassedWorkloadCacheWithLegacy(
-				context.Background(), store, time.Now,
-				[]remoteWorkloadCacheEntry{stable}, []remoteWorkloadCacheEntry{fallback}, false,
-			)
-			if err != nil || len(second) != 1 {
-				t.Fatalf("fallback PASS was not reusable after the first lookup: cached=%#v error=%v", second, err)
-			}
-		})
-	}
-}
-
-func TestLegacyWorkloadCacheMigrationMissesWhenRunnerIdentityChanges(t *testing.T) {
-	workload := remoteWorkloadCacheWorkloadFixture()
-	firstInput := remoteWorkloadCacheInputFixture()
-	stable := remoteWorkloadCacheEntryFixture(t, workload, firstInput)
-	legacyEntries, err := remoteLegacyWorkloadCacheEntries(
-		"source/passed-workloads/v1/", []remoteWorkloadCacheEntry{stable}, firstInput,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	secondInput := firstInput
-	secondInput.RunnerIdentityDigest = "sha256:" + strings.Repeat("e", 64)
-	second := remoteWorkloadCacheEntryFixture(t, workload, secondInput)
-	secondLegacyEntries, err := remoteLegacyWorkloadCacheEntries(
-		"source/passed-workloads/v1/", []remoteWorkloadCacheEntry{second}, secondInput,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	store := &coordinatorStore{objects: map[string][]byte{
-		legacyEntries[0].key:        encodeRemoteWorkloadCacheMarker(legacyEntries[0]),
-		legacyEntries[0].receiptKey: encodeRemoteWorkloadCacheReceipt(legacyEntries[0]),
-	}}
-	cached, err := loadPassedWorkloadCacheWithLegacy(
-		context.Background(), store, time.Now,
-		[]remoteWorkloadCacheEntry{second}, secondLegacyEntries, false,
+	cached, err := loadPassedWorkloadCache(
+		context.Background(), store, time.Now, []remoteWorkloadCacheEntry{entry}, false,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(cached) != 0 {
-		t.Fatalf("runner identity drift reused legacy PASS: %#v", cached)
+		t.Fatalf("legacy cache object was reused: %#v", cached)
+	}
+	if len(store.lists) != 1 || store.lists[0] != entry.prefix {
+		t.Fatalf("cache lists = %v, want only canonical prefix %q", store.lists, entry.prefix)
+	}
+	if len(store.downloads) != 0 {
+		t.Fatalf("legacy cache object was downloaded: %v", store.downloads)
 	}
 }
 
@@ -455,7 +402,7 @@ func TestLoadPassedWorkloadCacheSQLiteHitDoesNotAccessOSS(t *testing.T) {
 	}
 	cached, err := loadPassedWorkloadCacheWithSQLite(
 		context.Background(), store, ledger, func() time.Time { return observedAt },
-		[]remoteWorkloadCacheEntry{entry}, nil, false,
+		[]remoteWorkloadCacheEntry{entry}, false,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -481,7 +428,7 @@ func TestLoadPassedWorkloadCacheSQLiteReusesEquivalentWorkloadAlias(t *testing.T
 	}
 	cached, err := loadPassedWorkloadCacheWithSQLite(
 		context.Background(), store, ledger, func() time.Time { return observedAt },
-		[]remoteWorkloadCacheEntry{alias}, nil, false,
+		[]remoteWorkloadCacheEntry{alias}, false,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -527,7 +474,7 @@ func TestLoadPassedWorkloadCacheSQLiteFailsClosedOnMismatchedProofWithoutOSS(t *
 		entry.key: encodeRemoteWorkloadCacheMarker(entry),
 	}}}
 	_, err := loadPassedWorkloadCacheWithSQLite(
-		context.Background(), store, ledger, time.Now, []remoteWorkloadCacheEntry{entry}, nil, false,
+		context.Background(), store, ledger, time.Now, []remoteWorkloadCacheEntry{entry}, false,
 	)
 	if err == nil || !strings.Contains(err.Error(), "conflicts with expected workload identity") {
 		t.Fatalf("mismatched SQLite proof error = %v", err)

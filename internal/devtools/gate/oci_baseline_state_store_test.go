@@ -79,7 +79,9 @@ func validOCIOnlyState() remoteci.BaselineState {
 		MainCommit: strings.Repeat("d", 40), MainTree: tree, Platform: "linux/amd64",
 		PolicyDigest: digest("e"), ToolchainDigest: toolchain, RuntimeImage: image,
 		GateBinarySHA256: digest("f"), RuntimeSeedSHA256: digest("1"), BaselineManifestDigest: digest("2"),
-		CreatedAt: created, AcceptedAt: created,
+		ImageCacheID: "imc-accepted-1", ImageCacheSnapshotID: "snap-accepted-1",
+		ImageCacheReady: true, ImageDigest: digest("c"),
+		CreatedAt: created, AcceptedAt: created, RenewedAt: created,
 		OCIProjectCache: &remoteci.BaselineOCIProjectCache{Image: image, ContentManifestSHA256: digest("3"), MainTree: tree, ToolchainDigest: toolchain, Platform: "linux/amd64", CachePath: remoteci.OCIProjectGoBuildCachePath},
 	}
 }

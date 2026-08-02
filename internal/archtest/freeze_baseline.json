@@ -6,7 +6,7 @@
     "reviewed_at": "2026-07-30T20:57:07Z",
     "review_by": "2026-10-25",
     "fail_first_evidence": "docs/guards/remote-ci-production-freeze-fail-first.txt",
-    "evidence_sha256": "4c961457af46d8552cfd863df055f116e4fd59aa1ffb5291bf378a6cb7265e97"
+    "evidence_sha256": "4bbd48eebfb707d02518ef81e60c83b22a9224e6d8109c6983d6f50b918900e7"
   },
   "approved": {
     "metrics": {
@@ -282,20 +282,6 @@
           "empty_funcs": 0,
           "todo_count": 0,
           "max_struct_methods": 2
-        },
-        "internal/devtools/localci/gate_cli_compile_closure.go": {
-          "lines": 132,
-          "max_func_len": 61,
-          "max_nesting": 3,
-          "max_complexity": 16,
-          "max_params": 4,
-          "max_returns": 4,
-          "max_underscore": 0,
-          "global_vars": 0,
-          "panic_count": 0,
-          "naked_returns": 0,
-          "empty_funcs": 0,
-          "todo_count": 0
         },
         "internal/devtools/remoteci/coordinator.go": {
           "lines": 813,
@@ -707,20 +693,6 @@
           "todo_count": 0,
           "naked_goroutines": 1,
           "raw_goroutines": 1
-        },
-        "internal/devtools/localci/image_inputs_test.go": {
-          "lines": 170,
-          "max_func_len": 38,
-          "max_nesting": 2,
-          "max_complexity": 11,
-          "max_params": 2,
-          "max_returns": 1,
-          "max_underscore": 0,
-          "global_vars": 0,
-          "panic_count": 0,
-          "naked_returns": 0,
-          "empty_funcs": 0,
-          "todo_count": 0
         },
         "internal/devtools/remoteci/coordinator_cache_integration_test.go": {
           "lines": 847,
@@ -1135,20 +1107,6 @@
         "todo_count": 0,
         "max_struct_methods": 2
       },
-      "internal/devtools/localci/gate_cli_compile_closure.go": {
-        "lines": 132,
-        "max_func_len": 61,
-        "max_nesting": 3,
-        "max_complexity": 16,
-        "max_params": 4,
-        "max_returns": 4,
-        "max_underscore": 0,
-        "global_vars": 0,
-        "panic_count": 0,
-        "naked_returns": 0,
-        "empty_funcs": 0,
-        "todo_count": 0
-      },
       "internal/devtools/remoteci/coordinator.go": {
         "lines": 787,
         "max_func_len": 133,
@@ -1544,20 +1502,6 @@
         "todo_count": 0,
         "naked_goroutines": 1,
         "raw_goroutines": 1
-      },
-      "internal/devtools/localci/image_inputs_test.go": {
-        "lines": 170,
-        "max_func_len": 38,
-        "max_nesting": 2,
-        "max_complexity": 11,
-        "max_params": 2,
-        "max_returns": 1,
-        "max_underscore": 0,
-        "global_vars": 0,
-        "panic_count": 0,
-        "naked_returns": 0,
-        "empty_funcs": 0,
-        "todo_count": 0
       },
       "internal/devtools/remoteci/coordinator_cache_integration_test.go": {
         "lines": 847,

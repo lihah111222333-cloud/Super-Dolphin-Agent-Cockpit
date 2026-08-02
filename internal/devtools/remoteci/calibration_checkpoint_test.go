@@ -99,19 +99,6 @@ func TestCalibrationCheckpointDoesNotPersistExecutionPayload(t *testing.T) {
 	}
 }
 
-func TestCalibrationCheckpointRejectsMissingReceiptBinding(t *testing.T) {
-	checkpoint, err := NewCalibrationCheckpoint(calibrationCheckpointStore(t), "sha256:checkpoint")
-	if err != nil {
-		t.Fatal(err)
-	}
-	input := testCalibrationCheckpointInput()
-	result := testCalibrationCheckpointResult(input)
-	result.CandidateTestBinaryReceiptBindingDigest = ""
-	if err := checkpoint.Observe("commit", input, result, true); err == nil {
-		t.Fatal("empty candidate test-binary receipt binding digest was accepted")
-	}
-}
-
 func TestCalibrationCheckpointConcurrentDifferentScenariosAreRetained(t *testing.T) {
 	firstStore, secondStore := calibrationCheckpointStores(t)
 	first, err := NewCalibrationCheckpoint(firstStore, "sha256:checkpoint")
@@ -213,9 +200,5 @@ func testCalibrationCheckpointInput() RunInput {
 }
 
 func testCalibrationCheckpointResult(input RunInput) RunResult {
-	binding, err := CandidateTestBinaryReceiptBindingDigestFromBuilds(nil, input.Tree)
-	if err != nil {
-		panic(err)
-	}
-	return RunResult{JobID: "job-checkpoint", Entrypoint: input.Entrypoint, Profile: input.Profile, PlanDigest: "sha256:" + strings.Repeat("5", 64), CatalogDigest: "sha256:" + strings.Repeat("6", 64), SourceTreeSHA: input.Tree, CandidateCLIManifestSHA256: strings.Repeat("c", 64), CandidateTestBinaryReceiptBindingDigest: binding, Status: gatecontract.ResultStatusPassed, Authoritative: true, CleanupComplete: true, CompletedAt: time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)}
+	return RunResult{JobID: "job-checkpoint", Entrypoint: input.Entrypoint, Profile: input.Profile, PlanDigest: "sha256:" + strings.Repeat("5", 64), CatalogDigest: "sha256:" + strings.Repeat("6", 64), SourceTreeSHA: input.Tree, Status: gatecontract.ResultStatusPassed, Authoritative: true, CleanupComplete: true, CompletedAt: time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)}
 }

@@ -20,7 +20,7 @@ frontend-app/package.json	frontend-app	app-ui	json	5101	当前 React/Vite 前端
 frontend-app/playwright.business-flows.config.js	frontend-app	app-ui	js-source	894	当前 React/Vite 前端包	frontend,app,playwright,business,flows,config,当前,React,Vite,前端包
 frontend-app/playwright.desktop-wide.config.js	frontend-app	app-ui	js-source	1030	当前 React/Vite 前端包	frontend,app,playwright,desktop,wide,config,当前,React,Vite,前端包
 frontend-app/playwright.desktop.config.js	frontend-app	app-ui	js-source	652	当前 React/Vite 前端包	frontend,app,playwright,desktop,config,当前,React,Vite,前端包
-frontend-app/playwright.failure.config.js	frontend-app	app-ui	js-source	923	当前 React/Vite 前端包	frontend,app,playwright,failure,config,当前,React,Vite,前端包
+frontend-app/playwright.failure.config.js	frontend-app	app-ui	js-source	1224	当前 React/Vite 前端包	frontend,app,playwright,failure,config,当前,React,Vite,前端包
 frontend-app/public/favicon.png	frontend-app	app-ui	png	99172	当前 React/Vite 前端包	frontend,app,public,favicon,当前,React,Vite,前端包
 frontend-app/public/favicon.svg	frontend-app	app-ui	svg	295	当前 React/Vite 前端包	frontend,app,public,favicon,当前,React,Vite,前端包
 frontend-app/public/wails/runtime.js	frontend-app	app-ui	js-source	19645	当前 React/Vite 前端包	frontend,app,public,wails,runtime,当前,React,Vite,前端包

@@ -21,7 +21,7 @@ func loadRemoteCIRunRow(database sqliteRowQueryer, jobID string) (RemoteCIRunRec
 	err := database.QueryRow(`
 		SELECT runs.job_id, COALESCE(requesters.requester_fingerprint, ''),
 			runs.entrypoint, runs.profile, runs.plan_digest, runs.catalog_digest,
-			runs.source_tree_sha, runs.candidate_cli_manifest_sha256, runs.candidate_test_binary_receipt_binding_digest, runs.runner_image, runs.status, runs.authoritative,
+			runs.source_tree_sha, runs.runner_image, runs.status, runs.authoritative,
 			runs.started_at_unix_ms, runs.completed_at_unix_ms,
 			runs.cleanup_complete, runs.error_text
 		FROM ci_runs AS runs
@@ -35,8 +35,6 @@ func loadRemoteCIRunRow(database sqliteRowQueryer, jobID string) (RemoteCIRunRec
 		&record.PlanDigest,
 		&record.CatalogDigest,
 		&record.SourceTreeSHA,
-		&record.CandidateCLIManifestSHA256,
-		&record.CandidateTestBinaryReceiptBindingDigest,
 		&record.RunnerImage,
 		&status,
 		&authoritative,
@@ -88,8 +86,7 @@ func loadRemoteCIRunDetails(transaction *sql.Tx, jobID string, record *RemoteCIR
 	if err != nil {
 		return err
 	}
-	record.CandidateTestBinaryBuilds, err = loadCandidateTestBinaryBuildRows(transaction, jobID)
-	return err
+	return nil
 }
 
 func loadRemoteCIWorkloadExecutionRows(database sqliteRowQueryer, jobID string) ([]PlanGateExecution, error) {
@@ -126,32 +123,6 @@ func loadRemoteCIWorkloadExecutionRows(database sqliteRowQueryer, jobID string) 
 		return nil, mapDurationLedgerSQLiteError("iterate remote CI workload executions", err)
 	}
 	return executions, nil
-}
-
-func loadCandidateTestBinaryBuildRows(database sqliteRowQueryer, jobID string) ([]CandidateTestBinaryBuildRecord, error) {
-	rows, err := database.Query(`SELECT candidate_tree, package, mode, platform, go_toolchain, cgo_enabled, toolchain_sha256, build_flags_json, compile_closure_sha256, manifest_sha256, artifact_sha256, binary_size, go_list_wall_ms, build_wall_ms, compile_action_ms, link_action_ms, compile_critical_wall_ms, gocache_private_hits, gocache_oci_project_cache_hits, gocache_private_root_identity, gocache_misses, gocache_puts FROM ci_candidate_test_binary_builds WHERE job_id = ? ORDER BY package, mode`, jobID)
-	if err != nil {
-		return nil, mapDurationLedgerSQLiteError("query candidate test binary builds", err)
-	}
-	defer rows.Close()
-	var builds []CandidateTestBinaryBuildRecord
-	for rows.Next() {
-		var build CandidateTestBinaryBuildRecord
-		var flags string
-		var cgo int
-		if err := rows.Scan(&build.CandidateTree, &build.Package, &build.Mode, &build.Platform, &build.GoToolchain, &cgo, &build.ToolchainSHA256, &flags, &build.CompileClosureSHA256, &build.ManifestSHA256, &build.ArtifactSHA256, &build.BinarySize, &build.GoListWallMS, &build.BuildWallMS, &build.CompileActionMS, &build.LinkActionMS, &build.CompileCriticalWallMS, &build.GOCachePrivateHits, &build.GOCacheOCIProjectCacheHits, &build.GOCachePrivateRootIdentity, &build.GOCacheMisses, &build.GOCachePuts); err != nil {
-			return nil, mapDurationLedgerSQLiteError("scan candidate test binary build", err)
-		}
-		build.CGOEnabled = cgo == 1
-		if json.Unmarshal([]byte(flags), &build.BuildFlags) != nil || validateCandidateTestBinaryBuildRecord(build) != nil {
-			return nil, errors.New("stored candidate test binary build is invalid")
-		}
-		builds = append(builds, build)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, mapDurationLedgerSQLiteError("iterate candidate test binary builds", err)
-	}
-	return builds, nil
 }
 
 // loadRemoteCIShardRows 从读取快照恢复 run 的 shard 投影。

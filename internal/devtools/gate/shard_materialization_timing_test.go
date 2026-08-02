@@ -6,7 +6,7 @@ import (
 )
 
 func TestShardMaterializationTimingRecordRoundTrip(t *testing.T) {
-	timing := ShardMaterializationTiming{Measurement: MaterializationMeasurementMeasured, ShardIdentity: strings.Repeat("a", 64), Source: MaterializationPhaseTiming{DownloadMS: 1, VerifyMS: 2, InstallMS: 3, MaterializeMS: 7}, Baseline: MaterializationPhaseTiming{MaterializeMS: 1}, CandidateCLI: MaterializationPhaseTiming{DownloadMS: 3, VerifyMS: 2, InstallMS: 1, MaterializeMS: 6}, CandidateTestBinaries: MaterializationPhaseTiming{DownloadMS: 8, VerifyMS: 4, InstallMS: 2, MaterializeMS: 15}}
+	timing := ShardMaterializationTiming{Measurement: MaterializationMeasurementMeasured, ShardIdentity: strings.Repeat("a", 64), Source: MaterializationPhaseTiming{DownloadMS: 1, VerifyMS: 2, InstallMS: 3, MaterializeMS: 7}, Baseline: MaterializationPhaseTiming{MaterializeMS: 1}, CandidateCompile: MaterializationPhaseTiming{DownloadMS: 3, VerifyMS: 2, InstallMS: 1, MaterializeMS: 6}, CandidateTestBinaries: MaterializationPhaseTiming{DownloadMS: 8, VerifyMS: 4, InstallMS: 2, MaterializeMS: 15}}
 	line, err := EncodeShardMaterializationTimingRecord(timing)
 	if err != nil {
 		t.Fatal(err)

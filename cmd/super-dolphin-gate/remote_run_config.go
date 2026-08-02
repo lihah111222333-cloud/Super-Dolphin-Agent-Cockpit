@@ -2,11 +2,9 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/eci"
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/shardresource"
 )
@@ -41,8 +39,7 @@ type remoteRunConfig struct {
 	Runtime struct {
 		Image string `json:"image"`
 	} `json:"runtime"`
-	ACRRegistryInfo *eci.ACRRegistryInfo `json:"acr_registry_info,omitempty"`
-	OCICache        struct {
+	OCICache struct {
 		RegistryRepository string `json:"registry_repository"`
 		RemoteBuilderImage string `json:"remote_builder_image"`
 	} `json:"oci_cache"`
@@ -66,31 +63,11 @@ func (config remoteRunConfig) Validate() error {
 	if !validRemoteRuntimeImage(config.Runtime.Image) {
 		return errors.New("remote CI runtime image must use an immutable digest")
 	}
-	if err := validateRemoteACRRegistryInfo(config); err != nil {
-		return err
-	}
 	if err := validateRemoteOCICacheConfig(config); err != nil {
 		return err
 	}
 	if err := validateRemoteShardCapacity(config); err != nil {
 		return err
-	}
-	return nil
-}
-
-func validateRemoteACRRegistryInfo(config remoteRunConfig) error {
-	if config.ACRRegistryInfo == nil {
-		return errors.New("remote CI acr_registry_info is required for OCI baseline pushes")
-	}
-	if config.ACRRegistryInfo.RegionID != config.RegionID {
-		return errors.New("remote CI acr_registry_info region_id must equal ECI region_id for cr-vpc authorization")
-	}
-	access := eci.RegistryAccess{ACR: config.ACRRegistryInfo}
-	if err := eci.ValidateRegistryAccess(access, config.Runtime.Image, config.OCICache.RemoteBuilderImage); err != nil {
-		return fmt.Errorf("remote CI acr_registry_info does not match configured ECI images: %w", err)
-	}
-	if err := eci.ValidateRegistryAccessForRepository(access, config.OCICache.RegistryRepository); err != nil {
-		return fmt.Errorf("remote CI acr_registry_info does not match OCI cache repository: %w", err)
 	}
 	return nil
 }

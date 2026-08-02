@@ -5,7 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/localci"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -25,13 +24,13 @@ func TestDispatcherRunsReservationsFIFO(t *testing.T) {
 	started := make(chan string, 3)
 	group := errgroup.Group{}
 	group.Go(func() error {
-		return dispatcher.Run(ctx, func(_ context.Context, reservation localci.WorkloadReservation) error {
+		return dispatcher.Run(ctx, func(_ context.Context, reservation Reservation) error {
 			started <- reservation.WorkloadID
 			return nil
 		})
 	})
 	for _, id := range []string{"job-1", "job-2", "job-3"} {
-		if err := dispatcher.Enqueue(ctx, localci.WorkloadReservation{WorkloadID: id}); err != nil {
+		if err := dispatcher.Enqueue(ctx, Reservation{WorkloadID: id}); err != nil {
 			t.Fatal(err)
 		}
 	}

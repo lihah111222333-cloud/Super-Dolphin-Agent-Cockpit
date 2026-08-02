@@ -75,7 +75,6 @@ func runRemoteMaterialize(args []string, stdout io.Writer) error {
 	request, timing, err := materializeRemoteSourceWithTiming(
 		ctx,
 		config,
-		remoteExpandedBasePath,
 		gatecontract.ExecutorSourcePath,
 		gatecontract.ExecutorWorkRoot,
 		download,
@@ -185,7 +184,6 @@ func validRemoteRequestObjectKey(key string) bool {
 func materializeRemoteSourceWithTiming(
 	ctx context.Context,
 	config remoteMaterializeConfig,
-	expandedRoot string,
 	sourceRoot string,
 	workRoot string,
 	download remoteObjectDownload,
@@ -217,16 +215,6 @@ func materializeRemoteSourceWithTiming(
 		return remoteci.ShardRequest{}, timing, err
 	}
 	timing.Source.VerifyMS = time.Since(verifyStarted).Milliseconds()
-	cliStarted := time.Now()
-	if _, err := materializeRemoteCandidateCLIArtifact(ctx, expandedRoot, request.CandidateCLI.ManifestKey, request.CandidateCLI.ManifestSHA256, request.CandidateCLI.CandidateTree, request.CandidateCLI.SourceSHA256, request.CandidateCLI.ToolchainSHA256, download); err != nil {
-		return remoteci.ShardRequest{}, timing, fmt.Errorf("materialize remote candidate CLI artifact: %w", err)
-	}
-	timing.CandidateCLI.MaterializeMS = time.Since(cliStarted).Milliseconds()
-	testBinariesStarted := time.Now()
-	if _, err := materializeRemoteCandidateTestBinaries(ctx, expandedRoot, request.SourceTreeSHA, request.CandidateTestBinaries, download); err != nil {
-		return remoteci.ShardRequest{}, timing, fmt.Errorf("materialize remote candidate test binaries: %w", err)
-	}
-	timing.CandidateTestBinaries.MaterializeMS = time.Since(testBinariesStarted).Milliseconds()
 	if err := os.RemoveAll(tempRoot); err != nil {
 		return remoteci.ShardRequest{}, timing, fmt.Errorf("remove remote materialize staging root: %w", err)
 	}

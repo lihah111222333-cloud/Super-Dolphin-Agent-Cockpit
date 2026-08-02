@@ -51,10 +51,8 @@ docs/open-source/ROADMAP.md	docs	docs-agent	doc	3152	项目文档体系	docs,ope
 docs/README.md	docs	docs-agent	doc	4245	项目文档体系	docs,README,项目文档体系
 docs/reference/README.md	docs	docs-agent	doc	430	项目文档体系	docs,reference,README,项目文档体系
 docs/scripts/macos_release_smoke.sh	docs	docs-agent	script	19061	项目文档体系	docs,scripts,macos,release,smoke,项目文档体系
-docs/security/gate-hook-production-e2e.md	docs	docs-agent	doc	1345	项目文档体系	docs,security,gate,hook,production,e2e,项目文档体系
 docs/security/internal/check_repofp_delegators.go	docs	docs-agent	go-source	2298	项目文档体系	docs,security,internal,check,repofp,delegators,项目文档体系
 docs/security/p21-redteam.sh	docs	docs-agent	script	7238	项目文档体系	docs,security,p21,redteam,项目文档体系
-docs/security/production-bootstrap-provisioning.md	docs	docs-agent	doc	7238	项目文档体系	docs,security,production,bootstrap,provisioning,项目文档体系
 docs/work/plans/README.md	docs	docs-agent	doc	388	项目文档体系	docs,work,plans,README,项目文档体系
 docs/work/proposals/README.md	docs	docs-agent	doc	367	项目文档体系	docs,work,proposals,README,项目文档体系
 docs/work/README.md	docs	docs-agent	doc	698	项目文档体系	docs,work,README,项目文档体系

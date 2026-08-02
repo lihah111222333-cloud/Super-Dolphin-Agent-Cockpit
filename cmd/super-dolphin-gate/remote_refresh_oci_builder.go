@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/eci"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/localci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
 )
@@ -68,16 +67,15 @@ func buildRemoteOCIBaselineWithRequester(ctx context.Context, config remoteRunCo
 }
 
 func prepareRemoteOCIBuildRequest(config remoteRunConfig, accepted remoteci.BaselineState, input remoteBaselineRefreshInput) (remoteci.OCIBaselineBuilderRequest, []byte, error) {
-	if config.ACRRegistryInfo == nil {
-		return remoteci.OCIBaselineBuilderRequest{}, nil, errors.New("remote OCI builder ACR registry identity is required")
-	}
-	candidate := localci.CandidateRequest{SourceTreeSHA: input.Identity.MainTree, PolicyDigest: input.Identity.PolicyDigest, ImageSchemaVersion: "1", SourceEntries: append([]sourceexport.TreeEntry(nil), input.SourceEntries...), Platform: input.Identity.Platform}
+	candidate := remoteci.CandidateRequest{SourceTreeSHA: input.Identity.MainTree, PolicyDigest: input.Identity.PolicyDigest, ImageSchemaVersion: "1", SourceEntries: append([]sourceexport.TreeEntry(nil), input.SourceEntries...), Platform: input.Identity.Platform}
 	parentImage := input.Identity.RuntimeImage
 	if accepted.SchemaVersion != 0 {
 		candidate.AcceptedImageReference = accepted.RuntimeImage
 		parentImage = accepted.RuntimeImage
+	} else {
+		return remoteci.OCIBaselineBuilderRequest{}, nil, errors.New("remote OCI baseline incremental build requires an accepted ImageCache")
 	}
-	_, build, err := localci.PrepareCandidateBuildRequest(candidate)
+	_, build, err := remoteci.PrepareOCIBuildContext(candidate)
 	if err != nil {
 		return remoteci.OCIBaselineBuilderRequest{}, nil, fmt.Errorf("prepare remote OCI build context: %w", err)
 	}
@@ -90,7 +88,8 @@ func prepareRemoteOCIBuildRequest(config remoteRunConfig, accepted remoteci.Base
 	request := remoteci.OCIBaselineBuilderRequest{
 		SchemaVersion: remoteci.OCIBaselineBuilderRequestSchemaVersion,
 		JobID:         jobID, ContextKey: prefix + "context.context.tar", ContextSHA256: contextSHA256,
-		SourceArchiveSize: int64(len(build.ContextTar)), RegistryRepository: config.OCICache.RegistryRepository, ACRInstanceID: config.ACRRegistryInfo.InstanceID, ACRRegionID: config.ACRRegistryInfo.RegionID, ParentImage: parentImage,
+		SourceArchiveSize: int64(len(build.ContextTar)), RegistryRepository: config.OCICache.RegistryRepository, ParentImage: parentImage,
+		ImageCacheID: accepted.ImageCacheID, ImageCacheSnapshotID: accepted.ImageCacheSnapshotID,
 		MainCommit: input.Identity.MainCommit, MainTree: input.Identity.MainTree,
 		ToolchainDigest: input.Identity.ToolchainDigest, Platform: input.Identity.Platform,
 		RuntimeDependencyDigest: input.RuntimeDependencyDigest, JobKey: prefix + "request.job.json",
@@ -102,7 +101,7 @@ func prepareRemoteOCIBuildRequest(config remoteRunConfig, accepted remoteci.Base
 }
 
 func newRemoteOCIBuilderRuntime(config remoteRunConfig) (remoteOCIBuilderRuntime, error) {
-	return eci.New(eci.Config{Binary: config.AliyunCLI, RegionID: config.RegionID, VSwitchID: config.VSwitchID, SecurityGroupID: config.SecurityGroupID, WorkerRoleName: config.WorkerRoleName, Profile: config.CredentialProfile, Deadline: remoteBaselineRefreshDeadline, SpotStrategy: eci.SpotStrategyAsPriceGo, SpotDurationHours: 1, FallbackToPayAsYouGo: true})
+	return eci.New(eci.Config{Binary: config.AliyunCLI, RegionID: config.RegionID, VSwitchID: config.VSwitchID, SecurityGroupID: config.SecurityGroupID, WorkerRoleName: config.WorkerRoleName, Profile: config.CredentialProfile, Deadline: remoteBaselineRefreshDeadline, SpotStrategy: eci.SpotStrategyAsPriceGo, SpotDurationHours: 1})
 }
 
 func requestRemoteOCIBuild(ctx context.Context, config remoteRunConfig, runtime remoteOCIBuilderRuntime, request remoteci.OCIBaselineBuilderRequest, contextArchive []byte) (remoteci.OCIBaselineBuilderResult, error) {

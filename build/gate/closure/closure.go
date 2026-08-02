@@ -217,6 +217,46 @@ func collectEnvironmentImageFiles(sourceRoot string, gateCompileFiles []string) 
 	files = append(files, gateCompileFiles...)
 	files = append(files, testCompileFiles...)
 	files = append(files, embeddedFiles...)
+	frontendFiles, err := collectFrontendViteCacheFiles(sourceRoot)
+	if err != nil {
+		return nil, err
+	}
+	files = append(files, frontendFiles...)
+	return sortedUniqueStrings(files), nil
+}
+
+// collectFrontendViteCacheFiles collects the finite frontend build surface.
+// It deliberately excludes dependencies and generated output, never copying
+// the repository wholesale into the image context.
+func collectFrontendViteCacheFiles(sourceRoot string) ([]string, error) {
+	root := filepath.Join(sourceRoot, "frontend-app")
+	files := make([]string, 0)
+	err := filepath.WalkDir(root, func(name string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() && (entry.Name() == "node_modules" || entry.Name() == "dist" || entry.Name() == "coverage") {
+			return filepath.SkipDir
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() {
+			return fmt.Errorf("frontend Vite cache input %s is not a regular file", name)
+		}
+		relative, err := filepath.Rel(sourceRoot, name)
+		if err != nil {
+			return err
+		}
+		files = append(files, filepath.ToSlash(relative))
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("collect frontend Vite cache inputs: %w", err)
+	}
+	if len(files) == 0 {
+		return nil, errors.New("frontend Vite cache closure is empty")
+	}
 	return sortedUniqueStrings(files), nil
 }
 
@@ -778,6 +818,8 @@ func renderDockerfile(lock toolchainLock, runtimeDeps runtimeDepsLock, buildFile
 	output.WriteString("    compile_phase e2e env CGO_ENABLED=1 go test -mod=mod -tags=e2e -run \"^$\" ./cmd/mcp-lsp; \\\n")
 	output.WriteString("    set -- $(/out/super-dolphin-gate worker race-package-patterns); test $# -gt 0; \\\n")
 	output.WriteString("    compile_phase race env CGO_ENABLED=1 go test -mod=mod -race -run \"^$\" \"$@\"; \\\n")
+	output.WriteString("    vite_started=$(date +%s); ln -s /opt/super-dolphin-gate/runtime/frontend/node_modules frontend-app/node_modules; env npm_config_cache=/opt/super-dolphin-gate/runtime/frontend/npm-cache npm_config_offline=true ./frontend-app/node_modules/.bin/vite optimize --root frontend-app --force; test -s frontend-app/node_modules/.vite/deps/_metadata.json; mkdir -p /out/vite-cache; cp -a frontend-app/node_modules/.vite/. /out/vite-cache/; vite_finished=$(date +%s); printf \"[gate-image] vite-cache-export seconds=%s cache_entries=%s\\n\" \"$((vite_finished-vite_started))\" \"$(find /out/vite-cache -type f | wc -l)\"; \\\n")
+	output.WriteString("    mkdir -p /out/runtime-seed-snapshot/frontend-app; cp go.sum /out/runtime-seed-snapshot/go.sum; cp frontend-app/package-lock.json /out/runtime-seed-snapshot/frontend-app/package-lock.json; \\\n")
 	output.WriteString("    cache_started=$(date +%s); rm -rf /out/go-build-cache; mkdir -p /out/go-build-cache; cp -a /root/.cache/go-build/. /out/go-build-cache/; cache_finished=$(date +%s); printf \"[gate-image] cache-export seconds=%s cache_entries=%s\\n\" \"$((cache_finished-cache_started))\" \"$(find /out/go-build-cache -type f | wc -l)\"; \\\n")
 	output.WriteString("    touch -d \"@${SOURCE_DATE_EPOCH}\" /out/super-dolphin-gate\n'\n\n")
 	output.WriteString("FROM ${RUNTIME_DEPS_IMAGE}\nUSER root\n")
@@ -790,9 +832,12 @@ func renderDockerfile(lock toolchainLock, runtimeDeps runtimeDepsLock, buildFile
 	output.WriteString("      org.super-dolphin.schema-version=\"1\"\n")
 	output.WriteString("COPY --from=build /out/super-dolphin-gate /super-dolphin-gate\n")
 	output.WriteString("COPY --from=build --chown=65532:65532 /out/go-build-cache /opt/super-dolphin/cache/go-build\n")
+	output.WriteString("COPY --from=build --chown=65532:65532 /out/vite-cache /opt/super-dolphin-gate/runtime/frontend/vite-cache\n")
+	output.WriteString("COPY --from=build /out/runtime-seed-snapshot /tmp/runtime-seed-snapshot\n")
 	output.WriteString("RUN --network=none mkdir -p /opt/super-dolphin-gate/frontend-embed && \\\n")
 	output.WriteString("    printf '<!doctype html><title>gate compile seed</title>\\n' > /opt/super-dolphin-gate/frontend-embed/index.html && \\\n")
-	output.WriteString("    chmod -R a-w /opt/super-dolphin-gate/frontend-embed && \\\n")
+	output.WriteString("    /super-dolphin-gate worker runtime-seed write /tmp/runtime-seed-snapshot /opt/super-dolphin-gate/runtime && rm -rf /tmp/runtime-seed-snapshot && \\\n")
+	output.WriteString("    chmod -R a-w /opt/super-dolphin-gate/frontend-embed /opt/super-dolphin-gate/runtime/frontend/vite-cache && \\\n")
 	output.WriteString("    chmod -R a-w /opt/super-dolphin/cache/go-build\n")
 	output.WriteString("ENV GOTOOLCHAIN=local GOPROXY=file:///opt/super-dolphin-gate/runtime/go-proxy GOSUMDB=off GOFLAGS=-mod=mod\\ -buildvcs=false\n")
 	output.WriteString("USER 65532:65532\nENTRYPOINT [\"/super-dolphin-gate\"]\n")

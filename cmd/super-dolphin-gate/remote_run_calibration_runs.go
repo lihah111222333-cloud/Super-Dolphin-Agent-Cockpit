@@ -1,10 +1,8 @@
 package main
 
 import (
-	"encoding/hex"
 	"errors"
 	"io"
-	"strings"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
@@ -178,24 +176,13 @@ func remoteCheckpointIdentityMatches(input remoteci.RunInput, result remoteci.Ru
 // remoteCheckpointExecutionMatches 验证 checkpoint 的计划、catalog、源树和镜像没有漂移。
 func remoteCheckpointExecutionMatches(input remoteci.RunInput, result remoteci.RunResult, record gatecontract.RemoteCIRunRecord) bool {
 	return record.PlanDigest == result.PlanDigest && record.CatalogDigest == result.CatalogDigest &&
-		record.SourceTreeSHA == result.SourceTreeSHA && record.RunnerImage == input.RunnerImage &&
-		record.CandidateCLIManifestSHA256 == result.CandidateCLIManifestSHA256 &&
-		validRemoteCandidateCLIManifestSHA256(record.CandidateCLIManifestSHA256)
-}
-
-func validRemoteCandidateCLIManifestSHA256(value string) bool {
-	if len(value) != 64 || strings.ToLower(value) != value {
-		return false
-	}
-	_, err := hex.DecodeString(value)
-	return err == nil
+		record.SourceTreeSHA == result.SourceTreeSHA && record.RunnerImage == input.RunnerImage
 }
 
 // remoteCheckpointCompletionMatches 仅接受干净且权威的成功记录。
 func remoteCheckpointCompletionMatches(result remoteci.RunResult, record gatecontract.RemoteCIRunRecord) bool {
 	return record.Status == gatecontract.ResultStatusPassed && record.Status == result.Status &&
-		record.Authoritative && result.Authoritative && record.CleanupComplete && result.CleanupComplete && record.ErrorText == "" &&
-		record.CandidateTestBinaryReceiptBindingDigest == result.CandidateTestBinaryReceiptBindingDigest
+		record.Authoritative && result.Authoritative && record.CleanupComplete && result.CleanupComplete && record.ErrorText == ""
 }
 
 func remoteRunResultFromLedgerRecord(record gatecontract.RemoteCIRunRecord) remoteci.RunResult {
@@ -210,53 +197,28 @@ func remoteRunResultFromLedgerRecord(record gatecontract.RemoteCIRunRecord) remo
 		}
 	}
 	return remoteci.RunResult{
-		SchemaVersion:                           remoteci.RunResultSchemaVersion,
-		JobID:                                   record.JobID,
-		RequesterFingerprint:                    record.RequesterFingerprint,
-		Entrypoint:                              record.Entrypoint,
-		Profile:                                 record.Profile,
-		PlanDigest:                              record.PlanDigest,
-		CatalogDigest:                           record.CatalogDigest,
-		SourceTreeSHA:                           record.SourceTreeSHA,
-		CandidateCLIManifestSHA256:              record.CandidateCLIManifestSHA256,
-		CandidateTestBinaryReceiptBindingDigest: record.CandidateTestBinaryReceiptBindingDigest,
-		RunnerImage:                             record.RunnerImage,
-		Status:                                  record.Status,
-		Authoritative:                           record.Authoritative,
-		StartedAt:                               record.StartedAt,
-		CompletedAt:                             record.CompletedAt,
-		Shards:                                  shards,
-		ReusedWorkloads:                         append([]gatecontract.GateID(nil), record.ReusedWorkloads...),
-		CacheMissWorkloads:                      append([]gatecontract.GateID(nil), record.CacheMisses...),
-		GateExecutions:                          append([]gatecontract.PlanGateExecution(nil), record.Executions...),
-		WorkloadExecutions:                      append([]gatecontract.PlanGateExecution(nil), record.WorkloadExecutions...),
-		PerformanceTimings:                      append([]gatecontract.RemoteCIPhaseTiming(nil), record.PhaseTimings...),
-		OptimizationWarnings:                    append([]string(nil), record.Warnings...),
-		CandidateTestBinaryBuilds:               remoteCandidateTestBinaryBuildsFromLedgerRecords(record.CandidateTestBinaryBuilds),
-		CleanupComplete:                         record.CleanupComplete,
+		SchemaVersion:        remoteci.RunResultSchemaVersion,
+		JobID:                record.JobID,
+		RequesterFingerprint: record.RequesterFingerprint,
+		Entrypoint:           record.Entrypoint,
+		Profile:              record.Profile,
+		PlanDigest:           record.PlanDigest,
+		CatalogDigest:        record.CatalogDigest,
+		SourceTreeSHA:        record.SourceTreeSHA,
+		RunnerImage:          record.RunnerImage,
+		Status:               record.Status,
+		Authoritative:        record.Authoritative,
+		StartedAt:            record.StartedAt,
+		CompletedAt:          record.CompletedAt,
+		Shards:               shards,
+		ReusedWorkloads:      append([]gatecontract.GateID(nil), record.ReusedWorkloads...),
+		CacheMissWorkloads:   append([]gatecontract.GateID(nil), record.CacheMisses...),
+		GateExecutions:       append([]gatecontract.PlanGateExecution(nil), record.Executions...),
+		WorkloadExecutions:   append([]gatecontract.PlanGateExecution(nil), record.WorkloadExecutions...),
+		PerformanceTimings:   append([]gatecontract.RemoteCIPhaseTiming(nil), record.PhaseTimings...),
+		OptimizationWarnings: append([]string(nil), record.Warnings...),
+		CleanupComplete:      record.CleanupComplete,
 	}
-}
-
-func remoteCandidateTestBinaryBuildsFromLedgerRecords(records []gatecontract.CandidateTestBinaryBuildRecord) []remoteci.CandidateTestBinaryBuilderBuild {
-	builds := make([]remoteci.CandidateTestBinaryBuilderBuild, 0, len(records))
-	for _, record := range records {
-		builds = append(builds, remoteci.CandidateTestBinaryBuilderBuild{
-			Artifact: remoteci.CandidateTestBinaryArtifactRef{
-				CandidateTree: record.CandidateTree, Package: record.Package, Mode: record.Mode,
-				Platform: record.Platform, GoToolchain: record.GoToolchain, CGOEnabled: record.CGOEnabled,
-				ToolchainSHA256: record.ToolchainSHA256, BuildFlags: append([]string(nil), record.BuildFlags...),
-				CompileClosureSHA256: record.CompileClosureSHA256, ManifestSHA256: record.ManifestSHA256,
-				BinarySHA256: strings.TrimPrefix(record.ArtifactSHA256, "sha256:"), BinarySize: record.BinarySize,
-			},
-			Metrics: remoteci.CandidateTestBinaryBuildMetrics{
-				GoListWallMS: record.GoListWallMS, BuildWallMS: record.BuildWallMS,
-				CompileActionMS: record.CompileActionMS, LinkActionMS: record.LinkActionMS,
-				CompileCriticalWallMS: record.CompileCriticalWallMS, GOCachePrivateHits: record.GOCachePrivateHits, GOCacheOCIProjectCacheHits: record.GOCacheOCIProjectCacheHits, GOCachePrivateRootIdentity: record.GOCachePrivateRootIdentity,
-				GOCacheMisses: record.GOCacheMisses, GOCachePuts: record.GOCachePuts,
-			},
-		})
-	}
-	return builds
 }
 
 // acceptAndEmitRemoteCalibration 验证三次运行身份和 catalog 后用 CAS 接受并输出校准凭据。

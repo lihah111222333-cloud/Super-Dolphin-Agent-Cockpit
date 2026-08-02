@@ -54,7 +54,6 @@ func TestCollectClosureFilesIncludesPrecompiledGateTestInputs(t *testing.T) {
 		"build/gate/runtime-deps.lock",
 		"cmd/super-dolphin-gate/main.go",
 		"cmd/mcp-lsp/main.go",
-		"internal/devtools/localci/image_builder.go",
 	} {
 		if !slices.Contains(localFiles, path) {
 			t.Fatalf("local closure files do not contain %s", path)
@@ -79,7 +78,6 @@ func TestCollectClosureFilesIncludesPrecompiledGateTestInputs(t *testing.T) {
 	for _, path := range []string{
 		"README.md",
 		"cmd/super-dolphin-gate-executor/main.go",
-		"frontend-app/src/App.jsx",
 	} {
 		if slices.Contains(localFiles, path) || slices.Contains(gateCompileFiles, path) {
 			t.Fatalf("environment image closure unexpectedly contains ordinary job source %s", path)
@@ -118,6 +116,9 @@ func TestRenderDockerfilePrecompilesGateModesIntoReadOnlyRuntimeCache(t *testing
 		"cp -a /root/.cache/go-build/. /out/go-build-cache",
 		"COPY --from=build --chown=65532:65532 /out/go-build-cache /opt/super-dolphin/cache/go-build",
 		"chmod -R a-w /opt/super-dolphin/cache/go-build",
+		"vite optimize --root frontend-app --force",
+		"test -s frontend-app/node_modules/.vite/deps/_metadata.json",
+		"COPY --from=build --chown=65532:65532 /out/vite-cache /opt/super-dolphin-gate/runtime/frontend/vite-cache",
 		"printf '<!doctype html><title>gate compile seed</title>\\n' > /opt/super-dolphin-gate/frontend-embed/index.html",
 	} {
 		if !strings.Contains(output, wanted) {
@@ -128,11 +129,9 @@ func TestRenderDockerfilePrecompilesGateModesIntoReadOnlyRuntimeCache(t *testing
 		"\n')\n",
 		"COPY . .",
 		"npm run build",
-		"frontend-app",
 		"super-dolphin-gate-executor",
 		"/opt/super-dolphin-gate/owners",
 		"nilness-guard",
-		"node_modules",
 		"/opt/super-dolphin-gate/cache-seed/go-build",
 		"COPY --from=baseline-cache /opt/super-dolphin/cache/go-build /root/.cache/go-build",
 		"cp -a /baseline-cache",

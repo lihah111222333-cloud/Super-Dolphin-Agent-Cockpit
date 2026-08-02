@@ -49,56 +49,27 @@ type WorkloadPassCandidate struct {
 
 // RemoteCIRunRecord 是一次协调器执行及其分片和 gate 终态的查询投影。
 type RemoteCIRunRecord struct {
-	JobID                                   string
-	RequesterFingerprint                    RequesterFingerprint
-	Entrypoint                              CIEntrypointID
-	Profile                                 Profile
-	PlanDigest                              string
-	CatalogDigest                           string
-	SourceTreeSHA                           string
-	CandidateCLIManifestSHA256              string
-	CandidateTestBinaryReceiptBindingDigest string
-	RunnerImage                             string
-	Status                                  ResultStatus
-	Authoritative                           bool
-	StartedAt                               time.Time
-	CompletedAt                             time.Time
-	CleanupComplete                         bool
-	ErrorText                               string
-	Shards                                  []RemoteCIShardRecord
-	Executions                              []PlanGateExecution
-	WorkloadExecutions                      []PlanGateExecution
-	ReusedWorkloads                         []GateID
-	CacheMisses                             []GateID
-	Warnings                                []string
-	PhaseTimings                            []RemoteCIPhaseTiming
-	CandidateTestBinaryBuilds               []CandidateTestBinaryBuildRecord
-}
-
-// CandidateTestBinaryBuildRecord is one coordinator-validated package build; it is never charged to an individual test execution.
-type CandidateTestBinaryBuildRecord struct {
-	CandidateTree              string
-	Package                    string
-	Mode                       string
-	Platform                   string
-	GoToolchain                string
-	CGOEnabled                 bool
-	ToolchainSHA256            string
-	BuildFlags                 []string
-	CompileClosureSHA256       string
-	ManifestSHA256             string
-	ArtifactSHA256             string
-	BinarySize                 int64
-	GoListWallMS               uint64
-	BuildWallMS                uint64
-	CompileActionMS            uint64
-	LinkActionMS               uint64
-	CompileCriticalWallMS      uint64
-	GOCachePrivateHits         uint64
-	GOCacheOCIProjectCacheHits uint64
-	GOCachePrivateRootIdentity string
-	GOCacheMisses              uint64
-	GOCachePuts                uint64
+	JobID                string
+	RequesterFingerprint RequesterFingerprint
+	Entrypoint           CIEntrypointID
+	Profile              Profile
+	PlanDigest           string
+	CatalogDigest        string
+	SourceTreeSHA        string
+	RunnerImage          string
+	Status               ResultStatus
+	Authoritative        bool
+	StartedAt            time.Time
+	CompletedAt          time.Time
+	CleanupComplete      bool
+	ErrorText            string
+	Shards               []RemoteCIShardRecord
+	Executions           []PlanGateExecution
+	WorkloadExecutions   []PlanGateExecution
+	ReusedWorkloads      []GateID
+	CacheMisses          []GateID
+	Warnings             []string
+	PhaseTimings         []RemoteCIPhaseTiming
 }
 
 // RemoteCIShardRecord 保存一个远程分片的稳定云资源身份和终态。

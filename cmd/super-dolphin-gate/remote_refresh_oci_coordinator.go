@@ -88,6 +88,7 @@ func remoteOCIBuildCreateRequest(config remoteRunConfig, request remoteci.OCIBas
 	return eci.CreateRequest{
 		ContainerGroupName: "sdoci-" + strings.TrimPrefix(request.JobID, "oci-"),
 		ContainerName:      "worker",
+		ImageCacheID:       request.ImageCacheSnapshotID,
 		MainImage:          config.OCICache.RemoteBuilderImage,
 		InitImage:          request.ParentImage,
 		Resources:          eci.Resources{CPU: 8, MemoryGiB: 32},
@@ -96,7 +97,6 @@ func remoteOCIBuildCreateRequest(config remoteRunConfig, request remoteci.OCIBas
 		Environment: map[string]string{
 			remoteOCIBuildRequestPathEnv: "/source-data/request.json",
 			remoteOCIBuildContextPathEnv: "/source-data/context.tar",
-			remoteWorkerRoleEnv:          config.WorkerRoleName,
 		},
 		Tags:            map[string]string{"super-dolphin-oci-build": request.JobID},
 		InitContainer:   eci.InitContainer{Name: "materializer", Command: []string{"/bin/sh"}, Args: []string{"-ceu", "mkdir -p /opt/super-dolphin-gate/bin; cp /super-dolphin-gate /opt/super-dolphin-gate/bin/super-dolphin-gate; chmod 0555 /opt/super-dolphin-gate/bin/super-dolphin-gate; cp /current-gate/" + path.Base(requestKey) + " /source-data/request.json; cp /current-gate/" + path.Base(contextKey) + " /source-data/context.tar"}},
@@ -104,7 +104,6 @@ func remoteOCIBuildCreateRequest(config remoteRunConfig, request remoteci.OCIBas
 		ExpandedVolume:  eci.EmptyDirVolume{Name: "expanded-data"}, SourceVolume: eci.EmptyDirVolume{Name: "source-data"}, WorkVolume: eci.EmptyDirVolume{Name: "work-data"}, TempVolume: eci.EmptyDirVolume{Name: "temp-data"},
 		MainVolumeMounts: []eci.VolumeMount{{Name: "expanded-data", MountPath: "/opt/super-dolphin-gate", ReadOnly: true}, {Name: "source-data", MountPath: "/source-data", ReadOnly: true}, {Name: "work-data", MountPath: "/work-data"}, {Name: "temp-data", MountPath: "/tmp"}},
 		InitVolumeMounts: []eci.VolumeMount{{Name: "current-gate", MountPath: "/current-gate", ReadOnly: true}, {Name: "expanded-data", MountPath: "/opt/super-dolphin-gate"}, {Name: "source-data", MountPath: "/source-data"}, {Name: "work-data", MountPath: "/work-data"}, {Name: "temp-data", MountPath: "/tmp"}},
-		RegistryAccess:   eci.RegistryAccess{ACR: config.ACRRegistryInfo},
 	}
 }
 

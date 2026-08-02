@@ -28,7 +28,7 @@ func TestOCIBaselineBuilderProtocolRoundTrip(t *testing.T) {
 func TestOCIBaselineBuilderRequestRejectsInvalidIdentity(t *testing.T) {
 	for name, mutate := range map[string]func(*OCIBaselineBuilderRequest){
 		"schema": func(v *OCIBaselineBuilderRequest) { v.SchemaVersion++ }, "context digest": func(v *OCIBaselineBuilderRequest) { v.ContextSHA256 = "bad" },
-		"parent image": func(v *OCIBaselineBuilderRequest) { v.ParentImage = "repo:latest" }, "tree": func(v *OCIBaselineBuilderRequest) { v.MainTree = "bad" },
+		"parent image": func(v *OCIBaselineBuilderRequest) { v.ParentImage = "repo:latest" }, "image cache": func(v *OCIBaselineBuilderRequest) { v.ImageCacheID = "" }, "tree": func(v *OCIBaselineBuilderRequest) { v.MainTree = "bad" },
 		"platform": func(v *OCIBaselineBuilderRequest) { v.Platform = "darwin/arm64" }, "runtime dependency": func(v *OCIBaselineBuilderRequest) { v.RuntimeDependencyDigest = "bad" },
 		"job key": func(v *OCIBaselineBuilderRequest) { v.JobKey = "x.job.json" },
 	} {
@@ -76,18 +76,18 @@ func TestOCIBaselineBuilderProtocolStrictJSON(t *testing.T) {
 }
 
 func TestOCIBaselineBuilderProtocolFieldRegistry(t *testing.T) {
-	assertBaselineFields(t, reflect.TypeFor[OCIBaselineBuilderRequest](), []string{"SchemaVersion", "JobID", "ContextKey", "ContextSHA256", "SourceArchiveSize", "RegistryRepository", "ACRInstanceID", "ACRRegionID", "ParentImage", "MainCommit", "MainTree", "ToolchainDigest", "Platform", "RuntimeDependencyDigest", "JobKey"})
-	assertBaselineFields(t, reflect.TypeFor[OCIBaselineBuilderResult](), []string{"SchemaVersion", "JobID", "ContextKey", "ContextSHA256", "RegistryRepository", "ACRInstanceID", "ACRRegionID", "ParentImage", "MainCommit", "MainTree", "ToolchainDigest", "Platform", "RuntimeDependencyDigest", "JobKey", "Repository", "Image", "ConfigDigest", "InputDigest"})
+	assertBaselineFields(t, reflect.TypeFor[OCIBaselineBuilderRequest](), []string{"SchemaVersion", "JobID", "ContextKey", "ContextSHA256", "SourceArchiveSize", "RegistryRepository", "ParentImage", "ImageCacheID", "ImageCacheSnapshotID", "MainCommit", "MainTree", "ToolchainDigest", "Platform", "RuntimeDependencyDigest", "JobKey"})
+	assertBaselineFields(t, reflect.TypeFor[OCIBaselineBuilderResult](), []string{"SchemaVersion", "JobID", "ContextKey", "ContextSHA256", "RegistryRepository", "ParentImage", "ImageCacheID", "ImageCacheSnapshotID", "MainCommit", "MainTree", "ToolchainDigest", "Platform", "RuntimeDependencyDigest", "JobKey", "Repository", "Image", "ConfigDigest", "InputDigest"})
 }
 
 func validOCIBaselineBuilderRequest() OCIBaselineBuilderRequest {
 	jobID := "oci-baseline-123"
 	prefix := "remote-ci/oci-baselines/" + jobID + "/"
-	return OCIBaselineBuilderRequest{SchemaVersion: OCIBaselineBuilderRequestSchemaVersion, JobID: jobID, ContextKey: prefix + "source.context.tar", ContextSHA256: digest("a"), SourceArchiveSize: 1024, RegistryRepository: "registry.example/super-dolphin/baseline", ACRInstanceID: "cri-123", ACRRegionID: "cn-shenzhen", ParentImage: "registry.example/super-dolphin/parent@" + digest("b"), MainCommit: stringsRepeat("c", 40), MainTree: stringsRepeat("d", 40), ToolchainDigest: digest("e"), Platform: "linux/amd64", RuntimeDependencyDigest: digest("1"), JobKey: prefix + "build.job.json"}
+	return OCIBaselineBuilderRequest{SchemaVersion: OCIBaselineBuilderRequestSchemaVersion, JobID: jobID, ContextKey: prefix + "source.context.tar", ContextSHA256: digest("a"), SourceArchiveSize: 1024, RegistryRepository: "registry.example/super-dolphin/baseline", ParentImage: "registry.example/super-dolphin/parent@" + digest("b"), ImageCacheID: "imc-baseline", ImageCacheSnapshotID: "snap-baseline", MainCommit: stringsRepeat("c", 40), MainTree: stringsRepeat("d", 40), ToolchainDigest: digest("e"), Platform: "linux/amd64", RuntimeDependencyDigest: digest("1"), JobKey: prefix + "build.job.json"}
 }
 
 func validOCIBaselineBuilderResult(request OCIBaselineBuilderRequest) OCIBaselineBuilderResult {
-	return OCIBaselineBuilderResult{SchemaVersion: OCIBaselineBuilderResultSchemaVersion, JobID: request.JobID, ContextKey: request.ContextKey, ContextSHA256: request.ContextSHA256, RegistryRepository: request.RegistryRepository, ACRInstanceID: request.ACRInstanceID, ACRRegionID: request.ACRRegionID, ParentImage: request.ParentImage, MainCommit: request.MainCommit, MainTree: request.MainTree, ToolchainDigest: request.ToolchainDigest, Platform: request.Platform, RuntimeDependencyDigest: request.RuntimeDependencyDigest, JobKey: request.JobKey, Repository: request.RegistryRepository, Image: request.RegistryRepository + "@" + digest("9"), ConfigDigest: digest("a"), InputDigest: request.ContextSHA256}
+	return OCIBaselineBuilderResult{SchemaVersion: OCIBaselineBuilderResultSchemaVersion, JobID: request.JobID, ContextKey: request.ContextKey, ContextSHA256: request.ContextSHA256, RegistryRepository: request.RegistryRepository, ParentImage: request.ParentImage, ImageCacheID: request.ImageCacheID, ImageCacheSnapshotID: request.ImageCacheSnapshotID, MainCommit: request.MainCommit, MainTree: request.MainTree, ToolchainDigest: request.ToolchainDigest, Platform: request.Platform, RuntimeDependencyDigest: request.RuntimeDependencyDigest, JobKey: request.JobKey, Repository: request.RegistryRepository, Image: request.RegistryRepository + "@" + digest("9"), ConfigDigest: digest("a"), InputDigest: request.ContextSHA256}
 }
 
 func stringsRepeat(value string, count int) string {

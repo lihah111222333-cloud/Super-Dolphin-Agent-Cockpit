@@ -36,13 +36,13 @@ type ShardMaterializationTiming struct {
 	ShardIdentity         string                     `json:"shard_identity"`
 	Source                MaterializationPhaseTiming `json:"source"`
 	Baseline              MaterializationPhaseTiming `json:"baseline"`
-	CandidateCLI          MaterializationPhaseTiming `json:"candidate_cli"`
+	CandidateCompile      MaterializationPhaseTiming `json:"candidate_compile"`
 	CandidateTestBinaries MaterializationPhaseTiming `json:"candidate_test_binaries"`
 }
 
 func (timing ShardMaterializationTiming) Validate() error {
 	if timing.Measurement == MaterializationMeasurementNotMeasured {
-		if timing.ShardIdentity != "" || timing.Source != (MaterializationPhaseTiming{}) || timing.Baseline != (MaterializationPhaseTiming{}) || timing.CandidateCLI != (MaterializationPhaseTiming{}) || timing.CandidateTestBinaries != (MaterializationPhaseTiming{}) {
+		if timing.ShardIdentity != "" || timing.Source != (MaterializationPhaseTiming{}) || timing.Baseline != (MaterializationPhaseTiming{}) || timing.CandidateCompile != (MaterializationPhaseTiming{}) || timing.CandidateTestBinaries != (MaterializationPhaseTiming{}) {
 			return errors.New("not measured shard materialization timing contains evidence")
 		}
 		return nil
@@ -61,7 +61,7 @@ func (timing ShardMaterializationTiming) Validate() error {
 	} else if timing.Measurement == MaterializationMeasurementMeasured {
 		return errors.New("measured shard materialization timing identity is required")
 	}
-	for _, phase := range []MaterializationPhaseTiming{timing.Source, timing.Baseline, timing.CandidateCLI, timing.CandidateTestBinaries} {
+	for _, phase := range []MaterializationPhaseTiming{timing.Source, timing.Baseline, timing.CandidateCompile, timing.CandidateTestBinaries} {
 		if phase.DownloadMS < 0 || phase.VerifyMS < 0 || phase.InstallMS < 0 || phase.MaterializeMS < 0 ||
 			phase.MaterializeMS < phase.DownloadMS+phase.VerifyMS+phase.InstallMS {
 			return errors.New("shard materialization timing phase is invalid")
@@ -82,7 +82,7 @@ func EncodeShardMaterializationTimingRecord(timing ShardMaterializationTiming) (
 		return "", errors.New("materialization timing record is not measured")
 	}
 	fields := []string{timing.ShardIdentity}
-	for _, phase := range []MaterializationPhaseTiming{timing.Source, timing.Baseline, timing.CandidateCLI, timing.CandidateTestBinaries} {
+	for _, phase := range []MaterializationPhaseTiming{timing.Source, timing.Baseline, timing.CandidateCompile, timing.CandidateTestBinaries} {
 		fields = append(fields, strconv.FormatInt(phase.DownloadMS, 10), strconv.FormatInt(phase.VerifyMS, 10), strconv.FormatInt(phase.InstallMS, 10), strconv.FormatInt(phase.MaterializeMS, 10))
 	}
 	return ShardMaterializationTimingRecordPrefix + strings.Join(fields, " "), nil
@@ -106,7 +106,7 @@ func DecodeShardMaterializationTimingRecord(line string) (ShardMaterializationTi
 		values[index] = value
 	}
 	timing := ShardMaterializationTiming{Measurement: MaterializationMeasurementMeasured, ShardIdentity: fields[0]}
-	phases := []*MaterializationPhaseTiming{&timing.Source, &timing.Baseline, &timing.CandidateCLI, &timing.CandidateTestBinaries}
+	phases := []*MaterializationPhaseTiming{&timing.Source, &timing.Baseline, &timing.CandidateCompile, &timing.CandidateTestBinaries}
 	for index, phase := range phases {
 		*phase = MaterializationPhaseTiming{DownloadMS: values[index*4], VerifyMS: values[index*4+1], InstallMS: values[index*4+2], MaterializeMS: values[index*4+3]}
 	}

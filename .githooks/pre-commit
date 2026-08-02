@@ -7,7 +7,7 @@ repo_root=$(git rev-parse --show-toplevel) || {
 }
 source "$repo_root/.githooks/trusted-gate-launcher.sh"
 if ! gate_bin=$(trusted_gate_launcher "$repo_root"); then
-  printf '%s\n' 'pre-commit blocked: trusted super-dolphin-gate launcher is unavailable; provision it with install-hooks, then rerun the commit.' >&2
+  printf '%s\n' 'pre-commit blocked: trusted super-dolphin-gate launcher is unavailable; install it with make install-hooks, then rerun the commit.' >&2
   exit 1
 fi
 
@@ -254,94 +254,45 @@ fi
 
 umask 077
 gate_output_file=$(mktemp "${TMPDIR:-/tmp}/super-dolphin-precommit.XXXXXX")
-wait_output_file=$(mktemp "${TMPDIR:-/tmp}/super-dolphin-precommit-wait.XXXXXX")
 cleanup_output() {
-  rm -f "$gate_output_file" "$wait_output_file"
+  rm -f "$gate_output_file"
 }
 trap cleanup_output EXIT HUP INT TERM
 
-gate_mode=${SUPER_DOLPHIN_GATE_MODE:-$(git config --local --get super-dolphin.gate.mode || true)}
-if [[ -z "$gate_mode" ]]; then
-  gate_mode=local
-fi
-if [[ "$gate_mode" == remote ]]; then
-  remote_config=${SUPER_DOLPHIN_GATE_REMOTE_CONFIG:-$(git config --local --get super-dolphin.remote.config || true)}
-  remote_ledger=${SUPER_DOLPHIN_GATE_LEDGER:-$(git config --local --get super-dolphin.remote.ledger || true)}
-  remote_max_shards=$(git config --local --get super-dolphin.remote.maxShards || true)
-  if [[ -z "$remote_config" || -z "$remote_ledger" ]]; then
-    printf '%s\n' 'pre-commit blocked: remote gate mode requires remote config and duration ledger paths.' >&2
-    exit 1
-  fi
-  if ! parent_commit=$(git rev-parse --verify 'HEAD^{commit}'); then
-    printf '%s\n' 'pre-commit blocked: remote gate mode requires an existing parent commit.' >&2
-    exit 1
-  fi
-  remote_args=(
-    remote hook pre-commit
-    --config "$remote_config"
-    --ledger "$remote_ledger"
-    --repository "$repo_root"
-    --tree "$staged_tree"
-    --parent "$parent_commit"
-  )
-  if [[ -n "$remote_max_shards" ]]; then
-    remote_args+=(--max-shards "$remote_max_shards")
-  fi
-  set +e
-  "$gate_bin" "${remote_args[@]}" 2>&1 | tee "$gate_output_file"
-  hook_rc=${PIPESTATUS[0]}
-  set -e
-  if [[ "$hook_rc" -ne 0 ]]; then
-    exit "$hook_rc"
-  fi
-  if ! final_tree=$(git write-tree); then
-    printf '%s\n' 'pre-commit blocked: cannot re-read the staged tree after remote gate.' >&2
-    exit 1
-  fi
-  if [[ "$final_tree" != "$staged_tree" ]]; then
-    printf '%s\n' "pre-commit blocked: staged tree changed during remote gate ($staged_tree -> $final_tree)." >&2
-    exit 1
-  fi
-  exit 0
-fi
-if [[ "$gate_mode" != local ]]; then
-  printf '%s\n' "pre-commit blocked: unsupported gate mode '$gate_mode'." >&2
+remote_config=${SUPER_DOLPHIN_GATE_REMOTE_CONFIG:-$(git config --local --get super-dolphin.remote.config || true)}
+remote_ledger=${SUPER_DOLPHIN_GATE_LEDGER:-$(git config --local --get super-dolphin.remote.ledger || true)}
+remote_max_shards=$(git config --local --get super-dolphin.remote.maxShards || true)
+if [[ -z "$remote_config" || -z "$remote_ledger" ]]; then
+  printf '%s\n' 'pre-commit blocked: remote CI requires remote config and duration ledger paths.' >&2
   exit 1
 fi
-
+if ! parent_commit=$(git rev-parse --verify 'HEAD^{commit}'); then
+  printf '%s\n' 'pre-commit blocked: remote CI requires an existing parent commit.' >&2
+  exit 1
+fi
+remote_args=(
+  remote hook pre-commit
+  --config "$remote_config"
+  --ledger "$remote_ledger"
+  --repository "$repo_root"
+  --tree "$staged_tree"
+  --parent "$parent_commit"
+)
+if [[ -n "$remote_max_shards" ]]; then
+  remote_args+=(--max-shards "$remote_max_shards")
+fi
 set +e
-"$gate_bin" hook pre-commit --tree "$staged_tree" >"$gate_output_file" 2>&1
-hook_rc=$?
+"$gate_bin" "${remote_args[@]}" 2>&1 | tee "$gate_output_file"
+hook_rc=${PIPESTATUS[0]}
 set -e
-if [[ "$hook_rc" -eq 13 ]]; then
-  cat "$gate_output_file" >&2
-  job_id=$(sed -nE 's/.*job=(job-[0-9a-f]+).*/\1/p' "$gate_output_file" | tail -n 1)
-  if [[ ! "$job_id" =~ ^job-[0-9a-f]{32}$ ]]; then
-    printf '%s\n' 'pre-commit blocked: queued coordinator response did not contain one valid job id.' >&2
-    exit 1
-  fi
-  cleanup_output
-  set +e
-  "$gate_bin" wait --job "$job_id" --tree "$staged_tree" >"$wait_output_file" 2>&1
-  wait_rc=$?
-  set -e
-  if [[ "$wait_rc" -ne 0 ]]; then
-    cat "$wait_output_file" >&2
-    exit "$wait_rc"
-  fi
-elif [[ "$hook_rc" -ne 0 ]]; then
-  cat "$gate_output_file" >&2
+if [[ "$hook_rc" -ne 0 ]]; then
   exit "$hook_rc"
 fi
-
 if ! final_tree=$(git write-tree); then
-  if [[ "$hook_rc" -eq 13 ]]; then cat "$wait_output_file" >&2; else cat "$gate_output_file" >&2; fi
-  printf '%s\n' 'pre-commit blocked: cannot re-read the staged tree after gate wait.' >&2
+  printf '%s\n' 'pre-commit blocked: cannot re-read the staged tree after remote gate.' >&2
   exit 1
 fi
 if [[ "$final_tree" != "$staged_tree" ]]; then
-  if [[ "$hook_rc" -eq 13 ]]; then cat "$wait_output_file" >&2; else cat "$gate_output_file" >&2; fi
-  printf '%s\n' "pre-commit blocked: staged tree changed during gate wait ($staged_tree -> $final_tree)." >&2
+  printf '%s\n' "pre-commit blocked: staged tree changed during remote gate ($staged_tree -> $final_tree)." >&2
   exit 1
 fi
-if [[ "$hook_rc" -eq 13 ]]; then cat "$wait_output_file"; else cat "$gate_output_file"; fi

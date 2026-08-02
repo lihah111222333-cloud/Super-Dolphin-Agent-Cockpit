@@ -224,7 +224,7 @@ func TestLookupExactPassedGoTestsPromotesCompatibleFingerprint(t *testing.T) {
 	}
 
 	err := lookupExactPassedGoTests(
-		context.Background(), store, "source/passed-workloads/v1/",
+		context.Background(), store,
 		func() time.Time { return fixture.observedAt.Add(time.Minute) },
 		input, lookup, cached,
 	)
@@ -236,7 +236,7 @@ func TestLookupExactPassedGoTestsPromotesCompatibleFingerprint(t *testing.T) {
 	}
 	second := make(map[string]gate.PlanGateExecution)
 	if err := lookupExactPassedGoTests(
-		context.Background(), store, "source/passed-workloads/v1/",
+		context.Background(), store,
 		func() time.Time { return fixture.observedAt.Add(2 * time.Minute) },
 		input, lookup, second,
 	); err != nil {

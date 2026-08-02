@@ -25,41 +25,7 @@ func validateRemoteCIRunRecord(record RemoteCIRunRecord) error {
 	if err := validateRemoteCIRunWorkloadExecutions(record.WorkloadExecutions); err != nil {
 		return err
 	}
-	hasPreBindingBuild := false
-	for _, build := range record.CandidateTestBinaryBuilds {
-		if build.CandidateTree == "" {
-			// Pre-binding ledger rows are audit-only and cannot satisfy a
-			// checkpoint reuse comparison because they lack artifact identity.
-			hasPreBindingBuild = true
-			continue
-		}
-		if err := validateCandidateTestBinaryBuildRecord(build); err != nil {
-			return err
-		}
-	}
-	if record.Authoritative && !isPrefixedSHA256Digest(record.CandidateTestBinaryReceiptBindingDigest) {
-		return errors.New("candidate test binary receipt binding digest is invalid")
-	}
-	if record.Authoritative && len(record.CandidateTestBinaryBuilds) != 0 {
-		if hasPreBindingBuild {
-			return errors.New("authoritative candidate test binary builds contain pre-binding audit rows")
-		}
-		digest, err := CandidateTestBinaryReceiptBindingDigest(record.CandidateTestBinaryBuilds, record.SourceTreeSHA)
-		if err != nil || digest != record.CandidateTestBinaryReceiptBindingDigest {
-			return errors.New("candidate test binary receipt binding does not match persisted builds")
-		}
-	}
 	return validatePassedRemoteCIRunWorkloads(record.Status, workloads, shardWorkloads)
-}
-
-func validateCandidateTestBinaryBuildRecord(build CandidateTestBinaryBuildRecord) error {
-	if strings.TrimSpace(build.CandidateTree) == "" || strings.TrimSpace(build.Package) == "" || build.Mode != "test" || build.Platform != "linux/amd64" || build.GoToolchain != RequiredGoToolchain || !build.CGOEnabled || !isPrefixedSHA256Digest(build.ToolchainSHA256) || !isPrefixedSHA256Digest(build.CompileClosureSHA256) || len(build.ManifestSHA256) != 64 || !isPrefixedSHA256Digest(build.ArtifactSHA256) || build.BinarySize <= 0 {
-		return errors.New("candidate test binary build identity is invalid")
-	}
-	if !isPrefixedSHA256Digest(build.GOCachePrivateRootIdentity) {
-		return errors.New("candidate test binary private cache identity is invalid")
-	}
-	return nil
 }
 
 func validateRemoteCIRunIdentity(record RemoteCIRunRecord) error {
@@ -143,9 +109,6 @@ func validateRemoteCIRunStatus(record RemoteCIRunRecord) error {
 		ResultStatusInfraFailed, ResultStatusPassedStalePolicy:
 	default:
 		return fmt.Errorf("remote CI run status %q is not supported", record.Status)
-	}
-	if record.Status == ResultStatusPassed && !isCanonicalBareSHA256(record.CandidateCLIManifestSHA256) {
-		return errors.New("passed remote CI run candidate CLI manifest SHA-256 is required and canonical")
 	}
 	return nil
 }

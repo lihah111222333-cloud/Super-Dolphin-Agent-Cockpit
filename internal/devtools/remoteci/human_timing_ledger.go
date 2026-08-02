@@ -17,40 +17,10 @@ func RenderHumanTimingLedger(destination io.Writer, result RunResult) error {
 	if _, err := fmt.Fprintf(destination, "REMOTE_CI_TIMING_LEDGER job_id=%s status=%s\n", result.JobID, result.Status); err != nil {
 		return err
 	}
-	if err := renderPackageTimingLedger(destination, result.CandidateTestBinaryBuilds); err != nil {
-		return err
-	}
 	if err := renderTestTimingLedger(destination, result.GateExecutions, result.WorkloadExecutions); err != nil {
 		return err
 	}
 	return renderShardTimingLedger(destination, result.Shards)
-}
-
-func renderPackageTimingLedger(destination io.Writer, builds []CandidateTestBinaryBuilderBuild) error {
-	if len(builds) == 0 {
-		_, err := fmt.Fprintln(destination, "REMOTE_CI_TIMING_LEDGER package=not_measured build_wall_ms=not_measured go_list_wall_ms=not_measured compile_action_ms=not_measured link_action_ms=not_measured compile_critical_wall_ms=not_measured cache_private_hits=not_measured cache_oci_project_cache_hits=not_measured cache_misses=not_measured cache_puts=not_measured")
-		return err
-	}
-	ordered := append([]CandidateTestBinaryBuilderBuild(nil), builds...)
-	sort.SliceStable(ordered, func(left, right int) bool {
-		if ordered[left].Artifact.Package != ordered[right].Artifact.Package {
-			return ordered[left].Artifact.Package < ordered[right].Artifact.Package
-		}
-		if ordered[left].Artifact.Mode != ordered[right].Artifact.Mode {
-			return ordered[left].Artifact.Mode < ordered[right].Artifact.Mode
-		}
-		if ordered[left].Artifact.ManifestKey != ordered[right].Artifact.ManifestKey {
-			return ordered[left].Artifact.ManifestKey < ordered[right].Artifact.ManifestKey
-		}
-		return ordered[left].Artifact.BinaryKey < ordered[right].Artifact.BinaryKey
-	})
-	for _, build := range ordered {
-		metrics := build.Metrics
-		if _, err := fmt.Fprintf(destination, "REMOTE_CI_TIMING_LEDGER package=%s mode=%s go_list_wall_ms=%d build_wall_ms=%d compile_action_ms=%d link_action_ms=%d compile_critical_wall_ms=%d cache_private_hits=%d cache_oci_project_cache_hits=%d cache_misses=%d cache_puts=%d\n", build.Artifact.Package, build.Artifact.Mode, metrics.GoListWallMS, metrics.BuildWallMS, metrics.CompileActionMS, metrics.LinkActionMS, metrics.CompileCriticalWallMS, metrics.GOCachePrivateHits, metrics.GOCacheOCIProjectCacheHits, metrics.GOCacheMisses, metrics.GOCachePuts); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func renderTestTimingLedger(destination io.Writer, gateExecutions, workloadExecutions []gate.PlanGateExecution) error {
@@ -126,8 +96,7 @@ func renderShardTimingLedger(destination io.Writer, shards []ShardResult) error 
 		}{
 			{name: "source", timing: shard.MaterializationTiming.Source},
 			{name: "baseline", timing: shard.MaterializationTiming.Baseline},
-			{name: "candidate_cli", timing: shard.MaterializationTiming.CandidateCLI},
-			{name: "candidate_test_binaries", timing: shard.MaterializationTiming.CandidateTestBinaries},
+			{name: "candidate_compile", timing: shard.MaterializationTiming.CandidateCompile},
 		} {
 			if _, err := fmt.Fprintf(destination, "REMOTE_CI_TIMING_LEDGER shard=%s artifact=%s download_ms=%d verify_ms=%d install_ms=%d materialize_ms=%d\n", shard.ShardIdentity, artifact.name, artifact.timing.DownloadMS, artifact.timing.VerifyMS, artifact.timing.InstallMS, artifact.timing.MaterializeMS); err != nil {
 				return err

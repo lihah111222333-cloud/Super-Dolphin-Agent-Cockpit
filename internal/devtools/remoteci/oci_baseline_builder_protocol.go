@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"path"
-	"regexp"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
@@ -28,9 +27,9 @@ type OCIBaselineBuilderRequest struct {
 	ContextSHA256           string `json:"context_sha256"`
 	SourceArchiveSize       int64  `json:"source_archive_size"`
 	RegistryRepository      string `json:"registry_repository"`
-	ACRInstanceID           string `json:"acr_instance_id"`
-	ACRRegionID             string `json:"acr_region_id"`
 	ParentImage             string `json:"parent_image"`
+	ImageCacheID            string `json:"image_cache_id"`
+	ImageCacheSnapshotID    string `json:"image_cache_snapshot_id"`
 	MainCommit              string `json:"main_commit"`
 	MainTree                string `json:"main_tree"`
 	ToolchainDigest         string `json:"toolchain_digest"`
@@ -46,9 +45,9 @@ type OCIBaselineBuilderResult struct {
 	ContextKey              string `json:"context_key"`
 	ContextSHA256           string `json:"context_sha256"`
 	RegistryRepository      string `json:"registry_repository"`
-	ACRInstanceID           string `json:"acr_instance_id"`
-	ACRRegionID             string `json:"acr_region_id"`
 	ParentImage             string `json:"parent_image"`
+	ImageCacheID            string `json:"image_cache_id"`
+	ImageCacheSnapshotID    string `json:"image_cache_snapshot_id"`
 	MainCommit              string `json:"main_commit"`
 	MainTree                string `json:"main_tree"`
 	ToolchainDigest         string `json:"toolchain_digest"`
@@ -61,15 +60,16 @@ type OCIBaselineBuilderResult struct {
 	InputDigest             string `json:"input_digest"`
 }
 
-var ociBaselineACRRegionPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)+$`)
-
 // Validate rejects incomplete, mutable, or cross-job OCI builder requests.
 func (request OCIBaselineBuilderRequest) Validate() error {
 	if request.SchemaVersion != OCIBaselineBuilderRequestSchemaVersion || !remoteIDPattern.MatchString(request.JobID) ||
 		!baselineOIDPattern.MatchString(request.MainCommit) || !baselineOIDPattern.MatchString(request.MainTree) ||
-		!validOCIRepository(request.RegistryRepository) || !remoteIDPattern.MatchString(request.ACRInstanceID) || !ociBaselineACRRegionPattern.MatchString(request.ACRRegionID) ||
+		!validOCIRepository(request.RegistryRepository) ||
 		!validRemoteImageReference(request.ParentImage) || request.Platform != "linux/amd64" || request.SourceArchiveSize <= 0 || request.SourceArchiveSize > 4<<30 {
 		return errors.New("remote OCI baseline builder request identity is invalid")
+	}
+	if !validImageCacheIdentifier(request.ImageCacheID) || !validImageCacheIdentifier(request.ImageCacheSnapshotID) {
+		return errors.New("remote OCI baseline builder ImageCache authority is invalid")
 	}
 	for name, value := range map[string]string{
 		"context": request.ContextSHA256, "toolchain": request.ToolchainDigest,
@@ -104,8 +104,8 @@ func validateOCIBaselineBuilderKeys(jobID, contextKey, jobKey string) error {
 // Validate rejects incomplete or mutable OCI image build receipts.
 func (result OCIBaselineBuilderResult) Validate() error {
 	request := OCIBaselineBuilderRequest{
-		SchemaVersion: OCIBaselineBuilderRequestSchemaVersion, JobID: result.JobID, ContextKey: result.ContextKey, ContextSHA256: result.ContextSHA256, SourceArchiveSize: 1, RegistryRepository: result.RegistryRepository, ACRInstanceID: result.ACRInstanceID, ACRRegionID: result.ACRRegionID,
-		ParentImage: result.ParentImage, MainCommit: result.MainCommit, MainTree: result.MainTree, ToolchainDigest: result.ToolchainDigest, Platform: result.Platform,
+		SchemaVersion: OCIBaselineBuilderRequestSchemaVersion, JobID: result.JobID, ContextKey: result.ContextKey, ContextSHA256: result.ContextSHA256, SourceArchiveSize: 1, RegistryRepository: result.RegistryRepository,
+		ParentImage: result.ParentImage, ImageCacheID: result.ImageCacheID, ImageCacheSnapshotID: result.ImageCacheSnapshotID, MainCommit: result.MainCommit, MainTree: result.MainTree, ToolchainDigest: result.ToolchainDigest, Platform: result.Platform,
 		RuntimeDependencyDigest: result.RuntimeDependencyDigest,
 		JobKey:                  result.JobKey,
 	}
@@ -136,8 +136,9 @@ func (result OCIBaselineBuilderResult) ValidateAgainst(request OCIBaselineBuilde
 	if err := result.Validate(); err != nil {
 		return err
 	}
-	if result.JobID != request.JobID || result.ContextKey != request.ContextKey || result.ContextSHA256 != request.ContextSHA256 || result.RegistryRepository != request.RegistryRepository || result.ACRInstanceID != request.ACRInstanceID || result.ACRRegionID != request.ACRRegionID ||
+	if result.JobID != request.JobID || result.ContextKey != request.ContextKey || result.ContextSHA256 != request.ContextSHA256 || result.RegistryRepository != request.RegistryRepository ||
 		result.ParentImage != request.ParentImage || result.MainCommit != request.MainCommit || result.MainTree != request.MainTree ||
+		result.ImageCacheID != request.ImageCacheID || result.ImageCacheSnapshotID != request.ImageCacheSnapshotID ||
 		result.ToolchainDigest != request.ToolchainDigest || result.Platform != request.Platform ||
 		result.RuntimeDependencyDigest != request.RuntimeDependencyDigest || result.InputDigest != request.ContextSHA256 ||
 		result.JobKey != request.JobKey {

@@ -38,9 +38,6 @@ func storeSQLiteRemoteCIRunProjection(
 	); err != nil {
 		return nil, err
 	}
-	if err := replaceCandidateTestBinaryBuilds(transaction, record); err != nil {
-		return nil, err
-	}
 	if err := measureSQLiteRemoteCIRunProjection(
 		&record,
 		now,
@@ -100,25 +97,6 @@ func storeSQLiteRemoteCIRunProjection(
 	return append([]RemoteCIPhaseTiming(nil), record.PhaseTimings[initialTimingCount:]...), nil
 }
 
-func replaceCandidateTestBinaryBuilds(transaction *sql.Tx, record RemoteCIRunRecord) error {
-	if _, err := transaction.Exec(`DELETE FROM ci_candidate_test_binary_builds WHERE job_id=?`, record.JobID); err != nil {
-		return mapDurationLedgerSQLiteError("clear candidate test binary builds", err)
-	}
-	for _, build := range record.CandidateTestBinaryBuilds {
-		if err := validateCandidateTestBinaryBuildRecord(build); err != nil {
-			return err
-		}
-		flags, err := json.Marshal(build.BuildFlags)
-		if err != nil {
-			return err
-		}
-		if _, err = transaction.Exec(`INSERT INTO ci_candidate_test_binary_builds (job_id,candidate_tree,package,mode,platform,go_toolchain,cgo_enabled,toolchain_sha256,build_flags_json,compile_closure_sha256,manifest_sha256,artifact_sha256,binary_size,go_list_wall_ms,build_wall_ms,compile_action_ms,link_action_ms,compile_critical_wall_ms,gocache_private_hits,gocache_oci_project_cache_hits,gocache_private_root_identity,gocache_misses,gocache_puts) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, record.JobID, build.CandidateTree, build.Package, build.Mode, build.Platform, build.GoToolchain, boolToSQLite(build.CGOEnabled), build.ToolchainSHA256, string(flags), build.CompileClosureSHA256, build.ManifestSHA256, build.ArtifactSHA256, build.BinarySize, build.GoListWallMS, build.BuildWallMS, build.CompileActionMS, build.LinkActionMS, build.CompileCriticalWallMS, build.GOCachePrivateHits, build.GOCacheOCIProjectCacheHits, build.GOCachePrivateRootIdentity, build.GOCacheMisses, build.GOCachePuts); err != nil {
-			return mapDurationLedgerSQLiteError("store candidate test binary build", err)
-		}
-	}
-	return nil
-}
-
 func measureSQLiteRemoteCIRunProjection(
 	record *RemoteCIRunRecord,
 	now func() time.Time,
@@ -152,19 +130,17 @@ func upsertSQLiteRemoteCIRun(transaction *sql.Tx, record RemoteCIRunRecord) erro
 	if _, err := transaction.Exec(`
 		INSERT INTO ci_runs (
 			job_id, entrypoint, profile, plan_digest, catalog_digest, source_tree_sha,
-			candidate_cli_manifest_sha256, candidate_test_binary_receipt_binding_digest, runner_image, status, authoritative, started_at_unix_ms, completed_at_unix_ms,
+			runner_image, status, authoritative, started_at_unix_ms, completed_at_unix_ms,
 			cleanup_complete, error_text
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(job_id) DO UPDATE SET
 			status = excluded.status,
 			authoritative = excluded.authoritative,
-			candidate_cli_manifest_sha256 = excluded.candidate_cli_manifest_sha256,
-			candidate_test_binary_receipt_binding_digest = excluded.candidate_test_binary_receipt_binding_digest,
 			completed_at_unix_ms = excluded.completed_at_unix_ms,
 			cleanup_complete = excluded.cleanup_complete,
 			error_text = excluded.error_text
 	`, record.JobID, string(record.Entrypoint), string(record.Profile), record.PlanDigest,
-		record.CatalogDigest, record.SourceTreeSHA, record.CandidateCLIManifestSHA256, record.CandidateTestBinaryReceiptBindingDigest, record.RunnerImage, string(record.Status),
+		record.CatalogDigest, record.SourceTreeSHA, record.RunnerImage, string(record.Status),
 		authoritative, record.StartedAt.UTC().UnixMilli(), record.CompletedAt.UTC().UnixMilli(),
 		cleanupComplete, record.ErrorText,
 	); err != nil {

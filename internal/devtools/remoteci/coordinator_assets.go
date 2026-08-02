@@ -9,17 +9,10 @@ import (
 )
 
 type remoteAssets struct {
-	artifact                  source.Artifact
-	manifestDigest            string
-	patchKey                  string
-	manifestKey               string
-	candidateCLI              CandidateCLIArtifactRef
-	candidatePath             string
-	candidateManifestPath     string
-	candidateBinaryKey        string
-	candidateTestBinaries     []candidateTestBinaryAsset
-	candidateTestBinaryRefs   []CandidateTestBinaryArtifactRef
-	candidateTestBinaryBuilds []CandidateTestBinaryBuilderBuild
+	artifact       source.Artifact
+	manifestDigest string
+	patchKey       string
+	manifestKey    string
 }
 
 // remoteCIShardRecords 仅持久化已观测到的 ECI 分片，并保留尚未取得终态的已创建分片。
@@ -63,16 +56,6 @@ func (coordinator *Coordinator) prepareRemoteAssets(
 	if err != nil {
 		return remoteAssets{}, err
 	}
-	candidateBuildSpan := trace.start("candidate_cli.build", counts)
-	if input.ReuseBaselineGateCLI {
-		assets.candidateCLI, assets.candidatePath, assets.candidateManifestPath, assets.candidateBinaryKey, err = coordinator.rehydrateRemoteCandidateCLIArtifact(ctx, input, jobID, tempRoot, coordinator.config.SourcePrefix)
-	} else {
-		assets.candidateCLI, assets.candidatePath, assets.candidateManifestPath, assets.candidateBinaryKey, err = buildRemoteCandidateCLIArtifact(ctx, coordinator.config.CandidateCLIBuilder, input, jobID, tempRoot, coordinator.config.SourcePrefix)
-	}
-	trace.finish(candidateBuildSpan, err, counts)
-	if err != nil {
-		return remoteAssets{}, err
-	}
 	return assets, nil
 }
 
@@ -90,13 +73,11 @@ func buildRemoteAssets(ctx context.Context, input RunInput, jobID string, tempRo
 	return remoteAssets{artifact: artifact, manifestDigest: digest, patchKey: jobPrefix + artifact.Manifest.PatchSHA256 + ".patch", manifestKey: jobPrefix + digest + ".manifest.json"}, nil
 }
 
-// uploadSourceAssets 上传差分和候选 CLI，并立即纳入清理清单。
+// uploadSourceAssets 上传候选源码差分，并立即纳入清理清单。
 func (coordinator *Coordinator) uploadSourceAssets(ctx context.Context, assets remoteAssets, objectKeys *[]string) error {
 	for _, item := range []struct{ path, key, label string }{
 		{assets.artifact.PatchPath, assets.patchKey, "source delta"},
 		{assets.artifact.ManifestPath, assets.manifestKey, "source manifest"},
-		{assets.candidatePath, assets.candidateBinaryKey, "candidate CLI binary"},
-		{assets.candidateManifestPath, assets.candidateCLI.ManifestKey, "candidate CLI manifest"},
 	} {
 		if err := coordinator.store.Create(ctx, item.path, item.key); err != nil {
 			return fmt.Errorf("upload remote CI %s: %w", item.label, err)

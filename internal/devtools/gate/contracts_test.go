@@ -464,7 +464,7 @@ func acceptedImageRecordConsumerRegistration() fieldConsumerRegistration {
 			"trusted_commit",
 			"trusted_ref",
 		},
-		Owner:    "internal/devtools/localci accepted image authority",
+		Owner:    "internal/devtools/gate accepted image authority",
 		Evidence: "strict load, signature verification, canonical digest, bootstrap, and promotion CAS validation",
 	}
 }
@@ -472,7 +472,7 @@ func acceptedImageRecordConsumerRegistration() fieldConsumerRegistration {
 func promotionRecordConsumerRegistration() fieldConsumerRegistration {
 	return fieldConsumerRegistration{
 		Fields:   []string{"expected_generation", "expected_record_digest", "next", "schema_version"},
-		Owner:    "internal/devtools/localci accepted image promotion CAS boundary",
+		Owner:    "internal/devtools/gate accepted image promotion CAS boundary",
 		Evidence: "strict promotion validation before lock-scoped generation and predecessor comparison",
 	}
 }

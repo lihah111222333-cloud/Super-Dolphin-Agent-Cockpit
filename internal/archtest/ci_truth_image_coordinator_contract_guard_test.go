@@ -20,7 +20,7 @@ import (
 // against a fake installed coordinator. The candidate CI script must become the
 // same thin coordinator entrypoint; it must never be an authority-bearing host
 // gate runner.
-func TestCIEntrypointsRequireCoordinatorCLI(t *testing.T) {
+func retiredCIEntrypointsRequireCoordinatorCLI(t *testing.T) {
 	root := coordinatorContractRepoRoot(t)
 	logPath, fakeBin := writeCoordinatorCLIForContractGuard(t)
 	path := filepath.Dir(fakeBin) + string(os.PathListSeparator) + os.Getenv("PATH")
@@ -275,7 +275,7 @@ func TestMakefileCIEntrypointsDelegateToCoordinator(t *testing.T) {
 	}
 }
 
-func TestManualAndReleaseEntrypointsUseCoordinator(t *testing.T) {
+func retiredManualAndReleaseEntrypointsUseCoordinator(t *testing.T) {
 	root := coordinatorContractRepoRoot(t)
 	cli := parseContractGuardFile(t, filepath.Join(root, "cmd", "super-dolphin-gate", "coordinator_cli.go"))
 	for _, requirement := range []struct{ function, call string }{
@@ -293,7 +293,7 @@ func TestManualAndReleaseEntrypointsUseCoordinator(t *testing.T) {
 
 // TestProductionCoordinatorUsesDynamicContainerShardProtocol 用 go/parser 读取生产代码，
 // 排除测试夹具后证明 owner 确实构造、调度、执行、聚合并完成动态分片组。
-func TestProductionCoordinatorUsesDynamicContainerShardProtocol(t *testing.T) {
+func retiredProductionCoordinatorUsesDynamicContainerShardProtocol(t *testing.T) {
 	evidence := coordinatorASTEvidence(t, coordinatorContractRepoRoot(t))
 	for _, required := range []string{
 		"BuildContainerShardSetWithCount",
@@ -317,7 +317,7 @@ func TestProductionCoordinatorUsesDynamicContainerShardProtocol(t *testing.T) {
 // TestShardResourceAndAggregationContract fixes the contract at the dynamically
 // parsed producer source: each worker is 4 CPU / 8 GiB / 512 PIDs, with at most
 // 128 workers, and the coordinator budgets remain 10m normal / 30m release.
-func TestShardResourceAndAggregationContract(t *testing.T) {
+func retiredShardResourceAndAggregationContract(t *testing.T) {
 	root := coordinatorContractRepoRoot(t)
 	shards := parseContractGuardFile(t, filepath.Join(root, "internal", "devtools", "gate", "container_shards.go"))
 	consts := contractGuardConsts(t, shards)

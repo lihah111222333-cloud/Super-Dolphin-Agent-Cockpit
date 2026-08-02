@@ -57,7 +57,7 @@ func runRemoteBuildOCIBaseline(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	result := remoteci.OCIBaselineBuilderResult{SchemaVersion: remoteci.OCIBaselineBuilderResultSchemaVersion, JobID: request.JobID, ContextKey: request.ContextKey, ContextSHA256: request.ContextSHA256, RegistryRepository: request.RegistryRepository, ACRInstanceID: request.ACRInstanceID, ACRRegionID: request.ACRRegionID, ParentImage: request.ParentImage, MainCommit: request.MainCommit, MainTree: request.MainTree, ToolchainDigest: request.ToolchainDigest, Platform: request.Platform, RuntimeDependencyDigest: request.RuntimeDependencyDigest, JobKey: request.JobKey, Repository: request.RegistryRepository, Image: request.RegistryRepository + "@" + image, ConfigDigest: configDigest, InputDigest: request.ContextSHA256}
+	result := remoteci.OCIBaselineBuilderResult{SchemaVersion: remoteci.OCIBaselineBuilderResultSchemaVersion, JobID: request.JobID, ContextKey: request.ContextKey, ContextSHA256: request.ContextSHA256, RegistryRepository: request.RegistryRepository, ParentImage: request.ParentImage, ImageCacheID: request.ImageCacheID, ImageCacheSnapshotID: request.ImageCacheSnapshotID, MainCommit: request.MainCommit, MainTree: request.MainTree, ToolchainDigest: request.ToolchainDigest, Platform: request.Platform, RuntimeDependencyDigest: request.RuntimeDependencyDigest, JobKey: request.JobKey, Repository: request.RegistryRepository, Image: request.RegistryRepository + "@" + image, ConfigDigest: configDigest, InputDigest: request.ContextSHA256}
 	encoded, _, err := remoteci.EncodeOCIBaselineBuilderResult(result)
 	if err != nil {
 		return err
@@ -93,13 +93,6 @@ func executeRemoteOCIBuildKit(ctx context.Context, request remoteci.OCIBaselineB
 	defer removeRemoteOCIWorkspace(workspace)
 	if err := os.Chmod(workspace, 0o700); err != nil {
 		return "", "", fmt.Errorf("secure remote OCI BuildKit HOME: %w", err)
-	}
-	acrCredentials, err := acquireACRPushCredentials(ctx, request)
-	if err != nil {
-		return "", "", err
-	}
-	if _, err := writeACRDockerConfig(workspace, acrCredentials); err != nil {
-		return "", "", fmt.Errorf("write temporary ACR Docker auth: %w", err)
 	}
 	root := filepath.Join(workspace, "context")
 	if err := unpackRemoteOCIContext(root, archive); err != nil {

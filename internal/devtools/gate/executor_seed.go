@@ -20,8 +20,8 @@ import (
 )
 
 // RuntimeSeedSchemaVersion is the shared image-builder/executor manifest schema.
-const RuntimeSeedSchemaVersion = 11
-const runtimeSeedLegacySchemaVersion = 10
+const RuntimeSeedSchemaVersion = 12
+const runtimeSeedLegacySchemaVersion = 11
 
 // RuntimeSeedManifest binds immutable runtime seeds to repository lock files.
 type RuntimeSeedManifest struct {
@@ -33,6 +33,7 @@ type RuntimeSeedManifest struct {
 	PackageLockSHA256     string `json:"package_lock_sha256"`
 	NodeModulesTreeSHA256 string `json:"node_modules_tree_sha256"`
 	NPMCacheTreeSHA256    string `json:"npm_cache_tree_sha256"`
+	ViteCacheTreeSHA256   string `json:"vite_cache_tree_sha256"`
 	RipgrepSHA256         string `json:"ripgrep_sha256"`
 	SqruffSHA256          string `json:"sqruff_sha256"`
 }
@@ -103,14 +104,25 @@ func installFrontendRuntimeSeed(
 			return errors.New("install frontend runtime seed: npm cache tree digest does not match manifest")
 		}
 	}
-	if err := installFrontendRuntimeOverlay(seedPath, targetRoot); err != nil {
+	viteSeedRoot := filepath.Join(config.runtimeSeedRoot, "frontend", "vite-cache")
+	viteCacheDigest, err := RuntimeSeedTreeDigest(viteSeedRoot)
+	if err != nil {
+		return fmt.Errorf("install frontend runtime seed: digest Vite cache: %w", err)
+	}
+	if viteCacheDigest != manifest.ViteCacheTreeSHA256 {
+		return errors.New("install frontend runtime seed: Vite cache tree digest does not match manifest")
+	}
+	if err := installFrontendRuntimeOverlay(seedPath, viteSeedRoot, targetRoot); err != nil {
 		return fmt.Errorf("install frontend runtime overlay: %w", err)
+	}
+	if config.executionTiming != nil {
+		config.executionTiming.viteCacheSeedHit = true
 	}
 	return nil
 }
 
 // installFrontendRuntimeOverlay 把只读依赖链接到私有物理根，并只为 Vite 缓存保留写目录。
-func installFrontendRuntimeOverlay(seedRoot string, targetRoot string) error {
+func installFrontendRuntimeOverlay(seedRoot string, viteSeedRoot string, targetRoot string) error {
 	if _, err := os.Lstat(targetRoot); !errors.Is(err, os.ErrNotExist) {
 		return errors.New("runtime seed target already exists")
 	}
@@ -131,11 +143,46 @@ func installFrontendRuntimeOverlay(seedRoot string, targetRoot string) error {
 		}
 	}
 	for name := range writable {
+		if name == ".vite" {
+			if err := copyViteCacheSeed(viteSeedRoot, filepath.Join(targetRoot, name)); err != nil {
+				return err
+			}
+			continue
+		}
 		if err := os.Mkdir(filepath.Join(targetRoot, name), 0o700); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// copyViteCacheSeed installs a verified immutable cache into a shard-private,
+// writable directory; no shared cache is ever written by a workload.
+func copyViteCacheSeed(seedRoot string, targetRoot string) error {
+	if _, err := trustedDirectory(seedRoot, false, -1); err != nil {
+		return err
+	}
+	return filepath.WalkDir(seedRoot, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		relative, err := filepath.Rel(seedRoot, path)
+		if err != nil {
+			return err
+		}
+		destination := filepath.Join(targetRoot, relative)
+		if entry.IsDir() {
+			return os.MkdirAll(destination, 0o700)
+		}
+		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() {
+			return fmt.Errorf("Vite cache seed entry %s is not regular", path)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(destination, data, 0o600)
+	})
 }
 
 // runtimeSeedManifestForProgram 返回当前程序所需且已完成边界验证的 seed manifest。
@@ -489,6 +536,7 @@ func (manifest RuntimeSeedManifest) validateDigestFields(requireNPMCache bool) e
 		"go_mod_cache_tree_sha256": manifest.GoModCacheTreeSHA256,
 		"package_lock_sha256":      manifest.PackageLockSHA256,
 		"node_modules_tree_sha256": manifest.NodeModulesTreeSHA256,
+		"vite_cache_tree_sha256":   manifest.ViteCacheTreeSHA256,
 		"ripgrep_sha256":           manifest.RipgrepSHA256,
 		"sqruff_sha256":            manifest.SqruffSHA256,
 	}
@@ -525,7 +573,7 @@ func BuildRuntimeSeedManifest(snapshotRoot string, runtimeRoot string) (RuntimeS
 	if err != nil {
 		return RuntimeSeedManifest{}, fmt.Errorf("digest Go module cache: %w", err)
 	}
-	packageLock, nodeModules, npmCache, err := runtimeFrontendSeedDigests(snapshotPath, runtimePath)
+	packageLock, nodeModules, npmCache, viteCache, err := runtimeFrontendSeedDigests(snapshotPath, runtimePath)
 	if err != nil {
 		return RuntimeSeedManifest{}, err
 	}
@@ -541,26 +589,30 @@ func BuildRuntimeSeedManifest(snapshotRoot string, runtimeRoot string) (RuntimeS
 		SchemaVersion: RuntimeSeedSchemaVersion, GoSumSHA256: goSum,
 		ModuleProxyLockSHA256: moduleProxyLock, ModuleProxyTreeSHA256: moduleProxy,
 		GoModCacheTreeSHA256: goModCache,
-		PackageLockSHA256:    packageLock, NodeModulesTreeSHA256: nodeModules, NPMCacheTreeSHA256: npmCache,
+		PackageLockSHA256:    packageLock, NodeModulesTreeSHA256: nodeModules, NPMCacheTreeSHA256: npmCache, ViteCacheTreeSHA256: viteCache,
 		RipgrepSHA256: ripgrep, SqruffSHA256: sqruff,
 	}, nil
 }
 
 // runtimeFrontendSeedDigests 绑定前端锁文件和不可变安装树。
-func runtimeFrontendSeedDigests(snapshotPath string, runtimePath string) (string, string, string, error) {
+func runtimeFrontendSeedDigests(snapshotPath string, runtimePath string) (string, string, string, string, error) {
 	packageLock, err := fileSHA256(filepath.Join(snapshotPath, "frontend-app", "package-lock.json"))
 	if err != nil {
-		return "", "", "", fmt.Errorf("digest package-lock.json: %w", err)
+		return "", "", "", "", fmt.Errorf("digest package-lock.json: %w", err)
 	}
 	nodeModules, err := RuntimeSeedTreeDigest(filepath.Join(runtimePath, "frontend", "node_modules"))
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", err
 	}
 	npmCache, err := RuntimeSeedTreeDigest(filepath.Join(runtimePath, "frontend", "npm-cache"))
 	if err != nil {
-		return "", "", "", err
+		return "", "", "", "", err
 	}
-	return packageLock, nodeModules, npmCache, nil
+	viteCache, err := RuntimeSeedTreeDigest(filepath.Join(runtimePath, "frontend", "vite-cache"))
+	if err != nil {
+		return "", "", "", "", err
+	}
+	return packageLock, nodeModules, npmCache, viteCache, nil
 }
 
 // runtimeModuleProxyDigests 验证完整 file proxy 后计算锁文件与种子树摘要。

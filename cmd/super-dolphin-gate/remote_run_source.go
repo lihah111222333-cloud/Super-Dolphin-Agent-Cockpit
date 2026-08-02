@@ -7,9 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/eci"
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/localci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
@@ -73,6 +71,7 @@ func resolveRemoteRunInput(
 		SelectedTests:   scenario == "test",
 		Calibration:     options.Calibration,
 		RunnerImage:     state.RuntimeImage, RunnerIdentityDigest: runnerIdentity,
+		ImageCacheID:                 state.ImageCacheID,
 		BaselineManifestDigest:       state.BaselineManifestDigest,
 		RunnerConfigDigest:           remoteRuntimeImageDigest(state.RuntimeImage),
 		GateBinarySHA256:             state.GateBinarySHA256,
@@ -81,21 +80,20 @@ func resolveRemoteRunInput(
 		ReuseBaselineGateCLI:         reuseBaselineGate,
 		RuntimeSeedSHA256:            state.RuntimeSeedSHA256, ForceRerun: options.ForceRerun,
 		OCIProjectCache: state.OCIProjectCache,
-		RegistryAccess:  eci.RegistryAccess{ACR: config.ACRRegistryInfo},
 	}, nil
 }
 
 // resolveRemoteCandidateGateIdentity 比较候选与已接受基线的精确 CLI 编译闭包。
 func resolveRemoteCandidateGateIdentity(repositoryRoot, candidateTree, baselineTree string) (string, string, bool, error) {
 	ctx := context.Background()
-	candidateSource, candidateToolchain, _, err := localci.LoadGateCLICompileClosure(ctx, repositoryRoot, candidateTree)
+	candidateSource, candidateToolchain, _, err := remoteci.LoadGateCLICompileClosure(ctx, repositoryRoot, candidateTree)
 	if err != nil {
 		return "", "", false, fmt.Errorf("resolve candidate gate CLI compile closure: %w", err)
 	}
 	if candidateTree == baselineTree {
 		return candidateSource, candidateToolchain, true, nil
 	}
-	baselineSource, baselineToolchain, _, err := localci.LoadGateCLICompileClosure(ctx, repositoryRoot, baselineTree)
+	baselineSource, baselineToolchain, _, err := remoteci.LoadGateCLICompileClosure(ctx, repositoryRoot, baselineTree)
 	if err != nil {
 		return "", "", false, fmt.Errorf("resolve baseline gate CLI compile closure: %w", err)
 	}

@@ -72,8 +72,8 @@ func assertWideOrchestrationLoaderCandidates(
 		paths[i] = pkg.pkgPath
 	}
 	sort.Strings(paths)
-	const wantCount = 255
-	const wantDigest = "d16682eb40c864a3f90e2f154bffc768a75c6e3dbf5fbefa6861066b57e57afc"
+	const wantCount = 253
+	const wantDigest = "d555b259698bf6d81b9202b4d7bdd01e21d231ff451eb296b135acb54135d300"
 	if len(paths) != wantCount || stablePathDigest(paths) != wantDigest {
 		t.Fatalf("seam cd81d4c9a wide candidates count=%d digest=%s", len(paths), stablePathDigest(paths))
 	}

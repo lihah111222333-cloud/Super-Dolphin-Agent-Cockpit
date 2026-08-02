@@ -774,7 +774,7 @@ func remoteGoTestCacheRunFixture(t *testing.T) (string, RunInput) {
 		Platform: "linux/amd64", PolicyDigest: digest, ToolchainDigest: digest,
 		LedgerSnapshot: gate.DurationLedgerSnapshot{Generation: 1, Ledger: ledger},
 		Inventory:      inventory, SelectedTests: true,
-		RunnerImage: "registry.example/runner@" + digest, RunnerIdentityDigest: digest,
+		RunnerImage: "registry.example/runner@" + digest, ImageCacheID: "imc-accepted-baseline", RunnerIdentityDigest: digest,
 		BaselineManifestDigest: "sha256:" + strings.Repeat("c", 64),
 		RunnerConfigDigest:     "sha256:" + strings.Repeat("b", 64), GateBinarySHA256: digest, CandidateGateSourceSHA256: digest,
 		CandidateGateToolchainSHA256: digest, RuntimeSeedSHA256: digest,

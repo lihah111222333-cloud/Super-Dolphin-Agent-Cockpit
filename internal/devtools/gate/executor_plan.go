@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	executorPlanReportSchemaVersion    = 5
+	executorPlanReportSchemaVersion    = 6
 	executorPlanTimingSchemaVersion    = 2
 	ExecutorPlanReportChunkPrefix      = "SUPER_DOLPHIN_GATE_PLAN_REPORT_CHUNK "
 	ExecutorWorkloadTimeoutEnvironment = "SUPER_DOLPHIN_REMOTE_EXECUTION_TIMEOUT"
@@ -73,25 +73,23 @@ type PlanGateExecution struct {
 }
 
 // ExecutionProfile is the bounded, receipt-bound execution evidence for one gate.
-// A v4 report never infers a cache hit or a remote phase from an omitted field.
+// A v6 report never infers a cache hit or a remote phase from an omitted field.
 type ExecutionProfile struct {
-	CandidateTestBinaryPackage string                    `json:"candidate_test_binary_package,omitempty"`
-	CandidateTestBinaryMode    string                    `json:"candidate_test_binary_mode,omitempty"`
-	Frontend                   *FrontendExecutionProfile `json:"frontend,omitempty"`
-	CacheSource                string                    `json:"cache_source"`
-	CacheStatus                string                    `json:"cache_status"`
-	CacheMeasurement           string                    `json:"cache_measurement"`
-	PrivateHitCount            uint64                    `json:"private_hit_count"`
-	BaselineHitCount           uint64                    `json:"baseline_hit_count"`
-	BaselineHitByGeneration    map[string]uint64         `json:"baseline_hit_by_generation,omitempty"`
-	CacheMissCount             uint64                    `json:"cache_miss_count"`
-	CachePutCount              uint64                    `json:"cache_put_count"`
-	MaterializeMS              int64                     `json:"materialize_ms"`
-	DownloadMS                 int64                     `json:"download_ms"`
-	VerifyMS                   int64                     `json:"verify_ms"`
-	StartupMS                  int64                     `json:"startup_ms"`
-	TestBodyMS                 int64                     `json:"test_body_ms"`
-	TotalMS                    int64                     `json:"total_ms"`
+	Frontend                *FrontendExecutionProfile `json:"frontend,omitempty"`
+	CacheSource             string                    `json:"cache_source"`
+	CacheStatus             string                    `json:"cache_status"`
+	CacheMeasurement        string                    `json:"cache_measurement"`
+	PrivateHitCount         uint64                    `json:"private_hit_count"`
+	BaselineHitCount        uint64                    `json:"baseline_hit_count"`
+	BaselineHitByGeneration map[string]uint64         `json:"baseline_hit_by_generation,omitempty"`
+	CacheMissCount          uint64                    `json:"cache_miss_count"`
+	CachePutCount           uint64                    `json:"cache_put_count"`
+	MaterializeMS           int64                     `json:"materialize_ms"`
+	DownloadMS              int64                     `json:"download_ms"`
+	VerifyMS                int64                     `json:"verify_ms"`
+	StartupMS               int64                     `json:"startup_ms"`
+	TestBodyMS              int64                     `json:"test_body_ms"`
+	TotalMS                 int64                     `json:"total_ms"`
 }
 
 // FrontendExecutionProfile records only cache evidence proven by the executor.
@@ -732,18 +730,6 @@ func executePlanGate(
 	if err != nil {
 		return PlanGateExecution{}, fmt.Errorf("plan gate %q has no executor program: %w", id, err)
 	}
-	var candidateTestBinaries candidateTestBinaryBundleIndex
-	if isCandidateTestBinaryEligibleWorkload(id) {
-		var loadErr error
-		candidateTestBinaries, loadErr = loadCandidateTestBinaryBundleIndex(os.Getenv(ExecutorCandidateTestBinaryIndexEnvironment))
-		if loadErr != nil || len(candidateTestBinaries.Binaries) == 0 {
-			return PlanGateExecution{}, errors.New("candidate test binary index is required for exact Go test workload")
-		}
-		program, err = candidateTestBinaryExecutorProgram(id, candidateTestBinaries)
-		if err != nil {
-			return PlanGateExecution{}, fmt.Errorf("resolve candidate test binary for plan gate %q: %w", id, err)
-		}
-	}
 	workRoot := executorPlanLaneRoot(ExecutorWorkRoot, laneIndex)
 	if err := os.MkdirAll(workRoot, 0o700); err != nil {
 		return PlanGateExecution{}, err
@@ -760,7 +746,7 @@ func executePlanGate(
 		stdout = timingWriter
 	}
 	metricsPath := ""
-	if isGoPackageTestWorkload(id) && !isCandidateTestBinaryEligibleWorkload(id) {
+	if isGoPackageTestWorkload(id) {
 		metricsPath, err = GoBuildCacheProxyMetricsPathForInvocation(goBuildCacheRoot, fmt.Sprintf("lane-%d-%x", laneIndex, sha256.Sum256([]byte(string(id)))))
 		if err != nil {
 			return PlanGateExecution{}, err
@@ -779,6 +765,7 @@ func executePlanGate(
 		goBuildCacheMetricsPath: metricsPath,
 		frontendEmbedSeedRoot:   ExecutorFrontendEmbedSeedRoot,
 		stdout:                  stdout, stderr: log,
+		nowFunc:                 now,
 		executionTiming: timing,
 	}
 	result := PlanGateExecution{GateID: id, StartedAt: now().UTC(), ExitCode: -1}
@@ -788,7 +775,7 @@ func executePlanGate(
 		result.TestTimings = timingWriter.Timings()
 	}
 	result.CompletedAt = now().UTC()
-	result.ExecutionProfile, err = executionProfileForGate(id, program, candidateTestBinaries, result.TestTimings, result.StartedAt, result.CompletedAt, timing)
+	result.ExecutionProfile, err = executionProfileForGate(id, program, result.TestTimings, result.StartedAt, result.CompletedAt, timing)
 	if metricsPath != "" {
 		metrics, metricsErr := LoadGoBuildCacheProxyMetricsAt(goBuildCacheRoot, metricsPath, goBuildCacheSeedRoots)
 		if metricsErr != nil {
@@ -826,21 +813,8 @@ func cacheStatusFromMetrics(metrics GoBuildCacheProxyMetrics) string {
 	return "not_applicable"
 }
 
-func executionProfileForGate(id GateID, program ExecutorProgram, binaries candidateTestBinaryBundleIndex, timings []GoTestTiming, started, completed time.Time, timing *executorExecutionTiming) (ExecutionProfile, error) {
+func executionProfileForGate(id GateID, program ExecutorProgram, timings []GoTestTiming, started, completed time.Time, timing *executorExecutionTiming) (ExecutionProfile, error) {
 	profile := unmeasuredExecutionProfile(started, completed)
-	if len(binaries.Binaries) != 0 && isCandidateTestBinaryEligibleWorkload(id) {
-		_, kind, target, targeted, err := parseTargetWorkloadID(string(id))
-		if err == nil && targeted {
-			pkg := target
-			if kind == workloadTargetGoTest {
-				if parsed, parseErr := ParseGoTestTarget(target); parseErr == nil {
-					pkg = parsed.Package
-				}
-			}
-			profile.CandidateTestBinaryPackage, profile.CandidateTestBinaryMode = pkg, "test"
-			profile.CacheSource, profile.CacheStatus, profile.CacheMeasurement = "candidate-test-binary", "hit", "measured"
-		}
-	}
 	profile.TotalMS = completed.Sub(started).Milliseconds()
 	profile.TotalMS = max(profile.TotalMS, 0)
 	if isExactGoTestWorkload(id) {
@@ -872,7 +846,7 @@ func executionProfileForGate(id GateID, program ExecutorProgram, binaries candid
 			// explicit non-applicable state instead of fabricating a cache hit.
 			NPMCacheNotApplicableReason:          "npm_cache_lookup_not_observed",
 			PlaywrightBrowserNotApplicableReason: "browser_cache_lookup_not_observed",
-			ViteCacheNotApplicableReason:         "vite_cache_is_private_per_execution",
+			ViteCacheHit:                         timing != nil && timing.viteCacheSeedHit,
 		}
 		if timing == nil {
 			return ExecutionProfile{}, errors.New("frontend execution timing is required")
@@ -896,11 +870,6 @@ func isGoPackageTestWorkload(id GateID) bool {
 func isExactGoTestWorkload(id GateID) bool {
 	_, kind, _, targeted, err := parseTargetWorkloadID(string(id))
 	return err == nil && targeted && kind == workloadTargetGoTest
-}
-
-func isCandidateTestBinaryEligibleWorkload(id GateID) bool {
-	parent, kind, _, targeted, err := parseTargetWorkloadID(string(id))
-	return err == nil && targeted && kind == workloadTargetGoTest && parent == GateIDBackendTestWithGuard
 }
 
 // planGateFailureSummary 只记录稳定分类与退出码，不回显可能含秘密或宿主路径的原始错误。

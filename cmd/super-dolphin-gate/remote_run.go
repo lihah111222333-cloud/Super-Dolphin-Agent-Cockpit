@@ -117,7 +117,7 @@ func newRemoteRunCoordinator(
 		RegionID: config.RegionID, VSwitchID: config.VSwitchID, SecurityGroupID: config.SecurityGroupID,
 		WorkerRoleName: config.WorkerRoleName, Profile: config.CredentialProfile,
 		Deadline:     containerDeadline,
-		SpotStrategy: eci.SpotStrategyAsPriceGo, SpotDurationHours: 1, FallbackToPayAsYouGo: true,
+		SpotStrategy: eci.SpotStrategyAsPriceGo, SpotDurationHours: 1,
 	})
 	if err != nil {
 		return nil, 0, infrastructureError("create remote CI ECI client: %v", err)
@@ -131,10 +131,9 @@ func newRemoteRunCoordinator(
 		WorkloadCachePrefix: config.OSS.SourcePrefix + "passed-workloads/v1/",
 		InternalOSSEndpoint: config.OSS.InternalEndpoint,
 		WorkerRoleName:      config.WorkerRoleName, WorkerTimeout: workerTimeout,
+		ImageCacheID: input.ImageCacheID,
 		PollInterval: 2 * time.Second, CleanupTimeout: 2 * time.Minute,
-		ResourcePolicy:      config.Capacity.ResourcePolicy,
-		RegistryAccess:      input.RegistryAccess,
-		CandidateCLIBuilder: buildRemoteCandidateCLI,
+		ResourcePolicy: config.Capacity.ResourcePolicy,
 	}, store, runtime, phaseObserver)
 	if err != nil {
 		return nil, 0, infrastructureError("create remote CI coordinator: %v", err)

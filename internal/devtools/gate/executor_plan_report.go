@@ -723,7 +723,7 @@ func digestPlanExecutionReport(report PlanExecutionReport) string {
 		data = appendPlanReportField(data, "log-bytes", strconv.Itoa(len(result.Log)))
 		data = append(data, result.Log...)
 		data = append(data, '\n')
-		if report.SchemaVersion >= 5 {
+		if report.SchemaVersion >= 6 {
 			frontend, _ := encodeFrontendExecutionProfile(result.ExecutionProfile.Frontend)
 			data = appendPlanReportField(data, "frontend-execution-profile", frontend)
 		}
@@ -827,7 +827,7 @@ func validPlanGateResult(result PlanGateExecution, schemaVersion uint32) bool {
 }
 
 func (profile ExecutionProfile) Validate() error {
-	if profile.CacheSource != "none" && profile.CacheSource != "go_build_cache" && profile.CacheSource != "candidate-test-binary" {
+	if profile.CacheSource != "none" && profile.CacheSource != "go_build_cache" {
 		return errors.New("execution profile cache source is invalid")
 	}
 	if profile.CacheStatus != "not_applicable" && profile.CacheStatus != "hit" && profile.CacheStatus != "miss" && profile.CacheStatus != "put" {
@@ -835,9 +835,6 @@ func (profile ExecutionProfile) Validate() error {
 	}
 	if profile.CacheMeasurement != "measured" && profile.CacheMeasurement != "not_measured" {
 		return errors.New("execution profile cache measurement is invalid")
-	}
-	if (profile.CacheSource == "candidate-test-binary") != (profile.CandidateTestBinaryPackage != "" && profile.CandidateTestBinaryMode == "test") {
-		return errors.New("execution profile candidate test binary binding is invalid")
 	}
 	if profile.CacheSource == "none" && profile.CacheStatus != "not_applicable" {
 		return errors.New("execution profile absent cache is not applicable")
@@ -888,14 +885,6 @@ func encodeExecutionProfileRecord(index int, profile ExecutionProfile) (string, 
 	if err := profile.Validate(); err != nil {
 		return "", err
 	}
-	pkg := profile.CandidateTestBinaryPackage
-	if pkg == "" {
-		pkg = "-"
-	}
-	mode := profile.CandidateTestBinaryMode
-	if mode == "" {
-		mode = "-"
-	}
 	generations, err := encodeBaselineGenerationMap(profile.BaselineHitByGeneration)
 	if err != nil {
 		return "", err
@@ -904,7 +893,7 @@ func encodeExecutionProfileRecord(index int, profile ExecutionProfile) (string, 
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%s %06d %s %s %s %s %s %d %d %d %d %s %d %d %d %d %d %d %s", planReportProfileRecord, index, pkg, mode, profile.CacheSource, profile.CacheStatus, profile.CacheMeasurement, profile.PrivateHitCount, profile.BaselineHitCount, profile.CacheMissCount, profile.CachePutCount, generations, profile.MaterializeMS, profile.DownloadMS, profile.VerifyMS, profile.StartupMS, profile.TestBodyMS, profile.TotalMS, frontend), nil
+	return fmt.Sprintf("%s %06d %s %s %s %d %d %d %d %s %d %d %d %d %d %d %s", planReportProfileRecord, index, profile.CacheSource, profile.CacheStatus, profile.CacheMeasurement, profile.PrivateHitCount, profile.BaselineHitCount, profile.CacheMissCount, profile.CachePutCount, generations, profile.MaterializeMS, profile.DownloadMS, profile.VerifyMS, profile.StartupMS, profile.TestBodyMS, profile.TotalMS, frontend), nil
 }
 
 func encodeFrontendExecutionProfile(profile *FrontendExecutionProfile) (string, error) {
@@ -923,7 +912,7 @@ func encodeFrontendExecutionProfile(profile *FrontendExecutionProfile) (string, 
 
 func decodeExecutionProfileRecord(payload string, expectedIndex int) (ExecutionProfile, error) {
 	f := strings.Fields(payload)
-	if len(f) != 18 || strings.Join(f, " ") != payload {
+	if len(f) != 16 || strings.Join(f, " ") != payload {
 		return ExecutionProfile{}, errors.New("plan report execution profile is invalid")
 	}
 	if err := validatePlanGateRecordIndex(f[0], expectedIndex); err != nil {
@@ -933,34 +922,28 @@ func decodeExecutionProfileRecord(payload string, expectedIndex int) (ExecutionP
 	values := make([]int64, 6)
 	for i := range values {
 		var err error
-		values[i], err = parse(f[i+11])
+		values[i], err = parse(f[i+9])
 		if err != nil {
 			return ExecutionProfile{}, errors.New("plan report execution profile duration is invalid")
 		}
 	}
 	parseCount := func(value string) (uint64, error) { return strconv.ParseUint(value, 10, 64) }
-	privateHits, privateErr := parseCount(f[6])
-	baselineHits, baselineErr := parseCount(f[7])
-	misses, missErr := parseCount(f[8])
-	puts, putErr := parseCount(f[9])
+	privateHits, privateErr := parseCount(f[4])
+	baselineHits, baselineErr := parseCount(f[5])
+	misses, missErr := parseCount(f[6])
+	puts, putErr := parseCount(f[7])
 	if privateErr != nil || baselineErr != nil || missErr != nil || putErr != nil {
 		return ExecutionProfile{}, errors.New("plan report execution profile cache count is invalid")
 	}
-	generations, generationErr := decodeBaselineGenerationMap(f[10])
+	generations, generationErr := decodeBaselineGenerationMap(f[8])
 	if generationErr != nil {
 		return ExecutionProfile{}, generationErr
 	}
-	frontend, frontendErr := decodeFrontendExecutionProfile(f[17])
+	frontend, frontendErr := decodeFrontendExecutionProfile(f[15])
 	if frontendErr != nil {
 		return ExecutionProfile{}, frontendErr
 	}
-	p := ExecutionProfile{CandidateTestBinaryPackage: f[1], CandidateTestBinaryMode: f[2], Frontend: frontend, CacheSource: f[3], CacheStatus: f[4], CacheMeasurement: f[5], PrivateHitCount: privateHits, BaselineHitCount: baselineHits, CacheMissCount: misses, CachePutCount: puts, BaselineHitByGeneration: generations, MaterializeMS: values[0], DownloadMS: values[1], VerifyMS: values[2], StartupMS: values[3], TestBodyMS: values[4], TotalMS: values[5]}
-	if p.CandidateTestBinaryPackage == "-" {
-		p.CandidateTestBinaryPackage = ""
-	}
-	if p.CandidateTestBinaryMode == "-" {
-		p.CandidateTestBinaryMode = ""
-	}
+	p := ExecutionProfile{Frontend: frontend, CacheSource: f[1], CacheStatus: f[2], CacheMeasurement: f[3], PrivateHitCount: privateHits, BaselineHitCount: baselineHits, CacheMissCount: misses, CachePutCount: puts, BaselineHitByGeneration: generations, MaterializeMS: values[0], DownloadMS: values[1], VerifyMS: values[2], StartupMS: values[3], TestBodyMS: values[4], TotalMS: values[5]}
 	if err := p.Validate(); err != nil {
 		return ExecutionProfile{}, err
 	}

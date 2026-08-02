@@ -113,9 +113,7 @@ func remoteExactGoTestWorkload(workload gate.Workload) (bool, error) {
 }
 
 func zeroExecutionProfile(profile gate.ExecutionProfile) bool {
-	return profile.CandidateTestBinaryPackage == "" &&
-		profile.CandidateTestBinaryMode == "" &&
-		profile.CacheSource == "" &&
+	return profile.CacheSource == "" &&
 		profile.CacheStatus == "" &&
 		profile.CacheMeasurement == "" &&
 		profile.PrivateHitCount == 0 &&

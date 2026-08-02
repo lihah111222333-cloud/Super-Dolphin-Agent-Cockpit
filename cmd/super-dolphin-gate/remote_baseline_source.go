@@ -278,10 +278,6 @@ func validateAuthoritativeRemoteHookResult(
 		result.Status != gatecontract.ResultStatusPassed || !result.CleanupComplete {
 		return errors.New("remote hook result is incomplete or bound to a different invocation")
 	}
-	expectedBinding, err := remoteci.CandidateTestBinaryReceiptBindingDigestFromBuilds(result.CandidateTestBinaryBuilds, result.SourceTreeSHA)
-	if err != nil || result.CandidateTestBinaryReceiptBindingDigest != expectedBinding {
-		return errors.New("remote hook result candidate test binary binding is invalid or drifted")
-	}
 	return nil
 }
 

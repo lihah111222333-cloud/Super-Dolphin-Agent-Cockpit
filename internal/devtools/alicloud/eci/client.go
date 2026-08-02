@@ -38,22 +38,22 @@ const (
 // Config describes the fixed infrastructure used by every ECI shard.
 // Profile is the name of an already configured Aliyun CLI profile; it is never read or persisted here.
 type Config struct {
-	Binary               string
-	RegionID             string
-	VSwitchID            string
-	SecurityGroupID      string
-	WorkerRoleName       string
-	Profile              string
-	Deadline             time.Duration
-	SpotStrategy         string
-	SpotDurationHours    int64
-	FallbackToPayAsYouGo bool
+	Binary            string
+	RegionID          string
+	VSwitchID         string
+	SecurityGroupID   string
+	WorkerRoleName    string
+	Profile           string
+	Deadline          time.Duration
+	SpotStrategy      string
+	SpotDurationHours int64
 }
 
 // CreateRequest describes the caller-controlled identity of one ECI shard.
 type CreateRequest struct {
 	ContainerGroupName string
 	ContainerName      string
+	ImageCacheID       string
 	MainImage          string
 	InitImage          string
 	Resources          Resources
@@ -69,7 +69,6 @@ type CreateRequest struct {
 	TempVolume         EmptyDirVolume
 	MainVolumeMounts   []VolumeMount
 	InitVolumeMounts   []VolumeMount
-	RegistryAccess     RegistryAccess
 }
 
 // Resources is an exact CPU and memory tier requested for one ECI container group.
@@ -131,6 +130,27 @@ type ContainerGroupEvent struct {
 	LastTimestamp string `json:"LastTimestamp,omitempty"`
 }
 
+// ImageCacheCreateRequest 将具名缓存绑定到不可变 OCI 镜像摘要。
+// 客户端固定启用层复用与极速缓存，调用方不能弱化这两个策略。
+type ImageCacheCreateRequest struct {
+	ImageCacheName string
+	Images         []string
+	ImageCacheSize int64
+	RetentionDays  int64
+	Tags           map[string]string
+}
+
+// ImageCache 保存容器组固定引用前必须确认的 ECI 缓存生命周期证据。
+type ImageCache struct {
+	ID         string                `json:"ImageCacheId"`
+	SnapshotID string                `json:"SnapshotId"`
+	Name       string                `json:"ImageCacheName"`
+	Status     string                `json:"Status"`
+	Progress   string                `json:"Progress,omitempty"`
+	Images     []string              `json:"Images,omitempty"`
+	Events     []ContainerGroupEvent `json:"Events,omitempty"`
+}
+
 // CommandRunner executes one external command. It permits deterministic unit tests.
 type CommandRunner interface {
 	Run(context.Context, string, ...string) ([]byte, error)
@@ -138,15 +158,11 @@ type CommandRunner interface {
 
 // Client invokes the installed Aliyun CLI using a named profile.
 type Client struct {
-	config                Config
-	runner                CommandRunner
-	wait                  func(context.Context, time.Duration) error
-	now                   func() time.Time
-	attemptTimeout        time.Duration
-	spotSchedulingTimeout time.Duration
-	spotCleanupTimeout    time.Duration
-	spotPollInterval      time.Duration
-	newClientToken        func() (string, error)
+	config         Config
+	runner         CommandRunner
+	wait           func(context.Context, time.Duration) error
+	attemptTimeout time.Duration
+	newClientToken func() (string, error)
 }
 
 // New 使用本机已安装的 aliyun CLI 创建客户端，凭据始终由指定 profile 管理。
@@ -163,15 +179,11 @@ func NewWithRunner(config Config, runner CommandRunner) (*Client, error) {
 		return nil, errors.New("ECI command runner is required")
 	}
 	return &Client{
-		config:                config,
-		runner:                runner,
-		wait:                  waitForRetry,
-		now:                   time.Now,
-		attemptTimeout:        cliAttemptTimeout,
-		spotSchedulingTimeout: defaultSpotSchedulingTimeout,
-		spotCleanupTimeout:    defaultSpotCleanupTimeout,
-		spotPollInterval:      defaultSpotPollInterval,
-		newClientToken:        generateClientToken,
+		config:         config,
+		runner:         runner,
+		wait:           waitForRetry,
+		attemptTimeout: cliAttemptTimeout,
+		newClientToken: generateClientToken,
 	}, nil
 }
 
@@ -180,9 +192,7 @@ func (c *Client) CreateContainerGroup(ctx context.Context, request CreateRequest
 	if err := validateCreateRequest(request); err != nil {
 		return ContainerGroup{}, err
 	}
-	return c.createWithSpotFallback(ctx, "ECI shard", func(strategy string) (ContainerGroup, error) {
-		return c.createContainerGroup(ctx, request, strategy)
-	})
+	return c.createContainerGroup(ctx, request, c.config.SpotStrategy)
 }
 
 // createContainerGroup 使用单一计费策略执行一次可幂等重试并协调不确定响应。
@@ -204,8 +214,8 @@ func (c *Client) createContainerGroup(ctx context.Context, request CreateRequest
 		"--SpotStrategy", spotStrategy,
 		"--RestartPolicy", "Never",
 		"--ActiveDeadlineSeconds", strconv.FormatInt(int64(c.config.Deadline/time.Second), 10),
-		"--AutoMatchImageCache", "true",
 		"--ContainerGroupName", request.ContainerGroupName,
+		"--ImageSnapshotId", request.ImageCacheID,
 		"--Container.1.Name", request.ContainerName,
 		"--Container.1.Image", request.MainImage,
 		"--Container.1.Cpu", formatResource(request.Resources.CPU),
@@ -231,7 +241,6 @@ func (c *Client) createContainerGroup(ctx context.Context, request CreateRequest
 	}
 	initIndex := slices.Index(args, "--InitContainer.1.Name")
 	args = append(args[:initIndex], append(volumeArgs, args[initIndex:]...)...)
-	args = appendRegistryAccess(args, request.RegistryAccess)
 	args = appendIndexedValues(args, "--Container.1.Command", request.Command)
 	args = appendIndexedValues(args, "--Container.1.Arg", request.Args)
 	args = appendIndexedMap(args, "--Container.1.EnvironmentVar", request.Environment)
@@ -249,7 +258,7 @@ func (c *Client) createContainerGroup(ctx context.Context, request CreateRequest
 	args = appendIndexedMap(args, "--Tag", request.Tags)
 	output, err := c.run(ctx, "CreateContainerGroup", args...)
 	if err != nil {
-		createErr := fmt.Errorf("create ECI container group: %w", redactRegistryCredential(redactEnvironmentValues(err, request.Environment, request.InitContainer.Environment), request.RegistryAccess))
+		createErr := fmt.Errorf("create ECI container group: %w", redactEnvironmentValues(err, request.Environment, request.InitContainer.Environment))
 		if !isTransientCLIError(createErr) {
 			return ContainerGroup{}, createErr
 		}
@@ -260,11 +269,6 @@ func (c *Client) createContainerGroup(ctx context.Context, request CreateRequest
 		return c.reconcileCreatedContainerGroup(ctx, request.ContainerGroupName, request.Tags, err)
 	}
 	return group, nil
-}
-
-// isSpotCapacityUnavailable 只接受服务端精确的抢占匹配失败码，禁止权限或普通库存错误触发付费回退。
-func isSpotCapacityUnavailable(err error) bool {
-	return err != nil && spotCapacityErrorPattern.MatchString(err.Error())
 }
 
 // DescribeContainerGroups 查询指定容器组，缺少任何关键状态都不能被当作有效结果。
@@ -412,7 +416,7 @@ func MaxControlPlaneRetryDuration() time.Duration {
 // commandArgs 保留调用方的稳定幂等 token；未提供时生成一次并复用于该次 run 的全部重试。
 func (c *Client) commandArgs(action string, args []string) ([]string, error) {
 	commandArgs := []string{"eci", action, "--RegionId", c.config.RegionID, "--profile", c.config.Profile}
-	if action == "CreateContainerGroup" && !containsCommandArgument(args, "--ClientToken") {
+	if isIdempotentCreateAction(action) && !containsCommandArgument(args, "--ClientToken") {
 		clientToken, err := c.newClientToken()
 		if err != nil {
 			return nil, fmt.Errorf("generate ECI client token: %w", err)
@@ -424,6 +428,10 @@ func (c *Client) commandArgs(action string, args []string) ([]string, error) {
 	}
 	commandArgs = append(commandArgs, args...)
 	return commandArgs, nil
+}
+
+func isIdempotentCreateAction(action string) bool {
+	return action == "CreateContainerGroup" || action == "CreateImageCache"
 }
 
 func containsCommandArgument(args []string, name string) bool {
@@ -567,7 +575,6 @@ var (
 	eciNamePattern                 = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,126}[a-z0-9])$`)
 	environmentKeyPattern          = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 	imageDigestPattern             = regexp.MustCompile(`^[a-z0-9][a-z0-9._/:-]*@sha256:[a-f0-9]{64}$`)
-	spotCapacityErrorPattern       = regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9_.-])Spot\.NotMatched(?:[^A-Za-z0-9_.-]|$)`)
 	sensitiveQueryParameterPattern = regexp.MustCompile(`(?i)((?:AccessKeyId|AccessKeySecret|Signature|SecurityToken)=)[^&#\s"'<>]+`)
 	transientCLIErrorFragments     = []string{
 		"tls handshake timeout",

@@ -65,11 +65,6 @@ func TestRecordRemoteCIRunFiltersUncreatedShardPlaceholder(t *testing.T) {
 			ExecutionProfile: gate.ExecutionProfile{CacheSource: "go_build_cache", CacheStatus: "miss", CacheMeasurement: "measured", StartupMS: 10, TestBodyMS: 20, TotalMS: 30},
 		}},
 	}
-	var err error
-	result.CandidateTestBinaryReceiptBindingDigest, err = CandidateTestBinaryReceiptBindingDigestFromBuilds(nil, result.SourceTreeSHA)
-	if err != nil {
-		t.Fatal(err)
-	}
 	catalog := gate.WorkloadCatalog{
 		Version: 1, Authoritative: true,
 		Workloads: []gate.Workload{{

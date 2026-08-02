@@ -12,7 +12,6 @@ import (
 	"time"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/localci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
 )
@@ -61,7 +60,7 @@ func resolveRemoteBaselineIdentity(ctx context.Context, repositoryRoot, commit, 
 		return remoteBaselineRefreshInput{}, err
 	}
 	policyDigest := remoteBaselinePolicyDigest(registryDigest, runtimeDependencyDigest)
-	compileInputs, err := localci.ResolveBaselineGateCompileInputs(tree, platform)
+	compileInputs, err := remoteci.ResolveBaselineGateCompileInputs(tree, platform)
 	if err != nil {
 		return remoteBaselineRefreshInput{}, err
 	}
@@ -94,27 +93,27 @@ func remoteBaselineToolchainDigest(lockDigest, goToolchain string) string {
 
 // resolveRemoteBaselineGoToolchain 仅以仓库根模块选择生产测试工具链。
 func resolveRemoteBaselineGoToolchain(entries []sourceexport.TreeEntry) (string, error) {
-	requirement, err := productionGoRequirementFromEntries(entries)
+	toolchain, err := remoteci.ResolveGoToolchain(entries)
 	if err != nil {
-		return "", fmt.Errorf("resolve production Go toolchain: %w", err)
+		return "", fmt.Errorf("resolve remote baseline Go toolchain: %w", err)
 	}
-	return requirement.Preferred, nil
+	return toolchain, nil
 }
 
 // loadRemoteBaselineGitTree 只从指定 commit 的 Git object tree 读取基线输入。
-func loadRemoteBaselineGitTree(ctx context.Context, repositoryRoot, commit string) (localci.ReadOnlyGitTree, string, error) {
+func loadRemoteBaselineGitTree(ctx context.Context, repositoryRoot, commit string) (remoteci.ReadOnlyGitTree, string, error) {
 	treeSHA, err := remoteGitOutput(repositoryRoot, "rev-parse", "--verify", "--end-of-options", commit+"^{tree}")
 	if err != nil {
-		return localci.ReadOnlyGitTree{}, "", err
+		return remoteci.ReadOnlyGitTree{}, "", err
 	}
 	objectFormat, err := remoteGitOutput(repositoryRoot, "rev-parse", "--show-object-format")
 	if err != nil {
-		return localci.ReadOnlyGitTree{}, "", err
+		return remoteci.ReadOnlyGitTree{}, "", err
 	}
 	spec := gatecontract.SourceSpec{Kind: gatecontract.SourceKindCommit, ObjectFormat: gatecontract.GitObjectFormat(objectFormat), SourceTreeSHA: treeSHA, Commit: &gatecontract.CommitSource{SHA: commit}}
-	tree, err := localci.LoadReadOnlyGitTree(ctx, repositoryRoot, spec)
+	tree, err := remoteci.LoadReadOnlyGitTree(ctx, repositoryRoot, spec)
 	if err != nil {
-		return localci.ReadOnlyGitTree{}, "", err
+		return remoteci.ReadOnlyGitTree{}, "", err
 	}
 	return tree, treeSHA, nil
 }

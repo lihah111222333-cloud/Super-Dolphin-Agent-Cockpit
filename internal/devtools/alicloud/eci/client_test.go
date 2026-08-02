@@ -366,28 +366,19 @@ func TestClient_CreateRetryReusesClientToken(t *testing.T) {
 	}
 }
 
-func TestClient_CreateFallsBackToPayAsYouGoOnlyWhenSpotCapacityIsUnavailable(t *testing.T) {
-	runner := &fakeCommandRunner{
-		responses: [][]byte{[]byte(`{"ContainerGroupId":"eci-created"}`)},
-		runErrors: []error{errors.New("Code: Spot.NotMatched, Message: no matching spot capacity")},
-	}
-	client := newTestClientWithTokens(t, runner, "spot-token", "regular-token")
+func TestClient_CreateReturnsSpotCapacityErrorWithoutPayAsYouGoFallback(t *testing.T) {
+	runner := &fakeCommandRunner{err: errors.New("Code: Spot.NotMatched, Message: no matching spot capacity")}
+	client := newTestClient(t, runner)
 
-	created, err := client.CreateContainerGroup(context.Background(), validCreateRequest())
-	if err != nil || created.ID != "eci-created" {
-		t.Fatalf("CreateContainerGroup() = %#v, %v", created, err)
+	if _, err := client.CreateContainerGroup(context.Background(), validCreateRequest()); err == nil {
+		t.Fatal("CreateContainerGroup() error = nil")
 	}
-	if len(runner.calls) != 2 {
-		t.Fatalf("calls = %d, want spot attempt plus pay-as-you-go fallback", len(runner.calls))
+	if len(runner.calls) != 1 {
+		t.Fatalf("calls = %d, want one explicit spot request", len(runner.calls))
 	}
-	if !containsArgumentPair(runner.calls[0], "--SpotStrategy", "SpotAsPriceGo") ||
-		!containsArgumentPair(runner.calls[0], "--ClientToken", "spot-token") {
-		t.Fatalf("spot call = %#v", runner.calls[0])
-	}
-	if !containsArgumentPair(runner.calls[1], "--SpotStrategy", "NoSpot") ||
-		containsArgumentPair(runner.calls[1], "--SpotDuration", "1") ||
-		!containsArgumentPair(runner.calls[1], "--ClientToken", "regular-token") {
-		t.Fatalf("pay-as-you-go call = %#v", runner.calls[1])
+	if !containsArgumentPair(runner.calls[0], "--SpotStrategy", SpotStrategyAsPriceGo) ||
+		containsArgumentPair(runner.calls[0], "--SpotStrategy", SpotStrategyNoSpot) {
+		t.Fatalf("spot request = %#v", runner.calls[0])
 	}
 }
 
@@ -575,9 +566,9 @@ func TestNewWithRunner_RejectsInvalidConfig(t *testing.T) {
 		mutate func(*Config)
 	}{
 		{"missing profile", func(config *Config) { config.Profile = "" }},
-		{"wrong spot strategy", func(config *Config) { config.SpotStrategy = "NoSpot" }},
+		{"unsupported strategy", func(config *Config) { config.SpotStrategy = "unknown" }},
 		{"wrong spot duration", func(config *Config) { config.SpotDurationHours = 0 }},
-		{"disabled fallback", func(config *Config) { config.FallbackToPayAsYouGo = false }},
+		{"pay-as-you-go spot duration", func(config *Config) { config.SpotStrategy, config.SpotDurationHours = SpotStrategyNoSpot, 1 }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -590,20 +581,46 @@ func TestNewWithRunner_RejectsInvalidConfig(t *testing.T) {
 	}
 }
 
+func TestNewWithRunner_AcceptsExplicitPayAsYouGo(t *testing.T) {
+	config := testConfig()
+	config.SpotStrategy = SpotStrategyNoSpot
+	config.SpotDurationHours = 0
+	runner := &fakeCommandRunner{responses: [][]byte{[]byte(`{"ContainerGroupId":"eci-payg"}`)}}
+	client, err := NewWithRunner(config, runner)
+	if err != nil {
+		t.Fatalf("NewWithRunner() error = %v", err)
+	}
+	if _, err := client.CreateContainerGroup(context.Background(), validCreateRequest()); err != nil {
+		t.Fatalf("CreateContainerGroup() error = %v", err)
+	}
+	if len(runner.calls) != 1 || !containsArgumentPair(runner.calls[0], "--SpotStrategy", SpotStrategyNoSpot) ||
+		containsArgumentPair(runner.calls[0], "--SpotDuration", "1") {
+		t.Fatalf("pay-as-you-go request = %#v", runner.calls)
+	}
+}
+
+func TestConfig_FieldRegistry(t *testing.T) {
+	assertStructFields(t, reflect.TypeFor[Config](), []string{
+		"Binary", "RegionID", "VSwitchID", "SecurityGroupID", "WorkerRoleName", "Profile", "Deadline", "SpotStrategy", "SpotDurationHours",
+	})
+}
+
 func TestCreateRequest_FieldRegistry(t *testing.T) {
 	assertStructFields(t, reflect.TypeFor[CreateRequest](), []string{
-		"ContainerGroupName", "ContainerName", "MainImage", "InitImage", "Resources", "Command", "Args", "Environment", "Tags",
+		"ContainerGroupName", "ContainerName", "ImageCacheID", "MainImage", "InitImage", "Resources", "Command", "Args", "Environment", "Tags",
 		"InitContainer", "BootstrapVolume", "ExpandedVolume", "SourceVolume", "WorkVolume", "TempVolume",
-		"MainVolumeMounts", "InitVolumeMounts", "RegistryAccess",
+		"MainVolumeMounts", "InitVolumeMounts",
 	})
 	assertStructFields(t, reflect.TypeFor[Resources](), []string{"CPU", "MemoryGiB"})
 	assertStructFields(t, reflect.TypeFor[InitContainer](), []string{"Name", "Command", "Args", "Environment"})
 	assertStructFields(t, reflect.TypeFor[EmptyDirVolume](), []string{"Name"})
 	assertStructFields(t, reflect.TypeFor[VolumeMount](), []string{"Name", "MountPath", "SubPath", "ReadOnly"})
+	assertStructFields(t, reflect.TypeFor[ImageCacheCreateRequest](), []string{"ImageCacheName", "Images", "ImageCacheSize", "RetentionDays", "Tags"})
 }
 
 func TestContainerGroup_FieldRegistry(t *testing.T) {
 	assertStructFields(t, reflect.TypeFor[ContainerGroup](), []string{"ID", "Name", "Status", "Containers", "Events"})
+	assertStructFields(t, reflect.TypeFor[ImageCache](), []string{"ID", "SnapshotID", "Name", "Status", "Progress", "Images", "Events"})
 	assertStructFields(t, reflect.TypeFor[ContainerStatus](), []string{"Name", "CurrentState"})
 	assertStructFields(t, reflect.TypeFor[ContainerState](), []string{"State", "ExitCode", "Reason", "Message"})
 	assertStructFields(t, reflect.TypeFor[ContainerGroupEvent](), []string{"Type", "Reason", "Message", "Count", "LastTimestamp"})
@@ -654,23 +671,7 @@ func newTestClient(t *testing.T, runner CommandRunner) *Client {
 		t.Fatalf("NewWithRunner() error = %v", err)
 	}
 	client.wait = func(context.Context, time.Duration) error { return nil }
-	client.spotSchedulingTimeout = 0
 	client.newClientToken = func() (string, error) { return testClientToken, nil }
-	return client
-}
-
-func newTestClientWithTokens(t *testing.T, runner CommandRunner, tokens ...string) *Client {
-	t.Helper()
-	client := newTestClient(t, runner)
-	index := 0
-	client.newClientToken = func() (string, error) {
-		if index >= len(tokens) {
-			t.Fatal("unexpected ECI client token request")
-		}
-		token := tokens[index]
-		index++
-		return token, nil
-	}
 	return client
 }
 
@@ -679,7 +680,7 @@ func testConfig() Config {
 		Binary: "aliyun", RegionID: "cn-hangzhou", VSwitchID: "vsw-1", SecurityGroupID: "sg-1",
 		WorkerRoleName: "worker-role", Profile: "ci",
 		Deadline:     time.Hour,
-		SpotStrategy: "SpotAsPriceGo", SpotDurationHours: 1, FallbackToPayAsYouGo: true,
+		SpotStrategy: SpotStrategyAsPriceGo, SpotDurationHours: 1,
 	}
 }
 
@@ -687,6 +688,7 @@ func validCreateRequest() CreateRequest {
 	return CreateRequest{
 		ContainerGroupName: "shard-1",
 		ContainerName:      "worker",
+		ImageCacheID:       "imc-test-cache",
 		MainImage:          testMainImageDigest,
 		InitImage:          testInitImageDigest,
 		Resources:          Resources{CPU: 4, MemoryGiB: 8},

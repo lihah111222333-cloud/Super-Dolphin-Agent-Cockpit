@@ -10,29 +10,19 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
-// loadPassedWorkloadCacheWithSQLite 先查共享 SQLite 投影，仅对未知身份访问 OSS。
+// loadPassedWorkloadCacheWithSQLite 先查共享 SQLite 投影，仅对当前 canonical 身份访问 OSS。
 func loadPassedWorkloadCacheWithSQLite(
 	ctx context.Context,
 	store ObjectStore,
 	ledgerStore *gate.DurationLedgerStore,
 	now func() time.Time,
 	entries []remoteWorkloadCacheEntry,
-	legacyEntries []remoteWorkloadCacheEntry,
 	forceRerun bool,
-	fallbackEntries ...[]remoteWorkloadCacheEntry,
 ) (map[string]gate.PlanGateExecution, error) {
 	if ledgerStore == nil {
-		return loadPassedWorkloadCacheWithLegacy(
-			ctx,
-			store,
-			now,
-			entries,
-			legacyEntries,
-			forceRerun,
-			fallbackEntries...,
-		)
+		return loadPassedWorkloadCache(ctx, store, now, entries, forceRerun)
 	}
-	cached, err := loadPassedWorkloadCacheLevelWithSQLite(
+	return loadPassedWorkloadCacheLevelWithSQLite(
 		ctx,
 		store,
 		ledgerStore,
@@ -40,35 +30,6 @@ func loadPassedWorkloadCacheWithSQLite(
 		entries,
 		forceRerun,
 	)
-	if err != nil || forceRerun {
-		return cached, err
-	}
-	fallbacks := append([][]remoteWorkloadCacheEntry{legacyEntries}, fallbackEntries...)
-	for _, fallback := range fallbacks {
-		misses := remoteWorkloadCacheMissEntries(fallback, cached)
-		fallbackCached, err := loadPassedWorkloadCacheLevelWithSQLite(
-			ctx,
-			store,
-			ledgerStore,
-			now,
-			misses,
-			false,
-		)
-		if err != nil {
-			return nil, err
-		}
-		// 兼容证据只迁移到 SQLite；没有当前 receipt 时不得发布新的 OSS marker。
-		maps.Copy(cached, fallbackCached)
-		if err := recordPassedWorkloadCacheProofs(
-			ledgerStore,
-			entries,
-			fallbackCached,
-			now().UTC(),
-		); err != nil {
-			return nil, err
-		}
-	}
-	return cached, nil
 }
 
 func loadPassedWorkloadCacheLevelWithSQLite(

@@ -71,6 +71,9 @@ func contextWithTimeoutCall(n ast.Node) (*ast.CallExpr, bool) {
 func allowedTimeoutFile(relPath string) bool {
 	return relPath == "internal/platform/config/timeouts.go" ||
 		relPath == "internal/devtools/gateprivate/timeouts.go" ||
+		relPath == "cmd/super-dolphin-gate/remote_oci_baseline_worker.go" ||
+		relPath == "cmd/super-dolphin-gate/remote_refresh_image_cache.go" ||
+		relPath == "cmd/super-dolphin-gate/remote_refresh_oci_coordinator.go" ||
 		relPath == "internal/platform/toolbridge/schema/client.go" ||
 		relPath == "internal/util/ctxutil/ctxutil.go" ||
 		strings.HasPrefix(relPath, "internal/transport/retry/")

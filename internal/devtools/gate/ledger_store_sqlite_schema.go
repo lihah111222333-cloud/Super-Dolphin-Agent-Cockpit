@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"strings"
 	"time"
 
 	sqlitedriver "modernc.org/sqlite"
@@ -42,10 +41,10 @@ CREATE TABLE IF NOT EXISTS duration_calibrations (
 );
 
 -- remote baseline 的接受状态共用 duration ledger SQLite authority。
--- v2 只接受 OCI state；历史形状不得参与该 authority。
+-- v3 只接受 ECI ImageCache state；历史形状不得参与该 authority。
 CREATE TABLE IF NOT EXISTS ci_remote_baseline_state (
 	singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-	schema_version INTEGER NOT NULL CHECK (schema_version = 2),
+	schema_version INTEGER NOT NULL CHECK (schema_version = 3),
 	generation TEXT NOT NULL,
 	state_json TEXT NOT NULL DEFAULT '',
 	state_sha256 TEXT NOT NULL DEFAULT '',
@@ -275,8 +274,6 @@ CREATE TABLE IF NOT EXISTS ci_runs (
 	plan_digest TEXT NOT NULL,
 	catalog_digest TEXT NOT NULL,
 	source_tree_sha TEXT NOT NULL,
-	candidate_cli_manifest_sha256 TEXT NOT NULL DEFAULT '',
-	candidate_test_binary_receipt_binding_digest TEXT NOT NULL DEFAULT '',
 	runner_image TEXT NOT NULL,
 	status TEXT NOT NULL,
 	authoritative INTEGER NOT NULL CHECK (authoritative IN (0, 1)),
@@ -371,19 +368,6 @@ CREATE TABLE IF NOT EXISTS ci_workload_executions (
 CREATE INDEX IF NOT EXISTS idx_ci_workload_executions_lookup
 	ON ci_workload_executions (workload_id, status, completed_at_unix_ms DESC);
 
-CREATE TABLE IF NOT EXISTS ci_candidate_test_binary_builds (
-	job_id TEXT NOT NULL REFERENCES ci_runs(job_id) ON DELETE CASCADE,
-	candidate_tree TEXT NOT NULL DEFAULT '', package TEXT NOT NULL, mode TEXT NOT NULL,
-	platform TEXT NOT NULL DEFAULT '', go_toolchain TEXT NOT NULL DEFAULT '', cgo_enabled INTEGER NOT NULL DEFAULT 0,
-	toolchain_sha256 TEXT NOT NULL DEFAULT '', build_flags_json TEXT NOT NULL DEFAULT '[]', compile_closure_sha256 TEXT NOT NULL DEFAULT '',
-	manifest_sha256 TEXT NOT NULL DEFAULT '', artifact_sha256 TEXT NOT NULL, binary_size INTEGER NOT NULL DEFAULT 0,
-	go_list_wall_ms INTEGER NOT NULL, build_wall_ms INTEGER NOT NULL,
-	compile_action_ms INTEGER NOT NULL, link_action_ms INTEGER NOT NULL, compile_critical_wall_ms INTEGER NOT NULL,
-	gocache_private_hits INTEGER NOT NULL, gocache_oci_project_cache_hits INTEGER NOT NULL DEFAULT 0, gocache_private_root_identity TEXT NOT NULL DEFAULT '',
-	gocache_misses INTEGER NOT NULL, gocache_puts INTEGER NOT NULL,
-	PRIMARY KEY (job_id, package, mode)
-);
-
 CREATE TABLE IF NOT EXISTS ci_run_phase_timings (
 	job_id TEXT NOT NULL REFERENCES ci_runs(job_id) ON DELETE CASCADE,
 	ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
@@ -438,15 +422,6 @@ func ensureDurationLedgerSQLiteSchema(database *sql.DB) error {
 	case durationLedgerSQLiteSchemaVersion:
 		if _, err := database.Exec(durationLedgerSQLiteSchema); err != nil {
 			return mapDurationLedgerSQLiteError("reconcile duration ledger SQLite v1 schema", err)
-		}
-		if err := ensureDurationLedgerCandidateCLIManifestColumn(database); err != nil {
-			return err
-		}
-		if err := ensureDurationLedgerCandidateTestBinaryReceiptBindingColumn(database); err != nil {
-			return err
-		}
-		if err := ensureDurationLedgerCandidateTestBinaryBuildIdentityColumns(database); err != nil {
-			return err
 		}
 		if err := ensureDurationLedgerExecutionProfileColumn(database); err != nil {
 			return err
@@ -507,70 +482,6 @@ func durationLedgerSQLiteTableColumns(transaction *sql.Tx, table string) (map[st
 	return columns, nil
 }
 
-func ensureDurationLedgerCandidateTestBinaryBuildIdentityColumns(database *sql.DB) error {
-	existing, err := durationLedgerCandidateTestBinaryBuildColumns(database)
-	if err != nil {
-		return err
-	}
-	columns := []string{"candidate_tree TEXT NOT NULL DEFAULT ''", "platform TEXT NOT NULL DEFAULT ''", "go_toolchain TEXT NOT NULL DEFAULT ''", "cgo_enabled INTEGER NOT NULL DEFAULT 0", "toolchain_sha256 TEXT NOT NULL DEFAULT ''", "build_flags_json TEXT NOT NULL DEFAULT '[]'", "compile_closure_sha256 TEXT NOT NULL DEFAULT ''", "manifest_sha256 TEXT NOT NULL DEFAULT ''", "binary_size INTEGER NOT NULL DEFAULT 0", "gocache_private_root_identity TEXT NOT NULL DEFAULT ''", "gocache_oci_project_cache_hits INTEGER NOT NULL DEFAULT 0"}
-	for _, column := range columns {
-		name, _, _ := strings.Cut(column, " ")
-		if existing[name] {
-			continue
-		}
-		if _, err := database.Exec("ALTER TABLE ci_candidate_test_binary_builds ADD COLUMN " + column); err != nil {
-			return mapDurationLedgerSQLiteError("migrate candidate test binary build identity", err)
-		}
-	}
-	return nil
-}
-
-func durationLedgerCandidateTestBinaryBuildColumns(database *sql.DB) (map[string]bool, error) {
-	rows, err := database.Query(`SELECT name FROM pragma_table_info('ci_candidate_test_binary_builds')`)
-	if err != nil {
-		return nil, mapDurationLedgerSQLiteError("inspect candidate test binary build identity", err)
-	}
-	defer rows.Close()
-	columns := make(map[string]bool)
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			return nil, mapDurationLedgerSQLiteError("scan candidate test binary build identity", err)
-		}
-		columns[name] = true
-	}
-	if err := rows.Err(); err != nil {
-		return nil, mapDurationLedgerSQLiteError("iterate candidate test binary build identity", err)
-	}
-	return columns, nil
-}
-
-func ensureDurationLedgerCandidateTestBinaryReceiptBindingColumn(database *sql.DB) error {
-	rows, err := database.Query(`PRAGMA table_info(ci_runs)`)
-	if err != nil {
-		return mapDurationLedgerSQLiteError("inspect remote CI run schema", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var cid, notNull, primaryKey int
-		var name, columnType string
-		var defaultValue any
-		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
-			return mapDurationLedgerSQLiteError("scan remote CI run schema", err)
-		}
-		if name == "candidate_test_binary_receipt_binding_digest" {
-			return nil
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return mapDurationLedgerSQLiteError("iterate remote CI run schema", err)
-	}
-	if _, err := database.Exec(`ALTER TABLE ci_runs ADD COLUMN candidate_test_binary_receipt_binding_digest TEXT NOT NULL DEFAULT ''`); err != nil {
-		return mapDurationLedgerSQLiteError("migrate remote CI candidate test binary receipt binding", err)
-	}
-	return nil
-}
-
 func ensureDurationLedgerShardMaterializationTimingColumn(database *sql.DB) error {
 	rows, err := database.Query(`PRAGMA table_info(ci_shards)`)
 	if err != nil {
@@ -593,33 +504,6 @@ func ensureDurationLedgerShardMaterializationTimingColumn(database *sql.DB) erro
 	}
 	if _, err := database.Exec(`ALTER TABLE ci_shards ADD COLUMN materialization_timing_json TEXT NOT NULL DEFAULT ''`); err != nil {
 		return mapDurationLedgerSQLiteError("migrate remote CI shard materialization timing", err)
-	}
-	return nil
-}
-
-func ensureDurationLedgerCandidateCLIManifestColumn(database *sql.DB) error {
-	rows, err := database.Query(`PRAGMA table_info(ci_runs)`)
-	if err != nil {
-		return mapDurationLedgerSQLiteError("inspect remote CI run schema", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var cid int
-		var name, columnType string
-		var notNull, primaryKey int
-		var defaultValue any
-		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
-			return mapDurationLedgerSQLiteError("scan remote CI run schema", err)
-		}
-		if name == "candidate_cli_manifest_sha256" {
-			return nil
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return mapDurationLedgerSQLiteError("iterate remote CI run schema", err)
-	}
-	if _, err := database.Exec(`ALTER TABLE ci_runs ADD COLUMN candidate_cli_manifest_sha256 TEXT NOT NULL DEFAULT ''`); err != nil {
-		return mapDurationLedgerSQLiteError("migrate remote CI candidate CLI manifest", err)
 	}
 	return nil
 }

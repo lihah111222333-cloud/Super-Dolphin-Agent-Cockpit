@@ -290,9 +290,6 @@ func TestCoordinatorRunCompletesAndCleansRemoteShards(t *testing.T) {
 	if result.Status != gate.ResultStatusPassed || !result.CleanupComplete || len(result.Shards) != len(plannedSet.Shards) {
 		t.Fatalf("Run() result = %+v", result)
 	}
-	if !validObjectDigest(result.CandidateCLIManifestSHA256) {
-		t.Fatalf("Run() candidate CLI manifest digest = %q", result.CandidateCLIManifestSHA256)
-	}
 	assertRemoteDurationSampleCoverage(t, result, plannedSet)
 	assertCoordinatorRunSideEffects(t, store, runtime, plannedSet, input)
 }
@@ -322,8 +319,7 @@ func assertCoordinatorRunSideEffects(
 		t.Fatalf("runtime creates=%d deletes=%d", len(runtime.creates), len(runtime.deletes))
 	}
 	temporary, persistent := partitionCoordinatorUploads(store.uploads)
-	candidateTestBinaryCount := assertCandidateTestBinaryTemporaryAssets(t, store, temporary)
-	wantTemporary := 4 + candidateTestBinaryCount*2 + len(plannedSet.Shards)
+	wantTemporary := 2 + len(plannedSet.Shards)
 	if len(temporary) != wantTemporary || len(store.deletes) != len(temporary) {
 		t.Fatalf("store temporary=%v persistent=%v deletes=%v", temporary, persistent, store.deletes)
 	}
@@ -343,31 +339,9 @@ func assertCoordinatorRunSideEffects(
 	assertCoordinatorCacheSideEffects(t, store, persistent, expectedCached)
 	assertRemoteSourceObjectPrefix(t, temporary, runtime.creates)
 	for _, request := range runtime.creates {
-		assertRemoteCreateRequestIdentity(t, request, input)
-		assertRemoteCreateRequestVolumes(t, request, input)
+		assertRemoteCreateRequestIdentity(t, request)
+		assertRemoteCreateRequestVolumes(t, request)
 	}
-}
-
-func assertCandidateTestBinaryTemporaryAssets(t *testing.T, store *coordinatorStore, temporary []string) int {
-	t.Helper()
-	binaries, manifests := 0, 0
-	for _, key := range temporary {
-		if strings.HasSuffix(key, ".test-bin") {
-			binaries++
-			continue
-		}
-		manifest, err := DecodeCandidateTestBinaryArtifactManifest(store.uploadContents[key])
-		if err == nil {
-			manifests++
-			if !strings.HasSuffix(manifest.BinaryKey, ".test-bin") {
-				t.Fatalf("candidate test manifest %q binary key=%q", key, manifest.BinaryKey)
-			}
-		}
-	}
-	if binaries == 0 || manifests != binaries {
-		t.Fatalf("candidate test binary temporary assets binaries=%d manifests=%d uploads=%v", binaries, manifests, temporary)
-	}
-	return binaries
 }
 
 func assertCoordinatorCacheSideEffects(
@@ -458,18 +432,35 @@ func partitionCoordinatorUploads(uploads []string) (temporary []string, persiste
 	return temporary, persistent
 }
 
-func assertRemoteCreateRequestIdentity(t *testing.T, request eci.CreateRequest, input RunInput) {
+func assertRemoteCreateRequestIdentity(t *testing.T, request eci.CreateRequest) {
 	t.Helper()
-	if !reflect.DeepEqual(request.Command, remoteWorkerSupervisorCommand("/opt/super-dolphin-gate/bin/super-dolphin-gate")) ||
+	if !reflect.DeepEqual(request.Command, remoteWorkerSupervisorCommand(gate.ExecutorWorkRoot+"/bin/super-dolphin-gate")) ||
 		len(request.Args) < 2 || request.Args[0] != "worker" || request.Args[1] != "run-shard" ||
 		!reflect.DeepEqual(request.Environment, remoteWorkerEnvironment(10*time.Minute)) ||
-		!reflect.DeepEqual(request.InitContainer.Command, []string{"/bin/sh"}) ||
-		!reflect.DeepEqual(request.InitContainer.Args, []string{"-c", remoteCandidateGateBootstrapSH}) {
+		request.InitContainer.Name != "materializer" {
 		t.Fatalf("create request identity = %+v", request)
 	}
-	assertCandidateGateEnvironment(t, request, input)
+	assertRemoteInitShardCandidateCompile(t, request)
 	assertECIEnvironmentLengths(t, "worker", request.Environment)
 	assertECIEnvironmentLengths(t, "materializer", request.InitContainer.Environment)
+}
+
+func assertRemoteInitShardCandidateCompile(t *testing.T, request eci.CreateRequest) {
+	t.Helper()
+	if !reflect.DeepEqual(request.InitContainer.Command, []string{"/bin/sh"}) ||
+		!reflect.DeepEqual(request.InitContainer.Args, []string{"-c", remoteShardBootstrapSH}) {
+		t.Fatalf("init shard command = %+v", request.InitContainer)
+	}
+	for _, fragment := range []string{
+		`"$accepted_gate" _remote-materialize`,
+		`cd /workspace/source`,
+		`/opt/super-dolphin-gate/runtime/go/bin/go build -mod=mod -trimpath -buildvcs=false -o "$built_gate" ./cmd/super-dolphin-gate`,
+		`test -x "$built_gate"`,
+	} {
+		if !strings.Contains(request.InitContainer.Args[1], fragment) {
+			t.Fatalf("init shard candidate compile command missing %q: %q", fragment, request.InitContainer.Args[1])
+		}
+	}
 }
 
 func assertECIEnvironmentLengths(t *testing.T, container string, environment map[string]string) {
@@ -482,15 +473,19 @@ func assertECIEnvironmentLengths(t *testing.T, container string, environment map
 	}
 }
 
-func assertRemoteCreateRequestVolumes(t *testing.T, request eci.CreateRequest, _ RunInput) {
+func assertRemoteCreateRequestVolumes(t *testing.T, request eci.CreateRequest) {
 	t.Helper()
 	assertCoordinatorVolumeField(t, "expanded volume name", request.ExpandedVolume.Name, "expanded-data")
 	assertCoordinatorVolumeMount(t, request.MainVolumeMounts[0], "/opt/super-dolphin-gate", "", true)
 	assertCoordinatorVolumeMount(t, request.MainVolumeMounts[1], remoteXKBCompMountPath, remoteXKBCompSubPath, true)
 	assertCoordinatorVolumeMount(t, request.MainVolumeMounts[2], remoteXKBDataMountPath, remoteXKBDataSubPath, true)
-	if request.InitVolumeMounts[0].Name != remoteCurrentGateVolumeName || request.InitVolumeMounts[0].MountPath != "/candidate-bootstrap" || !request.InitVolumeMounts[0].ReadOnly {
-		t.Fatalf("candidate bootstrap mount = %+v, want read-only candidate artifact directory", request.InitVolumeMounts[1])
+	if len(request.InitVolumeMounts) != 4 {
+		t.Fatalf("init shard volume mounts=%+v, want expanded, source, work, and temp", request.InitVolumeMounts)
 	}
+	assertCoordinatorVolumeMount(t, request.InitVolumeMounts[0], "/opt/super-dolphin-gate", "", false)
+	assertCoordinatorVolumeMount(t, request.InitVolumeMounts[1], gate.ExecutorSourcePath, "", false)
+	assertCoordinatorVolumeMount(t, request.InitVolumeMounts[2], gate.ExecutorWorkRoot, "", false)
+	assertCoordinatorVolumeMount(t, request.InitVolumeMounts[3], remoteWritableTempMountPath, "", false)
 }
 
 func assertCoordinatorVolumeField(t *testing.T, name string, got string, want string) {
@@ -661,11 +656,10 @@ func newTestCoordinator(t *testing.T, store ObjectStore, runtime Runtime) *Coord
 		WorkloadCachePrefix: "baseline-artifacts/source-deltas/passed-workloads/v1/",
 		InternalOSSEndpoint: "oss-cn-shenzhen-internal.aliyuncs.com",
 		WorkerRoleName:      "worker-role",
+		ImageCacheID:        "imc-accepted-baseline",
 		WorkerTimeout:       10 * time.Minute,
 		PollInterval:        time.Millisecond, CleanupTimeout: time.Second,
-		ResourcePolicy:             testRemoteResourcePolicy(),
-		CandidateCLIBuilder:        testCandidateCLIBuilder(t),
-		CandidateTestBinaryBuilder: testCandidateTestBinaryBuilder(t),
+		ResourcePolicy: testRemoteResourcePolicy(),
 	}, store, runtime)
 	if err != nil {
 		t.Fatal(err)
@@ -673,115 +667,6 @@ func newTestCoordinator(t *testing.T, store ObjectStore, runtime Runtime) *Coord
 	coordinator.now = func() time.Time { return time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC) }
 	coordinator.newID = func() (string, error) { return "job-0123456789abcdef01234567", nil }
 	return coordinator
-}
-
-func testCandidateCLIBuilder(t *testing.T) CandidateCLIBuilder {
-	t.Helper()
-	return func(_ context.Context, _ RunInput, tempRoot string) (string, error) {
-		path := filepath.Join(tempRoot, "candidate-cli")
-		if err := os.WriteFile(path, []byte("candidate cli\n"), 0o700); err != nil {
-			return "", err
-		}
-		return path, nil
-	}
-}
-
-func testCandidateTestBinaryBuilder(t *testing.T) CandidateTestBinaryBuilder {
-	t.Helper()
-	return func(_ context.Context, input RunInput, shards []gate.ContainerShard, tempRoot string) ([]CandidateTestBinaryBuild, error) {
-		targets, err := remoteCandidateTestBinaryTargets(shards)
-		if err != nil {
-			return nil, err
-		}
-		if len(targets) == 0 {
-			targets = []CandidateTestBinaryBuildTarget{{Package: "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci", Mode: "test", CGOEnabled: true}}
-		}
-		builds := make([]CandidateTestBinaryBuild, 0, len(targets))
-		for index, target := range targets {
-			binaryPath := filepath.Join(tempRoot, fmt.Sprintf("candidate-test-bin-%d", index))
-			if err := os.WriteFile(binaryPath, []byte("candidate test binary\n"), 0o700); err != nil {
-				return nil, err
-			}
-			builds = append(builds, CandidateTestBinaryBuild{BinaryPath: binaryPath, Package: target.Package, Mode: target.Mode, GoToolchain: "go1.26.5", ToolchainSHA256: input.CandidateGateToolchainSHA256, BuildFlags: []string{"-mod=readonly", "-buildvcs=false", "-trimpath"}, CompileClosureSHA256: input.CandidateGateSourceSHA256})
-		}
-		return builds, nil
-	}
-}
-
-func TestCoordinatorRunBuildsCandidateCLIOnceBeforeShardFanout(t *testing.T) {
-	_, input := remoteRunFixture(t)
-	store := &coordinatorStore{}
-	runtime := &coordinatorRuntime{}
-	coordinator := newTestCoordinator(t, store, runtime)
-	builds := 0
-	coordinator.config.CandidateCLIBuilder = func(_ context.Context, _ RunInput, tempRoot string) (string, error) {
-		builds++
-		path := filepath.Join(tempRoot, "candidate-cli-three-shard")
-		if err := os.WriteFile(path, []byte("candidate cli\n"), 0o700); err != nil {
-			return "", err
-		}
-		return path, nil
-	}
-	if _, err := coordinator.Run(context.Background(), input); err != nil {
-		t.Fatalf("Run() error = %v", err)
-	}
-	if builds != 1 || len(runtime.creates) < 2 {
-		t.Fatalf("candidate CLI builds = %d, shard creates = %d", builds, len(runtime.creates))
-	}
-	if len(store.uploads) < 4 || !strings.HasSuffix(store.uploads[2], ".candidate-cli") || !strings.HasSuffix(store.uploads[3], ".manifest.json") {
-		t.Fatalf("candidate artifact upload order = %v", store.uploads)
-	}
-}
-
-func TestBuildShardRequestsSharesOneCandidateCLIArtifactAcrossThreeShards(t *testing.T) {
-	_, input := remoteRunFixture(t)
-	tempRoot := t.TempDir()
-	builds := 0
-	builder := func(_ context.Context, _ RunInput, destination string) (string, error) {
-		builds++
-		path := filepath.Join(destination, "candidate-cli-three-shards")
-		return path, os.WriteFile(path, []byte("candidate cli\n"), 0o700)
-	}
-	candidate, _, _, _, err := buildRemoteCandidateCLIArtifact(context.Background(), builder, input, "job-0123456789abcdef01234567", tempRoot, "baseline-artifacts/source-deltas/")
-	if err != nil {
-		t.Fatalf("buildRemoteCandidateCLIArtifact() error = %v", err)
-	}
-	assets, err := buildRemoteAssets(context.Background(), input, "job-0123456789abcdef01234567", tempRoot, "baseline-artifacts/source-deltas/")
-	if err != nil {
-		t.Fatalf("buildRemoteAssets() error = %v", err)
-	}
-	shards := make([]gate.ContainerShard, 3)
-	for index := range shards {
-		shards[index] = gate.ContainerShard{Index: index, IdentityDigest: input.RunnerIdentityDigest, Profile: input.Profile, PlanDigest: input.PolicyDigest, SourceTreeSHA: input.Tree, GateIDs: []gate.GateID{gate.GateID(fmt.Sprintf("test:shard:%d", index))}}
-	}
-	requests, _, err := buildShardRequestsWithCandidate("baseline-artifacts/source-deltas/", "job-0123456789abcdef01234567", shards, assets.artifact, assets.patchKey, assets.manifestKey, assets.manifestDigest, candidate, []CandidateTestBinaryArtifactRef{testCandidateTestBinary(input)}, input)
-	if err != nil {
-		t.Fatalf("buildShardRequestsWithCandidate() error = %v", err)
-	}
-	if builds != 1 || len(requests) != 3 {
-		t.Fatalf("candidate CLI builds = %d, shard requests = %d", builds, len(requests))
-	}
-	for _, request := range requests {
-		if request.CandidateCLI != candidate {
-			t.Fatalf("shard candidate CLI = %#v, want %#v", request.CandidateCLI, candidate)
-		}
-	}
-}
-
-func TestCoordinatorRunStopsBeforeShardFanoutWhenCandidateCLIBuilderFails(t *testing.T) {
-	_, input := remoteRunFixture(t)
-	store := &coordinatorStore{}
-	runtime := &coordinatorRuntime{}
-	coordinator := newTestCoordinator(t, store, runtime)
-	coordinator.config.CandidateCLIBuilder = func(context.Context, RunInput, string) (string, error) {
-		return "", errors.New("injected candidate CLI build failure")
-	}
-	if _, err := coordinator.Run(context.Background(), input); err == nil || !strings.Contains(err.Error(), "injected candidate CLI build failure") {
-		t.Fatalf("Run() error = %v", err)
-	}
-	if len(runtime.creates) != 0 || len(store.uploads) != 0 {
-		t.Fatalf("builder failure fanned out: creates=%d uploads=%v", len(runtime.creates), store.uploads)
-	}
 }
 
 func testRemoteResourcePolicy() shardresource.Policy {
@@ -852,6 +737,7 @@ func remoteRunFixture(t *testing.T) (string, RunInput) {
 		ToolchainDigest:              digest,
 		LedgerSnapshot:               gate.DurationLedgerSnapshot{Generation: 1, Ledger: ledger},
 		RunnerImage:                  "registry.example/runner@" + digest,
+		ImageCacheID:                 "imc-accepted-baseline",
 		RunnerIdentityDigest:         digest,
 		BaselineManifestDigest:       "sha256:" + strings.Repeat("c", 64),
 		RunnerConfigDigest:           "sha256:" + strings.Repeat("b", 64),

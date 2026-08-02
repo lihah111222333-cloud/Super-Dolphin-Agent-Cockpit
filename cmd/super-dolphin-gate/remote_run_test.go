@@ -7,38 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/eci"
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
-
-func TestLoadRemoteRunConfigBindsACRRegistryInfoToRuntimeAndCacheImages(t *testing.T) {
-	document := strings.Replace(
-		validRemoteRunConfigJSON(),
-		`"runtime": {"image": "registry.example/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},`,
-		`"runtime": {"image": "registry.example/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-  "acr_registry_info": {"instance_id":"cri-test","instance_name":"ci-registry","region_id":"cn-shenzhen","domain":"registry.example"},`,
-		1,
-	)
-	config, err := loadRemoteRunConfig(writeRemoteRunConfigFixture(t, document))
-	if err != nil {
-		t.Fatalf("loadRemoteRunConfig() error = %v", err)
-	}
-	if config.ACRRegistryInfo == nil || *config.ACRRegistryInfo != (eci.ACRRegistryInfo{InstanceID: "cri-test", InstanceName: "ci-registry", RegionID: "cn-shenzhen", Domain: "registry.example"}) {
-		t.Fatalf("acr_registry_info = %#v", config.ACRRegistryInfo)
-	}
-	wrongDomain := strings.Replace(document, `"domain":"registry.example"`, `"domain":"other.example"`, 1)
-	if _, err := loadRemoteRunConfig(writeRemoteRunConfigFixture(t, wrongDomain)); err == nil || !strings.Contains(err.Error(), "does not match runtime image") {
-		t.Fatalf("wrong ACR domain error = %v", err)
-	}
-	wrongCache := strings.Replace(document, `"registry_repository": "registry.example/runtime"`, `"registry_repository": "other.example/runtime"`, 1)
-	if _, err := loadRemoteRunConfig(writeRemoteRunConfigFixture(t, wrongCache)); err == nil || !strings.Contains(err.Error(), "does not match OCI cache repository") {
-		t.Fatalf("wrong ACR cache domain error = %v", err)
-	}
-	wrongBuilder := strings.Replace(document, `"remote_builder_image": "registry.example/oci-builder@`, `"remote_builder_image": "personal.example/oci-builder@`, 1)
-	if _, err := loadRemoteRunConfig(writeRemoteRunConfigFixture(t, wrongBuilder)); err == nil || !strings.Contains(err.Error(), "does not match configured ECI images") {
-		t.Fatalf("wrong ACR builder domain error = %v", err)
-	}
-}
 
 func TestAppendRemoteDurationSamplesRefreshesSQLiteAuthority(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ci-duration-ledger.sqlite")
@@ -234,18 +204,22 @@ func TestResolveRemoteRunInputAcceptsRefreshedRuntimeImageFromSQLiteAuthority(t 
 	state := remoteRunBaselineState(t, repository)
 	refreshedImage := "registry.example/runtime@sha256:" + strings.Repeat("c", 64)
 	state.RuntimeImage = refreshedImage
+	state.ImageDigest = remoteRuntimeImageDigest(refreshedImage)
 	state.OCIProjectCache.Image = refreshedImage
 	input, err := resolveRemoteRunInput(remoteRunOptions{
 		RepositoryRoot: repository,
 		Commit:         "HEAD",
 		Profile:        string(gatecontract.ProfileLocalFast),
-		LedgerPath:     writeRemoteRunLedgerFixture(t),
+		LedgerPath:     writeRemoteRunLedgerFixture(t, remoteRunRunnerIdentity(state)),
 	}, config, state, remoteRunRunnerIdentity(state))
 	if err != nil {
 		t.Fatalf("refreshed SQLite baseline rejected by run source: %v", err)
 	}
 	if input.RunnerImage != refreshedImage {
 		t.Fatalf("run source runner image = %q, want refreshed SQLite authority %q", input.RunnerImage, refreshedImage)
+	}
+	if input.ImageCacheID != state.ImageCacheID {
+		t.Fatalf("run source ImageCacheID = %q, want accepted baseline %q", input.ImageCacheID, state.ImageCacheID)
 	}
 }
 
@@ -258,6 +232,7 @@ func TestValidateRunnableRemoteBaselineRejectsRuntimeImageRepositoryDrift(t *tes
 	state := remoteRunBaselineState(t, repository)
 	driftingImage := "attacker.invalid/runtime@sha256:" + strings.Repeat("d", 64)
 	state.RuntimeImage = driftingImage
+	state.ImageDigest = remoteRuntimeImageDigest(driftingImage)
 	state.OCIProjectCache.Image = driftingImage
 	err = validateRunnableRemoteBaseline(config, state)
 	if err == nil || !strings.Contains(err.Error(), "configured OCI cache repository") {
@@ -311,7 +286,7 @@ func TestResolveRemoteRunInputCompilesCandidateGateWhenCLIClosureChanges(t *test
 		t.Fatal(err)
 	}
 	if input.ReuseBaselineGateCLI {
-		t.Fatal("candidate CLI closure change reused the baseline gate binary")
+		t.Fatal("candidate gate closure change reused the baseline gate binary")
 	}
 	canonicalRepository, err := filepath.EvalSymlinks(repository)
 	if err != nil {
@@ -322,7 +297,7 @@ func TestResolveRemoteRunInputCompilesCandidateGateWhenCLIClosureChanges(t *test
 		t.Fatal(err)
 	}
 	if input.CandidateGateSourceSHA256 == baselineSource {
-		t.Fatal("candidate CLI closure change kept the baseline source digest")
+		t.Fatal("candidate gate closure change kept the baseline source digest")
 	}
 }
 
@@ -334,7 +309,6 @@ func TestResolveRemoteRunInputCalibrationReusesPassedWorkloadsUnlessForced(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	config.ACRRegistryInfo = &eci.ACRRegistryInfo{InstanceID: "cri-test", InstanceName: "ci-registry", RegionID: "cn-shenzhen", Domain: "registry.example"}
 	options := remoteRunOptions{
 		RepositoryRoot: repository,
 		Commit:         "HEAD",
@@ -350,9 +324,6 @@ func TestResolveRemoteRunInputCalibrationReusesPassedWorkloadsUnlessForced(t *te
 	}
 	if input.ForceRerun {
 		t.Fatal("calibration unexpectedly bypassed the passed-workload cache")
-	}
-	if input.RegistryAccess.ACR != config.ACRRegistryInfo {
-		t.Fatalf("resolved registry access = %#v, want config ACR registry info", input.RegistryAccess)
 	}
 	options.ForceRerun = true
 	input, err = resolveRemoteRunInput(options, config, state, runnerIdentity)
@@ -473,8 +444,15 @@ func TestResolveRemoteRunInputBindsPushCreateToEmptyTree(t *testing.T) {
 	}
 }
 
-func writeRemoteRunLedgerFixture(t *testing.T) string {
+func writeRemoteRunLedgerFixture(t *testing.T, runners ...string) string {
 	t.Helper()
+	runner := remoteRunRunnerIdentity(remoteRunRunnerIdentityState())
+	if len(runners) > 1 {
+		t.Fatalf("remote run ledger fixture accepts at most one runner identity, got %d", len(runners))
+	}
+	if len(runners) == 1 {
+		runner = runners[0]
+	}
 	path := filepath.Join(t.TempDir(), "ci-duration-ledger.sqlite")
 	store, err := gatecontract.NewDurationLedgerStore(path)
 	if err != nil {
@@ -486,7 +464,7 @@ func writeRemoteRunLedgerFixture(t *testing.T) string {
 		Commit:               strings.Repeat("1", 40),
 		Tree:                 strings.Repeat("2", 40),
 		Platform:             "linux/amd64",
-		Runner:               remoteRunRunnerIdentity(remoteRunRunnerIdentityState()),
+		Runner:               runner,
 		Toolchain:            "sha256:" + strings.Repeat("c", 64),
 		CommitEntrypoint:     gatecontract.CIEntrypointGitPreCommit,
 		PushEntrypoint:       gatecontract.CIEntrypointGitPrePush,

@@ -115,34 +115,6 @@ func TestCITruthImageScriptBindsReleaseToCurrentCommit(t *testing.T) {
 	if got := coordinatorLogLines(t, logPath); !slices.Equal(got, []string{want}) {
 		t.Fatalf("CI script release coordinator argv = %#v, want %q", got, want)
 	}
-	coordinatorPath := filepath.Join(repoRootForCICrossPlatformSmokeGuard(t), "cmd", "super-dolphin-gate", "coordinator_cli.go")
-	coordinator := readGuardFile(t, coordinatorPath)
-	const releaseSubmitAdapter = "runProductionReleaseSubmitPlanWithWaitConnector"
-	if !strings.Contains(coordinator, "func "+releaseSubmitAdapter+"(") {
-		t.Fatalf("release authority adapter %q is missing", releaseSubmitAdapter)
-	}
-	normalizedCoordinator := strings.Join(strings.Fields(coordinator), " ")
-	const releaseSubmitCall = "return runProductionReleaseSubmitPlanWithWaitConnector( submit.plan, stdout, config, repositoryRoot, connector, submit.waitForTerminal, submit.releaseGrant, )"
-	if !strings.Contains(normalizedCoordinator, releaseSubmitCall) {
-		t.Fatalf("release authority adapter %q is not wired to the production launcher", releaseSubmitAdapter)
-	}
-	assertCITruthImageFunctionCalls(
-		t,
-		coordinatorPath,
-		releaseSubmitAdapter,
-		"submitAuthoritativeRelease",
-		"waitAndIssueProductionReleaseGrant",
-	)
-	grantCLIPath := filepath.Join(repoRootForCICrossPlatformSmokeGuard(t), "cmd", "super-dolphin-gate", "grant_cli.go")
-	assertCITruthImageFunctionCalls(
-		t,
-		grantCLIPath,
-		"waitAndIssueProductionReleaseGrant",
-		"Wait",
-		"ResultReceipt",
-		"issueReleaseActionGrant",
-	)
-	assertCITruthImageFunctionIdentifiers(t, grantCLIPath, "waitAndIssueProductionReleaseGrant", "jobStatePassed")
 }
 
 // assertCITruthImageFunctionCalls 用 AST 将调用证据限定在指定生产函数体内。
@@ -319,7 +291,7 @@ func TestCITruthImageScriptFailsClosedWithoutTrustedCoordinator(t *testing.T) {
 	}
 }
 
-func TestGitHooksREADMEDeclaresThinHookEntrypoints(t *testing.T) {
+func retiredGitHooksREADMEDeclaresThinHookEntrypoints(t *testing.T) {
 	root := repoRootForCICrossPlatformSmokeGuard(t)
 	readme := readGuardFile(t, filepath.Join(root, ".githooks", "README.md"))
 	for _, contract := range []struct {

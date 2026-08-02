@@ -11,15 +11,15 @@ import (
 	"time"
 )
 
-const BaselineStateSchemaVersion uint32 = 9
+const BaselineStateSchemaVersion uint32 = 10
 
 // ErrRemoteBaselineMigrationRequired identifies persisted state written by the
 // retired DataCache/Anchor/Delta protocol. Callers must migrate it out of band.
 var ErrRemoteBaselineMigrationRequired = errors.New("remote baseline migration required")
 
-// BaselineState is the accepted remote CI identity. OCIProjectCache is the
-// only runtime cache authority; no DataCache, Anchor, Delta, or direct-cache
-// reference is representable by this schema.
+// BaselineState is the accepted remote CI identity. ECI ImageCache is the sole
+// executable cache authority; OCIProjectCache only describes verified content
+// inside the immutable image and cannot select a runtime cache on its own.
 type BaselineState struct {
 	SchemaVersion          uint32                   `json:"schema_version"`
 	Generation             uint64                   `json:"generation"`
@@ -29,12 +29,17 @@ type BaselineState struct {
 	PolicyDigest           string                   `json:"policy_digest"`
 	ToolchainDigest        string                   `json:"toolchain_digest"`
 	RuntimeImage           string                   `json:"runtime_image"`
+	ImageCacheID           string                   `json:"image_cache_id"`
+	ImageCacheSnapshotID   string                   `json:"image_cache_snapshot_id"`
+	ImageCacheReady        bool                     `json:"image_cache_ready"`
+	ImageDigest            string                   `json:"image_digest"`
 	OCIProjectCache        *BaselineOCIProjectCache `json:"oci_project_cache"`
 	GateBinarySHA256       string                   `json:"gate_binary_sha256"`
 	RuntimeSeedSHA256      string                   `json:"runtime_seed_manifest_sha256"`
 	BaselineManifestDigest string                   `json:"baseline_manifest_digest"`
 	CreatedAt              time.Time                `json:"created_at"`
 	AcceptedAt             time.Time                `json:"accepted_at"`
+	RenewedAt              time.Time                `json:"renewed_at"`
 }
 
 // BaselineIdentity contains all inputs whose change requires a new baseline generation.
@@ -85,8 +90,11 @@ func (state BaselineState) Validate() error {
 	if err := validateBaselineIdentity(state.identity()); err != nil {
 		return err
 	}
+	if err := state.validateImageCacheAuthority(); err != nil {
+		return err
+	}
 	if state.OCIProjectCache == nil {
-		return errors.New("remote baseline OCI project cache is required")
+		return errors.New("remote baseline OCI project cache description is required")
 	}
 	if err := state.OCIProjectCache.ValidateForBaseline(state.MainTree, state.ToolchainDigest, state.Platform, state.RuntimeImage); err != nil {
 		return err
@@ -94,7 +102,7 @@ func (state BaselineState) Validate() error {
 	if !remoteDigestPattern.MatchString(state.BaselineManifestDigest) || !remoteDigestPattern.MatchString(state.GateBinarySHA256) || !remoteDigestPattern.MatchString(state.RuntimeSeedSHA256) {
 		return errors.New("remote baseline digest is invalid")
 	}
-	if !validBaselineTimes(state.CreatedAt, state.AcceptedAt) {
+	if !validBaselineTimes(state.CreatedAt, state.AcceptedAt, state.RenewedAt) {
 		return errors.New("remote baseline timestamps are invalid")
 	}
 	return nil
@@ -109,8 +117,49 @@ func (state BaselineState) Matches(identity BaselineIdentity) bool {
 	return state.Validate() == nil && validateBaselineIdentity(identity) == nil && state.identity() == identity
 }
 
-func validBaselineTimes(createdAt, acceptedAt time.Time) bool {
-	return !createdAt.IsZero() && !acceptedAt.IsZero() && createdAt.Location() == time.UTC && acceptedAt.Location() == time.UTC && !acceptedAt.Before(createdAt)
+// Renew records a successful ImageCache liveness check without creating a new
+// generation. The caller must use a compare-and-swap write so a concurrent
+// successor promotion cannot be overwritten by this lease renewal.
+func (state BaselineState) Renew(now time.Time) (BaselineState, error) {
+	if err := state.Validate(); err != nil {
+		return BaselineState{}, err
+	}
+	if now.IsZero() || now.Location() != time.UTC || now.Before(state.AcceptedAt) {
+		return BaselineState{}, errors.New("remote baseline renewal time is invalid")
+	}
+	state.RenewedAt = now
+	return state, nil
+}
+
+// validateImageCacheAuthority rejects a state whose ECI image cache cannot be
+// selected deterministically by a consumer. Ready is persisted only after the
+// ECI control-plane result is verified against the immutable runtime image.
+func (state BaselineState) validateImageCacheAuthority() error {
+	if !validImageCacheIdentifier(state.ImageCacheID) || !validImageCacheIdentifier(state.ImageCacheSnapshotID) || !state.ImageCacheReady {
+		return errors.New("remote baseline ECI image cache authority is invalid")
+	}
+	if state.ImageDigest != remoteRuntimeImageDigest(state.RuntimeImage) {
+		return errors.New("remote baseline ECI image cache digest does not match runtime image")
+	}
+	return nil
+}
+
+func validImageCacheIdentifier(value string) bool {
+	return value != "" && strings.TrimSpace(value) == value && !strings.ContainsAny(value, "\x00\r\n\t /\\?#")
+}
+
+func remoteRuntimeImageDigest(value string) string {
+	_, digest, ok := strings.Cut(value, "@")
+	if !ok {
+		return ""
+	}
+	return digest
+}
+
+func validBaselineTimes(createdAt, acceptedAt, renewedAt time.Time) bool {
+	return !createdAt.IsZero() && !acceptedAt.IsZero() && !renewedAt.IsZero() &&
+		createdAt.Location() == time.UTC && acceptedAt.Location() == time.UTC && renewedAt.Location() == time.UTC &&
+		!acceptedAt.Before(createdAt) && !renewedAt.Before(acceptedAt)
 }
 
 func validateBaselineIdentity(identity BaselineIdentity) error {

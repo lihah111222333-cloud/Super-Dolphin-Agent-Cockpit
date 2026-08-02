@@ -17,7 +17,7 @@
     "tools_go_sum_sha256": "sha256:4fb6b0daaafccfaa0024c3eebd193929957f4e49c62ed551a6289c59632f104f"
   },
   "recipe_inputs": {
-    "runtime_seed_worker_sha256": "sha256:d28bfd29763c113723a836c205515a1a1e3858729fa3062b8c397e0668e4dd80"
+    "runtime_seed_worker_sha256": "sha256:241ca05d41f238a296f510147dea0c959dc10d1e0b4abea5dd57354db2aee2d0"
   },
   "paths": {
     "manifest": "/opt/super-dolphin-gate/runtime/manifest.json",

@@ -7,9 +7,11 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/eci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
@@ -88,6 +90,8 @@ func runRemoteBaselineRefreshWithBuilder(args []string, stdout io.Writer, builde
 		if err := accepted.Validate(); err != nil {
 			return protocolError("validate accepted OCI baseline: %v", err)
 		}
+	} else {
+		return protocolError("remote baseline refresh requires an accepted Ready ECI ImageCache; full rebuild is not supported")
 	}
 	input, err := resolveRemoteBaselineRefreshInput(ctx, options, config)
 	if err != nil {
@@ -99,15 +103,16 @@ func runRemoteBaselineRefreshWithBuilder(args []string, stdout io.Writer, builde
 		return protocolError("validate accepted OCI baseline registry: %v", err)
 	}
 	if registryMigration {
-		// 单个 ECI 请求只能绑定一个私有 ACR 权限。Enterprise 目标不得
-		// 拉取 Personal parent，改由已配置的不可变 runtime 建立干净首代。
-		parent = remoteci.BaselineState{}
-	} else if accepted.SchemaVersion != 0 {
-		// 同一 registry 内的 successor 从已接受的 parent 构建。
-		input.Identity.RuntimeImage = accepted.RuntimeImage
+		return protocolError("accepted ECI ImageCache repository differs from configured OCI repository; full rebuild is not supported")
 	}
+	// 增量 OCI worker 只能从已接受的不可变镜像及其 ImageCache authority 继续。
+	input.Identity.RuntimeImage = accepted.RuntimeImage
 	if !registryMigration && accepted.Matches(input.Identity) {
-		return encodeRemoteBaselineRefreshResult(stdout, remoteBaselineRefreshResult{SchemaVersion: remoteBaselineRefreshResultSchemaVersion, Reused: true, State: accepted})
+		renewed, err := renewRemoteBaselineState(options.LedgerPath, accepted, time.Now().UTC())
+		if err != nil {
+			return infrastructureError("CAS renew accepted ECI ImageCache baseline: %v", err)
+		}
+		return encodeRemoteBaselineRefreshResult(stdout, remoteBaselineRefreshResult{SchemaVersion: remoteBaselineRefreshResultSchemaVersion, Reused: true, State: renewed})
 	}
 	cache, err := builder(ctx, config, parent, input)
 	if err != nil {
@@ -116,33 +121,24 @@ func runRemoteBaselineRefreshWithBuilder(args []string, stdout io.Writer, builde
 	if cache == nil {
 		return infrastructureError("build OCI baseline cache: builder returned nil cache")
 	}
-	state, err := newRemoteOCIBaselineState(accepted, input, cache)
+	authority, err := newRemoteBaselineImageCacheAuthority(config)
 	if err != nil {
-		return protocolError("construct OCI baseline state: %v", err)
+		return infrastructureError("create ECI ImageCache authority: %v", err)
 	}
-	if err := writeRemoteBaselineState(options.LedgerPath, state); err != nil {
-		return infrastructureError("persist OCI baseline state: %v", err)
-	}
-	persisted, err := loadRemoteBaselineState(options.LedgerPath, false)
+	state, err := promoteRemoteBaselineImageCache(ctx, authority, options.LedgerPath, accepted, input, cache)
 	if err != nil {
-		return infrastructureError("read persisted OCI baseline state: %v", err)
-	}
-	if !remoteBaselineStatesEquivalent(persisted, state) {
-		return infrastructureError("persisted OCI baseline does not match accepted successor")
+		return infrastructureError("promote ECI ImageCache baseline: %v", err)
 	}
 	return encodeRemoteBaselineRefreshResult(stdout, remoteBaselineRefreshResult{SchemaVersion: remoteBaselineRefreshResultSchemaVersion, State: state})
 }
 
-// remoteBaselineRegistryMigrationRequired 判断已接受 OCI 基线是否属于当前 ACR 权限无法服务的仓库。
+// remoteBaselineRegistryMigrationRequired 判断已接受 OCI 基线是否属于当前目标仓库。
 func remoteBaselineRegistryMigrationRequired(config remoteRunConfig, accepted remoteci.BaselineState) (bool, error) {
 	if accepted.SchemaVersion == 0 {
 		return false, nil
 	}
 	if err := accepted.Validate(); err != nil {
 		return false, err
-	}
-	if config.ACRRegistryInfo == nil {
-		return false, errors.New("remote CI ACR registry info is required")
 	}
 	return remoteRuntimeImageRepository(accepted.RuntimeImage) != config.OCICache.RegistryRepository, nil
 }
@@ -153,13 +149,18 @@ func newRemoteBaselineRefreshContext() (context.Context, func()) {
 	return ctx, func() { cancel(); stopSignals() }
 }
 
-func newRemoteOCIBaselineState(accepted remoteci.BaselineState, input remoteBaselineRefreshInput, cache *remoteci.BaselineOCIProjectCache) (remoteci.BaselineState, error) {
+// newRemoteOCIBaselineState binds the accepted OCI cache and its ECI ImageCache readiness identity.
+func newRemoteOCIBaselineState(accepted remoteci.BaselineState, input remoteBaselineRefreshInput, cache *remoteci.BaselineOCIProjectCache, imageCaches ...eci.ImageCache) (remoteci.BaselineState, error) {
 	generation := accepted.Generation + 1
 	if generation == 0 {
 		return remoteci.BaselineState{}, errors.New("remote baseline generation is exhausted")
 	}
+	if len(imageCaches) != 1 {
+		return remoteci.BaselineState{}, errors.New("exactly one ready ECI ImageCache is required")
+	}
+	imageCache := imageCaches[0]
 	now := time.Now().UTC()
-	state := remoteci.BaselineState{SchemaVersion: remoteci.BaselineStateSchemaVersion, Generation: generation, MainCommit: input.Identity.MainCommit, MainTree: input.Identity.MainTree, Platform: input.Identity.Platform, PolicyDigest: input.Identity.PolicyDigest, ToolchainDigest: input.Identity.ToolchainDigest, RuntimeImage: cache.Image, OCIProjectCache: cache, GateBinarySHA256: input.GateSourceDigest, RuntimeSeedSHA256: input.RuntimeDependencyDigest, BaselineManifestDigest: cache.ContentManifestSHA256, CreatedAt: now, AcceptedAt: now}
+	state := remoteci.BaselineState{SchemaVersion: remoteci.BaselineStateSchemaVersion, Generation: generation, MainCommit: input.Identity.MainCommit, MainTree: input.Identity.MainTree, Platform: input.Identity.Platform, PolicyDigest: input.Identity.PolicyDigest, ToolchainDigest: input.Identity.ToolchainDigest, RuntimeImage: cache.Image, OCIProjectCache: cache, ImageCacheID: imageCache.ID, ImageCacheSnapshotID: imageCache.SnapshotID, ImageCacheReady: imageCache.Status == "Ready", ImageDigest: strings.TrimPrefix(cache.Image, strings.Split(cache.Image, "@")[0]+"@"), GateBinarySHA256: input.GateSourceDigest, RuntimeSeedSHA256: input.RuntimeDependencyDigest, BaselineManifestDigest: cache.ContentManifestSHA256, CreatedAt: now, AcceptedAt: now, RenewedAt: now}
 	if err := state.Validate(); err != nil {
 		return remoteci.BaselineState{}, err
 	}

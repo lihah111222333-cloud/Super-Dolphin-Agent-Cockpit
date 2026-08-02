@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
@@ -129,4 +130,41 @@ func writeRemoteBaselineState(path string, state remoteci.BaselineState) error {
 		return err
 	}
 	return storeRemoteBaselineState(path, remoteBaselineStoredState{state: state, generation: previous.generation})
+}
+
+// promoteRemoteBaselineState performs the sole successor transition. It binds
+// the write to the accepted SQLite record observed before ImageCache creation.
+func promoteRemoteBaselineState(path string, accepted, successor remoteci.BaselineState) error {
+	if err := successor.Validate(); err != nil {
+		return err
+	}
+	stored, err := loadStoredRemoteBaselineState(path)
+	if err != nil {
+		return err
+	}
+	if !remoteBaselineStatesEquivalent(stored.state, accepted) {
+		return errors.New("accepted remote baseline changed before ImageCache successor promotion")
+	}
+	return storeRemoteBaselineState(path, remoteBaselineStoredState{state: successor, generation: stored.generation})
+}
+
+// renewRemoteBaselineState advances only the accepted lease timestamp. Its CAS
+// expectation is the current generation, so it cannot overwrite a successor
+// that was promoted after this caller observed the accepted ImageCache.
+func renewRemoteBaselineState(path string, accepted remoteci.BaselineState, now time.Time) (remoteci.BaselineState, error) {
+	stored, err := loadStoredRemoteBaselineState(path)
+	if err != nil {
+		return remoteci.BaselineState{}, err
+	}
+	if !remoteBaselineStatesEquivalent(stored.state, accepted) {
+		return remoteci.BaselineState{}, errors.New("accepted remote baseline changed before ImageCache renewal")
+	}
+	renewed, err := accepted.Renew(now)
+	if err != nil {
+		return remoteci.BaselineState{}, err
+	}
+	if err := storeRemoteBaselineState(path, remoteBaselineStoredState{state: renewed, generation: stored.generation}); err != nil {
+		return remoteci.BaselineState{}, err
+	}
+	return renewed, nil
 }

@@ -49,18 +49,16 @@ func (input *calibrationCheckpointInput) Validate() error {
 }
 
 type calibrationCheckpointResult struct {
-	JobID                                   string                      `json:"job_id"`
-	PlanDigest                              string                      `json:"plan_digest"`
-	CatalogDigest                           string                      `json:"catalog_digest"`
-	SourceTreeSHA                           string                      `json:"source_tree_sha"`
-	CandidateCLIManifestSHA256              string                      `json:"candidate_cli_manifest_sha256"`
-	CandidateTestBinaryReceiptBindingDigest string                      `json:"candidate_test_binary_receipt_binding_digest"`
-	Entrypoint                              gatecontract.CIEntrypointID `json:"entrypoint"`
-	Profile                                 gatecontract.Profile        `json:"profile"`
-	Status                                  gatecontract.ResultStatus   `json:"status"`
-	Authoritative                           bool                        `json:"authoritative"`
-	CleanupComplete                         bool                        `json:"cleanup_complete"`
-	CompletedAt                             time.Time                   `json:"completed_at"`
+	JobID           string                      `json:"job_id"`
+	PlanDigest      string                      `json:"plan_digest"`
+	CatalogDigest   string                      `json:"catalog_digest"`
+	SourceTreeSHA   string                      `json:"source_tree_sha"`
+	Entrypoint      gatecontract.CIEntrypointID `json:"entrypoint"`
+	Profile         gatecontract.Profile        `json:"profile"`
+	Status          gatecontract.ResultStatus   `json:"status"`
+	Authoritative   bool                        `json:"authoritative"`
+	CleanupComplete bool                        `json:"cleanup_complete"`
+	CompletedAt     time.Time                   `json:"completed_at"`
 }
 
 func (result *calibrationCheckpointResult) Validate() error {
@@ -298,11 +296,11 @@ func (input calibrationCheckpointInput) expand() RunInput {
 }
 
 func compactCalibrationCheckpointResult(result RunResult) *calibrationCheckpointResult {
-	return &calibrationCheckpointResult{JobID: result.JobID, PlanDigest: result.PlanDigest, CatalogDigest: result.CatalogDigest, SourceTreeSHA: result.SourceTreeSHA, Entrypoint: result.Entrypoint, Profile: result.Profile, CandidateCLIManifestSHA256: result.CandidateCLIManifestSHA256, CandidateTestBinaryReceiptBindingDigest: result.CandidateTestBinaryReceiptBindingDigest, Status: result.Status, Authoritative: result.Authoritative, CleanupComplete: result.CleanupComplete, CompletedAt: result.CompletedAt}
+	return &calibrationCheckpointResult{JobID: result.JobID, PlanDigest: result.PlanDigest, CatalogDigest: result.CatalogDigest, SourceTreeSHA: result.SourceTreeSHA, Entrypoint: result.Entrypoint, Profile: result.Profile, Status: result.Status, Authoritative: result.Authoritative, CleanupComplete: result.CleanupComplete, CompletedAt: result.CompletedAt}
 }
 
 func (result calibrationCheckpointResult) expand() RunResult {
-	return RunResult{JobID: result.JobID, PlanDigest: result.PlanDigest, CatalogDigest: result.CatalogDigest, SourceTreeSHA: result.SourceTreeSHA, Entrypoint: result.Entrypoint, Profile: result.Profile, CandidateCLIManifestSHA256: result.CandidateCLIManifestSHA256, CandidateTestBinaryReceiptBindingDigest: result.CandidateTestBinaryReceiptBindingDigest, Status: result.Status, Authoritative: result.Authoritative, CleanupComplete: result.CleanupComplete, CompletedAt: result.CompletedAt}
+	return RunResult{JobID: result.JobID, PlanDigest: result.PlanDigest, CatalogDigest: result.CatalogDigest, SourceTreeSHA: result.SourceTreeSHA, Entrypoint: result.Entrypoint, Profile: result.Profile, Status: result.Status, Authoritative: result.Authoritative, CleanupComplete: result.CleanupComplete, CompletedAt: result.CompletedAt}
 }
 
 func validateCalibrationCheckpointDocument(document calibrationCheckpointDocument) error {
@@ -330,7 +328,7 @@ func validateCompletedCalibrationCheckpoint(input calibrationCheckpointInput, re
 	if !input.Calibration || strings.TrimSpace(input.Tree) == "" || strings.TrimSpace(input.RunnerIdentityDigest) == "" || strings.TrimSpace(input.RunnerImage) == "" {
 		return errors.New("completed calibration checkpoint input identity is incomplete")
 	}
-	if strings.TrimSpace(result.JobID) == "" || strings.TrimSpace(result.PlanDigest) == "" || strings.TrimSpace(result.CatalogDigest) == "" || strings.TrimSpace(result.SourceTreeSHA) == "" || !validObjectDigest(result.CandidateCLIManifestSHA256) || !remoteDigestPattern.MatchString(result.CandidateTestBinaryReceiptBindingDigest) || result.Entrypoint == "" || result.Profile == "" || result.Status != gatecontract.ResultStatusPassed || !result.Authoritative || !result.CleanupComplete || result.CompletedAt.IsZero() {
+	if strings.TrimSpace(result.JobID) == "" || strings.TrimSpace(result.PlanDigest) == "" || strings.TrimSpace(result.CatalogDigest) == "" || strings.TrimSpace(result.SourceTreeSHA) == "" || result.Entrypoint == "" || result.Profile == "" || result.Status != gatecontract.ResultStatusPassed || !result.Authoritative || !result.CleanupComplete || result.CompletedAt.IsZero() {
 		return errors.New("completed calibration checkpoint result identity is incomplete")
 	}
 	if result.SourceTreeSHA != input.Tree || result.Entrypoint != input.Entrypoint || result.Profile != input.Profile {

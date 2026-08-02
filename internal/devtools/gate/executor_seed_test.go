@@ -737,6 +737,7 @@ func writeRuntimeSeedFixture(t *testing.T, source string) (string, string) {
 	goModCacheRoot := filepath.Join(runtimeRoot, "go-mod-cache")
 	nodeModulesRoot := filepath.Join(runtimeRoot, "frontend", "node_modules")
 	npmCacheRoot := filepath.Join(runtimeRoot, "frontend", "npm-cache")
+	viteCacheRoot := filepath.Join(runtimeRoot, "frontend", "vite-cache")
 	proxyVersionRoot := filepath.Join(moduleProxyRoot, "github.com", "kelindar", "event", "@v")
 	writeTestFile(t, filepath.Join(proxyVersionRoot, "list"), "v1.5.2\n", 0o600)
 	writeTestFile(t, filepath.Join(proxyVersionRoot, "v1.5.2.info"), "{}\n", 0o600)
@@ -755,6 +756,7 @@ func writeRuntimeSeedFixture(t *testing.T, source string) (string, string) {
 	writeTestFile(t, filepath.Join(nodeModulesRoot, "tool", "index.js"), "export {}\n", 0o600)
 	writeTestFile(t, filepath.Join(npmCacheRoot, "_cacache", "content-v2", "sha512", "aa", "fixture"), "fixture package\n", 0o444)
 	writeTestFile(t, filepath.Join(npmCacheRoot, "_cacache", "index-v5", "aa", "fixture"), "fixture index\n", 0o444)
+	writeTestFile(t, filepath.Join(viteCacheRoot, "deps", "_metadata.json"), "{\"hash\":\"fixture\"}\n", 0o444)
 	ripgrepPath := filepath.Join(runtimeRoot, "bin", "rg")
 	writeTestFile(t, ripgrepPath, "fixture ripgrep\n", 0o700)
 	sqruffPath := filepath.Join(runtimeRoot, "bin", "sqruff")
@@ -765,6 +767,7 @@ func writeRuntimeSeedFixture(t *testing.T, source string) (string, string) {
 	goModCacheDigest := mustRuntimeSeedTreeDigest(t, goModCacheRoot)
 	nodeModulesDigest := mustRuntimeSeedTreeDigest(t, nodeModulesRoot)
 	npmCacheDigest := mustRuntimeSeedTreeDigest(t, npmCacheRoot)
+	viteCacheDigest := mustRuntimeSeedTreeDigest(t, viteCacheRoot)
 	ripgrepDigest := mustRuntimeSeedFileDigest(t, ripgrepPath)
 	sqruffDigest := mustRuntimeSeedFileDigest(t, sqruffPath)
 	proxyLockDigest := mustRuntimeSeedFileDigest(t, proxyLockPath)
@@ -773,8 +776,8 @@ func writeRuntimeSeedFixture(t *testing.T, source string) (string, string) {
 		ModuleProxyLockSHA256: proxyLockDigest, ModuleProxyTreeSHA256: moduleProxyDigest,
 		GoModCacheTreeSHA256: goModCacheDigest,
 		PackageLockSHA256:    packageLockDigest, NodeModulesTreeSHA256: nodeModulesDigest,
-		NPMCacheTreeSHA256: npmCacheDigest,
-		RipgrepSHA256:      ripgrepDigest, SqruffSHA256: sqruffDigest,
+		NPMCacheTreeSHA256: npmCacheDigest, ViteCacheTreeSHA256: viteCacheDigest,
+		RipgrepSHA256: ripgrepDigest, SqruffSHA256: sqruffDigest,
 	}
 	encoded, err := json.Marshal(manifest)
 	if err != nil {

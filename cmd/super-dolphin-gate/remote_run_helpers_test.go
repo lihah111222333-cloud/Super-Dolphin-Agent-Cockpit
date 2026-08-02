@@ -35,7 +35,10 @@ func remoteRunBaselineState(t *testing.T, repository string) remoteci.BaselineSt
 	state := remoteRunRunnerIdentityState()
 	state.SchemaVersion, state.Generation = remoteci.BaselineStateSchemaVersion, 1
 	state.MainCommit, state.MainTree = commit, tree
+	state.ImageCacheID, state.ImageCacheSnapshotID, state.ImageCacheReady = "imc-baseline-1", "snap-baseline-1", true
+	state.ImageDigest = strings.TrimPrefix(state.RuntimeImage, strings.Split(state.RuntimeImage, "@")[0]+"@")
 	state.CreatedAt, state.AcceptedAt = created, created.Add(time.Minute)
+	state.RenewedAt = state.AcceptedAt
 	state.OCIProjectCache = &remoteci.BaselineOCIProjectCache{Image: state.RuntimeImage, ContentManifestSHA256: "sha256:" + strings.Repeat("a", 64), MainTree: state.MainTree, ToolchainDigest: state.ToolchainDigest, Platform: state.Platform, CachePath: remoteci.OCIProjectGoBuildCachePath}
 	return state
 }
