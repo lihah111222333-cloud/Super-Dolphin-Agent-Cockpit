@@ -545,7 +545,7 @@ validate_offline_module_cache() {
 validate_reusable_runtime() (
   use_runtime $payload_root/runtime
   runtime_validation_go_mod_cache=$stage/runtime-reuse-go-mod-cache
-  mkdir -p "$runtime_validation_go_mod_cache"
+  install -d -m 0700 "$runtime_validation_go_mod_cache"
   "$payload_root/bin/super-dolphin-gate" worker go-module-overlay \
     "$payload_root/runtime/go-mod-cache" "$runtime_validation_go_mod_cache"
   validate_offline_module_cache

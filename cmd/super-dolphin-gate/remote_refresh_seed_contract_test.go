@@ -458,6 +458,7 @@ func assertRemoteBaselineSeedRuntimeReuseFragments(t *testing.T) {
 	t.Helper()
 	assertRemoteBaselineSeedContains(t, []string{
 		"runtime seed cache is stale; rebuilding",
+		"install -d -m 0700 \"$runtime_validation_go_mod_cache\"",
 		"previous-runtime-dependencies",
 		"current-runtime-dependencies",
 		"runtime_validation_go_mod_cache=$stage/runtime-reuse-go-mod-cache",
