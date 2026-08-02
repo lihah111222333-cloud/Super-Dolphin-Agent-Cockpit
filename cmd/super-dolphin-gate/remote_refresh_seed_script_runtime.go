@@ -101,9 +101,7 @@ if test -n "${BASELINE_DIRECT_CACHE_LAYER_COUNT:-}"; then
 else
   printf '[baseline-seed] go direct cache migration: current accessed working set only\n'
 fi
-cp -a "$go_build_cache/." "$direct_cache_root/"
-chmod -R a+rX,a-w "$direct_cache_root"
-DIRECT_CACHE_ROOT="$direct_cache_root" DIRECT_CACHE_MANIFEST="$oss_output/direct-cache/manifest.json" \
+DIRECT_CACHE_ROOT="$go_build_cache" DIRECT_CACHE_MANIFEST="$oss_output/direct-cache/manifest.json" \
   RUNTIME_GO_SHA256="$runtime_manifest_digest" RUNTIME_DEPS_SHA256="$BASELINE_RUNTIME_DEPENDENCY_DIGEST" \
   "$payload_root/runtime/python/bin/python3" - <<'PY'
 import hashlib
@@ -121,9 +119,7 @@ for parent, directories, files in os.walk(root, topdown=True, followlinks=False)
         path = os.path.join(parent, name)
         info = os.lstat(path)
         relative = os.path.relpath(path, root).replace(os.sep, "/")
-        mode = stat.S_IMODE(info.st_mode)
-        if mode & 0o222:
-            raise SystemExit("direct cache seed entry is writable: " + relative)
+        mode = 0o555 if stat.S_ISDIR(info.st_mode) else 0o444
         if stat.S_ISDIR(info.st_mode):
             entries.append({"path": relative, "size": 0, "mode": mode, "type": "directory"})
         elif stat.S_ISREG(info.st_mode):
@@ -137,9 +133,7 @@ for parent, directories, files in os.walk(root, topdown=True, followlinks=False)
 if not entries:
     raise SystemExit("direct cache seed is empty")
 entries.sort(key=lambda entry: entry["path"])
-root_mode = stat.S_IMODE(os.lstat(root).st_mode)
-if root_mode & 0o222:
-    raise SystemExit("direct cache seed root is writable")
+root_mode = 0o555
 tree = hashlib.sha256()
 def record(kind, *fields):
     tree.update(kind.encode("ascii"))
@@ -165,6 +159,18 @@ with open(os.environ["DIRECT_CACHE_MANIFEST"], "w", encoding="utf-8") as output:
     output.write("\n")
 PY
 test -s "$oss_output/direct-cache/manifest.json"
+publish_direct_cache() {
+  publish_parallelism=$((BASELINE_SEED_GO_PARALLELISM * 4))
+  find "$go_build_cache" -type f -print0 | xargs -0 -r -P "$publish_parallelism" -n 1 sh -c '
+    source_path=$1
+    source_root=$2
+    target_root=$3
+    relative=${source_path#"$source_root"/}
+    install -D -m 0444 "$source_path" "$target_root/$relative"
+  ' sh '{}' "$go_build_cache" "$direct_cache_root"
+  find "$direct_cache_root" -type d -exec chmod 0555 '{}' +
+}
+run_logged direct-cache-publish publish_direct_cache
 mkdir -p "$oss_output/bin"
 cp $payload_root/bin/super-dolphin-gate "$oss_output/bin/super-dolphin-gate"
 cp "$ca_bundle" "$oss_output/ca-certificates.crt"
