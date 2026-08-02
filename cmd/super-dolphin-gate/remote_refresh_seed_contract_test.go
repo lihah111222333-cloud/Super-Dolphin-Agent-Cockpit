@@ -425,6 +425,8 @@ func assertRemoteBaselineSeedOfflineDependencyFragments(t *testing.T) {
 		"verify_source_tree_clean()",
 		"module_lock_manifest()",
 		"runtime_dependency_manifest()",
+		`if .schema_version == "12" then .inputs`,
+		`.inputs | del(.runtime_seed_worker_sha256)`,
 		"unsupported runtime dependency lock schema",
 		"test \"$BASELINE_FORCE_RUNTIME_REFRESH\" != true",
 		"git -C \"$1\" ls-files -s -- go.mod go.sum '*/go.mod' '*/go.sum'",
