@@ -830,14 +830,17 @@ func (profile ExecutionProfile) Validate() error {
 	if profile.CacheSource != "none" && profile.CacheSource != "go_build_cache" {
 		return errors.New("execution profile cache source is invalid")
 	}
-	if profile.CacheStatus != "not_applicable" && profile.CacheStatus != "hit" && profile.CacheStatus != "miss" && profile.CacheStatus != "put" {
+	if profile.CacheStatus != CacheObservationNotApplicable && profile.CacheStatus != CacheObservationHit && profile.CacheStatus != CacheObservationMiss && profile.CacheStatus != CacheObservationPut {
 		return errors.New("execution profile cache status is invalid")
 	}
 	if profile.CacheMeasurement != "measured" && profile.CacheMeasurement != "not_measured" {
 		return errors.New("execution profile cache measurement is invalid")
 	}
-	if profile.CacheSource == "none" && profile.CacheStatus != "not_applicable" {
+	if profile.CacheSource == "none" && profile.CacheStatus != CacheObservationNotApplicable {
 		return errors.New("execution profile absent cache is not applicable")
+	}
+	if profile.CacheStatus == CacheObservationNotApplicable && (profile.PrivateHitCount != 0 || profile.BaselineHitCount != 0 || profile.CacheMissCount != 0 || profile.CachePutCount != 0 || len(profile.BaselineHitByGeneration) != 0) {
+		return errors.New("execution profile zero-lookup cache status has observations")
 	}
 	var baselineTotal uint64
 	for generation, count := range profile.BaselineHitByGeneration {
@@ -943,7 +946,7 @@ func decodeExecutionProfileRecord(payload string, expectedIndex int) (ExecutionP
 	if frontendErr != nil {
 		return ExecutionProfile{}, frontendErr
 	}
-	p := ExecutionProfile{Frontend: frontend, CacheSource: f[1], CacheStatus: f[2], CacheMeasurement: f[3], PrivateHitCount: privateHits, BaselineHitCount: baselineHits, CacheMissCount: misses, CachePutCount: puts, BaselineHitByGeneration: generations, MaterializeMS: values[0], DownloadMS: values[1], VerifyMS: values[2], StartupMS: values[3], TestBodyMS: values[4], TotalMS: values[5]}
+	p := ExecutionProfile{Frontend: frontend, CacheSource: f[1], CacheStatus: CacheObservationStatus(f[2]), CacheMeasurement: f[3], PrivateHitCount: privateHits, BaselineHitCount: baselineHits, CacheMissCount: misses, CachePutCount: puts, BaselineHitByGeneration: generations, MaterializeMS: values[0], DownloadMS: values[1], VerifyMS: values[2], StartupMS: values[3], TestBodyMS: values[4], TotalMS: values[5]}
 	if err := p.Validate(); err != nil {
 		return ExecutionProfile{}, err
 	}

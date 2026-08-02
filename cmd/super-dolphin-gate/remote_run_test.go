@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
 func TestAppendRemoteDurationSamplesRefreshesSQLiteAuthority(t *testing.T) {
@@ -19,6 +21,7 @@ func TestAppendRemoteDurationSamplesRefreshesSQLiteAuthority(t *testing.T) {
 	if _, err := store.CompareAndSwap(0, gatecontract.NewDurationLedger()); err != nil {
 		t.Fatalf("create duration ledger: %v", err)
 	}
+	seedRemoteRunTestAcceptedGeneration(t, store, 1)
 	parentID := "go-test:./internal/archtest"
 	parentDigest := strings.Repeat("a", 64)
 	testName := "TestCodeSizeGuard/size_and_freeze"
@@ -38,7 +41,7 @@ func TestAppendRemoteDurationSamplesRefreshesSQLiteAuthority(t *testing.T) {
 		TargetName:          testName,
 		TargetStatus:        gatecontract.GoTestStatusPass,
 	}
-	if err := appendRemoteDurationSamples(path, []gatecontract.DurationSample{sample}); err != nil {
+	if err := appendRemoteDurationSamples(path, 1, []gatecontract.DurationSample{sample}); err != nil {
 		t.Fatalf("appendRemoteDurationSamples() error = %v", err)
 	}
 	persisted, err := store.Load()
@@ -66,12 +69,21 @@ func TestParseRemoteRunOptions(t *testing.T) {
 		"--base", "main^",
 		"--profile", string(gatecontract.ProfileRelease),
 		"--ledger", "/tmp/remote-ci.baseline-state.sqlite",
-		"--force-rerun",
 	})
 	if err != nil {
 		t.Fatalf("parseRemoteRunOptions() error = %v", err)
 	}
 	assertParsedRemoteRunOptions(t, options, requesterFingerprint)
+}
+
+func TestParseRemoteRunOptionsRejectsRetiredWorkloadReuseFlag(t *testing.T) {
+	_, err := parseRemoteRunOptions([]string{
+		"--config", "/tmp/remote-ci.json",
+		"--force-rerun",
+	})
+	if err == nil || !strings.Contains(err.Error(), "flag provided but not defined") {
+		t.Fatalf("parseRemoteRunOptions(retired workload reuse flag) error = %v", err)
+	}
 }
 
 func TestParseRemoteRunOptionsDerivesSingleSQLiteAuthority(t *testing.T) {
@@ -141,8 +153,6 @@ func TestLoadRemoteRunConfig(t *testing.T) {
 		t.Fatalf("loadRemoteRunConfig() error = %v", err)
 	}
 	if config.RegionID != "cn-shenzhen" || config.OSS.SourcePrefix != "baseline-artifacts/source-deltas/" ||
-		config.OCICache.RegistryRepository != "registry.example/runtime" ||
-		config.Capacity.SeedClass != "memory" ||
 		len(config.Capacity.ResourcePolicy.Classes) != 4 ||
 		config.Capacity.ResourcePolicy.Bootstrap.GoTest != "memory" {
 		t.Fatalf("loadRemoteRunConfig() = %#v", config)
@@ -151,22 +161,20 @@ func TestLoadRemoteRunConfig(t *testing.T) {
 
 func TestLoadRemoteRunConfigRejectsDrift(t *testing.T) {
 	cases := map[string]string{
-		"unknown field":        strings.Replace(validRemoteRunConfigJSON(), `"schema_version": 7`, `"schema_version": 7, "unknown": true`, 1),
-		"legacy schema":        strings.Replace(validRemoteRunConfigJSON(), `"schema_version": 7`, `"schema_version": 6`, 1),
-		"legacy data cache":    strings.Replace(validRemoteRunConfigJSON(), `"oci_cache":`, `"data_cache": {}, "oci_cache":`, 1),
-		"unpinned image":       strings.Replace(validRemoteRunConfigJSON(), `"image": "registry.example/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"`, `"image": "registry.example/runtime:latest"`, 1),
-		"legacy OCI BuildKit":  strings.Replace(validRemoteRunConfigJSON(), `"oci_cache": {`, `"oci_cache": {"buildkit_image": "registry.example/buildkit@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", `, 1),
-		"legacy OCI Buildx":    strings.Replace(validRemoteRunConfigJSON(), `"oci_cache": {`, `"oci_cache": {"buildx_root": "/var/lib/super-dolphin/buildx", `, 1),
-		"missing network":      strings.Replace(validRemoteRunConfigJSON(), `"vswitch_id": "vsw-test"`, `"vswitch_id": ""`, 1),
-		"missing seed class":   strings.Replace(validRemoteRunConfigJSON(), `"seed_class": "memory"`, `"seed_class": ""`, 1),
-		"wrong cpu":            strings.Replace(validRemoteRunConfigJSON(), `"vcpu": 2`, `"vcpu": 3`, 1),
-		"wrong memory":         strings.Replace(validRemoteRunConfigJSON(), `"memory_gib": 32`, `"memory_gib": 64`, 1),
-		"unknown bootstrap":    strings.Replace(validRemoteRunConfigJSON(), `"go_test": "memory"`, `"go_test": "missing"`, 1),
-		"removed shard field":  strings.Replace(validRemoteRunConfigJSON(), `"seed_class": "memory"`, `"max_shards_per_job": 5, "seed_class": "memory"`, 1),
-		"absolute source":      strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "/source-deltas/"`, 1),
-		"traversal source":     strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "../source-deltas/"`, 1),
-		"unterminated source":  strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "source-deltas"`, 1),
-		"overlapping prefixes": strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "baseline-artifacts/"`, 1),
+		"unknown field":          strings.Replace(validRemoteRunConfigJSON(), `"schema_version": 8`, `"schema_version": 8, "unknown": true`, 1),
+		"legacy schema":          strings.Replace(validRemoteRunConfigJSON(), `"schema_version": 8`, `"schema_version": 7`, 1),
+		"legacy data cache":      strings.Replace(validRemoteRunConfigJSON(), `"capacity":`, `"data_cache": {}, "capacity":`, 1),
+		"legacy OCI cache":       strings.Replace(validRemoteRunConfigJSON(), `"capacity":`, `"oci_cache": {}, "capacity":`, 1),
+		"legacy runtime":         strings.Replace(validRemoteRunConfigJSON(), `"capacity":`, `"runtime": {"image": "registry.example/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "capacity":`, 1),
+		"legacy baseline prefix": strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "source-deltas/", "baseline_prefix": "baseline-artifacts/"`, 1),
+		"legacy seed class":      strings.Replace(validRemoteRunConfigJSON(), `"resource_policy":`, `"seed_class": "memory", "resource_policy":`, 1),
+		"missing network":        strings.Replace(validRemoteRunConfigJSON(), `"vswitch_id": "vsw-test"`, `"vswitch_id": ""`, 1),
+		"wrong cpu":              strings.Replace(validRemoteRunConfigJSON(), `"vcpu": 2`, `"vcpu": 3`, 1),
+		"wrong memory":           strings.Replace(validRemoteRunConfigJSON(), `"memory_gib": 32`, `"memory_gib": 64`, 1),
+		"unknown bootstrap":      strings.Replace(validRemoteRunConfigJSON(), `"go_test": "memory"`, `"go_test": "missing"`, 1),
+		"absolute source":        strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "/source-deltas/"`, 1),
+		"traversal source":       strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "../source-deltas/"`, 1),
+		"unterminated source":    strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "source-deltas"`, 1),
 	}
 	for name, document := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -180,16 +188,12 @@ func TestLoadRemoteRunConfigRejectsDrift(t *testing.T) {
 
 func TestValidateRunnableRemoteBaselineRejectsMissingOCIProjectCache(t *testing.T) {
 	repository := initRemoteRunGitFixture(t)
-	config, err := loadRemoteRunConfig(writeRemoteRunConfigFixture(t, validRemoteRunConfigJSON()))
-	if err != nil {
-		t.Fatalf("loadRemoteRunConfig() error = %v", err)
-	}
 	state := remoteRunBaselineState(t, repository)
-	if err := validateRunnableRemoteBaseline(config, state); err != nil {
+	if err := validateRunnableRemoteBaseline(state); err != nil {
 		t.Fatalf("current baseline rejected: %v", err)
 	}
 	state.OCIProjectCache = nil
-	err = validateRunnableRemoteBaseline(config, state)
+	err := validateRunnableRemoteBaseline(state)
 	if err == nil || !strings.Contains(err.Error(), "OCI project cache") {
 		t.Fatalf("legacy baseline error = %v, want OCI cache rejection", err)
 	}
@@ -197,64 +201,43 @@ func TestValidateRunnableRemoteBaselineRejectsMissingOCIProjectCache(t *testing.
 
 func TestResolveRemoteRunInputAcceptsRefreshedRuntimeImageFromSQLiteAuthority(t *testing.T) {
 	repository := initRemoteRunGitFixture(t)
-	config, err := loadRemoteRunConfig(writeRemoteRunConfigFixture(t, validRemoteRunConfigJSON()))
-	if err != nil {
-		t.Fatalf("loadRemoteRunConfig() error = %v", err)
-	}
 	state := remoteRunBaselineState(t, repository)
 	refreshedImage := "registry.example/runtime@sha256:" + strings.Repeat("c", 64)
 	state.RuntimeImage = refreshedImage
 	state.ImageDigest = remoteRuntimeImageDigest(refreshedImage)
 	state.OCIProjectCache.Image = refreshedImage
+	state.ImageCacheID = "imc-audit-only-1"
+	state.ImageCacheSnapshotID = "snap-runtime-1"
 	input, err := resolveRemoteRunInput(remoteRunOptions{
 		RepositoryRoot: repository,
 		Commit:         "HEAD",
 		Profile:        string(gatecontract.ProfileLocalFast),
 		LedgerPath:     writeRemoteRunLedgerFixture(t, remoteRunRunnerIdentity(state)),
-	}, config, state, remoteRunRunnerIdentity(state))
+	}, state, remoteRunRunnerIdentity(state))
 	if err != nil {
 		t.Fatalf("refreshed SQLite baseline rejected by run source: %v", err)
 	}
 	if input.RunnerImage != refreshedImage {
 		t.Fatalf("run source runner image = %q, want refreshed SQLite authority %q", input.RunnerImage, refreshedImage)
 	}
-	if input.ImageCacheID != state.ImageCacheID {
-		t.Fatalf("run source ImageCacheID = %q, want accepted baseline %q", input.ImageCacheID, state.ImageCacheID)
+	if input.ImageCacheSnapshotID != state.ImageCacheSnapshotID {
+		t.Fatalf("run source ImageCacheSnapshotID = %q, want accepted baseline %q", input.ImageCacheSnapshotID, state.ImageCacheSnapshotID)
 	}
-}
-
-func TestValidateRunnableRemoteBaselineRejectsRuntimeImageRepositoryDrift(t *testing.T) {
-	repository := initRemoteRunGitFixture(t)
-	config, err := loadRemoteRunConfig(writeRemoteRunConfigFixture(t, validRemoteRunConfigJSON()))
-	if err != nil {
-		t.Fatalf("loadRemoteRunConfig() error = %v", err)
-	}
-	state := remoteRunBaselineState(t, repository)
-	driftingImage := "attacker.invalid/runtime@sha256:" + strings.Repeat("d", 64)
-	state.RuntimeImage = driftingImage
-	state.ImageDigest = remoteRuntimeImageDigest(driftingImage)
-	state.OCIProjectCache.Image = driftingImage
-	err = validateRunnableRemoteBaseline(config, state)
-	if err == nil || !strings.Contains(err.Error(), "configured OCI cache repository") {
-		t.Fatalf("repository drift error = %v, want configured OCI cache repository rejection", err)
+	if input.ImageCacheSnapshotID == state.ImageCacheID {
+		t.Fatalf("run source used audit ImageCacheID %q instead of snapshot %q", state.ImageCacheID, state.ImageCacheSnapshotID)
 	}
 }
 
 func TestResolveRemoteRunInputUsesExactGitObjects(t *testing.T) {
 	repository := initRemoteRunGitFixture(t)
-	configPath := writeRemoteRunConfigFixture(t, validRemoteRunConfigJSON())
 	ledgerPath := writeRemoteRunLedgerFixture(t)
-	config, err := loadRemoteRunConfig(configPath)
-	if err != nil {
-		t.Fatalf("loadRemoteRunConfig() error = %v", err)
-	}
 	state := remoteRunBaselineState(t, repository)
 	input, err := resolveRemoteRunInput(remoteRunOptions{
 		RepositoryRoot: repository,
 		Commit:         "HEAD",
 		Profile:        string(gatecontract.ProfileLocalFast),
 		LedgerPath:     ledgerPath,
-	}, config, state, remoteRunRunnerIdentity(state))
+	}, state, remoteRunRunnerIdentity(state))
 	if err != nil {
 		t.Fatalf("resolveRemoteRunInput() error = %v", err)
 	}
@@ -270,29 +253,21 @@ func TestResolveRemoteRunInputCompilesCandidateGateWhenCLIClosureChanges(t *test
 	}
 	runRemoteRunGit(t, repository, "add", "cmd/super-dolphin-gate/main.go")
 	runRemoteRunGit(t, repository, "commit", "--quiet", "-m", "修改候选 CLI")
-	configPath := writeRemoteRunConfigFixture(t, validRemoteRunConfigJSON())
-	config, err := loadRemoteRunConfig(configPath)
-	if err != nil {
-		t.Fatal(err)
-	}
 	state := remoteRunBaselineState(t, repository)
 	input, err := resolveRemoteRunInput(remoteRunOptions{
 		RepositoryRoot: repository,
 		Commit:         "HEAD",
 		Scenario:       "commit",
 		LedgerPath:     writeRemoteRunLedgerFixture(t),
-	}, config, state, remoteRunRunnerIdentity(state))
+	}, state, remoteRunRunnerIdentity(state))
 	if err != nil {
 		t.Fatal(err)
-	}
-	if input.ReuseBaselineGateCLI {
-		t.Fatal("candidate gate closure change reused the baseline gate binary")
 	}
 	canonicalRepository, err := filepath.EvalSymlinks(repository)
 	if err != nil {
 		t.Fatal(err)
 	}
-	baselineSource, _, _, err := resolveRemoteCandidateGateIdentity(canonicalRepository, state.MainTree, state.MainTree)
+	baselineSource, _, _, err := remoteci.LoadGateCLICompileClosure(context.Background(), canonicalRepository, state.MainTree)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,48 +276,9 @@ func TestResolveRemoteRunInputCompilesCandidateGateWhenCLIClosureChanges(t *test
 	}
 }
 
-func TestResolveRemoteRunInputCalibrationReusesPassedWorkloadsUnlessForced(t *testing.T) {
-	repository := initRemoteRunGitFixture(t)
-	configPath := writeRemoteRunConfigFixture(t, validRemoteRunConfigJSON())
-	ledgerPath := writeRemoteRunLedgerFixture(t)
-	config, err := loadRemoteRunConfig(configPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	options := remoteRunOptions{
-		RepositoryRoot: repository,
-		Commit:         "HEAD",
-		Scenario:       "commit",
-		LedgerPath:     ledgerPath,
-		Calibration:    true,
-	}
-	state := remoteRunBaselineState(t, repository)
-	runnerIdentity := remoteRunRunnerIdentity(state)
-	input, err := resolveRemoteRunInput(options, config, state, runnerIdentity)
-	if err != nil {
-		t.Fatalf("resolveRemoteRunInput() error = %v", err)
-	}
-	if input.ForceRerun {
-		t.Fatal("calibration unexpectedly bypassed the passed-workload cache")
-	}
-	options.ForceRerun = true
-	input, err = resolveRemoteRunInput(options, config, state, runnerIdentity)
-	if err != nil {
-		t.Fatalf("resolveRemoteRunInput(force) error = %v", err)
-	}
-	if !input.ForceRerun {
-		t.Fatal("explicit force rerun was not propagated")
-	}
-}
-
 func TestResolveRemoteRunInputBindsAuthoritativePreCommitTree(t *testing.T) {
 	repository := initRemoteRunGitFixture(t)
-	configPath := writeRemoteRunConfigFixture(t, validRemoteRunConfigJSON())
 	ledgerPath := writeRemoteRunLedgerFixture(t)
-	config, err := loadRemoteRunConfig(configPath)
-	if err != nil {
-		t.Fatal(err)
-	}
 	tree := remoteRunGitOutput(t, repository, "rev-parse", "HEAD^{tree}")
 	parent := remoteRunGitOutput(t, repository, "rev-parse", "HEAD^")
 	state := remoteRunBaselineState(t, repository)
@@ -353,7 +289,7 @@ func TestResolveRemoteRunInputBindsAuthoritativePreCommitTree(t *testing.T) {
 		Scenario:       "commit",
 		Entrypoint:     string(gatecontract.CIEntrypointGitPreCommit),
 		LedgerPath:     ledgerPath,
-	}, config, state, remoteRunRunnerIdentity(state))
+	}, state, remoteRunRunnerIdentity(state))
 	if err != nil {
 		t.Fatalf("resolveRemoteRunInput() error = %v", err)
 	}
@@ -369,12 +305,7 @@ func TestResolveRemoteRunInputBindsAuthoritativePreCommitTree(t *testing.T) {
 
 func TestResolveRemoteRunInputBindsPushRange(t *testing.T) {
 	repository := initRemoteRunGitFixture(t)
-	configPath := writeRemoteRunConfigFixture(t, validRemoteRunConfigJSON())
 	ledgerPath := writeRemoteRunLedgerFixture(t)
-	config, err := loadRemoteRunConfig(configPath)
-	if err != nil {
-		t.Fatal(err)
-	}
 	base := remoteRunGitOutput(t, repository, "rev-parse", "HEAD^")
 	state := remoteRunBaselineState(t, repository)
 	input, err := resolveRemoteRunInput(remoteRunOptions{
@@ -389,7 +320,7 @@ func TestResolveRemoteRunInputBindsPushRange(t *testing.T) {
 		ObservedRemote: base,
 		UpdateKind:     string(gatecontract.UpdateKindFastForward),
 		LedgerPath:     ledgerPath,
-	}, config, state, remoteRunRunnerIdentity(state))
+	}, state, remoteRunRunnerIdentity(state))
 	if err != nil {
 		t.Fatalf("resolveRemoteRunInput() error = %v", err)
 	}
@@ -398,19 +329,14 @@ func TestResolveRemoteRunInputBindsPushRange(t *testing.T) {
 
 func TestResolveRemoteRunInputRejectsPushWithoutRangeIdentity(t *testing.T) {
 	repository := initRemoteRunGitFixture(t)
-	configPath := writeRemoteRunConfigFixture(t, validRemoteRunConfigJSON())
 	ledgerPath := writeRemoteRunLedgerFixture(t)
-	config, err := loadRemoteRunConfig(configPath)
-	if err != nil {
-		t.Fatal(err)
-	}
 	state := remoteRunBaselineState(t, repository)
-	_, err = resolveRemoteRunInput(remoteRunOptions{
+	_, err := resolveRemoteRunInput(remoteRunOptions{
 		RepositoryRoot: repository,
 		Commit:         "HEAD",
 		Profile:        string(gatecontract.ProfilePush),
 		LedgerPath:     ledgerPath,
-	}, config, state, remoteRunRunnerIdentity(state))
+	}, state, remoteRunRunnerIdentity(state))
 	if err == nil {
 		t.Fatal("resolveRemoteRunInput() accepted push without range identity")
 	}
@@ -418,12 +344,7 @@ func TestResolveRemoteRunInputRejectsPushWithoutRangeIdentity(t *testing.T) {
 
 func TestResolveRemoteRunInputBindsPushCreateToEmptyTree(t *testing.T) {
 	repository := initRemoteRunGitFixture(t)
-	configPath := writeRemoteRunConfigFixture(t, validRemoteRunConfigJSON())
 	ledgerPath := writeRemoteRunLedgerFixture(t)
-	config, err := loadRemoteRunConfig(configPath)
-	if err != nil {
-		t.Fatal(err)
-	}
 	state := remoteRunBaselineState(t, repository)
 	input, err := resolveRemoteRunInput(remoteRunOptions{
 		RepositoryRoot: repository,
@@ -434,7 +355,7 @@ func TestResolveRemoteRunInputBindsPushCreateToEmptyTree(t *testing.T) {
 		ObservedRemote: strings.Repeat("0", 40),
 		UpdateKind:     string(gatecontract.UpdateKindCreate),
 		LedgerPath:     ledgerPath,
-	}, config, state, remoteRunRunnerIdentity(state))
+	}, state, remoteRunRunnerIdentity(state))
 	if err != nil {
 		t.Fatalf("resolveRemoteRunInput() error = %v", err)
 	}
@@ -465,7 +386,7 @@ func writeRemoteRunLedgerFixture(t *testing.T, runners ...string) string {
 		Tree:                 strings.Repeat("2", 40),
 		Platform:             "linux/amd64",
 		Runner:               runner,
-		Toolchain:            "sha256:" + strings.Repeat("c", 64),
+		Toolchain:            remoteRunRunnerIdentityState().ToolchainDigest,
 		CommitEntrypoint:     gatecontract.CIEntrypointGitPreCommit,
 		PushEntrypoint:       gatecontract.CIEntrypointGitPrePush,
 		ReleaseEntrypoint:    gatecontract.CIEntrypointRelease,
@@ -516,42 +437,22 @@ func TestRemoteCalibrationRunOptionsUseAuthoritativeCommitPushAndReleaseEntrypoi
 	assertRemoteCalibrationReleaseOptions(t, releaseOptions, commit)
 }
 
-func TestRemoteCalibrationRunOptionsPropagateOnlyExplicitForceRerun(t *testing.T) {
-	for _, forceRerun := range []bool{false, true} {
-		commitOptions, pushOptions, releaseOptions := remoteCalibrationRunOptions(
-			remoteRunOptions{ForceRerun: forceRerun},
-			strings.Repeat("1", 40),
-			strings.Repeat("2", 40),
-			strings.Repeat("3", 40),
-		)
-		for scenario, options := range map[string]remoteRunOptions{
-			"commit": commitOptions,
-			"push":   pushOptions,
-			"full":   releaseOptions,
-		} {
-			if options.ForceRerun != forceRerun {
-				t.Fatalf("scenario %s ForceRerun = %t, want %t", scenario, options.ForceRerun, forceRerun)
-			}
-		}
-	}
-}
-
 func TestAcceptRemoteDurationCalibrationRequiresEveryShardableWorkloadAndRacePackage(t *testing.T) {
 	fixture := newRemoteDurationCalibrationFixture(t)
 	samples, missingWorkload, missingRace := fixture.samplesExceptRequiredWorkloads(t)
-	if _, err := fixture.store.AppendSamples(samples); err != nil {
+	if _, err := fixture.store.AppendSamples(fixture.acceptedGeneration, samples); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := fixture.accept(); err == nil {
 		t.Fatal("acceptRemoteDurationCalibration() accepted missing workload samples")
 	}
-	if _, err := fixture.store.AppendSamples([]gatecontract.DurationSample{missingWorkload}); err != nil {
+	if _, err := fixture.store.AppendSamples(fixture.acceptedGeneration, []gatecontract.DurationSample{missingWorkload}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := fixture.accept(); err == nil {
 		t.Fatal("acceptRemoteDurationCalibration() accepted a missing race duration sample")
 	}
-	if _, err := fixture.store.AppendSamples([]gatecontract.DurationSample{missingRace}); err != nil {
+	if _, err := fixture.store.AppendSamples(fixture.acceptedGeneration, []gatecontract.DurationSample{missingRace}); err != nil {
 		t.Fatal(err)
 	}
 	accepted, err := fixture.acceptExistingSamples()
@@ -590,7 +491,7 @@ func TestAcceptRemoteDurationCalibrationDoesNotRequireOwnerOnlyWorkloadDuration(
 	if !foundOwnerOnly {
 		t.Fatal("calibration catalogs contain no owner-only workload")
 	}
-	if _, err := fixture.store.AppendSamples(samples); err != nil {
+	if _, err := fixture.store.AppendSamples(fixture.acceptedGeneration, samples); err != nil {
 		t.Fatal(err)
 	}
 	accepted, err := fixture.acceptExistingSamples()

@@ -18,6 +18,12 @@
 5. 除非用户明确询问迁移历史，否则将 `docs/plans/**`、`docs/迁移/**`、`docs/superpowers/plans/**` 和旧报告视为历史规划材料。
 6. 读取 `docs/internal-notes/LSP系统提示词.md`，然后在回答行为、影响或实现问题前，使用 LSP 工具对相关文件做符号导航、引用和调用层级检查、悬停和签名上下文检查以及诊断检查。
 
+## 远程 CI 强制契约
+
+- 任何涉及远程 CI、ECI、ImageCache、基准镜像、刷新、分片、耗时账本、缓存命中或校准资源的审查、设计和实现，开始前必须完整读取 `docs/契约/remote-ci-eci-imagecache-contract.md`。
+- 该契约冻结唯一执行路径、两小时 SQLite 抢占、后台增量刷新、无并发上限、固定规格校准和精确耗时账本。不得从 `docs/plans/**`、历史提交或旧测试恢复与其冲突的 DataCache、JSON truth source、本地 Docker、ACR 专用、并发上限或第二 executor。
+- 若当前源码与该契约不一致，任务目标是让源码收敛到契约并补架构守卫；不得通过放宽契约、添加兼容分支或保留旧入口消除失败。
+
 ## LSP 强制使用规则
 
 ### LSP 工具链不可降级规则

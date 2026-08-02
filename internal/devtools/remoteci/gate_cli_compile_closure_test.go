@@ -16,8 +16,8 @@ func TestLoadGateCLICompileClosureTracksOnlyGateCompileInputs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load base compile closure: %v", err)
 	}
-	if len(baseEntries) != 3 {
-		t.Fatalf("compile closure entries = %d, want 3", len(baseEntries))
+	if len(baseEntries) != 5 {
+		t.Fatalf("compile closure entries = %d, want 5", len(baseEntries))
 	}
 
 	writeGateCLICompileClosureFile(t, repo, "internal/ordinary.go", "package internal\nconst Ordinary = \"changed\"\n")
@@ -28,6 +28,19 @@ func TestLoadGateCLICompileClosureTracksOnlyGateCompileInputs(t *testing.T) {
 	}
 	if ordinarySource != baseSource || ordinaryToolchain != baseToolchain {
 		t.Fatalf("ordinary source changed compile closure: source %q/%q toolchain %q/%q", ordinarySource, baseSource, ordinaryToolchain, baseToolchain)
+	}
+
+	writeGateCLICompileClosureFile(t, repo, "internal/gateimpl/gateimpl.go", "package gateimpl\n\nconst Value = \"changed\"\n\nfunc Run() { println(Value) }\n")
+	importedTree := commitGateCLICompileClosureTree(t, repo, "imported source change")
+	importedSource, importedToolchain, _, err := LoadGateCLICompileClosure(context.Background(), repo, importedTree)
+	if err != nil {
+		t.Fatalf("load imported-source compile closure: %v", err)
+	}
+	if importedSource == baseSource {
+		t.Fatal("transitively imported source change did not change compile closure digest")
+	}
+	if importedToolchain != baseToolchain {
+		t.Fatalf("imported source changed toolchain digest: %q != %q", importedToolchain, baseToolchain)
 	}
 
 	writeGateCLICompileClosureFile(t, repo, "cmd/super-dolphin-gate/main.go", "package main\nfunc main() { println(\"changed\") }\n")
@@ -57,8 +70,13 @@ func TestLoadGateCLICompileClosureRejectsMissingAndMaliciousInputs(t *testing.T)
 		}
 	})
 
-	t.Run("malicious manifest path", func(t *testing.T) {
+	t.Run("malicious manifest path cannot expand closure", func(t *testing.T) {
 		repo := newGateCLICompileClosureRepository(t)
+		baseTree := commitGateCLICompileClosureTree(t, repo, "base")
+		baseSource, _, _, err := LoadGateCLICompileClosure(context.Background(), repo, baseTree)
+		if err != nil {
+			t.Fatalf("load base compile closure: %v", err)
+		}
 		writeGateCLICompileClosureFile(t, repo, buildInputManifestPath, `{
   "schema_version": "2",
   "dockerfile": "build/gate/Dockerfile",
@@ -66,9 +84,12 @@ func TestLoadGateCLICompileClosureRejectsMissingAndMaliciousInputs(t *testing.T)
   "gate_compile_inputs": ["../escape.go", "cmd/super-dolphin-gate/main.go", "go.mod", "go.sum"]
 }`+"\n")
 		tree := commitGateCLICompileClosureTree(t, repo, "malicious manifest")
-		_, _, _, err := LoadGateCLICompileClosure(context.Background(), repo, tree)
-		if err == nil || !strings.Contains(err.Error(), "gate compile input") {
-			t.Fatalf("malicious manifest error = %v, want gate compile input validation", err)
+		got, _, _, err := LoadGateCLICompileClosure(context.Background(), repo, tree)
+		if err != nil {
+			t.Fatalf("load compile closure with ignored manifest: %v", err)
+		}
+		if got != baseSource {
+			t.Fatalf("manifest-only change altered compile closure: %q != %q", got, baseSource)
 		}
 	})
 }
@@ -91,9 +112,10 @@ func newGateCLICompileClosureRepository(t *testing.T) string {
 }` + "\n",
 		"build/gate/Dockerfile":          "FROM scratch\n",
 		toolchainLockPath:                "go=1.24.0\n",
-		"cmd/super-dolphin-gate/main.go": "package main\nfunc main() {}\n",
+		"cmd/super-dolphin-gate/main.go": "package main\n\nimport \"example.invalid/gate/internal/gateimpl\"\n\nfunc main() { gateimpl.Run() }\n",
 		"go.mod":                         "module example.invalid/gate\n\ngo 1.24.0\n",
 		"go.sum":                         "example.invalid/dependency v1.0.0 h1:abc\n",
+		"internal/gateimpl/gateimpl.go":  "package gateimpl\n\nconst Value = \"base\"\n\nfunc Run() { println(Value) }\n",
 		"internal/ordinary.go":           "package internal\nconst Ordinary = \"base\"\n",
 	} {
 		writeGateCLICompileClosureFile(t, repo, path, data)

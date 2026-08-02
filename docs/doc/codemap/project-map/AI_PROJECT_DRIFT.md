@@ -2,16 +2,16 @@
 
 > 状态：**OK**
 >
-> 已索引文件：4407
+> 已索引文件：4406
 >
-> 未细分职责文件：61
+> 未细分职责文件：55
 
 ## 1. 漂移指标
 
 | 指标 | 当前值 |
 |---|---:|
-| 未细分职责文件数 | 61 |
-| 未细分职责占比 | 1.38% |
+| 未细分职责文件数 | 55 |
+| 未细分职责占比 | 1.25% |
 | 最大未细分职责占比阈值 | 5.00% |
 
 ## 2. 漂移告警
@@ -22,7 +22,7 @@
 
 | 模块 | 文件数 |
 |---|---:|
-| `cmd` | 59 |
+| `cmd` | 53 |
 | `internal` | 2 |
 
 ## 4. 样例文件
@@ -37,6 +37,8 @@
 - `cmd/codex-worktree-setup/setup_test.go`
 - `cmd/codex-worktree-setup/worktree_integration_test.go`
 - `cmd/mcp-schema-compiler-helper/main.go`
+- `cmd/super-dolphin-gate/cli_common.go`
+- `cmd/super-dolphin-gate/closure_cli.go`
 - `cmd/super-dolphin-gate/codemap_cli.go`
 - `cmd/super-dolphin-gate/frontend_code_size_cli.go`
 - `cmd/super-dolphin-gate/frontend_code_size_cli_test.go`
@@ -53,15 +55,7 @@
 - `cmd/super-dolphin-gate/remote_materialize.go`
 - `cmd/super-dolphin-gate/remote_materialize_oci.go`
 - `cmd/super-dolphin-gate/remote_materialize_test.go`
-- `cmd/super-dolphin-gate/remote_oci_baseline_worker.go`
-- `cmd/super-dolphin-gate/remote_oci_baseline_worker_test.go`
 - `cmd/super-dolphin-gate/remote_oci_project_cache_test.go`
-- `cmd/super-dolphin-gate/remote_refresh.go`
-- `cmd/super-dolphin-gate/remote_refresh_oci_builder.go`
-- `cmd/super-dolphin-gate/remote_refresh_oci_coordinator.go`
-- `cmd/super-dolphin-gate/remote_refresh_oci_only_test.go`
-- `cmd/super-dolphin-gate/remote_refresh_options.go`
-- `cmd/super-dolphin-gate/remote_refresh_resolve.go`
 - `cmd/super-dolphin-gate/remote_run.go`
 - `cmd/super-dolphin-gate/remote_run_automation_test.go`
 - `cmd/super-dolphin-gate/remote_run_calibration.go`
@@ -77,6 +71,12 @@
 - `cmd/super-dolphin-gate/remote_run_selection.go`
 - `cmd/super-dolphin-gate/remote_run_source.go`
 - `cmd/super-dolphin-gate/remote_run_test.go`
+- `cmd/super-dolphin-gate/requester_cli.go`
+- `cmd/super-dolphin-gate/requester_fingerprint.go`
+- `cmd/super-dolphin-gate/requester_runs.go`
+- `cmd/super-dolphin-gate/test_cli.go`
+- `cmd/super-dolphin-gate/test_cli_test.go`
+- `cmd/super-dolphin-gate/test_local_exec.go`
 
 ## 5. 修复方式
 

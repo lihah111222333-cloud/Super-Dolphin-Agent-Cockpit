@@ -5,7 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go/parser"
+	"go/token"
+	"path"
 	"slices"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
@@ -63,21 +68,13 @@ func LoadGateCLICompileClosure(
 		return "", "", nil, err
 	}
 
-	manifestEntries, err := loadReadOnlyTreePaths(ctx, repoRoot, treeOID, []string{buildInputManifestPath})
+	snapshot, err := loadRemoteGitTreeSnapshot(ctx, repoRoot, treeOID)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("load gate CLI compile tree: %w", err)
+	}
+	paths, err := snapshot.gateCLICompileClosurePaths(ctx)
 	if err != nil {
 		return "", "", nil, err
-	}
-	manifestEntry := manifestEntries[0]
-	manifest, _, err := loadBuildInputManifest(map[string]sourceexport.TreeEntry{
-		buildInputManifestPath: manifestEntry,
-	})
-	if err != nil {
-		return "", "", nil, err
-	}
-
-	paths := append([]string(nil), manifest.GateCompileInputs...)
-	if !slices.Contains(paths, toolchainLockPath) {
-		paths = append(paths, toolchainLockPath)
 	}
 	loaded, err := loadReadOnlyTreePaths(ctx, repoRoot, treeOID, paths)
 	if err != nil {
@@ -91,15 +88,98 @@ func LoadGateCLICompileClosure(
 	if !exists {
 		return "", "", nil, fmt.Errorf("gate CLI compile closure is missing %s", toolchainLockPath)
 	}
-	compileClosure, err := resolveGateCompileClosure(manifest, byPath)
-	if err != nil {
-		return "", "", nil, err
-	}
-	canonical, err := buildCanonicalContext(compileClosure)
+	canonical, err := canonicalContextDigests(loaded)
 	if err != nil {
 		return "", "", nil, fmt.Errorf("build canonical gate CLI compile context: %w", err)
 	}
-	return canonical.ContextDigest, bytesDigest(toolchain.Data), cloneTreeEntries(compileClosure), nil
+	return canonical.ContextDigest, bytesDigest(toolchain.Data), cloneTreeEntries(loaded), nil
+}
+
+// gateCLICompileClosurePaths 由实际 Go 导入图而不是可漂移的 build manifest 推导 gate 编译输入。
+func (snapshot *remoteGitTreeSnapshot) gateCLICompileClosurePaths(ctx context.Context) ([]string, error) {
+	if snapshot == nil {
+		return nil, errors.New("gate CLI compile tree snapshot is required")
+	}
+	if err := snapshot.prepareGoSources(ctx); err != nil {
+		return nil, fmt.Errorf("load gate CLI compile Go sources: %w", err)
+	}
+	selected := map[string]struct{}{
+		"go.mod": {}, "go.sum": {}, toolchainLockPath: {},
+	}
+	pending := []string{"cmd/super-dolphin-gate"}
+	seenDirectories := make(map[string]struct{})
+	for len(pending) != 0 {
+		directory := pending[0]
+		pending = pending[1:]
+		if _, seen := seenDirectories[directory]; seen {
+			continue
+		}
+		seenDirectories[directory] = struct{}{}
+		files, err := snapshot.gateCLICompilePackageFiles(directory)
+		if err != nil {
+			return nil, err
+		}
+		for _, filePath := range files {
+			selected[filePath] = struct{}{}
+		}
+		imports, err := snapshot.gateCLICompileLocalImports(files)
+		if err != nil {
+			return nil, err
+		}
+		pending = append(pending, imports...)
+	}
+	paths := make([]string, 0, len(selected))
+	for filePath := range selected {
+		paths = append(paths, filePath)
+	}
+	sort.Strings(paths)
+	return paths, nil
+}
+
+// gateCLICompilePackageFiles 选择会参与 go build 的生产 Go 源，测试文件不得影响编译身份。
+func (snapshot *remoteGitTreeSnapshot) gateCLICompilePackageFiles(directory string) ([]string, error) {
+	files := make([]string, 0)
+	for filePath := range snapshot.goSources {
+		if path.Dir(filePath) != directory || path.Ext(filePath) != ".go" || strings.HasSuffix(filePath, "_test.go") {
+			continue
+		}
+		files = append(files, filePath)
+	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("gate CLI compile package %q has no production Go files", directory)
+	}
+	sort.Strings(files)
+	return files, nil
+}
+
+// gateCLICompileLocalImports 仅接受候选 tree 中由 Go import 实际抵达的本地包。
+func (snapshot *remoteGitTreeSnapshot) gateCLICompileLocalImports(files []string) ([]string, error) {
+	imports := make(map[string]struct{})
+	for _, filePath := range files {
+		source, exists := snapshot.goSources[filePath]
+		if !exists {
+			return nil, fmt.Errorf("gate CLI compile source %q is unavailable", filePath)
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), filePath, source, parser.ImportsOnly)
+		if err != nil {
+			return nil, fmt.Errorf("parse gate CLI compile source %q: %w", filePath, err)
+		}
+		for _, spec := range file.Imports {
+			importPath, err := strconv.Unquote(spec.Path.Value)
+			if err != nil {
+				return nil, fmt.Errorf("parse gate CLI compile import in %q: %w", filePath, err)
+			}
+			if local, ok := snapshot.resolveLocalGoImport(importPath); ok {
+				imports[local] = struct{}{}
+			}
+		}
+	}
+	result := make([]string, 0, len(imports))
+	for directory := range imports {
+		result = append(result, directory)
+	}
+	sort.Strings(result)
+	return result, nil
 }
 
 // verifyReadOnlyTreeObject 确认调用方指定的是可读取的 tree object，而不是 ref 或其他对象。

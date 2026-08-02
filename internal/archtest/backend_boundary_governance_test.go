@@ -300,6 +300,7 @@ func assertSemanticRuleDescriptors(t *testing.T, registry archtest.BackendBounda
 			"cmd/super-dolphin-gate/**/*.go": {
 				"internal/devtools/alicloud/eci",
 				"internal/devtools/alicloud/oss",
+				"internal/devtools/cicontract",
 				"internal/devtools/codemapindex",
 				"internal/devtools/coordinatoradmission",
 				"internal/devtools/frontendcodesizetrusted",

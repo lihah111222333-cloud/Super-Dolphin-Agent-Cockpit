@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strconv"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
 // loadSQLiteMetadata 读取并校验账本元数据。
@@ -14,19 +16,27 @@ func loadSQLiteMetadata(database sqliteRowQueryer) (DurationLedgerSnapshot, erro
 		generationText string
 		version        int
 		schemaVersion  int
+		authorityID    string
 	)
 	err := database.QueryRow(`
-		SELECT schema_version, generation, ledger_version
+		SELECT authority_id, schema_version, generation, ledger_version
 		FROM duration_ledger_meta
 		WHERE singleton = 1
-	`).Scan(&schemaVersion, &generationText, &version)
+	`).Scan(&authorityID, &schemaVersion, &generationText, &version)
 	if errors.Is(err, sql.ErrNoRows) {
 		return DurationLedgerSnapshot{}, ErrDurationLedgerMetadataMissing
 	}
 	if err != nil {
 		return DurationLedgerSnapshot{}, mapDurationLedgerSQLiteError("load duration ledger SQLite metadata", err)
 	}
-	if schemaVersion != durationLedgerSQLiteSchemaVersion {
+	if authorityID != cicontract.SQLAuthorityID {
+		return DurationLedgerSnapshot{}, fmt.Errorf(
+			"duration ledger SQLite authority ID %q must equal %q",
+			authorityID,
+			cicontract.SQLAuthorityID,
+		)
+	}
+	if schemaVersion != 1 {
 		return DurationLedgerSnapshot{}, fmt.Errorf(
 			"duration ledger SQLite schema version %d is unsupported",
 			schemaVersion,

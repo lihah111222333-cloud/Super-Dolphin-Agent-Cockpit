@@ -148,7 +148,7 @@ func ExecuteExecutor(ctx context.Context, args []string, stdout io.Writer, stder
 		goBuildCacheProxy:     cacheProxy,
 		frontendEmbedSeedRoot: ExecutorFrontendEmbedSeedRoot,
 		stdout:                stdout, stderr: stderr,
-		nowFunc:               time.Now,
+		nowFunc: time.Now,
 	}
 	return executeProgram(ctx, config, id, program)
 }

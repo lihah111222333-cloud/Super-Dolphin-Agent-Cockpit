@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -264,26 +265,34 @@ func verifyImportedParentIdentity(manifest SourceMaterializationManifest, parent
 }
 
 type canonicalContext struct {
-	Tar           []byte
 	ContextDigest string
 	InputDigest   string
 }
 
-// buildCanonicalContext 将已验证 Git blob 规范化为稳定 tar 和输入摘要。
-func buildCanonicalContext(sourceEntries []sourceexport.TreeEntry) (canonicalContext, error) {
+// canonicalContextDigests derives canonical context identity while retaining no
+// archive. Only the source-snapshot delta is eligible for upload.
+func canonicalContextDigests(sourceEntries []sourceexport.TreeEntry) (canonicalContext, error) {
+	contextDigest, inputDigest, err := writeCanonicalContext(sourceEntries, io.Discard)
+	if err != nil {
+		return canonicalContext{}, err
+	}
+	return canonicalContext{ContextDigest: contextDigest, InputDigest: inputDigest}, nil
+}
+
+func writeCanonicalContext(sourceEntries []sourceexport.TreeEntry, output io.Writer) (string, string, error) {
 	if len(sourceEntries) == 0 {
-		return canonicalContext{}, errors.New("canonical context requires at least one source entry")
+		return "", "", errors.New("canonical context requires at least one source entry")
 	}
 	entries := append([]sourceexport.TreeEntry(nil), sourceEntries...)
 	sort.Slice(entries, func(left int, right int) bool { return entries[left].Path < entries[right].Path })
 
-	var archive bytes.Buffer
-	writer := tar.NewWriter(&archive)
+	hash := sha256.New()
+	writer := tar.NewWriter(io.MultiWriter(output, hash))
 	var manifest []byte
 	seenPaths := make(map[string]string, len(entries))
 	for _, entry := range entries {
 		if err := validateContextEntry(entry, seenPaths); err != nil {
-			return canonicalContext{}, err
+			return "", "", err
 		}
 		mode := int64(0o644)
 		if entry.Mode == "100755" {
@@ -294,10 +303,10 @@ func buildCanonicalContext(sourceEntries []sourceexport.TreeEntry) (canonicalCon
 			ModTime: time.Unix(0, 0), Uid: 0, Gid: 0, Format: tar.FormatPAX,
 		}
 		if err := writer.WriteHeader(header); err != nil {
-			return canonicalContext{}, fmt.Errorf("write canonical header %q: %w", entry.Path, err)
+			return "", "", fmt.Errorf("write canonical header %q: %w", entry.Path, err)
 		}
 		if _, err := writer.Write(entry.Data); err != nil {
-			return canonicalContext{}, fmt.Errorf("write canonical content %q: %w", entry.Path, err)
+			return "", "", fmt.Errorf("write canonical content %q: %w", entry.Path, err)
 		}
 		contentHash := sha256.Sum256(entry.Data)
 		manifest = appendManifestField(manifest, entry.Path)
@@ -306,15 +315,10 @@ func buildCanonicalContext(sourceEntries []sourceexport.TreeEntry) (canonicalCon
 		manifest = appendManifestField(manifest, hex.EncodeToString(contentHash[:]))
 	}
 	if err := writer.Close(); err != nil {
-		return canonicalContext{}, fmt.Errorf("close canonical context: %w", err)
+		return "", "", fmt.Errorf("close canonical context: %w", err)
 	}
-	contextHash := sha256.Sum256(archive.Bytes())
 	inputHash := sha256.Sum256(manifest)
-	return canonicalContext{
-		Tar:           archive.Bytes(),
-		ContextDigest: "sha256:" + hex.EncodeToString(contextHash[:]),
-		InputDigest:   "sha256:" + hex.EncodeToString(inputHash[:]),
-	}, nil
+	return "sha256:" + hex.EncodeToString(hash.Sum(nil)), "sha256:" + hex.EncodeToString(inputHash[:]), nil
 }
 
 func validateContextEntry(entry sourceexport.TreeEntry, seenPaths map[string]string) error {

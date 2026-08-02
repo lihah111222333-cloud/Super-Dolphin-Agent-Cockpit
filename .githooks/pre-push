@@ -18,7 +18,6 @@ fi
 
 remote_config=${SUPER_DOLPHIN_GATE_REMOTE_CONFIG:-$(git config --local --get super-dolphin.remote.config || true)}
 remote_ledger=${SUPER_DOLPHIN_GATE_LEDGER:-$(git config --local --get super-dolphin.remote.ledger || true)}
-remote_max_shards=$(git config --local --get super-dolphin.remote.maxShards || true)
 if [[ -z "$remote_config" || -z "$remote_ledger" ]]; then
   printf '%s\n' 'pre-push blocked: remote CI requires remote config and duration ledger paths.' >&2
   exit 1
@@ -29,7 +28,4 @@ remote_args=(
   --ledger "$remote_ledger"
   --repository "$repo_root"
 )
-if [[ -n "$remote_max_shards" ]]; then
-  remote_args+=(--max-shards "$remote_max_shards")
-fi
 exec "$gate_bin" "${remote_args[@]}" "$1" "$2"

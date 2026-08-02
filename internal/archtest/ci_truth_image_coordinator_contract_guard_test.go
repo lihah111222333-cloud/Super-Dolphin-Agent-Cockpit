@@ -16,55 +16,19 @@ import (
 	"testing"
 )
 
-// TestCIEntrypointsRequireCoordinatorCLI executes the executable hook surfaces
-// against a fake installed coordinator. The candidate CI script must become the
-// same thin coordinator entrypoint; it must never be an authority-bearing host
-// gate runner.
-func retiredCIEntrypointsRequireCoordinatorCLI(t *testing.T) {
-	root := coordinatorContractRepoRoot(t)
-	logPath, fakeBin := writeCoordinatorCLIForContractGuard(t)
-	path := filepath.Dir(fakeBin) + string(os.PathListSeparator) + os.Getenv("PATH")
-	configureCoordinatorContractGuardLauncher(t, root, fakeBin)
+const queuedCoordinatorJobID = "job-00000000000000000000000000000000"
 
-	for _, test := range []struct {
-		name           string
-		path           string
-		args           []string
-		want           []string
-		treeBoundHook  bool
-		remotePushHook bool
-	}{
-		{name: "pre-commit", path: ".githooks/pre-commit", treeBoundHook: true},
-		{name: "pre-push", path: ".githooks/pre-push", args: []string{"origin", "https://example.invalid/repository.git"}, remotePushHook: true},
-		{name: "candidate-ci", path: "scripts/ci_truth_image_gate.sh", want: []string{"workflow-host"}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			if err := os.WriteFile(logPath, nil, 0o600); err != nil {
-				t.Fatal(err)
+func TestRemoteHooksDoNotRetainShardCapOverrides(t *testing.T) {
+	root := coordinatorContractRepoRoot(t)
+	for _, hook := range []string{"pre-commit", "pre-push"} {
+		source := readCoordinatorContractFile(t, filepath.Join(root, ".githooks", hook))
+		for _, forbidden := range []string{"super-dolphin.remote.maxShards", "--max-shards"} {
+			if strings.Contains(source, forbidden) {
+				t.Errorf("%s must not retain removed shard-cap override %q", hook, forbidden)
 			}
-			command := exec.Command("bash", append([]string{filepath.Join(root, filepath.FromSlash(test.path))}, test.args...)...)
-			command.Dir = root
-			command.Env = coordinatorContractEnv(path)
-			if output, err := command.CombinedOutput(); err != nil {
-				t.Fatalf("%s must fail closed only through the trusted coordinator: %v\\n%s", test.path, err, output)
-			}
-			got := contractGuardCommandLog(t, logPath)
-			if test.treeBoundHook {
-				assertTreeBoundRemotePreCommitCoordinatorCommands(t, root, got)
-				return
-			}
-			if test.remotePushHook {
-				assertRemotePrePushCoordinatorCommands(t, root, got, test.args)
-				return
-			}
-			if len(got) != 1 || !slices.Equal(got[0], test.want) {
-				t.Fatalf("%s coordinator argv = %#v, want %#v", test.path, got, test.want)
-			}
-		})
+		}
 	}
 }
-
-const queuedCoordinatorJobID = "job-00000000000000000000000000000000"
 
 const (
 	coordinatorContractRemoteConfig = "/contract/remote-ci.json"
@@ -271,84 +235,6 @@ func TestMakefileCIEntrypointsDelegateToCoordinator(t *testing.T) {
 		want := "./scripts/ci_truth_image_gate.sh " + profile
 		if len(recipe) != 1 || !strings.Contains(joined, want) {
 			t.Errorf("Makefile target %q recipe = %q, want one %q delegation", target, joined, want)
-		}
-	}
-}
-
-func retiredManualAndReleaseEntrypointsUseCoordinator(t *testing.T) {
-	root := coordinatorContractRepoRoot(t)
-	cli := parseContractGuardFile(t, filepath.Join(root, "cmd", "super-dolphin-gate", "coordinator_cli.go"))
-	for _, requirement := range []struct{ function, call string }{
-		{function: "connectProductionCoordinator", call: "ProbeDockerSchedulerAuthorityWithCapacity"},
-		{function: "runSubmit", call: "runSubmitWithConnector"},
-		{function: "runSubmitWithConnector", call: "withCoordinator"},
-		{function: "runProductionReleaseSubmitPlanWithWaitConnector", call: "withCoordinator"},
-		{function: "runProductionReleaseSubmitPlanWithWaitConnector", call: "submitAuthoritativeRelease"},
-	} {
-		if !contractGuardFunctionCalls(cli, requirement.function, requirement.call) {
-			t.Errorf("%s must reach the coordinator through %s", requirement.function, requirement.call)
-		}
-	}
-}
-
-// TestProductionCoordinatorUsesDynamicContainerShardProtocol 用 go/parser 读取生产代码，
-// 排除测试夹具后证明 owner 确实构造、调度、执行、聚合并完成动态分片组。
-func retiredProductionCoordinatorUsesDynamicContainerShardProtocol(t *testing.T) {
-	evidence := coordinatorASTEvidence(t, coordinatorContractRepoRoot(t))
-	for _, required := range []string{
-		"BuildContainerShardSetWithCount",
-		"RunContainerShards",
-		"AggregateContainerShards",
-		"ReportShardFailure",
-		"CompleteGroup",
-		"WorkloadKindShard",
-		"GroupSize",
-		"ShardIdentities",
-	} {
-		if !evidence.names[required] {
-			t.Errorf("production coordinator is missing required dynamic shard protocol symbol %q", required)
-		}
-	}
-	if len(evidence.planExecutionFallbacks) != 0 {
-		t.Errorf("production coordinator retains forbidden PlanExecution=true single-container CI fallback at %s", strings.Join(evidence.planExecutionFallbacks, ", "))
-	}
-}
-
-// TestShardResourceAndAggregationContract fixes the contract at the dynamically
-// parsed producer source: each worker is 4 CPU / 8 GiB / 512 PIDs, with at most
-// 128 workers, and the coordinator budgets remain 10m normal / 30m release.
-func retiredShardResourceAndAggregationContract(t *testing.T) {
-	root := coordinatorContractRepoRoot(t)
-	shards := parseContractGuardFile(t, filepath.Join(root, "internal", "devtools", "gate", "container_shards.go"))
-	consts := contractGuardConsts(t, shards)
-	for name, want := range map[string]string{
-		"legacyContainerShardCount":   "3",
-		"containerShardSchemaVersion": "2",
-		"containerShardCPUNanos":      "4000000000",
-		"containerShardMemoryBytes":   "8 << 30",
-		"containerShardPIDs":          "512",
-	} {
-		if got := strings.ReplaceAll(consts[name], "_", ""); got != want {
-			t.Errorf("%s = %q, want %q", name, got, want)
-		}
-	}
-	if !contractGuardFunctionCalls(shards, "AggregateContainerShards", "aggregateContainerShardsWithClock") ||
-		!contractGuardFunctionCalls(shards, "aggregateContainerShardsWithClock", "appendReleaseShardAggregation") ||
-		!contractGuardFunctionCalls(shards, "appendReleaseShardAggregation", "executeReleaseLayerAttestation") {
-		t.Error("release:ci-l3 must be generated only by AggregateContainerShards")
-	}
-	if callers := contractGuardCallers(shards, "executeReleaseLayerAttestation"); !slices.Equal(callers, []string{"appendReleaseShardAggregation"}) {
-		t.Errorf("release:ci-l3 attestation callers = %#v, want only the aggregation helper", callers)
-	}
-
-	runtime := parseContractGuardFile(t, filepath.Join(root, "cmd", "super-dolphin-gate", "coordinator_runtime.go"))
-	timeouts := contractGuardConsts(t, runtime)
-	for name, want := range map[string]string{
-		"coordinatorNormalTimeout":  "10 * time.Minute",
-		"coordinatorReleaseTimeout": "30 * time.Minute",
-	} {
-		if got := timeouts[name]; got != want {
-			t.Errorf("%s = %q, want %q", name, got, want)
 		}
 	}
 }

@@ -71,6 +71,7 @@ func contextWithTimeoutCall(n ast.Node) (*ast.CallExpr, bool) {
 func allowedTimeoutFile(relPath string) bool {
 	return relPath == "internal/platform/config/timeouts.go" ||
 		relPath == "internal/devtools/gateprivate/timeouts.go" ||
+		// The gate command owns bounded remote cleanup and the isolated OCI build worker.
 		relPath == "cmd/super-dolphin-gate/remote_oci_baseline_worker.go" ||
 		relPath == "cmd/super-dolphin-gate/remote_refresh_image_cache.go" ||
 		relPath == "cmd/super-dolphin-gate/remote_refresh_oci_coordinator.go" ||

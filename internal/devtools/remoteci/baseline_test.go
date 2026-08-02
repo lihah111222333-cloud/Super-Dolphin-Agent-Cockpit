@@ -2,11 +2,12 @@ package remoteci
 
 import (
 	"encoding/json"
-	"errors"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
 func TestBaselineStateOCIOnlyRoundTrip(t *testing.T) {
@@ -24,15 +25,6 @@ func TestBaselineStateOCIOnlyRoundTrip(t *testing.T) {
 	}
 	if !loaded.Matches(loaded.identity()) {
 		t.Fatal("loaded OCI state does not match its identity")
-	}
-}
-
-func TestBaselineStateRejectsLegacyJSONWithMigrationRequired(t *testing.T) {
-	legacy := []byte(`{"schema_version":8,"generation":1,"data_cache_id":"edc-legacy"}`)
-	var state BaselineState
-	err := json.Unmarshal(legacy, &state)
-	if !errors.Is(err, ErrRemoteBaselineMigrationRequired) {
-		t.Fatalf("UnmarshalJSON() error = %v, want migration-required", err)
 	}
 }
 
@@ -56,6 +48,7 @@ func TestBaselineStateValidationRequiresImageCacheAuthority(t *testing.T) {
 		"not ready":           func(state *BaselineState) { state.ImageCacheReady = false },
 		"wrong image digest":  func(state *BaselineState) { state.ImageDigest = digest("f") },
 		"missing description": func(state *BaselineState) { state.OCIProjectCache = nil },
+		"wrong source path":   func(state *BaselineState) { state.SourceSnapshotImagePath = "/tmp/source-snapshot/manifest.json" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			state := validBaselineState()
@@ -67,23 +60,34 @@ func TestBaselineStateValidationRequiresImageCacheAuthority(t *testing.T) {
 	}
 }
 
-func TestBaselineStateRenewKeepsAcceptedGeneration(t *testing.T) {
-	state := validBaselineState()
-	renewedAt := state.AcceptedAt.Add(time.Minute)
-	renewed, err := state.Renew(renewedAt)
-	if err != nil {
-		t.Fatalf("Renew() error = %v", err)
-	}
-	if renewed.Generation != state.Generation || renewed.RenewedAt != renewedAt {
-		t.Fatalf("Renew() = %#v, want generation %d and renewed time %s", renewed, state.Generation, renewedAt)
+func TestBaselineStateRejectsACRRuntimeAndOCIProjectCacheImages(t *testing.T) {
+	for name, mutate := range map[string]func(*BaselineState){
+		"runtime root": func(state *BaselineState) { state.RuntimeImage = "aliyuncs.com/runtime@" + digest("e") },
+		"runtime port": func(state *BaselineState) {
+			state.RuntimeImage = "registry.cn-shenzhen.aliyuncs.com:5000/runtime@" + digest("e")
+		},
+		"runtime trailing dot": func(state *BaselineState) {
+			state.RuntimeImage = "registry.cn-shenzhen.aliyuncs.com./runtime@" + digest("e")
+		},
+		"OCI cache": func(state *BaselineState) {
+			state.OCIProjectCache = validBaselineOCIProjectCache(state.MainTree, state.ToolchainDigest, state.Platform, "registry.cn-shenzhen.aliyuncs.com/runtime@"+digest("e"))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			state := validBaselineState()
+			mutate(&state)
+			if err := state.Validate(); err == nil {
+				t.Fatal("Validate accepted an Alibaba Cloud ACR image")
+			}
+		})
 	}
 }
 
 func TestBaselineStateFieldRegistry(t *testing.T) {
-	if BaselineStateSchemaVersion != 10 {
+	if BaselineStateSchemaVersion != 11 {
 		t.Fatalf("BaselineStateSchemaVersion = %d", BaselineStateSchemaVersion)
 	}
-	assertBaselineFields(t, reflect.TypeFor[BaselineState](), []string{"SchemaVersion", "Generation", "MainCommit", "MainTree", "Platform", "PolicyDigest", "ToolchainDigest", "RuntimeImage", "ImageCacheID", "ImageCacheSnapshotID", "ImageCacheReady", "ImageDigest", "OCIProjectCache", "GateBinarySHA256", "RuntimeSeedSHA256", "BaselineManifestDigest", "CreatedAt", "AcceptedAt", "RenewedAt"})
+	assertBaselineFields(t, reflect.TypeFor[BaselineState](), []string{"SchemaVersion", "Generation", "MainCommit", "MainTree", "Platform", "PolicyDigest", "ToolchainDigest", "RuntimeImage", "ImageCacheID", "ImageCacheSnapshotID", "ImageCacheReady", "ImageDigest", "OCIProjectCache", "GateBinarySHA256", "RuntimeSeedSHA256", "BaselineManifestDigest", "SourceSnapshotManifestDigest", "SourceSnapshotImagePath", "SourceSnapshotClosureDigest", "CreatedAt", "AcceptedAt", "RenewedAt"})
 	assertBaselineFields(t, reflect.TypeFor[BaselineOCIProjectCache](), []string{"Image", "ContentManifestSHA256", "MainTree", "ToolchainDigest", "Platform", "CachePath"})
 }
 
@@ -91,7 +95,7 @@ func validBaselineState() BaselineState {
 	created := time.Date(2026, 8, 2, 1, 0, 0, 0, time.UTC)
 	mainTree, toolchain, runtimeImage := strings.Repeat("b", 40), digest("d"), "registry.example/runtime@"+digest("e")
 	accepted := created.Add(3 * time.Minute)
-	return BaselineState{SchemaVersion: BaselineStateSchemaVersion, Generation: 3, MainCommit: strings.Repeat("a", 40), MainTree: mainTree, Platform: "linux/amd64", PolicyDigest: digest("c"), ToolchainDigest: toolchain, RuntimeImage: runtimeImage, ImageCacheID: "imc-baseline-3", ImageCacheSnapshotID: "snap-baseline-3", ImageCacheReady: true, ImageDigest: digest("e"), OCIProjectCache: validBaselineOCIProjectCache(mainTree, toolchain, "linux/amd64", runtimeImage), GateBinarySHA256: digest("1"), RuntimeSeedSHA256: digest("2"), BaselineManifestDigest: digest("3"), CreatedAt: created, AcceptedAt: accepted, RenewedAt: accepted}
+	return BaselineState{SchemaVersion: BaselineStateSchemaVersion, Generation: 3, MainCommit: strings.Repeat("a", 40), MainTree: mainTree, Platform: "linux/amd64", PolicyDigest: digest("c"), ToolchainDigest: toolchain, RuntimeImage: runtimeImage, ImageCacheID: "imc-baseline-3", ImageCacheSnapshotID: "snap-baseline-3", ImageCacheReady: true, ImageDigest: digest("e"), OCIProjectCache: validBaselineOCIProjectCache(mainTree, toolchain, "linux/amd64", runtimeImage), GateBinarySHA256: digest("1"), RuntimeSeedSHA256: digest("2"), BaselineManifestDigest: digest("3"), SourceSnapshotManifestDigest: digest("4"), SourceSnapshotImagePath: cicontract.SourceSnapshotManifestPath, SourceSnapshotClosureDigest: digest("5"), CreatedAt: created, AcceptedAt: accepted, RenewedAt: accepted}
 }
 
 func validBaselineOCIProjectCache(mainTree, toolchainDigest, platform, runtimeImage string) *BaselineOCIProjectCache {
@@ -102,8 +106,8 @@ func digest(value string) string { return "sha256:" + strings.Repeat(value, 64) 
 func assertBaselineFields(t *testing.T, structType reflect.Type, expected []string) {
 	t.Helper()
 	actual := make([]string, 0, structType.NumField())
-	for index := 0; index < structType.NumField(); index++ {
-		actual = append(actual, structType.Field(index).Name)
+	for field := range structType.Fields() {
+		actual = append(actual, field.Name)
 	}
 	if !reflect.DeepEqual(actual, expected) {
 		t.Fatalf("%s fields = %v, want %v", structType.Name(), actual, expected)

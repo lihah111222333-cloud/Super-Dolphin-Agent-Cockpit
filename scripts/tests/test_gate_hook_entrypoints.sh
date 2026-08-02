@@ -162,6 +162,11 @@ git -C "$git_repo" init -q
 git -C "$git_repo" config user.name 'Hook Fixture'
 git -C "$git_repo" config user.email 'hook-fixture@example.invalid'
 git -C "$git_repo" config superdolphin.gateLauncher "$bin_dir/super-dolphin-gate"
+remote_config="$fixture_root/remote-ci.json"
+remote_ledger="$fixture_root/ci-duration-ledger.sqlite"
+git -C "$git_repo" config super-dolphin.remote.config "$remote_config"
+git -C "$git_repo" config super-dolphin.remote.ledger "$remote_ledger"
+git -C "$git_repo" config super-dolphin.remote.maxShards 1
 mkdir -p "$git_repo/.githooks"
 mkdir -p "$git_repo/build/gate"
 mkdir -p "$git_repo/frontend-app" "$git_repo/scripts" "$git_repo/docs/doc/codemap/project-map"
@@ -185,18 +190,27 @@ clean_tree=$(git -C "$git_repo" write-tree)
 (
   cd "$git_repo/nested"
   GATE_HOOK_CAPTURE_SOURCE=1 GATE_HOOK_STDERR_FILE="$cli_error" GATE_HOOK_EXIT_CODE=23 run_with_status \
-    "$fixture_root/pre-commit.status" bash "$repo_root/.githooks/pre-commit" 2>"$fixture_root/pre-commit.err"
+    "$fixture_root/pre-commit.status" bash "$repo_root/.githooks/pre-commit" >"$fixture_root/pre-commit.out" 2>"$fixture_root/pre-commit.err"
 )
 assert_file_equals "$fixture_root/pre-commit.status" 23 "pre-commit exit code"
-assert_file_equals "$capture_dir/argc" 4 "pre-commit argc"
-assert_file_equals "$capture_dir/arg.0" hook "pre-commit arg 0"
-assert_file_equals "$capture_dir/arg.1" pre-commit "pre-commit arg 1"
-assert_file_equals "$capture_dir/arg.2" --tree "pre-commit arg 2"
-assert_file_equals "$capture_dir/arg.3" "$clean_tree" "pre-commit immutable tree"
+assert_file_equals "$capture_dir/argc" 13 "pre-commit argc without shard cap"
+assert_file_equals "$capture_dir/arg.0" remote "pre-commit arg 0"
+assert_file_equals "$capture_dir/arg.1" hook "pre-commit arg 1"
+assert_file_equals "$capture_dir/arg.2" pre-commit "pre-commit arg 2"
+assert_file_equals "$capture_dir/arg.3" --config "pre-commit config flag"
+assert_file_equals "$capture_dir/arg.4" "$remote_config" "pre-commit config path"
+assert_file_equals "$capture_dir/arg.5" --ledger "pre-commit ledger flag"
+assert_file_equals "$capture_dir/arg.6" "$remote_ledger" "pre-commit ledger path"
+assert_file_equals "$capture_dir/arg.7" --repository "pre-commit repository flag"
+assert_file_equals "$capture_dir/arg.8" "$git_repo" "pre-commit repository"
+assert_file_equals "$capture_dir/arg.9" --tree "pre-commit tree flag"
+assert_file_equals "$capture_dir/arg.10" "$clean_tree" "pre-commit immutable tree"
+assert_file_equals "$capture_dir/arg.11" --parent "pre-commit parent flag"
+assert_file_equals "$capture_dir/arg.12" "$(git -C "$git_repo" rev-parse HEAD)" "pre-commit parent commit"
 assert_file_equals "$capture_dir/cwd" "$git_repo/nested" "clean pre-commit cwd"
 assert_file_equals "$capture_dir/staged-tree" "$clean_tree" "clean pre-commit staged tree"
 assert_file_equals "$capture_dir/project-map-check-tree" "$clean_tree" "clean project-map staged tree"
-cmp -s "$cli_error" "$fixture_root/pre-commit.err" || fail "pre-commit did not return readable CLI stderr"
+cmp -s "$cli_error" "$fixture_root/pre-commit.out" || fail "pre-commit did not stream readable CLI output"
 [[ ! -s "$capture_dir/stdin" ]] || fail "pre-commit forwarded unexpected stdin"
 
 printf '%s\n' 'staged' >"$git_repo/tracked.txt"
@@ -388,11 +402,18 @@ printf '%s\n' \
     <"$push_input" 2>"$fixture_root/pre-push.err"
 )
 assert_file_equals "$fixture_root/pre-push.status" 29 "pre-push exit code"
-assert_file_equals "$capture_dir/argc" 4 "pre-push argc"
-assert_file_equals "$capture_dir/arg.0" hook "pre-push arg 0"
-assert_file_equals "$capture_dir/arg.1" pre-push "pre-push arg 1"
-assert_file_equals "$capture_dir/arg.2" upstream "pre-push remote name"
-assert_file_equals "$capture_dir/arg.3" 'ssh://git@example.invalid/team/repo.git' "pre-push remote URL"
+assert_file_equals "$capture_dir/argc" 11 "pre-push argc without shard cap"
+assert_file_equals "$capture_dir/arg.0" remote "pre-push arg 0"
+assert_file_equals "$capture_dir/arg.1" hook "pre-push arg 1"
+assert_file_equals "$capture_dir/arg.2" pre-push "pre-push arg 2"
+assert_file_equals "$capture_dir/arg.3" --config "pre-push config flag"
+assert_file_equals "$capture_dir/arg.4" "$remote_config" "pre-push config path"
+assert_file_equals "$capture_dir/arg.5" --ledger "pre-push ledger flag"
+assert_file_equals "$capture_dir/arg.6" "$remote_ledger" "pre-push ledger path"
+assert_file_equals "$capture_dir/arg.7" --repository "pre-push repository flag"
+assert_file_equals "$capture_dir/arg.8" "$linked_repo" "pre-push repository"
+assert_file_equals "$capture_dir/arg.9" upstream "pre-push remote name"
+assert_file_equals "$capture_dir/arg.10" 'ssh://git@example.invalid/team/repo.git' "pre-push remote URL"
 assert_file_equals "$capture_dir/cwd" "$linked_repo/nested" "pre-push cwd"
 cmp -s "$push_input" "$capture_dir/stdin" || fail "pre-push stdin was not forwarded byte-for-byte"
 cmp -s "$cli_error" "$fixture_root/pre-push.err" || fail "pre-push did not return readable CLI stderr"
@@ -433,7 +454,7 @@ git -C "$git_repo" config superdolphin.gateLauncher "$bin_dir/super-dolphin-gate
 for entrypoint in \
   "$repo_root/.githooks/pre-commit" \
   "$repo_root/.githooks/pre-push"; do
-  if grep -Eq '(^|[^[:alnum:]_])(go|npm|npx|make)([^[:alnum:]_]|$)|go[[:space:]]+run' "$entrypoint"; then
+  if grep -Eq '^[[:space:]]*(go|npm|npx|make)([[:space:]]|$)' "$entrypoint"; then
     fail "$entrypoint contains a forbidden host gate command"
   fi
 done

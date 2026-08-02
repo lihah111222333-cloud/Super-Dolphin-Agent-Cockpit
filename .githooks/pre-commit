@@ -261,7 +261,6 @@ trap cleanup_output EXIT HUP INT TERM
 
 remote_config=${SUPER_DOLPHIN_GATE_REMOTE_CONFIG:-$(git config --local --get super-dolphin.remote.config || true)}
 remote_ledger=${SUPER_DOLPHIN_GATE_LEDGER:-$(git config --local --get super-dolphin.remote.ledger || true)}
-remote_max_shards=$(git config --local --get super-dolphin.remote.maxShards || true)
 if [[ -z "$remote_config" || -z "$remote_ledger" ]]; then
   printf '%s\n' 'pre-commit blocked: remote CI requires remote config and duration ledger paths.' >&2
   exit 1
@@ -278,9 +277,6 @@ remote_args=(
   --tree "$staged_tree"
   --parent "$parent_commit"
 )
-if [[ -n "$remote_max_shards" ]]; then
-  remote_args+=(--max-shards "$remote_max_shards")
-fi
 set +e
 "$gate_bin" "${remote_args[@]}" 2>&1 | tee "$gate_output_file"
 hook_rc=${PIPESTATUS[0]}

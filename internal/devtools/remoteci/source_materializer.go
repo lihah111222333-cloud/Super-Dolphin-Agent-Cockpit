@@ -62,7 +62,7 @@ type sourcePlan struct {
 	syntheticParentSHA string
 }
 
-// sourceBundleImporter is implemented by the sourceexport owner. localci must not parse Git trees or bundles.
+// sourceBundleImporter is implemented by the sourceexport owner; materializers must not duplicate Git tree or bundle parsing.
 // 依赖 sourceexport owner：需公开 commit 与 dangling synthetic-commit bundle 的 ImportAndVerify。
 type sourceBundleImporter interface {
 	ImportAndVerify(ctx context.Context, bundlePath string, expectedObject string, expectedTree string) (verifiedRepository string, err error)

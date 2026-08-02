@@ -4,124 +4,48 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"strconv"
 	"time"
 )
 
-// storeSQLiteRemoteCIRunProjection 按固定顺序写入全部查询投影并记录每一步耗时。
+// storeSQLiteRemoteCIRunProjection 按固定顺序写入全部查询投影。
 func storeSQLiteRemoteCIRunProjection(
 	transaction *sql.Tx,
 	record RemoteCIRunRecord,
 	now func() time.Time,
-) ([]RemoteCIPhaseTiming, error) {
-	initialTimingCount := len(record.PhaseTimings)
-	if err := measureSQLiteRemoteCIRunProjection(
-		&record,
-		now,
-		"ledger.catalog_coverage",
-		func() error { return validateSQLiteRemoteCIRunCatalogCoverage(transaction, record) },
-	); err != nil {
-		return nil, err
+) error {
+	if err := validateSQLiteRemoteCIRunCatalogCoverage(transaction, record); err != nil {
+		return err
 	}
-	if err := measureSQLiteRemoteCIRunProjection(
-		&record,
-		now,
-		"ledger.identity_verify",
-		func() error { return verifySQLiteRemoteCIRunIdentity(transaction, record) },
-	); err != nil {
-		return nil, err
+	if err := verifySQLiteRemoteCIRunIdentity(transaction, record); err != nil {
+		return err
 	}
-	if err := measureSQLiteRemoteCIRunProjection(
-		&record,
-		now,
-		"ledger.run_upsert",
-		func() error { return upsertSQLiteRemoteCIRun(transaction, record) },
-	); err != nil {
-		return nil, err
+	if err := upsertSQLiteRemoteCIRun(transaction, record); err != nil {
+		return err
 	}
-	if err := measureSQLiteRemoteCIRunProjection(
-		&record,
-		now,
-		"ledger.requester_insert",
-		func() error { return insertSQLiteRemoteCIRunRequester(transaction, record) },
-	); err != nil {
-		return nil, err
+	if err := insertSQLiteRemoteCIRunRequester(transaction, record); err != nil {
+		return err
 	}
-	if err := measureSQLiteRemoteCIRunProjection(
-		&record,
-		now,
-		"ledger.shards_replace",
-		func() error { return replaceSQLiteRemoteCIRunShards(transaction, record) },
-	); err != nil {
-		return nil, err
+	if err := replaceSQLiteRemoteCIRunShards(transaction, record); err != nil {
+		return err
 	}
-	if err := measureSQLiteRemoteCIRunProjection(
-		&record,
-		now,
-		"ledger.executions_replace",
-		func() error { return replaceSQLiteRemoteCIRunExecutions(transaction, record) },
-	); err != nil {
-		return nil, err
+	if err := replaceSQLiteRemoteCIRunExecutions(transaction, record); err != nil {
+		return err
 	}
-	if err := measureSQLiteRemoteCIRunProjection(
-		&record,
-		now,
-		"ledger.workload_executions_replace",
-		func() error { return replaceSQLiteRemoteCIWorkloadExecutions(transaction, record) },
-	); err != nil {
-		return nil, err
+	if err := replaceSQLiteRemoteCIWorkloadExecutions(transaction, record); err != nil {
+		return err
 	}
-	if err := measureSQLiteRemoteCIRunProjection(
-		&record,
-		now,
-		"ledger.workloads_replace",
-		func() error { return replaceSQLiteRemoteRunWorkloads(transaction, record) },
-	); err != nil {
-		return nil, err
+	if err := replaceSQLiteTimingObservations(transaction, record.JobID, record.TimingObservations); err != nil {
+		return err
 	}
-	if err := measureSQLiteRemoteCIRunProjection(
-		&record,
-		now,
-		"ledger.warnings_replace",
-		func() error {
-			return replaceSQLiteRemoteRunWarnings(transaction, record.JobID, record.Warnings)
-		},
-	); err != nil {
-		return nil, err
-	}
-	if err := replaceSQLiteRemoteRunPhaseTimings(transaction, record.JobID, record.PhaseTimings); err != nil {
-		return nil, err
+	if err := replaceSQLiteRemoteRunWarnings(transaction, record.JobID, record.Warnings); err != nil {
+		return err
 	}
 	if err := advanceCIQueryRevision(transaction, now().UTC()); err != nil {
-		return nil, err
+		return err
 	}
-	return append([]RemoteCIPhaseTiming(nil), record.PhaseTimings[initialTimingCount:]...), nil
-}
-
-func measureSQLiteRemoteCIRunProjection(
-	record *RemoteCIRunRecord,
-	now func() time.Time,
-	phase string,
-	operation func() error,
-) error {
-	startedAt := now()
-	err := operation()
-	completedAt := now()
-	duration := max(completedAt.Sub(startedAt), 0)
-	outcome := RemoteCIPhaseOutcomeSucceeded
-	if err != nil {
-		outcome = RemoteCIPhaseOutcomeFailed
-	}
-	record.PhaseTimings = append(record.PhaseTimings, RemoteCIPhaseTiming{
-		Phase:          phase,
-		StartedAt:      startedAt.UTC(),
-		DurationMillis: duration.Milliseconds(),
-		Outcome:        outcome,
-		WorkloadCount:  len(record.ReusedWorkloads) + len(record.CacheMisses),
-		ShardCount:     len(record.Shards),
-		CacheHitCount:  len(record.ReusedWorkloads),
-		CacheMissCount: len(record.CacheMisses),
-	})
-	return err
+	return nil
 }
 
 func upsertSQLiteRemoteCIRun(transaction *sql.Tx, record RemoteCIRunRecord) error {
@@ -129,10 +53,10 @@ func upsertSQLiteRemoteCIRun(transaction *sql.Tx, record RemoteCIRunRecord) erro
 	cleanupComplete := boolToSQLite(record.CleanupComplete)
 	if _, err := transaction.Exec(`
 		INSERT INTO ci_runs (
-			job_id, entrypoint, profile, plan_digest, catalog_digest, source_tree_sha,
-			runner_image, status, authoritative, started_at_unix_ms, completed_at_unix_ms,
-			cleanup_complete, error_text
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			job_id, entrypoint, profile, plan_digest, catalog_digest, accepted_generation, source_tree_sha,
+			candidate_gate_source_sha256, candidate_gate_toolchain_sha256, runner_image, status,
+			authoritative, started_at_unix_ms, completed_at_unix_ms, cleanup_complete, error_text
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(job_id) DO UPDATE SET
 			status = excluded.status,
 			authoritative = excluded.authoritative,
@@ -140,7 +64,8 @@ func upsertSQLiteRemoteCIRun(transaction *sql.Tx, record RemoteCIRunRecord) erro
 			cleanup_complete = excluded.cleanup_complete,
 			error_text = excluded.error_text
 	`, record.JobID, string(record.Entrypoint), string(record.Profile), record.PlanDigest,
-		record.CatalogDigest, record.SourceTreeSHA, record.RunnerImage, string(record.Status),
+		record.CatalogDigest, strconv.FormatUint(record.AcceptedGeneration, 10), record.SourceTreeSHA, record.CandidateGateSourceSHA256, record.CandidateGateToolchainSHA256,
+		record.RunnerImage, string(record.Status),
 		authoritative, record.StartedAt.UTC().UnixMilli(), record.CompletedAt.UTC().UnixMilli(),
 		cleanupComplete, record.ErrorText,
 	); err != nil {
@@ -185,11 +110,19 @@ func insertSQLiteRemoteCIRunShard(transaction *sql.Tx, jobID string, shard Remot
 		return fmt.Errorf("encode remote CI shard materialization timing: %w", err)
 	}
 	timingJSON := string(timing)
+	resourcesJSON := ""
+	if shard.Resources.CPU != 0 || shard.Resources.MemoryGiB != 0 || shard.Resources.ClassID != "" {
+		resources, err := json.Marshal(shard.Resources)
+		if err != nil {
+			return fmt.Errorf("encode remote CI shard resources: %w", err)
+		}
+		resourcesJSON = string(resources)
+	}
 	if _, err := transaction.Exec(`
 		INSERT INTO ci_shards (
-			job_id, shard_identity, container_group_id, container_status, materialization_timing_json
-		) VALUES (?, ?, ?, ?, ?)
-	`, jobID, shard.ShardIdentity, shard.ContainerGroup, shard.ContainerStatus, timingJSON); err != nil {
+			job_id, shard_identity, container_group_id, container_status, materialization_timing_json, resources_json
+		) VALUES (?, ?, ?, ?, ?, ?)
+	`, jobID, shard.ShardIdentity, shard.ContainerGroup, shard.ContainerStatus, timingJSON, resourcesJSON); err != nil {
 		return mapDurationLedgerSQLiteError("store remote CI shard", err)
 	}
 	for _, workloadID := range shard.Workloads {
@@ -237,6 +170,13 @@ func replaceSQLiteRemoteCIWorkloadExecutions(transaction *sql.Tx, record RemoteC
 		return mapDurationLedgerSQLiteError("clear remote CI workload executions", err)
 	}
 	for _, execution := range record.WorkloadExecutions {
+		shardIdentity, err := remoteCIRunWorkloadShardIdentity(record.Shards, execution.GateID)
+		if err != nil {
+			return err
+		}
+		if execution.ShardIdentity != shardIdentity {
+			return fmt.Errorf("remote CI workload execution %q shard binding is invalid", execution.GateID)
+		}
 		profile, err := json.Marshal(execution.ExecutionProfile)
 		if err != nil {
 			return fmt.Errorf("encode remote CI workload execution profile: %w", err)
@@ -247,10 +187,10 @@ func replaceSQLiteRemoteCIWorkloadExecutions(transaction *sql.Tx, record RemoteC
 		}
 		if _, err := transaction.Exec(`
 			INSERT INTO ci_workload_executions (
-				job_id, workload_id, status, exit_code, started_at_unix_ms,
+				job_id, shard_identity, workload_id, status, exit_code, started_at_unix_ms,
 				completed_at_unix_ms, argv_digest, log_digest, test_timings_json, execution_profile_json
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, record.JobID, string(execution.GateID), string(execution.Status), execution.ExitCode,
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, record.JobID, shardIdentity, string(execution.GateID), string(execution.Status), execution.ExitCode,
 			execution.StartedAt.UTC().UnixMilli(), execution.CompletedAt.UTC().UnixMilli(),
 			execution.ArgvDigest, execution.LogDigest, string(testTimings), string(profile),
 		); err != nil {
@@ -260,33 +200,26 @@ func replaceSQLiteRemoteCIWorkloadExecutions(transaction *sql.Tx, record RemoteC
 	return nil
 }
 
-func replaceSQLiteRemoteRunPhaseTimings(
-	transaction *sql.Tx,
-	jobID string,
-	timings []RemoteCIPhaseTiming,
-) error {
-	if _, err := transaction.Exec(`DELETE FROM ci_run_phase_timings WHERE job_id = ?`, jobID); err != nil {
-		return mapDurationLedgerSQLiteError("clear remote CI phase timings", err)
+func remoteCIRunWorkloadShardIdentity(shards []RemoteCIShardRecord, workloadID GateID) (string, error) {
+	for _, shard := range shards {
+		if slices.Contains(shard.Workloads, workloadID) {
+			return shard.ShardIdentity, nil
+		}
 	}
-	for ordinal, timing := range timings {
-		if _, err := transaction.Exec(`
-			INSERT INTO ci_run_phase_timings (
-				job_id, ordinal, phase, started_at_unix_ms, duration_ms, outcome,
-				workload_count, shard_count, cache_hit_count, cache_miss_count
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`,
-			jobID,
-			ordinal,
-			timing.Phase,
-			timing.StartedAt.UTC().UnixMilli(),
-			timing.DurationMillis,
-			string(timing.Outcome),
-			timing.WorkloadCount,
-			timing.ShardCount,
-			timing.CacheHitCount,
-			timing.CacheMissCount,
-		); err != nil {
-			return mapDurationLedgerSQLiteError("store remote CI phase timing", err)
+	return "", fmt.Errorf("remote CI workload %q lacks shard identity", workloadID)
+}
+
+func replaceSQLiteTimingObservations(transaction *sql.Tx, jobID string, observations []TimingObservation) error {
+	if _, err := transaction.Exec(`DELETE FROM ci_timing_observations WHERE job_id = ?`, jobID); err != nil {
+		return mapDurationLedgerSQLiteError("clear timing observations", err)
+	}
+	for _, observation := range observations {
+		cacheEvidenceJSON, err := json.Marshal(observation.CacheEvidence)
+		if err != nil {
+			return fmt.Errorf("encode timing cache evidence: %w", err)
+		}
+		if _, err := transaction.Exec(`INSERT INTO ci_timing_observations (job_id, scope, shard_identity, workload_id, phase, started_at_unix_ms, completed_at_unix_ms, duration_ms, measurement, reason, aggregation, cache_evidence_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, observation.JobID, string(observation.Scope), observation.ShardIdentity, string(observation.WorkloadID), string(observation.Phase), observation.StartedAt.UTC().UnixMilli(), observation.CompletedAt.UTC().UnixMilli(), observation.DurationMS, string(observation.Measurement), observation.Reason, string(observation.Aggregation), string(cacheEvidenceJSON)); err != nil {
+			return mapDurationLedgerSQLiteError("store timing observation", err)
 		}
 	}
 	return nil

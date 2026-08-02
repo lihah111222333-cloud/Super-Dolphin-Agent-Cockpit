@@ -76,6 +76,12 @@ func preparePreCommitGateFixture(t *testing.T) string {
 	copyFixTestGuardRepoFile(t, root, "scripts/refresh_generated_artifacts.sh", 0o755)
 	writePreCommitFixtureGateCLI(t, root)
 	runFixTestGuardGit(t, root, "config", "--local", "superdolphin.gateLauncher", filepath.Join(root, ".pre-commit-fixture-bin", "super-dolphin-gate"))
+	remoteConfig := filepath.Join(root, ".pre-commit-fixture-remote", "config.yaml")
+	remoteLedger := filepath.Join(root, ".pre-commit-fixture-remote", "duration-ledger.sqlite")
+	writeFixTestGuardFile(t, root, ".pre-commit-fixture-remote/config.yaml", "fixture: remote-config\n")
+	writeFixTestGuardFile(t, root, ".pre-commit-fixture-remote/duration-ledger.sqlite", "fixture remote duration ledger\n")
+	runFixTestGuardGit(t, root, "config", "--local", "super-dolphin.remote.config", remoteConfig)
+	runFixTestGuardGit(t, root, "config", "--local", "super-dolphin.remote.ledger", remoteLedger)
 	writePreCommitFakeCodeGuardScript(t, root)
 	writeFakeAIMaintenanceGateScript(t, root)
 	writePreCommitFakeAIMaintenancePlanner(t, root)
@@ -204,37 +210,39 @@ case "${1:-}" in
     fi
     printf 'fixture frontend-code-size verified staged tree %s accepted tree %s\n' "$tree" "$accepted_tree"
     ;;
-  hook)
-    if [ "$#" -ne 4 ] || [ "$2" != "pre-commit" ] || [ "$3" != "--tree" ]; then
-      printf 'fixture gate: hook requires pre-commit --tree <tree>\n' >&2
+  remote)
+    if [ "$#" -ne 13 ] || [ "$2" != "hook" ] || [ "$3" != "pre-commit" ] || [ "$4" != "--config" ] || [ "$6" != "--ledger" ] || [ "$8" != "--repository" ] || [ "${10}" != "--tree" ] || [ "${12}" != "--parent" ]; then
+      printf 'fixture gate: remote requires hook pre-commit --config <path> --ledger <path> --repository <path> --tree <tree> --parent <commit>\n' >&2
       exit 64
     fi
     if [ -n "${GIT_DIR:-}" ] || [ -n "${GIT_WORK_TREE:-}" ]; then
-      printf 'fixture gate: hook inherited repository-local Git environment\n' >&2
+      printf 'fixture gate: remote hook inherited repository-local Git environment\n' >&2
       exit 1
     fi
-    tree=$4
-    if ! require_current_staged_tree hook "$tree"; then
+    remote_config=$5
+    remote_ledger=$7
+    remote_repository=$9
+    tree=${11}
+    parent_commit=${13}
+    if [ ! -f "$remote_config" ] || [ ! -f "$remote_ledger" ] || [ "$remote_repository" != "$repository_root" ]; then
+      printf 'fixture gate: remote hook config, ledger, or repository is invalid\n' >&2
+      exit 1
+    fi
+    if [ "$parent_commit" != "$(git -C "$repository_root" rev-parse --verify 'HEAD^{commit}')" ]; then
+      printf 'fixture gate: remote hook parent does not match HEAD\n' >&2
+      exit 1
+    fi
+    if ! require_current_staged_tree remote-hook "$tree"; then
       exit 1
     fi
     printf 'fixture hook queued staged tree %s job=%s\n' "$tree" "$fixture_job"
-    exit 13
-    ;;
-  wait)
-    if [ "$#" -ne 5 ] || [ "$2" != "--job" ] || [ "$3" != "$fixture_job" ] || [ "$4" != "--tree" ]; then
-      printf 'fixture gate: wait requires bound job and --tree <tree>\n' >&2
-      exit 64
-    fi
-    tree=$5
-    if ! require_current_staged_tree wait "$tree"; then
-      exit 1
-    fi
     printf 'fixture wait verified staged tree %s job=%s\n' "$tree" "$fixture_job"
     if [ -n "${GATE_WAIT_READY_FILE:-}" ]; then
       : >"$GATE_WAIT_READY_FILE"
     fi
     if [ -n "${GATE_WAIT_FOR_INTERRUPT:-}" ]; then
       sleep 2
+      exit 130
     fi
     if [ -n "${GATE_WAIT_FORCE_FAILURE:-}" ]; then
       printf '%s\n' 'forced wait failure' >&2

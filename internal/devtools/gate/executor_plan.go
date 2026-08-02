@@ -60,6 +60,7 @@ type GoTestTiming = testtiming.Timing
 
 // PlanGateExecution 是 executor 对单个 gate 的有界、未签名观察结果。
 type PlanGateExecution struct {
+	ShardIdentity    string           `json:"shard_identity,omitempty"`
 	GateID           GateID           `json:"gate_id"`
 	Status           ResultStatus     `json:"status"`
 	ExitCode         int              `json:"exit_code"`
@@ -77,7 +78,7 @@ type PlanGateExecution struct {
 type ExecutionProfile struct {
 	Frontend                *FrontendExecutionProfile `json:"frontend,omitempty"`
 	CacheSource             string                    `json:"cache_source"`
-	CacheStatus             string                    `json:"cache_status"`
+	CacheStatus             CacheObservationStatus    `json:"cache_status"`
 	CacheMeasurement        string                    `json:"cache_measurement"`
 	PrivateHitCount         uint64                    `json:"private_hit_count"`
 	BaselineHitCount        uint64                    `json:"baseline_hit_count"`
@@ -765,7 +766,7 @@ func executePlanGate(
 		goBuildCacheMetricsPath: metricsPath,
 		frontendEmbedSeedRoot:   ExecutorFrontendEmbedSeedRoot,
 		stdout:                  stdout, stderr: log,
-		nowFunc:                 now,
+		nowFunc:         now,
 		executionTiming: timing,
 	}
 	result := PlanGateExecution{GateID: id, StartedAt: now().UTC(), ExitCode: -1}
@@ -800,23 +801,35 @@ func executePlanGate(
 	return result, err
 }
 
-func cacheStatusFromMetrics(metrics GoBuildCacheProxyMetrics) string {
+func cacheStatusFromMetrics(metrics GoBuildCacheProxyMetrics) CacheObservationStatus {
 	if metrics.PrivateHitCount+metrics.BaselineHitCount > 0 {
-		return "hit"
+		return CacheObservationHit
 	}
 	if metrics.MissCount > 0 {
-		return "miss"
+		return CacheObservationMiss
 	}
 	if metrics.PutCount > 0 {
-		return "put"
+		return CacheObservationPut
 	}
-	return "not_applicable"
+	return CacheObservationNotApplicable
 }
 
 func executionProfileForGate(id GateID, program ExecutorProgram, timings []GoTestTiming, started, completed time.Time, timing *executorExecutionTiming) (ExecutionProfile, error) {
 	profile := unmeasuredExecutionProfile(started, completed)
 	profile.TotalMS = completed.Sub(started).Milliseconds()
 	profile.TotalMS = max(profile.TotalMS, 0)
+	if timing == nil || timing.setupMS <= 0 || timing.bodyMS <= 0 || timing.totalMS <= 0 || timing.totalMS > profile.TotalMS {
+		return ExecutionProfile{}, errors.New("workload startup and test-body timing is missing or invalid")
+	}
+	// The executor records both intervals around the actual workload process;
+	// coordinator receipts must preserve those intervals rather than infer them
+	// from a residual duration.
+	profile.StartupMS, profile.TestBodyMS = timing.setupMS, timing.bodyMS
+	if isGoPackageTestWorkload(id) {
+		// The worker measures the command body interval directly.  Per-test
+		// events may overlap (for example parallel subtests), so summing them
+		// would over-count a workload's wall time.
+	}
 	if isExactGoTestWorkload(id) {
 		_, _, target, _, parseErr := parseTargetWorkloadID(string(id))
 		if parseErr != nil {
@@ -835,9 +848,10 @@ func executionProfileForGate(id GateID, program ExecutorProgram, timings []GoTes
 		if len(matched) != 1 || matched[0].DurationMS < 0 || matched[0].DurationMS > profile.TotalMS {
 			return ExecutionProfile{}, errors.New("exact Go test execution profile timing is missing or invalid")
 		}
-		profile.TestBodyMS = matched[0].DurationMS
+		if matched[0].DurationMS > profile.TestBodyMS {
+			return ExecutionProfile{}, errors.New("exact Go test event exceeds measured body interval")
+		}
 	}
-	profile.StartupMS = profile.TotalMS - profile.TestBodyMS
 	if program.NeedsFrontendSeed {
 		profile.Frontend = &FrontendExecutionProfile{
 			NodeModulesSeedHit: true,
@@ -846,10 +860,7 @@ func executionProfileForGate(id GateID, program ExecutorProgram, timings []GoTes
 			// explicit non-applicable state instead of fabricating a cache hit.
 			NPMCacheNotApplicableReason:          "npm_cache_lookup_not_observed",
 			PlaywrightBrowserNotApplicableReason: "browser_cache_lookup_not_observed",
-			ViteCacheHit:                         timing != nil && timing.viteCacheSeedHit,
-		}
-		if timing == nil {
-			return ExecutionProfile{}, errors.New("frontend execution timing is required")
+			ViteCacheHit:                         timing.viteCacheSeedHit,
 		}
 		profile.Frontend.SetupMS, profile.Frontend.BodyMS, profile.Frontend.TotalMS = timing.setupMS, timing.bodyMS, timing.totalMS
 	}
@@ -859,7 +870,7 @@ func executionProfileForGate(id GateID, program ExecutorProgram, timings []GoTes
 func unmeasuredExecutionProfile(started, completed time.Time) ExecutionProfile {
 	total := completed.Sub(started).Milliseconds()
 	total = max(total, 0)
-	return ExecutionProfile{CacheSource: "none", CacheStatus: "not_applicable", CacheMeasurement: "not_measured", StartupMS: total, TotalMS: total}
+	return ExecutionProfile{CacheSource: "none", CacheStatus: CacheObservationNotApplicable, CacheMeasurement: "not_measured", StartupMS: total, TotalMS: total}
 }
 
 func isGoPackageTestWorkload(id GateID) bool {

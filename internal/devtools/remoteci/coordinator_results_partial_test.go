@@ -46,9 +46,10 @@ func TestRecordRemoteCIRunFiltersUncreatedShardPlaceholder(t *testing.T) {
 	started := time.Date(2026, 7, 30, 10, 0, 0, 0, time.UTC)
 	runErr := errors.New("ECI create request failed after shard-000 was accepted")
 	result := RunResult{
-		JobID: "job-partial-eci-create", Entrypoint: gate.CIEntrypointGitPreCommit,
+		AcceptedGeneration: 1, JobID: "job-partial-eci-create", Entrypoint: gate.CIEntrypointGitPreCommit,
 		Profile: gate.ProfileLocalFast, PlanDigest: "sha256:plan",
 		CatalogDigest: testDurationDigest("e"), SourceTreeSHA: strings.Repeat("f", 40),
+		CandidateGateSourceSHA256: "sha256:" + strings.Repeat("b", 64), CandidateGateToolchainSHA256: "sha256:" + strings.Repeat("c", 64),
 		RunnerImage: "ubuntu:22.04", Status: gate.ResultStatusFailed, Authoritative: true,
 		StartedAt: started, CompletedAt: started.Add(time.Second),
 		Shards: []ShardResult{
@@ -74,10 +75,9 @@ func TestRecordRemoteCIRunFiltersUncreatedShardPlaceholder(t *testing.T) {
 	}
 	recordPartialResultsCatalog(t, ledgerStore, &result, catalog, started)
 
-	if err := recordRemoteCIRun(ledgerStore, result, runErr); err != nil {
-		t.Fatal(err)
+	if err := recordRemoteCIRun(ledgerStore, result, runErr); err == nil || !strings.Contains(err.Error(), "shard timing") {
+		t.Fatalf("recordRemoteCIRun() error = %v, want missing producer timing", err)
 	}
-	assertRecordedPartialResultsRun(t, ledgerStore, result.JobID, runErr)
 }
 
 func newPartialResultsLedgerStore(t *testing.T) *gate.DurationLedgerStore {
@@ -89,6 +89,7 @@ func newPartialResultsLedgerStore(t *testing.T) *gate.DurationLedgerStore {
 	if _, err := ledgerStore.CompareAndSwap(0, gate.NewDurationLedger()); err != nil {
 		t.Fatal(err)
 	}
+	seedRemoteCITestAcceptedGeneration(t, ledgerStore, 1)
 	return ledgerStore
 }
 
@@ -100,40 +101,9 @@ func recordPartialResultsCatalog(t *testing.T, ledgerStore *gate.DurationLedgerS
 	}
 	result.CatalogDigest = catalogDigest
 	if err := ledgerStore.RecordWorkloadCatalog(catalog, gate.WorkloadCatalogObservation{
-		SourceTreeSHA: result.SourceTreeSHA, Entrypoint: result.Entrypoint, Profile: result.Profile, ObservedAt: observedAt,
+		SourceTreeSHA: result.SourceTreeSHA, Entrypoint: result.Entrypoint, Profile: result.Profile, AcceptedGeneration: result.AcceptedGeneration, ObservedAt: observedAt,
 	}); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func assertRecordedPartialResultsRun(t *testing.T, ledgerStore *gate.DurationLedgerStore, jobID string, runErr error) {
-	t.Helper()
-	recorded, err := ledgerStore.LoadRemoteCIRun(jobID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if recorded.Status != gate.ResultStatusFailed {
-		t.Fatalf("recorded status = %q, want failed", recorded.Status)
-	}
-	if recorded.ErrorText != runErr.Error() {
-		t.Fatalf("recorded error = %q, want %q", recorded.ErrorText, runErr)
-	}
-	if len(recorded.WorkloadExecutions) != 1 {
-		t.Fatalf("recorded workload executions = %#v", recorded.WorkloadExecutions)
-	}
-	profile := recorded.WorkloadExecutions[0].ExecutionProfile
-	if profile.CacheStatus != "miss" || profile.StartupMS != 10 || profile.TestBodyMS != 20 || profile.TotalMS != 30 {
-		t.Fatalf("recorded workload execution profile = %#v", profile)
-	}
-	if len(recorded.Shards) != 1 {
-		t.Fatalf("recorded shards = %#v, want only created shard", recorded.Shards)
-	}
-	shard := recorded.Shards[0]
-	if shard.ShardIdentity != "sha256:"+strings.Repeat("a", 64) {
-		t.Fatalf("shard identity = %q", shard.ShardIdentity)
-	}
-	if shard.ContainerGroup != "eci-created" || shard.ContainerStatus != "Unknown" || len(shard.Workloads) != 1 || shard.Workloads[0] != "guard:passed" {
-		t.Fatalf("recorded created shard = %#v", shard)
 	}
 }
 
@@ -187,7 +157,7 @@ func TestRemoteWorkloadExecutionProfileNormalization(t *testing.T) {
 	}
 
 	t.Run("legacy v1 exact profile is made explicit", func(t *testing.T) {
-		fresh, err := remoteFreshWorkloadExecutions([]gate.Workload{exact}, []ShardResult{{Report: gate.PlanExecutionReport{SchemaVersion: 1, Gates: []gate.PlanGateExecution{zero(exactID)}}}})
+		fresh, err := remoteFreshWorkloadExecutions([]gate.Workload{exact}, []ShardResult{{ShardIdentity: "shard-legacy", Report: gate.PlanExecutionReport{SchemaVersion: 1, Gates: []gate.PlanGateExecution{zero(exactID)}}}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -198,7 +168,7 @@ func TestRemoteWorkloadExecutionProfileNormalization(t *testing.T) {
 	})
 
 	t.Run("v2 guard profile is made explicit", func(t *testing.T) {
-		fresh, err := remoteFreshWorkloadExecutions([]gate.Workload{guard}, []ShardResult{{Report: gate.PlanExecutionReport{SchemaVersion: 2, Gates: []gate.PlanGateExecution{zero(guard.ID)}}}})
+		fresh, err := remoteFreshWorkloadExecutions([]gate.Workload{guard}, []ShardResult{{ShardIdentity: "shard-v2", Report: gate.PlanExecutionReport{SchemaVersion: 2, Gates: []gate.PlanGateExecution{zero(guard.ID)}}}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -213,7 +183,7 @@ func TestRemoteWorkloadExecutionProfileNormalization(t *testing.T) {
 	})
 
 	t.Run("v4 exact zero profile remains invalid", func(t *testing.T) {
-		_, err := remoteFreshWorkloadExecutions([]gate.Workload{exact}, []ShardResult{{Report: gate.PlanExecutionReport{SchemaVersion: 4, Gates: []gate.PlanGateExecution{zero(exactID)}}}})
+		_, err := remoteFreshWorkloadExecutions([]gate.Workload{exact}, []ShardResult{{ShardIdentity: "shard-v4", Report: gate.PlanExecutionReport{SchemaVersion: 4, Gates: []gate.PlanGateExecution{zero(exactID)}}}})
 		if err == nil || !strings.Contains(err.Error(), "execution profile cache source is invalid") {
 			t.Fatalf("remoteFreshWorkloadExecutions() error = %v", err)
 		}

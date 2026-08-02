@@ -27,14 +27,13 @@ func remoteCIShardRecords(shardResults []ShardResult) []gate.RemoteCIShardRecord
 		if containerStatus == "" {
 			containerStatus = "Unknown"
 		}
-		shards = append(shards, gate.RemoteCIShardRecord{ShardIdentity: shard.ShardIdentity, ContainerGroup: shard.ContainerGroup, ContainerStatus: containerStatus, Workloads: append([]gate.GateID(nil), shard.ExecutedWorkloads...), MaterializationTiming: shard.MaterializationTiming})
+		resources := gate.RemoteCIShardResources{}
+		if shard.ResourceClass != "" {
+			resources = gate.RemoteCIShardResources{ClassID: shard.ResourceClass, CPU: shard.Resources.CPU, MemoryGiB: shard.Resources.MemoryGiB}
+		}
+		shards = append(shards, gate.RemoteCIShardRecord{ShardIdentity: shard.ShardIdentity, ContainerGroup: shard.ContainerGroup, ContainerStatus: containerStatus, Workloads: append([]gate.GateID(nil), shard.ExecutedWorkloads...), MaterializationTiming: shard.MaterializationTiming, Resources: resources})
 	}
 	return shards
-}
-
-// lookupPassedWorkloads 计算 workload 指纹并读取当前环境下可复用的通过标记。
-func (coordinator *Coordinator) lookupPassedWorkloads(ctx context.Context, input RunInput, catalog gate.WorkloadCatalog, trace *remoteRunPerformanceTrace) (remoteWorkloadCacheSelection, error) {
-	return lookupPassedWorkloads(ctx, coordinator.store, coordinator.config.WorkloadCachePrefix, coordinator.now, input, catalog, trace)
 }
 
 // remotePlanningContext 统一缓存投影与最终 LPT 使用的环境和时限身份。
@@ -47,12 +46,8 @@ func (coordinator *Coordinator) prepareRemoteAssets(
 	ctx context.Context,
 	input RunInput,
 	jobID, tempRoot string,
-	counts remoteCIPhaseCounts,
-	trace *remoteRunPerformanceTrace,
 ) (remoteAssets, error) {
-	sourceBuildSpan := trace.start("source.build", counts)
 	assets, err := buildRemoteAssets(ctx, input, jobID, tempRoot, coordinator.config.SourcePrefix)
-	trace.finish(sourceBuildSpan, err, counts)
 	if err != nil {
 		return remoteAssets{}, err
 	}

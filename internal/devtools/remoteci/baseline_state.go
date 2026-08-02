@@ -9,37 +9,38 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
-const BaselineStateSchemaVersion uint32 = 10
-
-// ErrRemoteBaselineMigrationRequired identifies persisted state written by the
-// retired DataCache/Anchor/Delta protocol. Callers must migrate it out of band.
-var ErrRemoteBaselineMigrationRequired = errors.New("remote baseline migration required")
+const BaselineStateSchemaVersion uint32 = 11
 
 // BaselineState is the accepted remote CI identity. ECI ImageCache is the sole
 // executable cache authority; OCIProjectCache only describes verified content
 // inside the immutable image and cannot select a runtime cache on its own.
 type BaselineState struct {
-	SchemaVersion          uint32                   `json:"schema_version"`
-	Generation             uint64                   `json:"generation"`
-	MainCommit             string                   `json:"main_commit"`
-	MainTree               string                   `json:"main_tree"`
-	Platform               string                   `json:"platform"`
-	PolicyDigest           string                   `json:"policy_digest"`
-	ToolchainDigest        string                   `json:"toolchain_digest"`
-	RuntimeImage           string                   `json:"runtime_image"`
-	ImageCacheID           string                   `json:"image_cache_id"`
-	ImageCacheSnapshotID   string                   `json:"image_cache_snapshot_id"`
-	ImageCacheReady        bool                     `json:"image_cache_ready"`
-	ImageDigest            string                   `json:"image_digest"`
-	OCIProjectCache        *BaselineOCIProjectCache `json:"oci_project_cache"`
-	GateBinarySHA256       string                   `json:"gate_binary_sha256"`
-	RuntimeSeedSHA256      string                   `json:"runtime_seed_manifest_sha256"`
-	BaselineManifestDigest string                   `json:"baseline_manifest_digest"`
-	CreatedAt              time.Time                `json:"created_at"`
-	AcceptedAt             time.Time                `json:"accepted_at"`
-	RenewedAt              time.Time                `json:"renewed_at"`
+	SchemaVersion                uint32                   `json:"schema_version"`
+	Generation                   uint64                   `json:"generation"`
+	MainCommit                   string                   `json:"main_commit"`
+	MainTree                     string                   `json:"main_tree"`
+	Platform                     string                   `json:"platform"`
+	PolicyDigest                 string                   `json:"policy_digest"`
+	ToolchainDigest              string                   `json:"toolchain_digest"`
+	RuntimeImage                 string                   `json:"runtime_image"`
+	ImageCacheID                 string                   `json:"image_cache_id"`
+	ImageCacheSnapshotID         string                   `json:"image_cache_snapshot_id"`
+	ImageCacheReady              bool                     `json:"image_cache_ready"`
+	ImageDigest                  string                   `json:"image_digest"`
+	OCIProjectCache              *BaselineOCIProjectCache `json:"oci_project_cache"`
+	GateBinarySHA256             string                   `json:"gate_binary_sha256"`
+	RuntimeSeedSHA256            string                   `json:"runtime_seed_manifest_sha256"`
+	BaselineManifestDigest       string                   `json:"baseline_manifest_digest"`
+	SourceSnapshotManifestDigest string                   `json:"source_snapshot_manifest_digest"`
+	SourceSnapshotImagePath      string                   `json:"source_snapshot_image_path"`
+	SourceSnapshotClosureDigest  string                   `json:"source_snapshot_closure_digest"`
+	CreatedAt                    time.Time                `json:"created_at"`
+	AcceptedAt                   time.Time                `json:"accepted_at"`
+	RenewedAt                    time.Time                `json:"renewed_at"`
 }
 
 // BaselineIdentity contains all inputs whose change requires a new baseline generation.
@@ -55,7 +56,7 @@ func (state *BaselineState) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode remote baseline state header: %w", err)
 	}
 	if header.SchemaVersion != BaselineStateSchemaVersion {
-		return fmt.Errorf("%w: remote baseline state schema %d is not OCI-only schema %d", ErrRemoteBaselineMigrationRequired, header.SchemaVersion, BaselineStateSchemaVersion)
+		return fmt.Errorf("remote baseline state schema %d is not accepted schema %d", header.SchemaVersion, BaselineStateSchemaVersion)
 	}
 	type stateWire BaselineState
 	var wire stateWire
@@ -99,7 +100,9 @@ func (state BaselineState) Validate() error {
 	if err := state.OCIProjectCache.ValidateForBaseline(state.MainTree, state.ToolchainDigest, state.Platform, state.RuntimeImage); err != nil {
 		return err
 	}
-	if !remoteDigestPattern.MatchString(state.BaselineManifestDigest) || !remoteDigestPattern.MatchString(state.GateBinarySHA256) || !remoteDigestPattern.MatchString(state.RuntimeSeedSHA256) {
+	if !remoteDigestPattern.MatchString(state.BaselineManifestDigest) || !remoteDigestPattern.MatchString(state.GateBinarySHA256) || !remoteDigestPattern.MatchString(state.RuntimeSeedSHA256) ||
+		!remoteDigestPattern.MatchString(state.SourceSnapshotManifestDigest) || !remoteDigestPattern.MatchString(state.SourceSnapshotClosureDigest) ||
+		state.SourceSnapshotImagePath != cicontract.SourceSnapshotManifestPath {
 		return errors.New("remote baseline digest is invalid")
 	}
 	if !validBaselineTimes(state.CreatedAt, state.AcceptedAt, state.RenewedAt) {
@@ -115,20 +118,6 @@ func (state BaselineState) identity() BaselineIdentity {
 // Matches checks the immutable identity of a valid OCI-only state.
 func (state BaselineState) Matches(identity BaselineIdentity) bool {
 	return state.Validate() == nil && validateBaselineIdentity(identity) == nil && state.identity() == identity
-}
-
-// Renew records a successful ImageCache liveness check without creating a new
-// generation. The caller must use a compare-and-swap write so a concurrent
-// successor promotion cannot be overwritten by this lease renewal.
-func (state BaselineState) Renew(now time.Time) (BaselineState, error) {
-	if err := state.Validate(); err != nil {
-		return BaselineState{}, err
-	}
-	if now.IsZero() || now.Location() != time.UTC || now.Before(state.AcceptedAt) {
-		return BaselineState{}, errors.New("remote baseline renewal time is invalid")
-	}
-	state.RenewedAt = now
-	return state, nil
 }
 
 // validateImageCacheAuthority rejects a state whose ECI image cache cannot be
@@ -166,8 +155,8 @@ func validateBaselineIdentity(identity BaselineIdentity) error {
 	if !baselineOIDPattern.MatchString(identity.MainCommit) || !baselineOIDPattern.MatchString(identity.MainTree) {
 		return errors.New("remote baseline Git identity is invalid")
 	}
-	if identity.Platform != "linux/amd64" && identity.Platform != "linux/arm64" {
-		return errors.New("remote baseline platform is invalid")
+	if err := cicontract.ValidateTargetPlatform(identity.Platform); err != nil {
+		return err
 	}
 	for name, value := range map[string]string{"policy": identity.PolicyDigest, "toolchain": identity.ToolchainDigest} {
 		if !remoteDigestPattern.MatchString(value) {
@@ -183,6 +172,9 @@ func validateBaselineIdentity(identity BaselineIdentity) error {
 func validRemoteImageReference(value string) bool {
 	repository, digest, ok := strings.Cut(value, "@")
 	if !ok || strings.Contains(digest, "@") || !remoteDigestPattern.MatchString(digest) || repository == "" || repository != strings.ToLower(repository) || strings.ContainsAny(repository, " \t\r\n\\?#") || strings.Contains(repository, "://") {
+		return false
+	}
+	if cicontract.ValidateNonACRRegistryHost(repository) != nil {
 		return false
 	}
 	last := repository

@@ -15,10 +15,12 @@ const ShardMaterializationTimingRecordPrefix = "SUPER_DOLPHIN_SHARD_MATERIALIZAT
 
 // MaterializationPhaseTiming contains directly observed wall-clock durations for one artifact.
 type MaterializationPhaseTiming struct {
-	DownloadMS    int64 `json:"download_ms"`
-	VerifyMS      int64 `json:"verify_ms"`
-	InstallMS     int64 `json:"install_ms"`
-	MaterializeMS int64 `json:"materialize_ms"`
+	StartedAtUnixMS   int64 `json:"started_at_unix_ms"`
+	CompletedAtUnixMS int64 `json:"completed_at_unix_ms"`
+	DownloadMS        int64 `json:"download_ms"`
+	VerifyMS          int64 `json:"verify_ms"`
+	InstallMS         int64 `json:"install_ms"`
+	MaterializeMS     int64 `json:"materialize_ms"`
 }
 
 // MaterializationMeasurement declares whether per-shard materialization timing is evidence.
@@ -66,6 +68,9 @@ func (timing ShardMaterializationTiming) Validate() error {
 			phase.MaterializeMS < phase.DownloadMS+phase.VerifyMS+phase.InstallMS {
 			return errors.New("shard materialization timing phase is invalid")
 		}
+		if (phase.StartedAtUnixMS == 0) != (phase.CompletedAtUnixMS == 0) || (phase.StartedAtUnixMS != 0 && (phase.CompletedAtUnixMS <= phase.StartedAtUnixMS || phase.MaterializeMS == 0 || phase.CompletedAtUnixMS-phase.StartedAtUnixMS != phase.MaterializeMS)) {
+			return errors.New("shard materialization timing phase interval is invalid")
+		}
 	}
 	return nil
 }
@@ -83,7 +88,7 @@ func EncodeShardMaterializationTimingRecord(timing ShardMaterializationTiming) (
 	}
 	fields := []string{timing.ShardIdentity}
 	for _, phase := range []MaterializationPhaseTiming{timing.Source, timing.Baseline, timing.CandidateCompile, timing.CandidateTestBinaries} {
-		fields = append(fields, strconv.FormatInt(phase.DownloadMS, 10), strconv.FormatInt(phase.VerifyMS, 10), strconv.FormatInt(phase.InstallMS, 10), strconv.FormatInt(phase.MaterializeMS, 10))
+		fields = append(fields, strconv.FormatInt(phase.StartedAtUnixMS, 10), strconv.FormatInt(phase.CompletedAtUnixMS, 10), strconv.FormatInt(phase.DownloadMS, 10), strconv.FormatInt(phase.VerifyMS, 10), strconv.FormatInt(phase.InstallMS, 10), strconv.FormatInt(phase.MaterializeMS, 10))
 	}
 	return ShardMaterializationTimingRecordPrefix + strings.Join(fields, " "), nil
 }
@@ -94,10 +99,10 @@ func DecodeShardMaterializationTimingRecord(line string) (ShardMaterializationTi
 		return ShardMaterializationTiming{}, errors.New("shard materialization timing prefix is invalid")
 	}
 	fields := strings.Fields(strings.TrimPrefix(line, ShardMaterializationTimingRecordPrefix))
-	if len(fields) != 17 {
+	if len(fields) != 25 {
 		return ShardMaterializationTiming{}, errors.New("shard materialization timing field count is invalid")
 	}
-	values := make([]int64, 16)
+	values := make([]int64, 24)
 	for index, field := range fields[1:] {
 		value, err := strconv.ParseInt(field, 10, 64)
 		if err != nil || value < 0 || strconv.FormatInt(value, 10) != field {
@@ -108,7 +113,15 @@ func DecodeShardMaterializationTimingRecord(line string) (ShardMaterializationTi
 	timing := ShardMaterializationTiming{Measurement: MaterializationMeasurementMeasured, ShardIdentity: fields[0]}
 	phases := []*MaterializationPhaseTiming{&timing.Source, &timing.Baseline, &timing.CandidateCompile, &timing.CandidateTestBinaries}
 	for index, phase := range phases {
-		*phase = MaterializationPhaseTiming{DownloadMS: values[index*4], VerifyMS: values[index*4+1], InstallMS: values[index*4+2], MaterializeMS: values[index*4+3]}
+		*phase = MaterializationPhaseTiming{StartedAtUnixMS: values[index*6], CompletedAtUnixMS: values[index*6+1], DownloadMS: values[index*6+2], VerifyMS: values[index*6+3], InstallMS: values[index*6+4], MaterializeMS: values[index*6+5]}
 	}
-	return timing, timing.Validate()
+	if err := timing.Validate(); err != nil {
+		return timing, err
+	}
+	for _, phase := range []MaterializationPhaseTiming{timing.Source, timing.Baseline, timing.CandidateCompile, timing.CandidateTestBinaries} {
+		if phase.MaterializeMS > 0 && phase.StartedAtUnixMS == 0 {
+			return timing, errors.New("decoded shard materialization timing phase lacks a real interval")
+		}
+	}
+	return timing, nil
 }

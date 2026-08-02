@@ -5,9 +5,11 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
 )
 
@@ -29,6 +31,18 @@ func TestResolveRuntimeDependencyBuildUsesLockedGitTree(t *testing.T) {
 		if !strings.Contains(joined, required) {
 			t.Fatalf("ResolveRuntimeDependencyBuild() arguments missing %q", required)
 		}
+	}
+}
+
+func TestRuntimeDependencyPlatformsUseProductionContractAndRetainArm64Artifact(t *testing.T) {
+	if !slices.Equal(runtimeDepsPlatforms, []string{cicontract.TargetPlatform, "linux/arm64"}) {
+		t.Fatalf("runtime dependency platforms = %q", runtimeDepsPlatforms)
+	}
+	if !validRuntimePlatform(cicontract.TargetPlatform) {
+		t.Fatalf("runtime artifacts rejected remote CI target %q", cicontract.TargetPlatform)
+	}
+	if !validRuntimePlatform("linux/arm64") {
+		t.Fatal("runtime artifacts rejected official linux/arm64 support")
 	}
 }
 

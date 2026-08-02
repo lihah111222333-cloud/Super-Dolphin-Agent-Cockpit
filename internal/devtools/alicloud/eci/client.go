@@ -51,24 +51,24 @@ type Config struct {
 
 // CreateRequest describes the caller-controlled identity of one ECI shard.
 type CreateRequest struct {
-	ContainerGroupName string
-	ContainerName      string
-	ImageCacheID       string
-	MainImage          string
-	InitImage          string
-	Resources          Resources
-	Command            []string
-	Args               []string
-	Environment        map[string]string
-	Tags               map[string]string
-	InitContainer      InitContainer
-	BootstrapVolume    OSSVolume
-	ExpandedVolume     EmptyDirVolume
-	SourceVolume       EmptyDirVolume
-	WorkVolume         EmptyDirVolume
-	TempVolume         EmptyDirVolume
-	MainVolumeMounts   []VolumeMount
-	InitVolumeMounts   []VolumeMount
+	ContainerGroupName   string
+	ContainerName        string
+	ImageCacheSnapshotID string
+	MainImage            string
+	InitImage            string
+	Resources            Resources
+	Command              []string
+	Args                 []string
+	Environment          map[string]string
+	Tags                 map[string]string
+	InitContainer        InitContainer
+	BootstrapVolume      OSSVolume
+	ExpandedVolume       EmptyDirVolume
+	SourceVolume         EmptyDirVolume
+	WorkVolume           EmptyDirVolume
+	TempVolume           EmptyDirVolume
+	MainVolumeMounts     []VolumeMount
+	InitVolumeMounts     []VolumeMount
 }
 
 // Resources is an exact CPU and memory tier requested for one ECI container group.
@@ -100,11 +100,15 @@ type VolumeMount struct {
 
 // ContainerGroup is the subset of ECI state required by the caller.
 type ContainerGroup struct {
-	ID         string                `json:"ContainerGroupId"`
-	Name       string                `json:"ContainerGroupName"`
-	Status     string                `json:"Status"`
-	Containers []ContainerStatus     `json:"Containers,omitempty"`
-	Events     []ContainerGroupEvent `json:"Events,omitempty"`
+	ID             string                `json:"ContainerGroupId"`
+	Name           string                `json:"ContainerGroupName"`
+	Status         string                `json:"Status"`
+	CreationTime   time.Time             `json:"CreationTime"`
+	SucceededTime  time.Time             `json:"SucceededTime"`
+	FailedTime     time.Time             `json:"FailedTime"`
+	Containers     []ContainerStatus     `json:"Containers,omitempty"`
+	InitContainers []ContainerStatus     `json:"InitContainers,omitempty"`
+	Events         []ContainerGroupEvent `json:"Events,omitempty"`
 }
 
 // ContainerStatus captures the terminal state reported for one ECI container.
@@ -115,10 +119,12 @@ type ContainerStatus struct {
 
 // ContainerState preserves the exit evidence needed to diagnose reportless workers.
 type ContainerState struct {
-	State    string `json:"State"`
-	ExitCode *int64 `json:"ExitCode,omitempty"`
-	Reason   string `json:"Reason,omitempty"`
-	Message  string `json:"Message,omitempty"`
+	State      string    `json:"State"`
+	StartTime  time.Time `json:"StartTime"`
+	FinishTime time.Time `json:"FinishTime"`
+	ExitCode   *int64    `json:"ExitCode,omitempty"`
+	Reason     string    `json:"Reason,omitempty"`
+	Message    string    `json:"Message,omitempty"`
 }
 
 // ContainerGroupEvent preserves bounded ECI event evidence for terminal failures.
@@ -215,7 +221,7 @@ func (c *Client) createContainerGroup(ctx context.Context, request CreateRequest
 		"--RestartPolicy", "Never",
 		"--ActiveDeadlineSeconds", strconv.FormatInt(int64(c.config.Deadline/time.Second), 10),
 		"--ContainerGroupName", request.ContainerGroupName,
-		"--ImageSnapshotId", request.ImageCacheID,
+		"--ImageSnapshotId", request.ImageCacheSnapshotID,
 		"--Container.1.Name", request.ContainerName,
 		"--Container.1.Image", request.MainImage,
 		"--Container.1.Cpu", formatResource(request.Resources.CPU),

@@ -3,105 +3,41 @@ package remoteci
 import (
 	"fmt"
 	"io"
-	"sort"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
-// RenderHumanTimingLedger 将最终 remote CI timing evidence 稳定投影为供人阅读的账本。
-// 它只读取 RunResult，因此既不改变采集，也不推断缺失观测。
-func RenderHumanTimingLedger(destination io.Writer, result RunResult) error {
+// RenderHumanTimingLedgerFromAuthority 只投影已提交 SQLite authority 的结构化耗时与缓存证据。
+func RenderHumanTimingLedgerFromAuthority(destination io.Writer, store *gate.DurationLedgerStore, jobID string) error {
 	if destination == nil {
 		return fmt.Errorf("human timing ledger destination is required")
 	}
-	if _, err := fmt.Fprintf(destination, "REMOTE_CI_TIMING_LEDGER job_id=%s status=%s\n", result.JobID, result.Status); err != nil {
+	if store == nil {
+		return fmt.Errorf("human timing ledger SQLite authority is required")
+	}
+	record, err := store.LoadRemoteCIRun(jobID)
+	if err != nil {
 		return err
 	}
-	if err := renderTestTimingLedger(destination, result.GateExecutions, result.WorkloadExecutions); err != nil {
+	if _, err := fmt.Fprintf(destination, "REMOTE_CI_TIMING_LEDGER job_id=%s status=%s\n", record.JobID, record.Status); err != nil {
 		return err
 	}
-	return renderShardTimingLedger(destination, result.Shards)
-}
-
-func renderTestTimingLedger(destination io.Writer, gateExecutions, workloadExecutions []gate.PlanGateExecution) error {
-	if len(gateExecutions) == 0 && len(workloadExecutions) == 0 {
-		_, err := fmt.Fprintln(destination, "REMOTE_CI_TIMING_LEDGER test=not_measured test_body_ms=not_measured startup_ms=not_measured total_ms=not_measured")
-		return err
-	}
-	ordered := append([]gate.PlanGateExecution(nil), gateExecutions...)
-	sort.SliceStable(ordered, func(left, right int) bool { return ordered[left].GateID < ordered[right].GateID })
-	for _, execution := range ordered {
-		profile := execution.ExecutionProfile
-		if _, err := fmt.Fprintf(destination, "REMOTE_CI_TIMING_LEDGER test=%s test_body_ms=%d startup_ms=%d total_ms=%d\n", execution.GateID, profile.TestBodyMS, profile.StartupMS, profile.TotalMS); err != nil {
-			return err
-		}
-		if profile.Frontend != nil {
-			frontend := profile.Frontend
-			if _, err := fmt.Fprintf(destination, "REMOTE_CI_TIMING_LEDGER test=%s node_modules_seed_hit=%t node_modules_seed_not_applicable_reason=%s npm_cache_hit=%t npm_cache_not_applicable_reason=%s playwright_browser_hit=%t playwright_browser_not_applicable_reason=%s vite_cache_hit=%t vite_cache_not_applicable_reason=%s setup_ms=%d body_ms=%d total_ms=%d\n", execution.GateID, frontend.NodeModulesSeedHit, frontend.NodeModulesSeedNotApplicableReason, frontend.NPMCacheHit, frontend.NPMCacheNotApplicableReason, frontend.PlaywrightBrowserHit, frontend.PlaywrightBrowserNotApplicableReason, frontend.ViteCacheHit, frontend.ViteCacheNotApplicableReason, frontend.SetupMS, frontend.BodyMS, frontend.TotalMS); err != nil {
-				return err
-			}
-		}
-	}
-	return renderWorkloadTimingLedger(destination, workloadExecutions)
-}
-
-func renderWorkloadTimingLedger(destination io.Writer, executions []gate.PlanGateExecution) error {
-	ordered := append([]gate.PlanGateExecution(nil), executions...)
-	sort.SliceStable(ordered, func(left, right int) bool { return ordered[left].GateID < ordered[right].GateID })
-	for _, execution := range ordered {
-		profile := execution.ExecutionProfile
-		if _, err := fmt.Fprintf(destination, "REMOTE_CI_TIMING_LEDGER workload=%s test_body_ms=%d startup_ms=%d total_ms=%d status=%s\n", execution.GateID, profile.TestBodyMS, profile.StartupMS, profile.TotalMS, execution.Status); err != nil {
-			return err
-		}
-		if err := renderIndividualTestTimings(destination, execution); err != nil {
+	for _, observation := range record.TimingObservations {
+		if err := renderAuthorityTimingObservation(destination, observation); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func renderIndividualTestTimings(destination io.Writer, execution gate.PlanGateExecution) error {
-	timings := append([]gate.GoTestTiming(nil), execution.TestTimings...)
-	sort.SliceStable(timings, func(left, right int) bool { return timings[left].Name < timings[right].Name })
-	for _, timing := range timings {
-		if _, err := fmt.Fprintf(destination, "REMOTE_CI_TIMING_LEDGER workload=%s test_name=%s test_duration_ms=%d status=%s\n", execution.GateID, timing.Name, timing.DurationMS, timing.Status); err != nil {
-			return err
-		}
-		if timing.DurationMS > gate.FullCITargetDurationMS {
-			if _, err := fmt.Fprintf(destination, "REMOTE_CI_TIMING_ADVISORY workload=%s test_name=%s test_duration_ms=%d target_ms=%d action=optimize_or_split\n", execution.GateID, timing.Name, timing.DurationMS, gate.FullCITargetDurationMS); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func renderShardTimingLedger(destination io.Writer, shards []ShardResult) error {
-	if len(shards) == 0 {
-		_, err := fmt.Fprintln(destination, "REMOTE_CI_TIMING_LEDGER shard=not_measured artifact=not_measured download_ms=not_measured verify_ms=not_measured install_ms=not_measured materialize_ms=not_measured")
+func renderAuthorityTimingObservation(destination io.Writer, observation gate.TimingObservation) error {
+	goEvidence := observation.CacheEvidence.Go
+	frontend := observation.CacheEvidence.Frontend
+	if observation.Measurement == "measured" {
+		_, err := fmt.Fprintf(destination, "REMOTE_CI_TIMING_OBSERVATION scope=%s shard=%s workload=%s phase=%s measurement=%s started_at=%s completed_at=%s duration_ms=%d aggregation=%s go_cache_source=%s go_cache_status=%s go_cache_measurement=%s go_cache_private_hits=%d go_cache_baseline_hits=%d go_cache_misses=%d go_cache_puts=%d go_cache_not_applicable_reason=%s frontend_node_modules_seed_status=%s frontend_node_modules_seed_not_applicable_reason=%s frontend_npm_status=%s frontend_npm_not_applicable_reason=%s frontend_vite_status=%s frontend_vite_not_applicable_reason=%s frontend_playwright_status=%s frontend_playwright_not_applicable_reason=%s\n", observation.Scope, observation.ShardIdentity, observation.WorkloadID, observation.Phase, observation.Measurement, observation.StartedAt.UTC().Format(time.RFC3339Nano), observation.CompletedAt.UTC().Format(time.RFC3339Nano), observation.DurationMS, observation.Aggregation, goEvidence.Source, goEvidence.Status, goEvidence.Measurement, goEvidence.PrivateHits, goEvidence.BaselineHits, goEvidence.Misses, goEvidence.Puts, goEvidence.NotApplicableReason, frontend.NodeModulesSeed.Status, frontend.NodeModulesSeed.NotApplicableReason, frontend.NPM.Status, frontend.NPM.NotApplicableReason, frontend.Vite.Status, frontend.Vite.NotApplicableReason, frontend.Playwright.Status, frontend.Playwright.NotApplicableReason)
 		return err
 	}
-	ordered := append([]ShardResult(nil), shards...)
-	sort.SliceStable(ordered, func(left, right int) bool { return ordered[left].ShardIdentity < ordered[right].ShardIdentity })
-	for _, shard := range ordered {
-		if shard.MaterializationTiming.ShardIdentity == "" {
-			if _, err := fmt.Fprintf(destination, "REMOTE_CI_TIMING_LEDGER shard=%s artifact=not_measured download_ms=not_measured verify_ms=not_measured install_ms=not_measured materialize_ms=not_measured\n", shard.ShardIdentity); err != nil {
-				return err
-			}
-			continue
-		}
-		for _, artifact := range []struct {
-			name   string
-			timing gate.MaterializationPhaseTiming
-		}{
-			{name: "source", timing: shard.MaterializationTiming.Source},
-			{name: "baseline", timing: shard.MaterializationTiming.Baseline},
-			{name: "candidate_compile", timing: shard.MaterializationTiming.CandidateCompile},
-		} {
-			if _, err := fmt.Fprintf(destination, "REMOTE_CI_TIMING_LEDGER shard=%s artifact=%s download_ms=%d verify_ms=%d install_ms=%d materialize_ms=%d\n", shard.ShardIdentity, artifact.name, artifact.timing.DownloadMS, artifact.timing.VerifyMS, artifact.timing.InstallMS, artifact.timing.MaterializeMS); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
+	_, err := fmt.Fprintf(destination, "REMOTE_CI_TIMING_OBSERVATION scope=%s shard=%s workload=%s phase=%s measurement=not_applicable reason=%s duration_ms=0 aggregation=%s go_cache_source=%s go_cache_status=%s go_cache_measurement=%s go_cache_private_hits=%d go_cache_baseline_hits=%d go_cache_misses=%d go_cache_puts=%d go_cache_not_applicable_reason=%s frontend_node_modules_seed_status=%s frontend_node_modules_seed_not_applicable_reason=%s frontend_npm_status=%s frontend_npm_not_applicable_reason=%s frontend_vite_status=%s frontend_vite_not_applicable_reason=%s frontend_playwright_status=%s frontend_playwright_not_applicable_reason=%s\n", observation.Scope, observation.ShardIdentity, observation.WorkloadID, observation.Phase, observation.Reason, observation.Aggregation, goEvidence.Source, goEvidence.Status, goEvidence.Measurement, goEvidence.PrivateHits, goEvidence.BaselineHits, goEvidence.Misses, goEvidence.Puts, goEvidence.NotApplicableReason, frontend.NodeModulesSeed.Status, frontend.NodeModulesSeed.NotApplicableReason, frontend.NPM.Status, frontend.NPM.NotApplicableReason, frontend.Vite.Status, frontend.Vite.NotApplicableReason, frontend.Playwright.Status, frontend.Playwright.NotApplicableReason)
+	return err
 }

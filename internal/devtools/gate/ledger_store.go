@@ -20,12 +20,9 @@ var (
 	ErrDurationLedgerBusy = errors.New("duration ledger store busy")
 	// ErrDurationLedgerMetadataMissing 表示 SQLite 权威文件存在但初始化元数据尚不可见。
 	ErrDurationLedgerMetadataMissing = errors.New("duration ledger SQLite metadata is missing")
-)
-
-const (
-	durationLedgerSuccessSamplesPerBucket = 8
-	durationLedgerFailureSamplesPerBucket = 2
-	durationLedgerExecutionsPerWorkload   = 3
+	// ErrMigrationRequired refuses historical rows whose accepted baseline generation
+	// cannot be proven from the authority itself.
+	ErrMigrationRequired = errors.New("duration ledger SQLite accepted generation migration required")
 )
 
 // DurationLedgerSnapshot 将已校验账本与持久化 generation 绑定。
@@ -99,11 +96,11 @@ func durationSampleTargetBucketMatches(sample DurationSample) bool {
 
 // AppendSamples 追加并发 CI 观测并返回完整兼容快照。
 // 协调器热路径应使用 AppendSamplesFast，避免追加后物化全部历史样本。
-func (store *DurationLedgerStore) AppendSamples(samples []DurationSample) (DurationLedgerSnapshot, error) {
+func (store *DurationLedgerStore) AppendSamples(acceptedGeneration uint64, samples []DurationSample) (DurationLedgerSnapshot, error) {
 	if store == nil {
 		return DurationLedgerSnapshot{}, errors.New("duration ledger store is nil")
 	}
-	generation, err := store.AppendSamplesFast(samples)
+	generation, err := store.AppendSamplesFast(acceptedGeneration, samples)
 	if err != nil {
 		return DurationLedgerSnapshot{}, err
 	}
@@ -122,11 +119,14 @@ func (store *DurationLedgerStore) AppendSamples(samples []DurationSample) (Durat
 }
 
 // AppendSamplesFast 只追加样本并返回新 generation，不扫描或物化历史样本。
-func (store *DurationLedgerStore) AppendSamplesFast(samples []DurationSample) (uint64, error) {
+func (store *DurationLedgerStore) AppendSamplesFast(acceptedGeneration uint64, samples []DurationSample) (uint64, error) {
 	if store == nil {
 		return 0, errors.New("duration ledger store is nil")
 	}
-	return store.appendSQLiteSamplesFast(samples)
+	if acceptedGeneration == 0 {
+		return 0, errors.New("accepted baseline generation is required")
+	}
+	return store.appendSQLiteSamplesFast(acceptedGeneration, samples)
 }
 
 // DurationLedgerStore 在 SQLite 权威文件中持久化 duration ledger。

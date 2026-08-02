@@ -1,6 +1,7 @@
 package remoteci
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
@@ -14,32 +15,6 @@ func remoteShardableWorkloads(catalog gate.WorkloadCatalog) []gate.Workload {
 		}
 	}
 	return workloads
-}
-
-// remoteCachedWorkloadIDs 按目录顺序校验并返回可复用 workload 标识。
-func remoteCachedWorkloadIDs(
-	workloads []gate.Workload,
-	cached map[string]gate.PlanGateExecution,
-) ([]gate.GateID, error) {
-	ids := make([]gate.GateID, 0, len(cached))
-	observed := make(map[string]struct{}, len(cached))
-	for _, workload := range workloads {
-		execution, ok := cached[workload.ID]
-		if !ok {
-			continue
-		}
-		if execution.GateID != gate.GateID(workload.ID) ||
-			execution.Status != gate.ResultStatusPassed ||
-			execution.ExitCode != 0 {
-			return nil, fmt.Errorf("cached workload %q is not a passing observation", workload.ID)
-		}
-		ids = append(ids, execution.GateID)
-		observed[workload.ID] = struct{}{}
-	}
-	if len(observed) != len(cached) {
-		return nil, fmt.Errorf("passed workload cache contains an entry outside the current catalog")
-	}
-	return ids, nil
 }
 
 func remoteShardWorkloadIDs(shards []gate.ContainerShard) []gate.GateID {
@@ -58,7 +33,14 @@ func remoteFreshWorkloadExecutions(workloads []gate.Workload, results []ShardRes
 	}
 	executions := make(map[string]gate.PlanGateExecution)
 	for _, result := range results {
+		if result.ShardIdentity == "" {
+			return nil, errors.New("remote workload result shard identity is required")
+		}
 		for _, execution := range result.Report.Gates {
+			if execution.ShardIdentity != "" && execution.ShardIdentity != result.ShardIdentity {
+				return nil, fmt.Errorf("remote workload %q reported shard identity %q, want %q", execution.GateID, execution.ShardIdentity, result.ShardIdentity)
+			}
+			execution.ShardIdentity = result.ShardIdentity
 			workloadID := string(execution.GateID)
 			if _, duplicate := executions[workloadID]; duplicate {
 				return nil, fmt.Errorf("remote workload %q was executed more than once", workloadID)
@@ -129,23 +111,14 @@ func zeroExecutionProfile(profile gate.ExecutionProfile) bool {
 		profile.TotalMS == 0
 }
 
-// mergeRemoteWorkloadExecutions 合并复用与新执行结果，并验证目录覆盖完整且互斥。
-func mergeRemoteWorkloadExecutions(
+// collectFreshRemoteWorkloadExecutions 验证当前运行的全部 workload 均有新执行结果。
+func collectFreshRemoteWorkloadExecutions(
 	workloads []gate.Workload,
-	cached map[string]gate.PlanGateExecution,
 	fresh map[string]gate.PlanGateExecution,
 ) (map[string]gate.PlanGateExecution, error) {
 	observed := make(map[string]gate.PlanGateExecution, len(workloads))
 	for _, workload := range workloads {
-		cachedExecution, cacheHit := cached[workload.ID]
-		freshExecution, executed := fresh[workload.ID]
-		if cacheHit && executed {
-			return nil, fmt.Errorf("remote workload %q was both reused and executed", workload.ID)
-		}
-		execution, ok := cachedExecution, cacheHit
-		if executed {
-			execution, ok = freshExecution, true
-		}
+		execution, ok := fresh[workload.ID]
 		if !ok || execution.GateID != gate.GateID(workload.ID) {
 			return nil, fmt.Errorf("remote workload %q has no matching result", workload.ID)
 		}
@@ -156,7 +129,7 @@ func mergeRemoteWorkloadExecutions(
 		}
 		observed[workload.ID] = execution
 	}
-	if len(observed) != len(cached)+len(fresh) {
+	if len(observed) != len(fresh) {
 		return nil, fmt.Errorf("remote workload results contain entries outside the current catalog")
 	}
 	return observed, nil

@@ -56,6 +56,7 @@ func (f *fakeCommandRunner) Run(_ context.Context, name string, args ...string) 
 }
 
 func TestClient_ECIOperations(t *testing.T) {
+	const acceptedImageCacheID = "imc-audit-only-1"
 	runner := &fakeCommandRunner{responses: [][]byte{
 		[]byte(`{"ContainerGroupId":"eci-created"}`),
 		[]byte(`{"ContainerGroups":[{"ContainerGroupId":"eci-created","ContainerGroupName":"shard-1","Status":"Running"}]}`),
@@ -64,6 +65,7 @@ func TestClient_ECIOperations(t *testing.T) {
 	}}
 	client := newTestClient(t, runner)
 	request := validCreateRequest()
+	request.ImageCacheSnapshotID = "snap-runtime-1"
 	request.Environment = map[string]string{"Z_LAST": "z-value", "A_FIRST": "a-value"}
 	request.Tags = map[string]string{"z-last": "z-value", "a-first": "a-value"}
 	created, err := client.CreateContainerGroup(context.Background(), request)
@@ -87,12 +89,16 @@ func TestClient_ECIOperations(t *testing.T) {
 		}
 	}
 	for _, pair := range [][]string{
+		{"--ImageSnapshotId", request.ImageCacheSnapshotID},
 		{"--Container.1.Image", request.MainImage},
 		{"--InitContainer.1.Image", request.InitImage},
 	} {
 		if !containsArgumentPair(runner.calls[0], pair[0], pair[1]) {
 			t.Fatalf("CreateContainerGroup call missing explicit image %v: %#v", pair, runner.calls[0])
 		}
+	}
+	if slices.Contains(runner.calls[0], acceptedImageCacheID) {
+		t.Fatalf("CreateContainerGroup passed ImageCacheID to the CLI: %#v", runner.calls[0])
 	}
 }
 
@@ -179,7 +185,7 @@ func TestClientCreateContainerGroupEncodesCurrentGateOSSVolume(t *testing.T) {
 
 func TestClient_DescribeContainerGroupsDecodesTerminalDiagnostics(t *testing.T) {
 	runner := &fakeCommandRunner{responses: [][]byte{
-		[]byte(`{"ContainerGroups":[{"ContainerGroupId":"eci-created","ContainerGroupName":"shard-1","Status":"Failed","Containers":[{"Name":"worker","CurrentState":{"State":"Terminated","ExitCode":137,"Reason":"OOMKilled","Message":"memory limit exceeded"}}],"Events":[{"Type":"Warning","Reason":"BackOff","Message":"worker exited","Count":2,"LastTimestamp":"2026-07-27T08:00:00Z"}]}]}`),
+		[]byte(`{"ContainerGroups":[{"ContainerGroupId":"eci-created","ContainerGroupName":"shard-1","Status":"Failed","CreationTime":"2026-07-27T07:59:00Z","FailedTime":"2026-07-27T08:00:00Z","Containers":[{"Name":"worker","CurrentState":{"State":"Terminated","StartTime":"2026-07-27T07:59:10Z","FinishTime":"2026-07-27T08:00:00Z","ExitCode":137,"Reason":"OOMKilled","Message":"memory limit exceeded"}}],"InitContainers":[{"Name":"materializer","CurrentState":{"State":"Terminated","StartTime":"2026-07-27T07:59:01Z","FinishTime":"2026-07-27T07:59:09Z"}}],"Events":[{"Type":"Warning","Reason":"BackOff","Message":"worker exited","Count":2,"LastTimestamp":"2026-07-27T08:00:00Z"}]}]}`),
 	}}
 	client := newTestClient(t, runner)
 	groups, err := client.DescribeContainerGroups(context.Background(), "eci-created")
@@ -188,18 +194,23 @@ func TestClient_DescribeContainerGroupsDecodesTerminalDiagnostics(t *testing.T) 
 	}
 	exitCode := int64(137)
 	want := []ContainerGroup{{
-		ID:     "eci-created",
-		Name:   "shard-1",
-		Status: "Failed",
+		ID:           "eci-created",
+		Name:         "shard-1",
+		Status:       "Failed",
+		CreationTime: time.Date(2026, 7, 27, 7, 59, 0, 0, time.UTC),
+		FailedTime:   time.Date(2026, 7, 27, 8, 0, 0, 0, time.UTC),
 		Containers: []ContainerStatus{{
 			Name: "worker",
 			CurrentState: ContainerState{
-				State:    "Terminated",
-				ExitCode: &exitCode,
-				Reason:   "OOMKilled",
-				Message:  "memory limit exceeded",
+				State:      "Terminated",
+				StartTime:  time.Date(2026, 7, 27, 7, 59, 10, 0, time.UTC),
+				FinishTime: time.Date(2026, 7, 27, 8, 0, 0, 0, time.UTC),
+				ExitCode:   &exitCode,
+				Reason:     "OOMKilled",
+				Message:    "memory limit exceeded",
 			},
 		}},
+		InitContainers: []ContainerStatus{{Name: "materializer", CurrentState: ContainerState{State: "Terminated", StartTime: time.Date(2026, 7, 27, 7, 59, 1, 0, time.UTC), FinishTime: time.Date(2026, 7, 27, 7, 59, 9, 0, time.UTC)}}},
 		Events: []ContainerGroupEvent{{
 			Type:          "Warning",
 			Reason:        "BackOff",
@@ -607,7 +618,7 @@ func TestConfig_FieldRegistry(t *testing.T) {
 
 func TestCreateRequest_FieldRegistry(t *testing.T) {
 	assertStructFields(t, reflect.TypeFor[CreateRequest](), []string{
-		"ContainerGroupName", "ContainerName", "ImageCacheID", "MainImage", "InitImage", "Resources", "Command", "Args", "Environment", "Tags",
+		"ContainerGroupName", "ContainerName", "ImageCacheSnapshotID", "MainImage", "InitImage", "Resources", "Command", "Args", "Environment", "Tags",
 		"InitContainer", "BootstrapVolume", "ExpandedVolume", "SourceVolume", "WorkVolume", "TempVolume",
 		"MainVolumeMounts", "InitVolumeMounts",
 	})
@@ -615,14 +626,12 @@ func TestCreateRequest_FieldRegistry(t *testing.T) {
 	assertStructFields(t, reflect.TypeFor[InitContainer](), []string{"Name", "Command", "Args", "Environment"})
 	assertStructFields(t, reflect.TypeFor[EmptyDirVolume](), []string{"Name"})
 	assertStructFields(t, reflect.TypeFor[VolumeMount](), []string{"Name", "MountPath", "SubPath", "ReadOnly"})
-	assertStructFields(t, reflect.TypeFor[ImageCacheCreateRequest](), []string{"ImageCacheName", "Images", "ImageCacheSize", "RetentionDays", "Tags"})
 }
 
 func TestContainerGroup_FieldRegistry(t *testing.T) {
-	assertStructFields(t, reflect.TypeFor[ContainerGroup](), []string{"ID", "Name", "Status", "Containers", "Events"})
-	assertStructFields(t, reflect.TypeFor[ImageCache](), []string{"ID", "SnapshotID", "Name", "Status", "Progress", "Images", "Events"})
+	assertStructFields(t, reflect.TypeFor[ContainerGroup](), []string{"ID", "Name", "Status", "CreationTime", "SucceededTime", "FailedTime", "Containers", "InitContainers", "Events"})
 	assertStructFields(t, reflect.TypeFor[ContainerStatus](), []string{"Name", "CurrentState"})
-	assertStructFields(t, reflect.TypeFor[ContainerState](), []string{"State", "ExitCode", "Reason", "Message"})
+	assertStructFields(t, reflect.TypeFor[ContainerState](), []string{"State", "StartTime", "FinishTime", "ExitCode", "Reason", "Message"})
 	assertStructFields(t, reflect.TypeFor[ContainerGroupEvent](), []string{"Type", "Reason", "Message", "Count", "LastTimestamp"})
 }
 
@@ -686,16 +695,16 @@ func testConfig() Config {
 
 func validCreateRequest() CreateRequest {
 	return CreateRequest{
-		ContainerGroupName: "shard-1",
-		ContainerName:      "worker",
-		ImageCacheID:       "imc-test-cache",
-		MainImage:          testMainImageDigest,
-		InitImage:          testInitImageDigest,
-		Resources:          Resources{CPU: 4, MemoryGiB: 8},
-		Command:            []string{"/runner", "execute"},
-		Args:               []string{"--shard", "one"},
-		Environment:        map[string]string{"TASK_MODE": "execute"},
-		Tags:               map[string]string{"workload": "test"},
+		ContainerGroupName:   "shard-1",
+		ContainerName:        "worker",
+		ImageCacheSnapshotID: "snap-test-cache",
+		MainImage:            testMainImageDigest,
+		InitImage:            testInitImageDigest,
+		Resources:            Resources{CPU: 4, MemoryGiB: 8},
+		Command:              []string{"/runner", "execute"},
+		Args:                 []string{"--shard", "one"},
+		Environment:          map[string]string{"TASK_MODE": "execute"},
+		Tags:                 map[string]string{"workload": "test"},
 		InitContainer: InitContainer{
 			Name:        "materializer",
 			Command:     []string{"/runner", "materialize"},

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/eci"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
 const remoteBaselineImageCacheSizeGiB int64 = 20
@@ -30,67 +29,6 @@ func newRemoteBaselineImageCacheAuthority(config remoteRunConfig) (remoteBaselin
 		Profile: config.CredentialProfile, Deadline: remoteBaselineRefreshDeadline,
 		SpotStrategy: eci.SpotStrategyAsPriceGo, SpotDurationHours: 1,
 	})
-}
-
-// promoteRemoteBaselineImageCache creates and verifies the sole runtime cache
-// authority before a schema-10 successor CAS. Any pre-promotion failure deletes
-// its candidate cache and leaves the accepted SQLite record unchanged.
-func promoteRemoteBaselineImageCache(
-	ctx context.Context,
-	authority remoteBaselineImageCacheAuthority,
-	ledgerPath string,
-	accepted remoteci.BaselineState,
-	input remoteBaselineRefreshInput,
-	ociCache *remoteci.BaselineOCIProjectCache,
-) (state remoteci.BaselineState, returnErr error) {
-	if authority == nil {
-		return remoteci.BaselineState{}, errors.New("ECI ImageCache authority is required")
-	}
-	if ociCache == nil {
-		return remoteci.BaselineState{}, errors.New("OCI baseline result cache is required")
-	}
-	name, err := remoteBaselineImageCacheName(accepted.Generation+1, input.Identity.MainTree)
-	if err != nil {
-		return remoteci.BaselineState{}, err
-	}
-	created, err := authority.CreateImageCache(ctx, eci.ImageCacheCreateRequest{
-		ImageCacheName: name, Images: []string{ociCache.Image}, ImageCacheSize: remoteBaselineImageCacheSizeGiB,
-		Tags: map[string]string{"super-dolphin-baseline-generation": fmt.Sprintf("%d", accepted.Generation+1)},
-	})
-	if err != nil {
-		return remoteci.BaselineState{}, fmt.Errorf("create ECI ImageCache: %w", err)
-	}
-	if strings.TrimSpace(created.ID) == "" {
-		return remoteci.BaselineState{}, errors.New("CreateImageCache returned an empty ImageCacheId")
-	}
-	candidateID := created.ID
-	promoted := false
-	defer func() {
-		if !promoted {
-			returnErr = errors.Join(returnErr, deleteRemoteBaselineImageCache(candidateID, authority))
-		}
-	}()
-	ready, err := authority.WaitImageCacheReady(ctx, candidateID)
-	if err != nil {
-		return remoteci.BaselineState{}, fmt.Errorf("wait for ECI ImageCache %s: %w", candidateID, err)
-	}
-	if err := validateRemoteBaselineReadyImageCache(created, ready, ociCache.Image); err != nil {
-		return remoteci.BaselineState{}, err
-	}
-	state, err = newRemoteOCIBaselineState(accepted, input, ociCache, ready)
-	if err != nil {
-		return remoteci.BaselineState{}, fmt.Errorf("construct ImageCache-bound successor: %w", err)
-	}
-	if err := promoteRemoteBaselineState(ledgerPath, accepted, state); err != nil {
-		return remoteci.BaselineState{}, fmt.Errorf("CAS promote ImageCache successor: %w", err)
-	}
-	promoted = true
-	if accepted.SchemaVersion != 0 && accepted.ImageCacheID != candidateID {
-		if err := deleteRemoteBaselineImageCache(accepted.ImageCacheID, authority); err != nil {
-			return remoteci.BaselineState{}, fmt.Errorf("retire accepted ECI ImageCache after successor promotion: %w", err)
-		}
-	}
-	return state, nil
 }
 
 func remoteBaselineImageCacheName(generation uint64, tree string) (string, error) {

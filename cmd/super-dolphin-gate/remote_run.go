@@ -12,6 +12,7 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/eci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/oss"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
@@ -20,11 +21,9 @@ import (
 // runRemote 分派远程 CLI 子命令并保持各入口的独立协议边界。
 func runRemote(args []string, input io.Reader, stdout io.Writer) error {
 	if len(args) == 0 {
-		return protocolError("remote subcommand is required (run, hook, calibrate, baseline-refresh)")
+		return protocolError("remote subcommand is required (run, hook, calibrate)")
 	}
 	switch args[0] {
-	case "baseline-refresh":
-		return runRemoteBaselineRefresh(args[1:], stdout)
 	case "calibrate":
 		return runRemoteCalibration(args[1:], stdout)
 	case "hook":
@@ -32,7 +31,7 @@ func runRemote(args []string, input io.Reader, stdout io.Writer) error {
 	case "run":
 		return runRemoteInvocation(args[1:], stdout)
 	default:
-		return protocolError("remote subcommand must be run, hook, calibrate, or baseline-refresh")
+		return protocolError("remote subcommand must be run, hook, or calibrate")
 	}
 }
 
@@ -41,8 +40,8 @@ func runRemoteInvocation(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	result, _, runErr := executeRemoteRun(options)
-	return emitRemoteRunResult(stdout, result, runErr)
+	result, input, runErr := executeRemoteRun(options)
+	return emitRemoteRunResult(stdout, input.LedgerStore, result, runErr)
 }
 
 // executeRemoteRun 构建已接受基线的远程运行，并写入可比较的时长采样。
@@ -56,9 +55,12 @@ func executeRemoteRun(options remoteRunOptions) (remoteci.RunResult, remoteci.Ru
 	if err != nil {
 		return result, remoteci.RunInput{}, protocolError("load accepted remote baseline: %v", err)
 	}
-	if err := validateRunnableRemoteBaseline(config, state); err != nil {
+	if err := validateRunnableRemoteBaseline(state); err != nil {
 		return result, remoteci.RunInput{}, protocolError("validate accepted remote baseline: %v", err)
 	}
+	// Refresh claim and worker launch are deliberately best-effort background
+	// work: normal CI remains bound to the accepted snapshot it just validated.
+	triggerRemoteBaselineRefresh(remoteBaselineRefreshOptions{ConfigPath: options.ConfigPath, LedgerPath: options.LedgerPath, RepositoryRoot: options.RepositoryRoot, Remote: "origin", Ref: "refs/heads/main", Platform: cicontract.TargetPlatform}, os.Stderr)
 	runnerIdentity, err := resolveRemoteRunnerIdentity(options.RepositoryRoot, state)
 	if err != nil {
 		return result, remoteci.RunInput{}, infrastructureError(
@@ -69,9 +71,15 @@ func executeRemoteRun(options remoteRunOptions) (remoteci.RunResult, remoteci.Ru
 	if err := ensureRemoteDurationCalibration(options, state, runnerIdentity); err != nil {
 		return result, remoteci.RunInput{}, err
 	}
-	input, err := resolveRemoteRunInput(options, config, state, runnerIdentity)
+	input, err := resolveRemoteRunInput(options, state, runnerIdentity)
 	if err != nil {
 		return result, remoteci.RunInput{}, sourceError("%v", err)
+	}
+	if input.Calibration {
+		input.CalibrationResource, err = config.Capacity.ResourcePolicy.ResolveCalibrationClass()
+		if err != nil {
+			return result, input, protocolError("resolve fixed remote calibration resources: %v", err)
+		}
 	}
 	coordinator, containerDeadline, err := newRemoteRunCoordinator(config, input)
 	if err != nil {
@@ -86,8 +94,51 @@ func executeRemoteRun(options remoteRunOptions) (remoteci.RunResult, remoteci.Ru
 	runCtx, cancel := gateprivate.WithTimeout(signalContext, containerDeadline+10*time.Minute)
 	defer cancel()
 	result, runErr := coordinator.Run(runCtx, input)
-	if err := appendRemoteDurationSamples(options.LedgerPath, result.DurationSamples); err != nil {
+	workerResult := result
+	// A coordinator's provisional flag is not externally authoritative until
+	// the complete structured receipt set is durably reloaded from this ledger.
+	result.Authoritative = false
+	observations, receipts, contractErr := validateRemoteRunContract(input, input.AcceptedGeneration, workerResult)
+	if contractErr != nil {
+		return result, input, errors.Join(
+			runErr,
+			remoteci.ErrGateFailed,
+			protocolError("validate remote CI executed check receipts: %v", contractErr),
+		)
+	}
+	if err := cicontract.ValidateRequiredChecksObservedPass(observations); err != nil {
+		return result, input, errors.Join(
+			runErr,
+			remoteci.ErrGateFailed,
+			protocolError("validate complete structured remote CI check observations: %v", err),
+		)
+	}
+	if err := cicontract.ValidateTimingWarningAction(cicontract.TimingWarningWarnAndContinue); err != nil {
+		return result, input, errors.Join(
+			runErr,
+			remoteci.ErrGateFailed,
+			protocolError("validate non-terminating remote CI timing warning action: %v", err),
+		)
+	}
+	if err := appendRemoteCheckReceipts(input.LedgerStore, receipts); err != nil {
+		return result, input, errors.Join(
+			runErr,
+			remoteci.ErrGateFailed,
+			infrastructureError("persist remote CI executed check receipts: %v", err),
+		)
+	}
+	if err := validateRemoteRunStoredCheckReceipts(input.LedgerStore, workerResult.JobID, receipts); err != nil {
+		return result, input, errors.Join(
+			runErr,
+			remoteci.ErrGateFailed,
+			infrastructureError("reload remote CI executed check receipts from duration ledger: %v", err),
+		)
+	}
+	if err := appendRemoteDurationSamples(options.LedgerPath, input.AcceptedGeneration, result.DurationSamples); err != nil {
 		return result, input, infrastructureError("persist remote CI duration samples: %v", err)
+	}
+	if runErr == nil {
+		result.Authoritative = workerResult.Authoritative
 	}
 	return result, input, runErr
 }
@@ -122,27 +173,35 @@ func newRemoteRunCoordinator(
 	if err != nil {
 		return nil, 0, infrastructureError("create remote CI ECI client: %v", err)
 	}
-	phaseObserver, err := remoteci.NewTextPhaseObserver(os.Stderr)
-	if err != nil {
-		return nil, 0, infrastructureError("create remote CI phase observer: %v", err)
-	}
 	coordinator, err := remoteci.NewCoordinator(remoteci.CoordinatorConfig{
 		Bucket: config.OSS.Bucket, SourcePrefix: config.OSS.SourcePrefix,
-		WorkloadCachePrefix: config.OSS.SourcePrefix + "passed-workloads/v1/",
 		InternalOSSEndpoint: config.OSS.InternalEndpoint,
 		WorkerRoleName:      config.WorkerRoleName, WorkerTimeout: workerTimeout,
-		ImageCacheID: input.ImageCacheID,
-		PollInterval: 2 * time.Second, CleanupTimeout: 2 * time.Minute,
+		ImageCacheSnapshotID: input.ImageCacheSnapshotID,
+		PollInterval:         2 * time.Second, CleanupTimeout: 2 * time.Minute,
 		ResourcePolicy: config.Capacity.ResourcePolicy,
-	}, store, runtime, phaseObserver)
+	}, store, runtime)
 	if err != nil {
 		return nil, 0, infrastructureError("create remote CI coordinator: %v", err)
 	}
 	return coordinator, containerDeadline, nil
 }
 
+func appendRemoteCheckReceipts(
+	store *gatecontract.DurationLedgerStore,
+	receipts []gatecontract.CheckReceiptRecord,
+) error {
+	if store == nil {
+		return errors.New("remote CI duration ledger store is required")
+	}
+	return store.AppendCheckReceipts(receipts)
+}
+
 // appendRemoteDurationSamples 仅在本次运行产生采样时追加到同一 CAS 账本。
-func appendRemoteDurationSamples(path string, samples []gatecontract.DurationSample) error {
+func appendRemoteDurationSamples(path string, acceptedGeneration uint64, samples []gatecontract.DurationSample) error {
+	if acceptedGeneration == 0 {
+		return errors.New("remote CI accepted generation is required for duration samples")
+	}
 	if len(samples) == 0 {
 		return nil
 	}
@@ -150,19 +209,21 @@ func appendRemoteDurationSamples(path string, samples []gatecontract.DurationSam
 	if err != nil {
 		return err
 	}
-	_, err = store.AppendSamplesFast(samples)
+	_, err = store.AppendSamplesFast(acceptedGeneration, samples)
 	return err
 }
 
-func emitRemoteRunResult(stdout io.Writer, result remoteci.RunResult, runErr error) error {
+func emitRemoteRunResult(stdout io.Writer, ledgerStore *gatecontract.DurationLedgerStore, result remoteci.RunResult, runErr error) error {
 	if result.SchemaVersion != 0 {
 		encoder := json.NewEncoder(stdout)
 		encoder.SetIndent("", "  ")
 		if err := encoder.Encode(result); err != nil {
 			return infrastructureError("encode remote CI result: %v", err)
 		}
-		if err := remoteci.RenderHumanTimingLedger(os.Stderr, result); err != nil {
-			return infrastructureError("render remote CI timing ledger: %v", err)
+		if ledgerStore != nil {
+			if err := remoteci.RenderHumanTimingLedgerFromAuthority(os.Stderr, ledgerStore, result.JobID); err != nil {
+				return infrastructureError("render remote CI timing ledger: %v", err)
+			}
 		}
 	}
 	if runErr == nil {

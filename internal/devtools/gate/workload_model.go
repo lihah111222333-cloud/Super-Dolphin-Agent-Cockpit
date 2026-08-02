@@ -9,13 +9,15 @@ import (
 	"io"
 	"strings"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
 const (
 	durationLedgerVersion              = 1
 	workloadExecutionPlanSchemaVersion = 3
 	// FullCITargetDuration 是分片优化目标；超时只告警，不是 worker 终止时限。
-	FullCITargetDuration         = 100 * time.Second
+	FullCITargetDuration         = cicontract.ShardTargetDuration
 	FullCITargetDurationMS int64 = int64(FullCITargetDuration / time.Millisecond)
 )
 
@@ -162,7 +164,6 @@ type WorkloadExecutionPlan struct {
 	LedgerGeneration         uint64          `json:"ledger_generation"`
 	Context                  PlanningContext `json:"context"`
 	Catalog                  WorkloadCatalog `json:"catalog"`
-	ReusedWorkloads          []string        `json:"reused_workloads"`
 	Shards                   []ShardPlan     `json:"shards"`
 	OwnerEstimatedDurationMS int64           `json:"owner_estimated_duration_ms"`
 	PlanDigest               string          `json:"plan_digest"`
@@ -364,8 +365,8 @@ func validateDurationBucket(bucket DurationBucket) error {
 }
 
 func validatePlanningContext(context PlanningContext) error {
-	if context.TargetDurationMS != FullCITargetDurationMS {
-		return fmt.Errorf("target_duration_ms must equal %d", FullCITargetDurationMS)
+	if err := cicontract.ValidateShardTargetDuration(time.Duration(context.TargetDurationMS) * time.Millisecond); err != nil {
+		return fmt.Errorf("target_duration_ms: %w", err)
 	}
 	return validateDurationBucket(DurationBucket{
 		WorkloadID:    "planning-context",

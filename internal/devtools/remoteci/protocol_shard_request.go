@@ -11,10 +11,12 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/shardresource"
 )
 
-const ShardRequestSchemaVersion uint32 = 10
+const ShardRequestSchemaVersion uint32 = 12
 
 var (
 	remoteDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
@@ -25,26 +27,30 @@ var (
 // ShardRequest binds one ECI container to an immutable OCI project cache,
 // exact target tree, and canonical gate shard.
 type ShardRequest struct {
-	SchemaVersion           uint32                   `json:"schema_version"`
-	JobID                   string                   `json:"job_id"`
-	ShardIdentity           string                   `json:"shard_identity"`
-	Profile                 gate.Profile             `json:"profile"`
-	PlanDigest              string                   `json:"plan_digest"`
-	BaselineManifest        string                   `json:"runner_manifest_digest"`
-	ImageCacheID            string                   `json:"image_cache_id"`
-	OCIProjectCache         *BaselineOCIProjectCache `json:"oci_project_cache"`
-	RunnerBaseCommit        string                   `json:"runner_base_commit"`
-	RunnerBaseTree          string                   `json:"runner_base_tree"`
-	BaselineRuntimeImage    string                   `json:"baseline_runtime_image,omitempty"`
-	BaselineToolchainDigest string                   `json:"baseline_toolchain_digest,omitempty"`
-	SourceTreeSHA           string                   `json:"source_tree_sha"`
-	PatchFormat             string                   `json:"patch_format"`
-	PatchKey                string                   `json:"patch_key"`
-	PatchSHA256             string                   `json:"patch_sha256"`
-	PatchSize               int64                    `json:"patch_size"`
-	ManifestKey             string                   `json:"manifest_key"`
-	ManifestSHA256          string                   `json:"manifest_sha256"`
-	GateIDs                 []gate.GateID            `json:"gate_ids"`
+	SchemaVersion                uint32                   `json:"schema_version"`
+	JobID                        string                   `json:"job_id"`
+	ShardIdentity                string                   `json:"shard_identity"`
+	Profile                      gate.Profile             `json:"profile"`
+	PlanDigest                   string                   `json:"plan_digest"`
+	BaselineManifest             string                   `json:"runner_manifest_digest"`
+	ImageCacheSnapshotID         string                   `json:"image_cache_snapshot_id"`
+	OCIProjectCache              *BaselineOCIProjectCache `json:"oci_project_cache"`
+	RunnerBaseCommit             string                   `json:"runner_base_commit"`
+	RunnerBaseTree               string                   `json:"runner_base_tree"`
+	BaselineRuntimeImage         string                   `json:"baseline_runtime_image,omitempty"`
+	BaselineToolchainDigest      string                   `json:"baseline_toolchain_digest,omitempty"`
+	SourceTreeSHA                string                   `json:"source_tree_sha"`
+	PatchFormat                  string                   `json:"patch_format"`
+	PatchKey                     string                   `json:"patch_key"`
+	PatchSHA256                  string                   `json:"patch_sha256"`
+	PatchSize                    int64                    `json:"patch_size"`
+	ManifestKey                  string                   `json:"manifest_key"`
+	ManifestSHA256               string                   `json:"manifest_sha256"`
+	CandidateGateSourceSHA256    string                   `json:"candidate_gate_source_sha256"`
+	CandidateGateToolchainSHA256 string                   `json:"candidate_gate_toolchain_sha256"`
+	GateIDs                      []gate.GateID            `json:"gate_ids"`
+	Calibration                  bool                     `json:"calibration"`
+	CalibrationResource          *shardresource.Class     `json:"calibration_resource,omitempty"`
 }
 
 // Validate 拒绝缺字段、可变身份、路径逃逸和重复 gate。
@@ -61,15 +67,36 @@ func (request ShardRequest) Validate() error {
 	if err := request.validateObjects(); err != nil {
 		return err
 	}
+	if err := request.validateCalibrationResource(); err != nil {
+		return err
+	}
 	return validateGateIDs(request.GateIDs)
+}
+
+func (request ShardRequest) validateCalibrationResource() error {
+	if !request.Calibration {
+		if request.CalibrationResource != nil {
+			return errors.New("non-calibration remote shard request carries calibration_resource")
+		}
+		return nil
+	}
+	if request.CalibrationResource == nil {
+		return errors.New("calibration remote shard request requires calibration_resource")
+	}
+	class := *request.CalibrationResource
+	policy := shardresource.Policy{Classes: []shardresource.Class{class}, Bootstrap: shardresource.BootstrapClasses{Guard: class.ID, NodeTest: class.ID, GoTest: class.ID}, CalibrationClass: class.ID, HeadroomPercent: 1, MinSamplesToDownsize: 1}
+	if err := policy.Validate(); err != nil {
+		return fmt.Errorf("calibration remote shard resource: %w", err)
+	}
+	return cicontract.ValidateCalibrationResources(class.ID, class.VCPU, class.MemoryGiB)
 }
 
 // validateOCIProjectCache binds the required image seed to the exact baseline
 // tree consumed by this shard. The materializer must still verify the image
 // filesystem is read-only before handing its cache path to GOCACHEPROG.
 func (request ShardRequest) validateOCIProjectCache() error {
-	if !validImageCacheIdentifier(request.ImageCacheID) {
-		return errors.New("remote shard accepted ImageCacheID is required")
+	if !validImageCacheIdentifier(request.ImageCacheSnapshotID) {
+		return errors.New("remote shard accepted ImageCacheSnapshotID is required")
 	}
 	if request.OCIProjectCache == nil {
 		return errors.New("remote shard OCI project cache is required")
@@ -77,7 +104,7 @@ func (request ShardRequest) validateOCIProjectCache() error {
 	if err := request.OCIProjectCache.validate(); err != nil {
 		return err
 	}
-	if err := request.OCIProjectCache.ValidateForBaseline(request.RunnerBaseTree, request.BaselineToolchainDigest, "linux/amd64", request.BaselineRuntimeImage); err != nil {
+	if err := request.OCIProjectCache.ValidateForBaseline(request.RunnerBaseTree, request.BaselineToolchainDigest, cicontract.TargetPlatform, request.BaselineRuntimeImage); err != nil {
 		return err
 	}
 	return nil
@@ -104,7 +131,9 @@ func (request ShardRequest) validateIdentity() error {
 func validRequestDigests(request ShardRequest) bool {
 	return remoteDigestPattern.MatchString(request.ShardIdentity) &&
 		remoteDigestPattern.MatchString(request.PlanDigest) &&
-		remoteDigestPattern.MatchString(request.BaselineManifest)
+		remoteDigestPattern.MatchString(request.BaselineManifest) &&
+		remoteDigestPattern.MatchString(request.CandidateGateSourceSHA256) &&
+		remoteDigestPattern.MatchString(request.CandidateGateToolchainSHA256)
 }
 
 // validateSource 校验源 Git 对象和二进制补丁格式。

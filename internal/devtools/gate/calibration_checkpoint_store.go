@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -22,9 +23,10 @@ type CalibrationCheckpointScenarioRecord struct {
 
 // CalibrationCheckpointRecord 是单一候选身份的校准恢复状态。
 type CalibrationCheckpointRecord struct {
-	Identity      string
-	SchemaVersion uint32
-	Scenarios     []CalibrationCheckpointScenarioRecord
+	Identity           string
+	SchemaVersion      uint32
+	AcceptedGeneration uint64
+	Scenarios          []CalibrationCheckpointScenarioRecord
 }
 
 // LoadCalibrationCheckpoint 从 duration ledger SQLite authority 读取校准断点。
@@ -44,7 +46,8 @@ func (store *DurationLedgerStore) LoadCalibrationCheckpoint(identity string) (Ca
 	defer transaction.Rollback()
 	record := CalibrationCheckpointRecord{Identity: identity}
 	var schemaVersion uint32
-	err = transaction.QueryRow(`SELECT schema_version FROM remote_ci_calibration_checkpoints WHERE identity = ?`, identity).Scan(&schemaVersion)
+	var acceptedGeneration string
+	err = transaction.QueryRow(`SELECT schema_version, accepted_generation FROM remote_ci_calibration_checkpoints WHERE identity = ?`, identity).Scan(&schemaVersion, &acceptedGeneration)
 	if errors.Is(err, sql.ErrNoRows) {
 		return CalibrationCheckpointRecord{}, false, nil
 	}
@@ -52,6 +55,9 @@ func (store *DurationLedgerStore) LoadCalibrationCheckpoint(identity string) (Ca
 		return CalibrationCheckpointRecord{}, false, mapDurationLedgerSQLiteError("load calibration checkpoint", err)
 	}
 	record.SchemaVersion = schemaVersion
+	if record.AcceptedGeneration, err = strconv.ParseUint(acceptedGeneration, 10, 64); err != nil || record.AcceptedGeneration == 0 {
+		return CalibrationCheckpointRecord{}, false, errors.New("stored calibration checkpoint accepted generation is invalid")
+	}
 	rows, err := transaction.Query(`SELECT scenario, started, completed, input_json, result_json FROM remote_ci_calibration_checkpoint_scenarios WHERE identity = ? ORDER BY scenario`, identity)
 	if err != nil {
 		return CalibrationCheckpointRecord{}, false, mapDurationLedgerSQLiteError("load calibration checkpoint scenarios", err)
@@ -79,7 +85,7 @@ func (store *DurationLedgerStore) LoadCalibrationCheckpoint(identity string) (Ca
 
 // CreateCalibrationCheckpointIfAbsent 在单个事务中创建完整 checkpoint。
 func (store *DurationLedgerStore) CreateCalibrationCheckpointIfAbsent(record CalibrationCheckpointRecord) (bool, error) {
-	if strings.TrimSpace(record.Identity) == "" || record.SchemaVersion == 0 {
+	if strings.TrimSpace(record.Identity) == "" || record.SchemaVersion == 0 || record.AcceptedGeneration == 0 {
 		return false, fmt.Errorf("calibration checkpoint identity and schema version are required")
 	}
 	database, err := store.openSQLiteAuthority(true)
@@ -92,7 +98,10 @@ func (store *DurationLedgerStore) CreateCalibrationCheckpointIfAbsent(record Cal
 		return false, mapDurationLedgerSQLiteError("begin calibration checkpoint create", err)
 	}
 	defer transaction.Rollback()
-	result, err := transaction.Exec(`INSERT INTO remote_ci_calibration_checkpoints (identity, schema_version, updated_at_unix_ms) VALUES (?, ?, ?) ON CONFLICT(identity) DO NOTHING`, record.Identity, record.SchemaVersion, store.nowFunc().UTC().UnixMilli())
+	if err := requireHistoricallyAcceptedGeneration(transaction, record.AcceptedGeneration); err != nil {
+		return false, err
+	}
+	result, err := transaction.Exec(`INSERT INTO remote_ci_calibration_checkpoints (identity, schema_version, accepted_generation, updated_at_unix_ms) VALUES (?, ?, ?, ?) ON CONFLICT(identity) DO NOTHING`, record.Identity, record.SchemaVersion, strconv.FormatUint(record.AcceptedGeneration, 10), store.nowFunc().UTC().UnixMilli())
 	if err != nil {
 		return false, mapDurationLedgerSQLiteError("create calibration checkpoint", err)
 	}
@@ -114,6 +123,9 @@ func (store *DurationLedgerStore) CreateCalibrationCheckpointIfAbsent(record Cal
 			return false, mapDurationLedgerSQLiteError("insert calibration checkpoint scenario", err)
 		}
 	}
+	if err := compactDurationLedgerAuthority(transaction); err != nil {
+		return false, err
+	}
 	if err := transaction.Commit(); err != nil {
 		return false, mapDurationLedgerSQLiteError("commit calibration checkpoint create", err)
 	}
@@ -121,8 +133,8 @@ func (store *DurationLedgerStore) CreateCalibrationCheckpointIfAbsent(record Cal
 }
 
 // CompareAndSwapCalibrationCheckpointScenario 原子写入一个场景，并拒绝过期的全量读取结果。
-func (store *DurationLedgerStore) CompareAndSwapCalibrationCheckpointScenario(identity string, schemaVersion uint32, expected *CalibrationCheckpointScenarioRecord, next CalibrationCheckpointScenarioRecord) error {
-	if strings.TrimSpace(identity) == "" || schemaVersion == 0 || !validCalibrationCheckpointScenario(next) {
+func (store *DurationLedgerStore) CompareAndSwapCalibrationCheckpointScenario(identity string, schemaVersion uint32, acceptedGeneration uint64, expected *CalibrationCheckpointScenarioRecord, next CalibrationCheckpointScenarioRecord) error {
+	if strings.TrimSpace(identity) == "" || schemaVersion == 0 || acceptedGeneration == 0 || !validCalibrationCheckpointScenario(next) {
 		return fmt.Errorf("calibration checkpoint scenario update is invalid")
 	}
 	database, err := store.openSQLiteAuthority(true)
@@ -135,7 +147,10 @@ func (store *DurationLedgerStore) CompareAndSwapCalibrationCheckpointScenario(id
 		return mapDurationLedgerSQLiteError("begin calibration checkpoint scenario CAS", err)
 	}
 	defer transaction.Rollback()
-	if _, err := transaction.Exec(`INSERT INTO remote_ci_calibration_checkpoints (identity, schema_version, updated_at_unix_ms) VALUES (?, ?, ?) ON CONFLICT(identity) DO UPDATE SET updated_at_unix_ms = excluded.updated_at_unix_ms`, identity, schemaVersion, store.nowFunc().UTC().UnixMilli()); err != nil {
+	if err := requireHistoricallyAcceptedGeneration(transaction, acceptedGeneration); err != nil {
+		return err
+	}
+	if _, err := transaction.Exec(`INSERT INTO remote_ci_calibration_checkpoints (identity, schema_version, accepted_generation, updated_at_unix_ms) VALUES (?, ?, ?, ?) ON CONFLICT(identity) DO UPDATE SET updated_at_unix_ms = excluded.updated_at_unix_ms WHERE remote_ci_calibration_checkpoints.schema_version = excluded.schema_version AND remote_ci_calibration_checkpoints.accepted_generation = excluded.accepted_generation`, identity, schemaVersion, strconv.FormatUint(acceptedGeneration, 10), store.nowFunc().UTC().UnixMilli()); err != nil {
 		return mapDurationLedgerSQLiteError("upsert calibration checkpoint header", err)
 	}
 	if expected == nil {
@@ -166,6 +181,9 @@ func (store *DurationLedgerStore) CompareAndSwapCalibrationCheckpointScenario(id
 			return ErrCalibrationCheckpointConflict
 		}
 	}
+	if err := compactDurationLedgerAuthority(transaction); err != nil {
+		return err
+	}
 	if err := transaction.Commit(); err != nil {
 		return mapDurationLedgerSQLiteError("commit calibration checkpoint scenario CAS", err)
 	}
@@ -182,10 +200,12 @@ func (store *DurationLedgerStore) DeleteCalibrationCheckpoint(identity string) e
 		return err
 	}
 	defer database.Close()
-	if _, err := database.Exec(`DELETE FROM remote_ci_calibration_checkpoints WHERE identity = ?`, identity); err != nil {
-		return mapDurationLedgerSQLiteError("delete calibration checkpoint", err)
-	}
-	return nil
+	return withSQLiteWriteTransaction(database, "delete calibration checkpoint", func(transaction *sql.Tx) error {
+		if _, err := transaction.Exec(`DELETE FROM remote_ci_calibration_checkpoints WHERE identity = ?`, identity); err != nil {
+			return mapDurationLedgerSQLiteError("delete calibration checkpoint", err)
+		}
+		return compactDurationLedgerAuthority(transaction)
+	})
 }
 
 func boolToSQLiteCheckpoint(value bool) int {

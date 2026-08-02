@@ -102,10 +102,6 @@ func tryAcceptAutomaticRemoteCalibration(
 	if err != nil {
 		return false, err
 	}
-	config, err := loadRemoteRunConfig(calibrationOptions.ConfigPath)
-	if err != nil {
-		return false, err
-	}
 	runOptions := [3]remoteRunOptions{}
 	runOptions[0], runOptions[1], runOptions[2] = remoteCalibrationRunOptions(
 		calibrationOptions,
@@ -115,7 +111,7 @@ func tryAcceptAutomaticRemoteCalibration(
 	)
 	var inputs [3]remoteci.RunInput
 	for index, current := range runOptions {
-		input, err := resolveRemoteRunInput(current, config, state, runnerIdentity)
+		input, err := resolveRemoteRunInput(current, state, runnerIdentity)
 		if err != nil {
 			return false, err
 		}

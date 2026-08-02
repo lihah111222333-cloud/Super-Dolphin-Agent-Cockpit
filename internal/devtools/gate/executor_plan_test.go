@@ -87,7 +87,7 @@ func TestPlanExecutionReportJSONFieldCoverage(t *testing.T) {
 			name:     "gate execution",
 			producer: reflect.TypeFor[PlanGateExecution](),
 			fields: []string{
-				"argv_digest", "completed_at", "execution_profile", "exit_code", "gate_id", "log", "log_digest",
+				"argv_digest", "completed_at", "execution_profile", "exit_code", "gate_id", "log", "log_digest", "shard_identity",
 				"started_at", "status", "test_timings",
 			},
 		},
@@ -776,22 +776,38 @@ func successfulPlanGateResult(id GateID) PlanGateExecution {
 	}
 }
 
-func TestExecutionProfileUsesOnlyExactTopLevelTestTiming(t *testing.T) {
+func TestExecutionProfileUsesMeasuredGoCommandBodyAndChecksExactTestEvidence(t *testing.T) {
 	workload, err := NewGoTestWorkload(GateIDBackendTestWithGuard, "./internal/archtest", "TestBoundary", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	started := executorPlanTestNow()
 	completed := started.Add(1500 * time.Millisecond)
-	profile, err := executionProfileForGate(GateID(workload.ID), ExecutorProgram{}, []GoTestTiming{{Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 400}, {Name: "TestBoundary/subcase", Status: GoTestStatusPass, DurationMS: 900}}, started, completed, nil)
-	if err != nil || profile.TestBodyMS != 400 || profile.StartupMS != 1100 {
+	timing := &executorExecutionTiming{setupMS: 500, bodyMS: 1_000, totalMS: 1_500}
+	profile, err := executionProfileForGate(GateID(workload.ID), ExecutorProgram{}, []GoTestTiming{{Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 400}, {Name: "TestBoundary/subcase", Status: GoTestStatusPass, DurationMS: 900}}, started, completed, timing)
+	if err != nil || profile.TestBodyMS != 1_000 || profile.StartupMS != 500 {
 		t.Fatalf("profile=%#v err=%v", profile, err)
 	}
-	if _, err := executionProfileForGate(GateID(workload.ID), ExecutorProgram{}, []GoTestTiming{{Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 400}, {Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 401}}, started, completed, nil); err == nil {
+	if _, err := executionProfileForGate(GateID(workload.ID), ExecutorProgram{}, []GoTestTiming{{Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 400}, {Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 401}}, started, completed, timing); err == nil {
 		t.Fatal("duplicate top-level timing was accepted")
 	}
-	if _, err := executionProfileForGate(GateID(workload.ID), ExecutorProgram{}, []GoTestTiming{{Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 1501}}, started, completed, nil); err == nil {
+	if _, err := executionProfileForGate(GateID(workload.ID), ExecutorProgram{}, []GoTestTiming{{Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 1001}}, started, completed, timing); err == nil {
 		t.Fatal("overlong top-level timing was accepted")
+	}
+}
+
+func TestExecutionProfileRecordsMeasuredBodyForGoPackageWorkload(t *testing.T) {
+	workload, err := NewGoPackageWorkload(GateIDBackendTestWithGuard, "./internal/example", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := executorPlanTestNow()
+	profile, err := executionProfileForGate(
+		GateID(workload.ID), ExecutorProgram{}, nil, started, started.Add(1_500*time.Millisecond),
+		&executorExecutionTiming{setupMS: 500, bodyMS: 1_000, totalMS: 1_500},
+	)
+	if err != nil || profile.TestBodyMS != 1_000 || profile.StartupMS != 500 {
+		t.Fatalf("profile=%#v err=%v", profile, err)
 	}
 }
 
@@ -804,7 +820,7 @@ func TestFrontendExecutionProfileDoesNotInferNPMCacheHit(t *testing.T) {
 		nil,
 		started,
 		completed,
-		&executorExecutionTiming{setupMS: 500, bodyMS: 1000, totalMS: 1500},
+		&executorExecutionTiming{setupMS: 500, bodyMS: 1000, totalMS: 1500, viteCacheSeedHit: true},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -812,6 +828,9 @@ func TestFrontendExecutionProfileDoesNotInferNPMCacheHit(t *testing.T) {
 	if profile.Frontend == nil || profile.Frontend.NPMCacheHit ||
 		profile.Frontend.NPMCacheNotApplicableReason != "npm_cache_lookup_not_observed" {
 		t.Fatalf("frontend npm cache evidence = %#v", profile.Frontend)
+	}
+	if !profile.Frontend.ViteCacheHit {
+		t.Fatalf("frontend Vite cache evidence = %#v", profile.Frontend)
 	}
 }
 

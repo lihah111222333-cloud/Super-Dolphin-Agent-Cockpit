@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/shardresource"
 )
 
 // runRemoteCalibration 执行首代 commit、push 与 release 权威运行并接受完整时长校准。
@@ -69,10 +71,19 @@ func newRemoteCalibrationCheckpoint(
 	if err != nil {
 		return nil, err
 	}
-	identity := remoteCalibrationCheckpointIdentity(source, state, runnerIdentity)
+	config, err := loadRemoteRunConfig(options.ConfigPath)
+	if err != nil {
+		return nil, err
+	}
+	resource, err := config.Capacity.ResourcePolicy.ResolveCalibrationClass()
+	if err != nil {
+		return nil, err
+	}
+	identity := remoteCalibrationCheckpointIdentity(source, state, runnerIdentity, resource)
 	return remoteci.NewCalibrationCheckpoint(
 		ledgerStore,
 		identity,
+		state.Generation,
 	)
 }
 
@@ -81,11 +92,13 @@ func remoteCalibrationCheckpointIdentity(
 	source remoteCalibrationIdentity,
 	state remoteci.BaselineState,
 	runnerIdentity string,
+	resource shardresource.Class,
 ) string {
 	material := strings.Join([]string{
-		"super-dolphin-remote-calibration-checkpoint-v2",
-		source.commit, source.tree, source.base, state.Platform,
-		runnerIdentity, state.ToolchainDigest,
+		"super-dolphin-remote-calibration-checkpoint-v3",
+		source.commit, source.tree, source.base, strconv.FormatUint(state.Generation, 10), state.Platform,
+		runnerIdentity, state.ToolchainDigest, resource.ID,
+		strconv.FormatFloat(resource.VCPU, 'f', -1, 64), strconv.FormatFloat(resource.MemoryGiB, 'f', -1, 64),
 	}, "\x00")
 	sum := sha256.Sum256([]byte(material))
 	return fmt.Sprintf("sha256:%x", sum[:])

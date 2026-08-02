@@ -148,7 +148,7 @@ func assertIndependentCoordinatorObjectPrefixes(t *testing.T, uploads []string, 
 		"baseline-artifacts/source-deltas/job-0123456789abcdef0123456a/": false,
 		"baseline-artifacts/source-deltas/job-0123456789abcdef0123456b/": false,
 	}
-	temporary, _ := partitionCoordinatorUploads(uploads)
+	temporary := coordinatorTemporaryUploads(uploads)
 	for _, key := range temporary {
 		matched := false
 		for prefix := range prefixes {

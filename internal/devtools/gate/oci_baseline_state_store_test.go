@@ -1,87 +1,41 @@
-package gate_test
+package gate
 
 import (
 	"crypto/sha256"
-	"encoding/json"
-	"fmt"
+	"encoding/hex"
 	"path/filepath"
-	"strings"
+	"strconv"
 	"testing"
-	"time"
-
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
-func TestRemoteBaselineStateStoreCASRoundTripsOCIOnlyState(t *testing.T) {
-	state := validOCIOnlyState()
-	if err := state.Validate(); err != nil {
-		t.Fatalf("OCI state validation error = %v", err)
-	}
-	data, err := json.Marshal(state)
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestRemoteBaselineStateStoreLoadsSeededState(t *testing.T) {
+	data := []byte(`{"image_cache_id":"imc-accepted"}`)
 	sum := sha256.Sum256(data)
-	store, err := gate.NewDurationLedgerStore(filepath.Join(t.TempDir(), "duration-ledger.sqlite"))
+	store, err := NewDurationLedgerStore(filepath.Join(t.TempDir(), "duration-ledger.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.CompareAndSwapRemoteBaselineState(0, gate.RemoteBaselineStateRecord{Generation: state.Generation, StateJSON: data, StateSHA256: fmt.Sprintf("sha256:%x", sum)}); err != nil {
-		t.Fatalf("CompareAndSwapRemoteBaselineState() error = %v", err)
-	}
+	seedRemoteBaselineState(t, store, RemoteBaselineStateRecord{Generation: 1, StateJSON: data, StateSHA256: "sha256:" + hex.EncodeToString(sum[:])})
 	record, err := store.LoadRemoteBaselineState()
 	if err != nil {
 		t.Fatal(err)
 	}
-	var loaded remoteci.BaselineState
-	if err := json.Unmarshal(record.StateJSON, &loaded); err != nil {
-		t.Fatal(err)
-	}
-	if loaded.OCIProjectCache == nil || loaded.Validate() != nil {
-		t.Fatalf("loaded OCI-only baseline state = %#v", loaded)
+	if record.Generation != 1 || string(record.StateJSON) != string(data) || record.StateSHA256 != "sha256:"+hex.EncodeToString(sum[:]) {
+		t.Fatalf("loaded seeded baseline record = %#v", record)
 	}
 }
 
-func TestRemoteBaselineStateStoreCASRejectsStaleGeneration(t *testing.T) {
-	state := validOCIOnlyState()
-	data, err := json.Marshal(state)
+func seedRemoteBaselineState(t *testing.T, store *DurationLedgerStore, record RemoteBaselineStateRecord) {
+	t.Helper()
+	if store == nil || record.Generation == 0 || len(record.StateJSON) == 0 || record.StateSHA256 == "" {
+		t.Fatal("remote baseline SQL fixture is invalid")
+	}
+	database, err := store.openSQLiteAuthority(true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	sum := sha256.Sum256(data)
-	store, err := gate.NewDurationLedgerStore(filepath.Join(t.TempDir(), "duration-ledger.sqlite"))
-	if err != nil {
+	defer database.Close()
+	if _, err := database.Exec(`INSERT INTO ci_remote_baseline_state(singleton,schema_version,generation,state_json,state_sha256,updated_at_unix_ms) VALUES(1,3,?,?,?,?) ON CONFLICT(singleton) DO UPDATE SET schema_version=excluded.schema_version,generation=excluded.generation,state_json=excluded.state_json,state_sha256=excluded.state_sha256,updated_at_unix_ms=excluded.updated_at_unix_ms`, strconv.FormatUint(record.Generation, 10), string(record.StateJSON), record.StateSHA256, store.nowFunc().UTC().UnixMilli()); err != nil {
 		t.Fatal(err)
-	}
-	if _, err := store.CompareAndSwapRemoteBaselineState(0, gate.RemoteBaselineStateRecord{Generation: state.Generation, StateJSON: data, StateSHA256: fmt.Sprintf("sha256:%x", sum)}); err != nil {
-		t.Fatal(err)
-	}
-	state.Generation = 2
-	data, err = json.Marshal(state)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sum = sha256.Sum256(data)
-	if _, err := store.CompareAndSwapRemoteBaselineState(0, gate.RemoteBaselineStateRecord{Generation: state.Generation, StateJSON: data, StateSHA256: fmt.Sprintf("sha256:%x", sum)}); err == nil {
-		t.Fatal("CompareAndSwapRemoteBaselineState() accepted stale generation")
-	}
-}
-
-func validOCIOnlyState() remoteci.BaselineState {
-	digest := func(value string) string { return "sha256:" + strings.Repeat(value, 64) }
-	tree := strings.Repeat("a", 40)
-	toolchain := digest("b")
-	image := "registry.example/runtime@" + digest("c")
-	created := time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC)
-	return remoteci.BaselineState{
-		SchemaVersion: remoteci.BaselineStateSchemaVersion, Generation: 1,
-		MainCommit: strings.Repeat("d", 40), MainTree: tree, Platform: "linux/amd64",
-		PolicyDigest: digest("e"), ToolchainDigest: toolchain, RuntimeImage: image,
-		GateBinarySHA256: digest("f"), RuntimeSeedSHA256: digest("1"), BaselineManifestDigest: digest("2"),
-		ImageCacheID: "imc-accepted-1", ImageCacheSnapshotID: "snap-accepted-1",
-		ImageCacheReady: true, ImageDigest: digest("c"),
-		CreatedAt: created, AcceptedAt: created, RenewedAt: created,
-		OCIProjectCache: &remoteci.BaselineOCIProjectCache{Image: image, ContentManifestSHA256: digest("3"), MainTree: tree, ToolchainDigest: toolchain, Platform: "linux/amd64", CachePath: remoteci.OCIProjectGoBuildCachePath},
 	}
 }

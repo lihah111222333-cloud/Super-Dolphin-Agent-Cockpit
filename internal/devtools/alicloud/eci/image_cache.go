@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
 const imageCachePollInterval = 2 * time.Second
@@ -148,6 +150,9 @@ func validateImageCacheCreateRequest(request ImageCacheCreateRequest) error {
 	for index, image := range request.Images {
 		if !imageDigestPattern.MatchString(image) {
 			return fmt.Errorf("ECI image cache image %d must be an immutable OCI digest reference", index+1)
+		}
+		if err := cicontract.ValidateNonACRRegistryHost(image); err != nil {
+			return fmt.Errorf("ECI image cache image %d: %w", index+1, err)
 		}
 		if _, exists := seen[image]; exists {
 			return fmt.Errorf("ECI image cache image %d duplicates an earlier image", index+1)

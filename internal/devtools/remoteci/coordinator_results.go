@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
@@ -257,7 +258,7 @@ func remoteCalibrationParentSamples(
 func remoteOptimizationWarnings(samples []gate.DurationSample) []string {
 	warnings := make([]string, 0)
 	for _, sample := range samples {
-		if sample.ParentWorkloadID != "" || sample.DurationMS <= gate.FullCITargetDurationMS {
+		if sample.ParentWorkloadID != "" || sample.DurationMS <= cicontract.ShardTargetDuration.Milliseconds() {
 			continue
 		}
 		outcome := "failed"
@@ -269,11 +270,63 @@ func remoteOptimizationWarnings(samples []gate.DurationSample) []string {
 			sample.Bucket.WorkloadID,
 			outcome,
 			sample.DurationMS,
-			gate.FullCITargetDurationMS,
+			cicontract.ShardTargetDuration.Milliseconds(),
 		))
 	}
 	sort.Strings(warnings)
 	return warnings
+}
+
+// remoteWorkloadTimingWarnings records post-completion timing evidence without
+// changing a passed workload or the authority of its receipt.
+func remoteWorkloadTimingWarnings(executions []gate.PlanGateExecution) []string {
+	warnings := make([]string, 0)
+	for _, execution := range executions {
+		for _, timing := range []struct {
+			name     string
+			duration int64
+		}{
+			{name: "test_body_ms", duration: execution.ExecutionProfile.TestBodyMS},
+			{name: "total_ms", duration: execution.ExecutionProfile.TotalMS},
+		} {
+			if timing.duration <= cicontract.ShardTargetDuration.Milliseconds() {
+				continue
+			}
+			warnings = append(warnings, fmt.Sprintf(
+				"CI target warning: workload %q %s=%d exceeded target_ms=%d; authoritative status remains %s",
+				execution.GateID,
+				timing.name,
+				timing.duration,
+				cicontract.ShardTargetDuration.Milliseconds(),
+				execution.Status,
+			))
+		}
+	}
+	sort.Strings(warnings)
+	return warnings
+}
+
+func appendUniqueRemoteWarnings(existing []string, additions ...[]string) []string {
+	seen := make(map[string]struct{}, len(existing))
+	result := make([]string, 0, len(existing))
+	for _, warning := range existing {
+		if _, exists := seen[warning]; exists {
+			continue
+		}
+		seen[warning] = struct{}{}
+		result = append(result, warning)
+	}
+	for _, warnings := range additions {
+		for _, warning := range warnings {
+			if _, exists := seen[warning]; exists {
+				continue
+			}
+			seen[warning] = struct{}{}
+			result = append(result, warning)
+		}
+	}
+	sort.Strings(result)
+	return result
 }
 
 // aggregateRemoteReports 按权威 catalog 汇总所有 worker workload 报告。

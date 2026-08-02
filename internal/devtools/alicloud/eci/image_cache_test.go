@@ -51,7 +51,7 @@ func TestClient_CreateContainerGroupPinsCacheAndRejectsAutomaticMatching(t *test
 		t.Fatalf("CreateContainerGroup() error = %v", err)
 	}
 	call := runner.calls[0]
-	if !containsArgumentPair(call, "--ImageSnapshotId", "imc-test-cache") ||
+	if !containsArgumentPair(call, "--ImageSnapshotId", request.ImageCacheSnapshotID) ||
 		containsArgumentPair(call, "--AutoMatchImageCache", "true") {
 		t.Fatalf("CreateContainerGroup cache binding = %#v", call)
 	}
@@ -66,7 +66,7 @@ func TestClient_CreateContainerGroupPinsCacheAndRejectsAutomaticMatching(t *test
 		}
 	}
 	request = validCreateRequest()
-	request.ImageCacheID = ""
+	request.ImageCacheSnapshotID = ""
 	if _, err := client.CreateContainerGroup(context.Background(), request); err == nil || len(runner.calls) != 1 {
 		t.Fatalf("CreateContainerGroup without cache error = %v, calls = %#v", err, runner.calls)
 	}
@@ -86,6 +86,7 @@ func TestClient_CreateImageCacheRejectsInvalidInputBeforeCLI(t *testing.T) {
 		mutate func(*ImageCacheCreateRequest)
 	}{
 		{"mutable image", func(request *ImageCacheCreateRequest) { request.Images = []string{"registry.example/repo:latest"} }},
+		{"ACR image", func(request *ImageCacheCreateRequest) { request.Images = []string{"registry.cn-shenzhen.aliyuncs.com/repo@sha256:" + strings.Repeat("a", 64)} }},
 		{"empty images", func(request *ImageCacheCreateRequest) { request.Images = nil }},
 		{"invalid cache size", func(request *ImageCacheCreateRequest) { request.ImageCacheSize = 19 }},
 	}

@@ -5,18 +5,20 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/shardresource"
 )
 
 func TestCalibrationCheckpointPersistsInAuthoritySQLite(t *testing.T) {
 	store := calibrationCheckpointStore(t)
 	authorityPath := store.AuthorityPath()
-	checkpoint, err := NewCalibrationCheckpoint(store, "sha256:checkpoint")
+	checkpoint, err := NewCalibrationCheckpoint(store, "sha256:checkpoint", 7)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +28,7 @@ func TestCalibrationCheckpointPersistsInAuthoritySQLite(t *testing.T) {
 	if err := checkpoint.Observe("commit", input, result, true); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := NewCalibrationCheckpoint(store, "sha256:checkpoint")
+	loaded, err := NewCalibrationCheckpoint(store, "sha256:checkpoint", 7)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +43,7 @@ func TestCalibrationCheckpointPersistsInAuthoritySQLite(t *testing.T) {
 
 func TestCalibrationCheckpointReopenAndCachedRetryPersist(t *testing.T) {
 	store := calibrationCheckpointStore(t)
-	checkpoint, err := NewCalibrationCheckpoint(store, "sha256:checkpoint")
+	checkpoint, err := NewCalibrationCheckpoint(store, "sha256:checkpoint", 7)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +70,7 @@ func TestCalibrationCheckpointReopenAndCachedRetryPersist(t *testing.T) {
 func TestCalibrationCheckpointDoesNotPersistExecutionPayload(t *testing.T) {
 	store := calibrationCheckpointStore(t)
 	authorityPath := store.AuthorityPath()
-	checkpoint, err := NewCalibrationCheckpoint(store, "sha256:checkpoint")
+	checkpoint, err := NewCalibrationCheckpoint(store, "sha256:checkpoint", 7)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,13 +101,40 @@ func TestCalibrationCheckpointDoesNotPersistExecutionPayload(t *testing.T) {
 	}
 }
 
+func TestCalibrationCheckpointRejectsIncompleteCompletedIdentity(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*RunInput, *RunResult)
+	}{
+		{name: "missing target platform", mutate: func(input *RunInput, _ *RunResult) { input.Platform = "" }},
+		{name: "missing fixed resource", mutate: func(input *RunInput, _ *RunResult) { input.CalibrationResource.MemoryGiB = 0 }},
+		{name: "missing candidate compile source", mutate: func(input *RunInput, _ *RunResult) { input.CandidateGateSourceSHA256 = "" }},
+		{name: "candidate compile toolchain drift", mutate: func(_ *RunInput, result *RunResult) { result.CandidateGateToolchainSHA256 = "sha256:drift" }},
+		{name: "accepted generation drifts from checkpoint", mutate: func(input *RunInput, result *RunResult) { input.AcceptedGeneration, result.AcceptedGeneration = 8, 8 }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			checkpoint, err := NewCalibrationCheckpoint(calibrationCheckpointStore(t), "sha256:checkpoint", 7)
+			if err != nil {
+				t.Fatal(err)
+			}
+			input := testCalibrationCheckpointInput()
+			result := testCalibrationCheckpointResult(input)
+			test.mutate(&input, &result)
+			if err := checkpoint.Observe("commit", input, result, true); err == nil {
+				t.Fatal("completed checkpoint accepted incomplete identity")
+			}
+		})
+	}
+}
+
 func TestCalibrationCheckpointConcurrentDifferentScenariosAreRetained(t *testing.T) {
 	firstStore, secondStore := calibrationCheckpointStores(t)
-	first, err := NewCalibrationCheckpoint(firstStore, "sha256:checkpoint")
+	first, err := NewCalibrationCheckpoint(firstStore, "sha256:checkpoint", 7)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := NewCalibrationCheckpoint(secondStore, "sha256:checkpoint")
+	second, err := NewCalibrationCheckpoint(secondStore, "sha256:checkpoint", 7)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +173,7 @@ func TestCalibrationCheckpointConcurrentSameScenarioReturnsConflict(t *testing.T
 	for _, store := range []*gatecontract.DurationLedgerStore{firstStore, secondStore} {
 		group.Go(func() {
 			<-start
-			errs <- store.CompareAndSwapCalibrationCheckpointScenario("sha256:checkpoint", 1, nil, next)
+			errs <- store.CompareAndSwapCalibrationCheckpointScenario("sha256:checkpoint", 1, 7, nil, next)
 		})
 	}
 	close(start)
@@ -177,6 +206,10 @@ func calibrationCheckpointStore(t *testing.T) *gatecontract.DurationLedgerStore 
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := store.CompareAndSwap(0, gatecontract.NewDurationLedger()); err != nil {
+		t.Fatal(err)
+	}
+	seedRemoteCITestAcceptedGeneration(t, store, 7)
 	return store
 }
 
@@ -187,6 +220,10 @@ func calibrationCheckpointStores(t *testing.T) (*gatecontract.DurationLedgerStor
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := first.CompareAndSwap(0, gatecontract.NewDurationLedger()); err != nil {
+		t.Fatal(err)
+	}
+	seedRemoteCITestAcceptedGeneration(t, first, 7)
 	second, err := gatecontract.NewDurationLedgerStore(authorityPath)
 	if err != nil {
 		t.Fatal(err)
@@ -194,11 +231,31 @@ func calibrationCheckpointStores(t *testing.T) (*gatecontract.DurationLedgerStor
 	return first, second
 }
 
+func seedRemoteCITestAcceptedGeneration(t *testing.T, store *gatecontract.DurationLedgerStore, generation uint64) {
+	t.Helper()
+	database, err := sql.Open("sqlite", store.AuthorityPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if _, err := database.Exec(`INSERT INTO ci_remote_baseline_state (
+		singleton, schema_version, generation, state_json, state_sha256, updated_at_unix_ms
+	) VALUES (1, 3, ?, '{"test":true}', 'test-accepted-state', 1)
+	ON CONFLICT(singleton) DO UPDATE SET
+		schema_version = excluded.schema_version,
+		generation = excluded.generation,
+		state_json = excluded.state_json,
+		state_sha256 = excluded.state_sha256,
+		updated_at_unix_ms = excluded.updated_at_unix_ms`, strconv.FormatUint(generation, 10)); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func testCalibrationCheckpointInput() RunInput {
 	tree := strings.Repeat("1", 40)
-	return RunInput{Tree: tree, Source: gatecontract.SourceSpec{Kind: gatecontract.SourceKindTree, Tree: &gatecontract.TreeSource{SHA: tree, ParentCommitSHA: strings.Repeat("2", 40)}, SourceTreeSHA: tree}, Profile: gatecontract.ProfileLocalFast, Entrypoint: gatecontract.CIEntrypointGitPreCommit, Platform: "linux/amd64", ToolchainDigest: "sha256:" + strings.Repeat("3", 64), Calibration: true, RunnerIdentityDigest: "sha256:" + strings.Repeat("4", 64), RunnerImage: "ubuntu:22.04"}
+	return RunInput{AcceptedGeneration: 7, Tree: tree, Source: gatecontract.SourceSpec{Kind: gatecontract.SourceKindTree, Tree: &gatecontract.TreeSource{SHA: tree, ParentCommitSHA: strings.Repeat("2", 40)}, SourceTreeSHA: tree}, Profile: gatecontract.ProfileLocalFast, Entrypoint: gatecontract.CIEntrypointGitPreCommit, Platform: "linux/amd64", ToolchainDigest: "sha256:" + strings.Repeat("3", 64), CandidateGateSourceSHA256: "sha256:" + strings.Repeat("5", 64), CandidateGateToolchainSHA256: "sha256:" + strings.Repeat("6", 64), Calibration: true, RunnerIdentityDigest: "sha256:" + strings.Repeat("4", 64), RunnerImage: "ubuntu:22.04", CalibrationResource: shardresource.Class{ID: "maximum", VCPU: 8, MemoryGiB: 32}}
 }
 
 func testCalibrationCheckpointResult(input RunInput) RunResult {
-	return RunResult{JobID: "job-checkpoint", Entrypoint: input.Entrypoint, Profile: input.Profile, PlanDigest: "sha256:" + strings.Repeat("5", 64), CatalogDigest: "sha256:" + strings.Repeat("6", 64), SourceTreeSHA: input.Tree, Status: gatecontract.ResultStatusPassed, Authoritative: true, CleanupComplete: true, CompletedAt: time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)}
+	return RunResult{AcceptedGeneration: input.AcceptedGeneration, JobID: "job-checkpoint", Entrypoint: input.Entrypoint, Profile: input.Profile, PlanDigest: "sha256:" + strings.Repeat("7", 64), CatalogDigest: "sha256:" + strings.Repeat("8", 64), SourceTreeSHA: input.Tree, CandidateGateSourceSHA256: input.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: input.CandidateGateToolchainSHA256, Status: gatecontract.ResultStatusPassed, Authoritative: true, CleanupComplete: true, CompletedAt: time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)}
 }

@@ -5,19 +5,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	goruntime "runtime"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/eci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 	"golang.org/x/sync/errgroup"
 )
-
-// 阿里云 DescribeContainerGroups 单次最多接受 20 个实例 ID。
-const remoteContainerGroupBatchLimit = 20
 
 type pendingRemoteShard struct {
 	index   int
@@ -29,30 +26,73 @@ func (coordinator *Coordinator) waitShards(
 	ctx context.Context,
 	shards []gate.ContainerShard,
 	groupIDs []string,
-) ([]ShardResult, error) {
+) ([]ShardResult, []string, error) {
 	results, pending := initializeRemoteShardResults(shards, groupIDs)
 	failures := make([]error, len(shards))
+	executingSince := make(map[int]time.Time, len(shards))
+	warned := make(map[int]struct{}, len(shards))
+	warnings := make([]string, 0)
 	timer := time.NewTicker(coordinator.config.PollInterval)
 	defer timer.Stop()
 	for len(pending) != 0 {
 		groups, err := coordinator.observePendingShardStatuses(ctx, pending, results)
 		if err != nil {
-			return results, err
+			return results, warnings, err
 		}
+		warnings = append(warnings, coordinator.observeShardTargetWarnings(pending, groups, executingSince, warned)...)
 		pending, err = coordinator.collectObservedRemoteShards(ctx, shards, pending, groups, results, failures)
 		if err != nil {
-			return results, err
+			return results, warnings, err
 		}
 		if len(pending) == 0 {
 			break
 		}
 		select {
 		case <-ctx.Done():
-			return results, remoteCloudShardPendingError(results[pending[0].index].ContainerStatus, ctx.Err())
+			return results, warnings, remoteCloudShardPendingError(results[pending[0].index].ContainerStatus, ctx.Err())
 		case <-timer.C:
 		}
 	}
-	return results, errors.Join(failures...)
+	return results, warnings, errors.Join(failures...)
+}
+
+// observeShardTargetWarnings only observes a Running shard. It never derives a
+// deadline context or invokes cleanup, so exceeding the optimization target
+// cannot interrupt a worker that may still produce an authoritative PASS.
+func (coordinator *Coordinator) observeShardTargetWarnings(
+	pending []pendingRemoteShard,
+	groups map[string]eci.ContainerGroup,
+	executingSince map[int]time.Time,
+	warned map[int]struct{},
+) []string {
+	now := coordinator.now().UTC()
+	warnings := make([]string, 0)
+	for _, item := range pending {
+		group, ok := groups[item.groupID]
+		if !ok || group.Status != "Running" {
+			delete(executingSince, item.index)
+			continue
+		}
+		startedAt, started := executingSince[item.index]
+		if !started {
+			executingSince[item.index] = now
+			continue
+		}
+		if now.Sub(startedAt) < cicontract.ShardTargetDuration {
+			continue
+		}
+		if _, alreadyWarned := warned[item.index]; alreadyWarned {
+			continue
+		}
+		warned[item.index] = struct{}{}
+		warning := fmt.Sprintf(
+			"CI target warning: shard %q has remained Running for at least %dms; target exceeded; execution continues without cancellation",
+			item.groupID,
+			cicontract.ShardTargetDuration.Milliseconds(),
+		)
+		warnings = append(warnings, warning)
+	}
+	return warnings
 }
 
 // initializeRemoteShardResults 绑定分片、容器组和本轮仍待观察的索引。
@@ -87,28 +127,28 @@ func initializeRemoteShardResults(
 	return results, pending
 }
 
-// observePendingShardStatuses 按云 API 契约分批读取全部未终态分片。
+// observePendingShardStatuses 一次读取全部未终态分片，不施加仓库批次上限。
 func (coordinator *Coordinator) observePendingShardStatuses(
 	parent context.Context,
 	pending []pendingRemoteShard,
 	results []ShardResult,
 ) (map[string]eci.ContainerGroup, error) {
 	observed := make(map[string]eci.ContainerGroup, len(pending))
-	for start := 0; start < len(pending); start += remoteContainerGroupBatchLimit {
-		end := min(start+remoteContainerGroupBatchLimit, len(pending))
-		ids := pendingRemoteShardIDs(pending[start:end])
-		observation, cancel := gateprivate.WithTimeout(parent, coordinator.observationTimeout)
-		groups, err := coordinator.shardStatuses(observation, ids)
-		cancel()
-		if err != nil {
-			lastStatus := results[pending[start].index].ContainerStatus
-			return nil, classifyShardObservationError(
-				parent, observation, "batch status observation", lastStatus, coordinator.observationTimeout, err,
-			)
-		}
-		for _, group := range groups {
-			observed[group.ID] = group
-		}
+	if len(pending) == 0 {
+		return observed, nil
+	}
+	ids := pendingRemoteShardIDs(pending)
+	observation, cancel := gateprivate.WithTimeout(parent, coordinator.observationTimeout)
+	groups, err := coordinator.shardStatuses(observation, ids)
+	cancel()
+	if err != nil {
+		lastStatus := results[pending[0].index].ContainerStatus
+		return nil, classifyShardObservationError(
+			parent, observation, "status observation", lastStatus, coordinator.observationTimeout, err,
+		)
+	}
+	for _, group := range groups {
+		observed[group.ID] = group
 	}
 	return observed, nil
 }
@@ -135,10 +175,13 @@ func (coordinator *Coordinator) collectObservedRemoteShards(
 	for _, item := range pending {
 		group, ok := groups[item.groupID]
 		if !ok {
-			return nil, fmt.Errorf("remote CI shard container group %q is missing from batch observation", item.groupID)
+			return nil, fmt.Errorf("remote CI shard container group %q is missing from status observation", item.groupID)
 		}
 		results[item.index].ContainerStatus = group.Status
 		if terminalECIStatus(group.Status) {
+			if err := bindObservedECIShardTiming(&results[item.index], group); err != nil {
+				return nil, remoteShardExecutionError(shards[item.index], err)
+			}
 			terminal = append(terminal, item)
 		} else {
 			next = append(next, item)
@@ -148,7 +191,7 @@ func (coordinator *Coordinator) collectObservedRemoteShards(
 	return next, nil
 }
 
-// collectTerminalShardReports 以本机可用 CPU 自适应限制 CLI 子进程，避免汇总阶段挤爆内存。
+// collectTerminalShardReports 并行读取全部终态分片报告，不施加仓库并发上限。
 func (coordinator *Coordinator) collectTerminalShardReports(
 	ctx context.Context,
 	shards []gate.ContainerShard,
@@ -158,7 +201,6 @@ func (coordinator *Coordinator) collectTerminalShardReports(
 	failures []error,
 ) {
 	var workers errgroup.Group
-	workers.SetLimit(remoteCoordinatorParallelism(len(terminal)))
 	for _, item := range terminal {
 		workers.Go(func() error {
 			report, workerLog, err := coordinator.observeShardReport(
@@ -182,17 +224,18 @@ func (coordinator *Coordinator) collectTerminalShardReports(
 				failures[item.index] = failure
 				return failure
 			}
+			timing, err = bindShardCandidateCompileTimingLog(materializerLog, timing)
+			if err != nil {
+				failure := remoteShardExecutionError(shards[item.index], fmt.Errorf("decode remote CI candidate compile timing: %w", err))
+				failures[item.index] = failure
+				return failure
+			}
 			results[item.index].MaterializationTiming = timing
 			results[item.index].workerDiagnostic = remoteShardLogTail(workerLog)
 			return nil
 		})
 	}
 	_ = workers.Wait()
-}
-
-// remoteCoordinatorParallelism 让本机协调器按可用 CPU 扩展有界外部进程数。
-func remoteCoordinatorParallelism(workItems int) int {
-	return max(1, min(workItems, goruntime.GOMAXPROCS(0)))
 }
 
 // waitShard 保留单分片观察入口，供定点诊断和契约测试使用。
@@ -210,6 +253,9 @@ func (coordinator *Coordinator) waitShard(ctx context.Context, shard gate.Contai
 		}
 		result.ContainerStatus = group.Status
 		if terminalECIStatus(result.ContainerStatus) {
+			if err := bindObservedECIShardTiming(&result, group); err != nil {
+				return result, remoteShardExecutionError(shard, err)
+			}
 			report, workerLog, err := coordinator.observeShardReport(ctx, shard, groupID, group)
 			if err != nil {
 				return result, remoteShardExecutionError(shard, err)
@@ -223,6 +269,10 @@ func (coordinator *Coordinator) waitShard(ctx context.Context, shard gate.Contai
 			if err != nil {
 				return result, remoteShardExecutionError(shard, fmt.Errorf("decode remote CI materializer timing: %w", err))
 			}
+			timing, err = bindShardCandidateCompileTimingLog(materializerLog, timing)
+			if err != nil {
+				return result, remoteShardExecutionError(shard, fmt.Errorf("decode remote CI candidate compile timing: %w", err))
+			}
 			result.MaterializationTiming = timing
 			result.workerDiagnostic = remoteShardLogTail(workerLog)
 			return result, nil
@@ -235,17 +285,55 @@ func (coordinator *Coordinator) waitShard(ctx context.Context, shard gate.Contai
 	}
 }
 
+// bindObservedECIShardTiming accepts only provider timestamps needed for the
+// authoritative timing ledger; local polling timestamps are never evidence.
+func bindObservedECIShardTiming(result *ShardResult, group eci.ContainerGroup) error {
+	if group.CreationTime.IsZero() {
+		return errors.New("ECI terminal response is missing CreationTime")
+	}
+	var materializer *eci.ContainerStatus
+	for index := range group.InitContainers {
+		if group.InitContainers[index].Name != "materializer" {
+			continue
+		}
+		if materializer != nil {
+			return errors.New("ECI terminal response has duplicate materializer init containers")
+		}
+		materializer = &group.InitContainers[index]
+	}
+	if materializer == nil || materializer.CurrentState.StartTime.IsZero() {
+		return errors.New("ECI terminal response is missing materializer init-container CurrentState.StartTime")
+	}
+	var terminalAt time.Time
+	switch group.Status {
+	case "Succeeded":
+		terminalAt = group.SucceededTime
+	default:
+		terminalAt = group.FailedTime
+	}
+	if terminalAt.IsZero() {
+		return fmt.Errorf("ECI terminal response is missing terminal time for status %q", group.Status)
+	}
+	if !materializer.CurrentState.StartTime.After(group.CreationTime) || !terminalAt.After(materializer.CurrentState.StartTime) {
+		return errors.New("ECI provider timestamps are not strictly ordered from CreationTime through materializer StartTime to terminal time")
+	}
+	result.ECIWaitStartedAt = group.CreationTime.UTC()
+	result.ECIWaitCompletedAt = materializer.CurrentState.StartTime.UTC()
+	result.ECITerminalAt = terminalAt.UTC()
+	return nil
+}
+
 // shardStatuses 批量读取并严格核对每一个 ECI container group 身份。
 func (coordinator *Coordinator) shardStatuses(ctx context.Context, groupIDs []string) ([]eci.ContainerGroup, error) {
-	if len(groupIDs) == 0 || len(groupIDs) > remoteContainerGroupBatchLimit {
-		return nil, errors.New("remote CI shard status batch size is invalid")
+	if len(groupIDs) == 0 {
+		return nil, errors.New("remote CI shard status request is empty")
 	}
 	groups, err := coordinator.runtime.DescribeContainerGroups(ctx, groupIDs...)
 	if err != nil {
 		return nil, err
 	}
 	if len(groups) != len(groupIDs) {
-		return nil, errors.New("remote CI shard container group batch is incomplete")
+		return nil, errors.New("remote CI shard container group response is incomplete")
 	}
 	expected := make(map[string]struct{}, len(groupIDs))
 	for _, groupID := range groupIDs {

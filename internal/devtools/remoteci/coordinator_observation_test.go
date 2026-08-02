@@ -26,7 +26,11 @@ func (runtime observationRuntime) DescribeContainerGroups(ctx context.Context, i
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}
-	return []eci.ContainerGroup{{ID: ids[0], Status: runtime.status}}, nil
+	createdAt := time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC)
+	return []eci.ContainerGroup{{
+		ID: ids[0], Status: runtime.status, CreationTime: createdAt, SucceededTime: createdAt.Add(time.Second),
+		InitContainers: []eci.ContainerStatus{{Name: "materializer", CurrentState: eci.ContainerState{StartTime: createdAt.Add(time.Millisecond)}}},
+	}}, nil
 }
 
 func (runtime observationRuntime) DescribeContainerLog(ctx context.Context, _ string, _ string) (string, error) {

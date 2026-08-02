@@ -1,9 +1,11 @@
 package remoteci
 
 import (
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
@@ -156,10 +158,10 @@ func assertRemoteCalibrationParentSample(t *testing.T, samples []gate.DurationSa
 
 func TestRemoteOptimizationWarningsAreAdvisoryForSlowPassAndFailure(t *testing.T) {
 	warnings := remoteOptimizationWarnings([]gate.DurationSample{
-		{Bucket: gate.DurationBucket{WorkloadID: "slow-pass"}, Succeeded: true, DurationMS: gate.FullCITargetDurationMS + 1},
-		{Bucket: gate.DurationBucket{WorkloadID: "on-target"}, Succeeded: true, DurationMS: gate.FullCITargetDurationMS},
-		{Bucket: gate.DurationBucket{WorkloadID: "slow-child"}, Succeeded: true, DurationMS: gate.FullCITargetDurationMS + 2, ParentWorkloadID: "parent"},
-		{Bucket: gate.DurationBucket{WorkloadID: "slow-fail"}, Succeeded: false, DurationMS: gate.FullCITargetDurationMS + 3},
+		{Bucket: gate.DurationBucket{WorkloadID: "slow-pass"}, Succeeded: true, DurationMS: cicontract.ShardTargetDuration.Milliseconds() + 1},
+		{Bucket: gate.DurationBucket{WorkloadID: "on-target"}, Succeeded: true, DurationMS: cicontract.ShardTargetDuration.Milliseconds()},
+		{Bucket: gate.DurationBucket{WorkloadID: "slow-child"}, Succeeded: true, DurationMS: cicontract.ShardTargetDuration.Milliseconds() + 2, ParentWorkloadID: "parent"},
+		{Bucket: gate.DurationBucket{WorkloadID: "slow-fail"}, Succeeded: false, DurationMS: cicontract.ShardTargetDuration.Milliseconds() + 3},
 	})
 	if len(warnings) != 2 {
 		t.Fatalf("optimization warnings = %#v, want one per slow parent workload", warnings)
@@ -169,6 +171,33 @@ func TestRemoteOptimizationWarningsAreAdvisoryForSlowPassAndFailure(t *testing.T
 	}
 	if warnings[1] != "CI optimization warning: workload \"slow-pass\" passed in 100001ms (target 100000ms); optimize or split this shard" {
 		t.Fatalf("pass warning = %q", warnings[1])
+	}
+}
+
+func TestRemoteWorkloadTimingWarningsPreservePassedStatusAndSkipShortWorkloads(t *testing.T) {
+	warnings := remoteWorkloadTimingWarnings([]gate.PlanGateExecution{
+		{
+			GateID: "slow-pass", Status: gate.ResultStatusPassed,
+			ExecutionProfile: gate.ExecutionProfile{
+				TestBodyMS: cicontract.ShardTargetDuration.Milliseconds() + 1,
+				TotalMS:    cicontract.ShardTargetDuration.Milliseconds() + 2,
+			},
+		},
+		{
+			GateID: "short-pass", Status: gate.ResultStatusPassed,
+			ExecutionProfile: gate.ExecutionProfile{
+				TestBodyMS: cicontract.ShardTargetDuration.Milliseconds(),
+				TotalMS:    cicontract.ShardTargetDuration.Milliseconds(),
+			},
+		},
+	})
+	if len(warnings) != 2 {
+		t.Fatalf("timing warnings = %#v, want test-body and total warnings for slow workload only", warnings)
+	}
+	for _, warning := range warnings {
+		if !strings.Contains(warning, "authoritative status remains passed") {
+			t.Fatalf("warning = %q, want passed authority preserved", warning)
+		}
 	}
 }
 

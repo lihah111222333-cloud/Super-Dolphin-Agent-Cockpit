@@ -13,6 +13,7 @@ import (
 
 type remoteDurationCalibrationFixture struct {
 	store                                      *gatecontract.DurationLedgerStore
+	acceptedGeneration                         uint64
 	calibration                                gatecontract.DurationCalibration
 	commitCatalog, pushCatalog, releaseCatalog gatecontract.WorkloadCatalog
 	expected                                   map[string]gatecontract.Workload
@@ -25,6 +26,7 @@ func newRemoteDurationCalibrationFixture(t *testing.T) remoteDurationCalibration
 	if err != nil {
 		t.Fatal(err)
 	}
+	seedRemoteRunTestAcceptedGeneration(t, store, 1)
 	base, commit, tree := strings.Repeat("1", 40), strings.Repeat("2", 40), strings.Repeat("3", 40)
 	inventory := gatecontract.WorkloadInventory{GoPackages: []string{"./internal/alpha", "./pkg/beta"}}
 	commitCatalog, commitDigest := mustRemoteCalibrationCatalog(t, remoteci.RunInput{Profile: gatecontract.ProfileLocalFast, Source: gatecontract.SourceSpec{Kind: gatecontract.SourceKindTree, ObjectFormat: gatecontract.GitObjectFormatSHA1, Tree: &gatecontract.TreeSource{SHA: tree, ParentCommitSHA: base}, SourceTreeSHA: tree}, Inventory: inventory})
@@ -32,7 +34,7 @@ func newRemoteDurationCalibrationFixture(t *testing.T) remoteDurationCalibration
 	releaseCatalog, releaseDigest := mustRemoteCalibrationCatalog(t, remoteci.RunInput{Profile: gatecontract.ProfileRelease, Source: gatecontract.SourceSpec{Kind: gatecontract.SourceKindCommit, ObjectFormat: gatecontract.GitObjectFormatSHA1, Commit: &gatecontract.CommitSource{SHA: commit}, SourceTreeSHA: tree}, Inventory: inventory})
 	calibration := gatecontract.DurationCalibration{SchemaVersion: gatecontract.DurationCalibrationSchemaVersion, Commit: commit, Tree: tree, Platform: "linux/amd64", Runner: "sha256:" + strings.Repeat("4", 64), Toolchain: "sha256:" + strings.Repeat("5", 64), CommitEntrypoint: gatecontract.CIEntrypointGitPreCommit, PushEntrypoint: gatecontract.CIEntrypointGitPrePush, ReleaseEntrypoint: gatecontract.CIEntrypointRelease, CommitCatalogDigest: commitDigest, PushCatalogDigest: pushDigest, ReleaseCatalogDigest: releaseDigest, CompletedAt: time.Date(2026, 7, 27, 1, 0, 0, 0, time.UTC)}
 	expected := remoteCalibrationExpectedWorkloads(commitCatalog, pushCatalog, releaseCatalog)
-	return remoteDurationCalibrationFixture{store: store, calibration: calibration, commitCatalog: commitCatalog, pushCatalog: pushCatalog, releaseCatalog: releaseCatalog, expected: expected, inventory: inventory}
+	return remoteDurationCalibrationFixture{store: store, acceptedGeneration: 1, calibration: calibration, commitCatalog: commitCatalog, pushCatalog: pushCatalog, releaseCatalog: releaseCatalog, expected: expected, inventory: inventory}
 }
 
 func mustRemoteCalibrationCatalog(t *testing.T, input remoteci.RunInput) (gatecontract.WorkloadCatalog, string) {
@@ -119,9 +121,6 @@ func assertParsedRemoteRunOptions(t *testing.T, options remoteRunOptions, reques
 	if options.LedgerPath != "/tmp/remote-ci.baseline-state.sqlite" {
 		t.Fatalf("parseRemoteRunOptions() = %#v", options)
 	}
-	if !options.ForceRerun {
-		t.Fatalf("parseRemoteRunOptions() = %#v", options)
-	}
 	if options.RequesterFingerprint.String() != requesterFingerprint {
 		t.Fatalf("parseRemoteRunOptions() = %#v", options)
 	}
@@ -170,14 +169,16 @@ func assertRemoteRunInputAuthority(t *testing.T, input remoteci.RunInput, state 
 		t.Fatalf("resolveRemoteRunInput() = %#v", input)
 	}
 	if !strings.HasPrefix(input.CandidateGateSourceSHA256, "sha256:") ||
-		!strings.HasPrefix(input.CandidateGateToolchainSHA256, "sha256:") ||
-		!input.ReuseBaselineGateCLI {
+		!strings.HasPrefix(input.CandidateGateToolchainSHA256, "sha256:") {
 		t.Fatalf("candidate gate identity = %#v", input)
 	}
 }
 
 func assertRemoteRunBaselineProjection(t *testing.T, input remoteci.RunInput, state remoteci.BaselineState) {
 	t.Helper()
+	if input.AcceptedGeneration != state.Generation {
+		t.Fatalf("run input accepted generation = %d, want accepted baseline generation %d", input.AcceptedGeneration, state.Generation)
+	}
 	if !reflect.DeepEqual(input.OCIProjectCache, state.OCIProjectCache) {
 		t.Fatalf("OCI project cache projection = %#v, want %#v", input.OCIProjectCache, state.OCIProjectCache)
 	}

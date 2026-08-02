@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/godistribution"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
 )
 
@@ -42,9 +44,27 @@ type lockedBaseImage struct {
 	Reference string `json:"reference"`
 }
 
-var runtimeDepsPlatforms = []string{"linux/amd64", "linux/arm64"}
+// runtimeDepsPlatforms 保留官方 runtime artifact 的双 Linux 架构闭包；
+// cicontract.TargetPlatform 只约束远程 CI 的生产执行目标。
+var runtimeDepsPlatforms = []string{cicontract.TargetPlatform, "linux/arm64"}
+
+// validateRemoteGoDistributionLock keeps the embedded distribution lock in the
+// candidate identity validation path without recreating a BuildKit request.
+func validateRemoteGoDistributionLock() error {
+	asset, err := godistribution.RemoteCIAsset()
+	if err != nil {
+		return fmt.Errorf("load remote CI Go distribution: %w", err)
+	}
+	if err := godistribution.ValidateRemoteCIAsset(asset); err != nil {
+		return fmt.Errorf("validate remote CI Go distribution: %w", err)
+	}
+	return nil
+}
 
 func validateToolchainVersions(lock toolchainLock) error {
+	if err := validateRemoteGoDistributionLock(); err != nil {
+		return err
+	}
 	if lock.SchemaVersion != "1" {
 		return fmt.Errorf("toolchain schema version %q is unsupported", lock.SchemaVersion)
 	}

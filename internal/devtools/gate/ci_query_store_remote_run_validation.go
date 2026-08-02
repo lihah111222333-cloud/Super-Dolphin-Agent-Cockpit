@@ -1,7 +1,6 @@
 package gate
 
 import (
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -11,21 +10,33 @@ func validateRemoteCIRunRecord(record RemoteCIRunRecord) error {
 	if err := validateRemoteCIRunIdentity(record); err != nil {
 		return err
 	}
-	workloads, err := validateRemoteCIRunWorkloads(record)
-	if err != nil {
-		return err
-	}
-	shardWorkloads, err := validateRemoteCIRunShards(record)
-	if err != nil {
-		return err
-	}
-	if err := validateRemoteCIPhaseTimings(record.PhaseTimings); err != nil {
+	if err := validateRemoteCIRunShards(record); err != nil {
 		return err
 	}
 	if err := validateRemoteCIRunWorkloadExecutions(record.WorkloadExecutions); err != nil {
 		return err
 	}
-	return validatePassedRemoteCIRunWorkloads(record.Status, workloads, shardWorkloads)
+	if record.Authoritative {
+		if len(record.TimingObservations) == 0 {
+			return errors.New("authoritative remote CI run requires complete timing observations")
+		}
+		if err := ValidateAuthoritativeTimingObservations(record.JobID, record.TimingObservations, record.WorkloadExecutions, record.Shards); err != nil {
+			return fmt.Errorf("remote CI authoritative timing observations: %w", err)
+		}
+	} else {
+		for _, observation := range record.TimingObservations {
+			if err := observation.Validate(); err != nil {
+				return fmt.Errorf("remote CI timing observation: %w", err)
+			}
+			if observation.JobID != record.JobID {
+				return errors.New("remote CI timing observation job binding is invalid")
+			}
+		}
+	}
+	if err := validateRemoteCIRunWarnings(record); err != nil {
+		return err
+	}
+	return nil
 }
 
 func validateRemoteCIRunIdentity(record RemoteCIRunRecord) error {
@@ -45,19 +56,27 @@ func validateRemoteCIRunIdentity(record RemoteCIRunRecord) error {
 }
 
 func validateRemoteCIRunRequiredFields(record RemoteCIRunRecord) error {
+	if record.AcceptedGeneration == 0 {
+		return errors.New("remote CI run accepted baseline generation is required")
+	}
 	for field, value := range map[string]string{
-		"job ID":         record.JobID,
-		"entrypoint":     string(record.Entrypoint),
-		"profile":        string(record.Profile),
-		"plan digest":    record.PlanDigest,
-		"catalog digest": record.CatalogDigest,
-		"source tree":    record.SourceTreeSHA,
-		"runner image":   record.RunnerImage,
-		"status":         string(record.Status),
+		"job ID":                          record.JobID,
+		"entrypoint":                      string(record.Entrypoint),
+		"profile":                         string(record.Profile),
+		"plan digest":                     record.PlanDigest,
+		"catalog digest":                  record.CatalogDigest,
+		"source tree":                     record.SourceTreeSHA,
+		"candidate gate source digest":    record.CandidateGateSourceSHA256,
+		"candidate gate toolchain digest": record.CandidateGateToolchainSHA256,
+		"runner image":                    record.RunnerImage,
+		"status":                          string(record.Status),
 	} {
 		if strings.TrimSpace(value) == "" {
 			return fmt.Errorf("remote CI run %s is required", field)
 		}
+	}
+	if !isPrefixedSHA256Digest(record.CandidateGateSourceSHA256) || !isPrefixedSHA256Digest(record.CandidateGateToolchainSHA256) {
+		return errors.New("remote CI run candidate gate compile identity is invalid")
 	}
 	return nil
 }
@@ -113,37 +132,13 @@ func validateRemoteCIRunStatus(record RemoteCIRunRecord) error {
 	return nil
 }
 
-func isCanonicalBareSHA256(value string) bool {
-	if len(value) != 64 || strings.ToLower(value) != value {
-		return false
-	}
-	_, err := hex.DecodeString(value)
-	return err == nil
-}
-
-func validateRemoteCIRunWorkloads(record RemoteCIRunRecord) (map[GateID]string, error) {
-	seenWorkloads := make(map[GateID]string)
-	for disposition, workloads := range map[string][]GateID{
-		"reused": record.ReusedWorkloads, "cache_miss": record.CacheMisses,
-	} {
-		for _, workloadID := range workloads {
-			if strings.TrimSpace(string(workloadID)) == "" {
-				return nil, errors.New("remote CI run workload ID is required")
-			}
-			if previous, duplicate := seenWorkloads[workloadID]; duplicate {
-				return nil, fmt.Errorf(
-					"remote CI run workload %q is both %s and %s", workloadID, previous, disposition,
-				)
-			}
-			seenWorkloads[workloadID] = disposition
-		}
-	}
+func validateRemoteCIRunWarnings(record RemoteCIRunRecord) error {
 	for _, warning := range record.Warnings {
 		if strings.TrimSpace(warning) == "" {
-			return nil, errors.New("remote CI run warning is empty")
+			return errors.New("remote CI run warning is empty")
 		}
 	}
-	return seenWorkloads, nil
+	return nil
 }
 
 func validateRemoteCIRunWorkloadExecutions(executions []PlanGateExecution) error {
@@ -166,25 +161,25 @@ func validateRemoteCIRunWorkloadExecutions(executions []PlanGateExecution) error
 	return nil
 }
 
-func validateRemoteCIRunShards(record RemoteCIRunRecord) (map[GateID]string, error) {
+func validateRemoteCIRunShards(record RemoteCIRunRecord) error {
 	seenWorkloads := make(map[GateID]string)
 	for _, shard := range record.Shards {
 		if strings.TrimSpace(shard.ShardIdentity) == "" || strings.TrimSpace(shard.ContainerStatus) == "" {
-			return nil, errors.New("remote CI shard identity and status are required")
+			return errors.New("remote CI shard identity and status are required")
 		}
 		if err := validateRemoteCIShardMaterializationTiming(shard); err != nil {
-			return nil, errors.New("remote CI shard materialization timing is invalid")
+			return errors.New("remote CI shard materialization timing is invalid")
 		}
 		shardWorkloads := make(map[GateID]struct{}, len(shard.Workloads))
 		for _, workloadID := range shard.Workloads {
 			if strings.TrimSpace(string(workloadID)) == "" {
-				return nil, errors.New("remote CI shard workload ID is required")
+				return errors.New("remote CI shard workload ID is required")
 			}
 			if _, duplicate := shardWorkloads[workloadID]; duplicate {
-				return nil, fmt.Errorf("remote CI shard workload %q is duplicated", workloadID)
+				return fmt.Errorf("remote CI shard workload %q is duplicated", workloadID)
 			}
 			if previousShard, duplicate := seenWorkloads[workloadID]; duplicate {
-				return nil, fmt.Errorf(
+				return fmt.Errorf(
 					"remote CI shard workload %q is duplicated across shards %q and %q",
 					workloadID, previousShard, shard.ShardIdentity,
 				)
@@ -193,7 +188,7 @@ func validateRemoteCIRunShards(record RemoteCIRunRecord) (map[GateID]string, err
 			seenWorkloads[workloadID] = shard.ShardIdentity
 		}
 	}
-	return seenWorkloads, nil
+	return nil
 }
 
 func validateRemoteCIShardMaterializationTiming(shard RemoteCIShardRecord) error {
@@ -213,6 +208,9 @@ func validateRemoteCIShardMaterializationTiming(shard RemoteCIShardRecord) error
 	if remoteCIShardTerminalStatus(shard.ContainerStatus) && timing.Measurement != MaterializationMeasurementMeasured {
 		return errors.New("terminal remote CI shard materialization timing evidence is required")
 	}
+	if remoteCIShardTerminalStatus(shard.ContainerStatus) && timing.CandidateCompile.MaterializeMS <= 0 {
+		return errors.New("terminal remote CI shard candidate compile timing evidence is required")
+	}
 	return nil
 }
 
@@ -223,29 +221,4 @@ func remoteCIShardTerminalStatus(status string) bool {
 	default:
 		return false
 	}
-}
-
-func validatePassedRemoteCIRunWorkloads(
-	status ResultStatus,
-	workloads map[GateID]string,
-	shardWorkloads map[GateID]string,
-) error {
-	if status != ResultStatusPassed {
-		return nil
-	}
-	for workloadID, disposition := range workloads {
-		_, executed := shardWorkloads[workloadID]
-		if disposition == "cache_miss" && !executed {
-			return fmt.Errorf("passed remote CI cache miss %q is absent from all shards", workloadID)
-		}
-		if disposition == "reused" && executed {
-			return fmt.Errorf("passed remote CI reused workload %q was executed in a shard", workloadID)
-		}
-	}
-	for workloadID := range shardWorkloads {
-		if workloads[workloadID] != "cache_miss" {
-			return fmt.Errorf("passed remote CI shard workload %q is not a declared cache miss", workloadID)
-		}
-	}
-	return nil
 }

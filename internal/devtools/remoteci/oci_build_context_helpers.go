@@ -4,30 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"path"
-	"sort"
 	"strings"
 )
-
-func runtimeDepsBuildArguments(lock toolchainLock) ([]BuildArgument, error) {
-	arguments := make([]BuildArgument, 0, 6)
-	for _, image := range lock.BaseImages {
-		if image.Name == "GO_IMAGE" || image.Name == "NODE_IMAGE" {
-			arguments = append(arguments, BuildArgument{Name: image.Name, Value: image.Reference})
-		}
-	}
-	if len(arguments) != 2 {
-		return nil, errors.New("runtime dependencies require locked GO_IMAGE and NODE_IMAGE")
-	}
-	for _, artifact := range lock.RuntimeTools.SqruffArtifacts {
-		architecture := "AMD64"
-		if artifact.Platform == "linux/arm64" {
-			architecture = "ARM64"
-		}
-		arguments = append(arguments, BuildArgument{Name: "SQRUFF_ARCHIVE_SHA256_" + architecture, Value: artifact.SHA256}, BuildArgument{Name: "SQRUFF_ARCHIVE_URL_" + architecture, Value: artifact.URL})
-	}
-	sort.Slice(arguments, func(left, right int) bool { return arguments[left].Name < arguments[right].Name })
-	return arguments, nil
-}
 
 func validateAcceptedCandidateDigests(request CandidateRequest) error {
 	for _, digest := range [][2]string{{"accepted input digest", request.AcceptedInputDigest}, {"accepted policy digest", request.AcceptedPolicyDigest}, {"accepted image digest", request.AcceptedImageDigest}, {"accepted config digest", request.AcceptedConfigDigest}} {

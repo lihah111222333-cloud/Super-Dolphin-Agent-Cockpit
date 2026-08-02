@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
 )
 
@@ -131,9 +132,9 @@ func resolveRuntimeDependencyBuildFromLock(
 	return digest, buildArgs, nil
 }
 
-// validRuntimePlatform 判断 runtime seed 的目标平台是否受锁文件支持。
+// validRuntimePlatform 判断 runtime seed 是否保留官方 artifact 支持的平台。
 func validRuntimePlatform(platform string) bool {
-	return platform == "linux/amd64" || platform == "linux/arm64"
+	return platform == cicontract.TargetPlatform || platform == "linux/arm64"
 }
 
 // runtimeTreeByPath 将精确 Git tree 条目索引为路径到字节内容。
@@ -322,7 +323,7 @@ func runtimeDependencyBuildArgs(lock runtimeToolchainLock, platform string) ([]s
 func runtimeBaseImages(lock runtimeToolchainLock) (map[string]string, error) {
 	images := make(map[string]string, len(lock.BaseImages))
 	for _, image := range lock.BaseImages {
-		if strings.TrimSpace(image.Name) == "" || !strings.Contains(image.Reference, "@sha256:") {
+		if strings.TrimSpace(image.Name) == "" || !validRemoteImageReference(image.Reference) {
 			return nil, errors.New("runtime toolchain base image is invalid")
 		}
 		images[image.Name] = image.Reference

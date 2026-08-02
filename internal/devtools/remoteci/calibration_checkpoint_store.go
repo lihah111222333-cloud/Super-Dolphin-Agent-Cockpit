@@ -7,7 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/shardresource"
 	_ "modernc.org/sqlite"
 )
 
@@ -29,16 +31,20 @@ type calibrationScenarioState struct {
 }
 
 type calibrationCheckpointInput struct {
-	Tree                 string                         `json:"tree"`
-	Source               gatecontract.SourceSpec        `json:"source"`
-	Profile              gatecontract.Profile           `json:"profile"`
-	Entrypoint           gatecontract.CIEntrypointID    `json:"entrypoint"`
-	Platform             string                         `json:"platform"`
-	ToolchainDigest      string                         `json:"toolchain_digest"`
-	Inventory            gatecontract.WorkloadInventory `json:"inventory"`
-	Calibration          bool                           `json:"calibration"`
-	RunnerIdentityDigest string                         `json:"runner_identity_digest"`
-	RunnerImage          string                         `json:"runner_image"`
+	AcceptedGeneration           uint64                         `json:"accepted_generation"`
+	Tree                         string                         `json:"tree"`
+	Source                       gatecontract.SourceSpec        `json:"source"`
+	Profile                      gatecontract.Profile           `json:"profile"`
+	Entrypoint                   gatecontract.CIEntrypointID    `json:"entrypoint"`
+	Platform                     string                         `json:"platform"`
+	ToolchainDigest              string                         `json:"toolchain_digest"`
+	CandidateGateSourceSHA256    string                         `json:"candidate_gate_source_sha256"`
+	CandidateGateToolchainSHA256 string                         `json:"candidate_gate_toolchain_sha256"`
+	Inventory                    gatecontract.WorkloadInventory `json:"inventory"`
+	Calibration                  bool                           `json:"calibration"`
+	RunnerIdentityDigest         string                         `json:"runner_identity_digest"`
+	RunnerImage                  string                         `json:"runner_image"`
+	CalibrationResource          shardresource.Class            `json:"calibration_resource"`
 }
 
 func (input *calibrationCheckpointInput) Validate() error {
@@ -49,16 +55,19 @@ func (input *calibrationCheckpointInput) Validate() error {
 }
 
 type calibrationCheckpointResult struct {
-	JobID           string                      `json:"job_id"`
-	PlanDigest      string                      `json:"plan_digest"`
-	CatalogDigest   string                      `json:"catalog_digest"`
-	SourceTreeSHA   string                      `json:"source_tree_sha"`
-	Entrypoint      gatecontract.CIEntrypointID `json:"entrypoint"`
-	Profile         gatecontract.Profile        `json:"profile"`
-	Status          gatecontract.ResultStatus   `json:"status"`
-	Authoritative   bool                        `json:"authoritative"`
-	CleanupComplete bool                        `json:"cleanup_complete"`
-	CompletedAt     time.Time                   `json:"completed_at"`
+	AcceptedGeneration           uint64                      `json:"accepted_generation"`
+	JobID                        string                      `json:"job_id"`
+	PlanDigest                   string                      `json:"plan_digest"`
+	CatalogDigest                string                      `json:"catalog_digest"`
+	SourceTreeSHA                string                      `json:"source_tree_sha"`
+	CandidateGateSourceSHA256    string                      `json:"candidate_gate_source_sha256"`
+	CandidateGateToolchainSHA256 string                      `json:"candidate_gate_toolchain_sha256"`
+	Entrypoint                   gatecontract.CIEntrypointID `json:"entrypoint"`
+	Profile                      gatecontract.Profile        `json:"profile"`
+	Status                       gatecontract.ResultStatus   `json:"status"`
+	Authoritative                bool                        `json:"authoritative"`
+	CleanupComplete              bool                        `json:"cleanup_complete"`
+	CompletedAt                  time.Time                   `json:"completed_at"`
 }
 
 func (result *calibrationCheckpointResult) Validate() error {
@@ -79,18 +88,20 @@ func (document *calibrationCheckpointDocument) Validate() error {
 
 // CalibrationCheckpoint 将校准场景进度持久化在 duration ledger 的 SQLite 权威库中。
 type CalibrationCheckpoint struct {
-	store    *gatecontract.DurationLedgerStore
-	identity string
+	store              *gatecontract.DurationLedgerStore
+	identity           string
+	acceptedGeneration uint64
 }
 
 // NewCalibrationCheckpoint 打开 duration ledger SQLite 权威库。
-func NewCalibrationCheckpoint(store *gatecontract.DurationLedgerStore, identity string) (*CalibrationCheckpoint, error) {
-	if store == nil || strings.TrimSpace(identity) == "" {
-		return nil, errors.New("calibration checkpoint duration ledger store and identity are required")
+func NewCalibrationCheckpoint(store *gatecontract.DurationLedgerStore, identity string, acceptedGeneration uint64) (*CalibrationCheckpoint, error) {
+	if store == nil || strings.TrimSpace(identity) == "" || acceptedGeneration == 0 {
+		return nil, errors.New("calibration checkpoint duration ledger store, identity, and accepted generation are required")
 	}
 	checkpoint := &CalibrationCheckpoint{
-		store:    store,
-		identity: identity,
+		store:              store,
+		identity:           identity,
+		acceptedGeneration: acceptedGeneration,
 	}
 	if err := checkpoint.ensure(); err != nil {
 		return nil, err
@@ -99,9 +110,12 @@ func NewCalibrationCheckpoint(store *gatecontract.DurationLedgerStore, identity 
 }
 
 func (checkpoint *CalibrationCheckpoint) ensure() error {
-	_, _, err := checkpoint.store.LoadCalibrationCheckpoint(checkpoint.identity)
+	record, found, err := checkpoint.store.LoadCalibrationCheckpoint(checkpoint.identity)
 	if err != nil {
 		return err
+	}
+	if found && record.AcceptedGeneration != checkpoint.acceptedGeneration {
+		return errors.New("calibration checkpoint accepted generation does not match authority")
 	}
 	return nil
 }
@@ -139,6 +153,9 @@ func (checkpoint *CalibrationCheckpoint) Observe(scenario string, input RunInput
 	}
 	if !input.Calibration {
 		return errors.New("calibration checkpoint input is not a calibration run")
+	}
+	if input.AcceptedGeneration != checkpoint.acceptedGeneration || result.AcceptedGeneration != checkpoint.acceptedGeneration {
+		return errors.New("calibration checkpoint execution accepted generation does not match authority")
 	}
 	if completed {
 		if err := validateCompletedCalibrationCheckpoint(*compactCalibrationCheckpointInput(input), *compactCalibrationCheckpointResult(result)); err != nil {
@@ -181,6 +198,9 @@ func (checkpoint *CalibrationCheckpoint) loadDocument() (calibrationCheckpointDo
 	if !found {
 		return document, nil
 	}
+	if record.AcceptedGeneration != checkpoint.acceptedGeneration {
+		return calibrationCheckpointDocument{}, errors.New("calibration checkpoint accepted generation does not match authority")
+	}
 	document.SchemaVersion = record.SchemaVersion
 	for _, persisted := range record.Scenarios {
 		state, err := decodeCalibrationCheckpointState(boolToInt(persisted.Started), boolToInt(persisted.Completed), persisted.InputJSON, persisted.ResultJSON)
@@ -217,25 +237,6 @@ func decodeCalibrationCheckpointState(started, completed int, inputJSON, resultJ
 	return state, nil
 }
 
-func (checkpoint *CalibrationCheckpoint) persist(document calibrationCheckpointDocument) error {
-	if document.Identity != checkpoint.identity {
-		return errors.New("calibration checkpoint identity does not match authority")
-	}
-	if err := document.Validate(); err != nil {
-		return err
-	}
-	record := gatecontract.CalibrationCheckpointRecord{Identity: document.Identity, SchemaVersion: document.SchemaVersion, Scenarios: make([]gatecontract.CalibrationCheckpointScenarioRecord, 0, len(document.Scenarios))}
-	for scenario, state := range document.Scenarios {
-		inputJSON, resultJSON, err := encodeCalibrationCheckpointState(state)
-		if err != nil {
-			return fmt.Errorf("encode calibration checkpoint scenario %q: %w", scenario, err)
-		}
-		record.Scenarios = append(record.Scenarios, gatecontract.CalibrationCheckpointScenarioRecord{Scenario: scenario, Started: state.Started, Completed: state.Completed, InputJSON: inputJSON, ResultJSON: resultJSON})
-	}
-	_, err := checkpoint.store.CreateCalibrationCheckpointIfAbsent(record)
-	return err
-}
-
 func (checkpoint *CalibrationCheckpoint) compareAndSwapScenario(scenario string, expected *calibrationScenarioState, next calibrationScenarioState) error {
 	nextRecord, err := calibrationCheckpointScenarioRecord(scenario, next)
 	if err != nil {
@@ -249,7 +250,7 @@ func (checkpoint *CalibrationCheckpoint) compareAndSwapScenario(scenario string,
 		}
 		expectedRecord = &record
 	}
-	return checkpoint.store.CompareAndSwapCalibrationCheckpointScenario(checkpoint.identity, calibrationCheckpointSchemaVersion, expectedRecord, nextRecord)
+	return checkpoint.store.CompareAndSwapCalibrationCheckpointScenario(checkpoint.identity, calibrationCheckpointSchemaVersion, checkpoint.acceptedGeneration, expectedRecord, nextRecord)
 }
 
 func calibrationCheckpointScenarioRecord(scenario string, state calibrationScenarioState) (gatecontract.CalibrationCheckpointScenarioRecord, error) {
@@ -288,19 +289,19 @@ func (checkpoint *CalibrationCheckpoint) Remove() error {
 }
 
 func compactCalibrationCheckpointInput(input RunInput) *calibrationCheckpointInput {
-	return &calibrationCheckpointInput{Tree: input.Tree, Source: input.Source, Profile: input.Profile, Entrypoint: input.Entrypoint, Platform: input.Platform, ToolchainDigest: input.ToolchainDigest, Inventory: input.Inventory, Calibration: input.Calibration, RunnerIdentityDigest: input.RunnerIdentityDigest, RunnerImage: input.RunnerImage}
+	return &calibrationCheckpointInput{AcceptedGeneration: input.AcceptedGeneration, Tree: input.Tree, Source: input.Source, Profile: input.Profile, Entrypoint: input.Entrypoint, Platform: input.Platform, ToolchainDigest: input.ToolchainDigest, CandidateGateSourceSHA256: input.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: input.CandidateGateToolchainSHA256, Inventory: input.Inventory, Calibration: input.Calibration, RunnerIdentityDigest: input.RunnerIdentityDigest, RunnerImage: input.RunnerImage, CalibrationResource: input.CalibrationResource}
 }
 
 func (input calibrationCheckpointInput) expand() RunInput {
-	return RunInput{Tree: input.Tree, Source: input.Source, Profile: input.Profile, Entrypoint: input.Entrypoint, Platform: input.Platform, ToolchainDigest: input.ToolchainDigest, Inventory: input.Inventory, Calibration: input.Calibration, RunnerIdentityDigest: input.RunnerIdentityDigest, RunnerImage: input.RunnerImage}
+	return RunInput{AcceptedGeneration: input.AcceptedGeneration, Tree: input.Tree, Source: input.Source, Profile: input.Profile, Entrypoint: input.Entrypoint, Platform: input.Platform, ToolchainDigest: input.ToolchainDigest, CandidateGateSourceSHA256: input.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: input.CandidateGateToolchainSHA256, Inventory: input.Inventory, Calibration: input.Calibration, RunnerIdentityDigest: input.RunnerIdentityDigest, RunnerImage: input.RunnerImage, CalibrationResource: input.CalibrationResource}
 }
 
 func compactCalibrationCheckpointResult(result RunResult) *calibrationCheckpointResult {
-	return &calibrationCheckpointResult{JobID: result.JobID, PlanDigest: result.PlanDigest, CatalogDigest: result.CatalogDigest, SourceTreeSHA: result.SourceTreeSHA, Entrypoint: result.Entrypoint, Profile: result.Profile, Status: result.Status, Authoritative: result.Authoritative, CleanupComplete: result.CleanupComplete, CompletedAt: result.CompletedAt}
+	return &calibrationCheckpointResult{AcceptedGeneration: result.AcceptedGeneration, JobID: result.JobID, PlanDigest: result.PlanDigest, CatalogDigest: result.CatalogDigest, SourceTreeSHA: result.SourceTreeSHA, CandidateGateSourceSHA256: result.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: result.CandidateGateToolchainSHA256, Entrypoint: result.Entrypoint, Profile: result.Profile, Status: result.Status, Authoritative: result.Authoritative, CleanupComplete: result.CleanupComplete, CompletedAt: result.CompletedAt}
 }
 
 func (result calibrationCheckpointResult) expand() RunResult {
-	return RunResult{JobID: result.JobID, PlanDigest: result.PlanDigest, CatalogDigest: result.CatalogDigest, SourceTreeSHA: result.SourceTreeSHA, Entrypoint: result.Entrypoint, Profile: result.Profile, Status: result.Status, Authoritative: result.Authoritative, CleanupComplete: result.CleanupComplete, CompletedAt: result.CompletedAt}
+	return RunResult{AcceptedGeneration: result.AcceptedGeneration, JobID: result.JobID, PlanDigest: result.PlanDigest, CatalogDigest: result.CatalogDigest, SourceTreeSHA: result.SourceTreeSHA, CandidateGateSourceSHA256: result.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: result.CandidateGateToolchainSHA256, Entrypoint: result.Entrypoint, Profile: result.Profile, Status: result.Status, Authoritative: result.Authoritative, CleanupComplete: result.CleanupComplete, CompletedAt: result.CompletedAt}
 }
 
 func validateCalibrationCheckpointDocument(document calibrationCheckpointDocument) error {
@@ -325,13 +326,13 @@ func validateCalibrationCheckpointDocument(document calibrationCheckpointDocumen
 }
 
 func validateCompletedCalibrationCheckpoint(input calibrationCheckpointInput, result calibrationCheckpointResult) error {
-	if !input.Calibration || strings.TrimSpace(input.Tree) == "" || strings.TrimSpace(input.RunnerIdentityDigest) == "" || strings.TrimSpace(input.RunnerImage) == "" {
+	if input.AcceptedGeneration == 0 || !input.Calibration || strings.TrimSpace(input.Tree) == "" || strings.TrimSpace(input.RunnerIdentityDigest) == "" || strings.TrimSpace(input.RunnerImage) == "" || strings.TrimSpace(input.CandidateGateSourceSHA256) == "" || strings.TrimSpace(input.CandidateGateToolchainSHA256) == "" || cicontract.ValidateTargetPlatform(input.Platform) != nil || cicontract.ValidateCalibrationResources(input.CalibrationResource.ID, input.CalibrationResource.VCPU, input.CalibrationResource.MemoryGiB) != nil {
 		return errors.New("completed calibration checkpoint input identity is incomplete")
 	}
-	if strings.TrimSpace(result.JobID) == "" || strings.TrimSpace(result.PlanDigest) == "" || strings.TrimSpace(result.CatalogDigest) == "" || strings.TrimSpace(result.SourceTreeSHA) == "" || result.Entrypoint == "" || result.Profile == "" || result.Status != gatecontract.ResultStatusPassed || !result.Authoritative || !result.CleanupComplete || result.CompletedAt.IsZero() {
+	if result.AcceptedGeneration == 0 || strings.TrimSpace(result.JobID) == "" || strings.TrimSpace(result.PlanDigest) == "" || strings.TrimSpace(result.CatalogDigest) == "" || strings.TrimSpace(result.SourceTreeSHA) == "" || strings.TrimSpace(result.CandidateGateSourceSHA256) == "" || strings.TrimSpace(result.CandidateGateToolchainSHA256) == "" || result.Entrypoint == "" || result.Profile == "" || result.Status != gatecontract.ResultStatusPassed || !result.Authoritative || !result.CleanupComplete || result.CompletedAt.IsZero() {
 		return errors.New("completed calibration checkpoint result identity is incomplete")
 	}
-	if result.SourceTreeSHA != input.Tree || result.Entrypoint != input.Entrypoint || result.Profile != input.Profile {
+	if result.AcceptedGeneration != input.AcceptedGeneration || result.SourceTreeSHA != input.Tree || result.CandidateGateSourceSHA256 != input.CandidateGateSourceSHA256 || result.CandidateGateToolchainSHA256 != input.CandidateGateToolchainSHA256 || result.Entrypoint != input.Entrypoint || result.Profile != input.Profile {
 		return errors.New("completed calibration checkpoint result does not match its input")
 	}
 	return nil

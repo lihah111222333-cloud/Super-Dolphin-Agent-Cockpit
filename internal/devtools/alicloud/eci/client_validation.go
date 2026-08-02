@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
 // validateConfig 在启动 CLI 前阻断不完整基础设施配置和不可表示的资源值。
@@ -53,8 +55,8 @@ func validateResources(cpu float64, memoryGiB float64) error {
 
 // validateCreateRequest 按容器、卷、挂载和标签阶段校验 ECI 分片请求。
 func validateCreateRequest(request CreateRequest) error {
-	if strings.TrimSpace(request.ImageCacheID) == "" {
-		return errors.New("ECI image cache ID is required; container groups must pin an explicitly Ready image cache")
+	if strings.TrimSpace(request.ImageCacheSnapshotID) == "" {
+		return errors.New("ECI image cache snapshot ID is required; container groups must pin an explicitly Ready image snapshot")
 	}
 	for _, check := range []func(CreateRequest) error{
 		validateContainerNames, validateRequestImages, validateRequestContainers, validateRequestVolumes,
@@ -73,6 +75,9 @@ func validateRequestImages(request CreateRequest) error {
 	for index, image := range []string{request.MainImage, request.InitImage} {
 		if !imageDigestPattern.MatchString(image) {
 			return fmt.Errorf("ECI image %d must be a repository@sha256:<64 lowercase hex> digest reference", index+1)
+		}
+		if err := cicontract.ValidateNonACRRegistryHost(image); err != nil {
+			return fmt.Errorf("ECI image %d: %w", index+1, err)
 		}
 	}
 	return nil

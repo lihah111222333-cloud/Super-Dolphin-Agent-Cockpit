@@ -827,6 +827,7 @@ func commandNarrowAllowPolicies(patterns backendBoundaryPatterns) []BoundaryImpo
 	policies = append(policies, boundaryPolicies(owner, patterns.gateCLI, []string{
 		"internal/devtools/alicloud/eci",
 		"internal/devtools/alicloud/oss",
+		"internal/devtools/cicontract",
 		"internal/devtools/codemapindex",
 		"internal/devtools/coordinatoradmission",
 		"internal/devtools/frontendcodesizetrusted",

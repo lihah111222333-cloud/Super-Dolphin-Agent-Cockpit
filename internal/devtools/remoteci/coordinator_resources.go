@@ -1,6 +1,7 @@
 package remoteci
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/eci"
@@ -16,6 +17,20 @@ func remoteExecutionShardResources(
 	shards []gate.ContainerShard,
 	input RunInput,
 ) ([]eci.Resources, error) {
+	if input.Calibration {
+		class, err := policy.ResolveCalibrationClass()
+		if err != nil {
+			return nil, fmt.Errorf("resolve remote CI calibration resources: %w", err)
+		}
+		if input.CalibrationResource != class {
+			return nil, errors.New("remote CI calibration resource identity drifted")
+		}
+		resources := make([]eci.Resources, len(shards))
+		for index := range resources {
+			resources[index] = eci.Resources{CPU: class.VCPU, MemoryGiB: class.MemoryGiB}
+		}
+		return resources, nil
+	}
 	workloads := make(map[string]gate.Workload, len(catalog.Workloads))
 	for _, workload := range catalog.Workloads {
 		if _, duplicate := workloads[workload.ID]; duplicate {
@@ -50,4 +65,20 @@ func remoteExecutionShardResources(
 		resources[index] = eci.Resources{CPU: class.VCPU, MemoryGiB: class.MemoryGiB}
 	}
 	return resources, nil
+}
+
+func bindRemoteShardResources(results []ShardResult, resources []eci.Resources, requests []ShardRequest) error {
+	if len(results) != len(resources) || len(results) != len(requests) {
+		return errors.New("remote CI shard resource receipts are incomplete")
+	}
+	for index := range results {
+		if err := validateShardResourceBinding(resources[index], requests[index]); err != nil {
+			return fmt.Errorf("remote CI shard %d resource receipt: %w", index, err)
+		}
+		results[index].Resources = resources[index]
+		if requests[index].CalibrationResource != nil {
+			results[index].ResourceClass = requests[index].CalibrationResource.ID
+		}
+	}
+	return nil
 }

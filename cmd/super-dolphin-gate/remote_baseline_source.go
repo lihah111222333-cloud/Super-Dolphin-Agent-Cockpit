@@ -42,9 +42,9 @@ func runRemotePreCommitHook(args []string, stdout io.Writer) error {
 	}
 	options.Scenario = "commit"
 	options.Entrypoint = string(gatecontract.CIEntrypointGitPreCommit)
-	result, _, runErr := executeRemoteRun(options)
+	result, input, runErr := executeRemoteRun(options)
 	if runErr != nil {
-		return emitRemoteRunResult(stdout, result, runErr)
+		return emitRemoteRunResult(stdout, input.LedgerStore, result, runErr)
 	}
 	if err := validateAuthoritativeRemoteHookResult(
 		result,
@@ -57,7 +57,7 @@ func runRemotePreCommitHook(args []string, stdout io.Writer) error {
 	); err != nil {
 		return infrastructureError("validate remote pre-commit result: %v", err)
 	}
-	return emitRemoteRunResult(stdout, result, nil)
+	return emitRemoteRunResult(stdout, input.LedgerStore, result, nil)
 }
 
 // runRemotePrePushHook 为每个规范化 ref update 运行并验证独立远程门禁。
@@ -96,9 +96,9 @@ func runRemotePrePushRequest(options remoteRunOptions, request gatehook.Request,
 	if err != nil {
 		return protocolError("remote pre-push request %d: %v", index+1, err)
 	}
-	result, _, runErr := executeRemoteRun(runOptions)
+	result, input, runErr := executeRemoteRun(runOptions)
 	if runErr != nil {
-		return emitRemoteRunResult(stdout, result, fmt.Errorf("ref update %d: %w", index+1, runErr))
+		return emitRemoteRunResult(stdout, input.LedgerStore, result, fmt.Errorf("ref update %d: %w", index+1, runErr))
 	}
 	if err := validateAuthoritativeRemoteHookResult(
 		result,
@@ -111,7 +111,7 @@ func runRemotePrePushRequest(options remoteRunOptions, request gatehook.Request,
 	); err != nil {
 		return infrastructureError("validate remote pre-push result %d: %v", index+1, err)
 	}
-	return emitRemoteRunResult(stdout, result, nil)
+	return emitRemoteRunResult(stdout, input.LedgerStore, result, nil)
 }
 
 // validateRemotePreCommitOptions 拒绝 pre-commit 不拥有的远程运行参数。
@@ -279,27 +279,6 @@ func validateAuthoritativeRemoteHookResult(
 		return errors.New("remote hook result is incomplete or bound to a different invocation")
 	}
 	return nil
-}
-
-// loadRemoteBaselineStateForRefresh 只从 SQLite 读取已接受的 OCI 基线。
-func loadRemoteBaselineStateForRefresh(ledgerPath string) (remoteci.BaselineState, error) {
-	databasePath := remoteBaselineDatabasePath(ledgerPath)
-	stored, err := loadStoredRemoteBaselineState(databasePath)
-	if err == nil {
-		return stored.state, nil
-	}
-	if !errors.Is(err, errRemoteBaselineStateNotFound) && !errors.Is(err, os.ErrNotExist) {
-		return remoteci.BaselineState{}, err
-	}
-	return remoteci.BaselineState{}, nil
-}
-
-// nextRemoteBaselineGeneration advances only the accepted OCI state generation.
-func nextRemoteBaselineGeneration(accepted remoteci.BaselineState) (uint64, error) {
-	if accepted.Generation == ^uint64(0) {
-		return 0, errors.New("remote baseline generation is exhausted")
-	}
-	return accepted.Generation + 1, nil
 }
 
 // remoteGitOutput 在指定仓库执行只读 Git 查询并保留可诊断错误。

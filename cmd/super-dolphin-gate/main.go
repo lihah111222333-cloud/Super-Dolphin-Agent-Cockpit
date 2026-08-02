@@ -217,6 +217,10 @@ func dispatchPrimaryCLI(args []string, stdout io.Writer) (bool, error) {
 		return true, runRemoteMaterialize(args[1:], stdout)
 	case "_remote-build-oci-baseline":
 		return true, runRemoteBuildOCIBaseline(args[1:], stdout)
+	case "_remote-baseline-refresh-worker":
+		return true, runRemoteBaselineRefresh(args[1:], stdout)
+	case "_remote-baseline-cleanup-worker":
+		return true, runRemoteBaselineCleanup(args[1:], stdout)
 	default:
 		return false, nil
 	}

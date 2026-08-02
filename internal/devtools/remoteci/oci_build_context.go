@@ -2,6 +2,7 @@ package remoteci
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
 )
 
@@ -23,35 +25,9 @@ const (
 	sourceDateEpochArgument         = "SOURCE_DATE_EPOCH"
 )
 
-// BuildArgument 表示由工具链锁生成的确定性远程 OCI 参数。
-type BuildArgument struct {
+type buildArgument struct {
 	Name  string
 	Value string
-}
-
-// OCIBuildContext 是远程 OCI worker 的确定性、无凭据构建上下文。
-type OCIBuildContext struct {
-	SourceTreeSHA               string
-	PolicyDigest                string
-	ImageSchemaVersion          string
-	ContextTar                  []byte
-	ContextDigest               string
-	InputManifestDigest         string
-	InputDigest                 string
-	ToolchainDigest             string
-	DockerfilePath              string
-	DockerfileDigest            string
-	Platform                    string
-	BuildKitVersion             string
-	BuildKitImage               string
-	DockerfileFrontend          string
-	BuildArguments              []BuildArgument
-	RuntimeDepsDockerfilePath   string
-	RuntimeDepsDockerfileDigest string
-	RuntimeDepsInputDigest      string
-	RuntimeDepsBuildArguments   []BuildArgument
-	NetworkPolicy               string
-	CacheNamespace              string
 }
 
 // CandidateRequest 绑定单一 Git tree、已验证输入条目和当前 accepted 镜像。
@@ -89,10 +65,8 @@ type buildInputManifest struct {
 }
 
 type preparedCandidate struct {
-	result           CandidateResult
-	buildRequest     OCIBuildContext
-	sourceEntries    []sourceexport.TreeEntry
-	gateSourceDigest string
+	result        CandidateResult
+	sourceEntries []sourceexport.TreeEntry
 }
 
 type dockerfileStageTracker struct {
@@ -100,24 +74,49 @@ type dockerfileStageTracker struct {
 	aliases map[string]int
 }
 
-// PrepareOCIBuildContext derives the deterministic remote-worker context without
-// selecting or invoking a Docker or BuildKit runtime.
-func PrepareOCIBuildContext(request CandidateRequest) (CandidateResult, OCIBuildContext, error) {
+// PrepareOCISourceSnapshot 从精确 Git tree 的已验证 OCI 构建闭包构造 source
+// snapshot 清单。它只在内存中形成完整闭包，调用者只能传输 delta Archive。
+func PrepareOCISourceSnapshot(request CandidateRequest, sourceToolchainDigest string) (SourceSnapshotContentManifest, TargetSourceBuildClosure, CandidateResult, error) {
 	if err := validateCandidateRequestIdentity(request); err != nil {
-		return CandidateResult{}, OCIBuildContext{}, err
+		return SourceSnapshotContentManifest{}, TargetSourceBuildClosure{}, CandidateResult{}, err
 	}
 	if err := validateAcceptedCandidateDigests(request); err != nil {
-		return CandidateResult{}, OCIBuildContext{}, err
+		return SourceSnapshotContentManifest{}, TargetSourceBuildClosure{}, CandidateResult{}, err
 	}
-	prepared, err := prepareCandidate(request)
+	if err := validateDigest("source snapshot toolchain", sourceToolchainDigest); err != nil {
+		return SourceSnapshotContentManifest{}, TargetSourceBuildClosure{}, CandidateResult{}, err
+	}
+	prepared, err := prepareSourceSnapshotCandidate(request)
 	if err != nil {
-		return CandidateResult{}, OCIBuildContext{}, err
+		return SourceSnapshotContentManifest{}, TargetSourceBuildClosure{}, CandidateResult{}, err
 	}
-	return prepared.result, prepared.buildRequest, nil
+	entries := make([]SourceSnapshotBlob, len(prepared.sourceEntries))
+	files := make([]SourceSnapshotFile, len(prepared.sourceEntries))
+	objectFormat := "sha1"
+	if len(request.SourceTreeSHA) == 64 {
+		objectFormat = "sha256"
+	}
+	for index, entry := range prepared.sourceEntries {
+		file := SourceSnapshotFile{Path: entry.Path, Mode: entry.Mode, BlobOID: entry.Hash, Size: int64(len(entry.Data)), BlobDigest: fmt.Sprintf("sha256:%x", sha256.Sum256(entry.Data))}
+		entries[index] = SourceSnapshotBlob{SourceSnapshotFile: file, Data: append([]byte(nil), entry.Data...)}
+		files[index] = file
+	}
+	closureDigest, err := SourceSnapshotClosureDigest(files)
+	if err != nil {
+		return SourceSnapshotContentManifest{}, TargetSourceBuildClosure{}, CandidateResult{}, fmt.Errorf("derive source snapshot closure: %w", err)
+	}
+	content := SourceSnapshotContentManifest{SchemaVersion: SourceSnapshotContentManifestSchemaVersion, SourceTree: request.SourceTreeSHA, ClosureDigest: closureDigest, ImageInputDigest: prepared.result.InputDigest, PolicyDigest: request.PolicyDigest, ToolchainDigest: sourceToolchainDigest, Platform: request.Platform, ObjectFormat: objectFormat, Files: files}
+	sourceDigest, err := SourceSnapshotSourceDigest(content)
+	if err != nil {
+		return SourceSnapshotContentManifest{}, TargetSourceBuildClosure{}, CandidateResult{}, fmt.Errorf("derive source snapshot manifest: %w", err)
+	}
+	target := TargetSourceBuildClosure{SourceDigest: sourceDigest, TreeOID: request.SourceTreeSHA, ClosureDigest: closureDigest, InputDigest: prepared.result.InputDigest, ToolchainDigest: sourceToolchainDigest, PolicyDigest: request.PolicyDigest, Platform: request.Platform, ObjectFormat: objectFormat, Entries: entries}
+	return content, target, prepared.result, nil
 }
 
-// prepareCandidate 从单一 Git tree 构造远程 OCI worker 所需闭包与上下文。
-func prepareCandidate(request CandidateRequest) (preparedCandidate, error) {
+// prepareSourceSnapshotCandidate derives the exact identity and closure used by
+// the delta-only source-snapshot transfer.
+func prepareSourceSnapshotCandidate(request CandidateRequest) (preparedCandidate, error) {
 	if err := validateCandidateRequestIdentity(request); err != nil {
 		return preparedCandidate{}, err
 	}
@@ -133,11 +132,6 @@ func prepareCandidate(request CandidateRequest) (preparedCandidate, error) {
 	if err != nil {
 		return preparedCandidate{}, err
 	}
-	return prepareCandidateBuildInputs(request, manifest, manifestData, entriesByPath, closure, closureByPath)
-}
-
-// prepareCandidateBuildInputs 解析锁定输入并形成受限的 BuildKit 请求。
-func prepareCandidateBuildInputs(request CandidateRequest, manifest buildInputManifest, manifestData []byte, entriesByPath map[string]sourceexport.TreeEntry, closure []sourceexport.TreeEntry, closureByPath map[string]sourceexport.TreeEntry) (preparedCandidate, error) {
 	lock, lockData, err := loadToolchainLock(entriesByPath, closureByPath, request.Platform)
 	if err != nil {
 		return preparedCandidate{}, err
@@ -146,8 +140,7 @@ func prepareCandidateBuildInputs(request CandidateRequest, manifest buildInputMa
 	if err != nil {
 		return preparedCandidate{}, err
 	}
-	runtimeDepsArguments, err := runtimeDepsBuildArguments(lock)
-	if err != nil {
+	if err := validateRemoteGoDistributionLock(); err != nil {
 		return preparedCandidate{}, err
 	}
 	dockerfile := closureByPath[manifest.Dockerfile].Data
@@ -157,24 +150,22 @@ func prepareCandidateBuildInputs(request CandidateRequest, manifest buildInputMa
 	}
 	runtimeDepsImage := "runtime-deps"
 	if request.AcceptedImageReference != "" {
-		// An accepted OCI image already contains the complete runtime closure.
-		// Rebuilding runtime-deps here would make local cache state authoritative.
 		runtimeDepsImage = baselineCacheImage
 	}
-	arguments := []BuildArgument{{Name: "BASELINE_CACHE_IMAGE", Value: baselineCacheImage}, {Name: "RUNTIME_DEPS_IMAGE", Value: runtimeDepsImage}, {Name: sourceDateEpochArgument, Value: lock.SourceDateEpoch}}
+	arguments := []buildArgument{{Name: "BASELINE_CACHE_IMAGE", Value: baselineCacheImage}, {Name: "RUNTIME_DEPS_IMAGE", Value: runtimeDepsImage}, {Name: sourceDateEpochArgument, Value: lock.SourceDateEpoch}}
 	if err := validateCandidateDockerfile(dockerfile, arguments, closureByPath, entriesByPath); err != nil {
 		return preparedCandidate{}, err
 	}
-	canonicalContext, err := buildCanonicalContext(closure)
+	canonical, err := canonicalContextDigests(closure)
 	if err != nil {
-		return preparedCandidate{}, fmt.Errorf("build canonical candidate context: %w", err)
+		return preparedCandidate{}, fmt.Errorf("derive canonical candidate context identity: %w", err)
 	}
 	gateSourceDigest, err := gateCompileSourceDigest(manifest, closureByPath)
 	if err != nil {
 		return preparedCandidate{}, err
 	}
-	prepared := assemblePreparedCandidate(request, manifest, lock, runtimeDeps, manifestData, lockData, dockerfile, arguments, runtimeDepsArguments, canonicalContext, gateSourceDigest)
-	prepared.sourceEntries, prepared.gateSourceDigest = cloneTreeEntries(closure), gateSourceDigest
+	prepared := assemblePreparedCandidate(request, lock, runtimeDeps, manifestData, lockData, dockerfile, arguments, canonical, gateSourceDigest)
+	prepared.sourceEntries = cloneTreeEntries(closure)
 	return prepared, nil
 }
 
@@ -199,7 +190,7 @@ func gateCompileSourceDigest(manifest buildInputManifest, closure map[string]sou
 	if err != nil {
 		return "", err
 	}
-	gateContext, err := buildCanonicalContext(gateCompileClosure)
+	gateContext, err := canonicalContextDigests(gateCompileClosure)
 	if err != nil {
 		return "", fmt.Errorf("build canonical gate compile context: %w", err)
 	}
@@ -442,6 +433,9 @@ func validateRemoteImageReference(reference string) error {
 	if !found || registry == "" {
 		return nil
 	}
+	if err := cicontract.ValidateNonACRRegistryHost(reference); err != nil {
+		return err
+	}
 	return validateRemoteRegistryHost(registry)
 }
 
@@ -459,7 +453,7 @@ func validateRemoteRegistryHost(registry string) error {
 	return nil
 }
 
-func assemblePreparedCandidate(request CandidateRequest, manifest buildInputManifest, lock toolchainLock, runtimeDeps runtimeDepsLock, manifestData []byte, lockData []byte, dockerfile []byte, arguments []BuildArgument, runtimeDepsArguments []BuildArgument, canonical canonicalContext, gateSourceDigest string) preparedCandidate {
+func assemblePreparedCandidate(request CandidateRequest, lock toolchainLock, runtimeDeps runtimeDepsLock, manifestData []byte, lockData []byte, dockerfile []byte, arguments []buildArgument, canonical canonicalContext, gateSourceDigest string) preparedCandidate {
 	manifestDigest := bytesDigest(manifestData)
 	toolchainDigest := bytesDigest(lockData)
 	dockerfileDigest := bytesDigest(dockerfile)
@@ -476,22 +470,11 @@ func assemblePreparedCandidate(request CandidateRequest, manifest buildInputMani
 	}
 	inputDigest := fieldsDigest(fields...)
 	result := CandidateResult{SourceTreeSHA: request.SourceTreeSHA, InputDigest: inputDigest, ContextDigest: canonical.ContextDigest, InputManifestDigest: manifestDigest, ToolchainDigest: toolchainDigest, DockerfileDigest: dockerfileDigest}
-	buildRequest := OCIBuildContext{
-		SourceTreeSHA: request.SourceTreeSHA, PolicyDigest: request.PolicyDigest, ImageSchemaVersion: request.ImageSchemaVersion,
-		ContextTar: append([]byte(nil), canonical.Tar...), ContextDigest: canonical.ContextDigest,
-		InputManifestDigest: manifestDigest, InputDigest: inputDigest, ToolchainDigest: toolchainDigest,
-		DockerfilePath: manifest.Dockerfile, DockerfileDigest: dockerfileDigest, Platform: request.Platform,
-		BuildKitVersion: lock.BuildKitVersion, BuildKitImage: lock.BuildKitImage, DockerfileFrontend: lock.DockerfileFrontend,
-		BuildArguments:            append([]BuildArgument(nil), arguments...),
-		RuntimeDepsDockerfilePath: "build/gate/runtime-deps.Dockerfile", RuntimeDepsDockerfileDigest: runtimeDeps.Inputs.Dockerfile,
-		RuntimeDepsInputDigest: runtimeDepsInputDigest, RuntimeDepsBuildArguments: runtimeDepsArguments,
-		NetworkPolicy: lock.NetworkPolicy, CacheNamespace: inputDigest,
-	}
-	return preparedCandidate{result: result, buildRequest: buildRequest}
+	return preparedCandidate{result: result}
 }
 
 // validateCandidateDockerfile 绑定锁定参数，并拒绝越界构建能力和未声明输入。
-func validateCandidateDockerfile(data []byte, arguments []BuildArgument, closure map[string]sourceexport.TreeEntry, allEntries map[string]sourceexport.TreeEntry) error {
+func validateCandidateDockerfile(data []byte, arguments []buildArgument, closure map[string]sourceexport.TreeEntry, allEntries map[string]sourceexport.TreeEntry) error {
 	lines, err := logicalDockerfileLines(data)
 	if err != nil {
 		return err
@@ -594,7 +577,7 @@ func rejectForbiddenDockerfileCapabilities(lines []string) error {
 }
 
 // validateDockerfileFrom 要求基础镜像参数默认值和 FROM 引用都来自工具链锁。
-func validateDockerfileFrom(lines []string, arguments []BuildArgument) error {
+func validateDockerfileFrom(lines []string, arguments []buildArgument) error {
 	locked := make(map[string]string, len(arguments))
 	allowed := make(map[string]struct{}, len(arguments))
 	for _, argument := range arguments {

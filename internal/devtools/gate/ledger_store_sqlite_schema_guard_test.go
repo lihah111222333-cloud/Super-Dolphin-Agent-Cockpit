@@ -117,35 +117,6 @@ func sqliteRequiredQueryPlans() []sqliteQueryPlanTest {
 			args:  []any{"linux/amd64", "runner", "toolchain"},
 		},
 		{
-			name:  "pass identity",
-			query: `SELECT workload_id FROM ci_workload_pass_proofs WHERE identity_digest = ?`,
-			index: "sqlite_autoindex_ci_workload_pass_proofs_1",
-			args:  []any{"sha256:identity"},
-		},
-		{
-			name: "fingerprint lookup",
-			query: `SELECT identity_digest FROM ci_workload_fingerprints
-				WHERE workload_id = ? AND input_digest = ? AND environment_digest = ?
-				ORDER BY observed_at_unix_ms DESC`,
-			index: "idx_ci_workload_fingerprint_lookup",
-			args:  []any{"unit", "sha256:input", "sha256:environment"},
-		},
-		{
-			name: "workload identity alias lookup",
-			query: `SELECT identity_digest FROM ci_workload_identity_aliases
-				WHERE workload_id = ? ORDER BY observed_at_unix_ms DESC, identity_digest`,
-			index: "idx_ci_workload_identity_alias_lookup",
-			args:  []any{"unit"},
-		},
-		{
-			name: "fingerprint latest observation",
-			query: `SELECT source_tree_sha FROM ci_workload_fingerprint_observations
-				WHERE identity_digest = ?
-				ORDER BY observed_at_unix_ms DESC, source_tree_sha DESC`,
-			index: "idx_ci_workload_fingerprint_observation_latest",
-			args:  []any{"sha256:identity"},
-		},
-		{
 			name: "catalog observation",
 			query: `SELECT catalog_digest FROM ci_catalog_observations
 				WHERE source_tree_sha = ? AND entrypoint = ?
@@ -162,27 +133,12 @@ func sqliteRequiredQueryPlans() []sqliteQueryPlanTest {
 			args:  []any{"tree", "passed"},
 		},
 		{
-			name: "run workload history",
-			query: `SELECT job_id FROM ci_run_workloads
-				WHERE workload_id = ? AND disposition = ?`,
-			index: "idx_ci_run_workloads_lookup",
-			args:  []any{"unit", "reused"},
-		},
-		{
 			name: "requester run history",
 			query: `SELECT job_id FROM ci_run_requesters
 				WHERE requester_fingerprint = ?
 				ORDER BY started_at_unix_ms DESC, job_id DESC`,
 			index: "idx_ci_run_requesters_lookup",
 			args:  []any{"sha256:requester"},
-		},
-		{
-			name: "remote CI phase hotspots",
-			query: `SELECT job_id, duration_ms FROM ci_run_phase_timings
-				WHERE phase = ?
-				ORDER BY duration_ms DESC, started_at_unix_ms DESC`,
-			index: "idx_ci_run_phase_timings_hotspots",
-			args:  []any{"cache.parent_prepare"},
 		},
 	}
 }
@@ -347,11 +303,10 @@ func assertSQLiteSchemaTableRegistry(t *testing.T, database *sql.DB) {
 		t.Fatal(err)
 	}
 	expected := []string{
-		"ci_catalog_observations", "ci_catalog_workloads", "ci_gate_executions",
-		"ci_query_meta", "ci_remote_baseline_state", "ci_run_phase_timings", "ci_run_requesters", "ci_run_warnings", "ci_run_workloads", "ci_runs", "ci_schema_migrations",
-		"ci_shard_workloads", "ci_shards", "ci_workload_catalogs",
+		"ci_catalog_observations", "ci_catalog_workloads", "ci_check_receipts", "ci_gate_executions",
+		"ci_query_meta", "ci_remote_baseline_refresh_lease", "ci_remote_baseline_state", "ci_remote_refresh_deltas", "ci_run_requesters", "ci_run_warnings", "ci_runs", "ci_schema_migrations",
+		"ci_shard_workloads", "ci_shards", "ci_timing_observations", "ci_workload_catalogs",
 		"ci_workload_executions",
-		"ci_workload_fingerprint_observations", "ci_workload_fingerprints", "ci_workload_identity_aliases", "ci_workload_pass_proofs",
 		"duration_calibrations", "duration_ledger_meta", "duration_samples", "remote_ci_calibration_checkpoint_scenarios", "remote_ci_calibration_checkpoints",
 	}
 	if !slices.Equal(actual, expected) {
