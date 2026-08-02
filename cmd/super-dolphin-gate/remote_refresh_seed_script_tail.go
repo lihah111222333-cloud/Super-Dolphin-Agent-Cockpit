@@ -132,10 +132,10 @@ const remoteBaselineSeedScriptDirectCache = `    direct_layer_count=$BASELINE_DI
     while test "$direct_layer_index" -lt "$direct_layer_count"; do
       direct_layer_number=$((direct_layer_index + 1))
       eval "direct_layer_identity=\${BASELINE_DIRECT_CACHE_LAYER_$direct_layer_number:-}"
-      test -n "$direct_layer_identity"
+      test -n "$direct_layer_identity" || { echo "direct cache layer $direct_layer_number identity is missing" >&2; exit 1; }
       direct_layer_root=/direct-cache-layers/layer-$direct_layer_index/cache-seed/go-build
-      test -d "$direct_layer_root"
-      test -n "$(find "$direct_layer_root" -type f -print -quit)"
+      test -d "$direct_layer_root" || { echo "direct cache layer $direct_layer_number root is missing" >&2; exit 1; }
+      test -n "$(find "$direct_layer_root" -type f -print -quit)" || { echo "direct cache layer $direct_layer_number is empty" >&2; exit 1; }
       go_cache_proxy="$go_cache_proxy --seed $direct_layer_root"
       direct_layer_index=$((direct_layer_index + 1))
     done
