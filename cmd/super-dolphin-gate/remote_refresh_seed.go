@@ -73,6 +73,9 @@ func buildRemoteBaselineSeedRequest(
 		request.DataCacheBucket = anchor.DataCacheBucket
 		request.PreviousDataCachePath = anchor.DataCachePath
 		request.Environment["BASELINE_ANCHOR_MANIFEST_DIGEST"] = anchor.ManifestDigest
+		directLayers := remoteBaselineSeedDirectCacheLayers(accepted)
+		request.DirectCacheLayers = directLayers
+		maps.Copy(request.Environment, remoteBaselineSeedDirectCacheEnvironment(directLayers))
 		deltas := accepted.DeltaRefs()
 		if len(deltas) > remoteBaselineDeltaLimit {
 			return eci.SeedRequest{}, fmt.Errorf("accepted baseline has more than %d Delta layers", remoteBaselineDeltaLimit)
@@ -92,6 +95,37 @@ func buildRemoteBaselineSeedRequest(
 		return eci.SeedRequest{}, err
 	}
 	return request, nil
+}
+
+// remoteBaselineSeedDirectCacheLayers 将已验证直读层完整投影到 seed ECI 请求。
+// accepted 已由调用方验证；顺序必须保留 newest-first，避免 cache proxy 以旧层遮蔽新层。
+func remoteBaselineSeedDirectCacheLayers(accepted remoteci.BaselineState) []eci.DirectCacheLayer {
+	if accepted.DirectCacheRef == nil {
+		return nil
+	}
+	layers := accepted.DirectCacheRef.Layers
+	result := make([]eci.DirectCacheLayer, len(layers))
+	for index, layer := range layers {
+		result[index] = eci.DirectCacheLayer{
+			DataCacheID: layer.DataCacheID, DataCacheBucket: layer.DataCacheBucket, DataCachePath: layer.DataCachePath,
+			SizeGiB: layer.SizeGiB, Generation: layer.Generation, SourceObjectPrefix: layer.SourceObjectPrefix,
+			ManifestDigest: layer.ManifestDigest, TreeSHA256: layer.TreeSHA256, ParentChainSHA256: layer.ParentChainSHA256,
+			RuntimeGoSHA256: layer.RuntimeGoSHA256, RuntimeDepsSHA256: layer.RuntimeDepsSHA256,
+		}
+	}
+	return result
+}
+
+// remoteBaselineSeedDirectCacheEnvironment 为脚本声明有限且顺序敏感的 direct 层身份。
+func remoteBaselineSeedDirectCacheEnvironment(layers []eci.DirectCacheLayer) map[string]string {
+	environment := map[string]string{"BASELINE_DIRECT_CACHE_LAYER_COUNT": strconv.Itoa(len(layers))}
+	for index, layer := range layers {
+		environment[fmt.Sprintf("BASELINE_DIRECT_CACHE_LAYER_%d", index+1)] = strings.Join([]string{
+			layer.DataCacheID, layer.DataCacheBucket, layer.DataCachePath, strconv.FormatUint(layer.Generation, 10),
+			layer.ManifestDigest, layer.TreeSHA256, layer.ParentChainSHA256, layer.RuntimeGoSHA256, layer.RuntimeDepsSHA256,
+		}, "|")
+	}
+	return environment
 }
 
 // remoteBaselineSeedClientToken 将阿里云幂等键绑定到完整、规范化的 seed 请求。

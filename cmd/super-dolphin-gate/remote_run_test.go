@@ -194,13 +194,13 @@ func TestResolveRemoteRunInputUsesExactGitObjects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state.DirectCacheRef = &remoteci.DirectCacheRef{
+	state.DirectCacheRef = &remoteci.DirectCacheRef{Layers: []remoteci.DirectCacheLayerRef{{
 		DataCacheID: "edc-direct1", DataCacheBucket: state.DataCacheBucket,
 		DataCachePath: "/super-dolphin/ci/direct-cache/1", SizeGiB: 20, Generation: state.Generation,
 		SourceObjectPrefix: "baseline-artifacts/1/output/direct-cache/", ManifestDigest: "sha256:" + strings.Repeat("2", 64),
 		TreeSHA256: "sha256:" + strings.Repeat("3", 64), ParentChainSHA256: parentChain,
 		RuntimeGoSHA256: state.RuntimeSeedSHA256, RuntimeDepsSHA256: "sha256:" + strings.Repeat("4", 64),
-	}
+	}}}
 	if state.DataCacheSizeGiB == config.DataCache.MaxSizeGiB {
 		t.Fatal("fixture must prove an accepted prior-capacity Anchor remains runnable during migration")
 	}

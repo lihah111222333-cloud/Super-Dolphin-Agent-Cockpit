@@ -38,7 +38,9 @@ type GateID string
 const (
 	GateIDAIMaintenanceSelfTest    GateID = "ai-maintenance:self-test"
 	GateIDFrontendLint             GateID = "frontend:lint"
+	GateIDFrontendPreflight        GateID = "frontend:preflight"
 	GateIDFrontendTest             GateID = "frontend:test"
+	GateIDFrontendE2E              GateID = "frontend:e2e"
 	GateIDFrontendFullTest         GateID = "frontend:test-full"
 	GateIDFrontendBuild            GateID = "frontend:build"
 	GateIDFrontendEmbedVerify      GateID = "frontend:embed-verify"
@@ -136,11 +138,14 @@ func GateRegistry() []GateSpec {
 	all := allProfiles()
 	localRemotePromotion := []Profile{ProfileLocalFast, ProfileRemoteRequired, ProfilePromotion}
 	localRemotePromotionRelease := []Profile{ProfileLocalFast, ProfileRemoteRequired, ProfilePromotion, ProfileRelease}
+	remotePromotionRelease := []Profile{ProfileRemoteRequired, ProfilePromotion, ProfileRelease}
 	releaseRequired := []Profile{ProfileRelease}
 	registry := []GateSpec{
 		newGateSpec(GateIDAIMaintenanceSelfTest, all, all),
 		newGateSpec(GateIDFrontendLint, all, all),
+		newGateSpec(GateIDFrontendPreflight, remotePromotionRelease, remotePromotionRelease),
 		newGateSpec(GateIDFrontendTest, localRemotePromotion, localRemotePromotion),
+		newGateSpec(GateIDFrontendE2E, releaseRequired, releaseRequired),
 		newGateSpec(GateIDFrontendFullTest, []Profile{ProfileRelease}, []Profile{ProfileRelease}),
 		newGateSpec(GateIDFrontendBuild, all, localRemotePromotionRelease),
 		newGateSpec(GateIDFrontendEmbedVerify, all, localRemotePromotionRelease),
@@ -446,8 +451,7 @@ func ExitCodeOf(err error) ExitCode {
 	if err == nil {
 		return ExitOK
 	}
-	var coded *exitError
-	if errors.As(err, &coded) {
+	if coded, ok := errors.AsType[*exitError](err); ok {
 		return coded.code
 	}
 	return ExitInfrastructure

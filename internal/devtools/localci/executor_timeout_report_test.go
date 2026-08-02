@@ -128,7 +128,7 @@ func TestRunFreshContainerTimeoutShardRejectsNonMissingReportErrors(t *testing.T
 		log  func(*testing.T, FreshContainerRequest) string
 	}{
 		{name: "forged", log: func(t *testing.T, request FreshContainerRequest) string {
-		report := canonicalShardReport(request, []byte(strings.Repeat("forged timeout report\n", 200)))
+			report := canonicalShardReport(request, []byte(strings.Repeat("forged timeout report\n", 200)))
 			report.PlanDigest = digest("f")
 			return string(timestampedPlanReportLog(t, report))
 		}},
@@ -136,7 +136,7 @@ func TestRunFreshContainerTimeoutShardRejectsNonMissingReportErrors(t *testing.T
 			return "2026-07-20T00:00:00Z " + gate.ExecutorPlanReportChunkPrefix + "malformed\n"
 		}},
 		{name: "partial", log: func(t *testing.T, request FreshContainerRequest) string {
-		report := canonicalShardReport(request, []byte(strings.Repeat("partial timeout report\n", 200)))
+			report := canonicalShardReport(request, []byte(strings.Repeat("partial timeout report\n", 200)))
 			report.Gates = report.Gates[:len(report.Gates)-1]
 			return timestampPlanReport(t, report)
 		}},

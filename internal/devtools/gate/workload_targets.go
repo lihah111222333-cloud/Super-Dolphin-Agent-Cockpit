@@ -22,6 +22,7 @@ const (
 	workloadTargetGoTest      = "go-test"
 	workloadTargetGoBenchmark = "go-benchmark"
 	workloadTargetVitest      = "vitest-file"
+	workloadTargetPlaywright  = "playwright-spec"
 )
 
 const (
@@ -47,6 +48,7 @@ const (
 	WorkloadTargetGoTest      WorkloadTargetKind = workloadTargetGoTest
 	WorkloadTargetGoBenchmark WorkloadTargetKind = workloadTargetGoBenchmark
 	WorkloadTargetVitest      WorkloadTargetKind = workloadTargetVitest
+	WorkloadTargetPlaywright  WorkloadTargetKind = workloadTargetPlaywright
 )
 
 // GoTestTarget 将一个顶层 Go 测试绑定到其精确包。
@@ -119,6 +121,8 @@ func validateWorkloadTarget(gateID GateID, targetKind string, target string) err
 		return validateGoBenchmarkWorkloadTarget(gateID, target)
 	case workloadTargetVitest:
 		return validateVitestWorkloadTarget(gateID, target)
+	case workloadTargetPlaywright:
+		return validatePlaywrightWorkloadTarget(gateID, target)
 	default:
 		return fmt.Errorf("workload target kind %q is unsupported", targetKind)
 	}
@@ -223,6 +227,14 @@ func validateVitestWorkloadTarget(gateID GateID, target string) error {
 		return fmt.Errorf("gate %q does not accept Vitest workloads", gateID)
 	}
 	return validateVitestTarget(target)
+}
+
+// validatePlaywrightWorkloadTarget 将远程 E2E 限定为已登记的独立 spec。
+func validatePlaywrightWorkloadTarget(gateID GateID, target string) error {
+	if gateID != GateIDFrontendE2E || !isPlaywrightE2ESpec(target) {
+		return fmt.Errorf("gate %q has an invalid Playwright workload", gateID)
+	}
+	return nil
 }
 
 // NewGoTestWorkload 构造绑定精确包、顶层测试和执行语义的原子 workload。
@@ -417,6 +429,10 @@ func validateVitestTarget(target string) error {
 func isCanonicalVitestTarget(target string) bool {
 	return target != "" && strings.TrimSpace(target) == target && !strings.ContainsAny(target, "\\\x00\r\n,") &&
 		!strings.HasPrefix(target, "-") && !path.IsAbs(target) && path.Clean(target) == target
+}
+
+func isPlaywrightE2ESpec(target string) bool {
+	return target == playwrightBusinessFlowsSpec || target == playwrightDesktopWideSpec
 }
 
 func workloadParentGateID(id string) (GateID, error) {

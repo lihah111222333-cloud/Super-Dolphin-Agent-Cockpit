@@ -31,6 +31,13 @@ func TestWorkloadBootstrapPolicyRejectsMissingAndStaleGate(t *testing.T) {
 	}
 }
 
+func TestFrontendPreflightBootstrapRemainsShardableGuard(t *testing.T) {
+	bootstrap := DefaultWorkloadBootstrapPolicy()[GateIDFrontendPreflight]
+	if bootstrap != (WorkloadBootstrap{Kind: WorkloadKindGuard, EstimateMS: 60000, Shardable: true}) {
+		t.Fatalf("frontend preflight bootstrap = %#v", bootstrap)
+	}
+}
+
 func TestBuildWorkloadCatalogUsesCanonicalPlanAndBareCommandDigest(t *testing.T) {
 	plan, err := BuildGatePlan(ProfileRelease, registryTestSource())
 	if err != nil {

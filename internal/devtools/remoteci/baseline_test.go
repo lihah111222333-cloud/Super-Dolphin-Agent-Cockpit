@@ -50,16 +50,29 @@ func TestBaselineStateDirectCacheReference(t *testing.T) {
 	if loaded.DirectCacheRef == nil || loaded.Validate() != nil {
 		t.Fatalf("round-tripped state = %#v", loaded)
 	}
+	older := loaded.DirectCacheRef.Layers[0]
+	older.DataCacheID = "edc-directold"
+	older.DataCachePath = "/super-dolphin/ci/direct-cache/2"
+	older.Generation = 2
+	older.SourceObjectPrefix = "baseline-artifacts/2/output/direct-cache/"
+	loaded.DirectCacheRef.Layers = append(loaded.DirectCacheRef.Layers, older)
+	if err := loaded.Validate(); err != nil {
+		t.Fatalf("newest-first direct cache layers rejected: %v", err)
+	}
+	loaded.DirectCacheRef.Layers[0], loaded.DirectCacheRef.Layers[1] = loaded.DirectCacheRef.Layers[1], loaded.DirectCacheRef.Layers[0]
+	if err := loaded.Validate(); err == nil {
+		t.Fatal("Validate() accepted oldest-first direct cache layers")
+	}
 	for name, mutate := range map[string]func(*DirectCacheRef){
-		"missing cache ID":        func(value *DirectCacheRef) { value.DataCacheID = "" },
-		"cache bucket drift":      func(value *DirectCacheRef) { value.DataCacheBucket = "another-bucket" },
-		"cache path generation":   func(value *DirectCacheRef) { value.DataCachePath = "/super-dolphin/ci/direct-cache/2" },
-		"broad source prefix":     func(value *DirectCacheRef) { value.SourceObjectPrefix = "baseline-artifacts/" },
-		"parent chain drift":      func(value *DirectCacheRef) { value.ParentChainSHA256 = digest("9") },
-		"runtime Go binding":      func(value *DirectCacheRef) { value.RuntimeGoSHA256 = digest("8") },
-		"runtime deps binding":    func(value *DirectCacheRef) { value.RuntimeDepsSHA256 = "" },
-		"tree digest malformed":   func(value *DirectCacheRef) { value.TreeSHA256 = "sha256:bad" },
-		"generation does not tie": func(value *DirectCacheRef) { value.Generation-- },
+		"missing cache ID":        func(value *DirectCacheRef) { value.Layers[0].DataCacheID = "" },
+		"cache bucket drift":      func(value *DirectCacheRef) { value.Layers[0].DataCacheBucket = "another-bucket" },
+		"cache path generation":   func(value *DirectCacheRef) { value.Layers[0].DataCachePath = "/super-dolphin/ci/direct-cache/2" },
+		"broad source prefix":     func(value *DirectCacheRef) { value.Layers[0].SourceObjectPrefix = "baseline-artifacts/" },
+		"parent chain drift":      func(value *DirectCacheRef) { value.Layers[0].ParentChainSHA256 = digest("9") },
+		"runtime Go binding":      func(value *DirectCacheRef) { value.Layers[0].RuntimeGoSHA256 = digest("8") },
+		"runtime deps binding":    func(value *DirectCacheRef) { value.Layers[0].RuntimeDepsSHA256 = "" },
+		"tree digest malformed":   func(value *DirectCacheRef) { value.Layers[0].TreeSHA256 = "sha256:bad" },
+		"generation does not tie": func(value *DirectCacheRef) { value.Layers[0].Generation-- },
 	} {
 		t.Run(name, func(t *testing.T) {
 			invalid := validBaselineState()
@@ -142,6 +155,7 @@ func TestBaselineStateMigrationSentinelRoundTripsCurrentSchema(t *testing.T) {
 func TestBaselineStateMigratesV6WithoutDirectCacheReference(t *testing.T) {
 	legacy := validBaselineState()
 	legacy.SchemaVersion = BaselineStatePreviousSchemaVersion
+	legacy.DirectCacheRef = nil
 	data, err := json.Marshal(legacy)
 	if err != nil {
 		t.Fatal(err)
@@ -155,6 +169,36 @@ func TestBaselineStateMigratesV6WithoutDirectCacheReference(t *testing.T) {
 	}
 	if err := state.Validate(); err != nil {
 		t.Fatalf("migrated Validate() error = %v", err)
+	}
+}
+
+func TestBaselineStateMigratesV7SingleDirectCacheLayer(t *testing.T) {
+	legacy := validBaselineState()
+	reference := validDirectCacheRef(t, legacy)
+	legacy.DirectCacheRef = nil
+	data, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire map[string]json.RawMessage
+	if err := json.Unmarshal(data, &wire); err != nil {
+		t.Fatal(err)
+	}
+	wire["schema_version"] = json.RawMessage("7")
+	wire["direct_cache_ref"], err = json.Marshal(reference.Layers[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err = json.Marshal(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var loaded BaselineState
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if loaded.DirectCacheRef == nil || len(loaded.DirectCacheRef.Layers) != 1 || loaded.Validate() != nil {
+		t.Fatalf("migrated v7 state = %#v", loaded)
 	}
 }
 
@@ -217,7 +261,8 @@ func TestBaselineStateFieldRegistry(t *testing.T) {
 	assertBaselineFields(t, reflect.TypeFor[BaselineState](), []string{"SchemaVersion", "Generation", "MainCommit", "MainTree", "Platform", "PolicyDigest", "ToolchainDigest", "RuntimeImage", "GateBinarySHA256", "RuntimeSeedSHA256", "BaselineManifestDigest", "SourceHistoryVersion", "DataCacheID", "DataCacheBucket", "DataCachePath", "DataCacheSizeGiB", "SourceObjectPrefix", "CreatedAt", "AcceptedAt", "Anchor", "Deltas", "DirectCacheRef", "RetiredDirectCacheRef", "PreviousAnchor", "RetiredAnchor", "PreviousDeltas", "RetiredDeltas"})
 	assertBaselineFields(t, reflect.TypeFor[BaselineCacheRef](), []string{"Generation", "Kind", "ManifestDigest", "MainCommit", "MainTree", "DataCacheID", "DataCacheBucket", "DataCachePath", "SizeGiB", "SourceObjectPrefix", "AcceptedAt"})
 	assertBaselineFields(t, reflect.TypeFor[BaselineDeltaRef](), []string{"Generation", "SourceObjectPrefix", "ManifestDigest", "BaseCommit", "BaseTree", "MainCommit", "MainTree", "AcceptedAt"})
-	assertBaselineFields(t, reflect.TypeFor[DirectCacheRef](), []string{"DataCacheID", "DataCacheBucket", "DataCachePath", "SizeGiB", "Generation", "SourceObjectPrefix", "ManifestDigest", "TreeSHA256", "ParentChainSHA256", "RuntimeGoSHA256", "RuntimeDepsSHA256"})
+	assertBaselineFields(t, reflect.TypeFor[DirectCacheRef](), []string{"Layers", "DataCacheID", "DataCacheBucket", "DataCachePath", "SizeGiB", "Generation", "SourceObjectPrefix", "ManifestDigest", "TreeSHA256", "ParentChainSHA256", "RuntimeGoSHA256", "RuntimeDepsSHA256"})
+	assertBaselineFields(t, reflect.TypeFor[DirectCacheLayerRef](), []string{"DataCacheID", "DataCacheBucket", "DataCachePath", "SizeGiB", "Generation", "SourceObjectPrefix", "ManifestDigest", "TreeSHA256", "ParentChainSHA256", "RuntimeGoSHA256", "RuntimeDepsSHA256"})
 }
 
 func validBaselineState() BaselineState {
@@ -239,7 +284,7 @@ func validDirectCacheRef(t *testing.T, state BaselineState) DirectCacheRef {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return DirectCacheRef{
+	return DirectCacheRef{Layers: []DirectCacheLayerRef{{
 		DataCacheID:        "edc-direct",
 		DataCacheBucket:    "super-dolphin-ci",
 		DataCachePath:      "/super-dolphin/ci/direct-cache/3",
@@ -251,7 +296,7 @@ func validDirectCacheRef(t *testing.T, state BaselineState) DirectCacheRef {
 		ParentChainSHA256:  parentChainDigest,
 		RuntimeGoSHA256:    state.RuntimeSeedSHA256,
 		RuntimeDepsSHA256:  digest("9"),
-	}
+	}}}
 }
 
 func digest(value string) string { return "sha256:" + strings.Repeat(value, 64) }

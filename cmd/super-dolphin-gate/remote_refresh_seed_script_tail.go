@@ -120,3 +120,26 @@ export DISPLAY=$display
 EOF
 chmod 0755 $payload_root/runtime/bin/xvfb-run
 `
+
+// remoteBaselineSeedScriptDirectCache 保持直读层装配在缓存初始化分支的原始顺序。
+const remoteBaselineSeedScriptDirectCache = `    direct_layer_count=$BASELINE_DIRECT_CACHE_LAYER_COUNT
+    case "$direct_layer_count" in 1|2|3) ;; *) echo 'direct cache layer count is invalid' >&2; exit 1;; esac
+    rm -rf "$go_build_cache"
+    install -d -m 0700 "$go_build_cache"
+    test -x /previous/bin/super-dolphin-gate
+    go_cache_proxy="/previous/bin/super-dolphin-gate worker go-cache-proxy"
+    direct_layer_index=0
+    while test "$direct_layer_index" -lt "$direct_layer_count"; do
+      direct_layer_number=$((direct_layer_index + 1))
+      eval "direct_layer_identity=\${BASELINE_DIRECT_CACHE_LAYER_$direct_layer_number:-}"
+      test -n "$direct_layer_identity"
+      direct_layer_root=/direct-cache-layers/layer-$direct_layer_index/cache-seed/go-build
+      test -d "$direct_layer_root"
+      test -n "$(find "$direct_layer_root" -type f -print -quit)"
+      go_cache_proxy="$go_cache_proxy --seed $direct_layer_root"
+      direct_layer_index=$((direct_layer_index + 1))
+    done
+    export GOCACHE="$go_build_cache"
+    export GOCACHEPROG="$go_cache_proxy --private $go_build_cache"
+    printf 'go build cache source: direct layers newest-first (%s); private delta publish\n' "$direct_layer_count"
+`

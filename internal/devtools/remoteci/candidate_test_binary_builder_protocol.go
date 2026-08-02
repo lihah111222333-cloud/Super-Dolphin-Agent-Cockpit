@@ -13,7 +13,7 @@ import (
 )
 
 // CandidateTestBinaryBuilderRequestSchemaVersion is the only accepted remote builder request format.
-const CandidateTestBinaryBuilderRequestSchemaVersion uint32 = 2
+const CandidateTestBinaryBuilderRequestSchemaVersion uint32 = 3
 
 // CandidateTestBinaryBuilderResultSchemaVersion is the only accepted remote builder result format.
 const CandidateTestBinaryBuilderResultSchemaVersion uint32 = 1

@@ -71,8 +71,14 @@ func TestBuildGatePlanFiltersCanonicalRequiredProfiles(t *testing.T) {
 	remote := mustBuildPlan(t, ProfileRemoteRequired)
 	promotion := mustBuildPlan(t, ProfilePromotion)
 	release := mustBuildPlan(t, ProfileRelease)
-	assertGatePlanIDSetEqual(t, local, remote)
-	assertGatePlanIDSetEqual(t, local, promotion)
+	assertGatePlanIDSetEqual(t, remote, promotion)
+	remoteOnly := gateIDSet(remote.Gates)
+	for id := range gateIDSet(local.Gates) {
+		delete(remoteOnly, id)
+	}
+	if !reflect.DeepEqual(remoteOnly, map[GateID]bool{GateIDFrontendPreflight: true}) {
+		t.Fatalf("remote-only gates = %v", remoteOnly)
+	}
 	pushOnlyRemoved := gateIDSet(local.Gates)
 	for id := range gateIDSet(push.Gates) {
 		delete(pushOnlyRemoved, id)
@@ -91,7 +97,9 @@ func TestBuildGatePlanFiltersCanonicalRequiredProfiles(t *testing.T) {
 	}
 	if !reflect.DeepEqual(releaseOnly, map[GateID]bool{
 		GateIDFrontendBuild:            true,
+		GateIDFrontendE2E:              true,
 		GateIDFrontendEmbedVerify:      true,
+		GateIDFrontendPreflight:        true,
 		GateIDFrontendFullTest:         true,
 		GateIDBackendTestGuardWithRace: true,
 		GateIDBackendNilness:           true,
@@ -108,6 +116,18 @@ func TestBuildGatePlanFiltersCanonicalRequiredProfiles(t *testing.T) {
 
 func TestFrontendTestGateProfileContract(t *testing.T) {
 	t.Parallel()
+
+	frontendPreflight := findGateSpec(t, GateIDFrontendPreflight)
+	if frontendPreflight.ID != GateID("frontend:preflight") {
+		t.Fatalf("frontend preflight id = %q", frontendPreflight.ID)
+	}
+	wantPreflightProfiles := []Profile{ProfileRemoteRequired, ProfilePromotion, ProfileRelease}
+	if !slices.Equal(frontendPreflight.RequiredProfiles, wantPreflightProfiles) {
+		t.Fatalf("frontend preflight required profiles = %v, want %v", frontendPreflight.RequiredProfiles, wantPreflightProfiles)
+	}
+	if !slices.Equal(frontendPreflight.Profiles, wantPreflightProfiles) {
+		t.Fatalf("frontend preflight profiles = %v, want %v", frontendPreflight.Profiles, wantPreflightProfiles)
+	}
 
 	frontendTest := findGateSpec(t, GateIDFrontendTest)
 	if frontendTest.ID != GateID("frontend:test") {
@@ -133,20 +153,21 @@ func TestFrontendTestGateProfileContract(t *testing.T) {
 	}
 
 	for _, test := range []struct {
-		profile          Profile
-		wantFrontendTest bool
-		wantFullTest     bool
+		profile               Profile
+		wantFrontendPreflight bool
+		wantFrontendTest      bool
+		wantFullTest          bool
 	}{
-		{ProfileLocalFast, true, false},
-		{ProfilePush, false, false},
-		{ProfileRemoteRequired, true, false},
-		{ProfilePromotion, true, false},
-		{ProfileRelease, false, true},
+		{ProfileLocalFast, false, true, false},
+		{ProfilePush, false, false, false},
+		{ProfileRemoteRequired, true, true, false},
+		{ProfilePromotion, true, true, false},
+		{ProfileRelease, true, false, true},
 	} {
 		t.Run(string(test.profile), func(t *testing.T) {
 			gates := gateIDSet(mustBuildPlan(t, test.profile).Gates)
-			if gates[GateIDFrontendTest] != test.wantFrontendTest || gates[GateIDFrontendFullTest] != test.wantFullTest {
-				t.Fatalf("%s frontend test gates = regular:%t full:%t, want regular:%t full:%t", test.profile, gates[GateIDFrontendTest], gates[GateIDFrontendFullTest], test.wantFrontendTest, test.wantFullTest)
+			if gates[GateIDFrontendPreflight] != test.wantFrontendPreflight || gates[GateIDFrontendTest] != test.wantFrontendTest || gates[GateIDFrontendFullTest] != test.wantFullTest {
+				t.Fatalf("%s frontend test gates = preflight:%t regular:%t full:%t, want preflight:%t regular:%t full:%t", test.profile, gates[GateIDFrontendPreflight], gates[GateIDFrontendTest], gates[GateIDFrontendFullTest], test.wantFrontendPreflight, test.wantFrontendTest, test.wantFullTest)
 			}
 		})
 	}

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/datacache"
+	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
@@ -72,6 +73,36 @@ func TestCreateRemoteBaselineDirectCacheUsesDedicatedReadOnlyPrefix(t *testing.T
 	}
 	if request.Source.Path != "/baselines/12/output/direct-cache" || request.Source.Bucket != config.OSS.Bucket {
 		t.Fatalf("direct cache source = %#v", request.Source)
+	}
+}
+
+func TestBindRemoteBaselineDirectCacheKeepsNewestThreeAndRetiresOldest(t *testing.T) {
+	state := remoteBaselineStateFixture()
+	state.Generation = 5
+	state.DirectCacheRef = nil
+	previousState := remoteBaselineStateFixture()
+	previous := &remoteci.DirectCacheRef{Layers: []remoteci.DirectCacheLayerRef{
+		remoteBaselineSeedDirectLayerFixture(previousState, 4),
+		remoteBaselineSeedDirectLayerFixture(previousState, 3),
+		remoteBaselineSeedDirectLayerFixture(previousState, 2),
+	}}
+	manifest := gatecontract.GoBuildCacheDirectSeedManifest{
+		RuntimeGoSHA256: state.RuntimeSeedSHA256, RuntimeDepsSHA256: "sha256:" + repeatRemoteHex("d", 64),
+		TreeSHA256: "sha256:" + repeatRemoteHex("b", 64),
+	}
+	cache := datacache.DataCache{ID: "edc-direct5", Status: datacache.StatusAvailable, Bucket: state.DataCacheBucket,
+		Path: "/super-dolphin/ci/direct-cache/5", SizeGiB: remoteDataCacheMinimumSizeGiB}
+	stage := remoteBaselineArtifactStage{generation: 5, outputPrefix: "baseline-artifacts/5/output/"}
+	if err := bindRemoteBaselineDirectCache(&state, previous, stage, cache, manifest, "sha256:"+repeatRemoteHex("c", 64)); err != nil {
+		t.Fatalf("bindRemoteBaselineDirectCache() error = %v", err)
+	}
+	if state.DirectCacheRef == nil || len(state.DirectCacheRef.Layers) != 3 ||
+		state.DirectCacheRef.Layers[0].Generation != 5 || state.DirectCacheRef.Layers[2].Generation != 3 {
+		t.Fatalf("direct cache layers = %#v", state.DirectCacheRef)
+	}
+	if state.RetiredDirectCacheRef == nil || len(state.RetiredDirectCacheRef.Layers) != 1 ||
+		state.RetiredDirectCacheRef.Layers[0].Generation != 2 {
+		t.Fatalf("retired direct cache layers = %#v", state.RetiredDirectCacheRef)
 	}
 }
 

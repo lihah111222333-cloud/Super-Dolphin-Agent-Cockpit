@@ -15,7 +15,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
-const ShardRequestSchemaVersion uint32 = 6
+const ShardRequestSchemaVersion uint32 = 7
 
 var (
 	remoteDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
@@ -23,12 +23,13 @@ var (
 	remoteOIDPattern    = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
 )
 
-// cloneDirectCacheRef 复制跨请求边界传递的可选直读缓存身份。
+// cloneDirectCacheRef 深拷贝跨请求边界传递的可选直读缓存层集合。
 func cloneDirectCacheRef(reference *DirectCacheRef) *DirectCacheRef {
 	if reference == nil {
 		return nil
 	}
 	copy := *reference
+	copy.Layers = append([]DirectCacheLayerRef(nil), reference.Layers...)
 	return &copy
 }
 
@@ -37,14 +38,17 @@ func validateOptionalDirectCacheRef(reference *DirectCacheRef) error {
 	if reference == nil {
 		return nil
 	}
-	if !dataCacheIDPattern.MatchString(reference.DataCacheID) ||
-		!dataCacheBucketPattern.MatchString(reference.DataCacheBucket) || reference.DataCacheBucket == "eci-system" ||
-		!validBaselinePath(reference.DataCachePath) || reference.SizeGiB <= 0 || reference.Generation == 0 ||
-		!validSourceObjectPrefix(reference.SourceObjectPrefix) || !reference.hasCanonicalLocation() ||
-		!remoteDigestPattern.MatchString(reference.ManifestDigest) || !remoteDigestPattern.MatchString(reference.TreeSHA256) ||
-		!remoteDigestPattern.MatchString(reference.ParentChainSHA256) || !remoteDigestPattern.MatchString(reference.RuntimeGoSHA256) ||
-		!remoteDigestPattern.MatchString(reference.RuntimeDepsSHA256) {
+	if len(reference.Layers) == 0 {
 		return errors.New("remote direct cache identity is invalid")
+	}
+	newest := reference.Layers[0]
+	if err := reference.validateLayers(newest.DataCacheBucket, 0, newest.RuntimeGoSHA256, ""); err != nil {
+		return err
+	}
+	for _, layer := range reference.Layers[1:] {
+		if layer.RuntimeGoSHA256 != newest.RuntimeGoSHA256 || layer.RuntimeDepsSHA256 != newest.RuntimeDepsSHA256 {
+			return errors.New("remote direct cache layer runtime identity is inconsistent")
+		}
 	}
 	return nil
 }
@@ -162,7 +166,8 @@ func (request ShardRequest) validateDirectCacheParentChain() error {
 	if len(request.BaselineDeltas) != 0 {
 		tipGeneration = request.BaselineDeltas[len(request.BaselineDeltas)-1].Generation
 	}
-	if request.DirectCacheRef.ParentChainSHA256 != digest || request.DirectCacheRef.Generation != tipGeneration {
+	newest := request.DirectCacheRef.Layers[0]
+	if newest.ParentChainSHA256 != digest || newest.Generation != tipGeneration {
 		return errors.New("remote direct cache does not match the requested baseline chain")
 	}
 	return nil

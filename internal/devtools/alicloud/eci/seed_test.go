@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -93,6 +94,31 @@ func TestClientCreateSeedAddsBaselineLayersBeforeAnchorDataCache(t *testing.T) {
 	}
 }
 
+func TestClientCreateSeedMountsDirectCacheLayersNewestFirst(t *testing.T) {
+	runner := &fakeCommandRunner{responses: [][]byte{[]byte(`{"ContainerGroupId":"eci-seed"}`)}}
+	client := newTestClient(t, runner)
+	request := validSeedRequest()
+	request.DirectCacheLayers = []DirectCacheLayer{validDirectCacheLayer(3), validDirectCacheLayer(2)}
+	if _, err := client.CreateSeedContainerGroup(context.Background(), request); err != nil {
+		t.Fatalf("CreateSeedContainerGroup() error = %v", err)
+	}
+	call := runner.calls[0]
+	for _, pair := range [][]string{
+		{"--Volume.6.Name", "direct-cache-layer-0"},
+		{"--Volume.6.HostPathVolume.Path", "/super-dolphin/ci/direct-cache/3"},
+		{"--Volume.7.Name", "direct-cache-layer-1"},
+		{"--Volume.7.HostPathVolume.Path", "/super-dolphin/ci/direct-cache/2"},
+		{"--Container.1.VolumeMount.6.MountPath", "/direct-cache-layers/layer-0"},
+		{"--Container.1.VolumeMount.7.MountPath", "/direct-cache-layers/layer-1"},
+		{"--Container.1.VolumeMount.6.ReadOnly", "true"},
+		{"--Container.1.VolumeMount.7.ReadOnly", "true"},
+	} {
+		if !containsArgumentPair(call, pair[0], pair[1]) {
+			t.Fatalf("call missing %v: %#v", pair, call)
+		}
+	}
+}
+
 func TestClientCreateSeedReconcilesUncertainCreate(t *testing.T) {
 	transient := errors.New("net/http: TLS handshake timeout")
 	runner := &fakeCommandRunner{
@@ -135,10 +161,14 @@ func TestSeedRequestFieldRegistry(t *testing.T) {
 	assertStructFields(t, reflect.TypeFor[SeedRequest](), []string{
 		"ContainerGroupName", "ContainerName", "ClientToken", "Resources", "Command", "Args", "AutoCreateEIP",
 		"EIPBandwidth", "Environment", "Tags",
-		"Input", "Output", "BaselineLayers", "Script", "DataCacheBucket", "PreviousDataCachePath",
+		"Input", "Output", "BaselineLayers", "Script", "DataCacheBucket", "PreviousDataCachePath", "DirectCacheLayers",
 	})
 	assertStructFields(t, reflect.TypeFor[OSSVolume](), []string{
 		"Bucket", "Endpoint", "Path", "RoleName",
+	})
+	assertStructFields(t, reflect.TypeFor[DirectCacheLayer](), []string{
+		"DataCacheID", "DataCacheBucket", "DataCachePath", "SizeGiB", "Generation", "SourceObjectPrefix",
+		"ManifestDigest", "TreeSHA256", "ParentChainSHA256", "RuntimeGoSHA256", "RuntimeDepsSHA256",
 	})
 }
 
@@ -173,6 +203,25 @@ func TestClientCreateSeedRejectsInvalidRequest(t *testing.T) {
 			request.DataCacheBucket = "eci-system"
 		}},
 		{"previous path", func(request *SeedRequest) { request.PreviousDataCachePath = "relative" }},
+		{"direct layer without cache bucket", func(request *SeedRequest) {
+			request.PreviousDataCachePath = ""
+			request.DirectCacheLayers = []DirectCacheLayer{validDirectCacheLayer(2)}
+			request.DataCacheBucket = ""
+		}},
+		{"direct layer malformed", func(request *SeedRequest) {
+			request.DirectCacheLayers = []DirectCacheLayer{validDirectCacheLayer(2)}
+			request.DirectCacheLayers[0].RuntimeGoSHA256 = ""
+		}},
+		{"direct layers are not newest first", func(request *SeedRequest) {
+			request.DirectCacheLayers = []DirectCacheLayer{validDirectCacheLayer(2), validDirectCacheLayer(3)}
+		}},
+		{"direct layer paths duplicate", func(request *SeedRequest) {
+			request.DirectCacheLayers = []DirectCacheLayer{validDirectCacheLayer(3), validDirectCacheLayer(2)}
+			request.DirectCacheLayers[1].DataCachePath = request.DirectCacheLayers[0].DataCachePath
+		}},
+		{"too many direct layers", func(request *SeedRequest) {
+			request.DirectCacheLayers = []DirectCacheLayer{validDirectCacheLayer(4), validDirectCacheLayer(3), validDirectCacheLayer(2), validDirectCacheLayer(1)}
+		}},
 		{"baseline layers bucket only", func(request *SeedRequest) { request.BaselineLayers.Bucket = "source-bucket" }},
 		{"baseline layers endpoint only", func(request *SeedRequest) { request.BaselineLayers.Endpoint = "oss-cn-shenzhen-internal.aliyuncs.com" }},
 		{"baseline layers path only", func(request *SeedRequest) { request.BaselineLayers.Path = "/baseline-layers" }},
@@ -247,6 +296,18 @@ func validSeedRequest() SeedRequest {
 		Script:                []byte("#!/bin/sh\nset -eu\n"),
 		DataCacheBucket:       "super-dolphin-ci",
 		PreviousDataCachePath: "/super-dolphin/ci/baselines/1",
+	}
+}
+
+func validDirectCacheLayer(generation uint64) DirectCacheLayer {
+	value := strconv.FormatUint(generation, 10)
+	return DirectCacheLayer{
+		DataCacheID: "edc-direct-" + value, DataCacheBucket: "super-dolphin-ci",
+		DataCachePath: "/super-dolphin/ci/direct-cache/" + value, SizeGiB: 20, Generation: generation,
+		SourceObjectPrefix: "baseline-artifacts/" + value + "/output/direct-cache/",
+		ManifestDigest:     "sha256:manifest-" + value, TreeSHA256: "sha256:tree-" + value,
+		ParentChainSHA256: "sha256:parent-" + value, RuntimeGoSHA256: "sha256:go-" + value,
+		RuntimeDepsSHA256: "sha256:deps-" + value,
 	}
 }
 

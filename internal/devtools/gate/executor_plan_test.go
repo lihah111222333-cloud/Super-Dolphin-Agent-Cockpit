@@ -783,14 +783,14 @@ func TestExecutionProfileUsesOnlyExactTopLevelTestTiming(t *testing.T) {
 	}
 	started := executorPlanTestNow()
 	completed := started.Add(1500 * time.Millisecond)
-	profile, err := executionProfileForGate(GateID(workload.ID), candidateTestBinaryBundleIndex{}, []GoTestTiming{{Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 400}, {Name: "TestBoundary/subcase", Status: GoTestStatusPass, DurationMS: 900}}, started, completed)
+	profile, err := executionProfileForGate(GateID(workload.ID), ExecutorProgram{}, candidateTestBinaryBundleIndex{}, []GoTestTiming{{Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 400}, {Name: "TestBoundary/subcase", Status: GoTestStatusPass, DurationMS: 900}}, started, completed, nil)
 	if err != nil || profile.TestBodyMS != 400 || profile.StartupMS != 1100 {
 		t.Fatalf("profile=%#v err=%v", profile, err)
 	}
-	if _, err := executionProfileForGate(GateID(workload.ID), candidateTestBinaryBundleIndex{}, []GoTestTiming{{Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 400}, {Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 401}}, started, completed); err == nil {
+	if _, err := executionProfileForGate(GateID(workload.ID), ExecutorProgram{}, candidateTestBinaryBundleIndex{}, []GoTestTiming{{Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 400}, {Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 401}}, started, completed, nil); err == nil {
 		t.Fatal("duplicate top-level timing was accepted")
 	}
-	if _, err := executionProfileForGate(GateID(workload.ID), candidateTestBinaryBundleIndex{}, []GoTestTiming{{Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 1501}}, started, completed); err == nil {
+	if _, err := executionProfileForGate(GateID(workload.ID), ExecutorProgram{}, candidateTestBinaryBundleIndex{}, []GoTestTiming{{Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 1501}}, started, completed, nil); err == nil {
 		t.Fatal("overlong top-level timing was accepted")
 	}
 }

@@ -40,6 +40,7 @@ func candidateManifest() string {
     "cmd/super-dolphin-gate/remote_refresh_seed_script.go",
     "cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go",
     "cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go",
+    "cmd/super-dolphin-gate/remote_refresh_seed_script_tail.go",
     "frontend-app/package-lock.json",
     "go.mod",
     "go.sum",

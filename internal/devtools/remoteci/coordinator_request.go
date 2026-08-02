@@ -2,6 +2,7 @@ package remoteci
 
 import (
 	"fmt"
+	"maps"
 	"path"
 	"slices"
 	"strconv"
@@ -103,13 +104,7 @@ const (
 	remoteXKBDataSubPath            = "runtime/rootfs/usr/share/X11/xkb"
 	remoteInitSearchPath            = gate.ExecutorRuntimeSeedRoot + "/bin:" + gate.ExecutorPortableRootFS + "/usr/bin:" + gate.ExecutorPortableRootFS + "/bin:/usr/local/bin:/usr/bin:/bin"
 	remoteCandidateTestBinaryIndex  = "/opt/super-dolphin-gate/test-binaries/candidate-test-binaries.json"
-	remoteDirectCacheManifestEnv    = "SUPER_DOLPHIN_REMOTE_DIRECT_CACHE_MANIFEST_SHA256"
-	remoteDirectCacheTreeEnv        = "SUPER_DOLPHIN_REMOTE_DIRECT_CACHE_TREE_SHA256"
-	remoteDirectCacheParentChainEnv = "SUPER_DOLPHIN_REMOTE_DIRECT_CACHE_PARENT_CHAIN_SHA256"
-	remoteDirectCacheRuntimeGoEnv   = "SUPER_DOLPHIN_REMOTE_DIRECT_CACHE_RUNTIME_GO_SHA256"
-	remoteDirectCacheRuntimeDepsEnv = "SUPER_DOLPHIN_REMOTE_DIRECT_CACHE_RUNTIME_DEPS_SHA256"
-	remoteDirectCacheGenerationEnv  = "SUPER_DOLPHIN_REMOTE_DIRECT_CACHE_GENERATION"
-	remoteDirectCacheIDEnv          = "SUPER_DOLPHIN_REMOTE_DIRECT_CACHE_DATA_CACHE_ID"
+	remoteDirectCacheLayerCountEnv  = "SUPER_DOLPHIN_REMOTE_DIRECT_CACHE_LAYER_COUNT"
 )
 
 // createRequest 将分片、请求摘要和 DataCache 身份绑定为 ECI 创建请求。
@@ -165,18 +160,16 @@ func (coordinator *Coordinator) createRequest(
 		{Name: "temp-data", MountPath: remoteWritableTempMountPath},
 	}
 	if input.DirectCacheRef != nil {
-		direct := input.DirectCacheRef
-		initContainer.Environment[remoteDirectCacheManifestEnv] = direct.ManifestDigest
-		initContainer.Environment[remoteDirectCacheTreeEnv] = direct.TreeSHA256
-		initContainer.Environment[remoteDirectCacheParentChainEnv] = direct.ParentChainSHA256
-		initContainer.Environment[remoteDirectCacheRuntimeGoEnv] = direct.RuntimeGoSHA256
-		initContainer.Environment[remoteDirectCacheRuntimeDepsEnv] = direct.RuntimeDepsSHA256
-		initContainer.Environment[remoteDirectCacheGenerationEnv] = strconv.FormatUint(direct.Generation, 10)
-		initContainer.Environment[remoteDirectCacheIDEnv] = direct.DataCacheID
+		layers := input.DirectCacheRef.Layers
+		initContainer.Environment[remoteDirectCacheLayerCountEnv] = strconv.Itoa(len(layers))
 		mainEnvironment[gate.ExecutorDirectGoBuildCacheSeedEnv] = "1"
-		directMount := eci.VolumeMount{Name: remoteDirectCacheVolumeName, MountPath: remoteDirectCacheMountPath, ReadOnly: true}
-		initMounts = append(initMounts, directMount)
-		mainMounts = append(mainMounts, directMount)
+		mainEnvironment[gate.ExecutorDirectGoBuildCacheSeedCountEnv] = strconv.Itoa(len(layers))
+		for index, layer := range layers {
+			maps.Copy(initContainer.Environment, remoteDirectCacheLayerEnvironment(index, layer))
+			directMount := eci.VolumeMount{Name: remoteDirectCacheVolumeNameForLayer(index), MountPath: remoteDirectCacheMountPathForLayer(index), ReadOnly: true}
+			initMounts = append(initMounts, directMount)
+			mainMounts = append(mainMounts, directMount)
+		}
 	}
 	return eci.CreateRequest{
 		ContainerGroupName: groupName, ContainerName: "worker",
@@ -207,7 +200,32 @@ func directCacheAdditionalVolumes(reference *DirectCacheRef) []eci.HostPathVolum
 	if reference == nil {
 		return nil
 	}
-	return []eci.HostPathVolume{{Name: remoteDirectCacheVolumeName, Path: reference.DataCachePath, Type: "Directory"}}
+	volumes := make([]eci.HostPathVolume, len(reference.Layers))
+	for index, layer := range reference.Layers {
+		volumes[index] = eci.HostPathVolume{Name: remoteDirectCacheVolumeNameForLayer(index), Path: layer.DataCachePath, Type: "Directory"}
+	}
+	return volumes
+}
+
+func remoteDirectCacheVolumeNameForLayer(index int) string {
+	return fmt.Sprintf("%s-%d", remoteDirectCacheVolumeName, index)
+}
+
+func remoteDirectCacheMountPathForLayer(index int) string {
+	return fmt.Sprintf("%s/layer-%d", remoteDirectCacheMountPath, index)
+}
+
+func remoteDirectCacheLayerEnvironment(index int, layer DirectCacheLayerRef) map[string]string {
+	prefix := fmt.Sprintf("SUPER_DOLPHIN_REMOTE_DIRECT_CACHE_LAYER_%d_", index)
+	return map[string]string{
+		prefix + "MANIFEST_SHA256":     layer.ManifestDigest,
+		prefix + "TREE_SHA256":         layer.TreeSHA256,
+		prefix + "PARENT_CHAIN_SHA256": layer.ParentChainSHA256,
+		prefix + "RUNTIME_GO_SHA256":   layer.RuntimeGoSHA256,
+		prefix + "RUNTIME_DEPS_SHA256": layer.RuntimeDepsSHA256,
+		prefix + "GENERATION":          strconv.FormatUint(layer.Generation, 10),
+		prefix + "DATA_CACHE_ID":       layer.DataCacheID,
+	}
 }
 
 // remoteWorkerEnvironment 仅绑定 worker 入口所需的运行时根与单目标超时。

@@ -59,7 +59,8 @@ func validateWorkloadPlanOwnerDuration(plan WorkloadExecutionPlan) error {
 // DefaultWorkloadBootstrapPolicy 返回覆盖当前完整 GateRegistry 的隔离策略。
 func DefaultWorkloadBootstrapPolicy() WorkloadBootstrapPolicy {
 	return WorkloadBootstrapPolicy{
-		GateIDAIMaintenanceSelfTest: {WorkloadKindGuard, 60000, true}, GateIDFrontendLint: {WorkloadKindGuard, 60000, true}, GateIDFrontendTest: {WorkloadKindNodeTest, 90000, true}, GateIDFrontendFullTest: {WorkloadKindNodeTest, 90000, true}, GateIDFrontendBuild: {WorkloadKindGuard, 60000, true}, GateIDFrontendEmbedVerify: {WorkloadKindGuard, 60000, true}, GateIDBackendTestWithGuard: {WorkloadKindGoTest, 90000, true}, GateIDBackendTestGuardWithRace: {WorkloadKindGoTest, 90000, true}, GateIDBackendNilness: {WorkloadKindGuard, 60000, true}, GateIDSQLCVerify: {WorkloadKindGuard, 60000, true}, GateIDCodemapCheck: {WorkloadKindGuard, 60000, true}, GateIDProjectMapCheck: {WorkloadKindGuard, 60000, true}, GateIDCapabilityContractCheck: {WorkloadKindGuard, 60000, true}, GateIDWhitespaceCheck: {WorkloadKindGuard, 10000, true}, GateIDReleaseLayeredCheck: {WorkloadKindGuard, 30000, false},
+		GateIDAIMaintenanceSelfTest: {WorkloadKindGuard, 60000, true}, GateIDFrontendLint: {WorkloadKindGuard, 60000, true}, GateIDFrontendPreflight: {WorkloadKindGuard, 60000, true}, GateIDFrontendTest: {WorkloadKindNodeTest, 90000, true}, GateIDFrontendFullTest: {WorkloadKindNodeTest, 90000, true}, GateIDFrontendBuild: {WorkloadKindGuard, 60000, true}, GateIDFrontendEmbedVerify: {WorkloadKindGuard, 60000, true}, GateIDBackendTestWithGuard: {WorkloadKindGoTest, 90000, true}, GateIDBackendTestGuardWithRace: {WorkloadKindGoTest, 90000, true}, GateIDBackendNilness: {WorkloadKindGuard, 60000, true}, GateIDSQLCVerify: {WorkloadKindGuard, 60000, true}, GateIDCodemapCheck: {WorkloadKindGuard, 60000, true}, GateIDProjectMapCheck: {WorkloadKindGuard, 60000, true}, GateIDCapabilityContractCheck: {WorkloadKindGuard, 60000, true}, GateIDWhitespaceCheck: {WorkloadKindGuard, 10000, true}, GateIDReleaseLayeredCheck: {WorkloadKindGuard, 30000, false},
+		GateIDFrontendE2E: {WorkloadKindNodeTest, 90000, true},
 	}
 }
 
@@ -271,6 +272,8 @@ func expandedTargetsForGateMode(id GateID, inventory WorkloadInventory, allRaceP
 		return workloadTargetVitest, inventory.FrontendChangedTests
 	case GateIDFrontendFullTest:
 		return workloadTargetVitest, inventory.FrontendFullTests
+	case GateIDFrontendE2E:
+		return workloadTargetPlaywright, []string{playwrightBusinessFlowsSpec, playwrightDesktopWideSpec}
 	default:
 		return "", nil
 	}
@@ -591,6 +594,8 @@ func expandedTargetWorkload(gateID GateID, targetKind, target string) (Workload,
 	kind, estimate := WorkloadKindGoTest, expandedGoPackageBootstrapEstimateMS
 	if targetKind == workloadTargetVitest {
 		kind, estimate = WorkloadKindNodeTest, 5000
+	} else if targetKind == workloadTargetPlaywright {
+		kind, estimate = WorkloadKindNodeTest, 90000
 	} else if gateID == GateIDBackendTestGuardWithRace {
 		estimate = expandedGoRacePackageBootstrapEstimateMS
 	}

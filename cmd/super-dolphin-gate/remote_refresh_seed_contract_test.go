@@ -61,6 +61,25 @@ func TestBuildRemoteBaselineSeedRequestUsesPreviousGeneration(t *testing.T) {
 		request.DataCacheBucket == accepted.Anchor.DataCacheBucket, request.PreviousDataCachePath == accepted.Anchor.DataCachePath,
 		request.BaselineLayers.Path == "/baseline-artifacts", request.Environment["BASELINE_DELTA_MANIFEST_1"] != "",
 	})
+	newestLayer := remoteBaselineSeedDirectLayerFixture(accepted, 2)
+	parentChain, err := remoteci.CurrentBaselineParentChainDigest(accepted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newestLayer.ParentChainSHA256 = parentChain
+	accepted.DirectCacheRef = &remoteci.DirectCacheRef{Layers: []remoteci.DirectCacheLayerRef{
+		newestLayer, remoteBaselineSeedDirectLayerFixture(accepted, 1),
+	}}
+	if err := accepted.Validate(); err != nil {
+		t.Fatalf("direct layer fixture validation: %v", err)
+	}
+	request = mustBuildRemoteBaselineSeedRequest(t, config, input, source, accepted, accepted.DataCacheSizeGiB, accepted.Generation+1)
+	assertRemoteBaselineSeedConditions(t, request, "direct layer delta refresh", []bool{
+		len(request.DirectCacheLayers) == 2,
+		request.DirectCacheLayers[0].Generation == 2 && request.DirectCacheLayers[1].Generation == 1,
+		request.Environment["BASELINE_DIRECT_CACHE_LAYER_COUNT"] == "2",
+		request.Environment["BASELINE_DIRECT_CACHE_LAYER_1"] != "" && request.Environment["BASELINE_DIRECT_CACHE_LAYER_2"] != "",
+	})
 	toolchainInput := input
 	toolchainInput.Identity.ToolchainDigest = "sha256:" + repeatRemoteHex("9", 64)
 	toolchainInput.GoToolchain = "go1.26.5"
@@ -78,6 +97,18 @@ func TestBuildRemoteBaselineSeedRequestUsesPreviousGeneration(t *testing.T) {
 	}
 	assertRemoteBaselineFullRefreshForbidden(t, config, input, source, accepted, accepted.DataCacheSizeGiB+80, accepted.Generation+1)
 	assertRemoteBaselineSeedCompaction(t, config, input, source, accepted)
+}
+
+func remoteBaselineSeedDirectLayerFixture(accepted remoteci.BaselineState, generation uint64) remoteci.DirectCacheLayerRef {
+	value := strconv.FormatUint(generation, 10)
+	return remoteci.DirectCacheLayerRef{
+		DataCacheID: "edc-direct" + value, DataCacheBucket: accepted.DataCacheBucket,
+		DataCachePath: "/super-dolphin/ci/direct-cache/" + value, SizeGiB: 20, Generation: generation,
+		SourceObjectPrefix: "baseline-artifacts/" + value + "/output/direct-cache/",
+		ManifestDigest:     "sha256:" + repeatRemoteHex("a", 64), TreeSHA256: "sha256:" + repeatRemoteHex("b", 64),
+		ParentChainSHA256: "sha256:" + repeatRemoteHex("c", 64), RuntimeGoSHA256: accepted.RuntimeSeedSHA256,
+		RuntimeDepsSHA256: "sha256:" + repeatRemoteHex("d", 64),
+	}
 }
 
 func remoteBaselineSeedRequestFixture(t *testing.T) (remoteRunConfig, remoteci.BaselineState, remoteBaselineRefreshInput, remoteBaselineSourceArtifact) {
@@ -518,8 +549,11 @@ func assertRemoteBaselineSeedLayerFragments(t *testing.T) {
 		"runtime_go_delta=$layer_root/runtime-go.delta.tar.gz",
 		"rm -rf \"$previous_go\" \"$previous_manifest\" \"$go_build_cache\"",
 		"member.issym() or member.islnk()",
-		"mv \"$go_build_cache\" \"$stage/anchor-go-build-cache\"",
-		"export GOCACHEPROG=\"/previous/bin/super-dolphin-gate worker go-cache-proxy --seed $stage/anchor-go-build-cache --private $go_build_cache\"",
+		"BASELINE_DIRECT_CACHE_LAYER_COUNT",
+		"direct_layer_root=/direct-cache-layers/layer-$direct_layer_index/cache-seed/go-build",
+		"go_cache_proxy=\"/previous/bin/super-dolphin-gate worker go-cache-proxy\"",
+		"go_cache_proxy=\"$go_cache_proxy --seed $direct_layer_root\"",
+		"export GOCACHEPROG=\"$go_cache_proxy --private $go_build_cache\"",
 		"previous baseline schema or storage mode is incompatible; full Anchor rebuild is forbidden",
 		"test \"$anchor_schema\" -lt \"$BASELINE_MANIFEST_MIN_COMPATIBLE_VERSION\"",
 		"for archive in runtime-deps.tar.gz source.tar.gz go-build-cache.tar.gz; do",
@@ -557,6 +591,8 @@ func assertRemoteBaselineSeedLayerFragments(t *testing.T) {
 		"run_logged layer-archive-go-cache-delta archive_layer",
 		"run_logged layer-measure-go-cache-delta measure_layer",
 		"direct_cache_root=$oss_output/direct-cache/cache-seed/go-build",
+		"go direct cache publish: current private delta only",
+		"go direct cache migration: publishing one full compatibility layer",
 		"cp -a \"$stage/anchor-go-build-cache/.\" \"$direct_cache_root/\"",
 		"cp -a \"$go_build_cache/.\" \"$direct_cache_root/\"",
 		"chmod -R a+rX,a-w \"$direct_cache_root\"",
@@ -723,14 +759,15 @@ func assertRemoteBaselineSeedArchiveOrdering(t *testing.T) {
 func assertRemoteBaselineSeedDeltaReuseOrdering(t *testing.T) {
 	t.Helper()
 	restorePriorDelta := strings.Index(remoteBaselineSeedScript, "tar -xzf \"$cache_delta\" -C \"$payload_root\"")
-	isolatePriorCache := strings.Index(remoteBaselineSeedScript, "mv \"$go_build_cache\" \"$stage/anchor-go-build-cache\"")
-	enableLayeredReads := strings.Index(remoteBaselineSeedScript, "export GOCACHEPROG=\"/previous/bin/super-dolphin-gate worker go-cache-proxy --seed $stage/anchor-go-build-cache --private $go_build_cache\"")
+	directLayerCount := strings.Index(remoteBaselineSeedScript, "direct_layer_count=$BASELINE_DIRECT_CACHE_LAYER_COUNT")
+	directLayerRoot := strings.Index(remoteBaselineSeedScript, "direct_layer_root=/direct-cache-layers/layer-$direct_layer_index/cache-seed/go-build")
+	enableLayeredReads := strings.Index(remoteBaselineSeedScript, "go_cache_proxy=\"$go_cache_proxy --seed $direct_layer_root\"")
 	incrementalRefresh := strings.Index(remoteBaselineSeedScript, "go build cache mode: incremental refresh")
 	incrementalRefreshComplete := strings.Index(remoteBaselineSeedScript[incrementalRefresh:], "\n  refresh_go_build_cache\n")
 	archiveDelta := strings.Index(remoteBaselineSeedScript, "go_cache_archive_path=$oss_output/go-build-cache.delta.tar.gz")
-	if restorePriorDelta < 0 || isolatePriorCache < restorePriorDelta || enableLayeredReads < isolatePriorCache ||
+	if restorePriorDelta < 0 || directLayerCount < restorePriorDelta || directLayerRoot < directLayerCount || enableLayeredReads < directLayerRoot ||
 		incrementalRefresh < enableLayeredReads || incrementalRefreshComplete < 0 || archiveDelta < incrementalRefresh+incrementalRefreshComplete {
-		t.Fatal("changed source must read the Anchor plus prior delta caches and archive only the current private miss layer")
+		t.Fatal("changed source must query mounted direct layers newest-first and archive only the current private miss layer")
 	}
 }
 

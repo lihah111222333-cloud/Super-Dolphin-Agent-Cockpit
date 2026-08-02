@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -16,6 +17,7 @@ const (
 	seedInputMountPath          = "/input"
 	seedOutputMountPath         = "/output"
 	seedBaselineLayersMountPath = "/layers"
+	seedDirectCacheLayersPath   = "/direct-cache-layers"
 	seedPreviousMountPath       = "/previous"
 	seedScriptMountPath         = "/bootstrap"
 	seedScratchMountPath        = "/tmp"
@@ -27,6 +29,23 @@ type OSSVolume struct {
 	Endpoint string
 	Path     string
 	RoleName string
+}
+
+// DirectCacheLayer identifies one immutable Go build-cache delta mounted newest-first.
+// It deliberately carries the full accepted identity so the seed request's idempotence
+// boundary cannot collapse distinct cache layers onto the same mount.
+type DirectCacheLayer struct {
+	DataCacheID        string
+	DataCacheBucket    string
+	DataCachePath      string
+	SizeGiB            int
+	Generation         uint64
+	SourceObjectPrefix string
+	ManifestDigest     string
+	TreeSHA256         string
+	ParentChainSHA256  string
+	RuntimeGoSHA256    string
+	RuntimeDepsSHA256  string
 }
 
 // SeedRequest describes one on-demand ECI baseline materialization container.
@@ -47,6 +66,7 @@ type SeedRequest struct {
 	Script                []byte
 	DataCacheBucket       string
 	PreviousDataCachePath string
+	DirectCacheLayers     []DirectCacheLayer
 }
 
 // CreateSeedContainerGroup starts one short-lived baseline builder backed by OSS input and output volumes.
@@ -103,9 +123,16 @@ func (c *Client) seedCreateArgs(request SeedRequest, spotStrategy string) ([]str
 		args = appendSeedOSSFlexVolume(args, nextVolumeIndex, "baseline-layers", baselineLayers)
 		nextVolumeIndex++
 	}
-	if request.PreviousDataCachePath != "" {
+	if request.PreviousDataCachePath != "" || len(request.DirectCacheLayers) != 0 {
 		args = append(args, "--DataCacheBucket", request.DataCacheBucket)
+	}
+	if request.PreviousDataCachePath != "" {
 		args = appendHostPathVolumes(args, nextVolumeIndex, []HostPathVolume{{Name: "previous-data", Path: request.PreviousDataCachePath, Type: "Directory"}})
+		nextVolumeIndex++
+	}
+	for index, layer := range request.DirectCacheLayers {
+		args = appendHostPathVolumes(args, nextVolumeIndex, []HostPathVolume{{Name: directCacheLayerVolumeName(index), Path: layer.DataCachePath, Type: "Directory"}})
+		nextVolumeIndex++
 	}
 	args = appendIndexedValues(args, "--Container.1.Command", request.Command)
 	args = appendIndexedValues(args, "--Container.1.Arg", request.Args)
@@ -177,7 +204,18 @@ func seedVolumeMounts(request SeedRequest) []VolumeMount {
 	if request.PreviousDataCachePath != "" {
 		mounts = append(mounts, VolumeMount{Name: "previous-data", MountPath: seedPreviousMountPath, ReadOnly: true})
 	}
+	for index := range request.DirectCacheLayers {
+		mounts = append(mounts, VolumeMount{Name: directCacheLayerVolumeName(index), MountPath: directCacheLayerMountPath(index), ReadOnly: true})
+	}
 	return mounts
+}
+
+func directCacheLayerVolumeName(index int) string {
+	return "direct-cache-layer-" + strconv.Itoa(index)
+}
+
+func directCacheLayerMountPath(index int) string {
+	return seedDirectCacheLayersPath + "/layer-" + strconv.Itoa(index)
 }
 
 // validateSeedRequest 校验种子容器、输入对象及输出位置的完整约束。
@@ -248,14 +286,73 @@ func seedVolumesShareIdentity(baseline, input, output OSSVolume) bool {
 		baseline.RoleName == input.RoleName && baseline.RoleName == output.RoleName
 }
 
-// validateSeedDataCache 校验可选 Anchor DataCache 的 bucket 与路径必须成对绑定。
+// validateSeedDataCache 校验可选 Anchor 与 direct DataCache 的完整、有限身份。
 func validateSeedDataCache(request SeedRequest) error {
 	hasPrevious := request.PreviousDataCachePath != ""
-	if hasPrevious != (request.DataCacheBucket != "") {
-		return errors.New("ECI seed Anchor DataCache bucket and path must be provided together")
+	hasDirectLayers := len(request.DirectCacheLayers) != 0
+	if err := validateSeedDataCacheMounts(request, hasPrevious, hasDirectLayers); err != nil {
+		return err
 	}
-	if hasPrevious && (!dataCacheBucketPattern.MatchString(request.DataCacheBucket) || request.DataCacheBucket == "eci-system" || validateMountPath(request.PreviousDataCachePath) != nil) {
+	return validateSeedDirectCacheLayers(request)
+}
+
+// validateSeedDataCacheMounts 校验 Anchor 或 direct 层共用的 DataCache 挂载前提。
+func validateSeedDataCacheMounts(request SeedRequest, hasPrevious, hasDirectLayers bool) error {
+	if (hasPrevious || hasDirectLayers) != (request.DataCacheBucket != "") {
+		return errors.New("ECI seed DataCache bucket and mounted paths must be provided together")
+	}
+	if (hasPrevious || hasDirectLayers) && (!dataCacheBucketPattern.MatchString(request.DataCacheBucket) || request.DataCacheBucket == "eci-system") {
 		return errors.New("ECI seed Anchor DataCache identity is invalid")
+	}
+	if hasPrevious && validateMountPath(request.PreviousDataCachePath) != nil {
+		return errors.New("ECI seed Anchor DataCache identity is invalid")
+	}
+	return nil
+}
+
+// validateSeedDirectCacheLayers 校验有限层的身份、去重和 newest-first 顺序。
+func validateSeedDirectCacheLayers(request SeedRequest) error {
+	if len(request.DirectCacheLayers) > 3 {
+		return errors.New("ECI seed supports at most three direct cache layers")
+	}
+	seenIDs := make(map[string]struct{}, len(request.DirectCacheLayers))
+	seenPaths := make(map[string]struct{}, len(request.DirectCacheLayers))
+	var newerGeneration uint64
+	for index, layer := range request.DirectCacheLayers {
+		if err := validateSeedDirectCacheLayerIdentity(layer, request.DataCacheBucket); err != nil {
+			return err
+		}
+		if _, exists := seenIDs[layer.DataCacheID]; exists {
+			return errors.New("ECI seed direct cache layer IDs must be distinct")
+		}
+		if _, exists := seenPaths[layer.DataCachePath]; exists {
+			return errors.New("ECI seed direct cache layer paths must be distinct")
+		}
+		if index != 0 && layer.Generation >= newerGeneration {
+			return errors.New("ECI seed direct cache layers must be newest-first")
+		}
+		seenIDs[layer.DataCacheID] = struct{}{}
+		seenPaths[layer.DataCachePath] = struct{}{}
+		newerGeneration = layer.Generation
+	}
+	return nil
+}
+
+// validateSeedDirectCacheLayerIdentity 校验单层不可变身份，保留统一的 fail-fast 错误。
+func validateSeedDirectCacheLayerIdentity(layer DirectCacheLayer, bucket string) error {
+	if slices.Contains([]string{
+		layer.DataCacheID,
+		layer.SourceObjectPrefix,
+		layer.ManifestDigest,
+		layer.TreeSHA256,
+		layer.ParentChainSHA256,
+		layer.RuntimeGoSHA256,
+		layer.RuntimeDepsSHA256,
+	}, "") {
+		return errors.New("ECI seed direct cache layer identity is invalid")
+	}
+	if layer.DataCacheBucket != bucket || validateMountPath(layer.DataCachePath) != nil || layer.SizeGiB <= 0 || layer.Generation == 0 {
+		return errors.New("ECI seed direct cache layer identity is invalid")
 	}
 	return nil
 }

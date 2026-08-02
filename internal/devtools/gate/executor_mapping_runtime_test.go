@@ -7,10 +7,10 @@ import (
 
 func assertFrontendProgramsUsePinnedRuntimeInputs(t *testing.T, programs map[GateID]ExecutorProgram) {
 	t.Helper()
-	for _, id := range []GateID{GateIDFrontendLint, GateIDFrontendTest, GateIDFrontendFullTest, GateIDFrontendBuild} {
+	for _, id := range []GateID{GateIDFrontendLint, GateIDFrontendPreflight, GateIDFrontendTest, GateIDFrontendFullTest, GateIDFrontendBuild} {
 		assertFrontendProgramUsesPinnedRuntimeInput(t, id, programs[id])
 	}
-	for _, id := range []GateID{GateIDFrontendTest, GateIDFrontendFullTest} {
+	for _, id := range []GateID{GateIDFrontendPreflight, GateIDFrontendTest, GateIDFrontendFullTest} {
 		if !programs[id].NeedsGoSeed {
 			t.Errorf("frontend test gate %q does not mount the original image Go seed", id)
 		}
@@ -20,6 +20,7 @@ func assertFrontendProgramsUsePinnedRuntimeInputs(t *testing.T, programs map[Gat
 			t.Errorf("frontend non-test gate %q unexpectedly mounts the Go seed", id)
 		}
 	}
+	assertFrontendProgramCommand(t, GateIDFrontendPreflight, programs[GateIDFrontendPreflight], []string{"npm", "run", "test:hook:preflight"}, []string{"npm", "run", "test:hook:dependency-integrity"})
 	assertFrontendProgramCommand(t, GateIDFrontendTest, programs[GateIDFrontendTest], []string{"npm", "run", "test:hook"})
 	assertFrontendProgramCommand(t, GateIDFrontendFullTest, programs[GateIDFrontendFullTest], []string{"npm", "test"})
 }
@@ -47,9 +48,14 @@ func assertFrontendProgramUsesPinnedRuntimeInput(t *testing.T, id GateID, progra
 	}
 }
 
-func assertFrontendProgramCommand(t *testing.T, id GateID, program ExecutorProgram, wantArgv []string) {
+func assertFrontendProgramCommand(t *testing.T, id GateID, program ExecutorProgram, wantArgv ...[]string) {
 	t.Helper()
-	if len(program.Steps) != 1 || !slices.Equal(program.Steps[0].Argv, wantArgv) || program.Steps[0].Directory != "frontend-app" {
-		t.Fatalf("frontend test program %q = %#v, want frontend-app %v", id, program, wantArgv)
+	if len(program.Steps) != len(wantArgv) {
+		t.Fatalf("frontend test program %q = %#v, want %d frontend-app steps", id, program, len(wantArgv))
+	}
+	for index, want := range wantArgv {
+		if !slices.Equal(program.Steps[index].Argv, want) || program.Steps[index].Directory != "frontend-app" {
+			t.Fatalf("frontend test program %q step %d = %#v, want frontend-app %v", id, index, program.Steps[index], want)
+		}
 	}
 }

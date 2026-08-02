@@ -95,8 +95,14 @@ test "$ca_bundle_size" -gt 0
 direct_cache_root=$oss_output/direct-cache/cache-seed/go-build
 rm -rf "$direct_cache_root"
 install -d -m 0755 "$direct_cache_root"
-if test -d "$stage/anchor-go-build-cache"; then
-  cp -a "$stage/anchor-go-build-cache/." "$direct_cache_root/"
+if test -n "${BASELINE_DIRECT_CACHE_LAYER_COUNT:-}"; then
+  case "$BASELINE_DIRECT_CACHE_LAYER_COUNT" in 1|2|3) ;; *) echo 'direct cache layer count is invalid at publish' >&2; exit 1;; esac
+  printf '[baseline-seed] go direct cache publish: current private delta only\n'
+else
+  printf '[baseline-seed] go direct cache migration: publishing one full compatibility layer\n'
+  if test -d "$stage/anchor-go-build-cache"; then
+    cp -a "$stage/anchor-go-build-cache/." "$direct_cache_root/"
+  fi
 fi
 cp -a "$go_build_cache/." "$direct_cache_root/"
 chmod -R a+rX,a-w "$direct_cache_root"

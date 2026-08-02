@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/datacache"
+	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
@@ -69,11 +70,12 @@ func collectRetiredRemoteBaselinePrefixes(
 		prefixes = append(prefixes, state.RetiredAnchor.SourceObjectPrefix)
 	}
 	if state.RetiredDirectCacheRef != nil {
-		retired := state.RetiredDirectCacheRef
-		if err := removeRetiredRemoteDirectDataCache(ctx, client, *retired); err != nil {
-			return nil, err
+		for _, retired := range state.RetiredDirectCacheRef.Layers {
+			if err := removeRetiredRemoteDirectDataCache(ctx, client, retired); err != nil {
+				return nil, err
+			}
+			prefixes = append(prefixes, retired.SourceObjectPrefix)
 		}
-		prefixes = append(prefixes, retired.SourceObjectPrefix)
 	}
 	for _, delta := range state.RetiredDeltas {
 		prefixes = append(prefixes, delta.SourceObjectPrefix)
@@ -82,7 +84,7 @@ func collectRetiredRemoteBaselinePrefixes(
 }
 
 // removeRetiredRemoteDirectDataCache 在删除前额外绑定直读缓存的规范资源名。
-func removeRetiredRemoteDirectDataCache(ctx context.Context, client remoteBaselineDataCacheClient, retired remoteci.DirectCacheRef) error {
+func removeRetiredRemoteDirectDataCache(ctx context.Context, client remoteBaselineDataCacheClient, retired remoteci.DirectCacheLayerRef) error {
 	caches, err := client.Describe(ctx, retired.DataCacheID)
 	if err != nil {
 		return fmt.Errorf("describe retired direct DataCache: %w", err)
@@ -111,6 +113,37 @@ func uniqueRemoteBaselinePrefixes(prefixes []string) []string {
 		unique = append(unique, prefix)
 	}
 	return unique
+}
+
+// partitionRemoteBaselineDirectCacheLayers 保留同一运行时的最新三层，并显式标记其余层退役。
+func partitionRemoteBaselineDirectCacheLayers(previous *remoteci.DirectCacheRef, current remoteci.DirectCacheLayerRef) ([]remoteci.DirectCacheLayerRef, []remoteci.DirectCacheLayerRef) {
+	layers := []remoteci.DirectCacheLayerRef{current}
+	retired := make([]remoteci.DirectCacheLayerRef, 0)
+	if previous == nil {
+		return layers, retired
+	}
+	for _, layer := range previous.Layers {
+		if layer.RuntimeGoSHA256 != current.RuntimeGoSHA256 || layer.RuntimeDepsSHA256 != current.RuntimeDepsSHA256 || len(layers) == 3 {
+			retired = append(retired, layer)
+			continue
+		}
+		layers = append(layers, layer)
+	}
+	return layers, retired
+}
+
+// newRemoteBaselineDirectCacheLayer 将已验收的当前输入绑定为一个不可变直读层。
+func newRemoteBaselineDirectCacheLayer(state remoteci.BaselineState, stage remoteBaselineArtifactStage, cache datacache.DataCache, manifest gatecontract.GoBuildCacheDirectSeedManifest, manifestDigest string) (remoteci.DirectCacheLayerRef, error) {
+	parentChainDigest, err := remoteci.CurrentBaselineParentChainDigest(state)
+	if err != nil {
+		return remoteci.DirectCacheLayerRef{}, protocolError("compute remote direct cache parent chain: %v", err)
+	}
+	return remoteci.DirectCacheLayerRef{
+		DataCacheID: cache.ID, DataCacheBucket: cache.Bucket, DataCachePath: cache.Path, SizeGiB: cache.SizeGiB,
+		Generation: stage.generation, SourceObjectPrefix: remoteBaselineDirectCacheOutputPrefix(stage), ManifestDigest: manifestDigest,
+		TreeSHA256: manifest.TreeSHA256, ParentChainSHA256: parentChainDigest,
+		RuntimeGoSHA256: manifest.RuntimeGoSHA256, RuntimeDepsSHA256: manifest.RuntimeDepsSHA256,
+	}, nil
 }
 
 // removeRetiredRemoteDataCache 删除仍存在的退役 DataCache 并等待其消失。

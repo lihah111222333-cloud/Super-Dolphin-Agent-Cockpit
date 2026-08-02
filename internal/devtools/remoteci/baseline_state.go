@@ -15,9 +15,10 @@ import (
 )
 
 const (
-	BaselineStateSchemaVersion         uint32 = 7
+	BaselineStateSchemaVersion         uint32 = 8
 	BaselineSourceHistorySchemaVersion uint32 = 1
-	BaselineStatePreviousSchemaVersion uint32 = 6
+	BaselineStatePreviousSchemaVersion uint32 = 7
+	baselineStateV6SchemaVersion       uint32 = 6
 	baselineStateLegacySchemaVersion   uint32 = 5
 )
 
@@ -50,8 +51,9 @@ type BaselineDeltaRef struct {
 	AcceptedAt         time.Time `json:"accepted_at"`
 }
 
-// DirectCacheRef 绑定 sidecar 直读缓存的 DataCache、父链和不可变运行时种子输入。
-type DirectCacheRef struct {
+// DirectCacheLayerRef 绑定一个不可变 sidecar 直读缓存层的 DataCache、父链和运行时种子输入。
+// Layers 始终按 newest-first 排序，worker 只能按这一顺序查询缓存。
+type DirectCacheLayerRef struct {
 	DataCacheID        string `json:"data_cache_id"`
 	DataCacheBucket    string `json:"data_cache_bucket"`
 	DataCachePath      string `json:"data_cache_path"`
@@ -63,6 +65,23 @@ type DirectCacheRef struct {
 	ParentChainSHA256  string `json:"parent_chain_sha256"`
 	RuntimeGoSHA256    string `json:"runtime_go_sha256"`
 	RuntimeDepsSHA256  string `json:"runtime_deps_sha256"`
+}
+
+// DirectCacheRef 是有界、有序的直读缓存层集合。旧的单层字段仅用于 v7 解码，禁止新状态写入。
+type DirectCacheRef struct {
+	Layers []DirectCacheLayerRef `json:"layers"`
+
+	DataCacheID        string `json:"-"`
+	DataCacheBucket    string `json:"-"`
+	DataCachePath      string `json:"-"`
+	SizeGiB            int    `json:"-"`
+	Generation         uint64 `json:"-"`
+	SourceObjectPrefix string `json:"-"`
+	ManifestDigest     string `json:"-"`
+	TreeSHA256         string `json:"-"`
+	ParentChainSHA256  string `json:"-"`
+	RuntimeGoSHA256    string `json:"-"`
+	RuntimeDepsSHA256  string `json:"-"`
 }
 
 // BaselineState is the accepted remote CI identity with one Anchor and bounded OSS deltas.
@@ -128,7 +147,13 @@ type baselineV4Ref struct {
 	AcceptedAt         time.Time `json:"accepted_at"`
 }
 
-// UnmarshalJSON 严格解码 v7 状态并在内存中迁移 v4-v6 状态。
+type legacyDirectCacheRefWire DirectCacheLayerRef
+
+func (reference legacyDirectCacheRefWire) layer() DirectCacheLayerRef {
+	return DirectCacheLayerRef(reference)
+}
+
+// UnmarshalJSON 严格解码 v8 状态并在内存中迁移 v4-v7 状态。
 func (state *BaselineState) UnmarshalJSON(data []byte) error {
 	var header struct {
 		SchemaVersion uint32 `json:"schema_version"`
@@ -141,6 +166,8 @@ func (state *BaselineState) UnmarshalJSON(data []byte) error {
 		return state.decodeCurrentBaselineState(data)
 	case BaselineStatePreviousSchemaVersion:
 		return state.decodePreviousBaselineState(data)
+	case baselineStateV6SchemaVersion:
+		return state.decodeV6BaselineState(data)
 	case baselineStateLegacySchemaVersion:
 		return state.decodeLegacyBaselineState(data)
 	case 4:
@@ -164,8 +191,46 @@ func (state *BaselineState) decodeCurrentBaselineState(data []byte) error {
 	return nil
 }
 
-// decodePreviousBaselineState 迁移 v6 状态，保留需要重建完整历史的哨兵值。
+// decodePreviousBaselineState 将 v7 单层直读缓存迁移为一层有序集合。
 func (state *BaselineState) decodePreviousBaselineState(data []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	directData := fields["direct_cache_ref"]
+	retiredData := fields["retired_direct_cache_ref"]
+	delete(fields, "direct_cache_ref")
+	delete(fields, "retired_direct_cache_ref")
+	data, err := json.Marshal(fields)
+	if err != nil {
+		return err
+	}
+	type stateWire BaselineState
+	var wire stateWire
+	if err := decodeSingleJSON(data, &wire); err != nil {
+		return err
+	}
+	*state = BaselineState(wire)
+	state.SchemaVersion = BaselineStateSchemaVersion
+	if directData != nil {
+		var reference legacyDirectCacheRefWire
+		if err := decodeSingleJSON(directData, &reference); err != nil {
+			return err
+		}
+		state.DirectCacheRef = &DirectCacheRef{Layers: []DirectCacheLayerRef{reference.layer()}}
+	}
+	if retiredData != nil {
+		var reference legacyDirectCacheRefWire
+		if err := decodeSingleJSON(retiredData, &reference); err != nil {
+			return err
+		}
+		state.RetiredDirectCacheRef = &DirectCacheRef{Layers: []DirectCacheLayerRef{reference.layer()}}
+	}
+	return nil
+}
+
+// decodeV6BaselineState 迁移 v6 状态，保留需要重建完整历史的哨兵值。
+func (state *BaselineState) decodeV6BaselineState(data []byte) error {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return err
@@ -274,7 +339,7 @@ func (state BaselineState) Validate() error {
 		return err
 	}
 	if state.RetiredDirectCacheRef != nil {
-		if err := state.RetiredDirectCacheRef.validateIdentity(state.DataCacheBucket); err != nil {
+		if err := state.RetiredDirectCacheRef.validateRetired(state.DataCacheBucket); err != nil {
 			return err
 		}
 	}
@@ -559,28 +624,48 @@ func (reference BaselineCacheRef) validate(bucket string, allowMissingManifestDi
 	return nil
 }
 
-// validate 校验直读缓存的存储身份、父链和运行时种子绑定。
+// validate 校验直读缓存层集合的顺序、存储身份、父链和运行时种子绑定。
 func (reference DirectCacheRef) validate(state BaselineState) error {
-	if reference.Generation != state.Generation {
-		return errors.New("direct cache reference is invalid")
-	}
-	if reference.RuntimeGoSHA256 != state.RuntimeSeedSHA256 {
-		return errors.New("direct cache reference runtime Go digest does not match current baseline")
-	}
-	if err := reference.validateIdentity(state.DataCacheBucket); err != nil {
-		return err
-	}
 	parentChainDigest, err := CurrentBaselineParentChainDigest(state)
 	if err != nil {
 		return err
 	}
-	if reference.ParentChainSHA256 != parentChainDigest {
-		return errors.New("direct cache reference parent chain digest does not match current baseline")
+	return reference.validateLayers(state.DataCacheBucket, state.Generation, state.RuntimeSeedSHA256, parentChainDigest)
+}
+
+func (reference DirectCacheRef) validateRetired(bucket string) error {
+	return reference.validateLayers(bucket, 0, "", "")
+}
+
+func (reference DirectCacheRef) validateLayers(bucket string, tipGeneration uint64, runtimeGoDigest string, parentChainDigest string) error {
+	if len(reference.Layers) == 0 || len(reference.Layers) > 3 {
+		return errors.New("direct cache layer count is invalid")
+	}
+	seen := make(map[string]struct{}, len(reference.Layers))
+	for index, layer := range reference.Layers {
+		if err := layer.validateIdentity(bucket); err != nil {
+			return err
+		}
+		if runtimeGoDigest != "" && layer.RuntimeGoSHA256 != runtimeGoDigest {
+			return errors.New("direct cache layer runtime Go digest does not match current baseline")
+		}
+		if index == 0 {
+			if tipGeneration != 0 && (layer.Generation != tipGeneration || layer.ParentChainSHA256 != parentChainDigest) {
+				return errors.New("newest direct cache layer does not match current baseline chain")
+			}
+		} else if reference.Layers[index-1].Generation <= layer.Generation {
+			return errors.New("direct cache layers are not newest-first")
+		}
+		identity := layer.DataCacheID + "\x00" + layer.DataCacheBucket + "\x00" + layer.DataCachePath
+		if _, duplicate := seen[identity]; duplicate {
+			return errors.New("direct cache layer identity is duplicated")
+		}
+		seen[identity] = struct{}{}
 	}
 	return nil
 }
 
-func (reference DirectCacheRef) validateIdentity(bucket string) error {
+func (reference DirectCacheLayerRef) validateIdentity(bucket string) error {
 	if !dataCacheIDPattern.MatchString(reference.DataCacheID) ||
 		!dataCacheBucketPattern.MatchString(reference.DataCacheBucket) ||
 		reference.DataCacheBucket == "eci-system" ||
@@ -598,7 +683,7 @@ func (reference DirectCacheRef) validateIdentity(bucket string) error {
 	return nil
 }
 
-func (reference DirectCacheRef) hasCanonicalLocation() bool {
+func (reference DirectCacheLayerRef) hasCanonicalLocation() bool {
 	generation := strconv.FormatUint(reference.Generation, 10)
 	return reference.Generation > 0 &&
 		strings.HasSuffix(reference.DataCachePath, "/direct-cache/"+generation) &&

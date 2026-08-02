@@ -3,6 +3,7 @@ package gate
 import (
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -722,6 +723,10 @@ func digestPlanExecutionReport(report PlanExecutionReport) string {
 		data = appendPlanReportField(data, "log-bytes", strconv.Itoa(len(result.Log)))
 		data = append(data, result.Log...)
 		data = append(data, '\n')
+		if report.SchemaVersion >= 5 {
+			frontend, _ := encodeFrontendExecutionProfile(result.ExecutionProfile.Frontend)
+			data = appendPlanReportField(data, "frontend-execution-profile", frontend)
+		}
 		if report.SchemaVersion >= 2 {
 			data = appendPlanReportField(data, "test-timing-count", strconv.Itoa(len(result.TestTimings)))
 			for _, timing := range result.TestTimings {
@@ -850,6 +855,32 @@ func (profile ExecutionProfile) Validate() error {
 	if profile.MaterializeMS < 0 || profile.DownloadMS < 0 || profile.VerifyMS < 0 || profile.StartupMS < 0 || profile.TestBodyMS < 0 || profile.TotalMS < 0 || profile.TotalMS < profile.MaterializeMS+profile.DownloadMS+profile.VerifyMS+profile.StartupMS+profile.TestBodyMS {
 		return errors.New("execution profile timing is invalid")
 	}
+	if profile.Frontend != nil {
+		if err := profile.Frontend.Validate(); err != nil {
+			return fmt.Errorf("frontend execution profile: %w", err)
+		}
+	}
+	return nil
+}
+
+// Validate rejects omitted frontend cache state instead of inferring a hit.
+func (profile FrontendExecutionProfile) Validate() error {
+	for _, evidence := range []struct {
+		hit    bool
+		reason string
+	}{
+		{profile.NodeModulesSeedHit, profile.NodeModulesSeedNotApplicableReason},
+		{profile.NPMCacheHit, profile.NPMCacheNotApplicableReason},
+		{profile.PlaywrightBrowserHit, profile.PlaywrightBrowserNotApplicableReason},
+		{profile.ViteCacheHit, profile.ViteCacheNotApplicableReason},
+	} {
+		if evidence.hit == (evidence.reason != "") {
+			return errors.New("frontend cache evidence must be a hit or have a not applicable reason")
+		}
+	}
+	if profile.SetupMS < 0 || profile.BodyMS < 0 || profile.TotalMS < 0 || profile.TotalMS != profile.SetupMS+profile.BodyMS {
+		return errors.New("frontend execution profile timing is invalid")
+	}
 	return nil
 }
 
@@ -869,12 +900,30 @@ func encodeExecutionProfileRecord(index int, profile ExecutionProfile) (string, 
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%s %06d %s %s %s %s %s %d %d %d %d %s %d %d %d %d %d %d", planReportProfileRecord, index, pkg, mode, profile.CacheSource, profile.CacheStatus, profile.CacheMeasurement, profile.PrivateHitCount, profile.BaselineHitCount, profile.CacheMissCount, profile.CachePutCount, generations, profile.MaterializeMS, profile.DownloadMS, profile.VerifyMS, profile.StartupMS, profile.TestBodyMS, profile.TotalMS), nil
+	frontend, err := encodeFrontendExecutionProfile(profile.Frontend)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s %06d %s %s %s %s %s %d %d %d %d %s %d %d %d %d %d %d %s", planReportProfileRecord, index, pkg, mode, profile.CacheSource, profile.CacheStatus, profile.CacheMeasurement, profile.PrivateHitCount, profile.BaselineHitCount, profile.CacheMissCount, profile.CachePutCount, generations, profile.MaterializeMS, profile.DownloadMS, profile.VerifyMS, profile.StartupMS, profile.TestBodyMS, profile.TotalMS, frontend), nil
+}
+
+func encodeFrontendExecutionProfile(profile *FrontendExecutionProfile) (string, error) {
+	if profile == nil {
+		return "-", nil
+	}
+	if err := profile.Validate(); err != nil {
+		return "", err
+	}
+	data, err := json.Marshal(profile)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(data), nil
 }
 
 func decodeExecutionProfileRecord(payload string, expectedIndex int) (ExecutionProfile, error) {
 	f := strings.Fields(payload)
-	if len(f) != 17 || strings.Join(f, " ") != payload {
+	if len(f) != 18 || strings.Join(f, " ") != payload {
 		return ExecutionProfile{}, errors.New("plan report execution profile is invalid")
 	}
 	if err := validatePlanGateRecordIndex(f[0], expectedIndex); err != nil {
@@ -901,7 +950,11 @@ func decodeExecutionProfileRecord(payload string, expectedIndex int) (ExecutionP
 	if generationErr != nil {
 		return ExecutionProfile{}, generationErr
 	}
-	p := ExecutionProfile{CandidateTestBinaryPackage: f[1], CandidateTestBinaryMode: f[2], CacheSource: f[3], CacheStatus: f[4], CacheMeasurement: f[5], PrivateHitCount: privateHits, BaselineHitCount: baselineHits, CacheMissCount: misses, CachePutCount: puts, BaselineHitByGeneration: generations, MaterializeMS: values[0], DownloadMS: values[1], VerifyMS: values[2], StartupMS: values[3], TestBodyMS: values[4], TotalMS: values[5]}
+	frontend, frontendErr := decodeFrontendExecutionProfile(f[17])
+	if frontendErr != nil {
+		return ExecutionProfile{}, frontendErr
+	}
+	p := ExecutionProfile{CandidateTestBinaryPackage: f[1], CandidateTestBinaryMode: f[2], Frontend: frontend, CacheSource: f[3], CacheStatus: f[4], CacheMeasurement: f[5], PrivateHitCount: privateHits, BaselineHitCount: baselineHits, CacheMissCount: misses, CachePutCount: puts, BaselineHitByGeneration: generations, MaterializeMS: values[0], DownloadMS: values[1], VerifyMS: values[2], StartupMS: values[3], TestBodyMS: values[4], TotalMS: values[5]}
 	if p.CandidateTestBinaryPackage == "-" {
 		p.CandidateTestBinaryPackage = ""
 	}
@@ -912,6 +965,21 @@ func decodeExecutionProfileRecord(payload string, expectedIndex int) (ExecutionP
 		return ExecutionProfile{}, err
 	}
 	return p, nil
+}
+
+func decodeFrontendExecutionProfile(value string) (*FrontendExecutionProfile, error) {
+	if value == "-" {
+		return nil, nil
+	}
+	data, err := hex.DecodeString(value)
+	if err != nil {
+		return nil, errors.New("plan report frontend execution profile is invalid")
+	}
+	var profile FrontendExecutionProfile
+	if json.Unmarshal(data, &profile) != nil || profile.Validate() != nil {
+		return nil, errors.New("plan report frontend execution profile is invalid")
+	}
+	return &profile, nil
 }
 
 func encodeBaselineGenerationMap(generations map[string]uint64) (string, error) {

@@ -46,14 +46,14 @@ const (
 )
 
 type remoteMaterializeConfig struct {
-	RoleName         string
-	Endpoint         string
-	Bucket           string
-	RequestKey       string
-	RequestSHA256    string
-	BaselineManifest string
-	CAFile           string
-	DirectCache      *remoteMaterializeDirectCacheConfig
+	RoleName          string
+	Endpoint          string
+	Bucket            string
+	RequestKey        string
+	RequestSHA256     string
+	BaselineManifest  string
+	CAFile            string
+	DirectCacheLayers []remoteMaterializeDirectCacheConfig
 }
 
 type remoteMaterializeDirectCacheConfig struct {
@@ -129,7 +129,7 @@ func loadRemoteMaterializeConfig(getenv func(string) (string, bool)) (remoteMate
 		RequestSHA256: values[remoteRequestSHA256Env], BaselineManifest: values[remoteBaselineManifestEnv],
 		CAFile: values[remoteSSLCAFileEnv],
 	}
-	config.DirectCache, err = loadRemoteMaterializeDirectCacheConfig(getenv)
+	config.DirectCacheLayers, err = loadRemoteMaterializeDirectCacheConfig(getenv)
 	if err != nil {
 		return remoteMaterializeConfig{}, err
 	}
@@ -140,90 +140,111 @@ func loadRemoteMaterializeConfig(getenv func(string) (string, bool)) (remoteMate
 }
 
 const (
-	remoteDirectCacheManifestEnv    = "SUPER_DOLPHIN_REMOTE_DIRECT_CACHE_MANIFEST_SHA256"
-	remoteDirectCacheTreeEnv        = "SUPER_DOLPHIN_REMOTE_DIRECT_CACHE_TREE_SHA256"
-	remoteDirectCacheParentChainEnv = "SUPER_DOLPHIN_REMOTE_DIRECT_CACHE_PARENT_CHAIN_SHA256"
-	remoteDirectCacheRuntimeGoEnv   = "SUPER_DOLPHIN_REMOTE_DIRECT_CACHE_RUNTIME_GO_SHA256"
-	remoteDirectCacheRuntimeDepsEnv = "SUPER_DOLPHIN_REMOTE_DIRECT_CACHE_RUNTIME_DEPS_SHA256"
-	remoteDirectCacheGenerationEnv  = "SUPER_DOLPHIN_REMOTE_DIRECT_CACHE_GENERATION"
-	remoteDirectCacheIDEnv          = "SUPER_DOLPHIN_REMOTE_DIRECT_CACHE_DATA_CACHE_ID"
+	remoteDirectCacheLayerCountEnv = "SUPER_DOLPHIN_REMOTE_DIRECT_CACHE_LAYER_COUNT"
 )
 
-// loadRemoteMaterializeDirectCacheConfig 要求直读缓存环境字段全部出现或全部缺失。
-func loadRemoteMaterializeDirectCacheConfig(getenv func(string) (string, bool)) (*remoteMaterializeDirectCacheConfig, error) {
-	names := []string{remoteDirectCacheManifestEnv, remoteDirectCacheTreeEnv, remoteDirectCacheParentChainEnv, remoteDirectCacheRuntimeGoEnv, remoteDirectCacheRuntimeDepsEnv, remoteDirectCacheGenerationEnv, remoteDirectCacheIDEnv}
-	values := make(map[string]string, len(names))
-	present := 0
-	for _, name := range names {
-		value, ok := getenv(name)
-		if !ok {
-			continue
+// loadRemoteMaterializeDirectCacheConfig 要求固定上限内的直读层完整出现，并保持 newest-first 顺序。
+func loadRemoteMaterializeDirectCacheConfig(getenv func(string) (string, bool)) ([]remoteMaterializeDirectCacheConfig, error) {
+	countText, countPresent := getenv(remoteDirectCacheLayerCountEnv)
+	if !countPresent {
+		for index := range gatecontract.ExecutorDirectGoBuildCacheSeedMaxLayers {
+			for _, name := range remoteDirectCacheLayerEnvironmentNames(index) {
+				if _, present := getenv(name); present {
+					return nil, errors.New("remote direct cache layer count is required")
+				}
+			}
 		}
-		present++
-		if value == "" || strings.TrimSpace(value) != value || strings.ContainsAny(value, "\x00\r\n") {
-			return nil, fmt.Errorf("%s is not canonical", name)
-		}
-		values[name] = value
-	}
-	if present == 0 {
 		return nil, nil
 	}
-	if present != len(names) {
-		return nil, errors.New("remote direct cache environment is incomplete")
+	count, err := strconv.ParseUint(countText, 10, 8)
+	if err != nil || count == 0 || count > gatecontract.ExecutorDirectGoBuildCacheSeedMaxLayers || strconv.FormatUint(count, 10) != countText {
+		return nil, errors.New("remote direct cache layer count is invalid")
 	}
-	generation, err := strconv.ParseUint(values[remoteDirectCacheGenerationEnv], 10, 64)
-	if err != nil || generation == 0 {
-		return nil, errors.New("remote direct cache generation is invalid")
-	}
-	config := &remoteMaterializeDirectCacheConfig{
-		ManifestSHA256: values[remoteDirectCacheManifestEnv], TreeSHA256: values[remoteDirectCacheTreeEnv], ParentChainSHA256: values[remoteDirectCacheParentChainEnv],
-		RuntimeGoSHA256: values[remoteDirectCacheRuntimeGoEnv], RuntimeDepsSHA256: values[remoteDirectCacheRuntimeDepsEnv], Generation: generation, DataCacheID: values[remoteDirectCacheIDEnv],
-	}
-	for _, digest := range []string{config.ManifestSHA256, config.TreeSHA256, config.ParentChainSHA256, config.RuntimeGoSHA256, config.RuntimeDepsSHA256} {
-		if !validRemoteManifestDigest(digest) {
-			return nil, errors.New("remote direct cache digest is invalid")
+	layers := make([]remoteMaterializeDirectCacheConfig, int(count))
+	for index := range layers {
+		values := make(map[string]string, 7)
+		for _, name := range remoteDirectCacheLayerEnvironmentNames(index) {
+			value, ok := getenv(name)
+			if !ok || value == "" || strings.TrimSpace(value) != value || strings.ContainsAny(value, "\x00\r\n") {
+				return nil, fmt.Errorf("%s is required and canonical", name)
+			}
+			values[name] = value
+		}
+		generation, parseErr := strconv.ParseUint(values[remoteDirectCacheLayerEnvironmentName(index, "GENERATION")], 10, 64)
+		if parseErr != nil || generation == 0 {
+			return nil, errors.New("remote direct cache generation is invalid")
+		}
+		layers[index] = remoteMaterializeDirectCacheConfig{
+			ManifestSHA256: values[remoteDirectCacheLayerEnvironmentName(index, "MANIFEST_SHA256")], TreeSHA256: values[remoteDirectCacheLayerEnvironmentName(index, "TREE_SHA256")], ParentChainSHA256: values[remoteDirectCacheLayerEnvironmentName(index, "PARENT_CHAIN_SHA256")],
+			RuntimeGoSHA256: values[remoteDirectCacheLayerEnvironmentName(index, "RUNTIME_GO_SHA256")], RuntimeDepsSHA256: values[remoteDirectCacheLayerEnvironmentName(index, "RUNTIME_DEPS_SHA256")], Generation: generation, DataCacheID: values[remoteDirectCacheLayerEnvironmentName(index, "DATA_CACHE_ID")],
+		}
+		for _, digest := range []string{layers[index].ManifestSHA256, layers[index].TreeSHA256, layers[index].ParentChainSHA256, layers[index].RuntimeGoSHA256, layers[index].RuntimeDepsSHA256} {
+			if !validRemoteManifestDigest(digest) {
+				return nil, errors.New("remote direct cache digest is invalid")
+			}
 		}
 	}
-	return config, nil
+	for index := len(layers); index < gatecontract.ExecutorDirectGoBuildCacheSeedMaxLayers; index++ {
+		for _, name := range remoteDirectCacheLayerEnvironmentNames(index) {
+			if _, present := getenv(name); present {
+				return nil, errors.New("remote direct cache layer environment exceeds declared count")
+			}
+		}
+	}
+	return layers, nil
 }
 
-// verifyRemoteDirectCache 把第二 DataCache 的挂载内容、请求身份和 init 环境绑定为同一棵只读缓存树。
-func verifyRemoteDirectCache(config *remoteMaterializeDirectCacheConfig, request remoteci.ShardRequest) error {
-	if config == nil && request.DirectCacheRef == nil {
+func remoteDirectCacheLayerEnvironmentName(index int, suffix string) string {
+	return fmt.Sprintf("SUPER_DOLPHIN_REMOTE_DIRECT_CACHE_LAYER_%d_%s", index, suffix)
+}
+
+func remoteDirectCacheLayerEnvironmentNames(index int) []string {
+	return []string{
+		remoteDirectCacheLayerEnvironmentName(index, "MANIFEST_SHA256"), remoteDirectCacheLayerEnvironmentName(index, "TREE_SHA256"), remoteDirectCacheLayerEnvironmentName(index, "PARENT_CHAIN_SHA256"),
+		remoteDirectCacheLayerEnvironmentName(index, "RUNTIME_GO_SHA256"), remoteDirectCacheLayerEnvironmentName(index, "RUNTIME_DEPS_SHA256"), remoteDirectCacheLayerEnvironmentName(index, "GENERATION"), remoteDirectCacheLayerEnvironmentName(index, "DATA_CACHE_ID"),
+	}
+}
+
+// verifyRemoteDirectCache 把有序 DataCache 层、请求身份和 init 环境绑定为同一组只读缓存树。
+func verifyRemoteDirectCache(configs []remoteMaterializeDirectCacheConfig, request remoteci.ShardRequest) error {
+	if len(configs) == 0 && request.DirectCacheRef == nil {
 		return nil
 	}
-	if config == nil || request.DirectCacheRef == nil {
+	if request.DirectCacheRef == nil || len(configs) != len(request.DirectCacheRef.Layers) {
 		return errors.New("remote direct cache request and environment disagree")
 	}
-	reference := request.DirectCacheRef
-	if config.ManifestSHA256 != reference.ManifestDigest || config.TreeSHA256 != reference.TreeSHA256 ||
-		config.ParentChainSHA256 != reference.ParentChainSHA256 || config.RuntimeGoSHA256 != reference.RuntimeGoSHA256 ||
-		config.RuntimeDepsSHA256 != reference.RuntimeDepsSHA256 || config.Generation != reference.Generation ||
-		config.DataCacheID != reference.DataCacheID {
-		return errors.New("remote direct cache environment drifted from shard request")
-	}
-	manifestPath := filepath.Join(remoteDirectCacheRootPath, "manifest.json")
-	data, err := os.ReadFile(manifestPath)
-	if err != nil {
-		return fmt.Errorf("read remote direct cache manifest: %w", err)
-	}
-	if len(data) == 0 || len(data) > 64<<20 || digestBytes(data) != reference.ManifestDigest {
-		return errors.New("remote direct cache manifest digest is invalid")
-	}
-	var manifest gatecontract.GoBuildCacheDirectSeedManifest
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&manifest); err != nil {
-		return fmt.Errorf("decode remote direct cache manifest: %w", err)
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return errors.New("remote direct cache manifest has trailing data")
-	}
-	if manifest.TreeSHA256 != reference.TreeSHA256 || manifest.RuntimeGoSHA256 != reference.RuntimeGoSHA256 || manifest.RuntimeDepsSHA256 != reference.RuntimeDepsSHA256 {
-		return errors.New("remote direct cache manifest drifted from shard request")
-	}
-	if err := gatecontract.ValidateGoBuildCacheDirectSeedMount(gatecontract.ExecutorDirectGoBuildCacheSeedRoot, manifest); err != nil {
-		return fmt.Errorf("verify remote direct cache tree: %w", err)
+	for index, reference := range request.DirectCacheRef.Layers {
+		config := configs[index]
+		if config.ManifestSHA256 != reference.ManifestDigest || config.TreeSHA256 != reference.TreeSHA256 ||
+			config.ParentChainSHA256 != reference.ParentChainSHA256 || config.RuntimeGoSHA256 != reference.RuntimeGoSHA256 ||
+			config.RuntimeDepsSHA256 != reference.RuntimeDepsSHA256 || config.Generation != reference.Generation ||
+			config.DataCacheID != reference.DataCacheID {
+			return fmt.Errorf("remote direct cache layer %d environment drifted from shard request", index)
+		}
+		manifestPath := filepath.Join(remoteDirectCacheRootPath, fmt.Sprintf("layer-%d", index), "manifest.json")
+		data, err := os.ReadFile(manifestPath)
+		if err != nil {
+			return fmt.Errorf("read remote direct cache layer %d manifest: %w", index, err)
+		}
+		if len(data) == 0 || len(data) > 64<<20 || digestBytes(data) != reference.ManifestDigest {
+			return fmt.Errorf("remote direct cache layer %d manifest digest is invalid", index)
+		}
+		var manifest gatecontract.GoBuildCacheDirectSeedManifest
+		decoder := json.NewDecoder(bytes.NewReader(data))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&manifest); err != nil {
+			return fmt.Errorf("decode remote direct cache layer %d manifest: %w", index, err)
+		}
+		if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+			return fmt.Errorf("remote direct cache layer %d manifest has trailing data", index)
+		}
+		if manifest.TreeSHA256 != reference.TreeSHA256 || manifest.RuntimeGoSHA256 != reference.RuntimeGoSHA256 || manifest.RuntimeDepsSHA256 != reference.RuntimeDepsSHA256 {
+			return fmt.Errorf("remote direct cache layer %d manifest drifted from shard request", index)
+		}
+		mountRoot := filepath.Join(remoteDirectCacheRootPath, fmt.Sprintf("layer-%d", index), "cache-seed", "go-build")
+		if err := gatecontract.ValidateGoBuildCacheDirectSeedMount(mountRoot, manifest); err != nil {
+			return fmt.Errorf("verify remote direct cache layer %d tree: %w", index, err)
+		}
 	}
 	return nil
 }
@@ -302,7 +323,7 @@ func materializeRemoteSourceWithTiming(
 	}
 	timing.ShardIdentity = request.ShardIdentity
 	baselineStarted := time.Now()
-	if err := verifyRemoteDirectCache(config.DirectCache, request); err != nil {
+	if err := verifyRemoteDirectCache(config.DirectCacheLayers, request); err != nil {
 		return remoteci.ShardRequest{}, timing, err
 	}
 	if err := materializeRemoteBaseline(ctx, cacheRoot, expandedRoot, sourceRoot, request, download); err != nil {

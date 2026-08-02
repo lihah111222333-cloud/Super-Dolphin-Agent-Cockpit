@@ -187,7 +187,7 @@ func (snapshot *remoteGitTreeSnapshot) nestedGoModuleInputDigest(ctx context.Con
 // canonicalGateInputDigest 按父门禁语义选择精确 Git tree 输入集合。
 func (snapshot *remoteGitTreeSnapshot) canonicalGateInputDigest(parent gate.GateID) (string, error) {
 	switch parent {
-	case gate.GateIDFrontendLint, gate.GateIDFrontendTest, gate.GateIDFrontendFullTest, gate.GateIDFrontendBuild:
+	case gate.GateIDFrontendLint, gate.GateIDFrontendTest, gate.GateIDFrontendE2E, gate.GateIDFrontendFullTest, gate.GateIDFrontendBuild:
 		return snapshot.digestMatching(func(entry remoteGitTreeEntry) bool {
 			return strings.HasPrefix(entry.path, "frontend-app/")
 		})

@@ -98,9 +98,19 @@ var executorPrograms = map[GateID]ExecutorProgram{
 	GateIDFrontendLint: withFrontendSeed(requirePaths(commandProgramIn("frontend-app",
 		[]string{"npm", "run", "lint"},
 	), "frontend-app/package.json", "frontend-app/package-lock.json")),
+	GateIDFrontendPreflight: withGoSeed(withFrontendSeed(requirePaths(commandProgramIn("frontend-app",
+		[]string{"npm", "run", "test:hook:preflight"},
+		[]string{"npm", "run", "test:hook:dependency-integrity"},
+	), "frontend-app/package.json", "frontend-app/package-lock.json"))),
 	GateIDFrontendTest: withGoSeed(withFrontendSeed(requirePaths(commandProgramIn("frontend-app",
 		[]string{"npm", "run", "test:hook"},
 	), "frontend-app/package.json", "frontend-app/package-lock.json"))),
+	GateIDFrontendE2E: withFrontendSeed(requirePaths(commandProgramIn("frontend-app",
+		[]string{"npm", "run", "test:e2e:business"},
+		[]string{"npm", "run", "test:e2e:desktop-wide"},
+	), "frontend-app/package.json", "frontend-app/package-lock.json",
+		"frontend-app/"+playwrightBusinessFlowsSpec, "frontend-app/playwright.business-flows.config.js",
+		"frontend-app/"+playwrightDesktopWideSpec, "frontend-app/playwright.desktop-wide.config.js")),
 	GateIDFrontendFullTest: withGoSeed(withFrontendSeed(requirePaths(commandProgramIn("frontend-app",
 		[]string{"npm", "test"},
 	), "frontend-app/package.json", "frontend-app/package-lock.json"))),
@@ -190,6 +200,9 @@ func executorProgramForWorkload(id GateID) (GateID, ExecutorProgram, error) {
 		return parent, program, err
 	case workloadTargetVitest:
 		return parent, vitestExecutorProgram(target), nil
+	case workloadTargetPlaywright:
+		program, err := playwrightE2EExecutorProgram(target)
+		return parent, program, err
 	default:
 		return "", ExecutorProgram{}, fmt.Errorf("unsupported workload target kind %q", targetKind)
 	}
@@ -318,6 +331,26 @@ func vitestExecutorProgram(target string) ExecutorProgram {
 		"frontend-app",
 		[]string{"npx", "vitest", "run", target, "--no-file-parallelism", "--maxWorkers=1"},
 	), "frontend-app/package.json", "frontend-app/package-lock.json", "frontend-app/"+target)))
+}
+
+const (
+	playwrightBusinessFlowsSpec = "tests/e2e/business-flows.spec.js"
+	playwrightDesktopWideSpec   = "tests/e2e/desktop-wide.spec.js"
+)
+
+// playwrightE2EExecutorProgram 为每个现有 Playwright 专项配置建立独立远程 workload。
+func playwrightE2EExecutorProgram(spec string) (ExecutorProgram, error) {
+	var script, config string
+	switch spec {
+	case playwrightBusinessFlowsSpec:
+		script, config = "test:e2e:business", "playwright.business-flows.config.js"
+	case playwrightDesktopWideSpec:
+		script, config = "test:e2e:desktop-wide", "playwright.desktop-wide.config.js"
+	default:
+		return ExecutorProgram{}, fmt.Errorf("unsupported Playwright E2E spec %q", spec)
+	}
+	return requirePaths(commandProgramIn("frontend-app", []string{"npm", "run", script}),
+		"frontend-app/package.json", "frontend-app/package-lock.json", "frontend-app/"+spec, "frontend-app/"+config), nil
 }
 
 // goTargetExecutorProgramForParent 根据父 gate 选择普通或 race argv。

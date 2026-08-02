@@ -237,7 +237,12 @@ if test "$BASELINE_STORAGE_MODE" = delta; then
     unset GOCACHEPROG
     export GOCACHE="$go_build_cache"
     printf 'go build cache source: empty toolchain-scoped delta\n'
+  elif test -n "${BASELINE_DIRECT_CACHE_LAYER_COUNT:-}"; then
+` + remoteBaselineSeedScriptDirectCache + `
   else
+    # One migration is permitted for accepted states that predate direct layers.
+    # Once a layer is mounted, the branch above must be used: never rebuild a
+    # published direct cache by copying or hashing the accumulated old cache.
     mv "$go_build_cache" "$stage/anchor-go-build-cache"
     install -d -m 0700 "$go_build_cache"
     test -x /previous/bin/super-dolphin-gate

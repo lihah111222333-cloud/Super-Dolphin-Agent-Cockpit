@@ -90,6 +90,12 @@ func renderTestTimingLedger(destination io.Writer, executions []gate.PlanGateExe
 		if _, err := fmt.Fprintf(destination, "REMOTE_CI_TIMING_LEDGER test=%s test_body_ms=%d startup_ms=%d total_ms=%d\n", execution.GateID, profile.TestBodyMS, profile.StartupMS, profile.TotalMS); err != nil {
 			return err
 		}
+		if profile.Frontend != nil {
+			frontend := profile.Frontend
+			if _, err := fmt.Fprintf(destination, "REMOTE_CI_TIMING_LEDGER test=%s node_modules_seed_hit=%t node_modules_seed_not_applicable_reason=%s npm_cache_hit=%t npm_cache_not_applicable_reason=%s playwright_browser_hit=%t playwright_browser_not_applicable_reason=%s vite_cache_hit=%t vite_cache_not_applicable_reason=%s setup_ms=%d body_ms=%d total_ms=%d\n", execution.GateID, frontend.NodeModulesSeedHit, frontend.NodeModulesSeedNotApplicableReason, frontend.NPMCacheHit, frontend.NPMCacheNotApplicableReason, frontend.PlaywrightBrowserHit, frontend.PlaywrightBrowserNotApplicableReason, frontend.ViteCacheHit, frontend.ViteCacheNotApplicableReason, frontend.SetupMS, frontend.BodyMS, frontend.TotalMS); err != nil {
+				return err
+			}
+		}
 		if err := renderIndividualTestTimings(destination, execution); err != nil {
 			return err
 		}

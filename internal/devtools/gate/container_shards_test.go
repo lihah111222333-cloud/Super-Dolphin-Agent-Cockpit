@@ -29,7 +29,7 @@ func TestBuildContainerShardSetUsesProfileSpecificCanonicalGroups(t *testing.T) 
 		t.Fatalf("shards = %d, want %d", len(set.Shards), legacyContainerShardCount)
 	}
 	want := [][]GateID{
-		{GateIDAIMaintenanceSelfTest, GateIDFrontendLint, GateIDFrontendFullTest, GateIDFrontendBuild, GateIDFrontendEmbedVerify,
+		{GateIDAIMaintenanceSelfTest, GateIDFrontendLint, GateIDFrontendPreflight, GateIDFrontendE2E, GateIDFrontendFullTest, GateIDFrontendBuild, GateIDFrontendEmbedVerify,
 			GateIDSQLCVerify, GateIDCodemapCheck, GateIDProjectMapCheck, GateIDCapabilityContractCheck, GateIDWhitespaceCheck},
 		{GateIDBackendTestWithGuard, GateIDBackendNilness},
 		{GateIDBackendTestGuardWithRace},
@@ -48,11 +48,16 @@ func TestBuildContainerShardSetUsesProfileSpecificCanonicalGroups(t *testing.T) 
 		{GateIDBackendTestWithGuard},
 		{GateIDSQLCVerify, GateIDCodemapCheck, GateIDProjectMapCheck, GateIDCapabilityContractCheck, GateIDWhitespaceCheck},
 	}
+	remoteWant := [][]GateID{
+		{GateIDAIMaintenanceSelfTest, GateIDFrontendLint, GateIDFrontendTest, GateIDFrontendBuild, GateIDFrontendEmbedVerify},
+		{GateIDBackendTestWithGuard},
+		{GateIDFrontendPreflight, GateIDSQLCVerify, GateIDCodemapCheck, GateIDProjectMapCheck, GateIDCapabilityContractCheck, GateIDWhitespaceCheck},
+	}
 	assertContainerShardGateGroups(t, set, want)
 	assertContainerShardGateGroups(t, normal, normalWant)
 	assertContainerShardGateGroups(t, push, pushWant)
-	assertContainerShardGateGroups(t, remote, normalWant)
-	assertContainerShardGateGroups(t, promotion, normalWant)
+	assertContainerShardGateGroups(t, remote, remoteWant)
+	assertContainerShardGateGroups(t, promotion, remoteWant)
 	assertShardSetRejectsSelfConsistentMissingGate(t, set)
 }
 

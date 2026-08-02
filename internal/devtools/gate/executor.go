@@ -33,20 +33,23 @@ const (
 	ExecutorGoBuildCacheSeedRoot    = ExecutorRoot + "/cache-seed/go-build"
 	ExecutorGoBuildCacheSeedsRoot   = ExecutorRoot + "/cache-seeds"
 	// ExecutorDirectGoBuildCacheSeedRoot 固定指向独立挂载且已验证的只读 DataCache 缓存树。
-	ExecutorDirectGoBuildCacheSeedRoot = "/bootstrap-direct/cache-seed/go-build"
-	ExecutorDirectGoBuildCacheSeedEnv  = "SUPER_DOLPHIN_DIRECT_GO_BUILD_CACHE_SEED"
-	ExecutorFrontendEmbedSeedRoot      = ExecutorRoot + "/frontend-embed"
-	ExecutorActionlintBinaryPath       = ExecutorRuntimeSeedRoot + "/bin/actionlint"
-	ExecutorBashBinaryPath             = ExecutorPortableRootFS + "/usr/bin/bash"
-	ExecutorGitBinaryPath              = ExecutorRuntimeSeedRoot + "/bin/git"
-	ExecutorNodeBinaryPath             = ExecutorRuntimeSeedRoot + "/node/bin/node"
-	ExecutorSQLCBinaryPath             = ExecutorRuntimeSeedRoot + "/bin/sqlc"
-	ExecutorSqruffBinaryPath           = ExecutorRuntimeSeedRoot + "/bin/sqruff"
-	ExecutorXvfbRunBinaryPath          = ExecutorRuntimeSeedRoot + "/bin/xvfb-run"
-	executorPlaywrightBrowsersPath     = ExecutorRuntimeSeedRoot + "/frontend/node_modules/.cache/ms-playwright"
-	executorGoProxyMode                = "off"
-	executorUID                        = 65532
-	executorSearchPath                 = ExecutorPortableSearchPath
+	ExecutorDirectGoBuildCacheSeedRoot      = "/bootstrap-direct/layer-0/cache-seed/go-build"
+	ExecutorDirectGoBuildCacheSeedMountRoot = "/bootstrap-direct"
+	ExecutorDirectGoBuildCacheSeedMaxLayers = 3
+	ExecutorDirectGoBuildCacheSeedEnv       = "SUPER_DOLPHIN_DIRECT_GO_BUILD_CACHE_SEED"
+	ExecutorDirectGoBuildCacheSeedCountEnv  = "SUPER_DOLPHIN_DIRECT_GO_BUILD_CACHE_SEED_COUNT"
+	ExecutorFrontendEmbedSeedRoot           = ExecutorRoot + "/frontend-embed"
+	ExecutorActionlintBinaryPath            = ExecutorRuntimeSeedRoot + "/bin/actionlint"
+	ExecutorBashBinaryPath                  = ExecutorPortableRootFS + "/usr/bin/bash"
+	ExecutorGitBinaryPath                   = ExecutorRuntimeSeedRoot + "/bin/git"
+	ExecutorNodeBinaryPath                  = ExecutorRuntimeSeedRoot + "/node/bin/node"
+	ExecutorSQLCBinaryPath                  = ExecutorRuntimeSeedRoot + "/bin/sqlc"
+	ExecutorSqruffBinaryPath                = ExecutorRuntimeSeedRoot + "/bin/sqruff"
+	ExecutorXvfbRunBinaryPath               = ExecutorRuntimeSeedRoot + "/bin/xvfb-run"
+	executorPlaywrightBrowsersPath          = ExecutorRuntimeSeedRoot + "/frontend/node_modules/.cache/ms-playwright"
+	executorGoProxyMode                     = "off"
+	executorUID                             = 65532
+	executorSearchPath                      = ExecutorPortableSearchPath
 )
 
 type executorConfig struct {
@@ -68,6 +71,13 @@ type executorConfig struct {
 	frontendEmbedSeedRoot   string
 	stdout                  io.Writer
 	stderr                  io.Writer
+	executionTiming         *executorExecutionTiming
+}
+
+type executorExecutionTiming struct {
+	setupMS int64
+	bodyMS  int64
+	totalMS int64
 }
 
 type executorWorkloadTimeoutKey struct{}
@@ -145,13 +155,22 @@ func ExecuteExecutor(ctx context.Context, args []string, stdout io.Writer, stder
 	return executeProgram(ctx, config, id, program)
 }
 
-// ExecutorRemoteGoBuildCacheSeedRoots 仅在受控开关启用后选择固定 DataCache 根目录。
+// ExecutorRemoteGoBuildCacheSeedRoots 仅在受控开关启用后选择固定且 newest-first 的 DataCache 根目录。
 func ExecutorRemoteGoBuildCacheSeedRoots() ([]string, error) {
 	switch os.Getenv(ExecutorDirectGoBuildCacheSeedEnv) {
 	case "":
 		return discoverExecutorGoBuildCacheSeedRoots(ExecutorGoBuildCacheSeedsRoot, ExecutorGoBuildCacheSeedRoot)
 	case "1":
-		return []string{ExecutorDirectGoBuildCacheSeedRoot}, nil
+		count, err := strconv.ParseUint(os.Getenv(ExecutorDirectGoBuildCacheSeedCountEnv), 10, 8)
+		if err != nil || count == 0 || count > ExecutorDirectGoBuildCacheSeedMaxLayers ||
+			strconv.FormatUint(count, 10) != os.Getenv(ExecutorDirectGoBuildCacheSeedCountEnv) {
+			return nil, errors.New("remote direct Go build cache seed count is invalid")
+		}
+		roots := make([]string, int(count))
+		for index := range roots {
+			roots[index] = filepath.Join(ExecutorDirectGoBuildCacheSeedMountRoot, fmt.Sprintf("layer-%d", index), "cache-seed", "go-build")
+		}
+		return roots, nil
 	default:
 		return nil, errors.New("remote direct Go build cache seed enablement is invalid")
 	}
@@ -192,6 +211,7 @@ func ExecutorExitCode(err error) int {
 
 // executeProgram 建立一次性工作区，校验可信输入并执行固定门禁程序。
 func executeProgram(ctx context.Context, config executorConfig, id GateID, program ExecutorProgram) (retErr error) {
+	started := time.Now()
 	if err := validateExecutorConfig(config); err != nil {
 		return err
 	}
@@ -210,10 +230,23 @@ func executeProgram(ctx context.Context, config executorConfig, id GateID, progr
 	}()
 	environment, steps, gitBinary, err := prepareExecutorRun(ctx, config, layout, program)
 	if err != nil {
+		recordExecutorExecutionTiming(config.executionTiming, started, time.Now(), time.Now())
 		return err
 	}
 	fmt.Fprintf(config.stderr, "[gate-executor] gate=%s cwd=%s env=%s\n", id, layout.sourceCopy, strings.Join(environmentKeys(environment), ","))
-	return runExecutorProgram(ctx, config, id, program, layout, environment, steps, gitBinary)
+	bodyStarted := time.Now()
+	err = runExecutorProgram(ctx, config, id, program, layout, environment, steps, gitBinary)
+	recordExecutorExecutionTiming(config.executionTiming, started, bodyStarted, time.Now())
+	return err
+}
+
+func recordExecutorExecutionTiming(timing *executorExecutionTiming, started, bodyStarted, completed time.Time) {
+	if timing == nil {
+		return
+	}
+	timing.setupMS = max(bodyStarted.Sub(started).Milliseconds(), 0)
+	timing.bodyMS = max(completed.Sub(bodyStarted).Milliseconds(), 0)
+	timing.totalMS = timing.setupMS + timing.bodyMS
 }
 
 // prepareExecutorRun 安装锁定依赖并完成命令、Git 快照和必需路径校验。

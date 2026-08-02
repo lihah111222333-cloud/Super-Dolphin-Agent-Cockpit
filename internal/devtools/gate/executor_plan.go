@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	executorPlanReportSchemaVersion    = 4
+	executorPlanReportSchemaVersion    = 5
 	executorPlanTimingSchemaVersion    = 2
 	ExecutorPlanReportChunkPrefix      = "SUPER_DOLPHIN_GATE_PLAN_REPORT_CHUNK "
 	ExecutorWorkloadTimeoutEnvironment = "SUPER_DOLPHIN_REMOTE_EXECUTION_TIMEOUT"
@@ -75,22 +75,39 @@ type PlanGateExecution struct {
 // ExecutionProfile is the bounded, receipt-bound execution evidence for one gate.
 // A v4 report never infers a cache hit or a remote phase from an omitted field.
 type ExecutionProfile struct {
-	CandidateTestBinaryPackage string            `json:"candidate_test_binary_package,omitempty"`
-	CandidateTestBinaryMode    string            `json:"candidate_test_binary_mode,omitempty"`
-	CacheSource                string            `json:"cache_source"`
-	CacheStatus                string            `json:"cache_status"`
-	CacheMeasurement           string            `json:"cache_measurement"`
-	PrivateHitCount            uint64            `json:"private_hit_count"`
-	BaselineHitCount           uint64            `json:"baseline_hit_count"`
-	BaselineHitByGeneration    map[string]uint64 `json:"baseline_hit_by_generation,omitempty"`
-	CacheMissCount             uint64            `json:"cache_miss_count"`
-	CachePutCount              uint64            `json:"cache_put_count"`
-	MaterializeMS              int64             `json:"materialize_ms"`
-	DownloadMS                 int64             `json:"download_ms"`
-	VerifyMS                   int64             `json:"verify_ms"`
-	StartupMS                  int64             `json:"startup_ms"`
-	TestBodyMS                 int64             `json:"test_body_ms"`
-	TotalMS                    int64             `json:"total_ms"`
+	CandidateTestBinaryPackage string                    `json:"candidate_test_binary_package,omitempty"`
+	CandidateTestBinaryMode    string                    `json:"candidate_test_binary_mode,omitempty"`
+	Frontend                   *FrontendExecutionProfile `json:"frontend,omitempty"`
+	CacheSource                string                    `json:"cache_source"`
+	CacheStatus                string                    `json:"cache_status"`
+	CacheMeasurement           string                    `json:"cache_measurement"`
+	PrivateHitCount            uint64                    `json:"private_hit_count"`
+	BaselineHitCount           uint64                    `json:"baseline_hit_count"`
+	BaselineHitByGeneration    map[string]uint64         `json:"baseline_hit_by_generation,omitempty"`
+	CacheMissCount             uint64                    `json:"cache_miss_count"`
+	CachePutCount              uint64                    `json:"cache_put_count"`
+	MaterializeMS              int64                     `json:"materialize_ms"`
+	DownloadMS                 int64                     `json:"download_ms"`
+	VerifyMS                   int64                     `json:"verify_ms"`
+	StartupMS                  int64                     `json:"startup_ms"`
+	TestBodyMS                 int64                     `json:"test_body_ms"`
+	TotalMS                    int64                     `json:"total_ms"`
+}
+
+// FrontendExecutionProfile records only cache evidence proven by the executor.
+// Browser and Vite caches remain explicitly inapplicable until their individual lookups are observed.
+type FrontendExecutionProfile struct {
+	NodeModulesSeedHit                   bool   `json:"node_modules_seed_hit"`
+	NodeModulesSeedNotApplicableReason   string `json:"node_modules_seed_not_applicable_reason,omitempty"`
+	NPMCacheHit                          bool   `json:"npm_cache_hit"`
+	NPMCacheNotApplicableReason          string `json:"npm_cache_not_applicable_reason,omitempty"`
+	PlaywrightBrowserHit                 bool   `json:"playwright_browser_hit"`
+	PlaywrightBrowserNotApplicableReason string `json:"playwright_browser_not_applicable_reason,omitempty"`
+	ViteCacheHit                         bool   `json:"vite_cache_hit"`
+	ViteCacheNotApplicableReason         string `json:"vite_cache_not_applicable_reason,omitempty"`
+	SetupMS                              int64  `json:"setup_ms"`
+	BodyMS                               int64  `json:"body_ms"`
+	TotalMS                              int64  `json:"total_ms"`
 }
 
 // PlanExecutionReport 绑定 plan digest，并按 canonical plan 顺序汇总所有已观察 gate。
@@ -311,7 +328,7 @@ func splitContainerShardGroup(group []GateID) ([]GateID, []GateID) {
 // canonicalContainerShardGroupIndex 按配置、门禁类型与 race 隔离策略返回固定 shard 索引。
 func canonicalContainerShardGroupIndex(profile Profile, id GateID, isolateRace bool) int {
 	switch id {
-	case GateIDAIMaintenanceSelfTest, GateIDFrontendLint, GateIDFrontendTest, GateIDFrontendFullTest, GateIDFrontendBuild, GateIDFrontendEmbedVerify:
+	case GateIDAIMaintenanceSelfTest, GateIDFrontendLint, GateIDFrontendTest, GateIDFrontendE2E, GateIDFrontendFullTest, GateIDFrontendBuild, GateIDFrontendEmbedVerify:
 		return 0
 	case GateIDLSPChangedDiagnostics:
 		if profile == ProfilePush {
@@ -749,6 +766,7 @@ func executePlanGate(
 			return PlanGateExecution{}, err
 		}
 	}
+	timing := &executorExecutionTiming{}
 	config := executorConfig{
 		sourcePath: ExecutorSourcePath, workRoot: workRoot, searchPath: executorSearchPath,
 		expectedUID: executorUID, requireReadOnlySource: true,
@@ -761,6 +779,7 @@ func executePlanGate(
 		goBuildCacheMetricsPath: metricsPath,
 		frontendEmbedSeedRoot:   ExecutorFrontendEmbedSeedRoot,
 		stdout:                  stdout, stderr: log,
+		executionTiming: timing,
 	}
 	result := PlanGateExecution{GateID: id, StartedAt: now().UTC(), ExitCode: -1}
 	err = executeProgram(ctx, config, id, cloneExecutorProgram(program))
@@ -769,7 +788,7 @@ func executePlanGate(
 		result.TestTimings = timingWriter.Timings()
 	}
 	result.CompletedAt = now().UTC()
-	result.ExecutionProfile, err = executionProfileForGate(id, candidateTestBinaries, result.TestTimings, result.StartedAt, result.CompletedAt)
+	result.ExecutionProfile, err = executionProfileForGate(id, program, candidateTestBinaries, result.TestTimings, result.StartedAt, result.CompletedAt, timing)
 	if metricsPath != "" {
 		metrics, metricsErr := LoadGoBuildCacheProxyMetricsAt(goBuildCacheRoot, metricsPath, goBuildCacheSeedRoots)
 		if metricsErr != nil {
@@ -807,7 +826,7 @@ func cacheStatusFromMetrics(metrics GoBuildCacheProxyMetrics) string {
 	return "not_applicable"
 }
 
-func executionProfileForGate(id GateID, binaries candidateTestBinaryBundleIndex, timings []GoTestTiming, started, completed time.Time) (ExecutionProfile, error) {
+func executionProfileForGate(id GateID, program ExecutorProgram, binaries candidateTestBinaryBundleIndex, timings []GoTestTiming, started, completed time.Time, timing *executorExecutionTiming) (ExecutionProfile, error) {
 	profile := unmeasuredExecutionProfile(started, completed)
 	if len(binaries.Binaries) != 0 && isCandidateTestBinaryEligibleWorkload(id) {
 		_, kind, target, targeted, err := parseTargetWorkloadID(string(id))
@@ -845,6 +864,17 @@ func executionProfileForGate(id GateID, binaries candidateTestBinaryBundleIndex,
 		profile.TestBodyMS = matched[0].DurationMS
 	}
 	profile.StartupMS = profile.TotalMS - profile.TestBodyMS
+	if program.NeedsFrontendSeed {
+		profile.Frontend = &FrontendExecutionProfile{
+			NodeModulesSeedHit: true, NPMCacheHit: true,
+			PlaywrightBrowserNotApplicableReason: "browser_cache_lookup_not_observed",
+			ViteCacheNotApplicableReason:         "vite_cache_is_private_per_execution",
+		}
+		if timing == nil {
+			return ExecutionProfile{}, errors.New("frontend execution timing is required")
+		}
+		profile.Frontend.SetupMS, profile.Frontend.BodyMS, profile.Frontend.TotalMS = timing.setupMS, timing.bodyMS, timing.totalMS
+	}
 	return profile, nil
 }
 
@@ -904,7 +934,7 @@ func executorPlanLaneRoot(workRoot string, laneIndex int) string {
 // executorPlanLanes 将 exact gate 集合映射到固定、互不共享可写目录的 lane DAG。
 func executorPlanLanes(gateIDs []GateID) ([][]GateID, error) {
 	laneCatalog := [][]GateID{
-		{GateIDAIMaintenanceSelfTest, GateIDFrontendTest, GateIDFrontendFullTest, GateIDLSPChangedDiagnostics, GateIDBackendTestWithGuard,
+		{GateIDAIMaintenanceSelfTest, GateIDFrontendPreflight, GateIDFrontendTest, GateIDFrontendE2E, GateIDFrontendFullTest, GateIDLSPChangedDiagnostics, GateIDBackendTestWithGuard,
 			GateIDBackendTestGuardWithRace, GateIDBackendNilness, GateIDReleaseLayeredCheck},
 		{GateIDFrontendLint, GateIDFrontendBuild, GateIDFrontendEmbedVerify, GateIDSQLCVerify, GateIDCodemapCheck,
 			GateIDProjectMapCheck, GateIDCapabilityContractCheck, GateIDWhitespaceCheck},

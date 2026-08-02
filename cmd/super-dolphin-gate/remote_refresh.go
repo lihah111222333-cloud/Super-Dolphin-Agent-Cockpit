@@ -352,19 +352,22 @@ func renewRemoteBaselineDirectCache(ctx context.Context, session remoteBaselineR
 	if session.accepted.DirectCacheRef == nil {
 		return nil
 	}
-	reference := session.accepted.DirectCacheRef
-	cache, err := waitRemoteDataCache(ctx, session.cache, reference.DataCacheID, reference.DataCachePath, reference.DataCacheBucket)
-	if err != nil {
-		return err
+	for _, layer := range session.accepted.DirectCacheRef.Layers {
+		cache, err := waitRemoteDataCache(ctx, session.cache, layer.DataCacheID, layer.DataCachePath, layer.DataCacheBucket)
+		if err != nil {
+			return err
+		}
+		if cache.SizeGiB != layer.SizeGiB {
+			return errors.New("direct DataCache size drifted")
+		}
+		if err := session.cache.Renew(ctx, layer.DataCacheID, session.config.DataCache.RetentionDays, remoteBaselineDirectRenewToken(layer.Generation, time.Now().UTC())); err != nil {
+			return err
+		}
+		if _, err := waitRemoteDataCache(ctx, session.cache, layer.DataCacheID, layer.DataCachePath, layer.DataCacheBucket); err != nil {
+			return err
+		}
 	}
-	if cache.SizeGiB != reference.SizeGiB {
-		return errors.New("direct DataCache size drifted")
-	}
-	if err := session.cache.Renew(ctx, reference.DataCacheID, session.config.DataCache.RetentionDays, remoteBaselineDirectRenewToken(reference.Generation, time.Now().UTC())); err != nil {
-		return err
-	}
-	_, err = waitRemoteDataCache(ctx, session.cache, reference.DataCacheID, reference.DataCachePath, reference.DataCacheBucket)
-	return err
+	return nil
 }
 
 // prepareRemoteBaselineArtifacts 生成并上传本次 generation 的输入工件。
@@ -588,7 +591,7 @@ func createRemoteBaselineCache(ctx context.Context, session remoteBaselineRefres
 	return cache, nil
 }
 
-// createRemoteBaselineDirectCache 为预展开且只读的 Go build cache 创建独立小型 DataCache。
+// createRemoteBaselineDirectCache 为本代预展开且只读的 Go build-cache delta 创建独立小型 DataCache。
 func createRemoteBaselineDirectCache(ctx context.Context, session remoteBaselineRefreshSession, stage remoteBaselineArtifactStage, manifest remoteci.BaselineManifest) (datacache.DataCache, error) {
 	const sizeGiB = remoteDataCacheMinimumSizeGiB
 	if session.config.DataCache.MaxSizeGiB < sizeGiB {
@@ -693,12 +696,8 @@ func acceptRemoteBaselineWithDirectCache(
 		directManifest.RuntimeDepsSHA256 != manifest.RuntimeDependencyDigest {
 		return remoteci.BaselineState{}, protocolError("remote direct cache runtime binding drifted from baseline manifest")
 	}
-	if err := bindRemoteBaselineDirectCache(&state, stage, directCache, directManifest, directManifestDigest); err != nil {
+	if err := bindRemoteBaselineDirectCache(&state, session.accepted.DirectCacheRef, stage, directCache, directManifest, directManifestDigest); err != nil {
 		return remoteci.BaselineState{}, err
-	}
-	if session.accepted.DirectCacheRef != nil && session.accepted.DirectCacheRef.DataCacheID != directCache.ID {
-		retired := *session.accepted.DirectCacheRef
-		state.RetiredDirectCacheRef = &retired
 	}
 	return state, nil
 }
@@ -735,20 +734,19 @@ func downloadRemoteBaselineDirectCacheManifest(ctx context.Context, store remote
 	return manifest, digestBytes(data), nil
 }
 
-func bindRemoteBaselineDirectCache(state *remoteci.BaselineState, stage remoteBaselineArtifactStage, cache datacache.DataCache, manifest gatecontract.GoBuildCacheDirectSeedManifest, manifestDigest string) error {
+func bindRemoteBaselineDirectCache(state *remoteci.BaselineState, previous *remoteci.DirectCacheRef, stage remoteBaselineArtifactStage, cache datacache.DataCache, manifest gatecontract.GoBuildCacheDirectSeedManifest, manifestDigest string) error {
 	if state == nil || cache.Status != datacache.StatusAvailable || cache.ID == "" || cache.SizeGiB <= 0 ||
 		cache.Bucket != state.DataCacheBucket || cache.Path == state.DataCachePath || !validRemoteManifestDigest(manifestDigest) {
 		return infrastructureError("refuse unready remote direct cache")
 	}
-	parentChainDigest, err := remoteci.CurrentBaselineParentChainDigest(*state)
+	current, err := newRemoteBaselineDirectCacheLayer(*state, stage, cache, manifest, manifestDigest)
 	if err != nil {
-		return protocolError("compute remote direct cache parent chain: %v", err)
+		return err
 	}
-	state.DirectCacheRef = &remoteci.DirectCacheRef{
-		DataCacheID: cache.ID, DataCacheBucket: cache.Bucket, DataCachePath: cache.Path, SizeGiB: cache.SizeGiB,
-		Generation: stage.generation, SourceObjectPrefix: remoteBaselineDirectCacheOutputPrefix(stage), ManifestDigest: manifestDigest,
-		TreeSHA256: manifest.TreeSHA256, ParentChainSHA256: parentChainDigest,
-		RuntimeGoSHA256: manifest.RuntimeGoSHA256, RuntimeDepsSHA256: manifest.RuntimeDepsSHA256,
+	layers, retired := partitionRemoteBaselineDirectCacheLayers(previous, current)
+	state.DirectCacheRef = &remoteci.DirectCacheRef{Layers: layers}
+	if len(retired) != 0 {
+		state.RetiredDirectCacheRef = &remoteci.DirectCacheRef{Layers: retired}
 	}
 	return nil
 }
@@ -828,13 +826,14 @@ func verifyRemoteBaselineSuccessor(ctx context.Context, session remoteBaselineRe
 	if state.DirectCacheRef == nil {
 		return nil
 	}
-	direct := state.DirectCacheRef
-	cache, err := waitRemoteDataCache(ctx, session.cache, direct.DataCacheID, direct.DataCachePath, direct.DataCacheBucket)
-	if err != nil {
-		return err
-	}
-	if cache.SizeGiB != direct.SizeGiB {
-		return errors.New("accepted direct DataCache size drifted")
+	for _, layer := range state.DirectCacheRef.Layers {
+		cache, err := waitRemoteDataCache(ctx, session.cache, layer.DataCacheID, layer.DataCachePath, layer.DataCacheBucket)
+		if err != nil {
+			return err
+		}
+		if cache.SizeGiB != layer.SizeGiB {
+			return errors.New("accepted direct DataCache size drifted")
+		}
 	}
 	return nil
 }

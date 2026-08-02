@@ -1,6 +1,7 @@
 package remoteci
 
 import (
+	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -254,27 +255,43 @@ func assertWritableMaterializerTempMount(t *testing.T, request eci.CreateRequest
 func TestCoordinatorDirectCacheMountAndValidation(t *testing.T) {
 	_, input := remoteRunFixture(t)
 	input.DirectCacheRef = testDirectCacheRef(t, input)
+	for index := 1; index < gate.ExecutorDirectGoBuildCacheSeedMaxLayers; index++ {
+		layer := input.DirectCacheRef.Layers[0]
+		layer.DataCacheID = fmt.Sprintf("edc-directcache-%d", index)
+		layer.DataCachePath = fmt.Sprintf("/super-dolphin/ci/direct-cache/%d", index+2)
+		input.DirectCacheRef.Layers = append(input.DirectCacheRef.Layers, layer)
+	}
 	coordinator := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{})
 	request := coordinator.createRequest("job-0123456789abcdef01234567", gate.ContainerShard{Index: 1, Profile: input.Profile, PlanDigest: input.PolicyDigest, GateIDs: []gate.GateID{"go:test"}}, eci.Resources{CPU: 4, MemoryGiB: 8}, "baseline-artifacts/source-deltas/jobs/job/request.json", input.PolicyDigest, testCandidateCLI(input), input)
-	if len(request.AdditionalBaseVolumes) != 1 || request.AdditionalBaseVolumes[0].Name != remoteDirectCacheVolumeName || request.AdditionalBaseVolumes[0].Path != input.DirectCacheRef.DataCachePath {
+	if len(request.AdditionalBaseVolumes) != gate.ExecutorDirectGoBuildCacheSeedMaxLayers {
 		t.Fatalf("direct additional DataCache volumes = %#v", request.AdditionalBaseVolumes)
 	}
-	for _, mounts := range [][]eci.VolumeMount{request.MainVolumeMounts, request.InitVolumeMounts} {
-		if !slices.ContainsFunc(mounts, func(mount eci.VolumeMount) bool {
-			return mount.Name == remoteDirectCacheVolumeName && mount.MountPath == remoteDirectCacheMountPath && mount.ReadOnly
-		}) {
-			t.Fatalf("direct cache mount missing or writable: %#v", mounts)
+	for index, layer := range input.DirectCacheRef.Layers {
+		if volume := request.AdditionalBaseVolumes[index]; volume.Name != remoteDirectCacheVolumeNameForLayer(index) || volume.Path != layer.DataCachePath {
+			t.Fatalf("direct cache layer %d volume = %#v", index, volume)
 		}
 	}
-	if got := request.Environment[gate.ExecutorDirectGoBuildCacheSeedEnv]; got != "1" {
-		t.Fatalf("direct cache executor environment = %q", got)
+	for _, mounts := range [][]eci.VolumeMount{request.MainVolumeMounts, request.InitVolumeMounts} {
+		for index := range input.DirectCacheRef.Layers {
+			if !slices.ContainsFunc(mounts, func(mount eci.VolumeMount) bool {
+				return mount.Name == remoteDirectCacheVolumeNameForLayer(index) && mount.MountPath == remoteDirectCacheMountPathForLayer(index) && mount.ReadOnly
+			}) {
+				t.Fatalf("direct cache layer %d mount missing or writable: %#v", index, mounts)
+			}
+		}
 	}
-	if got := request.InitContainer.Environment[remoteDirectCacheManifestEnv]; got != input.DirectCacheRef.ManifestDigest {
-		t.Fatalf("direct cache manifest environment = %q", got)
+	if got := request.Environment[gate.ExecutorDirectGoBuildCacheSeedEnv]; got != "1" || request.Environment[gate.ExecutorDirectGoBuildCacheSeedCountEnv] != "3" {
+		t.Fatalf("direct cache executor environment = %#v", request.Environment)
+	}
+	for index, layer := range input.DirectCacheRef.Layers {
+		manifestEnvironment := fmt.Sprintf("SUPER_DOLPHIN_REMOTE_DIRECT_CACHE_LAYER_%d_MANIFEST_SHA256", index)
+		if got := request.InitContainer.Environment[manifestEnvironment]; got != layer.ManifestDigest {
+			t.Fatalf("direct cache layer %d manifest environment = %q", index, got)
+		}
 	}
 	for name, mutate := range map[string]func(*RunInput){
-		"invalid path": func(value *RunInput) { value.DirectCacheRef.DataCachePath = "relative" },
-		"bucket drift": func(value *RunInput) { value.DirectCacheRef.DataCacheBucket = "other-ci" },
+		"invalid path": func(value *RunInput) { value.DirectCacheRef.Layers[0].DataCachePath = "relative" },
+		"bucket drift": func(value *RunInput) { value.DirectCacheRef.Layers[0].DataCacheBucket = "other-ci" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			invalid := input
@@ -303,5 +320,5 @@ func testDirectCacheRef(t *testing.T, input RunInput) *DirectCacheRef {
 	if len(input.BaselineDeltas) != 0 {
 		generation = input.BaselineDeltas[len(input.BaselineDeltas)-1].Generation
 	}
-	return &DirectCacheRef{DataCacheID: "edc-directcache", DataCacheBucket: input.DataCacheBucket, DataCachePath: "/super-dolphin/ci/direct-cache/2", SizeGiB: 20, Generation: generation, SourceObjectPrefix: "baseline-artifacts/2/output/direct-cache/", ManifestDigest: digest("a"), TreeSHA256: digest("b"), ParentChainSHA256: parent, RuntimeGoSHA256: digest("d"), RuntimeDepsSHA256: digest("e")}
+	return &DirectCacheRef{Layers: []DirectCacheLayerRef{{DataCacheID: "edc-directcache", DataCacheBucket: input.DataCacheBucket, DataCachePath: "/super-dolphin/ci/direct-cache/2", SizeGiB: 20, Generation: generation, SourceObjectPrefix: "baseline-artifacts/2/output/direct-cache/", ManifestDigest: digest("a"), TreeSHA256: digest("b"), ParentChainSHA256: parent, RuntimeGoSHA256: digest("d"), RuntimeDepsSHA256: digest("e")}}}
 }

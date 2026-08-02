@@ -160,18 +160,26 @@ func TestGoBuildCacheProxyConfigAcceptsOrderedSeedChain(t *testing.T) {
 	}
 }
 
-func TestExecutorRemoteGoBuildCacheSeedRootsOnlyAcceptsFixedDirectRoot(t *testing.T) {
+func TestExecutorRemoteGoBuildCacheSeedRootsOnlyAcceptsFixedDirectRoots(t *testing.T) {
 	t.Setenv(ExecutorDirectGoBuildCacheSeedEnv, "1")
+	t.Setenv(ExecutorDirectGoBuildCacheSeedCountEnv, "3")
 	roots, err := ExecutorRemoteGoBuildCacheSeedRoots()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(roots, []string{ExecutorDirectGoBuildCacheSeedRoot}) {
+	want := []string{
+		"/bootstrap-direct/layer-0/cache-seed/go-build",
+		"/bootstrap-direct/layer-1/cache-seed/go-build",
+		"/bootstrap-direct/layer-2/cache-seed/go-build",
+	}
+	if !slices.Equal(roots, want) {
 		t.Fatalf("direct seed roots = %v", roots)
 	}
-	t.Setenv(ExecutorDirectGoBuildCacheSeedEnv, "/tmp/untrusted")
-	if _, err := ExecutorRemoteGoBuildCacheSeedRoots(); err == nil {
-		t.Fatal("ExecutorRemoteGoBuildCacheSeedRoots accepted an arbitrary direct root")
+	for _, count := range []string{"", "0", "4", "01"} {
+		t.Setenv(ExecutorDirectGoBuildCacheSeedCountEnv, count)
+		if _, err := ExecutorRemoteGoBuildCacheSeedRoots(); err == nil {
+			t.Fatalf("ExecutorRemoteGoBuildCacheSeedRoots accepted count %q", count)
+		}
 	}
 }
 

@@ -198,6 +198,25 @@ func TestFrontendProgramsUsePinnedRuntimeInputs(t *testing.T) {
 	assertFrontendProgramsUsePinnedRuntimeInputs(t, programs)
 }
 
+func TestFrontendPreflightProgramRunsPreflightAndDependencyIntegrityOnly(t *testing.T) {
+	program := ExecutorPrograms()[GateIDFrontendPreflight]
+	want := [][]string{
+		{"npm", "run", "test:hook:preflight"},
+		{"npm", "run", "test:hook:dependency-integrity"},
+	}
+	if len(program.Steps) != len(want) {
+		t.Fatalf("frontend preflight steps = %#v, want %v", program.Steps, want)
+	}
+	for index, step := range program.Steps {
+		if !slices.Equal(step.Argv, want[index]) || step.Directory != "frontend-app" {
+			t.Fatalf("frontend preflight step %d = %#v, want frontend-app %v", index, step, want[index])
+		}
+		if slices.Contains(step.Argv, "playwright") || slices.Contains(step.Argv, "e2e") {
+			t.Fatalf("frontend preflight step %d entered E2E execution: %v", index, step.Argv)
+		}
+	}
+}
+
 func TestBackendRaceExecutorCombinesCanonicalAndRegisteredPackages(t *testing.T) {
 	race := ExecutorPrograms()[GateIDBackendTestGuardWithRace]
 	if len(race.Steps) != 1 {

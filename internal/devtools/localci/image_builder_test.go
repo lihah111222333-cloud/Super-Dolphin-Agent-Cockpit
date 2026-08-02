@@ -415,7 +415,7 @@ func TestPrepareCandidateRejectsRuntimeDepsNonLocalOrRegistryLockFields(t *testi
 
 func TestPrepareCandidateRejectsLegacyIncompleteAndDriftedRuntimeDepsInputs(t *testing.T) {
 	legacy := candidateEntries(validCandidateDockerfile())
-	replaceEntryText(t, legacy, runtimeDepsLockPath, `"schema_version":"10"`, `"schema_version":"1"`)
+	replaceEntryText(t, legacy, runtimeDepsLockPath, `"schema_version":"11"`, `"schema_version":"1"`)
 	assertCandidateRejectedBeforeBuild(t, legacy)
 
 	missingGoMod := candidateEntries(validCandidateDockerfile())
@@ -555,7 +555,7 @@ func candidateRequest(entries []sourceexport.TreeEntry, acceptedInput string, ac
 
 func testRuntimeDepsLock(files map[string]string) string {
 	lock := runtimeDepsLock{
-		SchemaVersion: "10", BuildMode: "node-local", CacheScope: "node",
+		SchemaVersion: "11", BuildMode: "node-local", CacheScope: "node",
 		Inputs: runtimeDepsInputs{
 			Dockerfile:    contentDigest(files["build/gate/runtime-deps.Dockerfile"]),
 			ToolchainLock: contentDigest(files["build/gate/toolchain.lock"]),
@@ -569,12 +569,13 @@ func testRuntimeDepsLock(files map[string]string) string {
 			ToolsGoMod:          contentDigest(files["build/gate/runtime-tools/go.mod"]),
 			ToolsGoSum:          contentDigest(files["build/gate/runtime-tools/go.sum"]),
 			RuntimeSeedWorker:   contentDigest(files["internal/devtools/gate/executor_seed.go"]),
-			RuntimeSeedScript:   contentDigest(files["cmd/super-dolphin-gate/remote_refresh_seed_script.go"]),
 			RuntimeSeedBrowser:  contentDigest(files["cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go"]),
 			RuntimeSeedRuntime:  contentDigest(files["cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go"]),
+			RuntimeSeedTail:     contentDigest(files["cmd/super-dolphin-gate/remote_refresh_seed_script_tail.go"]),
 		},
 		RecipeInputs: runtimeDepsRecipeInputs{
 			RuntimeSeedRecipe: contentDigest(files["cmd/super-dolphin-gate/remote_refresh_seed.go"]),
+			RuntimeSeedScript: contentDigest(files["cmd/super-dolphin-gate/remote_refresh_seed_script.go"]),
 		},
 		Paths: canonicalRuntimeDepsPaths(),
 	}
@@ -594,6 +595,7 @@ func runtimeDepsTestInputPaths() []string {
 		"cmd/super-dolphin-gate/remote_refresh_seed_script.go",
 		"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go",
 		"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go",
+		"cmd/super-dolphin-gate/remote_refresh_seed_script_tail.go",
 	}
 }
 
