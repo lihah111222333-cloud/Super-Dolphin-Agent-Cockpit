@@ -118,7 +118,11 @@ func remoteBaselineSeedDirectCacheLayers(accepted remoteci.BaselineState) []eci.
 
 // remoteBaselineSeedDirectCacheEnvironment 为脚本声明有限且顺序敏感的 direct 层身份。
 func remoteBaselineSeedDirectCacheEnvironment(layers []eci.DirectCacheLayer) map[string]string {
-	environment := map[string]string{"BASELINE_DIRECT_CACHE_LAYER_COUNT": strconv.Itoa(len(layers))}
+	environment := make(map[string]string, len(layers)+1)
+	if len(layers) == 0 {
+		return environment
+	}
+	environment["BASELINE_DIRECT_CACHE_LAYER_COUNT"] = strconv.Itoa(len(layers))
 	for index, layer := range layers {
 		environment[fmt.Sprintf("BASELINE_DIRECT_CACHE_LAYER_%d", index+1)] = strings.Join([]string{
 			layer.DataCacheID, layer.DataCacheBucket, layer.DataCachePath, strconv.FormatUint(layer.Generation, 10),

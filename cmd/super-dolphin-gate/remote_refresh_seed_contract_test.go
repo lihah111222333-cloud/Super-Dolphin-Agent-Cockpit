@@ -54,6 +54,9 @@ func TestBuildRemoteBaselineSeedRequestUsesPreviousGeneration(t *testing.T) {
 	source.Manifest.Mode, source.Manifest.BaseCommit, source.Manifest.BaseTree = remoteBaselineSourceDelta, accepted.MainCommit, accepted.MainTree
 	request = mustBuildRemoteBaselineSeedRequest(t, config, input, source, accepted, accepted.DataCacheSizeGiB, accepted.Generation+1)
 	assertPreviousRemoteBaselineSeedRequest(t, request, accepted, input)
+	if _, exists := request.Environment["BASELINE_DIRECT_CACHE_LAYER_COUNT"]; exists {
+		t.Fatal("pre-direct migration declared an empty direct cache chain")
+	}
 	assertRemoteBaselineSeedConditions(t, request, "compatible delta refresh", []bool{
 		!request.AutoCreateEIP, request.EIPBandwidth == 0,
 		request.Environment["BASELINE_STORAGE_MODE"] == remoteci.BaselineStorageModeDelta,
