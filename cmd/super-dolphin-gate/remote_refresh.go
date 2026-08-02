@@ -735,9 +735,17 @@ func downloadRemoteBaselineDirectCacheManifest(ctx context.Context, store remote
 }
 
 func bindRemoteBaselineDirectCache(state *remoteci.BaselineState, previous *remoteci.DirectCacheRef, stage remoteBaselineArtifactStage, cache datacache.DataCache, manifest gatecontract.GoBuildCacheDirectSeedManifest, manifestDigest string) error {
-	if state == nil || cache.Status != datacache.StatusAvailable || cache.ID == "" || cache.SizeGiB <= 0 ||
-		cache.Bucket != state.DataCacheBucket || cache.Path == state.DataCachePath || !validRemoteManifestDigest(manifestDigest) {
-		return infrastructureError("refuse unready remote direct cache")
+	if state == nil {
+		return infrastructureError("refuse remote direct cache without baseline state")
+	}
+	if cache.Status != datacache.StatusAvailable || cache.ID == "" || cache.SizeGiB <= 0 {
+		return infrastructureError("refuse incomplete remote direct cache status=%q id=%q size_gib=%d", cache.Status, cache.ID, cache.SizeGiB)
+	}
+	if cache.Bucket != state.DataCacheBucket || cache.Path == state.DataCachePath {
+		return infrastructureError("refuse remote direct cache storage identity bucket=%q path=%q anchor_bucket=%q anchor_path=%q", cache.Bucket, cache.Path, state.DataCacheBucket, state.DataCachePath)
+	}
+	if !validRemoteManifestDigest(manifestDigest) {
+		return infrastructureError("refuse remote direct cache manifest digest %q", manifestDigest)
 	}
 	current, err := newRemoteBaselineDirectCacheLayer(*state, stage, cache, manifest, manifestDigest)
 	if err != nil {

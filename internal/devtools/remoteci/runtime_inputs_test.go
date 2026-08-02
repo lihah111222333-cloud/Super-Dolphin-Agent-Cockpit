@@ -250,6 +250,13 @@ func TestResolveAcceptedRuntimeDependencyDigestAllowsLegacyV5ThroughV10(t *testi
 		delete(inputs, migration.removedInput)
 		updateRuntimeDependencyLock(t, entries, lockIndex, document)
 		digest := acceptedLegacyRuntimeDigest(t, entries, migration)
+		if migration.version == "v6" {
+			if digest != current {
+				t.Fatalf("legacy v6 dependency digest = %q, want script-independent v11 %q", digest, current)
+			}
+			reusable = digest
+			continue
+		}
 		if migration.wantDistinct {
 			assertDistinctRuntimeDependencyDigest(t, seen, digest, migration.version)
 			reusable = digest

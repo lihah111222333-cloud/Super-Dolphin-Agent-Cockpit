@@ -354,6 +354,9 @@ func loadRuntimeToolchainLock(byPath map[string][]byte) (runtimeToolchainLock, e
 func runtimeLockDigest(lock runtimeDependencyLock) string {
 	ordered := make([]string, 0, len(lock.Inputs))
 	for name, digest := range lock.Inputs {
+		if lock.SchemaVersion == RuntimeDependencySchemaVersion && strings.HasPrefix(name, "runtime_seed_script_") {
+			continue
+		}
 		switch name {
 		case "runtime_seed_recipe_sha256",
 			"go_mod_sha256", "go_sum_sha256", "proxy_go_mod_sha256", "proxy_go_sum_sha256",
