@@ -351,7 +351,7 @@ func handleGoBuildCacheProxyRequest(
 	}
 }
 
-// getGoBuildCacheProxyEntry 优先读取私有层；seed 命中会原子提升到私有层，以便发布完整本次工作集。
+// getGoBuildCacheProxyEntry 优先读取私有层，再按顺序只读查询各代 seed。
 func getGoBuildCacheProxyEntry(
 	config goBuildCacheProxyConfig,
 	request goBuildCacheProxyRequest,
@@ -366,12 +366,6 @@ func getGoBuildCacheProxyEntry(
 	}
 	if err != nil {
 		return goBuildCacheProxyResponse{}, err
-	}
-	if layer != 0 {
-		entry, err = promoteGoBuildCacheSeedEntry(config.privateRoot, request.ActionID, entry)
-		if err != nil {
-			return goBuildCacheProxyResponse{}, err
-		}
 	}
 	config.metrics.recordHit(layer)
 	return goBuildCacheProxyResponse{

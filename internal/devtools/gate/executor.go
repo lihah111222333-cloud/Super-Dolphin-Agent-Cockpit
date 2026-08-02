@@ -155,7 +155,7 @@ func ExecuteExecutor(ctx context.Context, args []string, stdout io.Writer, stder
 	return executeProgram(ctx, config, id, program)
 }
 
-// ExecutorRemoteGoBuildCacheSeedRoots 仅在受控开关启用后选择固定且 newest-first 的 DataCache 根目录。
+// ExecutorRemoteGoBuildCacheSeedRoots 选择 newest-first 的直读 Delta，最后回落到只读 Anchor 缓存。
 func ExecutorRemoteGoBuildCacheSeedRoots() ([]string, error) {
 	switch os.Getenv(ExecutorDirectGoBuildCacheSeedEnv) {
 	case "":
@@ -166,10 +166,11 @@ func ExecutorRemoteGoBuildCacheSeedRoots() ([]string, error) {
 			strconv.FormatUint(count, 10) != os.Getenv(ExecutorDirectGoBuildCacheSeedCountEnv) {
 			return nil, errors.New("remote direct Go build cache seed count is invalid")
 		}
-		roots := make([]string, int(count))
-		for index := range roots {
+		roots := make([]string, int(count), int(count)+1)
+		for index := range int(count) {
 			roots[index] = filepath.Join(ExecutorDirectGoBuildCacheSeedMountRoot, fmt.Sprintf("layer-%d", index), "cache-seed", "go-build")
 		}
+		roots = append(roots, ExecutorGoBuildCacheSeedRoot)
 		return roots, nil
 	default:
 		return nil, errors.New("remote direct Go build cache seed enablement is invalid")

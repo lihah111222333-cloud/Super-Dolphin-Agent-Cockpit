@@ -172,6 +172,7 @@ func TestExecutorRemoteGoBuildCacheSeedRootsOnlyAcceptsFixedDirectRoots(t *testi
 		"/bootstrap-direct/layer-0/cache-seed/go-build",
 		"/bootstrap-direct/layer-1/cache-seed/go-build",
 		"/bootstrap-direct/layer-2/cache-seed/go-build",
+		ExecutorGoBuildCacheSeedRoot,
 	}
 	if !slices.Equal(roots, want) {
 		t.Fatalf("direct seed roots = %v", roots)
@@ -276,7 +277,7 @@ func TestGoBuildCacheProxyMetricsAttributePrivateAndGenerationHits(t *testing.T)
 	}
 }
 
-func TestGoBuildCacheProxyPromotesOnlyAccessedSeedEntry(t *testing.T) {
+func TestGoBuildCacheProxyKeepsSeedHitsOutOfPrivateDelta(t *testing.T) {
 	actionID := bytes.Repeat([]byte{0x61}, goBuildCacheHashBytes)
 	untouchedID := bytes.Repeat([]byte{0x62}, goBuildCacheHashBytes)
 	seedRoot := filepath.Join(realTempDir(t), "00000000000000000042")
@@ -295,12 +296,11 @@ func TestGoBuildCacheProxyPromotesOnlyAccessedSeedEntry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	promoted, err := readGoBuildCacheEntry(privateRoot, actionID)
-	if err != nil {
-		t.Fatalf("read promoted entry: %v", err)
+	if !strings.HasPrefix(response.DiskPath, seedRoot+string(os.PathSeparator)) {
+		t.Fatalf("seed response path = %q", response.DiskPath)
 	}
-	if response.DiskPath != promoted.path || !strings.HasPrefix(response.DiskPath, privateRoot+string(os.PathSeparator)) {
-		t.Fatalf("promoted response path = %q, entry path = %q", response.DiskPath, promoted.path)
+	if _, err := readGoBuildCacheEntry(privateRoot, actionID); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("seed hit polluted private delta: %v", err)
 	}
 	if _, err := readGoBuildCacheEntry(privateRoot, untouchedID); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("unaccessed entry was promoted: %v", err)
