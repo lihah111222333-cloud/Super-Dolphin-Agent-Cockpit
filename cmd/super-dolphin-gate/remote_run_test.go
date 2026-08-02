@@ -92,7 +92,6 @@ func TestParseRemoteRunOptions(t *testing.T) {
 		"--base", "main^",
 		"--profile", string(gatecontract.ProfileRelease),
 		"--ledger", "/tmp/remote-ci.baseline-state.sqlite",
-		"--max-shards", "7",
 		"--force-rerun",
 	})
 	if err != nil {
@@ -136,7 +135,7 @@ func TestParseRemoteRunOptionsRejectsConflictingRequesterFingerprint(t *testing.
 func TestParseRemoteRunOptionsRejectsInvalidInvocation(t *testing.T) {
 	for _, args := range [][]string{
 		nil,
-		{"--config", "/tmp/config.json", "--ledger", "/tmp/ledger.json", "--max-shards", "129"},
+		{"--config", "/tmp/config.json", "--ledger", "/tmp/ledger.json", "--max-shards", "1"},
 		{"--config", "/tmp/config.json", "--ledger", "/tmp/ledger.json", "unexpected"},
 		{
 			"--config", "/tmp/config.json", "--ledger", "/tmp/ledger.json",
@@ -146,6 +145,12 @@ func TestParseRemoteRunOptionsRejectsInvalidInvocation(t *testing.T) {
 		if _, err := parseRemoteRunOptions(args); err == nil {
 			t.Fatalf("parseRemoteRunOptions(%q) unexpectedly passed", args)
 		}
+	}
+}
+
+func TestParseRemoteRunOptionsRejectsRemovedShardFlag(t *testing.T) {
+	if _, err := parseRemoteRunOptions([]string{"--config", "/tmp/config.json", "--max-shards", "1"}); err == nil {
+		t.Fatal("parseRemoteRunOptions() accepted removed --max-shards flag")
 	}
 }
 
@@ -163,7 +168,6 @@ func TestLoadRemoteRunConfig(t *testing.T) {
 	}
 	if config.RegionID != "cn-shenzhen" || config.OSS.SourcePrefix != "baseline-artifacts/source-deltas/" ||
 		config.OCICache.RegistryRepository != "registry.example/runtime" ||
-		config.Capacity.MaxShardsPerJob != 5 ||
 		config.Capacity.SeedClass != "memory" ||
 		len(config.Capacity.ResourcePolicy.Classes) != 4 ||
 		config.Capacity.ResourcePolicy.Bootstrap.GoTest != "memory" {
@@ -173,8 +177,8 @@ func TestLoadRemoteRunConfig(t *testing.T) {
 
 func TestLoadRemoteRunConfigRejectsDrift(t *testing.T) {
 	cases := map[string]string{
-		"unknown field":        strings.Replace(validRemoteRunConfigJSON(), `"schema_version": 6`, `"schema_version": 6, "unknown": true`, 1),
-		"legacy schema":        strings.Replace(validRemoteRunConfigJSON(), `"schema_version": 6`, `"schema_version": 5`, 1),
+		"unknown field":        strings.Replace(validRemoteRunConfigJSON(), `"schema_version": 7`, `"schema_version": 7, "unknown": true`, 1),
+		"legacy schema":        strings.Replace(validRemoteRunConfigJSON(), `"schema_version": 7`, `"schema_version": 6`, 1),
 		"legacy data cache":    strings.Replace(validRemoteRunConfigJSON(), `"oci_cache":`, `"data_cache": {}, "oci_cache":`, 1),
 		"unpinned image":       strings.Replace(validRemoteRunConfigJSON(), `"image": "registry.example/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"`, `"image": "registry.example/runtime:latest"`, 1),
 		"legacy OCI BuildKit":  strings.Replace(validRemoteRunConfigJSON(), `"oci_cache": {`, `"oci_cache": {"buildkit_image": "registry.example/buildkit@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", `, 1),
@@ -184,7 +188,7 @@ func TestLoadRemoteRunConfigRejectsDrift(t *testing.T) {
 		"wrong cpu":            strings.Replace(validRemoteRunConfigJSON(), `"vcpu": 2`, `"vcpu": 3`, 1),
 		"wrong memory":         strings.Replace(validRemoteRunConfigJSON(), `"memory_gib": 32`, `"memory_gib": 64`, 1),
 		"unknown bootstrap":    strings.Replace(validRemoteRunConfigJSON(), `"go_test": "memory"`, `"go_test": "missing"`, 1),
-		"legacy shard field":   strings.Replace(validRemoteRunConfigJSON(), `"max_shards_per_job": 5`, `"shards": 5`, 1),
+		"removed shard field":  strings.Replace(validRemoteRunConfigJSON(), `"seed_class": "memory"`, `"max_shards_per_job": 5, "seed_class": "memory"`, 1),
 		"absolute source":      strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "/source-deltas/"`, 1),
 		"traversal source":     strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "../source-deltas/"`, 1),
 		"unterminated source":  strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "source-deltas"`, 1),

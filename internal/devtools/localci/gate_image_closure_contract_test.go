@@ -69,6 +69,8 @@ func TestRuntimeDependenciesDoNotCopyJobSource(t *testing.T) {
 		"go mod download all",
 		"COPY --from=repository-module-cache /out/go-proxy /opt/super-dolphin-gate/runtime/go-proxy",
 		"COPY --from=repository-module-cache /go/pkg/mod /opt/super-dolphin-gate/runtime/go-mod-cache",
+		"COPY --from=frontend-seed /out/frontend/node_modules /opt/super-dolphin-gate/runtime/frontend/node_modules",
+		"COPY --from=frontend-seed /out/frontend/npm-cache /opt/super-dolphin-gate/runtime/frontend/npm-cache",
 	} {
 		if !strings.Contains(dockerfile, wanted) {
 			t.Fatalf("runtime dependency Dockerfile is missing %q", wanted)

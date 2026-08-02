@@ -86,6 +86,14 @@ func TestClient_ECIOperations(t *testing.T) {
 			t.Fatalf("CreateContainerGroup encoded legacy DataCache input %q: %#v", legacy, runner.calls[0])
 		}
 	}
+	for _, pair := range [][]string{
+		{"--Container.1.Image", request.MainImage},
+		{"--InitContainer.1.Image", request.InitImage},
+	} {
+		if !containsArgumentPair(runner.calls[0], pair[0], pair[1]) {
+			t.Fatalf("CreateContainerGroup call missing explicit image %v: %#v", pair, runner.calls[0])
+		}
+	}
 }
 
 func TestClientCreateContainerGroupEncodesRepeatedVolumeSubPathMount(t *testing.T) {
@@ -584,7 +592,7 @@ func TestNewWithRunner_RejectsInvalidConfig(t *testing.T) {
 
 func TestCreateRequest_FieldRegistry(t *testing.T) {
 	assertStructFields(t, reflect.TypeFor[CreateRequest](), []string{
-		"ContainerGroupName", "ContainerName", "Resources", "Command", "Args", "Environment", "Tags",
+		"ContainerGroupName", "ContainerName", "MainImage", "InitImage", "Resources", "Command", "Args", "Environment", "Tags",
 		"InitContainer", "BootstrapVolume", "ExpandedVolume", "SourceVolume", "WorkVolume", "TempVolume",
 		"MainVolumeMounts", "InitVolumeMounts", "RegistryAccess",
 	})
@@ -618,16 +626,6 @@ func TestClient_CreateContainerGroupRejectsInvalidRequest(t *testing.T) {
 	}
 }
 
-func TestNewWithRunner_RequiresImageDigest(t *testing.T) {
-	for _, image := range []string{"registry.example/runner:1", "registry.example/runner@sha256:ABCDEF0123456789abcdef0123456789abcdef0123456789abcdef0123456789"} {
-		config := testConfig()
-		config.Image = image
-		if _, err := NewWithRunner(config, &fakeCommandRunner{}); err == nil {
-			t.Fatalf("NewWithRunner(%q) error = nil", image)
-		}
-	}
-}
-
 func TestClient_CreateContainerGroupRedactsEnvironmentValues(t *testing.T) {
 	const secret = "super-secret-value"
 	client := newTestClient(t, &fakeCommandRunner{err: errors.New("CLI stderr: " + secret)})
@@ -644,8 +642,7 @@ func TestExecRunner_CapturesStderrAndWrapsExitError(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "runner-stderr") {
 		t.Fatalf("Run() error = %v, want captured stderr", err)
 	}
-	var exitError *exec.ExitError
-	if !errors.As(err, &exitError) {
+	if _, ok := errors.AsType[*exec.ExitError](err); !ok {
 		t.Fatalf("Run() error = %T, want wrapped *exec.ExitError", err)
 	}
 }
@@ -681,7 +678,7 @@ func testConfig() Config {
 	return Config{
 		Binary: "aliyun", RegionID: "cn-hangzhou", VSwitchID: "vsw-1", SecurityGroupID: "sg-1",
 		WorkerRoleName: "worker-role", Profile: "ci",
-		Image: testImageDigest, Deadline: time.Hour,
+		Deadline:     time.Hour,
 		SpotStrategy: "SpotAsPriceGo", SpotDurationHours: 1, FallbackToPayAsYouGo: true,
 	}
 }
@@ -690,6 +687,8 @@ func validCreateRequest() CreateRequest {
 	return CreateRequest{
 		ContainerGroupName: "shard-1",
 		ContainerName:      "worker",
+		MainImage:          testMainImageDigest,
+		InitImage:          testInitImageDigest,
 		Resources:          Resources{CPU: 4, MemoryGiB: 8},
 		Command:            []string{"/runner", "execute"},
 		Args:               []string{"--shard", "one"},
@@ -722,8 +721,8 @@ func validCreateRequest() CreateRequest {
 func assertStructFields(t *testing.T, structType reflect.Type, expected []string) {
 	t.Helper()
 	actual := make([]string, 0, structType.NumField())
-	for index := 0; index < structType.NumField(); index++ {
-		actual = append(actual, structType.Field(index).Name)
+	for field := range structType.Fields() {
+		actual = append(actual, field.Name)
 	}
 	if !reflect.DeepEqual(actual, expected) {
 		t.Fatalf("%s fields = %v, want %v", structType.Name(), actual, expected)
@@ -731,6 +730,7 @@ func assertStructFields(t *testing.T, structType reflect.Type, expected []string
 }
 
 const (
-	testImageDigest = "registry.example/runner@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	testClientToken = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+	testMainImageDigest = "registry.example/remote-builder@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	testInitImageDigest = "registry.example/accepted-gate@sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+	testClientToken     = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
 )

@@ -40,12 +40,11 @@ func planLPTWithIndex(catalog WorkloadCatalog, index DurationSampleIndex) ([]Sha
 	return distributeLPTWithinTarget(planned, index.context), nil
 }
 
-// distributeLPTWithinTarget 将 MaxShards 仅作为容量上限，并选择满足目标时长的最小分片数。
+// distributeLPTWithinTarget 只按 100 秒目标选择最小分片数；每个 workload 都可独立执行。
 func distributeLPTWithinTarget(planned []PlannedWorkload, context PlanningContext) []ShardPlan {
-	maxShards := min(context.MaxShards, len(planned))
-	for shardCount := 1; shardCount <= maxShards; shardCount++ {
+	for shardCount := 1; shardCount <= len(planned); shardCount++ {
 		shards := distributeLPT(planned, shardCount)
-		if shardCount == maxShards || lptShardsMeetTarget(shards, context.TargetDurationMS) {
+		if shardCount == len(planned) || lptShardsMeetTarget(shards, context.TargetDurationMS) {
 			return shards
 		}
 	}
@@ -236,9 +235,6 @@ func (plan WorkloadExecutionPlan) validateHeader() error {
 	if err := validatePlanningContext(plan.Context); err != nil {
 		return err
 	}
-	if plan.Context.MaxShards > MaxContainerShards {
-		return fmt.Errorf("max_shards exceeds %d", MaxContainerShards)
-	}
 	if err := validateWorkloadPlanOwnerDuration(plan); err != nil {
 		return err
 	}
@@ -313,13 +309,13 @@ func validateStoredWorkloadShardCount(plan WorkloadExecutionPlan, remaining int)
 		}
 		return nil
 	}
-	if len(plan.Shards) == 0 || len(plan.Shards) > min(plan.Context.MaxShards, remaining) {
+	if len(plan.Shards) == 0 || len(plan.Shards) > remaining {
 		return errors.New("workload execution plan shard count is invalid")
 	}
 	return nil
 }
 
-// validateStoredWorkloadShardLayout 拒绝把容量上限伪装成目标并发的过度分片计划。
+// validateStoredWorkloadShardLayout 拒绝偏离 100 秒目标的过度分片计划。
 func validateStoredWorkloadShardLayout(plan WorkloadExecutionPlan) error {
 	planned := make([]PlannedWorkload, 0, shardableWorkloadCount(plan.Catalog)-len(plan.ReusedWorkloads))
 	for _, shard := range plan.Shards {

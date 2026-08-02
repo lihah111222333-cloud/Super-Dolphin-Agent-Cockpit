@@ -18,7 +18,6 @@ func TestParseRemotePrePushOptions(t *testing.T) {
 		"--config", "/tmp/remote-ci.json",
 		"--ledger", "/tmp/remote-ci.baseline-state.sqlite",
 		"--repository", "/tmp/repository",
-		"--max-shards", "12",
 		"origin",
 		"ssh://git@example.invalid/repository.git",
 	})
@@ -28,7 +27,6 @@ func TestParseRemotePrePushOptions(t *testing.T) {
 	if options.ConfigPath != "/tmp/remote-ci.json" ||
 		options.LedgerPath != "/tmp/remote-ci.baseline-state.sqlite" ||
 		options.RepositoryRoot != "/tmp/repository" ||
-		options.MaxShards != 12 ||
 		options.RequesterFingerprint.String() != requesterFingerprint ||
 		remoteName != "origin" ||
 		remoteURL != "ssh://git@example.invalid/repository.git" {

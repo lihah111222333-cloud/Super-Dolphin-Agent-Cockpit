@@ -597,7 +597,7 @@ func validResultReceiptForProfile(t *testing.T, now time.Time, profile Profile) 
 	return validResultReceiptForProfileWithShardCount(t, now, profile, legacyContainerShardCount)
 }
 
-func validResultReceiptForProfileWithShardCount(t *testing.T, now time.Time, profile Profile, shardsPerJob uint8) ResultReceipt {
+func validResultReceiptForProfileWithShardCount(t *testing.T, now time.Time, profile Profile, shardsPerJob int) ResultReceipt {
 	t.Helper()
 	plan, err := BuildGatePlan(profile, registryTestSource())
 	if err != nil {

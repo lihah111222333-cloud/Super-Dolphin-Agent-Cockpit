@@ -22,7 +22,7 @@ func BuildContainerShardSetFromWorkloadPlan(
 	if err := workloadPlan.ValidateStored(plan); err != nil {
 		return ContainerShardSet{}, err
 	}
-	if len(workloadPlan.Shards) == 0 || len(workloadPlan.Shards) > MaxContainerShards {
+	if len(workloadPlan.Shards) == 0 {
 		return ContainerShardSet{}, errors.New("workload plan shard count is invalid")
 	}
 	clonedPlan, err := cloneWorkloadExecutionPlan(workloadPlan)
@@ -32,7 +32,7 @@ func BuildContainerShardSetFromWorkloadPlan(
 	set := ContainerShardSet{
 		Profile: plan.Profile, PlanDigest: plan.PlanDigest, SourceTreeSHA: plan.Source.SourceTreeSHA,
 		AcceptedManifestDigest: acceptedManifestDigest, AcceptedConfigDigest: acceptedConfigDigest,
-		ShardsPerJob: uint8(len(workloadPlan.Shards)), WorkloadPlanDigest: workloadPlan.PlanDigest,
+		ShardsPerJob: len(workloadPlan.Shards), WorkloadPlanDigest: workloadPlan.PlanDigest,
 		CatalogDigest: workloadPlan.CatalogDigest, LedgerGeneration: workloadPlan.LedgerGeneration,
 		WorkloadPlan: clonedPlan,
 	}
@@ -53,7 +53,7 @@ func appendWorkloadContainerShards(set *ContainerShardSet) error {
 			return err
 		}
 		shard := ContainerShard{
-			SchemaVersion: workloadContainerShardSchemaVersion, Index: uint8(workloadShard.Index),
+			SchemaVersion: workloadContainerShardSchemaVersion, Index: workloadShard.Index,
 			Profile: set.Profile, PlanDigest: set.PlanDigest, SourceTreeSHA: set.SourceTreeSHA,
 			AcceptedManifestDigest: set.AcceptedManifestDigest, AcceptedConfigDigest: set.AcceptedConfigDigest,
 			ShardsPerJob: set.ShardsPerJob, WorkloadPlanDigest: set.WorkloadPlanDigest,
@@ -194,13 +194,13 @@ func containerShardIdentityDigest(shard ContainerShard) (string, error) {
 	}
 	material := struct {
 		SchemaVersion          uint32
-		Index                  uint8
+		Index                  int
 		Profile                Profile
 		PlanDigest             string
 		SourceTreeSHA          string
 		AcceptedManifestDigest string
 		AcceptedConfigDigest   string
-		ShardsPerJob           uint8
+		ShardsPerJob           int
 		GateIDs                []GateID
 	}{shard.SchemaVersion, shard.Index, shard.Profile, shard.PlanDigest, shard.SourceTreeSHA,
 		shard.AcceptedManifestDigest, shard.AcceptedConfigDigest, shard.ShardsPerJob, shard.GateIDs}
@@ -216,13 +216,13 @@ func containerShardIdentityDigest(shard ContainerShard) (string, error) {
 func workloadContainerShardIdentityDigest(shard ContainerShard) (string, error) {
 	material := struct {
 		SchemaVersion          uint32
-		Index                  uint8
+		Index                  int
 		Profile                Profile
 		PlanDigest             string
 		SourceTreeSHA          string
 		AcceptedManifestDigest string
 		AcceptedConfigDigest   string
-		ShardsPerJob           uint8
+		ShardsPerJob           int
 		WorkloadPlanDigest     string
 		CatalogDigest          string
 		LedgerGeneration       uint64

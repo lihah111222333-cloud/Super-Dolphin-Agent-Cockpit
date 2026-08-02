@@ -14,15 +14,12 @@ func validateConfig(config Config) error {
 		value string
 	}{
 		{"CLI binary", config.Binary}, {"region ID", config.RegionID}, {"vSwitch ID", config.VSwitchID}, {"security group ID", config.SecurityGroupID},
-		{"worker role name", config.WorkerRoleName}, {"profile", config.Profile}, {"image", config.Image},
+		{"worker role name", config.WorkerRoleName}, {"profile", config.Profile},
 	}
 	for _, field := range fields {
 		if strings.TrimSpace(field.value) == "" {
 			return fmt.Errorf("ECI %s is required", field.name)
 		}
-	}
-	if !imageDigestPattern.MatchString(config.Image) {
-		return errors.New("ECI image must be a repository@sha256:<64 lowercase hex> digest reference")
 	}
 	if config.SpotStrategy != SpotStrategyAsPriceGo {
 		return errors.New("ECI spot strategy must equal SpotAsPriceGo")
@@ -54,7 +51,7 @@ func validateResources(cpu float64, memoryGiB float64) error {
 // validateCreateRequest 按容器、卷、挂载和标签阶段校验 ECI 分片请求。
 func validateCreateRequest(request CreateRequest) error {
 	for _, check := range []func(CreateRequest) error{
-		validateContainerNames, validateRequestContainers, validateRequestVolumes,
+		validateContainerNames, validateRequestImages, validateRequestContainers, validateRequestVolumes,
 		validateRequestMounts, validateRequestTags,
 	} {
 		if err := check(request); err != nil {
@@ -62,6 +59,12 @@ func validateCreateRequest(request CreateRequest) error {
 		}
 	}
 	return nil
+}
+
+// validateRequestImages requires each container to name its own immutable image.
+// There is deliberately no config-level fallback: the caller must bind both roles.
+func validateRequestImages(request CreateRequest) error {
+	return ValidateRegistryAccess(request.RegistryAccess, request.MainImage, request.InitImage)
 }
 
 func validateContainerNames(request CreateRequest) error {

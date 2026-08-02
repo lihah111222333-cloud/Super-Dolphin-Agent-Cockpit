@@ -65,9 +65,9 @@ func TestClientCreateContainerGroupRejectsInvalidRegistryAccessBeforeCLI(t *test
 		name   string
 		access RegistryAccess
 	}{
-		{"mixed methods", RegistryAccess{ACR: ptrACR(validACRRegistryInfo()), TemporaryCredential: ptrCredential(validTemporaryRegistryCredential())}},
-		{"wrong credential server", RegistryAccess{TemporaryCredential: ptrCredential(ImageRegistryCredential{Server: "other.example", Username: "user", Password: "password"})}},
-		{"partial cross account role", RegistryAccess{ACR: ptrACR(ACRRegistryInfo{InstanceID: "cri-test", InstanceName: "ci-registry", RegionID: "cn-hangzhou", Domain: testRegistryDomain, ServiceRoleARN: "acs:ram::123456789:role/eci-service"})}},
+		{"mixed methods", RegistryAccess{ACR: &ACRRegistryInfo{InstanceID: "cri-test", InstanceName: "ci-registry", RegionID: "cn-hangzhou", Domain: testRegistryDomain}, TemporaryCredential: &ImageRegistryCredential{Server: testRegistryDomain, Username: "cr_temp_user", Password: "temporary-password"}}},
+		{"wrong credential server", RegistryAccess{TemporaryCredential: &ImageRegistryCredential{Server: "other.example", Username: "user", Password: "password"}}},
+		{"partial cross account role", RegistryAccess{ACR: &ACRRegistryInfo{InstanceID: "cri-test", InstanceName: "ci-registry", RegionID: "cn-hangzhou", Domain: testRegistryDomain, ServiceRoleARN: "acs:ram::123456789:role/eci-service"}}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -84,6 +84,16 @@ func TestClientCreateContainerGroupRejectsInvalidRegistryAccessBeforeCLI(t *test
 	}
 }
 
-func ptrACR(value ACRRegistryInfo) *ACRRegistryInfo { return &value }
-
-func ptrCredential(value ImageRegistryCredential) *ImageRegistryCredential { return &value }
+func TestClientCreateContainerGroupRejectsRegistryAccessAcrossImageDomainsBeforeCLI(t *testing.T) {
+	runner := &fakeCommandRunner{}
+	request := validCreateRequest()
+	credential := validTemporaryRegistryCredential()
+	request.RegistryAccess.TemporaryCredential = &credential
+	request.MainImage = "other.example/remote-builder@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	if _, err := newTestClient(t, runner).CreateContainerGroup(context.Background(), request); err == nil {
+		t.Fatal("CreateContainerGroup() error = nil")
+	}
+	if len(runner.calls) != 0 {
+		t.Fatalf("runner calls = %#v, want none", runner.calls)
+	}
+}

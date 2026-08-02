@@ -78,7 +78,6 @@ type RunInput struct {
 	Source                       gate.SourceSpec
 	Profile                      gate.Profile
 	Entrypoint                   gate.CIEntrypointID
-	MaxShards                    uint8
 	Platform                     string
 	PolicyDigest                 string
 	ToolchainDigest              string
@@ -727,7 +726,7 @@ func validateRemotePlanInput(input RunInput) error {
 
 // completeRemotePlanInput 判断计划所需的仓库、镜像、平台与 OCI 身份是否齐全。
 func completeRemotePlanInput(input RunInput) bool {
-	return input.MaxShards != 0 && input.OCIProjectCache != nil && allRemotePlanStrings(
+	return input.OCIProjectCache != nil && allRemotePlanStrings(
 		input.RepositoryRoot, input.Tree, input.Base, input.RunnerBaseCommit, input.RunnerBaseTree,
 		input.RunnerImage, input.Platform, input.PolicyDigest, input.ToolchainDigest,
 		input.RunnerIdentityDigest, input.BaselineManifestDigest, input.RunnerConfigDigest,

@@ -151,6 +151,8 @@ func (coordinator *Coordinator) createRequest(
 	}
 	return eci.CreateRequest{
 		ContainerGroupName: groupName, ContainerName: "worker",
+		MainImage: input.RunnerImage,
+		InitImage: input.RunnerImage,
 		Resources: resources,
 		Command:   remoteWorkerSupervisorCommand("/opt/super-dolphin-gate/bin/super-dolphin-gate"),
 		Args: []string{

@@ -134,7 +134,7 @@ func remoteCalibrationCheckpointEvidenceComplete(ledgerStore *gatecontract.Durat
 	}
 	planning := gatecontract.PlanningContext{
 		Platform: input.Platform, Runner: input.RunnerIdentityDigest, Toolchain: input.ToolchainDigest,
-		MaxShards: max(1, int(input.MaxShards)), TargetDurationMS: gatecontract.FullCITargetDurationMS,
+		TargetDurationMS: gatecontract.FullCITargetDurationMS,
 	}
 	snapshot, err := ledgerStore.LoadPlanning(planning)
 	if err != nil {

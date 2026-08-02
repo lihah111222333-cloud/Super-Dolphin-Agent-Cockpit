@@ -11,7 +11,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/shardresource"
 )
 
-const remoteRunConfigSchemaVersion uint32 = 6
+const remoteRunConfigSchemaVersion uint32 = 7
 
 const (
 	remoteContainerReportAllowance = 30 * time.Second
@@ -47,16 +47,15 @@ type remoteRunConfig struct {
 		RemoteBuilderImage string `json:"remote_builder_image"`
 	} `json:"oci_cache"`
 	Capacity struct {
-		MaxShardsPerJob uint8                `json:"max_shards_per_job"`
-		SeedClass       string               `json:"seed_class"`
-		ResourcePolicy  shardresource.Policy `json:"resource_policy"`
+		SeedClass      string               `json:"seed_class"`
+		ResourcePolicy shardresource.Policy `json:"resource_policy"`
 	} `json:"capacity"`
 }
 
 // Validate 校验远程运行需要的云身份、不可变镜像、缓存容量上限和分片资源。
 func (config remoteRunConfig) Validate() error {
 	if config.SchemaVersion != remoteRunConfigSchemaVersion {
-		return errors.New("remote CI config schema_version must equal 6")
+		return errors.New("remote CI config schema_version must equal 7")
 	}
 	if err := validateRemoteCloudIdentity(config); err != nil {
 		return err
@@ -81,7 +80,10 @@ func (config remoteRunConfig) Validate() error {
 
 func validateRemoteACRRegistryInfo(config remoteRunConfig) error {
 	if config.ACRRegistryInfo == nil {
-		return nil
+		return errors.New("remote CI acr_registry_info is required for OCI baseline pushes")
+	}
+	if config.ACRRegistryInfo.RegionID != config.RegionID {
+		return errors.New("remote CI acr_registry_info region_id must equal ECI region_id for cr-vpc authorization")
 	}
 	access := eci.RegistryAccess{ACR: config.ACRRegistryInfo}
 	if err := eci.ValidateRegistryAccess(access, config.Runtime.Image); err != nil {
@@ -123,7 +125,6 @@ type remoteRunOptions struct {
 	RemoteRef            string
 	ObservedRemote       string
 	UpdateKind           string
-	MaxShards            uint
 	LedgerPath           string
 	RequesterFingerprint gatecontract.RequesterFingerprint
 	Calibration          bool

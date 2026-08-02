@@ -13,7 +13,7 @@ import (
 
 func validRemoteRunConfigJSON() string {
 	return `{
-  "schema_version": 6,
+  "schema_version": 7,
   "aliyun_cli": "aliyun",
   "credential_profile": "super-dolphin-ci",
   "region_id": "cn-shenzhen",
@@ -23,7 +23,7 @@ func validRemoteRunConfigJSON() string {
   "oss": {"bucket": "super-dolphin-ci-test", "endpoint": "https://oss-cn-shenzhen.aliyuncs.com", "internal_endpoint": "https://oss-cn-shenzhen-internal.aliyuncs.com", "source_prefix": "source-deltas/", "baseline_prefix": "baseline-artifacts/"},
   "runtime": {"image": "registry.example/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
   "oci_cache": {"registry_repository": "registry.example/runtime", "remote_builder_image": "registry.example/oci-builder@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
-  "capacity": {"max_shards_per_job": 5, "seed_class": "memory", "resource_policy": {"classes": [{"id": "small", "vcpu": 2, "memory_gib": 4}, {"id": "standard", "vcpu": 4, "memory_gib": 8}, {"id": "memory", "vcpu": 4, "memory_gib": 16}, {"id": "maximum", "vcpu": 8, "memory_gib": 32}], "bootstrap": {"guard": "small", "node_test": "standard", "go_test": "memory"}, "headroom_percent": 25, "min_samples_to_downsize": 5}}
+  "capacity": {"seed_class": "memory", "resource_policy": {"classes": [{"id": "small", "vcpu": 2, "memory_gib": 4}, {"id": "standard", "vcpu": 4, "memory_gib": 8}, {"id": "memory", "vcpu": 4, "memory_gib": 16}, {"id": "maximum", "vcpu": 8, "memory_gib": 32}], "bootstrap": {"guard": "small", "node_test": "standard", "go_test": "memory"}, "headroom_percent": 25, "min_samples_to_downsize": 5}}
 }`
 }
 

@@ -153,11 +153,11 @@ func (config productionCoordinatorConfig) Validate() error {
 
 // validateSchedulingPolicy 校验 owner 与 scheduler 共享的显式并发契约。
 func (config productionCoordinatorConfig) validateSchedulingPolicy() error {
-	if config.ShardsPerJob < 1 || config.ShardsPerJob > 64 {
-		return errors.New("production coordinator shards_per_job must be within 1..64")
+	if config.ShardsPerJob < 1 {
+		return errors.New("production coordinator shards_per_job must be positive")
 	}
-	if config.MaxActiveCIWorkloads < 1 || config.MaxActiveCIWorkloads > 64 {
-		return errors.New("production coordinator max_active_ci_workloads must be within 1..64")
+	if config.MaxActiveCIWorkloads < 1 {
+		return errors.New("production coordinator max_active_ci_workloads must be positive")
 	}
 	if config.MaxActiveCIWorkloads < config.ShardsPerJob {
 		return errors.New("production coordinator max_active_ci_workloads must be at least shards_per_job")

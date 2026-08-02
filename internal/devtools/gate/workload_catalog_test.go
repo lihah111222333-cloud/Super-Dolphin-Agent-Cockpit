@@ -340,7 +340,7 @@ func TestCalibrationBootstrapPlansRepositoryScaleWithinTarget(t *testing.T) {
 		plan,
 		catalog,
 		DurationLedgerSnapshot{Generation: 1, Ledger: NewDurationLedger()},
-		testLinuxPlanningContext(MaxContainerShards),
+		testLinuxPlanningContext(),
 	)
 	if err != nil {
 		t.Fatalf("repository-scale calibration plan: %v", err)
@@ -365,7 +365,7 @@ func TestBuildSelectedTestWorkloadCatalogIsNonAuthoritative(t *testing.T) {
 	snapshot := DurationLedgerSnapshot{Generation: 1, Ledger: DurationLedger{Version: durationLedgerVersion}}
 	if _, err := BuildWorkloadExecutionPlan(plan, catalog, snapshot, PlanningContext{
 		Platform: "linux/arm64", Runner: "runner", Toolchain: "toolchain",
-		MaxShards: 2, TargetDurationMS: FullCITargetDurationMS,
+		TargetDurationMS: FullCITargetDurationMS,
 	}); err != nil {
 		t.Fatalf("BuildWorkloadExecutionPlan(selected) error = %v", err)
 	}

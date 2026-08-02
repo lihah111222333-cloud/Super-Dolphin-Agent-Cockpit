@@ -116,12 +116,11 @@ type DurationBucket struct {
 	Toolchain     string `json:"toolchain"`
 }
 
-// PlanningContext 是 LPT 规划的目标执行环境和上限；它不接受瞬时 slot 状态。
+// PlanningContext 是 LPT 规划的目标执行环境；它不接受瞬时 slot 状态。
 type PlanningContext struct {
 	Platform         string `json:"platform"`
 	Runner           string `json:"runner"`
 	Toolchain        string `json:"toolchain"`
-	MaxShards        int    `json:"max_shards"`
 	TargetDurationMS int64  `json:"target_duration_ms"`
 }
 
@@ -365,9 +364,6 @@ func validateDurationBucket(bucket DurationBucket) error {
 }
 
 func validatePlanningContext(context PlanningContext) error {
-	if context.MaxShards <= 0 {
-		return errors.New("max_shards must be positive")
-	}
 	if context.TargetDurationMS != FullCITargetDurationMS {
 		return fmt.Errorf("target_duration_ms must equal %d", FullCITargetDurationMS)
 	}

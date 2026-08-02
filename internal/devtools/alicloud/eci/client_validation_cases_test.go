@@ -11,6 +11,8 @@ func invalidCreateRequestCases() []invalidCreateRequestCase {
 	return []invalidCreateRequestCase{
 		{"invalid group name", func(request *CreateRequest) { request.ContainerGroupName = "Shard" }},
 		{"invalid resources", func(request *CreateRequest) { request.Resources = Resources{CPU: 4, MemoryGiB: 20} }},
+		{"missing main image", func(request *CreateRequest) { request.MainImage = "" }},
+		{"mutable init image", func(request *CreateRequest) { request.InitImage = "registry.example/accepted-gate:latest" }},
 		{"missing task command", func(request *CreateRequest) { request.Command = nil }},
 		{"invalid task environment name", func(request *CreateRequest) { request.Environment = map[string]string{"1INVALID": "value"} }},
 		{"long init environment value", func(request *CreateRequest) {

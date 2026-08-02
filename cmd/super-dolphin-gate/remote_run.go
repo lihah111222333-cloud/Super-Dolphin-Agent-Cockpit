@@ -73,7 +73,7 @@ func executeRemoteRun(options remoteRunOptions) (remoteci.RunResult, remoteci.Ru
 	if err != nil {
 		return result, remoteci.RunInput{}, sourceError("%v", err)
 	}
-	coordinator, containerDeadline, err := newRemoteRunCoordinator(config, state, input)
+	coordinator, containerDeadline, err := newRemoteRunCoordinator(config, input)
 	if err != nil {
 		return result, input, err
 	}
@@ -95,7 +95,6 @@ func executeRemoteRun(options remoteRunOptions) (remoteci.RunResult, remoteci.Ru
 // newRemoteRunCoordinator 以 worker 时限和额外初始化租约构造单次远程协调器。
 func newRemoteRunCoordinator(
 	config remoteRunConfig,
-	state remoteci.BaselineState,
 	input remoteci.RunInput,
 ) (*remoteci.Coordinator, time.Duration, error) {
 	store, err := oss.NewCLI(oss.Config{
@@ -117,7 +116,7 @@ func newRemoteRunCoordinator(
 		Binary:   config.AliyunCLI,
 		RegionID: config.RegionID, VSwitchID: config.VSwitchID, SecurityGroupID: config.SecurityGroupID,
 		WorkerRoleName: config.WorkerRoleName, Profile: config.CredentialProfile,
-		Image: state.RuntimeImage, Deadline: containerDeadline,
+		Deadline:     containerDeadline,
 		SpotStrategy: eci.SpotStrategyAsPriceGo, SpotDurationHours: 1, FallbackToPayAsYouGo: true,
 	})
 	if err != nil {

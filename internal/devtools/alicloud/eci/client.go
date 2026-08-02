@@ -35,7 +35,7 @@ const (
 	clientTokenEntropyBytes = 32
 )
 
-// Config describes the fixed infrastructure and image used by every ECI shard.
+// Config describes the fixed infrastructure used by every ECI shard.
 // Profile is the name of an already configured Aliyun CLI profile; it is never read or persisted here.
 type Config struct {
 	Binary               string
@@ -44,7 +44,6 @@ type Config struct {
 	SecurityGroupID      string
 	WorkerRoleName       string
 	Profile              string
-	Image                string
 	Deadline             time.Duration
 	SpotStrategy         string
 	SpotDurationHours    int64
@@ -55,6 +54,8 @@ type Config struct {
 type CreateRequest struct {
 	ContainerGroupName string
 	ContainerName      string
+	MainImage          string
+	InitImage          string
 	Resources          Resources
 	Command            []string
 	Args               []string
@@ -176,9 +177,6 @@ func NewWithRunner(config Config, runner CommandRunner) (*Client, error) {
 
 // CreateContainerGroup 创建一个分片容器组；CLI 或响应不完整时立即返回错误。
 func (c *Client) CreateContainerGroup(ctx context.Context, request CreateRequest) (ContainerGroup, error) {
-	if err := ValidateRegistryAccess(request.RegistryAccess, c.config.Image); err != nil {
-		return ContainerGroup{}, err
-	}
 	if err := validateCreateRequest(request); err != nil {
 		return ContainerGroup{}, err
 	}
@@ -209,7 +207,7 @@ func (c *Client) createContainerGroup(ctx context.Context, request CreateRequest
 		"--AutoMatchImageCache", "true",
 		"--ContainerGroupName", request.ContainerGroupName,
 		"--Container.1.Name", request.ContainerName,
-		"--Container.1.Image", c.config.Image,
+		"--Container.1.Image", request.MainImage,
 		"--Container.1.Cpu", formatResource(request.Resources.CPU),
 		"--Container.1.Memory", formatResource(request.Resources.MemoryGiB),
 		"--Container.1.ImagePullPolicy", "IfNotPresent",
@@ -217,7 +215,7 @@ func (c *Client) createContainerGroup(ctx context.Context, request CreateRequest
 		"--Container.1.SecurityContext.RunAsUser", "65532",
 		"--Container.1.SecurityContextRunAsGroup", "65532",
 		"--InitContainer.1.Name", request.InitContainer.Name,
-		"--InitContainer.1.Image", c.config.Image,
+		"--InitContainer.1.Image", request.InitImage,
 		"--InitContainer.1.ImagePullPolicy", "IfNotPresent",
 		"--InitContainer.1.SecurityContext.ReadOnlyRootFilesystem", "true",
 		"--InitContainer.1.SecurityContext.RunAsUser", "0",

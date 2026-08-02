@@ -3,7 +3,7 @@
   "build_mode": "node-local",
   "cache_scope": "node",
   "inputs": {
-    "dockerfile_sha256": "sha256:01a6e76bc02c1839ee2e63ec23d18928bbad7e724398725f60d8a934a09dcda1",
+    "dockerfile_sha256": "sha256:c4af5583023c09f564fe88813eff5b3cb0014ec69a4379eab77da73409403c41",
     "toolchain_lock_sha256": "sha256:327570e26c4f5bb825fcae1ee21db9bd92c4a0e4448efd73344fe8c68490cd66",
     "go_mod_sha256": "sha256:26145dd08c09df3862014377512a54ba2ca9a84adc9e1451258050f9fb1ec75f",
     "go_sum_sha256": "sha256:8c717e45352a15786cac26ee3e01be1fa81ff838e249c34356a3ed95e75a530a",

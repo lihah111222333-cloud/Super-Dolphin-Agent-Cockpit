@@ -292,7 +292,7 @@ func (owner *coordinatorOwner) buildContainerShardSet(
 		plan,
 		manifestDigest,
 		configDigest,
-		uint8(owner.schedulingPolicy.ShardsPerJob),
+		owner.schedulingPolicy.ShardsPerJob,
 	)
 	if err != nil {
 		return gatecontract.ContainerShardSet{}, err

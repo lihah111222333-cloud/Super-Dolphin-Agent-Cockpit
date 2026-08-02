@@ -536,7 +536,6 @@ func testDurationPlanningContext() PlanningContext {
 		Platform:         "darwin",
 		Runner:           "local",
 		Toolchain:        "go1.25",
-		MaxShards:        8,
 		TargetDurationMS: FullCITargetDurationMS,
 	}
 }

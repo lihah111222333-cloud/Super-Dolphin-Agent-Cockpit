@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -139,7 +138,6 @@ func assertRemoteCoordinatorHookCommand(
 	flagArgs := remoteCoordinatorHookFlagArgs(t, command, prefix, trailing)
 	observed := remoteCoordinatorHookFlags(t, hook, flagArgs)
 	assertRequiredRemoteCoordinatorHookFlags(t, hook, observed, required)
-	assertOptionalRemoteMaxShards(t, hook, observed)
 	if len(observed) != 0 {
 		t.Errorf("remote %s coordinator has unexpected flags: %v", hook, observed)
 	}
@@ -182,17 +180,6 @@ func assertRequiredRemoteCoordinatorHookFlags(t *testing.T, hook string, observe
 			t.Errorf("remote %s coordinator %s = %q, want %q", hook, flag, got, want)
 		}
 		delete(observed, flag)
-	}
-}
-
-func assertOptionalRemoteMaxShards(t *testing.T, hook string, observed map[string]string) {
-	t.Helper()
-	if value, ok := observed["--max-shards"]; ok {
-		maxShards, err := strconv.Atoi(value)
-		if err != nil || maxShards <= 0 || maxShards > 128 {
-			t.Errorf("remote %s coordinator --max-shards = %q, want 1..128", hook, value)
-		}
-		delete(observed, "--max-shards")
 	}
 }
 
@@ -335,7 +322,6 @@ func TestShardResourceAndAggregationContract(t *testing.T) {
 	shards := parseContractGuardFile(t, filepath.Join(root, "internal", "devtools", "gate", "container_shards.go"))
 	consts := contractGuardConsts(t, shards)
 	for name, want := range map[string]string{
-		"MaxContainerShards":          "128",
 		"legacyContainerShardCount":   "3",
 		"containerShardSchemaVersion": "2",
 		"containerShardCPUNanos":      "4000000000",

@@ -29,7 +29,6 @@ func TestRemoteWorkloadCacheIdentityIgnoresBatchShardAndRequesterFields(t *testi
 	input.Tree = strings.Repeat("3", 40)
 	input.Profile = gate.ProfileRelease
 	input.Entrypoint = gate.CIEntrypointRelease
-	input.MaxShards = 63
 	input.LedgerSnapshot.Generation = 99
 	input.ForceRerun = true
 	input.RequesterFingerprint = gate.RequesterFingerprint("sha256:" + strings.Repeat("f", 64))
@@ -629,7 +628,6 @@ func remoteWorkloadCacheInputFixture() RunInput {
 		Tree:                   strings.Repeat("1", 40),
 		Profile:                gate.ProfileLocalFast,
 		Entrypoint:             gate.CIEntrypointGitPreCommit,
-		MaxShards:              5,
 		Platform:               "linux/amd64",
 		PolicyDigest:           "sha256:" + strings.Repeat("2", 64),
 		ToolchainDigest:        "sha256:" + strings.Repeat("3", 64),

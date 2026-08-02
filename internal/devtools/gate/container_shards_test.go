@@ -63,14 +63,14 @@ func TestBuildContainerShardSetUsesProfileSpecificCanonicalGroups(t *testing.T) 
 
 func TestBuildContainerShardSetWithCountBindsRequestedShardCount(t *testing.T) {
 	plan := mustBuildPlan(t, ProfileLocalFast)
-	for _, count := range []uint8{1, 2, 3, 5} {
+	for _, count := range []int{1, 2, 3, 5} {
 		t.Run(fmt.Sprintf("count-%d", count), func(t *testing.T) {
 			assertContainerShardCountBinding(t, plan, count)
 		})
 	}
 }
 
-func assertContainerShardCountBinding(t *testing.T, plan GatePlan, count uint8) {
+func assertContainerShardCountBinding(t *testing.T, plan GatePlan, count int) {
 	t.Helper()
 	set, err := BuildContainerShardSetWithCount(plan, shardTestDigest('a'), shardTestDigest('b'), count)
 	if err != nil {
@@ -91,7 +91,7 @@ func assertContainerShardCountBinding(t *testing.T, plan GatePlan, count uint8) 
 
 func TestBuildContainerShardSetWithCountRejectsInvalidCount(t *testing.T) {
 	plan := mustBuildPlan(t, ProfileLocalFast)
-	for _, count := range []uint8{0, 65, uint8(len(plan.Gates) + 1)} {
+	for _, count := range []int{0, 65, len(plan.Gates) + 1} {
 		if _, err := BuildContainerShardSetWithCount(plan, shardTestDigest('a'), shardTestDigest('b'), count); err == nil {
 			t.Fatalf("BuildContainerShardSetWithCount(count=%d) succeeded", count)
 		}
@@ -113,7 +113,7 @@ func TestBuildContainerShardSetWithCountKeepsReleaseRaceIsolated(t *testing.T) {
 
 func TestBuildContainerShardSetFromWorkloadPlanBindsFrozenLPTIdentity(t *testing.T) {
 	gatePlan := mustBuildPlan(t, ProfileRelease)
-	workloadPlan := testWorkloadExecutionPlan(t, gatePlan, 5)
+	workloadPlan := testWorkloadExecutionPlan(t, gatePlan)
 	set, err := BuildContainerShardSetFromWorkloadPlan(
 		gatePlan,
 		workloadPlan,
@@ -141,7 +141,7 @@ func assertWorkloadContainerShardSetIdentity(
 ) {
 	t.Helper()
 	if len(set.Shards) != len(workloadPlan.Shards) ||
-		set.ShardsPerJob != uint8(len(workloadPlan.Shards)) ||
+		set.ShardsPerJob != len(workloadPlan.Shards) ||
 		set.WorkloadPlanDigest != workloadPlan.PlanDigest {
 		t.Fatalf("workload shard set identity = %#v", set)
 	}
@@ -160,7 +160,7 @@ func TestWorkloadContainerShardSetRejectsSelfConsistentShardDrift(t *testing.T) 
 	gatePlan := mustBuildPlan(t, ProfileLocalFast)
 	set, err := BuildContainerShardSetFromWorkloadPlan(
 		gatePlan,
-		testWorkloadExecutionPlan(t, gatePlan, 3),
+		testWorkloadExecutionPlan(t, gatePlan),
 		shardTestDigest('a'),
 		shardTestDigest('b'),
 	)
@@ -214,7 +214,7 @@ func TestContainerShardSetValidateStoredAcceptsIntactHistoricalGrouping(t *testi
 	}
 }
 
-func testWorkloadExecutionPlan(t *testing.T, gatePlan GatePlan, maxShards int) WorkloadExecutionPlan {
+func testWorkloadExecutionPlan(t *testing.T, gatePlan GatePlan) WorkloadExecutionPlan {
 	t.Helper()
 	catalog, err := BuildWorkloadCatalog(gatePlan, DefaultWorkloadBootstrapPolicy())
 	if err != nil {
@@ -226,7 +226,7 @@ func testWorkloadExecutionPlan(t *testing.T, gatePlan GatePlan, maxShards int) W
 		DurationLedgerSnapshot{Generation: 11, Ledger: fastDurationLedger(catalog)},
 		PlanningContext{
 			Platform: "linux/amd64", Runner: "runner-digest",
-			Toolchain: "go1.26-node22", MaxShards: maxShards,
+			Toolchain:        "go1.26-node22",
 			TargetDurationMS: FullCITargetDurationMS,
 		},
 	)

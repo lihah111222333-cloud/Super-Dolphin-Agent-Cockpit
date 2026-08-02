@@ -92,7 +92,7 @@ func storedResultReceiptShardSet(receipts []ContainerShardReceipt, plan GatePlan
 
 // uncheckedResultReceiptShardSet 从回执重建尚未执行 canonical 校验的分片集合。
 func uncheckedResultReceiptShardSet(receipts []ContainerShardReceipt) (ContainerShardSet, error) {
-	if len(receipts) == 0 || len(receipts) > MaxContainerShards {
+	if len(receipts) == 0 {
 		return ContainerShardSet{}, errors.New("result receipt shard receipt count is invalid")
 	}
 	first := receipts[0].Shard
@@ -100,7 +100,7 @@ func uncheckedResultReceiptShardSet(receipts []ContainerShardReceipt) (Container
 	if first.SchemaVersion == legacyContainerShardSchemaVersion && shardsPerJob == 0 {
 		shardsPerJob = legacyContainerShardCount
 	}
-	if int(shardsPerJob) != len(receipts) {
+	if shardsPerJob != len(receipts) {
 		return ContainerShardSet{}, errors.New("result receipt shard receipt count does not match shards_per_job")
 	}
 	set := ContainerShardSet{

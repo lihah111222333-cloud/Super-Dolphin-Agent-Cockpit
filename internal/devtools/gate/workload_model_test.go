@@ -74,6 +74,11 @@ func TestDurationLedgerJSONFieldCoverage(t *testing.T) {
 				"command_digest", "platform", "runner", "toolchain", "workload_id",
 			},
 		},
+		{
+			name:     "planning context",
+			producer: reflect.TypeFor[PlanningContext](),
+			fields:   []string{"platform", "runner", "target_duration_ms", "toolchain"},
+		},
 	}
 	for _, registration := range registrations {
 		t.Run(registration.name, func(t *testing.T) {
@@ -164,7 +169,7 @@ func TestPlanLPTUsesOnlyComparableSuccessfulSamples(t *testing.T) {
 		{Bucket: DurationBucket{WorkloadID: "gamma", CommandDigest: strings.Repeat("b", 64), Platform: "darwin", Runner: "other", Toolchain: "go1.25"}, Succeeded: true, DurationMS: 9},
 	}}
 
-	shards, err := PlanLPT(catalog, ledger, testPlanningContext(2))
+	shards, err := PlanLPT(catalog, ledger, testPlanningContext())
 	if err != nil {
 		t.Fatalf("PlanLPT() error = %v", err)
 	}
@@ -187,7 +192,7 @@ func TestHasComparableSuccessfulDurationSampleRequiresSuccessAndExactEnvironment
 		ID: "alpha", Kind: WorkloadKindGoTest, CommandDigest: testWorkloadDigest,
 		BootstrapEstimateMS: 100, Shardable: true,
 	}
-	context := testPlanningContext(1)
+	context := testPlanningContext()
 	failed := testDurationSample(workload.ID, workload.CommandDigest, false, 900)
 	if HasComparableSuccessfulDurationSample(workload, DurationLedger{Samples: []DurationSample{failed}}, context) {
 		t.Fatal("failed duration sample was accepted as comparable success")
@@ -204,13 +209,13 @@ func TestHasComparableSuccessfulDurationSampleRequiresSuccessAndExactEnvironment
 	}
 }
 
-func TestPlanLPTTreatsMaxShardsAsCapacityCeiling(t *testing.T) {
+func TestPlanLPTUsesOneShardBelow100SecondTarget(t *testing.T) {
 	catalog := testWorkloadCatalog(
 		Workload{ID: "charlie", Kind: WorkloadKindGoTest, CommandDigest: testWorkloadDigest, BootstrapEstimateMS: 50},
 		Workload{ID: "alpha", Kind: WorkloadKindGoTest, CommandDigest: strings.Repeat("a", 64), BootstrapEstimateMS: 50},
 		Workload{ID: "bravo", Kind: WorkloadKindGoTest, CommandDigest: strings.Repeat("b", 64), BootstrapEstimateMS: 50},
 	)
-	shards, err := PlanLPT(catalog, DurationLedger{Version: durationLedgerVersion}, testPlanningContext(128))
+	shards, err := PlanLPT(catalog, DurationLedger{Version: durationLedgerVersion}, testPlanningContext())
 	if err != nil {
 		t.Fatalf("PlanLPT() error = %v", err)
 	}
@@ -230,7 +235,7 @@ func TestPlanLPTAutomaticallyAddsShardsToMeet100SecondSLA(t *testing.T) {
 		Workload{ID: "beta", Kind: WorkloadKindGoTest, CommandDigest: strings.Repeat("a", 64), BootstrapEstimateMS: 60_000},
 		Workload{ID: "gamma", Kind: WorkloadKindGoTest, CommandDigest: strings.Repeat("b", 64), BootstrapEstimateMS: 60_000},
 	)
-	shards, err := PlanLPT(catalog, DurationLedger{Version: durationLedgerVersion}, testPlanningContext(10))
+	shards, err := PlanLPT(catalog, DurationLedger{Version: durationLedgerVersion}, testPlanningContext())
 	if err != nil {
 		t.Fatalf("PlanLPT() error = %v", err)
 	}
@@ -239,26 +244,11 @@ func TestPlanLPTAutomaticallyAddsShardsToMeet100SecondSLA(t *testing.T) {
 	}
 }
 
-func TestPlanLPTCapsRequiredParallelism(t *testing.T) {
-	catalog := testWorkloadCatalog(
-		Workload{ID: "alpha", Kind: WorkloadKindGoTest, CommandDigest: testWorkloadDigest, BootstrapEstimateMS: 60_000},
-		Workload{ID: "beta", Kind: WorkloadKindGoTest, CommandDigest: strings.Repeat("a", 64), BootstrapEstimateMS: 60_000},
-		Workload{ID: "gamma", Kind: WorkloadKindGoTest, CommandDigest: strings.Repeat("b", 64), BootstrapEstimateMS: 60_000},
-	)
-	shards, err := PlanLPT(catalog, DurationLedger{Version: durationLedgerVersion}, testPlanningContext(2))
-	if err != nil {
-		t.Fatalf("PlanLPT() error = %v", err)
-	}
-	if len(shards) != 2 {
-		t.Fatalf("len(shards) = %d, want configured capacity ceiling 2", len(shards))
-	}
-}
-
 func TestPlanLPTKeepsIndivisibleWorkloadOver100SecondsRunnable(t *testing.T) {
 	catalog := testWorkloadCatalog(
 		Workload{ID: "too-slow", Kind: WorkloadKindGoTest, CommandDigest: testWorkloadDigest, BootstrapEstimateMS: 100_001},
 	)
-	shards, err := PlanLPT(catalog, DurationLedger{Version: durationLedgerVersion}, testPlanningContext(10))
+	shards, err := PlanLPT(catalog, DurationLedger{Version: durationLedgerVersion}, testPlanningContext())
 	if err != nil {
 		t.Fatalf("PlanLPT() rejected an over-target workload: %v", err)
 	}
@@ -282,7 +272,7 @@ func TestPlanLPTUsesAtomicEstimateAfterSuccessfulPreparationOverrun(t *testing.T
 	ledger := DurationLedger{Version: durationLedgerVersion, Samples: []DurationSample{
 		testDurationSample(workload.ID, workload.CommandDigest, true, FullCITargetDurationMS+50),
 	}}
-	shards, err := PlanLPT(testWorkloadCatalog(workload), ledger, testPlanningContext(1))
+	shards, err := PlanLPT(testWorkloadCatalog(workload), ledger, testPlanningContext())
 	if err != nil {
 		t.Fatalf("PlanLPT() rejected a passed atomic test with deadline-external preparation: %v", err)
 	}
@@ -299,7 +289,7 @@ func TestPlanLPTKeepsMeasuredPackageOver100SecondsRunnable(t *testing.T) {
 	ledger := DurationLedger{Version: durationLedgerVersion, Samples: []DurationSample{
 		testDurationSample(workload.ID, workload.CommandDigest, true, FullCITargetDurationMS+50),
 	}}
-	shards, err := PlanLPT(testWorkloadCatalog(workload), ledger, testPlanningContext(1))
+	shards, err := PlanLPT(testWorkloadCatalog(workload), ledger, testPlanningContext())
 	if err != nil {
 		t.Fatalf("PlanLPT() rejected a measured over-target package: %v", err)
 	}
@@ -314,7 +304,7 @@ func TestPlanLPTExcludesOwnerOnlyWorkloads(t *testing.T) {
 		{ID: "aggregate", Kind: WorkloadKindGuard, CommandDigest: strings.Repeat("a", 64), BootstrapEstimateMS: 1, Shardable: false},
 	}}
 	catalog.Workloads[0].Shardable = true
-	shards, err := PlanLPT(catalog, DurationLedger{Version: durationLedgerVersion}, testPlanningContext(2))
+	shards, err := PlanLPT(catalog, DurationLedger{Version: durationLedgerVersion}, testPlanningContext())
 	if err != nil {
 		t.Fatalf("PlanLPT() error = %v", err)
 	}
@@ -327,18 +317,18 @@ func TestPlanLPTRejectsCatalogWithoutShardableWorkload(t *testing.T) {
 	catalog := WorkloadCatalog{Version: durationLedgerVersion, Workloads: []Workload{{
 		ID: "aggregate", Kind: WorkloadKindGuard, CommandDigest: testWorkloadDigest, BootstrapEstimateMS: 1,
 	}}}
-	if _, err := PlanLPT(catalog, DurationLedger{Version: durationLedgerVersion}, testPlanningContext(1)); err == nil {
+	if _, err := PlanLPT(catalog, DurationLedger{Version: durationLedgerVersion}, testPlanningContext()); err == nil {
 		t.Fatal("PlanLPT() error = nil for catalog without shardable workload")
 	}
 }
 
 func TestPlanLPTRejectsInvalidContextAndLedger(t *testing.T) {
 	catalog := testWorkloadCatalog(Workload{ID: "unit", Kind: WorkloadKindGoTest, CommandDigest: testWorkloadDigest, BootstrapEstimateMS: 1})
-	if _, err := PlanLPT(catalog, DurationLedger{Version: durationLedgerVersion}, PlanningContext{MaxShards: 1}); err == nil {
+	if _, err := PlanLPT(catalog, DurationLedger{Version: durationLedgerVersion}, PlanningContext{}); err == nil {
 		t.Fatal("PlanLPT() error = nil for incomplete bucket context")
 	}
 	invalidLedger := DurationLedger{Version: durationLedgerVersion, Samples: []DurationSample{testDurationSample("unit", testWorkloadDigest, true, 0)}}
-	if _, err := PlanLPT(catalog, invalidLedger, testPlanningContext(1)); err == nil {
+	if _, err := PlanLPT(catalog, invalidLedger, testPlanningContext()); err == nil {
 		t.Fatal("PlanLPT() error = nil for zero duration sample")
 	}
 }
@@ -353,7 +343,7 @@ func TestBuildWorkloadExecutionPlanBindsCatalogLedgerAndLPT(t *testing.T) {
 		Generation: 7,
 		Ledger:     fastDurationLedger(catalog),
 	}
-	context := testLinuxPlanningContext(5)
+	context := testLinuxPlanningContext()
 	plan, err := BuildWorkloadExecutionPlan(gatePlan, catalog, snapshot, context)
 	if err != nil {
 		t.Fatalf("BuildWorkloadExecutionPlan() error = %v", err)
@@ -380,7 +370,7 @@ func TestBuildWorkloadExecutionPlanWithReusePlansOnlyMisses(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot := DurationLedgerSnapshot{Generation: 7, Ledger: fastDurationLedger(catalog)}
-	context := testLinuxPlanningContext(5)
+	context := testLinuxPlanningContext()
 	reused := []string{catalog.Workloads[0].ID, catalog.Workloads[1].ID}
 	plan, err := BuildWorkloadExecutionPlanWithReuse(gatePlan, catalog, snapshot, context, reused)
 	if err != nil {
@@ -447,7 +437,7 @@ func TestWorkloadExecutionPlanRejectsTamperingAndLedgerDrift(t *testing.T) {
 		t.Fatalf("BuildWorkloadCatalog() error = %v", err)
 	}
 	snapshot := DurationLedgerSnapshot{Generation: 3, Ledger: fastDurationLedger(catalog)}
-	context := testLinuxPlanningContext(3)
+	context := testLinuxPlanningContext()
 	plan, err := BuildWorkloadExecutionPlan(gatePlan, catalog, snapshot, context)
 	if err != nil {
 		t.Fatalf("BuildWorkloadExecutionPlan() error = %v", err)
@@ -492,7 +482,7 @@ func TestBuildWorkloadExecutionPlanRejectsAbsentLedgerGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildWorkloadCatalog() error = %v", err)
 	}
-	context := testLinuxPlanningContext(3)
+	context := testLinuxPlanningContext()
 	if _, err := BuildWorkloadExecutionPlan(
 		gatePlan,
 		catalog,
@@ -519,17 +509,17 @@ func cloneShardPlans(shards []ShardPlan) []ShardPlan {
 	return cloned
 }
 
-func testPlanningContext(maxShards int) PlanningContext {
+func testPlanningContext() PlanningContext {
 	return PlanningContext{
 		Platform: "darwin", Runner: "local", Toolchain: "go1.25",
-		MaxShards: maxShards, TargetDurationMS: FullCITargetDurationMS,
+		TargetDurationMS: FullCITargetDurationMS,
 	}
 }
 
-func testLinuxPlanningContext(maxShards int) PlanningContext {
+func testLinuxPlanningContext() PlanningContext {
 	return PlanningContext{
 		Platform: "linux/amd64", Runner: "runner-digest", Toolchain: "go1.26-node22",
-		MaxShards: maxShards, TargetDurationMS: FullCITargetDurationMS,
+		TargetDurationMS: FullCITargetDurationMS,
 	}
 }
 

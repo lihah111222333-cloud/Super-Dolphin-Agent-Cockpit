@@ -80,7 +80,6 @@ func TestCoordinatorCleanupStartsAllECIDeletesWithoutCPUBatchLimit(t *testing.T)
 func TestCoordinatorRunConcurrentlyUploadsAndCreatesCacheMissShards(t *testing.T) {
 	repository, input := remoteRunFixture(t)
 	input.RepositoryRoot = repository
-	input.MaxShards = 5
 	plannedSet := mustBuildRemoteExecutionShardSet(t, input)
 	if len(plannedSet.Shards) <= 1 {
 		t.Fatalf("planned shards=%d, want concurrent shards", len(plannedSet.Shards))

@@ -795,6 +795,27 @@ func TestExecutionProfileUsesOnlyExactTopLevelTestTiming(t *testing.T) {
 	}
 }
 
+func TestFrontendExecutionProfileDoesNotInferNPMCacheHit(t *testing.T) {
+	started := executorPlanTestNow()
+	completed := started.Add(1500 * time.Millisecond)
+	profile, err := executionProfileForGate(
+		GateIDFrontendLint,
+		ExecutorProgram{NeedsFrontendSeed: true},
+		candidateTestBinaryBundleIndex{},
+		nil,
+		started,
+		completed,
+		&executorExecutionTiming{setupMS: 500, bodyMS: 1000, totalMS: 1500},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.Frontend == nil || profile.Frontend.NPMCacheHit ||
+		profile.Frontend.NPMCacheNotApplicableReason != "npm_cache_lookup_not_observed" {
+		t.Fatalf("frontend npm cache evidence = %#v", profile.Frontend)
+	}
+}
+
 func clonePlanReport(t *testing.T, report PlanExecutionReport) PlanExecutionReport {
 	t.Helper()
 	cloned, err := DecodePlanExecutionReport(encodePlanReportForTest(t, report))

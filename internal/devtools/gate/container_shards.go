@@ -14,8 +14,6 @@ import (
 )
 
 const (
-	// MaxContainerShards bounds an explicitly requested per-invocation shard count.
-	MaxContainerShards                         = 128
 	legacyContainerShardCount                  = 3
 	containerShardSchemaVersion         uint32 = 2
 	workloadContainerShardSchemaVersion uint32 = 3
@@ -29,14 +27,14 @@ const (
 // It deliberately excludes release:ci-l3: only the trusted owner may aggregate it.
 type ContainerShard struct {
 	SchemaVersion          uint32   `json:"schema_version"`
-	Index                  uint8    `json:"index"`
+	Index                  int      `json:"index"`
 	IdentityDigest         string   `json:"identity_digest"`
 	Profile                Profile  `json:"profile"`
 	PlanDigest             string   `json:"plan_digest"`
 	SourceTreeSHA          string   `json:"source_tree_sha"`
 	AcceptedManifestDigest string   `json:"accepted_manifest_digest"`
 	AcceptedConfigDigest   string   `json:"accepted_config_digest"`
-	ShardsPerJob           uint8    `json:"shards_per_job"`
+	ShardsPerJob           int      `json:"shards_per_job"`
 	WorkloadPlanDigest     string   `json:"workload_plan_digest,omitempty"`
 	CatalogDigest          string   `json:"catalog_digest,omitempty"`
 	LedgerGeneration       uint64   `json:"ledger_generation,omitempty"`
@@ -51,7 +49,7 @@ type ContainerShardSet struct {
 	SourceTreeSHA          string
 	AcceptedManifestDigest string
 	AcceptedConfigDigest   string
-	ShardsPerJob           uint8
+	ShardsPerJob           int
 	WorkloadPlanDigest     string
 	CatalogDigest          string
 	LedgerGeneration       uint64
@@ -85,7 +83,7 @@ func BuildContainerShardSet(plan GatePlan, acceptedManifestDigest string, accept
 }
 
 // BuildContainerShardSetWithCount 按显式数量构造与 invocation 绑定的 canonical 分片集合。
-func BuildContainerShardSetWithCount(plan GatePlan, acceptedManifestDigest string, acceptedConfigDigest string, shardsPerJob uint8) (ContainerShardSet, error) {
+func BuildContainerShardSetWithCount(plan GatePlan, acceptedManifestDigest string, acceptedConfigDigest string, shardsPerJob int) (ContainerShardSet, error) {
 	prerequisites, err := containerShardPrerequisites(plan, acceptedManifestDigest, acceptedConfigDigest)
 	if err != nil {
 		return ContainerShardSet{}, err
@@ -106,9 +104,9 @@ func BuildContainerShardSetWithCount(plan GatePlan, acceptedManifestDigest strin
 	return set, nil
 }
 
-func validateRequestedContainerShardCount(shardsPerJob uint8, gateCount int) error {
-	if shardsPerJob == 0 || shardsPerJob > MaxContainerShards || int(shardsPerJob) > gateCount {
-		return fmt.Errorf("shards_per_job %d is outside 1..min(%d,%d)", shardsPerJob, MaxContainerShards, gateCount)
+func validateRequestedContainerShardCount(shardsPerJob int, gateCount int) error {
+	if shardsPerJob <= 0 || shardsPerJob > gateCount {
+		return fmt.Errorf("shards_per_job %d is outside 1..%d", shardsPerJob, gateCount)
 	}
 	return nil
 }
@@ -136,7 +134,7 @@ func appendContainerShards(set *ContainerShardSet, groups [][]GateID) error {
 		if len(gates) == 0 {
 			continue
 		}
-		shard := ContainerShard{SchemaVersion: containerShardSchemaVersion, Index: uint8(len(set.Shards)), Profile: set.Profile, PlanDigest: set.PlanDigest, SourceTreeSHA: set.SourceTreeSHA, AcceptedManifestDigest: set.AcceptedManifestDigest, AcceptedConfigDigest: set.AcceptedConfigDigest, ShardsPerJob: set.ShardsPerJob, GateIDs: slices.Clone(gates)}
+		shard := ContainerShard{SchemaVersion: containerShardSchemaVersion, Index: len(set.Shards), Profile: set.Profile, PlanDigest: set.PlanDigest, SourceTreeSHA: set.SourceTreeSHA, AcceptedManifestDigest: set.AcceptedManifestDigest, AcceptedConfigDigest: set.AcceptedConfigDigest, ShardsPerJob: set.ShardsPerJob, GateIDs: slices.Clone(gates)}
 		identity, err := containerShardIdentityDigest(shard)
 		if err != nil {
 			return err
@@ -295,7 +293,7 @@ func validateContainerShardSetHeader(set ContainerShardSet) error {
 	if err := validateRequestedContainerShardCount(set.ShardsPerJob, maximumAssignments); err != nil {
 		return err
 	}
-	if len(set.Shards) != int(set.ShardsPerJob) {
+	if len(set.Shards) != set.ShardsPerJob {
 		return errors.New("container shard count does not match shards_per_job")
 	}
 	if isWorkloadContainerShardSet(set) {
@@ -329,7 +327,7 @@ func validateContainerShard(set ContainerShardSet, shard ContainerShard, index i
 	if isWorkloadContainerShardSet(set) {
 		wantSchema = workloadContainerShardSchemaVersion
 	}
-	if shard.Index != uint8(index) || shard.SchemaVersion != wantSchema || shard.ShardsPerJob != set.ShardsPerJob {
+	if shard.Index != index || shard.SchemaVersion != wantSchema || shard.ShardsPerJob != set.ShardsPerJob {
 		return errors.New("container shard identity binding drifted")
 	}
 	if err := validateContainerShardBinding(set, shard); err != nil {
@@ -360,7 +358,7 @@ func validateStoredContainerShard(set ContainerShardSet, shard ContainerShard, i
 // validateStoredContainerShardVersion 区分历史三分片与当前动态分片版本绑定。
 func validateStoredContainerShardVersion(set ContainerShardSet, shard ContainerShard, index int) error {
 	if allLegacyContainerShards(set.Shards) {
-		if shard.Index != uint8(index) || shard.SchemaVersion != legacyContainerShardSchemaVersion || shard.ShardsPerJob != 0 {
+		if shard.Index != index || shard.SchemaVersion != legacyContainerShardSchemaVersion || shard.ShardsPerJob != 0 {
 			return errors.New("stored container shard identity binding drifted")
 		}
 	} else if err := validateContainerShard(set, shard, index); err != nil {
@@ -404,6 +402,9 @@ func claimContainerShardGates(seen map[GateID]struct{}, gateIDs []GateID) error 
 
 // legacyContainerShardIdentityDigest 复现 schema v1 未包含分片数量字段的历史摘要。
 func legacyContainerShardIdentityDigest(shard ContainerShard) (string, error) {
+	if shard.Index < 0 || shard.Index > 255 {
+		return "", fmt.Errorf("legacy container shard index %d overflows uint8", shard.Index)
+	}
 	material := struct {
 		SchemaVersion          uint32
 		Index                  uint8
@@ -413,7 +414,7 @@ func legacyContainerShardIdentityDigest(shard ContainerShard) (string, error) {
 		AcceptedManifestDigest string
 		AcceptedConfigDigest   string
 		GateIDs                []GateID
-	}{shard.SchemaVersion, shard.Index, shard.Profile, shard.PlanDigest, shard.SourceTreeSHA,
+	}{shard.SchemaVersion, uint8(shard.Index), shard.Profile, shard.PlanDigest, shard.SourceTreeSHA,
 		shard.AcceptedManifestDigest, shard.AcceptedConfigDigest, shard.GateIDs}
 	encoded, err := json.Marshal(material)
 	if err != nil {

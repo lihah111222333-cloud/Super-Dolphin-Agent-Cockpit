@@ -323,7 +323,7 @@ func remoteAutomaticCalibrationOptions(options remoteRunOptions, state remoteci.
 	}
 	return remoteRunOptions{
 		ConfigPath: options.ConfigPath, RepositoryRoot: options.RepositoryRoot,
-		Commit: commit, MaxShards: options.MaxShards,
+		Commit:     commit,
 		LedgerPath: options.LedgerPath,
 	}, nil
 }

@@ -245,7 +245,7 @@ func validateContainerShardGateIDs(profile Profile, gateIDs []GateID) error {
 
 // validateCanonicalReportShardGateIDs 确认报告的 gate 序列恰好等于某个规范 container shard。
 func validateCanonicalReportShardGateIDs(profile Profile, gateIDs []GateID) error {
-	for count := uint8(1); count <= MaxContainerShards && int(count) <= len(requiredContainerShardGateIDs(profile)); count++ {
+	for count := 1; count <= len(requiredContainerShardGateIDs(profile)); count++ {
 		for _, expected := range canonicalContainerShardGroups(profile, count) {
 			if slices.Equal(gateIDs, expected) {
 				return nil
@@ -257,7 +257,7 @@ func validateCanonicalReportShardGateIDs(profile Profile, gateIDs []GateID) erro
 
 // canonicalContainerShardGroups 是 coordinator 与 executor 共享的分片合同。
 // 三分片保持历史分组不变；其他数量仅在原组内切分，并在至少两个分片时隔离 race gate。
-func canonicalContainerShardGroups(profile Profile, shardsPerJob uint8) [][]GateID {
+func canonicalContainerShardGroups(profile Profile, shardsPerJob int) [][]GateID {
 	if err := validateRequestedContainerShardCount(shardsPerJob, len(requiredContainerShardGateIDs(profile))); err != nil {
 		return nil
 	}
@@ -270,7 +270,7 @@ func canonicalContainerShardGroups(profile Profile, shardsPerJob uint8) [][]Gate
 	case 2:
 		return [][]GateID{mergeContainerShardGroups(groups[:2]), slices.Clone(groups[2])}
 	}
-	for uint8(len(groups)) < shardsPerJob {
+	for len(groups) < shardsPerJob {
 		index := largestSplittableContainerShardGroup(groups)
 		if index < 0 {
 			return nil
@@ -866,7 +866,11 @@ func executionProfileForGate(id GateID, program ExecutorProgram, binaries candid
 	profile.StartupMS = profile.TotalMS - profile.TestBodyMS
 	if program.NeedsFrontendSeed {
 		profile.Frontend = &FrontendExecutionProfile{
-			NodeModulesSeedHit: true, NPMCacheHit: true,
+			NodeModulesSeedHit: true,
+			// lint/test/build do not invoke npm's package-resolution path.  A
+			// verified seed is not evidence of an npm cache lookup, so retain the
+			// explicit non-applicable state instead of fabricating a cache hit.
+			NPMCacheNotApplicableReason:          "npm_cache_lookup_not_observed",
 			PlaywrightBrowserNotApplicableReason: "browser_cache_lookup_not_observed",
 			ViteCacheNotApplicableReason:         "vite_cache_is_private_per_execution",
 		}

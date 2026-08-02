@@ -46,7 +46,7 @@ func (coordinator *Coordinator) lookupPassedWorkloads(ctx context.Context, input
 
 // remotePlanningContext 统一缓存投影与最终 LPT 使用的环境和时限身份。
 func remotePlanningContext(input RunInput) gate.PlanningContext {
-	return gate.PlanningContext{Platform: input.Platform, Runner: input.RunnerIdentityDigest, Toolchain: input.ToolchainDigest, MaxShards: int(input.MaxShards), TargetDurationMS: gate.FullCITargetDurationMS}
+	return gate.PlanningContext{Platform: input.Platform, Runner: input.RunnerIdentityDigest, Toolchain: input.ToolchainDigest, TargetDurationMS: gate.FullCITargetDurationMS}
 }
 
 // prepareRemoteAssets 构建将由远端 builder 与执行分片共同消费的源和候选 CLI 资产。

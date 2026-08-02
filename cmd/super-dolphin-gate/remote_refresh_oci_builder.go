@@ -2,19 +2,16 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
-	"regexp"
+	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/eci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/localci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
 )
-
-const remoteOCIBuildReceiptSchemaVersion uint32 = 1
-
-var remoteOCIDigestPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 
 // remoteOCIBuilderRuntime is the existing ECI lifecycle boundary needed by a
 // remote OCI builder worker. Keeping it narrow prevents request-side code from
@@ -26,33 +23,7 @@ type remoteOCIBuilderRuntime interface {
 	DeleteContainerGroup(context.Context, string) error
 }
 
-// remoteOCIBuildRequest is the cross-runtime contract for a single remote
-// BuildKit invocation. The embedded request is already closure-validated by
-// localci and carries the exact context and input digests the receipt must echo.
-type remoteOCIBuildRequest struct {
-	SchemaVersion   uint32                       `json:"schema_version"`
-	Repository      string                       `json:"repository"`
-	MainTree        string                       `json:"main_tree"`
-	ToolchainDigest string                       `json:"toolchain_digest"`
-	Platform        string                       `json:"platform"`
-	Build           localci.BuildKitBuildRequest `json:"build"`
-	RegistryAccess  eci.RegistryAccess           `json:"registry_access"`
-}
-
-// remoteOCIBuildReceipt is emitted by the remote builder only after its push
-// succeeds. Every identity field is echoed so a stale or cross-tree image can
-// never become an accepted baseline.
-type remoteOCIBuildReceipt struct {
-	SchemaVersion   uint32 `json:"schema_version"`
-	MainTree        string `json:"main_tree"`
-	ToolchainDigest string `json:"toolchain_digest"`
-	Platform        string `json:"platform"`
-	InputDigest     string `json:"input_digest"`
-	ImageDigest     string `json:"image_digest"`
-	ConfigDigest    string `json:"config_digest"`
-}
-
-type remoteOCIBuildRequester func(context.Context, remoteOCIBuilderRuntime, remoteOCIBuildRequest) (remoteOCIBuildReceipt, error)
+type remoteOCIBuildRequester func(context.Context, remoteRunConfig, remoteOCIBuilderRuntime, remoteci.OCIBaselineBuilderRequest, []byte) (remoteci.OCIBaselineBuilderResult, error)
 
 // buildRemoteOCIBaseline is the production-only bridge from a fixed main tree
 // to an immutable OCI image. Its only output is image@digest identity.
@@ -73,7 +44,7 @@ func buildRemoteOCIBaselineWithRequester(ctx context.Context, config remoteRunCo
 	if len(input.SourceEntries) == 0 {
 		return nil, errors.New("remote OCI baseline build source entries are required")
 	}
-	request, err := prepareRemoteOCIBuildRequest(config, accepted, input)
+	request, contextArchive, err := prepareRemoteOCIBuildRequest(config, accepted, input)
 	if err != nil {
 		return nil, err
 	}
@@ -81,55 +52,59 @@ func buildRemoteOCIBaselineWithRequester(ctx context.Context, config remoteRunCo
 	if err != nil {
 		return nil, fmt.Errorf("create remote OCI ECI runtime: %w", err)
 	}
-	receipt, err := requester(ctx, runtime, request)
+	result, err := requester(ctx, config, runtime, request, contextArchive)
 	if err != nil {
 		return nil, fmt.Errorf("request remote OCI BuildKit build: %w", err)
 	}
-	if err := validateRemoteOCIBuildReceipt(request, receipt); err != nil {
+	if err := result.ValidateAgainst(request); err != nil {
 		return nil, err
 	}
-	image := config.OCICache.RegistryRepository + "@" + receipt.ImageDigest
+	image := result.Image
 	return &remoteci.BaselineOCIProjectCache{
-		Image: image, ContentManifestSHA256: receipt.InputDigest,
+		Image: image, ContentManifestSHA256: result.InputDigest,
 		MainTree: input.Identity.MainTree, ToolchainDigest: input.Identity.ToolchainDigest,
 		Platform: input.Identity.Platform, CachePath: remoteci.OCIProjectGoBuildCachePath,
 	}, nil
 }
 
-func prepareRemoteOCIBuildRequest(config remoteRunConfig, accepted remoteci.BaselineState, input remoteBaselineRefreshInput) (remoteOCIBuildRequest, error) {
+func prepareRemoteOCIBuildRequest(config remoteRunConfig, accepted remoteci.BaselineState, input remoteBaselineRefreshInput) (remoteci.OCIBaselineBuilderRequest, []byte, error) {
+	if config.ACRRegistryInfo == nil {
+		return remoteci.OCIBaselineBuilderRequest{}, nil, errors.New("remote OCI builder ACR registry identity is required")
+	}
 	candidate := localci.CandidateRequest{SourceTreeSHA: input.Identity.MainTree, PolicyDigest: input.Identity.PolicyDigest, ImageSchemaVersion: "1", SourceEntries: append([]sourceexport.TreeEntry(nil), input.SourceEntries...), Platform: input.Identity.Platform}
+	parentImage := input.Identity.RuntimeImage
 	if accepted.SchemaVersion != 0 {
 		candidate.AcceptedImageReference = accepted.RuntimeImage
+		parentImage = accepted.RuntimeImage
 	}
 	_, build, err := localci.PrepareCandidateBuildRequest(candidate)
 	if err != nil {
-		return remoteOCIBuildRequest{}, fmt.Errorf("prepare remote OCI build request: %w", err)
+		return remoteci.OCIBaselineBuilderRequest{}, nil, fmt.Errorf("prepare remote OCI build context: %w", err)
 	}
-	access := eci.RegistryAccess{ACR: config.ACRRegistryInfo}
-	if err := eci.ValidateRegistryAccessForRepository(access, config.OCICache.RegistryRepository); err != nil {
-		return remoteOCIBuildRequest{}, fmt.Errorf("validate remote OCI registry access: %w", err)
+	if len(build.ContextTar) == 0 {
+		return remoteci.OCIBaselineBuilderRequest{}, nil, errors.New("remote OCI build context is empty")
 	}
-	return remoteOCIBuildRequest{SchemaVersion: remoteOCIBuildReceiptSchemaVersion, Repository: config.OCICache.RegistryRepository, MainTree: input.Identity.MainTree, ToolchainDigest: input.Identity.ToolchainDigest, Platform: input.Identity.Platform, Build: build, RegistryAccess: access}, nil
+	contextSHA256 := fmt.Sprintf("sha256:%x", sha256.Sum256(build.ContextTar))
+	jobID := "oci-" + strings.TrimPrefix(contextSHA256, "sha256:")[:24]
+	prefix := "oci-builds/" + jobID + "/"
+	request := remoteci.OCIBaselineBuilderRequest{
+		SchemaVersion: remoteci.OCIBaselineBuilderRequestSchemaVersion,
+		JobID:         jobID, ContextKey: prefix + "context.context.tar", ContextSHA256: contextSHA256,
+		SourceArchiveSize: int64(len(build.ContextTar)), RegistryRepository: config.OCICache.RegistryRepository, ACRInstanceID: config.ACRRegistryInfo.InstanceID, ACRRegionID: config.ACRRegistryInfo.RegionID, ParentImage: parentImage,
+		MainCommit: input.Identity.MainCommit, MainTree: input.Identity.MainTree,
+		ToolchainDigest: input.Identity.ToolchainDigest, Platform: input.Identity.Platform,
+		RuntimeDependencyDigest: input.RuntimeDependencyDigest, JobKey: prefix + "request.job.json",
+	}
+	if err := request.Validate(); err != nil {
+		return remoteci.OCIBaselineBuilderRequest{}, nil, fmt.Errorf("construct remote OCI baseline builder request: %w", err)
+	}
+	return request, build.ContextTar, nil
 }
 
 func newRemoteOCIBuilderRuntime(config remoteRunConfig) (remoteOCIBuilderRuntime, error) {
-	return eci.New(eci.Config{Binary: config.AliyunCLI, RegionID: config.RegionID, VSwitchID: config.VSwitchID, SecurityGroupID: config.SecurityGroupID, WorkerRoleName: config.WorkerRoleName, Profile: config.CredentialProfile, Image: config.OCICache.RemoteBuilderImage, Deadline: remoteBaselineRefreshDeadline, SpotStrategy: eci.SpotStrategyAsPriceGo, SpotDurationHours: 1, FallbackToPayAsYouGo: true})
+	return eci.New(eci.Config{Binary: config.AliyunCLI, RegionID: config.RegionID, VSwitchID: config.VSwitchID, SecurityGroupID: config.SecurityGroupID, WorkerRoleName: config.WorkerRoleName, Profile: config.CredentialProfile, Deadline: remoteBaselineRefreshDeadline, SpotStrategy: eci.SpotStrategyAsPriceGo, SpotDurationHours: 1, FallbackToPayAsYouGo: true})
 }
 
-func validateRemoteOCIBuildReceipt(request remoteOCIBuildRequest, receipt remoteOCIBuildReceipt) error {
-	if receipt.SchemaVersion != remoteOCIBuildReceiptSchemaVersion || receipt.MainTree != request.MainTree || receipt.ToolchainDigest != request.ToolchainDigest || receipt.Platform != request.Platform || receipt.InputDigest != request.Build.InputDigest {
-		return errors.New("remote OCI build receipt does not bind the requested main tree, toolchain, platform, and input digest")
-	}
-	if !remoteOCIDigestPattern.MatchString(receipt.ImageDigest) || !remoteOCIDigestPattern.MatchString(receipt.ConfigDigest) {
-		return errors.New("remote OCI build receipt image or config digest is invalid")
-	}
-	return nil
-}
-
-// requestRemoteOCIBuild deliberately fails until the remote builder worker is
-// deployed. ECI currently transports container lifecycle only; it has no
-// versioned source/request delivery or signed receipt channel. Falling back to
-// a local daemon here would make a non-comparable baseline look authoritative.
-func requestRemoteOCIBuild(context.Context, remoteOCIBuilderRuntime, remoteOCIBuildRequest) (remoteOCIBuildReceipt, error) {
-	return remoteOCIBuildReceipt{}, errors.New("remote OCI builder worker protocol is not deployed")
+func requestRemoteOCIBuild(ctx context.Context, config remoteRunConfig, runtime remoteOCIBuilderRuntime, request remoteci.OCIBaselineBuilderRequest, contextArchive []byte) (remoteci.OCIBaselineBuilderResult, error) {
+	return coordinateRemoteOCIBuild(ctx, config, runtime, request, contextArchive)
 }

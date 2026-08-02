@@ -771,7 +771,7 @@ func remoteGoTestCacheRunFixture(t *testing.T) (string, RunInput) {
 		RepositoryRoot: repository, Commit: commit, Tree: tree, Base: base,
 		RunnerBaseCommit: base, RunnerBaseTree: baseTree,
 		Source: sourceSpec, Profile: gate.ProfileLocalFast, Entrypoint: gate.CIEntrypointManualCLI,
-		MaxShards: 4, Platform: "linux/amd64", PolicyDigest: digest, ToolchainDigest: digest,
+		Platform: "linux/amd64", PolicyDigest: digest, ToolchainDigest: digest,
 		LedgerSnapshot: gate.DurationLedgerSnapshot{Generation: 1, Ledger: ledger},
 		Inventory:      inventory, SelectedTests: true,
 		RunnerImage: "registry.example/runner@" + digest, RunnerIdentityDigest: digest,

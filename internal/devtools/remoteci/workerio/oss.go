@@ -71,6 +71,36 @@ type temporaryCredentials struct {
 	LastUpdated     string `json:"LastUpdated"`
 }
 
+// RAMCredentials is an unexported-lifetime ECI RAM role credential set.
+// Callers must never log or persist any field in this value.
+type RAMCredentials struct {
+	AccessKeyID     string
+	AccessKeySecret string
+	SecurityToken   string
+	Expiration      time.Time
+}
+
+// ReadRAMCredentials reads one currently valid ECI RAM-role credential set
+// through IMDSv2. It does not consult environment variables or local CLIs.
+func ReadRAMCredentials(ctx context.Context, roleName string, dependencies Dependencies) (RAMCredentials, error) {
+	if !validRoleName(roleName) {
+		return RAMCredentials{}, errors.New("RAM role name is invalid")
+	}
+	metadataURL, err := parseMetadataBaseURL(dependencies.MetadataBaseURL)
+	if err != nil {
+		return RAMCredentials{}, err
+	}
+	credentials, err := readCurrentCredentials(ctx, roleName, noRedirectClient(dependencies.HTTPClient, remoteHTTPTimeout), metadataURL, clientClock(dependencies.Clock))
+	if err != nil {
+		return RAMCredentials{}, err
+	}
+	expiration, err := time.Parse(time.RFC3339, credentials.Expiration)
+	if err != nil {
+		return RAMCredentials{}, errors.New("RAM credentials are expired or invalid")
+	}
+	return RAMCredentials{AccessKeyID: credentials.AccessKeyID, AccessKeySecret: credentials.AccessKeySecret, SecurityToken: credentials.SecurityToken, Expiration: expiration}, nil
+}
+
 // NewClient 校验显式对象配置并创建使用 RAM 角色的 OSS 客户端。
 func NewClient(config Config, dependencies Dependencies) (*Client, error) {
 	if err := validateConfig(config); err != nil {
@@ -292,18 +322,7 @@ func copyStagedObject(source *os.File, destination io.Writer, maxBytes, size int
 }
 
 func (client *Client) currentCredentials(ctx context.Context) (temporaryCredentials, error) {
-	token, err := client.metadataToken(ctx)
-	if err != nil {
-		return temporaryCredentials{}, err
-	}
-	credentials, err := client.credentials(ctx, token)
-	if err != nil {
-		return temporaryCredentials{}, err
-	}
-	if err := validateCredentials(credentials, client.clock()); err != nil {
-		return temporaryCredentials{}, err
-	}
-	return credentials, nil
+	return readCurrentCredentials(ctx, client.config.RoleName, client.metadataHTTPClient, client.metadataBaseURL, client.clock)
 }
 
 // retryDelay 返回尝试之间的指数退避，并将单次等待限制在上限内。
@@ -344,21 +363,19 @@ func retryableDownloadError(parent context.Context, err error) bool {
 	if permanentCertificateError(err) {
 		return false
 	}
-	var urlErr *url.Error
-	if errors.As(err, &urlErr) {
+	if urlErr, ok := errors.AsType[*url.Error](err); ok {
 		err = urlErr.Err
 	}
-	var networkErr net.Error
-	if errors.As(err, &networkErr) {
+	if _, ok := errors.AsType[net.Error](err); ok {
 		return true
 	}
-	var tlsErr tls.RecordHeaderError
-	return errors.As(err, &tlsErr)
+	_, ok := errors.AsType[tls.RecordHeaderError](err)
+	return ok
 }
 
 func retryableHTTPStatus(err error) bool {
-	var statusErr *retryableHTTPStatusError
-	return errors.As(err, &statusErr) && (statusErr.status == http.StatusRequestTimeout || statusErr.status == http.StatusTooManyRequests || statusErr.status >= http.StatusInternalServerError)
+	statusErr, ok := errors.AsType[*retryableHTTPStatusError](err)
+	return ok && (statusErr.status == http.StatusRequestTimeout || statusErr.status == http.StatusTooManyRequests || statusErr.status >= http.StatusInternalServerError)
 }
 
 // permanentCertificateError 识别重试无法修复的证书链和主机名校验失败。
@@ -379,13 +396,29 @@ type retryableHTTPStatusError struct{ status int }
 func (err *retryableHTTPStatusError) Error() string { return fmt.Sprintf("HTTP %d", err.status) }
 
 // metadataToken 向 IMDSv2 请求限定 TTL 的访问令牌。
-func (client *Client) metadataToken(ctx context.Context) (string, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodPut, client.metadataBaseURL.String()+"/latest/api/token", nil)
+func readCurrentCredentials(ctx context.Context, roleName string, metadataHTTPClient *http.Client, metadataBaseURL *url.URL, clock func() time.Time) (temporaryCredentials, error) {
+	token, err := metadataToken(ctx, metadataHTTPClient, metadataBaseURL)
+	if err != nil {
+		return temporaryCredentials{}, err
+	}
+	credentials, err := metadataCredentials(ctx, roleName, token, metadataHTTPClient, metadataBaseURL)
+	if err != nil {
+		return temporaryCredentials{}, err
+	}
+	if err := validateCredentials(credentials, clock()); err != nil {
+		return temporaryCredentials{}, err
+	}
+	return credentials, nil
+}
+
+// metadataToken 向 IMDSv2 请求限定 TTL 的访问令牌。
+func metadataToken(ctx context.Context, metadataHTTPClient *http.Client, metadataBaseURL *url.URL) (string, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPut, metadataBaseURL.String()+"/latest/api/token", nil)
 	if err != nil {
 		return "", fmt.Errorf("create metadata token request: %w", err)
 	}
 	request.Header.Set("X-aliyun-ecs-metadata-token-ttl-seconds", fmt.Sprintf("%d", metadataTokenTTL))
-	response, err := client.metadataHTTPClient.Do(request)
+	response, err := metadataHTTPClient.Do(request)
 	if err != nil {
 		return "", fmt.Errorf("request metadata token: %w", err)
 	}
@@ -405,14 +438,14 @@ func (client *Client) metadataToken(ctx context.Context) (string, error) {
 	return token, nil
 }
 
-func (client *Client) credentials(ctx context.Context, token string) (temporaryCredentials, error) {
-	requestURL := client.metadataBaseURL.String() + "/latest/meta-data/ram/security-credentials/" + url.PathEscape(client.config.RoleName)
+func metadataCredentials(ctx context.Context, roleName string, token string, metadataHTTPClient *http.Client, metadataBaseURL *url.URL) (temporaryCredentials, error) {
+	requestURL := metadataBaseURL.String() + "/latest/meta-data/ram/security-credentials/" + url.PathEscape(roleName)
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
 		return temporaryCredentials{}, fmt.Errorf("create RAM credentials request: %w", err)
 	}
 	request.Header.Set("X-aliyun-ecs-metadata-token", token)
-	response, err := client.metadataHTTPClient.Do(request)
+	response, err := metadataHTTPClient.Do(request)
 	if err != nil {
 		return temporaryCredentials{}, fmt.Errorf("request RAM credentials: %w", err)
 	}

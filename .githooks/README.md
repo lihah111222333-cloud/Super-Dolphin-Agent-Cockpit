@@ -57,7 +57,6 @@ CLI 为本次 Git action 生成新的 delivery identity，规范化 staged tree 
 | 模式 | `SUPER_DOLPHIN_GATE_MODE` | `super-dolphin.gate.mode` | 必须为 `remote` 才走以下远程契约。 |
 | 远程配置 | `SUPER_DOLPHIN_GATE_REMOTE_CONFIG` | `super-dolphin.remote.config` | 必填；指向 schema v4 的仓外配置。 |
 | SQLite authority | `SUPER_DOLPHIN_GATE_LEDGER` | `super-dolphin.remote.ledger` | 必填；唯一 SQLite 真相源，保存已接受基线、校准、分桶耗时样本与本地可比较的 PASS 查询结果。 |
-| 分片上限 | — | `super-dolphin.remote.maxShards` | 可选；传为 `--max-shards`，不得超过协议上限。 |
 | 请求归属 | `SUPER_DOLPHIN_GATE_REQUESTER_FINGERPRINT` | — | 可选；由 `super-dolphin-gate requester create` 生成，只用于跨 Git hook、直接 CLI 和任意 Agent 客户端查询同一逻辑发起方的 job。 |
 
 远程 `pre-commit` 先执行 `super-dolphin-gate project-map check --tree <tree>`，再将 initial `git write-tree` 和 `HEAD^{commit}` 传给 `remote hook pre-commit`，并在返回后重读 tree；远程结果必须是同一 tree 的 authoritative、`git-pre-commit`、`local-fast`、passed 且 `cleanup_complete=true`。远程 `pre-push` 保留 Git stdin 的每条 ref update，规范化为精确 range；每条结果必须是对应 source tree 的 authoritative、`git-pre-push`、`push`、passed 且完成清理。二者任一身份、状态或清理证据缺失均拒绝 Git 动作。
@@ -70,7 +69,7 @@ schema v4 的 SQLite ledger 是唯一真相源：只有命中同一输入闭包�
 
 稳定 runner identity 与精确 OCI baseline image digest 必须分字段传递：前者服务于校准、耗时、缓存和分片身份，后者绑定唯一已接受的不可变镜像。源码-only 刷新可以保持前者不变，但每个 shard request 与执行环境必须携带当前 SQLite ledger 记录的 image digest。
 
-远程模式没有跨 job 的全局 FIFO。每个 job 先按 SQLite ledger 做 workload 级通过缓存判定，只把 cache miss 交给 LPT；每个非空分片创建一个独立 ECI ContainerGroup，多 Agent 的实际计算并发量自然等于各 job 的 miss 分片总数。ECI 创建、轮询、日志与删除不设置固定并发上限；STS `Throttling.User`、TLS 握手超时、网络 timeout 和瞬态 EOF 由 ECI adapter 最多执行 12 次可取消退避，间隔从 500 ms 指数增长并封顶 8 秒。ECI CLI 的每次尝试另有 15 秒硬上限，分片状态探测和终态日志汇总的 observation watchdog 由“12 次尝试 + 全部退避 + 1 分钟余量”自动计算，不能使用短于完整重试预算的拍脑袋阈值。持续取得 `Pending`、`Scheduling` 或 `Running` 状态属于云端尚未终态；单次状态探测超过完整预算属于协调器 observation stalled；已经终态但日志汇总超过预算属于 terminal evidence unavailable，三者必须返回不同诊断并自动进入清理。重试必须复用完全相同的 CLI 参数和 `ClientToken`；权限、参数等永久错误立即失败，不得进入退避，也不会把本地协调器变成固定宽度队列。`max_shards_per_job` 可由配置或 `--max-shards` 调整，资源策略从登记档位按 workload 和历史观测选择，允许从 `2 vCPU / 4 GiB` 扩展到 `8 vCPU / 32 GiB`。创建时优先抢占实例；`Scheduling` 最多等待 30 秒，进入 `Pending` 即视为已取得资源，超时或 `ScheduleFailed` 时删除并确认容器组消失，再返回失败。不存在另一个执行环境、按量回退或本地双执行路径。
+远程模式没有跨 job 的全局 FIFO。每个 job 先按 SQLite ledger 做 workload 级通过缓存判定，只把 cache miss 交给 LPT；LPT 仅按 100 秒目标和当前非空 workload 清单决定分片数，每个非空分片创建一个独立 ECI ContainerGroup，多 Agent 的实际计算并发量自然等于各 job 的 miss 分片总数。ECI 创建、轮询、日志与删除不设置固定并发上限；STS `Throttling.User`、TLS 握手超时、网络 timeout 和瞬态 EOF 由 ECI adapter 最多执行 12 次可取消退避，间隔从 500 ms 指数增长并封顶 8 秒。ECI CLI 的每次尝试另有 15 秒硬上限，分片状态探测和终态日志汇总的 observation watchdog 由“12 次尝试 + 全部退避 + 1 分钟余量”自动计算，不能使用短于完整重试预算的拍脑袋阈值。持续取得 `Pending`、`Scheduling` 或 `Running` 状态属于云端尚未终态；单次状态探测超过完整预算属于协调器 observation stalled；已经终态但日志汇总超过预算属于 terminal evidence unavailable，三者必须返回不同诊断并自动进入清理。重试必须复用完全相同的 CLI 参数和 `ClientToken`；权限、参数等永久错误立即失败，不得进入退避，也不会把本地协调器变成固定宽度队列。资源策略从登记档位按 workload 和历史观测选择，允许从 `2 vCPU / 4 GiB` 扩展到 `8 vCPU / 32 GiB`。创建时优先抢占实例；`Scheduling` 最多等待 30 秒，进入 `Pending` 即视为已取得资源，超时或 `ScheduleFailed` 时删除并确认容器组消失，再返回失败。不存在另一个执行环境、按量回退或本地双执行路径。
 
 远程基线是唯一的不可变 OCI baseline image；镜像包含受信的 `super-dolphin-gate`、完整 Go module/build cache 与运行时依赖。worker 在拉取和执行前必须校验 image digest、provenance 和镜像内受信二进制；不使用归档分层、兼容旧格式或第二个基线来源。普通分片只使用该镜像中的依赖，执行环境固定 `GOPROXY=off`、`-mod=readonly`；缓存或依赖缺失立即阻断，禁止联网下载、运行时物化或替代来源。ECI 内外均由同一二进制执行，禁止第二个 executor 或并行执行路径。
 

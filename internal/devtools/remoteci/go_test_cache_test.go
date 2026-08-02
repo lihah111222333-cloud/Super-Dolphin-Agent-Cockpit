@@ -220,9 +220,6 @@ func TestAppendRemoteGoTestResumeParentRequiresIndependentDigest(t *testing.T) {
 
 func testRemoteDurationIndex(t *testing.T, input RunInput) gate.DurationSampleIndex {
 	t.Helper()
-	if input.MaxShards == 0 {
-		input.MaxShards = 1
-	}
 	index, err := gate.BuildDurationSampleIndex(
 		input.LedgerSnapshot.Ledger,
 		remotePlanningContext(input),

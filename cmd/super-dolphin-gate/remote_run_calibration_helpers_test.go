@@ -119,9 +119,6 @@ func assertParsedRemoteRunOptions(t *testing.T, options remoteRunOptions, reques
 	if options.LedgerPath != "/tmp/remote-ci.baseline-state.sqlite" {
 		t.Fatalf("parseRemoteRunOptions() = %#v", options)
 	}
-	if options.MaxShards != 7 {
-		t.Fatalf("parseRemoteRunOptions() = %#v", options)
-	}
 	if !options.ForceRerun {
 		t.Fatalf("parseRemoteRunOptions() = %#v", options)
 	}
@@ -163,9 +160,6 @@ func assertRemoteRunInputGitIdentity(t *testing.T, input remoteci.RunInput) {
 
 func assertRemoteRunInputAuthority(t *testing.T, input remoteci.RunInput, state remoteci.BaselineState) {
 	t.Helper()
-	if input.MaxShards != 5 {
-		t.Fatalf("resolveRemoteRunInput() = %#v", input)
-	}
 	if input.LedgerSnapshot.Generation != 1 {
 		t.Fatalf("resolveRemoteRunInput() = %#v", input)
 	}

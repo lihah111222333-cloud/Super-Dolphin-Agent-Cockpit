@@ -35,13 +35,12 @@ func resolveRemoteRunInput(
 	if err != nil {
 		return remoteci.RunInput{}, err
 	}
-	maxShards, entrypoint := remoteRunLimits(options, config)
+	entrypoint := remoteRunEntrypoint(options)
 	ledger, ledgerStore, err := loadRemoteRunLedger(
 		options,
 		scenario,
 		state,
 		runnerIdentity,
-		maxShards,
 	)
 	if err != nil {
 		return remoteci.RunInput{}, err
@@ -66,7 +65,7 @@ func resolveRemoteRunInput(
 		Commit:               target.commit, Tree: target.tree, Base: target.bundleBase,
 		RunnerBaseCommit: state.MainCommit, RunnerBaseTree: state.MainTree,
 		Source: source, Profile: profile, Entrypoint: entrypoint,
-		MaxShards: maxShards, Platform: state.Platform, PolicyDigest: state.PolicyDigest,
+		Platform: state.Platform, PolicyDigest: state.PolicyDigest,
 		ToolchainDigest: state.ToolchainDigest,
 		LedgerSnapshot:  ledger,
 		LedgerStore:     ledgerStore,
@@ -136,7 +135,6 @@ func loadRemoteRunLedger(
 	scenario string,
 	state remoteci.BaselineState,
 	runnerIdentity string,
-	maxShards uint8,
 ) (gatecontract.DurationLedgerSnapshot, *gatecontract.DurationLedgerStore, error) {
 	store, err := gatecontract.NewDurationLedgerStore(options.LedgerPath)
 	if err != nil {
@@ -146,7 +144,6 @@ func loadRemoteRunLedger(
 		Platform:         state.Platform,
 		Runner:           runnerIdentity,
 		Toolchain:        state.ToolchainDigest,
-		MaxShards:        int(maxShards),
 		TargetDurationMS: gatecontract.FullCITargetDurationMS,
 	})
 	if err != nil {
@@ -170,17 +167,13 @@ func buildRemoteRunInventory(repositoryRoot string, target remoteResolvedTarget,
 	return selectRemoteTests(inventory, selectors)
 }
 
-// remoteRunLimits 解析可选分片覆盖和入口标识。
-func remoteRunLimits(options remoteRunOptions, config remoteRunConfig) (uint8, gatecontract.CIEntrypointID) {
-	maxShards := config.Capacity.MaxShardsPerJob
-	if options.MaxShards != 0 {
-		maxShards = uint8(options.MaxShards)
-	}
+// remoteRunEntrypoint 解析入口标识。
+func remoteRunEntrypoint(options remoteRunOptions) gatecontract.CIEntrypointID {
 	entrypoint := gatecontract.CIEntrypointManualCLI
 	if options.Entrypoint != "" {
 		entrypoint = gatecontract.CIEntrypointID(options.Entrypoint)
 	}
-	return maxShards, entrypoint
+	return entrypoint
 }
 
 // resolveRemoteRunTarget 固定显式树或提交 source 的权威对象及其基线。

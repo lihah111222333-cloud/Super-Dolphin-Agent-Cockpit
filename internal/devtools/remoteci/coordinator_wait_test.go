@@ -12,7 +12,6 @@ import (
 func TestCoordinatorBatchesPollingCloudCalls(t *testing.T) {
 	repository, input := remoteRunFixture(t)
 	input.RepositoryRoot = repository
-	input.MaxShards = 5
 	plannedSet := mustBuildRemoteExecutionShardSet(t, input)
 	if len(plannedSet.Shards) <= 1 {
 		t.Fatalf("planned shards=%d, want a batch", len(plannedSet.Shards))

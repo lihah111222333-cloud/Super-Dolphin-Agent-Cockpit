@@ -2,6 +2,7 @@ package eci
 
 import (
 	"errors"
+	"fmt"
 	"regexp"
 	"sort"
 	"strings"
@@ -38,22 +39,58 @@ var (
 	roleARNPattern        = regexp.MustCompile(`^acs:ram::[0-9]{1,32}:role/[A-Za-z0-9_+=,.@/-]{1,128}$`)
 )
 
-// ValidateRegistryAccess rejects incomplete, mixed, or image-mismatched registry access.
-func ValidateRegistryAccess(access RegistryAccess, image string) error {
+// ValidateRegistryAccess rejects mutable images and incomplete, mixed, or
+// image-domain-mismatched registry access. A non-empty access method must be
+// usable by every supplied image; callers cannot silently reuse one image for
+// another container role.
+func ValidateRegistryAccess(access RegistryAccess, images ...string) error {
+	if len(images) == 0 {
+		return errors.New("ECI image references are required")
+	}
 	if access.ACR != nil && access.TemporaryCredential != nil {
 		return errors.New("ECI registry access must use exactly one private-registry method")
+	}
+	var domain string
+	acrDomainMatched := false
+	for index, image := range images {
+		if !imageDigestPattern.MatchString(image) {
+			return fmt.Errorf("ECI image %d must be a repository@sha256:<64 lowercase hex> digest reference", index+1)
+		}
+		imageDomain, ok := registryDomainFromReference(image)
+		if !ok {
+			return fmt.Errorf("ECI image %d registry domain is invalid", index+1)
+		}
+		if index == 0 {
+			domain = imageDomain
+		}
+		if access.TemporaryCredential != nil && imageDomain != domain {
+			return errors.New("ECI registry access cannot span multiple image registry domains")
+		}
+		if access.ACR != nil {
+			if imageDomain == access.ACR.Domain {
+				acrDomainMatched = true
+			} else if !publicRegistryDomain(imageDomain) {
+				return errors.New("ECI ACR registry access may only be combined with explicit public digest images")
+			}
+		}
 	}
 	if access.ACR == nil && access.TemporaryCredential == nil {
 		return nil
 	}
-	domain, ok := registryDomainFromReference(image)
-	if !ok {
-		return errors.New("ECI image registry domain is invalid")
-	}
 	if access.ACR != nil {
-		return validateACRRegistryInfo(*access.ACR, domain)
+		if err := validateACRRegistryInfo(*access.ACR, access.ACR.Domain); err != nil {
+			return err
+		}
+		if !acrDomainMatched {
+			return errors.New("ECI ACR registry access does not match any image registry")
+		}
+		return nil
 	}
 	return validateImageRegistryCredential(*access.TemporaryCredential, domain)
+}
+
+func publicRegistryDomain(domain string) bool {
+	return domain == "docker.io" || domain == "registry-1.docker.io"
 }
 
 func validateACRRegistryInfo(info ACRRegistryInfo, imageDomain string) error {

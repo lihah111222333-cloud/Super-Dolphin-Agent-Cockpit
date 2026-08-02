@@ -482,7 +482,7 @@ func assertECIEnvironmentLengths(t *testing.T, container string, environment map
 	}
 }
 
-func assertRemoteCreateRequestVolumes(t *testing.T, request eci.CreateRequest, input RunInput) {
+func assertRemoteCreateRequestVolumes(t *testing.T, request eci.CreateRequest, _ RunInput) {
 	t.Helper()
 	assertCoordinatorVolumeField(t, "expanded volume name", request.ExpandedVolume.Name, "expanded-data")
 	assertCoordinatorVolumeMount(t, request.MainVolumeMounts[0], "/opt/super-dolphin-gate", "", true)
@@ -576,7 +576,7 @@ func TestCoordinatorRunCleansCreatedStateAfterPartialCreateFailure(t *testing.T)
 	if err == nil || !strings.Contains(err.Error(), "create remote CI shard") {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if !result.CleanupComplete || len(runtime.deletes) != 1 {
+	if !result.CleanupComplete || len(runtime.deletes) != len(runtime.creates)-1 {
 		t.Fatalf("partial cleanup result=%+v deletes=%v", result, runtime.deletes)
 	}
 }
@@ -660,8 +660,9 @@ func newTestCoordinator(t *testing.T, store ObjectStore, runtime Runtime) *Coord
 		Bucket: "ci-bucket", SourcePrefix: "baseline-artifacts/source-deltas/",
 		WorkloadCachePrefix: "baseline-artifacts/source-deltas/passed-workloads/v1/",
 		InternalOSSEndpoint: "oss-cn-shenzhen-internal.aliyuncs.com",
-		WorkerRoleName:      "worker-role", WorkerTimeout: 10 * time.Minute,
-		PollInterval: time.Millisecond, CleanupTimeout: time.Second,
+		WorkerRoleName:      "worker-role",
+		WorkerTimeout:       10 * time.Minute,
+		PollInterval:        time.Millisecond, CleanupTimeout: time.Second,
 		ResourcePolicy:             testRemoteResourcePolicy(),
 		CandidateCLIBuilder:        testCandidateCLIBuilder(t),
 		CandidateTestBinaryBuilder: testCandidateTestBinaryBuilder(t),
@@ -709,7 +710,6 @@ func testCandidateTestBinaryBuilder(t *testing.T) CandidateTestBinaryBuilder {
 
 func TestCoordinatorRunBuildsCandidateCLIOnceBeforeShardFanout(t *testing.T) {
 	_, input := remoteRunFixture(t)
-	input.MaxShards = 3
 	store := &coordinatorStore{}
 	runtime := &coordinatorRuntime{}
 	coordinator := newTestCoordinator(t, store, runtime)
@@ -725,7 +725,7 @@ func TestCoordinatorRunBuildsCandidateCLIOnceBeforeShardFanout(t *testing.T) {
 	if _, err := coordinator.Run(context.Background(), input); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if builds != 1 || len(runtime.creates) != 3 {
+	if builds != 1 || len(runtime.creates) < 2 {
 		t.Fatalf("candidate CLI builds = %d, shard creates = %d", builds, len(runtime.creates))
 	}
 	if len(store.uploads) < 4 || !strings.HasSuffix(store.uploads[2], ".candidate-cli") || !strings.HasSuffix(store.uploads[3], ".manifest.json") {
@@ -752,7 +752,7 @@ func TestBuildShardRequestsSharesOneCandidateCLIArtifactAcrossThreeShards(t *tes
 	}
 	shards := make([]gate.ContainerShard, 3)
 	for index := range shards {
-		shards[index] = gate.ContainerShard{Index: uint8(index), IdentityDigest: input.RunnerIdentityDigest, Profile: input.Profile, PlanDigest: input.PolicyDigest, SourceTreeSHA: input.Tree, GateIDs: []gate.GateID{gate.GateID(fmt.Sprintf("test:shard:%d", index))}}
+		shards[index] = gate.ContainerShard{Index: index, IdentityDigest: input.RunnerIdentityDigest, Profile: input.Profile, PlanDigest: input.PolicyDigest, SourceTreeSHA: input.Tree, GateIDs: []gate.GateID{gate.GateID(fmt.Sprintf("test:shard:%d", index))}}
 	}
 	requests, _, err := buildShardRequestsWithCandidate("baseline-artifacts/source-deltas/", "job-0123456789abcdef01234567", shards, assets.artifact, assets.patchKey, assets.manifestKey, assets.manifestDigest, candidate, []CandidateTestBinaryArtifactRef{testCandidateTestBinary(input)}, input)
 	if err != nil {
@@ -847,7 +847,7 @@ func remoteRunFixture(t *testing.T) (string, RunInput) {
 			Commit: &gate.CommitSource{SHA: commit}, SourceTreeSHA: tree,
 		},
 		Profile: gate.ProfileLocalFast, Entrypoint: gate.CIEntrypointManualCLI,
-		MaxShards: 2, Platform: "linux/amd64",
+		Platform:                     "linux/amd64",
 		PolicyDigest:                 digest,
 		ToolchainDigest:              digest,
 		LedgerSnapshot:               gate.DurationLedgerSnapshot{Generation: 1, Ledger: ledger},

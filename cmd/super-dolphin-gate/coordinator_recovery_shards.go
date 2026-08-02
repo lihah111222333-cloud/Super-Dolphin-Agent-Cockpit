@@ -264,7 +264,7 @@ func containerShardsFromQuery(ctx context.Context, queryer coordinatorShardQuery
 // scanCoordinatorShard 扫描固定列序并将结构化字段交给独立严格解码步骤。
 func scanCoordinatorShard(row coordinatorRowScanner) (coordinatorShardRecord, error) {
 	var record coordinatorShardRecord
-	var index uint8
+	var index int
 	var identity, phase string
 	var shardJSON, labelsJSON, witnessJSON []byte
 	var witnessVerified bool
@@ -292,7 +292,7 @@ func scanCoordinatorShard(row coordinatorRowScanner) (coordinatorShardRecord, er
 // decodeCoordinatorShardStructured 严格解码 shard、labels 与资源 witness。
 func decodeCoordinatorShardStructured(
 	record *coordinatorShardRecord,
-	index uint8,
+	index int,
 	identity string,
 	phase string,
 	shardJSON []byte,

@@ -468,7 +468,6 @@ func remoteCalibrationPlanningContext(
 		Platform:         calibration.Platform,
 		Runner:           calibration.Runner,
 		Toolchain:        calibration.Toolchain,
-		MaxShards:        1,
 		TargetDurationMS: gatecontract.FullCITargetDurationMS,
 	}
 }
@@ -508,11 +507,8 @@ func validRemoteOSSPrefix(value string) bool {
 	return path.Clean(withoutSlash) == withoutSlash
 }
 
-// validateRemoteShardCapacity 校验每个作业的并行上限和可配置 ECI 资源档位。
+// validateRemoteShardCapacity 校验可配置 ECI 资源档位。
 func validateRemoteShardCapacity(config remoteRunConfig) error {
-	if config.Capacity.MaxShardsPerJob == 0 || config.Capacity.MaxShardsPerJob > gatecontract.MaxContainerShards {
-		return errors.New("remote CI configured shard count is invalid")
-	}
 	if err := config.Capacity.ResourcePolicy.Validate(); err != nil {
 		return fmt.Errorf("remote CI resource policy: %w", err)
 	}

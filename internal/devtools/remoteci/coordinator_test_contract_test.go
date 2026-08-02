@@ -18,7 +18,7 @@ func TestRemoteRunContractFieldRegistry(t *testing.T) {
 	})
 	assertBaselineFields(t, reflect.TypeFor[RunInput](), []string{
 		"RepositoryRoot", "RemoteName", "RemoteURL", "RequesterFingerprint", "Commit", "Tree", "Base", "RunnerBaseCommit", "RunnerBaseTree",
-		"Source", "Profile", "Entrypoint", "MaxShards", "Platform", "PolicyDigest", "ToolchainDigest",
+		"Source", "Profile", "Entrypoint", "Platform", "PolicyDigest", "ToolchainDigest",
 		"LedgerSnapshot", "LedgerStore", "Inventory", "SelectedTests", "Calibration", "RunnerImage",
 		"RunnerIdentityDigest", "BaselineManifestDigest", "RunnerConfigDigest", "GateBinarySHA256",
 		"CandidateGateSourceSHA256", "CandidateGateToolchainSHA256", "ReuseBaselineGateCLI",
@@ -121,6 +121,9 @@ func TestCoordinatorCreateRequestAlwaysMountsWritableMaterializerTemp(t *testing
 		t.Fatalf("init command = %v %v", request.InitContainer.Command, request.InitContainer.Args)
 	}
 	assertCandidateGateEnvironment(t, request, input)
+	if request.MainImage != input.RunnerImage || request.InitImage != input.RunnerImage {
+		t.Fatalf("container images = main %q init %q, want accepted gate %q", request.MainImage, request.InitImage, input.RunnerImage)
+	}
 	assertWritableMaterializerTempMount(t, request)
 }
 
