@@ -11,17 +11,25 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
+
+func withTestExecutorClock(config executorConfig) executorConfig {
+	config.nowFunc = func() time.Time {
+		return time.Unix(0, 0).UTC()
+	}
+	return config
+}
 
 func TestStandaloneReleaseAttestationFailsBeforeWorkspaceExecution(t *testing.T) {
 	var output bytes.Buffer
-	config := executorConfig{
+	config := withTestExecutorClock(executorConfig{
 		sourcePath: "unreachable-source", workRoot: "unreachable-work", searchPath: "unreachable-path",
 		runtimeSeedRoot: "unreachable-seed", runtimeSeedManifest: "unreachable-manifest",
 		goRoot:               "unreachable-go-root",
 		goBuildCacheSeedRoot: "unreachable-cache-seed",
 		expectedUID:          os.Geteuid(), stdout: &output, stderr: &output,
-	}
+	})
 	err := executeProgram(context.Background(), config, GateIDReleaseLayeredCheck,
 		ExecutorPrograms()[GateIDReleaseLayeredCheck])
 	if err == nil || !strings.Contains(err.Error(), "requires canonical prerequisites from the plan executor") {
@@ -721,7 +729,7 @@ func newTestExecutorConfig(t *testing.T, source string) executorConfig {
 		}
 	}
 	writeTestFile(t, filepath.Join(runtimeRoot, "go-mod-cache", "example.org", "shared@v1.0.0", "module.go"), "shared-module\n", 0o444)
-	return executorConfig{
+	return withTestExecutorClock(executorConfig{
 		sourcePath: source, workRoot: workRoot, searchPath: executorSearchPath,
 		expectedUID: os.Geteuid(), requireReadOnlySource: false,
 		runtimeSeedRoot: runtimeRoot, runtimeSeedManifest: filepath.Join(runtimeRoot, "manifest.json"),
@@ -730,7 +738,7 @@ func newTestExecutorConfig(t *testing.T, source string) executorConfig {
 		goBuildCacheSeedRoot:  goBuildCacheSeedRoot,
 		goBuildCacheProxy:     testGoBuildCacheProxyLauncher(),
 		stdout:                ioDiscard{}, stderr: ioDiscard{},
-	}
+	})
 }
 
 func testGoRoot(t *testing.T) string {
