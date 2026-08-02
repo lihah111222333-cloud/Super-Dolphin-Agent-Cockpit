@@ -226,7 +226,7 @@ func verifyRemoteDirectCache(configs []remoteMaterializeDirectCacheConfig, reque
 		if err != nil {
 			return fmt.Errorf("read remote direct cache layer %d manifest: %w", index, err)
 		}
-		if len(data) == 0 || len(data) > 64<<20 || digestBytes(data) != reference.ManifestDigest {
+		if len(data) == 0 || len(data) > 64<<20 || "sha256:"+digestBytes(data) != reference.ManifestDigest {
 			return fmt.Errorf("remote direct cache layer %d manifest digest is invalid", index)
 		}
 		var manifest gatecontract.GoBuildCacheDirectSeedManifest

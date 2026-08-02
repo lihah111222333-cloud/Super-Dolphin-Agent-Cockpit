@@ -731,7 +731,7 @@ func downloadRemoteBaselineDirectCacheManifest(ctx context.Context, store remote
 	if err := gatecontract.ValidateGoBuildCacheDirectSeedManifest(manifest); err != nil {
 		return gatecontract.GoBuildCacheDirectSeedManifest{}, "", err
 	}
-	return manifest, digestBytes(data), nil
+	return manifest, "sha256:" + digestBytes(data), nil
 }
 
 func bindRemoteBaselineDirectCache(state *remoteci.BaselineState, previous *remoteci.DirectCacheRef, stage remoteBaselineArtifactStage, cache datacache.DataCache, manifest gatecontract.GoBuildCacheDirectSeedManifest, manifestDigest string) error {
