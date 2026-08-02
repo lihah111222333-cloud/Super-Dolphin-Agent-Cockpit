@@ -37,4 +37,12 @@ func TestRemoteBaselineSeedRuntimeDependencyIdentityChainContract(t *testing.T) 
 			t.Fatalf("runtime dependency replay still uses a second extraction pass %q", forbidden)
 		}
 	}
+	if strings.Contains(remoteBaselineSeedScriptDirectCachePublish, `sh '{}'`) {
+		t.Fatal("direct-cache publish must receive xargs inputs after the two fixed shell arguments")
+	}
+	for _, fragment := range []string{`sh "$go_build_cache" "$direct_cache_root"`, `shift 2`, `for source_path do`} {
+		if !strings.Contains(remoteBaselineSeedScriptDirectCachePublish, fragment) {
+			t.Fatalf("direct-cache publish argument binding is missing %q", fragment)
+		}
+	}
 }
