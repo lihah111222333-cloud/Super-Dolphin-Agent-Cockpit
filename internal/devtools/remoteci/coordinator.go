@@ -724,7 +724,7 @@ func validateRemotePlanInput(input RunInput) error {
 	if err := validateOptionalDirectCacheRef(input.DirectCacheRef); err != nil {
 		return err
 	}
-	if input.DirectCacheRef != nil && input.DirectCacheRef.DataCacheBucket != input.DataCacheBucket {
+	if input.DirectCacheRef != nil && input.DirectCacheRef.Layers[0].DataCacheBucket != input.DataCacheBucket {
 		return errors.New("remote direct cache bucket does not match anchor DataCache bucket")
 	}
 	if err := (ShardRequest{AnchorGeneration: input.AnchorGeneration, AnchorManifest: input.AnchorManifest, AnchorCommit: input.AnchorCommit, AnchorTree: input.AnchorTree, BaselineDeltas: input.BaselineDeltas, DirectCacheRef: input.DirectCacheRef}).validateDirectCacheParentChain(); err != nil {

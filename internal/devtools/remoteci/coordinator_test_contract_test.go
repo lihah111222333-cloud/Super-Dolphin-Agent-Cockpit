@@ -255,6 +255,10 @@ func assertWritableMaterializerTempMount(t *testing.T, request eci.CreateRequest
 func TestCoordinatorDirectCacheMountAndValidation(t *testing.T) {
 	_, input := remoteRunFixture(t)
 	input.DirectCacheRef = testDirectCacheRef(t, input)
+	if err := validateRemotePlanInput(input); err != nil {
+		t.Fatalf("validateRemotePlanInput(valid direct cache layers) error = %v", err)
+	}
+	validInput := input
 	for index := 1; index < gate.ExecutorDirectGoBuildCacheSeedMaxLayers; index++ {
 		layer := input.DirectCacheRef.Layers[0]
 		layer.DataCacheID = fmt.Sprintf("edc-directcache-%d", index)
@@ -294,8 +298,8 @@ func TestCoordinatorDirectCacheMountAndValidation(t *testing.T) {
 		"bucket drift": func(value *RunInput) { value.DirectCacheRef.Layers[0].DataCacheBucket = "other-ci" },
 	} {
 		t.Run(name, func(t *testing.T) {
-			invalid := input
-			invalid.DirectCacheRef = cloneDirectCacheRef(input.DirectCacheRef)
+			invalid := validInput
+			invalid.DirectCacheRef = cloneDirectCacheRef(validInput.DirectCacheRef)
 			mutate(&invalid)
 			if err := validateRemotePlanInput(invalid); err == nil {
 				t.Fatal("validateRemotePlanInput() error = nil")
@@ -320,5 +324,5 @@ func testDirectCacheRef(t *testing.T, input RunInput) *DirectCacheRef {
 	if len(input.BaselineDeltas) != 0 {
 		generation = input.BaselineDeltas[len(input.BaselineDeltas)-1].Generation
 	}
-	return &DirectCacheRef{Layers: []DirectCacheLayerRef{{DataCacheID: "edc-directcache", DataCacheBucket: input.DataCacheBucket, DataCachePath: "/super-dolphin/ci/direct-cache/2", SizeGiB: 20, Generation: generation, SourceObjectPrefix: "baseline-artifacts/2/output/direct-cache/", ManifestDigest: digest("a"), TreeSHA256: digest("b"), ParentChainSHA256: parent, RuntimeGoSHA256: digest("d"), RuntimeDepsSHA256: digest("e")}}}
+	return &DirectCacheRef{Layers: []DirectCacheLayerRef{{DataCacheID: "edc-directcache", DataCacheBucket: input.DataCacheBucket, DataCachePath: fmt.Sprintf("/super-dolphin/ci/direct-cache/%d", generation), SizeGiB: 20, Generation: generation, SourceObjectPrefix: fmt.Sprintf("baseline-artifacts/%d/output/direct-cache/", generation), ManifestDigest: digest("a"), TreeSHA256: digest("b"), ParentChainSHA256: parent, RuntimeGoSHA256: digest("d"), RuntimeDepsSHA256: digest("e")}}}
 }
