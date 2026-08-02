@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -103,6 +104,45 @@ func TestBindRemoteBaselineDirectCacheKeepsNewestThreeAndRetiresOldest(t *testin
 	if state.RetiredDirectCacheRef == nil || len(state.RetiredDirectCacheRef.Layers) != 1 ||
 		state.RetiredDirectCacheRef.Layers[0].Generation != 2 {
 		t.Fatalf("retired direct cache layers = %#v", state.RetiredDirectCacheRef)
+	}
+}
+
+func TestBindRemoteBaselineSuccessorDirectCacheRetiresOldParentChainOnCompaction(t *testing.T) {
+	state := remoteBaselineStateFixture()
+	state.Generation = 6
+	state.MainCommit, state.MainTree = repeatRemoteHex("6", 40), repeatRemoteHex("a", 40)
+	state.BaselineManifestDigest = "sha256:" + repeatRemoteHex("6", 64)
+	state.Anchor = remoteci.BaselineCacheRef{
+		Generation: 6, Kind: remoteci.BaselineCacheKindAnchor, ManifestDigest: state.BaselineManifestDigest,
+		MainCommit: state.MainCommit, MainTree: state.MainTree, DataCacheID: "edc-anchor6",
+		DataCacheBucket: state.DataCacheBucket, DataCachePath: "/super-dolphin/ci/baselines/6",
+		SizeGiB: state.DataCacheSizeGiB, SourceObjectPrefix: "baseline-artifacts/6/", AcceptedAt: state.AcceptedAt,
+	}
+	state.DataCacheID, state.DataCachePath, state.Deltas = state.Anchor.DataCacheID, state.Anchor.DataCachePath, nil
+	state.SourceObjectPrefix = state.Anchor.SourceObjectPrefix
+	previousState := remoteBaselineStateFixture()
+	previous := &remoteci.DirectCacheRef{Layers: []remoteci.DirectCacheLayerRef{
+		remoteBaselineSeedDirectLayerFixture(previousState, 5),
+		remoteBaselineSeedDirectLayerFixture(previousState, 4),
+	}}
+	manifest := gatecontract.GoBuildCacheDirectSeedManifest{
+		RuntimeGoSHA256: state.RuntimeSeedSHA256, RuntimeDepsSHA256: "sha256:" + repeatRemoteHex("d", 64),
+		TreeSHA256: "sha256:" + repeatRemoteHex("b", 64),
+	}
+	cache := datacache.DataCache{ID: "edc-direct6", Status: datacache.StatusAvailable, Bucket: state.DataCacheBucket,
+		Path: "/super-dolphin/ci/direct-cache/6", SizeGiB: remoteDataCacheMinimumSizeGiB}
+	stage := remoteBaselineArtifactStage{generation: 6, outputPrefix: "baseline-artifacts/6/output/"}
+	if err := bindRemoteBaselineSuccessorDirectCache(&state, previous, true, stage, cache, manifest, "sha256:"+repeatRemoteHex("c", 64)); err != nil {
+		t.Fatalf("bindRemoteBaselineSuccessorDirectCache() error = %v", err)
+	}
+	if state.DirectCacheRef == nil || len(state.DirectCacheRef.Layers) != 1 || state.DirectCacheRef.Layers[0].Generation != 6 {
+		t.Fatalf("compacted direct cache layers = %#v", state.DirectCacheRef)
+	}
+	if state.RetiredDirectCacheRef == nil || !reflect.DeepEqual(state.RetiredDirectCacheRef.Layers, previous.Layers) {
+		t.Fatalf("compacted retired direct cache layers = %#v", state.RetiredDirectCacheRef)
+	}
+	if err := state.Validate(); err != nil {
+		t.Fatalf("compacted baseline state validation: %v", err)
 	}
 }
 

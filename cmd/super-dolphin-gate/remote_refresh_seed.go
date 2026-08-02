@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	goversion "go/version"
 	"io"
 	"maps"
 	"os"
@@ -27,14 +26,8 @@ func buildRemoteBaselineSeedRequest(
 	acceptedRecommendedSizeGiB int,
 	generation uint64,
 ) (eci.SeedRequest, error) {
-	if !validRemoteManifestDigest(input.GateSourceDigest) {
-		return eci.SeedRequest{}, errors.New("baseline gate source digest is invalid")
-	}
-	if !goversion.IsValid(input.GoToolchain) {
-		return eci.SeedRequest{}, errors.New("baseline Go toolchain is invalid")
-	}
-	if !remoteci.SupportsBaselineRuntimeDependencySchema(input.RuntimeDependencySchemaVersion) {
-		return eci.SeedRequest{}, errors.New("baseline runtime dependency schema is invalid")
+	if err := validateRemoteBaselineSeedInput(input); err != nil {
+		return eci.SeedRequest{}, err
 	}
 	resources, err := remoteBaselineSeedResources(config)
 	if err != nil {
@@ -44,10 +37,9 @@ func buildRemoteBaselineSeedRequest(
 	if accepted.SchemaVersion != 0 && !hasAccepted {
 		return eci.SeedRequest{}, errors.New("previous baseline state is invalid; full Anchor rebuild is forbidden")
 	}
-	appendDelta := remoteBaselineCapacityMatches(accepted, acceptedRecommendedSizeGiB) &&
-		remoteBaselineSeedCanAppendDelta(accepted, input, source, generation)
-	if hasAccepted && !appendDelta {
-		return eci.SeedRequest{}, errors.New("accepted baseline exists but this refresh cannot be represented as a Delta; full Anchor rebuild is forbidden")
+	storageMode, err := remoteBaselineSeedStorageMode(hasAccepted, accepted, acceptedRecommendedSizeGiB, input, source, generation)
+	if err != nil {
+		return eci.SeedRequest{}, err
 	}
 	needsInternet := !hasAccepted
 	request := eci.SeedRequest{
@@ -60,36 +52,18 @@ func buildRemoteBaselineSeedRequest(
 		Input:       remoteBaselineSeedVolume(config, remoteBaselineInputPrefix(config, generation)),
 		Script:      []byte(remoteBaselineSeedBootstrapScript),
 	}
-	seedCPU := int(resources.CPU)
-	seedMemoryGiB := int(resources.MemoryGiB)
-	if seedCPU < 1 || float64(seedCPU) != resources.CPU || seedMemoryGiB < 4 || float64(seedMemoryGiB) != resources.MemoryGiB {
-		return eci.SeedRequest{}, errors.New("baseline seed resources must use whole CPU and GiB values")
+	resourceEnvironment, err := remoteBaselineSeedResourceEnvironment(resources)
+	if err != nil {
+		return eci.SeedRequest{}, err
 	}
-	request.Environment["BASELINE_SEED_GO_PARALLELISM"] = strconv.Itoa(seedCPU)
-	request.Environment["BASELINE_SEED_GO_MEMORY_LIMIT"] = strconv.Itoa(seedMemoryGiB*3/4) + "GiB"
+	maps.Copy(request.Environment, resourceEnvironment)
 	request.Environment["BASELINE_TOOLCHAIN_CHANGED"] = strconv.FormatBool(hasAccepted && accepted.ToolchainDigest != input.Identity.ToolchainDigest)
 	if hasAccepted {
-		anchor := accepted.CurrentAnchorRef()
-		request.DataCacheBucket = anchor.DataCacheBucket
-		request.PreviousDataCachePath = anchor.DataCachePath
-		request.Environment["BASELINE_ANCHOR_MANIFEST_DIGEST"] = anchor.ManifestDigest
-		directLayers := remoteBaselineSeedDirectCacheLayers(accepted)
-		request.DirectCacheLayers = directLayers
-		maps.Copy(request.Environment, remoteBaselineSeedDirectCacheEnvironment(directLayers))
-		deltas := accepted.DeltaRefs()
-		if len(deltas) > remoteBaselineDeltaLimit {
-			return eci.SeedRequest{}, fmt.Errorf("accepted baseline has more than %d Delta layers", remoteBaselineDeltaLimit)
+		if err := bindRemoteBaselineSeedHistory(&request, config, accepted); err != nil {
+			return eci.SeedRequest{}, err
 		}
-		if len(deltas) != 0 {
-			request.BaselineLayers = remoteBaselineSeedVolume(config, strings.TrimSuffix(config.OSS.BaselinePrefix, "/"))
-		}
-		maps.Copy(request.Environment, remoteBaselineSeedDeltaEnvironment(deltas))
 	}
-	if hasAccepted {
-		request.Environment["BASELINE_STORAGE_MODE"] = remoteci.BaselineStorageModeDelta
-	} else {
-		request.Environment["BASELINE_STORAGE_MODE"] = remoteci.BaselineStorageModeAnchor
-	}
+	request.Environment["BASELINE_STORAGE_MODE"] = storageMode
 	request.ClientToken, err = remoteBaselineSeedClientToken(request)
 	if err != nil {
 		return eci.SeedRequest{}, err
@@ -148,32 +122,6 @@ func remoteBaselineSeedNeedsInternet(accepted remoteci.BaselineState, _ remoteBa
 // remoteBaselineForcesRuntimeRefresh 禁止历史依赖合同复用当前 seed 的完整 runtime 层。
 func remoteBaselineForcesRuntimeRefresh(input remoteBaselineRefreshInput) bool {
 	return input.RuntimeDependencySchemaVersion != remoteci.RuntimeDependencySchemaVersion
-}
-
-// remoteBaselineSeedCanAppendDelta 只允许经过连续后代验证的兼容 Anchor 追加有限 Delta。
-func remoteBaselineSeedCanAppendDelta(accepted remoteci.BaselineState, input remoteBaselineRefreshInput, source remoteBaselineSourceArtifact, generation uint64) bool {
-	identity := input.Identity
-	if !remoteBaselineSeedHasAppendableDelta(accepted, input, source, generation) {
-		return false
-	}
-	return remoteBaselineSeedIdentityMatches(accepted, identity)
-}
-
-// remoteBaselineSeedHasAppendableDelta 验证 Delta 追加所需的状态、源工件和依赖连续性。
-func remoteBaselineSeedHasAppendableDelta(accepted remoteci.BaselineState, input remoteBaselineRefreshInput, source remoteBaselineSourceArtifact, generation uint64) bool {
-	if accepted.Validate() != nil || source.Manifest.Mode != remoteBaselineSourceDelta {
-		return false
-	}
-	if remoteBaselineForcesRuntimeRefresh(input) {
-		return false
-	}
-	if generation <= accepted.Generation || len(accepted.DeltaRefs()) >= remoteBaselineDeltaLimit {
-		return false
-	}
-	if !remoteBaselineSeedSourceExtendsAccepted(source.Manifest, accepted, input.Identity) {
-		return false
-	}
-	return validRemoteManifestDigest(input.RuntimeDependencyDigest) && validRemoteManifestDigest(input.AcceptedRuntimeDependencyDigest)
 }
 
 // remoteBaselineSeedSourceExtendsAccepted 验证 Delta source manifest 的连续提交与树身份。

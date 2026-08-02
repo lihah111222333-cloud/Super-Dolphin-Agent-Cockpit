@@ -157,7 +157,11 @@ func remoteBaselineSeedRequestFixture(t *testing.T) (remoteRunConfig, remoteci.B
 func assertRemoteBaselineSeedCompaction(t *testing.T, config remoteRunConfig, input remoteBaselineRefreshInput, source remoteBaselineSourceArtifact, accepted remoteci.BaselineState) {
 	t.Helper()
 	compaction := accepted
+	compaction.DirectCacheRef = nil
 	for _, identity := range []struct{ commit, tree string }{{"5", "6"}, {"7", "8"}, {"9", "0"}} {
+		if len(compaction.Deltas) >= remoteBaselineDeltaLimit {
+			break
+		}
 		baseCommit, baseTree := compaction.MainCommit, compaction.MainTree
 		compaction.Generation++
 		compaction.MainCommit, compaction.MainTree = repeatRemoteHex(identity.commit, 40), repeatRemoteHex(identity.tree, 40)
@@ -171,7 +175,26 @@ func assertRemoteBaselineSeedCompaction(t *testing.T, config remoteRunConfig, in
 		})
 	}
 	source.Manifest.BaseCommit, source.Manifest.BaseTree = compaction.MainCommit, compaction.MainTree
-	assertRemoteBaselineFullRefreshForbidden(t, config, input, source, compaction, compaction.DataCacheSizeGiB, compaction.Generation+1)
+	if err := compaction.Validate(); err != nil {
+		t.Fatalf("compaction fixture validation: %v", err)
+	}
+	request := mustBuildRemoteBaselineSeedRequest(t, config, input, source, compaction, compaction.DataCacheSizeGiB, compaction.Generation+1)
+	assertPreviousRemoteBaselineSeedStorage(t, request, compaction)
+	assertPreviousRemoteBaselineSeedResources(t, request)
+	assertRemoteBaselineSeedConditions(t, request, "incremental compaction", []bool{
+		!request.AutoCreateEIP, request.EIPBandwidth == 0,
+		request.Environment["BASELINE_STORAGE_MODE"] == remoteci.BaselineStorageModeAnchor,
+		request.DataCacheBucket == compaction.Anchor.DataCacheBucket,
+		request.PreviousDataCachePath == compaction.Anchor.DataCachePath,
+		request.BaselineLayers.Path == "/baseline-artifacts",
+		request.Environment["BASELINE_DELTA_MANIFEST_3"] != "",
+	})
+	if remoteBaselineSeedCanAppendDelta(compaction, input, source, compaction.Generation+1) {
+		t.Fatal("full Delta chain unexpectedly remained appendable")
+	}
+	if !remoteBaselineSeedCanMaterializePrevious(compaction, input, source, compaction.Generation+1) {
+		t.Fatal("full compatible Delta chain was not eligible for incremental compaction")
+	}
 }
 
 func assertRemoteBaselineFullRefreshForbidden(t *testing.T, config remoteRunConfig, input remoteBaselineRefreshInput, source remoteBaselineSourceArtifact, accepted remoteci.BaselineState, acceptedRecommendedSizeGiB int, generation uint64) {

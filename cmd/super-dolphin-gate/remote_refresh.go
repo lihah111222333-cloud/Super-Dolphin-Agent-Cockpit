@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -20,7 +19,6 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/datacache"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/eci"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/oss"
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
@@ -166,37 +164,9 @@ func runRemoteBaselineRefreshLocked(ctx context.Context, options remoteBaselineR
 		if reason := remoteBaselineIncrementalRefreshRejection(session); reason != "" {
 			return protocolError("accepted baseline exists but this refresh cannot be represented as a Delta (%s); full Anchor rebuild is forbidden", reason)
 		}
-		slog.Info("remote baseline refresh uses incremental delta", "parent_generation", session.accepted.Generation, "existing_deltas", len(session.accepted.DeltaRefs()), "toolchain_changed", session.accepted.ToolchainDigest != session.input.Identity.ToolchainDigest, "runtime_dependency_digest", session.input.RuntimeDependencyDigest, "accepted_runtime_dependency_digest", session.input.AcceptedRuntimeDependencyDigest)
+		logRemoteBaselineIncrementalRefresh(session)
 	}
 	return createRemoteBaseline(ctx, session, stdout)
-}
-
-func remoteBaselineIncrementalRefreshRejection(session remoteBaselineRefreshSession) string {
-	switch {
-	case !remoteBaselineCapacityMatches(session.accepted, session.acceptedRecommendedSizeGiB):
-		return "capacity changed"
-	case remoteBaselineForcesRuntimeRefresh(session.input):
-		return "runtime dependency schema changed"
-	case session.input.RuntimeDependencyDigest == "" || session.input.AcceptedRuntimeDependencyDigest == "":
-		return "runtime dependency identity is missing"
-	case !remoteBaselineSeedIdentityMatches(session.accepted, session.input.Identity):
-		return "platform or runtime image changed"
-	case len(session.accepted.DeltaRefs()) >= remoteBaselineDeltaLimit:
-		return "Delta chain is full"
-	default:
-		return ""
-	}
-}
-
-// remoteBaselineCanReuse 只允许完整历史、身份和容量均匹配的基线跳过刷新。
-func remoteBaselineCanReuse(
-	accepted remoteci.BaselineState,
-	identity remoteci.BaselineIdentity,
-	recommendedSizeGiB int,
-) bool {
-	return accepted.SourceHistoryVersion == remoteci.BaselineSourceHistorySchemaVersion &&
-		accepted.Matches(identity) &&
-		remoteBaselineCapacityMatches(accepted, recommendedSizeGiB)
 }
 
 // newRemoteBaselineRefreshSession 加载状态并创建本次刷新所需的远端客户端。
@@ -696,7 +666,7 @@ func acceptRemoteBaselineWithDirectCache(
 		directManifest.RuntimeDepsSHA256 != manifest.RuntimeDependencyDigest {
 		return remoteci.BaselineState{}, protocolError("remote direct cache runtime binding drifted from baseline manifest")
 	}
-	if err := bindRemoteBaselineDirectCache(&state, session.accepted.DirectCacheRef, stage, directCache, directManifest, directManifestDigest); err != nil {
+	if err := bindRemoteBaselineSuccessorDirectCache(&state, session.accepted.DirectCacheRef, manifest.StorageMode == remoteci.BaselineStorageModeAnchor, stage, directCache, directManifest, directManifestDigest); err != nil {
 		return remoteci.BaselineState{}, err
 	}
 	return state, nil
@@ -754,6 +724,22 @@ func bindRemoteBaselineDirectCache(state *remoteci.BaselineState, previous *remo
 	layers, retired := partitionRemoteBaselineDirectCacheLayers(previous, current)
 	state.DirectCacheRef = &remoteci.DirectCacheRef{Layers: layers}
 	if len(retired) != 0 {
+		state.RetiredDirectCacheRef = &remoteci.DirectCacheRef{Layers: retired}
+	}
+	return nil
+}
+
+// bindRemoteBaselineSuccessorDirectCache 在 Anchor 压实时切断旧父链，避免把旧链身份带入新 Anchor。
+func bindRemoteBaselineSuccessorDirectCache(state *remoteci.BaselineState, previous *remoteci.DirectCacheRef, compactAnchor bool, stage remoteBaselineArtifactStage, cache datacache.DataCache, manifest gatecontract.GoBuildCacheDirectSeedManifest, manifestDigest string) error {
+	bindPrevious := previous
+	if compactAnchor {
+		bindPrevious = nil
+	}
+	if err := bindRemoteBaselineDirectCache(state, bindPrevious, stage, cache, manifest, manifestDigest); err != nil {
+		return err
+	}
+	if compactAnchor && previous != nil {
+		retired := append([]remoteci.DirectCacheLayerRef(nil), previous.Layers...)
 		state.RetiredDirectCacheRef = &remoteci.DirectCacheRef{Layers: retired}
 	}
 	return nil
@@ -935,203 +921,6 @@ func remoteBaselineManifestSourceLayer(manifest remoteci.BaselineManifest) (remo
 }
 
 // carryRemoteBaselineHistory 保留上一代完整链，并登记不再被两条 live 链引用的旧资源。
-func carryRemoteBaselineHistory(state *remoteci.BaselineState, accepted remoteci.BaselineState) {
-	if accepted.SchemaVersion == 0 {
-		return
-	}
-	previousAnchor := accepted.CurrentAnchorRef()
-	state.PreviousAnchor = &previousAnchor
-	state.PreviousDeltas = accepted.DeltaRefs()
-	if accepted.PreviousAnchor != nil && !remoteBaselineAnchorIsLive(*accepted.PreviousAnchor, *state) {
-		retiredAnchor := *accepted.PreviousAnchor
-		state.RetiredAnchor = &retiredAnchor
-	}
-	for _, delta := range accepted.PreviousDeltas {
-		if !remoteBaselineDeltaIsLive(delta, *state) {
-			state.RetiredDeltas = append(state.RetiredDeltas, delta)
-		}
-	}
-}
-
-func remoteBaselineAnchorIsLive(candidate remoteci.BaselineCacheRef, state remoteci.BaselineState) bool {
-	if sameRemoteBaselineAnchor(candidate, state.Anchor) {
-		return true
-	}
-	return state.PreviousAnchor != nil && sameRemoteBaselineAnchor(candidate, *state.PreviousAnchor)
-}
-
-func sameRemoteBaselineAnchor(left, right remoteci.BaselineCacheRef) bool {
-	return left.Generation == right.Generation && left.DataCacheID == right.DataCacheID &&
-		left.DataCacheBucket == right.DataCacheBucket && left.DataCachePath == right.DataCachePath
-}
-
-// remoteBaselineDeltaIsLive 判断候选 Delta 是否仍被当前或上一条链引用。
-func remoteBaselineDeltaIsLive(candidate remoteci.BaselineDeltaRef, state remoteci.BaselineState) bool {
-	for _, deltas := range [][]remoteci.BaselineDeltaRef{state.Deltas, state.PreviousDeltas} {
-		for _, delta := range deltas {
-			if candidate.Generation == delta.Generation && candidate.SourceObjectPrefix == delta.SourceObjectPrefix &&
-				candidate.ManifestDigest == delta.ManifestDigest {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// cleanupUnacceptedRemoteArtifacts 删除未被接受 generation 的 OSS 工件。
-func cleanupUnacceptedRemoteArtifacts(resultErr *error, store remoteBaselineOSSStore, prefix string, accepted *bool) {
-	if *accepted {
-		return
-	}
-	ctx, cancel := gateprivate.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	if err := store.DeletePrefix(ctx, prefix); err != nil {
-		*resultErr = errors.Join(*resultErr, infrastructureError("delete unaccepted remote baseline artifacts: %v", err))
-	}
-}
-
-// cleanupRemoteBaselineSeed 删除已结束或失败的 seed 容器组。
-func cleanupRemoteBaselineSeed(resultErr *error, runtime *eci.Client, groupID string) {
-	ctx, cancel := gateprivate.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	if err := runtime.DeleteContainerGroup(ctx, groupID); err != nil {
-		*resultErr = errors.Join(*resultErr, infrastructureError("delete remote baseline seed: %v", err))
-	}
-}
-
-// cleanupUnacceptedRemoteCache 删除未被接受的 DataCache。
-func cleanupUnacceptedRemoteCache(resultErr *error, client remoteBaselineDataCacheClient, cache datacache.DataCache, accepted *bool) {
-	if *accepted {
-		return
-	}
-	ctx, cancel := gateprivate.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	if err := client.Delete(ctx, cache.ID, cache.Bucket, cache.Path); err != nil {
-		*resultErr = errors.Join(*resultErr, infrastructureError("delete unaccepted remote baseline DataCache: %v", err))
-	}
-}
-
-// resolveRemoteSqruffArtifact 选择与目标平台匹配的 Sqruff 工件及摘要。
-func resolveRemoteSqruffArtifact(args []string, platform string) (string, string, error) {
-	suffix := "AMD64"
-	if platform == "linux/arm64" {
-		suffix = "ARM64"
-	}
-	values := make(map[string]string, len(args))
-	for _, argument := range args {
-		key, value, ok := strings.Cut(argument, "=")
-		if ok {
-			values[key] = value
-		}
-	}
-	artifactURL := values["SQRUFF_ARCHIVE_URL_"+suffix]
-	digest := values["SQRUFF_ARCHIVE_SHA256_"+suffix]
-	if strings.TrimSpace(artifactURL) == "" || len(digest) != 64 ||
-		strings.Trim(digest, "0123456789abcdef") != "" {
-		return "", "", errors.New("remote baseline Sqruff artifact is invalid")
-	}
-	return artifactURL, digest, nil
-}
-
-func newRemoteBaselineOSSStore(config remoteRunConfig) (remoteBaselineOSSStore, error) {
-	return oss.NewCLI(oss.Config{
-		Binary: config.AliyunCLI, Bucket: config.OSS.Bucket, Endpoint: config.OSS.Endpoint,
-		Profile: config.CredentialProfile, Prefix: config.OSS.BaselinePrefix,
-	})
-}
-
-func (lock *remoteBaselineRefreshLock) close() error {
-	if lock == nil || lock.file == nil {
-		return nil
-	}
-	unlockErr := syscall.Flock(int(lock.file.Fd()), syscall.LOCK_UN)
-	closeErr := lock.file.Close()
-	lock.file = nil
-	return errors.Join(unlockErr, closeErr)
-}
-
-func resolveRemoteRef(repositoryRoot, remote, ref string) (string, error) {
-	output, err := remoteGitOutput(repositoryRoot, "ls-remote", "--exit-code", remote, ref)
-	if err != nil {
-		return "", err
-	}
-	fields := strings.Fields(output)
-	if len(fields) != 2 || fields[1] != ref {
-		return "", errors.New("remote Git ref response is ambiguous")
-	}
-	return fields[0], nil
-}
-
-func remoteBaselineStatePath(configPath, explicit string) string {
-	if strings.TrimSpace(explicit) != "" {
-		return explicit
-	}
-	extension := filepath.Ext(configPath)
-	return strings.TrimSuffix(configPath, extension) + ".baseline-state.json"
-}
-
-func loadAcceptedRemoteBaseline(configPath, statePath, ledgerPath string) (remoteci.BaselineState, error) {
-	_ = configPath
-	_ = statePath
-	state, err := loadRemoteBaselineState(ledgerPath, false)
-	if err != nil {
-		return remoteci.BaselineState{}, err
-	}
-	return state, state.Validate()
-}
-
-func remoteBaselineResourceName(generation uint64) string {
-	return fmt.Sprintf("sdci-baseline-%d", generation)
-}
-
-func remoteBaselineSourcePrefix(config remoteRunConfig, generation uint64) string {
-	return config.OSS.BaselinePrefix + strconv.FormatUint(generation, 10) + "/"
-}
-
-func remoteBaselineInputPrefix(config remoteRunConfig, generation uint64) string {
-	return remoteBaselineSourcePrefix(config, generation) + "input/"
-}
-
-func remoteBaselineOutputPrefix(config remoteRunConfig, generation uint64) string {
-	return remoteBaselineSourcePrefix(config, generation) + "output/"
-}
-
-func remoteBaselineCachePath(config remoteRunConfig, generation uint64) string {
-	return config.DataCache.PathPrefix + "/" + strconv.FormatUint(generation, 10)
-}
-
-// remoteBaselineDirectCachePath 把只读 Go 构建缓存与基线 Anchor 放入彼此隔离的 DataCache 路径。
-func remoteBaselineDirectCachePath(config remoteRunConfig, generation uint64) string {
-	return config.DataCache.PathPrefix + "/direct-cache/" + strconv.FormatUint(generation, 10)
-}
-
-func remoteBaselineDirectCacheOutputPrefix(stage remoteBaselineArtifactStage) string {
-	return stage.outputPrefix + "direct-cache/"
-}
-
-func remoteBaselineCacheClientToken(generation uint64, sizeGiB int, manifest remoteci.BaselineManifest) (string, error) {
-	payload, err := json.Marshal(struct {
-		SizeGiB  int                       `json:"size_gib"`
-		Manifest remoteci.BaselineManifest `json:"manifest"`
-	}{SizeGiB: sizeGiB, Manifest: manifest})
-	if err != nil {
-		return "", err
-	}
-	return remoteBaselineClientToken("cache", strconv.FormatUint(generation, 10), payload), nil
-}
-
-func remoteBaselineClientToken(kind, generation string, payload []byte) string {
-	sum := sha256.Sum256(payload)
-	return fmt.Sprintf("sdci-%s-%s-%x", kind, generation, sum[:8])
-}
-
-func remoteBaselineRenewToken(generation uint64, now time.Time) string {
-	return fmt.Sprintf("sdci-renew-%d-%s", generation, now.UTC().Format("20060102"))
-}
-
-func remoteBaselineDirectRenewToken(generation uint64, now time.Time) string {
-	return fmt.Sprintf("sdci-renew-direct-%d-%s", generation, now.UTC().Format("20060102"))
-}
 
 func encodeRemoteBaselineRefreshResult(stdout io.Writer, result remoteBaselineRefreshResult) error {
 	encoder := json.NewEncoder(stdout)
