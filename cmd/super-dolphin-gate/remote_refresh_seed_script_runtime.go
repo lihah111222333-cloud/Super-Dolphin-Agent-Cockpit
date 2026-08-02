@@ -97,10 +97,6 @@ rm -rf "$direct_cache_root"
 install -d -m 0755 "$direct_cache_root"
 if test -n "${BASELINE_DIRECT_CACHE_LAYER_COUNT:-}"; then
   case "$BASELINE_DIRECT_CACHE_LAYER_COUNT" in 1|2|3) ;; *) echo 'direct cache layer count is invalid at publish' >&2; exit 1;; esac
-fi
-if test "$BASELINE_STORAGE_MODE" = anchor && test -n "${BASELINE_DIRECT_CACHE_LAYER_COUNT:-}"; then
-  printf '[baseline-seed] go direct cache compaction: complete working set snapshot\n'
-elif test -n "${BASELINE_DIRECT_CACHE_LAYER_COUNT:-}"; then
   printf '[baseline-seed] go direct cache publish: current private delta only\n'
 else
   printf '[baseline-seed] go direct cache migration: current accessed working set only\n'
