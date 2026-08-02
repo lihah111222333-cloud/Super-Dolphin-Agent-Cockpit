@@ -64,7 +64,11 @@ func (coordinator *Coordinator) prepareRemoteAssets(
 		return remoteAssets{}, err
 	}
 	candidateBuildSpan := trace.start("candidate_cli.build", counts)
-	assets.candidateCLI, assets.candidatePath, assets.candidateManifestPath, assets.candidateBinaryKey, err = buildRemoteCandidateCLIArtifact(ctx, coordinator.config.CandidateCLIBuilder, input, jobID, tempRoot, coordinator.config.SourcePrefix)
+	if input.ReuseBaselineGateCLI {
+		assets.candidateCLI, assets.candidatePath, assets.candidateManifestPath, assets.candidateBinaryKey, err = coordinator.rehydrateRemoteCandidateCLIArtifact(ctx, input, jobID, tempRoot, coordinator.config.SourcePrefix)
+	} else {
+		assets.candidateCLI, assets.candidatePath, assets.candidateManifestPath, assets.candidateBinaryKey, err = buildRemoteCandidateCLIArtifact(ctx, coordinator.config.CandidateCLIBuilder, input, jobID, tempRoot, coordinator.config.SourcePrefix)
+	}
 	trace.finish(candidateBuildSpan, err, counts)
 	if err != nil {
 		return remoteAssets{}, err

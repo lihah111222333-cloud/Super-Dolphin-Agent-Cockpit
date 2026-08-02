@@ -21,6 +21,10 @@ func buildRemoteCandidateCLIArtifact(ctx context.Context, builder CandidateCLIBu
 	if err != nil {
 		return CandidateCLIArtifactRef{}, "", "", "", fmt.Errorf("build candidate CLI: %w", err)
 	}
+	return packageRemoteCandidateCLIArtifact(input, jobID, tempRoot, sourcePrefix, binaryPath)
+}
+
+func packageRemoteCandidateCLIArtifact(input RunInput, jobID, tempRoot, sourcePrefix, binaryPath string) (CandidateCLIArtifactRef, string, string, string, error) {
 	info, err := os.Stat(binaryPath)
 	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 {
 		return CandidateCLIArtifactRef{}, "", "", "", errors.New("candidate CLI builder did not produce a regular binary")
@@ -45,4 +49,34 @@ func buildRemoteCandidateCLIArtifact(ctx context.Context, builder CandidateCLIBu
 		return CandidateCLIArtifactRef{}, "", "", "", err
 	}
 	return ref, binaryPath, manifestPath, manifest.BinaryKey, nil
+}
+
+func (coordinator *Coordinator) rehydrateRemoteCandidateCLIArtifact(ctx context.Context, input RunInput, jobID, tempRoot, sourcePrefix string) (CandidateCLIArtifactRef, string, string, string, error) {
+	if !input.ReuseBaselineGateCLI || len(input.BaselineDeltas) == 0 {
+		return CandidateCLIArtifactRef{}, "", "", "", errors.New("exact baseline candidate CLI artifact is unavailable")
+	}
+	tip := input.BaselineDeltas[len(input.BaselineDeltas)-1]
+	if tip.MainCommit != input.Commit || tip.MainTree != input.Tree {
+		return CandidateCLIArtifactRef{}, "", "", "", errors.New("baseline candidate CLI source identity drift")
+	}
+	binaryPath := filepath.Join(tempRoot, "baseline-super-dolphin-gate-linux-amd64")
+	binaryKey := strings.TrimSuffix(tip.ObjectPrefix, "/") + "/output/bin/super-dolphin-gate"
+	found, err := coordinator.store.DownloadIfExists(ctx, binaryKey, binaryPath)
+	if err != nil {
+		return CandidateCLIArtifactRef{}, "", "", "", fmt.Errorf("download baseline candidate CLI: %w", err)
+	}
+	if !found {
+		return CandidateCLIArtifactRef{}, "", "", "", errors.New("baseline candidate CLI object is missing")
+	}
+	digest, err := fileDigest(binaryPath)
+	if err != nil {
+		return CandidateCLIArtifactRef{}, "", "", "", err
+	}
+	if "sha256:"+digest != input.GateBinarySHA256 {
+		return CandidateCLIArtifactRef{}, "", "", "", errors.New("baseline candidate CLI digest mismatch")
+	}
+	if err := os.Chmod(binaryPath, 0o700); err != nil {
+		return CandidateCLIArtifactRef{}, "", "", "", err
+	}
+	return packageRemoteCandidateCLIArtifact(input, jobID, tempRoot, sourcePrefix, binaryPath)
 }
