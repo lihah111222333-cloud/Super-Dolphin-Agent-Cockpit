@@ -23,7 +23,7 @@
     "runtime_seed_recipe_sha256": "sha256:207cc09615c7b346034a0048f7e5e65b09640ecca137d961a438a32698b5aa4e",
     "runtime_seed_script_sha256": "sha256:ff6ecc261e8b947654668eed12d7acbffa8ba878b0218da0f3933941abac4be8",
     "runtime_seed_worker_sha256": "sha256:d28bfd29763c113723a836c205515a1a1e3858729fa3062b8c397e0668e4dd80",
-    "runtime_seed_script_control_sha256": "sha256:20f8df9343e55e92abdf4107e71b6141b14933b8d338e6283db9055e8e8ac291"
+    "runtime_seed_script_control_sha256": "sha256:4fb30d142ca3db7ac8ddaddd3b4298fdcc9edfebac3b172a5c629c788033c3d3"
   },
   "paths": {
     "manifest": "/opt/super-dolphin-gate/runtime/manifest.json",

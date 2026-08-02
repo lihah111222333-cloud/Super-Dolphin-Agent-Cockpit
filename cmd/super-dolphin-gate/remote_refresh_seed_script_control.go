@@ -98,8 +98,11 @@ with tarfile.open(archive_path, "r:gz") as archive:
             raise SystemExit("runtime dependency delta contains an unsupported entry type")
         if member.issym():
             target = member.linkname
-            resolved_target = posixpath.normpath(posixpath.join(posixpath.dirname(clean), target))
-            if not target or target.startswith("/") or (resolved_target != "runtime" and not resolved_target.startswith("runtime/")):
+            if target.startswith("/") and clean.startswith("runtime/rootfs/"):
+                resolved_target = posixpath.normpath(posixpath.join("runtime/rootfs", target.lstrip("/")))
+            else:
+                resolved_target = posixpath.normpath(posixpath.join(posixpath.dirname(clean), target))
+            if not target or (target.startswith("/") and not clean.startswith("runtime/rootfs/")) or (resolved_target != "runtime" and not resolved_target.startswith("runtime/")):
                 raise SystemExit("runtime dependency delta contains an escaping symbolic link")
             symlinks.add(clean)
         elif not (member.isdir() or member.isfile()):
