@@ -82,6 +82,7 @@ import tarfile
 archive_path = sys.argv[1]
 seen = set()
 symlinks = set()
+regular_files = set()
 directories = set()
 manifest = None
 expanded = 0
@@ -95,8 +96,10 @@ with tarfile.open(archive_path, "r:gz") as archive:
             raise SystemExit("runtime dependency delta contains a duplicate path")
         seen.add(clean)
         if member.islnk():
-            raise SystemExit("runtime dependency delta contains an unsupported entry type")
-        if member.issym():
+            link_target = posixpath.normpath(member.linkname)
+            if not member.linkname or member.linkname.startswith("/") or (link_target != "runtime" and not link_target.startswith("runtime/")) or link_target not in regular_files:
+                raise SystemExit("runtime dependency delta contains an invalid hard link")
+        elif member.issym():
             target = member.linkname
             if target.startswith("/") and clean.startswith("runtime/rootfs/"):
                 resolved_target = posixpath.normpath(posixpath.join("runtime/rootfs", target.lstrip("/")))
@@ -111,6 +114,8 @@ with tarfile.open(archive_path, "r:gz") as archive:
             raise SystemExit("runtime dependency delta contains a forbidden path")
         if member.isdir():
             directories.add(clean)
+        elif member.isfile() and not member.islnk():
+            regular_files.add(clean)
         if clean == "runtime/manifest.json":
             if not member.isfile():
                 raise SystemExit("runtime dependency manifest is not a regular file")
@@ -145,6 +150,30 @@ PY
         mkdir -p "$runtime_deps_stage"
         tar -xzf "$runtime_deps_delta" -C "$runtime_deps_stage"
         test -d "$runtime_deps_stage/runtime"; test -f "$runtime_deps_stage/runtime/manifest.json"
+        "$payload_root/runtime/python/bin/python3" - "$runtime_deps_stage/runtime" <<'PY'
+import os
+import sys
+
+runtime_root = os.path.abspath(sys.argv[1])
+for directory, directories, files in os.walk(runtime_root, followlinks=False):
+    for name in directories + files:
+        link_path = os.path.join(directory, name)
+        if not os.path.islink(link_path):
+            continue
+        target = os.readlink(link_path)
+        if not os.path.isabs(target):
+            continue
+        relative_path = os.path.relpath(link_path, runtime_root)
+        if relative_path == "rootfs" or not relative_path.startswith("rootfs" + os.sep):
+            raise SystemExit("runtime dependency delta contains an absolute link outside rootfs")
+        target_path = os.path.normpath(os.path.join(runtime_root, "rootfs", target.lstrip("/")))
+        rootfs_root = os.path.join(runtime_root, "rootfs")
+        if target_path == rootfs_root:
+            raise SystemExit("runtime dependency delta contains an invalid rootfs link")
+        relative_target = os.path.relpath(target_path, os.path.dirname(link_path))
+        os.unlink(link_path)
+        os.symlink(relative_target, link_path)
+PY
         previous_runtime=$runtime_deps_stage/previous-runtime
         mv "$payload_root/runtime" "$previous_runtime"
         if ! mv "$runtime_deps_stage/runtime" "$payload_root/runtime"; then

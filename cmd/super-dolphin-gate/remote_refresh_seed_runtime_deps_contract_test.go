@@ -16,6 +16,11 @@ func TestRemoteBaselineSeedRuntimeDependencyIdentityChainContract(t *testing.T) 
 		`require_sha256_digest "$runtime_deps_target_digest"`,
 		`target.startswith("/") and clean.startswith("runtime/rootfs/")`,
 		`posixpath.join("runtime/rootfs", target.lstrip("/"))`,
+		`runtime dependency delta contains an invalid hard link`,
+		`link_target not in regular_files`,
+		`os.walk(runtime_root, followlinks=False)`,
+		`runtime dependency delta contains an absolute link outside rootfs`,
+		`os.symlink(relative_target, link_path)`,
 	} {
 		if !strings.Contains(remoteBaselineSeedScript, fragment) {
 			t.Fatalf("runtime dependency identity-chain contract is missing %q", fragment)
