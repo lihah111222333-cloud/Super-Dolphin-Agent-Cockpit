@@ -99,10 +99,7 @@ if test -n "${BASELINE_DIRECT_CACHE_LAYER_COUNT:-}"; then
   case "$BASELINE_DIRECT_CACHE_LAYER_COUNT" in 1|2|3) ;; *) echo 'direct cache layer count is invalid at publish' >&2; exit 1;; esac
   printf '[baseline-seed] go direct cache publish: current private delta only\n'
 else
-  printf '[baseline-seed] go direct cache migration: publishing one full compatibility layer\n'
-  if test -d "$stage/anchor-go-build-cache"; then
-    cp -a "$stage/anchor-go-build-cache/." "$direct_cache_root/"
-  fi
+  printf '[baseline-seed] go direct cache migration: current accessed working set only\n'
 fi
 cp -a "$go_build_cache/." "$direct_cache_root/"
 chmod -R a+rX,a-w "$direct_cache_root"

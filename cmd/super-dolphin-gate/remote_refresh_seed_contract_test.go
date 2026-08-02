@@ -595,8 +595,7 @@ func assertRemoteBaselineSeedLayerFragments(t *testing.T) {
 		"run_logged layer-measure-go-cache-delta measure_layer",
 		"direct_cache_root=$oss_output/direct-cache/cache-seed/go-build",
 		"go direct cache publish: current private delta only",
-		"go direct cache migration: publishing one full compatibility layer",
-		"cp -a \"$stage/anchor-go-build-cache/.\" \"$direct_cache_root/\"",
+		"go direct cache migration: current accessed working set only",
 		"cp -a \"$go_build_cache/.\" \"$direct_cache_root/\"",
 		"chmod -R a+rX,a-w \"$direct_cache_root\"",
 		"DIRECT_CACHE_MANIFEST=\"$oss_output/direct-cache/manifest.json\"",
@@ -660,6 +659,7 @@ func assertRemoteBaselineSeedForbiddenScriptFragments(t *testing.T) {
 		{"tool=$(basename \"$0\")", "portable runtime tools must not depend on the host basename command"},
 		{"BASELINE_STORAGE_MODE=anchor", "a previous baseline must never fall back to a full Anchor rebuild"},
 		{"timeout --signal=KILL", "100-second cache targets are slow-stage ledger thresholds, not correctness timeouts"},
+		{"cp -a \"$stage/anchor-go-build-cache/.\" \"$direct_cache_root/\"", "direct cache migration must publish only accessed entries, never copy the historical anchor cache"},
 	} {
 		if strings.Contains(remoteBaselineSeedScript, forbidden.fragment) {
 			t.Fatal(forbidden.message)
