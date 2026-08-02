@@ -724,7 +724,7 @@ func assertRemoteBaselineSeedRuntimeDepsChainOrdering(t *testing.T) {
 	publish := strings.Index(remoteBaselineSeedScript, `mv "$runtime_deps_stage/runtime" "$payload_root/runtime"`)
 	rollback := strings.Index(remoteBaselineSeedScript, `mv "$previous_runtime" "$payload_root/runtime"`)
 	resetCache := strings.Index(remoteBaselineSeedScript, `rm -rf "$go_build_cache" || ! install -d -m 0700 "$go_build_cache"`)
-	advanceIdentity := strings.Index(remoteBaselineSeedScript, `expected_runtime_dependency_digest=$manifest_runtime_dependency_digest`)
+	advanceIdentity := strings.LastIndex(remoteBaselineSeedScript, `expected_runtime_dependency_digest=$manifest_runtime_dependency_digest`)
 	if detect < 0 || baseIdentity < detect || targetIdentity < baseIdentity || digest < targetIdentity || size < digest || stage < size ||
 		validate < stage || backup < validate || publish < backup || rollback < publish || resetCache < publish || advanceIdentity < resetCache {
 		t.Fatal("runtime-deps delta must bind the dependency identity chain, validate the archive, and replace runtime with rollback before advancing the generation")

@@ -64,7 +64,9 @@ if test -f /previous/runtime-deps.tar.gz || test -f /previous/source.tar.gz || t
   expected_commit=$(sed -n 's/.*"main_commit":"\([0-9a-f]*\)".*/\1/p' "$anchor_manifest")
   expected_tree=$(sed -n 's/.*"main_tree":"\([0-9a-f]*\)".*/\1/p' "$anchor_manifest")
   expected_runtime_dependency_digest=$(sed -n 's/.*"runtime_dependency_digest":"\([^"]*\)".*/\1/p' "$anchor_manifest")
+  expected_runtime_seed_manifest_sha256=$(sed -n 's/.*"runtime_seed_manifest_sha256":"\([^"]*\)".*/\1/p' "$anchor_manifest")
   test -n "$expected_commit"; test -n "$expected_tree"
+  require_sha256_digest "$expected_runtime_seed_manifest_sha256"
   if test -n "$expected_runtime_dependency_digest"; then
     require_sha256_digest "$expected_runtime_dependency_digest"
   fi
@@ -89,7 +91,9 @@ if test -f /previous/runtime-deps.tar.gz || test -f /previous/source.tar.gz || t
       target_commit=$(sed -n 's/.*"target_commit":"\([0-9a-f]*\)".*/\1/p' "$manifest")
       target_tree=$(sed -n 's/.*"target_tree":"\([0-9a-f]*\)".*/\1/p' "$manifest")
       manifest_runtime_dependency_digest=$(sed -n 's/.*"runtime_dependency_digest":"\([^"]*\)".*/\1/p' "$manifest")
+      manifest_runtime_seed_manifest_sha256=$(sed -n 's/.*"runtime_seed_manifest_sha256":"\([^"]*\)".*/\1/p' "$manifest")
       test "$manifest_generation" = "$generation"; test "$manifest_mode" = delta
+      require_sha256_digest "$manifest_runtime_seed_manifest_sha256"
       test "$base_commit" = "$expected_commit"; test "$base_tree" = "$expected_tree"
       source_delta=$layer_root/source.delta.bundle
       cache_delta=$layer_root/go-build-cache.delta.tar.gz
@@ -178,6 +182,7 @@ PY
       tar -xzf "$cache_delta" -C "$payload_root"; printf 'seed stage complete: delta-cache generation=%s\n' "$generation"
       expected_commit=$target_commit
       expected_tree=$target_tree
+      expected_runtime_seed_manifest_sha256=$manifest_runtime_seed_manifest_sha256
     done
   fi
   previous_baseline=1

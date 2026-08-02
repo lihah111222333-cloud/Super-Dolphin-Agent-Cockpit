@@ -78,12 +78,14 @@ verify_gate_cli_identity() (
 // remoteBaselineSeedScriptRuntimeDepsReplay 安全重放逐代完整运行时依赖层。
 const remoteBaselineSeedScriptRuntimeDepsReplay = `      runtime_deps_count=$(grep -o '"name":"runtime-deps"' "$manifest" | wc -l | tr -d ' ')
       case "$runtime_deps_count" in 0)
-        if test -z "$expected_runtime_dependency_digest"; then
-          test -z "$manifest_runtime_dependency_digest"
-        else
+        if test "$manifest_runtime_dependency_digest" != "$expected_runtime_dependency_digest"; then
           require_sha256_digest "$manifest_runtime_dependency_digest"
-          test "$manifest_runtime_dependency_digest" = "$expected_runtime_dependency_digest"
+          test "$manifest_runtime_seed_manifest_sha256" = "$expected_runtime_seed_manifest_sha256"
+          printf 'runtime dependency identity projection advanced without content change generation=%s\n' "$generation"
+        elif test -n "$manifest_runtime_dependency_digest"; then
+          require_sha256_digest "$manifest_runtime_dependency_digest"
         fi
+        expected_runtime_dependency_digest=$manifest_runtime_dependency_digest
         ;; 1)
         runtime_deps_delta=$layer_root/runtime-deps.delta.tar.gz
         runtime_deps_digest=$(sed -n 's/.*"name":"runtime-deps","archive":"runtime-deps.delta.tar.gz","sha256":"\([^"]*\)".*/\1/p' "$manifest")
