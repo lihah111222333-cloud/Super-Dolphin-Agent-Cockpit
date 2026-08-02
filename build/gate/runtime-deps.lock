@@ -15,7 +15,7 @@
     "proxy_go_sum_sha256": "sha256:0c367de5a9f3090cb8f06556d9a1997a84e1c6081f7c46b9ad9650e3178dc224",
     "tools_go_mod_sha256": "sha256:2f5387886a2a58b3b047d3c31449a58ddf071e6790bf7225c71e05c1349bfbad",
     "tools_go_sum_sha256": "sha256:4fb6b0daaafccfaa0024c3eebd193929957f4e49c62ed551a6289c59632f104f",
-    "runtime_seed_worker_sha256": "sha256:17aa60ecc6a26e117fcb8e0d065b55d32347ecfee40bcb917e5c0bd7deff44cc",
+    "runtime_seed_worker_sha256": "sha256:29b72e7657e6a7d2b32cd68c757c27dd76eb9d497ca66a5e1236b2949e541aca",
     "runtime_seed_script_browser_sha256": "sha256:b7452b9a3bf804a067db7156c54d5477ac49c84f20c4bd289fc243acc048c44a",
     "runtime_seed_script_runtime_sha256": "sha256:d5cdb1cda624589d19e34530734ccfcaa52d9c0f68ce546f6025271f4e72c76c",
     "runtime_seed_script_tail_sha256": "sha256:e9140d9d6a8374e2af65e661fe57b1c7e2aea21232aa96bfb3aeb7d1dfbf1cd9"

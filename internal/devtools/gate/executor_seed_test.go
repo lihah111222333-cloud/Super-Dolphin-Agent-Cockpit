@@ -696,6 +696,16 @@ func TestRuntimeSeedDigestRejectsEscapingSymlinkChain(t *testing.T) {
 	}
 }
 
+func TestRuntimeSeedManifestDriftFieldsReportsOnlyChangedIdentities(t *testing.T) {
+	tracked := RuntimeSeedManifest{SchemaVersion: RuntimeSeedSchemaVersion, GoSumSHA256: "sha256:tracked", NPMCacheTreeSHA256: "sha256:npm"}
+	actual := tracked
+	actual.GoSumSHA256 = "sha256:actual"
+	actual.NPMCacheTreeSHA256 = "sha256:changed"
+	if got := runtimeSeedManifestDriftFields(tracked, actual); !slices.Equal(got, []string{"go_sum_sha256", "npm_cache_tree_sha256"}) {
+		t.Fatalf("runtime seed drift fields = %v", got)
+	}
+}
+
 func writeRuntimeSeedFixture(t *testing.T, source string) (string, string) {
 	t.Helper()
 	proxyLockPath := filepath.Join(source, "build", "gate", "runtime-proxy", "go.sum")
