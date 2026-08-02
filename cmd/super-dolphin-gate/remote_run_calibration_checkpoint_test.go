@@ -65,7 +65,7 @@ func TestRemoteRunResultFromLedgerRecordRehydratesSQLiteProjection(t *testing.T)
 	if len(result.Shards) != 1 || !reflect.DeepEqual(result.Shards[0].ExecutedWorkloads, loaded.Shards[0].Workloads) || !reflect.DeepEqual(result.Shards[0].MaterializationTiming, loaded.Shards[0].MaterializationTiming) {
 		t.Fatalf("rehydrated shard = %#v, loaded shard = %#v", result.Shards, loaded.Shards)
 	}
-	if len(result.CandidateTestBinaryBuilds) != 1 || !reflect.DeepEqual(result.CandidateTestBinaryBuilds[0].Artifact.BuildFlags, build.BuildFlags) || result.CandidateTestBinaryBuilds[0].Artifact.ManifestSHA256 != build.ManifestSHA256 || result.CandidateTestBinaryBuilds[0].Artifact.BinarySHA256 != strings.TrimPrefix(build.ArtifactSHA256, "sha256:") || result.CandidateTestBinaryBuilds[0].Metrics.GOCacheMisses != build.GOCacheMisses {
+	if len(result.CandidateTestBinaryBuilds) != 1 || !reflect.DeepEqual(result.CandidateTestBinaryBuilds[0].Artifact.BuildFlags, build.BuildFlags) || result.CandidateTestBinaryBuilds[0].Artifact.ManifestSHA256 != build.ManifestSHA256 || result.CandidateTestBinaryBuilds[0].Artifact.BinarySHA256 != strings.TrimPrefix(build.ArtifactSHA256, "sha256:") || result.CandidateTestBinaryBuilds[0].Metrics.GOCacheOCIProjectCacheHits != build.GOCacheOCIProjectCacheHits || result.CandidateTestBinaryBuilds[0].Metrics.GOCachePrivateRootIdentity != build.GOCachePrivateRootIdentity || result.CandidateTestBinaryBuilds[0].Metrics.GOCacheMisses != build.GOCacheMisses {
 		t.Fatalf("rehydrated candidate test binary builds = %#v", result.CandidateTestBinaryBuilds)
 	}
 }

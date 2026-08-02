@@ -159,8 +159,7 @@ func parseRemotePrePushOptions(args []string) (remoteRunOptions, string, string,
 	flags.SetOutput(io.Discard)
 	flags.StringVar(&options.ConfigPath, "config", "", "remote CI config path")
 	flags.StringVar(&options.RepositoryRoot, "repository", ".", "Git repository root")
-	flags.StringVar(&options.StatePath, "state", "", "accepted baseline state path")
-	flags.StringVar(&options.LedgerPath, "ledger", "", "duration ledger path")
+	flags.StringVar(&options.LedgerPath, "ledger", "", "remote baseline and duration ledger SQLite authority path")
 	flags.StringVar(
 		&requesterFingerprint,
 		"requester-fingerprint",
@@ -174,7 +173,7 @@ func parseRemotePrePushOptions(args []string) (remoteRunOptions, string, string,
 	if flags.NArg() != 2 || strings.TrimSpace(options.ConfigPath) == "" || options.MaxShards > gatecontract.MaxContainerShards {
 		return options, "", "", protocolError("remote pre-push requires --config and exact remote name and URL")
 	}
-	if err := normalizeRemoteSQLiteAuthority(options.ConfigPath, &options.StatePath, &options.LedgerPath); err != nil {
+	if err := normalizeRemoteSQLiteAuthority(options.ConfigPath, &options.LedgerPath); err != nil {
 		return options, "", "", err
 	}
 	requester, err := resolveRequesterFingerprint(
@@ -289,7 +288,7 @@ func validateAuthoritativeRemoteHookResult(
 
 // loadRemoteBaselineStateForRefresh 只从 SQLite 读取已接受的 OCI 基线。
 // 旧 JSON 状态必须由显式迁移工具处理；刷新路径不得导入、复制或删除其资源。
-func loadRemoteBaselineStateForRefresh(ledgerPath, legacyPath string) (remoteci.BaselineState, error) {
+func loadRemoteBaselineStateForRefresh(configPath, ledgerPath string) (remoteci.BaselineState, error) {
 	databasePath := remoteBaselineDatabasePath(ledgerPath)
 	stored, err := loadStoredRemoteBaselineState(databasePath)
 	if err == nil {
@@ -298,7 +297,7 @@ func loadRemoteBaselineStateForRefresh(ledgerPath, legacyPath string) (remoteci.
 	if !errors.Is(err, errRemoteBaselineStateNotFound) && !errors.Is(err, os.ErrNotExist) {
 		return remoteci.BaselineState{}, err
 	}
-	if _, legacyErr := os.Lstat(legacyPath); legacyErr == nil {
+	if _, legacyErr := os.Lstat(remoteLegacyBaselineStatePath(configPath)); legacyErr == nil {
 		return remoteci.BaselineState{}, errors.New("remote baseline OCI migration is required; refusing legacy JSON DataCache state")
 	} else if !errors.Is(legacyErr, os.ErrNotExist) {
 		return remoteci.BaselineState{}, fmt.Errorf("inspect legacy remote baseline state: %w", legacyErr)

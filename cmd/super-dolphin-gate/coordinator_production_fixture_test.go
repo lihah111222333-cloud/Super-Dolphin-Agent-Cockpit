@@ -14,93 +14,23 @@ import (
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/localci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
 func writeProductionBuildInputs(t *testing.T, repository string) {
 	t.Helper()
-	files := productionBuildInputFiles()
-	files["build/gate/runtime-deps.lock"] = productionRuntimeDepsLock(t, files)
-	inputs := make([]string, 0, len(files)+1)
-	for path := range files {
-		inputs = append(inputs, path)
-	}
-	inputs = append(inputs, "build/gate/inputs.json")
-	sort.Strings(inputs)
-	files["build/gate/inputs.json"] = productionFixtureJSON(t, map[string]any{
-		"schema_version": "2", "dockerfile": "build/gate/Dockerfile", "inputs": inputs,
-		"gate_compile_inputs": []string{"cmd/super-dolphin-gate/main.go", "go.mod", "go.sum"},
-	})
-	for path, data := range files {
-		absolute := filepath.Join(repository, filepath.FromSlash(path))
-		if err := os.MkdirAll(filepath.Dir(absolute), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(absolute, []byte(data), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
-func productionBuildInputFiles() map[string]string {
-	return map[string]string{
-		"build/gate/Dockerfile": "ARG RUNTIME_DEPS_IMAGE\n" +
-			"ARG SOURCE_DATE_EPOCH=0\nFROM ${RUNTIME_DEPS_IMAGE} AS build\nARG SOURCE_DATE_EPOCH\nCOPY go.mod go.sum ./\n" +
-			"COPY cmd/super-dolphin-gate/main.go ./cmd/super-dolphin-gate/main.go\n" +
-			"RUN --network=none go build -o /out/gate ./cmd/super-dolphin-gate\n" +
-			"FROM scratch\nCOPY --from=build /out/gate /gate\nENTRYPOINT [\"/gate\"]\n",
-		"build/gate/runtime-deps.Dockerfile":                           "FROM scratch\n",
-		"build/gate/runtime-lsp/package-lock.json":                     "{}\n",
-		"build/gate/runtime-proxy/go.mod":                              "module example.invalid/proxy\n",
-		"build/gate/runtime-proxy/go.sum":                              "proxy sum\n",
-		"build/gate/runtime-tools/go.mod":                              "module example.invalid/tools\n",
-		"build/gate/runtime-tools/go.sum":                              "tools sum\n",
-		"frontend-app/package-lock.json":                               "{}\n",
-		"go.mod":                                                       "module example.invalid/gate\n",
-		"go.sum":                                                       "sum\n",
-		"internal/devtools/gate/executor_seed.go":                      "package gate\n",
-		"cmd/super-dolphin-gate/remote_refresh_seed.go":                "package main\n",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script.go":         "package main\n",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go": "package main\n",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go": "package main\n",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script_tail.go":    "package main\n",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script_control.go": "package main\n",
-		"internal/devtools/nilnessrunner/runner.go":                    "package nilnessrunner\n",
-		"scripts/nilness_guard.go":                                     "package main\n",
-		"cmd/super-dolphin-gate/main.go":                               "package main\n",
-		"build/gate/toolchain.lock":                                    productionToolchainLock(),
-	}
-}
-
-func productionToolchainLock() string {
-	return "{\n  \"schema_version\": \"1\",\n  \"buildkit_version\": \"v0.26.2\",\n" +
-		"  \"buildkit_image\": \"mirror.gcr.io/moby/buildkit@sha256:" + strings.Repeat("d", 64) + "\",\n" +
-		"  \"dockerfile_frontend\": \"builtin:dockerfile.v1\",\n  \"source_date_epoch\": \"0\",\n" +
-		"  \"target_platforms\": [\"linux/amd64\",\"linux/arm64\"],\n" +
-		"  \"base_images\": [{\"name\":\"GO_IMAGE\",\"reference\":\"registry.example.invalid/base/golang@sha256:" + strings.Repeat("b", 64) + "\"},{\"name\":\"NODE_IMAGE\",\"reference\":\"registry.example.invalid/base/node@sha256:" + strings.Repeat("e", 64) + "\"}],\n" +
-		"  \"dependency_sources\": [\"go.sum\"],\n  \"runtime_deps_lock\": \"build/gate/runtime-deps.lock\",\n" +
-		"  \"runtime_tools\": {\"node_version\":\"v1\",\"npm_version\":\"1\",\"python_version\":\"3\",\"ripgrep\":\"/opt/super-dolphin-gate/runtime/bin/rg@13.0.0-4+b2\",\"sqruff\":\"/opt/super-dolphin-gate/runtime/bin/sqruff@0.38.0\",\"sqruff_artifacts\":[{\"platform\":\"linux/amd64\",\"url\":\"https://github.com/quarylabs/sqruff/releases/download/v0.38.0/sqruff-linux-x86_64-musl.tar.gz\",\"sha256\":\"" + strings.Repeat("a", 64) + "\"},{\"platform\":\"linux/arm64\",\"url\":\"https://github.com/quarylabs/sqruff/releases/download/v0.38.0/sqruff-linux-aarch64-musl.tar.gz\",\"sha256\":\"" + strings.Repeat("c", 64) + "\"}],\"gopls\":\"gopls@v1\",\"sqlc\":\"sqlc@v1\",\"npm_lsp_packages\":[\"typescript@1\"]},\n" +
-		"  \"network_policy\": \"none\"\n}\n"
-}
-
-func productionRuntimeDepsLock(t *testing.T, files map[string]string) string {
-	t.Helper()
-	inputs := make(map[string]string, len(productionRuntimeDepsInputPaths()))
-	for field, path := range productionRuntimeDepsInputPaths() {
-		inputs[field] = productionFixtureDigest(files[path])
-	}
-	recipeInputs := make(map[string]string, len(productionRuntimeDepsRecipePaths()))
-	for field, path := range productionRuntimeDepsRecipePaths() {
-		recipeInputs[field] = productionFixtureDigest(files[path])
-	}
-	return productionFixtureJSON(t, map[string]any{
-		"schema_version": "12", "build_mode": "node-local", "cache_scope": "node",
-		"inputs": inputs, "recipe_inputs": recipeInputs, "paths": productionRuntimePaths(),
-	})
+	sourceRoot := productionGitLine(t, ".", "rev-parse", "--show-toplevel")
+	mainCommit := productionGitLine(t, sourceRoot, "rev-parse", "--verify", "origin/main^{commit}")
+	runProductionGit(t, "", "clone", "-q", "--no-checkout", "--", sourceRoot, repository)
+	runProductionGit(t, repository, "checkout", "-q", "-B", "main", mainCommit)
 }
 
 func TestProductionRuntimeDepsLockUsesNodeLocalSchema(t *testing.T) {
-	files := productionBuildInputFiles()
-	data := []byte(productionRuntimeDepsLock(t, files))
+	fixture := newProductionTestFixture(t)
+	data, err := os.ReadFile(filepath.Join(fixture.sourceRepo, "build/gate/runtime-deps.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	var lock map[string]json.RawMessage
 	if err := json.Unmarshal(data, &lock); err != nil {
 		t.Fatal(err)
@@ -119,8 +49,51 @@ func TestProductionRuntimeDepsLockUsesNodeLocalSchema(t *testing.T) {
 	schemaVersion := productionFixtureString(t, lock, "schema_version")
 	buildMode := productionFixtureString(t, lock, "build_mode")
 	cacheScope := productionFixtureString(t, lock, "cache_scope")
-	if schemaVersion != "12" || buildMode != "node-local" || cacheScope != "node" {
+	if schemaVersion != remoteci.RuntimeDependencySchemaVersion || buildMode != "node-local" || cacheScope != "node" {
 		t.Fatalf("runtime dependency lock header = (%q, %q, %q)", schemaVersion, buildMode, cacheScope)
+	}
+}
+
+func TestProductionRuntimeDepsLockRejectsRemovedSeedField(t *testing.T) {
+	fixture := newProductionTestFixture(t)
+	lockPath := filepath.Join(fixture.sourceRepo, "build/gate/runtime-deps.lock")
+	lockData, err := os.ReadFile(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(lockData, &document); err != nil {
+		t.Fatal(err)
+	}
+	var inputs map[string]string
+	if err := json.Unmarshal(document["inputs"], &inputs); err != nil {
+		t.Fatal(err)
+	}
+	inputs["runtime_seed_script_browser_sha256"] = productionFixtureDigest("removed seed fixture\n")
+	encodedInputs, err := json.Marshal(inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document["inputs"] = encodedInputs
+	updated, err := json.MarshalIndent(document, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lockPath, append(updated, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runProductionGit(t, fixture.sourceRepo, "add", "--", "build/gate/runtime-deps.lock")
+	runProductionGit(t, fixture.sourceRepo, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "legacy seed field")
+	source := productionSourceSpec(fixture)
+	source.Commit.SHA = productionGitLine(t, fixture.sourceRepo, "rev-parse", "HEAD^{commit}")
+	source.SourceTreeSHA = productionGitLine(t, fixture.sourceRepo, "rev-parse", "HEAD^{tree}")
+	tree, err := localci.LoadReadOnlyGitTree(context.Background(), fixture.sourceRepo, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := localci.ResolveGateImageInputs(tree, productionDigest("1"), fixture.config.Platform); err == nil ||
+		!strings.Contains(err.Error(), "unknown field \"runtime_seed_script_browser_sha256\"") {
+		t.Fatalf("ResolveGateImageInputs() error = %v, want strict rejection of removed seed field", err)
 	}
 }
 
@@ -145,77 +118,65 @@ func sortedProductionFixtureKeys[T any](values map[string]T) []string {
 func changeProductionBuildInput(t *testing.T, repository string, path string, content string) {
 	t.Helper()
 	absolute := filepath.Join(repository, filepath.FromSlash(path))
+	previous, err := os.ReadFile(absolute)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(absolute, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	files := make(map[string]string, len(productionRuntimeDepsInputPaths())+len(productionRuntimeDepsRecipePaths()))
-	for _, inputPath := range productionRuntimeDepsInputPaths() {
-		data, err := os.ReadFile(filepath.Join(repository, filepath.FromSlash(inputPath)))
-		if err != nil {
-			t.Fatal(err)
-		}
-		files[inputPath] = string(data)
-	}
-	for _, inputPath := range productionRuntimeDepsRecipePaths() {
-		data, err := os.ReadFile(filepath.Join(repository, filepath.FromSlash(inputPath)))
-		if err != nil {
-			t.Fatal(err)
-		}
-		files[inputPath] = string(data)
-	}
-	lock := filepath.Join(repository, filepath.FromSlash("build/gate/runtime-deps.lock"))
-	if err := os.WriteFile(lock, []byte(productionRuntimeDepsLock(t, files)), 0o600); err != nil {
+	lockPath := filepath.Join(repository, "build/gate/runtime-deps.lock")
+	lockData, err := os.ReadFile(lockPath)
+	if err != nil {
 		t.Fatal(err)
 	}
-}
-
-func productionRuntimeDepsInputPaths() map[string]string {
-	return map[string]string{
-		"dockerfile_sha256": "build/gate/runtime-deps.Dockerfile", "toolchain_lock_sha256": "build/gate/toolchain.lock",
-		"go_mod_sha256": "go.mod", "go_sum_sha256": "go.sum",
-		"nilness_runner_sha256": "internal/devtools/nilnessrunner/runner.go", "nilness_guard_sha256": "scripts/nilness_guard.go",
-		"frontend_package_lock_sha256": "frontend-app/package-lock.json", "lsp_package_lock_sha256": "build/gate/runtime-lsp/package-lock.json",
-		"proxy_go_mod_sha256": "build/gate/runtime-proxy/go.mod", "proxy_go_sum_sha256": "build/gate/runtime-proxy/go.sum",
-		"tools_go_mod_sha256": "build/gate/runtime-tools/go.mod", "tools_go_sum_sha256": "build/gate/runtime-tools/go.sum",
-		"runtime_seed_script_browser_sha256": "cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go",
-		"runtime_seed_script_runtime_sha256": "cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go",
-		"runtime_seed_script_tail_sha256":    "cmd/super-dolphin-gate/remote_refresh_seed_script_tail.go",
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(lockData, &document); err != nil {
+		t.Fatal(err)
 	}
-}
-
-func productionRuntimeDepsRecipePaths() map[string]string {
-	return map[string]string{
-		"runtime_seed_recipe_sha256":         "cmd/super-dolphin-gate/remote_refresh_seed.go",
-		"runtime_seed_script_sha256":         "cmd/super-dolphin-gate/remote_refresh_seed_script.go",
-		"runtime_seed_worker_sha256":         "internal/devtools/gate/executor_seed.go",
-		"runtime_seed_script_control_sha256": "cmd/super-dolphin-gate/remote_refresh_seed_script_control.go",
+	var schemaVersion string
+	if err := json.Unmarshal(document["schema_version"], &schemaVersion); err != nil {
+		t.Fatal(err)
 	}
-}
-
-func productionRuntimePaths() map[string]string {
-	return map[string]string{
-		"manifest": "/opt/super-dolphin-gate/runtime/manifest.json", "vendor": "/opt/super-dolphin-gate/runtime/vendor",
-		"go_module_proxy": "/opt/super-dolphin-gate/runtime/go-proxy", "frontend_node_modules": "/opt/super-dolphin-gate/runtime/frontend/node_modules",
-		"playwright_browsers": "/opt/super-dolphin-gate/runtime/frontend/node_modules/.cache/ms-playwright",
-		"lsp_node_modules":    "/opt/super-dolphin-gate/runtime/lsp/node_modules", "sqlc": "/opt/super-dolphin-gate/runtime/bin/sqlc",
-		"ripgrep": "/opt/super-dolphin-gate/runtime/bin/rg", "sqruff": "/opt/super-dolphin-gate/runtime/bin/sqruff",
-		"gopls": "/usr/local/bin/gopls", "go": "/usr/local/go/bin/go", "node": "/usr/local/bin/node",
-		"npm": "/usr/local/bin/npm", "git": "/usr/bin/git", "make": "/usr/bin/make",
+	if schemaVersion != remoteci.RuntimeDependencySchemaVersion {
+		t.Fatalf("runtime dependency lock schema = %q, want %q", schemaVersion, remoteci.RuntimeDependencySchemaVersion)
+	}
+	var inputs map[string]string
+	if err := json.Unmarshal(document["inputs"], &inputs); err != nil {
+		t.Fatal(err)
+	}
+	previousDigest := productionFixtureDigest(string(previous))
+	field := ""
+	for name, digest := range inputs {
+		if digest != previousDigest {
+			continue
+		}
+		if field != "" {
+			t.Fatalf("runtime dependency lock has ambiguous input digest for %q: %q and %q", path, field, name)
+		}
+		field = name
+	}
+	if field == "" {
+		t.Fatalf("runtime dependency lock does not bind changed input %q", path)
+	}
+	inputs[field] = productionFixtureDigest(content)
+	encodedInputs, err := json.Marshal(inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document["inputs"] = encodedInputs
+	updated, err := json.MarshalIndent(document, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lockPath, append(updated, '\n'), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 
 func productionFixtureDigest(content string) string {
 	sum := sha256.Sum256([]byte(content))
 	return "sha256:" + hex.EncodeToString(sum[:])
-}
-
-func productionFixtureJSON(t *testing.T, value any) string {
-	t.Helper()
-	data, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(data) + "\n"
 }
 
 func TestProductionSourceMaterializerUsesGitObjectSnapshot(t *testing.T) {

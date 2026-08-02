@@ -387,8 +387,8 @@ func TestEnsureCandidateRejectsInvalidGateCompileManifest(t *testing.T) {
 
 	unsorted := candidateEntries(validCandidateDockerfile())
 	replaceEntryText(t, unsorted, buildInputManifestPath,
-		"    \"cmd/super-dolphin-gate/main.go\",\n    \"cmd/super-dolphin-gate/remote_refresh_seed.go\",\n",
-		"    \"cmd/super-dolphin-gate/remote_refresh_seed.go\",\n    \"cmd/super-dolphin-gate/main.go\",\n")
+		"    \"cmd/super-dolphin-gate/main.go\",\n    \"go.mod\",\n",
+		"    \"go.mod\",\n    \"cmd/super-dolphin-gate/main.go\",\n")
 	assertCandidateRejectedBeforeBuild(t, unsorted)
 }
 
@@ -427,9 +427,9 @@ func TestEnsureCandidateRejectsMissingDriftedOrUnclosedRuntimeDepsLock(t *testin
 	assertCandidateRejectedBeforeBuild(t, outsideClosure)
 }
 
-func TestPrepareCandidateAcceptsRuntimeDepsSchema9Closure(t *testing.T) {
+func TestPrepareCandidateAcceptsRuntimeDepsSchema13OCIClosure(t *testing.T) {
 	if _, err := prepareCandidate(candidateRequest(candidateEntries(validCandidateDockerfile()), digest("f"), digest("e"))); err != nil {
-		t.Fatalf("schema9 runtime dependency closure: %v", err)
+		t.Fatalf("schema13 OCI runtime dependency closure: %v", err)
 	}
 }
 
@@ -450,11 +450,7 @@ func TestPrepareCandidateRejectsRuntimeDepsNonLocalOrRegistryLockFields(t *testi
 	}
 }
 
-func TestPrepareCandidateRejectsLegacyIncompleteAndDriftedRuntimeDepsInputs(t *testing.T) {
-	legacy := candidateEntries(validCandidateDockerfile())
-	replaceEntryText(t, legacy, runtimeDepsLockPath, `"schema_version":"13"`, `"schema_version":"1"`)
-	assertCandidateRejectedBeforeBuild(t, legacy)
-
+func TestPrepareCandidateRejectsIncompleteUnknownAndDriftedRuntimeDepsInputs(t *testing.T) {
 	missingGoMod := candidateEntries(validCandidateDockerfile())
 	mutateRuntimeDepsLock(t, missingGoMod, func(inputs map[string]any) { delete(inputs, "go_mod_sha256") })
 	assertCandidateRejectedBeforeBuild(t, missingGoMod)
@@ -615,12 +611,6 @@ func runtimeDepsTestInputPaths() []string {
 		"build/gate/runtime-proxy/go.mod", "build/gate/runtime-proxy/go.sum",
 		"build/gate/runtime-tools/go.mod", "build/gate/runtime-tools/go.sum",
 		"internal/devtools/gate/executor_seed.go",
-		"cmd/super-dolphin-gate/remote_refresh_seed.go",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script.go",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script_browser.go",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script_runtime.go",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script_tail.go",
-		"cmd/super-dolphin-gate/remote_refresh_seed_script_control.go",
 	}
 }
 

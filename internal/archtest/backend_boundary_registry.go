@@ -825,7 +825,6 @@ func commandNarrowAllowPolicies(patterns backendBoundaryPatterns) []BoundaryImpo
 		"internal/util/pathutil",
 	}, "Codex worktree setup runtime primitive")...)
 	policies = append(policies, boundaryPolicies(owner, patterns.gateCLI, []string{
-		"internal/devtools/alicloud/datacache",
 		"internal/devtools/alicloud/eci",
 		"internal/devtools/alicloud/oss",
 		"internal/devtools/codemapindex",

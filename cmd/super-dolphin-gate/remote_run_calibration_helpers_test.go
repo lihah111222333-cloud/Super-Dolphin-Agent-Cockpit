@@ -116,8 +116,7 @@ func assertParsedRemoteRunOptions(t *testing.T, options remoteRunOptions, reques
 	if options.Profile != string(gatecontract.ProfileRelease) {
 		t.Fatalf("parseRemoteRunOptions() = %#v", options)
 	}
-	if options.StatePath != "/tmp/remote-ci.baseline-state.json" ||
-		options.LedgerPath != "/tmp/remote-ci.baseline-state.sqlite" {
+	if options.LedgerPath != "/tmp/remote-ci.baseline-state.sqlite" {
 		t.Fatalf("parseRemoteRunOptions() = %#v", options)
 	}
 	if options.MaxShards != 7 {

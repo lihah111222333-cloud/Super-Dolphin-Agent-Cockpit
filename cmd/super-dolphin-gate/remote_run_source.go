@@ -313,13 +313,18 @@ func remoteRuntimeImageDigest(reference string) string {
 	return digest
 }
 
+func remoteRuntimeImageRepository(reference string) string {
+	repository, _, _ := strings.Cut(reference, "@")
+	return repository
+}
+
 // validateAcceptedRemoteBaseline 绑定运行配置与已接受的 OCI 基线镜像。
 func validateAcceptedRemoteBaseline(config remoteRunConfig, state remoteci.BaselineState) error {
 	if err := state.Validate(); err != nil {
 		return err
 	}
-	if state.RuntimeImage != config.Runtime.Image {
-		return errors.New("accepted baseline does not match runtime image config")
+	if remoteRuntimeImageRepository(state.RuntimeImage) != config.OCICache.RegistryRepository {
+		return errors.New("accepted baseline runtime image does not match configured OCI cache repository")
 	}
 	if state.OCIProjectCache == nil {
 		return errors.New("accepted baseline must use OCI project cache")

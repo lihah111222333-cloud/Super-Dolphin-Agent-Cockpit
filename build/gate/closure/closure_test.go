@@ -125,6 +125,7 @@ func TestRenderDockerfilePrecompilesGateModesIntoReadOnlyRuntimeCache(t *testing
 		}
 	}
 	for _, unwanted := range []string{
+		"\n')\n",
 		"COPY . .",
 		"npm run build",
 		"frontend-app",
@@ -139,6 +140,9 @@ func TestRenderDockerfilePrecompilesGateModesIntoReadOnlyRuntimeCache(t *testing
 		if strings.Contains(output, unwanted) {
 			t.Fatalf("generated environment Dockerfile unexpectedly contains job-source build step %q", unwanted)
 		}
+	}
+	if !strings.Contains(output, "touch -d \"@${SOURCE_DATE_EPOCH}\" /out/super-dolphin-gate\n'\n\nFROM ${RUNTIME_DEPS_IMAGE}") {
+		t.Fatal("generated Dockerfile does not close the shell command before the next FROM instruction")
 	}
 }
 

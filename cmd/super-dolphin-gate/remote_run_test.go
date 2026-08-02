@@ -109,16 +109,22 @@ func TestParseRemoteRunOptionsDerivesSingleSQLiteAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if options.StatePath != "/tmp/remote-ci.baseline-state.json" ||
-		options.LedgerPath != "/tmp/remote-ci.baseline-state.sqlite" {
-		t.Fatalf("remote SQLite authority = state %q ledger %q", options.StatePath, options.LedgerPath)
+	if options.LedgerPath != "/tmp/remote-ci.baseline-state.sqlite" {
+		t.Fatalf("remote SQLite authority = %q", options.LedgerPath)
 	}
 	_, err = parseRemoteRunOptions([]string{
 		"--config", "/tmp/remote-ci.json",
 		"--ledger", "/tmp/another-truth-source.sqlite",
 	})
-	if err == nil || !strings.Contains(err.Error(), "same SQLite authority") {
+	if err == nil || !strings.Contains(err.Error(), "SQLite authority") {
 		t.Fatalf("second SQLite truth source error = %v", err)
+	}
+	_, err = parseRemoteRunOptions([]string{
+		"--config", "/tmp/remote-ci.json",
+		"--state", "/tmp/remote-ci.baseline-state.json",
+	})
+	if err == nil || !strings.Contains(err.Error(), "flag provided but not defined") {
+		t.Fatalf("legacy JSON state option error = %v", err)
 	}
 }
 
@@ -217,6 +223,46 @@ func TestValidateRunnableRemoteBaselineRejectsMissingOCIProjectCache(t *testing.
 	err = validateRunnableRemoteBaseline(config, state)
 	if err == nil || !strings.Contains(err.Error(), "OCI project cache") {
 		t.Fatalf("legacy baseline error = %v, want OCI cache rejection", err)
+	}
+}
+
+func TestResolveRemoteRunInputAcceptsRefreshedRuntimeImageFromSQLiteAuthority(t *testing.T) {
+	repository := initRemoteRunGitFixture(t)
+	config, err := loadRemoteRunConfig(writeRemoteRunConfigFixture(t, validRemoteRunConfigJSON()))
+	if err != nil {
+		t.Fatalf("loadRemoteRunConfig() error = %v", err)
+	}
+	state := remoteRunBaselineState(t, repository)
+	refreshedImage := "registry.example/runtime@sha256:" + strings.Repeat("c", 64)
+	state.RuntimeImage = refreshedImage
+	state.OCIProjectCache.Image = refreshedImage
+	input, err := resolveRemoteRunInput(remoteRunOptions{
+		RepositoryRoot: repository,
+		Commit:         "HEAD",
+		Profile:        string(gatecontract.ProfileLocalFast),
+		LedgerPath:     writeRemoteRunLedgerFixture(t),
+	}, config, state, remoteRunRunnerIdentity(state))
+	if err != nil {
+		t.Fatalf("refreshed SQLite baseline rejected by run source: %v", err)
+	}
+	if input.RunnerImage != refreshedImage {
+		t.Fatalf("run source runner image = %q, want refreshed SQLite authority %q", input.RunnerImage, refreshedImage)
+	}
+}
+
+func TestValidateRunnableRemoteBaselineRejectsRuntimeImageRepositoryDrift(t *testing.T) {
+	repository := initRemoteRunGitFixture(t)
+	config, err := loadRemoteRunConfig(writeRemoteRunConfigFixture(t, validRemoteRunConfigJSON()))
+	if err != nil {
+		t.Fatalf("loadRemoteRunConfig() error = %v", err)
+	}
+	state := remoteRunBaselineState(t, repository)
+	driftingImage := "attacker.invalid/runtime@sha256:" + strings.Repeat("d", 64)
+	state.RuntimeImage = driftingImage
+	state.OCIProjectCache.Image = driftingImage
+	err = validateRunnableRemoteBaseline(config, state)
+	if err == nil || !strings.Contains(err.Error(), "configured OCI cache repository") {
+		t.Fatalf("repository drift error = %v, want configured OCI cache repository rejection", err)
 	}
 }
 

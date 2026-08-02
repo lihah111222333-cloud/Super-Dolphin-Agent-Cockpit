@@ -25,11 +25,6 @@ const RunResultSchemaVersion uint32 = 8
 
 const remoteShardDiagnosticMaxBytes = 4 << 10
 
-const remoteDataCacheCAFile = "/bootstrap/ca-certificates.crt"
-
-// 保留既有环境变量名以兼容已验收 DataCache 中的 gate 二进制；其值是精确基线清单摘要。
-const remoteBaselineManifestEnvironment = "SUPER_DOLPHIN_REMOTE_RUNNER_MANIFEST"
-
 // ErrGateFailed marks a valid remote report whose gate outcome is not green.
 var ErrGateFailed = errors.New("remote CI gate execution failed")
 

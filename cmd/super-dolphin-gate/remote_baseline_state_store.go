@@ -23,32 +23,32 @@ type remoteBaselineStoredState struct {
 
 func remoteBaselineDatabasePath(path string) string { return path }
 
-func remoteBaselineStatePath(configPath, configuredPath string) string {
-	if strings.TrimSpace(configuredPath) != "" {
-		return configuredPath
-	}
-	return filepath.Join(filepath.Dir(configPath), "remote-oci-baseline-state.json")
+func remoteLegacyBaselineStatePath(configPath string) string {
+	return strings.TrimSuffix(configPath, filepath.Ext(configPath)) + ".baseline-state.json"
 }
 
-// normalizeRemoteSQLiteAuthority 将远程基准状态和耗时账本收敛到同一个 SQLite 真相源。
-func normalizeRemoteSQLiteAuthority(configPath string, statePath *string, ledgerPath *string) error {
-	resolvedState := remoteBaselineStatePath(configPath, *statePath)
-	extension := filepath.Ext(resolvedState)
-	authorityPath := strings.TrimSuffix(resolvedState, extension) + ".sqlite"
-	if strings.TrimSpace(*ledgerPath) != "" {
-		given, err := filepath.Abs(*ledgerPath)
-		if err != nil {
-			return protocolError("resolve remote SQLite authority: %v", err)
-		}
-		want, err := filepath.Abs(authorityPath)
-		if err != nil {
-			return protocolError("resolve remote SQLite authority: %v", err)
-		}
-		if filepath.Clean(given) != filepath.Clean(want) {
-			return protocolError("remote baseline state and duration ledger must use the same SQLite authority %q", want)
-		}
+func remoteBaselineSQLiteAuthorityPath(configPath string) string {
+	return strings.TrimSuffix(configPath, filepath.Ext(configPath)) + ".baseline-state.sqlite"
+}
+
+// normalizeRemoteSQLiteAuthority 仅接受远程基准与时长账本共享的 SQLite 真相源。
+func normalizeRemoteSQLiteAuthority(configPath string, ledgerPath *string) error {
+	authorityPath := remoteBaselineSQLiteAuthorityPath(configPath)
+	if strings.TrimSpace(*ledgerPath) == "" {
+		*ledgerPath = authorityPath
+		return nil
 	}
-	*statePath = resolvedState
+	given, err := filepath.Abs(*ledgerPath)
+	if err != nil {
+		return protocolError("resolve remote SQLite authority: %v", err)
+	}
+	want, err := filepath.Abs(authorityPath)
+	if err != nil {
+		return protocolError("resolve remote SQLite authority: %v", err)
+	}
+	if filepath.Clean(given) != filepath.Clean(want) {
+		return protocolError("remote baseline and duration ledger must use the SQLite authority %q", want)
+	}
 	*ledgerPath = authorityPath
 	return nil
 }
@@ -106,13 +106,10 @@ func loadRemoteBaselineState(path string, allowMissing bool) (remoteci.BaselineS
 }
 
 // loadAcceptedRemoteBaseline reads the accepted OCI-only baseline from the
-// normalized SQLite authority and rejects legacy DataCache state.
-func loadAcceptedRemoteBaseline(configPath, statePath, ledgerPath string) (remoteci.BaselineState, error) {
+// normalized SQLite authority.
+func loadAcceptedRemoteBaseline(ledgerPath string) (remoteci.BaselineState, error) {
 	if strings.TrimSpace(ledgerPath) == "" {
 		return remoteci.BaselineState{}, errors.New("remote OCI baseline state store is required")
-	}
-	if strings.TrimSpace(statePath) != "" && remoteBaselineStatePath(configPath, statePath) != statePath {
-		return remoteci.BaselineState{}, errors.New("remote OCI baseline state path is invalid")
 	}
 	state, err := loadRemoteBaselineState(remoteBaselineDatabasePath(ledgerPath), false)
 	if err != nil {

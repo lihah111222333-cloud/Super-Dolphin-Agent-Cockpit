@@ -52,7 +52,7 @@ func executeRemoteRun(options remoteRunOptions) (remoteci.RunResult, remoteci.Ru
 	if err != nil {
 		return result, remoteci.RunInput{}, protocolError("load remote CI config: %v", err)
 	}
-	state, err := loadAcceptedRemoteBaseline(options.ConfigPath, options.StatePath, options.LedgerPath)
+	state, err := loadAcceptedRemoteBaseline(options.LedgerPath)
 	if err != nil {
 		return result, remoteci.RunInput{}, protocolError("load accepted remote baseline: %v", err)
 	}

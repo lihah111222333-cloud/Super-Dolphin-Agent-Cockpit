@@ -298,7 +298,6 @@ func assertSemanticRuleDescriptors(t *testing.T, registry archtest.BackendBounda
 			"cmd/codex-worktree-setup/**/*.go":       {"internal/platform/config", "internal/util/pathutil"},
 			"cmd/mcp-schema-compiler-helper/**/*.go": {"internal/platform/toolbridge/schema"},
 			"cmd/super-dolphin-gate/**/*.go": {
-				"internal/devtools/alicloud/datacache",
 				"internal/devtools/alicloud/eci",
 				"internal/devtools/alicloud/oss",
 				"internal/devtools/codemapindex",

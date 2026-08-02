@@ -71,7 +71,7 @@ func TestRemoteDurationCalibrationMatchesStableRunnerAcrossSourceRefresh(t *test
 	if !remoteDurationCalibrationMatches(&calibration, refreshed, runnerIdentity) {
 		t.Fatal("source-only refresh invalidated stable runner calibration")
 	}
-	refreshed.Platform = "linux/amd64"
+	refreshed.Platform = "linux/arm64"
 	if remoteDurationCalibrationMatches(&calibration, refreshed, runnerIdentity) {
 		t.Fatal("platform drift reused incompatible calibration")
 	}

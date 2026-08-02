@@ -228,9 +228,6 @@ func assertCandidateGateEnvironment(t *testing.T, request eci.CreateRequest, inp
 			t.Fatalf("init environment unexpectedly retains deprecated gate setting %q", name)
 		}
 	}
-	if _, found := request.InitContainer.Environment[remoteBaselineManifestEnvironment]; found {
-		t.Fatal("init environment unexpectedly retains retired baseline manifest")
-	}
 }
 
 func assertWritableMaterializerTempMount(t *testing.T, request eci.CreateRequest) {

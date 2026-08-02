@@ -78,8 +78,8 @@ type candidateTestBinaryReceiptBinding struct {
 	LinkActionMS               uint64   `json:"link_action_ms"`
 	CompileCriticalWallMS      uint64   `json:"compile_critical_wall_ms"`
 	GOCachePrivateHits         uint64   `json:"gocache_private_hits"`
-	GOCachePrivateRootIdentity string   `json:"gocache_private_root_identity"`
 	GOCacheOCIProjectCacheHits uint64   `json:"gocache_oci_project_cache_hits"`
+	GOCachePrivateRootIdentity string   `json:"gocache_private_root_identity"`
 	GOCacheMisses              uint64   `json:"gocache_misses"`
 	GOCachePuts                uint64   `json:"gocache_puts"`
 }

@@ -469,66 +469,15 @@ func ensureDurationLedgerSQLiteSchema(database *sql.DB) error {
 	return nil
 }
 
-// ensureRemoteBaselineStateSQLiteSchema 将 v1 的 OCI state 原子重建为 OCI-only v2。
+// ensureRemoteBaselineStateSQLiteSchema 拒绝 v1 或 legacy 状态；调用方必须显式迁移。
 func ensureRemoteBaselineStateSQLiteSchema(database *sql.DB) error {
-	return withSQLiteWriteTransaction(database, "migrate remote baseline state schema", func(transaction *sql.Tx) error {
+	return withSQLiteWriteTransaction(database, "inspect remote baseline state schema", func(transaction *sql.Tx) error {
 		columns, err := durationLedgerSQLiteTableColumns(transaction, "ci_remote_baseline_state")
 		if err != nil {
 			return err
 		}
-		if !columns["legacy_json"] {
-			return nil
-		}
-
-		var legacyJSON string
-		err = transaction.QueryRow(`SELECT legacy_json FROM ci_remote_baseline_state WHERE singleton=1`).Scan(&legacyJSON)
-		if errors.Is(err, sql.ErrNoRows) {
-			legacyJSON = ""
-		} else if err != nil {
-			return fmt.Errorf("read v1 remote baseline state: %w", err)
-		}
-		if strings.TrimSpace(legacyJSON) != "" {
+		if columns["legacy_json"] {
 			return ErrRemoteBaselineStateMigrationRequired
-		}
-
-		if _, err := transaction.Exec(`
-			CREATE TABLE ci_remote_baseline_state_v2 (
-				singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-				schema_version INTEGER NOT NULL CHECK (schema_version = 2),
-				generation TEXT NOT NULL,
-				state_json TEXT NOT NULL DEFAULT '',
-				state_sha256 TEXT NOT NULL DEFAULT '',
-				updated_at_unix_ms INTEGER NOT NULL,
-				CHECK (state_json <> '' AND state_sha256 <> '')
-			)`); err != nil {
-			return fmt.Errorf("create v2 remote baseline state: %w", err)
-		}
-		var v1RecordCount int64
-		if err := transaction.QueryRow(`SELECT COUNT(*) FROM ci_remote_baseline_state`).Scan(&v1RecordCount); err != nil {
-			return fmt.Errorf("count v1 remote baseline state: %w", err)
-		}
-		result, err := transaction.Exec(`
-			INSERT INTO ci_remote_baseline_state_v2(
-				singleton,schema_version,generation,state_json,state_sha256,updated_at_unix_ms
-			)
-			SELECT singleton,2,generation,state_json,state_sha256,updated_at_unix_ms
-			FROM ci_remote_baseline_state
-			WHERE state_json <> '' AND state_sha256 <> '' AND legacy_json = ''`)
-		if err != nil {
-			return fmt.Errorf("copy v1 OCI remote baseline state: %w", err)
-		}
-		copied, err := result.RowsAffected()
-		if err != nil {
-			return fmt.Errorf("count copied v1 OCI remote baseline state: %w", err)
-		}
-		if copied != v1RecordCount {
-			return fmt.Errorf("v1 remote baseline state is not an OCI-only record")
-		}
-		if _, err := transaction.Exec(`DROP TABLE ci_remote_baseline_state`); err != nil {
-			return fmt.Errorf("drop v1 remote baseline state: %w", err)
-		}
-		if _, err := transaction.Exec(`ALTER TABLE ci_remote_baseline_state_v2 RENAME TO ci_remote_baseline_state`); err != nil {
-			return fmt.Errorf("rename v2 remote baseline state: %w", err)
 		}
 		return nil
 	})

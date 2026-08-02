@@ -17,55 +17,6 @@ import (
 // RuntimeDependencySchemaVersion 是当前 runtime seed 构建合同版本。
 const RuntimeDependencySchemaVersion = "13"
 
-func runtimeDependencyPathsV4() []string {
-	return []string{
-		"build/gate/runtime-deps.Dockerfile",
-		"build/gate/toolchain.lock",
-		"go.mod",
-		"go.sum",
-		"internal/devtools/nilnessrunner/runner.go",
-		"scripts/nilness_guard.go",
-		"frontend-app/package-lock.json",
-		"build/gate/runtime-lsp/package-lock.json",
-		"build/gate/runtime-proxy/go.mod",
-		"build/gate/runtime-proxy/go.sum",
-		"build/gate/runtime-tools/go.mod",
-		"build/gate/runtime-tools/go.sum",
-		"build/gate/cmd/runtime-seed-manifest/main.go",
-		"internal/devtools/gate/executor_seed.go",
-	}
-}
-
-func runtimeDependencyPathsV5() []string {
-	return []string{
-		"build/gate/runtime-deps.Dockerfile",
-		"build/gate/toolchain.lock",
-		"go.mod",
-		"go.sum",
-		"internal/devtools/nilnessrunner/runner.go",
-		"scripts/nilness_guard.go",
-		"frontend-app/package-lock.json",
-		"build/gate/runtime-lsp/package-lock.json",
-		"build/gate/runtime-proxy/go.mod",
-		"build/gate/runtime-proxy/go.sum",
-		"build/gate/runtime-tools/go.mod",
-		"build/gate/runtime-tools/go.sum",
-		"internal/devtools/gate/executor_seed.go",
-	}
-}
-
-func runtimeDependencyPathsV6() []string {
-	return runtimeDependencyPathsV5()
-}
-
-func runtimeDependencyPathsV7() []string {
-	return runtimeDependencyPathsV5()
-}
-
-func runtimeDependencyPathsV8() []string {
-	return runtimeDependencyPathsV5()
-}
-
 // runtimeDependencyRecipePaths 返回须审计但不标识可复用运行时依赖内容的 seed 控制面输入。
 func runtimeDependencyRecipePaths() []string {
 	return []string{
@@ -73,21 +24,8 @@ func runtimeDependencyRecipePaths() []string {
 	}
 }
 
-func runtimeDependencyPathsV9() []string {
-	return append([]string(nil), runtimeDependencyPathsV8()...)
-}
-
-func runtimeDependencyPathsV10() []string {
-	return runtimeDependencyPathsV5()
-}
-
-// runtimeDependencyPathsV11 保留 v11 已验收锁的内容输入闭包。
-func runtimeDependencyPathsV11() []string {
-	return runtimeDependencyPathsV5()
-}
-
-// runtimeDependencyPathsV13 返回当前 OCI runtime 的实际内容依赖；seed worker 仅作配方审计。
-func runtimeDependencyPathsV13() []string {
+// runtimeDependencyPaths 返回当前 schema 13 OCI runtime 的实际内容依赖；seed worker 仅作配方审计。
+func runtimeDependencyPaths() []string {
 	return []string{
 		"build/gate/runtime-deps.Dockerfile",
 		"build/gate/toolchain.lock",
@@ -102,10 +40,6 @@ func runtimeDependencyPathsV13() []string {
 		"build/gate/runtime-tools/go.mod",
 		"build/gate/runtime-tools/go.sum",
 	}
-}
-
-func runtimeDependencyPaths() []string {
-	return runtimeDependencyPathsV13()
 }
 
 type runtimeDependencyLock struct {
@@ -175,37 +109,6 @@ func ResolveRuntimeDependencyBuild(entries []sourceexport.TreeEntry, platform st
 	return resolveRuntimeDependencyBuildFromLock(entries, byPath, lock, platform)
 }
 
-// ResolveBaselineRuntimeDependencyBuild 校验已验收 main 的历史依赖锁，并返回基线刷新参数。
-func ResolveBaselineRuntimeDependencyBuild(entries []sourceexport.TreeEntry, platform string) (string, []string, string, error) {
-	if !validRuntimePlatform(platform) {
-		return "", nil, "", errors.New("runtime dependency platform is invalid")
-	}
-	byPath := runtimeTreeByPath(entries)
-	lock, err := decodeRuntimeDependencyLock(byPath)
-	if err != nil {
-		return "", nil, "", err
-	}
-	paths, err := acceptedRuntimeDependencyPaths(lock.SchemaVersion)
-	if err != nil {
-		return "", nil, "", err
-	}
-	if lock.SchemaVersion == RuntimeDependencySchemaVersion {
-		if len(lock.Inputs) != len(paths) || len(lock.RecipeInputs) != len(runtimeDependencyRecipePaths()) {
-			return "", nil, "", errors.New("accepted runtime dependency lock shape is invalid")
-		}
-		if err := verifyRuntimeDependencyRecipeInputs(byPath, lock); err != nil {
-			return "", nil, "", err
-		}
-	} else if len(lock.Inputs) != len(paths) {
-		return "", nil, "", errors.New("accepted runtime dependency lock shape is invalid")
-	}
-	if err := verifyRuntimeDependencyInputs(byPath, lock, paths); err != nil {
-		return "", nil, "", err
-	}
-	digest, buildArgs, err := resolveRuntimeDependencyBuildFromLock(entries, byPath, lock, platform)
-	return digest, buildArgs, lock.SchemaVersion, err
-}
-
 // resolveRuntimeDependencyBuildFromLock 由已按对应 schema 校验的锁生成统一构建身份。
 func resolveRuntimeDependencyBuildFromLock(
 	entries []sourceexport.TreeEntry,
@@ -226,44 +129,6 @@ func resolveRuntimeDependencyBuildFromLock(
 		return "", nil, err
 	}
 	return digest, buildArgs, nil
-}
-
-// ResolveAcceptedRuntimeDependencyDigest 只为已验收基线重算依赖摘要，并显式支持 v4-v10 迁移。
-func ResolveAcceptedRuntimeDependencyDigest(entries []sourceexport.TreeEntry, platform string) (string, error) {
-	digest, _, _, err := ResolveBaselineRuntimeDependencyBuild(entries, platform)
-	return digest, err
-}
-
-// acceptedRuntimeDependencyPaths 将已验收历史 schema 映射到各自的精确输入闭包。
-func acceptedRuntimeDependencyPaths(schemaVersion string) ([]string, error) {
-	switch schemaVersion {
-	case "4":
-		return runtimeDependencyPathsV4(), nil
-	case "9":
-		return runtimeDependencyPathsV9(), nil
-	case "10":
-		return runtimeDependencyPathsV10(), nil
-	case "11":
-		return runtimeDependencyPathsV11(), nil
-	case "13":
-		return runtimeDependencyPaths(), nil
-	case "8":
-		return runtimeDependencyPathsV8(), nil
-	case "7":
-		return runtimeDependencyPathsV7(), nil
-	case "6":
-		return runtimeDependencyPathsV6(), nil
-	case "5":
-		return runtimeDependencyPathsV5(), nil
-	default:
-		return nil, errors.New("accepted runtime dependency lock schema is unsupported")
-	}
-}
-
-// SupportsBaselineRuntimeDependencySchema 报告基线刷新器能否完整验证指定历史合同。
-func SupportsBaselineRuntimeDependencySchema(schemaVersion string) bool {
-	_, err := acceptedRuntimeDependencyPaths(schemaVersion)
-	return err == nil
 }
 
 // validRuntimePlatform 判断 runtime seed 的目标平台是否受锁文件支持。

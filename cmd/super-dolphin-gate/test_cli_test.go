@@ -165,6 +165,13 @@ func TestParseAutoTestRunOptionsRequiresSelectorsAndOwnsScenario(t *testing.T) {
 	}); err == nil {
 		t.Fatal("test command accepted a caller-owned scenario")
 	}
+	if _, err := parseAutoTestRunOptions([]string{
+		"--config", "/tmp/config.json",
+		"--state", "/tmp/config.baseline-state.json",
+		"--test", "./internal/module/turn#TestRedact",
+	}); err == nil || !strings.Contains(err.Error(), "flag provided but not defined") {
+		t.Fatalf("legacy JSON state option error = %v", err)
+	}
 }
 
 func TestLocalTestTailKeepsOnlyPlainTextTail(t *testing.T) {

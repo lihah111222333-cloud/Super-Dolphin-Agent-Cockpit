@@ -132,7 +132,6 @@ type remoteRunOptions struct {
 	ObservedRemote       string
 	UpdateKind           string
 	MaxShards            uint
-	StatePath            string
 	LedgerPath           string
 	RequesterFingerprint gatecontract.RequesterFingerprint
 	Calibration          bool

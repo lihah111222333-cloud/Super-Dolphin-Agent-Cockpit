@@ -300,7 +300,7 @@ func TestProductionStagedTreePromotionAdvancesGenerationAndRemainsExecutable(t *
 func commitProductionCandidate(t *testing.T, fixture productionTestFixture) (string, localci.ReadOnlyGitTree) {
 	t.Helper()
 	changeProductionBuildInput(t, fixture.sourceRepo, "go.mod", "module example.invalid/promoted\n")
-	runProductionGit(t, fixture.sourceRepo, "add", "--", "go.mod", "build/gate/runtime-deps.lock")
+	runProductionGit(t, fixture.sourceRepo, "add", "-f", "--", "go.mod", "build/gate/runtime-deps.lock")
 	runProductionGit(t, fixture.sourceRepo, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "candidate")
 	candidateCommit := productionGitLine(t, fixture.sourceRepo, "rev-parse", "HEAD^{commit}")
 	candidateTree := productionGitLine(t, fixture.sourceRepo, "rev-parse", "HEAD^{tree}")
@@ -621,11 +621,10 @@ func TestProductionCoordinatorRejectsGitObjectEnvironmentOverrides(t *testing.T)
 func prepareProductionRepository(t *testing.T, root string) productionRepositoryFixture {
 	t.Helper()
 	sourceRepo := filepath.Join(root, "source")
-	runProductionGit(t, "", "init", "-q", "-b", "main", "--", sourceRepo)
+	writeProductionBuildInputs(t, sourceRepo)
 	if err := os.WriteFile(filepath.Join(sourceRepo, "trusted.txt"), []byte("trusted object content\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	writeProductionBuildInputs(t, sourceRepo)
 	runProductionGit(t, sourceRepo, "add", "--", ".")
 	runProductionGit(t, sourceRepo, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "trusted")
 	trustedRepository := filepath.Join(root, "trusted.git")

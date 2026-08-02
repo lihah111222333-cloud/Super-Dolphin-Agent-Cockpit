@@ -68,14 +68,6 @@ func TestResolveRuntimeDependencyBuildIndexesEveryGoModuleManifest(t *testing.T)
 	if nested == baseline {
 		t.Fatal("nested Go module manifests did not change runtime dependency identity")
 	}
-	accepted, err := ResolveAcceptedRuntimeDependencyDigest(withNested, "linux/amd64")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if accepted != nested {
-		t.Fatalf("accepted runtime dependency digest = %q, want %q", accepted, nested)
-	}
-
 	withNested[len(withNested)-1].Data = []byte("example.com/dependency v1.0.0 h1:changed\n")
 	changed, _, err := ResolveRuntimeDependencyBuild(withNested, "linux/amd64")
 	if err != nil {
@@ -184,95 +176,12 @@ func TestResolveRuntimeDependencyBuildRejectsRemovedSeedLockShape(t *testing.T) 
 	if _, _, err := ResolveRuntimeDependencyBuild(entries, "linux/amd64"); err == nil {
 		t.Fatal("current runtime dependency resolver accepted removed seed input")
 	}
-	if _, err := ResolveAcceptedRuntimeDependencyDigest(entries, "linux/amd64"); err == nil {
-		t.Fatal("baseline resolver accepted removed seed input")
-	}
-
 	entries = loadRuntimeDependencyEntries(t)
 	lockIndex, document, _ = runtimeDependencyLockDocument(t, entries)
 	document["schema_version"] = "12"
 	updateRuntimeDependencyLock(t, entries, lockIndex, document)
 	if _, _, err := ResolveRuntimeDependencyBuild(entries, "linux/amd64"); err == nil {
 		t.Fatal("current runtime dependency resolver accepted schema v12")
-	}
-	if _, err := ResolveAcceptedRuntimeDependencyDigest(entries, "linux/amd64"); err == nil {
-		t.Fatal("baseline resolver accepted schema v12 without its removed inputs")
-	}
-}
-
-func TestResolveAcceptedRuntimeDependencyDigestAllowsLegacyV4(t *testing.T) {
-	entries := loadRuntimeDependencyEntries(t)
-	lockIndex, document, inputs := runtimeDependencyLockDocument(t, entries)
-	document["schema_version"] = "4"
-	manifestBuilder := sourceexport.TreeEntry{
-		Path: "build/gate/cmd/runtime-seed-manifest/main.go", Mode: "100644", Data: []byte("package main\n"),
-	}
-	recipeInputs, ok := document["recipe_inputs"].(map[string]any)
-	if !ok {
-		t.Fatal("runtime dependency fixture recipe inputs are not an object")
-	}
-	manifestAPI, ok := recipeInputs["runtime_seed_worker_sha256"]
-	if !ok {
-		t.Fatal("current runtime dependency fixture is missing runtime seed worker digest")
-	}
-	for _, field := range []string{
-		"runtime_seed_worker_sha256", "runtime_seed_recipe_sha256", "runtime_seed_script_sha256",
-		"runtime_seed_script_browser_sha256", "runtime_seed_script_runtime_sha256",
-		"runtime_seed_script_tail_sha256",
-	} {
-		delete(inputs, field)
-	}
-	inputs["manifest_builder_sha256"] = remoteBytesDigest(manifestBuilder.Data)
-	inputs["manifest_api_sha256"] = manifestAPI
-	delete(document, "recipe_inputs")
-	entries = append(entries, manifestBuilder)
-	updateRuntimeDependencyLock(t, entries, lockIndex, document)
-
-	if _, _, err := ResolveRuntimeDependencyBuild(entries, "linux/amd64"); err == nil {
-		t.Fatal("current runtime dependency resolver accepted schema v4")
-	}
-	if _, err := ResolveAcceptedRuntimeDependencyDigest(entries, "linux/amd64"); err != nil {
-		t.Fatalf("accepted schema v4: %v", err)
-	}
-	if !SupportsBaselineRuntimeDependencySchema("4") {
-		t.Fatal("baseline runtime dependency resolver does not report schema v4 support")
-	}
-	entries[len(entries)-1].Data = []byte("package main\n// drift\n")
-	if _, err := ResolveAcceptedRuntimeDependencyDigest(entries, "linux/amd64"); err == nil {
-		t.Fatal("accepted schema v4 resolver accepted manifest builder drift")
-	}
-}
-
-func acceptedLegacyRuntimeDigest(
-	t *testing.T,
-	entries []sourceexport.TreeEntry,
-	migration struct {
-		version         string
-		removedInput    string
-		rejectedCurrent bool
-		wantDistinct    bool
-	},
-) string {
-	t.Helper()
-	if migration.rejectedCurrent {
-		return assertRejectedCurrentAndAcceptedLegacyRuntimeDigest(t, entries, migration.version)
-	}
-	return assertAcceptedLegacyRuntimeDigest(t, entries, migration.version)
-}
-
-func assertDistinctRuntimeDependencyDigest(t *testing.T, seen map[string]string, digest, version string) {
-	t.Helper()
-	if previous, exists := seen[digest]; exists {
-		t.Fatalf("legacy schema %s digest equals schema %s", version, previous)
-	}
-	seen[digest] = version
-}
-
-func assertAcceptedRuntimeDependencyDigest(t *testing.T, entries []sourceexport.TreeEntry, want string) {
-	t.Helper()
-	accepted, err := ResolveAcceptedRuntimeDependencyDigest(entries, "linux/amd64")
-	if err != nil || accepted != want {
-		t.Fatalf("current accepted digest = %q, %v; want %q", accepted, err, want)
 	}
 }
 
@@ -302,30 +211,6 @@ func updateRuntimeDependencyLock(t *testing.T, entries []sourceexport.TreeEntry,
 		t.Fatal(err)
 	}
 	entries[index].Data = data
-}
-
-func assertRejectedCurrentAndAcceptedLegacyRuntimeDigest(t *testing.T, entries []sourceexport.TreeEntry, version string) string {
-	t.Helper()
-	if _, _, err := ResolveRuntimeDependencyBuild(entries, "linux/amd64"); err == nil {
-		t.Fatalf("current runtime dependency resolver accepted schema %s", version)
-	}
-	return assertAcceptedLegacyRuntimeDigest(t, entries, version)
-}
-
-func assertAcceptedLegacyRuntimeDigest(t *testing.T, entries []sourceexport.TreeEntry, version string) string {
-	t.Helper()
-	legacy, err := ResolveAcceptedRuntimeDependencyDigest(entries, "linux/amd64")
-	if err != nil {
-		t.Fatalf("accepted schema %s: %v", version, err)
-	}
-	baseline, arguments, schemaVersion, err := ResolveBaselineRuntimeDependencyBuild(entries, "linux/amd64")
-	if err != nil {
-		t.Fatalf("baseline schema %s: %v", version, err)
-	}
-	if baseline != legacy || len(arguments) == 0 || schemaVersion != strings.TrimPrefix(version, "v") {
-		t.Fatalf("baseline schema %s = %q, args=%d, reported=%s; want %q with build args", version, baseline, len(arguments), schemaVersion, legacy)
-	}
-	return legacy
 }
 
 func loadRuntimeDependencyEntries(t *testing.T) []sourceexport.TreeEntry {

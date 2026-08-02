@@ -23,7 +23,6 @@ fi
 if [[ "$gate_mode" == remote ]]; then
   remote_config=${SUPER_DOLPHIN_GATE_REMOTE_CONFIG:-$(git config --local --get super-dolphin.remote.config || true)}
   remote_ledger=${SUPER_DOLPHIN_GATE_LEDGER:-$(git config --local --get super-dolphin.remote.ledger || true)}
-  remote_state=${SUPER_DOLPHIN_GATE_REMOTE_STATE:-$(git config --local --get super-dolphin.remote.state || true)}
   remote_max_shards=$(git config --local --get super-dolphin.remote.maxShards || true)
   if [[ -z "$remote_config" || -z "$remote_ledger" ]]; then
     printf '%s\n' 'pre-push blocked: remote gate mode requires remote config and duration ledger paths.' >&2
@@ -35,9 +34,6 @@ if [[ "$gate_mode" == remote ]]; then
     --ledger "$remote_ledger"
     --repository "$repo_root"
   )
-  if [[ -n "$remote_state" ]]; then
-    remote_args+=(--state "$remote_state")
-  fi
   if [[ -n "$remote_max_shards" ]]; then
     remote_args+=(--max-shards "$remote_max_shards")
   fi

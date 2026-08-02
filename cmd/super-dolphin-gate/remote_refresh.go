@@ -22,14 +22,13 @@ const (
 )
 
 type remoteBaselineRefreshOptions struct {
-	ConfigPath, StatePath, LedgerPath, RepositoryRoot, Remote, Ref, Platform string
+	ConfigPath, LedgerPath, RepositoryRoot, Remote, Ref, Platform string
 }
 
 type remoteBaselineRefreshInput struct {
 	Identity                             remoteci.BaselineIdentity
 	GateSourceDigest                     string
 	RuntimeDependencyDigest              string
-	AcceptedRuntimeDependencyDigest      string
 	RuntimeDependencySchemaVersion       string
 	GoToolchain, SqruffURL, SqruffSHA256 string
 	SourceEntries                        []sourceexport.TreeEntry
@@ -56,15 +55,14 @@ func (lock *remoteBaselineRefreshLock) close() error {
 	return err
 }
 
-// runRemoteBaselineRefresh binds the production command to the only permitted
-// OCI builder. DataCache fallback is forbidden.
+// runRemoteBaselineRefresh 将生产命令绑定到唯一允许的 OCI builder。
 func runRemoteBaselineRefresh(args []string, stdout io.Writer) error {
 	return runRemoteBaselineRefreshWithBuilder(args, stdout, buildRemoteOCIBaseline)
 }
 
 func runRemoteBaselineRefreshWithBuilder(args []string, stdout io.Writer, builder remoteOCIBaselineBuilder) (resultErr error) {
 	if builder == nil {
-		return protocolError("remote baseline OCI builder is required; refusing DataCache fallback")
+		return protocolError("remote baseline OCI builder is required")
 	}
 	options, err := parseRemoteBaselineRefreshOptions(args)
 	if err != nil {
@@ -74,16 +72,15 @@ func runRemoteBaselineRefreshWithBuilder(args []string, stdout io.Writer, builde
 	if err != nil {
 		return protocolError("load remote CI config: %v", err)
 	}
-	statePath := remoteBaselineStatePath(options.ConfigPath, options.StatePath)
 	ctx, stop := newRemoteBaselineRefreshContext()
 	defer stop()
-	lock, err := acquireRemoteBaselineRefreshLock(ctx, statePath)
+	lock, err := acquireRemoteBaselineRefreshLock(ctx, options.LedgerPath)
 	if err != nil {
 		return infrastructureError("acquire remote baseline refresh lock: %v", err)
 	}
 	defer func() { resultErr = errors.Join(resultErr, lock.close()) }()
 
-	accepted, err := loadRemoteBaselineStateForRefresh(options.LedgerPath, statePath)
+	accepted, err := loadRemoteBaselineStateForRefresh(options.ConfigPath, options.LedgerPath)
 	if err != nil {
 		return protocolError("load remote baseline state: %v", err)
 	}

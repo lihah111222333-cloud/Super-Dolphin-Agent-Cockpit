@@ -26,7 +26,6 @@ func TestParseRemotePrePushOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	if options.ConfigPath != "/tmp/remote-ci.json" ||
-		options.StatePath != "/tmp/remote-ci.baseline-state.json" ||
 		options.LedgerPath != "/tmp/remote-ci.baseline-state.sqlite" ||
 		options.RepositoryRoot != "/tmp/repository" ||
 		options.MaxShards != 12 ||
@@ -34,6 +33,15 @@ func TestParseRemotePrePushOptions(t *testing.T) {
 		remoteName != "origin" ||
 		remoteURL != "ssh://git@example.invalid/repository.git" {
 		t.Fatalf("options=%#v remote=%q url=%q", options, remoteName, remoteURL)
+	}
+	_, _, _, err = parseRemotePrePushOptions([]string{
+		"--config", "/tmp/remote-ci.json",
+		"--state", "/tmp/remote-ci.baseline-state.json",
+		"origin",
+		"ssh://git@example.invalid/repository.git",
+	})
+	if err == nil || !strings.Contains(err.Error(), "flag provided but not defined") {
+		t.Fatalf("legacy JSON state option error = %v", err)
 	}
 }
 

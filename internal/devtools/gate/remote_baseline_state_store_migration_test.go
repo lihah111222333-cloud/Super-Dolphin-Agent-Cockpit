@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestRemoteBaselineStateV1OCIRecordMigratesToV2(t *testing.T) {
+func TestRemoteBaselineStateV1OCIRecordRequiresExplicitMigration(t *testing.T) {
 	store := newTestDurationLedgerStore(t)
 	if _, err := store.CompareAndSwap(0, NewDurationLedger()); err != nil {
 		t.Fatal(err)
@@ -17,7 +17,6 @@ func TestRemoteBaselineStateV1OCIRecordMigratesToV2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
 	createRemoteBaselineStateV1(t, database)
 	if _, err := database.Exec(`
 		INSERT INTO ci_remote_baseline_state(
@@ -27,19 +26,29 @@ func TestRemoteBaselineStateV1OCIRecordMigratesToV2(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := ensureDurationLedgerSQLiteSchema(database); err != nil {
+	if err := database.Close(); err != nil {
 		t.Fatal(err)
 	}
-	columns := sqliteTableColumns(t, database, "ci_remote_baseline_state")
-	if len(columns) != 6 || columns[0] != "singleton" || columns[5] != "updated_at_unix_ms" {
-		t.Fatalf("v2 remote baseline columns = %v", columns)
+	_, err = store.LoadRemoteBaselineState()
+	if !errors.Is(err, ErrRemoteBaselineStateMigrationRequired) {
+		t.Fatalf("LoadRemoteBaselineState() error = %v, want migration-required", err)
 	}
-	record, err := loadRemoteBaselineStateRecord(database)
+	database, err = sql.Open("sqlite", durationLedgerSQLiteDSN(store.path))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if record.Generation != 7 || string(record.StateJSON) != `{"oci":true}` || record.StateSHA256 != "sha256:state" {
-		t.Fatalf("migrated remote baseline record = %#v", record)
+	defer database.Close()
+	columns := sqliteTableColumns(t, database, "ci_remote_baseline_state")
+	if len(columns) != 7 || columns[5] != "legacy_json" {
+		t.Fatalf("OCI v1 rejection changed table: %v", columns)
+	}
+	var schemaVersion uint32
+	err = database.QueryRow(`SELECT schema_version FROM ci_remote_baseline_state WHERE singleton=1`).Scan(&schemaVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if schemaVersion != 1 {
+		t.Fatalf("OCI v1 rejection changed schema version to %d", schemaVersion)
 	}
 }
 

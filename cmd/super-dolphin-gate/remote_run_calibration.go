@@ -61,7 +61,7 @@ func newRemoteCalibrationCheckpoint(
 	if ledgerStore == nil {
 		return nil, errors.New("remote calibration ledger store is required")
 	}
-	state, err := loadAcceptedRemoteBaseline(options.ConfigPath, options.StatePath, options.LedgerPath)
+	state, err := loadAcceptedRemoteBaseline(options.LedgerPath)
 	if err != nil {
 		return nil, err
 	}

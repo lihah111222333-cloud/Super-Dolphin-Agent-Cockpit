@@ -30,8 +30,7 @@ func parseRemoteRunOptions(args []string) (remoteRunOptions, error) {
 	flags.StringVar(&options.RemoteRef, "remote-ref", "", "remote ref for push profile")
 	flags.StringVar(&options.ObservedRemote, "observed-remote", "", "observed remote commit for push profile")
 	flags.StringVar(&options.UpdateKind, "update-kind", "", "push update kind")
-	flags.StringVar(&options.StatePath, "state", "", "accepted baseline state path")
-	flags.StringVar(&options.LedgerPath, "ledger", "", "duration ledger path")
+	flags.StringVar(&options.LedgerPath, "ledger", "", "remote baseline and duration ledger SQLite authority path")
 	flags.StringVar(
 		&requesterFingerprint,
 		"requester-fingerprint",
@@ -46,7 +45,7 @@ func parseRemoteRunOptions(args []string) (remoteRunOptions, error) {
 	if err := validateRemoteRunFlags(flags, options); err != nil {
 		return options, err
 	}
-	if err := normalizeRemoteSQLiteAuthority(options.ConfigPath, &options.StatePath, &options.LedgerPath); err != nil {
+	if err := normalizeRemoteSQLiteAuthority(options.ConfigPath, &options.LedgerPath); err != nil {
 		return options, err
 	}
 	if err := normalizeRemoteRunSource(&options); err != nil {

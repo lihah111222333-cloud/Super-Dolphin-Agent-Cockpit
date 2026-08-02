@@ -258,7 +258,7 @@ func assertProductionGoToolchainUsable(t *testing.T, toolchain productionGoToolc
 
 func TestProductionLocalToolchainDigestChangesWithIdentity(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
+	root := newProductionOwnerSafeTempDir(t)
 	binary := filepath.Join(root, "go")
 	if err := os.WriteFile(binary, []byte("one"), 0o700); err != nil {
 		t.Fatal(err)
@@ -501,13 +501,27 @@ type productionGoResolverFixture struct {
 	versions         map[string]string
 }
 
-func newProductionGoResolverFixture(t *testing.T) *productionGoResolverFixture {
+func newProductionOwnerSafeTempDir(t *testing.T) string {
 	t.Helper()
-	canonicalTemp, err := filepath.EvalSymlinks(t.TempDir())
+	temporaryDirectory, err := os.MkdirTemp("/tmp", "super-dolphin-gate-production-go-")
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := filepath.Join(canonicalTemp, "portable resolver fixture")
+	t.Cleanup(func() {
+		if err := os.RemoveAll(temporaryDirectory); err != nil {
+			t.Errorf("remove production Go resolver fixture: %v", err)
+		}
+	})
+	canonicalTemp, err := filepath.EvalSymlinks(temporaryDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return canonicalTemp
+}
+
+func newProductionGoResolverFixture(t *testing.T) *productionGoResolverFixture {
+	t.Helper()
+	root := filepath.Join(newProductionOwnerSafeTempDir(t), "portable resolver fixture")
 	fixture := &productionGoResolverFixture{
 		root:             root,
 		executable:       filepath.Join(root, "tool chain", "go-real"),

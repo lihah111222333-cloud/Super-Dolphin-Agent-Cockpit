@@ -779,7 +779,7 @@ func renderDockerfile(lock toolchainLock, runtimeDeps runtimeDepsLock, buildFile
 	output.WriteString("    set -- $(/out/super-dolphin-gate worker race-package-patterns); test $# -gt 0; \\\n")
 	output.WriteString("    compile_phase race env CGO_ENABLED=1 go test -mod=mod -race -run \"^$\" \"$@\"; \\\n")
 	output.WriteString("    cache_started=$(date +%s); rm -rf /out/go-build-cache; mkdir -p /out/go-build-cache; cp -a /root/.cache/go-build/. /out/go-build-cache/; cache_finished=$(date +%s); printf \"[gate-image] cache-export seconds=%s cache_entries=%s\\n\" \"$((cache_finished-cache_started))\" \"$(find /out/go-build-cache -type f | wc -l)\"; \\\n")
-	output.WriteString("    touch -d \"@${SOURCE_DATE_EPOCH}\" /out/super-dolphin-gate\n\n')\n\n")
+	output.WriteString("    touch -d \"@${SOURCE_DATE_EPOCH}\" /out/super-dolphin-gate\n'\n\n")
 	output.WriteString("FROM ${RUNTIME_DEPS_IMAGE}\nUSER root\n")
 	output.WriteString("ARG BUILD_SOURCE_TREE\nARG IMAGE_INPUT_DIGEST\nARG POLICY_DIGEST\nARG TOOLCHAIN_DIGEST\nARG TARGET_PLATFORM\n")
 	output.WriteString("LABEL org.super-dolphin.source-tree-sha=\"${BUILD_SOURCE_TREE}\" \\\n")

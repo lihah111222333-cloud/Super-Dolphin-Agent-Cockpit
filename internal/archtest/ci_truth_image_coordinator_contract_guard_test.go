@@ -69,8 +69,7 @@ const queuedCoordinatorJobID = "job-00000000000000000000000000000000"
 
 const (
 	coordinatorContractRemoteConfig = "/contract/remote-ci.json"
-	coordinatorContractRemoteLedger = "/contract/ci-duration-ledger.json"
-	coordinatorContractRemoteState  = "/contract/baseline-state.json"
+	coordinatorContractRemoteLedger = "/contract/ci-duration-ledger.sqlite"
 )
 
 func assertTreeBoundRemotePreCommitCoordinatorCommands(t *testing.T, root string, got [][]string) {
@@ -96,7 +95,6 @@ func assertTreeBoundRemotePreCommitCoordinatorCommands(t *testing.T, root string
 		"--repository": root,
 		"--tree":       tree,
 		"--parent":     headCommitForCoordinatorContractGuard(t, root),
-		"--state":      coordinatorContractRemoteState,
 	}, nil)
 }
 
@@ -126,7 +124,6 @@ func assertRemotePrePushCoordinatorCommands(t *testing.T, root string, got [][]s
 		"--config":     coordinatorContractRemoteConfig,
 		"--ledger":     coordinatorContractRemoteLedger,
 		"--repository": root,
-		"--state":      coordinatorContractRemoteState,
 	}, trailing)
 }
 
@@ -447,7 +444,6 @@ func coordinatorContractEnv(path string) []string {
 		"SUPER_DOLPHIN_GATE_MODE=remote",
 		"SUPER_DOLPHIN_GATE_REMOTE_CONFIG="+coordinatorContractRemoteConfig,
 		"SUPER_DOLPHIN_GATE_LEDGER="+coordinatorContractRemoteLedger,
-		"SUPER_DOLPHIN_GATE_REMOTE_STATE="+coordinatorContractRemoteState,
 	)
 }
 
@@ -457,7 +453,6 @@ func coordinatorContractEnvironmentOverride(item string) bool {
 		"SUPER_DOLPHIN_GATE_MODE=",
 		"SUPER_DOLPHIN_GATE_REMOTE_CONFIG=",
 		"SUPER_DOLPHIN_GATE_LEDGER=",
-		"SUPER_DOLPHIN_GATE_REMOTE_STATE=",
 	} {
 		if strings.HasPrefix(item, key) {
 			return true

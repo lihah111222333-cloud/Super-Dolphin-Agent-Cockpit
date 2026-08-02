@@ -52,7 +52,7 @@ func resolveRemoteBaselineIdentity(ctx context.Context, repositoryRoot, commit, 
 	if err != nil {
 		return remoteBaselineRefreshInput{}, err
 	}
-	runtimeDependencyDigest, _, runtimeSchemaVersion, err := remoteci.ResolveBaselineRuntimeDependencyBuild(tree.Entries, platform)
+	runtimeDependencyDigest, _, err := remoteci.ResolveRuntimeDependencyBuild(tree.Entries, platform)
 	if err != nil {
 		return remoteBaselineRefreshInput{}, err
 	}
@@ -70,7 +70,7 @@ func resolveRemoteBaselineIdentity(ctx context.Context, repositoryRoot, commit, 
 		Identity:                       remoteci.BaselineIdentity{MainCommit: commit, MainTree: treeSHA, Platform: platform, PolicyDigest: policyDigest, ToolchainDigest: toolchainDigest, RuntimeImage: runtimeImage},
 		GateSourceDigest:               compileInputs.GateSourceDigest,
 		RuntimeDependencyDigest:        runtimeDependencyDigest,
-		RuntimeDependencySchemaVersion: runtimeSchemaVersion,
+		RuntimeDependencySchemaVersion: remoteci.RuntimeDependencySchemaVersion,
 		GoToolchain:                    goToolchain,
 		SourceEntries:                  append([]sourceexport.TreeEntry(nil), tree.Entries...),
 	}, nil
@@ -99,31 +99,6 @@ func resolveRemoteBaselineGoToolchain(entries []sourceexport.TreeEntry) (string,
 		return "", fmt.Errorf("resolve production Go toolchain: %w", err)
 	}
 	return requirement.Preferred, nil
-}
-
-// bindAcceptedRemoteRuntimeDependency 从已验收提交重算运行时依赖摘要，使策略代码变化不会误触发 Anchor。
-func bindAcceptedRemoteRuntimeDependency(ctx context.Context, repositoryRoot string, accepted remoteci.BaselineState, input remoteBaselineRefreshInput) (remoteBaselineRefreshInput, error) {
-	if accepted.SchemaVersion == 0 {
-		return input, nil
-	}
-	if accepted.MainCommit == input.Identity.MainCommit {
-		input.AcceptedRuntimeDependencyDigest = input.RuntimeDependencyDigest
-		return input, nil
-	}
-	repositoryRoot, err := resolveRemoteBaselineRepositoryRoot(repositoryRoot)
-	if err != nil {
-		return remoteBaselineRefreshInput{}, err
-	}
-	tree, _, err := loadRemoteBaselineGitTree(ctx, repositoryRoot, accepted.MainCommit)
-	if err != nil {
-		return remoteBaselineRefreshInput{}, err
-	}
-	digest, err := remoteci.ResolveAcceptedRuntimeDependencyDigest(tree.Entries, accepted.Platform)
-	if err != nil {
-		return remoteBaselineRefreshInput{}, err
-	}
-	input.AcceptedRuntimeDependencyDigest = digest
-	return input, nil
 }
 
 // loadRemoteBaselineGitTree 只从指定 commit 的 Git object tree 读取基线输入。
