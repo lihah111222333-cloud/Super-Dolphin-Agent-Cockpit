@@ -36,6 +36,37 @@ func TestVitestProgramMountsOriginalImageRuntimeSeeds(t *testing.T) {
 	}
 }
 
+func TestPlaywrightShardProgramsMountPinnedFrontendSeed(t *testing.T) {
+	for _, test := range []struct {
+		spec   string
+		script string
+		config string
+	}{
+		{playwrightBusinessFlowsSpec, "test:e2e:business", "playwright.business-flows.config.js"},
+		{playwrightDesktopWideSpec, "test:e2e:desktop-wide", "playwright.desktop-wide.config.js"},
+	} {
+		t.Run(test.spec, func(t *testing.T) {
+			id, err := targetWorkloadID(GateIDFrontendE2E, workloadTargetPlaywright, test.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parent, program, err := executorProgramForWorkload(GateID(id))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if parent != GateIDFrontendE2E || !program.NeedsFrontendSeed || program.NeedsGoSeed {
+				t.Fatalf("Playwright shard contract = parent:%q go:%t frontend:%t", parent, program.NeedsGoSeed, program.NeedsFrontendSeed)
+			}
+			assertFrontendProgramCommand(t, parent, program, []string{"npm", "run", test.script})
+			for _, path := range []string{"frontend-app/" + test.spec, "frontend-app/" + test.config} {
+				if !slices.Contains(program.RequiredPaths, path) {
+					t.Errorf("Playwright required paths = %v, want %q", program.RequiredPaths, path)
+				}
+			}
+		})
+	}
+}
+
 func assertFrontendProgramUsesPinnedRuntimeInput(t *testing.T, id GateID, program ExecutorProgram) {
 	t.Helper()
 	if !program.NeedsFrontendSeed {

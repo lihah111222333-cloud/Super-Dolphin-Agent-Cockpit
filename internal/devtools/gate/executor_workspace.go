@@ -478,7 +478,7 @@ func writeGoBuildCacheIndexIfAbsent(
 	if err != nil {
 		return false, err
 	}
-	content := []byte(fmt.Sprintf("v1 %x %x %20d %20d\n", actionID, entry.outputID, entry.size, entry.storedAt.UnixNano()))
+	content := fmt.Appendf(nil, "v1 %x %x %20d %20d\n", actionID, entry.outputID, entry.size, entry.storedAt.UnixNano())
 	return writeAtomicGoBuildCacheFileIfAbsent(indexPath, content)
 }
 

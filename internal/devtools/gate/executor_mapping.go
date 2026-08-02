@@ -349,8 +349,8 @@ func playwrightE2EExecutorProgram(spec string) (ExecutorProgram, error) {
 	default:
 		return ExecutorProgram{}, fmt.Errorf("unsupported Playwright E2E spec %q", spec)
 	}
-	return requirePaths(commandProgramIn("frontend-app", []string{"npm", "run", script}),
-		"frontend-app/package.json", "frontend-app/package-lock.json", "frontend-app/"+spec, "frontend-app/"+config), nil
+	return withFrontendSeed(requirePaths(commandProgramIn("frontend-app", []string{"npm", "run", script}),
+		"frontend-app/package.json", "frontend-app/package-lock.json", "frontend-app/"+spec, "frontend-app/"+config)), nil
 }
 
 // goTargetExecutorProgramForParent 根据父 gate 选择普通或 race argv。
