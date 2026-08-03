@@ -27,7 +27,7 @@ func (m *manager) retryEmptyReferences(
 		return nil, err
 	}
 	results, retryErr := m.locationQueryOnce(ctx, uri, method, params)
-	return results, errors.Join(retryErr, closeFrontendReferenceProjectDocuments(ctx, client, opened))
+	return results, errors.Join(retryErr, m.closeFrontendReferenceProjectDocuments(ctx, client, opened))
 }
 
 // prepareFrontendReferenceProject 用 document-symbol 响应确认目标 client 已处理有界消费者集合。
@@ -61,7 +61,7 @@ func (m *manager) prepareFrontendReferenceProject(ctx context.Context, uri strin
 		if err != nil {
 			return nil, nil, errors.Join(
 				fmt.Errorf("resolve frontend reference project file %s: %w", path, err),
-				closeFrontendReferenceProjectDocuments(ctx, client, opened),
+				m.closeFrontendReferenceProjectDocuments(ctx, client, opened),
 			)
 		}
 		temporary, err := m.prepareFrontendReferenceProjectFile(ctx, client, target, candidate, path)
@@ -71,7 +71,7 @@ func (m *manager) prepareFrontendReferenceProject(ctx context.Context, uri strin
 		if err != nil {
 			return nil, nil, errors.Join(
 				err,
-				closeFrontendReferenceProjectDocuments(ctx, client, opened),
+				m.closeFrontendReferenceProjectDocuments(ctx, client, opened),
 			)
 		}
 	}
@@ -93,7 +93,9 @@ func (m *manager) prepareFrontendReferenceProjectFile(
 		if err != nil {
 			return false, fmt.Errorf("read frontend reference project file %s: %w", path, err)
 		}
-		if err := client.DidOpen(ctx, candidate.uri, candidate.languageID, 1, string(content)); err != nil {
+		if err := m.withPooledClient(client, func() error {
+			return client.DidOpen(ctx, candidate.uri, candidate.languageID, 1, string(content))
+		}); err != nil {
 			return false, fmt.Errorf("open frontend reference project file %s: %w", path, err)
 		}
 	} else if err := m.bootstrapDocument(ctx, candidate.uri); err != nil {
@@ -106,10 +108,12 @@ func (m *manager) prepareFrontendReferenceProjectFile(
 }
 
 // closeFrontendReferenceProjectDocuments 逆序关闭仅为跨语言 barrier 临时打开的文档，并保留全部关闭错误。
-func closeFrontendReferenceProjectDocuments(ctx context.Context, client Client, opened []documentRef) error {
+func (m *manager) closeFrontendReferenceProjectDocuments(ctx context.Context, client Client, opened []documentRef) error {
 	var errs []error
 	for i := len(opened) - 1; i >= 0; i-- {
-		if err := client.DidClose(ctx, opened[i].uri); err != nil {
+		if err := m.withPooledClient(client, func() error {
+			return client.DidClose(ctx, opened[i].uri)
+		}); err != nil {
 			errs = append(errs, fmt.Errorf("close frontend reference project file %s: %w", opened[i].absPath, err))
 		}
 	}

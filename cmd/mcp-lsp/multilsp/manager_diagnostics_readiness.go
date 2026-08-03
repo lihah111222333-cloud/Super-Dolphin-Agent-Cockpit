@@ -213,7 +213,7 @@ func (m *manager) pullDocumentDiagnostics(ctx context.Context, ref documentRef) 
 	if !clientSupportsPullDiagnostics(client) {
 		return nil
 	}
-	raw, err := client.Request(ctx, protocol.MethodTextDocumentDiagnostic, protocol.DocumentDiagnosticParams{
+	raw, err := m.request(ctx, client, protocol.MethodTextDocumentDiagnostic, protocol.DocumentDiagnosticParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: ref.uri},
 	})
 	if err != nil {

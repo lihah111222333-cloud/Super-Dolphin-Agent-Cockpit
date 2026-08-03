@@ -19,7 +19,7 @@ func TestCreateAndRegisterClientShutsDownDiscardedClientOutsideLockWithTimeout(t
 	deadline := make(chan bool, 1)
 	m := &manager{
 		workspaces: map[string]*workspaceClient{
-			"repo:go": {key: "repo:go", client: existing},
+			"repo:go": {key: "repo:go", client: existing, generation: 1, state: workspaceStateActive},
 		},
 	}
 	discarded := &lockProbeShutdownClient{
@@ -214,7 +214,7 @@ func TestCreateAndRegisterClientRetainsDiscardedExistingClientCleanup(t *testing
 	mgr := &manager{
 		factory: ClientFactoryFunc(factory.newClient),
 		workspaces: map[string]*workspaceClient{
-			cfg.key: {key: cfg.key, client: existing},
+			cfg.key: {key: cfg.key, client: existing, generation: 1, state: workspaceStateActive},
 		},
 	}
 

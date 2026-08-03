@@ -4,6 +4,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestReleaseScopeCloseFailureReceiptRetriesUntilClosed(t *testing.T) {
@@ -63,7 +64,10 @@ func TestDeferredReleaseCloseFailureRemainsRetryable(t *testing.T) {
 		err:               closeErr,
 	}
 	attachWorkspaceClientForReleaseTest(scoped, "deferred-close-retry", client)
-	mgr.pool.acquire(client)
+	lease, bound, leaseErr := scoped.leaseBoundClient(client)
+	if leaseErr != nil || !bound {
+		t.Fatalf("leaseBoundClient(deferred): bound=%v err=%v", bound, leaseErr)
+	}
 
 	first, err := mgr.pool.ReleaseScope(ReleaseScopeRequest{
 		ScopeKind: ReleaseScopeAgentThread,
@@ -79,7 +83,10 @@ func TestDeferredReleaseCloseFailureRemainsRetryable(t *testing.T) {
 		t.Fatalf("ReleaseScope(first) = %#v, want one deferred lease", first)
 	}
 
-	mgr.pool.release(client)
+	if err := lease.Release(); err != nil {
+		t.Fatalf("release deferred lease: %v", err)
+	}
+	ageWorkspaceForLifecycleTest(t, scoped, client)
 
 	second, err := mgr.pool.ReleaseScope(ReleaseScopeRequest{
 		ScopeKind: ReleaseScopeAgentThread,
@@ -88,11 +95,25 @@ func TestDeferredReleaseCloseFailureRemainsRetryable(t *testing.T) {
 		Drain:     true,
 		Reason:    "deferred_retry_second",
 	})
-	if err != nil {
-		t.Fatalf("ReleaseScope(second): %v", err)
+	if !errors.Is(err, closeErr) {
+		t.Fatalf("ReleaseScope(second) error = %v, want %v from first deferred close retry", err, closeErr)
 	}
-	if second.MatchedManagers != 1 || second.ClosedManagers != 1 || !second.Drained {
-		t.Fatalf("ReleaseScope(second) = %#v, want deferred failure retried to completion", second)
+	if second.MatchedManagers != 1 || second.ClosedManagers != 0 || second.BusyLeases != 0 || second.Drained {
+		t.Fatalf("ReleaseScope(second) = %#v, want retained retry receipt after close failure", second)
+	}
+
+	third, err := mgr.pool.ReleaseScope(ReleaseScopeRequest{
+		ScopeKind: ReleaseScopeAgentThread,
+		AgentID:   "agent-deferred-retry",
+		ThreadID:  "thread-1",
+		Drain:     true,
+		Reason:    "deferred_retry_third",
+	})
+	if err != nil {
+		t.Fatalf("ReleaseScope(third): %v", err)
+	}
+	if third.MatchedManagers != 1 || third.ClosedManagers != 1 || !third.Drained {
+		t.Fatalf("ReleaseScope(third) = %#v, want deferred failure retried to completion", third)
 	}
 	if got := client.closeCallCount(); got != 2 {
 		t.Fatalf("client Close calls = %d, want 2", got)
@@ -223,7 +244,14 @@ func (c *retryCloseP2Client) closeCallCount() int {
 func attachWorkspaceClientForReleaseTest(mgr *manager, key string, client Client) {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
-	mgr.workspaces[key] = &workspaceClient{key: key, client: client}
+	mgr.workspaces[key] = &workspaceClient{
+		key:          key,
+		client:       client,
+		generation:   1,
+		state:        workspaceStateIdleCountdown,
+		idleSince:    time.Now().Add(-2 * idleTimeout),
+		lastActivity: time.Now().Add(-2 * idleTimeout),
+	}
 }
 
 func pendingReleaseCountForTest(pool *ManagerPool) int {

@@ -105,6 +105,8 @@ type Config struct {
 // manager 维护 workspace 客户端、诊断缓存和后台分片池；所有共享状态必须经对应锁访问。
 type manager struct {
 	workspaceRoot                    string                   // manager 默认根目录，参与相对路径解析。
+	workspaceGeneration              atomic.Uint64            // 每个 workspace client 的单调代际分配器。
+	clock                            func() time.Time         // 测试可注入时钟；生产路径使用 time.Now。
 	factory                          ClientFactory            // 语言服务器客户端工厂。
 	adapters                         *LanguageAdapterRegistry // 语言到 root/能力策略的适配表。
 	logger                           *slog.Logger             // manager 内部诊断日志。
@@ -143,6 +145,17 @@ type manager struct {
 }
 
 // workspaceClient 保存单个 workspace/language 客户端及其 root 身份。
+type workspaceLifecycleState string
+
+const (
+	workspaceStateBootstrapping  workspaceLifecycleState = "Bootstrapping"
+	workspaceStateActive         workspaceLifecycleState = "Active"
+	workspaceStateIdleCountdown  workspaceLifecycleState = "IdleCountdown"
+	workspaceStateRecheck        workspaceLifecycleState = "Recheck"
+	workspaceStateClosing        workspaceLifecycleState = "Closing"
+	workspaceStateCleanupPending workspaceLifecycleState = "CleanupPending"
+)
+
 type workspaceClient struct {
 	key              string                     // workspace 缓存键。
 	rootPath         string                     // 本地绝对 root 路径。
@@ -152,6 +165,11 @@ type workspaceClient struct {
 	workspaceFolders []protocol.WorkspaceFolder // 发送给语言服务器的 workspace folders。
 	client           Client                     // 实际 LSP 客户端。
 	lastActivity     time.Time                  // recycler 判断闲置的依据。
+	generation       uint64                     // workspace client 代际；租约释放必须精确匹配。
+	state            workspaceLifecycleState    // 生命周期 SSOT。
+	activeLeases     int                        // manager-owned authoritative lease count。
+	publishedAt      time.Time                  // ready publish barrier 时间。
+	idleSince        time.Time                  // 仅最终租约释放或 ready publish 写入。
 	rssProbeFailures int                        // 当前 client 连续 RSS 探测失败次数。
 }
 

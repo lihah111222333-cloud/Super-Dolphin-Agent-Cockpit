@@ -508,6 +508,7 @@ func TestDeadClientRestartRebootstrapForRegisteredLanguageIDs(t *testing.T) {
 	if len(workspace) != 1 {
 		t.Fatalf("workspace clients = %d, want 1", len(workspace))
 	}
+	ageWorkspaceForLifecycleTest(t, mgr, workspace[0].client)
 	resolved, ok := mustBootstrapCoordinator(t, mgr).cache.LastResolvedScope(fileURIFromPath(target))
 	if !ok {
 		t.Fatal("missing resolved scope after initial bootstrap")

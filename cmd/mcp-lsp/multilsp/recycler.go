@@ -52,10 +52,15 @@ type poolRecycler struct {
 	pool     *ManagerPool
 	interval time.Duration
 	rssProbe recyclerRSSProbe
+	now      func() time.Time
 
-	mu         sync.Mutex
-	lastActive map[int]time.Time
-	health     recyclerHealthSnapshot
+	mu               sync.Mutex
+	lastActive       map[int]time.Time
+	health           recyclerHealthSnapshot
+	scanCount        uint64
+	lastScanAt       time.Time
+	lastScanDuration time.Duration
+	lastScanLag      time.Duration
 }
 
 // 编译期确认 poolRecycler 满足根 runner 聚合器消费的 Runner 合约。
@@ -66,8 +71,20 @@ func newPoolRecycler(pool *ManagerPool) *poolRecycler {
 		pool:       pool,
 		interval:   defaultRecyclerInterval,
 		rssProbe:   clientRSSBytes,
+		now:        time.Now,
 		lastActive: map[int]time.Time{},
 	}
+}
+
+func (r *poolRecycler) recyclerNow() time.Time {
+	if r != nil && r.now != nil {
+		return r.now()
+	}
+	return time.Now()
+}
+
+func (r *poolRecycler) activeLeases(workspace workspaceClient) int {
+	return workspace.activeLeases
 }
 
 // TouchShard 记录指定 shard 的最近访问时间。
@@ -184,6 +201,12 @@ func (r *poolRecycler) recycleIfNeeded(mgr *manager, scope ResolvedLSPToolScope,
 		logRSSRecycleActiveLease(mgr, scope, workspace, pid, rssBytes, limit, decision.activeLeases, reason)
 		return
 	}
+	if !r.managerIdleEligible(mgr, workspace, r.recyclerNow()) {
+		if mgr.logger != nil {
+			mgr.logger.Debug("LSP RSS pressure deferred until idle window", "workspace", workspace.key, "reason", reason)
+		}
+		return
+	}
 	recycled, err := executeMemoryRecycle(mgr, scope, workspace, decision.cohort.EvictSelf)
 	logMemoryRecycleOutcome(mgr, scope, workspace, pid, rssBytes, limit, reason, decision.cohort, recycled, err)
 }
@@ -197,7 +220,7 @@ func (r *poolRecycler) failClosedAfterProbeDegradation(
 	if !probeDegraded {
 		return
 	}
-	if r.pool != nil && r.pool.activeLeases(workspace.client) > 0 {
+	if r.activeLeases(workspace) > 0 || !r.managerIdleEligible(mgr, workspace, r.recyclerNow()) {
 		return
 	}
 	_, _ = shutdownResourceCohortWorkspace(mgr, workspace)
@@ -206,9 +229,7 @@ func (r *poolRecycler) failClosedAfterProbeDegradation(
 // memoryDecision 合并创建期进程预算与跨 owner 总账；策略缺失时保持 fail-closed。
 func (r *poolRecycler) memoryDecision(workspace workspaceClient, rssBytes uint64, pid int) recyclerMemoryDecision {
 	activeLeases := 0
-	if r.pool != nil {
-		activeLeases = r.pool.activeLeases(workspace.client)
-	}
+	activeLeases = r.activeLeases(workspace)
 	processLimit := rssLimitBytesForLanguage(workspace.languageID)
 	processExceeded := false
 	policy, policyErr := resourceProcessPolicyForClient(workspace.client, workspace.languageID)
@@ -224,7 +245,7 @@ func (r *poolRecycler) memoryDecision(workspace workspaceClient, rssBytes uint64
 			rssBytes,
 			pid,
 			activeLeases,
-			time.Now(),
+			r.recyclerNow(),
 		)
 	} else {
 		// 创建期主次策略丢失或被篡改时 fail-closed；活跃请求租约只延迟关闭，不扩大预算。
@@ -343,32 +364,112 @@ func logMemoryRecycleOutcome(
 	}
 }
 
-// checkIdleWorkspaces 关闭超过 idleTimeout 未收到请求的 workspace client。
-// 有活跃租约的 client 会跳过，下一次请求会通过 ensureClient 懒启动新的 LSP 子进程。
+// checkIdleWorkspaces 扫描生命周期 SSOT；候选必须经过扫描快照与 manager 锁内二次复核。
+// scanner 不能把 lastActivity 或容量/RSS 事件当作第二个销毁资格来源。
 func (r *poolRecycler) checkIdleWorkspaces(mgr *manager, scope ResolvedLSPToolScope) {
 	if mgr == nil || managerIsClosed(mgr) {
 		return
 	}
-	now := time.Now()
+	scanStarted := r.recyclerNow()
 	for _, workspace := range snapshotWorkspaceClients(mgr) {
-		if workspace.lastActivity.IsZero() {
+		if workspace.state == workspaceStateCleanupPending {
+			r.retryCleanupPendingWorkspace(mgr, scope, workspace)
 			continue
 		}
-		idleDuration := now.Sub(workspace.lastActivity)
-		workspaceIdleTimeout := idleTimeoutForLanguage(workspace.languageID)
-		if idleDuration < workspaceIdleTimeout {
+		timeout := idleTimeoutForLanguage(workspace.languageID)
+		if !idleEligible(&workspace, scanStarted, timeout) {
 			continue
 		}
-		activeLeases := 0
-		if r.pool != nil {
-			activeLeases = r.pool.activeLeases(workspace.client)
-		}
-		r.logIdleWindowExceeded(mgr, scope, workspace, idleDuration, workspaceIdleTimeout, activeLeases)
-		if activeLeases > 0 {
+		candidate, ok := r.managerIdleCandidate(mgr, workspace, scanStarted, timeout)
+		if !ok {
 			continue
 		}
-		r.shutdownIdleWorkspace(mgr, scope, workspace, now.Add(-workspaceIdleTimeout))
+		idleDuration := scanStarted.Sub(candidate.idleSince)
+		activeLeases := candidate.activeLeases
+		r.logIdleWindowExceeded(mgr, scope, candidate, idleDuration, timeout, activeLeases)
+		r.shutdownIdleWorkspace(mgr, scope, candidate, candidate.idleSince)
 	}
+	r.recordScan(scanStarted)
+}
+
+// retryCleanupPendingWorkspace 重试 Close 失败的唯一 cleanup owner；它不重新进入 idle 倒计时。
+func (r *poolRecycler) retryCleanupPendingWorkspace(mgr *manager, scope ResolvedLSPToolScope, snapshot workspaceClient) {
+	if mgr == nil || snapshot.client == nil {
+		return
+	}
+	mgr.ensureMu.Lock()
+	defer mgr.ensureMu.Unlock()
+	mgr.mu.Lock()
+	current := mgr.workspaces[snapshot.key]
+	if current == nil || current.client != snapshot.client || current.generation != snapshot.generation || current.state != workspaceStateCleanupPending {
+		mgr.mu.Unlock()
+		return
+	}
+	current.state = workspaceStateClosing
+	delete(mgr.workspaces, snapshot.key)
+	mgr.mu.Unlock()
+	shutdownErr, closeErr := shutdownWorkspaceClient(snapshot.client)
+	if closeErr != nil {
+		mgr.mu.Lock()
+		if mgr.workspaces[snapshot.key] == nil {
+			snapshot.state = workspaceStateCleanupPending
+			snapshot.idleSince = time.Time{}
+			mgr.workspaces[snapshot.key] = &snapshot
+		}
+		mgr.mu.Unlock()
+	} else {
+		mgr.AdvanceDiagnosticGeneration()
+	}
+	if mgr.logger != nil {
+		if cleanupErr := errors.Join(shutdownErr, closeErr); cleanupErr != nil {
+			args := recyclerWorkspaceLogArgs(scope, snapshot, "reason", "cleanup_pending_retry")
+			args = append(args, platformshared.SafePayloadLogFields("cleanup_error", cleanupErr.Error())...)
+			mgr.logger.Warn("LSP cleanup pending retry failed", args...)
+		}
+	}
+}
+
+func (r *poolRecycler) recordScan(started time.Time) {
+	if r == nil {
+		return
+	}
+	finished := r.recyclerNow()
+	r.mu.Lock()
+	r.scanCount++
+	r.lastScanAt = finished
+	r.lastScanDuration = finished.Sub(started)
+	if !r.lastScanAt.IsZero() && !started.IsZero() {
+		r.lastScanLag = finished.Sub(started)
+	}
+	r.mu.Unlock()
+}
+
+// managerIdleEligible 在 manager 锁下取得当前 key/client/generation 的精确资格。
+func (r *poolRecycler) managerIdleEligible(mgr *manager, snapshot workspaceClient, now time.Time) bool {
+	if mgr == nil {
+		return false
+	}
+	mgr.mu.RLock()
+	defer mgr.mu.RUnlock()
+	current := mgr.workspaces[snapshot.key]
+	if current == nil || current.client != snapshot.client || current.generation != snapshot.generation {
+		return false
+	}
+	return idleEligible(current, now, idleTimeoutForLanguage(current.languageID))
+}
+
+func (r *poolRecycler) managerIdleCandidate(mgr *manager, snapshot workspaceClient, now time.Time, timeout time.Duration) (workspaceClient, bool) {
+	if mgr == nil {
+		return workspaceClient{}, false
+	}
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+	current := mgr.workspaces[snapshot.key]
+	if current == nil || current.client != snapshot.client || current.generation != snapshot.generation || !idleEligible(current, now, timeout) {
+		return workspaceClient{}, false
+	}
+	current.state = workspaceStateRecheck
+	return *current, true
 }
 
 // shutdownIdleWorkspace 二次确认空闲状态后摘除 client，并完整关闭其进程树。
@@ -616,7 +717,7 @@ func detachAndShutdownWorkspaceClient(
 	if managerIsClosed(mgr) {
 		return nil, nil, nil
 	}
-	detached := detachWorkspaceClient(mgr, workspace.key, workspace.client, idleCutoff)
+	detached := detachWorkspaceClientGeneration(mgr, workspace.key, workspace.client, workspace.generation, idleCutoff)
 	if detached == nil || detached.client == nil {
 		return nil, nil, nil
 	}
@@ -690,18 +791,9 @@ func snapshotWorkspaceClients(mgr *manager) []workspaceClient {
 	return items
 }
 
-func detachWorkspaceClientIfStillIdle(
-	mgr *manager,
-	key string,
-	expected Client,
-	cutoff time.Time,
-) *workspaceClient {
-	return detachWorkspaceClient(mgr, key, expected, cutoff)
-}
-
-// detachWorkspaceClient 在 manager 锁内校验 client 身份、空闲窗口和租约后移交清理所有权。
-func detachWorkspaceClient(mgr *manager, key string, expected Client, idleCutoff time.Time) *workspaceClient {
-	if mgr == nil {
+// detachWorkspaceClientGeneration 在 manager 锁内复核代际、状态、租约与完整 idle window。
+func detachWorkspaceClientGeneration(mgr *manager, key string, expected Client, generation uint64, idleCutoff time.Time) *workspaceClient {
+	if mgr == nil || generation == 0 {
 		return nil
 	}
 	mgr.mu.Lock()
@@ -714,12 +806,13 @@ func detachWorkspaceClient(mgr *manager, key string, expected Client, idleCutoff
 	if expected != nil && workspace.client != expected {
 		return nil
 	}
-	if !workspaceLastActivityBeforeCutoff(workspace, idleCutoff) {
+	if workspace.generation != generation {
 		return nil
 	}
-	if mgr.pool != nil && mgr.pool.activeLeases(workspace.client) > 0 {
+	if workspace.generation == 0 || (workspace.state != workspaceStateCleanupPending && !idleEligible(workspace, mgr.managerNow(), idleTimeoutForLanguage(workspace.languageID))) {
 		return nil
 	}
+	workspace.state = workspaceStateClosing
 	delete(mgr.workspaces, key)
 	return workspace
 }

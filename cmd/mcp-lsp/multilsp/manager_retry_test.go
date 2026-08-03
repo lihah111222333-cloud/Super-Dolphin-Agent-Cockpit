@@ -379,7 +379,10 @@ func detachEnsuredIdleWakeClient(t *testing.T, mgr *manager, client Client) *wor
 	for candidateKey, workspace := range mgr.workspaces {
 		if workspace != nil && workspace.client == client {
 			key = candidateKey
-			workspace.lastActivity = time.Now().Add(-time.Hour)
+			workspace.generation = 1
+			workspace.state = workspaceStateIdleCountdown
+			workspace.idleSince = time.Now().Add(-time.Hour)
+			workspace.lastActivity = workspace.idleSince
 			break
 		}
 	}
@@ -387,7 +390,7 @@ func detachEnsuredIdleWakeClient(t *testing.T, mgr *manager, client Client) *wor
 	if key == "" {
 		t.Fatal("ensured client was not bound before idle detach")
 	}
-	detached := detachWorkspaceClientIfStillIdle(mgr, key, client, time.Now().Add(-time.Minute))
+	detached := detachWorkspaceClientGeneration(mgr, key, client, 1, time.Now().Add(-time.Minute))
 	if detached == nil || detached.client == nil {
 		t.Fatal("idle recycler did not detach the ensured client")
 	}
@@ -422,6 +425,8 @@ func TestRebuildDeadClientRetainsCleanupOwnerUntilCloseSucceeds(t *testing.T) {
 		rootURI:      cfg.rootURI,
 		languageID:   cfg.languageID,
 		client:       original,
+		generation:   1,
+		state:        workspaceStateActive,
 		lastActivity: time.Now(),
 	}
 	mgr.mu.Unlock()
