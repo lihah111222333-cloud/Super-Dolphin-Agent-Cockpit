@@ -1,10 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
-  accessSync,
-  copyFileSync,
-  constants,
-  existsSync,
+  accessSync, copyFileSync, constants, existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -169,18 +166,7 @@ function detachedTmpAlias(declaredTmpOwner = tmpdir()) {
     : declaredTmpOwner;
 }
 
-function darwinSyntheticTmpOwner() {
-  const candidates = readdirSync('/var/folders', { withFileTypes: true })
-    .filter((shard) => shard.isDirectory())
-    .flatMap((shard) => readdirSync(join('/var/folders', shard.name), { withFileTypes: true })
-      .filter((owner) => owner.isDirectory())
-      .map((owner) => join('/var/folders', shard.name, owner.name, 'T')))
-    .filter((candidate) => existsSync(candidate));
-  if (candidates.length === 0) throw new Error('Darwin synthetic TMPDIR owner is unavailable');
-  const candidate = candidates[0];
-  accessSync(candidate, constants.W_OK);
-  return candidate;
-}
+function darwinSyntheticTmpOwner() { const candidates = readdirSync('/var/folders', { withFileTypes: true }).filter((shard) => shard.isDirectory()).flatMap((shard) => readdirSync(join('/var/folders', shard.name), { withFileTypes: true }).filter((owner) => owner.isDirectory()).map((owner) => join('/var/folders', shard.name, owner.name, 'T'))).filter((candidate) => existsSync(candidate)); if (candidates.length === 0) throw new Error('Darwin synthetic TMPDIR owner is unavailable'); const candidate = candidates[0]; accessSync(candidate, constants.W_OK); return candidate; }
 
 function dependencyIntegrityDocument() {
   return JSON.parse(readFileSync(join(scriptRoot, 'frontend-maintainability-dependencies.json'), 'utf8'));
@@ -1755,22 +1741,17 @@ describe('frozen scorer target binding', () => {
   it('keeps the canonical detached immutable dependency installation Git-clean and Vitest-executable', async () => {
     const fixture = createFinalCliFixture();
     try {
-      const syntheticTmpOwner = mkdtempSync(join(
-        process.platform === 'darwin' ? darwinSyntheticTmpOwner() : tmpdir(),
-        'super-dolphin-detached-owner-',
-      ));
-      temporaryRepositories.push(syntheticTmpOwner);
+      const syntheticTmpOwner = mkdtempSync(join(process.platform === 'darwin' ? darwinSyntheticTmpOwner() : tmpdir(), 'super-dolphin-detached-owner-'));
+      temporaryRepositories.push(
+        syntheticTmpOwner,
+      );
       const tmpAlias = detachedTmpAlias(syntheticTmpOwner);
       const proofRoot = mkdtempSync(join(tmpAlias, 'frontend-maintainability-detached-proof-'));
       const proofPath = join(proofRoot, 'proof.json');
       const loadAveragePreloadPath = join(proofRoot, 'load-average-preload.mjs');
       const frozenLoadAverage = JSON.parse(readFileSync(join(scriptRoot, 'frontend-maintainability-baseline.json'), 'utf8'))
         .environment.loadAverage;
-      writeFileSync(loadAveragePreloadPath, [
-        "import os from 'node:os';",
-        `os.loadavg = () => ${JSON.stringify(frozenLoadAverage)};`,
-        '',
-      ].join('\n'));
+      writeFileSync(loadAveragePreloadPath, [`import os from 'node:os';`, `os.loadavg = () => ${JSON.stringify(frozenLoadAverage)};`, ''].join('\n'));
       temporaryRepositories.push(proofRoot);
       if (process.platform === 'darwin') {
         expect(tmpAlias).toMatch(/^\/var(?:\/|$)/u);
