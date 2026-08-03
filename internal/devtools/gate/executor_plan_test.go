@@ -26,7 +26,6 @@ func TestPrepareExecutorPlanGoBuildCacheSkipsNonGoShard(t *testing.T) {
 		[]GateID{GateIDWhitespaceCheck, GateIDFrontendLint},
 		workRoot,
 		filepath.Join(workRoot, "missing-generations"),
-		filepath.Join(workRoot, "missing-legacy"),
 	)
 	if err != nil {
 		t.Fatalf("prepare non-Go shard cache: %v", err)
@@ -57,7 +56,6 @@ func TestPrepareExecutorPlanGoBuildCacheUsesGenerationSeeds(t *testing.T) {
 		[]GateID{GateIDBackendTestWithGuard, GateIDWhitespaceCheck},
 		workRoot,
 		seedGenerationsRoot,
-		filepath.Join(workRoot, "missing-legacy"),
 	)
 	if err != nil {
 		t.Fatalf("prepare Go shard cache: %v", err)
@@ -77,6 +75,18 @@ func TestPrepareExecutorPlanGoBuildCacheUsesGenerationSeeds(t *testing.T) {
 	}
 }
 
+func TestPrepareExecutorPlanGoBuildCacheRejectsMissingGenerationSeeds(t *testing.T) {
+	workRoot := realTempDir(t)
+	_, _, err := prepareExecutorPlanGoBuildCacheAt(
+		[]GateID{GateIDBackendTestWithGuard},
+		workRoot,
+		filepath.Join(workRoot, "missing-generations"),
+	)
+	if err == nil || !strings.Contains(err.Error(), "generations root") {
+		t.Fatalf("prepare Go shard cache error = %v, want missing generation root", err)
+	}
+}
+
 func TestPlanExecutionReportJSONFieldCoverage(t *testing.T) {
 	for _, registration := range []struct {
 		name     string
@@ -87,7 +97,7 @@ func TestPlanExecutionReportJSONFieldCoverage(t *testing.T) {
 			name:     "gate execution",
 			producer: reflect.TypeFor[PlanGateExecution](),
 			fields: []string{
-				"argv_digest", "completed_at", "execution_profile", "exit_code", "gate_id", "log", "log_digest",
+				"argv_digest", "completed_at", "execution_profile", "exit_code", "gate_id", "log", "log_digest", "shard_identity",
 				"started_at", "status", "test_timings",
 			},
 		},
@@ -498,7 +508,7 @@ func TestDecodePlanExecutionReportRejectsGateSetAndEvidenceDrift(t *testing.T) {
 	}
 }
 
-func TestPlanExecutionReportRoundTripsTestTimingsAndAcceptsLegacyV1(t *testing.T) {
+func TestPlanExecutionReportRoundTripsCurrentTestTimings(t *testing.T) {
 	request := testExecutorPlanRequest(t)
 	report, err := executeGatePlanWithRunner(context.Background(), request,
 		func(_ context.Context, _ int, id GateID) (PlanGateExecution, error) {
@@ -518,21 +528,6 @@ func TestPlanExecutionReportRoundTripsTestTimingsAndAcceptsLegacyV1(t *testing.T
 	if !slices.Equal(decoded.Gates[0].TestTimings, report.Gates[0].TestTimings) {
 		t.Fatalf("decoded timings = %#v, want %#v", decoded.Gates[0].TestTimings, report.Gates[0].TestTimings)
 	}
-
-	legacyTiming := clonePlanReport(t, report)
-	legacyTiming.SchemaVersion = executorPlanTimingSchemaVersion
-	if _, err := DecodePlanExecutionReport(encodePlanReportForTest(t, legacyTiming)); err != nil {
-		t.Fatalf("decode legacy v2 timing report: %v", err)
-	}
-
-	legacy := clonePlanReport(t, report)
-	legacy.SchemaVersion = 1
-	for index := range legacy.Gates {
-		legacy.Gates[index].TestTimings = nil
-	}
-	if _, err := DecodePlanExecutionReport(encodePlanReportForTest(t, legacy)); err != nil {
-		t.Fatalf("decode legacy v1 report: %v", err)
-	}
 }
 
 func TestPlanExecutionReportPacksTwentyFiveWorkloadsWithinRemoteRecordBudget(t *testing.T) {
@@ -542,7 +537,7 @@ func TestPlanExecutionReportPacksTwentyFiveWorkloadsWithinRemoteRecordBudget(t *
 	)
 	now := executorPlanTestNow()
 	report := PlanExecutionReport{
-		SchemaVersion: executorPlanReportSchemaVersion,
+		SchemaVersion: ExecutorPlanReportSchemaVersion,
 		Profile:       ProfileLocalFast,
 		PlanDigest:    testExecutorPlanRequest(t).planDigest,
 		Gates:         make([]PlanGateExecution, 0, workloadCount),
@@ -599,131 +594,9 @@ func TestPlanExecutionReportAllowsBoundedSuccessfulAttestationEvidence(t *testin
 	result := successfulPlanGateResult(GateIDReleaseLayeredCheck)
 	result.Log = []byte("prerequisite_digest=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n")
 	result.LogDigest = digestPlanLog(result.Log)
-	if !validPlanGateResult(result, executorPlanReportSchemaVersion) {
+	if !validPlanGateResult(result, ExecutorPlanReportSchemaVersion) {
 		t.Fatal("bounded successful attestation evidence was rejected")
 	}
-}
-
-func TestPlanExecutionReportChunksRejectIncompleteOrForgedFrames(t *testing.T) {
-	report, chunks := multiChunkPlanReport(t)
-	if decoded, err := DecodePlanExecutionReportChunks(chunks); err != nil || decoded.PlanDigest != report.PlanDigest {
-		t.Fatalf("decode canonical chunks: report=%#v err=%v", decoded, err)
-	}
-	other := clonePlanReport(t, report)
-	other.Gates[0].Log = append(other.Gates[0].Log, 'x')
-	other.Gates[0].LogDigest = digestPlanLog(other.Gates[0].Log)
-	otherChunks, err := EncodePlanExecutionReportChunks(other)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mutations := map[string]func([]string) []string{
-		"missing": func(value []string) []string { return value[:len(value)-1] },
-		"duplicate": func(value []string) []string {
-			return append(value[:1], append([]string{value[0]}, value[1:]...)...)
-		},
-		"reorder": func(value []string) []string {
-			value[0], value[1] = value[1], value[0]
-			return value
-		},
-		"mixed": func(value []string) []string {
-			value[1] = otherChunks[1]
-			return value
-		},
-		"tamper": func(value []string) []string {
-			last := len(value) - 1
-			replacement := "A"
-			if strings.HasSuffix(value[last], replacement) {
-				replacement = "B"
-			}
-			value[last] = value[last][:len(value[last])-1] + replacement
-			return value
-		},
-	}
-	for name, mutate := range mutations {
-		t.Run(name, func(t *testing.T) {
-			if _, err := DecodePlanExecutionReportChunks(mutate(slices.Clone(chunks))); err == nil {
-				t.Fatal("decoder accepted forged report chunks")
-			}
-		})
-	}
-}
-
-func TestPlanExecutionReportChunksStayBelowRemoteLogLineLimit(t *testing.T) {
-	_, chunks := multiChunkPlanReport(t)
-	for index, chunk := range chunks {
-		if len(chunk)+1 > executorPlanReportMaxLineBytes {
-			t.Fatalf("chunk %d line bytes = %d, want <= %d", index, len(chunk)+1, executorPlanReportMaxLineBytes)
-		}
-	}
-}
-
-func TestPlanExecutionReportUsesPlainTextLogRecords(t *testing.T) {
-	report, _ := multiChunkPlanReport(t)
-	log := []byte("plain text log /tmp/work\\cache\r\n下一行\n")
-	report.Gates[0].Log = log
-	report.Gates[0].LogDigest = digestPlanLog(log)
-	chunks, err := EncodePlanExecutionReportChunks(report)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wire := strings.Join(chunks, "\n")
-	if !strings.Contains(wire, `plain text log /tmp/work\\cache\r\n下一行\n`) {
-		t.Fatalf("plain log text is not visible in wire records: %q", wire)
-	}
-	if strings.Contains(wire, `"schema_version"`) || strings.Contains(wire, `"log"`) {
-		t.Fatalf("wire report unexpectedly contains JSON fields: %q", wire)
-	}
-	decoded, err := DecodePlanExecutionReportChunks(chunks)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(decoded.Gates[0].Log, log) {
-		t.Fatalf("decoded log = %q, want %q", decoded.Gates[0].Log, log)
-	}
-}
-
-func TestPlanExecutionReportChunksAcceptOnlyCoordinatorFrozenDynamicGateSet(t *testing.T) {
-	report, _ := multiChunkPlanReport(t)
-	report.Gates = []PlanGateExecution{report.Gates[0], report.Gates[len(report.Gates)-1]}
-	chunks, err := EncodePlanExecutionReportChunks(report)
-	if err != nil {
-		t.Fatal(err)
-	}
-	expected := []GateID{report.Gates[0].GateID, report.Gates[1].GateID}
-	if _, err := DecodePlanExecutionReportChunks(chunks); err == nil {
-		t.Fatal("legacy decoder accepted a non-canonical dynamic shard")
-	}
-	if _, err := DecodePlanExecutionReportChunksForGateSet(chunks, expected); err != nil {
-		t.Fatalf("dynamic shard decoder error = %v", err)
-	}
-	if _, err := DecodePlanExecutionReportChunksForGateSet(chunks, slices.Clone(expected[:1])); err == nil {
-		t.Fatal("dynamic shard decoder accepted a different expected gate set")
-	}
-}
-
-func multiChunkPlanReport(t *testing.T) (PlanExecutionReport, []string) {
-	t.Helper()
-	request := testExecutorPlanRequest(t)
-	report, err := executeGatePlanWithRunner(context.Background(), request,
-		func(_ context.Context, _ int, id GateID) (PlanGateExecution, error) {
-			result := successfulPlanGateResult(id)
-			result.Status = ResultStatusFailed
-			result.ExitCode = 1
-			result.Log = bytes.Repeat([]byte(string(id)+"\n"), 400)
-			result.LogDigest = digestPlanLog(result.Log)
-			return result, nil
-		}, executorPlanTestNow)
-	if err != nil {
-		t.Fatal(err)
-	}
-	chunks, err := EncodePlanExecutionReportChunks(report)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(chunks) < 3 {
-		t.Fatalf("plan report chunks = %d, want at least 3", len(chunks))
-	}
-	return report, chunks
 }
 
 func testExecutorPlanRequest(t *testing.T) executorPlanRequest {
@@ -772,26 +645,42 @@ func successfulPlanGateResult(id GateID) PlanGateExecution {
 		GateID: id, Status: ResultStatusPassed, ExitCode: 0,
 		StartedAt: now, CompletedAt: now.Add(time.Millisecond),
 		LogDigest:        digestPlanLog(nil),
-		ExecutionProfile: ExecutionProfile{CacheSource: "none", CacheStatus: "not_applicable", CacheMeasurement: "not_measured", TestBodyMS: 1, TotalMS: 1},
+		ExecutionProfile: ExecutionProfile{CacheSource: "none", CacheStatus: "not_applicable", CacheMeasurement: "measured", TestBodyMS: 1, TotalMS: 1},
 	}
 }
 
-func TestExecutionProfileUsesOnlyExactTopLevelTestTiming(t *testing.T) {
+func TestExecutionProfileUsesMeasuredGoCommandBodyAndChecksExactTestEvidence(t *testing.T) {
 	workload, err := NewGoTestWorkload(GateIDBackendTestWithGuard, "./internal/archtest", "TestBoundary", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	started := executorPlanTestNow()
 	completed := started.Add(1500 * time.Millisecond)
-	profile, err := executionProfileForGate(GateID(workload.ID), ExecutorProgram{}, candidateTestBinaryBundleIndex{}, []GoTestTiming{{Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 400}, {Name: "TestBoundary/subcase", Status: GoTestStatusPass, DurationMS: 900}}, started, completed, nil)
-	if err != nil || profile.TestBodyMS != 400 || profile.StartupMS != 1100 {
+	timing := &executorExecutionTiming{setupMS: 500, bodyMS: 1_000, totalMS: 1_500}
+	profile, err := executionProfileForGate(GateID(workload.ID), ExecutorProgram{}, []GoTestTiming{{Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 400}, {Name: "TestBoundary/subcase", Status: GoTestStatusPass, DurationMS: 900}}, started, completed, timing)
+	if err != nil || profile.TestBodyMS != 1_000 || profile.StartupMS != 500 {
 		t.Fatalf("profile=%#v err=%v", profile, err)
 	}
-	if _, err := executionProfileForGate(GateID(workload.ID), ExecutorProgram{}, candidateTestBinaryBundleIndex{}, []GoTestTiming{{Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 400}, {Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 401}}, started, completed, nil); err == nil {
+	if _, err := executionProfileForGate(GateID(workload.ID), ExecutorProgram{}, []GoTestTiming{{Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 400}, {Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 401}}, started, completed, timing); err == nil {
 		t.Fatal("duplicate top-level timing was accepted")
 	}
-	if _, err := executionProfileForGate(GateID(workload.ID), ExecutorProgram{}, candidateTestBinaryBundleIndex{}, []GoTestTiming{{Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 1501}}, started, completed, nil); err == nil {
+	if _, err := executionProfileForGate(GateID(workload.ID), ExecutorProgram{}, []GoTestTiming{{Name: "TestBoundary", Status: GoTestStatusPass, DurationMS: 1001}}, started, completed, timing); err == nil {
 		t.Fatal("overlong top-level timing was accepted")
+	}
+}
+
+func TestExecutionProfileRecordsMeasuredBodyForGoPackageWorkload(t *testing.T) {
+	workload, err := NewGoPackageWorkload(GateIDBackendTestWithGuard, "./internal/example", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := executorPlanTestNow()
+	profile, err := executionProfileForGate(
+		GateID(workload.ID), ExecutorProgram{}, nil, started, started.Add(1_500*time.Millisecond),
+		&executorExecutionTiming{setupMS: 500, bodyMS: 1_000, totalMS: 1_500},
+	)
+	if err != nil || profile.TestBodyMS != 1_000 || profile.StartupMS != 500 {
+		t.Fatalf("profile=%#v err=%v", profile, err)
 	}
 }
 
@@ -801,11 +690,10 @@ func TestFrontendExecutionProfileDoesNotInferNPMCacheHit(t *testing.T) {
 	profile, err := executionProfileForGate(
 		GateIDFrontendLint,
 		ExecutorProgram{NeedsFrontendSeed: true},
-		candidateTestBinaryBundleIndex{},
 		nil,
 		started,
 		completed,
-		&executorExecutionTiming{setupMS: 500, bodyMS: 1000, totalMS: 1500},
+		&executorExecutionTiming{setupMS: 500, bodyMS: 1000, totalMS: 1500, viteCacheSeedHit: true},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -813,6 +701,9 @@ func TestFrontendExecutionProfileDoesNotInferNPMCacheHit(t *testing.T) {
 	if profile.Frontend == nil || profile.Frontend.NPMCacheHit ||
 		profile.Frontend.NPMCacheNotApplicableReason != "npm_cache_lookup_not_observed" {
 		t.Fatalf("frontend npm cache evidence = %#v", profile.Frontend)
+	}
+	if !profile.Frontend.ViteCacheHit {
+		t.Fatalf("frontend Vite cache evidence = %#v", profile.Frontend)
 	}
 }
 

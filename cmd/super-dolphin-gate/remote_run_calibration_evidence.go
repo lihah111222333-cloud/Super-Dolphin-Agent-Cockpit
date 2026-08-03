@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/eci"
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
@@ -87,16 +86,8 @@ func remoteCalibrationPassedCatalogWorkloadSet(
 		}
 		executions[workloadID] = execution
 	}
-	reused := make(map[string]struct{}, len(result.ReusedWorkloads))
-	for _, workloadID := range result.ReusedWorkloads {
-		reused[string(workloadID)] = struct{}{}
-	}
 	passed := make(map[string]struct{})
 	for _, workload := range catalog.Workloads {
-		if _, reusedWorkload := reused[workload.ID]; reusedWorkload {
-			passed[remoteCalibrationWorkloadKey(workload)] = struct{}{}
-			continue
-		}
 		if calibrationExecutionPassed(executions[workload.ID], workload.ID) {
 			passed[remoteCalibrationWorkloadKey(workload)] = struct{}{}
 			continue
@@ -351,9 +342,6 @@ func acceptRemoteDurationCalibrationWithPasses(
 		if err != nil {
 			return gatecontract.DurationLedgerSnapshot{}, err
 		}
-		if snapshot.Ledger.Calibration != nil {
-			return gatecontract.DurationLedgerSnapshot{}, errors.New("remote duration calibration was completed concurrently")
-		}
 		workloadCount, racePackageCount, err := verifyRemoteCalibrationIndexedEvidence(
 			snapshot,
 			calibration,
@@ -364,6 +352,12 @@ func acceptRemoteDurationCalibrationWithPasses(
 			return gatecontract.DurationLedgerSnapshot{}, err
 		}
 		calibration.WorkloadCount, calibration.RacePackageCount = workloadCount, racePackageCount
+		if snapshot.Ledger.Calibration != nil {
+			if equivalentRemoteDurationCalibration(*snapshot.Ledger.Calibration, calibration) {
+				return snapshot, nil
+			}
+			return gatecontract.DurationLedgerSnapshot{}, errors.New("remote duration calibration was completed concurrently")
+		}
 		updated, err := store.CompareAndSwapCalibration(
 			snapshot.Generation,
 			&calibration,
@@ -377,6 +371,14 @@ func acceptRemoteDurationCalibrationWithPasses(
 		time.Sleep(time.Duration(attempt+1) * 10 * time.Millisecond)
 	}
 	return gatecontract.DurationLedgerSnapshot{}, errors.New("accept duration calibration exceeded retry limit")
+}
+
+// equivalentRemoteDurationCalibration 要求全部验收字段相同；完成时间有意排除，因为等价 agent
+// 可能在不同时间完成却生成同一已接受校准快照。
+func equivalentRemoteDurationCalibration(accepted, candidate gatecontract.DurationCalibration) bool {
+	accepted.CompletedAt = time.Time{}
+	candidate.CompletedAt = time.Time{}
+	return accepted == candidate
 }
 
 // verifyRemoteCalibrationSamples 要求每个 workload 和每个 Go race 包都有同身份成功样本。
@@ -485,8 +487,7 @@ func validateRemoteCloudIdentity(config remoteRunConfig) error {
 // validateRemoteStorageConfig 校验 source 与 baseline 对象存储前缀安全且不相同。
 func validateRemoteStorageConfig(config remoteRunConfig) error {
 	if strings.TrimSpace(config.OSS.Bucket) == "" || strings.TrimSpace(config.OSS.Endpoint) == "" || strings.TrimSpace(config.OSS.InternalEndpoint) == "" ||
-		!validRemoteOSSPrefix(config.OSS.SourcePrefix) || !validRemoteOSSPrefix(config.OSS.BaselinePrefix) ||
-		config.OSS.SourcePrefix == config.OSS.BaselinePrefix {
+		!validRemoteOSSPrefix(config.OSS.SourcePrefix) {
 		return errors.New("remote CI OSS settings are incomplete")
 	}
 	return nil
@@ -512,15 +513,8 @@ func validateRemoteShardCapacity(config remoteRunConfig) error {
 	if err := config.Capacity.ResourcePolicy.Validate(); err != nil {
 		return fmt.Errorf("remote CI resource policy: %w", err)
 	}
-	_, err := remoteBaselineSeedResources(config)
-	return err
-}
-
-// remoteBaselineSeedResources resolves the explicit resource class used to refresh the shared baseline.
-func remoteBaselineSeedResources(config remoteRunConfig) (eci.Resources, error) {
-	class, err := config.Capacity.ResourcePolicy.ResolveClass(config.Capacity.SeedClass)
-	if err != nil {
-		return eci.Resources{}, fmt.Errorf("remote CI seed resource class: %w", err)
+	if _, err := config.Capacity.ResourcePolicy.ResolveCalibrationClass(); err != nil {
+		return fmt.Errorf("remote CI calibration resource class: %w", err)
 	}
-	return eci.Resources{CPU: class.VCPU, MemoryGiB: class.MemoryGiB}, nil
+	return nil
 }

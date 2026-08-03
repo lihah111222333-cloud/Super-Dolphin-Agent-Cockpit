@@ -7,9 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/eci"
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/localci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
@@ -24,11 +22,10 @@ type remoteResolvedTarget struct {
 // resolveRemoteRunInput 将已验证的 Git source、基线、账本和 workload 组装为运行输入。
 func resolveRemoteRunInput(
 	options remoteRunOptions,
-	config remoteRunConfig,
 	state remoteci.BaselineState,
 	runnerIdentity string,
 ) (remoteci.RunInput, error) {
-	if err := validateRunnableRemoteBaseline(config, state); err != nil {
+	if err := validateRunnableRemoteBaseline(state); err != nil {
 		return remoteci.RunInput{}, err
 	}
 	repositoryRoot, scenario, profile, target, source, err := resolveRemoteRunSource(options)
@@ -36,12 +33,7 @@ func resolveRemoteRunInput(
 		return remoteci.RunInput{}, err
 	}
 	entrypoint := remoteRunEntrypoint(options)
-	ledger, ledgerStore, err := loadRemoteRunLedger(
-		options,
-		scenario,
-		state,
-		runnerIdentity,
-	)
+	ledger, ledgerStore, err := loadRemoteRunLedger(options, state, runnerIdentity)
 	if err != nil {
 		return remoteci.RunInput{}, err
 	}
@@ -49,20 +41,20 @@ func resolveRemoteRunInput(
 	if err != nil {
 		return remoteci.RunInput{}, err
 	}
-	candidateGateSource, candidateGateToolchain, reuseBaselineGate, err := resolveRemoteCandidateGateIdentity(
+	candidateGateSource, candidateGateToolchain, err := resolveRemoteCandidateGateIdentity(
 		repositoryRoot,
 		target.tree,
-		state.MainTree,
 	)
 	if err != nil {
 		return remoteci.RunInput{}, err
 	}
 	return remoteci.RunInput{
-		RepositoryRoot:       repositoryRoot,
-		RemoteName:           options.RemoteName,
-		RemoteURL:            options.RemoteURL,
-		RequesterFingerprint: options.RequesterFingerprint,
-		Commit:               target.commit, Tree: target.tree, Base: target.bundleBase,
+		AcceptedGeneration: state.Generation,
+		RepositoryRoot:     repositoryRoot,
+		RemoteName:         options.RemoteName,
+		RemoteURL:          options.RemoteURL,
+		AgentTokenDigest:   options.AgentTokenDigest,
+		Commit:             target.commit, Tree: target.tree, Base: target.bundleBase,
 		RunnerBaseCommit: state.MainCommit, RunnerBaseTree: state.MainTree,
 		Source: source, Profile: profile, Entrypoint: entrypoint,
 		Platform: state.Platform, PolicyDigest: state.PolicyDigest,
@@ -73,34 +65,25 @@ func resolveRemoteRunInput(
 		SelectedTests:   scenario == "test",
 		Calibration:     options.Calibration,
 		RunnerImage:     state.RuntimeImage, RunnerIdentityDigest: runnerIdentity,
+		ImageCacheSnapshotID:         state.ImageCacheSnapshotID,
 		BaselineManifestDigest:       state.BaselineManifestDigest,
 		RunnerConfigDigest:           remoteRuntimeImageDigest(state.RuntimeImage),
 		GateBinarySHA256:             state.GateBinarySHA256,
 		CandidateGateSourceSHA256:    candidateGateSource,
 		CandidateGateToolchainSHA256: candidateGateToolchain,
-		ReuseBaselineGateCLI:         reuseBaselineGate,
-		RuntimeSeedSHA256:            state.RuntimeSeedSHA256, ForceRerun: options.ForceRerun,
-		OCIProjectCache: state.OCIProjectCache,
-		RegistryAccess:  eci.RegistryAccess{ACR: config.ACRRegistryInfo},
+		RuntimeSeedSHA256:            state.RuntimeSeedSHA256,
+		OCIProjectCache:              state.OCIProjectCache,
 	}, nil
 }
 
-// resolveRemoteCandidateGateIdentity 比较候选与已接受基线的精确 CLI 编译闭包。
-func resolveRemoteCandidateGateIdentity(repositoryRoot, candidateTree, baselineTree string) (string, string, bool, error) {
+// resolveRemoteCandidateGateIdentity 读取 exact candidate tree 的 Gate 编译闭包与工具链身份。
+func resolveRemoteCandidateGateIdentity(repositoryRoot, candidateTree string) (string, string, error) {
 	ctx := context.Background()
-	candidateSource, candidateToolchain, _, err := localci.LoadGateCLICompileClosure(ctx, repositoryRoot, candidateTree)
+	candidateSource, candidateToolchain, _, err := remoteci.LoadGateCLICompileClosure(ctx, repositoryRoot, candidateTree)
 	if err != nil {
-		return "", "", false, fmt.Errorf("resolve candidate gate CLI compile closure: %w", err)
+		return "", "", fmt.Errorf("resolve candidate gate CLI compile closure: %w", err)
 	}
-	if candidateTree == baselineTree {
-		return candidateSource, candidateToolchain, true, nil
-	}
-	baselineSource, baselineToolchain, _, err := localci.LoadGateCLICompileClosure(ctx, repositoryRoot, baselineTree)
-	if err != nil {
-		return "", "", false, fmt.Errorf("resolve baseline gate CLI compile closure: %w", err)
-	}
-	reuse := candidateSource == baselineSource && candidateToolchain == baselineToolchain
-	return candidateSource, candidateToolchain, reuse, nil
+	return candidateSource, candidateToolchain, nil
 }
 
 // resolveRemoteRunSource 固定仓库根、场景、目标对象及 source 契约。
@@ -129,10 +112,10 @@ func resolveRemoteRunSource(options remoteRunOptions) (string, string, gatecontr
 	return repositoryRoot, scenario, profile, target, source, err
 }
 
-// loadRemoteRunLedger 读取账本并验证它与当前已接受基线可比较。
+// loadRemoteRunLedger 从唯一 SQLite authority 读取 planning snapshot；校准要求
+// 由 normal 入口在 PreparedRun 判定为 miss 后单独验证。
 func loadRemoteRunLedger(
 	options remoteRunOptions,
-	scenario string,
 	state remoteci.BaselineState,
 	runnerIdentity string,
 ) (gatecontract.DurationLedgerSnapshot, *gatecontract.DurationLedgerStore, error) {
@@ -147,9 +130,6 @@ func loadRemoteRunLedger(
 		TargetDurationMS: gatecontract.FullCITargetDurationMS,
 	})
 	if err != nil {
-		return gatecontract.DurationLedgerSnapshot{}, nil, err
-	}
-	if err := validateRemoteDurationCalibration(options, scenario, state, runnerIdentity, ledger.Ledger); err != nil {
 		return gatecontract.DurationLedgerSnapshot{}, nil, err
 	}
 	return ledger, store, nil
@@ -290,14 +270,6 @@ func validateRemoteDurationCalibration(
 	return nil
 }
 
-func validRemoteRuntimeImage(reference string) bool {
-	name, digest, ok := strings.Cut(reference, "@")
-	return ok && strings.TrimSpace(name) != "" &&
-		len(digest) == len("sha256:")+64 &&
-		strings.HasPrefix(digest, "sha256:") &&
-		strings.Trim(digest[len("sha256:"):], "0123456789abcdef") == ""
-}
-
 func remoteRuntimeImageDigest(reference string) string {
 	_, digest, ok := strings.Cut(reference, "@")
 	if !ok {
@@ -306,18 +278,10 @@ func remoteRuntimeImageDigest(reference string) string {
 	return digest
 }
 
-func remoteRuntimeImageRepository(reference string) string {
-	repository, _, _ := strings.Cut(reference, "@")
-	return repository
-}
-
-// validateAcceptedRemoteBaseline 绑定运行配置与已接受的 OCI 基线镜像。
-func validateAcceptedRemoteBaseline(config remoteRunConfig, state remoteci.BaselineState) error {
+// validateAcceptedRemoteBaseline 验证已接受 OCI 基线的不可变镜像和 ImageCache authority。
+func validateAcceptedRemoteBaseline(state remoteci.BaselineState) error {
 	if err := state.Validate(); err != nil {
 		return err
-	}
-	if remoteRuntimeImageRepository(state.RuntimeImage) != config.OCICache.RegistryRepository {
-		return errors.New("accepted baseline runtime image does not match configured OCI cache repository")
 	}
 	if state.OCIProjectCache == nil {
 		return errors.New("accepted baseline must use OCI project cache")
@@ -326,8 +290,8 @@ func validateAcceptedRemoteBaseline(config remoteRunConfig, state remoteci.Basel
 }
 
 // validateRunnableRemoteBaseline rejects an accepted baseline whose OCI identity cannot run.
-func validateRunnableRemoteBaseline(config remoteRunConfig, state remoteci.BaselineState) error {
-	if err := validateAcceptedRemoteBaseline(config, state); err != nil {
+func validateRunnableRemoteBaseline(state remoteci.BaselineState) error {
+	if err := validateAcceptedRemoteBaseline(state); err != nil {
 		return err
 	}
 	return nil

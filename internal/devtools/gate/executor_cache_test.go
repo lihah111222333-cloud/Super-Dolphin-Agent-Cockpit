@@ -32,7 +32,7 @@ func TestExecutorReusesPreparedCachesWithinShard(t *testing.T) {
 			t.Fatalf("shared shard cache marker %q: %v", name, err)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(config.goBuildCacheSeedRoot, "first-gate")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(config.goBuildCacheSeedRoots[0], "first-gate")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("runner cache seed was mutated: %v", err)
 	}
 	standaloneConfig := config
@@ -315,16 +315,14 @@ func TestGoBuildCacheProxyConcurrentSeedPromotion(t *testing.T) {
 	const readers = 8
 	errorsByReader := make(chan error, readers)
 	var group sync.WaitGroup
-	for index := 0; index < readers; index++ {
-		group.Add(1)
-		go func() {
-			defer group.Done()
+	for range readers {
+		group.Go(func() {
 			promoted, promoteErr := promoteGoBuildCacheSeedEntry(privateRoot, actionID, seedEntry)
 			if promoteErr == nil && !strings.HasPrefix(promoted.path, privateRoot+string(os.PathSeparator)) {
 				promoteErr = fmt.Errorf("promoted path is outside private root: %q", promoted.path)
 			}
 			errorsByReader <- promoteErr
-		}()
+		})
 	}
 	group.Wait()
 	close(errorsByReader)
@@ -468,12 +466,12 @@ func newPreparedShardCacheFixture(t *testing.T) (executorConfig, ExecutorProgram
 		"{\"accepted_tree_is_now_immutable\":false}\n",
 		0o600,
 	)
-	writeTestFile(t, filepath.Join(config.goBuildCacheSeedRoot, "prewarmed"), "runner-cache\n", 0o600)
+	writeTestFile(t, filepath.Join(config.goBuildCacheSeedRoots[0], "prewarmed"), "runner-cache\n", 0o600)
 	sharedCacheRoot := realTempDir(t)
 	if err := os.Chmod(sharedCacheRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := seedExecutorGoBuildCache(config.goBuildCacheSeedRoot, sharedCacheRoot); err != nil {
+	if err := seedExecutorGoBuildCache(config.goBuildCacheSeedRoots[0], sharedCacheRoot); err != nil {
 		t.Fatalf("prepare shard Go build cache write layer: %v", err)
 	}
 	config.goBuildCacheRoot = sharedCacheRoot

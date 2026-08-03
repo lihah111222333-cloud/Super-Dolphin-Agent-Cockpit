@@ -164,7 +164,8 @@ RUN set -eu; \
 COPY go.sum /tmp/runtime-manifest-source/go.sum
 COPY build/gate/runtime-proxy/go.sum /tmp/runtime-manifest-source/build/gate/runtime-proxy/go.sum
 COPY frontend-app/package-lock.json /tmp/runtime-manifest-source/frontend-app/package-lock.json
-RUN --network=none /tmp/super-dolphin-gate worker runtime-seed write /tmp/runtime-manifest-source /opt/super-dolphin-gate/runtime && \
+RUN --network=none mkdir -p /opt/super-dolphin-gate/runtime/frontend/vite-cache && \
+    /tmp/super-dolphin-gate worker runtime-seed write /tmp/runtime-manifest-source /opt/super-dolphin-gate/runtime && \
     rm /tmp/super-dolphin-gate && \
     rm -rf /tmp/runtime-manifest-source && \
     test -s /opt/super-dolphin-gate/runtime/manifest.json && \

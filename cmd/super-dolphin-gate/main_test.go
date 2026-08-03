@@ -76,77 +76,22 @@ func TestPlanRejectsTreeParentOutsideCompleteTreeVariant(t *testing.T) {
 	}
 }
 
-func TestRunRejectsMissingSchedulerTokenBeforeNotWired(t *testing.T) {
+func TestRetiredTopLevelCommandsAreStrictlyUnknown(t *testing.T) {
 	t.Parallel()
 
-	code, _, stderr := executeCLI([]string{"run"})
-	if code != int(gatecontract.ExitProtocol) || !strings.Contains(stderr, "--job-token is required") {
-		t.Fatalf("code=%d stderr=%q", code, stderr)
-	}
-}
-
-func TestRemainingUnwiredCommandsFailFastWithStableExit(t *testing.T) {
-	t.Parallel()
-
-	tests := [][]string{
-		{"run", "--job-token", "opaque"},
-		{"receipt", "verify", "--input", "receipt.json"},
-	}
-	for _, args := range tests {
-		code, _, stderr := executeCLI(args)
-		if code != int(gatecontract.ExitInfrastructure) || !strings.Contains(stderr, "scheduler client not wired") {
-			t.Fatalf("args=%v code=%d stderr=%q", args, code, stderr)
+	for _, command := range []string{"docker", "requester", "grant", "run", "status", "wait"} {
+		code, stdout, stderr := executeCLI([]string{command, "obsolete-argument"})
+		if code != int(gatecontract.ExitProtocol) || stdout != "" ||
+			!strings.Contains(stderr, `unknown subcommand "`+command+`"`) {
+			t.Fatalf("command=%q code=%d stdout=%q stderr=%q", command, code, stdout, stderr)
 		}
-	}
-}
-
-func TestStatusAndWaitRequireJob(t *testing.T) {
-	t.Parallel()
-	for _, testCase := range []struct {
-		command string
-		want    string
-	}{
-		{command: "status", want: "--job is required"},
-		{command: "wait", want: "wait requires --job <job-id> and optional --tree <staged-tree-sha>"},
-	} {
-		code, _, stderr := executeCLI([]string{testCase.command})
-		if code != int(gatecontract.ExitProtocol) || !strings.Contains(stderr, testCase.want) {
-			t.Fatalf("command=%s code=%d stderr=%q want=%q", testCase.command, code, stderr, testCase.want)
-		}
-	}
-}
-
-func TestReceiptVerifyRequiresInput(t *testing.T) {
-	t.Parallel()
-
-	code, _, _ := executeCLI([]string{"receipt", "verify"})
-	if code != int(gatecontract.ExitProtocol) {
-		t.Fatalf("code = %d, want %d", code, gatecontract.ExitProtocol)
-	}
-}
-
-func TestGrantCLIExposesNoIssueOrConsumeCommand(t *testing.T) {
-	t.Parallel()
-	for _, command := range []string{"issue", "consume"} {
-		code, _, stderr := executeCLI([]string{"grant", command})
-		if code != int(gatecontract.ExitProtocol) || !strings.Contains(stderr, "unknown grant subcommand") {
-			t.Fatalf("command=%s code=%d stderr=%q", command, code, stderr)
-		}
-	}
-}
-
-func TestGrantVerifyRequiresInput(t *testing.T) {
-	t.Parallel()
-	code, _, _ := executeCLI([]string{"grant", "verify"})
-	if code != int(gatecontract.ExitProtocol) {
-		t.Fatalf("code = %d, want %d", code, gatecontract.ExitProtocol)
 	}
 }
 
 func TestCLIErrorWriterFailureReturnsInfrastructureExit(t *testing.T) {
 	t.Parallel()
 
-	code := runCLI([]string{"run"}, &bytes.Buffer{}, failingWriter{err: errors.New("write failed")})
+	code := runCLI([]string{"unknown"}, &bytes.Buffer{}, failingWriter{err: errors.New("write failed")})
 	if code != int(gatecontract.ExitInfrastructure) {
 		t.Fatalf("code = %d, want infrastructure exit %d", code, gatecontract.ExitInfrastructure)
 	}
