@@ -17,6 +17,7 @@ import (
 	"time"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci/workerio"
 )
@@ -35,7 +36,7 @@ func runRemoteBuildTestBinaries(args []string, stdout io.Writer) error {
 	if !ok || !validRemoteRequestObjectKey(requestKey) {
 		return errors.New("remote builder request key is invalid")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), remoteMaterializeTimeout)
+	ctx, cancel := gateprivate.WithTimeout(context.Background(), remoteMaterializeTimeout)
 	defer cancel()
 	transfer := func(_ context.Context, key string, max int64, destination io.Writer) (int64, error) {
 		c, err := workerio.NewClient(workerio.Config{RoleName: config.RoleName, Endpoint: config.Endpoint, Bucket: config.Bucket, Key: key, MaxBytes: max}, workerio.Dependencies{})

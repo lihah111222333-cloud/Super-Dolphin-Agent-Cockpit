@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestStandaloneReleaseAttestationFailsBeforeWorkspaceExecution(t *testing.T) {
@@ -21,6 +22,7 @@ func TestStandaloneReleaseAttestationFailsBeforeWorkspaceExecution(t *testing.T)
 		goRoot:               "unreachable-go-root",
 		goBuildCacheSeedRoot: "unreachable-cache-seed",
 		expectedUID:          os.Geteuid(), stdout: &output, stderr: &output,
+		nowFunc: time.Now,
 	}
 	err := executeProgram(context.Background(), config, GateIDReleaseLayeredCheck,
 		ExecutorPrograms()[GateIDReleaseLayeredCheck])
@@ -730,6 +732,7 @@ func newTestExecutorConfig(t *testing.T, source string) executorConfig {
 		goBuildCacheSeedRoot:  goBuildCacheSeedRoot,
 		goBuildCacheProxy:     testGoBuildCacheProxyLauncher(),
 		stdout:                ioDiscard{}, stderr: ioDiscard{},
+		nowFunc: time.Now,
 	}
 }
 

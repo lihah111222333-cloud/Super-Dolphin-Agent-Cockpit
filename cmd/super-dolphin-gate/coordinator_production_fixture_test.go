@@ -302,6 +302,7 @@ func newProductionTestFixture(t *testing.T) productionTestFixture {
 		t.Fatal(err)
 	}
 	chmodPrivate(t, root)
+	installProductionTestDockerProbe(t, root)
 	repository := prepareProductionRepository(t, root)
 	authority := prepareProductionAuthority(t, root)
 	bootstrapRootFile := filepath.Join(root, "bootstrap-root.json")
@@ -373,6 +374,43 @@ func newProductionTestFixture(t *testing.T) productionTestFixture {
 	fixture.configPath = filepath.Join(root, "production.json")
 	writeProductionCoordinatorConfigFixture(t, fixture.configPath, config)
 	return fixture
+}
+
+// installProductionTestDockerProbe 为非 E2E 单测提供稳定的 daemon 身份与容量观测。
+// 显式 production Docker E2E 仍使用真实 Docker，生产容量阈值和探针实现均不变。
+func installProductionTestDockerProbe(t *testing.T, root string) {
+	t.Helper()
+	if os.Getenv(productionDockerE2EOptInEnv) == "1" {
+		return
+	}
+	binRoot := filepath.Join(root, "docker-probe-bin")
+	if err := os.Mkdir(binRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	dockerPath := filepath.Join(binRoot, "docker")
+	const script = `#!/bin/sh
+set -eu
+case " $* " in
+  *" context inspect "*)
+    printf '%s\n' '{"Name":"sd-go-test","Metadata":{},"Endpoints":{"docker":{"Host":"unix:///tmp/sd-go-test-docker.sock","SkipTLSVerify":false}},"TLSMaterial":{"docker":[]},"Storage":{"MetadataPath":"","TLSPath":""}}'
+    ;;
+  *" info --format "*)
+    printf '%s\n' '{"ID":"sd-go-test-daemon","NCPU":64,"MemTotal":68719476736}'
+    ;;
+  *)
+    printf 'unsupported production test Docker probe command: %s\n' "$*" >&2
+    exit 64
+    ;;
+esac
+`
+	if err := os.WriteFile(dockerPath, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := os.Getenv("PATH")
+	if path == "" {
+		t.Fatal("PATH is required for the production test Docker probe")
+	}
+	t.Setenv("PATH", binRoot+string(os.PathListSeparator)+path)
 }
 
 func mustResolveProductionGitExecutable(t *testing.T) string {

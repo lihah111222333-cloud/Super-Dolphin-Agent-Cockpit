@@ -780,6 +780,7 @@ func executePlanGate(
 		frontendEmbedSeedRoot:   ExecutorFrontendEmbedSeedRoot,
 		stdout:                  stdout, stderr: log,
 		executionTiming: timing,
+		nowFunc:         now,
 	}
 	result := PlanGateExecution{GateID: id, StartedAt: now().UTC(), ExitCode: -1}
 	err = executeProgram(ctx, config, id, cloneExecutorProgram(program))

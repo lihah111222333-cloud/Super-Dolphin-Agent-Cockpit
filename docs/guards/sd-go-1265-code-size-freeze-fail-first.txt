@@ -1,0 +1,7 @@
+source_head: db0af481e4dd5e237c670d2690656abc80b26d30
+reviewed_at: 2026-08-03T14:37:09Z
+snapshot_sha256: 25b13432c42069143ad16ba4f19b6a593cc49ce404ff1ebe3f55be1c186aebc4
+working_directory: .
+command: /usr/local/bin/go test -mod=readonly ./internal/archtest -count=1
+expected_exit: 1
+observed_failure: coherent db0af4 baseline reports 57 production ratchet regressions because its approved freeze snapshot predates the Captain-authorized C2 source closure; accept the bounded inherited debt while preserving fail-closed ratchets for subsequent changes.

@@ -72,6 +72,7 @@ type executorConfig struct {
 	stdout                  io.Writer
 	stderr                  io.Writer
 	executionTiming         *executorExecutionTiming
+	nowFunc                 func() time.Time
 }
 
 type executorExecutionTiming struct {
@@ -151,6 +152,7 @@ func ExecuteExecutor(ctx context.Context, args []string, stdout io.Writer, stder
 		goBuildCacheProxy:     cacheProxy,
 		frontendEmbedSeedRoot: ExecutorFrontendEmbedSeedRoot,
 		stdout:                stdout, stderr: stderr,
+		nowFunc: time.Now,
 	}
 	return executeProgram(ctx, config, id, program)
 }
@@ -214,10 +216,10 @@ func ExecutorExitCode(err error) int {
 
 // executeProgram 建立一次性工作区，校验可信输入并执行固定门禁程序。
 func executeProgram(ctx context.Context, config executorConfig, id GateID, program ExecutorProgram) (retErr error) {
-	started := time.Now()
 	if err := validateExecutorConfig(config); err != nil {
 		return err
 	}
+	started := config.nowFunc()
 	if err := validateExecutorProgram(program); err != nil {
 		return fmt.Errorf("gate %q executor program: %w", id, err)
 	}
@@ -233,13 +235,14 @@ func executeProgram(ctx context.Context, config executorConfig, id GateID, progr
 	}()
 	environment, steps, gitBinary, err := prepareExecutorRun(ctx, config, layout, program)
 	if err != nil {
-		recordExecutorExecutionTiming(config.executionTiming, started, time.Now(), time.Now())
+		failedAt := config.nowFunc()
+		recordExecutorExecutionTiming(config.executionTiming, started, failedAt, failedAt)
 		return err
 	}
 	fmt.Fprintf(config.stderr, "[gate-executor] gate=%s cwd=%s env=%s\n", id, layout.sourceCopy, strings.Join(environmentKeys(environment), ","))
-	bodyStarted := time.Now()
+	bodyStarted := config.nowFunc()
 	err = runExecutorProgram(ctx, config, id, program, layout, environment, steps, gitBinary)
-	recordExecutorExecutionTiming(config.executionTiming, started, bodyStarted, time.Now())
+	recordExecutorExecutionTiming(config.executionTiming, started, bodyStarted, config.nowFunc())
 	return err
 }
 
@@ -426,6 +429,9 @@ func validateExecutorConfig(config executorConfig) error {
 	}
 	if config.stdout == nil || config.stderr == nil {
 		return errors.New("executor output streams are required")
+	}
+	if config.nowFunc == nil {
+		return errors.New("executor clock is required")
 	}
 	return nil
 }

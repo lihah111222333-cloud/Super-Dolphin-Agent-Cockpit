@@ -59,7 +59,7 @@ func bootstrapProductionGoToolchain(requirement productionGoRequirement) (produc
 	if toolchain, ok := exactReusablePortableGo(install, asset, requirement); ok {
 		return toolchain, nil
 	}
-	lockContext, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	lockContext, cancel := gateprivate.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	lock, err := gateprivate.AcquireExclusiveFileLock(lockContext, filepath.Join(root, "."+portableGoVersion+"-"+runtime.GOOS+"-"+runtime.GOARCH+".lock"))
 	if err != nil {
