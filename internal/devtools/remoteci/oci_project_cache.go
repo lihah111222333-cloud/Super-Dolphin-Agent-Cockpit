@@ -1,6 +1,10 @@
 package remoteci
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
+)
 
 // OCIProjectGoBuildCachePath 是验收后 OCI 基线镜像内唯一允许的只读 Go 构建缓存路径。
 // 候选任务不得把它用作可写 GOCACHE 根目录。
@@ -29,7 +33,7 @@ func (cache BaselineOCIProjectCache) validate() error {
 		!remoteDigestPattern.MatchString(cache.ContentManifestSHA256) ||
 		!baselineOIDPattern.MatchString(cache.MainTree) ||
 		!remoteDigestPattern.MatchString(cache.ToolchainDigest) ||
-		cache.Platform != "linux/amd64" ||
+		cache.Platform != cicontract.TargetPlatform ||
 		cache.CachePath != OCIProjectGoBuildCachePath {
 		return errors.New("remote OCI project cache identity is invalid")
 	}

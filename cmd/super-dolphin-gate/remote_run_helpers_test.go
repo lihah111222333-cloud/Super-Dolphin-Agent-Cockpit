@@ -1,29 +1,85 @@
 package main
 
 import (
+	"crypto/sha256"
+	"database/sql"
+	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
+// seedRemoteRunTestAcceptedGeneration writes an accepted baseline whose schema,
+// generation, snapshot and content digest agree with the SQLite authority.
+func seedRemoteRunTestAcceptedGeneration(t *testing.T, store *gatecontract.DurationLedgerStore, generation uint64) string {
+	t.Helper()
+	state := remoteRunTestAcceptedBaselineState(generation)
+	payload, err := json.Marshal(state)
+	if err != nil {
+		t.Fatalf("marshal accepted baseline fixture: %v", err)
+	}
+	digest := sha256.Sum256(payload)
+	stateSHA256 := fmt.Sprintf("sha256:%x", digest)
+	database, err := sql.Open("sqlite", store.AuthorityPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if _, err := database.Exec(`INSERT INTO ci_remote_baseline_state (
+		singleton, schema_version, generation, state_json, state_sha256, updated_at_unix_ms
+	) VALUES (1, 3, ?, ?, ?, 1)
+	ON CONFLICT(singleton) DO UPDATE SET
+		schema_version = excluded.schema_version,
+		generation = excluded.generation,
+		state_json = excluded.state_json,
+		state_sha256 = excluded.state_sha256,
+		updated_at_unix_ms = excluded.updated_at_unix_ms`, strconv.FormatUint(generation, 10), payload, stateSHA256); err != nil {
+		t.Fatal(err)
+	}
+	return stateSHA256
+}
+
+func remoteRunTestAcceptedBaselineState(generation uint64) remoteci.BaselineState {
+	created := time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC)
+	state := remoteRunRunnerIdentityState()
+	state.SchemaVersion = remoteci.BaselineStateSchemaVersion
+	state.Generation = generation
+	state.MainCommit = strings.Repeat("a", 40)
+	state.MainTree = strings.Repeat("b", 40)
+	state.ImageCacheID = "imc-test-" + strconv.FormatUint(generation, 10)
+	state.ImageCacheSnapshotID = "snapshot-test-" + strconv.FormatUint(generation, 10)
+	state.ImageCacheReady = true
+	state.ImageDigest = strings.TrimPrefix(state.RuntimeImage, strings.Split(state.RuntimeImage, "@")[0]+"@")
+	state.OCIProjectCache = &remoteci.BaselineOCIProjectCache{
+		Image: state.RuntimeImage, ContentManifestSHA256: testRemoteBaselineDigest("test OCI project cache content manifest"),
+		MainTree: state.MainTree, ToolchainDigest: state.ToolchainDigest, Platform: state.Platform,
+		CachePath: remoteci.OCIProjectGoBuildCachePath,
+	}
+	state.CreatedAt = created
+	state.AcceptedAt = created.Add(time.Minute)
+	state.RenewedAt = state.AcceptedAt
+	return state
+}
+
 func validRemoteRunConfigJSON() string {
 	return `{
-  "schema_version": 7,
+	  "schema_version": 8,
   "aliyun_cli": "aliyun",
   "credential_profile": "super-dolphin-ci",
   "region_id": "cn-shenzhen",
   "vswitch_id": "vsw-test",
   "security_group_id": "sg-test",
   "worker_role_name": "super-dolphin-ci-worker",
-  "oss": {"bucket": "super-dolphin-ci-test", "endpoint": "https://oss-cn-shenzhen.aliyuncs.com", "internal_endpoint": "https://oss-cn-shenzhen-internal.aliyuncs.com", "source_prefix": "source-deltas/", "baseline_prefix": "baseline-artifacts/"},
-  "runtime": {"image": "registry.example/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-  "oci_cache": {"registry_repository": "registry.example/runtime", "remote_builder_image": "registry.example/oci-builder@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
-  "capacity": {"seed_class": "memory", "resource_policy": {"classes": [{"id": "small", "vcpu": 2, "memory_gib": 4}, {"id": "standard", "vcpu": 4, "memory_gib": 8}, {"id": "memory", "vcpu": 4, "memory_gib": 16}, {"id": "maximum", "vcpu": 8, "memory_gib": 32}], "bootstrap": {"guard": "small", "node_test": "standard", "go_test": "memory"}, "headroom_percent": 25, "min_samples_to_downsize": 5}}
+  "oss": {"bucket": "super-dolphin-ci-test", "endpoint": "https://oss-cn-shenzhen.aliyuncs.com", "internal_endpoint": "https://oss-cn-shenzhen-internal.aliyuncs.com", "source_prefix": "source-bundles/"},
+  "capacity": {"resource_policy": {"classes": [{"id": "small", "vcpu": 2, "memory_gib": 4}, {"id": "standard", "vcpu": 4, "memory_gib": 8}, {"id": "memory", "vcpu": 4, "memory_gib": 16}, {"id": "maximum", "vcpu": 8, "memory_gib": 32}], "bootstrap": {"guard": "small", "node_test": "standard", "go_test": "memory"}, "calibration_class": "maximum", "headroom_percent": 25, "min_samples_to_downsize": 5}}
 }`
 }
 
@@ -35,13 +91,21 @@ func remoteRunBaselineState(t *testing.T, repository string) remoteci.BaselineSt
 	state := remoteRunRunnerIdentityState()
 	state.SchemaVersion, state.Generation = remoteci.BaselineStateSchemaVersion, 1
 	state.MainCommit, state.MainTree = commit, tree
+	state.ImageCacheID, state.ImageCacheSnapshotID, state.ImageCacheReady = "imc-baseline-1", "snap-baseline-1", true
+	state.ImageDigest = strings.TrimPrefix(state.RuntimeImage, strings.Split(state.RuntimeImage, "@")[0]+"@")
 	state.CreatedAt, state.AcceptedAt = created, created.Add(time.Minute)
-	state.OCIProjectCache = &remoteci.BaselineOCIProjectCache{Image: state.RuntimeImage, ContentManifestSHA256: "sha256:" + strings.Repeat("a", 64), MainTree: state.MainTree, ToolchainDigest: state.ToolchainDigest, Platform: state.Platform, CachePath: remoteci.OCIProjectGoBuildCachePath}
+	state.RenewedAt = state.AcceptedAt
+	state.OCIProjectCache = &remoteci.BaselineOCIProjectCache{Image: state.RuntimeImage, ContentManifestSHA256: testRemoteBaselineDigest("OCI project cache content manifest"), MainTree: state.MainTree, ToolchainDigest: state.ToolchainDigest, Platform: state.Platform, CachePath: remoteci.OCIProjectGoBuildCachePath}
 	return state
 }
 
 func remoteRunRunnerIdentityState() remoteci.BaselineState {
-	return remoteci.BaselineState{Platform: "linux/amd64", PolicyDigest: "sha256:" + strings.Repeat("b", 64), ToolchainDigest: "sha256:" + strings.Repeat("c", 64), RuntimeImage: "registry.example/runtime@sha256:" + strings.Repeat("a", 64), GateBinarySHA256: "sha256:" + strings.Repeat("e", 64), RuntimeSeedSHA256: "sha256:" + strings.Repeat("1", 64), BaselineManifestDigest: "sha256:" + strings.Repeat("d", 64)}
+	return remoteci.BaselineState{Platform: "linux/amd64", PolicyDigest: testRemoteBaselineDigest("remote baseline policy"), ToolchainDigest: testRemoteBaselineDigest("remote baseline toolchain"), RuntimeImage: "registry.example/runtime@" + testRemoteBaselineDigest("remote baseline runtime image"), GateBinarySHA256: testRemoteBaselineDigest("remote baseline gate binary"), RuntimeSeedSHA256: testRemoteBaselineDigest("remote baseline runtime seed"), BaselineManifestDigest: testRemoteBaselineDigest("remote baseline manifest")}
+}
+
+// testRemoteBaselineDigest keeps baseline fixtures bound to deterministic SHA-256 values.
+func testRemoteBaselineDigest(value string) string {
+	return fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(value)))
 }
 
 func remoteRunRunnerIdentity(state remoteci.BaselineState) string {

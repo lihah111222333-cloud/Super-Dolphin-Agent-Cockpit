@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"time"
 	"unicode/utf8"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
 // RequiredGoToolchain 定义生产门禁唯一接受的 Go 发行版身份。
-const RequiredGoToolchain = "go1.26.5"
+const RequiredGoToolchain = cicontract.GoToolchainVersion
 
 // PlainTextLog 是 JSON 中保持普通 UTF-8 文本语义的有界门禁日志。
 type PlainTextLog []byte
@@ -261,10 +263,9 @@ const (
 	ResultStatusPassedStalePolicy ResultStatus = "passed_stale_policy"
 )
 
-// ResultReceiptSchemaVersion binds dynamically sized canonical shard receipts.
+// ResultReceiptSchemaVersion binds dynamically sized canonical shard receipts and their frozen workload plan.
 const (
-	ResultReceiptSchemaVersion       uint32 = 3
-	legacyResultReceiptSchemaVersion uint32 = 2
+	ResultReceiptSchemaVersion uint32 = 4
 )
 
 // ResultReceipt is the canonical signed audit result. It never authorizes an action by itself.
@@ -287,6 +288,7 @@ type ResultReceipt struct {
 	Deadline             time.Time               `json:"deadline"`
 	Status               ResultStatus            `json:"status"`
 	GateResults          []GateResult            `json:"gate_results"`
+	WorkloadPlan         WorkloadExecutionPlan   `json:"workload_plan"`
 	ShardReceipts        []ContainerShardReceipt `json:"shard_receipts"`
 	Evidence             []Evidence              `json:"evidence"`
 	Container            ContainerEvidence       `json:"container"`

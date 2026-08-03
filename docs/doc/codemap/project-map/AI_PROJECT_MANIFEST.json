@@ -5,10 +5,10 @@
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 4616,
+  "files": 4441,
   "domains": {
-    "docs-agent": 90,
-    "other": 1249,
+    "docs-agent": 89,
+    "other": 1075,
     "app-ui": 721,
     "platform-provider": 1186,
     "orchestration": 406,
@@ -57,27 +57,27 @@
       {
         "key": "docs-agent",
         "file": "docs/doc/codemap/project-map/index/docs-agent.tsv",
-        "file_count": 90,
-        "size_kb": 12.9,
+        "file_count": 89,
+        "size_kb": 12.7,
         "desc": "代码地图、ADR、契约与 docs 项目知识"
       },
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 1249,
-        "size_kb": 255.1,
+        "file_count": 1075,
+        "size_kb": 214.1,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
   },
   "module_counts": {
     "(root)": 12,
-    "cmd": 868,
-    "docs": 82,
+    "cmd": 750,
+    "docs": 81,
     "frontend-app": 715,
-    "internal": 2692,
+    "internal": 2635,
     "pkg": 30,
-    "scripts": 169,
+    "scripts": 170,
     "sql": 29,
     "test": 9,
     "tests": 1,
@@ -233,14 +233,14 @@
   ],
   "drift": {
     "status": "OK",
-    "unknown_ratio": 0.0379,
-    "unknown_files": 175,
+    "unknown_ratio": 0.0128,
+    "unknown_files": 57,
     "thresholds": {
       "max_unknown_ratio": 0.05
     },
     "warnings": [],
     "top_unknown_modules": {
-      "cmd": 173,
+      "cmd": 55,
       "internal": 2
     }
   }

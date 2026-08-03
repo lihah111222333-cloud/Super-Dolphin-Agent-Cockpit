@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strconv"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
 // loadSQLiteMetadata 读取并校验账本元数据。
@@ -14,19 +16,27 @@ func loadSQLiteMetadata(database sqliteRowQueryer) (DurationLedgerSnapshot, erro
 		generationText string
 		version        int
 		schemaVersion  int
+		authorityID    string
 	)
 	err := database.QueryRow(`
-		SELECT schema_version, generation, ledger_version
+		SELECT authority_id, schema_version, generation, ledger_version
 		FROM duration_ledger_meta
 		WHERE singleton = 1
-	`).Scan(&schemaVersion, &generationText, &version)
+	`).Scan(&authorityID, &schemaVersion, &generationText, &version)
 	if errors.Is(err, sql.ErrNoRows) {
 		return DurationLedgerSnapshot{}, ErrDurationLedgerMetadataMissing
 	}
 	if err != nil {
 		return DurationLedgerSnapshot{}, mapDurationLedgerSQLiteError("load duration ledger SQLite metadata", err)
 	}
-	if schemaVersion != durationLedgerSQLiteSchemaVersion {
+	if authorityID != cicontract.SQLAuthorityID {
+		return DurationLedgerSnapshot{}, fmt.Errorf(
+			"duration ledger SQLite authority ID %q must equal %q",
+			authorityID,
+			cicontract.SQLAuthorityID,
+		)
+	}
+	if schemaVersion != 1 {
 		return DurationLedgerSnapshot{}, fmt.Errorf(
 			"duration ledger SQLite schema version %d is unsupported",
 			schemaVersion,
@@ -92,7 +102,7 @@ func loadSQLiteDurationSampleIndex(
 			COALESCE(SUM(CASE WHEN succeeded = 1 THEN duration_ms ELSE 0 END), 0),
 			COALESCE(SUM(CASE WHEN succeeded = 1 THEN 1 ELSE 0 END), 0),
 			COALESCE(MAX(CASE WHEN succeeded = 0 THEN duration_ms ELSE 0 END), 0)
-		FROM duration_samples INDEXED BY idx_duration_samples_planning
+		FROM duration_samples
 		WHERE platform = ? AND runner = ? AND toolchain = ?
 		GROUP BY workload_id, command_digest
 	`, planning.Platform, planning.Runner, planning.Toolchain)
