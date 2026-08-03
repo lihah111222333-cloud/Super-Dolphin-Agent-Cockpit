@@ -22,17 +22,20 @@ const (
 )
 
 type manifest struct {
-	SchemaVersion     string   `json:"schema_version"`
-	Dockerfile        string   `json:"dockerfile"`
-	Inputs            []string `json:"inputs"`
-	GateCompileInputs []string `json:"gate_compile_inputs"`
+	SchemaVersion             string   `json:"schema_version"`
+	Dockerfile                string   `json:"dockerfile"`
+	Inputs                    []string `json:"inputs"`
+	GateCompileInputs         []string `json:"gate_compile_inputs"`
+	SourceSnapshotInputCount  int      `json:"source_snapshot_input_count"`
+	SourceSnapshotPathsSHA256 string   `json:"source_snapshot_paths_sha256"`
 }
 
 func TestTruthImageClosureUsesImmutableStandaloneRuntime(t *testing.T) {
 	root := repositoryRoot(t)
 	tracked := readManifest(t, root)
-	if tracked.SchemaVersion != "2" || tracked.Dockerfile != dockerfilePath ||
-		!sort.StringsAreSorted(tracked.Inputs) || !sort.StringsAreSorted(tracked.GateCompileInputs) {
+	if tracked.SchemaVersion != "3" || tracked.Dockerfile != dockerfilePath ||
+		!sort.StringsAreSorted(tracked.Inputs) || !sort.StringsAreSorted(tracked.GateCompileInputs) ||
+		tracked.SourceSnapshotInputCount <= 0 || !strings.HasPrefix(tracked.SourceSnapshotPathsSHA256, "sha256:") {
 		t.Fatalf("invalid truth image manifest identity: %+v", tracked)
 	}
 	for _, required := range []string{
@@ -74,25 +77,34 @@ func TestTruthDockerfileIsOfflineAndDigestOnly(t *testing.T) {
 	for _, required := range []string{
 		"ARG RUNTIME_DEPS_IMAGE\n",
 		"ARG BASELINE_CACHE_IMAGE\n",
+		"ARG COMPILED_SEED_IMAGE\n",
+		"ARG MAIN_COMMIT\n",
+		"ARG GATE_SOURCE_DIGEST\n",
+		"ARG RUNTIME_DEPENDENCY_DIGEST\n",
 		"FROM ${BASELINE_CACHE_IMAGE} AS baseline-cache",
 		"--mount=type=bind,from=baseline-cache,source=/,target=/baseline-cache,ro",
-		"worker go-cache-proxy --seed /baseline-cache/opt/super-dolphin/cache/go-build --private /root/.cache/go-build",
+		"worker go-cache-proxy --seed /baseline-cache/opt/super-dolphin/cache/go-build --private /out/go-build-cache",
 		"env GOCACHEPROG=\"$go_cache_proxy --metrics",
-		"FROM ${RUNTIME_DEPS_IMAGE} AS build\nUSER root",
+		"FROM ${RUNTIME_DEPS_IMAGE} AS compiled-seed\nUSER root",
+		"FROM ${COMPILED_SEED_IMAGE} AS compiled-seed-source",
+		"FROM ${RUNTIME_DEPS_IMAGE} AS postprocess",
+		"generation-one-compiled-seed/v1",
+		"compiled seed manifest fields mismatch",
+		"compiled seed identity mismatch",
+		"org.super-dolphin.gate-source-digest=\"${GATE_SOURCE_DIGEST}\"",
+		"org.super-dolphin.main-commit-sha=\"${MAIN_COMMIT}\"",
 		"go build -mod=mod -trimpath -buildvcs=false -o /out/super-dolphin-gate ./cmd/super-dolphin-gate",
-		"--mount=type=cache,target=/root/.cache/go-build,sharing=locked",
 		"compile_phase normal_compile env CGO_ENABLED=1 go test -mod=mod -run \"^$\" ./...",
 		"compile_phase e2e_compile env CGO_ENABLED=1 go test -mod=mod -tags=e2e -run \"^$\" ./...",
 		"compile_phase race_compile env CGO_ENABLED=1 go test -mod=mod -race -run \"^$\" \"$@\"",
 		"record_provision_check()",
 		"provision check timing mismatch",
-		"compile phase=%s elapsed_ms=%s test_body=not_applicable",
-		"cache-export elapsed_ms=%s cache_entries=%s",
-		"COPY --from=build /out/super-dolphin-gate /super-dolphin-gate",
+		"compile complete phase=%s elapsed_ms=%s test_body=not_applicable",
+		"compiled-seed complete go_cache_entries=%s",
+		"COPY --from=postprocess /out/super-dolphin-gate /super-dolphin-gate",
 		"ENTRYPOINT [\"/super-dolphin-gate\"]",
-		"ENV GOCACHE=/root/.cache/go-build",
-		"cp -a /root/.cache/go-build/. /out/go-build-cache",
-		"COPY --from=build --chown=65532:65532 /out/go-build-cache /opt/super-dolphin/cache/go-build",
+		"ENV GOCACHE=/out/go-build-cache",
+		"COPY --from=postprocess /out/go-build-cache /opt/super-dolphin/cache/go-build",
 		"chmod -R a-w /opt/super-dolphin/cache/go-build",
 		"org.super-dolphin.source-tree-sha=\"${BUILD_SOURCE_TREE}\"",
 		"org.super-dolphin.image-input-digest=\"${IMAGE_INPUT_DIGEST}\"",
@@ -176,7 +188,7 @@ func TestRuntimeDependencyRefreshInstallsLockedChromiumOnlyInRefreshImage(t *tes
 		`test "$(npm --version)" = "11.16.0"`,
 		`test "$(python3 --version)" = "Python 3.11.2"`,
 		`test "$(gopls version | tail -n 1)" = "golang.org/x/tools/gopls v0.22.0"`,
-		`test "$(sqlc version)" = "v1.30.0"`,
+		`test "$(/opt/super-dolphin-gate/runtime/bin/sqlc version)" = "v1.30.0"`,
 		"go mod download all",
 		"cd /src/build/gate/runtime-proxy",
 		"github.com/kelindar/event/@v/v1.5.2.zip",
