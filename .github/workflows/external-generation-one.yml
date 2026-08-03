@@ -58,6 +58,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.EXTERNAL_GENERATION_ONE_GHCR_TOKEN }}
 
+      - name: Reclaim ephemeral material-builder disk
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+          docker system prune --all --force
+          df -h /
+
       - uses: docker/setup-buildx-action@v3
 
       - name: Build or reuse runtime dependency image
