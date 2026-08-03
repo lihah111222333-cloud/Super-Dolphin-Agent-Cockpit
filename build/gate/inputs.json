@@ -1,5 +1,5 @@
 {
-  "schema_version": "2",
+  "schema_version": "3",
   "dockerfile": "build/gate/Dockerfile",
   "inputs": [
     "build/gate/Dockerfile",
@@ -4424,5 +4424,7 @@
     "third_party/kelindar-event/example/main.go",
     "third_party/kelindar-event/go.mod",
     "third_party/kelindar-event/go.sum"
-  ]
+  ],
+  "source_snapshot_input_count": 6147,
+  "source_snapshot_paths_sha256": "sha256:cf9b5a7cc54c5928c259cd29913b16da8b5af6afe21eb19a0eb898b05c7787cc"
 }

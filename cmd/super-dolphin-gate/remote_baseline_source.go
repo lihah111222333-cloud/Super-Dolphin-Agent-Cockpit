@@ -31,7 +31,7 @@ func runRemoteHook(args []string, input io.Reader, stdout io.Writer) error {
 	}
 }
 
-// runRemotePreCommitHook 将显式 tree/parent 绑定为本地快速门禁。
+// runRemotePreCommitHook 将显式 tree/parent 绑定为远程 ECI 快速门禁。
 func runRemotePreCommitHook(args []string, stdout io.Writer) error {
 	if err := requireRemoteCIAgentToken([]string{"remote", "hook", "pre-commit"}, args, stdout); err != nil {
 		return err

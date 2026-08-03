@@ -38,6 +38,21 @@ func TestParseRemoteRunOptions(t *testing.T) {
 	assertParsedRemoteRunOptions(t, options, digest)
 }
 
+func TestNormalizeRemoteSQLiteAuthorityMakesRelativeConfigAbsolute(t *testing.T) {
+	configPath := filepath.Join("testdata", "remote-ci.json")
+	var ledgerPath string
+	if err := normalizeRemoteSQLiteAuthority(configPath, &ledgerPath); err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.Abs(filepath.Join("testdata", "remote-ci.baseline-state.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ledgerPath != want || !filepath.IsAbs(ledgerPath) {
+		t.Fatalf("normalized ledger path = %q, want absolute %q", ledgerPath, want)
+	}
+}
+
 func TestParseRemoteRunOptionsRejectsRetiredWorkloadReuseFlag(t *testing.T) {
 	_, err := parseRemoteRunOptions([]string{
 		"--config", "/tmp/remote-ci.json",
@@ -128,14 +143,15 @@ func TestLoadRemoteRunConfig(t *testing.T) {
 
 func TestLoadRemoteRunConfigRejectsDrift(t *testing.T) {
 	cases := map[string]string{
-		"unknown field":          strings.Replace(validRemoteRunConfigJSON(), `"schema_version": 8`, `"schema_version": 8, "unknown": true`, 1),
-		"legacy schema":          strings.Replace(validRemoteRunConfigJSON(), `"schema_version": 8`, `"schema_version": 7`, 1),
+		"unknown field":          strings.Replace(validRemoteRunConfigJSON(), `"schema_version": 9`, `"schema_version": 9, "unknown": true`, 1),
+		"legacy schema":          strings.Replace(validRemoteRunConfigJSON(), `"schema_version": 9`, `"schema_version": 8`, 1),
 		"legacy data cache":      strings.Replace(validRemoteRunConfigJSON(), `"capacity":`, `"data_cache": {}, "capacity":`, 1),
 		"legacy OCI cache":       strings.Replace(validRemoteRunConfigJSON(), `"capacity":`, `"oci_cache": {}, "capacity":`, 1),
 		"legacy runtime":         strings.Replace(validRemoteRunConfigJSON(), `"capacity":`, `"runtime": {"image": "registry.example/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "capacity":`, 1),
 		"legacy baseline prefix": strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-bundles/"`, `"source_prefix": "source-bundles/", "baseline_prefix": "baseline-artifacts/"`, 1),
 		"legacy seed class":      strings.Replace(validRemoteRunConfigJSON(), `"resource_policy":`, `"seed_class": "memory", "resource_policy":`, 1),
 		"missing network":        strings.Replace(validRemoteRunConfigJSON(), `"vswitch_id": "vsw-test"`, `"vswitch_id": ""`, 1),
+		"non Aliyun provider":    strings.Replace(validRemoteRunConfigJSON(), `"aliyun_cli": "aliyun"`, `"aliyun_cli": "generic-cloud"`, 1),
 		"wrong cpu":              strings.Replace(validRemoteRunConfigJSON(), `"vcpu": 2`, `"vcpu": 3`, 1),
 		"wrong memory":           strings.Replace(validRemoteRunConfigJSON(), `"memory_gib": 32`, `"memory_gib": 64`, 1),
 		"unknown bootstrap":      strings.Replace(validRemoteRunConfigJSON(), `"go_test": "memory"`, `"go_test": "missing"`, 1),

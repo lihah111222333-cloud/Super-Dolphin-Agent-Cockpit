@@ -481,6 +481,9 @@ func validateRemoteCloudIdentity(config remoteRunConfig) error {
 			return errors.New("remote CI Aliyun identity and network settings are incomplete")
 		}
 	}
+	if path.Base(config.AliyunCLI) != "aliyun" {
+		return errors.New("remote CI cloud client must be the Alibaba Cloud aliyun CLI")
+	}
 	return nil
 }
 

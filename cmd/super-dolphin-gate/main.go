@@ -209,7 +209,7 @@ func signalExitCode(caught os.Signal) int {
 // dispatchCLI 将固定命令面分派到 plan 或未接线 scheduler 边界。
 func dispatchCLI(args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return protocolError("subcommand is required (plan, test, codemap, project-map, worker, remote run, remote provision-generation-one)")
+		return protocolError("subcommand is required (plan, test, codemap, project-map, worker, remote run)")
 	}
 	if handled, err := dispatchPrimaryCLI(args, stdout); handled {
 		return err

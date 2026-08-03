@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -211,7 +212,7 @@ func newTestDurationLedgerStore(t *testing.T) *DurationLedgerStore {
 
 func seedAcceptedGenerationForTest(t *testing.T, store *DurationLedgerStore, generation uint64) {
 	t.Helper()
-	stateJSON := fmt.Sprintf(`{"schema_version":1,"generation":%d,"image_cache_snapshot_id":"snapshot-%d"}`, generation, generation)
+	stateJSON := fmt.Sprintf(`{"schema_version":%d,"generation":%d,"execution_provider":%q,"region_id":"cn-shenzhen","image_cache_snapshot_id":"snapshot-%d"}`, cicontract.BaselineStateSchemaVersion, generation, cicontract.ExecutionProviderID, generation)
 	stateDigest := sha256.Sum256([]byte(stateJSON))
 	seedRemoteBaselineState(t, store, RemoteBaselineStateRecord{
 		Generation:  generation,

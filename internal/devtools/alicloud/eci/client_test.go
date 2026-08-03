@@ -171,7 +171,7 @@ func TestClientCreateContainerGroupEncodesOnlyThreeShardLocalEmptyDirs(t *testin
 
 func TestClient_DescribeContainerGroupsDecodesTerminalDiagnostics(t *testing.T) {
 	runner := &fakeCommandRunner{responses: [][]byte{
-		[]byte(`{"ContainerGroups":[{"ContainerGroupId":"eci-created","ContainerGroupName":"shard-1","Status":"Failed","CreationTime":"2026-07-27T07:59:00Z","FailedTime":"2026-07-27T08:00:00Z","Containers":[{"Name":"worker","CurrentState":{"State":"Terminated","StartTime":"2026-07-27T07:59:10Z","FinishTime":"2026-07-27T08:00:00Z","ExitCode":137,"Reason":"OOMKilled","Message":"memory limit exceeded"}}],"InitContainers":[{"Name":"materializer","CurrentState":{"State":"Terminated","StartTime":"2026-07-27T07:59:01Z","FinishTime":"2026-07-27T07:59:09Z"}}],"Events":[{"Type":"Warning","Reason":"BackOff","Message":"worker exited","Count":2,"LastTimestamp":"2026-07-27T08:00:00Z"}]}]}`),
+		[]byte(`{"ContainerGroups":[{"ContainerGroupId":"eci-created","ContainerGroupName":"shard-1","RegionId":"cn-shenzhen","Status":"Failed","CreationTime":"2026-07-27T07:59:00Z","FailedTime":"2026-07-27T08:00:00Z","Containers":[{"Name":"worker","Image":"registry.example/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","CurrentState":{"State":"Terminated","StartTime":"2026-07-27T07:59:10Z","FinishTime":"2026-07-27T08:00:00Z","ExitCode":137,"Reason":"OOMKilled","Message":"memory limit exceeded"}}],"InitContainers":[{"Name":"materializer","CurrentState":{"State":"Terminated","StartTime":"2026-07-27T07:59:01Z","FinishTime":"2026-07-27T07:59:09Z"}}],"Tags":[{"Key":"super-dolphin-ci-provider","Value":"aliyun-eci/v1"}],"Events":[{"Type":"Warning","Reason":"BackOff","Message":"worker exited","Count":2,"LastTimestamp":"2026-07-27T08:00:00Z"}]}]}`),
 	}}
 	client := newTestClient(t, runner)
 	groups, err := client.DescribeContainerGroups(context.Background(), "eci-created")
@@ -182,11 +182,13 @@ func TestClient_DescribeContainerGroupsDecodesTerminalDiagnostics(t *testing.T) 
 	want := []ContainerGroup{{
 		ID:           "eci-created",
 		Name:         "shard-1",
+		RegionID:     "cn-shenzhen",
 		Status:       "Failed",
 		CreationTime: time.Date(2026, 7, 27, 7, 59, 0, 0, time.UTC),
 		FailedTime:   time.Date(2026, 7, 27, 8, 0, 0, 0, time.UTC),
 		Containers: []ContainerStatus{{
-			Name: "worker",
+			Name:  "worker",
+			Image: "registry.example/runtime@sha256:" + strings.Repeat("a", 64),
 			CurrentState: ContainerState{
 				State:      "Terminated",
 				StartTime:  time.Date(2026, 7, 27, 7, 59, 10, 0, time.UTC),
@@ -197,6 +199,7 @@ func TestClient_DescribeContainerGroupsDecodesTerminalDiagnostics(t *testing.T) 
 			},
 		}},
 		InitContainers: []ContainerStatus{{Name: "materializer", CurrentState: ContainerState{State: "Terminated", StartTime: time.Date(2026, 7, 27, 7, 59, 1, 0, time.UTC), FinishTime: time.Date(2026, 7, 27, 7, 59, 9, 0, time.UTC)}}},
+		Tags:           []ContainerGroupTag{{Key: "super-dolphin-ci-provider", Value: "aliyun-eci/v1"}},
 		Events: []ContainerGroupEvent{{
 			Type:          "Warning",
 			Reason:        "BackOff",
@@ -615,8 +618,9 @@ func TestCreateRequest_FieldRegistry(t *testing.T) {
 }
 
 func TestContainerGroup_FieldRegistry(t *testing.T) {
-	assertStructFields(t, reflect.TypeFor[ContainerGroup](), []string{"ID", "Name", "Status", "CreationTime", "SucceededTime", "FailedTime", "Containers", "InitContainers", "Events"})
-	assertStructFields(t, reflect.TypeFor[ContainerStatus](), []string{"Name", "CurrentState"})
+	assertStructFields(t, reflect.TypeFor[ContainerGroup](), []string{"ID", "Name", "RegionID", "Status", "CreationTime", "SucceededTime", "FailedTime", "Containers", "InitContainers", "Tags", "Events"})
+	assertStructFields(t, reflect.TypeFor[ContainerGroupTag](), []string{"Key", "Value"})
+	assertStructFields(t, reflect.TypeFor[ContainerStatus](), []string{"Name", "Image", "CurrentState"})
 	assertStructFields(t, reflect.TypeFor[ContainerState](), []string{"State", "StartTime", "FinishTime", "ExitCode", "Reason", "Message"})
 	assertStructFields(t, reflect.TypeFor[ContainerGroupEvent](), []string{"Type", "Reason", "Message", "Count", "LastTimestamp"})
 }

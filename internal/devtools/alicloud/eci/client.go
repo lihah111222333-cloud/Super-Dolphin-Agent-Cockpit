@@ -99,18 +99,27 @@ type VolumeMount struct {
 type ContainerGroup struct {
 	ID             string                `json:"ContainerGroupId"`
 	Name           string                `json:"ContainerGroupName"`
+	RegionID       string                `json:"RegionId"`
 	Status         string                `json:"Status"`
 	CreationTime   time.Time             `json:"CreationTime"`
 	SucceededTime  time.Time             `json:"SucceededTime"`
 	FailedTime     time.Time             `json:"FailedTime"`
 	Containers     []ContainerStatus     `json:"Containers,omitempty"`
 	InitContainers []ContainerStatus     `json:"InitContainers,omitempty"`
+	Tags           []ContainerGroupTag   `json:"Tags,omitempty"`
 	Events         []ContainerGroupEvent `json:"Events,omitempty"`
+}
+
+// ContainerGroupTag preserves the immutable identity labels returned by ECI.
+type ContainerGroupTag struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
 }
 
 // ContainerStatus captures the terminal state reported for one ECI container.
 type ContainerStatus struct {
 	Name         string         `json:"Name"`
+	Image        string         `json:"Image"`
 	CurrentState ContainerState `json:"CurrentState"`
 }
 
@@ -136,6 +145,7 @@ type ContainerGroupEvent struct {
 // ImageCache 保存容器组固定引用前必须确认的 ECI 缓存生命周期证据。
 type ImageCache struct {
 	ID         string                `json:"ImageCacheId"`
+	RegionID   string                `json:"RegionId"`
 	SnapshotID string                `json:"SnapshotId"`
 	Name       string                `json:"ImageCacheName"`
 	Status     string                `json:"Status"`

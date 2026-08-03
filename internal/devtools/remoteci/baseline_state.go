@@ -13,7 +13,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
-const BaselineStateSchemaVersion uint32 = 12
+const BaselineStateSchemaVersion = cicontract.BaselineStateSchemaVersion
 
 // BaselineState is the accepted remote CI identity. ECI ImageCache is the sole
 // executable cache authority; OCIProjectCache only describes verified content
@@ -21,6 +21,8 @@ const BaselineStateSchemaVersion uint32 = 12
 type BaselineState struct {
 	SchemaVersion          uint32                   `json:"schema_version"`
 	Generation             uint64                   `json:"generation"`
+	ExecutionProvider      string                   `json:"execution_provider"`
+	RegionID               string                   `json:"region_id"`
 	MainCommit             string                   `json:"main_commit"`
 	MainTree               string                   `json:"main_tree"`
 	Platform               string                   `json:"platform"`
@@ -85,7 +87,7 @@ func (state BaselineState) Validate() error {
 	if state.SchemaVersion != BaselineStateSchemaVersion || state.Generation == 0 {
 		return errors.New("remote baseline state schema or generation is invalid")
 	}
-	if err := validateBaselineIdentity(state.identity()); err != nil {
+	if err := validateAcceptedBaselineIdentity(state); err != nil {
 		return err
 	}
 	if err := state.validateImageCacheAuthority(); err != nil {
@@ -102,6 +104,22 @@ func (state BaselineState) Validate() error {
 	}
 	if !validBaselineTimes(state.CreatedAt, state.AcceptedAt, state.RenewedAt) {
 		return errors.New("remote baseline timestamps are invalid")
+	}
+	return nil
+}
+
+// validateAcceptedBaselineIdentity 校验 immutable identity 与唯一阿里云 ECI 执行位置。
+func validateAcceptedBaselineIdentity(state BaselineState) error {
+	if err := validateBaselineIdentity(state.identity()); err != nil {
+		return err
+	}
+	return validateBaselineExecutionLocation(state.ExecutionProvider, state.RegionID)
+}
+
+// validateBaselineExecutionLocation locks every accepted baseline to one Alibaba Cloud ECI region.
+func validateBaselineExecutionLocation(provider, regionID string) error {
+	if err := cicontract.ValidateAcceptedBaselineProjection(BaselineStateSchemaVersion, provider, regionID); err != nil {
+		return fmt.Errorf("remote baseline execution location: %w", err)
 	}
 	return nil
 }

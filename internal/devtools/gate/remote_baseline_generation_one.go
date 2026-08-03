@@ -62,13 +62,72 @@ func insertGenerationOneStateTransaction(store *DurationLedgerStore, transaction
 	if err := ensureGenerationOneStateTableEmpty(transaction); err != nil {
 		return err
 	}
-	stateSHA256 := strings.TrimPrefix(receipt.StateSHA256, "sha256:")
+	if err := ensureGenerationOneDurationLedgerMetadata(transaction, receipt.Generation); err != nil {
+		return err
+	}
+	stateSHA256 := receipt.StateSHA256
 	_, err := transaction.Exec(`INSERT INTO ci_remote_baseline_state(singleton,schema_version,generation,state_json,state_sha256,updated_at_unix_ms) VALUES(1,3,?,?,?,?)`,
 		strconv.FormatUint(receipt.Generation, 10), string(receipt.StateJSON), stateSHA256, store.nowFunc().UTC().UnixMilli())
 	if err != nil {
 		return fmt.Errorf("insert remote baseline generation one: %w", err)
 	}
 	*record = RemoteBaselineStateRecord{Generation: receipt.Generation, StateJSON: append([]byte(nil), receipt.StateJSON...), StateSHA256: stateSHA256}
+	return nil
+}
+
+// ensureGenerationOneDurationLedgerMetadata 在首代 accepted 同一事务中补齐空账本元数据，并拒绝冲突 authority。
+func ensureGenerationOneDurationLedgerMetadata(transaction *sql.Tx, generation uint64) error {
+	currentGeneration, found, err := sqliteCurrentGeneration(transaction)
+	if err != nil {
+		return err
+	}
+	if found {
+		if currentGeneration != generation {
+			return errors.New("generation-one duration ledger metadata generation conflicts with the receipt")
+		}
+		var schemaVersion, ledgerVersion int
+		if err := transaction.QueryRow(`SELECT schema_version, ledger_version FROM duration_ledger_meta WHERE singleton=1`).Scan(&schemaVersion, &ledgerVersion); err != nil {
+			return fmt.Errorf("validate generation-one duration ledger metadata: %w", err)
+		}
+		if schemaVersion != 1 || ledgerVersion != durationLedgerVersion {
+			return errors.New("generation-one duration ledger metadata schema is invalid")
+		}
+		return nil
+	}
+	if err := ensureGenerationOneAuthorityHistoryEmpty(transaction); err != nil {
+		return err
+	}
+	_, err = transaction.Exec(`INSERT INTO duration_ledger_meta(singleton,authority_id,schema_version,generation,ledger_version) VALUES(1,?,1,?,?)`,
+		cicontract.SQLAuthorityID, strconv.FormatUint(generation, 10), durationLedgerVersion)
+	if err != nil {
+		return fmt.Errorf("initialize generation-one duration ledger metadata: %w", err)
+	}
+	return nil
+}
+
+// ensureGenerationOneAuthorityHistoryEmpty 只允许 schema-only 空库建立首代元数据。
+func ensureGenerationOneAuthorityHistoryEmpty(transaction *sql.Tx) error {
+	queries := []struct {
+		table string
+		query string
+	}{
+		{"duration_calibrations", `SELECT EXISTS(SELECT 1 FROM duration_calibrations LIMIT 1)`},
+		{"duration_samples", `SELECT EXISTS(SELECT 1 FROM duration_samples LIMIT 1)`},
+		{"remote_ci_calibration_checkpoints", `SELECT EXISTS(SELECT 1 FROM remote_ci_calibration_checkpoints LIMIT 1)`},
+		{"ci_workload_catalogs", `SELECT EXISTS(SELECT 1 FROM ci_workload_catalogs LIMIT 1)`},
+		{"ci_runs", `SELECT EXISTS(SELECT 1 FROM ci_runs LIMIT 1)`},
+		{"ci_workload_pass_evidence", `SELECT EXISTS(SELECT 1 FROM ci_workload_pass_evidence LIMIT 1)`},
+		{"ci_live_timing_warnings", `SELECT EXISTS(SELECT 1 FROM ci_live_timing_warnings LIMIT 1)`},
+	}
+	for _, item := range queries {
+		var found bool
+		if err := transaction.QueryRow(item.query).Scan(&found); err != nil {
+			return fmt.Errorf("check generation-one history table %s: %w", item.table, err)
+		}
+		if found {
+			return fmt.Errorf("generation-one SQLite contains orphan history in %s", item.table)
+		}
+	}
 	return nil
 }
 
@@ -91,6 +150,8 @@ func ensureGenerationOneStateTableEmpty(transaction *sql.Tx) error {
 type generationOneStateProjection struct {
 	SchemaVersion          uint32                        `json:"schema_version"`
 	Generation             uint64                        `json:"generation"`
+	ExecutionProvider      string                        `json:"execution_provider"`
+	RegionID               string                        `json:"region_id"`
 	MainCommit             string                        `json:"main_commit"`
 	MainTree               string                        `json:"main_tree"`
 	Platform               string                        `json:"platform"`
@@ -101,10 +162,10 @@ type generationOneStateProjection struct {
 	ImageCacheSnapshotID   string                        `json:"image_cache_snapshot_id"`
 	ImageCacheReady        bool                          `json:"image_cache_ready"`
 	ImageDigest            string                        `json:"image_digest"`
+	OCIProjectCache        *generationOneOCIProjectCache `json:"oci_project_cache"`
 	GateBinarySHA256       string                        `json:"gate_binary_sha256"`
 	RuntimeSeedSHA256      string                        `json:"runtime_seed_manifest_sha256"`
 	BaselineManifestDigest string                        `json:"baseline_manifest_digest"`
-	OCIProjectCache        *generationOneOCIProjectCache `json:"oci_project_cache"`
 	CreatedAt              time.Time                     `json:"created_at"`
 	AcceptedAt             time.Time                     `json:"accepted_at"`
 	RenewedAt              time.Time                     `json:"renewed_at"`
@@ -149,12 +210,19 @@ func decodeGenerationOneStateProjection(data []byte) (generationOneStateProjecti
 		}
 		return generationOneStateProjection{}, err
 	}
+	canonical, err := json.Marshal(state)
+	if err != nil {
+		return generationOneStateProjection{}, fmt.Errorf("marshal canonical generation-one state projection: %w", err)
+	}
+	if !bytes.Equal(canonical, data) {
+		return generationOneStateProjection{}, errors.New("generation-one state projection is not canonical JSON")
+	}
 	return state, nil
 }
 
 // validateGenerationOneStateCache 校验 generation、Ready cache 和 runtime digest 绑定。
 func validateGenerationOneStateCache(state generationOneStateProjection, receipt cicontract.GenerationOneProvisionReceipt) error {
-	if state.SchemaVersion != cicontract.GenerationOneBaselineStateSchemaVersion || state.Generation != 1 || !state.ImageCacheReady || state.ImageCacheID != receipt.ImageCacheID || state.ImageCacheSnapshotID != receipt.ImageCacheSnapshotID || state.RuntimeImage != receipt.RuntimeImage || state.ImageDigest != imageDigestFromReference(state.RuntimeImage) {
+	if state.SchemaVersion != cicontract.GenerationOneBaselineStateSchemaVersion || state.Generation != 1 || state.ExecutionProvider != receipt.ExecutionProvider || state.RegionID != receipt.RegionID || !state.ImageCacheReady || state.ImageCacheID != receipt.ImageCacheID || state.ImageCacheSnapshotID != receipt.ImageCacheSnapshotID || state.RuntimeImage != receipt.RuntimeImage || state.ImageDigest != imageDigestFromReference(state.RuntimeImage) {
 		return errors.New("generation-one state projection does not match the provision receipt")
 	}
 	return nil

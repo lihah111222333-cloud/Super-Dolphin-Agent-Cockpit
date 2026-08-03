@@ -21,7 +21,7 @@ import (
 // runRemote 分派远程 CLI 子命令并保持各入口的独立协议边界。
 func runRemote(args []string, input io.Reader, stdout io.Writer) error {
 	if len(args) == 0 {
-		return protocolError("remote subcommand is required (run, hook, calibrate, provision-generation-one)")
+		return protocolError("remote subcommand is required (run, hook, calibrate)")
 	}
 	switch args[0] {
 	case "calibrate":
@@ -30,10 +30,8 @@ func runRemote(args []string, input io.Reader, stdout io.Writer) error {
 		return runRemoteHook(args[1:], input, stdout)
 	case "run":
 		return runRemoteInvocation(args[1:], stdout)
-	case "provision-generation-one":
-		return runRemoteGenerationOneProvision(args[1:], stdout)
 	default:
-		return protocolError("remote subcommand must be run, hook, calibrate, or provision-generation-one")
+		return protocolError("remote subcommand must be run, hook, or calibrate")
 	}
 }
 
@@ -96,18 +94,28 @@ func executeRemoteRun(options remoteRunOptions) (remoteci.RunResult, remoteci.Ru
 	return result, input, runErr
 }
 
-// loadRunnableRemoteRunState 读取并验证本次运行固定使用的 accepted baseline。
+// loadRunnableRemoteRunState 首代空库时原子导入已由 ECI 实测的严格回执，后续只读取 accepted baseline。
 func loadRunnableRemoteRunState(options remoteRunOptions) (remoteRunConfig, remoteci.BaselineState, error) {
 	config, err := loadRemoteRunConfig(options.ConfigPath)
 	if err != nil {
 		return remoteRunConfig{}, remoteci.BaselineState{}, protocolError("load remote CI config: %v", err)
 	}
 	state, err := loadAcceptedRemoteBaseline(options.LedgerPath)
+	if errors.Is(err, gatecontract.ErrRemoteBaselineStateNotFound) {
+		bootstrapErr := initializeConfiguredRemoteGenerationOne(config, options.LedgerPath)
+		if bootstrapErr != nil && !configuredRemoteGenerationOneAlreadyAccepted(config, options.LedgerPath) {
+			return remoteRunConfig{}, remoteci.BaselineState{}, protocolError("initialize remote baseline generation one: %v", bootstrapErr)
+		}
+		state, err = loadAcceptedRemoteBaseline(options.LedgerPath)
+	}
 	if err != nil {
 		return remoteRunConfig{}, remoteci.BaselineState{}, protocolError("load accepted remote baseline: %v", err)
 	}
 	if err := validateRunnableRemoteBaseline(state); err != nil {
 		return remoteRunConfig{}, remoteci.BaselineState{}, protocolError("validate accepted remote baseline: %v", err)
+	}
+	if state.ExecutionProvider != cicontract.ExecutionProviderID || state.RegionID != config.RegionID {
+		return remoteRunConfig{}, remoteci.BaselineState{}, protocolError("accepted remote baseline is not bound to the configured Alibaba Cloud ECI region")
 	}
 	return config, state, nil
 }

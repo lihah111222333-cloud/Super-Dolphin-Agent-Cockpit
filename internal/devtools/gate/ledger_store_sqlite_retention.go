@@ -65,12 +65,17 @@ func validateAcceptedBaselineStateProjection(stateJSON, stateSHA256 string, gene
 	var projection struct {
 		SchemaVersion        uint32 `json:"schema_version"`
 		Generation           uint64 `json:"generation"`
+		ExecutionProvider    string `json:"execution_provider"`
+		RegionID             string `json:"region_id"`
 		ImageCacheSnapshotID string `json:"image_cache_snapshot_id"`
 	}
 	if err := json.Unmarshal([]byte(stateJSON), &projection); err != nil {
 		return "", fmt.Errorf("decode accepted baseline state projection: %w", err)
 	}
-	if projection.SchemaVersion == 0 || projection.Generation != generation || strings.TrimSpace(projection.ImageCacheSnapshotID) == "" {
+	if err := cicontract.ValidateAcceptedBaselineProjection(projection.SchemaVersion, projection.ExecutionProvider, projection.RegionID); err != nil {
+		return "", fmt.Errorf("accepted baseline state projection: %w", err)
+	}
+	if projection.Generation != generation || strings.TrimSpace(projection.ImageCacheSnapshotID) == "" {
 		return "", errors.New("accepted baseline state projection does not bind generation and image cache snapshot")
 	}
 	return projection.ImageCacheSnapshotID, nil

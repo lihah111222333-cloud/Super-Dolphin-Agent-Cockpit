@@ -1,6 +1,7 @@
 package archtest
 
 import (
+	"fmt"
 	"go/ast"
 	"os"
 	"path/filepath"
@@ -42,10 +43,13 @@ func assertRemoteCIContractDocumentHasCanonicalOwner(t *testing.T, root string) 
 	if !strings.Contains(contract, "internal/devtools/cicontract") {
 		t.Error("accepted remote CI contract must name internal/devtools/cicontract as its code owner")
 	}
-	for _, identity := range []string{cicontract.ID, cicontract.ExecutionPathID, cicontract.GenerationOneReceiptImportPathID, cicontract.SQLAuthorityID} {
+	for _, identity := range []string{cicontract.ID, cicontract.ExecutionPathID, cicontract.ExecutionProviderID, cicontract.GenerationOneBootstrapPathID, cicontract.SQLAuthorityID, cicontract.CacheMaterialSchemaID, cicontract.CacheMaterialAuthority} {
 		if !strings.Contains(contract, identity) {
 			t.Errorf("accepted remote CI document is missing code contract identity %q", identity)
 		}
+	}
+	if schema := fmt.Sprintf("accepted baseline JSON schema：`%d`", cicontract.BaselineStateSchemaVersion); !strings.Contains(contract, schema) {
+		t.Errorf("accepted remote CI document is missing code contract schema %q", schema)
 	}
 	if got := remoteCICanonicalContractBlock(t, contract); got != cicontract.CanonicalMarkdown() {
 		t.Error("accepted remote CI document and internal/devtools/cicontract are not 1:1")
@@ -247,7 +251,7 @@ func remoteCIGateFileAuthorityFinalizers(t *testing.T, gateDirectory, name strin
 }
 
 // TestRemoteCIBaselineStateMutatorsRejectRepositoryPromotion keeps accepted
-// state initialization at the external generation-one receipt boundary.
+// state initialization at the normal run/hook generation-one bootstrap boundary.
 func TestRemoteCIBaselineStateMutatorsRejectRepositoryPromotion(t *testing.T) {
 	root := findRepoRoot(t)
 	for _, file := range remoteCIProductionFiles(t, root) {
@@ -569,7 +573,7 @@ func TestRemoteCIECIRequestsBindAcceptedSnapshot(t *testing.T) {
 }
 
 // TestRemoteCILegacyRefreshWritersAreAbsent prevents a direct ImageCache
-// promotion or baseline-state write from bypassing the refresh lease CAS.
+// promotion or baseline-state write from bypassing the single bootstrap writer.
 func TestRemoteCILegacyRefreshWritersAreAbsent(t *testing.T) {
 	root := findRepoRoot(t)
 	for _, file := range remoteCIProductionFiles(t, root) {
@@ -646,16 +650,20 @@ func TestRemoteCIExecutorGoBuildCacheSeedsRequireGenerations(t *testing.T) {
 	}
 }
 
-// TestGenerationOneProvisionReceiptFieldGuard binds the provision-only check
-// catalogue, receipt JSON field, and command importer to one strict boundary.
+// TestGenerationOneProvisionReceiptFieldGuard binds the ECI check catalogue,
+// receipt JSON field, and normal run/hook bootstrap to one strict boundary.
 func TestGenerationOneProvisionReceiptFieldGuard(t *testing.T) {
 	root := findRepoRoot(t)
 	receiptPath := filepath.Join(root, "internal", "devtools", "cicontract", "generation_one.go")
 	contractPath := filepath.Join(root, "internal", "devtools", "cicontract", "contract.go")
 	importerPath := filepath.Join(root, "cmd", "super-dolphin-gate", "remote_provision_generation_one.go")
+	configPath := filepath.Join(root, "cmd", "super-dolphin-gate", "remote_run_config.go")
+	baselinePath := filepath.Join(root, "internal", "devtools", "remoteci", "baseline_state.go")
 	if !remoteCITypeHasJSONField(parseRemoteCIContractGuardFile(t, receiptPath), "GenerationOneProvisionReceipt", "ProvisionChecks", "provision_checks") {
 		t.Fatal("generation-one provision receipt must declare ProvisionChecks with JSON field provision_checks")
 	}
+	receiptFile := parseRemoteCIContractGuardFile(t, receiptPath)
+	assertRemoteCIJSONFields(t, receiptFile, "GenerationOneProvisionReceipt", [][2]string{{"ExecutionProvider", "execution_provider"}, {"RegionID", "region_id"}})
 	contractSource := readRemoteCIContractGuardFile(t, contractPath)
 	for _, required := range []string{"type ProvisionCheck string", "type ProvisionCheckObservation struct"} {
 		if !strings.Contains(contractSource, required) {
@@ -665,13 +673,85 @@ func TestGenerationOneProvisionReceiptFieldGuard(t *testing.T) {
 	if strings.Contains(contractSource, "RefreshCheck") {
 		t.Fatal("generation-one provision content contract must not retain refresh-named checks")
 	}
+	contractFile := parseRemoteCIContractGuardFile(t, contractPath)
+	assertRemoteCIJSONFields(t, contractFile, "ProvisionCheckObservation", [][2]string{{"ExecutionProvider", "execution_provider"}, {"RegionID", "region_id"}, {"ContainerGroupID", "container_group_id"}, {"ContainerName", "container_name"}})
+	baselineFile := parseRemoteCIContractGuardFile(t, baselinePath)
+	assertRemoteCIJSONFields(t, baselineFile, "BaselineState", [][2]string{{"ExecutionProvider", "execution_provider"}, {"RegionID", "region_id"}})
+	configFile := parseRemoteCIContractGuardFile(t, configPath)
+	assertRemoteCIJSONFields(t, configFile, "remoteRunConfig", [][2]string{{"GenerationOneProvision", "generation_one_provision,omitempty"}})
 	importer := parseRemoteCIContractGuardFile(t, importerPath)
-	if !remoteCIFunctionHasSelector(importer, "loadRemoteGenerationOneProvisionInput", "cicontract", "ValidateGenerationOneProvisionChecks") {
-		t.Fatal("generation-one provision importer must validate provision checks")
+	if !remoteCIFunctionHasSelector(importer, "configuredRemoteGenerationOneProvision", "cicontract", "ValidateGenerationOneProvisionChecks") {
+		t.Fatal("generation-one normal bootstrap must validate provision checks")
 	}
+	if !strings.Contains(readRemoteCIContractGuardFile(t, importerPath), ".DescribeContainerGroups(") {
+		t.Fatal("generation-one normal bootstrap must verify live Alibaba Cloud ECI container groups")
+	}
+	assertGenerationOneNormalBootstrapPath(t, root, importer)
+	assertImageMaterialCannotProduceAuthority(t, root)
 	missingField := remoteCIParseGuardFixture(t, "package fixture\ntype GenerationOneProvisionReceipt struct { ReceiptSHA256 string `json:\"receipt_sha256\"` }\n")
 	if remoteCITypeHasJSONField(missingField, "GenerationOneProvisionReceipt", "ProvisionChecks", "provision_checks") {
 		t.Fatal("generation-one provision receipt field guard accepted a fixture without provision_checks")
+	}
+}
+
+func assertGenerationOneNormalBootstrapPath(t *testing.T, root string, importer *ast.File) {
+	t.Helper()
+	runPath := filepath.Join(root, "cmd", "super-dolphin-gate", "remote_run.go")
+	runSource := readRemoteCIContractGuardFile(t, runPath)
+	runFile := parseRemoteCIContractGuardFile(t, runPath)
+	if !remoteCIFunctionCalls(runFile, "loadRunnableRemoteRunState", "initializeConfiguredRemoteGenerationOne") ||
+		!remoteCIFunctionCalls(runFile, "loadRunnableRemoteRunState", "loadAcceptedRemoteBaseline") {
+		t.Fatal("normal run/hook loader must own empty-SQLite generation-one bootstrap")
+	}
+	for _, forbidden := range []string{"runRemoteGenerationOneProvision", "parseRemoteGenerationOneProvisionOptions", "readGenerationOneProvisionReceipt"} {
+		if strings.Contains(runSource, forbidden) || remoteCIFunctionExists(importer, forbidden) {
+			t.Fatalf("standalone generation-one command helper %q must remain deleted", forbidden)
+		}
+	}
+	assertGenerationOneAcceptedWriterIsUnique(t, root)
+	hookFile := parseRemoteCIContractGuardFile(t, filepath.Join(root, "cmd", "super-dolphin-gate", "remote_baseline_source.go"))
+	for _, function := range []string{"runRemotePreCommitHook", "runRemotePrePushRequest"} {
+		if !remoteCIFunctionCalls(hookFile, function, "executeRemoteRun") {
+			t.Fatalf("%s must share the normal run generation-one loader", function)
+		}
+	}
+}
+
+func assertGenerationOneAcceptedWriterIsUnique(t *testing.T, root string) {
+	t.Helper()
+	writerCalls := 0
+	for _, file := range remoteCIProductionFiles(t, root) {
+		writerCalls += remoteCIFunctionCallCount(parseRemoteCIContractGuardFile(t, file), "InitializeRemoteBaselineGenerationOne")
+	}
+	importer := readRemoteCIContractGuardFile(t, filepath.Join(root, "cmd", "super-dolphin-gate", "remote_provision_generation_one.go"))
+	if writerCalls != 1 || !strings.Contains(importer, ".InitializeRemoteBaselineGenerationOne(") {
+		t.Fatalf("generation-one accepted SQLite writer calls = %d, want the configured normal bootstrap as the only caller", writerCalls)
+	}
+}
+
+func assertImageMaterialCannotProduceAuthority(t *testing.T, root string) {
+	t.Helper()
+	for _, path := range []string{filepath.Join(root, "build", "gate", "closure", "closure.go"), filepath.Join(root, "build", "gate", "Dockerfile")} {
+		source := readRemoteCIContractGuardFile(t, path)
+		for _, required := range []string{cicontract.CacheMaterialSchemaID, cicontract.CacheMaterialAuthority, "seed_steps"} {
+			if !strings.Contains(source, required) {
+				t.Fatalf("non-ECI image material path %s is missing non-authoritative marker %q", path, required)
+			}
+		}
+		for _, forbidden := range []string{"record_provision_check", "generation-one-build-receipt", "generation-one-receipts", "provision_checks", "accepted_snapshot_id", "generation-one-compiled-seed/v1", `"checks"`} {
+			if strings.Contains(source, forbidden) {
+				t.Fatalf("non-ECI image material path %s must not produce authority marker %q", path, forbidden)
+			}
+		}
+	}
+}
+
+func assertRemoteCIJSONFields(t *testing.T, file *ast.File, typeName string, fields [][2]string) {
+	t.Helper()
+	for _, field := range fields {
+		if !remoteCITypeHasJSONField(file, typeName, field[0], field[1]) {
+			t.Fatalf("%s must bind ECI field %s as %s", typeName, field[0], field[1])
+		}
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
@@ -71,7 +72,7 @@ func remoteRunTestAcceptedBaselineState(generation uint64) remoteci.BaselineStat
 
 func validRemoteRunConfigJSON() string {
 	return `{
-	  "schema_version": 8,
+	  "schema_version": 9,
   "aliyun_cli": "aliyun",
   "credential_profile": "super-dolphin-ci",
   "region_id": "cn-shenzhen",
@@ -100,7 +101,7 @@ func remoteRunBaselineState(t *testing.T, repository string) remoteci.BaselineSt
 }
 
 func remoteRunRunnerIdentityState() remoteci.BaselineState {
-	return remoteci.BaselineState{Platform: "linux/amd64", PolicyDigest: testRemoteBaselineDigest("remote baseline policy"), ToolchainDigest: testRemoteBaselineDigest("remote baseline toolchain"), RuntimeImage: "registry.example/runtime@" + testRemoteBaselineDigest("remote baseline runtime image"), GateBinarySHA256: testRemoteBaselineDigest("remote baseline gate binary"), RuntimeSeedSHA256: testRemoteBaselineDigest("remote baseline runtime seed"), BaselineManifestDigest: testRemoteBaselineDigest("remote baseline manifest")}
+	return remoteci.BaselineState{ExecutionProvider: cicontract.ExecutionProviderID, RegionID: "cn-shenzhen", Platform: "linux/amd64", PolicyDigest: testRemoteBaselineDigest("remote baseline policy"), ToolchainDigest: testRemoteBaselineDigest("remote baseline toolchain"), RuntimeImage: "registry.example/runtime@" + testRemoteBaselineDigest("remote baseline runtime image"), GateBinarySHA256: testRemoteBaselineDigest("remote baseline gate binary"), RuntimeSeedSHA256: testRemoteBaselineDigest("remote baseline runtime seed"), BaselineManifestDigest: testRemoteBaselineDigest("remote baseline manifest")}
 }
 
 // testRemoteBaselineDigest keeps baseline fixtures bound to deterministic SHA-256 values.

@@ -16,16 +16,25 @@ import (
 
 const (
 	// ID 是文档与代码共同使用的远程 CI 契约身份。
-	ID = "remote-ci-eci-imagecache/v1"
+	ID = "remote-ci-aliyun-eci-imagecache/v2"
 	// DocumentPath 是 Accepted 文档契约的仓库相对路径。
 	DocumentPath = "docs/契约/remote-ci-eci-imagecache-contract.md"
 	// ExecutionPathID 标识唯一正常 CI 执行路径。
-	ExecutionPathID = "accepted-sqlite-imagecache-snapshot-eci-shards/v1"
-	// GenerationOneReceiptImportPathID 标识唯一允许写入 accepted singleton 的外部首代严格回执导入。
-	// 仓库内 normal CI 只消费 accepted snapshot；不得实现 successor refresh executor。
-	GenerationOneReceiptImportPathID = "external-eci-imagecache-generation-one-strict-receipt-import/v1"
-	// SQLAuthorityID 标识 accepted state、刷新、规划、回执和校准共用的唯一数据源。
+	ExecutionPathID = "sqlite-generation-one-bootstrap-or-accepted-imagecache-snapshot-aliyun-eci-shards/v2"
+	// ExecutionProviderID 冻结远程 CI 唯一执行与验收提供方；不得抽象或降级到其他容器平台。
+	ExecutionProviderID = "aliyun-eci/v1"
+	// GenerationOneBootstrapPathID 标识 normal run/hook 在空 singleton 时消费配置 strict ECI receipt 的唯一首代路径。
+	// 非空 singleton 与所有后续代仍只消费 accepted snapshot；不得实现 successor refresh executor。
+	GenerationOneBootstrapPathID = "normal-run-hook-configured-aliyun-eci-generation-one-strict-receipt-bootstrap/v1"
+	// SQLAuthorityID 标识 accepted state、规划、回执和校准共用的唯一数据源。
 	SQLAuthorityID = "duration-ledger-sqlite/v1"
+	// CacheMaterialSchemaID 标识 OCI 构建阶段可生成的非权威缓存材料 manifest。
+	// 它只描述将被阿里云 ECI ImageCache 消费的镜像内容，绝不是 CI 或首代检查回执。
+	CacheMaterialSchemaID = "remote-ci-cache-material/v1"
+	// CacheMaterialAuthority 冻结缓存材料不得进入任何 authoritative receipt 或 SQLite PASS 路径。
+	CacheMaterialAuthority = "non_authoritative_material"
+	// BaselineStateSchemaVersion 是 accepted baseline JSON wire schema 的唯一版本 owner。
+	BaselineStateSchemaVersion uint32 = 13
 
 	// SourceBaselineRepositoryPath 是 accepted ImageCache 中唯一可复用的 Git
 	// baseline object store。它只包含 RunnerBaseTree 的 tree/blob closure 和
@@ -49,7 +58,7 @@ const (
 	// 才能按 SQLite LPT 计划创建并发 shards 的唯一顺序边界。
 	SourceAssetsUploadBarrier = "source-bundle-and-strict-manifest-before-lpt-shards/v1"
 
-	// TargetPlatform 是远程 CI 和基准刷新的唯一生产目标平台。
+	// TargetPlatform 是远程 CI 与外部供给物料的唯一生产目标平台。
 	TargetPlatform = "linux/amd64"
 	// GoToolchainVersion 是基准镜像和候选编译唯一接受的 Go 发行版。
 	GoToolchainVersion = "go1.26.5"
@@ -222,6 +231,10 @@ const (
 // 它不得被解释为 normal CI PASS，也不得授权仓库创建 successor ImageCache。
 type ProvisionCheckObservation struct {
 	Check                         ProvisionCheck `json:"check"`
+	ExecutionProvider             string         `json:"execution_provider"`
+	RegionID                      string         `json:"region_id"`
+	ContainerGroupID              string         `json:"container_group_id"`
+	ContainerName                 string         `json:"container_name"`
 	Executed                      bool           `json:"executed"`
 	Passed                        bool           `json:"passed"`
 	SourceTree                    string         `json:"source_tree"`
@@ -235,6 +248,21 @@ type ProvisionCheckObservation struct {
 	TestBodyNotApplicable         bool           `json:"test_body_not_applicable"`
 	ReceiptSHA256                 string         `json:"receipt_sha256"`
 }
+
+const (
+	// GenerationOneECITagProvider binds a provision group to the only accepted cloud executor.
+	GenerationOneECITagProvider = "super-dolphin-ci-provider"
+	// GenerationOneECITagImageCache binds a provision group to the exact Ready ImageCache identity.
+	GenerationOneECITagImageCache = "super-dolphin-ci-image-cache"
+	// GenerationOneECITagSnapshot binds a provision group to the Ready ImageCache snapshot under test.
+	GenerationOneECITagSnapshot = "super-dolphin-ci-snapshot"
+	// GenerationOneECITagSourceTree binds a provision group to the exact source tree under test.
+	GenerationOneECITagSourceTree = "super-dolphin-ci-source-tree"
+	// GenerationOneECITagCheck binds a provision group to exactly one generation-one check.
+	GenerationOneECITagCheck = "super-dolphin-ci-provision-check"
+	// GenerationOneECITagPlanDigest binds a provision group to its immutable execution plan.
+	GenerationOneECITagPlanDigest = "super-dolphin-ci-plan-digest"
+)
 
 // SQLDomain 是必须由同一个 duration-ledger SQLite authority 持久化的事实域。
 type SQLDomain string
@@ -284,8 +312,9 @@ type Requirement struct {
 
 var requirements = [...]Requirement{
 	{ID: "1.1", Section: 1, Summary: "基准镜像消费单一 Go 1.26.5 锁，并包含锁定工具、Go module/build cache 与前端依赖/构建 cache", Enforcement: "build closure + runtime manifest + archtest"},
-	{ID: "1.2", Section: 1, Summary: "normal CI 只读 accepted ImageCache explicit snapshot；仓库内不存在 successor refresh executor", Enforcement: "runtime call graph + archtest"},
+	{ID: "1.2", Section: 1, Summary: "normal run/hook 仅在空 singleton 时消费配置 strict ECI receipt 原子首写；非空后只读 accepted explicit snapshot，且不存在 successor refresh executor", Enforcement: "runtime call graph + archtest"},
 	{ID: "1.3", Section: 1, Summary: "hook、job 与动态 shards 无仓库并发上限；index.lock 仅保护 Git index", Enforcement: "cicontract concurrency policy + archtest"},
+	{ID: "1.5", Section: 1, Summary: "远程 CI 的唯一执行与验收提供方是阿里云 ECI；其他环境只能生成 remote-ci-cache-material/v1 且 authority=non_authoritative_material 的缓存物料，不能执行或证明 CI", Enforcement: "provider identity + ECI request/receipt field guard + archtest"},
 	{ID: "1.6", Section: 1, Summary: "100 秒只触发一次目标超限告警；不得取消、中断、kill 或标失败", Enforcement: "planner + non-terminating timing warning"},
 	{ID: "1.7", Section: 1, Summary: "校准运行使用固定且被回执绑定的 CPU 与内存规格", Enforcement: "request + receipt + SQLite"},
 	{ID: "1.8", Section: 1, Summary: "运行以真实起止和 duration_ms 分别记录物化、编译、启动、测试、总耗时、缓存与等待；并发聚合使用精确 interval union", Enforcement: "receipt + SQLite timing ledger"},
@@ -295,16 +324,16 @@ var requirements = [...]Requirement{
 	{ID: "2.3", Section: 2, Summary: "候选源码和 Gate 编译分别绑定 exact Git identity 与真实传递编译闭包", Enforcement: "materializer + receipt"},
 	{ID: "2.4", Section: 2, Summary: "严格 JSON 仅作协议编码，OSS 仅作内容寻址传输，二者均非权威", Enforcement: "strict decoders + archtest"},
 	{ID: "2.5", Section: 2, Summary: "accepted state、check receipts、timing 与 warnings 只写同一个 SQLite authority", Enforcement: "SQLite schema + receipt store"},
-	{ID: "2.6", Section: 2, Summary: "generation-one 只能导入外部严格 receipt；normal CI 和仓库内代码不得创建或晋级 ImageCache", Enforcement: "strict receipt boundary + archtest"},
+	{ID: "2.6", Section: 2, Summary: "generation-one 只能由 normal run/hook 消费配置中的外部严格 ECI receipt；仓库内代码不得创建或晋级 ImageCache", Enforcement: "strict receipt boundary + archtest"},
 	{ID: "2.7", Section: 2, Summary: "无 token 请求只返回 --agent-token=issue 与 env=issue 申请方式和实际 token 的 flag/env 使用方式；仅单一显式 issue 才签发 raw token，前两阶段均不执行 CI/ECI；git hook 无状态且只继承/验证实际 env token，跨 SQLite/OSS/ECI/log/tag/checkpoint/receipt 只传 sha256 digest", Enforcement: "agent-token contract + field guard + archtest"},
-	{ID: "2.8", Section: 2, Summary: "首次读取缺失的 SQLite authority 只原子初始化 current schema 与查询索引；不得生成 accepted baseline，缺少 generation-one 仍 fail-fast", Enforcement: "SQLite initializer + baseline store test"},
+	{ID: "2.8", Section: 2, Summary: "首次读取缺失 SQLite 时原子初始化 schema/index；normal run/hook 仅凭显式 strict ECI receipt 原子首写 baseline 与账本元数据，缺失或漂移仍 fail-fast", Enforcement: "SQLite initializer + generation-one bootstrap test"},
 	{ID: "3.1", Section: 3, Summary: "正常 CI 唯一路径为 accepted SQLite 到 LPT 到无上限并发 ECI shards", Enforcement: "runtime call graph + archtest"},
 	{ID: "3.2", Section: 3, Summary: "正常 shard 显式绑定 accepted snapshot，禁止 AutoMatch 选择", Enforcement: "ECI request validation"},
 	{ID: "3.3", Section: 3, Summary: "候选 Gate 在 exact candidate tree 内增量编译，cache hit 不跳过身份验证", Enforcement: "materializer + receipt"},
 	{ID: "3.4", Section: 3, Summary: "工具链、依赖、浏览器与缓存只直读 accepted ImageCache 镜像层；ECI request 只能有 source/work/temp 三个 EmptyDir，禁止 FlexVolume/OSS bootstrap、expanded-data、DataCache、缓存卷、subPath 或逐 shard 复制展开；node_modules 与 Vite cache 必须链接镜像层，dist 不得冒充 cache；Dockerfile/seed worker 只作配方审计且不得改变依赖内容 identity，依赖不变必须复用上一代 runtime 镜像", Enforcement: "ECI request shape + stable dependency identity + image closure + executor seed behavior + archtest"},
 	{ID: "3.5", Section: 3, Summary: "accepted ImageCache 在 /opt/super-dolphin-gate/source-baseline.git 提供 RunnerBaseTree 的 tree/blob closure 与确定性无 parent baseline commit；每次 CI 只上传标准 v2 git-bundle-thin，bundle 由 tree=候选、唯一 parent=baseline 的确定性 transport commit 相对 baseline 生成且 header 恰好一个 prerequisite；严禁自包含/full fallback/raw whole repo，bundle 与 strict manifest 完整上传后才按 SQLite LPT 创建全部并发 shards", Enforcement: "source baseline + deterministic transport commit + strict bundle/manifest verifier + upload barrier + archtest"},
-	{ID: "4.1", Section: 4, Summary: "唯一写 accepted singleton 的路径是 external generation-one strict receipt import；它绑定 generation=1、state SHA、Ready snapshot、immutable image、源码/工具链/策略/seed 与固定规格", Enforcement: "receipt validation + SQLite INSERT + archtest"},
-	{ID: "4.2", Section: 4, Summary: "导入只允许空 singleton 原子 INSERT；重复、非空、缺字段或非首代 receipt 必须 fail-fast", Enforcement: "strict import boundary"},
+	{ID: "4.1", Section: 4, Summary: "唯一写 accepted singleton 的路径是 normal run/hook 空库 bootstrap；首写前必须消费配置 strict receipt 并实时 Describe 阿里云 ECI cache/container groups，绑定 provider、region、唯一 group/container、Ready snapshot、immutable image、tags、零退出、真实时间、generation=1、state SHA、源码/工具链/策略/seed 与固定规格", Enforcement: "receipt validation + live ECI API verification + SQLite INSERT + archtest"},
+	{ID: "4.2", Section: 4, Summary: "首写只允许空 singleton 原子 INSERT baseline 与账本元数据；同态并发幂等收敛，异态、非空、缺字段或非首代 receipt 必须 fail-fast", Enforcement: "strict bootstrap boundary"},
 	{ID: "4.3", Section: 4, Summary: "仓库内禁止 refresh command、BuildKit publish、output_repository、CreateImageCache writer、candidate reservation 与 CAS promotion", Enforcement: "deletion + archtest"},
 	{ID: "5.1", Section: 5, Summary: "shard 数只受可分片原子 workload 数量限制", Enforcement: "LPT planner + archtest"}, {ID: "5.2", Section: 5, Summary: "云配额与 API 限流必须显式失败，不得静默降并发或转本地", Enforcement: "runtime + archtest"},
 	{ID: "6.1", Section: 6, Summary: "固定校准规格贯穿 RunInput、ShardRequest、receipt、SQLite 与 checkpoint identity", Enforcement: "field guard + store"},
@@ -313,7 +342,7 @@ var requirements = [...]Requirement{
 	{ID: "7.2", Section: 7, Summary: "账本证明 workload 实际 executed miss 或严格 reused hit，并记录 canonical reuse proof 与仅用于加速的 Go cache、前端 seed/Vite cache 证据", Enforcement: "receipt + ledger renderer"},
 	{ID: "7.3", Section: 7, Summary: "不适用阶段写 not_applicable，缺失应有观测拒绝 authoritative receipt", Enforcement: "receipt validation"},
 	{ID: "7.4", Section: 7, Summary: "100 秒告警固定 warn_and_continue；不得 cancel、kill 或 fail shard", Enforcement: "warning-action validation + archtest"},
-	{ID: "8.1", Section: 8, Summary: "DataCache、旧 bundle、本地 Docker、ACR、JSON truth、第二 executor 与隐式 fallback 禁止存在", Enforcement: "deletion + archtest"},
+	{ID: "8.1", Section: 8, Summary: "DataCache、旧 bundle、本地 Docker、ACR、JSON truth、通用/第二 provider executor 与隐式 fallback 禁止存在；非 ECI 构建日志不得冒充 CI receipt", Enforcement: "deletion + archtest"},
 	{ID: "8.2", Section: 8, Summary: "固定 shard 数、并发上限、自动全量重建及任何仓库内 successor refresh executor 禁止存在", Enforcement: "deletion + archtest"},
 	{ID: "9.1", Section: 9, Summary: "变更必须闭合 LSP、字段链、状态矩阵、守卫和变更面测试", Enforcement: "repository gates"},
 	{ID: "9.2", Section: 9, Summary: "远程验收绑定同一 candidate tree、generation、snapshot、资源与完整账本", Enforcement: "authoritative receipt"}, {ID: "9.3", Section: 9, Summary: "非 authoritative 结果保持 NOT_VERIFIED，warm CI 超过 100 秒继续优化", Enforcement: "remote acceptance"},
@@ -323,6 +352,8 @@ var requirements = [...]Requirement{
 var forbiddenLegacyCapabilities = [...]string{
 	"DataCache/Anchor/Delta/direct-cache/zstd bundle",
 	"local Docker/Docker Desktop/buildx/localci",
+	"Docker/BuildKit/GitHub Actions/Kubernetes/other-cloud or local-container CI executor and authoritative receipt",
+	"generic provider abstraction or non-Aliyun-ECI execution fallback",
 	"ACR-specific auth/role/registry access/repository",
 	"JSON baseline or ledger truth source and compatibility dual-read",
 	"candidate CLI artifact builder/candidate test-binary builder/second executor",
@@ -566,10 +597,29 @@ func isCanonicalSHA256(value string) bool {
 	return true
 }
 
-// ValidateTargetPlatform 拒绝非 linux/amd64 的远程 CI 或刷新目标。
+// ValidateTargetPlatform 拒绝非 linux/amd64 的远程 CI 或外部供给物料目标。
 func ValidateTargetPlatform(platform string) error {
 	if platform != TargetPlatform {
 		return fmt.Errorf("remote CI platform must equal %q", TargetPlatform)
+	}
+	return nil
+}
+
+// ValidateExecutionProvider 拒绝任何非阿里云 ECI 的远程 CI 执行或验收身份。
+func ValidateExecutionProvider(provider string) error {
+	if provider != ExecutionProviderID {
+		return fmt.Errorf("remote CI execution provider %q is not the accepted Alibaba Cloud ECI provider", provider)
+	}
+	return nil
+}
+
+// ValidateAcceptedBaselineProjection 锁定读取侧最小投影也必须属于当前阿里云 ECI schema 与明确 region。
+func ValidateAcceptedBaselineProjection(schemaVersion uint32, provider, regionID string) error {
+	if schemaVersion != BaselineStateSchemaVersion {
+		return fmt.Errorf("remote baseline state schema %d is not accepted schema %d", schemaVersion, BaselineStateSchemaVersion)
+	}
+	if provider != ExecutionProviderID || strings.TrimSpace(regionID) == "" || regionID != strings.TrimSpace(regionID) {
+		return errors.New("remote baseline projection must bind the Alibaba Cloud ECI provider and one explicit region")
 	}
 	return nil
 }
@@ -661,11 +711,11 @@ func CanonicalMarkdown() string {
 // CanonicalRetentionMarkdown 返回 accepted 文档必须逐字嵌入的有界增长策略。
 func CanonicalRetentionMarkdown() string {
 	return fmt.Sprintf(`<!-- cicontract:retention:begin -->
-%[1]s 是唯一 retention 常量 owner。duration samples、catalog observations、runs、strict workload PASS evidence 与 calibration checkpoints 五个历史根都必须绑定已验证的 accepted baseline generation；每个根写事务必须先读取同一 SQLite authority 的 accepted singleton，拒绝零值、无 authority、无效 authority 与晚于当前 accepted generation 的伪造未来代。refresh 只能逐代晋级，因此已启动旧代运行仍可在完成时写入。五个根的 distinct generation 并集按数值确定全库唯一保留集合，任何根都不得保留该集合之外的数据。每一代可包含任意数量的 workload、sample、shard、timing、receipt 或 scenario，禁止用固定行数限制代码和测试增长。SQLite 只保留最新 %[2]d 个有数据的 generation；第四个有数据代首次成功写入时，必须在同一事务内淘汰最老一代全部历史根及其 cascade 子数据。
+%[1]s 是唯一 retention 常量 owner。duration samples、catalog observations、runs、strict workload PASS evidence 与 calibration checkpoints 五个历史根都必须绑定已验证的 accepted baseline generation；每个根写事务必须先读取同一 SQLite authority 的 accepted singleton，拒绝零值、无 authority、无效 authority 与晚于当前 accepted generation 的伪造未来代。已启动的旧 accepted generation 运行仍可在完成时写入。五个根的 distinct generation 并集按数值确定全库唯一保留集合，任何根都不得保留该集合之外的数据。每一代可包含任意数量的 workload、sample、shard、timing、receipt 或 scenario，禁止用固定行数限制代码和测试增长。SQLite 只保留最新 %[2]d 个有数据的 generation；第四个有数据代首次成功写入时，必须在同一事务内淘汰最老一代全部历史根及其 cascade 子数据。
 
 100 秒结构化 timing warning 只能沿同一 SQLite authority 的互斥生命周期流转：ci_live_timing_warnings 只暂存仍在运行的 provider StartTime 事实，run finalizer 必须在同一事务精确吸收到 ci_run_timing_warnings 并删除对应 live 行；不得预写或伪造 ci_runs 失败终态，也不得让 live 与 final 行同时存在。live 表不是第六个历史根或第二真相源，不参与五根 generation 并集；唯一 compactor 必须按已校验 accepted singleton 的 current/current-2 数值窗口保留 active 行并清理崩溃残留。
 
-唯一 compactDurationLedgerAuthority 只能在既有成功写事务的 commit 前同步调用，禁止 timer、goroutine、后台 GC 或第二入口。generation 按数值排序，不能用行数、时间戳或插入顺序冒充；无法证明 generation 的旧行必须 fail-fast 或经显式迁移，不能默认绑定当前代。删除旧 run 依靠 FK cascade 同步删除 requester、shard/workload、execution、timing、warning、delta 与 receipt；删除旧 checkpoint 同步删除任意数量 scenario；catalog 内容只有在不再被保留代 observation/run 引用时才能删除。accepted baseline 与 refresh lease 是当前状态 singleton，duration meta/calibration、query meta 和源码枚举的 schema migration registry 不是历史代，不参与淘汰。
+唯一 compactDurationLedgerAuthority 只能在既有成功写事务的 commit 前同步调用，禁止 timer、goroutine、后台 GC 或第二入口。generation 按数值排序，不能用行数、时间戳或插入顺序冒充；无法证明 generation 的旧行必须 fail-fast 或经显式迁移，不能默认绑定当前代。删除旧 run 依靠 FK cascade 同步删除 requester、shard/workload、execution、timing、warning 与 receipt；删除旧 checkpoint 同步删除任意数量 scenario；catalog 内容只有在不再被保留代 observation/run 引用时才能删除。accepted baseline 是当前状态 singleton，duration meta/calibration、query meta 和源码枚举的 schema migration registry 不是历史代，不参与淘汰。
 <!-- cicontract:retention:end -->`, "`cicontract`", RetentionGenerations)
 }
 
@@ -690,7 +740,7 @@ func Validate() error {
 
 // validateContractIdentity 校验代码契约的稳定身份与唯一 owner 路径均已定义。
 func validateContractIdentity() error {
-	values := []string{ID, DocumentPath, ExecutionPathID, GenerationOneReceiptImportPathID, SQLAuthorityID}
+	values := []string{ID, DocumentPath, ExecutionPathID, ExecutionProviderID, GenerationOneBootstrapPathID, SQLAuthorityID, CacheMaterialSchemaID, CacheMaterialAuthority}
 	if slices.Contains(values, "") {
 		return errors.New("remote CI contract identity is incomplete")
 	}
@@ -699,7 +749,11 @@ func validateContractIdentity() error {
 
 // validateContractConstants 校验固定平台、时长、保留和并发常量。
 func validateContractConstants() error {
+	if CacheMaterialSchemaID != "remote-ci-cache-material/v1" || CacheMaterialAuthority != "non_authoritative_material" {
+		return errors.New("remote CI cache material authority contract drifted")
+	}
 	for _, validate := range []func() error{
+		func() error { return ValidateExecutionProvider(ExecutionProviderID) },
 		func() error { return ValidateTargetPlatform(TargetPlatform) },
 		func() error { return ValidateGoToolchainVersion(GoToolchainVersion) },
 		func() error { return ValidateShardTargetDuration(ShardTargetDuration) },

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
 func TestBaselineStateOCIOnlyRoundTrip(t *testing.T) {
@@ -68,10 +70,10 @@ func TestBaselineStateAcceptsECIImageCacheIdentity(t *testing.T) {
 }
 
 func TestBaselineStateFieldRegistry(t *testing.T) {
-	if BaselineStateSchemaVersion != 12 {
+	if BaselineStateSchemaVersion != 13 {
 		t.Fatalf("BaselineStateSchemaVersion = %d", BaselineStateSchemaVersion)
 	}
-	assertBaselineFields(t, reflect.TypeFor[BaselineState](), []string{"SchemaVersion", "Generation", "MainCommit", "MainTree", "Platform", "PolicyDigest", "ToolchainDigest", "RuntimeImage", "ImageCacheID", "ImageCacheSnapshotID", "ImageCacheReady", "ImageDigest", "OCIProjectCache", "GateBinarySHA256", "RuntimeSeedSHA256", "BaselineManifestDigest", "CreatedAt", "AcceptedAt", "RenewedAt"})
+	assertBaselineFields(t, reflect.TypeFor[BaselineState](), []string{"SchemaVersion", "Generation", "ExecutionProvider", "RegionID", "MainCommit", "MainTree", "Platform", "PolicyDigest", "ToolchainDigest", "RuntimeImage", "ImageCacheID", "ImageCacheSnapshotID", "ImageCacheReady", "ImageDigest", "OCIProjectCache", "GateBinarySHA256", "RuntimeSeedSHA256", "BaselineManifestDigest", "CreatedAt", "AcceptedAt", "RenewedAt"})
 	assertBaselineFields(t, reflect.TypeFor[BaselineOCIProjectCache](), []string{"Image", "ContentManifestSHA256", "MainTree", "ToolchainDigest", "Platform", "CachePath"})
 }
 
@@ -79,7 +81,7 @@ func validBaselineState() BaselineState {
 	created := time.Date(2026, 8, 2, 1, 0, 0, 0, time.UTC)
 	mainTree, toolchain, runtimeImage := strings.Repeat("b", 40), digest("d"), "registry.example/runtime@"+digest("e")
 	accepted := created.Add(3 * time.Minute)
-	return BaselineState{SchemaVersion: BaselineStateSchemaVersion, Generation: 3, MainCommit: strings.Repeat("a", 40), MainTree: mainTree, Platform: "linux/amd64", PolicyDigest: digest("c"), ToolchainDigest: toolchain, RuntimeImage: runtimeImage, ImageCacheID: "imc-baseline-3", ImageCacheSnapshotID: "snap-baseline-3", ImageCacheReady: true, ImageDigest: digest("e"), OCIProjectCache: validBaselineOCIProjectCache(mainTree, toolchain, "linux/amd64", runtimeImage), GateBinarySHA256: digest("1"), RuntimeSeedSHA256: digest("2"), BaselineManifestDigest: digest("3"), CreatedAt: created, AcceptedAt: accepted, RenewedAt: accepted}
+	return BaselineState{SchemaVersion: BaselineStateSchemaVersion, Generation: 3, ExecutionProvider: cicontract.ExecutionProviderID, RegionID: "cn-shenzhen", MainCommit: strings.Repeat("a", 40), MainTree: mainTree, Platform: "linux/amd64", PolicyDigest: digest("c"), ToolchainDigest: toolchain, RuntimeImage: runtimeImage, ImageCacheID: "imc-baseline-3", ImageCacheSnapshotID: "snap-baseline-3", ImageCacheReady: true, ImageDigest: digest("e"), OCIProjectCache: validBaselineOCIProjectCache(mainTree, toolchain, "linux/amd64", runtimeImage), GateBinarySHA256: digest("1"), RuntimeSeedSHA256: digest("2"), BaselineManifestDigest: digest("3"), CreatedAt: created, AcceptedAt: accepted, RenewedAt: accepted}
 }
 
 func validBaselineOCIProjectCache(mainTree, toolchainDigest, platform, runtimeImage string) *BaselineOCIProjectCache {

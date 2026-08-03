@@ -30,9 +30,40 @@ func TestRemoteCIConcurrencyPolicyHasNoRepositorySerialBoundary(t *testing.T) {
 	}
 }
 
-func TestGenerationOneReceiptImportIsTheOnlyWritePathIdentity(t *testing.T) {
-	if GenerationOneReceiptImportPathID != "external-eci-imagecache-generation-one-strict-receipt-import/v1" {
-		t.Fatalf("GenerationOneReceiptImportPathID = %q", GenerationOneReceiptImportPathID)
+func TestGenerationOneBootstrapIsTheOnlyWritePathIdentity(t *testing.T) {
+	if GenerationOneBootstrapPathID != "normal-run-hook-configured-aliyun-eci-generation-one-strict-receipt-bootstrap/v1" {
+		t.Fatalf("GenerationOneBootstrapPathID = %q", GenerationOneBootstrapPathID)
+	}
+}
+
+func TestOCICacheMaterialCannotClaimECIAuthority(t *testing.T) {
+	if CacheMaterialSchemaID != "remote-ci-cache-material/v1" {
+		t.Fatalf("CacheMaterialSchemaID = %q", CacheMaterialSchemaID)
+	}
+	if CacheMaterialAuthority != "non_authoritative_material" {
+		t.Fatalf("CacheMaterialAuthority = %q", CacheMaterialAuthority)
+	}
+	if strings.Contains(CacheMaterialSchemaID, "generation-one") || strings.Contains(CacheMaterialSchemaID, "receipt") || strings.Contains(CacheMaterialSchemaID, "check") {
+		t.Fatalf("cache material schema must not resemble authoritative evidence: %q", CacheMaterialSchemaID)
+	}
+}
+
+func TestAcceptedBaselineProjectionIsAlibabaECIOnly(t *testing.T) {
+	if err := ValidateAcceptedBaselineProjection(BaselineStateSchemaVersion, ExecutionProviderID, "cn-shenzhen"); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		schema   uint32
+		provider string
+		region   string
+	}{
+		{schema: BaselineStateSchemaVersion - 1, provider: ExecutionProviderID, region: "cn-shenzhen"},
+		{schema: BaselineStateSchemaVersion, provider: "docker/v1", region: "cn-shenzhen"},
+		{schema: BaselineStateSchemaVersion, provider: ExecutionProviderID, region: ""},
+	} {
+		if err := ValidateAcceptedBaselineProjection(test.schema, test.provider, test.region); err == nil {
+			t.Fatalf("projection unexpectedly accepted: %+v", test)
+		}
 	}
 }
 
@@ -104,6 +135,7 @@ func TestContractValidatorsRejectDrift(t *testing.T) {
 		name string
 		err  error
 	}{
+		{name: "execution provider", err: ValidateExecutionProvider("docker/v1")},
 		{name: "platform", err: ValidateTargetPlatform("linux/arm64")},
 		{name: "toolchain", err: ValidateGoToolchainVersion("go1.25.7")},
 		{name: "shard target", err: ValidateShardTargetDuration(99 * time.Second)},
