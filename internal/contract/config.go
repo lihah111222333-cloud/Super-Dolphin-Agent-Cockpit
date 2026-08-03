@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // SkillConfig 保存技能发现和加载时使用的运行配置。
@@ -312,6 +313,7 @@ type LSPConfig struct {
 	ProjectAdapters                  map[string]LSPProjectAdapterConfig
 	DocumentFallbackLanguageIDs      []string
 	DisableInitialWorkspaceBootstrap bool
+	IdleTimeout                      time.Duration
 }
 
 // LSPProjectAdapterConfig 保存单个语言服务的项目发现规则。

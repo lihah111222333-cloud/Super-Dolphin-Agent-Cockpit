@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
@@ -39,25 +40,32 @@ func TestGoLanguageAdapterBoundsSharedDaemonMemory(t *testing.T) {
 
 func TestGoplsRemoteListenTimeoutArgValidatesConfiguration(t *testing.T) {
 	tests := []struct {
-		name    string
-		raw     string
-		want    string
-		wantErr bool
+		name       string
+		idle       time.Duration
+		goos       string
+		want       []string
+		wantErrSub string
 	}{
-		{name: "default", want: defaultGoplsRemoteListenTimeoutArg},
-		{name: "custom", raw: "2500ms", want: "-remote.listen.timeout=2.5s"},
-		{name: "zero", raw: "0", wantErr: true},
-		{name: "invalid", raw: "not-a-duration", wantErr: true},
+		{name: "default", idle: 15 * time.Minute, goos: "darwin", want: []string{goplsRemoteAutoArg, "-remote.listen.timeout=15m0s"}},
+		{name: "custom", idle: 2500 * time.Millisecond, goos: "linux", want: []string{goplsRemoteAutoArg, "-remote.listen.timeout=2.5s"}},
+		{name: "windows", idle: 15 * time.Minute, goos: "windows", want: nil},
+		{name: "zero", idle: 0, goos: "darwin", wantErrSub: "positive"},
+		{name: "negative", idle: -time.Second, goos: "darwin", wantErrSub: "positive"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			t.Setenv(goplsDaemonIdleTimeoutEnv, test.raw)
-			got, err := goplsRemoteListenTimeoutArg()
-			if (err != nil) != test.wantErr {
-				t.Fatalf("goplsRemoteListenTimeoutArg() error = %v, wantErr=%v", err, test.wantErr)
+			got, err := goplsServerArgs(test.idle, test.goos)
+			if test.wantErrSub != "" {
+				if err == nil || !strings.Contains(err.Error(), test.wantErrSub) {
+					t.Fatalf("goplsServerArgs() error = %v, want substring %q", err, test.wantErrSub)
+				}
+				return
 			}
-			if got != test.want {
-				t.Fatalf("goplsRemoteListenTimeoutArg() = %q, want %q", got, test.want)
+			if err != nil {
+				t.Fatalf("goplsServerArgs() error = %v", err)
+			}
+			if !slices.Equal(got, test.want) {
+				t.Fatalf("goplsServerArgs() = %#v, want %#v", got, test.want)
 			}
 		})
 	}
