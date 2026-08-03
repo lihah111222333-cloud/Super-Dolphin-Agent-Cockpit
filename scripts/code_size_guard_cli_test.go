@@ -225,62 +225,6 @@ func TestCanonicalBackendModePropagatesParallelLaneFailure(t *testing.T) {
 	}
 }
 
-func TestTestWithGuardProductionDockerE2ETimeoutContract(t *testing.T) {
-	normalHook := captureTestWithGuardGoTestInvocation(
-		t,
-		"./cmd/super-dolphin-gate",
-		"-run", "^TestProductionProvisionBootstrapOwnerHookDockerE2E$",
-		"-count=1",
-	)
-	if !strings.Contains(normalHook, "-timeout=15m") || strings.Contains(normalHook, "-timeout=40m") {
-		t.Fatalf("normal Docker E2E go test invocation = %q, want only -timeout=15m", normalHook)
-	}
-
-	release := captureTestWithGuardGoTestInvocation(
-		t,
-		"./cmd/super-dolphin-gate",
-		"-run", "^TestProductionProvisionBootstrapOwnerReleaseCLIDockerE2E$",
-		"-count=1",
-	)
-	if !strings.Contains(release, "-timeout=40m") {
-		t.Fatalf("release Docker E2E go test invocation = %q, want -timeout=40m", release)
-	}
-
-	ordinary := captureTestWithGuardGoTestInvocation(
-		t,
-		"./cmd/super-dolphin-gate",
-		"-run", "^TestProductionProvisionExecutionDeadlineObservation$",
-		"-count=1",
-	)
-	if strings.Contains(ordinary, "-timeout") {
-		t.Fatalf("ordinary go test invocation unexpectedly changed timeout: %q", ordinary)
-	}
-
-	nearMiss := captureTestWithGuardGoTestInvocation(
-		t, "./cmd/super-dolphin-gate",
-		"-run", "^TestProductionProvisionBootstrapOwnerHookDockerE2EExtra$",
-		"-count=1",
-	)
-	if strings.Contains(nearMiss, "-timeout") {
-		t.Fatalf("near-miss Docker test unexpectedly received a wrapper timeout: %q", nearMiss)
-	}
-
-	for _, target := range []string{
-		"^TestProductionProvisionBootstrapOwnerHookDockerE2E$",
-		"^TestProductionProvisionBootstrapOwnerReleaseCLIDockerE2E$",
-	} {
-		blocked := runTestWithGuardFakeGo(
-			t, "./cmd/super-dolphin-gate", "-run", target, "-count=1", "-timeout=10m",
-		)
-		if blocked.err == nil || !strings.Contains(blocked.output, "timeout is wrapper-owned") {
-			t.Fatalf("explicit timeout for %s error = %v, output = %q", target, blocked.err, blocked.output)
-		}
-		if strings.Contains(blocked.invocations, "test ./cmd/super-dolphin-gate ") {
-			t.Fatalf("target %s executed despite conflicting timeout:\n%s", target, blocked.invocations)
-		}
-	}
-}
-
 func TestCodeSizeGuardSingleGoFileIsQuietWhenClean(t *testing.T) {
 	path := writeGuardFixture(t, `package sample
 
@@ -510,22 +454,6 @@ func runCodeSizeGuardArgs(t *testing.T, args ...string) codeSizeGuardCLIResult {
 	return result
 }
 
-func captureTestWithGuardGoTestInvocation(t *testing.T, args ...string) string {
-	t.Helper()
-	result := runTestWithGuardFakeGo(t, args...)
-	if result.err != nil {
-		t.Fatalf("run test_with_guard.sh with fake go: %v: %s", result.err, result.output)
-	}
-	for invocation := range strings.SplitSeq(strings.TrimSpace(result.invocations), "\n") {
-		if strings.Contains(invocation, "test ./cmd/super-dolphin-gate ") &&
-			strings.Contains(invocation, args[2]) {
-			return invocation
-		}
-	}
-	t.Fatalf("target go test invocation not found in log:\n%s", result.invocations)
-	return ""
-}
-
 type testWithGuardFakeGoResult struct {
 	invocations string
 	output      string
@@ -557,11 +485,10 @@ func runTestWithGuardFakeGoWithListOutput(t *testing.T, listOutput string, args 
 	environment = upsertEnv(environment, "FAKE_GO_LOG", bashAbsolutePath(logPath))
 	environment = upsertEnv(environment, "FAKE_GO_LIST_OUTPUT", listOutput)
 	environment = upsertEnv(environment, "FAKE_GO_FAIL_PATTERN", os.Getenv("FAKE_GO_FAIL_PATTERN"))
-	environment = upsertEnv(environment, "SUPER_DOLPHIN_GATE_PRODUCTION_DOCKER_E2E", "1")
 	environment = upsertEnv(environment, "SUPER_DOLPHIN_TEST_BACKEND", "remote-worker")
 	cmd.Env = appendWSLEnvKeysWithGitWorktree(
 		t, environment, "REAL_GO_BIN", "FAKE_GO_LOG", "FAKE_GO_LIST_OUTPUT", "FAKE_GO_FAIL_PATTERN",
-		"SUPER_DOLPHIN_GATE_PRODUCTION_DOCKER_E2E", "SUPER_DOLPHIN_TEST_BACKEND",
+		"SUPER_DOLPHIN_TEST_BACKEND",
 	)
 	output, runErr := cmd.CombinedOutput()
 	data, err := os.ReadFile(logPath)

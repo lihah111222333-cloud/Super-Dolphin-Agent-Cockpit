@@ -56,6 +56,7 @@ func (f *fakeCommandRunner) Run(_ context.Context, name string, args ...string) 
 }
 
 func TestClient_ECIOperations(t *testing.T) {
+	const acceptedImageCacheID = "imc-audit-only-1"
 	runner := &fakeCommandRunner{responses: [][]byte{
 		[]byte(`{"ContainerGroupId":"eci-created"}`),
 		[]byte(`{"ContainerGroups":[{"ContainerGroupId":"eci-created","ContainerGroupName":"shard-1","Status":"Running"}]}`),
@@ -64,6 +65,7 @@ func TestClient_ECIOperations(t *testing.T) {
 	}}
 	client := newTestClient(t, runner)
 	request := validCreateRequest()
+	request.ImageCacheSnapshotID = "snap-runtime-1"
 	request.Environment = map[string]string{"Z_LAST": "z-value", "A_FIRST": "a-value"}
 	request.Tags = map[string]string{"z-last": "z-value", "a-first": "a-value"}
 	created, err := client.CreateContainerGroup(context.Background(), request)
@@ -87,12 +89,16 @@ func TestClient_ECIOperations(t *testing.T) {
 		}
 	}
 	for _, pair := range [][]string{
+		{"--ImageSnapshotId", request.ImageCacheSnapshotID},
 		{"--Container.1.Image", request.MainImage},
 		{"--InitContainer.1.Image", request.InitImage},
 	} {
 		if !containsArgumentPair(runner.calls[0], pair[0], pair[1]) {
 			t.Fatalf("CreateContainerGroup call missing explicit image %v: %#v", pair, runner.calls[0])
 		}
+	}
+	if slices.Contains(runner.calls[0], acceptedImageCacheID) {
+		t.Fatalf("CreateContainerGroup passed ImageCacheID to the CLI: %#v", runner.calls[0])
 	}
 }
 
@@ -142,6 +148,17 @@ func TestClientCreateContainerGroupEncodesOCIMaterializerTempVolume(t *testing.T
 	}
 }
 
+// TestClientCreateContainerGroupAcceptsECIImageCacheIdentity 覆盖 ECI ImageCache 返回的不可变镜像身份。
+func TestClientCreateContainerGroupAcceptsECIImageCacheIdentity(t *testing.T) {
+	runner := &fakeCommandRunner{responses: [][]byte{[]byte(`{"ContainerGroupId":"eci-created"}`)}}
+	request := validCreateRequest()
+	image := "ac2-registry.cn-hangzhou.cr.aliyuncs.com/ac2/base@sha256:" + strings.Repeat("a", 64)
+	request.MainImage, request.InitImage = image, image
+	if _, err := newTestClient(t, runner).CreateContainerGroup(context.Background(), request); err != nil {
+		t.Fatalf("CreateContainerGroup() rejected ECI ImageCache identity: %v", err)
+	}
+}
+
 func TestClientCreateContainerGroupEncodesCurrentGateOSSVolume(t *testing.T) {
 	runner := &fakeCommandRunner{responses: [][]byte{[]byte(`{"ContainerGroupId":"eci-created"}`)}}
 	client := newTestClient(t, runner)
@@ -179,7 +196,7 @@ func TestClientCreateContainerGroupEncodesCurrentGateOSSVolume(t *testing.T) {
 
 func TestClient_DescribeContainerGroupsDecodesTerminalDiagnostics(t *testing.T) {
 	runner := &fakeCommandRunner{responses: [][]byte{
-		[]byte(`{"ContainerGroups":[{"ContainerGroupId":"eci-created","ContainerGroupName":"shard-1","Status":"Failed","Containers":[{"Name":"worker","CurrentState":{"State":"Terminated","ExitCode":137,"Reason":"OOMKilled","Message":"memory limit exceeded"}}],"Events":[{"Type":"Warning","Reason":"BackOff","Message":"worker exited","Count":2,"LastTimestamp":"2026-07-27T08:00:00Z"}]}]}`),
+		[]byte(`{"ContainerGroups":[{"ContainerGroupId":"eci-created","ContainerGroupName":"shard-1","Status":"Failed","CreationTime":"2026-07-27T07:59:00Z","FailedTime":"2026-07-27T08:00:00Z","Containers":[{"Name":"worker","CurrentState":{"State":"Terminated","StartTime":"2026-07-27T07:59:10Z","FinishTime":"2026-07-27T08:00:00Z","ExitCode":137,"Reason":"OOMKilled","Message":"memory limit exceeded"}}],"InitContainers":[{"Name":"materializer","CurrentState":{"State":"Terminated","StartTime":"2026-07-27T07:59:01Z","FinishTime":"2026-07-27T07:59:09Z"}}],"Events":[{"Type":"Warning","Reason":"BackOff","Message":"worker exited","Count":2,"LastTimestamp":"2026-07-27T08:00:00Z"}]}]}`),
 	}}
 	client := newTestClient(t, runner)
 	groups, err := client.DescribeContainerGroups(context.Background(), "eci-created")
@@ -188,18 +205,23 @@ func TestClient_DescribeContainerGroupsDecodesTerminalDiagnostics(t *testing.T) 
 	}
 	exitCode := int64(137)
 	want := []ContainerGroup{{
-		ID:     "eci-created",
-		Name:   "shard-1",
-		Status: "Failed",
+		ID:           "eci-created",
+		Name:         "shard-1",
+		Status:       "Failed",
+		CreationTime: time.Date(2026, 7, 27, 7, 59, 0, 0, time.UTC),
+		FailedTime:   time.Date(2026, 7, 27, 8, 0, 0, 0, time.UTC),
 		Containers: []ContainerStatus{{
 			Name: "worker",
 			CurrentState: ContainerState{
-				State:    "Terminated",
-				ExitCode: &exitCode,
-				Reason:   "OOMKilled",
-				Message:  "memory limit exceeded",
+				State:      "Terminated",
+				StartTime:  time.Date(2026, 7, 27, 7, 59, 10, 0, time.UTC),
+				FinishTime: time.Date(2026, 7, 27, 8, 0, 0, 0, time.UTC),
+				ExitCode:   &exitCode,
+				Reason:     "OOMKilled",
+				Message:    "memory limit exceeded",
 			},
 		}},
+		InitContainers: []ContainerStatus{{Name: "materializer", CurrentState: ContainerState{State: "Terminated", StartTime: time.Date(2026, 7, 27, 7, 59, 1, 0, time.UTC), FinishTime: time.Date(2026, 7, 27, 7, 59, 9, 0, time.UTC)}}},
 		Events: []ContainerGroupEvent{{
 			Type:          "Warning",
 			Reason:        "BackOff",
@@ -366,28 +388,19 @@ func TestClient_CreateRetryReusesClientToken(t *testing.T) {
 	}
 }
 
-func TestClient_CreateFallsBackToPayAsYouGoOnlyWhenSpotCapacityIsUnavailable(t *testing.T) {
-	runner := &fakeCommandRunner{
-		responses: [][]byte{[]byte(`{"ContainerGroupId":"eci-created"}`)},
-		runErrors: []error{errors.New("Code: Spot.NotMatched, Message: no matching spot capacity")},
-	}
-	client := newTestClientWithTokens(t, runner, "spot-token", "regular-token")
+func TestClient_CreateReturnsSpotCapacityErrorWithoutPayAsYouGoFallback(t *testing.T) {
+	runner := &fakeCommandRunner{err: errors.New("Code: Spot.NotMatched, Message: no matching spot capacity")}
+	client := newTestClient(t, runner)
 
-	created, err := client.CreateContainerGroup(context.Background(), validCreateRequest())
-	if err != nil || created.ID != "eci-created" {
-		t.Fatalf("CreateContainerGroup() = %#v, %v", created, err)
+	if _, err := client.CreateContainerGroup(context.Background(), validCreateRequest()); err == nil {
+		t.Fatal("CreateContainerGroup() error = nil")
 	}
-	if len(runner.calls) != 2 {
-		t.Fatalf("calls = %d, want spot attempt plus pay-as-you-go fallback", len(runner.calls))
+	if len(runner.calls) != 1 {
+		t.Fatalf("calls = %d, want one explicit spot request", len(runner.calls))
 	}
-	if !containsArgumentPair(runner.calls[0], "--SpotStrategy", "SpotAsPriceGo") ||
-		!containsArgumentPair(runner.calls[0], "--ClientToken", "spot-token") {
-		t.Fatalf("spot call = %#v", runner.calls[0])
-	}
-	if !containsArgumentPair(runner.calls[1], "--SpotStrategy", "NoSpot") ||
-		containsArgumentPair(runner.calls[1], "--SpotDuration", "1") ||
-		!containsArgumentPair(runner.calls[1], "--ClientToken", "regular-token") {
-		t.Fatalf("pay-as-you-go call = %#v", runner.calls[1])
+	if !containsArgumentPair(runner.calls[0], "--SpotStrategy", SpotStrategyAsPriceGo) ||
+		containsArgumentPair(runner.calls[0], "--SpotStrategy", SpotStrategyNoSpot) {
+		t.Fatalf("spot request = %#v", runner.calls[0])
 	}
 }
 
@@ -575,9 +588,9 @@ func TestNewWithRunner_RejectsInvalidConfig(t *testing.T) {
 		mutate func(*Config)
 	}{
 		{"missing profile", func(config *Config) { config.Profile = "" }},
-		{"wrong spot strategy", func(config *Config) { config.SpotStrategy = "NoSpot" }},
+		{"unsupported strategy", func(config *Config) { config.SpotStrategy = "unknown" }},
 		{"wrong spot duration", func(config *Config) { config.SpotDurationHours = 0 }},
-		{"disabled fallback", func(config *Config) { config.FallbackToPayAsYouGo = false }},
+		{"pay-as-you-go spot duration", func(config *Config) { config.SpotStrategy, config.SpotDurationHours = SpotStrategyNoSpot, 1 }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -590,11 +603,35 @@ func TestNewWithRunner_RejectsInvalidConfig(t *testing.T) {
 	}
 }
 
+func TestNewWithRunner_AcceptsExplicitPayAsYouGo(t *testing.T) {
+	config := testConfig()
+	config.SpotStrategy = SpotStrategyNoSpot
+	config.SpotDurationHours = 0
+	runner := &fakeCommandRunner{responses: [][]byte{[]byte(`{"ContainerGroupId":"eci-payg"}`)}}
+	client, err := NewWithRunner(config, runner)
+	if err != nil {
+		t.Fatalf("NewWithRunner() error = %v", err)
+	}
+	if _, err := client.CreateContainerGroup(context.Background(), validCreateRequest()); err != nil {
+		t.Fatalf("CreateContainerGroup() error = %v", err)
+	}
+	if len(runner.calls) != 1 || !containsArgumentPair(runner.calls[0], "--SpotStrategy", SpotStrategyNoSpot) ||
+		containsArgumentPair(runner.calls[0], "--SpotDuration", "1") {
+		t.Fatalf("pay-as-you-go request = %#v", runner.calls)
+	}
+}
+
+func TestConfig_FieldRegistry(t *testing.T) {
+	assertStructFields(t, reflect.TypeFor[Config](), []string{
+		"Binary", "RegionID", "VSwitchID", "SecurityGroupID", "WorkerRoleName", "Profile", "Deadline", "SpotStrategy", "SpotDurationHours",
+	})
+}
+
 func TestCreateRequest_FieldRegistry(t *testing.T) {
 	assertStructFields(t, reflect.TypeFor[CreateRequest](), []string{
-		"ContainerGroupName", "ContainerName", "MainImage", "InitImage", "Resources", "Command", "Args", "Environment", "Tags",
+		"ContainerGroupName", "ContainerName", "ImageCacheSnapshotID", "MainImage", "InitImage", "Resources", "Command", "Args", "Environment", "Tags",
 		"InitContainer", "BootstrapVolume", "ExpandedVolume", "SourceVolume", "WorkVolume", "TempVolume",
-		"MainVolumeMounts", "InitVolumeMounts", "RegistryAccess",
+		"MainVolumeMounts", "InitVolumeMounts",
 	})
 	assertStructFields(t, reflect.TypeFor[Resources](), []string{"CPU", "MemoryGiB"})
 	assertStructFields(t, reflect.TypeFor[InitContainer](), []string{"Name", "Command", "Args", "Environment"})
@@ -603,9 +640,9 @@ func TestCreateRequest_FieldRegistry(t *testing.T) {
 }
 
 func TestContainerGroup_FieldRegistry(t *testing.T) {
-	assertStructFields(t, reflect.TypeFor[ContainerGroup](), []string{"ID", "Name", "Status", "Containers", "Events"})
+	assertStructFields(t, reflect.TypeFor[ContainerGroup](), []string{"ID", "Name", "Status", "CreationTime", "SucceededTime", "FailedTime", "Containers", "InitContainers", "Events"})
 	assertStructFields(t, reflect.TypeFor[ContainerStatus](), []string{"Name", "CurrentState"})
-	assertStructFields(t, reflect.TypeFor[ContainerState](), []string{"State", "ExitCode", "Reason", "Message"})
+	assertStructFields(t, reflect.TypeFor[ContainerState](), []string{"State", "StartTime", "FinishTime", "ExitCode", "Reason", "Message"})
 	assertStructFields(t, reflect.TypeFor[ContainerGroupEvent](), []string{"Type", "Reason", "Message", "Count", "LastTimestamp"})
 }
 
@@ -654,23 +691,7 @@ func newTestClient(t *testing.T, runner CommandRunner) *Client {
 		t.Fatalf("NewWithRunner() error = %v", err)
 	}
 	client.wait = func(context.Context, time.Duration) error { return nil }
-	client.spotSchedulingTimeout = 0
 	client.newClientToken = func() (string, error) { return testClientToken, nil }
-	return client
-}
-
-func newTestClientWithTokens(t *testing.T, runner CommandRunner, tokens ...string) *Client {
-	t.Helper()
-	client := newTestClient(t, runner)
-	index := 0
-	client.newClientToken = func() (string, error) {
-		if index >= len(tokens) {
-			t.Fatal("unexpected ECI client token request")
-		}
-		token := tokens[index]
-		index++
-		return token, nil
-	}
 	return client
 }
 
@@ -679,21 +700,22 @@ func testConfig() Config {
 		Binary: "aliyun", RegionID: "cn-hangzhou", VSwitchID: "vsw-1", SecurityGroupID: "sg-1",
 		WorkerRoleName: "worker-role", Profile: "ci",
 		Deadline:     time.Hour,
-		SpotStrategy: "SpotAsPriceGo", SpotDurationHours: 1, FallbackToPayAsYouGo: true,
+		SpotStrategy: SpotStrategyAsPriceGo, SpotDurationHours: 1,
 	}
 }
 
 func validCreateRequest() CreateRequest {
 	return CreateRequest{
-		ContainerGroupName: "shard-1",
-		ContainerName:      "worker",
-		MainImage:          testMainImageDigest,
-		InitImage:          testInitImageDigest,
-		Resources:          Resources{CPU: 4, MemoryGiB: 8},
-		Command:            []string{"/runner", "execute"},
-		Args:               []string{"--shard", "one"},
-		Environment:        map[string]string{"TASK_MODE": "execute"},
-		Tags:               map[string]string{"workload": "test"},
+		ContainerGroupName:   "shard-1",
+		ContainerName:        "worker",
+		ImageCacheSnapshotID: "snap-test-cache",
+		MainImage:            testMainImageDigest,
+		InitImage:            testInitImageDigest,
+		Resources:            Resources{CPU: 4, MemoryGiB: 8},
+		Command:              []string{"/runner", "execute"},
+		Args:                 []string{"--shard", "one"},
+		Environment:          map[string]string{"TASK_MODE": "execute"},
+		Tags:                 map[string]string{"workload": "test"},
 		InitContainer: InitContainer{
 			Name:        "materializer",
 			Command:     []string{"/runner", "materialize"},

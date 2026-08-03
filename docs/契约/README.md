@@ -16,6 +16,7 @@
 | RPC / MCP | `jrpc2-convention.md`、`mcp-service-convention.md` | JSON-RPC、stdio MCP、控制面注册和 manifest |
 | Store / SQL | `sqlc-convention.md` | SQLite migration、sqlc 生成物和 store 边界 |
 | 状态 / 事件 | `statemachine-event-convention.md`、`workflow-runtime-state-contract.md`、`recall-topic-naming.md` | 状态机、事件 payload 和运行态命名 |
+| 远程 CI | `remote-ci-eci-imagecache-contract.md` | ECI ImageCache 唯一路径、两小时 SQLite 抢占、动态分片和精确耗时账本 |
 
 ## 维护规则
 

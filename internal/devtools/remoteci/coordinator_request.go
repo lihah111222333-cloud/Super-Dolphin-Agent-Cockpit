@@ -1,49 +1,61 @@
 package remoteci
 
 import (
+	"errors"
 	"fmt"
 	"path"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/eci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci/source"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/shardresource"
 )
 
-func buildShardRequestsWithCandidate(
+// buildShardRequests 为每个冻结分片复制候选资产身份和已选择资源档位，并生成唯一请求对象键。
+// 校准资源仅在校准模式携带；所有模式都必须将实际选择的 class、CPU 和内存写入请求。
+func buildShardRequests(
 	sourcePrefix string,
 	jobID string,
 	shards []gate.ContainerShard,
+	resources []shardresource.Class,
 	artifact source.Artifact,
 	patchKey string,
 	manifestKey string,
 	manifestDigest string,
-	candidateCLI CandidateCLIArtifactRef,
-	candidateTestBinaries []CandidateTestBinaryArtifactRef,
 	input RunInput,
 ) ([]ShardRequest, []string, error) {
+	if len(resources) != len(shards) {
+		return nil, nil, errors.New("remote CI shard resource classes are incomplete")
+	}
 	requests := make([]ShardRequest, len(shards))
 	keys := make([]string, len(shards))
 	jobPrefix := sourcePrefix + jobID + "/"
 	for index, shard := range shards {
-		shardBinaries, binaryErr := shardCandidateTestBinaries(shard, candidateTestBinaries)
-		if binaryErr != nil {
-			return nil, nil, binaryErr
-		}
 		keys[index] = fmt.Sprintf("%sshard-%02d.request.json", jobPrefix, index)
 		requests[index] = ShardRequest{
 			SchemaVersion: ShardRequestSchemaVersion, JobID: jobID, ShardIdentity: shard.IdentityDigest,
-			Profile: shard.Profile, PlanDigest: shard.PlanDigest, SourceTreeSHA: shard.SourceTreeSHA,
-			BaselineManifest: input.BaselineManifestDigest,
-			OCIProjectCache:  cloneBaselineOCIProjectCache(input.OCIProjectCache),
-			RunnerBaseCommit: artifact.Manifest.BaseCommit, RunnerBaseTree: artifact.Manifest.BaseTree,
+			AgentTokenDigest: input.AgentTokenDigest,
+			Profile:          shard.Profile, PlanDigest: shard.PlanDigest, SourceTreeSHA: shard.SourceTreeSHA,
+			BaselineManifest:     input.BaselineManifestDigest,
+			ImageCacheSnapshotID: input.ImageCacheSnapshotID,
+			OCIProjectCache:      cloneBaselineOCIProjectCache(input.OCIProjectCache),
+			RunnerBaseCommit:     artifact.Manifest.BaseCommit, RunnerBaseTree: artifact.Manifest.BaseTree,
 			BaselineRuntimeImage: input.RunnerImage, BaselineToolchainDigest: input.ToolchainDigest,
 			PatchFormat: artifact.Manifest.PatchFormat,
 			PatchKey:    patchKey, PatchSHA256: artifact.Manifest.PatchSHA256, PatchSize: artifact.Manifest.PatchSize,
-			ManifestKey: manifestKey, ManifestSHA256: manifestDigest, CandidateCLI: candidateCLI, CandidateTestBinaries: shardBinaries, GateIDs: slices.Clone(shard.GateIDs),
+			ManifestKey: manifestKey, ManifestSHA256: manifestDigest,
+			CandidateGateSourceSHA256:    input.CandidateGateSourceSHA256,
+			CandidateGateToolchainSHA256: input.CandidateGateToolchainSHA256,
+			GateIDs:                      slices.Clone(shard.GateIDs),
+			Calibration:                  input.Calibration,
+			ResourceClass:                resources[index],
+		}
+		if input.Calibration {
+			class := input.CalibrationResource
+			requests[index].CalibrationResource = &class
 		}
 		if err := requests[index].Validate(); err != nil {
 			return nil, nil, err
@@ -52,95 +64,53 @@ func buildShardRequestsWithCandidate(
 	return requests, keys, nil
 }
 
-func shardCandidateTestBinaries(shard gate.ContainerShard, candidates []CandidateTestBinaryArtifactRef) ([]CandidateTestBinaryArtifactRef, error) {
-	byPackage := make(map[string]CandidateTestBinaryArtifactRef, len(candidates))
-	for _, ref := range candidates {
-		byPackage[ref.Package] = ref
-	}
-	var selected []CandidateTestBinaryArtifactRef
-	for _, id := range shard.GateIDs {
-		parent, kind, target, targeted, err := gate.ParseWorkloadID(string(id))
-		if err != nil {
-			return nil, err
-		}
-		if !targeted || kind != gate.WorkloadTargetGoTest || parent != gate.GateIDBackendTestWithGuard {
-			continue
-		}
-		goTarget, err := gate.ParseGoTestTarget(target)
-		if err != nil {
-			return nil, err
-		}
-		ref, ok := byPackage[goTarget.Package]
-		if !ok || ref.Mode != "test" {
-			return nil, fmt.Errorf("remote shard exact Go test %q has no candidate test binary", goTarget.Package)
-		}
-		if !slices.ContainsFunc(selected, func(value CandidateTestBinaryArtifactRef) bool {
-			return value.Package == ref.Package && value.Mode == ref.Mode
-		}) {
-			selected = append(selected, ref)
-		}
-	}
-	return selected, nil
-}
-
 const (
 	// Deprecated names remain test-only compatibility identifiers; no production request mounts or executes them.
-	remoteCurrentGateMountPath      = "/current-gate"
-	remoteCurrentGateDigestEnv      = "SUPER_DOLPHIN_CURRENT_GATE_SHA256"
-	remoteCurrentGateVolumeName     = "current-gate"
-	remoteCandidateGateSourceEnv    = "SUPER_DOLPHIN_CANDIDATE_GATE_SOURCE_SHA256"
-	remoteCandidateGateToolchainEnv = "SUPER_DOLPHIN_CANDIDATE_GATE_TOOLCHAIN_SHA256"
-	remoteReuseBaselineGateEnv      = "SUPER_DOLPHIN_REUSE_BASELINE_GATE_CLI"
-	remoteCandidateGateBootstrapSH  = `set -eu; candidate="/candidate-bootstrap/${SUPER_DOLPHIN_REMOTE_CANDIDATE_CLI_KEY##*/}"; bootstrap_cli="$TMPDIR/candidate-super-dolphin-gate"; test "$(sha256sum "$candidate" | awk '{print $1}')" = "${SUPER_DOLPHIN_REMOTE_CANDIDATE_CLI_SHA256#sha256:}"; test "$(wc -c < "$candidate" | tr -d ' ')" = "$SUPER_DOLPHIN_REMOTE_CANDIDATE_CLI_SIZE"; cp "$candidate" "$bootstrap_cli"; chmod 0755 "$bootstrap_cli"; expected="$(printf 'gate_source_sha256=%s\nplatform=linux/amd64\ntoolchain_digest=%s' "$SUPER_DOLPHIN_CANDIDATE_GATE_SOURCE_SHA256" "$SUPER_DOLPHIN_CANDIDATE_GATE_TOOLCHAIN_SHA256")"; test "$("$bootstrap_cli" worker cli-identity)" = "$expected"; exec "$bootstrap_cli" _remote-materialize`
-	remoteWritableTempMountPath     = "/tmp"
-	remoteXKBCompMountPath          = "/usr/bin/xkbcomp"
-	remoteXKBCompSubPath            = "runtime/rootfs/usr/bin/xkbcomp"
-	remoteXKBDataMountPath          = "/usr/share/X11/xkb"
-	remoteXKBDataSubPath            = "runtime/rootfs/usr/share/X11/xkb"
-	remoteInitSearchPath            = gate.ExecutorRuntimeSeedRoot + "/bin:" + gate.ExecutorPortableRootFS + "/usr/bin:" + gate.ExecutorPortableRootFS + "/bin:/usr/local/bin:/usr/bin:/bin"
-	remoteCandidateTestBinaryIndex  = "/opt/super-dolphin-gate/test-binaries/candidate-test-binaries.json"
+	remoteCurrentGateMountPath  = "/current-gate"
+	remoteShardBootstrapSH      = `set -eu; accepted_gate="/opt/super-dolphin-gate/bin/super-dolphin-gate"; "$accepted_gate" _remote-materialize; private_cache="/workspace/work/go-cache"; built_gate="/workspace/work/bin/super-dolphin-gate"; mkdir -p "$private_cache" "$(dirname "$built_gate")"; started="$(date +%s%3N)"; cd /workspace/source; cache_proxy="$accepted_gate worker go-cache-proxy --seed /opt/super-dolphin/cache/go-build --private $private_cache --metrics $private_cache/shard-compile.metrics"; env GOCACHE="$private_cache" GOCACHEPROG="$cache_proxy" GOMODCACHE=/workspace/work/go-mod-cache GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local CGO_ENABLED=0 /opt/super-dolphin-gate/runtime/go/bin/go build -mod=mod -trimpath -buildvcs=false -o "$built_gate" ./cmd/super-dolphin-gate; test -x "$built_gate"; finished="$(date +%s%3N)"; printf 'SUPER_DOLPHIN_SHARD_COMPILE started_at_unix_ms=%s completed_at_unix_ms=%s duration_ms=%s cache_metrics=%s\n' "$started" "$finished" "$((finished-started))" "$private_cache/shard-compile.metrics"`
+	remoteWritableTempMountPath = "/tmp"
+	remoteXKBCompMountPath      = "/usr/bin/xkbcomp"
+	remoteXKBCompSubPath        = "runtime/rootfs/usr/bin/xkbcomp"
+	remoteXKBDataMountPath      = "/usr/share/X11/xkb"
+	remoteXKBDataSubPath        = "runtime/rootfs/usr/share/X11/xkb"
+	remoteInitSearchPath        = gate.ExecutorRuntimeSeedRoot + "/bin:" + gate.ExecutorPortableRootFS + "/usr/bin:" + gate.ExecutorPortableRootFS + "/bin:/usr/local/bin:/usr/bin:/bin"
 )
 
-// createRequest binds one shard and its candidate request to an OCI-backed ECI group.
+// createRequest 将已校验的分片请求、候选镜像及资源绑定为唯一的 OCI-backed ECI 容器组。
+// init 容器只负责物化和构建候选 CLI；worker 使用只读源码与同一 ImageCache 快照执行该分片。
 func (coordinator *Coordinator) createRequest(
 	jobID string,
 	shard gate.ContainerShard,
-	resources eci.Resources,
+	resources shardresource.Class,
 	requestKey string,
 	requestDigest string,
-	candidateCLI CandidateCLIArtifactRef,
 	input RunInput,
 ) eci.CreateRequest {
 	groupName := fmt.Sprintf("sdci-%s-s%02d", strings.TrimPrefix(jobID, "job-"), shard.Index)
 	initContainer := eci.InitContainer{
 		Name:    "materializer",
 		Command: []string{"/bin/sh"},
-		Args:    []string{"-c", remoteCandidateGateBootstrapSH},
+		Args:    []string{"-c", remoteShardBootstrapSH},
 		Environment: map[string]string{
-			"PATH":                                      remoteInitSearchPath,
-			"SUPER_DOLPHIN_RUNTIME_ROOT":                gate.ExecutorRuntimeSeedRoot,
-			"SUPER_DOLPHIN_REMOTE_WORKER_ROLE":          coordinator.config.WorkerRoleName,
-			"SUPER_DOLPHIN_REMOTE_OSS_ENDPOINT":         coordinator.config.InternalOSSEndpoint,
-			"SUPER_DOLPHIN_REMOTE_OSS_BUCKET":           coordinator.config.Bucket,
-			"SUPER_DOLPHIN_REMOTE_REQUEST_KEY":          requestKey,
-			"SUPER_DOLPHIN_REMOTE_REQUEST_SHA256":       requestDigest,
-			"SUPER_DOLPHIN_REMOTE_SHARD_IDENTITY":       shard.IdentityDigest,
-			"SUPER_DOLPHIN_REMOTE_CANDIDATE_CLI_KEY":    candidateCLI.BinaryKey,
-			"SUPER_DOLPHIN_REMOTE_CANDIDATE_CLI_SHA256": candidateCLI.BinarySHA256,
-			"SUPER_DOLPHIN_REMOTE_CANDIDATE_CLI_SIZE":   strconv.FormatInt(candidateCLI.BinarySize, 10),
-			remoteCandidateGateSourceEnv:                candidateCLI.SourceSHA256,
-			remoteCandidateGateToolchainEnv:             candidateCLI.ToolchainSHA256,
-			"TMPDIR":                                    remoteWritableTempMountPath,
+			"PATH":                                   remoteInitSearchPath,
+			"SUPER_DOLPHIN_RUNTIME_ROOT":             gate.ExecutorRuntimeSeedRoot,
+			"SUPER_DOLPHIN_REMOTE_WORKER_ROLE":       coordinator.config.WorkerRoleName,
+			"SUPER_DOLPHIN_REMOTE_OSS_ENDPOINT":      coordinator.config.InternalOSSEndpoint,
+			"SUPER_DOLPHIN_REMOTE_OSS_BUCKET":        coordinator.config.Bucket,
+			"SUPER_DOLPHIN_REMOTE_REQUEST_KEY":       requestKey,
+			"SUPER_DOLPHIN_REMOTE_REQUEST_SHA256":    requestDigest,
+			"SUPER_DOLPHIN_REMOTE_SHARD_IDENTITY":    shard.IdentityDigest,
+			gate.ExecutorAgentTokenDigestEnvironment: input.AgentTokenDigest,
+			"TMPDIR":                                 remoteWritableTempMountPath,
 		},
 	}
 	initMounts := []eci.VolumeMount{
-		{Name: remoteCurrentGateVolumeName, MountPath: "/candidate-bootstrap", ReadOnly: true},
 		{Name: "expanded-data", MountPath: "/opt/super-dolphin-gate"},
 		{Name: "source-data", MountPath: gate.ExecutorSourcePath},
 		{Name: "work-data", MountPath: gate.ExecutorWorkRoot},
 		{Name: "temp-data", MountPath: remoteWritableTempMountPath},
 	}
-	mainEnvironment := remoteWorkerEnvironment(coordinator.config.WorkerTimeout)
+	mainEnvironment := remoteWorkerEnvironment(coordinator.config.WorkerTimeout, input.AgentTokenDigest)
 	mainMounts := []eci.VolumeMount{
 		{Name: "expanded-data", MountPath: "/opt/super-dolphin-gate", ReadOnly: true},
 		{Name: "expanded-data", MountPath: remoteXKBCompMountPath, SubPath: remoteXKBCompSubPath, ReadOnly: true},
@@ -151,10 +121,11 @@ func (coordinator *Coordinator) createRequest(
 	}
 	return eci.CreateRequest{
 		ContainerGroupName: groupName, ContainerName: "worker",
-		MainImage: input.RunnerImage,
-		InitImage: input.RunnerImage,
-		Resources: resources,
-		Command:   remoteWorkerSupervisorCommand("/opt/super-dolphin-gate/bin/super-dolphin-gate"),
+		ImageCacheSnapshotID: input.ImageCacheSnapshotID,
+		MainImage:            input.RunnerImage,
+		InitImage:            input.RunnerImage,
+		Resources:            eci.Resources{CPU: resources.VCPU, MemoryGiB: resources.MemoryGiB},
+		Command:              remoteWorkerSupervisorCommand(gate.ExecutorWorkRoot + "/bin/super-dolphin-gate"),
 		Args: []string{
 			"worker", "run-shard", "--profile", string(shard.Profile), "--plan-digest", shard.PlanDigest,
 			"--gates", joinGateIDs(shard.GateIDs),
@@ -162,23 +133,44 @@ func (coordinator *Coordinator) createRequest(
 		Environment:      mainEnvironment,
 		Tags:             map[string]string{"super-dolphin-job": jobID, "super-dolphin-shard": fmt.Sprintf("%d", shard.Index)},
 		InitContainer:    initContainer,
-		BootstrapVolume:  eci.OSSVolume{Bucket: coordinator.config.Bucket, Endpoint: strings.TrimPrefix(coordinator.config.InternalOSSEndpoint, "https://"), Path: "/" + path.Dir(candidateCLI.ManifestKey), RoleName: coordinator.config.WorkerRoleName},
+		BootstrapVolume:  eci.OSSVolume{Bucket: coordinator.config.Bucket, Endpoint: strings.TrimPrefix(coordinator.config.InternalOSSEndpoint, "https://"), Path: "/" + path.Dir(requestKey), RoleName: coordinator.config.WorkerRoleName},
 		ExpandedVolume:   eci.EmptyDirVolume{Name: "expanded-data"},
 		SourceVolume:     eci.EmptyDirVolume{Name: "source-data"},
 		WorkVolume:       eci.EmptyDirVolume{Name: "work-data"},
 		TempVolume:       eci.EmptyDirVolume{Name: "temp-data"},
 		MainVolumeMounts: mainMounts,
 		InitVolumeMounts: initMounts,
-		RegistryAccess:   coordinator.config.RegistryAccess,
 	}
 }
 
+// validateShardResourceBinding 确保请求声明的实际资源类与 ECI 规格严格一致。
+// 校准模式还必须绑定固定规格，normal 不得夹带 calibration_resource。
+func validateShardResourceBinding(resources shardresource.Class, request ShardRequest) error {
+	if request.ResourceClass != resources {
+		return errors.New("remote shard request resource_class drifted")
+	}
+	if !request.Calibration {
+		if request.CalibrationResource != nil {
+			return errors.New("non-calibration shard request carries calibration resources")
+		}
+		return nil
+	}
+	if request.CalibrationResource == nil {
+		return errors.New("calibration shard request resources are required")
+	}
+	class := *request.CalibrationResource
+	if class.ID == "" || class != resources {
+		return errors.New("calibration shard request resources drifted")
+	}
+	return nil
+}
+
 // remoteWorkerEnvironment 仅绑定 worker 入口所需的运行时根与单目标超时。
-func remoteWorkerEnvironment(timeout time.Duration) map[string]string {
+func remoteWorkerEnvironment(timeout time.Duration, agentTokenDigest string) map[string]string {
 	return map[string]string{
-		gate.ExecutorWorkloadTimeoutEnvironment:     timeout.String(),
-		"SUPER_DOLPHIN_RUNTIME_ROOT":                gate.ExecutorRuntimeSeedRoot,
-		"SUPER_DOLPHIN_CANDIDATE_TEST_BINARY_INDEX": remoteCandidateTestBinaryIndex,
+		gate.ExecutorWorkloadTimeoutEnvironment:  timeout.String(),
+		gate.ExecutorAgentTokenDigestEnvironment: agentTokenDigest,
+		"SUPER_DOLPHIN_RUNTIME_ROOT":             gate.ExecutorRuntimeSeedRoot,
 	}
 }
 

@@ -10,10 +10,12 @@ import (
 	"path/filepath"
 	"strconv"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
 const (
-	durationLedgerSQLiteSchemaVersion = 1
+	durationLedgerSQLiteSchemaVersion = 5
 	durationLedgerSQLiteBusyTimeoutMS = 5_000
 )
 
@@ -95,7 +97,7 @@ func (store *DurationLedgerStore) compareAndSwapSQLite(
 	}
 
 	nextGeneration := expectedGeneration + 1
-	if err := replaceSQLiteLedger(transaction, nextGeneration, ledger, ""); err != nil {
+	if err := replaceSQLiteLedger(transaction, nextGeneration, ledger); err != nil {
 		return DurationLedgerSnapshot{}, err
 	}
 	if err := transaction.Commit(); err != nil {
@@ -136,10 +138,11 @@ func (store *DurationLedgerStore) compareAndSwapSQLiteCalibration(
 	result, err := transaction.Exec(`
 		UPDATE duration_ledger_meta
 		SET generation = ?
-		WHERE singleton = 1 AND generation = ?
+		WHERE singleton = 1 AND generation = ? AND authority_id = ?
 	`,
 		strconv.FormatUint(nextGeneration, 10),
 		strconv.FormatUint(expectedGeneration, 10),
+		cicontract.SQLAuthorityID,
 	)
 	if err != nil {
 		return DurationLedgerSnapshot{}, mapDurationLedgerSQLiteError(
@@ -173,7 +176,7 @@ func (store *DurationLedgerStore) compareAndSwapSQLiteCalibration(
 }
 
 // appendSQLiteSamplesFast 维护 SQLite 权威账本的原子读写边界。
-func (store *DurationLedgerStore) appendSQLiteSamplesFast(samples []DurationSample) (uint64, error) {
+func (store *DurationLedgerStore) appendSQLiteSamplesFast(acceptedGeneration uint64, samples []DurationSample) (uint64, error) {
 	if len(samples) == 0 {
 		snapshot, err := store.LoadMetadata()
 		return snapshot.Generation, err
@@ -185,7 +188,7 @@ func (store *DurationLedgerStore) appendSQLiteSamplesFast(samples []DurationSamp
 		return 0, fmt.Errorf("validate appended duration samples: %w", err)
 	}
 	for attempt := range 16 {
-		generation, err := store.appendSQLiteSamplesOnce(samples)
+		generation, err := store.appendSQLiteSamplesOnce(acceptedGeneration, samples)
 		if err == nil {
 			return generation, nil
 		}
@@ -198,7 +201,7 @@ func (store *DurationLedgerStore) appendSQLiteSamplesFast(samples []DurationSamp
 }
 
 // appendSQLiteSamplesOnce 维护 SQLite 权威账本的原子读写边界。
-func (store *DurationLedgerStore) appendSQLiteSamplesOnce(samples []DurationSample) (uint64, error) {
+func (store *DurationLedgerStore) appendSQLiteSamplesOnce(acceptedGeneration uint64, samples []DurationSample) (uint64, error) {
 	database, err := store.openSQLiteAuthority(false)
 	if err != nil {
 		return 0, err
@@ -211,20 +214,38 @@ func (store *DurationLedgerStore) appendSQLiteSamplesOnce(samples []DurationSamp
 	}
 	defer transaction.Rollback()
 
+	nextGeneration, err := appendSQLiteDurationSamplesInTransaction(transaction, acceptedGeneration, samples)
+	if err != nil {
+		return 0, err
+	}
+	if err := compactDurationLedgerAuthority(transaction); err != nil {
+		return 0, err
+	}
+	if err := transaction.Commit(); err != nil {
+		return 0, mapDurationLedgerSQLiteError("commit duration ledger append", err)
+	}
+	return nextGeneration, nil
+}
+
+// appendSQLiteDurationSamplesInTransaction 在不提交调用方事务的前提下追加已接受代样本并推进权威修订。
+func appendSQLiteDurationSamplesInTransaction(transaction *sql.Tx, acceptedGeneration uint64, samples []DurationSample) (uint64, error) {
+	if err := requireHistoricallyAcceptedGeneration(transaction, acceptedGeneration); err != nil {
+		return 0, err
+	}
 	generation, nextGeneration, err := nextSQLiteLedgerGeneration(transaction)
 	if err != nil {
 		return 0, err
 	}
-	if err := insertSQLiteDurationSamples(transaction, samples); err != nil {
-		return 0, err
-	}
-	if err := compactSQLiteDurationSamples(transaction, samples); err != nil {
+	if err := insertSQLiteDurationSamples(transaction, acceptedGeneration, samples); err != nil {
 		return 0, err
 	}
 	result, err := transaction.Exec(
-		`UPDATE duration_ledger_meta SET generation = ? WHERE singleton = 1 AND generation = ?`,
+		`UPDATE duration_ledger_meta
+		SET generation = ?
+		WHERE singleton = 1 AND generation = ? AND authority_id = ?`,
 		strconv.FormatUint(nextGeneration, 10),
 		strconv.FormatUint(generation, 10),
+		cicontract.SQLAuthorityID,
 	)
 	if err != nil {
 		return 0, mapDurationLedgerSQLiteError("advance duration ledger generation", err)
@@ -235,9 +256,6 @@ func (store *DurationLedgerStore) appendSQLiteSamplesOnce(samples []DurationSamp
 	}
 	if affected != 1 {
 		return 0, fmt.Errorf("advance duration ledger generation: %w", ErrDurationLedgerBusy)
-	}
-	if err := transaction.Commit(); err != nil {
-		return 0, mapDurationLedgerSQLiteError("commit duration ledger append", err)
 	}
 	return nextGeneration, nil
 }
@@ -282,7 +300,7 @@ func (store *DurationLedgerStore) openSQLiteAuthority(create bool) (*sql.DB, err
 	if err := store.prepareSQLiteAuthorityPath(create); err != nil {
 		return nil, err
 	}
-	database, err := openSQLiteLedgerDatabase(store.path)
+	database, err := openSQLiteLedgerDatabase(store.path, store.nowFunc, store.schemaValidator)
 	if err != nil {
 		return nil, err
 	}
@@ -311,9 +329,13 @@ func (store *DurationLedgerStore) prepareSQLiteAuthorityPath(create bool) error 
 	return nil
 }
 
-func openSQLiteLedgerDatabase(path string) (*sql.DB, error) {
+func openSQLiteLedgerDatabase(
+	path string,
+	now func() time.Time,
+	validator *durationLedgerSQLiteSchemaValidator,
+) (*sql.DB, error) {
 	for attempt := range 16 {
-		database, err := openSQLiteLedgerDatabaseOnce(path)
+		database, err := openSQLiteLedgerDatabaseOnce(path, now, validator)
 		if !errors.Is(err, ErrDurationLedgerBusy) {
 			return database, err
 		}
@@ -322,7 +344,11 @@ func openSQLiteLedgerDatabase(path string) (*sql.DB, error) {
 	return nil, fmt.Errorf("open duration ledger SQLite authority exceeded busy retry limit")
 }
 
-func openSQLiteLedgerDatabaseOnce(path string) (*sql.DB, error) {
+func openSQLiteLedgerDatabaseOnce(
+	path string,
+	now func() time.Time,
+	validator *durationLedgerSQLiteSchemaValidator,
+) (*sql.DB, error) {
 	database, err := sql.Open("sqlite", durationLedgerSQLiteDSN(path))
 	if err != nil {
 		return nil, fmt.Errorf("open duration ledger SQLite authority: %w", err)
@@ -333,25 +359,11 @@ func openSQLiteLedgerDatabaseOnce(path string) (*sql.DB, error) {
 		database.Close()
 		return nil, mapDurationLedgerSQLiteError("ping duration ledger SQLite authority", err)
 	}
-	if err := ensureDurationLedgerSQLiteSchema(database); err != nil {
+	if err := ensureDurationLedgerSQLiteSchemaWithValidator(database, now, validator); err != nil {
 		database.Close()
 		return nil, err
 	}
 	return database, nil
-}
-
-func regularFileExists(path string) (bool, error) {
-	info, err := os.Stat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("stat legacy duration ledger JSON: %w", err)
-	}
-	if !info.Mode().IsRegular() {
-		return false, fmt.Errorf("legacy duration ledger path %q is not a regular file", path)
-	}
-	return true, nil
 }
 
 func requireExistingDirectory(path string) error {

@@ -9,17 +9,10 @@ import (
 )
 
 type remoteAssets struct {
-	artifact                  source.Artifact
-	manifestDigest            string
-	patchKey                  string
-	manifestKey               string
-	candidateCLI              CandidateCLIArtifactRef
-	candidatePath             string
-	candidateManifestPath     string
-	candidateBinaryKey        string
-	candidateTestBinaries     []candidateTestBinaryAsset
-	candidateTestBinaryRefs   []CandidateTestBinaryArtifactRef
-	candidateTestBinaryBuilds []CandidateTestBinaryBuilderBuild
+	artifact       source.Artifact
+	manifestDigest string
+	patchKey       string
+	manifestKey    string
 }
 
 // remoteCIShardRecords 仅持久化已观测到的 ECI 分片，并保留尚未取得终态的已创建分片。
@@ -34,14 +27,10 @@ func remoteCIShardRecords(shardResults []ShardResult) []gate.RemoteCIShardRecord
 		if containerStatus == "" {
 			containerStatus = "Unknown"
 		}
-		shards = append(shards, gate.RemoteCIShardRecord{ShardIdentity: shard.ShardIdentity, ContainerGroup: shard.ContainerGroup, ContainerStatus: containerStatus, Workloads: append([]gate.GateID(nil), shard.ExecutedWorkloads...), MaterializationTiming: shard.MaterializationTiming})
+		resources := gate.RemoteCIShardResources{ClassID: shard.ResourceClass, CPU: shard.Resources.CPU, MemoryGiB: shard.Resources.MemoryGiB}
+		shards = append(shards, gate.RemoteCIShardRecord{ShardIdentity: shard.ShardIdentity, ContainerGroup: shard.ContainerGroup, ContainerStatus: containerStatus, Workloads: append([]gate.GateID(nil), shard.ExecutedWorkloads...), MaterializationTiming: shard.MaterializationTiming, Resources: resources})
 	}
 	return shards
-}
-
-// lookupPassedWorkloads 计算 workload 指纹并读取当前环境下可复用的通过标记。
-func (coordinator *Coordinator) lookupPassedWorkloads(ctx context.Context, input RunInput, catalog gate.WorkloadCatalog, trace *remoteRunPerformanceTrace) (remoteWorkloadCacheSelection, error) {
-	return lookupPassedWorkloads(ctx, coordinator.store, coordinator.config.WorkloadCachePrefix, coordinator.now, input, catalog, trace)
 }
 
 // remotePlanningContext 统一缓存投影与最终 LPT 使用的环境和时限身份。
@@ -54,22 +43,8 @@ func (coordinator *Coordinator) prepareRemoteAssets(
 	ctx context.Context,
 	input RunInput,
 	jobID, tempRoot string,
-	counts remoteCIPhaseCounts,
-	trace *remoteRunPerformanceTrace,
 ) (remoteAssets, error) {
-	sourceBuildSpan := trace.start("source.build", counts)
 	assets, err := buildRemoteAssets(ctx, input, jobID, tempRoot, coordinator.config.SourcePrefix)
-	trace.finish(sourceBuildSpan, err, counts)
-	if err != nil {
-		return remoteAssets{}, err
-	}
-	candidateBuildSpan := trace.start("candidate_cli.build", counts)
-	if input.ReuseBaselineGateCLI {
-		assets.candidateCLI, assets.candidatePath, assets.candidateManifestPath, assets.candidateBinaryKey, err = coordinator.rehydrateRemoteCandidateCLIArtifact(ctx, input, jobID, tempRoot, coordinator.config.SourcePrefix)
-	} else {
-		assets.candidateCLI, assets.candidatePath, assets.candidateManifestPath, assets.candidateBinaryKey, err = buildRemoteCandidateCLIArtifact(ctx, coordinator.config.CandidateCLIBuilder, input, jobID, tempRoot, coordinator.config.SourcePrefix)
-	}
-	trace.finish(candidateBuildSpan, err, counts)
 	if err != nil {
 		return remoteAssets{}, err
 	}
@@ -90,13 +65,11 @@ func buildRemoteAssets(ctx context.Context, input RunInput, jobID string, tempRo
 	return remoteAssets{artifact: artifact, manifestDigest: digest, patchKey: jobPrefix + artifact.Manifest.PatchSHA256 + ".patch", manifestKey: jobPrefix + digest + ".manifest.json"}, nil
 }
 
-// uploadSourceAssets 上传差分和候选 CLI，并立即纳入清理清单。
+// uploadSourceAssets 上传候选源码差分，并立即纳入清理清单。
 func (coordinator *Coordinator) uploadSourceAssets(ctx context.Context, assets remoteAssets, objectKeys *[]string) error {
 	for _, item := range []struct{ path, key, label string }{
 		{assets.artifact.PatchPath, assets.patchKey, "source delta"},
 		{assets.artifact.ManifestPath, assets.manifestKey, "source manifest"},
-		{assets.candidatePath, assets.candidateBinaryKey, "candidate CLI binary"},
-		{assets.candidateManifestPath, assets.candidateCLI.ManifestKey, "candidate CLI manifest"},
 	} {
 		if err := coordinator.store.Create(ctx, item.path, item.key); err != nil {
 			return fmt.Errorf("upload remote CI %s: %w", item.label, err)

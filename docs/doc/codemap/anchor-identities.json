@@ -1076,7 +1076,7 @@
       "codemap_line": 316,
       "target_path": "internal/archtest/freeze_registry.go",
       "line_spec": "19-28",
-      "content_sha256": "43359c646a04a9b557659de347aedafd6f1d868ab22a2035e2e6a1a708fd0334",
+      "content_sha256": "a9b20edfd86756f4508e07d56ef3567908894531bb074fe8523daff756581546",
       "symbol": "explicitFreezeRegistry"
     },
     {
@@ -2749,7 +2749,7 @@
       "codemap_line": 945,
       "target_path": "internal/archtest/freeze_registry.go",
       "line_spec": "19-28",
-      "content_sha256": "43359c646a04a9b557659de347aedafd6f1d868ab22a2035e2e6a1a708fd0334",
+      "content_sha256": "a9b20edfd86756f4508e07d56ef3567908894531bb074fe8523daff756581546",
       "symbol": "explicitFreezeRegistry"
     },
     {

@@ -13,15 +13,28 @@ func validateAIMaintenanceHookRoutes(preCommit, prePush, gateScript string) erro
 		`git -C "$repo_root" add -u -- build/gate/runtime-deps.lock`,
 		`"$gate_bin" closure refresh --tree "$staged_tree"`,
 		`git -C "$repo_root" add -u -- "${closure_outputs[@]}"`,
-		`"$gate_bin" hook pre-commit --tree "$staged_tree"`,
-		`"$gate_bin" wait --job "$job_id" --tree "$staged_tree"`,
+		`remote hook pre-commit`,
+		`--config "$remote_config"`,
+		`--ledger "$remote_ledger"`,
+		`--repository "$repo_root"`,
+		`--tree "$staged_tree"`,
+		`--parent "$parent_commit"`,
+		`"$gate_bin" "${remote_args[@]}" 2>&1 | tee "$gate_output_file"`,
 	} {
 		if !strings.Contains(preCommit, required) {
 			return fmt.Errorf("pre-commit must route through trusted gate CLI command %q", required)
 		}
 	}
-	if !strings.Contains(prePush, `exec "$gate_bin" hook pre-push "$1" "$2"`) {
-		return fmt.Errorf("pre-push must route through the trusted gate CLI")
+	for _, required := range []string{
+		`remote hook pre-push`,
+		`--config "$remote_config"`,
+		`--ledger "$remote_ledger"`,
+		`--repository "$repo_root"`,
+		`exec "$gate_bin" "${remote_args[@]}" "$1" "$2"`,
+	} {
+		if !strings.Contains(prePush, required) {
+			return fmt.Errorf("pre-push must route through trusted gate CLI command %q", required)
+		}
 	}
 	if !strings.Contains(gateScript, "go run ./scripts/ai_maintenance run \"$@\"") {
 		return fmt.Errorf("container-owned ai_maintenance_gates.sh must invoke scripts/ai_maintenance run")
@@ -43,13 +56,25 @@ func TestAIMaintenanceGateVerifiesLocalHookArtifacts(t *testing.T) {
 	assertScriptContains(t, preCommit, `git -C "$repo_root" add -u -- build/gate/runtime-deps.lock`)
 	assertScriptContains(t, preCommit, `"$gate_bin" closure refresh --tree "$staged_tree"`)
 	assertScriptContains(t, preCommit, `git -C "$repo_root" add -u -- "${closure_outputs[@]}"`)
-	assertScriptContains(t, preCommit, `"$gate_bin" hook pre-commit --tree "$staged_tree" >"$gate_output_file" 2>&1`)
-	assertScriptContains(t, preCommit, `"$gate_bin" wait --job "$job_id" --tree "$staged_tree" >"$wait_output_file" 2>&1`)
-	assertScriptContains(t, prePush, `exec "$gate_bin" hook pre-push "$1" "$2"`)
+	assertScriptContains(t, preCommit, `remote hook pre-commit`)
+	assertScriptContains(t, preCommit, `--config "$remote_config"`)
+	assertScriptContains(t, preCommit, `--ledger "$remote_ledger"`)
+	assertScriptContains(t, preCommit, `--repository "$repo_root"`)
+	assertScriptContains(t, preCommit, `"$gate_bin" "${remote_args[@]}" 2>&1 | tee "$gate_output_file"`)
+	assertScriptContains(t, prePush, `remote hook pre-push`)
+	assertScriptContains(t, prePush, `--config "$remote_config"`)
+	assertScriptContains(t, prePush, `--ledger "$remote_ledger"`)
+	assertScriptContains(t, prePush, `--repository "$repo_root"`)
+	assertScriptContains(t, prePush, `exec "$gate_bin" "${remote_args[@]}" "$1" "$2"`)
 	for name, hook := range map[string]string{"pre-commit": preCommit, "pre-push": prePush} {
-		for _, forbidden := range []string{"ai_maintenance", "test_with_guard", "go run", "npm ", "make "} {
-			if strings.Contains(hook, forbidden) {
-				t.Fatalf("%s contains forbidden host gate %q", name, forbidden)
+		for _, line := range strings.Split(hook, "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "printf ") {
+				continue
+			}
+			for _, forbidden := range []string{"ai_maintenance", "test_with_guard", "go run", "npm ", "make "} {
+				if strings.Contains(line, forbidden) {
+					t.Fatalf("%s contains forbidden host gate %q", name, forbidden)
+				}
 			}
 		}
 	}
@@ -65,9 +90,9 @@ func TestAIMaintenanceGateRouteDeletionMutations(t *testing.T) {
 		mutate func(*string, *string, *string)
 	}{
 		{
-			name: "pre-commit CLI invocation",
+			name: "pre-commit remote hook command",
 			mutate: func(preCommit, _, _ *string) {
-				*preCommit = strings.Replace(*preCommit, `"$gate_bin" hook pre-commit --tree "$staged_tree"`, "", 1)
+				*preCommit = strings.Replace(*preCommit, `remote hook pre-commit`, "", 1)
 			},
 		},
 		{
@@ -77,9 +102,9 @@ func TestAIMaintenanceGateRouteDeletionMutations(t *testing.T) {
 			},
 		},
 		{
-			name: "pre-push CLI invocation",
+			name: "pre-push remote hook command",
 			mutate: func(_, prePush, _ *string) {
-				*prePush = strings.Replace(*prePush, `exec "$gate_bin" hook pre-push "$1" "$2"`, "", 1)
+				*prePush = strings.Replace(*prePush, `remote hook pre-push`, "", 1)
 			},
 		},
 		{
