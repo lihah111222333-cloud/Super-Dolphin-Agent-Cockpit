@@ -49,6 +49,20 @@ jobs:
           mv identity.next.json identity.json
           jq -e '.main_tree == env.CANDIDATE_TREE and .platform == "linux/amd64"' identity.json >/dev/null
 
+      - name: Reclaim ephemeral runner disk
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h /
+          sudo rm -rf \
+            /usr/local/lib/android \
+            /usr/share/dotnet \
+            /opt/ghc \
+            /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL
+          docker system prune --all --force
+          df -h /
+
       - name: Login to GHCR
         uses: docker/login-action@v3
         with:
