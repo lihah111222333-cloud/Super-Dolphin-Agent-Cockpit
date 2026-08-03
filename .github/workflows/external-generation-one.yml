@@ -1,0 +1,205 @@
+name: External generation-one ECI source image
+
+on:
+  push:
+    branches:
+      - codex/external-g1-185ecc266202
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      CANDIDATE_TREE: 185ecc266202b62f7a74450ca7ae8a5ae280233b
+      CANDIDATE_COMMIT: ca76d164383001427c19509c8bdf8fd69a33a002
+      RUNTIME_REPOSITORY: ghcr.io/lihah111222333-cloud/super-dolphin-runtime-deps
+      FINAL_REPOSITORY: ghcr.io/lihah111222333-cloud/super-dolphin-ci-runtime
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Recover exact candidate tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp .github/external-generation-one/identity.go /tmp/external-generation-one-identity.go
+          rm -rf .github/external-generation-one
+          rm -f .github/workflows/external-generation-one.yml
+          git add -A
+          test "$(git write-tree)" = "$CANDIDATE_TREE"
+          mkdir -p .external-generation-one
+          cp /tmp/external-generation-one-identity.go .external-generation-one/identity.go
+
+      - name: Resolve exact image identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          GENERATION_ONE_REPOSITORY="$GITHUB_WORKSPACE" \
+          GENERATION_ONE_COMMIT="$CANDIDATE_COMMIT" \
+          GENERATION_ONE_TREE="$CANDIDATE_TREE" \
+            go run .external-generation-one/identity.go > identity.json
+          rm -rf .external-generation-one
+          image_input_digest="sha256:$(git ls-tree -rz --full-tree "$CANDIDATE_TREE" | sha256sum | cut -d' ' -f1)"
+          jq --arg digest "$image_input_digest" '. + {image_input_digest:$digest}' identity.json > identity.next.json
+          mv identity.next.json identity.json
+          jq -e '.main_tree == env.CANDIDATE_TREE and .platform == "linux/amd64"' identity.json >/dev/null
+
+      - name: Reclaim ephemeral runner disk
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h /
+          sudo rm -rf \
+            /usr/local/lib/android \
+            /usr/share/dotnet \
+            /opt/ghc \
+            /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL
+          docker system prune --all --force
+          df -h /
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.EXTERNAL_GENERATION_ONE_GHCR_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and publish runtime dependencies incrementally
+        id: runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          runtime_digest="$(jq -r .runtime_dependency_digest identity.json)"
+          runtime_key="${runtime_digest#sha256:}"
+          test "${#runtime_key}" -eq 64
+          tag="$RUNTIME_REPOSITORY:deps-$runtime_key"
+          if docker buildx imagetools inspect "$tag" >/dev/null 2>&1; then
+            reuse_mode=stable-identity-hit
+          else
+            bootstrap_tree=8d3b442f921135babb07c7a6bfabb0adf8c3f424
+            bootstrap_ref="$RUNTIME_REPOSITORY@sha256:4eca55195f60e7e3bfeba9a4495e8905922bc2d38751f5c84bb8956edcc56d21"
+            mapfile -t module_paths < <(
+              { git ls-tree -r --name-only "$bootstrap_tree"; git ls-tree -r --name-only "$CANDIDATE_TREE"; } |
+                awk '/(^|\/)go\.(mod|sum)$/' | sort -u
+            )
+            content_paths=(
+              internal/devtools/godistribution/go-distribution.lock
+              internal/devtools/nilnessrunner/runner.go
+              scripts/nilness_guard.go
+              frontend-app/package-lock.json
+              build/gate/runtime-lsp/package-lock.json
+              "${module_paths[@]}"
+            )
+            bootstrap_toolchain="$(git show "${bootstrap_tree}:build/gate/toolchain.lock" | jq -c 'del(.runtime_tools.go_version)')"
+            candidate_toolchain="$(git show "${CANDIDATE_TREE}:build/gate/toolchain.lock" | jq -c 'del(.runtime_tools.go_version)')"
+            candidate_go_version="$(git show "${CANDIDATE_TREE}:build/gate/toolchain.lock" | jq -r .runtime_tools.go_version)"
+            if [ "$bootstrap_toolchain" = "$candidate_toolchain" ] && [ "$candidate_go_version" = go1.26.5 ] && \
+              git diff --quiet "$bootstrap_tree" "$CANDIDATE_TREE" -- "${content_paths[@]}"; then
+              docker buildx imagetools create --tag "$tag" "$bootstrap_ref"
+              reuse_mode=verified-bootstrap-content-hit
+            else
+              reuse_mode=content-miss
+            fi
+          fi
+          if [ "${reuse_mode:-content-miss}" = content-miss ]; then
+          mapfile -t locked_args < <(jq -r '.runtime_build_args[]' identity.json)
+          runtime_args=()
+          for item in "${locked_args[@]}"; do runtime_args+=(--build-arg "$item"); done
+          runtime_args+=(
+            --build-arg "RUNTIME_DEPS_INPUT_DIGEST=$runtime_digest"
+            --build-arg "TOOLCHAIN_DIGEST=$(jq -r .toolchain_digest identity.json)"
+            --build-arg "TARGET_PLATFORM=linux/amd64"
+          )
+          docker buildx build --platform linux/amd64 --provenance=false \
+            -f build/gate/runtime-deps.Dockerfile \
+            "${runtime_args[@]}" \
+            --metadata-file runtime-image-metadata.json --push -t "$tag" .
+          fi
+          digest="$(docker buildx imagetools inspect "$tag" --format '{{json .Manifest.Digest}}' | jq -r .)"
+          test "$digest" != null && test -n "$digest"
+          printf 'runtime_dependency reuse_mode=%s digest=%s\n' "$reuse_mode" "$digest"
+          echo "reference=$RUNTIME_REPOSITORY@$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Build and publish complete CI image
+        id: final
+        shell: bash
+        env:
+          RUNTIME_REFERENCE: ${{ steps.runtime.outputs.reference }}
+        run: |
+          set -euo pipefail
+          final_args=(
+            --build-arg "RUNTIME_DEPS_IMAGE=$RUNTIME_REFERENCE"
+            --build-arg "BASELINE_CACHE_IMAGE=runtime-deps"
+            --build-arg "SOURCE_DATE_EPOCH=0"
+            --build-arg "BUILD_SOURCE_TREE=$CANDIDATE_TREE"
+            --build-arg "ACCEPTED_SNAPSHOT_ID=external-generation-one-pending"
+            --build-arg "IMAGE_INPUT_DIGEST=$(jq -r .image_input_digest identity.json)"
+            --build-arg "POLICY_DIGEST=$(jq -r .policy_digest identity.json)"
+            --build-arg "TOOLCHAIN_DIGEST=$(jq -r .toolchain_digest identity.json)"
+            --build-arg "TARGET_PLATFORM=linux/amd64"
+          )
+          tag="$FINAL_REPOSITORY:g1-$CANDIDATE_TREE"
+          docker buildx build --platform linux/amd64 --provenance=false \
+            -f build/gate/Dockerfile \
+            --build-context "runtime-deps=docker-image://$RUNTIME_REFERENCE" \
+            "${final_args[@]}" \
+            --cache-from type=gha,scope=external-g1-final \
+            --cache-to type=gha,scope=external-g1-final,mode=max \
+            --metadata-file final-image-metadata.json --push -t "$tag" .
+          digest=$(jq -r '."containerimage.digest"' final-image-metadata.json)
+          test "$digest" != null && test -n "$digest"
+          echo "reference=$FINAL_REPOSITORY@$digest" >> "$GITHUB_OUTPUT"
+
+          cp build/gate/Dockerfile /tmp/generation-one-artifacts.Dockerfile
+          printf '\nFROM scratch AS generation-one-operator-artifacts\nCOPY --from=build /out/super-dolphin-gate /artifacts/super-dolphin-gate\nCOPY --from=build /opt/super-dolphin-gate/runtime/manifest.json /artifacts/runtime-manifest.json\nCOPY --from=build /out/source-snapshot/manifest.json /artifacts/source-snapshot-manifest.json\nCOPY --from=build /out/generation-one-receipts/generation-one-build-receipt.json /artifacts/generation-one-build-receipt.json\n' >> /tmp/generation-one-artifacts.Dockerfile
+          docker buildx build --platform linux/amd64 --provenance=false \
+            -f /tmp/generation-one-artifacts.Dockerfile \
+            --target generation-one-operator-artifacts \
+            --build-context "runtime-deps=docker-image://$RUNTIME_REFERENCE" \
+            "${final_args[@]}" \
+            --cache-from type=gha,scope=external-g1-final \
+            --output type=local,dest=operator-artifacts .
+
+      - name: Bind content hashes
+        shell: bash
+        env:
+          RUNTIME_REFERENCE: ${{ steps.runtime.outputs.reference }}
+          FINAL_REFERENCE: ${{ steps.final.outputs.reference }}
+        run: |
+          set -euo pipefail
+          root=operator-artifacts/artifacts
+          test -x "$root/super-dolphin-gate"
+          test -s "$root/runtime-manifest.json"
+          test -s "$root/source-snapshot-manifest.json"
+          test -s "$root/generation-one-build-receipt.json"
+          jq -e --arg tree "$CANDIDATE_TREE" '.source_tree == $tree and (.provision_checks | length) == 6' "$root/generation-one-build-receipt.json" >/dev/null
+          jq -n \
+            --arg runtime_reference "$RUNTIME_REFERENCE" \
+            --arg final_reference "$FINAL_REFERENCE" \
+            --arg gate "sha256:$(sha256sum "$root/super-dolphin-gate" | cut -d' ' -f1)" \
+            --arg seed "sha256:$(sha256sum "$root/runtime-manifest.json" | cut -d' ' -f1)" \
+            --arg baseline "sha256:$(sha256sum "$root/source-snapshot-manifest.json" | cut -d' ' -f1)" \
+            '{runtime_reference:$runtime_reference,final_reference:$final_reference,gate_binary_sha256:$gate,runtime_seed_manifest_sha256:$seed,baseline_manifest_digest:$baseline}' \
+            > content-hashes.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: external-generation-one-${{ env.CANDIDATE_TREE }}
+          if-no-files-found: error
+          retention-days: 3
+          path: |
+            identity.json
+            runtime-image-metadata.json
+            final-image-metadata.json
+            content-hashes.json
+            operator-artifacts/artifacts/generation-one-build-receipt.json
+            operator-artifacts/artifacts/runtime-manifest.json
+            operator-artifacts/artifacts/source-snapshot-manifest.json
