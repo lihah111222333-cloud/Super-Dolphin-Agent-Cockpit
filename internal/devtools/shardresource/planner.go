@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
 const gibibyte = int64(1 << 30)
@@ -31,6 +33,7 @@ type BootstrapClasses struct {
 type Policy struct {
 	Classes              []Class          `json:"classes"`
 	Bootstrap            BootstrapClasses `json:"bootstrap"`
+	CalibrationClass     string           `json:"calibration_class"`
 	HeadroomPercent      uint8            `json:"headroom_percent"`
 	MinSamplesToDownsize uint8            `json:"min_samples_to_downsize"`
 }
@@ -75,7 +78,10 @@ func (policy Policy) Validate() error {
 	if err != nil {
 		return err
 	}
-	return validateBootstrapClasses(policy.Bootstrap, registered)
+	if err := validateBootstrapClasses(policy.Bootstrap, registered); err != nil {
+		return err
+	}
+	return nil
 }
 
 func validatePolicySettings(policy Policy) error {
@@ -139,6 +145,24 @@ func (policy Policy) ResolveClass(id string) (Class, error) {
 		return Class{}, fmt.Errorf("resource class %q is not registered", id)
 	}
 	return policy.Classes[index], nil
+}
+
+// ResolveCalibrationClass returns the one explicit class used by every calibration shard.
+func (policy Policy) ResolveCalibrationClass() (Class, error) {
+	if err := policy.Validate(); err != nil {
+		return Class{}, err
+	}
+	if policy.CalibrationClass == "" {
+		return Class{}, errors.New("resource calibration_class is required")
+	}
+	class, err := policy.ResolveClass(policy.CalibrationClass)
+	if err != nil {
+		return Class{}, err
+	}
+	if err := cicontract.ValidateCalibrationResources(class.ID, class.VCPU, class.MemoryGiB); err != nil {
+		return Class{}, err
+	}
+	return class, nil
 }
 
 // Select 选择满足观测峰值的最小安全档位，并在降档前要求稳定样本。

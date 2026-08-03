@@ -2,15 +2,13 @@ package remoteci
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -21,11 +19,12 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/shardresource"
 )
 
+const testRemoteAgentTokenDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
 type coordinatorStore struct {
 	mu             sync.Mutex
 	uploads        []string
 	deletes        []string
-	uploadBatches  []int
 	deletePrefixes []string
 	objects        map[string][]byte
 	uploadContents map[string][]byte
@@ -59,46 +58,6 @@ func (store *coordinatorStore) Create(ctx context.Context, localPath string, key
 		store.uploadContents = make(map[string][]byte)
 	}
 	store.uploadContents[key] = append([]byte(nil), data...)
-	return nil
-}
-
-func (store *coordinatorStore) UploadDirectory(
-	ctx context.Context,
-	localPath string,
-	prefix string,
-	_ int,
-) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	entries, err := os.ReadDir(localPath)
-	if err != nil {
-		return err
-	}
-	store.mu.Lock()
-	store.uploadBatches = append(store.uploadBatches, len(entries))
-	store.mu.Unlock()
-	for _, entry := range entries {
-		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
-			return errors.New("batch upload fixture contains a non-file entry")
-		}
-		data, err := os.ReadFile(filepath.Join(localPath, entry.Name()))
-		if err != nil {
-			return err
-		}
-		key := prefix + entry.Name()
-		store.mu.Lock()
-		store.uploads = append(store.uploads, key)
-		if store.objects == nil {
-			store.objects = make(map[string][]byte)
-		}
-		store.objects[key] = append([]byte(nil), data...)
-		if store.uploadContents == nil {
-			store.uploadContents = make(map[string][]byte)
-		}
-		store.uploadContents[key] = append([]byte(nil), data...)
-		store.mu.Unlock()
-	}
 	return nil
 }
 
@@ -178,17 +137,18 @@ func (runtime *coordinatorRuntime) CreateContainerGroup(ctx context.Context, req
 		return eci.ContainerGroup{}, fmt.Errorf("injected create failure")
 	}
 	id := fmt.Sprintf("eci-%d", len(runtime.creates))
+	sourceStartedAt, sourceCompletedAt, compileStartedAt, compileCompletedAt := runtime.syntheticShardPhaseTimes()
 	if runtime.initLog == "" {
-		timing, timingErr := gate.EncodeShardMaterializationTimingRecord(gate.ShardMaterializationTiming{Measurement: gate.MaterializationMeasurementMeasured, ShardIdentity: request.InitContainer.Environment["SUPER_DOLPHIN_REMOTE_SHARD_IDENTITY"]})
+		timing, timingErr := gate.EncodeShardMaterializationTimingRecord(gate.ShardMaterializationTiming{Measurement: gate.MaterializationMeasurementMeasured, ShardIdentity: request.InitContainer.Environment["SUPER_DOLPHIN_REMOTE_SHARD_IDENTITY"], Source: gate.MaterializationPhaseTiming{StartedAtUnixMS: sourceStartedAt.UnixMilli(), CompletedAtUnixMS: sourceCompletedAt.UnixMilli(), MaterializeMS: sourceCompletedAt.Sub(sourceStartedAt).Milliseconds()}})
 		if timingErr != nil {
 			return eci.ContainerGroup{}, timingErr
 		}
 		if runtime.initLogs == nil {
 			runtime.initLogs = make(map[string]string)
 		}
-		runtime.initLogs[id] = timing
+		runtime.initLogs[id] = timing + "\n" + shardCompileTimingRecordPrefix + "started_at_unix_ms=" + strconv.FormatInt(compileStartedAt.UnixMilli(), 10) + " completed_at_unix_ms=" + strconv.FormatInt(compileCompletedAt.UnixMilli(), 10) + " duration_ms=" + strconv.FormatInt(compileCompletedAt.Sub(compileStartedAt).Milliseconds(), 10) + " cache_metrics=/workspace/work/go-cache/shard-compile.metrics"
 	}
-	log, err := runtime.reportLog(request)
+	log, err := runtime.reportLog(request, compileCompletedAt.Add(time.Millisecond))
 	if err != nil {
 		return eci.ContainerGroup{}, err
 	}
@@ -199,8 +159,28 @@ func (runtime *coordinatorRuntime) CreateContainerGroup(ctx context.Context, req
 	return eci.ContainerGroup{ID: id, Name: request.ContainerGroupName}, nil
 }
 
-func (runtime *coordinatorRuntime) reportLog(request eci.CreateRequest) (string, error) {
-	report, err := reportFromCreateRequest(request)
+// syntheticShardPhaseTimes 在调用方持锁期间生成稳定的物化与编译阶段时间。
+func (runtime *coordinatorRuntime) syntheticShardPhaseTimes() (time.Time, time.Time, time.Time, time.Time) {
+	creationTime := runtime.groupState.CreationTime
+	if creationTime.IsZero() {
+		creationTime = time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC)
+	}
+	materializerStartedAt := creationTime.Add(time.Millisecond)
+	if len(runtime.groupState.InitContainers) == 1 && runtime.groupState.InitContainers[0].Name == "materializer" && !runtime.groupState.InitContainers[0].CurrentState.StartTime.IsZero() {
+		materializerStartedAt = runtime.groupState.InitContainers[0].CurrentState.StartTime
+	}
+	sourceStartedAt := materializerStartedAt.Add(time.Millisecond)
+	sourceCompletedAt := sourceStartedAt.Add(time.Millisecond)
+	compileStartedAt := sourceCompletedAt.Add(time.Millisecond)
+	compileCompletedAt := compileStartedAt.Add(time.Millisecond)
+	if len(runtime.groupState.Containers) == 0 {
+		runtime.groupState.Containers = []eci.ContainerStatus{{Name: "worker", CurrentState: eci.ContainerState{StartTime: creationTime.Add(4 * time.Millisecond)}}}
+	}
+	return sourceStartedAt, sourceCompletedAt, compileStartedAt, compileCompletedAt
+}
+
+func (runtime *coordinatorRuntime) reportLog(request eci.CreateRequest, executionStartedAt time.Time) (string, error) {
+	report, err := reportFromCreateRequest(request, executionStartedAt)
 	if err != nil {
 		return "", err
 	}
@@ -240,7 +220,20 @@ func (runtime *coordinatorRuntime) DescribeContainerGroups(ctx context.Context, 
 	if status == "" {
 		status = "Succeeded"
 	}
+	runtime.syntheticShardPhaseTimes()
 	groupState := runtime.groupState
+	if groupState.CreationTime.IsZero() {
+		groupState.CreationTime = time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC)
+	}
+	if len(groupState.InitContainers) == 0 {
+		groupState.InitContainers = []eci.ContainerStatus{{Name: "materializer", CurrentState: eci.ContainerState{StartTime: groupState.CreationTime.Add(time.Millisecond)}}}
+	}
+	if status == "Succeeded" && groupState.SucceededTime.IsZero() {
+		groupState.SucceededTime = groupState.CreationTime.Add(2 * time.Second)
+	}
+	if status != "Succeeded" && groupState.FailedTime.IsZero() {
+		groupState.FailedTime = groupState.CreationTime.Add(2 * time.Second)
+	}
 	runtime.mu.Unlock()
 	groups := make([]eci.ContainerGroup, len(ids))
 	for index, id := range ids {
@@ -290,11 +283,29 @@ func TestCoordinatorRunCompletesAndCleansRemoteShards(t *testing.T) {
 	if result.Status != gate.ResultStatusPassed || !result.CleanupComplete || len(result.Shards) != len(plannedSet.Shards) {
 		t.Fatalf("Run() result = %+v", result)
 	}
-	if !validObjectDigest(result.CandidateCLIManifestSHA256) {
-		t.Fatalf("Run() candidate CLI manifest digest = %q", result.CandidateCLIManifestSHA256)
-	}
 	assertRemoteDurationSampleCoverage(t, result, plannedSet)
-	assertCoordinatorRunSideEffects(t, store, runtime, plannedSet, input)
+	assertCoordinatorRunSideEffects(t, store, runtime, plannedSet)
+}
+
+func TestCoordinatorRunExecutesEveryPlannedWorkloadDespiteLegacyPassedWorkloadObject(t *testing.T) {
+	repository, input := remoteRunFixture(t)
+	store := &coordinatorStore{objects: map[string][]byte{
+		"baseline-artifacts/source-deltas/passed-workloads/v1/legacy.pass": []byte("PASS"),
+	}}
+	runtime := &coordinatorRuntime{}
+	coordinator := newTestCoordinator(t, store, runtime)
+	input.RepositoryRoot = repository
+	plannedSet := mustBuildRemoteExecutionShardSet(t, input)
+	result, err := coordinator.Run(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Status != gate.ResultStatusPassed {
+		t.Fatalf("Run() status = %s, want %s", result.Status, gate.ResultStatusPassed)
+	}
+	if len(runtime.creates) != len(plannedSet.Shards) {
+		t.Fatalf("legacy passed object skipped ECI execution: creates=%d want=%d", len(runtime.creates), len(plannedSet.Shards))
+	}
 }
 
 func mustBuildRemoteExecutionShardSet(t *testing.T, input RunInput) gate.ContainerShardSet {
@@ -303,7 +314,7 @@ func mustBuildRemoteExecutionShardSet(t *testing.T, input RunInput) gate.Contain
 	if err != nil {
 		t.Fatalf("buildRemotePlan() error = %v", err)
 	}
-	set, err := buildRemoteExecutionShardSet(plan, catalog, nil, input)
+	set, err := buildRemoteExecutionShardSet(plan, catalog, input)
 	if err != nil {
 		t.Fatalf("buildRemoteExecutionShardSet() error = %v", err)
 	}
@@ -315,17 +326,15 @@ func assertCoordinatorRunSideEffects(
 	store *coordinatorStore,
 	runtime *coordinatorRuntime,
 	plannedSet gate.ContainerShardSet,
-	input RunInput,
 ) {
 	t.Helper()
 	if len(runtime.creates) != len(plannedSet.Shards) || len(runtime.deletes) != len(plannedSet.Shards) {
 		t.Fatalf("runtime creates=%d deletes=%d", len(runtime.creates), len(runtime.deletes))
 	}
-	temporary, persistent := partitionCoordinatorUploads(store.uploads)
-	candidateTestBinaryCount := assertCandidateTestBinaryTemporaryAssets(t, store, temporary)
-	wantTemporary := 4 + candidateTestBinaryCount*2 + len(plannedSet.Shards)
+	temporary := coordinatorTemporaryUploads(store.uploads)
+	wantTemporary := 2 + len(plannedSet.Shards)
 	if len(temporary) != wantTemporary || len(store.deletes) != len(temporary) {
-		t.Fatalf("store temporary=%v persistent=%v deletes=%v", temporary, persistent, store.deletes)
+		t.Fatalf("store temporary=%v deletes=%v", temporary, store.deletes)
 	}
 	deleted := slices.Clone(store.deletes)
 	sort.Strings(deleted)
@@ -333,82 +342,15 @@ func assertCoordinatorRunSideEffects(
 	if !slices.Equal(temporary, deleted) {
 		t.Fatalf("temporary uploads=%v must exactly equal cleanup deletes=%v", temporary, store.deletes)
 	}
-	expectedCached := 0
-	for _, shard := range plannedSet.Shards {
-		expectedCached += len(shard.GateIDs)
-	}
-	if len(persistent) != expectedCached*2 {
-		t.Fatalf("persistent workload cache uploads=%d want=%d", len(persistent), expectedCached*2)
-	}
-	assertCoordinatorCacheSideEffects(t, store, persistent, expectedCached)
-	assertRemoteSourceObjectPrefix(t, temporary, runtime.creates)
-	for _, request := range runtime.creates {
-		assertRemoteCreateRequestIdentity(t, request, input)
-		assertRemoteCreateRequestVolumes(t, request, input)
-	}
-}
-
-func assertCandidateTestBinaryTemporaryAssets(t *testing.T, store *coordinatorStore, temporary []string) int {
-	t.Helper()
-	binaries, manifests := 0, 0
-	for _, key := range temporary {
-		if strings.HasSuffix(key, ".test-bin") {
-			binaries++
-			continue
-		}
-		manifest, err := DecodeCandidateTestBinaryArtifactManifest(store.uploadContents[key])
-		if err == nil {
-			manifests++
-			if !strings.HasSuffix(manifest.BinaryKey, ".test-bin") {
-				t.Fatalf("candidate test manifest %q binary key=%q", key, manifest.BinaryKey)
-			}
-		}
-	}
-	if binaries == 0 || manifests != binaries {
-		t.Fatalf("candidate test binary temporary assets binaries=%d manifests=%d uploads=%v", binaries, manifests, temporary)
-	}
-	return binaries
-}
-
-func assertCoordinatorCacheSideEffects(
-	t *testing.T,
-	store *coordinatorStore,
-	persistent []string,
-	expectedCached int,
-) {
-	t.Helper()
-	if !reflect.DeepEqual(store.uploadBatches, []int{expectedCached, expectedCached}) {
-		t.Fatalf("persistent workload cache batches=%v want receipt and marker batches of %d", store.uploadBatches, expectedCached)
-	}
-	receipts, markers := assertPublishedCacheObjects(t, persistent)
-	if receipts != expectedCached || markers != expectedCached {
-		t.Fatalf("persistent workload cache receipts=%d markers=%d want=%d each", receipts, markers, expectedCached)
-	}
 	if len(store.deletePrefixes) != 1 ||
 		!strings.HasPrefix(store.deletePrefixes[0], "baseline-artifacts/source-deltas/job-") {
 		t.Fatalf("temporary object delete prefixes=%v", store.deletePrefixes)
 	}
-}
-
-func assertPublishedCacheObjects(t *testing.T, persistent []string) (int, int) {
-	t.Helper()
-	receipts, markers := 0, 0
-	markerPhase := false
-	for _, key := range persistent {
-		switch {
-		case strings.Contains(key, "/receipts/") && strings.HasSuffix(key, ".receipt"):
-			if markerPhase {
-				t.Fatalf("receipt %q was uploaded after marker publication began", key)
-			}
-			receipts++
-		case strings.HasSuffix(key, ".pass"):
-			markerPhase = true
-			markers++
-		default:
-			t.Fatalf("unexpected persistent workload cache object %q", key)
-		}
+	assertRemoteSourceObjectPrefix(t, temporary, runtime.creates)
+	for _, request := range runtime.creates {
+		assertRemoteCreateRequestIdentity(t, request)
+		assertRemoteCreateRequestVolumes(t, request)
 	}
-	return receipts, markers
 }
 
 func TestRemoteExecutionShardResourcesUsesLargestWorkloadClass(t *testing.T) {
@@ -431,45 +373,129 @@ func TestRemoteExecutionShardResourcesUsesLargestWorkloadClass(t *testing.T) {
 	if err != nil {
 		t.Fatalf("remoteExecutionShardResources() error = %v", err)
 	}
-	if len(resources) != 1 || resources[0].CPU != 4 || resources[0].MemoryGiB != 16 {
+	if len(resources) != 1 || resources[0].VCPU != 4 || resources[0].MemoryGiB != 16 {
 		t.Fatalf("resources = %#v", resources)
 	}
-}
-
-func updateCoordinatorInputTarget(t *testing.T, repository string, input *RunInput) {
-	t.Helper()
-	commit := coordinatorGitOutput(t, repository, "rev-parse", "HEAD")
-	tree := coordinatorGitOutput(t, repository, "rev-parse", "HEAD^{tree}")
-	input.Commit, input.Tree = commit, tree
-	input.Source = gate.SourceSpec{
-		Kind: gate.SourceKindCommit, ObjectFormat: gate.GitObjectFormatSHA1,
-		Commit: &gate.CommitSource{SHA: commit}, SourceTreeSHA: tree,
+	if resources[0].ID != "memory" {
+		t.Fatalf("resources[0].ID = %q, want memory", resources[0].ID)
 	}
 }
 
-func partitionCoordinatorUploads(uploads []string) (temporary []string, persistent []string) {
-	for _, key := range uploads {
-		if strings.Contains(key, "/passed-workloads/") {
-			persistent = append(persistent, key)
-			continue
+func TestBindRemoteShardResourcesPersistsNormalSelectedClass(t *testing.T) {
+	t.Parallel()
+
+	class := shardresource.Class{ID: "medium", VCPU: 4, MemoryGiB: 16}
+	results := []ShardResult{{ShardIdentity: "shard-1"}}
+	requests := []ShardRequest{{ResourceClass: class}}
+	if err := bindRemoteShardResources(results, []shardresource.Class{class}, requests); err != nil {
+		t.Fatalf("bindRemoteShardResources() error = %v", err)
+	}
+	if got, want := results[0].ResourceClass, class.ID; got != want {
+		t.Fatalf("ResourceClass = %q, want %q", got, want)
+	}
+	if got := results[0].Resources; got != (eci.Resources{CPU: class.VCPU, MemoryGiB: class.MemoryGiB}) {
+		t.Fatalf("Resources = %#v, want %#v", got, eci.Resources{CPU: class.VCPU, MemoryGiB: class.MemoryGiB})
+	}
+}
+
+func TestBindRemoteShardResourcesRejectsNormalResourceClassDrift(t *testing.T) {
+	t.Parallel()
+
+	selected := shardresource.Class{ID: "medium", VCPU: 4, MemoryGiB: 16}
+	requested := shardresource.Class{ID: "small", VCPU: 2, MemoryGiB: 8}
+	err := bindRemoteShardResources([]ShardResult{{ShardIdentity: "shard-1"}}, []shardresource.Class{selected}, []ShardRequest{{ResourceClass: requested}})
+	if err == nil || !strings.Contains(err.Error(), "resource_class drifted") {
+		t.Fatalf("bindRemoteShardResources() error = %v, want normal resource_class drift", err)
+	}
+}
+
+func TestCoordinatorRunRejectsMissingOrMismatchedImageCacheSnapshotID(t *testing.T) {
+	for name, snapshotID := range map[string]string{
+		"missing":  "",
+		"mismatch": "snap-other-baseline",
+	} {
+		t.Run(name, func(t *testing.T) {
+			repository, input := remoteRunFixture(t)
+			input.RepositoryRoot = repository
+			input.ImageCacheSnapshotID = snapshotID
+			_, err := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{}).Run(context.Background(), input)
+			if err == nil || !strings.Contains(err.Error(), "ImageCacheSnapshotID") {
+				t.Fatalf("Run() error = %v, want image snapshot binding rejection", err)
+			}
+		})
+	}
+}
+
+func TestImageCacheSnapshotFieldRegistry(t *testing.T) {
+	for name, value := range map[string]reflect.Type{
+		"RunInput":  reflect.TypeFor[RunInput](),
+		"RunResult": reflect.TypeFor[RunResult](), "CoordinatorConfig": reflect.TypeFor[CoordinatorConfig](),
+		"ShardRequest": reflect.TypeFor[ShardRequest](),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, found := value.FieldByName("ImageCacheID"); found {
+				t.Fatalf("%s retains the audit-only ImageCacheID field", name)
+			}
+			if _, found := value.FieldByName("ImageCacheSnapshotID"); !found {
+				t.Fatalf("%s is missing ImageCacheSnapshotID", name)
+			}
+		})
+	}
+	for _, value := range []reflect.Type{reflect.TypeFor[ShardRequest](), reflect.TypeFor[RunResult]()} {
+		field, found := value.FieldByName("ImageCacheSnapshotID")
+		if !found || field.Tag.Get("json") != "image_cache_snapshot_id" {
+			t.Fatalf("%s snapshot field = %#v, want image_cache_snapshot_id", value.Name(), field)
 		}
-		temporary = append(temporary, key)
 	}
-	return temporary, persistent
 }
 
-func assertRemoteCreateRequestIdentity(t *testing.T, request eci.CreateRequest, input RunInput) {
+func TestShardRequestCandidateGateCompileIdentityFieldRegistry(t *testing.T) {
+	typeOfRequest := reflect.TypeFor[ShardRequest]()
+	for name, tag := range map[string]string{
+		"CandidateGateSourceSHA256":    "candidate_gate_source_sha256",
+		"CandidateGateToolchainSHA256": "candidate_gate_toolchain_sha256",
+	} {
+		field, found := typeOfRequest.FieldByName(name)
+		if !found || field.Tag.Get("json") != tag {
+			t.Fatalf("ShardRequest %s field = %#v, want json %q", name, field, tag)
+		}
+	}
+}
+
+func coordinatorTemporaryUploads(uploads []string) []string {
+	return slices.Clone(uploads)
+}
+
+func assertRemoteCreateRequestIdentity(t *testing.T, request eci.CreateRequest) {
 	t.Helper()
-	if !reflect.DeepEqual(request.Command, remoteWorkerSupervisorCommand("/opt/super-dolphin-gate/bin/super-dolphin-gate")) ||
+	if !reflect.DeepEqual(request.Command, remoteWorkerSupervisorCommand(gate.ExecutorWorkRoot+"/bin/super-dolphin-gate")) ||
 		len(request.Args) < 2 || request.Args[0] != "worker" || request.Args[1] != "run-shard" ||
-		!reflect.DeepEqual(request.Environment, remoteWorkerEnvironment(10*time.Minute)) ||
-		!reflect.DeepEqual(request.InitContainer.Command, []string{"/bin/sh"}) ||
-		!reflect.DeepEqual(request.InitContainer.Args, []string{"-c", remoteCandidateGateBootstrapSH}) {
+		!reflect.DeepEqual(request.Environment, remoteWorkerEnvironment(10*time.Minute, testRemoteAgentTokenDigest)) ||
+		request.InitContainer.Name != "materializer" {
 		t.Fatalf("create request identity = %+v", request)
 	}
-	assertCandidateGateEnvironment(t, request, input)
+	assertRemoteInitShardCandidateCompile(t, request)
 	assertECIEnvironmentLengths(t, "worker", request.Environment)
 	assertECIEnvironmentLengths(t, "materializer", request.InitContainer.Environment)
+}
+
+func assertRemoteInitShardCandidateCompile(t *testing.T, request eci.CreateRequest) {
+	t.Helper()
+	if !reflect.DeepEqual(request.InitContainer.Command, []string{"/bin/sh"}) ||
+		!reflect.DeepEqual(request.InitContainer.Args, []string{"-c", remoteShardBootstrapSH}) {
+		t.Fatalf("init shard command = %+v", request.InitContainer)
+	}
+	for _, fragment := range []string{
+		`accepted_gate="/super-dolphin-gate"`,
+		`"$accepted_gate" _remote-materialize`,
+		`cd /workspace/source`,
+		`/usr/local/go/bin/go build -mod=mod -trimpath -buildvcs=false -o "$built_gate" ./cmd/super-dolphin-gate`,
+		`test -x "$built_gate"`,
+	} {
+		if !strings.Contains(request.InitContainer.Args[1], fragment) {
+			t.Fatalf("init shard candidate compile command missing %q: %q", fragment, request.InitContainer.Args[1])
+		}
+	}
 }
 
 func assertECIEnvironmentLengths(t *testing.T, container string, environment map[string]string) {
@@ -482,22 +508,17 @@ func assertECIEnvironmentLengths(t *testing.T, container string, environment map
 	}
 }
 
-func assertRemoteCreateRequestVolumes(t *testing.T, request eci.CreateRequest, _ RunInput) {
+func assertRemoteCreateRequestVolumes(t *testing.T, request eci.CreateRequest) {
 	t.Helper()
-	assertCoordinatorVolumeField(t, "expanded volume name", request.ExpandedVolume.Name, "expanded-data")
-	assertCoordinatorVolumeMount(t, request.MainVolumeMounts[0], "/opt/super-dolphin-gate", "", true)
-	assertCoordinatorVolumeMount(t, request.MainVolumeMounts[1], remoteXKBCompMountPath, remoteXKBCompSubPath, true)
-	assertCoordinatorVolumeMount(t, request.MainVolumeMounts[2], remoteXKBDataMountPath, remoteXKBDataSubPath, true)
-	if request.InitVolumeMounts[0].Name != remoteCurrentGateVolumeName || request.InitVolumeMounts[0].MountPath != "/candidate-bootstrap" || !request.InitVolumeMounts[0].ReadOnly {
-		t.Fatalf("candidate bootstrap mount = %+v, want read-only candidate artifact directory", request.InitVolumeMounts[1])
+	if len(request.MainVolumeMounts) != 3 || len(request.InitVolumeMounts) != 3 {
+		t.Fatalf("shard volume mounts = main=%+v init=%+v, want source, work, and temp", request.MainVolumeMounts, request.InitVolumeMounts)
 	}
-}
-
-func assertCoordinatorVolumeField(t *testing.T, name string, got string, want string) {
-	t.Helper()
-	if got != want {
-		t.Fatalf("%s = %q, want %q", name, got, want)
-	}
+	assertCoordinatorVolumeMount(t, request.MainVolumeMounts[0], gate.ExecutorSourcePath, "", true)
+	assertCoordinatorVolumeMount(t, request.MainVolumeMounts[1], gate.ExecutorWorkRoot, "", false)
+	assertCoordinatorVolumeMount(t, request.MainVolumeMounts[2], remoteWritableTempMountPath, "", false)
+	assertCoordinatorVolumeMount(t, request.InitVolumeMounts[0], gate.ExecutorSourcePath, "", false)
+	assertCoordinatorVolumeMount(t, request.InitVolumeMounts[1], gate.ExecutorWorkRoot, "", false)
+	assertCoordinatorVolumeMount(t, request.InitVolumeMounts[2], remoteWritableTempMountPath, "", false)
 }
 
 func assertCoordinatorVolumeMount(t *testing.T, mount eci.VolumeMount, path string, subPath string, readOnly bool) {
@@ -535,7 +556,7 @@ func assertRemoteDurationSampleCoverage(t *testing.T, result RunResult, plannedS
 	}
 }
 
-func TestCoordinatorRunMarksOnlyCanonicalPreCommitTreeAuthoritative(t *testing.T) {
+func TestCoordinatorRunPersistsCanonicalPreCommitTreeAsProvisional(t *testing.T) {
 	repository, input := remoteRunFixture(t)
 	input.RepositoryRoot = repository
 	input.Commit = ""
@@ -552,10 +573,11 @@ func TestCoordinatorRunMarksOnlyCanonicalPreCommitTreeAuthoritative(t *testing.T
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if !result.Authoritative || result.Entrypoint != gate.CIEntrypointGitPreCommit {
+	if result.Authoritative || result.Entrypoint != gate.CIEntrypointGitPreCommit {
 		t.Fatalf("result = %#v", result)
 	}
 
+	coordinator.newID = func() (string, error) { return "job-0123456789abcdef0123456a", nil }
 	input.Entrypoint = gate.CIEntrypointManualCLI
 	result, err = coordinator.Run(context.Background(), input)
 	if err != nil {
@@ -651,272 +673,5 @@ func TestCoordinatorRunReturnsFailedWorkerDiagnostic(t *testing.T) {
 	}
 	if result.Status != gate.ResultStatusFailed || !result.CleanupComplete {
 		t.Fatalf("Run() result=%+v", result)
-	}
-}
-
-func newTestCoordinator(t *testing.T, store ObjectStore, runtime Runtime) *Coordinator {
-	t.Helper()
-	coordinator, err := NewCoordinator(CoordinatorConfig{
-		Bucket: "ci-bucket", SourcePrefix: "baseline-artifacts/source-deltas/",
-		WorkloadCachePrefix: "baseline-artifacts/source-deltas/passed-workloads/v1/",
-		InternalOSSEndpoint: "oss-cn-shenzhen-internal.aliyuncs.com",
-		WorkerRoleName:      "worker-role",
-		WorkerTimeout:       10 * time.Minute,
-		PollInterval:        time.Millisecond, CleanupTimeout: time.Second,
-		ResourcePolicy:             testRemoteResourcePolicy(),
-		CandidateCLIBuilder:        testCandidateCLIBuilder(t),
-		CandidateTestBinaryBuilder: testCandidateTestBinaryBuilder(t),
-	}, store, runtime)
-	if err != nil {
-		t.Fatal(err)
-	}
-	coordinator.now = func() time.Time { return time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC) }
-	coordinator.newID = func() (string, error) { return "job-0123456789abcdef01234567", nil }
-	return coordinator
-}
-
-func testCandidateCLIBuilder(t *testing.T) CandidateCLIBuilder {
-	t.Helper()
-	return func(_ context.Context, _ RunInput, tempRoot string) (string, error) {
-		path := filepath.Join(tempRoot, "candidate-cli")
-		if err := os.WriteFile(path, []byte("candidate cli\n"), 0o700); err != nil {
-			return "", err
-		}
-		return path, nil
-	}
-}
-
-func testCandidateTestBinaryBuilder(t *testing.T) CandidateTestBinaryBuilder {
-	t.Helper()
-	return func(_ context.Context, input RunInput, shards []gate.ContainerShard, tempRoot string) ([]CandidateTestBinaryBuild, error) {
-		targets, err := remoteCandidateTestBinaryTargets(shards)
-		if err != nil {
-			return nil, err
-		}
-		if len(targets) == 0 {
-			targets = []CandidateTestBinaryBuildTarget{{Package: "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci", Mode: "test", CGOEnabled: true}}
-		}
-		builds := make([]CandidateTestBinaryBuild, 0, len(targets))
-		for index, target := range targets {
-			binaryPath := filepath.Join(tempRoot, fmt.Sprintf("candidate-test-bin-%d", index))
-			if err := os.WriteFile(binaryPath, []byte("candidate test binary\n"), 0o700); err != nil {
-				return nil, err
-			}
-			builds = append(builds, CandidateTestBinaryBuild{BinaryPath: binaryPath, Package: target.Package, Mode: target.Mode, GoToolchain: "go1.26.5", ToolchainSHA256: input.CandidateGateToolchainSHA256, BuildFlags: []string{"-mod=readonly", "-buildvcs=false", "-trimpath"}, CompileClosureSHA256: input.CandidateGateSourceSHA256})
-		}
-		return builds, nil
-	}
-}
-
-func TestCoordinatorRunBuildsCandidateCLIOnceBeforeShardFanout(t *testing.T) {
-	_, input := remoteRunFixture(t)
-	store := &coordinatorStore{}
-	runtime := &coordinatorRuntime{}
-	coordinator := newTestCoordinator(t, store, runtime)
-	builds := 0
-	coordinator.config.CandidateCLIBuilder = func(_ context.Context, _ RunInput, tempRoot string) (string, error) {
-		builds++
-		path := filepath.Join(tempRoot, "candidate-cli-three-shard")
-		if err := os.WriteFile(path, []byte("candidate cli\n"), 0o700); err != nil {
-			return "", err
-		}
-		return path, nil
-	}
-	if _, err := coordinator.Run(context.Background(), input); err != nil {
-		t.Fatalf("Run() error = %v", err)
-	}
-	if builds != 1 || len(runtime.creates) < 2 {
-		t.Fatalf("candidate CLI builds = %d, shard creates = %d", builds, len(runtime.creates))
-	}
-	if len(store.uploads) < 4 || !strings.HasSuffix(store.uploads[2], ".candidate-cli") || !strings.HasSuffix(store.uploads[3], ".manifest.json") {
-		t.Fatalf("candidate artifact upload order = %v", store.uploads)
-	}
-}
-
-func TestBuildShardRequestsSharesOneCandidateCLIArtifactAcrossThreeShards(t *testing.T) {
-	_, input := remoteRunFixture(t)
-	tempRoot := t.TempDir()
-	builds := 0
-	builder := func(_ context.Context, _ RunInput, destination string) (string, error) {
-		builds++
-		path := filepath.Join(destination, "candidate-cli-three-shards")
-		return path, os.WriteFile(path, []byte("candidate cli\n"), 0o700)
-	}
-	candidate, _, _, _, err := buildRemoteCandidateCLIArtifact(context.Background(), builder, input, "job-0123456789abcdef01234567", tempRoot, "baseline-artifacts/source-deltas/")
-	if err != nil {
-		t.Fatalf("buildRemoteCandidateCLIArtifact() error = %v", err)
-	}
-	assets, err := buildRemoteAssets(context.Background(), input, "job-0123456789abcdef01234567", tempRoot, "baseline-artifacts/source-deltas/")
-	if err != nil {
-		t.Fatalf("buildRemoteAssets() error = %v", err)
-	}
-	shards := make([]gate.ContainerShard, 3)
-	for index := range shards {
-		shards[index] = gate.ContainerShard{Index: index, IdentityDigest: input.RunnerIdentityDigest, Profile: input.Profile, PlanDigest: input.PolicyDigest, SourceTreeSHA: input.Tree, GateIDs: []gate.GateID{gate.GateID(fmt.Sprintf("test:shard:%d", index))}}
-	}
-	requests, _, err := buildShardRequestsWithCandidate("baseline-artifacts/source-deltas/", "job-0123456789abcdef01234567", shards, assets.artifact, assets.patchKey, assets.manifestKey, assets.manifestDigest, candidate, []CandidateTestBinaryArtifactRef{testCandidateTestBinary(input)}, input)
-	if err != nil {
-		t.Fatalf("buildShardRequestsWithCandidate() error = %v", err)
-	}
-	if builds != 1 || len(requests) != 3 {
-		t.Fatalf("candidate CLI builds = %d, shard requests = %d", builds, len(requests))
-	}
-	for _, request := range requests {
-		if request.CandidateCLI != candidate {
-			t.Fatalf("shard candidate CLI = %#v, want %#v", request.CandidateCLI, candidate)
-		}
-	}
-}
-
-func TestCoordinatorRunStopsBeforeShardFanoutWhenCandidateCLIBuilderFails(t *testing.T) {
-	_, input := remoteRunFixture(t)
-	store := &coordinatorStore{}
-	runtime := &coordinatorRuntime{}
-	coordinator := newTestCoordinator(t, store, runtime)
-	coordinator.config.CandidateCLIBuilder = func(context.Context, RunInput, string) (string, error) {
-		return "", errors.New("injected candidate CLI build failure")
-	}
-	if _, err := coordinator.Run(context.Background(), input); err == nil || !strings.Contains(err.Error(), "injected candidate CLI build failure") {
-		t.Fatalf("Run() error = %v", err)
-	}
-	if len(runtime.creates) != 0 || len(store.uploads) != 0 {
-		t.Fatalf("builder failure fanned out: creates=%d uploads=%v", len(runtime.creates), store.uploads)
-	}
-}
-
-func testRemoteResourcePolicy() shardresource.Policy {
-	return shardresource.Policy{
-		Classes: []shardresource.Class{
-			{ID: "small", VCPU: 2, MemoryGiB: 4},
-			{ID: "standard", VCPU: 4, MemoryGiB: 8},
-			{ID: "memory", VCPU: 4, MemoryGiB: 16},
-			{ID: "maximum", VCPU: 8, MemoryGiB: 32},
-		},
-		Bootstrap: shardresource.BootstrapClasses{
-			Guard: "small", NodeTest: "standard", GoTest: "memory",
-		},
-		HeadroomPercent: 25, MinSamplesToDownsize: 5,
-	}
-}
-
-func remoteRunFixture(t *testing.T) (string, RunInput) {
-	t.Helper()
-	repository := t.TempDir()
-	runCoordinatorGit(t, repository, "init", "--quiet")
-	runCoordinatorGit(t, repository, "config", "user.email", "remote-ci@example.invalid")
-	runCoordinatorGit(t, repository, "config", "user.name", "Remote CI")
-	writeCoordinatorFixture(t, repository, "fixture.txt", "base\n")
-	writeCoordinatorFixture(t, repository, "frontend-app/package.json", "{}\n")
-	runCoordinatorGit(t, repository, "add", "fixture.txt", "frontend-app/package.json")
-	runCoordinatorGit(t, repository, "commit", "--quiet", "-m", "base")
-	base := coordinatorGitOutput(t, repository, "rev-parse", "HEAD")
-	baseTree := coordinatorGitOutput(t, repository, "rev-parse", "HEAD^{tree}")
-	writeCoordinatorFixture(t, repository, "fixture.txt", "head\n")
-	runCoordinatorGit(t, repository, "add", "fixture.txt")
-	runCoordinatorGit(t, repository, "commit", "--quiet", "-m", "head")
-	commit := coordinatorGitOutput(t, repository, "rev-parse", "HEAD")
-	tree := coordinatorGitOutput(t, repository, "rev-parse", "HEAD^{tree}")
-	digest := "sha256:" + strings.Repeat("a", 64)
-	plan, err := gate.BuildGatePlan(gate.ProfileLocalFast, gate.SourceSpec{
-		Kind: gate.SourceKindCommit, ObjectFormat: gate.GitObjectFormatSHA1,
-		Commit: &gate.CommitSource{SHA: commit}, SourceTreeSHA: tree,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	catalog, err := gate.BuildExpandedWorkloadCatalog(plan, gate.DefaultWorkloadBootstrapPolicy(), gate.WorkloadInventory{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ledger := gate.DurationLedger{Version: 1}
-	for _, workload := range catalog.Workloads {
-		ledger.Samples = append(ledger.Samples, gate.DurationSample{
-			Bucket: gate.DurationBucket{
-				WorkloadID: workload.ID, CommandDigest: workload.CommandDigest,
-				Platform: "linux/arm64", Runner: digest, Toolchain: digest,
-			},
-			Succeeded: true, DurationMS: 15_000,
-		})
-	}
-	return repository, RunInput{
-		RepositoryRoot: repository,
-		Commit:         commit, Tree: tree, Base: base,
-		RunnerBaseCommit: base, RunnerBaseTree: baseTree,
-		Source: gate.SourceSpec{
-			Kind: gate.SourceKindCommit, ObjectFormat: gate.GitObjectFormatSHA1,
-			Commit: &gate.CommitSource{SHA: commit}, SourceTreeSHA: tree,
-		},
-		Profile: gate.ProfileLocalFast, Entrypoint: gate.CIEntrypointManualCLI,
-		Platform:                     "linux/amd64",
-		PolicyDigest:                 digest,
-		ToolchainDigest:              digest,
-		LedgerSnapshot:               gate.DurationLedgerSnapshot{Generation: 1, Ledger: ledger},
-		RunnerImage:                  "registry.example/runner@" + digest,
-		RunnerIdentityDigest:         digest,
-		BaselineManifestDigest:       "sha256:" + strings.Repeat("c", 64),
-		RunnerConfigDigest:           "sha256:" + strings.Repeat("b", 64),
-		GateBinarySHA256:             digest,
-		CandidateGateSourceSHA256:    digest,
-		CandidateGateToolchainSHA256: digest,
-		RuntimeSeedSHA256:            digest,
-		OCIProjectCache:              &BaselineOCIProjectCache{Image: "registry.example/runner@" + digest, ContentManifestSHA256: "sha256:" + strings.Repeat("c", 64), MainTree: baseTree, ToolchainDigest: digest, Platform: "linux/amd64", CachePath: OCIProjectGoBuildCachePath},
-	}
-}
-
-func reportFromCreateRequest(request eci.CreateRequest) (gate.PlanExecutionReport, error) {
-	if len(request.Args) != 8 || request.Args[0] != "worker" || request.Args[1] != "run-shard" {
-		return gate.PlanExecutionReport{}, fmt.Errorf("unexpected worker args: %v", request.Args)
-	}
-	gateIDs := strings.Split(request.Args[7], ",")
-	report := gate.PlanExecutionReport{
-		SchemaVersion: 1, Profile: gate.Profile(request.Args[3]), PlanDigest: request.Args[5],
-	}
-	now := time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC)
-	emptyDigest := fmt.Sprintf("sha256:%x", sha256.Sum256(nil))
-	for _, id := range gateIDs {
-		report.Gates = append(report.Gates, gate.PlanGateExecution{
-			GateID: gate.GateID(id), Status: gate.ResultStatusPassed, ExitCode: 0,
-			StartedAt: now, CompletedAt: now.Add(time.Second), LogDigest: emptyDigest,
-		})
-	}
-	return report, nil
-}
-
-func forceFailedCoordinatorReport(report *gate.PlanExecutionReport, failureLog string) {
-	log := []byte(failureLog)
-	digest := sha256.Sum256(log)
-	report.Gates[0].Status = gate.ResultStatusFailed
-	report.Gates[0].ExitCode = 1
-	report.Gates[0].Log = log
-	report.Gates[0].LogDigest = fmt.Sprintf("sha256:%x", digest)
-}
-
-func runCoordinatorGit(t *testing.T, repository string, args ...string) {
-	t.Helper()
-	command := exec.Command("git", args...)
-	command.Dir = repository
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("git %v: %v: %s", args, err, output)
-	}
-}
-
-func coordinatorGitOutput(t *testing.T, repository string, args ...string) string {
-	t.Helper()
-	command := exec.Command("git", args...)
-	command.Dir = repository
-	output, err := command.Output()
-	if err != nil {
-		t.Fatalf("git %v: %v", args, err)
-	}
-	return strings.TrimSpace(string(output))
-}
-
-func writeCoordinatorFixture(t *testing.T, repository string, relative string, content string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(filepath.Join(repository, relative)), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(repository, relative), []byte(content), 0o600); err != nil {
-		t.Fatal(err)
 	}
 }

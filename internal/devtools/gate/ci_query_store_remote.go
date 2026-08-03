@@ -3,40 +3,45 @@ package gate
 import (
 	"bytes"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
 // loadRemoteCIRunRow 从一致性读快照解码远端 CI run 的主记录。
 func loadRemoteCIRunRow(database sqliteRowQueryer, jobID string) (RemoteCIRunRecord, error) {
 	var (
-		record                         RemoteCIRunRecord
-		entrypoint, profile, status    string
-		authoritative, cleanupComplete int
-		startedAtMS, completedAtMS     int64
+		record                                          RemoteCIRunRecord
+		entrypoint, profile, status, acceptedGeneration string
+		authoritative, cleanupComplete                  int
+		startedAtMS, completedAtMS                      int64
 	)
 	err := database.QueryRow(`
-		SELECT runs.job_id, COALESCE(requesters.requester_fingerprint, ''),
-			runs.entrypoint, runs.profile, runs.plan_digest, runs.catalog_digest,
-			runs.source_tree_sha, runs.candidate_cli_manifest_sha256, runs.candidate_test_binary_receipt_binding_digest, runs.runner_image, runs.status, runs.authoritative,
+		SELECT runs.job_id, identities.agent_token_digest,
+			runs.entrypoint, runs.profile, runs.plan_digest, runs.catalog_digest, runs.accepted_generation, runs.image_cache_snapshot_id,
+			runs.source_tree_sha, runs.candidate_gate_source_sha256, runs.candidate_gate_toolchain_sha256,
+			runs.runner_image, runs.status, runs.authoritative,
 			runs.started_at_unix_ms, runs.completed_at_unix_ms,
 			runs.cleanup_complete, runs.error_text
 		FROM ci_runs AS runs
-		LEFT JOIN ci_run_requesters AS requesters ON requesters.job_id = runs.job_id
+		INNER JOIN ci_run_agent_identities AS identities ON identities.job_id = runs.job_id
 		WHERE runs.job_id = ?
 	`, jobID).Scan(
 		&record.JobID,
-		&record.RequesterFingerprint,
+		&record.AgentTokenDigest,
 		&entrypoint,
 		&profile,
 		&record.PlanDigest,
 		&record.CatalogDigest,
+		&acceptedGeneration,
+		&record.ImageCacheSnapshotID,
 		&record.SourceTreeSHA,
-		&record.CandidateCLIManifestSHA256,
-		&record.CandidateTestBinaryReceiptBindingDigest,
+		&record.CandidateGateSourceSHA256,
+		&record.CandidateGateToolchainSHA256,
 		&record.RunnerImage,
 		&status,
 		&authoritative,
@@ -53,7 +58,13 @@ func loadRemoteCIRunRow(database sqliteRowQueryer, jobID string) (RemoteCIRunRec
 	}
 	record.Entrypoint = CIEntrypointID(entrypoint)
 	record.Profile = Profile(profile)
+	if record.AcceptedGeneration, err = strconv.ParseUint(acceptedGeneration, 10, 64); err != nil || record.AcceptedGeneration == 0 {
+		return RemoteCIRunRecord{}, errors.New("stored remote CI accepted generation is invalid")
+	}
 	record.Status = ResultStatus(status)
+	if err := cicontract.ValidateAgentTokenDigest(record.AgentTokenDigest); err != nil {
+		return RemoteCIRunRecord{}, fmt.Errorf("stored remote CI agent token digest: %w", err)
+	}
 	record.Authoritative = authoritative == 1
 	record.CleanupComplete = cleanupComplete == 1
 	record.StartedAt = time.UnixMilli(startedAtMS).UTC()
@@ -76,7 +87,7 @@ func loadRemoteCIRunDetails(transaction *sql.Tx, jobID string, record *RemoteCIR
 	if err != nil {
 		return err
 	}
-	record.ReusedWorkloads, record.CacheMisses, err = loadRemoteCIRunWorkloadRows(transaction, jobID)
+	record.WorkloadResults, err = loadRemoteCIWorkloadResults(transaction, jobID)
 	if err != nil {
 		return err
 	}
@@ -84,17 +95,59 @@ func loadRemoteCIRunDetails(transaction *sql.Tx, jobID string, record *RemoteCIR
 	if err != nil {
 		return err
 	}
-	record.PhaseTimings, err = loadRemoteCIRunPhaseTimingRows(transaction, jobID)
+	record.TimingWarnings, err = loadRemoteCITimingWarnings(transaction, cicontract.RunTimingWarningsTable, jobID)
 	if err != nil {
 		return err
 	}
-	record.CandidateTestBinaryBuilds, err = loadCandidateTestBinaryBuildRows(transaction, jobID)
-	return err
+	record.TimingObservations, err = loadTimingObservations(transaction, jobID)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
+// loadTimingObservations 从同一 SQLite 快照还原真实阶段观测，保留结构化时长和缓存证据而不从日志推断。
+func loadTimingObservations(database sqliteRowQueryer, jobID string) ([]TimingObservation, error) {
+	rows, err := database.Query(`SELECT scope, shard_identity, workload_id, phase, started_at_unix_ms, completed_at_unix_ms, duration_ms, measurement, reason, aggregation, cache_evidence_json FROM ci_timing_observations WHERE job_id = ? ORDER BY scope, shard_identity, workload_id, phase`, jobID)
+	if err != nil {
+		return nil, mapDurationLedgerSQLiteError("query timing observations", err)
+	}
+	defer rows.Close()
+	var observations []TimingObservation
+	for rows.Next() {
+		var scope, workloadID, phase, measurement, aggregation string
+		var startedMS, completedMS int64
+		observation := TimingObservation{JobID: jobID}
+		var cacheEvidenceJSON string
+		if err := rows.Scan(&scope, &observation.ShardIdentity, &workloadID, &phase, &startedMS, &completedMS, &observation.DurationMS, &measurement, &observation.Reason, &aggregation, &cacheEvidenceJSON); err != nil {
+			return nil, mapDurationLedgerSQLiteError("scan timing observation", err)
+		}
+		observation.Scope, observation.WorkloadID, observation.Phase = cicontract.TimingScope(scope), GateID(workloadID), cicontract.TimingPhase(phase)
+		observation.Measurement, observation.Aggregation = cicontract.ObservationState(measurement), cicontract.TimingAggregation(aggregation)
+		if err := DecodeStrictJSON([]byte(cacheEvidenceJSON), &observation.CacheEvidence); err != nil {
+			return nil, fmt.Errorf("decode stored timing cache evidence: %w", err)
+		}
+		if startedMS != 0 {
+			observation.StartedAt = time.UnixMilli(startedMS).UTC()
+		}
+		if completedMS != 0 {
+			observation.CompletedAt = time.UnixMilli(completedMS).UTC()
+		}
+		if err := observation.Validate(); err != nil {
+			return nil, errors.New("stored timing observation is invalid")
+		}
+		observations = append(observations, observation)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, mapDurationLedgerSQLiteError("iterate timing observations", err)
+	}
+	return observations, nil
+}
+
+// loadRemoteCIWorkloadExecutionRows 读取每个计划 workload 的实际执行结果，供回执验证其未被历史 PASS 跳过。
 func loadRemoteCIWorkloadExecutionRows(database sqliteRowQueryer, jobID string) ([]PlanGateExecution, error) {
 	rows, err := database.Query(`
-		SELECT workload_id, status, exit_code, started_at_unix_ms, completed_at_unix_ms,
+		SELECT shard_identity, workload_id, status, exit_code, started_at_unix_ms, completed_at_unix_ms,
 			argv_digest, log_digest, test_timings_json, execution_profile_json
 		FROM ci_workload_executions
 		WHERE job_id = ?
@@ -109,7 +162,7 @@ func loadRemoteCIWorkloadExecutionRows(database sqliteRowQueryer, jobID string) 
 		var execution PlanGateExecution
 		var startedMS, completedMS int64
 		var profileJSON, testTimingsJSON string
-		if err := rows.Scan(&execution.GateID, &execution.Status, &execution.ExitCode, &startedMS, &completedMS, &execution.ArgvDigest, &execution.LogDigest, &testTimingsJSON, &profileJSON); err != nil {
+		if err := rows.Scan(&execution.ShardIdentity, &execution.GateID, &execution.Status, &execution.ExitCode, &startedMS, &completedMS, &execution.ArgvDigest, &execution.LogDigest, &testTimingsJSON, &profileJSON); err != nil {
 			return nil, mapDurationLedgerSQLiteError("scan remote CI workload execution", err)
 		}
 		execution.StartedAt = time.UnixMilli(startedMS).UTC()
@@ -117,7 +170,11 @@ func loadRemoteCIWorkloadExecutionRows(database sqliteRowQueryer, jobID string) 
 		if execution.TestTimings, err = decodeStoredRemoteCIExecutionTestTimings(testTimingsJSON); err != nil {
 			return nil, err
 		}
-		if json.Unmarshal([]byte(profileJSON), &execution.ExecutionProfile) != nil || execution.ExecutionProfile.Validate() != nil {
+		execution.ExecutionProfile, err = decodeStoredRemoteCIExecutionProfile(profileJSON)
+		if err != nil {
+			return nil, err
+		}
+		if err := execution.ExecutionProfile.Validate(); err != nil {
 			return nil, errors.New("stored remote CI workload execution profile is invalid")
 		}
 		executions = append(executions, execution)
@@ -128,39 +185,13 @@ func loadRemoteCIWorkloadExecutionRows(database sqliteRowQueryer, jobID string) 
 	return executions, nil
 }
 
-func loadCandidateTestBinaryBuildRows(database sqliteRowQueryer, jobID string) ([]CandidateTestBinaryBuildRecord, error) {
-	rows, err := database.Query(`SELECT candidate_tree, package, mode, platform, go_toolchain, cgo_enabled, toolchain_sha256, build_flags_json, compile_closure_sha256, manifest_sha256, artifact_sha256, binary_size, go_list_wall_ms, build_wall_ms, compile_action_ms, link_action_ms, compile_critical_wall_ms, gocache_private_hits, gocache_oci_project_cache_hits, gocache_private_root_identity, gocache_misses, gocache_puts FROM ci_candidate_test_binary_builds WHERE job_id = ? ORDER BY package, mode`, jobID)
-	if err != nil {
-		return nil, mapDurationLedgerSQLiteError("query candidate test binary builds", err)
-	}
-	defer rows.Close()
-	var builds []CandidateTestBinaryBuildRecord
-	for rows.Next() {
-		var build CandidateTestBinaryBuildRecord
-		var flags string
-		var cgo int
-		if err := rows.Scan(&build.CandidateTree, &build.Package, &build.Mode, &build.Platform, &build.GoToolchain, &cgo, &build.ToolchainSHA256, &flags, &build.CompileClosureSHA256, &build.ManifestSHA256, &build.ArtifactSHA256, &build.BinarySize, &build.GoListWallMS, &build.BuildWallMS, &build.CompileActionMS, &build.LinkActionMS, &build.CompileCriticalWallMS, &build.GOCachePrivateHits, &build.GOCacheOCIProjectCacheHits, &build.GOCachePrivateRootIdentity, &build.GOCacheMisses, &build.GOCachePuts); err != nil {
-			return nil, mapDurationLedgerSQLiteError("scan candidate test binary build", err)
-		}
-		build.CGOEnabled = cgo == 1
-		if json.Unmarshal([]byte(flags), &build.BuildFlags) != nil || validateCandidateTestBinaryBuildRecord(build) != nil {
-			return nil, errors.New("stored candidate test binary build is invalid")
-		}
-		builds = append(builds, build)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, mapDurationLedgerSQLiteError("iterate candidate test binary builds", err)
-	}
-	return builds, nil
-}
-
 // loadRemoteCIShardRows 从读取快照恢复 run 的 shard 投影。
 func loadRemoteCIShardRows(
 	database sqliteRowQueryer,
 	jobID string,
 ) ([]RemoteCIShardRecord, error) {
 	rows, err := database.Query(`
-		SELECT shards.shard_identity, shards.container_group_id, shards.container_status, shards.materialization_timing_json,
+		SELECT shards.shard_identity, shards.container_group_id, shards.container_status, shards.materialization_timing_json, shards.resources_json,
 			workloads.workload_id
 		FROM ci_shards AS shards
 		LEFT JOIN ci_shard_workloads AS workloads
@@ -179,25 +210,23 @@ func loadRemoteCIShardRows(
 	)
 	for rows.Next() {
 		var (
-			shard      RemoteCIShardRecord
-			workloadID sql.NullString
-			timingJSON string
+			shard         RemoteCIShardRecord
+			workloadID    sql.NullString
+			timingJSON    string
+			resourcesJSON string
 		)
 		if err := rows.Scan(
 			&shard.ShardIdentity,
 			&shard.ContainerGroup,
 			&shard.ContainerStatus,
 			&timingJSON,
+			&resourcesJSON,
 			&workloadID,
 		); err != nil {
 			return nil, mapDurationLedgerSQLiteError("scan remote CI shard", err)
 		}
-		if timingJSON == "" {
-			shard.MaterializationTiming.Measurement = MaterializationMeasurementUnavailable
-		} else if DecodeStrictJSON([]byte(timingJSON), &shard.MaterializationTiming) != nil ||
-			shard.MaterializationTiming.Validate() != nil ||
-			shard.MaterializationTiming.Measurement == MaterializationMeasurementMeasured && shard.MaterializationTiming.ShardIdentity != shard.ShardIdentity {
-			return nil, errors.New("stored remote CI shard materialization timing is invalid")
+		if err := decodeStoredRemoteCIShardEvidence(&shard, timingJSON, resourcesJSON); err != nil {
+			return nil, err
 		}
 		index, exists := shardIndex[shard.ShardIdentity]
 		if !exists {
@@ -206,6 +235,9 @@ func loadRemoteCIShardRows(
 			shards = append(shards, shard)
 		}
 		if workloadID.Valid {
+			if strings.TrimSpace(workloadID.String) == "" {
+				return nil, errors.New("stored remote CI shard workload ID is invalid")
+			}
 			shards[index].Workloads = append(shards[index].Workloads, GateID(workloadID.String))
 		}
 	}
@@ -213,6 +245,29 @@ func loadRemoteCIShardRows(
 		return nil, mapDurationLedgerSQLiteError("iterate remote CI shards", err)
 	}
 	return shards, nil
+}
+
+// decodeStoredRemoteCIShardEvidence 严格解码并校验 SQLite 分片的资源和物化时序证据。
+func decodeStoredRemoteCIShardEvidence(shard *RemoteCIShardRecord, timingJSON, resourcesJSON string) error {
+	if resourcesJSON == "" {
+		return errors.New("stored remote CI shard resources are required")
+	}
+	if err := DecodeStrictJSON([]byte(resourcesJSON), &shard.Resources); err != nil {
+		return fmt.Errorf("decode stored remote CI shard resources: %w", err)
+	}
+	if err := shard.Resources.Validate(); err != nil {
+		return fmt.Errorf("validate stored remote CI shard resources: %w", err)
+	}
+	if timingJSON == "" {
+		return errors.New("stored remote CI shard materialization timing is required")
+	}
+	if err := DecodeStrictJSON([]byte(timingJSON), &shard.MaterializationTiming); err != nil {
+		return fmt.Errorf("decode stored remote CI shard materialization timing: %w", err)
+	}
+	if err := validateRemoteCIShardMaterializationTiming(*shard); err != nil {
+		return fmt.Errorf("validate stored remote CI shard materialization timing: %w", err)
+	}
+	return nil
 }
 
 // loadRemoteCIExecutionRows 从读取快照恢复 gate 终态投影。
@@ -259,10 +314,12 @@ func loadRemoteCIExecutionRows(
 		if execution.TestTimings, err = decodeStoredRemoteCIExecutionTestTimings(testTimingsJSON); err != nil {
 			return nil, err
 		}
-		if profileJSON == "" {
-			execution.ExecutionProfile = legacyNotMeasuredExecutionProfile(execution.StartedAt, execution.CompletedAt)
-		} else if json.Unmarshal([]byte(profileJSON), &execution.ExecutionProfile) != nil || execution.ExecutionProfile.Validate() != nil {
-			return nil, errors.New("stored remote CI execution profile is invalid")
+		execution.ExecutionProfile, err = decodeStoredRemoteCIExecutionProfile(profileJSON)
+		if err != nil {
+			return nil, err
+		}
+		if err := validateRemoteCIAggregateExecution(execution); err != nil {
+			return nil, err
 		}
 		executions = append(executions, execution)
 	}
@@ -275,38 +332,32 @@ func loadRemoteCIExecutionRows(
 func decodeStoredRemoteCIExecutionTestTimings(encoded string) ([]GoTestTiming, error) {
 	var timings []GoTestTiming
 	if err := decodeStrictJSON(bytes.NewReader([]byte(encoded)), &timings); err != nil ||
-		!validPlanGateTestTimings(timings, executorPlanReportSchemaVersion) {
+		!validPlanGateTestTimings(timings, ExecutorPlanReportSchemaVersion) {
 		return nil, errors.New("stored remote CI execution test timings are invalid")
 	}
 	return timings, nil
 }
 
-func legacyNotMeasuredExecutionProfile(started, completed time.Time) ExecutionProfile {
-	total := completed.Sub(started).Milliseconds()
-	total = max(total, 0)
-	return ExecutionProfile{CacheSource: "none", CacheStatus: "not_applicable", CacheMeasurement: "not_measured", StartupMS: total, TotalMS: total}
+// decodeStoredRemoteCIExecutionProfile 只接受非空且无未知字段的当前结构化执行画像。
+func decodeStoredRemoteCIExecutionProfile(encoded string) (ExecutionProfile, error) {
+	if strings.TrimSpace(encoded) == "" {
+		return ExecutionProfile{}, errors.New("stored remote CI execution profile is required")
+	}
+	var profile ExecutionProfile
+	if err := DecodeStrictJSON([]byte(encoded), &profile); err != nil {
+		return ExecutionProfile{}, errors.New("stored remote CI execution profile is invalid")
+	}
+	return profile, nil
 }
 
-// replaceSQLiteRemoteRunWorkloads 用当前 run 的缓存命中和未命中集替换投影。
-func replaceSQLiteRemoteRunWorkloads(
-	transaction *sql.Tx,
-	record RemoteCIRunRecord,
-) error {
-	if _, err := transaction.Exec(`DELETE FROM ci_run_workloads WHERE job_id = ?`, record.JobID); err != nil {
-		return mapDurationLedgerSQLiteError("clear remote CI run workloads", err)
+// validateRemoteCIAggregateExecution 校验 parent gate 的区间并集/关键路径 profile 未与执行时间戳漂移。
+func validateRemoteCIAggregateExecution(execution PlanGateExecution) error {
+	if err := execution.ExecutionProfile.ValidateAggregate(); err != nil {
+		return errors.New("stored remote CI aggregate execution profile is invalid")
 	}
-	for disposition, workloads := range map[string][]GateID{
-		"reused":     record.ReusedWorkloads,
-		"cache_miss": record.CacheMisses,
-	} {
-		for _, workloadID := range workloads {
-			if _, err := transaction.Exec(`
-				INSERT INTO ci_run_workloads (job_id, workload_id, disposition)
-				VALUES (?, ?, ?)
-			`, record.JobID, string(workloadID), disposition); err != nil {
-				return mapDurationLedgerSQLiteError("store remote CI run workload", err)
-			}
-		}
+	if execution.StartedAt.IsZero() || !execution.CompletedAt.After(execution.StartedAt) ||
+		execution.ExecutionProfile.TotalMS != execution.CompletedAt.Sub(execution.StartedAt).Milliseconds() {
+		return errors.New("stored remote CI aggregate execution interval is invalid")
 	}
 	return nil
 }
@@ -331,44 +382,6 @@ func replaceSQLiteRemoteRunWarnings(
 }
 
 // loadRemoteCIRunWorkloadRows 分别恢复复用与未命中 workload。
-func loadRemoteCIRunWorkloadRows(
-	database sqliteRowQueryer,
-	jobID string,
-) ([]GateID, []GateID, error) {
-	rows, err := database.Query(`
-		SELECT workload_id, disposition
-		FROM ci_run_workloads
-		WHERE job_id = ?
-		ORDER BY disposition, workload_id
-	`, jobID)
-	if err != nil {
-		return nil, nil, mapDurationLedgerSQLiteError("query remote CI run workloads", err)
-	}
-	defer rows.Close()
-	var reused, cacheMisses []GateID
-	for rows.Next() {
-		var workloadID, disposition string
-		if err := rows.Scan(&workloadID, &disposition); err != nil {
-			return nil, nil, mapDurationLedgerSQLiteError("scan remote CI run workload", err)
-		}
-		switch disposition {
-		case "reused":
-			reused = append(reused, GateID(workloadID))
-		case "cache_miss":
-			cacheMisses = append(cacheMisses, GateID(workloadID))
-		default:
-			return nil, nil, fmt.Errorf(
-				"remote CI run workload disposition %q is invalid",
-				disposition,
-			)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, nil, mapDurationLedgerSQLiteError("iterate remote CI run workloads", err)
-	}
-	return reused, cacheMisses, nil
-}
-
 func loadRemoteCIRunWarningRows(database sqliteRowQueryer, jobID string) ([]string, error) {
 	rows, err := database.Query(`
 		SELECT warning_text
@@ -392,50 +405,6 @@ func loadRemoteCIRunWarningRows(database sqliteRowQueryer, jobID string) ([]stri
 		return nil, mapDurationLedgerSQLiteError("iterate remote CI run warnings", err)
 	}
 	return warnings, nil
-}
-
-func loadRemoteCIRunPhaseTimingRows(
-	database sqliteRowQueryer,
-	jobID string,
-) ([]RemoteCIPhaseTiming, error) {
-	rows, err := database.Query(`
-		SELECT phase, started_at_unix_ms, duration_ms, outcome,
-			workload_count, shard_count, cache_hit_count, cache_miss_count
-		FROM ci_run_phase_timings
-		WHERE job_id = ?
-		ORDER BY ordinal
-	`, jobID)
-	if err != nil {
-		return nil, mapDurationLedgerSQLiteError("query remote CI phase timings", err)
-	}
-	defer rows.Close()
-	var timings []RemoteCIPhaseTiming
-	for rows.Next() {
-		var (
-			timing      RemoteCIPhaseTiming
-			startedAtMS int64
-			outcome     string
-		)
-		if err := rows.Scan(
-			&timing.Phase,
-			&startedAtMS,
-			&timing.DurationMillis,
-			&outcome,
-			&timing.WorkloadCount,
-			&timing.ShardCount,
-			&timing.CacheHitCount,
-			&timing.CacheMissCount,
-		); err != nil {
-			return nil, mapDurationLedgerSQLiteError("scan remote CI phase timing", err)
-		}
-		timing.StartedAt = time.UnixMilli(startedAtMS).UTC()
-		timing.Outcome = RemoteCIPhaseOutcome(outcome)
-		timings = append(timings, timing)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, mapDurationLedgerSQLiteError("iterate remote CI phase timings", err)
-	}
-	return timings, nil
 }
 
 // validateSQLiteRemoteCIRunCatalogCoverage 确认 run 的 workload 与 gate 记录都属于绑定 catalog。
@@ -473,8 +442,7 @@ type remoteCIRunCatalogIndex struct {
 
 // remoteCIRunRecordedWorkloads 汇总 run 的直接和 shard 记录 workload。
 func remoteCIRunRecordedWorkloads(record RemoteCIRunRecord) []GateID {
-	workloads := append([]GateID(nil), record.ReusedWorkloads...)
-	workloads = append(workloads, record.CacheMisses...)
+	var workloads []GateID
 	for _, shard := range record.Shards {
 		workloads = append(workloads, shard.Workloads...)
 	}
@@ -519,18 +487,90 @@ func (index remoteCIRunCatalogIndex) validateRecorded(record RemoteCIRunRecord, 
 	return nil
 }
 
-// validatePassed 要求成功 run 覆盖每一个可分片 workload。
+// validatePassed 要求结果覆盖 catalog；fresh 分片和执行仅记录 executed workload。
 func (index remoteCIRunCatalogIndex) validatePassed(record RemoteCIRunRecord) error {
-	covered := make(map[GateID]struct{}, len(record.ReusedWorkloads)+len(record.CacheMisses))
-	for _, workloadID := range append(record.ReusedWorkloads, record.CacheMisses...) {
+	results, executedWorkloads, err := index.passedWorkloadResults(record.WorkloadResults)
+	if err != nil {
+		return err
+	}
+	shardWorkloads, shardByWorkload, err := passedFreshShardWorkloads(record.Shards, results)
+	if err != nil {
+		return err
+	}
+	if err := validateRemoteCIRunFreshWorkloadSet("shard", shardWorkloads, executedWorkloads); err != nil {
+		return err
+	}
+	executionWorkloads, err := passedFreshExecutionWorkloads(record.WorkloadExecutions, results, shardByWorkload)
+	if err != nil {
+		return err
+	}
+	return validateRemoteCIRunFreshWorkloadSet("execution", executionWorkloads, executedWorkloads)
+}
+
+// passedWorkloadResults 验证结果精确覆盖可分片目录，并提取本次必须 fresh 执行的 workload。
+func (index remoteCIRunCatalogIndex) passedWorkloadResults(workloadResults []RemoteCIWorkloadResult) (map[GateID]string, map[GateID]struct{}, error) {
+	results := make(map[GateID]string, len(workloadResults))
+	executed := make(map[GateID]struct{})
+	for _, result := range workloadResults {
+		workloadID := result.Identity.WorkloadID
 		if _, exists := index.shardable[workloadID]; !exists {
-			return fmt.Errorf("passed remote CI workload %q is absent from its catalog", workloadID)
+			return nil, nil, fmt.Errorf("passed remote CI workload result %q is absent from its shardable catalog", workloadID)
 		}
-		covered[workloadID] = struct{}{}
+		if _, duplicate := results[workloadID]; duplicate {
+			return nil, nil, fmt.Errorf("passed remote CI workload result %q is duplicated", workloadID)
+		}
+		results[workloadID] = result.Disposition
+		if result.Disposition == WorkloadDispositionExecuted {
+			executed[workloadID] = struct{}{}
+		}
 	}
 	for workloadID := range index.shardable {
-		if _, exists := covered[workloadID]; !exists {
-			return fmt.Errorf("passed remote CI run does not cover shardable workload %q", workloadID)
+		if _, exists := results[workloadID]; !exists {
+			return nil, nil, fmt.Errorf("passed remote CI run does not cover shardable workload result %q", workloadID)
+		}
+	}
+	return results, executed, nil
+}
+
+// passedFreshShardWorkloads 仅接受标记 executed 的 workload，并保留其 fresh shard 归属。
+func passedFreshShardWorkloads(shards []RemoteCIShardRecord, results map[GateID]string) (map[GateID]struct{}, map[GateID]string, error) {
+	workloads := make(map[GateID]struct{})
+	shardsByWorkload := make(map[GateID]string)
+	for _, shard := range shards {
+		for _, workloadID := range shard.Workloads {
+			if results[workloadID] != WorkloadDispositionExecuted {
+				return nil, nil, fmt.Errorf("passed remote CI fresh shard workload %q is not executed", workloadID)
+			}
+			workloads[workloadID] = struct{}{}
+			shardsByWorkload[workloadID] = shard.ShardIdentity
+		}
+	}
+	return workloads, shardsByWorkload, nil
+}
+
+func passedFreshExecutionWorkloads(executions []PlanGateExecution, results map[GateID]string, shardsByWorkload map[GateID]string) (map[GateID]struct{}, error) {
+	workloads := make(map[GateID]struct{}, len(executions))
+	for _, execution := range executions {
+		if results[execution.GateID] != WorkloadDispositionExecuted {
+			return nil, fmt.Errorf("passed remote CI fresh execution workload %q is not executed", execution.GateID)
+		}
+		if execution.ShardIdentity != shardsByWorkload[execution.GateID] {
+			return nil, fmt.Errorf("passed remote CI fresh execution workload %q does not match its shard", execution.GateID)
+		}
+		workloads[execution.GateID] = struct{}{}
+	}
+	return workloads, nil
+}
+
+func validateRemoteCIRunFreshWorkloadSet(kind string, recorded, executed map[GateID]struct{}) error {
+	for workloadID := range executed {
+		if _, exists := recorded[workloadID]; !exists {
+			return fmt.Errorf("passed remote CI executed workload %q is missing from fresh %s records", workloadID, kind)
+		}
+	}
+	for workloadID := range recorded {
+		if _, exists := executed[workloadID]; !exists {
+			return fmt.Errorf("passed remote CI fresh %s workload %q is not executed", kind, workloadID)
 		}
 	}
 	return nil

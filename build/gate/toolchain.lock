@@ -1,7 +1,5 @@
 {
   "schema_version": "1",
-  "buildkit_version": "v0.26.2",
-  "buildkit_image": "mirror.gcr.io/moby/buildkit@sha256:de10faf919fc71ba4eb1dd7bd6449566d012b0c9436b1c61bfee21d621b009aa",
   "dockerfile_frontend": "builtin:dockerfile.v1",
   "source_date_epoch": "0",
   "target_platforms": [
@@ -29,6 +27,7 @@
   ],
   "runtime_deps_lock": "build/gate/runtime-deps.lock",
   "runtime_tools": {
+    "go_version": "go1.26.5",
     "node_version": "v24.18.0",
     "npm_version": "11.16.0",
     "python_version": "3.11.2",
