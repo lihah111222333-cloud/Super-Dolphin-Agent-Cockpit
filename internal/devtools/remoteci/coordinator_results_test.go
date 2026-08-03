@@ -1,9 +1,11 @@
 package remoteci
 
 import (
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
@@ -154,55 +156,56 @@ func assertRemoteCalibrationParentSample(t *testing.T, samples []gate.DurationSa
 	}
 }
 
-func TestRemoteOptimizationWarningsAreAdvisoryForSlowPassAndFailure(t *testing.T) {
-	warnings := remoteOptimizationWarnings([]gate.DurationSample{
-		{Bucket: gate.DurationBucket{WorkloadID: "slow-pass"}, Succeeded: true, DurationMS: gate.FullCITargetDurationMS + 1},
-		{Bucket: gate.DurationBucket{WorkloadID: "on-target"}, Succeeded: true, DurationMS: gate.FullCITargetDurationMS},
-		{Bucket: gate.DurationBucket{WorkloadID: "slow-child"}, Succeeded: true, DurationMS: gate.FullCITargetDurationMS + 2, ParentWorkloadID: "parent"},
-		{Bucket: gate.DurationBucket{WorkloadID: "slow-fail"}, Succeeded: false, DurationMS: gate.FullCITargetDurationMS + 3},
-	})
-	if len(warnings) != 2 {
-		t.Fatalf("optimization warnings = %#v, want one per slow parent workload", warnings)
-	}
-	if warnings[0] != "CI optimization warning: workload \"slow-fail\" failed in 100003ms (target 100000ms); optimize or split this shard" {
-		t.Fatalf("failure warning = %q", warnings[0])
-	}
-	if warnings[1] != "CI optimization warning: workload \"slow-pass\" passed in 100001ms (target 100000ms); optimize or split this shard" {
-		t.Fatalf("pass warning = %q", warnings[1])
-	}
-}
-
 func TestCompleteRemoteRunExcludesCalibrationParentAggregateFromOptimizationWarnings(t *testing.T) {
 	first := mustRemoteGoTestWorkload(t, "./internal/module/turn", "TestSlow")
 	second := mustRemoteGoTestWorkload(t, "./internal/module/turn", "TestFast")
 	startedAt := time.Date(2026, time.July, 28, 3, 0, 0, 0, time.UTC)
+	shardIdentity := "shard-structured-warning"
 	firstExecution := gate.PlanGateExecution{
-		GateID: gate.GateID(first.ID), Status: gate.ResultStatusPassed, ExitCode: 0,
+		GateID: gate.GateID(first.ID), ShardIdentity: shardIdentity, Status: gate.ResultStatusPassed, ExitCode: 0,
 		StartedAt: startedAt, CompletedAt: startedAt.Add(gate.FullCITargetDuration + time.Millisecond),
+		ExecutionProfile: gate.ExecutionProfile{CacheSource: "go_build_cache", CacheStatus: gate.CacheObservationMiss, CacheMeasurement: "measured", CacheMissCount: 1, StartupMS: 1, TestBodyMS: gate.FullCITargetDuration.Milliseconds(), TotalMS: gate.FullCITargetDuration.Milliseconds() + 1},
 	}
 	secondExecution := gate.PlanGateExecution{
-		GateID: gate.GateID(second.ID), Status: gate.ResultStatusPassed, ExitCode: 0,
-		StartedAt: startedAt, CompletedAt: startedAt.Add(time.Millisecond),
+		GateID: gate.GateID(second.ID), ShardIdentity: shardIdentity, Status: gate.ResultStatusPassed, ExitCode: 0,
+		StartedAt: startedAt, CompletedAt: startedAt.Add(2 * time.Millisecond),
+		ExecutionProfile: gate.ExecutionProfile{CacheSource: "go_build_cache", CacheStatus: gate.CacheObservationMiss, CacheMeasurement: "measured", CacheMissCount: 1, StartupMS: 1, TestBodyMS: 1, TotalMS: 2},
 	}
 	catalog := gate.WorkloadCatalog{Version: 1, Workloads: []gate.Workload{first, second}}
 	observed := map[string]gate.PlanGateExecution{first.ID: firstExecution, second.ID: secondExecution}
 	shards := []ShardResult{{
-		ContainerStatus:   "Succeeded",
+		ShardIdentity: shardIdentity, ContainerStatus: "Succeeded",
 		ExecutedWorkloads: []gate.GateID{gate.GateID(first.ID), gate.GateID(second.ID)},
 		Report:            gate.PlanExecutionReport{Gates: []gate.PlanGateExecution{firstExecution, secondExecution}},
+		ECIWaitStartedAt:  startedAt.Add(-10 * time.Millisecond), ECIWaitCompletedAt: startedAt.Add(-8 * time.Millisecond),
+		ECITerminalAt: firstExecution.CompletedAt,
+		MaterializationTiming: gate.ShardMaterializationTiming{
+			Measurement: gate.MaterializationMeasurementMeasured, ShardIdentity: shardIdentity,
+			Source:           gate.MaterializationPhaseTiming{StartedAtUnixMS: startedAt.Add(-7 * time.Millisecond).UnixMilli(), CompletedAtUnixMS: startedAt.Add(-6 * time.Millisecond).UnixMilli(), MaterializeMS: 1},
+			CandidateCompile: gate.MaterializationPhaseTiming{StartedAtUnixMS: startedAt.Add(-5 * time.Millisecond).UnixMilli(), CompletedAtUnixMS: startedAt.Add(-4 * time.Millisecond).UnixMilli(), MaterializeMS: 1},
+		},
 	}}
 	result, err := newTestCoordinator(t, &coordinatorStore{}, &coordinatorRuntime{}).completeRemoteRun(
 		catalog,
 		RunInput{Calibration: true, Platform: "linux/amd64", RunnerIdentityDigest: "runner-v1", ToolchainDigest: "toolchain-v1"},
 		shards,
 		observed,
-		RunResult{},
+		RunResult{JobID: "job-structured-workload-warning", AgentTokenDigest: testRemoteAgentTokenDigest, AcceptedGeneration: 1},
 	)
 	if err != nil {
 		t.Fatalf("completeRemoteRun() error = %v", err)
 	}
-	if len(result.OptimizationWarnings) != 1 || result.OptimizationWarnings[0] != "CI optimization warning: workload \""+first.ID+"\" passed in 100001ms (target 100000ms); optimize or split this shard" {
-		t.Fatalf("optimization warnings = %#v, want only the actual slow workload warning", result.OptimizationWarnings)
+	if result.Status != gate.ResultStatusPassed || len(result.TimingWarnings) != 1 ||
+		result.TimingWarnings[0].EvidenceKind != cicontract.TimingWarningEvidenceTotal ||
+		len(result.OptimizationWarnings) != 1 ||
+		result.OptimizationWarnings[0] != result.TimingWarnings[0].WarningText {
+		t.Fatalf("structured target warnings = %#v human=%#v status=%s", result.TimingWarnings, result.OptimizationWarnings, result.Status)
+	}
+	parentIdentity := "workload \"" + string(gate.GateIDBackendTestWithGuard) + "\""
+	for _, warning := range result.OptimizationWarnings {
+		if strings.Contains(warning, parentIdentity) {
+			t.Fatalf("optimization warning references synthetic calibration parent: %q", warning)
+		}
 	}
 	if len(result.DurationSamples) != 3 {
 		t.Fatalf("duration samples = %#v, want two actual workloads plus one calibration parent aggregate", result.DurationSamples)

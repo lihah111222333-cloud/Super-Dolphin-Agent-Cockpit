@@ -69,8 +69,7 @@ func JSONFieldNames(producer reflect.Type) ([]string, error) {
 	}
 	fields := make([]string, 0, producer.NumField())
 	seen := make(map[string]struct{}, producer.NumField())
-	for i := 0; i < producer.NumField(); i++ {
-		field := producer.Field(i)
+	for field := range producer.Fields() {
 		tag, ok := field.Tag.Lookup("json")
 		if !ok {
 			return nil, fmt.Errorf("producer field %s has no json tag", field.Name)
@@ -551,7 +550,7 @@ func (r ResultReceipt) Validate() error {
 	return r.validate(true, nil)
 }
 
-// ValidateStored 按历史计划校验终态回执，不把旧 registry 当作当前可执行策略。
+// ValidateStored 按冻结计划校验终态回执。
 func (r ResultReceipt) ValidateStored(plan GatePlan) error {
 	if err := plan.ValidateStored(); err != nil {
 		return err
@@ -564,7 +563,7 @@ func (r ResultReceipt) ValidateStored(plan GatePlan) error {
 
 // validate 按签名要求校验 ResultReceipt 的完整字段和执行证据闭包。
 func (r ResultReceipt) validate(requireSignature bool, storedPlan *GatePlan) error {
-	if err := r.validateIdentity(requireSignature, storedPlan != nil); err != nil {
+	if err := r.validateIdentity(requireSignature); err != nil {
 		return err
 	}
 	if err := r.validateExecutionIdentity(); err != nil {
@@ -592,8 +591,8 @@ func (r ResultReceipt) validate(requireSignature bool, storedPlan *GatePlan) err
 }
 
 // validateIdentity 校验 receipt schema、主身份、source 与可选签名字段。
-func (r ResultReceipt) validateIdentity(requireSignature bool, allowLegacy bool) error {
-	if r.SchemaVersion != ResultReceiptSchemaVersion && !(allowLegacy && r.SchemaVersion == legacyResultReceiptSchemaVersion) {
+func (r ResultReceipt) validateIdentity(requireSignature bool) error {
+	if r.SchemaVersion != ResultReceiptSchemaVersion {
 		return fmt.Errorf("unsupported result receipt schema_version %d", r.SchemaVersion)
 	}
 	if r.Status != ResultStatusPassed {

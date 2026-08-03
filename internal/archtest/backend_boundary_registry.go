@@ -827,18 +827,18 @@ func commandNarrowAllowPolicies(patterns backendBoundaryPatterns) []BoundaryImpo
 	policies = append(policies, boundaryPolicies(owner, patterns.gateCLI, []string{
 		"internal/devtools/alicloud/eci",
 		"internal/devtools/alicloud/oss",
+		"internal/devtools/cicontract",
 		"internal/devtools/codemapindex",
 		"internal/devtools/coordinatoradmission",
 		"internal/devtools/frontendcodesizetrusted",
 		"internal/devtools/gate",
 		"internal/devtools/gateprivate",
 		"internal/devtools/gatehook",
-		"internal/devtools/localci",
 		"internal/devtools/projectmaptrusted",
 		"internal/devtools/remoteci",
 		"internal/devtools/shardresource",
 		"internal/devtools/sourceexport",
-	}, "standalone gate coordinator, worker, hook, persistence, and local or remote CI runtime")...)
+	}, "standalone gate coordinator, worker, hook, persistence, and remote CI runtime")...)
 	policies = append(policies, boundaryPolicies(owner, patterns.releaseManifest, []string{
 		"internal/module/appupdate",
 	}, "release manifest update contract")...)

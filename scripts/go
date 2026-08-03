@@ -29,7 +29,7 @@ main() {
   $replacement
 
 说明:
-  - 所有测试先查询共享 PASS 指纹，再由 CLI 决定本机轻量或 ECI
+  - 所有测试均由远程 ECI coordinator 执行；共享依赖与编译缓存只能加速，每次测试仍实际执行
   - 旧 go_with_guard/test_with_guard 测试入口只允许远程 worker 调用
   - build / vet 若包含测试守卫，同样必须通过受信 CI 入口
 EOF_MSG

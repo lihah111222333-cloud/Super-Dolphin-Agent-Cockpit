@@ -97,9 +97,9 @@ func TestGuardHookModeFailsOnBaselineOrFreezeDrift(t *testing.T) {
 	)
 	assertGuardModeFileContains(t, root, ".githooks/pre-commit",
 		`trusted_gate_launcher "$repo_root"`,
-		`"$gate_bin" closure check --tree "$staged_tree"`,
-		`"$gate_bin" hook pre-commit --tree "$staged_tree" >"$gate_output_file" 2>&1`,
-		`"$gate_bin" wait --job "$job_id" --tree "$staged_tree"`,
+		`remote hook pre-commit`,
+		`--tree "$staged_tree"`,
+		`--parent "$parent_commit"`,
 	)
 	assertGuardModeFileExcludes(t, root, ".githooks/pre-commit",
 		"SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT",
@@ -114,7 +114,8 @@ func TestGuardHookModeFailsOnBaselineOrFreezeDrift(t *testing.T) {
 	)
 	assertGuardModeFileContains(t, root, ".githooks/pre-push",
 		`trusted_gate_launcher "$repo_root"`,
-		`exec "$gate_bin" hook pre-push "$1" "$2"`,
+		`remote hook pre-push`,
+		`exec "$gate_bin" "${remote_args[@]}" "$1" "$2"`,
 	)
 	assertGuardModeFileExcludes(t, root, ".githooks/pre-push",
 		"SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT",
