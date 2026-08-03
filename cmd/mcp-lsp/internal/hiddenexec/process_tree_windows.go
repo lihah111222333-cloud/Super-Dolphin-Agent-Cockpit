@@ -3,13 +3,14 @@
 package hiddenexec
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"strconv"
-	"strings"
 	"sync"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -36,6 +37,7 @@ type windowsProcessTree struct {
 	mu           sync.Mutex
 	job          windows.Handle
 	pid          int
+	root         ProcessIdentity
 	terminated   bool
 	terminateErr error
 	released     bool
@@ -71,7 +73,12 @@ func startProcessTree(cmd *exec.Cmd) (*ProcessTree, error) {
 			closeWindowsHandle(job, "close unassigned language-server Job Object"),
 		)
 	}
-	owner := &windowsProcessTree{job: job, pid: cmd.Process.Pid}
+	root, identityErr := captureWindowsProcessIdentity(cmd.Process.Pid)
+	if identityErr != nil {
+		cleanupErr := cleanupUnassignedSuspendedProcess(cmd, job)
+		return nil, errors.Join(fmt.Errorf("capture Windows process-tree root identity: %w", identityErr), cleanupErr)
+	}
+	owner := &windowsProcessTree{job: job, pid: cmd.Process.Pid, root: root}
 	if err := assignProcessToJob(owner.job, owner.pid); err != nil {
 		cleanupErr := cleanupUnassignedSuspendedProcess(cmd, owner.job)
 		return nil, errors.Join(err, cleanupErr)
@@ -177,22 +184,17 @@ func processThreadIDs(snapshot windows.Handle, pid int) ([]uint32, error) {
 }
 
 func cleanupUnassignedSuspendedProcess(cmd *exec.Cmd, job windows.Handle) error {
-	killErr := cmd.Process.Kill()
-	if processTreeProcessGone(killErr) {
-		killErr = nil
-	}
-	waitErr := cleanupProcessWaitError(cmd.Wait())
+	_ = cmd
 	return errors.Join(
-		killErr,
-		waitErr,
+		errors.New("Windows process-tree membership authority was not established; cleanup pending"),
 		closeWindowsHandle(job, "close unassigned language-server Job Object"),
 	)
 }
 
 func cleanupAssignedSuspendedProcess(cmd *exec.Cmd, owner *windowsProcessTree) error {
 	terminateErr := owner.terminate()
-	releaseErr := owner.release()
 	waitErr := cleanupProcessWaitError(cmd.Wait())
+	releaseErr := owner.release()
 	return errors.Join(terminateErr, releaseErr, waitErr)
 }
 
@@ -215,17 +217,9 @@ func closeWindowsHandle(handle windows.Handle, action string) error {
 }
 
 func (p *windowsProcessTree) terminate() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.terminated {
-		return p.terminateErr
-	}
-	p.terminated = true
-	if p.released || p.job == 0 {
-		return p.releaseErr
-	}
-	p.terminateErr = terminateJobProcessTree(p.job)
-	return p.terminateErr
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return p.force(ctx)
 }
 
 func (p *windowsProcessTree) release() error {
@@ -234,6 +228,16 @@ func (p *windowsProcessTree) release() error {
 	if p.released {
 		return p.releaseErr
 	}
+	if p.job == 0 {
+		return errors.New("release Windows process-tree owner: Job handle is unavailable")
+	}
+	members, err := queryJobProcessIDs(p.job)
+	if err != nil {
+		return fmt.Errorf("verify Windows Job membership before release: %w", err)
+	}
+	if len(members) != 0 {
+		return fmt.Errorf("release Windows process-tree owner: %w: %d members remain", ErrProcessTreeRemaining, len(members))
+	}
 	p.releaseErr = closeWindowsHandle(p.job, "close language-server Job Object")
 	if p.releaseErr != nil {
 		return p.releaseErr
@@ -241,6 +245,129 @@ func (p *windowsProcessTree) release() error {
 	p.job = 0
 	p.released = true
 	return nil
+}
+
+func (p *windowsProcessTree) identity() (ProcessIdentity, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.released {
+		return ProcessIdentity{}, errors.New("process-tree owner is released")
+	}
+	return p.root, nil
+}
+
+func (p *windowsProcessTree) alive() (bool, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.released {
+		return false, errors.New("process-tree owner is released")
+	}
+	current, err := captureWindowsProcessIdentity(p.pid)
+	if processTreeProcessGone(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !current.Equal(p.root) {
+		return false, fmt.Errorf("%w: root PID %d", ErrProcessTreeIdentityMismatch, p.pid)
+	}
+	return true, nil
+}
+
+func (p *windowsProcessTree) snapshot() (ProcessTreeSnapshot, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.released || p.job == 0 {
+		return ProcessTreeSnapshot{}, errors.New("process-tree owner is released")
+	}
+	pids, err := queryJobProcessIDs(p.job)
+	if err != nil {
+		return ProcessTreeSnapshot{}, err
+	}
+	members := make([]ProcessIdentity, 0, len(pids))
+	for _, pid := range pids {
+		identity, identityErr := captureWindowsProcessIdentity(int(pid))
+		if processTreeProcessGone(identityErr) {
+			continue
+		}
+		if identityErr != nil {
+			return ProcessTreeSnapshot{}, identityErr
+		}
+		members = append(members, identity)
+	}
+	slicesSortIdentities(members)
+	return ProcessTreeSnapshot{Root: p.root, Members: members, CapturedAt: time.Now()}, nil
+}
+
+func (p *windowsProcessTree) descendants() ([]ProcessIdentity, error) {
+	snapshot, err := p.snapshot()
+	if err != nil {
+		return nil, err
+	}
+	result := make([]ProcessIdentity, 0, len(snapshot.Members))
+	for _, member := range snapshot.Members {
+		if member.PID != p.pid {
+			result = append(result, member)
+		}
+	}
+	return result, nil
+}
+
+func (p *windowsProcessTree) remaining() ([]ProcessIdentity, error) {
+	snapshot, err := p.snapshot()
+	if err != nil {
+		return nil, err
+	}
+	return append([]ProcessIdentity(nil), snapshot.Members...), nil
+}
+
+func (p *windowsProcessTree) graceful(context.Context) error {
+	return errors.New("Windows process trees do not support a TERM phase; use Force")
+}
+
+func (p *windowsProcessTree) force(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.released || p.job == 0 {
+		return errors.New("process-tree Job handle is released")
+	}
+	if current, err := captureWindowsProcessIdentity(p.pid); !processTreeProcessGone(err) {
+		if err != nil {
+			return err
+		}
+		if !current.Equal(p.root) {
+			return fmt.Errorf("%w: root PID %d", ErrProcessTreeIdentityMismatch, p.pid)
+		}
+	}
+	pids, err := queryJobProcessIDs(p.job)
+	if err != nil {
+		return fmt.Errorf("verify Windows Job membership before force-kill: %w", err)
+	}
+	if len(pids) == 0 {
+		return nil
+	}
+	return terminateJobProcessTree(p.job)
+}
+
+func (p *windowsProcessTree) wait(ctx context.Context) error {
+	for {
+		remaining, err := p.remaining()
+		if err != nil {
+			return err
+		}
+		if len(remaining) == 0 {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("%w: %d members remain", ctx.Err(), len(remaining))
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
 }
 
 // rssBytes 仅按当前 Job 成员汇总工作集，拒绝退回不完整的父子 PID 图。
@@ -397,6 +524,14 @@ func processStartIdentity(pid int) (identity string, retErr error) {
 	return strconv.FormatUint(uint64(creation.HighDateTime)<<32|uint64(creation.LowDateTime), 10), nil
 }
 
+func captureWindowsProcessIdentity(pid int) (ProcessIdentity, error) {
+	startToken, err := processStartIdentity(pid)
+	if err != nil {
+		return ProcessIdentity{}, err
+	}
+	return ProcessIdentity{PID: pid, StartToken: startToken}, nil
+}
+
 func processTreeRSSBytes(int) (uint64, error) {
 	return 0, errors.New("Windows process-tree RSS requires an explicit ProcessTree owner")
 }
@@ -433,16 +568,10 @@ func windowsProcessRSSBytes(pid uint32) (rss uint64, retErr error) {
 	return uint64(counters.WorkingSetSize), nil
 }
 
-// killProcessTree 只服务未显式持有 ProcessTree owner 的命令；transport 必须优先调用 owner。
+// killProcessTree 拒绝没有 Job authority 的旧调用路径。
 func killProcessTree(cmd *exec.Cmd) error {
-	if cmd == nil || cmd.Process == nil {
-		return nil
-	}
-	pid := cmd.Process.Pid
-	if pid <= 1 {
-		return errors.New("refusing to kill language-server PID <= 1")
-	}
-	return taskkillProcessTree(cmd, pid)
+	_ = cmd
+	return ErrProcessTreeOwnerMissing
 }
 
 func terminateJobProcessTree(job windows.Handle) error {
@@ -451,22 +580,6 @@ func terminateJobProcessTree(job windows.Handle) error {
 		return nil
 	}
 	return fmt.Errorf("terminate language-server Job Object: %w", jobErr)
-}
-
-// taskkillProcessTree 为没有 Job Object 的旧命令执行兼容性进程树回收。
-func taskkillProcessTree(cmd *exec.Cmd, pid int) error {
-	output, err := exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(pid)).CombinedOutput()
-	if err == nil || errors.Is(err, os.ErrProcessDone) {
-		return nil
-	}
-	killErr := cmd.Process.Kill()
-	if processTreeProcessGone(killErr) {
-		return nil
-	}
-	return errors.Join(
-		fmt.Errorf("taskkill language-server tree: %w: %s", err, strings.TrimSpace(string(output))),
-		killErr,
-	)
 }
 
 func processTreeProcessGone(err error) bool {

@@ -4,6 +4,21 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"sort"
+	"time"
+)
+
+var (
+	// ErrProcessTreeIdentityMismatch means that a PID no longer refers to the
+	// immutable identity captured for this owner.
+	ErrProcessTreeIdentityMismatch = errors.New("process-tree identity mismatch")
+	// ErrProcessTreePidfdUnavailable is Linux-only and is deliberately not
+	// recoverable by a process-group or parent-PID fallback.
+	ErrProcessTreePidfdUnavailable = errors.New("process-tree pidfd unavailable")
+	// ErrProcessTreeRemaining means that one or more owner members remain alive.
+	ErrProcessTreeRemaining    = errors.New("process-tree members remain")
+	ErrProcessTreeContextNil   = errors.New("process-tree context is nil")
+	ErrProcessTreeOwnerMissing = errors.New("process-tree owner is unavailable")
 )
 
 // processTreeController 隐藏平台进程树句柄与终止细节。
@@ -11,6 +26,40 @@ type processTreeController interface {
 	terminate() error
 	release() error
 	rssBytes() (uint64, error)
+	identity() (ProcessIdentity, error)
+	snapshot() (ProcessTreeSnapshot, error)
+	alive() (bool, error)
+	descendants() ([]ProcessIdentity, error)
+	graceful(context.Context) error
+	force(context.Context) error
+	wait(context.Context) error
+	remaining() ([]ProcessIdentity, error)
+}
+
+// ProcessIdentity 是进程在一次 ProcessTree 生命周期内的不可变身份快照。
+// StartToken 与 PID 共同构成 PID 复用防护；SessionID/ProcessGroupID 约束 Unix 所有权。
+// 返回值始终是副本，调用方不得把它当作当前探测结果。
+type ProcessIdentity struct {
+	PID            int
+	StartToken     string
+	UID            uint32
+	SessionID      int
+	ProcessGroupID int
+}
+
+// Equal 比较两个进程身份快照的全部安全绑定字段。
+func (p ProcessIdentity) Equal(other ProcessIdentity) bool {
+	return p == other
+}
+
+// ProcessTreeSnapshot 是一次原子进程树观察结果。
+// Members 包含已知且通过身份绑定的 owner 成员；Unknown 表示无法证明属于 owner 的同组成员。
+// 返回的 slice 是独立副本，后续快照不会改变此前结果。
+type ProcessTreeSnapshot struct {
+	Root       ProcessIdentity
+	Members    []ProcessIdentity
+	Unknown    []ProcessIdentity
+	CapturedAt time.Time
 }
 
 // ProcessTree 显式持有一次子进程启动所对应的平台进程树 owner。
@@ -44,7 +93,7 @@ func StartProcessTree(cmd *exec.Cmd) (*ProcessTree, error) {
 	return startProcessTree(cmd)
 }
 
-// Terminate 强制终止 owner 管理的全部进程。
+// Terminate 执行统一的有界优雅关闭、验证和必要强制关闭事务。
 func (p *ProcessTree) Terminate() error {
 	if p == nil || p.controller == nil {
 		return errors.New("process-tree owner is nil")
@@ -68,6 +117,84 @@ func (p *ProcessTree) RSSBytes() (uint64, error) {
 	return p.controller.rssBytes()
 }
 
+// Identity 返回启动时捕获的根进程身份快照。
+func (p *ProcessTree) Identity() (ProcessIdentity, error) {
+	if p == nil || p.controller == nil {
+		return ProcessIdentity{}, errors.New("process-tree owner is nil")
+	}
+	return p.controller.identity()
+}
+
+// Snapshot 在 action-time 重新读取完整成员闭包并验证身份。
+func (p *ProcessTree) Snapshot() (ProcessTreeSnapshot, error) {
+	if p == nil || p.controller == nil {
+		return ProcessTreeSnapshot{}, errors.New("process-tree owner is nil")
+	}
+	return p.controller.snapshot()
+}
+
+// Alive 报告根进程仍否匹配启动时身份。
+func (p *ProcessTree) Alive() (bool, error) {
+	if p == nil || p.controller == nil {
+		return false, errors.New("process-tree owner is nil")
+	}
+	return p.controller.alive()
+}
+
+// Descendants 返回当前已证明属于 owner 的后代，并在返回前重新绑定其身份。
+func (p *ProcessTree) Descendants() ([]ProcessIdentity, error) {
+	if p == nil || p.controller == nil {
+		return nil, errors.New("process-tree owner is nil")
+	}
+	return p.controller.descendants()
+}
+
+// Graceful 执行一次有界、经 action-time 身份复核的优雅关闭动作。
+// Windows 明确不虚构 TERM 阶段，会返回平台错误且不发送信号。
+func (p *ProcessTree) Graceful(ctx context.Context) error {
+	if p == nil || p.controller == nil {
+		return errors.New("process-tree owner is nil")
+	}
+	if ctx == nil {
+		return ErrProcessTreeContextNil
+	}
+	return p.controller.graceful(ctx)
+}
+
+// Force 执行一次有界、经 action-time 身份复核的强制关闭动作。
+func (p *ProcessTree) Force(ctx context.Context) error {
+	if p == nil || p.controller == nil {
+		return errors.New("process-tree owner is nil")
+	}
+	if ctx == nil {
+		return ErrProcessTreeContextNil
+	}
+	return p.controller.force(ctx)
+}
+
+// Wait 等待 owner 成员全部退出；超时不释放 owner，调用方可继续重试或进入 CleanupPending。
+func (p *ProcessTree) Wait(ctx context.Context) error {
+	if p == nil || p.controller == nil {
+		return errors.New("process-tree owner is nil")
+	}
+	if ctx == nil {
+		return ErrProcessTreeContextNil
+	}
+	return p.controller.wait(ctx)
+}
+
+// Remaining 返回当前仍存活且通过身份复核的成员；身份不完整时返回错误而非空集合。
+func (p *ProcessTree) Remaining() ([]ProcessIdentity, error) {
+	if p == nil || p.controller == nil {
+		return nil, errors.New("process-tree owner is nil")
+	}
+	return p.controller.remaining()
+}
+
+func slicesSortIdentities(identities []ProcessIdentity) {
+	sort.Slice(identities, func(i, j int) bool { return identities[i].PID < identities[j].PID })
+}
+
 // ProcessTreeRSSBytes 汇总指定语言服务器根 PID 的平台进程组 RSS。
 // Windows 必须改用显式 ProcessTree owner，避免 PID 复用和 ParentProcessID 图误计。
 func ProcessTreeRSSBytes(pid int) (uint64, error) {
@@ -89,8 +216,9 @@ func ProcessStartIdentity(pid int) (string, error) {
 	return processStartIdentity(pid)
 }
 
-// KillProcessTree 强制终止命令及其派生进程。
-// 语言服务器经常再启动 worker、tsserver 或编译器子进程，调用方不能只回收父 PID。
+// KillProcessTree 拒绝没有启动时 owner 的破坏性调用。
+// 语言服务器的树必须通过 StartProcessTree 返回的 exact owner 操作；
+// 不能在 action-time 依据一个裸 PID 重新捕获身份并假设它仍归属原 owner。
 func KillProcessTree(cmd *exec.Cmd) error {
 	return killProcessTree(cmd)
 }

@@ -5,11 +5,14 @@ package multilsp
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/hiddenexec"
 )
 
 func TestTransportKillProcessTerminatesLanguageServerProcessTree(t *testing.T) {
@@ -63,6 +66,20 @@ func TestTransportKillProcessTerminatesLanguageServerProcessTree(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("language-server descendant pid %d survived parent shutdown", childPID)
+}
+
+func TestTransportWithoutProcessTreeOwnerRefusesDestructiveFallback(t *testing.T) {
+	cmd := exec.Command("/bin/sleep", "0.2")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start unowned process: %v", err)
+	}
+	tr := &transport{cmd: cmd}
+	if err := tr.killProcess(); !errors.Is(err, hiddenexec.ErrProcessTreeOwnerMissing) {
+		t.Fatalf("killProcess() error = %v, want owner-missing", err)
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("unowned process Wait() error = %v, want natural exit", err)
+	}
 }
 
 func waitForTestChildPID(t *testing.T, path string) int {
