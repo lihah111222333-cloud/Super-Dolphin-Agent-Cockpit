@@ -4,112 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 )
-
-func TestBuildContainerShardSetUsesProfileSpecificCanonicalGroups(t *testing.T) {
-	if groups := canonicalContainerShardGroups(ProfileRelease, legacyContainerShardCount); len(groups) != legacyContainerShardCount {
-		t.Fatalf("canonical release shard groups = %d, want %d", len(groups), legacyContainerShardCount)
-	}
-	if groups := canonicalContainerShardGroups(ProfileLocalFast, legacyContainerShardCount); len(groups) != legacyContainerShardCount {
-		t.Fatalf("canonical local shard groups = %d, want %d", len(groups), legacyContainerShardCount)
-	}
-	for _, profile := range []Profile{ProfilePush, ProfileRemoteRequired, ProfilePromotion} {
-		if groups := canonicalContainerShardGroups(profile, legacyContainerShardCount); len(groups) != legacyContainerShardCount {
-			t.Fatalf("canonical %s shard groups = %d, want %d", profile, len(groups), legacyContainerShardCount)
-		}
-	}
-	set := testContainerShardSet(t, ProfileRelease)
-	if len(set.Shards) != legacyContainerShardCount {
-		t.Fatalf("shards = %d, want %d", len(set.Shards), legacyContainerShardCount)
-	}
-	want := [][]GateID{
-		{GateIDAIMaintenanceSelfTest, GateIDFrontendLint, GateIDFrontendPreflight, GateIDFrontendE2E, GateIDFrontendFullTest, GateIDFrontendBuild, GateIDFrontendEmbedVerify,
-			GateIDSQLCVerify, GateIDCodemapCheck, GateIDProjectMapCheck, GateIDCapabilityContractCheck, GateIDWhitespaceCheck},
-		{GateIDBackendTestWithGuard, GateIDBackendNilness},
-		{GateIDBackendTestGuardWithRace},
-	}
-	normal := testContainerShardSet(t, ProfileLocalFast)
-	normalWant := [][]GateID{
-		{GateIDAIMaintenanceSelfTest, GateIDFrontendLint, GateIDFrontendTest, GateIDFrontendBuild, GateIDFrontendEmbedVerify},
-		{GateIDBackendTestWithGuard},
-		{GateIDSQLCVerify, GateIDCodemapCheck, GateIDProjectMapCheck, GateIDCapabilityContractCheck, GateIDWhitespaceCheck},
-	}
-	push := testContainerShardSet(t, ProfilePush)
-	remote := testContainerShardSet(t, ProfileRemoteRequired)
-	promotion := testContainerShardSet(t, ProfilePromotion)
-	pushWant := [][]GateID{
-		{GateIDAIMaintenanceSelfTest, GateIDFrontendLint},
-		{GateIDBackendTestWithGuard},
-		{GateIDSQLCVerify, GateIDCodemapCheck, GateIDProjectMapCheck, GateIDCapabilityContractCheck, GateIDWhitespaceCheck},
-	}
-	remoteWant := [][]GateID{
-		{GateIDAIMaintenanceSelfTest, GateIDFrontendLint, GateIDFrontendTest, GateIDFrontendBuild, GateIDFrontendEmbedVerify},
-		{GateIDBackendTestWithGuard},
-		{GateIDFrontendPreflight, GateIDSQLCVerify, GateIDCodemapCheck, GateIDProjectMapCheck, GateIDCapabilityContractCheck, GateIDWhitespaceCheck},
-	}
-	assertContainerShardGateGroups(t, set, want)
-	assertContainerShardGateGroups(t, normal, normalWant)
-	assertContainerShardGateGroups(t, push, pushWant)
-	assertContainerShardGateGroups(t, remote, remoteWant)
-	assertContainerShardGateGroups(t, promotion, remoteWant)
-	assertShardSetRejectsSelfConsistentMissingGate(t, set)
-}
-
-func TestBuildContainerShardSetWithCountBindsRequestedShardCount(t *testing.T) {
-	plan := mustBuildPlan(t, ProfileLocalFast)
-	for _, count := range []int{1, 2, 3, 5} {
-		t.Run(fmt.Sprintf("count-%d", count), func(t *testing.T) {
-			assertContainerShardCountBinding(t, plan, count)
-		})
-	}
-}
-
-func assertContainerShardCountBinding(t *testing.T, plan GatePlan, count int) {
-	t.Helper()
-	set, err := BuildContainerShardSetWithCount(plan, shardTestDigest('a'), shardTestDigest('b'), count)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if set.ShardsPerJob != count || len(set.Shards) != int(count) {
-		t.Fatalf("shards_per_job=%d shards=%d, want %d", set.ShardsPerJob, len(set.Shards), count)
-	}
-	for _, shard := range set.Shards {
-		if shard.ShardsPerJob != count {
-			t.Fatalf("shard %d shards_per_job=%d, want %d", shard.Index, shard.ShardsPerJob, count)
-		}
-		if count >= 2 && slices.Contains(shard.GateIDs, GateIDBackendTestGuardWithRace) && len(shard.GateIDs) != 1 {
-			t.Fatalf("count=%d did not isolate the race gate: %#v", count, shard.GateIDs)
-		}
-	}
-}
-
-func TestBuildContainerShardSetWithCountRejectsInvalidCount(t *testing.T) {
-	plan := mustBuildPlan(t, ProfileLocalFast)
-	for _, count := range []int{0, 65, len(plan.Gates) + 1} {
-		if _, err := BuildContainerShardSetWithCount(plan, shardTestDigest('a'), shardTestDigest('b'), count); err == nil {
-			t.Fatalf("BuildContainerShardSetWithCount(count=%d) succeeded", count)
-		}
-	}
-}
-
-func TestBuildContainerShardSetWithCountKeepsReleaseRaceIsolated(t *testing.T) {
-	plan := mustBuildPlan(t, ProfileRelease)
-	set, err := BuildContainerShardSetWithCount(plan, shardTestDigest('a'), shardTestDigest('b'), 5)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, shard := range set.Shards {
-		if slices.Contains(shard.GateIDs, GateIDBackendTestGuardWithRace) && len(shard.GateIDs) != 1 {
-			t.Fatalf("release race gate was not isolated: %#v", shard.GateIDs)
-		}
-	}
-}
 
 func TestBuildContainerShardSetFromWorkloadPlanBindsFrozenLPTIdentity(t *testing.T) {
 	gatePlan := mustBuildPlan(t, ProfileRelease)
@@ -180,38 +80,6 @@ func TestWorkloadContainerShardSetRejectsSelfConsistentShardDrift(t *testing.T) 
 		t.Fatal("Validate() accepted self-consistent estimated duration drift")
 	}
 
-	static := testContainerShardSet(t, ProfileLocalFast)
-	static.Shards[0].WorkloadPlanDigest = shardTestDigest('c')
-	if err := static.Validate(); err == nil {
-		t.Fatal("Validate() accepted workload fields on schema v2 shard")
-	}
-}
-
-func TestContainerShardSetValidateStoredAcceptsIntactHistoricalGrouping(t *testing.T) {
-	plan := mustBuildPlan(t, ProfileLocalFast)
-	all := allProfiles()
-	plan.Gates = append(plan.Gates, newGateSpec(GateIDLSPChangedDiagnostics, all, all))
-	digest, err := plan.digest()
-	if err != nil {
-		t.Fatal(err)
-	}
-	plan.PlanDigest = digest
-	set := ContainerShardSet{
-		Profile: plan.Profile, PlanDigest: plan.PlanDigest, SourceTreeSHA: plan.Source.SourceTreeSHA,
-		AcceptedManifestDigest: testDigest, AcceptedConfigDigest: testDigest, ShardsPerJob: legacyContainerShardCount,
-	}
-	groups := canonicalContainerShardGroups(ProfileLocalFast, legacyContainerShardCount)
-	groups[1] = append(groups[1], GateIDLSPChangedDiagnostics)
-	if err := appendContainerShards(&set, groups); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := set.ValidateStored(plan); err != nil {
-		t.Fatalf("ValidateStored() error = %v", err)
-	}
-	if err := set.Validate(); err == nil {
-		t.Fatal("Validate() accepted historical shard grouping as current")
-	}
 }
 
 func testWorkloadExecutionPlan(t *testing.T, gatePlan GatePlan) WorkloadExecutionPlan {
@@ -244,42 +112,6 @@ func TestCanonicalGateArgvDigestMatchesReceiptEncoding(t *testing.T) {
 	const want = "sha256:61d69caed0b49003af9064b9de6a6b26c55279f7c70e68b42f21f175b2ec838b"
 	if got != want {
 		t.Fatalf("canonical gate argv digest = %q, want %q", got, want)
-	}
-}
-
-func assertContainerShardGateGroups(t *testing.T, set ContainerShardSet, want [][]GateID) {
-	t.Helper()
-	seen := make(map[GateID]bool)
-	for index, shard := range set.Shards {
-		if !slices.Equal(shard.GateIDs, want[index]) || shard.IdentityDigest == "" {
-			t.Fatalf("shard %d = %#v, want gates %v", index, shard, want[index])
-		}
-		claimTestShardGateIDs(t, seen, shard.GateIDs)
-	}
-}
-
-func claimTestShardGateIDs(t *testing.T, seen map[GateID]bool, gateIDs []GateID) {
-	t.Helper()
-	for _, id := range gateIDs {
-		if seen[id] || id == GateIDReleaseLayeredCheck {
-			t.Fatalf("invalid coverage for %q", id)
-		}
-		seen[id] = true
-	}
-}
-
-func assertShardSetRejectsSelfConsistentMissingGate(t *testing.T, set ContainerShardSet) {
-	t.Helper()
-	forged := set
-	forged.Shards = append([]ContainerShard(nil), set.Shards...)
-	forged.Shards[0].GateIDs = forged.Shards[0].GateIDs[1:]
-	identity, err := containerShardIdentityDigest(forged.Shards[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	forged.Shards[0].IdentityDigest = identity
-	if err := forged.Validate(); err == nil {
-		t.Fatal("self-consistent shard with missing gate passed validation")
 	}
 }
 
@@ -370,7 +202,9 @@ func assertAggregateContainerShardsRejectsTamperedReceipts(t *testing.T, set Con
 		name   string
 		mutate func([]ContainerShardReceipt)
 	}{
-		{"duplicate", func(values []ContainerShardReceipt) { values[1].Shard = values[0].Shard }},
+		{"duplicate", func(values []ContainerShardReceipt) {
+			values[0].GateExecutions = append(values[0].GateExecutions, values[0].GateExecutions[0])
+		}},
 		{"source", func(values []ContainerShardReceipt) { values[0].Shard.SourceTreeSHA = "source-tree-drift" }},
 		{"image", func(values []ContainerShardReceipt) { values[0].Shard.AcceptedConfigDigest = shardTestDigest('c') }},
 		{"resource", func(values []ContainerShardReceipt) { values[0].ResourceWitness.PidsLimit++ }},
@@ -379,10 +213,10 @@ func assertAggregateContainerShardsRejectsTamperedReceipts(t *testing.T, set Con
 			values[0].ExitedAt = values[0].Deadline.Add(time.Nanosecond)
 			values[0].CompletedAt = values[0].ExitedAt
 		}},
-		{"gate log", func(values []ContainerShardReceipt) { values[1].GateExecutions[0].Log = []byte("tampered") }},
-		{"gate status", func(values []ContainerShardReceipt) { values[1].GateExecutions[0].Status = ResultStatusFailed }},
+		{"gate log", func(values []ContainerShardReceipt) { values[0].GateExecutions[0].Log = []byte("tampered") }},
+		{"gate status", func(values []ContainerShardReceipt) { values[0].GateExecutions[0].Status = ResultStatusFailed }},
 		{"gate order", func(values []ContainerShardReceipt) {
-			values[1].GateExecutions[0], values[1].GateExecutions[1] = values[1].GateExecutions[1], values[1].GateExecutions[0]
+			values[0].GateExecutions[0], values[0].GateExecutions[1] = values[0].GateExecutions[1], values[0].GateExecutions[0]
 		}},
 	}
 	for _, test := range tests {
@@ -448,23 +282,41 @@ func TestValidateShardTimelineDistinguishesExecutionExitFromEvidenceCompletion(t
 
 func TestAggregateContainerShardFailureEvidenceIsCanonicalAndFailClosed(t *testing.T) {
 	set := testContainerShardSet(t, ProfileLocalFast)
+	receipts := failureEvidenceReceipts(t, set)
+	ordered, err := AggregateContainerShardFailureEvidence(set, receipts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCanonicalFailureEvidence(t, set, ordered)
+	assertFailureEvidenceRejectsMutations(t, set, receipts)
+}
+
+func failureEvidenceReceipts(t *testing.T, set ContainerShardSet) []ContainerShardReceipt {
+	t.Helper()
 	receipts := successfulShardReceipts(t, set)
-	receipts[0].Status = ResultStatusTimeout
-	receipts[0].ExitedAt = receipts[0].Deadline
-	receipts[0].CompletedAt = receipts[0].Deadline.Add(431666 * time.Microsecond)
-	receipts[0].GateExecutions[0].Status = ResultStatusTimeout
-	receipts[0].GateExecutions[0].ExitCode = -1
-	for index := 1; index < len(receipts); index++ {
+	const timeoutGateID = GateIDBackendTestWithGuard
+	timeoutReceipt := shardReceiptForGate(t, receipts, timeoutGateID)
+	timeoutReceipt.Status = ResultStatusTimeout
+	timeoutReceipt.ExitedAt = timeoutReceipt.Deadline
+	timeoutReceipt.CompletedAt = timeoutReceipt.Deadline.Add(431666 * time.Microsecond)
+	timeoutExecution := shardGateExecutionForGate(t, timeoutReceipt, timeoutGateID)
+	timeoutExecution.Status = ResultStatusTimeout
+	timeoutExecution.ExitCode = -1
+	for index := range receipts {
+		if receipts[index].Shard.IdentityDigest == timeoutReceipt.Shard.IdentityDigest {
+			continue
+		}
 		receipts[index].Status = ResultStatusCancelled
 		for gateIndex := range receipts[index].GateExecutions {
 			receipts[index].GateExecutions[gateIndex].Status = ResultStatusCancelled
 			receipts[index].GateExecutions[gateIndex].ExitCode = -1
 		}
 	}
-	ordered, err := AggregateContainerShardFailureEvidence(set, receipts)
-	if err != nil {
-		t.Fatal(err)
-	}
+	return receipts
+}
+
+func assertCanonicalFailureEvidence(t *testing.T, set ContainerShardSet, ordered []PlanGateExecution) {
+	t.Helper()
 	want := requiredGateIDs(set.Profile)
 	if len(ordered) != len(want) {
 		t.Fatalf("failure evidence count=%d want=%d", len(ordered), len(want))
@@ -474,19 +326,23 @@ func TestAggregateContainerShardFailureEvidenceIsCanonicalAndFailClosed(t *testi
 			t.Fatalf("failure evidence[%d]=%#v want gate=%q", index, ordered[index], gateID)
 		}
 	}
+}
 
+func assertFailureEvidenceRejectsMutations(t *testing.T, set ContainerShardSet, receipts []ContainerShardReceipt) {
+	t.Helper()
+	const timeoutGateID = GateIDBackendTestWithGuard
 	tests := []struct {
 		name   string
 		mutate func([]ContainerShardReceipt)
 	}{
 		{name: "missing gate", mutate: func(values []ContainerShardReceipt) {
-			values[1].GateExecutions = values[1].GateExecutions[:len(values[1].GateExecutions)-1]
+			removeShardGateExecution(t, values, timeoutGateID)
 		}},
 		{name: "wrong identity", mutate: func(values []ContainerShardReceipt) {
-			values[1].Shard = values[0].Shard
+			shardReceiptForGate(t, values, timeoutGateID).Shard.IdentityDigest = shardTestDigest('f')
 		}},
 		{name: "duplicate gate", mutate: func(values []ContainerShardReceipt) {
-			values[1].GateExecutions[0].GateID = values[0].GateExecutions[0].GateID
+			shardGateExecutionForGate(t, shardReceiptForGate(t, values, GateIDSQLCVerify), GateIDSQLCVerify).GateID = timeoutGateID
 		}},
 	}
 	for _, test := range tests {
@@ -498,6 +354,49 @@ func TestAggregateContainerShardFailureEvidenceIsCanonicalAndFailClosed(t *testi
 			}
 		})
 	}
+}
+
+func shardReceiptForGate(t *testing.T, receipts []ContainerShardReceipt, gateID GateID) *ContainerShardReceipt {
+	t.Helper()
+	for index := range receipts {
+		if slices.Contains(receipts[index].Shard.GateIDs, gateID) {
+			return &receipts[index]
+		}
+	}
+	t.Fatalf("gate %q does not belong to any shard receipt", gateID)
+	return nil
+}
+
+func shardGateExecutionForGate(t *testing.T, receipt *ContainerShardReceipt, gateID GateID) *PlanGateExecution {
+	t.Helper()
+	for index := range receipt.GateExecutions {
+		if receipt.GateExecutions[index].GateID == gateID {
+			return &receipt.GateExecutions[index]
+		}
+	}
+	t.Fatalf("gate %q does not belong to shard receipt %q", gateID, receipt.Shard.IdentityDigest)
+	return nil
+}
+
+func removeShardGateExecution(t *testing.T, receipts []ContainerShardReceipt, gateID GateID) {
+	t.Helper()
+	receipt := shardReceiptForGate(t, receipts, gateID)
+	filtered := make([]PlanGateExecution, 0, len(receipt.GateExecutions)-1)
+	removed := false
+	for _, execution := range receipt.GateExecutions {
+		if execution.GateID == gateID {
+			if removed {
+				t.Fatalf("gate %q appears more than once in shard receipt", gateID)
+			}
+			removed = true
+			continue
+		}
+		filtered = append(filtered, execution)
+	}
+	if !removed {
+		t.Fatalf("gate %q does not belong to shard receipt %q", gateID, receipt.Shard.IdentityDigest)
+	}
+	receipt.GateExecutions = filtered
 }
 
 func cloneShardReceipts(receipts []ContainerShardReceipt) []ContainerShardReceipt {
@@ -518,7 +417,7 @@ func testContainerShardSet(t *testing.T, profile Profile) ContainerShardSet {
 	if err != nil {
 		t.Fatal(err)
 	}
-	set, err := BuildContainerShardSet(plan, shardTestDigest('a'), shardTestDigest('b'))
+	set, err := BuildContainerShardSetFromWorkloadPlan(plan, testWorkloadExecutionPlan(t, plan), shardTestDigest('a'), shardTestDigest('b'))
 	if err != nil {
 		t.Fatal(err)
 	}

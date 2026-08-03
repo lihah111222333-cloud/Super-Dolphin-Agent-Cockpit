@@ -32,7 +32,7 @@ func TestExecutorReusesPreparedCachesWithinShard(t *testing.T) {
 			t.Fatalf("shared shard cache marker %q: %v", name, err)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(config.goBuildCacheSeedRoot, "first-gate")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(config.goBuildCacheSeedRoots[0], "first-gate")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("runner cache seed was mutated: %v", err)
 	}
 	standaloneConfig := config
@@ -315,16 +315,14 @@ func TestGoBuildCacheProxyConcurrentSeedPromotion(t *testing.T) {
 	const readers = 8
 	errorsByReader := make(chan error, readers)
 	var group sync.WaitGroup
-	for index := 0; index < readers; index++ {
-		group.Add(1)
-		go func() {
-			defer group.Done()
+	for range readers {
+		group.Go(func() {
 			promoted, promoteErr := promoteGoBuildCacheSeedEntry(privateRoot, actionID, seedEntry)
 			if promoteErr == nil && !strings.HasPrefix(promoted.path, privateRoot+string(os.PathSeparator)) {
 				promoteErr = fmt.Errorf("promoted path is outside private root: %q", promoted.path)
 			}
 			errorsByReader <- promoteErr
-		}()
+		})
 	}
 	group.Wait()
 	close(errorsByReader)
@@ -468,12 +466,12 @@ func newPreparedShardCacheFixture(t *testing.T) (executorConfig, ExecutorProgram
 		"{\"accepted_tree_is_now_immutable\":false}\n",
 		0o600,
 	)
-	writeTestFile(t, filepath.Join(config.goBuildCacheSeedRoot, "prewarmed"), "runner-cache\n", 0o600)
+	writeTestFile(t, filepath.Join(config.goBuildCacheSeedRoots[0], "prewarmed"), "runner-cache\n", 0o600)
 	sharedCacheRoot := realTempDir(t)
 	if err := os.Chmod(sharedCacheRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := seedExecutorGoBuildCache(config.goBuildCacheSeedRoot, sharedCacheRoot); err != nil {
+	if err := seedExecutorGoBuildCache(config.goBuildCacheSeedRoots[0], sharedCacheRoot); err != nil {
 		t.Fatalf("prepare shard Go build cache write layer: %v", err)
 	}
 	config.goBuildCacheRoot = sharedCacheRoot
@@ -492,7 +490,7 @@ func TestExecutorEnvironmentIsClosedAndUsesPrivateModuleMetadata(t *testing.T) {
 		layout,
 		executorSearchPath,
 		layout.goModCache,
-		ExecutorPortableGoRoot,
+		ExecutorGoRoot,
 		ExecutorRuntimeSeedRoot+"/frontend/node_modules",
 		"gate worker go-cache-proxy --seed /seed --private /private",
 	)
@@ -509,18 +507,17 @@ func TestExecutorEnvironmentIsClosedAndUsesPrivateModuleMetadata(t *testing.T) {
 		"\nGOCACHEPROG=gate worker go-cache-proxy --seed /seed --private /private\n",
 		"\nGOMODCACHE=/workspace/work/go-mod-cache\n",
 		"\nGOPROXY=off\n",
-		"\nGOROOT=/opt/super-dolphin-gate/runtime/go\n",
+		"\nGOROOT=/usr/local/go\n",
 		"\nGOTMPDIR=/workspace/work/tmp\n",
-		"\nLD_LIBRARY_PATH=/opt/super-dolphin-gate/runtime/rootfs/usr/lib/x86_64-linux-gnu:/opt/super-dolphin-gate/runtime/rootfs/lib/x86_64-linux-gnu:/opt/super-dolphin-gate/runtime/rootfs/usr/lib/aarch64-linux-gnu:/opt/super-dolphin-gate/runtime/rootfs/lib/aarch64-linux-gnu:/opt/super-dolphin-gate/runtime/rootfs/usr/lib:/opt/super-dolphin-gate/runtime/rootfs/lib\n",
-		"\nFONTCONFIG_SYSROOT=/opt/super-dolphin-gate/runtime/rootfs\n",
+		"\nLD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:/usr/lib/aarch64-linux-gnu:/lib/aarch64-linux-gnu:/usr/lib:/lib\n",
 		"\nFONTCONFIG_FILE=fonts.conf\n",
-		"\nFONTCONFIG_PATH=/opt/super-dolphin-gate/runtime/rootfs/etc/fonts\n",
-		"\nXDG_DATA_DIRS=/opt/super-dolphin-gate/runtime/rootfs/usr/local/share:/opt/super-dolphin-gate/runtime/rootfs/usr/share\n",
-		"\nGSETTINGS_SCHEMA_DIR=/opt/super-dolphin-gate/runtime/rootfs/usr/share/glib-2.0/schemas\n",
-		"\nPATH=" + ExecutorPortableSearchPath + "\n",
-		"\nSUPER_DOLPHIN_GATE_GIT=/opt/super-dolphin-gate/runtime/bin/git\n",
-		"\nSUPER_DOLPHIN_GATE_NODE=/opt/super-dolphin-gate/runtime/node/bin/node\n",
-		"\nSUPER_DOLPHIN_GATE_XVFB_RUN=/opt/super-dolphin-gate/runtime/bin/xvfb-run\n",
+		"\nFONTCONFIG_PATH=/etc/fonts\n",
+		"\nXDG_DATA_DIRS=/usr/local/share:/usr/share\n",
+		"\nGSETTINGS_SCHEMA_DIR=/usr/share/glib-2.0/schemas\n",
+		"\nPATH=" + ExecutorSearchPath + "\n",
+		"\nSUPER_DOLPHIN_GATE_GIT=/usr/bin/git\n",
+		"\nSUPER_DOLPHIN_GATE_NODE=/usr/local/bin/node\n",
+		"\nSUPER_DOLPHIN_GATE_XVFB_RUN=/usr/bin/xvfb-run\n",
 		"\nnpm_config_cache=/opt/super-dolphin-gate/runtime/frontend/npm-cache\n",
 		"\nnpm_config_logs_dir=/workspace/work/npm-cache/_logs\n",
 		"\nPLAYWRIGHT_BROWSERS_PATH=/opt/super-dolphin-gate/runtime/frontend/node_modules/.cache/ms-playwright\n",
@@ -531,7 +528,7 @@ func TestExecutorEnvironmentIsClosedAndUsesPrivateModuleMetadata(t *testing.T) {
 			t.Errorf("executor environment missing %q", strings.TrimSpace(want))
 		}
 	}
-	for _, forbidden := range []string{"\nGIT_CONFIG_GLOBAL=", "\nGOFLAGS=", "\nGOWORK="} {
+	for _, forbidden := range []string{"\nGIT_CONFIG_GLOBAL=", "\nGOFLAGS=", "\nGOWORK=", "\nFONTCONFIG_SYSROOT="} {
 		if strings.Contains(joined, forbidden) {
 			t.Errorf("executor environment leaks child-process policy %q", strings.TrimSpace(forbidden))
 		}
@@ -557,7 +554,7 @@ func TestExecutorAuditOutputContainsNoHostEnvironmentValues(t *testing.T) {
 					layout,
 					executorSearchPath,
 					"/opt/runtime/go-mod-cache",
-					ExecutorPortableGoRoot,
+					ExecutorGoRoot,
 					ExecutorRuntimeSeedRoot+"/frontend/node_modules",
 					"",
 				),

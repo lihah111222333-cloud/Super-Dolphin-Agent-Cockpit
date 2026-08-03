@@ -26,53 +26,51 @@ const (
 	ExecutorGoWorkloadSourcePath           = ExecutorWorkRoot + "/lanes/lane-0/run/source"
 	ExecutorRuntimeSeedRoot                = ExecutorRoot + "/runtime"
 	ExecutorRuntimeSeedManifestPath        = ExecutorRuntimeSeedRoot + "/manifest.json"
-	ExecutorPortableGoRoot                 = ExecutorRuntimeSeedRoot + "/go"
-	ExecutorPortableRootFS                 = ExecutorRuntimeSeedRoot + "/rootfs"
-	ExecutorPortableLibraryPath            = ExecutorPortableRootFS + "/usr/lib/x86_64-linux-gnu:" + ExecutorPortableRootFS + "/lib/x86_64-linux-gnu:" + ExecutorPortableRootFS + "/usr/lib/aarch64-linux-gnu:" + ExecutorPortableRootFS + "/lib/aarch64-linux-gnu:" + ExecutorPortableRootFS + "/usr/lib:" + ExecutorPortableRootFS + "/lib"
-	ExecutorPortableSearchPath             = ExecutorRoot + "/bin:" + ExecutorRuntimeSeedRoot + "/bin:" + ExecutorRuntimeSeedRoot + "/go/bin:" + ExecutorRuntimeSeedRoot + "/node/bin:" + ExecutorPortableRootFS + "/usr/bin:" + ExecutorPortableRootFS + "/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin"
-	ExecutorGoBuildCacheSeedRoot           = ExecutorRoot + "/cache-seed/go-build"
+	ExecutorGoRoot                         = "/usr/local/go"
+	ExecutorSystemLibraryPath              = "/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu:/usr/lib/aarch64-linux-gnu:/lib/aarch64-linux-gnu:/usr/lib:/lib"
+	ExecutorSearchPath                     = ExecutorRoot + "/bin:" + ExecutorRuntimeSeedRoot + "/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin"
 	ExecutorGoBuildCacheSeedsRoot          = ExecutorRoot + "/cache-seeds"
 	ExecutorOCIProjectGoBuildCacheSeedRoot = "/opt/super-dolphin/cache/go-build"
 	ExecutorFrontendEmbedSeedRoot          = ExecutorRoot + "/frontend-embed"
 	ExecutorActionlintBinaryPath           = ExecutorRuntimeSeedRoot + "/bin/actionlint"
-	ExecutorBashBinaryPath                 = ExecutorPortableRootFS + "/usr/bin/bash"
-	ExecutorGitBinaryPath                  = ExecutorRuntimeSeedRoot + "/bin/git"
-	ExecutorNodeBinaryPath                 = ExecutorRuntimeSeedRoot + "/node/bin/node"
+	ExecutorBashBinaryPath                 = "/usr/bin/bash"
+	ExecutorGitBinaryPath                  = "/usr/bin/git"
+	ExecutorNodeBinaryPath                 = "/usr/local/bin/node"
 	ExecutorSQLCBinaryPath                 = ExecutorRuntimeSeedRoot + "/bin/sqlc"
 	ExecutorSqruffBinaryPath               = ExecutorRuntimeSeedRoot + "/bin/sqruff"
-	ExecutorXvfbRunBinaryPath              = ExecutorRuntimeSeedRoot + "/bin/xvfb-run"
+	ExecutorXvfbRunBinaryPath              = "/usr/bin/xvfb-run"
 	executorPlaywrightBrowsersPath         = ExecutorRuntimeSeedRoot + "/frontend/node_modules/.cache/ms-playwright"
 	executorGoProxyMode                    = "off"
 	executorUID                            = 65532
-	executorSearchPath                     = ExecutorPortableSearchPath
+	executorSearchPath                     = ExecutorSearchPath
 )
 
 type executorConfig struct {
-	sourcePath            string
-	workRoot              string
-	searchPath            string
-	expectedUID           int
-	requireReadOnlySource bool
-	runtimeSeedRoot       string
-	runtimeSeedManifest   string
-	goRoot                string
-	preparedRuntimeSeeds  *executorPreparedRuntimeSeeds
-	goBuildCacheSeedRoots []string
-	// goBuildCacheSeedRoot keeps plan-executor callers built before the seed-chain materializer compatible.
-	goBuildCacheSeedRoot    string
+	sourcePath              string
+	workRoot                string
+	searchPath              string
+	expectedUID             int
+	requireReadOnlySource   bool
+	runtimeSeedRoot         string
+	runtimeSeedManifest     string
+	goRoot                  string
+	preparedRuntimeSeeds    *executorPreparedRuntimeSeeds
+	goBuildCacheSeedRoots   []string
 	goBuildCacheRoot        string
 	goBuildCacheProxy       string
 	goBuildCacheMetricsPath string
 	frontendEmbedSeedRoot   string
 	stdout                  io.Writer
 	stderr                  io.Writer
+	nowFunc                 func() time.Time
 	executionTiming         *executorExecutionTiming
 }
 
 type executorExecutionTiming struct {
-	setupMS int64
-	bodyMS  int64
-	totalMS int64
+	setupMS          int64
+	bodyMS           int64
+	totalMS          int64
+	viteCacheSeedHit bool
 }
 
 type executorWorkloadTimeoutKey struct{}
@@ -141,11 +139,12 @@ func ExecuteExecutor(ctx context.Context, args []string, stdout io.Writer, stder
 		sourcePath: ExecutorSourcePath, workRoot: ExecutorWorkRoot, searchPath: executorSearchPath,
 		expectedUID: executorUID, requireReadOnlySource: true,
 		runtimeSeedRoot: ExecutorRuntimeSeedRoot, runtimeSeedManifest: ExecutorRuntimeSeedManifestPath,
-		goRoot:                ExecutorPortableGoRoot,
+		goRoot:                ExecutorGoRoot,
 		goBuildCacheSeedRoots: seedRoots,
 		goBuildCacheProxy:     cacheProxy,
 		frontendEmbedSeedRoot: ExecutorFrontendEmbedSeedRoot,
 		stdout:                stdout, stderr: stderr,
+		nowFunc: time.Now,
 	}
 	return executeProgram(ctx, config, id, program)
 }
@@ -193,7 +192,10 @@ func ExecutorExitCode(err error) int {
 
 // executeProgram 建立一次性工作区，校验可信输入并执行固定门禁程序。
 func executeProgram(ctx context.Context, config executorConfig, id GateID, program ExecutorProgram) (retErr error) {
-	started := time.Now()
+	if config.nowFunc == nil {
+		return errors.New("executor clock is required")
+	}
+	started := config.nowFunc()
 	if err := validateExecutorConfig(config); err != nil {
 		return err
 	}
@@ -212,13 +214,13 @@ func executeProgram(ctx context.Context, config executorConfig, id GateID, progr
 	}()
 	environment, steps, gitBinary, err := prepareExecutorRun(ctx, config, layout, program)
 	if err != nil {
-		recordExecutorExecutionTiming(config.executionTiming, started, time.Now(), time.Now())
+		recordExecutorExecutionTiming(config.executionTiming, started, config.nowFunc(), config.nowFunc())
 		return err
 	}
 	fmt.Fprintf(config.stderr, "[gate-executor] gate=%s cwd=%s env=%s\n", id, layout.sourceCopy, strings.Join(environmentKeys(environment), ","))
-	bodyStarted := time.Now()
+	bodyStarted := config.nowFunc()
 	err = runExecutorProgram(ctx, config, id, program, layout, environment, steps, gitBinary)
-	recordExecutorExecutionTiming(config.executionTiming, started, bodyStarted, time.Now())
+	recordExecutorExecutionTiming(config.executionTiming, started, bodyStarted, config.nowFunc())
 	return err
 }
 
@@ -626,12 +628,11 @@ func executorEnvironment(
 		"GOPROXY=" + executorGoProxyMode, "GOSUMDB=off", "GOTOOLCHAIN=local",
 		"GOROOT=" + goRoot, "GOTMPDIR=" + layout.tmp,
 		"HOME=" + layout.home, "LANG=C.UTF-8", "LC_ALL=C.UTF-8",
-		"LD_LIBRARY_PATH=" + ExecutorPortableLibraryPath,
-		"FONTCONFIG_SYSROOT=" + ExecutorPortableRootFS,
+		"LD_LIBRARY_PATH=" + ExecutorSystemLibraryPath,
 		"FONTCONFIG_FILE=fonts.conf",
-		"FONTCONFIG_PATH=" + ExecutorPortableRootFS + "/etc/fonts",
-		"XDG_DATA_DIRS=" + ExecutorPortableRootFS + "/usr/local/share:" + ExecutorPortableRootFS + "/usr/share",
-		"GSETTINGS_SCHEMA_DIR=" + ExecutorPortableRootFS + "/usr/share/glib-2.0/schemas",
+		"FONTCONFIG_PATH=/etc/fonts",
+		"XDG_DATA_DIRS=/usr/local/share:/usr/share",
+		"GSETTINGS_SCHEMA_DIR=/usr/share/glib-2.0/schemas",
 		"NPM_CONFIG_AUDIT=false", "NPM_CONFIG_FUND=false", "NPM_CONFIG_UPDATE_NOTIFIER=false",
 		"npm_config_cache=" + npmCacheRoot, "npm_config_logs_dir=" + filepath.Join(layout.npmCache, "_logs"),
 		"npm_config_offline=true", "npm_config_userconfig=/dev/null",

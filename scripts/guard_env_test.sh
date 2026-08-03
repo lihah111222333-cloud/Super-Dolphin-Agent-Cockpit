@@ -32,6 +32,7 @@ assert_not_contains() {
 
 write_fake_go() {
   local file="$1" version="$2"
+  # shellcheck disable=SC2016 # The fake executable must receive a literal "$1".
   printf '#!/usr/bin/env bash\nif [[ "$1" == "version" ]]; then printf "go version go%s test/arch\\n"; exit 0; fi\nexit 0\n' "$version" > "$file"
   chmod +x "$file"
 }
@@ -45,6 +46,27 @@ test_resolve_real_go_from_real_go_bin() {
 
   resolved="$(REAL_GO_BIN="$real_go" "$BASH" -c 'source scripts/real_go_resolver.sh; resolve_real_go')"
   [[ "$resolved" -ef "$real_go" ]] || fail "resolve_real_go returned $resolved, want $real_go"
+}
+
+test_macos_distribution_selects_each_locked_architecture() {
+  local arm64 amd64
+  arm64="$(source scripts/go_distribution_lock.sh; go_distribution_macos_asset arm64)"
+  amd64="$(source scripts/go_distribution_lock.sh; go_distribution_macos_asset x86_64)"
+  [[ "$arm64" == $'go1.26.5\tdarwin\tarm64\thttps://go.dev/dl/go1.26.5.darwin-arm64.tar.gz\tefb87ff28af9a188d0536ef5d42e63dd52ba8263cd7344a993cc48dd11dedb6a\t64738542' ]] || fail "unexpected darwin/arm64 distribution: $arm64"
+  [[ "$amd64" == $'go1.26.5\tdarwin\tamd64\thttps://go.dev/dl/go1.26.5.darwin-amd64.tar.gz\t6231d8d3b8f5552ec6cbf6d685bdd5482e1e703214b120e89b3bf0d7bf1ef725\t67836304' ]] || fail "unexpected darwin/amd64 distribution: $amd64"
+}
+
+test_macos_distribution_rejects_unlocked_architecture() {
+  local stderr status
+  stderr="$(mktemp)"
+  trap 'rm -f "$stderr"' RETURN
+  set +e
+  source scripts/go_distribution_lock.sh
+  go_distribution_macos_asset riscv64 2>"$stderr" >/dev/null
+  status=$?
+  set -e
+  [[ "$status" -ne 0 ]] || fail "unlocked macOS architecture unexpectedly succeeded"
+  assert_contains "$stderr" "未锁定"
 }
 
 test_resolve_real_go_prefers_matching_goroot_over_newer_path() {
@@ -67,7 +89,7 @@ test_real_go_bin_rejects_wrong_repo_version() {
   trap 'rm -rf "$tmpdir"' RETURN
   wrong="$tmpdir/go"
   stderr="$tmpdir/stderr"
-  write_fake_go "$wrong" "1.26.5"
+  write_fake_go "$wrong" "1.26.4"
 
   set +e
   REAL_GO_BIN="$wrong" "$BASH" -c 'source scripts/real_go_resolver.sh; resolve_real_go' 2>"$stderr" >/dev/null
@@ -96,7 +118,7 @@ test_repo_wrapper_is_not_real_go() {
   trap 'rm -f "$stderr"' RETURN
 
   set +e
-  GOROOT= PATH="$ROOT_DIR/scripts" SUPER_DOLPHIN_TEST_BACKEND=remote-worker "$BASH" "$ROOT_DIR/scripts/test_with_guard.sh" --guard-only 2>"$stderr"
+  GOROOT='' PATH="$ROOT_DIR/scripts" SUPER_DOLPHIN_TEST_BACKEND=remote-worker "$BASH" "$ROOT_DIR/scripts/test_with_guard.sh" --guard-only 2>"$stderr"
   status=$?
   set -e
 
@@ -174,7 +196,7 @@ test_go_wrapper_allow_raw_uses_shared_resolver() {
   stderr="$tmpdir/stderr"
 
   set +e
-  GOROOT= PATH="$ROOT_DIR/scripts" GO_GUARD_ALLOW_RAW=1 "$BASH" "$ROOT_DIR/scripts/go" env 2>"$stderr" >/dev/null
+  GOROOT='' PATH="$ROOT_DIR/scripts" GO_GUARD_ALLOW_RAW=1 "$BASH" "$ROOT_DIR/scripts/go" env 2>"$stderr" >/dev/null
   status=$?
   set -e
 
@@ -192,7 +214,7 @@ test_missing_go_fails_fast() {
   stderr="$tmpdir/stderr"
 
   set +e
-  GOROOT= PATH="$tmpdir" GLOBAL_GO_WRAPPER="$tmpdir/go" SUPER_DOLPHIN_TEST_BACKEND=remote-worker "$BASH" "$ROOT_DIR/scripts/test_with_guard.sh" --guard-only 2>"$stderr"
+  GOROOT='' PATH="$tmpdir" GLOBAL_GO_WRAPPER="$tmpdir/go" SUPER_DOLPHIN_TEST_BACKEND=remote-worker "$BASH" "$ROOT_DIR/scripts/test_with_guard.sh" --guard-only 2>"$stderr"
   status=$?
   set -e
 
@@ -212,7 +234,7 @@ test_activate_guard_env_missing_go_returns() {
   stderr="$tmpdir/stderr"
 
   set +e
-  GOROOT= PATH="$tmpdir" GLOBAL_GO_WRAPPER="$tmpdir/go" "$BASH" -c 'source scripts/activate_guard_env.sh' 2>"$stderr"
+  GOROOT='' PATH="$tmpdir" GLOBAL_GO_WRAPPER="$tmpdir/go" "$BASH" -c 'source scripts/activate_guard_env.sh' 2>"$stderr"
   status=$?
   set -e
 
@@ -223,6 +245,8 @@ test_activate_guard_env_missing_go_returns() {
 
 cd "$ROOT_DIR"
 test_resolve_real_go_from_real_go_bin
+test_macos_distribution_selects_each_locked_architecture
+test_macos_distribution_rejects_unlocked_architecture
 test_resolve_real_go_prefers_matching_goroot_over_newer_path
 test_real_go_bin_rejects_wrong_repo_version
 test_remote_worker_uses_manifest_verified_goroot_binary

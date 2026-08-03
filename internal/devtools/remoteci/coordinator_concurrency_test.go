@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/eci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -50,6 +51,40 @@ func (barrier *coordinatorOverlapBarrier) wait(ctx context.Context, jobID string
 
 func (barrier *coordinatorOverlapBarrier) unblock() {
 	barrier.releaseOnce.Do(func() { close(barrier.release) })
+}
+
+type jobScopedCleanupRuntime struct {
+	*coordinatorRuntime
+	mu       sync.Mutex
+	groupJob map[string]string
+	barrier  *coordinatorOverlapBarrier
+}
+
+func (runtime *jobScopedCleanupRuntime) CreateContainerGroup(ctx context.Context, request eci.CreateRequest) (eci.ContainerGroup, error) {
+	group, err := runtime.coordinatorRuntime.CreateContainerGroup(ctx, request)
+	if err != nil {
+		return eci.ContainerGroup{}, err
+	}
+	runtime.mu.Lock()
+	if runtime.groupJob == nil {
+		runtime.groupJob = make(map[string]string)
+	}
+	runtime.groupJob[group.ID] = request.Tags["super-dolphin-job"]
+	runtime.mu.Unlock()
+	return group, nil
+}
+
+func (runtime *jobScopedCleanupRuntime) DeleteContainerGroup(ctx context.Context, groupID string) error {
+	runtime.mu.Lock()
+	jobID := runtime.groupJob[groupID]
+	runtime.mu.Unlock()
+	if jobID == "" {
+		return fmt.Errorf("cleanup group %q has no owning job", groupID)
+	}
+	if err := runtime.barrier.wait(ctx, jobID); err != nil {
+		return err
+	}
+	return runtime.coordinatorRuntime.DeleteContainerGroup(ctx, groupID)
 }
 
 func TestCoordinatorCleanupStartsAllECIDeletesWithoutCPUBatchLimit(t *testing.T) {
@@ -133,6 +168,65 @@ func TestIndependentCoordinatorRunsOverlapAndKeepJobObjectPrefixesSeparate(t *te
 	assertIndependentCoordinatorObjectPrefixes(t, store.uploads, runtime.creates)
 }
 
+// TestIndependentCoordinatorRunsKeepCleanupAndAgentTokensJobScoped 验证普通分片执行
+// 没有共享清理注册表或 agent 身份状态。此路径刻意不含刷新租约：
+// 只有独立 SQLite owner 可以串行刷新，绝不能串行普通 job 或分片。
+func TestIndependentCoordinatorRunsKeepCleanupAndAgentTokensJobScoped(t *testing.T) {
+	repository, input := remoteRunFixture(t)
+	input.RepositoryRoot = repository
+	store := &coordinatorStore{}
+	cleanupBarrier := newCoordinatorOverlapBarrier(2, 2)
+	runtime := &jobScopedCleanupRuntime{coordinatorRuntime: &coordinatorRuntime{}, barrier: cleanupBarrier}
+	defer cleanupBarrier.unblock()
+	first := newTestCoordinator(t, store, runtime)
+	second := newTestCoordinator(t, store, runtime)
+	first.newID = func() (string, error) { return "job-0123456789abcdef0123456a", nil }
+	second.newID = func() (string, error) { return "job-0123456789abcdef0123456b", nil }
+	firstInput := input
+	secondInput := input
+	firstInput.AgentTokenDigest = "sha256:" + strings.Repeat("a", 64)
+	secondInput.AgentTokenDigest = "sha256:" + strings.Repeat("b", 64)
+	var runs errgroup.Group
+	runs.Go(func() error {
+		_, err := first.Run(context.Background(), firstInput)
+		return err
+	})
+	runs.Go(func() error {
+		_, err := second.Run(context.Background(), secondInput)
+		return err
+	})
+	assertCoordinatorBarrierReached(t, cleanupBarrier, "cross-job ECI cleanup")
+	cleanupBarrier.unblock()
+	if err := runs.Wait(); err != nil {
+		t.Fatalf("concurrent Run() error = %v", err)
+	}
+	wantPrefixes := map[string]bool{
+		"baseline-artifacts/source-deltas/job-0123456789abcdef0123456a/": false,
+		"baseline-artifacts/source-deltas/job-0123456789abcdef0123456b/": false,
+	}
+	for _, prefix := range store.deletePrefixes {
+		if _, ok := wantPrefixes[prefix]; !ok {
+			t.Fatalf("cleanup prefix %q is not job-scoped", prefix)
+		}
+		wantPrefixes[prefix] = true
+	}
+	for prefix, found := range wantPrefixes {
+		if !found {
+			t.Fatalf("missing independent cleanup prefix %q in %v", prefix, store.deletePrefixes)
+		}
+	}
+	wantTokens := map[string]string{
+		"job-0123456789abcdef0123456a": firstInput.AgentTokenDigest,
+		"job-0123456789abcdef0123456b": secondInput.AgentTokenDigest,
+	}
+	for _, request := range runtime.creates {
+		jobID := request.Tags["super-dolphin-job"]
+		if got, want := request.Environment[gate.ExecutorAgentTokenDigestEnvironment], wantTokens[jobID]; got != want {
+			t.Fatalf("job %q agent token digest = %q, want %q", jobID, got, want)
+		}
+	}
+}
+
 func assertCoordinatorBarrierReached(t *testing.T, barrier *coordinatorOverlapBarrier, operation string) {
 	t.Helper()
 	select {
@@ -148,7 +242,7 @@ func assertIndependentCoordinatorObjectPrefixes(t *testing.T, uploads []string, 
 		"baseline-artifacts/source-deltas/job-0123456789abcdef0123456a/": false,
 		"baseline-artifacts/source-deltas/job-0123456789abcdef0123456b/": false,
 	}
-	temporary, _ := partitionCoordinatorUploads(uploads)
+	temporary := coordinatorTemporaryUploads(uploads)
 	for _, key := range temporary {
 		matched := false
 		for prefix := range prefixes {

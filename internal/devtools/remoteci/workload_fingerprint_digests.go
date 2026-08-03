@@ -20,6 +20,7 @@ func (snapshot *remoteGitTreeSnapshot) workloadInputDigest(ctx context.Context, 
 	if err != nil {
 		return "", err
 	}
+	profile := remoteGoBuildProfile{race: parent == gate.GateIDBackendTestGuardWithRace}
 	if !targeted {
 		return snapshot.canonicalGateInputDigest(parent)
 	}
@@ -27,28 +28,30 @@ func (snapshot *remoteGitTreeSnapshot) workloadInputDigest(ctx context.Context, 
 	case gate.WorkloadTargetGoGuard:
 		return snapshot.goGuardInputDigest(ctx, target)
 	case gate.WorkloadTargetGoPackage:
-		return snapshot.goPackageInputDigest(ctx, target)
+		return snapshot.goPackageInputDigest(ctx, target, profile)
 	case gate.WorkloadTargetGoTest:
-		return snapshot.goTestInputDigest(ctx, target)
+		return snapshot.goTestInputDigest(ctx, target, profile)
 	case gate.WorkloadTargetGoBenchmark:
-		return snapshot.goBenchmarkInputDigest(ctx, target)
+		return snapshot.goBenchmarkInputDigest(ctx, target, profile)
 	case gate.WorkloadTargetVitest:
 		return snapshot.vitestInputDigest(target)
+	case gate.WorkloadTargetPlaywright:
+		return snapshot.playwrightInputDigest(target)
 	default:
 		return "", fmt.Errorf("workload target kind %q has no source fingerprint policy", targetKind)
 	}
 }
 
-func (snapshot *remoteGitTreeSnapshot) goTestInputDigest(ctx context.Context, target string) (string, error) {
+func (snapshot *remoteGitTreeSnapshot) goTestInputDigest(ctx context.Context, target string, profile remoteGoBuildProfile) (string, error) {
 	testTarget, err := gate.ParseGoTestTarget(target)
 	if err != nil {
 		return "", err
 	}
-	return snapshot.goExactTestInputDigest(ctx, testTarget)
+	return snapshot.goExactTestInputDigest(ctx, testTarget, profile)
 }
 
 // goExactTestInputDigest 为单一 Go 测试或基准建立编译、声明和观察输入摘要。
-func (snapshot *remoteGitTreeSnapshot) goExactTestInputDigest(ctx context.Context, testTarget gate.GoTestTarget) (string, error) {
+func (snapshot *remoteGitTreeSnapshot) goExactTestInputDigest(ctx context.Context, testTarget gate.GoTestTarget, profile remoteGoBuildProfile) (string, error) {
 	if err := snapshot.prepareGoSources(ctx); err != nil {
 		return "", err
 	}
@@ -63,10 +66,14 @@ func (snapshot *remoteGitTreeSnapshot) goExactTestInputDigest(ctx context.Contex
 	if err := snapshot.addGoWorkloadSharedScriptEntry(ctx, selected); err != nil {
 		return "", err
 	}
-	if err := snapshot.addGoExactTestCompileEntries(targetDirectory, selected); err != nil {
+	observesWholeTree, err := snapshot.addGoExactTestEntries(targetDirectory, selected, profile)
+	if err != nil {
 		return "", err
 	}
-	testSources, observesWholeTree, err := snapshot.goTestSources(testTarget.Name, targetDirectory, selected)
+	if observesWholeTree {
+		return snapshot.digestEntries(snapshot.entries)
+	}
+	testSources, observesWholeTree, err := snapshot.goTestSources(testTarget.Name, targetDirectory, selected, profile)
 	if err != nil {
 		return "", err
 	}
@@ -75,12 +82,26 @@ func (snapshot *remoteGitTreeSnapshot) goExactTestInputDigest(ctx context.Contex
 	}
 	return digestGoTestEntries(sortedRemoteGitTreeEntries(selected), testSources)
 }
-func (snapshot *remoteGitTreeSnapshot) goBenchmarkInputDigest(ctx context.Context, target string) (string, error) {
+
+// addGoExactTestEntries 汇总编译和生产运行时观察；任何动态观察都要求完整 Git tree。
+func (snapshot *remoteGitTreeSnapshot) addGoExactTestEntries(
+	directory string,
+	selected map[string]remoteGitTreeEntry,
+	profile remoteGoBuildProfile,
+) (bool, error) {
+	observesWholeTree, err := snapshot.addGoExactTestCompileEntries(directory, selected, profile)
+	if err != nil || observesWholeTree {
+		return observesWholeTree, err
+	}
+	return snapshot.addGoExactTestProductionObservedEntries(directory, selected, profile)
+}
+
+func (snapshot *remoteGitTreeSnapshot) goBenchmarkInputDigest(ctx context.Context, target string, profile remoteGoBuildProfile) (string, error) {
 	benchmarkTarget, err := gate.ParseGoBenchmarkTarget(target)
 	if err != nil {
 		return "", err
 	}
-	return snapshot.goExactTestInputDigest(ctx, benchmarkTarget)
+	return snapshot.goExactTestInputDigest(ctx, benchmarkTarget, profile)
 }
 
 // goGuardInputDigest 为原子守卫选取真正可观察的生产输入。
@@ -212,8 +233,20 @@ func (snapshot *remoteGitTreeSnapshot) vitestInputDigest(target string) (string,
 	})
 }
 
+// playwrightInputDigest 将 e2e spec、Playwright 配置和可观察前端源码闭包绑定到精确 Git tree。
+// 目前 Playwright 配置允许动态导入，因此保守摘要整个 frontend-app，避免漏掉可执行依赖。
+func (snapshot *remoteGitTreeSnapshot) playwrightInputDigest(target string) (string, error) {
+	targetPath := "frontend-app/" + target
+	if _, ok := snapshot.byPath[targetPath]; !ok {
+		return "", fmt.Errorf("Playwright target %q is absent from the exact Git tree", target)
+	}
+	return snapshot.digestMatching(func(entry remoteGitTreeEntry) bool {
+		return strings.HasPrefix(entry.path, "frontend-app/")
+	})
+}
+
 // goPackageInputDigest 为 Go 包测试的共享编译输入建立摘要。
-func (snapshot *remoteGitTreeSnapshot) goPackageInputDigest(ctx context.Context, target string) (string, error) {
+func (snapshot *remoteGitTreeSnapshot) goPackageInputDigest(ctx context.Context, target string, profile remoteGoBuildProfile) (string, error) {
 	if err := snapshot.prepareGoSources(ctx); err != nil {
 		return "", err
 	}
@@ -228,7 +261,7 @@ func (snapshot *remoteGitTreeSnapshot) goPackageInputDigest(ctx context.Context,
 	if err := snapshot.addGoWorkloadSharedScriptEntry(ctx, selected); err != nil {
 		return "", err
 	}
-	files, err := snapshot.addGoTestPackageCompileEntries(targetDirectory, selected)
+	files, err := snapshot.addGoTestPackageCompileEntries(targetDirectory, selected, profile)
 	if err != nil {
 		return "", err
 	}
@@ -245,8 +278,7 @@ const (
 	remoteGoWorkloadSharedScriptPath      = "scripts/test_with_guard.sh#shared-execution"
 )
 
-// addGoWorkloadSharedScriptEntry binds every Go workload to the common test
-// runner semantics, while canonical-backend-only helpers remain isolated.
+// addGoWorkloadSharedScriptEntry 将每个 Go 工作负载绑定到共享测试运行语义，隔离仅后端专用逻辑。
 func (snapshot *remoteGitTreeSnapshot) addGoWorkloadSharedScriptEntry(
 	ctx context.Context,
 	selected map[string]remoteGitTreeEntry,
