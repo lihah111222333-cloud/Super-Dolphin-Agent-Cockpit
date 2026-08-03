@@ -511,22 +511,24 @@ func (p *ManagerPool) retireManagerIfIdle(mgr *manager) bool {
 	}
 	now := mgr.managerNow()
 	for _, workspace := range mgr.workspaces {
-		if workspace == nil || workspace.client == nil {
-			continue
-		}
-		if workspace.generation == 0 {
-			return false
-		}
-		if p.activeLeasesForWorkspace(workspace) > 0 {
-			return false
-		}
-		// Capacity pressure never bypasses the full idle timeout for a registered generation.
-		if !idleEligible(workspace, now, idleTimeout) {
+		if !p.retireWorkspaceEligible(workspace, now) {
 			return false
 		}
 	}
 	mgr.retiring = true
 	return true
+}
+
+// retireWorkspaceEligible 判断容量淘汰时单个 workspace 是否满足代际、租约和完整 idle window。
+func (p *ManagerPool) retireWorkspaceEligible(workspace *workspaceClient, now time.Time) bool {
+	if workspace == nil || workspace.client == nil {
+		return true
+	}
+	if workspace.generation == 0 || p.activeLeasesForWorkspace(workspace) > 0 {
+		return false
+	}
+	// Capacity pressure never bypasses the full idle timeout for a registered generation.
+	return idleEligible(workspace, now, idleTimeoutForLanguage(workspace.languageID))
 }
 
 // detachIdleEmptyClones 摘除早于 cutoff 且没有 workspace 或租约的 clone。

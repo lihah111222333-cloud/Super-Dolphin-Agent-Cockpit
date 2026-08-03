@@ -645,37 +645,11 @@ func TestReleaseScopeDrainClosesBusyManagerAfterLeaseRelease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureClient(scoped): %v", err)
 	}
-	lease, bound, leaseErr := scoped.leaseBoundClient(client)
-	if leaseErr != nil || !bound {
-		t.Fatalf("leaseBoundClient(deferred): bound=%v err=%v", bound, leaseErr)
-	}
-
-	result, err := mgr.pool.ReleaseScope(ReleaseScopeRequest{
-		ScopeKind: ReleaseScopeAgentThread,
-		AgentID:   "agent-deferred",
-		ThreadID:  "thread-1",
-		Drain:     true,
-		Reason:    "deferred_release",
-	})
-	if err != nil {
-		t.Fatalf("ReleaseScope(deferred): %v", err)
-	}
-	if result.BusyLeases != 1 || result.Drained {
-		t.Fatalf("ReleaseScope(deferred) = %#v, want one busy lease and drained=false", result)
-	}
-	retry, err := mgr.pool.ReleaseScope(ReleaseScopeRequest{
-		ScopeKind: ReleaseScopeAgentThread,
-		AgentID:   "agent-deferred",
-		ThreadID:  "thread-1",
-		Drain:     true,
-		Reason:    "deferred_release_retry",
-	})
-	if err != nil {
-		t.Fatalf("ReleaseScope(deferred retry): %v", err)
-	}
-	if retry.BusyLeases != 1 || retry.Drained {
-		t.Fatalf("ReleaseScope(deferred retry) = %#v, want pending lease to remain visible", retry)
-	}
+	lease := acquireDeferredReleaseLease(t, scoped, client)
+	result := releaseDeferredScope(t, mgr, "deferred_release")
+	assertDeferredBusyReceipt(t, result, "initial")
+	retry := releaseDeferredScope(t, mgr, "deferred_release_retry")
+	assertDeferredBusyReceipt(t, retry, "retry")
 
 	if err := lease.Release(); err != nil {
 		t.Fatalf("release deferred lease: %v", err)
@@ -684,6 +658,37 @@ func TestReleaseScopeDrainClosesBusyManagerAfterLeaseRelease(t *testing.T) {
 	mgr.pool.drainPendingReleases()
 	if !managerIsClosed(scoped) {
 		t.Fatal("busy scoped manager stayed open after its final lease was released")
+	}
+}
+
+func acquireDeferredReleaseLease(t *testing.T, scoped *manager, client Client) leasedClient {
+	t.Helper()
+	lease, bound, err := scoped.leaseBoundClient(client)
+	if err != nil || !bound {
+		t.Fatalf("leaseBoundClient(deferred): bound=%v err=%v", bound, err)
+	}
+	return lease
+}
+
+func releaseDeferredScope(t *testing.T, mgr *manager, reason string) ReleaseScopeResult {
+	t.Helper()
+	result, err := mgr.pool.ReleaseScope(ReleaseScopeRequest{
+		ScopeKind: ReleaseScopeAgentThread,
+		AgentID:   "agent-deferred",
+		ThreadID:  "thread-1",
+		Drain:     true,
+		Reason:    reason,
+	})
+	if err != nil {
+		t.Fatalf("ReleaseScope(%s): %v", reason, err)
+	}
+	return result
+}
+
+func assertDeferredBusyReceipt(t *testing.T, result ReleaseScopeResult, phase string) {
+	t.Helper()
+	if result.BusyLeases != 1 || result.Drained {
+		t.Fatalf("ReleaseScope(%s) = %#v, want one busy lease and drained=false", phase, result)
 	}
 }
 
@@ -843,54 +848,5 @@ func TestPoolIdleCloneDetachRejectsNewClientBeforeClose(t *testing.T) {
 	}
 	if got := factory.callCount(); got != 0 {
 		t.Fatalf("factory calls after TTL detach = %d, want 0", got)
-	}
-}
-
-func TestReleaseScopeClearsDiagnosticsBootstrapAndCache(t *testing.T) {
-	root := canonicalScopePath(t.TempDir(), "")
-	mgr := newManagerPoolTestManager(t, root)
-	scope := testLSPToolScope(root, "agent-clean", "thread-1")
-	scoped := scopedManagerForTest(t, mgr, scope)
-	resolved, err := ResolveLSPToolScope(scope)
-	if err != nil {
-		t.Fatalf("ResolveLSPToolScope: %v", err)
-	}
-	uri := fileURIFromPath(filepath.Join(root, "main.go"))
-	coordinator := mustBootstrapCoordinator(t, scoped)
-	key := resolved.cacheKey("go", uri)
-	coordinator.cache.Upsert(lspCacheValue{Key: key, Version: 1, UpdatedAt: time.Now()})
-	coordinator.states.complete(resolved.bootstrapKey(), uri, "fp", 1)
-	scoped.diagnostics[diagnosticStoreKeyFor(resolved, uri).String()] = diagnosticSnapshot{
-		scopeKey:     resolved.ScopeKey,
-		workspaceKey: resolved.WorkspaceKey,
-		language:     "go",
-		uri:          uri,
-		generation:   scoped.CurrentDiagnosticGeneration(),
-		state:        diagnosticStateReady,
-		params:       protocol.PublishDiagnosticsParams{URI: uri, Diagnostics: []protocol.Diagnostic{{Message: "stale"}}},
-	}
-
-	result, err := mgr.pool.ReleaseScope(ReleaseScopeRequest{ScopeKind: ReleaseScopeAgentThread, AgentID: "agent-clean", ThreadID: "thread-1", Drain: true})
-	if err != nil {
-		t.Fatalf("ReleaseScope(clean): %v", err)
-	}
-	if result.ClosedManagers != 1 {
-		t.Fatalf("ClosedManagers = %d, want 1", result.ClosedManagers)
-	}
-	scoped.coordinatorMu.Lock()
-	hasCoordinator := scoped.coordinator != nil
-	scoped.coordinatorMu.Unlock()
-	if hasCoordinator {
-		t.Fatalf("bootstrap/cache coordinator survived ReleaseScope close")
-	}
-	if !managerIsClosed(scoped) {
-		t.Fatalf("scoped manager was not closed")
-	}
-}
-
-func TestReleaseScopeRejectsEmptyIdentityWithoutExplicitScopeKind(t *testing.T) {
-	mgr := newManagerPoolTestManager(t, canonicalScopePath(t.TempDir(), ""))
-	if _, err := mgr.pool.ReleaseScope(ReleaseScopeRequest{}); err == nil {
-		t.Fatalf("ReleaseScope(empty) error = nil, want explicit scope kind/identity rejection")
 	}
 }

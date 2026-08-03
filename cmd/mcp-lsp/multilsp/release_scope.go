@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 )
 
 const (
@@ -227,7 +228,19 @@ func (p *ManagerPool) retireManagerForRelease(mgr *manager, drain bool) (busy in
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 	now := mgr.managerNow()
-	idleBlocked = false
+	busy, idleBlocked = p.releaseWorkspaceStatus(mgr, now)
+	if busy > 0 && !drain {
+		return busy, false, false
+	}
+	if idleBlocked && busy == 0 {
+		return 0, false, true
+	}
+	mgr.retiring = true
+	return busy, true, false
+}
+
+// releaseWorkspaceStatus 汇总 manager 内权威租约并标记未完成完整 idle window 的 workspace。
+func (p *ManagerPool) releaseWorkspaceStatus(mgr *manager, now time.Time) (busy int, idleBlocked bool) {
 	for _, workspace := range mgr.workspaces {
 		if workspace == nil || workspace.client == nil {
 			continue
@@ -238,14 +251,7 @@ func (p *ManagerPool) retireManagerForRelease(mgr *manager, drain bool) (busy in
 			idleBlocked = true
 		}
 	}
-	if busy > 0 && !drain {
-		return busy, false, false
-	}
-	if idleBlocked && busy == 0 {
-		return 0, false, true
-	}
-	mgr.retiring = true
-	return busy, true, false
+	return busy, idleBlocked
 }
 
 func (p *ManagerPool) releaseScopeCanDetach(req ReleaseScopeRequest, clone *pooledManager) bool {

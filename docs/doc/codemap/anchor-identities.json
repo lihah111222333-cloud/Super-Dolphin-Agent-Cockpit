@@ -2004,7 +2004,7 @@
       "codemap_line": 228,
       "target_path": "cmd/mcp-lsp/multilsp/manager_lifecycle.go",
       "line_spec": "30",
-      "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6"
+      "content_sha256": "db59fdaa11c98977fe571a1cbdcd52f7fdcf6bbe22116fe06a1f1833224f00b4"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
@@ -335,161 +334,6 @@ func (m *manager) managerNow() time.Time {
 	return time.Now()
 }
 
-// leaseBoundClient 在同一临界区内确认绑定、更新活动时间并创建 manager-owned 租约。
-// 返回后 manager 锁已释放，调用方不得持锁执行 LSP 或网络调用。
-func (m *manager) leaseBoundClient(client Client) (leasedClient, bool, error) {
-	return m.leaseClient(client, false)
-}
-
-// leaseBootstrappingClient 仅供 ensureMu 持有的 bootstrap 事务使用。
-// 它仍写同一 workspace activeLeases/generation，但普通调用方永远不能租用 Bootstrapping。
-func (m *manager) leaseBootstrappingClient(client Client) (leasedClient, bool, error) {
-	return m.leaseClient(client, true)
-}
-
-func (m *manager) leaseClient(client Client, allowBootstrapping bool) (leasedClient, bool, error) {
-	if client == nil {
-		return leasedClient{client: client}, true, nil
-	}
-	if m == nil {
-		return leasedClient{}, false, ErrManagerClosed
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.closed || m.retiring {
-		return leasedClient{}, false, ErrManagerClosed
-	}
-	for key, workspace := range m.workspaces {
-		if workspace == nil || workspace.client != client {
-			continue
-		}
-		if workspace.generation == 0 || workspace.state == "" {
-			return leasedClient{}, false, ErrWorkspaceLifecycleInvalid
-		}
-		if workspace.state == workspaceStateBootstrapping && !allowBootstrapping {
-			return leasedClient{}, false, ErrClientNotReady
-		}
-		if workspace.state == workspaceStateClosing || workspace.state == workspaceStateCleanupPending {
-			return leasedClient{}, false, ErrClientNotBound
-		}
-		validBootstrapState := workspace.state == workspaceStateBootstrapping && allowBootstrapping
-		if !validBootstrapState && workspace.state != workspaceStateActive && workspace.state != workspaceStateIdleCountdown && workspace.state != workspaceStateRecheck {
-			return leasedClient{}, false, ErrWorkspaceLifecycleInvalid
-		}
-		workspace.activeLeases++
-		workspace.lastActivity = m.managerNow()
-		if workspace.state != workspaceStateBootstrapping {
-			workspace.state = workspaceStateActive
-			workspace.idleSince = time.Time{}
-		}
-		generation := workspace.generation
-		var once sync.Once
-		var releaseErr error
-		return leasedClient{
-			client: client,
-			release: func() error {
-				once.Do(func() { releaseErr = m.releaseClientLease(key, client, generation) })
-				return releaseErr
-			},
-		}, true, nil
-	}
-	return leasedClient{}, false, nil
-}
-
-// withBootstrapPooledClient 在 ensureMu 事务内保护 bootstrap DidOpen；不会把 Bootstrapping 暴露给普通租约。
-func (m *manager) withBootstrapPooledClient(client Client, fn func() error) error {
-	if client == nil {
-		return fn()
-	}
-	leased, ok, err := m.leaseBootstrappingClient(client)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return ErrClientNotBound
-	}
-	defer leased.Release()
-	return fn()
-}
-
-// releaseClientLease 在 manager 锁内精确匹配 key/client/generation。
-// stale release 只返回错误，不得改变替换后的 workspace。
-func (m *manager) releaseClientLease(key string, client Client, generation uint64) error {
-	if m == nil {
-		return ErrStaleClientLease
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	workspace := m.workspaces[key]
-	if workspace == nil || workspace.client != client || workspace.generation != generation {
-		return ErrStaleClientLease
-	}
-	if workspace.activeLeases <= 0 {
-		return fmt.Errorf("release client lease %s: active lease underflow", key)
-	}
-	workspace.activeLeases--
-	now := m.managerNow()
-	workspace.lastActivity = now
-	if workspace.activeLeases == 0 {
-		if workspace.state != workspaceStateBootstrapping && workspace.state != workspaceStateClosing && workspace.state != workspaceStateCleanupPending {
-			workspace.state = workspaceStateIdleCountdown
-			workspace.idleSince = now
-		} else if workspace.state == workspaceStateBootstrapping {
-			workspace.idleSince = time.Time{}
-		}
-	} else if workspace.state != workspaceStateBootstrapping {
-		workspace.state = workspaceStateActive
-		workspace.idleSince = time.Time{}
-	}
-	return nil
-}
-
-// publishWorkspaceClient 是 Bootstrapping -> Active/IdleCountdown 的唯一 ready barrier。
-// initialize 或 factory 返回本身不会产生 idleSince。
-func (m *manager) publishWorkspaceClient(key string, client Client, generation uint64) error {
-	if m == nil {
-		return ErrStaleClientLease
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	workspace := m.workspaces[key]
-	if workspace == nil || workspace.client != client || workspace.generation != generation {
-		return ErrStaleClientLease
-	}
-	if workspace.state == workspaceStateClosing || workspace.state == workspaceStateCleanupPending {
-		return ErrClientNotBound
-	}
-	firstPublish := workspace.publishedAt.IsZero()
-	if firstPublish {
-		workspace.publishedAt = m.managerNow()
-	}
-	if workspace.activeLeases == 0 {
-		workspace.state = workspaceStateIdleCountdown
-		if firstPublish || workspace.idleSince.IsZero() {
-			workspace.idleSince = workspace.publishedAt
-		}
-	} else {
-		workspace.state = workspaceStateActive
-		workspace.idleSince = time.Time{}
-	}
-	workspace.lastActivity = m.managerNow()
-	return nil
-}
-
-// idleEligible 是唯一的生命周期销毁资格判定；容量、RSS 或 probe 不能绕过完整 idle window。
-func idleEligible(workspace *workspaceClient, now time.Time, timeout time.Duration) bool {
-	if workspace == nil || workspace.client == nil || now.IsZero() || timeout <= 0 {
-		return false
-	}
-	if workspace.activeLeases != 0 || workspace.idleSince.IsZero() || now.Before(workspace.idleSince) {
-		return false
-	}
-	if workspace.generation == 0 || workspace.state == workspaceStateBootstrapping || workspace.state == workspaceStateClosing || workspace.state == workspaceStateCleanupPending {
-		return false
-	}
-	return (workspace.state == workspaceStateIdleCountdown || workspace.state == workspaceStateRecheck) && now.Sub(workspace.idleSince) >= timeout
-}
-
 // lookupExistingClient 返回健康的已缓存 workspace client。
 // 发现死 client 时会先摘除、推进诊断代际并关闭旧实例，后续请求再创建新 client。
 func (m *manager) lookupExistingClient(key string) (Client, error) {
@@ -498,41 +342,53 @@ func (m *manager) lookupExistingClient(key string) (Client, error) {
 		m.mu.RUnlock()
 		return nil, ErrManagerClosed
 	}
-	if workspace := m.workspaces[key]; workspace != nil && workspace.client != nil {
-		if workspace.generation == 0 || workspace.state == "" {
-			m.mu.RUnlock()
-			return nil, ErrWorkspaceLifecycleInvalid
-		}
-		if workspace.state == workspaceStateBootstrapping {
-			m.mu.RUnlock()
-			return nil, ErrClientNotReady
-		}
-		if workspace.state == workspaceStateClosing || workspace.state == workspaceStateCleanupPending {
-			m.mu.RUnlock()
-			return nil, ErrClientNotBound
-		}
-		client := workspace.client
-		if clientHealthy(client) {
-			m.mu.RUnlock()
-			return client, nil
-		}
+	workspace := m.workspaces[key]
+	if workspace == nil || workspace.client == nil {
 		m.mu.RUnlock()
-		detached := m.detachWorkspaceClient(key, client)
-		if detached != nil && detached.client != nil {
-			m.AdvanceDiagnosticGeneration()
-			shutdownErr, closeErr := shutdownWorkspaceClient(detached.client)
-			if closeErr != nil {
-				restoreDetachedWorkspaceClient(m, detached)
-				return nil, errors.Join(
-					fmt.Errorf("close unhealthy LSP client before rebuild: %w", closeErr),
-					shutdownErr,
-				)
-			}
-		}
 		return nil, nil
 	}
+	if err := validateExistingWorkspace(workspace); err != nil {
+		m.mu.RUnlock()
+		return nil, err
+	}
+	client := workspace.client
+	if clientHealthy(client) {
+		m.mu.RUnlock()
+		return client, nil
+	}
 	m.mu.RUnlock()
-	return nil, nil
+	return m.rebuildUnhealthyWorkspace(key, client)
+}
+
+func validateExistingWorkspace(workspace *workspaceClient) error {
+	if workspace.generation == 0 || workspace.state == "" {
+		return ErrWorkspaceLifecycleInvalid
+	}
+	switch workspace.state {
+	case workspaceStateBootstrapping:
+		return ErrClientNotReady
+	case workspaceStateClosing, workspaceStateCleanupPending:
+		return ErrClientNotBound
+	default:
+		return nil
+	}
+}
+
+func (m *manager) rebuildUnhealthyWorkspace(key string, client Client) (Client, error) {
+	detached := m.detachWorkspaceClient(key, client)
+	if detached == nil || detached.client == nil {
+		return nil, nil
+	}
+	m.AdvanceDiagnosticGeneration()
+	shutdownErr, closeErr := shutdownWorkspaceClient(detached.client)
+	if closeErr == nil {
+		return nil, nil
+	}
+	restoreDetachedWorkspaceClient(m, detached)
+	return nil, errors.Join(
+		fmt.Errorf("close unhealthy LSP client before rebuild: %w", closeErr),
+		shutdownErr,
+	)
 }
 
 func shutdownWorkspaceClient(client Client) (error, error) {

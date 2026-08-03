@@ -172,75 +172,16 @@ func TestEnsureClientPublishesOnlyAfterBootstrapAndSerializesConcurrentEnsure(t 
 	}).(*manager)
 	t.Cleanup(func() { _ = mgr.Close() })
 	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: root})
-
-	firstDone := make(chan struct {
-		client Client
-		err    error
-	}, 1)
-	go func() {
-		got, err := mgr.EnsureClient(ctx, "", "javascript")
-		firstDone <- struct {
-			client Client
-			err    error
-		}{got, err}
-	}()
-	select {
-	case <-client.openStarted:
-	case <-time.After(time.Second):
-		t.Fatal("first EnsureClient did not reach bootstrap DidOpen")
-	}
-
-	secondDone := make(chan struct {
-		client Client
-		err    error
-	}, 1)
-	go func() {
-		got, err := mgr.EnsureClient(ctx, "", "javascript")
-		secondDone <- struct {
-			client Client
-			err    error
-		}{got, err}
-	}()
-	select {
-	case result := <-secondDone:
-		t.Fatalf("second EnsureClient returned before first publish: client=%T err=%v", result.client, result.err)
-	case <-time.After(50 * time.Millisecond):
-	}
+	group := newTestGoroutineGroup(t)
+	firstDone := startEnsureClientForLifecycleTest(group, mgr, ctx)
+	waitForBootstrapStart(t, client)
+	secondDone := startEnsureClientForLifecycleTest(group, mgr, ctx)
+	assertEnsureClientBlocked(t, secondDone)
 	close(client.openRelease)
-
-	var first, second struct {
-		client Client
-		err    error
-	}
-	select {
-	case first = <-firstDone:
-	case <-time.After(time.Second):
-		t.Fatal("first EnsureClient did not finish after bootstrap release")
-	}
-	select {
-	case second = <-secondDone:
-	case <-time.After(time.Second):
-		t.Fatal("second EnsureClient did not finish after first publish")
-	}
-	if first.err != nil || second.err != nil {
-		t.Fatalf("EnsureClient results = first(%T, %v), second(%T, %v), want both successful", first.client, first.err, second.client, second.err)
-	}
-	if first.client != client || second.client != client {
-		t.Fatalf("EnsureClient clients = first(%p), second(%p), want published client %p", first.client, second.client, client)
-	}
-
-	mgr.mu.RLock()
-	defer mgr.mu.RUnlock()
-	var workspace *workspaceClient
-	for _, candidate := range mgr.workspaces {
-		if candidate != nil && candidate.client == client {
-			workspace = candidate
-			break
-		}
-	}
-	if workspace == nil || workspace.state == workspaceStateBootstrapping {
-		t.Fatalf("published workspace = %#v, want ready state", workspace)
-	}
+	first := awaitEnsureClientForLifecycleTest(t, firstDone, "first")
+	second := awaitEnsureClientForLifecycleTest(t, secondDone, "second")
+	assertEnsureClientSuccess(t, first, second, client)
+	assertPublishedWorkspace(t, mgr, client)
 }
 
 func TestBootstrapFailureClosesOwnerAndRetainsCleanupPendingOnCloseFailure(t *testing.T) {
@@ -257,29 +198,111 @@ func TestBootstrapFailureClosesOwnerAndRetainsCleanupPendingOnCloseFailure(t *te
 	}).(*manager)
 
 	_, err := mgr.EnsureClient(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), "", "javascript")
-	if !errors.Is(err, didOpenErr) || !errors.Is(err, closeErr) {
-		t.Fatalf("EnsureClient() error = %v, want DidOpen and Close errors", err)
-	}
-	mgr.mu.RLock()
-	var pending *workspaceClient
-	for _, workspace := range mgr.workspaces {
-		if workspace != nil && workspace.client == client {
-			pending = workspace
-			break
-		}
-	}
-	mgr.mu.RUnlock()
-	if pending == nil || pending.generation == 0 || pending.state != workspaceStateCleanupPending || pending.activeLeases != 0 {
-		t.Fatalf("bootstrap cleanup owner = %#v, want generation-owned CleanupPending with no leases", pending)
-	}
-	if got := client.closeCallCount(); got != 1 {
-		t.Fatalf("bootstrap owner Close calls = %d, want one deterministic cleanup attempt", got)
-	}
+	assertBootstrapFailureError(t, err, didOpenErr, closeErr)
+	assertBootstrapCleanupOwner(t, mgr, client)
 	if err := mgr.Close(); err != nil {
 		t.Fatalf("manager Close retry: %v", err)
 	}
-	if got := client.closeCallCount(); got != 2 {
-		t.Fatalf("bootstrap owner Close calls after manager retry = %d, want 2", got)
+	assertCloseCallCount(t, client, 2, "after manager retry")
+}
+
+type lifecycleEnsureResult struct {
+	client Client
+	err    error
+}
+
+func startEnsureClientForLifecycleTest(group *testGoroutineGroup, mgr *manager, ctx context.Context) <-chan lifecycleEnsureResult {
+	done := make(chan lifecycleEnsureResult, 1)
+	group.Go(func() {
+		client, err := mgr.EnsureClient(ctx, "", "javascript")
+		done <- lifecycleEnsureResult{client: client, err: err}
+	})
+	return done
+}
+
+func waitForBootstrapStart(t *testing.T, client *barrierBootstrapClient) {
+	t.Helper()
+	select {
+	case <-client.openStarted:
+	case <-time.After(time.Second):
+		t.Fatal("first EnsureClient did not reach bootstrap DidOpen")
+	}
+}
+
+func assertEnsureClientBlocked(t *testing.T, done <-chan lifecycleEnsureResult) {
+	t.Helper()
+	select {
+	case result := <-done:
+		t.Fatalf("second EnsureClient returned before first publish: client=%T err=%v", result.client, result.err)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func awaitEnsureClientForLifecycleTest(t *testing.T, done <-chan lifecycleEnsureResult, label string) lifecycleEnsureResult {
+	t.Helper()
+	select {
+	case result := <-done:
+		return result
+	case <-time.After(time.Second):
+		t.Fatalf("%s EnsureClient did not finish after bootstrap release", label)
+		return lifecycleEnsureResult{}
+	}
+}
+
+func assertEnsureClientSuccess(t *testing.T, first, second lifecycleEnsureResult, want Client) {
+	t.Helper()
+	if first.err != nil || second.err != nil {
+		t.Fatalf("EnsureClient results = first(%T, %v), second(%T, %v), want both successful", first.client, first.err, second.client, second.err)
+	}
+	if first.client != want || second.client != want {
+		t.Fatalf("EnsureClient clients = first(%p), second(%p), want published client %p", first.client, second.client, want)
+	}
+}
+
+func assertPublishedWorkspace(t *testing.T, mgr *manager, client Client) {
+	t.Helper()
+	mgr.mu.RLock()
+	defer mgr.mu.RUnlock()
+	for _, workspace := range mgr.workspaces {
+		if workspace != nil && workspace.client == client {
+			if workspace.state == workspaceStateBootstrapping {
+				t.Fatalf("published workspace = %#v, want ready state", workspace)
+			}
+			return
+		}
+	}
+	t.Fatalf("published workspace for %T was not found", client)
+}
+
+func assertBootstrapFailureError(t *testing.T, got, didOpenErr, closeErr error) {
+	t.Helper()
+	if !errors.Is(got, didOpenErr) || !errors.Is(got, closeErr) {
+		t.Fatalf("EnsureClient() error = %v, want DidOpen and Close errors", got)
+	}
+}
+
+func assertBootstrapCleanupOwner(t *testing.T, mgr *manager, client *bootstrapFailureOwnerClient) {
+	t.Helper()
+	mgr.mu.RLock()
+	defer mgr.mu.RUnlock()
+	for _, workspace := range mgr.workspaces {
+		if workspace != nil && workspace.client == client {
+			if workspace.generation == 0 || workspace.state != workspaceStateCleanupPending || workspace.activeLeases != 0 {
+				t.Fatalf("bootstrap cleanup owner = %#v, want generation-owned CleanupPending with no leases", workspace)
+			}
+			if got := client.closeCallCount(); got != 1 {
+				t.Fatalf("bootstrap owner Close calls = %d, want one deterministic cleanup attempt", got)
+			}
+			return
+		}
+	}
+	t.Fatalf("bootstrap cleanup owner for %T was not found", client)
+}
+
+func assertCloseCallCount(t *testing.T, client *bootstrapFailureOwnerClient, want int, suffix string) {
+	t.Helper()
+	if got := client.closeCallCount(); got != want {
+		t.Fatalf("bootstrap owner Close calls %s = %d, want %d", suffix, got, want)
 	}
 }
 

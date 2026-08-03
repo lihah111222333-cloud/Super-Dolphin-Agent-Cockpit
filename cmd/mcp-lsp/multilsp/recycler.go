@@ -392,43 +392,6 @@ func (r *poolRecycler) checkIdleWorkspaces(mgr *manager, scope ResolvedLSPToolSc
 	r.recordScan(scanStarted)
 }
 
-// retryCleanupPendingWorkspace 重试 Close 失败的唯一 cleanup owner；它不重新进入 idle 倒计时。
-func (r *poolRecycler) retryCleanupPendingWorkspace(mgr *manager, scope ResolvedLSPToolScope, snapshot workspaceClient) {
-	if mgr == nil || snapshot.client == nil {
-		return
-	}
-	mgr.ensureMu.Lock()
-	defer mgr.ensureMu.Unlock()
-	mgr.mu.Lock()
-	current := mgr.workspaces[snapshot.key]
-	if current == nil || current.client != snapshot.client || current.generation != snapshot.generation || current.state != workspaceStateCleanupPending {
-		mgr.mu.Unlock()
-		return
-	}
-	current.state = workspaceStateClosing
-	delete(mgr.workspaces, snapshot.key)
-	mgr.mu.Unlock()
-	shutdownErr, closeErr := shutdownWorkspaceClient(snapshot.client)
-	if closeErr != nil {
-		mgr.mu.Lock()
-		if mgr.workspaces[snapshot.key] == nil {
-			snapshot.state = workspaceStateCleanupPending
-			snapshot.idleSince = time.Time{}
-			mgr.workspaces[snapshot.key] = &snapshot
-		}
-		mgr.mu.Unlock()
-	} else {
-		mgr.AdvanceDiagnosticGeneration()
-	}
-	if mgr.logger != nil {
-		if cleanupErr := errors.Join(shutdownErr, closeErr); cleanupErr != nil {
-			args := recyclerWorkspaceLogArgs(scope, snapshot, "reason", "cleanup_pending_retry")
-			args = append(args, platformshared.SafePayloadLogFields("cleanup_error", cleanupErr.Error())...)
-			mgr.logger.Warn("LSP cleanup pending retry failed", args...)
-		}
-	}
-}
-
 func (r *poolRecycler) recordScan(started time.Time) {
 	if r == nil {
 		return
@@ -442,34 +405,6 @@ func (r *poolRecycler) recordScan(started time.Time) {
 		r.lastScanLag = finished.Sub(started)
 	}
 	r.mu.Unlock()
-}
-
-// managerIdleEligible 在 manager 锁下取得当前 key/client/generation 的精确资格。
-func (r *poolRecycler) managerIdleEligible(mgr *manager, snapshot workspaceClient, now time.Time) bool {
-	if mgr == nil {
-		return false
-	}
-	mgr.mu.RLock()
-	defer mgr.mu.RUnlock()
-	current := mgr.workspaces[snapshot.key]
-	if current == nil || current.client != snapshot.client || current.generation != snapshot.generation {
-		return false
-	}
-	return idleEligible(current, now, idleTimeoutForLanguage(current.languageID))
-}
-
-func (r *poolRecycler) managerIdleCandidate(mgr *manager, snapshot workspaceClient, now time.Time, timeout time.Duration) (workspaceClient, bool) {
-	if mgr == nil {
-		return workspaceClient{}, false
-	}
-	mgr.mu.Lock()
-	defer mgr.mu.Unlock()
-	current := mgr.workspaces[snapshot.key]
-	if current == nil || current.client != snapshot.client || current.generation != snapshot.generation || !idleEligible(current, now, timeout) {
-		return workspaceClient{}, false
-	}
-	current.state = workspaceStateRecheck
-	return *current, true
 }
 
 // shutdownIdleWorkspace 二次确认空闲状态后摘除 client，并完整关闭其进程树。
@@ -789,42 +724,6 @@ func snapshotWorkspaceClients(mgr *manager) []workspaceClient {
 		items = append(items, *workspace)
 	}
 	return items
-}
-
-// detachWorkspaceClientGeneration 在 manager 锁内复核代际、状态、租约与完整 idle window。
-func detachWorkspaceClientGeneration(mgr *manager, key string, expected Client, generation uint64, idleCutoff time.Time) *workspaceClient {
-	if mgr == nil || generation == 0 {
-		return nil
-	}
-	mgr.mu.Lock()
-	defer mgr.mu.Unlock()
-
-	workspace := mgr.workspaces[key]
-	if workspace == nil || workspace.client == nil {
-		return nil
-	}
-	if expected != nil && workspace.client != expected {
-		return nil
-	}
-	if workspace.generation != generation {
-		return nil
-	}
-	if workspace.generation == 0 || (workspace.state != workspaceStateCleanupPending && !idleEligible(workspace, mgr.managerNow(), idleTimeoutForLanguage(workspace.languageID))) {
-		return nil
-	}
-	workspace.state = workspaceStateClosing
-	delete(mgr.workspaces, key)
-	return workspace
-}
-
-func workspaceLastActivityBeforeCutoff(workspace *workspaceClient, cutoff time.Time) bool {
-	if cutoff.IsZero() {
-		return true
-	}
-	if workspace.lastActivity.IsZero() {
-		return false
-	}
-	return !workspace.lastActivity.After(cutoff)
 }
 
 func managerIsClosed(mgr *manager) bool {
