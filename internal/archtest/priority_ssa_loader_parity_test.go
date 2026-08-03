@@ -41,9 +41,26 @@ func assertPrioritySSALoaderCandidates(
 	}
 	sort.Strings(paths)
 	digest := fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join(paths, "\n"))))
-	const wantCount = 254
-	const wantDigest = "c304acad566794d4a5c0ead6e8b21ada9c2f49ac17b00a4c11a560257bc044e9"
+	const wantCount = 256
+	const wantDigest = "532c2cb4cd83ea0906e6e841a63d8a6a8296850737b3d75697e61f0a007ef03e"
 	if len(paths) != wantCount || digest != wantDigest {
 		t.Fatalf("seam cd81d4c9a priority candidates count=%d digest=%s", len(paths), digest)
 	}
+	for _, required := range []string{
+		"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/processobserve",
+		"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/processprobe",
+	} {
+		if !containsPriorityPath(paths, required) {
+			t.Fatalf("priority candidate set is missing %s", required)
+		}
+	}
+}
+
+func containsPriorityPath(paths []string, want string) bool {
+	for _, path := range paths {
+		if path == want {
+			return true
+		}
+	}
+	return false
 }
