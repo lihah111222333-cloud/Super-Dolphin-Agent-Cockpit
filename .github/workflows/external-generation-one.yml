@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 180
     env:
       CANDIDATE_TREE: 207d7578fcdd7f76ff89e2a2300986913114a35b
-      CANDIDATE_COMMIT: a14678b454473235b181723b4ff63c1097afc653
+      CANDIDATE_COMMIT: 346b393521732bb95b1770be095ce4753adea337
       RUNTIME_REPOSITORY: ghcr.io/lihah111222333-cloud/super-dolphin-runtime-deps
       FINAL_REPOSITORY: ghcr.io/lihah111222333-cloud/super-dolphin-ci-runtime
     steps:
