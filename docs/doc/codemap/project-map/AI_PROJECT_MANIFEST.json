@@ -5,9 +5,9 @@
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 4444,
+  "files": 4445,
   "domains": {
-    "docs-agent": 89,
+    "docs-agent": 90,
     "other": 1078,
     "app-ui": 721,
     "platform-provider": 1186,
@@ -57,8 +57,8 @@
       {
         "key": "docs-agent",
         "file": "docs/doc/codemap/project-map/index/docs-agent.tsv",
-        "file_count": 89,
-        "size_kb": 12.7,
+        "file_count": 90,
+        "size_kb": 12.9,
         "desc": "代码地图、ADR、契约与 docs 项目知识"
       },
       {
@@ -73,7 +73,7 @@
   "module_counts": {
     "(root)": 12,
     "cmd": 750,
-    "docs": 81,
+    "docs": 82,
     "frontend-app": 715,
     "internal": 2638,
     "pkg": 30,
