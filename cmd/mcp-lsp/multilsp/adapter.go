@@ -24,8 +24,6 @@ import (
 const goBuildTagsLanguageSpecificKey = "goBuildTags"
 const goDefaultStandaloneTag = "ignore"
 const goplsRemoteAutoArg = "-remote=auto;sdmcp2"
-const defaultGoplsRemoteListenTimeoutArg = "-remote.listen.timeout=1s"
-const goplsDaemonIdleTimeoutEnv = "MCP_LSP_GOPLS_DAEMON_IDLE_TIMEOUT"
 
 const (
 	projectWalkMaxDepth   = 32
@@ -157,6 +155,7 @@ func (r *LanguageAdapterRegistry) LanguageIDs() []string {
 type goLanguageAdapter struct {
 	directoryFilters []string
 	noiseDirNames    []string
+	idleTimeout      time.Duration
 }
 
 // LanguageIDs 返回 Go adapter 覆盖的文件语言。
@@ -201,27 +200,28 @@ func (a goLanguageAdapter) ResolveRoot(_ context.Context, scope LSPToolScope, ta
 
 // ServerCommand 返回 Go 语言服务启动命令。
 // 所有 mcp-lsp sidecar 通过 gopls auto remote 共享 daemon cache，同时保留各自 LSP session。
-func (goLanguageAdapter) ServerCommand(context.Context, ResolvedLanguageScope) (ServerCommand, error) {
-	timeoutArg, err := goplsRemoteListenTimeoutArg()
+func (a goLanguageAdapter) ServerCommand(context.Context, ResolvedLanguageScope) (ServerCommand, error) {
+	args, err := goplsServerArgs(a.idleTimeout, runtime.GOOS)
 	if err != nil {
 		return ServerCommand{}, err
 	}
 	return ServerCommand{
 		Executable: "gopls",
-		Args:       []string{goplsRemoteAutoArg, timeoutArg},
+		Args:       args,
 	}, nil
 }
 
-func goplsRemoteListenTimeoutArg() (string, error) {
-	raw := strings.TrimSpace(os.Getenv(goplsDaemonIdleTimeoutEnv))
-	if raw == "" {
-		return defaultGoplsRemoteListenTimeoutArg, nil
+func goplsServerArgs(idleTimeout time.Duration, goos string) ([]string, error) {
+	if idleTimeout <= 0 {
+		return nil, fmt.Errorf("LSP idle timeout must be positive: %s", idleTimeout)
 	}
-	timeout, err := time.ParseDuration(raw)
-	if err != nil || timeout <= 0 {
-		return "", fmt.Errorf("%s must be a positive Go duration: %q", goplsDaemonIdleTimeoutEnv, raw)
+	if strings.EqualFold(strings.TrimSpace(goos), "windows") {
+		return nil, nil
 	}
-	return "-remote.listen.timeout=" + timeout.String(), nil
+	return []string{
+		goplsRemoteAutoArg,
+		"-remote.listen.timeout=" + idleTimeout.String(),
+	}, nil
 }
 
 // InitOptions 生成 gopls 初始化选项。

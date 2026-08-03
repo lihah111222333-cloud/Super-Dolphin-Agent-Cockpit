@@ -5,9 +5,17 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/configutil"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
+)
+
+const (
+	lspIdleTimeoutEnv       = "MCP_LSP_IDLE_TIMEOUT"
+	lspIdleTimeoutLegacyEnv = "MCP_LSP_GOPLS_DAEMON_IDLE_TIMEOUT"
+	lspDefaultIdleTimeout   = 15 * time.Minute
 )
 
 // DefaultLSPConfig 返回内置 LSP 配置。
@@ -19,6 +27,7 @@ func DefaultLSPConfig() contract.LSPConfig {
 		ProjectAdapters:                  defaultLSPProjectAdapters(),
 		DocumentFallbackLanguageIDs:      nil,
 		DisableInitialWorkspaceBootstrap: true,
+		IdleTimeout:                      lspDefaultIdleTimeout,
 	}
 }
 
@@ -164,6 +173,10 @@ func lspConfigFromEnv() (contract.LSPConfig, error) {
 	if cfg.DisableInitialWorkspaceBootstrap, err = envBoolOr("LSP_DISABLE_INITIAL_WORKSPACE_BOOTSTRAP", cfg.DisableInitialWorkspaceBootstrap); err != nil {
 		return contract.LSPConfig{}, err
 	}
+	cfg.IdleTimeout, err = effectiveLSPIdleTimeout(cfg.IdleTimeout)
+	if err != nil {
+		return contract.LSPConfig{}, err
+	}
 	for _, adapter := range []struct {
 		service string
 		prefix  string
@@ -199,6 +212,49 @@ func lspConfigFromEnv() (contract.LSPConfig, error) {
 		}
 	}
 	return cfg, nil
+}
+
+func effectiveLSPIdleTimeout(defaultTimeout time.Duration) (time.Duration, error) {
+	canonical, canonicalSet := os.LookupEnv(lspIdleTimeoutEnv)
+	legacy, legacySet := os.LookupEnv(lspIdleTimeoutLegacyEnv)
+	if !canonicalSet && !legacySet {
+		if defaultTimeout <= 0 {
+			return 0, fmt.Errorf("default LSP idle timeout must be positive: %s", defaultTimeout)
+		}
+		return defaultTimeout, nil
+	}
+
+	canonicalTimeout, err := parseLSPIdleTimeout(lspIdleTimeoutEnv, canonical, canonicalSet)
+	if err != nil {
+		return 0, err
+	}
+	legacyTimeout, err := parseLSPIdleTimeout(lspIdleTimeoutLegacyEnv, legacy, legacySet)
+	if err != nil {
+		return 0, err
+	}
+	if canonicalSet && legacySet && canonicalTimeout != legacyTimeout {
+		return 0, fmt.Errorf("LSP idle timeout conflict: %s=%q and %s=%q", lspIdleTimeoutEnv, canonical, lspIdleTimeoutLegacyEnv, legacy)
+	}
+	if canonicalSet {
+		return canonicalTimeout, nil
+	}
+	pkglogger.Get().Warn("config env deprecated", "legacy", lspIdleTimeoutLegacyEnv, "canonical", lspIdleTimeoutEnv)
+	return legacyTimeout, nil
+}
+
+func parseLSPIdleTimeout(key, raw string, configured bool) (time.Duration, error) {
+	if !configured {
+		return 0, nil
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, fmt.Errorf("%s must be a positive Go duration", key)
+	}
+	timeout, err := time.ParseDuration(raw)
+	if err != nil || timeout <= 0 {
+		return 0, fmt.Errorf("%s must be a positive Go duration: %q", key, raw)
+	}
+	return timeout, nil
 }
 
 func applyProjectAdapterEnv(adapters map[string]contract.LSPProjectAdapterConfig, service, prefix string) error {
@@ -238,6 +294,7 @@ func cloneLSPConfig(cfg contract.LSPConfig) contract.LSPConfig {
 		ProjectAdapters:                  cloneLSPProjectAdapters(cfg.ProjectAdapters),
 		DocumentFallbackLanguageIDs:      slices.Clone(cfg.DocumentFallbackLanguageIDs),
 		DisableInitialWorkspaceBootstrap: cfg.DisableInitialWorkspaceBootstrap,
+		IdleTimeout:                      cfg.IdleTimeout,
 	}
 }
 

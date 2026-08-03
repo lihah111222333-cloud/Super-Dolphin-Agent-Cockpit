@@ -447,6 +447,9 @@ func TestNew_DefaultsLSPConfig(t *testing.T) {
 	if !cfg.LSP.DisableInitialWorkspaceBootstrap {
 		t.Fatal("LSP disable initial workspace bootstrap default = false, want true")
 	}
+	if cfg.LSP.IdleTimeout != lspDefaultIdleTimeout {
+		t.Fatalf("LSP idle timeout default = %s, want %s", cfg.LSP.IdleTimeout, lspDefaultIdleTimeout)
+	}
 	shell := requireLSPProjectAdapter(t, cfg, contract.LSPServiceShell)
 	for _, ext := range []string{".sh", ".bash", ".zsh", ".ksh", ".bats"} {
 		requireStringSliceContains(t, "LSP shell first source extensions", shell.FirstSourceExtensions, ext)
@@ -570,6 +573,8 @@ func clearLSPConfigEnv(t *testing.T) {
 	} {
 		t.Setenv(key, "")
 	}
+	unsetEnvForTest(t, lspIdleTimeoutEnv)
+	unsetEnvForTest(t, lspIdleTimeoutLegacyEnv)
 }
 
 func restoreConfigLogger(t *testing.T, dst *bytes.Buffer) {

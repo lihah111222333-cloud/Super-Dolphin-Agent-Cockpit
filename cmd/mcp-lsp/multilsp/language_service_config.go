@@ -17,7 +17,11 @@ func defaultLanguageServiceNoiseDirSet() map[string]struct{} {
 func NewLanguageAdapterRegistryFromConfig(cfg contract.LSPConfig) *LanguageAdapterRegistry {
 	cfg = lspConfigWithDefaults(cfg)
 	return NewLanguageAdapterRegistry(
-		goLanguageAdapter{directoryFilters: cfg.GoDirectoryFilters, noiseDirNames: cfg.NoiseDirNames},
+		goLanguageAdapter{
+			directoryFilters: cfg.GoDirectoryFilters,
+			noiseDirNames:    cfg.NoiseDirNames,
+			idleTimeout:      cfg.IdleTimeout,
+		},
 		projectAdapterFromConfig(jstsAdapterDefaults(), cfg, contract.LSPServiceJSTS),
 		pythonAdapterFromConfig(cfg),
 		projectAdapterFromConfig(rustAdapterDefaults(), cfg, contract.LSPServiceRust),
@@ -334,6 +338,7 @@ func cloneLSPConfig(cfg contract.LSPConfig) contract.LSPConfig {
 		ProjectAdapters:                  cloneLSPProjectAdapters(cfg.ProjectAdapters),
 		DocumentFallbackLanguageIDs:      slices.Clone(cfg.DocumentFallbackLanguageIDs),
 		DisableInitialWorkspaceBootstrap: cfg.DisableInitialWorkspaceBootstrap,
+		IdleTimeout:                      cfg.IdleTimeout,
 	}
 }
 
