@@ -13,7 +13,10 @@ import { describe, expect, it } from 'vitest';
 import {
   BASELINE_AUDIT_ALLOWED_PATHS,
   RUNNER_CONTENT_PATHS,
+  canonicalGitDiffChangedPaths,
+  canonicalizeRepoRelativePaths,
   collectEvidenceProvenance,
+  parseGitDiffNameOnlyZ,
   runnerContentEvidence,
   validateBaselineAuditDiff,
 } from './evidence-provenance.mjs';
@@ -111,6 +114,18 @@ describe('evidence provenance', () => {
       .toThrow(/forbidden path/);
   });
 
+  it('canonicalizes duplicate-free unsorted adjacent paths once and keeps validator exact', () => {
+    const unsorted = [
+      'frontend-app/scripts/performance-budget-runner.mjs',
+      'frontend-app/scripts/evidence-provenance.mjs',
+    ];
+    expect(canonicalizeRepoRelativePaths(unsorted)).toEqual([
+      'frontend-app/scripts/evidence-provenance.mjs',
+      'frontend-app/scripts/performance-budget-runner.mjs',
+    ]);
+    expect(() => validateBaselineAuditDiff(unsorted)).toThrow(/exact, unique, and sorted/);
+  });
+
   it('keeps the exact frozen plan audit path aligned with baseline provenance', () => {
     expect(validateBaselineAuditDiff([FROZEN_PLAN_PATH])).toEqual([FROZEN_PLAN_PATH]);
     expect(isAllowedPerformanceBaselinePath(FROZEN_PLAN_PATH)).toBe(true);
@@ -122,6 +137,56 @@ describe('evidence provenance', () => {
       expect(() => validateBaselineAuditDiff([forbiddenPath])).toThrow(/forbidden path/);
       expect(isAllowedPerformanceBaselinePath(forbiddenPath)).toBe(false);
     });
+  });
+
+  it('uses authoritative UTF-8 NUL-delimited Git paths for provenance', () => {
+    const temporaryRoot = mkdtempSync(resolve(tmpdir(), 'evidence-provenance-utf8-paths-'));
+    try {
+      git(temporaryRoot, ['init', '--initial-branch=main']);
+      git(temporaryRoot, ['config', 'user.email', 'tests@example.invalid']);
+      git(temporaryRoot, ['config', 'user.name', 'Evidence Provenance Tests']);
+      writeFileSync(resolve(temporaryRoot, 'README.md'), 'root\n');
+      git(temporaryRoot, ['add', '--all']);
+      git(temporaryRoot, ['commit', '-m', 'root']);
+      const subjectSha = git(temporaryRoot, ['rev-parse', 'HEAD']);
+      const asciiPath = 'frontend-app/scripts/evidence-provenance.mjs';
+      const unicodePath = 'docs/doc/codemap/project-map/功能.tsv';
+      mkdirSync(resolve(temporaryRoot, asciiPath, '..'), { recursive: true });
+      mkdirSync(resolve(temporaryRoot, unicodePath, '..'), { recursive: true });
+      writeFileSync(resolve(temporaryRoot, asciiPath), 'ascii\n');
+      writeFileSync(resolve(temporaryRoot, unicodePath), 'unicode\n');
+      git(temporaryRoot, ['add', '--all']);
+      git(temporaryRoot, ['commit', '-m', 'paths']);
+      const runnerSha = git(temporaryRoot, ['rev-parse', 'HEAD']);
+      const plainOutput = execFileSync('git', ['diff', '--name-only', subjectSha, runnerSha], {
+        cwd: temporaryRoot,
+        encoding: 'utf8',
+      });
+      expect(plainOutput).toMatch(/"docs\/doc\/codemap\/project-map\/\\[0-7]{3}/);
+      expect(plainOutput).not.toContain(unicodePath);
+
+      const changedPaths = canonicalGitDiffChangedPaths(temporaryRoot, subjectSha, runnerSha);
+      expect(changedPaths).toEqual([unicodePath, asciiPath]);
+      expect(collectEvidenceProvenance({
+        repositoryRoot: temporaryRoot,
+        runnerId: 'utf8-paths',
+        runnerContentPaths: ['README.md'],
+        subjectSha,
+      }).provenance.baselineAudit.changedPaths).toEqual([unicodePath, asciiPath]);
+    } finally {
+      rmSync(temporaryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ['missing trailing NUL', Buffer.from('path'), /malformed trailing/],
+    ['non-UTF-8 path', Buffer.from([0xff, 0]), /non-UTF-8/],
+    ['absolute path', Buffer.from('/path\0'), /repo-relative/],
+    ['empty path', Buffer.from('\0'), /empty path/],
+    ['dot path', Buffer.from('.\0'), /repo-relative/],
+    ['dot-dot path', Buffer.from('..\0'), /repo-relative/],
+  ])('fails closed for malformed Git path output: %s', (_label, output, expected) => {
+    expect(() => parseGitDiffNameOnlyZ(output)).toThrow(expected);
   });
 
   it('separates subject identity from runner identity and records the environment', () => {
@@ -177,4 +242,8 @@ function provenanceHead() {
     cwd: REPOSITORY_ROOT,
     encoding: 'utf8',
   }).trim();
+}
+
+function git(repositoryRoot, args) {
+  return execFileSync('git', args, { cwd: repositoryRoot, encoding: 'utf8' }).trim();
 }

@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { canonicalGitDiffChangedPaths } from './evidence-provenance.mjs';
 import { repositoryLocalGitEnvironment } from './runtime/git-environment.mjs';
 
 const FROZEN_PLAN_BASE_SHA = '314a8e240b2fe58de23651a00b74f05c985cf5e4';
@@ -73,15 +74,7 @@ function isAllowedPerformanceBaselinePath(path) {
 }
 
 function changedPathsBetween(repositoryRoot, planBaseSha, baselineBaseSha) {
-  const output = git(repositoryRoot, [
-    'diff', '--name-only', '-z', '--no-renames', planBaseSha, baselineBaseSha,
-  ], { encoding: 'buffer' });
-  const paths = output.toString('utf8').split('\0').filter(Boolean);
-  const normalized = [...new Set(paths)].sort();
-  if (paths.length !== normalized.length || paths.some((path, index) => path !== normalized[index])) {
-    throw new Error('git diff changedPaths must be unique and sorted');
-  }
-  return Object.freeze(normalized);
+  return canonicalGitDiffChangedPaths(repositoryRoot, planBaseSha, baselineBaseSha);
 }
 
 function analyzePerformanceBaselineProvenance({

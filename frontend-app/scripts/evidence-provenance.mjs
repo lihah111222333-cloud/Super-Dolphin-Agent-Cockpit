@@ -64,11 +64,76 @@ function baselineAuditPathAllowed(path) {
     || BASELINE_AUDIT_ALLOWED_PREFIXES.some((prefix) => path.startsWith(prefix));
 }
 
+function assertRepoRelativePath(path) {
+  if (typeof path !== 'string' || path.length === 0) {
+    throw new TypeError('git diff changed path must be a non-empty UTF-8 string');
+  }
+  if (path === '.' || path === '..' || path.startsWith('/') || path.startsWith('\\')
+    || /^[A-Za-z]:[\\/]/u.test(path)) {
+    throw new Error(`git diff changed path must be repo-relative: ${JSON.stringify(path)}`);
+  }
+  const segments = path.split('/');
+  if (segments.some((segment) => segment.length === 0 || segment === '.' || segment === '..')) {
+    throw new Error(`git diff changed path contains an invalid segment: ${JSON.stringify(path)}`);
+  }
+  return path;
+}
+
+function canonicalizeRepoRelativePaths(paths) {
+  if (!Array.isArray(paths)) throw new TypeError('git diff changed paths must be an array');
+  const unique = new Set(paths.map(assertRepoRelativePath));
+  return Object.freeze([...unique].sort((left, right) => (
+    Buffer.compare(Buffer.from(left, 'utf8'), Buffer.from(right, 'utf8'))
+  )));
+}
+
+function parseGitDiffNameOnlyZ(output) {
+  if (!Buffer.isBuffer(output)) throw new TypeError('git diff --name-only -z output must be a Buffer');
+  if (output.length === 0) return Object.freeze([]);
+  if (output[output.length - 1] !== 0) {
+    throw new Error('git diff --name-only -z output has a malformed trailing path');
+  }
+  const decoder = new TextDecoder('utf-8', { fatal: true });
+  const paths = [];
+  let start = 0;
+  for (let index = 0; index < output.length; index += 1) {
+    if (output[index] !== 0) continue;
+    if (index === start) throw new Error('git diff --name-only -z output contains an empty path');
+    try {
+      paths.push(decoder.decode(output.subarray(start, index)));
+    } catch (error) {
+      throw new Error(`git diff --name-only -z output contains non-UTF-8 path: ${error.message}`);
+    }
+    start = index + 1;
+  }
+  return canonicalizeRepoRelativePaths(paths);
+}
+
+function canonicalGitDiffChangedPaths(repositoryRoot, baseSha, headSha) {
+  const output = execFileSync('git', [
+    'diff', '--name-only', '-z', '--no-renames', baseSha, headSha,
+  ], {
+    cwd: repositoryRoot,
+    encoding: 'buffer',
+    env: repositoryLocalGitEnvironment(),
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  return parseGitDiffNameOnlyZ(output);
+}
+
 function validateBaselineAuditDiff(changedPaths) {
   if (!Array.isArray(changedPaths)) throw new TypeError('changedPaths must be an array');
-  const normalized = [...new Set(changedPaths)].sort();
-  if (JSON.stringify(changedPaths) !== JSON.stringify(normalized)) {
-    throw new Error('baseline audit changedPaths must be exact, unique, and sorted');
+  const seen = new Set();
+  for (let index = 0; index < changedPaths.length; index += 1) {
+    const path = assertRepoRelativePath(changedPaths[index]);
+    if (seen.has(path)
+      || (index > 0 && Buffer.compare(
+        Buffer.from(changedPaths[index - 1], 'utf8'),
+        Buffer.from(path, 'utf8'),
+      ) >= 0)) {
+      throw new Error('baseline audit changedPaths must be exact, unique, and sorted');
+    }
+    seen.add(path);
   }
   const forbidden = changedPaths.filter((path) => !baselineAuditPathAllowed(path));
   if (forbidden.length > 0) {
@@ -136,11 +201,14 @@ function collectEvidenceProvenance({
       throw new Error(`${relation}${detail ? `: ${detail}` : ''}`);
     }
     if (recordBaselineAudit) {
-      const changedPaths = subjectGit(['diff', '--name-only', subjectSha, runnerSha]).split('\n');
       baselineAudit = Object.freeze({
         baseSha: subjectSha,
         baseTree: subjectTree,
-        changedPaths: validateBaselineAuditDiff(changedPaths),
+        changedPaths: validateBaselineAuditDiff(canonicalGitDiffChangedPaths(
+          repositoryRoot,
+          subjectSha,
+          runnerSha,
+        )),
       });
     }
   }
@@ -173,8 +241,11 @@ function collectEvidenceProvenance({
 
 export {
   BASELINE_AUDIT_ALLOWED_PATHS,
+  canonicalGitDiffChangedPaths,
+  canonicalizeRepoRelativePaths,
   RUNNER_CONTENT_PATHS,
   collectEvidenceProvenance,
+  parseGitDiffNameOnlyZ,
   runnerContentEvidence,
   validateBaselineAuditDiff,
 };
