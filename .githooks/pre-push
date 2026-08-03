@@ -12,36 +12,25 @@ repo_root=$(git rev-parse --show-toplevel) || {
 }
 source "$repo_root/.githooks/trusted-gate-launcher.sh"
 if ! gate_bin=$(trusted_gate_launcher "$repo_root"); then
-  printf '%s\n' 'pre-push blocked: trusted super-dolphin-gate launcher is unavailable; provision it with install-hooks, then rerun the push.' >&2
+  printf '%s\n' 'pre-push blocked: trusted super-dolphin-gate launcher is unavailable; install it with make install-hooks, then rerun the push.' >&2
   exit 1
 fi
 
-gate_mode=${SUPER_DOLPHIN_GATE_MODE:-$(git config --local --get super-dolphin.gate.mode || true)}
-if [[ -z "$gate_mode" ]]; then
-  gate_mode=local
-fi
-if [[ "$gate_mode" == remote ]]; then
-  remote_config=${SUPER_DOLPHIN_GATE_REMOTE_CONFIG:-$(git config --local --get super-dolphin.remote.config || true)}
-  remote_ledger=${SUPER_DOLPHIN_GATE_LEDGER:-$(git config --local --get super-dolphin.remote.ledger || true)}
-  remote_max_shards=$(git config --local --get super-dolphin.remote.maxShards || true)
-  if [[ -z "$remote_config" || -z "$remote_ledger" ]]; then
-    printf '%s\n' 'pre-push blocked: remote gate mode requires remote config and duration ledger paths.' >&2
-    exit 1
-  fi
-  remote_args=(
-    remote hook pre-push
-    --config "$remote_config"
-    --ledger "$remote_ledger"
-    --repository "$repo_root"
-  )
-  if [[ -n "$remote_max_shards" ]]; then
-    remote_args+=(--max-shards "$remote_max_shards")
-  fi
-  exec "$gate_bin" "${remote_args[@]}" "$1" "$2"
-fi
-if [[ "$gate_mode" != local ]]; then
-  printf '%s\n' "pre-push blocked: unsupported gate mode '$gate_mode'." >&2
-  exit 1
+# 首次身份协商不得读取远程配置或规范化 ref；hook 不签发或保存 token。
+if [[ "${SUPER_DOLPHIN_CI_AGENT_TOKEN-}" == "issue" || -z "${SUPER_DOLPHIN_CI_AGENT_TOKEN+x}" ]]; then
+  exec "$gate_bin" remote hook pre-push
 fi
 
-exec "$gate_bin" hook pre-push "$1" "$2"
+remote_config=${SUPER_DOLPHIN_GATE_REMOTE_CONFIG:-$(git config --local --get super-dolphin.remote.config || true)}
+remote_ledger=${SUPER_DOLPHIN_GATE_LEDGER:-$(git config --local --get super-dolphin.remote.ledger || true)}
+if [[ -z "$remote_config" || -z "$remote_ledger" ]]; then
+  printf '%s\n' 'pre-push blocked: remote CI requires remote config and duration ledger paths.' >&2
+  exit 1
+fi
+remote_args=(
+  remote hook pre-push
+  --config "$remote_config"
+  --ledger "$remote_ledger"
+  --repository "$repo_root"
+)
+exec "$gate_bin" "${remote_args[@]}" "$1" "$2"

@@ -99,8 +99,8 @@ func TestRefreshDependencyClosureRejectsInvalidTree(t *testing.T) {
 }
 
 func TestRuntimeDepsLockEncodingContainsOnlyNodeLocalContract(t *testing.T) {
-	inputs := runtimeDepsInputs{Dockerfile: testDigest, ToolchainLock: testDigest, GoMod: testDigest, GoSum: testDigest, NilnessRunner: testDigest, NilnessGuard: testDigest, FrontendPackageLock: testDigest, LSPPackageLock: testDigest, ProxyGoMod: testDigest, ProxyGoSum: testDigest, ToolsGoMod: testDigest, ToolsGoSum: testDigest}
-	recipeInputs := runtimeDepsRecipeInputs{RuntimeSeedWorker: testDigest}
+	inputs := runtimeDepsInputs{ToolchainLock: testDigest, GoMod: testDigest, GoSum: testDigest, GoDistributionLock: testDigest, NilnessRunner: testDigest, NilnessGuard: testDigest, FrontendPackageLock: testDigest, LSPPackageLock: testDigest, ProxyGoMod: testDigest, ProxyGoSum: testDigest, ToolsGoMod: testDigest, ToolsGoSum: testDigest}
+	recipeInputs := runtimeDepsRecipeInputs{Dockerfile: testDigest, RuntimeSeedWorker: testDigest}
 	lock := validRuntimeDepsLock(inputs)
 	lock.RecipeInputs = recipeInputs
 	data, err := encodeRuntimeDepsLock(lock)
@@ -154,12 +154,12 @@ func TestRuntimeDepsDockerfileDoesNotVendorJobSource(t *testing.T) {
 const testDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 func validRuntimeDepsLock(inputs runtimeDepsInputs) runtimeDepsLock {
-	return runtimeDepsLock{SchemaVersion: runtimeDepsSchemaVersion, BuildMode: runtimeDepsBuildMode, CacheScope: runtimeDepsCacheScope, Inputs: inputs, RecipeInputs: runtimeDepsRecipeInputs{RuntimeSeedWorker: testDigest}, Paths: canonicalRuntimeDepsPaths()}
+	return runtimeDepsLock{SchemaVersion: runtimeDepsSchemaVersion, BuildMode: runtimeDepsBuildMode, CacheScope: runtimeDepsCacheScope, Inputs: inputs, RecipeInputs: runtimeDepsRecipeInputs{Dockerfile: testDigest, RuntimeSeedWorker: testDigest}, Paths: canonicalRuntimeDepsPaths()}
 }
 
 func writeRuntimeDepsInputs(t *testing.T, root string) {
 	t.Helper()
-	for _, name := range []string{gateRuntimeDepsDocker, gateToolchain, "go.mod", "go.sum", "internal/devtools/nilnessrunner/runner.go", "scripts/nilness_guard.go", "frontend-app/package-lock.json", gateRuntimeLSPLock, gateRuntimeProxyModule, gateRuntimeProxySum, gateRuntimeToolsModule, gateRuntimeToolsSum, "internal/devtools/gate/executor_seed.go"} {
+	for _, name := range []string{gateRuntimeDepsDocker, gateToolchain, "go.mod", "go.sum", "internal/devtools/godistribution/go-distribution.lock", "internal/devtools/nilnessrunner/runner.go", "scripts/nilness_guard.go", "frontend-app/package-lock.json", gateRuntimeLSPLock, gateRuntimeProxyModule, gateRuntimeProxySum, gateRuntimeToolsModule, gateRuntimeToolsSum, "internal/devtools/gate/executor_seed.go"} {
 		path := filepath.Join(root, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)

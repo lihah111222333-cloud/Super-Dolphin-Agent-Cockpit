@@ -11,7 +11,7 @@ import (
 
 // validatePassedShardReceipt 校验当前动态数量分片的完整签名闭包。
 func (r ResultReceipt) validatePassedShardReceipt() error {
-	set, err := resultReceiptShardSet(r.ShardReceipts)
+	set, err := resultReceiptShardSet(r.WorkloadPlan, r.ShardReceipts)
 	if err != nil {
 		return err
 	}
@@ -38,9 +38,9 @@ func (r ResultReceipt) validatePassedShardReceipt() error {
 	return nil
 }
 
-// validateStoredPassedShardReceipt 使用回执绑定的历史计划校验终态三分片闭包。
+// validateStoredPassedShardReceipt 使用回执绑定的冻结 LPT 计划校验终态分片闭包。
 func (r ResultReceipt) validateStoredPassedShardReceipt(plan GatePlan) error {
-	set, err := storedResultReceiptShardSet(r.ShardReceipts, plan)
+	set, err := storedResultReceiptShardSet(r.WorkloadPlan, r.ShardReceipts, plan)
 	if err != nil {
 		return err
 	}
@@ -68,8 +68,8 @@ func (r ResultReceipt) validateStoredPassedShardReceipt(plan GatePlan) error {
 }
 
 // resultReceiptShardSet 从签名回执重建唯一 canonical shard set。
-func resultReceiptShardSet(receipts []ContainerShardReceipt) (ContainerShardSet, error) {
-	set, err := uncheckedResultReceiptShardSet(receipts)
+func resultReceiptShardSet(workloadPlan WorkloadExecutionPlan, receipts []ContainerShardReceipt) (ContainerShardSet, error) {
+	set, err := uncheckedResultReceiptShardSet(workloadPlan, receipts)
 	if err != nil {
 		return ContainerShardSet{}, err
 	}
@@ -79,8 +79,8 @@ func resultReceiptShardSet(receipts []ContainerShardReceipt) (ContainerShardSet,
 	return set, nil
 }
 
-func storedResultReceiptShardSet(receipts []ContainerShardReceipt, plan GatePlan) (ContainerShardSet, error) {
-	set, err := uncheckedResultReceiptShardSet(receipts)
+func storedResultReceiptShardSet(workloadPlan WorkloadExecutionPlan, receipts []ContainerShardReceipt, plan GatePlan) (ContainerShardSet, error) {
+	set, err := uncheckedResultReceiptShardSet(workloadPlan, receipts)
 	if err != nil {
 		return ContainerShardSet{}, err
 	}
@@ -90,24 +90,24 @@ func storedResultReceiptShardSet(receipts []ContainerShardReceipt, plan GatePlan
 	return set, nil
 }
 
-// uncheckedResultReceiptShardSet 从回执重建尚未执行 canonical 校验的分片集合。
-func uncheckedResultReceiptShardSet(receipts []ContainerShardReceipt) (ContainerShardSet, error) {
+// uncheckedResultReceiptShardSet 将回执携带的冻结 workload plan 与观测分片绑定，尚未执行 canonical 校验。
+func uncheckedResultReceiptShardSet(workloadPlan WorkloadExecutionPlan, receipts []ContainerShardReceipt) (ContainerShardSet, error) {
 	if len(receipts) == 0 {
 		return ContainerShardSet{}, errors.New("result receipt shard receipt count is invalid")
 	}
-	first := receipts[0].Shard
-	shardsPerJob := first.ShardsPerJob
-	if first.SchemaVersion == legacyContainerShardSchemaVersion && shardsPerJob == 0 {
-		shardsPerJob = legacyContainerShardCount
+	if len(workloadPlan.ExecutionWorkloadIDs) == 0 {
+		return ContainerShardSet{}, errors.New("result receipt workload plan is required")
 	}
-	if shardsPerJob != len(receipts) {
+	first := receipts[0].Shard
+	if first.SchemaVersion != workloadContainerShardSchemaVersion || first.ShardsPerJob != len(receipts) {
 		return ContainerShardSet{}, errors.New("result receipt shard receipt count does not match shards_per_job")
 	}
 	set := ContainerShardSet{
 		Profile: first.Profile, PlanDigest: first.PlanDigest, SourceTreeSHA: first.SourceTreeSHA,
 		AcceptedManifestDigest: first.AcceptedManifestDigest, AcceptedConfigDigest: first.AcceptedConfigDigest,
-		ShardsPerJob: shardsPerJob,
-		Shards:       make([]ContainerShard, len(receipts)),
+		ShardsPerJob: first.ShardsPerJob, WorkloadPlanDigest: workloadPlan.PlanDigest,
+		CatalogDigest: workloadPlan.CatalogDigest, LedgerGeneration: workloadPlan.LedgerGeneration,
+		WorkloadPlan: workloadPlan, Shards: make([]ContainerShard, len(receipts)),
 	}
 	for index, receipt := range receipts {
 		set.Shards[index] = receipt.Shard
@@ -232,7 +232,7 @@ func validateResultReceiptGateAggregate(results []GateResult, aggregated []PlanG
 	return nil
 }
 
-// validateResultReceiptShardTimeline 绑定 receipt 顶层时钟与三分片观测边界。
+// validateResultReceiptShardTimeline 绑定 receipt 顶层时钟与全部分片观测边界。
 func validateResultReceiptShardTimeline(receipt ResultReceipt, shards []ContainerShardReceipt) error {
 	var startedAt, completedAt, deadline time.Time
 	for _, shard := range shards {
@@ -252,7 +252,7 @@ func validateResultReceiptShardTimeline(receipt ResultReceipt, shards []Containe
 	return nil
 }
 
-// aggregateResultReceiptContainer 复算 owner 使用的三容器规范摘要证据。
+// aggregateResultReceiptContainer 复算 owner 使用的全部容器规范摘要证据。
 func aggregateResultReceiptContainer(receipts []ContainerShardReceipt) (ContainerEvidence, error) {
 	containers := make([]ContainerEvidence, len(receipts))
 	for index, receipt := range receipts {

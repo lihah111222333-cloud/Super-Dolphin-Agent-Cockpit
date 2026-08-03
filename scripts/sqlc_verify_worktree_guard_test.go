@@ -103,7 +103,11 @@ func TestSQLCVerificationModesStaySeparatedByWorkflow(t *testing.T) {
 	assertScriptContainsIgnoringWhitespace(t, aiMaintenance, `"sqlc:verify": {"make sqlc-verify-worktree", "make sqlc-verify"}`)
 
 	prePush := readRepoFile(t, "../.githooks/pre-push")
-	assertScriptContains(t, prePush, `exec "$gate_bin" hook pre-push "$1" "$2"`)
+	assertScriptContains(t, prePush, `remote hook pre-push`)
+	assertScriptContains(t, prePush, `--config "$remote_config"`)
+	assertScriptContains(t, prePush, `--ledger "$remote_ledger"`)
+	assertScriptContains(t, prePush, `--repository "$repo_root"`)
+	assertScriptContains(t, prePush, `exec "$gate_bin" "${remote_args[@]}" "$1" "$2"`)
 	assertScriptDoesNotContain(t, prePush, "run_ai_maintenance_push_gate")
 	assertScriptDoesNotContain(t, prePush, "make sqlc-verify")
 	assertScriptDoesNotContain(t, prePush, "make sqlc-verify-worktree")

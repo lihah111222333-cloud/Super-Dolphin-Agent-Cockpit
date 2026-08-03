@@ -3,12 +3,13 @@ package gate
 import (
 	"crypto/ed25519"
 	"encoding/base64"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 )
 
-func TestResultReceiptV2RejectsIncompleteOrDriftedShardClosure(t *testing.T) {
+func TestResultReceiptRejectsIncompleteOrDriftedShardClosure(t *testing.T) {
 	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
 	valid := validResultReceipt(t, now)
 	tests := []struct {
@@ -17,13 +18,13 @@ func TestResultReceiptV2RejectsIncompleteOrDriftedShardClosure(t *testing.T) {
 	}{
 		{name: "v1", mutate: func(receipt *ResultReceipt) { receipt.SchemaVersion = 1 }},
 		{name: "missing shard", mutate: func(receipt *ResultReceipt) {
-			receipt.ShardReceipts = receipt.ShardReceipts[:2]
+			removeResultReceiptShardForGate(t, receipt, GateIDBackendTestWithGuard)
 		}},
 		{name: "duplicate shard", mutate: func(receipt *ResultReceipt) {
-			receipt.ShardReceipts[1].Shard = receipt.ShardReceipts[0].Shard
+			duplicateResultReceiptShardForGate(t, receipt, GateIDBackendTestWithGuard)
 		}},
 		{name: "gate aggregate drift", mutate: func(receipt *ResultReceipt) {
-			receipt.GateResults[0].LogDigest = shardTestDigest('f')
+			resultReceiptGateResultForGate(t, receipt, GateIDBackendTestWithGuard).LogDigest = shardTestDigest('f')
 		}},
 		{name: "container aggregate drift", mutate: func(receipt *ResultReceipt) {
 			receipt.Container.HostConfigDigest = shardTestDigest('f')
@@ -34,77 +35,174 @@ func TestResultReceiptV2RejectsIncompleteOrDriftedShardClosure(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			receipt := cloneResultReceiptV2(valid)
+			receipt := cloneResultReceiptCurrent(t, valid)
 			test.mutate(&receipt)
 			if err := receipt.Validate(); err == nil {
-				t.Fatal("invalid v2 result receipt was accepted")
+				t.Fatal("invalid result receipt was accepted")
 			}
 		})
 	}
 }
 
+func removeResultReceiptShardForGate(t *testing.T, receipt *ResultReceipt, gateID GateID) {
+	t.Helper()
+	target := shardReceiptForGate(t, receipt.ShardReceipts, gateID)
+	identity := target.Shard.IdentityDigest
+	filtered := make([]ContainerShardReceipt, 0, len(receipt.ShardReceipts)-1)
+	removed := false
+	for _, shardReceipt := range receipt.ShardReceipts {
+		if shardReceipt.Shard.IdentityDigest == identity {
+			if removed {
+				t.Fatalf("shard identity %q appears more than once", identity)
+			}
+			removed = true
+			continue
+		}
+		filtered = append(filtered, shardReceipt)
+	}
+	if !removed {
+		t.Fatalf("shard identity %q was not removed", identity)
+	}
+	receipt.ShardReceipts = filtered
+}
+
+func duplicateResultReceiptShardForGate(t *testing.T, receipt *ResultReceipt, gateID GateID) {
+	t.Helper()
+	target := shardReceiptForGate(t, receipt.ShardReceipts, gateID)
+	duplicate := cloneShardReceipts([]ContainerShardReceipt{*target})[0]
+	receipt.ShardReceipts = append(receipt.ShardReceipts, duplicate)
+}
+
+func resultReceiptGateResultForGate(t *testing.T, receipt *ResultReceipt, gateID GateID) *GateResult {
+	t.Helper()
+	for index := range receipt.GateResults {
+		if receipt.GateResults[index].GateID == string(gateID) {
+			return &receipt.GateResults[index]
+		}
+	}
+	t.Fatalf("gate %q does not belong to result receipt aggregate", gateID)
+	return nil
+}
+
 func TestResultReceiptRejectsShardCountBindingDrift(t *testing.T) {
 	receipt := validResultReceipt(t, time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC))
-	receipt.ShardReceipts[0].Shard.ShardsPerJob = 2
-	identity, err := containerShardIdentityDigest(receipt.ShardReceipts[0].Shard)
+	target := shardReceiptForGate(t, receipt.ShardReceipts, GateIDBackendTestWithGuard)
+	target.Shard.ShardsPerJob = 2
+	identity, err := containerShardIdentityDigest(target.Shard)
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt.ShardReceipts[0].Shard.IdentityDigest = identity
+	target.Shard.IdentityDigest = identity
 	if err := receipt.Validate(); err == nil {
 		t.Fatal("receipt accepted a shard count binding drift")
 	}
 }
 
-func TestResultReceiptV3ValidatesDynamicShardCount(t *testing.T) {
-	receipt := validResultReceiptForProfileWithShardCount(t, time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC), ProfileLocalFast, 5)
-	if receipt.SchemaVersion != ResultReceiptSchemaVersion || len(receipt.ShardReceipts) != 5 {
-		t.Fatalf("schema=%d shards=%d, want schema=%d shards=5", receipt.SchemaVersion, len(receipt.ShardReceipts), ResultReceiptSchemaVersion)
+func TestResultReceiptV4ValidatesDynamicShardCountAndWorkloadPlan(t *testing.T) {
+	receipt := validResultReceipt(t, time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC))
+	if receipt.SchemaVersion != ResultReceiptSchemaVersion || len(receipt.ShardReceipts) == 0 {
+		t.Fatalf("schema=%d shards=%d, want schema=%d and dynamic shards", receipt.SchemaVersion, len(receipt.ShardReceipts), ResultReceiptSchemaVersion)
 	}
 	if err := receipt.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)
 	}
 }
 
-func TestResultReceiptV2ThreeShardHistoryValidatesStored(t *testing.T) {
+func TestResultReceiptRejectsMissingWorkloadPlan(t *testing.T) {
 	receipt := validResultReceipt(t, time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC))
-	receipt.SchemaVersion = legacyResultReceiptSchemaVersion
-	for index := range receipt.ShardReceipts {
-		shard := &receipt.ShardReceipts[index].Shard
-		shard.SchemaVersion = legacyContainerShardSchemaVersion
-		shard.ShardsPerJob = 0
-		identity, err := legacyContainerShardIdentityDigest(*shard)
-		if err != nil {
-			t.Fatal(err)
-		}
-		shard.IdentityDigest = identity
-	}
-	plan, err := BuildGatePlan(receipt.ShardReceipts[0].Shard.Profile, receipt.Source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := receipt.ValidateStored(plan); err != nil {
-		t.Fatalf("ValidateStored() error = %v", err)
-	}
-	if err := receipt.Validate(); err == nil {
-		t.Fatal("Validate() accepted a legacy receipt")
+	receipt.WorkloadPlan = WorkloadExecutionPlan{}
+	if err := receipt.Validate(); err == nil || !strings.Contains(err.Error(), "workload plan") {
+		t.Fatalf("Validate() error = %v, want missing workload plan", err)
 	}
 }
 
-func TestResultReceiptV2SignatureCoversEveryShardExitedAt(t *testing.T) {
+func TestResultReceiptRejectsWorkloadPlanProjectionTampering(t *testing.T) {
+	receipt := validResultReceipt(t, time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC))
+	receipt.WorkloadPlan.ExecutionWorkloadIDs[0] = GateID("forged-workload")
+	if err := receipt.Validate(); err == nil {
+		t.Fatal("Validate() accepted tampered workload execution projection")
+	}
+}
+
+func TestResultReceiptStrictJSONRequiresFrozenWorkloadPlan(t *testing.T) {
+	receipt := validResultReceipt(t, time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC))
+	encoded, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		t.Fatal(err)
+	}
+	delete(fields, "workload_plan")
+	missing, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded ResultReceipt
+	if err := DecodeStrictJSON(missing, &decoded); err == nil || !strings.Contains(err.Error(), "workload plan") {
+		t.Fatalf("DecodeStrictJSON() error = %v, want missing workload plan", err)
+	}
+}
+
+func TestResultReceiptStrictJSONRejectsUnknownNestedWorkloadPlanField(t *testing.T) {
+	receipt := validResultReceipt(t, time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC))
+	encoded, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		t.Fatal(err)
+	}
+	var workloadPlan map[string]json.RawMessage
+	if err := json.Unmarshal(fields["workload_plan"], &workloadPlan); err != nil {
+		t.Fatal(err)
+	}
+	workloadPlan["unknown_field"] = json.RawMessage(`true`)
+	fields["workload_plan"], err = json.Marshal(workloadPlan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknown, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded ResultReceipt
+	if err := DecodeStrictJSON(unknown, &decoded); err == nil || !strings.Contains(err.Error(), "unknown_field") {
+		t.Fatalf("DecodeStrictJSON() error = %v, want unknown nested field", err)
+	}
+}
+
+func TestResultReceiptValidateStoredRejectsPreviousSchema(t *testing.T) {
+	receipt := validResultReceipt(t, time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC))
+	receipt.SchemaVersion = 3
+	target := shardReceiptForGate(t, receipt.ShardReceipts, GateIDBackendTestWithGuard)
+	plan, err := BuildGatePlan(target.Shard.Profile, receipt.Source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := receipt.ValidateStored(plan); err == nil || !strings.Contains(err.Error(), "unsupported result receipt schema_version") {
+		t.Fatalf("ValidateStored() error = %v", err)
+	}
+}
+
+func TestResultReceiptSignatureCoversEveryShardExitedAt(t *testing.T) {
 	receipt := validResultReceipt(t, time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC))
 	publicKey, privateKey, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt = signResultReceiptV2(t, receipt, privateKey)
+	receipt = signResultReceiptCurrent(t, receipt, privateKey)
 	if err := VerifyResultReceipt(receipt, publicKey); err != nil {
-		t.Fatalf("valid v2 receipt verification failed: %v", err)
+		t.Fatalf("valid result receipt verification failed: %v", err)
 	}
-	for shardIndex := range receipt.ShardReceipts {
-		t.Run(receipt.ShardReceipts[shardIndex].Shard.IdentityDigest, func(t *testing.T) {
-			tampered := cloneResultReceiptV2(receipt)
-			tampered.ShardReceipts[shardIndex].ExitedAt = tampered.ShardReceipts[shardIndex].ExitedAt.Add(time.Nanosecond)
+	for _, shardReceipt := range receipt.ShardReceipts {
+		identity := shardReceipt.Shard.IdentityDigest
+		t.Run(identity, func(t *testing.T) {
+			tampered := cloneResultReceiptCurrent(t, receipt)
+			target := resultReceiptShardForIdentity(t, &tampered, identity)
+			target.ExitedAt = target.ExitedAt.Add(time.Nanosecond)
 			if err := tampered.Validate(); err != nil {
 				t.Fatalf("isolated ExitedAt tamper should remain structurally valid: %v", err)
 			}
@@ -115,7 +213,18 @@ func TestResultReceiptV2SignatureCoversEveryShardExitedAt(t *testing.T) {
 	}
 }
 
-func signResultReceiptV2(t *testing.T, receipt ResultReceipt, privateKey ed25519.PrivateKey) ResultReceipt {
+func resultReceiptShardForIdentity(t *testing.T, receipt *ResultReceipt, identity string) *ContainerShardReceipt {
+	t.Helper()
+	for index := range receipt.ShardReceipts {
+		if receipt.ShardReceipts[index].Shard.IdentityDigest == identity {
+			return &receipt.ShardReceipts[index]
+		}
+	}
+	t.Fatalf("shard identity %q does not belong to result receipt", identity)
+	return nil
+}
+
+func signResultReceiptCurrent(t *testing.T, receipt ResultReceipt, privateKey ed25519.PrivateKey) ResultReceipt {
 	t.Helper()
 	payload, err := ResultReceiptSigningPayload(receipt)
 	if err != nil {
@@ -125,8 +234,14 @@ func signResultReceiptV2(t *testing.T, receipt ResultReceipt, privateKey ed25519
 	return receipt
 }
 
-func cloneResultReceiptV2(receipt ResultReceipt) ResultReceipt {
+func cloneResultReceiptCurrent(t *testing.T, receipt ResultReceipt) ResultReceipt {
+	t.Helper()
 	cloned := receipt
+	workloadPlan, err := cloneWorkloadExecutionPlan(receipt.WorkloadPlan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cloned.WorkloadPlan = workloadPlan
 	cloned.GateResults = append([]GateResult(nil), receipt.GateResults...)
 	cloned.ShardReceipts = cloneShardReceipts(receipt.ShardReceipts)
 	cloned.Evidence = append([]Evidence(nil), receipt.Evidence...)
