@@ -13,7 +13,7 @@ import (
 func TestEmitRemoteRunResultKeepsStdoutAsOneJSONValue(t *testing.T) {
 	var stdout bytes.Buffer
 	result := remoteci.RunResult{SchemaVersion: 1, JobID: "job-1", Status: gate.ResultStatusPassed}
-	if err := emitRemoteRunResult(&stdout, result, nil); err != nil {
+	if err := emitRemoteRunResult(&stdout, nil, result, nil); err != nil {
 		t.Fatalf("emitRemoteRunResult() error = %v", err)
 	}
 	decoder := json.NewDecoder(&stdout)

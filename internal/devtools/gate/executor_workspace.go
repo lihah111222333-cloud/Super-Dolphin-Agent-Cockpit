@@ -132,12 +132,10 @@ func executorGoBuildCacheSeedOverlaps(candidate string, accepted []string) bool 
 	return false
 }
 
-// discoverExecutorGoBuildCacheSeedRoots 按新到旧发现可信 generation，缺失时使用 legacyRoot。
-func discoverExecutorGoBuildCacheSeedRoots(generationsRoot string, legacyRoot string) ([]string, error) {
+// discoverExecutorGoBuildCacheSeedRoots 按新到旧发现可信 ImageCache generation。
+// 缺失、空或非法 generation 根必须拒绝，不能退回旧 build-cache seed。
+func discoverExecutorGoBuildCacheSeedRoots(generationsRoot string) ([]string, error) {
 	info, err := os.Lstat(generationsRoot)
-	if errors.Is(err, os.ErrNotExist) {
-		return []string{legacyRoot}, nil
-	}
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return nil, errors.New("Go build cache seed generations root must be a real directory")
 	}

@@ -9,6 +9,7 @@ type invalidCreateRequestCase struct {
 
 func invalidCreateRequestCases() []invalidCreateRequestCase {
 	return []invalidCreateRequestCase{
+		{"missing image cache snapshot", func(request *CreateRequest) { request.ImageCacheSnapshotID = "" }},
 		{"invalid group name", func(request *CreateRequest) { request.ContainerGroupName = "Shard" }},
 		{"invalid resources", func(request *CreateRequest) { request.Resources = Resources{CPU: 4, MemoryGiB: 20} }},
 		{"missing main image", func(request *CreateRequest) { request.MainImage = "" }},

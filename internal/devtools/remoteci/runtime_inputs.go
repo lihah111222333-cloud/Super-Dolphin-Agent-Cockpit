@@ -8,14 +8,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
 )
 
 // RuntimeDependencySchemaVersion 是当前 runtime seed 构建合同版本。
-const RuntimeDependencySchemaVersion = "13"
+const RuntimeDependencySchemaVersion = "14"
 
 // runtimeDependencyRecipePaths 返回须审计但不标识可复用运行时依赖内容的 seed 控制面输入。
 func runtimeDependencyRecipePaths() []string {
@@ -24,13 +26,14 @@ func runtimeDependencyRecipePaths() []string {
 	}
 }
 
-// runtimeDependencyPaths 返回当前 schema 13 OCI runtime 的实际内容依赖；seed worker 仅作配方审计。
+// runtimeDependencyPaths 返回当前 schema 14 OCI runtime 的实际内容依赖；seed worker 仅作配方审计。
 func runtimeDependencyPaths() []string {
 	return []string{
 		"build/gate/runtime-deps.Dockerfile",
 		"build/gate/toolchain.lock",
 		"go.mod",
 		"go.sum",
+		"internal/devtools/godistribution/go-distribution.lock",
 		"internal/devtools/nilnessrunner/runner.go",
 		"scripts/nilness_guard.go",
 		"frontend-app/package-lock.json",
@@ -64,8 +67,6 @@ type runtimeDependencyIdentity struct {
 
 type runtimeToolchainLock struct {
 	SchemaVersion      string   `json:"schema_version"`
-	BuildKitVersion    string   `json:"buildkit_version"`
-	BuildKitImage      string   `json:"buildkit_image"`
 	DockerfileFrontend string   `json:"dockerfile_frontend"`
 	SourceDateEpoch    string   `json:"source_date_epoch"`
 	TargetPlatforms    []string `json:"target_platforms"`
@@ -76,6 +77,7 @@ type runtimeToolchainLock struct {
 	DependencySources []string `json:"dependency_sources"`
 	RuntimeDepsLock   string   `json:"runtime_deps_lock"`
 	RuntimeTools      struct {
+		GoVersion       string `json:"go_version"`
 		NodeVersion     string `json:"node_version"`
 		NPMVersion      string `json:"npm_version"`
 		PythonVersion   string `json:"python_version"`
@@ -131,9 +133,9 @@ func resolveRuntimeDependencyBuildFromLock(
 	return digest, buildArgs, nil
 }
 
-// validRuntimePlatform 判断 runtime seed 的目标平台是否受锁文件支持。
+// validRuntimePlatform 判断 runtime seed 是否保留官方 artifact 支持的平台。
 func validRuntimePlatform(platform string) bool {
-	return platform == "linux/amd64" || platform == "linux/arm64"
+	return platform == cicontract.TargetPlatform || platform == "linux/arm64"
 }
 
 // runtimeTreeByPath 将精确 Git tree 条目索引为路径到字节内容。
@@ -299,6 +301,9 @@ func runtimeDependencyBuildArgs(lock runtimeToolchainLock, platform string) ([]s
 	if lock.SchemaVersion != "1" {
 		return nil, errors.New("runtime toolchain schema is invalid")
 	}
+	if err := validateRuntimeToolVersions(lock); err != nil {
+		return nil, err
+	}
 	images, err := runtimeBaseImages(lock)
 	if err != nil {
 		return nil, err
@@ -318,11 +323,20 @@ func runtimeDependencyBuildArgs(lock runtimeToolchainLock, platform string) ([]s
 	return arguments, nil
 }
 
+func validateRuntimeToolVersions(lock runtimeToolchainLock) error {
+	actual := []string{lock.RuntimeTools.GoVersion, lock.RuntimeTools.NodeVersion, lock.RuntimeTools.NPMVersion, lock.RuntimeTools.PythonVersion, lock.RuntimeTools.Ripgrep, lock.RuntimeTools.Sqruff, lock.RuntimeTools.Gopls, lock.RuntimeTools.SQLC}
+	expected := []string{"go1.26.5", "v24.18.0", "11.16.0", "3.11.2", "/opt/super-dolphin-gate/runtime/bin/rg@13.0.0-4+b2", "/opt/super-dolphin-gate/runtime/bin/sqruff@0.38.0", "golang.org/x/tools/gopls@v0.22.0", "github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0"}
+	if !slices.Equal(actual, expected) {
+		return errors.New("runtime toolchain versions are not the accepted exact set")
+	}
+	return nil
+}
+
 // runtimeBaseImages 校验基础镜像并返回按名称索引的不可变引用。
 func runtimeBaseImages(lock runtimeToolchainLock) (map[string]string, error) {
 	images := make(map[string]string, len(lock.BaseImages))
 	for _, image := range lock.BaseImages {
-		if strings.TrimSpace(image.Name) == "" || !strings.Contains(image.Reference, "@sha256:") {
+		if strings.TrimSpace(image.Name) == "" || !validRemoteImageReference(image.Reference) {
 			return nil, errors.New("runtime toolchain base image is invalid")
 		}
 		images[image.Name] = image.Reference
@@ -368,15 +382,16 @@ func runtimeDependencyLockField(schemaVersion, path string) string {
 		"build/gate/toolchain.lock":          "toolchain_lock_sha256",
 		"go.mod":                             "go_mod_sha256",
 		"go.sum":                             "go_sum_sha256",
-		"internal/devtools/nilnessrunner/runner.go": "nilness_runner_sha256",
-		"scripts/nilness_guard.go":                  "nilness_guard_sha256",
-		"frontend-app/package-lock.json":            "frontend_package_lock_sha256",
-		"build/gate/runtime-lsp/package-lock.json":  "lsp_package_lock_sha256",
-		"build/gate/runtime-proxy/go.mod":           "proxy_go_mod_sha256",
-		"build/gate/runtime-proxy/go.sum":           "proxy_go_sum_sha256",
-		"build/gate/runtime-tools/go.mod":           "tools_go_mod_sha256",
-		"build/gate/runtime-tools/go.sum":           "tools_go_sum_sha256",
-		"internal/devtools/gate/executor_seed.go":   "runtime_seed_worker_sha256",
+		"internal/devtools/godistribution/go-distribution.lock": "go_distribution_lock_sha256",
+		"internal/devtools/nilnessrunner/runner.go":             "nilness_runner_sha256",
+		"scripts/nilness_guard.go":                              "nilness_guard_sha256",
+		"frontend-app/package-lock.json":                        "frontend_package_lock_sha256",
+		"build/gate/runtime-lsp/package-lock.json":              "lsp_package_lock_sha256",
+		"build/gate/runtime-proxy/go.mod":                       "proxy_go_mod_sha256",
+		"build/gate/runtime-proxy/go.sum":                       "proxy_go_sum_sha256",
+		"build/gate/runtime-tools/go.mod":                       "tools_go_mod_sha256",
+		"build/gate/runtime-tools/go.sum":                       "tools_go_sum_sha256",
+		"internal/devtools/gate/executor_seed.go":               "runtime_seed_worker_sha256",
 	}
 	if field := fields[path]; field != "" {
 		return field

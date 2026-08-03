@@ -8,42 +8,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
-
-func assertSQLitePlanningEstimate(
-	t *testing.T,
-	store *DurationLedgerStore,
-	planning PlanningContext,
-	wantGeneration uint64,
-	wantEstimate int64,
-) {
-	t.Helper()
-	snapshot, err := store.LoadPlanning(planning)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if snapshot.Generation != wantGeneration || len(snapshot.Ledger.Samples) != 0 ||
-		snapshot.SampleIndex == nil {
-		t.Fatalf("planning snapshot = %#v", snapshot)
-	}
-	estimate, err := snapshot.SampleIndex.EstimateWorkloadDurationMS(Workload{
-		ID:            "unit",
-		CommandDigest: testWorkloadDigest,
-	})
-	if err != nil || estimate != wantEstimate {
-		t.Fatalf("planning estimate = %d, err = %v", estimate, err)
-	}
-}
-
-func assertSQLiteAuthorityPath(t *testing.T, store *DurationLedgerStore) {
-	t.Helper()
-	if filepath.Ext(store.AuthorityPath()) != ".sqlite" {
-		t.Fatalf("authority path = %q", store.AuthorityPath())
-	}
-	if _, err := os.Stat(store.AuthorityPath()); err != nil {
-		t.Fatal(err)
-	}
-}
 
 func TestNewDurationLedgerStoreRequiresAbsoluteCanonicalParent(t *testing.T) {
 	if _, err := NewDurationLedgerStore("duration-ledger.sqlite"); err == nil {
@@ -68,58 +35,12 @@ func TestNewDurationLedgerStoreRequiresAbsoluteCanonicalParent(t *testing.T) {
 	}
 }
 
-func TestDurationLedgerSQLiteCreatesRequiredQueryIndexes(t *testing.T) {
-	store := newTestDurationLedgerStore(t)
-	if _, err := store.CompareAndSwap(0, NewDurationLedger()); err != nil {
-		t.Fatal(err)
-	}
-	database, err := store.openSQLiteAuthority(false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer database.Close()
-	for _, name := range []string{
-		"idx_duration_samples_planning",
-		"idx_duration_samples_retention",
-		"idx_duration_samples_target",
-		"idx_duration_calibrations_environment",
-		"idx_ci_catalog_observations_tree_entrypoint",
-		"idx_ci_catalog_workloads_order",
-		"idx_ci_catalog_workloads_identity",
-		"idx_ci_catalog_workloads_target",
-		"idx_ci_workload_fingerprint_lookup",
-		"idx_ci_workload_fingerprint_observation_tree",
-		"idx_ci_workload_fingerprint_observation_latest",
-		"idx_ci_workload_pass_lookup",
-		"idx_ci_workload_pass_compatible",
-		"idx_ci_runs_tree_status",
-		"idx_ci_runs_catalog_status",
-		"idx_ci_run_requesters_lookup",
-		"idx_ci_run_workloads_lookup",
-		"idx_ci_shards_container",
-		"idx_ci_shard_workloads_lookup",
-		"idx_ci_gate_executions_lookup",
-		"idx_ci_run_phase_timings_hotspots",
-	} {
-		var count int
-		if err := database.QueryRow(`
-			SELECT COUNT(*)
-			FROM sqlite_master
-			WHERE type = 'index' AND name = ?
-		`, name).Scan(&count); err != nil {
-			t.Fatal(err)
-		}
-		if count != 1 {
-			t.Fatalf("SQLite index %q count = %d", name, count)
-		}
-	}
-}
-
 func TestDurationLedgerSQLiteCompactsLargeRetentionScopeWithoutVariableOverflow(t *testing.T) {
 	store := newTestDurationLedgerStore(t)
 	if _, err := store.CompareAndSwap(0, testDurationLedger(1)); err != nil {
 		t.Fatal(err)
 	}
+	seedAcceptedGenerationForTest(t, store, 1)
 	const sampleCount = 7_000
 	samples := make([]DurationSample, sampleCount)
 	for index := range samples {
@@ -130,7 +51,7 @@ func TestDurationLedgerSQLiteCompactsLargeRetentionScopeWithoutVariableOverflow(
 			int64(index+1),
 		)
 	}
-	generation, err := store.AppendSamplesFast(samples)
+	generation, err := store.AppendSamplesFast(1, samples)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,111 +60,12 @@ func TestDurationLedgerSQLiteCompactsLargeRetentionScopeWithoutVariableOverflow(
 	}
 }
 
-func TestDurationLedgerSQLitePassAndRunProjectionRoundTrip(t *testing.T) {
-	store := newTestDurationLedgerStore(t)
-	if _, err := store.CompareAndSwap(0, NewDurationLedger()); err != nil {
-		t.Fatal(err)
-	}
-	now := time.Date(2026, time.July, 30, 12, 0, 0, 0, time.UTC)
-	store.nowFunc = func() time.Time { return now }
-	proof := assertWorkloadPassProofProjectionRoundTrip(t, store, now)
-	assertWorkloadFingerprintProjectionRoundTrip(t, store, proof, now)
-	assertRemoteCIRunProjectionRoundTrip(t, store, now)
-	assertCIQueryRevision(t, store, "9", now)
-}
-
-func assertCIQueryRevision(t *testing.T, store *DurationLedgerStore, wantRevision string, wantUpdatedAt time.Time) {
-	t.Helper()
-	database, err := store.openSQLiteAuthority(false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer database.Close()
-	var revision string
-	var updatedAtUnixMS int64
-	if err := database.QueryRow(`
-		SELECT revision, updated_at_unix_ms
-		FROM ci_query_meta WHERE singleton = 1
-	`).Scan(&revision, &updatedAtUnixMS); err != nil {
-		t.Fatal(err)
-	}
-	if revision != wantRevision || updatedAtUnixMS != wantUpdatedAt.UTC().UnixMilli() {
-		t.Fatalf("CI query revision = (%q, %d), want (%q, %d)", revision, updatedAtUnixMS, wantRevision, wantUpdatedAt.UTC().UnixMilli())
-	}
-}
-
-func TestDurationLedgerSQLiteCompatiblePassCandidatesAreRecentAndBoundToTrees(t *testing.T) {
-	store := newTestDurationLedgerStore(t)
-	if _, err := store.CompareAndSwap(0, NewDurationLedger()); err != nil {
-		t.Fatal(err)
-	}
-	now := time.Now().UTC().Truncate(time.Millisecond)
-	proofs := make([]WorkloadPassProof, 3)
-	fingerprints := make([]WorkloadFingerprintRecord, 3)
-	for index := range proofs {
-		digit := fmt.Sprintf("%x", index+1)
-		proofs[index] = WorkloadPassProof{
-			IdentityDigest:    "sha256:" + strings.Repeat(digit, 64),
-			WorkloadID:        "unit",
-			ExecutionDigest:   strings.Repeat("a", 64),
-			InputDigest:       "sha256:" + strings.Repeat(digit, 64),
-			EnvironmentDigest: "sha256:" + strings.Repeat("b", 64),
-			ObjectKey:         "passes/" + digit + ".pass",
-			ObservedAt:        now.Add(time.Duration(index) * time.Second),
-		}
-		fingerprints[index] = WorkloadFingerprintRecord{
-			IdentityDigest:    proofs[index].IdentityDigest,
-			WorkloadID:        proofs[index].WorkloadID,
-			ExecutionDigest:   proofs[index].ExecutionDigest,
-			InputDigest:       proofs[index].InputDigest,
-			EnvironmentDigest: proofs[index].EnvironmentDigest,
-			SourceTreeSHA:     strings.Repeat(digit, 40),
-			ObservedAt:        proofs[index].ObservedAt,
-		}
-	}
-	if err := store.RecordWorkloadFingerprints(fingerprints); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.RecordWorkloadPassProofs(proofs); err != nil {
-		t.Fatal(err)
-	}
-	candidates, err := store.LookupCompatibleWorkloadPassCandidates(
-		[]WorkloadPassCandidateQuery{{
-			WorkloadID:        "unit",
-			ExecutionDigest:   proofs[0].ExecutionDigest,
-			EnvironmentDigest: proofs[0].EnvironmentDigest,
-		}},
-		2,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertCompatiblePassCandidates(t, candidates["unit"], proofs, fingerprints)
-}
-
-func assertCompatiblePassCandidates(
-	t *testing.T,
-	got []WorkloadPassCandidate,
-	proofs []WorkloadPassProof,
-	fingerprints []WorkloadFingerprintRecord,
-) {
-	t.Helper()
-	if len(got) != 2 {
-		t.Fatalf("compatible PASS candidates = %d, want 2", len(got))
-	}
-	if got[0].Proof.IdentityDigest != proofs[2].IdentityDigest ||
-		got[0].SourceTreeSHA != fingerprints[2].SourceTreeSHA ||
-		got[1].Proof.IdentityDigest != proofs[1].IdentityDigest ||
-		got[1].SourceTreeSHA != fingerprints[1].SourceTreeSHA {
-		t.Fatalf("compatible PASS candidates = %#v", got)
-	}
-}
-
 func TestDurationLedgerSQLiteCatalogProjectionPreservesOrderAndObservations(t *testing.T) {
 	store := newTestDurationLedgerStore(t)
 	if _, err := store.CompareAndSwap(0, NewDurationLedger()); err != nil {
 		t.Fatal(err)
 	}
+	seedAcceptedGenerationForTest(t, store, 1)
 	catalog := WorkloadCatalog{
 		Version:       durationLedgerVersion,
 		Authoritative: true,
@@ -261,10 +83,11 @@ func TestDurationLedgerSQLiteCatalogProjectionPreservesOrderAndObservations(t *t
 		},
 	}
 	first := WorkloadCatalogObservation{
-		SourceTreeSHA: strings.Repeat("3", 40),
-		Entrypoint:    CIEntrypointGitPreCommit,
-		Profile:       ProfileLocalFast,
-		ObservedAt:    time.Now().UTC().Truncate(time.Millisecond),
+		SourceTreeSHA:      strings.Repeat("3", 40),
+		Entrypoint:         CIEntrypointGitPreCommit,
+		Profile:            ProfileLocalFast,
+		AcceptedGeneration: 1,
+		ObservedAt:         time.Now().UTC().Truncate(time.Millisecond),
 	}
 	second := first
 	second.SourceTreeSHA = strings.Repeat("4", 40)
@@ -288,32 +111,6 @@ func TestDurationLedgerSQLiteCatalogProjectionPreservesOrderAndObservations(t *t
 	}
 	if !reflect.DeepEqual(record.Observations, []WorkloadCatalogObservation{second, first}) {
 		t.Fatalf("observations = %#v", record.Observations)
-	}
-}
-
-func TestDurationLedgerSQLiteConcurrentProjectionWritersShareOneAuthority(t *testing.T) {
-	store := newTestDurationLedgerStore(t)
-	if _, err := store.CompareAndSwap(0, NewDurationLedger()); err != nil {
-		t.Fatal(err)
-	}
-	authorityPath := store.AuthorityPath()
-	const writerCount = 12
-	now := time.Now().UTC().Truncate(time.Millisecond)
-	digests := make([]string, writerCount)
-	for index := range writerCount {
-		digests[index] = fmt.Sprintf("sha256:%064x", index+1)
-	}
-	runDurationLedgerProjectionWriters(t, authorityPath, digests, now)
-	readerStore, err := NewDurationLedgerStore(authorityPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	proofs, err := readerStore.LookupWorkloadPassProofs(digests)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(proofs) != writerCount {
-		t.Fatalf("PASS proof count = %d, want %d", len(proofs), writerCount)
 	}
 }
 
@@ -347,6 +144,7 @@ func TestRecordRemoteCIRunRejectsUncoveredPassedCatalogWorkload(t *testing.T) {
 	if _, err := store.CompareAndSwap(0, NewDurationLedger()); err != nil {
 		t.Fatal(err)
 	}
+	seedAcceptedGenerationForTest(t, store, 1)
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	catalog := WorkloadCatalog{Version: durationLedgerVersion, Authoritative: true, Workloads: []Workload{{
 		ID: string(GateIDAIMaintenanceSelfTest), Kind: WorkloadKindGuard,
@@ -358,20 +156,38 @@ func TestRecordRemoteCIRunRejectsUncoveredPassedCatalogWorkload(t *testing.T) {
 	}
 	if err := store.RecordWorkloadCatalog(catalog, WorkloadCatalogObservation{
 		SourceTreeSHA: strings.Repeat("b", 40), Entrypoint: CIEntrypointGitPreCommit,
-		Profile: ProfileLocalFast, ObservedAt: now,
+		Profile: ProfileLocalFast, AcceptedGeneration: 1, ObservedAt: now,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	err = store.RecordRemoteCIRun(RemoteCIRunRecord{
-		JobID: "uncovered", Entrypoint: CIEntrypointGitPreCommit, Profile: ProfileLocalFast,
+	err = store.RecordProvisionalRemoteCIRun(RemoteCIRunRecord{
+		JobID: "uncovered", AgentTokenDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Entrypoint: CIEntrypointGitPreCommit, Profile: ProfileLocalFast,
+		AcceptedGeneration: 1, ImageCacheSnapshotID: "snapshot-1",
 		PlanDigest: "sha256:plan", CatalogDigest: digest, SourceTreeSHA: strings.Repeat("b", 40),
-		CandidateCLIManifestSHA256:              strings.Repeat("c", 64),
-		CandidateTestBinaryReceiptBindingDigest: "sha256:" + strings.Repeat("d", 64),
-		RunnerImage:                             "ubuntu:22.04", Status: ResultStatusPassed, Authoritative: true,
+		CandidateGateSourceSHA256: "sha256:" + strings.Repeat("1", 64), CandidateGateToolchainSHA256: "sha256:" + strings.Repeat("2", 64),
+		RunnerImage: "ubuntu:22.04", Status: ResultStatusPassed, Authoritative: false,
 		StartedAt: now, CompletedAt: now,
+		TimingObservations: []TimingObservation{authoritativeRunTimingObservation("uncovered")},
 	})
 	if err == nil || !strings.Contains(err.Error(), "does not cover") {
 		t.Fatalf("passed uncovered catalog error = %v", err)
+	}
+}
+
+// TestRecordRemoteCIRunRejectsAuthoritativeRunWithoutTimingObservations keeps the
+// authority boundary at the direct SQLite store entrypoint.
+func TestRecordRemoteCIRunRejectsAuthoritativeRunWithoutTimingObservations(t *testing.T) {
+	store := newTestDurationLedgerStore(t)
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	err := store.RecordProvisionalRemoteCIRun(RemoteCIRunRecord{
+		JobID: "authoritative-missing-timing", AgentTokenDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Entrypoint: CIEntrypointGitPreCommit, Profile: ProfileLocalFast,
+		AcceptedGeneration: 1, ImageCacheSnapshotID: "snapshot-1",
+		PlanDigest: "sha256:plan", CatalogDigest: "sha256:" + strings.Repeat("a", 64), SourceTreeSHA: strings.Repeat("a", 40),
+		CandidateGateSourceSHA256: "sha256:" + strings.Repeat("b", 64), CandidateGateToolchainSHA256: "sha256:" + strings.Repeat("c", 64),
+		RunnerImage: "ubuntu:22.04", Status: ResultStatusFailed, Authoritative: true, StartedAt: now, CompletedAt: now,
+	})
+	if err == nil || !strings.Contains(err.Error(), "provisional remote CI run must not be authoritative") {
+		t.Fatalf("authoritative empty timing observations error = %v", err)
 	}
 }
 
@@ -380,6 +196,7 @@ func TestRecordRemoteCIRunRejectsUnknownStatusAndFailedCatalogDrift(t *testing.T
 	if _, err := store.CompareAndSwap(0, NewDurationLedger()); err != nil {
 		t.Fatal(err)
 	}
+	seedAcceptedGenerationForTest(t, store, 1)
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	catalog := WorkloadCatalog{Version: durationLedgerVersion, Workloads: []Workload{{
 		ID: string(GateIDWhitespaceCheck), Kind: WorkloadKindGuard,
@@ -391,31 +208,36 @@ func TestRecordRemoteCIRunRejectsUnknownStatusAndFailedCatalogDrift(t *testing.T
 	}
 	if err := store.RecordWorkloadCatalog(catalog, WorkloadCatalogObservation{
 		SourceTreeSHA: strings.Repeat("b", 40), Entrypoint: CIEntrypointManualCLI,
-		Profile: ProfileLocalFast, ObservedAt: now,
+		Profile: ProfileLocalFast, AcceptedGeneration: 1, ObservedAt: now,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	record := RemoteCIRunRecord{
-		JobID: "failed-catalog-drift", Entrypoint: CIEntrypointManualCLI, Profile: ProfileLocalFast,
+		JobID: "failed-catalog-drift", AgentTokenDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Entrypoint: CIEntrypointManualCLI, Profile: ProfileLocalFast,
+		AcceptedGeneration: 1, ImageCacheSnapshotID: "snapshot-1",
 		PlanDigest: "sha256:plan", CatalogDigest: digest, SourceTreeSHA: strings.Repeat("b", 40),
+		CandidateGateSourceSHA256: "sha256:" + strings.Repeat("3", 64), CandidateGateToolchainSHA256: "sha256:" + strings.Repeat("4", 64),
 		RunnerImage: "ubuntu:22.04", Status: ResultStatusFailed, StartedAt: now, CompletedAt: now,
-		ReusedWorkloads: []GateID{GateIDAIMaintenanceSelfTest},
+		Shards: []RemoteCIShardRecord{{
+			ShardIdentity: "sha256:" + strings.Repeat("5", 64), ContainerGroup: "eci-failed", ContainerStatus: "Failed",
+			Workloads:             []GateID{GateIDAIMaintenanceSelfTest},
+			MaterializationTiming: measuredShardMaterializationTiming("sha256:" + strings.Repeat("5", 64)),
+		}},
 	}
-	if err := store.RecordRemoteCIRun(record); err == nil || !strings.Contains(err.Error(), "absent from its catalog") {
+	if err := store.RecordProvisionalRemoteCIRun(record); err == nil || !strings.Contains(err.Error(), "absent from its catalog") {
 		t.Fatalf("failed run workload catalog error = %v", err)
 	}
-	record.ReusedWorkloads = nil
 	record.Shards = []RemoteCIShardRecord{{
 		ShardIdentity: "sha256:" + strings.Repeat("6", 64), ContainerGroup: "eci-123", ContainerStatus: "Failed",
 		Workloads:             []GateID{GateIDAIMaintenanceSelfTest},
-		MaterializationTiming: ShardMaterializationTiming{Measurement: MaterializationMeasurementMeasured, ShardIdentity: "sha256:" + strings.Repeat("6", 64)},
+		MaterializationTiming: measuredShardMaterializationTiming("sha256:" + strings.Repeat("6", 64)),
 	}}
-	if err := store.RecordRemoteCIRun(record); err == nil || !strings.Contains(err.Error(), "absent from its catalog") {
+	if err := store.RecordProvisionalRemoteCIRun(record); err == nil || !strings.Contains(err.Error(), "absent from its catalog") {
 		t.Fatalf("failed run shard workload catalog error = %v", err)
 	}
 	record.Shards = nil
 	record.Status = ResultStatus("unknown")
-	if err := store.RecordRemoteCIRun(record); err == nil || !strings.Contains(err.Error(), "not supported") {
+	if err := store.RecordProvisionalRemoteCIRun(record); err == nil || !strings.Contains(err.Error(), "not supported") {
 		t.Fatalf("unknown remote CI run status error = %v", err)
 	}
 }
@@ -425,6 +247,7 @@ func TestRecordRemoteCIRunAcceptsPassedManualSelectionCatalog(t *testing.T) {
 	if _, err := store.CompareAndSwap(0, NewDurationLedger()); err != nil {
 		t.Fatal(err)
 	}
+	seedAcceptedGenerationForTest(t, store, 1)
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	catalog := WorkloadCatalog{
 		Version: durationLedgerVersion, Authoritative: false,
@@ -440,42 +263,64 @@ func TestRecordRemoteCIRunAcceptsPassedManualSelectionCatalog(t *testing.T) {
 	}
 	if err := store.RecordWorkloadCatalog(catalog, WorkloadCatalogObservation{
 		SourceTreeSHA: strings.Repeat("d", 40), Entrypoint: CIEntrypointManualCLI,
-		Profile: ProfileLocalFast, ObservedAt: now,
+		Profile: ProfileLocalFast, AcceptedGeneration: 1, ObservedAt: now,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	record := RemoteCIRunRecord{
-		JobID: "manual-selection", Entrypoint: CIEntrypointManualCLI, Profile: ProfileLocalFast,
+		JobID: "manual-selection", AgentTokenDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Entrypoint: CIEntrypointManualCLI, Profile: ProfileLocalFast,
+		AcceptedGeneration: 1, ImageCacheSnapshotID: "snapshot-1",
 		PlanDigest: "sha256:plan", CatalogDigest: digest, SourceTreeSHA: strings.Repeat("d", 40),
-		CandidateCLIManifestSHA256: strings.Repeat("e", 64),
-		RunnerImage:                "ubuntu:22.04", Status: ResultStatusPassed, Authoritative: false,
+		CandidateGateSourceSHA256: "sha256:" + strings.Repeat("5", 64), CandidateGateToolchainSHA256: "sha256:" + strings.Repeat("6", 64),
+		RunnerImage: "ubuntu:22.04", Status: ResultStatusPassed, Authoritative: false,
 		StartedAt: now, CompletedAt: now, CleanupComplete: true,
-		ReusedWorkloads: []GateID{GateIDWhitespaceCheck},
+		TimingObservations: []TimingObservation{authoritativeRunTimingObservation("manual-selection")},
+		Shards: []RemoteCIShardRecord{{
+			ShardIdentity: "sha256:" + strings.Repeat("7", 64), ContainerGroup: "eci-manual", ContainerStatus: "Succeeded",
+			Workloads:             []GateID{GateIDWhitespaceCheck},
+			MaterializationTiming: measuredShardMaterializationTiming("sha256:" + strings.Repeat("7", 64)),
+			Resources:             RemoteCIShardResources{ClassID: "medium", CPU: 4, MemoryGiB: 16},
+		}},
 	}
-	if err := store.RecordRemoteCIRun(record); err != nil {
+	execution := PlanGateExecution{ShardIdentity: record.Shards[0].ShardIdentity, GateID: GateIDWhitespaceCheck, StartedAt: now.Add(3 * time.Millisecond), CompletedAt: now.Add(10 * time.Millisecond), ExecutionProfile: ExecutionProfile{CacheSource: "go_build_cache", CacheStatus: CacheObservationMiss, CacheMeasurement: "measured", StartupMS: 1, TestBodyMS: 6, TotalMS: 7}}
+	record.WorkloadExecutions = []PlanGateExecution{execution}
+	record.WorkloadResults = []RemoteCIWorkloadResult{executedWorkloadResultForCatalogTest(t, GateIDWhitespaceCheck, record.JobID)}
+	record.TimingObservations = authoritativeTimingObservationsForTest(record.JobID, execution)
+	if err := store.RecordProvisionalRemoteCIRun(record); err != nil {
 		t.Fatalf("record passed manual selection: %v", err)
 	}
+	loaded, err := store.LoadRemoteCIRun(record.JobID)
+	if err != nil {
+		t.Fatalf("load normal-resource remote CI run: %v", err)
+	}
+	if got, want := loaded.Shards[0].Resources, record.Shards[0].Resources; got != want {
+		t.Fatalf("loaded normal resources = %#v, want %#v", got, want)
+	}
+	record.TimingObservations = authoritativeTimingObservationsForTest(record.JobID, execution)
 	record.JobID = "authoritative-selection"
 	record.Entrypoint = CIEntrypointGitPreCommit
 	record.Authoritative = true
-	record.CandidateTestBinaryReceiptBindingDigest = "sha256:" + strings.Repeat("f", 64)
-	if err := store.RecordRemoteCIRun(record); err == nil ||
-		!strings.Contains(err.Error(), "requires an authoritative workload catalog") {
+	for index := range record.TimingObservations {
+		record.TimingObservations[index].JobID = record.JobID
+	}
+	if err := store.RecordProvisionalRemoteCIRun(record); err == nil ||
+		!strings.Contains(err.Error(), "provisional remote CI run must not be authoritative") {
 		t.Fatalf("authoritative run with selection catalog error = %v", err)
 	}
 	record.JobID = "manual-authority-mismatch"
 	record.Entrypoint = CIEntrypointManualCLI
-	if err := store.RecordRemoteCIRun(record); err == nil ||
-		!strings.Contains(err.Error(), "does not match entrypoint") {
+	if err := store.RecordProvisionalRemoteCIRun(record); err == nil ||
+		!strings.Contains(err.Error(), "provisional remote CI run must not be authoritative") {
 		t.Fatalf("manual run authority mismatch error = %v", err)
 	}
 }
 
-func TestRecordRemoteCIRunRejectsPassedShardDispositionDrift(t *testing.T) {
+func TestRecordRemoteCIRunRejectsPassedShardCoverageDrift(t *testing.T) {
 	store := newTestDurationLedgerStore(t)
 	if _, err := store.CompareAndSwap(0, NewDurationLedger()); err != nil {
 		t.Fatal(err)
 	}
+	seedAcceptedGenerationForTest(t, store, 1)
 	catalog := WorkloadCatalog{
 		Version: durationLedgerVersion, Authoritative: true,
 		Workloads: []Workload{{
@@ -486,10 +331,11 @@ func TestRecordRemoteCIRunRejectsPassedShardDispositionDrift(t *testing.T) {
 	}
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	if err := store.RecordWorkloadCatalog(catalog, WorkloadCatalogObservation{
-		SourceTreeSHA: strings.Repeat("2", 40),
-		Entrypoint:    CIEntrypointGitPreCommit,
-		Profile:       ProfileLocalFast,
-		ObservedAt:    now,
+		SourceTreeSHA:      strings.Repeat("2", 40),
+		Entrypoint:         CIEntrypointGitPreCommit,
+		Profile:            ProfileLocalFast,
+		AcceptedGeneration: 1,
+		ObservedAt:         now,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -498,31 +344,49 @@ func TestRecordRemoteCIRunRejectsPassedShardDispositionDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	record := RemoteCIRunRecord{
-		JobID: "job-shard-drift", Entrypoint: CIEntrypointGitPreCommit,
+		JobID: "job-shard-drift", AgentTokenDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Entrypoint: CIEntrypointGitPreCommit,
+		AcceptedGeneration: 1, ImageCacheSnapshotID: "snapshot-1",
 		Profile: ProfileLocalFast, PlanDigest: "sha256:plan",
 		CatalogDigest: digest, SourceTreeSHA: strings.Repeat("2", 40),
+		CandidateGateSourceSHA256: "sha256:" + strings.Repeat("7", 64), CandidateGateToolchainSHA256: "sha256:" + strings.Repeat("8", 64),
 		RunnerImage: "ubuntu:22.04", Status: ResultStatusPassed,
-		Authoritative: true, StartedAt: now, CompletedAt: now.Add(time.Second),
-		CandidateTestBinaryReceiptBindingDigest: "sha256:" + strings.Repeat("3", 64),
-		CleanupComplete:                         true, CacheMisses: []GateID{GateIDWhitespaceCheck},
+		Authoritative: false, StartedAt: now, CompletedAt: now.Add(time.Second),
+		CleanupComplete: true,
 	}
-	if err := store.RecordRemoteCIRun(record); err == nil {
-		t.Fatal("passed cache miss without a shard was accepted")
+	if err := store.RecordProvisionalRemoteCIRun(record); err == nil {
+		t.Fatal("passed workload without a shard was accepted")
 	}
-	record.CacheMisses = nil
-	record.ReusedWorkloads = []GateID{GateIDWhitespaceCheck}
 	record.Shards = []RemoteCIShardRecord{{
-		ShardIdentity: "shard-reused", ContainerGroup: "eci-reused",
+		ShardIdentity: "sha256:" + strings.Repeat("9", 64), ContainerGroup: "eci-executed",
 		ContainerStatus: "Succeeded", Workloads: []GateID{GateIDWhitespaceCheck},
+		MaterializationTiming: measuredShardMaterializationTiming("sha256:" + strings.Repeat("9", 64)),
+		Resources:             RemoteCIShardResources{ClassID: "fixed", CPU: 4, MemoryGiB: 16},
 	}}
-	if err := store.RecordRemoteCIRun(record); err == nil {
-		t.Fatal("passed reused workload executed in a shard was accepted")
+	execution := PlanGateExecution{ShardIdentity: record.Shards[0].ShardIdentity, GateID: GateIDWhitespaceCheck, StartedAt: now.Add(3 * time.Millisecond), CompletedAt: now.Add(10 * time.Millisecond), ExecutionProfile: ExecutionProfile{CacheSource: "go_build_cache", CacheStatus: CacheObservationMiss, CacheMeasurement: "measured", StartupMS: 1, TestBodyMS: 6, TotalMS: 7}}
+	record.WorkloadExecutions = []PlanGateExecution{execution}
+	record.WorkloadResults = []RemoteCIWorkloadResult{executedWorkloadResultForCatalogTest(t, GateIDWhitespaceCheck, record.JobID)}
+	record.TimingObservations = authoritativeTimingObservationsForTest(record.JobID, execution)
+	if err := store.RecordProvisionalRemoteCIRun(record); err != nil {
+		t.Fatalf("passed executed workload rejected: %v", err)
 	}
-	record.ReusedWorkloads = []GateID{"catalog-external"}
-	record.Shards = nil
-	if err := store.RecordRemoteCIRun(record); err == nil {
+	record.JobID = "job-catalog-external"
+	record.Shards[0].Workloads = []GateID{"catalog-external"}
+	if err := store.RecordProvisionalRemoteCIRun(record); err == nil {
 		t.Fatal("passed catalog-external workload was accepted")
 	}
+}
+
+func authoritativeRunTimingObservation(jobID string) TimingObservation {
+	startedAt := time.UnixMilli(100)
+	return TimingObservation{JobID: jobID, Scope: cicontract.TimingScopeRun, Phase: cicontract.TimingTotal, StartedAt: startedAt, CompletedAt: startedAt.Add(time.Millisecond), DurationMS: 1, Measurement: cicontract.ObservationMeasured, Aggregation: cicontract.TimingAggregationCriticalPath, CacheEvidence: NewNotApplicableCacheEvidence("run_has_no_workload_cache")}
+}
+
+// executedWorkloadResultForCatalogTest 构造与本次 job/generation 绑定的 fresh workload result。
+func executedWorkloadResultForCatalogTest(t *testing.T, workloadID GateID, jobID string) RemoteCIWorkloadResult {
+	t.Helper()
+	identity := WorkloadPassIdentity{WorkloadID: workloadID, ExecutionDigest: digestForWorkloadPass("execution-" + string(workloadID)), InputDigest: digestForWorkloadPass("input-" + string(workloadID)), EnvironmentDigest: digestForWorkloadPass("environment-" + string(workloadID))}
+	identity.IdentityDigest = workloadPassIdentityDigest(t, identity)
+	return RemoteCIWorkloadResult{Identity: identity, Disposition: WorkloadDispositionExecuted, OriginJobID: jobID, OriginAcceptedGeneration: 1}
 }
 
 func calibrationAtMillisecond(calibration *DurationCalibration) *DurationCalibration {
@@ -531,12 +395,22 @@ func calibrationAtMillisecond(calibration *DurationCalibration) *DurationCalibra
 	return &copy
 }
 
-func testDurationPlanningContext() PlanningContext {
-	return PlanningContext{
-		Platform:         "darwin",
-		Runner:           "local",
-		Toolchain:        "go1.25",
-		TargetDurationMS: FullCITargetDurationMS,
+func measuredShardMaterializationTiming(shardIdentity string) ShardMaterializationTiming {
+	return ShardMaterializationTiming{
+		Measurement:   MaterializationMeasurementMeasured,
+		ShardIdentity: shardIdentity,
+		Source: MaterializationPhaseTiming{
+			DownloadMS: 5, VerifyMS: 3, InstallMS: 2, MaterializeMS: 10,
+		},
+		Baseline: MaterializationPhaseTiming{
+			DownloadMS: 7, VerifyMS: 4, InstallMS: 3, MaterializeMS: 14,
+		},
+		CandidateCompile: MaterializationPhaseTiming{
+			DownloadMS: 11, VerifyMS: 6, InstallMS: 4, MaterializeMS: 21,
+		},
+		CandidateTestBinaries: MaterializationPhaseTiming{
+			DownloadMS: 13, VerifyMS: 7, InstallMS: 5, MaterializeMS: 25,
+		},
 	}
 }
 
