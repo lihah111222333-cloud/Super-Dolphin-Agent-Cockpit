@@ -6,11 +6,13 @@ import (
 	"go/ast"
 	"go/token"
 	"strings"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
 const (
 	workerExecutionContractSchemaVersion = 3
-	workerExecutionPlatform              = "linux/amd64"
+	workerExecutionPlatform              = cicontract.TargetPlatform
 )
 
 type workerExecutionRoot struct {
@@ -20,7 +22,7 @@ type workerExecutionRoot struct {
 
 // workerExecutionRoots are process boundaries, not source-file registrations.
 // Every production declaration reachable from these roots is derived from the
-// linux/amd64 Git tree below.
+// cicontract.TargetPlatform Git tree below.
 var workerExecutionRoots = []workerExecutionRoot{
 	{directory: "cmd/super-dolphin-gate", symbol: "runRemoteMaterialize"},
 	{directory: "cmd/super-dolphin-gate", symbol: "runWorkerCLI"},

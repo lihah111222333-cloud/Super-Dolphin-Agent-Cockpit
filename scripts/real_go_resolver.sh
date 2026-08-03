@@ -55,6 +55,15 @@ real_go_resolver_required_version() {
   ' "$root_dir/go.mod"
 }
 
+real_go_resolver_validate_macos_distribution() {
+  [[ "$(/usr/bin/uname -s)" == "Darwin" ]] || return 0
+  local scripts_dir
+  scripts_dir="$(real_go_resolver_script_dir)"
+  # shellcheck source=go_distribution_lock.sh
+  source "$scripts_dir/go_distribution_lock.sh"
+  go_distribution_current_macos_asset >/dev/null
+}
+
 real_go_resolver_probe() {
   local candidate="$1" required_version="$2" output version
   output="$(
@@ -75,9 +84,8 @@ require_remote_test_execution() {
   cat >&2 <<'EOF_MSG'
 ❌ 禁止在宿主机直接执行仓库测试
 
-所有测试请求必须先经过 super-dolphin-gate test 的共享 PASS 缓存与轻量判定。
-包级、race、benchmark、Vitest、未知耗时或多个 cache miss 会自动进入 ECI；
-宿主机只允许 CLI 放行的单个精确轻量 Go Test。
+所有测试请求必须经过 super-dolphin-gate test，并由远程 ECI coordinator 执行。
+共享依赖与编译缓存只能加速执行；每次测试仍必须由 coordinator 实际执行。
 EOF_MSG
   return 2
 }
@@ -88,6 +96,9 @@ resolve_real_go() {
   required_version="$(real_go_resolver_required_version)"
   if [[ -z "$required_version" ]]; then
     echo "❌ 无法从仓库 go.mod 解析精确 Go 版本" >&2
+    return 1
+  fi
+  if ! real_go_resolver_validate_macos_distribution; then
     return 1
   fi
   wrapper_go="$scripts_dir/go"

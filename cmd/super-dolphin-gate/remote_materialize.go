@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
@@ -24,27 +25,28 @@ import (
 )
 
 const (
-	remoteWorkerRoleEnv      = "SUPER_DOLPHIN_REMOTE_WORKER_ROLE"
-	remoteOSSEndpointEnv     = "SUPER_DOLPHIN_REMOTE_OSS_ENDPOINT"
-	remoteOSSBucketEnv       = "SUPER_DOLPHIN_REMOTE_OSS_BUCKET"
-	remoteRequestKeyEnv      = "SUPER_DOLPHIN_REMOTE_REQUEST_KEY"
-	remoteRequestSHA256Env   = "SUPER_DOLPHIN_REMOTE_REQUEST_SHA256"
-	remoteRequestMaxBytes    = 64 << 10
-	remoteManifestMaxBytes   = 1 << 20
-	remoteSourcePatchMaxSize = 1 << 30
-	remoteExpandedBasePath   = "/opt/super-dolphin-gate"
-	remoteExecutorUID        = 65532
-	remoteExecutorGID        = 65532
-	remoteMaterializeTimeout = 45 * time.Minute
+	remoteWorkerRoleEnv       = "SUPER_DOLPHIN_REMOTE_WORKER_ROLE"
+	remoteOSSEndpointEnv      = "SUPER_DOLPHIN_REMOTE_OSS_ENDPOINT"
+	remoteOSSBucketEnv        = "SUPER_DOLPHIN_REMOTE_OSS_BUCKET"
+	remoteRequestKeyEnv       = "SUPER_DOLPHIN_REMOTE_REQUEST_KEY"
+	remoteRequestSHA256Env    = "SUPER_DOLPHIN_REMOTE_REQUEST_SHA256"
+	remoteAgentTokenDigestEnv = gatecontract.ExecutorAgentTokenDigestEnvironment
+	remoteRequestMaxBytes     = 64 << 10
+	remoteManifestMaxBytes    = 1 << 20
+	remoteSourcePatchMaxSize  = 1 << 30
+	remoteExecutorUID         = 65532
+	remoteExecutorGID         = 65532
+	remoteMaterializeTimeout  = 45 * time.Minute
 )
 
 type remoteMaterializeConfig struct {
-	RoleName      string
-	Endpoint      string
-	Bucket        string
-	RequestKey    string
-	RequestSHA256 string
-	CAFile        string
+	RoleName         string
+	Endpoint         string
+	Bucket           string
+	RequestKey       string
+	RequestSHA256    string
+	AgentTokenDigest string
+	CAFile           string
 }
 
 type remoteObjectDownload func(context.Context, string, int64, io.Writer) (int64, error)
@@ -75,7 +77,6 @@ func runRemoteMaterialize(args []string, stdout io.Writer) error {
 	request, timing, err := materializeRemoteSourceWithTiming(
 		ctx,
 		config,
-		remoteExpandedBasePath,
 		gatecontract.ExecutorSourcePath,
 		gatecontract.ExecutorWorkRoot,
 		download,
@@ -106,7 +107,8 @@ func loadRemoteMaterializeConfig(getenv func(string) (string, bool)) (remoteMate
 	config := remoteMaterializeConfig{
 		RoleName: values[remoteWorkerRoleEnv], Endpoint: values[remoteOSSEndpointEnv],
 		Bucket: values[remoteOSSBucketEnv], RequestKey: values[remoteRequestKeyEnv],
-		RequestSHA256: values[remoteRequestSHA256Env],
+		RequestSHA256:    values[remoteRequestSHA256Env],
+		AgentTokenDigest: values[remoteAgentTokenDigestEnv],
 	}
 	if err := validateRemoteMaterializeConfig(config); err != nil {
 		return remoteMaterializeConfig{}, err
@@ -123,14 +125,13 @@ func verifyRemoteOCIProjectCache(request remoteci.ShardRequest) error {
 	return verifyRemoteOCIProjectCacheAtPath(request, request.OCIProjectCache.CachePath)
 }
 
-// verifyRemoteOCIProjectCacheAtPath is split for filesystem-isolated tests; the
-// production caller always supplies the fixed path carried by the request.
+// verifyRemoteOCIProjectCacheAtPath 校验分片请求声明的 OCI 项目缓存路径，供隔离文件系统测试注入路径。
 func verifyRemoteOCIProjectCacheAtPath(request remoteci.ShardRequest, cachePath string) error {
 	cache := request.OCIProjectCache
 	if cache == nil {
 		return errors.New("remote OCI project cache is required")
 	}
-	if err := cache.ValidateForBaseline(request.RunnerBaseTree, request.BaselineToolchainDigest, "linux/amd64", request.BaselineRuntimeImage); err != nil {
+	if err := cache.ValidateForBaseline(request.RunnerBaseTree, request.BaselineToolchainDigest, cicontract.TargetPlatform, request.BaselineRuntimeImage); err != nil {
 		return err
 	}
 	info, err := os.Lstat(cachePath)
@@ -151,6 +152,7 @@ func loadRequiredRemoteMaterializeValues(getenv func(string) (string, bool)) (ma
 		remoteOSSBucketEnv,
 		remoteRequestKeyEnv,
 		remoteRequestSHA256Env,
+		remoteAgentTokenDigestEnv,
 	}
 	values := make(map[string]string, len(names))
 	for _, name := range names {
@@ -171,6 +173,9 @@ func validateRemoteMaterializeConfig(config remoteMaterializeConfig) error {
 	if _, err := hex.DecodeString(config.RequestSHA256); err != nil || strings.ToLower(config.RequestSHA256) != config.RequestSHA256 {
 		return errors.New("remote request SHA-256 is invalid")
 	}
+	if err := cicontract.ValidateAgentTokenDigest(config.AgentTokenDigest); err != nil {
+		return fmt.Errorf("remote agent token digest: %w", err)
+	}
 	return nil
 }
 
@@ -181,11 +186,10 @@ func validRemoteRequestObjectKey(key string) bool {
 		strings.HasSuffix(key, ".request.json")
 }
 
-// materializeRemoteSourceWithTiming records init-container wall time without assigning it to gates.
+// materializeRemoteSourceWithTiming 校验、暂存并安装远程分片源码，同时记录基线缓存和源码物化阶段的耗时。
 func materializeRemoteSourceWithTiming(
 	ctx context.Context,
 	config remoteMaterializeConfig,
-	expandedRoot string,
 	sourceRoot string,
 	workRoot string,
 	download remoteObjectDownload,
@@ -199,12 +203,15 @@ func materializeRemoteSourceWithTiming(
 		return remoteci.ShardRequest{}, timing, err
 	}
 	timing.ShardIdentity = request.ShardIdentity
-	baselineStarted := time.Now()
+	baselineStarted := time.Now().UTC().UnixMilli()
 	if err := verifyRemoteOCIProjectCache(request); err != nil {
 		return remoteci.ShardRequest{}, timing, err
 	}
-	timing.Baseline.MaterializeMS = time.Since(baselineStarted).Milliseconds()
-	sourceStarted := time.Now()
+	baselineCompleted := time.Now().UTC().UnixMilli()
+	if baselineCompleted > baselineStarted {
+		timing.Baseline = gatecontract.MaterializationPhaseTiming{StartedAtUnixMS: baselineStarted, CompletedAtUnixMS: baselineCompleted, MaterializeMS: baselineCompleted - baselineStarted}
+	}
+	sourceStarted := time.Now().UTC().UnixMilli()
 	downloadStarted := time.Now()
 	tempRoot, manifestPath, patchPath, err := stageRemoteSourceObjects(ctx, workRoot, request, download)
 	if err != nil {
@@ -217,16 +224,6 @@ func materializeRemoteSourceWithTiming(
 		return remoteci.ShardRequest{}, timing, err
 	}
 	timing.Source.VerifyMS = time.Since(verifyStarted).Milliseconds()
-	cliStarted := time.Now()
-	if _, err := materializeRemoteCandidateCLIArtifact(ctx, expandedRoot, request.CandidateCLI.ManifestKey, request.CandidateCLI.ManifestSHA256, request.CandidateCLI.CandidateTree, request.CandidateCLI.SourceSHA256, request.CandidateCLI.ToolchainSHA256, download); err != nil {
-		return remoteci.ShardRequest{}, timing, fmt.Errorf("materialize remote candidate CLI artifact: %w", err)
-	}
-	timing.CandidateCLI.MaterializeMS = time.Since(cliStarted).Milliseconds()
-	testBinariesStarted := time.Now()
-	if _, err := materializeRemoteCandidateTestBinaries(ctx, expandedRoot, request.SourceTreeSHA, request.CandidateTestBinaries, download); err != nil {
-		return remoteci.ShardRequest{}, timing, fmt.Errorf("materialize remote candidate test binaries: %w", err)
-	}
-	timing.CandidateTestBinaries.MaterializeMS = time.Since(testBinariesStarted).Milliseconds()
 	if err := os.RemoveAll(tempRoot); err != nil {
 		return remoteci.ShardRequest{}, timing, fmt.Errorf("remove remote materialize staging root: %w", err)
 	}
@@ -236,7 +233,10 @@ func materializeRemoteSourceWithTiming(
 		return remoteci.ShardRequest{}, timing, err
 	}
 	timing.Source.InstallMS = time.Since(installStarted).Milliseconds()
-	timing.Source.MaterializeMS = time.Since(sourceStarted).Milliseconds()
+	sourceCompleted := time.Now().UTC().UnixMilli()
+	timing.Source.MaterializeMS = sourceCompleted - sourceStarted
+	timing.Source.StartedAtUnixMS = sourceStarted
+	timing.Source.CompletedAtUnixMS = sourceCompleted
 	if err := timing.Validate(); err != nil {
 		return remoteci.ShardRequest{}, timing, fmt.Errorf("validate remote materialization timing: %w", err)
 	}
@@ -251,6 +251,21 @@ func verifyRemoteMaterializedSource(ctx context.Context, sourceRoot string, mani
 	}
 	if manifest.BaseCommit != request.RunnerBaseCommit || manifest.BaseTree != request.RunnerBaseTree || manifest.TargetTree != request.SourceTreeSHA || manifest.PatchFormat != request.PatchFormat || manifest.PatchSHA256 != request.PatchSHA256 || manifest.PatchSize != request.PatchSize {
 		return errors.New("remote source manifest does not match shard request")
+	}
+	if err := verifyRemoteMaterializedGateCLICompileClosure(ctx, sourceRoot, request); err != nil {
+		return err
+	}
+	return nil
+}
+
+// verifyRemoteMaterializedGateCLICompileClosure binds the init build to the exact patched candidate tree.
+func verifyRemoteMaterializedGateCLICompileClosure(ctx context.Context, sourceRoot string, request remoteci.ShardRequest) error {
+	sourceDigest, toolchainDigest, _, err := remoteci.LoadGateCLICompileClosure(ctx, sourceRoot, request.SourceTreeSHA)
+	if err != nil {
+		return fmt.Errorf("resolve materialized gate CLI compile closure: %w", err)
+	}
+	if sourceDigest != request.CandidateGateSourceSHA256 || toolchainDigest != request.CandidateGateToolchainSHA256 {
+		return errors.New("materialized gate CLI compile closure does not match shard request")
 	}
 	return nil
 }
@@ -270,6 +285,9 @@ func loadRemoteShardRequest(ctx context.Context, config remoteMaterializeConfig,
 	}
 	if path.Dir(config.RequestKey) != path.Dir(request.PatchKey) {
 		return remoteci.ShardRequest{}, errors.New("remote shard request object directory does not match source objects")
+	}
+	if request.AgentTokenDigest != config.AgentTokenDigest {
+		return remoteci.ShardRequest{}, errors.New("remote shard request agent token digest does not match init environment")
 	}
 	return request, nil
 }

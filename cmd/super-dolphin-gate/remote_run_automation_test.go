@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,7 +16,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func TestRemoteRunnerIdentityDigestIgnoresSourceOnlyBaselineRefresh(t *testing.T) {
+func TestRemoteRunnerIdentityDigestIgnoresSourceCacheAndRuntimeImageRefresh(t *testing.T) {
 	state := remoteRunRunnerIdentityState()
 	digest := remoteRunRunnerIdentity(state)
 	refreshed := state
@@ -25,23 +27,28 @@ func TestRemoteRunnerIdentityDigestIgnoresSourceOnlyBaselineRefresh(t *testing.T
 	refreshed.CreatedAt = time.Now().UTC()
 	refreshed.AcceptedAt = refreshed.CreatedAt.Add(time.Minute)
 	refreshed.GateBinarySHA256 = "sha256:" + strings.Repeat("5", 64)
-	refreshed.RuntimeSeedSHA256 = "sha256:" + strings.Repeat("6", 64)
+	refreshed.RuntimeImage = "registry.example/runtime@sha256:" + strings.Repeat("6", 64)
+	refreshed.ImageCacheID = "cache-source-refresh"
+	refreshed.ImageCacheSnapshotID = "snapshot-source-refresh"
 	if got := remoteRunRunnerIdentity(refreshed); got != digest {
-		t.Fatalf("source-only refresh changed runner digest: got %q, want %q", got, digest)
+		t.Fatalf("source/cache-only refresh changed runner digest: got %q, want %q", got, digest)
 	}
 }
 
 func TestRemoteRunnerIdentityDigestChangesWithRunnerInputs(t *testing.T) {
 	state := remoteRunRunnerIdentityState()
 	wantDifferent := map[string]func(*remoteci.BaselineState){
-		"runtime image": func(value *remoteci.BaselineState) {
-			value.RuntimeImage = "registry.example/runtime@sha256:" + strings.Repeat("2", 64)
+		"platform": func(value *remoteci.BaselineState) {
+			value.Platform = "linux/arm64"
 		},
 		"policy": func(value *remoteci.BaselineState) {
 			value.PolicyDigest = "sha256:" + strings.Repeat("3", 64)
 		},
 		"toolchain": func(value *remoteci.BaselineState) {
 			value.ToolchainDigest = "sha256:" + strings.Repeat("4", 64)
+		},
+		"runtime seed": func(value *remoteci.BaselineState) {
+			value.RuntimeSeedSHA256 = "sha256:" + strings.Repeat("5", 64)
 		},
 	}
 	workerDigest := "sha256:" + strings.Repeat("f", 64)
@@ -77,7 +84,14 @@ func TestRemoteDurationCalibrationMatchesStableRunnerAcrossSourceRefresh(t *test
 	}
 }
 
-func TestEnsureRemoteDurationCalibrationSingleFlightsConcurrentAgents(t *testing.T) {
+func TestEnsureRemoteDurationCalibrationConcurrentAgentsDoNotUseFileAdmission(t *testing.T) {
+	options, state, runnerIdentity := automaticCalibrationConcurrencyFixture(t)
+	started, release, calls, run := concurrentAutomaticCalibrationRun(t, options, state)
+	group := startAutomaticCalibrationCalls(options, state, runnerIdentity, run)
+	assertAutomaticCalibrationRunsOverlap(t, started, release, calls, group)
+}
+
+func automaticCalibrationConcurrencyFixture(t *testing.T) (remoteRunOptions, remoteci.BaselineState, string) {
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -89,23 +103,28 @@ func TestEnsureRemoteDurationCalibrationSingleFlightsConcurrentAgents(t *testing
 	state := remoteRunRunnerIdentityState()
 	state.MainCommit = strings.Repeat("a", 40)
 	runnerIdentity := remoteRunRunnerIdentity(state)
-	options := remoteRunOptions{Scenario: "commit", LedgerPath: ledgerPath}
+	return remoteRunOptions{Scenario: "commit", LedgerPath: ledgerPath}, state, runnerIdentity
+}
+
+func concurrentAutomaticCalibrationRun(t *testing.T, options remoteRunOptions, state remoteci.BaselineState) (<-chan struct{}, chan<- struct{}, *atomic.Int32, func(remoteRunOptions) error) {
+	t.Helper()
 	var calls atomic.Int32
+	started := make(chan struct{})
+	release := make(chan struct{})
 	run := func(got remoteRunOptions) error {
-		calls.Add(1)
-		if got.Commit != state.MainCommit || got.LedgerPath != ledgerPath {
+		if calls.Add(1) == 2 {
+			close(started)
+		}
+		if got.Commit != state.MainCommit || got.LedgerPath != options.LedgerPath {
 			return errors.New("automatic calibration options drifted")
 		}
-		store, err := gatecontract.NewDurationLedgerStore(ledgerPath)
-		if err != nil {
-			return err
-		}
-		ledger := gatecontract.NewDurationLedger()
-		calibration := remoteAutomationCalibration(state, runnerIdentity)
-		ledger.Calibration = &calibration
-		_, err = store.CompareAndSwap(0, ledger)
-		return err
+		<-release
+		return nil
 	}
+	return started, release, &calls, run
+}
+
+func startAutomaticCalibrationCalls(options remoteRunOptions, state remoteci.BaselineState, runnerIdentity string, run func(remoteRunOptions) error) *errgroup.Group {
 	start := make(chan struct{})
 	var group errgroup.Group
 	for range 2 {
@@ -115,11 +134,22 @@ func TestEnsureRemoteDurationCalibrationSingleFlightsConcurrentAgents(t *testing
 		})
 	}
 	close(start)
+	return &group
+}
+
+func assertAutomaticCalibrationRunsOverlap(t *testing.T, started <-chan struct{}, release chan<- struct{}, calls *atomic.Int32, group *errgroup.Group) {
+	t.Helper()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("automatic calibration runs were serialized")
+	}
+	close(release)
 	if err := group.Wait(); err != nil {
 		t.Fatalf("ensureRemoteDurationCalibrationWithRun() error = %v", err)
 	}
-	if got := calls.Load(); got != 1 {
-		t.Fatalf("automatic calibration calls = %d, want 1", got)
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("automatic calibration calls = %d, want 2", got)
 	}
 }
 
@@ -288,6 +318,42 @@ func TestPrepareAutomaticRemoteCalibrationLedgerMigratesSameBaselineIdentity(t *
 		snapshot.Ledger.Samples[0].Bucket.Runner != runnerIdentity {
 		t.Fatalf("migrated ledger = %#v", snapshot.Ledger)
 	}
+}
+
+func TestPrepareAutomaticRemoteCalibrationLedgerDoesNotReuseV2RuntimeImageIdentity(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "duration-ledger.sqlite")
+	store, err := gatecontract.NewDurationLedgerStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := remoteRunRunnerIdentityState()
+	v2Identity := historicalV2RemoteRunnerIdentity(state, "sha256:"+strings.Repeat("f", 64))
+	ledger := gatecontract.NewDurationLedger()
+	ledger.Calibration = new(remoteAutomationCalibration(state, v2Identity))
+	ledger.Samples = []gatecontract.DurationSample{{Bucket: gatecontract.DurationBucket{WorkloadID: "guard:fixture", CommandDigest: strings.Repeat("1", 64), Platform: state.Platform, Runner: v2Identity, Toolchain: state.ToolchainDigest}, Succeeded: true, DurationMS: 1234}}
+	if _, err := store.CompareAndSwap(0, ledger); err != nil {
+		t.Fatal(err)
+	}
+	ready, err := prepareAutomaticRemoteCalibrationLedger(path, state, remoteRunRunnerIdentity(state))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ready {
+		t.Fatal("v2 runtime-image calibration was reused")
+	}
+	snapshot, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Ledger.Calibration != nil || snapshot.Ledger.Samples[0].Bucket.Runner != v2Identity {
+		t.Fatalf("v2 identity migration mutated ledger: %#v", snapshot.Ledger)
+	}
+}
+
+func historicalV2RemoteRunnerIdentity(state remoteci.BaselineState, workerExecutionDigest string) string {
+	material := strings.Join([]string{"super-dolphin-gate-runner-identity-v2", state.RuntimeImage, state.PolicyDigest, state.ToolchainDigest, workerExecutionDigest}, "\x00")
+	digest := sha256.Sum256([]byte(material))
+	return fmt.Sprintf("sha256:%x", digest)
 }
 
 func remoteAutomationCalibration(state remoteci.BaselineState, runner string) gatecontract.DurationCalibration {

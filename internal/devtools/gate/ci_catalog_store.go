@@ -4,15 +4,17 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 )
 
 // WorkloadCatalogObservation 绑定一次目录发现与精确 Git tree 和 CI 入口。
 type WorkloadCatalogObservation struct {
-	SourceTreeSHA string
-	Entrypoint    CIEntrypointID
-	Profile       Profile
-	ObservedAt    time.Time
+	SourceTreeSHA      string
+	Entrypoint         CIEntrypointID
+	Profile            Profile
+	AcceptedGeneration uint64
+	ObservedAt         time.Time
 }
 
 // WorkloadCatalogRecord 是内容寻址目录及其历史观测的 SQLite 查询模型。
@@ -40,6 +42,9 @@ func (store *DurationLedgerStore) RecordWorkloadCatalog(
 	}
 	defer database.Close()
 	return withSQLiteWriteTransaction(database, "workload catalog", func(transaction *sql.Tx) error {
+		if err := requireHistoricallyAcceptedGeneration(transaction, observation.AcceptedGeneration); err != nil {
+			return err
+		}
 		inserted, err := insertSQLiteWorkloadCatalog(transaction, digest, catalog, observation.ObservedAt)
 		if err != nil {
 			return err
@@ -53,9 +58,9 @@ func (store *DurationLedgerStore) RecordWorkloadCatalog(
 		}
 		if _, err := transaction.Exec(`
 		INSERT INTO ci_catalog_observations (
-			catalog_digest, source_tree_sha, entrypoint, profile, observed_at_unix_ms
-		) VALUES (?, ?, ?, ?, ?)
-		ON CONFLICT(catalog_digest, source_tree_sha, entrypoint, profile) DO UPDATE SET
+			catalog_digest, source_tree_sha, entrypoint, profile, accepted_generation, observed_at_unix_ms
+		) VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(catalog_digest, source_tree_sha, entrypoint, profile, accepted_generation) DO UPDATE SET
 			observed_at_unix_ms = MAX(
 				ci_catalog_observations.observed_at_unix_ms,
 				excluded.observed_at_unix_ms
@@ -65,11 +70,15 @@ func (store *DurationLedgerStore) RecordWorkloadCatalog(
 			observation.SourceTreeSHA,
 			string(observation.Entrypoint),
 			string(observation.Profile),
+			strconv.FormatUint(observation.AcceptedGeneration, 10),
 			observation.ObservedAt.UTC().UnixMilli(),
 		); err != nil {
 			return mapDurationLedgerSQLiteError("store workload catalog observation", err)
 		}
-		return advanceCIQueryRevision(transaction, observation.ObservedAt.UTC())
+		if err := advanceCIQueryRevision(transaction, observation.ObservedAt.UTC()); err != nil {
+			return err
+		}
+		return compactDurationLedgerAuthority(transaction)
 	})
 }
 
@@ -110,7 +119,7 @@ func validateWorkloadCatalogObservation(
 	if !validCalibrationOID(observation.SourceTreeSHA) {
 		return "", errors.New("workload catalog source tree is invalid")
 	}
-	if observation.Entrypoint == "" || observation.Profile == "" {
+	if observation.Entrypoint == "" || observation.Profile == "" || observation.AcceptedGeneration == 0 {
 		return "", errors.New("workload catalog entrypoint and profile are required")
 	}
 	if observation.ObservedAt.IsZero() {
@@ -293,7 +302,7 @@ func loadSQLiteCatalogObservations(
 	catalogDigest string,
 ) ([]WorkloadCatalogObservation, error) {
 	rows, err := database.Query(`
-		SELECT source_tree_sha, entrypoint, profile, observed_at_unix_ms
+		SELECT source_tree_sha, entrypoint, profile, accepted_generation, observed_at_unix_ms
 		FROM ci_catalog_observations
 		WHERE catalog_digest = ?
 		ORDER BY observed_at_unix_ms DESC, source_tree_sha, entrypoint, profile
@@ -307,18 +316,23 @@ func loadSQLiteCatalogObservations(
 		var (
 			observation         WorkloadCatalogObservation
 			entrypoint, profile string
+			acceptedGeneration  string
 			observedAtMS        int64
 		)
 		if err := rows.Scan(
 			&observation.SourceTreeSHA,
 			&entrypoint,
 			&profile,
+			&acceptedGeneration,
 			&observedAtMS,
 		); err != nil {
 			return nil, mapDurationLedgerSQLiteError("scan workload catalog observation", err)
 		}
 		observation.Entrypoint = CIEntrypointID(entrypoint)
 		observation.Profile = Profile(profile)
+		if observation.AcceptedGeneration, err = strconv.ParseUint(acceptedGeneration, 10, 64); err != nil || observation.AcceptedGeneration == 0 {
+			return nil, fmt.Errorf("stored workload catalog accepted generation is invalid")
+		}
 		observation.ObservedAt = time.UnixMilli(observedAtMS).UTC()
 		observations = append(observations, observation)
 	}

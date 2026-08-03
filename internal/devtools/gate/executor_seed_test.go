@@ -15,15 +15,18 @@ import (
 
 const runtimeProxyFixtureSum = "github.com/kelindar/event v1.5.2 h1:qtgssZqMh/QQMCIxlbx4wU3DoMHOrJXKdiZhphJ4YbY=\n"
 
-func TestDiscoverExecutorGoBuildCacheSeedRootsOrdersGenerationsAndFallsBack(t *testing.T) {
-	legacyRoot := realTempDir(t)
+func TestDiscoverExecutorGoBuildCacheSeedRootsOrdersGenerationsAndRejectsUnavailableRoot(t *testing.T) {
 	missingRoot := filepath.Join(realTempDir(t), "cache-seeds")
-	seedRoots, err := discoverExecutorGoBuildCacheSeedRoots(missingRoot, legacyRoot)
-	if err != nil {
+	if _, err := discoverExecutorGoBuildCacheSeedRoots(missingRoot); err == nil {
+		t.Fatal("discoverExecutorGoBuildCacheSeedRoots accepted missing generation root")
+	}
+
+	emptyRoot := filepath.Join(realTempDir(t), "cache-seeds")
+	if err := os.Mkdir(emptyRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(seedRoots, []string{legacyRoot}) {
-		t.Fatalf("legacy seed roots = %v", seedRoots)
+	if _, err := discoverExecutorGoBuildCacheSeedRoots(emptyRoot); err == nil {
+		t.Fatal("discoverExecutorGoBuildCacheSeedRoots accepted empty generation root")
 	}
 
 	generationsRoot := filepath.Join(realTempDir(t), "cache-seeds")
@@ -32,7 +35,7 @@ func TestDiscoverExecutorGoBuildCacheSeedRootsOrdersGenerationsAndFallsBack(t *t
 			t.Fatal(err)
 		}
 	}
-	seedRoots, err = discoverExecutorGoBuildCacheSeedRoots(generationsRoot, legacyRoot)
+	seedRoots, err := discoverExecutorGoBuildCacheSeedRoots(generationsRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,11 +46,10 @@ func TestDiscoverExecutorGoBuildCacheSeedRootsOrdersGenerationsAndFallsBack(t *t
 }
 
 func TestDiscoverExecutorGoBuildCacheSeedRootsRejectsInvalidGenerations(t *testing.T) {
-	legacyRoot := realTempDir(t)
 	for name, prepare := range map[string]func(t *testing.T, root string){
 		"symlink": func(t *testing.T, root string) {
 			t.Helper()
-			if err := os.Symlink(legacyRoot, filepath.Join(root, "00000000000020260729")); err != nil {
+			if err := os.Symlink(root, filepath.Join(root, "00000000000020260729")); err != nil {
 				t.Fatal(err)
 			}
 		},
@@ -76,7 +78,7 @@ func TestDiscoverExecutorGoBuildCacheSeedRootsRejectsInvalidGenerations(t *testi
 				t.Fatal(err)
 			}
 			prepare(t, root)
-			if _, err := discoverExecutorGoBuildCacheSeedRoots(root, legacyRoot); err == nil {
+			if _, err := discoverExecutorGoBuildCacheSeedRoots(root); err == nil {
 				t.Fatal("discoverExecutorGoBuildCacheSeedRoots unexpectedly accepted invalid generations")
 			}
 		})
@@ -162,9 +164,9 @@ func TestInstallRuntimeSeedsCreatesFrontendOverlayWithoutCopyingDependencies(t *
 		filepath.Join(nodeModules, "tool"),
 		filepath.Join(runtimeRoot, "frontend", "node_modules", "tool"),
 	)
-	for _, name := range []string{".vite", ".vite-temp"} {
-		assertRuntimeSeedPhysicalDirectory(t, filepath.Join(nodeModules, name))
-	}
+	assertRuntimeSeedSymlink(t, filepath.Join(nodeModules, ".vite"), filepath.Join(runtimeRoot, "frontend", "vite-cache"))
+	assertRuntimeSeedPhysicalDirectory(t, filepath.Join(nodeModules, ".vite-temp"))
+	requireRuntimeSeedTestNoError(t, "read shared Vite cache", runtimeSeedPathExists(filepath.Join(nodeModules, ".vite", "deps", "_metadata.json")))
 	requireRuntimeSeedTestNoError(t, "read shared frontend seed", runtimeSeedPathExists(filepath.Join(nodeModules, "tool", "index.js")))
 	assertDirectoryEmpty(t, npmCache)
 	if err := installRuntimeSeeds(config, layout, program); err == nil {
@@ -737,6 +739,7 @@ func writeRuntimeSeedFixture(t *testing.T, source string) (string, string) {
 	goModCacheRoot := filepath.Join(runtimeRoot, "go-mod-cache")
 	nodeModulesRoot := filepath.Join(runtimeRoot, "frontend", "node_modules")
 	npmCacheRoot := filepath.Join(runtimeRoot, "frontend", "npm-cache")
+	viteCacheRoot := filepath.Join(runtimeRoot, "frontend", "vite-cache")
 	proxyVersionRoot := filepath.Join(moduleProxyRoot, "github.com", "kelindar", "event", "@v")
 	writeTestFile(t, filepath.Join(proxyVersionRoot, "list"), "v1.5.2\n", 0o600)
 	writeTestFile(t, filepath.Join(proxyVersionRoot, "v1.5.2.info"), "{}\n", 0o600)
@@ -755,6 +758,7 @@ func writeRuntimeSeedFixture(t *testing.T, source string) (string, string) {
 	writeTestFile(t, filepath.Join(nodeModulesRoot, "tool", "index.js"), "export {}\n", 0o600)
 	writeTestFile(t, filepath.Join(npmCacheRoot, "_cacache", "content-v2", "sha512", "aa", "fixture"), "fixture package\n", 0o444)
 	writeTestFile(t, filepath.Join(npmCacheRoot, "_cacache", "index-v5", "aa", "fixture"), "fixture index\n", 0o444)
+	writeTestFile(t, filepath.Join(viteCacheRoot, "deps", "_metadata.json"), "{\"hash\":\"fixture\"}\n", 0o444)
 	ripgrepPath := filepath.Join(runtimeRoot, "bin", "rg")
 	writeTestFile(t, ripgrepPath, "fixture ripgrep\n", 0o700)
 	sqruffPath := filepath.Join(runtimeRoot, "bin", "sqruff")
@@ -765,6 +769,7 @@ func writeRuntimeSeedFixture(t *testing.T, source string) (string, string) {
 	goModCacheDigest := mustRuntimeSeedTreeDigest(t, goModCacheRoot)
 	nodeModulesDigest := mustRuntimeSeedTreeDigest(t, nodeModulesRoot)
 	npmCacheDigest := mustRuntimeSeedTreeDigest(t, npmCacheRoot)
+	viteCacheDigest := mustRuntimeSeedTreeDigest(t, viteCacheRoot)
 	ripgrepDigest := mustRuntimeSeedFileDigest(t, ripgrepPath)
 	sqruffDigest := mustRuntimeSeedFileDigest(t, sqruffPath)
 	proxyLockDigest := mustRuntimeSeedFileDigest(t, proxyLockPath)
@@ -773,8 +778,8 @@ func writeRuntimeSeedFixture(t *testing.T, source string) (string, string) {
 		ModuleProxyLockSHA256: proxyLockDigest, ModuleProxyTreeSHA256: moduleProxyDigest,
 		GoModCacheTreeSHA256: goModCacheDigest,
 		PackageLockSHA256:    packageLockDigest, NodeModulesTreeSHA256: nodeModulesDigest,
-		NPMCacheTreeSHA256: npmCacheDigest,
-		RipgrepSHA256:      ripgrepDigest, SqruffSHA256: sqruffDigest,
+		NPMCacheTreeSHA256: npmCacheDigest, ViteCacheTreeSHA256: viteCacheDigest,
+		RipgrepSHA256: ripgrepDigest, SqruffSHA256: sqruffDigest,
 	}
 	encoded, err := json.Marshal(manifest)
 	if err != nil {
