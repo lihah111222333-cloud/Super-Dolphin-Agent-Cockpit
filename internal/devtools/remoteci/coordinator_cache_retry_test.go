@@ -8,7 +8,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
-func TestCoordinatorRunRetriesOnlyPreviouslyFailedWorkloads(t *testing.T) {
+func TestCoordinatorRunReexecutesEveryWorkloadAfterPreviousFailure(t *testing.T) {
 	repository, input := remoteRunFixture(t)
 	input.RepositoryRoot = repository
 	store := &coordinatorStore{}
@@ -20,13 +20,13 @@ func TestCoordinatorRunRetriesOnlyPreviouslyFailedWorkloads(t *testing.T) {
 	if !errors.Is(err, ErrGateFailed) {
 		t.Fatalf("first Run() error = %v", err)
 	}
-	failedWorkloads, totalWorkloads := failedCoordinatorWorkloads(t, first)
+	_, totalWorkloads := failedCoordinatorWorkloads(t, first)
 	retry, err := newTestCoordinator(t, store, &coordinatorRuntime{}).Run(context.Background(), input)
 	if err != nil {
 		t.Fatalf("retry Run() error = %v", err)
 	}
 	executedWorkloads, executed := executedCoordinatorWorkloads(retry)
-	assertCoordinatorRetryMatchesFailures(t, failedWorkloads, executedWorkloads, executed, totalWorkloads)
+	assertCoordinatorRetryReexecutesAllWorkloads(t, executedWorkloads, executed, totalWorkloads)
 }
 
 func failedCoordinatorWorkloads(t *testing.T, result RunResult) (map[gate.GateID]struct{}, int) {
@@ -59,25 +59,14 @@ func executedCoordinatorWorkloads(result RunResult) (map[gate.GateID]struct{}, i
 	return workloads, executed
 }
 
-func assertCoordinatorRetryMatchesFailures(
+func assertCoordinatorRetryReexecutesAllWorkloads(
 	t *testing.T,
-	failed map[gate.GateID]struct{},
 	executed map[gate.GateID]struct{},
 	executedCount int,
 	total int,
 ) {
 	t.Helper()
-	if executedCount != len(failed) || len(executed) != len(failed) || executedCount >= total {
-		t.Fatalf("retry executed=%d unique=%d want failed=%d total=%d", executedCount, len(executed), len(failed), total)
-	}
-	for workloadID := range failed {
-		if _, ok := executed[workloadID]; !ok {
-			t.Fatalf("retry omitted failed workload %q", workloadID)
-		}
-	}
-	for workloadID := range executed {
-		if _, ok := failed[workloadID]; !ok {
-			t.Fatalf("retry executed successful workload %q", workloadID)
-		}
+	if executedCount != total || len(executed) != total {
+		t.Fatalf("retry executed=%d unique=%d, want every planned workload=%d", executedCount, len(executed), total)
 	}
 }

@@ -17,14 +17,6 @@ type explicitFreeze struct {
 }
 
 var explicitFreezeRegistry = []explicitFreeze{
-	{
-		Path:       "cmd/super-dolphin-gate",
-		Kind:       ViolationPackageCount,
-		Limit:      40,
-		Reason:     "remote CI command owners require isolated hook, baseline, materialize, refresh, run, and calibration files",
-		Owner:      "super-dolphin-gate",
-		RemoveWhen: "the command package returns to 30 production files without merging unrelated owners",
-	},
 }
 
 // freezeRegistryIntegrityViolations 检查 freeze 表本身是否完整且没有重复项。

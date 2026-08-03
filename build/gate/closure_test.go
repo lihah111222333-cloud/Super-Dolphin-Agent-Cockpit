@@ -77,16 +77,19 @@ func TestTruthDockerfileIsOfflineAndDigestOnly(t *testing.T) {
 		"FROM ${BASELINE_CACHE_IMAGE} AS baseline-cache",
 		"--mount=type=bind,from=baseline-cache,source=/,target=/baseline-cache,ro",
 		"worker go-cache-proxy --seed /baseline-cache/opt/super-dolphin/cache/go-build --private /root/.cache/go-build",
-		"env GOCACHEPROG=\"$go_cache_proxy\"",
+		"env GOCACHEPROG=\"$go_cache_proxy --metrics",
 		"FROM ${RUNTIME_DEPS_IMAGE} AS build\nUSER root",
 		"go build -mod=mod -trimpath -buildvcs=false -o /out/super-dolphin-gate ./cmd/super-dolphin-gate",
 		"--mount=type=cache,target=/root/.cache/go-build,sharing=locked",
-		"go test -mod=mod -run \"^$\" ./...",
-		"go test -mod=mod -tags=e2e -run \"^$\" ./cmd/mcp-lsp",
-		"go test -mod=mod -race -run \"^$\" \"$@\"",
-		"compile phase=%s seconds=%s cache_entries=%s",
-		"cache-export seconds=%s cache_entries=%s",
+		"compile_phase normal_compile env CGO_ENABLED=1 go test -mod=mod -run \"^$\" ./...",
+		"compile_phase e2e_compile env CGO_ENABLED=1 go test -mod=mod -tags=e2e -run \"^$\" ./...",
+		"compile_phase race_compile env CGO_ENABLED=1 go test -mod=mod -race -run \"^$\" \"$@\"",
+		"record_provision_check()",
+		"provision check timing mismatch",
+		"compile phase=%s elapsed_ms=%s test_body=not_applicable",
+		"cache-export elapsed_ms=%s cache_entries=%s",
 		"COPY --from=build /out/super-dolphin-gate /super-dolphin-gate",
+		"ENTRYPOINT [\"/super-dolphin-gate\"]",
 		"ENV GOCACHE=/root/.cache/go-build",
 		"cp -a /root/.cache/go-build/. /out/go-build-cache",
 		"COPY --from=build --chown=65532:65532 /out/go-build-cache /opt/super-dolphin/cache/go-build",
@@ -101,7 +104,7 @@ func TestTruthDockerfileIsOfflineAndDigestOnly(t *testing.T) {
 			t.Fatalf("truth Dockerfile is missing %q", required)
 		}
 	}
-	for _, forbidden := range []string{"runtime-deps:latest", "runtime-node.tar", "runtime-tools.tar", "vendor.tar.gz", "npm ci", "go mod download", "super-dolphin-gate-executor", "node_modules", "/opt/super-dolphin-gate/cache-seed/go-build", "COPY --from=baseline-cache /opt/super-dolphin/cache/go-build /root/.cache/go-build", "cp -a /baseline-cache"} {
+	for _, forbidden := range []string{"runtime-deps:latest", "runtime-node.tar", "runtime-tools.tar", "vendor.tar.gz", "go mod download", "super-dolphin-gate-executor", "/opt/super-dolphin-gate/cache-seed/go-build", "COPY --from=baseline-cache /opt/super-dolphin/cache/go-build /root/.cache/go-build", "cp -a /baseline-cache"} {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("truth Dockerfile contains forbidden fallback %q", forbidden)
 		}
@@ -158,6 +161,14 @@ func TestRuntimeDependencyRefreshInstallsLockedChromiumOnlyInRefreshImage(t *tes
 		t.Fatal(err)
 	}
 	text := string(data)
+	if strings.Contains(text, "ARG BUILD_SOURCE_TREE") || strings.Contains(text, "org.super-dolphin.source-tree-sha") {
+		t.Fatal("runtime dependency image identity must not depend on the production source tree")
+	}
+	identityLabelIndex := strings.Index(text, "LABEL org.super-dolphin.runtime-deps-input-digest")
+	runtimeProbeIndex := strings.Index(text, `RUN --network=none test "$(actionlint -version | head -n 1)" = "v1.7.12"`)
+	if identityLabelIndex < 0 || runtimeProbeIndex < 0 || identityLabelIndex <= runtimeProbeIndex {
+		t.Fatal("runtime dependency identity labels must follow all expensive dependency layers")
+	}
 	for _, required := range []string{
 		"go mod download all",
 		"cd /src/build/gate/runtime-proxy",
@@ -180,14 +191,12 @@ func TestRuntimeDependencyRefreshInstallsLockedChromiumOnlyInRefreshImage(t *tes
 		"GOPROXY=off",
 		"NPM_CONFIG_CACHE=/out/frontend/npm-cache npm ci --ignore-scripts --no-audit --no-fund",
 		"NPM_CONFIG_CACHE=/out/frontend/npm-cache npm ci --ignore-scripts --no-audit --no-fund --offline",
+		"COPY --from=frontend-seed /out/frontend/npm-cache /opt/super-dolphin-gate/runtime/frontend/npm-cache",
 		"chmod -R a+rX /out/frontend/node_modules/.cache/ms-playwright",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("runtime dependency Dockerfile is missing %q", required)
 		}
-	}
-	if strings.Contains(text, "COPY --from=frontend-seed /out/frontend/npm-cache") {
-		t.Fatal("runtime dependency image must not retain the build-only npm download cache")
 	}
 	truth, err := os.ReadFile(filepath.Join(root, dockerfilePath))
 	if err != nil {
@@ -195,6 +204,22 @@ func TestRuntimeDependencyRefreshInstallsLockedChromiumOnlyInRefreshImage(t *tes
 	}
 	if strings.Contains(string(truth), "playwright install") || strings.Contains(string(truth), "apt-get") {
 		t.Fatal("ordinary truth image build attempts to install browser dependencies")
+	}
+}
+
+func TestRuntimeDependencyRefreshSeedsViteCacheBeforeManifest(t *testing.T) {
+	root := repositoryRoot(t)
+	data, err := os.ReadFile(filepath.Join(root, runtimeDepsBuildPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	viteCacheSeed := "mkdir -p /opt/super-dolphin-gate/runtime/frontend/vite-cache"
+	manifestWrite := "/tmp/super-dolphin-gate worker runtime-seed write /tmp/runtime-manifest-source /opt/super-dolphin-gate/runtime"
+	viteCacheSeedIndex := strings.Index(text, viteCacheSeed)
+	manifestWriteIndex := strings.Index(text, manifestWrite)
+	if viteCacheSeedIndex < 0 || manifestWriteIndex < 0 || viteCacheSeedIndex >= manifestWriteIndex {
+		t.Fatalf("runtime dependency Dockerfile must explicitly seed Vite cache before writing its manifest")
 	}
 }
 
@@ -209,28 +234,6 @@ func repositoryRoot(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return root
-}
-
-func dockerfileCopiesSource(t *testing.T, data []byte, source string) bool {
-	t.Helper()
-	scanner := bufio.NewScanner(bytes.NewReader(data))
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if !strings.HasPrefix(line, "COPY [") {
-			continue
-		}
-		var paths []string
-		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "COPY ")), &paths); err != nil {
-			t.Fatalf("decode Dockerfile JSON COPY %q: %v", line, err)
-		}
-		if slices.Contains(paths, source) {
-			return true
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		t.Fatal(err)
-	}
-	return false
 }
 
 func readManifest(t *testing.T, root string) manifest {
