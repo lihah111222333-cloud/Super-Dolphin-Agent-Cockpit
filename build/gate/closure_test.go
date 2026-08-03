@@ -84,11 +84,12 @@ func TestTruthDockerfileIsOfflineAndDigestOnly(t *testing.T) {
 		"compile_phase normal_compile env CGO_ENABLED=1 go test -mod=mod -run \"^$\" ./...",
 		"compile_phase e2e_compile env CGO_ENABLED=1 go test -mod=mod -tags=e2e -run \"^$\" ./...",
 		"compile_phase race_compile env CGO_ENABLED=1 go test -mod=mod -race -run \"^$\" \"$@\"",
-		"record_refresh_check()",
-		"refresh_only=true test_body=not_applicable",
+		"record_provision_check()",
+		"provision check timing mismatch",
 		"compile phase=%s elapsed_ms=%s test_body=not_applicable",
 		"cache-export elapsed_ms=%s cache_entries=%s",
 		"COPY --from=build /out/super-dolphin-gate /super-dolphin-gate",
+		"ENTRYPOINT [\"/super-dolphin-gate\"]",
 		"ENV GOCACHE=/root/.cache/go-build",
 		"cp -a /root/.cache/go-build/. /out/go-build-cache",
 		"COPY --from=build --chown=65532:65532 /out/go-build-cache /opt/super-dolphin/cache/go-build",
@@ -160,7 +161,22 @@ func TestRuntimeDependencyRefreshInstallsLockedChromiumOnlyInRefreshImage(t *tes
 		t.Fatal(err)
 	}
 	text := string(data)
+	if strings.Contains(text, "ARG BUILD_SOURCE_TREE") || strings.Contains(text, "org.super-dolphin.source-tree-sha") {
+		t.Fatal("runtime dependency image identity must not depend on the production source tree")
+	}
+	identityLabelIndex := strings.Index(text, "LABEL org.super-dolphin.runtime-deps-input-digest")
+	runtimeProbeIndex := strings.Index(text, `RUN --network=none test "$(actionlint -version | head -n 1)" = "v1.7.12"`)
+	if identityLabelIndex < 0 || runtimeProbeIndex < 0 || identityLabelIndex <= runtimeProbeIndex {
+		t.Fatal("runtime dependency identity labels must follow all expensive dependency layers")
+	}
 	for _, required := range []string{
+		`/tmp/super-dolphin-gate worker validate-go-distribution`,
+		`test "$(/usr/local/go/bin/go version)" = "go version go1.26.5 linux/amd64"`,
+		`test "$(node --version)" = "v24.18.0"`,
+		`test "$(npm --version)" = "11.16.0"`,
+		`test "$(python3 --version)" = "Python 3.11.2"`,
+		`test "$(gopls version | tail -n 1)" = "golang.org/x/tools/gopls v0.22.0"`,
+		`test "$(sqlc version)" = "v1.30.0"`,
 		"go mod download all",
 		"cd /src/build/gate/runtime-proxy",
 		"github.com/kelindar/event/@v/v1.5.2.zip",
@@ -195,6 +211,22 @@ func TestRuntimeDependencyRefreshInstallsLockedChromiumOnlyInRefreshImage(t *tes
 	}
 	if strings.Contains(string(truth), "playwright install") || strings.Contains(string(truth), "apt-get") {
 		t.Fatal("ordinary truth image build attempts to install browser dependencies")
+	}
+}
+
+func TestRuntimeDependencyRefreshSeedsViteCacheBeforeManifest(t *testing.T) {
+	root := repositoryRoot(t)
+	data, err := os.ReadFile(filepath.Join(root, runtimeDepsBuildPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	viteCacheSeed := "mkdir -p /opt/super-dolphin-gate/runtime/frontend/vite-cache"
+	manifestWrite := "/tmp/super-dolphin-gate worker runtime-seed write /tmp/runtime-manifest-source /opt/super-dolphin-gate/runtime"
+	viteCacheSeedIndex := strings.Index(text, viteCacheSeed)
+	manifestWriteIndex := strings.Index(text, manifestWrite)
+	if viteCacheSeedIndex < 0 || manifestWriteIndex < 0 || viteCacheSeedIndex >= manifestWriteIndex {
+		t.Fatalf("runtime dependency Dockerfile must explicitly seed Vite cache before writing its manifest")
 	}
 }
 

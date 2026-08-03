@@ -1,7 +1,9 @@
 package gate
 
 import (
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -209,10 +211,12 @@ func newTestDurationLedgerStore(t *testing.T) *DurationLedgerStore {
 
 func seedAcceptedGenerationForTest(t *testing.T, store *DurationLedgerStore, generation uint64) {
 	t.Helper()
+	stateJSON := fmt.Sprintf(`{"schema_version":1,"generation":%d,"image_cache_snapshot_id":"snapshot-%d"}`, generation, generation)
+	stateDigest := sha256.Sum256([]byte(stateJSON))
 	seedRemoteBaselineState(t, store, RemoteBaselineStateRecord{
 		Generation:  generation,
-		StateJSON:   []byte(`{"accepted":true}`),
-		StateSHA256: "sha256:test-accepted-state",
+		StateJSON:   []byte(stateJSON),
+		StateSHA256: fmt.Sprintf("sha256:%x", stateDigest),
 	})
 }
 

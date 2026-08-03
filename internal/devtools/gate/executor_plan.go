@@ -21,19 +21,20 @@ import (
 )
 
 const (
-	executorPlanReportSchemaVersion    = 6
-	executorPlanTimingSchemaVersion    = 2
+	ExecutorPlanReportSchemaVersion    = 6
 	ExecutorPlanReportChunkPrefix      = "SUPER_DOLPHIN_GATE_PLAN_REPORT_CHUNK "
 	ExecutorWorkloadTimeoutEnvironment = "SUPER_DOLPHIN_REMOTE_EXECUTION_TIMEOUT"
-	executorPlanReportChunkBytes       = 768
-	executorPlanReportMaxLineBytes     = 1024
-	executorPlanMaxTransportRecords    = 2000
-	executorPlanReportMaxOutputBytes   = 1 << 20
-	executorPlanMaxLogBytes            = 32 << 10
-	executorPlanMaxLogLines            = 2000
-	executorPlanMaxTimingRecords       = 2000
-	executorPlanMaxLogRecords          = (executorPlanMaxLogBytes*2 + executorPlanReportChunkBytes - 1) / executorPlanReportChunkBytes
-	executorPlanLaneCount              = 2
+	// ExecutorAgentTokenDigestEnvironment binds a remote worker report to the admitted agent identity.
+	ExecutorAgentTokenDigestEnvironment = "SUPER_DOLPHIN_REMOTE_AGENT_TOKEN_DIGEST"
+	executorPlanReportChunkBytes        = 768
+	executorPlanReportMaxLineBytes      = 1024
+	executorPlanMaxTransportRecords     = 2000
+	executorPlanReportMaxOutputBytes    = 1 << 20
+	executorPlanMaxLogBytes             = 32 << 10
+	executorPlanMaxLogLines             = 2000
+	executorPlanMaxTimingRecords        = 2000
+	executorPlanMaxLogRecords           = (executorPlanMaxLogBytes*2 + executorPlanReportChunkBytes - 1) / executorPlanReportChunkBytes
+	executorPlanLaneCount               = 2
 )
 
 // ValidateExecutorWorkloadTimeout 只接受普通与 release 的固定安全上限；100 秒仅用于优化告警。
@@ -111,10 +112,11 @@ type FrontendExecutionProfile struct {
 
 // PlanExecutionReport 绑定 plan digest，并按 canonical plan 顺序汇总所有已观察 gate。
 type PlanExecutionReport struct {
-	SchemaVersion uint32              `json:"schema_version"`
-	Profile       Profile             `json:"profile"`
-	PlanDigest    string              `json:"plan_digest"`
-	Gates         []PlanGateExecution `json:"gates"`
+	SchemaVersion    uint32              `json:"schema_version"`
+	Profile          Profile             `json:"profile"`
+	PlanDigest       string              `json:"plan_digest"`
+	AgentTokenDigest string              `json:"agent_token_digest,omitempty"`
+	Gates            []PlanGateExecution `json:"gates"`
 }
 
 type executorPlanRequest struct {
@@ -242,121 +244,12 @@ func validateContainerShardGateIDs(profile Profile, gateIDs []GateID) error {
 	return nil
 }
 
-// validateCanonicalReportShardGateIDs 确认报告的 gate 序列恰好等于某个规范 container shard。
-func validateCanonicalReportShardGateIDs(profile Profile, gateIDs []GateID) error {
-	for count := 1; count <= len(requiredContainerShardGateIDs(profile)); count++ {
-		for _, expected := range canonicalContainerShardGroups(profile, count) {
-			if slices.Equal(gateIDs, expected) {
-				return nil
-			}
-		}
-	}
-	return errors.New("shard gate list does not match a canonical container shard")
-}
-
-// canonicalContainerShardGroups 是 coordinator 与 executor 共享的分片合同。
-// 三分片保持历史分组不变；其他数量仅在原组内切分，并在至少两个分片时隔离 race gate。
-func canonicalContainerShardGroups(profile Profile, shardsPerJob int) [][]GateID {
-	if err := validateRequestedContainerShardCount(shardsPerJob, len(requiredContainerShardGateIDs(profile))); err != nil {
-		return nil
-	}
-	groups := legacyCanonicalContainerShardGroups(profile)
-	switch shardsPerJob {
-	case 1:
-		return [][]GateID{mergeContainerShardGroups(groups)}
-	case legacyContainerShardCount:
-		return groups
-	case 2:
-		return [][]GateID{mergeContainerShardGroups(groups[:2]), slices.Clone(groups[2])}
-	}
-	for len(groups) < shardsPerJob {
-		index := largestSplittableContainerShardGroup(groups)
-		if index < 0 {
-			return nil
-		}
-		left, right := splitContainerShardGroup(groups[index])
-		groups = append(groups, nil)
-		copy(groups[index+2:], groups[index+1:])
-		groups[index], groups[index+1] = left, right
-	}
-	return groups
-}
-
-func mergeContainerShardGroups(groups [][]GateID) []GateID {
-	merged := make([]GateID, 0)
-	for _, group := range groups {
-		merged = append(merged, group...)
-	}
-	return merged
-}
-
 func requiredContainerShardGateIDs(profile Profile) []GateID {
 	ids := requiredGateIDs(profile)
 	if profile == ProfileRelease {
 		ids = ids[:len(ids)-1]
 	}
 	return ids
-}
-
-func legacyCanonicalContainerShardGroups(profile Profile) [][]GateID {
-	ids := requiredContainerShardGateIDs(profile)
-	isolateRace := slices.Contains(ids, GateIDBackendTestGuardWithRace)
-	groups := make([][]GateID, legacyContainerShardCount)
-	for _, id := range ids {
-		index := canonicalContainerShardGroupIndex(profile, id, isolateRace)
-		groups[index] = append(groups[index], id)
-	}
-	return nonemptyContainerShardGroups(groups)
-}
-
-func largestSplittableContainerShardGroup(groups [][]GateID) int {
-	index := -1
-	for candidate, group := range groups {
-		if len(group) > 1 && (index < 0 || len(group) > len(groups[index])) {
-			index = candidate
-		}
-	}
-	return index
-}
-
-func splitContainerShardGroup(group []GateID) ([]GateID, []GateID) {
-	middle := (len(group) + 1) / 2
-	return slices.Clone(group[:middle]), slices.Clone(group[middle:])
-}
-
-// canonicalContainerShardGroupIndex 按配置、门禁类型与 race 隔离策略返回固定 shard 索引。
-func canonicalContainerShardGroupIndex(profile Profile, id GateID, isolateRace bool) int {
-	switch id {
-	case GateIDAIMaintenanceSelfTest, GateIDFrontendLint, GateIDFrontendTest, GateIDFrontendE2E, GateIDFrontendFullTest, GateIDFrontendBuild, GateIDFrontendEmbedVerify:
-		return 0
-	case GateIDLSPChangedDiagnostics:
-		if profile == ProfilePush {
-			return 0
-		}
-		return 1
-	case GateIDBackendTestWithGuard, GateIDBackendNilness:
-		return 1
-	case GateIDBackendTestGuardWithRace:
-		if isolateRace {
-			return 2
-		}
-		return 1
-	default:
-		if isolateRace {
-			return 0
-		}
-		return 2
-	}
-}
-
-func nonemptyContainerShardGroups(groups [][]GateID) [][]GateID {
-	nonempty := make([][]GateID, 0, len(groups))
-	for _, group := range groups {
-		if len(group) != 0 {
-			nonempty = append(nonempty, group)
-		}
-	}
-	return nonempty
 }
 
 func validatePlanGateIDs(profile Profile, gateIDs []GateID) error {
@@ -431,7 +324,6 @@ func prepareExecutorPlanGoBuildCache(gateIDs []GateID) (string, []string, error)
 		gateIDs,
 		ExecutorWorkRoot,
 		ExecutorGoBuildCacheSeedsRoot,
-		ExecutorGoBuildCacheSeedRoot,
 	)
 }
 
@@ -440,7 +332,6 @@ func prepareExecutorPlanGoBuildCacheAt(
 	gateIDs []GateID,
 	workRoot string,
 	seedGenerationsRoot string,
-	legacySeedRoot string,
 ) (string, []string, error) {
 	needsGoCache := false
 	for _, id := range gateIDs {
@@ -453,7 +344,7 @@ func prepareExecutorPlanGoBuildCacheAt(
 	if !needsGoCache {
 		return "", nil, nil
 	}
-	seedRoots, err := discoverExecutorGoBuildCacheSeedRoots(seedGenerationsRoot, legacySeedRoot)
+	seedRoots, err := discoverExecutorGoBuildCacheSeedRoots(seedGenerationsRoot)
 	if err != nil {
 		return "", nil, err
 	}
@@ -476,7 +367,7 @@ func executeGatePlanWithRunner(
 	runGate executorPlanGateRunner,
 	now func() time.Time,
 ) (PlanExecutionReport, error) {
-	report := PlanExecutionReport{SchemaVersion: executorPlanReportSchemaVersion, Profile: request.profile, PlanDigest: request.planDigest}
+	report := PlanExecutionReport{SchemaVersion: ExecutorPlanReportSchemaVersion, Profile: request.profile, PlanDigest: request.planDigest, AgentTokenDigest: os.Getenv(ExecutorAgentTokenDigestEnvironment)}
 	if now == nil {
 		return report, errors.New("plan clock is required")
 	}
@@ -515,7 +406,7 @@ func executeGatePlanWithRunner(
 			GateID: id, Status: status, ExitCode: -1,
 			StartedAt: cancelledAt, CompletedAt: cancelledAt,
 			Log: log, LogDigest: digestPlanLog(log),
-			ExecutionProfile: unmeasuredExecutionProfile(cancelledAt, cancelledAt),
+			ExecutionProfile: measuredNonCacheExecutionProfile(),
 		})
 	}
 	return report, executionErr
@@ -564,10 +455,12 @@ func executeReleaseLayerAttestation(
 	if !completedAt.After(startedAt) {
 		completedAt = startedAt.Add(time.Nanosecond)
 	}
+	profile := measuredNonCacheExecutionProfile()
+	profile.TotalMS = completedAt.Sub(startedAt).Milliseconds()
 	result := PlanGateExecution{
 		GateID: GateIDReleaseLayeredCheck, Status: ResultStatusPassed, ExitCode: 0,
 		StartedAt: startedAt, CompletedAt: completedAt, ArgvDigest: argvDigest, Log: log, LogDigest: digestPlanLog(log),
-		ExecutionProfile: unmeasuredExecutionProfile(startedAt, completedAt),
+		ExecutionProfile: profile,
 	}
 	if err := validateReleaseLayerAttestation(request, observed, result); err != nil {
 		return failedReleaseAttestation(startedAt, "generated attestation is invalid", err)
@@ -657,10 +550,13 @@ func validateReleaseLayerAttestation(
 
 func failedReleaseAttestation(startedAt time.Time, reason string, cause error) (PlanGateExecution, error) {
 	log := fmt.Appendf(nil, "[release-layer-attestation] %s\n", reason)
+	completedAt := startedAt.Add(time.Nanosecond)
+	profile := measuredNonCacheExecutionProfile()
+	profile.TotalMS = completedAt.Sub(startedAt).Milliseconds()
 	return PlanGateExecution{
 		GateID: GateIDReleaseLayeredCheck, Status: ResultStatusFailed, ExitCode: 1,
-		StartedAt: startedAt, CompletedAt: startedAt.Add(time.Nanosecond), Log: log, LogDigest: digestPlanLog(log),
-		ExecutionProfile: unmeasuredExecutionProfile(startedAt, startedAt),
+		StartedAt: startedAt, CompletedAt: completedAt, Log: log, LogDigest: digestPlanLog(log),
+		ExecutionProfile: profile,
 	}, cause
 }
 
@@ -688,6 +584,7 @@ func pendingPlanGateResult(ctx context.Context) (ResultStatus, []byte) {
 	return ResultStatusCancelled, []byte("gate canceled before start because a companion gate failed\n")
 }
 
+// runExecutorPlanLane 在隔离写目录中串行执行固定 lane，并在失败时取消同计划任务。
 func runExecutorPlanLane(
 	ctx context.Context,
 	laneIndex int,
@@ -701,8 +598,8 @@ func runExecutorPlanLane(
 			return ctx.Err()
 		}
 		result, err := runGate(ctx, laneIndex, id)
-		if result.ExecutionProfile.CacheMeasurement == "" && !result.StartedAt.IsZero() && !result.CompletedAt.IsZero() {
-			result.ExecutionProfile = unmeasuredExecutionProfile(result.StartedAt, result.CompletedAt)
+		if profileErr := result.ExecutionProfile.Validate(); profileErr != nil {
+			return errors.Join(err, fmt.Errorf("plan gate %q execution profile: %w", id, profileErr))
 		}
 		resultsMu.Lock()
 		results[id] = result
@@ -731,43 +628,16 @@ func executePlanGate(
 	if err != nil {
 		return PlanGateExecution{}, fmt.Errorf("plan gate %q has no executor program: %w", id, err)
 	}
-	workRoot := executorPlanLaneRoot(ExecutorWorkRoot, laneIndex)
-	if err := os.MkdirAll(workRoot, 0o700); err != nil {
-		return PlanGateExecution{}, err
-	}
-	cacheProxy, err := executorGoBuildCacheProxyLauncher()
+	config, log, timingWriter, metricsPath, err := preparePlanGateExecution(
+		laneIndex,
+		id,
+		preparedRuntimeSeeds,
+		goBuildCacheRoot,
+		goBuildCacheSeedRoots,
+		now,
+	)
 	if err != nil {
 		return PlanGateExecution{}, err
-	}
-	log := newBoundedPlanLog(executorPlanMaxLogBytes)
-	stdout := io.Writer(log)
-	var timingWriter *testtiming.EventWriter
-	if isGoPackageTestWorkload(id) {
-		timingWriter = testtiming.NewEventWriter(log)
-		stdout = timingWriter
-	}
-	metricsPath := ""
-	if isGoPackageTestWorkload(id) {
-		metricsPath, err = GoBuildCacheProxyMetricsPathForInvocation(goBuildCacheRoot, fmt.Sprintf("lane-%d-%x", laneIndex, sha256.Sum256([]byte(string(id)))))
-		if err != nil {
-			return PlanGateExecution{}, err
-		}
-	}
-	timing := &executorExecutionTiming{}
-	config := executorConfig{
-		sourcePath: ExecutorSourcePath, workRoot: workRoot, searchPath: executorSearchPath,
-		expectedUID: executorUID, requireReadOnlySource: true,
-		runtimeSeedRoot: ExecutorRuntimeSeedRoot, runtimeSeedManifest: ExecutorRuntimeSeedManifestPath,
-		goRoot:                  ExecutorPortableGoRoot,
-		preparedRuntimeSeeds:    preparedRuntimeSeeds,
-		goBuildCacheSeedRoots:   append([]string(nil), goBuildCacheSeedRoots...),
-		goBuildCacheRoot:        goBuildCacheRoot,
-		goBuildCacheProxy:       cacheProxy,
-		goBuildCacheMetricsPath: metricsPath,
-		frontendEmbedSeedRoot:   ExecutorFrontendEmbedSeedRoot,
-		stdout:                  stdout, stderr: log,
-		nowFunc:         now,
-		executionTiming: timing,
 	}
 	result := PlanGateExecution{GateID: id, StartedAt: now().UTC(), ExitCode: -1}
 	err = executeProgram(ctx, config, id, cloneExecutorProgram(program))
@@ -776,16 +646,10 @@ func executePlanGate(
 		result.TestTimings = timingWriter.Timings()
 	}
 	result.CompletedAt = now().UTC()
-	result.ExecutionProfile, err = executionProfileForGate(id, program, result.TestTimings, result.StartedAt, result.CompletedAt, timing)
+	result.ExecutionProfile, err = executionProfileForGate(id, program, result.TestTimings, result.StartedAt, result.CompletedAt, config.executionTiming)
 	if metricsPath != "" {
-		metrics, metricsErr := LoadGoBuildCacheProxyMetricsAt(goBuildCacheRoot, metricsPath, goBuildCacheSeedRoots)
-		if metricsErr != nil {
-			err = errors.Join(err, fmt.Errorf("load Go build cache metrics: %w", metricsErr))
-		} else {
-			result.ExecutionProfile.CacheSource, result.ExecutionProfile.CacheMeasurement = "go_build_cache", "measured"
-			result.ExecutionProfile.PrivateHitCount, result.ExecutionProfile.BaselineHitCount = metrics.PrivateHitCount, metrics.BaselineHitCount
-			result.ExecutionProfile.BaselineHitByGeneration, result.ExecutionProfile.CacheMissCount, result.ExecutionProfile.CachePutCount = metrics.BaselineHitByGeneration, metrics.MissCount, metrics.PutCount
-			result.ExecutionProfile.CacheStatus = cacheStatusFromMetrics(metrics)
+		if metricsErr := applyPlanGateCacheMetrics(&result, goBuildCacheRoot, metricsPath, goBuildCacheSeedRoots); metricsErr != nil {
+			err = errors.Join(err, metricsErr)
 		}
 	}
 	result.Status, result.ExitCode = classifyPlanGateOutcome(err, ctx.Err())
@@ -801,114 +665,71 @@ func executePlanGate(
 	return result, err
 }
 
-func cacheStatusFromMetrics(metrics GoBuildCacheProxyMetrics) CacheObservationStatus {
-	if metrics.PrivateHitCount+metrics.BaselineHitCount > 0 {
-		return CacheObservationHit
+// preparePlanGateExecution 准备 lane 私有执行配置以及与日志绑定的测试时序证据。
+func preparePlanGateExecution(
+	laneIndex int,
+	id GateID,
+	preparedRuntimeSeeds *executorPreparedRuntimeSeeds,
+	goBuildCacheRoot string,
+	goBuildCacheSeedRoots []string,
+	now func() time.Time,
+) (executorConfig, *boundedPlanLog, *testtiming.EventWriter, string, error) {
+	workRoot := executorPlanLaneRoot(ExecutorWorkRoot, laneIndex)
+	if err := os.MkdirAll(workRoot, 0o700); err != nil {
+		return executorConfig{}, nil, nil, "", err
 	}
-	if metrics.MissCount > 0 {
-		return CacheObservationMiss
+	cacheProxy, err := executorGoBuildCacheProxyLauncher()
+	if err != nil {
+		return executorConfig{}, nil, nil, "", err
 	}
-	if metrics.PutCount > 0 {
-		return CacheObservationPut
-	}
-	return CacheObservationNotApplicable
-}
-
-func executionProfileForGate(id GateID, program ExecutorProgram, timings []GoTestTiming, started, completed time.Time, timing *executorExecutionTiming) (ExecutionProfile, error) {
-	profile := unmeasuredExecutionProfile(started, completed)
-	profile.TotalMS = completed.Sub(started).Milliseconds()
-	profile.TotalMS = max(profile.TotalMS, 0)
-	if timing == nil || timing.setupMS <= 0 || timing.bodyMS <= 0 || timing.totalMS <= 0 || timing.totalMS > profile.TotalMS {
-		return ExecutionProfile{}, errors.New("workload startup and test-body timing is missing or invalid")
-	}
-	// The executor records both intervals around the actual workload process;
-	// coordinator receipts must preserve those intervals rather than infer them
-	// from a residual duration.
-	profile.StartupMS, profile.TestBodyMS = timing.setupMS, timing.bodyMS
+	log := newBoundedPlanLog(executorPlanMaxLogBytes)
+	stdout := io.Writer(log)
+	var timingWriter *testtiming.EventWriter
 	if isGoPackageTestWorkload(id) {
-		// The worker measures the command body interval directly.  Per-test
-		// events may overlap (for example parallel subtests), so summing them
-		// would over-count a workload's wall time.
+		timingWriter = testtiming.NewEventWriter(log)
+		stdout = timingWriter
 	}
-	if isExactGoTestWorkload(id) {
-		_, _, target, _, parseErr := parseTargetWorkloadID(string(id))
-		if parseErr != nil {
-			return ExecutionProfile{}, parseErr
-		}
-		testTarget, parseErr := ParseGoTestTarget(target)
-		if parseErr != nil {
-			return ExecutionProfile{}, parseErr
-		}
-		var matched []GoTestTiming
-		for _, timing := range timings {
-			if timing.Name == testTarget.Name {
-				matched = append(matched, timing)
-			}
-		}
-		if len(matched) != 1 || matched[0].DurationMS < 0 || matched[0].DurationMS > profile.TotalMS {
-			return ExecutionProfile{}, errors.New("exact Go test execution profile timing is missing or invalid")
-		}
-		if matched[0].DurationMS > profile.TestBodyMS {
-			return ExecutionProfile{}, errors.New("exact Go test event exceeds measured body interval")
+	metricsPath := ""
+	if isGoPackageTestWorkload(id) {
+		metricsPath, err = GoBuildCacheProxyMetricsPathForInvocation(goBuildCacheRoot, fmt.Sprintf("lane-%d-%x", laneIndex, sha256.Sum256([]byte(string(id)))))
+		if err != nil {
+			return executorConfig{}, nil, nil, "", err
 		}
 	}
-	if program.NeedsFrontendSeed {
-		profile.Frontend = &FrontendExecutionProfile{
-			NodeModulesSeedHit: true,
-			// lint/test/build do not invoke npm's package-resolution path.  A
-			// verified seed is not evidence of an npm cache lookup, so retain the
-			// explicit non-applicable state instead of fabricating a cache hit.
-			NPMCacheNotApplicableReason:          "npm_cache_lookup_not_observed",
-			PlaywrightBrowserNotApplicableReason: "browser_cache_lookup_not_observed",
-			ViteCacheHit:                         timing.viteCacheSeedHit,
-		}
-		profile.Frontend.SetupMS, profile.Frontend.BodyMS, profile.Frontend.TotalMS = timing.setupMS, timing.bodyMS, timing.totalMS
+	config := executorConfig{
+		sourcePath: ExecutorSourcePath, workRoot: workRoot, searchPath: executorSearchPath,
+		expectedUID: executorUID, requireReadOnlySource: true,
+		runtimeSeedRoot: ExecutorRuntimeSeedRoot, runtimeSeedManifest: ExecutorRuntimeSeedManifestPath,
+		goRoot:                  ExecutorGoRoot,
+		preparedRuntimeSeeds:    preparedRuntimeSeeds,
+		goBuildCacheSeedRoots:   append([]string(nil), goBuildCacheSeedRoots...),
+		goBuildCacheRoot:        goBuildCacheRoot,
+		goBuildCacheProxy:       cacheProxy,
+		goBuildCacheMetricsPath: metricsPath,
+		frontendEmbedSeedRoot:   ExecutorFrontendEmbedSeedRoot,
+		stdout:                  stdout, stderr: log,
+		nowFunc:         now,
+		executionTiming: &executorExecutionTiming{},
 	}
-	return profile, nil
+	return config, log, timingWriter, metricsPath, nil
 }
 
-func unmeasuredExecutionProfile(started, completed time.Time) ExecutionProfile {
-	total := completed.Sub(started).Milliseconds()
-	total = max(total, 0)
-	return ExecutionProfile{CacheSource: "none", CacheStatus: CacheObservationNotApplicable, CacheMeasurement: "not_measured", StartupMS: total, TotalMS: total}
-}
-
-func isGoPackageTestWorkload(id GateID) bool {
-	_, kind, _, targeted, err := parseTargetWorkloadID(string(id))
-	return err == nil && targeted && (kind == workloadTargetGoPackage || kind == workloadTargetGoTest)
-}
-
-func isExactGoTestWorkload(id GateID) bool {
-	_, kind, _, targeted, err := parseTargetWorkloadID(string(id))
-	return err == nil && targeted && kind == workloadTargetGoTest
-}
-
-// planGateFailureSummary 只记录稳定分类与退出码，不回显可能含秘密或宿主路径的原始错误。
-func planGateFailureSummary(gateErr error, contextErr error, status ResultStatus, exitCode int) []byte {
-	if gateErr == nil {
-		return nil
+// applyPlanGateCacheMetrics 将已落盘的 Go 构建缓存指标写回 gate 的执行画像。
+func applyPlanGateCacheMetrics(
+	result *PlanGateExecution,
+	goBuildCacheRoot string,
+	metricsPath string,
+	goBuildCacheSeedRoots []string,
+) error {
+	metrics, err := LoadGoBuildCacheProxyMetricsAt(goBuildCacheRoot, metricsPath, goBuildCacheSeedRoots)
+	if err != nil {
+		return fmt.Errorf("load Go build cache metrics: %w", err)
 	}
-	reason := "execution-error"
-	if errors.Is(contextErr, context.DeadlineExceeded) {
-		reason = "deadline"
-	} else if errors.Is(contextErr, context.Canceled) {
-		reason = "peer-cancellation"
-	}
-	return fmt.Appendf(nil, "[gate-executor] outcome status=%s exit_code=%d reason=%s\n", status, exitCode, reason)
-}
-
-// classifyPlanGateOutcome 只用 gate error 与父 context authority 生成 canonical status/exit。
-func classifyPlanGateOutcome(gateErr error, contextErr error) (ResultStatus, int) {
-	if gateErr == nil {
-		return ResultStatusPassed, 0
-	}
-	if errors.Is(contextErr, context.DeadlineExceeded) {
-		return ResultStatusTimeout, -1
-	}
-	if errors.Is(contextErr, context.Canceled) {
-		return ResultStatusCancelled, -1
-	}
-	return ResultStatusFailed, ExecutorExitCode(gateErr)
+	result.ExecutionProfile.CacheSource, result.ExecutionProfile.CacheMeasurement = "go_build_cache", "measured"
+	result.ExecutionProfile.PrivateHitCount, result.ExecutionProfile.BaselineHitCount = metrics.PrivateHitCount, metrics.BaselineHitCount
+	result.ExecutionProfile.BaselineHitByGeneration, result.ExecutionProfile.CacheMissCount, result.ExecutionProfile.CachePutCount = metrics.BaselineHitByGeneration, metrics.MissCount, metrics.PutCount
+	result.ExecutionProfile.CacheStatus = cacheStatusFromMetrics(metrics)
+	return nil
 }
 
 func executorPlanLaneRoot(workRoot string, laneIndex int) string {

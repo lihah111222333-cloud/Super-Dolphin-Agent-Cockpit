@@ -97,6 +97,21 @@ func TestWorkerRacePackagePatternsExposeCanonicalRegistry(t *testing.T) {
 	}
 }
 
+func TestWorkerValidateGoDistributionBindsLockedRemotePlatform(t *testing.T) {
+	stderr := &bytes.Buffer{}
+	code := runWorkerCLI([]string{"validate-go-distribution"}, &bytes.Buffer{}, stderr)
+	if runtime.GOOS == "linux" && runtime.GOARCH == "amd64" {
+		if code != int(gate.ExitOK) || stderr.Len() != 0 {
+			t.Fatalf("validate-go-distribution code=%d stderr=%q", code, stderr.String())
+		}
+	} else if code != int(gate.ExitProtocol) || !strings.Contains(stderr.String(), "running binary is") {
+		t.Fatalf("validate-go-distribution local platform code=%d stderr=%q", code, stderr.String())
+	}
+	if code := runWorkerCLI([]string{"validate-go-distribution", "extra"}, &bytes.Buffer{}, &bytes.Buffer{}); code != int(gate.ExitProtocol) {
+		t.Fatalf("validate-go-distribution accepted extra arguments with code %d", code)
+	}
+}
+
 func TestSignalExitCode(t *testing.T) {
 	if code := signalExitCode(syscall.SIGTERM); code != 143 {
 		t.Fatalf("SIGTERM exit code = %d, want 143", code)

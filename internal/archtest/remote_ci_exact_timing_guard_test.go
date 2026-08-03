@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -16,7 +17,7 @@ import (
 func TestRemoteCIExactTimingAuthorityContract(t *testing.T) {
 	root := exactTimingRepoRoot(t)
 	gate := parseExactTimingFile(t, filepath.Join(root, "internal/devtools/gate/timing_observation.go"))
-	remote := parseExactTimingFile(t, filepath.Join(root, "internal/devtools/remoteci/coordinator.go"))
+	remote := parseExactTimingFile(t, filepath.Join(root, "internal/devtools/remoteci/coordinator_timing.go"))
 	wait := parseExactTimingFile(t, filepath.Join(root, "internal/devtools/remoteci/coordinator_wait.go"))
 	human := parseExactTimingFile(t, filepath.Join(root, "internal/devtools/remoteci/human_timing_ledger.go"))
 
@@ -92,6 +93,11 @@ func assertExactTimingSchema(t *testing.T, root string) {
 }
 
 func exactTimingStructHasField(file *ast.File, typeName, fieldName string) bool {
+	return exactTimingStructFieldNamed(exactTimingNamedStruct(file, typeName), fieldName)
+}
+
+// exactTimingNamedStruct 只返回守卫目标的具名结构，避免字段断言承担声明筛选。
+func exactTimingNamedStruct(file *ast.File, typeName string) *ast.StructType {
 	for _, declaration := range file.Decls {
 		general, ok := declaration.(*ast.GenDecl)
 		if !ok || general.Tok != token.TYPE {
@@ -103,12 +109,21 @@ func exactTimingStructHasField(file *ast.File, typeName, fieldName string) bool 
 			if !ok || !isStruct || typeSpec.Name.Name != typeName {
 				continue
 			}
-			for _, field := range structType.Fields.List {
-				for _, name := range field.Names {
-					if name.Name == fieldName {
-						return true
-					}
-				}
+			return structType
+		}
+	}
+	return nil
+}
+
+// exactTimingStructFieldNamed 保持匿名字段不被误当作目标具名字段。
+func exactTimingStructFieldNamed(structType *ast.StructType, fieldName string) bool {
+	if structType == nil {
+		return false
+	}
+	for _, field := range structType.Fields.List {
+		for _, name := range field.Names {
+			if name.Name == fieldName {
+				return true
 			}
 		}
 	}
@@ -130,9 +145,11 @@ func exactTimingUnion(file *ast.File, functionName string) bool {
 
 func exactTimingECIProviderBinding(file *ast.File) bool {
 	function := exactTimingFunction(file, "bindObservedECIShardTiming")
+	materializer := exactTimingFunction(file, "observedECIMaterializerStartTime")
 	return !exactTimingCall(function, "Now") &&
 		exactTimingSelector(function, "group", "CreationTime") &&
-		exactTimingSelector(function, "materializer", "CurrentState", "StartTime") &&
+		exactTimingCall(function, "observedECIMaterializerStartTime") &&
+		exactTimingSelector(materializer, "container", "CurrentState", "StartTime") &&
 		exactTimingIdentifiers(function, "SucceededTime", "FailedTime", "terminalAt")
 }
 
@@ -263,9 +280,9 @@ func exactTimingSelectorPath(node ast.Node, root string, path ...string) bool {
 	if !ok || len(path) == 0 {
 		return false
 	}
-	for index := len(path) - 1; index >= 0; index-- {
+	for _, fieldName := range slices.Backward(path) {
 		selector, ok := expression.(*ast.SelectorExpr)
-		if !ok || selector.Sel.Name != path[index] {
+		if !ok || selector.Sel.Name != fieldName {
 			return false
 		}
 		expression = selector.X

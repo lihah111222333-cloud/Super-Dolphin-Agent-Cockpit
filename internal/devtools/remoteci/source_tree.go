@@ -2,6 +2,7 @@ package remoteci
 
 import (
 	"archive/tar"
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha1" // #nosec G505 -- Git SHA-1 object IDs require SHA-1 compatibility verification.
@@ -21,128 +22,6 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
 )
 
-type runtimeDepsLock struct {
-	SchemaVersion string                  `json:"schema_version"`
-	BuildMode     string                  `json:"build_mode"`
-	CacheScope    string                  `json:"cache_scope"`
-	Inputs        runtimeDepsInputs       `json:"inputs"`
-	RecipeInputs  runtimeDepsRecipeInputs `json:"recipe_inputs"`
-	Paths         runtimeDepsPaths        `json:"paths"`
-}
-
-type runtimeDepsInputs struct {
-	Dockerfile          string `json:"dockerfile_sha256"`
-	ToolchainLock       string `json:"toolchain_lock_sha256"`
-	GoMod               string `json:"go_mod_sha256"`
-	GoSum               string `json:"go_sum_sha256"`
-	NilnessRunner       string `json:"nilness_runner_sha256"`
-	NilnessGuard        string `json:"nilness_guard_sha256"`
-	FrontendPackageLock string `json:"frontend_package_lock_sha256"`
-	LSPPackageLock      string `json:"lsp_package_lock_sha256"`
-	ProxyGoMod          string `json:"proxy_go_mod_sha256"`
-	ProxyGoSum          string `json:"proxy_go_sum_sha256"`
-	ToolsGoMod          string `json:"tools_go_mod_sha256"`
-	ToolsGoSum          string `json:"tools_go_sum_sha256"`
-}
-
-type runtimeDepsRecipeInputs struct {
-	RuntimeSeedWorker string `json:"runtime_seed_worker_sha256"`
-}
-
-type runtimeDepsPaths struct {
-	Manifest            string `json:"manifest"`
-	Vendor              string `json:"vendor"`
-	GoModuleProxy       string `json:"go_module_proxy"`
-	FrontendNodeModules string `json:"frontend_node_modules"`
-	PlaywrightBrowsers  string `json:"playwright_browsers"`
-	LSPNodeModules      string `json:"lsp_node_modules"`
-	SQLC                string `json:"sqlc"`
-	Ripgrep             string `json:"ripgrep"`
-	Sqruff              string `json:"sqruff"`
-	Gopls               string `json:"gopls"`
-	Go                  string `json:"go"`
-	Node                string `json:"node"`
-	NPM                 string `json:"npm"`
-	Git                 string `json:"git"`
-	Make                string `json:"make"`
-}
-
-type runtimeDepsInputBinding struct {
-	path   string
-	digest string
-}
-
-// validateRuntimeDepsClosure 将 node-local 依赖摘要绑定到候选输入闭包。
-func validateRuntimeDepsClosure(lock runtimeDepsLock, closure map[string]sourceexport.TreeEntry) error {
-	if lock.Paths != canonicalRuntimeDepsPaths() {
-		return errors.New("runtime dependencies paths drifted from the executor contract")
-	}
-	for _, binding := range runtimeDepsInputBindings(lock.Inputs) {
-		if err := validateRuntimeDepsInput(binding, closure); err != nil {
-			return err
-		}
-	}
-	for _, binding := range runtimeDepsRecipeInputBindings(lock.RecipeInputs) {
-		if err := validateRuntimeDepsInput(binding, closure); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// validateRuntimeDepsInput 拒绝缺失、格式错误或与候选内容不一致的依赖摘要。
-func validateRuntimeDepsInput(binding runtimeDepsInputBinding, closure map[string]sourceexport.TreeEntry) error {
-	if err := validateDigest("runtime dependency input "+binding.path, binding.digest); err != nil {
-		return err
-	}
-	entry, exists := closure[binding.path]
-	if !exists {
-		return fmt.Errorf("runtime dependency input %q is outside the candidate closure", binding.path)
-	}
-	sum := sha256.Sum256(entry.Data)
-	actual := "sha256:" + hex.EncodeToString(sum[:])
-	if actual != binding.digest {
-		return fmt.Errorf("runtime dependency input %q digest does not match candidate closure", binding.path)
-	}
-	return nil
-}
-
-func runtimeDepsInputBindings(inputs runtimeDepsInputs) []runtimeDepsInputBinding {
-	return []runtimeDepsInputBinding{
-		{"build/gate/runtime-deps.Dockerfile", inputs.Dockerfile},
-		{"build/gate/toolchain.lock", inputs.ToolchainLock},
-		{"go.mod", inputs.GoMod}, {"go.sum", inputs.GoSum},
-		{"internal/devtools/nilnessrunner/runner.go", inputs.NilnessRunner},
-		{"scripts/nilness_guard.go", inputs.NilnessGuard},
-		{"frontend-app/package-lock.json", inputs.FrontendPackageLock},
-		{"build/gate/runtime-lsp/package-lock.json", inputs.LSPPackageLock},
-		{"build/gate/runtime-proxy/go.mod", inputs.ProxyGoMod},
-		{"build/gate/runtime-proxy/go.sum", inputs.ProxyGoSum},
-		{"build/gate/runtime-tools/go.mod", inputs.ToolsGoMod},
-		{"build/gate/runtime-tools/go.sum", inputs.ToolsGoSum},
-	}
-}
-
-func runtimeDepsRecipeInputBindings(inputs runtimeDepsRecipeInputs) []runtimeDepsInputBinding {
-	return []runtimeDepsInputBinding{
-		{"internal/devtools/gate/executor_seed.go", inputs.RuntimeSeedWorker},
-	}
-}
-
-func canonicalRuntimeDepsPaths() runtimeDepsPaths {
-	return runtimeDepsPaths{
-		Manifest: "/opt/super-dolphin-gate/runtime/manifest.json", Vendor: "/opt/super-dolphin-gate/runtime/vendor",
-		GoModuleProxy:       "/opt/super-dolphin-gate/runtime/go-proxy",
-		FrontendNodeModules: "/opt/super-dolphin-gate/runtime/frontend/node_modules",
-		PlaywrightBrowsers:  "/opt/super-dolphin-gate/runtime/frontend/node_modules/.cache/ms-playwright",
-		LSPNodeModules:      "/opt/super-dolphin-gate/runtime/lsp/node_modules",
-		SQLC:                "/opt/super-dolphin-gate/runtime/bin/sqlc", Ripgrep: "/opt/super-dolphin-gate/runtime/bin/rg",
-		Sqruff: "/opt/super-dolphin-gate/runtime/bin/sqruff", Gopls: "/usr/local/bin/gopls",
-		Go: "/usr/local/go/bin/go", Node: "/usr/local/bin/node", NPM: "/usr/local/bin/npm",
-		Git: "/usr/bin/git", Make: "/usr/bin/make",
-	}
-}
-
 // verifyObjectClosure 要求导入仓中的指定 commits 具备完整且严格有效的对象闭包。
 func verifyObjectClosure(ctx context.Context, bareRoot string, commits ...string) error {
 	args := []string{"fsck", "--full", "--strict", "--no-reflogs", "--"}
@@ -150,12 +29,13 @@ func verifyObjectClosure(ctx context.Context, bareRoot string, commits ...string
 	return rejectGitOutput(output, err, "verify source object closure")
 }
 
-// createSourceBundle 只从受控 refs 构造 bundle，并将产物权限收紧为只读。
-func createSourceBundle(ctx context.Context, bareRoot string, bundlePath string, includeBase bool) error {
-	args := []string{"bundle", "create", bundlePath, "--end-of-options", sourceBundleRef}
-	if includeBase {
-		args = append(args, sourceBundleBaseRef)
+// createSourceBundle 只从候选 ref 构造带单一 accepted baseline prerequisite
+// 的 Git bundle；baseline objects 由 worker 的只读 image store 提供。
+func createSourceBundle(ctx context.Context, bareRoot string, bundlePath string, baseline SourceBaseline, materializedCommit string) error {
+	if !validOID(baseline.CommitSHA, baseline.ObjectFormat) || !validOID(materializedCommit, baseline.ObjectFormat) {
+		return errors.New("source bundle baseline prerequisite commit is invalid")
 	}
+	args := []string{"bundle", "create", bundlePath, "--end-of-options", sourceBundleRef, "^" + baseline.CommitSHA}
 	output, err := runGitOutput(ctx, bareRoot, nil, args...)
 	if err := rejectGitOutput(output, err, "create source bundle"); err != nil {
 		return err
@@ -178,7 +58,7 @@ func rejectGitOutput(output []byte, err error, action string) error {
 }
 
 // importAndVerifyBundle 在新建 bare repo 中导入 bundle 并复核广告 ref 与对象闭包。
-func importAndVerifyBundle(ctx context.Context, bundlePath string, tempParent string, manifest SourceMaterializationManifest) (err error) {
+func importAndVerifyBundle(ctx context.Context, bundlePath string, tempParent string, manifest SourceMaterializationManifest, baseline SourceBaseline) (err error) {
 	importRoot, err := os.MkdirTemp(tempParent, ".source-import-")
 	if err != nil {
 		return fmt.Errorf("create source import root: %w", err)
@@ -191,6 +71,9 @@ func importAndVerifyBundle(ctx context.Context, bundlePath string, tempParent st
 	if err := initBareRepository(ctx, importRoot, bareRoot, manifest.ObjectFormat); err != nil {
 		return err
 	}
+	if err := configureObjectStoreAlternate(ctx, bareRoot, baseline); err != nil {
+		return err
+	}
 	if _, err := runGitOutput(ctx, bareRoot, nil, "bundle", "verify", bundlePath); err != nil {
 		return fmt.Errorf("verify source bundle: %w", err)
 	}
@@ -201,21 +84,23 @@ func importAndVerifyBundle(ctx context.Context, bundlePath string, tempParent st
 	if string(output) != expectedBundleRefs(manifest) {
 		return errors.New("source bundle advertised unexpected or trailing refs")
 	}
-	return verifyImportedSource(ctx, bareRoot, manifest)
-}
-
-// expectedBundleRefs 编码 bundle 必须广告的 materialized 与可选可信 base refs。
-func expectedBundleRefs(manifest SourceMaterializationManifest) string {
-	head := fmt.Sprintf("%s %s\n", manifest.MaterializedCommitSHA, sourceBundleRef)
-	if base := trustedSourceBase(manifest); base != "" {
-		return head + fmt.Sprintf("%s %s\n", base, sourceBundleBaseRef)
+	if err := verifyBundlePrerequisites(bundlePath, manifest, baseline); err != nil {
+		return err
 	}
-	return head
+	return verifyImportedSource(ctx, bareRoot, manifest, baseline)
 }
 
-// verifyImportedSource 复核 bundle 中 head、可选可信 base 及其完整对象闭包。
-func verifyImportedSource(ctx context.Context, bareRoot string, manifest SourceMaterializationManifest) error {
-	object, err := readSourceObject(ctx, bareRoot, manifest.MaterializedCommitSHA)
+// expectedBundleRefs 编码 bundle 必须广告的唯一候选 ref；baseline 是
+// prerequisite，不得作为 bundle ref 或实际上传对象出现。
+func expectedBundleRefs(manifest SourceMaterializationManifest) string {
+	return fmt.Sprintf("%s %s\n", manifest.TransportCommitSHA, sourceBundleRef)
+}
+
+// verifyImportedSource 复核 deterministic transport commit 的 tree 与唯一
+// accepted baseline parent，并验证其候选 tree 闭包。原始 SourceSpec commit /
+// range / tree identity 仅由 manifest.Source 保存，绝不被 transport ref 替代。
+func verifyImportedSource(ctx context.Context, bareRoot string, manifest SourceMaterializationManifest, baseline SourceBaseline) error {
+	object, err := readSourceObject(ctx, bareRoot, manifest.TransportCommitSHA)
 	if err != nil {
 		return err
 	}
@@ -223,45 +108,94 @@ func verifyImportedSource(ctx context.Context, bareRoot string, manifest SourceM
 	if err != nil {
 		return err
 	}
-	if err := verifyImportedParentIdentity(manifest, parents); err != nil {
+	if len(parents) != 1 || parents[0] != baseline.CommitSHA {
+		return errors.New("transport commit parent does not match accepted image baseline")
+	}
+	expected, err := DeterministicSourceTransportCommitSHA(manifest.SourceTreeSHA, baseline.CommitSHA, manifest.ObjectFormat)
+	if err != nil || manifest.TransportCommitSHA != expected {
+		return errors.New("transport commit identity is not deterministic")
+	}
+	return verifyObjectClosure(ctx, bareRoot, manifest.TransportCommitSHA)
+}
+
+// verifyBundlePrerequisites 验证 bundle 头部只包含 accepted baseline 前置条件和候选 ref。
+func verifyBundlePrerequisites(bundlePath string, manifest SourceMaterializationManifest, baseline SourceBaseline) error {
+	header, err := readSourceBundleHeader(bundlePath, baseline.ObjectFormat, manifest.ObjectFormat)
+	if err != nil {
 		return err
 	}
-	commits := []string{manifest.MaterializedCommitSHA}
-	if base := trustedSourceBase(manifest); base != "" {
-		object, err := readSourceObject(ctx, bareRoot, base)
-		if err != nil || object.kind != "commit" {
-			return errors.Join(errors.New("imported trusted source base is not a commit"), err)
-		}
-		commits = append(commits, base)
+	if len(header.prerequisites) != 1 || header.prerequisites[0] != baseline.CommitSHA {
+		return errors.New("source bundle prerequisite does not match accepted image baseline commit")
 	}
-	return verifyObjectClosure(ctx, bareRoot, commits...)
-}
-
-// trustedSourceBase 从已校验 manifest 中提取 materializer 明确发布的 canonical base。
-func trustedSourceBase(manifest SourceMaterializationManifest) string {
-	return manifest.TrustedBaseCommitSHA
-}
-
-// verifyImportedParentIdentity 约束 canonical base 与导入 commit 的真实 parent 身份一致。
-func verifyImportedParentIdentity(manifest SourceMaterializationManifest, parents []string) error {
-	switch manifest.Source.Kind {
-	case gate.SourceKindCommit:
-		if len(parents) == 1 {
-			if manifest.TrustedBaseCommitSHA != parents[0] {
-				return errors.New("imported commit parent does not match trusted source base")
-			}
-		} else if manifest.TrustedBaseCommitSHA != "" {
-			return errors.New("parentless or merge commit must not advertise a trusted source base")
-		}
-	case gate.SourceKindTree:
-		if manifest.Source.Tree.ParentCommitSHA == "" {
-			return nil
-		}
-		if len(parents) != 1 || parents[0] != manifest.Source.Tree.ParentCommitSHA {
-			return errors.New("imported synthetic commit parent does not match SourceSpec")
-		}
+	if len(header.refs) != 1 || header.refs[0] != strings.TrimSuffix(expectedBundleRefs(manifest), "\n") {
+		return errors.New("source bundle must advertise exactly one candidate ref")
 	}
 	return nil
+}
+
+type sourceBundleHeader struct {
+	prerequisites []string
+	refs          []string
+}
+
+// readSourceBundleHeader 读取并解析受限长度的 bundle 头部，不信任 Git 的人类可读输出。
+func readSourceBundleHeader(bundlePath string, prerequisiteFormat gate.GitObjectFormat, refFormat gate.GitObjectFormat) (sourceBundleHeader, error) {
+	file, err := os.Open(bundlePath)
+	if err != nil {
+		return sourceBundleHeader{}, fmt.Errorf("open source bundle header: %w", err)
+	}
+	defer file.Close()
+	reader := bufio.NewReader(io.LimitReader(file, maxSourceBundleHeaderLength))
+	line, err := reader.ReadString('\n')
+	if err != nil || strings.TrimSuffix(line, "\n") != "# v2 git bundle" {
+		return sourceBundleHeader{}, errors.New("source bundle header version is not v2")
+	}
+	header := sourceBundleHeader{
+		prerequisites: make([]string, 0, 1),
+		refs:          make([]string, 0, 1),
+	}
+	for {
+		line, readErr := reader.ReadString('\n')
+		if readErr != nil {
+			return sourceBundleHeader{}, fmt.Errorf("read source bundle header: %w", readErr)
+		}
+		line = strings.TrimSuffix(line, "\n")
+		if line == "" {
+			break
+		}
+		if strings.HasPrefix(line, "-") {
+			prerequisite, parseErr := parseSourceBundlePrerequisite(line, prerequisiteFormat)
+			if parseErr != nil {
+				return sourceBundleHeader{}, parseErr
+			}
+			header.prerequisites = append(header.prerequisites, prerequisite)
+			continue
+		}
+		ref, parseErr := parseSourceBundleRef(line, refFormat)
+		if parseErr != nil {
+			return sourceBundleHeader{}, parseErr
+		}
+		header.refs = append(header.refs, ref)
+	}
+	return header, nil
+}
+
+// parseSourceBundlePrerequisite 校验 bundle prerequisite 的对象 ID 格式。
+func parseSourceBundlePrerequisite(line string, format gate.GitObjectFormat) (string, error) {
+	fields := strings.Fields(strings.TrimPrefix(line, "-"))
+	if len(fields) == 0 || !validOID(fields[0], format) {
+		return "", errors.New("source bundle prerequisite has invalid Git object ID")
+	}
+	return fields[0], nil
+}
+
+// parseSourceBundleRef 校验 bundle 广告 ref 必须是唯一标准候选 ref。
+func parseSourceBundleRef(line string, format gate.GitObjectFormat) (string, error) {
+	fields := strings.Fields(line)
+	if len(fields) != 2 || !validOID(fields[0], format) || fields[1] != sourceBundleRef {
+		return "", errors.New("source bundle header advertises an unexpected ref")
+	}
+	return line, nil
 }
 
 type canonicalContext struct {
@@ -269,8 +203,8 @@ type canonicalContext struct {
 	InputDigest   string
 }
 
-// canonicalContextDigests derives canonical context identity while retaining no
-// archive. Only the source-snapshot delta is eligible for upload.
+// canonicalContextDigests derives canonical compile-context identity while
+// retaining no archive. Source transport is owned by source.bundle materialization.
 func canonicalContextDigests(sourceEntries []sourceexport.TreeEntry) (canonicalContext, error) {
 	contextDigest, inputDigest, err := writeCanonicalContext(sourceEntries, io.Discard)
 	if err != nil {
@@ -543,12 +477,6 @@ type GateImageInputs struct {
 	ToolchainDigest     string
 	DockerfileDigest    string
 	GateSourceDigest    string
-}
-
-// BaselineGateCompileInputs 固化历史基线树中的 Gate 编译闭包与工具链身份。
-type BaselineGateCompileInputs struct {
-	ToolchainDigest  string
-	GateSourceDigest string
 }
 
 func verifyReadOnlyGitTree(tree ReadOnlyGitTree) error {

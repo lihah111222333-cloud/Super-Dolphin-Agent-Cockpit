@@ -6,14 +6,22 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gatehook"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
 func TestParseRemotePrePushOptions(t *testing.T) {
-	requesterFingerprint := "sha256:" + strings.Repeat("c", 64)
-	t.Setenv(gatecontract.RequesterFingerprintEnvironment, requesterFingerprint)
+	token, err := cicontract.GenerateAgentToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := cicontract.AgentTokenDigest(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(cicontract.AgentTokenEnvironment, token)
 	options, remoteName, remoteURL, err := parseRemotePrePushOptions([]string{
 		"--config", "/tmp/remote-ci.json",
 		"--ledger", "/tmp/remote-ci.baseline-state.sqlite",
@@ -27,7 +35,7 @@ func TestParseRemotePrePushOptions(t *testing.T) {
 	if options.ConfigPath != "/tmp/remote-ci.json" ||
 		options.LedgerPath != "/tmp/remote-ci.baseline-state.sqlite" ||
 		options.RepositoryRoot != "/tmp/repository" ||
-		options.RequesterFingerprint.String() != requesterFingerprint ||
+		options.AgentTokenDigest != digest ||
 		remoteName != "origin" ||
 		remoteURL != "ssh://git@example.invalid/repository.git" {
 		t.Fatalf("options=%#v remote=%q url=%q", options, remoteName, remoteURL)
@@ -87,9 +95,7 @@ func TestValidateAuthoritativeRemoteHookResultRejectsManualOrDirtyCleanup(t *tes
 	); err != nil {
 		t.Fatal(err)
 	}
-	result.RequesterFingerprint = gatecontract.RequesterFingerprint(
-		"sha256:" + strings.Repeat("c", 64),
-	)
+	result.AgentTokenDigest = "sha256:" + strings.Repeat("c", 64)
 	if err := validateAuthoritativeRemoteHookResult(
 		result,
 		gatecontract.CIEntrypointGitPreCommit,
@@ -101,7 +107,7 @@ func TestValidateAuthoritativeRemoteHookResultRejectsManualOrDirtyCleanup(t *tes
 	); err == nil {
 		t.Fatal("result for a different requester unexpectedly accepted")
 	}
-	result.RequesterFingerprint = ""
+	result.AgentTokenDigest = ""
 	result.Authoritative = false
 	if err := validateAuthoritativeRemoteHookResult(
 		result,

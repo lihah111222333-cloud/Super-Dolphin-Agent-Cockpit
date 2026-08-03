@@ -3,10 +3,43 @@ package gate
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"os"
 	"path/filepath"
 	"strconv"
 	"testing"
 )
+
+func TestRemoteBaselineStateStoreInitializesEmptySQLiteAuthority(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "duration-ledger.sqlite")
+	store, err := NewDurationLedgerStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.LoadRemoteBaselineState(); !errors.Is(err, ErrRemoteBaselineStateNotFound) {
+		t.Fatalf("LoadRemoteBaselineState() error = %v, want ErrRemoteBaselineStateNotFound", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("stat initialized SQLite authority: %v", err)
+	}
+	database, err := store.openSQLiteAuthority(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	for _, name := range []string{
+		"idx_ci_workload_pass_evidence_origin_job",
+		"idx_ci_workload_executions_shard_fk",
+	} {
+		var count int
+		if err := database.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=?`, name).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Fatalf("initialized SQLite authority index %q count = %d, want 1", name, count)
+		}
+	}
+}
 
 func TestRemoteBaselineStateStoreLoadsSeededState(t *testing.T) {
 	data := []byte(`{"image_cache_id":"imc-accepted"}`)

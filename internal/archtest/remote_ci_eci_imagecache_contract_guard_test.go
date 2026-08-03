@@ -2,8 +2,6 @@ package archtest
 
 import (
 	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"path/filepath"
 	"slices"
@@ -25,12 +23,18 @@ func TestRemoteCIECIImageCacheContractDocumentationAnchors(t *testing.T) {
 	}
 }
 
-// TestRemoteCIContractHasOneCodeOwner binds the accepted document to one Go
-// owner without copying its field catalogue into archtest. Production code may
-// consume cicontract's API, but may not redeclare its platform, timing, or
-// refresh-state protocol locally.
+// TestRemoteCIContractHasOneCodeOwner 将 accepted 文档绑定到唯一 Go owner，
+// 并拒绝生产消费者在本地重声明平台、耗时或刷新状态协议。
 func TestRemoteCIContractHasOneCodeOwner(t *testing.T) {
 	root := findRepoRoot(t)
+	assertRemoteCIContractDocumentHasCanonicalOwner(t, root)
+	assertRemoteCIContractOwnerHasSourceAndTests(t, root)
+	assertRemoteCIContractConsumersImportOwner(t, root)
+}
+
+// assertRemoteCIContractDocumentHasCanonicalOwner 验证文档身份和规范映射仍由唯一代码 owner 提供。
+func assertRemoteCIContractDocumentHasCanonicalOwner(t *testing.T, root string) {
+	t.Helper()
 	if err := cicontract.Validate(); err != nil {
 		t.Fatalf("validate remote CI code contract: %v", err)
 	}
@@ -38,7 +42,7 @@ func TestRemoteCIContractHasOneCodeOwner(t *testing.T) {
 	if !strings.Contains(contract, "internal/devtools/cicontract") {
 		t.Error("accepted remote CI contract must name internal/devtools/cicontract as its code owner")
 	}
-	for _, identity := range []string{cicontract.ID, cicontract.ExecutionPathID, cicontract.RefreshPathID, cicontract.SQLAuthorityID} {
+	for _, identity := range []string{cicontract.ID, cicontract.ExecutionPathID, cicontract.GenerationOneReceiptImportPathID, cicontract.SQLAuthorityID} {
 		if !strings.Contains(contract, identity) {
 			t.Errorf("accepted remote CI document is missing code contract identity %q", identity)
 		}
@@ -46,26 +50,29 @@ func TestRemoteCIContractHasOneCodeOwner(t *testing.T) {
 	if got := remoteCICanonicalContractBlock(t, contract); got != cicontract.CanonicalMarkdown() {
 		t.Error("accepted remote CI document and internal/devtools/cicontract are not 1:1")
 	}
-	ownerDirectory := filepath.Join(root, "internal", "devtools", "cicontract")
-	entries, err := os.ReadDir(ownerDirectory)
+}
+
+// assertRemoteCIContractOwnerHasSourceAndTests 验证 owner 同时保有生产 API 与聚焦测试。
+func assertRemoteCIContractOwnerHasSourceAndTests(t *testing.T, root string) {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(root, "internal", "devtools", "cicontract"))
 	if err != nil {
 		t.Fatalf("remote CI contract code owner is unavailable: %v", err)
 	}
 	hasProductionSource, hasTest := false, false
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
-			continue
-		}
-		if strings.HasSuffix(entry.Name(), "_test.go") {
-			hasTest = true
-			continue
-		}
-		hasProductionSource = true
+		isGo := !entry.IsDir() && strings.HasSuffix(entry.Name(), ".go")
+		hasTest = hasTest || (isGo && strings.HasSuffix(entry.Name(), "_test.go"))
+		hasProductionSource = hasProductionSource || (isGo && !strings.HasSuffix(entry.Name(), "_test.go"))
 	}
 	if !hasProductionSource || !hasTest {
 		t.Fatalf("remote CI contract owner must provide production API and focused tests: source=%t test=%t", hasProductionSource, hasTest)
 	}
+}
 
+// assertRemoteCIContractConsumersImportOwner 拒绝消费者复制契约值后绕过唯一 owner。
+func assertRemoteCIContractConsumersImportOwner(t *testing.T, root string) {
+	t.Helper()
 	for _, file := range remoteCIContractConsumerFiles(t, root) {
 		parsed := parseRemoteCIContractGuardFile(t, file)
 		if remoteCIRepeatsContractValue(parsed) && !remoteCIImportsContractOwner(parsed) {
@@ -80,13 +87,88 @@ func TestRemoteCIContractHasOneCodeOwner(t *testing.T) {
 // instead of repeating table names.
 func TestRemoteCISQLAuthorityBindingsAreCreatedByGateSchema(t *testing.T) {
 	root := findRepoRoot(t)
-	schema := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal", "devtools", "gate", "ledger_store_sqlite_schema.go"))
+	schemaDirectory := filepath.Join(root, "internal", "devtools", "gate")
+	entries, err := os.ReadDir(schemaDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema strings.Builder
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "ledger_store_sqlite_schema") || !strings.HasSuffix(entry.Name(), ".go") {
+			continue
+		}
+		schema.WriteString(readRemoteCIContractGuardFile(t, filepath.Join(schemaDirectory, entry.Name())))
+	}
 	for _, binding := range cicontract.SQLAuthorityBindings() {
 		statement := "CREATE TABLE IF NOT EXISTS " + binding.Table
-		if !strings.Contains(schema, statement) {
+		if !strings.Contains(schema.String(), statement) {
 			t.Errorf("gate SQLite schema does not create cicontract authority table %q for domain %q", binding.Table, binding.Domain)
 		}
 	}
+}
+
+// TestRemoteCIDurationLedgerSchemaForbidsCompatibilityDDL keeps startup from
+// reconstructing any pre-current physical schema. Existing non-current files
+// must be rejected by exact preflight before production executes DDL.
+func TestRemoteCIDurationLedgerSchemaForbidsCompatibilityDDL(t *testing.T) {
+	root := findRepoRoot(t)
+	schemaDirectory := filepath.Join(root, "internal", "devtools", "gate")
+	entries, err := os.ReadDir(schemaDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "ledger_store_sqlite_schema") ||
+			!strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+		path := filepath.Join(schemaDirectory, entry.Name())
+		for _, violation := range remoteCIDurationLedgerCompatibilityDDLViolations(readRemoteCIContractGuardFile(t, path)) {
+			t.Errorf("%s contains retired schema compatibility path %q", relativeRemoteCIContractPath(t, root, path), violation)
+		}
+	}
+
+	if violations := remoteCIDurationLedgerCompatibilityDDLViolations(`package fixture
+const current = "CREATE TABLE ci_runs (job_id TEXT PRIMARY KEY)"
+`); len(violations) != 0 {
+		t.Fatalf("current schema fixture was rejected: %v", violations)
+	}
+	legacy := `package fixture
+const alter = "ALTER TABLE ci_runs ADD COLUMN candidate_state TEXT"
+const copy = "INSERT INTO ci_check_receipts_next SELECT * FROM ci_check_receipts"
+const image = "successor_image"
+`
+	if violations := remoteCIDurationLedgerCompatibilityDDLViolations(legacy); len(violations) < 4 {
+		t.Fatalf("legacy schema compatibility fixture violations = %v, want ALTER/copy/next/retired-column rejection", violations)
+	}
+}
+
+func remoteCIDurationLedgerCompatibilityDDLViolations(source string) []string {
+	normalized := strings.ToLower(source)
+	violations := map[string]bool{}
+	for _, forbidden := range []string{
+		"alter table",
+		"candidate_state",
+		"successor_image",
+		"replacelegacycheckreceipttable",
+		"migratecheckreceiptreusesqliteschema",
+	} {
+		if strings.Contains(normalized, forbidden) {
+			violations[forbidden] = true
+		}
+	}
+	if strings.Contains(normalized, "_next") {
+		violations["shadow _next table"] = true
+	}
+	if strings.Contains(normalized, "insert into") && strings.Contains(normalized, "select") {
+		violations["INSERT INTO ... SELECT compatibility copy"] = true
+	}
+	result := make([]string, 0, len(violations))
+	for violation := range violations {
+		result = append(result, violation)
+	}
+	slices.Sort(result)
+	return result
 }
 
 // TestRemoteCIAuthorityDoesNotReintroduceJSONStateFilesOrSecondWriters keeps
@@ -113,18 +195,60 @@ func TestRemoteCIAuthorityDoesNotReintroduceJSONStateFilesOrSecondWriters(t *tes
 		promotionCalls += remoteCIFunctionCallCount(parsed, "PromoteRemoteBaselineStateWithRefreshLease")
 	}
 	if compareAndSwapCalls != 0 {
-		t.Fatalf("remote baseline generic CAS production calls = %d, want 0; only lease promotion may write accepted state", compareAndSwapCalls)
+		t.Fatalf("remote baseline generic CAS production calls = %d, want 0", compareAndSwapCalls)
 	}
-	if promotionCalls != 1 {
-		t.Fatalf("remote baseline lease promotion calls = %d, want exactly 1", promotionCalls)
+	if promotionCalls != 0 {
+		t.Fatalf("repository successor promotion calls = %d, want 0", promotionCalls)
 	}
 }
 
-// TestRemoteCIBaselineStateMutatorsHaveOnlyTheLeasePromotionPath rejects
-// generic accepted-state writers and retired missing-state/generation helpers.
-// Test fixtures may seed SQLite directly, but production must neither expose nor
-// call another accepted-state mutation path.
-func TestRemoteCIBaselineStateMutatorsHaveOnlyTheLeasePromotionPath(t *testing.T) {
+// TestRemoteCIRunAuthorityHasOneSQLiteFinalizer 拒绝绕过写入回执、新鲜 PASS 证据或运行权威事务的公开捷径。
+// 暂定投影刻意不具备写入能力。
+func TestRemoteCIRunAuthorityHasOneSQLiteFinalizer(t *testing.T) {
+	root := findRepoRoot(t)
+	gateDirectory := filepath.Join(root, "internal", "devtools", "gate")
+	if finalizers := remoteCIGateAuthorityFinalizers(t, gateDirectory); finalizers != 1 {
+		t.Fatalf("remote CI authority finalizer declarations = %d, want 1", finalizers)
+	}
+	projection := readRemoteCIContractGuardFile(t, filepath.Join(gateDirectory, "ci_query_store_remote_run_write.go"))
+	if !strings.Contains(projection, "\t\t0, record.StartedAt.UTC().UnixMilli()") || strings.Contains(projection, "authoritative = excluded.authoritative") {
+		t.Fatal("provisional remote CI projection must persist authoritative = 0 and never update it")
+	}
+}
+
+// remoteCIGateAuthorityFinalizers 统计唯一终结器并逐文件拒绝历史写入捷径。
+func remoteCIGateAuthorityFinalizers(t *testing.T, gateDirectory string) int {
+	t.Helper()
+	entries, err := os.ReadDir(gateDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalizers := 0
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".go") && !strings.HasSuffix(entry.Name(), "_test.go") {
+			finalizers += remoteCIGateFileAuthorityFinalizers(t, gateDirectory, entry.Name())
+		}
+	}
+	return finalizers
+}
+
+func remoteCIGateFileAuthorityFinalizers(t *testing.T, gateDirectory, name string) int {
+	t.Helper()
+	parsed := parseRemoteCIContractGuardFile(t, filepath.Join(gateDirectory, name))
+	for _, forbidden := range []string{"AppendCheckReceipts", "PromoteRemoteCIWorkloadPassEvidence", "FinalizeRemoteCIRunAuthority"} {
+		if remoteCIFunctionExists(parsed, forbidden) {
+			t.Errorf("%s retains forbidden remote CI authority writer %s", name, forbidden)
+		}
+	}
+	if remoteCIFunctionExists(parsed, "FinalizeRemoteCIRunAuthorityWithSamples") {
+		return 1
+	}
+	return 0
+}
+
+// TestRemoteCIBaselineStateMutatorsRejectRepositoryPromotion keeps accepted
+// state initialization at the external generation-one receipt boundary.
+func TestRemoteCIBaselineStateMutatorsRejectRepositoryPromotion(t *testing.T) {
 	root := findRepoRoot(t)
 	for _, file := range remoteCIProductionFiles(t, root) {
 		parsed := parseRemoteCIContractGuardFile(t, file)
@@ -164,8 +288,7 @@ func remoteCICanonicalContractBlock(t *testing.T, document string) string {
 }
 
 // TestRemoteCIProductionPathRejectsLegacyExecutionPaths parses only executable
-// remote-CI Go sources. It rejects retired execution/cache paths but explicitly
-// allows SourceSnapshotDelta, the accepted uncompressed delta protocol.
+// remote-CI Go sources and rejects every retired execution/cache path.
 func TestRemoteCIProductionPathRejectsLegacyExecutionPaths(t *testing.T) {
 	root := findRepoRoot(t)
 	for _, file := range remoteCIProductionFiles(t, root) {
@@ -174,37 +297,89 @@ func TestRemoteCIProductionPathRejectsLegacyExecutionPaths(t *testing.T) {
 			t.Errorf("%s retains forbidden remote CI concurrency cap %s", relativeRemoteCIContractPath(t, root, file), violation)
 		}
 		for _, violation := range remoteCIWorkloadPassReuseViolations(parsed) {
-			t.Errorf("%s retains forbidden workload PASS result-cache/reused-return identifier %s", relativeRemoteCIContractPath(t, root, file), violation)
+			t.Errorf("%s retains forbidden legacy workload PASS reuse path %s", relativeRemoteCIContractPath(t, root, file), violation)
 		}
-	}
-
-	for _, file := range remoteCIRefreshProductionFiles(t, root) {
-		parsed := parseRemoteCIContractGuardFile(t, file)
-		for _, violation := range remoteCIRefreshLegacyViolations(parsed) {
-			t.Errorf("%s retains forbidden refresh implementation %s", relativeRemoteCIContractPath(t, root, file), violation)
+		for _, violation := range remoteCILegacySQLiteSchemaViolations(parsed) {
+			t.Errorf("%s retains forbidden legacy SQLite schema path %s", relativeRemoteCIContractPath(t, root, file), violation)
+		}
+		for _, violation := range remoteCISourceBundleViolations(parsed) {
+			t.Errorf("%s retains retired source-delta path %s", relativeRemoteCIContractPath(t, root, file), violation)
 		}
 	}
 }
 
-// TestRemoteCIWorkloadProjectionAcceptsOnlyFreshResults prevents a result-cache
-// map from returning to the final workload coverage boundary.
-func TestRemoteCIWorkloadProjectionAcceptsOnlyFreshResults(t *testing.T) {
+// TestRemoteCISourceBundleContractRequiresCanonicalTransport locks the
+// producer/transport/consumer chain to SourceSpec + source.bundle and verifies
+// the guard fails on both the legacy calls and a renamed source-delta alias.
+func TestRemoteCISourceBundleContractRequiresCanonicalTransport(t *testing.T) {
+	root := findRepoRoot(t)
+	protocol := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/remoteci/protocol_shard_request.go"))
+	materializer := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/remoteci/source_worktree_materializer.go"))
+	for _, required := range []string{
+		"gate.SourceSpec",
+		"SourceBundleKey",
+		"SourceBundleSHA256",
+		"SourceBundleSize",
+	} {
+		if !strings.Contains(protocol, required) {
+			t.Fatalf("canonical source bundle protocol is missing %q", required)
+		}
+	}
+	if !strings.Contains(materializer, "MaterializeVerifiedSourceBundle") {
+		t.Fatal("source materializer must expose verified bundle to sourceRoot handoff")
+	}
+	for _, forbidden := range []string{"PatchFormat", "PatchKey", "PatchSHA256", "PatchSize", "source.patch", "source delta"} {
+		if strings.Contains(protocol, forbidden) {
+			t.Fatalf("canonical source bundle protocol retains retired marker %q", forbidden)
+		}
+	}
+
+	safe := remoteCIParseGuardFixture(t, `package fixture
+type Snapshot struct{}
+type sourceSnapshotCopier struct{}
+func copySourceSnapshot() {}
+func materialize() { copySourceSnapshot(); _ = sourceSnapshotCopier{}; _ = Snapshot{} }
+`)
+	if got := remoteCISourceBundleViolations(safe); len(got) != 0 {
+		t.Fatalf("canonical source bundle fixture has false legacy violations: %v", got)
+	}
+	legacy := remoteCIParseGuardFixture(t, `package fixture
+type sourceDeltaBuilder struct{}
+func (sourceDeltaBuilder) Build() {}
+func run(sourceDelta sourceDeltaBuilder) { sourceDelta.Build(); _ = "git apply"; _ = "PatchKey" }
+`)
+	if got := remoteCISourceBundleViolations(legacy); len(got) < 3 {
+		t.Fatalf("renamed source-delta fixture violations = %v, want source builder, git apply, and patch markers", got)
+	}
+	snapshotDeltaLegacy := remoteCIParseGuardFixture(t, `package fixture
+type SourceSnapshotDelta struct{}
+type SourceSnapshotContentManifest struct{}
+func BuildSourceSnapshotDelta() SourceSnapshotDelta { return SourceSnapshotDelta{} }
+func ApplySourceSnapshotDelta(SourceSnapshotDelta) {}
+func run() { ApplySourceSnapshotDelta(BuildSourceSnapshotDelta()); _ = ".source-snapshot-delta.json" }
+`)
+	violations := strings.Join(remoteCISourceBundleViolations(snapshotDeltaLegacy), "\n")
+	for _, required := range []string{
+		"identifier SourceSnapshotDelta",
+		"identifier SourceSnapshotContentManifest",
+		"identifier BuildSourceSnapshotDelta",
+		"identifier ApplySourceSnapshotDelta",
+		"literal .source-snapshot-delta.json",
+	} {
+		if !strings.Contains(violations, required) {
+			t.Fatalf("source snapshot delta fixture violations = %q, missing %q", violations, required)
+		}
+	}
+}
+
+// TestRemoteCIWorkloadProjectionRejectsOnlyLegacyReusePaths 允许严格 SQLite 证据路径，
+// 同时阻止已退役缓存或 schema 名称成为第二权威。
+func TestRemoteCIWorkloadProjectionRejectsOnlyLegacyReusePaths(t *testing.T) {
 	root := findRepoRoot(t)
 	path := filepath.Join(root, "internal", "devtools", "remoteci", "workload_projection.go")
 	parsed := parseRemoteCIContractGuardFile(t, path)
-	if remoteCIFunctionExists(parsed, "mergeRemoteWorkloadExecutions") {
-		t.Fatal("workload projection must not retain mergeRemoteWorkloadExecutions")
-	}
-	function := remoteCIFunctionByName(parsed, "collectFreshRemoteWorkloadExecutions")
-	if function == nil || function.Type.Params == nil || len(function.Type.Params.List) != 2 {
-		t.Fatal("workload projection must expose the two-argument fresh-only collector")
-	}
-	for _, parameter := range function.Type.Params.List {
-		for _, name := range parameter.Names {
-			if name.Name == "cached" {
-				t.Fatal("fresh-only workload collector must not accept a cached result map")
-			}
-		}
+	for _, violation := range remoteCIWorkloadPassReuseViolations(parsed) {
+		t.Errorf("workload projection retains forbidden legacy reuse path %s", violation)
 	}
 }
 
@@ -223,6 +398,14 @@ func heartbeat() {
 	if got := remoteCIConcurrencyCapViolations(safe); len(got) != 0 {
 		t.Fatalf("safe size/retry/error-channel fixture has false concurrency caps: %v", got)
 	}
+	gitIndexBoundary := remoteCIParseGuardFixture(t, `package fixture
+func gitIndexConsistencyBoundary() {
+	_ = "index.lock"
+}
+`)
+	if got := remoteCIConcurrencyCapViolations(gitIndexBoundary); len(got) != 0 {
+		t.Fatalf("Git index consistency boundary has false CI admission cap: %v", got)
+	}
 	capped := remoteCIParseGuardFixture(t, `package fixture
 func shards() {
 	const MaxShards = 4
@@ -234,61 +417,64 @@ func shards() {
 	if got := remoteCIConcurrencyCapViolations(capped); len(got) == 0 {
 		t.Fatal("shard cap fixture must be rejected")
 	}
+	serialized := remoteCIParseGuardFixture(t, `package fixture
+func run() {
+	_ = GlobalHookLock{}
+	_ = ActiveJobLock{}
+	_ = SharedRawToken{}
+}
+`)
+	if got := remoteCIConcurrencyCapViolations(serialized); len(got) == 0 {
+		t.Fatal("global hook, active-job, and shared raw-token serialization fixture must be rejected")
+	}
 }
 func TestRemoteCILegacyGuardCounterexamples(t *testing.T) {
 	safe := remoteCIParseGuardFixture(t, `package fixture
 func calibration(passedWorkloads map[string]struct{}) {
 	_ = passedWorkloads
 }
-func rejectLegacyWorkloadReuseSchema() {}
+func strictReuse(proofSHA256 string) {
+	_ = proofSHA256
+}
 func source(TargetSourceClosure string) {
 	_ = TargetSourceClosure
 }
-func freshWorkerCopy(BootstrapVolume string) {
-	_ = BootstrapVolume
+func freshWorkerCopy(request string) {
+	_ = request
 }`)
 	if got := remoteCIWorkloadPassReuseViolations(safe); len(got) != 0 {
-		t.Fatalf("current-run calibration PASS evidence or strict-reject schema name was mistaken for result reuse: %v", got)
-	}
-	if got := remoteCIRefreshLegacyViolations(safe); len(got) != 0 {
-		t.Fatalf("target closure or fresh worker copy was mistaken for a legacy refresh path: %v", got)
+		t.Fatalf("current-run calibration PASS evidence or strict proof was mistaken for legacy result reuse: %v", got)
 	}
 
-	reused := remoteCIParseGuardFixture(t, `package fixture
+	legacyReuse := remoteCIParseGuardFixture(t, `package fixture
 func run() {
 	_ = WorkloadPassCache{}
 	_ = ReusedWorkloadResult{}
+	_ = CIWorkloadFingerprints{}
 }`)
-	if got := remoteCIWorkloadPassReuseViolations(reused); len(got) == 0 {
-		t.Fatal("workload PASS result cache/reuse fixture must be rejected")
+	if got := remoteCIWorkloadPassReuseViolations(legacyReuse); len(got) == 0 {
+		t.Fatal("legacy workload PASS result cache/reuse schema fixture must be rejected")
 	}
-	legacyRefresh := remoteCIParseGuardFixture(t, `package fixture
-func refresh() {
-	_ = FullWorkspaceTar{}
-	_ = FullContextBootstrap{}
-}`)
-	if got := remoteCIRefreshLegacyViolations(legacyRefresh); len(got) == 0 {
-		t.Fatal("full workspace tar/bootstrap fixture must be rejected")
+	legacySQLite := remoteCIParseGuardFixture(t, `package fixture
+func schema() { _ = "ci_run_workloads" }`)
+	if got := remoteCILegacySQLiteSchemaViolations(legacySQLite); len(got) == 0 {
+		t.Fatal("legacy SQLite workload schema fixture must be rejected")
 	}
 }
 
-// TestRemoteCIIncrementalRefreshAndRequiredChecksUseContractOwner prevents a
-// second protocol vocabulary from restoring a full context fallback or omitting
-// a required accepted-snapshot/delta validation at the production call site.
-func TestRemoteCIIncrementalRefreshAndRequiredChecksUseContractOwner(t *testing.T) {
-	root := findRepoRoot(t)
-	requireContractCall := func(relative, validator string) {
-		path := filepath.Join(root, filepath.FromSlash(relative))
-		parsed := parseRemoteCIContractGuardFile(t, path)
-		if !remoteCIImportsContractOwner(parsed) || !remoteCIHasContractCall(parsed, validator) {
-			t.Errorf("%s must call cicontract.%s on its production path", relative, validator)
+func remoteCILegacySQLiteSchemaViolations(file *ast.File) []string {
+	violations := map[string]bool{}
+	for _, literal := range remoteCIStringLiterals(file) {
+		if strings.Contains(literal, "ci_run_workloads") ||
+			strings.Contains(literal, "ci_workload_pass_proofs") ||
+			strings.Contains(literal, "ci_workload_fingerprints") ||
+			strings.Contains(literal, "ci_workload_identity_aliases") ||
+			strings.Contains(literal, "ci_workload_fingerprint_observations") ||
+			strings.Contains(literal, "legacy_source_sha256") {
+			violations["literal "+literal] = true
 		}
 	}
-	requireContractCall("cmd/super-dolphin-gate/remote_refresh.go", "ValidateIncrementalRefreshTransfer")
-	requireContractCall("cmd/super-dolphin-gate/remote_refresh_oci_builder.go", "ValidateIncrementalRefreshTransfer")
-	requireContractCall("cmd/super-dolphin-gate/remote_oci_baseline_worker.go", "ValidateDeltaRebuild")
-	requireContractCall("cmd/super-dolphin-gate/remote_run.go", "ValidateRequiredChecksObservedPass")
-	requireContractCall("cmd/super-dolphin-gate/remote_run.go", "ValidateTimingWarningAction")
+	return remoteCIViolationList(violations)
 }
 
 // TestRemoteCIHundredSecondTargetCannotBecomeTermination rejects the precise
@@ -301,119 +487,6 @@ func TestRemoteCIHundredSecondTargetCannotBecomeTermination(t *testing.T) {
 		for _, violation := range remoteCIHundredSecondTerminationViolations(parsed) {
 			t.Errorf("%s turns the 100-second target into terminating call %s", relativeRemoteCIContractPath(t, root, file), violation)
 		}
-	}
-}
-
-// TestRemoteCISourceSnapshotAndRefreshLogConsumersUseCanonicalContractValues
-// keeps the accepted snapshot layout and refresh-only log vocabulary on the
-// executable ECI path. Merely importing cicontract is insufficient: the
-// worker must pass the canonical root to the delta applier, while the
-// coordinator must mount and copy the same contract-owned layout.
-func TestRemoteCISourceSnapshotAndRefreshLogConsumersUseCanonicalContractValues(t *testing.T) {
-	root := findRepoRoot(t)
-	worker := parseRemoteCIContractGuardFile(t, filepath.Join(root, "cmd", "super-dolphin-gate", "remote_oci_baseline_worker.go"))
-	if !remoteCIImportsContractOwner(worker) ||
-		!remoteCIFunctionCallHasSelectorArgument(worker, "executeRemoteOCIBuildKit", "cicontract", "ValidateSourceSnapshotLayout", 0, "cicontract", "SourceSnapshotRootPath") ||
-		!remoteCIFunctionCallHasSelectorArgument(worker, "executeRemoteOCIBuildKit", "cicontract", "ValidateSourceSnapshotLayout", 1, "cicontract", "SourceSnapshotManifestPath") ||
-		!remoteCIFunctionCallHasSelectorArgument(worker, "executeRemoteOCIBuildKit", "remoteci", "ApplySourceSnapshotDelta", 0, "cicontract", "SourceSnapshotRootPath") ||
-		!remoteCIFunctionHasSelector(worker, "executeRemoteOCIBuildKit", "cicontract", "SourceSnapshotManifestPath") {
-		t.Error("remote OCI worker must validate and apply the cicontract source snapshot root and manifest on its production path")
-	}
-
-	coordinator := parseRemoteCIContractGuardFile(t, filepath.Join(root, "cmd", "super-dolphin-gate", "remote_refresh_oci_coordinator.go"))
-	if !remoteCIImportsContractOwner(coordinator) ||
-		!remoteCIFunctionCalls(coordinator, "remoteOCIBuildCreateRequest", "remoteOCIInitScript") ||
-		!remoteCIFunctionHasSelectorCall(coordinator, "remoteOCIBuildCreateRequest", "filepath", "Dir", "cicontract", "SourceSnapshotRootPath") ||
-		!remoteCIFunctionCallHasSelectorArgument(coordinator, "remoteOCIInitScript", "fmt", "Sprintf", 1, "cicontract", "SourceSnapshotRootPath") ||
-		!remoteCIFunctionCallHasSelectorArgument(coordinator, "remoteOCIInitScript", "fmt", "Sprintf", 2, "cicontract", "SourceSnapshotManifestPath") {
-		t.Error("remote OCI ECI init/main mount and copy path must consume cicontract's canonical source snapshot layout")
-	}
-
-	closure := parseRemoteCIContractGuardFile(t, filepath.Join(root, "build", "gate", "closure", "closure.go"))
-	if !remoteCIImportsContractOwner(closure) || !remoteCIFunctionHasSelector(closure, "renderDockerfile", "cicontract", "RefreshCheckLogPrefix") {
-		t.Error("refresh receipt Dockerfile must consume cicontract.RefreshCheckLogPrefix rather than a private log vocabulary")
-	}
-}
-
-// TestRemoteCISourceSnapshotConsumerGuardCounterexamples proves the guard is
-// fail-first: a lookalike path, a disconnected mount, or a private refresh
-// receipt marker cannot satisfy the structural consumer checks.
-func TestRemoteCISourceSnapshotConsumerGuardCounterexamples(t *testing.T) {
-	wrongDeltaRoot := remoteCIParseGuardFixture(t, `package fixture
-func executeRemoteOCIBuildKit() {
-	remoteci.ApplySourceSnapshotDelta("/tmp/source-snapshot/root", output, accepted, delta)
-}`)
-	if remoteCIFunctionCallHasSelectorArgument(wrongDeltaRoot, "executeRemoteOCIBuildKit", "remoteci", "ApplySourceSnapshotDelta", 0, "cicontract", "SourceSnapshotRootPath") {
-		t.Fatal("lookalike source snapshot root must not satisfy canonical delta-apply guard")
-	}
-
-	wrongMount := remoteCIParseGuardFixture(t, `package fixture
-func remoteOCIBuildCreateRequest() {
-	_ = filepath.Dir("/tmp/source-snapshot/root")
-}`)
-	if remoteCIFunctionHasSelectorCall(wrongMount, "remoteOCIBuildCreateRequest", "filepath", "Dir", "cicontract", "SourceSnapshotRootPath") {
-		t.Fatal("lookalike source snapshot mount must not satisfy canonical ECI mount guard")
-	}
-
-	privatePrefix := remoteCIParseGuardFixture(t, `package fixture
-func renderDockerfile() {
-	_ = "REMOTE_CI_CHECK_PASS="
-}`)
-	if remoteCIFunctionHasSelector(privatePrefix, "renderDockerfile", "cicontract", "RefreshCheckLogPrefix") {
-		t.Fatal("private refresh receipt prefix must not satisfy cicontract log-prefix guard")
-	}
-}
-
-func TestRemoteCIProductionImageInputsUseCanonicalNonACRHostGuard(t *testing.T) {
-	root := findRepoRoot(t)
-	for _, relative := range []string{
-		"internal/devtools/remoteci/baseline_state.go",
-		"internal/devtools/remoteci/oci_baseline_builder_protocol.go",
-		"internal/devtools/remoteci/oci_build_context.go",
-		"internal/devtools/alicloud/eci/client_validation.go",
-		"internal/devtools/alicloud/eci/image_cache.go",
-	} {
-		contents := readRemoteCIContractGuardFile(t, filepath.Join(root, filepath.FromSlash(relative)))
-		if !strings.Contains(contents, "cicontract.ValidateNonACRRegistryHost") {
-			t.Errorf("%s must use cicontract.ValidateNonACRRegistryHost for production image inputs", relative)
-		}
-	}
-}
-
-// TestRemoteCIBaselineBuildConsumesSingleGoDistributionLock keeps the remote
-// baseline image on the only Go distribution lock and rejects archive fetching.
-func TestRemoteCIBaselineBuildConsumesSingleGoDistributionLock(t *testing.T) {
-	root := findRepoRoot(t)
-	lockPath := filepath.Join(root, "internal", "devtools", "remoteci", "oci_toolchain_lock.go")
-	lockConsumer := parseRemoteCIContractGuardFile(t, lockPath)
-	if !strings.Contains(readRemoteCIContractGuardFile(t, lockPath), "internal/devtools/godistribution") {
-		t.Fatal("remote OCI toolchain lock must import the single Go distribution owner")
-	}
-	if !remoteCIFunctionCalls(lockConsumer, "validateRemoteGoDistributionLock", "ValidateRemoteCIAsset") || !remoteCIFunctionCalls(lockConsumer, "validateToolchainVersions", "validateRemoteGoDistributionLock") {
-		t.Error("remote OCI baseline toolchain validation must consume ValidateRemoteCIAsset")
-	}
-}
-
-// TestRemoteCINormalConfigDoesNotDependOnRefreshPublication keeps background
-// refresh failure isolated from an accepted normal run while retaining strict
-// validation at the detached refresh boundary.
-func TestRemoteCINormalConfigDoesNotDependOnRefreshPublication(t *testing.T) {
-	root := findRepoRoot(t)
-	configFile := parseRemoteCIContractGuardFile(t, filepath.Join(root, "cmd", "super-dolphin-gate", "remote_run_config.go"))
-	if remoteCIFunctionCalls(configFile, "Validate", "ValidateOCIRefresh") {
-		t.Fatal("normal remote CI config must not depend on refresh publication config")
-	}
-	if !remoteCIFunctionCalls(configFile, "ValidateOCIRefresh", "ValidateOCIOutputRepository") ||
-		!remoteCIFunctionCalls(configFile, "ValidateOCIRefresh", "ValidateOCIRefreshImage") {
-		t.Fatal("refresh-only config validation must retain both generic OCI publication guards")
-	}
-	optionsFile := parseRemoteCIContractGuardFile(t, filepath.Join(root, "cmd", "super-dolphin-gate", "remote_run_options.go"))
-	if !remoteCIFunctionCalls(optionsFile, "loadRemoteRefreshConfig", "ValidateOCIRefresh") {
-		t.Fatal("detached refresh config must validate the OCI publication boundary")
-	}
-	refreshFile := parseRemoteCIContractGuardFile(t, filepath.Join(root, "cmd", "super-dolphin-gate", "remote_refresh.go"))
-	if !remoteCIFunctionCalls(refreshFile, "runClaimedRemoteBaselineRefresh", "loadRemoteRefreshConfig") {
-		t.Fatal("claimed refresh must load the strict refresh-only config before build or ECI work")
 	}
 }
 
@@ -462,7 +535,7 @@ func TestRemoteCIHooksRejectConcurrencyCaps(t *testing.T) {
 	root := findRepoRoot(t)
 	for _, hook := range []string{"pre-commit", "pre-push"} {
 		contents := readRemoteCIContractGuardFile(t, filepath.Join(root, ".githooks", hook))
-		for _, forbidden := range []string{"max_shards", "max-shards", "max_concurrency", "max-concurrency"} {
+		for _, forbidden := range []string{"max_shards", "max-shards", "max_concurrency", "max-concurrency", "flock", "global_hook_lock", "global-hook-lock", "active_job_lock", "active-job-lock", "shared_raw_token", "shared-raw-token"} {
 			if strings.Contains(strings.ToLower(contents), forbidden) {
 				t.Errorf(".githooks/%s retains forbidden remote CI concurrency cap %q", hook, forbidden)
 			}
@@ -492,43 +565,6 @@ func TestRemoteCIECIRequestsBindAcceptedSnapshot(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("remote CI production path has no ECI CreateRequest to bind to the accepted snapshot")
-	}
-}
-
-// TestRemoteCIImageCacheCreationHasOneRefreshChain requires the sole automatic
-// cache-reuse option to remain inside CreateImageCache and a refresh caller to
-// create the successor explicitly.
-func TestRemoteCIImageCacheCreationHasOneRefreshChain(t *testing.T) {
-	root := findRepoRoot(t)
-	clientPath := filepath.Join(root, "internal", "devtools", "alicloud", "eci", "image_cache.go")
-	client := parseRemoteCIContractGuardFile(t, clientPath)
-	functions := remoteCIFunctionNamesContainingString(client, "--AutoMatchImageCache")
-	if len(functions) != 1 || functions[0] != "CreateImageCache" {
-		t.Fatalf("AutoMatchImageCache functions = %v, want [CreateImageCache]", functions)
-	}
-
-	createCalls := 0
-	for _, file := range remoteCIRefreshProductionFiles(t, root) {
-		parsed := parseRemoteCIContractGuardFile(t, file)
-		if remoteCIFunctionCalls(parsed, "runClaimedRemoteBaselineRefresh", "CreateImageCache") {
-			createCalls++
-		}
-		if remoteCIFunctionContainsString(parsed, "", "--AutoMatchImageCache") {
-			t.Errorf("%s selects ImageCache automatically outside CreateImageCache", relativeRemoteCIContractPath(t, root, file))
-		}
-	}
-	if createCalls != 1 {
-		t.Fatalf("refresh CreateImageCache main chain count = %d, want 1", createCalls)
-	}
-}
-
-// TestRemoteCIBaselineRefreshHasOneProductionEntry prevents a second command
-// from bypassing the SQLite lease-backed baseline-refresh implementation.
-func TestRemoteCIBaselineRefreshHasOneProductionEntry(t *testing.T) {
-	root := findRepoRoot(t)
-	main := parseRemoteCIContractGuardFile(t, filepath.Join(root, "cmd", "super-dolphin-gate", "main.go"))
-	if calls := remoteCIFunctionCallCount(main, "runRemoteBaselineRefresh"); calls != 1 {
-		t.Fatalf("baseline-refresh production entry calls = %d, want exactly 1", calls)
 	}
 }
 
@@ -565,613 +601,103 @@ func TestRemoteCIProductionHasOneAuthorityWriter(t *testing.T) {
 	}
 }
 
-func remoteCIProductionFiles(t *testing.T, root string) []string {
-	t.Helper()
-	return remoteCICollectProductionFiles(t, root, []string{
-		"cmd/super-dolphin-gate",
-		"internal/devtools/remoteci",
-		"internal/devtools/alicloud/eci",
-		"internal/devtools/gate",
-	}, func(relative string) bool {
-		base := filepath.Base(relative)
-		return !strings.HasPrefix(relative, "cmd/") || strings.HasPrefix(base, "remote_")
-	})
+// TestRemoteCIExecutionUsesFrozenWorkloadLPTShards prevents the normal remote
+// execution path from returning to static gate groups or a fixed shard count.
+func TestRemoteCIExecutionUsesFrozenWorkloadLPTShards(t *testing.T) {
+	root := findRepoRoot(t)
+	coordinator := parseRemoteCIContractGuardFile(t, filepath.Join(root, "internal", "devtools", "remoteci", "coordinator.go"))
+	if !remoteCIFunctionCalls(coordinator, "buildRemoteExecutionShardSetForWorkloads", "BuildContainerShardSetFromWorkloadPlan") {
+		t.Fatal("remote workload execution must project the frozen workload LPT plan")
+	}
+	for _, forbidden := range []string{"BuildContainerShardSet", "BuildContainerShardSetWithCount", "legacyCanonicalContainerShardGroups"} {
+		if remoteCIFunctionContainsIdentifier(coordinator, "buildRemoteExecutionShardSetForWorkloads", forbidden) {
+			t.Errorf("remote workload execution retains forbidden static shard builder %s", forbidden)
+		}
+	}
 }
 
-func remoteCIRefreshProductionFiles(t *testing.T, root string) []string {
-	t.Helper()
-	return remoteCICollectProductionFiles(t, root, []string{"cmd/super-dolphin-gate", "internal/devtools/gate", "internal/devtools/remoteci"}, func(relative string) bool {
-		return strings.Contains(filepath.Base(relative), "remote_refresh") || strings.Contains(filepath.Base(relative), "baseline_refresh")
-	})
-}
-
-func remoteCIContractConsumerFiles(t *testing.T, root string) []string {
-	t.Helper()
-	return remoteCICollectProductionFiles(t, root, []string{
-		"cmd/super-dolphin-gate",
-		"internal/devtools/gate",
-		"internal/devtools/remoteci",
-	}, func(relative string) bool {
-		base := filepath.Base(relative)
-		return !strings.HasPrefix(relative, "cmd/") || strings.HasPrefix(base, "remote_")
-	})
-}
-
-func remoteCICollectProductionFiles(t *testing.T, root string, directories []string, include func(string) bool) []string {
-	t.Helper()
-	var files []string
-	for _, directory := range directories {
-		absolute := filepath.Join(root, filepath.FromSlash(directory))
-		if err := filepath.WalkDir(absolute, func(path string, entry os.DirEntry, err error) error {
-			if err != nil {
-				return err
+// TestRemoteCIExecutorGoBuildCacheSeedsRequireGenerations rejects the retired
+// fixed seed directory before it can re-enter the remote executor path.
+func TestRemoteCIExecutorGoBuildCacheSeedsRequireGenerations(t *testing.T) {
+	root := findRepoRoot(t)
+	paths := map[string]string{
+		"executor_workspace.go": filepath.Join(root, "internal", "devtools", "gate", "executor_workspace.go"),
+		"executor_plan.go":      filepath.Join(root, "internal", "devtools", "gate", "executor_plan.go"),
+		"executor.go":           filepath.Join(root, "internal", "devtools", "gate", "executor.go"),
+	}
+	workspace := readRemoteCIContractGuardFile(t, paths["executor_workspace.go"])
+	plan := readRemoteCIContractGuardFile(t, paths["executor_plan.go"])
+	for name, path := range paths {
+		identifiers := remoteCIForbiddenIdentifiers(parseRemoteCIContractGuardFile(t, path))
+		for _, forbidden := range []string{"ExecutorGoBuildCacheSeedRoot", "legacySeedRoot"} {
+			if identifiers[forbidden] {
+				t.Errorf("%s retains retired Go build-cache seed identifier %q", name, forbidden)
 			}
-			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
-				return nil
-			}
-			relative := relativeRemoteCIContractPath(t, root, path)
-			if include(relative) {
-				files = append(files, path)
-			}
-			return nil
-		}); err != nil {
-			t.Fatalf("walk remote CI production directory %s: %v", directory, err)
+		}
+		if strings.Contains(readRemoteCIContractGuardFile(t, path), "cache-seed/go-build") {
+			t.Errorf("%s retains retired Go build-cache seed path", name)
 		}
 	}
-	return files
-}
-
-func parseRemoteCIContractGuardFile(t *testing.T, path string) *ast.File {
-	t.Helper()
-	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
-	if err != nil {
-		t.Fatalf("parse %s: %v", path, err)
+	if !strings.Contains(workspace, "Go build cache seed generations root must be a real directory") {
+		t.Fatal("Go build-cache seed discovery must reject a missing or invalid generation root")
 	}
-	return parsed
+	if !strings.Contains(plan, "ExecutorGoBuildCacheSeedsRoot") {
+		t.Fatal("executor plan must use the generation-scoped Go build-cache seeds root")
+	}
 }
 
-func remoteCIForbiddenIdentifiers(file *ast.File) map[string]bool {
-	found := make(map[string]bool)
-	ast.Inspect(file, func(node ast.Node) bool {
-		identifier, ok := node.(*ast.Ident)
-		if ok {
-			found[identifier.Name] = true
+// TestGenerationOneProvisionReceiptFieldGuard binds the provision-only check
+// catalogue, receipt JSON field, and command importer to one strict boundary.
+func TestGenerationOneProvisionReceiptFieldGuard(t *testing.T) {
+	root := findRepoRoot(t)
+	receiptPath := filepath.Join(root, "internal", "devtools", "cicontract", "generation_one.go")
+	contractPath := filepath.Join(root, "internal", "devtools", "cicontract", "contract.go")
+	importerPath := filepath.Join(root, "cmd", "super-dolphin-gate", "remote_provision_generation_one.go")
+	if !remoteCITypeHasJSONField(parseRemoteCIContractGuardFile(t, receiptPath), "GenerationOneProvisionReceipt", "ProvisionChecks", "provision_checks") {
+		t.Fatal("generation-one provision receipt must declare ProvisionChecks with JSON field provision_checks")
+	}
+	contractSource := readRemoteCIContractGuardFile(t, contractPath)
+	for _, required := range []string{"type ProvisionCheck string", "type ProvisionCheckObservation struct"} {
+		if !strings.Contains(contractSource, required) {
+			t.Fatalf("generation-one provision content contract is missing %q", required)
 		}
-		return true
+	}
+	if strings.Contains(contractSource, "RefreshCheck") {
+		t.Fatal("generation-one provision content contract must not retain refresh-named checks")
+	}
+	importer := parseRemoteCIContractGuardFile(t, importerPath)
+	if !remoteCIFunctionHasSelector(importer, "loadRemoteGenerationOneProvisionInput", "cicontract", "ValidateGenerationOneProvisionChecks") {
+		t.Fatal("generation-one provision importer must validate provision checks")
+	}
+	missingField := remoteCIParseGuardFixture(t, "package fixture\ntype GenerationOneProvisionReceipt struct { ReceiptSHA256 string `json:\"receipt_sha256\"` }\n")
+	if remoteCITypeHasJSONField(missingField, "GenerationOneProvisionReceipt", "ProvisionChecks", "provision_checks") {
+		t.Fatal("generation-one provision receipt field guard accepted a fixture without provision_checks")
+	}
+}
+
+func remoteCITypeHasJSONField(file *ast.File, typeName, fieldName, jsonName string) bool {
+	structure := remoteCIStructTypeByName(file, typeName)
+	if structure == nil {
+		return false
+	}
+	return slices.ContainsFunc(structure.Fields.List, func(field *ast.Field) bool {
+		return len(field.Names) == 1 && field.Names[0].Name == fieldName && field.Tag != nil && strings.Contains(field.Tag.Value, `json:"`+jsonName+`"`)
 	})
-	return found
 }
 
-func remoteCIStringLiterals(file *ast.File) []string {
-	var values []string
-	ast.Inspect(file, func(node ast.Node) bool {
-		literal, ok := node.(*ast.BasicLit)
-		if ok && literal.Kind == token.STRING {
-			values = append(values, strings.Trim(literal.Value, "\"`"))
-		}
-		return true
-	})
-	return values
-}
-
-func remoteCIImportsContractOwner(file *ast.File) bool {
-	for _, importSpec := range file.Imports {
-		if strings.Trim(importSpec.Path.Value, "\"") == "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract" {
-			return true
-		}
-	}
-	return false
-}
-
-func remoteCIRepeatsContractValue(file *ast.File) bool {
-	for _, literal := range remoteCIStringLiterals(file) {
-		switch literal {
-		case "linux/amd64", "claimed", "building", "cache_preparing", "ready_validated", "promoted", "retiring", "failed":
-			return true
-		}
-	}
-	found := false
-	ast.Inspect(file, func(node ast.Node) bool {
-		if remoteCIContractDuration(node) {
-			found = true
-			return false
-		}
-		return true
-	})
-	return found
-}
-
-func remoteCIContractDuration(node ast.Node) bool {
-	expression, ok := node.(*ast.BinaryExpr)
-	if !ok || expression.Op != token.MUL {
-		return false
-	}
-	literal, ok := expression.X.(*ast.BasicLit)
-	if !ok || literal.Kind != token.INT || (literal.Value != "2" && literal.Value != "100") {
-		return false
-	}
-	selector, ok := expression.Y.(*ast.SelectorExpr)
-	if !ok {
-		return false
-	}
-	packageName, ok := selector.X.(*ast.Ident)
-	return ok && packageName.Name == "time" && ((literal.Value == "2" && selector.Sel.Name == "Hour") || (literal.Value == "100" && selector.Sel.Name == "Second"))
-}
-
-func remoteCIUsesFilesystemStateStore(file *ast.File) bool {
-	used := false
-	ast.Inspect(file, func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
-		if !ok || !remoteCIFileStoreCall(call) {
-			return true
-		}
-		used = true
-		return false
-	})
-	return used
-}
-
-func remoteCIFileStoreCall(call *ast.CallExpr) bool {
-	selector, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok {
-		return false
-	}
-	packageName, ok := selector.X.(*ast.Ident)
-	if !ok || packageName.Name != "os" {
-		return false
-	}
-	switch selector.Sel.Name {
-	case "ReadFile", "WriteFile", "Open", "OpenFile", "Create":
-		return true
-	default:
-		return false
-	}
-}
-
-func isECICreateRequest(expression ast.Expr) bool {
-	selector, ok := expression.(*ast.SelectorExpr)
-	if !ok || selector.Sel.Name != "CreateRequest" {
-		return false
-	}
-	packageName, ok := selector.X.(*ast.Ident)
-	return ok && packageName.Name == "eci"
-}
-
-func remoteCICreateRequestHasSnapshot(literal *ast.CompositeLit) bool {
-	for _, element := range literal.Elts {
-		field, ok := element.(*ast.KeyValueExpr)
-		if !ok {
+func remoteCIStructTypeByName(file *ast.File, typeName string) *ast.StructType {
+	for _, declaration := range file.Decls {
+		general, ok := declaration.(*ast.GenDecl)
+		if !ok || general.Tok.String() != "type" {
 			continue
 		}
-		key, ok := field.Key.(*ast.Ident)
-		if ok && key.Name == "ImageCacheSnapshotID" {
-			return true
-		}
-	}
-	return false
-}
-
-func remoteCIFunctionContainsString(file *ast.File, functionName, want string) bool {
-	return len(remoteCIFunctionNamesContainingString(file, want, functionName)) != 0
-}
-
-func remoteCIFunctionNamesContainingString(file *ast.File, want string, names ...string) []string {
-	functionName := ""
-	if len(names) != 0 {
-		functionName = names[0]
-	}
-	var found []string
-	for _, declaration := range file.Decls {
-		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || (functionName != "" && function.Name.Name != functionName) {
-			continue
-		}
-		if slices.Contains(remoteCIStringLiterals(&ast.File{Decls: []ast.Decl{function}}), want) {
-			found = append(found, function.Name.Name)
-		}
-	}
-	return found
-}
-
-func remoteCIFunctionCalls(file *ast.File, functionName, calledName string) bool {
-	for _, declaration := range file.Decls {
-		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Name.Name != functionName {
-			continue
-		}
-		return remoteCIFunctionCallCount(&ast.File{Decls: []ast.Decl{function}}, calledName) != 0
-	}
-	return false
-}
-
-func remoteCIFunctionHasSelector(file *ast.File, functionName, packageName, selectorName string) bool {
-	for _, declaration := range file.Decls {
-		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Name.Name != functionName {
-			continue
-		}
-		found := false
-		ast.Inspect(function, func(node ast.Node) bool {
-			expression, ok := node.(*ast.SelectorExpr)
-			if ok && remoteCISelectorMatches(expression, packageName, selectorName) {
-				found = true
-				return false
+		for _, specification := range general.Specs {
+			typeSpec, ok := specification.(*ast.TypeSpec)
+			if ok && typeSpec.Name.Name == typeName {
+				structure, _ := typeSpec.Type.(*ast.StructType)
+				return structure
 			}
-			return true
-		})
-		return found
-	}
-	return false
-}
-
-func remoteCIFunctionCallHasSelectorArgument(file *ast.File, functionName, calledPackage, calledName string, argumentIndex int, argumentPackage, argumentName string) bool {
-	for _, declaration := range file.Decls {
-		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Name.Name != functionName {
-			continue
-		}
-		found := false
-		ast.Inspect(function, func(node ast.Node) bool {
-			call, ok := node.(*ast.CallExpr)
-			if !ok || argumentIndex >= len(call.Args) {
-				return true
-			}
-			callee, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok || !remoteCISelectorMatches(callee, calledPackage, calledName) {
-				return true
-			}
-			argument, ok := call.Args[argumentIndex].(*ast.SelectorExpr)
-			if ok && remoteCISelectorMatches(argument, argumentPackage, argumentName) {
-				found = true
-				return false
-			}
-			return true
-		})
-		return found
-	}
-	return false
-}
-
-func remoteCIFunctionHasSelectorCall(file *ast.File, functionName, calledPackage, calledName, argumentPackage, argumentName string) bool {
-	return remoteCIFunctionCallHasSelectorArgument(file, functionName, calledPackage, calledName, 0, argumentPackage, argumentName)
-}
-
-func remoteCISelectorMatches(expression *ast.SelectorExpr, packageName, selectorName string) bool {
-	identifier, ok := expression.X.(*ast.Ident)
-	return ok && identifier.Name == packageName && expression.Sel.Name == selectorName
-}
-
-func remoteCIFunctionExists(file *ast.File, want string) bool {
-	for _, declaration := range file.Decls {
-		function, ok := declaration.(*ast.FuncDecl)
-		if ok && function.Name.Name == want {
-			return true
-		}
-	}
-	return false
-}
-
-func remoteCIFunctionByName(file *ast.File, want string) *ast.FuncDecl {
-	for _, declaration := range file.Decls {
-		function, ok := declaration.(*ast.FuncDecl)
-		if ok && function.Name.Name == want {
-			return function
 		}
 	}
 	return nil
-}
-
-func remoteCIFunctionCallCount(file *ast.File, calledName string) int {
-	count := 0
-	ast.Inspect(file, func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		if identifier, ok := call.Fun.(*ast.Ident); ok && identifier.Name == calledName {
-			count++
-			return true
-		}
-		if selector, ok := call.Fun.(*ast.SelectorExpr); ok && selector.Sel.Name == calledName {
-			count++
-		}
-		return true
-	})
-	return count
-}
-
-func readRemoteCIContractGuardFile(t *testing.T, path string) string {
-	t.Helper()
-	contents, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(contents)
-}
-
-func relativeRemoteCIContractPath(t *testing.T, root, path string) string {
-	t.Helper()
-	relative, err := filepath.Rel(root, path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return filepath.ToSlash(relative)
-}
-
-func remoteCIHasContractCall(file *ast.File, want string) bool {
-	found := false
-	ast.Inspect(file, func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		selector, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || selector.Sel.Name != want {
-			return true
-		}
-		packageName, ok := selector.X.(*ast.Ident)
-		found = ok && packageName.Name == "cicontract"
-		return !found
-	})
-	return found
-}
-
-func remoteCIRefreshLegacyViolations(file *ast.File) []string {
-	violations := map[string]bool{}
-	for identifier := range remoteCIForbiddenIdentifiers(file) {
-		normalized := strings.ToLower(identifier)
-		if strings.Contains(normalized, "sourcesnapshotdelta") {
-			continue
-		}
-		for _, forbidden := range []string{"datacache", "anchor", "zstd", "gzip", "docker", "buildx", "fallback"} {
-			if strings.Contains(normalized, forbidden) {
-				violations["identifier "+identifier] = true
-			}
-		}
-		if identifier == "Delta" || strings.Contains(normalized, "legacydelta") || strings.Contains(normalized, "directcachedelta") || remoteCIFullContextArchiveName(normalized) || remoteCIFullContextBootstrapName(normalized) {
-			violations["identifier "+identifier] = true
-		}
-	}
-	for _, literal := range remoteCIStringLiterals(file) {
-		normalized := strings.ToLower(literal)
-		for _, forbidden := range []string{"datacache", "anchor", "direct cache", "zstd", "gzip", "docker_host", "docker", "buildx", "fallback", "acr."} {
-			if strings.Contains(normalized, forbidden) {
-				violations["literal "+literal] = true
-			}
-		}
-		if remoteCIFullContextArchiveName(normalized) || remoteCIFullContextBootstrapName(normalized) {
-			violations["literal "+literal] = true
-		}
-	}
-	return remoteCIViolationList(violations)
-}
-
-func remoteCIFullContextArchiveName(normalized string) bool {
-	hasFullContext := strings.Contains(normalized, "context") || strings.Contains(normalized, "workspace") || strings.Contains(normalized, "closure")
-	return hasFullContext && (strings.Contains(normalized, ".tar") || strings.Contains(normalized, "tarball") || strings.Contains(normalized, "tararchive") || strings.HasSuffix(normalized, "tar"))
-}
-
-func remoteCIFullContextBootstrapName(normalized string) bool {
-	return strings.Contains(normalized, "bootstrap") && (strings.Contains(normalized, "full") || strings.Contains(normalized, "context") || strings.Contains(normalized, "workspace") || strings.Contains(normalized, "closure"))
-}
-
-func remoteCIConcurrencyCapViolations(file *ast.File) []string {
-	violations := map[string]bool{}
-	for identifier := range remoteCIForbiddenIdentifiers(file) {
-		if identifier == "SetLimit" || remoteCIAdmissionCapIdentifier(identifier) {
-			violations["identifier "+identifier] = true
-		}
-	}
-	ast.Inspect(file, func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		if selector, ok := call.Fun.(*ast.SelectorExpr); ok {
-			if packageName, ok := selector.X.(*ast.Ident); ok && packageName.Name == "semaphore" && selector.Sel.Name == "NewWeighted" {
-				violations["call semaphore.NewWeighted"] = true
-			}
-		}
-		if identifier, ok := call.Fun.(*ast.Ident); ok && identifier.Name == "make" && len(call.Args) == 2 {
-			if channel, ok := call.Args[0].(*ast.ChanType); ok && remoteCIAdmissionChannelType(channel) {
-				violations["buffered admission channel type "+remoteCIExpressionName(channel.Value)] = true
-			}
-		}
-		return true
-	})
-	return remoteCIViolationList(violations)
-}
-
-func remoteCIAdmissionCapIdentifier(identifier string) bool {
-	normalized := strings.ToLower(identifier)
-	for _, marker := range []string{"maxshard", "maxconcurrency", "shardbatch", "batchlimit", "coordinatorlimit", "admissioncap", "admissionlimit"} {
-		if strings.Contains(normalized, marker) {
-			return true
-		}
-	}
-	return false
-}
-
-func remoteCIAdmissionChannelType(channel *ast.ChanType) bool {
-	_, ok := channel.Value.(*ast.StructType)
-	return ok
-}
-
-func remoteCIExpressionName(expression ast.Expr) string {
-	if _, ok := expression.(*ast.StructType); ok {
-		return "struct{}"
-	}
-	if identifier, ok := expression.(*ast.Ident); ok {
-		return identifier.Name
-	}
-	return "unknown"
-}
-
-func remoteCIParseGuardFixture(t *testing.T, source string) *ast.File {
-	t.Helper()
-	file, err := parser.ParseFile(token.NewFileSet(), "remote_ci_guard_fixture.go", source, 0)
-	if err != nil {
-		t.Fatalf("parse remote CI guard fixture: %v", err)
-	}
-	return file
-}
-
-func remoteCIWorkloadPassReuseViolations(file *ast.File) []string {
-	violations := map[string]bool{}
-	for identifier := range remoteCIForbiddenIdentifiers(file) {
-		normalized := strings.ToLower(identifier)
-		if remoteCIStrictRejectLegacyReuseSchemaName(normalized) {
-			continue
-		}
-		if strings.Contains(normalized, "workload") && ((strings.Contains(normalized, "pass") && strings.Contains(normalized, "cache")) || strings.Contains(normalized, "reuse")) {
-			violations["identifier "+identifier] = true
-		}
-	}
-	return remoteCIViolationList(violations)
-}
-
-func remoteCIStrictRejectLegacyReuseSchemaName(normalized string) bool {
-	return normalized == "rejectlegacyworkloadreuseschema"
-}
-
-func remoteCIAuthorityWriterViolations(file *ast.File) []string {
-	violations := map[string]bool{}
-	ast.Inspect(file, func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		selector, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok {
-			return true
-		}
-		packageName, ok := selector.X.(*ast.Ident)
-		if !ok || packageName.Name != "os" || (selector.Sel.Name != "WriteFile" && selector.Sel.Name != "Create" && selector.Sel.Name != "OpenFile") {
-			return true
-		}
-		for _, argument := range call.Args {
-			literal, ok := argument.(*ast.BasicLit)
-			if !ok || literal.Kind != token.STRING {
-				continue
-			}
-			path := strings.ToLower(strings.Trim(literal.Value, "\""))
-			if strings.Contains(path, ".json") || strings.Contains(path, ".sqlite") || strings.Contains(path, ".db") {
-				violations["os."+selector.Sel.Name+" "+path] = true
-			}
-		}
-		return true
-	})
-	return remoteCIViolationList(violations)
-}
-
-func remoteCIViolationList(violations map[string]bool) []string {
-	result := make([]string, 0, len(violations))
-	for violation := range violations {
-		result = append(result, violation)
-	}
-	slices.Sort(result)
-	return result
-}
-
-func remoteCIHundredSecondTerminationViolations(file *ast.File) []string {
-	targets := map[string]bool{}
-	ast.Inspect(file, func(node ast.Node) bool {
-		switch statement := node.(type) {
-		case *ast.ValueSpec:
-			for index, value := range statement.Values {
-				if index < len(statement.Names) && remoteCIIsHundredSecondDuration(value) {
-					targets[statement.Names[index].Name] = true
-				}
-			}
-		case *ast.AssignStmt:
-			for index, value := range statement.Rhs {
-				if index < len(statement.Lhs) && remoteCIIsHundredSecondDuration(value) {
-					if identifier, ok := statement.Lhs[index].(*ast.Ident); ok {
-						targets[identifier.Name] = true
-					}
-				}
-			}
-		}
-		return true
-	})
-	violations := map[string]bool{}
-	ast.Inspect(file, func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
-		if !ok || !remoteCITerminatingCall(call) {
-			return true
-		}
-		for _, argument := range call.Args {
-			if remoteCIIsHundredSecondDuration(argument) {
-				violations[remoteCICallName(call)] = true
-			}
-			if identifier, ok := argument.(*ast.Ident); ok && targets[identifier.Name] {
-				violations[remoteCICallName(call)+" via "+identifier.Name] = true
-			}
-		}
-		return true
-	})
-	return remoteCIViolationList(violations)
-}
-
-func remoteCIIsHundredSecondDuration(expression ast.Expr) bool {
-	if selector, ok := expression.(*ast.SelectorExpr); ok {
-		if packageName, ok := selector.X.(*ast.Ident); ok && packageName.Name == "cicontract" && selector.Sel.Name == "ShardTargetDuration" {
-			return true
-		}
-	}
-	binary, ok := expression.(*ast.BinaryExpr)
-	if !ok || binary.Op != token.MUL {
-		return false
-	}
-	literal, ok := binary.Y.(*ast.SelectorExpr)
-	if !ok {
-		return false
-	}
-	packageName, ok := literal.X.(*ast.Ident)
-	if !ok || packageName.Name != "time" || (literal.Sel.Name != "Second" && literal.Sel.Name != "Millisecond") {
-		return false
-	}
-	value := remoteCIIntegerLiteral(binary.X)
-	return (literal.Sel.Name == "Second" && value == 100) || (literal.Sel.Name == "Millisecond" && value == 100000)
-}
-
-func remoteCIIntegerLiteral(expression ast.Expr) int64 {
-	if literal, ok := expression.(*ast.BasicLit); ok && literal.Kind == token.INT {
-		var value int64
-		for _, digit := range literal.Value {
-			if digit < '0' || digit > '9' {
-				return -1
-			}
-			value = value*10 + int64(digit-'0')
-		}
-		return value
-	}
-	if call, ok := expression.(*ast.CallExpr); ok && len(call.Args) == 1 {
-		if selector, ok := call.Fun.(*ast.SelectorExpr); ok {
-			if packageName, ok := selector.X.(*ast.Ident); ok && packageName.Name == "time" && selector.Sel.Name == "Duration" {
-				return remoteCIIntegerLiteral(call.Args[0])
-			}
-		}
-	}
-	return -1
-}
-
-func remoteCITerminatingCall(call *ast.CallExpr) bool {
-	name := strings.ToLower(remoteCICallName(call))
-	for _, terminating := range []string{"timeout", "deadline", "cancel", "kill", "fail", "cleanup"} {
-		if strings.Contains(name, terminating) {
-			return true
-		}
-	}
-	return false
-}
-
-func remoteCICallName(call *ast.CallExpr) string {
-	if identifier, ok := call.Fun.(*ast.Ident); ok {
-		return identifier.Name
-	}
-	if selector, ok := call.Fun.(*ast.SelectorExpr); ok {
-		return selector.Sel.Name
-	}
-	return "call"
 }

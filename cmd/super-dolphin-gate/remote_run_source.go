@@ -33,12 +33,7 @@ func resolveRemoteRunInput(
 		return remoteci.RunInput{}, err
 	}
 	entrypoint := remoteRunEntrypoint(options)
-	ledger, ledgerStore, err := loadRemoteRunLedger(
-		options,
-		scenario,
-		state,
-		runnerIdentity,
-	)
+	ledger, ledgerStore, err := loadRemoteRunLedger(options, state, runnerIdentity)
 	if err != nil {
 		return remoteci.RunInput{}, err
 	}
@@ -54,12 +49,12 @@ func resolveRemoteRunInput(
 		return remoteci.RunInput{}, err
 	}
 	return remoteci.RunInput{
-		AcceptedGeneration:   state.Generation,
-		RepositoryRoot:       repositoryRoot,
-		RemoteName:           options.RemoteName,
-		RemoteURL:            options.RemoteURL,
-		RequesterFingerprint: options.RequesterFingerprint,
-		Commit:               target.commit, Tree: target.tree, Base: target.bundleBase,
+		AcceptedGeneration: state.Generation,
+		RepositoryRoot:     repositoryRoot,
+		RemoteName:         options.RemoteName,
+		RemoteURL:          options.RemoteURL,
+		AgentTokenDigest:   options.AgentTokenDigest,
+		Commit:             target.commit, Tree: target.tree, Base: target.bundleBase,
 		RunnerBaseCommit: state.MainCommit, RunnerBaseTree: state.MainTree,
 		Source: source, Profile: profile, Entrypoint: entrypoint,
 		Platform: state.Platform, PolicyDigest: state.PolicyDigest,
@@ -117,10 +112,10 @@ func resolveRemoteRunSource(options remoteRunOptions) (string, string, gatecontr
 	return repositoryRoot, scenario, profile, target, source, err
 }
 
-// loadRemoteRunLedger 读取账本并验证它与当前已接受基线可比较。
+// loadRemoteRunLedger 从唯一 SQLite authority 读取 planning snapshot；校准要求
+// 由 normal 入口在 PreparedRun 判定为 miss 后单独验证。
 func loadRemoteRunLedger(
 	options remoteRunOptions,
-	scenario string,
 	state remoteci.BaselineState,
 	runnerIdentity string,
 ) (gatecontract.DurationLedgerSnapshot, *gatecontract.DurationLedgerStore, error) {
@@ -135,9 +130,6 @@ func loadRemoteRunLedger(
 		TargetDurationMS: gatecontract.FullCITargetDurationMS,
 	})
 	if err != nil {
-		return gatecontract.DurationLedgerSnapshot{}, nil, err
-	}
-	if err := validateRemoteDurationCalibration(options, scenario, state, runnerIdentity, ledger.Ledger); err != nil {
 		return gatecontract.DurationLedgerSnapshot{}, nil, err
 	}
 	return ledger, store, nil

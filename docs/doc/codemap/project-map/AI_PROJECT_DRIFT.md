@@ -2,16 +2,16 @@
 
 > 状态：**OK**
 >
-> 已索引文件：4406
+> 已索引文件：4444
 >
-> 未细分职责文件：55
+> 未细分职责文件：57
 
 ## 1. 漂移指标
 
 | 指标 | 当前值 |
 |---|---:|
-| 未细分职责文件数 | 55 |
-| 未细分职责占比 | 1.25% |
+| 未细分职责文件数 | 57 |
+| 未细分职责占比 | 1.28% |
 | 最大未细分职责占比阈值 | 5.00% |
 
 ## 2. 漂移告警
@@ -22,7 +22,7 @@
 
 | 模块 | 文件数 |
 |---|---:|
-| `cmd` | 53 |
+| `cmd` | 55 |
 | `internal` | 2 |
 
 ## 4. 样例文件
@@ -48,35 +48,35 @@
 - `cmd/super-dolphin-gate/project_map_cli.go`
 - `cmd/super-dolphin-gate/project_map_cli_test.go`
 - `cmd/super-dolphin-gate/project_map_cli_test_helpers_test.go`
+- `cmd/super-dolphin-gate/remote_agent_token.go`
+- `cmd/super-dolphin-gate/remote_agent_token_test.go`
 - `cmd/super-dolphin-gate/remote_baseline_source.go`
 - `cmd/super-dolphin-gate/remote_baseline_state_store.go`
 - `cmd/super-dolphin-gate/remote_hook_test.go`
 - `cmd/super-dolphin-gate/remote_hook_test_helpers_test.go`
 - `cmd/super-dolphin-gate/remote_materialize.go`
-- `cmd/super-dolphin-gate/remote_materialize_oci.go`
 - `cmd/super-dolphin-gate/remote_materialize_test.go`
 - `cmd/super-dolphin-gate/remote_oci_project_cache_test.go`
+- `cmd/super-dolphin-gate/remote_provision_generation_one.go`
+- `cmd/super-dolphin-gate/remote_provision_generation_one_test.go`
 - `cmd/super-dolphin-gate/remote_run.go`
 - `cmd/super-dolphin-gate/remote_run_automation_test.go`
 - `cmd/super-dolphin-gate/remote_run_calibration.go`
 - `cmd/super-dolphin-gate/remote_run_calibration_automation.go`
-- `cmd/super-dolphin-gate/remote_run_calibration_checkpoint_test.go`
 - `cmd/super-dolphin-gate/remote_run_calibration_evidence.go`
 - `cmd/super-dolphin-gate/remote_run_calibration_helpers_test.go`
 - `cmd/super-dolphin-gate/remote_run_calibration_runs.go`
+- `cmd/super-dolphin-gate/remote_run_calibration_runs_test.go`
 - `cmd/super-dolphin-gate/remote_run_config.go`
+- `cmd/super-dolphin-gate/remote_run_contract_receipt.go`
+- `cmd/super-dolphin-gate/remote_run_contract_receipt_test.go`
+- `cmd/super-dolphin-gate/remote_run_execution_contract_test.go`
 - `cmd/super-dolphin-gate/remote_run_helpers_test.go`
 - `cmd/super-dolphin-gate/remote_run_ledger_test.go`
 - `cmd/super-dolphin-gate/remote_run_options.go`
 - `cmd/super-dolphin-gate/remote_run_selection.go`
 - `cmd/super-dolphin-gate/remote_run_source.go`
 - `cmd/super-dolphin-gate/remote_run_test.go`
-- `cmd/super-dolphin-gate/requester_cli.go`
-- `cmd/super-dolphin-gate/requester_fingerprint.go`
-- `cmd/super-dolphin-gate/requester_runs.go`
-- `cmd/super-dolphin-gate/test_cli.go`
-- `cmd/super-dolphin-gate/test_cli_test.go`
-- `cmd/super-dolphin-gate/test_local_exec.go`
 
 ## 5. 修复方式
 

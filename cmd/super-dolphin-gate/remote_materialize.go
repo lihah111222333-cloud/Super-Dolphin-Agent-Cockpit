@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"syscall"
 	"time"
@@ -20,31 +21,33 @@ import (
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci/source"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci/workerio"
 )
 
 const (
-	remoteWorkerRoleEnv      = "SUPER_DOLPHIN_REMOTE_WORKER_ROLE"
-	remoteOSSEndpointEnv     = "SUPER_DOLPHIN_REMOTE_OSS_ENDPOINT"
-	remoteOSSBucketEnv       = "SUPER_DOLPHIN_REMOTE_OSS_BUCKET"
-	remoteRequestKeyEnv      = "SUPER_DOLPHIN_REMOTE_REQUEST_KEY"
-	remoteRequestSHA256Env   = "SUPER_DOLPHIN_REMOTE_REQUEST_SHA256"
-	remoteRequestMaxBytes    = 64 << 10
-	remoteManifestMaxBytes   = 1 << 20
-	remoteSourcePatchMaxSize = 1 << 30
-	remoteExecutorUID        = 65532
-	remoteExecutorGID        = 65532
-	remoteMaterializeTimeout = 45 * time.Minute
+	remoteWorkerRoleEnv       = "SUPER_DOLPHIN_REMOTE_WORKER_ROLE"
+	remoteOSSEndpointEnv      = "SUPER_DOLPHIN_REMOTE_OSS_ENDPOINT"
+	remoteOSSBucketEnv        = "SUPER_DOLPHIN_REMOTE_OSS_BUCKET"
+	remoteRequestKeyEnv       = "SUPER_DOLPHIN_REMOTE_REQUEST_KEY"
+	remoteRequestSHA256Env    = "SUPER_DOLPHIN_REMOTE_REQUEST_SHA256"
+	remoteAgentTokenDigestEnv = gatecontract.ExecutorAgentTokenDigestEnvironment
+	remoteRequestMaxBytes     = 64 << 10
+	remoteManifestMaxBytes    = 1 << 20
+	remoteSourceBundleMaxSize = 1 << 30
+	remoteSourceBaselineRoot  = "/opt/super-dolphin-gate/source-baseline.git"
+	remoteExecutorUID         = 65532
+	remoteExecutorGID         = 65532
+	remoteMaterializeTimeout  = 45 * time.Minute
 )
 
 type remoteMaterializeConfig struct {
-	RoleName      string
-	Endpoint      string
-	Bucket        string
-	RequestKey    string
-	RequestSHA256 string
-	CAFile        string
+	RoleName         string
+	Endpoint         string
+	Bucket           string
+	RequestKey       string
+	RequestSHA256    string
+	AgentTokenDigest string
+	CAFile           string
 }
 
 type remoteObjectDownload func(context.Context, string, int64, io.Writer) (int64, error)
@@ -105,7 +108,8 @@ func loadRemoteMaterializeConfig(getenv func(string) (string, bool)) (remoteMate
 	config := remoteMaterializeConfig{
 		RoleName: values[remoteWorkerRoleEnv], Endpoint: values[remoteOSSEndpointEnv],
 		Bucket: values[remoteOSSBucketEnv], RequestKey: values[remoteRequestKeyEnv],
-		RequestSHA256: values[remoteRequestSHA256Env],
+		RequestSHA256:    values[remoteRequestSHA256Env],
+		AgentTokenDigest: values[remoteAgentTokenDigestEnv],
 	}
 	if err := validateRemoteMaterializeConfig(config); err != nil {
 		return remoteMaterializeConfig{}, err
@@ -117,13 +121,12 @@ func loadRemoteMaterializeConfig(getenv func(string) (string, bool)) (remoteMate
 // runtime image before the main worker enables it as a GOCACHEPROG seed.
 func verifyRemoteOCIProjectCache(request remoteci.ShardRequest) error {
 	if request.OCIProjectCache == nil {
-		return nil
+		return errors.New("remote OCI project cache is required")
 	}
 	return verifyRemoteOCIProjectCacheAtPath(request, request.OCIProjectCache.CachePath)
 }
 
-// verifyRemoteOCIProjectCacheAtPath is split for filesystem-isolated tests; the
-// production caller always supplies the fixed path carried by the request.
+// verifyRemoteOCIProjectCacheAtPath 校验分片请求声明的 OCI 项目缓存路径，供隔离文件系统测试注入路径。
 func verifyRemoteOCIProjectCacheAtPath(request remoteci.ShardRequest, cachePath string) error {
 	cache := request.OCIProjectCache
 	if cache == nil {
@@ -150,6 +153,7 @@ func loadRequiredRemoteMaterializeValues(getenv func(string) (string, bool)) (ma
 		remoteOSSBucketEnv,
 		remoteRequestKeyEnv,
 		remoteRequestSHA256Env,
+		remoteAgentTokenDigestEnv,
 	}
 	values := make(map[string]string, len(names))
 	for _, name := range names {
@@ -170,6 +174,9 @@ func validateRemoteMaterializeConfig(config remoteMaterializeConfig) error {
 	if _, err := hex.DecodeString(config.RequestSHA256); err != nil || strings.ToLower(config.RequestSHA256) != config.RequestSHA256 {
 		return errors.New("remote request SHA-256 is invalid")
 	}
+	if err := cicontract.ValidateAgentTokenDigest(config.AgentTokenDigest); err != nil {
+		return fmt.Errorf("remote agent token digest: %w", err)
+	}
 	return nil
 }
 
@@ -180,7 +187,7 @@ func validRemoteRequestObjectKey(key string) bool {
 		strings.HasSuffix(key, ".request.json")
 }
 
-// materializeRemoteSourceWithTiming records init-container wall time without assigning it to gates.
+// materializeRemoteSourceWithTiming 校验、暂存并安装远程分片源码，同时记录基线缓存和源码物化阶段的耗时。
 func materializeRemoteSourceWithTiming(
 	ctx context.Context,
 	config remoteMaterializeConfig,
@@ -207,14 +214,14 @@ func materializeRemoteSourceWithTiming(
 	}
 	sourceStarted := time.Now().UTC().UnixMilli()
 	downloadStarted := time.Now()
-	tempRoot, manifestPath, patchPath, err := stageRemoteSourceObjects(ctx, workRoot, request, download)
+	tempRoot, _, _, err := stageRemoteSourceObjects(ctx, workRoot, request, download)
 	if err != nil {
 		return remoteci.ShardRequest{}, timing, err
 	}
 	timing.Source.DownloadMS = time.Since(downloadStarted).Milliseconds()
 	defer os.RemoveAll(tempRoot)
 	verifyStarted := time.Now()
-	if err := verifyRemoteMaterializedSource(ctx, sourceRoot, manifestPath, patchPath, request); err != nil {
+	if err := verifyRemoteMaterializedSource(ctx, sourceRoot, tempRoot, request); err != nil {
 		return remoteci.ShardRequest{}, timing, err
 	}
 	timing.Source.VerifyMS = time.Since(verifyStarted).Milliseconds()
@@ -237,14 +244,41 @@ func materializeRemoteSourceWithTiming(
 	return request, timing, nil
 }
 
-// verifyRemoteMaterializedSource 将 job patch 全字段绑定到已经逐层物化的 source 基线。
-func verifyRemoteMaterializedSource(ctx context.Context, sourceRoot string, manifestPath string, patchPath string, request remoteci.ShardRequest) error {
-	manifest, err := source.Verify(ctx, manifestPath, patchPath, sourceRoot)
-	if err != nil {
-		return fmt.Errorf("verify remote source: %w", err)
+// verifyRemoteMaterializedSource 复核 source bundle/manifest 并安装精确 detached sourceRoot。
+func verifyRemoteMaterializedSource(ctx context.Context, sourceRoot string, artifactRoot string, request remoteci.ShardRequest) error {
+	return verifyRemoteMaterializedSourceAtBaselineRoot(ctx, sourceRoot, artifactRoot, request, remoteSourceBaselineRoot)
+}
+
+// verifyRemoteMaterializedSourceAtBaselineRoot 允许测试注入 baseline root，生产入口仍固定使用 accepted image 路径。
+func verifyRemoteMaterializedSourceAtBaselineRoot(
+	ctx context.Context,
+	sourceRoot string,
+	artifactRoot string,
+	request remoteci.ShardRequest,
+	baselineRoot string,
+) error {
+	if err := request.Source.Validate(); err != nil {
+		return fmt.Errorf("validate remote request SourceSpec: %w", err)
 	}
-	if manifest.BaseCommit != request.RunnerBaseCommit || manifest.BaseTree != request.RunnerBaseTree || manifest.TargetTree != request.SourceTreeSHA || manifest.PatchFormat != request.PatchFormat || manifest.PatchSHA256 != request.PatchSHA256 || manifest.PatchSize != request.PatchSize {
-		return errors.New("remote source manifest does not match shard request")
+	if request.Source.SourceTreeSHA != request.SourceTreeSHA {
+		return errors.New("remote request SourceSpec and source tree identity do not match")
+	}
+	baselineCommit, err := remoteci.DeterministicSourceBaselineCommitSHA(request.RunnerBaseTree, request.Source.ObjectFormat)
+	if err != nil {
+		return fmt.Errorf("derive accepted image source baseline commit: %w", err)
+	}
+	baseline := remoteci.SourceBaseline{
+		RepositoryRoot: baselineRoot,
+		CommitSHA:      baselineCommit,
+		TreeSHA:        request.RunnerBaseTree,
+		ObjectFormat:   request.Source.ObjectFormat,
+	}
+	manifest, err := remoteci.MaterializeVerifiedSourceBundle(ctx, artifactRoot, sourceRoot, baseline)
+	if err != nil {
+		return fmt.Errorf("verify and materialize remote source bundle: %w", err)
+	}
+	if err := verifyRemoteSourceManifestBinding(request, manifest, baseline); err != nil {
+		return err
 	}
 	if err := verifyRemoteMaterializedGateCLICompileClosure(ctx, sourceRoot, request); err != nil {
 		return err
@@ -252,7 +286,39 @@ func verifyRemoteMaterializedSource(ctx context.Context, sourceRoot string, mani
 	return nil
 }
 
-// verifyRemoteMaterializedGateCLICompileClosure binds the init build to the exact patched candidate tree.
+// verifyRemoteSourceManifestBinding 独立复核 manifest、SourceSpec 和 shard request 的身份链。
+func verifyRemoteSourceManifestBinding(
+	request remoteci.ShardRequest,
+	manifest remoteci.SourceMaterializationManifest,
+	baseline remoteci.SourceBaseline,
+) error {
+	if !reflect.DeepEqual(manifest.Source, request.Source) {
+		return errors.New("remote source manifest SourceSpec does not match shard request")
+	}
+	if manifest.Source.SourceTreeSHA != request.Source.SourceTreeSHA || manifest.SourceTreeSHA != request.SourceTreeSHA {
+		return errors.New("remote source manifest SourceSpec tree does not match shard request")
+	}
+	if manifest.ObjectFormat != request.Source.ObjectFormat {
+		return errors.New("remote source manifest object format does not match shard request")
+	}
+	if manifest.BaselineTreeSHA != request.RunnerBaseTree || manifest.BaselineCommitSHA != baseline.CommitSHA {
+		return errors.New("remote source manifest baseline identity does not match shard request")
+	}
+	expectedTransport, err := remoteci.DeterministicSourceTransportCommitSHA(
+		request.SourceTreeSHA,
+		baseline.CommitSHA,
+		request.Source.ObjectFormat,
+	)
+	if err != nil {
+		return fmt.Errorf("derive expected source transport commit: %w", err)
+	}
+	if manifest.TransportCommitSHA != expectedTransport {
+		return errors.New("remote source manifest transport commit does not match shard request")
+	}
+	return nil
+}
+
+// verifyRemoteMaterializedGateCLICompileClosure binds the init build to the exact materialized candidate tree.
 func verifyRemoteMaterializedGateCLICompileClosure(ctx context.Context, sourceRoot string, request remoteci.ShardRequest) error {
 	sourceDigest, toolchainDigest, _, err := remoteci.LoadGateCLICompileClosure(ctx, sourceRoot, request.SourceTreeSHA)
 	if err != nil {
@@ -277,28 +343,39 @@ func loadRemoteShardRequest(ctx context.Context, config remoteMaterializeConfig,
 	if err != nil {
 		return remoteci.ShardRequest{}, err
 	}
-	if path.Dir(config.RequestKey) != path.Dir(request.PatchKey) {
+	if path.Dir(config.RequestKey) != path.Dir(request.SourceBundleKey) {
 		return remoteci.ShardRequest{}, errors.New("remote shard request object directory does not match source objects")
+	}
+	if request.AgentTokenDigest != config.AgentTokenDigest {
+		return remoteci.ShardRequest{}, errors.New("remote shard request agent token digest does not match init environment")
 	}
 	return request, nil
 }
 
-// stageRemoteSourceObjects 独占创建暂存目录并下载经摘要校验的 manifest 与 patch。
+// stageRemoteSourceObjects 独占创建暂存目录并下载经摘要校验的 manifest 与 source bundle。
 func stageRemoteSourceObjects(ctx context.Context, workRoot string, request remoteci.ShardRequest, download remoteObjectDownload) (string, string, string, error) {
 	tempRoot, err := os.MkdirTemp(workRoot, ".remote-materialize-")
 	if err != nil {
 		return "", "", "", fmt.Errorf("create remote materialize root: %w", err)
 	}
-	manifestPath, patchPath := filepath.Join(tempRoot, "source.manifest.json"), filepath.Join(tempRoot, "source.patch")
+	bundlePath, manifestPath := filepath.Join(tempRoot, "source.bundle"), filepath.Join(tempRoot, "source-manifest.json")
 	if err := downloadVerifiedFile(ctx, download, request.ManifestKey, request.ManifestSHA256, remoteManifestMaxBytes, manifestPath); err != nil {
 		os.RemoveAll(tempRoot)
 		return "", "", "", fmt.Errorf("download source manifest: %w", err)
 	}
-	if err := downloadVerifiedFile(ctx, download, request.PatchKey, request.PatchSHA256, remoteSourcePatchMaxSize, patchPath); err != nil {
+	if err := os.Chmod(manifestPath, 0o400); err != nil {
 		os.RemoveAll(tempRoot)
-		return "", "", "", fmt.Errorf("download source patch: %w", err)
+		return "", "", "", fmt.Errorf("protect source manifest: %w", err)
 	}
-	return tempRoot, manifestPath, patchPath, nil
+	if err := downloadVerifiedFile(ctx, download, request.SourceBundleKey, request.SourceBundleSHA256, remoteSourceBundleMaxSize, bundlePath); err != nil {
+		os.RemoveAll(tempRoot)
+		return "", "", "", fmt.Errorf("download source bundle: %w", err)
+	}
+	if err := os.Chmod(bundlePath, 0o400); err != nil {
+		os.RemoveAll(tempRoot)
+		return "", "", "", fmt.Errorf("protect source bundle: %w", err)
+	}
+	return tempRoot, bundlePath, manifestPath, nil
 }
 
 // handoffRemoteWorkRoot 在确认空目录后收紧权限并移交给固定 executor UID/GID。

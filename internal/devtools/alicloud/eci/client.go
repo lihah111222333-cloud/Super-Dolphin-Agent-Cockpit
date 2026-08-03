@@ -62,8 +62,6 @@ type CreateRequest struct {
 	Environment          map[string]string
 	Tags                 map[string]string
 	InitContainer        InitContainer
-	BootstrapVolume      OSSVolume
-	ExpandedVolume       EmptyDirVolume
 	SourceVolume         EmptyDirVolume
 	WorkVolume           EmptyDirVolume
 	TempVolume           EmptyDirVolume
@@ -94,7 +92,6 @@ type EmptyDirVolume struct {
 type VolumeMount struct {
 	Name      string
 	MountPath string
-	SubPath   string
 	ReadOnly  bool
 }
 
@@ -134,16 +131,6 @@ type ContainerGroupEvent struct {
 	Message       string `json:"Message,omitempty"`
 	Count         int64  `json:"Count,omitempty"`
 	LastTimestamp string `json:"LastTimestamp,omitempty"`
-}
-
-// ImageCacheCreateRequest 将具名缓存绑定到不可变 OCI 镜像摘要。
-// 客户端固定启用层复用与极速缓存，调用方不能弱化这两个策略。
-type ImageCacheCreateRequest struct {
-	ImageCacheName string
-	Images         []string
-	ImageCacheSize int64
-	RetentionDays  int64
-	Tags           map[string]string
 }
 
 // ImageCache 保存容器组固定引用前必须确认的 ECI 缓存生命周期证据。
@@ -203,14 +190,6 @@ func (c *Client) CreateContainerGroup(ctx context.Context, request CreateRequest
 
 // createContainerGroup 使用单一计费策略执行一次可幂等重试并协调不确定响应。
 func (c *Client) createContainerGroup(ctx context.Context, request CreateRequest, spotStrategy string) (ContainerGroup, error) {
-	var bootstrapOptions []byte
-	if request.BootstrapVolume != (OSSVolume{}) {
-		var err error
-		bootstrapOptions, err = ossVolumeOptions(request.BootstrapVolume)
-		if err != nil {
-			return ContainerGroup{}, fmt.Errorf("encode ECI bootstrap OSS volume: %w", err)
-		}
-	}
 	args := []string{
 		"--VSwitchId", c.config.VSwitchID,
 		"--SecurityGroupId", c.config.SecurityGroupID,
@@ -242,9 +221,6 @@ func (c *Client) createContainerGroup(ctx context.Context, request CreateRequest
 	volumeArgs := make([]string, 0)
 	emptyDirs := createEmptyDirVolumes(request)
 	volumeArgs = appendEmptyDirVolumes(volumeArgs, 1, emptyDirs)
-	if len(bootstrapOptions) != 0 {
-		volumeArgs = appendOSSFlexVolume(volumeArgs, 1+len(emptyDirs), "current-gate", bootstrapOptions)
-	}
 	initIndex := slices.Index(args, "--InitContainer.1.Name")
 	args = append(args[:initIndex], append(volumeArgs, args[initIndex:]...)...)
 	args = appendIndexedValues(args, "--Container.1.Command", request.Command)
@@ -282,6 +258,7 @@ func (c *Client) DescribeContainerGroups(ctx context.Context, ids ...string) ([]
 	return c.describeContainerGroups(ctx, false, ids...)
 }
 
+// describeContainerGroups 按传入 ID 查询容器组，并严格校验返回集合是否允许为空。
 func (c *Client) describeContainerGroups(ctx context.Context, allowEmpty bool, ids ...string) ([]ContainerGroup, error) {
 	encodedIDs, err := encodeContainerGroupIDs(ids)
 	if err != nil {
@@ -437,7 +414,7 @@ func (c *Client) commandArgs(action string, args []string) ([]string, error) {
 }
 
 func isIdempotentCreateAction(action string) bool {
-	return action == "CreateContainerGroup" || action == "CreateImageCache"
+	return action == "CreateContainerGroup"
 }
 
 func containsCommandArgument(args []string, name string) bool {
@@ -497,27 +474,19 @@ func isTransientCLIError(err error) bool {
 }
 
 func createEmptyDirVolumes(request CreateRequest) []EmptyDirVolume {
-	return []EmptyDirVolume{request.SourceVolume, request.WorkVolume, request.ExpandedVolume, request.TempVolume}
+	return []EmptyDirVolume{request.SourceVolume, request.WorkVolume, request.TempVolume}
 }
 
 func createMainMountNames(request CreateRequest) []string {
-	return []string{request.ExpandedVolume.Name, request.SourceVolume.Name, request.WorkVolume.Name, request.TempVolume.Name}
+	return []string{request.SourceVolume.Name, request.WorkVolume.Name, request.TempVolume.Name}
 }
 
 func createInitMountNames(request CreateRequest) []string {
-	names := []string{request.ExpandedVolume.Name, request.SourceVolume.Name, request.WorkVolume.Name, request.TempVolume.Name}
-	if request.BootstrapVolume != (OSSVolume{}) {
-		names = append(names, "current-gate")
-	}
-	return names
+	return []string{request.SourceVolume.Name, request.WorkVolume.Name, request.TempVolume.Name}
 }
 
 func createRequiredInitMountNames(request CreateRequest) []string {
-	names := []string{request.ExpandedVolume.Name, request.SourceVolume.Name, request.WorkVolume.Name}
-	if request.BootstrapVolume != (OSSVolume{}) {
-		names = append(names, "current-gate")
-	}
-	return names
+	return []string{request.SourceVolume.Name, request.WorkVolume.Name}
 }
 
 func appendEmptyDirVolumes(args []string, start int, volumes []EmptyDirVolume) []string {
@@ -528,7 +497,7 @@ func appendEmptyDirVolumes(args []string, start int, volumes []EmptyDirVolume) [
 	return args
 }
 
-// validateMountSet 校验挂载名称、路径、子路径及各自唯一性。
+// validateMountSet 校验挂载名称、路径及各自唯一性。
 func validateMountSet(owner string, mounts []VolumeMount, names ...string) error {
 	allowed := make(map[string]struct{}, len(names))
 	for _, name := range names {
@@ -539,8 +508,7 @@ func validateMountSet(owner string, mounts []VolumeMount, names ...string) error
 		if _, ok := allowed[mount.Name]; !ok {
 			return fmt.Errorf("ECI %s volume mount %q does not reference a declared volume", owner, mount.Name)
 		}
-		mountIdentity := mount.Name + "\x00" + mount.SubPath
-		if _, exists := seenMounts[mountIdentity]; exists {
+		if _, exists := seenMounts[mount.Name]; exists {
 			return fmt.Errorf("ECI %s volume mount %q is duplicated", owner, mount.Name)
 		}
 		if err := validateMountPath(mount.MountPath); err != nil {
@@ -549,10 +517,7 @@ func validateMountSet(owner string, mounts []VolumeMount, names ...string) error
 		if _, exists := seenPaths[mount.MountPath]; exists {
 			return fmt.Errorf("ECI %s mount path %q is duplicated", owner, mount.MountPath)
 		}
-		if err := validateMountSubPath(mount.SubPath); err != nil {
-			return fmt.Errorf("ECI %s volume mount %q: %w", owner, mount.Name, err)
-		}
-		seenMounts[mountIdentity], seenPaths[mount.MountPath] = struct{}{}, struct{}{}
+		seenMounts[mount.Name], seenPaths[mount.MountPath] = struct{}{}, struct{}{}
 	}
 	return nil
 }
@@ -561,18 +526,6 @@ func validateMountSet(owner string, mounts []VolumeMount, names ...string) error
 func validateMountPath(mountPath string) error {
 	if len(mountPath) > 1024 || mountPath == "/" || !path.IsAbs(mountPath) || path.Clean(mountPath) != mountPath || strings.ContainsAny(mountPath, ":\x00") {
 		return errors.New("mount path must be a clean absolute path of at most 1024 characters without colon or NUL")
-	}
-	return nil
-}
-
-// validateMountSubPath 允许空值或卷内规范相对路径，拒绝逃逸到卷外。
-func validateMountSubPath(subPath string) error {
-	if subPath == "" {
-		return nil
-	}
-	if len(subPath) > 1024 || path.IsAbs(subPath) || path.Clean(subPath) != subPath || subPath == "." ||
-		subPath == ".." || strings.HasPrefix(subPath, "../") || strings.ContainsAny(subPath, ":\x00") {
-		return errors.New("mount subpath must be a clean relative path of at most 1024 characters without colon or NUL")
 	}
 	return nil
 }
@@ -648,9 +601,6 @@ func appendVolumeMounts(args []string, prefix string, mounts []VolumeMount) []st
 			numberedPrefix+".MountPath", mount.MountPath,
 			numberedPrefix+".ReadOnly", strconv.FormatBool(mount.ReadOnly),
 		)
-		if mount.SubPath != "" {
-			args = append(args, numberedPrefix+".SubPath", mount.SubPath)
-		}
 	}
 	return args
 }

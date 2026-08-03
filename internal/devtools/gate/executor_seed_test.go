@@ -15,15 +15,18 @@ import (
 
 const runtimeProxyFixtureSum = "github.com/kelindar/event v1.5.2 h1:qtgssZqMh/QQMCIxlbx4wU3DoMHOrJXKdiZhphJ4YbY=\n"
 
-func TestDiscoverExecutorGoBuildCacheSeedRootsOrdersGenerationsAndFallsBack(t *testing.T) {
-	legacyRoot := realTempDir(t)
+func TestDiscoverExecutorGoBuildCacheSeedRootsOrdersGenerationsAndRejectsUnavailableRoot(t *testing.T) {
 	missingRoot := filepath.Join(realTempDir(t), "cache-seeds")
-	seedRoots, err := discoverExecutorGoBuildCacheSeedRoots(missingRoot, legacyRoot)
-	if err != nil {
+	if _, err := discoverExecutorGoBuildCacheSeedRoots(missingRoot); err == nil {
+		t.Fatal("discoverExecutorGoBuildCacheSeedRoots accepted missing generation root")
+	}
+
+	emptyRoot := filepath.Join(realTempDir(t), "cache-seeds")
+	if err := os.Mkdir(emptyRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(seedRoots, []string{legacyRoot}) {
-		t.Fatalf("legacy seed roots = %v", seedRoots)
+	if _, err := discoverExecutorGoBuildCacheSeedRoots(emptyRoot); err == nil {
+		t.Fatal("discoverExecutorGoBuildCacheSeedRoots accepted empty generation root")
 	}
 
 	generationsRoot := filepath.Join(realTempDir(t), "cache-seeds")
@@ -32,7 +35,7 @@ func TestDiscoverExecutorGoBuildCacheSeedRootsOrdersGenerationsAndFallsBack(t *t
 			t.Fatal(err)
 		}
 	}
-	seedRoots, err = discoverExecutorGoBuildCacheSeedRoots(generationsRoot, legacyRoot)
+	seedRoots, err := discoverExecutorGoBuildCacheSeedRoots(generationsRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,11 +46,10 @@ func TestDiscoverExecutorGoBuildCacheSeedRootsOrdersGenerationsAndFallsBack(t *t
 }
 
 func TestDiscoverExecutorGoBuildCacheSeedRootsRejectsInvalidGenerations(t *testing.T) {
-	legacyRoot := realTempDir(t)
 	for name, prepare := range map[string]func(t *testing.T, root string){
 		"symlink": func(t *testing.T, root string) {
 			t.Helper()
-			if err := os.Symlink(legacyRoot, filepath.Join(root, "00000000000020260729")); err != nil {
+			if err := os.Symlink(root, filepath.Join(root, "00000000000020260729")); err != nil {
 				t.Fatal(err)
 			}
 		},
@@ -76,7 +78,7 @@ func TestDiscoverExecutorGoBuildCacheSeedRootsRejectsInvalidGenerations(t *testi
 				t.Fatal(err)
 			}
 			prepare(t, root)
-			if _, err := discoverExecutorGoBuildCacheSeedRoots(root, legacyRoot); err == nil {
+			if _, err := discoverExecutorGoBuildCacheSeedRoots(root); err == nil {
 				t.Fatal("discoverExecutorGoBuildCacheSeedRoots unexpectedly accepted invalid generations")
 			}
 		})
@@ -162,14 +164,31 @@ func TestInstallRuntimeSeedsCreatesFrontendOverlayWithoutCopyingDependencies(t *
 		filepath.Join(nodeModules, "tool"),
 		filepath.Join(runtimeRoot, "frontend", "node_modules", "tool"),
 	)
-	for _, name := range []string{".vite", ".vite-temp"} {
-		assertRuntimeSeedPhysicalDirectory(t, filepath.Join(nodeModules, name))
-	}
+	assertRuntimeSeedSymlink(t, filepath.Join(nodeModules, ".vite"), filepath.Join(runtimeRoot, "frontend", "vite-cache"))
+	assertRuntimeSeedPhysicalDirectory(t, filepath.Join(nodeModules, ".vite-temp"))
+	requireRuntimeSeedTestNoError(t, "read shared Vite cache", runtimeSeedPathExists(filepath.Join(nodeModules, ".vite", "deps", "_metadata.json")))
 	requireRuntimeSeedTestNoError(t, "read shared frontend seed", runtimeSeedPathExists(filepath.Join(nodeModules, "tool", "index.js")))
 	assertDirectoryEmpty(t, npmCache)
 	if err := installRuntimeSeeds(config, layout, program); err == nil {
 		t.Fatal("runtime seed unexpectedly overwrote an existing target")
 	}
+}
+
+func TestInstallRuntimeSeedsRejectsUnavailableViteCacheWithoutFallback(t *testing.T) {
+	source := realTempDir(t)
+	writeTestFile(t, filepath.Join(source, "go.sum"), "module sum\n", 0o600)
+	writeTestFile(t, filepath.Join(source, "frontend-app", "package-lock.json"), "{\"lockfileVersion\":3}\n", 0o600)
+	runtimeRoot, manifestPath := writeRuntimeSeedFixture(t, source)
+	if err := os.RemoveAll(filepath.Join(runtimeRoot, "frontend", "vite-cache")); err != nil {
+		t.Fatal(err)
+	}
+	config := executorConfig{runtimeSeedRoot: runtimeRoot, runtimeSeedManifest: manifestPath}
+	program := ExecutorProgram{NeedsGoSeed: true, NeedsFrontendSeed: true}
+	err := installRuntimeSeeds(config, executorLayout{sourceCopy: source}, program)
+	if err == nil || !strings.Contains(err.Error(), "digest Vite cache") {
+		t.Fatalf("installRuntimeSeeds error = %v, want unavailable Vite cache failure", err)
+	}
+	assertRuntimeSeedPathMissing(t, filepath.Join(source, "frontend-app", "node_modules"))
 }
 
 func TestBindSharedGoModuleCacheRejectsMissingDownloadMetadata(t *testing.T) {

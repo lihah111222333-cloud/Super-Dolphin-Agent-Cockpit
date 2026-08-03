@@ -16,41 +16,9 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
 )
 
-const baselineBuildInputManifestSchemaVersion = "1"
-
-// loadBaselineBuildInputManifest 只为已验收基线读取当前或历史构建输入清单。
-func loadBaselineBuildInputManifest(entries map[string]sourceexport.TreeEntry) (buildInputManifest, error) {
-	entry, exists := entries[buildInputManifestPath]
-	if !exists {
-		return buildInputManifest{}, fmt.Errorf("candidate source is missing %s", buildInputManifestPath)
-	}
-	var manifest buildInputManifest
-	if err := decodeStrictJSON(entry.Data, &manifest); err != nil {
-		return buildInputManifest{}, fmt.Errorf("decode build input manifest: %w", err)
-	}
-	if manifest.SchemaVersion == buildInputManifestSchemaVersion {
-		return manifest, validateBuildInputManifest(manifest)
-	}
-	if manifest.SchemaVersion != baselineBuildInputManifestSchemaVersion {
-		return buildInputManifest{}, fmt.Errorf("build input manifest schema version %q is unsupported", manifest.SchemaVersion)
-	}
-	if len(manifest.GateCompileInputs) != 0 {
-		return buildInputManifest{}, errors.New("schema 1 build input manifest declares gate compile inputs")
-	}
-	if err := validateContextPath(manifest.Dockerfile, make(map[string]string)); err != nil {
-		return buildInputManifest{}, fmt.Errorf("manifest Dockerfile: %w", err)
-	}
-	if err := validateManifestInputs(manifest); err != nil {
-		return buildInputManifest{}, err
-	}
-	for _, input := range manifest.Inputs {
-		if strings.ContainsAny(input, "*?[") {
-			return buildInputManifest{}, fmt.Errorf("schema 1 build input %q must be an exact path", input)
-		}
-	}
-	manifest.GateCompileInputs = slices.Clone(manifest.Inputs)
-	return manifest, validateGateCompileInputs(manifest)
-}
+const (
+	toolchainLockPath = "build/gate/toolchain.lock"
+)
 
 // LoadGateCLICompileClosure 从精确 Git tree 加载 gate CLI 自更新所需的编译闭包。
 func LoadGateCLICompileClosure(

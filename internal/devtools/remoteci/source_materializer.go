@@ -3,43 +3,16 @@ package remoteci
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
-
-const (
-	sourceBundleName        = "source.bundle"
-	sourceManifestName      = "source-manifest.json"
-	sourceBundleRef         = "refs/source/materialized"
-	sourceBundleBaseRef     = "refs/source/base"
-	sourceManifestVersion   = 1
-	privateSourceFileMode   = 0o400
-	privateSourceDirMode    = 0o700
-	maxSourceManifestLength = 1 << 20
-)
-
-// SourceMaterializationManifest 记录 bundle 的 Git object truth 与完整性摘要。
-type SourceMaterializationManifest struct {
-	SchemaVersion         uint32               `json:"schema_version"`
-	Source                gate.SourceSpec      `json:"source"`
-	SourceTreeSHA         string               `json:"source_tree_sha"`
-	MaterializedCommitSHA string               `json:"materialized_commit_sha"`
-	SyntheticCommitSHA    string               `json:"synthetic_commit_sha,omitempty"`
-	TrustedBaseCommitSHA  string               `json:"trusted_base_commit_sha,omitempty"`
-	BundleDigest          string               `json:"bundle_digest"`
-	ObjectFormat          gate.GitObjectFormat `json:"object_format"`
-}
 
 // SourceMaterialization 返回只读 bundle、manifest 及已复核的内存 manifest。
 type SourceMaterialization struct {
@@ -55,11 +28,14 @@ type sourceObject struct {
 }
 
 type sourcePlan struct {
-	roots              []string
-	tree               string
-	commit             string
-	baseCommit         string
-	syntheticParentSHA string
+	// commit/baseCommit preserve the original SourceSpec identity for the
+	// manifest; they are never used as transport roots or bundle refs.
+	commit     string
+	baseCommit string
+	tree       string
+	// transportCommit is a deterministic synthetic commit whose tree is the
+	// candidate SourceTreeSHA and whose only parent is baseline.CommitSHA.
+	transportCommit string
 }
 
 // sourceBundleImporter is implemented by the sourceexport owner; materializers must not duplicate Git tree or bundle parsing.
@@ -83,13 +59,18 @@ func importSource(ctx context.Context, importer sourceBundleImporter, bundlePath
 	return repository, nil
 }
 
-// MaterializeSource 将已验证 SourceSpec 物化为自包含只读 Git bundle。
-func MaterializeSource(ctx context.Context, repoRoot string, spec gate.SourceSpec, outputRoot string) (result SourceMaterialization, err error) {
+// MaterializeSource 将已验证 SourceSpec 物化为相对 accepted image baseline
+// 的 Git prerequisite/thin bundle。baseline 是强制参数；不存在自包含或
+// 全量 fallback。
+func MaterializeSource(ctx context.Context, repoRoot string, spec gate.SourceSpec, outputRoot string, baseline SourceBaseline) (result SourceMaterialization, err error) {
 	if err := validateMaterializationInput(ctx, repoRoot, spec, outputRoot); err != nil {
 		return SourceMaterialization{}, err
 	}
 	spec = cloneSourceSpec(spec)
 	if err := verifyRepositoryIdentity(ctx, repoRoot, spec.ObjectFormat); err != nil {
+		return SourceMaterialization{}, err
+	}
+	if err := validateSourceBaseline(ctx, baseline, spec.ObjectFormat); err != nil {
 		return SourceMaterialization{}, err
 	}
 	plan, err := inspectSourcePlan(ctx, repoRoot, spec)
@@ -104,38 +85,41 @@ func MaterializeSource(ctx context.Context, repoRoot string, spec gate.SourceSpe
 	if err := os.Chmod(stageRoot, privateSourceDirMode); err != nil {
 		return SourceMaterialization{}, fmt.Errorf("protect source materializer staging root: %w", err)
 	}
-	result, err = materializeInStage(ctx, repoRoot, outputRoot, stageRoot, spec, plan)
+	result, err = materializeInStage(ctx, repoRoot, outputRoot, stageRoot, spec, plan, baseline)
 	return result, err
 }
 
 // materializeInStage 在私有 staging root 内完成对象闭包、bundle 与 manifest 组装。
-func materializeInStage(ctx context.Context, repoRoot string, outputRoot string, stageRoot string, spec gate.SourceSpec, plan sourcePlan) (SourceMaterialization, error) {
+func materializeInStage(ctx context.Context, repoRoot string, outputRoot string, stageRoot string, spec gate.SourceSpec, plan sourcePlan, baseline SourceBaseline) (SourceMaterialization, error) {
 	bareRoot := filepath.Join(stageRoot, "objects.git")
 	if err := initBareRepository(ctx, stageRoot, bareRoot, spec.ObjectFormat); err != nil {
 		return SourceMaterialization{}, err
 	}
-	if err := transferObjectClosure(ctx, repoRoot, bareRoot, stageRoot, plan.roots, spec.ObjectFormat); err != nil {
+	if err := configureObjectStoreAlternate(ctx, bareRoot, baseline); err != nil {
 		return SourceMaterialization{}, err
 	}
-	if spec.Kind == gate.SourceKindTree {
-		commit, err := createSyntheticCommit(ctx, bareRoot, plan.tree, plan.syntheticParentSHA, spec.ObjectFormat)
-		if err != nil {
-			return SourceMaterialization{}, err
-		}
-		plan.commit = commit
-	}
-	if err := prepareBundleRefs(ctx, bareRoot, plan.commit, plan.baseCommit, plan.tree, plan.syntheticParentSHA); err != nil {
+	// Transfer only the candidate tree closure. The original commit/range
+	// history remains SourceSpec identity and is intentionally not serialized.
+	if err := transferObjectClosure(ctx, repoRoot, bareRoot, stageRoot, []string{plan.tree}, []string{baseline.CommitSHA}, spec.ObjectFormat, baseline); err != nil {
 		return SourceMaterialization{}, err
 	}
-	bundlePath := filepath.Join(stageRoot, sourceBundleName)
-	if err := createSourceBundle(ctx, bareRoot, bundlePath, plan.baseCommit != ""); err != nil {
-		return SourceMaterialization{}, err
-	}
-	manifest, err := buildSourceManifest(bundlePath, spec, plan)
+	transportCommit, err := createTransportCommit(ctx, bareRoot, plan.tree, baseline.CommitSHA, spec.ObjectFormat)
 	if err != nil {
 		return SourceMaterialization{}, err
 	}
-	if err := importAndVerifyBundle(ctx, bundlePath, stageRoot, manifest); err != nil {
+	plan.transportCommit = transportCommit
+	if err := prepareBundleRefs(ctx, bareRoot, plan.transportCommit, plan.tree, baseline.CommitSHA, spec.ObjectFormat); err != nil {
+		return SourceMaterialization{}, err
+	}
+	bundlePath := filepath.Join(stageRoot, sourceBundleName)
+	if err := createSourceBundle(ctx, bareRoot, bundlePath, baseline, plan.transportCommit); err != nil {
+		return SourceMaterialization{}, err
+	}
+	manifest, err := buildSourceManifest(bundlePath, spec, plan, baseline)
+	if err != nil {
+		return SourceMaterialization{}, err
+	}
+	if err := importAndVerifyBundle(ctx, bundlePath, stageRoot, manifest, baseline); err != nil {
 		return SourceMaterialization{}, err
 	}
 	manifestPath := filepath.Join(stageRoot, sourceManifestName)
@@ -145,8 +129,10 @@ func materializeInStage(ctx context.Context, repoRoot string, outputRoot string,
 	return publishSourceArtifacts(outputRoot, bundlePath, manifestPath, manifest)
 }
 
-// ImportAndVerifySourceBundle 在临时 bare repo 中导入 bundle 并复核 commit/tree。
-func ImportAndVerifySourceBundle(ctx context.Context, outputRoot string) (SourceMaterializationManifest, error) {
+// ImportAndVerifySourceBundle 在显式 accepted image baseline object store 上
+// 导入 thin bundle，并复核 manifest、prerequisite、commit/tree 与对象闭包。
+// baseline 是强制参数；缺失时无法验证 prerequisite，必须 fail-fast。
+func ImportAndVerifySourceBundle(ctx context.Context, outputRoot string, baseline SourceBaseline) (SourceMaterializationManifest, error) {
 	if err := validateContext(ctx); err != nil {
 		return SourceMaterializationManifest{}, err
 	}
@@ -162,17 +148,32 @@ func ImportAndVerifySourceBundle(ctx context.Context, outputRoot string) (Source
 	if err != nil {
 		return SourceMaterializationManifest{}, err
 	}
-	digest, err := digestSourceFile(bundlePath)
-	if err != nil {
+	if err := validateSourceBaseline(ctx, baseline, manifest.ObjectFormat); err != nil {
 		return SourceMaterializationManifest{}, err
 	}
-	if digest != manifest.BundleDigest {
-		return SourceMaterializationManifest{}, errors.New("source bundle digest does not match manifest")
+	if manifest.BaselineCommitSHA != baseline.CommitSHA || manifest.BaselineTreeSHA != baseline.TreeSHA {
+		return SourceMaterializationManifest{}, errors.New("source manifest baseline identity does not match accepted image baseline")
 	}
-	if err := importAndVerifyBundle(ctx, bundlePath, outputRoot, manifest); err != nil {
+	if err := manifest.Validate(); err != nil {
+		return SourceMaterializationManifest{}, err
+	}
+	if err := verifyPublishedSourceBundle(ctx, bundlePath, outputRoot, manifest, baseline); err != nil {
 		return SourceMaterializationManifest{}, err
 	}
 	return manifest, nil
+}
+
+// verifyPublishedSourceBundle 检查发布 bundle 的摘要并委托 sourceexport
+// owner 完成 thin bundle、prerequisite 和对象闭包复验。
+func verifyPublishedSourceBundle(ctx context.Context, bundlePath string, outputRoot string, manifest SourceMaterializationManifest, baseline SourceBaseline) error {
+	digest, err := digestSourceFile(bundlePath)
+	if err != nil {
+		return err
+	}
+	if digest != manifest.BundleDigest {
+		return errors.New("source bundle digest does not match manifest")
+	}
+	return importAndVerifyBundle(ctx, bundlePath, outputRoot, manifest, baseline)
 }
 
 // validateMaterializationInput 在任何 Git 或文件写入前拒绝不可信入口。
@@ -198,6 +199,120 @@ func validateContext(ctx context.Context) error {
 		return errors.New("source materialization context is required")
 	}
 	return ctx.Err()
+}
+
+// validateSourceBaseline 校验 accepted image 提供的只读 prerequisite 对象存储；
+// proves that the prerequisite object store is the
+// explicit read-only Git store from the accepted image. It never creates or
+// modifies objects in that store.
+func validateSourceBaseline(ctx context.Context, baseline SourceBaseline, objectFormat gate.GitObjectFormat) error {
+	if err := validateContext(ctx); err != nil {
+		return err
+	}
+	if baseline.ObjectFormat != objectFormat {
+		return fmt.Errorf("source baseline object format %q does not match candidate %q", baseline.ObjectFormat, objectFormat)
+	}
+	if !validCanonicalPath(baseline.RepositoryRoot) {
+		return errors.New("source baseline repository root must be canonical and absolute")
+	}
+	if err := validateCanonicalDirectory(baseline.RepositoryRoot, false); err != nil {
+		return fmt.Errorf("validate source baseline repository root: %w", err)
+	}
+	baselineInfo, err := os.Stat(baseline.RepositoryRoot)
+	if err != nil {
+		return fmt.Errorf("stat source baseline repository root: %w", err)
+	}
+	if baselineInfo.Mode().Perm()&0o222 != 0 {
+		return errors.New("source baseline repository root must be read-only")
+	}
+	if err := validateReadOnlyGitTree(baseline.RepositoryRoot); err != nil {
+		return err
+	}
+	return validateSourceBaselineObjects(ctx, baseline, objectFormat)
+}
+
+// validateSourceBaselineObjects 复核 accepted baseline 的 Git 格式、确定性
+// parentless commit 和 tree 闭包，拒绝任何身份漂移。
+func validateSourceBaselineObjects(ctx context.Context, baseline SourceBaseline, objectFormat gate.GitObjectFormat) error {
+	if err := validateSourceBaselineRepository(ctx, baseline, objectFormat); err != nil {
+		return err
+	}
+	return validateSourceBaselineCommit(ctx, baseline, objectFormat)
+}
+
+// validateSourceBaselineRepository 复核对象 ID、bare repository 标记与
+// Git object format，确保 accepted image 的对象存储身份固定。
+func validateSourceBaselineRepository(ctx context.Context, baseline SourceBaseline, objectFormat gate.GitObjectFormat) error {
+	if !validOID(baseline.CommitSHA, objectFormat) || !validOID(baseline.TreeSHA, objectFormat) {
+		return errors.New("source baseline commit and tree must be valid Git object IDs")
+	}
+	bare, err := runGitOutput(ctx, baseline.RepositoryRoot, nil, "rev-parse", "--is-bare-repository")
+	if err != nil || string(bare) != "true\n" {
+		return errors.Join(errors.New("source baseline repository must be a bare read-only Git object store"), err)
+	}
+	format, err := runGitOutput(ctx, baseline.RepositoryRoot, nil, "rev-parse", "--show-object-format")
+	if err != nil || string(format) != string(objectFormat)+"\n" {
+		return errors.Join(errors.New("source baseline Git object format is not canonical"), err)
+	}
+	return nil
+}
+
+// validateSourceBaselineCommit 校验 accepted baseline commit 的 tree、父级
+// 和确定性身份，拒绝历史 commit 或错误 parent。
+func validateSourceBaselineCommit(ctx context.Context, baseline SourceBaseline, objectFormat gate.GitObjectFormat) error {
+	commit, err := readSourceObject(ctx, baseline.RepositoryRoot, baseline.CommitSHA)
+	if err != nil || commit.kind != "commit" {
+		return errors.Join(errors.New("source baseline commit object is missing or not a commit"), err)
+	}
+	tree, parents, err := parseCommitObject(commit, baseline.TreeSHA)
+	if err != nil || tree != baseline.TreeSHA {
+		return errors.Join(errors.New("source baseline commit does not identify the accepted source tree"), err)
+	}
+	if len(parents) != 0 {
+		return errors.New("source baseline commit must be deterministic and parentless")
+	}
+	expectedCommit, err := DeterministicSourceBaselineCommitSHA(baseline.TreeSHA, objectFormat)
+	if err != nil || baseline.CommitSHA != expectedCommit {
+		return errors.New("source baseline commit is not the deterministic accepted baseline identity")
+	}
+	return nil
+}
+
+// validateReadOnlyGitTree 递归确认 accepted image 的 Git 对象存储中没有
+// 可写或符号链接条目，避免只读声明被单个 HEAD/config 文件绕过。
+func validateReadOnlyGitTree(root string) error {
+	entries := 0
+	var bytes int64
+	return filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("source baseline tree must not contain symlink %s", path)
+		}
+		entries++
+		if entries > maxReadOnlyGitTreeEntries {
+			return errors.New("source baseline tree contains too many entries")
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return fmt.Errorf("stat source baseline entry %s: %w", path, err)
+		}
+		if info.Mode().Perm()&0o222 != 0 {
+			return fmt.Errorf("source baseline entry %s must be read-only", path)
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("source baseline tree contains unsupported entry %s", path)
+		}
+		bytes += info.Size()
+		if bytes > maxReadOnlyGitTreeBytes {
+			return errors.New("source baseline tree contains too many bytes")
+		}
+		return nil
+	})
 }
 
 func cloneSourceSpec(spec gate.SourceSpec) gate.SourceSpec {
@@ -264,7 +379,7 @@ func inspectCommitPlan(ctx context.Context, repoRoot string, commitSHA string, e
 	if err != nil {
 		return sourcePlan{}, err
 	}
-	plan := sourcePlan{roots: []string{commitSHA}, tree: tree, commit: commitSHA}
+	plan := sourcePlan{tree: tree, commit: commitSHA}
 	if len(parents) == 1 {
 		plan.baseCommit = parents[0]
 	}
@@ -283,7 +398,6 @@ func inspectTreePlan(ctx context.Context, repoRoot string, source *gate.TreeSour
 	if source.SHA != expectedTree {
 		return sourcePlan{}, fmt.Errorf("source tree is %s, want %s", source.SHA, expectedTree)
 	}
-	roots := []string{source.SHA}
 	if source.ParentCommitSHA != "" {
 		parent, err := readSourceObject(ctx, repoRoot, source.ParentCommitSHA)
 		if err != nil {
@@ -292,13 +406,10 @@ func inspectTreePlan(ctx context.Context, repoRoot string, source *gate.TreeSour
 		if parent.kind != "commit" {
 			return sourcePlan{}, fmt.Errorf("tree parent object %s has type %s, want commit", source.ParentCommitSHA, parent.kind)
 		}
-		roots = append(roots, source.ParentCommitSHA)
 	}
 	return sourcePlan{
-		roots:              roots,
-		tree:               source.SHA,
-		baseCommit:         source.ParentCommitSHA,
-		syntheticParentSHA: source.ParentCommitSHA,
+		tree:       source.SHA,
+		baseCommit: source.ParentCommitSHA,
 	}, nil
 }
 
@@ -312,7 +423,6 @@ func inspectRangePlan(ctx context.Context, repoRoot string, source *gate.RangeSo
 	if err != nil {
 		return sourcePlan{}, fmt.Errorf("validate range head: %w", err)
 	}
-	roots := []string{source.HeadSHA}
 	baseCommit := ""
 	if source.BaseKind == gate.BaseKindCommit {
 		base, err := readSourceObject(ctx, repoRoot, source.BaseSHA)
@@ -323,9 +433,8 @@ func inspectRangePlan(ctx context.Context, repoRoot string, source *gate.RangeSo
 			return sourcePlan{}, fmt.Errorf("range base object %s has type %s, want commit", source.BaseSHA, base.kind)
 		}
 		baseCommit = source.BaseSHA
-		roots = append(roots, baseCommit)
 	}
-	return sourcePlan{roots: roots, tree: tree, commit: source.HeadSHA, baseCommit: baseCommit}, nil
+	return sourcePlan{tree: tree, commit: source.HeadSHA, baseCommit: baseCommit}, nil
 }
 
 // readSourceObject 通过 cat-file batch 读取单个显式 OID 并严格拒绝尾随输出。
@@ -418,25 +527,117 @@ func initBareRepository(ctx context.Context, commandRoot string, bareRoot string
 	return rejectGitOutput(output, err, "initialize temporary bare repository")
 }
 
+// sourceObjectDirectory 解析 image 提供的对象目录并拒绝越界间接引用；
+// resolves the image-provided object directory and
+// rejects indirection outside the canonical baseline repository.
+func sourceObjectDirectory(ctx context.Context, baseline SourceBaseline) (string, error) {
+	output, err := runGitOutput(ctx, baseline.RepositoryRoot, nil, "rev-parse", "--git-path", "objects")
+	if err != nil {
+		return "", fmt.Errorf("resolve source baseline object directory: %w", err)
+	}
+	objectPath, err := strictGitLine(output)
+	if err != nil {
+		return "", fmt.Errorf("parse source baseline object directory: %w", err)
+	}
+	if !filepath.IsAbs(objectPath) {
+		objectPath = filepath.Join(baseline.RepositoryRoot, objectPath)
+	}
+	resolved, err := filepath.EvalSymlinks(objectPath)
+	if err != nil {
+		return "", fmt.Errorf("canonicalize source baseline object directory: %w", err)
+	}
+	if !validCanonicalPath(resolved) || resolved != objectPath {
+		return "", errors.New("source baseline object directory must be canonical and non-symlink")
+	}
+	info, err := os.Stat(objectPath)
+	if err != nil {
+		return "", fmt.Errorf("stat source baseline object directory: %w", err)
+	}
+	if !info.IsDir() {
+		return "", errors.New("source baseline object directory is not a directory")
+	}
+	if info.Mode().Perm()&0o222 != 0 {
+		return "", errors.New("source baseline object directory must be read-only")
+	}
+	return objectPath, nil
+}
+
+// configureObjectStoreAlternate 配置 baseline 对象为 staging 仓库的只读 alternate；
+// makes baseline objects readable to the
+// staging repository without copying them into the candidate bundle.
+func configureObjectStoreAlternate(ctx context.Context, bareRoot string, baseline SourceBaseline) error {
+	objectPath, err := sourceObjectDirectory(ctx, baseline)
+	if err != nil {
+		return err
+	}
+	gitObjects, err := runGitOutput(ctx, bareRoot, nil, "rev-parse", "--git-path", "objects")
+	if err != nil {
+		return fmt.Errorf("resolve target Git object directory: %w", err)
+	}
+	targetObjects, err := strictGitLine(gitObjects)
+	if err != nil {
+		return fmt.Errorf("parse target Git object directory: %w", err)
+	}
+	if !filepath.IsAbs(targetObjects) {
+		targetObjects = filepath.Join(bareRoot, targetObjects)
+	}
+	if !validCanonicalPath(targetObjects) {
+		return errors.New("target Git object directory must be canonical")
+	}
+	resolved, err := filepath.EvalSymlinks(targetObjects)
+	if err != nil || resolved != targetObjects {
+		return errors.New("target Git object directory must not be a symlink")
+	}
+	infoPath := filepath.Join(targetObjects, "info", "alternates")
+	if err := os.MkdirAll(filepath.Dir(infoPath), privateSourceDirMode); err != nil {
+		return fmt.Errorf("create source object alternates directory: %w", err)
+	}
+	if err := os.WriteFile(infoPath, []byte(objectPath+"\n"), 0o600); err != nil {
+		return fmt.Errorf("write source object alternates: %w", err)
+	}
+	return nil
+}
+
+// runGitWithObjectStore runs Git with one validated read-only image object
+// store as an alternate. The alternate is never inherited from the caller's
+// environment and cannot silently point at a workspace or remote.
+func runGitWithObjectStore(ctx context.Context, repoRoot string, baseline SourceBaseline, stdin io.Reader, stdout io.Writer, args ...string) error {
+	objectPath, err := sourceObjectDirectory(ctx, baseline)
+	if err != nil {
+		return err
+	}
+	return runGitWithEnvironment(ctx, repoRoot, stdin, stdout, append(sourceGitEnvironment(), "GIT_ALTERNATE_OBJECT_DIRECTORIES="+objectPath), args...)
+}
+
 // transferObjectClosure 使用 pack-objects 将显式根的完整闭包送入临时 bare repo。
-func transferObjectClosure(ctx context.Context, repoRoot string, bareRoot string, stageRoot string, roots []string, format gate.GitObjectFormat) error {
+func transferObjectClosure(ctx context.Context, repoRoot string, bareRoot string, stageRoot string, roots []string, exclusions []string, format gate.GitObjectFormat, baseline SourceBaseline) error {
 	packPath := filepath.Join(stageRoot, "objects.pack")
 	pack, err := os.OpenFile(packPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return fmt.Errorf("create source object pack: %w", err)
 	}
-	rootInput := strings.Join(roots, "\n") + "\n"
-	runErr := runGit(ctx, repoRoot, strings.NewReader(rootInput), pack, "pack-objects", "--stdout", "--revs")
+	arguments := append([]string(nil), roots...)
+	for _, exclusion := range exclusions {
+		arguments = append(arguments, "^"+exclusion)
+	}
+	rootInput := strings.Join(arguments, "\n") + "\n"
+	runErr := runGitWithObjectStore(ctx, repoRoot, baseline, strings.NewReader(rootInput), pack, "pack-objects", "--stdout", "--revs", "--thin")
 	closeErr := pack.Close()
 	if runErr != nil || closeErr != nil {
 		return errors.Join(fmt.Errorf("pack source object closure: %w", runErr), closeErr)
 	}
-	pack, err = os.Open(packPath)
+	return indexSourceObjectPack(ctx, bareRoot, packPath, format)
+}
+
+// indexSourceObjectPack 将 thin pack 导入临时仓库并严格复核 index-pack
+// 返回的 pack 身份，保证物化闭包不会静默缺失。
+func indexSourceObjectPack(ctx context.Context, bareRoot string, packPath string, format gate.GitObjectFormat) error {
+	pack, err := os.Open(packPath)
 	if err != nil {
 		return fmt.Errorf("open source object pack: %w", err)
 	}
-	output, indexErr := runGitOutput(ctx, bareRoot, pack, "index-pack", "--stdin")
-	closeErr = pack.Close()
+	output, indexErr := runGitOutput(ctx, bareRoot, pack, "index-pack", "--stdin", "--fix-thin")
+	closeErr := pack.Close()
 	if indexErr != nil || closeErr != nil {
 		return errors.Join(fmt.Errorf("index source object pack: %w", indexErr), closeErr)
 	}
@@ -447,30 +648,31 @@ func transferObjectClosure(ctx context.Context, repoRoot string, bareRoot string
 	return nil
 }
 
-func createSyntheticCommit(ctx context.Context, bareRoot string, tree string, parent string, format gate.GitObjectFormat) (string, error) {
-	args := []string{"commit-tree", tree}
-	if parent != "" {
-		args = append(args, "-p", parent)
-	}
-	output, err := runGitOutput(ctx, bareRoot, strings.NewReader("super-dolphin source materialization\n"), args...)
+// createTransportCommit writes the deterministic transport commit. Git can
+// then produce a standard bundle with exactly one prerequisite because the
+// transport commit directly names the accepted baseline as its sole parent.
+func createTransportCommit(ctx context.Context, bareRoot string, tree string, baseline string, format gate.GitObjectFormat) (string, error) {
+	expected, err := DeterministicSourceTransportCommitSHA(tree, baseline, format)
 	if err != nil {
-		return "", fmt.Errorf("create synthetic source commit: %w", err)
+		return "", err
 	}
-	commit, err := strictGitLine(output)
-	if err != nil || !validOID(commit, format) {
-		return "", errors.New("git commit-tree returned an invalid synthetic commit")
+	output, err := runGitOutput(ctx, bareRoot, bytes.NewReader(deterministicSourceTransportPayload(tree, baseline)), "hash-object", "-t", "commit", "-w", "--stdin")
+	if err != nil {
+		return "", fmt.Errorf("write deterministic source transport commit: %w", err)
 	}
-	return commit, nil
+	actual, err := strictGitLine(output)
+	if err != nil || actual != expected {
+		return "", errors.New("deterministic source transport commit identity drifted")
+	}
+	return expected, nil
 }
 
-// prepareBundleRefs 只在临时 bare repo 创建固定 refs 并复核全部 commit 闭包。
-func prepareBundleRefs(ctx context.Context, bareRoot string, commit string, base string, tree string, parent string) error {
+// prepareBundleRefs 只创建确定性的 transport ref；accepted baseline 仅作 prerequisite；
+// creates only the deterministic transport ref; the
+// accepted baseline is a prerequisite, never a bundle ref or uploaded object.
+func prepareBundleRefs(ctx context.Context, bareRoot string, commit string, tree string, parent string, format gate.GitObjectFormat) error {
 	input := fmt.Sprintf("create %s %s\n", sourceBundleRef, commit)
 	commits := []string{commit}
-	if base != "" {
-		input += fmt.Sprintf("create %s %s\n", sourceBundleBaseRef, base)
-		commits = append(commits, base)
-	}
 	output, err := runGitOutput(ctx, bareRoot, strings.NewReader(input), "update-ref", "--stdin")
 	if err := rejectGitOutput(output, err, "create temporary bundle refs"); err != nil {
 		return err
@@ -481,331 +683,14 @@ func prepareBundleRefs(ctx context.Context, bareRoot string, commit string, base
 	}
 	actualTree, parents, err := parseCommitObject(object, tree)
 	if err != nil || actualTree != tree {
-		return errors.Join(errors.New("materialized commit tree verification failed"), err)
+		return errors.Join(errors.New("transport commit tree verification failed"), err)
 	}
-	if parent != "" && (len(parents) != 1 || parents[0] != parent) {
-		return errors.New("synthetic commit parent verification failed")
+	if len(parents) != 1 || parents[0] != parent {
+		return errors.New("transport commit must have exactly the accepted baseline as parent")
+	}
+	expected, err := DeterministicSourceTransportCommitSHA(tree, parent, format)
+	if err != nil || commit != expected {
+		return errors.New("transport commit is not deterministic")
 	}
 	return verifyObjectClosure(ctx, bareRoot, commits...)
-}
-
-func buildSourceManifest(bundlePath string, spec gate.SourceSpec, plan sourcePlan) (SourceMaterializationManifest, error) {
-	digest, err := digestSourceFile(bundlePath)
-	if err != nil {
-		return SourceMaterializationManifest{}, err
-	}
-	manifest := SourceMaterializationManifest{
-		SchemaVersion:         sourceManifestVersion,
-		Source:                spec,
-		SourceTreeSHA:         plan.tree,
-		MaterializedCommitSHA: plan.commit,
-		TrustedBaseCommitSHA:  plan.baseCommit,
-		BundleDigest:          digest,
-		ObjectFormat:          spec.ObjectFormat,
-	}
-	if spec.Kind == gate.SourceKindTree {
-		manifest.SyntheticCommitSHA = plan.commit
-	}
-	if err := manifest.Validate(); err != nil {
-		return SourceMaterializationManifest{}, err
-	}
-	return manifest, nil
-}
-
-// Validate 校验 source manifest 与原 SourceSpec 的逐字段身份关系。
-func (manifest SourceMaterializationManifest) Validate() error {
-	if err := manifest.Source.Validate(); err != nil {
-		return fmt.Errorf("validate manifest source: %w", err)
-	}
-	if manifest.SchemaVersion != sourceManifestVersion || manifest.ObjectFormat != manifest.Source.ObjectFormat ||
-		manifest.SourceTreeSHA != manifest.Source.SourceTreeSHA || !validOID(manifest.MaterializedCommitSHA, manifest.ObjectFormat) ||
-		!validDigest(manifest.BundleDigest) {
-		return errors.New("source manifest identity or digest is invalid")
-	}
-	if manifest.TrustedBaseCommitSHA != "" && !validOID(manifest.TrustedBaseCommitSHA, manifest.ObjectFormat) {
-		return errors.New("source manifest trusted base commit is invalid")
-	}
-	return validateManifestCommitIdentity(manifest)
-}
-
-// validateManifestCommitIdentity 约束真实 commit/head 与 synthetic commit 的互斥身份。
-func validateManifestCommitIdentity(manifest SourceMaterializationManifest) error {
-	var expected string
-	switch manifest.Source.Kind {
-	case gate.SourceKindRange:
-		expected = manifest.Source.Range.HeadSHA
-	case gate.SourceKindCommit:
-		expected = manifest.Source.Commit.SHA
-	case gate.SourceKindTree:
-		expected = manifest.SyntheticCommitSHA
-	default:
-		return fmt.Errorf("unsupported manifest source kind %q", manifest.Source.Kind)
-	}
-	if expected == "" || manifest.MaterializedCommitSHA != expected {
-		return errors.New("manifest materialized commit does not match source identity")
-	}
-	if manifest.Source.Kind != gate.SourceKindTree && manifest.SyntheticCommitSHA != "" {
-		return errors.New("non-tree manifest must not contain synthetic commit")
-	}
-	return validateManifestTrustedBase(manifest)
-}
-
-// validateManifestTrustedBase 约束显式 base 只来自 SourceSpec 或 commit 的真实单 parent。
-func validateManifestTrustedBase(manifest SourceMaterializationManifest) error {
-	switch manifest.Source.Kind {
-	case gate.SourceKindRange:
-		if manifest.Source.Range.BaseKind == gate.BaseKindCommit &&
-			manifest.TrustedBaseCommitSHA != manifest.Source.Range.BaseSHA {
-			return errors.New("range manifest trusted base does not match SourceSpec")
-		}
-		if manifest.Source.Range.BaseKind != gate.BaseKindCommit && manifest.TrustedBaseCommitSHA != "" {
-			return errors.New("empty-tree range manifest must not contain a trusted base")
-		}
-	case gate.SourceKindTree:
-		if manifest.TrustedBaseCommitSHA != manifest.Source.Tree.ParentCommitSHA {
-			return errors.New("tree manifest trusted base does not match SourceSpec")
-		}
-	}
-	return nil
-}
-
-// writeSourceManifest 以独占创建和只读权限发布严格 JSON manifest。
-func writeSourceManifest(path string, manifest SourceMaterializationManifest) error {
-	data, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encode source manifest: %w", err)
-	}
-	data = append(data, '\n')
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return fmt.Errorf("create source manifest: %w", err)
-	}
-	if _, err := file.Write(data); err != nil {
-		return closeSourceFile(file, err)
-	}
-	if err := file.Sync(); err != nil {
-		return closeSourceFile(file, err)
-	}
-	if err := file.Chmod(privateSourceFileMode); err != nil {
-		return closeSourceFile(file, err)
-	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("close source manifest: %w", err)
-	}
-	return nil
-}
-
-func readSourceManifest(path string) (SourceMaterializationManifest, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return SourceMaterializationManifest{}, fmt.Errorf("open source manifest: %w", err)
-	}
-	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, maxSourceManifestLength+1))
-	if err != nil {
-		return SourceMaterializationManifest{}, fmt.Errorf("read source manifest: %w", err)
-	}
-	if len(data) > maxSourceManifestLength {
-		return SourceMaterializationManifest{}, errors.New("source manifest is too large")
-	}
-	var manifest SourceMaterializationManifest
-	if err := gate.DecodeStrictJSON(data, &manifest); err != nil {
-		return SourceMaterializationManifest{}, fmt.Errorf("decode source manifest: %w", err)
-	}
-	return manifest, nil
-}
-
-// publishSourceArtifacts 原子移动两个只读文件，并在失败时清理局部发布。
-func publishSourceArtifacts(outputRoot string, stageBundle string, stageManifest string, manifest SourceMaterializationManifest) (result SourceMaterialization, err error) {
-	bundlePath := filepath.Join(outputRoot, sourceBundleName)
-	manifestPath := filepath.Join(outputRoot, sourceManifestName)
-	defer func() {
-		if err != nil {
-			err = errors.Join(err, removeSourceFile(bundlePath), removeSourceFile(manifestPath))
-		}
-	}()
-	if err := os.Rename(stageBundle, bundlePath); err != nil {
-		return SourceMaterialization{}, fmt.Errorf("publish source bundle: %w", err)
-	}
-	if err := os.Rename(stageManifest, manifestPath); err != nil {
-		return SourceMaterialization{}, fmt.Errorf("publish source manifest: %w", err)
-	}
-	if err := removeSourceTemp(filepath.Dir(stageBundle)); err != nil {
-		return SourceMaterialization{}, err
-	}
-	if err := validatePublishedArtifacts(outputRoot, bundlePath, manifestPath); err != nil {
-		return SourceMaterialization{}, err
-	}
-	return SourceMaterialization{BundlePath: bundlePath, ManifestPath: manifestPath, Manifest: manifest}, nil
-}
-
-// validateCanonicalDirectory 拒绝非绝对、非 canonical、链接或公开输出目录。
-func validateCanonicalDirectory(path string, private bool) error {
-	if !validCanonicalPath(path) {
-		return errors.New("path must be canonical, absolute, and free of control characters")
-	}
-	resolved, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		return fmt.Errorf("canonicalize path: %w", err)
-	}
-	info, err := os.Lstat(path)
-	if err != nil {
-		return fmt.Errorf("lstat path: %w", err)
-	}
-	if resolved != path || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return errors.New("path must be a real non-symlink directory")
-	}
-	if private && info.Mode().Perm()&0o077 != 0 {
-		return fmt.Errorf("private output root mode %04o exposes group or world access", info.Mode().Perm())
-	}
-	return nil
-}
-
-func validCanonicalPath(path string) bool {
-	return path != "" && filepath.IsAbs(path) && filepath.Clean(path) == path && !containsControl(path)
-}
-
-// validatePublishedArtifacts 要求输出根只含两个 0400 regular artifacts。
-func validatePublishedArtifacts(outputRoot string, paths ...string) error {
-	entries, err := os.ReadDir(outputRoot)
-	if err != nil {
-		return fmt.Errorf("read published source artifacts: %w", err)
-	}
-	if len(entries) != len(paths) {
-		return errors.New("source output root contains missing or trailing artifacts")
-	}
-	for _, path := range paths {
-		info, err := os.Lstat(path)
-		if err != nil {
-			return fmt.Errorf("lstat source artifact: %w", err)
-		}
-		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm() != privateSourceFileMode {
-			return fmt.Errorf("source artifact %s must be a 0400 regular non-symlink file", filepath.Base(path))
-		}
-	}
-	return nil
-}
-
-func digestSourceFile(path string) (string, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return "", fmt.Errorf("open source bundle for digest: %w", err)
-	}
-	hash := sha256.New()
-	_, copyErr := io.Copy(hash, file)
-	closeErr := file.Close()
-	if copyErr != nil || closeErr != nil {
-		return "", errors.Join(copyErr, closeErr)
-	}
-	return "sha256:" + hex.EncodeToString(hash.Sum(nil)), nil
-}
-
-func validDigest(value string) bool {
-	encoded, found := strings.CutPrefix(value, "sha256:")
-	_, err := hex.DecodeString(encoded)
-	return found && len(encoded) == sha256.Size*2 && encoded == strings.ToLower(encoded) && err == nil
-}
-
-// validOID 校验对象格式、长度、小写十六进制并拒绝全零 OID。
-func validOID(value string, format gate.GitObjectFormat) bool {
-	want := 0
-	switch format {
-	case gate.GitObjectFormatSHA1:
-		want = 40
-	case gate.GitObjectFormatSHA256:
-		want = 64
-	}
-	_, err := hex.DecodeString(value)
-	return want != 0 && len(value) == want && value == strings.ToLower(value) && strings.Trim(value, "0") != "" && err == nil
-}
-
-func strictGitLine(output []byte) (string, error) {
-	if len(output) < 2 || output[len(output)-1] != '\n' || bytes.Count(output, []byte{'\n'}) != 1 {
-		return "", errors.New("Git output must contain exactly one terminated line")
-	}
-	return string(output[:len(output)-1]), nil
-}
-
-func containsControl(value string) bool {
-	return strings.IndexFunc(value, func(character rune) bool { return character < 0x20 || character == 0x7f }) >= 0
-}
-
-func runGitOutput(ctx context.Context, repoRoot string, stdin io.Reader, args ...string) ([]byte, error) {
-	var stdout bytes.Buffer
-	err := runGit(ctx, repoRoot, stdin, &stdout, args...)
-	return stdout.Bytes(), err
-}
-
-// runGit 以固定环境执行 Git plumbing，并保留 context 与 stderr 根因。
-func runGit(ctx context.Context, repoRoot string, stdin io.Reader, stdout io.Writer, args ...string) error {
-	if err := validateContext(ctx); err != nil {
-		return err
-	}
-	if interfaceValueIsNil(stdout) {
-		return errors.New("Git plumbing stdout is required")
-	}
-	if stdin != nil && interfaceValueIsNil(stdin) {
-		return errors.New("Git plumbing stdin must not be typed nil")
-	}
-	if len(args) == 0 {
-		return errors.New("Git plumbing command is required")
-	}
-	commandArgs := append([]string{"--no-replace-objects", "-C", repoRoot}, args...)
-	command := exec.CommandContext(ctx, "git", commandArgs...)
-	command.Stdin = stdin
-	command.Stdout = stdout
-	var stderr bytes.Buffer
-	command.Stderr = &stderr
-	command.Env = sourceGitEnvironment()
-	if err := command.Run(); err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return fmt.Errorf("git %s: %w", args[0], ctxErr)
-		}
-		return fmt.Errorf("git %s: %w: %s", args[0], err, strings.TrimSpace(stderr.String()))
-	}
-	return nil
-}
-
-// sourceGitEnvironment 仅继承进程定位变量，清除全部 Git repository-local 重定向环境。
-func sourceGitEnvironment() []string {
-	environment := make([]string, 0, 16)
-	for _, key := range []string{"HOME", "PATH", "TMPDIR", "SystemRoot"} {
-		if value, present := os.LookupEnv(key); present {
-			environment = append(environment, key+"="+value)
-		}
-	}
-	return append(environment,
-		"GIT_CONFIG_NOSYSTEM=1",
-		"GIT_CONFIG_GLOBAL=/dev/null",
-		"GIT_TERMINAL_PROMPT=0",
-		"GIT_OPTIONAL_LOCKS=0",
-		"GIT_AUTHOR_NAME=Super Dolphin Source Materializer",
-		"GIT_AUTHOR_EMAIL=source-materializer.invalid",
-		"GIT_AUTHOR_DATE=2000-01-01T00:00:00Z",
-		"GIT_COMMITTER_NAME=Super Dolphin Source Materializer",
-		"GIT_COMMITTER_EMAIL=source-materializer.invalid",
-		"GIT_COMMITTER_DATE=2000-01-01T00:00:00Z",
-		"LC_ALL=C",
-	)
-}
-
-func closeSourceFile(file *os.File, cause error) error {
-	return errors.Join(cause, file.Close())
-}
-
-func removeSourceTemp(path string) error {
-	if path == "" {
-		return nil
-	}
-	if err := os.RemoveAll(path); err != nil {
-		return fmt.Errorf("remove source temporary directory: %w", err)
-	}
-	return nil
-}
-
-func removeSourceFile(path string) error {
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("remove partial source artifact: %w", err)
-	}
-	return nil
 }

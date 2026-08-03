@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 
@@ -35,9 +34,6 @@ func TestResolveRuntimeDependencyBuildUsesLockedGitTree(t *testing.T) {
 }
 
 func TestRuntimeDependencyPlatformsUseProductionContractAndRetainArm64Artifact(t *testing.T) {
-	if !slices.Equal(runtimeDepsPlatforms, []string{cicontract.TargetPlatform, "linux/arm64"}) {
-		t.Fatalf("runtime dependency platforms = %q", runtimeDepsPlatforms)
-	}
 	if !validRuntimePlatform(cicontract.TargetPlatform) {
 		t.Fatalf("runtime artifacts rejected remote CI target %q", cicontract.TargetPlatform)
 	}
@@ -155,30 +151,49 @@ func TestResolveRuntimeDependencyBuildRejectsRuntimeSeedWorkerRecipeDrift(t *tes
 	}
 }
 
-func TestResolveRuntimeDependencyBuildKeepsSeedWorkerRecipeChangesAuditableWithoutChangingRuntimeIdentity(t *testing.T) {
+func TestResolveRuntimeDependencyBuildRejectsDockerfileRecipeDrift(t *testing.T) {
 	entries := loadRuntimeDependencyEntries(t)
-	baseline, _, err := ResolveRuntimeDependencyBuild(entries, "linux/amd64")
-	if err != nil {
-		t.Fatal(err)
-	}
-	lockIndex, document, _ := runtimeDependencyLockDocument(t, entries)
-	recipeInputs, ok := document["recipe_inputs"].(map[string]any)
-	if !ok {
-		t.Fatal("runtime dependency fixture recipe inputs are not an object")
-	}
 	for index := range entries {
-		if entries[index].Path == "internal/devtools/gate/executor_seed.go" {
-			entries[index].Data = append(entries[index].Data, []byte("\n// audited recipe change\n")...)
-			recipeInputs["runtime_seed_worker_sha256"] = remoteBytesDigest(entries[index].Data)
+		if entries[index].Path == "build/gate/runtime-deps.Dockerfile" {
+			entries[index].Data = append(entries[index].Data, []byte("\n# drift\n")...)
 		}
 	}
-	updateRuntimeDependencyLock(t, entries, lockIndex, document)
-	changed, _, err := ResolveRuntimeDependencyBuild(entries, "linux/amd64")
-	if err != nil {
-		t.Fatal(err)
+	if _, _, err := ResolveRuntimeDependencyBuild(entries, "linux/amd64"); err == nil {
+		t.Fatal("ResolveRuntimeDependencyBuild() unexpectedly accepted Dockerfile recipe drift")
 	}
-	if changed != baseline {
-		t.Fatal("audited seed worker recipe change invalidated reusable runtime dependency identity")
+}
+
+func TestResolveRuntimeDependencyBuildKeepsRecipeChangesAuditableWithoutChangingRuntimeIdentity(t *testing.T) {
+	for _, testCase := range []struct{ path, field, suffix string }{
+		{"build/gate/runtime-deps.Dockerfile", "dockerfile_sha256", "\n# audited recipe change\n"},
+		{"internal/devtools/gate/executor_seed.go", "runtime_seed_worker_sha256", "\n// audited recipe change\n"},
+	} {
+		t.Run(testCase.field, func(t *testing.T) {
+			entries := loadRuntimeDependencyEntries(t)
+			baseline, _, err := ResolveRuntimeDependencyBuild(entries, "linux/amd64")
+			if err != nil {
+				t.Fatal(err)
+			}
+			lockIndex, document, _ := runtimeDependencyLockDocument(t, entries)
+			recipeInputs, ok := document["recipe_inputs"].(map[string]any)
+			if !ok {
+				t.Fatal("runtime dependency fixture recipe inputs are not an object")
+			}
+			for index := range entries {
+				if entries[index].Path == testCase.path {
+					entries[index].Data = append(entries[index].Data, []byte(testCase.suffix)...)
+					recipeInputs[testCase.field] = remoteBytesDigest(entries[index].Data)
+				}
+			}
+			updateRuntimeDependencyLock(t, entries, lockIndex, document)
+			changed, _, err := ResolveRuntimeDependencyBuild(entries, "linux/amd64")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if changed != baseline {
+				t.Fatal("audited recipe change invalidated reusable runtime dependency identity")
+			}
+		})
 	}
 }
 

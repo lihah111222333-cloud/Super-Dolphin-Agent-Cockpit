@@ -2,7 +2,6 @@ package gate
 
 import (
 	"database/sql"
-	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -30,8 +29,8 @@ func TestRemoteBaselineStateV1OCIRecordRequiresExplicitMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = store.LoadRemoteBaselineState()
-	if !errors.Is(err, ErrRemoteBaselineStateMigrationRequired) {
-		t.Fatalf("LoadRemoteBaselineState() error = %v, want migration-required", err)
+	if err == nil {
+		t.Fatal("LoadRemoteBaselineState() unexpectedly accepted v1 OCI schema")
 	}
 	database, err = sql.Open("sqlite", durationLedgerSQLiteDSN(store.path))
 	if err != nil {
@@ -75,8 +74,8 @@ func TestRemoteBaselineStateV1LegacyRecordRequiresExplicitMigration(t *testing.T
 	}
 
 	_, err = store.LoadRemoteBaselineState()
-	if !errors.Is(err, ErrRemoteBaselineStateMigrationRequired) {
-		t.Fatalf("LoadRemoteBaselineState() error = %v, want migration-required", err)
+	if err == nil {
+		t.Fatal("LoadRemoteBaselineState() unexpectedly accepted v1 legacy schema")
 	}
 
 	database, err = sql.Open("sqlite", durationLedgerSQLiteDSN(store.path))

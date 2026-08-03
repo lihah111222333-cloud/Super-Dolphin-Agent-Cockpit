@@ -9,7 +9,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"net/url"
+	"slices"
 	"strings"
 	"time"
 )
@@ -21,10 +21,33 @@ const (
 	DocumentPath = "docs/契约/remote-ci-eci-imagecache-contract.md"
 	// ExecutionPathID 标识唯一正常 CI 执行路径。
 	ExecutionPathID = "accepted-sqlite-imagecache-snapshot-eci-shards/v1"
-	// RefreshPathID 标识唯一后台增量刷新路径。
-	RefreshPathID = "sqlite-lease-successor-imagecache-cas/v1"
+	// GenerationOneReceiptImportPathID 标识唯一允许写入 accepted singleton 的外部首代严格回执导入。
+	// 仓库内 normal CI 只消费 accepted snapshot；不得实现 successor refresh executor。
+	GenerationOneReceiptImportPathID = "external-eci-imagecache-generation-one-strict-receipt-import/v1"
 	// SQLAuthorityID 标识 accepted state、刷新、规划、回执和校准共用的唯一数据源。
 	SQLAuthorityID = "duration-ledger-sqlite/v1"
+
+	// SourceBaselineRepositoryPath 是 accepted ImageCache 中唯一可复用的 Git
+	// baseline object store。它只包含 RunnerBaseTree 的 tree/blob closure 和
+	// 一个确定性的无 parent baseline commit。
+	SourceBaselineRepositoryPath = "/opt/super-dolphin-gate/source-baseline.git"
+	// SourceBundleName 是每次 CI 唯一允许上传的候选源码传输对象名称。
+	SourceBundleName = "source.bundle"
+	// SourceManifestName 是 source bundle 的严格 manifest 对象名称。
+	SourceManifestName = "source-manifest.json"
+	// SourceBundleRef 是 bundle 中唯一允许广告的候选 transport ref。
+	SourceBundleRef = "refs/source/materialized"
+	// SourceManifestSchemaVersion 是源码 transport strict manifest 的当前版本。
+	SourceManifestSchemaVersion uint32 = 2
+	// SourceTransportKind 是相对 accepted baseline 的唯一源码传输类型。
+	SourceTransportKind = "git-bundle-thin"
+	// SourceBundleHeaderVersion 是 Git bundle header 的唯一允许版本。
+	SourceBundleHeaderVersion = "v2"
+	// SourceBundlePrerequisiteCount 冻结 bundle header 必须恰好包含一个 prerequisite。
+	SourceBundlePrerequisiteCount = 1
+	// SourceAssetsUploadBarrier 标识 source bundle 和 strict manifest 完整上传后
+	// 才能按 SQLite LPT 计划创建并发 shards 的唯一顺序边界。
+	SourceAssetsUploadBarrier = "source-bundle-and-strict-manifest-before-lpt-shards/v1"
 
 	// TargetPlatform 是远程 CI 和基准刷新的唯一生产目标平台。
 	TargetPlatform = "linux/amd64"
@@ -33,8 +56,6 @@ const (
 
 	// AcceptedBaselineTable 是已接受基准代的唯一 SQLite 权威表。
 	AcceptedBaselineTable = "ci_remote_baseline_state"
-	// RefreshLeaseTable 是刷新 owner、attempt 和候选生命周期的唯一 SQLite 权威表。
-	RefreshLeaseTable = "ci_remote_baseline_refresh_lease"
 	// DurationSamplesTable 是 workload 历史耗时与 LPT 规划样本的唯一 SQLite 权威表。
 	DurationSamplesTable = "duration_samples"
 	// RemoteRunsTable 是远程 CI run 回执的唯一 SQLite 权威表。
@@ -43,12 +64,14 @@ const (
 	RemoteShardsTable = "ci_shards"
 	// WorkloadExecutionsTable 是 workload 执行与缓存事实的唯一 SQLite 权威表。
 	WorkloadExecutionsTable = "ci_workload_executions"
-	// RunWarningsTable 是 100 秒目标超限告警的唯一 SQLite 权威表。
+	// RunWarningsTable 是运行最终投影中供人阅读的告警文本表。
 	RunWarningsTable = "ci_run_warnings"
+	// LiveTimingWarningsTable 是运行仍在执行时 100 秒目标超限事实的唯一 SQLite 权威表。
+	LiveTimingWarningsTable = "ci_live_timing_warnings"
+	// RunTimingWarningsTable 是最终运行投影吸收后的结构化 100 秒目标超限事实表。
+	RunTimingWarningsTable = "ci_run_timing_warnings"
 	// CalibrationCheckpointsTable 是固定规格校准 checkpoint 的唯一 SQLite 权威表。
 	CalibrationCheckpointsTable = "remote_ci_calibration_checkpoints"
-	// RefreshDeltasTable 是 accepted snapshot 相对 delta identity 的唯一 SQLite 权威表。
-	RefreshDeltasTable = "ci_remote_refresh_deltas"
 	// CheckReceiptsTable 是全部必跑检查结果的唯一 SQLite 权威表。
 	CheckReceiptsTable = "ci_check_receipts"
 	// TimingObservationsTable 是 shard/workload 原始阶段观测的唯一 SQLite 权威表。
@@ -61,28 +84,35 @@ const (
 	CatalogObservationsTable = "ci_catalog_observations"
 	// CatalogWorkloadsTable 是 catalog workload 明细的唯一 SQLite 权威表。
 	CatalogWorkloadsTable = "ci_catalog_workloads"
-	// RunRequestersTable 是远程 CI 请求者投影的唯一 SQLite 权威表。
-	RunRequestersTable = "ci_run_requesters"
+	// RunAgentIdentitiesTable 是远程 CI agent digest 投影的唯一 SQLite 权威表。
+	RunAgentIdentitiesTable = "ci_run_agent_identities"
 	// ShardWorkloadsTable 是 shard 到 workload 绑定的唯一 SQLite 权威表。
 	ShardWorkloadsTable = "ci_shard_workloads"
 	// GateExecutionsTable 是 Gate 执行回执的唯一 SQLite 权威表。
 	GateExecutionsTable = "ci_gate_executions"
+	// RunWorkloadResultsTable 是本次 run 的 executed/reused workload 结果投影的唯一 SQLite 权威表。
+	RunWorkloadResultsTable = "ci_run_workload_results"
+	// WorkloadPassEvidenceTable 是 strict workload PASS reuse evidence 的唯一 SQLite 权威表。
+	WorkloadPassEvidenceTable = "ci_workload_pass_evidence"
 	// CalibrationCheckpointScenariosTable 是 checkpoint scenario 的唯一 SQLite 权威表。
 	CalibrationCheckpointScenariosTable = "remote_ci_calibration_checkpoint_scenarios"
 
-	// ShardConcurrencyPolicy 明确仓库不设置 shard 数量或 coordinator 并发上限。
+	// GitHookInvocationConcurrencyPolicy 明确多个 agent 可以同时触发 Git hook；仓库不得用全局 hook 锁串行化调用。
+	GitHookInvocationConcurrencyPolicy = "unbounded_by_repository"
+	// RemoteCIJobConcurrencyPolicy 明确远程 CI job 可以并发；不得设置 active-job 锁或 admission cap。
+	RemoteCIJobConcurrencyPolicy = "unbounded_by_repository"
+	// ShardConcurrencyPolicy 明确动态 shard 只受当前可分片原子 workload 数量限制，不设置数量或 coordinator 并发上限。
 	ShardConcurrencyPolicy = "unbounded_by_repository"
-	// RefreshTransferModeID 规定刷新源码只能相对 accepted snapshot 传输增量。
-	RefreshTransferModeID = "accepted_snapshot_delta_only/v1"
-	// SourceSnapshotRootPath 是 accepted source snapshot 在 worker 内的唯一根目录。
-	SourceSnapshotRootPath = "/opt/super-dolphin-gate/source-snapshot/root"
-	// SourceSnapshotManifestPath 是 accepted source snapshot 的唯一 manifest 路径。
-	SourceSnapshotManifestPath = "/opt/super-dolphin-gate/source-snapshot/manifest.json"
-	// RefreshCheckLogPrefix 是 refresh worker 输出非权威构建检查日志的唯一前缀。
-	RefreshCheckLogPrefix = "REMOTE_CI_REFRESH_CHECK_PASS="
+	// GitIndexLockBoundary 明确同一 worktree 的 Git index.lock 只保护 Git index 一致性，不是 CI admission 或并发上限。
+	GitIndexLockBoundary = "git_worktree_index_consistency_not_ci_admission"
 
 	// RetentionGenerations 只约束 accepted baseline 代数；每代内部行数不受限制。
 	RetentionGenerations = 3
+	// WorkloadPassEvidenceGenerationWindow 只接受当前 accepted generation 及其前两代的 strict PASS evidence。
+	WorkloadPassEvidenceGenerationWindow = RetentionGenerations
+	// WorkloadPassEvidenceFreshnessPolicy 冻结 strict PASS 的 freshness 含义：
+	// accepted generation 窗口、权威状态、完整 identity 和 canonical receipt proof；禁止 wall-clock TTL。
+	WorkloadPassEvidenceFreshnessPolicy = "accepted-generation-authority-identity-receipt-no-wall-clock-ttl/v1"
 	// AcceptedGenerationColumn 是所有 SQLite 历史根共享的 generation 列名。
 	AcceptedGenerationColumn = "accepted_generation"
 )
@@ -90,24 +120,6 @@ const (
 const (
 	// ShardTargetDuration 是拆分、优化与告警目标，不是 worker 硬超时。
 	ShardTargetDuration = 100 * time.Second
-	// RefreshMinimumInterval 限制每两小时最多开始一个新 attempt；过期接管不新建 attempt。
-	RefreshMinimumInterval = 2 * time.Hour
-)
-
-// RefreshPhase 是后台增量刷新从抢占到清理的完整生命周期。
-type RefreshPhase string
-
-const (
-	RefreshIdle           RefreshPhase = "idle"
-	RefreshClaimed        RefreshPhase = "claimed"
-	RefreshBuilding       RefreshPhase = "building"
-	RefreshCachePreparing RefreshPhase = "cache_preparing"
-	RefreshReadyValidated RefreshPhase = "ready_validated"
-	RefreshPromoted       RefreshPhase = "promoted"
-	RefreshRetiring       RefreshPhase = "retiring"
-	RefreshCleanupPending RefreshPhase = "cleanup_pending"
-	RefreshUnchanged      RefreshPhase = "unchanged"
-	RefreshFailed         RefreshPhase = "failed"
 )
 
 // TimingPhase 是权威回执和人类账本必须显式表达的耗时阶段。
@@ -148,18 +160,20 @@ const (
 	TimingAggregationCriticalPath  TimingAggregation = "critical_path"
 )
 
-// RefreshTransferMode 规定后台刷新源码的唯一传输模式。
-type RefreshTransferMode string
-
-const (
-	RefreshTransferAcceptedSnapshotDelta RefreshTransferMode = "accepted_snapshot_delta"
-)
-
 // TimingWarningAction 规定 100 秒目标超限后的唯一处理动作。
 type TimingWarningAction string
 
 const (
 	TimingWarningWarnAndContinue TimingWarningAction = "warn_and_continue"
+)
+
+// TimingWarningEvidenceKind 区分运行中 provider 事实与完成后的 workload 原始区间。
+type TimingWarningEvidenceKind string
+
+const (
+	TimingWarningEvidenceRunning  TimingWarningEvidenceKind = "running"
+	TimingWarningEvidenceTestBody TimingWarningEvidenceKind = "test_body"
+	TimingWarningEvidenceTotal    TimingWarningEvidenceKind = "total"
 )
 
 // RequiredCheck 是每次远程运行都必须观察到 PASS 的检查目录。
@@ -175,9 +189,13 @@ const (
 )
 
 // CheckObservation 是一个必跑检查绑定到同一 authority 回执的结果。
+// Reused 表示此检查严格复用了同一 SQLite authority 中仍新鲜的权威 PASS
+// evidence；它绝不表示缓存命中或未验证的跳过。
 type CheckObservation struct {
 	Check              RequiredCheck `json:"check"`
 	Executed           bool          `json:"executed"`
+	Reused             bool          `json:"reused"`
+	ReuseProofSHA256   string        `json:"reuse_proof_sha256"`
 	Passed             bool          `json:"passed"`
 	SourceTree         string        `json:"source_tree"`
 	AcceptedSnapshotID string        `json:"accepted_snapshot_id"`
@@ -188,34 +206,34 @@ type CheckObservation struct {
 	ReceiptSHA256      string        `json:"receipt_sha256"`
 }
 
-// RefreshCheck 是后台 refresh 为重新编译、cache seed 和依赖完整性生成的检查目录。
-// 它们明确不是 normal CI 的测试通过回执。
-type RefreshCheck string
+// ProvisionCheck 是外部 generation-one strict receipt 的内容验证目录；它不是仓库内 refresh executor 或 ImageCache writer。
+type ProvisionCheck string
 
 const (
-	RefreshCheckGateBuild     RefreshCheck = "gate_build"
-	RefreshCheckNormalCompile RefreshCheck = "normal_compile"
-	RefreshCheckE2ECompile    RefreshCheck = "e2e_compile"
-	RefreshCheckRaceCompile   RefreshCheck = "race_compile"
-	RefreshCheckFrontendBuild RefreshCheck = "frontend_build"
-	RefreshCheckDependency    RefreshCheck = "dependency"
+	ProvisionCheckGateBuild     ProvisionCheck = "gate_build"
+	ProvisionCheckNormalCompile ProvisionCheck = "normal_compile"
+	ProvisionCheckE2ECompile    ProvisionCheck = "e2e_compile"
+	ProvisionCheckRaceCompile   ProvisionCheck = "race_compile"
+	ProvisionCheckFrontendBuild ProvisionCheck = "frontend_build"
+	ProvisionCheckDependency    ProvisionCheck = "dependency"
 )
 
-// RefreshCheckObservation 记录 refresh 实际执行的非测试操作，并明确声明 test_body 不适用。
-type RefreshCheckObservation struct {
-	Check                         RefreshCheck `json:"check"`
-	Executed                      bool         `json:"executed"`
-	Passed                        bool         `json:"passed"`
-	SourceTree                    string       `json:"source_tree"`
-	AcceptedSnapshotID            string       `json:"accepted_snapshot_id"`
-	PlanDigest                    string       `json:"plan_digest"`
-	StartedAtUnixMS               int64        `json:"started_at_unix_ms"`
-	CompletedAtUnixMS             int64        `json:"completed_at_unix_ms"`
-	DurationMS                    int64        `json:"duration_ms"`
-	CandidateCompileMS            int64        `json:"candidate_compile_ms"`
-	CandidateCompileNotApplicable bool         `json:"candidate_compile_not_applicable"`
-	TestBodyNotApplicable         bool         `json:"test_body_not_applicable"`
-	ReceiptSHA256                 string       `json:"receipt_sha256"`
+// ProvisionCheckObservation 是外部 generation-one receipt 中已完成内容验证的严格编码。
+// 它不得被解释为 normal CI PASS，也不得授权仓库创建 successor ImageCache。
+type ProvisionCheckObservation struct {
+	Check                         ProvisionCheck `json:"check"`
+	Executed                      bool           `json:"executed"`
+	Passed                        bool           `json:"passed"`
+	SourceTree                    string         `json:"source_tree"`
+	ProvisionSnapshotID           string         `json:"provision_snapshot_id"`
+	PlanDigest                    string         `json:"plan_digest"`
+	StartedAtUnixMS               int64          `json:"started_at_unix_ms"`
+	CompletedAtUnixMS             int64          `json:"completed_at_unix_ms"`
+	DurationMS                    int64          `json:"duration_ms"`
+	CandidateCompileMS            int64          `json:"candidate_compile_ms"`
+	CandidateCompileNotApplicable bool           `json:"candidate_compile_not_applicable"`
+	TestBodyNotApplicable         bool           `json:"test_body_not_applicable"`
+	ReceiptSHA256                 string         `json:"receipt_sha256"`
 }
 
 // SQLDomain 是必须由同一个 duration-ledger SQLite authority 持久化的事实域。
@@ -223,22 +241,24 @@ type SQLDomain string
 
 const (
 	SQLDomainAcceptedBaseline      SQLDomain = "accepted_baseline"
-	SQLDomainRefreshLease          SQLDomain = "refresh_lease"
 	SQLDomainDurationHistory       SQLDomain = "duration_history"
 	SQLDomainRemoteRun             SQLDomain = "remote_run"
 	SQLDomainRemoteShard           SQLDomain = "remote_shard"
 	SQLDomainWorkloadExecution     SQLDomain = "workload_execution"
 	SQLDomainRunWarning            SQLDomain = "run_warning"
+	SQLDomainLiveTimingWarning     SQLDomain = "live_timing_warning"
+	SQLDomainRunTimingWarning      SQLDomain = "run_timing_warning"
 	SQLDomainCalibrationCheckpoint SQLDomain = "calibration_checkpoint"
-	SQLDomainRefreshDelta          SQLDomain = "refresh_delta"
 	SQLDomainCheckReceipt          SQLDomain = "check_receipt"
 	SQLDomainTimingObservation     SQLDomain = "timing_observation"
 	SQLDomainWorkloadCatalog       SQLDomain = "workload_catalog"
 	SQLDomainCatalogObservation    SQLDomain = "catalog_observation"
 	SQLDomainCatalogWorkload       SQLDomain = "catalog_workload"
-	SQLDomainRunRequester          SQLDomain = "run_requester"
+	SQLDomainRunAgentIdentity      SQLDomain = "run_agent_identity"
 	SQLDomainShardWorkload         SQLDomain = "shard_workload"
 	SQLDomainGateExecution         SQLDomain = "gate_execution"
+	SQLDomainRunWorkloadResult     SQLDomain = "run_workload_result"
+	SQLDomainWorkloadPassEvidence  SQLDomain = "workload_pass_evidence"
 	SQLDomainCalibrationScenario   SQLDomain = "calibration_checkpoint_scenario"
 )
 
@@ -264,46 +284,40 @@ type Requirement struct {
 
 var requirements = [...]Requirement{
 	{ID: "1.1", Section: 1, Summary: "基准镜像消费单一 Go 1.26.5 锁，并包含锁定工具、Go module/build cache 与前端依赖/构建 cache", Enforcement: "build closure + runtime manifest + archtest"},
-	{ID: "1.2", Section: 1, Summary: "正常 CI 只读 accepted generation 且不依赖 refresh 发布配置；后台刷新缺配置或执行期间仍使用旧代", Enforcement: "runtime + SQLite"},
-	{ID: "1.3", Section: 1, Summary: "跨用户刷新只允许一个 SQLite lease owner", Enforcement: "SQLite transaction"},
-	{ID: "1.4", Section: 1, Summary: "每两小时最多开始一个新 refresh attempt，过期接管沿用同一 attempt", Enforcement: "SQLite lease"},
-	{ID: "1.5", Section: 1, Summary: "前后端 normal/e2e/race 按历史耗时动态分片且无仓库并发上限", Enforcement: "planner + archtest"},
+	{ID: "1.2", Section: 1, Summary: "normal CI 只读 accepted ImageCache explicit snapshot；仓库内不存在 successor refresh executor", Enforcement: "runtime call graph + archtest"},
+	{ID: "1.3", Section: 1, Summary: "hook、job 与动态 shards 无仓库并发上限；index.lock 仅保护 Git index", Enforcement: "cicontract concurrency policy + archtest"},
 	{ID: "1.6", Section: 1, Summary: "100 秒只触发一次目标超限告警；不得取消、中断、kill 或标失败", Enforcement: "planner + non-terminating timing warning"},
 	{ID: "1.7", Section: 1, Summary: "校准运行使用固定且被回执绑定的 CPU 与内存规格", Enforcement: "request + receipt + SQLite"},
 	{ID: "1.8", Section: 1, Summary: "运行以真实起止和 duration_ms 分别记录物化、编译、启动、测试、总耗时、缓存与等待；并发聚合使用精确 interval union", Enforcement: "receipt + SQLite timing ledger"},
-	{ID: "1.9", Section: 1, Summary: "正常 CI 每次全量执行 Gate、normal、e2e、race、frontend 与 dependency checks；refresh 只回执真实 build/cache-seed/dependency 操作且不得声称 tests PASS", Enforcement: "required-check catalogue + refresh receipt validation"},
-	{ID: "2.1", Section: 2, Summary: "accepted baseline、refresh lease/attempt、duration history、run/shard receipt 与 calibration checkpoint 只读写同一 SQLite authority", Enforcement: "SQLite schema + store"},
+	{ID: "1.9", Section: 1, Summary: "normal all-hit 不创建 workload CI ECI、workload shard、workload OSS/temp 或 calibration，且不执行测试；部分命中只执行 miss，calibration 永不复用", Enforcement: "required-check catalogue + strict reuse receipt validation + archtest"},
+	{ID: "2.1", Section: 2, Summary: "accepted baseline、duration history、run/shard receipt 与 calibration checkpoint 只读写同一 SQLite authority", Enforcement: "SQLite schema + store"},
 	{ID: "2.2", Section: 2, Summary: "运行时缓存只由 accepted ImageCache ID 与 snapshot ID 选择", Enforcement: "state validation + ECI request"},
 	{ID: "2.3", Section: 2, Summary: "候选源码和 Gate 编译分别绑定 exact Git identity 与真实传递编译闭包", Enforcement: "materializer + receipt"},
 	{ID: "2.4", Section: 2, Summary: "严格 JSON 仅作协议编码，OSS 仅作内容寻址传输，二者均非权威", Enforcement: "strict decoders + archtest"},
-	{ID: "2.5", Section: 2, Summary: "accepted、lease、delta identity、check receipts、timing 与 warnings 只写同一个 SQLite authority", Enforcement: "SQLite schema + receipt store"},
-	{ID: "2.6", Section: 2, Summary: "source snapshot root、manifest 与 refresh-only 人类日志前缀只由 cicontract 定义，bind/core/embed/worker 只消费该 owner", Enforcement: "canonical constants + archtest"},
+	{ID: "2.5", Section: 2, Summary: "accepted state、check receipts、timing 与 warnings 只写同一个 SQLite authority", Enforcement: "SQLite schema + receipt store"},
+	{ID: "2.6", Section: 2, Summary: "generation-one 只能导入外部严格 receipt；normal CI 和仓库内代码不得创建或晋级 ImageCache", Enforcement: "strict receipt boundary + archtest"},
+	{ID: "2.7", Section: 2, Summary: "无 token 请求只返回 --agent-token=issue 与 env=issue 申请方式和实际 token 的 flag/env 使用方式；仅单一显式 issue 才签发 raw token，前两阶段均不执行 CI/ECI；git hook 无状态且只继承/验证实际 env token，跨 SQLite/OSS/ECI/log/tag/checkpoint/receipt 只传 sha256 digest", Enforcement: "agent-token contract + field guard + archtest"},
+	{ID: "2.8", Section: 2, Summary: "首次读取缺失的 SQLite authority 只原子初始化 current schema 与查询索引；不得生成 accepted baseline，缺少 generation-one 仍 fail-fast", Enforcement: "SQLite initializer + baseline store test"},
 	{ID: "3.1", Section: 3, Summary: "正常 CI 唯一路径为 accepted SQLite 到 LPT 到无上限并发 ECI shards", Enforcement: "runtime call graph + archtest"},
 	{ID: "3.2", Section: 3, Summary: "正常 shard 显式绑定 accepted snapshot，禁止 AutoMatch 选择", Enforcement: "ECI request validation"},
 	{ID: "3.3", Section: 3, Summary: "候选 Gate 在 exact candidate tree 内增量编译，cache hit 不跳过身份验证", Enforcement: "materializer + receipt"},
-	{ID: "4.1", Section: 4, Summary: "唯一后台链为 TryClaim、successor、CreateImageCache、Ready、双 CAS 与延迟清理", Enforcement: "runtime + SQLite state machine"},
-	{ID: "4.2", Section: 4, Summary: "刷新必须 heartbeat；失去 token、lease 或 accepted identity 时禁止晋级", Enforcement: "SQLite CAS"},
-	{ID: "4.3", Section: 4, Summary: "已有 accepted generation 时只允许增量刷新，缺失 accepted 时禁止自动全量 bootstrap", Enforcement: "refresh validation"},
-	{ID: "4.4", Section: 4, Summary: "ImageCache 是运行缓存权威，非 ACR OCI digest 仅是 CreateImageCache 内容输入", Enforcement: "builder protocol + config validation"},
-	{ID: "4.5", Section: 4, Summary: "晋级前失败保留旧代；晋级后旧代清理失败进入 cleanup pending", Enforcement: "SQLite state machine"},
-	{ID: "4.6", Section: 4, Summary: "身份未变化时不创建 ImageCache、不增加 generation，只把检查结果记为 unchanged", Enforcement: "SQLite state machine"},
-	{ID: "4.7", Section: 4, Summary: "refresh source 只传相对 accepted generation/source snapshot 的 delta；缺 snapshot 必须 fail-fast", Enforcement: "transfer-mode validation + archtest"},
-	{ID: "4.8", Section: 4, Summary: "云端必须从 accepted snapshot 加 delta 重建并验证完整目标 Git tree 与编译 closure", Enforcement: "rebuild receipt validation"},
-	{ID: "4.9", Section: 4, Summary: "检查 marker 只用于人类日志；晋级必须验证绑定 tree、snapshot、plan、执行、耗时与摘要的结构化 observation", Enforcement: "builder receipt validation + archtest"},
-	{ID: "5.1", Section: 5, Summary: "shard 数只受可分片原子 workload 数量限制", Enforcement: "LPT planner + archtest"},
-	{ID: "5.2", Section: 5, Summary: "云配额与 API 限流必须显式失败，不得静默降并发或转本地", Enforcement: "runtime + archtest"},
+	{ID: "3.4", Section: 3, Summary: "工具链、依赖、浏览器与缓存只直读 accepted ImageCache 镜像层；ECI request 只能有 source/work/temp 三个 EmptyDir，禁止 FlexVolume/OSS bootstrap、expanded-data、DataCache、缓存卷、subPath 或逐 shard 复制展开；node_modules 与 Vite cache 必须链接镜像层，dist 不得冒充 cache；Dockerfile/seed worker 只作配方审计且不得改变依赖内容 identity，依赖不变必须复用上一代 runtime 镜像", Enforcement: "ECI request shape + stable dependency identity + image closure + executor seed behavior + archtest"},
+	{ID: "3.5", Section: 3, Summary: "accepted ImageCache 在 /opt/super-dolphin-gate/source-baseline.git 提供 RunnerBaseTree 的 tree/blob closure 与确定性无 parent baseline commit；每次 CI 只上传标准 v2 git-bundle-thin，bundle 由 tree=候选、唯一 parent=baseline 的确定性 transport commit 相对 baseline 生成且 header 恰好一个 prerequisite；严禁自包含/full fallback/raw whole repo，bundle 与 strict manifest 完整上传后才按 SQLite LPT 创建全部并发 shards", Enforcement: "source baseline + deterministic transport commit + strict bundle/manifest verifier + upload barrier + archtest"},
+	{ID: "4.1", Section: 4, Summary: "唯一写 accepted singleton 的路径是 external generation-one strict receipt import；它绑定 generation=1、state SHA、Ready snapshot、immutable image、源码/工具链/策略/seed 与固定规格", Enforcement: "receipt validation + SQLite INSERT + archtest"},
+	{ID: "4.2", Section: 4, Summary: "导入只允许空 singleton 原子 INSERT；重复、非空、缺字段或非首代 receipt 必须 fail-fast", Enforcement: "strict import boundary"},
+	{ID: "4.3", Section: 4, Summary: "仓库内禁止 refresh command、BuildKit publish、output_repository、CreateImageCache writer、candidate reservation 与 CAS promotion", Enforcement: "deletion + archtest"},
+	{ID: "5.1", Section: 5, Summary: "shard 数只受可分片原子 workload 数量限制", Enforcement: "LPT planner + archtest"}, {ID: "5.2", Section: 5, Summary: "云配额与 API 限流必须显式失败，不得静默降并发或转本地", Enforcement: "runtime + archtest"},
 	{ID: "6.1", Section: 6, Summary: "固定校准规格贯穿 RunInput、ShardRequest、receipt、SQLite 与 checkpoint identity", Enforcement: "field guard + store"},
 	{ID: "6.2", Section: 6, Summary: "校准规格漂移或缺失必须 fail-fast，固定规格不限制 shard 并发", Enforcement: "validation + archtest"},
 	{ID: "7.1", Section: 7, Summary: "shard 与 workload 账本显式表达六个耗时阶段及其作用域", Enforcement: "receipt + ledger renderer"},
-	{ID: "7.2", Section: 7, Summary: "账本证明 workload 实际 executed，并记录仅用于加速的 Go cache 与前端 seed/Vite cache 证据", Enforcement: "receipt + ledger renderer"},
+	{ID: "7.2", Section: 7, Summary: "账本证明 workload 实际 executed miss 或严格 reused hit，并记录 canonical reuse proof 与仅用于加速的 Go cache、前端 seed/Vite cache 证据", Enforcement: "receipt + ledger renderer"},
 	{ID: "7.3", Section: 7, Summary: "不适用阶段写 not_applicable，缺失应有观测拒绝 authoritative receipt", Enforcement: "receipt validation"},
 	{ID: "7.4", Section: 7, Summary: "100 秒告警固定 warn_and_continue；不得 cancel、kill 或 fail shard", Enforcement: "warning-action validation + archtest"},
 	{ID: "8.1", Section: 8, Summary: "DataCache、旧 bundle、本地 Docker、ACR、JSON truth、第二 executor 与隐式 fallback 禁止存在", Enforcement: "deletion + archtest"},
-	{ID: "8.2", Section: 8, Summary: "固定 shard 数、并发上限、自动全量重建与第二 refresh writer 禁止存在", Enforcement: "deletion + archtest"},
+	{ID: "8.2", Section: 8, Summary: "固定 shard 数、并发上限、自动全量重建及任何仓库内 successor refresh executor 禁止存在", Enforcement: "deletion + archtest"},
 	{ID: "9.1", Section: 9, Summary: "变更必须闭合 LSP、字段链、状态矩阵、守卫和变更面测试", Enforcement: "repository gates"},
-	{ID: "9.2", Section: 9, Summary: "远程验收绑定同一 candidate tree、generation、snapshot、资源与完整账本", Enforcement: "authoritative receipt"},
-	{ID: "9.3", Section: 9, Summary: "非 authoritative 结果保持 NOT_VERIFIED，warm CI 超过 100 秒继续优化", Enforcement: "remote acceptance"},
-	{ID: "7.5", Section: 7, Summary: "四个 SQLite 历史根写前证明 generation 已被接受，并共享全库唯一保留集合；每代行数不限，只保留最新 3 个有数据代，第四代写入与第一代全族淘汰同事务", Enforcement: "accepted-generation proof + single write-transaction compactor + archtest"},
+	{ID: "9.2", Section: 9, Summary: "远程验收绑定同一 candidate tree、generation、snapshot、资源与完整账本", Enforcement: "authoritative receipt"}, {ID: "9.3", Section: 9, Summary: "非 authoritative 结果保持 NOT_VERIFIED，warm CI 超过 100 秒继续优化", Enforcement: "remote acceptance"},
+	{ID: "7.5", Section: 7, Summary: "五个 SQLite 历史根写前证明 generation 已被接受，并共享全库唯一保留集合；每代行数不限，只保留最新 3 个有数据代，第四代写入与第一代全族淘汰同事务", Enforcement: "accepted-generation proof + single write-transaction compactor + archtest"},
 }
 
 var forbiddenLegacyCapabilities = [...]string{
@@ -312,31 +326,34 @@ var forbiddenLegacyCapabilities = [...]string{
 	"ACR-specific auth/role/registry access/repository",
 	"JSON baseline or ledger truth source and compatibility dual-read",
 	"candidate CLI artifact builder/candidate test-binary builder/second executor",
-	"workload PASS result cache/reused return/test skip",
+	"workload PASS result cache、JSON/OSS/.pass/ci_workload_fingerprints 旧 reuse schema 或未绑定 canonical proof 的 test skip",
 	"spot or remote-to-local implicit fallback",
-	"fixed shard count or coordinator concurrency cap",
+	"global hook lock/active-job lock/admission cap/shared raw token/fixed shard count or coordinator concurrency cap",
 	"automatic full rebuild without an accepted Ready ImageCache",
-	"second refresh command or promotion writer outside the SQLite lease",
+	"repository successor refresh executor, BuildKit publish, output_repository, CreateImageCache writer, candidate reservation, or CAS promotion",
+	"expanded-data/DataCache/cache volume/subPath mount or per-shard dependency/cache extraction",
 }
 
 var sqlAuthorityBindings = [...]SQLAuthorityBinding{
 	{Domain: SQLDomainAcceptedBaseline, Table: AcceptedBaselineTable},
-	{Domain: SQLDomainRefreshLease, Table: RefreshLeaseTable},
 	{Domain: SQLDomainDurationHistory, Table: DurationSamplesTable},
 	{Domain: SQLDomainRemoteRun, Table: RemoteRunsTable},
 	{Domain: SQLDomainRemoteShard, Table: RemoteShardsTable},
 	{Domain: SQLDomainWorkloadExecution, Table: WorkloadExecutionsTable},
 	{Domain: SQLDomainRunWarning, Table: RunWarningsTable},
+	{Domain: SQLDomainLiveTimingWarning, Table: LiveTimingWarningsTable},
+	{Domain: SQLDomainRunTimingWarning, Table: RunTimingWarningsTable},
 	{Domain: SQLDomainCalibrationCheckpoint, Table: CalibrationCheckpointsTable},
-	{Domain: SQLDomainRefreshDelta, Table: RefreshDeltasTable},
 	{Domain: SQLDomainCheckReceipt, Table: CheckReceiptsTable},
 	{Domain: SQLDomainTimingObservation, Table: TimingObservationsTable},
 	{Domain: SQLDomainWorkloadCatalog, Table: WorkloadCatalogsTable},
 	{Domain: SQLDomainCatalogObservation, Table: CatalogObservationsTable},
 	{Domain: SQLDomainCatalogWorkload, Table: CatalogWorkloadsTable},
-	{Domain: SQLDomainRunRequester, Table: RunRequestersTable},
+	{Domain: SQLDomainRunAgentIdentity, Table: RunAgentIdentitiesTable},
 	{Domain: SQLDomainShardWorkload, Table: ShardWorkloadsTable},
 	{Domain: SQLDomainGateExecution, Table: GateExecutionsTable},
+	{Domain: SQLDomainRunWorkloadResult, Table: RunWorkloadResultsTable},
+	{Domain: SQLDomainWorkloadPassEvidence, Table: WorkloadPassEvidenceTable},
 	{Domain: SQLDomainCalibrationScenario, Table: CalibrationCheckpointScenariosTable},
 }
 
@@ -344,6 +361,7 @@ var retentionRootBindings = [...]RetentionRootBinding{
 	{Table: DurationSamplesTable, GenerationColumn: AcceptedGenerationColumn},
 	{Table: CatalogObservationsTable, GenerationColumn: AcceptedGenerationColumn},
 	{Table: RemoteRunsTable, GenerationColumn: AcceptedGenerationColumn},
+	{Table: WorkloadPassEvidenceTable, GenerationColumn: AcceptedGenerationColumn},
 	{Table: CalibrationCheckpointsTable, GenerationColumn: AcceptedGenerationColumn},
 }
 
@@ -414,30 +432,37 @@ func ValidateTimingContract() error {
 	return nil
 }
 
-// RequiredChecks 返回每次远程 CI 都必须实际执行并通过的稳定检查目录。
+// ValidateSourceTransportContract 锁定 accepted baseline、thin bundle、strict
+// manifest 和 shard 创建前的唯一源码传输边界。
+func ValidateSourceTransportContract() error {
+	if SourceBaselineRepositoryPath != "/opt/super-dolphin-gate/source-baseline.git" ||
+		SourceBundleName != "source.bundle" ||
+		SourceManifestName != "source-manifest.json" ||
+		SourceBundleRef != "refs/source/materialized" ||
+		SourceManifestSchemaVersion != 2 ||
+		SourceTransportKind != "git-bundle-thin" ||
+		SourceBundleHeaderVersion != "v2" ||
+		SourceBundlePrerequisiteCount != 1 ||
+		SourceAssetsUploadBarrier != "source-bundle-and-strict-manifest-before-lpt-shards/v1" {
+		return errors.New("remote CI incremental source transport contract drifted")
+	}
+	return nil
+}
+
+// ValidateConcurrencyPolicy 锁定三层正常执行并发且不允许仓库内 admission 边界。
+func ValidateConcurrencyPolicy() error {
+	if GitHookInvocationConcurrencyPolicy != "unbounded_by_repository" || RemoteCIJobConcurrencyPolicy != "unbounded_by_repository" || ShardConcurrencyPolicy != "unbounded_by_repository" {
+		return errors.New("remote CI hook, job, and shard concurrency must be unbounded by repository policy")
+	}
+	if GitIndexLockBoundary != "git_worktree_index_consistency_not_ci_admission" {
+		return errors.New("remote CI Git index lock boundary drifted")
+	}
+	return nil
+}
+
+// RequiredChecks 返回每次远程 CI 都必须有执行 miss 或严格复用 hit 通过证据的稳定检查目录。
 func RequiredChecks() []RequiredCheck {
 	return []RequiredCheck{RequiredCheckGate, RequiredCheckNormal, RequiredCheckE2E, RequiredCheckRace, RequiredCheckFrontend, RequiredCheckDependency}
-}
-
-// RefreshChecks 返回后台 refresh 唯一允许的非测试检查目录。
-func RefreshChecks() []RefreshCheck {
-	return []RefreshCheck{RefreshCheckGateBuild, RefreshCheckNormalCompile, RefreshCheckE2ECompile, RefreshCheckRaceCompile, RefreshCheckDependency, RefreshCheckFrontendBuild}
-}
-
-// ValidateSourceSnapshotLayout 拒绝 bind/core/embed/worker 私自漂移 accepted snapshot 目录或 manifest。
-func ValidateSourceSnapshotLayout(rootPath, manifestPath string) error {
-	if rootPath != SourceSnapshotRootPath || manifestPath != SourceSnapshotManifestPath {
-		return errors.New("remote CI source snapshot layout must use cicontract paths")
-	}
-	return nil
-}
-
-// ValidateRefreshCheckLogPrefix 拒绝私有、空或暗示 normal test PASS 的 refresh 日志前缀。
-func ValidateRefreshCheckLogPrefix(prefix string) error {
-	if prefix != RefreshCheckLogPrefix {
-		return fmt.Errorf("remote CI refresh check log prefix must equal %q", RefreshCheckLogPrefix)
-	}
-	return nil
 }
 
 // ValidateTimingWarningAction 拒绝把 100 秒目标告警转化为取消、终止或失败。
@@ -448,29 +473,18 @@ func ValidateTimingWarningAction(action TimingWarningAction) error {
 	return nil
 }
 
-// ValidateIncrementalRefreshTransfer 拒绝完整 closure/workspace 传输及缺 snapshot 的全量 fallback。
-func ValidateIncrementalRefreshTransfer(mode RefreshTransferMode, acceptedGeneration uint64, acceptedSnapshotID, deltaIdentity string) error {
-	if mode != RefreshTransferAcceptedSnapshotDelta {
-		return fmt.Errorf("remote CI refresh transfer mode must equal %q", RefreshTransferAcceptedSnapshotDelta)
+// ValidateTimingWarningEvidenceKind 拒绝未实现生产者的 target-warning 证据类型。
+func ValidateTimingWarningEvidenceKind(kind TimingWarningEvidenceKind) error {
+	switch kind {
+	case TimingWarningEvidenceRunning, TimingWarningEvidenceTestBody, TimingWarningEvidenceTotal:
+		return nil
+	default:
+		return fmt.Errorf("remote CI timing warning evidence kind %q is unsupported", kind)
 	}
-	if acceptedGeneration <= 0 || strings.TrimSpace(acceptedSnapshotID) == "" || strings.TrimSpace(deltaIdentity) == "" {
-		return errors.New("remote CI incremental refresh requires accepted generation, snapshot, and delta identity")
-	}
-	return nil
 }
 
-// ValidateDeltaRebuild 要求云端回执证明 accepted snapshot 加 delta 重建了完整目标 tree 与 closure。
-func ValidateDeltaRebuild(mode RefreshTransferMode, acceptedGeneration uint64, acceptedSnapshotID, deltaIdentity, targetTreeID, closureDigest string) error {
-	if err := ValidateIncrementalRefreshTransfer(mode, acceptedGeneration, acceptedSnapshotID, deltaIdentity); err != nil {
-		return err
-	}
-	if strings.TrimSpace(targetTreeID) == "" || strings.TrimSpace(closureDigest) == "" {
-		return errors.New("remote CI delta rebuild requires complete target Git tree and closure evidence")
-	}
-	return nil
-}
-
-// ValidateRequiredChecksObservedPass 拒绝 missing、重复或未通过的必跑检查。
+// ValidateRequiredChecksObservedPass 拒绝 missing、重复、未通过、未执行且未复用，
+// 以及缺少规范历史 proof 的复用检查。执行与复用可在同一 run 中混合。
 func ValidateRequiredChecksObservedPass(observations []CheckObservation) error {
 	required := RequiredChecks()
 	if len(observations) != len(required) {
@@ -478,15 +492,8 @@ func ValidateRequiredChecksObservedPass(observations []CheckObservation) error {
 	}
 	seen := make(map[RequiredCheck]struct{}, len(observations))
 	for _, observation := range observations {
-		if !observation.Executed || !observation.Passed {
-			return fmt.Errorf("remote CI required check %q did not pass", observation.Check)
-		}
-		if strings.TrimSpace(observation.SourceTree) == "" || strings.TrimSpace(observation.AcceptedSnapshotID) == "" || strings.TrimSpace(observation.PlanDigest) == "" || observation.StartedAtUnixMS <= 0 || observation.CompletedAtUnixMS <= observation.StartedAtUnixMS || observation.DurationMS != observation.CompletedAtUnixMS-observation.StartedAtUnixMS || observation.DurationMS <= 0 {
-			return fmt.Errorf("remote CI required check %q receipt is incomplete", observation.Check)
-		}
-		wantDigest, err := CheckObservationReceiptDigest(observation)
-		if err != nil || observation.ReceiptSHA256 != wantDigest {
-			return fmt.Errorf("remote CI required check %q receipt digest is invalid", observation.Check)
+		if err := validateRequiredCheckObservation(observation); err != nil {
+			return err
 		}
 		if _, duplicate := seen[observation.Check]; duplicate {
 			return fmt.Errorf("remote CI required check %q is duplicated", observation.Check)
@@ -501,81 +508,68 @@ func ValidateRequiredChecksObservedPass(observations []CheckObservation) error {
 	return nil
 }
 
-// CheckObservationReceiptDigest returns the canonical digest for one
-// structured required-check receipt. The digest never trusts its own field.
-func CheckObservationReceiptDigest(observation CheckObservation) (string, error) {
-	data := fmt.Sprintf("%s\x00%t\x00%t\x00%s\x00%s\x00%s\x00%d\x00%d\x00%d", observation.Check, observation.Executed, observation.Passed, observation.SourceTree, observation.AcceptedSnapshotID, observation.PlanDigest, observation.StartedAtUnixMS, observation.CompletedAtUnixMS, observation.DurationMS)
-	return fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(data))), nil
-}
-
-// ValidateRefreshChecksObservedPass 拒绝 refresh 将编译或依赖操作伪装为 normal CI 测试通过。
-func ValidateRefreshChecksObservedPass(observations []RefreshCheckObservation) error {
-	required := RefreshChecks()
-	if len(observations) != len(required) {
-		return fmt.Errorf("remote CI refresh check observations = %d, want %d", len(observations), len(required))
+// validateRequiredCheckObservation 校验单个 normal 检查的通过、复用与完整回执语义。
+func validateRequiredCheckObservation(observation CheckObservation) error {
+	if !observation.Passed || (!observation.Executed && !observation.Reused) {
+		return fmt.Errorf("remote CI required check %q did not pass", observation.Check)
 	}
-	seen := make(map[RefreshCheck]struct{}, len(observations))
-	for _, observation := range observations {
-		if !observation.Executed || !observation.Passed || !observation.TestBodyNotApplicable {
-			return fmt.Errorf("remote CI refresh check %q is not an executed non-test pass", observation.Check)
-		}
-		if strings.TrimSpace(observation.SourceTree) == "" || strings.TrimSpace(observation.AcceptedSnapshotID) == "" || strings.TrimSpace(observation.PlanDigest) == "" || observation.StartedAtUnixMS <= 0 || observation.CompletedAtUnixMS <= observation.StartedAtUnixMS || observation.DurationMS != observation.CompletedAtUnixMS-observation.StartedAtUnixMS || observation.DurationMS <= 0 {
-			return fmt.Errorf("remote CI refresh check %q receipt is incomplete", observation.Check)
-		}
-		if observation.Check == RefreshCheckDependency {
-			if !observation.CandidateCompileNotApplicable || observation.CandidateCompileMS != 0 {
-				return errors.New("remote CI refresh dependency check must mark candidate compile not_applicable")
-			}
-		} else if observation.CandidateCompileNotApplicable || observation.CandidateCompileMS <= 0 || observation.CandidateCompileMS > observation.DurationMS {
-			return fmt.Errorf("remote CI refresh check %q compile timing is invalid", observation.Check)
-		}
-		wantDigest, err := RefreshCheckObservationReceiptDigest(observation)
-		if err != nil || observation.ReceiptSHA256 != wantDigest {
-			return fmt.Errorf("remote CI refresh check %q receipt digest is invalid", observation.Check)
-		}
-		if _, duplicate := seen[observation.Check]; duplicate {
-			return fmt.Errorf("remote CI refresh check %q is duplicated", observation.Check)
-		}
-		seen[observation.Check] = struct{}{}
+	if err := validateRequiredCheckReuse(observation); err != nil {
+		return err
 	}
-	for _, check := range required {
-		if _, exists := seen[check]; !exists {
-			return fmt.Errorf("remote CI refresh check %q is missing", check)
-		}
+	if err := validateCheckObservationReceipt(observation); err != nil {
+		return err
 	}
 	return nil
 }
 
-// RefreshCheckObservationReceiptDigest returns the canonical digest for a refresh-only observation.
-func RefreshCheckObservationReceiptDigest(observation RefreshCheckObservation) (string, error) {
-	data := fmt.Sprintf("%s\x00%t\x00%t\x00%s\x00%s\x00%s\x00%d\x00%d\x00%d\x00%d\x00%t\x00%t", observation.Check, observation.Executed, observation.Passed, observation.SourceTree, observation.AcceptedSnapshotID, observation.PlanDigest, observation.StartedAtUnixMS, observation.CompletedAtUnixMS, observation.DurationMS, observation.CandidateCompileMS, observation.CandidateCompileNotApplicable, observation.TestBodyNotApplicable)
+// validateRequiredCheckReuse 校验严格复用只携带规范的历史证明摘要。
+func validateRequiredCheckReuse(observation CheckObservation) error {
+	if observation.Reused && !isCanonicalSHA256(observation.ReuseProofSHA256) {
+		return fmt.Errorf("remote CI required check %q reuse proof digest is invalid", observation.Check)
+	}
+	if !observation.Reused && observation.ReuseProofSHA256 != "" {
+		return fmt.Errorf("remote CI required check %q must not carry a reuse proof without reuse", observation.Check)
+	}
+	return nil
+}
+
+// validateCheckObservationReceipt 校验 normal 检查回执字段完整且摘要可复算。
+func validateCheckObservationReceipt(observation CheckObservation) error {
+	if strings.TrimSpace(observation.SourceTree) == "" || strings.TrimSpace(observation.AcceptedSnapshotID) == "" || strings.TrimSpace(observation.PlanDigest) == "" || observation.StartedAtUnixMS <= 0 || observation.CompletedAtUnixMS <= observation.StartedAtUnixMS || observation.DurationMS != observation.CompletedAtUnixMS-observation.StartedAtUnixMS || observation.DurationMS <= 0 {
+		return fmt.Errorf("remote CI required check %q receipt is incomplete", observation.Check)
+	}
+	wantDigest, err := CheckObservationReceiptDigest(observation)
+	if err != nil || observation.ReceiptSHA256 != wantDigest {
+		return fmt.Errorf("remote CI required check %q receipt digest is invalid", observation.Check)
+	}
+	return nil
+}
+
+// CheckObservationReceiptDigest 基于所有受约束字段计算必需检查回执的规范摘要，
+// 且不把回执自身的摘要字段纳入输入。
+func CheckObservationReceiptDigest(observation CheckObservation) (string, error) {
+	data := fmt.Sprintf("%s\x00%t\x00%t\x00%s\x00%t\x00%s\x00%s\x00%s\x00%d\x00%d\x00%d", observation.Check, observation.Executed, observation.Reused, observation.ReuseProofSHA256, observation.Passed, observation.SourceTree, observation.AcceptedSnapshotID, observation.PlanDigest, observation.StartedAtUnixMS, observation.CompletedAtUnixMS, observation.DurationMS)
 	return fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(data))), nil
+}
+
+// isCanonicalSHA256 校验 sha256 摘要仅使用小写十六进制且长度固定。
+func isCanonicalSHA256(value string) bool {
+	const prefix = "sha256:"
+	if !strings.HasPrefix(value, prefix) || len(value) != len(prefix)+64 {
+		return false
+	}
+	for _, character := range value[len(prefix):] {
+		if !(character >= '0' && character <= '9') && !(character >= 'a' && character <= 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // ValidateTargetPlatform 拒绝非 linux/amd64 的远程 CI 或刷新目标。
 func ValidateTargetPlatform(platform string) error {
 	if platform != TargetPlatform {
 		return fmt.Errorf("remote CI platform must equal %q", TargetPlatform)
-	}
-	return nil
-}
-
-// ValidateNonACRRegistryHost rejects the Alibaba Cloud ACR host family while
-// preserving support for any other OCI registry. Callers retain ownership of
-// their syntax and immutable-digest validation.
-func ValidateNonACRRegistryHost(reference string) error {
-	repository, _, _ := strings.Cut(reference, "@")
-	host, _, hasRegistryHost := strings.Cut(repository, "/")
-	if !hasRegistryHost {
-		return nil
-	}
-	parsed, err := url.Parse("https://" + host)
-	if err != nil || parsed.Hostname() == "" {
-		return errors.New("OCI registry host is invalid")
-	}
-	normalized := strings.ToLower(strings.TrimRight(parsed.Hostname(), "."))
-	if normalized == "aliyuncs.com" || strings.HasSuffix(normalized, ".aliyuncs.com") {
-		return errors.New("Alibaba Cloud ACR registry hosts are forbidden")
 	}
 	return nil
 }
@@ -596,14 +590,6 @@ func ValidateShardTargetDuration(duration time.Duration) error {
 	return nil
 }
 
-// ValidateRefreshMinimumInterval 保证新 attempt 使用统一的两小时间隔。
-func ValidateRefreshMinimumInterval(interval time.Duration) error {
-	if interval != RefreshMinimumInterval {
-		return fmt.Errorf("remote CI refresh minimum interval must equal %s", RefreshMinimumInterval)
-	}
-	return nil
-}
-
 // ValidateRetentionGenerations 拒绝偏离统一的三代 SQLite 历史窗口。
 func ValidateRetentionGenerations() error {
 	if RetentionGenerations != 3 {
@@ -612,8 +598,8 @@ func ValidateRetentionGenerations() error {
 	if AcceptedGenerationColumn != "accepted_generation" {
 		return errors.New("remote CI SQLite retention generation column drifted from the accepted contract")
 	}
-	if len(retentionRootBindings) != 4 {
-		return fmt.Errorf("remote CI SQLite retention must own exactly four historical roots, got %d", len(retentionRootBindings))
+	if len(retentionRootBindings) != 5 {
+		return fmt.Errorf("remote CI SQLite retention must own exactly five historical roots, got %d", len(retentionRootBindings))
 	}
 	authorityTables := make(map[string]struct{}, len(sqlAuthorityBindings))
 	for _, binding := range sqlAuthorityBindings {
@@ -635,40 +621,28 @@ func ValidateRetentionGenerations() error {
 	return nil
 }
 
+// ValidateWorkloadPassEvidenceGeneration 校验 WorkloadPassEvidenceFreshnessPolicy 的代际部分。
+// freshness 不使用 wall-clock TTL；调用方还必须核验权威状态、完整 identity 和 canonical receipt proof。
+// future、零值和超过当前 accepted generation 前两代窗口的 evidence 必须视为 miss，而不能降级复用。
+func ValidateWorkloadPassEvidenceGeneration(acceptedGeneration, evidenceGeneration uint64) error {
+	if acceptedGeneration == 0 || evidenceGeneration == 0 {
+		return errors.New("remote CI workload PASS evidence requires accepted and evidence generations")
+	}
+	if evidenceGeneration > acceptedGeneration {
+		return errors.New("remote CI workload PASS evidence generation is in the future")
+	}
+	if acceptedGeneration-evidenceGeneration >= WorkloadPassEvidenceGenerationWindow {
+		return fmt.Errorf("remote CI workload PASS evidence generation %d is outside accepted generation %d reuse window", evidenceGeneration, acceptedGeneration)
+	}
+	return nil
+}
+
 // ValidateCalibrationResources 拒绝缺失或不可被回执精确绑定的固定规格。
 func ValidateCalibrationResources(classID string, cpu, memoryGiB float64) error {
 	if strings.TrimSpace(classID) == "" || classID != strings.TrimSpace(classID) || cpu <= 0 || memoryGiB <= 0 {
 		return errors.New("remote CI calibration class, CPU, and memory are required")
 	}
 	return nil
-}
-
-// IsRefreshCandidatePhase 表示一个 phase 是否仍属于晋级前的候选生命周期。
-func IsRefreshCandidatePhase(phase RefreshPhase) bool {
-	return phase == RefreshClaimed || phase == RefreshBuilding || phase == RefreshCachePreparing || phase == RefreshReadyValidated
-}
-
-// ValidateRefreshTransition 拒绝跳过 Ready 验证、回退或丢失清理责任的状态迁移。
-func ValidateRefreshTransition(current, next RefreshPhase) error {
-	if validRefreshTransition(current, next) {
-		return nil
-	}
-	return fmt.Errorf("remote CI refresh transition %q -> %q is forbidden", current, next)
-}
-
-func validRefreshTransition(current, next RefreshPhase) bool {
-	if IsRefreshCandidatePhase(current) && next == RefreshFailed {
-		return true
-	}
-	return (current == RefreshIdle && next == RefreshClaimed) ||
-		(current == RefreshClaimed && next == RefreshUnchanged) ||
-		(current == RefreshClaimed && next == RefreshBuilding) ||
-		(current == RefreshBuilding && next == RefreshCachePreparing) ||
-		(current == RefreshCachePreparing && next == RefreshReadyValidated) ||
-		(current == RefreshReadyValidated && next == RefreshPromoted) ||
-		(current == RefreshPromoted && next == RefreshRetiring) ||
-		(current == RefreshRetiring && (next == RefreshIdle || next == RefreshCleanupPending)) ||
-		(current == RefreshCleanupPending && (next == RefreshRetiring || next == RefreshIdle))
 }
 
 // CanonicalMarkdown 返回必须逐字嵌入 Accepted 文档的代码契约映射块。
@@ -687,7 +661,9 @@ func CanonicalMarkdown() string {
 // CanonicalRetentionMarkdown 返回 accepted 文档必须逐字嵌入的有界增长策略。
 func CanonicalRetentionMarkdown() string {
 	return fmt.Sprintf(`<!-- cicontract:retention:begin -->
-%[1]s 是唯一 retention 常量 owner。duration samples、catalog observations、runs 与 calibration checkpoints 四个历史根都必须绑定已验证的 accepted baseline generation；每个根写事务必须先读取同一 SQLite authority 的 accepted singleton，拒绝零值、无 authority、无效 authority 与晚于当前 accepted generation 的伪造未来代。refresh 只能逐代晋级，因此已启动旧代运行仍可在完成时写入。四个根的 distinct generation 并集按数值确定全库唯一保留集合，任何根都不得保留该集合之外的数据。每一代可包含任意数量的 workload、sample、shard、timing、receipt 或 scenario，禁止用固定行数限制代码和测试增长。SQLite 只保留最新 %[2]d 个有数据的 generation；第四个有数据代首次成功写入时，必须在同一事务内淘汰最老一代全部历史根及其 cascade 子数据。
+%[1]s 是唯一 retention 常量 owner。duration samples、catalog observations、runs、strict workload PASS evidence 与 calibration checkpoints 五个历史根都必须绑定已验证的 accepted baseline generation；每个根写事务必须先读取同一 SQLite authority 的 accepted singleton，拒绝零值、无 authority、无效 authority 与晚于当前 accepted generation 的伪造未来代。refresh 只能逐代晋级，因此已启动旧代运行仍可在完成时写入。五个根的 distinct generation 并集按数值确定全库唯一保留集合，任何根都不得保留该集合之外的数据。每一代可包含任意数量的 workload、sample、shard、timing、receipt 或 scenario，禁止用固定行数限制代码和测试增长。SQLite 只保留最新 %[2]d 个有数据的 generation；第四个有数据代首次成功写入时，必须在同一事务内淘汰最老一代全部历史根及其 cascade 子数据。
+
+100 秒结构化 timing warning 只能沿同一 SQLite authority 的互斥生命周期流转：ci_live_timing_warnings 只暂存仍在运行的 provider StartTime 事实，run finalizer 必须在同一事务精确吸收到 ci_run_timing_warnings 并删除对应 live 行；不得预写或伪造 ci_runs 失败终态，也不得让 live 与 final 行同时存在。live 表不是第六个历史根或第二真相源，不参与五根 generation 并集；唯一 compactor 必须按已校验 accepted singleton 的 current/current-2 数值窗口保留 active 行并清理崩溃残留。
 
 唯一 compactDurationLedgerAuthority 只能在既有成功写事务的 commit 前同步调用，禁止 timer、goroutine、后台 GC 或第二入口。generation 按数值排序，不能用行数、时间戳或插入顺序冒充；无法证明 generation 的旧行必须 fail-fast 或经显式迁移，不能默认绑定当前代。删除旧 run 依靠 FK cascade 同步删除 requester、shard/workload、execution、timing、warning、delta 与 receipt；删除旧 checkpoint 同步删除任意数量 scenario；catalog 内容只有在不再被保留代 observation/run 引用时才能删除。accepted baseline 与 refresh lease 是当前状态 singleton，duration meta/calibration、query meta 和源码枚举的 schema migration registry 不是历史代，不参与淘汰。
 <!-- cicontract:retention:end -->`, "`cicontract`", RetentionGenerations)
@@ -704,73 +680,74 @@ workload 的 startup、test_body 与 total 是 raw；shard 的 startup 与 test_
 
 // Validate 校验代码契约自身不存在重复 ID、章节缺口或无效不变量。
 func Validate() error {
-	if ID == "" || DocumentPath == "" || ExecutionPathID == "" || RefreshPathID == "" || SQLAuthorityID == "" || RefreshTransferModeID == "" || SourceSnapshotRootPath == "" || SourceSnapshotManifestPath == "" || RefreshCheckLogPrefix == "" {
+	for _, validate := range []func() error{validateContractIdentity, validateContractConstants, validateContractObservations, validateRequirements, validateSQLAuthorityBindings} {
+		if err := validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateContractIdentity 校验代码契约的稳定身份与唯一 owner 路径均已定义。
+func validateContractIdentity() error {
+	values := []string{ID, DocumentPath, ExecutionPathID, GenerationOneReceiptImportPathID, SQLAuthorityID}
+	if slices.Contains(values, "") {
 		return errors.New("remote CI contract identity is incomplete")
 	}
-	if err := ValidateTargetPlatform(TargetPlatform); err != nil {
+	return nil
+}
+
+// validateContractConstants 校验固定平台、时长、保留和并发常量。
+func validateContractConstants() error {
+	for _, validate := range []func() error{
+		func() error { return ValidateTargetPlatform(TargetPlatform) },
+		func() error { return ValidateGoToolchainVersion(GoToolchainVersion) },
+		func() error { return ValidateShardTargetDuration(ShardTargetDuration) },
+		ValidateRetentionGenerations,
+		ValidateTimingContract,
+		ValidateSourceTransportContract,
+		func() error { return ValidateTimingWarningAction(TimingWarningWarnAndContinue) },
+		func() error { return ValidateTimingWarningEvidenceKind(TimingWarningEvidenceRunning) },
+		func() error { return ValidateTimingWarningEvidenceKind(TimingWarningEvidenceTestBody) },
+		func() error { return ValidateTimingWarningEvidenceKind(TimingWarningEvidenceTotal) },
+		ValidateConcurrencyPolicy,
+	} {
+		if err := validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateContractObservations 构造最小完整 normal 回执以锁定 fail-fast 语义。
+func validateContractObservations() error {
+	required, err := requiredPassObservations()
+	if err != nil {
 		return err
 	}
-	if err := ValidateGoToolchainVersion(GoToolchainVersion); err != nil {
+	if err := ValidateRequiredChecksObservedPass(required); err != nil {
 		return err
 	}
-	if err := ValidateShardTargetDuration(ShardTargetDuration); err != nil {
-		return err
-	}
-	if err := ValidateRefreshMinimumInterval(RefreshMinimumInterval); err != nil {
-		return err
-	}
-	if err := ValidateRetentionGenerations(); err != nil {
-		return err
-	}
-	if err := ValidateTimingContract(); err != nil {
-		return err
-	}
-	if err := ValidateTimingWarningAction(TimingWarningWarnAndContinue); err != nil {
-		return err
-	}
-	if err := ValidateSourceSnapshotLayout(SourceSnapshotRootPath, SourceSnapshotManifestPath); err != nil {
-		return err
-	}
-	if err := ValidateRefreshCheckLogPrefix(RefreshCheckLogPrefix); err != nil {
-		return err
-	}
-	if err := ValidateIncrementalRefreshTransfer(RefreshTransferAcceptedSnapshotDelta, 1, "accepted-snapshot", "delta"); err != nil {
-		return err
-	}
-	if err := ValidateDeltaRebuild(RefreshTransferAcceptedSnapshotDelta, 1, "accepted-snapshot", "delta", "target-tree", "closure-digest"); err != nil {
-		return err
-	}
+	return nil
+}
+
+// requiredPassObservations 返回每项 normal 检查的最小实际执行 PASS 回执。
+func requiredPassObservations() ([]CheckObservation, error) {
 	observations := make([]CheckObservation, 0, len(RequiredChecks()))
 	for _, check := range RequiredChecks() {
 		observation := CheckObservation{Check: check, Executed: true, Passed: true, SourceTree: "target-tree", AcceptedSnapshotID: "accepted-snapshot", PlanDigest: "plan-digest", StartedAtUnixMS: 1, CompletedAtUnixMS: 2, DurationMS: 1}
 		digest, err := CheckObservationReceiptDigest(observation)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		observation.ReceiptSHA256 = digest
 		observations = append(observations, observation)
 	}
-	if err := ValidateRequiredChecksObservedPass(observations); err != nil {
-		return err
-	}
-	refreshObservations := make([]RefreshCheckObservation, 0, len(RefreshChecks()))
-	for _, check := range RefreshChecks() {
-		observation := RefreshCheckObservation{Check: check, Executed: true, Passed: true, SourceTree: "target-tree", AcceptedSnapshotID: "accepted-snapshot", PlanDigest: "plan-digest", StartedAtUnixMS: 1, CompletedAtUnixMS: 2, DurationMS: 1, TestBodyNotApplicable: true}
-		if check == RefreshCheckDependency {
-			observation.CandidateCompileNotApplicable = true
-		} else {
-			observation.CandidateCompileMS = 1
-		}
-		digest, err := RefreshCheckObservationReceiptDigest(observation)
-		if err != nil {
-			return err
-		}
-		observation.ReceiptSHA256 = digest
-		refreshObservations = append(refreshObservations, observation)
-	}
-	if err := ValidateRefreshChecksObservedPass(refreshObservations); err != nil {
-		return err
-	}
+	return observations, nil
+}
+
+// validateRequirements 校验所有需求的 ID 唯一、字段完整且九个章节均有映射。
+func validateRequirements() error {
 	seenIDs := make(map[string]struct{}, len(requirements))
 	seenSections := make(map[uint8]struct{}, 9)
 	for _, requirement := range requirements {
@@ -788,6 +765,11 @@ func Validate() error {
 			return fmt.Errorf("remote CI contract section %d has no code requirement", section)
 		}
 	}
+	return nil
+}
+
+// validateSQLAuthorityBindings 校验每个 SQLite authority domain 和表均为一对一映射。
+func validateSQLAuthorityBindings() error {
 	seenSQLDomains := make(map[SQLDomain]struct{}, len(sqlAuthorityBindings))
 	seenSQLTables := make(map[string]struct{}, len(sqlAuthorityBindings))
 	for _, binding := range sqlAuthorityBindings {

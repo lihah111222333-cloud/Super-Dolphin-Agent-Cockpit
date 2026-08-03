@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,13 +13,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
-func seedRemoteRunTestAcceptedGeneration(t *testing.T, store *gatecontract.DurationLedgerStore, generation uint64) {
+// seedRemoteRunTestAcceptedGeneration writes an accepted baseline whose schema,
+// generation, snapshot and content digest agree with the SQLite authority.
+func seedRemoteRunTestAcceptedGeneration(t *testing.T, store *gatecontract.DurationLedgerStore, generation uint64) string {
 	t.Helper()
+	state := remoteRunTestAcceptedBaselineState(generation)
+	payload, err := json.Marshal(state)
+	if err != nil {
+		t.Fatalf("marshal accepted baseline fixture: %v", err)
+	}
+	digest := sha256.Sum256(payload)
+	stateSHA256 := fmt.Sprintf("sha256:%x", digest)
 	database, err := sql.Open("sqlite", store.AuthorityPath())
 	if err != nil {
 		t.Fatal(err)
@@ -26,15 +35,38 @@ func seedRemoteRunTestAcceptedGeneration(t *testing.T, store *gatecontract.Durat
 	defer database.Close()
 	if _, err := database.Exec(`INSERT INTO ci_remote_baseline_state (
 		singleton, schema_version, generation, state_json, state_sha256, updated_at_unix_ms
-	) VALUES (1, 3, ?, '{"test":true}', 'test-accepted-state', 1)
+	) VALUES (1, 3, ?, ?, ?, 1)
 	ON CONFLICT(singleton) DO UPDATE SET
 		schema_version = excluded.schema_version,
 		generation = excluded.generation,
 		state_json = excluded.state_json,
 		state_sha256 = excluded.state_sha256,
-		updated_at_unix_ms = excluded.updated_at_unix_ms`, strconv.FormatUint(generation, 10)); err != nil {
+		updated_at_unix_ms = excluded.updated_at_unix_ms`, strconv.FormatUint(generation, 10), payload, stateSHA256); err != nil {
 		t.Fatal(err)
 	}
+	return stateSHA256
+}
+
+func remoteRunTestAcceptedBaselineState(generation uint64) remoteci.BaselineState {
+	created := time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC)
+	state := remoteRunRunnerIdentityState()
+	state.SchemaVersion = remoteci.BaselineStateSchemaVersion
+	state.Generation = generation
+	state.MainCommit = strings.Repeat("a", 40)
+	state.MainTree = strings.Repeat("b", 40)
+	state.ImageCacheID = "imc-test-" + strconv.FormatUint(generation, 10)
+	state.ImageCacheSnapshotID = "snapshot-test-" + strconv.FormatUint(generation, 10)
+	state.ImageCacheReady = true
+	state.ImageDigest = strings.TrimPrefix(state.RuntimeImage, strings.Split(state.RuntimeImage, "@")[0]+"@")
+	state.OCIProjectCache = &remoteci.BaselineOCIProjectCache{
+		Image: state.RuntimeImage, ContentManifestSHA256: testRemoteBaselineDigest("test OCI project cache content manifest"),
+		MainTree: state.MainTree, ToolchainDigest: state.ToolchainDigest, Platform: state.Platform,
+		CachePath: remoteci.OCIProjectGoBuildCachePath,
+	}
+	state.CreatedAt = created
+	state.AcceptedAt = created.Add(time.Minute)
+	state.RenewedAt = state.AcceptedAt
+	return state
 }
 
 func validRemoteRunConfigJSON() string {
@@ -46,8 +78,7 @@ func validRemoteRunConfigJSON() string {
   "vswitch_id": "vsw-test",
   "security_group_id": "sg-test",
   "worker_role_name": "super-dolphin-ci-worker",
-  "oss": {"bucket": "super-dolphin-ci-test", "endpoint": "https://oss-cn-shenzhen.aliyuncs.com", "internal_endpoint": "https://oss-cn-shenzhen-internal.aliyuncs.com", "source_prefix": "source-deltas/"},
-  "oci_refresh": {"output_repository": "registry.example/super-dolphin/baseline", "builder_worker_image": "registry.example/super-dolphin/oci-builder@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+  "oss": {"bucket": "super-dolphin-ci-test", "endpoint": "https://oss-cn-shenzhen.aliyuncs.com", "internal_endpoint": "https://oss-cn-shenzhen-internal.aliyuncs.com", "source_prefix": "source-bundles/"},
   "capacity": {"resource_policy": {"classes": [{"id": "small", "vcpu": 2, "memory_gib": 4}, {"id": "standard", "vcpu": 4, "memory_gib": 8}, {"id": "memory", "vcpu": 4, "memory_gib": 16}, {"id": "maximum", "vcpu": 8, "memory_gib": 32}], "bootstrap": {"guard": "small", "node_test": "standard", "go_test": "memory"}, "calibration_class": "maximum", "headroom_percent": 25, "min_samples_to_downsize": 5}}
 }`
 }
@@ -65,9 +96,6 @@ func remoteRunBaselineState(t *testing.T, repository string) remoteci.BaselineSt
 	state.CreatedAt, state.AcceptedAt = created, created.Add(time.Minute)
 	state.RenewedAt = state.AcceptedAt
 	state.OCIProjectCache = &remoteci.BaselineOCIProjectCache{Image: state.RuntimeImage, ContentManifestSHA256: testRemoteBaselineDigest("OCI project cache content manifest"), MainTree: state.MainTree, ToolchainDigest: state.ToolchainDigest, Platform: state.Platform, CachePath: remoteci.OCIProjectGoBuildCachePath}
-	state.SourceSnapshotManifestDigest = testRemoteBaselineDigest("accepted source snapshot manifest")
-	state.SourceSnapshotClosureDigest = testRemoteBaselineDigest("accepted source snapshot closure")
-	state.SourceSnapshotImagePath = cicontract.SourceSnapshotManifestPath
 	return state
 }
 

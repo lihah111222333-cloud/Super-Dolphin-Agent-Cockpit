@@ -15,7 +15,7 @@ import (
 
 const (
 	durationLedgerVersion              = 1
-	workloadExecutionPlanSchemaVersion = 3
+	workloadExecutionPlanSchemaVersion = 5
 	// FullCITargetDuration 是分片优化目标；超时只告警，不是 worker 终止时限。
 	FullCITargetDuration         = cicontract.ShardTargetDuration
 	FullCITargetDurationMS int64 = int64(FullCITargetDuration / time.Millisecond)
@@ -164,6 +164,8 @@ type WorkloadExecutionPlan struct {
 	LedgerGeneration         uint64          `json:"ledger_generation"`
 	Context                  PlanningContext `json:"context"`
 	Catalog                  WorkloadCatalog `json:"catalog"`
+	ExecutionWorkloadIDs     []GateID        `json:"execution_workload_ids"`
+	ExecutionWorkloadDigest  string          `json:"execution_workload_digest"`
 	Shards                   []ShardPlan     `json:"shards"`
 	OwnerEstimatedDurationMS int64           `json:"owner_estimated_duration_ms"`
 	PlanDigest               string          `json:"plan_digest"`

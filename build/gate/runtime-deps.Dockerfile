@@ -4,7 +4,6 @@ ARG SQRUFF_ARCHIVE_URL_AMD64
 ARG SQRUFF_ARCHIVE_SHA256_AMD64
 ARG SQRUFF_ARCHIVE_URL_ARM64
 ARG SQRUFF_ARCHIVE_SHA256_ARM64
-ARG BUILD_SOURCE_TREE
 ARG RUNTIME_DEPS_INPUT_DIGEST
 ARG TOOLCHAIN_DIGEST
 ARG TARGET_PLATFORM
@@ -110,15 +109,6 @@ RUN GOWORK=off GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off \
 
 FROM go-target-base
 USER root
-ARG BUILD_SOURCE_TREE
-ARG RUNTIME_DEPS_INPUT_DIGEST
-ARG TOOLCHAIN_DIGEST
-ARG TARGET_PLATFORM
-LABEL org.super-dolphin.source-tree-sha="${BUILD_SOURCE_TREE}" \
-      org.super-dolphin.runtime-deps-input-digest="${RUNTIME_DEPS_INPUT_DIGEST}" \
-      org.super-dolphin.toolchain-digest="${TOOLCHAIN_DIGEST}" \
-      org.super-dolphin.platform="${TARGET_PLATFORM}" \
-      org.super-dolphin.schema-version="1"
 COPY --from=lsp-seed /usr/local/bin/node /usr/local/bin/node
 COPY --from=lsp-seed /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
 COPY --from=repository-module-cache /out/go-proxy /opt/super-dolphin-gate/runtime/go-proxy
@@ -161,10 +151,19 @@ RUN set -eu; \
     test -x /usr/bin/git && test -x /usr/bin/make && test -x /usr/bin/python3 && test -x /usr/bin/ps && test -x /usr/bin/Xvfb && test -x /usr/bin/xauth && test -x /usr/bin/xvfb-run && test -x /usr/local/bin/node && test -x /usr/local/bin/npm; \
     test -f /etc/fonts/fonts.conf && test -d /usr/share/fonts && test -x /usr/local/go/bin/go && test -x /usr/local/bin/gopls && test -x /opt/super-dolphin-gate/runtime/bin/actionlint && test -x /opt/super-dolphin-gate/runtime/bin/sqlc && test -x /opt/super-dolphin-gate/runtime/bin/rg && test -x /opt/super-dolphin-gate/runtime/bin/sqruff; \
     test "$(rg --version | head -n 1)" = "ripgrep 13.0.0" && test "$(sqruff --version)" = "sqruff 0.38.0"
+RUN --network=none set -eu; \
+    /tmp/super-dolphin-gate worker validate-go-distribution; \
+    test "$(/usr/local/go/bin/go version)" = "go version go1.26.5 linux/amd64"; \
+    test "$(node --version)" = "v24.18.0"; \
+    test "$(npm --version)" = "11.16.0"; \
+    test "$(python3 --version)" = "Python 3.11.2"; \
+    test "$(gopls version | tail -n 1)" = "golang.org/x/tools/gopls v0.22.0"; \
+    test "$(/opt/super-dolphin-gate/runtime/bin/sqlc version)" = "v1.30.0"
 COPY go.sum /tmp/runtime-manifest-source/go.sum
 COPY build/gate/runtime-proxy/go.sum /tmp/runtime-manifest-source/build/gate/runtime-proxy/go.sum
 COPY frontend-app/package-lock.json /tmp/runtime-manifest-source/frontend-app/package-lock.json
-RUN --network=none /tmp/super-dolphin-gate worker runtime-seed write /tmp/runtime-manifest-source /opt/super-dolphin-gate/runtime && \
+RUN --network=none mkdir -p /opt/super-dolphin-gate/runtime/frontend/vite-cache && \
+    /tmp/super-dolphin-gate worker runtime-seed write /tmp/runtime-manifest-source /opt/super-dolphin-gate/runtime && \
     rm /tmp/super-dolphin-gate && \
     rm -rf /tmp/runtime-manifest-source && \
     test -s /opt/super-dolphin-gate/runtime/manifest.json && \
@@ -179,3 +178,10 @@ RUN --network=none xvfb-run -a sh -ec 'test -n "$DISPLAY"'
 RUN --network=none node -e 'const { chromium } = require("/opt/super-dolphin-gate/runtime/frontend/node_modules/playwright"); chromium.launch({headless:true}).then(async browser => { const page = await browser.newPage(); await page.setContent("<main data-testid=runtime-probe>ready</main>"); const text = await page.textContent("[data-testid=runtime-probe]"); if (text !== "ready") throw new Error(`unexpected Chromium probe text: ${text}`); await page.screenshot(); await browser.close(); }).catch(error => { console.error(error); process.exit(1); });'
 RUN --network=none sqruff --version | grep -Fx 'sqruff 0.38.0'
 RUN --network=none test "$(actionlint -version | head -n 1)" = "v1.7.12"
+ARG RUNTIME_DEPS_INPUT_DIGEST
+ARG TOOLCHAIN_DIGEST
+ARG TARGET_PLATFORM
+LABEL org.super-dolphin.runtime-deps-input-digest="${RUNTIME_DEPS_INPUT_DIGEST}" \
+      org.super-dolphin.toolchain-digest="${TOOLCHAIN_DIGEST}" \
+      org.super-dolphin.platform="${TARGET_PLATFORM}" \
+      org.super-dolphin.schema-version="1"

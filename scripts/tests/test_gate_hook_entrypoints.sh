@@ -13,6 +13,16 @@ mkdir -p "$bin_dir" "$capture_dir"
 cat >"$bin_dir/super-dolphin-gate" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ "${1:-}" == "closure" && "${2:-}" == "provenance" ]]; then
+  [[ "${3:-}" == --tree && -n "${4:-}" ]] || exit 65
+  printf '%s' "${4:-}" >"$GATE_HOOK_CAPTURE_DIR/closure-provenance-tree"
+  if [[ "${GATE_HOOK_CLOSURE_PROVENANCE_MISMATCH:-0}" == 1 ]]; then
+    printf 'sha256:%064d sha256:%064d\n' 0 1
+  else
+    printf 'sha256:%064d sha256:%064d\n' 0 0
+  fi
+  exit 0
+fi
 if [[ "${1:-}" == "closure" && "${2:-}" == "check" ]]; then
   if [[ "${GATE_HOOK_CLOSURE_DRIFT_ONCE:-0}" == 1 && ! -f "$GATE_HOOK_CAPTURE_DIR/closure-refreshed" ]]; then
     exit 12
@@ -155,6 +165,7 @@ run_with_status() {
 
 export PATH="$bin_dir:/usr/bin:/bin:/usr/sbin:/sbin"
 export GATE_HOOK_CAPTURE_DIR="$capture_dir"
+export SUPER_DOLPHIN_CI_AGENT_TOKEN=fixture-agent-token
 
 git_repo="$fixture_root/repository"
 mkdir -p "$git_repo"
@@ -247,6 +258,20 @@ for closure_output in build/gate/Dockerfile build/gate/inputs.json build/gate/ru
 done
 git -C "$git_repo" restore --staged --worktree -- build/gate/Dockerfile build/gate/inputs.json build/gate/runtime-deps.lock
 
+closure_provenance_tree=$(git -C "$git_repo" write-tree)
+reset_capture
+(
+  cd "$git_repo/nested"
+  GATE_HOOK_CLOSURE_PROVENANCE_MISMATCH=1 run_with_status \
+    "$fixture_root/closure-provenance-mismatch.status" bash "$repo_root/.githooks/pre-commit" \
+    2>"$fixture_root/closure-provenance-mismatch.err"
+)
+assert_file_equals "$fixture_root/closure-provenance-mismatch.status" 1 "stale closure launcher pre-commit exit code"
+grep -Fq 'closure-generator provenance does not match the staged tree' "$fixture_root/closure-provenance-mismatch.err" || fail "stale closure launcher did not fail closed"
+assert_file_equals "$capture_dir/closure-provenance-tree" "$closure_provenance_tree" "closure provenance source tree"
+[[ ! -e "$capture_dir/closure-check-tree" ]] || fail "stale closure launcher reached closure check"
+[[ ! -e "$capture_dir/closure-refresh-tree" ]] || fail "stale closure launcher wrote closure outputs"
+
 closure_drift_tree=$(git -C "$git_repo" write-tree)
 reset_capture
 (
@@ -255,6 +280,7 @@ reset_capture
     "$fixture_root/closure-refresh-pre-commit.status" bash "$repo_root/.githooks/pre-commit"
 )
 assert_file_equals "$fixture_root/closure-refresh-pre-commit.status" 0 "closure refresh pre-commit exit code"
+assert_file_equals "$capture_dir/closure-provenance-tree" "$closure_drift_tree" "matching closure launcher provenance source tree"
 assert_file_equals "$capture_dir/closure-dependency-refresh-tree" "$closure_drift_tree" "closure dependency refresh source tree"
 dependency_refreshed_tree=$(cat "$capture_dir/closure-refresh-tree")
 [[ "$dependency_refreshed_tree" != "$closure_drift_tree" ]] || fail "closure refresh did not receive the dependency-refreshed tree"

@@ -20,9 +20,6 @@ var (
 	ErrDurationLedgerBusy = errors.New("duration ledger store busy")
 	// ErrDurationLedgerMetadataMissing 表示 SQLite 权威文件存在但初始化元数据尚不可见。
 	ErrDurationLedgerMetadataMissing = errors.New("duration ledger SQLite metadata is missing")
-	// ErrMigrationRequired refuses historical rows whose accepted baseline generation
-	// cannot be proven from the authority itself.
-	ErrMigrationRequired = errors.New("duration ledger SQLite accepted generation migration required")
 )
 
 // DurationLedgerSnapshot 将已校验账本与持久化 generation 绑定。
@@ -129,10 +126,26 @@ func (store *DurationLedgerStore) AppendSamplesFast(acceptedGeneration uint64, s
 	return store.appendSQLiteSamplesFast(acceptedGeneration, samples)
 }
 
+// durationLedgerFinalizeStep 是最终化事务内的私有故障注入边界，仅测试可通过
+// DurationLedgerStore.finalizeFault 显式配置；生产构造器保持 nil，不改变 fail-fast 路径。
+type durationLedgerFinalizeStep string
+
+const (
+	durationLedgerFinalizeStepAppendSamples  durationLedgerFinalizeStep = "append_samples"
+	durationLedgerFinalizeStepAppendReceipts durationLedgerFinalizeStep = "append_receipts"
+	durationLedgerFinalizeStepReloadReceipts durationLedgerFinalizeStep = "reload_receipts"
+	durationLedgerFinalizeStepCAS            durationLedgerFinalizeStep = "cas"
+	durationLedgerFinalizeStepPromotion      durationLedgerFinalizeStep = "promotion"
+)
+
+type durationLedgerFinalizeFault func(durationLedgerFinalizeStep) error
+
 // DurationLedgerStore 在 SQLite 权威文件中持久化 duration ledger。
 type DurationLedgerStore struct {
-	path    string
-	nowFunc func() time.Time
+	path            string
+	nowFunc         func() time.Time
+	schemaValidator *durationLedgerSQLiteSchemaValidator
+	finalizeFault   durationLedgerFinalizeFault
 }
 
 // NewDurationLedgerStore 构造存储，不隐式创建文件或目录。
@@ -157,7 +170,11 @@ func NewDurationLedgerStore(path string) (*DurationLedgerStore, error) {
 	if strings.ToLower(filepath.Ext(canonicalPath)) != ".sqlite" {
 		return nil, fmt.Errorf("duration ledger store path must use .sqlite: %q", path)
 	}
-	return &DurationLedgerStore{path: canonicalPath, nowFunc: time.Now}, nil
+	return &DurationLedgerStore{
+		path:            canonicalPath,
+		nowFunc:         time.Now,
+		schemaValidator: newDurationLedgerSQLiteSchemaValidator(),
+	}, nil
 }
 
 // AuthorityPath 返回 SQLite 权威文件路径。

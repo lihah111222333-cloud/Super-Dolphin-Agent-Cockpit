@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	durationLedgerSQLiteSchemaVersion = 2
+	durationLedgerSQLiteSchemaVersion = 5
 	durationLedgerSQLiteBusyTimeoutMS = 5_000
 )
 
@@ -214,6 +214,21 @@ func (store *DurationLedgerStore) appendSQLiteSamplesOnce(acceptedGeneration uin
 	}
 	defer transaction.Rollback()
 
+	nextGeneration, err := appendSQLiteDurationSamplesInTransaction(transaction, acceptedGeneration, samples)
+	if err != nil {
+		return 0, err
+	}
+	if err := compactDurationLedgerAuthority(transaction); err != nil {
+		return 0, err
+	}
+	if err := transaction.Commit(); err != nil {
+		return 0, mapDurationLedgerSQLiteError("commit duration ledger append", err)
+	}
+	return nextGeneration, nil
+}
+
+// appendSQLiteDurationSamplesInTransaction 在不提交调用方事务的前提下追加已接受代样本并推进权威修订。
+func appendSQLiteDurationSamplesInTransaction(transaction *sql.Tx, acceptedGeneration uint64, samples []DurationSample) (uint64, error) {
 	if err := requireHistoricallyAcceptedGeneration(transaction, acceptedGeneration); err != nil {
 		return 0, err
 	}
@@ -241,12 +256,6 @@ func (store *DurationLedgerStore) appendSQLiteSamplesOnce(acceptedGeneration uin
 	}
 	if affected != 1 {
 		return 0, fmt.Errorf("advance duration ledger generation: %w", ErrDurationLedgerBusy)
-	}
-	if err := compactDurationLedgerAuthority(transaction); err != nil {
-		return 0, err
-	}
-	if err := transaction.Commit(); err != nil {
-		return 0, mapDurationLedgerSQLiteError("commit duration ledger append", err)
 	}
 	return nextGeneration, nil
 }
@@ -291,7 +300,7 @@ func (store *DurationLedgerStore) openSQLiteAuthority(create bool) (*sql.DB, err
 	if err := store.prepareSQLiteAuthorityPath(create); err != nil {
 		return nil, err
 	}
-	database, err := openSQLiteLedgerDatabase(store.path, store.nowFunc)
+	database, err := openSQLiteLedgerDatabase(store.path, store.nowFunc, store.schemaValidator)
 	if err != nil {
 		return nil, err
 	}
@@ -320,9 +329,13 @@ func (store *DurationLedgerStore) prepareSQLiteAuthorityPath(create bool) error 
 	return nil
 }
 
-func openSQLiteLedgerDatabase(path string, now func() time.Time) (*sql.DB, error) {
+func openSQLiteLedgerDatabase(
+	path string,
+	now func() time.Time,
+	validator *durationLedgerSQLiteSchemaValidator,
+) (*sql.DB, error) {
 	for attempt := range 16 {
-		database, err := openSQLiteLedgerDatabaseOnce(path, now)
+		database, err := openSQLiteLedgerDatabaseOnce(path, now, validator)
 		if !errors.Is(err, ErrDurationLedgerBusy) {
 			return database, err
 		}
@@ -331,7 +344,11 @@ func openSQLiteLedgerDatabase(path string, now func() time.Time) (*sql.DB, error
 	return nil, fmt.Errorf("open duration ledger SQLite authority exceeded busy retry limit")
 }
 
-func openSQLiteLedgerDatabaseOnce(path string, now func() time.Time) (*sql.DB, error) {
+func openSQLiteLedgerDatabaseOnce(
+	path string,
+	now func() time.Time,
+	validator *durationLedgerSQLiteSchemaValidator,
+) (*sql.DB, error) {
 	database, err := sql.Open("sqlite", durationLedgerSQLiteDSN(path))
 	if err != nil {
 		return nil, fmt.Errorf("open duration ledger SQLite authority: %w", err)
@@ -342,7 +359,7 @@ func openSQLiteLedgerDatabaseOnce(path string, now func() time.Time) (*sql.DB, e
 		database.Close()
 		return nil, mapDurationLedgerSQLiteError("ping duration ledger SQLite authority", err)
 	}
-	if err := ensureDurationLedgerSQLiteSchema(database, now); err != nil {
+	if err := ensureDurationLedgerSQLiteSchemaWithValidator(database, now, validator); err != nil {
 		database.Close()
 		return nil, err
 	}

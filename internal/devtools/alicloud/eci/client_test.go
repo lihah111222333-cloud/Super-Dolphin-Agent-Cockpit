@@ -102,25 +102,17 @@ func TestClient_ECIOperations(t *testing.T) {
 	}
 }
 
-func TestClientCreateContainerGroupEncodesRepeatedVolumeSubPathMount(t *testing.T) {
+func TestClientCreateContainerGroupDoesNotEncodeExpandedDataMounts(t *testing.T) {
 	runner := &fakeCommandRunner{responses: [][]byte{[]byte(`{"ContainerGroupId":"eci-created"}`)}}
 	client := newTestClient(t, runner)
 	request := validCreateRequest()
-	request.MainVolumeMounts = append(request.MainVolumeMounts,
-		VolumeMount{Name: "expanded-data", MountPath: "/usr/bin/xkbcomp", SubPath: "runtime/rootfs/usr/bin/xkbcomp", ReadOnly: true},
-	)
 	if _, err := client.CreateContainerGroup(context.Background(), request); err != nil {
 		t.Fatalf("CreateContainerGroup() error = %v", err)
 	}
 	call := runner.calls[0]
-	for _, pair := range [][]string{
-		{"--Container.1.VolumeMount.2.Name", "expanded-data"},
-		{"--Container.1.VolumeMount.2.MountPath", "/usr/bin/xkbcomp"},
-		{"--Container.1.VolumeMount.2.SubPath", "runtime/rootfs/usr/bin/xkbcomp"},
-		{"--Container.1.VolumeMount.2.ReadOnly", "true"},
-	} {
-		if !containsArgumentPair(call, pair[0], pair[1]) {
-			t.Fatalf("call missing %v: %#v", pair, call)
+	for _, value := range call {
+		if value == "expanded-data" || value == "/opt/super-dolphin-gate" || value == "/usr/bin/xkbcomp" || value == "/usr/share/X11/xkb" {
+			t.Fatalf("CreateContainerGroup encoded retired ImageCache overlay value %q: %#v", value, call)
 		}
 	}
 }
@@ -137,10 +129,10 @@ func TestClientCreateContainerGroupEncodesOCIMaterializerTempVolume(t *testing.T
 	}
 	call := runner.calls[0]
 	for _, pair := range [][]string{
-		{"--Volume.4.Name", "temp-data"},
-		{"--InitContainer.1.VolumeMount.4.Name", "temp-data"},
-		{"--InitContainer.1.VolumeMount.4.MountPath", "/tmp"},
-		{"--InitContainer.1.VolumeMount.4.ReadOnly", "false"},
+		{"--Volume.3.Name", "temp-data"},
+		{"--InitContainer.1.VolumeMount.3.Name", "temp-data"},
+		{"--InitContainer.1.VolumeMount.3.MountPath", "/tmp"},
+		{"--InitContainer.1.VolumeMount.3.ReadOnly", "false"},
 	} {
 		if !containsArgumentPair(call, pair[0], pair[1]) {
 			t.Fatalf("call missing %v: %#v", pair, call)
@@ -148,37 +140,31 @@ func TestClientCreateContainerGroupEncodesOCIMaterializerTempVolume(t *testing.T
 	}
 }
 
-func TestClientCreateContainerGroupEncodesCurrentGateOSSVolume(t *testing.T) {
+// TestClientCreateContainerGroupAcceptsECIImageCacheIdentity 覆盖 ECI ImageCache 返回的不可变镜像身份。
+func TestClientCreateContainerGroupAcceptsECIImageCacheIdentity(t *testing.T) {
 	runner := &fakeCommandRunner{responses: [][]byte{[]byte(`{"ContainerGroupId":"eci-created"}`)}}
-	client := newTestClient(t, runner)
 	request := validCreateRequest()
-	request.BootstrapVolume = OSSVolume{
-		Bucket: "super-dolphin-ci", Endpoint: "oss-cn-hangzhou-internal.aliyuncs.com",
-		Path: "/baseline-artifacts/31/output", RoleName: "worker-role",
+	image := "ac2-registry.cn-hangzhou.cr.aliyuncs.com/ac2/base@sha256:" + strings.Repeat("a", 64)
+	request.MainImage, request.InitImage = image, image
+	if _, err := newTestClient(t, runner).CreateContainerGroup(context.Background(), request); err != nil {
+		t.Fatalf("CreateContainerGroup() rejected ECI ImageCache identity: %v", err)
 	}
-	request.InitVolumeMounts = append(request.InitVolumeMounts,
-		VolumeMount{Name: "temp-data", MountPath: "/tmp"},
-		VolumeMount{Name: "current-gate", MountPath: "/current-gate", ReadOnly: true},
-	)
-	if _, err := client.CreateContainerGroup(context.Background(), request); err != nil {
+}
+
+func TestClientCreateContainerGroupEncodesOnlyThreeShardLocalEmptyDirs(t *testing.T) {
+	runner := &fakeCommandRunner{responses: [][]byte{[]byte(`{"ContainerGroupId":"eci-created"}`)}}
+	if _, err := newTestClient(t, runner).CreateContainerGroup(context.Background(), validCreateRequest()); err != nil {
 		t.Fatalf("CreateContainerGroup() error = %v", err)
 	}
-	options, err := ossVolumeOptions(request.BootstrapVolume)
-	if err != nil {
-		t.Fatalf("ossVolumeOptions() error = %v", err)
+	call := strings.Join(runner.calls[0], "\x00")
+	for _, required := range []string{"--Volume.1.Name\x00source-data", "--Volume.2.Name\x00work-data", "--Volume.3.Name\x00temp-data"} {
+		if !strings.Contains(call, required) {
+			t.Fatalf("ECI request omitted required EmptyDir %q: %q", required, call)
+		}
 	}
-	call := runner.calls[0]
-	for _, pair := range [][]string{
-		{"--Volume.5.Name", "current-gate"},
-		{"--Volume.5.Type", "FlexVolume"},
-		{"--Volume.5.FlexVolume.Driver", "alicloud/oss"},
-		{"--Volume.5.FlexVolume.Options", string(options)},
-		{"--InitContainer.1.VolumeMount.4.Name", "temp-data"},
-		{"--InitContainer.1.VolumeMount.5.Name", "current-gate"},
-		{"--InitContainer.1.VolumeMount.5.ReadOnly", "true"},
-	} {
-		if !containsArgumentPair(call, pair[0], pair[1]) {
-			t.Fatalf("call missing %v: %#v", pair, call)
+	for _, forbidden := range []string{"--Volume.4.", "FlexVolume", "SubPath", "current-gate"} {
+		if strings.Contains(call, forbidden) {
+			t.Fatalf("ECI request restored forbidden external/cache volume %q: %q", forbidden, call)
 		}
 	}
 }
@@ -619,13 +605,13 @@ func TestConfig_FieldRegistry(t *testing.T) {
 func TestCreateRequest_FieldRegistry(t *testing.T) {
 	assertStructFields(t, reflect.TypeFor[CreateRequest](), []string{
 		"ContainerGroupName", "ContainerName", "ImageCacheSnapshotID", "MainImage", "InitImage", "Resources", "Command", "Args", "Environment", "Tags",
-		"InitContainer", "BootstrapVolume", "ExpandedVolume", "SourceVolume", "WorkVolume", "TempVolume",
+		"InitContainer", "SourceVolume", "WorkVolume", "TempVolume",
 		"MainVolumeMounts", "InitVolumeMounts",
 	})
 	assertStructFields(t, reflect.TypeFor[Resources](), []string{"CPU", "MemoryGiB"})
 	assertStructFields(t, reflect.TypeFor[InitContainer](), []string{"Name", "Command", "Args", "Environment"})
 	assertStructFields(t, reflect.TypeFor[EmptyDirVolume](), []string{"Name"})
-	assertStructFields(t, reflect.TypeFor[VolumeMount](), []string{"Name", "MountPath", "SubPath", "ReadOnly"})
+	assertStructFields(t, reflect.TypeFor[VolumeMount](), []string{"Name", "MountPath", "ReadOnly"})
 }
 
 func TestContainerGroup_FieldRegistry(t *testing.T) {
@@ -711,18 +697,15 @@ func validCreateRequest() CreateRequest {
 			Args:        []string{"--source", "/input/source", "--work", "/workspace"},
 			Environment: map[string]string{"Z_INIT": "z-init", "A_INIT": "a-init"},
 		},
-		ExpandedVolume: EmptyDirVolume{Name: "expanded-data"},
-		SourceVolume:   EmptyDirVolume{Name: "source-data"},
-		WorkVolume:     EmptyDirVolume{Name: "work-data"},
-		TempVolume:     EmptyDirVolume{Name: "temp-data"},
+		SourceVolume: EmptyDirVolume{Name: "source-data"},
+		WorkVolume:   EmptyDirVolume{Name: "work-data"},
+		TempVolume:   EmptyDirVolume{Name: "temp-data"},
 		MainVolumeMounts: []VolumeMount{
-			{Name: "expanded-data", MountPath: "/opt/super-dolphin-gate", ReadOnly: true},
 			{Name: "source-data", MountPath: "/input/source", ReadOnly: true},
 			{Name: "work-data", MountPath: "/workspace"},
 			{Name: "temp-data", MountPath: "/tmp"},
 		},
 		InitVolumeMounts: []VolumeMount{
-			{Name: "expanded-data", MountPath: "/opt/super-dolphin-gate"},
 			{Name: "source-data", MountPath: "/input/source"},
 			{Name: "work-data", MountPath: "/workspace"},
 		},

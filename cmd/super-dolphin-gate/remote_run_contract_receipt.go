@@ -1,8 +1,11 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
@@ -10,14 +13,14 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
-// validateRemoteRunContract 将本次实际 worker 回执绑定到同一 RunInput 产生的计划和目录。
+// validateRemoteRunContract 校验远程运行与输入、权威账本及全部必需检查回执的同一性。
 func validateRemoteRunContract(
 	input remoteci.RunInput,
 	acceptedGeneration uint64,
 	result remoteci.RunResult,
 ) ([]cicontract.CheckObservation, []gatecontract.CheckReceiptRecord, error) {
-	if acceptedGeneration == 0 || input.AcceptedGeneration != acceptedGeneration || result.AcceptedGeneration != acceptedGeneration {
-		return nil, nil, errors.New("remote CI run accepted generation is not bound to its input")
+	if err := validateRemoteRunInvocationIdentity(input, acceptedGeneration, result); err != nil {
+		return nil, nil, err
 	}
 	plan, catalog, err := remoteRunContractPlanAndCatalog(input)
 	if err != nil {
@@ -30,24 +33,156 @@ func validateRemoteRunContract(
 	if !remoteRunIsFullAuthoritativeAcceptance(plan, catalog, result) {
 		return nil, nil, errors.New("remote CI run is not a full authoritative acceptance")
 	}
-	if input.LedgerStore == nil {
-		return nil, nil, errors.New("remote CI timing authority store is required")
-	}
-	recorded, err := input.LedgerStore.LoadRemoteCIRun(result.JobID)
-	if err != nil {
-		return nil, nil, fmt.Errorf("read back remote CI timing authority: %w", err)
-	}
-	if err := gatecontract.ValidateAuthoritativeTimingObservations(recorded.JobID, recorded.TimingObservations, recorded.WorkloadExecutions, recorded.Shards); err != nil {
-		return nil, nil, fmt.Errorf("authoritative timing observations: %w", err)
-	}
-	if recorded.AcceptedGeneration != acceptedGeneration {
-		return nil, nil, errors.New("recorded remote CI run accepted generation does not match this invocation")
+	if err := validateRemoteRunRecordedAuthority(input, acceptedGeneration, result); err != nil {
+		return nil, nil, err
 	}
 	receipts, err := remoteRunCheckReceipts(result, acceptedGeneration, observations)
 	if err != nil {
 		return nil, nil, err
 	}
 	return observations, receipts, nil
+}
+
+// validateRemoteRunInvocationIdentity 校验本次输入、结果和 accepted generation 的不可变绑定。
+func validateRemoteRunInvocationIdentity(input remoteci.RunInput, acceptedGeneration uint64, result remoteci.RunResult) error {
+	if acceptedGeneration == 0 || input.AcceptedGeneration != acceptedGeneration || result.AcceptedGeneration != acceptedGeneration {
+		return errors.New("remote CI run accepted generation is not bound to its input")
+	}
+	if err := cicontract.ValidateAgentTokenDigest(input.AgentTokenDigest); err != nil {
+		return fmt.Errorf("remote CI input agent token digest: %w", err)
+	}
+	if result.AgentTokenDigest != input.AgentTokenDigest {
+		return errors.New("remote CI result agent token digest does not match input")
+	}
+	return nil
+}
+
+// validateRemoteRunRecordedAuthority 只接受本次调用精确回读到的 SQLite 权威账本记录。
+func validateRemoteRunRecordedAuthority(input remoteci.RunInput, acceptedGeneration uint64, result remoteci.RunResult) error {
+	if input.LedgerStore == nil {
+		return errors.New("remote CI timing authority store is required")
+	}
+	recorded, err := input.LedgerStore.LoadRemoteCIRun(result.JobID)
+	if err != nil {
+		return fmt.Errorf("read back remote CI timing authority: %w", err)
+	}
+	if !remoteRunRecordedIdentityMatches(recorded, input, acceptedGeneration, result) {
+		return errors.New("recorded remote CI run identity does not exactly match this invocation")
+	}
+	if err := validateRemoteRunStoredWorkloadResults(recorded, result); err != nil {
+		return err
+	}
+	return validateRemoteRunFreshTimingAuthority(recorded, result)
+}
+
+// remoteRunRecordedIdentityMatches 比对持久记录与当前候选、计划、token 和状态的精确身份。
+func remoteRunRecordedIdentityMatches(
+	recorded gatecontract.RemoteCIRunRecord,
+	input remoteci.RunInput,
+	acceptedGeneration uint64,
+	result remoteci.RunResult,
+) bool {
+	return recorded.AcceptedGeneration == acceptedGeneration &&
+		recorded.ImageCacheSnapshotID == input.ImageCacheSnapshotID &&
+		recorded.ImageCacheSnapshotID == result.ImageCacheSnapshotID &&
+		recorded.AgentTokenDigest == input.AgentTokenDigest &&
+		recorded.SourceTreeSHA == result.SourceTreeSHA &&
+		recorded.PlanDigest == result.PlanDigest &&
+		recorded.CatalogDigest == result.CatalogDigest &&
+		recorded.Profile == result.Profile &&
+		recorded.Status == result.Status &&
+		recorded.Authoritative == result.Authoritative
+}
+
+// validateRemoteRunFreshTimingAuthority 要求 fresh 运行有完整时序，reuse-only 运行没有伪造时序。
+func validateRemoteRunFreshTimingAuthority(recorded gatecontract.RemoteCIRunRecord, result remoteci.RunResult) error {
+	if len(result.FreshWorkloadExecutions) != 0 {
+		if err := gatecontract.ValidateAuthoritativeTimingObservations(recorded.JobID, recorded.TimingObservations, recorded.WorkloadExecutions, recorded.Shards); err != nil {
+			return fmt.Errorf("authoritative fresh timing observations: %w", err)
+		}
+		return nil
+	}
+	if len(recorded.WorkloadExecutions) != 0 || len(recorded.Shards) != 0 || len(recorded.TimingObservations) != 0 {
+		return errors.New("reuse-only remote CI run must not persist fresh timing authority")
+	}
+	return nil
+}
+
+// validateRemoteRunStoredWorkloadResults 校验账本回读的 fresh/reused 工作负载结果与当前回执相同。
+func validateRemoteRunStoredWorkloadResults(recorded gatecontract.RemoteCIRunRecord, result remoteci.RunResult) error {
+	fresh := remoteRunFreshExecutionMap(result.FreshWorkloadExecutions)
+	if err := validateRemoteRunStoredFreshExecutions(recorded.WorkloadExecutions, fresh); err != nil {
+		return err
+	}
+	want, err := remoteRunExpectedWorkloadResults(result, fresh)
+	if err != nil {
+		return err
+	}
+	return validateRemoteRunStoredWorkloadResultSet(recorded.WorkloadResults, want)
+}
+
+// remoteRunFreshExecutionMap 按工作负载标识汇总当前结果中的 fresh 执行回执。
+func remoteRunFreshExecutionMap(executions []gatecontract.PlanGateExecution) map[gatecontract.GateID]gatecontract.PlanGateExecution {
+	fresh := make(map[gatecontract.GateID]gatecontract.PlanGateExecution, len(executions))
+	for _, execution := range executions {
+		fresh[execution.GateID] = execution
+	}
+	return fresh
+}
+
+// validateRemoteRunStoredFreshExecutions 校验账本中的 fresh 执行记录逐项等同于当前结果。
+func validateRemoteRunStoredFreshExecutions(
+	recorded []gatecontract.PlanGateExecution,
+	fresh map[gatecontract.GateID]gatecontract.PlanGateExecution,
+) error {
+	if len(recorded) != len(fresh) {
+		return errors.New("recorded remote CI fresh workload execution count does not match result")
+	}
+	for _, execution := range recorded {
+		if expected, found := fresh[execution.GateID]; !found || !reflect.DeepEqual(execution, expected) {
+			return fmt.Errorf("recorded remote CI fresh workload %q does not exactly match result", execution.GateID)
+		}
+	}
+	return nil
+}
+
+// remoteRunExpectedWorkloadResults 生成本次 fresh/reused 组合应持久化的完整工作负载结果。
+func remoteRunExpectedWorkloadResults(
+	result remoteci.RunResult,
+	fresh map[gatecontract.GateID]gatecontract.PlanGateExecution,
+) (map[gatecontract.GateID]gatecontract.RemoteCIWorkloadResult, error) {
+	identities := make(map[gatecontract.GateID]gatecontract.WorkloadPassIdentity, len(result.WorkloadPassIdentities))
+	for _, identity := range result.WorkloadPassIdentities {
+		identities[identity.WorkloadID] = identity
+	}
+	want := make(map[gatecontract.GateID]gatecontract.RemoteCIWorkloadResult, len(result.ReusedWorkloads)+len(fresh))
+	for _, evidence := range result.ReusedWorkloads {
+		want[evidence.Identity.WorkloadID] = gatecontract.RemoteCIWorkloadResult{Identity: evidence.Identity, Disposition: gatecontract.WorkloadDispositionReused, OriginJobID: evidence.OriginJobID, OriginAcceptedGeneration: evidence.OriginAcceptedGeneration, EvidenceSHA256: evidence.EvidenceSHA256}
+	}
+	for workloadID := range fresh {
+		identity, found := identities[workloadID]
+		if !found {
+			return nil, fmt.Errorf("fresh remote CI workload %q lacks identity", workloadID)
+		}
+		want[workloadID] = gatecontract.RemoteCIWorkloadResult{Identity: identity, Disposition: gatecontract.WorkloadDispositionExecuted, OriginJobID: result.JobID, OriginAcceptedGeneration: result.AcceptedGeneration}
+	}
+	return want, nil
+}
+
+// validateRemoteRunStoredWorkloadResultSet 校验账本的 workload result 集合无缺失且逐项一致。
+func validateRemoteRunStoredWorkloadResultSet(
+	recorded []gatecontract.RemoteCIWorkloadResult,
+	want map[gatecontract.GateID]gatecontract.RemoteCIWorkloadResult,
+) error {
+	if len(recorded) != len(want) {
+		return errors.New("recorded remote CI workload result count does not match result")
+	}
+	for _, stored := range recorded {
+		if expected, found := want[stored.Identity.WorkloadID]; !found || stored != expected {
+			return fmt.Errorf("recorded remote CI workload result %q does not exactly match result", stored.Identity.WorkloadID)
+		}
+	}
+	return nil
 }
 
 // remoteRunContractPlanAndCatalog rebuilds the only plan/catalog the coordinator may execute.
@@ -72,116 +207,360 @@ func remoteRunContractPlanAndCatalog(input remoteci.RunInput) (gatecontract.Gate
 	return plan, catalog, nil
 }
 
-// remoteRunCheckObservations returns checks derived only from planned workloads and executed worker receipts.
+// remoteRunObservationCoverage 聚合计划工作负载及其本次 fresh/reused 覆盖。
+type remoteRunObservationCoverage struct {
+	expected map[gatecontract.GateID]gatecontract.Workload
+	fresh    map[gatecontract.GateID]gatecontract.PlanGateExecution
+	reused   map[gatecontract.GateID]gatecontract.WorkloadPassEvidence
+	checks   map[cicontract.RequiredCheck]cicontract.CheckObservation
+}
+
+// remoteRunCheckObservations 仅依据计划工作负载及当前运行回执生成必需检查观测。
 func remoteRunCheckObservations(
 	plan gatecontract.GatePlan,
 	catalog gatecontract.WorkloadCatalog,
 	acceptedSnapshotID string,
 	result remoteci.RunResult,
 ) ([]cicontract.CheckObservation, error) {
+	if err := validateRemoteRunObservationInput(plan, catalog, acceptedSnapshotID, result); err != nil {
+		return nil, err
+	}
+	coverage, err := newRemoteRunObservationCoverage(catalog, acceptedSnapshotID, result)
+	if err != nil {
+		return nil, err
+	}
+	if err := coverRemoteRunFreshObservations(&coverage, result.FreshWorkloadExecutions); err != nil {
+		return nil, err
+	}
+	if err := coverRemoteRunReusedObservations(&coverage, result.ReusedWorkloads); err != nil {
+		return nil, err
+	}
+	if err := validateRemoteRunWorkloadCoverage(coverage); err != nil {
+		return nil, err
+	}
+	return finalizeRemoteRunCheckObservations(coverage, catalog, result)
+}
+
+// validateRemoteRunObservationInput 校验计划、目录、快照及结果属于同一候选运行。
+func validateRemoteRunObservationInput(
+	plan gatecontract.GatePlan,
+	catalog gatecontract.WorkloadCatalog,
+	acceptedSnapshotID string,
+	result remoteci.RunResult,
+) error {
+	if err := validateRemoteRunPlanAndCatalog(plan, catalog); err != nil {
+		return err
+	}
+	if err := validateRemoteRunResultPlanBinding(plan, catalog, result); err != nil {
+		return err
+	}
+	return validateRemoteRunSnapshotBinding(acceptedSnapshotID, result)
+}
+
+// validateRemoteRunPlanAndCatalog 校验候选计划及其工作负载目录自身有效。
+func validateRemoteRunPlanAndCatalog(plan gatecontract.GatePlan, catalog gatecontract.WorkloadCatalog) error {
 	if err := plan.Validate(); err != nil {
-		return nil, fmt.Errorf("validate remote CI gate plan: %w", err)
+		return fmt.Errorf("validate remote CI gate plan: %w", err)
 	}
 	if err := gatecontract.ValidateWorkloadCatalog(catalog); err != nil {
-		return nil, fmt.Errorf("validate remote CI workload catalog: %w", err)
+		return fmt.Errorf("validate remote CI workload catalog: %w", err)
 	}
+	return nil
+}
+
+// validateRemoteRunResultPlanBinding 校验结果精确绑定到本次候选计划、目录和源码树。
+func validateRemoteRunResultPlanBinding(
+	plan gatecontract.GatePlan,
+	catalog gatecontract.WorkloadCatalog,
+	result remoteci.RunResult,
+) error {
 	if result.Profile != plan.Profile || result.PlanDigest != plan.PlanDigest {
-		return nil, errors.New("remote CI result does not bind the executed gate plan")
+		return errors.New("remote CI result does not bind the executed gate plan")
 	}
 	catalogDigest, err := gatecontract.WorkloadCatalogDigest(catalog)
 	if err != nil {
-		return nil, fmt.Errorf("digest remote CI workload catalog: %w", err)
+		return fmt.Errorf("digest remote CI workload catalog: %w", err)
 	}
 	if result.CatalogDigest != catalogDigest {
-		return nil, errors.New("remote CI result does not bind the executed workload catalog")
+		return errors.New("remote CI result does not bind the executed workload catalog")
 	}
 	if result.SourceTreeSHA != plan.Source.SourceTreeSHA {
-		return nil, errors.New("remote CI result source tree does not match the executed gate plan")
+		return errors.New("remote CI result source tree does not match the executed gate plan")
 	}
 	if result.Status != gatecontract.ResultStatusPassed {
-		return nil, fmt.Errorf("remote CI run status %q cannot accept executed checks", result.Status)
+		return fmt.Errorf("remote CI run status %q cannot accept executed checks", result.Status)
 	}
+	return nil
+}
+
+// validateRemoteRunSnapshotBinding 校验结果使用本次已接受的唯一镜像快照。
+func validateRemoteRunSnapshotBinding(acceptedSnapshotID string, result remoteci.RunResult) error {
 	if acceptedSnapshotID == "" {
-		return nil, errors.New("remote CI accepted snapshot is missing")
+		return errors.New("remote CI accepted snapshot is missing")
 	}
+	if result.ImageCacheSnapshotID != acceptedSnapshotID {
+		return errors.New("remote CI result image cache snapshot does not match the accepted run snapshot")
+	}
+	return nil
+}
 
-	expected := make(map[gatecontract.GateID]int, len(catalog.Workloads))
-	checks := make(map[cicontract.RequiredCheck]cicontract.CheckObservation, len(cicontract.RequiredChecks()))
+// newRemoteRunObservationCoverage 为每个计划工作负载初始化本次运行的检查观测。
+func newRemoteRunObservationCoverage(
+	catalog gatecontract.WorkloadCatalog,
+	acceptedSnapshotID string,
+	result remoteci.RunResult,
+) (remoteRunObservationCoverage, error) {
+	coverage := remoteRunObservationCoverage{
+		expected: make(map[gatecontract.GateID]gatecontract.Workload, len(catalog.Workloads)),
+		fresh:    make(map[gatecontract.GateID]gatecontract.PlanGateExecution, len(result.FreshWorkloadExecutions)),
+		reused:   make(map[gatecontract.GateID]gatecontract.WorkloadPassEvidence, len(result.ReusedWorkloads)),
+		checks:   make(map[cicontract.RequiredCheck]cicontract.CheckObservation, len(cicontract.RequiredChecks())),
+	}
 	for _, workload := range catalog.Workloads {
-		gateID, _, _, _, err := gatecontract.ParseWorkloadID(workload.ID)
+		check, err := remoteRunCheckForWorkload(workload.ID)
 		if err != nil {
-			return nil, fmt.Errorf("parse planned remote CI workload %q: %w", workload.ID, err)
+			return remoteRunObservationCoverage{}, fmt.Errorf("parse planned remote CI workload %q: %w", workload.ID, err)
 		}
-		check, err := remoteRunRequiredCheck(gateID)
-		if err != nil {
-			return nil, err
-		}
-		expected[gatecontract.GateID(workload.ID)]++
-		checks[check] = cicontract.CheckObservation{
-			Check:              check,
-			SourceTree:         result.SourceTreeSHA,
-			AcceptedSnapshotID: acceptedSnapshotID,
-			PlanDigest:         result.PlanDigest,
+		coverage.expected[gatecontract.GateID(workload.ID)] = workload
+		coverage.checks[check] = cicontract.CheckObservation{
+			Check: check, SourceTree: result.SourceTreeSHA, AcceptedSnapshotID: acceptedSnapshotID, PlanDigest: result.PlanDigest,
 		}
 	}
-	for _, execution := range result.WorkloadExecutions {
-		if expected[execution.GateID] == 0 {
-			return nil, fmt.Errorf("remote CI observed unplanned or duplicate workload %q", execution.GateID)
-		}
-		if execution.Status != gatecontract.ResultStatusPassed || execution.ExitCode != 0 {
-			return nil, fmt.Errorf("remote CI workload %q did not execute and pass", execution.GateID)
-		}
-		if execution.StartedAt.IsZero() || execution.CompletedAt.IsZero() || !execution.CompletedAt.After(execution.StartedAt) {
-			return nil, fmt.Errorf("remote CI workload %q has no positive actual execution time", execution.GateID)
-		}
-		startedAt := execution.StartedAt.UTC().Truncate(time.Millisecond)
-		completedAt := execution.CompletedAt.UTC().Truncate(time.Millisecond)
-		if !completedAt.After(startedAt) {
-			return nil, fmt.Errorf("remote CI workload %q has no positive millisecond execution time", execution.GateID)
-		}
-		gateID, _, _, _, err := gatecontract.ParseWorkloadID(string(execution.GateID))
-		if err != nil {
-			return nil, fmt.Errorf("parse executed remote CI workload %q: %w", execution.GateID, err)
-		}
-		check, err := remoteRunRequiredCheck(gateID)
-		if err != nil {
-			return nil, err
-		}
-		observation := checks[check]
-		if observation.StartedAtUnixMS == 0 || startedAt.UnixMilli() < observation.StartedAtUnixMS {
-			observation.StartedAtUnixMS = startedAt.UnixMilli()
-		}
-		if observation.CompletedAtUnixMS == 0 || completedAt.UnixMilli() > observation.CompletedAtUnixMS {
-			observation.CompletedAtUnixMS = completedAt.UnixMilli()
-		}
-		observation.Executed = true
-		observation.Passed = true
-		checks[check] = observation
-		expected[execution.GateID]--
-	}
-	for workloadID, remaining := range expected {
-		if remaining != 0 {
-			return nil, fmt.Errorf("remote CI planned workload %q has no executed PASS receipt", workloadID)
-		}
-	}
+	return coverage, nil
+}
 
-	observations := make([]cicontract.CheckObservation, 0, len(checks))
+// coverRemoteRunFreshObservations 以当前 job 的实际执行区间覆盖 fresh 工作负载。
+func coverRemoteRunFreshObservations(coverage *remoteRunObservationCoverage, executions []gatecontract.PlanGateExecution) error {
+	for _, execution := range executions {
+		if err := coverRemoteRunFreshObservation(coverage, execution); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// coverRemoteRunFreshObservation 校验单个 fresh 回执并聚合其当前 job 区间。
+func coverRemoteRunFreshObservation(coverage *remoteRunObservationCoverage, execution gatecontract.PlanGateExecution) error {
+	if _, planned := coverage.expected[execution.GateID]; !planned {
+		return fmt.Errorf("remote CI observed unplanned or duplicate workload %q", execution.GateID)
+	}
+	if _, duplicate := coverage.fresh[execution.GateID]; duplicate {
+		return fmt.Errorf("remote CI fresh workload %q is duplicated", execution.GateID)
+	}
+	startedAt, completedAt, err := remoteRunFreshExecutionInterval(execution)
+	if err != nil {
+		return err
+	}
+	check, err := remoteRunCheckForWorkload(string(execution.GateID))
+	if err != nil {
+		return fmt.Errorf("parse executed remote CI workload %q: %w", execution.GateID, err)
+	}
+	observation := coverage.checks[check]
+	mergeRemoteRunObservationInterval(&observation, startedAt, completedAt)
+	observation.Executed, observation.Passed = true, true
+	coverage.checks[check], coverage.fresh[execution.GateID] = observation, execution
+	return nil
+}
+
+// remoteRunFreshExecutionInterval 返回并毫秒截断 fresh 回执的真实执行区间。
+func remoteRunFreshExecutionInterval(execution gatecontract.PlanGateExecution) (time.Time, time.Time, error) {
+	if execution.Status != gatecontract.ResultStatusPassed || execution.ExitCode != 0 {
+		return time.Time{}, time.Time{}, fmt.Errorf("remote CI workload %q did not execute and pass", execution.GateID)
+	}
+	if execution.StartedAt.IsZero() || execution.CompletedAt.IsZero() || !execution.CompletedAt.After(execution.StartedAt) {
+		return time.Time{}, time.Time{}, fmt.Errorf("remote CI workload %q has no positive actual execution time", execution.GateID)
+	}
+	startedAt := execution.StartedAt.UTC().Truncate(time.Millisecond)
+	completedAt := execution.CompletedAt.UTC().Truncate(time.Millisecond)
+	if !completedAt.After(startedAt) {
+		return time.Time{}, time.Time{}, fmt.Errorf("remote CI workload %q has no positive millisecond execution time", execution.GateID)
+	}
+	return startedAt, completedAt, nil
+}
+
+// mergeRemoteRunObservationInterval 对同一检查的 fresh 工作负载区间取当前 job 的包络。
+func mergeRemoteRunObservationInterval(observation *cicontract.CheckObservation, startedAt, completedAt time.Time) {
+	if observation.StartedAtUnixMS == 0 || startedAt.UnixMilli() < observation.StartedAtUnixMS {
+		observation.StartedAtUnixMS = startedAt.UnixMilli()
+	}
+	if observation.CompletedAtUnixMS == 0 || completedAt.UnixMilli() > observation.CompletedAtUnixMS {
+		observation.CompletedAtUnixMS = completedAt.UnixMilli()
+	}
+}
+
+// coverRemoteRunReusedObservations 以 canonical reuse proof 覆盖未在本次执行的工作负载。
+func coverRemoteRunReusedObservations(coverage *remoteRunObservationCoverage, evidenceList []gatecontract.WorkloadPassEvidence) error {
+	for _, evidence := range evidenceList {
+		if err := coverRemoteRunReusedObservation(coverage, evidence); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// coverRemoteRunReusedObservation 校验单个复用证据且禁止它与 fresh 回执重叠。
+func coverRemoteRunReusedObservation(coverage *remoteRunObservationCoverage, evidence gatecontract.WorkloadPassEvidence) error {
+	workloadID := evidence.Identity.WorkloadID
+	if _, planned := coverage.expected[workloadID]; !planned {
+		return fmt.Errorf("remote CI reused unplanned workload %q", workloadID)
+	}
+	if _, duplicate := coverage.reused[workloadID]; duplicate {
+		return fmt.Errorf("remote CI reused workload %q is duplicated", workloadID)
+	}
+	if _, alsoFresh := coverage.fresh[workloadID]; alsoFresh {
+		return fmt.Errorf("remote CI workload %q cannot be both fresh and reused", workloadID)
+	}
+	if err := evidence.Validate(); err != nil {
+		return fmt.Errorf("validate remote CI reused workload %q: %w", workloadID, err)
+	}
+	check, err := remoteRunCheckForWorkload(string(workloadID))
+	if err != nil {
+		return fmt.Errorf("parse reused remote CI workload %q: %w", workloadID, err)
+	}
+	observation := coverage.checks[check]
+	observation.Reused, observation.Passed = true, true
+	coverage.checks[check], coverage.reused[workloadID] = observation, evidence
+	return nil
+}
+
+// validateRemoteRunWorkloadCoverage 要求每个计划工作负载恰有 fresh 或 reuse PASS 覆盖。
+func validateRemoteRunWorkloadCoverage(coverage remoteRunObservationCoverage) error {
+	for workloadID := range coverage.expected {
+		if _, fresh := coverage.fresh[workloadID]; fresh {
+			continue
+		}
+		if _, reused := coverage.reused[workloadID]; !reused {
+			return fmt.Errorf("remote CI planned workload %q has neither current fresh PASS nor reuse evidence", workloadID)
+		}
+	}
+	return nil
+}
+
+// finalizeRemoteRunCheckObservations 为全部必需检查写入 proof、当前 job 区间和 receipt 摘要。
+func finalizeRemoteRunCheckObservations(
+	coverage remoteRunObservationCoverage,
+	catalog gatecontract.WorkloadCatalog,
+	result remoteci.RunResult,
+) ([]cicontract.CheckObservation, error) {
+	observations := make([]cicontract.CheckObservation, 0, len(coverage.checks))
 	for _, check := range cicontract.RequiredChecks() {
-		observation, found := checks[check]
-		if !found || !observation.Executed || !observation.Passed || observation.StartedAtUnixMS <= 0 || observation.CompletedAtUnixMS <= observation.StartedAtUnixMS {
-			return nil, fmt.Errorf("remote CI required check %q has no actual execution timing", check)
-		}
-		observation.DurationMS = observation.CompletedAtUnixMS - observation.StartedAtUnixMS
-		digest, err := cicontract.CheckObservationReceiptDigest(observation)
+		observation, err := finalizeRemoteRunCheckObservation(check, coverage.checks[check], catalog, coverage.reused, result)
 		if err != nil {
-			return nil, fmt.Errorf("hash remote CI required check %q observation: %w", check, err)
+			return nil, err
 		}
-		observation.ReceiptSHA256 = digest
 		observations = append(observations, observation)
 	}
 	return observations, nil
 }
 
+// finalizeRemoteRunCheckObservation 保持 fresh 时间在当前 job，reuse 只引用 proof 和当前 receipt 区间。
+func finalizeRemoteRunCheckObservation(
+	check cicontract.RequiredCheck,
+	observation cicontract.CheckObservation,
+	catalog gatecontract.WorkloadCatalog,
+	reused map[gatecontract.GateID]gatecontract.WorkloadPassEvidence,
+	result remoteci.RunResult,
+) (cicontract.CheckObservation, error) {
+	if !observation.Passed || (!observation.Executed && !observation.Reused) {
+		return cicontract.CheckObservation{}, fmt.Errorf("remote CI required check %q has no PASS coverage", check)
+	}
+	if observation.Reused {
+		proof, err := remoteRunReuseProofSHA256(check, catalog, reused)
+		if err != nil {
+			return cicontract.CheckObservation{}, err
+		}
+		observation.ReuseProofSHA256 = proof
+	}
+	if err := bindRemoteRunObservationCurrentInterval(&observation, check, result); err != nil {
+		return cicontract.CheckObservation{}, err
+	}
+	observation.DurationMS = observation.CompletedAtUnixMS - observation.StartedAtUnixMS
+	digest, err := cicontract.CheckObservationReceiptDigest(observation)
+	if err != nil {
+		return cicontract.CheckObservation{}, fmt.Errorf("hash remote CI required check %q observation: %w", check, err)
+	}
+	observation.ReceiptSHA256 = digest
+	return observation, nil
+}
+
+// bindRemoteRunObservationCurrentInterval 保留 fresh 区间，reuse-only 改用本次 job 的当前回执区间。
+func bindRemoteRunObservationCurrentInterval(observation *cicontract.CheckObservation, check cicontract.RequiredCheck, result remoteci.RunResult) error {
+	if observation.Executed {
+		if observation.StartedAtUnixMS <= 0 || observation.CompletedAtUnixMS <= observation.StartedAtUnixMS {
+			return fmt.Errorf("remote CI required check %q has no current fresh execution timing", check)
+		}
+		return nil
+	}
+	startedAt, completedAt, err := remoteRunCurrentReceiptInterval(result)
+	if err != nil {
+		return fmt.Errorf("remote CI reused check %q has no current receipt interval: %w", check, err)
+	}
+	observation.StartedAtUnixMS, observation.CompletedAtUnixMS = startedAt.UnixMilli(), completedAt.UnixMilli()
+	return nil
+}
+
+// remoteRunCurrentReceiptInterval 只返回本次 coordinator job 的回执区间，绝不采用 origin timing。
+func remoteRunCurrentReceiptInterval(result remoteci.RunResult) (time.Time, time.Time, error) {
+	startedAt := result.StartedAt.UTC().Truncate(time.Millisecond)
+	completedAt := result.CompletedAt.UTC().Truncate(time.Millisecond)
+	if startedAt.IsZero() || !completedAt.After(startedAt) {
+		return time.Time{}, time.Time{}, errors.New("remote CI result has no positive current receipt interval")
+	}
+	return startedAt, completedAt, nil
+}
+
+// remoteRunReuseProofSHA256 对同一必需检查的复用证据摘要做 canonical SHA-256 绑定。
+func remoteRunReuseProofSHA256(
+	check cicontract.RequiredCheck,
+	catalog gatecontract.WorkloadCatalog,
+	reused map[gatecontract.GateID]gatecontract.WorkloadPassEvidence,
+) (string, error) {
+	digests, err := remoteRunReuseProofDigestSummary(check, catalog, reused)
+	if err != nil {
+		return "", err
+	}
+	payload, err := json.Marshal(digests)
+	if err != nil {
+		return "", fmt.Errorf("encode remote CI reuse proof %q: %w", check, err)
+	}
+	return fmt.Sprintf("sha256:%x", sha256.Sum256(payload)), nil
+}
+
+// remoteRunReuseProofDigestSummary 按目录顺序汇总某必需检查实际复用的 proof digest。
+func remoteRunReuseProofDigestSummary(
+	check cicontract.RequiredCheck,
+	catalog gatecontract.WorkloadCatalog,
+	reused map[gatecontract.GateID]gatecontract.WorkloadPassEvidence,
+) ([]string, error) {
+	digests := make([]string, 0)
+	for _, workload := range catalog.Workloads {
+		mapped, err := remoteRunCheckForWorkload(workload.ID)
+		if err != nil {
+			return nil, fmt.Errorf("parse reused remote CI workload %q: %w", workload.ID, err)
+		}
+		if mapped != check {
+			continue
+		}
+		if evidence, found := reused[gatecontract.GateID(workload.ID)]; found {
+			digests = append(digests, evidence.EvidenceSHA256)
+		}
+	}
+	if len(digests) == 0 {
+		return nil, fmt.Errorf("remote CI required check %q has reuse without evidence", check)
+	}
+	return digests, nil
+}
+
+// remoteRunCheckForWorkload 将规范 workload 标识映射为唯一的必需检查分类。
+func remoteRunCheckForWorkload(workloadID string) (cicontract.RequiredCheck, error) {
+	gateID, _, _, _, err := gatecontract.ParseWorkloadID(workloadID)
+	if err != nil {
+		return "", err
+	}
+	return remoteRunRequiredCheck(gateID)
+}
+
+// remoteRunCheckReceipts 将已验证检查观测转换为绑定本次远程运行身份的持久化回执。
 func remoteRunCheckReceipts(
 	result remoteci.RunResult,
 	acceptedGeneration uint64,
@@ -190,15 +569,18 @@ func remoteRunCheckReceipts(
 	if result.JobID == "" || result.SourceTreeSHA == "" {
 		return nil, errors.New("remote CI check receipt identity is missing")
 	}
+	if err := cicontract.ValidateAgentTokenDigest(result.AgentTokenDigest); err != nil {
+		return nil, fmt.Errorf("remote CI result agent token digest: %w", err)
+	}
 	if acceptedGeneration == 0 {
 		return nil, errors.New("remote CI accepted generation is missing")
 	}
 	receipts := make([]gatecontract.CheckReceiptRecord, 0, len(observations))
 	for _, observation := range observations {
 		receipt := gatecontract.CheckReceiptRecord{
-			RunID: result.JobID, JobID: result.JobID, CandidateTreeSHA: result.SourceTreeSHA,
+			RunID: result.JobID, JobID: result.JobID, CandidateTreeSHA: result.SourceTreeSHA, AgentTokenDigest: result.AgentTokenDigest,
 			AcceptedGeneration: acceptedGeneration, AcceptedSnapshotID: observation.AcceptedSnapshotID,
-			RequiredCheck: observation.Check, Executed: observation.Executed, Passed: observation.Passed,
+			RequiredCheck: observation.Check, Executed: observation.Executed, Reused: observation.Reused, ReuseProofSHA256: observation.ReuseProofSHA256, Passed: observation.Passed,
 			StartedAt: time.UnixMilli(observation.StartedAtUnixMS).UTC(), CompletedAt: time.UnixMilli(observation.CompletedAtUnixMS).UTC(),
 			Duration: time.Duration(observation.DurationMS) * time.Millisecond,
 		}
@@ -215,8 +597,7 @@ func remoteRunCheckReceipts(
 	return receipts, nil
 }
 
-// validateRemoteRunStoredCheckReceipts proves the same SQLite authority holds
-// exactly the six records minted from this invocation's worker observations.
+// validateRemoteRunStoredCheckReceipts 校验权威账本精确保存了本次调用生成的检查回执。
 func validateRemoteRunStoredCheckReceipts(
 	store *gatecontract.DurationLedgerStore,
 	jobID string,
@@ -252,16 +633,16 @@ func validateRemoteRunStoredCheckReceipts(
 	return nil
 }
 
-// remoteRunIsFullAuthoritativeAcceptance identifies the only run shape that can claim all required checks.
+// remoteRunIsFullAuthoritativeAcceptance 判断完整的暂定运行形态是否可由唯一 SQLite 权威最终化。
 func remoteRunIsFullAuthoritativeAcceptance(
 	plan gatecontract.GatePlan,
 	catalog gatecontract.WorkloadCatalog,
 	result remoteci.RunResult,
 ) bool {
-	return plan.Profile == gatecontract.ProfileRelease && catalog.Authoritative && result.Authoritative
+	return plan.Profile == gatecontract.ProfileRelease && catalog.Authoritative && !result.Authoritative
 }
 
-// remoteRunRequiredCheck maps every current canonical GateID to exactly one required-check family.
+// remoteRunRequiredCheck 将规范 GateID 映射为唯一的必需检查分类。
 func remoteRunRequiredCheck(gateID gatecontract.GateID) (cicontract.RequiredCheck, error) {
 	switch gateID {
 	case gatecontract.GateIDFrontendE2E:

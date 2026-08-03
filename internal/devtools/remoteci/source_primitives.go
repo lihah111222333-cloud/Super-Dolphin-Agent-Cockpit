@@ -2,14 +2,16 @@ package remoteci
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"reflect"
 	"regexp"
+	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
 )
 
-var sha256DigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 var gitObjectPattern = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
 
 const (
@@ -17,12 +19,6 @@ const (
 	maxReadOnlyGitTreeBytes   = 512 << 20
 )
 
-func validateDigest(name, value string) error {
-	if !sha256DigestPattern.MatchString(value) {
-		return fmt.Errorf("%s must be an immutable sha256 digest", name)
-	}
-	return nil
-}
 func interfaceValueIsNil(value any) bool {
 	if value == nil {
 		return true
@@ -46,4 +42,13 @@ func parseReadOnlyTreeEntry(record []byte) (sourceexport.TreeEntry, error) {
 		return sourceexport.TreeEntry{}, fmt.Errorf("read-only Git tree entry %q is not a blob", entryPath)
 	}
 	return sourceexport.TreeEntry{Path: string(entryPath), Mode: string(fields[0]), Hash: string(fields[2])}, nil
+}
+
+func bytesDigest(data []byte) string {
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func validOIDForAnyFormat(value string) bool {
+	return gitObjectPattern.MatchString(value) && strings.Trim(value, "0") != ""
 }

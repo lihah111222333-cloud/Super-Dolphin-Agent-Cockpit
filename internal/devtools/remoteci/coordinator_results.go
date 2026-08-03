@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
@@ -254,58 +253,6 @@ func remoteCalibrationParentSamples(
 	return samples
 }
 
-// remoteOptimizationWarnings 把超过 100 秒的实际 workload 转成非阻断优化告警。
-func remoteOptimizationWarnings(samples []gate.DurationSample) []string {
-	warnings := make([]string, 0)
-	for _, sample := range samples {
-		if sample.ParentWorkloadID != "" || sample.DurationMS <= cicontract.ShardTargetDuration.Milliseconds() {
-			continue
-		}
-		outcome := "failed"
-		if sample.Succeeded {
-			outcome = "passed"
-		}
-		warnings = append(warnings, fmt.Sprintf(
-			"CI optimization warning: workload %q %s in %dms (target %dms); optimize or split this shard",
-			sample.Bucket.WorkloadID,
-			outcome,
-			sample.DurationMS,
-			cicontract.ShardTargetDuration.Milliseconds(),
-		))
-	}
-	sort.Strings(warnings)
-	return warnings
-}
-
-// remoteWorkloadTimingWarnings records post-completion timing evidence without
-// changing a passed workload or the authority of its receipt.
-func remoteWorkloadTimingWarnings(executions []gate.PlanGateExecution) []string {
-	warnings := make([]string, 0)
-	for _, execution := range executions {
-		for _, timing := range []struct {
-			name     string
-			duration int64
-		}{
-			{name: "test_body_ms", duration: execution.ExecutionProfile.TestBodyMS},
-			{name: "total_ms", duration: execution.ExecutionProfile.TotalMS},
-		} {
-			if timing.duration <= cicontract.ShardTargetDuration.Milliseconds() {
-				continue
-			}
-			warnings = append(warnings, fmt.Sprintf(
-				"CI target warning: workload %q %s=%d exceeded target_ms=%d; authoritative status remains %s",
-				execution.GateID,
-				timing.name,
-				timing.duration,
-				cicontract.ShardTargetDuration.Milliseconds(),
-				execution.Status,
-			))
-		}
-	}
-	sort.Strings(warnings)
-	return warnings
-}
-
 func appendUniqueRemoteWarnings(existing []string, additions ...[]string) []string {
 	seen := make(map[string]struct{}, len(existing))
 	result := make([]string, 0, len(existing))
@@ -363,10 +310,6 @@ func remoteWorkloadExecutions(
 		execution, ok := observed[spec.ID]
 		if !ok || execution.GateID != gate.GateID(spec.ID) {
 			return nil, fmt.Errorf("remote CI workload %q has no matching observation", spec.ID)
-		}
-		execution, err := normalizeRemoteWorkloadExecutionProfile(spec, 1, execution)
-		if err != nil {
-			return nil, fmt.Errorf("remote CI workload %q execution profile: %w", spec.ID, err)
 		}
 		if err := execution.ExecutionProfile.Validate(); err != nil {
 			return nil, fmt.Errorf("remote CI workload %q execution profile: %w", spec.ID, err)
@@ -466,18 +409,16 @@ func aggregateWorkloadGate(
 	if len(workloads) == 0 {
 		return gate.PlanGateExecution{}, gate.ResultStatusFailed, fmt.Errorf("remote CI gate %q has no workload results", gateID)
 	}
+	profile, startedAt, completedAt, err := aggregateWorkloadExecutionProfile(gateID, workloads)
+	if err != nil {
+		return gate.PlanGateExecution{}, gate.ResultStatusFailed, err
+	}
 	result := gate.PlanGateExecution{
 		GateID: gateID, Status: gate.ResultStatusPassed, ExitCode: 0,
-		StartedAt: workloads[0].StartedAt, CompletedAt: workloads[0].CompletedAt,
+		StartedAt: startedAt, CompletedAt: completedAt, ExecutionProfile: profile,
 	}
 	var proof strings.Builder
 	for _, workload := range workloads {
-		if workload.StartedAt.Before(result.StartedAt) {
-			result.StartedAt = workload.StartedAt
-		}
-		if workload.CompletedAt.After(result.CompletedAt) {
-			result.CompletedAt = workload.CompletedAt
-		}
 		if workload.Status != gate.ResultStatusPassed {
 			result.Status = gate.ResultStatusFailed
 			result.ExitCode = 1
@@ -490,11 +431,6 @@ func aggregateWorkloadGate(
 			workload.LogDigest,
 		)
 	}
-	total := result.CompletedAt.Sub(result.StartedAt).Milliseconds()
-	if total < 0 {
-		return gate.PlanGateExecution{}, gate.ResultStatusFailed, errors.New("aggregated remote CI gate time is invalid")
-	}
-	result.ExecutionProfile = gate.ExecutionProfile{CacheSource: "none", CacheStatus: "not_applicable", CacheMeasurement: "not_measured", StartupMS: total, TotalMS: total}
 	result.Log = []byte(proof.String())
 	sum := sha256.Sum256(result.Log)
 	result.LogDigest = fmt.Sprintf("sha256:%x", sum)

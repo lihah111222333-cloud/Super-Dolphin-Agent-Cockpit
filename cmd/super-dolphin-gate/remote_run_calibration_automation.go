@@ -13,7 +13,6 @@ import (
 	"time"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
@@ -54,12 +53,10 @@ func ensureRemoteDurationCalibrationWithRun(
 	if ready {
 		return nil
 	}
-	return withRemoteCalibrationLock(options.LedgerPath, func() error {
-		return completeAutomaticRemoteCalibration(options, state, runnerIdentity, run)
-	})
+	return completeAutomaticRemoteCalibration(options, state, runnerIdentity, run)
 }
 
-// completeAutomaticRemoteCalibration 在持有校准锁时复查、修复或执行当前候选的校准。
+// completeAutomaticRemoteCalibration 通过 SQLite CAS 复查、修复或执行当前候选的校准。
 func completeAutomaticRemoteCalibration(options remoteRunOptions, state remoteci.BaselineState, runnerIdentity string, run func(remoteRunOptions) error) error {
 	ready, err := prepareAutomaticRemoteCalibrationLedger(options.LedgerPath, state, runnerIdentity)
 	if err != nil {
@@ -162,32 +159,6 @@ func acceptRemoteDurationCalibrationFromExistingSamples(
 		return false, err
 	}
 	return true, nil
-}
-
-// withRemoteCalibrationLock 跨 Agent 串行校准，等待者在锁内复查后直接复用结果。
-func withRemoteCalibrationLock(ledgerPath string, run func() error) (resultErr error) {
-	if strings.TrimSpace(ledgerPath) == "" {
-		return protocolError("remote duration calibration ledger path is required")
-	}
-	store, err := gatecontract.NewDurationLedgerStore(ledgerPath)
-	if err != nil {
-		return infrastructureError("resolve remote duration calibration ledger path: %v", err)
-	}
-	ctx, cancel := gateprivate.WithTimeout(context.Background(), remoteCalibrationLockWaitTimeout)
-	defer cancel()
-	lock, err := gateprivate.AcquireExclusiveFileLock(
-		ctx,
-		store.AuthorityPath()+".calibration.lock",
-	)
-	if err != nil {
-		return infrastructureError("acquire remote duration calibration lock: %v", err)
-	}
-	defer func() {
-		if err := lock.Release(); err != nil {
-			resultErr = errors.Join(resultErr, infrastructureError("release remote duration calibration lock: %v", err))
-		}
-	}()
-	return run()
 }
 
 // remoteDurationCalibrationReady 判断账本是否已有与当前稳定 runner 身份可比较的校准。
@@ -401,20 +372,21 @@ func resolveRemoteRunnerIdentity(repositoryRoot string, state remoteci.BaselineS
 	return remoteRunnerIdentityDigest(state, workerExecutionDigest), nil
 }
 
-// remoteRunnerIdentityDigest 只绑定 Worker 执行语义，不把协调器、hook 或 Seed 代际混入校准身份。
+// remoteRunnerIdentityDigest 只绑定 Worker 执行语义；镜像、缓存、源码代际与 Gate 二进制都不是校准输入。
 func remoteRunnerIdentityDigest(state remoteci.BaselineState, workerExecutionDigest string) string {
 	material := strings.Join([]string{
-		"super-dolphin-gate-runner-identity-v2",
-		state.RuntimeImage,
+		"super-dolphin-gate-runner-identity-v3",
+		state.Platform,
 		state.PolicyDigest,
 		state.ToolchainDigest,
+		state.RuntimeSeedSHA256,
 		workerExecutionDigest,
 	}, "\x00")
 	digest := sha256.Sum256([]byte(material))
 	return fmt.Sprintf("sha256:%x", digest)
 }
 
-// legacyRemoteRunnerIdentityDigest 仅用于把同一已接受基线的旧耗时样本迁移到窄身份。
+// legacyRemoteRunnerIdentityDigest 仅迁移 v1 样本；v2 依赖 RuntimeImage，不能在 v3 语义下复用。
 func legacyRemoteRunnerIdentityDigest(state remoteci.BaselineState) string {
 	material := strings.Join([]string{
 		"super-dolphin-gate-runner-identity-v1",

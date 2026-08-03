@@ -8,60 +8,22 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
+	"golang.org/x/sync/errgroup"
 )
 
-func TestAppendRemoteDurationSamplesRefreshesSQLiteAuthority(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "ci-duration-ledger.sqlite")
-	store, err := gatecontract.NewDurationLedgerStore(path)
-	if err != nil {
-		t.Fatalf("NewDurationLedgerStore() error = %v", err)
-	}
-	if _, err := store.CompareAndSwap(0, gatecontract.NewDurationLedger()); err != nil {
-		t.Fatalf("create duration ledger: %v", err)
-	}
-	seedRemoteRunTestAcceptedGeneration(t, store, 1)
-	parentID := "go-test:./internal/archtest"
-	parentDigest := strings.Repeat("a", 64)
-	testName := "TestCodeSizeGuard/size_and_freeze"
-	sample := gatecontract.DurationSample{
-		Bucket: gatecontract.DurationBucket{
-			WorkloadID:    gatecontract.GoTestDurationWorkloadID(parentID, testName),
-			CommandDigest: gatecontract.GoTestDurationCommandDigest(parentDigest, testName),
-			Platform:      "linux/amd64",
-			Runner:        "runner-v2",
-			Toolchain:     "go1.25.1",
-		},
-		Succeeded:           true,
-		DurationMS:          4210,
-		TargetKind:          gatecontract.WorkloadKindGoTest,
-		ParentWorkloadID:    parentID,
-		ParentCommandDigest: parentDigest,
-		TargetName:          testName,
-		TargetStatus:        gatecontract.GoTestStatusPass,
-	}
-	if err := appendRemoteDurationSamples(path, 1, []gatecontract.DurationSample{sample}); err != nil {
-		t.Fatalf("appendRemoteDurationSamples() error = %v", err)
-	}
-	persisted, err := store.Load()
-	if err != nil {
-		t.Fatalf("load duration ledger SQLite authority: %v", err)
-	}
-	if persisted.Generation != 2 || len(persisted.Ledger.Samples) != 1 {
-		t.Fatalf("persisted duration ledger generation=%d samples=%d, want 2 and 1", persisted.Generation, len(persisted.Ledger.Samples))
-	}
-	if got := persisted.Ledger.Samples[0]; got != sample {
-		t.Fatalf("persisted test timing = %#v, want %#v", got, sample)
-	}
-	if _, err := os.Stat(store.AuthorityPath()); err != nil {
-		t.Fatalf("stat duration ledger SQLite authority: %v", err)
-	}
-}
-
 func TestParseRemoteRunOptions(t *testing.T) {
-	requesterFingerprint := "sha256:" + strings.Repeat("a", 64)
-	t.Setenv(gatecontract.RequesterFingerprintEnvironment, requesterFingerprint)
+	token, err := cicontract.GenerateAgentToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := cicontract.AgentTokenDigest(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(cicontract.AgentTokenEnvironment, token)
 	options, err := parseRemoteRunOptions([]string{
 		"--config", "/tmp/remote-ci.json",
 		"--repository", "/tmp/repository",
@@ -73,7 +35,7 @@ func TestParseRemoteRunOptions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseRemoteRunOptions() error = %v", err)
 	}
-	assertParsedRemoteRunOptions(t, options, requesterFingerprint)
+	assertParsedRemoteRunOptions(t, options, digest)
 }
 
 func TestParseRemoteRunOptionsRejectsRetiredWorkloadReuseFlag(t *testing.T) {
@@ -87,7 +49,11 @@ func TestParseRemoteRunOptionsRejectsRetiredWorkloadReuseFlag(t *testing.T) {
 }
 
 func TestParseRemoteRunOptionsDerivesSingleSQLiteAuthority(t *testing.T) {
-	options, err := parseRemoteRunOptions([]string{"--config", "/tmp/remote-ci.json"})
+	token, err := cicontract.GenerateAgentToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	options, err := parseRemoteRunOptions([]string{"--config", "/tmp/remote-ci.json", "--agent-token", token})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,25 +62,26 @@ func TestParseRemoteRunOptionsDerivesSingleSQLiteAuthority(t *testing.T) {
 	}
 	_, err = parseRemoteRunOptions([]string{
 		"--config", "/tmp/remote-ci.json",
-		"--ledger", "/tmp/another-truth-source.sqlite",
+		"--ledger", "/tmp/another-truth-source.sqlite", "--agent-token", token,
 	})
 	if err == nil || !strings.Contains(err.Error(), "SQLite authority") {
 		t.Fatalf("second SQLite truth source error = %v", err)
 	}
 }
 
-func TestParseRemoteRunOptionsRejectsConflictingRequesterFingerprint(t *testing.T) {
-	t.Setenv(
-		gatecontract.RequesterFingerprintEnvironment,
-		"sha256:"+strings.Repeat("a", 64),
-	)
-	_, err := parseRemoteRunOptions([]string{
+func TestParseRemoteRunOptionsRejectsRetiredRequesterFingerprint(t *testing.T) {
+	token, err := cicontract.GenerateAgentToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = parseRemoteRunOptions([]string{
 		"--config", "/tmp/remote-ci.json",
 		"--ledger", "/tmp/remote-ci.baseline-state.sqlite",
+		"--agent-token", token,
 		"--requester-fingerprint", "sha256:" + strings.Repeat("b", 64),
 	})
-	if err == nil || !strings.Contains(err.Error(), "conflict") {
-		t.Fatalf("conflicting requester fingerprint error = %v", err)
+	if err == nil || !strings.Contains(err.Error(), "flag provided but not defined") {
+		t.Fatalf("retired requester fingerprint error = %v", err)
 	}
 }
 
@@ -143,8 +110,8 @@ func TestParseRemoteRunOptionsRejectsRemovedShardFlag(t *testing.T) {
 func TestLoadRemoteRunConfig(t *testing.T) {
 	document := strings.Replace(
 		validRemoteRunConfigJSON(),
-		`"source_prefix": "source-deltas/"`,
-		`"source_prefix": "baseline-artifacts/source-deltas/"`,
+		`"source_prefix": "source-bundles/"`,
+		`"source_prefix": "baseline-artifacts/source-bundles/"`,
 		1,
 	)
 	path := writeRemoteRunConfigFixture(t, document)
@@ -152,7 +119,7 @@ func TestLoadRemoteRunConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadRemoteRunConfig() error = %v", err)
 	}
-	if config.RegionID != "cn-shenzhen" || config.OSS.SourcePrefix != "baseline-artifacts/source-deltas/" ||
+	if config.RegionID != "cn-shenzhen" || config.OSS.SourcePrefix != "baseline-artifacts/source-bundles/" ||
 		len(config.Capacity.ResourcePolicy.Classes) != 4 ||
 		config.Capacity.ResourcePolicy.Bootstrap.GoTest != "memory" {
 		t.Fatalf("loadRemoteRunConfig() = %#v", config)
@@ -166,15 +133,15 @@ func TestLoadRemoteRunConfigRejectsDrift(t *testing.T) {
 		"legacy data cache":      strings.Replace(validRemoteRunConfigJSON(), `"capacity":`, `"data_cache": {}, "capacity":`, 1),
 		"legacy OCI cache":       strings.Replace(validRemoteRunConfigJSON(), `"capacity":`, `"oci_cache": {}, "capacity":`, 1),
 		"legacy runtime":         strings.Replace(validRemoteRunConfigJSON(), `"capacity":`, `"runtime": {"image": "registry.example/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "capacity":`, 1),
-		"legacy baseline prefix": strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "source-deltas/", "baseline_prefix": "baseline-artifacts/"`, 1),
+		"legacy baseline prefix": strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-bundles/"`, `"source_prefix": "source-bundles/", "baseline_prefix": "baseline-artifacts/"`, 1),
 		"legacy seed class":      strings.Replace(validRemoteRunConfigJSON(), `"resource_policy":`, `"seed_class": "memory", "resource_policy":`, 1),
 		"missing network":        strings.Replace(validRemoteRunConfigJSON(), `"vswitch_id": "vsw-test"`, `"vswitch_id": ""`, 1),
 		"wrong cpu":              strings.Replace(validRemoteRunConfigJSON(), `"vcpu": 2`, `"vcpu": 3`, 1),
 		"wrong memory":           strings.Replace(validRemoteRunConfigJSON(), `"memory_gib": 32`, `"memory_gib": 64`, 1),
 		"unknown bootstrap":      strings.Replace(validRemoteRunConfigJSON(), `"go_test": "memory"`, `"go_test": "missing"`, 1),
-		"absolute source":        strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "/source-deltas/"`, 1),
-		"traversal source":       strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "../source-deltas/"`, 1),
-		"unterminated source":    strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-deltas/"`, `"source_prefix": "source-deltas"`, 1),
+		"absolute source":        strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-bundles/"`, `"source_prefix": "/source-bundles/"`, 1),
+		"traversal source":       strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-bundles/"`, `"source_prefix": "../source-bundles/"`, 1),
+		"unterminated source":    strings.Replace(validRemoteRunConfigJSON(), `"source_prefix": "source-bundles/"`, `"source_prefix": "source-bundles"`, 1),
 	}
 	for name, document := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -467,6 +434,69 @@ func TestAcceptRemoteDurationCalibrationRequiresEveryShardableWorkloadAndRacePac
 		t.Fatal(err)
 	}
 	assertAcceptedRemoteCalibration(t, snapshot, fixture)
+}
+
+func TestAcceptRemoteDurationCalibrationReusesEquivalentConcurrentWinner(t *testing.T) {
+	fixture := newRemoteDurationCalibrationFixture(t)
+	appendCompleteRemoteCalibrationSamples(t, fixture)
+	first, second := concurrentRemoteCalibrationAccepts(t, fixture)
+	assertEquivalentCalibrationSnapshots(t, first, second)
+}
+
+func TestAcceptRemoteDurationCalibrationRejectsNonEquivalentConcurrentWinner(t *testing.T) {
+	fixture := newRemoteDurationCalibrationFixture(t)
+	appendCompleteRemoteCalibrationSamples(t, fixture)
+	if _, err := fixture.accept(); err != nil {
+		t.Fatal(err)
+	}
+	conflict := fixture.calibration
+	conflict.Tree = strings.Repeat("f", 40)
+	if _, err := acceptRemoteDurationCalibration(fixture.store, conflict, fixture.commitCatalog, fixture.pushCatalog, fixture.releaseCatalog); err == nil || !strings.Contains(err.Error(), "completed concurrently") {
+		t.Fatalf("non-equivalent concurrent calibration error = %v", err)
+	}
+}
+
+func appendCompleteRemoteCalibrationSamples(t *testing.T, fixture remoteDurationCalibrationFixture) {
+	t.Helper()
+	samples, missingWorkload, missingRace := fixture.samplesExceptRequiredWorkloads(t)
+	samples = append(samples, missingWorkload, missingRace)
+	if _, err := fixture.store.AppendSamples(fixture.acceptedGeneration, samples); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func concurrentRemoteCalibrationAccepts(t *testing.T, fixture remoteDurationCalibrationFixture) (gatecontract.DurationLedgerSnapshot, gatecontract.DurationLedgerSnapshot) {
+	t.Helper()
+	results := make(chan gatecontract.DurationLedgerSnapshot, 2)
+	var group errgroup.Group
+	for range 2 {
+		group.Go(func() error {
+			snapshot, err := fixture.accept()
+			if err == nil {
+				results <- snapshot
+			}
+			return err
+		})
+	}
+	if err := group.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	close(results)
+	var snapshots []gatecontract.DurationLedgerSnapshot
+	for snapshot := range results {
+		snapshots = append(snapshots, snapshot)
+	}
+	if len(snapshots) != 2 {
+		t.Fatalf("accepted snapshots = %d, want 2", len(snapshots))
+	}
+	return snapshots[0], snapshots[1]
+}
+
+func assertEquivalentCalibrationSnapshots(t *testing.T, first, second gatecontract.DurationLedgerSnapshot) {
+	t.Helper()
+	if first.Ledger.Calibration == nil || second.Ledger.Calibration == nil || !equivalentRemoteDurationCalibration(*first.Ledger.Calibration, *second.Ledger.Calibration) {
+		t.Fatalf("equivalent concurrent snapshots = %#v, %#v", first.Ledger.Calibration, second.Ledger.Calibration)
+	}
 }
 
 func TestAcceptRemoteDurationCalibrationDoesNotRequireOwnerOnlyWorkloadDuration(t *testing.T) {

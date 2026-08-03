@@ -15,16 +15,17 @@ import (
 
 // runRemoteCalibration 执行首代 commit、push 与 release 权威运行并接受完整时长校准。
 func runRemoteCalibration(args []string, stdout io.Writer) error {
+	if err := requireRemoteCIAgentToken([]string{"remote", "calibrate"}, args, stdout); err != nil {
+		return err
+	}
 	options, err := parseRemoteRunOptions(args)
 	if err != nil {
 		return err
 	}
-	return withRemoteCalibrationLock(options.LedgerPath, func() error {
-		return executeRemoteCalibration(options, stdout)
-	})
+	return executeRemoteCalibration(options, stdout)
 }
 
-// executeRemoteCalibration 在单飞锁内执行或恢复一次完整校准。
+// executeRemoteCalibration 在 SQLite checkpoint/CAS 边界内执行或恢复一次完整校准。
 func executeRemoteCalibration(options remoteRunOptions, stdout io.Writer) error {
 	if err := validateRemoteCalibrationOptions(options); err != nil {
 		return err
@@ -79,11 +80,12 @@ func newRemoteCalibrationCheckpoint(
 	if err != nil {
 		return nil, err
 	}
-	identity := remoteCalibrationCheckpointIdentity(source, state, runnerIdentity, resource)
+	identity := remoteCalibrationCheckpointIdentity(source, state, runnerIdentity, resource, options.AgentTokenDigest)
 	return remoteci.NewCalibrationCheckpoint(
 		ledgerStore,
 		identity,
 		state.Generation,
+		options.AgentTokenDigest,
 	)
 }
 
@@ -93,11 +95,13 @@ func remoteCalibrationCheckpointIdentity(
 	state remoteci.BaselineState,
 	runnerIdentity string,
 	resource shardresource.Class,
+	agentTokenDigest string,
 ) string {
 	material := strings.Join([]string{
 		"super-dolphin-remote-calibration-checkpoint-v3",
 		source.commit, source.tree, source.base, strconv.FormatUint(state.Generation, 10), state.Platform,
 		runnerIdentity, state.ToolchainDigest, resource.ID,
+		agentTokenDigest,
 		strconv.FormatFloat(resource.VCPU, 'f', -1, 64), strconv.FormatFloat(resource.MemoryGiB, 'f', -1, 64),
 	}, "\x00")
 	sum := sha256.Sum256([]byte(material))

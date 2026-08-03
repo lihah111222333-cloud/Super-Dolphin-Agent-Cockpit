@@ -263,10 +263,9 @@ const (
 	ResultStatusPassedStalePolicy ResultStatus = "passed_stale_policy"
 )
 
-// ResultReceiptSchemaVersion binds dynamically sized canonical shard receipts.
+// ResultReceiptSchemaVersion binds dynamically sized canonical shard receipts and their frozen workload plan.
 const (
-	ResultReceiptSchemaVersion       uint32 = 3
-	legacyResultReceiptSchemaVersion uint32 = 2
+	ResultReceiptSchemaVersion uint32 = 4
 )
 
 // ResultReceipt is the canonical signed audit result. It never authorizes an action by itself.
@@ -289,6 +288,7 @@ type ResultReceipt struct {
 	Deadline             time.Time               `json:"deadline"`
 	Status               ResultStatus            `json:"status"`
 	GateResults          []GateResult            `json:"gate_results"`
+	WorkloadPlan         WorkloadExecutionPlan   `json:"workload_plan"`
 	ShardReceipts        []ContainerShardReceipt `json:"shard_receipts"`
 	Evidence             []Evidence              `json:"evidence"`
 	Container            ContainerEvidence       `json:"container"`

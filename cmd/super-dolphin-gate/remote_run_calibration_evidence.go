@@ -342,9 +342,6 @@ func acceptRemoteDurationCalibrationWithPasses(
 		if err != nil {
 			return gatecontract.DurationLedgerSnapshot{}, err
 		}
-		if snapshot.Ledger.Calibration != nil {
-			return gatecontract.DurationLedgerSnapshot{}, errors.New("remote duration calibration was completed concurrently")
-		}
 		workloadCount, racePackageCount, err := verifyRemoteCalibrationIndexedEvidence(
 			snapshot,
 			calibration,
@@ -355,6 +352,12 @@ func acceptRemoteDurationCalibrationWithPasses(
 			return gatecontract.DurationLedgerSnapshot{}, err
 		}
 		calibration.WorkloadCount, calibration.RacePackageCount = workloadCount, racePackageCount
+		if snapshot.Ledger.Calibration != nil {
+			if equivalentRemoteDurationCalibration(*snapshot.Ledger.Calibration, calibration) {
+				return snapshot, nil
+			}
+			return gatecontract.DurationLedgerSnapshot{}, errors.New("remote duration calibration was completed concurrently")
+		}
 		updated, err := store.CompareAndSwapCalibration(
 			snapshot.Generation,
 			&calibration,
@@ -368,6 +371,14 @@ func acceptRemoteDurationCalibrationWithPasses(
 		time.Sleep(time.Duration(attempt+1) * 10 * time.Millisecond)
 	}
 	return gatecontract.DurationLedgerSnapshot{}, errors.New("accept duration calibration exceeded retry limit")
+}
+
+// equivalentRemoteDurationCalibration 要求全部验收字段相同；完成时间有意排除，因为等价 agent
+// 可能在不同时间完成却生成同一已接受校准快照。
+func equivalentRemoteDurationCalibration(accepted, candidate gatecontract.DurationCalibration) bool {
+	accepted.CompletedAt = time.Time{}
+	candidate.CompletedAt = time.Time{}
+	return accepted == candidate
 }
 
 // verifyRemoteCalibrationSamples 要求每个 workload 和每个 Go race 包都有同身份成功样本。

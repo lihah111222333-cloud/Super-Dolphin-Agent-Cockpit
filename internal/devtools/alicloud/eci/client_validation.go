@@ -5,8 +5,12 @@ import (
 	"fmt"
 	"strings"
 	"time"
+)
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
+const (
+	sourceVolumeName = "source-data"
+	workVolumeName   = "work-data"
+	tempVolumeName   = "temp-data"
 )
 
 // validateConfig 在启动 CLI 前阻断不完整基础设施配置和不可表示的资源值。
@@ -76,9 +80,6 @@ func validateRequestImages(request CreateRequest) error {
 		if !imageDigestPattern.MatchString(image) {
 			return fmt.Errorf("ECI image %d must be a repository@sha256:<64 lowercase hex> digest reference", index+1)
 		}
-		if err := cicontract.ValidateNonACRRegistryHost(image); err != nil {
-			return fmt.Errorf("ECI image %d: %w", index+1, err)
-		}
 	}
 	return nil
 }
@@ -101,46 +102,34 @@ func validateRequestContainers(request CreateRequest) error {
 	return validateContainerInput("init container", request.InitContainer.Command, request.InitContainer.Args, request.InitContainer.Environment)
 }
 
-// validateRequestVolumes 校验 shard-local 和 bootstrap 卷名唯一性。
+// validateRequestVolumes 校验三个 shard-local EmptyDir 卷名唯一性。
 func validateRequestVolumes(request CreateRequest) error {
-	names := []string{request.ExpandedVolume.Name, request.SourceVolume.Name, request.WorkVolume.Name, request.TempVolume.Name}
-	return validateRequestVolumeNames(request.BootstrapVolume, names)
+	return validateRequestVolumeNames([]string{request.SourceVolume.Name, request.WorkVolume.Name, request.TempVolume.Name})
 }
 
-// validateRequestVolumeNames 校验卷名集合及可选 bootstrap 卷。
-func validateRequestVolumeNames(bootstrap OSSVolume, names []string) error {
-	if bootstrap != (OSSVolume{}) {
-		if !validOSSVolume(bootstrap) {
-			return errors.New("ECI bootstrap OSS volume identity is invalid")
-		}
-		names = append(names, "current-gate")
+// validateRequestVolumeNames 校验固定 EmptyDir 卷名集合。
+func validateRequestVolumeNames(names []string) error {
+	expected := []string{sourceVolumeName, workVolumeName, tempVolumeName}
+	if len(names) != len(expected) {
+		return fmt.Errorf("ECI request must declare exactly %d EmptyDir volumes", len(expected))
 	}
-	seen := make(map[string]struct{}, len(names))
-	for _, name := range names {
-		if !eciNamePattern.MatchString(name) {
-			return errors.New("ECI volume name is invalid")
+	for index, name := range names {
+		if name != expected[index] {
+			return fmt.Errorf("ECI request EmptyDir volume %d must be %q, got %q", index+1, expected[index], name)
 		}
-		seen[name] = struct{}{}
-	}
-	if len(seen) != len(names) {
-		return errors.New("ECI volume names must be distinct")
 	}
 	return nil
 }
 
 func validateRequestMounts(request CreateRequest) error {
 	mainNames := createMainMountNames(request)
-	mainReadOnly := []string{request.ExpandedVolume.Name, request.SourceVolume.Name}
+	mainReadOnly := []string{request.SourceVolume.Name}
 	if err := validateVolumeMounts("task container", request.MainVolumeMounts, mainNames, mainNames, mainReadOnly); err != nil {
 		return err
 	}
-	initReadOnly := []string{}
-	if request.BootstrapVolume != (OSSVolume{}) {
-		initReadOnly = append(initReadOnly, "current-gate")
-	}
 	initAllowed := createInitMountNames(request)
 	initRequired := createRequiredInitMountNames(request)
-	return validateVolumeMounts("init container", request.InitVolumeMounts, initAllowed, initRequired, initReadOnly)
+	return validateVolumeMounts("init container", request.InitVolumeMounts, initAllowed, initRequired, nil)
 }
 
 func validateRequestTags(request CreateRequest) error {

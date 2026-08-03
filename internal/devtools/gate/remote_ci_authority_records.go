@@ -5,37 +5,25 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
-// RemoteRefreshDeltaRecord 是一次刷新相对已接受 snapshot 的内容寻址增量证据。
-type RemoteRefreshDeltaRecord struct {
-	JobID               string
-	AttemptGeneration   uint64
-	AcceptedGeneration  uint64
-	AcceptedStateSHA256 string
-	AcceptedSnapshotID  string
-	DeltaIdentity       string
-	DeltaSHA256         string
-	DeltaSizeBytes      int64
-	TargetTreeSHA       string
-	TargetClosureSHA256 string
-	TransferMode        cicontract.RefreshTransferMode
-	RecordedAt          time.Time
-}
-
 // CheckReceiptRecord 是一次远程 CI 必跑检查的不可替代回执。
 type CheckReceiptRecord struct {
 	RunID              string
 	JobID              string
 	CandidateTreeSHA   string
+	AgentTokenDigest   string
 	AcceptedGeneration uint64
 	AcceptedSnapshotID string
 	RequiredCheck      cicontract.RequiredCheck
 	Executed           bool
+	Reused             bool
+	ReuseProofSHA256   string
 	Passed             bool
 	StartedAt          time.Time
 	CompletedAt        time.Time
@@ -47,10 +35,13 @@ type checkReceiptHashPayload struct {
 	RunID                string                   `json:"run_id"`
 	JobID                string                   `json:"job_id"`
 	CandidateTreeSHA     string                   `json:"candidate_tree_sha"`
+	AgentTokenDigest     string                   `json:"agent_token_digest"`
 	AcceptedGeneration   uint64                   `json:"accepted_generation"`
 	AcceptedSnapshotID   string                   `json:"accepted_snapshot_id"`
 	RequiredCheck        cicontract.RequiredCheck `json:"required_check"`
 	Executed             bool                     `json:"executed"`
+	Reused               bool                     `json:"reused"`
+	ReuseProofSHA256     string                   `json:"reuse_proof_sha256"`
 	Passed               bool                     `json:"passed"`
 	StartedAtUnixMilli   int64                    `json:"started_at_unix_ms"`
 	CompletedAtUnixMilli int64                    `json:"completed_at_unix_ms"`
@@ -60,9 +51,9 @@ type checkReceiptHashPayload struct {
 // CheckReceiptSHA256 计算由真实回执字段唯一决定的内容摘要。
 func CheckReceiptSHA256(record CheckReceiptRecord) (string, error) {
 	payload, err := json.Marshal(checkReceiptHashPayload{
-		RunID: record.RunID, JobID: record.JobID, CandidateTreeSHA: record.CandidateTreeSHA,
+		RunID: record.RunID, JobID: record.JobID, CandidateTreeSHA: record.CandidateTreeSHA, AgentTokenDigest: record.AgentTokenDigest,
 		AcceptedGeneration: record.AcceptedGeneration, AcceptedSnapshotID: record.AcceptedSnapshotID,
-		RequiredCheck: record.RequiredCheck, Executed: record.Executed, Passed: record.Passed,
+		RequiredCheck: record.RequiredCheck, Executed: record.Executed, Reused: record.Reused, ReuseProofSHA256: record.ReuseProofSHA256, Passed: record.Passed,
 		StartedAtUnixMilli: record.StartedAt.UTC().UnixMilli(), CompletedAtUnixMilli: record.CompletedAt.UTC().UnixMilli(),
 		DurationMillis: record.Duration.Milliseconds(),
 	})
@@ -73,54 +64,73 @@ func CheckReceiptSHA256(record CheckReceiptRecord) (string, error) {
 	return fmt.Sprintf("sha256:%x", digest), nil
 }
 
-func validateRemoteRefreshDeltaRecord(record RemoteRefreshDeltaRecord) error {
-	for field, value := range map[string]string{
-		"job ID": record.JobID, "accepted state SHA-256": record.AcceptedStateSHA256,
-		"accepted snapshot": record.AcceptedSnapshotID, "delta identity": record.DeltaIdentity,
-		"target tree": record.TargetTreeSHA, "target closure SHA-256": record.TargetClosureSHA256,
-	} {
-		if strings.TrimSpace(value) == "" {
-			return fmt.Errorf("remote refresh delta %s is required", field)
-		}
+// validateCheckReceiptRecord 验证单个必跑检查回执的身份、agent digest、真实执行和内容摘要，禁止伪造 PASS。
+func validateCheckReceiptRecord(record CheckReceiptRecord) error {
+	if err := validateCheckReceiptIdentity(record); err != nil {
+		return err
 	}
-	if record.AttemptGeneration == 0 || record.AcceptedGeneration == 0 {
-		return errors.New("remote refresh delta attempt and accepted generations are required")
+	if err := validateCheckReceiptExecution(record); err != nil {
+		return err
 	}
-	if !isPrefixedSHA256Digest(record.AcceptedStateSHA256) || !isPrefixedSHA256Digest(record.DeltaSHA256) || !isPrefixedSHA256Digest(record.TargetClosureSHA256) {
-		return errors.New("remote refresh delta SHA-256 identity is invalid")
+	if err := validateCheckReceiptTiming(record); err != nil {
+		return err
 	}
-	if !validCalibrationOID(record.TargetTreeSHA) {
-		return errors.New("remote refresh delta target tree is invalid")
+	if err := validateCheckReceiptHash(record); err != nil {
+		return err
 	}
-	if record.DeltaSizeBytes <= 0 || record.RecordedAt.IsZero() {
-		return errors.New("remote refresh delta size and recorded time are required")
-	}
-	if err := cicontract.ValidateIncrementalRefreshTransfer(
-		record.TransferMode,
-		record.AcceptedGeneration,
-		record.AcceptedSnapshotID,
-		record.DeltaIdentity,
-	); err != nil {
-		return fmt.Errorf("remote refresh delta transfer: %w", err)
-	}
-	if err := cicontract.ValidateDeltaRebuild(
-		record.TransferMode,
-		record.AcceptedGeneration,
-		record.AcceptedSnapshotID,
-		record.DeltaIdentity,
-		record.TargetTreeSHA,
-		record.TargetClosureSHA256,
-	); err != nil {
-		return fmt.Errorf("remote refresh delta rebuild: %w", err)
+	if !slices.Contains(cicontract.RequiredChecks(), record.RequiredCheck) {
+		return fmt.Errorf("check receipt required check %q is not canonical", record.RequiredCheck)
 	}
 	return nil
 }
 
-func validateCheckReceiptRecord(record CheckReceiptRecord) error {
+// validateCheckReceiptExecution 要求聚合回执至少覆盖 executed 或 reused，并将复用证明限制在 reused 回执上。
+func validateCheckReceiptExecution(record CheckReceiptRecord) error {
+	if !record.Executed && !record.Reused {
+		return errors.New("check receipt must record executed=true or reused=true")
+	}
+	if record.Reused && !isPrefixedSHA256Digest(record.ReuseProofSHA256) {
+		return errors.New("check receipt reuse proof SHA-256 is invalid")
+	}
+	if !record.Reused && record.ReuseProofSHA256 != "" {
+		return errors.New("non-reused check receipt must not carry reuse proof SHA-256")
+	}
+	return nil
+}
+
+// validateCheckReceiptTiming 仅在聚合回执含 fresh execution 时接受真实毫秒级时间区间，阻断复用结果伪装为 fresh timing。
+func validateCheckReceiptTiming(record CheckReceiptRecord) error {
+	if !record.Executed {
+		return nil
+	}
+	if record.StartedAt.IsZero() || record.CompletedAt.IsZero() || record.CompletedAt.Before(record.StartedAt) || record.Duration <= 0 || record.CompletedAt.Sub(record.StartedAt) != record.Duration {
+		return errors.New("check receipt timing is invalid")
+	}
+	if !record.StartedAt.Equal(record.StartedAt.Truncate(time.Millisecond)) || !record.CompletedAt.Equal(record.CompletedAt.Truncate(time.Millisecond)) || record.Duration%time.Millisecond != 0 {
+		return errors.New("check receipt timing must be millisecond precise")
+	}
+	return nil
+}
+
+// validateCheckReceiptHash 重算完整回执摘要，确保身份、执行方式与时间边界不能脱离 SQLite authority。
+func validateCheckReceiptHash(record CheckReceiptRecord) error {
+	expectedSHA256, err := CheckReceiptSHA256(record)
+	if err != nil {
+		return fmt.Errorf("hash check receipt: %w", err)
+	}
+	if record.ReceiptSHA256 != expectedSHA256 {
+		return errors.New("check receipt SHA-256 does not match receipt content")
+	}
+	return nil
+}
+
+// validateCheckReceiptIdentity 统一校验会参与回执摘要的不可变身份，避免 agent digest 被遗漏在持久化边界之外。
+func validateCheckReceiptIdentity(record CheckReceiptRecord) error {
 	for field, value := range map[string]string{
 		"run ID": record.RunID, "job ID": record.JobID, "candidate tree": record.CandidateTreeSHA,
-		"accepted snapshot": record.AcceptedSnapshotID,
-		"receipt SHA-256":   record.ReceiptSHA256,
+		"agent token digest": record.AgentTokenDigest,
+		"accepted snapshot":  record.AcceptedSnapshotID,
+		"receipt SHA-256":    record.ReceiptSHA256,
 	} {
 		if strings.TrimSpace(value) == "" {
 			return fmt.Errorf("check receipt %s is required", field)
@@ -132,55 +142,23 @@ func validateCheckReceiptRecord(record CheckReceiptRecord) error {
 	if !validCalibrationOID(record.CandidateTreeSHA) || !isPrefixedSHA256Digest(record.ReceiptSHA256) {
 		return errors.New("check receipt identity is invalid")
 	}
-	if !record.Executed {
-		return errors.New("check receipt must record executed=true")
+	if err := cicontract.ValidateAgentTokenDigest(record.AgentTokenDigest); err != nil {
+		return fmt.Errorf("check receipt agent token digest: %w", err)
 	}
-	if record.StartedAt.IsZero() || record.CompletedAt.IsZero() || record.CompletedAt.Before(record.StartedAt) || record.Duration <= 0 || record.CompletedAt.Sub(record.StartedAt) != record.Duration {
-		return errors.New("check receipt timing is invalid")
-	}
-	if !record.StartedAt.Equal(record.StartedAt.Truncate(time.Millisecond)) || !record.CompletedAt.Equal(record.CompletedAt.Truncate(time.Millisecond)) || record.Duration%time.Millisecond != 0 {
-		return errors.New("check receipt timing must be millisecond precise")
-	}
-	expectedSHA256, err := CheckReceiptSHA256(record)
-	if err != nil {
-		return fmt.Errorf("hash check receipt: %w", err)
-	}
-	if record.ReceiptSHA256 != expectedSHA256 {
-		return errors.New("check receipt SHA-256 does not match receipt content")
-	}
-	for _, check := range cicontract.RequiredChecks() {
-		if record.RequiredCheck == check {
-			return nil
-		}
-	}
-	return fmt.Errorf("check receipt required check %q is not canonical", record.RequiredCheck)
+	return nil
 }
 
+// validateCompletePassingCheckReceipts 要求同一运行的全部 canonical 检查均真实执行并通过，缺项或跨身份混入即失败。
 func validateCompletePassingCheckReceipts(receipts []CheckReceiptRecord) error {
 	required := cicontract.RequiredChecks()
 	if len(receipts) != len(required) {
 		return fmt.Errorf("check receipts count = %d, want %d required checks", len(receipts), len(required))
 	}
 	seen := make(map[cicontract.RequiredCheck]struct{}, len(receipts))
-	var runID, jobID, tree, snapshot string
-	var generation uint64
+	var binding checkReceiptAuthorityBinding
 	for index, receipt := range receipts {
-		if err := validateCheckReceiptRecord(receipt); err != nil {
-			return fmt.Errorf("check receipt[%d]: %w", index, err)
-		}
-		if !receipt.Passed {
-			return fmt.Errorf("check receipt %q did not pass", receipt.RequiredCheck)
-		}
-		if _, duplicate := seen[receipt.RequiredCheck]; duplicate {
-			return fmt.Errorf("check receipt %q is duplicated", receipt.RequiredCheck)
-		}
-		seen[receipt.RequiredCheck] = struct{}{}
-		if index == 0 {
-			runID, jobID, tree, generation, snapshot = receipt.RunID, receipt.JobID, receipt.CandidateTreeSHA, receipt.AcceptedGeneration, receipt.AcceptedSnapshotID
-			continue
-		}
-		if receipt.RunID != runID || receipt.JobID != jobID || receipt.CandidateTreeSHA != tree || receipt.AcceptedGeneration != generation || receipt.AcceptedSnapshotID != snapshot {
-			return errors.New("check receipts do not bind one run, job, tree, generation, and snapshot")
+		if err := binding.accept(receipt, index, seen); err != nil {
+			return err
 		}
 	}
 	for _, check := range required {
@@ -189,4 +167,40 @@ func validateCompletePassingCheckReceipts(receipts []CheckReceiptRecord) error {
 		}
 	}
 	return nil
+}
+
+// checkReceiptAuthorityBinding 保存同一 job 回执集合必须共享的 canonical SQLite 身份。
+type checkReceiptAuthorityBinding struct {
+	runID, jobID, tree, snapshot, agentTokenDigest string
+	generation                                     uint64
+}
+
+// accept 校验一个回执并把首条回执固定为 authority binding，后续条目不得漂移。
+func (binding *checkReceiptAuthorityBinding) accept(receipt CheckReceiptRecord, index int, seen map[cicontract.RequiredCheck]struct{}) error {
+	if err := validateCheckReceiptRecord(receipt); err != nil {
+		return fmt.Errorf("check receipt[%d]: %w", index, err)
+	}
+	if !receipt.Passed {
+		return fmt.Errorf("check receipt %q did not pass", receipt.RequiredCheck)
+	}
+	if _, duplicate := seen[receipt.RequiredCheck]; duplicate {
+		return fmt.Errorf("check receipt %q is duplicated", receipt.RequiredCheck)
+	}
+	seen[receipt.RequiredCheck] = struct{}{}
+	if index == 0 {
+		binding.runID, binding.jobID, binding.tree = receipt.RunID, receipt.JobID, receipt.CandidateTreeSHA
+		binding.generation, binding.snapshot, binding.agentTokenDigest = receipt.AcceptedGeneration, receipt.AcceptedSnapshotID, receipt.AgentTokenDigest
+		return nil
+	}
+	if binding.matches(receipt) {
+		return nil
+	}
+	return errors.New("check receipts do not bind one run, job, agent, tree, generation, and snapshot")
+}
+
+// matches 判断回执是否仍绑定到首条回执固定的 run、tree、generation、snapshot 与 agent digest。
+func (binding checkReceiptAuthorityBinding) matches(receipt CheckReceiptRecord) bool {
+	return receipt.RunID == binding.runID && receipt.JobID == binding.jobID && receipt.CandidateTreeSHA == binding.tree &&
+		receipt.AgentTokenDigest == binding.agentTokenDigest && receipt.AcceptedGeneration == binding.generation &&
+		receipt.AcceptedSnapshotID == binding.snapshot
 }

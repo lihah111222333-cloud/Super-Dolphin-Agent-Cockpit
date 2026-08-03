@@ -4,6 +4,9 @@ import "io"
 
 // runTestInvocation 固定 test 场景，并把所有工作负载交给权威远程 ECI 协调器。
 func runTestInvocation(args []string, stdout io.Writer) error {
+	if err := requireRemoteCIAgentToken([]string{"test"}, args, stdout); err != nil {
+		return err
+	}
 	options, err := parseAutoTestRunOptions(args)
 	if err != nil {
 		return err

@@ -11,6 +11,11 @@ if ! gate_bin=$(trusted_gate_launcher "$repo_root"); then
   exit 1
 fi
 
+# 首次身份协商必须在任何 closure 或代码地图操作之前结束；hook 不签发或保存 token。
+if [[ "${SUPER_DOLPHIN_CI_AGENT_TOKEN-}" == "issue" || -z "${SUPER_DOLPHIN_CI_AGENT_TOKEN+x}" ]]; then
+  exec "$gate_bin" remote hook pre-commit
+fi
+
 closure_outputs=(build/gate/Dockerfile build/gate/inputs.json build/gate/runtime-deps.lock)
 if ! git -C "$repo_root" diff --quiet -- "${closure_outputs[@]}"; then
   printf '%s\n' 'pre-commit blocked: gate-image closure outputs have unstaged changes; stage or revert them before automatic refresh.' >&2
@@ -27,6 +32,20 @@ if ! staged_tree=$(git write-tree); then
 fi
 if [[ -z "$staged_tree" ]]; then
   printf '%s\n' 'pre-commit blocked: cannot capture the authoritative staged tree.' >&2
+  exit 1
+fi
+
+# The launcher owns the closure renderer. A stale launcher can still read the
+# correct tree but write outputs using retired renderer semantics, so compare
+# its embedded provenance with the same generator inputs from the staged tree
+# before any managed output may be rewritten.
+if ! closure_provenance=$("$gate_bin" closure provenance --tree "$staged_tree"); then
+  printf '%s\n' 'pre-commit blocked: cannot obtain trusted closure-generator provenance.' >&2
+  exit 1
+fi
+read -r compiled_closure_provenance staged_closure_provenance closure_provenance_extra <<<"$closure_provenance"
+if [[ ! "$compiled_closure_provenance" =~ ^sha256:[0-9a-f]{64}$ || ! "$staged_closure_provenance" =~ ^sha256:[0-9a-f]{64}$ || -n "$closure_provenance_extra" || "$compiled_closure_provenance" != "$staged_closure_provenance" ]]; then
+  printf '%s\n' 'pre-commit blocked: trusted launcher closure-generator provenance does not match the staged tree; rebuild and reinstall the candidate launcher.' >&2
   exit 1
 fi
 

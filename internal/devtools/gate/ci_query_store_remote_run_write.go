@@ -15,16 +15,7 @@ func storeSQLiteRemoteCIRunProjection(
 	record RemoteCIRunRecord,
 	now func() time.Time,
 ) error {
-	if err := validateSQLiteRemoteCIRunCatalogCoverage(transaction, record); err != nil {
-		return err
-	}
-	if err := verifySQLiteRemoteCIRunIdentity(transaction, record); err != nil {
-		return err
-	}
-	if err := upsertSQLiteRemoteCIRun(transaction, record); err != nil {
-		return err
-	}
-	if err := insertSQLiteRemoteCIRunRequester(transaction, record); err != nil {
+	if err := writeSQLiteRemoteCIRunCoreProjection(transaction, record); err != nil {
 		return err
 	}
 	if err := replaceSQLiteRemoteCIRunShards(transaction, record); err != nil {
@@ -36,10 +27,16 @@ func storeSQLiteRemoteCIRunProjection(
 	if err := replaceSQLiteRemoteCIWorkloadExecutions(transaction, record); err != nil {
 		return err
 	}
+	if err := replaceSQLiteRemoteCIWorkloadResults(transaction, record); err != nil {
+		return err
+	}
 	if err := replaceSQLiteTimingObservations(transaction, record.JobID, record.TimingObservations); err != nil {
 		return err
 	}
 	if err := replaceSQLiteRemoteRunWarnings(transaction, record.JobID, record.Warnings); err != nil {
+		return err
+	}
+	if err := finalizeSQLiteRemoteCITimingWarnings(transaction, record); err != nil {
 		return err
 	}
 	if err := advanceCIQueryRevision(transaction, now().UTC()); err != nil {
@@ -48,25 +45,43 @@ func storeSQLiteRemoteCIRunProjection(
 	return nil
 }
 
+// writeSQLiteRemoteCIRunCoreProjection 先写入运行记录和 agent 身份，再在同一事务内回读校验。
+func writeSQLiteRemoteCIRunCoreProjection(transaction *sql.Tx, record RemoteCIRunRecord) error {
+	if err := validateSQLiteRemoteCIRunCatalogCoverage(transaction, record); err != nil {
+		return err
+	}
+	if err := verifySQLiteRemoteCIRunIdentity(transaction, record); err != nil {
+		return err
+	}
+	if err := upsertSQLiteRemoteCIRun(transaction, record); err != nil {
+		return err
+	}
+	if err := insertSQLiteRemoteCIRunAgentIdentity(transaction, record); err != nil {
+		return err
+	}
+	if err := verifySQLiteRemoteCIRunIdentity(transaction, record); err != nil {
+		return fmt.Errorf("read back remote CI agent identity: %w", err)
+	}
+	return nil
+}
+
 func upsertSQLiteRemoteCIRun(transaction *sql.Tx, record RemoteCIRunRecord) error {
-	authoritative := boolToSQLite(record.Authoritative)
 	cleanupComplete := boolToSQLite(record.CleanupComplete)
 	if _, err := transaction.Exec(`
 		INSERT INTO ci_runs (
-			job_id, entrypoint, profile, plan_digest, catalog_digest, accepted_generation, source_tree_sha,
+			job_id, entrypoint, profile, plan_digest, catalog_digest, accepted_generation, image_cache_snapshot_id, source_tree_sha,
 			candidate_gate_source_sha256, candidate_gate_toolchain_sha256, runner_image, status,
 			authoritative, started_at_unix_ms, completed_at_unix_ms, cleanup_complete, error_text
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(job_id) DO UPDATE SET
 			status = excluded.status,
-			authoritative = excluded.authoritative,
 			completed_at_unix_ms = excluded.completed_at_unix_ms,
 			cleanup_complete = excluded.cleanup_complete,
 			error_text = excluded.error_text
 	`, record.JobID, string(record.Entrypoint), string(record.Profile), record.PlanDigest,
-		record.CatalogDigest, strconv.FormatUint(record.AcceptedGeneration, 10), record.SourceTreeSHA, record.CandidateGateSourceSHA256, record.CandidateGateToolchainSHA256,
+		record.CatalogDigest, strconv.FormatUint(record.AcceptedGeneration, 10), record.ImageCacheSnapshotID, record.SourceTreeSHA, record.CandidateGateSourceSHA256, record.CandidateGateToolchainSHA256,
 		record.RunnerImage, string(record.Status),
-		authoritative, record.StartedAt.UTC().UnixMilli(), record.CompletedAt.UTC().UnixMilli(),
+		0, record.StartedAt.UTC().UnixMilli(), record.CompletedAt.UTC().UnixMilli(),
 		cleanupComplete, record.ErrorText,
 	); err != nil {
 		return mapDurationLedgerSQLiteError("store remote CI run", err)
@@ -74,17 +89,14 @@ func upsertSQLiteRemoteCIRun(transaction *sql.Tx, record RemoteCIRunRecord) erro
 	return nil
 }
 
-func insertSQLiteRemoteCIRunRequester(transaction *sql.Tx, record RemoteCIRunRecord) error {
-	if record.RequesterFingerprint == "" {
-		return nil
-	}
+func insertSQLiteRemoteCIRunAgentIdentity(transaction *sql.Tx, record RemoteCIRunRecord) error {
 	if _, err := transaction.Exec(`
-		INSERT INTO ci_run_requesters (
-			job_id, requester_fingerprint, started_at_unix_ms
+		INSERT INTO ci_run_agent_identities (
+			job_id, agent_token_digest, started_at_unix_ms
 		) VALUES (?, ?, ?)
 		ON CONFLICT(job_id) DO NOTHING
-	`, record.JobID, record.RequesterFingerprint.String(), record.StartedAt.UTC().UnixMilli()); err != nil {
-		return mapDurationLedgerSQLiteError("store remote CI requester", err)
+	`, record.JobID, record.AgentTokenDigest, record.StartedAt.UTC().UnixMilli()); err != nil {
+		return mapDurationLedgerSQLiteError("store remote CI agent identity", err)
 	}
 	return nil
 }
@@ -101,6 +113,7 @@ func replaceSQLiteRemoteCIRunShards(transaction *sql.Tx, record RemoteCIRunRecor
 	return nil
 }
 
+// insertSQLiteRemoteCIRunShard 写入分片及其工作负载关联。
 func insertSQLiteRemoteCIRunShard(transaction *sql.Tx, jobID string, shard RemoteCIShardRecord) error {
 	if err := validateRemoteCIShardMaterializationTiming(shard); err != nil {
 		return fmt.Errorf("validate remote CI shard materialization timing: %w", err)
@@ -137,6 +150,7 @@ func insertSQLiteRemoteCIRunShard(transaction *sql.Tx, jobID string, shard Remot
 	return nil
 }
 
+// replaceSQLiteRemoteCIRunExecutions 原子替换该任务的 gate 执行记录。
 func replaceSQLiteRemoteCIRunExecutions(transaction *sql.Tx, record RemoteCIRunRecord) error {
 	if _, err := transaction.Exec(`DELETE FROM ci_gate_executions WHERE job_id = ?`, record.JobID); err != nil {
 		return mapDurationLedgerSQLiteError("clear remote CI gate executions", err)
@@ -165,6 +179,7 @@ func replaceSQLiteRemoteCIRunExecutions(transaction *sql.Tx, record RemoteCIRunR
 	return nil
 }
 
+// replaceSQLiteRemoteCIWorkloadExecutions 校验分片绑定后替换 workload 执行记录。
 func replaceSQLiteRemoteCIWorkloadExecutions(transaction *sql.Tx, record RemoteCIRunRecord) error {
 	if _, err := transaction.Exec(`DELETE FROM ci_workload_executions WHERE job_id = ?`, record.JobID); err != nil {
 		return mapDurationLedgerSQLiteError("clear remote CI workload executions", err)

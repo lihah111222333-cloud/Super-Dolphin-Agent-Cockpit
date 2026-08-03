@@ -26,9 +26,8 @@ func TestStandaloneReleaseAttestationFailsBeforeWorkspaceExecution(t *testing.T)
 	config := withTestExecutorClock(executorConfig{
 		sourcePath: "unreachable-source", workRoot: "unreachable-work", searchPath: "unreachable-path",
 		runtimeSeedRoot: "unreachable-seed", runtimeSeedManifest: "unreachable-manifest",
-		goRoot:               "unreachable-go-root",
-		goBuildCacheSeedRoot: "unreachable-cache-seed",
-		expectedUID:          os.Geteuid(), stdout: &output, stderr: &output,
+		goRoot:      "unreachable-go-root",
+		expectedUID: os.Geteuid(), stdout: &output, stderr: &output,
 	})
 	err := executeProgram(context.Background(), config, GateIDReleaseLayeredCheck,
 		ExecutorPrograms()[GateIDReleaseLayeredCheck])
@@ -55,7 +54,6 @@ func TestExecutorNonGoProgramDoesNotRequireGoBuildCacheSeed(t *testing.T) {
 	source := newExecutorGitSnapshot(t, map[string]string{"clean.txt": "clean\n"})
 	config := newTestExecutorConfig(t, source)
 	config.goBuildCacheSeedRoots = nil
-	config.goBuildCacheSeedRoot = ""
 
 	if err := executeProgram(context.Background(), config, GateIDWhitespaceCheck, ExecutorPrograms()[GateIDWhitespaceCheck]); err != nil {
 		t.Fatalf("execute non-Go gate without Go build cache seed: %v", err)
@@ -222,7 +220,7 @@ func TestExecutorSequentialGatesDoNotRetainPriorCache(t *testing.T) {
 	}
 	commitExecutorSnapshot(t, source, "sequential cache fixture")
 	config := newTestExecutorConfig(t, source)
-	writeTestFile(t, filepath.Join(config.goBuildCacheSeedRoot, "prewarmed"), "runner-cache\n", 0o600)
+	writeTestFile(t, filepath.Join(config.goBuildCacheSeedRoots[0], "prewarmed"), "runner-cache\n", 0o600)
 	program := ExecutorProgram{
 		Strategy:      ExecutorStrategyCommands,
 		Steps:         []ExecutorStep{{Argv: []string{"./cache.sh"}}},
@@ -252,7 +250,7 @@ func TestExecutorUsesSharedGoBuildCacheWithoutCopyingSeed(t *testing.T) {
 	config.runtimeSeedRoot = runtimeRoot
 	config.runtimeSeedManifest = manifestPath
 	config.goBuildCacheRoot = realTempDir(t)
-	writeTestFile(t, filepath.Join(config.goBuildCacheSeedRoot, "prewarmed"), "runner-cache\n", 0o600)
+	writeTestFile(t, filepath.Join(config.goBuildCacheSeedRoots[0], "prewarmed"), "runner-cache\n", 0o600)
 	program := ExecutorProgram{
 		Strategy:      ExecutorStrategyCommands,
 		Steps:         []ExecutorStep{{Argv: []string{"./cache.sh"}}},
@@ -262,7 +260,7 @@ func TestExecutorUsesSharedGoBuildCacheWithoutCopyingSeed(t *testing.T) {
 	if err := executeProgram(context.Background(), config, GateIDBackendTestWithGuard, program); err != nil {
 		t.Fatalf("execute seeded cache fixture: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(config.goBuildCacheSeedRoot, "current-run")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(config.goBuildCacheSeedRoots[0], "current-run")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("runner cache seed was mutated: %v", err)
 	}
 	if content, err := os.ReadFile(filepath.Join(config.goBuildCacheRoot, "current-run")); err != nil || string(content) != "updated" {
@@ -722,8 +720,8 @@ func newTestExecutorConfig(t *testing.T, source string) executorConfig {
 	root := realTempDir(t)
 	workRoot := filepath.Join(root, "work")
 	runtimeRoot := filepath.Join(root, "runtime")
-	goBuildCacheSeedRoot := filepath.Join(root, "go-build-cache-seed")
-	for _, directory := range []string{workRoot, runtimeRoot, goBuildCacheSeedRoot} {
+	goBuildCacheSeedGenerationRoot := filepath.Join(root, "go-build-cache-seed-generation")
+	for _, directory := range []string{workRoot, runtimeRoot, goBuildCacheSeedGenerationRoot} {
 		if err := os.Mkdir(directory, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -734,8 +732,7 @@ func newTestExecutorConfig(t *testing.T, source string) executorConfig {
 		expectedUID: os.Geteuid(), requireReadOnlySource: false,
 		runtimeSeedRoot: runtimeRoot, runtimeSeedManifest: filepath.Join(runtimeRoot, "manifest.json"),
 		goRoot:                testGoRoot(t),
-		goBuildCacheSeedRoots: []string{goBuildCacheSeedRoot},
-		goBuildCacheSeedRoot:  goBuildCacheSeedRoot,
+		goBuildCacheSeedRoots: []string{goBuildCacheSeedGenerationRoot},
 		goBuildCacheProxy:     testGoBuildCacheProxyLauncher(),
 		stdout:                ioDiscard{}, stderr: ioDiscard{},
 	})

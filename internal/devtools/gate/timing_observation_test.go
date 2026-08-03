@@ -41,7 +41,7 @@ func TestTimingObservationSQLiteRoundTrip(t *testing.T) {
 	}
 	defer transaction.Rollback()
 	startedAt := time.UnixMilli(100).UTC()
-	if _, err := transaction.Exec(`INSERT INTO ci_runs (job_id, entrypoint, profile, plan_digest, catalog_digest, accepted_generation, source_tree_sha, candidate_gate_source_sha256, candidate_gate_toolchain_sha256, runner_image, status, authoritative, started_at_unix_ms, completed_at_unix_ms, cleanup_complete, error_text) VALUES (?, ?, ?, ?, ?, '1', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, "roundtrip", "manual_cli", "local_fast", "sha256:plan", "sha256:catalog", strings.Repeat("a", 40), "sha256:"+strings.Repeat("b", 64), "sha256:"+strings.Repeat("c", 64), "runner", "failed", 0, startedAt.UnixMilli(), startedAt.Add(time.Millisecond).UnixMilli(), 1, ""); err != nil {
+	if _, err := transaction.Exec(`INSERT INTO ci_runs (job_id, entrypoint, profile, plan_digest, catalog_digest, accepted_generation, image_cache_snapshot_id, source_tree_sha, candidate_gate_source_sha256, candidate_gate_toolchain_sha256, runner_image, status, authoritative, started_at_unix_ms, completed_at_unix_ms, cleanup_complete, error_text) VALUES (?, ?, ?, ?, ?, '1', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, "roundtrip", "manual_cli", "local_fast", "sha256:plan", "sha256:catalog", "snapshot-1", strings.Repeat("a", 40), "sha256:"+strings.Repeat("b", 64), "sha256:"+strings.Repeat("c", 64), "runner", "failed", 0, startedAt.UnixMilli(), startedAt.Add(time.Millisecond).UnixMilli(), 1, ""); err != nil {
 		t.Fatal(err)
 	}
 	putProfile := ExecutionProfile{CacheSource: "go_build_cache", CacheStatus: CacheObservationPut, CacheMeasurement: "measured", CachePutCount: 1}
@@ -94,8 +94,8 @@ func TestTimingCacheEvidenceMeasuredStatuses(t *testing.T) {
 
 // TestValidateAuthoritativeTimingObservationsRejectsCoverageAndBindingDrift 覆盖权威账本的缺相位、额外 workload、job/shard 及缓存计数漂移。
 func TestValidateAuthoritativeTimingObservationsRejectsCoverageAndBindingDrift(t *testing.T) {
-	profile := ExecutionProfile{CacheSource: "go_build_cache", CacheStatus: "hit", CacheMeasurement: "measured", PrivateHitCount: 2, BaselineHitCount: 3, CacheMissCount: 5, CachePutCount: 7}
-	execution := PlanGateExecution{ShardIdentity: "shard-1", GateID: "workload-1", ExecutionProfile: profile}
+	profile := ExecutionProfile{CacheSource: "go_build_cache", CacheStatus: "hit", CacheMeasurement: "measured", PrivateHitCount: 2, BaselineHitCount: 3, CacheMissCount: 5, CachePutCount: 7, StartupMS: 1, TestBodyMS: 6, TotalMS: 7}
+	execution := PlanGateExecution{ShardIdentity: "shard-1", GateID: "workload-1", StartedAt: time.UnixMilli(103), CompletedAt: time.UnixMilli(110), ExecutionProfile: profile}
 	shards := []RemoteCIShardRecord{{ShardIdentity: "shard-1", Workloads: []GateID{"workload-1"}}}
 	observations := authoritativeTimingObservationsForTest("job-1", execution)
 	if err := ValidateAuthoritativeTimingObservations("job-1", observations, []PlanGateExecution{execution}, shards); err != nil {
@@ -211,22 +211,29 @@ func TestTimingObservationDurationSemantics(t *testing.T) {
 }
 
 func authoritativeTimingObservationsForTest(jobID string, execution PlanGateExecution) []TimingObservation {
-	measured := func(scope cicontract.TimingScope, shard string, workload GateID, phase cicontract.TimingPhase, startedMS, completedMS int64, evidence CacheEvidence) TimingObservation {
-		return TimingObservation{JobID: jobID, Scope: scope, ShardIdentity: shard, WorkloadID: workload, Phase: phase, StartedAt: time.UnixMilli(startedMS), CompletedAt: time.UnixMilli(completedMS), DurationMS: completedMS - startedMS, Measurement: cicontract.ObservationMeasured, Aggregation: cicontract.TimingAggregationRaw, CacheEvidence: evidence}
+	measured := func(scope cicontract.TimingScope, shard string, workload GateID, phase cicontract.TimingPhase, startedAt, completedAt time.Time, evidence CacheEvidence) TimingObservation {
+		return TimingObservation{JobID: jobID, Scope: scope, ShardIdentity: shard, WorkloadID: workload, Phase: phase, StartedAt: startedAt, CompletedAt: completedAt, DurationMS: completedAt.Sub(startedAt).Milliseconds(), Measurement: cicontract.ObservationMeasured, Aggregation: cicontract.TimingAggregationRaw, CacheEvidence: evidence}
 	}
 	notApplicable := func(phase cicontract.TimingPhase) TimingObservation {
 		return TimingObservation{JobID: jobID, Scope: cicontract.TimingScopeWorkload, ShardIdentity: execution.ShardIdentity, WorkloadID: execution.GateID, Phase: phase, Measurement: cicontract.ObservationNotApplicable, Reason: "shard_scoped:" + execution.ShardIdentity, Aggregation: cicontract.TimingAggregationRaw, CacheEvidence: NewTimingCacheEvidenceFromProfile(execution.ExecutionProfile)}
 	}
-	runTotal := measured(cicontract.TimingScopeRun, "", "", cicontract.TimingTotal, 100, 112, NewNotApplicableCacheEvidence("run_has_no_workload_cache"))
+	startedAt := execution.StartedAt.UTC().Truncate(time.Millisecond)
+	completedAt := execution.CompletedAt.UTC().Truncate(time.Millisecond)
+	workloadStartupCompletedAt := startedAt.Add(time.Duration(execution.ExecutionProfile.StartupMS) * time.Millisecond)
+	workloadTestBodyStartedAt := completedAt.Add(-time.Duration(execution.ExecutionProfile.TestBodyMS) * time.Millisecond)
+	shardStartedAt := startedAt.Add(-3 * time.Millisecond)
+	shardCompletedAt := completedAt.Add(time.Millisecond)
+	runCompletedAt := completedAt.Add(2 * time.Millisecond)
+	runTotal := measured(cicontract.TimingScopeRun, "", "", cicontract.TimingTotal, shardStartedAt, runCompletedAt, NewNotApplicableCacheEvidence("run_has_no_workload_cache"))
 	runTotal.Aggregation = cicontract.TimingAggregationCriticalPath
 	observations := []TimingObservation{runTotal}
-	shardIntervals := map[cicontract.TimingPhase][2]int64{
-		cicontract.TimingECIWait:           {100, 101},
-		cicontract.TimingSourceMaterialize: {101, 102},
-		cicontract.TimingCandidateCompile:  {102, 103},
-		cicontract.TimingStartup:           {103, 104},
-		cicontract.TimingTestBody:          {104, 110},
-		cicontract.TimingTotal:             {100, 111},
+	shardIntervals := map[cicontract.TimingPhase][2]time.Time{
+		cicontract.TimingECIWait:           {shardStartedAt, shardStartedAt.Add(time.Millisecond)},
+		cicontract.TimingSourceMaterialize: {shardStartedAt.Add(time.Millisecond), shardStartedAt.Add(2 * time.Millisecond)},
+		cicontract.TimingCandidateCompile:  {shardStartedAt.Add(2 * time.Millisecond), startedAt},
+		cicontract.TimingStartup:           {startedAt, workloadStartupCompletedAt},
+		cicontract.TimingTestBody:          {workloadTestBodyStartedAt, completedAt},
+		cicontract.TimingTotal:             {shardStartedAt, shardCompletedAt},
 	}
 	for _, phase := range cicontract.TimingPhases() {
 		interval := shardIntervals[phase]
@@ -242,10 +249,10 @@ func authoritativeTimingObservationsForTest(jobID string, execution PlanGateExec
 			observations = append(observations, notApplicable(phase))
 		}
 	}
-	workloadIntervals := map[cicontract.TimingPhase][2]int64{
-		cicontract.TimingStartup:  {103, 104},
-		cicontract.TimingTestBody: {104, 110},
-		cicontract.TimingTotal:    {103, 110},
+	workloadIntervals := map[cicontract.TimingPhase][2]time.Time{
+		cicontract.TimingStartup:  {startedAt, workloadStartupCompletedAt},
+		cicontract.TimingTestBody: {workloadTestBodyStartedAt, completedAt},
+		cicontract.TimingTotal:    {startedAt, completedAt},
 	}
 	for _, phase := range []cicontract.TimingPhase{cicontract.TimingStartup, cicontract.TimingTestBody, cicontract.TimingTotal} {
 		interval := workloadIntervals[phase]

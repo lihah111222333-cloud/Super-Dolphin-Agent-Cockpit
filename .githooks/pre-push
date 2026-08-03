@@ -16,6 +16,11 @@ if ! gate_bin=$(trusted_gate_launcher "$repo_root"); then
   exit 1
 fi
 
+# 首次身份协商不得读取远程配置或规范化 ref；hook 不签发或保存 token。
+if [[ "${SUPER_DOLPHIN_CI_AGENT_TOKEN-}" == "issue" || -z "${SUPER_DOLPHIN_CI_AGENT_TOKEN+x}" ]]; then
+  exec "$gate_bin" remote hook pre-push
+fi
+
 remote_config=${SUPER_DOLPHIN_GATE_REMOTE_CONFIG:-$(git config --local --get super-dolphin.remote.config || true)}
 remote_ledger=${SUPER_DOLPHIN_GATE_LEDGER:-$(git config --local --get super-dolphin.remote.ledger || true)}
 if [[ -z "$remote_config" || -z "$remote_ledger" ]]; then

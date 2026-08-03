@@ -5,45 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
-
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
 
-const imageCachePollInterval = 2 * time.Second
-
-// CreateImageCache 为不可变 OCI 镜像创建显式命名缓存。
-// 层复用和极速缓存不可关闭，避免创建路径静默退化。
-func (c *Client) CreateImageCache(ctx context.Context, request ImageCacheCreateRequest) (ImageCache, error) {
-	if err := validateImageCacheCreateRequest(request); err != nil {
-		return ImageCache{}, err
-	}
-	args := []string{
-		"--VSwitchId", c.config.VSwitchID,
-		"--SecurityGroupId", c.config.SecurityGroupID,
-		"--ImageCacheName", request.ImageCacheName,
-		"--ImageCacheSize", fmt.Sprintf("%d", request.ImageCacheSize),
-		"--AutoMatchImageCache", "true",
-		"--Flash", "true",
-	}
-	if request.RetentionDays != 0 {
-		args = append(args, "--RetentionDays", fmt.Sprintf("%d", request.RetentionDays))
-	}
-	args = appendIndexedValues(args, "--Image", request.Images)
-	args = appendIndexedMap(args, "--Tag", request.Tags)
-	output, err := c.run(ctx, "CreateImageCache", args...)
-	if err != nil {
-		createErr := fmt.Errorf("create ECI image cache: %w", err)
-		if !isTransientCLIError(createErr) {
-			return ImageCache{}, createErr
-		}
-		return c.reconcileCreatedImageCache(ctx, request.ImageCacheName, createErr)
-	}
-	cache, err := decodeCreatedImageCache(output, request.ImageCacheName)
-	if err != nil {
-		return c.reconcileCreatedImageCache(ctx, request.ImageCacheName, err)
-	}
-	return cache, nil
+type imageCacheListResponse struct {
+	ImageCaches []ImageCache `json:"ImageCaches"`
 }
 
 // DescribeImageCache 查询一个缓存，并拒绝缺失或歧义的 CLI JSON 响应。
@@ -54,134 +19,96 @@ func (c *Client) DescribeImageCache(ctx context.Context, imageCacheID string) (I
 	return c.describeImageCache(ctx, []string{"--ImageCacheId", imageCacheID}, imageCacheID)
 }
 
-// WaitImageCacheReady 仅等待显式创建的缓存进入 Ready。
-// 失败和未知状态返回最后事件证据，绝不允许改为缓存未命中。
-func (c *Client) WaitImageCacheReady(ctx context.Context, imageCacheID string) (ImageCache, error) {
-	for {
-		cache, err := c.DescribeImageCache(ctx, imageCacheID)
-		if err != nil {
-			return ImageCache{}, err
-		}
-		switch cache.Status {
-		case "Ready":
-			return cache, nil
-		case "Preparing", "Creating", "Updating":
-			if err := c.wait(ctx, imageCachePollInterval); err != nil {
-				return ImageCache{}, fmt.Errorf("wait for ECI image cache %s: %w", imageCacheID, err)
-			}
-		case "Failed", "UpdateFailed":
-			return cache, fmt.Errorf("ECI image cache %s reached %s: %s", imageCacheID, cache.Status, formatImageCacheEvents(cache.Events))
-		default:
-			return cache, fmt.Errorf("ECI image cache %s returned unsupported status %q: %s", imageCacheID, cache.Status, formatImageCacheEvents(cache.Events))
-		}
+// ValidateReadyImageCache 校验外部首代回执绑定的 live ECI identity 与 Ready 镜像。
+func ValidateReadyImageCache(cache ImageCache, expectedID, expectedName, expectedImage string) error {
+	if err := validateReadyImageCacheIdentity(cache, expectedID, expectedName); err != nil {
+		return err
 	}
+	return validateReadyImageCacheImages(cache.Images, expectedImage)
 }
 
-// DeleteImageCache 删除调用方拥有的缓存，并要求 ECI 返回请求回执。
-func (c *Client) DeleteImageCache(ctx context.Context, imageCacheID string) error {
-	if strings.TrimSpace(imageCacheID) == "" {
-		return errors.New("ECI image cache ID is required")
+// validateReadyImageCacheIdentity 校验 ECI 返回的状态、ID、名称和 snapshot。
+func validateReadyImageCacheIdentity(cache ImageCache, expectedID, expectedName string) error {
+	if err := validateDescribedImageCache(cache); err != nil {
+		return err
 	}
-	output, err := c.run(ctx, "DeleteImageCache", "--ImageCacheId", imageCacheID)
-	if err != nil {
-		return fmt.Errorf("delete ECI image cache: %w", err)
-	}
-	var response struct {
-		RequestID string `json:"RequestId"`
-	}
-	if err := decodeJSON(output, &response); err != nil {
-		return fmt.Errorf("decode DeleteImageCache response: %w", err)
-	}
-	if strings.TrimSpace(response.RequestID) == "" {
-		return errors.New("DeleteImageCache response is missing RequestId")
+	if cache.Status != "Ready" || cache.ID != expectedID || cache.Name != expectedName || strings.TrimSpace(cache.SnapshotID) == "" {
+		return errors.New("ECI ImageCache is not the expected immutable Ready cache")
 	}
 	return nil
 }
 
+// validateReadyImageCacheImages 校验 Ready cache 中只有规范 immutable runtime image。
+func validateReadyImageCacheImages(images []string, expectedImage string) error {
+	if err := validateImmutableImageReferences(images); err != nil {
+		return fmt.Errorf("validate ECI Ready ImageCache images: %w", err)
+	}
+	seen := 0
+	for _, image := range images {
+		if image == expectedImage {
+			seen++
+		}
+	}
+	if seen != 1 {
+		return errors.New("ECI Ready ImageCache runtime image does not match the provision receipt exactly once")
+	}
+	return nil
+}
+
+// describeImageCache 按精确查询参数读取唯一缓存，并校验调用方指定的身份。
 func (c *Client) describeImageCache(ctx context.Context, args []string, expectedID string) (ImageCache, error) {
 	output, err := c.run(ctx, "DescribeImageCaches", args...)
 	if err != nil {
 		return ImageCache{}, fmt.Errorf("describe ECI image cache: %w", err)
 	}
-	var response struct {
-		ImageCaches []ImageCache `json:"ImageCaches"`
-	}
-	if err := decodeJSON(output, &response); err != nil {
+	caches, err := decodeImageCacheList(output)
+	if err != nil {
 		return ImageCache{}, fmt.Errorf("decode DescribeImageCaches response: %w", err)
 	}
-	if len(response.ImageCaches) != 1 {
-		return ImageCache{}, fmt.Errorf("DescribeImageCaches response contains %d image caches, want exactly one", len(response.ImageCaches))
+	if len(caches) != 1 {
+		return ImageCache{}, fmt.Errorf("DescribeImageCaches response contains %d image caches, want exactly one", len(caches))
 	}
-	cache := response.ImageCaches[0]
-	if strings.TrimSpace(cache.ID) == "" || strings.TrimSpace(cache.Name) == "" || strings.TrimSpace(cache.Status) == "" {
-		return ImageCache{}, errors.New("DescribeImageCaches response contains an incomplete image cache")
+	cache := caches[0]
+	if err := validateDescribedImageCache(cache); err != nil {
+		return ImageCache{}, err
 	}
-	if expectedID != "" && cache.ID != expectedID {
+	if cache.ID != expectedID {
 		return ImageCache{}, fmt.Errorf("DescribeImageCaches response returned image cache %q, want %q", cache.ID, expectedID)
 	}
 	return cache, nil
 }
 
-func (c *Client) reconcileCreatedImageCache(ctx context.Context, name string, cause error) (ImageCache, error) {
-	cache, err := c.describeImageCache(ctx, []string{"--ImageCacheName", name}, "")
-	if err != nil {
-		return ImageCache{}, errors.Join(cause, fmt.Errorf("reconcile ECI image cache %s: %w", name, err))
+// decodeImageCacheList 解码 DescribeImageCaches 的严格响应列表。
+func decodeImageCacheList(output []byte) ([]ImageCache, error) {
+	var response imageCacheListResponse
+	if err := decodeJSON(output, &response); err != nil {
+		return nil, err
 	}
-	if cache.Name != name {
-		return ImageCache{}, errors.Join(cause, fmt.Errorf("reconcile ECI image cache %s: returned %q", name, cache.Name))
-	}
-	return cache, nil
+	return response.ImageCaches, nil
 }
 
-func validateImageCacheCreateRequest(request ImageCacheCreateRequest) error {
-	if !eciNamePattern.MatchString(request.ImageCacheName) {
-		return errors.New("ECI image cache name is invalid")
+// validateDescribedImageCache 拒绝缺少 ECI 返回身份字段的缓存。
+func validateDescribedImageCache(cache ImageCache) error {
+	if strings.TrimSpace(cache.ID) == "" || strings.TrimSpace(cache.Name) == "" || strings.TrimSpace(cache.Status) == "" {
+		return errors.New("DescribeImageCaches response contains an incomplete image cache")
 	}
-	if request.ImageCacheSize < 20 || request.ImageCacheSize > 32768 {
-		return errors.New("ECI image cache size must be between 20 and 32768 GiB")
+	return nil
+}
+
+// validateImmutableImageReferences 验证不可变且不重复的 ECI 镜像身份。
+func validateImmutableImageReferences(images []string) error {
+	if len(images) == 0 {
+		return errors.New("ECI Ready ImageCache has no immutable runtime image")
 	}
-	if request.RetentionDays < 0 || request.RetentionDays > 65536 {
-		return errors.New("ECI image cache retention days must be between 0 and 65536")
-	}
-	if len(request.Images) == 0 {
-		return errors.New("ECI image cache requires at least one image")
-	}
-	seen := make(map[string]struct{}, len(request.Images))
-	for index, image := range request.Images {
+	seen := make(map[string]struct{}, len(images))
+	for index, image := range images {
 		if !imageDigestPattern.MatchString(image) {
 			return fmt.Errorf("ECI image cache image %d must be an immutable OCI digest reference", index+1)
-		}
-		if err := cicontract.ValidateNonACRRegistryHost(image); err != nil {
-			return fmt.Errorf("ECI image cache image %d: %w", index+1, err)
 		}
 		if _, exists := seen[image]; exists {
 			return fmt.Errorf("ECI image cache image %d duplicates an earlier image", index+1)
 		}
 		seen[image] = struct{}{}
 	}
-	return validateRequestTags(CreateRequest{Tags: request.Tags})
-}
-
-func decodeCreatedImageCache(output []byte, name string) (ImageCache, error) {
-	var response struct {
-		ImageCacheID string `json:"ImageCacheId"`
-	}
-	if err := decodeJSON(output, &response); err != nil {
-		return ImageCache{}, fmt.Errorf("decode CreateImageCache response: %w", err)
-	}
-	if strings.TrimSpace(response.ImageCacheID) == "" {
-		return ImageCache{}, errors.New("CreateImageCache response is missing ImageCacheId")
-	}
-	return ImageCache{ID: response.ImageCacheID, Name: name}, nil
-}
-
-func formatImageCacheEvents(events []ContainerGroupEvent) string {
-	if len(events) == 0 {
-		return "no ECI events returned"
-	}
-	parts := make([]string, 0, len(events))
-	for _, event := range events {
-		parts = append(parts, fmt.Sprintf("%s/%s: %s", event.Type, event.Reason, event.Message))
-	}
-	return strings.Join(parts, "; ")
+	return nil
 }

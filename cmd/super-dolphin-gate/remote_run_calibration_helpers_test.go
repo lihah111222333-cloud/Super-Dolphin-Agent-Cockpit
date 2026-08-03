@@ -101,7 +101,7 @@ func (fixture remoteDurationCalibrationFixture) acceptExistingSamples() (bool, e
 	return acceptRemoteDurationCalibrationFromExistingSamples(fixture.store, fixture.calibration, fixture.commitCatalog, fixture.pushCatalog, fixture.releaseCatalog)
 }
 
-func assertParsedRemoteRunOptions(t *testing.T, options remoteRunOptions, requesterFingerprint string) {
+func assertParsedRemoteRunOptions(t *testing.T, options remoteRunOptions, agentTokenDigest string) {
 	t.Helper()
 	if options.ConfigPath != "/tmp/remote-ci.json" {
 		t.Fatalf("parseRemoteRunOptions() = %#v", options)
@@ -121,7 +121,7 @@ func assertParsedRemoteRunOptions(t *testing.T, options remoteRunOptions, reques
 	if options.LedgerPath != "/tmp/remote-ci.baseline-state.sqlite" {
 		t.Fatalf("parseRemoteRunOptions() = %#v", options)
 	}
-	if options.RequesterFingerprint.String() != requesterFingerprint {
+	if options.AgentTokenDigest != agentTokenDigest {
 		t.Fatalf("parseRemoteRunOptions() = %#v", options)
 	}
 }

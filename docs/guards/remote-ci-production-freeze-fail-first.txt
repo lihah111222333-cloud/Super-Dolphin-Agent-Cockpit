@@ -1,6 +1,6 @@
-source_head: 20510a19cb740f65eef2a38b945983ce1d55ebd4
+source_head: e084513fff10dbde1f784efd98ed1976825b9660
 reviewed_at: 2026-08-02T05:00:00Z
-snapshot_sha256: bcc5e63a12581893edc76324a8d137b60250f4ce0d82bd43f1b2280460509c16
+snapshot_sha256: ff5f7d035a48db47e799efa2633225a2f069b5debc285335a4c6e6a992461b26
 working_directory: .
 command: go run ./scripts/code_size_guard.go
 expected_exit: 1

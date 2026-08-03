@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -90,18 +91,34 @@ func distributeLPT(planned []PlannedWorkload, shardCount int) []ShardPlan {
 	return shards
 }
 
-// BuildWorkloadExecutionPlan 使用固定账本 generation 构建可复算、可持久化的 LPT 计划。
+// BuildWorkloadExecutionPlan 使用完整权威 catalog 构建全执行 LPT 计划。
 func BuildWorkloadExecutionPlan(
 	gatePlan GatePlan,
 	catalog WorkloadCatalog,
 	snapshot DurationLedgerSnapshot,
 	context PlanningContext,
 ) (WorkloadExecutionPlan, error) {
+	return BuildWorkloadExecutionPlanForWorkloads(gatePlan, catalog, snapshot, context, allShardableWorkloadIDs(catalog))
+}
+
+// BuildWorkloadExecutionPlanForWorkloads 将完整权威 catalog 与严格 execution 投影一同绑定。
+// 投影只能包含当前 catalog 中可分片的 workload，且保持其 canonical 顺序；它不是另一个 catalog。
+func BuildWorkloadExecutionPlanForWorkloads(
+	gatePlan GatePlan,
+	catalog WorkloadCatalog,
+	snapshot DurationLedgerSnapshot,
+	context PlanningContext,
+	executionIDs []GateID,
+) (WorkloadExecutionPlan, error) {
 	index, err := prepareWorkloadExecutionPlanInputs(gatePlan, catalog, snapshot, context)
 	if err != nil {
 		return WorkloadExecutionPlan{}, err
 	}
-	shards, err := planLPTWithIndex(catalog, index)
+	executionCatalog, err := workloadExecutionCatalog(catalog, executionIDs)
+	if err != nil {
+		return WorkloadExecutionPlan{}, err
+	}
+	shards, err := planLPTWithIndex(executionCatalog, index)
 	if err != nil {
 		return WorkloadExecutionPlan{}, err
 	}
@@ -113,11 +130,15 @@ func BuildWorkloadExecutionPlan(
 	if err != nil {
 		return WorkloadExecutionPlan{}, err
 	}
+	executionDigest, err := workloadExecutionDigest(executionIDs)
+	if err != nil {
+		return WorkloadExecutionPlan{}, err
+	}
 	plan := WorkloadExecutionPlan{
 		SchemaVersion: workloadExecutionPlanSchemaVersion, GatePlanDigest: gatePlan.PlanDigest,
 		CatalogDigest: catalogDigest, LedgerGeneration: snapshot.Generation, Context: context,
-		Catalog: catalog,
-		Shards:  shards, OwnerEstimatedDurationMS: ownerDuration,
+		Catalog: catalog, ExecutionWorkloadIDs: slices.Clone(executionIDs), ExecutionWorkloadDigest: executionDigest,
+		Shards: shards, OwnerEstimatedDurationMS: ownerDuration,
 	}
 	plan.PlanDigest, err = plan.digest()
 	if err != nil {
@@ -154,7 +175,7 @@ func (plan WorkloadExecutionPlan) Validate(gatePlan GatePlan, snapshot DurationL
 	if err := plan.ValidateStored(gatePlan); err != nil {
 		return err
 	}
-	expected, err := BuildWorkloadExecutionPlan(gatePlan, plan.Catalog, snapshot, plan.Context)
+	expected, err := BuildWorkloadExecutionPlanForWorkloads(gatePlan, plan.Catalog, snapshot, plan.Context, plan.ExecutionWorkloadIDs)
 	if err != nil {
 		return err
 	}
@@ -246,17 +267,88 @@ func validateCurrentWorkloadCatalog(gatePlan GatePlan, catalog WorkloadCatalog) 
 	return validateWorkloadCatalogForGatePlan(gatePlan, catalog)
 }
 
-// validateStoredWorkloadShards 校验 shard 数量、顺序、估时总和与精确 workload 覆盖。
+// workloadExecutionCatalog 从完整目录投影严格、按规范顺序的执行集合，不创建第二权威。
+func workloadExecutionCatalog(catalog WorkloadCatalog, executionIDs []GateID) (WorkloadCatalog, error) {
+	if len(executionIDs) == 0 {
+		return WorkloadCatalog{}, errors.New("workload execution projection is empty")
+	}
+	selected, err := workloadExecutionIDSet(executionIDs)
+	if err != nil {
+		return WorkloadCatalog{}, err
+	}
+	projected := WorkloadCatalog{Version: catalog.Version, Authoritative: false}
+	for _, workload := range catalog.Workloads {
+		if _, ok := selected[GateID(workload.ID)]; !ok {
+			continue
+		}
+		if !workload.Shardable {
+			return WorkloadCatalog{}, fmt.Errorf("workload execution projection contains non-shardable workload %q", workload.ID)
+		}
+		projected.Workloads = append(projected.Workloads, workload)
+	}
+	if len(projected.Workloads) != len(executionIDs) {
+		return WorkloadCatalog{}, errors.New("workload execution projection contains workload outside catalog")
+	}
+	for index, workload := range projected.Workloads {
+		if GateID(workload.ID) != executionIDs[index] {
+			return WorkloadCatalog{}, errors.New("workload execution projection does not preserve canonical order")
+		}
+	}
+	return projected, nil
+}
+
+func workloadExecutionIDSet(executionIDs []GateID) (map[GateID]struct{}, error) {
+	selected := make(map[GateID]struct{}, len(executionIDs))
+	for _, id := range executionIDs {
+		if id == "" {
+			return nil, errors.New("workload execution projection contains an empty workload")
+		}
+		if _, duplicate := selected[id]; duplicate {
+			return nil, fmt.Errorf("workload execution projection contains duplicate workload %q", id)
+		}
+		selected[id] = struct{}{}
+	}
+	return selected, nil
+}
+
+func allShardableWorkloadIDs(catalog WorkloadCatalog) []GateID {
+	ids := make([]GateID, 0, shardableWorkloadCount(catalog))
+	for _, workload := range catalog.Workloads {
+		if workload.Shardable {
+			ids = append(ids, GateID(workload.ID))
+		}
+	}
+	return ids
+}
+
+func workloadExecutionDigest(executionIDs []GateID) (string, error) {
+	if len(executionIDs) == 0 {
+		return "", errors.New("workload execution projection is empty")
+	}
+	encoded, err := json.Marshal(executionIDs)
+	if err != nil {
+		return "", fmt.Errorf("marshal workload execution projection: %w", err)
+	}
+	sum := sha256.Sum256(encoded)
+	return fmt.Sprintf("sha256:%x", sum), nil
+}
+
+// validateStoredWorkloadShards 校验计划分片只且完整覆盖已绑定的执行投影。
 func validateStoredWorkloadShards(plan WorkloadExecutionPlan) error {
-	if err := validateStoredWorkloadShardCount(plan, shardableWorkloadCount(plan.Catalog)); err != nil {
+	executionCatalog, err := workloadExecutionCatalog(plan.Catalog, plan.ExecutionWorkloadIDs)
+	if err != nil {
 		return err
 	}
-	if shardableWorkloadCount(plan.Catalog) == 0 {
-		return nil
+	executionDigest, err := workloadExecutionDigest(plan.ExecutionWorkloadIDs)
+	if err != nil || plan.ExecutionWorkloadDigest != executionDigest {
+		return errors.New("workload execution projection digest mismatch")
 	}
-	seen := make(map[string]struct{}, shardableWorkloadCount(plan.Catalog))
-	catalog := make(map[string]Workload, len(plan.Catalog.Workloads))
-	for _, workload := range plan.Catalog.Workloads {
+	if err := validateStoredWorkloadShardCount(plan, shardableWorkloadCount(executionCatalog)); err != nil {
+		return err
+	}
+	seen := make(map[string]struct{}, shardableWorkloadCount(executionCatalog))
+	catalog := make(map[string]Workload, len(executionCatalog.Workloads))
+	for _, workload := range executionCatalog.Workloads {
 		catalog[workload.ID] = workload
 	}
 	for index, shard := range plan.Shards {
@@ -264,7 +356,7 @@ func validateStoredWorkloadShards(plan WorkloadExecutionPlan) error {
 			return err
 		}
 	}
-	if err := validateStoredWorkloadCoverage(plan.Catalog, seen); err != nil {
+	if err := validateStoredWorkloadCoverage(executionCatalog, seen); err != nil {
 		return err
 	}
 	return validateStoredWorkloadShardLayout(plan)
@@ -282,7 +374,7 @@ func validateStoredWorkloadShardCount(plan WorkloadExecutionPlan, shardableCount
 
 // validateStoredWorkloadShardLayout 拒绝偏离 100 秒目标的过度分片计划。
 func validateStoredWorkloadShardLayout(plan WorkloadExecutionPlan) error {
-	planned := make([]PlannedWorkload, 0, shardableWorkloadCount(plan.Catalog))
+	planned := make([]PlannedWorkload, 0, len(plan.ExecutionWorkloadIDs))
 	for _, shard := range plan.Shards {
 		planned = append(planned, shard.Workloads...)
 	}
@@ -299,6 +391,7 @@ func validateStoredWorkloadShardLayout(plan WorkloadExecutionPlan) error {
 	return nil
 }
 
+// equalShardPlans 比较按 LPT 生成的分片顺序、估时和 workload 归属。
 func equalShardPlans(left []ShardPlan, right []ShardPlan) bool {
 	if len(left) != len(right) {
 		return false

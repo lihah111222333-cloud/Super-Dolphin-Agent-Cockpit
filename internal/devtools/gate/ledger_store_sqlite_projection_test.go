@@ -7,7 +7,7 @@ import (
 
 // TestRemoteCIRunRecordFieldRegistry 防止 run 主投影字段在 schema guard 前静默漂移。
 func TestRemoteCIRunRecordFieldRegistry(t *testing.T) {
-	want := []string{"JobID", "RequesterFingerprint", "Entrypoint", "Profile", "PlanDigest", "CatalogDigest", "AcceptedGeneration", "SourceTreeSHA", "CandidateGateSourceSHA256", "CandidateGateToolchainSHA256", "RunnerImage", "Status", "Authoritative", "StartedAt", "CompletedAt", "CleanupComplete", "ErrorText", "Shards", "Executions", "WorkloadExecutions", "Warnings", "TimingObservations"}
+	want := []string{"JobID", "AgentTokenDigest", "Entrypoint", "Profile", "PlanDigest", "CatalogDigest", "AcceptedGeneration", "ImageCacheSnapshotID", "SourceTreeSHA", "CandidateGateSourceSHA256", "CandidateGateToolchainSHA256", "RunnerImage", "Status", "Authoritative", "StartedAt", "CompletedAt", "CleanupComplete", "ErrorText", "Shards", "Executions", "WorkloadExecutions", "WorkloadResults", "Warnings", "TimingWarnings", "TimingObservations"}
 	typeOf := reflect.TypeFor[RemoteCIRunRecord]()
 	got := make([]string, 0, typeOf.NumField())
 	for field := range typeOf.Fields() {

@@ -16,7 +16,7 @@ func remoteExecutionShardResources(
 	catalog gate.WorkloadCatalog,
 	shards []gate.ContainerShard,
 	input RunInput,
-) ([]eci.Resources, error) {
+) ([]shardresource.Class, error) {
 	if input.Calibration {
 		class, err := policy.ResolveCalibrationClass()
 		if err != nil {
@@ -25,9 +25,9 @@ func remoteExecutionShardResources(
 		if input.CalibrationResource != class {
 			return nil, errors.New("remote CI calibration resource identity drifted")
 		}
-		resources := make([]eci.Resources, len(shards))
+		resources := make([]shardresource.Class, len(shards))
 		for index := range resources {
-			resources[index] = eci.Resources{CPU: class.VCPU, MemoryGiB: class.MemoryGiB}
+			resources[index] = class
 		}
 		return resources, nil
 	}
@@ -42,7 +42,7 @@ func remoteExecutionShardResources(
 		Runner:    input.RunnerIdentityDigest,
 		Toolchain: input.ToolchainDigest,
 	}
-	resources := make([]eci.Resources, len(shards))
+	resources := make([]shardresource.Class, len(shards))
 	for index, shard := range shards {
 		selection := shardresource.Shard{
 			Identity:  shard.IdentityDigest,
@@ -62,12 +62,12 @@ func remoteExecutionShardResources(
 		if err != nil {
 			return nil, fmt.Errorf("select remote CI resources for shard %d: %w", index, err)
 		}
-		resources[index] = eci.Resources{CPU: class.VCPU, MemoryGiB: class.MemoryGiB}
+		resources[index] = class
 	}
 	return resources, nil
 }
 
-func bindRemoteShardResources(results []ShardResult, resources []eci.Resources, requests []ShardRequest) error {
+func bindRemoteShardResources(results []ShardResult, resources []shardresource.Class, requests []ShardRequest) error {
 	if len(results) != len(resources) || len(results) != len(requests) {
 		return errors.New("remote CI shard resource receipts are incomplete")
 	}
@@ -75,10 +75,8 @@ func bindRemoteShardResources(results []ShardResult, resources []eci.Resources, 
 		if err := validateShardResourceBinding(resources[index], requests[index]); err != nil {
 			return fmt.Errorf("remote CI shard %d resource receipt: %w", index, err)
 		}
-		results[index].Resources = resources[index]
-		if requests[index].CalibrationResource != nil {
-			results[index].ResourceClass = requests[index].CalibrationResource.ID
-		}
+		results[index].Resources = eci.Resources{CPU: resources[index].VCPU, MemoryGiB: resources[index].MemoryGiB}
+		results[index].ResourceClass = resources[index].ID
 	}
 	return nil
 }

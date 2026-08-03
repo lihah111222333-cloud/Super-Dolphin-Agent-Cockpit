@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -18,12 +19,13 @@ var ErrRemoteCIRunNotFound = errors.New("remote CI run not found")
 // RemoteCIRunRecord 是一次协调器执行及其分片和 gate 终态的查询投影。
 type RemoteCIRunRecord struct {
 	JobID                        string
-	RequesterFingerprint         RequesterFingerprint
+	AgentTokenDigest             string
 	Entrypoint                   CIEntrypointID
 	Profile                      Profile
 	PlanDigest                   string
 	CatalogDigest                string
 	AcceptedGeneration           uint64
+	ImageCacheSnapshotID         string
 	SourceTreeSHA                string
 	CandidateGateSourceSHA256    string
 	CandidateGateToolchainSHA256 string
@@ -37,7 +39,9 @@ type RemoteCIRunRecord struct {
 	Shards                       []RemoteCIShardRecord
 	Executions                   []PlanGateExecution
 	WorkloadExecutions           []PlanGateExecution
+	WorkloadResults              []RemoteCIWorkloadResult
 	Warnings                     []string
+	TimingWarnings               []RemoteCITimingWarning
 	TimingObservations           []TimingObservation
 }
 
@@ -58,14 +62,27 @@ type RemoteCIShardResources struct {
 	MemoryGiB float64 `json:"memory_gib"`
 }
 
+// Validate 拒绝缺失或畸形的实际分片 CPU、内存与规格身份。
+// 校准固定规格由 remote CI 请求与 checkpoint 额外严格绑定，normal 则保留策略实际选择。
 func (resources RemoteCIShardResources) Validate() error {
-	return cicontract.ValidateCalibrationResources(resources.ClassID, resources.CPU, resources.MemoryGiB)
+	if strings.TrimSpace(resources.ClassID) == "" || resources.ClassID != strings.TrimSpace(resources.ClassID) ||
+		resources.CPU <= 0 || resources.MemoryGiB <= 0 ||
+		math.IsNaN(resources.CPU) || math.IsInf(resources.CPU, 0) ||
+		math.IsNaN(resources.MemoryGiB) || math.IsInf(resources.MemoryGiB, 0) {
+		return errors.New("remote CI shard class, CPU, and memory are required")
+	}
+	return nil
 }
 
-// RecordRemoteCIRun 原子替换一个 job 的 run、shard、workload 和 gate 查询投影。
-func (store *DurationLedgerStore) RecordRemoteCIRun(record RemoteCIRunRecord) error {
+// RecordProvisionalRemoteCIRun 原子替换一个尚未最终化的 job 投影。
+// 权威标记、check receipt 与 workload PASS evidence 只能由
+// FinalizeRemoteCIRunAuthorityWithSamples 在同一 SQLite 事务中写入。
+func (store *DurationLedgerStore) RecordProvisionalRemoteCIRun(record RemoteCIRunRecord) error {
 	if store == nil {
 		return errors.New("duration ledger store is nil")
+	}
+	if record.Authoritative {
+		return errors.New("provisional remote CI run must not be authoritative")
 	}
 	if err := validateRemoteCIRunRecord(record); err != nil {
 		return err
@@ -117,73 +134,72 @@ func (store *DurationLedgerStore) LoadRemoteCIRun(jobID string) (RemoteCIRunReco
 	return record, nil
 }
 
-// ListRemoteCIRunIDsByRequester 按索引返回一个逻辑发起方最近的远程运行。
-func (store *DurationLedgerStore) ListRemoteCIRunIDsByRequester(fingerprint RequesterFingerprint, limit int) ([]string, error) {
-	if store == nil {
-		return nil, errors.New("duration ledger store is nil")
-	}
-	if err := fingerprint.Validate(); err != nil {
-		return nil, fmt.Errorf("requester fingerprint: %w", err)
-	}
-	if limit <= 0 || limit > 1_000 {
-		return nil, errors.New("requester run query limit must be between 1 and 1000")
-	}
-	database, err := store.openSQLiteAuthority(false)
-	if err != nil {
-		return nil, err
-	}
-	defer database.Close()
-	rows, err := database.Query(`SELECT job_id FROM ci_run_requesters WHERE requester_fingerprint = ? ORDER BY started_at_unix_ms DESC, job_id DESC LIMIT ?`, fingerprint.String(), limit)
-	if err != nil {
-		return nil, mapDurationLedgerSQLiteError("query remote CI requester runs", err)
-	}
-	defer rows.Close()
-	jobIDs := make([]string, 0)
-	for rows.Next() {
-		var jobID string
-		if err := rows.Scan(&jobID); err != nil {
-			return nil, mapDurationLedgerSQLiteError("scan remote CI requester run", err)
-		}
-		jobIDs = append(jobIDs, jobID)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, mapDurationLedgerSQLiteError("iterate remote CI requester runs", err)
-	}
-	return jobIDs, nil
-}
-
 // verifySQLiteRemoteCIRunIdentity 校验已存在 run 与写入请求的不可变字段一致。
 func verifySQLiteRemoteCIRunIdentity(transaction *sql.Tx, record RemoteCIRunRecord) error {
-	var entrypoint, profile, planDigest, catalogDigest, acceptedGeneration, sourceTreeSHA, candidateGateSourceSHA256, candidateGateToolchainSHA256, runnerImage string
-	var startedAtUnixMS int64
-	err := transaction.QueryRow(`SELECT entrypoint, profile, plan_digest, catalog_digest, accepted_generation, source_tree_sha, candidate_gate_source_sha256, candidate_gate_toolchain_sha256, runner_image, started_at_unix_ms FROM ci_runs WHERE job_id = ?`, record.JobID).Scan(&entrypoint, &profile, &planDigest, &catalogDigest, &acceptedGeneration, &sourceTreeSHA, &candidateGateSourceSHA256, &candidateGateToolchainSHA256, &runnerImage, &startedAtUnixMS)
+	if err := cicontract.ValidateAgentTokenDigest(record.AgentTokenDigest); err != nil {
+		return fmt.Errorf("remote CI agent token digest: %w", err)
+	}
+	var stored sqliteRemoteCIRunIdentity
+	err := transaction.QueryRow(`SELECT entrypoint, profile, plan_digest, catalog_digest, accepted_generation, image_cache_snapshot_id, source_tree_sha, candidate_gate_source_sha256, candidate_gate_toolchain_sha256, runner_image, started_at_unix_ms FROM ci_runs WHERE job_id = ?`, record.JobID).Scan(&stored.Entrypoint, &stored.Profile, &stored.PlanDigest, &stored.CatalogDigest, &stored.AcceptedGeneration, &stored.ImageCacheSnapshotID, &stored.SourceTreeSHA, &stored.CandidateGateSourceSHA256, &stored.CandidateGateToolchainSHA256, &stored.RunnerImage, &stored.StartedAtUnixMS)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
 		return mapDurationLedgerSQLiteError("load existing remote CI run identity", err)
 	}
-	if entrypoint != string(record.Entrypoint) || profile != string(record.Profile) || planDigest != record.PlanDigest || catalogDigest != record.CatalogDigest || acceptedGeneration != strconv.FormatUint(record.AcceptedGeneration, 10) || sourceTreeSHA != record.SourceTreeSHA || candidateGateSourceSHA256 != record.CandidateGateSourceSHA256 || candidateGateToolchainSHA256 != record.CandidateGateToolchainSHA256 || runnerImage != record.RunnerImage || startedAtUnixMS != record.StartedAt.UTC().UnixMilli() {
+	if stored != newSQLiteRemoteCIRunIdentity(record) {
 		return fmt.Errorf("remote CI job %q conflicts with immutable run identity", record.JobID)
 	}
-	return verifySQLiteRemoteCIRequesterIdentity(transaction, record)
+	return verifySQLiteRemoteCIAgentIdentity(transaction, record)
 }
 
-// verifySQLiteRemoteCIRequesterIdentity 校验可选请求者投影与 run 的不可变身份一致。
-func verifySQLiteRemoteCIRequesterIdentity(transaction *sql.Tx, record RemoteCIRunRecord) error {
-	var requesterFingerprint string
-	err := transaction.QueryRow(`SELECT requester_fingerprint FROM ci_run_requesters WHERE job_id = ?`, record.JobID).Scan(&requesterFingerprint)
+// sqliteRemoteCIRunIdentity 保存 SQLite 中不可变的运行身份投影。
+type sqliteRemoteCIRunIdentity struct {
+	Entrypoint                   string
+	Profile                      string
+	PlanDigest                   string
+	CatalogDigest                string
+	AcceptedGeneration           string
+	ImageCacheSnapshotID         string
+	SourceTreeSHA                string
+	CandidateGateSourceSHA256    string
+	CandidateGateToolchainSHA256 string
+	RunnerImage                  string
+	StartedAtUnixMS              int64
+}
+
+// newSQLiteRemoteCIRunIdentity 将写入请求转换为可直接比较的 SQLite 身份投影。
+func newSQLiteRemoteCIRunIdentity(record RemoteCIRunRecord) sqliteRemoteCIRunIdentity {
+	return sqliteRemoteCIRunIdentity{
+		Entrypoint:                   string(record.Entrypoint),
+		Profile:                      string(record.Profile),
+		PlanDigest:                   record.PlanDigest,
+		CatalogDigest:                record.CatalogDigest,
+		AcceptedGeneration:           strconv.FormatUint(record.AcceptedGeneration, 10),
+		ImageCacheSnapshotID:         record.ImageCacheSnapshotID,
+		SourceTreeSHA:                record.SourceTreeSHA,
+		CandidateGateSourceSHA256:    record.CandidateGateSourceSHA256,
+		CandidateGateToolchainSHA256: record.CandidateGateToolchainSHA256,
+		RunnerImage:                  record.RunnerImage,
+		StartedAtUnixMS:              record.StartedAt.UTC().UnixMilli(),
+	}
+}
+
+// verifySQLiteRemoteCIAgentIdentity 校验每个 run 都有唯一、不可变的 agent digest。
+func verifySQLiteRemoteCIAgentIdentity(transaction *sql.Tx, record RemoteCIRunRecord) error {
+	var digest string
+	err := transaction.QueryRow(`SELECT agent_token_digest FROM ci_run_agent_identities WHERE job_id = ?`, record.JobID).Scan(&digest)
 	if errors.Is(err, sql.ErrNoRows) {
-		if record.RequesterFingerprint != "" {
-			return fmt.Errorf("remote CI job %q conflicts with immutable requester identity", record.JobID)
-		}
-		return nil
+		return fmt.Errorf("remote CI job %q lacks required agent identity", record.JobID)
 	}
 	if err != nil {
-		return mapDurationLedgerSQLiteError("load existing remote CI requester identity", err)
+		return mapDurationLedgerSQLiteError("load existing remote CI agent identity", err)
 	}
-	if requesterFingerprint != record.RequesterFingerprint.String() {
-		return fmt.Errorf("remote CI job %q conflicts with immutable requester identity", record.JobID)
+	if err := cicontract.ValidateAgentTokenDigest(digest); err != nil {
+		return fmt.Errorf("stored remote CI agent token digest: %w", err)
+	}
+	if digest != record.AgentTokenDigest {
+		return fmt.Errorf("remote CI job %q conflicts with immutable agent identity", record.JobID)
 	}
 	return nil
 }

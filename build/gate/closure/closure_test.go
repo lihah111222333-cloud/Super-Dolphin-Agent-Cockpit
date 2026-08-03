@@ -102,12 +102,11 @@ func TestRenderDockerfilePrecompilesGateModesIntoReadOnlyRuntimeCache(t *testing
 	output := string(dockerfile)
 	for _, wanted := range []string{
 		"go build -mod=mod -trimpath -buildvcs=false -o /out/super-dolphin-gate ./cmd/super-dolphin-gate",
-		"REMOTE_CI_REFRESH_CHECK_PASS=%s started_at_unix_ms=%s completed_at_unix_ms=%s duration_ms=%s plan_digest=%s source_tree=%s",
 		"ARG ACCEPTED_SNAPSHOT_ID",
-		"record_refresh_check()",
-		"/out/refresh-receipts/refresh-build-receipt.json",
-		"FROM scratch AS refresh-build-receipt",
-		"COPY --from=build /out/refresh-receipts/refresh-build-receipt.json /refresh-build-receipt.json",
+		"record_provision_check()",
+		"/out/generation-one-receipts/generation-one-build-receipt.json",
+		"FROM scratch AS generation-one-build-receipt",
+		"COPY --from=build /out/generation-one-receipts/generation-one-build-receipt.json /generation-one-build-receipt.json",
 		"test \"$duration_ms\" -gt 0",
 		"test \"$dependency_duration_ms\" -gt 0",
 		"test \"$frontend_duration_ms\" -gt 0",
@@ -124,7 +123,7 @@ func TestRenderDockerfilePrecompilesGateModesIntoReadOnlyRuntimeCache(t *testing
 		"compile_phase e2e_compile env CGO_ENABLED=1 go test -mod=mod -tags=e2e -run \"^$\" ./...",
 		"worker race-package-patterns",
 		"compile_phase race_compile env CGO_ENABLED=1 go test -mod=mod -race -run \"^$\" \"$@\"",
-		"refresh_only=true test_body=not_applicable",
+		"\"provision_checks\":records",
 		"\"candidate_compile_not_applicable\"",
 		"\"test_body_not_applicable\":True",
 		"mkdir -p /out/source-snapshot/root; cp -a /src/. /out/source-snapshot/root/",
@@ -140,19 +139,38 @@ func TestRenderDockerfilePrecompilesGateModesIntoReadOnlyRuntimeCache(t *testing
 		"blob_digest",
 		"blob_oid",
 		"size",
+		"git init --quiet --bare --template= --object-format=sha1 /out/source-baseline.git",
+		"git --git-dir=/out/source-baseline.git --work-tree=/out/source-snapshot/root add --all --force",
+		"source_tree_sha=$(git --git-dir=/out/source-baseline.git write-tree)",
+		"test \"$source_tree_sha\" = \"$BUILD_SOURCE_TREE\"",
+		"printf '%s\\n' 'super-dolphin accepted source baseline'",
+		"GIT_AUTHOR_NAME='Super Dolphin Source Baseline'",
+		"GIT_AUTHOR_EMAIL='source-baseline.invalid'",
+		"GIT_AUTHOR_DATE='2000-01-01T00:00:00Z'",
+		"GIT_COMMITTER_NAME='Super Dolphin Source Baseline'",
+		"GIT_COMMITTER_EMAIL='source-baseline.invalid'",
+		"GIT_COMMITTER_DATE='2000-01-01T00:00:00Z'",
+		"commit-tree \"$source_tree_sha\"",
+		"rev-list --parents -n 1 \"$baseline_commit_sha\"",
+		"update-ref refs/source/baseline \"$baseline_commit_sha\"",
+		"source-tree-sha",
+		"source-baseline-commit-sha",
+		"rev-list --all --count",
+		"test ! -e /out/source-snapshot/root/.git",
+		"COPY --from=build /out/source-baseline.git /opt/super-dolphin-gate/source-baseline.git",
+		"chmod -R a-w /opt/super-dolphin-gate/frontend-embed /opt/super-dolphin-gate/source-snapshot /opt/super-dolphin-gate/source-baseline.git",
 		"COPY --from=build /out/source-snapshot /opt/super-dolphin-gate/source-snapshot",
 		"chmod -R a-w /opt/super-dolphin-gate/frontend-embed /opt/super-dolphin-gate/source-snapshot",
 		"cp -a /root/.cache/go-build/. /out/go-build-cache",
 		"COPY --from=build --chown=65532:65532 /out/go-build-cache /opt/super-dolphin/cache/go-build",
 		"chmod -R a-w /opt/super-dolphin/cache/go-build",
-		"vite optimize --root frontend-app --force",
+		"(cd frontend-app && ./node_modules/.bin/vite optimize --force)",
 		"test -s frontend-app/node_modules/.vite/deps/_metadata.json",
 		"npm --prefix frontend-app ci --ignore-scripts --no-audit --no-fund",
 		"npm --prefix frontend-app run build",
 		"test -s frontend-app/dist/index.html",
 		"COPY --from=build --chown=65532:65532 /out/frontend-node-modules /opt/super-dolphin-gate/runtime/frontend/node_modules",
 		"COPY --from=build --chown=65532:65532 /out/vite-cache /opt/super-dolphin-gate/runtime/frontend/vite-cache",
-		"COPY --from=build --chown=65532:65532 /out/frontend-build-cache /opt/super-dolphin-gate/runtime/frontend/build-cache",
 		"COPY --from=build /out/frontend-embed /opt/super-dolphin-gate/frontend-embed",
 	} {
 		if !strings.Contains(output, wanted) {
@@ -171,30 +189,77 @@ func TestRenderDockerfilePrecompilesGateModesIntoReadOnlyRuntimeCache(t *testing
 		"cp -a /baseline-cache",
 		"SOURCE_CLOSURE_DIGEST=",
 		"content_digest",
+		"frontend-build-cache",
+		"/runtime/frontend/build-cache",
 	} {
 		if strings.Contains(output, unwanted) {
 			t.Fatalf("generated environment Dockerfile unexpectedly contains job-source build step %q", unwanted)
 		}
-	}
-	if count := strings.Count(output, "REMOTE_CI_REFRESH_CHECK_PASS=%s started_at_unix_ms=%s completed_at_unix_ms=%s duration_ms=%s plan_digest=%s source_tree=%s"); count != 1 {
-		t.Fatalf("generated Dockerfile has %d compiled-check marker templates, want exactly one", count)
 	}
 	for _, check := range []string{"gate_build", "normal_compile", "e2e_compile", "race_compile"} {
 		if count := strings.Count(output, "compile_phase "+check+" env"); count != 1 {
 			t.Fatalf("generated Dockerfile has %d %s check invocations, want exactly one", count, check)
 		}
 	}
-	if count := strings.Count(output, "started_at_unix_ms=%s completed_at_unix_ms=%s duration_ms=%s plan_digest=%s source_tree=%s"); count != 1 {
-		t.Fatalf("generated Dockerfile has %d human log marker templates, want exactly one", count)
-	}
-	if count := strings.Count(output, "record_refresh_check "); count != 3 {
-		t.Fatalf("generated Dockerfile has %d refresh receipt call sites, want compile plus dependency and frontend", count)
+	if count := strings.Count(output, "record_provision_check "); count != 3 {
+		t.Fatalf("generated Dockerfile has %d provision receipt call sites, want compile plus dependency and frontend", count)
 	}
 	if strings.Index(output, "test -n \"$BUILD_SOURCE_TREE\"") > strings.Index(output, "compile_phase gate_build") {
 		t.Fatal("generated Dockerfile validates build identity after the first required check")
 	}
-	if !strings.Contains(output, "touch -d \"@${SOURCE_DATE_EPOCH}\" /out/super-dolphin-gate\n\nFROM scratch AS refresh-build-receipt\n") {
+	if strings.Index(output, "cp -a /src/. /out/source-snapshot/root/") > strings.Index(output, "npm --prefix frontend-app ci") {
+		t.Fatal("generated Dockerfile snapshots source after frontend dependencies are materialized")
+	}
+	if strings.Index(output, "npm --prefix frontend-app run build") > strings.Index(output, "compile_phase normal_compile") {
+		t.Fatal("generated Dockerfile compiles Go embed consumers before frontend assets exist")
+	}
+	if !strings.Contains(output, "touch -d \"@${SOURCE_DATE_EPOCH}\" /out/super-dolphin-gate\n\nFROM scratch AS generation-one-build-receipt\n") {
 		t.Fatal("generated Dockerfile does not close the check RUN instruction before the receipt target")
+	}
+}
+
+func TestRenderDockerfileEmbedsMinimalReadOnlySourceBaseline(t *testing.T) {
+	repositoryRoot := testRepositoryRoot(t)
+	lock, err := readToolchainLock(filepath.Join(repositoryRoot, gateToolchain))
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeDeps, err := readRuntimeDepsLock(filepath.Join(repositoryRoot, gateRuntimeDepsLock))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dockerfile, err := renderDockerfile(lock, runtimeDeps, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := string(dockerfile)
+	for _, forbidden := range []string{
+		"git clone",
+		"git fetch",
+		"--mirror",
+		"refs/heads/",
+		"refs/tags/",
+		"git log",
+		"/src/.git",
+	} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("source baseline Dockerfile contains history or workspace fallback %q", forbidden)
+		}
+	}
+	if strings.Count(output, "commit-tree \"$source_tree_sha\"") != 1 {
+		t.Fatalf("source baseline Dockerfile must create exactly one parentless synthetic commit")
+	}
+	if strings.Count(output, "update-ref refs/source/baseline") != 1 {
+		t.Fatalf("source baseline Dockerfile must publish exactly one fixed baseline ref")
+	}
+	if strings.Index(output, "source_tree_sha=$(git --git-dir=/out/source-baseline.git write-tree)") > strings.Index(output, "commit-tree \"$source_tree_sha\"") {
+		t.Fatal("source baseline commit must be created after the accepted source tree is written")
+	}
+	if strings.Index(output, "test \"$source_tree_sha\" = \"$BUILD_SOURCE_TREE\"") > strings.Index(output, "commit-tree \"$source_tree_sha\"") {
+		t.Fatal("source baseline commit must be blocked unless write-tree matches BUILD_SOURCE_TREE")
+	}
+	if strings.Index(output, "COPY --from=build /out/source-baseline.git /opt/super-dolphin-gate/source-baseline.git") > strings.Index(output, "chmod -R a-w /opt/super-dolphin-gate/frontend-embed /opt/super-dolphin-gate/source-snapshot /opt/super-dolphin-gate/source-baseline.git") {
+		t.Fatal("source baseline must be copied before its final recursive read-only enforcement")
 	}
 }
 

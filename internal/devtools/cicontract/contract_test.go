@@ -18,31 +18,83 @@ func TestValidateAcceptedContract(t *testing.T) {
 	}
 }
 
-func TestRefreshTransitionMatrix(t *testing.T) {
-	phases := []RefreshPhase{RefreshIdle, RefreshClaimed, RefreshBuilding, RefreshCachePreparing, RefreshReadyValidated, RefreshPromoted, RefreshRetiring, RefreshCleanupPending, RefreshUnchanged, RefreshFailed}
-	allowed := map[[2]RefreshPhase]bool{
-		{RefreshIdle, RefreshClaimed}:                  true,
-		{RefreshClaimed, RefreshUnchanged}:             true,
-		{RefreshClaimed, RefreshBuilding}:              true,
-		{RefreshBuilding, RefreshCachePreparing}:       true,
-		{RefreshCachePreparing, RefreshReadyValidated}: true,
-		{RefreshReadyValidated, RefreshPromoted}:       true,
-		{RefreshPromoted, RefreshRetiring}:             true,
-		{RefreshRetiring, RefreshIdle}:                 true,
-		{RefreshRetiring, RefreshCleanupPending}:       true,
-		{RefreshCleanupPending, RefreshRetiring}:       true,
-		{RefreshCleanupPending, RefreshIdle}:           true,
-		{RefreshClaimed, RefreshFailed}:                true,
-		{RefreshBuilding, RefreshFailed}:               true,
-		{RefreshCachePreparing, RefreshFailed}:         true,
-		{RefreshReadyValidated, RefreshFailed}:         true,
+func TestRemoteCIConcurrencyPolicyHasNoRepositorySerialBoundary(t *testing.T) {
+	if err := ValidateConcurrencyPolicy(); err != nil {
+		t.Fatal(err)
 	}
-	for _, current := range phases {
-		for _, next := range phases {
-			got := ValidateRefreshTransition(current, next) == nil
-			if got != allowed[[2]RefreshPhase{current, next}] {
-				t.Errorf("transition %q -> %q allowed = %t, want %t", current, next, got, allowed[[2]RefreshPhase{current, next}])
-			}
+	if GitHookInvocationConcurrencyPolicy != "unbounded_by_repository" || RemoteCIJobConcurrencyPolicy != "unbounded_by_repository" || ShardConcurrencyPolicy != "unbounded_by_repository" {
+		t.Fatal("normal hook, job, and shard concurrency must remain unbounded")
+	}
+	if GitIndexLockBoundary != "git_worktree_index_consistency_not_ci_admission" {
+		t.Fatal("Git index boundary drifted")
+	}
+}
+
+func TestGenerationOneReceiptImportIsTheOnlyWritePathIdentity(t *testing.T) {
+	if GenerationOneReceiptImportPathID != "external-eci-imagecache-generation-one-strict-receipt-import/v1" {
+		t.Fatalf("GenerationOneReceiptImportPathID = %q", GenerationOneReceiptImportPathID)
+	}
+}
+
+func TestIncrementalSourceTransportContractIsFrozen(t *testing.T) {
+	if err := ValidateSourceTransportContract(); err != nil {
+		t.Fatal(err)
+	}
+	checks := map[string]string{
+		"baseline repository": SourceBaselineRepositoryPath,
+		"bundle":              SourceBundleName,
+		"manifest":            SourceManifestName,
+		"ref":                 SourceBundleRef,
+		"transport kind":      SourceTransportKind,
+		"header":              SourceBundleHeaderVersion,
+		"upload barrier":      SourceAssetsUploadBarrier,
+	}
+	want := map[string]string{
+		"baseline repository": "/opt/super-dolphin-gate/source-baseline.git",
+		"bundle":              "source.bundle",
+		"manifest":            "source-manifest.json",
+		"ref":                 "refs/source/materialized",
+		"transport kind":      "git-bundle-thin",
+		"header":              "v2",
+		"upload barrier":      "source-bundle-and-strict-manifest-before-lpt-shards/v1",
+	}
+	for name, got := range checks {
+		if got != want[name] {
+			t.Errorf("%s = %q, want %q", name, got, want[name])
+		}
+	}
+	if SourceManifestSchemaVersion != 2 || SourceBundlePrerequisiteCount != 1 {
+		t.Fatalf("source transport schema/prerequisite = %d/%d, want 2/1", SourceManifestSchemaVersion, SourceBundlePrerequisiteCount)
+	}
+}
+
+func TestWorkloadPassReuseSQLiteOwnershipAndRetention(t *testing.T) {
+	if err := ValidateSQLAuthorityBinding(SQLDomainRunWorkloadResult, RunWorkloadResultsTable); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateSQLAuthorityBinding(SQLDomainWorkloadPassEvidence, WorkloadPassEvidenceTable); err != nil {
+		t.Fatal(err)
+	}
+	for _, binding := range RetentionRootBindings() {
+		if binding.Table == WorkloadPassEvidenceTable && binding.GenerationColumn == AcceptedGenerationColumn {
+			return
+		}
+	}
+	t.Fatalf("%s must retain by %s", WorkloadPassEvidenceTable, AcceptedGenerationColumn)
+}
+
+func TestWorkloadPassEvidenceGenerationWindowIsCurrentAndPreviousTwo(t *testing.T) {
+	if WorkloadPassEvidenceFreshnessPolicy != "accepted-generation-authority-identity-receipt-no-wall-clock-ttl/v1" {
+		t.Fatalf("WorkloadPassEvidenceFreshnessPolicy = %q", WorkloadPassEvidenceFreshnessPolicy)
+	}
+	for _, generation := range []uint64{7, 6, 5} {
+		if err := ValidateWorkloadPassEvidenceGeneration(7, generation); err != nil {
+			t.Fatalf("generation %d unexpectedly rejected: %v", generation, err)
+		}
+	}
+	for _, generation := range []uint64{0, 4, 8} {
+		if err := ValidateWorkloadPassEvidenceGeneration(7, generation); err == nil {
+			t.Fatalf("generation %d unexpectedly accepted", generation)
 		}
 	}
 }
@@ -55,60 +107,14 @@ func TestContractValidatorsRejectDrift(t *testing.T) {
 		{name: "platform", err: ValidateTargetPlatform("linux/arm64")},
 		{name: "toolchain", err: ValidateGoToolchainVersion("go1.25.7")},
 		{name: "shard target", err: ValidateShardTargetDuration(99 * time.Second)},
-		{name: "refresh interval", err: ValidateRefreshMinimumInterval(time.Hour)},
 		{name: "calibration class", err: ValidateCalibrationResources("", 4, 16)},
 		{name: "calibration CPU", err: ValidateCalibrationResources("fixed", 0, 16)},
 		{name: "calibration memory", err: ValidateCalibrationResources("fixed", 4, 0)},
-		{name: "snapshot root", err: ValidateSourceSnapshotLayout("/tmp/source", SourceSnapshotManifestPath)},
-		{name: "snapshot manifest", err: ValidateSourceSnapshotLayout(SourceSnapshotRootPath, "/tmp/manifest.json")},
-		{name: "refresh check log prefix", err: ValidateRefreshCheckLogPrefix("REMOTE_CI_CHECK_PASS=")},
 	}
 	for _, check := range checks {
 		t.Run(check.name, func(t *testing.T) {
 			if check.err == nil {
 				t.Fatal("expected drift to be rejected")
-			}
-		})
-	}
-}
-
-func TestIncrementalRefreshTransferMatrix(t *testing.T) {
-	cases := []struct {
-		name               string
-		mode               RefreshTransferMode
-		acceptedGeneration uint64
-		acceptedSnapshotID string
-		deltaIdentity      string
-		wantErr            bool
-	}{
-		{name: "accepted snapshot delta", mode: RefreshTransferAcceptedSnapshotDelta, acceptedGeneration: 7, acceptedSnapshotID: "snapshot-7", deltaIdentity: "delta-8"},
-		{name: "full workspace mode", mode: "full_workspace", acceptedGeneration: 7, acceptedSnapshotID: "snapshot-7", deltaIdentity: "delta-8", wantErr: true},
-		{name: "missing accepted generation", mode: RefreshTransferAcceptedSnapshotDelta, acceptedSnapshotID: "snapshot-7", deltaIdentity: "delta-8", wantErr: true},
-		{name: "missing accepted snapshot", mode: RefreshTransferAcceptedSnapshotDelta, acceptedGeneration: 7, deltaIdentity: "delta-8", wantErr: true},
-		{name: "missing delta identity", mode: RefreshTransferAcceptedSnapshotDelta, acceptedGeneration: 7, acceptedSnapshotID: "snapshot-7", wantErr: true},
-	}
-	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			err := ValidateIncrementalRefreshTransfer(testCase.mode, testCase.acceptedGeneration, testCase.acceptedSnapshotID, testCase.deltaIdentity)
-			if (err != nil) != testCase.wantErr {
-				t.Fatalf("ValidateIncrementalRefreshTransfer() error = %v, wantErr %t", err, testCase.wantErr)
-			}
-		})
-	}
-}
-
-func TestDeltaRebuildRequiresCompleteTreeAndClosureEvidence(t *testing.T) {
-	if err := ValidateDeltaRebuild(RefreshTransferAcceptedSnapshotDelta, 7, "snapshot-7", "delta-8", "tree-8", "closure-8"); err != nil {
-		t.Fatalf("ValidateDeltaRebuild() error = %v", err)
-	}
-	for name, target := range map[string]string{"missing tree": "", "missing closure": "tree-8"} {
-		t.Run(name, func(t *testing.T) {
-			closure := "closure-8"
-			if name == "missing closure" {
-				closure = ""
-			}
-			if err := ValidateDeltaRebuild(RefreshTransferAcceptedSnapshotDelta, 7, "snapshot-7", "delta-8", target, closure); err == nil {
-				t.Fatal("expected missing rebuild evidence to be rejected")
 			}
 		})
 	}
@@ -143,6 +149,50 @@ func TestRequiredChecksObservedPassMatrix(t *testing.T) {
 	}
 }
 
+func TestRequiredChecksObservedPassAllowsOnlyCanonicalStrictReuse(t *testing.T) {
+	observations := make([]CheckObservation, 0, len(RequiredChecks()))
+	for index, check := range RequiredChecks() {
+		observation := CheckObservation{Check: check, Passed: true, SourceTree: "target-tree", AcceptedSnapshotID: "accepted-snapshot", PlanDigest: "plan-digest", StartedAtUnixMS: 1, CompletedAtUnixMS: 2, DurationMS: 1}
+		if index%2 == 0 {
+			observation.Executed = true
+		} else {
+			observation.Reused = true
+			observation.ReuseProofSHA256 = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+		}
+		digest, err := CheckObservationReceiptDigest(observation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		observation.ReceiptSHA256 = digest
+		observations = append(observations, observation)
+	}
+	if err := ValidateRequiredChecksObservedPass(observations); err != nil {
+		t.Fatalf("mixed executed and reused observations rejected: %v", err)
+	}
+
+	for name, mutate := range map[string]func(*CheckObservation){
+		"reuse requires proof":     func(observation *CheckObservation) { observation.ReuseProofSHA256 = "" },
+		"reuse proof is canonical": func(observation *CheckObservation) { observation.ReuseProofSHA256 = "sha256:ABC" },
+		"executed result has no proof": func(observation *CheckObservation) {
+			observation.Reused = false
+			observation.ReuseProofSHA256 = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := append([]CheckObservation(nil), observations...)
+			mutate(&candidate[1])
+			digest, err := CheckObservationReceiptDigest(candidate[1])
+			if err != nil {
+				t.Fatal(err)
+			}
+			candidate[1].ReceiptSHA256 = digest
+			if err := ValidateRequiredChecksObservedPass(candidate); err == nil {
+				t.Fatal("expected invalid reuse observation to be rejected")
+			}
+		})
+	}
+}
+
 func TestTimingWarningActionIsNonTerminating(t *testing.T) {
 	if err := ValidateTimingWarningAction(TimingWarningWarnAndContinue); err != nil {
 		t.Fatalf("ValidateTimingWarningAction() error = %v", err)
@@ -154,29 +204,19 @@ func TestTimingWarningActionIsNonTerminating(t *testing.T) {
 	}
 }
 
-func TestValidateNonACRRegistryHost(t *testing.T) {
-	for name, reference := range map[string]string{
-		"official registry":    "registry-1.docker.io/library/alpine@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-		"no explicit registry": "library/alpine@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+func TestTimingWarningSQLiteLifecycleIsCanonicalAndNotASixthRetentionRoot(t *testing.T) {
+	for domain, table := range map[SQLDomain]string{
+		SQLDomainLiveTimingWarning: LiveTimingWarningsTable,
+		SQLDomainRunTimingWarning:  RunTimingWarningsTable,
 	} {
-		t.Run(name, func(t *testing.T) {
-			if err := ValidateNonACRRegistryHost(reference); err != nil {
-				t.Fatalf("ValidateNonACRRegistryHost(%q) error = %v", reference, err)
-			}
-		})
+		if err := ValidateSQLAuthorityBinding(domain, table); err != nil {
+			t.Fatal(err)
+		}
 	}
-	for name, reference := range map[string]string{
-		"root":         "aliyuncs.com/repository/image",
-		"subdomain":    "registry.cn-shenzhen.aliyuncs.com/repository/image",
-		"port":         "registry.cn-shenzhen.aliyuncs.com:5000/repository/image",
-		"uppercase":    "REGISTRY.CN-SHENZHEN.ALIYUNCS.COM/repository/image",
-		"trailing dot": "registry.cn-shenzhen.aliyuncs.com./repository/image",
-	} {
-		t.Run(name, func(t *testing.T) {
-			if err := ValidateNonACRRegistryHost(reference); err == nil {
-				t.Fatalf("ValidateNonACRRegistryHost(%q) accepted Alibaba Cloud ACR host", reference)
-			}
-		})
+	for _, binding := range RetentionRootBindings() {
+		if binding.Table == LiveTimingWarningsTable || binding.Table == RunTimingWarningsTable {
+			t.Fatalf("timing warning lifecycle table %q became a historical root", binding.Table)
+		}
 	}
 }
 
@@ -203,44 +243,25 @@ func TestAcceptedDocumentMatchesCodeContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	document := string(data)
-	const begin, end = "<!-- cicontract:begin -->", "<!-- cicontract:end -->"
+	assertDocumentBlock(t, document, "code contract", "<!-- cicontract:begin -->", "<!-- cicontract:end -->", CanonicalMarkdown())
+	assertDocumentBlock(t, document, "retention", "<!-- cicontract:retention:begin -->", "<!-- cicontract:retention:end -->", CanonicalRetentionMarkdown())
+	assertDocumentBlock(t, document, "timing", "<!-- cicontract:timing:begin -->", "<!-- cicontract:timing:end -->", CanonicalTimingMarkdown())
+}
+
+// assertDocumentBlock 校验 accepted 文档中的标记块完整且逐字等于代码 owner 输出。
+func assertDocumentBlock(t *testing.T, document, name, begin, end, want string) {
+	t.Helper()
 	start := strings.Index(document, begin)
 	if start < 0 {
-		t.Fatal("accepted document is missing the code contract begin marker")
+		t.Fatalf("accepted document is missing the %s begin marker", name)
 	}
 	relativeEnd := strings.Index(document[start:], end)
 	if relativeEnd < 0 {
-		t.Fatal("accepted document is missing the code contract end marker")
+		t.Fatalf("accepted document is missing the %s end marker", name)
 	}
 	finish := start + relativeEnd + len(end)
-	if got := document[start:finish]; got != CanonicalMarkdown() {
-		t.Fatal("accepted document and code contract differ")
-	}
-	const retentionBegin, retentionEnd = "<!-- cicontract:retention:begin -->", "<!-- cicontract:retention:end -->"
-	retentionStart := strings.Index(document, retentionBegin)
-	if retentionStart < 0 {
-		t.Fatal("accepted document is missing the retention begin marker")
-	}
-	retentionRelativeEnd := strings.Index(document[retentionStart:], retentionEnd)
-	if retentionRelativeEnd < 0 {
-		t.Fatal("accepted document is missing the retention end marker")
-	}
-	retentionFinish := retentionStart + retentionRelativeEnd + len(retentionEnd)
-	if got := document[retentionStart:retentionFinish]; got != CanonicalRetentionMarkdown() {
-		t.Fatal("accepted retention prose and code contract differ")
-	}
-	const timingBegin, timingEnd = "<!-- cicontract:timing:begin -->", "<!-- cicontract:timing:end -->"
-	timingStart := strings.Index(document, timingBegin)
-	if timingStart < 0 {
-		t.Fatal("accepted document is missing the timing begin marker")
-	}
-	timingRelativeEnd := strings.Index(document[timingStart:], timingEnd)
-	if timingRelativeEnd < 0 {
-		t.Fatal("accepted document is missing the timing end marker")
-	}
-	timingFinish := timingStart + timingRelativeEnd + len(timingEnd)
-	if got := document[timingStart:timingFinish]; got != CanonicalTimingMarkdown() {
-		t.Fatal("accepted timing prose and code contract differ")
+	if got := document[start:finish]; got != want {
+		t.Fatalf("accepted %s prose and code contract differ", name)
 	}
 }
 
@@ -289,6 +310,7 @@ func TestRetentionRootsBindExactlyThreeAcceptedGenerations(t *testing.T) {
 		DurationSamplesTable:        true,
 		CatalogObservationsTable:    true,
 		RemoteRunsTable:             true,
+		WorkloadPassEvidenceTable:   true,
 		CalibrationCheckpointsTable: true,
 	}
 	for _, binding := range RetentionRootBindings() {

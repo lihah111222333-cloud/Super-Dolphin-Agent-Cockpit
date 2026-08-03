@@ -6,6 +6,8 @@
 
 远端 hook 不读取 `super-dolphin.remote.maxShards`，也不传递 `--max-shards`；分片调度不设本地上限，由远端协调器按当前工作负载决定。
 
-`pre-commit` 先固定 staged tree，验证并在允许时单次刷新受管 closure 输出，然后以该精确 tree 和 parent commit 调用 `remote hook pre-commit`。`pre-push` 将 Git stdin 的每条精确 ref update 交给 `remote hook pre-push`。远端结果必须绑定同一 source tree、入口和清理证据；任何身份、权威性或状态缺失均拒绝 Git 动作。
+在受信 launcher 可用后，两个 hook 都先检查调用方继承的 `SUPER_DOLPHIN_CI_AGENT_TOKEN`：缺失时立即调用对应的无参数 `remote hook`，只输出阶段一申请 guidance 并 fail closed；值为 `issue` 时同样立即调用，由 gate 明确拒绝。hook 不签发、缓存、改写或通过 argv 传递 token；实际 token 仅由调用 Git 的 agent 任务上下文继承到最终 remote hook。
+
+持有实际 token 时，`pre-commit` 才固定 staged tree，验证并在允许时单次刷新受管 closure 输出，然后以该精确 tree 和 parent commit 调用 `remote hook pre-commit`。`pre-push` 才将 Git stdin 的每条精确 ref update 交给 `remote hook pre-push`。远端结果必须绑定同一 source tree、入口和清理证据；任何身份、权威性或状态缺失均拒绝 Git 动作。
 
 `commit-msg` 仍要求中文提交信息和 fix-test evidence。hooks 不从调用方 PATH 解析 gate CLI，也不执行候选工作树中的脚本。

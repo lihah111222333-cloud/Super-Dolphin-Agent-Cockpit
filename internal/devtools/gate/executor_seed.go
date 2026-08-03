@@ -121,7 +121,7 @@ func installFrontendRuntimeSeed(
 	return nil
 }
 
-// installFrontendRuntimeOverlay 把只读依赖链接到私有物理根，并只为 Vite 缓存保留写目录。
+// installFrontendRuntimeOverlay 把依赖与 Vite cache 直接链接到 accepted 镜像层。
 func installFrontendRuntimeOverlay(seedRoot string, viteSeedRoot string, targetRoot string) error {
 	if _, err := os.Lstat(targetRoot); !errors.Is(err, os.ErrNotExist) {
 		return errors.New("runtime seed target already exists")
@@ -133,56 +133,25 @@ func installFrontendRuntimeOverlay(seedRoot string, viteSeedRoot string, targetR
 	if err != nil {
 		return err
 	}
-	writable := map[string]bool{".vite": true, ".vite-temp": true}
+	reserved := map[string]bool{".vite": true, ".vite-temp": true}
 	for _, entry := range entries {
-		if writable[entry.Name()] {
-			return fmt.Errorf("runtime seed reserves writable overlay entry %q", entry.Name())
+		if reserved[entry.Name()] {
+			return fmt.Errorf("runtime seed reserves frontend overlay entry %q", entry.Name())
 		}
 		if err := os.Symlink(filepath.Join(seedRoot, entry.Name()), filepath.Join(targetRoot, entry.Name())); err != nil {
 			return err
 		}
 	}
-	for name := range writable {
-		if name == ".vite" {
-			if err := copyViteCacheSeed(viteSeedRoot, filepath.Join(targetRoot, name)); err != nil {
-				return err
-			}
-			continue
-		}
-		if err := os.Mkdir(filepath.Join(targetRoot, name), 0o700); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// copyViteCacheSeed installs a verified immutable cache into a shard-private,
-// writable directory; no shared cache is ever written by a workload.
-func copyViteCacheSeed(seedRoot string, targetRoot string) error {
-	if _, err := trustedDirectory(seedRoot, false, -1); err != nil {
+	if _, err := trustedDirectory(viteSeedRoot, false, -1); err != nil {
 		return err
 	}
-	return filepath.WalkDir(seedRoot, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		relative, err := filepath.Rel(seedRoot, path)
-		if err != nil {
-			return err
-		}
-		destination := filepath.Join(targetRoot, relative)
-		if entry.IsDir() {
-			return os.MkdirAll(destination, 0o700)
-		}
-		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() {
-			return fmt.Errorf("Vite cache seed entry %s is not regular", path)
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		return os.WriteFile(destination, data, 0o600)
-	})
+	if err := os.Symlink(viteSeedRoot, filepath.Join(targetRoot, ".vite")); err != nil {
+		return err
+	}
+	if err := os.Mkdir(filepath.Join(targetRoot, ".vite-temp"), 0o700); err != nil {
+		return err
+	}
+	return nil
 }
 
 // runtimeSeedManifestForProgram 返回当前程序所需且已完成边界验证的 seed manifest。
@@ -323,12 +292,6 @@ func installExecutorSeeds(config executorConfig, layout executorLayout, program 
 func executorGoBuildCacheSeedRoots(config executorConfig) ([]string, error) {
 	if len(config.goBuildCacheSeedRoots) != 0 {
 		return append([]string(nil), config.goBuildCacheSeedRoots...), nil
-	}
-	if config.goBuildCacheSeedRoot == ExecutorGoBuildCacheSeedRoot {
-		return discoverExecutorGoBuildCacheSeedRoots(ExecutorGoBuildCacheSeedsRoot, ExecutorGoBuildCacheSeedRoot)
-	}
-	if config.goBuildCacheSeedRoot != "" {
-		return []string{config.goBuildCacheSeedRoot}, nil
 	}
 	return nil, errors.New("Go build cache seeds are not configured")
 }

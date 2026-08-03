@@ -16,7 +16,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/shardresource"
 )
 
-const ShardRequestSchemaVersion uint32 = 12
+const ShardRequestSchemaVersion uint32 = 13
 
 var (
 	remoteDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
@@ -25,9 +25,10 @@ var (
 )
 
 // ShardRequest binds one ECI container to an immutable OCI project cache,
-// exact target tree, and canonical gate shard.
+// verified source snapshot, and canonical gate shard.
 type ShardRequest struct {
 	SchemaVersion                uint32                   `json:"schema_version"`
+	AgentTokenDigest             string                   `json:"agent_token_digest"`
 	JobID                        string                   `json:"job_id"`
 	ShardIdentity                string                   `json:"shard_identity"`
 	Profile                      gate.Profile             `json:"profile"`
@@ -35,21 +36,21 @@ type ShardRequest struct {
 	BaselineManifest             string                   `json:"runner_manifest_digest"`
 	ImageCacheSnapshotID         string                   `json:"image_cache_snapshot_id"`
 	OCIProjectCache              *BaselineOCIProjectCache `json:"oci_project_cache"`
-	RunnerBaseCommit             string                   `json:"runner_base_commit"`
 	RunnerBaseTree               string                   `json:"runner_base_tree"`
 	BaselineRuntimeImage         string                   `json:"baseline_runtime_image,omitempty"`
 	BaselineToolchainDigest      string                   `json:"baseline_toolchain_digest,omitempty"`
+	Source                       gate.SourceSpec          `json:"source"`
 	SourceTreeSHA                string                   `json:"source_tree_sha"`
-	PatchFormat                  string                   `json:"patch_format"`
-	PatchKey                     string                   `json:"patch_key"`
-	PatchSHA256                  string                   `json:"patch_sha256"`
-	PatchSize                    int64                    `json:"patch_size"`
+	SourceBundleKey              string                   `json:"source_bundle_key"`
+	SourceBundleSHA256           string                   `json:"source_bundle_sha256"`
+	SourceBundleSize             int64                    `json:"source_bundle_size"`
 	ManifestKey                  string                   `json:"manifest_key"`
 	ManifestSHA256               string                   `json:"manifest_sha256"`
 	CandidateGateSourceSHA256    string                   `json:"candidate_gate_source_sha256"`
 	CandidateGateToolchainSHA256 string                   `json:"candidate_gate_toolchain_sha256"`
 	GateIDs                      []gate.GateID            `json:"gate_ids"`
 	Calibration                  bool                     `json:"calibration"`
+	ResourceClass                shardresource.Class      `json:"resource_class"`
 	CalibrationResource          *shardresource.Class     `json:"calibration_resource,omitempty"`
 }
 
@@ -70,7 +71,21 @@ func (request ShardRequest) Validate() error {
 	if err := request.validateCalibrationResource(); err != nil {
 		return err
 	}
+	if err := request.validateResourceClass(); err != nil {
+		return err
+	}
 	return validateGateIDs(request.GateIDs)
+}
+
+func (request ShardRequest) validateResourceClass() error {
+	class := request.ResourceClass
+	if strings.TrimSpace(class.ID) == "" || class.ID != strings.TrimSpace(class.ID) || class.VCPU <= 0 || class.MemoryGiB <= 0 {
+		return errors.New("remote shard request resource_class requires class ID, CPU, and memory")
+	}
+	if request.Calibration && request.CalibrationResource != nil && class != *request.CalibrationResource {
+		return errors.New("calibration remote shard request resource_class drifted")
+	}
+	return nil
 }
 
 func (request ShardRequest) validateCalibrationResource() error {
@@ -129,40 +144,39 @@ func (request ShardRequest) validateIdentity() error {
 
 // validRequestDigests 判断所有不可变请求摘要是否为 canonical SHA-256。
 func validRequestDigests(request ShardRequest) bool {
-	return remoteDigestPattern.MatchString(request.ShardIdentity) &&
+	return cicontract.ValidateAgentTokenDigest(request.AgentTokenDigest) == nil &&
+		remoteDigestPattern.MatchString(request.ShardIdentity) &&
 		remoteDigestPattern.MatchString(request.PlanDigest) &&
 		remoteDigestPattern.MatchString(request.BaselineManifest) &&
 		remoteDigestPattern.MatchString(request.CandidateGateSourceSHA256) &&
 		remoteDigestPattern.MatchString(request.CandidateGateToolchainSHA256)
 }
 
-// validateSource 校验源 Git 对象和二进制补丁格式。
+// validateSource 校验候选源 SourceSpec 与请求树身份的逐字段绑定。
 func (request ShardRequest) validateSource() error {
-	if !validSourceObjects(request) {
-		return errors.New("remote shard request source object identity is invalid")
+	if err := request.Source.Validate(); err != nil {
+		return fmt.Errorf("remote shard request source: %w", err)
 	}
-	if request.PatchFormat != "git-binary-v1" {
-		return errors.New("remote shard request patch_format is invalid")
+	if request.Source.SourceTreeSHA != request.SourceTreeSHA {
+		return errors.New("remote shard request source tree identity drifted")
+	}
+	if !remoteOIDPattern.MatchString(request.RunnerBaseTree) {
+		return errors.New("remote shard request runner base tree is invalid")
 	}
 	return nil
 }
 
-// validSourceObjects 判断 runner 基线与目标树对象是否为 canonical Git ID。
-func validSourceObjects(request ShardRequest) bool {
-	return remoteOIDPattern.MatchString(request.RunnerBaseCommit) && remoteOIDPattern.MatchString(request.RunnerBaseTree) && remoteOIDPattern.MatchString(request.SourceTreeSHA)
-}
-
-// validateObjects 校验 patch 和 manifest 的 OSS 绑定与容量。
+// validateObjects 校验 source bundle 和 manifest 的 OSS 绑定与容量。
 func (request ShardRequest) validateObjects() error {
 	prefix, err := request.sourceObjectPrefix()
 	if err != nil {
 		return err
 	}
-	if err := validateObjectBinding(request.PatchKey, request.PatchSHA256, ".patch", prefix); err != nil {
-		return fmt.Errorf("remote shard patch: %w", err)
+	if err := validateObjectBinding(request.SourceBundleKey, request.SourceBundleSHA256, ".bundle", prefix); err != nil {
+		return fmt.Errorf("remote shard source bundle: %w", err)
 	}
-	if request.PatchSize < 0 || request.PatchSize > 1<<30 {
-		return errors.New("remote shard request patch_size is invalid")
+	if request.SourceBundleSize <= 0 || request.SourceBundleSize > 1<<30 {
+		return errors.New("remote shard request source_bundle_size is invalid")
 	}
 	if err := validateObjectBinding(request.ManifestKey, request.ManifestSHA256, ".manifest.json", prefix); err != nil {
 		return fmt.Errorf("remote shard manifest: %w", err)
@@ -170,13 +184,13 @@ func (request ShardRequest) validateObjects() error {
 	return nil
 }
 
-// sourceObjectPrefix 绑定 patch、manifest 与请求 JobID 的同一对象目录。
+// sourceObjectPrefix 绑定 source bundle、manifest 与请求 JobID 的同一对象目录。
 func (request ShardRequest) sourceObjectPrefix() (string, error) {
-	patchDirectory := path.Dir(request.PatchKey)
-	if patchDirectory == "." || path.Base(patchDirectory) != request.JobID || path.Dir(request.ManifestKey) != patchDirectory {
+	bundleDirectory := path.Dir(request.SourceBundleKey)
+	if bundleDirectory == "." || path.Base(bundleDirectory) != request.JobID || path.Dir(request.ManifestKey) != bundleDirectory {
 		return "", errors.New("remote shard source object directories do not match job_id")
 	}
-	return patchDirectory + "/", nil
+	return bundleDirectory + "/", nil
 }
 
 // validateGateIDs 校验 worker 分片中的 gate 集合非空且不重复。

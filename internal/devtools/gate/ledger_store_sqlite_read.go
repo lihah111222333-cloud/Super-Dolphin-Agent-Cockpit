@@ -102,7 +102,7 @@ func loadSQLiteDurationSampleIndex(
 			COALESCE(SUM(CASE WHEN succeeded = 1 THEN duration_ms ELSE 0 END), 0),
 			COALESCE(SUM(CASE WHEN succeeded = 1 THEN 1 ELSE 0 END), 0),
 			COALESCE(MAX(CASE WHEN succeeded = 0 THEN duration_ms ELSE 0 END), 0)
-		FROM duration_samples INDEXED BY idx_duration_samples_planning
+		FROM duration_samples
 		WHERE platform = ? AND runner = ? AND toolchain = ?
 		GROUP BY workload_id, command_digest
 	`, planning.Platform, planning.Runner, planning.Toolchain)

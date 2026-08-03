@@ -112,32 +112,53 @@ func reusableRemoteCalibrationCheckpoint(ledgerStore *gatecontract.DurationLedge
 	if !completed {
 		return remoteci.RunInput{}, remoteci.RunResult{}, false, nil
 	}
-	record, err := ledgerStore.LoadRemoteCIRun(result.JobID)
-	if errors.Is(err, gatecontract.ErrRemoteCIRunNotFound) {
-		return reopenRemoteCalibrationCheckpoint(checkpoint, scenario)
-	}
+	record, found, err := remoteCalibrationCheckpointAuthorityRecord(ledgerStore, result.JobID)
 	if err != nil {
 		return remoteci.RunInput{}, remoteci.RunResult{}, false, err
 	}
-	if !remoteCalibrationCheckpointRunMatches(input, result, record) {
+	if !found || !remoteCalibrationCheckpointRunMatches(input, result, record) {
 		return reopenRemoteCalibrationCheckpoint(checkpoint, scenario)
-	}
-	catalog, _, err := remoteCalibrationCatalog(input)
-	if err != nil {
-		return remoteci.RunInput{}, remoteci.RunResult{}, false, err
 	}
 	result = remoteRunResultFromLedgerRecord(record)
-	passed, err := remoteCalibrationPassedCatalogWorkloadSet(input, catalog, result)
+	complete, err := remoteCalibrationCheckpointHasCompleteCatalog(input, result)
 	if err != nil {
 		return remoteci.RunInput{}, remoteci.RunResult{}, false, err
 	}
-	for _, workload := range catalog.Workloads {
-		if _, ok := passed[remoteCalibrationWorkloadKey(workload)]; !ok {
-			return reopenRemoteCalibrationCheckpoint(checkpoint, scenario)
-		}
+	if !complete {
+		return reopenRemoteCalibrationCheckpoint(checkpoint, scenario)
 	}
 	input.LedgerStore = ledgerStore
 	return input, result, true, nil
+}
+
+// remoteCalibrationCheckpointAuthorityRecord 从唯一账本读取 checkpoint 绑定的运行记录。
+func remoteCalibrationCheckpointAuthorityRecord(ledgerStore *gatecontract.DurationLedgerStore, jobID string) (gatecontract.RemoteCIRunRecord, bool, error) {
+	record, err := ledgerStore.LoadRemoteCIRun(jobID)
+	if errors.Is(err, gatecontract.ErrRemoteCIRunNotFound) {
+		return gatecontract.RemoteCIRunRecord{}, false, nil
+	}
+	if err != nil {
+		return gatecontract.RemoteCIRunRecord{}, false, err
+	}
+	return record, true, nil
+}
+
+// remoteCalibrationCheckpointHasCompleteCatalog 验证权威运行覆盖当前 catalog 的全部 workload。
+func remoteCalibrationCheckpointHasCompleteCatalog(input remoteci.RunInput, result remoteci.RunResult) (bool, error) {
+	catalog, _, err := remoteCalibrationCatalog(input)
+	if err != nil {
+		return false, err
+	}
+	passed, err := remoteCalibrationPassedCatalogWorkloadSet(input, catalog, result)
+	if err != nil {
+		return false, err
+	}
+	for _, workload := range catalog.Workloads {
+		if _, ok := passed[remoteCalibrationWorkloadKey(workload)]; !ok {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func reopenRemoteCalibrationCheckpoint(checkpoint *remoteci.CalibrationCheckpoint, scenario string) (remoteci.RunInput, remoteci.RunResult, bool, error) {
@@ -147,23 +168,46 @@ func reopenRemoteCalibrationCheckpoint(checkpoint *remoteci.CalibrationCheckpoin
 	return remoteci.RunInput{}, remoteci.RunResult{}, false, nil
 }
 
+// remoteCalibrationCheckpointRunMatches 确认 checkpoint、权威账本记录和运行输入属于同一次成功校准。
 func remoteCalibrationCheckpointRunMatches(input remoteci.RunInput, result remoteci.RunResult, record gatecontract.RemoteCIRunRecord) bool {
+	return remoteCalibrationCheckpointRunIdentityMatches(input, result, record) &&
+		remoteCalibrationCheckpointExecutionMatches(input, result, record) &&
+		remoteCalibrationCheckpointSourceMatches(input, result, record) &&
+		remoteCalibrationCheckpointPassed(record)
+}
+
+// remoteCalibrationCheckpointRunIdentityMatches 验证 job 与 accepted generation 的稳定身份。
+func remoteCalibrationCheckpointRunIdentityMatches(input remoteci.RunInput, result remoteci.RunResult, record gatecontract.RemoteCIRunRecord) bool {
 	return record.JobID == result.JobID &&
 		record.AcceptedGeneration == input.AcceptedGeneration &&
-		record.AcceptedGeneration == result.AcceptedGeneration &&
-		record.Entrypoint == input.Entrypoint &&
+		record.AcceptedGeneration == result.AcceptedGeneration
+}
+
+// remoteCalibrationCheckpointExecutionMatches 验证同一执行入口、计划、catalog 和 snapshot。
+func remoteCalibrationCheckpointExecutionMatches(input remoteci.RunInput, result remoteci.RunResult, record gatecontract.RemoteCIRunRecord) bool {
+	return record.Entrypoint == input.Entrypoint &&
 		record.Entrypoint == result.Entrypoint &&
 		record.Profile == input.Profile &&
 		record.Profile == result.Profile &&
 		record.PlanDigest == result.PlanDigest &&
 		record.CatalogDigest == result.CatalogDigest &&
-		record.SourceTreeSHA == input.Tree &&
+		record.ImageCacheSnapshotID == input.ImageCacheSnapshotID &&
+		record.ImageCacheSnapshotID == result.ImageCacheSnapshotID
+}
+
+// remoteCalibrationCheckpointSourceMatches 验证同一 source tree 与候选 Gate 编译身份。
+func remoteCalibrationCheckpointSourceMatches(input remoteci.RunInput, result remoteci.RunResult, record gatecontract.RemoteCIRunRecord) bool {
+	return record.SourceTreeSHA == input.Tree &&
 		record.SourceTreeSHA == result.SourceTreeSHA &&
 		record.CandidateGateSourceSHA256 == input.CandidateGateSourceSHA256 &&
 		record.CandidateGateSourceSHA256 == result.CandidateGateSourceSHA256 &&
 		record.CandidateGateToolchainSHA256 == input.CandidateGateToolchainSHA256 &&
-		record.CandidateGateToolchainSHA256 == result.CandidateGateToolchainSHA256 &&
-		record.Status == gatecontract.ResultStatusPassed &&
+		record.CandidateGateToolchainSHA256 == result.CandidateGateToolchainSHA256
+}
+
+// remoteCalibrationCheckpointPassed 验证账本记录保持完整的权威成功终态。
+func remoteCalibrationCheckpointPassed(record gatecontract.RemoteCIRunRecord) bool {
+	return record.Status == gatecontract.ResultStatusPassed &&
 		record.Authoritative &&
 		record.CleanupComplete &&
 		record.ErrorText == ""
@@ -173,8 +217,9 @@ func remoteRunResultFromLedgerRecord(record gatecontract.RemoteCIRunRecord) remo
 	return remoteci.RunResult{
 		SchemaVersion:                remoteci.RunResultSchemaVersion,
 		AcceptedGeneration:           record.AcceptedGeneration,
+		ImageCacheSnapshotID:         record.ImageCacheSnapshotID,
 		JobID:                        record.JobID,
-		RequesterFingerprint:         record.RequesterFingerprint,
+		AgentTokenDigest:             record.AgentTokenDigest,
 		Entrypoint:                   record.Entrypoint,
 		Profile:                      record.Profile,
 		PlanDigest:                   record.PlanDigest,
@@ -190,6 +235,7 @@ func remoteRunResultFromLedgerRecord(record gatecontract.RemoteCIRunRecord) remo
 		GateExecutions:               append(append([]gatecontract.PlanGateExecution(nil), record.Executions...), record.WorkloadExecutions...),
 		WorkloadExecutions:           append([]gatecontract.PlanGateExecution(nil), record.WorkloadExecutions...),
 		OptimizationWarnings:         append([]string(nil), record.Warnings...),
+		TimingWarnings:               append([]gatecontract.RemoteCITimingWarning(nil), record.TimingWarnings...),
 		CleanupComplete:              record.CleanupComplete,
 	}
 }

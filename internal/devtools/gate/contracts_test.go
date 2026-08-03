@@ -200,6 +200,7 @@ func TestContractFieldCoverageDetectsMissingAndStale(t *testing.T) {
 		{producer: reflect.TypeFor[GrantRequest](), registration: grantRequestConsumerRegistration()},
 		{producer: reflect.TypeFor[ReleaseAsset](), registration: releaseAssetConsumerRegistration()},
 		{producer: reflect.TypeFor[ResultReceipt](), registration: resultReceiptConsumerRegistration()},
+		{producer: reflect.TypeFor[WorkloadExecutionPlan](), registration: workloadExecutionPlanConsumerRegistration()},
 		{producer: reflect.TypeFor[ContainerShardReceipt](), registration: containerShardReceiptConsumerRegistration()},
 		{producer: reflect.TypeFor[ActionGrant](), registration: actionGrantConsumerRegistration()},
 		{producer: reflect.TypeFor[AcceptedImageRecord](), registration: acceptedImageRecordConsumerRegistration()},
@@ -417,9 +418,21 @@ func resultReceiptConsumerRegistration() fieldConsumerRegistration {
 			"source",
 			"started_at",
 			"status",
+			"workload_plan",
 		},
 		Owner:    "internal/devtools/gate ResultReceipt signing boundary",
-		Evidence: "strict JSON roundtrip and Validate before signing or verification",
+		Evidence: "strict JSON roundtrip, frozen workload-plan binding, and Validate before signing or verification",
+	}
+}
+
+func workloadExecutionPlanConsumerRegistration() fieldConsumerRegistration {
+	return fieldConsumerRegistration{
+		Fields: []string{
+			"catalog", "catalog_digest", "context", "execution_workload_digest", "execution_workload_ids",
+			"gate_plan_digest", "ledger_generation", "owner_estimated_duration_ms", "plan_digest", "schema_version", "shards",
+		},
+		Owner:    "internal/devtools/gate ResultReceipt workload-plan binding boundary",
+		Evidence: "producer-derived WorkloadExecutionPlan strict decode, digest validation, and canonical shard projection",
 	}
 }
 
@@ -589,15 +602,10 @@ func validGrantRequest(now time.Time) GrantRequest {
 
 func validResultReceipt(t *testing.T, now time.Time) ResultReceipt {
 	t.Helper()
-	return validResultReceiptForProfileWithShardCount(t, now, ProfileLocalFast, legacyContainerShardCount)
+	return validResultReceiptForProfile(t, now, ProfileLocalFast)
 }
 
 func validResultReceiptForProfile(t *testing.T, now time.Time, profile Profile) ResultReceipt {
-	t.Helper()
-	return validResultReceiptForProfileWithShardCount(t, now, profile, legacyContainerShardCount)
-}
-
-func validResultReceiptForProfileWithShardCount(t *testing.T, now time.Time, profile Profile, shardsPerJob int) ResultReceipt {
 	t.Helper()
 	plan, err := BuildGatePlan(profile, registryTestSource())
 	if err != nil {
@@ -606,10 +614,18 @@ func validResultReceiptForProfileWithShardCount(t *testing.T, now time.Time, pro
 	image := validImageIdentity()
 	image.PlatformManifestDigest = shardTestDigest('a')
 	image.ConfigDigest = shardTestDigest('b')
-	set, err := BuildContainerShardSetWithCount(plan, image.PlatformManifestDigest, image.ConfigDigest, shardsPerJob)
+	set, err := BuildContainerShardSetFromWorkloadPlan(plan, testWorkloadExecutionPlan(t, plan), image.PlatformManifestDigest, image.ConfigDigest)
 	if err != nil {
 		t.Fatal(err)
 	}
+	return validResultReceiptFromShardSet(t, now, plan, set)
+}
+
+func validResultReceiptFromShardSet(t *testing.T, now time.Time, plan GatePlan, set ContainerShardSet) ResultReceipt {
+	t.Helper()
+	image := validImageIdentity()
+	image.PlatformManifestDigest = set.AcceptedManifestDigest
+	image.ConfigDigest = set.AcceptedConfigDigest
 	shards := successfulShardReceipts(t, set)
 	retimeSuccessfulShardReceipts(shards, now)
 	aggregated, err := aggregateFixtureShardResults(set, shards, now)
@@ -638,6 +654,7 @@ func validResultReceiptForProfileWithShardCount(t *testing.T, now time.Time, pro
 		Deadline:       now.Add(10 * time.Minute),
 		Status:         ResultStatusPassed,
 		GateResults:    fixtureGateResults(aggregated),
+		WorkloadPlan:   set.WorkloadPlan,
 		ShardReceipts:  shards,
 		Evidence:       []Evidence{{Kind: EvidenceKindProcess, Digest: testDigest}},
 		Container:      container,

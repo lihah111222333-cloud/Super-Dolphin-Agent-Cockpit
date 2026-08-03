@@ -77,7 +77,7 @@ func TestLoadGateCLICompileClosureRejectsMissingAndMaliciousInputs(t *testing.T)
 		if err != nil {
 			t.Fatalf("load base compile closure: %v", err)
 		}
-		writeGateCLICompileClosureFile(t, repo, buildInputManifestPath, `{
+		writeGateCLICompileClosureFile(t, repo, "build/gate/inputs.json", `{
   "schema_version": "2",
   "dockerfile": "build/gate/Dockerfile",
   "inputs": ["build/gate/Dockerfile", "build/gate/inputs.json", "build/gate/toolchain.lock", "cmd/super-dolphin-gate/main.go", "go.mod", "go.sum"],
@@ -104,7 +104,7 @@ func newGateCLICompileClosureRepository(t *testing.T) string {
 	runGateCLICompileClosureGit(t, repo, "config", "user.email", "test@example.invalid")
 	runGateCLICompileClosureGit(t, repo, "config", "user.name", "Local CI Test")
 	for path, data := range map[string]string{
-		buildInputManifestPath: `{
+		"build/gate/inputs.json": `{
   "schema_version": "2",
   "dockerfile": "build/gate/Dockerfile",
   "inputs": ["build/gate/Dockerfile", "build/gate/inputs.json", "build/gate/toolchain.lock", "cmd/super-dolphin-gate/main.go", "go.mod", "go.sum"],
