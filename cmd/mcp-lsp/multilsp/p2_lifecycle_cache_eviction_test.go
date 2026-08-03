@@ -89,8 +89,11 @@ func TestManagerPoolCapEvictionPropagatesCloseFailure(t *testing.T) {
 	closeErr := errors.New("cap eviction close failed")
 	first.mu.Lock()
 	first.workspaces["close-failure"] = &workspaceClient{
-		key:    "close-failure",
-		client: &failingCloseP2Client{p2LifecycleClient: &p2LifecycleClient{}, err: closeErr},
+		key:        "close-failure",
+		client:     &failingCloseP2Client{p2LifecycleClient: &p2LifecycleClient{healthy: true}, err: closeErr},
+		generation: 1,
+		state:      workspaceStateIdleCountdown,
+		idleSince:  time.Now().Add(-2 * idleTimeout),
 	}
 	first.mu.Unlock()
 
@@ -116,8 +119,11 @@ func TestManagerPoolDoesNotEvictActiveLeaseClone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureClient(active): %v", err)
 	}
-	mgr.pool.acquire(client)
-	defer mgr.pool.release(client)
+	lease, bound, leaseErr := active.leaseBoundClient(client)
+	if leaseErr != nil || !bound {
+		t.Fatalf("leaseBoundClient(active cap): bound=%v err=%v", bound, leaseErr)
+	}
+	defer lease.Release()
 
 	_ = scopedManagerForTest(t, mgr, testLSPToolScope(root, "agent-new", "thread"))
 	if managerIsClosed(active) {
@@ -168,6 +174,7 @@ func TestRecyclerRebuildDoesNotDefaultNonGoLanguageToGo(t *testing.T) {
 	if len(workspace) != 1 {
 		t.Fatalf("workspace clients = %d, want 1", len(workspace))
 	}
+	ageWorkspaceForLifecycleTest(t, mgr, workspace[0].client)
 	if _, err := recycleWorkspaceClient(mgr, ResolvedLSPToolScope{}, workspace[0]); err != nil {
 		t.Fatalf("recycleWorkspaceClient: %v", err)
 	}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 )
 
 const (
@@ -72,7 +73,7 @@ func (p *ManagerPool) ReleaseScope(req ReleaseScopeRequest) (ReleaseScopeResult,
 	p.rememberPendingReleases(pending)
 	closeErr := p.closeDetachedReleaseManagers(req, toClose, &result)
 	firstErr := errors.Join(pendingErr, closeErr)
-	if req.Drain && result.BusyLeases == 0 && firstErr == nil {
+	if req.Drain && result.BusyLeases == 0 && result.ClosedManagers == result.MatchedManagers && firstErr == nil {
 		result.Drained = true
 	}
 	return result, firstErr
@@ -188,7 +189,7 @@ func (p *ManagerPool) detachReleaseScopeManagersFromShard(
 			continue
 		}
 		recordReleaseScopeMatch(&result, clone.resolvedScope)
-		busy, detach := p.retireManagerForRelease(clone.manager, req.Drain)
+		busy, detach, idleBlocked := p.retireManagerForRelease(clone.manager, req.Drain)
 		if busy > 0 {
 			result.BusyLeases += busy
 			if detach {
@@ -203,7 +204,7 @@ func (p *ManagerPool) detachReleaseScopeManagersFromShard(
 			}
 			continue
 		}
-		if !detach {
+		if idleBlocked || !detach {
 			continue
 		}
 		delete(shard.clones, key)
@@ -219,23 +220,38 @@ func (p *ManagerPool) detachReleaseScopeManagersFromShard(
 }
 
 // retireManagerForRelease 在 manager 写临界区内复核租约并建立摘除栅栏。
-// 非 drain 的 busy manager 保留在 shard；idle manager 无论 drain 与否都先 retiring 再摘除。
-func (p *ManagerPool) retireManagerForRelease(mgr *manager, drain bool) (busy int, detach bool) {
+// 普通 scope release 只有全部 workspace 通过完整 IdleEligible 才能摘除；最后租约归零不构成立即关闭资格。
+func (p *ManagerPool) retireManagerForRelease(mgr *manager, drain bool) (busy int, detach bool, idleBlocked bool) {
 	if p == nil || mgr == nil {
-		return 0, false
+		return 0, false, false
 	}
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
-	for _, workspace := range mgr.workspaces {
-		if workspace != nil && workspace.client != nil {
-			busy += p.activeLeases(workspace.client)
-		}
-	}
+	now := mgr.managerNow()
+	busy, idleBlocked = p.releaseWorkspaceStatus(mgr, now)
 	if busy > 0 && !drain {
-		return busy, false
+		return busy, false, false
+	}
+	if idleBlocked && busy == 0 {
+		return 0, false, true
 	}
 	mgr.retiring = true
-	return busy, true
+	return busy, true, false
+}
+
+// releaseWorkspaceStatus 汇总 manager 内权威租约并标记未完成完整 idle window 的 workspace。
+func (p *ManagerPool) releaseWorkspaceStatus(mgr *manager, now time.Time) (busy int, idleBlocked bool) {
+	for _, workspace := range mgr.workspaces {
+		if workspace == nil || workspace.client == nil {
+			continue
+		}
+		active := p.activeLeasesForWorkspace(workspace)
+		busy += active
+		if active == 0 && !idleEligible(workspace, now, idleTimeoutForLanguage(workspace.languageID)) {
+			idleBlocked = true
+		}
+	}
+	return busy, idleBlocked
 }
 
 func (p *ManagerPool) releaseScopeCanDetach(req ReleaseScopeRequest, clone *pooledManager) bool {
@@ -395,18 +411,26 @@ func (p *ManagerPool) activeLeasesForManager(mgr *manager) int {
 		return 0
 	}
 	mgr.mu.RLock()
-	clients := make([]Client, 0, len(mgr.workspaces))
+	workspaces := make([]workspaceClient, 0, len(mgr.workspaces))
 	for _, workspace := range mgr.workspaces {
 		if workspace != nil && workspace.client != nil {
-			clients = append(clients, workspace.client)
+			workspaces = append(workspaces, *workspace)
 		}
 	}
 	mgr.mu.RUnlock()
 	total := 0
-	for _, client := range clients {
-		total += p.activeLeases(client)
+	for i := range workspaces {
+		total += p.activeLeasesForWorkspace(&workspaces[i])
 	}
 	return total
+}
+
+// activeLeasesForWorkspace 读取 manager workspace 的权威租约计数。
+func (p *ManagerPool) activeLeasesForWorkspace(workspace *workspaceClient) int {
+	if workspace == nil || workspace.client == nil {
+		return 0
+	}
+	return workspace.activeLeases
 }
 
 func appendUniqueNonEmpty(dst []string, value string) []string {

@@ -278,11 +278,13 @@ func TestDetachIdleWorkspaceRechecksConcurrentActivity(t *testing.T) {
 		key: {
 			key:          key,
 			client:       client,
+			generation:   1,
+			state:        workspaceStateActive,
 			lastActivity: time.Now(),
 		},
 	}}
-	if detached := detachWorkspaceClientIfStillIdle(mgr, key, client, cutoff); detached != nil {
-		t.Fatal("detachWorkspaceClientIfStillIdle() removed a workspace touched after the stale snapshot")
+	if detached := detachWorkspaceClientGeneration(mgr, key, client, 1, cutoff); detached != nil {
+		t.Fatal("detachWorkspaceClientGeneration() removed a workspace touched after the stale snapshot")
 	}
 	if got := mgr.workspaces[key]; got == nil || got.client != client {
 		t.Fatal("recently touched workspace was not preserved")
@@ -377,7 +379,7 @@ func TestPoolRecyclerIdleShutdownReportsCleanupFailure(t *testing.T) {
 
 func TestRecyclerDoesNotStealCleanupOwnerFromClosingManager(t *testing.T) {
 	client := &p2LifecycleClient{healthy: true}
-	workspace := &workspaceClient{key: "workspace-closing-manager", languageID: "go", client: client}
+	workspace := &workspaceClient{key: "workspace-closing-manager", languageID: "go", client: client, generation: 1, state: workspaceStateActive}
 	mgr := &manager{
 		closed:     true,
 		retiring:   true,
@@ -403,7 +405,7 @@ func TestRecyclerProbeFailureHealthAndRecovery(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
 	mgr := &manager{logger: logger}
 	client := &p2LifecycleClient{}
-	workspace := workspaceClient{key: secretPath, languageID: "go", client: client}
+	workspace := workspaceClient{key: secretPath, languageID: "go", client: client, generation: 1, state: workspaceStateActive}
 	scope := ResolvedLSPToolScope{ManagerKey: "manager-test", ScopeKey: "scope-test"}
 	recycler := newPoolRecycler(nil)
 	recycler.rssProbe = func(Client) (uint64, int, error) {
@@ -433,6 +435,9 @@ func TestRecyclerProbeDegradationFailsClosedForIdleClient(t *testing.T) {
 		key:          "workspace-probe-degraded",
 		languageID:   "typescript",
 		client:       client,
+		generation:   1,
+		state:        workspaceStateIdleCountdown,
+		idleSince:    time.Now().Add(-2 * idleTimeout),
 		lastActivity: time.Now(),
 	}
 	mgr := &manager{workspaces: map[string]*workspaceClient{workspace.key: workspace}}
@@ -454,9 +459,9 @@ func TestRecyclerProbeDegradationFailsClosedForIdleClient(t *testing.T) {
 func TestRecyclerProbeFailuresAreTrackedPerClient(t *testing.T) {
 	failingClient := &p2LifecycleClient{healthy: true}
 	healthyClient := &p2LifecycleClient{healthy: true}
-	failing := &workspaceClient{key: "workspace-failing-probe", languageID: "typescript", client: failingClient}
+	failing := &workspaceClient{key: "workspace-failing-probe", languageID: "typescript", client: failingClient, generation: 1, state: workspaceStateIdleCountdown, idleSince: time.Now().Add(-2 * idleTimeout)}
 	// 该测试只覆盖 probe 计数；使用无需 repository lease 的 gopls policy，避免伪 client 绕过非 gopls fail-fast 契约。
-	healthy := &workspaceClient{key: "workspace-healthy-probe", languageID: "go", client: healthyClient}
+	healthy := &workspaceClient{key: "workspace-healthy-probe", languageID: "go", client: healthyClient, generation: 1, state: workspaceStateActive}
 	mgr := &manager{workspaces: map[string]*workspaceClient{
 		failing.key: failing,
 		healthy.key: healthy,
@@ -517,8 +522,8 @@ func TestRecyclerInvalidPIDAndMultiWorkspaceFailuresAreObservable(t *testing.T) 
 	clientA := &p2LifecycleClient{}
 	clientB := &p2LifecycleClient{}
 	mgr := &manager{workspaces: map[string]*workspaceClient{
-		"workspace-a": {key: "workspace-a", languageID: "go", client: clientA},
-		"workspace-b": {key: "workspace-b", languageID: "typescript", client: clientB},
+		"workspace-a": {key: "workspace-a", languageID: "go", client: clientA, generation: 1, state: workspaceStateActive},
+		"workspace-b": {key: "workspace-b", languageID: "typescript", client: clientB, generation: 1, state: workspaceStateActive},
 	}}
 	recycler := newPoolRecycler(nil)
 	recycler.rssProbe = func(Client) (uint64, int, error) {
@@ -555,6 +560,9 @@ func forceWorkspaceLastActivity(t *testing.T, mgr *manager, client Client, at ti
 	defer mgr.mu.Unlock()
 	for _, workspace := range mgr.workspaces {
 		if workspace != nil && workspace.client == client {
+			workspace.generation = 1
+			workspace.state = workspaceStateIdleCountdown
+			workspace.idleSince = at
 			workspace.lastActivity = at
 			return
 		}
@@ -602,14 +610,20 @@ func TestReleaseScopeRespectsActiveLeaseBusyOrDrain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureClient(scoped): %v", err)
 	}
-	mgr.pool.acquire(client)
+	lease, bound, leaseErr := scoped.leaseBoundClient(client)
+	if leaseErr != nil || !bound {
+		t.Fatalf("leaseBoundClient(active): bound=%v err=%v", bound, leaseErr)
+	}
 
 	busy, err := mgr.pool.ReleaseScope(ReleaseScopeRequest{ScopeKind: ReleaseScopeAgentThread, AgentID: "agent-busy", ThreadID: "thread-1", Reason: "busy_check"})
 	if err != nil {
 		t.Fatalf("ReleaseScope(busy): %v", err)
 	}
 	assertBusyReleaseScopeResult(t, busy, scoped)
-	mgr.pool.release(client)
+	if err := lease.Release(); err != nil {
+		t.Fatalf("release active lease: %v", err)
+	}
+	ageWorkspaceForLifecycleTest(t, scoped, client)
 
 	drained, err := mgr.pool.ReleaseScope(ReleaseScopeRequest{ScopeKind: ReleaseScopeAgentThread, AgentID: "agent-busy", ThreadID: "thread-1", Drain: true})
 	if err != nil {
@@ -631,38 +645,50 @@ func TestReleaseScopeDrainClosesBusyManagerAfterLeaseRelease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureClient(scoped): %v", err)
 	}
-	mgr.pool.acquire(client)
+	lease := acquireDeferredReleaseLease(t, scoped, client)
+	result := releaseDeferredScope(t, mgr, "deferred_release")
+	assertDeferredBusyReceipt(t, result, "initial")
+	retry := releaseDeferredScope(t, mgr, "deferred_release_retry")
+	assertDeferredBusyReceipt(t, retry, "retry")
 
+	if err := lease.Release(); err != nil {
+		t.Fatalf("release deferred lease: %v", err)
+	}
+	ageWorkspaceForLifecycleTest(t, scoped, client)
+	mgr.pool.drainPendingReleases()
+	if !managerIsClosed(scoped) {
+		t.Fatal("busy scoped manager stayed open after its final lease was released")
+	}
+}
+
+func acquireDeferredReleaseLease(t *testing.T, scoped *manager, client Client) leasedClient {
+	t.Helper()
+	lease, bound, err := scoped.leaseBoundClient(client)
+	if err != nil || !bound {
+		t.Fatalf("leaseBoundClient(deferred): bound=%v err=%v", bound, err)
+	}
+	return lease
+}
+
+func releaseDeferredScope(t *testing.T, mgr *manager, reason string) ReleaseScopeResult {
+	t.Helper()
 	result, err := mgr.pool.ReleaseScope(ReleaseScopeRequest{
 		ScopeKind: ReleaseScopeAgentThread,
 		AgentID:   "agent-deferred",
 		ThreadID:  "thread-1",
 		Drain:     true,
-		Reason:    "deferred_release",
+		Reason:    reason,
 	})
 	if err != nil {
-		t.Fatalf("ReleaseScope(deferred): %v", err)
+		t.Fatalf("ReleaseScope(%s): %v", reason, err)
 	}
-	if result.BusyLeases != 1 || result.Drained {
-		t.Fatalf("ReleaseScope(deferred) = %#v, want one busy lease and drained=false", result)
-	}
-	retry, err := mgr.pool.ReleaseScope(ReleaseScopeRequest{
-		ScopeKind: ReleaseScopeAgentThread,
-		AgentID:   "agent-deferred",
-		ThreadID:  "thread-1",
-		Drain:     true,
-		Reason:    "deferred_release_retry",
-	})
-	if err != nil {
-		t.Fatalf("ReleaseScope(deferred retry): %v", err)
-	}
-	if retry.BusyLeases != 1 || retry.Drained {
-		t.Fatalf("ReleaseScope(deferred retry) = %#v, want pending lease to remain visible", retry)
-	}
+	return result
+}
 
-	mgr.pool.release(client)
-	if !managerIsClosed(scoped) {
-		t.Fatal("busy scoped manager stayed open after its final lease was released")
+func assertDeferredBusyReceipt(t *testing.T, result ReleaseScopeResult, phase string) {
+	t.Helper()
+	if result.BusyLeases != 1 || result.Drained {
+		t.Fatalf("ReleaseScope(%s) = %#v, want one busy lease and drained=false", phase, result)
 	}
 }
 
@@ -679,7 +705,10 @@ func TestReleaseScopeDrainRejectsNewLeaseOnDetachedManager(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureClient(scoped): %v", err)
 	}
-	mgr.pool.acquire(client)
+	lease, bound, leaseErr := scoped.leaseBoundClient(client)
+	if leaseErr != nil || !bound {
+		t.Fatalf("leaseBoundClient(gated): bound=%v err=%v", bound, leaseErr)
+	}
 
 	result, err := mgr.pool.ReleaseScope(ReleaseScopeRequest{
 		ScopeKind: ReleaseScopeAgentThread,
@@ -698,7 +727,11 @@ func TestReleaseScopeDrainRejectsNewLeaseOnDetachedManager(t *testing.T) {
 		t.Fatalf("leaseBoundClient() error = %v, want ErrManagerClosed after drain gate", leaseErr)
 	}
 
-	mgr.pool.release(client)
+	if err := lease.Release(); err != nil {
+		t.Fatalf("release gated lease: %v", err)
+	}
+	ageWorkspaceForLifecycleTest(t, scoped, client)
+	mgr.pool.drainPendingReleases()
 	if !managerIsClosed(scoped) {
 		t.Fatal("gated manager stayed open after its final lease was released")
 	}
@@ -712,8 +745,11 @@ func TestReleaseScopeCloseFailureDoesNotReportClosedOrDrained(t *testing.T) {
 	closeErr := errors.New("close failed")
 	scoped.mu.Lock()
 	scoped.workspaces["close-failure"] = &workspaceClient{
-		key:    "close-failure",
-		client: &failingCloseP2Client{p2LifecycleClient: &p2LifecycleClient{}, err: closeErr},
+		key:        "close-failure",
+		client:     &failingCloseP2Client{p2LifecycleClient: &p2LifecycleClient{healthy: true}, err: closeErr},
+		generation: 1,
+		state:      workspaceStateIdleCountdown,
+		idleSince:  time.Now().Add(-2 * idleTimeout),
 	}
 	scoped.mu.Unlock()
 
@@ -812,54 +848,5 @@ func TestPoolIdleCloneDetachRejectsNewClientBeforeClose(t *testing.T) {
 	}
 	if got := factory.callCount(); got != 0 {
 		t.Fatalf("factory calls after TTL detach = %d, want 0", got)
-	}
-}
-
-func TestReleaseScopeClearsDiagnosticsBootstrapAndCache(t *testing.T) {
-	root := canonicalScopePath(t.TempDir(), "")
-	mgr := newManagerPoolTestManager(t, root)
-	scope := testLSPToolScope(root, "agent-clean", "thread-1")
-	scoped := scopedManagerForTest(t, mgr, scope)
-	resolved, err := ResolveLSPToolScope(scope)
-	if err != nil {
-		t.Fatalf("ResolveLSPToolScope: %v", err)
-	}
-	uri := fileURIFromPath(filepath.Join(root, "main.go"))
-	coordinator := mustBootstrapCoordinator(t, scoped)
-	key := resolved.cacheKey("go", uri)
-	coordinator.cache.Upsert(lspCacheValue{Key: key, Version: 1, UpdatedAt: time.Now()})
-	coordinator.states.complete(resolved.bootstrapKey(), uri, "fp", 1)
-	scoped.diagnostics[diagnosticStoreKeyFor(resolved, uri).String()] = diagnosticSnapshot{
-		scopeKey:     resolved.ScopeKey,
-		workspaceKey: resolved.WorkspaceKey,
-		language:     "go",
-		uri:          uri,
-		generation:   scoped.CurrentDiagnosticGeneration(),
-		state:        diagnosticStateReady,
-		params:       protocol.PublishDiagnosticsParams{URI: uri, Diagnostics: []protocol.Diagnostic{{Message: "stale"}}},
-	}
-
-	result, err := mgr.pool.ReleaseScope(ReleaseScopeRequest{ScopeKind: ReleaseScopeAgentThread, AgentID: "agent-clean", ThreadID: "thread-1", Drain: true})
-	if err != nil {
-		t.Fatalf("ReleaseScope(clean): %v", err)
-	}
-	if result.ClosedManagers != 1 {
-		t.Fatalf("ClosedManagers = %d, want 1", result.ClosedManagers)
-	}
-	scoped.coordinatorMu.Lock()
-	hasCoordinator := scoped.coordinator != nil
-	scoped.coordinatorMu.Unlock()
-	if hasCoordinator {
-		t.Fatalf("bootstrap/cache coordinator survived ReleaseScope close")
-	}
-	if !managerIsClosed(scoped) {
-		t.Fatalf("scoped manager was not closed")
-	}
-}
-
-func TestReleaseScopeRejectsEmptyIdentityWithoutExplicitScopeKind(t *testing.T) {
-	mgr := newManagerPoolTestManager(t, canonicalScopePath(t.TempDir(), ""))
-	if _, err := mgr.pool.ReleaseScope(ReleaseScopeRequest{}); err == nil {
-		t.Fatalf("ReleaseScope(empty) error = nil, want explicit scope kind/identity rejection")
 	}
 }

@@ -154,6 +154,10 @@ func TestShutdownResourceCohortWorkspaceRestoresCloseFailureForRetry(t *testing.
 		err:               closeErr,
 	}
 	workspace := &workspaceClient{key: "cohort-close-retry", languageID: "go", client: client}
+	workspace.generation = 1
+	workspace.state = workspaceStateIdleCountdown
+	workspace.idleSince = time.Now().Add(-2 * idleTimeout)
+	workspace.lastActivity = workspace.idleSince
 	mgr := &manager{workspaces: map[string]*workspaceClient{workspace.key: workspace}}
 
 	recycled, err := shutdownResourceCohortWorkspace(mgr, *workspace)
@@ -579,6 +583,9 @@ func evaluateResourceCohortOwnerHelper(
 		key:          "real-owner-" + strconv.Itoa(os.Getpid()),
 		languageID:   "typescript",
 		client:       current,
+		generation:   1,
+		state:        workspaceStateIdleCountdown,
+		idleSince:    now.Add(-activityAge),
 		lastActivity: now.Add(-activityAge),
 	}
 	policy, err := resourceProcessPolicyForClient(current, workspace.languageID)

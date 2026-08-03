@@ -283,6 +283,11 @@ func TestRecyclerRestoresGoWorkspaceWithSavedRootEnvAndScope(t *testing.T) {
 	if _, err := manager.EnsureClient(ctx, target, "go"); err != nil {
 		t.Fatalf("ensure go client before recycle: %v", err)
 	}
+	workspaceSnapshot := snapshotWorkspaceClients(manager)
+	if len(workspaceSnapshot) != 1 {
+		t.Fatalf("workspace snapshot count = %d, want 1", len(workspaceSnapshot))
+	}
+	ageWorkspaceForLifecycleTest(t, manager, workspaceSnapshot[0].client)
 	workspace, cfg := singleWorkspaceConfig(t, manager)
 	resolved := mustResolveWorkspaceScope(t, manager, ctx, cfg, "recycle")
 	assertFallbackRecycleScope(t, cfg, resolved)
@@ -432,9 +437,11 @@ func TestRecyclerDoesNotRecycleActiveLease(t *testing.T) {
 	}()
 
 	client, original := assertLeasedRecycleClient(t, manager, ctx, factory, target)
+	ageWorkspaceForLifecycleTest(t, manager, client)
 	workspace, cfg := singleWorkspaceConfig(t, manager)
 	resolved := mustResolveWorkspaceScope(t, manager, ctx, cfg, "active-lease recycle")
 	assertActiveLeaseSkipsRecycle(t, manager, client, original, resolved, workspace, factory)
+	ageWorkspaceForLifecycleTest(t, manager, client)
 
 	didRecycleAfterRelease, err := recycleWorkspaceClient(manager, resolved, workspace)
 	if err != nil {

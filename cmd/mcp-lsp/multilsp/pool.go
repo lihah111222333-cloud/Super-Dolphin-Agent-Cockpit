@@ -34,9 +34,6 @@ type ManagerPool struct {
 
 	shards []*managerShard // 按 shard key 分布的 scoped manager 缓存。
 
-	leases   map[Client]int // 客户端当前租约计数，阻止 recycler 关闭忙碌客户端。
-	leasesMu sync.Mutex     // 保护 leases。
-
 	lifecycleMu sync.RWMutex // 封闭 ForScope/ReleaseScope 与 pool Close 的创建边界。
 	closing     bool         // pool 已禁止新请求，仍可能在重试 cleanup。
 	closed      bool         // pool 的全部 manager cleanup 已完成。
@@ -122,7 +119,6 @@ func NewManagerPool(primary *manager, size int) *ManagerPool {
 		primary:         primary,
 		size:            clamped,
 		shardCap:        PoolShardCapFromEnv(),
-		leases:          map[Client]int{},
 		closePending:    make(map[*manager]struct{}),
 		pendingReleases: make(map[*manager]pendingManagerReleaseState),
 	}
@@ -229,21 +225,6 @@ func (p *ManagerPool) ForScope(scope LSPToolScope) (ScopedManager, error) {
 	}, nil
 }
 
-func (p *ManagerPool) acquire(client Client) {
-	if p == nil || client == nil {
-		return
-	}
-	p.trackLease(client, 1)
-}
-
-func (p *ManagerPool) release(client Client) {
-	if p == nil || client == nil {
-		return
-	}
-	p.trackLease(client, -1)
-	p.drainPendingReleases()
-}
-
 // snapshotManagers 复制当前池内 manager 列表，供关闭和回收逻辑在不长时间持锁的情况下遍历。
 func (p *ManagerPool) snapshotManagers() []poolManagerSnapshot {
 	if p == nil {
@@ -284,27 +265,6 @@ func (p *ManagerPool) SnapshotManagers() []poolManagerSnapshot {
 	return p.snapshotManagers()
 }
 
-func (p *ManagerPool) activeLeases(client Client) int {
-	p.leasesMu.Lock()
-	defer p.leasesMu.Unlock()
-	return p.leases[client]
-}
-
-func (p *ManagerPool) trackLease(client Client, delta int) {
-	if p == nil || client == nil {
-		return
-	}
-	p.leasesMu.Lock()
-	defer p.leasesMu.Unlock()
-
-	next := p.leases[client] + delta
-	if next <= 0 {
-		delete(p.leases, client)
-		return
-	}
-	p.leases[client] = next
-}
-
 // rememberPendingReleases 登记已从 shard 隔离、等待最后租约释放的旧 manager 代际。
 func (p *ManagerPool) rememberPendingReleases(managers []pendingManagerRelease) {
 	if p == nil || len(managers) == 0 {
@@ -340,7 +300,7 @@ func (p *ManagerPool) drainPendingReleases() {
 	p.pendingMu.Unlock()
 
 	for _, mgr := range candidates {
-		if p.activeLeasesForManager(mgr) > 0 {
+		if !p.managerIdleEligibleForRelease(mgr) {
 			continue
 		}
 		done, err := mgr.closeWithoutPoolStatus()
@@ -349,6 +309,26 @@ func (p *ManagerPool) drainPendingReleases() {
 			mgr.logger.Warn("LSP deferred release close failed", "err", err)
 		}
 	}
+}
+
+// managerIdleEligibleForRelease 防止普通 scope release 在最后租约归零后绕过完整 idle window。
+// Manager.Close 不经过此函数，仍保留确定性 owner shutdown 语义。
+func (p *ManagerPool) managerIdleEligibleForRelease(mgr *manager) bool {
+	if mgr == nil {
+		return false
+	}
+	mgr.mu.RLock()
+	defer mgr.mu.RUnlock()
+	now := mgr.managerNow()
+	for _, workspace := range mgr.workspaces {
+		if workspace == nil || workspace.client == nil {
+			continue
+		}
+		if !idleEligible(workspace, now, idleTimeoutForLanguage(workspace.languageID)) {
+			return false
+		}
+	}
+	return true
 }
 
 // recordPendingCloseAttempt 更新 cleanup receipt；无需上报的成功回收会立即移除 tombstone。
@@ -529,13 +509,26 @@ func (p *ManagerPool) retireManagerIfIdle(mgr *manager) bool {
 	if mgr.retiring {
 		return false
 	}
+	now := mgr.managerNow()
 	for _, workspace := range mgr.workspaces {
-		if workspace != nil && workspace.client != nil && p.activeLeases(workspace.client) > 0 {
+		if !p.retireWorkspaceEligible(workspace, now) {
 			return false
 		}
 	}
 	mgr.retiring = true
 	return true
+}
+
+// retireWorkspaceEligible 判断容量淘汰时单个 workspace 是否满足代际、租约和完整 idle window。
+func (p *ManagerPool) retireWorkspaceEligible(workspace *workspaceClient, now time.Time) bool {
+	if workspace == nil || workspace.client == nil {
+		return true
+	}
+	if workspace.generation == 0 || p.activeLeasesForWorkspace(workspace) > 0 {
+		return false
+	}
+	// Capacity pressure never bypasses the full idle timeout for a registered generation.
+	return idleEligible(workspace, now, idleTimeoutForLanguage(workspace.languageID))
 }
 
 // detachIdleEmptyClones 摘除早于 cutoff 且没有 workspace 或租约的 clone。
