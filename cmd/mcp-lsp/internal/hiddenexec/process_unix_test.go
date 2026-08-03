@@ -4,7 +4,6 @@ package hiddenexec
 
 import (
 	"context"
-	"errors"
 	"os/exec"
 	"testing"
 	"time"
@@ -18,28 +17,33 @@ func TestConfigureCommandCreatesIndependentSessionAndProcessGroup(t *testing.T) 
 	}
 }
 
-func TestCommandContextCancellationRefusesUnownedDestructiveAction(t *testing.T) {
+func TestCommandContextCancellationTerminatesExactRootOnly(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	cmd := CommandContext(
 		ctx,
-		"/bin/sh",
-		"-c",
-		"sleep 0.2",
+		"/bin/sleep",
+		"30",
 	)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start CommandContext helper: %v", err)
 	}
-	if err := cmd.Cancel(); !errors.Is(err, ErrProcessTreeOwnerMissing) {
-		t.Fatalf("CommandContext Cancel() error = %v, want owner-missing", err)
-	}
 	cancel()
-	waitDone := make(chan error, 1)
-	go func() { waitDone <- cmd.Wait() }()
-	select {
-	case <-waitDone:
-	case <-time.After(2 * time.Second):
-		t.Fatal("unowned CommandContext process did not exit naturally")
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		alive, probeErr := ProcessAlive(cmd.Process.Pid)
+		if probeErr == nil && !alive {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if alive, probeErr := ProcessAlive(cmd.Process.Pid); probeErr != nil {
+		t.Fatalf("probe CommandContext parent after cancellation: %v", probeErr)
+	} else if alive {
+		t.Fatal("CommandContext cancellation did not terminate the exact root")
+	}
+	if waitErr := cmd.Wait(); waitErr == nil {
+		t.Fatal("CommandContext cancellation unexpectedly reported a successful exit")
 	}
 	parentAlive, err := ProcessAlive(cmd.Process.Pid)
 	if err != nil {

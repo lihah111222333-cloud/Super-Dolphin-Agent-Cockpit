@@ -20,7 +20,14 @@ func TestProcessTreeProvidesIdentitySnapshotAndBoundedLifecycle(t *testing.T) {
 		_ = tree.Force(context.Background())
 		_ = cmd.Wait()
 	}()
+	identity := requireProcessTreeIdentity(t, tree)
+	requireProcessTreeSnapshot(t, tree, identity)
+	requireProcessTreeAlive(t, tree)
+	requireProcessTreeShutdown(t, tree)
+}
 
+func requireProcessTreeIdentity(t *testing.T, tree *ProcessTree) ProcessIdentity {
+	t.Helper()
 	identity, err := tree.Identity()
 	if err != nil {
 		t.Fatalf("Identity() error = %v", err)
@@ -28,7 +35,11 @@ func TestProcessTreeProvidesIdentitySnapshotAndBoundedLifecycle(t *testing.T) {
 	if identity.PID <= 1 || identity.StartToken == "" {
 		t.Fatalf("Identity() = %+v, want a stable process identity", identity)
 	}
+	return identity
+}
 
+func requireProcessTreeSnapshot(t *testing.T, tree *ProcessTree, identity ProcessIdentity) {
+	t.Helper()
 	snapshot, err := tree.Snapshot()
 	if err != nil {
 		t.Fatalf("Snapshot() error = %v", err)
@@ -36,7 +47,10 @@ func TestProcessTreeProvidesIdentitySnapshotAndBoundedLifecycle(t *testing.T) {
 	if !snapshot.Root.Equal(identity) {
 		t.Fatalf("Snapshot().Root = %+v, want %+v", snapshot.Root, identity)
 	}
+}
 
+func requireProcessTreeAlive(t *testing.T, tree *ProcessTree) {
+	t.Helper()
 	alive, err := tree.Alive()
 	if err != nil {
 		t.Fatalf("Alive() error = %v", err)
@@ -44,7 +58,10 @@ func TestProcessTreeProvidesIdentitySnapshotAndBoundedLifecycle(t *testing.T) {
 	if !alive {
 		t.Fatal("Alive() = false before shutdown")
 	}
+}
 
+func requireProcessTreeShutdown(t *testing.T, tree *ProcessTree) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	if err := tree.Graceful(ctx); err != nil {

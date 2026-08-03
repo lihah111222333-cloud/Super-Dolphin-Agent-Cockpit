@@ -19,13 +19,19 @@ func TestLinuxPidfdUnavailableLeavesProcessTreePendingWithoutSignal(t *testing.T
 		t.Fatalf("StartProcessTree() error = %v", err)
 	}
 	owner := tree.controller.(*unixProcessTree)
-	oldOpen := openPidfd
-	openPidfd = func(int, int) (int, error) { return -1, unix.ENOSYS }
-	defer func() { openPidfd = oldOpen }()
+	owner.signalMembers = func(members []ProcessIdentity, signal int) error {
+		return signalProcessMembersWithOps(members, signal, linuxSignalOps{
+			openPidfd:       func(int, int) (int, error) { return -1, unix.ENOSYS },
+			sendPidfdSignal: unix.PidfdSendSignal,
+		})
+	}
 
 	err = tree.Force(context.Background())
 	if !errors.Is(err, ErrProcessTreePidfdUnavailable) {
 		t.Fatalf("Force() error = %v, want pidfd-unavailable", err)
+	}
+	if !errors.Is(err, ErrProcessTreeCleanupPending) {
+		t.Fatalf("Force() error = %v, want CleanupPending", err)
 	}
 	alive, probeErr := owner.alive()
 	if probeErr != nil {
@@ -35,7 +41,7 @@ func TestLinuxPidfdUnavailableLeavesProcessTreePendingWithoutSignal(t *testing.T
 		t.Fatal("process tree exited even though pidfd authorization was unavailable")
 	}
 
-	openPidfd = oldOpen
+	owner.signalMembers = signalProcessMembers
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	if err := tree.Force(ctx); err != nil {
@@ -58,6 +64,9 @@ func TestLinuxActionTimeIdentityMismatchBlocksSignal(t *testing.T) {
 	err = tree.Force(context.Background())
 	if !errors.Is(err, ErrProcessTreeIdentityMismatch) {
 		t.Fatalf("Force() error = %v, want identity mismatch", err)
+	}
+	if !errors.Is(err, ErrProcessTreeCleanupPending) {
+		t.Fatalf("Force() error = %v, want CleanupPending", err)
 	}
 	owner.root = original
 	if err := tree.Force(context.Background()); err != nil {

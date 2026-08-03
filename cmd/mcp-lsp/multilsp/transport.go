@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/hiddenexec"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
@@ -92,9 +93,16 @@ type pendingResult struct {
 
 // newTransport 启动 LSP 子进程并初始化 transport，启动 readLoop 和 wait goroutine。
 func newTransport(options transportOptions) (*transport, error) {
-	cmd, processTree, stdin, stdout, stderr, err := startTransport(options)
+	return newTransportWithStarter(options, hiddenexec.StartProcessTree)
+}
+
+func newTransportWithStarter(
+	options transportOptions,
+	starter func(*exec.Cmd) (*hiddenexec.ProcessTree, error),
+) (*transport, error) {
+	cmd, processTree, stdin, stdout, stderr, err := startTransportWithStarter(options, starter)
 	if err != nil {
-		return nil, err
+		return nil, errors.Join(err, cleanupFailedProcessTree(processTree))
 	}
 	actorCtx, cancelActors := context.WithCancel(context.Background())
 	t := &transport{
@@ -117,6 +125,14 @@ func newTransport(options transportOptions) (*transport, error) {
 		t.readLoop()
 	})
 	return t, nil
+}
+
+// cleanupFailedProcessTree consumes the startup owner transferred through the
+// startTransport error tuple. StartProcessTree may have already started the
+// exact cmd.Wait goroutine; ProcessTree methods are therefore the sole retry
+// interface, and Release runs only after termination/remaining convergence.
+func cleanupFailedProcessTree(processTree *hiddenexec.ProcessTree) error {
+	return cleanupProcessTreeOwner(processTree)
 }
 
 // request 发送一次 JSON-RPC 请求并等待匹配 id 的响应。

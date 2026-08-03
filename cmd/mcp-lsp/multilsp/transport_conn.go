@@ -30,6 +30,13 @@ const (
 func startTransport(
 	options transportOptions,
 ) (*exec.Cmd, *hiddenexec.ProcessTree, io.WriteCloser, io.ReadCloser, *limitedBuffer, error) {
+	return startTransportWithStarter(options, hiddenexec.StartProcessTree)
+}
+
+func startTransportWithStarter(
+	options transportOptions,
+	starter func(*exec.Cmd) (*hiddenexec.ProcessTree, error),
+) (*exec.Cmd, *hiddenexec.ProcessTree, io.WriteCloser, io.ReadCloser, *limitedBuffer, error) {
 	cmd := hiddenexec.Command(options.Binary, options.Args...)
 	cmd.Dir = options.Dir
 	if len(options.Env) > 0 {
@@ -46,11 +53,16 @@ func startTransport(
 	}
 	stderr := &limitedBuffer{limit: stderrLimitBytes}
 	cmd.Stderr = stderr
-	processTree, err := hiddenexec.StartProcessTree(cmd)
+	processTree, err := starter(cmd)
 	if err != nil {
-		_ = stdin.Close()
-		_ = stdout.Close()
-		return nil, nil, nil, nil, nil, fmt.Errorf("LSP server start process tree: %w", err)
+		var closeErr error
+		if stdinErr := stdin.Close(); stdinErr != nil {
+			closeErr = errors.Join(closeErr, fmt.Errorf("close LSP server stdin after process-tree startup failure: %w", stdinErr))
+		}
+		if stdoutErr := stdout.Close(); stdoutErr != nil {
+			closeErr = errors.Join(closeErr, fmt.Errorf("close LSP server stdout after process-tree startup failure: %w", stdoutErr))
+		}
+		return nil, processTree, nil, nil, nil, errors.Join(fmt.Errorf("LSP server start process tree: %w", err), closeErr)
 	}
 	return cmd, processTree, stdin, stdout, stderr, nil
 }

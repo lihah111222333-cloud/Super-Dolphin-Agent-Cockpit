@@ -9,6 +9,7 @@ import (
 )
 
 var errUnsupportedProcessTree = errors.New("process-tree is unsupported on this platform")
+var ErrProcessTreeCleanupPending = errors.New("CleanupPending: process-tree destructive action is blocked")
 
 type otherProcessTree struct{}
 

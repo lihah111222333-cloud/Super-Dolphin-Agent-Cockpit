@@ -16,6 +16,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+var ErrProcessTreeCleanupPending = errors.New("CleanupPending: process-tree destructive action is blocked")
+
 const jobObjectLimitKillOnJobClose = 0x00002000
 
 const windowsStillActive = 259
@@ -73,16 +75,20 @@ func startProcessTree(cmd *exec.Cmd) (*ProcessTree, error) {
 			closeWindowsHandle(job, "close unassigned language-server Job Object"),
 		)
 	}
+	// Assign while the initial thread is still suspended.  Any subsequent
+	// identity-bind failure can therefore terminate through Job authority and
+	// reap the exact startup process; it cannot escape between Start and Assign.
+	owner := &windowsProcessTree{job: job, pid: cmd.Process.Pid}
+	if err := assignProcessToJob(owner.job, owner.pid); err != nil {
+		cleanupOwner, cleanupErr := cleanupUnassignedSuspendedProcess(cmd, owner)
+		return cleanupOwner, errors.Join(err, cleanupErr)
+	}
 	root, identityErr := captureWindowsProcessIdentity(cmd.Process.Pid)
 	if identityErr != nil {
-		cleanupErr := cleanupUnassignedSuspendedProcess(cmd, job)
+		cleanupErr := cleanupAssignedSuspendedProcess(cmd, owner)
 		return nil, errors.Join(fmt.Errorf("capture Windows process-tree root identity: %w", identityErr), cleanupErr)
 	}
-	owner := &windowsProcessTree{job: job, pid: cmd.Process.Pid, root: root}
-	if err := assignProcessToJob(owner.job, owner.pid); err != nil {
-		cleanupErr := cleanupUnassignedSuspendedProcess(cmd, owner.job)
-		return nil, errors.Join(err, cleanupErr)
-	}
+	owner.root = root
 	if err := resumeUniqueProcessThread(owner.pid); err != nil {
 		cleanupErr := cleanupAssignedSuspendedProcess(cmd, owner)
 		return nil, errors.Join(fmt.Errorf("resume language-server process: %w", err), cleanupErr)
@@ -183,16 +189,50 @@ func processThreadIDs(snapshot windows.Handle, pid int) ([]uint32, error) {
 	return threadIDs, nil
 }
 
-func cleanupUnassignedSuspendedProcess(cmd *exec.Cmd, job windows.Handle) error {
-	_ = cmd
-	return errors.Join(
-		errors.New("Windows process-tree membership authority was not established; cleanup pending"),
-		closeWindowsHandle(job, "close unassigned language-server Job Object"),
-	)
+func cleanupUnassignedSuspendedProcess(cmd *exec.Cmd, owner *windowsProcessTree) (*ProcessTree, error) {
+	startupOwner := newStartupProcessTreeWithRelease(cmd, nil, func() error {
+		return closeWindowsHandle(owner.job, "close empty unassigned language-server Job Object")
+	})
+	members, queryErr := queryJobProcessIDs(owner.job)
+	if queryErr != nil {
+		// Do not close an opaque Job handle whose membership could not be
+		// observed: a non-empty Job must never be silently abandoned or closed.
+		return &ProcessTree{controller: owner}, errors.Join(
+			ErrProcessTreeCleanupPending,
+			fmt.Errorf("verify Windows Job membership after assignment failure: %w", queryErr),
+		)
+	}
+	if len(members) != 0 {
+		terminateErr := terminateJobProcessTree(owner.job)
+		waitErr := cleanupProcessWaitError(cmd.Wait())
+		releaseErr := owner.release()
+		if terminateErr == nil && waitErr == nil && releaseErr == nil {
+			return nil, nil
+		}
+		return &ProcessTree{controller: owner}, errors.Join(ErrProcessTreeCleanupPending, terminateErr, waitErr, releaseErr)
+	}
+	// The process remains suspended and outside the Job when assignment was
+	// rejected.  Kill through the exact os.Process handle, wait for reap, then
+	// close the now-proven-empty Job.  A failed kill/wait returns startupOwner
+	// so the caller can retry without losing the exact process authority.
+	cleanupErr := startupOwner.Terminate()
+	releaseErr := startupOwner.Release()
+	if cleanupErr != nil || releaseErr != nil {
+		return startupOwner, errors.Join(ErrProcessTreeCleanupPending, cleanupErr, releaseErr)
+	}
+	return nil, nil
 }
 
 func cleanupAssignedSuspendedProcess(cmd *exec.Cmd, owner *windowsProcessTree) error {
-	terminateErr := owner.terminate()
+	var terminateErr error
+	if owner.root == (ProcessIdentity{}) {
+		// Identity capture failed after Job assignment.  Job membership is the
+		// startup owner authority, so terminate the Job directly rather than
+		// inventing a PID-based fallback.
+		terminateErr = terminateJobProcessTree(owner.job)
+	} else {
+		terminateErr = owner.terminate()
+	}
 	waitErr := cleanupProcessWaitError(cmd.Wait())
 	releaseErr := owner.release()
 	return errors.Join(terminateErr, releaseErr, waitErr)
@@ -233,10 +273,10 @@ func (p *windowsProcessTree) release() error {
 	}
 	members, err := queryJobProcessIDs(p.job)
 	if err != nil {
-		return fmt.Errorf("verify Windows Job membership before release: %w", err)
+		return errors.Join(ErrProcessTreeCleanupPending, fmt.Errorf("verify Windows Job membership before release: %w", err))
 	}
 	if len(members) != 0 {
-		return fmt.Errorf("release Windows process-tree owner: %w: %d members remain", ErrProcessTreeRemaining, len(members))
+		return errors.Join(ErrProcessTreeCleanupPending, fmt.Errorf("release Windows process-tree owner: %w: %d members remain", ErrProcessTreeRemaining, len(members)))
 	}
 	p.releaseErr = closeWindowsHandle(p.job, "close language-server Job Object")
 	if p.releaseErr != nil {
@@ -267,10 +307,10 @@ func (p *windowsProcessTree) alive() (bool, error) {
 		return false, nil
 	}
 	if err != nil {
-		return false, err
+		return false, errors.Join(ErrProcessTreeCleanupPending, err)
 	}
 	if !current.Equal(p.root) {
-		return false, fmt.Errorf("%w: root PID %d", ErrProcessTreeIdentityMismatch, p.pid)
+		return false, errors.Join(ErrProcessTreeCleanupPending, fmt.Errorf("%w: root PID %d", ErrProcessTreeIdentityMismatch, p.pid))
 	}
 	return true, nil
 }
@@ -335,17 +375,19 @@ func (p *windowsProcessTree) force(ctx context.Context) error {
 	if p.released || p.job == 0 {
 		return errors.New("process-tree Job handle is released")
 	}
-	if current, err := captureWindowsProcessIdentity(p.pid); !processTreeProcessGone(err) {
-		if err != nil {
-			return err
-		}
-		if !current.Equal(p.root) {
-			return fmt.Errorf("%w: root PID %d", ErrProcessTreeIdentityMismatch, p.pid)
+	if p.root != (ProcessIdentity{}) {
+		if current, err := captureWindowsProcessIdentity(p.pid); !processTreeProcessGone(err) {
+			if err != nil {
+				return err
+			}
+			if !current.Equal(p.root) {
+				return errors.Join(ErrProcessTreeCleanupPending, fmt.Errorf("%w: root PID %d", ErrProcessTreeIdentityMismatch, p.pid))
+			}
 		}
 	}
 	pids, err := queryJobProcessIDs(p.job)
 	if err != nil {
-		return fmt.Errorf("verify Windows Job membership before force-kill: %w", err)
+		return errors.Join(ErrProcessTreeCleanupPending, fmt.Errorf("verify Windows Job membership before force-kill: %w", err))
 	}
 	if len(pids) == 0 {
 		return nil

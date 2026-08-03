@@ -9,20 +9,11 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-
-	"golang.org/x/sys/unix"
 )
 
 const (
 	unixGracefulSignal = int(syscall.SIGTERM)
 	unixForceSignal    = int(syscall.SIGKILL)
-)
-
-// These indirections keep the Linux security edge testable without replacing
-// the production pidfd syscalls or introducing a signal-capable fallback.
-var (
-	openPidfd       = unix.PidfdOpen
-	sendPidfdSignal = unix.PidfdSendSignal
 )
 
 func captureProcessIdentity(pid int) (ProcessIdentity, error) {
@@ -157,48 +148,4 @@ func processRSSBytes(pid int) (uint64, error) {
 		return 0, fmt.Errorf("parse RSS pages for pid %d: %w", pid, err)
 	}
 	return pages * uint64(os.Getpagesize()), nil
-}
-
-func signalProcessMembers(members []ProcessIdentity, signal int) error {
-	// Open every pidfd before sending any signal. This makes pidfd unavailable,
-	// identity mismatch, and permission failure a strict zero-signal outcome.
-	fds := make([]int, len(members))
-	for i, member := range members {
-		fd, err := openPidfd(member.PID, 0)
-		if err != nil {
-			for _, opened := range fds[:i] {
-				_ = unix.Close(opened)
-			}
-			return fmt.Errorf("%w for member PID %d: %v", ErrProcessTreePidfdUnavailable, member.PID, err)
-		}
-		current, identityErr := captureProcessIdentity(member.PID)
-		if identityErr != nil || !current.Equal(member) {
-			_ = unix.Close(fd)
-			for _, opened := range fds[:i] {
-				_ = unix.Close(opened)
-			}
-			if identityErr != nil {
-				return fmt.Errorf("%w for member PID %d: %v", ErrProcessTreeIdentityMismatch, member.PID, identityErr)
-			}
-			return fmt.Errorf("%w for member PID %d", ErrProcessTreeIdentityMismatch, member.PID)
-		}
-		fds[i] = fd
-	}
-	defer func() {
-		for _, fd := range fds {
-			_ = unix.Close(fd)
-		}
-	}()
-	for i, member := range members {
-		if current, err := captureProcessIdentity(member.PID); err != nil || !current.Equal(member) {
-			if err != nil {
-				return fmt.Errorf("%w before signal for member PID %d: %v", ErrProcessTreeIdentityMismatch, member.PID, err)
-			}
-			return fmt.Errorf("%w before signal for member PID %d", ErrProcessTreeIdentityMismatch, member.PID)
-		}
-		if err := sendPidfdSignal(fds[i], unix.Signal(signal), nil, 0); err != nil && !errors.Is(err, unix.ESRCH) {
-			return fmt.Errorf("send signal %d to member PID %d: %w", signal, member.PID, err)
-		}
-	}
-	return nil
 }

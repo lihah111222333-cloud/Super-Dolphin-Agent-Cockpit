@@ -13,39 +13,67 @@ import (
 	"time"
 )
 
+var ErrProcessTreeCleanupPending = errors.New("CleanupPending: process-tree destructive action is blocked")
+
 type unixProcessTree struct {
-	mu       sync.Mutex
-	cmd      *exec.Cmd
-	root     ProcessIdentity
-	known    map[int]ProcessIdentity
-	released bool
+	mu            sync.Mutex
+	cmd           *exec.Cmd
+	root          ProcessIdentity
+	known         map[int]ProcessIdentity
+	signalMembers func([]ProcessIdentity, int) error
+	released      bool
 }
 
 func startProcessTree(cmd *exec.Cmd) (*ProcessTree, error) {
+	return startProcessTreeWithHooks(cmd, startupAbortHooks{
+		captureIdentity: captureProcessIdentity,
+		groupOwned:      startupProcessGroupOwned,
+		startWait:       startStartupProcessWait,
+		waitTimeout:     3 * time.Second,
+	})
+}
+
+func startProcessTreeWithHooks(cmd *exec.Cmd, hooks startupAbortHooks) (*ProcessTree, error) {
+	if err := validateProcessTreeCommand(cmd); err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	root, err := hooks.captureIdentity(cmd.Process.Pid)
+	if err != nil {
+		cleanupErr, startupOwner := abortStartedProcessTree(cmd, hooks)
+		return startupOwner, errors.Join(fmt.Errorf("capture process-tree root identity: %w", err), cleanupErr)
+	}
+	if err := validateProcessTreeRoot(root, cmd.Process.Pid); err != nil {
+		cleanupErr, startupOwner := abortStartedProcessTree(cmd, hooks)
+		return startupOwner, errors.Join(err, cleanupErr)
+	}
+	owner := &unixProcessTree{cmd: cmd, root: root, known: map[int]ProcessIdentity{root.PID: root}, signalMembers: signalProcessMembers}
+	return &ProcessTree{controller: owner}, nil
+}
+
+func validateProcessTreeCommand(cmd *exec.Cmd) error {
 	if cmd == nil {
-		return nil, errors.New("start process tree: command is nil")
+		return errors.New("start process tree: command is nil")
 	}
 	if cmd.Process != nil {
-		return nil, errors.New("start process tree: command is already started")
+		return errors.New("start process tree: command is already started")
 	}
 	if cmd.SysProcAttr == nil {
 		configureCommand(cmd)
 	}
 	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setsid {
-		return nil, errors.New("start process tree: independent session/PGID is required")
+		return errors.New("start process tree: independent session/PGID is required")
 	}
-	if err := cmd.Start(); err != nil {
-		return nil, err
+	return nil
+}
+
+func validateProcessTreeRoot(root ProcessIdentity, pid int) error {
+	if root.PID != pid || root.ProcessGroupID != root.PID || root.SessionID != root.PID {
+		return fmt.Errorf("process-tree root is not an independent session/PGID: %+v", root)
 	}
-	root, err := captureProcessIdentity(cmd.Process.Pid)
-	if err != nil {
-		return nil, fmt.Errorf("capture process-tree root identity: %w; cleanup pending: destructive action is not authorized", err)
-	}
-	if root.PID != cmd.Process.Pid || root.ProcessGroupID != root.PID || root.SessionID != root.PID {
-		return nil, fmt.Errorf("process-tree root is not an independent session/PGID: %+v; cleanup pending: destructive action is not authorized", root)
-	}
-	owner := &unixProcessTree{cmd: cmd, root: root, known: map[int]ProcessIdentity{root.PID: root}}
-	return &ProcessTree{controller: owner}, nil
+	return nil
 }
 
 func (p *unixProcessTree) terminate() error {
@@ -79,10 +107,10 @@ func (p *unixProcessTree) release() error {
 	}
 	snapshot, err := p.snapshotLocked()
 	if err != nil {
-		return err
+		return errors.Join(ErrProcessTreeCleanupPending, err)
 	}
 	if len(snapshot.Members) != 0 || len(snapshot.Unknown) != 0 {
-		return fmt.Errorf("release process-tree owner: %w: %d members, %d unknown", ErrProcessTreeRemaining, len(snapshot.Members), len(snapshot.Unknown))
+		return errors.Join(ErrProcessTreeCleanupPending, fmt.Errorf("release process-tree owner: %w: %d members, %d unknown", ErrProcessTreeRemaining, len(snapshot.Members), len(snapshot.Unknown)))
 	}
 	p.released = true
 	return nil
@@ -138,14 +166,13 @@ func (p *unixProcessTree) snapshotLocked() (ProcessTreeSnapshot, error) {
 	if err != nil {
 		return ProcessTreeSnapshot{}, err
 	}
-	rootCurrent, rootPresent := table[p.root.PID]
-	if rootPresent && !rootCurrent.Equal(p.root) {
-		return ProcessTreeSnapshot{}, fmt.Errorf("%w: root PID %d was reused", ErrProcessTreeIdentityMismatch, p.root.PID)
+	if err := p.validateSnapshotRoot(table); err != nil {
+		return ProcessTreeSnapshot{}, err
 	}
 	members := make([]ProcessIdentity, 0, len(table))
 	unknown := make([]ProcessIdentity, 0)
 	for pid, current := range table {
-		if current.SessionID != p.root.SessionID || current.ProcessGroupID != p.root.ProcessGroupID {
+		if !sameProcessTreeGroup(current, p.root) {
 			continue
 		}
 		if expected, known := p.known[pid]; known && !current.Equal(expected) {
@@ -161,6 +188,18 @@ func (p *unixProcessTree) snapshotLocked() (ProcessTreeSnapshot, error) {
 	slicesSortIdentities(members)
 	slicesSortIdentities(unknown)
 	return ProcessTreeSnapshot{Root: p.root, Members: members, Unknown: unknown, CapturedAt: time.Now()}, nil
+}
+
+func (p *unixProcessTree) validateSnapshotRoot(table map[int]ProcessIdentity) error {
+	rootCurrent, rootPresent := table[p.root.PID]
+	if rootPresent && !rootCurrent.Equal(p.root) {
+		return fmt.Errorf("%w: root PID %d was reused", ErrProcessTreeIdentityMismatch, p.root.PID)
+	}
+	return nil
+}
+
+func sameProcessTreeGroup(current, root ProcessIdentity) bool {
+	return current.SessionID == root.SessionID && current.ProcessGroupID == root.ProcessGroupID
 }
 
 func (p *unixProcessTree) knownMemberOrDescendant(pid int, table map[int]ProcessIdentity) bool {
@@ -215,7 +254,7 @@ func (p *unixProcessTree) descendants() ([]ProcessIdentity, error) {
 	defer p.mu.Unlock()
 	snapshot, err := p.snapshotLocked()
 	if err != nil {
-		return nil, err
+		return nil, errors.Join(ErrProcessTreeCleanupPending, err)
 	}
 	result := make([]ProcessIdentity, 0, len(snapshot.Members))
 	for _, member := range snapshot.Members {
@@ -231,10 +270,10 @@ func (p *unixProcessTree) remaining() ([]ProcessIdentity, error) {
 	defer p.mu.Unlock()
 	snapshot, err := p.snapshotLocked()
 	if err != nil {
-		return nil, err
+		return nil, errors.Join(ErrProcessTreeCleanupPending, err)
 	}
 	if len(snapshot.Unknown) != 0 {
-		return nil, fmt.Errorf("%w: %d unknown members", ErrProcessTreeIdentityMismatch, len(snapshot.Unknown))
+		return nil, errors.Join(ErrProcessTreeCleanupPending, fmt.Errorf("%w: %d unknown members", ErrProcessTreeIdentityMismatch, len(snapshot.Unknown)))
 	}
 	return append([]ProcessIdentity(nil), snapshot.Members...), nil
 }
@@ -258,15 +297,22 @@ func (p *unixProcessTree) signal(ctx context.Context, signal int) error {
 	}
 	snapshot, err := p.snapshotLocked()
 	if err != nil {
-		return err
+		return errors.Join(ErrProcessTreeCleanupPending, err)
 	}
 	if len(snapshot.Unknown) != 0 {
-		return fmt.Errorf("%w: unknown member prevents signal", ErrProcessTreeIdentityMismatch)
+		return errors.Join(ErrProcessTreeCleanupPending, fmt.Errorf("%w: unknown member prevents signal", ErrProcessTreeIdentityMismatch))
 	}
-	if len(snapshot.Members) == 0 {
+	return p.signalSnapshot(snapshot.Members, signal)
+}
+
+func (p *unixProcessTree) signalSnapshot(members []ProcessIdentity, signal int) error {
+	if len(members) == 0 {
 		return nil
 	}
-	return signalProcessMembers(snapshot.Members, signal)
+	if p.signalMembers == nil {
+		return errors.Join(ErrProcessTreeCleanupPending, errors.New("process-tree signal authority is unavailable"))
+	}
+	return p.signalMembers(members, signal)
 }
 
 func (p *unixProcessTree) wait(ctx context.Context) error {

@@ -144,10 +144,10 @@ sequenceDiagram
 
 ## 2.2 `cmd/mcp-lsp/`
 
-> 当前 `cmd/mcp-lsp/` 下共有 108 个 Go 文件：根目录 14 个，后代目录 94 个；直接子包分布为 `edit` 4、`format` 4、`installer` 1、`manager` 3、`middleware` 5、`multilsp` 31、`protocol` 5、`search` 4、`tools` 31，另有 `cmd/mcp-lsp/internal/hiddenexec` 6 个。
+> 当前 `cmd/mcp-lsp/` 下共有 115 个 Go 文件：根目录 14 个，后代目录 101 个；直接子包分布为 `edit` 4、`format` 4、`installer` 1、`manager` 3、`middleware` 5、`multilsp` 32、`protocol` 5、`search` 4、`tools` 31，另有 `cmd/mcp-lsp/internal/hiddenexec` 12 个。
 >
 > <!-- codemap-count path="cmd/mcp-lsp" kind="go-files" expected="14" -->
-> <!-- codemap-count path="cmd/mcp-lsp" kind="go-files-recursive" expected="110" -->
+> <!-- codemap-count path="cmd/mcp-lsp" kind="go-files-recursive" expected="115" -->
 >
 > 迁移补记：当前仓库 `internal/mcpserver/` 仅保留 `common/` 与 `common/bootstrap/`；LSP 真实落点已经迁到 `cmd/mcp-lsp/{tools,manager,multilsp,middleware,...}`，旧 internal/mcpserver/lsp 子包已删除。
 
