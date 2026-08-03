@@ -184,7 +184,7 @@ internal/archtest/backend_boundary_governance_test.go	internal	other	go-test	333
 internal/archtest/backend_boundary_governance.go	internal	other	go-source	30646	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,governance,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_guard_coverage_test.go	internal	other	go-test	13942	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,guard,coverage,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_import_evaluator.go	internal	other	go-source	7396	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,import,evaluator,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/backend_boundary_loader_parity_test.go	internal	other	go-test	2384	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,loader,parity,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/backend_boundary_loader_parity_test.go	internal	other	go-test	2863	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,loader,parity,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_matrix_test.go	internal	other	go-test	10161	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,matrix,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_registry_app_adapter.go	internal	other	go-source	8570	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,registry,app,adapter,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_registry_clone.go	internal	other	go-source	2034	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,registry,clone,架构守卫,baseline,ratchet,与冻结规则
@@ -293,7 +293,7 @@ internal/archtest/priority_ssa_baseline_test.go	internal	other	go-test	6255	架�
 internal/archtest/priority_ssa_baseline.go	internal	other	go-source	6416	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,baseline,架构守卫,ratchet,与冻结规则
 internal/archtest/priority_ssa_guard_helpers_test.go	internal	other	go-test	19782	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,guard,helpers,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/priority_ssa_guard_test.go	internal	other	go-test	11963	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,guard,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/priority_ssa_loader_parity_test.go	internal	other	go-test	1286	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,loader,parity,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/priority_ssa_loader_parity_test.go	internal	other	go-test	1777	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,loader,parity,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/priority_ssa_production_guard_test.go	internal	other	go-test	1198	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,production,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/priority_ssa_rules_test.go	internal	other	go-test	2411	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,rules,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/priority_ssa_rules.go	internal	other	go-source	22508	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,rules,架构守卫,baseline,ratchet,与冻结规则

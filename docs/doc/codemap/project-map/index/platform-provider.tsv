@@ -31,6 +31,17 @@ cmd/mcp-lsp/internal/hiddenexec/process_unix_test.go	cmd	platform-provider	go-te
 cmd/mcp-lsp/internal/hiddenexec/process_windows_test.go	cmd	platform-provider	go-test	553	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,hiddenexec,process,windows,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/internal/hiddenexec/process_windows.go	cmd	platform-provider	go-source	548	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,hiddenexec,process,windows,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/internal/hiddenexec/process.go	cmd	platform-provider	go-source	3154	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,hiddenexec,process,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/internal/processobserve/observer_test.go	cmd	platform-provider	go-test	7952	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,processobserve,observer,test,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/internal/processobserve/observer.go	cmd	platform-provider	go-source	3175	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,processobserve,observer,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/internal/processobserve/security_guard_test.go	cmd	platform-provider	go-test	5954	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,processobserve,security,guard,test,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/internal/processobserve/store.go	cmd	platform-provider	go-source	12894	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,processobserve,store,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/internal/processobserve/types.go	cmd	platform-provider	go-source	6626	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,processobserve,types,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/internal/processprobe/probe_other.go	cmd	platform-provider	go-source	264	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,processprobe,probe,other,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/internal/processprobe/probe_test.go	cmd	platform-provider	go-test	1770	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,processprobe,probe,test,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/internal/processprobe/probe_unix.go	cmd	platform-provider	go-source	6106	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,processprobe,probe,unix,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/internal/processprobe/probe_windows.go	cmd	platform-provider	go-source	2683	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,processprobe,probe,windows,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/internal/processprobe/security_guard_test.go	cmd	platform-provider	go-test	10468	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,processprobe,security,guard,test,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/internal/processprobe/snapshot.go	cmd	platform-provider	go-source	8906	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,processprobe,snapshot,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_autoinstall_e2e_test.go	cmd	platform-provider	go-test	13617	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,autoinstall,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_completion_e2e_test.go	cmd	platform-provider	go-test	16540	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,completion,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_external_env_worktree_e2e_test.go	cmd	platform-provider	go-test	7643	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,external,env,worktree,e2e,test,代码智能,LSP,MCP,peer
