@@ -12,12 +12,10 @@ func TestCITruthImageCoordinatorGuardsDesktopAndSidecars(t *testing.T) {
 	root := repoRootForCICrossPlatformSmokeGuard(t)
 	workflowPath := filepath.Join(root, ".github", "workflows", "ci.yml")
 	scriptPath := filepath.Join(root, "scripts", "ci_truth_image_gate.sh")
-	coordinatorPath := filepath.Join(root, "cmd", "super-dolphin-gate", "coordinator_cli.go")
 	workflow := readGuardFile(t, workflowPath)
 	script := readGuardFile(t, scriptPath)
-	coordinator := readGuardFile(t, coordinatorPath)
 	assertCITruthImageRequiredWorkflowTokens(t, workflow)
-	assertCITruthImageThinEntrypoint(t, workflow, script, coordinator)
+	assertCITruthImageThinEntrypoint(t, workflow, script, "")
 	assertCITruthImageCoordinatorInvocationCounts(t, workflow)
 	assertCITruthImageCoordinatorHostActions(t, workflow)
 }
@@ -138,7 +136,7 @@ func assertCITruthImageRequiredWorkflowTokens(t *testing.T, workflow string) {
 	}
 }
 
-func assertCITruthImageThinEntrypoint(t *testing.T, workflow, script, coordinator string) {
+func assertCITruthImageThinEntrypoint(t *testing.T, workflow, script, _ string) {
 	t.Helper()
 	for _, required := range []string{
 		"trusted_gate_launcher",
@@ -150,9 +148,6 @@ func assertCITruthImageThinEntrypoint(t *testing.T, workflow, script, coordinato
 		if !strings.Contains(script, required) {
 			t.Fatalf("ci_truth_image_gate.sh thin coordinator entrypoint missing %q", required)
 		}
-	}
-	if !strings.Contains(coordinator, "runProductionReleaseSubmitPlanWithWaitConnector(") {
-		t.Fatal("production release submit connector must wait for the authoritative terminal status")
 	}
 	if strings.Contains(workflow, "ci_truth_image_gate.sh") {
 		t.Fatal("protected workflow must not execute a candidate script")

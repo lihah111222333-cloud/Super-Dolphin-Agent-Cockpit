@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/godistribution"
 )
 
 type remoteGoTestSource struct {
@@ -31,32 +33,41 @@ type remoteGoTestDeclaration struct {
 	declaration ast.Decl
 }
 
-func (snapshot *remoteGitTreeSnapshot) remoteGoTestDeclarations(directory string) ([]remoteGoTestFile, map[string][]remoteGoTestDeclaration, bool) {
+type remoteGoBuildProfile struct {
+	race bool
+}
+
+func (profile remoteGoBuildProfile) cacheKey() string {
+	return fmt.Sprintf("race=%t", profile.race)
+}
+
+func (snapshot *remoteGitTreeSnapshot) remoteGoTestDeclarations(directory string, profile remoteGoBuildProfile) ([]remoteGoTestFile, map[string][]remoteGoTestDeclaration, bool) {
 	snapshot.cacheMu.Lock()
 	if snapshot.goTestDeclarationCache == nil {
 		snapshot.goTestDeclarationCache = make(map[string]remoteGoTestDeclarationCache)
 	}
-	cached, ok := snapshot.goTestDeclarationCache[directory]
+	cacheKey := profile.cacheKey() + ":" + directory
+	cached, ok := snapshot.goTestDeclarationCache[cacheKey]
 	snapshot.cacheMu.Unlock()
 	if ok {
 		return cached.files, cached.declarations, cached.fallback
 	}
-	files, declarations, fallback := snapshot.parseRemoteGoTestDeclarations(directory)
+	files, declarations, fallback := snapshot.parseRemoteGoTestDeclarations(directory, profile)
 	cached = remoteGoTestDeclarationCache{
 		files: files, declarations: declarations, fallback: fallback,
 	}
 	snapshot.cacheMu.Lock()
-	if existing, exists := snapshot.goTestDeclarationCache[directory]; exists {
+	if existing, exists := snapshot.goTestDeclarationCache[cacheKey]; exists {
 		cached = existing
 	} else {
-		snapshot.goTestDeclarationCache[directory] = cached
+		snapshot.goTestDeclarationCache[cacheKey] = cached
 	}
 	snapshot.cacheMu.Unlock()
 	return cached.files, cached.declarations, cached.fallback
 }
 
 // parseRemoteGoTestDeclarations 解析 worker 平台适用测试文件的顶层声明索引。
-func (snapshot *remoteGitTreeSnapshot) parseRemoteGoTestDeclarations(directory string) ([]remoteGoTestFile, map[string][]remoteGoTestDeclaration, bool) {
+func (snapshot *remoteGitTreeSnapshot) parseRemoteGoTestDeclarations(directory string, profile remoteGoBuildProfile) ([]remoteGoTestFile, map[string][]remoteGoTestDeclaration, bool) {
 	paths := make([]string, 0)
 	for filePath := range snapshot.goSources {
 		if path.Dir(filePath) == directory && strings.HasSuffix(filePath, "_test.go") {
@@ -68,7 +79,7 @@ func (snapshot *remoteGitTreeSnapshot) parseRemoteGoTestDeclarations(directory s
 	declarations := make(map[string][]remoteGoTestDeclaration)
 	for _, filePath := range paths {
 		source := snapshot.goSources[filePath]
-		if !remoteGoSourceAppliesLinuxAMD64(filePath, source) {
+		if !remoteGoSourceAppliesLinuxAMD64WithProfile(filePath, source, profile) {
 			continue
 		}
 		file, err := parser.ParseFile(token.NewFileSet(), filePath, source, 0)
@@ -89,12 +100,20 @@ func (snapshot *remoteGitTreeSnapshot) parseRemoteGoTestDeclarations(directory s
 }
 
 func remoteGoSourceAppliesLinuxAMD64(filePath string, source []byte) bool {
-	return remoteBuildSourceAppliesLinuxAMD64(filePath, source)
+	return remoteGoSourceAppliesLinuxAMD64WithProfile(filePath, source, remoteGoBuildProfile{})
+}
+
+func remoteGoSourceAppliesLinuxAMD64WithProfile(filePath string, source []byte, profile remoteGoBuildProfile) bool {
+	return remoteBuildSourceAppliesLinuxAMD64WithProfile(filePath, source, profile)
 }
 
 // remoteBuildSourceAppliesLinuxAMD64 依据文件名与 build 约束判断 worker 是否会编译源码。
 func remoteBuildSourceAppliesLinuxAMD64(filePath string, source []byte) bool {
-	return remoteBuildFilenameAppliesLinuxAMD64(filePath) && remoteBuildConstraintAppliesLinuxAMD64(source)
+	return remoteBuildSourceAppliesLinuxAMD64WithProfile(filePath, source, remoteGoBuildProfile{})
+}
+
+func remoteBuildSourceAppliesLinuxAMD64WithProfile(filePath string, source []byte, profile remoteGoBuildProfile) bool {
+	return remoteBuildFilenameAppliesLinuxAMD64(filePath) && remoteBuildConstraintAppliesLinuxAMD64(source, profile)
 }
 
 func remoteBuildFilenameAppliesLinuxAMD64(filePath string) bool {
@@ -124,7 +143,7 @@ func remoteBuildArchAppliesLinuxAMD64(parts []string) bool {
 }
 
 // remoteBuildConstraintAppliesLinuxAMD64 求值源码中第一个 Go build 约束。
-func remoteBuildConstraintAppliesLinuxAMD64(source []byte) bool {
+func remoteBuildConstraintAppliesLinuxAMD64(source []byte, profile remoteGoBuildProfile) bool {
 	for line := range strings.SplitSeq(string(source), "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "//go:build ") {
@@ -134,11 +153,119 @@ func remoteBuildConstraintAppliesLinuxAMD64(source []byte) bool {
 		if err != nil {
 			return true // The compiler will reject it; retain it rather than false-hit.
 		}
+		if !remoteBuildConstraintUsesOnlyKnownTags(expr) {
+			return true
+		}
+		asset, err := godistribution.RemoteCIAsset()
+		if err != nil {
+			return true
+		}
+		goReleaseMinor, ok := remoteGoReleaseMinor(asset.Version)
+		if !ok {
+			return true
+		}
 		return expr.Eval(func(tag string) bool {
-			return tag == "linux" || tag == "amd64" || tag == "unix" || tag == "cgo"
+			return remoteBuildConstraintTagAppliesLinuxAMD64(tag, goReleaseMinor, profile)
 		})
 	}
 	return true
+}
+
+// remoteBuildConstraintUsesOnlyKnownTags 拒绝用无法由远程 worker 完整重建的约束缩窄输入。
+func remoteBuildConstraintUsesOnlyKnownTags(expr constraint.Expr) bool {
+	switch value := expr.(type) {
+	case *constraint.TagExpr:
+		return remoteBuildConstraintTagKnown(value.Tag)
+	case *constraint.NotExpr:
+		return remoteBuildConstraintUsesOnlyKnownTags(value.X)
+	case *constraint.AndExpr:
+		return remoteBuildConstraintUsesOnlyKnownTags(value.X) &&
+			remoteBuildConstraintUsesOnlyKnownTags(value.Y)
+	case *constraint.OrExpr:
+		return remoteBuildConstraintUsesOnlyKnownTags(value.X) &&
+			remoteBuildConstraintUsesOnlyKnownTags(value.Y)
+	default:
+		return false
+	}
+}
+
+func remoteBuildConstraintTagKnown(tag string) bool {
+	if _, known := remoteBuildConstraintSpecialTag(tag); known {
+		return true
+	}
+	if remoteGoKnownOS(tag) || remoteGoKnownArch(tag) {
+		return true
+	}
+	_, ok := remoteGoReleaseTagMinor(tag)
+	return ok
+}
+
+// remoteBuildConstraintTagAppliesLinuxAMD64 判断 build tag 是否适用于 linux/amd64 worker。
+func remoteBuildConstraintTagAppliesLinuxAMD64(tag string, goReleaseMinor int, profile remoteGoBuildProfile) bool {
+	if special, known := remoteBuildConstraintSpecialTag(tag); known {
+		return special.applies(profile)
+	}
+	if remoteGoKnownOS(tag) {
+		return tag == "linux"
+	}
+	if remoteGoKnownArch(tag) {
+		return tag == "amd64"
+	}
+	minor, ok := remoteGoReleaseTagMinor(tag)
+	return ok && minor <= goReleaseMinor
+}
+
+type remoteBuildConstraintSpecial uint8
+
+const (
+	remoteBuildConstraintAlwaysApplies remoteBuildConstraintSpecial = iota
+	remoteBuildConstraintNeverApplies
+	remoteBuildConstraintRaceApplies
+)
+
+// remoteBuildConstraintSpecialTag 归类不能从 OS、架构或 Go 版本推导的固定 build tag。
+func remoteBuildConstraintSpecialTag(tag string) (remoteBuildConstraintSpecial, bool) {
+	switch tag {
+	case "unix", "cgo", "gc", "amd64.v1":
+		return remoteBuildConstraintAlwaysApplies, true
+	case "gccgo", "amd64.v2", "amd64.v3", "amd64.v4":
+		return remoteBuildConstraintNeverApplies, true
+	case "race":
+		return remoteBuildConstraintRaceApplies, true
+	default:
+		return 0, false
+	}
+}
+
+// applies 返回固定 build tag 是否适用于给定的远程 Go 编译 profile。
+func (special remoteBuildConstraintSpecial) applies(profile remoteGoBuildProfile) bool {
+	switch special {
+	case remoteBuildConstraintAlwaysApplies:
+		return true
+	case remoteBuildConstraintRaceApplies:
+		return profile.race
+	default:
+		return false
+	}
+}
+
+func remoteGoReleaseMinor(version string) (int, bool) {
+	const prefix = "go1."
+	if !strings.HasPrefix(version, prefix) {
+		return 0, false
+	}
+	minor, _, _ := strings.Cut(strings.TrimPrefix(version, prefix), ".")
+	parsed, err := strconv.Atoi(minor)
+	return parsed, err == nil && parsed >= 1
+}
+
+func remoteGoReleaseTagMinor(tag string) (int, bool) {
+	const prefix = "go1."
+	if !strings.HasPrefix(tag, prefix) {
+		return 0, false
+	}
+	minor, err := strconv.Atoi(strings.TrimPrefix(tag, prefix))
+	return minor, err == nil && minor >= 1
 }
 
 func remoteGoKnownOS(tag string) bool {
@@ -236,8 +363,8 @@ func remoteGoTestDeclarationText(declaration remoteGoTestDeclaration) []byte {
 // goTestSources returns the selected test declarations and their direct repository observations.
 // Any source we cannot close conservatively binds every test source in the package.
 // goTestSources 计算单个测试声明的源码闭包和直接仓库观察。
-func (snapshot *remoteGitTreeSnapshot) goTestSources(target, directory string, selected map[string]remoteGitTreeEntry) ([]remoteGoTestSource, bool, error) {
-	files, declarations, fallback := snapshot.remoteGoTestDeclarations(directory)
+func (snapshot *remoteGitTreeSnapshot) goTestSources(target, directory string, selected map[string]remoteGitTreeEntry, profile remoteGoBuildProfile) ([]remoteGoTestSource, bool, error) {
+	files, declarations, fallback := snapshot.remoteGoTestDeclarations(directory, profile)
 	if fallback {
 		return snapshot.allGoTestSources(files, directory, selected)
 	}
@@ -249,7 +376,7 @@ func (snapshot *remoteGitTreeSnapshot) goTestSources(target, directory string, s
 	if reflectUsed {
 		return snapshot.allGoTestSources(files, directory, selected)
 	}
-	return snapshot.goTestDeclarationSources(directory, selectedDeclarations, selected)
+	return snapshot.goTestDeclarationSources(directory, selectedDeclarations, selected, profile)
 }
 
 // remoteGoTestSelectedDeclarations 解析入口测试、初始化声明和引用闭包。
@@ -280,7 +407,7 @@ func remoteGoTestSelectedDeclarations(target remoteGoTestDeclaration, files []re
 }
 
 // goTestDeclarationSources 将声明闭包转换为源码摘要并收集其观察输入。
-func (snapshot *remoteGitTreeSnapshot) goTestDeclarationSources(directory string, selectedDeclarations map[ast.Decl]remoteGoTestDeclaration, selected map[string]remoteGitTreeEntry) ([]remoteGoTestSource, bool, error) {
+func (snapshot *remoteGitTreeSnapshot) goTestDeclarationSources(directory string, selectedDeclarations map[ast.Decl]remoteGoTestDeclaration, selected map[string]remoteGitTreeEntry, profile remoteGoBuildProfile) ([]remoteGoTestSource, bool, error) {
 	result := make([]remoteGoTestSource, 0, len(selectedDeclarations))
 	for _, declaration := range selectedDeclarations {
 		for _, importPath := range remoteGoTestImports(declaration.file) {
@@ -288,10 +415,12 @@ func (snapshot *remoteGitTreeSnapshot) goTestDeclarationSources(directory string
 			if !local {
 				continue
 			}
+			// 这里只加入编译闭包；运行时读取统一按目标包 CWD 观察。
 			if err := snapshot.addProductionGoPackageEntriesWithAssets(
 				localDirectory,
 				selected,
-				true,
+				false,
+				profile,
 			); err != nil {
 				return nil, false, err
 			}
@@ -390,6 +519,7 @@ func (snapshot *remoteGitTreeSnapshot) addGoTestFileObservedEntries(
 		}
 		observedPath, ok := remoteGoTestRelativePath(directory, staticPath)
 		if !ok {
+			// 静态绝对路径或越出仓库根的路径可证明不是候选树输入。
 			return true
 		}
 		switch kind {
@@ -398,6 +528,10 @@ func (snapshot *remoteGitTreeSnapshot) addGoTestFileObservedEntries(
 		case "tree":
 			snapshot.addRemoteGitDirectoryEntries(observedPath, selected)
 		default:
+			if _, exists := snapshot.byPath[observedPath]; !exists {
+				visitErr = fmt.Errorf("static Go test file observation %q is absent from Git tree", observedPath)
+				return false
+			}
 			snapshot.addRemoteGitPathEntry(observedPath, selected)
 		}
 		return visitErr == nil
@@ -421,12 +555,19 @@ func remoteGoTestImports(file *ast.File) map[string]string {
 	return imports
 }
 
-// remoteGoTestObservation classifies repository-observation calls. An empty kind is not an observation.
-// remoteGoTestObservation 分类测试中的候选树文件系统读取。
+// remoteGoTestObservation 分类测试中的候选树运行时观察。
 func remoteGoTestObservation(call *ast.CallExpr, file *ast.File, imports map[string]string) (kind string, staticPath string, dynamic bool) {
 	importPath, method, ok := remoteGoTestSelector(call, imports)
 	if !ok {
+		if remoteGoTestObservationAlias(call, file, imports) {
+			// 受观察函数的别名可能在运行时访问候选树或启动子进程，无法安全精确闭合。
+			return "tree", "", true
+		}
 		return "", "", false
+	}
+	if remoteGoTestProcessOrCWDObservation(importPath, method) {
+		// 子进程、系统调用和 cwd 变更都可能让目标观察候选树任意位置。
+		return "tree", "", true
 	}
 	if importPath == "golang.org/x/tools/go/packages" && method == "Load" {
 		return "tree", "", true
@@ -437,12 +578,15 @@ func remoteGoTestObservation(call *ast.CallExpr, file *ast.File, imports map[str
 	}
 	value, ok := remoteGoTestStringArgument(call, index)
 	if !ok {
-		return "", "", false
+		// 已识别但无法静态闭合路径的仓库读取可能解析到候选树任意位置，
+		// 因此纳入全树，避免静默复用陈旧 PASS。
+		return remoteGoTestObservationKind(method), "", true
 	}
 	if importPath == "io/fs" {
 		value, ok = remoteGoTestFSObservationPath(call, file, imports, value)
 		if !ok {
-			return "", "", false
+			// 无法解析的 fs.FS 根同样可能指向候选树内容。
+			return remoteGoTestObservationKind(method), "", true
 		}
 	}
 	return remoteGoTestObservationKind(method), value, false
@@ -458,6 +602,74 @@ func remoteGoTestSelector(call *ast.CallExpr, imports map[string]string) (string
 		return "", "", false
 	}
 	return imports[packageName.Name], selector.Sel.Name, true
+}
+
+// remoteGoTestProcessOrCWDObservation 判断会逃逸静态文件闭包的进程或工作目录调用。
+func remoteGoTestProcessOrCWDObservation(importPath, method string) bool {
+	switch importPath {
+	case "os/exec", "syscall", "golang.org/x/sys/unix":
+		return true
+	case "os":
+		return method == "Chdir" || method == "StartProcess"
+	default:
+		return false
+	}
+}
+
+// remoteGoTestObservationAlias 识别被赋值为受观察函数的包级或函数级别名。
+func remoteGoTestObservationAlias(call *ast.CallExpr, file *ast.File, imports map[string]string) bool {
+	identifier, ok := call.Fun.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	matched := false
+	ast.Inspect(file, func(node ast.Node) bool {
+		if matched {
+			return false
+		}
+		switch value := node.(type) {
+		case *ast.ValueSpec:
+			matched = remoteGoTestObservationAliasValueSpec(identifier.Name, value, imports)
+		case *ast.AssignStmt:
+			matched = remoteGoTestObservationAliasValue(identifier.Name, value.Lhs, value.Rhs, imports)
+		}
+		return !matched
+	})
+	return matched
+}
+
+// remoteGoTestObservationAliasValueSpec 将变量声明统一为表达式列表后判断函数别名。
+func remoteGoTestObservationAliasValueSpec(name string, value *ast.ValueSpec, imports map[string]string) bool {
+	names := make([]ast.Expr, len(value.Names))
+	for index, identifier := range value.Names {
+		names[index] = identifier
+	}
+	return remoteGoTestObservationAliasValue(name, names, value.Values, imports)
+}
+
+// remoteGoTestObservationAliasValue 判断同位置变量是否接收受观察的函数值。
+func remoteGoTestObservationAliasValue(name string, names, values []ast.Expr, imports map[string]string) bool {
+	if len(names) != len(values) {
+		return false
+	}
+	for index, candidate := range names {
+		identifier, ok := candidate.(*ast.Ident)
+		if !ok || identifier.Name != name {
+			continue
+		}
+		selector, ok := values[index].(*ast.SelectorExpr)
+		if !ok {
+			return false
+		}
+		packageName, ok := selector.X.(*ast.Ident)
+		if !ok {
+			return false
+		}
+		importPath := imports[packageName.Name]
+		_, observesPath := remoteGoTestObservationPathIndex(importPath, selector.Sel.Name)
+		return observesPath || remoteGoTestProcessOrCWDObservation(importPath, selector.Sel.Name)
+	}
+	return false
 }
 
 // remoteGoTestObservationPathIndex 返回仓库读取路径参数的位置。

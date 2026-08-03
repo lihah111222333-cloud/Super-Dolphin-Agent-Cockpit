@@ -21,14 +21,17 @@ func validateConfig(config Config) error {
 			return fmt.Errorf("ECI %s is required", field.name)
 		}
 	}
-	if config.SpotStrategy != SpotStrategyAsPriceGo {
-		return errors.New("ECI spot strategy must equal SpotAsPriceGo")
-	}
-	if config.SpotDurationHours != 1 {
-		return errors.New("ECI spot duration must equal one hour")
-	}
-	if !config.FallbackToPayAsYouGo {
-		return errors.New("ECI pay-as-you-go fallback must be enabled")
+	switch config.SpotStrategy {
+	case SpotStrategyAsPriceGo:
+		if config.SpotDurationHours != 1 {
+			return errors.New("ECI spot duration must equal one hour")
+		}
+	case SpotStrategyNoSpot:
+		if config.SpotDurationHours != 0 {
+			return errors.New("ECI pay-as-you-go must not set a spot duration")
+		}
+	default:
+		return fmt.Errorf("ECI spot strategy must be %q or %q", SpotStrategyAsPriceGo, SpotStrategyNoSpot)
 	}
 	if config.Deadline <= 0 || config.Deadline%time.Second != 0 {
 		return errors.New("ECI deadline must be a positive whole number of seconds")
@@ -50,6 +53,9 @@ func validateResources(cpu float64, memoryGiB float64) error {
 
 // validateCreateRequest 按容器、卷、挂载和标签阶段校验 ECI 分片请求。
 func validateCreateRequest(request CreateRequest) error {
+	if strings.TrimSpace(request.ImageCacheSnapshotID) == "" {
+		return errors.New("ECI image cache snapshot ID is required; container groups must pin an explicitly Ready image snapshot")
+	}
 	for _, check := range []func(CreateRequest) error{
 		validateContainerNames, validateRequestImages, validateRequestContainers, validateRequestVolumes,
 		validateRequestMounts, validateRequestTags,
@@ -64,7 +70,12 @@ func validateCreateRequest(request CreateRequest) error {
 // validateRequestImages requires each container to name its own immutable image.
 // There is deliberately no config-level fallback: the caller must bind both roles.
 func validateRequestImages(request CreateRequest) error {
-	return ValidateRegistryAccess(request.RegistryAccess, request.MainImage, request.InitImage)
+	for index, image := range []string{request.MainImage, request.InitImage} {
+		if !imageDigestPattern.MatchString(image) {
+			return fmt.Errorf("ECI image %d must be a repository@sha256:<64 lowercase hex> digest reference", index+1)
+		}
+	}
+	return nil
 }
 
 func validateContainerNames(request CreateRequest) error {
@@ -87,7 +98,7 @@ func validateRequestContainers(request CreateRequest) error {
 
 // validateRequestVolumes 校验 shard-local 和 bootstrap 卷名唯一性。
 func validateRequestVolumes(request CreateRequest) error {
-	names := []string{request.ExpandedVolume.Name, request.SourceVolume.Name, request.WorkVolume.Name, request.TempVolume.Name}
+	names := []string{request.SourceVolume.Name, request.WorkVolume.Name, request.TempVolume.Name}
 	return validateRequestVolumeNames(request.BootstrapVolume, names)
 }
 
@@ -114,7 +125,7 @@ func validateRequestVolumeNames(bootstrap OSSVolume, names []string) error {
 
 func validateRequestMounts(request CreateRequest) error {
 	mainNames := createMainMountNames(request)
-	mainReadOnly := []string{request.ExpandedVolume.Name, request.SourceVolume.Name}
+	mainReadOnly := []string{request.SourceVolume.Name}
 	if err := validateVolumeMounts("task container", request.MainVolumeMounts, mainNames, mainNames, mainReadOnly); err != nil {
 		return err
 	}
