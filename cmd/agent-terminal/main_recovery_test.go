@@ -77,7 +77,7 @@ func TestUseHeadlessDesktopBackendOnlyForRemoteWorker(t *testing.T) {
 		want    bool
 	}{
 		{name: "remote worker", backend: "remote-worker", want: true},
-		{name: "local light", backend: "local-light", want: false},
+		{name: "unsupported backend", backend: "unsupported", want: false},
 		{name: "desktop", backend: "", want: false},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {

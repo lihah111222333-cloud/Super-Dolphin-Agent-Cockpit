@@ -50,8 +50,6 @@ type inputManifest struct {
 
 type toolchainLock struct {
 	SchemaVersion      string   `json:"schema_version"`
-	BuildKitVersion    string   `json:"buildkit_version"`
-	BuildKitImage      string   `json:"buildkit_image"`
 	DockerfileFrontend string   `json:"dockerfile_frontend"`
 	SourceDateEpoch    string   `json:"source_date_epoch"`
 	TargetPlatforms    []string `json:"target_platforms"`
@@ -62,6 +60,7 @@ type toolchainLock struct {
 	DependencySources []string `json:"dependency_sources"`
 	RuntimeDepsLock   string   `json:"runtime_deps_lock"`
 	RuntimeTools      struct {
+		GoVersion       string           `json:"go_version"`
 		NodeVersion     string           `json:"node_version"`
 		NPMVersion      string           `json:"npm_version"`
 		PythonVersion   string           `json:"python_version"`
@@ -217,6 +216,46 @@ func collectEnvironmentImageFiles(sourceRoot string, gateCompileFiles []string) 
 	files = append(files, gateCompileFiles...)
 	files = append(files, testCompileFiles...)
 	files = append(files, embeddedFiles...)
+	frontendFiles, err := collectFrontendViteCacheFiles(sourceRoot)
+	if err != nil {
+		return nil, err
+	}
+	files = append(files, frontendFiles...)
+	return sortedUniqueStrings(files), nil
+}
+
+// collectFrontendViteCacheFiles collects the finite frontend build surface.
+// It deliberately excludes dependencies and generated output, never copying
+// the repository wholesale into the image context.
+func collectFrontendViteCacheFiles(sourceRoot string) ([]string, error) {
+	root := filepath.Join(sourceRoot, "frontend-app")
+	files := make([]string, 0)
+	err := filepath.WalkDir(root, func(name string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() && (entry.Name() == "node_modules" || entry.Name() == "dist" || entry.Name() == "coverage") {
+			return filepath.SkipDir
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() {
+			return fmt.Errorf("frontend Vite cache input %s is not a regular file", name)
+		}
+		relative, err := filepath.Rel(sourceRoot, name)
+		if err != nil {
+			return err
+		}
+		files = append(files, filepath.ToSlash(relative))
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("collect frontend Vite cache inputs: %w", err)
+	}
+	if len(files) == 0 {
+		return nil, errors.New("frontend Vite cache closure is empty")
+	}
 	return sortedUniqueStrings(files), nil
 }
 
@@ -738,6 +777,9 @@ func validateToolchainLock(lock toolchainLock) error {
 	if err := validateToolchainBaseImages(lock); err != nil {
 		return err
 	}
+	if lock.RuntimeTools.GoVersion != "go1.26.5" || lock.RuntimeTools.NodeVersion != "v24.18.0" || lock.RuntimeTools.NPMVersion != "11.16.0" || lock.RuntimeTools.PythonVersion != "3.11.2" || lock.RuntimeTools.Ripgrep != "/opt/super-dolphin-gate/runtime/bin/rg@13.0.0-4+b2" || lock.RuntimeTools.Sqruff != "/opt/super-dolphin-gate/runtime/bin/sqruff@0.38.0" || lock.RuntimeTools.Gopls != "golang.org/x/tools/gopls@v0.22.0" || lock.RuntimeTools.SQLC != "github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0" {
+		return errors.New("toolchain runtime tool versions are not the accepted exact set")
+	}
 	return validateSqruffArtifacts(lock.RuntimeTools.SqruffArtifacts)
 }
 
@@ -762,24 +804,32 @@ func renderDockerfile(lock toolchainLock, runtimeDeps runtimeDepsLock, buildFile
 	}
 	var output strings.Builder
 	fmt.Fprintf(&output, "ARG RUNTIME_DEPS_IMAGE\nARG BASELINE_CACHE_IMAGE\nARG SOURCE_DATE_EPOCH=%s\n", lock.SourceDateEpoch)
-	output.WriteString("ARG BUILD_SOURCE_TREE\nARG IMAGE_INPUT_DIGEST\nARG POLICY_DIGEST\nARG TOOLCHAIN_DIGEST\nARG TARGET_PLATFORM\n")
-	output.WriteString("FROM ${BASELINE_CACHE_IMAGE} AS baseline-cache\nFROM ${RUNTIME_DEPS_IMAGE} AS build\nUSER root\nARG BASELINE_CACHE_IMAGE\nARG SOURCE_DATE_EPOCH\n\n")
+	output.WriteString("ARG BUILD_SOURCE_TREE\nARG ACCEPTED_SNAPSHOT_ID\nARG IMAGE_INPUT_DIGEST\nARG POLICY_DIGEST\nARG TOOLCHAIN_DIGEST\nARG TARGET_PLATFORM\n")
+	output.WriteString("FROM ${BASELINE_CACHE_IMAGE} AS baseline-cache\nFROM ${RUNTIME_DEPS_IMAGE} AS build\nUSER root\nARG BASELINE_CACHE_IMAGE\nARG SOURCE_DATE_EPOCH\nARG BUILD_SOURCE_TREE\nARG ACCEPTED_SNAPSHOT_ID\nARG IMAGE_INPUT_DIGEST\nARG POLICY_DIGEST\nARG TOOLCHAIN_DIGEST\nARG TARGET_PLATFORM\n\n")
 	output.WriteString("WORKDIR /src\nENV GOCACHE=/root/.cache/go-build GOTOOLCHAIN=local GOPROXY=file:///opt/super-dolphin-gate/runtime/go-proxy GOSUMDB=off\n")
 	if err := writeDockerCopyInstructions(&output, buildFiles, "/src/", "environment build COPY"); err != nil {
 		return nil, err
 	}
-	output.WriteString("RUN --network=none --mount=type=cache,target=/root/.cache/go-build,sharing=locked --mount=type=bind,from=baseline-cache,source=/,target=/baseline-cache,ro sh -ec '\\\n")
-	output.WriteString("    mkdir -p cmd/agent-terminal/web-dist; printf \"<!doctype html><title>gate compile seed</title>\\n\" > cmd/agent-terminal/web-dist/index.html; \\\n")
+	output.WriteString("RUN --network=none --mount=type=cache,target=/root/.cache/go-build,sharing=locked --mount=type=bind,from=baseline-cache,source=/,target=/baseline-cache,ro set -eu; \\\n")
+	output.WriteString("    test -n \"$BUILD_SOURCE_TREE\" && test -n \"$ACCEPTED_SNAPSHOT_ID\" && test -n \"$IMAGE_INPUT_DIGEST\" && test -n \"$POLICY_DIGEST\" && test -n \"$TOOLCHAIN_DIGEST\" && test -n \"$TARGET_PLATFORM\"; test \"${#BUILD_SOURCE_TREE}\" -eq 40; case \"$BUILD_SOURCE_TREE\" in *[!0123456789abcdef]*) exit 1;; esac; for digest in \"$IMAGE_INPUT_DIGEST\" \"$POLICY_DIGEST\" \"$TOOLCHAIN_DIGEST\"; do case \"$digest\" in sha256:*) digest=${digest#sha256:};; *) exit 1;; esac; test \"${#digest}\" -eq 64; case \"$digest\" in *[!0123456789abcdef]*) exit 1;; esac; done; test \"$TARGET_PLATFORM\" = linux/amd64; rm -rf /out/generation-one-receipts; mkdir -p /out/generation-one-receipts; \\\n")
 	output.WriteString("    go_cache_proxy=; if test \"$BASELINE_CACHE_IMAGE\" != runtime-deps; then test -x /baseline-cache/super-dolphin-gate && test -d /baseline-cache/opt/super-dolphin/cache/go-build; go_cache_proxy=\"/baseline-cache/super-dolphin-gate worker go-cache-proxy --seed /baseline-cache/opt/super-dolphin/cache/go-build --private /root/.cache/go-build\"; fi; \\\n")
-	output.WriteString("    compile_go() { if test -n \"$go_cache_proxy\"; then env GOCACHEPROG=\"$go_cache_proxy\" \"$@\"; else \"$@\"; fi; }; \\\n")
-	output.WriteString("    compile_phase() { phase=$1; shift; started=$(date +%s); compile_go \"$@\"; finished=$(date +%s); entries=$(find /root/.cache/go-build -type f | wc -l); printf \"[gate-image] compile phase=%s seconds=%s cache_entries=%s\\n\" \"$phase\" \"$((finished-started))\" \"$entries\"; }; \\\n")
-	output.WriteString("    compile_phase gate-cli env CGO_ENABLED=0 go build -mod=mod -trimpath -buildvcs=false -o /out/super-dolphin-gate ./cmd/super-dolphin-gate; \\\n")
-	output.WriteString("    compile_phase normal env CGO_ENABLED=1 go test -mod=mod -run \"^$\" ./...; \\\n")
-	output.WriteString("    compile_phase e2e env CGO_ENABLED=1 go test -mod=mod -tags=e2e -run \"^$\" ./cmd/mcp-lsp; \\\n")
+	output.WriteString("    compile_go() { phase=$1; shift; if test -n \"$go_cache_proxy\"; then env GOCACHEPROG=\"$go_cache_proxy --metrics /root/.cache/go-build/.super-dolphin-go-cache-metrics-$phase.json\" \"$@\"; else \"$@\"; fi; }; \\\n")
+	output.WriteString("    log_go_cache() { phase=$1; metrics=/root/.cache/go-build/.super-dolphin-go-cache-metrics-$phase.json; if test -f \"$metrics\"; then python3 -c \"import json,sys;m=json.load(open(sys.argv[2]));print(\\\"[gate-image] cache phase={} private_hits={} baseline_hits={} misses={} puts={}\\\".format(sys.argv[1],m[\\\"private_hit_count\\\"],m[\\\"baseline_hit_count\\\"],m[\\\"miss_count\\\"],m[\\\"put_count\\\"]))\" \"$phase\" \"$metrics\"; else printf \"[gate-image] cache phase=%s not_applicable=runtime-deps\\n\" \"$phase\"; fi; }; \\\n")
+	output.WriteString("    record_provision_check() { check=$1; started_ms=$2; completed_ms=$3; duration_ms=$4; compile_ms=$5; compile_na=$6; printf '%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n' \"$check\" \"$started_ms\" \"$completed_ms\" \"$duration_ms\" \"$compile_ms\" \"$compile_na\" >> /out/generation-one-receipts/observations.tsv; }; \\\n")
+	output.WriteString("    compile_phase() { check=$1; shift; started_ms=$(date +%s%3N); compile_go \"$check\" \"$@\"; completed_ms=$(date +%s%3N); log_go_cache \"$check\"; duration_ms=$((completed_ms-started_ms)); test \"$duration_ms\" -gt 0; record_provision_check \"$check\" \"$started_ms\" \"$completed_ms\" \"$duration_ms\" \"$duration_ms\" false; printf \"[gate-image] compile phase=%s elapsed_ms=%s test_body=not_applicable\\n\" \"$check\" \"$duration_ms\"; if test \"$duration_ms\" -gt 100000; then printf \"[gate-image] warning phase=%s exceeds_target_ms=100000 elapsed_ms=%s action=warn_and_continue\\n\" \"$check\" \"$duration_ms\"; fi; }; \\\n")
+	output.WriteString("    compile_phase gate_build env CGO_ENABLED=0 go build -mod=mod -trimpath -buildvcs=false -o /out/super-dolphin-gate ./cmd/super-dolphin-gate; \\\n")
+	output.WriteString("    compile_phase normal_compile env CGO_ENABLED=1 go test -mod=mod -run \"^$\" ./...; \\\n")
+	output.WriteString("    compile_phase e2e_compile env CGO_ENABLED=1 go test -mod=mod -tags=e2e -run \"^$\" ./...; \\\n")
 	output.WriteString("    set -- $(/out/super-dolphin-gate worker race-package-patterns); test $# -gt 0; \\\n")
-	output.WriteString("    compile_phase race env CGO_ENABLED=1 go test -mod=mod -race -run \"^$\" \"$@\"; \\\n")
-	output.WriteString("    cache_started=$(date +%s); rm -rf /out/go-build-cache; mkdir -p /out/go-build-cache; cp -a /root/.cache/go-build/. /out/go-build-cache/; cache_finished=$(date +%s); printf \"[gate-image] cache-export seconds=%s cache_entries=%s\\n\" \"$((cache_finished-cache_started))\" \"$(find /out/go-build-cache -type f | wc -l)\"; \\\n")
-	output.WriteString("    touch -d \"@${SOURCE_DATE_EPOCH}\" /out/super-dolphin-gate\n'\n\n")
+	output.WriteString("    compile_phase race_compile env CGO_ENABLED=1 go test -mod=mod -race -run \"^$\" \"$@\"; \\\n")
+	output.WriteString("    rm -rf /out/source-snapshot; mkdir -p /out/source-snapshot/root; cp -a /src/. /out/source-snapshot/root/; test ! -e /out/source-snapshot/root/frontend-app/node_modules; test ! -e /out/source-snapshot/root/frontend-app/dist; \\\n")
+	output.WriteString("    rm -rf frontend-app/node_modules frontend-app/dist; dependency_started_ms=$(date +%s%3N); env npm_config_cache=/opt/super-dolphin-gate/runtime/frontend/npm-cache npm_config_offline=true npm --prefix frontend-app ci --ignore-scripts --no-audit --no-fund; dependency_completed_ms=$(date +%s%3N); dependency_duration_ms=$((dependency_completed_ms-dependency_started_ms)); test \"$dependency_duration_ms\" -gt 0; test -d frontend-app/node_modules; record_provision_check dependency \"$dependency_started_ms\" \"$dependency_completed_ms\" \"$dependency_duration_ms\" 0 true; frontend_started_ms=$(date +%s%3N); ./frontend-app/node_modules/.bin/vite optimize --root frontend-app --force; test -s frontend-app/node_modules/.vite/deps/_metadata.json; env npm_config_cache=/opt/super-dolphin-gate/runtime/frontend/npm-cache npm_config_offline=true npm --prefix frontend-app run build; test -s frontend-app/dist/index.html; test -s cmd/agent-terminal/web-dist/index.html; frontend_completed_ms=$(date +%s%3N); frontend_duration_ms=$((frontend_completed_ms-frontend_started_ms)); test \"$frontend_duration_ms\" -gt 0; record_provision_check frontend_build \"$frontend_started_ms\" \"$frontend_completed_ms\" \"$frontend_duration_ms\" \"$frontend_duration_ms\" false; mkdir -p /out/frontend-node-modules /out/vite-cache /out/frontend-build-cache /out/frontend-embed; cp -a frontend-app/node_modules/. /out/frontend-node-modules/; cp -a frontend-app/node_modules/.vite/. /out/vite-cache/; cp -a frontend-app/dist/. /out/frontend-build-cache/; cp -a cmd/agent-terminal/web-dist/. /out/frontend-embed/; frontend_elapsed_ms=$((frontend_completed_ms-dependency_started_ms)); printf \"[gate-image] frontend phase=dependency-vite-build elapsed_ms=%s dependency_cache=verified vite_cache_entries=%s build_cache_entries=%s test_body=not_applicable\\n\" \"$frontend_elapsed_ms\" \"$(find /out/vite-cache -type f | wc -l)\" \"$(find /out/frontend-build-cache -type f | wc -l)\"; if test \"$frontend_elapsed_ms\" -gt 100000; then printf \"[gate-image] warning phase=dependency-vite-build exceeds_target_ms=100000 elapsed_ms=%s action=warn_and_continue\\n\" \"$frontend_elapsed_ms\"; fi; \\\n")
+	output.WriteString("    python3 -c 'import hashlib,json,os,stat,sys;root,tree,input_digest,policy_digest,toolchain_digest,platform=sys.argv[1:];forbidden={\"node_modules\",\"dist\",\".git\",\".build-cache\",\".cache\",\"__pycache__\"};records=[];[(_ for _ in ()).throw(SystemExit(\"forbidden snapshot component: \"+component)) for path,dirs,files in os.walk(root) for component in path.split(os.sep) if component in forbidden];[(records.append((lambda path,entry,data:{\"path\":path,\"mode\":format(stat.S_IMODE(entry.st_mode)|stat.S_IFREG,\"o\"),\"blob_oid\":hashlib.sha1(b\"blob \"+str(len(data)).encode()+b\"\\0\"+data).hexdigest(),\"size\":len(data),\"blob_digest\":\"sha256:\"+hashlib.sha256(data).hexdigest()})(os.path.relpath(os.path.join(path,name),root),os.lstat(os.path.join(path,name)),open(os.path.join(path,name),\"rb\").read()))) for path,dirs,files in os.walk(root) for name in sorted(files) if not (lambda entry: entry.st_mode if stat.S_ISREG(entry.st_mode) and stat.S_IMODE(entry.st_mode) in (0o644,0o755) else (_ for _ in ()).throw(SystemExit(\"invalid snapshot entry: \"+os.path.join(path,name))))(os.lstat(os.path.join(path,name)))];records.sort(key=lambda record:record[\"path\"]);closure=\"sha256:\"+hashlib.sha256(json.dumps(records,separators=(\",\",\":\")).encode()).hexdigest();manifest={\"schema_version\":1,\"source_tree\":tree,\"closure_digest\":closure,\"image_input_digest\":input_digest,\"policy_digest\":policy_digest,\"toolchain_digest\":toolchain_digest,\"platform\":platform,\"object_format\":\"sha1\",\"files\":records};open(\"/out/source-snapshot/manifest.json\",\"w\").write(json.dumps(manifest,separators=(\",\",\":\")))' /out/source-snapshot/root \"$BUILD_SOURCE_TREE\" \"$IMAGE_INPUT_DIGEST\" \"$POLICY_DIGEST\" \"$TOOLCHAIN_DIGEST\" \"$TARGET_PLATFORM\"; \\\n")
+	output.WriteString("    mkdir -p /out/runtime-seed-snapshot/frontend-app; cp go.sum /out/runtime-seed-snapshot/go.sum; cp frontend-app/package-lock.json /out/runtime-seed-snapshot/frontend-app/package-lock.json; \\\n")
+	output.WriteString("    python3 -c 'import hashlib,json,sys;tree,snapshot,plan=sys.argv[1:];required=(\"gate_build\",\"normal_compile\",\"e2e_compile\",\"race_compile\",\"dependency\",\"frontend_build\");records=[];lines=open(\"/out/generation-one-receipts/observations.tsv\",encoding=\"utf-8\").read().splitlines();len(lines)==len(required) or (_ for _ in ()).throw(SystemExit(\"provision check observation count mismatch\"));[records.append((lambda check,started,completed,duration,compile_ms,compile_na:{\"check\":check,\"executed\":True,\"passed\":True,\"source_tree\":tree,\"accepted_snapshot_id\":snapshot,\"plan_digest\":plan,\"started_at_unix_ms\":started,\"completed_at_unix_ms\":completed,\"duration_ms\":duration,\"candidate_compile_ms\":compile_ms,\"candidate_compile_not_applicable\":compile_na,\"test_body_not_applicable\":True,\"receipt_sha256\":\"sha256:\"+hashlib.sha256((check+\"\\0true\\0true\\0\"+tree+\"\\0\"+snapshot+\"\\0\"+plan+\"\\0\"+str(started)+\"\\0\"+str(completed)+\"\\0\"+str(duration)+\"\\0\"+str(compile_ms)+\"\\0\"+str(compile_na).lower()+\"\\0true\").encode()).hexdigest()})(line.split(\"\\t\")[0],*map(int,line.split(\"\\t\")[1:5]),line.split(\"\\t\")[5]==\"true\")) for line in lines if len(line.split(\"\\t\"))==6];tuple(item[\"check\"] for item in records)==required or (_ for _ in ()).throw(SystemExit(\"provision check order mismatch\"));[(item[\"started_at_unix_ms\"]>0 and item[\"completed_at_unix_ms\"]>item[\"started_at_unix_ms\"] and item[\"duration_ms\"]==item[\"completed_at_unix_ms\"]-item[\"started_at_unix_ms\"] and item[\"test_body_not_applicable\"]) or (_ for _ in ()).throw(SystemExit(\"provision check timing mismatch\")) for item in records];open(\"/out/generation-one-receipts/generation-one-build-receipt.json\",\"w\",encoding=\"utf-8\").write(json.dumps({\"schema_version\":3,\"source_tree\":tree,\"accepted_snapshot_id\":snapshot,\"plan_digest\":plan,\"provision_checks\":records},separators=(\",\",\":\")))' \"$BUILD_SOURCE_TREE\" \"$ACCEPTED_SNAPSHOT_ID\" \"$IMAGE_INPUT_DIGEST\"; \\\n")
+	output.WriteString("    cache_started_ms=$(date +%s%3N); rm -rf /out/go-build-cache; mkdir -p /out/go-build-cache; cp -a /root/.cache/go-build/. /out/go-build-cache/; cache_finished_ms=$(date +%s%3N); printf \"[gate-image] cache-export elapsed_ms=%s cache_entries=%s\\n\" \"$((cache_finished_ms-cache_started_ms))\" \"$(find /out/go-build-cache -type f | wc -l)\"; \\\n")
+	output.WriteString("    touch -d \"@${SOURCE_DATE_EPOCH}\" /out/super-dolphin-gate\n\n")
+	output.WriteString("FROM scratch AS generation-one-build-receipt\nCOPY --from=build /out/generation-one-receipts/generation-one-build-receipt.json /generation-one-build-receipt.json\n\n")
 	output.WriteString("FROM ${RUNTIME_DEPS_IMAGE}\nUSER root\n")
 	output.WriteString("ARG BUILD_SOURCE_TREE\nARG IMAGE_INPUT_DIGEST\nARG POLICY_DIGEST\nARG TOOLCHAIN_DIGEST\nARG TARGET_PLATFORM\n")
 	output.WriteString("LABEL org.super-dolphin.source-tree-sha=\"${BUILD_SOURCE_TREE}\" \\\n")
@@ -790,9 +840,14 @@ func renderDockerfile(lock toolchainLock, runtimeDeps runtimeDepsLock, buildFile
 	output.WriteString("      org.super-dolphin.schema-version=\"1\"\n")
 	output.WriteString("COPY --from=build /out/super-dolphin-gate /super-dolphin-gate\n")
 	output.WriteString("COPY --from=build --chown=65532:65532 /out/go-build-cache /opt/super-dolphin/cache/go-build\n")
-	output.WriteString("RUN --network=none mkdir -p /opt/super-dolphin-gate/frontend-embed && \\\n")
-	output.WriteString("    printf '<!doctype html><title>gate compile seed</title>\\n' > /opt/super-dolphin-gate/frontend-embed/index.html && \\\n")
-	output.WriteString("    chmod -R a-w /opt/super-dolphin-gate/frontend-embed && \\\n")
+	output.WriteString("COPY --from=build --chown=65532:65532 /out/frontend-node-modules /opt/super-dolphin-gate/runtime/frontend/node_modules\n")
+	output.WriteString("COPY --from=build --chown=65532:65532 /out/vite-cache /opt/super-dolphin-gate/runtime/frontend/vite-cache\n")
+	output.WriteString("COPY --from=build --chown=65532:65532 /out/frontend-build-cache /opt/super-dolphin-gate/runtime/frontend/build-cache\n")
+	output.WriteString("COPY --from=build /out/frontend-embed /opt/super-dolphin-gate/frontend-embed\n")
+	output.WriteString("COPY --from=build /out/source-snapshot /opt/super-dolphin-gate/source-snapshot\n")
+	output.WriteString("COPY --from=build /out/runtime-seed-snapshot /tmp/runtime-seed-snapshot\n")
+	output.WriteString("RUN --network=none /super-dolphin-gate worker runtime-seed write /tmp/runtime-seed-snapshot /opt/super-dolphin-gate/runtime && rm -rf /tmp/runtime-seed-snapshot && \\\n")
+	output.WriteString("    chmod -R a-w /opt/super-dolphin-gate/frontend-embed /opt/super-dolphin-gate/source-snapshot /opt/super-dolphin-gate/runtime/frontend/node_modules /opt/super-dolphin-gate/runtime/frontend/vite-cache /opt/super-dolphin-gate/runtime/frontend/build-cache && \\\n")
 	output.WriteString("    chmod -R a-w /opt/super-dolphin/cache/go-build\n")
 	output.WriteString("ENV GOTOOLCHAIN=local GOPROXY=file:///opt/super-dolphin-gate/runtime/go-proxy GOSUMDB=off GOFLAGS=-mod=mod\\ -buildvcs=false\n")
 	output.WriteString("USER 65532:65532\nENTRYPOINT [\"/super-dolphin-gate\"]\n")

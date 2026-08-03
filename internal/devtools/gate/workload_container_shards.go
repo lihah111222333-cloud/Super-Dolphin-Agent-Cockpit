@@ -145,19 +145,6 @@ func validateWorkloadContainerShardSetHeader(set ContainerShardSet) error {
 	return nil
 }
 
-func isWorkloadContainerShardSet(set ContainerShardSet) bool {
-	return set.WorkloadPlanDigest != "" || set.WorkloadPlan.PlanDigest != "" ||
-		(len(set.Shards) > 0 && set.Shards[0].SchemaVersion == workloadContainerShardSchemaVersion)
-}
-
-func validateStaticContainerShardSetHeader(set ContainerShardSet) error {
-	if set.WorkloadPlanDigest != "" || set.CatalogDigest != "" || set.LedgerGeneration != 0 ||
-		set.WorkloadPlan.PlanDigest != "" {
-		return errors.New("static container shard set contains workload plan fields")
-	}
-	return nil
-}
-
 // validateContainerShardCoreBinding 校验所有 schema 共享的 plan、source 与镜像身份。
 func validateContainerShardCoreBinding(set ContainerShardSet, shard ContainerShard) error {
 	if shard.Profile != set.Profile || shard.PlanDigest != set.PlanDigest ||
@@ -180,36 +167,8 @@ func validateWorkloadContainerShardBinding(set ContainerShardSet, shard Containe
 	return nil
 }
 
-func validateStaticContainerShardBinding(shard ContainerShard) error {
-	if shard.WorkloadPlanDigest != "" || shard.CatalogDigest != "" ||
-		shard.LedgerGeneration != 0 || shard.EstimatedDurationMS != 0 {
-		return errors.New("static container shard contains workload plan fields")
-	}
-	return nil
-}
-
 func containerShardIdentityDigest(shard ContainerShard) (string, error) {
-	if shard.SchemaVersion == workloadContainerShardSchemaVersion {
-		return workloadContainerShardIdentityDigest(shard)
-	}
-	material := struct {
-		SchemaVersion          uint32
-		Index                  int
-		Profile                Profile
-		PlanDigest             string
-		SourceTreeSHA          string
-		AcceptedManifestDigest string
-		AcceptedConfigDigest   string
-		ShardsPerJob           int
-		GateIDs                []GateID
-	}{shard.SchemaVersion, shard.Index, shard.Profile, shard.PlanDigest, shard.SourceTreeSHA,
-		shard.AcceptedManifestDigest, shard.AcceptedConfigDigest, shard.ShardsPerJob, shard.GateIDs}
-	encoded, err := json.Marshal(material)
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(encoded)
-	return fmt.Sprintf("sha256:%x", sum), nil
+	return workloadContainerShardIdentityDigest(shard)
 }
 
 // workloadContainerShardIdentityDigest 将 v3 shard 绑定到冻结 LPT 快照和估时。

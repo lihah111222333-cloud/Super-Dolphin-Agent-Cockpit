@@ -1,7 +1,7 @@
-source_head: 8f3d9c83203cf277b6808c2b42ae0de1d60b1566
-reviewed_at: 2026-07-30T20:57:07Z
-snapshot_sha256: 344cf40ae0226055aeeb1ccdcba59f96ab18567d11b7d8b93465a23611dba322
+source_head: e084513fff10dbde1f784efd98ed1976825b9660
+reviewed_at: 2026-08-02T05:00:00Z
+snapshot_sha256: bf2a2661c983203038dc7c38fa4dc9ed198ca84da0447d4fd898bc1f8673c8e8
 working_directory: .
 command: go run ./scripts/code_size_guard.go
 expected_exit: 1
-observed_failure: the integrated candidate has 16 current production size, complexity, or documentation violations; accept this bounded delivery debt while preserving fail-closed ratchets for every future change.
+observed_failure: the ECI ImageCache convergence candidate has bounded production and test size, complexity, and documentation debt recorded in the immutable snapshot; preserve fail-closed ratchets for every future change.
