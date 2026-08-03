@@ -35,7 +35,7 @@
 
 .composer.composer--floating[data-file-drop-target] {
   position: fixed;
-  inset: auto var(--composer-fixed-right, 0px) 0 var(--composer-fixed-left);
+  inset: auto var(--composer-fixed-right, 0px) calc(24px + var(--workbench-bottom-height, 0px)) var(--composer-fixed-left);
   z-index: var(--z-local-sticky);
   width: auto;
   max-width: none;
@@ -81,11 +81,11 @@
 }
 
 .sa-window .composer.composer--floating[data-file-drop-target] {
-  --composer-fixed-left: var(--suiyuan-sidebar-width, 280px);
+  --composer-fixed-left: var(--workbench-sidebar-width);
 }
 
 .sa-window.sidebar-collapsed .composer.composer--floating[data-file-drop-target] {
-  --composer-fixed-left: 0px;
+  --composer-fixed-left: 48px;
 }
 
 .composer-card {

@@ -1,7 +1,7 @@
 import { theme as antdThemeAlgorithms } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import enUS from 'antd/locale/en_US';
-import { COLOR_THEMES } from './appShellModel.js';
+import { APPEARANCE_ACCENT_TOKENS } from './appearance/appearanceSchema.js';
 
 /**
  * Ant Design / Ant Design X 主题映射。
@@ -171,12 +171,25 @@ const LIGHT_COMPONENTS = Object.freeze({
  * @param {string} theme COLOR_THEMES.dark | COLOR_THEMES.light
  * @returns {import('antd').ThemeConfig}
  */
-export function antdThemeConfig(theme) {
-  const dark = theme === COLOR_THEMES.dark;
+export function antdThemeConfig(theme, accent = 'violet') {
+  if (theme !== 'dark' && theme !== 'light') throw new Error('Ant Design theme must be light or dark');
+  const accentTokens = APPEARANCE_ACCENT_TOKENS[accent];
+  if (!accentTokens) throw new Error(`Ant Design accent tokens missing for ${accent}`);
+  const dark = theme === 'dark';
+  const colorPrimary = accentTokens[theme];
+  const baseComponents = dark ? DARK_COMPONENTS : LIGHT_COMPONENTS;
   return {
     algorithm: dark ? antdThemeAlgorithms.darkAlgorithm : antdThemeAlgorithms.defaultAlgorithm,
-    token: dark ? DARK_TOKENS : LIGHT_TOKENS,
-    components: dark ? DARK_COMPONENTS : LIGHT_COMPONENTS,
+    token: {
+      ...(dark ? DARK_TOKENS : LIGHT_TOKENS),
+      colorInfo: colorPrimary,
+      colorPrimary,
+    },
+    components: {
+      ...baseComponents,
+      Input: { ...baseComponents.Input, activeBorderColor: colorPrimary },
+      Tabs: { ...baseComponents.Tabs, inkBarColor: colorPrimary },
+    },
   };
 }
 

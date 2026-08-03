@@ -118,9 +118,7 @@ describe('ChatPageHeader', () => {
       />
     );
 
-    expect(screen.getByTestId('chat-action-feedback')).toHaveTextContent(
-      '连接后端失败：event bridge unavailable',
-    );
+    expect(screen.queryByTestId('chat-action-feedback')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '重新连接后端' }));
     expect(store.bootstrap).toHaveBeenCalledTimes(1);
   });

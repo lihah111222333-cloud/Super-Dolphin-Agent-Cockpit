@@ -10,7 +10,12 @@ function runtimePopoverShouldCloseOnInteractOutside(element) {
 function RuntimeLogLines({ activeWarning, activeWarningEntry, entries, formatTime, onWarningOpenChange }) {
   return (
     <div className="log-lines" data-testid="warning-log-panel" aria-label="最近活动">
-      {entries.length === 0 ? <p><time>--:--</time> 最近活动 等待事件</p> : null}
+      {entries.length === 0 ? (
+        <div className="runtime-log-empty">
+          <strong>暂无运行活动</strong>
+          <span>任务开始后，事件与结果会显示在这里。</span>
+        </div>
+      ) : null}
       {entries.map((entry) => (
         <RuntimeLogLine
           key={entry.id}

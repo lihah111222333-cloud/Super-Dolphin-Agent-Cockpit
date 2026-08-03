@@ -340,3 +340,34 @@ select {
 .suiyuan-btn-fusion-ghost:hover:not(:disabled) {
   background: var(--surface-3);
 }
+
+:root[data-accent],
+.sa-window[data-accent] {
+  --primary: var(--appearance-accent);
+  --primary-2: color-mix(in srgb, var(--appearance-accent) 78%, var(--text-pri));
+  --primary-soft: color-mix(in srgb, var(--appearance-accent) 13%, transparent);
+  --accent: var(--appearance-accent);
+  --accent-2: color-mix(in srgb, var(--appearance-accent) 72%, var(--text-pri));
+  --accent-soft: var(--primary-soft);
+  --focus-ring: color-mix(in srgb, var(--appearance-accent) 48%, transparent);
+  --primary-action-bg: var(--appearance-accent);
+  --primary-action-bg-hover: color-mix(in srgb, var(--appearance-accent) 86%, var(--surface));
+  --primary-action-border: color-mix(in srgb, var(--appearance-accent) 70%, var(--border));
+}
+
+.sa-window[data-ui-scale] {
+  inline-size: 100%;
+  block-size: 100%;
+  zoom: var(--ui-scale);
+}
+
+#app-overlay-root[data-ui-scale] {
+  zoom: var(--ui-scale);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-panel: 0ms;
+    --motion-overlay: 0ms;
+  }
+}

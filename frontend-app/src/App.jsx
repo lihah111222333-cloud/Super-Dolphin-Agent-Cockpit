@@ -22,15 +22,13 @@ import { requiredOverlayRoot } from './shared/ui/OverlayPortal.jsx';
 import './AppChrome.css';
 import './AppShell.css';
 import {
-  COLOR_THEMES,
   appPageFromPathname,
   appRouteForPage,
   normalizeAppPathname,
   selectAppShellStore,
-  THEME_STORAGE_KEY,
-  getStoredTheme,
-  syncThemeDOM,
 } from './app/appShellModel.js';
+import { AppearanceProvider } from './app/appearance/AppearanceProvider.jsx';
+import { applyAppearanceToElement, createBrowserAppearanceStore } from './app/appearance/appearanceStore.js';
 import { SuiyuanAppWindow } from './app/shell/SuiyuanAppWindow.jsx';
 import { appShortcutPlatform } from './app/shell/appShortcutPlatform.js';
 import { antdLocaleFor, antdThemeConfig } from './app/antdTheme.js';
@@ -60,24 +58,6 @@ function hasExplicitAppPageRoute() {
   if (typeof window === 'undefined') return false;
   const path = normalizeAppPathname(window.location?.pathname);
   return path !== '/' && Boolean(appPageFromPathname(path));
-}
-
-function useColorTheme() {
-  const [theme, setTheme] = useState(() => getStoredTheme());
-
-  const toggleTheme = useCallback(() => {
-    setTheme((current) => {
-      const next = current === COLOR_THEMES.dark ? COLOR_THEMES.light : COLOR_THEMES.dark;
-      requiredAppStoragePort('theme storage').set(THEME_STORAGE_KEY, next);
-      return next;
-    });
-  }, []);
-
-  useLayoutEffect(() => {
-    syncThemeDOM(theme);
-  }, [theme]);
-
-  return { theme, toggleTheme };
 }
 
 function useAppLanguage() {
@@ -308,16 +288,28 @@ function useAppUpdateBanner(skipBootstrap) {
   };
 }
 
-function useAppShellState(store, skipBootstrap) {
+function useAppShellState(store, skipBootstrap, appearanceState) {
   const routeBootstrapPending = !skipBootstrap && !['ready', 'failed'].includes(store.bootstrapStatus);
   useActivePageHistory(store.activePage, store.setActivePage, routeBootstrapPending);
   useAppBootstrap(store.bootstrap, skipBootstrap);
   const projectPath = store.activeProject && store.activeProject !== '.' ? store.activeProject : store.cwd || '未选择项目';
   const memoryBadge = useMemoryBadgeState(store, projectPath);
-  const { theme, toggleTheme } = useColorTheme();
+  const appearance = appearanceState;
+  const toggleTheme = useCallback(() => {
+    appearance.setThemeMode(appearance.resolvedTheme === 'dark' ? 'light' : 'dark');
+  }, [appearance]);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const updateBanner = useAppUpdateBanner(skipBootstrap);
-  return { memoryBadge, projectPath, theme, toggleTheme, rightPanelOpen, setRightPanelOpen, updateBanner };
+  return {
+    appearance,
+    memoryBadge,
+    projectPath,
+    theme: appearance.resolvedTheme,
+    toggleTheme,
+    rightPanelOpen,
+    setRightPanelOpen,
+    updateBanner,
+  };
 }
 
 function shortcutSettingsCwd(store) {
@@ -344,9 +336,9 @@ function AppWindowShortcutBoundary({ language, shell, shellLayoutStore, store })
   return <ConfiguredAppWindow language={language} shell={shell} shellLayoutStore={shellLayoutStore} shortcutCwd={shortcutCwd} store={store} />;
 }
 
-function AppShell({ shellLayoutStorage, skipBootstrap = false, uiTestMCPMode = false }) {
+function AppShell({ appearance, shellLayoutStorage, skipBootstrap = false, uiTestMCPMode = false }) {
   const store = useClientStore(useShallow(selectAppShellStore));
-  const shell = useAppShellState(store, skipBootstrap || uiTestMCPMode);
+  const shell = useAppShellState(store, skipBootstrap || uiTestMCPMode, appearance);
   const language = useAppLanguage();
   const [shellLayoutStore] = useState(() => createShellLayoutStore({
     storage: shellLayoutStorage === undefined
@@ -355,16 +347,25 @@ function AppShell({ shellLayoutStorage, skipBootstrap = false, uiTestMCPMode = f
   }));
   const overlayRoot = requiredOverlayRoot();
   useLayoutEffect(() => {
-    overlayRoot.setAttribute('data-theme', shell.theme);
+    const projection = applyAppearanceToElement(overlayRoot, {
+      ...shell.appearance,
+      resolvedTheme: shell.theme,
+    });
     return () => {
-      if (overlayRoot.getAttribute('data-theme') === shell.theme) {
-        overlayRoot.removeAttribute('data-theme');
-      }
+      Object.entries(projection.attributes).forEach(([name, value]) => {
+        if (overlayRoot.getAttribute(name) === value) overlayRoot.removeAttribute(name);
+      });
+      Object.entries(projection.styles).forEach(([name, value]) => {
+        if (overlayRoot.style.getPropertyValue(name) === value) overlayRoot.style.removeProperty(name);
+      });
     };
-  }, [overlayRoot, shell.theme]);
+  }, [overlayRoot, shell.appearance, shell.theme]);
   // Ant Design / Ant Design X 主题跟随应用主题（深色/浅色 Command Center 基线），
   // 仅提供 UI 组件与视觉 token，不接管任何请求层、会话状态或业务契约。
-  const antdTheme = useMemo(() => antdThemeConfig(shell.theme), [shell.theme]);
+  const antdTheme = useMemo(
+    () => antdThemeConfig(shell.theme, shell.appearance.accent),
+    [shell.appearance.accent, shell.theme],
+  );
   const antdLocale = useMemo(() => antdLocaleFor(language.locale), [language.locale]);
   return (
     <AntdConfigProvider theme={antdTheme} locale={antdLocale}>
@@ -381,10 +382,17 @@ function AppShell({ shellLayoutStorage, skipBootstrap = false, uiTestMCPMode = f
 
 function App(props) {
   const [queryClient] = useState(createDashboardQueryClient);
+  const [appearanceStore] = useState(
+    () => props.appearanceStore || createBrowserAppearanceStore(),
+  );
   return (
-    <QueryClientProvider client={queryClient}>
-      <AppShell {...props} />
-    </QueryClientProvider>
+    <AppearanceProvider store={appearanceStore}>
+      {(appearance) => (
+        <QueryClientProvider client={queryClient}>
+          <AppShell {...props} appearance={appearance} />
+        </QueryClientProvider>
+      )}
+    </AppearanceProvider>
   );
 }
 
