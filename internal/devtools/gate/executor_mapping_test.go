@@ -124,25 +124,19 @@ func TestProjectMapExecutorUsesTrustedCLIWithoutRepositoryGenerator(t *testing.T
 	if slices.Contains(program.RequiredPaths, "Makefile") || slices.Contains(program.RequiredPaths, "scripts/generate_ai_project_map.mjs") {
 		t.Fatalf("project map executor trusts candidate repository entrypoints: %#v", program.RequiredPaths)
 	}
-	searchPath := filepath.SplitList(ExecutorPortableSearchPath)
+	searchPath := filepath.SplitList(ExecutorSearchPath)
 	if len(searchPath) == 0 || searchPath[0] != filepath.Dir(ExecutorGateBinaryPath) {
-		t.Fatalf("portable search path = %q, want current gate directory first", ExecutorPortableSearchPath)
+		t.Fatalf("executor search path = %q, want current gate directory first", ExecutorSearchPath)
 	}
-	assertRuntimeRootFSPrecedesHostTools(t, searchPath)
+	assertImageSystemToolsAreAddressable(t, searchPath)
 }
 
-func assertRuntimeRootFSPrecedesHostTools(t *testing.T, searchPath []string) {
+func assertImageSystemToolsAreAddressable(t *testing.T, searchPath []string) {
 	t.Helper()
-	runtimeUSRBIN := slices.Index(searchPath, filepath.Join(ExecutorPortableRootFS, "usr", "bin"))
-	hostUSRBIN := slices.Index(searchPath, "/usr/bin")
-	if runtimeUSRBIN < 0 {
-		t.Fatalf("portable search path = %q, missing trusted runtime rootfs", ExecutorPortableSearchPath)
-	}
-	if hostUSRBIN < 0 {
-		t.Fatalf("portable search path = %q, missing host compatibility path", ExecutorPortableSearchPath)
-	}
-	if runtimeUSRBIN >= hostUSRBIN {
-		t.Fatalf("portable search path = %q, want trusted runtime rootfs before host tools", ExecutorPortableSearchPath)
+	for _, required := range []string{"/usr/local/go/bin", "/usr/local/bin", "/usr/bin", "/bin"} {
+		if !slices.Contains(searchPath, required) {
+			t.Fatalf("executor search path = %q, missing image system path %q", ExecutorSearchPath, required)
+		}
 	}
 }
 

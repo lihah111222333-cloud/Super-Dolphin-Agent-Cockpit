@@ -1,22 +1,29 @@
 package remoteci
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/shardresource"
 )
+
+const calibrationCheckpointAgentTokenDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 func TestCalibrationCheckpointPersistsInAuthoritySQLite(t *testing.T) {
 	store := calibrationCheckpointStore(t)
 	authorityPath := store.AuthorityPath()
-	checkpoint, err := NewCalibrationCheckpoint(store, "sha256:checkpoint")
+	checkpoint, err := NewCalibrationCheckpoint(store, "sha256:checkpoint", 7, calibrationCheckpointAgentTokenDigest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,12 +33,12 @@ func TestCalibrationCheckpointPersistsInAuthoritySQLite(t *testing.T) {
 	if err := checkpoint.Observe("commit", input, result, true); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := NewCalibrationCheckpoint(store, "sha256:checkpoint")
+	loaded, err := NewCalibrationCheckpoint(store, "sha256:checkpoint", 7, calibrationCheckpointAgentTokenDigest)
 	if err != nil {
 		t.Fatal(err)
 	}
 	gotInput, gotResult, ok := loaded.Completed("commit")
-	if !ok || gotInput.Tree != input.Tree || gotResult.JobID != result.JobID {
+	if !ok || gotInput.Tree != input.Tree || gotInput.ImageCacheSnapshotID != input.ImageCacheSnapshotID || gotResult.JobID != result.JobID || gotResult.ImageCacheSnapshotID != result.ImageCacheSnapshotID {
 		t.Fatalf("loaded checkpoint = %#v, %#v, %t", gotInput, gotResult, ok)
 	}
 	if _, err := os.Stat(authorityPath + ".calibration.checkpoint"); !errors.Is(err, os.ErrNotExist) {
@@ -41,7 +48,7 @@ func TestCalibrationCheckpointPersistsInAuthoritySQLite(t *testing.T) {
 
 func TestCalibrationCheckpointReopenAndCachedRetryPersist(t *testing.T) {
 	store := calibrationCheckpointStore(t)
-	checkpoint, err := NewCalibrationCheckpoint(store, "sha256:checkpoint")
+	checkpoint, err := NewCalibrationCheckpoint(store, "sha256:checkpoint", 7, calibrationCheckpointAgentTokenDigest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +75,7 @@ func TestCalibrationCheckpointReopenAndCachedRetryPersist(t *testing.T) {
 func TestCalibrationCheckpointDoesNotPersistExecutionPayload(t *testing.T) {
 	store := calibrationCheckpointStore(t)
 	authorityPath := store.AuthorityPath()
-	checkpoint, err := NewCalibrationCheckpoint(store, "sha256:checkpoint")
+	checkpoint, err := NewCalibrationCheckpoint(store, "sha256:checkpoint", 7, calibrationCheckpointAgentTokenDigest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,26 +106,43 @@ func TestCalibrationCheckpointDoesNotPersistExecutionPayload(t *testing.T) {
 	}
 }
 
-func TestCalibrationCheckpointRejectsMissingReceiptBinding(t *testing.T) {
-	checkpoint, err := NewCalibrationCheckpoint(calibrationCheckpointStore(t), "sha256:checkpoint")
-	if err != nil {
-		t.Fatal(err)
+func TestCalibrationCheckpointRejectsIncompleteCompletedIdentity(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*RunInput, *RunResult)
+	}{
+		{name: "missing target platform", mutate: func(input *RunInput, _ *RunResult) { input.Platform = "" }},
+		{name: "missing accepted snapshot from input", mutate: func(input *RunInput, _ *RunResult) { input.ImageCacheSnapshotID = "" }},
+		{name: "missing accepted snapshot from result", mutate: func(_ *RunInput, result *RunResult) { result.ImageCacheSnapshotID = "" }},
+		{name: "accepted snapshot drift", mutate: func(_ *RunInput, result *RunResult) { result.ImageCacheSnapshotID = "snap-drift" }},
+		{name: "missing fixed resource", mutate: func(input *RunInput, _ *RunResult) { input.CalibrationResource.MemoryGiB = 0 }},
+		{name: "missing candidate compile source", mutate: func(input *RunInput, _ *RunResult) { input.CandidateGateSourceSHA256 = "" }},
+		{name: "candidate compile toolchain drift", mutate: func(_ *RunInput, result *RunResult) { result.CandidateGateToolchainSHA256 = "sha256:drift" }},
+		{name: "accepted generation drifts from checkpoint", mutate: func(input *RunInput, result *RunResult) { input.AcceptedGeneration, result.AcceptedGeneration = 8, 8 }},
 	}
-	input := testCalibrationCheckpointInput()
-	result := testCalibrationCheckpointResult(input)
-	result.CandidateTestBinaryReceiptBindingDigest = ""
-	if err := checkpoint.Observe("commit", input, result, true); err == nil {
-		t.Fatal("empty candidate test-binary receipt binding digest was accepted")
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			checkpoint, err := NewCalibrationCheckpoint(calibrationCheckpointStore(t), "sha256:checkpoint", 7, calibrationCheckpointAgentTokenDigest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			input := testCalibrationCheckpointInput()
+			result := testCalibrationCheckpointResult(input)
+			test.mutate(&input, &result)
+			if err := checkpoint.Observe("commit", input, result, true); err == nil {
+				t.Fatal("completed checkpoint accepted incomplete identity")
+			}
+		})
 	}
 }
 
 func TestCalibrationCheckpointConcurrentDifferentScenariosAreRetained(t *testing.T) {
 	firstStore, secondStore := calibrationCheckpointStores(t)
-	first, err := NewCalibrationCheckpoint(firstStore, "sha256:checkpoint")
+	first, err := NewCalibrationCheckpoint(firstStore, "sha256:checkpoint", 7, calibrationCheckpointAgentTokenDigest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := NewCalibrationCheckpoint(secondStore, "sha256:checkpoint")
+	second, err := NewCalibrationCheckpoint(secondStore, "sha256:checkpoint", 7, calibrationCheckpointAgentTokenDigest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +166,7 @@ func TestCalibrationCheckpointConcurrentDifferentScenariosAreRetained(t *testing
 			t.Fatal(err)
 		}
 	}
-	record, found, err := firstStore.LoadCalibrationCheckpoint("sha256:checkpoint")
+	record, found, err := firstStore.LoadCalibrationCheckpoint("sha256:checkpoint", calibrationCheckpointAgentTokenDigest)
 	if err != nil || !found || len(record.Scenarios) != 2 {
 		t.Fatalf("checkpoint scenarios = %#v, found=%t, err=%v", record.Scenarios, found, err)
 	}
@@ -157,7 +181,7 @@ func TestCalibrationCheckpointConcurrentSameScenarioReturnsConflict(t *testing.T
 	for _, store := range []*gatecontract.DurationLedgerStore{firstStore, secondStore} {
 		group.Go(func() {
 			<-start
-			errs <- store.CompareAndSwapCalibrationCheckpointScenario("sha256:checkpoint", 1, nil, next)
+			errs <- store.CompareAndSwapCalibrationCheckpointScenario("sha256:checkpoint", calibrationCheckpointAgentTokenDigest, calibrationCheckpointSchemaVersion, 7, nil, next)
 		})
 	}
 	close(start)
@@ -179,6 +203,58 @@ func TestCalibrationCheckpointConcurrentSameScenarioReturnsConflict(t *testing.T
 	}
 }
 
+func TestCalibrationCheckpointRejectsDifferentAgentDigest(t *testing.T) {
+	store := calibrationCheckpointStore(t)
+	checkpoint, err := NewCalibrationCheckpoint(store, "sha256:checkpoint", 7, calibrationCheckpointAgentTokenDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := testCalibrationCheckpointInput()
+	result := testCalibrationCheckpointResult(input)
+	result.DurationSamples = []gatecontract.DurationSample{{DurationMS: 1}}
+	if err := checkpoint.Observe("commit", input, result, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewCalibrationCheckpoint(store, "sha256:checkpoint", 7, "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"); err == nil {
+		t.Fatal("checkpoint accepted a different agent token digest")
+	}
+}
+
+func TestCalibrationCheckpointImageCacheSnapshotFieldContract(t *testing.T) {
+	tests := []struct {
+		name    string
+		typeOf  reflect.Type
+		jsonTag string
+	}{
+		{name: "run input", typeOf: reflect.TypeFor[RunInput](), jsonTag: ""},
+		{name: "run result", typeOf: reflect.TypeFor[RunResult](), jsonTag: "image_cache_snapshot_id"},
+		{name: "checkpoint input", typeOf: reflect.TypeFor[calibrationCheckpointInput](), jsonTag: "image_cache_snapshot_id"},
+		{name: "checkpoint result", typeOf: reflect.TypeFor[calibrationCheckpointResult](), jsonTag: "image_cache_snapshot_id"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			field, found := test.typeOf.FieldByName("ImageCacheSnapshotID")
+			if !found || field.Tag.Get("json") != test.jsonTag {
+				t.Fatalf("%s ImageCacheSnapshotID field contract = %#v, found=%t, want json tag %q", test.name, field, found, test.jsonTag)
+			}
+		})
+	}
+}
+
+func TestCalibrationCheckpointRejectsRetiredSchemaVersion(t *testing.T) {
+	store := calibrationCheckpointStore(t)
+	if err := store.CompareAndSwapCalibrationCheckpointScenario(
+		"sha256:checkpoint",
+		calibrationCheckpointAgentTokenDigest,
+		calibrationCheckpointSchemaVersion-1,
+		7,
+		nil,
+		gatecontract.CalibrationCheckpointScenarioRecord{Scenario: "legacy-completed", Started: true},
+	); err == nil {
+		t.Fatal("checkpoint authority accepted retired schema version")
+	}
+}
+
 func calibrationCheckpointAuthorityPath(t *testing.T) string {
 	t.Helper()
 	return filepath.Join(t.TempDir(), "duration-ledger.sqlite")
@@ -190,6 +266,10 @@ func calibrationCheckpointStore(t *testing.T) *gatecontract.DurationLedgerStore 
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := store.CompareAndSwap(0, gatecontract.NewDurationLedger()); err != nil {
+		t.Fatal(err)
+	}
+	seedRemoteCITestAcceptedGeneration(t, store, 7)
 	return store
 }
 
@@ -200,6 +280,10 @@ func calibrationCheckpointStores(t *testing.T) (*gatecontract.DurationLedgerStor
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := first.CompareAndSwap(0, gatecontract.NewDurationLedger()); err != nil {
+		t.Fatal(err)
+	}
+	seedRemoteCITestAcceptedGeneration(t, first, 7)
 	second, err := gatecontract.NewDurationLedgerStore(authorityPath)
 	if err != nil {
 		t.Fatal(err)
@@ -207,15 +291,43 @@ func calibrationCheckpointStores(t *testing.T) (*gatecontract.DurationLedgerStor
 	return first, second
 }
 
+func seedRemoteCITestAcceptedGeneration(t *testing.T, store *gatecontract.DurationLedgerStore, generation uint64) {
+	t.Helper()
+	state := validBaselineState()
+	state.Generation = generation
+	state.ImageCacheID = fmt.Sprintf("imc-baseline-%d", generation)
+	state.ImageCacheSnapshotID = fmt.Sprintf("snap-baseline-%d", generation)
+	if err := state.Validate(); err != nil {
+		t.Fatalf("validate accepted baseline state fixture: %v", err)
+	}
+	stateJSON, err := json.Marshal(state)
+	if err != nil {
+		t.Fatalf("marshal accepted baseline state fixture: %v", err)
+	}
+	stateSHA256 := fmt.Sprintf("sha256:%x", sha256.Sum256(stateJSON))
+	database, err := sql.Open("sqlite", store.AuthorityPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if _, err := database.Exec(`INSERT INTO ci_remote_baseline_state (
+		singleton, schema_version, generation, state_json, state_sha256, updated_at_unix_ms
+	) VALUES (1, 3, ?, ?, ?, 1)
+	ON CONFLICT(singleton) DO UPDATE SET
+		schema_version = excluded.schema_version,
+		generation = excluded.generation,
+		state_json = excluded.state_json,
+		state_sha256 = excluded.state_sha256,
+		updated_at_unix_ms = excluded.updated_at_unix_ms`, fmt.Sprintf("%d", generation), string(stateJSON), stateSHA256); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func testCalibrationCheckpointInput() RunInput {
 	tree := strings.Repeat("1", 40)
-	return RunInput{Tree: tree, Source: gatecontract.SourceSpec{Kind: gatecontract.SourceKindTree, Tree: &gatecontract.TreeSource{SHA: tree, ParentCommitSHA: strings.Repeat("2", 40)}, SourceTreeSHA: tree}, Profile: gatecontract.ProfileLocalFast, Entrypoint: gatecontract.CIEntrypointGitPreCommit, Platform: "linux/amd64", ToolchainDigest: "sha256:" + strings.Repeat("3", 64), Calibration: true, RunnerIdentityDigest: "sha256:" + strings.Repeat("4", 64), RunnerImage: "ubuntu:22.04"}
+	return RunInput{AgentTokenDigest: calibrationCheckpointAgentTokenDigest, AcceptedGeneration: 7, ImageCacheSnapshotID: "snap-accepted-baseline", Tree: tree, Source: gatecontract.SourceSpec{Kind: gatecontract.SourceKindTree, Tree: &gatecontract.TreeSource{SHA: tree, ParentCommitSHA: strings.Repeat("2", 40)}, SourceTreeSHA: tree}, Profile: gatecontract.ProfileLocalFast, Entrypoint: gatecontract.CIEntrypointGitPreCommit, Platform: "linux/amd64", ToolchainDigest: "sha256:" + strings.Repeat("3", 64), CandidateGateSourceSHA256: "sha256:" + strings.Repeat("5", 64), CandidateGateToolchainSHA256: "sha256:" + strings.Repeat("6", 64), Calibration: true, RunnerIdentityDigest: "sha256:" + strings.Repeat("4", 64), RunnerImage: "ubuntu:22.04", CalibrationResource: shardresource.Class{ID: "maximum", VCPU: 8, MemoryGiB: 32}}
 }
 
 func testCalibrationCheckpointResult(input RunInput) RunResult {
-	binding, err := CandidateTestBinaryReceiptBindingDigestFromBuilds(nil, input.Tree)
-	if err != nil {
-		panic(err)
-	}
-	return RunResult{JobID: "job-checkpoint", Entrypoint: input.Entrypoint, Profile: input.Profile, PlanDigest: "sha256:" + strings.Repeat("5", 64), CatalogDigest: "sha256:" + strings.Repeat("6", 64), SourceTreeSHA: input.Tree, CandidateCLIManifestSHA256: strings.Repeat("c", 64), CandidateTestBinaryReceiptBindingDigest: binding, Status: gatecontract.ResultStatusPassed, Authoritative: true, CleanupComplete: true, CompletedAt: time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)}
+	return RunResult{AgentTokenDigest: input.AgentTokenDigest, AcceptedGeneration: input.AcceptedGeneration, ImageCacheSnapshotID: input.ImageCacheSnapshotID, JobID: "job-checkpoint", Entrypoint: input.Entrypoint, Profile: input.Profile, PlanDigest: "sha256:" + strings.Repeat("7", 64), CatalogDigest: "sha256:" + strings.Repeat("8", 64), SourceTreeSHA: input.Tree, CandidateGateSourceSHA256: input.CandidateGateSourceSHA256, CandidateGateToolchainSHA256: input.CandidateGateToolchainSHA256, Status: gatecontract.ResultStatusPassed, Authoritative: true, CleanupComplete: true, CompletedAt: time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)}
 }

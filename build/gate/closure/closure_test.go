@@ -54,7 +54,6 @@ func TestCollectClosureFilesIncludesPrecompiledGateTestInputs(t *testing.T) {
 		"build/gate/runtime-deps.lock",
 		"cmd/super-dolphin-gate/main.go",
 		"cmd/mcp-lsp/main.go",
-		"internal/devtools/localci/image_builder.go",
 	} {
 		if !slices.Contains(localFiles, path) {
 			t.Fatalf("local closure files do not contain %s", path)
@@ -79,7 +78,6 @@ func TestCollectClosureFilesIncludesPrecompiledGateTestInputs(t *testing.T) {
 	for _, path := range []string{
 		"README.md",
 		"cmd/super-dolphin-gate-executor/main.go",
-		"frontend-app/src/App.jsx",
 	} {
 		if slices.Contains(localFiles, path) || slices.Contains(gateCompileFiles, path) {
 			t.Fatalf("environment image closure unexpectedly contains ordinary job source %s", path)
@@ -104,21 +102,56 @@ func TestRenderDockerfilePrecompilesGateModesIntoReadOnlyRuntimeCache(t *testing
 	output := string(dockerfile)
 	for _, wanted := range []string{
 		"go build -mod=mod -trimpath -buildvcs=false -o /out/super-dolphin-gate ./cmd/super-dolphin-gate",
+		"ARG ACCEPTED_SNAPSHOT_ID",
+		"record_provision_check()",
+		"/out/generation-one-receipts/generation-one-build-receipt.json",
+		"FROM scratch AS generation-one-build-receipt",
+		"COPY --from=build /out/generation-one-receipts/generation-one-build-receipt.json /generation-one-build-receipt.json",
+		"test \"$duration_ms\" -gt 0",
+		"test \"$dependency_duration_ms\" -gt 0",
+		"test \"$frontend_duration_ms\" -gt 0",
 		"--mount=type=cache,target=/root/.cache/go-build,sharing=locked --mount=type=bind,from=baseline-cache,source=/,target=/baseline-cache,ro",
 		"ARG BASELINE_CACHE_IMAGE",
 		"FROM ${BASELINE_CACHE_IMAGE} AS baseline-cache",
 		"worker go-cache-proxy --seed /baseline-cache/opt/super-dolphin/cache/go-build --private /root/.cache/go-build",
-		"env GOCACHEPROG=\"$go_cache_proxy\"",
-		"compile phase=%s seconds=%s cache_entries=%s",
-		"cache-export seconds=%s cache_entries=%s",
-		"go test -mod=mod -run \"^$\" ./...",
-		"go test -mod=mod -tags=e2e -run \"^$\" ./cmd/mcp-lsp",
+		"env GOCACHEPROG=\"$go_cache_proxy --metrics",
+		"compile phase=%s elapsed_ms=%s",
+		"cache phase={} private_hits={} baseline_hits={} misses={} puts={}",
+		"warning phase=%s exceeds_target_ms=100000 elapsed_ms=%s",
+		"cache-export elapsed_ms=%s cache_entries=%s",
+		"compile_phase normal_compile env CGO_ENABLED=1 go test -mod=mod -run \"^$\" ./...",
+		"compile_phase e2e_compile env CGO_ENABLED=1 go test -mod=mod -tags=e2e -run \"^$\" ./...",
 		"worker race-package-patterns",
-		"go test -mod=mod -race -run \"^$\" \"$@\"",
+		"compile_phase race_compile env CGO_ENABLED=1 go test -mod=mod -race -run \"^$\" \"$@\"",
+		"\"provision_checks\":records",
+		"\"candidate_compile_not_applicable\"",
+		"\"test_body_not_applicable\":True",
+		"mkdir -p /out/source-snapshot/root; cp -a /src/. /out/source-snapshot/root/",
+		"test ! -e /out/source-snapshot/root/frontend-app/node_modules",
+		"test ! -e /out/source-snapshot/root/frontend-app/dist",
+		"test -n \"$BUILD_SOURCE_TREE\" && test -n \"$ACCEPTED_SNAPSHOT_ID\" && test -n \"$IMAGE_INPUT_DIGEST\" && test -n \"$POLICY_DIGEST\" && test -n \"$TOOLCHAIN_DIGEST\" && test -n \"$TARGET_PLATFORM\"",
+		"test \"${#BUILD_SOURCE_TREE}\" -eq 40",
+		"for digest in \"$IMAGE_INPUT_DIGEST\" \"$POLICY_DIGEST\" \"$TOOLCHAIN_DIGEST\"; do case \"$digest\" in sha256:*) digest=${digest#sha256:};; *) exit 1;; esac; test \"${#digest}\" -eq 64",
+		"test \"$TARGET_PLATFORM\" = linux/amd64",
+		"source_tree",
+		"closure_digest",
+		"object_format",
+		"blob_digest",
+		"blob_oid",
+		"size",
+		"COPY --from=build /out/source-snapshot /opt/super-dolphin-gate/source-snapshot",
+		"chmod -R a-w /opt/super-dolphin-gate/frontend-embed /opt/super-dolphin-gate/source-snapshot",
 		"cp -a /root/.cache/go-build/. /out/go-build-cache",
 		"COPY --from=build --chown=65532:65532 /out/go-build-cache /opt/super-dolphin/cache/go-build",
 		"chmod -R a-w /opt/super-dolphin/cache/go-build",
-		"printf '<!doctype html><title>gate compile seed</title>\\n' > /opt/super-dolphin-gate/frontend-embed/index.html",
+		"(cd frontend-app && ./node_modules/.bin/vite optimize --force)",
+		"test -s frontend-app/node_modules/.vite/deps/_metadata.json",
+		"npm --prefix frontend-app ci --ignore-scripts --no-audit --no-fund",
+		"npm --prefix frontend-app run build",
+		"test -s frontend-app/dist/index.html",
+		"COPY --from=build --chown=65532:65532 /out/frontend-node-modules /opt/super-dolphin-gate/runtime/frontend/node_modules",
+		"COPY --from=build --chown=65532:65532 /out/vite-cache /opt/super-dolphin-gate/runtime/frontend/vite-cache",
+		"COPY --from=build /out/frontend-embed /opt/super-dolphin-gate/frontend-embed",
 	} {
 		if !strings.Contains(output, wanted) {
 			t.Fatalf("generated Dockerfile does not contain %q", wanted)
@@ -127,22 +160,41 @@ func TestRenderDockerfilePrecompilesGateModesIntoReadOnlyRuntimeCache(t *testing
 	for _, unwanted := range []string{
 		"\n')\n",
 		"COPY . .",
-		"npm run build",
-		"frontend-app",
+		"gate compile seed",
 		"super-dolphin-gate-executor",
 		"/opt/super-dolphin-gate/owners",
 		"nilness-guard",
-		"node_modules",
 		"/opt/super-dolphin-gate/cache-seed/go-build",
 		"COPY --from=baseline-cache /opt/super-dolphin/cache/go-build /root/.cache/go-build",
 		"cp -a /baseline-cache",
+		"SOURCE_CLOSURE_DIGEST=",
+		"content_digest",
+		"frontend-build-cache",
+		"/runtime/frontend/build-cache",
 	} {
 		if strings.Contains(output, unwanted) {
 			t.Fatalf("generated environment Dockerfile unexpectedly contains job-source build step %q", unwanted)
 		}
 	}
-	if !strings.Contains(output, "touch -d \"@${SOURCE_DATE_EPOCH}\" /out/super-dolphin-gate\n'\n\nFROM ${RUNTIME_DEPS_IMAGE}") {
-		t.Fatal("generated Dockerfile does not close the shell command before the next FROM instruction")
+	for _, check := range []string{"gate_build", "normal_compile", "e2e_compile", "race_compile"} {
+		if count := strings.Count(output, "compile_phase "+check+" env"); count != 1 {
+			t.Fatalf("generated Dockerfile has %d %s check invocations, want exactly one", count, check)
+		}
+	}
+	if count := strings.Count(output, "record_provision_check "); count != 3 {
+		t.Fatalf("generated Dockerfile has %d provision receipt call sites, want compile plus dependency and frontend", count)
+	}
+	if strings.Index(output, "test -n \"$BUILD_SOURCE_TREE\"") > strings.Index(output, "compile_phase gate_build") {
+		t.Fatal("generated Dockerfile validates build identity after the first required check")
+	}
+	if strings.Index(output, "cp -a /src/. /out/source-snapshot/root/") > strings.Index(output, "npm --prefix frontend-app ci") {
+		t.Fatal("generated Dockerfile snapshots source after frontend dependencies are materialized")
+	}
+	if strings.Index(output, "npm --prefix frontend-app run build") > strings.Index(output, "compile_phase normal_compile") {
+		t.Fatal("generated Dockerfile compiles Go embed consumers before frontend assets exist")
+	}
+	if !strings.Contains(output, "touch -d \"@${SOURCE_DATE_EPOCH}\" /out/super-dolphin-gate\n\nFROM scratch AS generation-one-build-receipt\n") {
+		t.Fatal("generated Dockerfile does not close the check RUN instruction before the receipt target")
 	}
 }
 

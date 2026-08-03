@@ -1,0 +1,62 @@
+package archtest
+
+import (
+	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// TestRemoteCIRetiredLegacyArtifactsDoNotReturn keeps removed JSON-manifest
+// migration and result-fingerprint artifacts from recreating a second remote-CI
+// cache/protocol path beside the accepted SQLite/ImageCache flow.
+func TestRemoteCIRetiredLegacyArtifactsDoNotReturn(t *testing.T) {
+	root := findRepoRoot(t)
+	for _, relative := range []string{
+		"internal/devtools/remoteci/baseline_manifest.go",
+		"internal/devtools/remoteci/baseline_manifest_schema.go",
+		"internal/devtools/remoteci/baseline_manifest_test.go",
+		"internal/devtools/remoteci/workload_fingerprint_execution_test.go",
+		"internal/devtools/remoteci/workload_fingerprint_process_io_test.go",
+		"internal/devtools/remoteci/workload_fingerprint_sources_test.go",
+	} {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(relative))); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("remote CI must not retain retired manifest or result-fingerprint artifact %s", relative)
+		}
+	}
+}
+
+// TestRemoteCIRejectsRetiredFullBuildContextSymbols keeps the delta archive as
+// the only transferable source payload. OCI identity may retain digests, but
+// the retired full-context API and tar field must not return.
+func TestRemoteCIRejectsRetiredFullBuildContextSymbols(t *testing.T) {
+	root := findRepoRoot(t)
+	for _, symbol := range []string{"ContextTar", "PrepareOCIBuildContext", "OCIBuildContext", "buildCanonicalContext"} {
+		hasSymbolInRemoteCIProductionSource(t, root, symbol)
+	}
+}
+
+func hasSymbolInRemoteCIProductionSource(t *testing.T, root string, symbol string) {
+	t.Helper()
+	err := filepath.WalkDir(filepath.Join(root, "internal", "devtools", "remoteci"), func(filePath string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+			return nil
+		}
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			return err
+		}
+		if strings.Contains(string(data), symbol) {
+			t.Errorf("remote CI production source must not restore retired full build-context symbol %q in %s", symbol, filepath.ToSlash(filePath))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("scan remote CI production source for %q: %v", symbol, err)
+	}
+}

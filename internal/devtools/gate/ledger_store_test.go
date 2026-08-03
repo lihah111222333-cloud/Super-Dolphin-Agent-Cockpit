@@ -1,7 +1,9 @@
 package gate
 
 import (
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -68,7 +70,6 @@ func TestDurationLedgerStoreConcurrentCASFailsOneWriter(t *testing.T) {
 	errorsByWriter := make(chan error, 2)
 	var group errgroup.Group
 	for _, duration := range []int64{202, 303} {
-		duration := duration
 		group.Go(func() error {
 			<-start
 			_, err := store.CompareAndSwap(1, testDurationLedger(duration))
@@ -105,13 +106,13 @@ func TestDurationLedgerStoreAppendSamplesMergesConcurrentWriters(t *testing.T) {
 	if _, err := store.CompareAndSwap(0, DurationLedger{Version: durationLedgerVersion}); err != nil {
 		t.Fatal(err)
 	}
+	seedAcceptedGenerationForTest(t, store, 1)
 	start := make(chan struct{})
 	var group errgroup.Group
 	for _, duration := range []int64{101, 202, 303, 404} {
-		duration := duration
 		group.Go(func() error {
 			<-start
-			_, err := store.AppendSamples([]DurationSample{
+			_, err := store.AppendSamples(1, []DurationSample{
 				testDurationSample("unit", testWorkloadDigest, true, duration),
 			})
 			return err
@@ -135,6 +136,7 @@ func TestDurationLedgerStoreAppendSamplesCompactsEachExactBucket(t *testing.T) {
 	if _, err := store.CompareAndSwap(0, DurationLedger{Version: durationLedgerVersion}); err != nil {
 		t.Fatal(err)
 	}
+	seedAcceptedGenerationForTest(t, store, 1)
 	samples := make([]DurationSample, 0, 16)
 	for duration := int64(1); duration <= 12; duration++ {
 		samples = append(samples, testDurationSample("unit", testWorkloadDigest, true, duration))
@@ -142,11 +144,11 @@ func TestDurationLedgerStoreAppendSamplesCompactsEachExactBucket(t *testing.T) {
 	for duration := int64(101); duration <= 104; duration++ {
 		samples = append(samples, testDurationSample("unit", testWorkloadDigest, false, duration))
 	}
-	snapshot, err := store.AppendSamples(samples)
+	snapshot, err := store.AppendSamples(1, samples)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantDurations := []int64{5, 6, 7, 8, 9, 10, 11, 12, 103, 104}
+	wantDurations := []int64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 101, 102, 103, 104}
 	gotDurations := make([]int64, 0, len(snapshot.Ledger.Samples))
 	for _, sample := range snapshot.Ledger.Samples {
 		gotDurations = append(gotDurations, sample.DurationMS)
@@ -161,21 +163,40 @@ func TestDurationLedgerStoreAppendSamplesRetainsThreeRecentExecutions(t *testing
 	if _, err := store.CompareAndSwap(0, DurationLedger{Version: durationLedgerVersion}); err != nil {
 		t.Fatal(err)
 	}
+	seedAcceptedGenerationForTest(t, store, 1)
 	samples := make([]DurationSample, 0, 4)
 	for index, marker := range []string{"a", "b", "c", "d"} {
 		samples = append(samples, testDurationSample("unit", strings.Repeat(marker, 64), true, int64(index+1)))
 	}
-	snapshot, err := store.AppendSamples(samples)
+	snapshot, err := store.AppendSamples(1, samples)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantDurations := []int64{2, 3, 4}
+	wantDurations := []int64{1, 2, 3, 4}
 	gotDurations := make([]int64, 0, len(snapshot.Ledger.Samples))
 	for _, sample := range snapshot.Ledger.Samples {
 		gotDurations = append(gotDurations, sample.DurationMS)
 	}
 	if !reflect.DeepEqual(gotDurations, wantDurations) {
 		t.Fatalf("retained execution durations = %v, want %v", gotDurations, wantDurations)
+	}
+}
+
+func TestHistoricalRootWriterRequiresAcceptedGenerationAuthority(t *testing.T) {
+	store := newTestDurationLedgerStore(t)
+	if _, err := store.CompareAndSwap(0, NewDurationLedger()); err != nil {
+		t.Fatal(err)
+	}
+	sample := testDurationSample("unit", testWorkloadDigest, true, 1)
+	if _, err := store.AppendSamplesFast(1, []DurationSample{sample}); !errors.Is(err, ErrRemoteBaselineStateNotFound) {
+		t.Fatalf("append without accepted authority error = %v, want ErrRemoteBaselineStateNotFound", err)
+	}
+	seedAcceptedGenerationForTest(t, store, 3)
+	if _, err := store.AppendSamplesFast(4, []DurationSample{sample}); err == nil || !strings.Contains(err.Error(), "was never accepted") {
+		t.Fatalf("append future accepted generation error = %v", err)
+	}
+	if _, err := store.AppendSamplesFast(2, []DurationSample{sample}); err != nil {
+		t.Fatalf("append previously accepted generation: %v", err)
 	}
 }
 
@@ -186,6 +207,17 @@ func newTestDurationLedgerStore(t *testing.T) *DurationLedgerStore {
 		t.Fatalf("NewDurationLedgerStore() error = %v", err)
 	}
 	return store
+}
+
+func seedAcceptedGenerationForTest(t *testing.T, store *DurationLedgerStore, generation uint64) {
+	t.Helper()
+	stateJSON := fmt.Sprintf(`{"schema_version":1,"generation":%d,"image_cache_snapshot_id":"snapshot-%d"}`, generation, generation)
+	stateDigest := sha256.Sum256([]byte(stateJSON))
+	seedRemoteBaselineState(t, store, RemoteBaselineStateRecord{
+		Generation:  generation,
+		StateJSON:   []byte(stateJSON),
+		StateSHA256: fmt.Sprintf("sha256:%x", stateDigest),
+	})
 }
 
 func testDurationLedger(durationMS int64) DurationLedger {

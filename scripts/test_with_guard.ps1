@@ -42,8 +42,8 @@ function Assert-RemoteTestExecution {
     }
     Write-Stderr @'
 Host test execution is forbidden.
-Every test request must pass through super-dolphin-gate test cache and lightweight admission first.
-Package, race, benchmark, Vitest, unknown-duration, and multi-miss requests run in ECI.
+Every test request must pass through super-dolphin-gate test and run through the remote ECI coordinator.
+Build and dependency caches may accelerate execution but never authorize skipping a test or running it on the host.
 '@
     exit 2
 }

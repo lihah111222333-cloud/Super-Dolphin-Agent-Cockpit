@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	runtimeDepsSchemaVersion = "13"
+	runtimeDepsSchemaVersion = "15"
 	runtimeDepsBuildMode     = "node-local"
 	runtimeDepsCacheScope    = "node"
 )
@@ -39,10 +39,10 @@ type sqruffArtifact struct {
 }
 
 type runtimeDepsInputs struct {
-	Dockerfile          string `json:"dockerfile_sha256"`
 	ToolchainLock       string `json:"toolchain_lock_sha256"`
 	GoMod               string `json:"go_mod_sha256"`
 	GoSum               string `json:"go_sum_sha256"`
+	GoDistributionLock  string `json:"go_distribution_lock_sha256"`
 	NilnessRunner       string `json:"nilness_runner_sha256"`
 	NilnessGuard        string `json:"nilness_guard_sha256"`
 	FrontendPackageLock string `json:"frontend_package_lock_sha256"`
@@ -54,12 +54,12 @@ type runtimeDepsInputs struct {
 }
 
 type runtimeDepsRecipeInputs struct {
+	Dockerfile        string `json:"dockerfile_sha256"`
 	RuntimeSeedWorker string `json:"runtime_seed_worker_sha256"`
 }
 
 type runtimeDepsPaths struct {
 	Manifest            string `json:"manifest"`
-	Vendor              string `json:"vendor"`
 	GoModuleProxy       string `json:"go_module_proxy"`
 	FrontendNodeModules string `json:"frontend_node_modules"`
 	PlaywrightBrowsers  string `json:"playwright_browsers"`
@@ -77,7 +77,7 @@ type runtimeDepsPaths struct {
 
 func canonicalRuntimeDepsPaths() runtimeDepsPaths {
 	return runtimeDepsPaths{
-		Manifest: "/opt/super-dolphin-gate/runtime/manifest.json", Vendor: "/opt/super-dolphin-gate/runtime/vendor",
+		Manifest:      "/opt/super-dolphin-gate/runtime/manifest.json",
 		GoModuleProxy: "/opt/super-dolphin-gate/runtime/go-proxy", FrontendNodeModules: "/opt/super-dolphin-gate/runtime/frontend/node_modules",
 		PlaywrightBrowsers: "/opt/super-dolphin-gate/runtime/frontend/node_modules/.cache/ms-playwright", LSPNodeModules: "/opt/super-dolphin-gate/runtime/lsp/node_modules",
 		SQLC: "/opt/super-dolphin-gate/runtime/bin/sqlc", Ripgrep: "/opt/super-dolphin-gate/runtime/bin/rg", Sqruff: "/opt/super-dolphin-gate/runtime/bin/sqruff",
@@ -134,7 +134,7 @@ type runtimeDepsInputField struct{ name, digest string }
 
 func runtimeDepsInputFields(inputs runtimeDepsInputs, recipeInputs runtimeDepsRecipeInputs) []runtimeDepsInputField {
 	return []runtimeDepsInputField{
-		{"dockerfile", inputs.Dockerfile}, {"toolchain lock", inputs.ToolchainLock}, {"go.mod", inputs.GoMod}, {"go.sum", inputs.GoSum},
+		{"dockerfile", recipeInputs.Dockerfile}, {"toolchain lock", inputs.ToolchainLock}, {"go.mod", inputs.GoMod}, {"go.sum", inputs.GoSum}, {"Go distribution lock", inputs.GoDistributionLock},
 		{"nilness runner", inputs.NilnessRunner}, {"nilness guard", inputs.NilnessGuard}, {"frontend package lock", inputs.FrontendPackageLock},
 		{"LSP package lock", inputs.LSPPackageLock}, {"proxy go.mod", inputs.ProxyGoMod}, {"proxy go.sum", inputs.ProxyGoSum},
 		{"tools go.mod", inputs.ToolsGoMod}, {"tools go.sum", inputs.ToolsGoSum},
@@ -198,7 +198,7 @@ type runtimeDepsDigestTarget struct {
 
 func runtimeDepsDigestTargets(inputs *runtimeDepsInputs) []runtimeDepsDigestTarget {
 	return []runtimeDepsDigestTarget{
-		{gateRuntimeDepsDocker, &inputs.Dockerfile}, {gateToolchain, &inputs.ToolchainLock}, {"go.mod", &inputs.GoMod}, {"go.sum", &inputs.GoSum},
+		{gateToolchain, &inputs.ToolchainLock}, {"go.mod", &inputs.GoMod}, {"go.sum", &inputs.GoSum}, {"internal/devtools/godistribution/go-distribution.lock", &inputs.GoDistributionLock},
 		{"internal/devtools/nilnessrunner/runner.go", &inputs.NilnessRunner}, {"scripts/nilness_guard.go", &inputs.NilnessGuard},
 		{"frontend-app/package-lock.json", &inputs.FrontendPackageLock}, {gateRuntimeLSPLock, &inputs.LSPPackageLock},
 		{gateRuntimeProxyModule, &inputs.ProxyGoMod}, {gateRuntimeProxySum, &inputs.ProxyGoSum}, {gateRuntimeToolsModule, &inputs.ToolsGoMod}, {gateRuntimeToolsSum, &inputs.ToolsGoSum},
@@ -207,6 +207,7 @@ func runtimeDepsDigestTargets(inputs *runtimeDepsInputs) []runtimeDepsDigestTarg
 
 func runtimeDepsRecipeDigestTargets(inputs *runtimeDepsRecipeInputs) []runtimeDepsDigestTarget {
 	return []runtimeDepsDigestTarget{
+		{gateRuntimeDepsDocker, &inputs.Dockerfile},
 		{"internal/devtools/gate/executor_seed.go", &inputs.RuntimeSeedWorker},
 	}
 }
