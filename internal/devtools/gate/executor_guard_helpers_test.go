@@ -33,7 +33,7 @@ func assertRaceRegistryEntry(t *testing.T, pattern, prefix string, index int) {
 
 func assertContainerShardExecutorSubset(t *testing.T, plan GatePlan) {
 	t.Helper()
-	shards, err := BuildContainerShardSet(plan, shardTestDigest('a'), shardTestDigest('b'))
+	shards, err := BuildContainerShardSetFromWorkloadPlan(plan, testWorkloadExecutionPlan(t, plan), shardTestDigest('a'), shardTestDigest('b'))
 	if err != nil {
 		t.Fatal(err)
 	}

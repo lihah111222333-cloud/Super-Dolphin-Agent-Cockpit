@@ -3,8 +3,8 @@
   "build_mode": "node-local",
   "cache_scope": "node",
   "inputs": {
-    "dockerfile_sha256": "sha256:c4af5583023c09f564fe88813eff5b3cb0014ec69a4379eab77da73409403c41",
-    "toolchain_lock_sha256": "sha256:327570e26c4f5bb825fcae1ee21db9bd92c4a0e4448efd73344fe8c68490cd66",
+    "dockerfile_sha256": "sha256:3f53c89b0622c8473eb65ae4a430e4aec5f59d1a4e63958e03aa30053fbea00f",
+    "toolchain_lock_sha256": "sha256:821955ee58b7a0ec7116e19cc1c3ce170a7bc5c3038fe4df6ba4f6810fcaa08b",
     "go_mod_sha256": "sha256:26145dd08c09df3862014377512a54ba2ca9a84adc9e1451258050f9fb1ec75f",
     "go_sum_sha256": "sha256:8c717e45352a15786cac26ee3e01be1fa81ff838e249c34356a3ed95e75a530a",
     "nilness_runner_sha256": "sha256:95dc872b202a527293eb57887ddb8fb4caf0a9f6ec5169fd17cbff99f74e8b9d",
@@ -17,7 +17,7 @@
     "tools_go_sum_sha256": "sha256:4fb6b0daaafccfaa0024c3eebd193929957f4e49c62ed551a6289c59632f104f"
   },
   "recipe_inputs": {
-    "runtime_seed_worker_sha256": "sha256:d28bfd29763c113723a836c205515a1a1e3858729fa3062b8c397e0668e4dd80"
+    "runtime_seed_worker_sha256": "sha256:b4200a4009c3159afcb02671357b03aa3e4bfd28d433a838acc8381fc4be9585"
   },
   "paths": {
     "manifest": "/opt/super-dolphin-gate/runtime/manifest.json",

@@ -6,8 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"strings"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 
 	sqlitedriver "modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
@@ -16,10 +17,10 @@ import (
 const durationLedgerSQLiteSchema = `
 CREATE TABLE IF NOT EXISTS duration_ledger_meta (
 	singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+	authority_id TEXT NOT NULL,
 	schema_version INTEGER NOT NULL CHECK (schema_version = 1),
 	generation TEXT NOT NULL,
-	ledger_version INTEGER NOT NULL,
-	legacy_source_sha256 TEXT NOT NULL DEFAULT ''
+	ledger_version INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS duration_calibrations (
@@ -42,10 +43,10 @@ CREATE TABLE IF NOT EXISTS duration_calibrations (
 );
 
 -- remote baseline 的接受状态共用 duration ledger SQLite authority。
--- v2 只接受 OCI state；历史形状不得参与该 authority。
+-- v3 只接受 ECI ImageCache state；历史形状不得参与该 authority。
 CREATE TABLE IF NOT EXISTS ci_remote_baseline_state (
 	singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-	schema_version INTEGER NOT NULL CHECK (schema_version = 2),
+	schema_version INTEGER NOT NULL CHECK (schema_version = 3),
 	generation TEXT NOT NULL,
 	state_json TEXT NOT NULL DEFAULT '',
 	state_sha256 TEXT NOT NULL DEFAULT '',
@@ -56,9 +57,14 @@ CREATE TABLE IF NOT EXISTS ci_remote_baseline_state (
 -- remote calibration checkpoint 与 duration samples 共用同一 SQLite authority。
 CREATE TABLE IF NOT EXISTS remote_ci_calibration_checkpoints (
 	identity TEXT PRIMARY KEY,
-	schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+	schema_version INTEGER NOT NULL CHECK (schema_version = 2),
+	accepted_generation TEXT NOT NULL CHECK (accepted_generation <> '' AND accepted_generation NOT GLOB '0*' AND accepted_generation NOT GLOB '*[^0-9]*' AND (length(accepted_generation) < 20 OR (length(accepted_generation) = 20 AND accepted_generation <= '18446744073709551615'))),
+	agent_token_digest TEXT NOT NULL,
 	updated_at_unix_ms INTEGER NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_remote_ci_calibration_checkpoints_retention
+	ON remote_ci_calibration_checkpoints (accepted_generation, identity);
 
 CREATE TABLE IF NOT EXISTS remote_ci_calibration_checkpoint_scenarios (
 	identity TEXT NOT NULL REFERENCES remote_ci_calibration_checkpoints(identity) ON DELETE CASCADE,
@@ -72,13 +78,9 @@ CREATE TABLE IF NOT EXISTS remote_ci_calibration_checkpoint_scenarios (
 		(completed = 1 AND input_json <> '' AND result_json <> ''))
 );
 
-CREATE INDEX IF NOT EXISTS idx_duration_calibrations_environment
-	ON duration_calibrations (
-		platform, runner, toolchain, completed_at_unix_ms DESC
-	);
-
 CREATE TABLE IF NOT EXISTS duration_samples (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	accepted_generation TEXT NOT NULL CHECK (accepted_generation <> '' AND accepted_generation NOT GLOB '0*' AND accepted_generation NOT GLOB '*[^0-9]*' AND (length(accepted_generation) < 20 OR (length(accepted_generation) = 20 AND accepted_generation <= '18446744073709551615'))),
 	workload_id TEXT NOT NULL,
 	command_digest TEXT NOT NULL,
 	platform TEXT NOT NULL,
@@ -100,13 +102,7 @@ CREATE INDEX IF NOT EXISTS idx_duration_samples_planning
 
 CREATE INDEX IF NOT EXISTS idx_duration_samples_retention
 	ON duration_samples (
-		workload_id, platform, toolchain, command_digest, runner, succeeded, id DESC
-	);
-
-CREATE INDEX IF NOT EXISTS idx_duration_samples_target
-	ON duration_samples (
-		parent_workload_id, parent_command_digest, target_name,
-		platform, runner, toolchain, target_status, id DESC
+		accepted_generation, id DESC
 	);
 
 CREATE TABLE IF NOT EXISTS ci_query_meta (
@@ -134,14 +130,18 @@ CREATE TABLE IF NOT EXISTS ci_catalog_observations (
 	source_tree_sha TEXT NOT NULL,
 	entrypoint TEXT NOT NULL,
 	profile TEXT NOT NULL,
+	accepted_generation TEXT NOT NULL CHECK (accepted_generation <> '' AND accepted_generation NOT GLOB '0*' AND accepted_generation NOT GLOB '*[^0-9]*' AND (length(accepted_generation) < 20 OR (length(accepted_generation) = 20 AND accepted_generation <= '18446744073709551615'))),
 	observed_at_unix_ms INTEGER NOT NULL,
-	PRIMARY KEY (catalog_digest, source_tree_sha, entrypoint, profile)
+	PRIMARY KEY (catalog_digest, source_tree_sha, entrypoint, profile, accepted_generation)
 );
 
-CREATE INDEX IF NOT EXISTS idx_ci_catalog_observations_tree_entrypoint
+CREATE INDEX IF NOT EXISTS idx_ci_catalog_observations_catalog_order
 	ON ci_catalog_observations (
-		source_tree_sha, entrypoint, observed_at_unix_ms DESC, catalog_digest
+		catalog_digest, observed_at_unix_ms DESC, source_tree_sha, entrypoint, profile, accepted_generation
 	);
+
+CREATE INDEX IF NOT EXISTS idx_ci_catalog_observations_retention
+	ON ci_catalog_observations (accepted_generation, catalog_digest);
 
 CREATE TABLE IF NOT EXISTS ci_catalog_workloads (
 	catalog_digest TEXT NOT NULL
@@ -161,122 +161,17 @@ CREATE TABLE IF NOT EXISTS ci_catalog_workloads (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_ci_catalog_workloads_order
 	ON ci_catalog_workloads (catalog_digest, ordinal);
 
-CREATE INDEX IF NOT EXISTS idx_ci_catalog_workloads_identity
-	ON ci_catalog_workloads (workload_id, command_digest, catalog_digest);
-
-CREATE INDEX IF NOT EXISTS idx_ci_catalog_workloads_target
-	ON ci_catalog_workloads (target_kind, target_value, workload_id);
-
-CREATE TABLE IF NOT EXISTS ci_workload_pass_proofs (
-	identity_digest TEXT PRIMARY KEY,
-	workload_id TEXT NOT NULL,
-	execution_digest TEXT NOT NULL,
-	input_digest TEXT NOT NULL,
-	environment_digest TEXT NOT NULL,
-	object_key TEXT NOT NULL,
-	observed_at_unix_ms INTEGER NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS ci_workload_fingerprints (
-	identity_digest TEXT PRIMARY KEY,
-	workload_id TEXT NOT NULL,
-	execution_digest TEXT NOT NULL,
-	input_digest TEXT NOT NULL,
-	environment_digest TEXT NOT NULL,
-	source_tree_sha TEXT NOT NULL,
-	observed_at_unix_ms INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_ci_workload_fingerprint_lookup
-	ON ci_workload_fingerprints (
-		workload_id, input_digest, environment_digest, observed_at_unix_ms DESC
-	);
-
-CREATE TABLE IF NOT EXISTS ci_workload_identity_aliases (
-	identity_digest TEXT NOT NULL,
-	workload_id TEXT NOT NULL,
-	observed_at_unix_ms INTEGER NOT NULL,
-	PRIMARY KEY (identity_digest, workload_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_ci_workload_identity_alias_lookup
-	ON ci_workload_identity_aliases (
-		workload_id, observed_at_unix_ms DESC, identity_digest
-	);
-
-INSERT OR IGNORE INTO ci_workload_identity_aliases (
-	identity_digest, workload_id, observed_at_unix_ms
-)
-SELECT identity_digest, workload_id, observed_at_unix_ms
-FROM ci_workload_fingerprints
-WHERE NOT EXISTS (
-	SELECT 1 FROM ci_schema_migrations
-	WHERE name = 'workload-identity-aliases-v1'
-);
-
-INSERT OR IGNORE INTO ci_workload_identity_aliases (
-	identity_digest, workload_id, observed_at_unix_ms
-)
-SELECT identity_digest, workload_id, observed_at_unix_ms
-FROM ci_workload_pass_proofs
-WHERE NOT EXISTS (
-	SELECT 1 FROM ci_schema_migrations
-	WHERE name = 'workload-identity-aliases-v1'
-);
-
-INSERT OR IGNORE INTO ci_schema_migrations (name, applied_at_unix_ms)
-VALUES ('workload-identity-aliases-v1', CAST(strftime('%s', 'now') AS INTEGER) * 1000);
-
-CREATE TABLE IF NOT EXISTS ci_workload_fingerprint_observations (
-	identity_digest TEXT NOT NULL
-		REFERENCES ci_workload_fingerprints(identity_digest) ON DELETE CASCADE,
-	source_tree_sha TEXT NOT NULL,
-	observed_at_unix_ms INTEGER NOT NULL,
-	PRIMARY KEY (identity_digest, source_tree_sha)
-);
-
-CREATE INDEX IF NOT EXISTS idx_ci_workload_fingerprint_observation_tree
-	ON ci_workload_fingerprint_observations (
-		source_tree_sha, observed_at_unix_ms DESC, identity_digest
-	);
-
-CREATE INDEX IF NOT EXISTS idx_ci_workload_fingerprint_observation_latest
-	ON ci_workload_fingerprint_observations (
-		identity_digest, observed_at_unix_ms DESC, source_tree_sha DESC
-	);
-
-INSERT OR IGNORE INTO ci_workload_fingerprint_observations (
-	identity_digest, source_tree_sha, observed_at_unix_ms
-)
-SELECT identity_digest, source_tree_sha, observed_at_unix_ms
-FROM ci_workload_fingerprints
-WHERE NOT EXISTS (
-	SELECT 1 FROM ci_schema_migrations
-	WHERE name = 'fingerprint-observations-v1'
-);
-
-INSERT OR IGNORE INTO ci_schema_migrations (name, applied_at_unix_ms)
-VALUES ('fingerprint-observations-v1', CAST(strftime('%s', 'now') AS INTEGER) * 1000);
-
-CREATE INDEX IF NOT EXISTS idx_ci_workload_pass_lookup
-	ON ci_workload_pass_proofs (
-		environment_digest, execution_digest, input_digest, workload_id
-	);
-
-CREATE INDEX IF NOT EXISTS idx_ci_workload_pass_compatible
-	ON ci_workload_pass_proofs (
-		workload_id, execution_digest, environment_digest, observed_at_unix_ms DESC
-	);
-
 CREATE TABLE IF NOT EXISTS ci_runs (
 	job_id TEXT PRIMARY KEY,
 	entrypoint TEXT NOT NULL,
 	profile TEXT NOT NULL,
 	plan_digest TEXT NOT NULL,
 	catalog_digest TEXT NOT NULL,
+	accepted_generation TEXT NOT NULL CHECK (accepted_generation <> '' AND accepted_generation NOT GLOB '0*' AND accepted_generation NOT GLOB '*[^0-9]*' AND (length(accepted_generation) < 20 OR (length(accepted_generation) = 20 AND accepted_generation <= '18446744073709551615'))),
+	image_cache_snapshot_id TEXT NOT NULL CHECK (length(trim(image_cache_snapshot_id)) > 0),
 	source_tree_sha TEXT NOT NULL,
-	candidate_cli_manifest_sha256 TEXT NOT NULL DEFAULT '',
-	candidate_test_binary_receipt_binding_digest TEXT NOT NULL DEFAULT '',
+	candidate_gate_source_sha256 TEXT NOT NULL DEFAULT '',
+	candidate_gate_toolchain_sha256 TEXT NOT NULL DEFAULT '',
 	runner_image TEXT NOT NULL,
 	status TEXT NOT NULL,
 	authoritative INTEGER NOT NULL CHECK (authoritative IN (0, 1)),
@@ -292,26 +187,14 @@ CREATE INDEX IF NOT EXISTS idx_ci_runs_tree_status
 CREATE INDEX IF NOT EXISTS idx_ci_runs_catalog_status
 	ON ci_runs (catalog_digest, status, completed_at_unix_ms DESC);
 
-CREATE TABLE IF NOT EXISTS ci_run_requesters (
+CREATE INDEX IF NOT EXISTS idx_ci_runs_accepted_generation
+	ON ci_runs (accepted_generation, completed_at_unix_ms DESC, job_id DESC);
+
+CREATE TABLE IF NOT EXISTS ci_run_agent_identities (
 	job_id TEXT PRIMARY KEY REFERENCES ci_runs(job_id) ON DELETE CASCADE,
-	requester_fingerprint TEXT NOT NULL,
+	agent_token_digest TEXT NOT NULL,
 	started_at_unix_ms INTEGER NOT NULL
 );
-
-CREATE INDEX IF NOT EXISTS idx_ci_run_requesters_lookup
-	ON ci_run_requesters (
-		requester_fingerprint, started_at_unix_ms DESC, job_id DESC
-	);
-
-CREATE TABLE IF NOT EXISTS ci_run_workloads (
-	job_id TEXT NOT NULL REFERENCES ci_runs(job_id) ON DELETE CASCADE,
-	workload_id TEXT NOT NULL,
-	disposition TEXT NOT NULL CHECK (disposition IN ('reused', 'cache_miss')),
-	PRIMARY KEY (job_id, workload_id, disposition)
-);
-
-CREATE INDEX IF NOT EXISTS idx_ci_run_workloads_lookup
-	ON ci_run_workloads (workload_id, disposition, job_id);
 
 CREATE TABLE IF NOT EXISTS ci_shards (
 	job_id TEXT NOT NULL REFERENCES ci_runs(job_id) ON DELETE CASCADE,
@@ -319,11 +202,9 @@ CREATE TABLE IF NOT EXISTS ci_shards (
 	container_group_id TEXT NOT NULL,
 	container_status TEXT NOT NULL,
 	materialization_timing_json TEXT NOT NULL DEFAULT '',
+	resources_json TEXT NOT NULL DEFAULT '',
 	PRIMARY KEY (job_id, shard_identity)
 );
-
-CREATE INDEX IF NOT EXISTS idx_ci_shards_container
-	ON ci_shards (container_group_id, container_status);
 
 CREATE TABLE IF NOT EXISTS ci_shard_workloads (
 	job_id TEXT NOT NULL,
@@ -333,9 +214,6 @@ CREATE TABLE IF NOT EXISTS ci_shard_workloads (
 	FOREIGN KEY (job_id, shard_identity)
 		REFERENCES ci_shards(job_id, shard_identity) ON DELETE CASCADE
 );
-
-CREATE INDEX IF NOT EXISTS idx_ci_shard_workloads_lookup
-	ON ci_shard_workloads (workload_id, job_id, shard_identity);
 
 CREATE TABLE IF NOT EXISTS ci_gate_executions (
 	job_id TEXT NOT NULL REFERENCES ci_runs(job_id) ON DELETE CASCADE,
@@ -351,11 +229,9 @@ CREATE TABLE IF NOT EXISTS ci_gate_executions (
 	PRIMARY KEY (job_id, workload_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_ci_gate_executions_lookup
-	ON ci_gate_executions (workload_id, status, completed_at_unix_ms DESC);
-
 CREATE TABLE IF NOT EXISTS ci_workload_executions (
-	job_id TEXT NOT NULL REFERENCES ci_runs(job_id) ON DELETE CASCADE,
+	job_id TEXT NOT NULL,
+	shard_identity TEXT NOT NULL,
 	workload_id TEXT NOT NULL,
 	status TEXT NOT NULL,
 	exit_code INTEGER NOT NULL,
@@ -365,43 +241,29 @@ CREATE TABLE IF NOT EXISTS ci_workload_executions (
 	log_digest TEXT NOT NULL,
 	test_timings_json TEXT NOT NULL DEFAULT '[]',
 	execution_profile_json TEXT NOT NULL,
-	PRIMARY KEY (job_id, workload_id)
+	PRIMARY KEY (job_id, workload_id),
+	FOREIGN KEY (job_id, shard_identity)
+		REFERENCES ci_shards(job_id, shard_identity) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_ci_workload_executions_lookup
-	ON ci_workload_executions (workload_id, status, completed_at_unix_ms DESC);
+CREATE INDEX IF NOT EXISTS idx_ci_workload_executions_shard_fk
+	ON ci_workload_executions (job_id, shard_identity);
 
-CREATE TABLE IF NOT EXISTS ci_candidate_test_binary_builds (
+CREATE TABLE IF NOT EXISTS ci_timing_observations (
 	job_id TEXT NOT NULL REFERENCES ci_runs(job_id) ON DELETE CASCADE,
-	candidate_tree TEXT NOT NULL DEFAULT '', package TEXT NOT NULL, mode TEXT NOT NULL,
-	platform TEXT NOT NULL DEFAULT '', go_toolchain TEXT NOT NULL DEFAULT '', cgo_enabled INTEGER NOT NULL DEFAULT 0,
-	toolchain_sha256 TEXT NOT NULL DEFAULT '', build_flags_json TEXT NOT NULL DEFAULT '[]', compile_closure_sha256 TEXT NOT NULL DEFAULT '',
-	manifest_sha256 TEXT NOT NULL DEFAULT '', artifact_sha256 TEXT NOT NULL, binary_size INTEGER NOT NULL DEFAULT 0,
-	go_list_wall_ms INTEGER NOT NULL, build_wall_ms INTEGER NOT NULL,
-	compile_action_ms INTEGER NOT NULL, link_action_ms INTEGER NOT NULL, compile_critical_wall_ms INTEGER NOT NULL,
-	gocache_private_hits INTEGER NOT NULL, gocache_oci_project_cache_hits INTEGER NOT NULL DEFAULT 0, gocache_private_root_identity TEXT NOT NULL DEFAULT '',
-	gocache_misses INTEGER NOT NULL, gocache_puts INTEGER NOT NULL,
-	PRIMARY KEY (job_id, package, mode)
-);
-
-CREATE TABLE IF NOT EXISTS ci_run_phase_timings (
-	job_id TEXT NOT NULL REFERENCES ci_runs(job_id) ON DELETE CASCADE,
-	ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+	scope TEXT NOT NULL CHECK (scope IN ('run', 'shard', 'workload')),
+	shard_identity TEXT NOT NULL DEFAULT '',
+	workload_id TEXT NOT NULL DEFAULT '',
 	phase TEXT NOT NULL,
-	started_at_unix_ms INTEGER NOT NULL,
-	duration_ms INTEGER NOT NULL CHECK (duration_ms >= 0),
-	outcome TEXT NOT NULL CHECK (outcome IN ('succeeded', 'failed')),
-	workload_count INTEGER NOT NULL CHECK (workload_count >= 0),
-	shard_count INTEGER NOT NULL CHECK (shard_count >= 0),
-	cache_hit_count INTEGER NOT NULL CHECK (cache_hit_count >= 0),
-	cache_miss_count INTEGER NOT NULL CHECK (cache_miss_count >= 0),
-	PRIMARY KEY (job_id, ordinal)
+	started_at_unix_ms INTEGER NOT NULL DEFAULT 0,
+	completed_at_unix_ms INTEGER NOT NULL DEFAULT 0,
+	duration_ms INTEGER NOT NULL DEFAULT 0 CHECK (duration_ms >= 0),
+	measurement TEXT NOT NULL CHECK (measurement IN ('measured', 'not_applicable')),
+	reason TEXT NOT NULL DEFAULT '',
+	aggregation TEXT NOT NULL CHECK (aggregation IN ('raw', 'interval_union', 'critical_path')),
+	cache_evidence_json TEXT NOT NULL,
+	PRIMARY KEY (job_id, scope, shard_identity, workload_id, phase)
 );
-
-CREATE INDEX IF NOT EXISTS idx_ci_run_phase_timings_hotspots
-	ON ci_run_phase_timings (
-		phase, duration_ms DESC, started_at_unix_ms DESC, job_id
-	);
 
 CREATE TABLE IF NOT EXISTS ci_run_warnings (
 	job_id TEXT NOT NULL REFERENCES ci_runs(job_id) ON DELETE CASCADE,
@@ -409,8 +271,6 @@ CREATE TABLE IF NOT EXISTS ci_run_warnings (
 	warning_text TEXT NOT NULL,
 	PRIMARY KEY (job_id, ordinal)
 );
-
-PRAGMA user_version = 1;
 `
 
 func durationLedgerSQLiteDSN(path string) string {
@@ -425,259 +285,216 @@ func durationLedgerSQLiteDSN(path string) string {
 }
 
 // ensureDurationLedgerSQLiteSchema 初始化或协调SQLite schema。
-func ensureDurationLedgerSQLiteSchema(database *sql.DB) error {
-	var schemaVersion int
-	if err := database.QueryRow(`PRAGMA user_version`).Scan(&schemaVersion); err != nil {
-		return mapDurationLedgerSQLiteError("read duration ledger SQLite schema version", err)
-	}
-	switch schemaVersion {
-	case 0:
-		if _, err := database.Exec(durationLedgerSQLiteSchema); err != nil {
-			return mapDurationLedgerSQLiteError("initialize duration ledger SQLite schema", err)
-		}
-	case durationLedgerSQLiteSchemaVersion:
-		if _, err := database.Exec(durationLedgerSQLiteSchema); err != nil {
-			return mapDurationLedgerSQLiteError("reconcile duration ledger SQLite v1 schema", err)
-		}
-		if err := ensureDurationLedgerCandidateCLIManifestColumn(database); err != nil {
-			return err
-		}
-		if err := ensureDurationLedgerCandidateTestBinaryReceiptBindingColumn(database); err != nil {
-			return err
-		}
-		if err := ensureDurationLedgerCandidateTestBinaryBuildIdentityColumns(database); err != nil {
-			return err
-		}
-		if err := ensureDurationLedgerExecutionProfileColumn(database); err != nil {
-			return err
-		}
-		if err := ensureDurationLedgerTestTimingsColumns(database); err != nil {
-			return err
-		}
-		if err := ensureDurationLedgerShardMaterializationTimingColumn(database); err != nil {
-			return err
-		}
-		if err := ensureRemoteBaselineStateSQLiteSchema(database); err != nil {
-			return err
-		}
-	default:
-		return fmt.Errorf(
-			"duration ledger SQLite schema version %d is unsupported",
-			schemaVersion,
-		)
-	}
-	return nil
+func ensureDurationLedgerSQLiteSchema(database *sql.DB, now func() time.Time) error {
+	return ensureDurationLedgerSQLiteSchemaWithValidator(database, now, newDurationLedgerSQLiteSchemaValidator())
 }
 
-// ensureRemoteBaselineStateSQLiteSchema 拒绝 v1 或 legacy 状态；调用方必须显式迁移。
-func ensureRemoteBaselineStateSQLiteSchema(database *sql.DB) error {
-	return withSQLiteWriteTransaction(database, "inspect remote baseline state schema", func(transaction *sql.Tx) error {
-		columns, err := durationLedgerSQLiteTableColumns(transaction, "ci_remote_baseline_state")
-		if err != nil {
-			return err
-		}
-		if columns["legacy_json"] {
-			return ErrRemoteBaselineStateMigrationRequired
-		}
-		return nil
-	})
-}
-
-func durationLedgerSQLiteTableColumns(transaction *sql.Tx, table string) (map[string]bool, error) {
-	rows, err := transaction.Query(fmt.Sprintf(`PRAGMA table_info(%q)`, table))
-	if err != nil {
-		return nil, fmt.Errorf("inspect SQLite table %s: %w", table, err)
+// ensureDurationLedgerSQLiteSchemaWithValidator 在唯一 current DDL 写入器上执行严格 schema 协调。
+func ensureDurationLedgerSQLiteSchemaWithValidator(
+	database *sql.DB,
+	now func() time.Time,
+	validator *durationLedgerSQLiteSchemaValidator,
+) error {
+	if now == nil {
+		return errors.New("duration ledger schema clock is required")
 	}
-	defer rows.Close()
-	columns := make(map[string]bool)
-	for rows.Next() {
-		var (
-			columnID, notNull, primaryKey int
-			name, dataType                string
-			defaultValue                  any
-		)
-		if err := rows.Scan(&columnID, &name, &dataType, &notNull, &defaultValue, &primaryKey); err != nil {
-			return nil, fmt.Errorf("scan SQLite table %s column: %w", table, err)
-		}
-		columns[name] = true
+	if validator == nil || validator.expectedSchema == nil || validator.initializeAuthority == nil {
+		return errors.New("duration ledger schema validator is required")
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate SQLite table %s columns: %w", table, err)
-	}
-	return columns, nil
-}
-
-func ensureDurationLedgerCandidateTestBinaryBuildIdentityColumns(database *sql.DB) error {
-	existing, err := durationLedgerCandidateTestBinaryBuildColumns(database)
+	schemaVersion, err := readDurationLedgerSQLiteSchemaVersion(database)
 	if err != nil {
 		return err
 	}
-	columns := []string{"candidate_tree TEXT NOT NULL DEFAULT ''", "platform TEXT NOT NULL DEFAULT ''", "go_toolchain TEXT NOT NULL DEFAULT ''", "cgo_enabled INTEGER NOT NULL DEFAULT 0", "toolchain_sha256 TEXT NOT NULL DEFAULT ''", "build_flags_json TEXT NOT NULL DEFAULT '[]'", "compile_closure_sha256 TEXT NOT NULL DEFAULT ''", "manifest_sha256 TEXT NOT NULL DEFAULT ''", "binary_size INTEGER NOT NULL DEFAULT 0", "gocache_private_root_identity TEXT NOT NULL DEFAULT ''", "gocache_oci_project_cache_hits INTEGER NOT NULL DEFAULT 0"}
-	for _, column := range columns {
-		name, _, _ := strings.Cut(column, " ")
-		if existing[name] {
-			continue
+	switch schemaVersion {
+	case 0:
+		if err := validator.initializeAuthority(database, validator); err != nil {
+			return err
 		}
-		if _, err := database.Exec("ALTER TABLE ci_candidate_test_binary_builds ADD COLUMN " + column); err != nil {
-			return mapDurationLedgerSQLiteError("migrate candidate test binary build identity", err)
+	case durationLedgerSQLiteSchemaVersion:
+		if err := preflightDurationLedgerSQLiteSchema(database, schemaVersion, validator); err != nil {
+			return err
 		}
+	default:
+		return fmt.Errorf("duration ledger SQLite schema version %d is unsupported", schemaVersion)
 	}
-	return nil
+	return verifyDurationLedgerSQLiteCurrentAuthority(database)
 }
 
-func durationLedgerCandidateTestBinaryBuildColumns(database *sql.DB) (map[string]bool, error) {
-	rows, err := database.Query(`SELECT name FROM pragma_table_info('ci_candidate_test_binary_builds')`)
-	if err != nil {
-		return nil, mapDurationLedgerSQLiteError("inspect candidate test binary build identity", err)
+// preflightDurationLedgerSQLiteSchema performs the complete compatibility read
+// before any DDL. Legacy state is never an input to a partial reconstruction.
+func preflightDurationLedgerSQLiteSchema(
+	database *sql.DB,
+	schemaVersion int,
+	validator *durationLedgerSQLiteSchemaValidator,
+) error {
+	if schemaVersion != 0 && schemaVersion != durationLedgerSQLiteSchemaVersion {
+		return fmt.Errorf("duration ledger SQLite schema version %d is unsupported", schemaVersion)
 	}
-	defer rows.Close()
-	columns := make(map[string]bool)
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			return nil, mapDurationLedgerSQLiteError("scan candidate test binary build identity", err)
-		}
-		columns[name] = true
-	}
-	if err := rows.Err(); err != nil {
-		return nil, mapDurationLedgerSQLiteError("iterate candidate test binary build identity", err)
-	}
-	return columns, nil
+	return validator.preflight(database, schemaVersion)
 }
 
-func ensureDurationLedgerCandidateTestBinaryReceiptBindingColumn(database *sql.DB) error {
-	rows, err := database.Query(`PRAGMA table_info(ci_runs)`)
-	if err != nil {
-		return mapDurationLedgerSQLiteError("inspect remote CI run schema", err)
+type durationLedgerSQLiteSchemaVersionReader interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func readDurationLedgerSQLiteSchemaVersion(reader durationLedgerSQLiteSchemaVersionReader) (int, error) {
+	var schemaVersion int
+	if err := reader.QueryRowContext(context.Background(), `PRAGMA user_version`).Scan(&schemaVersion); err != nil {
+		return 0, mapDurationLedgerSQLiteError("read duration ledger SQLite schema version", err)
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var cid, notNull, primaryKey int
-		var name, columnType string
-		var defaultValue any
-		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
-			return mapDurationLedgerSQLiteError("scan remote CI run schema", err)
-		}
-		if name == "candidate_test_binary_receipt_binding_digest" {
+	return schemaVersion, nil
+}
+
+// initializeDurationLedgerSQLiteCurrentSchema initializes a truly empty
+// authority atomically. Concurrent initializers serialize on BEGIN IMMEDIATE
+// and re-read the complete shape while holding that lock.
+func initializeDurationLedgerSQLiteCurrentSchema(
+	database *sql.DB,
+	validator *durationLedgerSQLiteSchemaValidator,
+) error {
+	return initializeDurationLedgerSQLiteCurrentSchemaWithStatements(
+		database,
+		validator,
+		durationLedgerSQLiteCurrentSchemaStatements(),
+	)
+}
+
+func initializeDurationLedgerSQLiteCurrentSchemaWithStatements(
+	database *sql.DB,
+	validator *durationLedgerSQLiteSchemaValidator,
+	statements []string,
+) error {
+	if _, err := validator.expectedSchema(); err != nil {
+		return err
+	}
+	for attempt := range 16 {
+		err := initializeDurationLedgerSQLiteCurrentSchemaOnce(database, validator, statements)
+		if err == nil {
 			return nil
 		}
+		if !errors.Is(err, ErrDurationLedgerBusy) {
+			return err
+		}
+		time.Sleep(time.Duration(attempt+1) * 10 * time.Millisecond)
 	}
-	if err := rows.Err(); err != nil {
-		return mapDurationLedgerSQLiteError("iterate remote CI run schema", err)
-	}
-	if _, err := database.Exec(`ALTER TABLE ci_runs ADD COLUMN candidate_test_binary_receipt_binding_digest TEXT NOT NULL DEFAULT ''`); err != nil {
-		return mapDurationLedgerSQLiteError("migrate remote CI candidate test binary receipt binding", err)
-	}
-	return nil
+	return fmt.Errorf("%w: initialize duration ledger SQLite schema exceeded busy retry limit", ErrDurationLedgerBusy)
 }
 
-func ensureDurationLedgerShardMaterializationTimingColumn(database *sql.DB) error {
-	rows, err := database.Query(`PRAGMA table_info(ci_shards)`)
+func initializeDurationLedgerSQLiteCurrentSchemaOnce(
+	database *sql.DB,
+	validator *durationLedgerSQLiteSchemaValidator,
+	statements []string,
+) error {
+	connection, err := database.Conn(context.Background())
 	if err != nil {
-		return mapDurationLedgerSQLiteError("inspect remote CI shard schema", err)
+		return mapDurationLedgerSQLiteError("open duration ledger SQLite initializer connection", err)
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var cid, notNull, primaryKey int
-		var name, columnType string
-		var defaultValue any
-		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
-			return mapDurationLedgerSQLiteError("scan remote CI shard schema", err)
-		}
-		if name == "materialization_timing_json" {
-			return nil
-		}
+	if _, err := connection.ExecContext(context.Background(), `BEGIN IMMEDIATE`); err != nil {
+		return closeDurationLedgerSQLiteInitializerConnection(connection,
+			mapDurationLedgerSQLiteError("begin duration ledger SQLite initializer transaction", err))
 	}
-	if err := rows.Err(); err != nil {
-		return mapDurationLedgerSQLiteError("iterate remote CI shard schema", err)
+	if err := initializeDurationLedgerSQLiteCurrentSchemaOnConnection(connection, validator, statements); err != nil {
+		return closeDurationLedgerSQLiteInitializerConnection(connection,
+			rollbackDurationLedgerSQLiteInitializer(connection, err))
 	}
-	if _, err := database.Exec(`ALTER TABLE ci_shards ADD COLUMN materialization_timing_json TEXT NOT NULL DEFAULT ''`); err != nil {
-		return mapDurationLedgerSQLiteError("migrate remote CI shard materialization timing", err)
-	}
-	return nil
-}
-
-func ensureDurationLedgerCandidateCLIManifestColumn(database *sql.DB) error {
-	rows, err := database.Query(`PRAGMA table_info(ci_runs)`)
+	_, err = connection.ExecContext(context.Background(), `COMMIT`)
 	if err != nil {
-		return mapDurationLedgerSQLiteError("inspect remote CI run schema", err)
+		return closeDurationLedgerSQLiteInitializerConnection(connection,
+			rollbackDurationLedgerSQLiteInitializer(connection,
+				mapDurationLedgerSQLiteError("commit duration ledger SQLite initializer transaction", err)))
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var cid int
-		var name, columnType string
-		var notNull, primaryKey int
-		var defaultValue any
-		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
-			return mapDurationLedgerSQLiteError("scan remote CI run schema", err)
-		}
-		if name == "candidate_cli_manifest_sha256" {
-			return nil
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return mapDurationLedgerSQLiteError("iterate remote CI run schema", err)
-	}
-	if _, err := database.Exec(`ALTER TABLE ci_runs ADD COLUMN candidate_cli_manifest_sha256 TEXT NOT NULL DEFAULT ''`); err != nil {
-		return mapDurationLedgerSQLiteError("migrate remote CI candidate CLI manifest", err)
-	}
-	return nil
+	return closeDurationLedgerSQLiteInitializerConnection(connection, nil)
 }
 
-func ensureDurationLedgerTestTimingsColumns(database *sql.DB) error {
-	for _, table := range []string{"ci_gate_executions", "ci_workload_executions"} {
-		rows, err := database.Query(`SELECT name FROM pragma_table_info(?)`, table)
-		if err != nil {
-			return mapDurationLedgerSQLiteError("inspect remote CI test timing schema", err)
-		}
-		var found bool
-		for rows.Next() {
-			var name string
-			if err := rows.Scan(&name); err != nil {
-				rows.Close()
-				return mapDurationLedgerSQLiteError("scan remote CI test timing schema", err)
-			}
-			found = found || name == "test_timings_json"
-		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
-			return mapDurationLedgerSQLiteError("iterate remote CI test timing schema", err)
-		}
-		if err := rows.Close(); err != nil {
-			return mapDurationLedgerSQLiteError("close remote CI test timing schema", err)
-		}
-		if found {
-			continue
-		}
-		if _, err := database.Exec(`ALTER TABLE ` + table + ` ADD COLUMN test_timings_json TEXT NOT NULL DEFAULT '[]'`); err != nil {
-			return mapDurationLedgerSQLiteError("migrate remote CI test timings", err)
-		}
+func rollbackDurationLedgerSQLiteInitializer(connection *sql.Conn, cause error) error {
+	if _, err := connection.ExecContext(context.Background(), `ROLLBACK`); err != nil {
+		return fmt.Errorf("initializer failed: %v; %w", cause,
+			mapDurationLedgerSQLiteError("rollback duration ledger SQLite initializer transaction", err))
 	}
-	return nil
+	return cause
 }
 
-func ensureDurationLedgerExecutionProfileColumn(database *sql.DB) error {
-	rows, err := database.Query(`PRAGMA table_info(ci_gate_executions)`)
+func closeDurationLedgerSQLiteInitializerConnection(connection *sql.Conn, cause error) error {
+	if err := connection.Close(); err != nil {
+		return fmt.Errorf("initializer result: %v; close initializer connection: %w", cause, err)
+	}
+	return cause
+}
+
+// initializeDurationLedgerSQLiteCurrentSchemaOnConnection 在单个连接事务内完成空库初始化。
+func initializeDurationLedgerSQLiteCurrentSchemaOnConnection(
+	connection *sql.Conn,
+	validator *durationLedgerSQLiteSchemaValidator,
+	statements []string,
+) error {
+	schemaVersion, err := readDurationLedgerSQLiteSchemaVersion(connection)
 	if err != nil {
-		return mapDurationLedgerSQLiteError("inspect remote CI execution schema", err)
+		return err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var cid, notNull, primaryKey int
-		var name, columnType string
-		var defaultValue any
-		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
-			return mapDurationLedgerSQLiteError("scan remote CI execution schema", err)
+	if schemaVersion == durationLedgerSQLiteSchemaVersion {
+		return validator.preflight(connection, schemaVersion)
+	}
+	if schemaVersion != 0 {
+		return fmt.Errorf("duration ledger SQLite schema version %d is unsupported", schemaVersion)
+	}
+	if err := validator.preflight(connection, schemaVersion); err != nil {
+		return err
+	}
+	for _, statement := range statements {
+		if _, err := connection.ExecContext(context.Background(), statement); err != nil {
+			return mapDurationLedgerSQLiteError("initialize duration ledger SQLite current schema", err)
 		}
-		if name == "execution_profile_json" {
-			return nil
+	}
+	if _, err := connection.ExecContext(
+		context.Background(),
+		fmt.Sprintf(`PRAGMA user_version = %d`, durationLedgerSQLiteSchemaVersion),
+	); err != nil {
+		return mapDurationLedgerSQLiteError("write duration ledger SQLite current schema version", err)
+	}
+	return validator.preflight(connection, durationLedgerSQLiteSchemaVersion)
+}
+
+func verifyDurationLedgerSQLiteCurrentAuthority(database *sql.DB) error {
+	if err := verifyDurationLedgerMetadataAuthorityDatabase(database); err != nil {
+		return err
+	}
+	return verifyDurationLedgerSQLAuthorityBindings(database)
+}
+
+// verifyDurationLedgerMetadataAuthorityDatabase 只读校验已有 metadata 不会指向另一个持久化 authority。
+func verifyDurationLedgerMetadataAuthorityDatabase(database *sql.DB) error {
+	var authorityID string
+	err := database.QueryRow(`SELECT authority_id FROM duration_ledger_meta WHERE singleton = 1`).Scan(&authorityID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return mapDurationLedgerSQLiteError("load duration ledger authority metadata", err)
+	}
+	if authorityID != cicontract.SQLAuthorityID {
+		return fmt.Errorf("duration ledger SQLite authority ID %q must equal %q", authorityID, cicontract.SQLAuthorityID)
+	}
+	return nil
+}
+
+// verifyDurationLedgerSQLAuthorityBindings 拒绝缺失任一契约指定的 SQLite 事实表。
+func verifyDurationLedgerSQLAuthorityBindings(database *sql.DB) error {
+	for _, binding := range cicontract.SQLAuthorityBindings() {
+		var count int
+		if err := database.QueryRow(`
+			SELECT COUNT(*)
+			FROM sqlite_master
+			WHERE type = 'table' AND name = ?
+		`, binding.Table).Scan(&count); err != nil {
+			return mapDurationLedgerSQLiteError("verify duration ledger SQL authority binding", err)
 		}
-	}
-	if err := rows.Err(); err != nil {
-		return mapDurationLedgerSQLiteError("iterate remote CI execution schema", err)
-	}
-	if _, err := database.Exec(`ALTER TABLE ci_gate_executions ADD COLUMN execution_profile_json TEXT NOT NULL DEFAULT ''`); err != nil {
-		return mapDurationLedgerSQLiteError("migrate remote CI execution profile", err)
+		if count != 1 {
+			return fmt.Errorf(
+				"duration ledger SQLite authority is missing canonical table %q for domain %q",
+				binding.Table,
+				binding.Domain,
+			)
+		}
 	}
 	return nil
 }
@@ -718,7 +535,7 @@ func withSQLiteWriteTransaction(
 		}
 		return nil
 	}
-	return fmt.Errorf("%s transaction exceeded SQLite busy retry limit", operation)
+	return fmt.Errorf("%w: %s transaction exceeded SQLite busy retry limit", ErrDurationLedgerBusy, operation)
 }
 
 func rollbackSQLiteTransaction(transaction *sql.Tx, operation string) error {

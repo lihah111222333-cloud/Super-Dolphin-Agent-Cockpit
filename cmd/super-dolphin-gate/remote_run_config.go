@@ -2,24 +2,19 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/eci"
-	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/shardresource"
 )
 
-const remoteRunConfigSchemaVersion uint32 = 7
+const remoteRunConfigSchemaVersion uint32 = 8
 
 const (
 	remoteContainerReportAllowance = 30 * time.Second
 )
 
 const remoteCalibrationResultSchemaVersion uint32 = 2
-
-const remoteCalibrationLockWaitTimeout = 75 * time.Minute
 
 var errRemoteCalibrationSamplesIncomplete = errors.New("remote calibration samples are incomplete")
 
@@ -36,40 +31,21 @@ type remoteRunConfig struct {
 		Endpoint         string `json:"endpoint"`
 		InternalEndpoint string `json:"internal_endpoint"`
 		SourcePrefix     string `json:"source_prefix"`
-		BaselinePrefix   string `json:"baseline_prefix"`
 	} `json:"oss"`
-	Runtime struct {
-		Image string `json:"image"`
-	} `json:"runtime"`
-	ACRRegistryInfo *eci.ACRRegistryInfo `json:"acr_registry_info,omitempty"`
-	OCICache        struct {
-		RegistryRepository string `json:"registry_repository"`
-		RemoteBuilderImage string `json:"remote_builder_image"`
-	} `json:"oci_cache"`
 	Capacity struct {
-		SeedClass      string               `json:"seed_class"`
 		ResourcePolicy shardresource.Policy `json:"resource_policy"`
 	} `json:"capacity"`
 }
 
-// Validate 校验远程运行需要的云身份、不可变镜像、缓存容量上限和分片资源。
+// Validate 校验 normal CI 所需的云身份、对象存储和分片资源。
 func (config remoteRunConfig) Validate() error {
 	if config.SchemaVersion != remoteRunConfigSchemaVersion {
-		return errors.New("remote CI config schema_version must equal 7")
+		return errors.New("remote CI config schema_version must equal 8")
 	}
 	if err := validateRemoteCloudIdentity(config); err != nil {
 		return err
 	}
 	if err := validateRemoteStorageConfig(config); err != nil {
-		return err
-	}
-	if !validRemoteRuntimeImage(config.Runtime.Image) {
-		return errors.New("remote CI runtime image must use an immutable digest")
-	}
-	if err := validateRemoteACRRegistryInfo(config); err != nil {
-		return err
-	}
-	if err := validateRemoteOCICacheConfig(config); err != nil {
 		return err
 	}
 	if err := validateRemoteShardCapacity(config); err != nil {
@@ -78,57 +54,26 @@ func (config remoteRunConfig) Validate() error {
 	return nil
 }
 
-func validateRemoteACRRegistryInfo(config remoteRunConfig) error {
-	if config.ACRRegistryInfo == nil {
-		return errors.New("remote CI acr_registry_info is required for OCI baseline pushes")
-	}
-	if config.ACRRegistryInfo.RegionID != config.RegionID {
-		return errors.New("remote CI acr_registry_info region_id must equal ECI region_id for cr-vpc authorization")
-	}
-	access := eci.RegistryAccess{ACR: config.ACRRegistryInfo}
-	if err := eci.ValidateRegistryAccess(access, config.Runtime.Image, config.OCICache.RemoteBuilderImage); err != nil {
-		return fmt.Errorf("remote CI acr_registry_info does not match configured ECI images: %w", err)
-	}
-	if err := eci.ValidateRegistryAccessForRepository(access, config.OCICache.RegistryRepository); err != nil {
-		return fmt.Errorf("remote CI acr_registry_info does not match OCI cache repository: %w", err)
-	}
-	return nil
-}
-
-// validateRemoteOCICacheConfig 仅接受远程 OCI 缓存仓库和固定 ECI builder
-// 镜像，不接受宿主 BuildKit 或 Buildx 配置。
-func validateRemoteOCICacheConfig(config remoteRunConfig) error {
-	cache := config.OCICache
-	if cache.RegistryRepository == "" || strings.Contains(cache.RegistryRepository, "@") || strings.Contains(cache.RegistryRepository, "://") {
-		return errors.New("remote OCI cache registry_repository is invalid")
-	}
-	if !validRemoteRuntimeImage(cache.RemoteBuilderImage) {
-		return errors.New("remote OCI cache remote_builder_image must use an immutable digest")
-	}
-	return nil
-}
-
 type remoteRunOptions struct {
-	ConfigPath           string
-	RepositoryRoot       string
-	RemoteName           string
-	RemoteURL            string
-	Commit               string
-	Tree                 string
-	ParentCommit         string
-	Base                 string
-	Profile              string
-	Scenario             string
-	Entrypoint           string
-	Tests                []string
-	LocalRef             string
-	RemoteRef            string
-	ObservedRemote       string
-	UpdateKind           string
-	LedgerPath           string
-	RequesterFingerprint gatecontract.RequesterFingerprint
-	Calibration          bool
-	ForceRerun           bool
+	ConfigPath       string
+	RepositoryRoot   string
+	RemoteName       string
+	RemoteURL        string
+	Commit           string
+	Tree             string
+	ParentCommit     string
+	Base             string
+	Profile          string
+	Scenario         string
+	Entrypoint       string
+	Tests            []string
+	LocalRef         string
+	RemoteRef        string
+	ObservedRemote   string
+	UpdateKind       string
+	LedgerPath       string
+	AgentTokenDigest string
+	Calibration      bool
 }
 
 type remoteStringListFlag []string

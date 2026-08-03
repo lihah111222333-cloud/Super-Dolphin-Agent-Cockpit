@@ -4,9 +4,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -14,14 +12,9 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
-var errRemoteBaselineStateNotFound = gatecontract.ErrRemoteBaselineStateNotFound
-
 type remoteBaselineStoredState struct {
-	state      remoteci.BaselineState
-	generation uint64
+	state remoteci.BaselineState
 }
-
-func remoteBaselineDatabasePath(path string) string { return path }
 
 func remoteBaselineSQLiteAuthorityPath(configPath string) string {
 	return strings.TrimSuffix(configPath, filepath.Ext(configPath)) + ".baseline-state.sqlite"
@@ -72,29 +65,11 @@ func loadStoredRemoteBaselineState(path string) (remoteBaselineStoredState, erro
 	if err := state.Validate(); err != nil {
 		return remoteBaselineStoredState{}, err
 	}
-	return remoteBaselineStoredState{state: state, generation: record.Generation}, nil
+	return remoteBaselineStoredState{state: state}, nil
 }
 
-func storeRemoteBaselineState(path string, stored remoteBaselineStoredState) error {
-	store, err := baselineLedger(path)
-	if err != nil {
-		return err
-	}
-	expected := stored.generation
-	payload, err := jsonMarshal(stored.state)
-	if err != nil {
-		return err
-	}
-	digest := sha256.Sum256(payload)
-	_, err = store.CompareAndSwapRemoteBaselineState(expected, gatecontract.RemoteBaselineStateRecord{Generation: stored.state.Generation, StateJSON: payload, StateSHA256: hex.EncodeToString(digest[:])})
-	return err
-}
-func jsonMarshal(value any) ([]byte, error) { return json.Marshal(value) }
-func loadRemoteBaselineState(path string, allowMissing bool) (remoteci.BaselineState, error) {
+func loadRemoteBaselineState(path string) (remoteci.BaselineState, error) {
 	stored, err := loadStoredRemoteBaselineState(path)
-	if errors.Is(err, errRemoteBaselineStateNotFound) && allowMissing {
-		return remoteci.BaselineState{}, nil
-	}
 	if err != nil {
 		return remoteci.BaselineState{}, err
 	}
@@ -107,7 +82,7 @@ func loadAcceptedRemoteBaseline(ledgerPath string) (remoteci.BaselineState, erro
 	if strings.TrimSpace(ledgerPath) == "" {
 		return remoteci.BaselineState{}, errors.New("remote OCI baseline state store is required")
 	}
-	state, err := loadRemoteBaselineState(remoteBaselineDatabasePath(ledgerPath), false)
+	state, err := loadRemoteBaselineState(ledgerPath)
 	if err != nil {
 		return remoteci.BaselineState{}, err
 	}
@@ -115,18 +90,4 @@ func loadAcceptedRemoteBaseline(ledgerPath string) (remoteci.BaselineState, erro
 		return remoteci.BaselineState{}, errors.New("accepted baseline must use OCI project cache")
 	}
 	return state, state.OCIProjectCache.ValidateForBaseline(state.MainTree, state.ToolchainDigest, state.Platform, state.RuntimeImage)
-}
-
-func writeRemoteBaselineState(path string, state remoteci.BaselineState) error {
-	if err := state.Validate(); err != nil {
-		return err
-	}
-	previous, err := loadStoredRemoteBaselineState(path)
-	if errors.Is(err, errRemoteBaselineStateNotFound) || errors.Is(err, os.ErrNotExist) {
-		err = nil
-	}
-	if err != nil {
-		return err
-	}
-	return storeRemoteBaselineState(path, remoteBaselineStoredState{state: state, generation: previous.generation})
 }

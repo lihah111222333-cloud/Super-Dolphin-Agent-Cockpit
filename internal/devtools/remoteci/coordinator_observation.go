@@ -34,10 +34,11 @@ func (coordinator *Coordinator) observeShardReport(
 	shard gate.ContainerShard,
 	groupID string,
 	group eci.ContainerGroup,
+	expectedAgentTokenDigest ...string,
 ) (gate.PlanExecutionReport, string, error) {
 	observation, cancel := gateprivate.WithTimeout(parent, coordinator.observationTimeout)
 	defer cancel()
-	report, workerLog, err := coordinator.shardReport(observation, shard, groupID, group)
+	report, workerLog, err := coordinator.shardReport(observation, shard, groupID, group, expectedAgentTokenDigest...)
 	if err != nil {
 		return gate.PlanExecutionReport{}, workerLog, classifyShardObservationError(
 			parent, observation, "terminal report aggregation", group.Status, coordinator.observationTimeout, err,
