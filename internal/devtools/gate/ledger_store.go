@@ -22,12 +22,6 @@ var (
 	ErrDurationLedgerMetadataMissing = errors.New("duration ledger SQLite metadata is missing")
 )
 
-const (
-	durationLedgerSuccessSamplesPerBucket = 8
-	durationLedgerFailureSamplesPerBucket = 2
-	durationLedgerExecutionsPerWorkload   = 3
-)
-
 // DurationLedgerSnapshot 将已校验账本与持久化 generation 绑定。
 type DurationLedgerSnapshot struct {
 	Generation  uint64
@@ -99,11 +93,11 @@ func durationSampleTargetBucketMatches(sample DurationSample) bool {
 
 // AppendSamples 追加并发 CI 观测并返回完整兼容快照。
 // 协调器热路径应使用 AppendSamplesFast，避免追加后物化全部历史样本。
-func (store *DurationLedgerStore) AppendSamples(samples []DurationSample) (DurationLedgerSnapshot, error) {
+func (store *DurationLedgerStore) AppendSamples(acceptedGeneration uint64, samples []DurationSample) (DurationLedgerSnapshot, error) {
 	if store == nil {
 		return DurationLedgerSnapshot{}, errors.New("duration ledger store is nil")
 	}
-	generation, err := store.AppendSamplesFast(samples)
+	generation, err := store.AppendSamplesFast(acceptedGeneration, samples)
 	if err != nil {
 		return DurationLedgerSnapshot{}, err
 	}
@@ -122,17 +116,36 @@ func (store *DurationLedgerStore) AppendSamples(samples []DurationSample) (Durat
 }
 
 // AppendSamplesFast 只追加样本并返回新 generation，不扫描或物化历史样本。
-func (store *DurationLedgerStore) AppendSamplesFast(samples []DurationSample) (uint64, error) {
+func (store *DurationLedgerStore) AppendSamplesFast(acceptedGeneration uint64, samples []DurationSample) (uint64, error) {
 	if store == nil {
 		return 0, errors.New("duration ledger store is nil")
 	}
-	return store.appendSQLiteSamplesFast(samples)
+	if acceptedGeneration == 0 {
+		return 0, errors.New("accepted baseline generation is required")
+	}
+	return store.appendSQLiteSamplesFast(acceptedGeneration, samples)
 }
+
+// durationLedgerFinalizeStep 是最终化事务内的私有故障注入边界，仅测试可通过
+// DurationLedgerStore.finalizeFault 显式配置；生产构造器保持 nil，不改变 fail-fast 路径。
+type durationLedgerFinalizeStep string
+
+const (
+	durationLedgerFinalizeStepAppendSamples  durationLedgerFinalizeStep = "append_samples"
+	durationLedgerFinalizeStepAppendReceipts durationLedgerFinalizeStep = "append_receipts"
+	durationLedgerFinalizeStepReloadReceipts durationLedgerFinalizeStep = "reload_receipts"
+	durationLedgerFinalizeStepCAS            durationLedgerFinalizeStep = "cas"
+	durationLedgerFinalizeStepPromotion      durationLedgerFinalizeStep = "promotion"
+)
+
+type durationLedgerFinalizeFault func(durationLedgerFinalizeStep) error
 
 // DurationLedgerStore 在 SQLite 权威文件中持久化 duration ledger。
 type DurationLedgerStore struct {
-	path    string
-	nowFunc func() time.Time
+	path            string
+	nowFunc         func() time.Time
+	schemaValidator *durationLedgerSQLiteSchemaValidator
+	finalizeFault   durationLedgerFinalizeFault
 }
 
 // NewDurationLedgerStore 构造存储，不隐式创建文件或目录。
@@ -157,7 +170,11 @@ func NewDurationLedgerStore(path string) (*DurationLedgerStore, error) {
 	if strings.ToLower(filepath.Ext(canonicalPath)) != ".sqlite" {
 		return nil, fmt.Errorf("duration ledger store path must use .sqlite: %q", path)
 	}
-	return &DurationLedgerStore{path: canonicalPath, nowFunc: time.Now}, nil
+	return &DurationLedgerStore{
+		path:            canonicalPath,
+		nowFunc:         time.Now,
+		schemaValidator: newDurationLedgerSQLiteSchemaValidator(),
+	}, nil
 }
 
 // AuthorityPath 返回 SQLite 权威文件路径。

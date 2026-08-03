@@ -1,10 +1,8 @@
 package main
 
 import (
-	"encoding/hex"
 	"errors"
 	"io"
-	"strings"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
@@ -60,25 +58,44 @@ func executeRemoteCalibrationRuns(
 	checkpoint *remoteci.CalibrationCheckpoint,
 	stdout io.Writer,
 ) ([3]remoteci.RunInput, [3]remoteci.RunResult, error) {
+	return executeRemoteCalibrationRunsWithExecutor(options, identity, ledgerStore, checkpoint, stdout, executeRemoteRun)
+}
+
+// executeRemoteCalibrationRunsWithExecutor 在每个场景终态后同步写入 SQLite checkpoint。
+func executeRemoteCalibrationRunsWithExecutor(
+	options remoteRunOptions,
+	identity remoteCalibrationIdentity,
+	ledgerStore *gatecontract.DurationLedgerStore,
+	checkpoint *remoteci.CalibrationCheckpoint,
+	stdout io.Writer,
+	execute func(remoteRunOptions) (remoteci.RunResult, remoteci.RunInput, error),
+) ([3]remoteci.RunInput, [3]remoteci.RunResult, error) {
+	if ledgerStore == nil || checkpoint == nil || execute == nil {
+		return [3]remoteci.RunInput{}, [3]remoteci.RunResult{}, infrastructureError("remote calibration ledger store, checkpoint, and executor are required")
+	}
 	commitOptions, pushOptions, releaseOptions := remoteCalibrationRunOptions(options, identity.commit, identity.tree, identity.base)
 	runOptions := [3]remoteRunOptions{commitOptions, pushOptions, releaseOptions}
 	var inputs [3]remoteci.RunInput
 	var results [3]remoteci.RunResult
 	for index, current := range runOptions {
-		input, result, ok, err := reusableRemoteCalibrationCheckpoint(ledgerStore, checkpoint, current.Scenario)
+		input, result, completed, err := reusableRemoteCalibrationCheckpoint(ledgerStore, checkpoint, current.Scenario)
 		if err != nil {
 			return inputs, results, infrastructureError("validate remote calibration checkpoint: %v", err)
 		}
-		if ok {
+		if completed {
 			inputs[index], results[index] = input, result
 			continue
 		}
-		result, input, runErr := executeRemoteRun(current)
+		result, input, runErr := execute(current)
 		if err := checkpoint.Observe(current.Scenario, input, result, runErr == nil); err != nil {
-			return inputs, results, infrastructureError("persist remote calibration checkpoint: %v", err)
+			checkpointErr := infrastructureError("persist remote calibration checkpoint: %v", err)
+			if runErr != nil {
+				return inputs, results, emitRemoteRunResult(stdout, ledgerStore, result, errors.Join(runErr, checkpointErr))
+			}
+			return inputs, results, checkpointErr
 		}
 		if runErr != nil {
-			return inputs, results, emitRemoteRunResult(stdout, result, runErr)
+			return inputs, results, emitRemoteRunResult(stdout, ledgerStore, result, runErr)
 		}
 		inputs[index] = input
 		results[index] = result
@@ -86,61 +103,49 @@ func executeRemoteCalibrationRuns(
 	return inputs, results, nil
 }
 
-// reusableRemoteCalibrationCheckpoint 只复用账本已覆盖当前场景全部 workload 的完成断点。
-func reusableRemoteCalibrationCheckpoint(
-	ledgerStore *gatecontract.DurationLedgerStore,
-	checkpoint *remoteci.CalibrationCheckpoint,
-	scenario string,
-) (remoteci.RunInput, remoteci.RunResult, bool, error) {
+// reusableRemoteCalibrationCheckpoint 只恢复已由同一 SQLite authority 完整回读的成功场景。
+func reusableRemoteCalibrationCheckpoint(ledgerStore *gatecontract.DurationLedgerStore, checkpoint *remoteci.CalibrationCheckpoint, scenario string) (remoteci.RunInput, remoteci.RunResult, bool, error) {
+	if ledgerStore == nil || checkpoint == nil {
+		return remoteci.RunInput{}, remoteci.RunResult{}, false, errors.New("remote calibration ledger store and checkpoint are required")
+	}
 	input, result, completed := checkpoint.Completed(scenario)
 	if !completed {
 		return remoteci.RunInput{}, remoteci.RunResult{}, false, nil
 	}
-	record, err := ledgerStore.LoadRemoteCIRun(result.JobID)
-	if errors.Is(err, gatecontract.ErrRemoteCIRunNotFound) {
-		if reopenErr := checkpoint.Reopen(scenario); reopenErr != nil {
-			return remoteci.RunInput{}, remoteci.RunResult{}, false, reopenErr
-		}
-		return remoteci.RunInput{}, remoteci.RunResult{}, false, nil
-	}
+	record, found, err := remoteCalibrationCheckpointAuthorityRecord(ledgerStore, result.JobID)
 	if err != nil {
 		return remoteci.RunInput{}, remoteci.RunResult{}, false, err
 	}
-	if !remoteCalibrationCheckpointRunMatches(input, result, record) {
-		if err := checkpoint.Reopen(scenario); err != nil {
-			return remoteci.RunInput{}, remoteci.RunResult{}, false, err
-		}
-		return remoteci.RunInput{}, remoteci.RunResult{}, false, nil
+	if !found || !remoteCalibrationCheckpointRunMatches(input, result, record) {
+		return reopenRemoteCalibrationCheckpoint(checkpoint, scenario)
 	}
 	result = remoteRunResultFromLedgerRecord(record)
-	complete, err := remoteCalibrationCheckpointEvidenceComplete(ledgerStore, input, result)
+	complete, err := remoteCalibrationCheckpointHasCompleteCatalog(input, result)
 	if err != nil {
 		return remoteci.RunInput{}, remoteci.RunResult{}, false, err
 	}
 	if !complete {
-		if err := checkpoint.Reopen(scenario); err != nil {
-			return remoteci.RunInput{}, remoteci.RunResult{}, false, err
-		}
-		return remoteci.RunInput{}, remoteci.RunResult{}, false, nil
+		return reopenRemoteCalibrationCheckpoint(checkpoint, scenario)
 	}
+	input.LedgerStore = ledgerStore
 	return input, result, true, nil
 }
 
-// remoteCalibrationCheckpointEvidenceComplete 验证 checkpoint 对应 catalog 的全部 workload 都已有 PASS 证据。
-func remoteCalibrationCheckpointEvidenceComplete(ledgerStore *gatecontract.DurationLedgerStore, input remoteci.RunInput, result remoteci.RunResult) (bool, error) {
+// remoteCalibrationCheckpointAuthorityRecord 从唯一账本读取 checkpoint 绑定的运行记录。
+func remoteCalibrationCheckpointAuthorityRecord(ledgerStore *gatecontract.DurationLedgerStore, jobID string) (gatecontract.RemoteCIRunRecord, bool, error) {
+	record, err := ledgerStore.LoadRemoteCIRun(jobID)
+	if errors.Is(err, gatecontract.ErrRemoteCIRunNotFound) {
+		return gatecontract.RemoteCIRunRecord{}, false, nil
+	}
+	if err != nil {
+		return gatecontract.RemoteCIRunRecord{}, false, err
+	}
+	return record, true, nil
+}
+
+// remoteCalibrationCheckpointHasCompleteCatalog 验证权威运行覆盖当前 catalog 的全部 workload。
+func remoteCalibrationCheckpointHasCompleteCatalog(input remoteci.RunInput, result remoteci.RunResult) (bool, error) {
 	catalog, _, err := remoteCalibrationCatalog(input)
-	if err != nil {
-		return false, err
-	}
-	planning := gatecontract.PlanningContext{
-		Platform: input.Platform, Runner: input.RunnerIdentityDigest, Toolchain: input.ToolchainDigest,
-		TargetDurationMS: gatecontract.FullCITargetDurationMS,
-	}
-	snapshot, err := ledgerStore.LoadPlanning(planning)
-	if err != nil {
-		return false, err
-	}
-	index, err := gatecontract.DurationSampleIndexFromSnapshot(snapshot, planning)
 	if err != nil {
 		return false, err
 	}
@@ -149,114 +154,90 @@ func remoteCalibrationCheckpointEvidenceComplete(ledgerStore *gatecontract.Durat
 		return false, err
 	}
 	for _, workload := range catalog.Workloads {
-		if _, ok := passed[remoteCalibrationWorkloadKey(workload)]; ok ||
-			index.HasComparableSuccessfulDurationSample(workload) {
-			continue
+		if _, ok := passed[remoteCalibrationWorkloadKey(workload)]; !ok {
+			return false, nil
 		}
-		return false, nil
 	}
 	return true, nil
 }
 
-func remoteCalibrationCheckpointRunMatches(
-	input remoteci.RunInput,
-	checkpointResult remoteci.RunResult,
-	record gatecontract.RemoteCIRunRecord,
-) bool {
-	return remoteCheckpointIdentityMatches(input, checkpointResult, record) &&
-		remoteCheckpointExecutionMatches(input, checkpointResult, record) &&
-		remoteCheckpointCompletionMatches(checkpointResult, record)
-}
-
-// remoteCheckpointIdentityMatches 验证账本记录与输入及 checkpoint 的不可变身份一致。
-func remoteCheckpointIdentityMatches(input remoteci.RunInput, result remoteci.RunResult, record gatecontract.RemoteCIRunRecord) bool {
-	return record.JobID == result.JobID && record.RequesterFingerprint == input.RequesterFingerprint &&
-		record.RequesterFingerprint == result.RequesterFingerprint && record.Entrypoint == input.Entrypoint &&
-		record.Entrypoint == result.Entrypoint && record.Profile == input.Profile && record.Profile == result.Profile
-}
-
-// remoteCheckpointExecutionMatches 验证 checkpoint 的计划、catalog、源树和镜像没有漂移。
-func remoteCheckpointExecutionMatches(input remoteci.RunInput, result remoteci.RunResult, record gatecontract.RemoteCIRunRecord) bool {
-	return record.PlanDigest == result.PlanDigest && record.CatalogDigest == result.CatalogDigest &&
-		record.SourceTreeSHA == result.SourceTreeSHA && record.RunnerImage == input.RunnerImage &&
-		record.CandidateCLIManifestSHA256 == result.CandidateCLIManifestSHA256 &&
-		validRemoteCandidateCLIManifestSHA256(record.CandidateCLIManifestSHA256)
-}
-
-func validRemoteCandidateCLIManifestSHA256(value string) bool {
-	if len(value) != 64 || strings.ToLower(value) != value {
-		return false
+func reopenRemoteCalibrationCheckpoint(checkpoint *remoteci.CalibrationCheckpoint, scenario string) (remoteci.RunInput, remoteci.RunResult, bool, error) {
+	if err := checkpoint.Reopen(scenario); err != nil {
+		return remoteci.RunInput{}, remoteci.RunResult{}, false, err
 	}
-	_, err := hex.DecodeString(value)
-	return err == nil
+	return remoteci.RunInput{}, remoteci.RunResult{}, false, nil
 }
 
-// remoteCheckpointCompletionMatches 仅接受干净且权威的成功记录。
-func remoteCheckpointCompletionMatches(result remoteci.RunResult, record gatecontract.RemoteCIRunRecord) bool {
-	return record.Status == gatecontract.ResultStatusPassed && record.Status == result.Status &&
-		record.Authoritative && result.Authoritative && record.CleanupComplete && result.CleanupComplete && record.ErrorText == "" &&
-		record.CandidateTestBinaryReceiptBindingDigest == result.CandidateTestBinaryReceiptBindingDigest
+// remoteCalibrationCheckpointRunMatches 确认 checkpoint、权威账本记录和运行输入属于同一次成功校准。
+func remoteCalibrationCheckpointRunMatches(input remoteci.RunInput, result remoteci.RunResult, record gatecontract.RemoteCIRunRecord) bool {
+	return remoteCalibrationCheckpointRunIdentityMatches(input, result, record) &&
+		remoteCalibrationCheckpointExecutionMatches(input, result, record) &&
+		remoteCalibrationCheckpointSourceMatches(input, result, record) &&
+		remoteCalibrationCheckpointPassed(record)
+}
+
+// remoteCalibrationCheckpointRunIdentityMatches 验证 job 与 accepted generation 的稳定身份。
+func remoteCalibrationCheckpointRunIdentityMatches(input remoteci.RunInput, result remoteci.RunResult, record gatecontract.RemoteCIRunRecord) bool {
+	return record.JobID == result.JobID &&
+		record.AcceptedGeneration == input.AcceptedGeneration &&
+		record.AcceptedGeneration == result.AcceptedGeneration
+}
+
+// remoteCalibrationCheckpointExecutionMatches 验证同一执行入口、计划、catalog 和 snapshot。
+func remoteCalibrationCheckpointExecutionMatches(input remoteci.RunInput, result remoteci.RunResult, record gatecontract.RemoteCIRunRecord) bool {
+	return record.Entrypoint == input.Entrypoint &&
+		record.Entrypoint == result.Entrypoint &&
+		record.Profile == input.Profile &&
+		record.Profile == result.Profile &&
+		record.PlanDigest == result.PlanDigest &&
+		record.CatalogDigest == result.CatalogDigest &&
+		record.ImageCacheSnapshotID == input.ImageCacheSnapshotID &&
+		record.ImageCacheSnapshotID == result.ImageCacheSnapshotID
+}
+
+// remoteCalibrationCheckpointSourceMatches 验证同一 source tree 与候选 Gate 编译身份。
+func remoteCalibrationCheckpointSourceMatches(input remoteci.RunInput, result remoteci.RunResult, record gatecontract.RemoteCIRunRecord) bool {
+	return record.SourceTreeSHA == input.Tree &&
+		record.SourceTreeSHA == result.SourceTreeSHA &&
+		record.CandidateGateSourceSHA256 == input.CandidateGateSourceSHA256 &&
+		record.CandidateGateSourceSHA256 == result.CandidateGateSourceSHA256 &&
+		record.CandidateGateToolchainSHA256 == input.CandidateGateToolchainSHA256 &&
+		record.CandidateGateToolchainSHA256 == result.CandidateGateToolchainSHA256
+}
+
+// remoteCalibrationCheckpointPassed 验证账本记录保持完整的权威成功终态。
+func remoteCalibrationCheckpointPassed(record gatecontract.RemoteCIRunRecord) bool {
+	return record.Status == gatecontract.ResultStatusPassed &&
+		record.Authoritative &&
+		record.CleanupComplete &&
+		record.ErrorText == ""
 }
 
 func remoteRunResultFromLedgerRecord(record gatecontract.RemoteCIRunRecord) remoteci.RunResult {
-	shards := make([]remoteci.ShardResult, len(record.Shards))
-	for index, shard := range record.Shards {
-		shards[index] = remoteci.ShardResult{
-			ShardIdentity:         shard.ShardIdentity,
-			ContainerGroup:        shard.ContainerGroup,
-			ContainerStatus:       shard.ContainerStatus,
-			ExecutedWorkloads:     append([]gatecontract.GateID(nil), shard.Workloads...),
-			MaterializationTiming: shard.MaterializationTiming,
-		}
-	}
 	return remoteci.RunResult{
-		SchemaVersion:                           remoteci.RunResultSchemaVersion,
-		JobID:                                   record.JobID,
-		RequesterFingerprint:                    record.RequesterFingerprint,
-		Entrypoint:                              record.Entrypoint,
-		Profile:                                 record.Profile,
-		PlanDigest:                              record.PlanDigest,
-		CatalogDigest:                           record.CatalogDigest,
-		SourceTreeSHA:                           record.SourceTreeSHA,
-		CandidateCLIManifestSHA256:              record.CandidateCLIManifestSHA256,
-		CandidateTestBinaryReceiptBindingDigest: record.CandidateTestBinaryReceiptBindingDigest,
-		RunnerImage:                             record.RunnerImage,
-		Status:                                  record.Status,
-		Authoritative:                           record.Authoritative,
-		StartedAt:                               record.StartedAt,
-		CompletedAt:                             record.CompletedAt,
-		Shards:                                  shards,
-		ReusedWorkloads:                         append([]gatecontract.GateID(nil), record.ReusedWorkloads...),
-		CacheMissWorkloads:                      append([]gatecontract.GateID(nil), record.CacheMisses...),
-		GateExecutions:                          append([]gatecontract.PlanGateExecution(nil), record.Executions...),
-		WorkloadExecutions:                      append([]gatecontract.PlanGateExecution(nil), record.WorkloadExecutions...),
-		PerformanceTimings:                      append([]gatecontract.RemoteCIPhaseTiming(nil), record.PhaseTimings...),
-		OptimizationWarnings:                    append([]string(nil), record.Warnings...),
-		CandidateTestBinaryBuilds:               remoteCandidateTestBinaryBuildsFromLedgerRecords(record.CandidateTestBinaryBuilds),
-		CleanupComplete:                         record.CleanupComplete,
+		SchemaVersion:                remoteci.RunResultSchemaVersion,
+		AcceptedGeneration:           record.AcceptedGeneration,
+		ImageCacheSnapshotID:         record.ImageCacheSnapshotID,
+		JobID:                        record.JobID,
+		AgentTokenDigest:             record.AgentTokenDigest,
+		Entrypoint:                   record.Entrypoint,
+		Profile:                      record.Profile,
+		PlanDigest:                   record.PlanDigest,
+		CatalogDigest:                record.CatalogDigest,
+		SourceTreeSHA:                record.SourceTreeSHA,
+		CandidateGateSourceSHA256:    record.CandidateGateSourceSHA256,
+		CandidateGateToolchainSHA256: record.CandidateGateToolchainSHA256,
+		RunnerImage:                  record.RunnerImage,
+		Status:                       record.Status,
+		Authoritative:                record.Authoritative,
+		StartedAt:                    record.StartedAt,
+		CompletedAt:                  record.CompletedAt,
+		GateExecutions:               append(append([]gatecontract.PlanGateExecution(nil), record.Executions...), record.WorkloadExecutions...),
+		WorkloadExecutions:           append([]gatecontract.PlanGateExecution(nil), record.WorkloadExecutions...),
+		OptimizationWarnings:         append([]string(nil), record.Warnings...),
+		TimingWarnings:               append([]gatecontract.RemoteCITimingWarning(nil), record.TimingWarnings...),
+		CleanupComplete:              record.CleanupComplete,
 	}
-}
-
-func remoteCandidateTestBinaryBuildsFromLedgerRecords(records []gatecontract.CandidateTestBinaryBuildRecord) []remoteci.CandidateTestBinaryBuilderBuild {
-	builds := make([]remoteci.CandidateTestBinaryBuilderBuild, 0, len(records))
-	for _, record := range records {
-		builds = append(builds, remoteci.CandidateTestBinaryBuilderBuild{
-			Artifact: remoteci.CandidateTestBinaryArtifactRef{
-				CandidateTree: record.CandidateTree, Package: record.Package, Mode: record.Mode,
-				Platform: record.Platform, GoToolchain: record.GoToolchain, CGOEnabled: record.CGOEnabled,
-				ToolchainSHA256: record.ToolchainSHA256, BuildFlags: append([]string(nil), record.BuildFlags...),
-				CompileClosureSHA256: record.CompileClosureSHA256, ManifestSHA256: record.ManifestSHA256,
-				BinarySHA256: strings.TrimPrefix(record.ArtifactSHA256, "sha256:"), BinarySize: record.BinarySize,
-			},
-			Metrics: remoteci.CandidateTestBinaryBuildMetrics{
-				GoListWallMS: record.GoListWallMS, BuildWallMS: record.BuildWallMS,
-				CompileActionMS: record.CompileActionMS, LinkActionMS: record.LinkActionMS,
-				CompileCriticalWallMS: record.CompileCriticalWallMS, GOCachePrivateHits: record.GOCachePrivateHits, GOCacheOCIProjectCacheHits: record.GOCacheOCIProjectCacheHits, GOCachePrivateRootIdentity: record.GOCachePrivateRootIdentity,
-				GOCacheMisses: record.GOCacheMisses, GOCachePuts: record.GOCachePuts,
-			},
-		})
-	}
-	return builds
 }
 
 // acceptAndEmitRemoteCalibration 验证三次运行身份和 catalog 后用 CAS 接受并输出校准凭据。

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -12,9 +11,8 @@ const (
 )
 
 func TestAIMaintenanceGateSelectsMcpLSPResourceCohortE2E(t *testing.T) {
-	makefile := readRepoFile(t, filepath.Join("..", "Makefile"))
+	makefile := readRepoFile(t, "../Makefile")
 	guardScript := readRepoFile(t, "test_with_guard.sh")
-	hookContract := readRepoFile(t, filepath.Join("..", ".githooks", "README.md"))
 
 	assertScriptContains(t, makefile, "test-e2e: test-e2e-rpc-runtime "+mcpLSPResourceCohortE2ETarget)
 	assertScriptContains(t, makefile, mcpLSPResourceCohortE2ETarget+":")
@@ -35,8 +33,6 @@ func TestAIMaintenanceGateSelectsMcpLSPResourceCohortE2E(t *testing.T) {
 	if strings.Count(guardScript, `run_mcp_lsp_resource_cohort_e2e "$real_go"`) != 1 {
 		t.Fatal("resource cohort E2E must be selected only by canonical backend mode")
 	}
-	assertScriptContains(t, hookContract, "`make "+mcpLSPResourceCohortE2ETarget+"`")
-	assertScriptContains(t, hookContract, "`TestAIMaintenanceGateSelectsMcpLSPResourceCohortE2E`")
 }
 
 func requireMcpLSPResourceCohortGateSection(

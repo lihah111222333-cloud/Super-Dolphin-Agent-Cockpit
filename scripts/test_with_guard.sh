@@ -64,56 +64,12 @@ run_archtest_only() {
   )
 }
 
-production_docker_e2e_wrapper_timeout() {
-  [[ "${SUPER_DOLPHIN_GATE_PRODUCTION_DOCKER_E2E:-}" == "1" ]] || return 1
-  local arg expect_run_pattern=""
-  for arg in "$@"; do
-    if [[ -n "$expect_run_pattern" ]]; then
-      case "$arg" in
-        "^TestProductionProvisionBootstrapOwnerHookDockerE2E$") printf '15m\n'; return 0 ;;
-        "^TestProductionProvisionBootstrapOwnerReleaseCLIDockerE2E$") printf '40m\n'; return 0 ;;
-      esac
-      expect_run_pattern=""
-      continue
-    fi
-    case "$arg" in
-      -run|-test.run) expect_run_pattern="1" ;;
-      -run=*|-test.run=*)
-        case "${arg#*=}" in
-          "^TestProductionProvisionBootstrapOwnerHookDockerE2E$") printf '15m\n'; return 0 ;;
-          "^TestProductionProvisionBootstrapOwnerReleaseCLIDockerE2E$") printf '40m\n'; return 0 ;;
-        esac
-        ;;
-    esac
-  done
-  return 1
-}
-
-go_test_timeout_is_explicit() {
-  local arg
-  for arg in "$@"; do
-    case "$arg" in
-      -timeout|-test.timeout|-timeout=*|-test.timeout=*) return 0 ;;
-    esac
-  done
-  return 1
-}
-
 run_go_test() {
   local real_go="$1"
   shift
-  local -a test_args=("$@")
-  local wrapper_timeout=""
-  if wrapper_timeout="$(production_docker_e2e_wrapper_timeout "${test_args[@]}")"; then
-    if go_test_timeout_is_explicit "${test_args[@]}"; then
-      echo "production Docker E2E timeout is wrapper-owned; remove the explicit go test timeout" >&2
-      return 2
-    fi
-    test_args+=("-timeout=$wrapper_timeout")
-  fi
   (
     cd "$ROOT_DIR"
-    "$real_go" test "${test_args[@]}"
+    "$real_go" test "$@"
   )
 }
 

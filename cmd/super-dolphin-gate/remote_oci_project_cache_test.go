@@ -10,6 +10,9 @@ import (
 )
 
 func TestVerifyRemoteOCIProjectCache(t *testing.T) {
+	if err := verifyRemoteOCIProjectCache(remoteci.ShardRequest{}); err == nil {
+		t.Fatal("verifyRemoteOCIProjectCache() accepted a missing OCI project cache")
+	}
 	cachePath := filepath.Join(t.TempDir(), "go-build")
 	if err := os.Mkdir(cachePath, 0o555); err != nil {
 		t.Fatal(err)
