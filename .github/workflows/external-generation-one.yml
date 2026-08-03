@@ -27,12 +27,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p .external-generation-one
-          cp .github/external-generation-one/identity.go .external-generation-one/identity.go
+          cp .github/external-generation-one/identity.go /tmp/external-generation-one-identity.go
           rm -rf .github/external-generation-one
           rm -f .github/workflows/external-generation-one.yml
           git add -A
           test "$(git write-tree)" = "$CANDIDATE_TREE"
+          mkdir -p .external-generation-one
+          cp /tmp/external-generation-one-identity.go .external-generation-one/identity.go
 
       - name: Resolve exact image identity
         shell: bash
