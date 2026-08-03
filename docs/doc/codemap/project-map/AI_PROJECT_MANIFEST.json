@@ -5,12 +5,12 @@
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 4625,
+  "files": 4647,
   "domains": {
     "docs-agent": 91,
     "other": 1257,
-    "app-ui": 721,
-    "platform-provider": 1186,
+    "app-ui": 740,
+    "platform-provider": 1189,
     "orchestration": 406,
     "modules": 754,
     "store-sql": 210
@@ -22,8 +22,8 @@
       {
         "key": "app-ui",
         "file": "docs/doc/codemap/project-map/index/app-ui.tsv",
-        "file_count": 721,
-        "size_kb": 147.4,
+        "file_count": 740,
+        "size_kb": 151,
         "desc": "桌面应用、Wails host、React/Vite 前端与 UI 测试"
       },
       {
@@ -43,8 +43,8 @@
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1186,
-        "size_kb": 219.7,
+        "file_count": 1189,
+        "size_kb": 220.2,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
@@ -72,9 +72,9 @@
   },
   "module_counts": {
     "(root)": 12,
-    "cmd": 873,
+    "cmd": 876,
     "docs": 83,
-    "frontend-app": 715,
+    "frontend-app": 734,
     "internal": 2695,
     "pkg": 30,
     "scripts": 169,
@@ -233,7 +233,7 @@
   ],
   "drift": {
     "status": "OK",
-    "unknown_ratio": 0.0389,
+    "unknown_ratio": 0.0387,
     "unknown_files": 180,
     "thresholds": {
       "max_unknown_ratio": 0.05

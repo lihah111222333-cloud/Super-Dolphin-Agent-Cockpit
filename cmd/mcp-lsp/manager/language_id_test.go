@@ -61,3 +61,40 @@ func TestDetectLanguageIDGitHooksUseShellscript(t *testing.T) {
 		}
 	}
 }
+
+func TestLanguageIDForExtensionResolvesAllCategoriesWithoutRegistryState(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		".go":        "go",
+		".jsx":       "javascriptreact",
+		".html":      "html",
+		".scss":      "css",
+		".cpp":       "cpp",
+		".swift":     "swift",
+		".py":        "python",
+		".php":       "php",
+		".rb":        "ruby",
+		".rs":        "rust",
+		".java":      "java",
+		".sh":        "shellscript",
+		".terraform": "",
+		".tf":        "terraform",
+		".graphql":   "graphql",
+		".md":        "markdown",
+		".json":      "json",
+		".yaml":      "yaml",
+	}
+	for ext, want := range cases {
+		got, ok := languageIDForExtension(ext)
+		if want == "" {
+			if ok {
+				t.Fatalf("languageIDForExtension(%q) = %q, true; want unknown", ext, got)
+			}
+			continue
+		}
+		if !ok || got != want {
+			t.Fatalf("languageIDForExtension(%q) = %q, %t; want %q, true", ext, got, ok, want)
+		}
+	}
+}

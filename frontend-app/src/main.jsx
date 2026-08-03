@@ -44,11 +44,17 @@ import './AppShellSidebarThreadActions.css';
 import './shared/styles/MarkdownReferences.css';
 // 深色科技感光效层（v2）：仅 dark 作用域，置于所有抛光层之后。
 import './shared/styles/TechGlowPolish.css';
+// 全局卡片材质层：覆盖各页面卡片的实色背景，统一为主题感知的毛玻璃。
+import './shared/styles/GlassCardPolish.css';
 import App, { APP_PROFILER_ID } from './App.jsx';
 import { AppErrorBoundary } from './app/AppErrorBoundary.jsx';
+import { AppearanceBootstrapGate } from './app/appearance/AppearanceProvider.jsx';
 import { emitFrontendTraceEvent } from './shared/api/backendApi.js';
 import { reportMainFrontendReadiness } from './mainReadiness.js';
-import { getStoredTheme, syncThemeDOM } from './app/appShellModel.js';
+import {
+  applyAppearanceToRootTargets,
+  createBrowserAppearanceStore,
+} from './app/appearance/appearanceStore.js';
 import {
   frontendBreadcrumbSnapshotSource,
   recordFrontendBootstrapBreadcrumb,
@@ -206,8 +212,14 @@ if (import.meta.hot) {
   import.meta.hot.dispose(cleanupFrontendDiagnostics);
 }
 
-// Synchronize theme to documentElement/body before rendering to prevent visual flash
-syncThemeDOM(getStoredTheme());
+let appearanceStore;
+let appearanceBootstrapError = null;
+try {
+  appearanceStore = createBrowserAppearanceStore();
+  applyAppearanceToRootTargets(document, appearanceStore.getState());
+} catch (error) {
+  appearanceBootstrapError = error;
+}
 
 createRoot(document.getElementById('root')).render(
   createElement(
@@ -224,7 +236,14 @@ createRoot(document.getElementById('root')).render(
       createElement(
         Profiler,
         { id: APP_PROFILER_ID, onRender: emitSlowRenderTrace },
-        createElement(App, isUITestMCPRun ? { skipBootstrap: true, uiTestMCPMode: true } : null),
+        createElement(
+          AppearanceBootstrapGate,
+          { error: appearanceBootstrapError },
+          createElement(App, {
+            ...(isUITestMCPRun ? { skipBootstrap: true, uiTestMCPMode: true } : {}),
+            appearanceStore,
+          }),
+        ),
       ),
     ),
   ),

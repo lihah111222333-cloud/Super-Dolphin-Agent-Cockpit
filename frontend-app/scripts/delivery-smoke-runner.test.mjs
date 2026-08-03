@@ -3,6 +3,7 @@ import process, { cwd, execPath } from 'node:process';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runManagedCommand } from './managed-command.mjs';
 import { FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS } from './frontend-execution-closure.mjs';
+import { REPOSITORY_LOCAL_GIT_ENV_KEYS } from './runtime/git-environment.mjs';
 import {
   DELIVERY_CASE_IDS,
   DELIVERY_COMMANDS,
@@ -83,6 +84,9 @@ describe('delivery smoke runner', () => {
     'isolates desktop failure smoke from inherited %s',
     async (conflictingVariable) => {
       vi.stubEnv(conflictingVariable, 'http://127.0.0.1:5999');
+      vi.stubEnv('GIT_DIR', '/shared/repository/.git');
+      vi.stubEnv('GIT_WORK_TREE', '/shared/repository');
+      for (const key of REPOSITORY_LOCAL_GIT_ENV_KEYS) vi.stubEnv(key, `/hostile/${key}`);
       vi.stubEnv('SUPER_DOLPHIN_FAILURE_SMOKE_VITE_URL', 'http://127.0.0.1:5178');
       vi.stubEnv('SUPER_DOLPHIN_DESKTOP_SMOKE_SKIP_FRONTEND_BUILD', 'inherited');
       vi.stubEnv('DELIVERY_SMOKE_COMMON_SENTINEL', 'preserved');
@@ -102,6 +106,7 @@ describe('delivery smoke runner', () => {
         expect(options.env.PATH).toBe(inheritedPath);
         expect(options.env.SUPER_DOLPHIN_FAILURE_SMOKE_VITE_URL).toBe('http://127.0.0.1:5178');
         expect(options.env.DELIVERY_SMOKE_COMMON_SENTINEL).toBe('preserved');
+        for (const key of REPOSITORY_LOCAL_GIT_ENV_KEYS) expect(options.env).not.toHaveProperty(key);
       }
       const failureCall = calls[DELIVERY_COMMANDS.findIndex(({ id }) => id === 'desktop-failure-smoke')];
       const startCall = calls[DELIVERY_COMMANDS.findIndex(({ id }) => id === 'desktop-start-smoke')];
@@ -111,6 +116,7 @@ describe('delivery smoke runner', () => {
       expect(process.env.SUPER_DOLPHIN_DESKTOP_SMOKE_SKIP_FRONTEND_BUILD).toBe('inherited');
       expect(failureCall.options.env).not.toHaveProperty(conflictingVariable);
       expect(process.env[conflictingVariable]).toBe('http://127.0.0.1:5999');
+      for (const key of REPOSITORY_LOCAL_GIT_ENV_KEYS) expect(process.env[key]).toBe(`/hostile/${key}`);
       for (const call of calls.slice(0, -1)) {
         expect(call.options.env[conflictingVariable]).toBe('http://127.0.0.1:5999');
       }

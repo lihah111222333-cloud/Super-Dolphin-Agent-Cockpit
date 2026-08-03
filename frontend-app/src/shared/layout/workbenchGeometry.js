@@ -47,7 +47,8 @@ function solveWorkbenchGeometry(input) {
     ? Math.max(0, Math.min(MOBILE_RAIL_MAX_WIDTH, viewportWidth - MOBILE_RAIL_GUTTER))
     : DESKTOP_RAIL_MAX_WIDTH;
   const railMin = mobile ? Math.min(DESKTOP_RAIL_MIN_WIDTH, railMax) : DESKTOP_RAIL_MIN_WIDTH;
-  const railDisplayed = railOpen ? clamp(requestedRailWidth, railMin, railMax) : 0;
+  const railExpandedWidth = clamp(requestedRailWidth, railMin, railMax);
+  const railDisplayed = railOpen ? railExpandedWidth : 0;
   const railConsumed = mobile ? 0 : railDisplayed;
   const mainWidth = Math.max(0, viewportWidth - railConsumed);
   const conversationMin = Math.floor(mainWidth * 0.4);
@@ -114,7 +115,7 @@ function solveWorkbenchGeometry(input) {
       '--diff-panel-min-height': `${diffMin}px`,
       '--composer-right-offset': `${rightDisplayed + rightSplitter}px`,
       '--runtime-toolbar-height': `${toolbarHeight}px`,
-      '--workbench-sidebar-width': `${railDisplayed}px`,
+      '--workbench-sidebar-width': `${railExpandedWidth}px`,
     },
     gridTemplateColumns,
     rail: {

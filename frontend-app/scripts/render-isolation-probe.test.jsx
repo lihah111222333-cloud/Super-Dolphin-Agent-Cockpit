@@ -26,6 +26,8 @@ vi.mock('/wails/runtime.js', () => ({
   Events: {},
 }));
 
+window.matchMedia = vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+
 function resolveAppSourcePath(frontendRoot = process.cwd()) {
   const packagePath = resolve(frontendRoot, 'package.json');
   const appPath = resolve(frontendRoot, 'src/App.jsx');

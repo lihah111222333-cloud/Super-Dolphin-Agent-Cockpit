@@ -1,10 +1,3 @@
-export const COLOR_THEMES = Object.freeze({
-  dark: 'dark',
-  light: 'light',
-});
-
-import { requiredAppStoragePort } from '../shared/api/browser/browserStorage.js';
-
 const PAGE_ROUTE_BY_ID = Object.freeze({
   chat: '/',
   prompts: '/prompts',
@@ -150,13 +143,6 @@ export const APP_SHELL_STORE_KEYS = Object.freeze([
   'workflowRevision',
 ]);
 
-export function normalizeColorTheme(value) {
-  if (value === COLOR_THEMES.light || value === COLOR_THEMES.dark) {
-    return value;
-  }
-  throw new Error('invalid color theme');
-}
-
 export function normalizeAppPathname(value) {
   const raw = value === null || value === undefined ? '' : value.toString().trim().toLowerCase();
   if (!raw || raw === '/') return '/';
@@ -182,26 +168,4 @@ export function threadStatusBusy(status) {
 
 export function selectAppShellStore(state) {
   return Object.fromEntries(APP_SHELL_STORE_KEYS.map((key) => [key, state[key]]));
-}
-
-export const THEME_STORAGE_KEY = 'super-dolphin-theme';
-
-export function getStoredTheme() {
-  if (typeof window === 'undefined' || typeof document === 'undefined') {
-    throw new Error('window or document is unavailable');
-  }
-  const value = requiredAppStoragePort('theme storage').get(THEME_STORAGE_KEY);
-  if (value === null) {
-    return COLOR_THEMES.light;
-  }
-  return normalizeColorTheme(value);
-}
-
-export function syncThemeDOM(theme) {
-  if (typeof document === 'undefined' || !document.documentElement || !document.body) {
-    throw new Error('theme document is unavailable');
-  }
-  const normalized = normalizeColorTheme(theme);
-  document.documentElement.setAttribute('data-theme', normalized);
-  document.body.setAttribute('data-theme', normalized);
 }

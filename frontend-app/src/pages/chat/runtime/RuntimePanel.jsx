@@ -4,6 +4,7 @@ import { summarizeUnifiedDiff } from '../adapters/runtimeDiffSummaryAdapter.js';
 import { RuntimeActivityPanel } from './RuntimeActivityPanel.jsx';
 import { RuntimeDiffView } from './RuntimeDiffView.jsx';
 import { RuntimeToolbar } from './RuntimeToolbar.jsx';
+import { RightPanelHeader } from '../components/RightPanelHeader.jsx';
 import { useRuntimeCodePreview } from './useRuntimeCodePreview.jsx';
 import './RuntimePanel.css';
 
@@ -19,6 +20,7 @@ function RuntimePanel({
   formatTime,
   geometrySnapshot,
   layoutActions,
+  onCollapse,
   onShowAgents,
   renderMarkdownPreview,
 }) {
@@ -46,7 +48,9 @@ function RuntimePanel({
       data-testid="runtime-panel"
       style={geometrySnapshot.cssVars}
     >
-      <RuntimeToolbar diffSummary={diffSummary} onShowAgents={onShowAgents} />
+      <RightPanelHeader activeView="runtime" onCollapse={onCollapse} onShowAgents={onShowAgents}>
+        <RuntimeToolbar diffSummary={diffSummary} />
+      </RightPanelHeader>
       <RuntimeDiffView
         diffText={diffText}
         diffSummary={diffSummary}

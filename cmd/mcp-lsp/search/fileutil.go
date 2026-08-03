@@ -17,64 +17,7 @@ import (
 // binaryProbeBytes 是判断文件是否疑似二进制时读取的前缀字节数。
 const binaryProbeBytes = 512
 
-// 语言映射表用于在没有显式 language 参数时从扩展名或别名推断 LSP languageID。
-var (
-	languageByExtension = map[string]string{
-		".c":        "c",
-		".cc":       "cpp",
-		".cjs":      "javascript",
-		".cpp":      "cpp",
-		".css":      "css",
-		".cts":      "typescript",
-		".cxx":      "cpp",
-		".go":       "go",
-		".h":        "c",
-		".hpp":      "cpp",
-		".htm":      "html",
-		".html":     "html",
-		".java":     "java",
-		".js":       "javascript",
-		".json":     "json",
-		".jsx":      "javascriptreact",
-		".markdown": "markdown",
-		".md":       "markdown",
-		".mjs":      "javascript",
-		".mts":      "typescript",
-		".py":       "python",
-		".pyi":      "python",
-		".rs":       "rust",
-		".ts":       "typescript",
-		".tsx":      "typescriptreact",
-		".yaml":     "yaml",
-		".yml":      "yaml",
-	}
-	languageAliases = map[string]string{
-		"c":               "c",
-		"c++":             "cpp",
-		"cpp":             "cpp",
-		"css":             "css",
-		"cxx":             "cpp",
-		"go":              "go",
-		"golang":          "go",
-		"html":            "html",
-		"java":            "java",
-		"javascript":      "javascript",
-		"javascriptreact": "javascriptreact",
-		"js":              "javascript",
-		"json":            "json",
-		"markdown":        "markdown",
-		"md":              "markdown",
-		"py":              "python",
-		"python":          "python",
-		"rs":              "rust",
-		"rust":            "rust",
-		"ts":              "typescript",
-		"typescript":      "typescript",
-		"typescriptreact": "typescriptreact",
-		"yaml":            "yaml",
-		"yml":             "yaml",
-	}
-)
+// 语言描述表在使用点构造，避免包级可变状态。
 
 // PathInfo 是经过 workspace containment 校验后的文件路径信息。
 type PathInfo struct {
@@ -401,12 +344,34 @@ func isInsideGoModCache(absPath string) bool {
 	return strings.Contains(slashed, "/go/pkg/mod/")
 }
 
+// shouldSkipDir 判断目录名是否属于默认跳过的构建或缓存目录。
 func shouldSkipDir(name string) bool {
+	skippedDirNames := map[string]struct{}{
+		".agent": {}, ".agents": {}, ".build-cache": {}, ".cache": {}, ".cargo": {},
+		".claude": {}, ".dart_tool": {}, ".eslintcache": {}, ".git": {},
+		".gomodcache": {}, ".gradle": {}, ".mvn": {}, ".mypy_cache": {},
+		".next": {}, ".nuxt": {}, ".parcel-cache": {}, ".pytest_cache": {},
+		".ruff_cache": {}, ".svelte-kit": {}, ".tox": {}, ".turbo": {},
+		".venv": {}, ".workspace": {}, ".worktrees": {}, "__pycache__": {},
+		"build": {}, "cache": {}, "coverage": {}, "dist": {}, "gomodcache": {},
+		"node_modules": {}, "target": {}, "tmp": {}, "vendor": {}, "venv": {},
+	}
 	_, ok := skippedDirNames[strings.ToLower(strings.TrimSpace(name))]
 	return ok
 }
 
+// shouldExcludePath 判断路径是否命中默认排除的目录段。
 func shouldExcludePath(path string) bool {
+	skippedDirNames := map[string]struct{}{
+		".agent": {}, ".agents": {}, ".build-cache": {}, ".cache": {}, ".cargo": {},
+		".claude": {}, ".dart_tool": {}, ".eslintcache": {}, ".git": {},
+		".gomodcache": {}, ".gradle": {}, ".mvn": {}, ".mypy_cache": {},
+		".next": {}, ".nuxt": {}, ".parcel-cache": {}, ".pytest_cache": {},
+		".ruff_cache": {}, ".svelte-kit": {}, ".tox": {}, ".turbo": {},
+		".venv": {}, ".workspace": {}, ".worktrees": {}, "__pycache__": {},
+		"build": {}, "cache": {}, "coverage": {}, "dist": {}, "gomodcache": {},
+		"node_modules": {}, "target": {}, "tmp": {}, "vendor": {}, "venv": {},
+	}
 	cleaned := strings.ToLower(filepath.ToSlash(filepath.Clean(path)))
 	for index, segment := range strings.Split(cleaned, "/") {
 		if isLinuxTopLevelTmpSegment(index, segment, cleaned) {
@@ -436,45 +401,16 @@ func isLinuxTopLevelTmpSegment(index int, segment, cleanedPath string) bool {
 	return false
 }
 
-var skippedDirNames = map[string]struct{}{
-	".agent":        {},
-	".agents":       {},
-	".build-cache":  {},
-	".cache":        {},
-	".cargo":        {},
-	".claude":       {},
-	".dart_tool":    {},
-	".eslintcache":  {},
-	".git":          {},
-	".gomodcache":   {},
-	".gradle":       {},
-	".mvn":          {},
-	".mypy_cache":   {},
-	".next":         {},
-	".nuxt":         {},
-	".parcel-cache": {},
-	".pytest_cache": {},
-	".ruff_cache":   {},
-	".svelte-kit":   {},
-	".tox":          {},
-	".turbo":        {},
-	".venv":         {},
-	".workspace":    {},
-	".worktrees":    {},
-	"__pycache__":   {},
-	"build":         {},
-	"cache":         {},
-	"coverage":      {},
-	"dist":          {},
-	"gomodcache":    {},
-	"node_modules":  {},
-	"target":        {},
-	"tmp":           {},
-	"vendor":        {},
-	"venv":          {},
-}
-
+// inferLanguage 根据文件扩展名推断 LSP languageID。
 func inferLanguage(value string) string {
+	languageByExtension := map[string]string{
+		".c": "c", ".cc": "cpp", ".cjs": "javascript", ".cpp": "cpp", ".css": "css",
+		".cts": "typescript", ".cxx": "cpp", ".go": "go", ".h": "c", ".hpp": "cpp",
+		".htm": "html", ".html": "html", ".java": "java", ".js": "javascript", ".json": "json",
+		".jsx": "javascriptreact", ".markdown": "markdown", ".md": "markdown", ".mjs": "javascript",
+		".mts": "typescript", ".py": "python", ".pyi": "python", ".rs": "rust", ".ts": "typescript",
+		".tsx": "typescriptreact", ".yaml": "yaml", ".yml": "yaml",
+	}
 	ext := strings.ToLower(filepath.Ext(strings.TrimSpace(value)))
 	if ext == "" {
 		return ""
@@ -483,6 +419,14 @@ func inferLanguage(value string) string {
 }
 
 func normalizeLanguageAlias(value string) string {
+	languageAliases := map[string]string{
+		"c": "c", "c++": "cpp", "cpp": "cpp", "css": "css", "cxx": "cpp", "go": "go",
+		"golang": "go", "html": "html", "java": "java", "javascript": "javascript",
+		"javascriptreact": "javascriptreact", "js": "javascript", "json": "json", "markdown": "markdown",
+		"md": "markdown", "py": "python", "python": "python", "rs": "rust", "rust": "rust",
+		"ts": "typescript", "typescript": "typescript", "typescriptreact": "typescriptreact",
+		"yaml": "yaml", "yml": "yaml",
+	}
 	return languageAliases[strings.ToLower(strings.TrimSpace(value))]
 }
 

@@ -227,7 +227,7 @@ async function runMutationEvidence({
   managedOptions,
   vitestCommand,
 }) {
-  const byPair = new Map(evidence.map((entry) => [`${entry.caseId}\\u0000${entry.layer}`, entry]));
+  const byPair = new Map(evidence.map((entry) => [`${entry.caseId}\u0000${entry.layer}`, entry]));
   const results = [];
   for (const mutation of mutations) {
     const mutationRoot = path.join(tempRoot, `mutation-${mutation.id}`);

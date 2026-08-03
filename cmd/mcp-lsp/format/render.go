@@ -91,8 +91,9 @@ func RenderCompactList[T any](list CompactList[T]) (string, error) {
 // NormalizeForDisplay 根据结果类型套用展示层 normalizer。
 // 未登记类型原样返回，避免工具结果被意外改写。
 func NormalizeForDisplay[T any](value T) T {
-	if normalizer, ok := displayNormalizers[reflect.TypeOf(value)]; ok {
-		return normalizer(value).(T)
+	dispatch := newDisplayNormalizerDispatch()
+	if normalized, ok := dispatch.normalize(value); ok {
+		return normalized.(T)
 	}
 	return value
 }
@@ -200,26 +201,48 @@ func convertFloatCoordinate(value any) (any, bool) {
 	}
 }
 
-func displayTypeOf[T any]() reflect.Type {
-	var zero T
-	return reflect.TypeOf(zero)
+// displayNormalizerDispatch 是展示归一化的 owner-local、不可变分派器。
+// 每次构造都得到独立的注册表，不暴露可变注册表，也不依赖包级 singleton。
+type displayNormalizerDispatch struct {
+	normalizers map[reflect.Type]func(any) any
 }
 
-var displayNormalizers = map[reflect.Type]func(any) any{
-	displayTypeOf[protocol.Location]():                func(value any) any { return Location(value.(protocol.Location)) },
-	displayTypeOf[*protocol.Location]():               func(value any) any { return LocationPtr(value.(*protocol.Location)) },
-	displayTypeOf[protocol.HoverResult]():             func(value any) any { return HoverResult(value.(protocol.HoverResult)) },
-	displayTypeOf[*protocol.HoverResult]():            func(value any) any { result := HoverResult(*value.(*protocol.HoverResult)); return &result },
-	displayTypeOf[[]protocol.LocationResult]():        func(value any) any { return LocationResults(value.([]protocol.LocationResult)) },
-	displayTypeOf[[]protocol.DocumentSymbol]():        func(value any) any { return DocumentSymbols(value.([]protocol.DocumentSymbol)) },
-	displayTypeOf[*protocol.WorkspaceEdit]():          func(value any) any { return WorkspaceEdit(value.(*protocol.WorkspaceEdit)) },
-	displayTypeOf[[]protocol.TextEdit]():              func(value any) any { return TextEdits(value.([]protocol.TextEdit)) },
-	displayTypeOf[[]protocol.Diagnostic]():            func(value any) any { return Diagnostics(value.([]protocol.Diagnostic)) },
-	displayTypeOf[[]protocol.CodeActionResult]():      func(value any) any { return CodeActionResults(value.([]protocol.CodeActionResult)) },
-	displayTypeOf[[]protocol.WorkspaceSymbolResult](): func(value any) any { return WorkspaceSymbolResults(value.([]protocol.WorkspaceSymbolResult)) },
-	displayTypeOf[[]protocol.CallHierarchyResult]():   func(value any) any { return CallHierarchyResults(value.([]protocol.CallHierarchyResult)) },
-	displayTypeOf[[]protocol.TypeHierarchyResult]():   func(value any) any { return TypeHierarchyResults(value.([]protocol.TypeHierarchyResult)) },
-	displayTypeOf[*protocol.SemanticTokensResult]():   func(value any) any { return SemanticTokensResult(value.(*protocol.SemanticTokensResult)) },
-	displayTypeOf[protocol.FoldingRange]():            func(value any) any { return FoldingRange(value.(protocol.FoldingRange)) },
-	displayTypeOf[[]protocol.FoldingRange]():          func(value any) any { return FoldingRanges(value.([]protocol.FoldingRange)) },
+// newDisplayNormalizerDispatch 构造展示归一化分派器。
+func newDisplayNormalizerDispatch() displayNormalizerDispatch {
+	return displayNormalizerDispatch{normalizers: map[reflect.Type]func(any) any{
+		reflect.TypeOf(protocol.Location{}):                func(value any) any { return Location(value.(protocol.Location)) },
+		reflect.TypeFor[*protocol.Location]():              func(value any) any { return LocationPtr(value.(*protocol.Location)) },
+		reflect.TypeOf(protocol.HoverResult{}):             func(value any) any { return HoverResult(value.(protocol.HoverResult)) },
+		reflect.TypeFor[*protocol.HoverResult]():           normalizeHoverResultPtr,
+		reflect.TypeOf([]protocol.LocationResult{}):        func(value any) any { return LocationResults(value.([]protocol.LocationResult)) },
+		reflect.TypeOf([]protocol.DocumentSymbol{}):        func(value any) any { return DocumentSymbols(value.([]protocol.DocumentSymbol)) },
+		reflect.TypeFor[*protocol.WorkspaceEdit]():         func(value any) any { return WorkspaceEdit(value.(*protocol.WorkspaceEdit)) },
+		reflect.TypeOf([]protocol.TextEdit{}):              func(value any) any { return TextEdits(value.([]protocol.TextEdit)) },
+		reflect.TypeOf([]protocol.Diagnostic{}):            func(value any) any { return Diagnostics(value.([]protocol.Diagnostic)) },
+		reflect.TypeOf([]protocol.CodeActionResult{}):      func(value any) any { return CodeActionResults(value.([]protocol.CodeActionResult)) },
+		reflect.TypeOf([]protocol.WorkspaceSymbolResult{}): func(value any) any { return WorkspaceSymbolResults(value.([]protocol.WorkspaceSymbolResult)) },
+		reflect.TypeOf([]protocol.CallHierarchyResult{}):   func(value any) any { return CallHierarchyResults(value.([]protocol.CallHierarchyResult)) },
+		reflect.TypeOf([]protocol.TypeHierarchyResult{}):   func(value any) any { return TypeHierarchyResults(value.([]protocol.TypeHierarchyResult)) },
+		reflect.TypeFor[*protocol.SemanticTokensResult]():  func(value any) any { return SemanticTokensResult(value.(*protocol.SemanticTokensResult)) },
+		reflect.TypeOf(protocol.FoldingRange{}):            func(value any) any { return FoldingRange(value.(protocol.FoldingRange)) },
+		reflect.TypeOf([]protocol.FoldingRange{}):          func(value any) any { return FoldingRanges(value.([]protocol.FoldingRange)) },
+	}}
+}
+
+func normalizeHoverResultPtr(value any) any {
+	result := value.(*protocol.HoverResult)
+	if result == nil {
+		return result
+	}
+	converted := HoverResult(*result)
+	return &converted
+}
+
+// normalize 根据精确的协议类型选择展示归一化器；未知类型原样返回。
+func (dispatch displayNormalizerDispatch) normalize(value any) (any, bool) {
+	normalizer, ok := dispatch.normalizers[reflect.TypeOf(value)]
+	if !ok {
+		return value, false
+	}
+	return normalizer(value), true
 }

@@ -35,7 +35,7 @@ type hierarchyDirectionStep[I any, R any] struct {
 
 const emptyHierarchyPrepareMaxRetries = 2
 
-var emptyHierarchyPrepareRetryDelay = 120 * time.Millisecond
+const emptyHierarchyPrepareRetryDelay = 120 * time.Millisecond
 
 type snapshotSyncRequest struct {
 	key                     lspCacheKey

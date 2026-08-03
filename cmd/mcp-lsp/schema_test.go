@@ -6,9 +6,9 @@ import (
 )
 
 func TestEditSchemaExposesPatchDiskFieldsOnly(t *testing.T) {
-	props, ok := patchEditSchema["properties"].(map[string]any)
+	props, ok := newPatchEditSchema()["properties"].(map[string]any)
 	if !ok {
-		t.Fatalf("patch_edit schema properties type = %T", patchEditSchema["properties"])
+		t.Fatalf("patch_edit schema properties type = %T", newPatchEditSchema()["properties"])
 	}
 	for _, field := range []string{"action", "file_path", "patch", "pos", "new_name", "only"} {
 		if _, ok := props[field]; !ok {
@@ -20,9 +20,9 @@ func TestEditSchemaExposesPatchDiskFieldsOnly(t *testing.T) {
 			t.Fatalf("edit schema exposes removed legacy field %q", field)
 		}
 	}
-	required, ok := patchEditSchema["required"].([]string)
+	required, ok := newPatchEditSchema()["required"].([]string)
 	if !ok {
-		t.Fatalf("patch_edit schema required type = %T", patchEditSchema["required"])
+		t.Fatalf("patch_edit schema required type = %T", newPatchEditSchema()["required"])
 	}
 	if !reflect.DeepEqual(required, []string{"action"}) {
 		t.Fatalf("edit schema required = %#v, want [action]", required)
@@ -30,9 +30,9 @@ func TestEditSchemaExposesPatchDiskFieldsOnly(t *testing.T) {
 }
 
 func TestStructureSchemaHidesLegacyPathAlias(t *testing.T) {
-	props, ok := lspStructureSchema["properties"].(map[string]any)
+	props, ok := newLSPStructureSchema()["properties"].(map[string]any)
 	if !ok {
-		t.Fatalf("structure schema properties type = %T", lspStructureSchema["properties"])
+		t.Fatalf("structure schema properties type = %T", newLSPStructureSchema()["properties"])
 	}
 	if _, ok := props["path"]; ok {
 		t.Fatalf("structure schema exposes legacy path alias")
@@ -40,9 +40,9 @@ func TestStructureSchemaHidesLegacyPathAlias(t *testing.T) {
 }
 
 func TestFileSchemaExposesLanguageIDOverride(t *testing.T) {
-	props, ok := lspFileSchema["properties"].(map[string]any)
+	props, ok := newLSPFileSchema()["properties"].(map[string]any)
 	if !ok {
-		t.Fatalf("file schema properties type = %T", lspFileSchema["properties"])
+		t.Fatalf("file schema properties type = %T", newLSPFileSchema()["properties"])
 	}
 	if _, ok := props["language_id"]; !ok {
 		t.Fatalf("file schema missing language_id override used by handler")
@@ -50,9 +50,9 @@ func TestFileSchemaExposesLanguageIDOverride(t *testing.T) {
 }
 
 func TestStructureSchemaActionEnumMatchesHandlerActions(t *testing.T) {
-	props, ok := lspStructureSchema["properties"].(map[string]any)
+	props, ok := newLSPStructureSchema()["properties"].(map[string]any)
 	if !ok {
-		t.Fatalf("structure schema properties type = %T", lspStructureSchema["properties"])
+		t.Fatalf("structure schema properties type = %T", newLSPStructureSchema()["properties"])
 	}
 	action, ok := props["action"].(map[string]any)
 	if !ok {
@@ -72,9 +72,9 @@ func TestStructureSchemaActionEnumMatchesHandlerActions(t *testing.T) {
 }
 
 func TestGrepSchemaDocumentsSmartCaseOverride(t *testing.T) {
-	props, ok := lspGrepSchema["properties"].(map[string]any)
+	props, ok := newLSPGrepSchema()["properties"].(map[string]any)
 	if !ok {
-		t.Fatalf("grep schema properties type = %T", lspGrepSchema["properties"])
+		t.Fatalf("grep schema properties type = %T", newLSPGrepSchema()["properties"])
 	}
 	caseSensitive, ok := props["case_sensitive"].(map[string]any)
 	if !ok {
@@ -86,9 +86,9 @@ func TestGrepSchemaDocumentsSmartCaseOverride(t *testing.T) {
 }
 
 func TestGrepSchemaDocumentsMultiPathCompatibility(t *testing.T) {
-	props, ok := lspGrepSchema["properties"].(map[string]any)
+	props, ok := newLSPGrepSchema()["properties"].(map[string]any)
 	if !ok {
-		t.Fatalf("grep schema properties type = %T", lspGrepSchema["properties"])
+		t.Fatalf("grep schema properties type = %T", newLSPGrepSchema()["properties"])
 	}
 	path, ok := props["path"].(map[string]any)
 	if !ok {
