@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -366,6 +367,7 @@ func marshalDurationLedgerObservationPayload(payload any) ([]byte, string, error
 	return payloadBytes, sha256Digest(payloadBytes), nil
 }
 
+// newDurationLedgerRawObservationPending 在事务内分配不可变原始事件身份和序号。
 func newDurationLedgerRawObservationPending(
 	store *DurationLedgerStore,
 	transaction *sql.Tx,
@@ -373,7 +375,10 @@ func newDurationLedgerRawObservationPending(
 	payloadBytes []byte,
 	payloadDigest, previousSHA string,
 ) (durationLedgerRawObservationPending, error) {
-	recordedAt := store.nowFunc().UTC().UnixNano()
+	recordedAt, err := durationLedgerObservationUnixNano(store.nowFunc())
+	if err != nil {
+		return durationLedgerRawObservationPending{}, err
+	}
 	identity, err := canonicalJSONDigest(durationLedgerRawObservationIdentityMaterial{
 		EventKind: eventKind, RunID: runID, AcceptedGeneration: acceptedGeneration,
 		RecordedAtUnixNS: recordedAt, PayloadSHA256: payloadDigest, PreviousEventSHA256: previousSHA,
@@ -435,7 +440,7 @@ type durationLedgerRawObservationAggregate struct {
 func loadDurationLedgerRawObservationAggregate(queryer durationLedgerRawObservationQueryer) (durationLedgerRawObservationAggregate, error) {
 	var aggregate durationLedgerRawObservationAggregate
 	if err := queryer.QueryRowContext(context.Background(), `
-		SELECT COALESCE(SUM(length(payload_json)), 0), COUNT(*),
+		SELECT COALESCE(SUM(length(CAST(payload_json AS BLOB))), 0), COUNT(*),
 			COUNT(DISTINCT NULLIF(run_id, '')), MIN(recorded_at_unix_ns), MAX(recorded_at_unix_ns)
 		FROM duration_ledger_raw_events
 	`).Scan(&aggregate.logicalBytes, &aggregate.recordCount, &aggregate.runCount, &aggregate.earliest, &aggregate.latest); err != nil {
@@ -446,7 +451,7 @@ func loadDurationLedgerRawObservationAggregate(queryer durationLedgerRawObservat
 
 // applyDurationLedgerRawObservationPending 将待追加事件纳入确定性计数和时间边界。
 func applyDurationLedgerRawObservationPending(queryer durationLedgerRawObservationQueryer, aggregate *durationLedgerRawObservationAggregate, pending durationLedgerRawObservationPending) error {
-	payloadLength := int64(len(pending.payloadJSON))
+	payloadLength := int64(len([]byte(pending.payloadJSON)))
 	if payloadLength < 0 || aggregate.logicalBytes > math.MaxInt64-payloadLength {
 		return errors.New("duration ledger logical bytes overflow")
 	}
@@ -526,25 +531,72 @@ func (store *DurationLedgerStore) durationLedgerObservationFilesystemFacts() (du
 	return facts, warning, nil
 }
 
+// durationLedgerObservationUnixNano 在转换前严格限制 time.Time 的 UnixNano 可表示范围。
+func durationLedgerObservationUnixNano(value time.Time) (int64, error) {
+	normalized := value.UTC()
+	minimum := time.Unix(0, math.MinInt64).UTC()
+	maximum := time.Unix(0, math.MaxInt64).UTC()
+	if normalized.Before(minimum) || normalized.After(maximum) {
+		return 0, errors.New("duration ledger observation UnixNano is outside int64 bounds")
+	}
+	return normalized.UnixNano(), nil
+}
+
+// durationLedgerObservationSignedCapacityBytes 安全转换有符号块数和块单位。
+func durationLedgerObservationSignedCapacityBytes(metric string, blockCount, blockSize int64) (int64, error) {
+	if blockCount < 0 {
+		return 0, fmt.Errorf("%s block count is negative", metric)
+	}
+	if blockSize <= 0 {
+		return 0, fmt.Errorf("%s block unit must be positive", metric)
+	}
+	if blockCount > math.MaxInt64/blockSize {
+		return 0, fmt.Errorf("%s capacity overflows int64", metric)
+	}
+	return blockCount * blockSize, nil
+}
+
+// durationLedgerObservationUnsignedCapacityBytes 在转成 int64 前校验无符号块数、单位和乘法。
+func durationLedgerObservationUnsignedCapacityBytes(metric string, blockCount, blockSize uint64) (int64, error) {
+	maxInt64 := uint64(math.MaxInt64)
+	if blockSize == 0 || blockSize > maxInt64 {
+		return 0, fmt.Errorf("%s block unit is outside int64 bounds", metric)
+	}
+	if blockCount > maxInt64/blockSize {
+		return 0, fmt.Errorf("%s capacity overflows int64", metric)
+	}
+	return int64(blockCount * blockSize), nil
+}
+
 // defaultDurationLedgerObservationFilesystemProvider 从 authority 文件和父文件系统读取容量事实。
 func defaultDurationLedgerObservationFilesystemProvider(path string) (durationLedgerObservationFilesystemFacts, error) {
 	var stat unix.Stat_t
 	if err := unix.Stat(path, &stat); err != nil {
 		return durationLedgerObservationFilesystemFacts{}, fmt.Errorf("%w: stat ledger authority: %v", errDurationLedgerObservationUnavailable, err)
 	}
-	if stat.Blocks < 0 || stat.Blocks > math.MaxInt64/512 {
-		return durationLedgerObservationFilesystemFacts{}, errors.New("duration ledger physical bytes provider returned malformed block count")
+	physical, err := durationLedgerObservationSignedCapacityBytes("duration ledger physical bytes", stat.Blocks, 512)
+	if err != nil {
+		return durationLedgerObservationFilesystemFacts{}, fmt.Errorf("duration ledger physical bytes provider returned malformed block count: %w", err)
 	}
-	physical := stat.Blocks * 512
 	facts := durationLedgerObservationFilesystemFacts{PhysicalBytes: &physical}
 	var filesystem unix.Statfs_t
 	if err := unix.Statfs(filepath.Dir(path), &filesystem); err != nil {
 		return facts, fmt.Errorf("%w: stat filesystem capacity: %v", errDurationLedgerObservationUnavailable, err)
 	}
-	if uint64(filesystem.Bsize) != 0 && filesystem.Bavail > uint64(math.MaxInt64)/uint64(filesystem.Bsize) {
-		return facts, errors.New("filesystem available bytes provider returned malformed capacity")
+	if filesystem.Bsize <= 0 {
+		return facts, errors.New("filesystem available bytes provider returned malformed block unit")
 	}
-	available := int64(filesystem.Bavail) * int64(filesystem.Bsize)
+	if filesystem.Bavail < 0 {
+		return facts, errors.New("filesystem available bytes provider returned a negative block count")
+	}
+	available, err := durationLedgerObservationUnsignedCapacityBytes(
+		"filesystem available bytes",
+		uint64(filesystem.Bavail),
+		uint64(filesystem.Bsize),
+	)
+	if err != nil {
+		return facts, fmt.Errorf("filesystem available bytes provider returned malformed capacity: %w", err)
+	}
 	facts.AvailableBytes = &available
 	return facts, nil
 }

@@ -1,10 +1,12 @@
 package gate
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"reflect"
 	"strings"
 	"testing"
@@ -197,6 +199,159 @@ func TestDurationLedgerObservationRejectsMalformedCapacity(t *testing.T) {
 	}
 	if _, err := store.LoadRawObservationEvents(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDurationLedgerObservationUsesCanonicalUTF8BytesForPendingAndReplay(t *testing.T) {
+	store := newTestDurationLedgerStore(t)
+	physical, available := int64(1234), int64(5678)
+	store.observationFilesystemProvider = func(string) (durationLedgerObservationFilesystemFacts, error) {
+		return durationLedgerObservationFilesystemFacts{PhysicalBytes: &physical, AvailableBytes: &available}, nil
+	}
+	store.nowFunc = func() time.Time { return time.Unix(321, 654).UTC() }
+	_, err := store.CompareAndSwap(0, NewDurationLedger())
+	requireObservationNoError(t, err)
+	before, err := store.LoadObservationReport()
+	requireObservationNoError(t, err)
+	database, err := store.openSQLiteAuthority(false)
+	requireObservationNoError(t, err)
+	transaction, err := database.BeginTx(context.Background(), nil)
+	requireObservationNoError(t, err)
+	t.Cleanup(func() {
+		if err := transaction.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			t.Errorf("rollback observation transaction: %v", err)
+		}
+		if err := database.Close(); err != nil {
+			t.Errorf("close observation database: %v", err)
+		}
+	})
+	pending, pendingReport, payloadBytes := buildUnicodeObservationPending(t, store, transaction)
+	if before.LedgerLogicalBytes.Value == nil || pendingReport.LedgerLogicalBytes.Value == nil {
+		t.Fatalf("logical bytes before=%#v pending=%#v, want known values", before.LedgerLogicalBytes, pendingReport.LedgerLogicalBytes)
+	}
+	wantLogicalBytes := *before.LedgerLogicalBytes.Value + int64(len(payloadBytes))
+	assertKnownObservation(t, pendingReport.LedgerLogicalBytes, wantLogicalBytes, true)
+	requireObservationNoError(t, completeDurationLedgerRawObservationPending(&pending, pendingReport))
+	requireObservationNoError(t, insertDurationLedgerRawObservationEvent(transaction, pending))
+	requireObservationNoError(t, transaction.Commit())
+	replay, err := store.LoadObservationReport()
+	requireObservationNoError(t, err)
+	if !reflect.DeepEqual(pendingReport, replay) {
+		t.Fatalf("pending report = %#v, replay report = %#v, want exact canonical UTF-8 byte aggregation", pendingReport, replay)
+	}
+}
+
+func buildUnicodeObservationPending(t *testing.T, store *DurationLedgerStore, transaction *sql.Tx) (durationLedgerRawObservationPending, DurationLedgerObservationReport, []byte) {
+	t.Helper()
+	payloadBytes, payloadDigest, err := marshalDurationLedgerObservationPayload(map[string]any{
+		"message": "锁定🔒",
+		"state":   "committed",
+	})
+	requireObservationNoError(t, err)
+	previousSHA, err := latestDurationLedgerRawObservationHash(transaction)
+	requireObservationNoError(t, err)
+	pending, err := newDurationLedgerRawObservationPending(store, transaction, durationLedgerObservationEventTest, "unicode-run", "1", payloadBytes, payloadDigest, previousSHA)
+	requireObservationNoError(t, err)
+	report, err := store.aggregateDurationLedgerObservationReport(transaction, &pending)
+	requireObservationNoError(t, err)
+	return pending, report, payloadBytes
+}
+
+func TestDurationLedgerObservationUnixNanoBoundsAreValidatedBeforeAppend(t *testing.T) {
+	bounds := []struct {
+		name string
+		when time.Time
+		want int64
+	}{
+		{name: "minimum", when: time.Unix(0, math.MinInt64).UTC(), want: math.MinInt64},
+		{name: "maximum", when: time.Unix(0, math.MaxInt64).UTC(), want: math.MaxInt64},
+	}
+	for _, testCase := range bounds {
+		t.Run(testCase.name, func(t *testing.T) {
+			assertAcceptedObservationUnixNano(t, testCase.when, testCase.want)
+		})
+	}
+
+	for _, testCase := range []struct {
+		name string
+		when time.Time
+	}{
+		{name: "below-minimum", when: time.Unix(0, math.MinInt64).Add(-time.Nanosecond)},
+		{name: "above-maximum", when: time.Unix(0, math.MaxInt64).Add(time.Nanosecond)},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			assertRejectedObservationUnixNano(t, testCase.when)
+		})
+	}
+}
+
+func assertAcceptedObservationUnixNano(t *testing.T, when time.Time, want int64) {
+	t.Helper()
+	store := newTestDurationLedgerStore(t)
+	store.nowFunc = func() time.Time { return when }
+	_, err := store.CompareAndSwap(0, NewDurationLedger())
+	requireObservationNoError(t, err)
+	events, err := store.LoadRawObservationEvents()
+	requireObservationNoError(t, err)
+	if len(events) != 1 || events[0].RecordedAtUnixNS != want {
+		t.Fatalf("raw events = %#v, want one event at UnixNano=%d", events, want)
+	}
+}
+
+func assertRejectedObservationUnixNano(t *testing.T, when time.Time) {
+	t.Helper()
+	store := newTestDurationLedgerStore(t)
+	store.nowFunc = func() time.Time { return when }
+	if _, err := store.CompareAndSwap(0, NewDurationLedger()); err == nil || !strings.Contains(err.Error(), "UnixNano") {
+		t.Fatalf("out-of-range observation time error = %v, want explicit UnixNano bounds failure", err)
+	}
+	events, err := store.LoadRawObservationEvents()
+	requireObservationNoError(t, err)
+	if len(events) != 0 {
+		t.Fatalf("raw events after rejected out-of-range time = %#v, want zero", events)
+	}
+}
+
+func requireObservationNoError(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDurationLedgerObservationStatfsCapacityRejectsMalformedInputs(t *testing.T) {
+	signedCases := []struct {
+		name       string
+		blockCount int64
+		blockSize  int64
+	}{
+		{name: "negative-count", blockCount: -1, blockSize: 4096},
+		{name: "zero-unit", blockCount: 1, blockSize: 0},
+		{name: "multiplication-overflow", blockCount: math.MaxInt64, blockSize: 2},
+	}
+	for _, testCase := range signedCases {
+		t.Run("signed-"+testCase.name, func(t *testing.T) {
+			if got, err := durationLedgerObservationSignedCapacityBytes(testCase.name, testCase.blockCount, testCase.blockSize); err == nil || got != 0 {
+				t.Fatalf("signed capacity = (%d, %v), want explicit error and zero result", got, err)
+			}
+		})
+	}
+	unsignedCases := []struct {
+		name       string
+		blockCount uint64
+		blockSize  uint64
+	}{
+		{name: "zero-unit", blockCount: 1, blockSize: 0},
+		{name: "count-conversion-overflow", blockCount: uint64(math.MaxInt64) + 1, blockSize: 1},
+		{name: "unit-conversion-overflow", blockCount: 1, blockSize: uint64(math.MaxInt64) + 1},
+		{name: "multiplication-overflow", blockCount: 2, blockSize: uint64(math.MaxInt64)},
+	}
+	for _, testCase := range unsignedCases {
+		t.Run("unsigned-"+testCase.name, func(t *testing.T) {
+			if got, err := durationLedgerObservationUnsignedCapacityBytes(testCase.name, testCase.blockCount, testCase.blockSize); err == nil || got != 0 {
+				t.Fatalf("unsigned capacity = (%d, %v), want explicit error and zero result", got, err)
+			}
+		})
 	}
 }
 
