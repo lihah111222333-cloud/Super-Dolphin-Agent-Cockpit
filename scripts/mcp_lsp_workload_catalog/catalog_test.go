@@ -47,6 +47,130 @@ func TestValidateRejectsUnavailableProducerWorkflow(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsProducerCoordinateMutations(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*Catalog, string)
+		want   string
+	}{
+		{name: "absolute workflow", mutate: func(document *Catalog, _ string) {
+			document.Workloads[0].ProducerWorkflowPath = "/tmp/ci.yml"
+		}, want: "producer workflow path"},
+		{name: "parent workflow", mutate: func(document *Catalog, _ string) {
+			document.Workloads[0].ProducerWorkflowPath = "../ci.yml"
+		}, want: "producer workflow path"},
+		{name: "nested parent workflow", mutate: func(document *Catalog, _ string) {
+			document.Workloads[0].ProducerWorkflowPath = ".github/workflows/../../ci.yml"
+		}, want: "producer workflow path"},
+		{name: "windows absolute workflow", mutate: func(document *Catalog, _ string) {
+			document.Workloads[0].ProducerWorkflowPath = `C:\ci.yml`
+		}, want: "producer workflow path"},
+		{name: "missing artifact declaration", mutate: func(document *Catalog, root string) {
+			document.Workloads[0].ProducerArtifactName = "not-uploaded"
+			_ = os.WriteFile(filepath.Join(root, ".github", "workflows", "ci.yml"), []byte("name: test\n"), 0o644)
+		}, want: "artifact"},
+		{name: "split artifact coordinates", mutate: func(document *Catalog, root string) {
+			workflow := "name: test\njobs:\n  receipt:\n    steps:\n      - uses: actions/upload-artifact@v4\n        with:\n          name: quick-receipt\n      - uses: actions/upload-artifact@v4\n        with:\n          path: receipt.json\n"
+			_ = os.WriteFile(filepath.Join(root, ".github", "workflows", "ci.yml"), []byte(workflow), 0o644)
+		}, want: "artifact"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			document, raw, root := validFixture(t)
+			test.mutate(&document, root)
+			raw = encodeWithDigest(t, &document)
+			if err := Validate(document, raw, root); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Validate() error = %v, want substring %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestValidateRejectsProducerWorkflowSymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink fixture requires platform support")
+	}
+	document, raw, root := validFixture(t)
+	link := filepath.Join(root, ".github", "workflows", "linked.yml")
+	if err := os.Symlink("ci.yml", link); err != nil {
+		t.Fatal(err)
+	}
+	document.Workloads[0].ProducerWorkflowPath = ".github/workflows/linked.yml"
+	raw = encodeWithDigest(t, &document)
+	if err := Validate(document, raw, root); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("Validate() error = %v, want symlink rejection", err)
+	}
+}
+
+func TestValidateAllowsProducerPathWithBasenameDirectory(t *testing.T) {
+	document, raw, root := validFixture(t)
+	directory := filepath.Join(root, ".github", "workflows", "nested.yml")
+	if err := os.Mkdir(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	workflow := "name: test\njobs:\n  receipt:\n    steps:\n      - uses: actions/upload-artifact@v4\n        with:\n          name: quick-receipt\n          path: receipt.json\n"
+	workflowPath := filepath.Join(directory, "nested.yml")
+	if err := os.WriteFile(workflowPath, []byte(workflow), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	document.Workloads[0].ProducerWorkflowPath = ".github/workflows/nested.yml/nested.yml"
+	raw = encodeWithDigest(t, &document)
+	if err := Validate(document, raw, root); err != nil {
+		t.Fatalf("Validate() error = %v, want basename directory accepted", err)
+	}
+}
+
+func TestValidateRejectsProducerWorkflowIntermediateSymlinkEscape(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink fixture requires platform support")
+	}
+	document, raw, root := validFixture(t)
+	outside := t.TempDir()
+	outsideWorkflow := filepath.Join(outside, "ci.yml")
+	if err := os.WriteFile(outsideWorkflow, []byte("name: outside\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	escape := filepath.Join(root, ".github", "workflows", "escape")
+	if err := os.Symlink(outside, escape); err != nil {
+		t.Fatal(err)
+	}
+	document.Workloads[0].ProducerWorkflowPath = ".github/workflows/escape/ci.yml"
+	raw = encodeWithDigest(t, &document)
+	if err := Validate(document, raw, root); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("Validate() error = %v, want intermediate symlink rejection", err)
+	}
+}
+
+func TestValidateRejectsMissingProducerWithoutReleaseBlocking(t *testing.T) {
+	document, raw, root := validFixture(t)
+	document.Workloads[0].ProducerImplementationStatus = "missing"
+	document.Workloads[0].ReleaseBlocking = false
+	raw = encodeWithDigest(t, &document)
+	if err := Validate(document, raw, root); err == nil || !strings.Contains(err.Error(), "release_blocking") {
+		t.Fatalf("Validate() error = %v, want release_blocking rejection", err)
+	}
+}
+
+func TestValidateReceiptMissingProducerCannotClaimCIReleaseAuthority(t *testing.T) {
+	document, _, _ := validFixture(t)
+	document.Workloads[0].ProducerImplementationStatus = "missing"
+	receipt := canonicalReceipt(document)
+	receipt.ExecutionOrigin = "ci"
+	path := writeReceiptFixture(t, receipt)
+	if err := ValidateReceipt(document, "quick", path); err == nil || !strings.Contains(err.Error(), "cannot be trusted as CI/release") {
+		t.Fatalf("ValidateReceipt() error = %v, want CI/release authority rejection", err)
+	}
+}
+
+func TestValidateRejectsTimeoutDurationOverflow(t *testing.T) {
+	document, raw, root := validFixture(t)
+	document.Workloads[0].TimeoutSeconds = int(^uint(0) >> 1)
+	raw = encodeWithDigest(t, &document)
+	if err := Validate(document, raw, root); err == nil || !strings.Contains(err.Error(), "timeout_seconds") {
+		t.Fatalf("Validate() error = %v, want timeout overflow rejection", err)
+	}
+}
+
 func TestValidateReceiptAcceptsCanonicalReceipt(t *testing.T) {
 	document, _, _ := validFixture(t)
 	path := writeReceiptFixture(t, canonicalReceipt(document))
@@ -143,8 +267,9 @@ func canonicalReceipt(document Catalog) Receipt {
 	return Receipt{
 		Schema: ReceiptSchema, WorkloadID: workload.ID, CatalogDigest: document.CatalogDigest,
 		RunnerTarget: workload.RunnerTarget, ProducerWorkflowPath: workload.ProducerWorkflowPath,
-		ProducerArtifactName: workload.ProducerArtifactName, ExecutionOrigin: "local-runner",
-		Platform: runtime.GOOS, TimeoutSeconds: workload.TimeoutSeconds, Command: workload.Command,
+		ProducerArtifactName: workload.ProducerArtifactName, ProducerImplementationStatus: workload.ProducerImplementationStatus,
+		ExecutionOrigin: "local-runner",
+		Platform:        runtime.GOOS, TimeoutSeconds: workload.TimeoutSeconds, Command: workload.Command,
 		StartedAt: "2026-08-04T00:00:00.000000000Z", FinishedAt: "2026-08-04T00:00:01.000000000Z",
 		Status: "pass", ExitCode: 0,
 	}
@@ -169,7 +294,8 @@ func validFixture(t *testing.T) (Catalog, []byte, string) {
 	if err := os.MkdirAll(filepath.Join(root, ".github", "workflows"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, ".github", "workflows", "ci.yml"), []byte("name: test\n"), 0o644); err != nil {
+	workflow := "name: test\njobs:\n  receipt:\n    steps:\n      - uses: actions/upload-artifact@v4\n        with:\n          name: quick-receipt\n          path: receipt.json\n"
+	if err := os.WriteFile(filepath.Join(root, ".github", "workflows", "ci.yml"), []byte(workflow), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	receiptRequired := true
@@ -178,7 +304,8 @@ func validFixture(t *testing.T) (Catalog, []byte, string) {
 		Workloads: []Workload{{
 			ID: "quick", ImplementationStatus: "implemented", RunnerTarget: "local-go-test", Platforms: []string{runtime.GOOS},
 			TimeoutSeconds: 10, TriggerClass: "quick", ReceiptSchema: ReceiptSchema,
-			ProducerWorkflowPath: ".github/workflows/ci.yml", ProducerArtifactName: "quick-receipt",
+			ProducerImplementationStatus: "implemented",
+			ProducerWorkflowPath:         ".github/workflows/ci.yml", ProducerArtifactName: "quick-receipt",
 			T6Blocking: true, ReleaseBlocking: true, ReceiptRequired: &receiptRequired, Command: []string{"go", "test"},
 		}},
 	}

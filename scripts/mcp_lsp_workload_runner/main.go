@@ -117,17 +117,19 @@ func resolveReceiptPath(repoRoot, requested, workloadID string) (string, error) 
 
 func printPlan(document catalog.Catalog, workload catalog.Workload) error {
 	plan := struct {
-		ID            string   `json:"id"`
-		CatalogDigest string   `json:"catalog_digest"`
-		RunnerTarget  string   `json:"runner_target"`
-		Platform      string   `json:"platform"`
-		Timeout       int      `json:"timeout_seconds"`
-		ReceiptSchema string   `json:"receipt_schema"`
-		Command       []string `json:"command"`
+		ID                           string   `json:"id"`
+		CatalogDigest                string   `json:"catalog_digest"`
+		RunnerTarget                 string   `json:"runner_target"`
+		Platform                     string   `json:"platform"`
+		Timeout                      int      `json:"timeout_seconds"`
+		ReceiptSchema                string   `json:"receipt_schema"`
+		ProducerImplementationStatus string   `json:"producer_implementation_status"`
+		Command                      []string `json:"command"`
 	}{
 		ID: workload.ID, CatalogDigest: document.CatalogDigest, RunnerTarget: workload.RunnerTarget,
 		Platform: runtime.GOOS, Timeout: workload.TimeoutSeconds, ReceiptSchema: workload.ReceiptSchema,
-		Command: workload.Command,
+		ProducerImplementationStatus: workload.ProducerImplementationStatus,
+		Command:                      workload.Command,
 	}
 	encoded, err := json.MarshalIndent(plan, "", "  ")
 	if err != nil {
@@ -140,7 +142,11 @@ func printPlan(document catalog.Catalog, workload catalog.Workload) error {
 // executeWorkload 按目录命令执行 workload，并原子写入本地回执。
 func executeWorkload(repoRoot string, document catalog.Catalog, workload catalog.Workload, receiptPath string) error {
 	started := time.Now().UTC()
-	ctx, cancel := ctxutil.WithTimeout(context.Background(), time.Duration(workload.TimeoutSeconds)*time.Second)
+	timeout, err := catalog.TimeoutDuration(workload.TimeoutSeconds)
+	if err != nil {
+		return fmt.Errorf("workload %q timeout is invalid: %w", workload.ID, err)
+	}
+	ctx, cancel := ctxutil.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	command := exec.CommandContext(ctx, workload.Command[0], workload.Command[1:]...)
 	command.Dir = repoRoot
@@ -156,7 +162,8 @@ func executeWorkload(repoRoot string, document catalog.Catalog, workload catalog
 	receipt := catalog.Receipt{
 		Schema: catalog.ReceiptSchema, WorkloadID: workload.ID, CatalogDigest: document.CatalogDigest,
 		RunnerTarget: workload.RunnerTarget, ProducerWorkflowPath: workload.ProducerWorkflowPath,
-		ProducerArtifactName: workload.ProducerArtifactName, ExecutionOrigin: "local-runner", Platform: runtime.GOOS,
+		ProducerArtifactName: workload.ProducerArtifactName, ProducerImplementationStatus: workload.ProducerImplementationStatus,
+		ExecutionOrigin: "local-runner", Platform: runtime.GOOS,
 		TimeoutSeconds: workload.TimeoutSeconds, Command: append([]string(nil), workload.Command...),
 		StartedAt: started.Format(time.RFC3339Nano), FinishedAt: finished.Format(time.RFC3339Nano),
 		Status: status, ExitCode: exitCode,
@@ -177,8 +184,7 @@ func workloadResult(ctx context.Context, runErr error) (string, int) {
 	if runErr == nil {
 		return "pass", 0
 	}
-	var exitErr *exec.ExitError
-	if errors.As(runErr, &exitErr) {
+	if exitErr, ok := errors.AsType[*exec.ExitError](runErr); ok {
 		return "failed", exitErr.ExitCode()
 	}
 	return "failed", -1

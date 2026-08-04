@@ -28,19 +28,20 @@ type mcpLSPWorkloadCatalogGuardDocument struct {
 }
 
 type mcpLSPWorkloadCatalogGuardWorkload struct {
-	ID                   string   `json:"id"`
-	ImplementationStatus string   `json:"implementation_status"`
-	RunnerTarget         string   `json:"runner_target"`
-	Platforms            []string `json:"platforms"`
-	TimeoutSeconds       int      `json:"timeout_seconds"`
-	TriggerClass         string   `json:"trigger_class"`
-	ReceiptSchema        string   `json:"receipt_schema"`
-	ProducerWorkflowPath string   `json:"producer_workflow_path"`
-	ProducerArtifactName string   `json:"producer_artifact_name"`
-	T6Blocking           bool     `json:"t6_blocking"`
-	ReleaseBlocking      bool     `json:"release_blocking"`
-	ReceiptRequired      *bool    `json:"receipt_required"`
-	Command              []string `json:"command"`
+	ID                           string   `json:"id"`
+	ImplementationStatus         string   `json:"implementation_status"`
+	ProducerImplementationStatus string   `json:"producer_implementation_status"`
+	RunnerTarget                 string   `json:"runner_target"`
+	Platforms                    []string `json:"platforms"`
+	TimeoutSeconds               int      `json:"timeout_seconds"`
+	TriggerClass                 string   `json:"trigger_class"`
+	ReceiptSchema                string   `json:"receipt_schema"`
+	ProducerWorkflowPath         string   `json:"producer_workflow_path"`
+	ProducerArtifactName         string   `json:"producer_artifact_name"`
+	T6Blocking                   bool     `json:"t6_blocking"`
+	ReleaseBlocking              bool     `json:"release_blocking"`
+	ReceiptRequired              *bool    `json:"receipt_required"`
+	Command                      []string `json:"command"`
 }
 
 func TestMcpLSPWorkloadCatalogSchemaAndCanonicalIDs(t *testing.T) {
@@ -118,6 +119,12 @@ func assertMcpLSPWorkloadMetadata(t *testing.T, workload mcpLSPWorkloadCatalogGu
 
 func assertMcpLSPWorkloadImplementation(t *testing.T, workload mcpLSPWorkloadCatalogGuardWorkload) {
 	t.Helper()
+	if workload.ProducerImplementationStatus != "implemented" && workload.ProducerImplementationStatus != "missing" {
+		t.Errorf("workload %q has unsupported producer_implementation_status %q", workload.ID, workload.ProducerImplementationStatus)
+	}
+	if workload.ProducerImplementationStatus == "missing" && !workload.ReleaseBlocking {
+		t.Errorf("workload %q missing producer implementation must block release", workload.ID)
+	}
 	if workload.ID == "mcp-lsp-default-15m" && workload.TimeoutSeconds < 1500 {
 		t.Errorf("default-15m timeout_seconds = %d, want at least 1500", workload.TimeoutSeconds)
 	}

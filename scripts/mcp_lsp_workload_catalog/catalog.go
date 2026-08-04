@@ -15,6 +15,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -25,6 +27,19 @@ const (
 
 var digestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
+const maxTimeoutSeconds = int64((1<<63 - 1) / int64(time.Second))
+
+// TimeoutDuration 将目录中的秒数转换为受 time.Duration 上限约束的超时。
+func TimeoutDuration(seconds int) (time.Duration, error) {
+	if seconds <= 0 {
+		return 0, errors.New("timeout_seconds must be positive")
+	}
+	if int64(seconds) > maxTimeoutSeconds {
+		return 0, fmt.Errorf("timeout_seconds %d exceeds duration limit %d", seconds, maxTimeoutSeconds)
+	}
+	return time.Duration(seconds) * time.Second, nil
+}
+
 // Catalog is the only local workload decision source.
 type Catalog struct {
 	Schema        string     `json:"schema"`
@@ -34,37 +49,39 @@ type Catalog struct {
 
 // Workload describes one canonical local or release prerequisite.
 type Workload struct {
-	ID                   string   `json:"id"`
-	ImplementationStatus string   `json:"implementation_status"`
-	RunnerTarget         string   `json:"runner_target"`
-	Platforms            []string `json:"platforms"`
-	TimeoutSeconds       int      `json:"timeout_seconds"`
-	TriggerClass         string   `json:"trigger_class"`
-	ReceiptSchema        string   `json:"receipt_schema"`
-	ProducerWorkflowPath string   `json:"producer_workflow_path"`
-	ProducerArtifactName string   `json:"producer_artifact_name"`
-	T6Blocking           bool     `json:"t6_blocking"`
-	ReleaseBlocking      bool     `json:"release_blocking"`
-	ReceiptRequired      *bool    `json:"receipt_required"`
-	Command              []string `json:"command"`
+	ID                           string   `json:"id"`
+	ImplementationStatus         string   `json:"implementation_status"`
+	ProducerImplementationStatus string   `json:"producer_implementation_status"`
+	RunnerTarget                 string   `json:"runner_target"`
+	Platforms                    []string `json:"platforms"`
+	TimeoutSeconds               int      `json:"timeout_seconds"`
+	TriggerClass                 string   `json:"trigger_class"`
+	ReceiptSchema                string   `json:"receipt_schema"`
+	ProducerWorkflowPath         string   `json:"producer_workflow_path"`
+	ProducerArtifactName         string   `json:"producer_artifact_name"`
+	T6Blocking                   bool     `json:"t6_blocking"`
+	ReleaseBlocking              bool     `json:"release_blocking"`
+	ReceiptRequired              *bool    `json:"receipt_required"`
+	Command                      []string `json:"command"`
 }
 
 // Receipt is the versioned local workload receipt consumed by catalog guards.
 type Receipt struct {
-	Schema               string   `json:"schema"`
-	WorkloadID           string   `json:"workload_id"`
-	CatalogDigest        string   `json:"catalog_digest"`
-	RunnerTarget         string   `json:"runner_target"`
-	ProducerWorkflowPath string   `json:"producer_workflow_path"`
-	ProducerArtifactName string   `json:"producer_artifact_name"`
-	ExecutionOrigin      string   `json:"execution_origin"`
-	Platform             string   `json:"platform"`
-	TimeoutSeconds       int      `json:"timeout_seconds"`
-	Command              []string `json:"command"`
-	StartedAt            string   `json:"started_at"`
-	FinishedAt           string   `json:"finished_at"`
-	Status               string   `json:"status"`
-	ExitCode             int      `json:"exit_code"`
+	Schema                       string   `json:"schema"`
+	WorkloadID                   string   `json:"workload_id"`
+	CatalogDigest                string   `json:"catalog_digest"`
+	RunnerTarget                 string   `json:"runner_target"`
+	ProducerWorkflowPath         string   `json:"producer_workflow_path"`
+	ProducerArtifactName         string   `json:"producer_artifact_name"`
+	ProducerImplementationStatus string   `json:"producer_implementation_status"`
+	ExecutionOrigin              string   `json:"execution_origin"`
+	Platform                     string   `json:"platform"`
+	TimeoutSeconds               int      `json:"timeout_seconds"`
+	Command                      []string `json:"command"`
+	StartedAt                    string   `json:"started_at"`
+	FinishedAt                   string   `json:"finished_at"`
+	Status                       string   `json:"status"`
+	ExitCode                     int      `json:"exit_code"`
 }
 
 // Load 读取并校验仓库拥有的目录及其摘要。
@@ -128,6 +145,9 @@ func validateWorkload(workload Workload, repoRoot string, seen map[string]bool) 
 	if err := validateWorkloadStatus(workload); err != nil {
 		return err
 	}
+	if err := validateWorkloadProducerStatus(workload); err != nil {
+		return err
+	}
 	if err := validateWorkloadMetadata(workload); err != nil {
 		return err
 	}
@@ -156,6 +176,20 @@ func validateWorkloadStatus(workload Workload) error {
 	return fmt.Errorf("workload %q has unsupported implementation_status %q", workload.ID, workload.ImplementationStatus)
 }
 
+func validateWorkloadProducerStatus(workload Workload) error {
+	switch workload.ProducerImplementationStatus {
+	case "implemented":
+		return nil
+	case "missing":
+		if !workload.ReleaseBlocking {
+			return fmt.Errorf("workload %q missing producer implementation must set release_blocking", workload.ID)
+		}
+		return nil
+	default:
+		return fmt.Errorf("workload %q has unsupported producer_implementation_status %q", workload.ID, workload.ProducerImplementationStatus)
+	}
+}
+
 func validateWorkloadMetadata(workload Workload) error {
 	if strings.TrimSpace(workload.RunnerTarget) == "" {
 		return fmt.Errorf("workload %q is missing runner, platform, timeout, or trigger class", workload.ID)
@@ -163,8 +197,8 @@ func validateWorkloadMetadata(workload Workload) error {
 	if len(workload.Platforms) == 0 {
 		return fmt.Errorf("workload %q is missing runner, platform, timeout, or trigger class", workload.ID)
 	}
-	if workload.TimeoutSeconds <= 0 {
-		return fmt.Errorf("workload %q is missing runner, platform, timeout, or trigger class", workload.ID)
+	if _, err := TimeoutDuration(workload.TimeoutSeconds); err != nil {
+		return fmt.Errorf("workload %q %w", workload.ID, err)
 	}
 	if strings.TrimSpace(workload.TriggerClass) == "" {
 		return fmt.Errorf("workload %q is missing runner, platform, timeout, or trigger class", workload.ID)
@@ -184,18 +218,133 @@ func validateWorkloadReceipt(workload Workload) error {
 
 // validateWorkloadProducer 校验生产者 workflow 文件和 artifact 坐标。
 func validateWorkloadProducer(workload Workload, repoRoot string) error {
-	if strings.TrimSpace(workload.ProducerWorkflowPath) == "" {
+	workflowValue := strings.TrimSpace(workload.ProducerWorkflowPath)
+	if workflowValue == "" {
 		return fmt.Errorf("workload %q is missing producer coordinates", workload.ID)
 	}
-	if strings.TrimSpace(workload.ProducerArtifactName) == "" || strings.ContainsAny(workload.ProducerArtifactName, `/\\`) {
+	artifactName := strings.TrimSpace(workload.ProducerArtifactName)
+	if artifactName == "" || artifactName == "." || artifactName == ".." || strings.ContainsAny(artifactName, `/\\`) || strings.ContainsAny(artifactName, "\x00\r\n") {
 		return fmt.Errorf("workload %q is missing producer coordinates", workload.ID)
 	}
-	workflowPath := filepath.Join(repoRoot, filepath.FromSlash(workload.ProducerWorkflowPath))
-	info, err := os.Stat(workflowPath)
-	if err != nil || !info.Mode().IsRegular() {
-		return fmt.Errorf("workload %q producer workflow path is unavailable: %s", workload.ID, workload.ProducerWorkflowPath)
+	workflowPath, err := resolveProducerWorkflowPath(repoRoot, workflowValue)
+	if err != nil {
+		return fmt.Errorf("workload %q producer workflow path is unsafe: %w", workload.ID, err)
+	}
+	if workload.ProducerImplementationStatus == "missing" {
+		return nil
+	}
+	if err := validateProducerWorkflowFile(repoRoot, workflowPath); err != nil {
+		return fmt.Errorf("workload %q producer workflow path is unavailable: %w", workload.ID, err)
+	}
+	if err := validateProducerArtifact(workflowPath, artifactName); err != nil {
+		return fmt.Errorf("workload %q producer artifact %q: %w", workload.ID, artifactName, err)
 	}
 	return nil
+}
+
+func resolveProducerWorkflowPath(repoRoot, value string) (string, error) {
+	if strings.ContainsRune(value, '\x00') || filepath.IsAbs(filepath.FromSlash(value)) || strings.HasPrefix(value, "/") || strings.HasPrefix(value, "\\") || isWindowsAbsolutePath(value) {
+		return "", errors.New("must be repository-relative")
+	}
+	normalized := strings.ReplaceAll(value, "\\", "/")
+	for part := range strings.SplitSeq(normalized, "/") {
+		if part == ".." {
+			return "", errors.New("parent path segments are forbidden")
+		}
+	}
+	clean := filepath.Clean(filepath.FromSlash(normalized))
+	if clean == "." || clean == string(filepath.Separator) {
+		return "", errors.New("workflow path is empty")
+	}
+	workflowPath := filepath.Join(repoRoot, clean)
+	relative, err := filepath.Rel(filepath.Clean(repoRoot), workflowPath)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", errors.New("must remain inside repository root")
+	}
+	return workflowPath, nil
+}
+
+func isWindowsAbsolutePath(value string) bool {
+	return len(value) >= 3 && ((value[0] >= 'A' && value[0] <= 'Z') || (value[0] >= 'a' && value[0] <= 'z')) && value[1] == ':' && (value[2] == '/' || value[2] == '\\')
+}
+
+func validateProducerWorkflowFile(repoRoot, workflowPath string) error {
+	relative, err := filepath.Rel(filepath.Clean(repoRoot), workflowPath)
+	if err != nil {
+		return err
+	}
+	cursor := filepath.Clean(repoRoot)
+	parts := strings.Split(relative, string(filepath.Separator))
+	for index, part := range parts {
+		cursor = filepath.Join(cursor, part)
+		info, statErr := os.Lstat(cursor)
+		if statErr != nil {
+			return statErr
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("workflow path contains symlink")
+		}
+		if index == len(parts)-1 && !info.Mode().IsRegular() {
+			return errors.New("workflow path is not a regular file")
+		}
+	}
+	return nil
+}
+
+func validateProducerArtifact(workflowPath, artifactName string) error {
+	file, err := os.Open(workflowPath)
+	if err != nil {
+		return fmt.Errorf("read workflow: %w", err)
+	}
+	defer file.Close()
+	var document workflowDocument
+	decoder := yaml.NewDecoder(file)
+	if err := decoder.Decode(&document); err != nil {
+		return fmt.Errorf("decode workflow: %w", err)
+	}
+	var trailing workflowDocument
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return errors.New("workflow contains multiple YAML documents")
+		}
+		return fmt.Errorf("decode trailing workflow document: %w", err)
+	}
+	for _, job := range document.Jobs {
+		for _, step := range job.Steps {
+			if !strings.HasPrefix(strings.TrimSpace(step.Uses), "actions/upload-artifact@") {
+				continue
+			}
+			nameNode, nameOK := step.With["name"]
+			pathNode, pathOK := step.With["path"]
+			if nameOK && strings.TrimSpace(nameNode.Value) == artifactName && pathOK && yamlNodeHasValue(pathNode) {
+				return nil
+			}
+		}
+	}
+	return errors.New("workflow does not declare and upload the artifact in one upload step")
+}
+
+type workflowDocument struct {
+	Jobs map[string]workflowJob `yaml:"jobs"`
+}
+
+type workflowJob struct {
+	Steps []workflowStep `yaml:"steps"`
+}
+
+type workflowStep struct {
+	Uses string               `yaml:"uses"`
+	With map[string]yaml.Node `yaml:"with"`
+}
+
+func yamlNodeHasValue(node yaml.Node) bool {
+	if node.Kind == 0 {
+		return false
+	}
+	if strings.TrimSpace(node.Value) != "" {
+		return true
+	}
+	return len(node.Content) > 0
 }
 
 // validateWorkloadImplementation 校验缺失实现必须 commandless 且阻断发布。
@@ -343,6 +492,9 @@ func validateReceiptIdentity(value Receipt, workload Workload, document Catalog)
 }
 
 func validateReceiptProducer(value Receipt, workload Workload) error {
+	if value.ProducerImplementationStatus != workload.ProducerImplementationStatus {
+		return fmt.Errorf("workload receipt producer implementation status mismatch for %q", workload.ID)
+	}
 	if value.RunnerTarget != workload.RunnerTarget {
 		return fmt.Errorf("workload receipt producer coordinates mismatch for %q", workload.ID)
 	}
@@ -357,6 +509,9 @@ func validateReceiptProducer(value Receipt, workload Workload) error {
 
 // validateReceiptExecution 校验本地来源、平台、命令、预算和时间序列。
 func validateReceiptExecution(value Receipt, workload Workload) error {
+	if workload.ProducerImplementationStatus != "implemented" && value.ExecutionOrigin != "local-runner" {
+		return fmt.Errorf("workload receipt for %q cannot be trusted as CI/release: producer_implementation_status=%s", workload.ID, workload.ProducerImplementationStatus)
+	}
 	if value.ExecutionOrigin != "local-runner" {
 		return fmt.Errorf("workload receipt for %q has unsupported execution origin %q", workload.ID, value.ExecutionOrigin)
 	}
@@ -383,7 +538,11 @@ func validateReceiptExecution(value Receipt, workload Workload) error {
 	if finished.Before(started) {
 		return fmt.Errorf("workload receipt finished_at precedes started_at for %q", workload.ID)
 	}
-	if finished.Sub(started) > time.Duration(workload.TimeoutSeconds)*time.Second {
+	timeout, err := TimeoutDuration(workload.TimeoutSeconds)
+	if err != nil {
+		return fmt.Errorf("workload receipt timeout is invalid for %q: %w", workload.ID, err)
+	}
+	if finished.Sub(started) > timeout {
 		return fmt.Errorf("workload receipt duration exceeds timeout for %q", workload.ID)
 	}
 	return nil
