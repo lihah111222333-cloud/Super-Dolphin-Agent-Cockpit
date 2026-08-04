@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
-	"syscall"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
@@ -63,7 +62,7 @@ func startupAbortAction(cmd *exec.Cmd, pid int, expected *ProcessIdentity, owned
 	}
 	killGroup := hooks.killGroup
 	if killGroup == nil {
-		killGroup = func(pid int) error { return syscall.Kill(-pid, syscall.Signal(unixForceSignal)) }
+		killGroup = defaultStartupKillGroup
 	}
 	if err := killGroup(pid); err != nil && !isProcessGone(err) {
 		return fmt.Errorf("startup abort: kill process group %d: %w", pid, err), true
@@ -77,12 +76,7 @@ func exactStartupKill(cmd *exec.Cmd, pid int, prior error, expected *ProcessIden
 		return errors.Join(prior, err)
 	}
 	if killProcess == nil {
-		killProcess = func(cmd *exec.Cmd) error {
-			if cmd == nil || cmd.Process == nil {
-				return errors.New("startup process owner is unavailable")
-			}
-			return cmd.Process.Kill()
-		}
+		killProcess = defaultStartupKillProcess
 	}
 	if err := killProcess(cmd); err != nil && !isProcessGone(err) {
 		return errors.Join(prior, fmt.Errorf("startup abort: kill exact root process %d: %w", pid, err))

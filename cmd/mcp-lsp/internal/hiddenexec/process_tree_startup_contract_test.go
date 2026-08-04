@@ -107,15 +107,7 @@ func TestStartProcessTreeOwnershipProbeFailureRetainsExactRootOwner(t *testing.T
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if err := tree.Force(ctx); err != nil {
-		t.Fatalf("retained exact-root Force() error = %v", err)
-	}
-	if err := tree.Wait(ctx); err != nil {
-		t.Fatalf("retained exact-root Wait() error = %v", err)
-	}
-	if err := tree.Release(); err != nil {
-		t.Fatalf("retained exact-root Release() error = %v", err)
-	}
+	finishRetainedStartupOwner(t, tree, cmd, ctx)
 	alive, probeErr := ProcessAlive(cmd.Process.Pid)
 	if probeErr != nil {
 		t.Fatalf("probe retained exact-root process: %v", probeErr)
@@ -150,12 +142,7 @@ func TestStartProcessTreeWaitTimeoutRetainsOwnerForRetry(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if err := tree.Wait(ctx); err != nil {
-		t.Fatalf("retained owner Wait() error = %v", err)
-	}
-	if err := tree.Release(); err != nil {
-		t.Fatalf("retained owner Release() error = %v", err)
-	}
+	finishRetainedStartupOwner(t, tree, cmd, ctx)
 	alive, probeErr := ProcessAlive(cmd.Process.Pid)
 	if probeErr != nil {
 		t.Fatalf("probe timed-out startup process: %v", probeErr)

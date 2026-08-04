@@ -311,6 +311,9 @@ func (t *transport) terminateProcessTreeAttempt() (error, bool) {
 		// tree from its current PID; only StartProcessTree may authorize signals.
 		return hiddenexec.ErrProcessTreeOwnerMissing, false
 	}
+	if t.processTreeReleased() {
+		return nil, true
+	}
 	t.terminationMu.Lock()
 	if t.terminationComplete {
 		err := t.terminationErr

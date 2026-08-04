@@ -5,6 +5,8 @@ package hiddenexec
 import (
 	"errors"
 	"fmt"
+	"os/exec"
+	"syscall"
 
 	"golang.org/x/sys/unix"
 )
@@ -92,4 +94,19 @@ func verifyCurrentMember(member ProcessIdentity) error {
 		return errors.Join(ErrProcessTreeCleanupPending, fmt.Errorf("%w before signal for member PID %d", ErrProcessTreeIdentityMismatch, member.PID))
 	}
 	return nil
+}
+
+func defaultStartupKillGroup(pid int) error {
+	return syscall.Kill(-pid, syscall.Signal(unixForceSignal))
+}
+
+func defaultStartupKillProcess(cmd *exec.Cmd) error {
+	if cmd == nil || cmd.Process == nil {
+		return errors.New("startup process owner is unavailable")
+	}
+	return cmd.Process.Kill()
+}
+
+func terminateStartupProcess(cmd *exec.Cmd) error {
+	return defaultStartupKillProcess(cmd)
 }

@@ -5,6 +5,7 @@ package hiddenexec
 import (
 	"context"
 	"errors"
+	"os/exec"
 	"syscall"
 	"testing"
 	"time"
@@ -72,5 +73,18 @@ func TestLinuxActionTimeIdentityMismatchBlocksSignal(t *testing.T) {
 	if err := tree.Force(context.Background()); err != nil {
 		t.Fatalf("cleanup Force() error = %v", err)
 	}
+	_ = cmd.Wait()
+}
+
+func requireProcessTreeShutdownPlatform(t *testing.T, tree *ProcessTree, ctx context.Context) bool {
+	t.Helper()
+	if err := tree.Graceful(ctx); err != nil {
+		t.Fatalf("Graceful() error = %v", err)
+	}
+	return true
+}
+
+func cleanupProcessTreeFixture(tree *ProcessTree, cmd *exec.Cmd) {
+	_ = tree.Force(context.Background())
 	_ = cmd.Wait()
 }

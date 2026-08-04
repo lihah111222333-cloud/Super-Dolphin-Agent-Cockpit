@@ -99,8 +99,8 @@ func (p *startupProcessTreeState) waitResult(ctx context.Context) error {
 	}
 }
 
-// terminateExact 在 Unix 上先验证不可变启动身份，再发送根进程信号并回收。
-// os.Process 在 Darwin 上仍按 PID 发信号，因此不能单独作为安全句柄。
+// terminateExact 在平台授权后先验证不可变启动身份，再执行根进程动作并回收。
+// Darwin 没有稳定的进程句柄时由平台实现 fail-closed，绝不退化为 PID kill。
 func (p *startupProcessTreeState) terminateExact() error {
 	p.mu.Lock()
 	p.startWaitLocked()
@@ -117,12 +117,12 @@ func (p *startupProcessTreeState) terminateExact() error {
 				return errors.Join(ErrProcessTreeCleanupPending, err)
 			}
 		}
-		killErr = cmd.Process.Kill()
+		killErr = terminateStartupProcess(cmd)
 	}
 	if killErr != nil && !errors.Is(killErr, os.ErrProcessDone) {
 		killErr = fmt.Errorf("kill exact startup process %d: %w", cmd.Process.Pid, killErr)
 	}
-	waitCtx, waitCancel := platformconfig.WithTimeout(context.Background(), startupOwnerWait)
+	waitCtx, waitCancel := startupTerminationWaitContext(killErr)
 	waitErr := p.waitResult(waitCtx)
 	waitCancel()
 	if waitErr != nil || killErr != nil {
@@ -295,3 +295,12 @@ func (p *startupProcessTree) remaining() ([]ProcessIdentity, error) {
 }
 
 const startupOwnerWait = 3 * time.Second
+
+func startupTerminationWaitContext(killErr error) (context.Context, context.CancelFunc) {
+	if errors.Is(killErr, ErrProcessTreeCleanupPending) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		return ctx, cancel
+	}
+	return platformconfig.WithTimeout(context.Background(), startupOwnerWait)
+}

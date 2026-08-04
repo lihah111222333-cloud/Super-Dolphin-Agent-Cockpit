@@ -5,7 +5,6 @@ package hiddenexec
 import (
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -110,17 +109,24 @@ func processRSSBytes(pid int) (uint64, error) {
 }
 
 func signalProcessMembers(members []ProcessIdentity, signal int) error {
-	for _, member := range members {
-		current, err := captureProcessIdentity(member.PID)
-		if err != nil {
-			return fmt.Errorf("%w before signal for member PID %d: %v", ErrProcessTreeIdentityMismatch, member.PID, err)
-		}
-		if !current.Equal(member) {
-			return fmt.Errorf("%w before signal for member PID %d", ErrProcessTreeIdentityMismatch, member.PID)
-		}
-		if err := syscall.Kill(member.PID, syscall.Signal(signal)); err != nil && !errors.Is(err, os.ErrProcessDone) && !errors.Is(err, syscall.ESRCH) {
-			return fmt.Errorf("send signal %d to member PID %d: %w", signal, member.PID, err)
-		}
+	if len(members) == 0 {
+		return nil
 	}
-	return nil
+	_ = signal
+	// Darwin's os.Process/syscall APIs carry only a PID, not a stable process
+	// handle. An identity probe cannot be atomically bound to a later signal,
+	// so production member actions are deliberately zero-signal.
+	return errors.Join(ErrProcessTreeCleanupPending, errors.New("Darwin process-tree member signal requires a stable process handle; signal_sent=false"))
+}
+
+func defaultStartupKillGroup(int) error {
+	return errors.Join(ErrProcessTreeCleanupPending, errors.New("Darwin startup process-group signal requires a stable process handle; signal_sent=false"))
+}
+
+func defaultStartupKillProcess(*exec.Cmd) error {
+	return errors.Join(ErrProcessTreeCleanupPending, errors.New("Darwin startup exact-root signal requires a stable process handle; signal_sent=false"))
+}
+
+func terminateStartupProcess(cmd *exec.Cmd) error {
+	return defaultStartupKillProcess(cmd)
 }
