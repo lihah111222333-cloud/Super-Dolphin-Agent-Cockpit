@@ -2,9 +2,11 @@
 
 package hiddenexec
 
+// 合同测试验证启动身份权限，禁止触碰无关进程。
 import (
 	"context"
 	"errors"
+	"os"
 	"os/exec"
 	"testing"
 	"time"
@@ -12,59 +14,69 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 )
 
-func TestStartProcessTreeBindFailureAbortsOwnedStartupAndReapsRoot(t *testing.T) {
-	// Keep a descendant in the same startup process group so the assertion
-	// covers the complete constrained-abort scope, not just cmd.Process.
-	cmd := Command("/bin/sh", "-c", "sleep 30")
+func TestStartProcessTreeBindFailureRetainsUnknownStartupOwnerWithoutSignal(t *testing.T) {
+	// When the root identity cannot be captured, cleanup must fail closed and
+	// avoid signaling a PID that cannot be proven to be ours.
+	groupSignals := 0
+	exactSignals := 0
+	cmd := Command("/bin/sleep", "30")
 	tree, err := startProcessTreeWithHooks(cmd, startupAbortHooks{
 		captureIdentity: func(int) (ProcessIdentity, error) {
 			return ProcessIdentity{}, errors.New("injected startup bind failure")
 		},
-		groupOwned:  startupProcessGroupOwned,
+		groupOwned: func(int) (bool, error) {
+			return true, nil
+		},
 		startWait:   startStartupProcessWait,
-		waitTimeout: 3 * time.Second,
+		waitTimeout: time.Millisecond,
+		killGroup: func(int) error {
+			groupSignals++
+			return nil
+		},
+		killProcess: func(*exec.Cmd) error {
+			exactSignals++
+			return nil
+		},
 	})
-	if tree != nil {
-		t.Fatal("StartProcessTree() returned an owner after an injected bind failure")
+	assertRetainedStartupOwner(t, tree, err)
+	assertNoStartupSignals(t, "startup identity failure", groupSignals, exactSignals)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	assertCleanupPending(t, "retained unknown owner Force", tree.Force(ctx))
+	assertNoStartupSignals(t, "retained unknown owner", groupSignals, exactSignals)
+	if err := cmd.Process.Kill(); err != nil {
+		t.Fatalf("test cleanup kill: %v", err)
+	}
+	if err := tree.Wait(ctx); err != nil {
+		t.Fatalf("reap fail-closed startup owner: %v", err)
+	}
+}
+
+// assertRetainedStartupOwner 固定启动身份不可用时必须返回 retained owner 与 CleanupPending。
+func assertRetainedStartupOwner(t *testing.T, tree *ProcessTree, err error) {
+	t.Helper()
+	if tree == nil {
+		t.Fatal("StartProcessTree() lost the fail-closed startup owner")
 	}
 	if err == nil {
 		t.Fatal("StartProcessTree() error = nil after an injected bind failure")
 	}
-	if errors.Is(err, ErrProcessTreeCleanupPending) {
-		t.Fatalf("StartProcessTree() reported CleanupPending despite owned startup cleanup: %v", err)
-	}
-	if cmd.Process == nil {
-		t.Fatal("StartProcessTree() did not retain the started process for startup cleanup evidence")
-	}
-
-	rootPID := cmd.Process.Pid
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		table, tableErr := processTable()
-		if tableErr == nil && !processGroupPresent(table, rootPID) {
-			return
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
-	table, tableErr := processTable()
-	if tableErr != nil {
-		t.Fatalf("inspect startup-aborted process group: %v", tableErr)
-	}
-	if processGroupPresent(table, rootPID) {
-		t.Fatalf("startup-aborted process group %d still has members", rootPID)
+	if !errors.Is(err, ErrProcessTreeCleanupPending) {
+		t.Fatalf("StartProcessTree() error = %v, want CleanupPending", err)
 	}
 }
 
-func processGroupPresent(table map[int]ProcessIdentity, processGroupID int) bool {
-	for _, identity := range table {
-		if identity.ProcessGroupID == processGroupID {
-			return true
-		}
+// assertNoStartupSignals 固定注入的 group/exact signal hooks 均未被调用。
+func assertNoStartupSignals(t *testing.T, operation string, groupSignals, exactSignals int) {
+	t.Helper()
+	if groupSignals != 0 || exactSignals != 0 {
+		t.Fatalf("%s sent signals: group=%d exact=%d", operation, groupSignals, exactSignals)
 	}
-	return false
 }
 
 func TestStartProcessTreeOwnershipProbeFailureRetainsExactRootOwner(t *testing.T) {
+	groupSignals := 0
+	exactSignals := 0
 	cmd := Command("/bin/sleep", "30")
 	tree, err := startProcessTreeWithHooks(cmd, startupAbortHooks{
 		captureIdentity: func(pid int) (ProcessIdentity, error) {
@@ -74,13 +86,24 @@ func TestStartProcessTreeOwnershipProbeFailureRetainsExactRootOwner(t *testing.T
 			return false, errors.New("injected ownership probe failure")
 		},
 		startWait:   startStartupProcessWait,
-		waitTimeout: 3 * time.Second,
+		waitTimeout: time.Millisecond,
+		killGroup: func(int) error {
+			groupSignals++
+			return nil
+		},
+		killProcess: func(*exec.Cmd) error {
+			exactSignals++
+			return nil
+		},
 	})
 	if tree == nil {
 		t.Fatal("StartProcessTree() lost the exact-root cleanup owner")
 	}
 	if !errors.Is(err, ErrProcessTreeCleanupPending) {
 		t.Fatalf("StartProcessTree() error = %v, want CleanupPending", err)
+	}
+	if groupSignals != 0 || exactSignals != 0 {
+		t.Fatalf("ownership probe failure sent startup signals: group=%d exact=%d", groupSignals, exactSignals)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -139,5 +162,113 @@ func TestStartProcessTreeWaitTimeoutRetainsOwnerForRetry(t *testing.T) {
 	}
 	if alive {
 		t.Fatalf("timed-out startup process %d is still alive", cmd.Process.Pid)
+	}
+}
+
+func TestStartupAbortActionPIDReuseDoesNotSignal(t *testing.T) {
+	expected := &ProcessIdentity{PID: 4242, StartToken: "boot/start-a"}
+	signals := 0
+	err, pending := startupAbortAction(&exec.Cmd{}, expected.PID, expected, true, nil, startupAbortHooks{
+		captureIdentity: func(pid int) (ProcessIdentity, error) {
+			return ProcessIdentity{PID: pid, StartToken: "boot/start-b"}, nil
+		},
+		killGroup: func(int) error {
+			signals++
+			return nil
+		},
+		killProcess: func(*exec.Cmd) error {
+			signals++
+			return nil
+		},
+	})
+	if !pending {
+		t.Fatal("startupAbortAction() pending = false, want fail-closed")
+	}
+	if !errors.Is(err, ErrProcessTreeIdentityMismatch) {
+		t.Fatalf("startupAbortAction() error = %v, want identity mismatch", err)
+	}
+	if signals != 0 {
+		t.Fatalf("PID reuse received signal attempts = %d, want zero", signals)
+	}
+}
+
+func TestStartupAbortActionIdentityProbePermissionDoesNotSignal(t *testing.T) {
+	expected := &ProcessIdentity{PID: 4343, StartToken: "boot/start-a"}
+	signals := 0
+	err, pending := startupAbortAction(&exec.Cmd{}, expected.PID, expected, true, nil, startupAbortHooks{
+		captureIdentity: func(int) (ProcessIdentity, error) {
+			return ProcessIdentity{}, os.ErrPermission
+		},
+		killGroup: func(int) error {
+			signals++
+			return nil
+		},
+		killProcess: func(*exec.Cmd) error {
+			signals++
+			return nil
+		},
+	})
+	if !pending {
+		t.Fatal("startupAbortAction() pending = false, want fail-closed")
+	}
+	if !errors.Is(err, ErrProcessTreeIdentityMismatch) {
+		t.Fatalf("startupAbortAction() error = %v, want identity mismatch", err)
+	}
+	if !errors.Is(err, os.ErrPermission) {
+		t.Fatalf("startupAbortAction() error = %v, want permission error", err)
+	}
+	if signals != 0 {
+		t.Fatalf("permission failure received signal attempts = %d, want zero", signals)
+	}
+}
+
+func TestStartupAbortActionSignalPermissionDoesNotFallbackToRoot(t *testing.T) {
+	expected := &ProcessIdentity{PID: 4545, StartToken: "boot/start-a"}
+	exactSignals := 0
+	err, pending := startupAbortAction(&exec.Cmd{}, expected.PID, expected, true, nil, startupAbortHooks{
+		captureIdentity: func(pid int) (ProcessIdentity, error) {
+			return *expected, nil
+		},
+		killGroup: func(int) error {
+			return os.ErrPermission
+		},
+		killProcess: func(*exec.Cmd) error {
+			exactSignals++
+			return nil
+		},
+	})
+	if !pending || !errors.Is(err, os.ErrPermission) {
+		t.Fatalf("startupAbortAction() result = (%v, pending=%v), want fail-closed permission error", err, pending)
+	}
+	if exactSignals != 0 {
+		t.Fatalf("permission failure fell back to exact signal attempts = %d, want zero", exactSignals)
+	}
+}
+
+func TestStartupOwnerRetryPIDReuseDoesNotSignal(t *testing.T) {
+	expected := ProcessIdentity{PID: 4444, StartToken: "boot/start-a"}
+	done := make(chan error, 1)
+	done <- nil
+	signals := 0
+	state := &startupProcessTreeState{
+		cmd:              &exec.Cmd{Process: &os.Process{}},
+		waitDone:         done,
+		waitStarted:      true,
+		startupIdentity:  expected,
+		identityKnown:    true,
+		identityRequired: true,
+		captureIdentity: func(pid int) (ProcessIdentity, error) {
+			return ProcessIdentity{PID: pid, StartToken: "boot/start-b"}, nil
+		},
+	}
+	err := state.terminateExact()
+	if !errors.Is(err, ErrProcessTreeIdentityMismatch) {
+		t.Fatalf("terminateExact() error = %v, want identity mismatch", err)
+	}
+	if !errors.Is(err, ErrProcessTreeCleanupPending) {
+		t.Fatalf("terminateExact() error = %v, want CleanupPending", err)
+	}
+	if signals != 0 {
+		t.Fatalf("PID reuse retry received signal attempts = %d, want zero", signals)
 	}
 }
