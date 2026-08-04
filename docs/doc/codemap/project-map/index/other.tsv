@@ -263,6 +263,7 @@ internal/archtest/metrics_test.go	internal	other	go-test	3700	架构守卫、bas
 internal/archtest/metrics.go	internal	other	go-source	13345	架构守卫、baseline ratchet 与冻结规则	internal,archtest,metrics,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/migration_sqlc_guard_test.go	internal	other	go-test	7013	架构守卫、baseline ratchet 与冻结规则	internal,archtest,migration,sqlc,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/multilsp_cache_no_loop_guard_test.go	internal	other	go-test	1308	架构守卫、baseline ratchet 与冻结规则	internal,archtest,multilsp,cache,no,loop,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/multilsp_idle_timeout_wiring_guard_test.go	internal	other	go-test	2809	架构守卫、baseline ratchet 与冻结规则	internal,archtest,multilsp,idle,timeout,wiring,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/multilsp_recycler_runner_guard_test.go	internal	other	go-test	1619	架构守卫、baseline ratchet 与冻结规则	internal,archtest,multilsp,recycler,runner,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/multilsp_transport_compat_guard_test.go	internal	other	go-test	2391	架构守卫、baseline ratchet 与冻结规则	internal,archtest,multilsp,transport,compat,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/multilsp_transport_responder_guard_test.go	internal	other	go-test	2244	架构守卫、baseline ratchet 与冻结规则	internal,archtest,multilsp,transport,responder,guard,test,架构守卫,baseline,ratchet,与冻结规则

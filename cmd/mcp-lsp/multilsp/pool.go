@@ -324,7 +324,7 @@ func (p *ManagerPool) managerIdleEligibleForRelease(mgr *manager) bool {
 		if workspace == nil || workspace.client == nil {
 			continue
 		}
-		if !idleEligible(workspace, now, idleTimeoutForLanguage(workspace.languageID)) {
+		if !idleEligible(workspace, now, mgr.idleTimeout) {
 			return false
 		}
 	}
@@ -511,7 +511,7 @@ func (p *ManagerPool) retireManagerIfIdle(mgr *manager) bool {
 	}
 	now := mgr.managerNow()
 	for _, workspace := range mgr.workspaces {
-		if !p.retireWorkspaceEligible(workspace, now) {
+		if !p.retireWorkspaceEligible(mgr, workspace, now) {
 			return false
 		}
 	}
@@ -520,15 +520,18 @@ func (p *ManagerPool) retireManagerIfIdle(mgr *manager) bool {
 }
 
 // retireWorkspaceEligible 判断容量淘汰时单个 workspace 是否满足代际、租约和完整 idle window。
-func (p *ManagerPool) retireWorkspaceEligible(workspace *workspaceClient, now time.Time) bool {
+func (p *ManagerPool) retireWorkspaceEligible(mgr *manager, workspace *workspaceClient, now time.Time) bool {
 	if workspace == nil || workspace.client == nil {
 		return true
+	}
+	if mgr == nil || mgr.idleTimeout <= 0 {
+		return false
 	}
 	if workspace.generation == 0 || p.activeLeasesForWorkspace(workspace) > 0 {
 		return false
 	}
 	// Capacity pressure never bypasses the full idle timeout for a registered generation.
-	return idleEligible(workspace, now, idleTimeoutForLanguage(workspace.languageID))
+	return idleEligible(workspace, now, mgr.idleTimeout)
 }
 
 // detachIdleEmptyClones 摘除早于 cutoff 且没有 workspace 或租约的 clone。

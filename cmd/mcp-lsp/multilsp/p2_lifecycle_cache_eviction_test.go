@@ -93,7 +93,7 @@ func TestManagerPoolCapEvictionPropagatesCloseFailure(t *testing.T) {
 		client:     &failingCloseP2Client{p2LifecycleClient: &p2LifecycleClient{healthy: true}, err: closeErr},
 		generation: 1,
 		state:      workspaceStateIdleCountdown,
-		idleSince:  time.Now().Add(-2 * idleTimeout),
+		idleSince:  time.Now().Add(-2 * idleTimeoutForTest()),
 	}
 	first.mu.Unlock()
 

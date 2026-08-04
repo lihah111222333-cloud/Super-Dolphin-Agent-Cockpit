@@ -251,29 +251,18 @@ func clearResourceLimitEnvironmentForTest(t *testing.T) {
 	}
 }
 
-func TestIdleTimeoutUsesLanguageRuntimeBudget(t *testing.T) {
-	tests := []struct {
-		languageID string
-		want       time.Duration
-	}{
-		{languageID: "go", want: idleTimeout},
-		{languageID: "typescript", want: idleTimeout},
-		{languageID: "python", want: idleTimeout},
-		{languageID: "rust", want: idleTimeout},
-	}
-	for _, test := range tests {
-		t.Run(test.languageID, func(t *testing.T) {
-			if got := idleTimeoutForLanguage(test.languageID); got != test.want {
-				t.Fatalf("idleTimeoutForLanguage(%q) = %s, want %s", test.languageID, got, test.want)
-			}
-		})
+func TestManagerStoresConfiguredIdleTimeout(t *testing.T) {
+	const want = 37 * time.Minute
+	mgr := NewManager(Config{IdleTimeout: want}).(*manager)
+	if got := mgr.idleTimeout; got != want {
+		t.Fatalf("manager idle timeout = %s, want %s", got, want)
 	}
 }
 
 func TestDetachIdleWorkspaceRechecksConcurrentActivity(t *testing.T) {
 	client := &p2LifecycleClient{}
 	key := "workspace"
-	cutoff := time.Now().Add(-idleTimeout)
+	cutoff := time.Now().Add(-idleTimeoutForTest())
 	mgr := &manager{workspaces: map[string]*workspaceClient{
 		key: {
 			key:          key,
@@ -308,7 +297,7 @@ func TestPoolRecyclerIdleWorkspaceWinsOverRSSRecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureClient(scoped): %v", err)
 	}
-	forceWorkspaceLastActivity(t, scoped, client, time.Now().Add(-idleTimeout-time.Minute))
+	forceWorkspaceLastActivity(t, scoped, client, time.Now().Add(-idleTimeoutForTest()-time.Minute))
 
 	originalProbe := mgr.pool.recycler.rssProbe
 	mgr.pool.recycler.rssProbe = func(Client) (uint64, int, error) {
@@ -350,7 +339,7 @@ func TestPoolRecyclerIdleShutdownReportsCleanupFailure(t *testing.T) {
 	first := factory.clientAt(t, 0)
 	first.shutdownFailure = errors.New("shutdown failed at " + root)
 	first.closeFailure = errors.New("close failed at " + root)
-	forceWorkspaceLastActivity(t, scoped, client, time.Now().Add(-idleTimeout-time.Minute))
+	forceWorkspaceLastActivity(t, scoped, client, time.Now().Add(-idleTimeoutForTest()-time.Minute))
 	mgr.pool.recycler.checkIdleWorkspaces(scoped, ResolvedLSPToolScope{
 		ManagerKey: "manager-idle-error",
 		ScopeKey:   "scope-idle-error",
@@ -437,10 +426,10 @@ func TestRecyclerProbeDegradationFailsClosedForIdleClient(t *testing.T) {
 		client:       client,
 		generation:   1,
 		state:        workspaceStateIdleCountdown,
-		idleSince:    time.Now().Add(-2 * idleTimeout),
+		idleSince:    time.Now().Add(-2 * idleTimeoutForTest()),
 		lastActivity: time.Now(),
 	}
-	mgr := &manager{workspaces: map[string]*workspaceClient{workspace.key: workspace}}
+	mgr := &manager{idleTimeout: idleTimeoutForTest(), workspaces: map[string]*workspaceClient{workspace.key: workspace}}
 	recycler := newPoolRecycler(nil)
 	recycler.rssProbe = func(Client) (uint64, int, error) {
 		return 0, 0, errors.New("probe unavailable")
@@ -459,10 +448,10 @@ func TestRecyclerProbeDegradationFailsClosedForIdleClient(t *testing.T) {
 func TestRecyclerProbeFailuresAreTrackedPerClient(t *testing.T) {
 	failingClient := &p2LifecycleClient{healthy: true}
 	healthyClient := &p2LifecycleClient{healthy: true}
-	failing := &workspaceClient{key: "workspace-failing-probe", languageID: "typescript", client: failingClient, generation: 1, state: workspaceStateIdleCountdown, idleSince: time.Now().Add(-2 * idleTimeout)}
+	failing := &workspaceClient{key: "workspace-failing-probe", languageID: "typescript", client: failingClient, generation: 1, state: workspaceStateIdleCountdown, idleSince: time.Now().Add(-2 * idleTimeoutForTest())}
 	// 该测试只覆盖 probe 计数；使用无需 repository lease 的 gopls policy，避免伪 client 绕过非 gopls fail-fast 契约。
 	healthy := &workspaceClient{key: "workspace-healthy-probe", languageID: "go", client: healthyClient, generation: 1, state: workspaceStateActive}
-	mgr := &manager{workspaces: map[string]*workspaceClient{
+	mgr := &manager{idleTimeout: idleTimeoutForTest(), workspaces: map[string]*workspaceClient{
 		failing.key: failing,
 		healthy.key: healthy,
 	}}
@@ -749,7 +738,7 @@ func TestReleaseScopeCloseFailureDoesNotReportClosedOrDrained(t *testing.T) {
 		client:     &failingCloseP2Client{p2LifecycleClient: &p2LifecycleClient{healthy: true}, err: closeErr},
 		generation: 1,
 		state:      workspaceStateIdleCountdown,
-		idleSince:  time.Now().Add(-2 * idleTimeout),
+		idleSince:  time.Now().Add(-2 * idleTimeoutForTest()),
 	}
 	scoped.mu.Unlock()
 
@@ -802,7 +791,7 @@ func TestPoolRecyclerEvictsIdleEmptyCloneByTTL(t *testing.T) {
 		shard.mu.Unlock()
 		t.Fatalf("clone %q not found", resolved.ManagerKey)
 	}
-	clone.lastUsedAt = time.Now().Add(-idleTimeout - time.Second)
+	clone.lastUsedAt = time.Now().Add(-idleTimeoutForTest() - time.Second)
 	shard.mu.Unlock()
 
 	mgr.pool.recycler.check()
@@ -835,10 +824,10 @@ func TestPoolIdleCloneDetachRejectsNewClientBeforeClose(t *testing.T) {
 	shard := mgr.pool.shardForKey(resolved.ShardKey)
 	shard.mu.Lock()
 	clone := shard.clones[resolved.ManagerKey]
-	clone.lastUsedAt = time.Now().Add(-idleTimeout - time.Second)
+	clone.lastUsedAt = time.Now().Add(-idleTimeoutForTest() - time.Second)
 	shard.mu.Unlock()
 
-	detached := mgr.pool.detachIdleEmptyClones(time.Now().Add(-idleTimeout))
+	detached := mgr.pool.detachIdleEmptyClones(time.Now().Add(-idleTimeoutForTest()))
 	if len(detached) != 1 || detached[0].manager != scoped {
 		t.Fatalf("detachIdleEmptyClones() = %#v, want detached scoped manager", detached)
 	}
