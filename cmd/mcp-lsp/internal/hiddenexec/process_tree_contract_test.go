@@ -64,7 +64,14 @@ func requireProcessTreeShutdown(t *testing.T, tree *ProcessTree) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if err := tree.Graceful(ctx); err != nil {
+	if isWindows() {
+		if err := tree.Graceful(ctx); err == nil {
+			t.Fatal("Graceful() error = nil on Windows, want unsupported TERM phase")
+		}
+		if err := tree.Force(ctx); err != nil {
+			t.Fatalf("Force() error = %v", err)
+		}
+	} else if err := tree.Graceful(ctx); err != nil {
 		t.Fatalf("Graceful() error = %v", err)
 	}
 	if err := tree.Wait(ctx); err != nil {

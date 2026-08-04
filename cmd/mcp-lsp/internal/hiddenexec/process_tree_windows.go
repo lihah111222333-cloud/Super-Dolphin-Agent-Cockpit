@@ -636,16 +636,17 @@ func killProcessTree(cmd *exec.Cmd) error {
 }
 
 func terminateJobProcessTree(job windows.Handle) error {
-	jobErr := windows.TerminateJobObject(job, 1)
-	if processTreeProcessGone(jobErr) {
+	return terminateJobProcessTreeWith(job, windows.TerminateJobObject)
+}
+
+func terminateJobProcessTreeWith(job windows.Handle, terminate func(windows.Handle, uint32) error) error {
+	jobErr := terminate(job, 1)
+	if jobErr == nil || processTreeProcessGone(jobErr) {
 		return nil
 	}
 	return fmt.Errorf("terminate language-server Job Object: %w", jobErr)
 }
 
 func processTreeProcessGone(err error) bool {
-	return err == nil ||
-		errors.Is(err, os.ErrProcessDone) ||
-		errors.Is(err, windows.ERROR_INVALID_PARAMETER) ||
-		errors.Is(err, windows.ERROR_NOT_FOUND)
+	return isProcessTreeGoneError(err, windows.ERROR_INVALID_PARAMETER, windows.ERROR_NOT_FOUND)
 }

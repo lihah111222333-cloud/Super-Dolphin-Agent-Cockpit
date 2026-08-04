@@ -17,6 +17,8 @@ import (
 
 const processQueryBinary = "ps"
 
+var errProcessPermissionDenied = errors.New("process probe permission denied")
+
 type processQuery struct {
 	pid            int
 	parentPID      int
@@ -27,12 +29,17 @@ type processQuery struct {
 	executable     string
 }
 
-// Probe performs signal-zero liveness and a fixed, read-only ps query.
+// Probe 执行 signal-zero 存活检查和固定参数的只读 ps 查询。
 func Probe(ctx context.Context, pid int) (Snapshot, error) {
+	return probeWithLiveness(ctx, pid, signalZero)
+}
+
+// probeWithLiveness 串联校验、存活判定和只读查询，允许测试注入纯 liveness fixture。
+func probeWithLiveness(ctx context.Context, pid int, liveness func(int) (bool, bool, error)) (Snapshot, error) {
 	if snapshot, err := validateProbeInput(ctx, pid); err != nil {
 		return snapshot, err
 	}
-	alive, permissionDenied, err := signalZero(pid)
+	alive, permissionDenied, err := liveness(pid)
 	if err != nil {
 		return livenessFailure(pid, alive, permissionDenied, err)
 	}
@@ -101,12 +108,15 @@ func queryToSnapshot(query processQuery) Snapshot {
 }
 
 func signalZero(pid int) (alive bool, permissionDenied bool, retErr error) {
-	err := syscall.Kill(pid, 0)
+	return classifySignalZeroError(syscall.Kill(pid, 0))
+}
+
+func classifySignalZeroError(err error) (alive bool, permissionDenied bool, retErr error) {
 	switch {
 	case err == nil:
 		return true, false, nil
 	case errors.Is(err, syscall.EPERM):
-		return true, true, nil
+		return true, true, errors.Join(errProcessPermissionDenied, err)
 	case errors.Is(err, syscall.ESRCH):
 		return false, false, nil
 	default:
@@ -114,6 +124,7 @@ func signalZero(pid int) (alive bool, permissionDenied bool, retErr error) {
 	}
 }
 
+// readProcessQuery 通过固定的只读 ps 参数读取进程快照字段。
 func readProcessQuery(ctx context.Context, pid int) (processQuery, error) {
 	sessionField := "sid="
 	if runtime.GOOS == "darwin" {
@@ -163,6 +174,7 @@ func readProcessQuery(ctx context.Context, pid int) (processQuery, error) {
 
 func validExecutable(value string) bool { return value != "." && value != "" }
 
+// linuxStartIdentity 从 procfs 读取 Linux 启动身份，不执行进程控制操作。
 func linuxStartIdentity(pid int) (string, error) {
 	payload, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
 	if err != nil {
