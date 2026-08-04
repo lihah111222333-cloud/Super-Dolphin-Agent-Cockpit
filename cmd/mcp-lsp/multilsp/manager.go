@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -101,6 +102,8 @@ type Config struct {
 	DiagnosticsMaxWait               time.Duration            // 单次诊断等待的最大时长。
 	Logger                           *slog.Logger             // 可选日志器，空值时下游使用默认日志路径。
 	DisableInitialWorkspaceBootstrap bool                     // 是否跳过启动时的 workspace 预热。
+	provisionalInstanceID            string                   // 测试专用的确定性 manager 实例标识。
+	provisionalEntropy               io.Reader                // 测试专用熵源注入；生产使用 crypto/rand.Reader。
 }
 
 // manager 维护 workspace 客户端、诊断缓存和后台分片池；所有共享状态必须经对应锁访问。
@@ -110,6 +113,7 @@ type manager struct {
 	clock                            func() time.Time         // 测试可注入时钟；生产路径使用 time.Now。
 	provisionalOperation             atomic.Uint64            // provisional cleanup 的本地操作序号。
 	instanceID                       string                   // manager 实例随机身份，避免 clone 操作 ID 碰撞。
+	provisionalEntropy               io.Reader                // 测试熵源；生产 manager 由 crypto/rand 提供身份。
 	factory                          ClientFactory            // 语言服务器客户端工厂。
 	adapters                         *LanguageAdapterRegistry // 语言到 root/能力策略的适配表。
 	logger                           *slog.Logger             // manager 内部诊断日志。
@@ -131,6 +135,7 @@ type manager struct {
 	closeResult      error                   // 关闭完成后的稳定结果，供重复 Close 返回。
 	closeWarnings    error                   // 已完成 client 的 graceful shutdown 错误。
 	closingClients   []pendingClientShutdown // Close 失败后仍需重试的 client owner。
+	cloneSequence    atomic.Uint64           // parent manager 本地的 scoped clone 序号。
 
 	diagGeneration     atomic.Uint64                 // 诊断缓存代际，关闭/刷新时递增。
 	diagMu             sync.RWMutex                  // 保护 diagnostics。
@@ -218,12 +223,22 @@ type workspaceConfig struct {
 }
 
 var (
-	_ Manager                      = (*manager)(nil)
-	_ protocol.NotificationHandler = (*manager)(nil)
+	_                   Manager                      = (*manager)(nil)
+	_                   protocol.NotificationHandler = (*manager)(nil)
+	testManagerSequence atomic.Uint64
 )
 
-// NewManager 根据配置创建 manager，空 root 会回退到当前目录但工厂缺失仍保持 fail-fast。
+// NewManager 是保留的无错误测试构造入口；生产 runtime 必须使用 NewManagerWithError。
 func NewManager(cfg Config) Manager {
+	if cfg.provisionalInstanceID == "" {
+		cfg.provisionalInstanceID = fmt.Sprintf("test-manager-%d", testManagerSequence.Add(1))
+	}
+	mgr, _ := NewManagerWithError(cfg)
+	return mgr
+}
+
+// NewManagerWithError 创建带随机实例身份的 manager，并透传熵源/构造错误。
+func NewManagerWithError(cfg Config) (Manager, error) {
 	root, err := platformshared.NormalizeAbsolutePath(cfg.WorkspaceRoot)
 	if err != nil {
 		root = ""
@@ -233,9 +248,17 @@ func NewManager(cfg Config) Manager {
 			root, _ = platformshared.NormalizeAbsolutePath(cwd)
 		}
 	}
+	instanceID := cfg.provisionalInstanceID
+	if instanceID == "" {
+		instanceID, err = newProvisionalInstanceID(cfg.provisionalEntropy)
+		if err != nil {
+			return nil, fmt.Errorf("initialize LSP manager instance identity: %w", err)
+		}
+	}
 	mgr := &manager{
 		workspaceRoot:                    root,
-		instanceID:                       mustProvisionalInstanceID(),
+		instanceID:                       instanceID,
+		provisionalEntropy:               cfg.provisionalEntropy,
 		factory:                          cfg.ClientFactory,
 		adapters:                         cfg.LanguageAdapters,
 		logger:                           cfg.Logger,
@@ -255,7 +278,7 @@ func NewManager(cfg Config) Manager {
 	}
 	mgr.diagGeneration.Store(1)
 	mgr.pool = NewManagerPool(mgr, PoolSizeFromEnv())
-	return mgr
+	return mgr, nil
 }
 
 // cloneForWorkspace 为 scoped workspace 创建独立 manager 状态。
@@ -268,9 +291,13 @@ func (m *manager) cloneForWorkspace(workspaceRoot string) *manager {
 	if normalized, err := platformshared.NormalizeAbsolutePath(root); err == nil && normalized != "" {
 		root = normalized
 	}
+	instanceID := ""
+	if m != nil {
+		instanceID = fmt.Sprintf("%s-clone-%d-%s", m.instanceID, m.cloneSequence.Add(1), provisionalWorkspaceHash(root))
+	}
 	clone := &manager{
 		workspaceRoot:           root,
-		instanceID:              mustProvisionalInstanceID(),
+		instanceID:              instanceID,
 		workspaces:              make(map[string]*workspaceClient),
 		diagnostics:             make(map[string]diagnosticSnapshot),
 		diagnosticEpochs:        make(map[string]uint64),
@@ -281,6 +308,7 @@ func (m *manager) cloneForWorkspace(workspaceRoot string) *manager {
 		clone.factory = m.factory
 		clone.adapters = m.adapters
 		clone.logger = m.logger
+		clone.provisionalEntropy = m.provisionalEntropy
 		clone.pool = m.pool
 		clone.diagInitial = m.diagInitial
 		clone.diagPoll = m.diagPoll

@@ -258,7 +258,10 @@ func registerRuntimeAdapter(
 	packagedLSP bool,
 ) (platformrunner.Runner, multilsp.ScopeReleaser, error) {
 	if !adapter.CapabilityPolicy().RequiresLSPClient {
-		mgr := createFallbackManager(adapters, root, log)
+		mgr, err := createFallbackManager(adapters, root, log)
+		if err != nil {
+			return nil, nil, err
+		}
 		registerAdapterLanguagesNoInstall(registry, adapter, mgr)
 		return nil, scopeReleaserFromManager(mgr), nil
 	}
@@ -486,8 +489,8 @@ func registerShellAndSQLInstallers(inst *installer.Provider) {
 	})
 }
 
-func createFallbackManager(adapters *multilsp.LanguageAdapterRegistry, root string, log *slog.Logger) multilsp.Manager {
-	return multilsp.NewManager(multilsp.Config{
+func createFallbackManager(adapters *multilsp.LanguageAdapterRegistry, root string, log *slog.Logger) (multilsp.Manager, error) {
+	return multilsp.NewManagerWithError(multilsp.Config{
 		WorkspaceRoot:                    root,
 		LanguageAdapters:                 adapters,
 		Logger:                           log,
@@ -507,7 +510,7 @@ func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *
 		return nil, errors.New("language adapter server command is empty")
 	}
 	binary := &runtimeBinaryOverride{value: initialBinary}
-	mgr := multilsp.NewManager(multilsp.Config{
+	mgr, err := multilsp.NewManagerWithError(multilsp.Config{
 		WorkspaceRoot:                    root,
 		LanguageAdapters:                 adapters,
 		DiagnosticsMaxWait:               runtimeAdapterDiagnosticsMaxWait(adapter),
@@ -526,6 +529,9 @@ func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *
 		}),
 		Logger: log,
 	})
+	if err != nil {
+		return nil, err
+	}
 	return &runtimeBinaryManager{Manager: mgr, binary: binary}, nil
 }
 

@@ -27,6 +27,7 @@ type pendingClientShutdown struct {
 	lifecycleID       string
 	shutdownDone      bool
 	shutdownErr       error
+	attempted         bool
 	observationLogged bool
 }
 
@@ -67,6 +68,9 @@ func retryPendingClientShutdownsWithObserver(
 func retryPendingProcessTreeOwner(state pendingClientShutdown, observe func(pendingClientShutdown, error) error) (pendingClientShutdown, bool, error) {
 	cleanupErr := cleanupProcessTreeOwner(state.owner)
 	if cleanupErr == nil {
+		if observe != nil {
+			return state, false, observe(state, nil)
+		}
 		return state, false, nil
 	}
 	if observe != nil && !state.observationLogged {
@@ -92,7 +96,11 @@ func retryPendingLSPClient(state pendingClientShutdown, observe func(pendingClie
 		}
 		return state, true, nil, cleanupErr
 	}
-	return state, false, state.shutdownErr, nil
+	var terminalErr error
+	if observe != nil {
+		terminalErr = observe(state, nil)
+	}
+	return state, false, state.shutdownErr, terminalErr
 }
 
 // request 包装一次可重试的 LSP JSON-RPC 请求。

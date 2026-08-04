@@ -82,6 +82,12 @@ func (m *manager) closeWithoutPoolStatus() (done bool, err error) {
 	if !m.closeInitialized {
 		m.initializeClose()
 	}
+	prepared, prepareErr := m.preparePendingCleanupAttempts(m.closingClients)
+	if prepareErr != nil {
+		m.closingClients = prepared
+		return false, errors.Join(m.closeWarnings, prepareErr)
+	}
+	m.closingClients = prepared
 
 	remaining, completedErr, attemptErr := retryPendingClientShutdownsWithObserver(
 		m.closingClients,
@@ -106,7 +112,9 @@ func (m *manager) initializeClose() {
 
 	// 等待正在初始化的 client 先看到 closed 状态并完成清理，再统一 shutdown。
 	m.waitForEnsureOperations()
-	m.closingClients = m.collectAndClearClientShutdowns()
+	var collectErr error
+	m.closingClients, collectErr = m.collectAndClearClientShutdowns()
+	m.closeWarnings = errors.Join(m.closeWarnings, collectErr)
 	m.AdvanceDiagnosticGeneration()
 	closeBootstrapCoordinator(m)
 	m.closeInitialized = true
@@ -119,7 +127,7 @@ func (m *manager) waitForEnsureOperations() {
 }
 
 // collectAndClearClientShutdowns 取得 registered 与 provisional client 的唯一 cleanup owner。
-func (m *manager) collectAndClearClientShutdowns() []pendingClientShutdown {
+func (m *manager) collectAndClearClientShutdowns() ([]pendingClientShutdown, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	count := len(m.workspaces)
@@ -127,23 +135,25 @@ func (m *manager) collectAndClearClientShutdowns() []pendingClientShutdown {
 		count += len(states)
 	}
 	states := make([]pendingClientShutdown, 0, count)
+	var collectErr error
 	for _, pending := range m.provisionalCleanups {
 		states = append(states, pending...)
 	}
 	for _, workspace := range m.workspaces {
 		if workspace != nil && workspace.client != nil {
-			state := m.newPendingClientShutdown(
+			state, stateErr := m.newPendingClientShutdown(
 				workspace.key,
 				workspace.generation,
 				workspace.client,
 				nil,
 			)
 			states = append(states, state)
+			collectErr = errors.Join(collectErr, stateErr)
 		}
 	}
 	clear(m.workspaces)
 	clear(m.provisionalCleanups)
-	return states
+	return states, collectErr
 }
 
 func firstNonNilError(current, next error) error {

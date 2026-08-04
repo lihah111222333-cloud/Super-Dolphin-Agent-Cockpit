@@ -7,12 +7,14 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/hiddenexec"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/processobserve"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
 // restoreDetachedWorkspaceClient 在进程级 Close 失败时归还唯一 cleanup owner。
@@ -36,6 +38,12 @@ func restoreDetachedWorkspaceClient(mgr *manager, workspace *workspaceClient) {
 // Close 尚未成功时 owner 会归还 manager，调用方不得继续创建第二个 client。
 func (m *manager) retryProvisionalClientCleanups(key string) error {
 	states := m.takeProvisionalClientCleanups(key)
+	prepared, prepareErr := m.preparePendingCleanupAttempts(states)
+	if prepareErr != nil {
+		m.retainProvisionalClientCleanups(key, prepared)
+		return prepareErr
+	}
+	states = prepared
 	remaining, completedErr, retryErr := retryPendingClientShutdownsWithObserver(states, m.observeCleanupFailure)
 	m.retainProvisionalClientCleanups(key, remaining)
 	return errors.Join(completedErr, retryErr)
@@ -46,8 +54,18 @@ func (m *manager) cleanupProvisionalClient(key string, generation uint64, client
 	if client == nil {
 		return nil
 	}
-	state := m.newPendingClientShutdown(key, generation, client, nil)
+	state, stateErr := m.newPendingClientShutdown(key, generation, client, nil)
+	if stateErr != nil {
+		m.retainProvisionalClientCleanups(key, []pendingClientShutdown{state})
+		return stateErr
+	}
 	state.shutdownDone = !initialized
+	prepared, prepareErr := m.preparePendingCleanupAttempts([]pendingClientShutdown{state})
+	if prepareErr != nil {
+		m.retainProvisionalClientCleanups(key, prepared)
+		return prepareErr
+	}
+	state = prepared[0]
 	remaining, completedErr, retryErr := retryPendingClientShutdownsWithObserver(
 		[]pendingClientShutdown{state},
 		m.observeCleanupFailure,
@@ -122,17 +140,7 @@ func (m *manager) createAndRegisterClient(ctx context.Context, cfg workspaceConf
 	generation := m.workspaceGeneration.Add(1)
 	client, err := newClientFromFactory(m.factory, cfg, handler)
 	if err != nil {
-		if owner := processTreeCleanupOwnerFromError(err); owner != nil {
-			state := m.newPendingClientShutdown(cfg.key, generation, nil, owner)
-			observationErr := m.observeCleanupFailure(state, err)
-			state.observationLogged = true
-			m.retainProvisionalClientCleanups(cfg.key, []pendingClientShutdown{state})
-			return nil, errors.Join(
-				fmt.Errorf("create LSP client: %w", err),
-				observationErr,
-			)
-		}
-		return nil, fmt.Errorf("create LSP client: %w", err)
+		return nil, m.handleClientFactoryFailure(cfg.key, generation, err)
 	}
 	configureClientWorkspace(client, cfg)
 	if err := client.Initialize(ctx, cfg.rootURI); err != nil {
@@ -165,6 +173,30 @@ func (m *manager) createAndRegisterClient(ctx context.Context, cfg workspaceConf
 	}
 	m.mu.Unlock()
 	return client, nil
+}
+
+// handleClientFactoryFailure 保留 factory 交出的 exact owner，并把不可观测的失败直接阻断。
+func (m *manager) handleClientFactoryFailure(key string, generation uint64, factoryErr error) error {
+	wrappedErr := fmt.Errorf("create LSP client: %w", factoryErr)
+	owner := processTreeCleanupOwnerFromError(factoryErr)
+	if owner == nil {
+		return wrappedErr
+	}
+	state, stateErr := m.newPendingClientShutdown(key, generation, nil, owner)
+	if stateErr != nil {
+		m.retainProvisionalClientCleanups(key, []pendingClientShutdown{state})
+		return errors.Join(wrappedErr, stateErr)
+	}
+	prepared, prepareErr := m.preparePendingCleanupAttempts([]pendingClientShutdown{state})
+	if prepareErr != nil {
+		m.retainProvisionalClientCleanups(key, prepared)
+		return errors.Join(wrappedErr, prepareErr)
+	}
+	state = prepared[0]
+	observationErr := m.observeCleanupFailure(state, factoryErr)
+	state.observationLogged = true
+	m.retainProvisionalClientCleanups(key, []pendingClientShutdown{state})
+	return errors.Join(wrappedErr, observationErr)
 }
 
 // ensureProcessObserver lazily creates the process-local, no-signal observer.
@@ -225,7 +257,7 @@ func processTreeOwnerPID(owner processTreeCleanupTarget) (int, bool) {
 // observeCleanupFailure 按 exact owner/identity 证据选择回收挂起或只读观察路径。
 func (m *manager) observeCleanupFailure(state pendingClientShutdown, cleanupErr error) error {
 	if cleanupErr == nil {
-		return nil
+		return m.logCleanupTerminal(state)
 	}
 	if state.owner == nil {
 		return m.logCleanupPair(state, "lsp_cleanup_pending", "cleanup_pending", cleanupErr)
@@ -308,10 +340,26 @@ func (m *manager) logCleanupPair(state pendingClientShutdown, event, reason stri
 		"action_result", "unknown",
 	}
 	if cleanupErr != nil {
-		base = append(base, "cleanup_error", cleanupErr.Error())
+		base = append(base, platformshared.SafePayloadLogFields("cleanup_error", cleanupErr.Error())...)
 	}
 	m.logger.Warn("LSP cleanup pending", append(append([]any(nil), base...), "event", event)...)
 	m.logger.Warn("LSP cleanup pending", append(append([]any(nil), base...), "event", "lsp_reclaim_blocked")...)
+	return nil
+}
+
+// logCleanupTerminal 记录成功回收的单条终态；成功不再伪造 pending/blocked 事件。
+func (m *manager) logCleanupTerminal(state pendingClientShutdown) error {
+	if m == nil || m.logger == nil {
+		return nil
+	}
+	m.logger.Info("LSP cleanup completed",
+		"operation_id", state.operationID,
+		"lifecycle_id", state.lifecycleID,
+		"workspace_hash", state.workspaceHashValue(),
+		"generation", state.generation,
+		"action_result", "completed",
+		"event", "lsp_cleanup_succeeded",
+	)
 	return nil
 }
 
@@ -321,21 +369,58 @@ func (m *manager) newPendingClientShutdown(
 	generation uint64,
 	client Client,
 	owner processTreeCleanupTarget,
-) pendingClientShutdown {
+) (pendingClientShutdown, error) {
 	sequence := m.provisionalOperation.Add(1)
-	instanceID := m.provisionalInstanceID()
+	instanceID, instanceErr := m.provisionalInstanceID()
 	operationID := fmt.Sprintf("lsp-provisional-%s-%d", instanceID, sequence)
 	workspaceHash := provisionalWorkspaceHash(key)
-	lifecycleID := fmt.Sprintf("ws-%s:g%d:%s", workspaceHash, generation, operationID)
-	return pendingClientShutdown{
+	state := pendingClientShutdown{
 		client:        client,
 		owner:         owner,
 		workspaceKey:  key,
 		workspaceHash: workspaceHash,
 		generation:    generation,
 		operationID:   operationID,
-		lifecycleID:   lifecycleID,
+		lifecycleID:   fmt.Sprintf("lsp-lifecycle-%s-ws-%s-g%d", instanceID, workspaceHash, generation),
 	}
+	if instanceErr != nil {
+		state.operationID = ""
+		state.lifecycleID = ""
+	}
+	return state, instanceErr
+}
+
+// preparePendingCleanupAttempts 为每次实际回收尝试分配新的 operation ID，并保持生命周期 ID 稳定。
+func (m *manager) preparePendingCleanupAttempts(states []pendingClientShutdown) ([]pendingClientShutdown, error) {
+	for index := range states {
+		state := &states[index]
+		if state.attempted || state.operationID == "" {
+			operationID, err := m.nextProvisionalOperationID()
+			if err != nil {
+				return states, err
+			}
+			state.operationID = operationID
+		}
+		if state.lifecycleID == "" {
+			instanceID, err := m.provisionalInstanceID()
+			if err != nil {
+				return states, err
+			}
+			state.lifecycleID = fmt.Sprintf("lsp-lifecycle-%s-ws-%s-g%d", instanceID, state.workspaceHashValue(), state.generation)
+		}
+		state.attempted = true
+		state.observationLogged = false
+	}
+	return states, nil
+}
+
+func (m *manager) nextProvisionalOperationID() (string, error) {
+	instanceID, err := m.provisionalInstanceID()
+	if err != nil {
+		return "", err
+	}
+	sequence := m.provisionalOperation.Add(1)
+	return fmt.Sprintf("lsp-provisional-%s-%d", instanceID, sequence), nil
 }
 
 // workspaceHashValue 为旧测试状态提供稳定哈希回退，日志绝不读取原始 workspace key。
@@ -353,25 +438,28 @@ func provisionalWorkspaceHash(key string) string {
 }
 
 // provisionalInstanceID 返回 manager 随机实例标识，确保 clone operation ID 不碰撞。
-func (m *manager) provisionalInstanceID() string {
+func (m *manager) provisionalInstanceID() (string, error) {
 	if m == nil {
-		panic("provisional cleanup manager is nil")
+		return "", errors.New("provisional cleanup manager is nil")
 	}
 	m.processObserverMu.Lock()
 	defer m.processObserverMu.Unlock()
 	if m.instanceID == "" {
-		m.instanceID = mustProvisionalInstanceID()
+		return "", errors.New("provisional cleanup manager identity is empty")
 	}
-	return m.instanceID
+	return m.instanceID, nil
 }
 
-// mustProvisionalInstanceID 读取加密随机实例标识；熵源失败时立即 fail-fast。
-func mustProvisionalInstanceID() string {
-	var raw [16]byte
-	if _, err := rand.Read(raw[:]); err != nil {
-		panic(fmt.Sprintf("generate provisional cleanup instance id: %v", err))
+// newProvisionalInstanceID 读取加密随机实例标识并透传熵源错误。
+func newProvisionalInstanceID(source io.Reader) (string, error) {
+	if source == nil {
+		source = rand.Reader
 	}
-	return hex.EncodeToString(raw[:])
+	var raw [16]byte
+	if _, err := io.ReadFull(source, raw[:]); err != nil {
+		return "", fmt.Errorf("read provisional cleanup instance entropy: %w", err)
+	}
+	return hex.EncodeToString(raw[:]), nil
 }
 
 // processTreeCleanupOwnerFromError 通过 errors.As 提取包装错误中的 exact cleanup owner。
