@@ -113,6 +113,7 @@ func TestCleanupFailureWithoutIdentityDoesNotProbePIDZero(t *testing.T) {
 func TestNewManagerWithErrorPropagatesEntropyFailureBeforeSpawn(t *testing.T) {
 	var factoryCalls atomic.Int32
 	manager, err := NewManagerWithError(Config{
+		IdleTimeout: time.Minute,
 		ClientFactory: ClientFactoryFunc(func(string, protocol.NotificationHandler) (Client, error) {
 			factoryCalls.Add(1)
 			return nil, errors.New("factory must not run")
