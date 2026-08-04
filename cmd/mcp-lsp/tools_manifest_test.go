@@ -15,7 +15,7 @@ func TestLSPToolManifestDescriptionsExposeShortExamples(t *testing.T) {
 		"patch_edit": "action=replace_range",
 		"completion": "pos=internal/foo.go:42:9",
 	}
-	for _, manifest := range lspToolManifests {
+	for _, manifest := range newLSPToolManifests() {
 		must, ok := want[manifest.Name]
 		if !ok {
 			continue
@@ -28,7 +28,7 @@ func TestLSPToolManifestDescriptionsExposeShortExamples(t *testing.T) {
 
 func TestLSPToolManifestDescriptionsSeparateDiagnosticsFromPackageScripts(t *testing.T) {
 	descriptions := map[string]string{}
-	for _, manifest := range lspToolManifests {
+	for _, manifest := range newLSPToolManifests() {
 		descriptions[manifest.Name] = manifest.Description
 	}
 	if !strings.Contains(descriptions["file"], "fetch diagnostics") {
@@ -47,9 +47,9 @@ func TestLSPToolManifestDescriptionsSeparateDiagnosticsFromPackageScripts(t *tes
 }
 
 func TestLSPFileSchemaExposesDirectDiagnosticsCallShape(t *testing.T) {
-	props, ok := lspFileSchema["properties"].(map[string]any)
+	props, ok := newLSPFileSchema()["properties"].(map[string]any)
 	if !ok {
-		t.Fatalf("file schema properties type = %T", lspFileSchema["properties"])
+		t.Fatalf("file schema properties type = %T", newLSPFileSchema()["properties"])
 	}
 	for name, must := range map[string]string{
 		"action":     "Use action=diagnostics on this file tool",
@@ -68,9 +68,9 @@ func TestLSPFileSchemaExposesDirectDiagnosticsCallShape(t *testing.T) {
 }
 
 func TestLSPFileSchemaLimitDescriptionMatchesReadFileDefaults(t *testing.T) {
-	props, ok := lspFileSchema["properties"].(map[string]any)
+	props, ok := newLSPFileSchema()["properties"].(map[string]any)
 	if !ok {
-		t.Fatalf("file schema properties type = %T", lspFileSchema["properties"])
+		t.Fatalf("file schema properties type = %T", newLSPFileSchema()["properties"])
 	}
 	limit, ok := props["limit"].(map[string]any)
 	if !ok {
@@ -85,9 +85,9 @@ func TestLSPFileSchemaLimitDescriptionMatchesReadFileDefaults(t *testing.T) {
 }
 
 func TestLSPStructureSchemaExposesWorkspaceSymbolCallShape(t *testing.T) {
-	props, ok := lspStructureSchema["properties"].(map[string]any)
+	props, ok := newLSPStructureSchema()["properties"].(map[string]any)
 	if !ok {
-		t.Fatalf("structure schema properties type = %T", lspStructureSchema["properties"])
+		t.Fatalf("structure schema properties type = %T", newLSPStructureSchema()["properties"])
 	}
 	for name, must := range map[string]string{
 		"file_path": "For workspace_symbol, pass exactly one of file_path or language",
@@ -107,7 +107,7 @@ func TestLSPStructureSchemaExposesWorkspaceSymbolCallShape(t *testing.T) {
 
 func TestLSPToolManifestDescriptionsExposeActionVariantsWithoutMisleadingShortcuts(t *testing.T) {
 	descriptions := map[string]string{}
-	for _, manifest := range lspToolManifests {
+	for _, manifest := range newLSPToolManifests() {
 		descriptions[manifest.Name] = manifest.Description
 	}
 	for _, must := range []string{"action=document_symbol file_path=internal/foo.go", "action=workspace_symbol query=Handler language=go"} {
@@ -118,9 +118,9 @@ func TestLSPToolManifestDescriptionsExposeActionVariantsWithoutMisleadingShortcu
 }
 
 func TestLSPGrepSchemaPrefersPathsArrayForMultipleRoots(t *testing.T) {
-	props, ok := lspGrepSchema["properties"].(map[string]any)
+	props, ok := newLSPGrepSchema()["properties"].(map[string]any)
 	if !ok {
-		t.Fatalf("grep schema properties type = %T", lspGrepSchema["properties"])
+		t.Fatalf("grep schema properties type = %T", newLSPGrepSchema()["properties"])
 	}
 	for name, must := range map[string]string{
 		"path":  "for multiple roots prefer paths=",
@@ -139,13 +139,13 @@ func TestLSPGrepSchemaPrefersPathsArrayForMultipleRoots(t *testing.T) {
 
 func TestLSPToolSchemasExposeExplicitWorkDir(t *testing.T) {
 	schemas := map[string]schema{
-		"file":       lspFileSchema,
-		"inspect":    lspInspectSchema,
-		"xref":       lspXrefSchema,
-		"grep":       lspGrepSchema,
-		"structure":  lspStructureSchema,
-		"patch_edit": patchEditSchema,
-		"completion": lspCompletionSchema,
+		"file":       newLSPFileSchema(),
+		"inspect":    newLSPInspectSchema(),
+		"xref":       newLSPXrefSchema(),
+		"grep":       newLSPGrepSchema(),
+		"structure":  newLSPStructureSchema(),
+		"patch_edit": newPatchEditSchema(),
+		"completion": newLSPCompletionSchema(),
 	}
 	for name, toolSchema := range schemas {
 		props, ok := toolSchema["properties"].(map[string]any)
@@ -167,9 +167,9 @@ func TestLSPToolSchemasExposeExplicitWorkDir(t *testing.T) {
 
 func TestPositionSchemasExposeCopyablePosExample(t *testing.T) {
 	for name, schema := range map[string]schema{
-		"inspect":    lspInspectSchema,
-		"xref":       lspXrefSchema,
-		"completion": lspCompletionSchema,
+		"inspect":    newLSPInspectSchema(),
+		"xref":       newLSPXrefSchema(),
+		"completion": newLSPCompletionSchema(),
 	} {
 		props, ok := schema["properties"].(map[string]any)
 		if !ok {

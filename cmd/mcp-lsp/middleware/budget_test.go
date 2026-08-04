@@ -74,3 +74,24 @@ func TestPatchEditToolBudgetIsThirtyTwoKiB(t *testing.T) {
 		t.Fatalf("ToolBudget(patch_edit) = %d, want %d", got, 32*1024)
 	}
 }
+
+func TestBudgetDescriptorsDoNotShareMutableState(t *testing.T) {
+	budgets := defaultToolBudgets()
+	if len(budgets) == 0 {
+		t.Fatal("defaultToolBudgets() returned no descriptors")
+	}
+	budgets[0].maxBytes = 1
+	if got := ToolBudget("grep"); got != 16*1024 {
+		t.Fatalf("ToolBudget(grep) after descriptor mutation = %d, want %d", got, 16*1024)
+	}
+
+	hints := toolOverflowHints()
+	grepHint, ok := hints["grep"]
+	if !ok {
+		t.Fatal("toolOverflowHints() missing grep descriptor")
+	}
+	grepHint.NextAction["tool"] = "mutated"
+	if got := lookupHint("grep").NextAction["tool"]; got != "grep" {
+		t.Fatalf("lookupHint(grep).NextAction[tool] after descriptor mutation = %#v, want grep", got)
+	}
+}

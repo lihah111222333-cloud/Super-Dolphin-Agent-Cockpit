@@ -9,7 +9,6 @@ import (
 	"io"
 	"log/slog"
 	"os/exec"
-	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -302,20 +301,19 @@ const (
 // workspace/configuration 需要返回与请求 items 等长的空配置数组。
 const LSPCompatMethodWorkspaceConfiguration = "workspace/configuration"
 
-// lspCompatEmptyStructMethods 是 transport 会以 struct{}{} ACK 的完整方法表。
-// 新增兼容方法必须先落到这里，避免分散在 transport 分支里形成隐式放行。
-var lspCompatEmptyStructMethods = []string{
-	LSPCompatMethodClientRegisterCapability,
-	LSPCompatMethodClientUnregisterCapability,
-	LSPCompatMethodWindowWorkDoneProgressCreate,
-	LSPCompatMethodWorkspaceSemanticTokensRefresh,
-	LSPCompatMethodWorkspaceCodeLensRefresh,
-	LSPCompatMethodWorkspaceInlayHintRefresh,
-	LSPCompatMethodWorkspaceDiagnosticRefresh,
-}
-
 func isLSPCompatEmptyStructMethod(method string) bool {
-	return slices.Contains(lspCompatEmptyStructMethods, method)
+	switch method {
+	case LSPCompatMethodClientRegisterCapability,
+		LSPCompatMethodClientUnregisterCapability,
+		LSPCompatMethodWindowWorkDoneProgressCreate,
+		LSPCompatMethodWorkspaceSemanticTokensRefresh,
+		LSPCompatMethodWorkspaceCodeLensRefresh,
+		LSPCompatMethodWorkspaceInlayHintRefresh,
+		LSPCompatMethodWorkspaceDiagnosticRefresh:
+		return true
+	default:
+		return false
+	}
 }
 
 // dispatchCompatServerRequest 根据兼容方法表处理服务端主动请求。

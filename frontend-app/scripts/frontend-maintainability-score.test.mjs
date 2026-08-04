@@ -1,8 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
-  copyFileSync,
-  existsSync,
+  accessSync, copyFileSync, constants, existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -29,6 +28,7 @@ import {
 } from './frontend-execution-closure.mjs';
 import { productionActionFailureMatrixTitle } from '../src/shared/ui/productionActionFailureMatrixTitles.js';
 import { HEAP_MEASUREMENT_CLOCK } from './resource-budget.mjs';
+import { repositoryLocalGitEnvironment } from './runtime/git-environment.mjs';
 import {
   acceptsNonZeroRunnerExitForValidatedSlice,
   actionProducerGuardOutputStatus,
@@ -54,7 +54,6 @@ import {
   waitForPerformanceLoadWindow,
   withFrozenDeliveryRunnerFiles,
 } from './frontend-maintainability-score.mjs';
-
 const scriptRoot = dirname(fileURLToPath(import.meta.url));
 const frozenRepoRoot = resolve(scriptRoot, '..', '..');
 const scorerPath = join(scriptRoot, 'frontend-maintainability-score.mjs');
@@ -67,7 +66,7 @@ const FINAL_SCORER_TEST_TIMEOUT_MS = FINAL_SCORER_COMMAND_TIMEOUT_MS + 30_000;
 const ACTION_PRODUCER_PROBE_TIMEOUT_MS = 180_000;
 const ACTION_PRODUCER_PROBE_TEST_TIMEOUT_MS = ACTION_PRODUCER_PROBE_TIMEOUT_MS + 30_000;
 const STRUCTURAL_SCORE_TEST_TIMEOUT_MS = 210_000;
-const temporaryRepositories = [];
+const temporaryRepositories = []; const gitEnvironment = () => repositoryLocalGitEnvironment();
 const addedGovernancePaths = [
   'frontend-app/scripts/frontend-maintainability-dependency-integrity.mjs',
   'frontend-app/scripts/refresh-frontend-maintainability-dependencies.mjs',
@@ -116,9 +115,7 @@ function documents() {
   };
 }
 
-function git(repoRoot, args) {
-  return execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8' }).trim();
-}
+function git(repoRoot, args) { return execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8', env: gitEnvironment() }).trim(); }
 
 function commitTree(repoRoot, message) {
   const parent = git(repoRoot, ['rev-parse', 'HEAD']);
@@ -126,6 +123,7 @@ function commitTree(repoRoot, message) {
   const commit = execFileSync('git', ['commit-tree', tree, '-p', parent, '-m', message], {
     cwd: repoRoot,
     encoding: 'utf8',
+    env: gitEnvironment(),
   }).trim();
   git(repoRoot, ['update-ref', 'HEAD', commit, parent]);
   git(repoRoot, ['reset', '--mixed', commit]);
@@ -133,7 +131,7 @@ function commitTree(repoRoot, message) {
 }
 
 function cloneSparseRepository(repoRoot, revision, paths) {
-  execFileSync('git', ['clone', '-q', '--shared', '--no-checkout', frozenRepoRoot, repoRoot]);
+  execFileSync('git', ['clone', '-q', '--shared', '--no-checkout', frozenRepoRoot, repoRoot], { env: gitEnvironment() });
   git(repoRoot, ['fetch', '-q', frozenRepoRoot, revision]);
   git(repoRoot, ['sparse-checkout', 'init', '--no-cone']);
   git(repoRoot, ['sparse-checkout', 'set', '--no-cone', ...paths]);
@@ -153,7 +151,7 @@ function createStagedSubjectFrontendSnapshot() {
   const tree = git(frozenRepoRoot, ['write-tree']);
   const subjectSha = execFileSync('git', [
     'commit-tree', tree, '-p', parent, '-m', 'test: staged action coverage subject',
-  ], { cwd: frozenRepoRoot, encoding: 'utf8' }).trim();
+  ], { cwd: frozenRepoRoot, encoding: 'utf8', env: gitEnvironment() }).trim();
   return createSubjectFrontendSnapshot({ subjectSha });
 }
 
@@ -161,12 +159,14 @@ function cli(args, cwd = frozenRepoRoot) {
   return spawnSync(process.execPath, [scorerPath, ...args], { cwd, encoding: 'utf8' });
 }
 
-function detachedTmpAlias() {
-  const canonical = realpathSync(tmpdir());
+function detachedTmpAlias(declaredTmpOwner = tmpdir()) {
+  const canonical = realpathSync(declaredTmpOwner);
   return canonical === '/private/var' || canonical.startsWith('/private/var/')
     ? canonical.replace(/^\/private\/var/u, '/var')
-    : tmpdir();
+    : declaredTmpOwner;
 }
+
+function darwinSyntheticTmpOwner() { const candidates = readdirSync('/var/folders', { withFileTypes: true }).filter((shard) => shard.isDirectory()).flatMap((shard) => readdirSync(join('/var/folders', shard.name), { withFileTypes: true }).filter((owner) => owner.isDirectory()).map((owner) => join('/var/folders', shard.name, owner.name, 'T'))).filter((candidate) => existsSync(candidate)); if (candidates.length === 0) throw new Error('Darwin synthetic TMPDIR owner is unavailable'); const candidate = candidates[0]; accessSync(candidate, constants.W_OK); return candidate; }
 
 function dependencyIntegrityDocument() {
   return JSON.parse(readFileSync(join(scriptRoot, 'frontend-maintainability-dependencies.json'), 'utf8'));
@@ -624,7 +624,7 @@ function createFinalContractTarget() {
 function createFinalCliFixture({ hangFirstProbe = false } = {}) {
   const baseRoot = mkdtempSync(join(tmpdir(), 'frontend-maintainability-final-cli-base-'));
   temporaryRepositories.push(baseRoot);
-  execFileSync('git', ['init', '-q'], { cwd: baseRoot });
+  execFileSync('git', ['init', '-q'], { cwd: baseRoot, env: gitEnvironment() });
   git(baseRoot, ['config', 'user.email', 'scorer-test@example.invalid']);
   git(baseRoot, ['config', 'user.name', 'Scorer Test']);
   const commonDirectory = resolve(frozenRepoRoot, git(frozenRepoRoot, ['rev-parse', '--git-common-dir']));
@@ -718,7 +718,7 @@ function createFinalCliFixture({ hangFirstProbe = false } = {}) {
 
   const subjectRoot = mkdtempSync(join(tmpdir(), 'frontend-maintainability-final-cli-subject-'));
   rmSync(subjectRoot, { recursive: true, force: true });
-  execFileSync('git', ['worktree', 'add', '-q', '--detach', subjectRoot, scoreBaseSha], { cwd: baseRoot });
+  execFileSync('git', ['worktree', 'add', '-q', '--detach', subjectRoot, scoreBaseSha], { cwd: baseRoot, env: gitEnvironment() });
   write('frontend-app/final-subject.txt', 'strict descendant\n', subjectRoot);
   write('go.mod', 'invalid final fixture\n', subjectRoot);
   const probeSources = [
@@ -805,7 +805,7 @@ function failureMatrixEvidence(context, overrides = {}) {
     const greenEvidence = evidence.find((entry) => entry.caseId === caseId && entry.layer === mutation.layer);
     const source = execFileSync('git', ['show', `${context.subjectSha}:${mutation.sourcePath}`], {
       cwd: context.repoRoot,
-      encoding: 'utf8',
+      encoding: 'utf8', env: gitEnvironment(),
     });
     const mutated = source.replace(mutation.search, mutation.replacement);
     const command = greenEvidence.layer === 'frontend'
@@ -870,7 +870,7 @@ function desktopFailureEvidence(context, overrides = {}) {
   const sourceHashes = Object.fromEntries(DESKTOP_FAILURE_SOURCE_PATHS.map((sourcePath) => [
     sourcePath,
     createHash('sha256').update(execFileSync('git', ['show', `${context.subjectSha}:${sourcePath}`], {
-      cwd: context.repoRoot,
+      cwd: context.repoRoot, env: gitEnvironment(),
     })).digest('hex'),
   ]));
   const caseEvidence = (caseId, hops, domAssertions) => ({
@@ -1155,7 +1155,7 @@ function deliveryEvidence(context, check, overrides = {}) {
     path: runnerPath,
     sha256: createHash('sha256').update(execFileSync('git', [
       'show', `${context.scoreBaseSha}:${runnerPath}`,
-    ], { cwd: context.repoRoot })).digest('hex'),
+    ], { cwd: context.repoRoot, env: gitEnvironment() })).digest('hex'),
   }));
   const runnerContentHash = createHash('sha256');
   runnerFiles.forEach(({ path: runnerPath, sha256 }) => runnerContentHash.update(`${runnerPath}\0${sha256}\n`));
@@ -1741,17 +1741,17 @@ describe('frozen scorer target binding', () => {
   it('keeps the canonical detached immutable dependency installation Git-clean and Vitest-executable', async () => {
     const fixture = createFinalCliFixture();
     try {
-      const tmpAlias = detachedTmpAlias();
-      const proofRoot = mkdtempSync(join(tmpdir(), 'frontend-maintainability-detached-proof-'));
+      const syntheticTmpOwner = mkdtempSync(join(process.platform === 'darwin' ? darwinSyntheticTmpOwner() : tmpdir(), 'super-dolphin-detached-owner-'));
+      temporaryRepositories.push(
+        syntheticTmpOwner,
+      );
+      const tmpAlias = detachedTmpAlias(syntheticTmpOwner);
+      const proofRoot = mkdtempSync(join(tmpAlias, 'frontend-maintainability-detached-proof-'));
       const proofPath = join(proofRoot, 'proof.json');
       const loadAveragePreloadPath = join(proofRoot, 'load-average-preload.mjs');
       const frozenLoadAverage = JSON.parse(readFileSync(join(scriptRoot, 'frontend-maintainability-baseline.json'), 'utf8'))
         .environment.loadAverage;
-      writeFileSync(loadAveragePreloadPath, [
-        "import os from 'node:os';",
-        `os.loadavg = () => ${JSON.stringify(frozenLoadAverage)};`,
-        '',
-      ].join('\n'));
+      writeFileSync(loadAveragePreloadPath, [`import os from 'node:os';`, `os.loadavg = () => ${JSON.stringify(frozenLoadAverage)};`, ''].join('\n'));
       temporaryRepositories.push(proofRoot);
       if (process.platform === 'darwin') {
         expect(tmpAlias).toMatch(/^\/var(?:\/|$)/u);
@@ -1802,7 +1802,7 @@ describe('frozen scorer target binding', () => {
       expect(deliveryEvidence.summary).toBe('runner report schemaVersion must equal 1');
     }
     finally {
-      execFileSync('git', ['worktree', 'remove', '--force', fixture.subjectRoot], { cwd: fixture.baseRoot });
+      execFileSync('git', ['worktree', 'remove', '--force', fixture.subjectRoot], { cwd: fixture.baseRoot, env: gitEnvironment() });
     }
   }, FINAL_SCORER_TEST_TIMEOUT_MS);
 
@@ -1874,7 +1874,7 @@ describe('frozen scorer target binding', () => {
       }
     }
     finally {
-      execFileSync('git', ['worktree', 'remove', '--force', fixture.subjectRoot], { cwd: fixture.baseRoot });
+      execFileSync('git', ['worktree', 'remove', '--force', fixture.subjectRoot], { cwd: fixture.baseRoot, env: gitEnvironment() });
     }
   }, 120_000);
 
@@ -1941,7 +1941,7 @@ exec '${process.execPath}' -e '
       expect(existsSync(commandTmpRoot)).toBe(true);
     }
     finally {
-      execFileSync('git', ['worktree', 'remove', '--force', fixture.subjectRoot], { cwd: fixture.baseRoot });
+      execFileSync('git', ['worktree', 'remove', '--force', fixture.subjectRoot], { cwd: fixture.baseRoot, env: gitEnvironment() });
     }
   }, 45_000);
 });
@@ -2089,14 +2089,14 @@ describe('executable evidence registry', () => {
       )).sort((left, right) => right.callbackStart - left.callbackStart);
       const source = execFileSync('git', [
         'show', `${context.subjectSha}:frontend-app/${anchor.sourcePath}`,
-      ], { cwd: context.repoRoot, encoding: 'utf8' });
+      ], { cwd: context.repoRoot, encoding: 'utf8', env: gitEnvironment() });
       let mutated = source;
       for (const binding of bindings) {
         mutated = `${mutated.slice(0, binding.callbackStart)}() => {}${mutated.slice(binding.callbackEnd)}`;
       }
       const testSource = execFileSync('git', [
         'show', `${context.subjectSha}:frontend-app/${anchor.testFile}`,
-      ], { cwd: context.repoRoot });
+      ], { cwd: context.repoRoot, env: gitEnvironment() });
       return {
         semanticClass: anchor.semanticClass,
         actionId: anchor.actionId,
@@ -2133,7 +2133,7 @@ describe('executable evidence registry', () => {
     const matrixTestFile = 'src/shared/ui/productionActionFailureMatrix.test.js';
     const matrixTestSource = execFileSync('git', [
       'show', `${context.subjectSha}:frontend-app/${matrixTestFile}`,
-    ], { cwd: context.repoRoot });
+    ], { cwd: context.repoRoot, env: gitEnvironment() });
     report.matrixExecution = {
       testFile: matrixTestFile,
       testFileSha256: createHash('sha256').update(matrixTestSource).digest('hex'),

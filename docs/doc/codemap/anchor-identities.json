@@ -1399,8 +1399,7 @@
       "codemap_line": 74,
       "target_path": "cmd/mcp-lsp/main.go",
       "line_spec": "20",
-      "content_sha256": "0e95e67a97fbd0f99940f6cb46a32b71bcb2cedad4aba0b8714a9a0fcadc41d2",
-      "symbol": "binaryVersion"
+      "content_sha256": "30b5f122110760c9ff744f13c97ab02fe5ccef70df454bf1e89c6d24327c064c"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
@@ -1437,8 +1436,8 @@
       "codemap_line": 78,
       "target_path": "cmd/mcp-lsp/tools.go",
       "line_spec": "39",
-      "content_sha256": "db416a609bbf04bd6736ceab223c1feeb1a02fd1ccc997d687e5a2cdc0d5d94d",
-      "symbol": "lspToolManifests"
+      "content_sha256": "6c239ef7b926ce01c5589dd6b670f066d2a09e95bddda6649c5abec3a5600a98",
+      "symbol": "newLSPToolManifests"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
@@ -1484,8 +1483,7 @@
       "codemap_line": 90,
       "target_path": "cmd/mcp-lsp/main.go",
       "line_spec": "20",
-      "content_sha256": "0e95e67a97fbd0f99940f6cb46a32b71bcb2cedad4aba0b8714a9a0fcadc41d2",
-      "symbol": "binaryVersion"
+      "content_sha256": "30b5f122110760c9ff744f13c97ab02fe5ccef70df454bf1e89c6d24327c064c"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
@@ -1500,7 +1498,7 @@
       "codemap_line": 92,
       "target_path": "cmd/mcp-lsp/fx.go",
       "line_spec": "105",
-      "content_sha256": "db3464ca867c326c46dc8b804951d0acdf7b297911dd4c31e09e850f8994120a",
+      "content_sha256": "3d124d7a28fc7aac8a1f40a84611938cd3c3169624e9ce21b36cc0f3c8b7d098",
       "symbol": "run"
     },
     {
@@ -1538,8 +1536,8 @@
       "codemap_line": 95,
       "target_path": "cmd/mcp-lsp/manager/registry.go",
       "line_spec": "76",
-      "content_sha256": "3f9dcdb115f86b7bf9aa7f5a827402396b54246c22c470f182d51fb97cb352ae",
-      "symbol": "languageIDByExtension"
+      "content_sha256": "c6c216d67aac868f5a739eefab7bdc66196e9b5777b8642f7b081cadc5d560f3",
+      "symbol": "languageIDForCoreExtension"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
@@ -1610,7 +1608,7 @@
       "codemap_line": 203,
       "target_path": "cmd/mcp-lsp/tools.go",
       "line_spec": "53",
-      "content_sha256": "2e1a171a030be0ee0ade93a6968476a50a0264bc7e060228cd7ebafff6c9ca1b",
+      "content_sha256": "2bede46f49aadf4d2a5de30effdf8f0d190eba303ddbce51a7c2b58e636b243f",
       "symbol": "newToolHandlers"
     },
     {
@@ -1634,7 +1632,7 @@
       "codemap_line": 204,
       "target_path": "cmd/mcp-lsp/tools.go",
       "line_spec": "54",
-      "content_sha256": "b67d3d86206f77dd936fdd88a992d528bd33dfa8b5f119279245b2b19f3660cf",
+      "content_sha256": "04edb590268441154f403efdb692fd31432baefeb8737684bde30d36a5fba70f",
       "symbol": "newToolHandlers"
     },
     {
@@ -1657,7 +1655,7 @@
       "codemap_line": 205,
       "target_path": "cmd/mcp-lsp/tools.go",
       "line_spec": "55",
-      "content_sha256": "f606990caff672f5009a8706b97c7b0f5234c07bcd5b23d56f6c1a3747c27d2b",
+      "content_sha256": "2e1a171a030be0ee0ade93a6968476a50a0264bc7e060228cd7ebafff6c9ca1b",
       "symbol": "newToolHandlers"
     },
     {
@@ -1681,7 +1679,7 @@
       "codemap_line": 206,
       "target_path": "cmd/mcp-lsp/tools.go",
       "line_spec": "56",
-      "content_sha256": "6362c6695e4778a350cc30d53e4125c52651fbec6faf975f0666546b5eb765c4",
+      "content_sha256": "b67d3d86206f77dd936fdd88a992d528bd33dfa8b5f119279245b2b19f3660cf",
       "symbol": "newToolHandlers"
     },
     {
@@ -1704,7 +1702,7 @@
       "codemap_line": 207,
       "target_path": "cmd/mcp-lsp/tools.go",
       "line_spec": "57",
-      "content_sha256": "4cedf8b19562bfc6523790a8957cf879d6122385fa9b7ae291234b7237272b35",
+      "content_sha256": "f606990caff672f5009a8706b97c7b0f5234c07bcd5b23d56f6c1a3747c27d2b",
       "symbol": "newToolHandlers"
     },
     {
@@ -1719,14 +1717,14 @@
       "codemap_line": 208,
       "target_path": "cmd/mcp-lsp/tools.go",
       "line_spec": "33",
-      "content_sha256": "48f58f224ff22a452d3906203b7db326c617e89df31da96fcccdad0682cd8e6f"
+      "content_sha256": "f0b07d698e5326605f1bdf0ef2f38fe029a9c3fee90dc358969dc47de3393679"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
       "codemap_line": 208,
       "target_path": "cmd/mcp-lsp/tools.go",
       "line_spec": "58",
-      "content_sha256": "be667e8025451c48f422915af0301657f3d6284bba2993345cf9c529049b9ff2",
+      "content_sha256": "6362c6695e4778a350cc30d53e4125c52651fbec6faf975f0666546b5eb765c4",
       "symbol": "newToolHandlers"
     },
     {
@@ -1734,23 +1732,23 @@
       "codemap_line": 208,
       "target_path": "cmd/mcp-lsp/tools/tool_edit.go",
       "line_spec": "65",
-      "content_sha256": "1d0d66fc4843e331896416e041ce4579b7a825cd3305be8fe0ec6734b1dbff87",
-      "symbol": "input"
+      "content_sha256": "79f7dd2b136f787da35ba83971b75c62d0eb1f66260bcb343443594441a91501",
+      "symbol": "NewEditHandlerWithRoot"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
       "codemap_line": 209,
       "target_path": "cmd/mcp-lsp/tools.go",
       "line_spec": "34",
-      "content_sha256": "c43bef6a308ec1a9fc9a0e6de05ef82f4dfe08c03577b415aa49f5ffb5543172",
-      "symbol": "lspToolManifests"
+      "content_sha256": "869a7b49f72461679251175a34bba70e20024e717e285b8b4374f2beab72b8df",
+      "symbol": "newLSPToolManifests"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
       "codemap_line": 209,
       "target_path": "cmd/mcp-lsp/tools.go",
       "line_spec": "59",
-      "content_sha256": "01cfdeab6778f04d89854019c5541f2305a8d028215232a7e7318358f1b2043f",
+      "content_sha256": "4cedf8b19562bfc6523790a8957cf879d6122385fa9b7ae291234b7237272b35",
       "symbol": "newToolHandlers"
     },
     {
@@ -1796,8 +1794,8 @@
       "codemap_line": 215,
       "target_path": "cmd/mcp-lsp/tools.go",
       "line_spec": "39",
-      "content_sha256": "db416a609bbf04bd6736ceab223c1feeb1a02fd1ccc997d687e5a2cdc0d5d94d",
-      "symbol": "lspToolManifests"
+      "content_sha256": "6c239ef7b926ce01c5589dd6b670f066d2a09e95bddda6649c5abec3a5600a98",
+      "symbol": "newLSPToolManifests"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
@@ -1933,8 +1931,8 @@
       "codemap_line": 225,
       "target_path": "cmd/mcp-lsp/manager/registry.go",
       "line_spec": "130",
-      "content_sha256": "4b9a42c2b19e30b057b6efd723ceeeb1e2d6edbce8ccfffb1034c1427cd0f257",
-      "symbol": "DiagnosticsReopenRegistry"
+      "content_sha256": "f56f6403250d160068a66f834dc5f3aa7e26e2edf19412369e8ce30771649757",
+      "symbol": "languageIDForDataExtension"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
@@ -1948,32 +1946,31 @@
       "codemap_line": 225,
       "target_path": "cmd/mcp-lsp/manager/registry.go",
       "line_spec": "22",
-      "content_sha256": "f79b7704e3f81c451d93a1ccc2d9abb100566c9f7cde7afe85d8899ed8910359",
-      "symbol": "languageIDByBaseName"
+      "content_sha256": "cf8ea28c2dd59886ffe1f39268efdd1b2fad2f7eca8313f9f4f372a019f667c7"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
       "codemap_line": 225,
       "target_path": "cmd/mcp-lsp/manager/registry.go",
       "line_spec": "76",
-      "content_sha256": "3f9dcdb115f86b7bf9aa7f5a827402396b54246c22c470f182d51fb97cb352ae",
-      "symbol": "languageIDByExtension"
+      "content_sha256": "c6c216d67aac868f5a739eefab7bdc66196e9b5777b8642f7b081cadc5d560f3",
+      "symbol": "languageIDForCoreExtension"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
       "codemap_line": 226,
       "target_path": "cmd/mcp-lsp/manager/registry.go",
       "line_spec": "103",
-      "content_sha256": "b8c40dfef0839c89c2a3c642e17738893284f16a84025bf9cab4986b47ae3365",
-      "symbol": "languageIDByExtension"
+      "content_sha256": "79f7dd2b136f787da35ba83971b75c62d0eb1f66260bcb343443594441a91501",
+      "symbol": "languageIDForMarkupExtension"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
       "codemap_line": 226,
       "target_path": "cmd/mcp-lsp/manager/registry.go",
       "line_spec": "96",
-      "content_sha256": "b3e0475b62210fefc4389ccd7db237dc670330caca26d8a371e86a4299ef7139",
-      "symbol": "languageIDByExtension"
+      "content_sha256": "ba41a8617d519b1912b49b57375f565946f81d727aee1f90781864aa23ab6828",
+      "symbol": "languageIDForMarkupExtension"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
@@ -2343,48 +2340,47 @@
       "codemap_line": 295,
       "target_path": "cmd/mcp-lsp/search/fileutil.go",
       "line_spec": "112",
-      "content_sha256": "b67d3d86206f77dd936fdd88a992d528bd33dfa8b5f119279245b2b19f3660cf",
-      "symbol": "NormalizeRoot"
+      "content_sha256": "d8fe4bf139112dac26733fe43c17c6b288e511c88c58622c45ee8da580e3442b",
+      "symbol": "resolveCandidateInRoots"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
       "codemap_line": 295,
       "target_path": "cmd/mcp-lsp/search/fileutil.go",
       "line_spec": "147",
-      "content_sha256": "b67d3d86206f77dd936fdd88a992d528bd33dfa8b5f119279245b2b19f3660cf",
-      "symbol": "NormalizeRootSet"
+      "content_sha256": "cbf749758635516541e69902c00cbb85e1140cafb899de42c636b26602ff4dd4",
+      "symbol": "resolveAbsoluteCandidateInRoots"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
       "codemap_line": 295,
       "target_path": "cmd/mcp-lsp/search/fileutil.go",
       "line_spec": "156",
-      "content_sha256": "6d2c43b9105e0fdae40e1ef515e14c1e5f70cc7099acae4ab965cefa434854b2",
-      "symbol": "NormalizeRootSet"
+      "content_sha256": "fa19a5fbfeaa616cc2f9d86cde7ac0a79e6b3e36774bf2d737be44df00a0b102",
+      "symbol": "longestContainingRoot"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
       "codemap_line": 295,
       "target_path": "cmd/mcp-lsp/search/fileutil.go",
       "line_spec": "162",
-      "content_sha256": "802bfc7bca0266f911504fb6b7131b0dff4b1a66f3304c382f524c73f13138e4",
-      "symbol": "NormalizeRootSet"
+      "content_sha256": "7ccee242795194d30712da22bebc32ecc85de90685b0d8735f7368d957197d21",
+      "symbol": "longestContainingRoot"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
       "codemap_line": 295,
       "target_path": "cmd/mcp-lsp/search/fileutil.go",
       "line_spec": "169",
-      "content_sha256": "d8fe4bf139112dac26733fe43c17c6b288e511c88c58622c45ee8da580e3442b",
-      "symbol": "resolveCandidateInRoots"
+      "content_sha256": "0c1cff10c5ece4ff08c8b39483a28fad5c5e41fa533202e3c3ac5b67824cf7ee"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
       "codemap_line": 296,
       "target_path": "cmd/mcp-lsp/manager/registry.go",
       "line_spec": "103",
-      "content_sha256": "b8c40dfef0839c89c2a3c642e17738893284f16a84025bf9cab4986b47ae3365",
-      "symbol": "languageIDByExtension"
+      "content_sha256": "79f7dd2b136f787da35ba83971b75c62d0eb1f66260bcb343443594441a91501",
+      "symbol": "languageIDForMarkupExtension"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
@@ -2398,8 +2394,8 @@
       "codemap_line": 296,
       "target_path": "cmd/mcp-lsp/manager/registry.go",
       "line_spec": "83",
-      "content_sha256": "c6dba1b3eaaf53583fd3980312f615cffcff0a5713a5bf757e50c2a0b470a86d",
-      "symbol": "languageIDByExtension"
+      "content_sha256": "68a6a7fbcb72a9c81f96db4f650e2c169850497408dd3caaf053defc62dcf947",
+      "symbol": "languageIDForCoreExtension"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
@@ -2587,7 +2583,7 @@
       "codemap_line": 324,
       "target_path": "cmd/mcp-lsp/tools/tool_edit_support_test.go",
       "line_spec": "11",
-      "content_sha256": "96cf4700197ef1b9c603d1e7da68f4dcc6b94d7f249d979b7512864a4688d96d"
+      "content_sha256": "d6f35cf4d18b522039e9fcaf7ce70576aa2f33be33c6a06b6de4831d427ee5ab"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
@@ -2601,16 +2597,15 @@
       "codemap_line": 332,
       "target_path": "cmd/mcp-lsp/tools.go",
       "line_spec": "39",
-      "content_sha256": "db416a609bbf04bd6736ceab223c1feeb1a02fd1ccc997d687e5a2cdc0d5d94d",
-      "symbol": "lspToolManifests"
+      "content_sha256": "6c239ef7b926ce01c5589dd6b670f066d2a09e95bddda6649c5abec3a5600a98",
+      "symbol": "newLSPToolManifests"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
       "codemap_line": 333,
       "target_path": "cmd/mcp-lsp/manager/registry.go",
       "line_spec": "70",
-      "content_sha256": "086b95008c4fb0ab7117b3e92bf8491dc87b6a19219a0d05aae6ad2a1b0ea2c7",
-      "symbol": "languageIDByExtension"
+      "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
@@ -2641,8 +2636,8 @@
       "codemap_line": 334,
       "target_path": "cmd/mcp-lsp/middleware/budget.go",
       "line_spec": "17",
-      "content_sha256": "ff310a57f50f1d6d22ad76dc8e6e3cacc7cbc3519f03cf38e8e681de908eaacc",
-      "symbol": "defaultToolBudgets"
+      "content_sha256": "79f7dd2b136f787da35ba83971b75c62d0eb1f66260bcb343443594441a91501",
+      "symbol": "toolBudgetDescriptor"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",

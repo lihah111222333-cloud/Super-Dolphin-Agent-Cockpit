@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -720,4 +721,125 @@ func TestEditPureInsertionEOF(t *testing.T) {
 	}
 	want := "package main\n\nfunc main() {\n}\n\nfunc helper() {}\n"
 	assertFileContent(t, path, want)
+}
+
+func TestEditHandlerLegacyEntryPointRemovedAndWrapperAvailable(t *testing.T) {
+	_, testFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	editSourcePath := filepath.Join(filepath.Dir(testFile), "tool_edit.go")
+	source, err := os.ReadFile(editSourcePath)
+	if err != nil {
+		t.Fatalf("read edit handler source: %v", err)
+	}
+	if strings.Contains(string(source), "func HandleEdit(") {
+		t.Fatal("legacy exported HandleEdit entry point still exists")
+	}
+	if handler := NewEditHandlerWithRoot(t.TempDir(), &structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage}); handler == nil {
+		t.Fatal("NewEditHandlerWithRoot returned nil")
+	}
+}
+
+func TestEditHandlerOwnersSerializeSameCanonicalPath(t *testing.T) {
+	owner := &editLockRegistry{}
+	first := EditHandler{lockRegistry: owner}
+	second := EditHandler{lockRegistry: owner}
+	unlockFirst := lockEditFile(first.lockRegistry, "/workspace/shared.go")
+	started := make(chan struct{})
+	acquired := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		close(started)
+		unlockSecond := lockEditFile(second.lockRegistry, "/workspace/shared.go")
+		close(acquired)
+		unlockSecond()
+	})
+	<-started
+	select {
+	case <-acquired:
+		t.Fatal("second handler acquired shared-owner lock before first released")
+	case <-time.After(100 * time.Millisecond):
+	}
+	unlockFirst()
+	select {
+	case <-acquired:
+	case <-time.After(time.Second):
+		t.Fatal("second handler did not acquire shared-owner lock after release")
+	}
+	wg.Wait()
+}
+
+func TestEditHandlerOwnersAllowDifferentPathsConcurrently(t *testing.T) {
+	owner := &editLockRegistry{}
+	first := EditHandler{lockRegistry: owner}
+	second := EditHandler{lockRegistry: owner}
+	unlockFirst := lockEditFile(first.lockRegistry, "/workspace/one.go")
+	started := make(chan struct{})
+	acquired := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		close(started)
+		unlockSecond := lockEditFile(second.lockRegistry, "/workspace/two.go")
+		close(acquired)
+		unlockSecond()
+	})
+	<-started
+	select {
+	case <-acquired:
+	case <-time.After(time.Second):
+		unlockFirst()
+		t.Fatal("different-path lock was blocked by unrelated path")
+	}
+	wg.Wait()
+	unlockFirst()
+}
+
+func TestEditHandlerResolvesDotDotBeforeCanonicalLock(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "y.txt")
+	if err := os.WriteFile(path, []byte("old\n"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	owner := &editLockRegistry{}
+	handler := EditHandler{
+		registry:     &structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage},
+		root:         resolveRoot(root),
+		lockRegistry: owner,
+	}
+	canonicalPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatalf("resolve canonical fixture path: %v", err)
+	}
+	unlock := lockEditFile(owner, canonicalPath)
+	resultCh := make(chan error, 1)
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		_, err := handler.Handle(testToolContext(root), marshalReproParams(t, EditRequest{
+			Action:   "replace_range",
+			FilePath: filepath.Join(root, "x", "..", "y.txt"),
+			Patch:    "-old\n+new\n",
+		}))
+		resultCh <- err
+	})
+	select {
+	case err := <-resultCh:
+		unlock()
+		if err != nil {
+			t.Fatalf("replace_range returned before canonical lock release: %v", err)
+		}
+		t.Fatal("dot-dot path bypassed canonical owner lock")
+	case <-time.After(100 * time.Millisecond):
+	}
+	unlock()
+	select {
+	case err := <-resultCh:
+		if err != nil {
+			t.Fatalf("replace_range after canonical lock release: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("replace_range did not complete after canonical lock release")
+	}
+	wg.Wait()
+	assertFileContent(t, path, "new\n")
 }

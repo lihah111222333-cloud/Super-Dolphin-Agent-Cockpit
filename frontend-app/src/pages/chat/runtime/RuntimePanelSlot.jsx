@@ -51,6 +51,7 @@ function RuntimePanelSlot({
         renderMarkdownPreview={renderMarkdownPreview}
         geometrySnapshot={geometrySnapshot}
         layoutActions={layoutActions}
+        onCollapse={() => layoutActions.right.setOpen(false)}
         onShowAgents={onShowAgents}
       />
     </>

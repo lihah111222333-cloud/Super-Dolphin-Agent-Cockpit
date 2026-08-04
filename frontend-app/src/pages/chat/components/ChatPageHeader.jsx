@@ -61,6 +61,18 @@ function ChatPageHeader({ copy = APP_COPY.zh.chat, store, projectPath, rightPane
         </MenuTrigger>
       </div>
       <div className="chat-header-tools" aria-label="聊天视图工具">
+        {feedback?.bootstrapRecovery ? (
+          <button
+            type="button"
+            className="chat-header-tool"
+            aria-label={feedback.retrying ? '正在重新连接后端' : '重新连接后端'}
+            title={feedback.retrying ? '正在重新连接后端' : '重新连接后端'}
+            disabled={feedback.retrying}
+            onClick={() => runUIAction('app.bootstrap', () => store.bootstrap())}
+          >
+            <RefreshCw size={18} aria-hidden="true" />
+          </button>
+        ) : null}
         <button
           type="button"
           className="chat-header-tool"
@@ -131,22 +143,6 @@ function ChatPageHeader({ copy = APP_COPY.zh.chat, store, projectPath, rightPane
           <RefreshCw size={14} />
         </button>
       </div>
-      {feedback?.bootstrapRecovery ? (
-        <div className="chat-header-feedback">
-          <output className={`action-feedback ${feedback.tone || 'info'}`} data-testid="chat-action-feedback">
-            {feedback.message}
-          </output>
-          <button
-            type="button"
-            className="btn secondary chat-bootstrap-retry"
-            aria-label={feedback.retrying ? '正在重新连接后端' : '重新连接后端'}
-            disabled={feedback.retrying}
-            onClick={() => runUIAction('app.bootstrap', () => store.bootstrap())}
-          >
-            {feedback.retrying ? '连接中…' : '重新连接'}
-          </button>
-        </div>
-      ) : null}
     </header>
   );
 }

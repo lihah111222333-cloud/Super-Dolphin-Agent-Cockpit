@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { collectEvidenceProvenance } from './evidence-provenance.mjs';
 import { FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS } from './frontend-execution-closure.mjs';
+import { repositoryLocalGitEnvironment } from './runtime/git-environment.mjs';
 import { requireSubjectSha } from './performance-budget-model.mjs';
 import { runManagedCommand } from './managed-command.mjs';
 
@@ -55,7 +56,6 @@ const DESKTOP_FAILURE_SMOKE_CONFLICT_ENV_KEYS = Object.freeze([
   'VITE_DEV_URL',
   'FRONTEND_DEVSERVER_URL',
 ]);
-
 function validateDeliveryCaseResult(caseIds, testCount) {
   if (!Array.isArray(caseIds)) throw new TypeError('delivery caseIds must be an array');
   if (testCount !== DELIVERY_CASE_IDS.length || testCount === 0) {
@@ -71,6 +71,7 @@ function currentCommit(repositoryRoot) {
   const result = spawnSync('git', ['rev-parse', 'HEAD'], {
     cwd: repositoryRoot,
     encoding: 'utf8',
+    env: repositoryLocalGitEnvironment(),
   });
   if (result.status !== 0) throw new Error(`git rev-parse HEAD failed: ${result.stderr}`);
   return result.stdout.trim();
@@ -80,6 +81,7 @@ function canonicalRepositoryRoot(candidate) {
   const result = spawnSync('git', ['rev-parse', '--show-toplevel'], {
     cwd: resolve(candidate),
     encoding: 'utf8',
+    env: repositoryLocalGitEnvironment(),
   });
   if (result.status !== 0) throw new Error(`git repository discovery failed: ${result.stderr}`);
   return resolve(result.stdout.trim());
@@ -200,7 +202,7 @@ async function runDeliveryCommands(inspected, runCommand = runManagedCommand, re
   for (const command of inspected.commands) {
     const [program, ...args] = command.argv;
     const cwd = command.cwd === '.' ? repositoryRoot : resolve(repositoryRoot, command.cwd);
-    const env = { ...process.env };
+    const env = repositoryLocalGitEnvironment();
     delete env.SUPER_DOLPHIN_DESKTOP_SMOKE_SKIP_FRONTEND_BUILD;
     if (command.id === 'desktop-start-smoke') env.SUPER_DOLPHIN_DESKTOP_SMOKE_SKIP_FRONTEND_BUILD = '1';
     if (command.id === 'desktop-failure-smoke') {

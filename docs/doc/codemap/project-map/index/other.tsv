@@ -237,6 +237,7 @@ internal/archtest/fx_graph_test.go	internal	other	go-test	280	架构守卫、bas
 internal/archtest/fx_invoke_guard_fixture_test.go	internal	other	go-test	3295	架构守卫、baseline ratchet 与冻结规则	internal,archtest,fx,invoke,guard,fixture,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/fx_invoke_guard_test.go	internal	other	go-test	5764	架构守卫、baseline ratchet 与冻结规则	internal,archtest,fx,invoke,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/fx_lifecycle_guard_test.go	internal	other	go-test	2505	架构守卫、baseline ratchet 与冻结规则	internal,archtest,fx,lifecycle,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/go_toolchain_version_guard_test.go	internal	other	go-test	10331	架构守卫、baseline ratchet 与冻结规则	internal,archtest,go,toolchain,version,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/guard_freeze_acceptance_test.go	internal	other	go-test	11585	架构守卫、baseline ratchet 与冻结规则	internal,archtest,guard,freeze,acceptance,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/guard_freeze.go	internal	other	go-source	17429	架构守卫、baseline ratchet 与冻结规则	internal,archtest,guard,freeze,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/guardlib.go	internal	other	go-source	19089	架构守卫、baseline ratchet 与冻结规则	internal,archtest,guardlib,架构守卫,baseline,ratchet,与冻结规则

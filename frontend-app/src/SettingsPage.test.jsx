@@ -140,6 +140,8 @@ function mockSettingsConfigApi() {
 
 function resetSettingsPageTestState() {
   vi.clearAllMocks();
+  window.matchMedia = vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+  window.localStorage.clear();
   resetSettingsStore();
   mockSettingsBootstrap();
   mockSettingsPreferences();

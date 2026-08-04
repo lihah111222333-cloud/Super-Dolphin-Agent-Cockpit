@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Button as AriaButton, Dialog, DialogTrigger, Popover } from 'react-aria-components';
-import { Code2, FileText, Minus, Plus, Bot } from 'lucide-react';
+import { Code2, FileText, Minus, Plus } from 'lucide-react';
 import { runtimeToolbarMetrics } from '../adapters/runtimeToolbarAdapter.js';
 
 const METRIC_ICONS = Object.freeze({
@@ -41,28 +41,15 @@ function RuntimeToolbarStat({ metric }) {
 }
 
 /*
- * Runtime 概览指标栏：左侧提供切换到 Agent 看板的入口，
- * 每个指标都有简短名称、数值、单位，点击（键盘可聚焦）打开解释 tooltip。
+ * Runtime 概览指标栏：指标都有简短名称、数值、单位，
+ * 点击（键盘可聚焦）打开解释 tooltip。
  */
-function RuntimeToolbar({ diffSummary, onShowAgents }) {
+function RuntimeToolbar({ diffSummary }) {
   return (
-    <div className="runtime-toolbar" aria-label="代码变更概览">
-      <button
-        type="button"
-        className="runtime-view-switch"
-        aria-label="切换到 Agent 看板"
-        title="切换到 Agent 看板"
-        data-testid="runtime-show-agents"
-        onClick={onShowAgents}
-      >
-        <Bot size={13} aria-hidden="true" />
-        Agents
-      </button>
-      <div className="runtime-toolbar__metrics">
-        {runtimeToolbarMetrics(diffSummary).map((metric) => (
-          <RuntimeToolbarStat key={metric.key} metric={metric} />
-        ))}
-      </div>
+    <div className="runtime-toolbar__metrics" aria-label="代码变更概览">
+      {runtimeToolbarMetrics(diffSummary).map((metric) => (
+        <RuntimeToolbarStat key={metric.key} metric={metric} />
+      ))}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -178,5 +178,15 @@ describe('failure matrix runner', () => {
     finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it('uses the same actual NUL separator for FM-01 GREEN evidence map and lookup', () => {
+    const source = readFileSync(join(process.cwd(), 'scripts/failure-matrix-runner.mjs'), 'utf8');
+    const mapLine = source.split('\n').find((line) => line.includes('const byPair = new Map'));
+    expect(mapLine).toContain('`${entry.caseId}\\u0000${entry.layer}`');
+
+    const literalBackslashKey = `FM-01\\u0000frontend`;
+    const actualNulKey = `FM-01\u0000frontend`;
+    expect(literalBackslashKey).not.toBe(actualNulKey);
   });
 });

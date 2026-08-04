@@ -19,6 +19,8 @@ export const FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS = Object.freeze([
   'frontend-app/playwright.desktop.config.js',
   'frontend-app/playwright.failure.config.js',
   'frontend-app/scripts/frontend-execution-closure.mjs',
+  'frontend-app/scripts/runtime/detached-subject-watchdog.mjs',
+  'frontend-app/scripts/runtime/git-environment.mjs',
   'scripts/ai_maintenance_gates.sh',
   'scripts/ai_maintenance_gates_guard_test.go',
   'scripts/ai_maintenance/main.go',
