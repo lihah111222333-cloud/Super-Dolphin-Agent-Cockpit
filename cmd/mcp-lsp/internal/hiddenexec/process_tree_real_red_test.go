@@ -75,19 +75,8 @@ func TestPrepareShutdownEnrollsDynamicDescendantBeforeRootExit(t *testing.T) {
 	}
 	ctx, cancel := platformconfig.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
-	var signaled []ProcessIdentity
 	owner := tree.controller.(*unixProcessTree)
-	owner.signalMembers = func(members []ProcessIdentity, signal int) error {
-		signaled = append(signaled, members...)
-		return signalProcessMembers(members, signal)
-	}
-	if err := tree.Force(ctx); err != nil {
-		t.Fatalf("Force() enrolled descendant: %v", err)
-	}
-	assertEnrolledMembersSignaled(t, signaled, prepared)
-	if err := tree.Wait(ctx); err != nil {
-		t.Fatalf("Wait() enrolled descendant: %v", err)
-	}
+	assertPreparedForceOutcome(t, tree, cmd, owner, prepared, ctx)
 }
 
 func releaseExitedTree(tree *ProcessTree) {

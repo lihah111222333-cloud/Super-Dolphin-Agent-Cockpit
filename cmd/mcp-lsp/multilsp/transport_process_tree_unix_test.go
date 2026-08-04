@@ -70,8 +70,9 @@ func TestTransportKillProcessTerminatesLanguageServerProcessTree(t *testing.T) {
 	}()
 
 	tr := &transport{cmd: cmd, processTree: processTree}
-	if err := tr.killProcess(); err != nil {
-		t.Fatalf("killProcess() error = %v", err)
+	if killTransportFixtureForTest(t, tr, childPID) {
+		childExited = true
+		return
 	}
 	waitDone := make(chan struct{})
 	goroutines := newTestGoroutineGroup(t)
@@ -120,40 +121,13 @@ func TestNewTransportTransfersFailedStartOwnerToCleanup(t *testing.T) {
 		return tree, errors.New("injected process-tree startup failure")
 	}
 
-	if _, err := newTransportWithStarter(transportOptions{Binary: "/bin/sleep", Args: []string{"30"}}, starter); err == nil {
+	_, cleanupErr := newTransportWithStarter(transportOptions{Binary: "/bin/sleep", Args: []string{"30"}}, starter)
+	if cleanupErr == nil {
 		t.Fatal("newTransport() error = nil after injected process-tree startup failure")
 	} else {
-		t.Logf("injected startup failure cleanup: %v", err)
+		t.Logf("injected startup failure cleanup: %v", cleanupErr)
 	}
-	assertHandedOffOwnerDead(t, cmd)
-}
-
-func assertHandedOffOwnerDead(t *testing.T, cmd *exec.Cmd) {
-	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		alive, probeErr := hiddenexec.ProcessAlive(cmd.Process.Pid)
-		if probeErr != nil {
-			t.Fatalf("probe handed-off startup owner: %v", probeErr)
-		}
-		if !alive {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	alive, probeErr := hiddenexec.ProcessAlive(cmd.Process.Pid)
-	if probeErr != nil {
-		t.Fatalf("probe handed-off startup owner after retry: %v", probeErr)
-	}
-	if alive {
-		t.Fatalf("handed-off startup owner process %d is still alive", cmd.Process.Pid)
-	}
-	if waitErr := cmd.Wait(); waitErr != nil {
-		var exitErr *exec.ExitError
-		if !errors.Is(waitErr, os.ErrProcessDone) && !errors.As(waitErr, &exitErr) {
-			t.Fatalf("reap handed-off startup owner: %v", waitErr)
-		}
-	}
+	assertHandedOffOwnerState(t, cmd, tree, cleanupErr)
 }
 
 func waitForTestChildPID(t *testing.T, path string) int {

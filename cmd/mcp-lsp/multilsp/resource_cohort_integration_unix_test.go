@@ -192,7 +192,7 @@ func TestResourceCohortOwnerProcessHelper(t *testing.T) {
 	current, closed := startResourceCohortMemoryClient(t, leasePath, cohortID, role, childMiB)
 	defer func() {
 		if !*closed {
-			_ = current.Close()
+			_ = closeResourceCohortClientForTest(t, current)
 		}
 	}()
 
@@ -204,7 +204,7 @@ func TestResourceCohortOwnerProcessHelper(t *testing.T) {
 		time.Duration(activityAge)*time.Second,
 	)
 	if result.EvictSelf {
-		if err := current.Close(); err != nil {
+		if err := closeResourceCohortClientForTest(t, current); err != nil {
 			t.Fatalf("close evicted resource cohort client: %v", err)
 		}
 		*closed = true
@@ -213,7 +213,7 @@ func TestResourceCohortOwnerProcessHelper(t *testing.T) {
 	writeResourceCohortOwnerResult(t, result)
 	waitForResourceCohortMarker(t, requiredResourceCohortHelperEnv(t, resourceCohortStopPathEnv))
 	if !*closed {
-		if err := current.Close(); err != nil {
+		if err := closeResourceCohortClientForTest(t, current); err != nil {
 			t.Fatalf("close resource cohort client: %v", err)
 		}
 		*closed = true

@@ -650,3 +650,10 @@ func terminateJobProcessTreeWith(job windows.Handle, terminate func(windows.Hand
 func processTreeProcessGone(err error) bool {
 	return isProcessTreeGoneError(err, windows.ERROR_INVALID_PARAMETER, windows.ERROR_NOT_FOUND)
 }
+
+func terminateStartupProcess(cmd *exec.Cmd) error {
+	if cmd == nil || cmd.Process == nil {
+		return errors.New("startup process owner is unavailable")
+	}
+	return cmd.Process.Kill()
+}

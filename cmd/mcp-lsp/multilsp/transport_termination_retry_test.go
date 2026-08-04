@@ -42,6 +42,33 @@ func TestTransportCloseRetriesProcessTreeTerminationAfterFailure(t *testing.T) {
 	assertTransportOwnerCalls(t, owner, 2, 1)
 }
 
+// TestTransportReleasedOwnerDoesNotRetryTermination 锁定已释放 owner 不因历史 pending 再次触发终止或释放。
+func TestTransportReleasedOwnerDoesNotRetryTermination(t *testing.T) {
+	owner := &countingProcessTreeOwner{}
+	tr := newTestTransportWithExitedProcess()
+	tr.processTree = owner
+	tr.treeReleaseMu.Lock()
+	tr.treeReleased = true
+	tr.treeReleaseMu.Unlock()
+	tr.terminationMu.Lock()
+	tr.terminationErr = hiddenexec.ErrProcessTreeCleanupPending
+	tr.terminationComplete = false
+	tr.terminationMu.Unlock()
+
+	if err, _ := tr.terminateProcessTreeAttempt(); err != nil {
+		t.Fatalf("released owner terminate attempt = %v, want nil", err)
+	}
+	if err := tr.Close(); err != nil {
+		t.Fatalf("released owner Close() = %v, want nil", err)
+	}
+	if got := owner.terminateCalls.Load(); got != 0 {
+		t.Fatalf("released owner Terminate() calls = %d, want zero", got)
+	}
+	if got := owner.releaseCalls.Load(); got != 0 {
+		t.Fatalf("released owner Release() calls = %d, want zero", got)
+	}
+}
+
 type dynamicRemainingProcessTreeOwner struct {
 	countingProcessTreeOwner
 	remainingCalls atomic.Int32

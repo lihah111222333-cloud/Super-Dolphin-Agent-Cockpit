@@ -16,10 +16,7 @@ func TestProcessTreeProvidesIdentitySnapshotAndBoundedLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartProcessTree() error = %v", err)
 	}
-	defer func() {
-		_ = tree.Force(context.Background())
-		_ = cmd.Wait()
-	}()
+	defer cleanupProcessTreeFixture(tree, cmd)
 	identity := requireProcessTreeIdentity(t, tree)
 	requireProcessTreeSnapshot(t, tree, identity)
 	requireProcessTreeAlive(t, tree)
@@ -64,15 +61,8 @@ func requireProcessTreeShutdown(t *testing.T, tree *ProcessTree) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if isWindows() {
-		if err := tree.Graceful(ctx); err == nil {
-			t.Fatal("Graceful() error = nil on Windows, want unsupported TERM phase")
-		}
-		if err := tree.Force(ctx); err != nil {
-			t.Fatalf("Force() error = %v", err)
-		}
-	} else if err := tree.Graceful(ctx); err != nil {
-		t.Fatalf("Graceful() error = %v", err)
+	if !requireProcessTreeShutdownPlatform(t, tree, ctx) {
+		return
 	}
 	if err := tree.Wait(ctx); err != nil {
 		t.Fatalf("Wait() error = %v", err)

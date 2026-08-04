@@ -183,11 +183,7 @@ func assertRequestContextTerminatedTransport(t *testing.T, tr *transport) {
 	if !tr.closed.Load() {
 		t.Fatalf("request() returned context termination without closing transport; want request context termination path to close it")
 	}
-	select {
-	case <-tr.done:
-	case <-time.After(5 * time.Second):
-		t.Fatalf("request() returned on context termination but LSP process stayed alive; want request context termination path to terminate the process before cleanup")
-	}
+	assertTransportContextTerminationPlatform(t, tr)
 }
 
 func cleanupLeakedTransportAfterFailure(t *testing.T, tr *transport) {

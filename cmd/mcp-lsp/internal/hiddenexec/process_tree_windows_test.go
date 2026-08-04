@@ -3,8 +3,10 @@
 package hiddenexec
 
 import (
+	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"testing"
 
 	"golang.org/x/sys/windows"
@@ -49,4 +51,20 @@ func TestTerminateJobProcessTreeTreatsGoneCallAsSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("terminateJobProcessTreeWith(gone) error = %v", err)
 	}
+}
+
+func requireProcessTreeShutdownPlatform(t *testing.T, tree *ProcessTree, ctx context.Context) bool {
+	t.Helper()
+	if err := tree.Graceful(ctx); err == nil {
+		t.Fatal("Graceful() error = nil on Windows, want unsupported TERM phase")
+	}
+	if err := tree.Force(ctx); err != nil {
+		t.Fatalf("Force() error = %v", err)
+	}
+	return true
+}
+
+func cleanupProcessTreeFixture(tree *ProcessTree, cmd *exec.Cmd) {
+	_ = tree.Force(context.Background())
+	_ = cmd.Wait()
 }

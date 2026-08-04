@@ -48,3 +48,7 @@ func processStartIdentity(int) (string, error) {
 	return "", errUnsupportedProcessTree
 }
 func killProcessTree(*exec.Cmd) error { return errUnsupportedProcessTree }
+
+func terminateStartupProcess(*exec.Cmd) error {
+	return errors.Join(ErrProcessTreeCleanupPending, errors.New("startup exact-root signal authority is unavailable; signal_sent=false"))
+}
