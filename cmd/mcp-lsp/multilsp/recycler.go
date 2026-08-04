@@ -167,7 +167,9 @@ func (r *poolRecycler) retryProvisionalCleanups(mgr *manager) {
 	defer mgr.ensureMu.Unlock()
 	for _, key := range mgr.provisionalCleanupKeys() {
 		if err := mgr.retryProvisionalClientCleanups(key); err != nil && mgr.logger != nil {
-			mgr.logger.Warn("LSP provisional cleanup retry pending", "workspace_hash", provisionalWorkspaceHash(key), "err", err)
+			args := []any{"workspace_hash", provisionalWorkspaceHash(key)}
+			args = append(args, platformshared.SafePayloadLogFields("cleanup_error", err.Error())...)
+			mgr.logger.Warn("LSP provisional cleanup retry pending", args...)
 		}
 	}
 }
