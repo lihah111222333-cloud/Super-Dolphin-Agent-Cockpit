@@ -40,10 +40,6 @@ type startupProcessTreeState struct {
 	captureIdentity  func(int) (ProcessIdentity, error)
 }
 
-func newStartupProcessTree(cmd *exec.Cmd, waitDone chan error) *ProcessTree {
-	return newStartupProcessTreeWithRelease(cmd, waitDone, nil)
-}
-
 func newStartupProcessTreeWithRelease(cmd *exec.Cmd, waitDone chan error, releaseHook func() error) *ProcessTree {
 	return newStartupProcessTreeWithIdentity(cmd, waitDone, ProcessIdentity{}, false, nil, false, releaseHook)
 }
