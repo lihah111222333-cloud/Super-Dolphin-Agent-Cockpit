@@ -14,9 +14,11 @@ import (
 )
 
 // startupProcessTree is a constrained owner retained when platform tree
-// binding fails after Start. It holds the exact os.Process handle and the
-// single cmd.Wait result channel, so callers can retry root cleanup without
-// reconstructing a PID or losing the unreaped startup process.
+// binding fails after Start. It holds the startup command and the single
+// cmd.Wait result channel, so callers can retry root cleanup without losing
+// the unreaped startup process. Unix callers also retain an immutable startup
+// identity; the os.Process value itself is not a PID-reuse-safe handle.
+// The identity is copied into the retained owner before any retry.
 type startupProcessTree struct {
 	startupProcessTreeState
 }
@@ -24,14 +26,18 @@ type startupProcessTree struct {
 // startupProcessTreeState keeps the wait/reap state separate from the
 // controller's remaining operations so each file stays within the method guard.
 type startupProcessTreeState struct {
-	mu           sync.Mutex
-	cmd          *exec.Cmd
-	waitDone     chan error
-	waitStarted  bool
-	waitComplete bool
-	waitErr      error
-	releaseHook  func() error
-	released     bool
+	mu               sync.Mutex
+	cmd              *exec.Cmd
+	waitDone         chan error
+	waitStarted      bool
+	waitComplete     bool
+	waitErr          error
+	releaseHook      func() error
+	released         bool
+	startupIdentity  ProcessIdentity
+	identityKnown    bool
+	identityRequired bool
+	captureIdentity  func(int) (ProcessIdentity, error)
 }
 
 func newStartupProcessTree(cmd *exec.Cmd, waitDone chan error) *ProcessTree {
@@ -39,11 +45,19 @@ func newStartupProcessTree(cmd *exec.Cmd, waitDone chan error) *ProcessTree {
 }
 
 func newStartupProcessTreeWithRelease(cmd *exec.Cmd, waitDone chan error, releaseHook func() error) *ProcessTree {
+	return newStartupProcessTreeWithIdentity(cmd, waitDone, ProcessIdentity{}, false, nil, false, releaseHook)
+}
+
+func newStartupProcessTreeWithIdentity(cmd *exec.Cmd, waitDone chan error, identity ProcessIdentity, identityKnown bool, captureIdentity func(int) (ProcessIdentity, error), identityRequired bool, releaseHook func() error) *ProcessTree {
 	return &ProcessTree{controller: &startupProcessTree{startupProcessTreeState: startupProcessTreeState{
-		cmd:         cmd,
-		waitDone:    waitDone,
-		waitStarted: waitDone != nil,
-		releaseHook: releaseHook,
+		cmd:              cmd,
+		waitDone:         waitDone,
+		waitStarted:      waitDone != nil,
+		releaseHook:      releaseHook,
+		startupIdentity:  identity,
+		identityKnown:    identityKnown,
+		identityRequired: identityRequired,
+		captureIdentity:  captureIdentity,
 	}}}
 }
 
@@ -89,17 +103,24 @@ func (p *startupProcessTreeState) waitResult(ctx context.Context) error {
 	}
 }
 
-// terminateExact 通过启动时保存的 os.Process 句柄终止并回收未完成绑定的根进程。
+// terminateExact 在 Unix 上先验证不可变启动身份，再发送根进程信号并回收。
+// os.Process 在 Darwin 上仍按 PID 发信号，因此不能单独作为安全句柄。
 func (p *startupProcessTreeState) terminateExact() error {
 	p.mu.Lock()
 	p.startWaitLocked()
-	cmd := p.cmd
+	cmd, identity, identityKnown, identityRequired, captureIdentity := p.cmd, p.startupIdentity, p.identityKnown, p.identityRequired, p.captureIdentity
+	waitComplete := p.waitComplete
 	p.mu.Unlock()
 	if cmd == nil || cmd.Process == nil {
 		return errors.Join(ErrProcessTreeCleanupPending, errors.New("startup process owner is unavailable"))
 	}
 	var killErr error
-	if cmd.ProcessState == nil {
+	if !waitComplete {
+		if identityRequired {
+			if err := verifyStartupProcessIdentity(cmd.Process.Pid, identity, identityKnown, captureIdentity); err != nil {
+				return errors.Join(ErrProcessTreeCleanupPending, err)
+			}
+		}
 		killErr = cmd.Process.Kill()
 	}
 	if killErr != nil && !errors.Is(killErr, os.ErrProcessDone) {
@@ -161,6 +182,15 @@ func (p *startupProcessTreeState) rssBytes() (uint64, error) {
 }
 
 func (p *startupProcessTreeState) identity() (ProcessIdentity, error) {
+	p.mu.Lock()
+	identityRequired, identityKnown, identity := p.identityRequired, p.identityKnown, p.startupIdentity
+	p.mu.Unlock()
+	if identityRequired {
+		if !identityKnown {
+			return ProcessIdentity{}, errors.Join(ErrProcessTreeCleanupPending, ErrProcessTreeOwnerMissing, errors.New("startup process identity is unavailable"))
+		}
+		return identity, nil
+	}
 	return ProcessIdentity{}, errors.Join(ErrProcessTreeCleanupPending, errors.New("startup process-tree identity binding is incomplete"))
 }
 
@@ -173,10 +203,12 @@ func (p *startupProcessTreeState) prepareShutdown() error {
 	return errors.Join(ErrProcessTreeCleanupPending, errors.New("startup process-tree shutdown preparation is unavailable without a bound tree owner"))
 }
 
+// alive 以启动时身份重读结果报告 retained startup owner 是否仍可证明。
 func (p *startupProcessTreeState) alive() (bool, error) {
 	p.mu.Lock()
 	cmd := p.cmd
 	released := p.released
+	identity, identityKnown, identityRequired, captureIdentity := p.startupIdentity, p.identityKnown, p.identityRequired, p.captureIdentity
 	p.mu.Unlock()
 	if released {
 		return false, errors.New("startup process-tree owner is released")
@@ -184,7 +216,30 @@ func (p *startupProcessTreeState) alive() (bool, error) {
 	if cmd == nil || cmd.Process == nil {
 		return false, errors.Join(ErrProcessTreeCleanupPending, errors.New("startup process owner is unavailable"))
 	}
+	if identityRequired {
+		if err := verifyStartupProcessIdentity(cmd.Process.Pid, identity, identityKnown, captureIdentity); err != nil {
+			return false, errors.Join(ErrProcessTreeCleanupPending, err)
+		}
+		return true, nil
+	}
 	return ProcessAlive(cmd.Process.Pid)
+}
+
+func verifyStartupProcessIdentity(pid int, expected ProcessIdentity, known bool, captureIdentity func(int) (ProcessIdentity, error)) error {
+	if !known {
+		return errors.Join(ErrProcessTreeIdentityMismatch, ErrProcessTreeOwnerMissing, errors.New("startup process identity was not captured"))
+	}
+	if captureIdentity == nil {
+		return errors.Join(ErrProcessTreeIdentityMismatch, ErrProcessTreeOwnerMissing, errors.New("startup process identity probe is unavailable"))
+	}
+	current, err := captureIdentity(pid)
+	if err != nil {
+		return errors.Join(ErrProcessTreeIdentityMismatch, fmt.Errorf("re-read startup process identity for pid %d: %w", pid, err))
+	}
+	if !current.Equal(expected) {
+		return fmt.Errorf("%w: startup process PID %d was reused", ErrProcessTreeIdentityMismatch, pid)
+	}
+	return nil
 }
 
 func (p *startupProcessTree) descendants() ([]ProcessIdentity, error) {

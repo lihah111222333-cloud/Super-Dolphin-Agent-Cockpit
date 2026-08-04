@@ -44,11 +44,11 @@ func startProcessTreeWithHooks(cmd *exec.Cmd, hooks startupAbortHooks) (*Process
 	}
 	root, err := hooks.captureIdentity(cmd.Process.Pid)
 	if err != nil {
-		cleanupErr, startupOwner := abortStartedProcessTree(cmd, hooks)
+		cleanupErr, startupOwner := abortStartedProcessTree(cmd, hooks, nil)
 		return startupOwner, errors.Join(fmt.Errorf("capture process-tree root identity: %w", err), cleanupErr)
 	}
 	if err := validateProcessTreeRoot(root, cmd.Process.Pid); err != nil {
-		cleanupErr, startupOwner := abortStartedProcessTree(cmd, hooks)
+		cleanupErr, startupOwner := abortStartedProcessTree(cmd, hooks, &root)
 		return startupOwner, errors.Join(err, cleanupErr)
 	}
 	owner := &unixProcessTree{cmd: cmd, root: root, known: map[int]ProcessIdentity{root.PID: root}, signalMembers: signalProcessMembers}
