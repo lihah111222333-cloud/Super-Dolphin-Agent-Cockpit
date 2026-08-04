@@ -262,7 +262,6 @@ func TestManagerStoresConfiguredIdleTimeout(t *testing.T) {
 func TestDetachIdleWorkspaceRechecksConcurrentActivity(t *testing.T) {
 	client := &p2LifecycleClient{}
 	key := "workspace"
-	cutoff := time.Now().Add(-idleTimeoutForTest())
 	mgr := &manager{workspaces: map[string]*workspaceClient{
 		key: {
 			key:          key,
@@ -272,7 +271,7 @@ func TestDetachIdleWorkspaceRechecksConcurrentActivity(t *testing.T) {
 			lastActivity: time.Now(),
 		},
 	}}
-	if detached := detachWorkspaceClientGeneration(mgr, key, client, 1, cutoff); detached != nil {
+	if detached := detachWorkspaceClientGeneration(mgr, key, client, 1); detached != nil {
 		t.Fatal("detachWorkspaceClientGeneration() removed a workspace touched after the stale snapshot")
 	}
 	if got := mgr.workspaces[key]; got == nil || got.client != client {

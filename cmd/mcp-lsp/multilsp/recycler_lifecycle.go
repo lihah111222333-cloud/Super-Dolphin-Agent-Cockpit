@@ -78,7 +78,7 @@ func (r *poolRecycler) managerIdleCandidate(mgr *manager, snapshot workspaceClie
 }
 
 // detachWorkspaceClientGeneration 在 manager 锁内复核代际、状态、租约与完整 idle window。
-func detachWorkspaceClientGeneration(mgr *manager, key string, expected Client, generation uint64, idleCutoff time.Time) *workspaceClient {
+func detachWorkspaceClientGeneration(mgr *manager, key string, expected Client, generation uint64) *workspaceClient {
 	if mgr == nil || generation == 0 {
 		return nil
 	}

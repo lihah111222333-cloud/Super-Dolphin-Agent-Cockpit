@@ -101,7 +101,7 @@ func TestRecyclerRechecksLeaseAcquireBeforeDetach(t *testing.T) {
 	if _, bound, err := mgr.leaseBoundClient(client); err != nil || !bound {
 		t.Fatalf("leaseBoundClient after scanner snapshot = bound=%v err=%v", bound, err)
 	}
-	if detached := detachWorkspaceClientGeneration(mgr, candidate.key, candidate.client, candidate.generation, candidate.idleSince); detached != nil {
+	if detached := detachWorkspaceClientGeneration(mgr, candidate.key, candidate.client, candidate.generation); detached != nil {
 		t.Fatal("detach succeeded after a lease acquired during scanner race")
 	}
 }
@@ -323,10 +323,8 @@ type barrierBootstrapClient struct {
 
 func (c *barrierBootstrapClient) DidOpen(context.Context, string, string, int, string) error {
 	c.once.Do(func() { close(c.openStarted) })
-	select {
-	case <-c.openRelease:
-		return nil
-	}
+	<-c.openRelease
+	return nil
 }
 
 type bootstrapFailureOwnerClient struct {
