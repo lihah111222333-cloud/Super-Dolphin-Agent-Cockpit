@@ -251,6 +251,7 @@ func NewManagerWithError(cfg Config) (Manager, error) {
 	return newManager(cfg)
 }
 
+// newManager 完成已校验配置的 manager 组装，并在生产熵源失败时立即返回构造错误。
 func newManager(cfg Config) (*manager, error) {
 	root, err := platformshared.NormalizeAbsolutePath(cfg.WorkspaceRoot)
 	if err != nil {
