@@ -22,18 +22,17 @@ type processTreeCleanupError struct {
 	cause error
 }
 
-// Error describes the bounded startup cleanup failure and retained owner.
+// Error 返回有界启动清理失败及保留 owner 的描述。
 func (e *processTreeCleanupError) Error() string {
 	return fmt.Sprintf("LSP process-tree startup cleanup retained owner: %v", e.cause)
 }
 
-// Unwrap exposes the operation errors for errors.Is/errors.As callers.
+// Unwrap 暴露底层操作错误，供 errors.Is/errors.As 调用方识别。
 func (e *processTreeCleanupError) Unwrap() error {
 	return e.cause
 }
 
-// ProcessTreeOwner returns the retained startup owner for a caller that needs
-// to retry cleanup after the initial bounded attempt failed.
+// ProcessTreeOwner 返回保留的启动 owner，供有界清理失败后的重试调用方使用。
 func (e *processTreeCleanupError) ProcessTreeOwner() processTreeCleanupTarget {
 	return e.owner
 }
@@ -46,7 +45,10 @@ func cleanupProcessTreeOwner(owner processTreeCleanupTarget) error {
 	defer cancel()
 	terminateErr := owner.Terminate()
 	waitErr := owner.Wait(ctx)
-	releaseErr := owner.Release()
+	var releaseErr error
+	if terminateErr == nil && waitErr == nil {
+		releaseErr = owner.Release()
+	}
 	cleanupErr := errors.Join(terminateErr, waitErr, releaseErr)
 	if cleanupErr == nil {
 		return nil

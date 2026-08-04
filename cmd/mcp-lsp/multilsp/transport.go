@@ -74,7 +74,10 @@ type transport struct {
 	done                chan struct{}
 	doneMu              sync.Mutex
 	doneErr             error
-	terminationOnce     sync.Once
+	terminationMu       sync.Mutex
+	terminationInFlight bool
+	terminationDone     chan struct{}
+	terminationComplete bool
 	terminationErr      error
 	treeReleaseMu       sync.Mutex
 	treeReleased        bool

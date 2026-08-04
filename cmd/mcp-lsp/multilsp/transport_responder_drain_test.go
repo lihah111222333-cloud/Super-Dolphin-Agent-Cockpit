@@ -350,6 +350,7 @@ func TestTransportCloseRetriesResponderDrainAfterTimeout(t *testing.T) {
 
 func newTestTransportWithExitedProcess() *transport {
 	tr := newTestTransport()
+	tr.processTree = &countingProcessTreeOwner{}
 	close(tr.done)
 	return tr
 }
