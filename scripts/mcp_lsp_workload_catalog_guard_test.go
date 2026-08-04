@@ -119,15 +119,30 @@ func assertMcpLSPWorkloadMetadata(t *testing.T, workload mcpLSPWorkloadCatalogGu
 
 func assertMcpLSPWorkloadImplementation(t *testing.T, workload mcpLSPWorkloadCatalogGuardWorkload) {
 	t.Helper()
+	assertMcpLSPProducerImplementation(t, workload)
+	assertMcpLSPDefaultTimeout(t, workload)
+	assertMcpLSPImplementationCommand(t, workload)
+}
+
+// assertMcpLSPProducerImplementation 校验生产者状态及发布阻断标记。
+func assertMcpLSPProducerImplementation(t *testing.T, workload mcpLSPWorkloadCatalogGuardWorkload) {
 	if workload.ProducerImplementationStatus != "implemented" && workload.ProducerImplementationStatus != "missing" {
 		t.Errorf("workload %q has unsupported producer_implementation_status %q", workload.ID, workload.ProducerImplementationStatus)
 	}
 	if workload.ProducerImplementationStatus == "missing" && !workload.ReleaseBlocking {
 		t.Errorf("workload %q missing producer implementation must block release", workload.ID)
 	}
+}
+
+// assertMcpLSPDefaultTimeout 校验默认 15 分钟 workload 的最小预算。
+func assertMcpLSPDefaultTimeout(t *testing.T, workload mcpLSPWorkloadCatalogGuardWorkload) {
 	if workload.ID == "mcp-lsp-default-15m" && workload.TimeoutSeconds < 1500 {
 		t.Errorf("default-15m timeout_seconds = %d, want at least 1500", workload.TimeoutSeconds)
 	}
+}
+
+// assertMcpLSPImplementationCommand 校验实现状态与 command/T6/release 约束。
+func assertMcpLSPImplementationCommand(t *testing.T, workload mcpLSPWorkloadCatalogGuardWorkload) {
 	if workload.ImplementationStatus == "implemented" {
 		if len(workload.Command) == 0 {
 			t.Errorf("implemented workload %q has no catalog command", workload.ID)
