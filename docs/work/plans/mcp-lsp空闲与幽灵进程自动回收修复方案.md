@@ -7,8 +7,8 @@
 > Priority：P1 / release blocker
 > Owner：mcp-lsp lifecycle 维护者
 > 创建日期：2026-08-04
-> source baseline（唯一代码事实源）：`codex/mcp-lsp-idle-integration@60b9a93644fb28f18f0107ed09842ff047056455`（短 SHA：`60b9a9364`）。
-> 文档/地图证据边界：本车道随后产生的 doc/map tree 只更新方案文档和规范生成物，不改变或重新定义上述 source baseline；不得用本文件所在提交的自指 SHA 伪造 `60b9a9364` 的 exact source provenance。旧 `79a8b7853` 仅作历史地图 provenance，不是当前 source baseline。
+> source baseline（唯一代码事实源）：`codex/mcp-lsp-idle-integration@e32cbd240d04ea5d0066fa3bd33a85bf46b7060e`（短 SHA：`e32cbd240`）。
+> 文档/地图证据边界：本车道随后产生的 doc/map tree 只更新方案文档和规范生成物，不改变或重新定义上述 source baseline；不得用本文件所在提交的自指 SHA 伪造 `e32cbd240` 的 exact source provenance。旧 `60b9a9364` 与 `79a8b7853` 仅作历史 source/map provenance，不是当前 source baseline。
 
 关联设计：`docs/doc/codemap/03-mcp-lsp-ida.md`、`docs/doc/codemap/06-mcpserver.md`、`docs/契约/fix-workflow-convention.md`。
 
@@ -24,16 +24,17 @@
 
 - `30d333b6a`、`e8f01e04b`：解析后的 `LSPConfig.IdleTimeout` 作为 15 分钟默认 IdleTimeout SSOT，沿 runtime → manager/pool → recycler/adapter 传播；gopls `remote.listen.timeout` 使用同一 effective duration，并保留 canonical/legacy 配置冲突的 fail-fast 守卫。
 - `6285b8033`、`38ba3b66a`、`6d2a820c8`：owner 内 `ProcessTree` 入册、`PrepareShutdown`、动态 descendants 捕获、退出验证和 bounded cleanup；真实进程树验收仍是短时 source harness。
-- `3e8dba25b`、`2401eea5e`（已在历史集成对象 `25a459492` 落地，并由 source baseline `60b9a9364` 携带）：workspace generation 的 `activeLeases`、`idleSince`、`generation` 与 release-drain/closing 状态由 manager 持有；30 秒 recycler 以同一 SSOT 扫描，清理失败保留 owner 并在后续扫描重试。
+- `3e8dba25b`、`2401eea5e`（已在历史集成对象 `25a459492` 落地，并由 source baseline `e32cbd240` 携带）：workspace generation 的 `activeLeases`、`idleSince`、`generation` 与 release-drain/closing 状态由 manager 持有；30 秒 recycler 以同一 SSOT 扫描，清理失败保留 owner 并在后续扫描重试。
 - `0ed29ae4f`：owner cleanup failure 输出 paired candidate/blocked 安全日志，明确 `signal_sent=false`；provisional cleanup retry 保持同一 owner/generation，不提前销账。
-- `6d2a820c8`、`6285b8033`：三项真实短时 E2E 已在 source baseline `60b9a9364` 重新复跑并通过：`TestMcpLSPBinaryRealGoplsDaemonExitsAfterLastForwarder_E2E` 7.62s，`TestMcpLSPBinaryRealTypeScriptLeaseSurvivesThenRecyclesExactTree_E2E` 61.32s（日志先见 `active_leases=1`，随后 exact tree reclaimed），`TestMcpLSPBinaryStdioRemainsAlivePastCanonicalIdleTimeout_E2E` 4.91s；同一 package 总耗时 73.867s。它们是 source harness 的短时收据，不代替默认 15 分钟 wall-clock、100 workspace/2h soak 或 release artifact receipt。
+- `6d2a820c8`、`6285b8033`：三项真实短时 E2E 已在 source baseline `e32cbd240` 重新复跑并通过：`TestMcpLSPBinaryRealGoplsDaemonExitsAfterLastForwarder_E2E` 7.41s，`TestMcpLSPBinaryRealTypeScriptLeaseSurvivesThenRecyclesExactTree_E2E` 61.33s（日志先见 `active_leases=1`，随后 exact tree reclaimed），`TestMcpLSPBinaryStdioRemainsAlivePastCanonicalIdleTimeout_E2E` 5.05s；同一 package 总耗时 73.804s。它们是 source harness 的短时收据，不代替默认 15 分钟 wall-clock、100 workspace/2h soak 或 release artifact receipt。
 - `4eb0ff54c`、`e75a3f12c`：终止失败不再假成功，保留 cleanup owner 与失败分类，允许后续扫描/关闭再次尝试并收敛；重试回归测试随合并对象进入 source baseline。
 - `7faf9a7a7`、`1eeae12cc`：Darwin 进程树使用原生身份/成员闭包探测，但探测结果不能原子绑定到 signal-time 的稳定句柄；无法取得稳定句柄或身份不完整时只能记录日志并进入 zero-signal `CleanupPending`，不回退为未经授权的 group/parent kill，也不能宣称自动强杀已闭环。
 - `58cf3bde6`、`60b9a9364`：recycler shutdown/close 组合错误保留脱敏摘要、generation/lease 证据和进程树清理分类，输出可检索的失败日志并由回归测试覆盖。
+- `8a7f37596`、`e32cbd240`：recycler、pool、release scope、provisional cleanup 全路径统一使用脱敏日志 helper；生命周期字段包括 `generation`、`active_leases`、`state`、`idle_since`、`last_activity`、`idle_duration`、`idle_timeout`、`action`、`action_result`、`reason`、`cleanup_incomplete` 与 `cleanup_error_class`/`owner_missing`/`members_remaining`/`cleanup_pending`。raw workspace/manager/scope/agent/thread/error/reason 不落日志；仅输出 path-safe/hash、受控实例标识和 payload-safe 脱敏摘要。
 - `bb885f1b5`、`ffe084b4c`：Windows 进程树成功判定、权限/存活错误契约已修复并合入当前基线；Windows native Job receipt 仍 `N/V`。
 - `ae6704038`、`a8ab1faba`、`b95e978d5`、`88dc867d6`：Darwin startup owner 的 PID 复用权限校验与未使用构造器清理已合入；Darwin 原生长时回收证据仍 `N/V`。
 - `30416b84d`、`06748f747`、`722f69820`：本地 workload catalog、runner、receipt schema 与生产者坐标守卫已落地；当前 catalog digest 为 `sha256:0590a4bd3987000142cbabd40403c962787cff78e7d305e08f03b765f53efc39`，但五项 workload 的 `producer_implementation_status` 当前全部为 `missing`，且全部 `release_blocking=true`。本地 receipt 不能冒充 CI/发布 authority。
-- `58cfe5448`、`77a465dbe`：复杂度守卫拆分/合入；三文件 direct guard、完整 `TestCodeSizeGuard` 与 `scripts/...` targeted 已绿；`[HISTORICAL@79a8]` 的六文件 LSP diagnostics 机械清理后曾复核为 `No diagnostics found.`，仅说明该历史快照的机械清理，不覆盖 source baseline 60b 当前 Information/DuplicateDecl overlay blocker。复杂度门禁不再是当前 blocker。
+- `58cfe5448`、`77a465dbe`：复杂度守卫拆分/合入；三文件 direct guard、完整 `TestCodeSizeGuard` 与 `scripts/...` targeted 已绿；`[HISTORICAL@60b]`/`[HISTORICAL@79a8]` 的六文件 LSP diagnostics 机械清理收据仅说明历史快照，不覆盖 e32 的 fresh integration diagnostics；复杂度门禁不再是当前 blocker。
 - `79a8b7853`：历史代码地图刷新对象；source baseline 之后的文档/地图树不能回写为 source provenance。本车道会在文档修改后运行规范 generator，刷新受影响的 `docs/doc/codemap/project-map` 输出并做 `generated all --check`/diff 校验。
 
 未纳入当前基线的工作：`codex/mcp-lsp-final-bootstrap-fix@9c37a8912` 仅在独立 worktree 中保留未提交修改，未合入 source baseline；`codex/mcp-lsp-durable-ghost-store` lane 同样未合并。bootstrap reservation/closing WIP 因 `forceClose` 在 known/unknown owner 下可能假成功的 P1，以及 11 项 code-size 失败，已被主代理与两条 review lane REJECT；不得把任一 WIP 写成已修复或可发布。
@@ -44,21 +45,22 @@
 
 - durable `OpenDurableStore` primitive 尚未进入集成，生产 wiring 未启用；`codex/mcp-lsp-durable-ghost-store` lane 未合并，当前 `processobserve` 仍是进程内 bounded memory store，不能冒充 crash-recoverable durable authority。
 - 没有独立存活的 ghost host 时不扫描、不发 signal；只在 owner cleanup failure 的现有进程上下文记录 paired candidate/blocked 安全日志。owner 已死后无人观察是 `N/V`，不把残留虚构为可回收对象，也不创建常驻 ghost reaper。Darwin 非合作进程没有稳定 handle 时只能 log/pending，不能宣称自动强杀闭环。
-- 只读 `ps` 已确认现存 live mcp-lsp 进程正从 `/Users/mima0000/Desktop/wj/super-agent-v3/bin/mcp-lsp` 运行；该旧 artifact 的 `go version -m` 为 `e099cb7e+dirty`。本任务未替换、部署或用 source baseline `60b9a9364` 重建该 artifact，也未 kill/restart；旧 `e099` 不是 `60b9a9364` 的 exact artifact 或 release receipt。
+- 只读 `ps` 已确认现存 live mcp-lsp 进程正从 `/Users/mima0000/Desktop/wj/super-agent-v3/bin/mcp-lsp` 运行；该旧 artifact 的 `go version -m` 为 `e099cb7e+dirty`。本任务未替换、部署或用 source baseline `e32cbd240` 重建该 artifact，也未 kill/restart；旧 `e099` 不是 `e32cbd240` 的 exact artifact 或 release receipt。
 
 仍阻断发布：
 
 - default 15m wall-clock source E2E 缺失；100 workspace / 2h soak 缺失；exact release artifact、独立 provenance receipt 与 native platform receipt 缺失，均为 `RELEASE_BLOCKED`。
-- remote canonical guard/CI authority 为 `N/V`（remote CI 当前不可用）；quick/native 只有本地实现与守卫，不能作为同一 source baseline 的受信 CI receipt。完整 `go test ./scripts -count=1` 仍因既有 remote-hook fixture/authority 与 PowerShell cache 基线失败而 exit 1；`test_with_guard --guard-only` 因 remote authority 缺失 exit 2。
-- `scripts/mcp_lsp_workload_catalog.json` 五项 producer 的 `implementation_status` 全为 `missing`，且五项均 `release_blocking=true`；local runner/receipt 不能替代 canonical producer。
-- Windows native Job、Linux pidfd/CI、Darwin 原生长时与 native handle receipt 均 `N/V`；durable crash store 与独立 ghost host 未启用，发布/灰度阶梯尚未成立，保持 `RELEASE_BLOCKED`。
+- canonical `./scripts/test_with_guard.sh --guard-only` exit 2，原因是 remote coordinator unavailable；canonical release/origin CI consumer 仍是 P1，quick/native 只有本地实现与守卫，release/N/V 保留。完整 `go test ./scripts -count=1` 的既有 remote-hook fixture/authority 与 PowerShell cache 基线失败仍不能写成全包 GREEN。
+- `scripts/mcp_lsp_workload_catalog.json` 五项 producer 的 `implementation_status` 全为 `missing`，且五项均 `release_blocking=true`；canonical release origin/CI consumer 尚未接通（P1），local runner/receipt 不能替代 producer。
+- Windows native Job、Linux pidfd/CI、Darwin 原生长时与 native handle receipt、default15m、100 workspace/2h soak、exact release artifact、durable store 与独立 ghost host 均 `N/V`；发布/灰度阶梯尚未成立，保持 `RELEASE_BLOCKED`。
+- authority 旁路扫描发现包内既有非 recycler 原始日志：`bootstrap_doc.go:523` 的 `uri/err`、`cache.go:365` 的 `err`、`manager_lifecycle.go:299` 的 `bootstrap root/err`；这些不是 e32 引入，也不在本轮 idle/cleanup recycler 主链，暂记 P2 baseline，交最终 authority agent 裁决，不扩展本车道源码范围。
 
-本地验证命令摘要（代码收据绑定 source baseline exact `60b9a9364`；本车道后续 doc/map tree 只刷新生成物，不能冒充 source 或 release provenance）：
+本地验证命令摘要（代码收据绑定 source baseline exact `e32cbd240`；本车道后续 doc/map tree 只刷新生成物，不能冒充 source 或 release provenance）：
 
-- exact 60b 本地 full PASS：`go test ./cmd/mcp-lsp/... -count=1 -timeout=300s`；race PASS：`go test -race ./cmd/mcp-lsp/multilsp ./cmd/mcp-lsp/internal/hiddenexec ./cmd/mcp-lsp/internal/processprobe ./cmd/mcp-lsp/internal/processobserve -count=1 -timeout=300s`；archtest PASS：`go test ./internal/archtest -count=1`。
-- exact 60b 三项真实 source E2E PASS（同一 `go test -tags=e2e ./cmd/mcp-lsp -run '^TestMcpLSPBinary(RealTypeScriptLeaseSurvivesThenRecyclesExactTree|StdioRemainsAlivePastCanonicalIdleTimeout|RealGoplsDaemonExitsAfterLastForwarder)_E2E$' -count=1 -timeout=240s -v` package，总 73.867s）：gopls 7.62s；Node lease/tree 61.32s（日志含 `active_leases=1`，随后 exact tree reclaimed）；strict stdio 4.91s。短时 source E2E 不代替默认 15m wall-clock 或 release receipt。
-- exact 60b catalog/guard/runner/AI targeted PASS：`go test ./scripts/mcp_lsp_workload_catalog ./scripts/mcp_lsp_workload_guard ./scripts/mcp_lsp_workload_runner -count=1`、`go test ./scripts/ai_maintenance -count=1`；catalog digest 为 `sha256:0590a4bd3987000142cbabd40403c962787cff78e7d305e08f03b765f53efc39`，idle-quick local receipt guard PASS（仅 local runner，不是 release authority）。
-- 生成物守卫：`bash scripts/refresh_generated_artifacts.sh all --check`；三平台 compile-only：`env GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go test -exec=/usr/bin/true ./cmd/mcp-lsp/... -run '^$'`、同样的 `GOOS=linux GOARCH=amd64` 与 `GOOS=windows GOARCH=amd64`；只能证明编译路径，不能替代 Darwin/Windows Job/Linux pidfd native receipt。
+- exact e32 本地 full PASS：`go test ./cmd/mcp-lsp/... -count=1 -timeout=300s`；race PASS：`go test -race ./cmd/mcp-lsp/multilsp ./cmd/mcp-lsp/internal/hiddenexec ./cmd/mcp-lsp/internal/processprobe ./cmd/mcp-lsp/internal/processobserve -count=1 -timeout=300s`；archtest PASS：`go test ./internal/archtest -count=1`。
+- exact e32 三项真实 source E2E PASS（同一 `go test -tags=e2e ./cmd/mcp-lsp -run '^TestMcpLSPBinary(RealTypeScriptLeaseSurvivesThenRecyclesExactTree|StdioRemainsAlivePastCanonicalIdleTimeout|RealGoplsDaemonExitsAfterLastForwarder)_E2E$' -count=1 -timeout=240s -v` package，总 73.804s）：gopls 7.41s；Node lease/tree 61.33s（日志含 `active_leases=1`，随后 exact tree reclaimed）；strict stdio 5.05s。短时 source E2E 不代替默认 15m wall-clock 或 release receipt。
+- exact e32 catalog/guard/runner/AI targeted PASS：`go test ./scripts/mcp_lsp_workload_catalog ./scripts/mcp_lsp_workload_guard ./scripts/mcp_lsp_workload_runner -count=1`、`go test ./scripts/ai_maintenance -count=1`；idle-quick local receipt guard 仅证明 local runner，不是 release authority。
+- 生成物守卫：`bash scripts/refresh_generated_artifacts.sh all --check`；Darwin/Linux/Windows compile-only 均 PASS：`env GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go test -exec=/usr/bin/true ./cmd/mcp-lsp/... -run '^$'`、同样的 `GOOS=linux GOARCH=amd64` 与 `GOOS=windows GOARCH=amd64`；只能证明编译路径，不能替代 native Job/pidfd/handle receipt。
 - 规范 project-map 输出由本车道在文档修改后刷新；`node scripts/generate_ai_project_map.mjs --check --strict-drift` 与 `git diff --check` 绑定随后 doc/map tree，不回写 source baseline。
 - 完整脚本包复跑（`go test ./scripts -count=1`）仍受既有 remote-hook/PowerShell 失败阻断：`TestAIMaintenanceGateRouteDeletionMutations`、多个 `TestPreCommit*` fixture 因 remote hook 参数/authority 不可用失败，`TestPackageWindowsWhatIfRunsCrossPlatformValidation` 因本机 PowerShell cache/平台异常失败；不能写成全包 GREEN，相关结果保持 `N/V`/blocker。
 - remote canonical `test_with_guard`/CI authority：`N/V`（remote CI unavailable）；本地 receipt、catalog digest 或 runner 输出不得冒充 PASS。
@@ -654,19 +656,19 @@ canonical gate 至少拆成 `mcp-lsp-idle-quick`、`mcp-lsp-native-process-tree`
 
 ## 12. 当前 review object 与证据边界
 
-本节保留文档初版 `4d3c2b87d` 的历史取证边界；旧 `345aa86f`/`8aae30a3` dirty 描述不是当前 review object。当前 source 唯一集成对象是 clean `60b9a93644fb28f18f0107ed09842ff047056455`；`[HISTORICAL@79a8b7853]` 仅是此前代码地图刷新对象，原主树 dirty 仅作保护边界，本回合未触碰。本文档提交与随后 doc/map tree 均不能冒充 source baseline 或 clean release receipt。
+本节保留文档初版 `4d3c2b87d` 的历史取证边界；旧 `345aa86f`/`8aae30a3` dirty 描述不是当前 review object。当前 source 唯一集成对象是 clean `e32cbd240d04ea5d0066fa3bd33a85bf46b7060e`；`[HISTORICAL@60b9]` 与 `[HISTORICAL@79a8]` 仅是此前 source/map provenance，原主树 dirty 仅作保护边界，本回合未触碰。本文档提交与随后 doc/map tree 均不能冒充 source baseline 或 clean release receipt。
 
 本方案修订基线：
 
-- 初版两个车道均从 `HEAD=345aa86f585b1d4217034688bec926ad134aacfb` 起；该事实仅用于历史审查 provenance，当前 source baseline 为 `60b9a9364`。
+- 初版两个车道均从 `HEAD=345aa86f585b1d4217034688bec926ad134aacfb` 起；该事实仅用于历史审查 provenance，当前 source baseline 为 `e32cbd240`。
 - 当时权威源主工作树是 `main@8aae30a3f133b77a0f00619a4b2936792a8a2e77` 的 dirty review object；其已有用户修改为：`cmd/mcp-lsp/multilsp/recycler.go`、`internal/mcpserver/common/http_transport.go`、`server.go`、`tool_payload_log.go`、`tool_payload_log_test.go`、`pkg/logger/logger.go`、`pkg/logger/trace_context_test.go`；
 - 权威源主工作树已有未跟踪文件：`cmd/mcp-lsp/multilsp/recycler_observability_test.go`、`internal/mcpserver/common/tool_call_observability.go`、`tool_call_observability_test.go`；本车道不解释、覆盖或回退这些源码修改。
 - 复核 `8aae30a3..345aa86f` 的目标面漂移：`cmd/mcp-lsp/**` 无提交路径变化；唯一 mcp-lsp 定向脚本变化为 `scripts/mcp_lsp_resource_cohort_e2e_gate_guard_test.go`，当前版本从 `../Makefile` 读取 Makefile、移除 `.githooks/README.md` 断言，仍锁定 `test-e2e-mcp-lsp-resource-cohort`、同一 `-run` 表达式以及 canonical backend 单次选择。`.githooks/README.md`、`.githooks/pre-commit`、`.githooks/pre-push` 与 `scripts/test_with_guard.sh` 同期收敛为 remote ECI 入口；这只更新路径/runner 事实，不改变本方案已裁决的 idle、ProcessTree、ghost、timeout 或 release 合同。
 - `scripts/mcp_lsp_workload_catalog.json`、`scripts/run_mcp_lsp_workload.sh` 与 catalog guard 已在 `30416b84d`/`06748f747`/`722f69820` 落地；五项 producer status 仍全部 `missing` 且 release-blocking，`scripts/mcp_lsp_idle_soak.sh`、default-15m/100-workspace/release-artifact producer 仍缺失，不能据此写成发布 GREEN。
-- `58986d2e8` → `d34ecff71` 只对 `cmd/mcp-lsp/multilsp/{lifecycle_lease_test.go,manager_retry.go,manager_retry_test.go,p2_lifecycle_cache_hardening_test.go,recycler.go,recycler_lifecycle.go}` 做 diagnostics 机械清理（wrapper/unused parameter 等），不改变设计合同；`[HISTORICAL@79a8b7853]` 随后刷新过代码地图，不能当作当前 source baseline。
+- `58986d2e8` → `d34ecff71` 只对 `cmd/mcp-lsp/multilsp/{lifecycle_lease_test.go,manager_retry.go,manager_retry_test.go,p2_lifecycle_cache_hardening_test.go,recycler.go,recycler_lifecycle.go}` 做 diagnostics 机械清理（wrapper/unused parameter 等），不改变设计合同；`[HISTORICAL@79a8b7853]` 随后刷新过代码地图，不能当作当前 source baseline。`8a7f37596`/`e32cbd240` 的脱敏日志修复随后进入当前 source。
 - `bb885f1b5`/`ffe084b4c` 的 Windows 修复、`ae6704038`/`a8ab1faba`/`b95e978d5`/`88dc867d6` 的 Darwin startup owner 修复均已进入当前对象；原生 runner 证据仍 N/V。
 - `codex/mcp-lsp-final-bootstrap-fix` 的 dirty reservation WIP 不属于 review object；其 forceClose known/unknown owner 假成功与 code-size failures 已被拒绝，不能从该 worktree 借 provenance。
-- 本文档跟随 source baseline `60b9a9364` 维护；收据与设计合同并存，不表示生产修复完成，也不表示已 deploy/kill 任何 live process。
+- 本文档跟随 source baseline `e32cbd240` 维护；收据与设计合同并存，不表示生产修复完成，也不表示已 deploy/kill 任何 live process。
 
 本方案的 LSP 证据按 provenance 分层：
 
@@ -678,9 +680,10 @@ canonical gate 至少拆成 `mcp-lsp-idle-quick`、`mcp-lsp-native-process-tree`
 - `inspect(hover)`/`file(read_file)` 确认 production `(*client).Initialize(ctx, ...)` 将相同 `ctx` 传给 request/notify；bootstrap reservation cancellation/close 竞态仍是 robustness `N/V`，未因 dirty WIP 变成已修；
 - 三方裁决的 `[WORKTREE-DIRTY]` diagnostics receipt 曾返回 `recycler.go:207 [Hint minmax]` 与 `resource_cohort.go:580 [Hint stditerators]`；本次收窄批次未复现。由于 dirty tree/LSP snapshot 结果不一致，这一项登记为 provenance blocker，不能写成 PASS，也不能归属 HEAD；
 - 第二轮 lifecycle lane 对 Windows-only `process_tree_windows.go` 收窄 diagnostics 仍得到 duplicate/missing-field 类错误，而 authority lane 的本机收窄批次无诊断；两者都不能替代 Windows 原生 runner，本项继续登记为 platform/provenance blocker；
-- 当前主机对 Windows build-tag overlay 的 diagnostics 仍可能报误导性的 duplicate/missing-field/unusedfunc（包括 `newStartupProcessTreeWithRelease`）；三平台 compile-only 仅证明对应构建路径，不能将这些 host-side 假阳性写成 Windows/Darwin native PASS；
-- `scripts/mcp_lsp_workload_runner/main.go:187` 当前使用 `errors.AsType`；本轮 LSP diagnostics 无 Error、Warning、Information 或 Hint。此前的 simplification Hint 已闭环，不再登记为 blocker；catalog producer 全 missing/remote CI `N/V` 的结论不变。
-- `[HISTORICAL@79a8]` 主代理在此前集成树对上述六个文件复核 LSP diagnostics，均为 `No diagnostics found.`；此前 lane 的 stale `S1000` 在该历史 worktree 已消失。该历史本地 diagnostics 收据不构成 source baseline 60b 的 overall diagnostics、CI、原生平台或 release receipt。
+- `[HISTORICAL@60b]` 旧 host 上的 Windows build-tag overlay duplicate/missing-field/unusedfunc 与 `process_startup_owner.go:43` Information 仅属于历史诊断快照；三平台 compile-only 不能将其升级为 native receipt。
+- e32 fresh integration 对本轮涉及的 recycler/pool/release/provisional 文件取得 `file(diagnostics)`：无 Error、Warning、Information 或 Hint（`No diagnostics found.`）；该结果只覆盖当前 clean source baseline 的已修改路径，不替代 CI、native platform 或 release receipt。
+- `[HISTORICAL@79a8]` 主代理在此前集成树对六个 cleanup 文件曾复核为 `No diagnostics found.`；该历史本地 diagnostics 收据不构成 e32 source baseline 的 overall diagnostics、CI、原生平台或 release receipt。
+- authority 旁路发现的 `bootstrap_doc.go:523`、`cache.go:365`、`manager_lifecycle.go:299` 原始日志属于未由 e32 引入的 P2 baseline，不是本轮 recycler 主链 LSP diagnostics；保留给最终 authority agent 裁决。
 - Windows-only 分支必须在 Windows 原生 runner 验证；混合 build-tag diagnostics 或本机无输出都不能证明平台 GREEN；diagnostics 也不是进程收敛证据。
 
 实施和发布复验必须在干净集成 commit 上重新取得定位、理解、影响面、精读和 diagnostics 五类证据，并处理所有 Error、Warning、Information、Hint。
@@ -711,16 +714,16 @@ canonical gate 至少拆成 `mcp-lsp-idle-quick`、`mcp-lsp-native-process-tree`
 
 本节是相对历史三方裁决的当前对象增量，不替代上述合同：
 
-- source baseline exact 为 `60b9a93644fb28f18f0107ed09842ff047056455`（短 SHA：`60b9a9364`）；`58cfe5448`/`77a465dbe` 复杂度收口、`58986d2e8` → `d34ecff71` 六文件 diagnostics 机械清理，以及 Windows `bb885f1b5` → `ffe084b4c`、Darwin startup-owner `ae6704038`/`a8ab1faba` → `b95e978d5`/`88dc867d6` 等 provenance 均已包含在该 source baseline；`[HISTORICAL@79a8b7853]` 仅为此前 map refresh。
-- `scripts/mcp_lsp_workload_catalog.json` 当前五项 producer status 全为 `missing`，且 `release_blocking=true`；quick/native 的本地实现和 round-trip 不能冒充 canonical CI receipt。default-15m、100-workspace/2h soak、exact release artifact、remote CI、Windows Job、Linux pidfd、durable independent ghost host 均保持 `N/V`。
-- `codex/mcp-lsp-final-bootstrap-fix` 仍是另一个 dirty worktree；forceClose known/unknown owner 假成功的 P1 与 11 项 code-size 失败已被拒绝。生产 concrete `Initialize` 的 ctx 传递已由源码确认，但 reservation cancellation/close robustness 不得写成已修。
-- source baseline 上的 full/race/archtest/catalog/AI 与三项短时真实 E2E 均已 exact PASS（详见第 1 节）；完整 `go test ./scripts -count=1` 仍受既有 remote-hook/PowerShell failures 阻断，canonical `test_with_guard --guard-only` remote authority 不可用；这些 broad scripts/remote provenance 缺口继续保持 `N/V`/`RELEASE_BLOCKED`，不把此前 code-size blocker 重复登记。默认 15m、100-workspace/2h、exact release artifact、native platform receipts、独立 ghost host 与 durable store 仍未闭环。
-- 当前 LSP diagnostics 不能写成 overall clean：exact 60b 非平台文件 `process_startup_owner.go:43` 有 unusedfunc Information；混合 build-tag overlay 对 Linux test helper 报 4 个 DuplicateDecl Error（`resource_cohort_linux_test.go:7`、`transport_process_tree_linux_test.go:15/23/51`），但各平台源码各自单定义且 Darwin/Linux/Windows compile-only 全绿；这是当前 LSP overlay 误报/平台证据 blocker，不能升级为 source overall PASS。
-- 旧 `bin/mcp-lsp`（`e099cb7e+dirty`）仍被现存 live 进程使用/运行；本任务未替换、部署或 kill/restart，不能宣称 `60b9a9364` 修复版已 live。
+- source baseline exact 为 `e32cbd240d04ea5d0066fa3bd33a85bf46b7060e`（短 SHA：`e32cbd240`）；`8a7f37596` 的 recycler/pool/release/provisional 全路径日志脱敏与 `e32cbd240` 合并收敛均包含在该 source baseline；`[HISTORICAL@60b9a9364]`/`[HISTORICAL@79a8b7853]` 仅为此前 source/map provenance。
+- `scripts/mcp_lsp_workload_catalog.json` 当前五项 producer status 全为 `missing`，且 `release_blocking=true`；canonical release origin/CI consumer P1 尚未接通，quick/native 的本地实现和 round-trip 不能冒充受信 receipt。default-15m、100-workspace/2h soak、exact release artifact、remote coordinator、Windows Job、Linux pidfd、durable independent ghost host 均保持 `N/V`。
+- `codex/mcp-lsp-final-bootstrap-fix` 仍是另一个 dirty worktree；forceClose known/unknown owner 假成功的 P1 与 11 项 code-size 失败已被拒绝。生产 concrete `Initialize` 的 ctx 传递已由源码确认，但 reservation cancellation/close robustness 不得写成已修；durable ghost store lane 仍未合并。
+- e32 source baseline 上的 full/race/archtest/catalog/AI 与三项短时真实 E2E 均 exact PASS（gopls 7.41s、TS 61.33s active_leases=1→exact tree reclaimed、stdio 5.05s，总 73.804s）；Darwin/Linux/Windows compile-only PASS。`./scripts/test_with_guard.sh --guard-only` exit 2（remote coordinator unavailable），canonical release/N/V 保留；default15m、100 workspace/2h、native/release artifact、durable ghost 均未闭环。
+- e32 fresh integration LSP diagnostics 对本轮修改路径为 `No diagnostics found.`；authority 旁路原始日志 P2 baseline（`bootstrap_doc.go:523 uri/err`、`cache.go:365 err`、`manager_lifecycle.go:299 bootstrap root/err`）未由 e32 引入，待最终 authority agent 裁决。
+- 旧 `bin/mcp-lsp`（`e099cb7e+dirty`）仍被现存 live 进程使用/运行；本任务未替换、部署或 kill/restart，不能宣称 `e32cbd240` 修复版已 live。
 
 ## 15. 第三轮最终复核与 doc/map tree 边界（2026-08-04）
 
-- 旧 `b98c9806b` 三方复核发现的 P1 已由后续终止重试、Darwin zero-signal 与 recycler 可观察性提交修复并进入 source baseline `60b9a9364`；该历史复核结论不能替代当前对象的重新审阅。
-- 最终新 SHA 的三 agent 复核仍待完成；本车道只负责方案文档与规范 project-map 输出，待复核对象必须以本车道提交后的 exact doc/map tree SHA 另行冻结，不能自指回写为 source baseline。
+- 旧 `b98c9806b` 三方复核发现的 P1 已由后续终止重试、Darwin zero-signal、recycler 可观察性与 `8a7f37596` 脱敏日志提交修复并进入 source baseline `e32cbd240`；该历史复核结论不能替代当前对象的重新审阅。
+- 最终新 SHA 的三 agent 复核仍待执行；本车道只负责方案文档与规范 project-map 输出，待复核对象必须以本车道提交后的 exact doc/map tree SHA 另行冻结，不能自指回写为 source baseline。
 - project-map 漂移由本车道运行规范 generator 刷新；任何 generated output 的变化都属于 doc/map tree，必须以 `generated all --check`、Markdown diagnostics 和 `git diff --check` 复核后再交给主代理整合。
-- 本车道不 merge、push、deploy、kill 或 restart；old live `e099cb7e+dirty` artifact 保持原状，bootstrap WIP 与 durable ghost store lane 保持未合并。
+- 本车道不 merge、push、deploy、kill 或 restart；old live `e099cb7e+dirty` artifact 保持原状，bootstrap WIP 与 durable ghost store lane 保持未合并；authority P2 原始日志交最终 agent 裁决，不扩源码。
