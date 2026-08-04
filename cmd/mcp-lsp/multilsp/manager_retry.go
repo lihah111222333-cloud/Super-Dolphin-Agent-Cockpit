@@ -18,33 +18,89 @@ const (
 )
 
 type pendingClientShutdown struct {
-	client       Client
-	shutdownDone bool
-	shutdownErr  error
+	client            Client
+	owner             processTreeCleanupTarget
+	workspaceKey      string
+	workspaceHash     string
+	generation        uint64
+	operationID       string
+	lifecycleID       string
+	shutdownDone      bool
+	shutdownErr       error
+	attempted         bool
+	observationLogged bool
 }
 
 // retryPendingClientShutdowns 对 Close 失败的 client 保留 owner；只有 Close 成功才移出重试集合。
 func retryPendingClientShutdowns(states []pendingClientShutdown) (remaining []pendingClientShutdown, completedErr, retryErr error) {
+	return retryPendingClientShutdownsWithObserver(states, nil)
+}
+
+// retryPendingClientShutdownsWithObserver 按 owner/client 分支串行完成一次关闭事务。
+func retryPendingClientShutdownsWithObserver(
+	states []pendingClientShutdown,
+	observe func(pendingClientShutdown, error) error,
+) (remaining []pendingClientShutdown, completedErr, retryErr error) {
 	remaining = make([]pendingClientShutdown, 0, len(states))
 	for _, state := range states {
-		if state.client == nil {
+		if state.owner == nil && state.client == nil {
 			continue
 		}
-		if !state.shutdownDone {
-			shutCtx, cancel := platformconfig.WithTimeout(context.Background(), managerShutdownTimeout)
-			state.shutdownErr = state.client.Shutdown(shutCtx)
-			cancel()
-			state.shutdownDone = true
+		if state.owner != nil {
+			state, keep, cleanupErr := retryPendingProcessTreeOwner(state, observe)
+			if keep {
+				remaining = append(remaining, state)
+			}
+			retryErr = errors.Join(retryErr, cleanupErr)
+			continue
 		}
-		if err := state.client.Close(); err != nil {
-			retryErr = firstNonNilError(retryErr, state.shutdownErr)
-			retryErr = firstNonNilError(retryErr, err)
+		state, keep, shutdownErr, cleanupErr := retryPendingLSPClient(state, observe)
+		if keep {
 			remaining = append(remaining, state)
-			continue
 		}
-		completedErr = firstNonNilError(completedErr, state.shutdownErr)
+		completedErr = errors.Join(completedErr, shutdownErr)
+		retryErr = errors.Join(retryErr, cleanupErr)
 	}
 	return remaining, completedErr, retryErr
+}
+
+// retryPendingProcessTreeOwner 重试同一个 exact owner，失败时保持其 operation 身份。
+func retryPendingProcessTreeOwner(state pendingClientShutdown, observe func(pendingClientShutdown, error) error) (pendingClientShutdown, bool, error) {
+	cleanupErr := cleanupProcessTreeOwner(state.owner)
+	if cleanupErr == nil {
+		if observe != nil {
+			return state, false, observe(state, nil)
+		}
+		return state, false, nil
+	}
+	if observe != nil && !state.observationLogged {
+		state.observationLogged = true
+		cleanupErr = errors.Join(cleanupErr, observe(state, cleanupErr))
+	}
+	return state, true, cleanupErr
+}
+
+// retryPendingLSPClient 完成 client Shutdown/Close；Close 失败时返回可重试状态。
+func retryPendingLSPClient(state pendingClientShutdown, observe func(pendingClientShutdown, error) error) (pendingClientShutdown, bool, error, error) {
+	if !state.shutdownDone {
+		shutCtx, cancel := platformconfig.WithTimeout(context.Background(), managerShutdownTimeout)
+		state.shutdownErr = state.client.Shutdown(shutCtx)
+		cancel()
+		state.shutdownDone = true
+	}
+	if err := state.client.Close(); err != nil {
+		cleanupErr := errors.Join(state.shutdownErr, err)
+		if observe != nil && !state.observationLogged {
+			state.observationLogged = true
+			cleanupErr = errors.Join(cleanupErr, observe(state, cleanupErr))
+		}
+		return state, true, nil, cleanupErr
+	}
+	var terminalErr error
+	if observe != nil {
+		terminalErr = observe(state, nil)
+	}
+	return state, false, state.shutdownErr, terminalErr
 }
 
 // request 包装一次可重试的 LSP JSON-RPC 请求。

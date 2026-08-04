@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/processobserve"
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
@@ -102,6 +104,8 @@ type Config struct {
 	DiagnosticsMaxWait               time.Duration            // 单次诊断等待的最大时长。
 	Logger                           *slog.Logger             // 可选日志器，空值时下游使用默认日志路径。
 	DisableInitialWorkspaceBootstrap bool                     // 是否跳过启动时的 workspace 预热。
+	provisionalInstanceID            string                   // 测试专用的确定性 manager 实例标识。
+	provisionalEntropy               io.Reader                // 测试专用熵源注入；生产使用 crypto/rand.Reader。
 }
 
 // manager 维护 workspace 客户端、诊断缓存和后台分片池；所有共享状态必须经对应锁访问。
@@ -109,6 +113,9 @@ type manager struct {
 	workspaceRoot                    string                   // manager 默认根目录，参与相对路径解析。
 	workspaceGeneration              atomic.Uint64            // 每个 workspace client 的单调代际分配器。
 	clock                            func() time.Time         // 测试可注入时钟；生产路径使用 time.Now。
+	provisionalOperation             atomic.Uint64            // provisional cleanup 的本地操作序号。
+	instanceID                       string                   // manager 实例随机身份，避免 clone 操作 ID 碰撞。
+	provisionalEntropy               io.Reader                // 测试熵源；生产 manager 由 crypto/rand 提供身份。
 	factory                          ClientFactory            // 语言服务器客户端工厂。
 	adapters                         *LanguageAdapterRegistry // 语言到 root/能力策略的适配表。
 	logger                           *slog.Logger             // manager 内部诊断日志。
@@ -119,6 +126,7 @@ type manager struct {
 
 	mu                  sync.RWMutex                       // 保护 closed、workspaces 与 provisionalCleanups。
 	ensureMu            sync.Mutex                         // 串行化客户端创建，避免同一 workspace 重复启动。
+	processObserverMu   sync.Mutex                         // 串行化只读 processobserve observer 的懒初始化。
 	closed              bool                               // manager 关闭后禁止再创建客户端。
 	retiring            bool                               // release drain 已建立代际栅栏，禁止新增租约。
 	workspaces          map[string]*workspaceClient        // workspace key 到客户端状态。
@@ -130,6 +138,7 @@ type manager struct {
 	closeResult      error                   // 关闭完成后的稳定结果，供重复 Close 返回。
 	closeWarnings    error                   // 已完成 client 的 graceful shutdown 错误。
 	closingClients   []pendingClientShutdown // Close 失败后仍需重试的 client owner。
+	cloneSequence    atomic.Uint64           // parent manager 本地的 scoped clone 序号。
 
 	diagGeneration     atomic.Uint64                 // 诊断缓存代际，关闭/刷新时递增。
 	diagMu             sync.RWMutex                  // 保护 diagnostics。
@@ -145,6 +154,9 @@ type manager struct {
 
 	coordinatorMu sync.Mutex            // 保护启动协调器的懒初始化。
 	coordinator   *bootstrapCoordinator // workspace bootstrap 去重协调器。
+
+	processObserver         *processobserve.Observer // 仅记录只读 ghost/reclaim_blocked 投影。
+	processObservationStore *processobserve.Store    // 进程内有界观察投影，无持久化能力。
 }
 
 // workspaceClient 保存单个 workspace/language 客户端及其 root 身份。
@@ -214,17 +226,21 @@ type workspaceConfig struct {
 }
 
 var (
-	_ Manager                      = (*manager)(nil)
-	_ protocol.NotificationHandler = (*manager)(nil)
+	_                   Manager                      = (*manager)(nil)
+	_                   protocol.NotificationHandler = (*manager)(nil)
+	testManagerSequence atomic.Uint64
 )
 
 // NewManager 根据配置创建 manager；直接测试构造的零 IdleTimeout 使用 canonical platform 配置。
-// 生产装配必须调用 NewManagerWithError，缺失 resolved timeout 时立即失败。
 func NewManager(cfg Config) Manager {
 	if cfg.IdleTimeout <= 0 {
 		cfg.IdleTimeout = platformconfig.DefaultLSPConfig().IdleTimeout
 	}
-	return newManager(cfg)
+	if cfg.provisionalInstanceID == "" {
+		cfg.provisionalInstanceID = fmt.Sprintf("test-manager-%d", testManagerSequence.Add(1))
+	}
+	mgr, _ := newManager(cfg)
+	return mgr
 }
 
 // NewManagerWithError 创建生产 manager，并拒绝缺失或非法的 resolved idle timeout。
@@ -232,10 +248,11 @@ func NewManagerWithError(cfg Config) (Manager, error) {
 	if cfg.IdleTimeout <= 0 {
 		return nil, errors.New("LSP idle timeout is required")
 	}
-	return newManager(cfg), nil
+	return newManager(cfg)
 }
 
-func newManager(cfg Config) *manager {
+// newManager 完成已校验配置的 manager 组装，并在生产熵源失败时立即返回构造错误。
+func newManager(cfg Config) (*manager, error) {
 	root, err := platformshared.NormalizeAbsolutePath(cfg.WorkspaceRoot)
 	if err != nil {
 		root = ""
@@ -245,8 +262,17 @@ func newManager(cfg Config) *manager {
 			root, _ = platformshared.NormalizeAbsolutePath(cwd)
 		}
 	}
+	instanceID := cfg.provisionalInstanceID
+	if instanceID == "" {
+		instanceID, err = newProvisionalInstanceID(cfg.provisionalEntropy)
+		if err != nil {
+			return nil, fmt.Errorf("initialize LSP manager instance identity: %w", err)
+		}
+	}
 	mgr := &manager{
 		workspaceRoot:                    root,
+		instanceID:                       instanceID,
+		provisionalEntropy:               cfg.provisionalEntropy,
 		factory:                          cfg.ClientFactory,
 		adapters:                         cfg.LanguageAdapters,
 		logger:                           cfg.Logger,
@@ -255,6 +281,7 @@ func newManager(cfg Config) *manager {
 		diagnostics:                      make(map[string]diagnosticSnapshot),
 		diagnosticEpochs:                 make(map[string]uint64),
 		explicitlyOpen:                   make(map[string]struct{}),
+		processObservationStore:          processobserve.NewMemoryStore(),
 		diagInitial:                      chooseDuration(cfg.DiagnosticsInitialDelay, defaultDiagnosticsInitialDelay),
 		diagPoll:                         chooseDuration(cfg.DiagnosticsPollInterval, defaultDiagnosticsPollInterval),
 		diagMaxWait:                      chooseDuration(cfg.DiagnosticsMaxWait, defaultDiagnosticsMaxWait),
@@ -266,7 +293,7 @@ func newManager(cfg Config) *manager {
 	}
 	mgr.diagGeneration.Store(1)
 	mgr.pool = NewManagerPool(mgr, PoolSizeFromEnv())
-	return mgr
+	return mgr, nil
 }
 
 // cloneForWorkspace 为 scoped workspace 创建独立 manager 状态。
@@ -279,17 +306,24 @@ func (m *manager) cloneForWorkspace(workspaceRoot string) *manager {
 	if normalized, err := platformshared.NormalizeAbsolutePath(root); err == nil && normalized != "" {
 		root = normalized
 	}
+	instanceID := ""
+	if m != nil {
+		instanceID = fmt.Sprintf("%s-clone-%d-%s", m.instanceID, m.cloneSequence.Add(1), provisionalWorkspaceHash(root))
+	}
 	clone := &manager{
-		workspaceRoot:    root,
-		workspaces:       make(map[string]*workspaceClient),
-		diagnostics:      make(map[string]diagnosticSnapshot),
-		diagnosticEpochs: make(map[string]uint64),
-		explicitlyOpen:   make(map[string]struct{}),
+		workspaceRoot:           root,
+		instanceID:              instanceID,
+		workspaces:              make(map[string]*workspaceClient),
+		diagnostics:             make(map[string]diagnosticSnapshot),
+		diagnosticEpochs:        make(map[string]uint64),
+		explicitlyOpen:          make(map[string]struct{}),
+		processObservationStore: processobserve.NewMemoryStore(),
 	}
 	if m != nil {
 		clone.factory = m.factory
 		clone.adapters = m.adapters
 		clone.logger = m.logger
+		clone.provisionalEntropy = m.provisionalEntropy
 		clone.idleTimeout = m.idleTimeout
 		clone.pool = m.pool
 		clone.diagInitial = m.diagInitial

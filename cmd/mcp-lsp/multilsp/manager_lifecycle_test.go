@@ -18,6 +18,7 @@ func TestCreateAndRegisterClientShutsDownDiscardedClientOutsideLockWithTimeout(t
 	probe := make(chan bool, 1)
 	deadline := make(chan bool, 1)
 	m := &manager{
+		instanceID: "test-lifecycle-shutdown-manager",
 		workspaces: map[string]*workspaceClient{
 			"repo:go": {key: "repo:go", client: existing, generation: 1, state: workspaceStateActive},
 		},
@@ -99,6 +100,7 @@ func TestEnsureClientRetainsFailedInitializeCleanupUntilRetry(t *testing.T) {
 	replacement := &provisionalCleanupClient{}
 	factory := &provisionalCleanupFactory{clients: []Client{failed, replacement}}
 	mgr := &manager{
+		instanceID: "test-lifecycle-initialize-manager",
 		factory:    ClientFactoryFunc(factory.newClient),
 		workspaces: make(map[string]*workspaceClient),
 	}
@@ -128,6 +130,7 @@ func TestInitializeFailureRetainsCleanupOwnerForManagerCloseRetry(t *testing.T) 
 	}
 	factory := &provisionalCleanupFactory{clients: []Client{failed}}
 	mgr := &manager{
+		instanceID: "test-lifecycle-close-manager",
 		factory:    ClientFactoryFunc(factory.newClient),
 		workspaces: make(map[string]*workspaceClient),
 	}
@@ -212,6 +215,7 @@ func TestCreateAndRegisterClientRetainsDiscardedExistingClientCleanup(t *testing
 		languageID: "go",
 	}
 	mgr := &manager{
+		instanceID: "test-lifecycle-discard-manager",
 		factory: ClientFactoryFunc(factory.newClient),
 		workspaces: map[string]*workspaceClient{
 			cfg.key: {key: cfg.key, client: existing, generation: 1, state: workspaceStateActive},
@@ -258,6 +262,7 @@ func TestManagerCloseRetriesProvisionalCleanupRacingRegistration(t *testing.T) {
 	}
 	factory := &provisionalCleanupFactory{clients: []Client{client}}
 	mgr := &manager{
+		instanceID: "test-lifecycle-race-manager",
 		factory:    ClientFactoryFunc(factory.newClient),
 		workspaces: make(map[string]*workspaceClient),
 	}
