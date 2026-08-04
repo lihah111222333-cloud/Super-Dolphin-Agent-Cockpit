@@ -46,7 +46,7 @@ func TestRecyclerProbeDegradedCleanupFailureIsObservable(t *testing.T) {
 func assertRecyclerCleanupFailureLog(t *testing.T, logText, root string, shutdownErr, closeErr error) {
 	t.Helper()
 	for _, want := range []string{
-		`"manager_key":"manager-recycler-test"`, `"scope_key":"scope-recycler-test"`,
+		`"manager_key_sha256":`, `"scope_key_sha256":`,
 		`"workspace_sha256":`, `"workspace_key_sha256":`, `"generation":7`, `"active_leases":0`,
 		`"state":"IdleCountdown"`, `"idle_duration":"2m0s"`, `"idle_timeout":"1m0s"`,
 		`"action":"shutdown"`, `"action_result":"failed"`, `"recycled":false`,
@@ -77,6 +77,122 @@ func assertRecyclerCleanupOwner(t *testing.T, mgr *manager, workspace *workspace
 		got[0].state != workspaceStateCleanupPending || got[0].activeLeases != 0 {
 		t.Fatalf("cleanup owner after shutdown/close failure = %#v, want retained generation-owned owner", got)
 	}
+}
+
+func assertStructuredLogContains(t *testing.T, label, text string, wants ...string) {
+	t.Helper()
+	for _, want := range wants {
+		if !strings.Contains(text, want) {
+			t.Fatalf("%s missing %q: %s", label, want, text)
+		}
+	}
+}
+
+func assertStructuredLogOmits(t *testing.T, label, text string, forbidden ...string) {
+	t.Helper()
+	for _, value := range forbidden {
+		if strings.Contains(text, value) {
+			t.Fatalf("%s leaked %q: %s", label, value, text)
+		}
+	}
+}
+
+func TestRecyclerCleanupLogContractRedactsScopeAndError(t *testing.T) {
+	root := t.TempDir()
+	scope := buildTestResolvedScope(t, root, "agent-secret", "thread-secret", "go")
+	workspaceKey := filepath.Join(root, "workspace")
+	cleanupErr := errors.Join(hiddenexec.ErrProcessTreeRemaining, errors.New("cleanup failed for "+root))
+	now := time.Date(2026, 8, 4, 6, 30, 0, 0, time.UTC)
+	workspace := workspaceClient{
+		key: workspaceKey, languageID: "go", generation: 11,
+		state: workspaceStateCleanupPending, activeLeases: 0,
+		idleSince: now.Add(-2 * time.Minute), lastActivity: now.Add(-90 * time.Second),
+	}
+	var logs bytes.Buffer
+	mgr := &manager{
+		instanceID:  filepath.Join(root, "manager-instance"),
+		logger:      slog.New(slog.NewJSONHandler(&logs, nil)),
+		idleTimeout: time.Minute,
+	}
+	logRecyclerCleanupFailure(mgr, scope, []workspaceClient{workspace}, now, "shutdown", "idle_timeout", cleanupErr, "cleanup failure")
+	text := logs.String()
+	assertStructuredLogContains(t, "cleanup log", text,
+		`"manager_key_sha256":`,
+		`"scope_key_sha256":`,
+		`"workspace_sha256":`,
+		`"workspace_key_sha256":`,
+		`"generation":11`,
+		`"active_leases":0`,
+		`"state":"CleanupPending"`,
+		`"idle_duration":"2m0s"`,
+		`"idle_timeout":"1m0s"`,
+		`"action":"shutdown"`,
+		`"action_result":"failed"`,
+		`"cleanup_error_sha256":`,
+		`"cleanup_error_class":"members_remaining"`,
+	)
+	assertStructuredLogOmits(t, "cleanup log", text,
+		root, "agent-secret", "thread-secret", "cleanup failed for",
+		`"manager_key":"`, `"scope_key":"`, `"agent_id":"`, `"thread_id":"`,
+	)
+
+	logs.Reset()
+	logRecyclerCleanupFailure(mgr, scope, nil, now, "close", "deferred_release", errors.New("manager close failed for "+root), "manager cleanup failure")
+	text = logs.String()
+	assertStructuredLogContains(t, "manager cleanup log", text,
+		`"workspace_count":0`,
+		`"manager_instance_sha256":`,
+		`"cleanup_error_sha256":`,
+		`"cleanup_error_class":"shutdown_or_close"`,
+		`"action":"close"`,
+		`"action_result":"failed"`,
+	)
+	assertStructuredLogOmits(t, "manager cleanup log", text, root, `"manager_key":"`, `"scope_key":"`)
+
+	logs.Reset()
+	logRecyclerCleanupPending(mgr, scope, nil, now, "close", "deferred_release", "manager cleanup pending")
+	text = logs.String()
+	assertStructuredLogContains(t, "pending cleanup log", text,
+		`"workspace_count":0`,
+		`"action_result":"pending"`,
+		`"cleanup_incomplete":true`,
+		`"manager_instance_sha256":`,
+	)
+	assertStructuredLogOmits(t, "pending cleanup log", text, root, "agent-secret", "thread-secret")
+}
+
+func TestRecyclerRSSDeferredLogRedactsWorkspace(t *testing.T) {
+	root := t.TempDir()
+	now := time.Date(2026, 8, 4, 6, 45, 0, 0, time.UTC)
+	scope := buildTestResolvedScope(t, root, "agent-rss-secret", "thread-rss-secret", "go")
+	client := &p2LifecycleClient{healthy: true}
+	workspace := workspaceClient{
+		key: root, languageID: "go", client: client, generation: 3,
+		state: workspaceStateActive, idleSince: now, lastActivity: now,
+	}
+	var logs bytes.Buffer
+	mgr := &manager{
+		logger:      slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		idleTimeout: time.Minute,
+		workspaces:  map[string]*workspaceClient{root: &workspace},
+	}
+	recycler := newPoolRecycler(nil)
+	recycler.now = func() time.Time { return now }
+	recycler.rssProbe = func(Client) (uint64, int, error) {
+		return defaultGoRSSLimitBytes + 1, 77, nil
+	}
+	recycler.recycleIfNeeded(mgr, scope, workspace)
+	text := logs.String()
+	assertStructuredLogContains(t, "RSS defer log", text,
+		"LSP RSS pressure deferred until idle window",
+		`"manager_key_sha256":`,
+		`"scope_key_sha256":`,
+		`"workspace_sha256":`,
+		`"action":"defer"`,
+		`"reason":"process_tree_rss_limit"`,
+	)
+	assertStructuredLogOmits(t, "RSS defer log", text,
+		root, "agent-rss-secret", "thread-rss-secret", `"workspace":"`)
 }
 
 func TestRecyclerCleanupErrorClassUsesProcessTreeSentinels(t *testing.T) {

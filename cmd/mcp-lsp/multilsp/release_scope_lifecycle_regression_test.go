@@ -1,7 +1,9 @@
 package multilsp
 
 import (
+	"bytes"
 	"errors"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
@@ -10,9 +12,12 @@ import (
 func TestReleaseScopeCloseFailureReceiptRetriesUntilClosed(t *testing.T) {
 	root := canonicalScopePath(t.TempDir(), "")
 	mgr := newManagerPoolTestManager(t, root)
-	scope := testLSPToolScope(root, "agent-close-retry", "thread-1")
+	var logs bytes.Buffer
+	mgr.logger = slog.New(slog.NewJSONHandler(&logs, nil))
+	agentID, threadID := "agent-"+root, "thread-"+root
+	scope := testLSPToolScope(root, agentID, threadID)
 	scoped := scopedManagerForTest(t, mgr, scope)
-	closeErr := errors.New("transient close failure")
+	closeErr := errors.New("transient close failure at " + root)
 	client := &retryCloseP2Client{
 		p2LifecycleClient: &p2LifecycleClient{},
 		failures:          1,
@@ -22,10 +27,10 @@ func TestReleaseScopeCloseFailureReceiptRetriesUntilClosed(t *testing.T) {
 
 	first, err := mgr.pool.ReleaseScope(ReleaseScopeRequest{
 		ScopeKind: ReleaseScopeAgentThread,
-		AgentID:   "agent-close-retry",
-		ThreadID:  "thread-1",
+		AgentID:   agentID,
+		ThreadID:  threadID,
 		Drain:     true,
-		Reason:    "close_retry_first",
+		Reason:    "close_retry_first_" + root,
 	})
 	if !errors.Is(err, closeErr) {
 		t.Fatalf("ReleaseScope(first) error = %v, want %v", err, closeErr)
@@ -33,13 +38,26 @@ func TestReleaseScopeCloseFailureReceiptRetriesUntilClosed(t *testing.T) {
 	if first.MatchedManagers != 1 || first.ClosedManagers != 0 || first.Drained {
 		t.Fatalf("ReleaseScope(first) = %#v, want matched failure receipt", first)
 	}
+	logText := logs.String()
+	assertStructuredLogContains(t, "release scope cleanup log", logText,
+		"LSP release scope closing manager",
+		"LSP release scope close failed",
+		`"manager_key_sha256":`,
+		`"scope_key_sha256":`,
+		`"workspace_sha256":`,
+		`"cleanup_error_sha256":`,
+		`"cleanup_error_class":"shutdown_or_close"`,
+		`"release_reason_sha256":`,
+	)
+	assertStructuredLogOmits(t, "release scope cleanup log", logText,
+		root, closeErr.Error(), agentID, threadID, `"manager_key":"`, `"scope_key":"`)
 
 	second, err := mgr.pool.ReleaseScope(ReleaseScopeRequest{
 		ScopeKind: ReleaseScopeAgentThread,
-		AgentID:   "agent-close-retry",
-		ThreadID:  "thread-1",
+		AgentID:   agentID,
+		ThreadID:  threadID,
 		Drain:     true,
-		Reason:    "close_retry_second",
+		Reason:    "close_retry_second_" + root,
 	})
 	if err != nil {
 		t.Fatalf("ReleaseScope(second): %v", err)
@@ -55,9 +73,11 @@ func TestReleaseScopeCloseFailureReceiptRetriesUntilClosed(t *testing.T) {
 func TestDeferredReleaseCloseFailureRemainsRetryable(t *testing.T) {
 	root := canonicalScopePath(t.TempDir(), "")
 	mgr := newManagerPoolTestManager(t, root)
+	var logs bytes.Buffer
+	mgr.logger = slog.New(slog.NewJSONHandler(&logs, nil))
 	scope := testLSPToolScope(root, "agent-deferred-retry", "thread-1")
 	scoped := scopedManagerForTest(t, mgr, scope)
-	closeErr := errors.New("transient deferred close failure")
+	closeErr := errors.New("transient deferred close failure at " + root)
 	client := &retryCloseP2Client{
 		p2LifecycleClient: &p2LifecycleClient{},
 		failures:          1,
@@ -77,6 +97,19 @@ func TestDeferredReleaseCloseFailureRemainsRetryable(t *testing.T) {
 	if !errors.Is(err, closeErr) {
 		t.Fatalf("ReleaseScope(second) error = %v, want %v from first deferred close retry", err, closeErr)
 	}
+	logText := logs.String()
+	assertStructuredLogContains(t, "deferred cleanup log", logText,
+		"LSP deferred release close failed",
+		`"manager_key_sha256":`,
+		`"scope_key_sha256":`,
+		`"workspace_sha256":`,
+		`"cleanup_error_sha256":`,
+		`"cleanup_error_class":"shutdown_or_close"`,
+		`"action":"close"`,
+		`"action_result":"failed"`,
+	)
+	assertStructuredLogOmits(t, "deferred cleanup log", logText,
+		root, closeErr.Error(), `"manager_key":"`, `"scope_key":"`)
 	assertDeferredRetryFailureReceipt(t, second)
 	third := mustReleaseDeferredRetryScope(t, mgr, "deferred_retry_third")
 	assertDeferredRetryClosedReceipt(t, third)
@@ -209,8 +242,10 @@ func TestManagerPoolCapEvictionFailureRetainsCleanupOwner(t *testing.T) {
 	t.Setenv(lspPoolShardCapEnv, "1")
 	root := canonicalScopePath(t.TempDir(), "")
 	mgr := newManagerPoolTestManager(t, root)
+	var logs bytes.Buffer
+	mgr.logger = slog.New(slog.NewJSONHandler(&logs, nil))
 	first := scopedManagerForTest(t, mgr, testLSPToolScope(root, "agent-cap-owner", "thread-old"))
-	closeErr := errors.New("transient cap cleanup failure")
+	closeErr := errors.New("transient cap cleanup failure at " + root)
 	client := &retryCloseP2Client{
 		p2LifecycleClient: &p2LifecycleClient{},
 		failures:          1,
@@ -221,6 +256,19 @@ func TestManagerPoolCapEvictionFailureRetainsCleanupOwner(t *testing.T) {
 	if _, err := mgr.pool.ForScope(testLSPToolScope(root, "agent-cap-owner", "thread-new")); !errors.Is(err, closeErr) {
 		t.Fatalf("ForScope(new) error = %v, want %v", err, closeErr)
 	}
+	logText := logs.String()
+	assertStructuredLogContains(t, "cap eviction cleanup log", logText,
+		"LSP detached manager close failed",
+		`"manager_key_sha256":`,
+		`"scope_key_sha256":`,
+		`"workspace_sha256":`,
+		`"cleanup_error_sha256":`,
+		`"cleanup_error_class":"shutdown_or_close"`,
+		`"action":"close"`,
+		`"action_result":"failed"`,
+	)
+	assertStructuredLogOmits(t, "cap eviction cleanup log", logText,
+		root, closeErr.Error(), `"manager_key":"`, `"scope_key":"`)
 	if got := pendingReleaseCountForTest(mgr.pool); got != 1 {
 		t.Fatalf("pending cleanup owners after cap failure = %d, want 1", got)
 	}

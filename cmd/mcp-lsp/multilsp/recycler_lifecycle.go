@@ -35,8 +35,160 @@ func recyclerCleanupErrorClass(cleanupErr error) string {
 // recyclerCleanupLogFields 组合脱敏工作区标识、错误摘要和进程树清理类别。
 func recyclerCleanupLogFields(workspace workspaceClient, cleanupErr error) []any {
 	args := platformshared.SafePathLogFields("workspace_key", workspace.key)
-	args = append(args, platformshared.SafePayloadLogFields("cleanup_error", cleanupErr.Error())...)
-	return append(args, recyclerCleanupErrorFields(cleanupErr)...)
+	if cleanupErr != nil {
+		args = append(args, platformshared.SafePayloadLogFields("cleanup_error", cleanupErr.Error())...)
+		args = append(args, recyclerCleanupErrorFields(cleanupErr)...)
+	}
+	return args
+}
+
+func recyclerScopeLogArgs(scope ResolvedLSPToolScope) []any {
+	args := platformshared.SafePathLogFields("manager_key", scope.ManagerKey)
+	return append(args, platformshared.SafePathLogFields("scope_key", scope.ScopeKey)...)
+}
+
+func recyclerManagerLogArgs(scope ResolvedLSPToolScope, mgr *manager, workspaceCount int) []any {
+	args := recyclerScopeLogArgs(scope)
+	args = append(args, "workspace_count", workspaceCount)
+	if mgr != nil {
+		args = append(args, platformshared.SafePayloadLogFields("manager_instance", mgr.instanceID)...)
+	}
+	return args
+}
+
+func recyclerWorkspaceCleanupLogArgs(
+	mgr *manager,
+	scope ResolvedLSPToolScope,
+	workspace workspaceClient,
+	now time.Time,
+	action string,
+	reason string,
+	cleanupErr error,
+) []any {
+	idleDuration := ""
+	if !workspace.idleSince.IsZero() && !now.IsZero() {
+		idleDuration = now.Sub(workspace.idleSince).String()
+	}
+	idleTimeout := ""
+	if mgr != nil && mgr.idleTimeout > 0 {
+		idleTimeout = mgr.idleTimeout.String()
+	}
+	args := recyclerWorkspaceLogArgs(scope, workspace,
+		"generation", workspace.generation,
+		"active_leases", workspace.activeLeases,
+		"state", workspace.state,
+		"idle_since", recyclerLifecycleTime(workspace.idleSince),
+		"last_activity", recyclerLifecycleTime(workspace.lastActivity),
+		"idle_duration", idleDuration,
+		"idle_timeout", idleTimeout,
+		"action", action,
+		"action_result", "failed",
+		"reason", reason,
+	)
+	return append(args, recyclerCleanupLogFields(workspace, cleanupErr)...)
+}
+
+func recyclerManagerCleanupLogArgs(
+	scope ResolvedLSPToolScope,
+	mgr *manager,
+	workspaceCount int,
+	cleanupErr error,
+	extra ...any,
+) []any {
+	args := recyclerManagerLogArgs(scope, mgr, workspaceCount)
+	args = append(args, extra...)
+	if cleanupErr != nil {
+		args = append(args, platformshared.SafePayloadLogFields("cleanup_error", cleanupErr.Error())...)
+		args = append(args, recyclerCleanupErrorFields(cleanupErr)...)
+	}
+	return args
+}
+
+func recyclerLifecycleTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339Nano)
+}
+
+func idleDurationSince(start, now time.Time) string {
+	if start.IsZero() || now.IsZero() {
+		return ""
+	}
+	return now.Sub(start).String()
+}
+
+func logRecyclerCleanupPending(
+	mgr *manager,
+	scope ResolvedLSPToolScope,
+	workspaces []workspaceClient,
+	now time.Time,
+	action string,
+	reason string,
+	message string,
+) {
+	if mgr == nil || mgr.logger == nil {
+		return
+	}
+	if len(workspaces) == 0 {
+		args := recyclerManagerLogArgs(scope, mgr, 0)
+		args = append(args,
+			"action", action,
+			"action_result", "pending",
+			"reason", reason,
+			"cleanup_incomplete", true,
+		)
+		mgr.logger.Warn(message, args...)
+		return
+	}
+	for _, workspace := range workspaces {
+		idleTimeout := ""
+		if mgr.idleTimeout > 0 {
+			idleTimeout = mgr.idleTimeout.String()
+		}
+		args := recyclerWorkspaceLogArgs(scope, workspace,
+			"generation", workspace.generation,
+			"active_leases", workspace.activeLeases,
+			"state", workspace.state,
+			"idle_since", recyclerLifecycleTime(workspace.idleSince),
+			"last_activity", recyclerLifecycleTime(workspace.lastActivity),
+			"idle_duration", idleDurationSince(workspace.idleSince, now),
+			"idle_timeout", idleTimeout,
+			"action", action,
+			"action_result", "pending",
+			"reason", reason,
+			"cleanup_incomplete", true,
+		)
+		mgr.logger.Warn(message, args...)
+	}
+}
+
+func logRecyclerCleanupFailure(
+	mgr *manager,
+	scope ResolvedLSPToolScope,
+	workspaces []workspaceClient,
+	now time.Time,
+	action string,
+	reason string,
+	cleanupErr error,
+	message string,
+) {
+	if mgr == nil || mgr.logger == nil || cleanupErr == nil {
+		return
+	}
+	if len(workspaces) == 0 {
+		args := recyclerManagerCleanupLogArgs(scope, mgr, 0, cleanupErr,
+			"action", action,
+			"action_result", "failed",
+			"reason", reason,
+		)
+		mgr.logger.Warn(message, args...)
+		return
+	}
+	for _, workspace := range workspaces {
+		args := recyclerWorkspaceCleanupLogArgs(mgr, scope, workspace, now, action, reason, cleanupErr)
+		mgr.logger.Warn(message, args...)
+	}
 }
 
 // retryCleanupPendingWorkspace 重试 Close 失败的唯一 cleanup owner；它不重新进入 idle 倒计时。
@@ -63,8 +215,7 @@ func (r *poolRecycler) retryCleanupPendingWorkspace(mgr *manager, scope Resolved
 	}
 	if mgr.logger != nil {
 		if cleanupErr := errors.Join(shutdownErr, closeErr); cleanupErr != nil {
-			args := recyclerWorkspaceLogArgs(scope, snapshot, "reason", "cleanup_pending_retry")
-			args = append(args, platformshared.SafePayloadLogFields("cleanup_error", cleanupErr.Error())...)
+			args := recyclerWorkspaceCleanupLogArgs(mgr, scope, snapshot, r.recyclerNow(), "retry", "cleanup_pending_retry", cleanupErr)
 			mgr.logger.Warn("LSP cleanup pending retry failed", args...)
 		}
 	}

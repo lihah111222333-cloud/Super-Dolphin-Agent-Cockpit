@@ -346,12 +346,21 @@ func TestPoolRecyclerIdleShutdownReportsCleanupFailure(t *testing.T) {
 			LanguageID: "go",
 		},
 	})
-	if got := logs.String(); !strings.Contains(got, "LSP idle shutdown cleanup failed") || strings.Contains(got, root) {
-		t.Fatalf("idle cleanup failure log is missing or leaked root: %s", got)
-	}
-	if got := snapshotWorkspaceClients(scoped); len(got) != 1 || got[0].client != client {
-		t.Fatalf("cleanup owner after Close failure = %#v, want original client retained", got)
-	}
+	logText := logs.String()
+	assertStructuredLogContains(t, "idle cleanup failure log", logText,
+		"LSP idle shutdown cleanup failed",
+		`"manager_key_sha256":`,
+		`"scope_key_sha256":`,
+		`"generation":1`,
+		`"active_leases":0`,
+		`"action":"shutdown"`,
+		`"action_result":"failed"`,
+		`"cleanup_error_sha256":`,
+		`"cleanup_error_class":"shutdown_or_close"`,
+	)
+	assertStructuredLogOmits(t, "idle cleanup failure log", logText,
+		root, `"manager_key":"`, `"scope_key":"`)
+	assertIdleCleanupOwner(t, scoped, client, 1, "after Close failure")
 	first.closeFailure = nil
 	mgr.pool.recycler.checkIdleWorkspaces(scoped, ResolvedLSPToolScope{
 		ManagerKey: "manager-idle-error",
@@ -360,9 +369,7 @@ func TestPoolRecyclerIdleShutdownReportsCleanupFailure(t *testing.T) {
 			LanguageID: "go",
 		},
 	})
-	if got := snapshotWorkspaceClients(scoped); len(got) != 0 {
-		t.Fatalf("cleanup owner after successful retry = %d, want 0", len(got))
-	}
+	assertIdleCleanupOwner(t, scoped, client, 0, "after successful retry")
 }
 
 func TestRecyclerDoesNotStealCleanupOwnerFromClosingManager(t *testing.T) {
@@ -485,8 +492,8 @@ func assertRecyclerProbeFailureHealth(t *testing.T, health recyclerHealthSnapsho
 func assertRecyclerProbeFailureLog(t *testing.T, logText, secretRoot string) {
 	t.Helper()
 	for _, want := range []string{
-		"LSP recycler RSS probe failed", "\"manager_key\":\"manager-test\"",
-		"\"scope_key\":\"scope-test\"", "\"workspace_sha256\":", "\"language\":\"go\"",
+		"LSP recycler RSS probe failed", `"manager_key_sha256":`,
+		`"scope_key_sha256":`, `"workspace_sha256":`, `"language":"go"`,
 	} {
 		if !strings.Contains(logText, want) {
 			t.Fatalf("probe failure log missing %q: %s", want, logText)
@@ -524,6 +531,14 @@ func TestRecyclerInvalidPIDAndMultiWorkspaceFailuresAreObservable(t *testing.T) 
 	}
 	if clientA.closed || clientB.closed {
 		t.Fatal("invalid pid probe closed a client")
+	}
+}
+
+func assertIdleCleanupOwner(t *testing.T, mgr *manager, client Client, wantCount int, phase string) {
+	t.Helper()
+	got := snapshotWorkspaceClients(mgr)
+	if len(got) != wantCount || (wantCount == 1 && got[0].client != client) {
+		t.Fatalf("cleanup owner %s = %#v, want count=%d with original client", phase, got, wantCount)
 	}
 }
 

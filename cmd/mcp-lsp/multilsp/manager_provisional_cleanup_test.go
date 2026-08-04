@@ -293,14 +293,15 @@ func TestRecyclerRetriesAndAccountsProvisionalOwner(t *testing.T) {
 	mgr.retainProvisionalClientCleanups(key, []pendingClientShutdown{newProvisionalTestPending(t, mgr, key, 6, nil, owner)})
 	pool := NewManagerPool(mgr, 1)
 	recycler := newPoolRecycler(pool)
-	recycler.retryProvisionalCleanups(mgr)
+	scope := ResolvedLSPToolScope{}
+	recycler.retryProvisionalCleanups(mgr, scope)
 	mgr.mu.RLock()
 	remaining := len(mgr.provisionalCleanups[key])
 	mgr.mu.RUnlock()
 	if remaining != 1 {
 		t.Fatalf("recycler pending owner count after failure = %d, want 1", remaining)
 	}
-	recycler.retryProvisionalCleanups(mgr)
+	recycler.retryProvisionalCleanups(mgr, scope)
 	mgr.mu.RLock()
 	remaining = len(mgr.provisionalCleanups[key])
 	mgr.mu.RUnlock()
@@ -319,6 +320,7 @@ func TestEnsureRecyclerCloseRaceUsesOneProvisionalOwnerTransaction(t *testing.T)
 	cfg := workspaceConfig{key: key, rootPath: t.TempDir(), rootURI: "file:///owner-transaction-race", languageID: "go"}
 	pool := NewManagerPool(mgr, 1)
 	recycler := newPoolRecycler(pool)
+	scope := ResolvedLSPToolScope{}
 
 	ensureDone := make(chan error, 1)
 	safego.Go(context.Background(), nil, "multilsp.ownerRace.ensure", func(context.Context) {
@@ -329,7 +331,7 @@ func TestEnsureRecyclerCloseRaceUsesOneProvisionalOwnerTransaction(t *testing.T)
 
 	recyclerDone := make(chan struct{})
 	safego.Go(context.Background(), nil, "multilsp.ownerRace.recycler", func(context.Context) {
-		recycler.retryProvisionalCleanups(mgr)
+		recycler.retryProvisionalCleanups(mgr, scope)
 		close(recyclerDone)
 	})
 	closeDone := make(chan error, 1)
