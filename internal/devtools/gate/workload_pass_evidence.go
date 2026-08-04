@@ -591,7 +591,7 @@ func (store *DurationLedgerStore) FinalizeRemoteCIRunAuthorityWithSamples(identi
 	}
 	defer database.Close()
 	return withSQLiteWriteTransaction(database, "finalize remote CI run authority", func(tx *sql.Tx) error {
-		return finalizeSQLiteRemoteCIRunAuthority(tx, identity, receipts, samples, promoteFresh, store.finalizeFault)
+		return finalizeSQLiteRemoteCIRunAuthority(tx, store, identity, receipts, samples, promoteFresh, store.finalizeFault)
 	})
 }
 
@@ -612,7 +612,10 @@ func validateRemoteCIRunAuthorityFinalization(identity RemoteCIRunAuthorityIdent
 }
 
 // finalizeSQLiteRemoteCIRunAuthority 在同一事务中按固定顺序完成权威提升及保留清理。
-func finalizeSQLiteRemoteCIRunAuthority(tx *sql.Tx, identity RemoteCIRunAuthorityIdentity, receipts []CheckReceiptRecord, samples []DurationSample, promoteFresh bool, fault durationLedgerFinalizeFault) error {
+func finalizeSQLiteRemoteCIRunAuthority(tx *sql.Tx, store *DurationLedgerStore, identity RemoteCIRunAuthorityIdentity, receipts []CheckReceiptRecord, samples []DurationSample, promoteFresh bool, fault durationLedgerFinalizeFault) error {
+	if store == nil {
+		return errors.New("duration ledger store is required for finalization")
+	}
 	if err := verifySQLiteProvisionalRemoteCIRunForAuthority(tx, identity); err != nil {
 		return err
 	}
@@ -632,6 +635,15 @@ func finalizeSQLiteRemoteCIRunAuthority(tx *sql.Tx, identity RemoteCIRunAuthorit
 		if err := promoteSQLiteRemoteCIWorkloadPassEvidence(tx, identity.JobID); err != nil {
 			return err
 		}
+	}
+	if err := store.appendDurationLedgerObservationEvent(
+		tx,
+		durationLedgerObservationEventRemoteRunFinalize,
+		identity.JobID,
+		strconv.FormatUint(identity.AcceptedGeneration, 10),
+		map[string]any{"identity": identity, "receipts": receipts, "samples": samples, "promote_fresh": promoteFresh},
+	); err != nil {
+		return err
 	}
 	return compactDurationLedgerAuthority(tx)
 }

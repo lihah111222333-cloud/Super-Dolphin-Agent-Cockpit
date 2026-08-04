@@ -612,7 +612,7 @@ func assertSQLiteSchemaTableRegistry(t *testing.T, database *sql.DB) {
 		"ci_live_timing_warnings", "ci_query_meta", "ci_remote_baseline_state", "ci_run_agent_identities", "ci_run_timing_warnings", "ci_run_warnings", "ci_run_workload_results", "ci_runs", "ci_schema_migrations",
 		"ci_shard_workloads", "ci_shards", "ci_timing_observations", "ci_workload_catalogs",
 		"ci_workload_executions", "ci_workload_pass_evidence",
-		"duration_calibrations", "duration_ledger_meta", "duration_samples", "remote_ci_calibration_checkpoint_scenarios", "remote_ci_calibration_checkpoints",
+		"duration_calibrations", "duration_ledger_meta", "duration_ledger_raw_events", "duration_samples", "remote_ci_calibration_checkpoint_scenarios", "remote_ci_calibration_checkpoints",
 	}
 	if !slices.Equal(actual, expected) {
 		t.Fatalf("SQLite tables = %v, want %v", actual, expected)

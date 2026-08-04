@@ -305,19 +305,23 @@ func ensureDurationLedgerSQLiteSchemaWithValidator(
 	if err != nil {
 		return err
 	}
+	if err := coordinateDurationLedgerSQLiteSchemaVersion(database, validator, schemaVersion); err != nil {
+		return err
+	}
+	return verifyDurationLedgerSQLiteCurrentAuthority(database)
+}
+
+func coordinateDurationLedgerSQLiteSchemaVersion(database *sql.DB, validator *durationLedgerSQLiteSchemaValidator, schemaVersion int) error {
 	switch schemaVersion {
 	case 0:
-		if err := validator.initializeAuthority(database, validator); err != nil {
-			return err
-		}
+		return validator.initializeAuthority(database, validator)
+	case durationLedgerSQLiteLegacySchemaVersion:
+		return migrateDurationLedgerSQLiteLegacySchema(database, validator)
 	case durationLedgerSQLiteSchemaVersion:
-		if err := preflightDurationLedgerSQLiteSchema(database, schemaVersion, validator); err != nil {
-			return err
-		}
+		return preflightDurationLedgerSQLiteSchema(database, schemaVersion, validator)
 	default:
 		return fmt.Errorf("duration ledger SQLite schema version %d is unsupported", schemaVersion)
 	}
-	return verifyDurationLedgerSQLiteCurrentAuthority(database)
 }
 
 // preflightDurationLedgerSQLiteSchema performs the complete compatibility read
@@ -331,6 +335,68 @@ func preflightDurationLedgerSQLiteSchema(
 		return fmt.Errorf("duration ledger SQLite schema version %d is unsupported", schemaVersion)
 	}
 	return validator.preflight(database, schemaVersion)
+}
+
+func migrateDurationLedgerSQLiteLegacySchema(
+	database *sql.DB,
+	validator *durationLedgerSQLiteSchemaValidator,
+) error {
+	connection, err := database.Conn(context.Background())
+	if err != nil {
+		return mapDurationLedgerSQLiteError("open duration ledger SQLite migration connection", err)
+	}
+	if _, err := connection.ExecContext(context.Background(), `BEGIN IMMEDIATE`); err != nil {
+		return closeDurationLedgerSQLiteInitializerConnection(connection,
+			mapDurationLedgerSQLiteError("begin duration ledger SQLite migration", err))
+	}
+	if err := migrateDurationLedgerSQLiteLegacySchemaOnConnection(connection, validator); err != nil {
+		return closeDurationLedgerSQLiteInitializerConnection(connection,
+			rollbackDurationLedgerSQLiteInitializer(connection, err))
+	}
+	if _, err := connection.ExecContext(context.Background(), `COMMIT`); err != nil {
+		return closeDurationLedgerSQLiteInitializerConnection(connection,
+			rollbackDurationLedgerSQLiteInitializer(connection,
+				mapDurationLedgerSQLiteError("commit duration ledger SQLite migration", err)))
+	}
+	return closeDurationLedgerSQLiteInitializerConnection(connection, nil)
+}
+
+// migrateDurationLedgerSQLiteLegacySchemaOnConnection 在既有事务内补齐原始事件结构。
+func migrateDurationLedgerSQLiteLegacySchemaOnConnection(
+	connection *sql.Conn,
+	validator *durationLedgerSQLiteSchemaValidator,
+) error {
+	schemaVersion, err := readDurationLedgerSQLiteSchemaVersion(connection)
+	if err != nil {
+		return err
+	}
+	switch schemaVersion {
+	case durationLedgerSQLiteSchemaVersion:
+		return validator.preflight(connection, schemaVersion)
+	case durationLedgerSQLiteLegacySchemaVersion:
+		if err := preflightDurationLedgerSQLiteLegacySchema(connection, schemaVersion); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("duration ledger SQLite schema version %d is unsupported", schemaVersion)
+	}
+	for _, statement := range []string{
+		durationLedgerRawObservationEventsTableSchema,
+		durationLedgerRawObservationEventsIndexSchema,
+		durationLedgerRawObservationEventsUpdateTriggerSchema,
+		durationLedgerRawObservationEventsDeleteTriggerSchema,
+	} {
+		if _, err := connection.ExecContext(context.Background(), statement); err != nil {
+			return mapDurationLedgerSQLiteError("migrate duration ledger SQLite raw observation schema", err)
+		}
+	}
+	if _, err := connection.ExecContext(
+		context.Background(),
+		fmt.Sprintf(`PRAGMA user_version = %d`, durationLedgerSQLiteSchemaVersion),
+	); err != nil {
+		return mapDurationLedgerSQLiteError("write duration ledger SQLite migrated schema version", err)
+	}
+	return validator.preflight(connection, durationLedgerSQLiteSchemaVersion)
 }
 
 type durationLedgerSQLiteSchemaVersionReader interface {
@@ -433,6 +499,9 @@ func initializeDurationLedgerSQLiteCurrentSchemaOnConnection(
 	}
 	if schemaVersion == durationLedgerSQLiteSchemaVersion {
 		return validator.preflight(connection, schemaVersion)
+	}
+	if schemaVersion == durationLedgerSQLiteLegacySchemaVersion {
+		return migrateDurationLedgerSQLiteLegacySchemaOnConnection(connection, validator)
 	}
 	if schemaVersion != 0 {
 		return fmt.Errorf("duration ledger SQLite schema version %d is unsupported", schemaVersion)
