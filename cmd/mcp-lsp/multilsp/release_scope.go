@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
 const (
@@ -294,15 +296,17 @@ func (p *ManagerPool) closeDetachedReleaseManagers(
 		if release.manager == nil {
 			continue
 		}
+		workspaces := snapshotWorkspaceClients(release.manager)
 		if release.manager.logger != nil {
-			release.manager.logger.Info("LSP release scope closing manager",
+			args := recyclerManagerLogArgs(release.scope, release.manager, len(workspaces))
+			args = append(args,
 				"scope_kind", req.ScopeKind,
-				"agent_id", req.AgentID,
-				"thread_id", req.ThreadID,
-				"manager_key", req.ManagerKey,
 				"drain", req.Drain,
-				"reason", req.Reason,
+				"action", "close",
+				"action_result", "started",
 			)
+			args = append(args, platformshared.SafePayloadLogFields("release_reason", req.Reason)...)
+			release.manager.logger.Info("LSP release scope closing manager", args...)
 		}
 		done, closeErr := release.manager.closeWithoutPoolStatus()
 		if done && closeErr == nil {
@@ -312,6 +316,11 @@ func (p *ManagerPool) closeDetachedReleaseManagers(
 			continue
 		}
 		p.rememberPendingReleaseState(release, done, closeErr)
+		if closeErr != nil {
+			logRecyclerCleanupFailure(release.manager, release.scope, workspaces, release.manager.managerNow(), "close", "release_scope", closeErr, "LSP release scope close failed")
+		} else if !done {
+			logRecyclerCleanupPending(release.manager, release.scope, workspaces, release.manager.managerNow(), "close", "release_scope", "LSP release scope close pending")
+		}
 		firstErr = errors.Join(firstErr, closeErr)
 	}
 	if firstErr != nil {
@@ -341,6 +350,7 @@ func (p *ManagerPool) closeDetachedPoolManagers(releases []pendingManagerRelease
 		if release.manager == nil {
 			continue
 		}
+		workspaces := snapshotWorkspaceClients(release.manager)
 		done, closeErr := release.manager.closeWithoutPoolStatus()
 		if done && closeErr == nil {
 			continue
@@ -352,6 +362,11 @@ func (p *ManagerPool) closeDetachedPoolManagers(releases []pendingManagerRelease
 			closeErr:  closeErr,
 		}
 		p.pendingMu.Unlock()
+		if closeErr != nil {
+			logRecyclerCleanupFailure(release.manager, release.scope, workspaces, release.manager.managerNow(), "close", reason, closeErr, "LSP detached manager close failed")
+		} else if !done {
+			logRecyclerCleanupPending(release.manager, release.scope, workspaces, release.manager.managerNow(), "close", reason, "LSP detached manager close pending")
+		}
 		firstErr = errors.Join(firstErr, closeErr)
 	}
 	if firstErr != nil {

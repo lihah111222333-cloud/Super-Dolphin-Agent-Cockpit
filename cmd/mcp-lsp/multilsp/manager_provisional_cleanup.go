@@ -341,6 +341,7 @@ func (m *manager) logCleanupPair(state pendingClientShutdown, event, reason stri
 	}
 	if cleanupErr != nil {
 		base = append(base, platformshared.SafePayloadLogFields("cleanup_error", cleanupErr.Error())...)
+		base = append(base, recyclerCleanupErrorFields(cleanupErr)...)
 	}
 	m.logger.Warn("LSP cleanup pending", append(append([]any(nil), base...), "event", event)...)
 	m.logger.Warn("LSP cleanup pending", append(append([]any(nil), base...), "event", "lsp_reclaim_blocked")...)

@@ -152,14 +152,14 @@ func (r *poolRecycler) check() {
 	}
 	r.pool.drainPendingReleases()
 	for _, snapshot := range r.pool.snapshotManagers() {
-		r.retryProvisionalCleanups(snapshot.manager)
+		r.retryProvisionalCleanups(snapshot.manager, snapshot.resolvedScope)
 		r.checkIdleWorkspaces(snapshot.manager, snapshot.resolvedScope)
 		r.checkManager(snapshot.index, snapshot.manager, snapshot.resolvedScope)
 	}
 	r.evictIdleEmptyClones()
 }
 
-func (r *poolRecycler) retryProvisionalCleanups(mgr *manager) {
+func (r *poolRecycler) retryProvisionalCleanups(mgr *manager, scope ResolvedLSPToolScope) {
 	if mgr == nil {
 		return
 	}
@@ -167,8 +167,12 @@ func (r *poolRecycler) retryProvisionalCleanups(mgr *manager) {
 	defer mgr.ensureMu.Unlock()
 	for _, key := range mgr.provisionalCleanupKeys() {
 		if err := mgr.retryProvisionalClientCleanups(key); err != nil && mgr.logger != nil {
-			args := []any{"workspace_hash", provisionalWorkspaceHash(key)}
-			args = append(args, platformshared.SafePayloadLogFields("cleanup_error", err.Error())...)
+			args := recyclerManagerCleanupLogArgs(scope, mgr, 0, err,
+				"action", "retry",
+				"action_result", "failed",
+				"reason", "provisional_cleanup",
+				"workspace_hash", provisionalWorkspaceHash(key),
+			)
 			mgr.logger.Warn("LSP provisional cleanup retry pending", args...)
 		}
 	}
@@ -182,13 +186,7 @@ func (r *poolRecycler) evictIdleEmptyClones() {
 	}
 	cutoff = cutoff.Add(-r.pool.primary.idleTimeout)
 	releases := r.pool.detachIdleEmptyClones(cutoff)
-	if err := r.pool.closeDetachedPoolManagers(releases, "close idle LSP manager"); err != nil {
-		for _, release := range releases {
-			if release.manager != nil && release.manager.logger != nil {
-				release.manager.logger.Warn("LSP idle clone close failed", "err", err)
-			}
-		}
-	}
+	_ = r.pool.closeDetachedPoolManagers(releases, "close idle LSP manager")
 }
 
 func (r *poolRecycler) checkManager(_ int, mgr *manager, scope ResolvedLSPToolScope) {
@@ -222,7 +220,8 @@ func (r *poolRecycler) recycleIfNeeded(mgr *manager, scope ResolvedLSPToolScope,
 	}
 	if !r.managerIdleEligible(mgr, workspace, r.recyclerNow()) {
 		if mgr.logger != nil {
-			mgr.logger.Debug("LSP RSS pressure deferred until idle window", "workspace", workspace.key, "reason", reason)
+			args := recyclerWorkspaceLogArgs(scope, workspace, "reason", reason, "action", "defer")
+			mgr.logger.Debug("LSP RSS pressure deferred until idle window", args...)
 		}
 		return
 	}
@@ -248,20 +247,8 @@ func (r *poolRecycler) failClosedAfterProbeDegradation(
 	if cleanupErr == nil || mgr == nil || mgr.logger == nil {
 		return
 	}
-	args := recyclerWorkspaceLogArgs(scope, workspace,
-		"generation", workspace.generation,
-		"active_leases", activeLeases,
-		"state", workspace.state,
-		"idle_since", workspace.idleSince.UTC().Format(time.RFC3339Nano),
-		"last_activity", workspace.lastActivity.UTC().Format(time.RFC3339Nano),
-		"idle_duration", now.Sub(workspace.idleSince).String(),
-		"idle_timeout", mgr.idleTimeout.String(),
-		"action", "shutdown",
-		"action_result", "failed",
-		"recycled", recycled,
-		"reason", "probe_degraded",
-	)
-	args = append(args, recyclerCleanupLogFields(workspace, cleanupErr)...)
+	args := recyclerWorkspaceCleanupLogArgs(mgr, scope, workspace, now, "shutdown", "probe_degraded", cleanupErr)
+	args = append(args, "recycled", recycled)
 	mgr.logger.Warn("LSP recycler degraded cleanup failed", args...)
 }
 
@@ -382,11 +369,12 @@ func logMemoryRecycleOutcome(
 		return
 	}
 	if recycleErr != nil {
-		args := recyclerWorkspaceLogArgs(scope, workspace,
+		args := recyclerWorkspaceCleanupLogArgs(mgr, scope, workspace, mgr.managerNow(), "recycle", reason, recycleErr)
+		args = append(args,
 			"pid", pid,
 			"rss_bytes", rssBytes,
 			"rss_limit_bytes", limit,
-			"reason", reason,
+			"recycled", recycled,
 		)
 		args = append(args, platformshared.SafePayloadLogFields("recycle_error", recycleErr.Error())...)
 		mgr.logger.Warn("LSP recycle failed", args...)
@@ -461,14 +449,22 @@ func (r *poolRecycler) shutdownIdleWorkspace(
 	}
 	mgr.AdvanceDiagnosticGeneration()
 	if cleanupErr := errors.Join(shutdownErr, closeErr); cleanupErr != nil && mgr.logger != nil {
-		args := recyclerWorkspaceLogArgs(scope, workspace, "reason", "idle_timeout")
-		args = append(args, platformshared.SafePayloadLogFields("cleanup_error", cleanupErr.Error())...)
+		args := recyclerWorkspaceCleanupLogArgs(mgr, scope, workspace, r.recyclerNow(), "shutdown", "idle_timeout", cleanupErr)
 		mgr.logger.Warn("LSP idle shutdown cleanup failed", args...)
 	}
 
 	if mgr.logger != nil {
+		now := r.recyclerNow()
 		args := recyclerWorkspaceLogArgs(scope, workspace,
-			"idle_duration", time.Since(workspace.lastActivity).String(),
+			"generation", workspace.generation,
+			"active_leases", workspace.activeLeases,
+			"state", workspace.state,
+			"idle_since", recyclerLifecycleTime(workspace.idleSince),
+			"last_activity", recyclerLifecycleTime(workspace.lastActivity),
+			"idle_duration", idleDurationSince(workspace.idleSince, now),
+			"idle_timeout", mgr.idleTimeout.String(),
+			"action", "shutdown",
+			"action_result", "completed",
 			"reason", "idle_timeout",
 		)
 		mgr.logger.Info("LSP idle shutdown", args...)
@@ -540,11 +536,7 @@ func logRSSWindowExceeded(
 }
 
 func recyclerWorkspaceLogArgs(scope ResolvedLSPToolScope, workspace workspaceClient, extra ...any) []any {
-	args := []any{
-		"manager_key", scope.ManagerKey,
-		"scope_key", scope.ScopeKey,
-		"language", normalizeLanguageID(workspace.languageID),
-	}
+	args := append(recyclerScopeLogArgs(scope), "language", normalizeLanguageID(workspace.languageID))
 	args = append(args, platformshared.SafePathLogFields("workspace", workspace.key)...)
 	return append(args, extra...)
 }

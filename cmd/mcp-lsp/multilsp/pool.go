@@ -290,23 +290,27 @@ func (p *ManagerPool) drainPendingReleases() {
 		return
 	}
 	p.pendingMu.Lock()
-	candidates := make([]*manager, 0, len(p.pendingReleases))
+	candidates := make([]pendingManagerRelease, 0, len(p.pendingReleases))
 	for mgr, state := range p.pendingReleases {
 		if state.completed {
 			continue
 		}
-		candidates = append(candidates, mgr)
+		candidates = append(candidates, pendingManagerRelease{manager: mgr, scope: state.scope})
 	}
 	p.pendingMu.Unlock()
 
-	for _, mgr := range candidates {
+	for _, release := range candidates {
+		mgr := release.manager
 		if !p.managerIdleEligibleForRelease(mgr) {
 			continue
 		}
+		workspaces := snapshotWorkspaceClients(mgr)
 		done, err := mgr.closeWithoutPoolStatus()
 		p.recordPendingCloseAttempt(mgr, done, err)
-		if err != nil && mgr.logger != nil {
-			mgr.logger.Warn("LSP deferred release close failed", "err", err)
+		if err != nil {
+			logRecyclerCleanupFailure(mgr, release.scope, workspaces, mgr.managerNow(), "close", "deferred_release", err, "LSP deferred release close failed")
+		} else if !done {
+			logRecyclerCleanupPending(mgr, release.scope, workspaces, mgr.managerNow(), "close", "deferred_release", "LSP deferred release close pending")
 		}
 	}
 }
