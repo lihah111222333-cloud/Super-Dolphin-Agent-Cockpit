@@ -5,6 +5,7 @@ package hiddenexec
 import (
 	"context"
 	"errors"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -25,12 +26,7 @@ func TestDynamicOrphanProcessTreeUnknownMemberBlocksSignal(t *testing.T) {
 	if err := cmd.Wait(); err != nil {
 		t.Fatalf("root shell Wait() error = %v", err)
 	}
-	defer func() {
-		ctx, cancel := platformconfig.WithTimeout(context.Background(), 4*time.Second)
-		_ = tree.Wait(ctx)
-		cancel()
-		_ = tree.Release()
-	}()
+	defer releaseExitedTree(tree)
 	time.Sleep(100 * time.Millisecond)
 	owner := tree.controller.(*unixProcessTree)
 	signalCount := 0
@@ -38,21 +34,14 @@ func TestDynamicOrphanProcessTreeUnknownMemberBlocksSignal(t *testing.T) {
 		signalCount++
 		return nil
 	}
-	prepareErr := tree.PrepareShutdown()
-	if !errors.Is(prepareErr, ErrProcessTreeIdentityMismatch) || !errors.Is(prepareErr, ErrProcessTreeCleanupPending) {
-		t.Fatalf("PrepareShutdown() error = %v, want fail-closed identity mismatch and CleanupPending", prepareErr)
-	}
+	assertCleanupPending(t, "PrepareShutdown", tree.PrepareShutdown())
 	snapshot, err := tree.Snapshot()
 	if err != nil {
 		t.Fatalf("Snapshot() error = %v", err)
 	}
 	t.Logf("dynamic orphan process tree: root=%+v members=%+v unknown=%+v", identity, snapshot.Members, snapshot.Unknown)
-	if len(snapshot.Unknown) == 0 {
-		t.Fatal("dynamic orphan process tree did not expose unknown member")
-	}
-	if err := tree.Force(context.Background()); !errors.Is(err, ErrProcessTreeIdentityMismatch) || !errors.Is(err, ErrProcessTreeCleanupPending) {
-		t.Fatalf("Force() error = %v, want fail-closed identity mismatch and CleanupPending", err)
-	}
+	assertUnknownMember(t, snapshot)
+	assertCleanupPending(t, "Force", tree.Force(context.Background()))
 	if signalCount != 0 {
 		t.Fatalf("unknown member received signal attempts = %d, want zero", signalCount)
 	}
@@ -65,13 +54,7 @@ func TestPrepareShutdownEnrollsDynamicDescendantBeforeRootExit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartProcessTree() error = %v", err)
 	}
-	defer func() {
-		ctx, cancel := platformconfig.WithTimeout(context.Background(), 4*time.Second)
-		_ = tree.Force(ctx)
-		_ = tree.Wait(ctx)
-		cancel()
-		_ = cmd.Wait()
-	}()
+	defer forceAndWaitTree(tree, cmd)
 	time.Sleep(100 * time.Millisecond)
 	if err := tree.PrepareShutdown(); err != nil {
 		t.Fatalf("PrepareShutdown() error = %v", err)
@@ -101,25 +84,62 @@ func TestPrepareShutdownEnrollsDynamicDescendantBeforeRootExit(t *testing.T) {
 	if err := tree.Force(ctx); err != nil {
 		t.Fatalf("Force() enrolled descendant: %v", err)
 	}
-	for _, member := range signaled {
-		if member.PID == prepared.Root.PID {
-			t.Fatalf("Force() signaled exited root PID %d", member.PID)
-		}
-		found := false
-		for _, enrolled := range prepared.Members {
-			if member.Equal(enrolled) {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Fatalf("Force() signaled un-enrolled member: %+v, enrolled=%+v", member, prepared.Members)
-		}
-	}
-	if len(signaled) == 0 {
-		t.Fatal("Force() sent no signal to enrolled descendant")
-	}
+	assertEnrolledMembersSignaled(t, signaled, prepared)
 	if err := tree.Wait(ctx); err != nil {
 		t.Fatalf("Wait() enrolled descendant: %v", err)
 	}
+}
+
+func releaseExitedTree(tree *ProcessTree) {
+	ctx, cancel := platformconfig.WithTimeout(context.Background(), 4*time.Second)
+	_ = tree.Wait(ctx)
+	cancel()
+	_ = tree.Release()
+}
+
+func forceAndWaitTree(tree *ProcessTree, cmd *exec.Cmd) {
+	ctx, cancel := platformconfig.WithTimeout(context.Background(), 4*time.Second)
+	_ = tree.Force(ctx)
+	_ = tree.Wait(ctx)
+	cancel()
+	_ = cmd.Wait()
+}
+
+func assertCleanupPending(t *testing.T, operation string, err error) {
+	t.Helper()
+	if errors.Is(err, ErrProcessTreeIdentityMismatch) && errors.Is(err, ErrProcessTreeCleanupPending) {
+		return
+	}
+	t.Fatalf("%s() error = %v, want fail-closed identity mismatch and CleanupPending", operation, err)
+}
+
+func assertUnknownMember(t *testing.T, snapshot ProcessTreeSnapshot) {
+	t.Helper()
+	if len(snapshot.Unknown) == 0 {
+		t.Fatal("dynamic orphan process tree did not expose unknown member")
+	}
+}
+
+func assertEnrolledMembersSignaled(t *testing.T, signaled []ProcessIdentity, prepared ProcessTreeSnapshot) {
+	t.Helper()
+	if len(signaled) == 0 {
+		t.Fatal("Force() sent no signal to enrolled descendant")
+	}
+	for _, member := range signaled {
+		if member.PID == prepared.Root.PID {
+			t.Fatalf("Force() signaled exited root PID %d", prepared.Root.PID)
+		}
+		if !containsProcessIdentity(prepared.Members, member) {
+			t.Fatalf("Force() signaled un-enrolled member: %+v, enrolled=%+v", member, prepared.Members)
+		}
+	}
+}
+
+func containsProcessIdentity(members []ProcessIdentity, target ProcessIdentity) bool {
+	for _, member := range members {
+		if member.Equal(target) {
+			return true
+		}
+	}
+	return false
 }

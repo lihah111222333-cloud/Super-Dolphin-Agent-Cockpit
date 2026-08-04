@@ -106,7 +106,7 @@ func TestMcpLSPBinaryRealGoplsDaemonExitsAfterLastForwarder_E2E(t *testing.T) {
 		"AGENT_LSP_SHARED_CACHE_DIR=" + filepath.Join(runtimeDir, "lsp-resource"),
 		"AGENT_LSP_GO_RSS_LIMIT_MB=384",
 		"GOWORK=off",
-		"MCP_LSP_GOPLS_DAEMON_IDLE_TIMEOUT=2s",
+		"MCP_LSP_IDLE_TIMEOUT=2s",
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
