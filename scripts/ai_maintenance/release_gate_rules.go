@@ -2,6 +2,24 @@ package main
 
 import "strings"
 
+var mcpLSPWorkloadExactFiles = map[string]bool{
+	"Makefile":                                       true,
+	".github/workflows/ci.yml":                       true,
+	".github/workflows/release.yml":                  true,
+	"scripts/check_mcp_lsp_workload_catalog.sh":      true,
+	"scripts/mcp_lsp_workload_catalog.json":          true,
+	"scripts/run_mcp_lsp_workload.sh":                true,
+	"scripts/ai_maintenance/main.go":                 true,
+	"scripts/ai_maintenance/owned_gate_execution.go": true,
+	"scripts/ai_maintenance/evidence.go":             true,
+	".githooks/README.md":                            true,
+}
+
+var mcpLSPWorkloadPrefixes = []string{
+	"cmd/mcp-lsp/",
+	"scripts/mcp_lsp_workload_",
+}
+
 var nightlyProtocolFiles = map[string]bool{
 	"docs/automation/全仓夜间门禁健康巡检协议.md": true,
 	"docs/automation/门禁问题台账接管协议.md":   true,
@@ -112,16 +130,13 @@ func applyOwnedGateRules(file string, gates map[string]bool) {
 
 // mcpLSPWorkloadRelevant 将目录、runner 与 mcp-lsp 源码漂移路由到统一目录守卫。
 func mcpLSPWorkloadRelevant(file string) bool {
-	return strings.HasPrefix(file, "cmd/mcp-lsp/") ||
-		file == "Makefile" ||
-		file == ".github/workflows/ci.yml" ||
-		file == ".github/workflows/release.yml" ||
-		file == "scripts/check_mcp_lsp_workload_catalog.sh" ||
-		file == "scripts/mcp_lsp_workload_catalog.json" ||
-		strings.HasPrefix(file, "scripts/mcp_lsp_workload_") ||
-		file == "scripts/run_mcp_lsp_workload.sh" ||
-		file == "scripts/ai_maintenance/main.go" ||
-		file == "scripts/ai_maintenance/owned_gate_execution.go" ||
-		file == "scripts/ai_maintenance/evidence.go" ||
-		file == ".githooks/README.md"
+	if mcpLSPWorkloadExactFiles[file] {
+		return true
+	}
+	for _, prefix := range mcpLSPWorkloadPrefixes {
+		if strings.HasPrefix(file, prefix) {
+			return true
+		}
+	}
+	return false
 }

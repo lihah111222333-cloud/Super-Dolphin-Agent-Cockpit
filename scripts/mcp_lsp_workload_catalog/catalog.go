@@ -135,6 +135,14 @@ func Validate(document Catalog, raw []byte, repoRoot string) error {
 
 // validateWorkload 校验单项 workload 的状态、命令、平台和生产者坐标。
 func validateWorkload(workload Workload, repoRoot string, seen map[string]bool) error {
+	if err := validateWorkloadIdentity(workload, seen); err != nil {
+		return err
+	}
+	return validateWorkloadChecks(workload, repoRoot)
+}
+
+// validateWorkloadIdentity 校验 workload ID 并记录已见 ID。
+func validateWorkloadIdentity(workload Workload, seen map[string]bool) error {
 	if workload.ID == "" {
 		return errors.New("workload ID is required")
 	}
@@ -142,29 +150,25 @@ func validateWorkload(workload Workload, repoRoot string, seen map[string]bool) 
 		return fmt.Errorf("duplicate workload ID %q", workload.ID)
 	}
 	seen[workload.ID] = true
-	if err := validateWorkloadStatus(workload); err != nil {
-		return err
+	return nil
+}
+
+// validateWorkloadChecks 按固定顺序执行 workload 的各项契约检查。
+func validateWorkloadChecks(workload Workload, repoRoot string) error {
+	checks := []func() error{
+		func() error { return validateWorkloadStatus(workload) },
+		func() error { return validateWorkloadProducerStatus(workload) },
+		func() error { return validateWorkloadMetadata(workload) },
+		func() error { return validateWorkloadReceipt(workload) },
+		func() error { return validateWorkloadProducer(workload, repoRoot) },
+		func() error { return validateWorkloadImplementation(workload) },
+		func() error { return validateWorkloadCommand(workload) },
+		func() error { return validateWorkloadPlatforms(workload) },
 	}
-	if err := validateWorkloadProducerStatus(workload); err != nil {
-		return err
-	}
-	if err := validateWorkloadMetadata(workload); err != nil {
-		return err
-	}
-	if err := validateWorkloadReceipt(workload); err != nil {
-		return err
-	}
-	if err := validateWorkloadProducer(workload, repoRoot); err != nil {
-		return err
-	}
-	if err := validateWorkloadImplementation(workload); err != nil {
-		return err
-	}
-	if err := validateWorkloadCommand(workload); err != nil {
-		return err
-	}
-	if err := validateWorkloadPlatforms(workload); err != nil {
-		return err
+	for _, check := range checks {
+		if err := check(); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -219,12 +223,9 @@ func validateWorkloadReceipt(workload Workload) error {
 // validateWorkloadProducer 校验生产者 workflow 文件和 artifact 坐标。
 func validateWorkloadProducer(workload Workload, repoRoot string) error {
 	workflowValue := strings.TrimSpace(workload.ProducerWorkflowPath)
-	if workflowValue == "" {
-		return fmt.Errorf("workload %q is missing producer coordinates", workload.ID)
-	}
 	artifactName := strings.TrimSpace(workload.ProducerArtifactName)
-	if artifactName == "" || artifactName == "." || artifactName == ".." || strings.ContainsAny(artifactName, `/\\`) || strings.ContainsAny(artifactName, "\x00\r\n") {
-		return fmt.Errorf("workload %q is missing producer coordinates", workload.ID)
+	if err := validateProducerCoordinates(workload.ID, workflowValue, artifactName); err != nil {
+		return err
 	}
 	workflowPath, err := resolveProducerWorkflowPath(repoRoot, workflowValue)
 	if err != nil {
@@ -242,32 +243,81 @@ func validateWorkloadProducer(workload Workload, repoRoot string) error {
 	return nil
 }
 
+// validateProducerCoordinates 校验生产者 workflow 和 artifact 的非空安全坐标。
+func validateProducerCoordinates(workloadID, workflowValue, artifactName string) error {
+	if workflowValue == "" || !validProducerArtifactName(artifactName) {
+		return fmt.Errorf("workload %q is missing producer coordinates", workloadID)
+	}
+	return nil
+}
+
+// validProducerArtifactName 判断 artifact 名称是否保持单一安全文件名边界。
+func validProducerArtifactName(artifactName string) bool {
+	return artifactName != "" &&
+		artifactName != "." &&
+		artifactName != ".." &&
+		!strings.ContainsAny(artifactName, `/\\`) &&
+		!strings.ContainsAny(artifactName, "\x00\r\n")
+}
+
 func resolveProducerWorkflowPath(repoRoot, value string) (string, error) {
-	if strings.ContainsRune(value, '\x00') || filepath.IsAbs(filepath.FromSlash(value)) || strings.HasPrefix(value, "/") || strings.HasPrefix(value, "\\") || isWindowsAbsolutePath(value) {
+	if hasUnsafeProducerWorkflowPrefix(value) {
 		return "", errors.New("must be repository-relative")
 	}
 	normalized := strings.ReplaceAll(value, "\\", "/")
-	for part := range strings.SplitSeq(normalized, "/") {
-		if part == ".." {
-			return "", errors.New("parent path segments are forbidden")
-		}
+	if err := rejectParentProducerWorkflowSegments(normalized); err != nil {
+		return "", err
 	}
 	clean := filepath.Clean(filepath.FromSlash(normalized))
-	if clean == "." || clean == string(filepath.Separator) {
+	if isEmptyProducerWorkflowPath(clean) {
 		return "", errors.New("workflow path is empty")
 	}
 	workflowPath := filepath.Join(repoRoot, clean)
-	relative, err := filepath.Rel(filepath.Clean(repoRoot), workflowPath)
-	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return "", errors.New("must remain inside repository root")
+	if err := ensureProducerWorkflowInsideRoot(repoRoot, workflowPath); err != nil {
+		return "", err
 	}
 	return workflowPath, nil
 }
 
+// hasUnsafeProducerWorkflowPrefix 判断 workflow 输入是否为绝对或含 NUL 路径。
+func hasUnsafeProducerWorkflowPrefix(value string) bool {
+	return strings.ContainsRune(value, '\x00') ||
+		filepath.IsAbs(filepath.FromSlash(value)) ||
+		strings.HasPrefix(value, "/") ||
+		strings.HasPrefix(value, "\\") ||
+		isWindowsAbsolutePath(value)
+}
+
+// rejectParentProducerWorkflowSegments 拒绝显式 parent path segment。
+func rejectParentProducerWorkflowSegments(normalized string) error {
+	for part := range strings.SplitSeq(normalized, "/") {
+		if part == ".." {
+			return errors.New("parent path segments are forbidden")
+		}
+	}
+	return nil
+}
+
+// isEmptyProducerWorkflowPath 判断清理后的 workflow 路径是否为空目录边界。
+func isEmptyProducerWorkflowPath(clean string) bool {
+	return clean == "." || clean == string(filepath.Separator)
+}
+
+// ensureProducerWorkflowInsideRoot 确认 workflow 路径仍位于仓库根目录内。
+func ensureProducerWorkflowInsideRoot(repoRoot, workflowPath string) error {
+	relative, err := filepath.Rel(filepath.Clean(repoRoot), workflowPath)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return errors.New("must remain inside repository root")
+	}
+	return nil
+}
+
+// isWindowsAbsolutePath 判断输入是否为 Windows 盘符绝对路径。
 func isWindowsAbsolutePath(value string) bool {
 	return len(value) >= 3 && ((value[0] >= 'A' && value[0] <= 'Z') || (value[0] >= 'a' && value[0] <= 'z')) && value[1] == ':' && (value[2] == '/' || value[2] == '\\')
 }
 
+// validateProducerWorkflowFile 校验 workflow 路径沿线无 symlink 且目标为普通文件。
 func validateProducerWorkflowFile(repoRoot, workflowPath string) error {
 	relative, err := filepath.Rel(filepath.Clean(repoRoot), workflowPath)
 	if err != nil {
@@ -297,31 +347,54 @@ func validateProducerArtifact(workflowPath, artifactName string) error {
 		return fmt.Errorf("read workflow: %w", err)
 	}
 	defer file.Close()
-	var document workflowDocument
-	decoder := yaml.NewDecoder(file)
-	if err := decoder.Decode(&document); err != nil {
-		return fmt.Errorf("decode workflow: %w", err)
+	document, err := decodeWorkflowDocument(file)
+	if err != nil {
+		return err
 	}
-	var trailing workflowDocument
-	if err := decoder.Decode(&trailing); err != io.EOF {
-		if err == nil {
-			return errors.New("workflow contains multiple YAML documents")
-		}
-		return fmt.Errorf("decode trailing workflow document: %w", err)
-	}
-	for _, job := range document.Jobs {
-		for _, step := range job.Steps {
-			if !strings.HasPrefix(strings.TrimSpace(step.Uses), "actions/upload-artifact@") {
-				continue
-			}
-			nameNode, nameOK := step.With["name"]
-			pathNode, pathOK := step.With["path"]
-			if nameOK && strings.TrimSpace(nameNode.Value) == artifactName && pathOK && yamlNodeHasValue(pathNode) {
-				return nil
-			}
-		}
+	if workflowUploadsArtifact(document, artifactName) {
+		return nil
 	}
 	return errors.New("workflow does not declare and upload the artifact in one upload step")
+}
+
+// decodeWorkflowDocument 解码单一 workflow YAML 文档并拒绝尾随文档。
+func decodeWorkflowDocument(reader io.Reader) (workflowDocument, error) {
+	var document workflowDocument
+	decoder := yaml.NewDecoder(reader)
+	if err := decoder.Decode(&document); err != nil {
+		return workflowDocument{}, fmt.Errorf("decode workflow: %w", err)
+	}
+	var trailing workflowDocument
+	err := decoder.Decode(&trailing)
+	if err == nil {
+		return workflowDocument{}, errors.New("workflow contains multiple YAML documents")
+	}
+	if err != io.EOF {
+		return workflowDocument{}, fmt.Errorf("decode trailing workflow document: %w", err)
+	}
+	return document, nil
+}
+
+// workflowUploadsArtifact 判断 workflow 是否存在同一步骤声明并上传目标 artifact。
+func workflowUploadsArtifact(document workflowDocument, artifactName string) bool {
+	for _, job := range document.Jobs {
+		for _, step := range job.Steps {
+			if workflowStepUploadsArtifact(step, artifactName) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// workflowStepUploadsArtifact 判断单个步骤是否为目标 artifact 上传步骤。
+func workflowStepUploadsArtifact(step workflowStep, artifactName string) bool {
+	if !strings.HasPrefix(strings.TrimSpace(step.Uses), "actions/upload-artifact@") {
+		return false
+	}
+	nameNode, nameOK := step.With["name"]
+	pathNode, pathOK := step.With["path"]
+	return nameOK && strings.TrimSpace(nameNode.Value) == artifactName && pathOK && yamlNodeHasValue(pathNode)
 }
 
 type workflowDocument struct {
@@ -509,31 +582,15 @@ func validateReceiptProducer(value Receipt, workload Workload) error {
 
 // validateReceiptExecution 校验本地来源、平台、命令、预算和时间序列。
 func validateReceiptExecution(value Receipt, workload Workload) error {
-	if workload.ProducerImplementationStatus != "implemented" && value.ExecutionOrigin != "local-runner" {
-		return fmt.Errorf("workload receipt for %q cannot be trusted as CI/release: producer_implementation_status=%s", workload.ID, workload.ProducerImplementationStatus)
+	if err := validateReceiptExecutionOrigin(value, workload); err != nil {
+		return err
 	}
-	if value.ExecutionOrigin != "local-runner" {
-		return fmt.Errorf("workload receipt for %q has unsupported execution origin %q", workload.ID, value.ExecutionOrigin)
+	if err := validateReceiptExecutionFields(value, workload); err != nil {
+		return err
 	}
-	if !slices.Contains(workload.Platforms, value.Platform) {
-		return fmt.Errorf("workload receipt platform %q is not registered for %q", value.Platform, workload.ID)
-	}
-	if value.Platform != runtime.GOOS {
-		return fmt.Errorf("local workload receipt platform %q does not match host %q", value.Platform, runtime.GOOS)
-	}
-	if value.TimeoutSeconds != workload.TimeoutSeconds {
-		return fmt.Errorf("workload receipt timeout mismatch for %q", workload.ID)
-	}
-	if !slices.Equal(value.Command, workload.Command) {
-		return fmt.Errorf("workload receipt command mismatch for %q", workload.ID)
-	}
-	started, err := time.Parse(time.RFC3339Nano, value.StartedAt)
+	started, finished, err := parseReceiptExecutionTimes(value, workload)
 	if err != nil {
-		return fmt.Errorf("workload receipt started_at is invalid for %q: %w", workload.ID, err)
-	}
-	finished, err := time.Parse(time.RFC3339Nano, value.FinishedAt)
-	if err != nil {
-		return fmt.Errorf("workload receipt finished_at is invalid for %q: %w", workload.ID, err)
+		return err
 	}
 	if finished.Before(started) {
 		return fmt.Errorf("workload receipt finished_at precedes started_at for %q", workload.ID)
@@ -546,6 +603,47 @@ func validateReceiptExecution(value Receipt, workload Workload) error {
 		return fmt.Errorf("workload receipt duration exceeds timeout for %q", workload.ID)
 	}
 	return nil
+}
+
+// validateReceiptExecutionOrigin 校验回执只能由受信本地 runner 产生。
+func validateReceiptExecutionOrigin(value Receipt, workload Workload) error {
+	if workload.ProducerImplementationStatus != "implemented" && value.ExecutionOrigin != "local-runner" {
+		return fmt.Errorf("workload receipt for %q cannot be trusted as CI/release: producer_implementation_status=%s", workload.ID, workload.ProducerImplementationStatus)
+	}
+	if value.ExecutionOrigin != "local-runner" {
+		return fmt.Errorf("workload receipt for %q has unsupported execution origin %q", workload.ID, value.ExecutionOrigin)
+	}
+	return nil
+}
+
+// validateReceiptExecutionFields 校验回执平台、预算和命令与 workload 一致。
+func validateReceiptExecutionFields(value Receipt, workload Workload) error {
+	if !slices.Contains(workload.Platforms, value.Platform) {
+		return fmt.Errorf("workload receipt platform %q is not registered for %q", value.Platform, workload.ID)
+	}
+	if value.Platform != runtime.GOOS {
+		return fmt.Errorf("local workload receipt platform %q does not match host %q", value.Platform, runtime.GOOS)
+	}
+	if value.TimeoutSeconds != workload.TimeoutSeconds {
+		return fmt.Errorf("workload receipt timeout mismatch for %q", workload.ID)
+	}
+	if !slices.Equal(value.Command, workload.Command) {
+		return fmt.Errorf("workload receipt command mismatch for %q", workload.ID)
+	}
+	return nil
+}
+
+// parseReceiptExecutionTimes 解析回执的开始和结束时间戳。
+func parseReceiptExecutionTimes(value Receipt, workload Workload) (time.Time, time.Time, error) {
+	started, err := time.Parse(time.RFC3339Nano, value.StartedAt)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("workload receipt started_at is invalid for %q: %w", workload.ID, err)
+	}
+	finished, err := time.Parse(time.RFC3339Nano, value.FinishedAt)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("workload receipt finished_at is invalid for %q: %w", workload.ID, err)
+	}
+	return started, finished, nil
 }
 
 func validateReceiptStatus(value Receipt, workloadID string) error {
