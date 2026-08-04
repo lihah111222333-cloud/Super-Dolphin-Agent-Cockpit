@@ -409,7 +409,7 @@ func (r *poolRecycler) checkIdleWorkspaces(mgr *manager, scope ResolvedLSPToolSc
 		idleDuration := scanStarted.Sub(candidate.idleSince)
 		activeLeases := candidate.activeLeases
 		r.logIdleWindowExceeded(mgr, scope, candidate, idleDuration, timeout, activeLeases)
-		r.shutdownIdleWorkspace(mgr, scope, candidate, candidate.idleSince)
+		r.shutdownIdleWorkspace(mgr, scope, candidate)
 	}
 	r.recordScan(scanStarted)
 }
@@ -434,9 +434,8 @@ func (r *poolRecycler) shutdownIdleWorkspace(
 	mgr *manager,
 	scope ResolvedLSPToolScope,
 	workspace workspaceClient,
-	cutoff time.Time,
 ) {
-	detached, shutdownErr, closeErr := detachAndShutdownWorkspaceClient(mgr, workspace, cutoff)
+	detached, shutdownErr, closeErr := detachAndShutdownWorkspaceClient(mgr, workspace)
 	if detached == nil || detached.client == nil {
 		return
 	}
@@ -610,7 +609,7 @@ func (r *poolRecycler) clientRSSBytes(current Client) (uint64, int, error) {
 // recycleWorkspaceClient 从 manager 中摘除目标 workspace client 后重建同一 workspace。
 // 摘除阶段会再次确认租约，关闭和重启错误合并返回，调用方据此记录一次完整回收结果。
 func recycleWorkspaceClient(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient) (bool, error) {
-	detached, shutdownErr, closeErr := detachAndShutdownWorkspaceClient(mgr, workspace, time.Time{})
+	detached, shutdownErr, closeErr := detachAndShutdownWorkspaceClient(mgr, workspace)
 	if detached == nil || detached.client == nil {
 		return false, nil
 	}
@@ -644,7 +643,7 @@ func recycleWorkspaceClient(mgr *manager, scope ResolvedLSPToolScope, workspace 
 // shutdownResourceCohortWorkspace 在跨 worktree cohort 超限时只关闭当前 owner 的空闲 client。
 // 它不立即重建；下一次真实请求会懒启动，从而让总账回到软水位而不跨进程 kill。
 func shutdownResourceCohortWorkspace(mgr *manager, workspace workspaceClient) (bool, error) {
-	detached, shutdownErr, closeErr := detachAndShutdownWorkspaceClient(mgr, workspace, time.Time{})
+	detached, shutdownErr, closeErr := detachAndShutdownWorkspaceClient(mgr, workspace)
 	if detached == nil || detached.client == nil {
 		return false, nil
 	}
@@ -659,7 +658,6 @@ func shutdownResourceCohortWorkspace(mgr *manager, workspace workspaceClient) (b
 func detachAndShutdownWorkspaceClient(
 	mgr *manager,
 	workspace workspaceClient,
-	idleCutoff time.Time,
 ) (*workspaceClient, error, error) {
 	if mgr == nil {
 		return nil, nil, nil
@@ -669,7 +667,7 @@ func detachAndShutdownWorkspaceClient(
 	if managerIsClosed(mgr) {
 		return nil, nil, nil
 	}
-	detached := detachWorkspaceClientGeneration(mgr, workspace.key, workspace.client, workspace.generation, idleCutoff)
+	detached := detachWorkspaceClientGeneration(mgr, workspace.key, workspace.client, workspace.generation)
 	if detached == nil || detached.client == nil {
 		return nil, nil, nil
 	}

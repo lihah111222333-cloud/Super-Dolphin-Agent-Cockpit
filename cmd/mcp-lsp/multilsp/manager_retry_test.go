@@ -390,7 +390,7 @@ func detachEnsuredIdleWakeClient(t *testing.T, mgr *manager, client Client) *wor
 	if key == "" {
 		t.Fatal("ensured client was not bound before idle detach")
 	}
-	detached := detachWorkspaceClientGeneration(mgr, key, client, 1, time.Now().Add(-time.Minute))
+	detached := detachWorkspaceClientGeneration(mgr, key, client, 1)
 	if detached == nil || detached.client == nil {
 		t.Fatal("idle recycler did not detach the ensured client")
 	}

@@ -31,11 +31,6 @@ type pendingClientShutdown struct {
 	observationLogged bool
 }
 
-// retryPendingClientShutdowns 对 Close 失败的 client 保留 owner；只有 Close 成功才移出重试集合。
-func retryPendingClientShutdowns(states []pendingClientShutdown) (remaining []pendingClientShutdown, completedErr, retryErr error) {
-	return retryPendingClientShutdownsWithObserver(states, nil)
-}
-
 // retryPendingClientShutdownsWithObserver 按 owner/client 分支串行完成一次关闭事务。
 func retryPendingClientShutdownsWithObserver(
 	states []pendingClientShutdown,
