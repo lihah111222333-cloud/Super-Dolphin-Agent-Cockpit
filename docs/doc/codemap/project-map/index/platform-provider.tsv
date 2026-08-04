@@ -158,7 +158,7 @@ cmd/mcp-lsp/multilsp/python_fallback_test.go	cmd	platform-provider	go-test	4229	
 cmd/mcp-lsp/multilsp/recycler_lifecycle.go	cmd	platform-provider	go-source	3818	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,recycler,lifecycle,多语言,LSP,manager,transport,与缓存
 cmd/mcp-lsp/multilsp/recycler_process_tree_unix_test.go	cmd	platform-provider	go-test	2702	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,recycler,process,tree,unix,test,多语言,LSP,manager,transport,与缓存
 cmd/mcp-lsp/multilsp/recycler_runner_test.go	cmd	platform-provider	go-test	3879	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,recycler,runner,test,多语言,LSP,manager,transport,与缓存
-cmd/mcp-lsp/multilsp/recycler.go	cmd	platform-provider	go-source	27109	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,recycler,多语言,LSP,manager,transport,与缓存
+cmd/mcp-lsp/multilsp/recycler.go	cmd	platform-provider	go-source	27216	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,recycler,多语言,LSP,manager,transport,与缓存
 cmd/mcp-lsp/multilsp/registry_scope_test.go	cmd	platform-provider	go-test	9749	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,registry,scope,test,多语言,LSP,manager,transport,与缓存
 cmd/mcp-lsp/multilsp/registry_scope.go	cmd	platform-provider	go-source	8210	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,registry,scope,多语言,LSP,manager,transport,与缓存
 cmd/mcp-lsp/multilsp/release_scope_lifecycle_regression_test.go	cmd	platform-provider	go-test	9192	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,release,scope,lifecycle,regression,test,多语言,LSP,manager,transport,与缓存
