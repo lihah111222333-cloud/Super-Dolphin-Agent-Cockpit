@@ -206,7 +206,7 @@ func (r *poolRecycler) checkManager(_ int, mgr *manager, scope ResolvedLSPToolSc
 func (r *poolRecycler) recycleIfNeeded(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient) {
 	rssBytes, pid, ok, probeDegraded := r.probeWorkspace(mgr, scope, workspace)
 	if !ok {
-		r.failClosedAfterProbeDegradation(mgr, workspace, probeDegraded)
+		r.failClosedAfterProbeDegradation(mgr, scope, workspace, probeDegraded)
 		return
 	}
 	decision := r.memoryDecision(workspace, rssBytes, pid)
@@ -233,16 +233,36 @@ func (r *poolRecycler) recycleIfNeeded(mgr *manager, scope ResolvedLSPToolScope,
 // failClosedAfterProbeDegradation 在连续探测失败后关闭无租约 client，避免预算永久失效。
 func (r *poolRecycler) failClosedAfterProbeDegradation(
 	mgr *manager,
+	scope ResolvedLSPToolScope,
 	workspace workspaceClient,
 	probeDegraded bool,
 ) {
 	if !probeDegraded {
 		return
 	}
-	if r.activeLeases(workspace) > 0 || !r.managerIdleEligible(mgr, workspace, r.recyclerNow()) {
+	activeLeases, now := r.activeLeases(workspace), r.recyclerNow()
+	if activeLeases > 0 || !r.managerIdleEligible(mgr, workspace, now) {
 		return
 	}
-	_, _ = shutdownResourceCohortWorkspace(mgr, workspace)
+	recycled, cleanupErr := shutdownResourceCohortWorkspace(mgr, workspace)
+	if cleanupErr == nil || mgr == nil || mgr.logger == nil {
+		return
+	}
+	args := recyclerWorkspaceLogArgs(scope, workspace,
+		"generation", workspace.generation,
+		"active_leases", activeLeases,
+		"state", workspace.state,
+		"idle_since", workspace.idleSince.UTC().Format(time.RFC3339Nano),
+		"last_activity", workspace.lastActivity.UTC().Format(time.RFC3339Nano),
+		"idle_duration", now.Sub(workspace.idleSince).String(),
+		"idle_timeout", mgr.idleTimeout.String(),
+		"action", "shutdown",
+		"action_result", "failed",
+		"recycled", recycled,
+		"reason", "probe_degraded",
+	)
+	args = append(args, recyclerCleanupLogFields(workspace, cleanupErr)...)
+	mgr.logger.Warn("LSP recycler degraded cleanup failed", args...)
 }
 
 // memoryDecision 合并创建期进程预算与跨 owner 总账；策略缺失时保持 fail-closed。

@@ -4,8 +4,40 @@ import (
 	"errors"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/hiddenexec"
 	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
+
+// recyclerCleanupErrorFields 将进程树清理失败归类为非敏感结构化字段。
+func recyclerCleanupErrorFields(cleanupErr error) []any {
+	return []any{
+		"cleanup_pending", errors.Is(cleanupErr, hiddenexec.ErrProcessTreeCleanupPending),
+		"owner_missing", errors.Is(cleanupErr, hiddenexec.ErrProcessTreeOwnerMissing),
+		"members_remaining", errors.Is(cleanupErr, hiddenexec.ErrProcessTreeRemaining),
+		"cleanup_error_class", recyclerCleanupErrorClass(cleanupErr),
+	}
+}
+
+// recyclerCleanupErrorClass 根据可判定的进程树哨兵返回清理失败类别。
+func recyclerCleanupErrorClass(cleanupErr error) string {
+	switch {
+	case errors.Is(cleanupErr, hiddenexec.ErrProcessTreeRemaining):
+		return "members_remaining"
+	case errors.Is(cleanupErr, hiddenexec.ErrProcessTreeOwnerMissing):
+		return "owner_missing"
+	case errors.Is(cleanupErr, hiddenexec.ErrProcessTreeCleanupPending):
+		return "cleanup_pending"
+	default:
+		return "shutdown_or_close"
+	}
+}
+
+// recyclerCleanupLogFields 组合脱敏工作区标识、错误摘要和进程树清理类别。
+func recyclerCleanupLogFields(workspace workspaceClient, cleanupErr error) []any {
+	args := platformshared.SafePathLogFields("workspace_key", workspace.key)
+	args = append(args, platformshared.SafePayloadLogFields("cleanup_error", cleanupErr.Error())...)
+	return append(args, recyclerCleanupErrorFields(cleanupErr)...)
+}
 
 // retryCleanupPendingWorkspace 重试 Close 失败的唯一 cleanup owner；它不重新进入 idle 倒计时。
 func (r *poolRecycler) retryCleanupPendingWorkspace(mgr *manager, scope ResolvedLSPToolScope, snapshot workspaceClient) {
