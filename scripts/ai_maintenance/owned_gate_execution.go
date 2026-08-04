@@ -2,6 +2,9 @@ package main
 
 import (
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -51,9 +54,37 @@ func ownedGateRunners(plan gatePlan) map[string]gateRunner {
 			return runCommand("", "./scripts/check_mcp_lsp_workload_catalog.sh")
 		}},
 		"mcp-lsp:idle-quick": {run: func() error {
-			return runCommand("", "./scripts/run_mcp_lsp_workload.sh", "--id", "mcp-lsp-idle-quick")
+			return runMcpLSPQuickRoundTrip()
 		}},
 	}
+}
+
+// runMcpLSPQuickRoundTrip 执行本地 quick workload 并立即用 catalog guard 验证回执。
+func runMcpLSPQuickRoundTrip() error {
+	receiptDir, err := os.MkdirTemp("", "super-dolphin-quick-roundtrip-")
+	if err != nil {
+		return fmt.Errorf("create mcp-lsp quick roundtrip directory: %w", err)
+	}
+	receipt := filepath.Join(receiptDir, "receipt.json")
+	runErr := runCommand("", "./scripts/run_mcp_lsp_workload.sh", "--id", "mcp-lsp-idle-quick", "--receipt", receipt)
+	if runErr != nil {
+		if cleanupErr := os.RemoveAll(receiptDir); cleanupErr != nil {
+			return fmt.Errorf("mcp-lsp quick workload failed: %w; cleanup failed: %v", runErr, cleanupErr)
+		}
+		return runErr
+	}
+	guardErr := runCommand("", "./scripts/check_mcp_lsp_workload_catalog.sh", "--receipt", receipt, "--id", "mcp-lsp-idle-quick")
+	cleanupErr := os.RemoveAll(receiptDir)
+	if guardErr != nil {
+		if cleanupErr != nil {
+			return fmt.Errorf("mcp-lsp quick receipt guard failed: %w; cleanup failed: %v", guardErr, cleanupErr)
+		}
+		return guardErr
+	}
+	if cleanupErr != nil {
+		return fmt.Errorf("cleanup mcp-lsp quick roundtrip directory: %w", cleanupErr)
+	}
+	return nil
 }
 
 // runFrontendE2E 按变更路径顺序执行所有匹配的前端 E2E 脚本，并在首个失败处阻断。

@@ -106,8 +106,6 @@ func applyOwnedGateRules(file string, gates map[string]bool) {
 	}
 	if mcpLSPWorkloadRelevant(file) {
 		gates["mcp-lsp:catalog"] = true
-	}
-	if strings.HasPrefix(file, "cmd/mcp-lsp/") {
 		gates["mcp-lsp:idle-quick"] = true
 	}
 }
@@ -116,10 +114,14 @@ func applyOwnedGateRules(file string, gates map[string]bool) {
 func mcpLSPWorkloadRelevant(file string) bool {
 	return strings.HasPrefix(file, "cmd/mcp-lsp/") ||
 		file == "Makefile" ||
+		file == ".github/workflows/ci.yml" ||
+		file == ".github/workflows/release.yml" ||
 		file == "scripts/check_mcp_lsp_workload_catalog.sh" ||
 		file == "scripts/mcp_lsp_workload_catalog.json" ||
-		strings.HasPrefix(file, "scripts/mcp_lsp_workload_catalog/") ||
-		strings.HasPrefix(file, "scripts/mcp_lsp_workload_guard/") ||
-		strings.HasPrefix(file, "scripts/mcp_lsp_workload_runner/") ||
-		file == "scripts/run_mcp_lsp_workload.sh"
+		strings.HasPrefix(file, "scripts/mcp_lsp_workload_") ||
+		file == "scripts/run_mcp_lsp_workload.sh" ||
+		file == "scripts/ai_maintenance/main.go" ||
+		file == "scripts/ai_maintenance/owned_gate_execution.go" ||
+		file == "scripts/ai_maintenance/evidence.go" ||
+		file == ".githooks/README.md"
 }
