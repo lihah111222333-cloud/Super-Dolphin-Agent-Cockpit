@@ -53,7 +53,7 @@ docs/reference/README.md	docs	docs-agent	doc	430	项目文档体系	docs,referen
 docs/scripts/macos_release_smoke.sh	docs	docs-agent	script	19061	项目文档体系	docs,scripts,macos,release,smoke,项目文档体系
 docs/security/internal/check_repofp_delegators.go	docs	docs-agent	go-source	2298	项目文档体系	docs,security,internal,check,repofp,delegators,项目文档体系
 docs/security/p21-redteam.sh	docs	docs-agent	script	7238	项目文档体系	docs,security,p21,redteam,项目文档体系
-docs/work/plans/mcp-lsp空闲与幽灵进程自动回收修复方案.md	docs	docs-agent	doc	68876	项目文档体系	docs,work,plans,mcp,lsp空闲与幽灵进程自动回收修复方案,项目文档体系
+docs/work/plans/mcp-lsp空闲与幽灵进程自动回收修复方案.md	docs	docs-agent	doc	74418	项目文档体系	docs,work,plans,mcp,lsp空闲与幽灵进程自动回收修复方案,项目文档体系
 docs/work/plans/README.md	docs	docs-agent	doc	388	项目文档体系	docs,work,plans,README,项目文档体系
 docs/work/proposals/README.md	docs	docs-agent	doc	367	项目文档体系	docs,work,proposals,README,项目文档体系
 docs/work/README.md	docs	docs-agent	doc	698	项目文档体系	docs,work,README,项目文档体系
