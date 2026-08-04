@@ -29,7 +29,8 @@ func (p *otherProcessTree) identity() (ProcessIdentity, error) {
 func (p *otherProcessTree) snapshot() (ProcessTreeSnapshot, error) {
 	return ProcessTreeSnapshot{}, errUnsupportedProcessTree
 }
-func (p *otherProcessTree) alive() (bool, error) { return false, errUnsupportedProcessTree }
+func (p *otherProcessTree) prepareShutdown() error { return errUnsupportedProcessTree }
+func (p *otherProcessTree) alive() (bool, error)   { return false, errUnsupportedProcessTree }
 func (p *otherProcessTree) descendants() ([]ProcessIdentity, error) {
 	return nil, errUnsupportedProcessTree
 }

@@ -314,6 +314,11 @@ func (c *client) Shutdown(ctx context.Context) error {
 	if c.isShutdown() {
 		return nil
 	}
+	if c.transport != nil {
+		if err := c.transport.prepareProcessTreeShutdown(); err != nil {
+			return fmt.Errorf("prepare LSP process-tree shutdown: %w", err)
+		}
+	}
 	if !c.isInitialized() {
 		c.markShutdown()
 		return nil
