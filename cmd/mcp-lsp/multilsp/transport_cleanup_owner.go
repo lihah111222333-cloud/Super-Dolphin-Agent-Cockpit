@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
 
 // processTreeCleanupTarget is the owner handoff boundary for startup failures.
@@ -40,7 +42,7 @@ func cleanupProcessTreeOwner(owner processTreeCleanupTarget) error {
 	if owner == nil {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
+	ctx, cancel := platformconfig.WithTimeout(context.Background(), defaultShutdownTimeout)
 	defer cancel()
 	terminateErr := owner.Terminate()
 	waitErr := owner.Wait(ctx)

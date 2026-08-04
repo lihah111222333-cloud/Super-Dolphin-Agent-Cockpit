@@ -13,6 +13,7 @@ import (
 	"time"
 	"unsafe"
 
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	"golang.org/x/sys/windows"
 )
 
@@ -257,7 +258,7 @@ func closeWindowsHandle(handle windows.Handle, action string) error {
 }
 
 func (p *windowsProcessTree) terminate() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := platformconfig.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return p.force(ctx)
 }

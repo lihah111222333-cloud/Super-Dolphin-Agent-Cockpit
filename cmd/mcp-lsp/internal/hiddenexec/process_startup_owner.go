@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 )
 
@@ -103,7 +104,7 @@ func (p *startupProcessTreeState) terminateExact() error {
 	if killErr != nil && !errors.Is(killErr, os.ErrProcessDone) {
 		killErr = fmt.Errorf("kill exact startup process %d: %w", cmd.Process.Pid, killErr)
 	}
-	waitCtx, waitCancel := context.WithTimeout(context.Background(), startupOwnerWait)
+	waitCtx, waitCancel := platformconfig.WithTimeout(context.Background(), startupOwnerWait)
 	waitErr := p.waitResult(waitCtx)
 	waitCancel()
 	if waitErr != nil || killErr != nil {
@@ -135,7 +136,7 @@ func (p *startupProcessTreeState) release() error {
 	complete := p.waitComplete
 	p.mu.Unlock()
 	if !complete {
-		waitCtx, waitCancel := context.WithTimeout(context.Background(), startupOwnerWait)
+		waitCtx, waitCancel := platformconfig.WithTimeout(context.Background(), startupOwnerWait)
 		result := p.waitResult(waitCtx)
 		waitCancel()
 		if result != nil {

@@ -11,6 +11,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
 
 var ErrProcessTreeCleanupPending = errors.New("CleanupPending: process-tree destructive action is blocked")
@@ -77,24 +79,24 @@ func validateProcessTreeRoot(root ProcessIdentity, pid int) error {
 }
 
 func (p *unixProcessTree) terminate() error {
-	gracefulCtx, gracefulCancel := context.WithTimeout(context.Background(), time.Second)
+	gracefulCtx, gracefulCancel := platformconfig.WithTimeout(context.Background(), time.Second)
 	defer gracefulCancel()
 	if gracefulErr := p.graceful(gracefulCtx); gracefulErr != nil {
 		return gracefulErr
 	}
-	waitCtx, waitCancel := context.WithTimeout(context.Background(), time.Second)
+	waitCtx, waitCancel := platformconfig.WithTimeout(context.Background(), time.Second)
 	waitErr := p.wait(waitCtx)
 	waitCancel()
 	if waitErr == nil {
 		return nil
 	}
-	forceCtx, forceCancel := context.WithTimeout(context.Background(), time.Second)
+	forceCtx, forceCancel := platformconfig.WithTimeout(context.Background(), time.Second)
 	if forceErr := p.force(forceCtx); forceErr != nil {
 		forceCancel()
 		return forceErr
 	}
 	forceCancel()
-	finalCtx, finalCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	finalCtx, finalCancel := platformconfig.WithTimeout(context.Background(), 3*time.Second)
 	defer finalCancel()
 	return p.wait(finalCtx)
 }
