@@ -1,4 +1,4 @@
-.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain frontend-deps frontend-build frontend-app-deps frontend-app-build frontend-embed-verify frontend-embed-verify-after-build frontend-gate-health run run-plain dev-hot run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries package-macos package-linux package-windows release-update-gate test test-deferred test-e2e test-e2e-rpc-runtime test-e2e-mcp-lsp-resource-cohort vet clean guard code-size-guard guard-shell actionlint lsp-diagnostics-check protocol-sync-check rpc-regression-check archtest-map-check archtest-map-refresh codemap-check codemap-refresh project-map-check project-map-refresh capcontract-check capcontract-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report sqlc-generate sqlc-verify sqlc-verify-worktree codex-worktree-ready
+.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain frontend-deps frontend-build frontend-app-deps frontend-app-build frontend-embed-verify frontend-embed-verify-after-build frontend-gate-health run run-plain dev-hot run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries package-macos package-linux package-windows release-update-gate test test-deferred test-e2e test-e2e-rpc-runtime test-e2e-mcp-lsp-resource-cohort test-e2e-mcp-lsp-idle-quick test-e2e-mcp-lsp-native-process-tree test-e2e-mcp-lsp-default-15m mcp-lsp-workload-catalog-check vet clean guard code-size-guard guard-shell actionlint lsp-diagnostics-check protocol-sync-check rpc-regression-check archtest-map-check archtest-map-refresh codemap-check codemap-refresh project-map-check project-map-refresh capcontract-check capcontract-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report sqlc-generate sqlc-verify sqlc-verify-worktree codex-worktree-ready
 
 # Auto-detect macOS version to avoid ld warnings about version mismatch.
 # Override with: make MIN_MACOS_VERSION=15.0 build
@@ -189,6 +189,18 @@ test-e2e-rpc-runtime:
 
 test-e2e-mcp-lsp-resource-cohort:
 	$(TEST_WITH_GUARD) --quick-guard -tags=e2e ./cmd/mcp-lsp -run '^TestMcpLSPBinary(LinkedWorktreesResourceCohortRecycleAndRecover|ResourceCohortMalformedReportQuarantine)_E2E$$' -v -timeout 240s -count=1
+
+test-e2e-mcp-lsp-idle-quick:
+	./scripts/run_mcp_lsp_workload.sh --id mcp-lsp-idle-quick
+
+test-e2e-mcp-lsp-native-process-tree:
+	./scripts/run_mcp_lsp_workload.sh --id mcp-lsp-native-process-tree
+
+test-e2e-mcp-lsp-default-15m:
+	./scripts/run_mcp_lsp_workload.sh --id mcp-lsp-default-15m
+
+mcp-lsp-workload-catalog-check:
+	./scripts/check_mcp_lsp_workload_catalog.sh
 
 # protocol-sync-check: RPC smoke coverage + protocol freeze guards.
 # Keeps mcp-orch launcher method aliases, report protocol, and toolbridge protocol

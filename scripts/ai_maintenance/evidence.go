@@ -146,6 +146,8 @@ func gateEvidenceCommandFragments() map[string][]string {
 		"workflow:actionlint":          {"make actionlint"},
 		"release:semantic-guards":      {"go test ./scripts"},
 		"nightly-protocol:check":       {"go run ./scripts/nightly_protocol_validator"},
+		"mcp-lsp:catalog":              {"./scripts/check_mcp_lsp_workload_catalog.sh"},
+		"mcp-lsp:idle-quick":           {"./scripts/run_mcp_lsp_workload.sh", "mcp-lsp-idle-quick"},
 		"backend:test-integrity":       {"go test ./internal/guards"},
 		"codemap:check":                {"make codemap-check"},
 		"project-map:check":            {"make project-map-check"},

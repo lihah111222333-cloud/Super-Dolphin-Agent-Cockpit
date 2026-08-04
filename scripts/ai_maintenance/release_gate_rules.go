@@ -104,4 +104,22 @@ func applyOwnedGateRules(file string, gates map[string]bool) {
 	if nightlyProtocolRelevant(file) {
 		gates["nightly-protocol:check"] = true
 	}
+	if mcpLSPWorkloadRelevant(file) {
+		gates["mcp-lsp:catalog"] = true
+	}
+	if strings.HasPrefix(file, "cmd/mcp-lsp/") {
+		gates["mcp-lsp:idle-quick"] = true
+	}
+}
+
+// mcpLSPWorkloadRelevant 将目录、runner 与 mcp-lsp 源码漂移路由到统一目录守卫。
+func mcpLSPWorkloadRelevant(file string) bool {
+	return strings.HasPrefix(file, "cmd/mcp-lsp/") ||
+		file == "Makefile" ||
+		file == "scripts/check_mcp_lsp_workload_catalog.sh" ||
+		file == "scripts/mcp_lsp_workload_catalog.json" ||
+		strings.HasPrefix(file, "scripts/mcp_lsp_workload_catalog/") ||
+		strings.HasPrefix(file, "scripts/mcp_lsp_workload_guard/") ||
+		strings.HasPrefix(file, "scripts/mcp_lsp_workload_runner/") ||
+		file == "scripts/run_mcp_lsp_workload.sh"
 }
