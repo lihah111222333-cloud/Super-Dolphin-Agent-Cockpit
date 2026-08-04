@@ -247,7 +247,7 @@ func (p *ManagerPool) releaseWorkspaceStatus(mgr *manager, now time.Time) (busy 
 		}
 		active := p.activeLeasesForWorkspace(workspace)
 		busy += active
-		if active == 0 && !idleEligible(workspace, now, idleTimeoutForLanguage(workspace.languageID)) {
+		if active == 0 && !idleEligible(workspace, now, mgr.idleTimeout) {
 			idleBlocked = true
 		}
 	}

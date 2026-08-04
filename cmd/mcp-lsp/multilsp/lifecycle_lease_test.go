@@ -20,7 +20,7 @@ func ageWorkspaceForLifecycleTest(t *testing.T, mgr *manager, client Client) {
 		if workspace != nil && workspace.client == client {
 			workspace.generation = 1
 			workspace.state = workspaceStateIdleCountdown
-			workspace.idleSince = time.Now().Add(-2 * idleTimeout)
+			workspace.idleSince = time.Now().Add(-2 * idleTimeoutForTest())
 			workspace.lastActivity = workspace.idleSince
 			return
 		}
@@ -91,10 +91,10 @@ func TestRecyclerRechecksLeaseAcquireBeforeDetach(t *testing.T) {
 	}
 	mgr.workspaces["race"] = &workspaceClient{
 		key: "race", client: client, generation: 1, state: workspaceStateIdleCountdown,
-		idleSince: now.Add(-2 * idleTimeout), lastActivity: now.Add(-2 * idleTimeout),
+		idleSince: now.Add(-2 * idleTimeoutForTest()), lastActivity: now.Add(-2 * idleTimeoutForTest()),
 	}
 	r := &poolRecycler{now: func() time.Time { return now }}
-	candidate, ok := r.managerIdleCandidate(mgr, *mgr.workspaces["race"], now, idleTimeout)
+	candidate, ok := r.managerIdleCandidate(mgr, *mgr.workspaces["race"], now, idleTimeoutForTest())
 	if !ok {
 		t.Fatal("managerIdleCandidate() rejected an eligible workspace")
 	}
@@ -137,9 +137,9 @@ func TestBootstrappingNeverIdleEligible(t *testing.T) {
 		client:     noopClient{},
 		generation: 1,
 		state:      workspaceStateBootstrapping,
-		idleSince:  now.Add(-2 * idleTimeout),
+		idleSince:  now.Add(-2 * idleTimeoutForTest()),
 	}
-	if idleEligible(workspace, now, idleTimeout) {
+	if idleEligible(workspace, now, idleTimeoutForTest()) {
 		t.Fatal("bootstrapping workspace became idle eligible")
 	}
 }
@@ -150,9 +150,9 @@ func TestUnhealthyOwnedWorkspaceStillReachesIdleEligible(t *testing.T) {
 		client:     &p2LifecycleClient{healthy: false},
 		generation: 1,
 		state:      workspaceStateIdleCountdown,
-		idleSince:  now.Add(-2 * idleTimeout),
+		idleSince:  now.Add(-2 * idleTimeoutForTest()),
 	}
-	if !idleEligible(workspace, now, idleTimeout) {
+	if !idleEligible(workspace, now, idleTimeoutForTest()) {
 		t.Fatal("unhealthy owned workspace was incorrectly blocked from idle eligibility")
 	}
 }

@@ -24,7 +24,6 @@ const (
 	lspGoRSSLimitEnv           = "AGENT_LSP_GO_RSS_LIMIT_MB"
 	lspGoplsHeapLimitEnv       = "AGENT_LSP_GOPLS_HEAP_LIMIT_MB"
 
-	idleTimeout                    = 15 * time.Minute
 	recyclerProbeDegradedThreshold = 3
 )
 
@@ -175,7 +174,11 @@ func (r *poolRecycler) retryProvisionalCleanups(mgr *manager) {
 
 // evictIdleEmptyClones 摘除过期空 clone，并把关闭失败交回 pool receipt 等待重试。
 func (r *poolRecycler) evictIdleEmptyClones() {
-	cutoff := time.Now().Add(-idleTimeout)
+	cutoff := r.recyclerNow()
+	if r.pool == nil || r.pool.primary == nil || r.pool.primary.idleTimeout <= 0 {
+		return
+	}
+	cutoff = cutoff.Add(-r.pool.primary.idleTimeout)
 	releases := r.pool.detachIdleEmptyClones(cutoff)
 	if err := r.pool.closeDetachedPoolManagers(releases, "close idle LSP manager"); err != nil {
 		for _, release := range releases {
@@ -390,7 +393,10 @@ func (r *poolRecycler) checkIdleWorkspaces(mgr *manager, scope ResolvedLSPToolSc
 			r.retryCleanupPendingWorkspace(mgr, scope, workspace)
 			continue
 		}
-		timeout := idleTimeoutForLanguage(workspace.languageID)
+		timeout := mgr.idleTimeout
+		if timeout <= 0 {
+			continue
+		}
 		if !idleEligible(&workspace, scanStarted, timeout) {
 			continue
 		}
@@ -472,11 +478,6 @@ func (r *poolRecycler) logIdleWindowExceeded(
 	)
 	args = r.appendRecyclerRSSProbeArgs(args, mgr, scope, workspace)
 	mgr.logger.Debug("LSP recycler idle window exceeded", args...)
-}
-
-// idleTimeoutForLanguage 统一返回 15 分钟空闲窗口；到期关闭 client，下一次请求再懒启动。
-func idleTimeoutForLanguage(string) time.Duration {
-	return idleTimeout
 }
 
 // logRSSWindowExceeded 记录单进程树或跨 worktree cohort 的超限窗口。

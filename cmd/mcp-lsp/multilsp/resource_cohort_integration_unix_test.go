@@ -156,9 +156,9 @@ func TestShutdownResourceCohortWorkspaceRestoresCloseFailureForRetry(t *testing.
 	workspace := &workspaceClient{key: "cohort-close-retry", languageID: "go", client: client}
 	workspace.generation = 1
 	workspace.state = workspaceStateIdleCountdown
-	workspace.idleSince = time.Now().Add(-2 * idleTimeout)
+	workspace.idleSince = time.Now().Add(-2 * idleTimeoutForTest())
 	workspace.lastActivity = workspace.idleSince
-	mgr := &manager{workspaces: map[string]*workspaceClient{workspace.key: workspace}}
+	mgr := &manager{idleTimeout: idleTimeoutForTest(), workspaces: map[string]*workspaceClient{workspace.key: workspace}}
 
 	recycled, err := shutdownResourceCohortWorkspace(mgr, *workspace)
 	if recycled || !errors.Is(err, closeErr) {

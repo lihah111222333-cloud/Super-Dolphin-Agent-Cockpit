@@ -18,6 +18,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/multilsp"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
@@ -58,6 +59,10 @@ func newManager(cfg *platformconfig.Config) (*Manager, error) {
 	if cfg == nil {
 		return nil, errors.New("platform config is required")
 	}
+	resolvedLSPConfig, err := requireResolvedLSPConfig(cfg.LSP)
+	if err != nil {
+		return nil, err
+	}
 	if err := multilsp.ValidateResourceLimitEnvironment(); err != nil {
 		return nil, err
 	}
@@ -66,15 +71,12 @@ func newManager(cfg *platformconfig.Config) (*Manager, error) {
 		return nil, err
 	}
 	log := pkglogger.Get()
-	adapters := multilsp.NewLanguageAdapterRegistryFromConfig(cfg.LSP)
+	adapters := multilsp.NewLanguageAdapterRegistryFromConfig(resolvedLSPConfig)
 	lspBundle, packagedLSP, err := runtimeenv.LoadLSPBundleFromEnv()
 	if err != nil {
 		return nil, err
 	}
-	var inst *installer.Provider
-	if !packagedLSP {
-		inst = setupInstaller()
-	}
+	inst := runtimeInstaller(packagedLSP)
 	languageIDs, err := runtimePrimaryLanguageIDsForBundle(adapters, lspBundle, packagedLSP)
 	if err != nil {
 		return nil, err
@@ -88,7 +90,7 @@ func newManager(cfg *platformconfig.Config) (*Manager, error) {
 		if !ok {
 			return nil, errors.New("missing LSP language adapter: " + primaryLanguageID)
 		}
-		runner, releaser, err := registerRuntimeAdapter(registry, adapter, adapters, root, log, lspBundle, packagedLSP)
+		runner, releaser, err := registerRuntimeAdapter(registry, adapter, adapters, root, log, resolvedLSPConfig.IdleTimeout, lspBundle, packagedLSP)
 		if err != nil {
 			return nil, err
 		}
@@ -97,6 +99,20 @@ func newManager(cfg *platformconfig.Config) (*Manager, error) {
 	}
 
 	return &Manager{registry: registry, root: root, backgroundRunners: backgroundRunners, releaseScopes: releaseScopes}, nil
+}
+
+func requireResolvedLSPConfig(cfg contract.LSPConfig) (contract.LSPConfig, error) {
+	if cfg.IdleTimeout <= 0 {
+		return contract.LSPConfig{}, errors.New("resolved LSP idle timeout is required")
+	}
+	return cfg, nil
+}
+
+func runtimeInstaller(packagedLSP bool) *installer.Provider {
+	if packagedLSP {
+		return nil
+	}
+	return setupInstaller()
 }
 
 func runtimeRoot() (string, error) {
@@ -254,11 +270,12 @@ func registerRuntimeAdapter(
 	adapters *multilsp.LanguageAdapterRegistry,
 	root string,
 	log *slog.Logger,
+	idleTimeout time.Duration,
 	lspBundle runtimeenv.LSPBundle,
 	packagedLSP bool,
 ) (platformrunner.Runner, multilsp.ScopeReleaser, error) {
 	if !adapter.CapabilityPolicy().RequiresLSPClient {
-		mgr, err := createFallbackManager(adapters, root, log)
+		mgr, err := createFallbackManager(adapters, root, log, idleTimeout)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -274,7 +291,7 @@ func registerRuntimeAdapter(
 		}
 		binaryOverride = server.Path
 	}
-	mgr, err := createGenericManagerWithBinary(adapter, adapters, root, log, binaryOverride, packagedLSP)
+	mgr, err := createGenericManagerWithBinary(adapter, adapters, root, log, idleTimeout, binaryOverride, packagedLSP)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -489,10 +506,11 @@ func registerShellAndSQLInstallers(inst *installer.Provider) {
 	})
 }
 
-func createFallbackManager(adapters *multilsp.LanguageAdapterRegistry, root string, log *slog.Logger) (multilsp.Manager, error) {
+func createFallbackManager(adapters *multilsp.LanguageAdapterRegistry, root string, log *slog.Logger, idleTimeout time.Duration) (multilsp.Manager, error) {
 	return multilsp.NewManagerWithError(multilsp.Config{
 		WorkspaceRoot:                    root,
 		LanguageAdapters:                 adapters,
+		IdleTimeout:                      idleTimeout,
 		Logger:                           log,
 		DisableInitialWorkspaceBootstrap: true,
 	})
@@ -500,7 +518,7 @@ func createFallbackManager(adapters *multilsp.LanguageAdapterRegistry, root stri
 
 // createGenericManagerWithBinary 创建可热更新二进制路径的通用 multilsp manager。
 // ClientFactory 按每次解析出的 workspace root 设置子进程 Dir，避免不同项目共享同一启动目录。
-func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *multilsp.LanguageAdapterRegistry, root string, log *slog.Logger, binaryOverride string, packagedLSP bool) (multilsp.Manager, error) {
+func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *multilsp.LanguageAdapterRegistry, root string, log *slog.Logger, idleTimeout time.Duration, binaryOverride string, packagedLSP bool) (multilsp.Manager, error) {
 	command, err := adapter.ServerCommand(context.Background(), multilsp.ResolvedLanguageScope{})
 	if err != nil {
 		return nil, err
@@ -513,6 +531,7 @@ func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *
 	mgr, err := multilsp.NewManagerWithError(multilsp.Config{
 		WorkspaceRoot:                    root,
 		LanguageAdapters:                 adapters,
+		IdleTimeout:                      idleTimeout,
 		DiagnosticsMaxWait:               runtimeAdapterDiagnosticsMaxWait(adapter),
 		DisableInitialWorkspaceBootstrap: true,
 		ClientFactory: multilsp.ClientFactoryWithEnvFunc(func(rootDir string, env []string, h protocol.NotificationHandler) (multilsp.Client, error) {
