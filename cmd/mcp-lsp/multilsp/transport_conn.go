@@ -30,6 +30,13 @@ const (
 func startTransport(
 	options transportOptions,
 ) (*exec.Cmd, *hiddenexec.ProcessTree, io.WriteCloser, io.ReadCloser, *limitedBuffer, error) {
+	return startTransportWithStarter(options, hiddenexec.StartProcessTree)
+}
+
+func startTransportWithStarter(
+	options transportOptions,
+	starter func(*exec.Cmd) (*hiddenexec.ProcessTree, error),
+) (*exec.Cmd, *hiddenexec.ProcessTree, io.WriteCloser, io.ReadCloser, *limitedBuffer, error) {
 	cmd := hiddenexec.Command(options.Binary, options.Args...)
 	cmd.Dir = options.Dir
 	if len(options.Env) > 0 {
@@ -46,11 +53,16 @@ func startTransport(
 	}
 	stderr := &limitedBuffer{limit: stderrLimitBytes}
 	cmd.Stderr = stderr
-	processTree, err := hiddenexec.StartProcessTree(cmd)
+	processTree, err := starter(cmd)
 	if err != nil {
-		_ = stdin.Close()
-		_ = stdout.Close()
-		return nil, nil, nil, nil, nil, fmt.Errorf("LSP server start process tree: %w", err)
+		var closeErr error
+		if stdinErr := stdin.Close(); stdinErr != nil {
+			closeErr = errors.Join(closeErr, fmt.Errorf("close LSP server stdin after process-tree startup failure: %w", stdinErr))
+		}
+		if stdoutErr := stdout.Close(); stdoutErr != nil {
+			closeErr = errors.Join(closeErr, fmt.Errorf("close LSP server stdout after process-tree startup failure: %w", stdoutErr))
+		}
+		return nil, processTree, nil, nil, nil, errors.Join(fmt.Errorf("LSP server start process tree: %w", err), closeErr)
 	}
 	return cmd, processTree, stdin, stdout, stderr, nil
 }
@@ -82,9 +94,10 @@ func (t *transport) Close() error {
 		t.clearPending(ErrTransportClosed)
 	}
 	drainErr := t.drainResponders(defaultResponderDrainTimeout)
-	terminationErr, releaseComplete := t.terminateProcessTreeAttempt()
+	terminationErr, _ := t.terminateProcessTreeAttempt()
 	waitErr := t.waitForExit(defaultShutdownTimeout)
-	result := errors.Join(terminationErr, waitErr, drainErr)
+	releaseErr, releaseComplete := t.releaseProcessTreeAttempt()
+	result := errors.Join(terminationErr, waitErr, releaseErr, drainErr)
 
 	t.closeMu.Lock()
 	attempt.result = result
@@ -258,10 +271,19 @@ func (t *transport) killProcess() error {
 // terminateProcessTree 统一所有关闭路径的进程树终止与 owner 释放。
 func (t *transport) terminateProcessTree() error {
 	err, _ := t.terminateProcessTreeAttempt()
+	if t != nil && t.done != nil {
+		select {
+		case <-t.done:
+			releaseErr, _ := t.releaseProcessTreeAttempt()
+			return errors.Join(err, releaseErr)
+		default:
+		}
+	}
 	return err
 }
 
-// terminateProcessTreeAttempt 只执行一次终止，并在 Release 成功前串行重试 owner 释放。
+// terminateProcessTreeAttempt 只执行一次经 owner 授权的终止动作。
+// Release 延后到 wait/remaining 验证之后，避免未退出成员提前从账本消失。
 func (t *transport) terminateProcessTreeAttempt() (error, bool) {
 	if t == nil {
 		return nil, true
@@ -274,22 +296,46 @@ func (t *transport) terminateProcessTreeAttempt() (error, bool) {
 		if t.cmd == nil || t.cmd.Process == nil {
 			return
 		}
-		t.terminationErr = hiddenexec.KillProcessTree(t.cmd)
+		// A bare *exec.Cmd has no immutable owner identity. Refuse to rebuild a
+		// tree from its current PID; only StartProcessTree may authorize signals.
+		t.terminationErr = hiddenexec.ErrProcessTreeOwnerMissing
 	})
 	if t.processTree == nil {
 		return t.terminationErr, true
 	}
+	t.treeReleaseMu.Lock()
+	released := t.treeReleased
+	t.treeReleaseMu.Unlock()
+	return t.terminationErr, released
+}
 
+// releaseProcessTreeAttempt 在进程退出且 owner remaining 为空后释放权柄。
+// 验证失败只保留 owner，调用方可在下一次 Close 中重试。
+func (t *transport) releaseProcessTreeAttempt() (error, bool) {
+	if t == nil || t.processTree == nil {
+		return nil, true
+	}
 	t.treeReleaseMu.Lock()
 	defer t.treeReleaseMu.Unlock()
 	if t.treeReleased {
-		return t.terminationErr, true
+		return nil, true
 	}
-	releaseErr := t.processTree.Release()
-	if releaseErr == nil {
-		t.treeReleased = true
+	if verifier, ok := t.processTree.(interface {
+		Remaining() ([]hiddenexec.ProcessIdentity, error)
+	}); ok {
+		remaining, err := verifier.Remaining()
+		if err != nil {
+			return err, false
+		}
+		if len(remaining) != 0 {
+			return fmt.Errorf("LSP process-tree release blocked: %w: %d members remain", hiddenexec.ErrProcessTreeRemaining, len(remaining)), false
+		}
 	}
-	return errors.Join(t.terminationErr, releaseErr), t.treeReleased
+	if err := t.processTree.Release(); err != nil {
+		return err, false
+	}
+	t.treeReleased = true
+	return nil, true
 }
 
 // processTreeRSSBytes 通过 transport 显式 owner 读取平台进程树 RSS。

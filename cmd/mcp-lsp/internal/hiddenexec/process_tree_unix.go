@@ -3,251 +3,395 @@
 package hiddenexec
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
-	"runtime"
-	"strconv"
-	"strings"
+	"sync"
 	"syscall"
+	"time"
+
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
 
+var ErrProcessTreeCleanupPending = errors.New("CleanupPending: process-tree destructive action is blocked")
+
 type unixProcessTree struct {
-	cmd *exec.Cmd
+	mu            sync.Mutex
+	cmd           *exec.Cmd
+	root          ProcessIdentity
+	known         map[int]ProcessIdentity
+	signalMembers func([]ProcessIdentity, int) error
+	released      bool
 }
 
 func startProcessTree(cmd *exec.Cmd) (*ProcessTree, error) {
-	if cmd == nil {
-		return nil, errors.New("start process tree: command is nil")
+	return startProcessTreeWithHooks(cmd, startupAbortHooks{
+		captureIdentity: captureProcessIdentity,
+		groupOwned:      startupProcessGroupOwned,
+		startWait:       startStartupProcessWait,
+		waitTimeout:     3 * time.Second,
+	})
+}
+
+func startProcessTreeWithHooks(cmd *exec.Cmd, hooks startupAbortHooks) (*ProcessTree, error) {
+	if err := validateProcessTreeCommand(cmd); err != nil {
+		return nil, err
 	}
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	return &ProcessTree{controller: &unixProcessTree{cmd: cmd}}, nil
+	root, err := hooks.captureIdentity(cmd.Process.Pid)
+	if err != nil {
+		cleanupErr, startupOwner := abortStartedProcessTree(cmd, hooks)
+		return startupOwner, errors.Join(fmt.Errorf("capture process-tree root identity: %w", err), cleanupErr)
+	}
+	if err := validateProcessTreeRoot(root, cmd.Process.Pid); err != nil {
+		cleanupErr, startupOwner := abortStartedProcessTree(cmd, hooks)
+		return startupOwner, errors.Join(err, cleanupErr)
+	}
+	owner := &unixProcessTree{cmd: cmd, root: root, known: map[int]ProcessIdentity{root.PID: root}, signalMembers: signalProcessMembers}
+	return &ProcessTree{controller: owner}, nil
+}
+
+func validateProcessTreeCommand(cmd *exec.Cmd) error {
+	if cmd == nil {
+		return errors.New("start process tree: command is nil")
+	}
+	if cmd.Process != nil {
+		return errors.New("start process tree: command is already started")
+	}
+	if cmd.SysProcAttr == nil {
+		configureCommand(cmd)
+	}
+	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setsid {
+		return errors.New("start process tree: independent session/PGID is required")
+	}
+	return nil
+}
+
+func validateProcessTreeRoot(root ProcessIdentity, pid int) error {
+	if root.PID != pid || root.ProcessGroupID != root.PID || root.SessionID != root.PID {
+		return fmt.Errorf("process-tree root is not an independent session/PGID: %+v", root)
+	}
+	return nil
 }
 
 func (p *unixProcessTree) terminate() error {
-	return killProcessTree(p.cmd)
+	gracefulCtx, gracefulCancel := platformconfig.WithTimeout(context.Background(), time.Second)
+	defer gracefulCancel()
+	if gracefulErr := p.graceful(gracefulCtx); gracefulErr != nil {
+		return gracefulErr
+	}
+	waitCtx, waitCancel := platformconfig.WithTimeout(context.Background(), time.Second)
+	waitErr := p.wait(waitCtx)
+	waitCancel()
+	if waitErr == nil {
+		return nil
+	}
+	forceCtx, forceCancel := platformconfig.WithTimeout(context.Background(), time.Second)
+	if forceErr := p.force(forceCtx); forceErr != nil {
+		forceCancel()
+		return forceErr
+	}
+	forceCancel()
+	finalCtx, finalCancel := platformconfig.WithTimeout(context.Background(), 3*time.Second)
+	defer finalCancel()
+	return p.wait(finalCtx)
 }
 
 func (p *unixProcessTree) release() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.released {
+		return nil
+	}
+	snapshot, err := p.snapshotLocked()
+	if err != nil {
+		return errors.Join(ErrProcessTreeCleanupPending, err)
+	}
+	if len(snapshot.Members) != 0 || len(snapshot.Unknown) != 0 {
+		return errors.Join(ErrProcessTreeCleanupPending, fmt.Errorf("release process-tree owner: %w: %d members, %d unknown", ErrProcessTreeRemaining, len(snapshot.Members), len(snapshot.Unknown)))
+	}
+	p.released = true
 	return nil
 }
 
 func (p *unixProcessTree) rssBytes() (uint64, error) {
-	if p == nil || p.cmd == nil || p.cmd.Process == nil {
-		return 0, errors.New("Unix process-tree owner is not started")
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.released {
+		return 0, errors.New("process-tree owner is released")
 	}
-	return processTreeRSSBytes(p.cmd.Process.Pid)
+	snapshot, err := p.snapshotLocked()
+	if err != nil {
+		return 0, err
+	}
+	var total uint64
+	for _, member := range snapshot.Members {
+		rss, rssErr := processRSSBytes(member.PID)
+		if errors.Is(rssErr, os.ErrNotExist) {
+			continue
+		}
+		if rssErr != nil {
+			return 0, fmt.Errorf("read process-tree member %d RSS: %w", member.PID, rssErr)
+		}
+		total += rss
+	}
+	if len(snapshot.Members) > 0 && total == 0 {
+		return 0, errors.New("process-tree has no readable RSS")
+	}
+	return total, nil
+}
+
+func (p *unixProcessTree) identity() (ProcessIdentity, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.released {
+		return ProcessIdentity{}, errors.New("process-tree owner is released")
+	}
+	return p.root, nil
+}
+
+func (p *unixProcessTree) snapshot() (ProcessTreeSnapshot, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.snapshotLocked()
+}
+
+func (p *unixProcessTree) snapshotLocked() (ProcessTreeSnapshot, error) {
+	if p.released {
+		return ProcessTreeSnapshot{}, errors.New("process-tree owner is released")
+	}
+	table, err := processTable()
+	if err != nil {
+		return ProcessTreeSnapshot{}, err
+	}
+	if err := p.validateSnapshotRoot(table); err != nil {
+		return ProcessTreeSnapshot{}, err
+	}
+	members := make([]ProcessIdentity, 0, len(table))
+	unknown := make([]ProcessIdentity, 0)
+	for pid, current := range table {
+		if !sameProcessTreeGroup(current, p.root) {
+			continue
+		}
+		if expected, known := p.known[pid]; known && !current.Equal(expected) {
+			return ProcessTreeSnapshot{}, fmt.Errorf("%w: member PID %d was reused", ErrProcessTreeIdentityMismatch, pid)
+		}
+		if pid == p.root.PID || p.knownMemberOrDescendant(pid, table) {
+			p.known[pid] = current
+			members = append(members, current)
+			continue
+		}
+		unknown = append(unknown, current)
+	}
+	slicesSortIdentities(members)
+	slicesSortIdentities(unknown)
+	return ProcessTreeSnapshot{Root: p.root, Members: members, Unknown: unknown, CapturedAt: time.Now()}, nil
+}
+
+func (p *unixProcessTree) validateSnapshotRoot(table map[int]ProcessIdentity) error {
+	rootCurrent, rootPresent := table[p.root.PID]
+	if rootPresent && !rootCurrent.Equal(p.root) {
+		return fmt.Errorf("%w: root PID %d was reused", ErrProcessTreeIdentityMismatch, p.root.PID)
+	}
+	return nil
+}
+
+func sameProcessTreeGroup(current, root ProcessIdentity) bool {
+	return current.SessionID == root.SessionID && current.ProcessGroupID == root.ProcessGroupID
+}
+
+func (p *unixProcessTree) knownMemberOrDescendant(pid int, table map[int]ProcessIdentity) bool {
+	if _, ok := p.known[pid]; ok {
+		return true
+	}
+	seen := make(map[int]struct{})
+	for current := pid; ; {
+		if _, ok := seen[current]; ok {
+			return false
+		}
+		seen[current] = struct{}{}
+		entry, ok := table[current]
+		if !ok {
+			return false
+		}
+		if entry.PID == p.root.PID {
+			return true
+		}
+		parent, ok := processParent(current)
+		if !ok {
+			return false
+		}
+		if parent == p.root.PID {
+			return true
+		}
+		current = parent
+	}
+}
+
+func (p *unixProcessTree) alive() (bool, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.released {
+		return false, errors.New("process-tree owner is released")
+	}
+	current, err := captureProcessIdentity(p.root.PID)
+	if isProcessGone(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !current.Equal(p.root) {
+		return false, fmt.Errorf("%w: root PID %d", ErrProcessTreeIdentityMismatch, p.root.PID)
+	}
+	return true, nil
+}
+
+func (p *unixProcessTree) descendants() ([]ProcessIdentity, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	snapshot, err := p.snapshotLocked()
+	if err != nil {
+		return nil, errors.Join(ErrProcessTreeCleanupPending, err)
+	}
+	result := make([]ProcessIdentity, 0, len(snapshot.Members))
+	for _, member := range snapshot.Members {
+		if member.PID != p.root.PID {
+			result = append(result, member)
+		}
+	}
+	return result, nil
+}
+
+func (p *unixProcessTree) remaining() ([]ProcessIdentity, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	snapshot, err := p.snapshotLocked()
+	if err != nil {
+		return nil, errors.Join(ErrProcessTreeCleanupPending, err)
+	}
+	if len(snapshot.Unknown) != 0 {
+		return nil, errors.Join(ErrProcessTreeCleanupPending, fmt.Errorf("%w: %d unknown members", ErrProcessTreeIdentityMismatch, len(snapshot.Unknown)))
+	}
+	return append([]ProcessIdentity(nil), snapshot.Members...), nil
+}
+
+func (p *unixProcessTree) graceful(ctx context.Context) error {
+	return p.signal(ctx, unixGracefulSignal)
+}
+
+func (p *unixProcessTree) force(ctx context.Context) error {
+	return p.signal(ctx, unixForceSignal)
+}
+
+func (p *unixProcessTree) signal(ctx context.Context, signal int) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.released {
+		return errors.New("process-tree owner is released")
+	}
+	snapshot, err := p.snapshotLocked()
+	if err != nil {
+		return errors.Join(ErrProcessTreeCleanupPending, err)
+	}
+	if len(snapshot.Unknown) != 0 {
+		return errors.Join(ErrProcessTreeCleanupPending, fmt.Errorf("%w: unknown member prevents signal", ErrProcessTreeIdentityMismatch))
+	}
+	return p.signalSnapshot(snapshot.Members, signal)
+}
+
+func (p *unixProcessTree) signalSnapshot(members []ProcessIdentity, signal int) error {
+	if len(members) == 0 {
+		return nil
+	}
+	if p.signalMembers == nil {
+		return errors.Join(ErrProcessTreeCleanupPending, errors.New("process-tree signal authority is unavailable"))
+	}
+	return p.signalMembers(members, signal)
+}
+
+func (p *unixProcessTree) wait(ctx context.Context) error {
+	for {
+		remaining, err := p.remaining()
+		if err != nil {
+			return err
+		}
+		if len(remaining) == 0 {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("%w: %d members remain: %v", ctx.Err(), len(remaining), remaining)
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+}
+
+func isProcessGone(err error) bool {
+	return errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ESRCH)
+}
+
+func killProcessTree(cmd *exec.Cmd) error {
+	_ = cmd
+	return ErrProcessTreeOwnerMissing
+}
+
+// ProcessTreeRSSBytes is retained for telemetry only. Destructive actions use
+// the explicit owner and never reconstruct a process group from a bare PID.
+func processTreeRSSBytes(pid int) (uint64, error) {
+	root, err := captureProcessIdentity(pid)
+	if err != nil {
+		return 0, err
+	}
+	group, err := processTable()
+	if err != nil {
+		return 0, err
+	}
+	var total uint64
+	for _, member := range group {
+		if member.SessionID != root.SessionID || member.ProcessGroupID != root.ProcessGroupID {
+			continue
+		}
+		rss, rssErr := processRSSBytes(member.PID)
+		if rssErr != nil {
+			continue
+		}
+		total += rss
+	}
+	if total == 0 {
+		return 0, errors.New("process-tree has no readable RSS")
+	}
+	return total, nil
 }
 
 func processAlive(pid int) (bool, error) {
 	if pid <= 1 {
 		return false, nil
 	}
-	err := syscall.Kill(pid, 0)
-	switch {
-	case err == nil, errors.Is(err, syscall.EPERM):
-		return true, nil
-	case errors.Is(err, syscall.ESRCH):
+	identity, err := captureProcessIdentity(pid)
+	if isProcessGone(err) {
 		return false, nil
-	default:
+	}
+	if err != nil {
+		if errors.Is(err, syscall.EIO) {
+			return false, nil
+		}
 		return false, err
 	}
+	return identity.PID == pid, nil
 }
 
 func processStartIdentity(pid int) (string, error) {
-	if pid <= 1 {
-		return "", errors.New("process PID must be greater than 1")
-	}
-	if runtime.GOOS == "linux" {
-		return linuxProcessStartIdentity(pid)
-	}
-	output, err := exec.Command("ps", "-o", "lstart=", "-p", strconv.Itoa(pid)).Output()
+	identity, err := captureProcessIdentity(pid)
 	if err != nil {
 		return "", err
 	}
-	identity := strings.Join(strings.Fields(string(output)), " ")
-	if identity == "" {
-		return "", fmt.Errorf("process %d has empty start identity", pid)
-	}
-	return identity, nil
-}
-
-// linuxProcessStartIdentity 用 boot ID 与 /proc 启动时钟组合出可抵抗 PID 复用的身份。
-func linuxProcessStartIdentity(pid int) (string, error) {
-	payload, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
-	if err != nil {
-		return "", err
-	}
-	closeParen := strings.LastIndexByte(string(payload), ')')
-	if closeParen < 0 || closeParen+1 >= len(payload) {
-		return "", fmt.Errorf("unexpected stat payload for pid %d", pid)
-	}
-	fields := strings.Fields(string(payload[closeParen+1:]))
-	const startTimeIndexAfterCommand = 19
-	if len(fields) <= startTimeIndexAfterCommand {
-		return "", fmt.Errorf("unexpected stat fields for pid %d", pid)
-	}
-	bootID, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
-	if err != nil {
-		return "", fmt.Errorf("read Linux boot identity: %w", err)
-	}
-	return strings.TrimSpace(string(bootID)) + "/" + fields[startTimeIndexAfterCommand], nil
-}
-
-func processTreeRSSBytes(pid int) (uint64, error) {
-	if runtime.GOOS == "linux" {
-		return linuxProcessGroupRSSBytes(pid)
-	}
-	return psProcessGroupRSSBytes(pid)
-}
-
-func processRSSBytes(pid int) (uint64, error) {
-	if runtime.GOOS == "linux" {
-		return linuxRSSBytes(pid)
-	}
-	return psRSSBytes(pid)
-}
-
-// linuxProcessGroupRSSBytes 汇总独立语言服务器进程组的 RSS。
-// 老版本启动的进程若尚未拥有独立组，则只读取父 PID，避免误计整个 mcp-lsp 进程组。
-func linuxProcessGroupRSSBytes(pid int) (uint64, error) {
-	groupID, err := linuxProcessGroupID(pid)
-	if err != nil {
-		return 0, err
-	}
-	if groupID != pid {
-		return linuxRSSBytes(pid)
-	}
-	entries, err := os.ReadDir("/proc")
-	if err != nil {
-		return 0, err
-	}
-	var total uint64
-	for _, entry := range entries {
-		memberPID, parseErr := strconv.Atoi(entry.Name())
-		if parseErr != nil {
-			continue
-		}
-		memberGroupID, groupErr := linuxProcessGroupID(memberPID)
-		if groupErr != nil || memberGroupID != groupID {
-			continue
-		}
-		rss, rssErr := linuxRSSBytes(memberPID)
-		if rssErr == nil {
-			total += rss
-		}
-	}
-	if total == 0 {
-		return 0, fmt.Errorf("language-server process group %d has no readable RSS", groupID)
-	}
-	return total, nil
-}
-
-// linuxProcessGroupID 从 procfs stat 中读取目标 PID 所属的进程组。
-func linuxProcessGroupID(pid int) (int, error) {
-	payload, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
-	if err != nil {
-		return 0, err
-	}
-	closeParen := strings.LastIndexByte(string(payload), ')')
-	if closeParen < 0 || closeParen+1 >= len(payload) {
-		return 0, fmt.Errorf("unexpected stat payload for pid %d", pid)
-	}
-	fields := strings.Fields(string(payload[closeParen+1:]))
-	if len(fields) < 3 {
-		return 0, fmt.Errorf("unexpected stat fields for pid %d", pid)
-	}
-	groupID, err := strconv.Atoi(fields[2])
-	if err != nil {
-		return 0, fmt.Errorf("parse process group for pid %d: %w", pid, err)
-	}
-	return groupID, nil
-}
-
-func linuxRSSBytes(pid int) (uint64, error) {
-	payload, err := os.ReadFile(fmt.Sprintf("/proc/%d/statm", pid))
-	if err != nil {
-		return 0, err
-	}
-	fields := strings.Fields(string(payload))
-	if len(fields) < 2 {
-		return 0, fmt.Errorf("unexpected statm payload for pid %d", pid)
-	}
-	pages, err := strconv.ParseUint(fields[1], 10, 64)
-	if err != nil {
-		return 0, err
-	}
-	return pages * uint64(os.Getpagesize()), nil
-}
-
-// psProcessGroupRSSBytes 汇总 macOS 独立语言服务器进程组内所有成员的 RSS。
-func psProcessGroupRSSBytes(pid int) (uint64, error) {
-	output, err := exec.Command("ps", "-o", "pgid=", "-p", strconv.Itoa(pid)).Output()
-	if err != nil {
-		return 0, err
-	}
-	groupID, err := strconv.Atoi(strings.TrimSpace(string(output)))
-	if err != nil {
-		return 0, fmt.Errorf("parse process group for pid %d: %w", pid, err)
-	}
-	if groupID != pid {
-		return psRSSBytes(pid)
-	}
-	output, err = exec.Command("ps", "-axo", "pgid=,rss=").Output()
-	if err != nil {
-		return 0, err
-	}
-	var total uint64
-	for line := range strings.SplitSeq(string(output), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) != 2 || fields[0] != strconv.Itoa(groupID) {
-			continue
-		}
-		kilobytes, parseErr := strconv.ParseUint(fields[1], 10, 64)
-		if parseErr != nil {
-			return 0, fmt.Errorf("parse RSS for process group %d: %w", groupID, parseErr)
-		}
-		total += kilobytes * 1024
-	}
-	if total == 0 {
-		return 0, fmt.Errorf("language-server process group %d has no readable RSS", groupID)
-	}
-	return total, nil
-}
-
-func psRSSBytes(pid int) (uint64, error) {
-	output, err := exec.Command("ps", "-o", "rss=", "-p", strconv.Itoa(pid)).Output()
-	if err != nil {
-		return 0, err
-	}
-	value := strings.TrimSpace(string(output))
-	if value == "" {
-		return 0, nil
-	}
-	kilobytes, err := strconv.ParseUint(value, 10, 64)
-	if err != nil {
-		return 0, err
-	}
-	return kilobytes * 1024, nil
-}
-
-// killProcessTree 终止独立 Unix 进程组；组信号失败时再回收已启动的父进程。
-func killProcessTree(cmd *exec.Cmd) error {
-	if cmd == nil || cmd.Process == nil {
-		return nil
-	}
-	pid := cmd.Process.Pid
-	if pid <= 1 {
-		return errors.New("refusing to kill language-server PID <= 1")
-	}
-	if err := syscall.Kill(-pid, syscall.SIGKILL); err == nil || errors.Is(err, syscall.ESRCH) {
-		return nil
-	}
-	if err := cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return err
-	}
-	return nil
+	return identity.StartToken, nil
 }
