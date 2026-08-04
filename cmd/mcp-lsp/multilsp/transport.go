@@ -44,6 +44,7 @@ type processTreeOwner interface {
 	Terminate() error
 	Release() error
 	RSSBytes() (uint64, error)
+	PrepareShutdown() error
 }
 
 type transportCloseAttempt struct {
@@ -96,6 +97,7 @@ func newTransport(options transportOptions) (*transport, error) {
 	return newTransportWithStarter(options, hiddenexec.StartProcessTree)
 }
 
+// newTransportWithStarter 启动并绑定 LSP transport 的 exact process-tree owner。
 func newTransportWithStarter(
 	options transportOptions,
 	starter func(*exec.Cmd) (*hiddenexec.ProcessTree, error),

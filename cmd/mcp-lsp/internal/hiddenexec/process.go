@@ -26,6 +26,7 @@ type processTreeController interface {
 	terminate() error
 	release() error
 	rssBytes() (uint64, error)
+	prepareShutdown() error
 	identity() (ProcessIdentity, error)
 	snapshot() (ProcessTreeSnapshot, error)
 	alive() (bool, error)
@@ -108,6 +109,15 @@ func (p *ProcessTree) Release() error {
 		return errors.New("process-tree owner is nil")
 	}
 	return p.controller.release()
+}
+
+// PrepareShutdown 在协议 shutdown/exit 前以 non-destructive 方式捕获当前后代。
+// 只有根仍存活且每个同组成员都能通过 parent-chain 与 owner 绑定时才成功；不发送信号。
+func (p *ProcessTree) PrepareShutdown() error {
+	if p == nil || p.controller == nil {
+		return errors.New("process-tree owner is nil")
+	}
+	return p.controller.prepareShutdown()
 }
 
 // RSSBytes 返回 owner 当前全部成员的 RSS。

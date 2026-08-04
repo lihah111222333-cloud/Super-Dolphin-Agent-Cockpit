@@ -135,9 +135,11 @@ func TestTransportReadFailureWaitsForProcessErrorOnEOF(t *testing.T) {
 type countingProcessTreeOwner struct {
 	terminateCalls atomic.Int32
 	releaseCalls   atomic.Int32
+	prepareCalls   atomic.Int32
 	rssCalls       atomic.Int32
 	rss            uint64
 	releaseErr     error
+	prepareErr     error
 }
 
 func (o *countingProcessTreeOwner) Terminate() error {
@@ -156,6 +158,12 @@ func (o *countingProcessTreeOwner) Release() error {
 func (o *countingProcessTreeOwner) RSSBytes() (uint64, error) {
 	o.rssCalls.Add(1)
 	return o.rss, nil
+}
+
+// PrepareShutdown 记录协议 shutdown/exit 前的 owner 入册调用，并可注入准备失败。
+func (o *countingProcessTreeOwner) PrepareShutdown() error {
+	o.prepareCalls.Add(1)
+	return o.prepareErr
 }
 
 func TestTransportConcurrentCloseTerminatesExplicitOwnerOnce(t *testing.T) {

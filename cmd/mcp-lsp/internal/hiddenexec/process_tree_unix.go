@@ -55,6 +55,7 @@ func startProcessTreeWithHooks(cmd *exec.Cmd, hooks startupAbortHooks) (*Process
 	return &ProcessTree{controller: owner}, nil
 }
 
+// validateProcessTreeCommand 确认 Unix 命令使用独立 session/PGID 后才允许建立 owner。
 func validateProcessTreeCommand(cmd *exec.Cmd) error {
 	if cmd == nil {
 		return errors.New("start process tree: command is nil")
@@ -118,6 +119,36 @@ func (p *unixProcessTree) release() error {
 	return nil
 }
 
+// prepareShutdown 在根仍存活时建立一次 non-destructive 后代身份入册。
+// 根退出后不再接受无法由已知 parent-chain 证明的新成员，保持 unknown 零信号。
+func (p *unixProcessTree) prepareShutdown() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.released {
+		return errors.New("process-tree owner is released")
+	}
+	table, err := processTable()
+	if err != nil {
+		return errors.Join(ErrProcessTreeCleanupPending, err)
+	}
+	rootCurrent, rootPresent := table[p.root.PID]
+	if !rootPresent {
+		return errors.Join(ErrProcessTreeCleanupPending, fmt.Errorf("%w: root PID %d is no longer alive", ErrProcessTreeIdentityMismatch, p.root.PID))
+	}
+	if !rootCurrent.Equal(p.root) {
+		return errors.Join(ErrProcessTreeCleanupPending, fmt.Errorf("%w: root PID %d was reused", ErrProcessTreeIdentityMismatch, p.root.PID))
+	}
+	snapshot, err := p.snapshotFromTable(table)
+	if err != nil {
+		return errors.Join(ErrProcessTreeCleanupPending, err)
+	}
+	if len(snapshot.Unknown) != 0 {
+		return errors.Join(ErrProcessTreeCleanupPending, fmt.Errorf("%w: unknown member prevents shutdown preparation", ErrProcessTreeIdentityMismatch))
+	}
+	return nil
+}
+
+// rssBytes 读取当前 exact owner 成员的 RSS，并拒绝不完整的成员闭包。
 func (p *unixProcessTree) rssBytes() (uint64, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -171,6 +202,11 @@ func (p *unixProcessTree) snapshotLocked() (ProcessTreeSnapshot, error) {
 	if err := p.validateSnapshotRoot(table); err != nil {
 		return ProcessTreeSnapshot{}, err
 	}
+	return p.snapshotFromTable(table)
+}
+
+// snapshotFromTable 从同一进程表构造已绑定成员与未知同组成员的快照。
+func (p *unixProcessTree) snapshotFromTable(table map[int]ProcessIdentity) (ProcessTreeSnapshot, error) {
 	members := make([]ProcessIdentity, 0, len(table))
 	unknown := make([]ProcessIdentity, 0)
 	for pid, current := range table {
@@ -204,6 +240,7 @@ func sameProcessTreeGroup(current, root ProcessIdentity) bool {
 	return current.SessionID == root.SessionID && current.ProcessGroupID == root.ProcessGroupID
 }
 
+// knownMemberOrDescendant 通过 known 身份或完整 parent-chain 证明成员属于 owner。
 func (p *unixProcessTree) knownMemberOrDescendant(pid int, table map[int]ProcessIdentity) bool {
 	if _, ok := p.known[pid]; ok {
 		return true
@@ -217,6 +254,9 @@ func (p *unixProcessTree) knownMemberOrDescendant(pid int, table map[int]Process
 		entry, ok := table[current]
 		if !ok {
 			return false
+		}
+		if _, ok := p.known[current]; ok {
+			return true
 		}
 		if entry.PID == p.root.PID {
 			return true
@@ -317,6 +357,7 @@ func (p *unixProcessTree) signalSnapshot(members []ProcessIdentity, signal int) 
 	return p.signalMembers(members, signal)
 }
 
+// wait 在有界上下文内持续验证 exact owner 成员，直到全部退出或返回剩余证据。
 func (p *unixProcessTree) wait(ctx context.Context) error {
 	for {
 		remaining, err := p.remaining()
@@ -343,6 +384,7 @@ func killProcessTree(cmd *exec.Cmd) error {
 	return ErrProcessTreeOwnerMissing
 }
 
+// processTreeRSSBytes 仅用于遥测汇总同一 session/PGID 的 RSS，不提供破坏性回收授权。
 // ProcessTreeRSSBytes is retained for telemetry only. Destructive actions use
 // the explicit owner and never reconstruct a process group from a bare PID.
 func processTreeRSSBytes(pid int) (uint64, error) {

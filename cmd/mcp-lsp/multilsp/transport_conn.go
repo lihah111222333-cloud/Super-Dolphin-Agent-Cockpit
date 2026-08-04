@@ -33,6 +33,7 @@ func startTransport(
 	return startTransportWithStarter(options, hiddenexec.StartProcessTree)
 }
 
+// startTransportWithStarter 创建 stdio 管道并把启动失败时的 owner 交给清理路径。
 func startTransportWithStarter(
 	options transportOptions,
 	starter func(*exec.Cmd) (*hiddenexec.ProcessTree, error),
@@ -266,6 +267,15 @@ func (t *transport) waitForExit(timeout time.Duration) error {
 
 func (t *transport) killProcess() error {
 	return t.terminateProcessTree()
+}
+
+// prepareProcessTreeShutdown 在协议 shutdown/exit 前通过 exact owner 入册当前后代。
+// 缺少 preparation 能力时 fail-fast，绝不退回裸 PID 或 process-group 推断。
+func (t *transport) prepareProcessTreeShutdown() error {
+	if t == nil || t.processTree == nil {
+		return nil
+	}
+	return t.processTree.PrepareShutdown()
 }
 
 // terminateProcessTree 统一所有关闭路径的进程树终止与 owner 释放。

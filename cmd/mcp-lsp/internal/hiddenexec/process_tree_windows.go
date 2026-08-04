@@ -190,6 +190,7 @@ func processThreadIDs(snapshot windows.Handle, pid int) ([]uint32, error) {
 	return threadIDs, nil
 }
 
+// cleanupUnassignedSuspendedProcess 处理 Job 分配失败的挂起根进程并保留可重试 owner。
 func cleanupUnassignedSuspendedProcess(cmd *exec.Cmd, owner *windowsProcessTree) (*ProcessTree, error) {
 	startupOwner := newStartupProcessTreeWithRelease(cmd, nil, func() error {
 		return closeWindowsHandle(owner.job, "close empty unassigned language-server Job Object")
@@ -263,6 +264,7 @@ func (p *windowsProcessTree) terminate() error {
 	return p.force(ctx)
 }
 
+// release 验证 Job 已空后关闭句柄，避免释放仍有成员的 Windows owner。
 func (p *windowsProcessTree) release() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -316,6 +318,7 @@ func (p *windowsProcessTree) alive() (bool, error) {
 	return true, nil
 }
 
+// snapshot 从 Job 成员列表逐一重读身份，拒绝不可验证的成员。
 func (p *windowsProcessTree) snapshot() (ProcessTreeSnapshot, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -339,6 +342,19 @@ func (p *windowsProcessTree) snapshot() (ProcessTreeSnapshot, error) {
 	}
 	slicesSortIdentities(members)
 	return ProcessTreeSnapshot{Root: p.root, Members: members, CapturedAt: time.Now()}, nil
+}
+
+// prepareShutdown 在协议关闭前复核根身份与 Job 成员，确保后续终止仍有 exact authority。
+func (p *windowsProcessTree) prepareShutdown() error {
+	alive, err := p.alive()
+	if err != nil {
+		return errors.Join(ErrProcessTreeCleanupPending, err)
+	}
+	if !alive {
+		return errors.Join(ErrProcessTreeCleanupPending, fmt.Errorf("%w: root PID %d is no longer alive", ErrProcessTreeIdentityMismatch, p.pid))
+	}
+	_, err = p.snapshot()
+	return err
 }
 
 func (p *windowsProcessTree) descendants() ([]ProcessIdentity, error) {
@@ -367,6 +383,7 @@ func (p *windowsProcessTree) graceful(context.Context) error {
 	return errors.New("Windows process trees do not support a TERM phase; use Force")
 }
 
+// force 复核根身份与 Job 成员后终止整个受 Job 权限约束的进程树。
 func (p *windowsProcessTree) force(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -396,6 +413,7 @@ func (p *windowsProcessTree) force(ctx context.Context) error {
 	return terminateJobProcessTree(p.job)
 }
 
+// wait 在有界上下文内轮询 Job 成员，直到 owner 进程树为空或超时。
 func (p *windowsProcessTree) wait(ctx context.Context) error {
 	for {
 		remaining, err := p.remaining()

@@ -89,6 +89,7 @@ func (p *startupProcessTreeState) waitResult(ctx context.Context) error {
 	}
 }
 
+// terminateExact 通过启动时保存的 os.Process 句柄终止并回收未完成绑定的根进程。
 func (p *startupProcessTreeState) terminateExact() error {
 	p.mu.Lock()
 	p.startWaitLocked()
@@ -123,6 +124,7 @@ func (p *startupProcessTreeState) terminate() error {
 	return p.terminateExact()
 }
 
+// release 仅在启动进程已等待完成且释放钩子成功时关闭 startup owner。
 func (p *startupProcessTreeState) release() error {
 	p.mu.Lock()
 	if p.released {
@@ -164,6 +166,11 @@ func (p *startupProcessTreeState) identity() (ProcessIdentity, error) {
 
 func (p *startupProcessTreeState) snapshot() (ProcessTreeSnapshot, error) {
 	return ProcessTreeSnapshot{}, errors.Join(ErrProcessTreeCleanupPending, errors.New("startup process-tree snapshot is unavailable without a bound tree owner"))
+}
+
+// prepareShutdown 对未完成绑定的 startup owner 明确返回 CleanupPending，禁止假设后代已受控。
+func (p *startupProcessTreeState) prepareShutdown() error {
+	return errors.Join(ErrProcessTreeCleanupPending, errors.New("startup process-tree shutdown preparation is unavailable without a bound tree owner"))
 }
 
 func (p *startupProcessTreeState) alive() (bool, error) {
@@ -208,6 +215,7 @@ func (p *startupProcessTree) wait(ctx context.Context) error {
 	return nil
 }
 
+// remaining 返回 startup owner 当前仍可由精确等待状态证明的成员。
 func (p *startupProcessTree) remaining() ([]ProcessIdentity, error) {
 	p.mu.Lock()
 	if p.released {
