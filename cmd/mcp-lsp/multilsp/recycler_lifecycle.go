@@ -60,7 +60,7 @@ func (r *poolRecycler) managerIdleEligible(mgr *manager, snapshot workspaceClien
 	mgr.mu.RLock()
 	defer mgr.mu.RUnlock()
 	current := mgr.workspaces[snapshot.key]
-	return sameWorkspaceGeneration(current, &snapshot) && idleEligible(current, now, idleTimeoutForLanguage(current.languageID))
+	return sameWorkspaceGeneration(current, &snapshot) && idleEligible(current, now, mgr.idleTimeout)
 }
 
 func (r *poolRecycler) managerIdleCandidate(mgr *manager, snapshot workspaceClient, now time.Time, timeout time.Duration) (workspaceClient, bool) {
@@ -110,5 +110,5 @@ func detachWorkspaceEligible(mgr *manager, workspace *workspaceClient) bool {
 	if workspace.state == workspaceStateCleanupPending {
 		return true
 	}
-	return idleEligible(workspace, mgr.managerNow(), idleTimeoutForLanguage(workspace.languageID))
+	return idleEligible(workspace, mgr.managerNow(), mgr.idleTimeout)
 }

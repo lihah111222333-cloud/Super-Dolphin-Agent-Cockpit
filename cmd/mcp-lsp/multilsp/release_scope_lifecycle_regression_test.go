@@ -268,8 +268,8 @@ func attachWorkspaceClientForReleaseTest(mgr *manager, key string, client Client
 		client:       client,
 		generation:   1,
 		state:        workspaceStateIdleCountdown,
-		idleSince:    time.Now().Add(-2 * idleTimeout),
-		lastActivity: time.Now().Add(-2 * idleTimeout),
+		idleSince:    time.Now().Add(-2 * idleTimeoutForTest()),
+		lastActivity: time.Now().Add(-2 * idleTimeoutForTest()),
 	}
 }
 

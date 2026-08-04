@@ -17,6 +17,7 @@ import (
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	platformrunner "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runner"
 	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
@@ -95,6 +96,7 @@ type Config struct {
 	WorkspaceRoot                    string                   // 默认 workspace root，空值时回退到当前进程目录。
 	ClientFactory                    ClientFactory            // 创建语言服务器客户端的必填工厂。
 	LanguageAdapters                 *LanguageAdapterRegistry // 语言适配器注册表，空值时使用默认注册表。
+	IdleTimeout                      time.Duration            // 已解析的 LSP workspace/client 空闲窗口，生产 wiring 必须显式注入。
 	DiagnosticsInitialDelay          time.Duration            // 首次等待诊断前的延迟。
 	DiagnosticsPollInterval          time.Duration            // 轮询诊断稳定性的间隔。
 	DiagnosticsMaxWait               time.Duration            // 单次诊断等待的最大时长。
@@ -110,6 +112,7 @@ type manager struct {
 	factory                          ClientFactory            // 语言服务器客户端工厂。
 	adapters                         *LanguageAdapterRegistry // 语言到 root/能力策略的适配表。
 	logger                           *slog.Logger             // manager 内部诊断日志。
+	idleTimeout                      time.Duration            // manager 的唯一生命周期空闲窗口。
 	pool                             *ManagerPool             // 按 scope 分片复用的子 manager 池。
 	disableInitialWorkspaceBootstrap bool                     // 跳过初始化预热的开关。
 	retryBaseDelay                   time.Duration            // transient retry 的基础退避时间。
@@ -215,8 +218,24 @@ var (
 	_ protocol.NotificationHandler = (*manager)(nil)
 )
 
-// NewManager 根据配置创建 manager，空 root 会回退到当前目录但工厂缺失仍保持 fail-fast。
+// NewManager 根据配置创建 manager；直接测试构造的零 IdleTimeout 使用 canonical platform 配置。
+// 生产装配必须调用 NewManagerWithError，缺失 resolved timeout 时立即失败。
 func NewManager(cfg Config) Manager {
+	if cfg.IdleTimeout <= 0 {
+		cfg.IdleTimeout = platformconfig.DefaultLSPConfig().IdleTimeout
+	}
+	return newManager(cfg)
+}
+
+// NewManagerWithError 创建生产 manager，并拒绝缺失或非法的 resolved idle timeout。
+func NewManagerWithError(cfg Config) (Manager, error) {
+	if cfg.IdleTimeout <= 0 {
+		return nil, errors.New("LSP idle timeout is required")
+	}
+	return newManager(cfg), nil
+}
+
+func newManager(cfg Config) *manager {
 	root, err := platformshared.NormalizeAbsolutePath(cfg.WorkspaceRoot)
 	if err != nil {
 		root = ""
@@ -231,6 +250,7 @@ func NewManager(cfg Config) Manager {
 		factory:                          cfg.ClientFactory,
 		adapters:                         cfg.LanguageAdapters,
 		logger:                           cfg.Logger,
+		idleTimeout:                      cfg.IdleTimeout,
 		workspaces:                       make(map[string]*workspaceClient),
 		diagnostics:                      make(map[string]diagnosticSnapshot),
 		diagnosticEpochs:                 make(map[string]uint64),
@@ -270,6 +290,7 @@ func (m *manager) cloneForWorkspace(workspaceRoot string) *manager {
 		clone.factory = m.factory
 		clone.adapters = m.adapters
 		clone.logger = m.logger
+		clone.idleTimeout = m.idleTimeout
 		clone.pool = m.pool
 		clone.diagInitial = m.diagInitial
 		clone.diagPoll = m.diagPoll
