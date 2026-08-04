@@ -248,7 +248,11 @@ func NewManagerWithError(cfg Config) (Manager, error) {
 	if cfg.IdleTimeout <= 0 {
 		return nil, errors.New("LSP idle timeout is required")
 	}
-	return newManager(cfg)
+	mgr, err := newManager(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return mgr, nil
 }
 
 // newManager 完成已校验配置的 manager 组装，并在生产熵源失败时立即返回构造错误。
