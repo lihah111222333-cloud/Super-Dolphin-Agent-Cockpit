@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/processobserve"
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
@@ -107,6 +108,8 @@ type manager struct {
 	workspaceRoot                    string                   // manager 默认根目录，参与相对路径解析。
 	workspaceGeneration              atomic.Uint64            // 每个 workspace client 的单调代际分配器。
 	clock                            func() time.Time         // 测试可注入时钟；生产路径使用 time.Now。
+	provisionalOperation             atomic.Uint64            // provisional cleanup 的本地操作序号。
+	instanceID                       string                   // manager 实例随机身份，避免 clone 操作 ID 碰撞。
 	factory                          ClientFactory            // 语言服务器客户端工厂。
 	adapters                         *LanguageAdapterRegistry // 语言到 root/能力策略的适配表。
 	logger                           *slog.Logger             // manager 内部诊断日志。
@@ -116,6 +119,7 @@ type manager struct {
 
 	mu                  sync.RWMutex                       // 保护 closed、workspaces 与 provisionalCleanups。
 	ensureMu            sync.Mutex                         // 串行化客户端创建，避免同一 workspace 重复启动。
+	processObserverMu   sync.Mutex                         // 串行化只读 processobserve observer 的懒初始化。
 	closed              bool                               // manager 关闭后禁止再创建客户端。
 	retiring            bool                               // release drain 已建立代际栅栏，禁止新增租约。
 	workspaces          map[string]*workspaceClient        // workspace key 到客户端状态。
@@ -142,6 +146,9 @@ type manager struct {
 
 	coordinatorMu sync.Mutex            // 保护启动协调器的懒初始化。
 	coordinator   *bootstrapCoordinator // workspace bootstrap 去重协调器。
+
+	processObserver         *processobserve.Observer // 仅记录只读 ghost/reclaim_blocked 投影。
+	processObservationStore *processobserve.Store    // 进程内有界观察投影，无持久化能力。
 }
 
 // workspaceClient 保存单个 workspace/language 客户端及其 root 身份。
@@ -228,6 +235,7 @@ func NewManager(cfg Config) Manager {
 	}
 	mgr := &manager{
 		workspaceRoot:                    root,
+		instanceID:                       mustProvisionalInstanceID(),
 		factory:                          cfg.ClientFactory,
 		adapters:                         cfg.LanguageAdapters,
 		logger:                           cfg.Logger,
@@ -235,6 +243,7 @@ func NewManager(cfg Config) Manager {
 		diagnostics:                      make(map[string]diagnosticSnapshot),
 		diagnosticEpochs:                 make(map[string]uint64),
 		explicitlyOpen:                   make(map[string]struct{}),
+		processObservationStore:          processobserve.NewMemoryStore(),
 		diagInitial:                      chooseDuration(cfg.DiagnosticsInitialDelay, defaultDiagnosticsInitialDelay),
 		diagPoll:                         chooseDuration(cfg.DiagnosticsPollInterval, defaultDiagnosticsPollInterval),
 		diagMaxWait:                      chooseDuration(cfg.DiagnosticsMaxWait, defaultDiagnosticsMaxWait),
@@ -260,11 +269,13 @@ func (m *manager) cloneForWorkspace(workspaceRoot string) *manager {
 		root = normalized
 	}
 	clone := &manager{
-		workspaceRoot:    root,
-		workspaces:       make(map[string]*workspaceClient),
-		diagnostics:      make(map[string]diagnosticSnapshot),
-		diagnosticEpochs: make(map[string]uint64),
-		explicitlyOpen:   make(map[string]struct{}),
+		workspaceRoot:           root,
+		instanceID:              mustProvisionalInstanceID(),
+		workspaces:              make(map[string]*workspaceClient),
+		diagnostics:             make(map[string]diagnosticSnapshot),
+		diagnosticEpochs:        make(map[string]uint64),
+		explicitlyOpen:          make(map[string]struct{}),
+		processObservationStore: processobserve.NewMemoryStore(),
 	}
 	if m != nil {
 		clone.factory = m.factory

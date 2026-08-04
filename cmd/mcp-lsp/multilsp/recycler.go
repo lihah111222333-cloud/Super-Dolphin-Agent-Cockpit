@@ -153,10 +153,24 @@ func (r *poolRecycler) check() {
 	}
 	r.pool.drainPendingReleases()
 	for _, snapshot := range r.pool.snapshotManagers() {
+		r.retryProvisionalCleanups(snapshot.manager)
 		r.checkIdleWorkspaces(snapshot.manager, snapshot.resolvedScope)
 		r.checkManager(snapshot.index, snapshot.manager, snapshot.resolvedScope)
 	}
 	r.evictIdleEmptyClones()
+}
+
+func (r *poolRecycler) retryProvisionalCleanups(mgr *manager) {
+	if mgr == nil {
+		return
+	}
+	mgr.ensureMu.Lock()
+	defer mgr.ensureMu.Unlock()
+	for _, key := range mgr.provisionalCleanupKeys() {
+		if err := mgr.retryProvisionalClientCleanups(key); err != nil && mgr.logger != nil {
+			mgr.logger.Warn("LSP provisional cleanup retry pending", "workspace_hash", provisionalWorkspaceHash(key), "err", err)
+		}
+	}
 }
 
 // evictIdleEmptyClones 摘除过期空 clone，并把关闭失败交回 pool receipt 等待重试。

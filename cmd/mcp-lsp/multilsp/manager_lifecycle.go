@@ -83,7 +83,10 @@ func (m *manager) closeWithoutPoolStatus() (done bool, err error) {
 		m.initializeClose()
 	}
 
-	remaining, completedErr, attemptErr := retryPendingClientShutdowns(m.closingClients)
+	remaining, completedErr, attemptErr := retryPendingClientShutdownsWithObserver(
+		m.closingClients,
+		m.observeCleanupFailure,
+	)
 	m.closingClients = remaining
 	m.closeWarnings = firstNonNilError(m.closeWarnings, completedErr)
 	if len(remaining) > 0 {
@@ -129,7 +132,13 @@ func (m *manager) collectAndClearClientShutdowns() []pendingClientShutdown {
 	}
 	for _, workspace := range m.workspaces {
 		if workspace != nil && workspace.client != nil {
-			states = append(states, pendingClientShutdown{client: workspace.client})
+			state := m.newPendingClientShutdown(
+				workspace.key,
+				workspace.generation,
+				workspace.client,
+				nil,
+			)
+			states = append(states, state)
 		}
 	}
 	clear(m.workspaces)
@@ -396,150 +405,6 @@ func shutdownWorkspaceClient(client Client) (error, error) {
 	shutdownErr := client.Shutdown(shutCtx)
 	cancel()
 	return shutdownErr, client.Close()
-}
-
-// restoreDetachedWorkspaceClient 在进程级 Close 失败时归还唯一 cleanup owner。
-func restoreDetachedWorkspaceClient(mgr *manager, workspace *workspaceClient) {
-	if mgr == nil || workspace == nil || workspace.client == nil {
-		return
-	}
-	mgr.mu.Lock()
-	defer mgr.mu.Unlock()
-	if mgr.workspaces == nil {
-		mgr.workspaces = make(map[string]*workspaceClient)
-	}
-	if mgr.workspaces[workspace.key] == nil {
-		workspace.state = workspaceStateCleanupPending
-		workspace.idleSince = time.Time{}
-		mgr.workspaces[workspace.key] = workspace
-	}
-}
-
-// retryProvisionalClientCleanups 在创建同 workspace client 前重试全部未完成 cleanup。
-// Close 尚未成功时 owner 会归还 manager，调用方不得继续创建第二个 client。
-func (m *manager) retryProvisionalClientCleanups(key string) error {
-	states := m.takeProvisionalClientCleanups(key)
-	remaining, cleanupErr := retryProvisionalClientShutdowns(states)
-	m.retainProvisionalClientCleanups(key, remaining)
-	return cleanupErr
-}
-
-// cleanupProvisionalClient 清理尚未登记的 client，并在进程级 Close 失败时保留唯一 owner。
-func (m *manager) cleanupProvisionalClient(key string, client Client, initialized bool) error {
-	if client == nil {
-		return nil
-	}
-	state := pendingClientShutdown{client: client, shutdownDone: !initialized}
-	remaining, cleanupErr := retryProvisionalClientShutdowns([]pendingClientShutdown{state})
-	m.retainProvisionalClientCleanups(key, remaining)
-	return cleanupErr
-}
-
-// retryProvisionalClientShutdowns 重试 provisional client cleanup，保留 Shutdown 与 Close 的全部错误。
-func retryProvisionalClientShutdowns(states []pendingClientShutdown) (remaining []pendingClientShutdown, cleanupErr error) {
-	remaining = make([]pendingClientShutdown, 0, len(states))
-	for _, state := range states {
-		if state.client == nil {
-			continue
-		}
-		if !state.shutdownDone {
-			shutCtx, cancel := platformconfig.WithTimeout(context.Background(), managerShutdownTimeout)
-			state.shutdownErr = state.client.Shutdown(shutCtx)
-			cancel()
-			state.shutdownDone = true
-		}
-		closeErr := state.client.Close()
-		cleanupErr = errors.Join(cleanupErr, state.shutdownErr, closeErr)
-		if closeErr != nil {
-			remaining = append(remaining, state)
-		}
-	}
-	return remaining, cleanupErr
-}
-
-// takeProvisionalClientCleanups 原子摘取指定 workspace 的 pending cleanup owner。
-func (m *manager) takeProvisionalClientCleanups(key string) []pendingClientShutdown {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	states := m.provisionalCleanups[key]
-	delete(m.provisionalCleanups, key)
-	return states
-}
-
-// retainProvisionalClientCleanups 归还 Close 仍失败的 provisional client owner。
-func (m *manager) retainProvisionalClientCleanups(key string, states []pendingClientShutdown) {
-	if len(states) == 0 {
-		return
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.provisionalCleanups == nil {
-		m.provisionalCleanups = make(map[string][]pendingClientShutdown)
-	}
-	m.provisionalCleanups[key] = append(m.provisionalCleanups[key], states...)
-}
-
-// joinProvisionalClientError 合并主流程失败与 provisional cleanup 失败并保留根因链。
-func joinProvisionalClientError(primary, cleanupErr error) error {
-	if cleanupErr == nil {
-		return primary
-	}
-	return errors.Join(primary, fmt.Errorf("cleanup provisional LSP client: %w", cleanupErr))
-}
-
-// createAndRegisterClient 创建、初始化并登记新的 workspace client。
-// 任一登记前失败都会同步尝试 cleanup；Close 失败时保留 owner 供 EnsureClient 或 Manager.Close 重试。
-func (m *manager) createAndRegisterClient(ctx context.Context, cfg workspaceConfig) (Client, error) {
-	if m.factory == nil {
-		return nil, ErrClientFactoryNil
-	}
-	capturedGen := m.diagGeneration.Load()
-	handler := managerNotificationHandler{
-		captureDiagnostics: func(params protocol.PublishDiagnosticsParams) (capturedPublishDiagnostics, error) {
-			return m.capturePublishDiagnostics(params, capturedGen)
-		},
-		publishDiagnostics: m.publishCapturedDiagnostics,
-		logMessage:         m.LogMessage,
-	}
-	if err := prepareWorkspaceDependencies(ctx, cfg); err != nil {
-		return nil, err
-	}
-	client, err := newClientFromFactory(m.factory, cfg, handler)
-	if err != nil {
-		return nil, fmt.Errorf("create LSP client: %w", err)
-	}
-	configureClientWorkspace(client, cfg)
-	if err := client.Initialize(ctx, cfg.rootURI); err != nil {
-		cleanupErr := m.cleanupProvisionalClient(cfg.key, client, false)
-		return nil, joinProvisionalClientError(fmt.Errorf("initialize LSP client: %w", err), cleanupErr)
-	}
-
-	m.mu.Lock()
-	if m.closed || m.retiring {
-		m.mu.Unlock()
-		cleanupErr := m.cleanupProvisionalClient(cfg.key, client, true)
-		return nil, joinProvisionalClientError(ErrManagerClosed, cleanupErr)
-	}
-	if workspace := m.workspaces[cfg.key]; workspace != nil && workspace.client != nil {
-		existing := workspace.client
-		m.mu.Unlock()
-		cleanupErr := m.cleanupProvisionalClient(cfg.key, client, true)
-		return existing, joinProvisionalClientError(nil, cleanupErr)
-	}
-	generation := m.workspaceGeneration.Add(1)
-	m.workspaces[cfg.key] = &workspaceClient{
-		key:              cfg.key,
-		rootPath:         cfg.rootPath,
-		rootURI:          cfg.rootURI,
-		languageID:       cfg.languageID,
-		env:              append([]string(nil), cfg.env...),
-		workspaceFolders: cloneWorkspaceFolders(cfg.workspaceFolders),
-		client:           client,
-		generation:       generation,
-		state:            workspaceStateBootstrapping,
-	}
-	m.mu.Unlock()
-	return client, nil
 }
 
 func newClientFromFactory(factory ClientFactory, cfg workspaceConfig, handler protocol.NotificationHandler) (Client, error) {
