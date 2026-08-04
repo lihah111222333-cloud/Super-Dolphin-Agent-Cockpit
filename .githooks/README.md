@@ -11,3 +11,5 @@
 持有实际 token 时，`pre-commit` 才固定 staged tree，验证并在允许时单次刷新受管 closure 输出，然后以该精确 tree 和 parent commit 调用 `remote hook pre-commit`。`pre-push` 才将 Git stdin 的每条精确 ref update 交给 `remote hook pre-push`。远端结果必须绑定同一 source tree、入口和清理证据；任何身份、权威性或状态缺失均拒绝 Git 动作。
 
 `commit-msg` 仍要求中文提交信息和 fix-test evidence。hooks 不从调用方 PATH 解析 gate CLI，也不执行候选工作树中的脚本。
+
+mcp-lsp 本地门禁只消费版本化 workload ID：`mcp-lsp-idle-quick`、`mcp-lsp-native-process-tree`、`mcp-lsp-default-15m`。其中 default-15m source-E2E 当前缺实现，必须保持 N/V；100-workspace soak 与 release artifact 同样保持 N/V，并阻断 T6/release。

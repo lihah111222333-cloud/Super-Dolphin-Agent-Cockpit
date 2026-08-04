@@ -47,6 +47,12 @@ func ownedGateRunners(plan gatePlan) map[string]gateRunner {
 		"nightly-protocol:check": {run: func() error {
 			return runCommand("", "go", "run", "./scripts/nightly_protocol_validator")
 		}},
+		"mcp-lsp:catalog": {run: func() error {
+			return runCommand("", "./scripts/check_mcp_lsp_workload_catalog.sh")
+		}},
+		"mcp-lsp:idle-quick": {run: func() error {
+			return runCommand("", "./scripts/run_mcp_lsp_workload.sh", "--id", "mcp-lsp-idle-quick")
+		}},
 	}
 }
 

@@ -530,6 +530,9 @@ func TestGatePlanProducerMatchesRunnerAndEvidenceRegistries(t *testing.T) {
 		{"frontend-app/tests/e2e/business-flows.spec.js"},
 		{"internal/module/thread/session_test.go"},
 		{"docs/automation/全仓夜间门禁健康巡检协议.md"},
+		{"cmd/mcp-lsp/runtime.go"},
+		{"scripts/mcp_lsp_workload_catalog.json"},
+		{"Makefile"},
 	} {
 		for _, gate := range mustGatePlanForScope(t, files, true).RequiredGates {
 			producerGates[gate] = true

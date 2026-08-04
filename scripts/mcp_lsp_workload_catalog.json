@@ -1,0 +1,88 @@
+{
+  "schema": "super-dolphin/mcp-lsp-workload-catalog/v1",
+  "catalog_digest": "sha256:f6f1e08367c537b494db4aae7dedf516a9039347ed6f88e3d47357cc095abbda",
+  "workloads": [
+    {
+      "id": "mcp-lsp-idle-quick",
+      "implementation_status": "implemented",
+      "runner_target": "local-go-test",
+      "platforms": ["darwin", "linux"],
+      "timeout_seconds": 240,
+      "trigger_class": "quick",
+      "receipt_schema": "super-dolphin/mcp-lsp-workload-receipt/v1",
+      "producer_workflow_path": ".github/workflows/ci.yml",
+      "producer_artifact_name": "mcp-lsp-idle-quick-receipt",
+      "t6_blocking": true,
+      "release_blocking": true,
+      "receipt_required": true,
+      "command": [
+        "go",
+        "test",
+        "./cmd/mcp-lsp/multilsp",
+        "./cmd/mcp-lsp/internal/hiddenexec",
+        "./cmd/mcp-lsp/internal/processobserve",
+        "./cmd/mcp-lsp/internal/processprobe",
+        "-run",
+        "^Test(LeaseReleaseStartsFullIdleWindow|BootstrappingNeverIdleEligible|RecyclerRechecksLeaseAcquireBeforeDetach|ReleaseScopeZeroLeaseBeforeIdleTimeoutDoesNotClose|EnsureClientRetainsFailedInitializeCleanupUntilRetry|ManagerCloseRetriesProvisionalCleanupRacingRegistration|PoolRecyclerIdleWorkspaceWinsOverRSSRecycle|RecyclerProbeDegradationFailsClosedForIdleClient|ProcessTreeProvidesIdentitySnapshotAndBoundedLifecycle|LinuxPidfdUnavailableLeavesProcessTreePendingWithoutSignal|GhostObservationIsBoundedPairAndOperationSafe|GhostObservationFloodStaysBounded|GhostPairPendingRetriesWithStableProjectionIDs|ProbeCurrentProcessIsReadOnly|GoAdapterUsesResolvedIdleTimeoutForRemoteArg|NewManagerWithErrorRejectsMissingIdleTimeout|ManagerClonePreservesConfiguredIdleTimeout|PoolReleaseEligibilityUsesManagerIdleTimeout|ManagerStoresConfiguredIdleTimeout)$",
+        "-count=1"
+      ]
+    },
+    {
+      "id": "mcp-lsp-native-process-tree",
+      "implementation_status": "implemented",
+      "runner_target": "local-go-test",
+      "platforms": ["darwin", "linux", "windows"],
+      "timeout_seconds": 180,
+      "trigger_class": "native",
+      "receipt_schema": "super-dolphin/mcp-lsp-workload-receipt/v1",
+      "producer_workflow_path": ".github/workflows/ci.yml",
+      "producer_artifact_name": "mcp-lsp-native-process-tree-receipt",
+      "t6_blocking": true,
+      "release_blocking": true,
+      "receipt_required": true,
+      "command": ["go", "test", "./cmd/mcp-lsp/internal/hiddenexec", "-count=1"]
+    },
+    {
+      "id": "mcp-lsp-default-15m",
+      "implementation_status": "missing",
+      "runner_target": "not-implemented",
+      "platforms": ["darwin", "linux", "windows"],
+      "timeout_seconds": 1500,
+      "trigger_class": "default-15m-source-e2e",
+      "receipt_schema": "super-dolphin/mcp-lsp-workload-receipt/v1",
+      "producer_workflow_path": ".github/workflows/ci.yml",
+      "producer_artifact_name": "mcp-lsp-default-15m-receipt",
+      "t6_blocking": true,
+      "release_blocking": true,
+      "receipt_required": true
+    },
+    {
+      "id": "mcp-lsp-100-workspace-soak",
+      "implementation_status": "missing",
+      "runner_target": "not-implemented",
+      "platforms": ["darwin", "linux", "windows"],
+      "timeout_seconds": 7200,
+      "trigger_class": "100-workspace-soak",
+      "receipt_schema": "super-dolphin/mcp-lsp-workload-receipt/v1",
+      "producer_workflow_path": ".github/workflows/ci.yml",
+      "producer_artifact_name": "mcp-lsp-100-workspace-soak-receipt",
+      "t6_blocking": true,
+      "release_blocking": true,
+      "receipt_required": true
+    },
+    {
+      "id": "mcp-lsp-release-artifact",
+      "implementation_status": "missing",
+      "runner_target": "not-implemented",
+      "platforms": ["darwin", "linux", "windows"],
+      "timeout_seconds": 1800,
+      "trigger_class": "release-artifact",
+      "receipt_schema": "super-dolphin/mcp-lsp-workload-receipt/v1",
+      "producer_workflow_path": ".github/workflows/release.yml",
+      "producer_artifact_name": "mcp-lsp-release-artifact-receipt",
+      "t6_blocking": true,
+      "release_blocking": true,
+      "receipt_required": true
+    }
+  ]
+}
