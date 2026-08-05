@@ -239,10 +239,13 @@ func durationLedgerDerivedRunResults(records map[string]RemoteCIRunRecord, opaqu
 		if err != nil {
 			return nil, DurationLedgerDerivedFact{}, err
 		}
-		metrics = append(metrics, runMetrics...)
 		if _, exists := opaque[jobID]; exists {
+			for index := range runMetrics {
+				runMetrics[index].Measurement = unknownDerivedMeasurement("an opaque raw event for this run is not consumed by V1")
+			}
 			runComplete, runReason = false, "an additional opaque raw event for this run is not consumed by V1"
 		}
+		metrics = append(metrics, runMetrics...)
 		if !runComplete {
 			complete, reason = false, runReason
 		}
@@ -260,20 +263,14 @@ func durationLedgerDerivedRunResults(records map[string]RemoteCIRunRecord, opaqu
 }
 
 func durationLedgerDerivedProvenance(events []DurationLedgerRawObservationEvent) (DurationLedgerDerivedInputProvenance, error) {
-	var inputEvents []DurationLedgerDerivedInputEvent
-	inputEvents = make([]DurationLedgerDerivedInputEvent, 0, len(events))
-	var previous string
+	inputEvents, previous := make([]DurationLedgerDerivedInputEvent, 0, len(events)), ""
 	for index, event := range events {
 		next, err := verifyDurationLedgerRawObservationEvent(index, event, previous)
 		if err != nil {
 			return DurationLedgerDerivedInputProvenance{}, fmt.Errorf("raw event integrity at sequence %d: %w", event.EventSequence, err)
 		}
 		previous = next
-		inputEvents = append(inputEvents, DurationLedgerDerivedInputEvent{
-			EventSequence: event.EventSequence, EventID: event.EventID, EventKind: event.EventKind, RunID: event.RunID,
-			AcceptedGeneration: event.AcceptedGeneration, RecordedAtUnixNS: event.RecordedAtUnixNS,
-			PayloadSHA256: event.PayloadSHA256, PreviousEventSHA256: event.PreviousEventSHA256, EventSHA256: event.EventSHA256,
-		})
+		inputEvents = append(inputEvents, DurationLedgerDerivedInputEvent{EventSequence: event.EventSequence, EventID: event.EventID, EventKind: event.EventKind, RunID: event.RunID, AcceptedGeneration: event.AcceptedGeneration, RecordedAtUnixNS: event.RecordedAtUnixNS, PayloadSHA256: event.PayloadSHA256, PreviousEventSHA256: event.PreviousEventSHA256, EventSHA256: event.EventSHA256})
 	}
 	digest, err := canonicalJSONDigest(events)
 	if err != nil {
@@ -294,14 +291,7 @@ func decodeDurationLedgerDerivedRunRecord(payload string) (RemoteCIRunRecord, er
 	if len(envelope.Value) == 0 || bytes.Equal(bytes.TrimSpace(envelope.Value), []byte("null")) {
 		return RemoteCIRunRecord{}, errors.New("raw payload value is missing")
 	}
-	for field, measurement := range map[string]DurationLedgerObservationMeasurement{
-		"configured_shards_per_job":          envelope.UnknownFacts.ConfiguredShardsPerJob,
-		"configured_max_active_ci_workloads": envelope.UnknownFacts.ConfiguredMaxActiveCIWorkloads,
-		"reservation_lease_count":            envelope.UnknownFacts.ReservationLeaseCount,
-		"reservation_identity_digest":        envelope.UnknownFacts.ReservationIdentityDigest,
-		"runtime_group_size":                 envelope.UnknownFacts.RuntimeGroupSize,
-		"legacy_shard_schema_version":        envelope.UnknownFacts.LegacyShardSchemaVersion,
-	} {
+	for field, measurement := range map[string]DurationLedgerObservationMeasurement{"configured_shards_per_job": envelope.UnknownFacts.ConfiguredShardsPerJob, "configured_max_active_ci_workloads": envelope.UnknownFacts.ConfiguredMaxActiveCIWorkloads, "reservation_lease_count": envelope.UnknownFacts.ReservationLeaseCount, "reservation_identity_digest": envelope.UnknownFacts.ReservationIdentityDigest, "runtime_group_size": envelope.UnknownFacts.RuntimeGroupSize, "legacy_shard_schema_version": envelope.UnknownFacts.LegacyShardSchemaVersion} {
 		if err := validateDurationLedgerObservationMeasurement(field, measurement); err != nil {
 			return RemoteCIRunRecord{}, fmt.Errorf("raw payload unknown fact %s: %w", field, err)
 		}
@@ -314,6 +304,9 @@ func decodeDurationLedgerDerivedRunRecord(payload string) (RemoteCIRunRecord, er
 }
 
 func decodeDurationLedgerDerivedJSON(data []byte, destination any) error {
+	if err := rejectDurationLedgerDerivedDuplicateJSONKeys(data); err != nil {
+		return err
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(destination); err != nil {
@@ -326,6 +319,48 @@ func decodeDurationLedgerDerivedJSON(data []byte, destination any) error {
 		return fmt.Errorf("decode trailing JSON: %w", err)
 	}
 	return nil
+}
+
+// rejectDurationLedgerDerivedDuplicateJSONKeys递归拒绝同一 JSON object 中的冲突字段名。
+func rejectDurationLedgerDerivedDuplicateJSONKeys(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	return scanDurationLedgerDerivedJSONValue(decoder, nil)
+}
+
+// scanDurationLedgerDerivedJSONValue递归扫描 value、数组和嵌套 object 的键唯一性。
+func scanDurationLedgerDerivedJSONValue(decoder *json.Decoder, seen map[string]struct{}) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delimiter, ok := token.(json.Delim)
+	if !ok {
+		return nil
+	}
+	if delimiter == '{' {
+		seen = make(map[string]struct{})
+	} else if delimiter != '[' {
+		return fmt.Errorf("unexpected JSON delimiter %q", delimiter)
+	}
+	for decoder.More() {
+		if seen != nil {
+			keyToken, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			key := keyToken.(string)
+			canonicalKey := strings.ToLower(key)
+			if _, duplicate := seen[canonicalKey]; duplicate {
+				return fmt.Errorf("duplicate JSON object key %q", key)
+			}
+			seen[canonicalKey] = struct{}{}
+		}
+		if err := scanDurationLedgerDerivedJSONValue(decoder, nil); err != nil {
+			return err
+		}
+	}
+	_, err = decoder.Token()
+	return err
 }
 
 // validateDurationLedgerDerivedRunRecord校验不可变 run/execution 身份，并把缺失 timing warning 留给 UNKNOWN。
@@ -550,25 +585,30 @@ func durationLedgerDerivedGateMetrics(facts durationLedgerDerivedRunFacts) ([]Du
 	for _, execution := range facts.record.Executions {
 		executions[execution.GateID] = execution
 	}
-	complete := facts.identityComplete && facts.fullTiming && len(parents) > 0
+	complete := facts.identityComplete && facts.fullTiming && len(parents) > 0 && len(executions) == len(parents)
+	complete = complete && durationLedgerDerivedGateExecutionSetComplete(parents, executions)
 	var metrics []DurationLedgerDerivedMetric
 	for _, parent := range parents {
 		for _, phase := range []cicontract.TimingPhase{cicontract.TimingStartup, cicontract.TimingTestBody, cicontract.TimingTotal} {
-			aggregation := cicontract.TimingAggregationIntervalUnion
-			if phase == cicontract.TimingTotal {
-				aggregation = cicontract.TimingAggregationCriticalPath
-			}
+			aggregation := map[cicontract.TimingPhase]cicontract.TimingAggregation{cicontract.TimingStartup: cicontract.TimingAggregationIntervalUnion, cicontract.TimingTestBody: cicontract.TimingAggregationIntervalUnion, cicontract.TimingTotal: cicontract.TimingAggregationCriticalPath}[phase]
 			measurement := unknownDerivedMeasurement("gate envelope is unavailable without complete workload identity and timing facts")
 			if complete {
 				measurement, complete = durationLedgerDerivedGateMeasurement(parent, facts.parentGroups[parent], phase, facts.observed, executions[parent])
-				if !complete {
-					measurement = unknownDerivedMeasurement("gate envelope is missing or conflicts with workload facts")
-				}
 			}
 			metrics = append(metrics, DurationLedgerDerivedMetric{Scope: DurationLedgerDerivedMetricScopeGate, RunID: facts.record.JobID, Status: executions[parent].Status, GateID: parent, Phase: phase, Aggregation: aggregation, Measurement: measurement})
 		}
 	}
 	return metrics, complete
+}
+
+// durationLedgerDerivedGateExecutionSetComplete要求 gate execution 与 workload parent 集合完全相同。
+func durationLedgerDerivedGateExecutionSetComplete(parents []GateID, executions map[GateID]PlanGateExecution) bool {
+	for _, parent := range parents {
+		if _, exists := executions[parent]; !exists {
+			return false
+		}
+	}
+	return true
 }
 
 // verifyDurationLedgerDerivedTiming独立复核 workload、shard union 和 run critical path。
@@ -584,7 +624,8 @@ func verifyDurationLedgerDerivedTiming(record RemoteCIRunRecord, observed map[ob
 
 // verifyDurationLedgerDerivedWorkloadTiming把 profile 时长绑定到真实 workload interval。
 func verifyDurationLedgerDerivedWorkloadTiming(executions []PlanGateExecution, observed map[observationKey]TimingObservation) error {
-	for workloadID, execution := range mapSortedWorkloadExecutions(executions) {
+	for _, execution := range executions {
+		workloadID := execution.GateID
 		for _, phase := range []cicontract.TimingPhase{cicontract.TimingStartup, cicontract.TimingTestBody, cicontract.TimingTotal} {
 			observation := observed[observationKey{scope: cicontract.TimingScopeWorkload, shard: execution.ShardIdentity, workload: workloadID, phase: phase}]
 			if observation.DurationMS != durationLedgerDerivedWorkloadProfileDuration(execution.ExecutionProfile, phase) {
@@ -687,31 +728,11 @@ func durationLedgerDerivedGateMeasurement(parent GateID, group []PlanGateExecuti
 	if want.DurationMS == nil {
 		return unknownDerivedMeasurement("gate envelope duration is unavailable"), false
 	}
-	profileDuration := durationLedgerDerivedGateProfileDuration(execution.ExecutionProfile, phase)
+	profileDuration := durationLedgerDerivedWorkloadProfileDuration(execution.ExecutionProfile, phase)
 	if profileDuration != *want.DurationMS {
 		return unknownDerivedMeasurement("gate profile duration conflicts with exact workload facts"), false
 	}
 	return want, true
-}
-
-// durationLedgerDerivedGateProfileDuration读取已有 gate profile 的对应阶段。
-func durationLedgerDerivedGateProfileDuration(profile ExecutionProfile, phase cicontract.TimingPhase) int64 {
-	switch phase {
-	case cicontract.TimingStartup:
-		return profile.StartupMS
-	case cicontract.TimingTestBody:
-		return profile.TestBodyMS
-	default:
-		return profile.TotalMS
-	}
-}
-
-func mapSortedWorkloadExecutions(executions []PlanGateExecution) map[GateID]PlanGateExecution {
-	result := make(map[GateID]PlanGateExecution, len(executions))
-	for _, execution := range executions {
-		result[execution.GateID] = execution
-	}
-	return result
 }
 
 func durationLedgerDerivedMetricForKey(runID string, key observationKey, aggregation cicontract.TimingAggregation, measurement DurationLedgerDerivedMeasurement) DurationLedgerDerivedMetric {
@@ -750,15 +771,6 @@ func durationLedgerDerivedMetricLess(left, right DurationLedgerDerivedMetric) bo
 	for index := range leftKey {
 		if leftKey[index] != rightKey[index] {
 			return leftKey[index] < rightKey[index]
-		}
-	}
-	return false
-}
-
-func durationLedgerDerivedKnownPhase(phase cicontract.TimingPhase) bool {
-	for _, candidate := range cicontract.TimingPhases() {
-		if candidate == phase {
-			return true
 		}
 	}
 	return false

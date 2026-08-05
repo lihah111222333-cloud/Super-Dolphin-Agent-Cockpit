@@ -13,6 +13,11 @@ import (
 
 const derivedShardIdentity = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
 
+type derivedJSONEnvelope struct {
+	UnknownFacts json.RawMessage `json:"unknown_facts"`
+	Value        json.RawMessage `json:"value"`
+}
+
 func TestDurationLedgerDerivedReportBindsFormulaProvenanceAndUnknownFacts(t *testing.T) {
 	record := completeDerivedRunRecord(t, "derived-formula")
 	events := derivedRawEvents(t, record)
@@ -40,6 +45,131 @@ func TestDurationLedgerDerivedReportComputesExactUnionGateAndRun(t *testing.T) {
 	requireKnownDerivedMetric(t, report, DurationLedgerDerivedMetricScopeGate, record.JobID, "", GateIDBackendTestWithGuard, cicontract.TimingStartup, 10, cicontract.TimingAggregationIntervalUnion)
 	requireKnownDerivedMetric(t, report, DurationLedgerDerivedMetricScopeRun, record.JobID, "", "", cicontract.TimingTotal, 80, cicontract.TimingAggregationCriticalPath)
 	requireKnownMetricDurations(t, report)
+}
+
+func TestDurationLedgerDerivedReportRejectsExtraAggregateGate(t *testing.T) {
+	record := completeDerivedRunRecord(t, "derived-extra-gate")
+	extra := record.Executions[0]
+	extra.GateID = GateIDAIMaintenanceSelfTest
+	record.Executions = append(record.Executions, extra)
+
+	report := mustAggregateDerivedReport(t, derivedRawEvents(t, record))
+	if report.Completeness.PhaseGateRun.Status != DurationLedgerDerivedUnknown {
+		t.Fatalf("extra unbound gate completeness = %#v, want UNKNOWN", report.Completeness.PhaseGateRun)
+	}
+	metric, ok := findDerivedMetric(report, DurationLedgerDerivedMetricScopeGate, record.JobID, "", GateIDBackendTestWithGuard, cicontract.TimingStartup)
+	if ok && metric.Measurement.Status == DurationLedgerDerivedKnown {
+		t.Fatalf("extra unbound gate left an aggregate gate metric KNOWN: %#v", metric)
+	}
+}
+
+func TestDurationLedgerDerivedReportRejectsRecursiveDuplicateJSONKeys(t *testing.T) {
+	record := completeDerivedRunRecord(t, "derived-duplicate-json")
+	basePayload, _, err := marshalDurationLedgerObservationPayload(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var baseEnvelope derivedJSONEnvelope
+	if err := json.Unmarshal(basePayload, &baseEnvelope); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name    string
+		payload func(t *testing.T) []byte
+	}{
+		{
+			name: "root case variant",
+			payload: func(t *testing.T) []byte {
+				t.Helper()
+				envelope := baseEnvelope
+				envelope.Value = appendDerivedJSONDuplicate(t, envelope.Value, "Status", `"failed"`)
+				return marshalDerivedJSONEnvelope(t, envelope)
+			},
+		},
+		{
+			name: "nested case variant",
+			payload: func(t *testing.T) []byte {
+				t.Helper()
+				envelope := baseEnvelope
+				var facts map[string]json.RawMessage
+				if err := json.Unmarshal(envelope.UnknownFacts, &facts); err != nil {
+					t.Fatal(err)
+				}
+				facts["configured_shards_per_job"] = appendDerivedJSONDuplicate(t, facts["configured_shards_per_job"], "Warning", `"conflicting warning"`)
+				encodedFacts, err := json.Marshal(facts)
+				if err != nil {
+					t.Fatal(err)
+				}
+				envelope.UnknownFacts = encodedFacts
+				return marshalDerivedJSONEnvelope(t, envelope)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			event := derivedRawEventFromPayload(t, 1, "", durationLedgerObservationEventRemoteRunPersist, record.JobID, "1", tt.payload(t))
+			if _, err := AggregateDurationLedgerDerivedObservations([]DurationLedgerRawObservationEvent{event}); err == nil || !strings.Contains(strings.ToLower(err.Error()), "duplicate") {
+				t.Fatalf("duplicate JSON key error = %v", err)
+			}
+		})
+	}
+}
+
+func TestDurationLedgerDerivedReportOpaqueEventUnknownIsRunScoped(t *testing.T) {
+	record := completeDerivedRunRecord(t, "derived-opaque-same-run")
+	base := derivedRawEvents(t, record)
+	sameRunOpaque := derivedRawEventFromPayload(t, 2, base[0].EventSHA256, "future_event", record.JobID, "1", []byte(`{}`))
+	report := mustAggregateDerivedReport(t, append(base, sameRunOpaque))
+	coverageMetrics := 0
+	for _, metric := range report.Metrics {
+		if metric.RunID != record.JobID {
+			continue
+		}
+		coverageMetrics++
+		if metric.Measurement.Status != DurationLedgerDerivedUnknown {
+			t.Fatalf("same-run opaque event left metric KNOWN: %#v", metric)
+		}
+	}
+	if coverageMetrics == 0 {
+		t.Fatal("same-run opaque event produced no coverage metrics")
+	}
+	if report.Completeness.PhaseGateRun.Status != DurationLedgerDerivedUnknown {
+		t.Fatalf("same-run opaque completeness = %#v, want UNKNOWN", report.Completeness.PhaseGateRun)
+	}
+
+	unrelatedRecord := completeDerivedRunRecord(t, "derived-opaque-unrelated-run")
+	base = derivedRawEvents(t, unrelatedRecord)
+	unrelatedOpaque := derivedRawEventFromPayload(t, 2, base[0].EventSHA256, "future_event", "unrelated-run", "1", []byte(`{}`))
+	report = mustAggregateDerivedReport(t, append(base, unrelatedOpaque))
+	knownMetrics := 0
+	for _, metric := range report.Metrics {
+		if metric.RunID == unrelatedRecord.JobID && metric.Measurement.Status == DurationLedgerDerivedKnown {
+			knownMetrics++
+		}
+	}
+	if knownMetrics == 0 {
+		t.Fatal("unrelated-run opaque event contaminated the known run metrics")
+	}
+}
+
+func appendDerivedJSONDuplicate(t *testing.T, object json.RawMessage, key, value string) json.RawMessage {
+	t.Helper()
+	trimmed := strings.TrimSpace(string(object))
+	if !strings.HasPrefix(trimmed, "{") || !strings.HasSuffix(trimmed, "}") {
+		t.Fatalf("JSON object = %q", trimmed)
+	}
+	return json.RawMessage(trimmed[:len(trimmed)-1] + `,"` + key + `":` + value + "}")
+}
+
+func marshalDerivedJSONEnvelope(t *testing.T, envelope derivedJSONEnvelope) []byte {
+	t.Helper()
+	payload, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return payload
 }
 
 func TestDurationLedgerDerivedReportPropagatesIncompleteTimingAsUnknown(t *testing.T) {
