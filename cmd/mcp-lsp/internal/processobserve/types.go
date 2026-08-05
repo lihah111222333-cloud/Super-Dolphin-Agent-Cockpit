@@ -1,6 +1,6 @@
 // Package processobserve records conservative, no-signal process observations
-// in a bounded in-memory projection. Persistent receipt integration is owned by
-// the caller and is intentionally outside this package's authority boundary.
+// in a bounded memory projection or an explicitly opened durable observation
+// store. Neither mode has process-control authority.
 package processobserve
 
 import (
@@ -13,8 +13,10 @@ import (
 )
 
 const (
-	// MaxObservationBytes bounds the in-memory event projection.
-	MaxObservationBytes uint64 = 8 * 1024 * 1024
+	// MaxObservationBytes bounds the durable observation store (64 MiB).
+	MaxObservationBytes uint64 = 64 * 1024 * 1024
+	// MaxObservationBucketBytes bounds the observation-only bucket projection.
+	MaxObservationBucketBytes uint64 = 8 * 1024 * 1024
 	// MaxObservationBuckets bounds observations without a complete lifecycle identity.
 	MaxObservationBuckets = 1_024
 )
@@ -22,7 +24,8 @@ const (
 var (
 	// ErrCapacity means that the bounded in-memory projection cannot admit more evidence.
 	ErrCapacity = errors.New("process observation memory capacity exhausted")
-	// ErrDurabilityHandoff marks the intentionally unimplemented persistent integration.
+	// ErrDurabilityHandoff is retained for callers that still refer to the old
+	// integration sentinel; OpenDurableStore now provides the durable path.
 	ErrDurabilityHandoff = errors.New("persistent process receipt integration is an explicit handoff")
 )
 
@@ -44,13 +47,14 @@ const (
 
 // Projection is an immutable view of one no-signal projection.
 type Projection struct {
-	id         string
-	eventID    string
-	kind       ProjectionKind
-	event      string
-	reason     processprobe.ObservationReason
-	signalSent bool
-	acked      bool
+	id          string
+	eventID     string
+	operationID string
+	kind        ProjectionKind
+	event       string
+	reason      processprobe.ObservationReason
+	signalSent  bool
+	acked       bool
 }
 
 // ID returns the projection identifier.
@@ -58,6 +62,9 @@ func (p Projection) ID() string { return p.id }
 
 // EventID returns the parent observation event identifier.
 func (p Projection) EventID() string { return p.eventID }
+
+// OperationID returns the observation attempt associated with this projection.
+func (p Projection) OperationID() string { return p.operationID }
 
 // Kind returns candidate or blocked.
 func (p Projection) Kind() ProjectionKind { return p.kind }

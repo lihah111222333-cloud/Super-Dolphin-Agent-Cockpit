@@ -13,7 +13,7 @@ type Observer struct {
 	logger Logger
 }
 
-// NewObserver constructs an observer over a bounded in-memory store.
+// NewObserver constructs an observer over a bounded no-signal store.
 func NewObserver(store *Store) (*Observer, error) {
 	return NewObserverWithLogger(store, nil)
 }
