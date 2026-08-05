@@ -440,6 +440,22 @@ func validateResponseEnvelope(m Message, fields map[string]json.RawMessage, hasP
 		if _, ok := errorFields["message"]; !ok {
 			return fmt.Errorf("acp: error message is required")
 		}
+		if err := validateRPCErrorFieldTypes(errorFields); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateRPCErrorFieldTypes 拒绝 JSON-RPC error 字段的 null 和错误 JSON 类型。
+func validateRPCErrorFieldTypes(fields map[string]json.RawMessage) error {
+	code := bytes.TrimSpace(fields["code"])
+	if len(code) == 0 || (code[0] != '-' && (code[0] < '0' || code[0] > '9')) {
+		return fmt.Errorf("acp: error code must be a number")
+	}
+	message := bytes.TrimSpace(fields["message"])
+	if len(message) == 0 || message[0] != '"' {
+		return fmt.Errorf("acp: error message must be a string")
 	}
 	return nil
 }

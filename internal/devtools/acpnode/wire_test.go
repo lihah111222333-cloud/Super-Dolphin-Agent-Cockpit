@@ -39,6 +39,37 @@ func TestWireRoundTrip(t *testing.T) {
 	}
 }
 
+func TestWireValidatesRPCErrorFieldTypes(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		error string
+	}{
+		{name: "null code", error: `{"code":null,"message":"failure"}`},
+		{name: "non-number code", error: `{"code":"-1","message":"failure"}`},
+		{name: "null message", error: `{"code":-1,"message":null}`},
+		{name: "non-string message", error: `{"code":-1,"message":42}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			input := `{"jsonrpc":"2.0","id":1,"error":` + tc.error + "}\n"
+			if _, err := readMessage(strings.NewReader(input), 4096); err == nil {
+				t.Fatalf("invalid error envelope accepted: %s", input)
+			}
+		})
+	}
+
+	valid := `{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"failure","data":{"retry":true}}}` + "\n"
+	got, err := readMessage(strings.NewReader(valid), 4096)
+	if err != nil {
+		t.Fatalf("valid error envelope rejected: %v", err)
+	}
+	if got.Error == nil || got.Error.Code != -32000 || got.Error.Message != "failure" {
+		t.Fatalf("valid error envelope changed: %+v", got.Error)
+	}
+	if string(got.Error.Data) != `{"retry":true}` {
+		t.Fatalf("valid error data changed: %s", got.Error.Data)
+	}
+}
+
 func TestWireResponsePreservesOriginalIDBytes(t *testing.T) {
 	var out bytes.Buffer
 	if err := writeMessage(&out, Message{JSONRPC: "2.0", ID: json.RawMessage(`"\u0061"`), Result: json.RawMessage(`true`)}); err != nil {
