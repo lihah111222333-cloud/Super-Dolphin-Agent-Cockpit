@@ -290,6 +290,14 @@ func readDurableChunks(fd int, buf []byte) ([]byte, uint64, error) {
 	return buf, uint64(len(buf)), nil
 }
 
+func (r *secureRoot) deleteDurableRecord(eventID string) error {
+	if r == nil || r.fd < 0 || !validID(eventID) {
+		return errors.New("delete durable record: invalid event ID or root")
+	}
+	name := eventID + ".incident"
+	return unix.Unlinkat(r.fd, name, 0)
+}
+
 func (r *secureRoot) publishDurableRecord(eventID string, raw []byte) error {
 	if !validDurablePayload(eventID, raw) {
 		return errors.New("durable observation record is invalid")

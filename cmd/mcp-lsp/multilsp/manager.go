@@ -104,6 +104,7 @@ type Config struct {
 	DiagnosticsMaxWait               time.Duration            // 单次诊断等待的最大时长。
 	Logger                           *slog.Logger             // 可选日志器，空值时下游使用默认日志路径。
 	DisableInitialWorkspaceBootstrap bool                     // 是否跳过启动时的 workspace 预热。
+	ProcessObservationStore          *processobserve.Store    // 可选观察存储，空值时生产使用 OpenDurableStore。
 	provisionalInstanceID            string                   // 测试专用的确定性 manager 实例标识。
 	provisionalEntropy               io.Reader                // 测试专用熵源注入；生产使用 crypto/rand.Reader。
 }
@@ -273,6 +274,10 @@ func newManager(cfg Config) (*manager, error) {
 			return nil, fmt.Errorf("initialize LSP manager instance identity: %w", err)
 		}
 	}
+	obsStore, err := initProcessObservationStore(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("initialize process observation store: %w", err)
+	}
 	mgr := &manager{
 		workspaceRoot:                    root,
 		instanceID:                       instanceID,
@@ -285,7 +290,7 @@ func newManager(cfg Config) (*manager, error) {
 		diagnostics:                      make(map[string]diagnosticSnapshot),
 		diagnosticEpochs:                 make(map[string]uint64),
 		explicitlyOpen:                   make(map[string]struct{}),
-		processObservationStore:          processobserve.NewMemoryStore(),
+		processObservationStore:          obsStore,
 		diagInitial:                      chooseDuration(cfg.DiagnosticsInitialDelay, defaultDiagnosticsInitialDelay),
 		diagPoll:                         chooseDuration(cfg.DiagnosticsPollInterval, defaultDiagnosticsPollInterval),
 		diagMaxWait:                      chooseDuration(cfg.DiagnosticsMaxWait, defaultDiagnosticsMaxWait),
@@ -300,6 +305,25 @@ func newManager(cfg Config) (*manager, error) {
 	return mgr, nil
 }
 
+func initProcessObservationStore(cfg Config) (*processobserve.Store, error) {
+	if cfg.ProcessObservationStore != nil {
+		return cfg.ProcessObservationStore, nil
+	}
+	cacheDir, err := os.UserCacheDir()
+	if err != nil || strings.TrimSpace(cacheDir) == "" {
+		return processobserve.NewMemoryStore(), nil
+	}
+	root := filepath.Join(cacheDir, "super-agent-v3", "mcp-lsp", "process-observations", "v1")
+	store, err := processobserve.OpenDurableStore(root, processobserve.DurableOptions{})
+	if err != nil {
+		if errors.Is(err, processobserve.ErrDurablePlatformNotVerified) {
+			return processobserve.NewMemoryStore(), nil
+		}
+		return processobserve.NewMemoryStore(), nil
+	}
+	return store, nil
+}
+
 // cloneForWorkspace 为 scoped workspace 创建独立 manager 状态。
 // clone 复用工厂、适配器和诊断等待策略，但重新分配客户端、诊断和显式打开文档缓存。
 func (m *manager) cloneForWorkspace(workspaceRoot string) *manager {
@@ -311,8 +335,13 @@ func (m *manager) cloneForWorkspace(workspaceRoot string) *manager {
 		root = normalized
 	}
 	instanceID := ""
+	parentObsStore := (*processobserve.Store)(nil)
 	if m != nil {
 		instanceID = fmt.Sprintf("%s-clone-%d-%s", m.instanceID, m.cloneSequence.Add(1), provisionalWorkspaceHash(root))
+		parentObsStore = m.processObservationStore
+	}
+	if parentObsStore == nil {
+		parentObsStore = processobserve.NewMemoryStore()
 	}
 	clone := &manager{
 		workspaceRoot:           root,
@@ -321,7 +350,7 @@ func (m *manager) cloneForWorkspace(workspaceRoot string) *manager {
 		diagnostics:             make(map[string]diagnosticSnapshot),
 		diagnosticEpochs:        make(map[string]uint64),
 		explicitlyOpen:          make(map[string]struct{}),
-		processObservationStore: processobserve.NewMemoryStore(),
+		processObservationStore: parentObsStore,
 	}
 	if m != nil {
 		clone.factory = m.factory

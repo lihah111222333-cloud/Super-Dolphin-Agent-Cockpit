@@ -7,10 +7,7 @@ import (
 	"errors"
 )
 
-// ErrDurablePlatformNotVerified is deliberately returned on Windows until a
-// native DACL/reparse/handle implementation and native tests are available.
-// It is an explicit N/V result, never an insecure fallback or a green claim.
-var ErrDurablePlatformNotVerified = errors.New("durable process observation store Windows DACL/reparse/handle contract is not verified")
+
 
 type secureRoot struct{}
 
@@ -24,3 +21,4 @@ func (r *secureRoot) readDurableRecords() (map[string]loadedDurableRecord, error
 	return nil, ErrDurablePlatformNotVerified
 }
 func (r *secureRoot) publishDurableRecord(string, []byte) error { return ErrDurablePlatformNotVerified }
+func (r *secureRoot) deleteDurableRecord(string) error         { return ErrDurablePlatformNotVerified }

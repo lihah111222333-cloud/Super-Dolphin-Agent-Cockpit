@@ -7,9 +7,7 @@ import (
 	"errors"
 )
 
-// ErrDurablePlatformNotVerified marks an unsupported platform as N/V. The
-// observation store never falls back to an insecure path-based implementation.
-var ErrDurablePlatformNotVerified = errors.New("durable process observation store platform contract is not verified")
+
 
 type secureRoot struct{}
 
@@ -23,3 +21,4 @@ func (r *secureRoot) readDurableRecords() (map[string]loadedDurableRecord, error
 	return nil, ErrDurablePlatformNotVerified
 }
 func (r *secureRoot) publishDurableRecord(string, []byte) error { return ErrDurablePlatformNotVerified }
+func (r *secureRoot) deleteDurableRecord(string) error         { return ErrDurablePlatformNotVerified }

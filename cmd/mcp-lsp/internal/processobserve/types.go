@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	// MaxObservationBytes bounds the durable observation store (64 MiB).
-	MaxObservationBytes uint64 = 64 * 1024 * 1024
+	// MaxObservationBytes bounds the durable observation store (128 MiB).
+	MaxObservationBytes uint64 = 128 * 1024 * 1024
 	// MaxObservationBucketBytes bounds the observation-only bucket projection.
 	MaxObservationBucketBytes uint64 = 8 * 1024 * 1024
 	// MaxObservationBuckets bounds observations without a complete lifecycle identity.

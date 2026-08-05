@@ -31,6 +31,8 @@ var (
 	ErrDurableStoreClosed = errors.New("durable process observation store is closed")
 	// ErrDurableRootMismatch is returned when the configured root was replaced.
 	ErrDurableRootMismatch = errors.New("durable process observation root identity changed")
+	// ErrDurablePlatformNotVerified is returned when a platform contract is not verified.
+	ErrDurablePlatformNotVerified = errors.New("durable process observation store platform contract is not verified")
 )
 
 // durableBackend is deliberately unexported. It carries only a root path and
@@ -301,6 +303,34 @@ func updateDurableDecision(record durableRecord, exists bool, snapshot processpr
 	return decision, nil
 }
 
+func pruneDurableOldest(root *secureRoot, loaded map[string]loadedDurableRecord, neededBytes uint64, excludeKey string) {
+	for neededBytes > 0 {
+		var oldestKey string
+		var oldestRecord loadedDurableRecord
+		found := false
+		for k, item := range loaded {
+			if k == excludeKey {
+				continue
+			}
+			if !found || item.record.LastSeen.Before(oldestRecord.record.LastSeen) {
+				oldestKey = k
+				oldestRecord = item
+				found = true
+			}
+		}
+		if !found {
+			break
+		}
+		_ = root.deleteDurableRecord(oldestRecord.record.EventID)
+		delete(loaded, oldestKey)
+		if oldestRecord.size >= neededBytes {
+			neededBytes = 0
+		} else {
+			neededBytes -= oldestRecord.size
+		}
+	}
+}
+
 func writeDurableRecordWithCapacity(root *secureRoot, loaded map[string]loadedDurableRecord, key string, record durableRecord) error {
 	raw, err := encodeDurableRecord(record)
 	if err != nil {
@@ -312,7 +342,11 @@ func writeDurableRecordWithCapacity(root *secureRoot, loaded map[string]loadedDu
 	}
 	projected := durableStatsBytes(loaded) - oldSize + uint64(len(raw))
 	if projected > MaxObservationBytes {
-		return ErrCapacity
+		pruneDurableOldest(root, loaded, projected-MaxObservationBytes, key)
+		projected = durableStatsBytes(loaded) - oldSize + uint64(len(raw))
+		if projected > MaxObservationBytes {
+			return ErrCapacity
+		}
 	}
 	if err := root.publishDurableRecord(record.EventID, raw); err != nil {
 		return err
@@ -340,8 +374,13 @@ func publishDurableProjection(root *secureRoot, loaded map[string]loadedDurableR
 	if err != nil {
 		return err
 	}
-	if durableStatsBytes(loaded)-loaded[key].size+uint64(len(raw)) > MaxObservationBytes {
-		return ErrCapacity
+	projected := durableStatsBytes(loaded) - loaded[key].size + uint64(len(raw))
+	if projected > MaxObservationBytes {
+		pruneDurableOldest(root, loaded, projected-MaxObservationBytes, key)
+		projected = durableStatsBytes(loaded) - loaded[key].size + uint64(len(raw))
+		if projected > MaxObservationBytes {
+			return ErrCapacity
+		}
 	}
 	if err := root.publishDurableRecord(record.EventID, raw); err != nil {
 		return err

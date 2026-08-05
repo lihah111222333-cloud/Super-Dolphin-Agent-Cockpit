@@ -358,10 +358,48 @@ func (s *Store) admitDecisionLocked(key string, decision Decision) error {
 	oldSize := s.decisionSizes[key]
 	projected := s.observationBytes - oldSize + newSize
 	if projected > MaxObservationBytes {
-		return ErrCapacity
+		s.pruneOldestLocked(projected-MaxObservationBytes, key)
+		projected = s.observationBytes - oldSize + newSize
+		if projected > MaxObservationBytes {
+			return ErrCapacity
+		}
 	}
 	s.observationBytes = projected
 	return nil
+}
+
+func (s *Store) pruneOldestLocked(neededBytes uint64, excludeKey string) {
+	for neededBytes > 0 {
+		var oldestKey string
+		var oldestTime time.Time
+		found := false
+		for k, d := range s.decisions {
+			if k == excludeKey {
+				continue
+			}
+			if !found || d.LastSeen().Before(oldestTime) {
+				oldestKey = k
+				oldestTime = d.LastSeen()
+				found = true
+			}
+		}
+		if !found {
+			break
+		}
+		sz := s.decisionSizes[oldestKey]
+		delete(s.decisions, oldestKey)
+		delete(s.decisionSizes, oldestKey)
+		if sz >= s.observationBytes {
+			s.observationBytes = 0
+		} else {
+			s.observationBytes -= sz
+		}
+		if sz >= neededBytes {
+			neededBytes = 0
+		} else {
+			neededBytes -= sz
+		}
+	}
 }
 
 func (s *Store) replaceDecisionLocked(key string, decision Decision) {
