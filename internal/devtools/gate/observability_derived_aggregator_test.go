@@ -174,6 +174,10 @@ func requireDerivedOverflow(t *testing.T) {
 
 func TestDurationLedgerDerivedStoreDoesNotMutateRawHistory(t *testing.T) {
 	store := newTestDurationLedgerStore(t)
+	store.observationFilesystemProvider = func(string) (durationLedgerObservationFilesystemFacts, error) {
+		physical, available := int64(1_000_000), int64(2_000_000)
+		return durationLedgerObservationFilesystemFacts{PhysicalBytes: &physical, AvailableBytes: &available}, nil
+	}
 	seedAcceptedGenerationForTest(t, store, 1)
 	record := completeDerivedRunRecord(t, "derived-store")
 	prepareDerivedStore(t, store, &record)
