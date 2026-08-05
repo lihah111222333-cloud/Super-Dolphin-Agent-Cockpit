@@ -635,9 +635,6 @@ def command_transition(ledger: Ledger, args: argparse.Namespace, name: str) -> d
     actor = field(payload, args, "actor", True)
     event_type = name.upper().replace("-", "_")
     fingerprint = idempotency_fingerprint(f"issue:{name}", args, payload)
-    record_progress_issue = ledger.find("Issues", "issue_id", issue_id) if name == "record-progress" else None
-    if record_progress_issue and record_progress_issue["status"] in TERMINAL:
-        fail(f"record-progress is forbidden for terminal issue status: {record_progress_issue['status']}")
     existing = idem(ledger, key)
     if existing:
         requested_resolution = field(payload, args, "resolution", True) if name == "resolve-without-fix" else None
@@ -664,6 +661,8 @@ def command_transition(ledger: Ledger, args: argparse.Namespace, name: str) -> d
     elif name == "revoke-fix-authorization": target = "INVESTIGATING"; updates.update({"authorized_by": "", "authorized_at": "", "authorization_scope": ""})
     elif name == "start-fix": target = "FIXING"
     elif name == "record-progress":
+        current = ledger.find("Issues", "issue_id", issue_id)
+        if current["status"] in TERMINAL: fail(f"record-progress is forbidden for terminal issue status: {current['status']}")
         progress = field(payload, args, "progress", True); payload["progress"] = progress
     elif name == "complete-fix":
         if not any(e["issue_id"] == args.issue_id and e["evidence_type"] == "FIX_COMMIT" and e["active"] in (True, 1) for e in ledger.rows("Evidence")): fail("complete-fix requires active FIX_COMMIT evidence")
@@ -794,17 +793,10 @@ def parser() -> argparse.ArgumentParser:
     history = ip.add_parser("history"); history.add_argument("--issue-id")
     relations = ip.add_parser("relations"); relations.add_argument("--issue-id")
     relation_get = ip.add_parser("relation-get"); relation_get.add_argument("--relation-id")
-    changing = ("record-history-search", "confirm", "start-investigation", "identify-root-cause", "authorize-fix", "revoke-fix-authorization", "start-fix", "complete-fix", "record-verification", "reopen", "defer", "resolve-without-fix")
+    changing = ("record-history-search", "confirm", "start-investigation", "identify-root-cause", "authorize-fix", "revoke-fix-authorization", "start-fix", "record-progress", "complete-fix", "record-verification", "reopen", "defer", "resolve-without-fix")
     for name in changing:
-        p = ip.add_parser(name); p.add_argument("--issue-id"); p.add_argument("--expected-version", type=int); p.add_argument("--actor"); p.add_argument("--idempotency-key"); p.add_argument("--payload-json"); p.add_argument("--root-cause"); p.add_argument("--authorized-by"); p.add_argument("--authorization-scope"); p.add_argument("--resolution"); p.add_argument("--verification-result")
+        p = ip.add_parser(name); p.add_argument("--issue-id"); p.add_argument("--expected-version", type=int); p.add_argument("--actor"); p.add_argument("--idempotency-key"); p.add_argument("--payload-json"); p.add_argument("--root-cause"); p.add_argument("--authorized-by"); p.add_argument("--authorization-scope"); p.add_argument("--resolution"); p.add_argument("--verification-result"); p.add_argument("--progress")
         if name == "resolve-without-fix": p.add_argument("--target-issue-id")
-    progress = ip.add_parser("record-progress", description="Append an immutable same-status progress event.")
-    progress.add_argument("--issue-id")
-    progress.add_argument("--expected-version", type=int)
-    progress.add_argument("--actor")
-    progress.add_argument("--idempotency-key")
-    progress.add_argument("--payload-json", help="JSON object; progress is required here or via --progress")
-    progress.add_argument("--progress", help="required progress checkpoint text unless supplied by --payload-json")
     relate = ip.add_parser("relate"); relate.add_argument("--issue-id"); relate.add_argument("--target-issue-id"); relate.add_argument("--relation-type"); relate.add_argument("--expected-version", type=int); relate.add_argument("--actor"); relate.add_argument("--idempotency-key"); relate.add_argument("--payload-json")
     evidence = groups.add_parser("evidence"); ep = evidence.add_subparsers(dest="evidence_command", required=True)
     register = ep.add_parser("register")

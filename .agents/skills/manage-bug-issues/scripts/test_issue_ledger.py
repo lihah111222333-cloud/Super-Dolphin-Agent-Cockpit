@@ -353,8 +353,9 @@ class IssueLedgerCliTests(unittest.TestCase):
 
         deferred = self.mutate("defer", second, {"resolution": "paused by owner"})
         before_terminal = self.digest()
-        replay_after_terminal = self.fails(*checkpoint_args)
-        self.assertIn("forbidden for terminal issue status: DEFERRED", replay_after_terminal["error"])
+        replay_after_terminal = self.invoke(*checkpoint_args)["result"]
+        self.assertTrue(replay_after_terminal["idempotent"])
+        self.assertEqual(replay_after_terminal["event"]["event_id"], first["event"]["event_id"])
         self.assertEqual(self.digest(), before_terminal)
         terminal = self.fails(
             "issue", "record-progress", "--issue-id", deferred["issue_id"], "--expected-version", str(deferred["version"]),
