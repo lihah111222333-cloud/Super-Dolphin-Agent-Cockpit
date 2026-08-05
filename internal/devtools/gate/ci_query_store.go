@@ -99,6 +99,15 @@ func (store *DurationLedgerStore) RecordProvisionalRemoteCIRun(record RemoteCIRu
 		if err := storeSQLiteRemoteCIRunProjection(transaction, record, store.nowFunc); err != nil {
 			return err
 		}
+		if err := store.appendDurationLedgerObservationEvent(
+			transaction,
+			durationLedgerObservationEventRemoteRunPersist,
+			record.JobID,
+			strconv.FormatUint(record.AcceptedGeneration, 10),
+			record,
+		); err != nil {
+			return err
+		}
 		return compactDurationLedgerAuthority(transaction)
 	})
 }

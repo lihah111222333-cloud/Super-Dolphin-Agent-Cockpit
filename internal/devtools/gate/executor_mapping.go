@@ -46,6 +46,7 @@ var raceSensitiveSurfaces = []struct {
 	{packagePattern: "./internal/archtest/...", pathPrefix: "internal/archtest/"},
 	{packagePattern: "./internal/contract/...", pathPrefix: "internal/contract/"},
 	{packagePattern: "./internal/devtools/coordinatoradmission/...", pathPrefix: "internal/devtools/coordinatoradmission/"},
+	{packagePattern: "./internal/devtools/acpnode", pathPrefix: "internal/devtools/acpnode/"},
 	{packagePattern: "./internal/devtools/gate/...", pathPrefix: "internal/devtools/gate/"},
 	{packagePattern: "./internal/devtools/remoteci/...", pathPrefix: "internal/devtools/remoteci/"},
 	{packagePattern: "./internal/mcpserver/...", pathPrefix: "internal/mcpserver/"},

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -72,8 +73,8 @@ func assertWideOrchestrationLoaderCandidates(
 		paths[i] = pkg.pkgPath
 	}
 	sort.Strings(paths)
-	const wantCount = 256
-	const wantDigest = "532c2cb4cd83ea0906e6e841a63d8a6a8296850737b3d75697e61f0a007ef03e"
+	const wantCount = 258
+	const wantDigest = "7f93776c61a8d0dfcd3aa11118c03c1e3c64c885b31acd42478eee4cbbc84eea"
 	if len(paths) != wantCount || stablePathDigest(paths) != wantDigest {
 		t.Fatalf("seam cd81d4c9a wide candidates count=%d digest=%s", len(paths), stablePathDigest(paths))
 	}
@@ -88,10 +89,5 @@ func assertWideOrchestrationLoaderCandidates(
 }
 
 func containsWidePath(paths []string, want string) bool {
-	for _, path := range paths {
-		if path == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(paths, want)
 }

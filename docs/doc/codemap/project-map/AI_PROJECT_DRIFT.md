@@ -2,16 +2,16 @@
 
 > 状态：**OK**
 >
-> 已索引文件：4468
+> 已索引文件：4566
 >
-> 未细分职责文件：57
+> 未细分职责文件：59
 
 ## 1. 漂移指标
 
 | 指标 | 当前值 |
 |---|---:|
-| 未细分职责文件数 | 57 |
-| 未细分职责占比 | 1.28% |
+| 未细分职责文件数 | 59 |
+| 未细分职责占比 | 1.29% |
 | 最大未细分职责占比阈值 | 5.00% |
 
 ## 2. 漂移告警
@@ -22,11 +22,13 @@
 
 | 模块 | 文件数 |
 |---|---:|
-| `cmd` | 55 |
+| `cmd` | 57 |
 | `internal` | 2 |
 
 ## 4. 样例文件
 
+- `cmd/acp-node/main.go`
+- `cmd/acp-node/main_test.go`
 - `cmd/codex-worktree-setup/atomic_unix.go`
 - `cmd/codex-worktree-setup/atomic_windows.go`
 - `cmd/codex-worktree-setup/main.go`
@@ -75,8 +77,6 @@
 - `cmd/super-dolphin-gate/remote_run_ledger_test.go`
 - `cmd/super-dolphin-gate/remote_run_options.go`
 - `cmd/super-dolphin-gate/remote_run_selection.go`
-- `cmd/super-dolphin-gate/remote_run_source.go`
-- `cmd/super-dolphin-gate/remote_run_test.go`
 
 ## 5. 修复方式
 

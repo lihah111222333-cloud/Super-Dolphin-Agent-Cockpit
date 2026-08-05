@@ -5,12 +5,12 @@
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 4468,
+  "files": 4566,
   "domains": {
-    "docs-agent": 90,
-    "other": 1079,
+    "docs-agent": 91,
+    "other": 1117,
     "app-ui": 740,
-    "platform-provider": 1189,
+    "platform-provider": 1248,
     "orchestration": 406,
     "modules": 754,
     "store-sql": 210
@@ -43,8 +43,8 @@
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1189,
-        "size_kb": 220.2,
+        "file_count": 1248,
+        "size_kb": 232.2,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
@@ -57,27 +57,27 @@
       {
         "key": "docs-agent",
         "file": "docs/doc/codemap/project-map/index/docs-agent.tsv",
-        "file_count": 90,
-        "size_kb": 12.9,
+        "file_count": 91,
+        "size_kb": 13.1,
         "desc": "代码地图、ADR、契约与 docs 项目知识"
       },
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 1079,
-        "size_kb": 215,
+        "file_count": 1117,
+        "size_kb": 222.3,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
   },
   "module_counts": {
     "(root)": 12,
-    "cmd": 753,
-    "docs": 82,
+    "cmd": 813,
+    "docs": 83,
     "frontend-app": 734,
-    "internal": 2639,
+    "internal": 2666,
     "pkg": 30,
-    "scripts": 170,
+    "scripts": 180,
     "sql": 29,
     "test": 9,
     "tests": 1,
@@ -233,14 +233,14 @@
   ],
   "drift": {
     "status": "OK",
-    "unknown_ratio": 0.0128,
-    "unknown_files": 57,
+    "unknown_ratio": 0.0129,
+    "unknown_files": 59,
     "thresholds": {
       "max_unknown_ratio": 0.05
     },
     "warnings": [],
     "top_unknown_modules": {
-      "cmd": 55,
+      "cmd": 57,
       "internal": 2
     }
   }

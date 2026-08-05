@@ -1,0 +1,8 @@
+{
+  "schema": "official ACP schema-v1.20.0",
+  "url": "https://raw.githubusercontent.com/agentclientprotocol/agent-client-protocol/schema-v1.20.0/schema/v1/schema.json",
+  "tag_object": "4908af80fe0285fc765cddec8aeb54627a81e9ec",
+  "peeled_commit": "5e89c71497fe07dd4ae633c181a17224f4a8956d",
+  "size_bytes": 198609,
+  "sha256": "92c1dfcda10dd47e99127500a3763da2b471f9ac61e12b9bf0430c32cf953796"
+}

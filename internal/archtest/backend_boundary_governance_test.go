@@ -260,6 +260,7 @@ func TestDefaultBackendBoundaryGovernanceRequiresSemanticRulesForFXOnlySurfaces(
 func assertSemanticSurfaceMappings(t *testing.T, registry archtest.BackendBoundaryRegistry) {
 	t.Helper()
 	wantRules := map[string]archtest.BoundaryRuleID{
+		"cmd/acp-node":                       "command_narrow_import_surface",
 		"cmd/agent-runtime":                  "command_narrow_import_surface",
 		"cmd/agent-terminal":                 "command_narrow_import_surface",
 		"cmd/codex-worktree-setup":           "command_narrow_import_surface",
@@ -293,6 +294,7 @@ func assertSemanticRuleDescriptors(t *testing.T, registry archtest.BackendBounda
 	t.Helper()
 	wantPolicies := map[archtest.BoundaryRuleID]map[string][]string{
 		"command_narrow_import_surface": {
+			"cmd/acp-node/**/*.go":                   {"internal/devtools/acpnode"},
 			"cmd/agent-runtime/**/*.go":              {"internal/app", "internal/platform/rlimit", "internal/platform/runtimeenv"},
 			"cmd/agent-terminal/**/*.go":             {"internal/app", "internal/platform/appupdaterecovery", "internal/platform/pidregistry", "internal/platform/rlimit", "internal/platform/runner", "internal/platform/runtimeenv"},
 			"cmd/codex-worktree-setup/**/*.go":       {"internal/platform/config", "internal/util/pathutil"},
@@ -317,7 +319,7 @@ func assertSemanticRuleDescriptors(t *testing.T, registry archtest.BackendBounda
 			"cmd/super-dolphin-updater/**/*.go":          {"internal/platform/appupdatefailure", "internal/platform/appupdaterecovery", "internal/platform/pidregistry", "internal/platform/runtimeenv", "internal/util/ctxutil", "internal/util/safego"},
 		},
 		"internal_support_narrow_import_surface": {
-			"internal/devtools/**/*.go":             {"internal/devtools", "internal/platform/config", "internal/platform/db", "internal/util/ctxutil"},
+			"internal/devtools/**/*.go":             {"internal/devtools", "internal/platform/config", "internal/platform/db", "internal/util/ctxutil", "internal/util/safego"},
 			"internal/devtools/archtestmap/**/*.go": {"internal/archtest"},
 			"internal/dto/**/*.go":                  {"internal/dto"},
 			"internal/testutil/**/*.go":             {"internal/contract", "internal/testutil"},

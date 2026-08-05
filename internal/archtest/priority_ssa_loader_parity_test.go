@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -41,8 +42,8 @@ func assertPrioritySSALoaderCandidates(
 	}
 	sort.Strings(paths)
 	digest := fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join(paths, "\n"))))
-	const wantCount = 256
-	const wantDigest = "532c2cb4cd83ea0906e6e841a63d8a6a8296850737b3d75697e61f0a007ef03e"
+	const wantCount = 258
+	const wantDigest = "7f93776c61a8d0dfcd3aa11118c03c1e3c64c885b31acd42478eee4cbbc84eea"
 	if len(paths) != wantCount || digest != wantDigest {
 		t.Fatalf("seam cd81d4c9a priority candidates count=%d digest=%s", len(paths), digest)
 	}
@@ -57,10 +58,5 @@ func assertPrioritySSALoaderCandidates(
 }
 
 func containsPriorityPath(paths []string, want string) bool {
-	for _, path := range paths {
-		if path == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(paths, want)
 }

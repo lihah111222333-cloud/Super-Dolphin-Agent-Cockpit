@@ -142,10 +142,11 @@ type durationLedgerFinalizeFault func(durationLedgerFinalizeStep) error
 
 // DurationLedgerStore 在 SQLite 权威文件中持久化 duration ledger。
 type DurationLedgerStore struct {
-	path            string
-	nowFunc         func() time.Time
-	schemaValidator *durationLedgerSQLiteSchemaValidator
-	finalizeFault   durationLedgerFinalizeFault
+	path                          string
+	nowFunc                       func() time.Time
+	schemaValidator               *durationLedgerSQLiteSchemaValidator
+	finalizeFault                 durationLedgerFinalizeFault
+	observationFilesystemProvider durationLedgerObservationFilesystemProvider
 }
 
 // NewDurationLedgerStore 构造存储，不隐式创建文件或目录。

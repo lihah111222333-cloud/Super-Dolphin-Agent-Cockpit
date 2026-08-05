@@ -26,6 +26,16 @@ func newDurationLedgerSQLiteSchemaValidator() *durationLedgerSQLiteSchemaValidat
 // durationLedgerSQLiteCurrentSchemaStatements returns the sole physical schema
 // definition used by both empty-authority initialization and exact comparison.
 func durationLedgerSQLiteCurrentSchemaStatements() []string {
+	statements := durationLedgerSQLiteLegacySchemaStatements()
+	return append(statements,
+		durationLedgerRawObservationEventsTableSchema,
+		durationLedgerRawObservationEventsIndexSchema,
+		durationLedgerRawObservationEventsUpdateTriggerSchema,
+		durationLedgerRawObservationEventsDeleteTriggerSchema,
+	)
+}
+
+func durationLedgerSQLiteLegacySchemaStatements() []string {
 	return []string{
 		durationLedgerSQLiteSchema,
 		strictWorkloadPassReuseSQLiteSchema,
@@ -64,6 +74,21 @@ func (validator *durationLedgerSQLiteSchemaValidator) preflight(queryer duration
 	return compareDurationLedgerSQLiteSchemaObjects(actual, expected)
 }
 
+func preflightDurationLedgerSQLiteLegacySchema(queryer durationLedgerSQLiteSchemaQueryer, schemaVersion int) error {
+	actual, err := loadDurationLedgerSQLiteSchemaObjects(queryer)
+	if err != nil {
+		return err
+	}
+	if schemaVersion != durationLedgerSQLiteLegacySchemaVersion {
+		return fmt.Errorf("duration ledger SQLite legacy schema version %d is unsupported", schemaVersion)
+	}
+	expected, err := buildDurationLedgerSQLiteReferenceSchemaForStatements(durationLedgerSQLiteLegacySchemaStatements())
+	if err != nil {
+		return err
+	}
+	return compareDurationLedgerSQLiteSchemaObjects(actual, expected)
+}
+
 func compareDurationLedgerSQLiteSchemaObjects(actual, expected map[string]string) error {
 	for key, expectedDDL := range expected {
 		actualDDL, ok := actual[key]
@@ -84,13 +109,17 @@ func compareDurationLedgerSQLiteSchemaObjects(actual, expected map[string]string
 
 // buildDurationLedgerSQLiteReferenceSchema 返回由唯一 current DDL 构造的物理 schema。
 func buildDurationLedgerSQLiteReferenceSchema() (map[string]string, error) {
+	return buildDurationLedgerSQLiteReferenceSchemaForStatements(durationLedgerSQLiteCurrentSchemaStatements())
+}
+
+func buildDurationLedgerSQLiteReferenceSchemaForStatements(statements []string) (map[string]string, error) {
 	reference, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		return nil, fmt.Errorf("open duration ledger SQLite reference schema: %w", err)
 	}
 	reference.SetMaxOpenConns(1)
 	defer reference.Close()
-	for _, schema := range durationLedgerSQLiteCurrentSchemaStatements() {
+	for _, schema := range statements {
 		if _, err := reference.Exec(schema); err != nil {
 			return nil, mapDurationLedgerSQLiteError("build duration ledger SQLite reference schema", err)
 		}
