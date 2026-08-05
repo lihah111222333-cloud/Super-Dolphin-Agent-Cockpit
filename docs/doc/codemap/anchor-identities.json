@@ -1475,7 +1475,7 @@
       "codemap_line": 82,
       "target_path": "cmd/mcp-ida/fx.go",
       "line_spec": "87",
-      "content_sha256": "00007179c5677ab111666d3c832bed20e23057cf7dd28561d632341eda9b896e",
+      "content_sha256": "a82f895abdf846925dae0674c44224ace6f8208c9aa8d53755420cb62628ff4c",
       "symbol": "buildBootstrapConfig"
     },
     {
@@ -1979,7 +1979,7 @@
       "codemap_line": 227,
       "target_path": "cmd/mcp-lsp/multilsp/manager.go",
       "line_spec": "151",
-      "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+      "content_sha256": "2bc551cdff2953dc254f8223e56384e2e75b5db1be90d93e3bddaa44ab4c0f6e",
       "symbol": "manager"
     },
     {
@@ -2113,7 +2113,7 @@
       "codemap_line": 255,
       "target_path": "cmd/mcp-ida/fx.go",
       "line_spec": "49",
-      "content_sha256": "d069044a71bb9740375cbb398a67d45b0b40210e9a948bcc721bb9729d49f725",
+      "content_sha256": "8aa4e2bca15b82d9d021da3b00d9747e18e276a6a89bec494e2e3181301b8d55",
       "symbol": "run"
     },
     {
@@ -2121,7 +2121,7 @@
       "codemap_line": 255,
       "target_path": "cmd/mcp-ida/fx.go",
       "line_spec": "59",
-      "content_sha256": "9a604c4992337ac8cdf5edbb6573aec4add98f79a89308777c6d9ff3d841d1f9",
+      "content_sha256": "6824f2ffe52018026938dbd04d33e1f53963b6f08db22a83a7133b28255e1450",
       "symbol": "run"
     },
     {
