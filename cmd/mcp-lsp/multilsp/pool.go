@@ -235,27 +235,7 @@ func (p *ManagerPool) snapshotManagers() []poolManagerSnapshot {
 		if shard == nil {
 			continue
 		}
-		if shard.base != nil {
-			snapshots = append(snapshots, poolManagerSnapshot{
-				index:      shard.index,
-				managerKey: "base",
-				base:       true,
-				manager:    shard.base,
-			})
-		}
-		clones := shard.snapshotClones()
-		for _, clone := range clones {
-			if clone.manager == nil {
-				continue
-			}
-			snapshots = append(snapshots, poolManagerSnapshot{
-				index:         shard.index,
-				managerKey:    clone.key,
-				manager:       clone.manager,
-				resolvedScope: clone.resolvedScope,
-				lastUsedAt:    clone.lastUsedAt,
-			})
-		}
+		snapshots = append(snapshots, shard.snapshot()...)
 	}
 	return snapshots
 }
@@ -576,6 +556,37 @@ func (p *ManagerPool) retireExpiredEmptyClone(clone *pooledManager, cutoff time.
 	}
 	clone.manager.retiring = true
 	return true
+}
+
+func (s *managerShard) snapshot() []poolManagerSnapshot {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	items := make([]poolManagerSnapshot, 0, len(s.clones)+1)
+	if s.base != nil {
+		items = append(items, poolManagerSnapshot{
+			index:      s.index,
+			managerKey: "base",
+			base:       true,
+			manager:    s.base,
+		})
+	}
+	for _, clone := range s.clones {
+		if clone == nil || clone.manager == nil {
+			continue
+		}
+		items = append(items, poolManagerSnapshot{
+			index:         s.index,
+			managerKey:    clone.key,
+			manager:       clone.manager,
+			resolvedScope: clone.resolvedScope,
+			lastUsedAt:    clone.lastUsedAt,
+		})
+	}
+	return items
 }
 
 func (s *managerShard) snapshotClones() []pooledManager {

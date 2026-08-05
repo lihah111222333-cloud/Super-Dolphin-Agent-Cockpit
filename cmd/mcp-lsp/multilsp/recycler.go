@@ -448,9 +448,12 @@ func (r *poolRecycler) shutdownIdleWorkspace(
 		return
 	}
 	mgr.AdvanceDiagnosticGeneration()
-	if cleanupErr := errors.Join(shutdownErr, closeErr); cleanupErr != nil && mgr.logger != nil {
-		args := recyclerWorkspaceCleanupLogArgs(mgr, scope, workspace, r.recyclerNow(), "shutdown", "idle_timeout", cleanupErr)
-		mgr.logger.Warn("LSP idle shutdown cleanup failed", args...)
+	if cleanupErr := errors.Join(shutdownErr, closeErr); cleanupErr != nil {
+		if mgr.logger != nil {
+			args := recyclerWorkspaceCleanupLogArgs(mgr, scope, workspace, r.recyclerNow(), "shutdown", "idle_timeout", cleanupErr)
+			mgr.logger.Warn("LSP idle shutdown cleanup failed", args...)
+		}
+		return
 	}
 
 	if mgr.logger != nil {

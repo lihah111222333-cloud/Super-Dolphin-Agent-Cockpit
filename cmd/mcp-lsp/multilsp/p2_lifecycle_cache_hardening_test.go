@@ -359,7 +359,7 @@ func TestPoolRecyclerIdleShutdownReportsCleanupFailure(t *testing.T) {
 		`"cleanup_error_class":"shutdown_or_close"`,
 	)
 	assertStructuredLogOmits(t, "idle cleanup failure log", logText,
-		root, `"manager_key":"`, `"scope_key":"`)
+		root, `"manager_key":"`, `"scope_key":"`, `"action_result":"completed"`)
 	assertIdleCleanupOwner(t, scoped, client, 1, "after Close failure")
 	first.closeFailure = nil
 	mgr.pool.recycler.checkIdleWorkspaces(scoped, ResolvedLSPToolScope{
@@ -852,4 +852,23 @@ func TestPoolIdleCloneDetachRejectsNewClientBeforeClose(t *testing.T) {
 	if got := factory.callCount(); got != 0 {
 		t.Fatalf("factory calls after TTL detach = %d, want 0", got)
 	}
+}
+
+func TestSnapshotManagersCloseRace(t *testing.T) {
+	root := canonicalScopePath(t.TempDir(), "")
+	mgr := newManagerPoolTestManager(t, root)
+	_ = scopedManagerForTest(t, mgr, testLSPToolScope(root, "agent-race", "thread-1"))
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for range 500 {
+			_ = mgr.pool.snapshotManagers()
+		}
+	}()
+
+	for range 500 {
+		_ = mgr.pool.Close()
+	}
+	<-done
 }
