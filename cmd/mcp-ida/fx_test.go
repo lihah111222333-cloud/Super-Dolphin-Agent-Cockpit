@@ -44,22 +44,15 @@ func TestEmptyToolProviderCallToolFailsClosed(t *testing.T) {
 	}
 }
 
-// TestNewStdioServerFailsFastWhenMcpStdoutNil 锁定 mcpStdout 未初始化时必须返回 error，
+// TestNewStdioServerFailsFastWhenStdoutOwnerNil 锁定缺少 MCP stdout owner 时必须返回 error，
 // 不得 fallback 到 os.Stdout，否则会把普通 stdout 当作 MCP JSON-RPC 通道继续使用。
-func TestNewStdioServerFailsFastWhenMcpStdoutNil(t *testing.T) {
-	prev := mcpStdout.Swap(nil)
-	t.Cleanup(func() {
-		if prev != nil {
-			mcpStdout.Store(prev)
-		}
-	})
-
-	_, err := newStdioServer()
+func TestNewStdioServerFailsFastWhenStdoutOwnerNil(t *testing.T) {
+	_, err := newStdioServer(nil)
 	if err == nil {
-		t.Fatal("newStdioServer() error = nil, want error when mcpStdout is nil")
+		t.Fatal("newStdioServer(nil) error = nil, want missing owner error")
 	}
-	if !strings.Contains(err.Error(), "mcpStdout") {
-		t.Fatalf("newStdioServer() error = %q, want mention of mcpStdout", err.Error())
+	if !strings.Contains(err.Error(), "stdout owner") {
+		t.Fatalf("newStdioServer(nil) error = %q, want mention of stdout owner", err.Error())
 	}
 }
 
@@ -104,10 +97,8 @@ func TestBootstrapRunnerRequiresRPCAddr(t *testing.T) {
 
 func TestRunFailsWhenRPCAddrMissing(t *testing.T) {
 	originalStdin := os.Stdin
-	prevStdout := mcpStdout.Load()
 	t.Cleanup(func() {
 		os.Stdin = originalStdin
-		mcpStdout.Store(prevStdout)
 	})
 	t.Setenv("GO_AGENT_CTL_RPC_ADDR", "")
 	t.Setenv("RPC_ADDR", "")
@@ -120,7 +111,6 @@ func TestRunFailsWhenRPCAddrMissing(t *testing.T) {
 	}
 	defer protocolRead.Close()
 	defer protocolWrite.Close()
-	mcpStdout.Store(protocolWrite)
 
 	stdinRead, stdinWrite, err := os.Pipe()
 	if err != nil {
@@ -136,7 +126,7 @@ func TestRunFailsWhenRPCAddrMissing(t *testing.T) {
 	})
 	defer stdinCloser.Wait()
 
-	err = run()
+	err = run(protocolWrite)
 	if err == nil {
 		t.Fatalf("run() error = nil, want missing RPC address error")
 	}

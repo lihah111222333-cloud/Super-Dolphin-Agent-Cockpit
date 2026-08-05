@@ -40,7 +40,10 @@ type runtimeParams struct {
 
 // run 组装并启动 mcp-ida sidecar 自身的 fx 应用。
 // 该进程只暴露控制面握手和空工具面，具体 IDA 能力由后续 provider 接入时显式注册。
-func run() error {
+func run(stdout *os.File) error {
+	if stdout == nil {
+		return errors.New("mcp-ida: MCP stdout owner is required")
+	}
 	app := fx.New(
 		fx.NopLogger,
 		fx.Provide(
@@ -50,6 +53,7 @@ func run() error {
 			fx.Annotate(newBootstrapRunner, fx.ResultTags(`group:"runners"`)),
 			fx.Annotate(newStdioRunner, fx.ResultTags(`group:"runners"`)),
 		),
+		fx.Supply(stdout),
 		fx.Invoke(bindRuntime),
 	)
 	if err := app.Err(); err != nil {
@@ -171,10 +175,9 @@ func (emptyToolProvider) CallTool(_ context.Context, name string, _ json.RawMess
 }
 
 // newStdioServer 创建 stdio 传输层的 MCP server，使用受保护的 stdout 作为写端。
-func newStdioServer() (*common.Server, error) {
-	stdout := mcpStdout.Load()
+func newStdioServer(stdout *os.File) (*common.Server, error) {
 	if stdout == nil {
-		return nil, errors.New("mcp-ida: mcpStdout not initialized; program assembly order is broken")
+		return nil, errors.New("mcp-ida: MCP stdout owner is required")
 	}
 	transport := common.NewStdioTransport(os.Stdin, stdout)
 	return common.NewServer("mcp-ida", "dev", transport, emptyToolProvider{}), nil
