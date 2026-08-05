@@ -16,16 +16,17 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/processprobe"
 )
 
-// Store is a process-local, bounded observation projection. It deliberately
-// has no filesystem, receipt, lock, or cross-process persistence capability.
-// Persistent ownership receipts and crash recovery remain an integration
-// handoff (ErrDurabilityHandoff) for the caller that can provide those proofs.
+// Store is a bounded no-signal observation projection. NewMemoryStore is
+// process-local; OpenDurableStore attaches the sealed, crash-safe backend.
+// Neither mode carries process ownership or signal authority.
 type Store struct {
 	mu                    sync.Mutex
 	decisions             map[string]Decision
 	decisionSizes         map[string]uint64
 	projectionFailureOnce bool
 	observationBytes      uint64
+	durable               *durableBackend
+	closed                bool
 }
 
 // NewMemoryStore constructs an empty bounded in-memory projection.
@@ -39,12 +40,33 @@ func NewMemoryStore() *Store {
 // NewMemoryStoreForTest is an explicit test constructor with no path access.
 func NewMemoryStoreForTest() *Store { return NewMemoryStore() }
 
-// Stats returns current bounded in-memory accounting.
+// Close releases durable resources. Memory stores have no resources.
+func (s *Store) Close() error {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	s.closed = true
+	s.mu.Unlock()
+	return nil
+}
+
+// Stats returns current bounded observation accounting.
 func (s *Store) Stats() (Stats, error) {
 	if s == nil {
 		return Stats{}, errors.New("observation memory store is nil")
 	}
 	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return Stats{}, ErrDurableStoreClosed
+	}
+	if s.durable != nil {
+		durable := s.durable
+		s.mu.Unlock()
+		_, stats, err := durable.list(context.Background())
+		return stats, err
+	}
 	defer s.mu.Unlock()
 	return s.statsLocked(), nil
 }
@@ -54,10 +76,21 @@ func (s *Store) ListDecisions(ctx context.Context) ([]Decision, error) {
 	if s == nil {
 		return nil, errors.New("observation memory store is nil")
 	}
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return nil, ErrDurableStoreClosed
+	}
 	if err := validateContext(ctx); err != nil {
+		s.mu.Unlock()
 		return nil, err
 	}
-	s.mu.Lock()
+	if s.durable != nil {
+		durable := s.durable
+		s.mu.Unlock()
+		decisions, _, err := durable.list(ctx)
+		return decisions, err
+	}
 	defer s.mu.Unlock()
 	decisions := make([]Decision, 0, len(s.decisions))
 	for _, decision := range s.decisions {
@@ -80,8 +113,19 @@ func (s *Store) RecordGhost(ctx context.Context, snapshot processprobe.Snapshot)
 	if !isNoSignalSnapshot(snapshot) {
 		return Decision{}, errors.New("process observation snapshot has signal authority")
 	}
+	if s.durable != nil {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.closed {
+			return Decision{}, ErrDurableStoreClosed
+		}
+		return s.durable.record(ctx, snapshot, &s.projectionFailureOnce)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed {
+		return Decision{}, ErrDurableStoreClosed
+	}
 	return s.recordGhostLocked(snapshot)
 }
 
@@ -94,13 +138,43 @@ func (s *Store) RecordGhostBatch(ctx context.Context, snapshots []processprobe.S
 	if err := validateContext(ctx); err != nil {
 		return nil, err
 	}
+	if s.durable != nil {
+		return s.recordDurableBatch(ctx, snapshots)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed {
+		return nil, ErrDurableStoreClosed
+	}
+	return s.recordMemoryBatchLocked(snapshots)
+}
+
+func (s *Store) recordDurableBatch(ctx context.Context, snapshots []processprobe.Snapshot) ([]Decision, error) {
+	decisions := make([]Decision, 0, len(snapshots))
+	for _, snapshot := range snapshots {
+		decision, err := s.RecordGhost(ctx, snapshot)
+		if err != nil {
+			return decisions, err
+		}
+		decisions = append(decisions, decision)
+	}
+	return decisions, nil
+}
+
+func (s *Store) recordMemoryBatchLocked(snapshots []processprobe.Snapshot) ([]Decision, error) {
+	groups, order, err := groupBatchSnapshots(snapshots)
+	if err != nil {
+		return nil, err
+	}
+	return s.persistBatchGroupsLocked(groups, order)
+}
+
+func groupBatchSnapshots(snapshots []processprobe.Snapshot) (map[string][]processprobe.Snapshot, []string, error) {
 	groups := make(map[string][]processprobe.Snapshot, len(snapshots))
 	order := make([]string, 0, len(snapshots))
 	for _, snapshot := range snapshots {
 		if !isNoSignalSnapshot(snapshot) {
-			return nil, errors.New("process observation snapshot has signal authority")
+			return nil, nil, errors.New("process observation snapshot has signal authority")
 		}
 		key := batchObservationKey(snapshot)
 		if _, exists := groups[key]; !exists {
@@ -108,6 +182,10 @@ func (s *Store) RecordGhostBatch(ctx context.Context, snapshots []processprobe.S
 		}
 		groups[key] = append(groups[key], snapshot)
 	}
+	return groups, order, nil
+}
+
+func (s *Store) persistBatchGroupsLocked(groups map[string][]processprobe.Snapshot, order []string) ([]Decision, error) {
 	decisions := make([]Decision, 0, len(order))
 	for _, key := range order {
 		group := groups[key]
@@ -135,8 +213,19 @@ func (s *Store) RetryPending(ctx context.Context) (int, error) {
 	if err := validateContext(ctx); err != nil {
 		return 0, err
 	}
+	if s.durable != nil {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.closed {
+			return 0, ErrDurableStoreClosed
+		}
+		return s.durable.retry(ctx, &s.projectionFailureOnce)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed {
+		return 0, ErrDurableStoreClosed
+	}
 	keys := make([]string, 0, len(s.decisions))
 	for key, decision := range s.decisions {
 		if decision.Status() == DecisionPairPending {
@@ -391,13 +480,14 @@ func projectionFor(decision Decision, kind ProjectionKind, acked bool) Projectio
 		event = "lsp_reclaim_blocked"
 	}
 	return Projection{
-		id:         decision.EventID() + "|" + string(kind),
-		eventID:    decision.EventID(),
-		kind:       kind,
-		event:      event,
-		reason:     decision.Reason(),
-		signalSent: false,
-		acked:      acked,
+		id:          decision.EventID() + "|" + string(kind),
+		eventID:     decision.EventID(),
+		operationID: decision.OperationID(),
+		kind:        kind,
+		event:       event,
+		reason:      decision.Reason(),
+		signalSent:  false,
+		acked:       acked,
 	}
 }
 
