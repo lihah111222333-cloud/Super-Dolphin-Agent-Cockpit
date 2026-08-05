@@ -1,14 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   APP_SHELL_STORE_KEYS,
-  THEME_STORAGE_KEY,
   appPageFromPathname,
   appRouteForPage,
-  getStoredTheme,
   normalizeAppPathname,
-  normalizeColorTheme,
   selectAppShellStore,
-  syncThemeDOM,
 } from './appShellModel.js';
 
 describe('app shell model', () => {
@@ -23,36 +19,6 @@ describe('app shell model', () => {
     expect(appRouteForPage('workflows')).toBe('/dags');
     expect(appRouteForPage('settings')).toBe('/settings');
     expect(appRouteForPage('unknown')).toBe('/');
-  });
-
-  it('accepts only explicit light and dark themes', () => {
-    expect(normalizeColorTheme('dark')).toBe('dark');
-    expect(normalizeColorTheme('light')).toBe('light');
-    expect(() => normalizeColorTheme('system')).toThrowError(new Error('invalid color theme'));
-  });
-
-  it('does not mutate theme attributes when the requested theme is invalid', () => {
-    document.documentElement.setAttribute('data-theme', 'dark');
-    document.body.setAttribute('data-theme', 'dark');
-
-    expect(() => syncThemeDOM('system')).toThrowError(new Error('invalid color theme'));
-    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
-    expect(document.body.getAttribute('data-theme')).toBe('dark');
-  });
-
-  it('throws when the theme document is unavailable', () => {
-    vi.stubGlobal('document', undefined);
-    try {
-      expect(() => syncThemeDOM('light')).toThrow();
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it('uses light for the first run when no theme has been stored', () => {
-    window.localStorage.removeItem(THEME_STORAGE_KEY);
-
-    expect(getStoredTheme()).toBe('light');
   });
 
   it('limits AppShell subscriptions to the declared store surface', () => {

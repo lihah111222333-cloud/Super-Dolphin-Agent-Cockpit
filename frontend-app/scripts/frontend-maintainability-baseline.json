@@ -27,9 +27,9 @@
   },
   "provenance": {
     "runnerId": "frontend-performance-budget",
-    "runnerSha": "a598952199e593f20a09ebc0c1fa4552cf88749f",
-    "runnerTree": "3d39069874100f38ddbcbe320906382cf06c6661",
-    "runnerContentHash": "1db1f9d1f0209ace84497ecee93f817766aa42c65841b8945a0b2a65d0d2c8b9",
+    "runnerSha": "c1e7b100f47b71521758d8c341ba9e143ec0dfe1",
+    "runnerTree": "e130f909563a9945812fd8591d86c2ce4206d33b",
+    "runnerContentHash": "8d727bc118ee74c8028961b3c4cf68ce369ce8ea2e1b63eaa53aa38c342f95b0",
     "runnerFiles": [
       {
         "path": "frontend-app/scripts/chat-history-benchmark.mjs",
@@ -37,19 +37,23 @@
       },
       {
         "path": "frontend-app/scripts/evidence-provenance.mjs",
-        "sha256": "608d79ebd30a4717e403384deace8c5eca1ea8fc0fc2f864d10c26772790dfb7"
+        "sha256": "9ab2e4312bf279072c83886c93687b13721db0fa6babbefacbb1f4022b6cb49a"
       },
       {
         "path": "frontend-app/scripts/frontend-performance-cases.json",
         "sha256": "3afcb6b2a4c00b26801cfc43794efeb12e23e8f76a26efffd4dc87a4bff52f62"
       },
       {
+        "path": "frontend-app/scripts/runtime/git-environment.mjs",
+        "sha256": "de3e2b0b302b0bbdcb96cbf991de380202cfd6c3fb8f23d12bb5156df427fbdb"
+      },
+      {
         "path": "frontend-app/scripts/managed-command.mjs",
-        "sha256": "63f1ecf327669caa920414d259d7e23e1dbd8fc57f132937a6ab4f286157e89c"
+        "sha256": "3892c3a1c33a50cd2e07b832e0cb21674fd09dd526d6e1bfb5bbcd9ecb1a6d8e"
       },
       {
         "path": "frontend-app/scripts/performance-baseline-provenance.mjs",
-        "sha256": "ee09d7dcf5ebd9b144b34536f5dc92fab6cd02df641ebeb2255a76f72e96468b"
+        "sha256": "53869bef6660a6daee492a1caae2113092634d0a87d0350a62913bae18af7b83"
       },
       {
         "path": "frontend-app/scripts/performance-budget-config.mjs",
@@ -65,7 +69,7 @@
       },
       {
         "path": "frontend-app/scripts/render-isolation-probe.test.jsx",
-        "sha256": "2330d2cc995da9105e5ba2805d425641113c4f83fe07fb987ea0e93b0793becb"
+        "sha256": "e70787ea88b09680044fe1f1126ac0f7a5f3be3bebadb36536f322e32b574ab6"
       },
       {
         "path": "frontend-app/scripts/resource-budget.mjs",

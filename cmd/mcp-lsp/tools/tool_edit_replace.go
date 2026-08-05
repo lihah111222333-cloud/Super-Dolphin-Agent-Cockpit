@@ -190,7 +190,7 @@ func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (a
 	log.Completed("resolve_path", stage)
 
 	stage = log.Started("file_lock")
-	unlock := lockEditFile(path)
+	unlock := lockEditFile(h.lockRegistry, path)
 	log.Completed("file_lock", stage)
 	defer func() {
 		unlock()

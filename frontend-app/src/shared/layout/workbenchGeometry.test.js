@@ -83,4 +83,19 @@ describe('solveWorkbenchGeometry', () => {
     expect(opened.right.displayed).toBeGreaterThan(0);
     expect(opened.right.preference).toBe(0);
   });
+
+  it('keeps the durable rail width available while the rail is closed', () => {
+    const closed = solveWorkbenchGeometry({
+      activityHeight: 64,
+      rightOpen: false,
+      rightPreference: 0,
+      railOpen: false,
+      railWidth: 320,
+      viewportHeight: 900,
+      viewportWidth: 1461,
+    });
+
+    expect(closed.rail.displayed).toBe(0);
+    expect(closed.cssVars['--workbench-sidebar-width']).toBe('320px');
+  });
 });

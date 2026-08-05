@@ -34,7 +34,7 @@
 }
 
 .runtime-panel {
-  --runtime-toolbar-height: 62px;
+  --runtime-toolbar-height: 78px;
   --activity-panel-height: 112px;
   --activity-panel-min-height: 112px;
   --activity-panel-max-height: calc((100vh - var(--runtime-toolbar-height)) / 2);
@@ -60,18 +60,97 @@
   box-shadow: inset 1px 0 0 color-mix(in srgb, var(--surface) 62%, transparent);
 }
 
-.runtime-toolbar {
+.right-panel-header {
   position: relative;
   z-index: var(--z-local-raised);
   min-width: 0;
-  min-height: var(--runtime-toolbar-height);
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  display: grid;
+  grid-template-rows: 44px;
   overflow: hidden;
   border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
   background: var(--surface-2);
-  padding: 7px 10px;
+}
+
+.right-panel-header.has-secondary {
+  grid-template-rows: 44px minmax(34px, 1fr);
+}
+
+.right-panel-header__primary {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 10px;
+}
+
+.right-panel-header__balance {
+  width: 28px;
+  height: 28px;
+}
+
+.right-panel-header__collapse {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-sec);
+  cursor: pointer;
+  padding: 0;
+}
+
+.right-panel-header__collapse:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.right-panel-header__collapse:focus-visible {
+  outline: 2px solid var(--primary-focus, var(--primary));
+  outline-offset: 2px;
+}
+
+.right-panel-header__secondary {
+  min-width: 0;
+  display: grid;
+  align-items: center;
+  padding: 0 10px 6px;
+}
+
+.right-panel-view-tabs {
+  width: 128px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  justify-self: center;
+  gap: 4px;
+  border: 1px solid color-mix(in srgb, var(--line) 62%, transparent);
+  border-radius: 999px;
+  background: var(--surface);
+  padding: 2px;
+}
+
+.right-panel-view-tab {
+  min-width: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-sec);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 3px 10px;
+}
+
+.right-panel-view-tab.is-active {
+  background: var(--surface-3);
+  color: var(--text);
+  font-weight: 650;
+}
+
+.right-panel-view-tab:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--info) 70%, transparent);
+  outline-offset: 1px;
 }
 
 .runtime-toolbar__metrics {
@@ -83,34 +162,7 @@
   gap: 6px;
 }
 
-.runtime-view-switch {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 26px;
-  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
-  color: var(--text-sec);
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 650;
-  padding: 0 10px;
-  white-space: nowrap;
-}
-
-.runtime-view-switch:hover {
-  background: var(--surface-3);
-  color: var(--text);
-}
-
-.runtime-view-switch:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--info) 70%, transparent);
-  outline-offset: 1px;
-}
-
-.runtime-toolbar .runtime-stat,
+.runtime-toolbar__metrics .runtime-stat,
 .score {
   min-width: 0;
   display: inline-flex;
@@ -146,8 +198,8 @@
     gap: 4px;
   }
 
-  .runtime-toolbar .runtime-stat,
-  .runtime-toolbar .score {
+  .runtime-toolbar__metrics .runtime-stat,
+  .runtime-toolbar__metrics .score {
     gap: 3px;
     padding: 0 5px;
   }
@@ -156,15 +208,8 @@
     display: none;
   }
 
-  .runtime-view-switch {
-    gap: 0;
-    padding: 0 8px;
-    font-size: 0;
-  }
-
-  .runtime-view-switch svg {
-    width: 14px;
-    height: 14px;
+  .right-panel-view-tab {
+    padding-inline: 8px;
   }
 }
 
@@ -752,6 +797,26 @@ button.runtime-stat:focus-visible {
   margin: 0 0 8px;
 }
 
+.runtime-log-empty {
+  min-height: 100%;
+  display: grid;
+  place-content: center;
+  gap: 4px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.runtime-log-empty strong {
+  color: var(--text-sec);
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.runtime-log-empty span {
+  font-family: inherit;
+  font-size: 11px;
+}
+
 .log-lines b {
   color: var(--orange);
 }
@@ -844,12 +909,12 @@ button.runtime-stat:focus-visible {
 }
 
 @container (max-width: 340px) {
-  .runtime-panel .runtime-toolbar {
+  .runtime-panel .right-panel-header__secondary {
     gap: 5px;
-    padding: 6px 8px;
+    padding-inline: 8px;
   }
 
-  .runtime-panel .runtime-toolbar .runtime-stat,
+  .runtime-panel .runtime-toolbar__metrics .runtime-stat,
   .runtime-panel .score {
     min-height: 24px;
     gap: 5px;
@@ -891,13 +956,11 @@ button.runtime-stat:focus-visible {
     --runtime-toolbar-height: 112px;
   }
 
-  .runtime-panel .runtime-toolbar {
-    grid-template-columns: minmax(0, 1fr);
-    align-content: start;
+  .runtime-panel .right-panel-header {
     overflow: auto;
   }
 
-  .runtime-panel .runtime-toolbar .runtime-stat,
+  .runtime-panel .runtime-toolbar__metrics .runtime-stat,
   .runtime-panel .score {
     justify-content: flex-start;
   }

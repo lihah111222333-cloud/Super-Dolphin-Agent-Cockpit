@@ -186,7 +186,7 @@
 }
 
 .sa-body {
-  transition: grid-template-columns 200ms ease;
+  transition: grid-template-columns var(--motion-overlay);
 }
 
 .app-sidebar {
@@ -198,13 +198,15 @@
     grid-template-columns: 0px minmax(0, 1fr) !important;
   }
 
+  .sa-window.sidebar-collapsed .sa-body.suiyuan-shell-body {
+    grid-template-columns: 48px 0 minmax(0, 1fr) !important;
+  }
+
   .sa-window.sidebar-collapsed .app-sidebar {
-    width: 0 !important;
-    padding: 0 !important;
-    border-right: 0 !important;
-    opacity: 0 !important;
+    transform: translateX(-100%);
     pointer-events: none !important;
     visibility: hidden;
+    transition: transform var(--motion-overlay), visibility 0s linear 240ms;
   }
 
   .sa-window.sidebar-collapsed .workbench-sidebar-resizer {

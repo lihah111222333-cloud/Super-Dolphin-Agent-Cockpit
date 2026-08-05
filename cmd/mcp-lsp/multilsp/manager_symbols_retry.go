@@ -12,7 +12,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 )
 
-var emptyDocumentSymbolRetryDelay = 80 * time.Millisecond
+const emptyDocumentSymbolRetryDelay = 80 * time.Millisecond
 
 // retryEmptyReferences 在前端项目消费者完成显式语义请求后重试一次空引用。
 // 项目遍历复用仓库深度/条目预算，语义请求数复用 workspace refresh 上限；取消或请求错误立即返回。

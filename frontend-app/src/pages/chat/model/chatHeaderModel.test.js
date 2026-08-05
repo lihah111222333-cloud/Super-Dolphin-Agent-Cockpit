@@ -74,6 +74,18 @@ describe('chatHeaderFeedbackForStore', () => {
     });
   });
 
+  it('does not duplicate an already canonical backend failure label', () => {
+    expect(chatHeaderFeedbackForStore({
+      bootstrapStatus: 'failed',
+      error: '连接后端失败，请重试。',
+    })).toEqual({
+      message: '连接后端失败，请重试。',
+      tone: 'error',
+      bootstrapRecovery: true,
+      retrying: false,
+    });
+  });
+
   it('marks loading with an existing bootstrap error as retrying', () => {
     expect(chatHeaderFeedbackForStore({ bootstrapStatus: 'loading', error: 'offline' })).toEqual({
       message: '\u8fde\u63a5\u540e\u7aef\u5931\u8d25\uff1aoffline',

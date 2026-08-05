@@ -179,59 +179,6 @@
   background: var(--surface-2);
 }
 
-.agent-board-panel__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
-  padding: 8px 10px;
-}
-
-.agent-board-panel__tabs {
-  display: inline-flex;
-  gap: 4px;
-  border: 1px solid color-mix(in srgb, var(--line) 62%, transparent);
-  border-radius: 999px;
-  background: var(--surface);
-  padding: 2px;
-}
-
-.agent-board-panel__tab {
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-sec);
-  cursor: pointer;
-  font-size: 12px;
-  padding: 3px 10px;
-}
-
-.agent-board-panel__tab--active {
-  background: var(--surface-3);
-  color: var(--text);
-  font-weight: 650;
-}
-
-.agent-board-panel__collapse {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--text-sec);
-  cursor: pointer;
-  padding: 0;
-}
-
-.agent-board-panel__collapse:hover {
-  background: var(--surface-3);
-  color: var(--text);
-}
-
 .agent-board-panel__body {
   min-height: 0;
   overflow-y: auto;

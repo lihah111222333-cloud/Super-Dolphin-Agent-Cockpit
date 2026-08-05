@@ -6,6 +6,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS, installSubjectFrontendDependencies } from './frontend-execution-closure.mjs';
+import { repositoryLocalGitEnvironment } from './runtime/git-environment.mjs';
 import {
   DESKTOP_FAILURE_CASE_IDS,
   DESKTOP_FAILURE_REPORT_REQUIREMENTS,
@@ -39,6 +40,7 @@ const scriptPath = fileURLToPath(import.meta.url);
 const frozenScriptRoot = path.dirname(scriptPath);
 const frozenAppRoot = path.resolve(frozenScriptRoot, '..');
 const frozenRepoRoot = path.resolve(frozenAppRoot, '..');
+const watchdogScriptPath = path.join(frozenScriptRoot, 'runtime', 'detached-subject-watchdog.mjs');
 const controls = withFrozenDeliveryRunnerFiles(readFrozenJSON('frontend-maintainability-controls.json'));
 const fixtures = readFrozenJSON('frontend-maintainability-red-fixtures.json');
 const baseline = readFrozenJSON('frontend-maintainability-baseline.json');
@@ -180,6 +182,7 @@ const performanceRunnerFiles = Object.freeze([
   'frontend-app/scripts/chat-history-benchmark.mjs',
   'frontend-app/scripts/evidence-provenance.mjs',
   'frontend-app/scripts/frontend-performance-cases.json',
+  'frontend-app/scripts/runtime/git-environment.mjs',
   'frontend-app/scripts/managed-command.mjs',
   'frontend-app/scripts/performance-baseline-provenance.mjs',
   'frontend-app/scripts/performance-budget-config.mjs',
@@ -337,16 +340,14 @@ function exactKeys(value, expected, label) {
   exactSet(Object.keys(value), expected, `${label} keys`);
 }
 
-function exactValue(actual, expected, label) {
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) fail(`${label} mismatch`);
-}
+function exactValue(actual, expected, label) { if (JSON.stringify(actual) !== JSON.stringify(expected)) fail(`${label} mismatch`); }
 
 function git(repoRoot, args) {
-  return execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8' }).trim();
+  return execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8', env: repositoryLocalGitEnvironment() }).trim();
 }
 
 function gitSucceeds(repoRoot, args) {
-  return spawnSync('git', args, { cwd: repoRoot, encoding: 'utf8', stdio: 'pipe' }).status === 0;
+  return spawnSync('git', args, { cwd: repoRoot, encoding: 'utf8', env: repositoryLocalGitEnvironment(), stdio: 'pipe' }).status === 0;
 }
 
 function canonicalRepoRoot(candidate) {
@@ -835,6 +836,7 @@ function validateFailureMatrixRedGreen(report, context) {
       const original = execFileSync('git', ['show', `${context.subjectSha}:${mutation.sourcePath}`], {
         cwd: context.repoRoot,
         encoding: 'utf8',
+        env: repositoryLocalGitEnvironment(),
       });
       const firstMatch = original.indexOf(mutation.search);
       if (firstMatch < 0 || original.indexOf(mutation.search, firstMatch + mutation.search.length) >= 0
@@ -1343,7 +1345,7 @@ function validateCandidateResourceBuild(metric, subjectSha, subjectTree) {
 
 function runnerFileSha256(repoRoot, revision, relativePath) {
   const content = revision
-    ? execFileSync('git', ['show', `${revision}:${relativePath}`], { cwd: repoRoot })
+    ? execFileSync('git', ['show', `${revision}:${relativePath}`], { cwd: repoRoot, env: repositoryLocalGitEnvironment() })
     : fs.readFileSync(path.join(repoRoot, relativePath));
   return createHash('sha256').update(content).digest('hex');
 }
@@ -1760,7 +1762,7 @@ function validateActionProductionBindingReport(report, { context, control, check
     }
     const repoPath = `frontend-app/${binding.sourcePath}`;
     if (!sourceDocuments.has(repoPath)) {
-      const contents = execFileSync('git', ['show', `${context.subjectSha}:${repoPath}`], { cwd: context.repoRoot });
+      const contents = execFileSync('git', ['show', `${context.subjectSha}:${repoPath}`], { cwd: context.repoRoot, env: repositoryLocalGitEnvironment() });
       sourceDocuments.set(repoPath, {
         sha256: createHash('sha256').update(contents).digest('hex'),
         source: contents.toString('utf8'),
@@ -1829,7 +1831,7 @@ function validateActionProductionBindingReport(report, { context, control, check
     const expectedLocations = anchoredBindings.map(({ line, column }) => ({ line, column }));
     const testContents = execFileSync('git', [
       'show', `${context.subjectSha}:frontend-app/${runtimeCase.testFile}`,
-    ], { cwd: context.repoRoot });
+    ], { cwd: context.repoRoot, env: repositoryLocalGitEnvironment() });
     exactValue(runtimeCase.handlers, expectedHandlers, `T02 runtime handlers ${runtimeCase.actionId}`);
     exactValue(runtimeCase.bindingLocations, expectedLocations, `T02 runtime locations ${runtimeCase.actionId}`);
     exactKeys(runtimeCase.green, ['cwd', 'argv', 'exitCode', 'signal', 'outputSha256'], `T02 runtime GREEN ${runtimeCase.actionId}`);
@@ -1864,7 +1866,7 @@ function validateActionProductionBindingReport(report, { context, control, check
   const matrixTestFile = 'src/shared/ui/productionActionFailureMatrix.test.js';
   const matrixTestSource = execFileSync('git', [
     'show', `${context.subjectSha}:frontend-app/${matrixTestFile}`,
-  ], { cwd: context.repoRoot });
+  ], { cwd: context.repoRoot, env: repositoryLocalGitEnvironment() });
   const expectedMatrixArgv = [
     path.join('node_modules', '.bin', 'vitest'), 'run', matrixTestFile,
     '--reporter=json', '--no-file-parallelism', '--maxWorkers=1',
@@ -2030,7 +2032,7 @@ async function executeActualRunner(context, check) {
   const result = await commandResult(runnerArgv[0], runnerArgv.slice(1), {
     cwd,
     timeoutMs: check.timeoutMs,
-    env: process.env,
+    env: repositoryLocalGitEnvironment(),
   });
   const finishedAt = Date.now();
   let report;
@@ -2204,7 +2206,7 @@ export async function commandEvidenceStatus({ repoRoot = frozenRepoRoot, cwd = '
   const result = await commandResult(command, args, {
     cwd: path.resolve(repoRoot, cwd),
     timeoutMs,
-    env: process.env,
+    env: repositoryLocalGitEnvironment(),
   });
   return result.error || result.exitCode !== 0 ? 'FAIL' : 'PASS';
 }
@@ -2234,7 +2236,7 @@ async function runCommand(context, control, check) {
   const result = await commandResult(command, args, {
     cwd,
     timeoutMs: check.timeoutMs,
-    env: process.env,
+    env: repositoryLocalGitEnvironment(),
   });
   const output = `${result.stdout}${result.stderr}`.trim();
   return evidenceRecord(context, control, check, {
@@ -2634,40 +2636,7 @@ async function installDetachedDependencies(detachedAppRoot) {
 
 function startDetachedSubjectWatchdog({ leasePath, tempRoot, detachedRoot, repoRoot }) {
   const payload = JSON.stringify({ leasePath, tempRoot, detachedRoot, repoRoot, parentPid: process.pid });
-  const watchdog = spawn(process.execPath, ['-e', `
-    const { execFileSync } = require('node:child_process');
-    const fs = require('node:fs');
-    const context = JSON.parse(process.argv[1]);
-    const cleanup = () => {
-      if (!fs.existsSync(context.leasePath)) return;
-      try {
-        if (fs.existsSync(context.detachedRoot)) {
-          try {
-            execFileSync('git', ['worktree', 'remove', '--force', context.detachedRoot], { cwd: context.repoRoot, stdio: 'ignore' });
-          } catch {
-            fs.rmSync(context.detachedRoot, { recursive: true, force: true });
-            execFileSync('git', ['worktree', 'prune'], { cwd: context.repoRoot, stdio: 'ignore' });
-          }
-        } else {
-          execFileSync('git', ['worktree', 'prune'], { cwd: context.repoRoot, stdio: 'ignore' });
-        }
-      } finally {
-        fs.rmSync(context.tempRoot, { recursive: true, force: true });
-      }
-    };
-    const timer = setInterval(() => {
-      if (!fs.existsSync(context.leasePath)) process.exit(0);
-      try {
-        process.kill(context.parentPid, 0);
-      } catch (error) {
-        if (error.code === 'ESRCH') {
-          clearInterval(timer);
-          cleanup();
-          process.exit(0);
-        }
-      }
-    }, 100);
-  `, payload], { detached: true, stdio: 'ignore' });
+  const watchdog = spawn(process.execPath, [watchdogScriptPath, payload], { detached: true, stdio: 'ignore' });
   watchdog.unref();
 }
 
@@ -2684,17 +2653,17 @@ async function withDetachedSubject(context, callback) {
     if (!worktreeRemoved) {
       if (fs.existsSync(detachedRoot)) {
         try {
-          execFileSync('git', ['worktree', 'remove', '--force', detachedRoot], { cwd: context.repoRoot, stdio: 'ignore' });
+          execFileSync('git', ['worktree', 'remove', '--force', detachedRoot], { cwd: context.repoRoot, env: repositoryLocalGitEnvironment(), stdio: 'ignore' });
         }
         catch (removeError) {
           fs.rmSync(detachedRoot, { recursive: true, force: true });
-          execFileSync('git', ['worktree', 'prune'], { cwd: context.repoRoot, stdio: 'ignore' });
+          execFileSync('git', ['worktree', 'prune'], { cwd: context.repoRoot, env: repositoryLocalGitEnvironment(), stdio: 'ignore' });
           const registered = git(context.repoRoot, ['worktree', 'list', '--porcelain']);
           if (registered.includes(`worktree ${detachedRoot}`)) throw removeError;
         }
       }
       else {
-        execFileSync('git', ['worktree', 'prune'], { cwd: context.repoRoot, stdio: 'ignore' });
+        execFileSync('git', ['worktree', 'prune'], { cwd: context.repoRoot, env: repositoryLocalGitEnvironment(), stdio: 'ignore' });
       }
       worktreeRemoved = true;
     }
@@ -2720,7 +2689,7 @@ async function withDetachedSubject(context, callback) {
   process.once('SIGTERM', onTerminate);
   try {
     execFileSync('git', ['worktree', 'add', '--detach', detachedRoot, context.subjectSha], {
-      cwd: context.repoRoot,
+      cwd: context.repoRoot, env: repositoryLocalGitEnvironment(),
       stdio: 'ignore',
     });
     const executionContext = contextForExecution(context, fs.realpathSync(detachedRoot));

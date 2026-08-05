@@ -17,8 +17,9 @@ import (
 )
 
 func TestLSPToolManifestsExposeShortNames(t *testing.T) {
-	got := make([]string, 0, len(lspToolManifests))
-	for _, manifest := range lspToolManifests {
+	manifests := newLSPToolManifests()
+	got := make([]string, 0, len(manifests))
+	for _, manifest := range manifests {
 		got = append(got, manifest.Name)
 	}
 	want := []string{"file", "inspect", "xref", "grep", "structure", "patch_edit", "completion"}
@@ -28,8 +29,9 @@ func TestLSPToolManifestsExposeShortNames(t *testing.T) {
 }
 
 func TestLSPToolManifestsAvoidCodexReservedEditName(t *testing.T) {
-	got := make(map[string]bool, len(lspToolManifests))
-	for _, manifest := range lspToolManifests {
+	manifests := newLSPToolManifests()
+	got := make(map[string]bool, len(manifests))
+	for _, manifest := range manifests {
 		got[manifest.Name] = true
 	}
 	if got["edit"] {

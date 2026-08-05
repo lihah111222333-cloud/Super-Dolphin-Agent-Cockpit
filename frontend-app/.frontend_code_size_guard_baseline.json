@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "updatedAt": "2026-07-29T13:12:05Z"
+    "updatedAt": "2026-08-02T13:33:00Z"
   },
   "files": {
     "scripts/action-producer-guard.mjs": {
@@ -271,7 +271,7 @@
       ]
     },
     "scripts/frontend-maintainability-score.mjs": {
-      "lines": 2765,
+      "lines": 2734,
       "maxFuncLen": 207,
       "maxNesting": 6,
       "maxParams": 6,

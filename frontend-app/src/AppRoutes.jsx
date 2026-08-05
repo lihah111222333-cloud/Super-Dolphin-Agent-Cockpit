@@ -59,6 +59,7 @@ function FilesPageRoute({ copy, projectPath, store }) {
 export function ActivePageContent(props) {
   const {
     activePage,
+    appearance,
     copy,
     geometrySnapshot,
     layoutActions,
@@ -102,6 +103,6 @@ export function ActivePageContent(props) {
   }
   if (activePage === 'files') return <FilesPageRoute copy={copy} projectPath={projectPath} store={store} />;
   if (activePage === 'observability') return <ObservabilityPage copy={copy.observability} />;
-  if (activePage === 'settings') return <SettingsPage copy={copy.settings} projectPath={projectPath} shortcutController={shortcutController} />;
+  if (activePage === 'settings') return <SettingsPage appearance={appearance} copy={copy.settings} projectPath={projectPath} shortcutController={shortcutController} />;
   return null;
 }

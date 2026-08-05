@@ -10,7 +10,6 @@ import {
   MessageSquareText,
   Moon,
   PanelLeftClose,
-  PanelLeftOpen,
   Puzzle,
   Sailboat,
   Settings as SettingsIcon,
@@ -22,7 +21,6 @@ import {
 } from 'lucide-react';
 import { ActivePageContent, PageLoadingFallback } from '../../AppRoutes.jsx';
 import { SidebarProjectTree as ChatSidebarProjectTree } from '../../WorkbenchSidebarProjectTree.jsx';
-import { COLOR_THEMES } from '../appShellModel.js';
 import { APP_COMMAND_IDS, APP_COMMAND_REGISTRY } from '../commands/appCommandRegistry.js';
 import { createAppCommandRuntime } from '../commands/appCommandRuntime.js';
 import { useAppCommandDispatcher } from '../commands/useAppCommandDispatcher.js';
@@ -36,6 +34,9 @@ import { appShortcutPlatform } from './appShortcutPlatform.js';
 import { updateVersionFromResult } from './appUpdateVersion.js';
 import { useShellLayoutStore } from './model/useShellLayoutStore.js';
 import { useWorkbenchLayout } from '../../shared/layout/useWorkbenchLayout.js';
+import { WorkbenchActivityBar } from './WorkbenchActivityBar.jsx';
+import { WorkbenchBottomPanel } from './WorkbenchBottomPanel.jsx';
+import { WorkbenchStatusBar } from './WorkbenchStatusBar.jsx';
 
 const SUIYUAN_NAV_ITEMS = Object.freeze([
   { id: 'chat', label: 'Chat', labelKey: 'chat', icon: MessageSquareText },
@@ -374,6 +375,50 @@ function useSuiyuanWorkbenchLayout({ rightPanelOpen, setRightPanelOpen, shellLay
   });
 }
 
+function SuiyuanMainSurface(model) {
+  const { appearance, content, copy, header, store, updateBanner } = model;
+  const [bottomPanelHeight, setBottomPanelHeight] = useState(36);
+  return (
+    <main
+      className="sa-main suiyuan-main"
+      style={{ '--workbench-bottom-height': `${store.activePage === 'chat' ? bottomPanelHeight : 0}px` }}
+    >
+      <SuiyuanTopAppBar
+        copy={copy}
+        currentPageLabel={header.currentPageLabel}
+        locale={header.locale}
+        controls={header.controls}
+      />
+      <AppUpdateBanner copy={copy.update} updateBanner={updateBanner} />
+      <div className="suiyuan-main-canvas">
+        <Suspense fallback={<PageLoadingFallback />}>
+          <ActivePageContent
+            activePage={store.activePage}
+            appearance={appearance}
+            copy={copy}
+            store={store}
+            projectPath={content.projectPath}
+            memoryRevision={content.memoryBadge.memoryRevision}
+            geometrySnapshot={content.geometrySnapshot}
+            layoutActions={content.layoutActions}
+            setMemoryPageSimilarCount={content.memoryBadge.setMemoryPageSimilarCount}
+            onWorkflowViewChange={content.handleWorkflowViewChange}
+            rightPanelOpen={content.rightPanelOpen}
+            shortcutController={content.shortcutController}
+            setRightPanelOpen={content.layoutActions.right.setOpen}
+          />
+        </Suspense>
+      </div>
+      <WorkbenchBottomPanel
+        activePage={store.activePage}
+        onHeightChange={setBottomPanelHeight}
+        projectPath={content.projectPath}
+        rightPanelOpen={content.rightPanelOpen}
+      />
+    </main>
+  );
+}
+
 export function SuiyuanAppWindow({ language, shell, shellLayoutStore, shortcutController, store }) {
   const {
     memoryBadge,
@@ -406,7 +451,7 @@ export function SuiyuanAppWindow({ language, shell, shellLayoutStore, shortcutCo
   const SidebarToggleIcon = sidebarOpen ? X : Menu;
   const activeLabel = appPageTitleLabel(store.activePage, copy);
   const currentPageLabel = currentPageLabelOverride || activeLabel;
-  const isDark = theme === COLOR_THEMES.dark;
+  const isDark = theme === 'dark';
   const themeLabel = isDark ? copy.workbench.dayMode : copy.workbench.nightMode;
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const setActivePageFromSidebar = useCallback((page) => {
@@ -438,10 +483,16 @@ export function SuiyuanAppWindow({ language, shell, shellLayoutStore, shortcutCo
     <div
       className={`sa-window suiyuan-shell${sidebarOpen ? ' sidebar-open' : ' sidebar-collapsed'}`}
       data-command-palette-open={paletteOpen}
+      data-accent={shell.appearance.accent}
       data-brand="suiyuan"
       data-theme={theme}
+      data-theme-mode={shell.appearance.themeMode}
+      data-ui-scale={shell.appearance.uiScale}
       data-testid="frontend-app"
-      style={geometrySnapshot.cssVars}
+      style={{
+        ...geometrySnapshot.cssVars,
+        '--ui-scale': shell.appearance.uiScale / 100,
+      }}
     >
       {shortcutController?.status === 'error' ? (
         <output role="alert" data-testid="shortcut-config-error">{shortcutController.error}</output>
@@ -459,15 +510,13 @@ export function SuiyuanAppWindow({ language, shell, shellLayoutStore, shortcutCo
       {sidebarOpen ? <button type="button" className="sidebar-scrim" aria-label={copy.workbench.close} onClick={closeSidebar} /> : null}
       <div className="sa-body suiyuan-shell-body">
         {!sidebarOpen ? (
-          <button
-            type="button"
-            className="sidebar-expand-trigger"
-            aria-label={copy.workbench.expand}
-            title={copy.workbench.expand}
-            onClick={() => setSidebarOpen(true)}
-          >
-            <PanelLeftOpen size={20} aria-hidden="true" />
-          </button>
+          <WorkbenchActivityBar
+            activePage={store.activePage}
+            items={SUIYUAN_NAV_ITEMS}
+            onSelect={setActivePageFromSidebar}
+            onToggleSidebar={() => setSidebarOpen(true)}
+            sidebarOpen={false}
+          />
         ) : null}
         <SuiyuanSidebar
           copy={copy}
@@ -483,40 +532,27 @@ export function SuiyuanAppWindow({ language, shell, shellLayoutStore, shortcutCo
           }}
           store={store}
         />
-        <main className="sa-main suiyuan-main">
-          <SuiyuanTopAppBar
-            copy={copy}
-            currentPageLabel={currentPageLabel}
-            locale={locale}
-            controls={{
-              isDark,
-              setActivePage: setActivePageFromSidebar,
-              themeLabel,
-              toggleLocale,
-              toggleTheme,
-            }}
-          />
-          <AppUpdateBanner copy={copy.update} updateBanner={updateBanner} />
-          <div className="suiyuan-main-canvas">
-            <Suspense fallback={<PageLoadingFallback />}>
-              <ActivePageContent
-                activePage={store.activePage}
-                copy={copy}
-                store={store}
-                projectPath={projectPath}
-                memoryRevision={memoryBadge.memoryRevision}
-                geometrySnapshot={geometrySnapshot}
-                layoutActions={layoutActions}
-                setMemoryPageSimilarCount={memoryBadge.setMemoryPageSimilarCount}
-                onWorkflowViewChange={handleWorkflowViewChange}
-                rightPanelOpen={rightPanelOpen}
-                shortcutController={shortcutController}
-                setRightPanelOpen={layoutActions.right.setOpen}
-              />
-            </Suspense>
-          </div>
-        </main>
+        <SuiyuanMainSurface
+          appearance={shell.appearance}
+          content={{ geometrySnapshot, handleWorkflowViewChange, layoutActions, memoryBadge, projectPath, rightPanelOpen, shortcutController }}
+          copy={copy}
+          header={{
+            controls: { isDark, setActivePage: setActivePageFromSidebar, themeLabel, toggleLocale, toggleTheme },
+            currentPageLabel,
+            locale,
+          }}
+          store={store}
+          updateBanner={updateBanner}
+        />
       </div>
+      <WorkbenchStatusBar
+        accent={shell.appearance.accent}
+        activePage={store.activePage}
+        projectPath={projectPath}
+        rightPanelOpen={rightPanelOpen}
+        themeMode={shell.appearance.themeMode}
+        uiScale={shell.appearance.uiScale}
+      />
       <SuiyuanMobileNav activePage={store.activePage} copy={copy} setActivePage={setActivePageFromSidebar} />
       <AppCommandPalette copy={copy.commands} onClose={() => setPaletteOpen(false)} open={paletteOpen} runtime={commandRuntime} />
       <ActionFailureSink />
