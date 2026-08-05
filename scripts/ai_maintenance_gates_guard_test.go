@@ -94,6 +94,7 @@ func TestAIMaintenanceGateImplementationContracts(t *testing.T) {
 
 	assertScriptContains(t, source, "validate-evidence")
 	assertScriptContains(t, source, "buildGatePlan")
+	assertScriptContains(t, source, "docs/doc/codemap/anchor-identities.json")
 	assertScriptContains(t, source, "frontend:embed-verify")
 	assertScriptContains(t, source, "ai-maintenance:self-test")
 	assertScriptContains(t, evidenceSource, "AGENTID must be exact platform UUID")

@@ -125,6 +125,16 @@ func TestBuildGatePlanRoutesProjectMapOverridesToCodemapChecks(t *testing.T) {
 	assertStringSetContains(t, plan.RequiredGates, "codemap:check", "project-map:check", "diff:whitespace")
 }
 
+func TestBuildGatePlanRoutesAnchorIdentityAsOwnedGeneratedEvidence(t *testing.T) {
+	plan := mustBuildGatePlan(t, []string{"docs/doc/codemap/anchor-identities.json"})
+	assertStringSetContains(t, plan.RequiredGates, "codemap:check", "project-map:check", "diff:whitespace")
+	assertStringSetContains(t, plan.RequiredEvidence, "generated:source")
+	assertStringSetContains(t, plan.GeneratedFiles, "docs/doc/codemap/anchor-identities.json")
+	if !plan.RequiresEvidenceDoc {
+		t.Fatal("anchor identity generated change must require evidence")
+	}
+}
+
 func TestBuildGatePlanFailsClosedWhenCapabilityRootsCannotBeParsed(t *testing.T) {
 	repoRoot := t.TempDir()
 	source := filepath.Join(repoRoot, "scripts", "capcontract", "main.go")

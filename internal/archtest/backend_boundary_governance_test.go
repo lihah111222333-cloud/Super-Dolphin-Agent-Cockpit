@@ -21,6 +21,21 @@ func TestValidateDefaultBackendBoundaryGovernance(t *testing.T) {
 	}
 }
 
+func TestACPNodeBoundaryRegistryIsExhaustive(t *testing.T) {
+	registry := archtest.DefaultBackendBoundaryRegistry()
+	for _, guard := range registry.Guards {
+		if guard.ID != "acp_node_boundary" {
+			continue
+		}
+		want := []string{"TestACPNodeBoundary", "TestACPNodeStdlibOnlyBoundary"}
+		if !slices.Equal(guard.TestNames, want) {
+			t.Fatalf("ACP guard tests = %v, want %v", guard.TestNames, want)
+		}
+		return
+	}
+	t.Fatal("ACP boundary guard is not registered")
+}
+
 func TestBackendBoundaryGovernanceRejectsOrphanCanonicalRule(t *testing.T) {
 	registry := archtest.DefaultBackendBoundaryRegistry()
 	ruleID := registry.Rules[0].ID
@@ -264,6 +279,7 @@ func assertSemanticSurfaceMappings(t *testing.T, registry archtest.BackendBounda
 		"cmd/agent-terminal":                 "command_narrow_import_surface",
 		"cmd/codex-worktree-setup":           "command_narrow_import_surface",
 		"cmd/mcp-schema-compiler-helper":     "command_narrow_import_surface",
+		"cmd/acp-node":                       "command_narrow_import_surface",
 		"cmd/super-dolphin-gate":             "command_narrow_import_surface",
 		"cmd/super-dolphin-release-manifest": "command_narrow_import_surface",
 		"cmd/super-dolphin-guard":            "command_narrow_import_surface",
@@ -297,6 +313,7 @@ func assertSemanticRuleDescriptors(t *testing.T, registry archtest.BackendBounda
 			"cmd/agent-terminal/**/*.go":                 {"internal/app", "internal/platform/appupdaterecovery", "internal/platform/pidregistry", "internal/platform/rlimit", "internal/platform/runner", "internal/platform/runtimeenv"},
 			"cmd/codex-worktree-setup/**/*.go":           {"internal/platform/config", "internal/util/pathutil"},
 			"cmd/mcp-schema-compiler-helper/**/*.go":     {"internal/platform/toolbridge/schema"},
+			"cmd/acp-node/**/*.go":                       {"internal/devtools/acpnode"},
 			"cmd/super-dolphin-gate/**/*.go":             {"internal/devtools/gate", "internal/devtools/gatehook", "internal/devtools/localci"},
 			"cmd/super-dolphin-release-manifest/**/*.go": {"internal/module/appupdate"},
 			"cmd/super-dolphin-guard/**/*.go":            {"internal/platform/appupdaterecovery", "internal/platform/pidregistry", "internal/platform/runtimeenv"},

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	archtest "github.com/lihah111222333-cloud/super-dolphin-agent/internal/archtest"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/archtest/ssaload"
 )
 
@@ -56,9 +57,7 @@ func TestWideOrchestrationLoaderExtractionPreservesCandidates(t *testing.T) {
 		paths[i] = pkg.pkgPath
 	}
 	sort.Strings(paths)
-	const wantCount = 241
-	const wantDigest = "7e492e9f91d05333e9d8ee054c516675fd0f9a1cdd8c6a43437361a51b9ceaac"
-	if len(paths) != wantCount || stablePathDigest(paths) != wantDigest {
+	if len(paths) != archtest.GovernedLoaderParityCandidateCount || stablePathDigest(paths) != archtest.GovernedLoaderParityCandidateDigest {
 		t.Fatalf("seam cd81d4c9a wide candidates count=%d digest=%s", len(paths), stablePathDigest(paths))
 	}
 	if violations := collectWideOrchestrationProductionViolationMessages(t, root); len(violations) != 0 {

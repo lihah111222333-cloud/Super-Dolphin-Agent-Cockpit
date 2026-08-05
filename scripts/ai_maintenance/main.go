@@ -652,6 +652,7 @@ func generatedCodemapFile(file string) bool {
 	return file == "README.md" ||
 		file == "docs/doc/codemap/13-archtest-boundaries.md" ||
 		file == "docs/doc/codemap/ai-index.json" ||
+		file == "docs/doc/codemap/anchor-identities.json" ||
 		file == "docs/doc/codemap/README.md" ||
 		file == "docs/doc/codemap/capability-contract/capability_manifest.json" ||
 		strings.HasPrefix(file, "docs/doc/codemap/project-map/")

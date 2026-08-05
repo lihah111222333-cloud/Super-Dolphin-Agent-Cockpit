@@ -240,6 +240,7 @@ func defaultBackendBoundaryRegistry() BackendBoundaryRegistry {
 func defaultBackendBoundaryGuards() []BackendBoundaryGuard {
 	return []BackendBoundaryGuard{
 		{ID: "backend_surface_governance", File: "internal/archtest/backend_boundary_governance_test.go", TestNames: []string{"TestValidateDefaultBackendBoundaryGovernance"}, AppliesTo: []BoundarySurfaceID{"internal/archtest"}, Reason: "the governance guard fails when a backend top-level Go surface is missing or stale"},
+		{ID: "acp_node_boundary", File: "internal/archtest/acp_node_boundary_guard_test.go", TestNames: []string{"TestACPNodeBoundary", "TestACPNodeStdlibOnlyBoundary"}, AppliesTo: []BoundarySurfaceID{"cmd/acp-node", "internal/devtools"}, Reason: "experimental ACP development code must remain isolated from production provider, UI, RPC, and persistence surfaces"},
 		{ID: "backend_boundary_single_source", File: "internal/archtest/backend_boundary_single_source_test.go", TestNames: []string{"TestBackendBoundaryRuleFactsHaveOneSource"}, AppliesTo: []BoundarySurfaceID{"internal/archtest"}, Reason: "canonical backend boundary facts must not be duplicated by procedural evaluators"},
 		{ID: "rpc_runtime_e2e", File: "internal/e2e/rpc_runtime/runtime_e2e_test.go", TestNames: []string{"TestAgentRuntimeRPCBlackBox", "TestRPCRuntimeE2EEnvIsIsolated"}, BuildTags: []string{"e2e"}, AppliesTo: []BoundarySurfaceID{"internal/e2e"}, Reason: "the tagged RPC runtime suite validates the backend process boundary end to end"},
 		{ID: "ignored_go_tests", File: "internal/guards/ignored_test_guard_test.go", TestNames: []string{"TestTrackedGoTestsDoNotUseIgnoreBuildConstraint"}, AppliesTo: []BoundarySurfaceID{"internal/guards"}, Reason: "tracked Go tests must remain attached to an executable test chain instead of using the unowned ignore build tag"},
@@ -269,7 +270,8 @@ func defaultBackendBoundarySurfaces() []BackendBoundarySurface {
 		backendBoundarySurface("internal/app", "desktop composition root", []BoundaryRuleID{"app_adapter_narrow_import_surface", "fx_assembly_scope"}, []BoundaryGuardID{"fx_graph"}),
 		backendBoundarySurface("internal/archtest", "architecture governance implementation", []BoundaryRuleID{"fx_assembly_scope"}, []BoundaryGuardID{"backend_surface_governance", "backend_boundary_single_source"}),
 		backendBoundarySurface("internal/contract", "stable DTO and port contracts", []BoundaryRuleID{"contract_dto_no_framework_imports", "contract_reverse_pollution"}, []BoundaryGuardID{"dependency_direction"}),
-		backendBoundarySurface("internal/devtools", "backend developer tooling", []BoundaryRuleID{"internal_support_narrow_import_surface", "fx_assembly_scope"}, nil),
+		backendBoundarySurface("internal/devtools", "backend developer tooling", []BoundaryRuleID{"internal_support_narrow_import_surface", "fx_assembly_scope"}, []BoundaryGuardID{"acp_node_boundary"}),
+		backendBoundarySurface("cmd/acp-node", "experimental ACP development node", []BoundaryRuleID{"command_narrow_import_surface"}, []BoundaryGuardID{"acp_node_boundary"}),
 		backendBoundarySurface("internal/dto", "transport-neutral data transfer objects", []BoundaryRuleID{"contract_dto_no_framework_imports", "internal_support_narrow_import_surface", "fx_assembly_scope"}, []BoundaryGuardID{"dependency_direction"}),
 		backendBoundarySurface("internal/e2e", "backend end-to-end test surface", nil, []BoundaryGuardID{"rpc_runtime_e2e"}),
 		backendBoundarySurface("internal/guards", "repository-level test guard surface", nil, []BoundaryGuardID{"ignored_go_tests", "rollback_skip_markers"}),
@@ -322,6 +324,7 @@ type backendBoundaryPatterns struct {
 	mcpOrch         []string
 	mcpIDA          []string
 	schemaHelper    []string
+	acpNode         []string
 	hooks           []string
 	mcpctrl         []string
 	pkg             []string
@@ -357,6 +360,7 @@ func defaultBackendBoundaryPatterns() backendBoundaryPatterns {
 		mcpOrch:         []string{"cmd/mcp-orch/**/*.go"},
 		mcpIDA:          []string{"cmd/mcp-ida/**/*.go"},
 		schemaHelper:    []string{"cmd/mcp-schema-compiler-helper/**/*.go"},
+		acpNode:         []string{"cmd/acp-node/**/*.go"},
 		hooks:           []string{"internal/platform/hooks/**/*.go"},
 		mcpctrl:         []string{"internal/platform/mcpcontrol/**/*.go"},
 		pkg:             []string{"pkg/**/*.go"},
@@ -815,7 +819,7 @@ func mcpSidecarAllowPolicies() []BoundaryImportPolicy {
 }
 
 func commandBoundaryPatterns(patterns backendBoundaryPatterns) []string {
-	return combineBoundaryPatterns(patterns.agentRuntime, patterns.agentTerminal, patterns.codexWorktree, patterns.gateCLI, patterns.releaseManifest, patterns.guard, patterns.updater, patterns.schemaHelper)
+	return combineBoundaryPatterns(patterns.agentRuntime, patterns.agentTerminal, patterns.codexWorktree, patterns.gateCLI, patterns.releaseManifest, patterns.guard, patterns.updater, patterns.schemaHelper, patterns.acpNode)
 }
 
 func internalSupportBoundaryPatterns(patterns backendBoundaryPatterns) []string {
@@ -866,6 +870,9 @@ func commandNarrowAllowPolicies(patterns backendBoundaryPatterns) []BoundaryImpo
 	policies = append(policies, boundaryPolicies(owner, patterns.schemaHelper, []string{
 		"internal/platform/toolbridge/schema",
 	}, "one-shot schema compiler execution boundary")...)
+	policies = append(policies, boundaryPolicies(owner, patterns.acpNode, []string{
+		"internal/devtools/acpnode",
+	}, "isolated ACP development harness")...)
 	return policies
 }
 

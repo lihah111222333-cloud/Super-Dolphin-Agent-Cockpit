@@ -20,6 +20,7 @@ func TestGeneratedArtifactRefreshListsOwnedOutputsByMode(t *testing.T) {
 				"file\tdocs/doc/codemap/13-archtest-boundaries.md",
 				"file\tdocs/doc/codemap/README.md",
 				"file\tdocs/doc/codemap/ai-index.json",
+				"file\tdocs/doc/codemap/anchor-identities.json",
 			},
 		},
 		{
@@ -41,6 +42,7 @@ func TestGeneratedArtifactRefreshListsOwnedOutputsByMode(t *testing.T) {
 				"file\tdocs/doc/codemap/13-archtest-boundaries.md",
 				"file\tdocs/doc/codemap/README.md",
 				"file\tdocs/doc/codemap/ai-index.json",
+				"file\tdocs/doc/codemap/anchor-identities.json",
 				"file\tdocs/doc/codemap/capability-contract/capability_manifest.json",
 				"tree\tdocs/doc/codemap/project-map",
 			},

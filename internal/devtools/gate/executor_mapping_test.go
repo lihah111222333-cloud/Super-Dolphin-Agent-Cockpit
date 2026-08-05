@@ -221,6 +221,10 @@ func TestRaceSensitivePackageAndPathRegistriesStayAligned(t *testing.T) {
 	if slices.Contains(patterns, "./cmd/...") || slices.Contains(patterns, "./cmd/agent-terminal/...") {
 		t.Fatalf("race registry includes agent-terminal through an unbounded command pattern: %v", patterns)
 	}
+	if !slices.Contains(patterns, "./internal/devtools/acpnode/...") ||
+		!slices.Contains(prefixes, "internal/devtools/acpnode/") {
+		t.Fatalf("ACP node concurrency surface is not canonically registered: patterns=%v prefixes=%v", patterns, prefixes)
+	}
 }
 
 func TestExecutorProgramRepositoryEntrypointsExist(t *testing.T) {
