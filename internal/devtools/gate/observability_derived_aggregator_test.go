@@ -117,6 +117,79 @@ func TestDurationLedgerDerivedReportRejectsRecursiveDuplicateJSONKeys(t *testing
 	}
 }
 
+func TestDurationLedgerDerivedReportRejectsMeasurementDuplicateJSONKeys(t *testing.T) {
+	record := completeDerivedRunRecord(t, "derived-measurement-duplicate-json")
+	payload, _, err := marshalDurationLedgerObservationPayload(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(t *testing.T, measurement []byte) []byte
+	}{
+		{
+			name: "record_count case variant",
+			mutate: func(t *testing.T, measurement []byte) []byte {
+				t.Helper()
+				return appendDerivedJSONDuplicate(t, measurement, "RECORD_COUNT", `{"status":"KNOWN","value":1,"provenance":"test"}`)
+			},
+		},
+		{
+			name: "nested case variant",
+			mutate: func(t *testing.T, measurement []byte) []byte {
+				t.Helper()
+				var fields map[string]json.RawMessage
+				if err := json.Unmarshal(measurement, &fields); err != nil {
+					t.Fatal(err)
+				}
+				fields["record_count"] = appendDerivedJSONDuplicate(t, fields["record_count"], "PROVENANCE", `"conflicting"`)
+				encoded, err := json.Marshal(fields)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return encoded
+			},
+		},
+		{
+			name: "array nested case variant",
+			mutate: func(t *testing.T, measurement []byte) []byte {
+				t.Helper()
+				var fields map[string]json.RawMessage
+				if err := json.Unmarshal(measurement, &fields); err != nil {
+					t.Fatal(err)
+				}
+				fields["nested"] = json.RawMessage(`[{"record_count":1,"RECORD_COUNT":2}]`)
+				encoded, err := json.Marshal(fields)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return encoded
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			event := derivedRawEventFromPayload(t, 1, "", durationLedgerObservationEventRemoteRunPersist, record.JobID, "1", payload)
+			event.MeasurementJSON = string(tt.mutate(t, []byte(event.MeasurementJSON)))
+			event.EventSHA256, err = durationLedgerRawObservationEventDigest(durationLedgerRawObservationPending{
+				eventSequence: event.EventSequence, eventID: event.EventID, eventKind: event.EventKind,
+				runID: event.RunID, acceptedGeneration: event.AcceptedGeneration,
+				recordedAtUnixNS: event.RecordedAtUnixNS, payloadJSON: event.PayloadJSON,
+				payloadSHA256: event.PayloadSHA256, previousSHA256: event.PreviousEventSHA256,
+				measurementJSON: event.MeasurementJSON,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := AggregateDurationLedgerDerivedObservations([]DurationLedgerRawObservationEvent{event}); err == nil || !strings.Contains(strings.ToLower(err.Error()), "duplicate json object key") {
+				t.Fatalf("measurement duplicate JSON key error = %v", err)
+			}
+		})
+	}
+}
+
 func TestDurationLedgerDerivedReportOpaqueEventUnknownIsRunScoped(t *testing.T) {
 	record := completeDerivedRunRecord(t, "derived-opaque-same-run")
 	base := derivedRawEvents(t, record)

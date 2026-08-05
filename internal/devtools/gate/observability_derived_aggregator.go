@@ -265,6 +265,9 @@ func durationLedgerDerivedRunResults(records map[string]RemoteCIRunRecord, opaqu
 func durationLedgerDerivedProvenance(events []DurationLedgerRawObservationEvent) (DurationLedgerDerivedInputProvenance, error) {
 	inputEvents, previous := make([]DurationLedgerDerivedInputEvent, 0, len(events)), ""
 	for index, event := range events {
+		if err := rejectDurationLedgerDerivedDuplicateJSONKeys([]byte(event.MeasurementJSON)); err != nil && event.MeasurementJSON != "" {
+			return DurationLedgerDerivedInputProvenance{}, fmt.Errorf("raw event measurement at sequence %d: %w", event.EventSequence, err)
+		}
 		next, err := verifyDurationLedgerRawObservationEvent(index, event, previous)
 		if err != nil {
 			return DurationLedgerDerivedInputProvenance{}, fmt.Errorf("raw event integrity at sequence %d: %w", event.EventSequence, err)
