@@ -1,5 +1,5 @@
 path	module	domain	type	size_bytes	purpose	search_keys
-cmd/acp-node/main_test.go	cmd	other	go-test	5822	未细分职责：请结合路径、文件名和相邻代码判断	cmd,acp,node,main,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/acp-node/main_test.go	cmd	other	go-test	6000	未细分职责：请结合路径、文件名和相邻代码判断	cmd,acp,node,main,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/acp-node/main.go	cmd	other	go-source	5424	未细分职责：请结合路径、文件名和相邻代码判断	cmd,acp,node,main,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/agent-runtime/main_test.go	cmd	other	go-test	3600	Agent runtime command entry and tests	cmd,agent,runtime,main,test,Agent,command,entry,and,tests
 cmd/agent-runtime/main.go	cmd	other	go-source	1195	Agent runtime command entry and tests	cmd,agent,runtime,main,Agent,command,entry,and,tests
@@ -175,7 +175,7 @@ internal/app/thread_orchestration_adapter_test.go	internal	other	go-test	7271	ro
 internal/app/thread_orchestration_adapter.go	internal	other	go-source	10078	root Fx/app 装配、runner 与 graph closure	internal,app,thread,orchestration,adapter,root,Fx,装配,runner,与,graph,closure
 internal/app/tool_catalog_rpc_test.go	internal	other	go-test	2064	root Fx/app 装配、runner 与 graph closure	internal,app,tool,catalog,rpc,test,root,Fx,装配,runner,与,graph,closure
 internal/app/tool_catalog_rpc.go	internal	other	go-source	1793	root Fx/app 装配、runner 与 graph closure	internal,app,tool,catalog,rpc,root,Fx,装配,runner,与,graph,closure
-internal/archtest/acp_node_boundary_guard_test.go	internal	other	go-test	3005	架构守卫、baseline ratchet 与冻结规则	internal,archtest,acp,node,boundary,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/acp_node_boundary_guard_test.go	internal	other	go-test	3062	架构守卫、baseline ratchet 与冻结规则	internal,archtest,acp,node,boundary,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/agent_field_writes_guard_test.go	internal	other	go-test	2515	架构守卫、baseline ratchet 与冻结规则	internal,archtest,agent,field,writes,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/agent_lifecycle_port_boundary_test.go	internal	other	go-test	750	架构守卫、baseline ratchet 与冻结规则	internal,archtest,agent,lifecycle,port,boundary,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/app_adapter_package_boundary_test.go	internal	other	go-test	4099	架构守卫、baseline ratchet 与冻结规则	internal,archtest,app,adapter,package,boundary,test,架构守卫,baseline,ratchet,与冻结规则
@@ -183,15 +183,15 @@ internal/archtest/archguard_ignore_test.go	internal	other	go-test	1641	架构守
 internal/archtest/archguard_ignore.go	internal	other	go-source	1777	架构守卫、baseline ratchet 与冻结规则	internal,archtest,archguard,ignore,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_canonical_dependencies_test.go	internal	other	go-test	7904	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,canonical,dependencies,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_evaluator.go	internal	other	go-source	30779	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,evaluator,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/backend_boundary_governance_test.go	internal	other	go-test	33385	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,governance,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/backend_boundary_governance_test.go	internal	other	go-test	33558	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,governance,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_governance.go	internal	other	go-source	30646	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,governance,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_guard_coverage_test.go	internal	other	go-test	13942	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,guard,coverage,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_import_evaluator.go	internal	other	go-source	7396	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,import,evaluator,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/backend_boundary_loader_parity_test.go	internal	other	go-test	2863	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,loader,parity,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/backend_boundary_loader_parity_test.go	internal	other	go-test	2824	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,loader,parity,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_matrix_test.go	internal	other	go-test	10161	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,matrix,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_registry_app_adapter.go	internal	other	go-source	8570	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,registry,app,adapter,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_registry_clone.go	internal	other	go-source	2034	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,registry,clone,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/backend_boundary_registry.go	internal	other	go-source	49224	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,registry,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/backend_boundary_registry.go	internal	other	go-source	49252	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,registry,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_single_source_extensions_test.go	internal	other	go-test	9635	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,single,source,extensions,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_single_source_ssa_analyzer_test.go	internal	other	go-test	26114	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,single,source,ssa,analyzer,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_single_source_ssa_test.go	internal	other	go-test	6977	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,single,source,ssa,test,架构守卫,baseline,ratchet,与冻结规则
@@ -298,7 +298,7 @@ internal/archtest/priority_ssa_baseline_test.go	internal	other	go-test	6255	架�
 internal/archtest/priority_ssa_baseline.go	internal	other	go-source	6416	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,baseline,架构守卫,ratchet,与冻结规则
 internal/archtest/priority_ssa_guard_helpers_test.go	internal	other	go-test	19782	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,guard,helpers,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/priority_ssa_guard_test.go	internal	other	go-test	11963	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,guard,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/priority_ssa_loader_parity_test.go	internal	other	go-test	1777	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,loader,parity,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/priority_ssa_loader_parity_test.go	internal	other	go-test	1738	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,loader,parity,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/priority_ssa_production_guard_test.go	internal	other	go-test	1198	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,production,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/priority_ssa_rules_test.go	internal	other	go-test	2411	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,rules,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/priority_ssa_rules.go	internal	other	go-source	22508	架构守卫、baseline ratchet 与冻结规则	internal,archtest,priority,ssa,rules,架构守卫,baseline,ratchet,与冻结规则
@@ -429,26 +429,30 @@ internal/contract/thread.go	internal	other	go-source	3778	跨模块稳定接口�
 internal/contract/toolbridge.go	internal	other	go-source	4928	跨模块稳定接口、事件和 DTO 边界	internal,contract,toolbridge,跨模块稳定接口,事件和,DTO,边界
 internal/contract/ui_project_state.go	internal	other	go-source	623	跨模块稳定接口、事件和 DTO 边界	internal,contract,ui,project,state,跨模块稳定接口,事件和,DTO,边界
 internal/contract/wire_omitzero_test.go	internal	other	go-test	1832	跨模块稳定接口、事件和 DTO 边界	internal,contract,wire,omitzero,test,跨模块稳定接口,事件和,DTO,边界
-internal/devtools/acpnode/bounds.go	internal	other	go-source	9988	开发工具与生成器辅助包	internal,devtools,acpnode,bounds,开发工具与生成器辅助包
-internal/devtools/acpnode/client_test.go	internal	other	go-test	26114	开发工具与生成器辅助包	internal,devtools,acpnode,client,test,开发工具与生成器辅助包
-internal/devtools/acpnode/client.go	internal	other	go-source	15808	开发工具与生成器辅助包	internal,devtools,acpnode,client,开发工具与生成器辅助包
+internal/devtools/acpnode/async.go	internal	other	go-source	363	开发工具与生成器辅助包	internal,devtools,acpnode,async,开发工具与生成器辅助包
+internal/devtools/acpnode/bounds.go	internal	other	go-source	10133	开发工具与生成器辅助包	internal,devtools,acpnode,bounds,开发工具与生成器辅助包
+internal/devtools/acpnode/client_test.go	internal	other	go-test	26293	开发工具与生成器辅助包	internal,devtools,acpnode,client,test,开发工具与生成器辅助包
+internal/devtools/acpnode/client.go	internal	other	go-source	16372	开发工具与生成器辅助包	internal,devtools,acpnode,client,开发工具与生成器辅助包
 internal/devtools/acpnode/config_test.go	internal	other	go-test	2707	开发工具与生成器辅助包	internal,devtools,acpnode,config,test,开发工具与生成器辅助包
 internal/devtools/acpnode/config.go	internal	other	go-source	5084	开发工具与生成器辅助包	internal,devtools,acpnode,config,开发工具与生成器辅助包
-internal/devtools/acpnode/hardening_regression_test.go	internal	other	go-test	30253	开发工具与生成器辅助包	internal,devtools,acpnode,hardening,regression,test,开发工具与生成器辅助包
-internal/devtools/acpnode/lifecycle.go	internal	other	go-source	10013	开发工具与生成器辅助包	internal,devtools,acpnode,lifecycle,开发工具与生成器辅助包
+internal/devtools/acpnode/hardening_regression_test.go	internal	other	go-test	27231	开发工具与生成器辅助包	internal,devtools,acpnode,hardening,regression,test,开发工具与生成器辅助包
+internal/devtools/acpnode/hardening_test_support_test.go	internal	other	go-test	3561	开发工具与生成器辅助包	internal,devtools,acpnode,hardening,test,support,开发工具与生成器辅助包
+internal/devtools/acpnode/lifecycle.go	internal	other	go-source	9905	开发工具与生成器辅助包	internal,devtools,acpnode,lifecycle,开发工具与生成器辅助包
 internal/devtools/acpnode/owner.go	internal	other	go-source	3539	开发工具与生成器辅助包	internal,devtools,acpnode,owner,开发工具与生成器辅助包
 internal/devtools/acpnode/process_test.go	internal	other	go-test	3161	开发工具与生成器辅助包	internal,devtools,acpnode,process,test,开发工具与生成器辅助包
-internal/devtools/acpnode/process.go	internal	other	go-source	12483	开发工具与生成器辅助包	internal,devtools,acpnode,process,开发工具与生成器辅助包
-internal/devtools/acpnode/redact_test.go	internal	other	go-test	2128	开发工具与生成器辅助包	internal,devtools,acpnode,redact,test,开发工具与生成器辅助包
-internal/devtools/acpnode/redact.go	internal	other	go-source	8247	开发工具与生成器辅助包	internal,devtools,acpnode,redact,开发工具与生成器辅助包
-internal/devtools/acpnode/rpc.go	internal	other	go-source	10521	开发工具与生成器辅助包	internal,devtools,acpnode,rpc,开发工具与生成器辅助包
+internal/devtools/acpnode/process.go	internal	other	go-source	12593	开发工具与生成器辅助包	internal,devtools,acpnode,process,开发工具与生成器辅助包
+internal/devtools/acpnode/redact_test.go	internal	other	go-test	2119	开发工具与生成器辅助包	internal,devtools,acpnode,redact,test,开发工具与生成器辅助包
+internal/devtools/acpnode/redact.go	internal	other	go-source	8326	开发工具与生成器辅助包	internal,devtools,acpnode,redact,开发工具与生成器辅助包
+internal/devtools/acpnode/rpc.go	internal	other	go-source	9880	开发工具与生成器辅助包	internal,devtools,acpnode,rpc,开发工具与生成器辅助包
 internal/devtools/acpnode/schema_provenance_test.go	internal	other	go-test	1102	开发工具与生成器辅助包	internal,devtools,acpnode,schema,provenance,test,开发工具与生成器辅助包
 internal/devtools/acpnode/schema_provenance.json	internal	other	json	398	开发工具与生成器辅助包	internal,devtools,acpnode,schema,provenance,开发工具与生成器辅助包
-internal/devtools/acpnode/session.go	internal	other	go-source	21901	开发工具与生成器辅助包	internal,devtools,acpnode,session,开发工具与生成器辅助包
+internal/devtools/acpnode/session.go	internal	other	go-source	21626	开发工具与生成器辅助包	internal,devtools,acpnode,session,开发工具与生成器辅助包
+internal/devtools/acpnode/test_async_test.go	internal	other	go-test	269	开发工具与生成器辅助包	internal,devtools,acpnode,test,async,开发工具与生成器辅助包
 internal/devtools/acpnode/testdata/fakepeer/main.go	internal	other	go-source	3022	开发工具与生成器辅助包	internal,devtools,acpnode,testdata,fakepeer,main,开发工具与生成器辅助包
+internal/devtools/acpnode/wire_field_guard_test.go	internal	other	go-test	2116	开发工具与生成器辅助包	internal,devtools,acpnode,wire,field,guard,test,开发工具与生成器辅助包
 internal/devtools/acpnode/wire_test.go	internal	other	go-test	11786	开发工具与生成器辅助包	internal,devtools,acpnode,wire,test,开发工具与生成器辅助包
-internal/devtools/acpnode/wire.go	internal	other	go-source	22589	开发工具与生成器辅助包	internal,devtools,acpnode,wire,开发工具与生成器辅助包
-internal/devtools/acpnode/write_owner.go	internal	other	go-source	5457	开发工具与生成器辅助包	internal,devtools,acpnode,write,owner,开发工具与生成器辅助包
+internal/devtools/acpnode/wire.go	internal	other	go-source	21521	开发工具与生成器辅助包	internal,devtools,acpnode,wire,开发工具与生成器辅助包
+internal/devtools/acpnode/write_owner.go	internal	other	go-source	5563	开发工具与生成器辅助包	internal,devtools,acpnode,write,owner,开发工具与生成器辅助包
 internal/devtools/alicloud/eci/client_test.go	internal	other	go-test	30043	开发工具与生成器辅助包	internal,devtools,alicloud,eci,client,test,开发工具与生成器辅助包
 internal/devtools/alicloud/eci/client_validation_cases_test.go	internal	other	go-test	1776	开发工具与生成器辅助包	internal,devtools,alicloud,eci,client,validation,cases,test,开发工具与生成器辅助包
 internal/devtools/alicloud/eci/client_validation.go	internal	other	go-source	7242	开发工具与生成器辅助包	internal,devtools,alicloud,eci,client,validation,开发工具与生成器辅助包
@@ -524,7 +528,7 @@ internal/devtools/gate/executor_go_module_overlay.go	internal	other	go-source	18
 internal/devtools/gate/executor_guard_helpers_test.go	internal	other	go-test	2619	开发工具与生成器辅助包	internal,devtools,gate,executor,guard,helpers,test,开发工具与生成器辅助包
 internal/devtools/gate/executor_mapping_runtime_test.go	internal	other	go-test	3858	开发工具与生成器辅助包	internal,devtools,gate,executor,mapping,runtime,test,开发工具与生成器辅助包
 internal/devtools/gate/executor_mapping_test.go	internal	other	go-test	11718	开发工具与生成器辅助包	internal,devtools,gate,executor,mapping,test,开发工具与生成器辅助包
-internal/devtools/gate/executor_mapping.go	internal	other	go-source	19503	开发工具与生成器辅助包	internal,devtools,gate,executor,mapping,开发工具与生成器辅助包
+internal/devtools/gate/executor_mapping.go	internal	other	go-source	19595	开发工具与生成器辅助包	internal,devtools,gate,executor,mapping,开发工具与生成器辅助包
 internal/devtools/gate/executor_mount_linux.go	internal	other	go-source	237	开发工具与生成器辅助包	internal,devtools,gate,executor,mount,linux,开发工具与生成器辅助包
 internal/devtools/gate/executor_mount_other.go	internal	other	go-source	168	开发工具与生成器辅助包	internal,devtools,gate,executor,mount,other,开发工具与生成器辅助包
 internal/devtools/gate/executor_mount_test.go	internal	other	go-test	1104	开发工具与生成器辅助包	internal,devtools,gate,executor,mount,test,开发工具与生成器辅助包
@@ -559,10 +563,10 @@ internal/devtools/gate/gate_result_test.go	internal	other	go-test	1183	开发工
 internal/devtools/gate/gate_result_validation.go	internal	other	go-source	2396	开发工具与生成器辅助包	internal,devtools,gate,result,validation,开发工具与生成器辅助包
 internal/devtools/gate/go_distribution_test.go	internal	other	go-test	577	开发工具与生成器辅助包	internal,devtools,gate,go,distribution,test,开发工具与生成器辅助包
 internal/devtools/gate/go_distribution.go	internal	other	go-source	707	开发工具与生成器辅助包	internal,devtools,gate,go,distribution,开发工具与生成器辅助包
-internal/devtools/gate/ledger_store_observability_test.go	internal	other	go-test	23979	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,observability,test,开发工具与生成器辅助包
+internal/devtools/gate/ledger_store_observability_test.go	internal	other	go-test	23955	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,observability,test,开发工具与生成器辅助包
 internal/devtools/gate/ledger_store_sqlite_calibration_checkpoint_migration_test.go	internal	other	go-test	3442	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,calibration,checkpoint,migration,test,开发工具与生成器辅助包
 internal/devtools/gate/ledger_store_sqlite_index_migration_test.go	internal	other	go-test	11126	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,index,migration,test,开发工具与生成器辅助包
-internal/devtools/gate/ledger_store_sqlite_observability.go	internal	other	go-source	36496	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,observability,开发工具与生成器辅助包
+internal/devtools/gate/ledger_store_sqlite_observability.go	internal	other	go-source	36367	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,observability,开发工具与生成器辅助包
 internal/devtools/gate/ledger_store_sqlite_projection_test.go	internal	other	go-test	921	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,projection,test,开发工具与生成器辅助包
 internal/devtools/gate/ledger_store_sqlite_read.go	internal	other	go-source	6900	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,read,开发工具与生成器辅助包
 internal/devtools/gate/ledger_store_sqlite_retention_matrix_test.go	internal	other	go-test	15099	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,retention,matrix,test,开发工具与生成器辅助包
@@ -580,7 +584,9 @@ internal/devtools/gate/ledger_store_sqlite.go	internal	other	go-source	13623	开
 internal/devtools/gate/ledger_store_test.go	internal	other	go-test	7785	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,test,开发工具与生成器辅助包
 internal/devtools/gate/ledger_store.go	internal	other	go-source	9452	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,开发工具与生成器辅助包
 internal/devtools/gate/observability_derived_aggregator_test.go	internal	other	go-test	33536	开发工具与生成器辅助包	internal,devtools,gate,observability,derived,aggregator,test,开发工具与生成器辅助包
-internal/devtools/gate/observability_derived_aggregator.go	internal	other	go-source	45629	开发工具与生成器辅助包	internal,devtools,gate,observability,derived,aggregator,开发工具与生成器辅助包
+internal/devtools/gate/observability_derived_aggregator.go	internal	other	go-source	44762	开发工具与生成器辅助包	internal,devtools,gate,observability,derived,aggregator,开发工具与生成器辅助包
+internal/devtools/gate/observability_derived_facts.go	internal	other	go-source	821	开发工具与生成器辅助包	internal,devtools,gate,observability,derived,facts,开发工具与生成器辅助包
+internal/devtools/gate/observability_derived_field_guard_test.go	internal	other	go-test	2210	开发工具与生成器辅助包	internal,devtools,gate,observability,derived,field,guard,test,开发工具与生成器辅助包
 internal/devtools/gate/oci_baseline_state_store_test.go	internal	other	go-test	2780	开发工具与生成器辅助包	internal,devtools,gate,oci,baseline,state,store,test,开发工具与生成器辅助包
 internal/devtools/gate/registry_test.go	internal	other	go-test	12552	开发工具与生成器辅助包	internal,devtools,gate,registry,test,开发工具与生成器辅助包
 internal/devtools/gate/registry.go	internal	other	go-source	15613	开发工具与生成器辅助包	internal,devtools,gate,registry,开发工具与生成器辅助包

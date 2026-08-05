@@ -1,8 +1,8 @@
 path	module	domain	type	size_bytes	purpose	search_keys
-cmd/mcp-ida/fx_test.go	cmd	platform-provider	go-test	8513	IDA MCP peer 与逆向分析工具入口	cmd,mcp,ida,fx,test,IDA,MCP,peer,与逆向分析工具入口
-cmd/mcp-ida/fx.go	cmd	platform-provider	go-source	8224	IDA MCP peer 与逆向分析工具入口	cmd,mcp,ida,fx,IDA,MCP,peer,与逆向分析工具入口
-cmd/mcp-ida/main_test.go	cmd	platform-provider	go-test	1322	IDA MCP peer 与逆向分析工具入口	cmd,mcp,ida,main,test,IDA,MCP,peer,与逆向分析工具入口
-cmd/mcp-ida/main.go	cmd	platform-provider	go-source	1771	IDA MCP peer 与逆向分析工具入口	cmd,mcp,ida,main,IDA,MCP,peer,与逆向分析工具入口
+cmd/mcp-ida/fx_test.go	cmd	platform-provider	go-test	8342	IDA MCP peer 与逆向分析工具入口	cmd,mcp,ida,fx,test,IDA,MCP,peer,与逆向分析工具入口
+cmd/mcp-ida/fx.go	cmd	platform-provider	go-source	8300	IDA MCP peer 与逆向分析工具入口	cmd,mcp,ida,fx,IDA,MCP,peer,与逆向分析工具入口
+cmd/mcp-ida/main_test.go	cmd	platform-provider	go-test	1378	IDA MCP peer 与逆向分析工具入口	cmd,mcp,ida,main,test,IDA,MCP,peer,与逆向分析工具入口
+cmd/mcp-ida/main.go	cmd	platform-provider	go-source	1901	IDA MCP peer 与逆向分析工具入口	cmd,mcp,ida,main,IDA,MCP,peer,与逆向分析工具入口
 cmd/mcp-ida/sidecar_runtime_inheritance_test.go	cmd	platform-provider	go-test	2195	IDA MCP peer 与逆向分析工具入口	cmd,mcp,ida,sidecar,runtime,inheritance,test,IDA,MCP,peer,与逆向分析工具入口
 cmd/mcp-lsp/edit/patchmatch_test.go	cmd	platform-provider	go-test	6474	代码智能/LSP MCP peer	cmd,mcp,lsp,edit,patchmatch,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/edit/patchmatch.go	cmd	platform-provider	go-source	11704	代码智能/LSP MCP peer	cmd,mcp,lsp,edit,patchmatch,代码智能,LSP,MCP,peer
