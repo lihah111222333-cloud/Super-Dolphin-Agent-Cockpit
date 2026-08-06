@@ -227,18 +227,14 @@ type workspaceConfig struct {
 }
 
 var (
-	_                   Manager                      = (*manager)(nil)
-	_                   protocol.NotificationHandler = (*manager)(nil)
-	testManagerSequence atomic.Uint64
+	_ Manager                      = (*manager)(nil)
+	_ protocol.NotificationHandler = (*manager)(nil)
 )
 
 // NewManager 根据配置创建 manager；直接测试构造的零 IdleTimeout 使用 canonical platform 配置。
 func NewManager(cfg Config) Manager {
 	if cfg.IdleTimeout <= 0 {
 		cfg.IdleTimeout = platformconfig.DefaultLSPConfig().IdleTimeout
-	}
-	if cfg.provisionalInstanceID == "" {
-		cfg.provisionalInstanceID = fmt.Sprintf("test-manager-%d", testManagerSequence.Add(1))
 	}
 	mgr, _ := newManager(cfg)
 	return mgr

@@ -144,6 +144,17 @@ func TestProvisionalManagerAndCloneLifecycleIdentityDoesNotCollide(t *testing.T)
 	}
 }
 
+func TestNewManagerUsesInjectedProvisionalEntropy(t *testing.T) {
+	entropy := bytes.Repeat([]byte{0x5a}, 16)
+	mgr := NewManager(Config{
+		WorkspaceRoot:      t.TempDir(),
+		provisionalEntropy: bytes.NewReader(entropy),
+	}).(*manager)
+	if want := strings.Repeat("5a", len(entropy)); mgr.instanceID != want {
+		t.Fatalf("instance ID = %q, want entropy-derived %q", mgr.instanceID, want)
+	}
+}
+
 func TestCleanupFailureWithPIDOnlyOwnerEmitsReadOnlyPair(t *testing.T) {
 	var logs bytes.Buffer
 	key := "/Users/private/project/pid-only:go"
