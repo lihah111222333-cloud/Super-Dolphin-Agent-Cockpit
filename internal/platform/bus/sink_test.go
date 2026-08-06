@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"log/slog"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +23,32 @@ type sinkLogEntry struct {
 	Level     string `json:"level"`
 	Msg       string `json:"msg"`
 	EventType string `json:"event_type"`
+}
+
+func TestSetBusSummaryStringFieldPreservesAllowlist(t *testing.T) {
+	summary := &busEventSummary{}
+	if !setBusSummaryStringField("ThreadID", reflect.ValueOf(" thread-1 "), summary) {
+		t.Fatal("setBusSummaryStringField(ThreadID) = false, want true")
+	}
+	if summary.ThreadID != "thread-1" {
+		t.Fatalf("summary.ThreadID = %q, want thread-1", summary.ThreadID)
+	}
+	if setBusSummaryStringField("CWD", reflect.ValueOf("/private"), summary) {
+		t.Fatal("setBusSummaryStringField(CWD) = true, want false")
+	}
+}
+
+func TestBusErrorSecretPatternsOwnerReturnsIndependentSlices(t *testing.T) {
+	patterns := busErrorSecretPatterns()
+	if got := len(patterns); got != 3 {
+		t.Fatalf("busErrorSecretPatterns() count = %d, want 3", got)
+	}
+	patterns[0] = nil
+
+	got := busRedactErrorPreview("Authorization: Bearer top-secret", 0, busErrorSecretPatterns())
+	if strings.Contains(got, "top-secret") || !strings.Contains(got, "[REDACTED]") {
+		t.Fatalf("busRedactErrorPreview() = %q, want authorization redaction", got)
+	}
 }
 
 type lockedBuffer struct {

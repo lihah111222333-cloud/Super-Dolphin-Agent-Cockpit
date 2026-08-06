@@ -24,11 +24,12 @@ import (
 
 // LogSink 订阅总线上的已知事件类型，将其镜像到结构化日志，并按需记录追踪信息。
 type LogSink struct {
-	subs        *Subscription     // 订阅集合，Close 时统一注销
-	logger      *pkglogger.Logger // trace 写入失败时输出可见告警
-	trace       TraceRecorder     // 可选的追踪记录器
-	traceMu     sync.Mutex        // 保护 traceCounts 的并发写
-	traceCounts map[string]int64  // 高频事件采样计数器，按事件类型分组
+	subs                *Subscription     // 订阅集合，Close 时统一注销
+	logger              *pkglogger.Logger // trace 写入失败时输出可见告警
+	trace               TraceRecorder     // 可选的追踪记录器
+	traceMu             sync.Mutex        // 保护 traceCounts 的并发写
+	traceCounts         map[string]int64  // 高频事件采样计数器，按事件类型分组
+	errorSecretPatterns []*regexp.Regexp  // trace 错误预览的不可共享脱敏规则
 }
 
 // TraceStatus 表示追踪记录的状态类型。
@@ -56,23 +57,41 @@ type busEventSummary struct {
 	Success   *bool  `json:"success,omitempty"`
 }
 
-var busSummaryStringSetters = map[string]func(*busEventSummary, string){
-	"ThreadID":  func(summary *busEventSummary, value string) { summary.ThreadID = value },
-	"AgentID":   func(summary *busEventSummary, value string) { summary.AgentID = value },
-	"SessionID": func(summary *busEventSummary, value string) { summary.SessionID = value },
-	"TurnID":    func(summary *busEventSummary, value string) { summary.TurnID = value },
-	"CallID":    func(summary *busEventSummary, value string) { summary.CallID = value },
-	"ToolName":  func(summary *busEventSummary, value string) { summary.ToolName = value },
-	"Provider":  func(summary *busEventSummary, value string) { summary.Provider = value },
-	"Model":     func(summary *busEventSummary, value string) { summary.Model = value },
-	"Stream":    func(summary *busEventSummary, value string) { summary.Stream = value },
-	"InputType": func(summary *busEventSummary, value string) { summary.InputType = value },
+func setBusSummaryStringField(name string, value reflect.Value, summary *busEventSummary) bool {
+	text := safeBusSummaryString(value)
+	switch name {
+	case "ThreadID":
+		summary.ThreadID = text
+	case "AgentID":
+		summary.AgentID = text
+	case "SessionID":
+		summary.SessionID = text
+	case "TurnID":
+		summary.TurnID = text
+	case "CallID":
+		summary.CallID = text
+	case "ToolName":
+		summary.ToolName = text
+	case "Provider":
+		summary.Provider = text
+	case "Model":
+		summary.Model = text
+	case "Stream":
+		summary.Stream = text
+	case "InputType":
+		summary.InputType = text
+	default:
+		return false
+	}
+	return true
 }
 
-var busErrorSecretPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)(authorization\\?"?\s*[:=]\s*bearer\s+)[^\\\s,;&"]+`),
-	regexp.MustCompile(`(?i)((?:api[_-]?key|secret[_-]?key|access[_-]?token|token|password)\\?"?\s*[:=]\s*\\?"?)[^\\\s,;&"]+`),
-	regexp.MustCompile(`sk-[A-Za-z0-9_-]{8,}`),
+func busErrorSecretPatterns() []*regexp.Regexp {
+	return []*regexp.Regexp{
+		regexp.MustCompile(`(?i)(authorization\\?"?\s*[:=]\s*bearer\s+)[^\\\s,;&"]+`),
+		regexp.MustCompile(`(?i)((?:api[_-]?key|secret[_-]?key|access[_-]?token|token|password)\\?"?\s*[:=]\s*\\?"?)[^\\\s,;&"]+`),
+		regexp.MustCompile(`sk-[A-Za-z0-9_-]{8,}`),
+	}
 }
 
 // TraceCodeAnchor 记录追踪事件发生时的调用栈位置。
@@ -121,7 +140,13 @@ func NewLogSink(p LogSinkDeps) (*LogSink, error) {
 	if p.Logger == nil {
 		return nil, errors.New("bus: nil logger")
 	}
-	sink := &LogSink{subs: NewSubscription(), logger: p.Logger, trace: p.Trace, traceCounts: map[string]int64{}}
+	sink := &LogSink{
+		subs:                NewSubscription(),
+		logger:              p.Logger,
+		trace:               p.Trace,
+		traceCounts:         map[string]int64{},
+		errorSecretPatterns: busErrorSecretPatterns(),
+	}
 	sink.bindAgent(p.Dispatcher, p.Logger)
 	sink.bindThread(p.Dispatcher, p.Logger)
 	sink.bindTurn(p.Dispatcher, p.Logger)
@@ -220,11 +245,11 @@ func busEventLogArgs(ev any) []any {
 	}
 }
 
-func busSafeErrorPreview(err error) string {
+func (s *LogSink) safeErrorPreview(err error) string {
 	if err == nil {
 		return ""
 	}
-	return busRedactErrorPreview(err.Error(), 512)
+	return busRedactErrorPreview(err.Error(), 512, s.errorSecretPatterns)
 }
 
 func eventTypeName(ev any) string {
@@ -292,8 +317,7 @@ func collectBusSummaryField(field reflect.StructField, value reflect.Value, summ
 }
 
 func setBusSummaryField(name string, value reflect.Value, summary *busEventSummary) bool {
-	if setter, ok := busSummaryStringSetters[name]; ok {
-		setter(summary, safeBusSummaryString(value))
+	if setBusSummaryStringField(name, value, summary) {
 		return true
 	}
 	if name == "Success" {
@@ -313,8 +337,8 @@ func safeBusSummaryString(value reflect.Value) string {
 	return strings.TrimSpace(value.String())
 }
 
-func busRedactErrorPreview(value string, maxBytes int) string {
-	for _, pattern := range busErrorSecretPatterns {
+func busRedactErrorPreview(value string, maxBytes int, patterns []*regexp.Regexp) string {
+	for _, pattern := range patterns {
 		value = pattern.ReplaceAllString(value, "${1}[REDACTED]")
 	}
 	if maxBytes <= 0 || len(value) <= maxBytes {
@@ -391,7 +415,7 @@ func (s *LogSink) warnTraceRecordFailure(ev any, record TraceRecord, err error) 
 		pkglogger.String("event_type", eventTypeName(ev)),
 		pkglogger.String("method", record.Method),
 		pkglogger.String("thread_id", record.ThreadID),
-		pkglogger.String("error_preview", busSafeErrorPreview(err)),
+		pkglogger.String("error_preview", s.safeErrorPreview(err)),
 		pkglogger.String("error_code", "trace_record_failed"),
 	)
 }
@@ -432,8 +456,7 @@ func busTraceIdentifiers(ev any) busTraceIDs {
 func stringField(value reflect.Value, name string) string {
 	field := value.FieldByName(name)
 	if !field.IsValid() && value.Kind() == reflect.Struct {
-		for i := 0; i < value.NumField(); i++ {
-			candidate := value.Field(i)
+		for _, candidate := range value.Fields() {
 			if candidate.Kind() == reflect.Struct {
 				if out := stringField(candidate, name); out != "" {
 					return out
