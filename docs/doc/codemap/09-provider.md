@@ -89,16 +89,18 @@ thread.Service.startSession / resumeSession
 
 transport break / health failure
   -> attemptRecovery()
-  -> transport.reconnect()
-  -> waitReadLoopStopped()
-  -> startReadLoop()
-  -> thread/resume
-  -> replayPendingTurn()
+  -> shutdown / generation / mutex / retry-budget gate
+  -> drainRecoveryReader()
+  -> recovery.Reconnect()
+  -> completeRecoveryReplay()
+     -> restartReader()
+     -> thread/resume
+     -> replayPendingTurn()
 ```
 
 关键语义：
 - `dispatch()` 会把 payload 中的 provider `threadId` 改写为 public `agentID`，避免 UI 看到 provider 内部 thread uuid。锚点：`internal/provider/codexapp/session.go:302-325`。
-- 恢复链路不是“只重连 WS”，而是 `reconnect + thread/resume + replayPendingTurn`。锚点：`internal/provider/codexapp/recovery.go:122-163`、`internal/provider/codexapp/recovery.go:185-205`。
+- 恢复链路不是“只重连 WS”：`attemptRecovery()` 先经过关闭、代际、串行和重试预算门禁，drain 旧 reader 后才 `Reconnect()`；随后 `completeRecoveryReplay()` 固定执行 `restartReader -> thread/resume -> replayPendingTurn`。锚点：`internal/provider/codexapp/recovery.go:318-409`、`internal/provider/codexapp/recovery.go:413-440`、`internal/provider/codexapp/recovery.go:464-523`。
 - `endReadLoop()` 会注入 synthetic `connection.dead` notification 进入 session。锚点：`internal/provider/codexapp/transport_helpers.go:230-241`。
 
 ---
@@ -126,7 +128,7 @@ transport break / health failure
 | Provider | Session 生命周期 | Event 映射表（provider 事件 → 内部 DTO） | 审批通道 | 中断通道 |
 |---|---|---|---|---|
 | Claude CLI | `StartSession`/`ResumeSession` -> `launchCLIWithManifest` -> placeholder session -> `startReadLoop` -> `awaitResolvedThreadID`。<br>`StartTurn` 前若 transport 不可用、model/effort 改变、manifest 改变，则 `restartIfNeededLocked()` 触发 **重启 CLI + --resume**。<br>`Configure()` 仅支持 model/effort staged override；`Close/ForceStop` 直接结束 CLI。<br>锚点：`internal/provider/claudecli/driver.go:106-175`、`internal/provider/claudecli/session_turn.go:170-199`、`internal/provider/claudecli/session_log_watcher_integration.go:165-181`、`internal/provider/claudecli/session_config.go:17-34`。 | `agent:launched -> AgentLaunched`；`system:init -> AgentRuntimeReported`；`agent:state_changed -> StateChanged`；`agent:stopped -> AgentStopped`；`agent:failed -> AgentFailed`；`turn:started -> TurnStarted`；`turn:input_received -> TurnInputReceived`；`assistant:message_delta -> TurnOutputDelta`；`turn:interrupted -> TurnInterrupted`；`turn:complete -> TurnCompleted`；`tool:use_begin/end -> ToolCallBegin/End`。<br>锚点：`internal/provider/claudecli/event_map.go:25-42`、`internal/provider/claudecli/event_map.go:60-90`、`internal/provider/claudecli/event_map.go:92-138`、`internal/provider/claudecli/event_map.go:140-168`。 | 无 provider->UI 审批回调桥。Claude 只把 `approvalPolicy` 映射成 CLI `--permission-mode`；运行时 `ReadConfig()` 可回报 approvals，但没有 `ApprovalManager` 回调链。<br>锚点：`internal/provider/claudecli/transport_config.go:102-121`、`internal/provider/claudecli/session_config.go:138-159`。 | `Interrupt()` 本地摘走 `activeTurn`，补发 `turn:interrupted`，随后对旧 transport `SIGINT`，最多等 2 秒，不退出则 `SIGKILL`；下一 turn 触发 restart。`ForceComplete()` 先 `SIGINT`，再本地补 `turn:complete{reason=force_complete}`。<br>锚点：`internal/provider/claudecli/session.go:228-278`、`internal/provider/claudecli/session_interrupt_cleanup.go:34-48`、`internal/provider/claudecli/session_config.go:170-197`。 |
-| Codex App | `StartSession`/`ResumeSession` 先 `newSession()` 建 WS 与 read/health loop，再 `thread/start` 或 `thread/resume`。<br>`StartTurn` 记 `turns + activeTurnID + pendingTurn`。<br>连接异常时 `attemptRecovery()` 做 `reconnect + thread/resume + replayPendingTurn`。<br>`Configure()` 中 model/effort 只存本地 runtimeConfig，在下一次 `turn/start` 带出；personality/approvals 走 slash-config RPC。<br>锚点：`internal/provider/codexapp/driver.go:162-227`、`internal/provider/codexapp/session.go:170-205`、`internal/provider/codexapp/recovery.go:122-205`、`internal/provider/codexapp/support.go:109-162`。 | `thread/started|session.configured -> AgentLaunched`；`thread/status/changed -> StateChanged`；`shutdown.complete|shutdown_complete -> AgentStopped`；`recovery.attempt -> AgentRecovering`；`connection.dead -> AgentFailed`；`turn/completed|turn.completed|turn/aborted|turn.aborted -> TurnCompleted`；`turn/interrupted|turn.interrupted -> TurnInterrupted`；`turn/started|turn.started -> TurnStarted`；`message.delta/reasoning.delta/exec_output_delta -> TurnOutputDelta`；approval bridge methods -> `ToolApprovalRequested`；`item/tool/call|dynamic_tool_call|tool.call.begin -> ToolCallBegin`；`item/completed|tool.call.end -> ToolCallEnd`；`approval/resolved -> ToolApprovalResolved`；`turn/diff/updated -> ToolDiffUpdated`。<br>锚点：`internal/provider/codexapp/event_map.go:44-66`、`internal/provider/codexapp/event_map.go:114-146`、`internal/provider/codexapp/event_map.go:148-198`、`internal/provider/codexapp/event_map.go:248-302`。 | approval request methods 在 `approvalBridgeMethods` 中集中定义；`onNotification()` 对 approval 事件默认 **不再 dispatch raw**，而是 `handleApprovalRequest()` -> `buildApprovalRequest()` -> `ApprovalManager.RequestApproval/RequestUserInput()` -> `approval/respond`。重复请求按 `callID+requestID` 去重。<br>锚点：`internal/provider/codexapp/factory.go:41`、`internal/provider/codexapp/session_approval.go:28-70`、`internal/provider/codexapp/session_approval.go:148-191`、`internal/provider/codexapp/session_approval.go:222-240`。 | `Interrupt()` 直接发 `turn/interrupt`；`ForceComplete()` 发 `turn/forceComplete` 后本地补 `turn/completed{reason=force_complete}` 并 suppress 后续真实终态；恢复后 `replayPendingTurn()` 会更新同一 `TurnHandle` 的 provider turn id。<br>锚点：`internal/provider/codexapp/session.go:220-243`、`internal/provider/codexapp/session.go:368-385`、`internal/provider/codexapp/recovery.go:185-205`。 |
+| Codex App | `StartSession`/`ResumeSession` 先 `newSession()` 建 WS 与 read/health loop，再 `thread/start` 或 `thread/resume`。<br>`StartTurn` 记 `turns + activeTurnID + pendingTurn`。<br>连接异常时 `attemptRecovery()` 经门禁与旧 reader drain，随后 `Reconnect -> restartReader -> thread/resume -> replayPendingTurn`。<br>`Configure()` 中 model/effort 只存本地 runtimeConfig，在下一次 `turn/start` 带出；personality/approvals 走 slash-config RPC。<br>锚点：`internal/provider/codexapp/driver.go:162-227`、`internal/provider/codexapp/session.go:170-205`、`internal/provider/codexapp/recovery.go:318-409`、`internal/provider/codexapp/recovery.go:413-440`、`internal/provider/codexapp/recovery.go:464-523`、`internal/provider/codexapp/support.go:109-162`。 | `thread/started|session.configured -> AgentLaunched`；`thread/status/changed -> StateChanged`；`shutdown.complete|shutdown_complete -> AgentStopped`；`recovery.attempt -> AgentRecovering`；`connection.dead -> AgentFailed`；`turn/completed|turn.completed|turn/aborted|turn.aborted -> TurnCompleted`；`turn/interrupted|turn.interrupted -> TurnInterrupted`；`turn/started|turn.started -> TurnStarted`；`message.delta/reasoning.delta/exec_output_delta -> TurnOutputDelta`；approval bridge methods -> `ToolApprovalRequested`；`item/tool/call|dynamic_tool_call|tool.call.begin -> ToolCallBegin`；`item/completed|tool.call.end -> ToolCallEnd`；`approval/resolved -> ToolApprovalResolved`；`turn/diff/updated -> ToolDiffUpdated`。<br>锚点：`internal/provider/codexapp/event_map.go:44-66`、`internal/provider/codexapp/event_map.go:114-146`、`internal/provider/codexapp/event_map.go:148-198`、`internal/provider/codexapp/event_map.go:248-302`。 | approval request methods 在 `approvalBridgeMethods` 中集中定义；`onNotification()` 对 approval 事件默认 **不再 dispatch raw**，而是 `handleApprovalRequest()` -> `buildApprovalRequest()` -> `ApprovalManager.RequestApproval/RequestUserInput()` -> `approval/respond`。重复请求按 `callID+requestID` 去重。<br>锚点：`internal/provider/codexapp/factory.go:41`、`internal/provider/codexapp/session_approval.go:28-70`、`internal/provider/codexapp/session_approval.go:148-191`、`internal/provider/codexapp/session_approval.go:222-240`。 | `Interrupt()` 直接发 `turn/interrupt`；`ForceComplete()` 发 `turn/forceComplete` 后本地补 `turn/completed{reason=force_complete}` 并 suppress 后续真实终态；恢复后 `replayPendingTurn()` 会更新同一 `TurnHandle` 的 provider turn id。<br>锚点：`internal/provider/codexapp/session.go:220-243`、`internal/provider/codexapp/session.go:368-385`、`internal/provider/codexapp/recovery.go:464-523`、`internal/provider/codexapp/recovery.go:708-728`。 |
 
 ---
 
@@ -270,14 +272,15 @@ sequenceDiagram
   WS-->>SE: notifications
   SE->>SE: onNotification()/dispatch()
   Note over SE,WS: connection.dead / call error
-  SE->>SE: attemptRecovery()
-  SE->>TR: reconnect()
+  SE->>SE: attemptRecovery() gate + drainRecoveryReader()
+  SE->>TR: recovery.Reconnect()
+  SE->>SE: completeRecoveryReplay() / restartReader()
   SE->>WS: thread/resume
   SE->>WS: replayPendingTurn()
 ```
 
 - `newSession()` 负责建立 transport、构造 `session`、启动 read loop 与 health loop；driver 只做 runtimeConfig 初始化和 `thread/start|resume`。锚点：`internal/provider/codexapp/session.go:63-105`、`internal/provider/codexapp/driver.go:162-227`。
-- `attemptRecovery()` 不是“重连一下就完”，而是 `Reconnect -> waitReadLoopStopped -> startReadLoop -> resumeThreadAfterRecovery -> replayPendingTurn` 的完整恢复链。锚点：`internal/provider/codexapp/recovery.go:122-163`、`internal/provider/codexapp/recovery.go:165-205`。
+- `attemptRecovery()` 不是“重连一下就完”，而是 `gate -> drainRecoveryReader -> Reconnect -> completeRecoveryReplay(restartReader -> resumeThreadAfterRecovery -> replayPendingTurn)` 的完整恢复链。锚点：`internal/provider/codexapp/recovery.go:318-409`、`internal/provider/codexapp/recovery.go:413-440`、`internal/provider/codexapp/recovery.go:464-523`。
 - `dispatch()` 会把 payload 里的 provider `threadId` 改写成 public `agentID`，这正是 UI 不生成重复 agent 节点的关键。锚点：`internal/provider/codexapp/session.go:302-325`。
 
 ### 8.3 Session 生命周期（B17 §3.2）
@@ -472,7 +475,7 @@ sequenceDiagram
 | 装配 | `module.go` | 提供 `ServerManager`、`DriverFactory`、dream executor provider、skill mirror reconciler 注入，并在 `OnStart/OnStop` 管共享 app-server | `internal/provider/codexapp/module.go:23-45`、`internal/provider/codexapp/module.go:64-90`、`internal/provider/codexapp/module.go:126-276` |
 | driver | `driver.go` / `driver_pool_routing.go` | `DriverFactory`、`driver`、`StartSession / ResumeSession`、pool/acquire 前 provider home + mirror reconcile、`startAssemblyInstructions()`、resume 参数组装 | `internal/provider/codexapp/driver.go:23-42`、`internal/provider/codexapp/driver.go:93-121`、`internal/provider/codexapp/driver.go:162-227`、`internal/provider/codexapp/driver_pool_routing.go:33-77`、`internal/provider/codexapp/driver.go:259-287` |
 | session 核心 | `session.go` | session 状态、read/health loop、turn map、runtimeConfig、dispatch threadId 改写 | `internal/provider/codexapp/session.go:22-50`、`internal/provider/codexapp/session.go:63-105`、`internal/provider/codexapp/session.go:136-205`、`internal/provider/codexapp/session.go:302-325` |
-| recovery | `recovery.go` | reconnect、health check、thread/resume、pending turn replay | `internal/provider/codexapp/recovery.go:18-35`、`internal/provider/codexapp/recovery.go:122-163`、`internal/provider/codexapp/recovery.go:165-205`、`internal/provider/codexapp/recovery.go:308-344` |
+| recovery | `recovery.go` | health check、重连、恢复门禁、旧 reader drain、reader 重建、thread/resume、pending turn replay | `internal/provider/codexapp/recovery.go:105-132`、`internal/provider/codexapp/recovery.go:318-409`、`internal/provider/codexapp/recovery.go:413-440`、`internal/provider/codexapp/recovery.go:464-523` |
 | approval bridge | `session_approval.go` | approval/request_user_input 桥接、去重、decision 回写、`onNotification()` | `internal/provider/codexapp/session_approval.go:28-70`、`internal/provider/codexapp/session_approval.go:91-137`、`internal/provider/codexapp/session_approval.go:148-190`、`internal/provider/codexapp/session_approval.go:222-272` |
 | support | `support.go` | `configureThread()`、runtimeConfig、`buildThreadStartParams()`、dynamicTools thread/start | `internal/provider/codexapp/support.go:109-162`、`internal/provider/codexapp/support.go:157-188`、`internal/provider/codexapp/support.go:307-320`、`internal/provider/codexapp/support.go:365-420` |
 | transport | `transport.go` | transport 结构、WS connect/call/notify/read loop、reconnect | `internal/provider/codexapp/transport.go:25-37`、`internal/provider/codexapp/transport.go:39-53`、`internal/provider/codexapp/transport.go:55-86`、`internal/provider/codexapp/transport.go:134-158` |
@@ -489,7 +492,7 @@ sequenceDiagram
 - `ServerManager`：共享 `codex app-server` 的 owner；session 只借它的 `ServerURL()`，不会共享 WS。锚点：`internal/provider/codexapp/module.go:64-79`、`internal/provider/codexapp/module.go:140-175`。
 - `session`：比 Claude 更像 RPC client runtime，内部有 `transport / recovery / approvals / readLoop / runtimeConfig / turns / pendingTurn`。锚点：`internal/provider/codexapp/session.go:22-50`。
 - `threadStartParams / threadResumeParams`：是 start/resume JSON-RPC 的精确 schema，也是 prompt parity 的 Codex 物化面。锚点：`internal/provider/codexapp/driver.go:64-89`。
-- `recoveryManager`：只有 `CheckHealth()` 和 `Reconnect()`，真正恢复编排仍在 `session.attemptRecovery()`。锚点：`internal/provider/codexapp/recovery.go:18-23`、`internal/provider/codexapp/recovery.go:37-61`。
+- `recoveryManager`：只有 `CheckHealth()` 和 `Reconnect()`，真正恢复编排仍在 `session.attemptRecovery()`。锚点：`internal/provider/codexapp/recovery.go:105-132`、`internal/provider/codexapp/recovery.go:318-409`。
 - `processedApprovalEntry`：Codex approval 去重缓存，确保重复 request 不重复打 UI。锚点：`internal/provider/codexapp/session_approval.go:19-26`、`internal/provider/codexapp/session_approval.go:91-137`。
 - `transport` / `localProcess`：前者管 WS/RPC，后者管本地 app-server 进程；这是 Codex 明显不同于 Claude 的双层 transport。锚点：`internal/provider/codexapp/transport.go:25-37`、`internal/provider/codexapp/transport_process.go:21-36`。
 
@@ -511,17 +514,18 @@ sequenceDiagram
 
 #### 11.3.3 `attemptRecovery()` 明确是完整恢复，不是轻量重连
 
-- 触发源包括 `callTransport()` 里的 reconnectable error、`connection.dead` notification、health loop 检测。锚点：`internal/provider/codexapp/recovery.go:91-100`、`internal/provider/codexapp/recovery.go:102-120`、`internal/provider/codexapp/recovery.go:323-344`。
+- 触发源包括 `callTransport()` 里的 reconnectable error、`connection.dead` notification、health loop 检测；异步信号由 runtime worker 串行消费。锚点：`internal/provider/codexapp/recovery.go:177-263`、`internal/provider/codexapp/session_runtime.go:211-235`、`internal/provider/codexapp/session_runtime.go:243-258`。
 - 实施步骤固定为：
-  1. 发 `recovery.attempt` raw event；
-  2. `recovery.Reconnect()`；
-  3. `waitReadLoopStopped()`；
-  4. `startReadLoop()`；
-  5. 清空 suppressed；
+  1. 检查 shutdown、generation、`recoveryMu` 与恢复次数预算；
+  2. 发 `recovery.attempt` raw event；
+  3. `drainRecoveryReader()`，取消旧 reader、关闭旧 socket 并等待退出；
+  4. `recovery.Reconnect()`；
+  5. `completeRecoveryReplay()`：`restartReader()`，清空 suppressed 与 approval 去重状态；
   6. `resumeThreadAfterRecovery()`；
-  7. `replayPendingTurn()`。  
-  锚点：`internal/provider/codexapp/recovery.go:122-163`。
-- `applyReplayedTurn()` 会把老的 provider turn id 替换成新的 provider turn id，但复用原 `TurnHandle`，因此上层等待句柄不丢。锚点：`internal/provider/codexapp/recovery.go:252-265`。
+  7. `replayPendingTurn()`；
+  8. 成功后重置次数、推进 generation 并记录读活动。
+  锚点：`internal/provider/codexapp/recovery.go:318-409`、`internal/provider/codexapp/recovery.go:413-440`、`internal/provider/codexapp/recovery.go:464-523`。
+- `applyReplayedTurn()` 会把老的 provider turn id 替换成新的 provider turn id，但复用原 `TurnHandle`，因此上层等待句柄不丢。锚点：`internal/provider/codexapp/recovery.go:708-728`。
 
 ### 11.4 Approval bridge：Codex provider 与 `rpc.ApprovalManager` 的直接耦合点
 
