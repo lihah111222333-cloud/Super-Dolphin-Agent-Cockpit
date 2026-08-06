@@ -4,7 +4,7 @@
   },
   "files": {
     "src/App.test.jsx": {
-      "lines": 7269,
+      "lines": 7278,
       "maxFuncLen": 81,
       "maxNesting": 5,
       "maxParams": 4,
@@ -19,7 +19,7 @@
       ]
     },
     "src/entities/client/model/useClientStore.test.js": {
-      "lines": 8736,
+      "lines": 8771,
       "maxFuncLen": 41,
       "maxNesting": 6,
       "maxParams": 3,
