@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -14,6 +15,59 @@ func TestRepositoryNightlyProtocolContract(t *testing.T) {
 	}
 	if err := validateNightlyProtocols(root); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestProtocolExpectationsFactoryPreservesContractAndVersionRegex(t *testing.T) {
+	want := []protocolExpectation{
+		{
+			Path: rootProtocolPath,
+			ID:   "repository-nightly-gate-health",
+			FrontmatterRefs: map[string]string{
+				"ledger_handoff_protocol":    ledgerProtocolPath,
+				"authorized_repair_protocol": repairProtocolPath,
+			},
+			MarkdownLinks: []string{"(门禁问题台账接管协议.md)", "(授权问题修复与验证协议.md)"},
+		},
+		{
+			Path: ledgerProtocolPath,
+			ID:   "gate-issue-ledger-handoff",
+			FrontmatterRefs: map[string]string{
+				"root_protocol":   rootProtocolPath,
+				"repair_protocol": repairProtocolPath,
+			},
+			MarkdownLinks: []string{"(全仓夜间门禁健康巡检协议.md)", "(授权问题修复与验证协议.md)"},
+		},
+		{
+			Path: repairProtocolPath,
+			ID:   "authorized-issue-repair-and-verification",
+			FrontmatterRefs: map[string]string{
+				"root_protocol":   rootProtocolPath,
+				"ledger_protocol": ledgerProtocolPath,
+			},
+			MarkdownLinks: []string{"(全仓夜间门禁健康巡检协议.md)", "(门禁问题台账接管协议.md)"},
+		},
+	}
+	got := protocolExpectations()
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("protocolExpectations() = %#v, want %#v", got, want)
+	}
+	got[0].ID = "mutated"
+	got[0].FrontmatterRefs["ledger_handoff_protocol"] = "mutated"
+	got[0].MarkdownLinks[0] = "(mutated.md)"
+	if next := protocolExpectations(); !reflect.DeepEqual(next, want) {
+		t.Fatalf("protocolExpectations() retained mutation: %#v, want %#v", next, want)
+	}
+
+	for _, version := range []string{"1.0.0", "1.42.7"} {
+		if !protocolVersionPattern.MatchString(version) {
+			t.Fatalf("protocolVersionPattern rejected compatible version %q", version)
+		}
+	}
+	for _, version := range []string{"0.9.9", "1.0", "1.0.0-rc1", "2.0.0", "v1.0.0"} {
+		if protocolVersionPattern.MatchString(version) {
+			t.Fatalf("protocolVersionPattern accepted incompatible version %q", version)
+		}
 	}
 }
 

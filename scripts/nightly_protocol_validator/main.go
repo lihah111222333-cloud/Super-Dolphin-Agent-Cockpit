@@ -66,34 +66,37 @@ type ciStep struct {
 	Run string `yaml:"run"`
 }
 
-var protocolExpectations = []protocolExpectation{
-	{
-		Path: rootProtocolPath,
-		ID:   "repository-nightly-gate-health",
-		FrontmatterRefs: map[string]string{
-			"ledger_handoff_protocol":    ledgerProtocolPath,
-			"authorized_repair_protocol": repairProtocolPath,
+// protocolExpectations 创建 nightly 协议校验的独立期望集，避免调用间共享可变集合。
+func protocolExpectations() []protocolExpectation {
+	return []protocolExpectation{
+		{
+			Path: rootProtocolPath,
+			ID:   "repository-nightly-gate-health",
+			FrontmatterRefs: map[string]string{
+				"ledger_handoff_protocol":    ledgerProtocolPath,
+				"authorized_repair_protocol": repairProtocolPath,
+			},
+			MarkdownLinks: []string{"(门禁问题台账接管协议.md)", "(授权问题修复与验证协议.md)"},
 		},
-		MarkdownLinks: []string{"(门禁问题台账接管协议.md)", "(授权问题修复与验证协议.md)"},
-	},
-	{
-		Path: ledgerProtocolPath,
-		ID:   "gate-issue-ledger-handoff",
-		FrontmatterRefs: map[string]string{
-			"root_protocol":   rootProtocolPath,
-			"repair_protocol": repairProtocolPath,
+		{
+			Path: ledgerProtocolPath,
+			ID:   "gate-issue-ledger-handoff",
+			FrontmatterRefs: map[string]string{
+				"root_protocol":   rootProtocolPath,
+				"repair_protocol": repairProtocolPath,
+			},
+			MarkdownLinks: []string{"(全仓夜间门禁健康巡检协议.md)", "(授权问题修复与验证协议.md)"},
 		},
-		MarkdownLinks: []string{"(全仓夜间门禁健康巡检协议.md)", "(授权问题修复与验证协议.md)"},
-	},
-	{
-		Path: repairProtocolPath,
-		ID:   "authorized-issue-repair-and-verification",
-		FrontmatterRefs: map[string]string{
-			"root_protocol":   rootProtocolPath,
-			"ledger_protocol": ledgerProtocolPath,
+		{
+			Path: repairProtocolPath,
+			ID:   "authorized-issue-repair-and-verification",
+			FrontmatterRefs: map[string]string{
+				"root_protocol":   rootProtocolPath,
+				"ledger_protocol": ledgerProtocolPath,
+			},
+			MarkdownLinks: []string{"(全仓夜间门禁健康巡检协议.md)", "(门禁问题台账接管协议.md)"},
 		},
-		MarkdownLinks: []string{"(全仓夜间门禁健康巡检协议.md)", "(门禁问题台账接管协议.md)"},
-	},
+	}
 }
 
 func main() {
@@ -109,7 +112,7 @@ func main() {
 }
 
 func validateNightlyProtocols(repoRoot string) error {
-	for _, expectation := range protocolExpectations {
+	for _, expectation := range protocolExpectations() {
 		if err := validateProtocol(repoRoot, expectation); err != nil {
 			return err
 		}
