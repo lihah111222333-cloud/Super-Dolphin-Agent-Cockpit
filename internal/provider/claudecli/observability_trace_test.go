@@ -1,6 +1,7 @@
 package claudecli
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -24,5 +25,22 @@ func TestClaudeSessionEventUsesSafeErrorPreviewField(t *testing.T) {
 	}
 	if event.Error != preview {
 		t.Fatalf("event.Error = %q, want same safe preview %q", event.Error, preview)
+	}
+}
+
+func TestClaudeTraceSpanCounterStaysMonotonicAcrossDriverAndSession(t *testing.T) {
+	counter := newClaudeTraceSpanCounter()
+	driver := &driver{traceSpanCounter: counter}
+	session := &session{traceSpanCounter: driver.traceSpanCounter}
+	driverEvent := observability.TraceEvent{Method: "provider.session.acquire"}
+	sessionEvent := observability.TraceEvent{Method: "provider.turn.run"}
+
+	fillClaudeTrace(context.Background(), &driverEvent, driver.traceSpanCounter)
+	fillClaudeTrace(context.Background(), &sessionEvent, session.traceSpanCounter)
+	if driverEvent.SpanID != "claude:provider.session.acquire:1" {
+		t.Fatalf("driver span ID = %q", driverEvent.SpanID)
+	}
+	if sessionEvent.SpanID != "claude:provider.turn.run:2" {
+		t.Fatalf("session span ID = %q", sessionEvent.SpanID)
 	}
 }

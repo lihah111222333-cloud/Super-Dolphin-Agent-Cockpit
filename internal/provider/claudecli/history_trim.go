@@ -8,13 +8,17 @@ import (
 
 const claudeSystemNoiseTrimLeftCutset = "\ufeff \t\r\n"
 
-var claudeSystemNoiseTagPairs = []struct {
+type claudeSystemNoiseTagPair struct {
 	open  string
 	close string
-}{
-	{open: "<environment_context>", close: "</environment_context>"},
-	{open: "<instructions>", close: "</instructions>"},
-	{open: "<permissions instructions>", close: "</permissions instructions>"},
+}
+
+func claudeSystemNoiseTagPairs() []claudeSystemNoiseTagPair {
+	return []claudeSystemNoiseTagPair{
+		{open: "<environment_context>", close: "</environment_context>"},
+		{open: "<instructions>", close: "</instructions>"},
+		{open: "<permissions instructions>", close: "</permissions instructions>"},
+	}
 }
 
 func normalizeClaudeHistory(messages []Message) []Message {
@@ -69,7 +73,7 @@ func isClaudeSystemNoiseText(text string) bool {
 	if strings.HasPrefix(lower, "# agents.md") {
 		return true
 	}
-	for _, pair := range claudeSystemNoiseTagPairs {
+	for _, pair := range claudeSystemNoiseTagPairs() {
 		if strings.HasPrefix(lower, pair.open) {
 			return true
 		}
@@ -96,7 +100,7 @@ func stripOneLeadingClaudeSystemNoise(text string) (string, bool) {
 	if strings.HasPrefix(lower, "# agents.md") {
 		return stripClaudeAgentsMDBlock(trimmed), true
 	}
-	for _, pair := range claudeSystemNoiseTagPairs {
+	for _, pair := range claudeSystemNoiseTagPairs() {
 		if strings.HasPrefix(lower, pair.open) {
 			return stripClaudeTagBlock(trimmed, pair.close), true
 		}

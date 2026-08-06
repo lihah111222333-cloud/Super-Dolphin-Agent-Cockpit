@@ -36,18 +36,19 @@ func claudeCapabilities() dto.CapabilitySet {
 
 // driver 是 Claude CLI provider 的 Driver 实现，负责启动 CLI、维护 runtime 观测和 skill mirror。
 type driver struct {
-	logger          *slog.Logger
-	binaryPath      string
-	eventDispatcher *unified.EventDispatcher
-	reporter        contract.RuntimeReporter
-	pidRegistry     *pidregistry.Registry
-	proxyAddrFn     func() string
-	proxyTokenFn    func() string
-	mirror          contract.SkillMirrorReconciler
-	recovery        contract.SessionRecoveryReporter
-	tracer          *observability.Service
-	launchCLI       func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error)
-	authStatus      func(context.Context, string, string, cliLaunchConfig) (claudeAuthStatus, string, error)
+	logger           *slog.Logger
+	binaryPath       string
+	eventDispatcher  *unified.EventDispatcher
+	reporter         contract.RuntimeReporter
+	pidRegistry      *pidregistry.Registry
+	proxyAddrFn      func() string
+	proxyTokenFn     func() string
+	mirror           contract.SkillMirrorReconciler
+	recovery         contract.SessionRecoveryReporter
+	tracer           *observability.Service
+	traceSpanCounter *claudeTraceSpanCounter
+	launchCLI        func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error)
+	authStatus       func(context.Context, string, string, cliLaunchConfig) (claudeAuthStatus, string, error)
 }
 
 // startSpec 聚合启动或恢复会话所需的规范化参数，避免 StartSession/ResumeSession 分叉后逻辑重复。
@@ -127,18 +128,19 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, re
 		proxyTokenFn = func() string { return "" }
 	}
 	return &driver{
-		logger:          logger,
-		binaryPath:      resolveBinaryPath(),
-		eventDispatcher: eventDispatcher,
-		reporter:        reporter,
-		pidRegistry:     reg,
-		proxyAddrFn:     proxyAddrFn,
-		proxyTokenFn:    proxyTokenFn,
-		mirror:          mirror,
-		recovery:        recovery,
-		tracer:          firstClaudeTracer(tracers),
-		launchCLI:       launchCLIWithManifest,
-		authStatus:      runClaudeAuthStatus,
+		logger:           logger,
+		binaryPath:       resolveBinaryPath(),
+		eventDispatcher:  eventDispatcher,
+		reporter:         reporter,
+		pidRegistry:      reg,
+		proxyAddrFn:      proxyAddrFn,
+		proxyTokenFn:     proxyTokenFn,
+		mirror:           mirror,
+		recovery:         recovery,
+		tracer:           firstClaudeTracer(tracers),
+		traceSpanCounter: newClaudeTraceSpanCounter(),
+		launchCLI:        launchCLIWithManifest,
+		authStatus:       runClaudeAuthStatus,
 	}
 }
 
@@ -444,6 +446,7 @@ func (d *driver) newStartedSession(spec startSpec, started preparedStartSession)
 		pidRegistry:       d.pidRegistry,
 		recovery:          d.recovery,
 		tracer:            d.tracer,
+		traceSpanCounter:  d.traceSpanCounter,
 		suppressedTurns:   map[string]struct{}{},
 		imageTracker:      newImageHashTracker(),
 		settleTransport:   defaultSettleInterruptedTransport,

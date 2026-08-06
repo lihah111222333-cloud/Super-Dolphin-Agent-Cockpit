@@ -55,6 +55,7 @@ type session struct {
 	sessionContextWindow int
 	recovery             contract.SessionRecoveryReporter
 	tracer               *observability.Service
+	traceSpanCounter     *claudeTraceSpanCounter
 	mu                   sync.Mutex
 
 	activeTurn      *turnHandle

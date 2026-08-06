@@ -30,6 +30,15 @@ func TestClaudeModelContextWindowRules(t *testing.T) {
 	}
 }
 
+func TestClaudeLatestLongModelAliasesAreFresh(t *testing.T) {
+	first := claudeLatestLongModelAliases()
+	second := claudeLatestLongModelAliases()
+	first["claude-opus-4-7"] = "changed"
+	if got := second["claude-opus-4-7"]; got != "opus" {
+		t.Fatalf("independent alias set changed to %q, want opus", got)
+	}
+}
+
 func TestClaudeContextWindowPrefersRuntimeAndSettings(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"model":"opus[1m]"}`), 0o644); err != nil {

@@ -42,10 +42,6 @@ func threadConfigPatchHasUnsupportedFields(patch dto.ThreadConfigPatch) bool {
 	return patch.Personality != nil || patch.Approvals != nil
 }
 
-func stringPtr(value string) *string {
-	return &value
-}
-
 // applyConfiguredOverridesLocked 在持锁状态下记录 model/effort 覆盖。
 // stagePending=true 表示新值要等下一次 transport restart 成功后再变成实际运行态。
 func (s *session) applyConfiguredOverridesLocked(patch dto.ThreadConfigPatch, stagePending bool) {
@@ -54,7 +50,7 @@ func (s *session) applyConfiguredOverridesLocked(patch dto.ThreadConfigPatch, st
 		s.overrideModel = value
 		s.overrideModelSet = true
 		if stagePending {
-			s.pendingModel = stringPtr(value)
+			s.pendingModel = new(value)
 		}
 	}
 	if patch.Effort != nil {
@@ -62,7 +58,7 @@ func (s *session) applyConfiguredOverridesLocked(patch dto.ThreadConfigPatch, st
 		s.overrideEffort = value
 		s.overrideEffortSet = true
 		if stagePending {
-			s.pendingEffort = stringPtr(value)
+			s.pendingEffort = new(value)
 		}
 	}
 	if stagePending {
@@ -118,19 +114,21 @@ func (s *session) configuredOverrideEffortLocked() string {
 	return ""
 }
 
-var claudeAllowedModels = []string{
-	"best",
-	// Short aliases resolved by Claude CLI to the current latest version.
-	"sonnet",
-	"sonnet[1m]",
-	"haiku",
-	"opus",
-	"opus[1m]",
-	// Explicit version slugs let users pin older versions; latest families use aliases.
-	"claude-opus-4-6",
-	"claude-opus-4-6[1m]",
-	"claude-sonnet-4-6",
-	"claude-sonnet-4-6[1m]",
+func claudeAllowedModels() []string {
+	return []string{
+		"best",
+		// Short aliases resolved by Claude CLI to the current latest version.
+		"sonnet",
+		"sonnet[1m]",
+		"haiku",
+		"opus",
+		"opus[1m]",
+		// Explicit version slugs let users pin older versions; latest families use aliases.
+		"claude-opus-4-6",
+		"claude-opus-4-6[1m]",
+		"claude-sonnet-4-6",
+		"claude-sonnet-4-6[1m]",
+	}
 }
 
 // AllowedModels 返回 UI 可选模型，并保留当前实际模型。
@@ -138,7 +136,7 @@ var claudeAllowedModels = []string{
 func (s *session) AllowedModels(context.Context) ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	models := append([]string(nil), claudeAllowedModels...)
+	models := claudeAllowedModels()
 	current := claudeLaunchDisplayModel(s.effectiveModelLocked(), s.history)
 	if current == "" || modelAllowed(current, models) {
 		return models, nil

@@ -15,13 +15,20 @@ import (
 // Anthropic Messages API 会拒绝超过约 5MiB 的 base64 图片，超限要在本地 fail-fast。
 const maxImageInlineBytes = 5 * 1024 * 1024
 
-// imageMIMEByExt 定义 Claude vision 支持内联编码的图片后缀和 MIME。
-var imageMIMEByExt = map[string]string{
-	".png":  "image/png",
-	".jpg":  "image/jpeg",
-	".jpeg": "image/jpeg",
-	".gif":  "image/gif",
-	".webp": "image/webp",
+// claudeImageMIMEByExtension 返回 Claude vision 支持内联编码的图片后缀对应 MIME。
+func claudeImageMIMEByExtension(ext string) (string, bool) {
+	switch ext {
+	case ".png":
+		return "image/png", true
+	case ".jpg", ".jpeg":
+		return "image/jpeg", true
+	case ".gif":
+		return "image/gif", true
+	case ".webp":
+		return "image/webp", true
+	default:
+		return "", false
+	}
 }
 
 // isImageInputType 判断 InputItem.Type 是否表示图片输入。
@@ -68,7 +75,7 @@ func imageBlockFromInput(input dto.InputItem) (map[string]any, error) {
 // 不支持的扩展名返回 nil，让调用方走文本 hint；读文件和大小超限错误会向上暴露。
 func imageBlockFromPath(path string) (map[string]any, error) {
 	ext := strings.ToLower(filepath.Ext(path))
-	mediaType, ok := imageMIMEByExt[ext]
+	mediaType, ok := claudeImageMIMEByExtension(ext)
 	if !ok {
 		// Unsupported MIME -> let caller fall back to text hint.
 		return nil, nil
@@ -137,12 +144,11 @@ func splitImageDataURL(rawURL string) (mediaType, data string, ok bool) {
 	if !strings.HasPrefix(rawURL, prefix) {
 		return "", "", false
 	}
-	body := rawURL[len(prefix):]
-	comma := strings.Index(body, ",")
-	if comma < 0 {
+	header, data, found := strings.Cut(rawURL[len(prefix):], ",")
+	if !found {
 		return "", "", false
 	}
-	parts := strings.Split(body[:comma], ";")
+	parts := strings.Split(header, ";")
 	mediaType = strings.TrimSpace(parts[0])
 	if !strings.HasPrefix(mediaType, "image/") {
 		return "", "", false
@@ -150,7 +156,7 @@ func splitImageDataURL(rawURL string) (mediaType, data string, ok bool) {
 	if !hasBase64Token(parts[1:]) {
 		return "", "", false
 	}
-	return mediaType, body[comma+1:], true
+	return mediaType, data, true
 }
 
 func hasBase64Token(tokens []string) bool {

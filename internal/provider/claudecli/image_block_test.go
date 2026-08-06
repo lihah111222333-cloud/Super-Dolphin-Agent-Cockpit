@@ -42,6 +42,26 @@ func TestIsImageInputType(t *testing.T) {
 	}
 }
 
+func TestClaudeImageMIMEByExtension(t *testing.T) {
+	for _, tc := range []struct {
+		ext  string
+		want string
+		ok   bool
+	}{
+		{ext: ".png", want: "image/png", ok: true},
+		{ext: ".jpg", want: "image/jpeg", ok: true},
+		{ext: ".jpeg", want: "image/jpeg", ok: true},
+		{ext: ".gif", want: "image/gif", ok: true},
+		{ext: ".webp", want: "image/webp", ok: true},
+		{ext: ".heic", ok: false},
+	} {
+		got, ok := claudeImageMIMEByExtension(tc.ext)
+		if got != tc.want || ok != tc.ok {
+			t.Fatalf("claudeImageMIMEByExtension(%q) = (%q, %t), want (%q, %t)", tc.ext, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
 func TestImageBlockFromPathSuccess(t *testing.T) {
 	path := mustWriteTempPNG(t)
 	blk, err := imageBlockFromInput(dto.InputItem{Type: "localImage", Path: path})

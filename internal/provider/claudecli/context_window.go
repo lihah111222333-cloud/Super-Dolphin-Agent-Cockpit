@@ -7,13 +7,15 @@ import (
 	"strings"
 )
 
-// claudeLatestLongModelAliases 将前端最新长模型名折叠为 Claude CLI 支持的短别名。
-var claudeLatestLongModelAliases = map[string]string{
-	"claude-opus-4-7":       "opus",
-	"claude-opus-4-7[1m]":   "opus[1m]",
-	"claude-sonnet-4-7":     "sonnet",
-	"claude-sonnet-4-7[1m]": "sonnet[1m]",
-	"claude-haiku-4-5":      "haiku",
+// claudeLatestLongModelAliases 返回前端最新长模型名到 Claude CLI 短别名的映射。
+func claudeLatestLongModelAliases() map[string]string {
+	return map[string]string{
+		"claude-opus-4-7":       "opus",
+		"claude-opus-4-7[1m]":   "opus[1m]",
+		"claude-sonnet-4-7":     "sonnet",
+		"claude-sonnet-4-7[1m]": "sonnet[1m]",
+		"claude-haiku-4-5":      "haiku",
+	}
 }
 
 // claudeContextWindow 优先使用 runtime 上报窗口，缺省时按启动模型估算。
@@ -39,7 +41,7 @@ func sanitizeClaudeModel(model string) string {
 	case "", "[object object]", "undefined", "null":
 		return ""
 	default:
-		if alias := claudeLatestLongModelAliases[strings.ToLower(model)]; alias != "" {
+		if alias := claudeLatestLongModelAliases()[strings.ToLower(model)]; alias != "" {
 			return alias
 		}
 		return model

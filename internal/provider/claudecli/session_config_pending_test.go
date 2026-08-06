@@ -132,6 +132,15 @@ func TestAllowedModelsIncludesShortlistAndCurrentValue(t *testing.T) {
 	}
 }
 
+func TestClaudeAllowedModelsAreFresh(t *testing.T) {
+	first := claudeAllowedModels()
+	second := claudeAllowedModels()
+	first[0] = "changed"
+	if got := second[0]; got != "best" {
+		t.Fatalf("independent allowed model list changed to %q, want best", got)
+	}
+}
+
 func TestAllowedModelsDoesNotAdvertiseLatestLongSlug(t *testing.T) {
 	s := &session{model: "claude-opus-4-7[1m]"}
 	models, err := s.AllowedModels(context.Background())
