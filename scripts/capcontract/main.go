@@ -13,11 +13,13 @@ import (
 )
 
 // defaultCapabilityRoots 是 capability manifest 默认扫描的跨模块契约根目录。
-var defaultCapabilityRoots = []string{
-	"internal/contract",
-	"internal/provider",
-	"cmd/mcp-orch/orchestration",
-	"cmd/mcp-orch/tools",
+func defaultCapabilityRoots() []string {
+	return []string{
+		"internal/contract",
+		"internal/provider",
+		"cmd/mcp-orch/orchestration",
+		"cmd/mcp-orch/tools",
+	}
 }
 
 // capabilityManifestPath 是生成文件的规范位置，check 模式会用它比对工作区状态。
@@ -26,7 +28,7 @@ const capabilityManifestPath = "docs/doc/codemap/capability-contract/capability_
 // main 解析 capability manifest 命令行参数，并执行生成或只检查模式。
 func main() {
 	check := flag.Bool("check", false, "verify generated capability manifest without modifying the worktree")
-	rootsFlag := flag.String("roots", strings.Join(defaultCapabilityRoots, ","), "comma-separated roots to scan")
+	rootsFlag := newCapabilityRootsFlag(flag.CommandLine)
 	outFlag := flag.String("out", capabilityManifestPath, "manifest output path")
 	printPathRules := flag.Bool("print-path-rules", false, "print capability-contract path rules as kind<TAB>path and exit")
 	flag.Parse()
@@ -43,12 +45,28 @@ func main() {
 		}
 		return
 	}
-	roots := selectedCapabilityRoots(pathRules, *rootsFlag)
+	roots := selectedCapabilityRoots(pathRules, *rootsFlag, flagWasSet(flag.CommandLine, "roots"))
 	errorPrefix, err := runCapabilityManifest(repoRoot, roots, *outFlag, *check)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s: %v\n", errorPrefix, err)
 		os.Exit(1)
 	}
+}
+
+// newCapabilityRootsFlag 在指定 FlagSet 上注册隔离的 --roots 默认值。
+// defaultCapabilityRoots 仍是 path rules AST 读取的唯一规范函数。
+func newCapabilityRootsFlag(flagSet *flag.FlagSet) *string {
+	return flagSet.String("roots", strings.Join(defaultCapabilityRoots(), ","), "comma-separated roots to scan")
+}
+
+func flagWasSet(flagSet *flag.FlagSet, name string) bool {
+	wasSet := false
+	flagSet.Visit(func(value *flag.Flag) {
+		if value.Name == name {
+			wasSet = true
+		}
+	})
+	return wasSet
 }
 
 // loadCapabilityPathRules 定位仓库并加载 generator AST 派生的路径规则。
@@ -74,14 +92,11 @@ func printCapabilityPathRules(pathRules capcontract.PathRules) error {
 }
 
 // selectedCapabilityRoots 仅在调用方显式传入 --roots 时覆盖 AST 默认根目录。
-func selectedCapabilityRoots(pathRules capcontract.PathRules, rootsFlag string) []string {
-	roots := pathRules.DefaultRoots
-	flag.Visit(func(value *flag.Flag) {
-		if value.Name == "roots" {
-			roots = parseRoots(rootsFlag)
-		}
-	})
-	return roots
+func selectedCapabilityRoots(pathRules capcontract.PathRules, rootsFlag string, rootsWasSet bool) []string {
+	if rootsWasSet {
+		return parseRoots(rootsFlag)
+	}
+	return pathRules.DefaultRoots
 }
 
 // runCapabilityManifest 执行 manifest 检查或刷新，并返回错误对应的命令前缀。

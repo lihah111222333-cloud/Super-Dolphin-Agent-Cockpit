@@ -19,11 +19,13 @@ type invalidGeneratorSourceCase struct {
 func TestLoadPathRulesReadsDefaultRootsFromGeneratorAST(t *testing.T) {
 	repoRoot := writePathRulesFixture(t, `package main
 
-var defaultCapabilityRoots = []string{
-	"internal/contract",
-	"internal/provider",
-	"cmd/mcp-orch/orchestration",
-	"cmd/mcp-orch/tools",
+func defaultCapabilityRoots() []string {
+	return []string{
+		"internal/contract",
+		"internal/provider",
+		"cmd/mcp-orch/orchestration",
+		"cmd/mcp-orch/tools",
+	}
 }
 `, []string{
 		"internal/contract",
@@ -96,13 +98,16 @@ func assertCapabilityPathsMatch(t *testing.T, rules PathRules, candidates []stri
 func TestLoadPathRulesFailsClosedOnInvalidGeneratorSource(t *testing.T) {
 	tests := []invalidGeneratorSourceCase{
 		{name: "missing source", wantErr: "read default capability roots source"},
-		{name: "parse failure", source: pathRulesSourcePtr("package main\nvar defaultCapabilityRoots = []string{"), wantErr: "parse default capability roots source"},
-		{name: "missing declaration", source: pathRulesSourcePtr("package main\nvar another = []string{\"internal/provider\"}\n"), wantErr: "defaultCapabilityRoots declaration not found"},
-		{name: "non literal declaration", source: pathRulesSourcePtr("package main\nvar roots = []string{\"internal/provider\"}\nvar defaultCapabilityRoots = roots\n"), wantErr: "must be a []string composite literal"},
-		{name: "non string element", source: pathRulesSourcePtr("package main\nvar defaultCapabilityRoots = []string{root}\n"), wantErr: "must contain only string literals"},
-		{name: "duplicate root", source: pathRulesSourcePtr("package main\nvar defaultCapabilityRoots = []string{\"internal/provider\", \"internal/provider\"}\n"), roots: []string{"internal/provider"}, wantErr: "duplicate default capability root"},
-		{name: "missing root directory", source: pathRulesSourcePtr("package main\nvar defaultCapabilityRoots = []string{\"internal/provider\"}\n"), wantErr: "default capability root does not exist"},
-		{name: "non canonical root", source: pathRulesSourcePtr("package main\nvar defaultCapabilityRoots = []string{\"internal/../provider\"}\n"), wantErr: "must be a normalized repository-relative path"},
+		{name: "parse failure", source: new("package main\nfunc defaultCapabilityRoots() []string { return []string{"), wantErr: "parse default capability roots source"},
+		{name: "missing function", source: new("package main\nfunc another() []string { return []string{\"internal/provider\"} }\n"), wantErr: "defaultCapabilityRoots function not found"},
+		{name: "non literal return", source: new("package main\nvar roots = []string{\"internal/provider\"}\nfunc defaultCapabilityRoots() []string { return roots }\n"), wantErr: "must return a []string composite literal"},
+		{name: "non string element", source: new("package main\nfunc defaultCapabilityRoots() []string { return []string{root} }\n"), wantErr: "must contain only string literals"},
+		{name: "multiple functions", source: new("package main\nfunc defaultCapabilityRoots() []string { return []string{\"internal/provider\"} }\nfunc defaultCapabilityRoots() []string { return []string{\"cmd/mcp-orch/tools\"} }\n"), wantErr: "multiple defaultCapabilityRoots functions"},
+		{name: "multiple statements", source: new("package main\nfunc defaultCapabilityRoots() []string { _ = 1; return []string{\"internal/provider\"} }\n"), wantErr: "must contain exactly one return statement"},
+		{name: "invalid signature", source: new("package main\nfunc defaultCapabilityRoots() string { return \"internal/provider\" }\n"), wantErr: "must be declared as func defaultCapabilityRoots() []string"},
+		{name: "duplicate root", source: new("package main\nfunc defaultCapabilityRoots() []string { return []string{\"internal/provider\", \"internal/provider\"} }\n"), roots: []string{"internal/provider"}, wantErr: "duplicate default capability root"},
+		{name: "missing root directory", source: new("package main\nfunc defaultCapabilityRoots() []string { return []string{\"internal/provider\"} }\n"), wantErr: "default capability root does not exist"},
+		{name: "non canonical root", source: new("package main\nfunc defaultCapabilityRoots() []string { return []string{\"internal/../provider\"} }\n"), wantErr: "must be a normalized repository-relative path"},
 	}
 
 	for _, tt := range tests {
@@ -161,10 +166,6 @@ func writePathRulesSource(t *testing.T, repoRoot, source string) {
 	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
 		t.Fatalf("write source: %v", err)
 	}
-}
-
-func pathRulesSourcePtr(value string) *string {
-	return &value
 }
 
 func containsExactString(values []string, want string) bool {

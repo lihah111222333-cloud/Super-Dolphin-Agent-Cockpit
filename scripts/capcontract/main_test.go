@@ -1,10 +1,13 @@
 package main
 
 import (
+	"flag"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	capcontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/capcontract"
 )
 
 func TestParseRoots(t *testing.T) {
@@ -12,6 +15,29 @@ func TestParseRoots(t *testing.T) {
 	want := []string{"internal/contract", "cmd/mcp-orch/tools"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("parseRoots() = %#v, want %#v", got, want)
+	}
+}
+
+func TestCapabilityRootsFlagDefaultsAndAllowsExplicitOverride(t *testing.T) {
+	flags := flag.NewFlagSet("capcontract", flag.ContinueOnError)
+	rootsFlag := newCapabilityRootsFlag(flags)
+	defaultRoots := "internal/contract,internal/provider,cmd/mcp-orch/orchestration,cmd/mcp-orch/tools"
+	if got := *rootsFlag; got != defaultRoots {
+		t.Fatalf("--roots default = %q, want %q", got, defaultRoots)
+	}
+	pathRules := capcontract.PathRules{DefaultRoots: []string{"internal/derived-default"}}
+	if got := selectedCapabilityRoots(pathRules, *rootsFlag, flagWasSet(flags, "roots")); !sameRoots(got, pathRules.DefaultRoots) {
+		t.Fatalf("selected default roots = %#v, want %#v", got, pathRules.DefaultRoots)
+	}
+
+	const explicitRoots = "internal/contract,cmd/mcp-orch/tools"
+	requireNoError(t, flags.Parse([]string{"--roots", explicitRoots}), "parse explicit --roots")
+	if got := *rootsFlag; got != explicitRoots {
+		t.Fatalf("--roots explicit override = %q, want %q", got, explicitRoots)
+	}
+	wantExplicitRoots := []string{"internal/contract", "cmd/mcp-orch/tools"}
+	if got := selectedCapabilityRoots(pathRules, *rootsFlag, flagWasSet(flags, "roots")); !sameRoots(got, wantExplicitRoots) {
+		t.Fatalf("selected explicit roots = %#v, want %#v", got, wantExplicitRoots)
 	}
 }
 
@@ -55,6 +81,10 @@ func assertTotalFunctions(t *testing.T, got, want int) {
 	if got != want {
 		t.Fatalf("TotalFunctions = %d, want %d", got, want)
 	}
+}
+
+func sameRoots(got, want []string) bool {
+	return strings.Join(got, ",") == strings.Join(want, ",")
 }
 
 func assertStaleCapabilityManifest(t *testing.T, outPath string) {

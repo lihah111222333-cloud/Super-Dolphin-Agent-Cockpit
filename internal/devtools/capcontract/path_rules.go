@@ -24,7 +24,7 @@ type capabilityPathRule struct {
 	Path string
 }
 
-// LoadPathRules 从 generator 的 defaultCapabilityRoots AST 读取唯一的扫描根目录事实源。
+// LoadPathRules 从 generator 的 defaultCapabilityRoots 函数 AST 读取唯一的扫描根目录事实源。
 func LoadPathRules(repoRoot string) (PathRules, error) {
 	repoRoot, err := filepath.Abs(repoRoot)
 	if err != nil {
@@ -161,70 +161,70 @@ func (rules PathRules) allRules() ([]capabilityPathRule, error) {
 	return pathRules, nil
 }
 
-// defaultCapabilityRootsFromAST 校验声明形状并解码默认根目录字面量。
+// defaultCapabilityRootsFromAST 校验函数形状并解码唯一 return 的默认根目录字面量。
 func defaultCapabilityRootsFromAST(file *ast.File) ([]string, error) {
-	declarations := defaultCapabilityRootDeclarations(file)
-	if len(declarations) == 0 {
-		return nil, fmt.Errorf("defaultCapabilityRoots declaration not found")
+	functions := defaultCapabilityRootFunctions(file)
+	if len(functions) == 0 {
+		return nil, fmt.Errorf("defaultCapabilityRoots function not found")
 	}
-	if len(declarations) > 1 {
-		return nil, fmt.Errorf("multiple defaultCapabilityRoots declarations")
+	if len(functions) > 1 {
+		return nil, fmt.Errorf("multiple defaultCapabilityRoots functions")
 	}
-	literal, err := defaultCapabilityRootsLiteral(declarations[0])
+	literal, err := defaultCapabilityRootsLiteral(functions[0])
 	if err != nil {
 		return nil, err
 	}
 	return decodeDefaultCapabilityRoots(literal)
 }
 
-// defaultCapabilityRootDeclarations 定位所有同名 var 声明，供调用方检查唯一性。
-func defaultCapabilityRootDeclarations(file *ast.File) []*ast.ValueSpec {
-	var declarations []*ast.ValueSpec
+// defaultCapabilityRootFunctions 定位所有同名函数，供调用方检查唯一性。
+func defaultCapabilityRootFunctions(file *ast.File) []*ast.FuncDecl {
+	var functions []*ast.FuncDecl
 	for _, declarationNode := range file.Decls {
-		gen, ok := declarationNode.(*ast.GenDecl)
-		if !ok || gen.Tok != token.VAR {
-			continue
-		}
-		for _, specNode := range gen.Specs {
-			if spec, ok := specNode.(*ast.ValueSpec); ok && valueSpecHasName(spec, "defaultCapabilityRoots") {
-				declarations = append(declarations, spec)
-			}
+		function, ok := declarationNode.(*ast.FuncDecl)
+		if ok && function.Name != nil && function.Name.Name == "defaultCapabilityRoots" {
+			functions = append(functions, function)
 		}
 	}
-	return declarations
+	return functions
 }
 
-// valueSpecHasName 判断单个 ValueSpec 是否声明指定变量名。
-func valueSpecHasName(spec *ast.ValueSpec, want string) bool {
-	for _, name := range spec.Names {
-		if name.Name == want {
-			return true
-		}
+// defaultCapabilityRootsLiteral 验证默认根函数的唯一语句是返回 []string 字面量。
+func defaultCapabilityRootsLiteral(function *ast.FuncDecl) (*ast.CompositeLit, error) {
+	if function.Recv != nil || function.Type.TypeParams != nil || len(function.Type.Params.List) != 0 || !isStringSliceResult(function.Type.Results) {
+		return nil, fmt.Errorf("defaultCapabilityRoots must be declared as func defaultCapabilityRoots() []string")
 	}
-	return false
-}
-
-// defaultCapabilityRootsLiteral 验证默认根声明必须是唯一的 []string 复合字面量。
-func defaultCapabilityRootsLiteral(declaration *ast.ValueSpec) (*ast.CompositeLit, error) {
-	if len(declaration.Names) != 1 || len(declaration.Values) != 1 {
-		return nil, fmt.Errorf("defaultCapabilityRoots must have exactly one literal value")
+	if function.Body == nil || len(function.Body.List) != 1 {
+		return nil, fmt.Errorf("defaultCapabilityRoots must contain exactly one return statement")
 	}
-	literal, ok := declaration.Values[0].(*ast.CompositeLit)
+	returnStatement, ok := function.Body.List[0].(*ast.ReturnStmt)
+	if !ok || len(returnStatement.Results) != 1 {
+		return nil, fmt.Errorf("defaultCapabilityRoots must contain exactly one return statement")
+	}
+	literal, ok := returnStatement.Results[0].(*ast.CompositeLit)
 	if !ok {
-		return nil, fmt.Errorf("defaultCapabilityRoots must be a []string composite literal")
+		return nil, fmt.Errorf("defaultCapabilityRoots must return a []string composite literal")
 	}
-	arrayType, ok := literal.Type.(*ast.ArrayType)
-	if !ok || arrayType.Len != nil {
-		return nil, fmt.Errorf("defaultCapabilityRoots must be a []string composite literal")
-	}
-	elementType, ok := arrayType.Elt.(*ast.Ident)
-	if !ok || elementType.Name != "string" {
-		return nil, fmt.Errorf("defaultCapabilityRoots must be a []string composite literal")
+	if !isStringSliceType(literal.Type) {
+		return nil, fmt.Errorf("defaultCapabilityRoots must return a []string composite literal")
 	}
 	if len(literal.Elts) == 0 {
 		return nil, fmt.Errorf("defaultCapabilityRoots must not be empty")
 	}
 	return literal, nil
+}
+
+func isStringSliceResult(results *ast.FieldList) bool {
+	return results != nil && len(results.List) == 1 && len(results.List[0].Names) == 0 && isStringSliceType(results.List[0].Type)
+}
+
+func isStringSliceType(expr ast.Expr) bool {
+	arrayType, ok := expr.(*ast.ArrayType)
+	if !ok || arrayType.Len != nil {
+		return false
+	}
+	elementType, ok := arrayType.Elt.(*ast.Ident)
+	return ok && elementType.Name == "string"
 }
 
 // decodeDefaultCapabilityRoots 解码根目录字符串，并拒绝任何非字符串元素。
