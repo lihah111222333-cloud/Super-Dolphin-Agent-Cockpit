@@ -35,12 +35,46 @@ func autoResumePromptSnapshotForTest() contract.PromptAssemblySnapshot {
 }
 
 type stubBindingLookup struct {
-	bindings  map[string]*contract.SessionBinding
-	errs      map[string]error
-	agentErrs map[string]error
+	bindings           map[string]*contract.SessionBinding
+	errs               map[string]error
+	agentErrs          map[string]error
+	recoveryHomeByPath map[string]string
 }
 
-var unifiedRecoveryTestHomeByPath sync.Map
+type unifiedRecoveryTestFixture struct {
+	t                  *testing.T
+	recoveryHomeByPath map[string]string
+}
+
+func newUnifiedRecoveryTestFixture(t *testing.T) *unifiedRecoveryTestFixture {
+	t.Helper()
+	return &unifiedRecoveryTestFixture{
+		t:                  t,
+		recoveryHomeByPath: make(map[string]string),
+	}
+}
+
+func (f *unifiedRecoveryTestFixture) registerRecoveryHome(path, home string) error {
+	if f == nil || f.t == nil || f.recoveryHomeByPath == nil {
+		return errors.New("unified recovery test fixture owner is required")
+	}
+	if path == "" || home == "" {
+		return errors.New("unified recovery test rollout path and home are required")
+	}
+	if _, exists := f.recoveryHomeByPath[path]; exists {
+		return fmt.Errorf("unified recovery test rollout path %q is already registered", path)
+	}
+	f.recoveryHomeByPath[path] = home
+	f.t.Cleanup(func() {
+		delete(f.recoveryHomeByPath, path)
+	})
+	return nil
+}
+
+func (f *unifiedRecoveryTestFixture) bindingLookup(lookup stubBindingLookup) stubBindingLookup {
+	lookup.recoveryHomeByPath = f.recoveryHomeByPath
+	return lookup
+}
 
 func (s stubBindingLookup) GetByProviderThread(_ context.Context, provider, providerThreadID string) (*contract.SessionBinding, error) {
 	key := provider + ":" + providerThreadID
@@ -48,7 +82,7 @@ func (s stubBindingLookup) GetByProviderThread(_ context.Context, provider, prov
 		return nil, err
 	}
 	if binding, ok := s.bindings[key]; ok {
-		return authorizeUnifiedRecoveryTestBinding(binding), nil
+		return authorizeUnifiedRecoveryTestBinding(binding, s.recoveryHomeByPath)
 	}
 	return nil, platformdb.ErrNotFound
 }
@@ -59,22 +93,77 @@ func (s stubBindingLookup) GetByAgentID(_ context.Context, agentID string) (*con
 	}
 	for _, b := range s.bindings {
 		if b != nil && b.AgentID == agentID {
-			return authorizeUnifiedRecoveryTestBinding(b), nil
+			return authorizeUnifiedRecoveryTestBinding(b, s.recoveryHomeByPath)
 		}
 	}
 	return nil, platformdb.ErrNotFound
 }
 
-func authorizeUnifiedRecoveryTestBinding(binding *contract.SessionBinding) *contract.SessionBinding {
+func authorizeUnifiedRecoveryTestBinding(
+	binding *contract.SessionBinding,
+	recoveryHomeByPath map[string]string,
+) (*contract.SessionBinding, error) {
 	if binding == nil {
-		return nil
+		return nil, nil
 	}
 	copy := *binding
-	home, ok := unifiedRecoveryTestHomeByPath.Load(copy.RolloutPath)
-	if ok && copy.ProviderRecoveryHome == "" {
-		copy.ProviderRecoveryHome = home.(string)
+	if copy.ProviderRecoveryHome != "" || copy.RolloutPath == "" {
+		return &copy, nil
 	}
-	return &copy
+	if recoveryHomeByPath == nil {
+		return nil, errors.New("unified recovery test fixture owner is required")
+	}
+	home, ok := recoveryHomeByPath[copy.RolloutPath]
+	if !ok {
+		return nil, fmt.Errorf("unified recovery test rollout path %q is not registered", copy.RolloutPath)
+	}
+	if home == "" {
+		return nil, fmt.Errorf("unified recovery test rollout path %q has an empty home", copy.RolloutPath)
+	}
+	copy.ProviderRecoveryHome = home
+	return &copy, nil
+}
+
+func TestUnifiedRecoveryTestFixtureDeletesMappingAfterSubtest(t *testing.T) {
+	var fixture *unifiedRecoveryTestFixture
+	var path string
+	t.Run("register", func(t *testing.T) {
+		fixture = newUnifiedRecoveryTestFixture(t)
+		var fixtureErr error
+		if path, fixtureErr = fixture.writeExistingProviderHistoryFile("11111111-aaaa-bbbb-cccc-111111111122"); fixtureErr != nil {
+			t.Fatalf("write provider history fixture: %v", fixtureErr)
+		}
+	})
+	if _, exists := fixture.recoveryHomeByPath[path]; exists {
+		t.Fatalf("recovery home mapping for %q leaked after subtest cleanup", path)
+	}
+}
+
+func TestUnifiedRecoveryTestFixtureRejectsInvalidState(t *testing.T) {
+	wantError := func(name string, err error) {
+		t.Helper()
+		if err == nil {
+			t.Fatalf("%s error = nil, want fail-fast error", name)
+		}
+	}
+	var nilFixture *unifiedRecoveryTestFixture
+	wantError("nil owner", nilFixture.registerRecoveryHome("/rollout", "/home"))
+	fixture := newUnifiedRecoveryTestFixture(t)
+	wantError("missing path", fixture.registerRecoveryHome("", "/home"))
+	wantError("empty home", fixture.registerRecoveryHome("/rollout", ""))
+	if err := fixture.registerRecoveryHome("/rollout", "/home"); err != nil {
+		t.Fatalf("register initial recovery home: %v", err)
+	}
+	wantError("duplicate path", fixture.registerRecoveryHome("/rollout", "/other-home"))
+	binding := &contract.SessionBinding{RolloutPath: "/rollout"}
+	for name, homes := range map[string]map[string]string{
+		"nil mapping owner": nil,
+		"missing mapping":   {},
+		"empty mapping":     {"/rollout": ""},
+	} {
+		_, err := authorizeUnifiedRecoveryTestBinding(binding, homes)
+		wantError(name, err)
+	}
 }
 
 type sequenceThreadLookup struct {
@@ -240,7 +329,11 @@ func newAutoResumeResolverForTest(
 	providerThreadID string,
 ) *sessionResolver {
 	t.Helper()
-	rolloutPath := writeExistingProviderHistoryFile(t, providerThreadID)
+	fixture := newUnifiedRecoveryTestFixture(t)
+	rolloutPath, fixtureErr := fixture.writeExistingProviderHistoryFile(providerThreadID)
+	if fixtureErr != nil {
+		t.Fatalf("write provider history fixture: %v", fixtureErr)
+	}
 	return &sessionResolver{
 		threadStore: keyedThreadLookup{
 			publicThreadID: {
@@ -250,7 +343,7 @@ func newAutoResumeResolverForTest(
 				PromptSnapshot: autoResumePromptSnapshotForTest(),
 			},
 		},
-		bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
+		bindingStore: fixture.bindingLookup(stubBindingLookup{bindings: map[string]*contract.SessionBinding{
 			"codex:" + providerThreadID: {
 				Provider:         "codex",
 				AgentID:          agentID,
@@ -259,7 +352,7 @@ func newAutoResumeResolverForTest(
 				RolloutPath:      rolloutPath,
 				Cwd:              "/repo",
 			},
-		}},
+		}}),
 		registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
 			{Name: "codex", Create: func() contract.Driver { return driver }},
 		}}),
@@ -473,7 +566,11 @@ func TestConcurrentClientAndResolverResumeSharePendingSession(t *testing.T) {
 func TestConcurrentColdAutoResumeInvokesProviderResumeOnce(t *testing.T) {
 	t.Parallel()
 
-	rolloutPath := writeExistingProviderHistoryFile(t, "11111111-aaaa-bbbb-cccc-111111111119")
+	fixture := newUnifiedRecoveryTestFixture(t)
+	rolloutPath, fixtureErr := fixture.writeExistingProviderHistoryFile("11111111-aaaa-bbbb-cccc-111111111119")
+	if fixtureErr != nil {
+		t.Fatalf("write provider history fixture: %v", fixtureErr)
+	}
 	driver := newBlockingResumeDriver("codex", &generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111119"})
 	resolver := &sessionResolver{
 		threadStore: keyedThreadLookup{
@@ -484,7 +581,7 @@ func TestConcurrentColdAutoResumeInvokesProviderResumeOnce(t *testing.T) {
 				PromptSnapshot: autoResumePromptSnapshotForTest(),
 			},
 		},
-		bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
+		bindingStore: fixture.bindingLookup(stubBindingLookup{bindings: map[string]*contract.SessionBinding{
 			"codex:11111111-aaaa-bbbb-cccc-111111111119": {
 				Provider:         "codex",
 				AgentID:          "agent-concurrent",
@@ -493,7 +590,7 @@ func TestConcurrentColdAutoResumeInvokesProviderResumeOnce(t *testing.T) {
 				RolloutPath:      rolloutPath,
 				Cwd:              "/repo",
 			},
-		}},
+		}}),
 		registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
 			{Name: "codex", Create: func() contract.Driver { return driver }},
 		}}),
@@ -606,7 +703,11 @@ func TestSessionResolverDoesNotAutoResumeStoppedOrArchivedThread(t *testing.T) {
 		t.Run(status, func(t *testing.T) {
 			t.Parallel()
 
-			rolloutPath := writeExistingProviderHistoryFile(t, "11111111-aaaa-bbbb-cccc-111111111113")
+			fixture := newUnifiedRecoveryTestFixture(t)
+			rolloutPath, fixtureErr := fixture.writeExistingProviderHistoryFile("11111111-aaaa-bbbb-cccc-111111111113")
+			if fixtureErr != nil {
+				t.Fatalf("write provider history fixture: %v", fixtureErr)
+			}
 			driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111113"}}
 			resolver := &sessionResolver{
 				threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
@@ -614,7 +715,7 @@ func TestSessionResolverDoesNotAutoResumeStoppedOrArchivedThread(t *testing.T) {
 					AgentID:  "agent-1",
 					Status:   status,
 				}},
-				bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
+				bindingStore: fixture.bindingLookup(stubBindingLookup{bindings: map[string]*contract.SessionBinding{
 					"codex:provider-thread-1": {
 						Provider:         "codex",
 						AgentID:          "agent-1",
@@ -622,7 +723,7 @@ func TestSessionResolverDoesNotAutoResumeStoppedOrArchivedThread(t *testing.T) {
 						RolloutPath:      rolloutPath,
 						Cwd:              "/repo",
 					},
-				}},
+				}}),
 				registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
 					{Name: "codex", Create: func() contract.Driver { return driver }},
 				}}),
@@ -653,7 +754,11 @@ func TestAutoResumeRejectsArchivedBinding(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			rolloutPath := writeExistingProviderHistoryFile(t, "11111111-aaaa-bbbb-cccc-111111111118")
+			fixture := newUnifiedRecoveryTestFixture(t)
+			rolloutPath, fixtureErr := fixture.writeExistingProviderHistoryFile("11111111-aaaa-bbbb-cccc-111111111118")
+			if fixtureErr != nil {
+				t.Fatalf("write provider history fixture: %v", fixtureErr)
+			}
 			driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111118"}}
 			resolver := &sessionResolver{
 				threadStore: keyedThreadLookup{
@@ -664,7 +769,7 @@ func TestAutoResumeRejectsArchivedBinding(t *testing.T) {
 						PromptSnapshot: autoResumePromptSnapshotForTest(),
 					},
 				},
-				bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
+				bindingStore: fixture.bindingLookup(stubBindingLookup{bindings: map[string]*contract.SessionBinding{
 					"codex:11111111-aaaa-bbbb-cccc-111111111118": {
 						Provider:         "codex",
 						AgentID:          "agent-archived",
@@ -674,7 +779,7 @@ func TestAutoResumeRejectsArchivedBinding(t *testing.T) {
 						Cwd:              "/repo",
 						Archived:         true,
 					},
-				}},
+				}}),
 				registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
 					{Name: "codex", Create: func() contract.Driver { return driver }},
 				}}),
@@ -695,7 +800,11 @@ func TestAutoResumeRejectsArchivedBinding(t *testing.T) {
 func TestSessionResolverProviderThreadDoesNotAutoResumeStoppedThread(t *testing.T) {
 	t.Parallel()
 
-	rolloutPath := writeExistingProviderHistoryFile(t, "11111111-aaaa-bbbb-cccc-111111111114")
+	fixture := newUnifiedRecoveryTestFixture(t)
+	rolloutPath, fixtureErr := fixture.writeExistingProviderHistoryFile("11111111-aaaa-bbbb-cccc-111111111114")
+	if fixtureErr != nil {
+		t.Fatalf("write provider history fixture: %v", fixtureErr)
+	}
 	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111114"}}
 	resolver := &sessionResolver{
 		threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
@@ -703,7 +812,7 @@ func TestSessionResolverProviderThreadDoesNotAutoResumeStoppedThread(t *testing.
 			AgentID:  "agent-1",
 			Status:   "stopped",
 		}},
-		bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
+		bindingStore: fixture.bindingLookup(stubBindingLookup{bindings: map[string]*contract.SessionBinding{
 			"codex:11111111-aaaa-bbbb-cccc-111111111114": {
 				Provider:         "codex",
 				AgentID:          "agent-1",
@@ -712,7 +821,7 @@ func TestSessionResolverProviderThreadDoesNotAutoResumeStoppedThread(t *testing.
 				RolloutPath:      rolloutPath,
 				Cwd:              "/repo",
 			},
-		}},
+		}}),
 		registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
 			{Name: "codex", Create: func() contract.Driver { return driver }},
 		}}),
@@ -731,7 +840,11 @@ func TestSessionResolverProviderThreadDoesNotAutoResumeStoppedThread(t *testing.
 func TestAutoResumeRuntimeConfigFailsOnThreadStoreError(t *testing.T) {
 	t.Parallel()
 
-	rolloutPath := writeExistingProviderHistoryFile(t, "11111111-aaaa-bbbb-cccc-111111111115")
+	fixture := newUnifiedRecoveryTestFixture(t)
+	rolloutPath, fixtureErr := fixture.writeExistingProviderHistoryFile("11111111-aaaa-bbbb-cccc-111111111115")
+	if fixtureErr != nil {
+		t.Fatalf("write provider history fixture: %v", fixtureErr)
+	}
 	wantErr := errors.New("thread config decode failed")
 	threadStore := &sequenceThreadLookup{
 		refs: []*contract.SessionThreadRef{
@@ -745,7 +858,7 @@ func TestAutoResumeRuntimeConfigFailsOnThreadStoreError(t *testing.T) {
 	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111115"}}
 	resolver := &sessionResolver{
 		threadStore: threadStore,
-		bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
+		bindingStore: fixture.bindingLookup(stubBindingLookup{bindings: map[string]*contract.SessionBinding{
 			"codex:11111111-aaaa-bbbb-cccc-111111111115": {
 				Provider:         "codex",
 				AgentID:          "agent-1",
@@ -754,7 +867,7 @@ func TestAutoResumeRuntimeConfigFailsOnThreadStoreError(t *testing.T) {
 				RolloutPath:      rolloutPath,
 				Cwd:              "/repo",
 			},
-		}},
+		}}),
 		registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
 			{Name: "codex", Create: func() contract.Driver { return driver }},
 		}}),
