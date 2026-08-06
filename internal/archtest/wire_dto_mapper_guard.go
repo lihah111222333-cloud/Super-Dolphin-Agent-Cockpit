@@ -26,12 +26,6 @@ type wireDTOMapperTestingT interface {
 	Fatalf(format string, args ...any)
 }
 
-type wireDTOMapperJSONField struct {
-	jsonName string
-	goName   string
-	index    []int
-}
-
 // AssertWireDTOMapperASTReferencesProducerFields 从真实函数 AST 派生字段引用并与 producer 动态差集。
 func AssertWireDTOMapperASTReferencesProducerFields[T any](
 	t wireDTOMapperTestingT,
@@ -175,99 +169,9 @@ func wireDTOMapperExemptionRegistry(exemptions []WireDTOMapperExemption) (map[st
 	return registry, nil
 }
 
-// wireDTOMapperJSONFields 展开 producer 的 JSON 字段并拒绝空或非结构体输入。
-func wireDTOMapperJSONFields(typ reflect.Type) ([]wireDTOMapperJSONField, error) {
-	if typ == nil || typ.Kind() != reflect.Struct {
-		return nil, fmt.Errorf("mapper producer %v must be a struct", typ)
-	}
-	var fields []wireDTOMapperJSONField
-	if err := collectWireDTOMapperJSONFields(typ, nil, &fields); err != nil {
-		return nil, err
-	}
-	if len(fields) == 0 {
-		return nil, fmt.Errorf("mapper producer %s has zero JSON fields", typ)
-	}
-	return fields, nil
-}
-
-// collectWireDTOMapperJSONFields 递归收集嵌入结构及普通 tagged 字段。
-func collectWireDTOMapperJSONFields(typ reflect.Type, prefix []int, fields *[]wireDTOMapperJSONField) error {
-	seen := make(map[string]string, len(*fields))
-	for _, field := range *fields {
-		seen[field.jsonName] = field.goName
-	}
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
-		index := append(append([]int(nil), prefix...), i)
-		if field.Anonymous && field.Tag.Get("json") == "" {
-			if err := collectEmbeddedWireDTOMapperJSONFields(field, index, fields, seen); err != nil {
-				return err
-			}
-			continue
-		}
-		if err := appendWireDTOMapperJSONField(field, index, fields, seen); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// collectEmbeddedWireDTOMapperJSONFields 收集单个嵌入字段并校验其新增 JSON 名称。
-func collectEmbeddedWireDTOMapperJSONFields(
-	field reflect.StructField,
-	index []int,
-	fields *[]wireDTOMapperJSONField,
-	seen map[string]string,
-) error {
-	embedded := field.Type
-	if embedded.Kind() == reflect.Pointer {
-		embedded = embedded.Elem()
-	}
-	if embedded.Kind() != reflect.Struct {
-		return fmt.Errorf("embedded mapper producer field %s must be a struct", field.Name)
-	}
-	start := len(*fields)
-	if err := collectWireDTOMapperJSONFields(embedded, index, fields); err != nil {
-		return err
-	}
-	for _, nested := range (*fields)[start:] {
-		if previous, exists := seen[nested.jsonName]; exists {
-			return fmt.Errorf("producer field %s duplicates JSON field %q from %s", nested.goName, nested.jsonName, previous)
-		}
-		seen[nested.jsonName] = nested.goName
-	}
-	return nil
-}
-
-// appendWireDTOMapperJSONField 登记单个 tagged 字段并拒绝重复 JSON 名称。
-func appendWireDTOMapperJSONField(
-	field reflect.StructField,
-	index []int,
-	fields *[]wireDTOMapperJSONField,
-	seen map[string]string,
-) error {
-	jsonName, ok := wireDTOMapperJSONFieldName(field)
-	if !ok {
-		return nil
-	}
-	if previous, exists := seen[jsonName]; exists {
-		return fmt.Errorf("producer field %s duplicates JSON field %q from %s", field.Name, jsonName, previous)
-	}
-	seen[jsonName] = field.Name
-	*fields = append(*fields, wireDTOMapperJSONField{jsonName: jsonName, goName: field.Name, index: index})
-	return nil
-}
-
-// wireDTOMapperJSONFieldName 解析结构字段的有效 JSON tag 名称。
-func wireDTOMapperJSONFieldName(field reflect.StructField) (string, bool) {
-	tag := strings.TrimSpace(field.Tag.Get("json"))
-	if tag == "" || tag == "-" {
-		return "", false
-	}
-	if comma := strings.IndexByte(tag, ','); comma >= 0 {
-		tag = tag[:comma]
-	}
-	return tag, tag != "" && tag != "-"
+// wireDTOMapperJSONFields 保留 mapper guard 的调用面，并委托给共享 producer descriptor collector。
+func wireDTOMapperJSONFields(typ reflect.Type) ([]wireDTOJSONField, error) {
+	return wireDTOJSONFields(typ)
 }
 
 // setWireDTOMapperFieldSentinel 写入能触发 mapper 分支的类型匹配哨兵值。

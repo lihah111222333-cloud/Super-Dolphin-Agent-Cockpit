@@ -23,6 +23,29 @@ type skillInfoConsumerField struct {
 	Consumer  string `json:"consumer"`
 }
 
+type embeddedWireDTOFields struct {
+	Nested string `json:"nested"`
+}
+
+type embeddedPointerWireDTOFields struct {
+	*embeddedWireDTOFields
+	ID string `json:"id"`
+}
+
+func TestRegisteredWireDTOJSONFieldsDereferencesEmbeddedPointer(t *testing.T) {
+	t.Parallel()
+
+	fields := collectRegisteredWireDTOJSONFields(t, reflect.TypeFor[embeddedPointerWireDTOFields]())
+	for _, field := range []string{"id", "nested"} {
+		if !fields[field] {
+			t.Fatalf("embedded pointer producer field %q was not collected: %v", field, fields)
+		}
+	}
+	if len(fields) != 2 {
+		t.Fatalf("embedded pointer producer fields = %v, want exactly id and nested", fields)
+	}
+}
+
 // TestSkillInfoConsumerRegistryMatchesProducerJSONFields 将 SkillInfo producer 字段绑定到前端 validator registry。
 func TestSkillInfoConsumerRegistryMatchesProducerJSONFields(t *testing.T) {
 	t.Parallel()
@@ -123,40 +146,15 @@ func loadSkillInfoConsumerRegistry(t *testing.T) []skillInfoConsumerField {
 
 func collectRegisteredWireDTOJSONFields(t *testing.T, typ reflect.Type) map[string]bool {
 	t.Helper()
-	for typ.Kind() == reflect.Pointer {
-		typ = typ.Elem()
+	descriptors, err := wireDTOJSONFields(typ)
+	if err != nil {
+		t.Fatalf("collect wire DTO producer fields: %v", err)
 	}
-	if typ.Kind() != reflect.Struct {
-		t.Fatalf("wire DTO producer %s must be a struct", typ)
-	}
-	fields := make(map[string]bool)
-	collectRegisteredWireDTOJSONFieldsInto(t, typ, fields)
-	if len(fields) == 0 {
-		t.Fatalf("wire DTO producer %s has zero JSON fields", typ)
+	fields := make(map[string]bool, len(descriptors))
+	for _, descriptor := range descriptors {
+		fields[descriptor.jsonName] = true
 	}
 	return fields
-}
-
-func collectRegisteredWireDTOJSONFieldsInto(t *testing.T, typ reflect.Type, fields map[string]bool) {
-	t.Helper()
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
-		if field.Anonymous && field.Tag.Get("json") == "" {
-			collectRegisteredWireDTOJSONFieldsInto(t, field.Type, fields)
-			continue
-		}
-		tag := strings.TrimSpace(field.Tag.Get("json"))
-		if comma := strings.IndexByte(tag, ','); comma >= 0 {
-			tag = tag[:comma]
-		}
-		if tag == "" || tag == "-" {
-			continue
-		}
-		if fields[tag] {
-			t.Fatalf("wire DTO producer %s duplicates JSON field %q", typ, tag)
-		}
-		fields[tag] = true
-	}
 }
 
 func assertRegisteredWireDTOFieldsCovered(t *testing.T, name string, fields map[string]bool, registered map[string]string) {
