@@ -133,32 +133,40 @@ func (w *nestedIngestWorker) Enqueue(threadID, callID, toolName, result, persist
 	if w.runtime == nil {
 		return w.reject(ErrNestedIngestUnavailable)
 	}
-	threadID = strings.TrimSpace(threadID)
-	if threadID == "" {
-		return w.reject(ErrNestedIngestInvalid)
-	}
-	callID = strings.TrimSpace(callID)
-	if callID == "" {
-		return w.reject(ErrNestedIngestInvalid)
-	}
-	requestBytes := len(threadID) + len(callID) + len(toolName) + len(result) + len(persistedPath)
-	if requestBytes > nestedIngestResultByteLimit {
-		return w.reject(fmt.Errorf(
-			"%w: bytes=%d limit=%d",
-			ErrNestedIngestResultLarge,
-			requestBytes,
-			nestedIngestResultByteLimit,
-		))
+	key, req, err := newNestedIngestRequest(threadID, callID, toolName, result, persistedPath)
+	if err != nil {
+		return w.reject(err)
 	}
 	select {
 	case <-w.stopCh:
 		return w.reject(ErrNestedIngestStopped)
 	default:
 	}
-	key := nestedIngestKey{
-		threadID: threadID,
-		callID:   callID,
+	if err := w.enqueuePending(key, req); err != nil {
+		return w.reject(err)
 	}
+	w.enqueuedTotal.Add(1)
+	w.wakeDrain()
+	return nil
+}
+
+// newNestedIngestRequest 规范化并验证一次 nested ingest 请求。
+func newNestedIngestRequest(threadID, callID, toolName, result, persistedPath string) (nestedIngestKey, nestedIngestRequest, error) {
+	threadID = strings.TrimSpace(threadID)
+	callID = strings.TrimSpace(callID)
+	if threadID == "" || callID == "" {
+		return nestedIngestKey{}, nestedIngestRequest{}, ErrNestedIngestInvalid
+	}
+	requestBytes := len(threadID) + len(callID) + len(toolName) + len(result) + len(persistedPath)
+	if requestBytes > nestedIngestResultByteLimit {
+		return nestedIngestKey{}, nestedIngestRequest{}, fmt.Errorf(
+			"%w: bytes=%d limit=%d",
+			ErrNestedIngestResultLarge,
+			requestBytes,
+			nestedIngestResultByteLimit,
+		)
+	}
+	key := nestedIngestKey{threadID: threadID, callID: callID}
 	req := nestedIngestRequest{
 		threadID:      threadID,
 		callID:        callID,
@@ -166,28 +174,35 @@ func (w *nestedIngestWorker) Enqueue(threadID, callID, toolName, result, persist
 		result:        result,
 		persistedPath: strings.TrimSpace(persistedPath),
 	}
+	return key, req, nil
+}
+
+// enqueuePending 写入待处理表并记录重复合并。
+func (w *nestedIngestWorker) enqueuePending(key nestedIngestKey, req nestedIngestRequest) error {
 	w.mu.Lock()
+	defer w.mu.Unlock()
 	_, duplicate := w.pending[key]
 	if !duplicate && len(w.pending) >= nestedIngestPendingLimit {
-		w.mu.Unlock()
-		return w.reject(fmt.Errorf(
+		return fmt.Errorf(
 			"%w: pending=%d limit=%d",
 			ErrNestedIngestQueueFull,
 			nestedIngestPendingLimit,
 			nestedIngestPendingLimit,
-		))
+		)
 	}
 	if duplicate {
 		w.coalescedTotal.Add(1)
 	}
 	w.pending[key] = req
-	w.mu.Unlock()
-	w.enqueuedTotal.Add(1)
+	return nil
+}
+
+// wakeDrain 非阻塞唤醒后台 drain。
+func (w *nestedIngestWorker) wakeDrain() {
 	select {
 	case w.wake <- struct{}{}:
 	default:
 	}
-	return nil
 }
 
 // Stop 关闭入队入口，drain pending 请求，并在 ctx 限制内等待 worker 退出。
