@@ -682,6 +682,19 @@ func TestClientCloseReportsShutdownTimeoutUntilWaitConfirms(t *testing.T) {
 	}
 }
 
+func TestClientJoinTrackedOwnersRequiresClock(t *testing.T) {
+	client, _ := testClient(t, nil)
+	client.now = nil
+	defer func() {
+		recovered := recover()
+		client.now = time.Now
+		if recovered == nil {
+			t.Fatal("joinTrackedOwners() did not reject a nil clock")
+		}
+	}()
+	_ = client.joinTrackedOwners(time.Second)
+}
+
 func TestClientStartupTimeoutBoundsInitializeHandshake(t *testing.T) {
 	client, p := testClient(t, nil)
 	client.cfg.StartupTimeout = time.Millisecond

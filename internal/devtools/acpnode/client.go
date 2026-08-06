@@ -86,6 +86,7 @@ type reverseContextKey struct{}
 type Client struct {
 	p   Process
 	cfg LaunchConfig
+	now func() time.Time
 
 	writeMu              sync.Mutex
 	writeOwnersMu        sync.Mutex
@@ -171,6 +172,7 @@ func NewClient(cfg LaunchConfig, factory ProcessFactory, reverse ReverseRequestH
 	c := &Client{
 		p:                  p,
 		cfg:                cfg,
+		now:                time.Now,
 		writeOwners:        make(map[*writeOwner]struct{}),
 		writeAdmissionDone: closedChannel(),
 		owners:             make(map[trackedOwner]struct{}),
@@ -247,34 +249,44 @@ func (c *Client) joinTrackedOwners(timeout time.Duration) error {
 	if timeout <= 0 {
 		return ErrShutdownTimeout
 	}
-	deadline := time.Now().Add(timeout)
+	deadline := c.currentTime().Add(timeout)
 	for {
 		owners := c.trackedOwners()
 		if len(owners) == 0 {
 			return nil
 		}
-		pending := waitTrackedOwners(owners, deadline)
+		pending := waitTrackedOwners(owners, deadline, c.currentTime)
 		if len(pending) > 0 {
 			return errors.Join(pending...)
 		}
-		if !time.Now().Before(deadline) {
+		if !c.currentTime().Before(deadline) {
 			return ErrShutdownTimeout
 		}
 	}
 }
 
-func waitTrackedOwners(owners []trackedOwner, deadline time.Time) []error {
+func (c *Client) currentTime() time.Time {
+	if c == nil || c.now == nil {
+		panic("acp: client clock required")
+	}
+	return c.now()
+}
+
+func waitTrackedOwners(owners []trackedOwner, deadline time.Time, now func() time.Time) []error {
+	if now == nil {
+		panic("acp: owner wait clock required")
+	}
 	var pending []error
 	for _, owner := range owners {
-		if err := waitTrackedOwner(owner, deadline); err != nil {
+		if err := waitTrackedOwner(owner, deadline, now); err != nil {
 			pending = append(pending, err)
 		}
 	}
 	return pending
 }
 
-func waitTrackedOwner(owner trackedOwner, deadline time.Time) error {
-	remaining := time.Until(deadline)
+func waitTrackedOwner(owner trackedOwner, deadline time.Time, now func() time.Time) error {
+	remaining := deadline.Sub(now())
 	if remaining <= 0 {
 		return owner.pendingError()
 	}
