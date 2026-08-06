@@ -10,9 +10,13 @@ import (
 )
 
 // Module 按依赖顺序透明展开运行时适配器子模块。
-var Module = fx.Options(
-	mcpcontroladapter.Module,
-	toolbridgeadapter.Module,
-	cachekeepaliveadapter.Module,
-	builtintoolsadapter.Module,
-)
+var Module = newModule()
+
+func newModule() fx.Option {
+	return fx.Options(
+		mcpcontroladapter.Module,
+		toolbridgeadapter.Module,
+		cachekeepaliveadapter.Module,
+		builtintoolsadapter.Module,
+	)
+}
