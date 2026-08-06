@@ -225,6 +225,7 @@ func setupDAGSubscriberDeps(
 		FlowStore:    flow,
 		AgentThreads: threads,
 		SvcStopper:   stop,
+		Metrics:      newDAGSubscriberCounter(),
 	}
 }
 
