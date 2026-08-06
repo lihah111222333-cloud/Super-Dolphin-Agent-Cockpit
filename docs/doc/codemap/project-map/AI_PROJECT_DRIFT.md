@@ -2,16 +2,16 @@
 
 > 状态：**OK**
 >
-> 已索引文件：4580
+> 已索引文件：4609
 >
-> 未细分职责文件：59
+> 未细分职责文件：60
 
 ## 1. 漂移指标
 
 | 指标 | 当前值 |
 |---|---:|
-| 未细分职责文件数 | 59 |
-| 未细分职责占比 | 1.29% |
+| 未细分职责文件数 | 60 |
+| 未细分职责占比 | 1.30% |
 | 最大未细分职责占比阈值 | 5.00% |
 
 ## 2. 漂移告警
@@ -22,7 +22,7 @@
 
 | 模块 | 文件数 |
 |---|---:|
-| `cmd` | 57 |
+| `cmd` | 58 |
 | `internal` | 2 |
 
 ## 4. 样例文件
@@ -41,6 +41,7 @@
 - `cmd/mcp-schema-compiler-helper/main.go`
 - `cmd/super-dolphin-gate/cli_common.go`
 - `cmd/super-dolphin-gate/closure_cli.go`
+- `cmd/super-dolphin-gate/closure_cli_test.go`
 - `cmd/super-dolphin-gate/codemap_cli.go`
 - `cmd/super-dolphin-gate/frontend_code_size_cli.go`
 - `cmd/super-dolphin-gate/frontend_code_size_cli_test.go`
@@ -76,7 +77,6 @@
 - `cmd/super-dolphin-gate/remote_run_helpers_test.go`
 - `cmd/super-dolphin-gate/remote_run_ledger_test.go`
 - `cmd/super-dolphin-gate/remote_run_options.go`
-- `cmd/super-dolphin-gate/remote_run_selection.go`
 
 ## 5. 修复方式
 
