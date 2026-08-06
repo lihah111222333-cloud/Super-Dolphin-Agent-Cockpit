@@ -25,6 +25,8 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp"
 	codexprotocol "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp/protocol"
 	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 	"go.uber.org/fx"
 )
 
@@ -364,7 +366,13 @@ func newCodexE2EDriverFactoryWithMirror(t *testing.T, serverURL string, mirror c
 		return newCodexE2EFakeServer(serverURL), nil
 	}, codexapp.PoolConfig{})
 	t.Cleanup(func() { _ = pool.Close(context.Background()) })
-	return codexapp.NewDriverFactory(nil, nil, rpc.NewApprovalManager(nil, nil), nil, nil, pool, mirror, nil)
+	factory, err := codexapp.NewDriverFactory(nil, nil, rpc.NewApprovalManager(nil, nil), nil, nil, pool, mirror, nil)
+	if err != nil {
+		t.Fatalf("codexapp.NewDriverFactory() error = %v", err)
+	}
+	factory.SetLogRuntime(pkglogger.NewRuntime(pkglogger.RuntimeConfig{}))
+	factory.SetSkillMetrics(skillmetrics.NewRegistry())
+	return factory
 }
 
 type noopCodexE2ESkillMirrorReconciler struct{}

@@ -78,7 +78,7 @@ func TestModuleRequiresCodexBindingCriticalDependencies(t *testing.T) {
 	}{
 		{
 			name: "missing ServerManager",
-			opts: []fx.Option{fx.Supply(newTestCodexDriverFactory()), fx.Supply(toolbridge.NewHandlerForTesting(nil, nil))},
+			opts: []fx.Option{fx.Supply(newTestCodexDriverFactory(t)), fx.Supply(toolbridge.NewHandlerForTesting(nil, nil))},
 			want: "*codexapp.ServerManager",
 		},
 		{
@@ -88,7 +88,7 @@ func TestModuleRequiresCodexBindingCriticalDependencies(t *testing.T) {
 		},
 		{
 			name: "missing toolbridge Handler",
-			opts: []fx.Option{fx.Supply(&codexapp.ServerManager{}), fx.Supply(newTestCodexDriverFactory())},
+			opts: []fx.Option{fx.Supply(&codexapp.ServerManager{}), fx.Supply(newTestCodexDriverFactory(t))},
 			want: "*toolbridge.Handler",
 		},
 	}
@@ -118,7 +118,7 @@ func TestModuleWrapsSessionStarterAtRootScope(t *testing.T) {
 		adapterDependencyOptions(),
 		fx.Provide(func() contract.SessionStarter { return inner }),
 		fx.Supply(&codexapp.ServerManager{}),
-		fx.Supply(newTestCodexDriverFactory()),
+		fx.Supply(newTestCodexDriverFactory(t)),
 		fx.Supply(toolbridge.NewHandlerForTesting(nil, nil)),
 		fx.Populate(&starter),
 		fx.NopLogger,
@@ -143,8 +143,13 @@ func adapterDependencyOptions() fx.Option {
 	)
 }
 
-func newTestCodexDriverFactory() *codexapp.DriverFactory {
-	return codexapp.NewDriverFactory(nil, nil, nil, nil, nil, nil, nil, nil)
+func newTestCodexDriverFactory(t *testing.T) *codexapp.DriverFactory {
+	t.Helper()
+	factory, err := codexapp.NewDriverFactory(nil, nil, nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("codexapp.NewDriverFactory() error = %v", err)
+	}
+	return factory
 }
 
 type recordingSessionStarter struct {

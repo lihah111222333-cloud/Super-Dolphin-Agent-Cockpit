@@ -126,6 +126,7 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, re
 	return buildDriver(logger, eventDispatcher, reporter, reg, proxyAddrFn, proxyTokenFn, mirror, recovery, metrics, tracers...), nil
 }
 
+// buildDriver 使用已验证的运行时依赖组装 Claude CLI driver。
 func buildDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry, proxyAddrFn func() string, proxyTokenFn func() string, mirror contract.SkillMirrorReconciler, recovery contract.SessionRecoveryReporter, metrics *skillmetrics.Registry, tracers ...*observability.Service) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()

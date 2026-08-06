@@ -37,7 +37,10 @@ func TestManagedAdmissionFailureStopsRealDriverBeforeRemoteThreadStart(t *testin
 		executor,
 		&task4BMCPClient{tools: []mcpdto.MCPTool{task4BTool("unsafe", `{"type":"object"}`)}},
 	)
-	factory := codexapp.NewDriverFactory(nil, nil, platformrpc.NewApprovalManager(nil, nil), nil, &codexapp.ServerManager{}, pool, recoveryDriverSkillMirror{}, nil)
+	factory, err := codexapp.NewDriverFactory(nil, nil, platformrpc.NewApprovalManager(nil, nil), nil, &codexapp.ServerManager{}, pool, recoveryDriverSkillMirror{}, nil)
+	if err != nil {
+		t.Fatalf("codexapp.NewDriverFactory() error = %v", err)
+	}
 	factory.SetLogRuntime(pkglogger.NewRuntime(pkglogger.RuntimeConfig{}))
 	factory.SetSkillMetrics(skillmetrics.NewRegistry())
 	factory.SetPrepareTools(func(ctx context.Context, scope contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error) {
