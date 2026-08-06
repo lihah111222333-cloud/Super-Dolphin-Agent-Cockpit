@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -21,10 +22,14 @@ const (
 	toolPayloadLogDirEnv   = "GO_AGENT_TOOL_PAYLOAD_LOG_DIR"
 	toolPayloadLogDebugEnv = "GO_AGENT_TOOL_PAYLOAD_LOG_DEBUG"
 	logFallbackDirEnv      = "GO_AGENT_LOG_FALLBACK_DIR"
+
+	maxToolPayloadSnapshotCreateAttempts = 64
 )
 
-// toolPayloadLogSeq 为同一纳秒内的载荷快照提供单调序号，避免文件名冲突。
-var toolPayloadLogSeq atomic.Uint64
+// toolPayloadLogger 为单个 MCP server 持有载荷快照序号，避免跨 server 共享可变状态。
+type toolPayloadLogger struct {
+	sequence atomic.Uint64
+}
 
 var (
 	tokenLikePayloadPattern     = regexp.MustCompile(`(?i)(sk-[a-z0-9_-]{8,}|gh[pousr]_[a-z0-9_]{8,}|xox[baprs]-[a-z0-9-]{8,}|[a-z0-9_-]{20,}\.[a-z0-9_-]{10,}\.[a-z0-9_-]{10,})`)
@@ -104,11 +109,11 @@ type toolPayloadSnapshot struct {
 	RawResultLen    int             `json:"raw_result_len,omitempty"`
 }
 
-// logToolCallRequestPayload 记录工具调用请求载荷快照并返回引用。
-func logToolCallRequestPayload(transport, server string, reqID json.RawMessage, params ToolCallParams, scope ToolScope) toolPayloadLogRef {
+// logRequest 记录工具调用请求载荷快照并返回引用。
+func (l *toolPayloadLogger) logRequest(transport, server string, reqID json.RawMessage, params ToolCallParams, scope ToolScope) toolPayloadLogRef {
 	rawArgs := cloneRawMessage(params.Arguments)
 	args, redacted := snapshotPayload(rawArgs)
-	return writeToolPayloadSnapshot(toolPayloadSnapshot{
+	return l.write(toolPayloadSnapshot{
 		Version:         1,
 		CreatedAt:       time.Now().Format(time.RFC3339Nano),
 		Stage:           "request",
@@ -128,15 +133,15 @@ func logToolCallRequestPayload(transport, server string, reqID json.RawMessage, 
 	})
 }
 
-// logToolCallResultPayload 记录工具调用结果载荷快照并返回引用。
-func logToolCallResultPayload(transport, server, tool string, reqID json.RawMessage, scope ToolScope, rawResult []byte, err error) toolPayloadLogRef {
+// logResult 记录工具调用结果载荷快照并返回引用。
+func (l *toolPayloadLogger) logResult(transport, server, tool string, reqID json.RawMessage, scope ToolScope, rawResult []byte, err error) toolPayloadLogRef {
 	var errText string
 	if err != nil {
 		errText = redactSensitiveString(err.Error())
 	}
 	raw := cloneRawMessage(rawResult)
 	result, redacted := snapshotPayload(raw)
-	return writeToolPayloadSnapshot(toolPayloadSnapshot{
+	return l.write(toolPayloadSnapshot{
 		Version:         1,
 		CreatedAt:       time.Now().Format(time.RFC3339Nano),
 		Stage:           "result",
@@ -248,8 +253,8 @@ func isSensitivePayloadKey(key string) bool {
 		strings.Contains(normalized, "authorization")
 }
 
-// writeToolPayloadSnapshot 将快照 JSON 写入磁盘，返回文件路径和字节数。
-func writeToolPayloadSnapshot(snapshot toolPayloadSnapshot) toolPayloadLogRef {
+// write 将快照 JSON 写入磁盘，返回文件路径和字节数。
+func (l *toolPayloadLogger) write(snapshot toolPayloadSnapshot) toolPayloadLogRef {
 	dir, err := toolPayloadLogDir()
 	if err != nil {
 		return toolPayloadLogRef{Err: err}
@@ -262,11 +267,26 @@ func writeToolPayloadSnapshot(snapshot toolPayloadSnapshot) toolPayloadLogRef {
 		return toolPayloadLogRef{Err: err}
 	}
 	line = append(line, '\n')
-	path := filepath.Join(dir, toolPayloadSnapshotFileName(snapshot))
-	if err := os.WriteFile(path, line, 0o600); err != nil {
-		return toolPayloadLogRef{Err: err}
+	for attempt := 0; attempt < maxToolPayloadSnapshotCreateAttempts; attempt++ {
+		path := filepath.Join(dir, l.snapshotFileName(snapshot))
+		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if errors.Is(err, fs.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return toolPayloadLogRef{Err: err}
+		}
+		if _, err := file.Write(line); err != nil {
+			closeErr := file.Close()
+			removeErr := os.Remove(path)
+			return toolPayloadLogRef{Err: errors.Join(err, closeErr, removeErr)}
+		}
+		if err := file.Close(); err != nil {
+			return toolPayloadLogRef{Err: err}
+		}
+		return toolPayloadLogRef{Path: path, Bytes: len(line)}
 	}
-	return toolPayloadLogRef{Path: path, Bytes: len(line)}
+	return toolPayloadLogRef{Err: fmt.Errorf("create unique tool payload snapshot after %d attempts", maxToolPayloadSnapshotCreateAttempts)}
 }
 
 // toolPayloadLogDir 解析工具载荷快照目录，优先使用显式环境变量，其次跟随当前日志文件。
@@ -296,9 +316,9 @@ func toolPayloadLogDir() (string, error) {
 	return filepath.Join(logDir, "peer-fallback", "tool-payloads"), nil
 }
 
-// toolPayloadSnapshotFileName 根据快照内容生成唯一且安全的文件名。
-func toolPayloadSnapshotFileName(snapshot toolPayloadSnapshot) string {
-	seq := toolPayloadLogSeq.Add(1)
+// snapshotFileName 根据快照内容生成唯一且安全的文件名。
+func (l *toolPayloadLogger) snapshotFileName(snapshot toolPayloadSnapshot) string {
+	seq := l.sequence.Add(1)
 	stamp := strings.ReplaceAll(snapshot.CreatedAt, ":", "")
 	stamp = strings.ReplaceAll(stamp, "-", "")
 	stamp = strings.ReplaceAll(stamp, ".", "")

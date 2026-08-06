@@ -134,6 +134,7 @@ type Server struct {
 	transport           *StdioTransport
 	tools               ToolProvider
 	toolErrorClassifier ToolErrorClassifier
+	payloadLogger       toolPayloadLogger
 	ready               chan struct{} // closed when Run enters its read loop
 	idleTimeout         time.Duration
 
@@ -689,7 +690,7 @@ func (s *Server) handleToolsCall(ctx context.Context, req jsonRPCRequest) *jsonR
 	}
 	scope := params.Scope(s.name)
 	ctx = WithToolScope(ctx, scope)
-	requestPayload := logToolCallRequestPayload("stdio", s.name, req.ID, params, scope)
+	requestPayload := s.payloadLogger.logRequest("stdio", s.name, req.ID, params, scope)
 	beginAttrs := []any{
 		"server", s.name, "tool", params.Name,
 		"agent_id", scope.AgentID, "thread_id", scope.ThreadID,
@@ -703,7 +704,7 @@ func (s *Server) handleToolsCall(ctx context.Context, req jsonRPCRequest) *jsonR
 	value, err := callToolSafely(ctx, s.tools, strings.TrimSpace(params.Name), params.Arguments)
 	elapsed := time.Since(start)
 	if err != nil {
-		errorPayload := logToolCallResultPayload("stdio", s.name, params.Name, req.ID, scope, nil, err)
+		errorPayload := s.payloadLogger.logResult("stdio", s.name, params.Name, req.ID, scope, nil, err)
 		errorAttrs := []any{
 			"server", s.name, "tool", params.Name,
 			"elapsed", elapsed, "error", err,
@@ -716,13 +717,13 @@ func (s *Server) handleToolsCall(ctx context.Context, req jsonRPCRequest) *jsonR
 	}
 	resp, raw, err := toolCallResultResponse(req.ID, value)
 	if err != nil {
-		resultPayload := logToolCallResultPayload("stdio", s.name, params.Name, req.ID, scope, nil, err)
+		resultPayload := s.payloadLogger.logResult("stdio", s.name, params.Name, req.ID, scope, nil, err)
 		attrs := []any{"server", s.name, "tool", params.Name, "error", err}
 		attrs = append(attrs, toolPayloadAttrs("result_payload", resultPayload)...)
 		pkglogger.Warn("mcp: tools/call result encode error", attrs...)
 		return errorResponse(req.ID, codeInternal, err.Error())
 	}
-	resultPayload := logToolCallResultPayload("stdio", s.name, params.Name, req.ID, scope, raw, nil)
+	resultPayload := s.payloadLogger.logResult("stdio", s.name, params.Name, req.ID, scope, raw, nil)
 	if elapsed > 3*time.Second {
 		pkglogger.Warn("mcp: tools/call slow",
 			"server", s.name, "tool", params.Name, "elapsed", elapsed)

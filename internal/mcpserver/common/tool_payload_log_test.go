@@ -65,6 +65,48 @@ func TestToolPayloadLogRedactsArgumentsAndResultByDefault(t *testing.T) {
 	assertSnapshotsDoNotContain(t, readToolPayloadFiles(t, dir), patch, `"success": true`)
 }
 
+func TestToolPayloadLoggersDoNotOverwriteSameSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(toolPayloadLogDirEnv, dir)
+	snapshot := toolPayloadSnapshot{
+		CreatedAt: "2026-08-06T10:11:12.123456789Z",
+		Stage:     "request",
+		Server:    "mcp-lsp",
+		Tool:      "grep",
+	}
+	var first toolPayloadLogger
+	var second toolPayloadLogger
+	firstRef := first.write(snapshot)
+	if firstRef.Err != nil {
+		t.Fatalf("first write() error = %v", firstRef.Err)
+	}
+	secondRef := second.write(snapshot)
+	if secondRef.Err != nil {
+		t.Fatalf("second write() error = %v", secondRef.Err)
+	}
+	if firstRef.Path == secondRef.Path {
+		t.Fatalf("write paths = %q and %q, want distinct files", firstRef.Path, secondRef.Path)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read payload dir: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("payload entries = %d, want 2", len(entries))
+	}
+	for _, wantSuffix := range []string{"000001-request-mcp-lsp-grep.json", "000002-request-mcp-lsp-grep.json"} {
+		matches := 0
+		for _, entry := range entries {
+			if strings.HasSuffix(entry.Name(), wantSuffix) {
+				matches++
+			}
+		}
+		if matches != 1 {
+			t.Fatalf("snapshot entries matching suffix %q = %d, want 1", wantSuffix, matches)
+		}
+	}
+}
+
 func TestToolPayloadLogDebugModeStillRedactsSecrets(t *testing.T) {
 	cases := []struct {
 		name      string

@@ -55,6 +55,7 @@ type HTTPServer struct {
 	server              *http.Server
 	bearerToken         string
 	toolErrorClassifier ToolErrorClassifier
+	payloadLogger       toolPayloadLogger
 
 	sessionsMu sync.RWMutex
 	sessions   map[string]*httpMCPSession
@@ -378,7 +379,7 @@ func (h *HTTPServer) handleToolsCall(ctx context.Context, req jsonRPCRequest) *j
 	}
 	scope := params.Scope(h.name)
 	ctx = WithToolScope(ctx, scope)
-	requestPayload := logToolCallRequestPayload("http", h.name, req.ID, params, scope)
+	requestPayload := h.payloadLogger.logRequest("http", h.name, req.ID, params, scope)
 	beginAttrs := []any{
 		"server", h.name, "tool", params.Name, "deprecated", true,
 		"agent_id", scope.AgentID, "thread_id", scope.ThreadID,
@@ -392,7 +393,7 @@ func (h *HTTPServer) handleToolsCall(ctx context.Context, req jsonRPCRequest) *j
 	value, err := callToolSafely(ctx, h.tools, strings.TrimSpace(params.Name), params.Arguments)
 	elapsed := time.Since(start)
 	if err != nil {
-		errorPayload := logToolCallResultPayload("http", h.name, params.Name, req.ID, scope, nil, err)
+		errorPayload := h.payloadLogger.logResult("http", h.name, params.Name, req.ID, scope, nil, err)
 		errorAttrs := []any{
 			"server", h.name, "tool", params.Name, "deprecated", true,
 			"elapsed", elapsed, "error", err,
@@ -405,13 +406,13 @@ func (h *HTTPServer) handleToolsCall(ctx context.Context, req jsonRPCRequest) *j
 	}
 	resp, raw, err := toolCallResultResponse(req.ID, value)
 	if err != nil {
-		resultPayload := logToolCallResultPayload("http", h.name, params.Name, req.ID, scope, nil, err)
+		resultPayload := h.payloadLogger.logResult("http", h.name, params.Name, req.ID, scope, nil, err)
 		attrs := []any{"server", h.name, "tool", params.Name, "deprecated", true, "error", err}
 		attrs = append(attrs, toolPayloadAttrs("result_payload", resultPayload)...)
 		pkglogger.Warn("mcp http: tools/call result encode error", attrs...)
 		return errorResponse(req.ID, codeInternal, err.Error())
 	}
-	resultPayload := logToolCallResultPayload("http", h.name, params.Name, req.ID, scope, raw, nil)
+	resultPayload := h.payloadLogger.logResult("http", h.name, params.Name, req.ID, scope, raw, nil)
 	if elapsed > 3*time.Second {
 		pkglogger.Warn("mcp http: tools/call slow",
 			"server", h.name, "tool", params.Name, "elapsed", elapsed)
