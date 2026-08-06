@@ -59,9 +59,11 @@ type discoveryOps struct {
 	walkDir func(string, fs.WalkDirFunc) error
 }
 
-var defaultDiscoveryOps = discoveryOps{
-	stat:    os.Stat,
-	walkDir: filepath.WalkDir,
+func newDefaultDiscoveryOps() discoveryOps {
+	return discoveryOps{
+		stat:    os.Stat,
+		walkDir: filepath.WalkDir,
+	}
 }
 
 // textItem 是 Codex/Claude JSONL 中文本 content item 的最小兼容结构。
@@ -227,13 +229,13 @@ func discoverCodexPath(req ReadRequest) (string, error) {
 		req.ProviderThreadID,
 		req.ThreadID,
 		req.SessionUUID,
-	}, "rollout-", defaultDiscoveryOps)
+	}, "rollout-", newDefaultDiscoveryOps())
 }
 
 // discoverClaudePath 用多个候选 ID 查找 Claude 历史文件。
 // Claude CLI 的真实 session UUID 可能异步写入，启动早期绑定库里不一定已有该值。
 func discoverClaudePath(req ReadRequest) (string, error) {
-	return discoverClaudePathWithOps(req, defaultDiscoveryOps)
+	return discoverClaudePathWithOps(req, newDefaultDiscoveryOps())
 }
 
 // discoverClaudePathWithOps 使用可注入文件系统操作发现 Claude artifact。

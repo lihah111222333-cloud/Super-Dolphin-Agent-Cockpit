@@ -19,11 +19,21 @@ func TestRecoveryConstructorsRejectInvalidConfiguration(t *testing.T) {
 			t.Fatalf("newRecoveryArtifactCache(%d) = (%v, %v), want (nil, error)", limit, cache, err)
 		}
 	}
-	if validator, err := newRecoveryValidator(defaultRecoveryFS, 0); err == nil || validator != nil {
+	if validator, err := newRecoveryValidator(newDefaultRecoveryFS(), 0); err == nil || validator != nil {
 		t.Fatalf("newRecoveryValidator(limit=0) = (%v, %v), want (nil, error)", validator, err)
 	}
 	if validator, err := newRecoveryValidator(recoveryFS{}, 8); err == nil || validator != nil {
 		t.Fatalf("newRecoveryValidator(incomplete) = (%v, %v), want (nil, error)", validator, err)
+	}
+}
+
+func TestDefaultRecoveryFSReturnsIndependentDescriptors(t *testing.T) {
+	t.Parallel()
+	first := newDefaultRecoveryFS()
+	second := newDefaultRecoveryFS()
+	first.lstat = nil
+	if second.lstat == nil || second.stat == nil || second.open == nil || second.evalSymlinks == nil || second.walkDir == nil {
+		t.Fatal("default recovery filesystem descriptors unexpectedly share mutable state")
 	}
 }
 
@@ -40,7 +50,7 @@ func TestDefaultRecoveryValidatorReusesSingleInstanceConcurrently(t *testing.T) 
 		err       error
 	} {
 		initialized.Add(1)
-		validator, err := newRecoveryValidator(defaultRecoveryFS, defaultRecoveryArtifactCacheLimit)
+		validator, err := newRecoveryValidator(newDefaultRecoveryFS(), defaultRecoveryArtifactCacheLimit)
 		return struct {
 			validator *recoveryValidator
 			err       error
@@ -121,7 +131,7 @@ func TestRecoveryValidatorClassifiesDiscoveryDeletionAsRace(t *testing.T) {
 	const identity = "019e218f-b514-7733-be85-b3ee7f6a78a6"
 	home := t.TempDir()
 	path := writeRecoveryCodexArtifact(t, home, identity, 0)
-	ops := defaultRecoveryFS
+	ops := newDefaultRecoveryFS()
 	ops.walkDir = func(root string, walkFn fs.WalkDirFunc) error {
 		if err := filepath.WalkDir(root, walkFn); err != nil {
 			return err
@@ -151,7 +161,7 @@ func TestRecoveryValidatorCachesStableLargeArtifactAndInvalidatesRevision(t *tes
 	path := writeRecoveryCodexArtifact(t, home, identity, 16_384)
 	var walkCalls atomic.Int64
 	var openCalls atomic.Int64
-	ops := defaultRecoveryFS
+	ops := newDefaultRecoveryFS()
 	ops.walkDir = func(root string, walkFn fs.WalkDirFunc) error {
 		walkCalls.Add(1)
 		return filepath.WalkDir(root, walkFn)
@@ -205,7 +215,7 @@ func TestRecoveryValidatorRejectsSameMetadataIdentityRewrite(t *testing.T) {
 	const otherIdentity = "019e218f-b514-7733-be85-b3ee7f6a78a7"
 	home := t.TempDir()
 	path := writeRecoveryCodexArtifact(t, home, identity, 0)
-	validator := mustNewRecoveryValidator(t, defaultRecoveryFS, 8)
+	validator := mustNewRecoveryValidator(t, newDefaultRecoveryFS(), 8)
 	req := ReadRequest{Provider: "codex", ProviderThreadID: identity, CodexHome: home}
 	if _, err := validator.validate(req); err != nil {
 		t.Fatalf("prime validate() error = %v", err)
@@ -223,7 +233,7 @@ func TestRecoveryValidatorRejectsSameMetadataTailCorruption(t *testing.T) {
 	const identity = "019e218f-b514-7733-be85-b3ee7f6a78a6"
 	home := t.TempDir()
 	path := writeRecoveryCodexArtifact(t, home, identity, 1)
-	validator := mustNewRecoveryValidator(t, defaultRecoveryFS, 8)
+	validator := mustNewRecoveryValidator(t, newDefaultRecoveryFS(), 8)
 	req := ReadRequest{Provider: "codex", ProviderThreadID: identity, CodexHome: home}
 	if _, err := validator.validate(req); err != nil {
 		t.Fatalf("prime validate() error = %v", err)
@@ -266,7 +276,7 @@ func TestRecoveryValidatorDoesNotInferOwnerRootFromExplicitArtifact(t *testing.T
 	const identity = "019e218f-b514-7733-be85-b3ee7f6a78a6"
 	untrustedHome := t.TempDir()
 	path := writeRecoveryCodexArtifact(t, untrustedHome, identity, 0)
-	validator := mustNewRecoveryValidator(t, defaultRecoveryFS, 8)
+	validator := mustNewRecoveryValidator(t, newDefaultRecoveryFS(), 8)
 	_, err := validator.validate(ReadRequest{
 		Provider:         "codex",
 		ProviderThreadID: identity,
@@ -281,7 +291,7 @@ func TestRecoveryValidatorCacheIsBounded(t *testing.T) {
 	t.Parallel()
 
 	home := t.TempDir()
-	validator := mustNewRecoveryValidator(t, defaultRecoveryFS, 4)
+	validator := mustNewRecoveryValidator(t, newDefaultRecoveryFS(), 4)
 	for i := range 12 {
 		identity := fmt.Sprintf("019e218f-b514-7733-be85-%012x", i+1)
 		writeRecoveryCodexArtifact(t, home, identity, 0)
@@ -302,7 +312,7 @@ func BenchmarkRecoveryValidatorCachedLargeArtifact(b *testing.B) {
 	const identity = "019e218f-b514-7733-be85-b3ee7f6a78a6"
 	home := b.TempDir()
 	writeRecoveryCodexArtifact(b, home, identity, 16_384)
-	validator := mustNewRecoveryValidator(b, defaultRecoveryFS, 8)
+	validator := mustNewRecoveryValidator(b, newDefaultRecoveryFS(), 8)
 	req := ReadRequest{Provider: "codex", ProviderThreadID: identity, CodexHome: home}
 	if _, err := validator.validate(req); err != nil {
 		b.Fatalf("prime validate() error = %v", err)

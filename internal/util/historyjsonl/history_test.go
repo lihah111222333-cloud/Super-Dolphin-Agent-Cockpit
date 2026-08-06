@@ -11,6 +11,16 @@ import (
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 )
 
+func TestDefaultDiscoveryOpsReturnsIndependentDescriptors(t *testing.T) {
+	t.Parallel()
+	first := newDefaultDiscoveryOps()
+	second := newDefaultDiscoveryOps()
+	first.stat = nil
+	if second.stat == nil || second.walkDir == nil {
+		t.Fatal("default discovery operations unexpectedly share mutable state")
+	}
+}
+
 func TestCodexHistoryFallsBackToSessionUUID(t *testing.T) {
 	root := t.TempDir()
 	sessionUUID := "019e2c22-abae-7e12-9348-1f910b2052e1"

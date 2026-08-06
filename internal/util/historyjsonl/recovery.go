@@ -71,12 +71,14 @@ type recoveryFS struct {
 	walkDir      func(string, fs.WalkDirFunc) error
 }
 
-var defaultRecoveryFS = recoveryFS{
-	lstat:        os.Lstat,
-	stat:         os.Stat,
-	open:         os.Open,
-	evalSymlinks: filepath.EvalSymlinks,
-	walkDir:      filepath.WalkDir,
+func newDefaultRecoveryFS() recoveryFS {
+	return recoveryFS{
+		lstat:        os.Lstat,
+		stat:         os.Stat,
+		open:         os.Open,
+		evalSymlinks: filepath.EvalSymlinks,
+		walkDir:      filepath.WalkDir,
+	}
 }
 
 type recoveryCacheKey struct {
@@ -173,7 +175,7 @@ var defaultRecoveryValidator = sync.OnceValue(func() struct {
 	validator *recoveryValidator
 	err       error
 } {
-	validator, err := newRecoveryValidator(defaultRecoveryFS, defaultRecoveryArtifactCacheLimit)
+	validator, err := newRecoveryValidator(newDefaultRecoveryFS(), defaultRecoveryArtifactCacheLimit)
 	return struct {
 		validator *recoveryValidator
 		err       error
