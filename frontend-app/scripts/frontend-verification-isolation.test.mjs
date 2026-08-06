@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  FRONTEND_VERIFICATION_ISOLATION_MAX_BUFFER,
   FRONTEND_VERIFICATION_ISOLATION_MODES,
   commandForFrontendVerificationIsolation,
   parseFrontendVerificationIsolationMode,
@@ -49,10 +50,17 @@ afterEach(() => {
 
 describe('frontend verification isolation', () => {
   it('accepts only the fixed isolation modes', () => {
+    expect(FRONTEND_VERIFICATION_ISOLATION_MAX_BUFFER).toBe(64 * 1024 * 1024);
     expect(FRONTEND_VERIFICATION_ISOLATION_MODES).toEqual(['delivery-test', 'embed-verify']);
     expect(parseFrontendVerificationIsolationMode(['delivery-test'])).toBe('delivery-test');
     expect(() => parseFrontendVerificationIsolationMode(['delivery-test', 'extra'])).toThrow('Expected exactly one isolation mode');
     expect(() => parseFrontendVerificationIsolationMode(['anything-else'])).toThrow('Expected exactly one isolation mode');
+  });
+
+  it('bounds every default controlled process output at 64 MiB', () => {
+    const runnerSource = readFileSync(join(process.cwd(), 'scripts', 'frontend-verification-isolation.mjs'), 'utf8');
+
+    expect(runnerSource).toMatch(/function defaultRunCommand[\s\S]*maxBuffer: FRONTEND_VERIFICATION_ISOLATION_MAX_BUFFER/);
   });
 
   it('locks each mode to its fixed command', () => {

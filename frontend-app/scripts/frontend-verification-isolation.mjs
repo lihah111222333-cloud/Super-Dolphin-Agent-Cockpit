@@ -10,6 +10,7 @@ const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const FRONTEND_ROOT = dirname(SCRIPT_PATH);
 const REPOSITORY_ROOT = join(FRONTEND_ROOT, '..', '..');
 const TEMPORARY_DIRECTORY_PREFIX = 'frontend-verification-isolation-';
+export const FRONTEND_VERIFICATION_ISOLATION_MAX_BUFFER = 64 * 1024 * 1024;
 
 export const FRONTEND_VERIFICATION_ISOLATION_MODES = Object.freeze([
   'delivery-test',
@@ -20,6 +21,7 @@ function defaultRunCommand(command, args, options) {
   return execFileSync(command, args, {
     ...options,
     encoding: 'utf8',
+    maxBuffer: FRONTEND_VERIFICATION_ISOLATION_MAX_BUFFER,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 }
