@@ -2,8 +2,20 @@ package sharedfilepath
 
 import (
 	"errors"
+	"slices"
 	"testing"
 )
+
+func TestWritePrefixesReturnsIndependentSnapshot(t *testing.T) {
+	t.Parallel()
+
+	first := WritePrefixes()
+	first[0] = "mutated/"
+	want := []string{"handoff/", "dag/", "inbox/", "reports/"}
+	if got := WritePrefixes(); !slices.Equal(got, want) {
+		t.Fatalf("WritePrefixes() = %#v, want %#v", got, want)
+	}
+}
 
 func TestValidateWritePath_AcceptsPublicWritePrefixes(t *testing.T) {
 	t.Parallel()
@@ -23,7 +35,6 @@ func TestValidateWritePath_AcceptsPublicWritePrefixes(t *testing.T) {
 		{"resolves intra-segment ..", "handoff/foo/../task-1/notes.md", "handoff/task-1/notes.md"},
 	}
 	for _, tt := range cases {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got, err := ValidateWritePath(tt.path)
@@ -66,7 +77,6 @@ func TestValidateWritePath_RejectsTraversalAndAbsoluteAndUnknown(t *testing.T) {
 		{"bare prefix without child", "handoff", ErrPathPrefixNotAllowed},
 	}
 	for _, tt := range cases {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got, err := ValidateWritePath(tt.path)

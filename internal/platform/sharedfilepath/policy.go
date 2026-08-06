@@ -36,21 +36,21 @@ var (
 	ErrPathProtectedRoot    = errors.New("sharedfile: protected root not writable")
 )
 
-// writePrefixes 是写入路径白名单；读路径只做 lexical 安全校验。
-var writePrefixes = []string{
-	prefixHandoff,
-	prefixDag,
-	prefixInbox,
-	prefixReports,
+// writePrefixes 返回写入路径白名单快照；读路径只做 lexical 安全校验。
+func writePrefixes() []string {
+	return []string{
+		prefixHandoff,
+		prefixDag,
+		prefixInbox,
+		prefixReports,
+	}
 }
 
 // WritePrefixes 返回白名单写入路径前缀的拷贝。
 // MCP 工具 (如 shared_file_list) 可用此向 AI / UI 暴露允许的路径前缀，
 // 避免 “path prefix not in whitelist” 错误对调用方不透明。
 func WritePrefixes() []string {
-	copied := make([]string, len(writePrefixes))
-	copy(copied, writePrefixes)
-	return copied
+	return writePrefixes()
 }
 
 // ValidateWritePath 校验完整写入 schema，返回标准化后的相对路径。
@@ -62,7 +62,7 @@ func ValidateWritePath(raw string) (string, error) {
 	if strings.HasPrefix(cleaned, prefixInternal) {
 		return "", ErrPathProtectedRoot
 	}
-	if !hasAnyPrefix(cleaned, writePrefixes) {
+	if !hasAnyPrefix(cleaned, writePrefixes()) {
 		return "", ErrPathPrefixNotAllowed
 	}
 	return cleaned, nil
