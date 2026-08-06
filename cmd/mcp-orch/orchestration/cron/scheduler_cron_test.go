@@ -342,6 +342,16 @@ func TestParseDAGCronExpr_InvalidMentionsUTCDefaultAndCRONTZ(t *testing.T) {
 	}
 }
 
+func TestNewDAGCronParserAcceptsSchedulerGrammar(t *testing.T) {
+	schedule, err := newDAGCronParser().Parse("CRON_TZ=Asia/Shanghai 0 8 * * *")
+	if err != nil {
+		t.Fatalf("newDAGCronParser().Parse() error = %v", err)
+	}
+	if schedule == nil {
+		t.Fatal("newDAGCronParser().Parse() schedule = nil")
+	}
+}
+
 func TestScheduledDAGTicker_TickIsolatesPerDAGErrorsInSameTick(t *testing.T) {
 	stateChangedErr := fmt.Errorf("%w: stale due slot", ErrScheduleStateChanged)
 	store := &fakeScheduleStore{due: []DueDAG{

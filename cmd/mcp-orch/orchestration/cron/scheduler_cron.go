@@ -86,9 +86,7 @@ func NewCronScheduler(cfg Config) (*CronScheduler, error) {
 		tickTimeout = 30 * time.Second
 	}
 	// 预解析 spec：在 cron loop 启动前 fail-fast，避免后台 goroutine 中才暴露配置错误。
-	parser := robcron.NewParser(
-		robcron.Minute | robcron.Hour | robcron.Dom | robcron.Month | robcron.Dow | robcron.Descriptor,
-	)
+	parser := newDAGCronParser()
 	if _, err := parser.Parse(cfg.Spec); err != nil {
 		return nil, fmt.Errorf("cron: parse spec %q: %w", cfg.Spec, err)
 	}
@@ -210,10 +208,12 @@ const (
 	runtimeLockRenewInterval  = time.Minute
 )
 
-// dagCronParser 是 DAG cron_expr 的共享解析器；裸表达式会在归一化阶段补 UTC。
-var dagCronParser = robcron.NewParser(
-	robcron.Minute | robcron.Hour | robcron.Dom | robcron.Month | robcron.Dow | robcron.Descriptor,
-)
+// newDAGCronParser 为一个 cron owner 独立构造标准五字段解析器。
+func newDAGCronParser() robcron.Parser {
+	return robcron.NewParser(
+		robcron.Minute | robcron.Hour | robcron.Dom | robcron.Month | robcron.Dow | robcron.Descriptor,
+	)
+}
 
 // TickError 给 Tick 调用方暴露可匹配的错误分类。
 // Class 区分配置校验和基础设施失败，Op 标明失败发生在哪个扫描阶段。
@@ -461,7 +461,7 @@ func ParseDAGCronExpr(cronExpr string) (robcron.Schedule, error) {
 	if err != nil {
 		return nil, err
 	}
-	schedule, err := dagCronParser.Parse(spec)
+	schedule, err := newDAGCronParser().Parse(spec)
 	if err != nil {
 		return nil, fmt.Errorf("DAG cron_expr %q invalid; bare cron defaults to UTC, use CRON_TZ=<IANA> for local wall time: %w", strings.TrimSpace(cronExpr), err)
 	}
