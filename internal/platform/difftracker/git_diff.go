@@ -194,7 +194,7 @@ func readWorkingTreeText(repoRoot, relPath string) (string, bool, error) {
 }
 
 func shouldSkipGitPath(relPath string) bool {
-	return SkipBinaryExts[strings.ToLower(filepath.Ext(relPath))]
+	return isSkippedBinaryExtension(filepath.Ext(relPath))
 }
 
 func shouldSkipGitText(relPath string, texts ...string) bool {

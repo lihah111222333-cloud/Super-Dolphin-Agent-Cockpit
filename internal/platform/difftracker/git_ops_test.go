@@ -9,6 +9,26 @@ import (
 	"testing"
 )
 
+func TestIsSkippedBinaryExtensionRecognizesOnlyBinaryExtensions(t *testing.T) {
+	for _, extension := range []string{
+		".7z", ".a", ".avi", ".bmp", ".class", ".dll", ".dylib", ".exe", ".gif", ".gz",
+		".ico", ".jar", ".jpeg", ".jpg", ".mov", ".mp3", ".mp4", ".pdf", ".png", ".so",
+		".tar", ".tgz", ".wasm", ".webm", ".webp", ".zip",
+	} {
+		if !isSkippedBinaryExtension(extension) {
+			t.Fatalf("isSkippedBinaryExtension(%q) = false, want true", extension)
+		}
+	}
+	if !isSkippedBinaryExtension(".PNG") {
+		t.Fatal("isSkippedBinaryExtension(.PNG) = false, want case-insensitive true")
+	}
+	for _, extension := range []string{".go", ".json", ".txt", ""} {
+		if isSkippedBinaryExtension(extension) {
+			t.Fatalf("isSkippedBinaryExtension(%q) = true, want false", extension)
+		}
+	}
+}
+
 func TestFindGitRoot_InGitRepo(t *testing.T) {
 	repo := initGitRepo(t)
 	nested := filepath.Join(repo, "sub", "dir")

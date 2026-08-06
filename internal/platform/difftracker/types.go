@@ -2,6 +2,7 @@ package difftracker
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
@@ -61,32 +62,14 @@ const (
 	DefaultSweepInterval = time.Minute
 )
 
-// SkipBinaryExts 列出不会尝试读取为文本 diff 的二进制扩展名。
-var SkipBinaryExts = map[string]bool{
-	".7z":    true,
-	".a":     true,
-	".avi":   true,
-	".bmp":   true,
-	".class": true,
-	".dll":   true,
-	".dylib": true,
-	".exe":   true,
-	".gif":   true,
-	".gz":    true,
-	".ico":   true,
-	".jar":   true,
-	".jpeg":  true,
-	".jpg":   true,
-	".mov":   true,
-	".mp3":   true,
-	".mp4":   true,
-	".pdf":   true,
-	".png":   true,
-	".so":    true,
-	".tar":   true,
-	".tgz":   true,
-	".wasm":  true,
-	".webm":  true,
-	".webp":  true,
-	".zip":   true,
+// isSkippedBinaryExtension 判断扩展名是否不应读取为文本 diff。
+func isSkippedBinaryExtension(extension string) bool {
+	switch strings.ToLower(extension) {
+	case ".7z", ".a", ".avi", ".bmp", ".class", ".dll", ".dylib", ".exe", ".gif", ".gz",
+		".ico", ".jar", ".jpeg", ".jpg", ".mov", ".mp3", ".mp4", ".pdf", ".png", ".so",
+		".tar", ".tgz", ".wasm", ".webm", ".webp", ".zip":
+		return true
+	default:
+		return false
+	}
 }
