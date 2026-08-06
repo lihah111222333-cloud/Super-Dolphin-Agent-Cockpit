@@ -15,47 +15,54 @@ func TestMirrorLockOwnerArchGuard(t *testing.T) {
 	if !ok {
 		t.Fatal("runtime caller unavailable")
 	}
-	path := filepath.Join(filepath.Dir(thisFile), "mirror_publisher.go")
+	publisherFile := parseMirrorLockSource(t, filepath.Dir(thisFile), "mirror_publisher.go")
+	assertNoMirrorLockPackageVar(t, publisherFile)
+	publish := findMirrorLockFunction(publisherFile, "PublishSkillMirrors")
+	cleanupFile := parseMirrorLockSource(t, filepath.Dir(thisFile), "mirror_publisher_write_time.go")
+	cleanup := findMirrorLockFunction(cleanupFile, "cleanupSuppressedPersonalMirrorRecord")
+	assertMirrorLockOwnerParameter(t, "PublishSkillMirrors", publish)
+	assertMirrorLockOwnerParameter(t, "cleanupSuppressedPersonalMirrorRecord", cleanup)
+}
+
+func parseMirrorLockSource(t *testing.T, dir, name string) *ast.File {
+	t.Helper()
+	path := filepath.Join(dir, name)
 	file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 	if err != nil {
 		t.Fatalf("parse %s: %v", path, err)
 	}
+	return file
+}
 
-	var publish *ast.FuncDecl
-	var cleanup *ast.FuncDecl
+func assertNoMirrorLockPackageVar(t *testing.T, file *ast.File) {
+	t.Helper()
 	for _, decl := range file.Decls {
 		gen, ok := decl.(*ast.GenDecl)
-		if ok && gen.Tok == token.VAR {
-			for _, spec := range gen.Specs {
-				valueSpec, ok := spec.(*ast.ValueSpec)
-				if !ok {
-					continue
-				}
-				for _, name := range valueSpec.Names {
-					if name.Name == "skillMirrorRootLocks" {
-						t.Fatal("package-level skillMirrorRootLocks singleton is forbidden")
-					}
+		if !ok || gen.Tok != token.VAR {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			valueSpec, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for _, name := range valueSpec.Names {
+				if name.Name == "skillMirrorRootLocks" {
+					t.Fatal("package-level skillMirrorRootLocks singleton is forbidden")
 				}
 			}
 		}
+	}
+}
+
+func findMirrorLockFunction(file *ast.File, name string) *ast.FuncDecl {
+	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
-		if ok && fn.Name.Name == "PublishSkillMirrors" {
-			publish = fn
+		if ok && fn.Name.Name == name {
+			return fn
 		}
 	}
-	cleanupPath := filepath.Join(filepath.Dir(thisFile), "mirror_publisher_write_time.go")
-	cleanupFile, err := parser.ParseFile(token.NewFileSet(), cleanupPath, nil, 0)
-	if err != nil {
-		t.Fatalf("parse %s: %v", cleanupPath, err)
-	}
-	for _, decl := range cleanupFile.Decls {
-		fn, ok := decl.(*ast.FuncDecl)
-		if ok && fn.Name.Name == "cleanupSuppressedPersonalMirrorRecord" {
-			cleanup = fn
-		}
-	}
-	assertMirrorLockOwnerParameter(t, "PublishSkillMirrors", publish)
-	assertMirrorLockOwnerParameter(t, "cleanupSuppressedPersonalMirrorRecord", cleanup)
+	return nil
 }
 
 // assertMirrorLockOwnerParameter 验证所有直接 mirror 写入口都显式接收锁 owner。

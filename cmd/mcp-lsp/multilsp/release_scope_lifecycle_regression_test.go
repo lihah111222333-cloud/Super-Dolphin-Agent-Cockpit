@@ -10,11 +10,34 @@ import (
 	"time"
 )
 
+type releaseOutcome struct {
+	result ReleaseScopeResult
+	err    error
+}
+
 func TestReleaseScopeDoesNotSynchronouslyDrainOtherPendingReleases(t *testing.T) {
 	root := canonicalScopePath(t.TempDir(), "")
 	mgr := newManagerPoolTestManager(t, root)
 	const pendingCount = 3
 	shutdownStarted := make(chan *blockingShutdownP2Client, pendingCount)
+	pendingScopes, pendingManagers, pendingClients := preparePendingReleaseScopes(t, mgr, root, shutdownStarted)
+	t.Cleanup(func() {
+		allowPendingShutdowns(pendingClients)
+	})
+
+	assertUnrelatedReleaseDoesNotDrainPending(t, mgr, shutdownStarted, pendingClients)
+	runPendingReleaseRecycler(t, mgr, shutdownStarted, pendingManagers, pendingClients)
+	assertCompletedPendingReleaseReceipts(t, mgr, pendingScopes)
+}
+
+func preparePendingReleaseScopes(
+	t *testing.T,
+	mgr *manager,
+	root string,
+	shutdownStarted chan *blockingShutdownP2Client,
+) ([]LSPToolScope, []*manager, []*blockingShutdownP2Client) {
+	t.Helper()
+	const pendingCount = 3
 	pendingScopes := make([]LSPToolScope, 0, pendingCount)
 	pendingManagers := make([]*manager, 0, pendingCount)
 	pendingClients := make([]*blockingShutdownP2Client, 0, pendingCount)
@@ -51,16 +74,16 @@ func TestReleaseScopeDoesNotSynchronouslyDrainOtherPendingReleases(t *testing.T)
 		pendingManagers = append(pendingManagers, pending)
 		pendingClients = append(pendingClients, client)
 	}
-	t.Cleanup(func() {
-		for _, client := range pendingClients {
-			client.allow()
-		}
-	})
+	return pendingScopes, pendingManagers, pendingClients
+}
 
-	type releaseOutcome struct {
-		result ReleaseScopeResult
-		err    error
-	}
+func assertUnrelatedReleaseDoesNotDrainPending(
+	t *testing.T,
+	mgr *manager,
+	shutdownStarted <-chan *blockingShutdownP2Client,
+	pendingClients []*blockingShutdownP2Client,
+) {
+	t.Helper()
 	releaseDone := make(chan releaseOutcome, 1)
 	go func() {
 		result, releaseErr := mgr.pool.ReleaseScope(ReleaseScopeRequest{
@@ -76,9 +99,7 @@ func TestReleaseScopeDoesNotSynchronouslyDrainOtherPendingReleases(t *testing.T)
 	select {
 	case client := <-shutdownStarted:
 		client.allow()
-		for _, pendingClient := range pendingClients {
-			pendingClient.allow()
-		}
+		allowPendingShutdowns(pendingClients)
 		<-releaseDone
 		t.Fatal("ReleaseScope synchronously drained unrelated pending releases")
 	case outcome := <-releaseDone:
@@ -89,13 +110,20 @@ func TestReleaseScopeDoesNotSynchronouslyDrainOtherPendingReleases(t *testing.T)
 			t.Fatalf("ReleaseScope(unrelated) = %#v, want empty drained receipt", outcome.result)
 		}
 	case <-time.After(250 * time.Millisecond):
-		for _, client := range pendingClients {
-			client.allow()
-		}
+		allowPendingShutdowns(pendingClients)
 		<-releaseDone
 		t.Fatal("ReleaseScope(unrelated) exceeded the multi-pending cleanup latency bound")
 	}
+}
 
+func runPendingReleaseRecycler(
+	t *testing.T,
+	mgr *manager,
+	shutdownStarted <-chan *blockingShutdownP2Client,
+	pendingManagers []*manager,
+	pendingClients []*blockingShutdownP2Client,
+) {
+	t.Helper()
 	recycler, ok := mgr.pool.RecyclerRunner().(*poolRecycler)
 	if !ok || recycler == nil {
 		t.Fatalf("RecyclerRunner() = %T, want *poolRecycler", mgr.pool.RecyclerRunner())
@@ -123,7 +151,10 @@ func TestReleaseScopeDoesNotSynchronouslyDrainOtherPendingReleases(t *testing.T)
 			t.Fatal("pending manager stayed open after recycler cleanup")
 		}
 	}
+}
 
+func assertCompletedPendingReleaseReceipts(t *testing.T, mgr *manager, pendingScopes []LSPToolScope) {
+	t.Helper()
 	for _, scope := range pendingScopes {
 		completed, err := mgr.pool.ReleaseScope(ReleaseScopeRequest{
 			ScopeKind: ReleaseScopeAgentThread,
@@ -138,6 +169,12 @@ func TestReleaseScopeDoesNotSynchronouslyDrainOtherPendingReleases(t *testing.T)
 		if completed.MatchedManagers != 1 || completed.ClosedManagers != 1 || !completed.Drained {
 			t.Fatalf("ReleaseScope(completed %s) = %#v, want completed drain receipt", scope.AgentID, completed)
 		}
+	}
+}
+
+func allowPendingShutdowns(clients []*blockingShutdownP2Client) {
+	for _, client := range clients {
+		client.allow()
 	}
 }
 

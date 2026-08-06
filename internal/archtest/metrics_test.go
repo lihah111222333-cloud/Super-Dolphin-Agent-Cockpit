@@ -60,11 +60,24 @@ func TestCountGlobalVarsV3_Exemptions(t *testing.T) {
 
 func TestCountGlobalVarsV3RejectsMutableCompositeInitializers(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		name   string
-		source string
-		want   int
-	}{
+	for _, tt := range mutableGlobalVarCases() {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := measureGlobalVarsFromSource(t, tt.source); got != tt.want {
+				t.Fatalf("GlobalVars = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+type globalVarMetricCase struct {
+	name   string
+	source string
+	want   int
+}
+
+func mutableGlobalVarCases() []globalVarMetricCase {
+	return []globalVarMetricCase{
 		{
 			name: "value struct with mutex and map",
 			source: `package sample
@@ -134,14 +147,6 @@ var shared = state{}
 			source: "package sample\nvar left, right = NewPair()\n",
 			want:   2,
 		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			if got := measureGlobalVarsFromSource(t, tt.source); got != tt.want {
-				t.Fatalf("GlobalVars = %d, want %d", got, tt.want)
-			}
-		})
 	}
 }
 
@@ -227,10 +232,10 @@ func TestCheckAllAllowsLargePackageLineTotals(t *testing.T) {
 	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
 		t.Fatalf("mkdir package fixture: %v", err)
 	}
-	for fileIndex := 0; fileIndex < filesInPackage; fileIndex++ {
+	for fileIndex := range filesInPackage {
 		var body strings.Builder
 		body.WriteString("package sample\n\n")
-		for lineIndex := 0; lineIndex < linesPerFile; lineIndex++ {
+		for lineIndex := range linesPerFile {
 			fmt.Fprintf(&body, "var Value%dLine%d = %d\n", fileIndex, lineIndex, lineIndex)
 		}
 		path := filepath.Join(pkgDir, fmt.Sprintf("sample%d.go", fileIndex))
