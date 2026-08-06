@@ -1,9 +1,16 @@
 package multilsp
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
+	"sync"
 	"testing"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 )
 
 // TestTransportPrepareProcessTreeShutdownUsesExactOwner 验证关闭协议只调用 transport 持有的 exact owner。
@@ -50,23 +57,133 @@ func TestClientShutdownUninitializedPreparesExactOwner(t *testing.T) {
 	}
 }
 
-// TestClientShutdownPreparationFailureBlocksProtocolPath 验证准备失败时不发送协议并保持未关闭状态。
-func TestClientShutdownPreparationFailureBlocksProtocolPath(t *testing.T) {
+// TestClientShutdownPreparationFailureStillRunsProtocol 验证准备失败时仍发送协议并保留安全错误。
+func TestClientShutdownPreparationFailureStillRunsProtocol(t *testing.T) {
 	want := errors.New("owner preparation failed")
 	owner := &countingProcessTreeOwner{prepareErr: want}
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var tr *transport
+	writer := &shutdownRecordingWriter{cancel: cancel}
+	tr = &transport{
+		processTree: owner,
+		stdin:       writer,
+		pending:     map[string]chan pendingResult{},
+		logger:      logger,
+	}
+	writer.transport = tr
 	c := &client{
-		transport:   &transport{processTree: owner},
+		transport:   tr,
 		initialized: true,
 	}
 
-	err := c.Shutdown(context.Background())
+	err := c.Shutdown(ctx)
 	if !errors.Is(err, want) {
 		t.Fatalf("Shutdown() error = %v, want %v", err, want)
 	}
 	if got := owner.prepareCalls.Load(); got != 1 {
 		t.Fatalf("PrepareShutdown() calls = %d, want 1", got)
 	}
-	if c.isShutdown() {
-		t.Fatal("Shutdown() marked client shutdown after preparation failure")
+	if got := writer.methodsSnapshot(); len(got) != 2 || got[0] != "shutdown" || got[1] != methodExit {
+		t.Fatalf("protocol methods after preparation failure = %v, want [shutdown exit]", got)
 	}
+	if !c.isShutdown() {
+		t.Fatal("Shutdown() did not mark client shutdown after protocol attempts")
+	}
+	for _, stage := range []string{"prepare", "protocol_shutdown", "protocol_exit"} {
+		if !bytes.Contains(logs.Bytes(), []byte("\"stage\":\""+stage+"\"")) {
+			t.Fatalf("shutdown logs missing stage %q: %s", stage, logs.String())
+		}
+	}
+	if bytes.Contains(logs.Bytes(), []byte(want.Error())) {
+		t.Fatalf("shutdown logs leaked preparation error: %s", logs.String())
+	}
+}
+
+type shutdownRecordingWriter struct {
+	mu        sync.Mutex
+	transport *transport
+	cancel    context.CancelFunc
+	buffer    bytes.Buffer
+	methods   []string
+}
+
+func (w *shutdownRecordingWriter) Write(payload []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	_, _ = w.buffer.Write(payload)
+	for {
+		envelope, complete, err := w.nextEnvelope()
+		if err != nil {
+			return 0, err
+		}
+		if !complete {
+			break
+		}
+		if err := w.recordEnvelope(envelope); err != nil {
+			return 0, err
+		}
+	}
+	return len(payload), nil
+}
+
+func (w *shutdownRecordingWriter) nextEnvelope() (protocol.Envelope, bool, error) {
+	frame := w.buffer.Bytes()
+	headerEnd := bytes.Index(frame, []byte("\r\n\r\n"))
+	if headerEnd < 0 {
+		return protocol.Envelope{}, false, nil
+	}
+	var contentLength int
+	if _, err := fmt.Sscanf(string(frame[:headerEnd]), "Content-Length: %d", &contentLength); err != nil {
+		return protocol.Envelope{}, false, err
+	}
+	bodyStart := headerEnd + 4
+	if len(frame) < bodyStart+contentLength {
+		return protocol.Envelope{}, false, nil
+	}
+	body := append([]byte(nil), frame[bodyStart:bodyStart+contentLength]...)
+	w.buffer.Next(bodyStart + contentLength)
+	var envelope protocol.Envelope
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return protocol.Envelope{}, false, err
+	}
+	return envelope, true, nil
+}
+
+func (w *shutdownRecordingWriter) recordEnvelope(envelope protocol.Envelope) error {
+	if envelope.Method == "" {
+		return nil
+	}
+	w.methods = append(w.methods, envelope.Method)
+	switch envelope.Method {
+	case "shutdown":
+		return w.respondToShutdown(envelope.ID)
+	case methodExit:
+		if w.cancel != nil {
+			w.cancel()
+		}
+	}
+	return nil
+}
+
+func (w *shutdownRecordingWriter) respondToShutdown(id json.RawMessage) error {
+	response, err := protocol.BuildSuccessResponse(id, nil)
+	if err != nil {
+		return err
+	}
+	responsePayload, err := protocol.EncodeMessage(response)
+	if err != nil {
+		return err
+	}
+	return w.transport.handleResponse(responsePayload)
+}
+
+func (w *shutdownRecordingWriter) Close() error { return nil }
+
+func (w *shutdownRecordingWriter) methodsSnapshot() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]string(nil), w.methods...)
 }

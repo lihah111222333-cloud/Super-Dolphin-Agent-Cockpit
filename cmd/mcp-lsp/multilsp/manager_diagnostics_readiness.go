@@ -376,10 +376,10 @@ func clientSupportsPullDiagnostics(client Client) bool {
 	if !ok {
 		return false
 	}
-	return diagnosticProviderAvailable(capClient.ServerCapabilities().DiagnosticProvider)
+	return serverCapabilityAvailable(capClient.ServerCapabilities().DiagnosticProvider)
 }
 
-func diagnosticProviderAvailable(value any) bool {
+func serverCapabilityAvailable(value any) bool {
 	switch typed := value.(type) {
 	case nil:
 		return false

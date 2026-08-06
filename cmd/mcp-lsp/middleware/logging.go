@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
@@ -20,7 +22,7 @@ type Middleware func(Handler) Handler
 // Chain 把多个中间件按顺序串起来。
 func Chain(handler Handler, middlewares ...Middleware) Handler {
 	wrapped := handler
-	for idx := len(middlewares) - 1; idx >= 0; idx-- {
+	for idx := range slices.Backward(middlewares) {
 		if middlewares[idx] == nil {
 			continue
 		}
@@ -48,11 +50,10 @@ func Logging(logger *slog.Logger, toolName ...string) Middleware {
 			)
 			result, err := next(ctx, params)
 			if err != nil {
+				code, retryable, _, meta := common.ClassifyToolError(name, err)
+				attrs := loggingFailureAttrs(name, start, code, retryable, meta)
 				logger.WarnContext(ctx, "mcp-lsp request failed",
-					pkglogger.String("tool", name),
-					pkglogger.Int64("duration_ms", time.Since(start).Milliseconds()),
-					pkglogger.String("status", "failed"),
-					pkglogger.String("error_kind", loggingErrorKind(err)),
+					append(attrs, pkglogger.String("error_kind", loggingErrorKind(err)))...,
 				)
 				return result, err
 			}
@@ -69,6 +70,27 @@ func Logging(logger *slog.Logger, toolName ...string) Middleware {
 			return result, nil
 		}
 	}
+}
+
+// loggingFailureAttrs 只保留可聚合的错误分类字段，禁止把原始参数或错误文本写入日志。
+func loggingFailureAttrs(tool string, start time.Time, code string, retryable bool, meta map[string]any) []any {
+	attrs := []any{
+		pkglogger.String("tool", tool),
+		pkglogger.Int64("duration_ms", time.Since(start).Milliseconds()),
+		pkglogger.String("status", "failed"),
+		slog.String("error_code", code),
+		slog.Bool("retryable", retryable),
+	}
+	if timeoutMillis, ok := meta["timeout_ms"].(int64); ok && timeoutMillis > 0 {
+		attrs = append(attrs, slog.Int64("timeout_ms", timeoutMillis))
+	}
+	if maxOutstanding, ok := meta["max_outstanding"].(int); ok && maxOutstanding > 0 {
+		attrs = append(attrs, slog.Int("max_outstanding", maxOutstanding))
+	}
+	if method, ok := meta["lsp_method"].(string); ok && method == "textDocument/documentSymbol" {
+		attrs = append(attrs, slog.String("lsp_method", method))
+	}
+	return attrs
 }
 
 func loggingErrorKind(err error) string {

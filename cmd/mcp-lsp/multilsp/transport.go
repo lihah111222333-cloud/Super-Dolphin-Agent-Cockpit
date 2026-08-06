@@ -61,6 +61,7 @@ type transport struct {
 	stderr              *limitedBuffer
 	notificationHandler protocol.NotificationHandler
 	requestHandler      ServerRequestHandler
+	logger              *slog.Logger
 	writeMu             sync.Mutex
 	pendingMu           sync.Mutex
 	pending             map[string]chan pendingResult
@@ -184,6 +185,37 @@ func (t *transport) notify(ctx context.Context, method string, params any) error
 		return err
 	}
 	return t.writeMessageContext(ctx, notification)
+}
+
+// logShutdownStage 记录关闭阶段的脱敏结构化结果，不输出命令、路径、PID 或协议 payload。
+func (t *transport) logShutdownStage(stage, actionResult string, stageErr error) {
+	if t == nil {
+		return
+	}
+	logger := t.logger
+	if logger == nil {
+		logger = pkglogger.Get()
+	}
+	if logger == nil {
+		return
+	}
+	args := []any{
+		"event", "lsp_shutdown_stage",
+		"stage", stage,
+		"action_result", actionResult,
+	}
+	if stage == "prepare" || strings.HasPrefix(stage, "protocol_") {
+		// prepare/protocol 阶段本身不具备破坏性信号权限。
+		args = append(args, "signal_sent", false)
+	}
+	if stageErr != nil {
+		args = append(args, platformshared.SafePayloadLogFields("shutdown_error", stageErr.Error())...)
+	}
+	if actionResult == "failed" {
+		logger.Warn("LSP shutdown stage", args...)
+		return
+	}
+	logger.Info("LSP shutdown stage", args...)
 }
 
 // dispatchMessage 根据消息类型将其派发到对应处理器。

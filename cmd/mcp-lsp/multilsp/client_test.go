@@ -3,8 +3,10 @@ package multilsp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
+	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 )
 
@@ -53,7 +55,7 @@ func TestDynamicRegistrationTracksDiagnosticProvider(t *testing.T) {
 	}`)); err != nil {
 		t.Fatalf("client/registerCapability: %v", err)
 	}
-	if !diagnosticProviderAvailable(tracker.serverCapabilities(protocol.ServerCapabilities{}).DiagnosticProvider) {
+	if !serverCapabilityAvailable(tracker.serverCapabilities(protocol.ServerCapabilities{}).DiagnosticProvider) {
 		t.Fatal("dynamic diagnostic registration was not reflected in server capabilities")
 	}
 
@@ -62,7 +64,7 @@ func TestDynamicRegistrationTracksDiagnosticProvider(t *testing.T) {
 	}`)); err != nil {
 		t.Fatalf("client/unregisterCapability: %v", err)
 	}
-	if diagnosticProviderAvailable(tracker.serverCapabilities(protocol.ServerCapabilities{}).DiagnosticProvider) {
+	if serverCapabilityAvailable(tracker.serverCapabilities(protocol.ServerCapabilities{}).DiagnosticProvider) {
 		t.Fatal("dynamic diagnostic registration survived unregister")
 	}
 }
@@ -81,4 +83,29 @@ func TestDynamicRegistrationHandlerDelegatesWorkspaceConfiguration(t *testing.T)
 	if !ok || len(items) != 1 {
 		t.Fatalf("workspace/configuration result = %#v, want one item", result)
 	}
+}
+
+func TestRequestDocumentSymbolsSkipsUnadvertisedCapability(t *testing.T) {
+	client := &unadvertisedDocumentSymbolsClient{}
+	_, err := (&manager{}).requestDocumentSymbols(context.Background(), client, documentRef{})
+	if !errors.Is(err, lspmanager.ErrUnsupportedCapability) {
+		t.Fatalf("requestDocumentSymbols() error = %v, want ErrUnsupportedCapability", err)
+	}
+	if client.requested {
+		t.Fatal("requestDocumentSymbols() sent textDocument/documentSymbol despite absent server capability")
+	}
+}
+
+type unadvertisedDocumentSymbolsClient struct {
+	noopClient
+	requested bool
+}
+
+func (c *unadvertisedDocumentSymbolsClient) Request(context.Context, string, any) (json.RawMessage, error) {
+	c.requested = true
+	return json.RawMessage("[]"), nil
+}
+
+func (unadvertisedDocumentSymbolsClient) ServerCapabilities() protocol.ServerCapabilities {
+	return protocol.ServerCapabilities{}
 }

@@ -307,32 +307,53 @@ func (c *client) Initialize(ctx context.Context, rootURI string) error {
 }
 
 // Shutdown 按 LSP 协议发送 shutdown 和 exit。
-// 未初始化的 client 只更新本地关闭状态，transport 关闭错误会透传给调用方。
+// 进程树 preparation 失败时仍尝试非破坏性的协议 shutdown/exit；所有阶段错误最终合并返回。
 func (c *client) Shutdown(ctx context.Context) error {
 	c.lifecycleMu.Lock()
 	defer c.lifecycleMu.Unlock()
 	if c.isShutdown() {
 		return nil
 	}
+	var shutdownErrors []error
 	if c.transport != nil {
 		if err := c.transport.prepareProcessTreeShutdown(); err != nil {
-			return fmt.Errorf("prepare LSP process-tree shutdown: %w", err)
+			shutdownErrors = append(shutdownErrors, fmt.Errorf("prepare LSP process-tree shutdown: %w", err))
 		}
 	}
 	if !c.isInitialized() {
 		c.markShutdown()
-		return nil
+		return errors.Join(shutdownErrors...)
 	}
-	if _, err := c.transport.request(ctx, "shutdown", nil); err != nil && !errors.Is(err, ErrTransportClosed) {
-		return fmt.Errorf("LSP shutdown request: %w", err)
+	if c.transport == nil {
+		c.markShutdown()
+		return errors.Join(append(shutdownErrors, ErrTransportClosed)...)
 	}
-	if err := c.transport.notify(ctx, methodExit, nil); err != nil && !errors.Is(err, ErrTransportClosed) {
-		return fmt.Errorf("LSP exit notification: %w", err)
+	if _, err := c.transport.request(ctx, "shutdown", nil); err != nil {
+		if errors.Is(err, ErrTransportClosed) {
+			c.transport.logShutdownStage("protocol_shutdown", "skipped", err)
+		} else {
+			wrapped := fmt.Errorf("LSP shutdown request: %w", err)
+			shutdownErrors = append(shutdownErrors, wrapped)
+			c.transport.logShutdownStage("protocol_shutdown", "failed", err)
+		}
+	} else {
+		c.transport.logShutdownStage("protocol_shutdown", "completed", nil)
+	}
+	if err := c.transport.notify(ctx, methodExit, nil); err != nil {
+		if errors.Is(err, ErrTransportClosed) {
+			c.transport.logShutdownStage("protocol_exit", "skipped", err)
+		} else {
+			wrapped := fmt.Errorf("LSP exit notification: %w", err)
+			shutdownErrors = append(shutdownErrors, wrapped)
+			c.transport.logShutdownStage("protocol_exit", "failed", err)
+		}
+	} else {
+		c.transport.logShutdownStage("protocol_exit", "completed", nil)
 	}
 	// 给整棵服务进程树一个固定的正常退出与缓存落盘窗口；之后由 Close 强制回收残留后代。
 	waitForGracefulProcessTreeExit(ctx, gracefulProcessExitTimeout)
 	c.markShutdown()
-	return nil
+	return errors.Join(shutdownErrors...)
 }
 
 func waitForGracefulProcessTreeExit(ctx context.Context, timeout time.Duration) {
