@@ -22,7 +22,7 @@ func registerProviders(registrar contract.DynamicSectionRegistrar, catalog Runti
 	}
 	providers := []contract.DynamicSectionProvider{
 		ProjectDefaultRulesProvider{catalog: catalog},
-		AvailableExpertsProvider{catalog: catalog},
+		newAvailableExpertsProvider(catalog),
 		RecallCatalogProvider{catalog: catalog},
 	}
 	for _, provider := range providers {
@@ -33,8 +33,50 @@ func registerProviders(registrar contract.DynamicSectionRegistrar, catalog Runti
 	return nil
 }
 
+type availableExpertsRenderPolicy struct {
+	fullKeywords             []string
+	splitKeywords            []string
+	delegationTargetKeywords []string
+}
+
+func newAvailableExpertsRenderPolicy() availableExpertsRenderPolicy {
+	return availableExpertsRenderPolicy{
+		fullKeywords: []string{
+			"launch_agent",
+			"delegate",
+			"delegation",
+			"orchestrate",
+			"orchestration",
+			"subagent",
+			"sub-agent",
+			"multiple agents",
+			"parallel agents",
+			"agent team",
+			"子agent",
+			"子 agent",
+			"多agent",
+			"多 agent",
+			"多个agent",
+			"多个 agent",
+			"多个专家",
+			"多位专家",
+			"专家一起",
+			"专家协作",
+		},
+		splitKeywords:            []string{"拆分", "拆解", "分配", "分派", "派给", "交给"},
+		delegationTargetKeywords: []string{"专家", "agent", "子agent", "子 agent", "并行"},
+	}
+}
+
 // AvailableExpertsProvider 根据 prompt catalog 暴露当前 CWD 可委派的专家列表。
-type AvailableExpertsProvider struct{ catalog RuntimePromptCatalog }
+type AvailableExpertsProvider struct {
+	catalog RuntimePromptCatalog
+	policy  availableExpertsRenderPolicy
+}
+
+func newAvailableExpertsProvider(catalog RuntimePromptCatalog) AvailableExpertsProvider {
+	return AvailableExpertsProvider{catalog: catalog, policy: newAvailableExpertsRenderPolicy()}
+}
 
 // SectionName 返回本 provider 负责的动态 section 名称。
 func (AvailableExpertsProvider) SectionName() string { return contract.DynamicSectionAvailableExperts }
@@ -71,7 +113,7 @@ func (p AvailableExpertsProvider) Resolve(ctx context.Context, input contract.Se
 	}
 	text := renderAvailableExpertsShort(experts)
 	renderMode := "short"
-	if availableExpertsNeedsFull(userText) {
+	if p.policy.needsFull(userText) {
 		text = text + "\n\n" + renderAvailableExpertsFull(experts)
 		renderMode = "full"
 	}
@@ -178,17 +220,17 @@ func preferScopedCandidate(leftRank, leftPriority int, leftKey string, rightRank
 	return strings.TrimSpace(leftKey) < strings.TrimSpace(rightKey)
 }
 
-func availableExpertsNeedsFull(userText string) bool {
+func (policy availableExpertsRenderPolicy) needsFull(userText string) bool {
 	text := strings.ToLower(strings.TrimSpace(userText))
 	if text == "" {
 		return false
 	}
-	for _, keyword := range availableExpertsFullKeywords {
+	for _, keyword := range policy.fullKeywords {
 		if strings.Contains(text, keyword) {
 			return true
 		}
 	}
-	return containsAny(text, availableExpertsSplitKeywords) && containsAny(text, availableExpertsDelegationTargetKeywords)
+	return containsAny(text, policy.splitKeywords) && containsAny(text, policy.delegationTargetKeywords)
 }
 
 func containsAny(text string, keywords []string) bool {
@@ -199,33 +241,6 @@ func containsAny(text string, keywords []string) bool {
 	}
 	return false
 }
-
-var availableExpertsFullKeywords = []string{
-	"launch_agent",
-	"delegate",
-	"delegation",
-	"orchestrate",
-	"orchestration",
-	"subagent",
-	"sub-agent",
-	"multiple agents",
-	"parallel agents",
-	"agent team",
-	"子agent",
-	"子 agent",
-	"多agent",
-	"多 agent",
-	"多个agent",
-	"多个 agent",
-	"多个专家",
-	"多位专家",
-	"专家一起",
-	"专家协作",
-}
-
-var availableExpertsSplitKeywords = []string{"拆分", "拆解", "分配", "分派", "派给", "交给"}
-
-var availableExpertsDelegationTargetKeywords = []string{"专家", "agent", "子agent", "子 agent", "并行"}
 
 func renderAvailableExpertsShort(experts []availableExpert) string {
 	lines := []string{"可用专家（通过 launch_agent 调用）："}

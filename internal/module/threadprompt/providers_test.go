@@ -15,7 +15,7 @@ import (
 func TestAvailableExpertsProviderFailsFastWithoutStore(t *testing.T) {
 	t.Parallel()
 
-	provider := AvailableExpertsProvider{}
+	provider := newAvailableExpertsProvider(nil)
 	if text, err := provider.Resolve(context.Background(), contract.SectionContext{
 		Start: &contract.StartInput{Prompt: "帮我写测试"},
 	}); err == nil || text != nil || !contract.IsCriticalPromptSectionError(err) ||
@@ -24,10 +24,29 @@ func TestAvailableExpertsProviderFailsFastWithoutStore(t *testing.T) {
 	}
 }
 
+func TestNewAvailableExpertsProviderOwnsRenderPolicy(t *testing.T) {
+	first := newAvailableExpertsProvider(nil)
+	second := newAvailableExpertsProvider(nil)
+
+	first.policy.fullKeywords[0] = "mutated"
+	first.policy.splitKeywords[0] = "mutated"
+	first.policy.delegationTargetKeywords[0] = "mutated"
+
+	if second.policy.fullKeywords[0] == "mutated" {
+		t.Fatal("full keywords are shared between providers")
+	}
+	if second.policy.splitKeywords[0] == "mutated" {
+		t.Fatal("split keywords are shared between providers")
+	}
+	if second.policy.delegationTargetKeywords[0] == "mutated" {
+		t.Fatal("delegation target keywords are shared between providers")
+	}
+}
+
 func TestAvailableExpertsProviderReturnsNilWithoutPrompt(t *testing.T) {
 	t.Parallel()
 
-	provider := AvailableExpertsProvider{catalog: newRuntimeCatalog(&fakePromptStore{}, nil)}
+	provider := newAvailableExpertsProvider(newRuntimeCatalog(&fakePromptStore{}, nil))
 	if text, err := provider.Resolve(context.Background(), contract.SectionContext{}); err != nil || text != nil {
 		t.Fatalf("Resolve() without user prompt = (%v, %v), want nil, nil", text, err)
 	}
@@ -45,7 +64,7 @@ func TestAvailableExpertsProviderRendersShortListSortedAndScoped(t *testing.T) {
 			expertTemplate("high/priority", 50, "高优先级任务"),
 		},
 	}
-	provider := AvailableExpertsProvider{catalog: newRuntimeCatalog(store, nil)}
+	provider := newAvailableExpertsProvider(newRuntimeCatalog(store, nil))
 
 	text, err := provider.Resolve(context.Background(), contract.SectionContext{
 		Start:    &contract.StartInput{Prompt: "你好", PromptKey: "main/default"},
@@ -92,7 +111,7 @@ func TestAvailableExpertsProviderPrefersProjectTemplateOverGlobalTemplate(t *tes
 			},
 		},
 	}
-	provider := AvailableExpertsProvider{catalog: newRuntimeCatalog(store, nil)}
+	provider := newAvailableExpertsProvider(newRuntimeCatalog(store, nil))
 
 	text, err := provider.Resolve(context.Background(), contract.SectionContext{
 		Start:    &contract.StartInput{Prompt: "帮我看 SQL"},
@@ -112,12 +131,12 @@ func TestAvailableExpertsProviderPrefersProjectTemplateOverGlobalTemplate(t *tes
 func TestAvailableExpertsProviderDoesNotRenderFullForOrdinaryMultiTaskPrompt(t *testing.T) {
 	t.Parallel()
 
-	provider := AvailableExpertsProvider{catalog: newRuntimeCatalog(&fakePromptStore{
+	provider := newAvailableExpertsProvider(newRuntimeCatalog(&fakePromptStore{
 		templates: []PromptTemplate{
 			expertTemplate("coder/prompt", 20, "代码任务、bug 修复、测试编写"),
 			expertTemplate("main/sql", 10, "数据库 schema 设计、migration、复杂 SQL 查询"),
 		},
-	}, nil)}
+	}, nil))
 
 	text, err := provider.Resolve(context.Background(), contract.SectionContext{
 		Turn:     &contract.TurnInput{UserText: "加 SQL 查询以及 Vue 组件"},
@@ -140,12 +159,12 @@ func TestAvailableExpertsProviderDoesNotRenderFullForOrdinaryMultiTaskPrompt(t *
 func TestAvailableExpertsProviderRendersFullForExplicitDelegationPrompt(t *testing.T) {
 	t.Parallel()
 
-	provider := AvailableExpertsProvider{catalog: newRuntimeCatalog(&fakePromptStore{
+	provider := newAvailableExpertsProvider(newRuntimeCatalog(&fakePromptStore{
 		templates: []PromptTemplate{
 			expertTemplate("coder/prompt", 20, "代码任务、bug 修复、测试编写"),
 			expertTemplate("main/sql", 10, "数据库 schema 设计、migration、复杂 SQL 查询"),
 		},
-	}, nil)}
+	}, nil))
 
 	text, err := provider.Resolve(context.Background(), contract.SectionContext{
 		Turn:     &contract.TurnInput{UserText: "请拆分给多个专家并行处理 SQL 查询和 Vue 组件"},
@@ -174,7 +193,7 @@ func TestAvailableExpertsProviderAndCacheDependencyUseSameCWDResolver(t *testing
 	t.Parallel()
 
 	store := &fakePromptStore{templates: []PromptTemplate{expertTemplate("coder/prompt", 20, "代码任务")}}
-	provider := AvailableExpertsProvider{catalog: newRuntimeCatalog(store, nil)}
+	provider := newAvailableExpertsProvider(newRuntimeCatalog(store, nil))
 	input := contract.SectionContext{
 		Start: &contract.StartInput{Prompt: "帮我写测试", CWD: "/repo/start"},
 	}
@@ -197,7 +216,7 @@ func TestAvailableExpertsProviderMissingCWDFailsCritical(t *testing.T) {
 	t.Parallel()
 
 	store := &fakePromptStore{templates: []PromptTemplate{expertTemplate("coder/prompt", 20, "代码任务")}}
-	provider := AvailableExpertsProvider{catalog: newRuntimeCatalog(store, nil)}
+	provider := newAvailableExpertsProvider(newRuntimeCatalog(store, nil))
 	text, err := provider.Resolve(context.Background(), contract.SectionContext{
 		Start: &contract.StartInput{Prompt: "帮我写测试"},
 	})
@@ -212,12 +231,12 @@ func TestAvailableExpertsProviderMissingCWDFailsCritical(t *testing.T) {
 func TestAvailableExpertsProviderExcludesCurrentPromptOnTurn(t *testing.T) {
 	t.Parallel()
 
-	provider := AvailableExpertsProvider{catalog: newRuntimeCatalog(&fakePromptStore{
+	provider := newAvailableExpertsProvider(newRuntimeCatalog(&fakePromptStore{
 		templates: []PromptTemplate{
 			expertTemplate("coder/prompt", 20, "代码任务、bug 修复、测试编写"),
 			expertTemplate("main/sql", 10, "数据库 schema 设计、migration、复杂 SQL 查询"),
 		},
-	}, nil)}
+	}, nil))
 
 	text, err := provider.Resolve(context.Background(), contract.SectionContext{
 		Turn: &contract.TurnInput{UserText: "继续写测试", PromptKey: "coder/prompt", CWD: "/repo/a"},
@@ -239,11 +258,11 @@ func TestAvailableExpertsProviderExcludesCurrentPromptOnTurn(t *testing.T) {
 func TestAvailableExpertsProviderDoesNotRenderFullForSingleCharacterTriggers(t *testing.T) {
 	t.Parallel()
 
-	provider := AvailableExpertsProvider{catalog: newRuntimeCatalog(&fakePromptStore{
+	provider := newAvailableExpertsProvider(newRuntimeCatalog(&fakePromptStore{
 		templates: []PromptTemplate{
 			expertTemplate("coder/prompt", 20, "代码任务、bug 修复、测试编写"),
 		},
-	}, nil)}
+	}, nil))
 
 	text, err := provider.Resolve(context.Background(), contract.SectionContext{
 		Turn: &contract.TurnInput{UserText: "修 bug 和测试，顺手吗？", CWD: "/repo/a"},
@@ -262,12 +281,12 @@ func TestAvailableExpertsProviderDoesNotRenderFullForSingleCharacterTriggers(t *
 func TestAvailableExpertsProviderReturnsNilWhenNoUsableExperts(t *testing.T) {
 	t.Parallel()
 
-	provider := AvailableExpertsProvider{catalog: newRuntimeCatalog(&fakePromptStore{
+	provider := newAvailableExpertsProvider(newRuntimeCatalog(&fakePromptStore{
 		templates: []PromptTemplate{
 			{PromptKey: "empty/when", Enabled: true, WhenToUse: ""},
 			{PromptKey: "disabled/expert", Enabled: false, WhenToUse: "禁用"},
 		},
-	}, nil)}
+	}, nil))
 	if text, err := provider.Resolve(context.Background(), contract.SectionContext{
 		Start: &contract.StartInput{Prompt: "帮我写测试", CWD: "/repo/a"},
 	}); err != nil || text != nil {
@@ -278,7 +297,7 @@ func TestAvailableExpertsProviderReturnsNilWhenNoUsableExperts(t *testing.T) {
 func TestAvailableExpertsProviderFailsFastWhenListFails(t *testing.T) {
 	t.Parallel()
 
-	provider := AvailableExpertsProvider{catalog: newRuntimeCatalog(&fakePromptStore{listErr: errors.New("db down")}, nil)}
+	provider := newAvailableExpertsProvider(newRuntimeCatalog(&fakePromptStore{listErr: errors.New("db down")}, nil))
 	if text, err := provider.Resolve(context.Background(), contract.SectionContext{
 		Start: &contract.StartInput{Prompt: "帮我写测试", CWD: "/repo/a"},
 	}); err == nil || text != nil || !contract.IsCriticalPromptSectionError(err) {
@@ -454,12 +473,12 @@ func TestPromptDynamicProvidersLogResolveMetrics(t *testing.T) {
 	pkglogger.SetForTest(slog.New(slog.NewJSONHandler(&logs, nil)))
 	t.Cleanup(func() { pkglogger.SetForTest(previous) })
 
-	available := AvailableExpertsProvider{catalog: newRuntimeCatalog(&fakePromptStore{
+	available := newAvailableExpertsProvider(newRuntimeCatalog(&fakePromptStore{
 		templates: []PromptTemplate{
 			expertTemplate("coder/prompt", 20, "代码任务、bug 修复、测试编写"),
 			expertTemplate("main/sql", 10, "数据库 schema 设计、migration、复杂 SQL 查询"),
 		},
-	}, nil)}
+	}, nil))
 	if text, err := available.Resolve(context.Background(), contract.SectionContext{
 		Start: &contract.StartInput{Prompt: "写 SQL 和测试", CWD: "/repo/a"},
 	}); err != nil || text == nil {

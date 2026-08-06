@@ -11,10 +11,10 @@ import (
 func TestAvailableExpertsProviderRendersBuiltinAndUserExpertsOnly(t *testing.T) {
 	t.Parallel()
 
-	provider := AvailableExpertsProvider{catalog: newRuntimeCatalog(
+	provider := newAvailableExpertsProvider(newRuntimeCatalog(
 		runtimeProviderUserStore(),
 		runtimeProviderBuiltinRegistry(),
-	)}
+	))
 	text, err := provider.Resolve(context.Background(), contract.SectionContext{
 		Start:    &contract.StartInput{Prompt: "帮我做 SQL 和测试"},
 		BuildCtx: contract.BuildCtx{CWD: "/repo/a"},

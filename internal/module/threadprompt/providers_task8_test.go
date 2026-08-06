@@ -13,7 +13,7 @@ func TestAvailableExpertsProviderDoesNotCapTotalCandidatesAtDefaultRosterSize(t 
 	t.Parallel()
 
 	templates := task8UserExpertTemplates(9)
-	provider := AvailableExpertsProvider{catalog: newRuntimeCatalog(&fakePromptStore{templates: templates}, nil)}
+	provider := newAvailableExpertsProvider(newRuntimeCatalog(&fakePromptStore{templates: templates}, nil))
 	text := requireAvailableExpertsText(t, provider, "多个专家一起处理")
 	for _, template := range templates {
 		if !strings.Contains(text, template.PromptKey) {
@@ -25,9 +25,9 @@ func TestAvailableExpertsProviderDoesNotCapTotalCandidatesAtDefaultRosterSize(t 
 func TestAvailableExpertsProviderKeepsUserOwnedRetiredDuplicateKeys(t *testing.T) {
 	t.Parallel()
 
-	provider := AvailableExpertsProvider{catalog: newRuntimeCatalog(&fakePromptStore{
+	provider := newAvailableExpertsProvider(newRuntimeCatalog(&fakePromptStore{
 		templates: task8UserOwnedRetiredDuplicateTemplates(),
-	}, nil)}
+	}, nil))
 	text := requireAvailableExpertsText(t, provider, "实现、重构并补测试")
 	for _, want := range []string{"main/code-generate", "main/code-refactor", "main/code-test"} {
 		if !strings.Contains(text, want) {

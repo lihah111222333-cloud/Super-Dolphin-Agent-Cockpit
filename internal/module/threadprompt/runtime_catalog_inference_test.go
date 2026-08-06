@@ -191,7 +191,7 @@ func TestAvailableExpertsExcludesSectionOnlyRecallAssets(t *testing.T) {
 			},
 		},
 	}
-	provider := AvailableExpertsProvider{catalog: newRuntimeCatalog(store, nil)}
+	provider := newAvailableExpertsProvider(newRuntimeCatalog(store, nil))
 
 	text, err := provider.Resolve(context.Background(), contract.SectionContext{
 		Start:    &contract.StartInput{Prompt: "查询价格"},
