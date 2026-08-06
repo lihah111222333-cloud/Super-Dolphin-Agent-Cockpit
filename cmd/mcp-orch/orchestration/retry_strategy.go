@@ -79,7 +79,7 @@ func (d *WakeupDispatcher) markPermanentDAGFailure(ctx context.Context, w *taskd
 		d.logger.Warn("wakeup dispatcher: fail-wakeup fence missed", "wakeup_id", w.ID, "target_agent_id", w.TargetAgentID)
 		return false
 	}
-	recordDispatchFailedMetric()
+	d.recordDispatchFailedMetric()
 	d.logger.Warn("wakeup dispatcher: DAG wakeup and node failed", "wakeup_id", w.ID, "target_agent_id", w.TargetAgentID, "error", launchErr)
 	d.publishDAGNodeFailure(ctx, w, lastErr, failFast, outcome, res)
 	return true
@@ -112,7 +112,7 @@ func (d *WakeupDispatcher) handleRetryHardCap(ctx context.Context, w *taskdag.Wa
 		handled = d.markPermanentFail(ctx, w, fence, exhaustedErr, failure.launchErr)
 	}
 	if handled {
-		if alert, shouldAlert := recordDispatchRetryMetric(w, failure.lastErr); shouldAlert {
+		if alert, shouldAlert := d.recordDispatchRetryMetric(w, failure.lastErr); shouldAlert {
 			d.emitDispatchRetryAlert(ctx, alert)
 		}
 	}
@@ -143,7 +143,7 @@ func (d *WakeupDispatcher) handleFailedRouterOutcome(ctx context.Context, w *tas
 // recordPermanentRouterFailure 记录 node executor 返回的永久失败，并按策略处理 fail-fast。
 func (d *WakeupDispatcher) recordPermanentRouterFailure(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, lastErr string, launchErr error, outcome nodeexec.NodeOutcome) bool {
 	if w.AttemptCount >= 3 {
-		if alert, shouldAlert := recordDispatchRetryMetric(w, lastErr); shouldAlert {
+		if alert, shouldAlert := d.recordDispatchRetryMetric(w, lastErr); shouldAlert {
 			d.emitDispatchRetryAlert(ctx, alert)
 		}
 	}
@@ -516,7 +516,7 @@ func (d *WakeupDispatcher) failSmartRetry(ctx context.Context, w *taskdag.Wakeup
 	if !d.markPermanentDAGFailure(ctx, w, fence, reason, failure.launchErr, failFast, failure.outcome) {
 		return false
 	}
-	if alert, shouldAlert := recordDispatchRetryMetric(w, failure.lastErr); shouldAlert {
+	if alert, shouldAlert := d.recordDispatchRetryMetric(w, failure.lastErr); shouldAlert {
 		d.emitDispatchRetryAlert(ctx, alert)
 	}
 	return true
@@ -524,7 +524,7 @@ func (d *WakeupDispatcher) failSmartRetry(ctx context.Context, w *taskdag.Wakeup
 
 // recordRetryAccepted 记录 retry 已接受，并在达到告警条件时异步发出告警。
 func (d *WakeupDispatcher) recordRetryAccepted(ctx context.Context, w *taskdag.Wakeup, failure dispatchFailure) {
-	if alert, shouldAlert := recordDispatchRetryMetric(w, failure.lastErr); shouldAlert {
+	if alert, shouldAlert := d.recordDispatchRetryMetric(w, failure.lastErr); shouldAlert {
 		d.emitDispatchRetryAlert(ctx, alert)
 	}
 	d.logger.Info("wakeup dispatcher: launch transient failure → retry",

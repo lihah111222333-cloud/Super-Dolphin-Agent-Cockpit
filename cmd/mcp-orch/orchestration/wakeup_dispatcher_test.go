@@ -7,6 +7,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"log/slog"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -15,7 +16,13 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/nodeexec"
 	taskdag "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/taskdag"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/dagmetrics"
 )
+
+// NewWakeupDispatcher supplies a test-local explicit DAG metrics owner.
+func NewWakeupDispatcher(store taskdag.WakeupDispatchStore, launcher WakeupLauncher, logger *slog.Logger, cfg WakeupDispatcherConfig) (*WakeupDispatcher, error) {
+	return NewWakeupDispatcherWithMetrics(store, launcher, logger, cfg, dagmetrics.NewRegistry())
+}
 
 func TestNewWakeupDispatcherRejectsNilStore(t *testing.T) {
 	if _, err := NewWakeupDispatcher(nil, nil, nil, WakeupDispatcherConfig{}); err == nil {

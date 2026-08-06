@@ -17,6 +17,7 @@ import (
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/idgen"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/dagmetrics"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
@@ -77,12 +78,16 @@ type WakeupDispatcher struct {
 
 	retryAlertSink    DispatchRetryAlertSink
 	subscriberMetrics *dagSubscriberCounter
+	dagMetrics        *dagmetrics.Registry
 }
 
-// NewWakeupDispatcher 创建负责投递 DAG wakeup 的调度器。
-func NewWakeupDispatcher(store taskdag.WakeupDispatchStore, launcher WakeupLauncher, logger *slog.Logger, cfg WakeupDispatcherConfig) (*WakeupDispatcher, error) {
+// NewWakeupDispatcherWithMetrics 创建负责投递 DAG wakeup 的调度器。
+func NewWakeupDispatcherWithMetrics(store taskdag.WakeupDispatchStore, launcher WakeupLauncher, logger *slog.Logger, cfg WakeupDispatcherConfig, dagMetrics *dagmetrics.Registry) (*WakeupDispatcher, error) {
 	if store == nil {
 		return nil, errors.New("wakeup dispatcher: store required")
+	}
+	if dagMetrics == nil {
+		return nil, errors.New("wakeup dispatcher: DAG metrics registry is required")
 	}
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -103,6 +108,7 @@ func NewWakeupDispatcher(store taskdag.WakeupDispatchStore, launcher WakeupLaunc
 		cfg:                    normalized,
 		leaseHeartbeatInterval: heartbeatInterval,
 		subscriberMetrics:      newDAGSubscriberCounter(),
+		dagMetrics:             dagMetrics,
 	}, nil
 }
 
@@ -309,7 +315,7 @@ func (d *WakeupDispatcher) markPermanentFail(ctx context.Context, w *taskdag.Wak
 			"target_agent_id", w.TargetAgentID)
 		return false
 	}
-	recordDispatchFailedMetric()
+	d.recordDispatchFailedMetric()
 	d.logger.Warn("wakeup dispatcher: launch permanent failure → failed",
 		"wakeup_id", w.ID,
 		"target_agent_id", w.TargetAgentID,
@@ -481,7 +487,7 @@ func (d *WakeupDispatcher) tryDAGFailWithCascade(ctx context.Context, w *taskdag
 	if !d.markPermanentDAGFailure(ctx, w, fence, lastErr, failure.launchErr, policy.FailFast, failure.outcome) {
 		return false, true
 	}
-	if alert, shouldAlert := recordDispatchRetryMetric(w, failure.lastErr); shouldAlert {
+	if alert, shouldAlert := d.recordDispatchRetryMetric(w, failure.lastErr); shouldAlert {
 		d.emitDispatchRetryAlert(ctx, alert)
 	}
 	return true, true

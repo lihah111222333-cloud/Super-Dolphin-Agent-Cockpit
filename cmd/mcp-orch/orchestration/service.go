@@ -20,6 +20,7 @@ import (
 	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/bus"
+	platformmetrics "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
 	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 	"github.com/qmuntal/stateless"
@@ -619,9 +620,10 @@ func loggerOrDefault(logger *slog.Logger) *slog.Logger {
 type ProvideWakeupDispatcherRunnerIn struct {
 	fx.In
 
-	Store    taskdag.WakeupDispatchStore `optional:"true"`
-	Launcher WakeupLauncher
-	Logger   *slog.Logger `optional:"true"`
+	Store      taskdag.WakeupDispatchStore `optional:"true"`
+	Launcher   WakeupLauncher
+	Logger     *slog.Logger `optional:"true"`
+	DAGMetrics *platformmetrics.DAGCollector
 }
 
 // ProvideWakeupDispatcher 创建共享 wakeup dispatcher；未注入 Store 时返回 nil。
@@ -635,7 +637,11 @@ func ProvideWakeupDispatcher(in ProvideWakeupDispatcherRunnerIn) (*WakeupDispatc
 		logger.Info("orchestration: wakeup dispatcher disabled (no taskdag store provided)")
 		return nil, nil
 	}
-	return NewWakeupDispatcher(in.Store, in.Launcher, logger, WakeupDispatcherConfig{})
+	dispatcher, err := NewWakeupDispatcherWithMetrics(in.Store, in.Launcher, logger, WakeupDispatcherConfig{}, in.DAGMetrics.Registry())
+	if err != nil {
+		return nil, err
+	}
+	return dispatcher, nil
 }
 
 // ProvideWakeupDispatcherRunner 将可选 dispatcher 适配为 runner。

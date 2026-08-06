@@ -152,7 +152,6 @@ func TestDispatcherAgentHardValidationFailureFailsWithoutRetry(t *testing.T) {
 }
 
 func TestDispatcherAgentPermanentFailureAtThirdAttemptRecordsRetryAlert(t *testing.T) {
-	orchmetrics.ResetDispatchRetryForTesting()
 	now := time.Date(2026, 5, 13, 9, 45, 0, 0, time.UTC)
 	store := newAgentFailureClassStore(t, "bad-config-alert", 3, now)
 	store.nodesReply[0].Config = testRawConfig(t, `{"exec":`)
@@ -164,7 +163,7 @@ func TestDispatcherAgentPermanentFailureAtThirdAttemptRecordsRetryAlert(t *testi
 		t.Fatalf("ProcessBatch err = %v", err)
 	}
 	key := store.claimReply[0].DagKey + "/" + store.claimReply[0].NodeKey
-	if got := orchmetrics.DispatchRetryCounters().RetryCountPerNode[key]; got != 3 {
+	if got := orchmetrics.DispatchRetryCounters(d.dagMetrics).RetryCountPerNode[key]; got != 3 {
 		t.Fatalf("retry_count_per_node[%s] = %d, want 3", key, got)
 	}
 	calls := sink.waitForCalls(t, 1)
@@ -174,7 +173,6 @@ func TestDispatcherAgentPermanentFailureAtThirdAttemptRecordsRetryAlert(t *testi
 }
 
 func TestDispatcherRetryAlertSinkDoesNotBlockBatch(t *testing.T) {
-	orchmetrics.ResetDispatchRetryForTesting()
 	now := time.Date(2026, 5, 13, 9, 50, 0, 0, time.UTC)
 	store := &dispatcherStubStore{
 		claimReply: []taskdag.Wakeup{makeDAGWakeup(260, "dag-alert", "node-hot", "agent-hot", 3, now)},

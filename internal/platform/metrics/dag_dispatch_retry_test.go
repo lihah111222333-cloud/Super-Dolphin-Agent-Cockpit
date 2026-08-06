@@ -5,17 +5,23 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/dagmetrics"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-func TestMetricsHandlerServesDAGDispatchRetryCounters(t *testing.T) {
-	registry := DAGRegistry()
-	registry.ResetForTesting()
-	t.Cleanup(registry.ResetForTesting)
-	registry.IncDispatchFailed()
-	registry.RecordRetry("dag-prom", "node-retry", 2)
+func TestDAGCollectorServesDispatchRetryCounters(t *testing.T) {
+	source := dagmetrics.NewRegistry()
+	source.IncDispatchFailed()
+	source.RecordRetry("dag-prom", "node-retry", 2)
+	dag, err := NewDAGCollectorFor(source)
+	if err != nil {
+		t.Fatalf("NewDAGCollectorFor() error = %v", err)
+	}
+	handler := promhttp.HandlerFor(dag.Gatherer(), promhttp.HandlerOpts{})
 
 	rec := httptest.NewRecorder()
-	Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, PrometheusMetricsPath, nil))
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, PrometheusMetricsPath, nil))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("metrics status = %d, want %d", rec.Code, http.StatusOK)

@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/wakeupreclaim"
+	platformmetrics "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 	"go.uber.org/fx"
 )
 
@@ -10,6 +11,7 @@ import (
 func orchestrationDAGOptions() fx.Option {
 	return fx.Module("orchestration-dag",
 		fx.Provide(
+			platformmetrics.NewDAGCollector,
 			provideSQLDAGScheduleStore,
 			provideSQLiteRuntimeLocker,
 			provideAgentThreadLookup,

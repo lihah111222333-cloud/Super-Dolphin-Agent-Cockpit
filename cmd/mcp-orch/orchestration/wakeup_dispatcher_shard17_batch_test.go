@@ -99,7 +99,6 @@ func TestWakeupDispatcherProcessBatchTransientFailureCallsRetry(t *testing.T) {
 }
 
 func TestWakeupDispatcherProcessBatchPermanentFailureCallsFail(t *testing.T) {
-	orchmetrics.ResetDispatchRetryForTesting()
 	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
 	store := &dispatcherStubStore{
 		claimReply: []taskdag.Wakeup{makeClaimedWakeup(13, "agent-Z", 2, now)},
@@ -123,13 +122,12 @@ func TestWakeupDispatcherProcessBatchPermanentFailureCallsFail(t *testing.T) {
 	if len(store.retryCalls) != 0 {
 		t.Fatalf("retry must not be called on permanent")
 	}
-	if got := orchmetrics.DispatchRetryCounters().DispatchFailedTotal; got != 1 {
+	if got := orchmetrics.DispatchRetryCounters(d.dagMetrics).DispatchFailedTotal; got != 1 {
 		t.Fatalf("dispatch_failed_total = %d, want 1 after successful FailWakeup", got)
 	}
 }
 
 func TestWakeupDispatcherDispatchFailedMetricSkipsFenceMiss(t *testing.T) {
-	orchmetrics.ResetDispatchRetryForTesting()
 	now := time.Date(2026, 5, 13, 14, 0, 0, 0, time.UTC)
 	store := &dispatcherStubStore{
 		claimReply:  []taskdag.Wakeup{makeClaimedWakeup(131, "agent-Z", 2, now)},
@@ -146,7 +144,7 @@ func TestWakeupDispatcherDispatchFailedMetricSkipsFenceMiss(t *testing.T) {
 	if len(store.failCalls) != 1 {
 		t.Fatalf("fail calls = %d, want 1", len(store.failCalls))
 	}
-	if got := orchmetrics.DispatchRetryCounters().DispatchFailedTotal; got != 0 {
+	if got := orchmetrics.DispatchRetryCounters(d.dagMetrics).DispatchFailedTotal; got != 0 {
 		t.Fatalf("dispatch_failed_total = %d, want 0 when FailWakeup fence misses", got)
 	}
 }
@@ -308,7 +306,6 @@ func dagDefaultRetryMetadata(t *testing.T, defaultRetry int, failFast bool) json
 // TestDispatcherDAGRetryRetriesUntilMaxAttempts 验证：default_retry=2 时 MaxAttempts=3，
 // AttemptCount=1（首次失败）应该继续走 RetryWakeup 不直接 fail。
 func TestDispatcherDAGRetryRetriesUntilMaxAttempts(t *testing.T) {
-	orchmetrics.ResetDispatchRetryForTesting()
 	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
 	store := &dispatcherStubStore{
 		claimReply: []taskdag.Wakeup{makeDAGWakeup(20, "dag-x", "node-A", "agent-A", 1, now)},
@@ -331,13 +328,12 @@ func TestDispatcherDAGRetryRetriesUntilMaxAttempts(t *testing.T) {
 	if len(store.failNodeCalls) != 0 {
 		t.Fatalf("failNodeCalls = %d, want 0 (no cascade yet)", len(store.failNodeCalls))
 	}
-	if got := orchmetrics.DispatchRetryCounters().RetryCountPerNode["dag-x/node-A"]; got != 1 {
+	if got := orchmetrics.DispatchRetryCounters(d.dagMetrics).RetryCountPerNode["dag-x/node-A"]; got != 1 {
 		t.Fatalf("retry_count_per_node[dag-x/node-A] = %d, want 1", got)
 	}
 }
 
 func TestDispatcherDAGRetryAlertsAtThirdAttempt(t *testing.T) {
-	orchmetrics.ResetDispatchRetryForTesting()
 	now := time.Date(2026, 5, 13, 14, 20, 0, 0, time.UTC)
 	store := &dispatcherStubStore{
 		claimReply: []taskdag.Wakeup{makeDAGWakeup(202, "dag-alert", "node-hot", "agent-hot", 3, now)},
@@ -349,7 +345,7 @@ func TestDispatcherDAGRetryAlertsAtThirdAttempt(t *testing.T) {
 	if _, err := d.ProcessBatch(context.Background()); err != nil {
 		t.Fatalf("ProcessBatch err = %v", err)
 	}
-	metrics := orchmetrics.DispatchRetryCounters()
+	metrics := orchmetrics.DispatchRetryCounters(d.dagMetrics)
 	if got := metrics.RetryCountPerNode["dag-alert/node-hot"]; got != 3 {
 		t.Fatalf("retry_count_per_node[dag-alert/node-hot] = %d, want 3", got)
 	}
@@ -367,7 +363,6 @@ func TestDispatcherDAGRetryAlertsAtThirdAttempt(t *testing.T) {
 }
 
 func TestDispatcherDAGRetryExhaustionAlertsAtThirdAttempt(t *testing.T) {
-	orchmetrics.ResetDispatchRetryForTesting()
 	now := time.Date(2026, 5, 13, 14, 22, 0, 0, time.UTC)
 	store := &dispatcherStubStore{
 		claimReply: []taskdag.Wakeup{makeDAGWakeup(204, "dag-alert", "node-exhausted", "agent-hot", 3, now)},
@@ -389,14 +384,13 @@ func TestDispatcherDAGRetryExhaustionAlertsAtThirdAttempt(t *testing.T) {
 	if len(store.failCalls) != 1 {
 		t.Fatalf("failCalls = %d, want 1 at max attempts", len(store.failCalls))
 	}
-	if got := orchmetrics.DispatchRetryCounters().RetryCountPerNode["dag-alert/node-exhausted"]; got != 3 {
+	if got := orchmetrics.DispatchRetryCounters(d.dagMetrics).RetryCountPerNode["dag-alert/node-exhausted"]; got != 3 {
 		t.Fatalf("retry_count_per_node[dag-alert/node-exhausted] = %d, want 3", got)
 	}
 	sink.waitForCalls(t, 1)
 }
 
 func TestDispatcherDAGRetryBelowThresholdDoesNotAlert(t *testing.T) {
-	orchmetrics.ResetDispatchRetryForTesting()
 	now := time.Date(2026, 5, 13, 14, 25, 0, 0, time.UTC)
 	store := &dispatcherStubStore{
 		claimReply: []taskdag.Wakeup{makeDAGWakeup(203, "dag-alert", "node-cool", "agent-cool", 1, now)},
@@ -408,7 +402,7 @@ func TestDispatcherDAGRetryBelowThresholdDoesNotAlert(t *testing.T) {
 	if _, err := d.ProcessBatch(context.Background()); err != nil {
 		t.Fatalf("ProcessBatch err = %v", err)
 	}
-	if got := orchmetrics.DispatchRetryCounters().RetryAlertTotal; got != 0 {
+	if got := orchmetrics.DispatchRetryCounters(d.dagMetrics).RetryAlertTotal; got != 0 {
 		t.Fatalf("retry_alert_total = %d, want 0 below threshold", got)
 	}
 	if calls := sink.snapshot(); len(calls) != 0 {

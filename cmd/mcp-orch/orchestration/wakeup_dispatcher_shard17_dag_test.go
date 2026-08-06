@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	orchmetrics "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/metrics"
 	"time"
 
 	"github.com/kelindar/event"
@@ -17,10 +16,11 @@ import (
 	taskdag "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/taskdag"
 	taskdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/task"
 	platformmetrics "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/dagmetrics"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func TestDispatcherF151FiveNodeDAGMetricsEndpointAndAlert(t *testing.T) {
-	orchmetrics.ResetDispatchRetryForTesting()
 	now := time.Date(2026, 5, 13, 14, 30, 0, 0, time.UTC)
 	nodes := make([]taskdag.Node, 0, 5)
 	for i := 1; i <= 5; i++ {
@@ -78,11 +78,20 @@ func TestDispatcherF151FiveNodeDAGMetricsEndpointAndAlert(t *testing.T) {
 		t.Fatalf("ProcessBatch failure err = %v", err)
 	}
 	rec := httptest.NewRecorder()
-	platformmetrics.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, platformmetrics.PrometheusMetricsPath, nil))
+	newDispatcherMetricsHandler(t, d.dagMetrics).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, platformmetrics.PrometheusMetricsPath, nil))
 	if body := rec.Body.String(); !strings.Contains(body, "dispatch_failed_total 1") ||
 		!strings.Contains(body, `retry_count_per_node{dag_key="dag-five",node_key="node-3"} 3`) {
 		t.Fatalf("metrics endpoint missing F15.1 counters:\n%s", body)
 	}
+}
+
+func newDispatcherMetricsHandler(t *testing.T, dagMetrics *dagmetrics.Registry) http.Handler {
+	t.Helper()
+	dag, err := platformmetrics.NewDAGCollectorFor(dagMetrics)
+	if err != nil {
+		t.Fatalf("NewDAGCollectorFor() error = %v", err)
+	}
+	return promhttp.HandlerFor(dag.Gatherer(), promhttp.HandlerOpts{})
 }
 
 // TestDispatcherDAGRetryFailsAtMaxAttemptsWithFailFastCascade 验证 fail_fast DAG 达到最大重试时的级联失败。
@@ -303,7 +312,6 @@ func TestDispatcherAgentFailureClassesRetryUntilMaxAttempts(t *testing.T) {
 		{name: "validation", launchErr: errors.New("401 unauthorized")},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name+"_first_failure_retries", func(t *testing.T) {
 			store := newAgentFailureClassStore(t, tt.name, 1, now)
 			d := newAgentFailureClassDispatcher(t, store, tt.launchErr)
