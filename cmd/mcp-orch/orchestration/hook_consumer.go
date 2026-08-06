@@ -82,8 +82,9 @@ type hookConsumer struct {
 	logger      *slog.Logger
 	notifyTap   NotifyTap
 
-	dagFallbackLookup taskdag.NodeSpawningThreadLookup
-	dagFallbackFlow   taskdag.NodeFlowStore
+	dagFallbackLookup  taskdag.NodeSpawningThreadLookup
+	dagFallbackFlow    taskdag.NodeFlowStore
+	dagFallbackMetrics *orchmetrics.DAGFallbackOwner
 
 	dagTurnCompletedDeps DAGSubscriberDeps
 }
@@ -167,14 +168,15 @@ func newHookConsumerWithPorts(
 	opts ...hookConsumerOption,
 ) *hookConsumer {
 	c := &hookConsumer{
-		runtime:           runtime,
-		reports:           reports,
-		suppression:       suppression,
-		eventBus:          eventBus,
-		logger:            loggerOrDefault(logger),
-		notifyTap:         tap,
-		dagFallbackLookup: fallbackLookup,
-		dagFallbackFlow:   fallbackFlow,
+		runtime:            runtime,
+		reports:            reports,
+		suppression:        suppression,
+		eventBus:           eventBus,
+		logger:             loggerOrDefault(logger),
+		notifyTap:          tap,
+		dagFallbackLookup:  fallbackLookup,
+		dagFallbackFlow:    fallbackFlow,
+		dagFallbackMetrics: orchmetrics.NewDAGFallbackOwner(),
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -728,13 +730,13 @@ func (c *hookConsumer) runThreadStoppedDAGFallback(ctx context.Context, threadID
 	}
 	nodes, err := lookup.LookupNodesBySpawningThread(ctx, threadID)
 	if err != nil {
-		orchmetrics.IncDAGFallbackLookupFailed()
+		c.dagFallbackMetrics.IncLookupFailed()
 		c.logger.Warn("thread stopped fallback: lookup nodes failed",
 			"thread_id", threadID, "error", err)
 		return
 	}
 	if len(nodes) == 0 {
-		orchmetrics.IncDAGFallbackNoNode()
+		c.dagFallbackMetrics.IncNoNode()
 		return
 	}
 	for i := range nodes {
@@ -747,7 +749,7 @@ func (c *hookConsumer) runThreadStoppedDAGFallback(ctx context.Context, threadID
 
 func (c *hookConsumer) failThreadStoppedFallbackNode(ctx context.Context, flow taskdag.NodeFlowStore, n taskdag.Node) {
 	if !isDAGFallbackFailEligibleStatus(n.Status) {
-		orchmetrics.IncDAGFallbackIdempotentSkipped()
+		c.dagFallbackMetrics.IncIdempotentSkipped()
 		return
 	}
 	res, failErr := flow.FailNodeAndCancelDownstream(ctx, taskdag.FailNodeInput{
@@ -758,7 +760,7 @@ func (c *hookConsumer) failThreadStoppedFallbackNode(ctx context.Context, flow t
 		FailFast: false,
 	})
 	if failErr != nil {
-		orchmetrics.IncDAGFallbackFailNodeErr()
+		c.dagFallbackMetrics.IncFailNodeErr()
 		c.logger.Warn("thread stopped fallback: fail node failed",
 			"dag_key", n.DagKey, "node_key", n.NodeKey, "error", failErr)
 		if compensationErr := turncompletionretry.EnqueueTerminalFailureCompensation(ctx, flow, c.logger, &n, "thread_stopped_fallback", failErr, false); compensationErr != nil {
@@ -767,7 +769,7 @@ func (c *hookConsumer) failThreadStoppedFallbackNode(ctx context.Context, flow t
 		}
 		return
 	}
-	orchmetrics.IncDAGFallbackFailed()
+	c.dagFallbackMetrics.IncFailed()
 	c.invokeThreadStoppedFallbackLifecycleHook(ctx, n, res)
 }
 

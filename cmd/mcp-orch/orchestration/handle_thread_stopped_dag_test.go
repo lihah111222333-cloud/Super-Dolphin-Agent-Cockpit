@@ -66,11 +66,11 @@ func hookConsumerWithFallback(t *testing.T, lookup taskdag.NodeSpawningThreadLoo
 
 // fallbackMetricDelta snapshots dagFallbackMetrics, runs fn, returns post delta.
 // 不用 metricDelta 名字避与 dag_turn_completed_subscriber_test.go 冲突�?
-func fallbackMetricDelta(t *testing.T, fn func()) orchmetrics.DAGFallbackMetrics {
+func fallbackMetricDelta(t *testing.T, consumer *hookConsumer, fn func()) orchmetrics.DAGFallbackMetrics {
 	t.Helper()
-	before := orchmetrics.DAGFallbackCounters()
+	before := consumer.dagFallbackMetrics.Snapshot()
 	fn()
-	after := orchmetrics.DAGFallbackCounters()
+	after := consumer.dagFallbackMetrics.Snapshot()
 	return orchmetrics.DAGFallbackMetrics{
 		LookupFailed:      after.LookupFailed - before.LookupFailed,
 		NoNode:            after.NoNode - before.NoNode,
@@ -88,7 +88,7 @@ func TestThreadStoppedDAGFallback_FailsReadyNode(t *testing.T) {
 	flow := &fakeFallbackFlow{}
 	hc := hookConsumerWithFallback(t, lookup, flow)
 
-	delta := fallbackMetricDelta(t, func() {
+	delta := fallbackMetricDelta(t, hc, func() {
 		hc.runThreadStoppedDAGFallback(context.Background(), "thread-1")
 	})
 
@@ -222,7 +222,7 @@ func TestThreadStoppedDAGFallback_SkipsTerminalNode(t *testing.T) {
 	flow := &fakeFallbackFlow{}
 	hc := hookConsumerWithFallback(t, lookup, flow)
 
-	delta := fallbackMetricDelta(t, func() {
+	delta := fallbackMetricDelta(t, hc, func() {
 		hc.runThreadStoppedDAGFallback(context.Background(), "thread-1")
 	})
 
@@ -241,7 +241,7 @@ func TestThreadStoppedDAGFallback_SkipsAwaitingVerifyNode(t *testing.T) {
 	flow := &fakeFallbackFlow{}
 	hc := hookConsumerWithFallback(t, lookup, flow)
 
-	delta := fallbackMetricDelta(t, func() {
+	delta := fallbackMetricDelta(t, hc, func() {
 		hc.runThreadStoppedDAGFallback(context.Background(), "thread-1")
 	})
 
@@ -259,7 +259,7 @@ func TestThreadStoppedDAGFallback_LookupFailedLogsAndContinues(t *testing.T) {
 	flow := &fakeFallbackFlow{}
 	hc := hookConsumerWithFallback(t, lookup, flow)
 
-	delta := fallbackMetricDelta(t, func() {
+	delta := fallbackMetricDelta(t, hc, func() {
 		// 不应 panic 不应 �?error（runThreadStoppedDAGFallback 不返 error�?
 		hc.runThreadStoppedDAGFallback(context.Background(), "thread-1")
 	})
@@ -283,7 +283,7 @@ func TestThreadStoppedDAGFallback_FailNodeErrLogsAndContinues(t *testing.T) {
 	flow := &fakeFallbackFlow{failErr: errors.New("pg constraint conflict")}
 	hc := hookConsumerWithFallback(t, lookup, flow)
 
-	delta := fallbackMetricDelta(t, func() {
+	delta := fallbackMetricDelta(t, hc, func() {
 		hc.runThreadStoppedDAGFallback(context.Background(), "thread-1")
 	})
 
@@ -304,7 +304,7 @@ func TestThreadStoppedDAGFallback_FailNodeErrLogsAndContinues(t *testing.T) {
 func TestThreadStoppedDAGFallback_NilPortsShortCircuit(t *testing.T) {
 	hc := hookConsumerWithFallback(t, nil, nil) // 两个 ports �?nil
 
-	delta := fallbackMetricDelta(t, func() {
+	delta := fallbackMetricDelta(t, hc, func() {
 		hc.runThreadStoppedDAGFallback(context.Background(), "thread-1")
 	})
 
@@ -319,7 +319,7 @@ func TestThreadStoppedDAGFallback_EmptyThreadIDShortCircuit(t *testing.T) {
 	flow := &fakeFallbackFlow{}
 	hc := hookConsumerWithFallback(t, lookup, flow)
 
-	delta := fallbackMetricDelta(t, func() {
+	delta := fallbackMetricDelta(t, hc, func() {
 		hc.runThreadStoppedDAGFallback(context.Background(), "   ")
 	})
 
@@ -337,7 +337,7 @@ func TestThreadStoppedDAGFallback_NoNodeMetric(t *testing.T) {
 	flow := &fakeFallbackFlow{}
 	hc := hookConsumerWithFallback(t, lookup, flow)
 
-	delta := fallbackMetricDelta(t, func() {
+	delta := fallbackMetricDelta(t, hc, func() {
 		hc.runThreadStoppedDAGFallback(context.Background(), "thread-1")
 	})
 

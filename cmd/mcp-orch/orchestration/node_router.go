@@ -24,13 +24,14 @@ import (
 // NodeExecutorRouter 根据 node_type 派发 DAG wakeup。
 // router 负责读节点、构造 RunContext 和必要的状态写回；executor 只执行节点，不处理 wakeup claim/retry/fail。
 type NodeExecutorRouter struct {
-	store            taskdag.DAGDetailStore
-	agentExec        *nodeexec.AgentExecutor
-	autoExec         *nodeexec.AutomationExecutor
-	sharedFileReader nodeexec.SharedFileReader
-	sharedFileWriter nodeexec.SharedFileWriter
-	eventBus         *event.Dispatcher
-	logger           *slog.Logger
+	store               taskdag.DAGDetailStore
+	agentExec           *nodeexec.AgentExecutor
+	autoExec            *nodeexec.AutomationExecutor
+	sharedFileReader    nodeexec.SharedFileReader
+	sharedFileWriter    nodeexec.SharedFileWriter
+	eventBus            *event.Dispatcher
+	logger              *slog.Logger
+	agentRunningMetrics *orchmetrics.DispatchAgentRunningOwner
 }
 
 var (
@@ -55,12 +56,13 @@ func NewNodeExecutorRouter(
 		logger = pkglogger.Get()
 	}
 	return &NodeExecutorRouter{
-		store:            store,
-		agentExec:        agentExec,
-		autoExec:         autoExec,
-		sharedFileReader: sharedFileReader,
-		sharedFileWriter: sharedFileWriter,
-		logger:           logger,
+		store:               store,
+		agentExec:           agentExec,
+		autoExec:            autoExec,
+		sharedFileReader:    sharedFileReader,
+		sharedFileWriter:    sharedFileWriter,
+		logger:              logger,
+		agentRunningMetrics: orchmetrics.NewDispatchAgentRunningOwner(),
 	}
 }
 
@@ -568,16 +570,16 @@ func (r *NodeExecutorRouter) advanceAgentNodeToRunning(ctx context.Context, dagK
 	switch {
 	case updateErr == nil:
 		nodeevents.Publish(r.eventBus, oldStatus, node)
-		orchmetrics.IncDispatchAgentRunningWritten()
+		r.agentRunningMetrics.IncWritten()
 		return true, nil
 	case errors.Is(updateErr, sql.ErrNoRows) || platformdb.IsNotFound(updateErr):
 		// race window D：subscriber 已推终态，不在白名单 IN ('pending','ready')。
-		orchmetrics.IncDispatchAgentRunningSkippedAlreadyTerminal()
+		r.agentRunningMetrics.IncSkippedAlreadyTerminal()
 		r.logger.Debug("node router: ready->running skipped, node already terminal",
 			"dag_key", dagKey, "node_key", nodeKey)
 		return false, nil
 	default:
-		orchmetrics.IncDispatchAgentRunningWriteFailed()
+		r.agentRunningMetrics.IncWriteFailed()
 		r.logger.Warn("node router: ready->running write failed",
 			"dag_key", dagKey, "node_key", nodeKey, "error", updateErr)
 		return false, fmt.Errorf("%w: %w", errAgentReadyRunningWriteFailed, updateErr)
