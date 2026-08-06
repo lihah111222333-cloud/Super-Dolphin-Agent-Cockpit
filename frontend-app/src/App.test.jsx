@@ -1775,8 +1775,11 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     render(<App />);
 
-    expect(await screen.findAllByText('应用初始化失败，请重试。')).toHaveLength(2);
+    expect(await screen.findByText('应用初始化失败，请重试。')).toBeInTheDocument();
     expect(screen.queryByText(/连接后端失败/)).not.toBeInTheDocument();
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionId: 'app.bootstrap.background' }),
+    ]));
     expect(JSON.stringify(frontendHealthSnapshot())).not.toContain('/Users/private');
     expect(JSON.stringify(frontendHealthSnapshot())).not.toContain('token=secret');
   });
