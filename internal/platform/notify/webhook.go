@@ -38,10 +38,28 @@ type WebhookClient struct {
 	http             *http.Client
 	userAgent        string
 	maxResponseBytes int64
+	policy           webhookSSRFPolicy
+}
+
+// webhookSSRFPolicy 是单个 WebhookClient 的 SSRF 防护配置 owner。
+type webhookSSRFPolicy struct {
+	allowPrivateCIDR bool
+	blockedRanges    []net.IPNet
+}
+
+func newWebhookSSRFPolicy(allowPrivateCIDR bool) webhookSSRFPolicy {
+	return webhookSSRFPolicy{
+		allowPrivateCIDR: allowPrivateCIDR,
+		blockedRanges: []net.IPNet{
+			{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)},
+			{IP: net.ParseIP("fc00::"), Mask: net.CIDRMask(7, 128)},
+		},
+	}
 }
 
 // NewWebhookClient 创建带 SSRF 防护的 webhook 客户端；生产默认拒绝私网和非 HTTPS 目标。
 func NewWebhookClient(cfg WebhookClientConfig) *WebhookClient {
+	policy := newWebhookSSRFPolicy(cfg.AllowPrivateCIDR)
 	timeout := cfg.Timeout
 	if timeout <= 0 {
 		timeout = DefaultTimeout
@@ -58,8 +76,8 @@ func NewWebhookClient(cfg WebhookClientConfig) *WebhookClient {
 		// 显式禁用环境代理，避免 HTTP_PROXY/HTTPS_PROXY 劫持 webhook 出站流量。
 		Proxy: nil,
 		DialContext: (&ssrfGuardedDialer{
-			Dialer:           &net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second},
-			allowPrivateCIDR: cfg.AllowPrivateCIDR,
+			Dialer: &net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second},
+			policy: policy,
 		}).DialContext,
 		MaxIdleConns:        10,
 		IdleConnTimeout:     60 * time.Second,
@@ -76,11 +94,12 @@ func NewWebhookClient(cfg WebhookClientConfig) *WebhookClient {
 				if err := validateHTTPSURL(req.URL); err != nil {
 					return err
 				}
-				return validateRedirectTarget(req.Context(), req.URL, cfg.AllowPrivateCIDR)
+				return policy.validateRedirectTarget(req.Context(), req.URL)
 			},
 		},
 		userAgent:        ua,
 		maxResponseBytes: maxResp,
+		policy:           policy,
 	}
 }
 
@@ -134,7 +153,7 @@ func validateHTTPSURL(u *url.URL) error {
 }
 
 // validateRedirectTarget 对重定向目标重新解析 DNS，并拒绝指向受限地址的跳转。
-func validateRedirectTarget(ctx context.Context, u *url.URL, allowPrivateCIDR bool) error {
+func (p webhookSSRFPolicy) validateRedirectTarget(ctx context.Context, u *url.URL) error {
 	if err := validateHTTPSURL(u); err != nil {
 		return err
 	}
@@ -149,11 +168,11 @@ func validateRedirectTarget(ctx context.Context, u *url.URL, allowPrivateCIDR bo
 	if len(ips) == 0 {
 		return fmt.Errorf("%w: %s resolved no addresses", ErrDisallowedAddress, host)
 	}
-	if allowPrivateCIDR {
+	if p.allowPrivateCIDR {
 		return nil
 	}
 	for _, ip := range ips {
-		if isBlockedIP(ip) {
+		if p.isBlockedIP(ip) {
 			return fmt.Errorf("%w: %s", ErrDisallowedAddress, ip.String())
 		}
 	}
@@ -163,13 +182,13 @@ func validateRedirectTarget(ctx context.Context, u *url.URL, allowPrivateCIDR bo
 // ssrfGuardedDialer 包装 net.Dialer，先解析并校验 IP，再连接到已校验地址以抵御 DNS rebinding。
 type ssrfGuardedDialer struct {
 	*net.Dialer
-	allowPrivateCIDR bool
+	policy webhookSSRFPolicy
 }
 
 // DialContext 解析 host、拒绝受限 IP，并逐个尝试连接已校验的解析结果。
 func (d *ssrfGuardedDialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
 	if d.Dialer == nil {
-		d.Dialer = &net.Dialer{Timeout: DefaultTimeout}
+		return nil, errors.New("notify: guarded dialer requires a net dialer")
 	}
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
@@ -182,9 +201,9 @@ func (d *ssrfGuardedDialer) DialContext(ctx context.Context, network, addr strin
 	if len(ips) == 0 {
 		return nil, fmt.Errorf("%w: %s resolved no addresses", ErrDisallowedAddress, host)
 	}
-	if !d.allowPrivateCIDR {
+	if !d.policy.allowPrivateCIDR {
 		for _, ip := range ips {
-			if isBlockedIP(ip) {
+			if d.policy.isBlockedIP(ip) {
 				return nil, fmt.Errorf("%w: %s", ErrDisallowedAddress, ip.String())
 			}
 		}
@@ -201,18 +220,12 @@ func (d *ssrfGuardedDialer) DialContext(ctx context.Context, network, addr strin
 	return nil, lastErr
 }
 
-// 额外阻断网段在包初始化时解析，避免每次连接时分配。
-var (
-	cgnet = &net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)}
-	ula   = &net.IPNet{IP: net.ParseIP("fc00::"), Mask: net.CIDRMask(7, 128)}
-)
-
 // isBlockedIP 判断地址是否属于默认拒绝范围，是抵御 DNS rebinding 的连接时防线。
-func isBlockedIP(ip net.IP) bool {
+func (p webhookSSRFPolicy) isBlockedIP(ip net.IP) bool {
 	if ip == nil {
 		return true
 	}
-	return isBlockedByStdlib(ip) || isBlockedByRange(ip)
+	return isBlockedByStdlib(ip) || p.isBlockedByRange(ip)
 }
 
 // isBlockedByStdlib 使用标准库覆盖未指定、回环、链路本地、组播和私网地址。
@@ -227,11 +240,12 @@ func isBlockedByStdlib(ip net.IP) bool {
 }
 
 // isBlockedByRange 补充标准库未显式覆盖或需要读者可见的保留网段。
-func isBlockedByRange(ip net.IP) bool {
+func (p webhookSSRFPolicy) isBlockedByRange(ip net.IP) bool {
 	// RFC 6598 carrier-grade NAT 不由 IsPrivate 覆盖，需要显式阻断共享租户网段。
-	if cgnet.Contains(ip) {
-		return true
+	for _, blockedRange := range p.blockedRanges {
+		if blockedRange.Contains(ip) {
+			return true
+		}
 	}
-	// IPv6 ULA 已由 IsPrivate 覆盖，这里保留显式判断让防护范围可读。
-	return ula.Contains(ip)
+	return false
 }

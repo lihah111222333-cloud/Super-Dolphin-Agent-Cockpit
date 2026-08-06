@@ -5,10 +5,25 @@ import (
 	"testing"
 )
 
+func TestRendererInstancesOwnRenderingRules(t *testing.T) {
+	t.Parallel()
+	first := NewRenderer()
+	second := NewRenderer()
+	if first == second {
+		t.Fatal("NewRenderer returned a shared renderer")
+	}
+	if got := first.NormalizeBody("<!channel> *alert*", DefaultMaxBodyBytes); got != ` \*alert\*` {
+		t.Fatalf("first renderer normalized body = %q", got)
+	}
+	if got := second.NormalizeTitle("<!here> title"); got != " title" {
+		t.Fatalf("second renderer normalized title = %q", got)
+	}
+}
+
 func TestMarkdownEscapeCoversAllPlatforms(t *testing.T) {
 	t.Parallel()
 	in := "`bold`* _italic_ #h1 [x](y) >quote | pipe \\slash"
-	out := MarkdownEscape(in)
+	out := NewRenderer().MarkdownEscape(in)
 	for _, mustEscape := range []string{`\` + "`", `\*`, `\_`, `\#`, `\[`, `\]`, `\(`, `\)`, `\>`, `\|`, `\\`} {
 		if !strings.Contains(out, mustEscape) {
 			t.Fatalf("expected %q in %q", mustEscape, out)
@@ -29,7 +44,7 @@ func TestStripMentionsBlocksBroadcastTokens(t *testing.T) {
 		"@13800000000 safe":              " safe",
 	}
 	for in, want := range cases {
-		got := StripMentions(in)
+		got := NewRenderer().StripMentions(in)
 		// Collapse whitespace for a loose compare since the regex may
 		// leave a double-space where the token sat.
 		if strings.Join(strings.Fields(got), " ") != strings.Join(strings.Fields(want), " ") {
@@ -44,7 +59,7 @@ func TestStripMentionsKeepsBenignAtText(t *testing.T) {
 	// because we only strip numeric mobile patterns and explicit
 	// broadcast tokens.
 	in := "email me at dev@example.com"
-	if got := StripMentions(in); got != in {
+	if got := NewRenderer().StripMentions(in); got != in {
 		t.Fatalf("StripMentions ate benign @-text: %q -> %q", in, got)
 	}
 }
@@ -65,7 +80,7 @@ func TestNormalizeBodyPipelineFullChain(t *testing.T) {
 	t.Parallel()
 	// "Evil" body with markdown, mention, and surplus length.
 	body := "<!channel> **hi** " + strings.Repeat("x", 10_000) + "_end_"
-	out := NormalizeBody(body, 0)
+	out := NewRenderer().NormalizeBody(body, 0)
 	if len(out) > DefaultMaxBodyBytes {
 		t.Fatalf("pipeline output %d > cap %d", len(out), DefaultMaxBodyBytes)
 	}
@@ -94,10 +109,9 @@ func TestNormalizeBodyStripsMentionsBeforeEscape(t *testing.T) {
 		{name: "dingtalk_mobile", input: "@13800000000", blocked: []string{"@13800000000"}},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			out := NormalizeBody("prefix "+tc.input+" suffix > quote", 0)
+			out := NewRenderer().NormalizeBody("prefix "+tc.input+" suffix > quote", 0)
 			for _, token := range tc.blocked {
 				if strings.Contains(out, token) {
 					t.Fatalf("NormalizeBody(%q) leaked %q in %q", tc.input, token, out)
@@ -112,7 +126,7 @@ func TestNormalizeBodyStripsMentionsBeforeEscape(t *testing.T) {
 
 func TestNormalizeTitleStripsMentionsBeforeEscape(t *testing.T) {
 	t.Parallel()
-	out := NormalizeTitle("<!channel> title > quote")
+	out := NewRenderer().NormalizeTitle("<!channel> title > quote")
 	for _, token := range []string{"<!channel>", `<!channel\>`} {
 		if strings.Contains(out, token) {
 			t.Fatalf("NormalizeTitle leaked %q in %q", token, out)

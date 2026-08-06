@@ -43,7 +43,7 @@ func TestRenderDingtalkProducesSignedURLAndMarkdown(t *testing.T) {
 		Body:  "check logs *ok*",
 		Level: contract.NotifyLevelInfo,
 	}
-	signedURL, body, ct, err := RenderDingtalk(cfg, msg, 1_700_000_000_000)
+	signedURL, body, ct, err := NewRenderer().RenderDingtalk(cfg, msg, 1_700_000_000_000)
 	if err != nil {
 		t.Fatalf("RenderDingtalk error = %v", err)
 	}

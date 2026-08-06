@@ -13,7 +13,7 @@ func TestRenderSlackUsesBlocksKit(t *testing.T) {
 		Platform: PlatformSlack,
 		URL:      "https://hooks.slack.com/services/T/B/XYZ",
 	}
-	postURL, body, ct, err := RenderSlack(cfg, contract.NotifyMessage{
+	postURL, body, ct, err := NewRenderer().RenderSlack(cfg, contract.NotifyMessage{
 		Title: "error: provider down",
 		Body:  "try again",
 		Level: contract.NotifyLevelError,

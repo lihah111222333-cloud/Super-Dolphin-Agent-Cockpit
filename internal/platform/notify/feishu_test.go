@@ -32,7 +32,7 @@ func TestRenderFeishuCardHasSignAndElements(t *testing.T) {
 		URL:      "https://open.feishu.cn/open-apis/bot/v2/hook/abc",
 		Secret:   "sec",
 	}
-	postURL, body, ct, err := RenderFeishu(cfg, contract.NotifyMessage{
+	postURL, body, ct, err := NewRenderer().RenderFeishu(cfg, contract.NotifyMessage{
 		Title: "Turn interrupted",
 		Body:  "user cancelled",
 		Level: contract.NotifyLevelWarn,

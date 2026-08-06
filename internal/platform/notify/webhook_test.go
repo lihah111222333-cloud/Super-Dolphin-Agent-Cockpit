@@ -79,6 +79,11 @@ func TestPostAllowsPrivateCIDRWhenOptedIn(t *testing.T) {
 
 func TestIsBlockedIPCoversSSRFRanges(t *testing.T) {
 	t.Parallel()
+	strict := NewWebhookClient(WebhookClientConfig{})
+	permissive := NewWebhookClient(WebhookClientConfig{AllowPrivateCIDR: true})
+	if strict.policy.allowPrivateCIDR || !permissive.policy.allowPrivateCIDR {
+		t.Fatal("webhook clients did not retain independent SSRF policies")
+	}
 	tests := []struct {
 		name string
 		ip   net.IP
@@ -102,7 +107,7 @@ func TestIsBlockedIPCoversSSRFRanges(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := isBlockedIP(tt.ip); got != tt.want {
+			if got := strict.policy.isBlockedIP(tt.ip); got != tt.want {
 				t.Fatalf("isBlockedIP(%v) = %t, want %t", tt.ip, got, tt.want)
 			}
 		})
@@ -137,7 +142,7 @@ func TestRedirectTargetRejectsLoopbackBeforeDial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = validateRedirectTarget(context.Background(), u, false)
+	err = NewWebhookClient(WebhookClientConfig{}).policy.validateRedirectTarget(context.Background(), u)
 	if !errors.Is(err, ErrDisallowedAddress) {
 		t.Fatalf("want ErrDisallowedAddress, got %v", err)
 	}
@@ -149,7 +154,7 @@ func TestRedirectTargetRejectsIPv6ZoneID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = validateRedirectTarget(context.Background(), u, true)
+	err = NewWebhookClient(WebhookClientConfig{AllowPrivateCIDR: true}).policy.validateRedirectTarget(context.Background(), u)
 	if !errors.Is(err, ErrIPv6ZoneIDForbidden) {
 		t.Fatalf("want ErrIPv6ZoneIDForbidden, got %v", err)
 	}

@@ -110,7 +110,7 @@ func TestDispatchRetryAlertNotifierWebhookCapture(t *testing.T) {
 	})
 	client.HTTPClient().Transport.(*http.Transport).TLSClientConfig =
 		srv.Client().Transport.(*http.Transport).TLSClientConfig
-	flusher := platformnotify.NewFlusher(slog.Default(), notifier, client, 100*time.Millisecond)
+	flusher := platformnotify.NewFlusher(slog.Default(), notifier, client, platformnotify.NewRenderer(), 100*time.Millisecond)
 
 	nodeConfig, _ := json.Marshal(map[string]any{"notify_channel": "ops.dag"})
 	store := &fakeStore{

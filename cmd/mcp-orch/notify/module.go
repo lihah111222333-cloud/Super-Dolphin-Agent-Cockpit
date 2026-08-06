@@ -30,6 +30,7 @@ var Module = fx.Module("orch-notify",
 	fx.Provide(
 		provideOrchResolver,
 		provideOrchWebhookClient,
+		notifyplatform.NewRenderer,
 		provideOrchNotifier,
 		provideMessageNotifier,
 		provideOrchFlusher,
@@ -100,6 +101,7 @@ type provideOrchFlusherParams struct {
 	Cfg      *platformconfig.Config
 	Notifier *notifyplatform.Notifier
 	Client   *notifyplatform.WebhookClient
+	Renderer *notifyplatform.Renderer
 }
 
 // provideOrchFlusher 创建队列刷出 runner，退出 drain 时长由配置控制。
@@ -112,7 +114,7 @@ func provideOrchFlusher(p provideOrchFlusherParams) *notifyplatform.Flusher {
 	if p.Cfg != nil && p.Cfg.Notify.DrainSeconds > 0 {
 		drain = time.Duration(p.Cfg.Notify.DrainSeconds) * time.Second
 	}
-	return notifyplatform.NewFlusher(logger, p.Notifier, p.Client, drain)
+	return notifyplatform.NewFlusher(logger, p.Notifier, p.Client, p.Renderer, drain)
 }
 
 // flusherAsRunner 把通知 flusher 收窄为 RunGroup 可管理的 runner。

@@ -54,7 +54,7 @@ func flusherPostFailureLog(t *testing.T, cfg ChannelConfig) string {
 	n := NewNotifier(logger, resolver, 1)
 	client := NewWebhookClient(WebhookClientConfig{})
 	client.HTTPClient().Transport = failingRoundTripper{}
-	f := NewFlusher(logger, n, client, 100*time.Millisecond)
+	f := NewFlusher(logger, n, client, NewRenderer(), 100*time.Millisecond)
 	f.now = func() time.Time { return time.UnixMilli(1_700_000_000_000) }
 	f.handle(context.Background(), contract.NotifyRequest{
 		ChannelAlias: "signed",
@@ -138,7 +138,7 @@ func TestFlusherSendsQueuedRequest(t *testing.T) {
 		"s": {Platform: PlatformSlack, URL: srv.URL},
 	}}
 	n := NewNotifier(slog.Default(), resolver, 4)
-	f := NewFlusher(slog.Default(), n, newTLSClient(srv), 200*time.Millisecond)
+	f := NewFlusher(slog.Default(), n, newTLSClient(srv), NewRenderer(), 200*time.Millisecond)
 
 	if err := n.TryEnqueue(context.Background(), contract.NotifyRequest{
 		ChannelAlias: "s",
@@ -207,7 +207,7 @@ func TestFlusherDeliversBulkQueue(t *testing.T) {
 		"s": {Platform: PlatformSlack, URL: srv.URL},
 	}}
 	n := NewNotifier(slog.Default(), resolver, 8)
-	f := NewFlusher(slog.Default(), n, newTLSClient(srv), 5*time.Second)
+	f := NewFlusher(slog.Default(), n, newTLSClient(srv), NewRenderer(), 5*time.Second)
 
 	ctx, cancel, done := startFlusherForTest(t, f.Run)
 
@@ -266,7 +266,7 @@ func TestFlusherDrainBoundedContext(t *testing.T) {
 		"s": {Platform: PlatformSlack, URL: srv.URL},
 	}}
 	n := NewNotifier(slog.Default(), resolver, 4)
-	f := NewFlusher(slog.Default(), n, newTLSClient(srv), 5*time.Second)
+	f := NewFlusher(slog.Default(), n, newTLSClient(srv), NewRenderer(), 5*time.Second)
 
 	for range 2 {
 		if err := n.TryEnqueue(context.Background(), contract.NotifyRequest{
@@ -297,7 +297,7 @@ func TestFlusherResolveErrorIsLoggedNotFatal(t *testing.T) {
 	n := NewNotifier(slog.Default(), &testResolver{known: map[string]ChannelConfig{}}, 4)
 	// Inject a request directly past the TryEnqueue pre-resolution.
 	n.queue <- contract.NotifyRequest{ChannelAlias: "ghost", Message: contract.NotifyMessage{Title: "x"}}
-	f := NewFlusher(slog.Default(), n, NewWebhookClient(WebhookClientConfig{}), 200*time.Millisecond)
+	f := NewFlusher(slog.Default(), n, NewWebhookClient(WebhookClientConfig{}), NewRenderer(), 200*time.Millisecond)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	timer := time.AfterFunc(50*time.Millisecond, cancel)
@@ -341,7 +341,7 @@ func TestFlusherNilQueueSitsOnCtx(t *testing.T) {
 // sanity: render dispatcher reaches all three platforms.
 func TestFlusherRenderDispatch(t *testing.T) {
 	t.Parallel()
-	f := &Flusher{now: func() time.Time { return time.Unix(1_700_000_000, 0).UTC() }}
+	f := &Flusher{renderer: NewRenderer(), now: func() time.Time { return time.Unix(1_700_000_000, 0).UTC() }}
 	for _, plat := range []Platform{PlatformDingtalk, PlatformFeishu, PlatformSlack} {
 		cfg := ChannelConfig{Platform: plat, URL: "https://example.com/hook", Secret: "sec"}
 		if plat == PlatformSlack {

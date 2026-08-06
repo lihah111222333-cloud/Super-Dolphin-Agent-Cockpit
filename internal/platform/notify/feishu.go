@@ -14,7 +14,7 @@ import (
 
 // RenderFeishu 生成飞书交互卡片体并按机器人规范签名。
 // 飞书校验 body 顶层 timestamp/sign，正文在模板包装前已去 mention、转义 markdown 并限长。
-func RenderFeishu(cfg ChannelConfig, msg contract.NotifyMessage, timestampSec int64) (postURL string, body []byte, contentType string, err error) {
+func (r *Renderer) RenderFeishu(cfg ChannelConfig, msg contract.NotifyMessage, timestampSec int64) (postURL string, body []byte, contentType string, err error) {
 	if cfg.Platform != PlatformFeishu {
 		return "", nil, "", fmt.Errorf("feishu: wrong platform %q", cfg.Platform)
 	}
@@ -22,8 +22,8 @@ func RenderFeishu(cfg ChannelConfig, msg contract.NotifyMessage, timestampSec in
 	if err != nil {
 		return "", nil, "", err
 	}
-	title := NormalizeTitle(msg.Title)
-	text := NormalizeBody(msg.Body, 0)
+	title := r.NormalizeTitle(msg.Title)
+	text := r.NormalizeBody(msg.Body, 0)
 	header := levelMarker(msg.Level)
 	if header != "" {
 		text = header + "\n\n" + text

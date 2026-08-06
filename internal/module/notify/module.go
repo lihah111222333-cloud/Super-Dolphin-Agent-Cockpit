@@ -19,6 +19,7 @@ var Module = fx.Module("notify",
 	fx.Provide(
 		provideResolver,
 		provideWebhookClient,
+		platform.NewRenderer,
 		provideNotifier,
 		provideMessageNotifierContract,
 		provideFlusher,
@@ -69,6 +70,7 @@ type provideFlusherParams struct {
 	Cfg      *contract.Config
 	Notifier *platform.Notifier
 	Client   *platform.WebhookClient
+	Renderer *platform.Renderer
 }
 
 // provideFlusher 创建 flusher，负责在关机时排空通知队列，超时由配置决定。
@@ -81,7 +83,7 @@ func provideFlusher(p provideFlusherParams) *platform.Flusher {
 	if p.Cfg != nil && p.Cfg.Notify.DrainSeconds > 0 {
 		drain = time.Duration(p.Cfg.Notify.DrainSeconds) * time.Second
 	}
-	return platform.NewFlusher(logger, p.Notifier, p.Client, drain)
+	return platform.NewFlusher(logger, p.Notifier, p.Client, p.Renderer, drain)
 }
 
 // flusherAsRunner 把 flusher 收窄为 contract.Runner 接口，供 runner group 调度。

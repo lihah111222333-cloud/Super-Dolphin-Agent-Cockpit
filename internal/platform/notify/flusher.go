@@ -22,6 +22,7 @@ type Flusher struct {
 	queue        chan contract.NotifyRequest
 	resolver     Resolver
 	client       *WebhookClient
+	renderer     *Renderer
 	drainTimeout time.Duration
 	now          func() time.Time
 
@@ -35,8 +36,11 @@ type Flusher struct {
 
 var _ contract.Runner = (*Flusher)(nil)
 
-// NewFlusher 绑定 notifier 的队列和 resolver；drainTimeout 非正数时使用默认退出排空时间。
-func NewFlusher(logger *slog.Logger, notifier *Notifier, client *WebhookClient, drainTimeout time.Duration) *Flusher {
+// NewFlusher 绑定 notifier 的队列、resolver 和渲染规则 owner；drainTimeout 非正数时使用默认退出排空时间。
+func NewFlusher(logger *slog.Logger, notifier *Notifier, client *WebhookClient, renderer *Renderer, drainTimeout time.Duration) *Flusher {
+	if renderer == nil {
+		panic("notify renderer is required")
+	}
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -54,6 +58,7 @@ func NewFlusher(logger *slog.Logger, notifier *Notifier, client *WebhookClient, 
 		queue:        queue,
 		resolver:     resolver,
 		client:       client,
+		renderer:     renderer,
 		drainTimeout: drainTimeout,
 		now:          time.Now,
 	}
@@ -171,11 +176,11 @@ func (f *Flusher) handle(ctx context.Context, req contract.NotifyRequest) {
 func (f *Flusher) render(cfg ChannelConfig, msg contract.NotifyMessage) (string, []byte, string, error) {
 	switch cfg.Platform {
 	case PlatformDingtalk:
-		return RenderDingtalk(cfg, msg, f.now().UnixMilli())
+		return f.renderer.RenderDingtalk(cfg, msg, f.now().UnixMilli())
 	case PlatformFeishu:
-		return RenderFeishu(cfg, msg, f.now().Unix())
+		return f.renderer.RenderFeishu(cfg, msg, f.now().Unix())
 	case PlatformSlack:
-		return RenderSlack(cfg, msg)
+		return f.renderer.RenderSlack(cfg, msg)
 	default:
 		return "", nil, "", fmt.Errorf("notify: unsupported platform %q", cfg.Platform)
 	}

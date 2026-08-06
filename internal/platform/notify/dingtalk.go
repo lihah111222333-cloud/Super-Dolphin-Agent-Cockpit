@@ -15,7 +15,7 @@ import (
 
 // RenderDingtalk 生成钉钉机器人签名 URL 和 markdown 卡片体。
 // 签名按官方 timestamp_ms + "\n" + secret 规则计算，正文先做标题/正文规范化防止 mention 注入。
-func RenderDingtalk(cfg ChannelConfig, msg contract.NotifyMessage, timestampMS int64) (signedURL string, body []byte, contentType string, err error) {
+func (r *Renderer) RenderDingtalk(cfg ChannelConfig, msg contract.NotifyMessage, timestampMS int64) (signedURL string, body []byte, contentType string, err error) {
 	if cfg.Platform != PlatformDingtalk {
 		return "", nil, "", fmt.Errorf("dingtalk: wrong platform %q", cfg.Platform)
 	}
@@ -32,8 +32,8 @@ func RenderDingtalk(cfg ChannelConfig, msg contract.NotifyMessage, timestampMS i
 	q.Set("sign", sign)
 	u.RawQuery = q.Encode()
 
-	title := NormalizeTitle(msg.Title)
-	text := NormalizeBody(msg.Body, 0)
+	title := r.NormalizeTitle(msg.Title)
+	text := r.NormalizeBody(msg.Body, 0)
 	header := levelMarker(msg.Level)
 	markdown := strings.Builder{}
 	if header != "" {
