@@ -14,7 +14,7 @@ func TestSaveLoadManifestRoundTripAndValidation(t *testing.T) {
 	manifest := &Manifest{
 		Version:    "1.0",
 		Roots:      []string{"internal/contract"},
-		Targets:    canonicalTargets,
+		Targets:    canonicalTargets(),
 		Provenance: targetProvenanceForTests(),
 		Packages: []PackageManifest{{
 			Path:      "internal/contract",
@@ -37,7 +37,7 @@ func TestSaveLoadManifestRoundTripAndValidation(t *testing.T) {
 	badManifest := Manifest{
 		Version:    "1.0",
 		Roots:      []string{"x"},
-		Targets:    canonicalTargets,
+		Targets:    canonicalTargets(),
 		Provenance: targetProvenanceForTests(),
 		Packages:   []PackageManifest{{Path: "x", Name: "x"}, {Path: " x ", Name: "y"}},
 	}
@@ -64,8 +64,8 @@ func TestValidateManifestRejectsMissingIdentity(t *testing.T) {
 		{name: "missing version", manifest: &Manifest{Roots: []string{"x"}}, want: "version"},
 		{name: "missing roots", manifest: &Manifest{Version: "1.0"}, want: "roots"},
 		{name: "missing targets", manifest: &Manifest{Version: "1.0", Roots: []string{"x"}}, want: "targets"},
-		{name: "missing provenance", manifest: &Manifest{Version: "1.0", Roots: []string{"x"}, Targets: canonicalTargets}, want: "provenance"},
-		{name: "missing package", manifest: &Manifest{Version: "1.0", Roots: []string{"x"}, Targets: canonicalTargets, Provenance: targetProvenanceForTests(), Packages: []PackageManifest{{Path: "x"}}}, want: "package identity"},
+		{name: "missing provenance", manifest: &Manifest{Version: "1.0", Roots: []string{"x"}, Targets: canonicalTargets()}, want: "provenance"},
+		{name: "missing package", manifest: &Manifest{Version: "1.0", Roots: []string{"x"}, Targets: canonicalTargets(), Provenance: targetProvenanceForTests(), Packages: []PackageManifest{{Path: "x"}}}, want: "package identity"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -78,8 +78,9 @@ func TestValidateManifestRejectsMissingIdentity(t *testing.T) {
 }
 
 func targetProvenanceForTests() []TargetProvenance {
-	provenance := make([]TargetProvenance, 0, len(canonicalTargets))
-	for _, target := range canonicalTargets {
+	targets := canonicalTargets()
+	provenance := make([]TargetProvenance, 0, len(targets))
+	for _, target := range targets {
 		provenance = append(provenance, TargetProvenance{Target: target})
 	}
 	return provenance

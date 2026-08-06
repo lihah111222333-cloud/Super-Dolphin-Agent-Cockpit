@@ -145,7 +145,7 @@ func TestScanUsesCanonicalTargetsAndBuildTagsDeterministically(t *testing.T) {
 	if !reflect.DeepEqual(firstBytes, secondBytes) {
 		t.Fatal("canonical target manifest bytes are not deterministic")
 	}
-	if !reflect.DeepEqual(first.Targets, canonicalTargets) || len(first.Provenance) != len(canonicalTargets) {
+	if !reflect.DeepEqual(first.Targets, canonicalTargets()) || len(first.Provenance) != len(canonicalTargets()) {
 		t.Fatalf("targets/provenance = %#v/%#v", first.Targets, first.Provenance)
 	}
 }
@@ -159,8 +159,17 @@ func TestCanonicalTargetsCoverReleasePackageMatrix(t *testing.T) {
 		"windows/amd64",
 		"windows/arm64",
 	}
-	if !reflect.DeepEqual(canonicalTargets, want) {
-		t.Fatalf("canonicalTargets = %#v, want release package matrix %#v", canonicalTargets, want)
+	if !reflect.DeepEqual(canonicalTargets(), want) {
+		t.Fatalf("canonicalTargets() = %#v, want release package matrix %#v", canonicalTargets(), want)
+	}
+}
+
+func TestCanonicalTargetsAreIsolatedFromCallerMutation(t *testing.T) {
+	first := canonicalTargets()
+	first[0] = "mutated/target"
+	second := canonicalTargets()
+	if second[0] != "darwin/amd64" {
+		t.Fatalf("canonicalTargets() = %#v, want immutable release package matrix", second)
 	}
 }
 

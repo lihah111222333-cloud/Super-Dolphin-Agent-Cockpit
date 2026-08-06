@@ -185,8 +185,8 @@ func ValidateManifest(manifest *Manifest) error {
 
 // validateTargetProvenance 校验固定平台矩阵以及逐目标来源字段的完整性和稳定顺序。
 func validateTargetProvenance(manifest *Manifest) error {
-	if !slices.Equal(manifest.Targets, canonicalTargets) {
-		return fmt.Errorf("capability manifest targets must equal canonical matrix %v", canonicalTargets)
+	if !slices.Equal(manifest.Targets, canonicalTargets()) {
+		return fmt.Errorf("capability manifest targets must equal canonical matrix %v", canonicalTargets())
 	}
 	if len(manifest.Provenance) != len(manifest.Targets) {
 		return fmt.Errorf("capability manifest target provenance is missing or stale")

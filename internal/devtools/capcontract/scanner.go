@@ -13,13 +13,16 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-var canonicalTargets = []string{
-	"darwin/amd64",
-	"darwin/arm64",
-	"linux/amd64",
-	"linux/arm64",
-	"windows/amd64",
-	"windows/arm64",
+// canonicalTargets 返回独立的固定发布平台矩阵，避免 package 级 slice 被调用方改写。
+func canonicalTargets() []string {
+	return []string{
+		"darwin/amd64",
+		"darwin/arm64",
+		"linux/amd64",
+		"linux/arm64",
+		"windows/amd64",
+		"windows/arm64",
+	}
 }
 
 // scanLoadMode 保留 Go 工具链的构建约束筛选和语法树，但不递归类型检查依赖图。
@@ -43,11 +46,12 @@ func Scan(opts ScanOptions) (*Manifest, error) {
 	if len(opts.Roots) == 0 {
 		return nil, fmt.Errorf("capability contract scan roots are required")
 	}
+	targets := canonicalTargets()
 	manifest := &Manifest{
 		Version:     "1.0",
 		GeneratedAt: opts.GeneratedAt,
 		Roots:       normalizeRoots(opts.Roots),
-		Targets:     append([]string(nil), canonicalTargets...),
+		Targets:     targets,
 	}
 	merged := map[string]PackageManifest{}
 	for _, target := range manifest.Targets {
