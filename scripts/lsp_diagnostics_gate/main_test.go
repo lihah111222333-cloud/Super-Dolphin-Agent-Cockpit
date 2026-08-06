@@ -15,6 +15,28 @@ import (
 	"time"
 )
 
+type fakeGoInvocation struct {
+	Args   []string `json:"args"`
+	GOOS   string   `json:"goos"`
+	GOARCH string   `json:"goarch"`
+}
+
+func TestMain(m *testing.M) {
+	if capture := os.Getenv("LSP_DIAGNOSTICS_GATE_FAKE_GO_CAPTURE"); capture != "" {
+		invocation := fakeGoInvocation{Args: os.Args[1:], GOOS: os.Getenv("GOOS"), GOARCH: os.Getenv("GOARCH")}
+		data, err := json.Marshal(invocation)
+		if err == nil {
+			err = os.WriteFile(capture, append(data, '\n'), 0o600)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
+
 func TestCollectDiagnosticsRejectsIncompleteAndKeepsArtifact(t *testing.T) {
 	modes := []string{"timeout", "no-package", "partial", "polluted", "hint", "tool-error", "missing-target"}
 	for _, mode := range modes {
@@ -235,6 +257,9 @@ func assertWindowsTargetCompileSelection(t *testing.T, selection targetSelection
 	if got := selection.targetCompiles; len(got) != 1 || got[0].File != "only_windows.go" || got[0].GOOS != "windows" {
 		t.Fatalf("target compile selection = %#v", got)
 	}
+	if got := selection.targetCompiles[0]; len(got.BuildTags) != 0 || got.BuildTagRegistryVersion != "" {
+		t.Fatalf("Windows target unexpectedly changed to tagged evidence = %#v", got)
+	}
 }
 
 func TestDiagnosticTargetsIncludesOnlyCanonicalGoplsStandaloneIgnoreMain(t *testing.T) {
@@ -274,6 +299,10 @@ func TestCollectUnknownBuildConstraintFailsClosed(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "tag_excluded.go"), "//go:build never_enabled_lsp_gate\n\npackage a\n")
 	output := filepath.Join(root, "coverage.json")
+	old := []byte("old-coverage\n")
+	if err := os.WriteFile(output, old, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	err := run(context.Background(), options{
 		root: root, files: []string{"tag_excluded.go"}, output: output,
 		peer: []string{os.Args[0], "-test.run=TestDiagnosticsFakePeer", "--", "success"},
@@ -281,9 +310,96 @@ func TestCollectUnknownBuildConstraintFailsClosed(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "has no supported target platform") {
 		t.Fatalf("run error = %v, want fail-closed target-platform error", err)
 	}
-	if _, err := os.Stat(output); !os.IsNotExist(err) {
-		t.Fatalf("coverage artifact exists after failed target resolution: %v", err)
+	got, readErr := os.ReadFile(output)
+	if readErr != nil {
+		t.Fatal(readErr)
 	}
+	if string(got) != string(old) {
+		t.Fatalf("artifact changed after failed target resolution: %q", got)
+	}
+}
+
+func TestRegisteredE2EBuildTagGetsTargetCompileEvidence(t *testing.T) {
+	root := t.TempDir()
+	const file = "tagged_e2e_test.go"
+	writeTestFile(t, filepath.Join(root, file), "//go:build e2e\n\npackage a\n")
+
+	selection, err := diagnosticTargets(root, options{files: []string{file}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(selection.files) != 0 || len(selection.targetCompiles) != 1 {
+		t.Fatalf("e2e target selection = %#v", selection)
+	}
+	target := selection.targetCompiles[0]
+	if target.GOOS != runtime.GOOS || target.GOARCH != runtime.GOARCH || strings.Join(target.BuildTags, ",") != "e2e" ||
+		target.BuildTagRegistryVersion != buildTagTargetRegistryVersion {
+		t.Fatalf("e2e target = %#v", target)
+	}
+
+	capture := installFakeGo(t)
+	output := filepath.Join(root, "coverage.json")
+	if err := run(context.Background(), options{root: root, files: []string{file}, output: output, timeout: 2 * time.Second}); err != nil {
+		t.Fatal(err)
+	}
+	invocation := readFakeGoInvocation(t, capture)
+	if got := strings.Join(invocation.Args, " "); !strings.Contains(got, "test -c -tags e2e -o ") || !strings.HasSuffix(got, " .") {
+		t.Fatalf("go compiler args = %q", got)
+	}
+	if invocation.GOOS != runtime.GOOS || invocation.GOARCH != runtime.GOARCH {
+		t.Fatalf("go compiler environment = GOOS=%s GOARCH=%s", invocation.GOOS, invocation.GOARCH)
+	}
+	coverage := readCoverageArtifact(t, output)
+	if coverage.Inspected != 1 || coverage.TrackedCandidates != 1 || coverage.SkippedCount != 1 || len(coverage.TargetCompiles) != 1 {
+		t.Fatalf("e2e coverage counts = %#v", coverage)
+	}
+	evidence := coverage.TargetCompiles[0]
+	if strings.Join(evidence.BuildTags, ",") != "e2e" || evidence.BuildTagRegistryVersion != buildTagTargetRegistryVersion ||
+		evidence.GOOS != runtime.GOOS || evidence.GOARCH != runtime.GOARCH {
+		t.Fatalf("e2e coverage evidence = %#v", evidence)
+	}
+}
+
+func installFakeGo(t *testing.T) string {
+	t.Helper()
+	binDir := t.TempDir()
+	name := "go"
+	if runtime.GOOS == "windows" {
+		name = "go.exe"
+	}
+	if err := os.Link(os.Args[0], filepath.Join(binDir, name)); err != nil {
+		t.Fatal(err)
+	}
+	capture := filepath.Join(t.TempDir(), "go-invocation.json")
+	t.Setenv("LSP_DIAGNOSTICS_GATE_FAKE_GO_CAPTURE", capture)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return capture
+}
+
+func readFakeGoInvocation(t *testing.T, path string) fakeGoInvocation {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var invocation fakeGoInvocation
+	if err := json.Unmarshal(data, &invocation); err != nil {
+		t.Fatal(err)
+	}
+	return invocation
+}
+
+func readCoverageArtifact(t *testing.T, path string) coverageArtifact {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var coverage coverageArtifact
+	if err := json.Unmarshal(data, &coverage); err != nil {
+		t.Fatal(err)
+	}
+	return coverage
 }
 
 func TestMatchingTargetBuildContextSupportsOtherUnix(t *testing.T) {
@@ -297,6 +413,21 @@ func TestMatchingTargetBuildContextSupportsOtherUnix(t *testing.T) {
 	}
 	if target == nil || target.GOOS != "freebsd" || target.GOARCH != "amd64" {
 		t.Fatalf("other Unix target = %#v, want freebsd/amd64", target)
+	}
+}
+
+func TestTargetCompileKeySeparatesBuildTagsAndRegistryVersion(t *testing.T) {
+	plain := targetCompileTarget{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
+	tagged := plain
+	tagged.BuildTags = []string{"e2e"}
+	tagged.BuildTagRegistryVersion = buildTagTargetRegistryVersion
+	if targetCompileKey("pkg", plain) == targetCompileKey("pkg", tagged) {
+		t.Fatal("tagged and untagged target compile keys were deduplicated")
+	}
+	otherVersion := tagged
+	otherVersion.BuildTagRegistryVersion = "lsp-build-tags/v2"
+	if targetCompileKey("pkg", tagged) == targetCompileKey("pkg", otherVersion) {
+		t.Fatal("different build-tag registry versions were deduplicated")
 	}
 }
 
@@ -331,6 +462,9 @@ func stagedWindowsTargetCompile(t *testing.T, root string) targetCompileTarget {
 	target := selection.targetCompiles[0]
 	if target.File != "internal/devtools/gate/executor_signal_windows.go" || target.GOOS != "windows" {
 		t.Fatalf("Windows target compile = %#v", target)
+	}
+	if len(target.BuildTags) != 0 || target.BuildTagRegistryVersion != "" {
+		t.Fatalf("Windows target unexpectedly carries build-tag evidence = %#v", target)
 	}
 	return target
 }

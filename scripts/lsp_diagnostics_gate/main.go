@@ -26,6 +26,7 @@ import (
 
 const (
 	protocolVersion               = "2024-11-05"
+	buildTagTargetRegistryVersion = "lsp-build-tags/v1"
 	diagnosticsShardFileThreshold = 512
 	diagnosticsAttempts           = 2
 	diagnosticsRetryDelay         = 5 * time.Second
@@ -70,10 +71,12 @@ type coverageArtifact struct {
 }
 
 type skippedTarget struct {
-	File   string `json:"file"`
-	Reason string `json:"reason"`
-	GOOS   string `json:"goos,omitempty"`
-	GOARCH string `json:"goarch,omitempty"`
+	File                    string   `json:"file"`
+	Reason                  string   `json:"reason"`
+	GOOS                    string   `json:"goos,omitempty"`
+	GOARCH                  string   `json:"goarch,omitempty"`
+	BuildTags               []string `json:"build_tags,omitempty"`
+	BuildTagRegistryVersion string   `json:"build_tag_registry_version,omitempty"`
 }
 
 type targetSelection struct {
@@ -84,15 +87,28 @@ type targetSelection struct {
 }
 
 type targetCompileTarget struct {
-	File   string
-	GOOS   string
-	GOARCH string
+	File                    string
+	GOOS                    string
+	GOARCH                  string
+	BuildTags               []string
+	BuildTagRegistryVersion string
 }
 
 type targetCompileEvidence struct {
-	File   string `json:"file"`
-	GOOS   string `json:"goos"`
-	GOARCH string `json:"goarch"`
+	File                    string   `json:"file"`
+	GOOS                    string   `json:"goos"`
+	GOARCH                  string   `json:"goarch"`
+	BuildTags               []string `json:"build_tags,omitempty"`
+	BuildTagRegistryVersion string   `json:"build_tag_registry_version,omitempty"`
+}
+
+type registeredBuildTagTarget struct {
+	version string
+	tags    []string
+}
+
+var registeredBuildTagTargets = []registeredBuildTagTarget{
+	{version: buildTagTargetRegistryVersion, tags: []string{"e2e"}},
 }
 
 type rpcResponse struct {
@@ -222,20 +238,33 @@ func compileTargetConstrainedFiles(parent context.Context, root string, timeout 
 	seen := make(map[string]bool, len(targets))
 	for index, target := range targets {
 		packageDir := filepath.ToSlash(filepath.Dir(target.File))
-		key := packageDir + "|" + target.GOOS + "|" + target.GOARCH
+		buildTags := strings.Join(target.BuildTags, ",")
+		key := targetCompileKey(packageDir, target)
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
-		command := exec.CommandContext(ctx, "go", "test", "-c", "-o", filepath.Join(outputRoot, fmt.Sprintf("%d.test", index)), ".")
+		args := []string{"test", "-c"}
+		if buildTags != "" {
+			args = append(args, "-tags", buildTags)
+		}
+		args = append(args, "-o", filepath.Join(outputRoot, fmt.Sprintf("%d.test", index)), ".")
+		command := exec.CommandContext(ctx, "go", args...)
 		command.Dir = filepath.Join(root, filepath.FromSlash(packageDir))
 		command.Env = append(os.Environ(), "GOOS="+target.GOOS, "GOARCH="+target.GOARCH)
 		output, runErr := command.CombinedOutput()
 		if runErr != nil {
-			return fmt.Errorf("target compile %s (GOOS=%s GOARCH=%s): %w\n%s", target.File, target.GOOS, target.GOARCH, runErr, output)
+			return fmt.Errorf(
+				"target compile %s (GOOS=%s GOARCH=%s build-tags=%q registry=%q): %w\n%s",
+				target.File, target.GOOS, target.GOARCH, buildTags, target.BuildTagRegistryVersion, runErr, output,
+			)
 		}
 	}
 	return nil
+}
+
+func targetCompileKey(packageDir string, target targetCompileTarget) string {
+	return packageDir + "|" + target.GOOS + "|" + target.GOARCH + "|" + target.BuildTagRegistryVersion + "|" + strings.Join(target.BuildTags, ",")
 }
 
 func collectDiagnostics(parent context.Context, root string, opts options, files []string) error {
@@ -344,6 +373,7 @@ func emitCoverage(output string, selection targetSelection) error {
 	for _, target := range selection.targetCompiles {
 		coverage.TargetCompiles = append(coverage.TargetCompiles, targetCompileEvidence{
 			File: target.File, GOOS: target.GOOS, GOARCH: target.GOARCH,
+			BuildTags: append([]string(nil), target.BuildTags...), BuildTagRegistryVersion: target.BuildTagRegistryVersion,
 		})
 	}
 	if output != "" {
@@ -384,6 +414,7 @@ func diagnosticTargets(root string, opts options) (targetSelection, error) {
 			selection.skipped = append(selection.skipped, *skipped)
 			selection.targetCompiles = append(selection.targetCompiles, targetCompileTarget{
 				File: skipped.File, GOOS: skipped.GOOS, GOARCH: skipped.GOARCH,
+				BuildTags: append([]string(nil), skipped.BuildTags...), BuildTagRegistryVersion: skipped.BuildTagRegistryVersion,
 			})
 		}
 		if include {
@@ -474,13 +505,16 @@ func (p targetPolicy) classifyGoTarget(abs string, rel string) (string, *skipped
 		if target == nil {
 			return "", nil, false, fmt.Errorf("changed Go file %s is excluded by host build constraints and has no supported target platform", rel)
 		}
-		return "", &skippedTarget{File: rel, Reason: "host-build-constraints", GOOS: target.GOOS, GOARCH: target.GOARCH}, false, nil
+		return "", &skippedTarget{
+			File: rel, Reason: "host-build-constraints", GOOS: target.GOOS, GOARCH: target.GOARCH,
+			BuildTags: append([]string(nil), target.BuildTags...), BuildTagRegistryVersion: target.BuildTagRegistryVersion,
+		}, false, nil
 	}
 	return rel, nil, true, nil
 }
 
 func matchingTargetBuildContext(directory string, name string) (*targetCompileTarget, error) {
-	for _, target := range []targetCompileTarget{
+	platforms := []targetCompileTarget{
 		{GOOS: "windows", GOARCH: "amd64"},
 		{GOOS: "windows", GOARCH: "arm64"},
 		{GOOS: "darwin", GOARCH: "arm64"},
@@ -489,7 +523,8 @@ func matchingTargetBuildContext(directory string, name string) (*targetCompileTa
 		{GOOS: "linux", GOARCH: "arm64"},
 		{GOOS: "freebsd", GOARCH: "amd64"},
 		{GOOS: "freebsd", GOARCH: "arm64"},
-	} {
+	}
+	for _, target := range platforms {
 		context := build.Default
 		context.GOOS = target.GOOS
 		context.GOARCH = target.GOARCH
@@ -499,6 +534,24 @@ func matchingTargetBuildContext(directory string, name string) (*targetCompileTa
 		}
 		if matched {
 			return &target, nil
+		}
+	}
+	registeredPlatforms := append([]targetCompileTarget{{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}}, platforms...)
+	for _, registered := range registeredBuildTagTargets {
+		for _, target := range registeredPlatforms {
+			context := build.Default
+			context.GOOS = target.GOOS
+			context.GOARCH = target.GOARCH
+			context.BuildTags = append([]string(nil), registered.tags...)
+			matched, err := context.MatchFile(directory, name)
+			if err != nil {
+				return nil, err
+			}
+			if matched {
+				target.BuildTags = append([]string(nil), registered.tags...)
+				target.BuildTagRegistryVersion = registered.version
+				return &target, nil
+			}
 		}
 	}
 	return nil, nil
