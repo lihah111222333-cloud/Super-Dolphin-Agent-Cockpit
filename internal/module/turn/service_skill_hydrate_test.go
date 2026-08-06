@@ -65,7 +65,7 @@ func TestPrepareTurnHydratesNameOnlySkillMetadataOnly(t *testing.T) {
 			filepath.Join(dir, "SKILL.md"): "full debug body",
 		},
 	}
-	svc := newService(silentLogger(), &stubPromptAssemblyService{}, nil, lookup, nil, nil, nil).(*service)
+	svc := newService(silentLogger(), &stubPromptAssemblyService{}, nil, lookup, nil, nil, nil, nil, NewToolResultRuntime()).(*service)
 	session := &stubSession{threadID: "thread-hydrate"}
 
 	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
@@ -117,7 +117,7 @@ func TestPrepareTurnPreservesSummaryWhenBodyMissing(t *testing.T) {
 			filepath.Join("/tmp/skills/rpc-tracing", "SKILL.md"): errors.New("missing"),
 		},
 	}
-	svc := newService(silentLogger(), &stubPromptAssemblyService{}, nil, lookup, nil, nil, nil).(*service)
+	svc := newService(silentLogger(), &stubPromptAssemblyService{}, nil, lookup, nil, nil, nil, nil, NewToolResultRuntime()).(*service)
 	session := &stubSession{threadID: "thread-nobody"}
 
 	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
@@ -147,7 +147,7 @@ func TestPrepareTurnPreservesSummaryWhenBodyMissing(t *testing.T) {
 func TestPrepareTurnSkipsHydrateWhenLookupNil(t *testing.T) {
 	t.Parallel()
 
-	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{})
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime())
 	session := &stubSession{threadID: "thread-nil-lookup"}
 	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
 		Prompt:               "hello",
@@ -175,7 +175,7 @@ func TestPrepareTurnSkipsHydrateWhenAlreadyPopulated(t *testing.T) {
 			ContentHash: "shouldnotoverride1",
 		}},
 	}
-	svc := newService(silentLogger(), &stubPromptAssemblyService{}, nil, lookup, nil, nil, nil).(*service)
+	svc := newService(silentLogger(), &stubPromptAssemblyService{}, nil, lookup, nil, nil, nil, nil, NewToolResultRuntime()).(*service)
 	session := &stubSession{threadID: "thread-nohit"}
 
 	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
@@ -198,7 +198,7 @@ func TestPrepareTurnSkipsHydrateWhenAlreadyPopulated(t *testing.T) {
 func TestPrepareTurnStripsLegacyPromptForManualAndAutoMatchedSkills(t *testing.T) {
 	t.Parallel()
 
-	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{})
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime())
 	session := &stubSession{threadID: "thread-strip-prompt"}
 	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
 		Prompt:          "please use @debug on this issue",
@@ -223,7 +223,7 @@ func TestHydrateSkillRefsListSkillsErrorReturnsOriginal(t *testing.T) {
 	t.Parallel()
 
 	lookup := &stubSkillLookup{listErr: errors.New("boom")}
-	svc := newService(silentLogger(), &stubPromptAssemblyService{}, nil, lookup, nil, nil, nil).(*service)
+	svc := newService(silentLogger(), &stubPromptAssemblyService{}, nil, lookup, nil, nil, nil, nil, NewToolResultRuntime()).(*service)
 	original := []dto.SkillRef{{Name: "debug"}}
 
 	out, _ := svc.hydrateSkillRefs(contract.WithSkillCWD(context.Background(), "/repo"), original, false)
@@ -239,7 +239,7 @@ func TestHydrateSkillRefsSameNameConflictFailsClosed(t *testing.T) {
 	t.Parallel()
 
 	lookup := &stubSkillLookup{listErr: contract.ErrSkillSameNameConflict}
-	svc := newService(silentLogger(), &stubPromptAssemblyService{}, nil, lookup, nil, nil, nil).(*service)
+	svc := newService(silentLogger(), &stubPromptAssemblyService{}, nil, lookup, nil, nil, nil, nil, NewToolResultRuntime()).(*service)
 	original := []dto.SkillRef{{Name: "debug"}}
 
 	_, err := svc.hydrateSkillRefs(contract.WithSkillCWD(context.Background(), "/repo"), original, false)
@@ -255,7 +255,7 @@ func TestHydrateSkillRefsCaseFoldedDuplicateFailsClosed(t *testing.T) {
 		{Name: "Build", Dir: "/tmp/skills/Build", ContentHash: "1111111111111111"},
 		{Name: "build", Dir: "/tmp/skills/build", ContentHash: "2222222222222222"},
 	}}
-	svc := newService(silentLogger(), &stubPromptAssemblyService{}, nil, lookup, nil, nil, nil).(*service)
+	svc := newService(silentLogger(), &stubPromptAssemblyService{}, nil, lookup, nil, nil, nil, nil, NewToolResultRuntime()).(*service)
 	original := []dto.SkillRef{{Name: "build"}}
 
 	_, err := svc.hydrateSkillRefs(contract.WithSkillCWD(context.Background(), "/repo"), original, false)
@@ -278,7 +278,7 @@ func TestHydrateSkillRefsExactScopedSelectionAllowsSameName(t *testing.T) {
 			filepath.Join(personalDir, "SKILL.md"): "personal docs body",
 		},
 	}
-	svc := newService(silentLogger(), &stubPromptAssemblyService{}, nil, lookup, nil, nil, nil).(*service)
+	svc := newService(silentLogger(), &stubPromptAssemblyService{}, nil, lookup, nil, nil, nil, nil, NewToolResultRuntime()).(*service)
 	original := []dto.SkillRef{{
 		Name:         "docs",
 		Scope:        "personal",

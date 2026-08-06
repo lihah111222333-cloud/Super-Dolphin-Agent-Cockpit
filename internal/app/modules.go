@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -156,10 +157,13 @@ func AsRPCRunner(server *rpc.Server) RunnerResult {
 
 // provideProviderRuntimeHooks 把 module 层能力收窄成 provider/shared 的完整运行时依赖。
 // 返回已校验的 owner，让 provider 模块通过 Fx 图显式依赖同一实例，而不是依赖调用顺序。
-func provideProviderRuntimeHooks() (providershared.RuntimeHooks, error) {
+func provideProviderRuntimeHooks(toolResults *turn.ToolResultRuntime) (providershared.RuntimeHooks, error) {
+	if toolResults == nil {
+		return providershared.RuntimeHooks{}, errors.New("tool result runtime is required")
+	}
 	return providershared.ConfigureRuntimeHooks(providershared.RuntimeHooks{
 		Capture: func(meta providershared.ToolResultMeta, raw string) (providershared.ToolResultRecord, error) {
-			result := turn.CaptureToolResult(turn.ToolResultMeta{
+			result := toolResults.Capture(turn.ToolResultMeta{
 				ThreadID:  meta.ThreadID,
 				TurnID:    meta.TurnID,
 				CallID:    meta.CallID,
@@ -176,7 +180,7 @@ func provideProviderRuntimeHooks() (providershared.RuntimeHooks, error) {
 			}, nil
 		},
 		Reset: func(threadID, turnID string) error {
-			turn.ResetToolResultScope(threadID, turnID)
+			toolResults.ResetScope(threadID, turnID)
 			return nil
 		},
 	})

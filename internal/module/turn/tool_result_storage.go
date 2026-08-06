@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/toolresults"
 )
 
@@ -29,8 +30,23 @@ type ToolResultRecord struct {
 	OriginalSize  int
 }
 
-// CaptureToolResult 生成可放入上下文的工具结果预览，必要时把完整结果落盘并登记清理。
-func CaptureToolResult(meta ToolResultMeta, raw string) ToolResultRecord {
+// ToolResultRuntime 持有单个应用实例的工具结果预算与生命周期状态。
+type ToolResultRuntime struct {
+	budget    *toolResultBudgetRegistry
+	lifecycle *toolResultLifecycleRegistry
+}
+
+// NewToolResultRuntime 创建工具结果运行时 owner；每个应用 Fx 图必须只注入同一实例。
+func NewToolResultRuntime() *ToolResultRuntime {
+	return &ToolResultRuntime{
+		budget:    &toolResultBudgetRegistry{budgets: map[string]*toolResultBudget{}},
+		lifecycle: &toolResultLifecycleRegistry{threads: map[string][]toolResultLifecycleEntry{}},
+	}
+}
+
+// Capture 生成可放入上下文的工具结果预览，必要时把完整结果落盘并登记清理。
+func (r *ToolResultRuntime) Capture(meta ToolResultMeta, raw string) ToolResultRecord {
+	r.require()
 	originalSize := toolResultCharCount(raw)
 	if originalSize == 0 {
 		return ToolResultRecord{}
@@ -39,7 +55,7 @@ func CaptureToolResult(meta ToolResultMeta, raw string) ToolResultRecord {
 	if originalSize > toolResultPersistThresholdChars {
 		previewSource = truncateToolResultChars(raw, toolResultPersistThresholdChars)
 	}
-	preview, budgetTruncated := takeToolResultPreview(meta.ThreadID, meta.TurnID, previewSource)
+	preview, budgetTruncated := r.budget.Take(toolResultScope(meta.ThreadID, meta.TurnID), previewSource)
 	if toolResultCharCount(preview) < originalSize {
 		preview = repairTruncatedJSON(raw, preview)
 	}
@@ -57,8 +73,34 @@ func CaptureToolResult(meta ToolResultMeta, raw string) ToolResultRecord {
 			record.PersistedPath = path
 		}
 	}
-	registerToolResultLifecycle(meta, record)
+	r.lifecycle.Register(meta, record)
 	return record
+}
+
+// ResetScope 在 turn 结束时释放该 turn 的工具结果预览预算。
+func (r *ToolResultRuntime) ResetScope(threadID, turnID string) {
+	r.require()
+	r.budget.Reset(toolResultScope(threadID, turnID))
+}
+
+// Cleanup 按模型级 FRC 配置裁剪线程内旧工具结果。
+func (r *ToolResultRuntime) Cleanup(threadID, model string, cfg *contract.FRCConfig) ToolResultCleanupResult {
+	r.require()
+	return r.lifecycle.Cleanup(threadID, model, cfg)
+}
+
+// ResetThread 在线程清理时移除该线程所有已登记的大工具结果。
+func (r *ToolResultRuntime) ResetThread(threadID string) {
+	r.require()
+	r.lifecycle.Reset(threadID)
+}
+
+// require 校验 owner 已完整构造，避免预算与生命周期在缺失依赖下分叉。
+func (r *ToolResultRuntime) require() {
+	if r == nil || r.budget == nil || r.lifecycle == nil {
+		// archguard:ignore panic_count -- 缺失 owner 会让预算与生命周期跨应用共享，必须立即阻断。
+		panic("tool result runtime is required")
+	}
 }
 
 // persistToolResult 把完整工具结果写入私有缓存文件，并把失败原因返回给上层诊断。

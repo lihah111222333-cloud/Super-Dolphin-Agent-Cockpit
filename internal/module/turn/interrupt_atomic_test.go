@@ -58,7 +58,7 @@ func TestInterruptTargetCompareAndClaimIsAtomic(t *testing.T) {
 			return nil
 		},
 	}
-	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}).(*service)
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime()).(*service)
 	if _, err := svc.StartTurn(context.Background(), session, dto.TurnRequest{
 		LocalID: "local-1", ThreadID: "thread-atomic", Inputs: []dto.InputItem{{Type: "text", Content: "hello"}},
 	}); err != nil {
@@ -99,7 +99,7 @@ func TestInterruptProviderAcceptedRemainsAcceptedWhenTrackerAlreadyTerminal(t *t
 			return nil
 		},
 	}
-	svc = NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}).(*service)
+	svc = NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime()).(*service)
 	if _, err := svc.StartTurn(context.Background(), session, dto.TurnRequest{
 		LocalID: "local-accepted", ThreadID: "thread-accepted", Inputs: []dto.InputItem{{Type: "text", Content: "hello"}},
 	}); err != nil {
@@ -130,7 +130,7 @@ func TestConcurrentInterruptAfterProviderAcceptanceIsIdempotent(t *testing.T) {
 			return nil
 		},
 	}
-	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}).(*service)
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime()).(*service)
 	if _, err := svc.StartTurn(context.Background(), session, dto.TurnRequest{
 		LocalID: "local-idempotent", ThreadID: "thread-idempotent", Inputs: []dto.InputItem{{Type: "text", Content: "hello"}},
 	}); err != nil {
@@ -177,7 +177,7 @@ func testInterruptAcceptedRequestIDFirstWins(t *testing.T, firstRequestID, secon
 			return nil
 		},
 	}
-	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}).(*service)
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime()).(*service)
 	if _, err := svc.StartTurn(context.Background(), session, dto.TurnRequest{
 		LocalID: "local-sequential", ThreadID: "thread-sequential", Inputs: []dto.InputItem{{Type: "text", Content: "hello"}},
 	}); err != nil {
@@ -236,7 +236,7 @@ func TestConcurrentInterruptDifferentRequestIDsHaveOneAcceptedOwner(t *testing.T
 			return nil
 		},
 	}
-	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}).(*service)
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime()).(*service)
 	if _, err := svc.StartTurn(context.Background(), session, dto.TurnRequest{
 		LocalID: "local-concurrent", ThreadID: "thread-concurrent", Inputs: []dto.InputItem{{Type: "text", Content: "hello"}},
 	}); err != nil {

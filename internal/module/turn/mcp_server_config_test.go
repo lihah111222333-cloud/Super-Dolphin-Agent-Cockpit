@@ -14,7 +14,7 @@ func TestPrepareTurnMergesConfiguredMCPServersIntoAssemblyInput(t *testing.T) {
 	t.Parallel()
 
 	assembly := &stubPromptAssemblyService{}
-	svc := NewServiceWithPromptAssembly(silentLogger(), assembly).(*service)
+	svc := NewServiceWithPromptAssembly(silentLogger(), assembly, NewToolResultRuntime()).(*service)
 	svc.mcpServers = staticTurnMCPServerConfigProvider{servers: map[string]contract.MCPServerConfig{
 		"my-search": {
 			TrustedServerID: "my-search",
@@ -54,7 +54,7 @@ func TestPrepareTurnSkipsDisabledConfiguredMCPServers(t *testing.T) {
 	t.Parallel()
 
 	assembly := &stubPromptAssemblyService{}
-	svc := NewServiceWithPromptAssembly(silentLogger(), assembly).(*service)
+	svc := NewServiceWithPromptAssembly(silentLogger(), assembly, NewToolResultRuntime()).(*service)
 	svc.mcpServers = staticTurnMCPServerConfigProvider{servers: map[string]contract.MCPServerConfig{
 		"sqlite": {
 			Transport: "stdio",

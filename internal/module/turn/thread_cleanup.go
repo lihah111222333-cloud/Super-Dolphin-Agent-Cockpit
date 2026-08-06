@@ -27,6 +27,6 @@ func (s *service) InterruptActiveTurn(ctx context.Context, session contract.Sess
 // 该路径不访问 provider，只负责本进程内状态和落盘缓存的关闭收口。
 func (s *service) CleanupThread(_ context.Context, threadID, reason string) error {
 	s.tracker.AbortThread(threadID, reason)
-	resetToolResultLifecycle(threadID)
+	s.toolResults.ResetThread(threadID)
 	return nil
 }

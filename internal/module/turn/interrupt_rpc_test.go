@@ -31,7 +31,7 @@ func TestTurnInterruptHandlerReturnsEnvelope(t *testing.T) {
 			return nil
 		},
 	}
-	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{})
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime())
 	_, err := svc.StartTurn(context.Background(), session, dto.TurnRequest{
 		LocalID:  "local-1",
 		ThreadID: "thread-1",
@@ -75,7 +75,7 @@ func TestTurnInterruptConflictEchoesAcceptedRequestID(t *testing.T) {
 			return nil
 		},
 	}
-	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{})
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime())
 	startInterruptRPCTestTurn(t, svc, session, dto.TurnRequest{
 		LocalID: "local-request-id", ThreadID: "thread-request-id", Inputs: []dto.InputItem{{Type: "text", Content: "hello"}},
 	})
@@ -141,7 +141,7 @@ func testTurnInterruptNotAppliedKeepsOriginalTurnActive(t *testing.T) {
 			return contract.ErrInterruptTargetChanged
 		},
 	}
-	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{})
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime())
 	startInterruptRPCTestTurn(t, svc, session, dto.TurnRequest{
 		LocalID: "local-not-applied", ThreadID: "thread-not-applied", Inputs: []dto.InputItem{{Type: "text", Content: "hello"}},
 	})
@@ -206,7 +206,7 @@ func testTurnInterruptTargetChangedHasZeroProviderSideEffects(t *testing.T) {
 			return nil
 		},
 	}
-	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{})
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime())
 	if _, err := svc.StartTurn(context.Background(), session, dto.TurnRequest{
 		LocalID: "local-2", ThreadID: "thread-target-changed", Inputs: []dto.InputItem{{Type: "text", Content: "hello"}},
 	}); err != nil {
@@ -242,7 +242,7 @@ func TestTurnInterruptHandlerAcceptsSnakeThreadID(t *testing.T) {
 			return nil
 		},
 	}
-	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{})
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime())
 	_, err := svc.StartTurn(context.Background(), session, dto.TurnRequest{
 		LocalID:  "local-snake",
 		ThreadID: "thread-snake",
@@ -272,7 +272,7 @@ func TestTurnInterruptHandlerRequiresThreadID(t *testing.T) {
 	t.Parallel()
 
 	server := platformrpc.NewServer(platformrpc.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
-	server.Register(handler.Map{"turn/interrupt": turnInterruptHandler(NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}), rpcHelperResolver{})})
+	server.Register(handler.Map{"turn/interrupt": turnInterruptHandler(NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime()), rpcHelperResolver{})})
 	_, err := server.Dispatch(context.Background(), "turn/interrupt", json.RawMessage(`{"expectedTurnId":"local-required","requestId":"stop-required","source":"user"}`))
 	if err == nil || !strings.Contains(err.Error(), "threadId is required") {
 		t.Fatalf("Dispatch() error = %v, want threadId required", err)
@@ -293,7 +293,7 @@ func TestTurnInterruptHandlerRejectsUnknownField(t *testing.T) {
 			return nil
 		},
 	}
-	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{})
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime())
 	_, err := svc.StartTurn(context.Background(), session, dto.TurnRequest{
 		LocalID:  "local-unknown",
 		ThreadID: "thread-unknown",
@@ -329,7 +329,7 @@ func testTurnInterruptHandlerReturnsTimeoutEnvelope(t *testing.T) {
 		},
 		interrupt: func(context.Context, dto.InterruptRequest) error { return nil },
 	}
-	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}).(*service)
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime()).(*service)
 	svc.interruptSettleTimeout = 25 * time.Millisecond
 	_, err := svc.StartTurn(context.Background(), session, dto.TurnRequest{
 		LocalID:  "local-timeout",
@@ -373,7 +373,7 @@ func TestForceCompleteRPCDoesNotReportSuccessWhenProviderNoTarget(t *testing.T) 
 			return forceCompleteTargetNotFoundTestError{}
 		},
 	}
-	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{})
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime())
 	if _, err := svc.StartTurn(context.Background(), session, dto.TurnRequest{
 		LocalID:  "local-force",
 		ThreadID: "thread-force",

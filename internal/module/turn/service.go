@@ -40,6 +40,7 @@ type service struct {
 	observation            turnobservation.Contract
 	mcpServers             contract.MCPServerConfigProvider
 	tracing                *platformobs.Service
+	toolResults            *ToolResultRuntime
 	interruptSettleTimeout time.Duration
 	// dedupeStore 持久化 dedupe_key 到 local_turn_id 的镜像；未注入时只依赖进程内 tracker。
 	// 注入后 StartTurn 写入 registry，Complete/Stall 路径写 terminal_at，供重启恢复避重。
@@ -56,13 +57,13 @@ type steerableSession interface {
 }
 
 // NewService 创建只包含默认组装能力的 turn 服务，主要用于轻量测试和旧 wiring。
-func NewService(logger *slog.Logger) Service {
-	return newService(logger, nil, nil, nil, nil, nil, contract.BuildManifest, nil)
+func NewService(logger *slog.Logger, toolResults *ToolResultRuntime) Service {
+	return newService(logger, nil, nil, nil, nil, nil, contract.BuildManifest, nil, toolResults)
 }
 
 // NewServiceWithPromptAssembly 创建带 prompt assembly 能力的 turn 服务。
-func NewServiceWithPromptAssembly(logger *slog.Logger, promptAssembly contract.PromptAssemblyService) Service {
-	return newService(logger, promptAssembly, nil, nil, nil, nil, contract.BuildManifest, nil)
+func NewServiceWithPromptAssembly(logger *slog.Logger, promptAssembly contract.PromptAssemblyService, toolResults *ToolResultRuntime) Service {
+	return newService(logger, promptAssembly, nil, nil, nil, nil, contract.BuildManifest, nil, toolResults)
 }
 
 // NewServiceWithPromptAssemblyAndTurnContext 创建完整 wiring 使用的 turn 服务。
@@ -77,12 +78,13 @@ func NewServiceWithPromptAssemblyAndTurnContext(
 	manifestBuild contract.ManifestBuildFunc,
 	mcpServers contract.MCPServerConfigProvider,
 	tracing *platformobs.Service,
+	toolResults *ToolResultRuntime,
 ) Service {
 	var lookup skillHydrationPort
 	if skillSvc != nil {
 		lookup = skillSvc
 	}
-	svc := newService(logger, promptAssembly, turnContextProvider, lookup, observation, dedupeStore, manifestBuild, tracing)
+	svc := newService(logger, promptAssembly, turnContextProvider, lookup, observation, dedupeStore, manifestBuild, tracing, toolResults)
 	if typed, ok := svc.(*service); ok {
 		typed.mcpServers = mcpServers
 	}
@@ -98,14 +100,15 @@ func newService(
 	observation turnobservation.Contract,
 	dedupeStore DedupeStore,
 	manifestBuild contract.ManifestBuildFunc,
-	tracingOpt ...*platformobs.Service,
+	tracing *platformobs.Service,
+	toolResults *ToolResultRuntime,
 ) Service {
+	if toolResults == nil {
+		// archguard:ignore panic_count -- turn 服务必须与 provider hook 共享显式 owner，缺失时不能继续运行。
+		panic("tool result runtime is required")
+	}
 	if logger == nil {
 		logger = pkglogger.Get()
-	}
-	var tracing *platformobs.Service
-	if len(tracingOpt) > 0 {
-		tracing = tracingOpt[0]
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	if manifestBuild == nil {
@@ -121,6 +124,7 @@ func newService(
 		skillLookup:            skillLookup,
 		observation:            observation,
 		tracing:                tracing,
+		toolResults:            toolResults,
 		dedupeStore:            dedupeStore,
 		interruptSettleTimeout: ctxutil.InterruptSettleTimeout,
 		ctx:                    ctx,

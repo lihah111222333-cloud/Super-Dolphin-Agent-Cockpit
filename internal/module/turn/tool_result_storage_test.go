@@ -9,13 +9,24 @@ import (
 	"time"
 )
 
+func TestToolResultRuntimeRequiresOwner(t *testing.T) {
+	var toolResults *ToolResultRuntime
+	defer func() {
+		if recover() == nil {
+			t.Fatal("Capture() did not panic for a nil tool result runtime")
+		}
+	}()
+	toolResults.Capture(ToolResultMeta{}, "result")
+}
+
 func TestCaptureToolResultPersistsLargePayload(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	ResetToolResultScope("thread-1", "turn-1")
+	toolResults := NewToolResultRuntime()
+	toolResults.ResetScope("thread-1", "turn-1")
 
 	raw := strings.Repeat("x", toolResultPersistThresholdChars+32)
-	record := CaptureToolResult(ToolResultMeta{
+	record := toolResults.Capture(ToolResultMeta{
 		ThreadID:  "thread-1",
 		TurnID:    "turn-1",
 		CallID:    "call-1",
@@ -50,10 +61,11 @@ func TestToolResultPersistFailurePropagatesToProviderRecord(t *testing.T) {
 	}
 	t.Setenv("HOME", homeFile)
 	t.Setenv("XDG_CACHE_HOME", homeFile)
-	ResetToolResultScope("thread-persist-fail", "turn-persist-fail")
+	toolResults := NewToolResultRuntime()
+	toolResults.ResetScope("thread-persist-fail", "turn-persist-fail")
 
 	raw := strings.Repeat("x", toolResultPersistThresholdChars+32)
-	record := CaptureToolResult(ToolResultMeta{
+	record := toolResults.Capture(ToolResultMeta{
 		ThreadID:  "thread-persist-fail",
 		TurnID:    "turn-persist-fail",
 		CallID:    "call-persist-fail",
@@ -77,11 +89,12 @@ func TestToolResultPersistFailurePropagatesToProviderRecord(t *testing.T) {
 func TestCaptureToolResultBudgetResetsPerTurnScope(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	ResetToolResultScope("thread-2", "turn-2")
+	toolResults := NewToolResultRuntime()
+	toolResults.ResetScope("thread-2", "turn-2")
 
-	first := CaptureToolResult(ToolResultMeta{ThreadID: "thread-2", TurnID: "turn-2"}, strings.Repeat("a", 40_000))
-	second := CaptureToolResult(ToolResultMeta{ThreadID: "thread-2", TurnID: "turn-2"}, strings.Repeat("b", 40_000))
-	third := CaptureToolResult(ToolResultMeta{ThreadID: "thread-2", TurnID: "turn-2"}, strings.Repeat("c", 50_000))
+	first := toolResults.Capture(ToolResultMeta{ThreadID: "thread-2", TurnID: "turn-2"}, strings.Repeat("a", 40_000))
+	second := toolResults.Capture(ToolResultMeta{ThreadID: "thread-2", TurnID: "turn-2"}, strings.Repeat("b", 40_000))
+	third := toolResults.Capture(ToolResultMeta{ThreadID: "thread-2", TurnID: "turn-2"}, strings.Repeat("c", 50_000))
 	if first.Truncated || second.Truncated {
 		t.Fatalf("unexpected truncation before budget exhaustion: first=%+v second=%+v", first, second)
 	}
@@ -91,8 +104,8 @@ func TestCaptureToolResultBudgetResetsPerTurnScope(t *testing.T) {
 	if got := len([]rune(third.Preview)); got != 40_000 {
 		t.Fatalf("third preview chars = %d, want 40000 remaining-budget preview", got)
 	}
-	ResetToolResultScope("thread-2", "turn-2")
-	reset := CaptureToolResult(ToolResultMeta{ThreadID: "thread-2", TurnID: "turn-2"}, strings.Repeat("d", 50_000))
+	toolResults.ResetScope("thread-2", "turn-2")
+	reset := toolResults.Capture(ToolResultMeta{ThreadID: "thread-2", TurnID: "turn-2"}, strings.Repeat("d", 50_000))
 	if reset.Truncated {
 		t.Fatalf("reset result = %+v, want full preview after scope reset", reset)
 	}
@@ -155,13 +168,14 @@ func TestRepairTruncatedJSON_NoCleanPosition(t *testing.T) {
 func TestCaptureToolResultRepairsJSON(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	ResetToolResultScope("thread-json", "turn-json")
+	toolResults := NewToolResultRuntime()
+	toolResults.ResetScope("thread-json", "turn-json")
 
 	original := `[` + strings.Repeat(`{"id":1,"name":"test"},`, 5000) + `{"id":5001,"name":"last"}]`
 	if !json.Valid([]byte(original)) {
 		t.Fatal("test setup: original is not valid JSON")
 	}
-	record := CaptureToolResult(ToolResultMeta{
+	record := toolResults.Capture(ToolResultMeta{
 		ThreadID: "thread-json",
 		TurnID:   "turn-json",
 		CallID:   "call-json",

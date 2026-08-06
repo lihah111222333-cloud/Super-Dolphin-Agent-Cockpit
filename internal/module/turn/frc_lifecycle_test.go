@@ -15,16 +15,17 @@ func TestCleanupToolResultLifecycleKeepsMostRecent(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	threadID := "thread-lifecycle-keep"
-	resetToolResultLifecycle(threadID)
-	t.Cleanup(func() { resetToolResultLifecycle(threadID) })
+	toolResults := NewToolResultRuntime()
+	toolResults.ResetThread(threadID)
+	t.Cleanup(func() { toolResults.ResetThread(threadID) })
 
 	raw := strings.Repeat("x", toolResultPersistThresholdChars+16)
-	first := CaptureToolResult(ToolResultMeta{ThreadID: threadID, TurnID: "turn-1", Timestamp: time.Date(2026, 4, 15, 10, 0, 0, 0, time.UTC)}, raw)
-	second := CaptureToolResult(ToolResultMeta{ThreadID: threadID, TurnID: "turn-2", Timestamp: time.Date(2026, 4, 15, 10, 1, 0, 0, time.UTC)}, raw)
+	first := toolResults.Capture(ToolResultMeta{ThreadID: threadID, TurnID: "turn-1", Timestamp: time.Date(2026, 4, 15, 10, 0, 0, 0, time.UTC)}, raw)
+	second := toolResults.Capture(ToolResultMeta{ThreadID: threadID, TurnID: "turn-2", Timestamp: time.Date(2026, 4, 15, 10, 1, 0, 0, time.UTC)}, raw)
 	if first.PersistedPath == "" || second.PersistedPath == "" {
 		t.Fatalf("persisted paths = (%q, %q), want stored files", first.PersistedPath, second.PersistedPath)
 	}
-	result := cleanupToolResultLifecycle(threadID, "gpt-5.5", &contract.FRCConfig{Enabled: true, SupportedModels: []string{"gpt-5.5"}, KeepRecent: 1})
+	result := toolResults.Cleanup(threadID, "gpt-5.5", &contract.FRCConfig{Enabled: true, SupportedModels: []string{"gpt-5.5"}, KeepRecent: 1})
 	if result.Cleared != 1 || result.Kept != 1 || result.DeletedFiles != 1 {
 		t.Fatalf("cleanup result = %+v, want cleared=1 kept=1 deleted=1", result)
 	}
@@ -40,17 +41,18 @@ func TestPrepareTurnCleansStaleToolResultsWhenFRCEnabled(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	threadID := "thread-lifecycle-prepare"
-	resetToolResultLifecycle(threadID)
-	t.Cleanup(func() { resetToolResultLifecycle(threadID) })
+	toolResults := NewToolResultRuntime()
+	toolResults.ResetThread(threadID)
+	t.Cleanup(func() { toolResults.ResetThread(threadID) })
 
 	raw := strings.Repeat("y", toolResultPersistThresholdChars+32)
-	first := CaptureToolResult(ToolResultMeta{ThreadID: threadID, TurnID: "turn-a", Timestamp: time.Date(2026, 4, 15, 11, 0, 0, 0, time.UTC)}, raw)
-	second := CaptureToolResult(ToolResultMeta{ThreadID: threadID, TurnID: "turn-b", Timestamp: time.Date(2026, 4, 15, 11, 1, 0, 0, time.UTC)}, raw)
+	first := toolResults.Capture(ToolResultMeta{ThreadID: threadID, TurnID: "turn-a", Timestamp: time.Date(2026, 4, 15, 11, 0, 0, 0, time.UTC)}, raw)
+	second := toolResults.Capture(ToolResultMeta{ThreadID: threadID, TurnID: "turn-b", Timestamp: time.Date(2026, 4, 15, 11, 1, 0, 0, time.UTC)}, raw)
 	if first.PersistedPath == "" || second.PersistedPath == "" {
 		t.Fatalf("persisted paths = (%q, %q), want stored files", first.PersistedPath, second.PersistedPath)
 	}
 
-	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{})
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, toolResults)
 	session := &stubSession{
 		threadID: threadID,
 		runtimeConfig: map[string]any{

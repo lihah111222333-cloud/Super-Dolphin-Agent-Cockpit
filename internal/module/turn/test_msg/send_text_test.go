@@ -38,7 +38,7 @@ func TestServiceSendsTextMessage(t *testing.T) {
 			t.Parallel()
 
 			session := newMessageSession()
-			svc := moduleturn.NewServiceWithPromptAssembly(pkglogger.Get(), &messagePromptAssembly{})
+			svc := moduleturn.NewServiceWithPromptAssembly(pkglogger.Get(), &messagePromptAssembly{}, moduleturn.NewToolResultRuntime())
 			t.Cleanup(func() {
 				if shutdowner, ok := svc.(interface{ Shutdown() }); ok {
 					shutdowner.Shutdown()

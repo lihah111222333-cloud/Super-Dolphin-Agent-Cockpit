@@ -37,7 +37,7 @@ func TestTurnPrepareTraceCountsOnlyAndNoPromptPayload(t *testing.T) {
 	t.Parallel()
 
 	sink := &turnTraceSink{}
-	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}).(*service)
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime()).(*service)
 	svc.tracing = platformobs.NewService(mustTurnTraceConfig(t), platformobs.WithSink(sink))
 	session := &stubSession{threadID: "thread-trace-1"}
 	secretPrompt := "user secret memory payload"
@@ -79,7 +79,7 @@ func TestTurnStartAndWatchTraceStatus(t *testing.T) {
 	t.Parallel()
 
 	sink := &turnTraceSink{}
-	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}).(*service)
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime()).(*service)
 	svc.tracing = platformobs.NewService(mustTurnTraceConfig(t), platformobs.WithSink(sink))
 	handle := newStubTurnHandle("turn-local-1", "provider-turn-1")
 	session := &stubSession{threadID: "thread-trace-2", startTurn: func(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {

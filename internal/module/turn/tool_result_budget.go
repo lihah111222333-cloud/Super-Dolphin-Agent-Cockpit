@@ -29,15 +29,6 @@ type toolResultBudgetRegistry struct {
 	budgets map[string]*toolResultBudget
 }
 
-var defaultToolResultBudgetRegistry = &toolResultBudgetRegistry{
-	budgets: map[string]*toolResultBudget{},
-}
-
-// ResetToolResultScope 在 turn 结束或清理时释放该 turn 的工具结果预览预算。
-func ResetToolResultScope(threadID, turnID string) {
-	defaultToolResultBudgetRegistry.Reset(toolResultScope(threadID, turnID))
-}
-
 // Reset 删除指定预算作用域；空 scope 表示调用方没有足够信息，直接跳过。
 func (r *toolResultBudgetRegistry) Reset(scope string) {
 	scope = strings.TrimSpace(scope)
@@ -47,11 +38,6 @@ func (r *toolResultBudgetRegistry) Reset(scope string) {
 	r.mu.Lock()
 	delete(r.budgets, scope)
 	r.mu.Unlock()
-}
-
-// takeToolResultPreview 从默认注册表扣减预算并返回可放入上下文的预览文本。
-func takeToolResultPreview(threadID, turnID, raw string) (string, bool) {
-	return defaultToolResultBudgetRegistry.Take(toolResultScope(threadID, turnID), raw)
 }
 
 // Take 按 scope 递减预览预算；没有 scope 时仍使用单条结果上限，避免无限扩张。

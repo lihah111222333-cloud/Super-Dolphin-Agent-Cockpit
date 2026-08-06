@@ -17,10 +17,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestNewServiceRequiresToolResultRuntime(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("NewService() did not panic for a nil tool result runtime")
+		}
+	}()
+	NewService(silentLogger(), nil)
+}
+
 func TestPrepareTurnKeepsSkillRefsMetadataOnlyAndNormalizesInputs(t *testing.T) {
 	t.Parallel()
 
-	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{})
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime())
 	session := &stubSession{threadID: "thread-1"}
 	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
 		Prompt: "Please use @debug and [skill:deploy-tool] on this issue.",
@@ -88,7 +97,7 @@ func TestInputAssemblerKeepsFileContentBoundaryDifferences(t *testing.T) {
 func TestPrepareTurnManualSkillSelectionDisablesAutoMatch(t *testing.T) {
 	t.Parallel()
 
-	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{})
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime())
 	session := &stubSession{threadID: "thread-1"}
 	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
 		Prompt:               "Please use @debug on this issue.",
@@ -109,7 +118,7 @@ func TestPrepareTurnManualSkillSelectionDisablesAutoMatch(t *testing.T) {
 func TestPrepareTurnProviderNativeSkillsDisabledForcesManualSkillMode(t *testing.T) {
 	t.Parallel()
 
-	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{})
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime())
 	session := &stubSession{threadID: "thread-1"}
 	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
 		Prompt:          "Please use @debug on this issue.",
@@ -133,7 +142,7 @@ func TestPrepareTurnRejectsUnknownInputTypeAtServiceBoundary(t *testing.T) {
 	t.Parallel()
 
 	assembly := &stubPromptAssemblyService{}
-	svc := NewServiceWithPromptAssembly(silentLogger(), assembly)
+	svc := NewServiceWithPromptAssembly(silentLogger(), assembly, NewToolResultRuntime())
 	session := &stubSession{threadID: "thread-1"}
 	_, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
 		Inputs: []InputItem{{Type: "mystery", Content: "hello"}},
@@ -166,7 +175,7 @@ func TestPrepareTurnTruncatesInputCount(t *testing.T) {
 		items = append(items, InputItem{Type: "mention", Path: fmt.Sprintf("./doc-%03d.md", i)})
 	}
 
-	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{})
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime())
 	session := &stubSession{threadID: "thread-1"}
 	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{Inputs: items})
 	if err != nil {
@@ -185,7 +194,7 @@ func TestPrepareTurnUsesExecutableBinaryDirForManifest(t *testing.T) {
 		t.Fatalf("os.Executable() error = %v", err)
 	}
 
-	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{})
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime())
 	session := &stubSession{threadID: "thread-1"}
 	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{})
 	if err != nil {
@@ -203,7 +212,7 @@ func TestPrepareTurnPrefersPeerBinDirEnvForManifest(t *testing.T) {
 	writeTurnDummyBinary(t, peerDir, "mcp-lsp")
 	t.Setenv("GO_AGENT_PEER_BIN_DIR", peerDir)
 
-	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{})
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime())
 	session := &stubSession{threadID: "thread-1"}
 	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{})
 	if err != nil {
@@ -219,7 +228,7 @@ func TestPrepareTurnPrefersPeerBinDirEnvForManifest(t *testing.T) {
 func TestPrepareTurnPrefersExplicitBinaryDir(t *testing.T) {
 	t.Parallel()
 
-	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{})
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime())
 	session := &stubSession{threadID: "thread-1"}
 	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{BinaryDir: "/tmp/turn-bin"})
 	if err != nil {
@@ -238,7 +247,7 @@ func TestPrepareTurnInjectsTurnAssembly(t *testing.T) {
 	assembly := &stubPromptAssemblyService{
 		turn: contract.TurnAssembly{UserContextText: "assembled user context"},
 	}
-	svc := NewServiceWithPromptAssembly(silentLogger(), assembly)
+	svc := NewServiceWithPromptAssembly(silentLogger(), assembly, NewToolResultRuntime())
 	session := &stubSession{
 		threadID: "thread-1",
 		runtimeConfig: map[string]any{
@@ -282,7 +291,7 @@ func TestPrepareTurnInjectsTurnAssembly(t *testing.T) {
 func TestPrepareTurnRejectsMissingPromptAssembly(t *testing.T) {
 	t.Parallel()
 
-	svc := NewService(silentLogger())
+	svc := NewService(silentLogger(), NewToolResultRuntime())
 	session := &stubSession{threadID: "thread-1"}
 	_, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
 		Prompt: "please verify the cache",
@@ -338,7 +347,7 @@ func TestSteerTurnPropagatesTurnAssembly(t *testing.T) {
 			return nil
 		},
 	}
-	svc := NewServiceWithPromptAssembly(silentLogger(), assembly)
+	svc := NewServiceWithPromptAssembly(silentLogger(), assembly, NewToolResultRuntime())
 	started, err := svc.StartTurn(context.Background(), session, dto.TurnRequest{
 		LocalID:  "local-2",
 		ThreadID: "thread-1",
@@ -378,7 +387,7 @@ func TestInterruptTurnWaitsForSettle(t *testing.T) {
 		},
 	}
 
-	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{})
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime())
 	_, err := svc.StartTurn(context.Background(), session, dto.TurnRequest{
 		LocalID:  "local-1",
 		ThreadID: "thread-1",
@@ -431,7 +440,7 @@ func TestSteerTurnAppendsToActiveTurn(t *testing.T) {
 		},
 	}
 
-	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{})
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime())
 	started, err := svc.StartTurn(context.Background(), session, dto.TurnRequest{
 		LocalID:  "local-2",
 		ThreadID: "thread-1",
@@ -466,7 +475,7 @@ func TestForceCompleteTurnLeavesFinalStateToWatcher(t *testing.T) {
 		},
 	}
 
-	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{})
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime())
 	_, err := svc.StartTurn(context.Background(), session, dto.TurnRequest{
 		LocalID:  "local-2",
 		ThreadID: "thread-2",
@@ -634,7 +643,7 @@ func skillNames(refs []dto.SkillRef) []string {
 func TestServiceLookupByDedupeKeyRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{})
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime())
 	session := &stubSession{
 		threadID: "thread-1",
 		startTurn: func(_ context.Context, _ dto.TurnRequest) (contract.TurnHandle, error) {
@@ -674,7 +683,7 @@ func TestServiceLookupByDedupeKeyRoundTrip(t *testing.T) {
 func TestServiceLookupByDedupeKeyEmpty(t *testing.T) {
 	t.Parallel()
 
-	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{})
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime())
 	_, ok, err := svc.LookupByDedupeKey(context.Background(), "  ")
 	if err != nil {
 		t.Fatalf("LookupByDedupeKey err = %v", err)

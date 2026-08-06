@@ -28,25 +28,6 @@ type toolResultLifecycleRegistry struct {
 	threads map[string][]toolResultLifecycleEntry
 }
 
-var defaultToolResultLifecycleRegistry = &toolResultLifecycleRegistry{
-	threads: map[string][]toolResultLifecycleEntry{},
-}
-
-// registerToolResultLifecycle 把持久化过的大工具结果登记到默认生命周期表。
-func registerToolResultLifecycle(meta ToolResultMeta, record ToolResultRecord) {
-	defaultToolResultLifecycleRegistry.Register(meta, record)
-}
-
-// cleanupToolResultLifecycle 按模型级 FRC 配置裁剪线程内旧工具结果。
-func cleanupToolResultLifecycle(threadID, model string, cfg *contract.FRCConfig) ToolResultCleanupResult {
-	return defaultToolResultLifecycleRegistry.Cleanup(threadID, model, cfg)
-}
-
-// resetToolResultLifecycle 在线程清理时移除该线程所有已登记的大工具结果。
-func resetToolResultLifecycle(threadID string) {
-	defaultToolResultLifecycleRegistry.Reset(threadID)
-}
-
 // Register 记录一次可清理的工具结果；空线程或未落盘记录不会进入生命周期表。
 func (r *toolResultLifecycleRegistry) Register(meta ToolResultMeta, record ToolResultRecord) {
 	threadID := strings.TrimSpace(meta.ThreadID)

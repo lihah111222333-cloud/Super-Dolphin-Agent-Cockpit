@@ -14,7 +14,7 @@ func TestPrepareTurnRecordsSkillsSelected(t *testing.T) {
 	t.Parallel()
 
 	mem := observation.NewMemory()
-	svc := newService(silentLogger(), &stubPromptAssemblyService{}, nil, nil, mem, nil, nil)
+	svc := newService(silentLogger(), &stubPromptAssemblyService{}, nil, nil, mem, nil, nil, nil, NewToolResultRuntime())
 	session := &stubSession{threadID: "thread-1"}
 
 	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
@@ -40,7 +40,7 @@ func TestProviderTurnCreationMapsToLocalTurnID(t *testing.T) {
 	t.Parallel()
 
 	mem := observation.NewMemory()
-	svc := newService(silentLogger(), &stubPromptAssemblyService{}, nil, nil, mem, nil, nil)
+	svc := newService(silentLogger(), &stubPromptAssemblyService{}, nil, nil, mem, nil, nil, nil, NewToolResultRuntime())
 	session := &stubSession{
 		threadID: "thread-1",
 		startTurn: func(_ context.Context, req dto.TurnRequest) (contract.TurnHandle, error) {

@@ -39,7 +39,7 @@ func (p failingMemoryTurnContextProvider) PrepareTurnContextWithError(context.Co
 
 func TestPrepareTurnPrependsSyntheticMemoryInputs(t *testing.T) {
 	assembly := &stubPromptAssemblyService{turn: contract.TurnAssembly{UserContextText: "assembled user context"}}
-	svc := NewServiceWithPromptAssembly(silentLogger(), assembly).(*service)
+	svc := NewServiceWithPromptAssembly(silentLogger(), assembly, NewToolResultRuntime()).(*service)
 	svc.turnContextProvider = turnContextProviderFunc(func(context.Context, contract.Session, contract.BuildCtx, string, string) contract.TurnContextPayload {
 		return contract.TurnContextPayload{
 			Inputs: []InputItem{{Type: "filecontent", Content: "Past context transcript:\nUse concise imperative commit messages."}},
@@ -82,7 +82,7 @@ func TestPrepareTurnPrependsSyntheticMemoryInputs(t *testing.T) {
 
 func TestPrepareTurnReturnsMemoryContextErrorBeforeAssemblingProviderInputs(t *testing.T) {
 	assembly := &stubPromptAssemblyService{turn: contract.TurnAssembly{UserContextText: "assembled user context"}}
-	svc := NewServiceWithPromptAssembly(silentLogger(), assembly).(*service)
+	svc := NewServiceWithPromptAssembly(silentLogger(), assembly, NewToolResultRuntime()).(*service)
 	absPath := filepath.Join(t.TempDir(), "memory", "broken.md")
 	safeErr := errors.New("memory_prefetch_failed stage=prefetch")
 	svc.turnContextProvider = failingMemoryTurnContextProvider{

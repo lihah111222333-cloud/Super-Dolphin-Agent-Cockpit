@@ -11,10 +11,11 @@ import (
 
 var Module = fx.Module("turn",
 	fx.Provide(
+		NewToolResultRuntime,
 		fx.Annotate(
 			NewServiceWithPromptAssemblyAndTurnContext,
 			// 这些跨模块依赖均为可选注入：缺失时 turn 仍能启动，只跳过对应的 skill、observation、dedupe 或 tracing 能力。
-			fx.ParamTags("", `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`),
+			fx.ParamTags("", `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, ""),
 			// 同时发布完整 turn.Service 和窄接口 TurnThreadCleaner，避免 thread 模块反向导入 turn 包。
 			fx.As(new(Service)),
 			fx.As(new(contract.TurnThreadCleaner)),

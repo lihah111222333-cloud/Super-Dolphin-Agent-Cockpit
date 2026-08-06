@@ -127,7 +127,7 @@ func newRealTurnInterruptLauncher(t *testing.T, activeTurnID string) (*remoteLau
 	t.Helper()
 	handle := newRealTurnInterruptHandle(activeTurnID)
 	session := &realTurnInterruptSession{threadID: "thread-1", handle: handle}
-	svc := turnmodule.NewService(nil)
+	svc := turnmodule.NewService(nil, turnmodule.NewToolResultRuntime())
 	if _, err := svc.StartTurn(context.Background(), session, providerdto.TurnRequest{
 		LocalID: activeTurnID, ThreadID: session.threadID, Inputs: []providerdto.InputItem{{Type: "text", Content: "interrupt contract"}},
 	}); err != nil {

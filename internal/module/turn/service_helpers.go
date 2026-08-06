@@ -111,7 +111,7 @@ func waitForHandle(ctx context.Context, handle contract.TurnHandle, deadline tim
 
 // cleanupStaleToolResults 按 FRC 配置清理旧工具结果，并在有清理时记录 debug 日志。
 func (s *service) cleanupStaleToolResults(threadID string, input PrepareInput) {
-	result := cleanupToolResultLifecycle(threadID, input.Model, input.FRCConfig)
+	result := s.toolResults.Cleanup(threadID, input.Model, input.FRCConfig)
 	if s == nil || s.logger == nil || result.Cleared == 0 {
 		return
 	}
