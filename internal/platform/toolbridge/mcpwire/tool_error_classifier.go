@@ -90,7 +90,7 @@ func ClassifyToolErrorWithClassifier(toolName string, err error, classifier Tool
 	}
 	message := strings.ToLower(err.Error())
 	normalizedTool := strings.ToLower(strings.TrimSpace(toolName))
-	for _, classifier := range toolErrorClassifiers {
+	for _, classifier := range defaultToolErrorClassifiers() {
 		if classifier.match(err, message, normalizedTool) {
 			return classifier.code, classifier.retryable, classifier.hint(normalizedTool, message), nil
 		}
@@ -105,210 +105,296 @@ type toolErrorClassifier struct {
 	match     func(error, string, string) bool
 }
 
-var toolErrorClassifiers = []toolErrorClassifier{
-	{
-		code: "patch_no_match",
-		hint: staticToolHint("next: file action=read_file pos=<file>:<line> limit=<n>, then retry patch_edit action=replace_range with literal patch context"),
-		match: func(_ error, message string, toolName string) bool {
-			return isEditTool(toolName) && (strings.Contains(message, "sequence not found") ||
-				strings.Contains(message, "no candidate matched the patch context"))
+// defaultToolErrorClassifiers 返回默认分类表的新切片，避免暴露可变包级规则状态。
+func defaultToolErrorClassifiers() []toolErrorClassifier {
+	classifiers := defaultToolErrorClassifiersPatch()
+	classifiers = append(classifiers, defaultToolErrorClassifiersCore()...)
+	classifiers = append(classifiers, defaultToolErrorClassifiersSchemaValidation()...)
+	classifiers = append(classifiers, defaultToolErrorClassifiersLaunchCWD()...)
+	classifiers = append(classifiers, defaultToolErrorClassifiersLaunchRequest()...)
+	classifiers = append(classifiers, defaultToolErrorClassifiersTask()...)
+	classifiers = append(classifiers, defaultToolErrorClassifiersLSPService()...)
+	classifiers = append(classifiers, defaultToolErrorClassifiersLSPPathMissing()...)
+	classifiers = append(classifiers, defaultToolErrorClassifiersLSPPathPolicy()...)
+	classifiers = append(classifiers, defaultToolErrorClassifiersLSPTimeout()...)
+	classifiers = append(classifiers, defaultToolErrorClassifiersLSPPosition()...)
+	classifiers = append(classifiers, defaultToolErrorClassifiersLSPClientAndScope()...)
+	return classifiers
+}
+
+// defaultToolErrorClassifiersPatch 返回补丁错误分类器。
+func defaultToolErrorClassifiersPatch() []toolErrorClassifier {
+	return []toolErrorClassifier{
+		{
+			code: "patch_no_match",
+			hint: staticToolHint("next: file action=read_file pos=<file>:<line> limit=<n>, then retry patch_edit action=replace_range with literal patch context"),
+			match: func(_ error, message string, toolName string) bool {
+				return isEditTool(toolName) && (strings.Contains(message, "sequence not found") ||
+					strings.Contains(message, "no candidate matched the patch context"))
+			},
 		},
-	},
-	{
-		code: "patch_ambiguous",
-		hint: staticToolHint("next: patch_edit action=replace_range patch=\"...\" with 1-2 extra space-prefixed context lines; inspect meta.candidate_locations"),
-		match: func(_ error, message string, toolName string) bool {
-			return isEditTool(toolName) && (strings.Contains(message, "ambiguous match") ||
-				strings.Contains(message, "multiple candidates matched the patch context"))
+		{
+			code: "patch_ambiguous",
+			hint: staticToolHint("next: patch_edit action=replace_range patch=\"...\" with 1-2 extra space-prefixed context lines; inspect meta.candidate_locations"),
+			match: func(_ error, message string, toolName string) bool {
+				return isEditTool(toolName) && (strings.Contains(message, "ambiguous match") ||
+					strings.Contains(message, "multiple candidates matched the patch context"))
+			},
 		},
-	},
-	{
-		code:  "database_schema_missing",
-		hint:  staticToolHint("next: run database migrations or verify the embedded database schema"),
-		match: func(_ error, message string, _ string) bool { return isDatabaseSchemaMissingMessage(message) },
-	},
-	{
-		code: "internal_panic",
-		hint: staticToolHint("next: inspect logs and retry only after fixing the tool handler bug"),
-		match: func(_ error, message string, _ string) bool {
-			return strings.Contains(message, "panic recovered")
+	}
+}
+
+// defaultToolErrorClassifiersCore 返回核心运行时错误分类器。
+func defaultToolErrorClassifiersCore() []toolErrorClassifier {
+	return []toolErrorClassifier{
+		{
+			code:  "database_schema_missing",
+			hint:  staticToolHint("next: run database migrations or verify the embedded database schema"),
+			match: func(_ error, message string, _ string) bool { return isDatabaseSchemaMissingMessage(message) },
 		},
-	},
-	{
-		code: "capability_unsupported",
-		hint: staticToolHint("next: use a supported tool/action/language for this helper or language adapter"),
-		match: func(_ error, message string, _ string) bool {
-			return strings.Contains(message, "unsupported run language") ||
-				strings.Contains(message, "unsupported helper language") ||
-				(strings.Contains(message, "unsupported") && strings.Contains(message, "capability"))
+		{
+			code: "internal_panic",
+			hint: staticToolHint("next: inspect logs and retry only after fixing the tool handler bug"),
+			match: func(_ error, message string, _ string) bool {
+				return strings.Contains(message, "panic recovered")
+			},
 		},
-	},
-	{
-		code: "language_unsupported",
-		hint: staticToolHint("next: choose file_path or language_id with a registered language adapter"),
-		match: func(_ error, message string, _ string) bool {
-			return strings.Contains(message, "unsupported language") ||
-				strings.Contains(message, "unsupported language adapter") ||
-				strings.Contains(message, "unsupported language for lsp toolchain")
+		{
+			code: "capability_unsupported",
+			hint: staticToolHint("next: use a supported tool/action/language for this helper or language adapter"),
+			match: func(_ error, message string, _ string) bool {
+				return strings.Contains(message, "unsupported run language") ||
+					strings.Contains(message, "unsupported helper language") ||
+					(strings.Contains(message, "unsupported") && strings.Contains(message, "capability"))
+			},
 		},
-	},
-	{
-		code: "schema_invalid",
-		hint: staticToolHint("next: check the tool schema and retry with documented field names and JSON value types"),
-		match: func(_ error, message string, _ string) bool {
-			return strings.Contains(message, "decode params") ||
-				strings.Contains(message, "decode ") ||
-				strings.Contains(message, "unknown field") ||
-				strings.Contains(message, "json:")
+	}
+}
+
+// defaultToolErrorClassifiersSchemaValidation 返回语言和 schema 参数分类器。
+func defaultToolErrorClassifiersSchemaValidation() []toolErrorClassifier {
+	return []toolErrorClassifier{
+		{
+			code: "language_unsupported",
+			hint: staticToolHint("next: choose file_path or language_id with a registered language adapter"),
+			match: func(_ error, message string, _ string) bool {
+				return strings.Contains(message, "unsupported language") ||
+					strings.Contains(message, "unsupported language adapter") ||
+					strings.Contains(message, "unsupported language for lsp toolchain")
+			},
 		},
-	},
-	{
-		code: "cwd_required",
-		hint: staticToolHint("next: pass a non-empty cwd or parent_id for an existing parent agent with cwd"),
-		match: func(err error, message string, toolName string) bool {
-			return isLaunchAgentTool(toolName) && (errors.Is(err, contract.ErrLaunchCWDRequired) ||
-				strings.Contains(message, "launch_agent cwd is required") ||
-				strings.Contains(message, "thread start cwd is required"))
+		{
+			code: "schema_invalid",
+			hint: staticToolHint("next: check the tool schema and retry with documented field names and JSON value types"),
+			match: func(_ error, message string, _ string) bool {
+				return strings.Contains(message, "decode params") ||
+					strings.Contains(message, "decode ") ||
+					strings.Contains(message, "unknown field") ||
+					strings.Contains(message, "json:")
+			},
 		},
-	},
-	{
-		code: "cwd_invalid",
-		hint: staticToolHint("next: pass an explicit absolute cwd path; dot and relative cwd are not accepted"),
-		match: func(err error, message string, toolName string) bool {
-			return isLaunchAgentTool(toolName) && (errors.Is(err, contract.ErrLaunchCWDInvalid) ||
-				strings.Contains(message, "cwd must be explicit") ||
-				strings.Contains(message, "cwd must be an absolute path"))
+	}
+}
+
+// defaultToolErrorClassifiersLaunchCWD 返回 agent 启动目录分类器。
+func defaultToolErrorClassifiersLaunchCWD() []toolErrorClassifier {
+	return []toolErrorClassifier{
+		{
+			code: "cwd_required",
+			hint: staticToolHint("next: pass a non-empty cwd or parent_id for an existing parent agent with cwd"),
+			match: func(err error, message string, toolName string) bool {
+				return isLaunchAgentTool(toolName) && (errors.Is(err, contract.ErrLaunchCWDRequired) ||
+					strings.Contains(message, "launch_agent cwd is required") ||
+					strings.Contains(message, "thread start cwd is required"))
+			},
 		},
-	},
-	{
-		code: "provider_required",
-		hint: staticToolHint("next: pass provider=codex|claude or omit provider for launch_agent default"),
-		match: func(_ error, message string, toolName string) bool {
-			return isLaunchAgentTool(toolName) && strings.Contains(message, "provider is required")
+		{
+			code: "cwd_invalid",
+			hint: staticToolHint("next: pass an explicit absolute cwd path; dot and relative cwd are not accepted"),
+			match: func(err error, message string, toolName string) bool {
+				return isLaunchAgentTool(toolName) && (errors.Is(err, contract.ErrLaunchCWDInvalid) ||
+					strings.Contains(message, "cwd must be explicit") ||
+					strings.Contains(message, "cwd must be an absolute path"))
+			},
 		},
-	},
-	{
-		code: "provider_invalid",
-		hint: staticToolHint("next: pass provider=codex|claude"),
-		match: func(_ error, message string, toolName string) bool {
-			return isLaunchAgentTool(toolName) && strings.Contains(message, "invalid provider")
+	}
+}
+
+// defaultToolErrorClassifiersLaunchRequest 返回 agent 启动请求分类器。
+func defaultToolErrorClassifiersLaunchRequest() []toolErrorClassifier {
+	return []toolErrorClassifier{
+		{
+			code: "provider_required",
+			hint: staticToolHint("next: pass provider=codex|claude or omit provider for launch_agent default"),
+			match: func(_ error, message string, toolName string) bool {
+				return isLaunchAgentTool(toolName) && strings.Contains(message, "provider is required")
+			},
 		},
-	},
-	{
-		code: "launch_request_invalid",
-		hint: staticToolHint("next: fix launch_agent arguments and retry with non-empty required fields and supported enum values"),
-		match: func(_ error, message string, toolName string) bool {
-			return isLaunchAgentTool(toolName) && isLaunchRequestInvalidMessage(message)
+		{
+			code: "provider_invalid",
+			hint: staticToolHint("next: pass provider=codex|claude"),
+			match: func(_ error, message string, toolName string) bool {
+				return isLaunchAgentTool(toolName) && strings.Contains(message, "invalid provider")
+			},
 		},
-	},
-	{
-		code: "invalid_input",
-		hint: staticToolHint("next: fix the task DAG request, node status, or transition inputs"),
-		match: func(_ error, message string, toolName string) bool {
-			return isTaskTool(toolName) && (strings.Contains(message, "apply_ops invalid request") ||
-				strings.Contains(message, "invalid task") ||
-				strings.Contains(message, "invalid request") ||
-				strings.Contains(message, "validate transition") ||
-				(isTaskUpdateNodeTool(toolName) && strings.HasPrefix(strings.TrimSpace(message), "transition:")))
+		{
+			code: "launch_request_invalid",
+			hint: staticToolHint("next: fix launch_agent arguments and retry with non-empty required fields and supported enum values"),
+			match: func(_ error, message string, toolName string) bool {
+				return isLaunchAgentTool(toolName) && isLaunchRequestInvalidMessage(message)
+			},
 		},
-	},
-	{
-		code:      "lsp_unavailable",
-		retryable: true,
-		hint:      staticToolHint("next: retry after language server startup or inspect manager diagnostics"),
-		match: func(_ error, message string, _ string) bool {
-			return strings.Contains(message, "language server is starting") ||
-				(strings.Contains(message, "language server") && (strings.Contains(message, "not ready") || strings.Contains(message, "unavailable"))) ||
-				(strings.Contains(message, "lsp") && (strings.Contains(message, "not ready") || strings.Contains(message, "unavailable")))
+	}
+}
+
+// defaultToolErrorClassifiersTask 返回任务请求分类器。
+func defaultToolErrorClassifiersTask() []toolErrorClassifier {
+	return []toolErrorClassifier{
+		{
+			code: "invalid_input",
+			hint: staticToolHint("next: fix the task DAG request, node status, or transition inputs"),
+			match: func(_ error, message string, toolName string) bool {
+				return isTaskTool(toolName) && (strings.Contains(message, "apply_ops invalid request") ||
+					strings.Contains(message, "invalid task") ||
+					strings.Contains(message, "invalid request") ||
+					strings.Contains(message, "validate transition") ||
+					(isTaskUpdateNodeTool(toolName) && strings.HasPrefix(strings.TrimSpace(message), "transition:")))
+			},
 		},
-	},
-	{
-		code: "dependency_missing",
-		hint: staticToolHint("next: install ast-grep or ensure sg is available in PATH"),
-		match: func(_ error, message string, _ string) bool {
-			return strings.Contains(message, "sg not found in path")
+	}
+}
+
+// defaultToolErrorClassifiersLSPService 返回 LSP 服务可用性分类器。
+func defaultToolErrorClassifiersLSPService() []toolErrorClassifier {
+	return []toolErrorClassifier{
+		{
+			code:      "lsp_unavailable",
+			retryable: true,
+			hint:      staticToolHint("next: retry after language server startup or inspect manager diagnostics"),
+			match: func(_ error, message string, _ string) bool {
+				return strings.Contains(message, "language server is starting") ||
+					(strings.Contains(message, "language server") && (strings.Contains(message, "not ready") || strings.Contains(message, "unavailable"))) ||
+					(strings.Contains(message, "lsp") && (strings.Contains(message, "not ready") || strings.Contains(message, "unavailable")))
+			},
 		},
-	},
-	{
-		code: "identifier_not_found",
-		hint: staticToolHint("Move the pos column onto a function, type, variable, or other identifier before retrying."),
-		match: func(_ error, message string, _ string) bool {
-			return strings.Contains(message, "identifier not found") ||
-				strings.Contains(message, "no identifier found")
+		{
+			code: "dependency_missing",
+			hint: staticToolHint("next: install ast-grep or ensure sg is available in PATH"),
+			match: func(_ error, message string, _ string) bool {
+				return strings.Contains(message, "sg not found in path")
+			},
 		},
-	},
-	{
-		code: "file_not_found",
-		hint: staticToolHint("next: verify file_path is under the trusted workspace and exists on disk"),
-		match: func(err error, message string, _ string) bool {
-			return errors.Is(err, os.ErrNotExist) ||
-				strings.Contains(message, "not found") ||
-				strings.Contains(message, "no such file") ||
-				strings.Contains(message, "no rows in result set")
+		{
+			code: "identifier_not_found",
+			hint: staticToolHint("Move the pos column onto a function, type, variable, or other identifier before retrying."),
+			match: func(_ error, message string, _ string) bool {
+				return strings.Contains(message, "identifier not found") ||
+					strings.Contains(message, "no identifier found")
+			},
 		},
-	},
-	{
-		code: "path_invalid",
-		hint: staticToolHint("next: pass a regular file_path for file actions; directories are not valid file_path values"),
-		match: func(_ error, message string, _ string) bool {
-			return strings.Contains(message, "must reference a regular file") ||
-				strings.Contains(message, "is not a regular file") ||
-				strings.Contains(message, "must be a regular file")
+	}
+}
+
+// defaultToolErrorClassifiersLSPPathMissing 返回缺失文件分类器。
+func defaultToolErrorClassifiersLSPPathMissing() []toolErrorClassifier {
+	return []toolErrorClassifier{
+		{
+			code: "file_not_found",
+			hint: staticToolHint("next: verify file_path is under the trusted workspace and exists on disk"),
+			match: func(err error, message string, _ string) bool {
+				return errors.Is(err, os.ErrNotExist) ||
+					strings.Contains(message, "not found") ||
+					strings.Contains(message, "no such file") ||
+					strings.Contains(message, "no rows in result set")
+			},
 		},
-	},
-	{
-		code: "path_outside_workspace",
-		hint: staticToolHint("next: use a path under trusted workspace roots or add the directory to workspace roots"),
-		match: func(_ error, message string, _ string) bool {
-			return strings.Contains(message, "outside workspace roots") ||
-				strings.Contains(message, "outside allowed workspace roots")
+	}
+}
+
+// defaultToolErrorClassifiersLSPPathPolicy 返回非法路径分类器。
+func defaultToolErrorClassifiersLSPPathPolicy() []toolErrorClassifier {
+	return []toolErrorClassifier{
+		{
+			code: "path_invalid",
+			hint: staticToolHint("next: pass a regular file_path for file actions; directories are not valid file_path values"),
+			match: func(_ error, message string, _ string) bool {
+				return strings.Contains(message, "must reference a regular file") ||
+					strings.Contains(message, "is not a regular file") ||
+					strings.Contains(message, "must be a regular file")
+			},
 		},
-	},
-	{
-		code:      "lsp_timeout",
-		retryable: true,
-		hint:      staticToolHint("next: narrow query/path/glob or reduce max_results after the language server finishes indexing"),
-		match: func(err error, message string, _ string) bool {
-			return errors.Is(err, context.DeadlineExceeded) ||
-				strings.Contains(message, "timeout") ||
-				strings.Contains(message, "deadline")
+		{
+			code: "path_outside_workspace",
+			hint: staticToolHint("next: use a path under trusted workspace roots or add the directory to workspace roots"),
+			match: func(_ error, message string, _ string) bool {
+				return strings.Contains(message, "outside workspace roots") ||
+					strings.Contains(message, "outside allowed workspace roots")
+			},
 		},
-	},
-	{
-		code: "position_invalid",
-		hint: func(toolName, _ string) string {
-			if toolName == "patch_edit" {
-				return "next: use 1-based line/column inputs; for replace_range coordinate errors, prefer patch or edits"
-			}
-			return "next: use 1-based line and column inputs with the cursor on an identifier"
+	}
+}
+
+// defaultToolErrorClassifiersLSPTimeout 返回 LSP 超时分类器。
+func defaultToolErrorClassifiersLSPTimeout() []toolErrorClassifier {
+	return []toolErrorClassifier{
+		{
+			code:      "lsp_timeout",
+			retryable: true,
+			hint:      staticToolHint("next: narrow query/path/glob or reduce max_results after the language server finishes indexing"),
+			match: func(err error, message string, _ string) bool {
+				return errors.Is(err, context.DeadlineExceeded) ||
+					strings.Contains(message, "timeout") ||
+					strings.Contains(message, "deadline")
+			},
 		},
-		match: func(_ error, message string, _ string) bool {
-			return strings.Contains(message, "line must") ||
-				strings.Contains(message, "column must") ||
-				strings.Contains(message, "line is out of range") ||
-				strings.Contains(message, "column is out of range") ||
-				strings.Contains(message, "end_line") ||
-				strings.Contains(message, "end position") ||
-				strings.Contains(message, "position must")
+	}
+}
+
+// defaultToolErrorClassifiersLSPPosition 返回 LSP 位置分类器。
+func defaultToolErrorClassifiersLSPPosition() []toolErrorClassifier {
+	return []toolErrorClassifier{
+		{
+			code: "position_invalid",
+			hint: func(toolName, _ string) string {
+				if toolName == "patch_edit" {
+					return "next: use 1-based line/column inputs; for replace_range coordinate errors, prefer patch or edits"
+				}
+				return "next: use 1-based line and column inputs with the cursor on an identifier"
+			},
+			match: func(_ error, message string, _ string) bool {
+				return strings.Contains(message, "line must") ||
+					strings.Contains(message, "column must") ||
+					strings.Contains(message, "line is out of range") ||
+					strings.Contains(message, "column is out of range") ||
+					strings.Contains(message, "end_line") ||
+					strings.Contains(message, "end position") ||
+					strings.Contains(message, "position must")
+			},
 		},
-	},
-	{
-		code:      "lsp_client_closed",
-		retryable: true,
-		hint:      staticToolHint("next: retry once so the manager can recreate the language server client"),
-		match: func(_ error, message string, _ string) bool {
-			return strings.Contains(message, "client") && strings.Contains(message, "closed")
+	}
+}
+
+// defaultToolErrorClassifiersLSPClientAndScope 返回 LSP 客户端和范围分类器。
+func defaultToolErrorClassifiersLSPClientAndScope() []toolErrorClassifier {
+	return []toolErrorClassifier{
+		{
+			code:      "lsp_client_closed",
+			retryable: true,
+			hint:      staticToolHint("next: retry once so the manager can recreate the language server client"),
+			match: func(_ error, message string, _ string) bool {
+				return strings.Contains(message, "client") && strings.Contains(message, "closed")
+			},
 		},
-	},
-	{
-		code: "scope_ambiguous",
-		hint: staticToolHint("next: provide exactly one unambiguous scope selector such as file_path or language"),
-		match: func(_ error, message string, _ string) bool {
-			return strings.Contains(message, "ambiguous") ||
-				strings.Contains(message, "exactly one of") ||
-				strings.Contains(message, "could not resolve scope")
+		{
+			code: "scope_ambiguous",
+			hint: staticToolHint("next: provide exactly one unambiguous scope selector such as file_path or language"),
+			match: func(_ error, message string, _ string) bool {
+				return strings.Contains(message, "ambiguous") ||
+					strings.Contains(message, "exactly one of") ||
+					strings.Contains(message, "could not resolve scope")
+			},
 		},
-	},
+	}
 }
 
 // isDatabaseSchemaMissingMessage 识别常见数据库缺表、缺列及对应 SQLSTATE。

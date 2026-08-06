@@ -2,6 +2,7 @@ package mcpwire
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -55,5 +56,49 @@ func TestDecodeInitializeProtocolVersionStrict(t *testing.T) {
 				t.Fatalf("DecodeInitializeProtocolVersion(%s) = %q, %v; want %q", tt.raw, got, err, tt.want)
 			}
 		})
+	}
+}
+
+func TestDefaultToolErrorClassifiersReturnFreshSlice(t *testing.T) {
+	first := defaultToolErrorClassifiers()
+	if len(first) == 0 {
+		t.Fatal("defaultToolErrorClassifiers() returned no classifiers")
+	}
+	first[0].code = "mutated"
+	if got := defaultToolErrorClassifiers()[0].code; got == "mutated" {
+		t.Fatal("defaultToolErrorClassifiers() leaked caller mutation")
+	}
+}
+
+func TestClassifyToolErrorKeepsDefaultAndCallerPrecedence(t *testing.T) {
+	code, retryable, hint, meta := ClassifyToolError("patch_edit", errors.New("ambiguous match"))
+	if code != "patch_ambiguous" || retryable || hint == "" || meta != nil {
+		t.Fatalf("default classification = (%q, %v, %q, %#v), want patch_ambiguous non-retryable with hint and nil meta", code, retryable, hint, meta)
+	}
+	code, retryable, hint, meta = ClassifyToolErrorWithClassifier("patch_edit", errors.New("ambiguous match"), func(string, error) (ToolErrorClassification, bool) {
+		return ToolErrorClassification{Code: "caller_override", Retryable: true, Hint: "caller hint", Meta: map[string]any{"source": "caller"}}, true
+	})
+	if code != "caller_override" || !retryable || hint != "caller hint" || meta["source"] != "caller" {
+		t.Fatalf("caller classification = (%q, %v, %q, %#v), want caller override", code, retryable, hint, meta)
+	}
+}
+
+func TestDefaultToolErrorClassifiersKeepOriginalPrecedenceOrder(t *testing.T) {
+	want := []string{
+		"patch_no_match", "patch_ambiguous", "database_schema_missing", "internal_panic",
+		"capability_unsupported", "language_unsupported", "schema_invalid", "cwd_required",
+		"cwd_invalid", "provider_required", "provider_invalid", "launch_request_invalid",
+		"invalid_input", "lsp_unavailable", "dependency_missing", "identifier_not_found",
+		"file_not_found", "path_invalid", "path_outside_workspace", "lsp_timeout",
+		"position_invalid", "lsp_client_closed", "scope_ambiguous",
+	}
+	got := defaultToolErrorClassifiers()
+	if len(got) != len(want) {
+		t.Fatalf("default classifier count = %d, want %d", len(got), len(want))
+	}
+	for index, code := range want {
+		if got[index].code != code {
+			t.Fatalf("classifier[%d] = %q, want %q", index, got[index].code, code)
+		}
 	}
 }

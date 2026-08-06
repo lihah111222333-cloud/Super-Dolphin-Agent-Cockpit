@@ -15,15 +15,14 @@ const (
 	LegacyProtocolVersion = "2024-11-05"
 )
 
-var supportedProtocolVersions = map[string]struct{}{
-	LegacyProtocolVersion: {},
-	LatestProtocolVersion: {},
-}
-
 // IsSupportedProtocolVersion 判断版本是否属于当前 client/server 共同支持集合。
 func IsSupportedProtocolVersion(version string) bool {
-	_, ok := supportedProtocolVersions[version]
-	return ok
+	switch version {
+	case LegacyProtocolVersion, LatestProtocolVersion:
+		return true
+	default:
+		return false
+	}
 }
 
 // ValidateProtocolVersion 拒绝空值、空白包裹和控制字符。
