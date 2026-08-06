@@ -21,6 +21,15 @@ type WireDTOMapperExemption struct {
 	Owner     string
 }
 
+// WireDTOMapperProjection 将 producer JSON 字段绑定到一个精确 consumer 输出键。
+// Transform 为 nil 时，consumer 值必须等于写入 producer 的哨兵值。
+type WireDTOMapperProjection struct {
+	Field          string
+	ConsumerKey    string
+	Transform      func(input any, sentinel any) any
+	ExpectedOutput func(input any) map[string]any
+}
+
 type wireDTOMapperTestingT interface {
 	Helper()
 	Fatalf(format string, args ...any)
@@ -82,22 +91,24 @@ func mapperParameterSelectorReferences(file *ast.File, functionName, parameterNa
 	return references
 }
 
-// AssertWireDTOMapperConsumesProducerFields 逐字段驱动真实 mapper，并验证 mapped/exempt 完备且互斥。
+// AssertWireDTOMapperConsumesProducerFields 逐字段驱动真实 mapper，并验证精确 projection/exempt 完备且互斥。
 func AssertWireDTOMapperConsumesProducerFields[T any](
 	t wireDTOMapperTestingT,
 	mapper func(T) map[string]any,
 	exemptionList []WireDTOMapperExemption,
+	projectionList []WireDTOMapperProjection,
 ) {
 	var zero T
-	AssertWireDTOMapperConsumesProducerFieldsFrom(t, zero, mapper, exemptionList)
+	AssertWireDTOMapperConsumesProducerFieldsFrom(t, zero, mapper, exemptionList, projectionList)
 }
 
-// AssertWireDTOMapperConsumesProducerFieldsFrom 从一份有效基线逐字段注入哨兵，适用于 fail-fast mapper。
+// AssertWireDTOMapperConsumesProducerFieldsFrom 从一份有效基线逐字段注入哨兵并断言精确 output delta。
 func AssertWireDTOMapperConsumesProducerFieldsFrom[T any](
 	t wireDTOMapperTestingT,
 	baselineValue T,
 	mapper func(T) map[string]any,
 	exemptionList []WireDTOMapperExemption,
+	projectionList []WireDTOMapperProjection,
 ) {
 	t.Helper()
 	fields, err := wireDTOMapperJSONFields(reflect.TypeFor[T]())
@@ -108,9 +119,15 @@ func AssertWireDTOMapperConsumesProducerFieldsFrom[T any](
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
+	projections, err := wireDTOMapperProjectionRegistry(projectionList)
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	if err := validateWireDTOMapperCoverage(fields, exemptions, projections); err != nil {
+		t.Fatalf("%v", err)
+	}
 
 	baseline := mapper(baselineValue)
-	seenExemptions := make(map[string]bool, len(exemptions))
 	for _, descriptor := range fields {
 		value := reflect.New(reflect.TypeFor[T]()).Elem()
 		value.Set(reflect.ValueOf(baselineValue))
@@ -120,7 +137,6 @@ func AssertWireDTOMapperConsumesProducerFieldsFrom[T any](
 		}
 		got := mapper(value.Interface().(T))
 		if _, exempt := exemptions[descriptor.jsonName]; exempt {
-			seenExemptions[descriptor.jsonName] = true
 			if !reflect.DeepEqual(got, baseline) {
 				t.Fatalf(
 					"producer JSON field %q (%s) is both mapped and exempt",
@@ -130,17 +146,14 @@ func AssertWireDTOMapperConsumesProducerFieldsFrom[T any](
 			}
 			continue
 		}
-		if reflect.DeepEqual(got, baseline) {
-			t.Fatalf(
-				"producer JSON field %q (%s) does not affect the real mapper output",
-				descriptor.jsonName,
-				descriptor.goName,
-			)
-		}
-	}
-	for field := range exemptions {
-		if !seenExemptions[field] {
-			t.Fatalf("mapper exemption %q is stale or not a producer JSON field", field)
+		if err := assertWireDTOMapperExactDelta(
+			baseline,
+			got,
+			projections[descriptor.jsonName],
+			value.Interface(),
+			field.Interface(),
+		); err != nil {
+			t.Fatalf("producer JSON field %q (%s): %v", descriptor.jsonName, descriptor.goName, err)
 		}
 	}
 }
@@ -167,6 +180,149 @@ func wireDTOMapperExemptionRegistry(exemptions []WireDTOMapperExemption) (map[st
 		registry[exemption.Field] = exemption
 	}
 	return registry, nil
+}
+
+// wireDTOMapperProjectionRegistry 校验每个 producer/consumer 对唯一且完整。
+func wireDTOMapperProjectionRegistry(projections []WireDTOMapperProjection) (map[string]map[string]WireDTOMapperProjection, error) {
+	registry := make(map[string]map[string]WireDTOMapperProjection)
+	for _, projection := range projections {
+		if strings.TrimSpace(projection.Field) == "" {
+			return nil, fmt.Errorf("mapper projection has empty field")
+		}
+		if strings.TrimSpace(projection.ConsumerKey) == "" {
+			return nil, fmt.Errorf("mapper projection %q has empty consumer key", projection.Field)
+		}
+		byConsumer := registry[projection.Field]
+		if byConsumer == nil {
+			byConsumer = make(map[string]WireDTOMapperProjection)
+			registry[projection.Field] = byConsumer
+		}
+		if _, exists := byConsumer[projection.ConsumerKey]; exists {
+			return nil, fmt.Errorf("mapper projection %q -> %q is duplicate", projection.Field, projection.ConsumerKey)
+		}
+		if projection.ExpectedOutput != nil && len(byConsumer) != 0 {
+			return nil, fmt.Errorf("mapper projection %q with expected output must be its only consumer registration", projection.Field)
+		}
+		for _, existing := range byConsumer {
+			if existing.ExpectedOutput != nil {
+				return nil, fmt.Errorf("mapper projection %q with expected output must be its only consumer registration", projection.Field)
+			}
+		}
+		byConsumer[projection.ConsumerKey] = projection
+	}
+	return registry, nil
+}
+
+// validateWireDTOMapperCoverage 计算 producer 与 projection/exemption 的 missing、stale 差集。
+func validateWireDTOMapperCoverage(
+	fields []wireDTOJSONField,
+	exemptions map[string]WireDTOMapperExemption,
+	projections map[string]map[string]WireDTOMapperProjection,
+) error {
+	producer := make(map[string]bool, len(fields))
+	var missing []string
+	for _, field := range fields {
+		producer[field.jsonName] = true
+		_, exempt := exemptions[field.jsonName]
+		_, projected := projections[field.jsonName]
+		if exempt && projected {
+			return fmt.Errorf("producer JSON field %q is both projected and exempt", field.jsonName)
+		}
+		if !exempt && !projected {
+			missing = append(missing, field.jsonName)
+		}
+	}
+	if len(missing) != 0 {
+		sort.Strings(missing)
+		return fmt.Errorf("producer JSON fields missing from mapper projection registry: %v", missing)
+	}
+	var stale []string
+	for field := range exemptions {
+		if !producer[field] {
+			stale = append(stale, "exemption:"+field)
+		}
+	}
+	for field := range projections {
+		if !producer[field] {
+			stale = append(stale, "projection:"+field)
+		}
+	}
+	if len(stale) != 0 {
+		sort.Strings(stale)
+		return fmt.Errorf("mapper registry references fields that no longer exist: %v", stale)
+	}
+	return nil
+}
+
+// assertWireDTOMapperExactDelta 拒绝错误键、错误值、漏项和任何未登记的额外 delta。
+func assertWireDTOMapperExactDelta(
+	baseline map[string]any,
+	got map[string]any,
+	projections map[string]WireDTOMapperProjection,
+	input any,
+	sentinel any,
+) error {
+	delta := wireDTOMapperDelta(baseline, got)
+	for _, projection := range projections {
+		if projection.ExpectedOutput != nil {
+			wantDelta := wireDTOMapperDelta(baseline, projection.ExpectedOutput(input))
+			if !reflect.DeepEqual(delta, wantDelta) {
+				return fmt.Errorf("output delta = %#v, want exact transformed delta %#v", delta, wantDelta)
+			}
+			return nil
+		}
+	}
+	if len(delta) != len(projections) {
+		return fmt.Errorf("output delta keys = %v, want exactly registered keys %v", sortedWireDTOMapperKeys(delta), sortedWireDTOMapperProjectionKeys(projections))
+	}
+	for key, projection := range projections {
+		actual, exists := delta[key]
+		if !exists {
+			return fmt.Errorf("output delta missing consumer key %q", key)
+		}
+		want := sentinel
+		if projection.Transform != nil {
+			want = projection.Transform(input, sentinel)
+		}
+		if !reflect.DeepEqual(actual, want) {
+			return fmt.Errorf("consumer key %q value = %#v, want %#v", key, actual, want)
+		}
+	}
+	return nil
+}
+
+func wireDTOMapperDelta(baseline, got map[string]any) map[string]any {
+	delta := make(map[string]any)
+	for key, value := range got {
+		baselineValue, exists := baseline[key]
+		if !exists || !reflect.DeepEqual(value, baselineValue) {
+			delta[key] = value
+		}
+	}
+	for key := range baseline {
+		if _, exists := got[key]; !exists {
+			delta[key] = nil
+		}
+	}
+	return delta
+}
+
+func sortedWireDTOMapperKeys(values map[string]any) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func sortedWireDTOMapperProjectionKeys(values map[string]WireDTOMapperProjection) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // wireDTOMapperJSONFields 保留 mapper guard 的调用面，并委托给共享 producer descriptor collector。
@@ -203,8 +359,8 @@ func setWireDTOMapperStructSentinel(field reflect.Value) error {
 		field.Set(reflect.ValueOf(time.Unix(37, 0).UTC()))
 		return nil
 	}
-	for i := 0; i < field.NumField(); i++ {
-		if err := setWireDTOMapperFieldSentinel(field.Field(i)); err != nil {
+	for _, nested := range field.Fields() {
+		if err := setWireDTOMapperFieldSentinel(nested); err != nil {
 			return err
 		}
 	}

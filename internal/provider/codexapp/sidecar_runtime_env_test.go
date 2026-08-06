@@ -19,23 +19,34 @@ func TestManagedAuthorityBootstrapRealEnvMapperConsumesEveryField(t *testing.T) 
 		Token:           "token-1",
 		ProtocolVersion: mcpdto.ManagedAuthorityProtocolVersion,
 	}
-	archtest.AssertWireDTOMapperConsumesProducerFieldsFrom(t, baseline, func(input mcpdto.ManagedAuthorityBootstrap) map[string]any {
-		env, err := injectManagedPeerBootstrap(nil, input)
-		output := map[string]any{"error": errorString(err)}
-		for _, item := range env {
-			key, value, ok := strings.Cut(item, "=")
-			if ok {
-				output[key] = value
-			}
-		}
-		return output
-	}, nil)
+	archtest.AssertWireDTOMapperConsumesProducerFieldsFrom(t, baseline, managedBootstrapOutput, nil, []archtest.WireDTOMapperProjection{
+		{Field: "instance_id", ConsumerKey: "GO_AGENT_CTL_INSTANCE_ID", ExpectedOutput: managedBootstrapOutputAny},
+		{Field: "boot_id", ConsumerKey: "GO_AGENT_CTL_BOOT_ID", ExpectedOutput: managedBootstrapOutputAny},
+		{Field: "token", ConsumerKey: "GO_AGENT_CTL_MANAGED_TOKEN", ExpectedOutput: managedBootstrapOutputAny},
+		{Field: "protocol_version", ConsumerKey: "GO_AGENT_CTL_MANAGED_PROTOCOL_VERSION", ExpectedOutput: managedBootstrapOutputAny},
+	})
 	archtest.AssertWireDTOMapperASTReferencesProducerFields[mcpdto.ManagedAuthorityBootstrap](
 		t,
 		"sidecar_runtime_env.go",
 		"injectManagedPeerBootstrap",
 		"managed",
 	)
+}
+
+func managedBootstrapOutput(input mcpdto.ManagedAuthorityBootstrap) map[string]any {
+	return managedBootstrapOutputAny(input)
+}
+
+func managedBootstrapOutputAny(input any) map[string]any {
+	env, err := injectManagedPeerBootstrap(nil, input.(mcpdto.ManagedAuthorityBootstrap))
+	output := map[string]any{"error": errorString(err)}
+	for _, item := range env {
+		key, value, ok := strings.Cut(item, "=")
+		if ok {
+			output[key] = value
+		}
+	}
+	return output
 }
 
 func errorString(err error) string {

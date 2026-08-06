@@ -23,7 +23,7 @@ func TestManagedRegisterRealNormalizerPreservesEveryRequestField(t *testing.T) {
 			"error":      managedTestErrorString(err),
 			"normalized": normalized,
 		}
-	}, nil)
+	}, nil, managedNormalizerProjections())
 }
 
 func TestManagedRegisterRealFingerprintConsumesEveryNormalizedField(t *testing.T) {
@@ -36,7 +36,7 @@ func TestManagedRegisterRealFingerprintConsumesEveryNormalizedField(t *testing.T
 		return map[string]any{
 			"fingerprint": fmt.Sprintf("%x", managedRegisterFingerprint(input)),
 		}
-	}, nil)
+	}, nil, managedFingerprintProjections())
 }
 
 func TestManagedRegisterRequiredCapabilityLegalMutationAffectsNormalizerAndFingerprint(t *testing.T) {
@@ -145,7 +145,46 @@ func TestManagedAuthorityProofRealValidatorConsumesEveryField(t *testing.T) {
 		return map[string]any{
 			"fingerprint": fmt.Sprintf("%x", managedAuthorityProofFingerprint(input)),
 		}
-	}, nil)
+	}, nil, managedAuthorityProofFingerprintProjections())
+}
+
+func managedNormalizerProjections() []archtest.WireDTOMapperProjection {
+	return managedMapperProjections("normalized", managedNormalizedOutput,
+		"instance_id", "binary_name", "agent_id", "thread_id", "pid", "session_token", "boot_id", "client_kind", "peer_kind", "shared",
+		"capabilities_offered", "capabilities_required", "subscriptions", "resume_from_generation", "managed_authority",
+	)
+}
+
+func managedFingerprintProjections() []archtest.WireDTOMapperProjection {
+	return managedMapperProjections("fingerprint", managedRegisterFingerprintOutput,
+		"instance_id", "binary_name", "agent_id", "thread_id", "pid", "session_token", "boot_id", "client_kind", "peer_kind", "shared",
+		"capabilities_offered", "capabilities_required", "subscriptions", "resume_from_generation", "managed_authority",
+	)
+}
+
+func managedAuthorityProofFingerprintProjections() []archtest.WireDTOMapperProjection {
+	return managedMapperProjections("fingerprint", managedAuthorityProofFingerprintOutput, "protocol_version", "request_id", "token")
+}
+
+func managedMapperProjections(consumerKey string, expectedOutput func(any) map[string]any, fields ...string) []archtest.WireDTOMapperProjection {
+	projections := make([]archtest.WireDTOMapperProjection, 0, len(fields))
+	for _, field := range fields {
+		projections = append(projections, archtest.WireDTOMapperProjection{Field: field, ConsumerKey: consumerKey, ExpectedOutput: expectedOutput})
+	}
+	return projections
+}
+
+func managedNormalizedOutput(input any) map[string]any {
+	normalized, err := normalizeManagedRegisterRequest(input.(dto.RegisterRequest))
+	return map[string]any{"error": managedTestErrorString(err), "normalized": normalized}
+}
+
+func managedRegisterFingerprintOutput(input any) map[string]any {
+	return map[string]any{"fingerprint": fmt.Sprintf("%x", managedRegisterFingerprint(input.(dto.RegisterRequest)))}
+}
+
+func managedAuthorityProofFingerprintOutput(input any) map[string]any {
+	return map[string]any{"fingerprint": fmt.Sprintf("%x", managedAuthorityProofFingerprint(input.(dto.ManagedAuthorityProof)))}
 }
 
 func managedTestErrorString(err error) string {

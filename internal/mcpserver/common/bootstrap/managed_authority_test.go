@@ -20,22 +20,33 @@ func TestManagedAuthorityReceiptRealBootstrapMapperConsumesEveryField(t *testing
 		RequestID:       "request-1",
 		NextToken:       "token-2",
 	}
-	archtest.AssertWireDTOMapperConsumesProducerFieldsFrom(t, baseline, func(input mcpdto.ManagedAuthorityReceipt) map[string]any {
-		response := &mcpdto.RegisterResponse{
-			InstanceID:            "managed:mcp-orch",
-			Generation:            1,
-			ServerProtocolVersion: mcpdto.ProtocolVersion,
-			ManagedAuthority:      &input,
-		}
-		normalized, err := normalizeRegisterResponse(response, response.InstanceID)
-		output := map[string]any{"error": bootstrapErrorString(err)}
-		if normalized != nil && normalized.ManagedAuthority != nil {
-			output["protocol_version"] = normalized.ManagedAuthority.ProtocolVersion
-			output["request_id"] = normalized.ManagedAuthority.RequestID
-			output["next_token"] = normalized.ManagedAuthority.NextToken
-		}
-		return output
-	}, nil)
+	archtest.AssertWireDTOMapperConsumesProducerFieldsFrom(t, baseline, managedAuthorityReceiptOutput, nil, []archtest.WireDTOMapperProjection{
+		{Field: "protocol_version", ConsumerKey: "protocol_version", ExpectedOutput: managedAuthorityReceiptOutputAny},
+		{Field: "request_id", ConsumerKey: "request_id", ExpectedOutput: managedAuthorityReceiptOutputAny},
+		{Field: "next_token", ConsumerKey: "next_token", ExpectedOutput: managedAuthorityReceiptOutputAny},
+	})
+}
+
+func managedAuthorityReceiptOutput(input mcpdto.ManagedAuthorityReceipt) map[string]any {
+	return managedAuthorityReceiptOutputAny(input)
+}
+
+func managedAuthorityReceiptOutputAny(input any) map[string]any {
+	receipt := input.(mcpdto.ManagedAuthorityReceipt)
+	response := &mcpdto.RegisterResponse{
+		InstanceID:            "managed:mcp-orch",
+		Generation:            1,
+		ServerProtocolVersion: mcpdto.ProtocolVersion,
+		ManagedAuthority:      &receipt,
+	}
+	normalized, err := normalizeRegisterResponse(response, response.InstanceID)
+	output := map[string]any{"error": bootstrapErrorString(err)}
+	if normalized != nil && normalized.ManagedAuthority != nil {
+		output["protocol_version"] = normalized.ManagedAuthority.ProtocolVersion
+		output["request_id"] = normalized.ManagedAuthority.RequestID
+		output["next_token"] = normalized.ManagedAuthority.NextToken
+	}
+	return output
 }
 
 func bootstrapErrorString(err error) string {
