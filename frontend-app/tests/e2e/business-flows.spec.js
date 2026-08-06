@@ -21,7 +21,7 @@ test('discovered business entries open stable read surfaces', async ({ page }) =
 
   await openBusinessEntry(page, { label: '插件与技能', route: /\/skills$/, assert: async () => {
     await expect(page.getByRole('heading', { name: 'MCP工具' })).toBeVisible();
-    await expect(page.getByText('当前页面: 插件与技能')).toBeVisible();
+    await expect(page.getByRole('heading', { name: '插件与技能', exact: true })).toBeVisible();
   } });
 
   await openBusinessEntry(page, { label: '自动化', route: /\/dags$/, assert: async () => {
@@ -39,13 +39,13 @@ test('discovered business entries open stable read surfaces', async ({ page }) =
 
   await openBusinessEntry(page, { label: '记忆中心', route: /\/memory$/, assert: async () => {
     await expect(page.getByRole('heading', { name: '记忆中心', exact: true })).toBeVisible();
-  }, navTestId: 'sidebar-secondary-nav' });
+  } });
 
   await openBusinessEntry(page, { label: '链路追踪', route: /\/observability$/, assert: async () => {
     await expect(page.getByTestId('observability-page')).toBeVisible();
     await page.getByRole('button', { name: '查询最新日志' }).click();
     await expect(page.getByTestId('observability-recent-logs')).toBeVisible();
-  }, navTestId: 'sidebar-secondary-nav' });
+  } });
 
   await page.getByRole('button', { name: '设置' }).click();
   await expect(page).toHaveURL(/\/settings$/);
@@ -463,19 +463,21 @@ async function installStrictWailsMock(page) {
     function preferenceFor(params = {}) {
       const key = String(params.key || '');
       if (key.includes('provider.active')) return 'codex';
+      if (key.includes('provider.codex.effort')) return null;
       if (key.includes('codexModelProvider')) return 'openai';
       if (key.includes('codexHome')) return '~/.codex';
       if (key.includes('codexInstanceKey')) return 'default';
-      return '';
+      if (key.includes('shortcuts.bindings')) return {};
+      return null;
     }
 
     function sidebarSnapshot() {
       return {
-        activeThreadId: '',
         threads: [],
-        active_turn: null,
-        tokenUsageByThread: {},
-        activityStatsByThread: {},
+        agents: [],
+        recent_turns: [],
+        workspace: { runs: [] },
+        token_usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, usedTokens: 0 },
       };
     }
 
