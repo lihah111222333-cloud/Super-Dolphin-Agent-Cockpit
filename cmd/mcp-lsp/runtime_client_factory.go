@@ -23,76 +23,104 @@ func createRuntimeLSPClient(
 	goplsRootController multilsp.GoplsRootCohortController,
 	handler protocol.NotificationHandler,
 ) (multilsp.Client, error) {
-	dir := strings.TrimSpace(rootDir)
-	if dir == "" {
-		dir = root
-	}
+	dir := runtimeServerLSPClientDir(root, rootDir)
 	serverBinary := binary.Get()
-	var goplsLease *multilsp.GoplsRootCohortLease
-	if runtime.GOOS != "windows" && runtimeServerUsesSharedGoplsDaemon(command) {
-		config, configErr := runtimeServerGoplsRootCohortConfig(command, serverBinary, dir, env)
-		if configErr != nil {
-			return nil, configErr
-		}
-		if goplsRootController == nil {
-			return nil, fmt.Errorf("%w for cohort %s", multilsp.ErrGoplsRootCohortDurabilityUnsupported, config.CohortID)
-		}
-		lease, leaseErr := goplsRootController.AcquireLease(config)
-		if leaseErr != nil {
-			return nil, leaseErr
-		}
-		goplsLease = &lease
-	}
-	serverArgs, err := runtimeServerArgsForOS(command, serverBinary, env, runtime.GOOS, dir)
+	goplsLease, err := runtimeServerAcquireGoplsRootLease(command, serverBinary, dir, env, goplsRootController)
 	if err != nil {
-		if goplsLease != nil {
-			return nil, errors.Join(err, goplsLease.Release())
-		}
 		return nil, err
 	}
-	resourceCommand := command
-	resourceCommand.Args = serverArgs
-	serverEnv, err := runtimeServerEnvironment(
-		resourceCommand,
-		serverBinary,
-		dir,
-		adapter.LanguageIDs(),
-		env,
-		runtimeAdapterUsesNode(adapter),
-	)
+	preparation, err := runtimeServerPrepareLSPClient(adapter, command, serverBinary, dir, env, packagedLSP, handler)
 	if err != nil {
-		if goplsLease != nil {
-			return nil, errors.Join(err, goplsLease.Release())
-		}
-		return nil, err
-	}
-	sqliteWorkspace, err := runtimeSQLiteDiagnosticsWorkspace(adapter, dir)
-	if err != nil {
-		cleanupErr := errors.Join(multilsp.ReleaseResourceCohortLease(serverEnv), releaseGoplsRootLease(goplsLease))
-		return nil, errors.Join(err, cleanupErr)
-	}
-	notificationHandler := handler
-	if sqliteWorkspace {
-		notificationHandler = &sqlDiagnosticNotificationHandler{root: dir, next: handler}
-	}
-	initOptions, err := runtimeServerInitOptions(adapter, packagedLSP, serverBinary, serverEnv)
-	if err != nil {
-		cleanupErr := errors.Join(multilsp.ReleaseResourceCohortLease(serverEnv), releaseGoplsRootLease(goplsLease))
-		return nil, errors.Join(err, cleanupErr)
+		return nil, errors.Join(err, runtimeServerReleaseLSPClientResources(preparation.serverEnv, goplsLease))
 	}
 	client, err := multilsp.NewClientWithOptions(multilsp.Options{
 		Binary:              serverBinary,
-		Args:                serverArgs,
+		Args:                preparation.serverArgs,
 		Dir:                 dir,
-		Env:                 serverEnv,
-		InitOptions:         initOptions,
-		NotificationHandler: notificationHandler,
+		Env:                 preparation.serverEnv,
+		InitOptions:         preparation.initOptions,
+		NotificationHandler: preparation.notificationHandler,
 	})
 	if err != nil {
-		cleanupErr := errors.Join(multilsp.ReleaseResourceCohortLease(serverEnv), releaseGoplsRootLease(goplsLease))
-		return nil, errors.Join(err, cleanupErr)
+		return nil, errors.Join(err, runtimeServerReleaseLSPClientResources(preparation.serverEnv, goplsLease))
 	}
-	if !sqliteWorkspace {
+	return runtimeServerFinalizeLSPClient(client, preparation, dir, handler, goplsLease)
+}
+
+// runtimeServerLSPClientPreparation 保存 client 创建阶段的 args、env 与 wrapper 决策。
+type runtimeServerLSPClientPreparation struct {
+	serverArgs          []string
+	serverEnv           []string
+	initOptions         map[string]any
+	notificationHandler protocol.NotificationHandler
+	sqliteWorkspace     bool
+}
+
+// runtimeServerLSPClientDir 解析 client 的最终工作目录，空 rootDir 沿用 root。
+func runtimeServerLSPClientDir(root, rootDir string) string {
+	dir := strings.TrimSpace(rootDir)
+	if dir == "" {
+		return root
+	}
+	return dir
+}
+
+// runtimeServerAcquireGoplsRootLease 为共享 gopls daemon 获取 durable root lease。
+func runtimeServerAcquireGoplsRootLease(command multilsp.ServerCommand, serverBinary, dir string, env []string, controller multilsp.GoplsRootCohortController) (*multilsp.GoplsRootCohortLease, error) {
+	if runtime.GOOS == "windows" || !runtimeServerUsesSharedGoplsDaemon(command) {
+		return nil, nil
+	}
+	config, err := runtimeServerGoplsRootCohortConfig(command, serverBinary, dir, env)
+	if err != nil {
+		return nil, err
+	}
+	if controller == nil {
+		return nil, fmt.Errorf("%w for cohort %s", multilsp.ErrGoplsRootCohortDurabilityUnsupported, config.CohortID)
+	}
+	lease, err := controller.AcquireLease(config)
+	if err != nil {
+		return nil, err
+	}
+	return &lease, nil
+}
+
+// runtimeServerPrepareLSPClient 计算 server args/env/init options，并建立 SQL 通知包装。
+func runtimeServerPrepareLSPClient(adapter multilsp.LanguageAdapter, command multilsp.ServerCommand, serverBinary, dir string, env []string, packagedLSP bool, handler protocol.NotificationHandler) (runtimeServerLSPClientPreparation, error) {
+	preparation := runtimeServerLSPClientPreparation{}
+	serverArgs, err := runtimeServerArgsForOS(command, serverBinary, env, runtime.GOOS, dir)
+	if err != nil {
+		return preparation, err
+	}
+	preparation.serverArgs = serverArgs
+	resourceCommand := command
+	resourceCommand.Args = serverArgs
+	preparation.serverEnv, err = runtimeServerEnvironment(resourceCommand, serverBinary, dir, adapter.LanguageIDs(), env, runtimeAdapterUsesNode(adapter))
+	if err != nil {
+		return preparation, err
+	}
+	preparation.sqliteWorkspace, err = runtimeSQLiteDiagnosticsWorkspace(adapter, dir)
+	if err != nil {
+		return preparation, err
+	}
+	preparation.notificationHandler = handler
+	if preparation.sqliteWorkspace {
+		preparation.notificationHandler = &sqlDiagnosticNotificationHandler{root: dir, next: handler}
+	}
+	preparation.initOptions, err = runtimeServerInitOptions(adapter, packagedLSP, serverBinary, preparation.serverEnv)
+	return preparation, err
+}
+
+// runtimeServerReleaseLSPClientResources 释放 resource cohort 与 gopls root lease。
+func runtimeServerReleaseLSPClientResources(serverEnv []string, goplsLease *multilsp.GoplsRootCohortLease) error {
+	if len(serverEnv) == 0 {
+		return releaseGoplsRootLease(goplsLease)
+	}
+	return errors.Join(multilsp.ReleaseResourceCohortLease(serverEnv), releaseGoplsRootLease(goplsLease))
+}
+
+// runtimeServerFinalizeLSPClient 应用 SQL 或 gopls wrapper，并保持两者互斥。
+func runtimeServerFinalizeLSPClient(client multilsp.Client, preparation runtimeServerLSPClientPreparation, dir string, handler protocol.NotificationHandler, goplsLease *multilsp.GoplsRootCohortLease) (multilsp.Client, error) {
+	if !preparation.sqliteWorkspace {
 		if goplsLease == nil {
 			return client, nil
 		}
@@ -158,14 +186,12 @@ func (c *goplsRootCohortClient) Close() error {
 	})
 }
 
-// RequiresIdleRelease marks the shared gopls forwarder as requiring the root
-// cohort owner path when the manager recycler reaches its idle deadline.
+// RequiresIdleRelease 标记共享 gopls forwarder 必须走 root cohort owner idle 路径。
 func (c *goplsRootCohortClient) RequiresIdleRelease() bool {
 	return c != nil && c.lease != nil
 }
 
-// ReleaseForIdle is the only recycler-facing close path for a shared gopls
-// forwarder; it preserves ReleaseWithOwner ordering and durable fence evidence.
+// ReleaseForIdle 是 recycler 面向共享 gopls forwarder 的唯一关闭路径，保留 durable fence 顺序。
 func (c *goplsRootCohortClient) ReleaseForIdle() error {
 	return c.Close()
 }

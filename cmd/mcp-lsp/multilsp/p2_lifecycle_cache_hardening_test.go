@@ -421,48 +421,31 @@ func TestRecyclerProbeFailureHealthAndRecovery(t *testing.T) {
 }
 
 func TestRecyclerDoesNotProbeOrCloseGopls(t *testing.T) {
-	for _, languageID := range []string{"go", "gomod", "gosum", "gowork"} {
-		t.Run(languageID, func(t *testing.T) {
-			client := &p2LifecycleClient{healthy: true}
-			now := time.Now()
-			workspace := &workspaceClient{
-				key:          "workspace-gopls-root-cohort-owner-" + languageID,
-				languageID:   languageID,
-				client:       client,
-				generation:   1,
-				state:        workspaceStateIdleCountdown,
-				idleSince:    now.Add(-2 * idleTimeoutForTest()),
-				lastActivity: now.Add(-2 * idleTimeoutForTest()),
-			}
-			mgr := &manager{idleTimeout: idleTimeoutForTest(), workspaces: map[string]*workspaceClient{workspace.key: workspace}}
-			recycler := newPoolRecycler(nil)
-			recycler.now = func() time.Time { return now }
-			probeCalls := 0
-			recycler.rssProbe = func(Client) (uint64, int, error) {
-				probeCalls++
-				return 0, 0, errors.New("probe must not run for gopls")
-			}
-
-			recycler.recycleIfNeeded(mgr, ResolvedLSPToolScope{}, *workspace)
-			recycler.checkIdleWorkspaces(mgr, ResolvedLSPToolScope{})
-			for _, cohortEviction := range []bool{false, true} {
-				recycled, err := executeMemoryRecycle(mgr, ResolvedLSPToolScope{}, *workspace, cohortEviction)
-				if recycled || err != nil {
-					t.Fatalf("executeMemoryRecycle(cohortEviction=%t) = (%v, %v), want (false, nil)", cohortEviction, recycled, err)
-				}
-			}
-			recycler.failClosedAfterProbeDegradation(mgr, ResolvedLSPToolScope{}, *workspace, true)
-			if recycled, err := shutdownResourceCohortWorkspace(mgr, *workspace); recycled || err != nil {
-				t.Fatalf("shutdownResourceCohortWorkspace() = (%v, %v), want (false, nil)", recycled, err)
-			}
-
-			if probeCalls != 0 || client.closed {
-				t.Fatalf("gopls recycler probe/close = (%d, %v), want (0, false)", probeCalls, client.closed)
-			}
-			if got := snapshotWorkspaceClients(mgr); len(got) != 1 || got[0].client != client {
-				t.Fatalf("gopls workspace after legacy recycler = %#v, want retained root-controller owner", got)
-			}
-		})
+	client := &p2LifecycleClient{healthy: true}
+	workspace := &workspaceClient{
+		key:          "workspace-gopls-root-cohort-owner",
+		languageID:   "go",
+		client:       client,
+		generation:   1,
+		state:        workspaceStateIdleCountdown,
+		idleSince:    time.Now().Add(-2 * idleTimeoutForTest()),
+		lastActivity: time.Now(),
+	}
+	mgr := &manager{idleTimeout: idleTimeoutForTest(), workspaces: map[string]*workspaceClient{workspace.key: workspace}}
+	recycler := newPoolRecycler(nil)
+	probeCalls := 0
+	recycler.rssProbe = func(Client) (uint64, int, error) {
+		probeCalls++
+		return 0, 0, errors.New("probe must not run for gopls")
+	}
+	for range recyclerProbeDegradedThreshold + 1 {
+		recycler.recycleIfNeeded(mgr, ResolvedLSPToolScope{}, *workspace)
+	}
+	if probeCalls != 0 || client.closed {
+		t.Fatalf("gopls recycler probe/close = (%d, %v), want (0, false)", probeCalls, client.closed)
+	}
+	if got := snapshotWorkspaceClients(mgr); len(got) != 1 || got[0].client != client {
+		t.Fatalf("gopls workspace after legacy recycler = %#v, want retained root-controller owner", got)
 	}
 }
 

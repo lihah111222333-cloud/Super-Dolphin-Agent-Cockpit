@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	platformrunner "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runner"
 	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
@@ -202,6 +201,10 @@ func (r *poolRecycler) checkManager(_ int, mgr *manager, scope ResolvedLSPToolSc
 // recycleIfNeeded 在单个 workspace client 超过 RSS 上限时尝试回收。
 // 仍有活跃租约时只记录日志不关闭进程，避免正在执行的 LSP 请求被异步切断。
 func (r *poolRecycler) recycleIfNeeded(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient) {
+	if isGoResourceCohortLanguage(workspace.languageID) {
+		// gopls daemon/forwarder 的关闭权归 root cohort controller；旧 recycler 不得成为第二个 writer。
+		return
+	}
 	rssBytes, pid, ok, probeDegraded := r.probeWorkspace(mgr, scope, workspace)
 	if !ok {
 		r.failClosedAfterProbeDegradation(mgr, scope, workspace, probeDegraded)
@@ -236,6 +239,9 @@ func (r *poolRecycler) failClosedAfterProbeDegradation(
 	workspace workspaceClient,
 	probeDegraded bool,
 ) {
+	if isGoResourceCohortLanguage(workspace.languageID) {
+		return
+	}
 	if !probeDegraded {
 		return
 	}
@@ -347,6 +353,9 @@ func logRSSRecycleActiveLease(
 }
 
 func executeMemoryRecycle(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient, cohortEviction bool) (bool, error) {
+	if isGoResourceCohortLanguage(workspace.languageID) {
+		return false, nil
+	}
 	if cohortEviction {
 		return shutdownResourceCohortWorkspace(mgr, workspace)
 	}
@@ -660,6 +669,9 @@ func recycleWorkspaceClient(mgr *manager, scope ResolvedLSPToolScope, workspace 
 // shutdownResourceCohortWorkspace 在跨 worktree cohort 超限时只关闭当前 owner 的空闲 client。
 // 它不立即重建；下一次真实请求会懒启动，从而让总账回到软水位而不跨进程 kill。
 func shutdownResourceCohortWorkspace(mgr *manager, workspace workspaceClient) (bool, error) {
+	if isGoResourceCohortLanguage(workspace.languageID) {
+		return false, nil
+	}
 	detached, shutdownErr, closeErr := detachAndShutdownWorkspaceClientForIdle(mgr, workspace)
 	if detached == nil || detached.client == nil {
 		return false, nil
@@ -686,6 +698,7 @@ func detachAndShutdownWorkspaceClientForIdle(
 	return detachAndShutdownWorkspaceClientWith(mgr, workspace, shutdownWorkspaceClientForIdle)
 }
 
+// detachAndShutdownWorkspaceClientWith 在 ensure 锁内摘除 generation 并执行指定关闭动作。
 func detachAndShutdownWorkspaceClientWith(
 	mgr *manager,
 	workspace workspaceClient,
@@ -708,78 +721,6 @@ func detachAndShutdownWorkspaceClientWith(
 		restoreDetachedWorkspaceClient(mgr, detached)
 	}
 	return detached, shutdownErr, closeErr
-}
-
-func recycleRestoreContext(scope ResolvedLSPToolScope, cfg workspaceConfig) context.Context {
-	ctx := context.Background()
-	scope = recycleResolvedScope(scope, cfg)
-	ctx = common.WithToolScope(ctx, recycleToolScope(scope))
-	return WithResolvedLSPToolScope(ctx, scope)
-}
-
-// recycleResolvedScope 为回收后的重启补齐 ResolvedLSPToolScope。
-// 优先复用已有 manager key；缺失时从 workspace 配置重建，失败则保留原 scope 以便日志仍可关联。
-func recycleResolvedScope(scope ResolvedLSPToolScope, cfg workspaceConfig) ResolvedLSPToolScope {
-	if scope.WorkspaceKey != "" || scope.ManagerKey != "" {
-		return scope
-	}
-	if parsed, ok := lspScopeWorkspacePartsFromConfig(cfg); ok {
-		if resolved, err := ResolveLSPToolScope(parsed); err == nil {
-			return resolved
-		}
-	}
-	resolved, err := ResolveLSPToolScope(LSPToolScope{
-		LanguageID:            cfg.languageID,
-		WorkspaceRoot:         cfg.rootPath,
-		LanguageWorkspaceRoot: cfg.rootPath,
-		ProjectRoot:           cfg.rootPath,
-		RootKind:              "dir_fallback",
-	})
-	if err != nil {
-		return scope
-	}
-	return resolved
-}
-
-func recycleToolScope(scope ResolvedLSPToolScope) common.ToolScope {
-	return common.ToolScope{
-		Family:   scope.Family,
-		AgentID:  scope.AgentID,
-		ThreadID: scope.ThreadID,
-		TurnID:   scope.TurnID,
-		CallID:   scope.CallID,
-		CWD:      scope.CWD,
-		WorkspaceRoots: append(
-			[]string(nil),
-			scope.WorkspaceRoots...,
-		),
-	}
-}
-
-func snapshotWorkspaceClients(mgr *manager) []workspaceClient {
-	if mgr == nil {
-		return nil
-	}
-	mgr.mu.RLock()
-	defer mgr.mu.RUnlock()
-
-	items := make([]workspaceClient, 0, len(mgr.workspaces))
-	for _, workspace := range mgr.workspaces {
-		if workspace == nil || workspace.client == nil {
-			continue
-		}
-		items = append(items, *workspace)
-	}
-	return items
-}
-
-func managerIsClosed(mgr *manager) bool {
-	if mgr == nil {
-		return true
-	}
-	mgr.mu.RLock()
-	defer mgr.mu.RUnlock()
-	return mgr.closed
 }
 
 func clientRSSBytes(current Client) (uint64, int, error) {
@@ -806,7 +747,7 @@ func rssLimitBytesForLanguageOnOS(languageID, goos string) uint64 {
 			return value
 		}
 		if goos == "windows" {
-			return defaultGoplsCohortHardLimitBytes
+			return defaultGoWindowsRSSLimitBytes
 		}
 		return defaultGoRSSLimitBytes
 	}
@@ -847,7 +788,6 @@ func ValidateResourceLimitEnvironment() error {
 		lspGoRSSLimitEnv,
 		lspGoplsHeapLimitEnv,
 		ResourceCohortHardLimitMBEnv,
-		goplsCohortHardLimitEnv,
 	} {
 		if _, _, err := strictRSSLimitBytesFromEnv(key); err != nil {
 			return err
@@ -868,23 +808,6 @@ func ValidateResourceLimitEnvironment() error {
 			nonGoplsLocal,
 			ResourceCohortHardLimitMBEnv,
 			nonGoplsCohort,
-		)
-	}
-	goplsHeap := uint64(defaultGoplsHeapLimitBytes)
-	if value, ok := rssLimitBytesFromEnv(lspGoplsHeapLimitEnv); ok {
-		goplsHeap = value
-	}
-	goplsCohort := uint64(defaultGoplsCohortHardLimitBytes)
-	if value, ok := rssLimitBytesFromEnv(goplsCohortHardLimitEnv); ok {
-		goplsCohort = value
-	}
-	if goplsHeap >= goplsCohort {
-		return fmt.Errorf(
-			"%s (%d bytes) must be lower than %s (%d bytes)",
-			lspGoplsHeapLimitEnv,
-			goplsHeap,
-			goplsCohortHardLimitEnv,
-			goplsCohort,
 		)
 	}
 	return nil
