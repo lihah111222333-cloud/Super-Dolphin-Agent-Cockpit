@@ -31,6 +31,25 @@ func TestNewServiceDefersInitialThreadLoad(t *testing.T) {
 	}
 }
 
+func TestNewServiceOwnsOutputDeltaLogSampler(t *testing.T) {
+	t.Parallel()
+
+	first, _, err := NewService(nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("first NewService() error = %v", err)
+	}
+	second, _, err := NewService(nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("second NewService() error = %v", err)
+	}
+	if first.outputDeltaLogSampler == nil || second.outputDeltaLogSampler == nil {
+		t.Fatal("output delta log sampler is required")
+	}
+	if first.outputDeltaLogSampler == second.outputDeltaLogSampler {
+		t.Fatal("services must not share an output delta log sampler")
+	}
+}
+
 func TestLoadInitialStatePopulatesThreads(t *testing.T) {
 	t.Parallel()
 

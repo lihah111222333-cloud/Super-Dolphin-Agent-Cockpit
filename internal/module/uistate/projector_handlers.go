@@ -9,10 +9,7 @@ import (
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/clone"
-	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
-
-var uiOutputDeltaLogSampler = pkglogger.NewEverySampler(1000)
 
 // applyAgentStateChanged 将 agent 状态事件投影到线程和 agent 摘要。
 // Codex 事件可能携带 provider threadID，这里会先解析公开 threadID 再更新 sidebar。
@@ -516,12 +513,18 @@ func (s *service) applyTurnInputReceived(ev turndto.TurnInputReceived) {
 // applyTurnOutputDelta 只将 message stream 增量拼接到线程和 agent 的 lastMessage。
 // 非 message stream 不参与 sidebar 摘要，避免 reasoning/tool 输出污染用户可读消息。
 func (s *service) applyTurnOutputDelta(ev turndto.TurnOutputDelta) {
+	if s == nil {
+		return
+	}
+	if s.outputDeltaLogSampler == nil {
+		panic("uistate: output delta log sampler is required")
+	}
 	stream, delta := strings.TrimSpace(ev.Stream), strings.TrimSpace(ev.Delta)
-	if s.logger != nil && uiOutputDeltaLogSampler.ShouldLog("received:"+stream) {
+	if s.logger != nil && s.outputDeltaLogSampler.ShouldLog("received:"+stream) {
 		s.logger.Debug("uistate: applyTurnOutputDelta received", "sample_rate", "0.1%", "stream", stream, "thread_id", ev.ThreadID, "delta_len", len(ev.Delta))
 	}
 	if !strings.EqualFold(stream, "message") {
-		if s.logger != nil && uiOutputDeltaLogSampler.ShouldLog("skipped:"+stream) {
+		if s.logger != nil && s.outputDeltaLogSampler.ShouldLog("skipped:"+stream) {
 			s.logger.Debug("uistate: applyTurnOutputDelta skipped", "sample_rate", "0.1%", "stream", stream, "thread_id", ev.ThreadID)
 		}
 		return
@@ -530,9 +533,6 @@ func (s *service) applyTurnOutputDelta(ev turndto.TurnOutputDelta) {
 		return
 	}
 	threadID, agentID := strings.TrimSpace(ev.ThreadID), strings.TrimSpace(ev.AgentID)
-	if s == nil {
-		return
-	}
 	s.mu.Lock()
 	appendLastMessageLocked(&s.state.Threads, threadID, agentID, delta)
 	appendAgentMessageLocked(&s.state.Agents, agentID, threadID, delta)

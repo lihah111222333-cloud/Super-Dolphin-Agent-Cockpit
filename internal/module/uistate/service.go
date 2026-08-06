@@ -19,6 +19,7 @@ import (
 
 type service struct {
 	logger                *slog.Logger
+	outputDeltaLogSampler *pkglogger.Sampler
 	threads               contract.ThreadLister
 	agents                AgentLister
 	preferences           PreferenceStore
@@ -80,6 +81,7 @@ func NewService(
 	}
 	svc := &service{
 		logger:                logger,
+		outputDeltaLogSampler: pkglogger.NewEverySampler(1000),
 		threads:               threads,
 		agents:                agents,
 		preferences:           preferences,

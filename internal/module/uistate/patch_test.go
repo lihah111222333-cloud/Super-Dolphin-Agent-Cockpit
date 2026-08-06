@@ -224,6 +224,13 @@ func TestUIStateCanonicalFailureDoesNotBecomeCleanIdle(t *testing.T) {
 	}
 }
 
+func TestApplyTurnOutputDeltaNilServiceNoop(t *testing.T) {
+	t.Parallel()
+
+	var svc *service
+	svc.applyTurnOutputDelta(turndto.TurnOutputDelta{Stream: "message", Delta: "ignored"})
+}
+
 func TestTurnOutputDeltaUpdatesLastMessageWithoutPublishingThreadPatch(t *testing.T) {
 	t.Parallel()
 

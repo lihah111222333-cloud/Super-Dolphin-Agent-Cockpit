@@ -17,6 +17,7 @@ func TestUIStateTargetArchGuards(t *testing.T) {
 		RepoRoot: uiStateRepoRoot(t),
 		ScanRoots: []string{
 			"internal/module/uistate/projector.go",
+			"internal/module/uistate/projector_handlers.go",
 			"internal/module/uistate/sidebar_compat.go",
 			"internal/module/uistate/state.go",
 		},
