@@ -40,6 +40,27 @@ func TestLoadCapsuleTrustClassifiesGenerationMismatchAsIntegrityFailure(t *testi
 	}
 }
 
+func TestPackageTrustOverrideNamesOwnerReturnsIndependentLists(t *testing.T) {
+	names := packageTrustOverrideNames()
+	if got := len(names); got != 13 {
+		t.Fatalf("packageTrustOverrideNames() count = %d, want 13", got)
+	}
+	names[0] = "test-mutation"
+
+	var sawEnabled bool
+	for _, name := range PackageTrustOverrideNames() {
+		if name == "test-mutation" {
+			t.Fatal("PackageTrustOverrideNames() retained caller mutation")
+		}
+		if name == "SUPER_DOLPHIN_UPDATE_ENABLED" {
+			sawEnabled = true
+		}
+	}
+	if !sawEnabled {
+		t.Fatal("PackageTrustOverrideNames() omitted SUPER_DOLPHIN_UPDATE_ENABLED")
+	}
+}
+
 func TestPackageTrustRejectsRuntimeOverrideAndWrongKey(t *testing.T) {
 	trust := testPackageTrust(t, "darwin-arm64")
 	resources := canonicalTestTempDir(t)

@@ -14,23 +14,25 @@ type transitionSpec struct {
 	to      State
 }
 
-var transactionTransitions = []transitionSpec{
-	{from: StatePrepared, trigger: TriggerRetainBackup, to: StateBackupPending},
-	{from: StatePrepared, trigger: TriggerRollbackRequested, to: StateRollbackPending},
-	{from: StateBackupPending, trigger: TriggerBackupRetained, to: StateBackupRetained},
-	{from: StateBackupRetained, trigger: TriggerInstallCandidate, to: StateInstallPending},
-	{from: StateBackupRetained, trigger: TriggerRollbackRequested, to: StateRollbackPending},
-	{from: StateInstallPending, trigger: TriggerCandidateInstalled, to: StateProbation},
-	{from: StateInstallPending, trigger: TriggerRollbackRequested, to: StateRollbackPending},
-	{from: StateProbation, trigger: TriggerHealthy, to: StateCommitPending},
-	{from: StateProbation, trigger: TriggerRollbackRequested, to: StateRollbackPending},
-	{from: StateCommitPending, trigger: TriggerCommitCompleted, to: StateCommitted},
-	{from: StateRollbackPending, trigger: TriggerRollbackCompleted, to: StateRolledBack},
+func transactionTransitions() []transitionSpec {
+	return []transitionSpec{
+		{from: StatePrepared, trigger: TriggerRetainBackup, to: StateBackupPending},
+		{from: StatePrepared, trigger: TriggerRollbackRequested, to: StateRollbackPending},
+		{from: StateBackupPending, trigger: TriggerBackupRetained, to: StateBackupRetained},
+		{from: StateBackupRetained, trigger: TriggerInstallCandidate, to: StateInstallPending},
+		{from: StateBackupRetained, trigger: TriggerRollbackRequested, to: StateRollbackPending},
+		{from: StateInstallPending, trigger: TriggerCandidateInstalled, to: StateProbation},
+		{from: StateInstallPending, trigger: TriggerRollbackRequested, to: StateRollbackPending},
+		{from: StateProbation, trigger: TriggerHealthy, to: StateCommitPending},
+		{from: StateProbation, trigger: TriggerRollbackRequested, to: StateRollbackPending},
+		{from: StateCommitPending, trigger: TriggerCommitCompleted, to: StateCommitted},
+		{from: StateRollbackPending, trigger: TriggerRollbackCompleted, to: StateRolledBack},
+	}
 }
 
 func newStateMachine(initial State) *stateless.StateMachine {
 	machine := stateless.NewStateMachineWithMode(initial, stateless.FiringQueued)
-	for _, spec := range transactionTransitions {
+	for _, spec := range transactionTransitions() {
 		machine.Configure(spec.from).Permit(spec.trigger, spec.to)
 	}
 	for _, state := range allStates() {

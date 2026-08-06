@@ -64,28 +64,27 @@ type UpdateCapability struct {
 	Reason   string
 }
 
-var packageTrustOverrideNames = map[string]struct{}{
-	"SUPER_DOLPHIN_UPDATE_ENABLED":            {},
-	"SUPER_DOLPHIN_UPDATE_MANIFEST_URL":       {},
-	"SUPER_DOLPHIN_UPDATE_GITHUB_REPO":        {},
-	"SUPER_DOLPHIN_UPDATE_PUBLIC_KEY":         {},
-	"SUPER_DOLPHIN_UPDATE_CHANNEL":            {},
-	"SUPER_DOLPHIN_UPDATE_STAGE_DIR":          {},
-	"SUPER_DOLPHIN_UPDATE_HELPER_PATH":        {},
-	"SUPER_DOLPHIN_UPDATE_TARGET_APP_PATH":    {},
-	"SUPER_DOLPHIN_UPDATE_PLATFORM":           {},
-	"SUPER_DOLPHIN_UPDATE_VERSION":            {},
-	"SUPER_DOLPHIN_UPDATE_ALLOW_UNSIGNED":     {},
-	"SUPER_DOLPHIN_UPDATE_WINDOWS_PUBLISHER":  {},
-	"SUPER_DOLPHIN_UPDATE_WINDOWS_THUMBPRINT": {},
+func packageTrustOverrideNames() []string {
+	return []string{
+		"SUPER_DOLPHIN_UPDATE_ENABLED",
+		"SUPER_DOLPHIN_UPDATE_MANIFEST_URL",
+		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO",
+		"SUPER_DOLPHIN_UPDATE_PUBLIC_KEY",
+		"SUPER_DOLPHIN_UPDATE_CHANNEL",
+		"SUPER_DOLPHIN_UPDATE_STAGE_DIR",
+		"SUPER_DOLPHIN_UPDATE_HELPER_PATH",
+		"SUPER_DOLPHIN_UPDATE_TARGET_APP_PATH",
+		"SUPER_DOLPHIN_UPDATE_PLATFORM",
+		"SUPER_DOLPHIN_UPDATE_VERSION",
+		"SUPER_DOLPHIN_UPDATE_ALLOW_UNSIGNED",
+		"SUPER_DOLPHIN_UPDATE_WINDOWS_PUBLISHER",
+		"SUPER_DOLPHIN_UPDATE_WINDOWS_THUMBPRINT",
+	}
 }
 
 // PackageTrustOverrideNames 返回生产 trust 拒绝的完整、稳定排序运行时变量名。
 func PackageTrustOverrideNames() []string {
-	names := make([]string, 0, len(packageTrustOverrideNames))
-	for name := range packageTrustOverrideNames {
-		names = append(names, name)
-	}
+	names := packageTrustOverrideNames()
 	slices.Sort(names)
 	return names
 }
@@ -376,8 +375,10 @@ func validateHelperDigest(field, value string) error {
 func RejectPackageTrustOverrides(environ []string) error {
 	for _, entry := range environ {
 		name, _, _ := strings.Cut(entry, "=")
-		if _, blocked := packageTrustOverrideNames[name]; blocked {
-			return fmt.Errorf("package-owned update trust rejects runtime override %s", name)
+		for _, overrideName := range packageTrustOverrideNames() {
+			if name == overrideName {
+				return fmt.Errorf("package-owned update trust rejects runtime override %s", name)
+			}
 		}
 	}
 	return nil

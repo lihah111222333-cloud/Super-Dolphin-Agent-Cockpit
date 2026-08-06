@@ -13,6 +13,22 @@ import (
 
 var errSimulatedCrash = errors.New("simulated crash")
 
+func TestTransactionTransitionsOwnerReturnsIsolatedSpecs(t *testing.T) {
+	transitions := transactionTransitions()
+	if got := len(transitions); got != 11 {
+		t.Fatalf("transactionTransitions() count = %d, want 11", got)
+	}
+	transitions[0].to = StateRolledBack
+
+	next, err := nextState(StatePrepared, TriggerRetainBackup)
+	if err != nil {
+		t.Fatalf("nextState() error = %v", err)
+	}
+	if next != StateBackupPending {
+		t.Fatalf("nextState(prepared, retain_backup) = %q, want %q", next, StateBackupPending)
+	}
+}
+
 func TestUpdateTransactionRetainsBackupUntilHealthy(t *testing.T) {
 	store, identity, paths := createProbationTransaction(t)
 	assertPathExists(t, paths.Backup)
