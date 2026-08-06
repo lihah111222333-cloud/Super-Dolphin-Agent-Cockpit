@@ -10,7 +10,6 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 )
 
 // reconnectMaxDelay 是重连指数退避的上限。
@@ -69,7 +68,7 @@ func (c *Client) reconnectLoop(ctx context.Context) {
 		conn, reg, err := c.reconnectAttempt(ctx)
 		if err == nil {
 			// 先记录 reconnectAttempt 成功，再激活连接，指标只反映本次尝试结果。
-			metrics.BootstrapReconnectAttempts.WithLabelValues("success").Inc()
+			c.metrics.IncReconnectAttempt("success")
 			c.mu.Lock()
 			if c.closed || c.rootCtx != ctx {
 				c.mu.Unlock()
@@ -88,7 +87,7 @@ func (c *Client) reconnectLoop(ctx context.Context) {
 			return
 		}
 		// 失败指标与 warn 日志同步记录，便于观测侧按同一时间点关联。
-		metrics.BootstrapReconnectAttempts.WithLabelValues("fail").Inc()
+		c.metrics.IncReconnectAttempt("fail")
 		pkglogger.Warn("bootstrap reconnect failed",
 			"instance_id", c.instanceID,
 			"retry_in", delay,

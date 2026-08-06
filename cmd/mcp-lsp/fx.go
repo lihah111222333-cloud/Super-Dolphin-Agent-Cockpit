@@ -16,6 +16,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/bootstrap"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	platformmetrics "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 	platformrunner "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runner"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimeenv"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
@@ -56,9 +57,10 @@ func run(stdout *os.File) error {
 		fx.NopLogger,
 		fx.Supply(stdout),
 		fx.Provide(
-			func(shutdowner fx.Shutdowner, handlers ToolHandlers, runtimeManager *Manager) bootstrap.Config {
+			func(shutdowner fx.Shutdowner, handlers ToolHandlers, runtimeManager *Manager, metrics *platformmetrics.BootstrapMetrics) bootstrap.Config {
 				cfg := bootstrap.ReadBootConfig()
 				cfg.AgentID = ""
+				cfg.Metrics = metrics
 				cfg.Capabilities = []string{"tools/lsp"}
 				tp := registryToolProvider{defs: toolDefinitions(handlers)}
 				cfg.OnToolsList = func(ctx context.Context) (any, error) {
@@ -91,6 +93,7 @@ func run(stdout *os.File) error {
 				return cfg
 			},
 			platformconfig.New,
+			platformmetrics.NewBootstrapMetrics,
 			bootstrap.New,
 			newManager,
 			newToolHandlers,

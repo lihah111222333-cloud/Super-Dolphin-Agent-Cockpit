@@ -15,6 +15,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/bootstrap"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	platformmetrics "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 	platformrunner "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runner"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
 	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
@@ -47,6 +48,7 @@ func run(stdout *os.File) error {
 	app := fx.New(
 		fx.NopLogger,
 		fx.Provide(
+			platformmetrics.NewBootstrapMetrics,
 			buildBootstrapConfig,
 			bootstrap.New,
 			newStdioServer,
@@ -71,9 +73,10 @@ func run(stdout *os.File) error {
 }
 
 // buildBootstrapConfig 构建启动配置，清除 capabilities 字段并注册生命周期回调。
-func buildBootstrapConfig(shutdowner fx.Shutdowner) (bootstrap.Config, error) {
+func buildBootstrapConfig(shutdowner fx.Shutdowner, metrics *platformmetrics.BootstrapMetrics) (bootstrap.Config, error) {
 	cfg := bootstrap.ReadBootConfig()
 	cfg.AgentID = ""
+	cfg.Metrics = metrics
 	var err error
 	cfg.BootSnapshot, err = stripBootSnapshotCapabilities(cfg.BootSnapshot)
 	if err != nil {

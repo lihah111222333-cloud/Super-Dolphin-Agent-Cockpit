@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/creachadair/jrpc2"
+	platformmetrics "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 
@@ -63,6 +64,7 @@ type Client struct {
 	// callbackWG 跟踪 OnShutdown/OnConfigChanged 回调 goroutine。
 	// 生命周期回调必须由 Client 拥有；Close() 通过 drainCallbacks 做有界等待，避免回调泄漏到 client 关闭之后。
 	callbackWG sync.WaitGroup
+	metrics    *platformmetrics.BootstrapMetrics
 }
 
 // Config 是创建 Client 时必须提供的静态配置。
@@ -83,6 +85,7 @@ type Config struct {
 	Subscriptions          []string
 	BootSnapshot           json.RawMessage
 	ReportQueueLimit       int
+	Metrics                *platformmetrics.BootstrapMetrics
 	FinalReport            func() *mcp.ReportRequest
 	OnShutdown             func(mcp.ShutdownRequest)
 	OnConfigChanged        func(mcp.ConfigChangedNotify)
@@ -94,6 +97,9 @@ type Config struct {
 
 // New 创建控制平面 Client，并在构造阶段严格校验和归一化配置。
 func New(cfg Config) (*Client, error) {
+	if cfg.Metrics == nil {
+		return nil, errors.New("bootstrap: metrics owner is required")
+	}
 	cfg, boot, err := normalizeConfig(cfg)
 	if err != nil {
 		return nil, err
@@ -107,6 +113,7 @@ func New(cfg Config) (*Client, error) {
 		reportQueueLimit:  shared.ClampLimit(cfg.ReportQueueLimit, 1, 0, defaultReportQueueLimit),
 		boot:              boot,
 		managedToken:      cfg.ManagedToken,
+		metrics:           cfg.Metrics,
 	}, nil
 }
 

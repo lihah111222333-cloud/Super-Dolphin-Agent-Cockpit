@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/bootstrap"
+	platformmetrics "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 	"go.uber.org/fx"
 )
 
@@ -25,7 +26,7 @@ func TestBootstrapProviderRejectsInvalidSnapshotDuringGraphConstruction(t *testi
 		fx.NopLogger,
 		fx.Provide(
 			func() bootstrap.Config {
-				return bootstrap.Config{BootSnapshot: []byte(`{"unknown":true}`)}
+				return bootstrap.Config{BootSnapshot: []byte(`{"unknown":true}`), Metrics: platformmetrics.NewBootstrapMetrics()}
 			},
 			bootstrap.New,
 		),

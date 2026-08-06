@@ -8,7 +8,6 @@ import (
 	"github.com/creachadair/jrpc2"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
@@ -40,7 +39,7 @@ func (c *Client) enqueueReport(req mcp.ReportRequest) error {
 	}
 	if len(c.reportQueue) >= c.reportQueueLimit {
 		// 入队阶段的溢出单独计数；drain 阶段丢弃已有稳定日志锚点可关联。
-		metrics.BootstrapReportQueueDropped.Inc()
+		c.metrics.IncReportQueueDropped()
 		return errors.New("bootstrap: durable report queue is full")
 	}
 	c.reportQueue = append(c.reportQueue, cloneReportRequest(req))

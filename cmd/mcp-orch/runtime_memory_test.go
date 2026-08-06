@@ -3,6 +3,8 @@ package main
 import (
 	"slices"
 	"testing"
+
+	platformmetrics "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 )
 
 func TestNewRegistryDoesNotIncludeMemoryTools(t *testing.T) {
@@ -16,7 +18,7 @@ func TestNewRegistryDoesNotIncludeMemoryTools(t *testing.T) {
 }
 
 func TestBuildBootstrapConfigDoesNotAdvertiseMemoryCapability(t *testing.T) {
-	cfg := buildBootstrapConfig(nil, nil, newRegistry(newRegistryParams{}))
+	cfg := buildBootstrapConfig(nil, nil, newRegistry(newRegistryParams{}), platformmetrics.NewBootstrapMetrics())
 	if slices.Contains(cfg.Capabilities, "tools/memory") {
 		t.Fatalf("Capabilities = %#v, want no tools/memory", cfg.Capabilities)
 	}

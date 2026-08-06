@@ -18,6 +18,7 @@ import (
 	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/bootstrap"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/mcpcontrol"
+	platformmetrics "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
@@ -50,6 +51,7 @@ func TestLSPLogRelayE2EWritesBackendLog(t *testing.T) {
 		ClientKind:          mcpdto.ClientKindLSP,
 		ThreadID:            "thread-log-e2e",
 		CapabilitiesOffered: []string{"tools/lsp"},
+		Metrics:             platformmetrics.NewBootstrapMetrics(),
 	})
 	if err != nil {
 		t.Fatalf("bootstrap New() error = %v", err)

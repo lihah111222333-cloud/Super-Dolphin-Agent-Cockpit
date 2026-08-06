@@ -33,7 +33,7 @@ func TestObservabilityMetricAnchorsWired(t *testing.T) {
 		}
 	}
 
-	// 每个生产者必须继续在对应注入点引用指标 accessor。
+	// 每个生产者必须继续通过显式 owner 发射对应指标。
 	producers := []struct {
 		path   string
 		tokens []string
@@ -41,7 +41,7 @@ func TestObservabilityMetricAnchorsWired(t *testing.T) {
 		{
 			path: "../../internal/mcpserver/common/bootstrap/heartbeat.go",
 			tokens: []string{
-				"metrics.BootstrapHeartbeatFailures",
+				"c.metrics.IncHeartbeatFailure",
 				"c.cfg.BinaryName",
 				"c.cfg.ClientKind",
 			},
@@ -49,13 +49,13 @@ func TestObservabilityMetricAnchorsWired(t *testing.T) {
 		{
 			path: "../../internal/mcpserver/common/bootstrap/report_queue.go",
 			tokens: []string{
-				"metrics.BootstrapReportQueueDropped",
+				"c.metrics.IncReportQueueDropped",
 			},
 		},
 		{
 			path: "../../internal/mcpserver/common/bootstrap/reconnect.go",
 			tokens: []string{
-				"metrics.BootstrapReconnectAttempts",
+				"c.metrics.IncReconnectAttempt",
 				"\"success\"",
 				"\"fail\"",
 			},

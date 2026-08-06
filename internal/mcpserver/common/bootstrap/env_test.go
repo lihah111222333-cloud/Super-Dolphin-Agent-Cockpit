@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	platformmetrics "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
@@ -119,6 +120,9 @@ func resetBootEnvVars(t *testing.T) {
 
 func mustNewClient(t *testing.T, cfg Config) *Client {
 	t.Helper()
+	if cfg.Metrics == nil {
+		cfg.Metrics = platformmetrics.NewBootstrapMetrics()
+	}
 	client, err := New(cfg)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)

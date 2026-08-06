@@ -19,6 +19,7 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 	mcp "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/bootstrap"
+	platformmetrics "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 	platformrpc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 	"go.uber.org/fx"
@@ -61,7 +62,7 @@ func TestBootstrapProviderRejectsInvalidSnapshotDuringGraphConstruction(t *testi
 		fx.NopLogger,
 		fx.Provide(
 			func() bootstrap.Config {
-				return bootstrap.Config{BootSnapshot: []byte(`{"unknown":true}`)}
+				return bootstrap.Config{BootSnapshot: []byte(`{"unknown":true}`), Metrics: platformmetrics.NewBootstrapMetrics()}
 			},
 			bootstrap.New,
 		),
@@ -80,12 +81,12 @@ func TestBootstrapRunnerRequiresRPCAddr(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	client, err := bootstrap.New(bootstrap.Config{BinaryName: "mcp-ida"})
+	client, err := bootstrap.New(bootstrap.Config{BinaryName: "mcp-ida", Metrics: platformmetrics.NewBootstrapMetrics()})
 	if err != nil {
 		t.Fatalf("bootstrap.New() error = %v", err)
 	}
 	runner := bootstrapRunner{
-		cfg:        bootstrap.Config{BinaryName: "mcp-ida"},
+		cfg:        bootstrap.Config{BinaryName: "mcp-ida", Metrics: platformmetrics.NewBootstrapMetrics()},
 		client:     client,
 		stdioReady: ready,
 	}
@@ -140,7 +141,7 @@ func TestBootstrapConfigDoesNotOfferBootSnapshotIDACapability(t *testing.T) {
 	t.Setenv("GO_AGENT_CTL_RPC_ADDR", addr)
 	t.Setenv("GO_AGENT_CTL_BOOTSTRAP_JSON", `{"instance_id":"snap-1","boot_id":"boot-1","binary_name":"mcp-ida","client_kind":"ida","capabilities":["tools/ida"]}`)
 
-	cfg, err := buildBootstrapConfig(nil)
+	cfg, err := buildBootstrapConfig(nil, platformmetrics.NewBootstrapMetrics())
 	if err != nil {
 		t.Fatalf("buildBootstrapConfig() error = %v", err)
 	}
@@ -173,7 +174,7 @@ func TestBootstrapConfigChangedLogRedactsPayload(t *testing.T) {
 		pkglogger.InitWithConsoleWriter(os.Stderr)
 	})
 
-	cfg, err := buildBootstrapConfig(nil)
+	cfg, err := buildBootstrapConfig(nil, platformmetrics.NewBootstrapMetrics())
 	if err != nil {
 		t.Fatalf("buildBootstrapConfig() error = %v", err)
 	}

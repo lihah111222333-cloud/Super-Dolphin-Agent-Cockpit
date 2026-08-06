@@ -11,7 +11,6 @@ import (
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 )
 
 // heartbeatWarnAfter 控制连续心跳失败达到多少次后升级为 warn 日志。
@@ -51,7 +50,7 @@ func (c *Client) runHeartbeat(ctx context.Context) {
 		if err != nil {
 			failures++
 			// 每次心跳失败都计数；warn 阈值只是日志降噪，指标仍要反映短暂抖动。
-			metrics.BootstrapHeartbeatFailures.WithLabelValues(c.cfg.BinaryName, c.cfg.ClientKind).Inc()
+			c.metrics.IncHeartbeatFailure(c.cfg.BinaryName, c.cfg.ClientKind)
 			if failures >= heartbeatWarnAfter {
 				pkglogger.Warn("bootstrap heartbeat failed",
 					"instance_id", c.instanceID,

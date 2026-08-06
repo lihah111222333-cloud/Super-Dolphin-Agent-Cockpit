@@ -18,6 +18,7 @@ import (
 	mcp "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/bootstrap"
 	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
+	platformmetrics "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 	_ "modernc.org/sqlite"
 )
@@ -249,7 +250,7 @@ func TestBootstrapRunnerStartsAndSubscribesWhenRPCAddrPresent(t *testing.T) {
 	goroutines := newTestGoroutineGroup(t)
 	goroutines.Go(func() {
 		done <- bootstrapRunner{
-			cfg:    bootstrap.Config{RPCAddr: "127.0.0.1:9123", BinaryName: "mcp-orch"},
+			cfg:    bootstrap.Config{RPCAddr: "127.0.0.1:9123", BinaryName: "mcp-orch", Metrics: platformmetrics.NewBootstrapMetrics()},
 			client: client,
 		}.Run(ctx)
 	})
@@ -270,7 +271,7 @@ func TestBootstrapRunnerFailsWhenHookSubscriptionFails(t *testing.T) {
 	client := &stubBootstrapClient{subscribeErr: subscribeErr}
 
 	err := bootstrapRunner{
-		cfg:    bootstrap.Config{RPCAddr: "127.0.0.1:9123", BinaryName: "mcp-orch"},
+		cfg:    bootstrap.Config{RPCAddr: "127.0.0.1:9123", BinaryName: "mcp-orch", Metrics: platformmetrics.NewBootstrapMetrics()},
 		client: client,
 	}.Run(context.Background())
 	if !errors.Is(err, subscribeErr) {

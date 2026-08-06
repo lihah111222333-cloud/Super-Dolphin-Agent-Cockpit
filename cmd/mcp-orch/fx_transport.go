@@ -9,6 +9,7 @@ import (
 	mcp "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/bootstrap"
+	platformmetrics "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 	"go.uber.org/fx"
@@ -18,6 +19,7 @@ import (
 func orchestrationTransportOptions() fx.Option {
 	return fx.Module("orchestration-transport",
 		fx.Provide(
+			platformmetrics.NewBootstrapMetrics,
 			buildBootstrapConfig,
 			bootstrap.New,
 			newRegistry,
@@ -30,9 +32,10 @@ func orchestrationTransportOptions() fx.Option {
 }
 
 // buildBootstrapConfig 组装 mcp-orch 的启动配置，把工具注册和 scope 注入接到 bootstrap。
-func buildBootstrapConfig(shutdowner fx.Shutdowner, hookAfter contract.BootstrapHookAfterHandler, registry tools.Registry) bootstrap.Config {
+func buildBootstrapConfig(shutdowner fx.Shutdowner, hookAfter contract.BootstrapHookAfterHandler, registry tools.Registry, metrics *platformmetrics.BootstrapMetrics) bootstrap.Config {
 	cfg := bootstrap.ReadBootConfig()
 	cfg.AgentID = ""
+	cfg.Metrics = metrics
 	p := registryToolProvider{registry: registry}
 	cfg.OnToolsList = func(ctx context.Context) (any, error) {
 		tools, err := p.ListTools(ctx)
