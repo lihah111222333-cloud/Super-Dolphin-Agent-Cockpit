@@ -26,48 +26,38 @@ const (
 	NodeStatusWaitingHuman NodeStatus = "waiting_human" // HITL 暂停；当前仅保留枚举兼容
 )
 
-var persistedNodeStatusList = []NodeStatus{
-	NodeStatusPending,
-	NodeStatusReady,
-	NodeStatusRunning,
-	NodeStatusRetrying,
-	NodeStatusDone,
-	NodeStatusFailed,
-	NodeStatusCancelled,
-	NodeStatusSkipped,
-	NodeStatusWaitingHuman,
-}
-
-var persistedNodeStatusSet = map[NodeStatus]struct{}{
-	NodeStatusPending:      {},
-	NodeStatusReady:        {},
-	NodeStatusRunning:      {},
-	NodeStatusRetrying:     {},
-	NodeStatusDone:         {},
-	NodeStatusFailed:       {},
-	NodeStatusCancelled:    {},
-	NodeStatusSkipped:      {},
-	NodeStatusWaitingHuman: {},
-}
-
-var reservedOrLegacyNodeStatusSet = map[string]struct{}{
-	string(NodeStatusSkipped):      {},
-	string(NodeStatusWaitingHuman): {},
-	"awaiting_verify":              {},
-}
-
 func persistedNodeStatuses() []NodeStatus {
-	return append([]NodeStatus(nil), persistedNodeStatusList...)
+	return []NodeStatus{
+		NodeStatusPending,
+		NodeStatusReady,
+		NodeStatusRunning,
+		NodeStatusRetrying,
+		NodeStatusDone,
+		NodeStatusFailed,
+		NodeStatusCancelled,
+		NodeStatusSkipped,
+		NodeStatusWaitingHuman,
+	}
 }
 
 func isPersistedNodeStatus(raw string) bool {
-	_, ok := persistedNodeStatusSet[NodeStatus(strings.TrimSpace(raw))]
-	return ok
+	switch NodeStatus(strings.TrimSpace(raw)) {
+	case NodeStatusPending, NodeStatusReady, NodeStatusRunning, NodeStatusRetrying,
+		NodeStatusDone, NodeStatusFailed, NodeStatusCancelled, NodeStatusSkipped,
+		NodeStatusWaitingHuman:
+		return true
+	default:
+		return false
+	}
 }
 
 func isReservedOrLegacyNodeStatus(raw string) bool {
-	_, ok := reservedOrLegacyNodeStatusSet[strings.TrimSpace(raw)]
-	return ok
+	switch strings.TrimSpace(raw) {
+	case string(NodeStatusSkipped), string(NodeStatusWaitingHuman), "awaiting_verify":
+		return true
+	default:
+		return false
+	}
 }
 
 // FailureClass 是节点失败的分类。

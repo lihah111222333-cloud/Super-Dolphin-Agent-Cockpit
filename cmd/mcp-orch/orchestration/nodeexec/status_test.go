@@ -39,9 +39,6 @@ func TestRunningAndRetryingCanTransitionToCancelled(t *testing.T) {
 		if err := ValidateTransition(from, NodeStatusCancelled); err != nil {
 			t.Fatalf("%s → cancelled should be legal for user run termination, got: %v", from, err)
 		}
-		if _, ok := legalTransitions[transition{from, NodeStatusCancelled}]; !ok {
-			t.Fatalf("legalTransitions 缺少 %s → cancelled 条目", from)
-		}
 	}
 }
 
@@ -139,9 +136,11 @@ func TestIsTerminal_FourStates(t *testing.T) {
 // 终态作为 from（守护"终态出态"的封闭性）。
 func TestTerminalsHaveNoOutgoing(t *testing.T) {
 	t.Parallel()
-	for tr := range legalTransitions {
-		if IsTerminal(tr.From) {
-			t.Errorf("terminal status %q has outgoing transition to %q (违反终态封闭原则)", tr.From, tr.To)
+	for _, from := range []NodeStatus{NodeStatusDone, NodeStatusFailed, NodeStatusCancelled, NodeStatusSkipped} {
+		for _, to := range persistedNodeStatuses() {
+			if err := ValidateTransition(from, to); err == nil {
+				t.Errorf("terminal status %q has outgoing transition to %q (违反终态封闭原则)", from, to)
+			}
 		}
 	}
 }
@@ -158,8 +157,5 @@ func TestRetryingCanTransitionToCancelled(t *testing.T) {
 	t.Parallel()
 	if err := ValidateTransition(NodeStatusRetrying, NodeStatusCancelled); err != nil {
 		t.Fatalf("retrying → cancelled should be legal, got: %v", err)
-	}
-	if _, ok := legalTransitions[transition{NodeStatusRetrying, NodeStatusCancelled}]; !ok {
-		t.Fatal("legalTransitions 缺少 retrying → cancelled 条目")
 	}
 }

@@ -234,8 +234,7 @@ func classifyAutomationError(err error) FailureClass {
 	if err == nil {
 		return FailureClassTransient
 	}
-	var exitErr CommandExitError
-	if errors.As(err, &exitErr) {
+	if _, ok := errors.AsType[CommandExitError](err); ok {
 		return FailureClassHard
 	}
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
@@ -243,33 +242,42 @@ func classifyAutomationError(err error) FailureClass {
 	}
 	msg := strings.ToLower(err.Error())
 	switch {
-	case containsAny(msg, automationValidationKeywords):
+	case containsAny(msg, automationValidationKeywords()):
 		return FailureClassValidation
-	case containsAny(msg, automationNotFoundKeywords):
+	case containsAny(msg, automationNotFoundKeywords()):
 		return FailureClassHard
-	case containsAny(msg, automationTransientKeywords):
+	case containsAny(msg, automationTransientKeywords()):
 		return FailureClassTransient
-	case containsAny(msg, automationInfrastructureKeywords):
+	case containsAny(msg, automationInfrastructureKeywords()):
 		return FailureClassInfrastructure
 	default:
 		return FailureClassHard
 	}
 }
 
-var (
-	automationValidationKeywords = []string{
+func automationValidationKeywords() []string {
+	return []string{
 		"parse", "decode", "unmarshal", "marshal", "json", "template", "required", "missing key",
 		"unsafe shell metacharacter", "shell argv", "shell expansion",
 	}
-	automationNotFoundKeywords  = []string{"not found", "no such command", "unknown command"}
-	automationTransientKeywords = []string{
+}
+
+func automationNotFoundKeywords() []string {
+	return []string{"not found", "no such command", "unknown command"}
+}
+
+func automationTransientKeywords() []string {
+	return []string{
 		"deadline exceeded", "timeout", "timed out", "i/o timeout", "connection refused", "connection reset",
 		"temporary", "temporarily", "rate limit", "rate-limit", "rate_limit", "too many requests", "http 429", "status 429",
 	}
-	automationInfrastructureKeywords = []string{
+}
+
+func automationInfrastructureKeywords() []string {
+	return []string{
 		"database", "sqlite", "sql", "transport unavailable", "service unavailable", "bad gateway", "gateway timeout", "http 500", "http 502", "http 503", "http 504",
 	}
-)
+}
 
 func containsAny(msg string, keywords []string) bool {
 	for _, k := range keywords {

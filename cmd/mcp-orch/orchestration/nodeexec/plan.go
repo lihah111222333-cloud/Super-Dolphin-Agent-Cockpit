@@ -200,13 +200,8 @@ type UpdateNodeChange struct {
 	Patch   NodePatch
 }
 
-// updateNodeStatusAllowed 列出 update_node 允许触发的节点 status 集合。
+// isUpdateNodeStatusAllowed 判定 update_node 允许触发的节点 status 集合。
 // 只有尚未执行或刚可执行的节点可编辑；运行中、退避中和终态节点都必须拒绝。
-var updateNodeStatusAllowed = map[string]struct{}{
-	string(NodeStatusPending): {},
-	string(NodeStatusReady):   {},
-}
-
 // PlanUpdateNodes 走两遍 pass：
 //  1. 校验单个 op：op_kind 必须 update_node / node_key 非空 / 目标节点存在
 //     / 目标 status ∈ {pending, ready} / patch.depends_on 不自依赖。
@@ -294,10 +289,19 @@ func updateChangeFromOp(idx int, op Op) (UpdateNodeChange, error) {
 // ensureUpdatableStatus 校验 update_node 的目标仍处在可编辑状态。
 // running、终态、retrying、waiting_human 一律拒绝，避免在线改写已调度节点。
 func ensureUpdatableStatus(idx int, key, status string) error {
-	if _, ok := updateNodeStatusAllowed[status]; !ok {
+	if !isUpdateNodeStatusAllowed(status) {
 		return fmt.Errorf("%w: ops[%d] update_node %q status=%q not updatable (allowed: pending|ready)", ErrUpdateNodePlan, idx, key, status)
 	}
 	return nil
+}
+
+func isUpdateNodeStatusAllowed(status string) bool {
+	switch status {
+	case string(NodeStatusPending), string(NodeStatusReady):
+		return true
+	default:
+		return false
+	}
 }
 
 // applyDependsOnPatch 处理 patch.DependsOn 三态：
@@ -330,12 +334,7 @@ type RemoveNodeChange struct {
 	NodeKey string
 }
 
-// removeNodeStatusAllowed 列出 remove_node 允许的节点状态集合。
-var removeNodeStatusAllowed = map[string]struct{}{
-	string(NodeStatusPending): {},
-	string(NodeStatusReady):   {},
-}
-
+// isRemoveNodeStatusAllowed 判定 remove_node 允许的节点状态集合。
 // PlanRemoveNodes 校验 remove_node，并返回移除目标后的 adjacency。
 // 它不会自动改写下游 depends_on；仍被其它节点依赖的目标会被拒绝。
 func PlanRemoveNodes(ops Ops, existing []ExistingNodeFull, adjacency map[string][]string) (map[string][]string, []RemoveNodeChange, error) {
@@ -401,10 +400,19 @@ func removeChangeFromOp(idx int, op Op) (RemoveNodeChange, error) {
 
 // ensureRemovableStatus 校验节点 status 必须 ∈ {pending, ready} 才允许删除。
 func ensureRemovableStatus(idx int, key, status string) error {
-	if _, ok := removeNodeStatusAllowed[status]; !ok {
+	if !isRemoveNodeStatusAllowed(status) {
 		return fmt.Errorf("%w: ops[%d] remove_node %q status=%q not removable (allowed: pending|ready)", ErrRemoveNodePlan, idx, key, status)
 	}
 	return nil
+}
+
+func isRemoveNodeStatusAllowed(status string) bool {
+	switch status {
+	case string(NodeStatusPending), string(NodeStatusReady):
+		return true
+	default:
+		return false
+	}
 }
 
 // firstDependentOn 返回 adjacency 中第一个依赖 target 的节点 key，不存在返回空串。

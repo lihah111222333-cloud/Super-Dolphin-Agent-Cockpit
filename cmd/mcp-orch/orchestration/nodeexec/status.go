@@ -6,7 +6,7 @@ import "fmt"
 // service.UpdateNodeStatus 和 DAG 调度路径都依赖这里 fail-fast 拦截非法状态跳转，
 // 避免调用方绕过 dispatcher 直接把节点从 pending 改成终态。
 
-// transition 是 (from, to) 状态对，作为 legalTransitions map 的 key。
+// transition 是 (from, to) 状态对，作为 isLegalTransition 的输入。
 type transition struct {
 	From NodeStatus
 	To   NodeStatus
@@ -24,35 +24,45 @@ type transition struct {
 //   - retrying → ready/failed：退避结束重新入队，或超过尝试次数后终止。
 //
 // skipped / waiting_human / awaiting_verify 是兼容保留状态；当前 runtime 不再把它们作为新的转换目标。
-var legalTransitions = map[transition]struct{}{
-	{NodeStatusPending, NodeStatusReady}:      {},
-	{NodeStatusPending, NodeStatusCancelled}:  {},
-	{NodeStatusReady, NodeStatusRunning}:      {},
-	{NodeStatusReady, NodeStatusCancelled}:    {},
-	{NodeStatusRunning, NodeStatusDone}:       {},
-	{NodeStatusRunning, NodeStatusFailed}:     {},
-	{NodeStatusRunning, NodeStatusRetrying}:   {},
-	{NodeStatusRunning, NodeStatusCancelled}:  {},
-	{NodeStatusRetrying, NodeStatusReady}:     {},
-	{NodeStatusRetrying, NodeStatusFailed}:    {},
-	{NodeStatusRetrying, NodeStatusCancelled}: {},
+func isLegalTransition(tr transition) bool {
+	switch tr {
+	case transition{NodeStatusPending, NodeStatusReady},
+		transition{NodeStatusPending, NodeStatusCancelled},
+		transition{NodeStatusReady, NodeStatusRunning},
+		transition{NodeStatusReady, NodeStatusCancelled},
+		transition{NodeStatusRunning, NodeStatusDone},
+		transition{NodeStatusRunning, NodeStatusFailed},
+		transition{NodeStatusRunning, NodeStatusRetrying},
+		transition{NodeStatusRunning, NodeStatusCancelled},
+		transition{NodeStatusRetrying, NodeStatusReady},
+		transition{NodeStatusRetrying, NodeStatusFailed},
+		transition{NodeStatusRetrying, NodeStatusCancelled}:
+		return true
+	default:
+		return false
+	}
 }
 
 // LegalTransitionTargetStatusStrings 返回状态机允许作为公开更新目标的状态列表。
-// 顺序跟随持久状态列表，但只保留 legalTransitions 中出现过的 To 状态，
+// 顺序跟随持久状态列表，但只保留 isLegalTransition 中出现过的 To 状态，
 // 避免 task_update_node schema 暴露 pending 这类不可达目标。
 func LegalTransitionTargetStatusStrings() []string {
-	targets := make(map[NodeStatus]struct{}, len(legalTransitions))
-	for transition := range legalTransitions {
-		targets[transition.To] = struct{}{}
-	}
-	out := make([]string, 0, len(targets))
-	for _, status := range persistedNodeStatusList {
-		if _, ok := targets[status]; ok {
+	out := make([]string, 0, len(persistedNodeStatuses()))
+	for _, status := range persistedNodeStatuses() {
+		if isLegalTransitionTarget(status) {
 			out = append(out, string(status))
 		}
 	}
 	return out
+}
+
+func isLegalTransitionTarget(status NodeStatus) bool {
+	for _, from := range persistedNodeStatuses() {
+		if isLegalTransition(transition{From: from, To: status}) {
+			return true
+		}
+	}
+	return false
 }
 
 // ValidateTransition 校验 from → to 是否是合法的 NodeStatus 转移。
@@ -71,8 +81,8 @@ func ValidateTransition(from, to NodeStatus) error {
 	if from == to {
 		return fmt.Errorf("transition: same state %q (上层应去重；不允许 idempotent update)", from)
 	}
-	if _, ok := legalTransitions[transition{from, to}]; !ok {
-		return fmt.Errorf("transition: %q → %q 非法 (见 nodeexec/status.go legalTransitions)", from, to)
+	if !isLegalTransition(transition{from, to}) {
+		return fmt.Errorf("transition: %q → %q 非法 (见 nodeexec/status.go 状态转换规则)", from, to)
 	}
 	return nil
 }

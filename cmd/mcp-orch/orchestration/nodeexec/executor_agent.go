@@ -230,7 +230,9 @@ func (e *AgentExecutor) HasSpawnRecorder() bool {
 	return e != nil && e.recorder != nil
 }
 
-var agentOutputsForbiddenKeys = []string{"webhook_url", "command_ref"}
+func agentOutputsForbiddenKeys() []string {
+	return []string{"webhook_url", "command_ref"}
+}
 
 func normalizeAgentLaunchConfig(cfg *AgentNodeConfig) *NodeOutcome {
 	if failure := validateAgentLaunchIdentity(cfg); failure != nil {
@@ -254,7 +256,7 @@ func normalizeAgentLaunchConfig(cfg *AgentNodeConfig) *NodeOutcome {
 }
 
 func validateAgentOutputs(raw json.RawMessage, _ *AgentNodeConfig) *NodeOutcome {
-	return validateOutputsForbiddenKeys(raw, agentOutputsForbiddenKeys, func(key string) NodeOutcome {
+	return validateOutputsForbiddenKeys(raw, agentOutputsForbiddenKeys(), func(key string) NodeOutcome {
 		return NodeOutcome{
 			Status:       NodeStatusFailed,
 			FailureClass: FailureClassValidation,

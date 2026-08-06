@@ -266,21 +266,22 @@ func pathWithinRoot(pathValue, root string) bool {
 	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
-var automationCommandEnvAllowlist = map[string]struct{}{
-	"PATH":        {},
-	"HOME":        {},
-	"USERPROFILE": {},
-	"TEMP":        {},
-	"TMP":         {},
-}
-
 func validateAutomationCommandEnv(env map[string]string) error {
 	for key := range env {
-		if _, ok := automationCommandEnvAllowlist[strings.ToUpper(strings.TrimSpace(key))]; !ok {
+		if !isAllowedAutomationCommandEnv(key) {
 			return fmt.Errorf("environment variable %q is not allowed for automation command execution", key)
 		}
 	}
 	return nil
+}
+
+func isAllowedAutomationCommandEnv(key string) bool {
+	switch strings.ToUpper(strings.TrimSpace(key)) {
+	case "PATH", "HOME", "USERPROFILE", "TEMP", "TMP":
+		return true
+	default:
+		return false
+	}
 }
 
 func allowedAutomationCommandEnv(env map[string]string) []string {

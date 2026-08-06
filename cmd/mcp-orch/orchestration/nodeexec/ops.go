@@ -156,7 +156,7 @@ type NodePatch struct {
 //     config.exec.verifier.agent_key 出现，其余位置一律拒绝。
 var ErrNodePatchBannedField = errors.New("node patch: banned field")
 
-// nodePatchBannedDeepKeys 是 patch.config 内要拒绝的 key 集合。status 由
+// isNodePatchBannedDeepKey 判定 patch.config 内要拒绝的 key。status 由
 // 生命周期管，node_key / node_type 不可改；agent_key 只允许作为完整 exec
 // 配置的一部分出现在直接路径 config.exec.agent_key。
 //
@@ -165,13 +165,6 @@ var ErrNodePatchBannedField = errors.New("node patch: banned field")
 // 与 executor_automation.go 的 automationOutputsForbiddenKeys 不同：
 // 后者是 outputs 子 schema 的「agent prompt 注入」语义，本集合只管节点
 // 身份与生命周期字段。
-var nodePatchBannedDeepKeys = map[string]struct{}{
-	"status":    {},
-	"node_key":  {},
-	"node_type": {},
-	"agent_key": {},
-}
-
 // UnmarshalJSON 走 strict 模式：用 json.Decoder + DisallowUnknownFields 做
 // 顶层白名单校验，再递归扫 config 内层禁改 key。
 //
@@ -204,7 +197,7 @@ func (p *NodePatch) UnmarshalJSON(data []byte) error {
 }
 
 // validateConfigDoesNotContainBannedKeys 递归扫 raw 内的所有 object key，
-// 命中 nodePatchBannedDeepKeys → 包成 ErrNodePatchBannedField。
+// 命中 isNodePatchBannedDeepKey → 包成 ErrNodePatchBannedField。
 //
 // 空 / null / 非对象 / 数组里的标量都直接放行；只在递归到 object 时检查。
 // 数组元素与对象值都继续递归，覆盖 `{"config":{"nested":{"agent_key":...}}}` /
@@ -240,7 +233,7 @@ func walkConfigForBannedKeys(v any, path []string) error {
 	switch node := v.(type) {
 	case map[string]any:
 		for key, child := range node {
-			if _, banned := nodePatchBannedDeepKeys[key]; banned && !isAllowedConfigAgentKey(key, path) {
+			if isNodePatchBannedDeepKey(key) && !isAllowedConfigAgentKey(key, path) {
 				return fmt.Errorf("%w: config contains banned key %q (status/node_key/node_type are not patchable; agent_key is only allowed at config.exec.agent_key or config.exec.verifier.agent_key)", ErrNodePatchBannedField, key)
 			}
 			if err := walkConfigForBannedKeys(child, append(path, key)); err != nil {
@@ -255,6 +248,15 @@ func walkConfigForBannedKeys(v any, path []string) error {
 		}
 	}
 	return nil
+}
+
+func isNodePatchBannedDeepKey(key string) bool {
+	switch key {
+	case "status", "node_key", "node_type", "agent_key":
+		return true
+	default:
+		return false
+	}
 }
 
 // isAllowedConfigAgentKey 只允许 agent_key 出现在 exec.agent_key 或 exec.verifier.agent_key。

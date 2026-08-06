@@ -85,17 +85,19 @@ func rejectAutomationShellModeFields(raw json.RawMessage) error {
 
 // automationOutputsForbiddenKeys 列出 automation outputs 中禁止出现的 agent prompt 和路由字段。
 // automation 节点只负责命令卡执行与输出落地，不能替下游 agent 决定 prompt、模型、provider 或工具名单。
-var automationOutputsForbiddenKeys = []string{
-	// prompt 注入字段。
-	"prompt", "first_turn", "agent_prompt", "system_prompt", "append_error",
-	// agent 路由字段。
-	"agent_key", "model", "provider", "language", "tool_choice", "tools",
+func automationOutputsForbiddenKeys() []string {
+	return []string{
+		// prompt 注入字段。
+		"prompt", "first_turn", "agent_prompt", "system_prompt", "append_error",
+		// agent 路由字段。
+		"agent_key", "model", "provider", "language", "tool_choice", "tools",
+	}
 }
 
 // validateAutomationOutputs 验证 outputs 配置未包含 agent prompt 或路由字段。
 // typed OutputsConfig 会忽略未知 key，因此这里必须重读 raw JSON；形状错误留给 typed 解码路径报告。
 func validateAutomationOutputs(raw json.RawMessage, _ *AutomationNodeConfig) *NodeOutcome {
-	return validateOutputsForbiddenKeys(raw, automationOutputsForbiddenKeys, func(key string) NodeOutcome {
+	return validateOutputsForbiddenKeys(raw, automationOutputsForbiddenKeys(), func(key string) NodeOutcome {
 		return failedAutomationOutcome(FailureClassValidation,
 			fmt.Sprintf("automation outputs cannot include agent-prompt or agent-routing field %q", key))
 	})

@@ -633,7 +633,7 @@ func TestAutomationExecutor_Outputs_SharedfileWriteFails_Validation(t *testing.T
 // TestAutomationExecutor_Outputs_RejectsAllBannedKeys 表驱动覆盖所有禁止注入的 output key。
 // 自动化输出不能把 prompt 或 agent-routing 字段注入下游 agent 节点，否则会绕过显式路由和模型选择。
 func TestAutomationExecutor_Outputs_RejectsAllBannedKeys(t *testing.T) {
-	bannedKeys := automationOutputsForbiddenKeys
+	bannedKeys := automationOutputsForbiddenKeys()
 
 	for _, key := range bannedKeys {
 		t.Run(key, func(t *testing.T) {

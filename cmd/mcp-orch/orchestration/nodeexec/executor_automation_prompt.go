@@ -44,12 +44,14 @@ func renderCommandTemplate(commandTemplate string, args json.RawMessage) (string
 	return command, normalizedArgs, nil
 }
 
-var unsafeRenderedShellTokens = []string{
-	"\x00", "\r", "\n", "$(", "$", "`", "&&", "||", ";", "|", "&", ">", "<", "*", "?", "[", "]",
+func unsafeRenderedShellTokens() []string {
+	return []string{
+		"\x00", "\r", "\n", "$(", "$", "`", "&&", "||", ";", "|", "&", ">", "<", "*", "?", "[", "]",
+	}
 }
 
 func validateRenderedCommandShellSafety(command string) error {
-	for _, token := range unsafeRenderedShellTokens {
+	for _, token := range unsafeRenderedShellTokens() {
 		if strings.Contains(command, token) {
 			return fmt.Errorf(
 				"unsafe shell metacharacter %q in rendered command; automation command cards run via argv and do not support shell expansion",
