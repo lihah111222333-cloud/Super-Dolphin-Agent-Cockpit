@@ -8,6 +8,24 @@ import (
 	mcp "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 )
 
+func TestPhaseDecisionConfigOwnersReturnIndependentRanks(t *testing.T) {
+	before := beforeDecisionConfig()
+	before.ranks[mcp.HookDecisionDeny] = 99
+	if got := beforeDecisionConfig().ranks[mcp.HookDecisionDeny]; got != 3 {
+		t.Fatalf("before deny rank = %d, want 3", got)
+	}
+	check := checkDecisionConfig()
+	check.ranks[mcp.HookDecisionAbort] = 99
+	if got := checkDecisionConfig().ranks[mcp.HookDecisionAbort]; got != 2 {
+		t.Fatalf("check abort rank = %d, want 2", got)
+	}
+	after := afterDecisionConfig()
+	after.ranks[mcp.HookDecisionReject] = 99
+	if got := afterDecisionConfig().ranks[mcp.HookDecisionReject]; got != 2 {
+		t.Fatalf("after reject rank = %d, want 2", got)
+	}
+}
+
 func TestMergeBeforePrefersDenyOverAllow(t *testing.T) {
 	t.Parallel()
 

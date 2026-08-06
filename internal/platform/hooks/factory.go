@@ -35,8 +35,8 @@ type phaseDecisionConfig struct {
 	ranks           map[string]int
 }
 
-var (
-	beforeDecisionConfig = phaseDecisionConfig{
+func beforeDecisionConfig() phaseDecisionConfig {
+	return phaseDecisionConfig{
 		defaultDecision: mcp.HookDecisionDeny,
 		ranks: map[string]int{
 			mcp.HookDecisionAllow:  0,
@@ -45,7 +45,10 @@ var (
 			mcp.HookDecisionDeny:   3,
 		},
 	}
-	checkDecisionConfig = phaseDecisionConfig{
+}
+
+func checkDecisionConfig() phaseDecisionConfig {
+	return phaseDecisionConfig{
 		defaultDecision: mcp.HookDecisionContinue,
 		ranks: map[string]int{
 			mcp.HookDecisionContinue: 0,
@@ -53,7 +56,10 @@ var (
 			mcp.HookDecisionAbort:    2,
 		},
 	}
-	afterDecisionConfig = phaseDecisionConfig{
+}
+
+func afterDecisionConfig() phaseDecisionConfig {
+	return phaseDecisionConfig{
 		defaultDecision: mcp.HookDecisionReject,
 		ranks: map[string]int{
 			mcp.HookDecisionApprove:  0,
@@ -61,7 +67,7 @@ var (
 			mcp.HookDecisionReject:   2,
 		},
 	}
-)
+}
 
 type phaseDispatchResult[T any] struct {
 	decisions []peerDecision[T]

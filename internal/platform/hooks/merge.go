@@ -39,13 +39,14 @@ func MergeBefore(decisions []peerDecision[mcp.BeforeDecision]) MergeResult[mcp.B
 }
 
 func normalizeBeforeDecisions(decisions []peerDecision[mcp.BeforeDecision]) ([]mcp.BeforeDecision, []mcp.LeaseKey, []mcp.LeaseKey) {
+	config := beforeDecisionConfig()
 	return normalizePeerDecisions(decisions, func(decision mcp.BeforeDecision) mcp.BeforeDecision {
 		allowedTools := shared.CloneStrings(decision.AllowedTools)
 		if decision.AllowedTools != nil && allowedTools == nil {
 			allowedTools = []string{}
 		}
 		return mcp.BeforeDecision{
-			Decision:     normalizeDecision(decision.Decision, beforeDecisionConfig),
+			Decision:     normalizeDecision(decision.Decision, config),
 			Patch:        shared.CloneRawMessage(decision.Patch),
 			Mutations:    shared.CloneRawMessage(decision.Mutations),
 			AllowedTools: allowedTools,
@@ -91,9 +92,10 @@ func mergeBeforeDecision(decisions []mcp.BeforeDecision) mcp.BeforeDecision {
 }
 
 func highestBeforeDecision(decisions []mcp.BeforeDecision) string {
+	config := beforeDecisionConfig()
 	return chooseDecision(decisions, func(item mcp.BeforeDecision) string {
 		return item.Decision
-	}, beforeDecisionConfig)
+	}, config)
 }
 
 func mergeAllowedTools(decisions []mcp.BeforeDecision) []string {

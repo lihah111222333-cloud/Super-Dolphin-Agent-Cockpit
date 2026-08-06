@@ -140,10 +140,11 @@ func (m *Manager) DispatchAfter(ctx context.Context, topic string, payload mcp.H
 				return result.Decision, nil
 			}
 
+			afterConfig := afterDecisionConfig()
 			subscriber, ok := firstMatching(dispatched.decisions, func(item peerDecision[mcp.AfterDecision]) bool {
 				return item.Err == nil &&
 					item.Lease != (mcp.LeaseKey{}) &&
-					normalizeDecision(item.Decision.Decision, afterDecisionConfig) == mcp.HookDecisionEscalate
+					normalizeDecision(item.Decision.Decision, afterConfig) == mcp.HookDecisionEscalate
 			})
 			if !ok {
 				err := fmt.Errorf("hooks: escalate decision for %s missing subscriber lease", dispatched.payload.HookCallID)

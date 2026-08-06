@@ -19,9 +19,10 @@ func MergeDuring(decisions []peerDecision[mcp.CheckDecision]) MergeResult[mcp.Ch
 }
 
 func normalizeCheckDecisions(decisions []peerDecision[mcp.CheckDecision]) ([]mcp.CheckDecision, []mcp.LeaseKey, []mcp.LeaseKey) {
+	config := checkDecisionConfig()
 	return normalizePeerDecisions(decisions, func(decision mcp.CheckDecision) mcp.CheckDecision {
 		return mcp.CheckDecision{
-			Decision: normalizeDecision(decision.Decision, checkDecisionConfig),
+			Decision: normalizeDecision(decision.Decision, config),
 			Severity: strings.TrimSpace(decision.Severity),
 			Reason:   strings.TrimSpace(decision.Reason),
 		}
@@ -49,7 +50,8 @@ func mergeCheckDecision(decisions []mcp.CheckDecision) mcp.CheckDecision {
 }
 
 func highestCheckDecision(decisions []mcp.CheckDecision) string {
+	config := checkDecisionConfig()
 	return chooseDecision(decisions, func(item mcp.CheckDecision) string {
 		return item.Decision
-	}, checkDecisionConfig)
+	}, config)
 }

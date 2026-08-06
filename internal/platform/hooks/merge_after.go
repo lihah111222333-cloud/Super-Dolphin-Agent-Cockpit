@@ -20,9 +20,10 @@ func MergeAfter(decisions []peerDecision[mcp.AfterDecision]) MergeResult[mcp.Aft
 }
 
 func normalizeAfterDecisions(decisions []peerDecision[mcp.AfterDecision]) ([]mcp.AfterDecision, []mcp.LeaseKey, []mcp.LeaseKey) {
+	config := afterDecisionConfig()
 	return normalizePeerDecisions(decisions, func(decision mcp.AfterDecision) mcp.AfterDecision {
 		return mcp.AfterDecision{
-			Decision:       normalizeDecision(decision.Decision, afterDecisionConfig),
+			Decision:       normalizeDecision(decision.Decision, config),
 			Patch:          shared.CloneRawMessage(decision.Patch),
 			Mutations:      shared.CloneRawMessage(decision.Mutations),
 			DispatchIntent: shared.CloneRawMessage(decision.DispatchIntent),
@@ -60,7 +61,8 @@ func mergeAfterDecision(decisions []mcp.AfterDecision) mcp.AfterDecision {
 }
 
 func highestAfterDecision(decisions []mcp.AfterDecision) string {
+	config := afterDecisionConfig()
 	return chooseDecision(decisions, func(item mcp.AfterDecision) string {
 		return item.Decision
-	}, afterDecisionConfig)
+	}, config)
 }
