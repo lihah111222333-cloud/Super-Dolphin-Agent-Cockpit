@@ -34,3 +34,18 @@ func TestClassifySignalZeroPermissionDeniedFixture(t *testing.T) {
 		t.Fatal("permission-denied fixture crossed the no-signal boundary")
 	}
 }
+
+func TestLifecycleAssociationFieldsReturnsIndependentSnapshots(t *testing.T) {
+	first := lifecycleAssociationFields()
+	second := lifecycleAssociationFields()
+	if len(first) == 0 || len(second) == 0 {
+		t.Fatal("lifecycle association field snapshot is empty")
+	}
+	if &first[0] == &second[0] {
+		t.Fatal("lifecycle association field snapshots share backing storage")
+	}
+	first[0] = "local mutation"
+	if second[0] == "local mutation" {
+		t.Fatal("lifecycle association field mutation leaked into another snapshot")
+	}
+}

@@ -568,24 +568,30 @@ const (
 	runtimeJSTSUseSyntaxServer = "never"
 )
 
-var runtimeNodeLanguageIDs = map[string]struct{}{
-	"css": {}, "dockerfile": {}, "graphql": {}, "html": {},
-	"javascript": {}, "javascriptreact": {}, "json": {}, "markdown": {},
-	"php": {}, "prisma": {}, "python": {}, "shellscript": {},
-	"svelte": {}, "typescript": {}, "typescriptreact": {}, "vue": {}, "yaml": {},
-}
-
 // runtimeAdapterUsesNode 只为已知 Node 驱动的 adapter 开启 Node 专属堆与编译缓存策略。
 func runtimeAdapterUsesNode(adapter multilsp.LanguageAdapter) bool {
 	if adapter == nil {
 		return false
 	}
 	for _, languageID := range adapter.LanguageIDs() {
-		if _, ok := runtimeNodeLanguageIDs[strings.ToLower(strings.TrimSpace(languageID))]; ok {
+		if runtimeLanguageUsesNode(languageID) {
 			return true
 		}
 	}
 	return false
+}
+
+// runtimeLanguageUsesNode 判断标准化后的语言标识是否由 Node 驱动的 LSP 处理。
+func runtimeLanguageUsesNode(languageID string) bool {
+	switch strings.ToLower(strings.TrimSpace(languageID)) {
+	case "css", "dockerfile", "graphql", "html",
+		"javascript", "javascriptreact", "json", "markdown",
+		"php", "prisma", "python", "shellscript",
+		"svelte", "typescript", "typescriptreact", "vue", "yaml":
+		return true
+	default:
+		return false
+	}
 }
 
 // runtimeAdapterInitOptions 复制适配器 init options 并补充打包 LSP 的运行约束。

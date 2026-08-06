@@ -447,6 +447,40 @@ func TestRuntimeAdapterDiagnosticsMaxWaitCoversAllLSPClientAdapters(t *testing.T
 	}
 }
 
+func TestRuntimeLanguageUsesNodePreservesMembership(t *testing.T) {
+	tests := []struct {
+		languageID string
+		want       bool
+	}{
+		{languageID: "css", want: true},
+		{languageID: "dockerfile", want: true},
+		{languageID: "graphql", want: true},
+		{languageID: "html", want: true},
+		{languageID: "javascript", want: true},
+		{languageID: "javascriptreact", want: true},
+		{languageID: "json", want: true},
+		{languageID: "markdown", want: true},
+		{languageID: "php", want: true},
+		{languageID: "prisma", want: true},
+		{languageID: "python", want: true},
+		{languageID: "shellscript", want: true},
+		{languageID: "svelte", want: true},
+		{languageID: "typescript", want: true},
+		{languageID: "typescriptreact", want: true},
+		{languageID: "vue", want: true},
+		{languageID: "yaml", want: true},
+		{languageID: "  TypeScript  ", want: true},
+		{languageID: "go", want: false},
+		{languageID: "plaintext", want: false},
+		{languageID: "", want: false},
+	}
+	for _, test := range tests {
+		if got := runtimeLanguageUsesNode(test.languageID); got != test.want {
+			t.Errorf("runtimeLanguageUsesNode(%q) = %t, want %t", test.languageID, got, test.want)
+		}
+	}
+}
+
 func TestRuntimeDocumentFallbackLanguagesDefaultEmpty(t *testing.T) {
 	registry := multilsp.NewDefaultLanguageAdapterRegistry()
 	for _, languageID := range []string{"markdown", "json", "yaml"} {

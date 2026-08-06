@@ -32,13 +32,17 @@ const (
 	ReasonUnknown              ObservationReason = "unknown"
 )
 
-var lifecycleAssociationFields = []string{
-	"receipt_id",
-	"owner_instance_id",
-	"workspace_hash",
-	"generation",
-	"client_start",
-	"binary_digest",
+// lifecycleAssociationFields 返回 lifecycle 归属证明所需字段的独立快照。
+// probe 不能制造这些字段的权威值，故每次 Snapshot 都明确报告其缺失。
+func lifecycleAssociationFields() []string {
+	return []string{
+		"receipt_id",
+		"owner_instance_id",
+		"workspace_hash",
+		"generation",
+		"client_start",
+		"binary_digest",
+	}
 }
 
 type snapshotCore struct {
@@ -190,7 +194,7 @@ func newSnapshot(
 	missingFields []string,
 	redactedError string,
 ) Snapshot {
-	associationMissing := append([]string(nil), lifecycleAssociationFields...)
+	associationMissing := lifecycleAssociationFields()
 	normalizedMissing := normalizeMissingFields(append(missingFields, associationMissing...))
 	snapshot := Snapshot{
 		snapshotCore: snapshotCore{
