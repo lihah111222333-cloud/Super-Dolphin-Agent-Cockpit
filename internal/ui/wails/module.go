@@ -14,7 +14,6 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/observability"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 	platformrunner "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runner"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -36,7 +35,6 @@ var Module = fx.Module("ui.wails",
 		provideAppUpdateRequestQuit,
 		provideDatasourceImportPickerTokenVerifier,
 	),
-	fx.Invoke(bindWailsLifecycle),
 	fx.Invoke(bindEventBridge),
 )
 
@@ -176,10 +174,11 @@ func NewWailsApplication(p ApplicationParams) (*application.App, error) {
 		return nil, err
 	}
 	wailsApp := application.New(application.Options{
-		Name:        title,
-		Description: "Super Dolphin desktop",
-		Logger:      p.Logger,
-		Services:    []application.Service{p.Service},
+		Name:                        title,
+		Description:                 "Super Dolphin desktop",
+		Logger:                      p.Logger,
+		Services:                    []application.Service{p.Service},
+		DisableDefaultSignalHandler: true,
 		Assets: application.AssetOptions{
 			Handler: withClipboardAssets(assetHandler),
 		},
@@ -213,16 +212,6 @@ func isDebug(cfg *config.Config) bool {
 		return false
 	}
 	return strings.EqualFold(strings.TrimSpace(cfg.LogLevel), "debug")
-}
-
-// bindWailsLifecycle 把 Fx shutdowner 绑定到 Wails 退出流程。
-func bindWailsLifecycle(lifecycle *WailsLifecycle, shutdowner fx.Shutdowner, logger *slog.Logger) {
-	if lifecycle == nil {
-		return
-	}
-	lifecycle.SetShutdownerFunc(func() {
-		shared.LogIgnoredError(logger, "shutdown failed", shutdowner.Shutdown())
-	})
 }
 
 // bindEventBridge 将 EventBridge 挂到 Fx 生命周期。

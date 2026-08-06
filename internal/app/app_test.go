@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"errors"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -38,35 +37,6 @@ func startAppErrorGoroutineForTest(t *testing.T, label string, run func() error)
 		errCh <- run()
 	})
 	return errCh
-}
-
-func TestWatchFXShutdownHonorsContextCancel(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan os.Signal)
-	stop := make(chan struct{})
-	failed := make(chan struct{}, 1)
-
-	exited := startAppGoroutineForTest(t, "shutdown watcher", func() {
-		runShutdownWatcher(ctx, done, stop, func() error {
-			return errors.New("watcher should not stop backend on context cancellation")
-		}, func(error) {
-			failed <- struct{}{}
-		})
-	})
-
-	cancel()
-
-	select {
-	case <-exited:
-	case <-time.After(time.Second):
-		t.Fatal("shutdown watcher did not exit after parent context cancellation")
-	}
-
-	select {
-	case <-failed:
-		t.Fatal("shutdown watcher treated context cancellation as backend failure")
-	default:
-	}
 }
 
 func TestRunDesktopPreDrain(t *testing.T) {
@@ -130,52 +100,6 @@ func TestRootCtxSymmetry(t *testing.T) {
 	case <-owner.RootContext().Done():
 	case <-time.After(time.Second):
 		t.Fatal("owner root context did not inherit parent cancellation")
-	}
-}
-
-func TestShutdownWatcherStopAndWaitJoins(t *testing.T) {
-	ctx := t.Context()
-	done := make(chan os.Signal)
-	stop := make(chan struct{})
-	errCh := make(chan error, 1)
-	exited := startAppGoroutineForTest(t, "shutdown watcher", func() {
-		runShutdownWatcher(ctx, done, stop, func() error {
-			return errors.New("watcher should not stop backend on explicit stop")
-		}, func(error) {
-			errCh <- errors.New("watcher should not notify backend failure on explicit stop")
-		})
-	})
-	close(stop)
-	select {
-	case <-exited:
-	case <-time.After(time.Second):
-		t.Fatal("shutdown watcher did not join after explicit stop")
-	}
-	select {
-	case err := <-errCh:
-		t.Fatal(err)
-	default:
-	}
-}
-
-func TestRunShutdownWatcherStopsBackendBeforeAllowingQuit(t *testing.T) {
-	done := make(chan os.Signal, 1)
-	stop := make(chan struct{})
-	events := make([]string, 0, 2)
-	done <- os.Interrupt
-
-	runShutdownWatcher(context.Background(), done, stop, func() error {
-		events = append(events, "stop")
-		return nil
-	}, func(err error) {
-		if err != nil {
-			t.Fatalf("onStopped error = %v", err)
-		}
-		events = append(events, "quit")
-	})
-
-	if len(events) != 2 || events[0] != "stop" || events[1] != "quit" {
-		t.Fatalf("events = %#v, want stop before quit", events)
 	}
 }
 

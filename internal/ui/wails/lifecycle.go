@@ -141,17 +141,12 @@ func (l *WailsLifecycle) NotifyBackendStopped() {
 	l.allowQuitAfterBackendShutdown()
 }
 
-// RequestQuit 由 app update 或内部流程请求退出，前端未 ready 时会挂起。
+// RequestQuit 由 app update 或内部流程请求退出，并汇合到唯一后端停止状态机。
 func (l *WailsLifecycle) RequestQuit() {
 	if l == nil {
 		return
 	}
-	l.quitAllowed.Store(true)
-	if !l.frontendReady.Load() {
-		l.pendingQuit.Store(true)
-		return
-	}
-	l.invokeQuit()
+	l.requestBackendShutdown()
 }
 
 // NotifyBackendFailed 通知前端后端启动失败。
@@ -163,10 +158,6 @@ func (l *WailsLifecycle) NotifyBackendFailed() {
 func (l *WailsLifecycle) allowQuitAfterBackendShutdown() {
 	l.stopShutdownTimer()
 	l.quitAllowed.Store(true)
-	if !l.frontendReady.Load() {
-		l.pendingQuit.Store(true)
-		return
-	}
 	l.invokeQuit()
 }
 

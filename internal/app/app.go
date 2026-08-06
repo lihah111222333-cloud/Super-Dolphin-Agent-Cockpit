@@ -153,6 +153,11 @@ func RunDesktop(
 	}
 	owner := newAppOwnerContext(parent)
 	defer owner.Cancel()
+	coordinator, err := newDesktopShutdownCoordinator(owner)
+	if err != nil {
+		return err
+	}
+	owner.desktopShutdown = coordinator
 	ctx := owner.RootContext()
 	if err := runDesktopPreflight(ctx); err != nil {
 		return err
@@ -172,17 +177,14 @@ func RunDesktop(
 	if err := prepareDesktopRuntime(startCtx, app.Start, func() error {
 		return validateDesktopRuntime(wailsApp, lifecycle)
 	}, stopper.Stop); err != nil {
-		return err
+		return coordinator.FailStartup(err)
+	}
+	if err := coordinator.Configure(stopper.Stop, lifecycle); err != nil {
+		return coordinator.FailStartup(errors.Join(err, stopper.Stop()))
 	}
 
-	watcher := watchFXShutdown(ctx, app, lifecycle, stopper.Stop)
-	runErr := runActivatedDesktop(startCtx, activation, ready, wailsApp.Run, wailsApp.Quit)
-	owner.Cancel()
-	preDrainErr := preDrainDesktopRuntime(ctx, owner)
-	watcher.StopAndWait()
-
-	stopErr := stopper.Stop()
-	return errors.Join(runErr, preDrainErr, stopErr)
+	runErr := runActivatedDesktop(startCtx, activation, ready, wailsApp.Run, lifecycle.RequestQuit)
+	return coordinator.Shutdown(ctx, runErr)
 }
 
 // RunHeadlessDesktop 启动真实桌面后端图和 RPC bridge，但不创建原生 Wails 窗口。
@@ -539,23 +541,6 @@ func preDrainDesktopRuntime(ctx context.Context, owner *appOwnerContext) error {
 	return errors.Join(owner.WaitRuntimeDone(drainCtx), owner.DrainRuntime(drainCtx))
 }
 
-// shutdownWatcher 管理桌面后端提前停止的监听 goroutine。
-type shutdownWatcher struct {
-	stop chan struct{}
-	done chan struct{}
-	once sync.Once
-}
-
-// StopAndWait 通知监听 goroutine 退出并等待 done 关闭。
-// once 保证多个停止路径并发触发时不会重复 close stop channel。
-func (w *shutdownWatcher) StopAndWait() {
-	if w == nil {
-		return
-	}
-	w.once.Do(func() { close(w.stop) })
-	<-w.done
-}
-
 // desktopFXStopper 确保桌面 Fx Stop 只执行一次。
 type desktopFXStopper struct {
 	parent context.Context
@@ -583,38 +568,4 @@ func (s *desktopFXStopper) Stop() error {
 		s.err = stopFXApp(context.WithoutCancel(s.parent), s.app)
 	})
 	return s.err
-}
-
-// watchFXShutdown 监听 Fx shutdown 并通知 Wails 生命周期。
-// 后端提前停止时会调用 stopBackend，成功/失败都会转成 UI 可见状态。
-func watchFXShutdown(ctx context.Context, app *fx.App, lifecycle *uiwails.WailsLifecycle, stopBackend func() error) *shutdownWatcher {
-	watcher := &shutdownWatcher{stop: make(chan struct{}), done: make(chan struct{})}
-	runtimesafe.SafeGo(ctx, pkglogger.Get(), "app.watchFXShutdown", func(ctx context.Context) {
-		defer close(watcher.done)
-		runShutdownWatcher(ctx, app.Done(), watcher.stop, stopBackend, func(err error) {
-			if err != nil {
-				pkglogger.Get().Warn("desktop backend stop before quit failed", "error", err)
-				lifecycle.NotifyBackendFailed()
-				return
-			}
-			lifecycle.NotifyBackendStopped()
-		})
-	})
-	return watcher
-}
-
-// runShutdownWatcher 等待 Fx Done、显式 stop 或 context 取消。
-func runShutdownWatcher(ctx context.Context, done <-chan os.Signal, stop <-chan struct{}, stopBackend func() error, onStopped func(error)) {
-	select {
-	case <-done:
-		var err error
-		if stopBackend != nil {
-			err = stopBackend()
-		}
-		if onStopped != nil {
-			onStopped(err)
-		}
-	case <-stop:
-	case <-ctx.Done():
-	}
 }

@@ -169,7 +169,7 @@ func TestShouldQuitStartsShutdownWhenActiveAgentCountFails(t *testing.T) {
 	}
 }
 
-func TestShouldQuitWaitsForBackendStopWithoutActiveAgents(t *testing.T) {
+func TestNormalWindowCloseQuitsOnlyAfterBackendStopped(t *testing.T) {
 	t.Parallel()
 
 	lifecycle := NewWailsLifecycle(ActiveAgentCounterFunc(func(context.Context) (int, error) {
@@ -178,8 +178,11 @@ func TestShouldQuitWaitsForBackendStopWithoutActiveAgents(t *testing.T) {
 	lifecycle.MarkFrontendReady()
 
 	shutdownCalled := make(chan struct{}, 1)
+	releaseShutdown := make(chan struct{})
 	lifecycle.SetShutdownerFunc(func() {
 		shutdownCalled <- struct{}{}
+		<-releaseShutdown
+		lifecycle.NotifyBackendStopped()
 	})
 	quitCalled := make(chan struct{}, 1)
 	lifecycle.SetQuitFunc(func() {
@@ -203,7 +206,7 @@ func TestShouldQuitWaitsForBackendStopWithoutActiveAgents(t *testing.T) {
 		t.Fatal("second ShouldQuit() = true before backend stop, want false")
 	}
 
-	lifecycle.NotifyBackendStopped()
+	close(releaseShutdown)
 
 	select {
 	case <-quitCalled:
@@ -215,11 +218,18 @@ func TestShouldQuitWaitsForBackendStopWithoutActiveAgents(t *testing.T) {
 	}
 }
 
-func TestRequestQuitAllowsImmediateQuit(t *testing.T) {
+func TestRequestQuitWaitsForBackendShutdown(t *testing.T) {
 	t.Parallel()
 
 	lifecycle := NewWailsLifecycle(nil, nil)
 	lifecycle.MarkFrontendReady()
+	shutdownCalled := make(chan struct{}, 1)
+	releaseShutdown := make(chan struct{})
+	lifecycle.SetShutdownerFunc(func() {
+		shutdownCalled <- struct{}{}
+		<-releaseShutdown
+		lifecycle.NotifyBackendStopped()
+	})
 	quitCalled := make(chan struct{}, 1)
 	lifecycle.SetQuitFunc(func() {
 		quitCalled <- struct{}{}
@@ -228,12 +238,40 @@ func TestRequestQuitAllowsImmediateQuit(t *testing.T) {
 	lifecycle.RequestQuit()
 
 	select {
+	case <-shutdownCalled:
+	case <-time.After(time.Second):
+		t.Fatal("RequestQuit() did not request backend shutdown")
+	}
+	select {
+	case <-quitCalled:
+		t.Fatal("RequestQuit() invoked quit before backend shutdown")
+	default:
+	}
+	close(releaseShutdown)
+	select {
 	case <-quitCalled:
 	case <-time.After(time.Second):
-		t.Fatal("RequestQuit() did not invoke quit function")
+		t.Fatal("RequestQuit() did not quit after backend shutdown")
 	}
-	if !lifecycle.ShouldQuit() {
-		t.Fatal("ShouldQuit() = false after RequestQuit, want true")
+}
+
+func TestOnShutdownRequestsCoordinatorWithoutFXLoop(t *testing.T) {
+	lifecycle := NewWailsLifecycle(nil, nil)
+	shutdownCalled := make(chan struct{}, 1)
+	lifecycle.SetShutdownerFunc(func() { shutdownCalled <- struct{}{} })
+
+	lifecycle.OnShutdown()
+	lifecycle.OnShutdown()
+
+	select {
+	case <-shutdownCalled:
+	case <-time.After(time.Second):
+		t.Fatal("OnShutdown() did not request coordinator shutdown")
+	}
+	select {
+	case <-shutdownCalled:
+		t.Fatal("OnShutdown() requested shutdown more than once")
+	default:
 	}
 }
 

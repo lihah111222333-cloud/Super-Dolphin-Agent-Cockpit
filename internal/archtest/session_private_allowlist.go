@@ -58,17 +58,6 @@ var sessionPrivateRuntimeAllowlist = []sessionPrivateRuntimeException{
 		RollbackAction: "drop allowlist and require runner adapter / shutdown test",
 	},
 	{
-		DefinitionPath: "internal/app/app.go",
-		CallSitePath:   "internal/app/app.go",
-		Symbol:         "watchFXShutdown",
-		BridgeShape:    "desktop_watcher",
-		ExceptionClass: "permanent",
-		Reason:         "desktop wails shutdown watcher: listens to app.Done() and notifies wails lifecycle; owner ctx from RunDesktop ensures bounded lifetime, StopAndWait joins the watcher before fx.Stop",
-		RemoveWhen:     "n/a — permanent: desktop-only wails watcher lives outside RunGroup by design; RunDesktop owns its root ctx and joins watcher shutdown",
-		RollbackWhen:   "new unjoined goroutine appears under watchFXShutdown, StopAndWait is removed, or runShutdownWatcher stops honoring ctx.Done",
-		RollbackAction: "remove this entry and require watcher join via RunnerModule before merge",
-	},
-	{
 		DefinitionPath: "internal/app/runner.go",
 		CallSitePath:   "internal/app/runner.go",
 		Symbol:         "BindRuntime",

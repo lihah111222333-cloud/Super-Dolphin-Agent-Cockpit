@@ -336,10 +336,12 @@ func (surface *recoveryDesktopSurface) Run(ctx context.Context, runtime *app.Rec
 	}
 	binding := &recoveryBinding{runtime: runtime}
 	wailsApp := application.New(application.Options{
-		Name: "Super Dolphin Recovery", Description: "Super Dolphin Recovery",
-		Services: []application.Service{application.NewService(binding)},
-		Assets:   application.AssetOptions{Handler: http.FileServer(http.FS(surface.frontend))},
-		Mac:      application.MacOptions{ApplicationShouldTerminateAfterLastWindowClosed: true},
+		Name:                        "Super Dolphin Recovery",
+		Description:                 "Super Dolphin Recovery",
+		DisableDefaultSignalHandler: true,
+		Services:                    []application.Service{application.NewService(binding)},
+		Assets:                      application.AssetOptions{Handler: http.FileServer(http.FS(surface.frontend))},
+		Mac:                         application.MacOptions{ApplicationShouldTerminateAfterLastWindowClosed: true},
 	})
 	binding.effects.Quit = wailsApp.Quit
 	wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{

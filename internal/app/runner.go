@@ -11,7 +11,6 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	platformrunner "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runner"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
-	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 	uiwails "github.com/lihah111222333-cloud/super-dolphin-agent/internal/ui/wails"
 )
 
@@ -50,6 +49,7 @@ type appOwnerContext struct {
 	preDrainErr     error
 	runtimeDone     chan struct{}
 	runtimeDoneOnce sync.Once
+	desktopShutdown *desktopShutdownCoordinator
 }
 
 // newAppOwnerContext 创建应用所有者 context。
@@ -142,18 +142,28 @@ func (o *appOwnerContext) WaitRuntimeDone(ctx context.Context) error {
 // OnStop 会取消 runCtx、等待 runner 退出，再 drain 内存提取等收尾任务。
 func BindRuntime(lc fx.Lifecycle, p runtimeParams) error {
 	var (
-		cancel       context.CancelFunc
-		drainErr     error
-		shutdownOnce sync.Once
+		cancel   context.CancelFunc
+		drainErr error
 	)
 	done := make(chan error, 1)
 	if err := registerRuntimePreDrain(p); err != nil {
 		return err
 	}
-	requestShutdown := func() {
-		shutdownOnce.Do(func() {
-			platformshared.LogIgnoredError(p.Logger, "shutdown error", p.Shutdowner.Shutdown())
-		})
+	requestShutdown := func(runErr error) error {
+		if errors.Is(runErr, context.Canceled) {
+			runErr = nil
+		}
+		if owner, ok := p.RootCtx.(*appOwnerContext); ok && owner.desktopShutdown != nil {
+			owner.desktopShutdown.mu.Lock()
+			if runErr != nil {
+				owner.desktopShutdown.causes = append(owner.desktopShutdown.causes, runErr)
+			}
+			owner.desktopShutdown.mu.Unlock()
+			markRuntimeDone(p.RootCtx)
+			return owner.desktopShutdown.Shutdown(context.Background(), nil)
+		}
+		markRuntimeDone(p.RootCtx)
+		return p.Shutdowner.Shutdown()
 	}
 
 	lc.Append(fx.Hook{
@@ -182,18 +192,19 @@ func BindRuntime(lc fx.Lifecycle, p runtimeParams) error {
 
 // startRuntimeRunGroup 在受保护 goroutine 中运行 platform runner group。
 // runner group 退出后会请求 Fx shutdown，让后台和桌面模式都能统一收尾。
-func startRuntimeRunGroup(runCtx context.Context, done chan<- error, p runtimeParams, requestShutdown func()) {
+func startRuntimeRunGroup(runCtx context.Context, done chan<- error, p runtimeParams, requestShutdown func(error) error) {
 	runtimesafe.SafeGo(runCtx, p.Logger, "app.runtime.runGroup", func(context.Context) {
 		err := platformrunner.RunGroup(runCtx, p.Runners, platformrunner.GroupOptions{
 			EnableSignals: false,
 		})
 		done <- err
 		close(done)
-		markRuntimeDone(p.RootCtx)
 		reportRuntimeExit(err, p)
 
 		// RunGroup 返回意味着 runtime 已结束；无论错误与否都触发 Fx 统一收尾。
-		requestShutdown()
+		if shutdownErr := requestShutdown(err); shutdownErr != nil {
+			p.Logger.Error("runtime-triggered shutdown failed", "error", shutdownErr)
+		}
 	})
 }
 
@@ -236,16 +247,12 @@ func drainRuntimeBeforeStop(ctx context.Context, p runtimeParams, drainErr *erro
 	*drainErr = errors.New("app: runtime pre-drain registrar is required")
 }
 
-// reportRuntimeExit 将非预期 runtime 退出写日志并通知桌面生命周期。
+// reportRuntimeExit 将非预期 runtime 退出写入日志；停止状态由唯一 coordinator 发布。
 func reportRuntimeExit(err error, p runtimeParams) {
 	if err == nil || errors.Is(err, context.Canceled) {
 		return
 	}
-	// 误判防护：reportRuntimeExit 将非预期 runtime 退出升级给 WailsLifecycle.NotifyBackendFailed。
 	p.Logger.Error("runtime exited", "error", err)
-	if p.Lifecycle != nil {
-		p.Lifecycle.NotifyBackendFailed()
-	}
 }
 
 // waitForRuntimeDone 等待 runner group 退出或停止 context 超时。
