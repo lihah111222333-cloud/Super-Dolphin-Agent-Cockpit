@@ -60,9 +60,15 @@ const (
 	ClassUnknown   Class = "unknown"
 )
 
-var permanentLaunchPatterns = []string{"401", "unauthoriz", "authentication failed", "authentication required", "not authenticated", "not logged in", "login required", "login-required", "login_required", "please log in", "please run /login", "sign in", "auth expired", "auth token expired", "session expired", "unable to connect to api (connectionrefused)", "selected model", "may not exist or you may not have access", "not have access to it", "pick a different model", "model unavailable", "model_not_found", "model not found", "invalid api key", "invalid_api_key", "403", "forbidden", "permission denied", "quota_exhausted", "insufficient_quota", "usage limit", "out of credits", "402", "payment_required", "subscription expired", "context_length_exceeded", "context length exceeded", "maximum context", "prompt is too long", "launch cwd is required", "launch cwd is invalid"}
+// permanentLaunchPatterns 返回供本次分类独占使用的不可共享模式集合。
+func permanentLaunchPatterns() []string {
+	return []string{"401", "unauthoriz", "authentication failed", "authentication required", "not authenticated", "not logged in", "login required", "login-required", "login_required", "please log in", "please run /login", "sign in", "auth expired", "auth token expired", "session expired", "unable to connect to api (connectionrefused)", "selected model", "may not exist or you may not have access", "not have access to it", "pick a different model", "model unavailable", "model_not_found", "model not found", "invalid api key", "invalid_api_key", "403", "forbidden", "permission denied", "quota_exhausted", "insufficient_quota", "usage limit", "out of credits", "402", "payment_required", "subscription expired", "context_length_exceeded", "context length exceeded", "maximum context", "prompt is too long", "launch cwd is required", "launch cwd is invalid"}
+}
 
-var transientLaunchPatterns = []string{"deadline exceeded", "connection refused", "transport unavailable", "empty thread id", "timed out", "i/o timeout"}
+// transientLaunchPatterns 返回供本次分类独占使用的不可共享模式集合。
+func transientLaunchPatterns() []string {
+	return []string{"deadline exceeded", "connection refused", "transport unavailable", "empty thread id", "timed out", "i/o timeout"}
+}
 
 // Classify 把启动错误归类为 permanent/transient/unknown。
 // permanent 优先匹配认证、配额、模型和 cwd 配置问题，避免对不可恢复错误反复重试。
@@ -71,7 +77,7 @@ func Classify(err error) Class {
 		return ClassTransient
 	}
 	msg := strings.ToLower(err.Error())
-	for _, pattern := range permanentLaunchPatterns {
+	for _, pattern := range permanentLaunchPatterns() {
 		if strings.Contains(msg, pattern) {
 			return ClassPermanent
 		}
@@ -79,7 +85,7 @@ func Classify(err error) Class {
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || IsRateLimited(err) {
 		return ClassTransient
 	}
-	for _, pattern := range transientLaunchPatterns {
+	for _, pattern := range transientLaunchPatterns() {
 		if strings.Contains(msg, pattern) {
 			return ClassTransient
 		}
