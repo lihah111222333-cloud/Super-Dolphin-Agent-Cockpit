@@ -109,12 +109,16 @@ func concreteClient(current Client) (*client, bool) {
 }
 
 type dynamicRegistrationTracker struct {
-	mu                      sync.RWMutex
-	diagnosticRegistrations map[string]struct{}
+	mu                          sync.RWMutex
+	diagnosticRegistrations     map[string]struct{}
+	documentSymbolRegistrations map[string]struct{}
 }
 
 func newDynamicRegistrationTracker() *dynamicRegistrationTracker {
-	return &dynamicRegistrationTracker{diagnosticRegistrations: map[string]struct{}{}}
+	return &dynamicRegistrationTracker{
+		diagnosticRegistrations:     map[string]struct{}{},
+		documentSymbolRegistrations: map[string]struct{}{},
+	}
 }
 
 // dynamicRegistrationRequestHandler 记录服务端动态注册能力，并把未处理请求交给调用方配置处理器。
@@ -160,10 +164,11 @@ func (t *dynamicRegistrationTracker) register(params json.RawMessage) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	for index, registration := range request.Registrations {
-		if registration.Method != protocol.MethodTextDocumentDiagnostic {
+		registrations, ok := t.registrationsForMethod(registration.Method)
+		if !ok {
 			continue
 		}
-		t.diagnosticRegistrations[dynamicRegistrationKey(registration.ID, registration.Method, index)] = struct{}{}
+		registrations[dynamicRegistrationKey(registration.ID, registration.Method, index)] = struct{}{}
 	}
 	return nil
 }
@@ -181,17 +186,30 @@ func (t *dynamicRegistrationTracker) unregister(params json.RawMessage) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	for index, registration := range request.Unregisterations {
-		if registration.Method != protocol.MethodTextDocumentDiagnostic {
+		registrations, ok := t.registrationsForMethod(registration.Method)
+		if !ok {
 			continue
 		}
 		key := dynamicRegistrationKey(registration.ID, registration.Method, index)
 		if strings.TrimSpace(registration.ID) == "" {
-			clear(t.diagnosticRegistrations)
+			clear(registrations)
 			continue
 		}
-		delete(t.diagnosticRegistrations, key)
+		delete(registrations, key)
 	}
 	return nil
+}
+
+// registrationsForMethod 返回需要合并进静态能力快照的动态注册集合。
+func (t *dynamicRegistrationTracker) registrationsForMethod(method string) (map[string]struct{}, bool) {
+	switch method {
+	case protocol.MethodTextDocumentDiagnostic:
+		return t.diagnosticRegistrations, true
+	case protocol.MethodDocumentSymbol:
+		return t.documentSymbolRegistrations, true
+	default:
+		return nil, false
+	}
 }
 
 func (t *dynamicRegistrationTracker) serverCapabilities(capabilities protocol.ServerCapabilities) protocol.ServerCapabilities {
@@ -202,6 +220,9 @@ func (t *dynamicRegistrationTracker) serverCapabilities(capabilities protocol.Se
 	defer t.mu.RUnlock()
 	if len(t.diagnosticRegistrations) > 0 {
 		capabilities.DiagnosticProvider = true
+	}
+	if len(t.documentSymbolRegistrations) > 0 {
+		capabilities.DocumentSymbolProvider = true
 	}
 	return capabilities
 }

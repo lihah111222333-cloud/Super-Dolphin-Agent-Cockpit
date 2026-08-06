@@ -221,7 +221,7 @@ func (m *manager) requestDocumentSymbols(ctx context.Context, client Client, ref
 			Err:       fmt.Errorf("%w: %s", lspmanager.ErrUnsupportedCapability, protocol.MethodDocumentSymbol),
 			Code:      "capability_unsupported",
 			Retryable: false,
-			Hint:      "next: use a SQL language server that advertises textDocument/documentSymbol",
+			Hint:      "next: use a language server that advertises or dynamically registers textDocument/documentSymbol",
 			Meta: map[string]any{
 				"lsp_method": protocol.MethodDocumentSymbol,
 			},

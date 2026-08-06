@@ -8,6 +8,7 @@ import (
 
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 )
 
 func TestInitOptionsSettingsAnswerWorkspaceConfiguration(t *testing.T) {
@@ -69,6 +70,30 @@ func TestDynamicRegistrationTracksDiagnosticProvider(t *testing.T) {
 	}
 }
 
+func TestDocumentSymbolCapabilityTracksDynamicRegistrationLifecycle(t *testing.T) {
+	tracker := newDynamicRegistrationTracker()
+	handler := dynamicRegistrationRequestHandler(tracker, nil)
+	client := &dynamicDocumentSymbolsClient{tracker: tracker}
+
+	if _, err := handler(context.Background(), LSPCompatMethodClientRegisterCapability, json.RawMessage(`{
+		"registrations":[{"id":"sql-symbols","method":"textDocument/documentSymbol","registerOptions":{}}]
+	}`)); err != nil {
+		t.Fatalf("client/registerCapability: %v", err)
+	}
+	if !clientSupportsDocumentSymbols(client) {
+		t.Fatal("documentSymbol capability remained unavailable after dynamic registration")
+	}
+
+	if _, err := handler(context.Background(), LSPCompatMethodClientUnregisterCapability, json.RawMessage(`{
+		"unregisterations":[{"id":"sql-symbols","method":"textDocument/documentSymbol"}]
+	}`)); err != nil {
+		t.Fatalf("client/unregisterCapability: %v", err)
+	}
+	if clientSupportsDocumentSymbols(client) {
+		t.Fatal("documentSymbol capability survived dynamic unregister")
+	}
+}
+
 func TestDynamicRegistrationHandlerDelegatesWorkspaceConfiguration(t *testing.T) {
 	next := configurationRequestHandlerFromInitOptions(map[string]any{
 		"settings": map[string]any{"python": map[string]any{"pythonPath": "/tmp/python"}},
@@ -91,9 +116,26 @@ func TestRequestDocumentSymbolsSkipsUnadvertisedCapability(t *testing.T) {
 	if !errors.Is(err, lspmanager.ErrUnsupportedCapability) {
 		t.Fatalf("requestDocumentSymbols() error = %v, want ErrUnsupportedCapability", err)
 	}
+	var codedErr *common.CodedToolError
+	if !errors.As(err, &codedErr) {
+		t.Fatalf("requestDocumentSymbols() error = %T, want *common.CodedToolError", err)
+	}
+	const wantHint = "next: use a language server that advertises or dynamically registers textDocument/documentSymbol"
+	if codedErr.Hint != wantHint {
+		t.Fatalf("requestDocumentSymbols() hint = %q, want %q", codedErr.Hint, wantHint)
+	}
 	if client.requested {
 		t.Fatal("requestDocumentSymbols() sent textDocument/documentSymbol despite absent server capability")
 	}
+}
+
+type dynamicDocumentSymbolsClient struct {
+	noopClient
+	tracker *dynamicRegistrationTracker
+}
+
+func (c *dynamicDocumentSymbolsClient) ServerCapabilities() protocol.ServerCapabilities {
+	return c.tracker.serverCapabilities(protocol.ServerCapabilities{})
 }
 
 type unadvertisedDocumentSymbolsClient struct {
