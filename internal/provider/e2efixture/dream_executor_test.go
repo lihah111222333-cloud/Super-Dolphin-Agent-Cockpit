@@ -37,6 +37,14 @@ func TestFixtureProviderHealthReturnsE2EFixture(t *testing.T) {
 	}
 }
 
+func TestRequiredFixtureKeysAreFresh(t *testing.T) {
+	first, second := requiredFixtureKeys(), requiredFixtureKeys()
+	first[0] = "changed"
+	if second[0] != "health" || second[len(second)-1] != "block" {
+		t.Fatalf("independent fixture keys = %v, want health through block", second)
+	}
+}
+
 func TestFixtureProviderSelectsStableCards(t *testing.T) {
 	path := writeFixture(t, defaultFixtureJSON())
 	executor, err := newDreamExecutor(path)

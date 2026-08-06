@@ -20,7 +20,9 @@ const (
 	runIDPlaceholder = "{{RUN_ID}}"
 )
 
-var requiredFixtureKeys = []string{"health", "expert", "recall", "default_rule", "review", "block"}
+func requiredFixtureKeys() []string {
+	return []string{"health", "expert", "recall", "default_rule", "review", "block"}
+}
 
 type dreamExecutor struct {
 	pathHash string
@@ -42,7 +44,7 @@ func newDreamExecutor(path string) (*dreamExecutor, error) {
 	if err := json.Unmarshal(data, &cards); err != nil {
 		return nil, fmt.Errorf("parse prompt intent e2e dream fixture %q: %w", path, err)
 	}
-	for _, key := range requiredFixtureKeys {
+	for _, key := range requiredFixtureKeys() {
 		raw := cards[key]
 		if len(raw) == 0 {
 			return nil, fmt.Errorf("prompt intent e2e dream fixture %q missing key %q", path, key)
