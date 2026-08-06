@@ -102,15 +102,15 @@ type recoveryArtifactCache struct {
 }
 
 // newRecoveryArtifactCache 创建有界 LRU cache，零或负上限直接失败。
-func newRecoveryArtifactCache(limit int) *recoveryArtifactCache {
+func newRecoveryArtifactCache(limit int) (*recoveryArtifactCache, error) {
 	if limit <= 0 {
-		panic("recovery artifact cache limit must be positive")
+		return nil, errors.New("recovery artifact cache limit must be positive")
 	}
 	return &recoveryArtifactCache{
 		limit:   limit,
 		entries: make(map[recoveryCacheKey]*list.Element, limit),
 		order:   list.New(),
-	}
+	}, nil
 }
 
 // get 返回 cache 快照并刷新 LRU 顺序。
@@ -169,19 +169,36 @@ type recoveryValidator struct {
 }
 
 // defaultRecoveryValidator 是 historyjsonl owner 内部的受控有界运行时 cache。
-var defaultRecoveryValidator = newRecoveryValidator(defaultRecoveryFS, defaultRecoveryArtifactCacheLimit)
+var defaultRecoveryValidator = sync.OnceValue(func() struct {
+	validator *recoveryValidator
+	err       error
+} {
+	validator, err := newRecoveryValidator(defaultRecoveryFS, defaultRecoveryArtifactCacheLimit)
+	return struct {
+		validator *recoveryValidator
+		err       error
+	}{validator: validator, err: err}
+})
 
 // newRecoveryValidator 创建可注入文件系统的 recovery artifact validator。
-func newRecoveryValidator(ops recoveryFS, cacheLimit int) *recoveryValidator {
+func newRecoveryValidator(ops recoveryFS, cacheLimit int) (*recoveryValidator, error) {
 	if ops.lstat == nil || ops.stat == nil || ops.open == nil || ops.evalSymlinks == nil || ops.walkDir == nil {
-		panic("recovery validator filesystem is incomplete")
+		return nil, errors.New("recovery validator filesystem is incomplete")
 	}
-	return &recoveryValidator{fs: ops, cache: newRecoveryArtifactCache(cacheLimit)}
+	cache, err := newRecoveryArtifactCache(cacheLimit)
+	if err != nil {
+		return nil, err
+	}
+	return &recoveryValidator{fs: ops, cache: cache}, nil
 }
 
 // ValidateRecoveryArtifact 只按已选 provider UUID 验证恢复 artifact。
 func ValidateRecoveryArtifact(req ReadRequest) (string, error) {
-	return defaultRecoveryValidator.validate(req)
+	result := defaultRecoveryValidator()
+	if result.err != nil {
+		return "", fmt.Errorf("initialize recovery validator: %w", result.err)
+	}
+	return result.validator.validate(req)
 }
 
 // validate 先复用稳定 fingerprint cache，再执行严格 discovery 和内容验证。

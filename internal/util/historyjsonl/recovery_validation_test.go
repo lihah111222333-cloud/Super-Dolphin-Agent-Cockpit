@@ -6,9 +6,91 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 )
+
+func TestRecoveryConstructorsRejectInvalidConfiguration(t *testing.T) {
+	t.Parallel()
+
+	for _, limit := range []int{0, -1} {
+		if cache, err := newRecoveryArtifactCache(limit); err == nil || cache != nil {
+			t.Fatalf("newRecoveryArtifactCache(%d) = (%v, %v), want (nil, error)", limit, cache, err)
+		}
+	}
+	if validator, err := newRecoveryValidator(defaultRecoveryFS, 0); err == nil || validator != nil {
+		t.Fatalf("newRecoveryValidator(limit=0) = (%v, %v), want (nil, error)", validator, err)
+	}
+	if validator, err := newRecoveryValidator(recoveryFS{}, 8); err == nil || validator != nil {
+		t.Fatalf("newRecoveryValidator(incomplete) = (%v, %v), want (nil, error)", validator, err)
+	}
+}
+
+func TestDefaultRecoveryValidatorReusesSingleInstanceConcurrently(t *testing.T) {
+	const workers = 64
+	results := make(chan *recoveryValidator, workers)
+	errResults := make(chan error, workers)
+	var group sync.WaitGroup
+	group.Add(workers)
+	for range workers {
+		go func() {
+			defer group.Done()
+			result := defaultRecoveryValidator()
+			results <- result.validator
+			errResults <- result.err
+		}()
+	}
+	group.Wait()
+	close(results)
+	close(errResults)
+
+	for err := range errResults {
+		if err != nil {
+			t.Fatalf("defaultRecoveryValidator() error = %v", err)
+		}
+	}
+	var first *recoveryValidator
+	for validator := range results {
+		if validator == nil {
+			t.Fatal("defaultRecoveryValidator() validator = nil")
+		}
+		if first == nil {
+			first = validator
+			continue
+		}
+		if validator != first {
+			t.Fatalf("defaultRecoveryValidator() validator = %p, want single instance %p", validator, first)
+		}
+	}
+}
+
+func TestRecoveryArtifactCacheEvictsLeastRecentlyUsed(t *testing.T) {
+	t.Parallel()
+
+	cache, err := newRecoveryArtifactCache(2)
+	if err != nil {
+		t.Fatalf("newRecoveryArtifactCache() error = %v", err)
+	}
+	first := recoveryCacheEntry{key: recoveryCacheKey{identity: "first"}}
+	second := recoveryCacheEntry{key: recoveryCacheKey{identity: "second"}}
+	third := recoveryCacheEntry{key: recoveryCacheKey{identity: "third"}}
+	cache.put(first)
+	cache.put(second)
+	if _, ok := cache.get(first.key); !ok {
+		t.Fatal("cache get(first) missed before eviction")
+	}
+	cache.put(third)
+	if _, ok := cache.get(second.key); ok {
+		t.Fatal("cache retained least recently used entry")
+	}
+	if _, ok := cache.get(first.key); !ok {
+		t.Fatal("cache evicted refreshed entry")
+	}
+	if _, ok := cache.get(third.key); !ok {
+		t.Fatal("cache evicted newest entry")
+	}
+}
 
 func TestRecoveryValidatorClassifiesDiscoveryDeletionAsRace(t *testing.T) {
 	t.Parallel()
@@ -23,7 +105,7 @@ func TestRecoveryValidatorClassifiesDiscoveryDeletionAsRace(t *testing.T) {
 		}
 		return os.Remove(path)
 	}
-	validator := newRecoveryValidator(ops, 8)
+	validator := mustNewRecoveryValidator(t, ops, 8)
 
 	_, err := validator.validate(ReadRequest{
 		Provider:         "codex",
@@ -55,7 +137,7 @@ func TestRecoveryValidatorCachesStableLargeArtifactAndInvalidatesRevision(t *tes
 		openCalls.Add(1)
 		return os.Open(path)
 	}
-	validator := newRecoveryValidator(ops, 8)
+	validator := mustNewRecoveryValidator(t, ops, 8)
 	req := ReadRequest{Provider: "codex", ProviderThreadID: identity, CodexHome: home}
 
 	if _, err := validator.validate(req); err != nil {
@@ -100,7 +182,7 @@ func TestRecoveryValidatorRejectsSameMetadataIdentityRewrite(t *testing.T) {
 	const otherIdentity = "019e218f-b514-7733-be85-b3ee7f6a78a7"
 	home := t.TempDir()
 	path := writeRecoveryCodexArtifact(t, home, identity, 0)
-	validator := newRecoveryValidator(defaultRecoveryFS, 8)
+	validator := mustNewRecoveryValidator(t, defaultRecoveryFS, 8)
 	req := ReadRequest{Provider: "codex", ProviderThreadID: identity, CodexHome: home}
 	if _, err := validator.validate(req); err != nil {
 		t.Fatalf("prime validate() error = %v", err)
@@ -134,7 +216,7 @@ func TestRecoveryValidatorRejectsSameMetadataTailCorruption(t *testing.T) {
 	const identity = "019e218f-b514-7733-be85-b3ee7f6a78a6"
 	home := t.TempDir()
 	path := writeRecoveryCodexArtifact(t, home, identity, 1)
-	validator := newRecoveryValidator(defaultRecoveryFS, 8)
+	validator := mustNewRecoveryValidator(t, defaultRecoveryFS, 8)
 	req := ReadRequest{Provider: "codex", ProviderThreadID: identity, CodexHome: home}
 	if _, err := validator.validate(req); err != nil {
 		t.Fatalf("prime validate() error = %v", err)
@@ -177,7 +259,7 @@ func TestRecoveryValidatorDoesNotInferOwnerRootFromExplicitArtifact(t *testing.T
 	const identity = "019e218f-b514-7733-be85-b3ee7f6a78a6"
 	untrustedHome := t.TempDir()
 	path := writeRecoveryCodexArtifact(t, untrustedHome, identity, 0)
-	validator := newRecoveryValidator(defaultRecoveryFS, 8)
+	validator := mustNewRecoveryValidator(t, defaultRecoveryFS, 8)
 	_, err := validator.validate(ReadRequest{
 		Provider:         "codex",
 		ProviderThreadID: identity,
@@ -192,7 +274,7 @@ func TestRecoveryValidatorCacheIsBounded(t *testing.T) {
 	t.Parallel()
 
 	home := t.TempDir()
-	validator := newRecoveryValidator(defaultRecoveryFS, 4)
+	validator := mustNewRecoveryValidator(t, defaultRecoveryFS, 4)
 	for i := range 12 {
 		identity := fmt.Sprintf("019e218f-b514-7733-be85-%012x", i+1)
 		writeRecoveryCodexArtifact(t, home, identity, 0)
@@ -213,7 +295,7 @@ func BenchmarkRecoveryValidatorCachedLargeArtifact(b *testing.B) {
 	const identity = "019e218f-b514-7733-be85-b3ee7f6a78a6"
 	home := b.TempDir()
 	writeRecoveryCodexArtifact(b, home, identity, 16_384)
-	validator := newRecoveryValidator(defaultRecoveryFS, 8)
+	validator := mustNewRecoveryValidator(b, defaultRecoveryFS, 8)
 	req := ReadRequest{Provider: "codex", ProviderThreadID: identity, CodexHome: home}
 	if _, err := validator.validate(req); err != nil {
 		b.Fatalf("prime validate() error = %v", err)
@@ -229,6 +311,15 @@ func BenchmarkRecoveryValidatorCachedLargeArtifact(b *testing.B) {
 type recoveryTestTB interface {
 	Helper()
 	Fatalf(string, ...any)
+}
+
+func mustNewRecoveryValidator(tb recoveryTestTB, ops recoveryFS, cacheLimit int) *recoveryValidator {
+	tb.Helper()
+	validator, err := newRecoveryValidator(ops, cacheLimit)
+	if err != nil {
+		tb.Fatalf("newRecoveryValidator() error = %v", err)
+	}
+	return validator
 }
 
 func writeRecoveryCodexArtifact(tb recoveryTestTB, home, identity string, messages int) string {
