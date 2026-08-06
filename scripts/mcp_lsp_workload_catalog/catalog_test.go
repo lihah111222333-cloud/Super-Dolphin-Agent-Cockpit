@@ -290,38 +290,37 @@ func TestRemoteTestSelectorsRejectsShellOrRegexCommand(t *testing.T) {
 	}
 }
 
-func TestDefault15mReceiptBindsCompletionAndCurrentGitIdentity(t *testing.T) {
+func TestDefault15mReceiptRemainsNVWithoutRemoteAuthority(t *testing.T) {
 	document, root, receipt, completionPath := default15mReceiptFixture(t)
-	if err := AttachCompletionProvenance(&receipt, root, completionPath); err != nil {
-		t.Fatalf("AttachCompletionProvenance() error = %v", err)
+	if err := AttachCompletionProvenance(&receipt, root, completionPath); err == nil || !strings.Contains(err.Error(), "remote run/job/artifact authority") {
+		t.Fatalf("AttachCompletionProvenance() error = %v, want remote authority N/V", err)
 	}
 	receiptPath := filepath.Join(root, "receipt.json")
 	writeReceiptJSON(t, receiptPath, receipt)
-	if err := ValidateReceiptAt(document, root, document.Workloads[0].ID, receiptPath); err != nil {
-		t.Fatalf("ValidateReceiptAt() error = %v", err)
+	if err := ValidateReceiptAt(document, root, document.Workloads[0].ID, receiptPath); err == nil || !strings.Contains(err.Error(), "remote run/job/artifact authority") {
+		t.Fatalf("ValidateReceiptAt() error = %v, want remote authority N/V", err)
 	}
-	if err := ValidateCompletionReceipt(root, completionPath); err != nil {
-		t.Fatalf("ValidateCompletionReceipt() error = %v", err)
+	if err := ValidateCompletionReceipt(root, completionPath); err == nil || !strings.Contains(err.Error(), "remote run/job/artifact authority") {
+		t.Fatalf("ValidateCompletionReceipt() error = %v, want remote authority N/V", err)
 	}
 }
 
 func TestDefault15mReceiptRejectsCompletionChainAndGitDrift(t *testing.T) {
 	document, root, receipt, completionPath := default15mReceiptFixture(t)
-	if err := AttachCompletionProvenance(&receipt, root, completionPath); err != nil {
-		t.Fatalf("AttachCompletionProvenance() error = %v", err)
+	if err := AttachCompletionProvenance(&receipt, root, completionPath); err == nil || !strings.Contains(err.Error(), "remote run/job/artifact authority") {
+		t.Fatalf("AttachCompletionProvenance() error = %v, want remote authority N/V", err)
 	}
-	receipt.GitHead = strings.Repeat("0", 40)
 	receiptPath := filepath.Join(root, "receipt.json")
 	writeReceiptJSON(t, receiptPath, receipt)
-	if err := ValidateReceiptAt(document, root, document.Workloads[0].ID, receiptPath); err == nil || !strings.Contains(err.Error(), "Git HEAD/tree") {
-		t.Fatalf("ValidateReceiptAt() error = %v, want Git provenance rejection", err)
+	if err := ValidateReceiptAt(document, root, document.Workloads[0].ID, receiptPath); err == nil || !strings.Contains(err.Error(), "remote run/job/artifact authority") {
+		t.Fatalf("ValidateReceiptAt() error = %v, want remote authority N/V", err)
 	}
 	badCompletion := filepath.Join(root, "completion-bad.json")
 	proof := defaultCompletionProof(t, root)
 	proof["action_order"] = []string{"mark_draining", "completed"}
 	writeJSON(t, badCompletion, proof)
-	if err := AttachCompletionProvenance(&receipt, root, badCompletion); err == nil || !strings.Contains(err.Error(), "action order") {
-		t.Fatalf("AttachCompletionProvenance() error = %v, want action-order rejection", err)
+	if err := AttachCompletionProvenance(&receipt, root, badCompletion); err == nil || !strings.Contains(err.Error(), "remote run/job/artifact authority") {
+		t.Fatalf("AttachCompletionProvenance() error = %v, want remote authority N/V", err)
 	}
 }
 
@@ -354,6 +353,9 @@ func TestLoadAtBindsResolvedGitTreeDespiteWorkingTreeDrift(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, Path), driftRaw, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(root, ".github", "workflows", "ci.yml"), []byte("name: worktree-drift\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	candidate, err := LoadAt(root, tree)
 	if err != nil {
 		t.Fatalf("LoadAt() error = %v", err)
@@ -361,12 +363,9 @@ func TestLoadAtBindsResolvedGitTreeDespiteWorkingTreeDrift(t *testing.T) {
 	if candidate.Workloads[0].ID != candidateID {
 		t.Fatalf("LoadAt() workload ID = %q, want candidate %q", candidate.Workloads[0].ID, candidateID)
 	}
-	working, err := Load(root)
-	if err != nil {
-		t.Fatalf("Load() drifted catalog error = %v", err)
-	}
-	if working.Workloads[0].ID != "working-tree-drift" {
-		t.Fatalf("Load() workload ID = %q, want drift", working.Workloads[0].ID)
+	_, err = Load(root)
+	if err == nil || !strings.Contains(err.Error(), "artifact") {
+		t.Fatalf("Load() drifted catalog error = %v, want candidate workflow/artifact rejection", err)
 	}
 }
 
@@ -376,11 +375,11 @@ func TestValidateCompletionReceiptForCandidateRejectsWorkingTreeIdentity(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidateCompletionReceiptForCandidate(gitHead, tree, completionPath); err != nil {
-		t.Fatalf("ValidateCompletionReceiptForCandidate() error = %v", err)
+	if err := ValidateCompletionReceiptForCandidate(gitHead, tree, completionPath); err == nil || !strings.Contains(err.Error(), "remote run/job/artifact authority") {
+		t.Fatalf("ValidateCompletionReceiptForCandidate() error = %v, want remote authority N/V", err)
 	}
-	if err := ValidateCompletionReceiptForCandidate(strings.Repeat("0", 40), tree, completionPath); err == nil || !strings.Contains(err.Error(), "candidate") {
-		t.Fatalf("ValidateCompletionReceiptForCandidate() error = %v, want candidate mismatch", err)
+	if err := ValidateCompletionReceiptForCandidate(strings.Repeat("0", 40), tree, completionPath); err == nil || !strings.Contains(err.Error(), "remote run/job/artifact authority") {
+		t.Fatalf("ValidateCompletionReceiptForCandidate() error = %v, want remote authority N/V", err)
 	}
 }
 
@@ -413,7 +412,7 @@ func defaultCompletionProof(t *testing.T, root string) map[string]any {
 		t.Fatal(err)
 	}
 	return map[string]any{
-		"git_head": gitHead, "source_tree_digest": tree, "cohort_id": "sha256:" + strings.Repeat("1", 64), "repository_instance_proof_hash": "sha256:" + strings.Repeat("2", 64), "epoch": uint64(3), "daemon_owner_receipt_hash": "sha256:" + strings.Repeat("3", 64), "action_order": completionActionOrder, "forwarder_count_after": 0, "daemon_observed_after": false, "telemetry_identities_gone": true, "endpoint_unreachable": true, "native_owner_released": true, "quiet_window_verified": true, "next_epoch": uint64(4), "status": "completed",
+		"git_head": gitHead, "source_tree_digest": tree, "cohort_id": "sha256:" + strings.Repeat("1", 64), "repository_instance_proof_hash": "sha256:" + strings.Repeat("2", 64), "epoch": uint64(3), "daemon_owner_receipt_hash": "sha256:" + strings.Repeat("3", 64), "remote_run_id": "run-1", "remote_job_id": "job-1", "remote_artifact_name": "mcp-lsp-default-15m-receipt", "remote_artifact_digest": "sha256:" + strings.Repeat("4", 64), "action_order": completionActionOrder, "forwarder_count_after": 0, "daemon_observed_after": false, "telemetry_identities_gone": true, "endpoint_unreachable": true, "native_owner_released": true, "quiet_window_verified": true, "next_epoch": uint64(4), "status": "completed",
 	}
 }
 

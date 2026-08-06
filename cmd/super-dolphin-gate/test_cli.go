@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/scripts/mcp_lsp_workload_catalog"
 )
 
@@ -25,12 +24,7 @@ func runTestInvocation(args []string, stdout io.Writer) error {
 	}
 	result, input, runErr := executeRemoteRun(options)
 	if runErr == nil && options.WorkloadID != "" && options.CompletionReceiptPath != "" {
-		candidateHead, candidateTree, err := mcpLSPCandidateIdentityFromInput(input)
-		if err != nil {
-			runErr = fmt.Errorf("resolve workload candidate identity: %w", err)
-		} else if err := catalog.ValidateCompletionReceiptForCandidate(candidateHead, candidateTree, options.CompletionReceiptPath); err != nil {
-			runErr = fmt.Errorf("validate workload %q completion receipt: %w", options.WorkloadID, err)
-		}
+		runErr = fmt.Errorf("workload %q is N/V: remote run/job/artifact authority binding is unavailable", options.WorkloadID)
 	}
 	return emitRemoteRunResult(stdout, input.LedgerStore, result, runErr)
 }
@@ -157,17 +151,6 @@ func resolveMcpLSPCandidateIdentity(repository string, options remoteRunOptions)
 		return "", "", fmt.Errorf("resolve workload candidate tree: %w", err)
 	}
 	return head, tree, nil
-}
-
-func mcpLSPCandidateIdentityFromInput(input remoteci.RunInput) (string, string, error) {
-	head := input.Commit
-	if head == "" && input.Source.Tree != nil {
-		head = input.Source.Tree.ParentCommitSHA
-	}
-	if head == "" || input.Tree == "" {
-		return "", "", fmt.Errorf("remote run input is missing candidate commit/tree")
-	}
-	return head, input.Tree, nil
 }
 
 func sameSelectorSet(left, right []string) bool {

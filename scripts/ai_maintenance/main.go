@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -601,19 +602,19 @@ func requireLSPEvidence(file string, evidence map[string]bool) {
 }
 
 func changedFilesFromGit(base string) ([]string, error) {
-	out, err := exec.Command("git", "diff", "--name-only", base+"...HEAD").CombinedOutput()
+	out, err := exec.Command("git", "diff", "--name-only", "-z", base+"...HEAD").CombinedOutput()
 	if err != nil {
-		out, err = exec.Command("git", "diff", "--name-only", base).CombinedOutput()
+		out, err = exec.Command("git", "diff", "--name-only", "-z", base).CombinedOutput()
 		if err != nil {
 			return nil, fmt.Errorf("git diff changed files: %w\n%s", err, out)
 		}
 	}
-	files := lines(string(out))
-	untracked, err := exec.Command("git", "ls-files", "--others", "--exclude-standard").CombinedOutput()
+	files := nulSeparatedPaths(out)
+	untracked, err := exec.Command("git", "ls-files", "--others", "--exclude-standard", "-z").CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("git untracked changed files: %w\n%s", err, untracked)
 	}
-	files = append(files, lines(string(untracked))...)
+	files = append(files, nulSeparatedPaths(untracked)...)
 	return normalizeFiles(files), nil
 }
 
@@ -634,7 +635,9 @@ func normalizeFiles(files []string) []string {
 	seen := map[string]bool{}
 	out := []string{}
 	for _, file := range files {
-		file = filepath.ToSlash(strings.TrimSpace(file))
+		// Git -z records path bytes exactly; trimming would silently change a
+		// legitimate Unicode/space-bearing filename before gate routing.
+		file = filepath.ToSlash(file)
 		file = strings.TrimPrefix(file, "./")
 		if file == "" || seen[file] {
 			continue
@@ -762,6 +765,19 @@ func lines(text string) []string {
 		}
 	}
 	return out
+}
+
+// nulSeparatedPaths 解析 Git 的 -z 路径流；路径可包含换行、空格和非 ASCII 字符。
+func nulSeparatedPaths(raw []byte) []string {
+	parts := bytes.Split(raw, []byte{0})
+	paths := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if len(part) == 0 {
+			continue
+		}
+		paths = append(paths, string(part))
+	}
+	return paths
 }
 
 type multiFlag []string
