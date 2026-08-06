@@ -32,13 +32,15 @@ type appDeps struct {
 	codexAppManagedHome     func() (string, error)
 }
 
-// deps 是生产环境使用的桌面 preflight 依赖实现。
-var deps = appDeps{
-	ensureCodexCLIAvailable: codexapp.EnsureCLIAvailable,
-	ensureCodexBootstrap:    codexapp.EnsureCodexBootstrap,
-	codexAppManagedHome: func() (string, error) {
-		return providershared.AppManagedProviderHome(providershared.ProviderCodex)
-	},
+// newAppDeps 创建单个桌面启动流程拥有的 preflight 依赖描述符。
+func newAppDeps() appDeps {
+	return appDeps{
+		ensureCodexCLIAvailable: codexapp.EnsureCLIAvailable,
+		ensureCodexBootstrap:    codexapp.EnsureCodexBootstrap,
+		codexAppManagedHome: func() (string, error) {
+			return providershared.AppManagedProviderHome(providershared.ProviderCodex)
+		},
+	}
 }
 
 // packaged Codex relay 环境变量。
@@ -159,7 +161,7 @@ func RunDesktop(
 	}
 	owner.desktopShutdown = coordinator
 	ctx := owner.RootContext()
-	if err := runDesktopPreflight(ctx); err != nil {
+	if err := runDesktopPreflight(ctx, newAppDeps()); err != nil {
 		return err
 	}
 	var wailsApp *application.App
@@ -200,7 +202,7 @@ func RunHeadlessDesktop(
 	owner := newAppOwnerContext(parent)
 	defer owner.Cancel()
 	ctx := owner.RootContext()
-	if err := runDesktopPreflight(ctx); err != nil {
+	if err := runDesktopPreflight(ctx, newAppDeps()); err != nil {
 		return err
 	}
 	var wailsApp *application.App
@@ -397,12 +399,12 @@ func runActivatedDesktop(
 
 // runDesktopPreflight 在 Fx 启动前准备桌面运行环境。
 // packaged runtime 需要先完成 Codex relay bootstrap，失败时阻止桌面继续启动。
-func runDesktopPreflight(ctx context.Context) error {
+func runDesktopPreflight(ctx context.Context, d appDeps) error {
 	projectRoot, err := platformconfig.PrimeProcessEnvironment()
 	if err != nil {
 		return fmt.Errorf("desktop preflight: load environment: %w", err)
 	}
-	if err := ensurePackagedCodexBootstrap(ctx, projectRoot, deps); err != nil {
+	if err := ensurePackagedCodexBootstrap(ctx, projectRoot, d); err != nil {
 		return fmt.Errorf("desktop preflight: Codex bootstrap failed: %w", err)
 	}
 	return nil
