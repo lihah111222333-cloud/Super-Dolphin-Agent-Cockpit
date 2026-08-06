@@ -4,7 +4,7 @@ import {
   resetFrontendHealthForTest,
 } from '../diagnostics/frontendHealthStore.js';
 import { registerFrontendDiagnosticCorrelation } from '../diagnostics/frontendDiagnosticCorrelation.js';
-import { runUIAction } from './runUIAction.js';
+import { runBackgroundAction, runUIAction } from './runUIAction.js';
 
 function diagnosticIds(...ids) {
   let index = 0;
@@ -82,6 +82,24 @@ it('reuses a validated bridge trace ID for synchronous failures', () => {
 
   expect(healthSink.mock.calls[0][0].publicError.diagnosticId).toBe(traceId);
   expect(visibleFailureSink.mock.calls[0][0].publicError.diagnosticId).toBe(traceId);
+});
+
+it('preserves a validated bridge correlation for background Promise rejection without exposing its cause', async () => {
+  const traceId = 'abcdef0123456789abcdef0123456789';
+  const rawCause = 'background token=secret';
+  const error = Object.assign(new Error(rawCause), { traceId, trace_id: traceId });
+  registerFrontendDiagnosticCorrelation(error, traceId);
+  const healthSink = vi.fn();
+
+  runBackgroundAction('fixture.background-traced', () => Promise.reject(error), {
+    diagnosticIdFactory: diagnosticIds('background-fallback'),
+    healthSink,
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  expect(healthSink.mock.calls[0][0].publicError.diagnosticId).toBe(traceId);
+  expect(JSON.stringify(healthSink.mock.calls)).not.toContain(rawCause);
 });
 
 it('generates a new diagnostic ID when an error has no valid bridge trace', () => {

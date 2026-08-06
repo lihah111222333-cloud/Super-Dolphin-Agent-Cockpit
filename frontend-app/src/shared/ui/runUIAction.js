@@ -213,10 +213,11 @@ export function runBackgroundAction(actionId, action, options = {}) {
     }
   }
   const normalizedActionId = actionId.trim();
-  const reportBackgroundFailure = () => {
+  /** @param {unknown} cause */
+  const reportBackgroundFailure = (cause) => {
     const publicError = createSafePublicError({
       actionId: normalizedActionId,
-      diagnosticIdFactory: options.diagnosticIdFactory,
+      diagnosticIdFactory: diagnosticIdFactoryForError(cause, options.diagnosticIdFactory),
     });
     writeHealth(normalizedActionId, publicError, options);
   };
@@ -226,8 +227,8 @@ export function runBackgroundAction(actionId, action, options = {}) {
       void Promise.resolve(result).catch(reportBackgroundFailure);
     }
     return result;
-  } catch {
-    reportBackgroundFailure();
+  } catch (cause) {
+    reportBackgroundFailure(cause);
     return undefined;
   }
 }

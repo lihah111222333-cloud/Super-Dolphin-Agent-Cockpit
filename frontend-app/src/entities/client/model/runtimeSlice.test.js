@@ -461,4 +461,46 @@ describe('runtime slice preference validation', () => {
     expect(runtime.loadProviderConfig).not.toHaveBeenCalled();
     expect(runtime.set).not.toHaveBeenCalledWith(expect.objectContaining({ provider: 'codex' }));
   });
+
+  it('classifies state application failure with a stable, non-sensitive bootstrap step', async () => {
+    const rawCause = 'snapshot leaked credential=secret /Users/private';
+    const runtime = createRuntime({
+      applyProjects: vi.fn(),
+      applySnapshot: vi.fn(() => {
+        throw new Error(rawCause);
+      }),
+      cacheSidebarSnapshot: vi.fn(),
+      loadProviderConfig: vi.fn().mockResolvedValue(undefined),
+      set: vi.fn(),
+    });
+    const deps = createDeps({
+      getPreference: vi.fn().mockResolvedValue('codex'),
+      getProjects: vi.fn().mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' }),
+      getSidebarState: vi.fn().mockResolvedValue({ activeThreadId: '', threads: [] }),
+      getWindowBootstrap: vi.fn().mockResolvedValue({ snapshot: { cwd: '/repo/app', page: 'chat' } }),
+      normalizeBootstrapPage: vi.fn((value) => value),
+      normalizeBootstrapSnapshot: vi.fn((value) => value.snapshot),
+      normalizePath: vi.fn((value) => value || ''),
+      onBridgeEvent: vi.fn(() => ({ ready: Promise.resolve(true), unsubscribe: vi.fn() })),
+      onRuntimeReconnect: vi.fn(() => ({ ready: Promise.resolve(true), unsubscribe: vi.fn() })),
+      providerActivePreferenceKey: 'settings.provider.active',
+      readConfig: vi.fn().mockResolvedValue({ cwd: '/repo/app' }),
+      requireActiveProviderPreference: vi.fn(() => 'codex'),
+    });
+    const actions = createRuntimeSlice(runtime, deps);
+    runtime.get.mockImplementation(() => ({ initializeEvents: actions.initializeEvents }));
+
+    await expect(actions.bootstrap()).rejects.toThrow(rawCause);
+
+    expect(runtime.set).toHaveBeenLastCalledWith({
+      bootstrapStatus: 'failed',
+      error: '应用初始化失败，请重试。',
+    });
+    expect(runtime.addWarning).toHaveBeenCalledWith('error', 'app.bootstrap.failed', {
+      action: 'state.sidebar.apply',
+      code: 'initialization_failed',
+      error: 'background action failure; see Health diagnostic ID',
+    });
+    expect(JSON.stringify(runtime.addWarning.mock.calls)).not.toContain(rawCause);
+  });
 });

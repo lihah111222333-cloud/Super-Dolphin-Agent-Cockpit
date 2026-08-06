@@ -1769,6 +1769,18 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(JSON.stringify(frontendHealthSnapshot())).not.toContain('127.0.0.1');
   });
 
+  it('shows a sanitized initialization failure when successful transport reaches a local bootstrap failure', async () => {
+    const rawCause = 'invalid projects response /Users/private token=secret';
+    backend.getProjects.mockRejectedValueOnce(new TypeError(rawCause));
+
+    render(<App />);
+
+    expect(await screen.findAllByText('应用初始化失败，请重试。')).toHaveLength(2);
+    expect(screen.queryByText(/连接后端失败/)).not.toBeInTheDocument();
+    expect(JSON.stringify(frontendHealthSnapshot())).not.toContain('/Users/private');
+    expect(JSON.stringify(frontendHealthSnapshot())).not.toContain('token=secret');
+  });
+
   it('does not expose provider switching when no project cwd is available', async () => {
     resetClientStoreForTests({
       bootstrapStatus: 'ready',

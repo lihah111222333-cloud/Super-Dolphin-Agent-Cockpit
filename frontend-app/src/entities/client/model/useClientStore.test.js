@@ -422,7 +422,7 @@ function registerBridgeEventHandlersForTest() {
 
     const retryPromise = useClientStore.getState().bootstrap();
     expect(useClientStore.getState().bootstrapStatus).toBe('loading');
-    expect(useClientStore.getState().error).toBe('连接后端失败，请重试。');
+    expect(useClientStore.getState().error).toBe('应用初始化失败，请重试。');
 
     retryConfig.resolve({ cwd: '/repo/app' });
     await retryPromise;
@@ -446,7 +446,8 @@ function registerBridgeEventHandlersForTest() {
     await expect(bootstrapPromise).rejects.toThrow('runtime shim: failed to connect'); await flushPromises();
 
     expect(backend.reportFrontendReadiness).toHaveBeenCalledTimes(1); expect(backend.readConfig).toHaveBeenCalledTimes(2);
-    expect(useClientStore.getState().bootstrapStatus).toBe('ready'); expect(useClientStore.getState().activeProject).toBe('/repo/app');
+    await vi.waitFor(() => expect(useClientStore.getState().bootstrapStatus).toBe('ready'));
+    expect(useClientStore.getState().activeProject).toBe('/repo/app');
   });
 
   it('waits for both runtime subscriptions before the first bootstrap RPC', async () => {
@@ -495,6 +496,46 @@ function registerBridgeEventHandlersForTest() {
     expect(backend.getWindowBootstrap).not.toHaveBeenCalled();
     expect(useClientStore.getState().bootstrapStatus).toBe('failed');
     expect(useClientStore.getState().error).toBe('连接后端失败，请重试。');
+  });
+
+  it('classifies a local projects validation rejection after successful transport as initialization failure', async () => {
+    const rawCause = 'invalid projects payload /Users/private token=secret';
+    backend.getProjects.mockRejectedValueOnce(new TypeError(rawCause));
+
+    await expect(useClientStore.getState().bootstrap()).rejects.toThrow(rawCause);
+
+    const state = useClientStore.getState();
+    expect(state.bootstrapStatus).toBe('failed');
+    expect(state.error).toBe('应用初始化失败，请重试。');
+    expect(state.warningEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        event: 'app.bootstrap.failed',
+        fields: expect.objectContaining({
+          action: 'workspace.projects',
+          code: 'initialization_failed',
+        }),
+      }),
+    ]));
+    expect(JSON.stringify(state.warningEntries)).not.toContain('/Users/private');
+    expect(JSON.stringify(state.warningEntries)).not.toContain('token=secret');
+  });
+
+  it('keeps an explicit Wails runtime transport failure classified as backend connection failure', async () => {
+    backend.readConfig.mockRejectedValueOnce(new Error('Wails runtime bridge not ready'));
+
+    await expect(useClientStore.getState().bootstrap()).rejects.toThrow('Wails runtime bridge not ready');
+
+    const state = useClientStore.getState();
+    expect(state.error).toBe('连接后端失败，请重试。');
+    expect(state.warningEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        event: 'app.bootstrap.failed',
+        fields: expect.objectContaining({
+          action: 'config.read',
+          code: 'transport_unavailable',
+        }),
+      }),
+    ]));
   });
 
   it('preserves a live bridge status over a stale bootstrap sidebar snapshot', async () => {

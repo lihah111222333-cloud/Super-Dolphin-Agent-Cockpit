@@ -5,11 +5,13 @@
 
 import {
   buildBootstrapState,
+  bootstrapFailureCause,
   clearPendingRuntimeSubscriptions,
   clearRuntimeUnsubscribe,
   handleBootstrapError,
   handleRuntimeReconnect,
   markThreadDiffReady,
+  runBootstrapStep,
   threadStateLoadingPatch,
   trackRuntimeSubscription } from './helpers/runtimeSliceHelpers.js';
 import { runBackgroundAction } from '../../../shared/ui/runUIAction.js';
@@ -290,6 +292,22 @@ function publishThreadSyncFailure(runtime, syncOptions, id, _error) {
   runtime.addWarning('error', 'thread.sync.failed', { threadId: id, error: 'action failure; see Health diagnostic ID' });
 }
 
+async function readBootstrapCwd(readConfig, normalizePath) {
+  const config = await readConfig();
+  const cwd = normalizePath(config?.cwd);
+  if (!cwd || cwd === '.') throw new Error('frontend-app bootstrap cwd is required');
+  return cwd;
+}
+
+async function readBootstrapWindowState(getWindowBootstrap, normalizeBootstrapSnapshot, normalizePath, normalizeBootstrapPage) {
+  const rawWindowBootstrap = await getWindowBootstrap();
+  const windowSnapshot = normalizeBootstrapSnapshot(rawWindowBootstrap);
+  return {
+    cwd: normalizePath(windowSnapshot.cwd),
+    page: normalizeBootstrapPage(windowSnapshot.page),
+  };
+}
+
 function createBootstrapActions(runtime, deps) {
   const {
     getPreference,
@@ -309,43 +327,48 @@ function createBootstrapActions(runtime, deps) {
      * bootstrap 会拿 cwd、窗口快照、项目列表和 provider。
      * cwd/provider 缺失就报错，后续页面都依赖它们。
      */
-    runtime.set({ bootstrapStatus: 'loading' });
     try {
-      await runtime.get().initializeEvents();
-      const [config, rawWindowBootstrap] = await Promise.all([readConfig(), getWindowBootstrap()]);
-      const cwd = normalizePath(config?.cwd);
-      if (!cwd || cwd === '.') {
-        throw new Error('frontend-app bootstrap cwd is required');
-      }
-      const windowSnapshot = normalizeBootstrapSnapshot(rawWindowBootstrap);
-      const windowCwd = normalizePath(windowSnapshot.cwd);
-      const scopedCwd = windowCwd || cwd;
-      const bootstrapPage = normalizeBootstrapPage(windowSnapshot.page);
+      await runBootstrapStep('state.loading', () => runtime.set({ bootstrapStatus: 'loading' }));
+      await runBootstrapStep('events.initialize', () => runtime.get().initializeEvents());
+      const [cwd, windowState] = await Promise.all([
+        runBootstrapStep('config.read', () => readBootstrapCwd(readConfig, normalizePath)),
+        runBootstrapStep('window.bootstrap', () => readBootstrapWindowState(
+          getWindowBootstrap,
+          normalizeBootstrapSnapshot,
+          normalizePath,
+          normalizeBootstrapPage,
+        )),
+      ]);
+      const scopedCwd = windowState.cwd || cwd;
       if (runtime.assistantEventScope !== scopedCwd) {
-        await runtime.rebindBridgeEventScope(scopedCwd);
+        await runBootstrapStep('scope.rebind', () => runtime.rebindBridgeEventScope(scopedCwd));
       }
-      const activeProvider = requireActiveProviderPreference(
-        await getPreference({
+      const activeProvider = await runBootstrapStep('provider.active', async () => (
+        requireActiveProviderPreference(await getPreference({
           cwd: scopedCwd,
           key: providerActivePreferenceKey,
-        }),
-        'frontend-app bootstrap',
-      );
-      runtime.set(buildBootstrapState({ cwd, scopedCwd, activeProvider, bootstrapPage }));
+        }), 'frontend-app bootstrap')
+      ));
+      await runBootstrapStep('state.bootstrap', () => runtime.set(buildBootstrapState({
+        cwd,
+        scopedCwd,
+        activeProvider,
+        bootstrapPage: windowState.page,
+      })));
       const [projects, sidebar] = await Promise.all([
-        getProjects({ cwd: scopedCwd }),
-        getSidebarState({ cwd: scopedCwd }),
-        runtime.loadProviderConfig(scopedCwd, activeProvider),
+        runBootstrapStep('workspace.projects', () => getProjects({ cwd: scopedCwd })),
+        runBootstrapStep('workspace.sidebar', () => getSidebarState({ cwd: scopedCwd })),
+        runBootstrapStep('provider.config', () => runtime.loadProviderConfig(scopedCwd, activeProvider)),
       ]);
-      runtime.applyProjects(projects, scopedCwd);
-      runtime.cacheSidebarSnapshot(scopedCwd, sidebar);
-      runtime.applySnapshot(sidebar, { preserveLiveBusyStatus: true });
+      await runBootstrapStep('state.projects', () => runtime.applyProjects(projects, scopedCwd));
+      await runBootstrapStep('state.sidebar.cache', () => runtime.cacheSidebarSnapshot(scopedCwd, sidebar));
+      await runBootstrapStep('state.sidebar.apply', () => runtime.applySnapshot(sidebar, { preserveLiveBusyStatus: true }));
       runtime.bootstrapRetryAfterReconnect = false;
-      runtime.set({ bootstrapStatus: 'ready', error: '' });
+      await runBootstrapStep('state.ready', () => runtime.set({ bootstrapStatus: 'ready', error: '' }));
     }
     catch (error) {
       handleBootstrapError(runtime, error);
-      throw error;
+      throw bootstrapFailureCause(error);
     }
   };
 

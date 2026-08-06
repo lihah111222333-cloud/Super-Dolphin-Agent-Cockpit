@@ -58,7 +58,7 @@ describe('chatHeaderFeedbackForStore', () => {
       bootstrapStatus: 'failed',
       error: 'network',
     })).toEqual({
-      message: '\u8fde\u63a5\u540e\u7aef\u5931\u8d25\uff1anetwork',
+      message: 'network',
       tone: 'error',
       bootstrapRecovery: true,
       retrying: false,
@@ -67,7 +67,7 @@ describe('chatHeaderFeedbackForStore', () => {
 
   it('reports backend connection failures', () => {
     expect(chatHeaderFeedbackForStore({ bootstrapStatus: 'failed', error: 'offline' })).toEqual({
-      message: '\u8fde\u63a5\u540e\u7aef\u5931\u8d25\uff1aoffline',
+      message: 'offline',
       tone: 'error',
       bootstrapRecovery: true,
       retrying: false,
@@ -88,7 +88,7 @@ describe('chatHeaderFeedbackForStore', () => {
 
   it('marks loading with an existing bootstrap error as retrying', () => {
     expect(chatHeaderFeedbackForStore({ bootstrapStatus: 'loading', error: 'offline' })).toEqual({
-      message: '\u8fde\u63a5\u540e\u7aef\u5931\u8d25\uff1aoffline',
+      message: 'offline',
       tone: 'error',
       bootstrapRecovery: true,
       retrying: true,
@@ -97,5 +97,14 @@ describe('chatHeaderFeedbackForStore', () => {
 
   it('returns null when there is no feedback', () => {
     expect(chatHeaderFeedbackForStore({ bootstrapStatus: 'ready' })).toBeNull();
+  });
+
+  it('uses the initialization failure fallback when bootstrap has no display message', () => {
+    expect(chatHeaderFeedbackForStore({ bootstrapStatus: 'failed', error: '' })).toEqual({
+      message: '应用初始化失败，请重试。',
+      tone: 'error',
+      bootstrapRecovery: true,
+      retrying: false,
+    });
   });
 });

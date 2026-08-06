@@ -84,9 +84,51 @@ function retryBootstrapAfterFailedReconnect(runtime) {
   }));
 }
 
-export function handleBootstrapError(runtime, _error) {
-  runtime.set({ bootstrapStatus: 'failed', error: '连接后端失败，请重试。' });
-  runtime.addWarning('error', 'app.bootstrap.failed', { error: 'background action failure; see Health diagnostic ID' });
+class BootstrapStepFailure extends Error {
+  constructor(step, cause) {
+    super(`bootstrap step ${step} failed`, { cause });
+    this.name = 'BootstrapStepFailure';
+    this.step = step;
+  }
+}
+
+export async function runBootstrapStep(step, action) {
+  if (typeof step !== 'string' || !step.trim()) throw new TypeError('bootstrap step is required');
+  if (typeof action !== 'function') throw new TypeError('bootstrap step action is required');
+  try {
+    return await action();
+  } catch (cause) {
+    throw new BootstrapStepFailure(step.trim(), cause);
+  }
+}
+
+export function bootstrapFailureCause(error) {
+  return error instanceof BootstrapStepFailure ? error.cause : error;
+}
+
+function isBootstrapTransportUnavailable(error) {
+  const cause = bootstrapFailureCause(error);
+  if (!cause || (typeof cause !== 'object' && typeof cause !== 'function')) return false;
+  const code = typeof cause.code === 'string' ? cause.code : '';
+  if (['BRIDGE_RPC_TIMEOUT', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT'].includes(code)) return true;
+  if (cause.name === 'BridgeRPCTimeoutError') return true;
+  const message = typeof cause.message === 'string' ? cause.message : '';
+  return message === 'Wails runtime bridge not ready'
+    || message.startsWith('runtime shim: failed to connect ')
+    || /^runtime\.(?:bridge|reconnect)\.subscribe unavailable$/.test(message);
+}
+
+export function handleBootstrapError(runtime, error) {
+  const step = error instanceof BootstrapStepFailure ? error.step : 'bootstrap.unknown';
+  const transportUnavailable = isBootstrapTransportUnavailable(error);
+  const code = transportUnavailable ? 'transport_unavailable' : 'initialization_failed';
+  const message = transportUnavailable ? '连接后端失败，请重试。' : '应用初始化失败，请重试。';
+  runtime.set({ bootstrapStatus: 'failed', error: message });
+  runtime.addWarning('error', 'app.bootstrap.failed', {
+    action: step,
+    code,
+    error: 'background action failure; see Health diagnostic ID',
+  });
   retryBootstrapAfterFailedReconnect(runtime);
 }
 
