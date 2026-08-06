@@ -25,25 +25,10 @@ type validationRules struct {
 // newValidationRules 为单次加载创建私有校验规则，禁止跨 registry 共享可变容器。
 func newValidationRules() validationRules {
 	return validationRules{
-		allowedKinds: map[string]struct{}{
-			"base":         {},
-			"expert":       {},
-			"recall":       {},
-			"default_rule": {},
-		},
-		allowedScopes: map[string]struct{}{
-			"global":      {},
-			"projectless": {},
-		},
-		allowedRegions: map[string]struct{}{
-			"static":  {},
-			"dynamic": {},
-		},
-		allowedTriggerTypes: map[string]struct{}{
-			"always":  {},
-			"keyword": {},
-			"recall":  {},
-		},
+		allowedKinds:        newStringSet("base", "expert", "recall", "default_rule"),
+		allowedScopes:       newStringSet("global", "projectless"),
+		allowedRegions:      newStringSet("static", "dynamic"),
+		allowedTriggerTypes: newStringSet("always", "keyword", "recall"),
 		externalIdentityPatterns: []identityPattern{
 			{phrase: "you are claude code", compact: "youareclaudecode"},
 			{phrase: "you are claude", compact: "youareclaude"},
@@ -63,6 +48,14 @@ func newValidationRules() validationRules {
 			{phrase: "dont say you are claude", compact: "dontsayyouareclaude"},
 		},
 	}
+}
+
+func newStringSet(values ...string) map[string]struct{} {
+	set := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		set[value] = struct{}{}
+	}
+	return set
 }
 
 // validateManifest 校验 manifest 版本、模板列表和路径唯一性。
@@ -249,10 +242,8 @@ func containsExternalProviderIdentity(body string, rules validationRules) bool {
 	normalized := normalizeIdentityText(body)
 	compact := strings.ReplaceAll(normalized, " ", "")
 	for _, pattern := range rules.externalIdentityPatterns {
-		if phraseMatchesIdentityPattern(normalized, pattern.phrase, false, rules.directIdentityNegationPatterns) {
-			return true
-		}
-		if phraseMatchesIdentityPattern(compact, pattern.compact, true, rules.directIdentityNegationPatterns) {
+		if phraseMatchesIdentityPattern(normalized, pattern.phrase, false, rules.directIdentityNegationPatterns) ||
+			phraseMatchesIdentityPattern(compact, pattern.compact, true, rules.directIdentityNegationPatterns) {
 			return true
 		}
 	}
