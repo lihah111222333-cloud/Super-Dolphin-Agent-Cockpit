@@ -20,6 +20,20 @@ import (
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
+func TestCodexEventTranslatorOwnsSamplerPerRegistration(t *testing.T) {
+	first := newCodexEventTranslator(providershared.RuntimeHooks{})
+	second := newCodexEventTranslator(providershared.RuntimeHooks{})
+	if first.sampler == nil || second.sampler == nil || first.retryProgressPattern == nil || second.retryProgressPattern == nil {
+		t.Fatal("newCodexEventTranslator() returned an incomplete runtime owner")
+	}
+	if first.sampler == second.sampler {
+		t.Fatal("translators share sampler state, want one sampler per registration")
+	}
+	if first.retryProgressPattern == second.retryProgressPattern {
+		t.Fatal("translators share retry-pattern state, want one owner per registration")
+	}
+}
+
 func TestAgentSessionHeaderPrefersAgentIDAsThreadID(t *testing.T) {
 	t.Parallel()
 

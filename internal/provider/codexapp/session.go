@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -83,8 +82,6 @@ type session struct {
 }
 
 var _ contract.Session = (*session)(nil)
-
-var codexToolSurfaceSeq atomic.Uint64
 
 var errInterruptRequestAlreadyClaimed = errors.New("codexapp: interrupt request already claimed for active turn")
 
@@ -873,7 +870,7 @@ func (s *session) ensureToolSurfaceID() string {
 	if existing := s.currentToolSurfaceID(); existing != "" {
 		return existing
 	}
-	id := "codex-surface:" + strings.TrimSpace(s.agentID) + ":" + strconv.FormatUint(codexToolSurfaceSeq.Add(1), 10)
+	id := "codex-surface:" + strings.TrimSpace(s.agentID) + ":" + strings.TrimSpace(s.approvalSessionScope)
 	s.toolSurfaceID.Store(id)
 	return id
 }

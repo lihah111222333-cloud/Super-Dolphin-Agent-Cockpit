@@ -28,7 +28,7 @@ func TestRunPoolSpawnAbortsAndCleansChildWhenPidregistryPersistFails(t *testing.
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	transport, err := runPoolSpawn(ctx, t.TempDir(), "openai", registry, slog.Default())
+	transport, err := runPoolSpawn(ctx, t.TempDir(), "openai", registry, slog.Default(), newCodexInstaller())
 	if err == nil {
 		if transport != nil {
 			_ = transport.Kill()
@@ -53,7 +53,7 @@ func TestServerManagerStartLockedAbortsWhenPidregistryPersistFails(t *testing.T)
 	registry := pidregistry.New()
 	t.Setenv("TMPDIR", t.TempDir())
 
-	m := &ServerManager{pidRegistry: registry}
+	m := &ServerManager{pidRegistry: registry, installer: newCodexInstaller()}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	err := m.startLocked(ctx)

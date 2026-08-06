@@ -49,7 +49,11 @@ func TestServerPoolMultiProviderSmoke(t *testing.T) {
 	homeA := t.TempDir()
 	homeB := t.TempDir()
 
-	pool := NewServerPool(slog.Default(), NewTransportSpawner(nil, slog.Default()), PoolConfig{
+	spawner, err := NewTransportSpawner(nil, slog.Default(), newCodexInstaller())
+	if err != nil {
+		t.Fatalf("NewTransportSpawner() error = %v", err)
+	}
+	pool := NewServerPool(slog.Default(), spawner, PoolConfig{
 		IdleTimeout:  30 * time.Minute,
 		SpawnBackoff: 2 * time.Minute,
 	})

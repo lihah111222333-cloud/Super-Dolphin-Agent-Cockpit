@@ -26,12 +26,7 @@ func TestRunDesktopPreflightDoesNotEnsureCodexCLIAvailable(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_BASE_URL", "")
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN", "")
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_API_KEY", "")
-	var called bool
 	deps := newAppDeps()
-	deps.ensureCodexCLIAvailable = func(context.Context) error {
-		called = true
-		return errors.New("codex CLI check must not run during desktop preflight")
-	}
 	deps.codexAppManagedHome = func() (string, error) {
 		t.Fatal("Codex home must not be resolved when relay config is unset")
 		return "", nil
@@ -43,9 +38,6 @@ func TestRunDesktopPreflightDoesNotEnsureCodexCLIAvailable(t *testing.T) {
 
 	if err := runDesktopPreflight(context.Background(), deps); err != nil {
 		t.Fatalf("runDesktopPreflight() error = %v", err)
-	}
-	if called {
-		t.Fatal("runDesktopPreflight() ensured Codex CLI availability; CLI checks belong to Codex start paths")
 	}
 }
 
@@ -63,10 +55,6 @@ func TestRunDesktopPreflightBootstrapsManagedCodexRelayConfig(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN", "test-token")
 
 	deps := newAppDeps()
-	deps.ensureCodexCLIAvailable = func(context.Context) error {
-		t.Fatal("Codex CLI check must not run during desktop preflight")
-		return errors.New("unexpected Codex CLI check")
-	}
 	deps.codexAppManagedHome = func() (string, error) { return home, nil }
 	var got codexapp.CodexBootstrapConfig
 	deps.ensureCodexBootstrap = func(_ context.Context, cfg codexapp.CodexBootstrapConfig) error {
@@ -104,10 +92,6 @@ func TestRunDesktopPreflightReturnsCodexBootstrapError(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN", "test-token")
 	want := errors.New("relay config missing")
 	deps := newAppDeps()
-	deps.ensureCodexCLIAvailable = func(context.Context) error {
-		t.Fatal("Codex CLI check must not run during desktop preflight")
-		return errors.New("unexpected Codex CLI check")
-	}
 	deps.codexAppManagedHome = func() (string, error) {
 		return filepath.Join(t.TempDir(), "codex-home"), nil
 	}
@@ -128,10 +112,6 @@ func TestRunDesktopPreflightSkipsCodexBootstrapWhenRelayUnset(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN", "")
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_API_KEY", "")
 	deps := newAppDeps()
-	deps.ensureCodexCLIAvailable = func(context.Context) error {
-		t.Fatal("Codex CLI check must not run during desktop preflight")
-		return errors.New("unexpected Codex CLI check")
-	}
 	deps.codexAppManagedHome = func() (string, error) {
 		t.Fatal("Codex home must not be resolved when relay config is unset")
 		return "", nil
@@ -354,10 +334,6 @@ func TestRunDesktopPreflightLoadsDotEnvBeforeCodexBootstrap(t *testing.T) {
 		t.Fatalf("write .env: %v", err)
 	}
 	deps := newAppDeps()
-	deps.ensureCodexCLIAvailable = func(context.Context) error {
-		t.Fatal("Codex CLI check must not run during desktop preflight")
-		return errors.New("unexpected Codex CLI check")
-	}
 	deps.codexAppManagedHome = func() (string, error) {
 		return filepath.Join(t.TempDir(), "codex-home"), nil
 	}

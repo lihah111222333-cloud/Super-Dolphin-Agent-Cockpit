@@ -66,10 +66,21 @@ func TestTransportServerNilSafe(t *testing.T) {
 func TestNewTransportSpawnerSurfacesBuildError(t *testing.T) {
 	t.Parallel()
 
-	spawner := NewTransportSpawner(nil, slog.Default())
+	spawner, err := NewTransportSpawner(nil, slog.Default(), newCodexInstaller())
+	if err != nil {
+		t.Fatalf("NewTransportSpawner() error = %v", err)
+	}
 	srv, err := spawner(context.Background(), "  ", "openai")
 	if err == nil {
 		t.Fatalf("expected error for empty home, got server %v", srv)
+	}
+}
+
+func TestNewTransportSpawnerRejectsMissingInstaller(t *testing.T) {
+	t.Parallel()
+
+	if _, err := NewTransportSpawner(nil, slog.Default(), nil); err == nil {
+		t.Fatal("NewTransportSpawner() error = nil, want missing installer failure")
 	}
 }
 

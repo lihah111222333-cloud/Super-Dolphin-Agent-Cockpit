@@ -26,6 +26,7 @@ import (
 
 var Module = fx.Module("provider.codexapp",
 	fx.Provide(
+		newCodexInstaller,
 		NewServerManager,
 		provideDriverFactory,
 		fx.Annotate(provideContractDriverFactory, fx.ResultTags(`group:"drivers"`)),
@@ -239,6 +240,7 @@ type ServerManager struct {
 	err         error
 	toolHandler ToolHandler
 	pidRegistry *pidregistry.Registry
+	installer   *codexInstaller
 	cleanupOnce sync.Once
 }
 
@@ -254,6 +256,7 @@ type ServerManagerParams struct {
 	fx.In
 	Lifecycle   fx.Lifecycle
 	PIDRegistry *pidregistry.Registry
+	Installer   *codexInstaller
 }
 
 // ServerPoolParams 承载 provideServerPool 的 fx 依赖。
@@ -264,28 +267,38 @@ type ServerPoolParams struct {
 	Lifecycle   fx.Lifecycle
 	Logger      *slog.Logger          `optional:"true"`
 	PIDRegistry *pidregistry.Registry `optional:"true"`
+	Installer   *codexInstaller
 }
 
 // provideServerPool 用 transport-backed spawner 构造生产 ServerPool。
 // fx Stop 会关闭 pool，确保仍被占用的 app-server 子进程先收到 SIGTERM 再释放进程树。
 // 它与 legacy ServerManager 并行提供，调用方只有显式选择 pool 时才获得独立 app-server。
-func provideServerPool(p ServerPoolParams) *ServerPool {
+func provideServerPool(p ServerPoolParams) (*ServerPool, error) {
+	if p.Installer == nil {
+		return nil, errors.New("codexapp installer is required")
+	}
 	logger := p.Logger
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
-	spawner := NewTransportSpawner(p.PIDRegistry, logger)
+	spawner, err := NewTransportSpawner(p.PIDRegistry, logger, p.Installer)
+	if err != nil {
+		return nil, err
+	}
 	pool := NewServerPool(logger, spawner, PoolConfig{})
 	p.Lifecycle.Append(fx.Hook{
 		OnStop: func(ctx context.Context) error { return pool.Close(ctx) },
 	})
-	return pool
+	return pool, nil
 }
 
 // NewServerManager 创建共享 app-server 管理器并注册 fx 生命周期钩子。
 // 启动时只做一次遗留进程清理，停止时负责关闭共享 transport 和 PID registry。
-func NewServerManager(p ServerManagerParams) *ServerManager {
-	m := &ServerManager{pidRegistry: p.PIDRegistry}
+func NewServerManager(p ServerManagerParams) (*ServerManager, error) {
+	if p.Installer == nil {
+		return nil, errors.New("codexapp installer is required")
+	}
+	m := &ServerManager{pidRegistry: p.PIDRegistry, installer: p.Installer}
 	p.Lifecycle.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			m.cleanupStaleProcesses()
@@ -293,7 +306,7 @@ func NewServerManager(p ServerManagerParams) *ServerManager {
 		},
 		OnStop: func(ctx context.Context) error { return m.stop(ctx) },
 	})
-	return m
+	return m, nil
 }
 
 // ServerURL 返回共享 app-server 的 ws:// 地址。
@@ -384,6 +397,13 @@ func (m *ServerManager) cleanupStaleProcessesOnce() {
 func (m *ServerManager) startLocked(ctx context.Context) error {
 	startupCtx, cancel := withTimeout(ctx, transportReadyTimeout)
 	defer cancel()
+	if m.installer == nil {
+		return errors.New("codexapp installer is required")
+	}
+	if err := m.installer.ensureCLIAvailable(startupCtx); err != nil {
+		m.err = err
+		return err
+	}
 	t := &transport{}
 	if err := t.spawnLocal(startupCtx); err != nil {
 		m.err = err

@@ -27,16 +27,14 @@ import (
 
 // appDeps 抽出桌面 preflight 依赖，便于测试替换外部 Codex bootstrap。
 type appDeps struct {
-	ensureCodexCLIAvailable func(context.Context) error
-	ensureCodexBootstrap    func(context.Context, codexapp.CodexBootstrapConfig) error
-	codexAppManagedHome     func() (string, error)
+	ensureCodexBootstrap func(context.Context, codexapp.CodexBootstrapConfig) error
+	codexAppManagedHome  func() (string, error)
 }
 
 // newAppDeps 创建单个桌面启动流程拥有的 preflight 依赖描述符。
 func newAppDeps() appDeps {
 	return appDeps{
-		ensureCodexCLIAvailable: codexapp.EnsureCLIAvailable,
-		ensureCodexBootstrap:    codexapp.EnsureCodexBootstrap,
+		ensureCodexBootstrap: codexapp.EnsureCodexBootstrap,
 		codexAppManagedHome: func() (string, error) {
 			return providershared.AppManagedProviderHome(providershared.ProviderCodex)
 		},

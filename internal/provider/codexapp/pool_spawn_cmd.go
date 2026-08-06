@@ -159,6 +159,10 @@ func tomlString(value string) string {
 // extractCodexWheel 解压 Python wheel 形态的 Codex release。
 // 只接受 codex_cli_bin/ 前缀内的文件并统计总解压字节，防止归档逃逸或超量写入。
 func extractCodexWheel(wheelPath, targetDir string) error {
+	return extractCodexWheelWithLimits(wheelPath, targetDir, defaultCodexExtractLimits())
+}
+
+func extractCodexWheelWithLimits(wheelPath, targetDir string, limits codexExtractLimits) error {
 	reader, err := zip.OpenReader(wheelPath)
 	if err != nil {
 		return fmt.Errorf("open Codex wheel: %w", err)
@@ -172,14 +176,14 @@ func extractCodexWheel(wheelPath, targetDir string) error {
 		if !strings.HasPrefix(file.Name, "codex_cli_bin/") {
 			continue
 		}
-		if err := extractCodexZipFile(file, targetDir, &total); err != nil {
+		if err := extractCodexZipFile(file, targetDir, &total, limits); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func extractCodexZipFile(file *zip.File, targetDir string, total *int64) error {
+func extractCodexZipFile(file *zip.File, targetDir string, total *int64, limits codexExtractLimits) error {
 	target, err := codexArchiveEntryTarget(file.Name, targetDir, "wheel")
 	if err != nil {
 		return err
@@ -187,11 +191,11 @@ func extractCodexZipFile(file *zip.File, targetDir string, total *int64) error {
 	if file.FileInfo().IsDir() {
 		return os.MkdirAll(target, 0o755)
 	}
-	written, err := writeCodexZipEntry(file, target)
+	written, err := writeCodexZipEntry(file, target, limits.maxFileBytes)
 	if err != nil {
 		return err
 	}
-	return addCodexExtractedBytes(total, written)
+	return addCodexExtractedBytes(total, written, limits.maxTotalBytes)
 }
 
 func codexArchiveEntryTarget(name, targetDir, label string) (string, error) {
@@ -206,9 +210,9 @@ func codexArchiveEntryTarget(name, targetDir, label string) (string, error) {
 	return target, nil
 }
 
-func writeCodexZipEntry(file *zip.File, target string) (int64, error) {
-	if file.UncompressedSize64 > uint64(codexInstall.maxFileBytes) {
-		return 0, fmt.Errorf("Codex wheel entry %q exceeds %d bytes", file.Name, codexInstall.maxFileBytes)
+func writeCodexZipEntry(file *zip.File, target string, maxFileBytes int64) (int64, error) {
+	if file.UncompressedSize64 > uint64(maxFileBytes) {
+		return 0, fmt.Errorf("Codex wheel entry %q exceeds %d bytes", file.Name, maxFileBytes)
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return 0, fmt.Errorf("create Codex wheel entry dir: %w", err)
@@ -258,7 +262,7 @@ func extractCodexTarStream(reader *tar.Reader, targetDir string) error {
 		if err != nil {
 			return err
 		}
-		if err := addCodexExtractedBytes(&total, written); err != nil {
+		if err := addCodexExtractedBytes(&total, written, defaultCodexExtractLimit); err != nil {
 			return err
 		}
 	}
@@ -280,8 +284,8 @@ func extractCodexTarEntry(reader *tar.Reader, header *tar.Header, targetDir stri
 }
 
 func writeCodexTarEntry(reader *tar.Reader, header *tar.Header, target string) (int64, error) {
-	if header.Size > codexInstall.maxFileBytes {
-		return 0, fmt.Errorf("Codex tar.gz entry %q exceeds %d bytes", header.Name, codexInstall.maxFileBytes)
+	if header.Size > defaultCodexExtractLimit {
+		return 0, fmt.Errorf("Codex tar.gz entry %q exceeds %d bytes", header.Name, defaultCodexExtractLimit)
 	}
 	mode := fs.FileMode(header.Mode).Perm()
 	if mode == 0 {
@@ -310,23 +314,23 @@ func writeCodexArchiveEntry(src io.Reader, target string, mode fs.FileMode, labe
 }
 
 func copyCodexArchiveFile(dst io.Writer, src io.Reader) (int64, error) {
-	written, err := io.Copy(dst, io.LimitReader(src, codexInstall.maxFileBytes+1))
+	written, err := io.Copy(dst, io.LimitReader(src, defaultCodexExtractLimit+1))
 	if err != nil {
 		return written, err
 	}
-	if written > codexInstall.maxFileBytes {
-		return written, fmt.Errorf("Codex archive entry exceeds %d bytes", codexInstall.maxFileBytes)
+	if written > defaultCodexExtractLimit {
+		return written, fmt.Errorf("Codex archive entry exceeds %d bytes", defaultCodexExtractLimit)
 	}
 	return written, nil
 }
 
-func addCodexExtractedBytes(total *int64, written int64) error {
+func addCodexExtractedBytes(total *int64, written, maxTotalBytes int64) error {
 	if total == nil {
 		return nil
 	}
 	*total += written
-	if *total > codexInstall.maxTotalBytes {
-		return fmt.Errorf("Codex archive extraction exceeds %d bytes", codexInstall.maxTotalBytes)
+	if *total > maxTotalBytes {
+		return fmt.Errorf("Codex archive extraction exceeds %d bytes", maxTotalBytes)
 	}
 	return nil
 }

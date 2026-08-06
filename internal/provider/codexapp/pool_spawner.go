@@ -2,6 +2,7 @@ package codexapp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -21,9 +22,12 @@ import (
 // runPoolSpawn 为池管理的 codexHome 启动 codex app-server，并把进程封装成新的 transport。
 // 它必须复用池专属的命令构造和环境白名单，避免父进程残留的 CODEX_HOME 或数据库变量泄漏。
 // 启动失败时返回带 stderr 尾部的错误，调用方可直接写入池的退避状态。
-func runPoolSpawn(ctx context.Context, home, modelProvider string, registry *pidregistry.Registry, logger *slog.Logger) (*transport, error) {
+func runPoolSpawn(ctx context.Context, home, modelProvider string, registry *pidregistry.Registry, logger *slog.Logger, installer *codexInstaller) (*transport, error) {
 	logger = defaultCodexAppLogger(logger)
-	if err := ensureCodexCLIAvailable(ctx); err != nil {
+	if installer == nil {
+		return nil, errors.New("codexapp installer is required")
+	}
+	if err := installer.ensureCLIAvailable(ctx); err != nil {
 		return nil, err
 	}
 	startupCtx, cancel := withTimeout(ctx, transportReadyTimeout)
@@ -297,15 +301,18 @@ func splitEnv(kv string) (string, string, bool) {
 
 // NewTransportSpawner 构造供 ServerPool 使用的 app-server 启动器。
 // 每次调用都会为指定 codexHome 启动独立进程；并发、去重和释放由池按 identity+owner 负责。
-func NewTransportSpawner(registry *pidregistry.Registry, logger *slog.Logger) Spawner {
+func NewTransportSpawner(registry *pidregistry.Registry, logger *slog.Logger, installer *codexInstaller) (Spawner, error) {
+	if installer == nil {
+		return nil, errors.New("codexapp installer is required")
+	}
 	logger = defaultCodexAppLogger(logger)
 	return func(ctx context.Context, home, modelProvider string) (SpawnedServer, error) {
-		t, err := runPoolSpawn(ctx, home, modelProvider, registry, logger)
+		t, err := runPoolSpawn(ctx, home, modelProvider, registry, logger, installer)
 		if err != nil {
 			return nil, err
 		}
 		return wrapTransport(t), nil
-	}
+	}, nil
 }
 
 func defaultCodexAppLogger(logger *slog.Logger) *slog.Logger {

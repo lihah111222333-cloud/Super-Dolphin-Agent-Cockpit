@@ -241,9 +241,6 @@ func (t *transport) spawnLocal(ctx context.Context) error {
 		return nil
 	}
 	ctx = nonNilContext(ctx)
-	if err := ensureCodexCLIAvailable(ctx); err != nil {
-		return err
-	}
 	argv := localSpawnAppServerArgs()
 	pkglogger.Info("codexapp: spawning local app-server", "argv", argv)
 	// 按平台包一层 fd 上限提升器：macOS 图形启动会继承 launchd 的 256 软限制，

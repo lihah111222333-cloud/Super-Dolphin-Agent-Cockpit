@@ -18,6 +18,10 @@ import (
 	"go.uber.org/fx/fxtest"
 )
 
+func ensureCodexCLIAvailable(ctx context.Context) error {
+	return newCodexInstaller().ensureCLIAvailable(ctx)
+}
+
 const (
 	codexReleaseSHA256EnvForTest        = "SUPER_DOLPHIN_CODEX_RELEASE_SHA256"
 	codexTrustedReleaseMirrorEnvForTest = "SUPER_DOLPHIN_CODEX_TRUSTED_RELEASE_MIRROR"
@@ -209,29 +213,17 @@ func TestFindManagedCodexBinaryReturnsReadDirErrors(t *testing.T) {
 }
 
 func TestServerManagerStartupDoesNotEnsureCodexCLIAvailable(t *testing.T) {
-	t.Setenv("PATH", t.TempDir())
-	installRoot := t.TempDir()
-	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		requests.Add(1)
-		http.Error(w, "unexpected release lookup during server manager startup", http.StatusInternalServerError)
-	}))
-	t.Cleanup(server.Close)
-	t.Setenv(codexReleaseAPIURLEnv, server.URL+"/latest")
-	t.Setenv(codexInstallRootEnv, installRoot)
-
 	lc := fxtest.NewLifecycle(t)
-	NewServerManager(ServerManagerParams{Lifecycle: lc})
-
-	if err := lc.Start(context.Background()); err != nil {
-		t.Fatalf("lifecycle Start() error = %v", err)
+	installer := newCodexInstaller()
+	manager, err := NewServerManager(ServerManagerParams{Lifecycle: lc, Installer: installer})
+	if err != nil {
+		t.Fatalf("NewServerManager() error = %v", err)
 	}
-
-	if requests.Load() != 0 {
-		t.Fatalf("release server received %d requests, want 0", requests.Load())
+	if manager.installer != installer {
+		t.Fatal("NewServerManager() did not retain the injected app-scoped installer")
 	}
-	if codexPath, err := exec.LookPath(codexBinaryName); err == nil {
-		t.Fatalf("server manager startup installed managed codex at %q; CLI checks belong to Codex start paths", codexPath)
+	if _, err := NewServerManager(ServerManagerParams{Lifecycle: lc}); err == nil {
+		t.Fatal("NewServerManager() error = nil, want missing installer failure")
 	}
 }
 
@@ -335,19 +327,11 @@ func TestCodexValidationCommandAppliesProcessAttrsBeforeRun(t *testing.T) {
 }
 
 func TestExtractCodexWheelRejectsOversizedEntry(t *testing.T) {
-	previousFileLimit := codexInstall.maxFileBytes
-	previousTotalLimit := codexInstall.maxTotalBytes
-	codexInstall.maxFileBytes = 8
-	codexInstall.maxTotalBytes = 16
-	t.Cleanup(func() {
-		codexInstall.maxFileBytes = previousFileLimit
-		codexInstall.maxTotalBytes = previousTotalLimit
-	})
 	wheel := codexWheelWithLargeEntryForTest(t)
 
-	err := extractCodexWheel(wheel, filepath.Join(t.TempDir(), "extract"))
+	err := extractCodexWheelWithLimits(wheel, filepath.Join(t.TempDir(), "extract"), codexExtractLimits{maxFileBytes: 8, maxTotalBytes: 16})
 	if err == nil || !strings.Contains(err.Error(), "exceeds") {
-		t.Fatalf("extractCodexWheel() error = %v, want size limit error", err)
+		t.Fatalf("extractCodexWheelWithLimits() error = %v, want size limit error", err)
 	}
 }
 

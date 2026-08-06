@@ -68,17 +68,37 @@ func verifyBundledCodexInstall(ctx context.Context, binaryPath string) error {
 }
 
 type codexInstallState struct {
-	mu            sync.Mutex
-	maxFileBytes  int64
-	maxTotalBytes int64
+	mu sync.Mutex
 }
 
-var codexInstall = &codexInstallState{maxFileBytes: defaultCodexExtractLimit, maxTotalBytes: defaultCodexExtractLimit}
+// codexInstaller 是单个应用运行时的 Codex CLI 安装 owner。
+// 它串行化托管安装，避免同一应用内的 pool 与共享 server 重复下载同一 release。
+type codexInstaller struct {
+	state codexInstallState
+}
 
-// EnsureCLIAvailable 确保当前进程可启动 Codex app-server CLI。
-// 它会优先使用打包二进制或 PATH，缺失时才进入带校验和的托管安装。
-func EnsureCLIAvailable(ctx context.Context) error {
-	return ensureCodexCLIAvailable(ctx)
+type codexExtractLimits struct{ maxFileBytes, maxTotalBytes int64 }
+
+func defaultCodexExtractLimits() codexExtractLimits {
+	return codexExtractLimits{maxFileBytes: defaultCodexExtractLimit, maxTotalBytes: defaultCodexExtractLimit}
+}
+
+func newCodexInstaller() *codexInstaller {
+	return &codexInstaller{}
+}
+
+func (i *codexInstaller) extractCodexWheel(wheelPath, targetDir string) error {
+	if i == nil {
+		return errors.New("codexapp installer is required")
+	}
+	return extractCodexWheelWithLimits(wheelPath, targetDir, defaultCodexExtractLimits())
+}
+
+func (i *codexInstaller) extractCodexTarGz(archivePath, targetDir string) error {
+	if i == nil {
+		return errors.New("codexapp installer is required")
+	}
+	return extractCodexTarGz(archivePath, targetDir)
 }
 
 // CodexBootstrapConfig 描述首次写入 Codex relay config.toml 所需的最小配置。
@@ -166,21 +186,24 @@ type codexGitHubAsset struct {
 	DownloadURL string `json:"browser_download_url"`
 }
 
-// ensureCodexCLIAvailable 串行化 Codex CLI 探测和托管安装。
+// ensureCLIAvailable 串行化 Codex CLI 探测和托管安装。
 // 双重探测避免多个会话同时下载同一 release，也允许别的进程刚刚补齐 PATH/bundled asset。
-func ensureCodexCLIAvailable(ctx context.Context) error {
+func (i *codexInstaller) ensureCLIAvailable(ctx context.Context) error {
+	if i == nil {
+		return errors.New("codexapp installer is required")
+	}
 	ctx = nonNilContext(ctx)
 	ok, err := bundledOrPathCodexAvailable(ctx)
 	if err != nil || ok {
 		return err
 	}
-	codexInstall.mu.Lock()
-	defer codexInstall.mu.Unlock()
+	i.state.mu.Lock()
+	defer i.state.mu.Unlock()
 	ok, err = bundledOrPathCodexAvailable(ctx)
 	if err != nil || ok {
 		return err
 	}
-	return ensureManagedCodexCLI(ctx)
+	return i.ensureManagedCodexCLI(ctx)
 }
 
 // bundledOrPathCodexAvailable 优先验证打包 Codex CLI，再检查 PATH。
@@ -216,7 +239,7 @@ func bundledCodexPeerBinDirs() []string {
 
 // ensureManagedCodexCLI 查找或安装受管理的 Codex CLI 并把目录加入 PATH。
 // 自动安装必须有固定 SHA-256，下载来源和最终 manifest 都会被校验。
-func ensureManagedCodexCLI(ctx context.Context) error {
+func (i *codexInstaller) ensureManagedCodexCLI(ctx context.Context) error {
 	root, err := codexManagedInstallRoot()
 	if err != nil {
 		return fmt.Errorf("codexapp: resolve managed Codex install root: %w", err)
@@ -232,7 +255,7 @@ func ensureManagedCodexCLI(ctx context.Context) error {
 	if path != "" {
 		return prependDirToPATH(filepath.Dir(path))
 	}
-	path, err = installManagedCodexCLI(ctx, root, checksum)
+	path, err = i.installManagedCodexCLI(ctx, root, checksum)
 	if err != nil {
 		return fmt.Errorf(
 			"codexapp: codex CLI not found in PATH and automatic install from official OpenAI GitHub failed (%s): %w",
@@ -354,7 +377,7 @@ func readManagedCodexInstallRoot(root string) ([]os.DirEntry, error) {
 
 // installManagedCodexCLI 下载并安装最新匹配平台的 Codex release。
 // 安装先落在临时目录，校验和 layout 都通过后才提升为正式版本目录。
-func installManagedCodexCLI(ctx context.Context, root, checksum string) (string, error) {
+func (i *codexInstaller) installManagedCodexCLI(ctx context.Context, root, checksum string) (string, error) {
 	release, err := fetchCodexRelease(ctx)
 	if err != nil {
 		return "", err
@@ -376,7 +399,7 @@ func installManagedCodexCLI(ctx context.Context, root, checksum string) (string,
 	}
 	defer func() { _ = os.RemoveAll(workDir) }()
 
-	if err := installCodexAsset(ctx, asset, checksum, workDir, target); err != nil {
+	if err := i.installCodexAsset(ctx, asset, checksum, workDir, target); err != nil {
 		return "", err
 	}
 	if !isExecutable(codexPath) {
@@ -428,24 +451,24 @@ func prepareCodexInstallWorkDir(root string) (string, error) {
 	return workDir, nil
 }
 
-func installCodexAsset(ctx context.Context, asset codexGitHubAsset, checksum, workDir, target string) error {
+func (i *codexInstaller) installCodexAsset(ctx context.Context, asset codexGitHubAsset, checksum, workDir, target string) error {
 	name := strings.TrimSpace(asset.Name)
 	switch {
 	case strings.HasSuffix(name, ".whl"):
-		return installCodexWheel(ctx, asset.DownloadURL, checksum, workDir, target)
+		return i.installCodexWheel(ctx, asset.DownloadURL, checksum, workDir, target)
 	case strings.HasSuffix(name, ".tar.gz"):
-		return installCodexTarGz(ctx, asset.DownloadURL, checksum, workDir, target)
+		return i.installCodexTarGz(ctx, asset.DownloadURL, checksum, workDir, target)
 	default:
 		return fmt.Errorf("unsupported Codex release asset format: %s", name)
 	}
 }
 
-func installCodexWheel(ctx context.Context, downloadURL, checksum, workDir, target string) error {
-	return installCodexArchive(ctx, downloadURL, checksum, workDir, target, "codex.whl", extractCodexWheel)
+func (i *codexInstaller) installCodexWheel(ctx context.Context, downloadURL, checksum, workDir, target string) error {
+	return installCodexArchive(ctx, downloadURL, checksum, workDir, target, "codex.whl", i.extractCodexWheel)
 }
 
-func installCodexTarGz(ctx context.Context, downloadURL, checksum, workDir, target string) error {
-	return installCodexArchive(ctx, downloadURL, checksum, workDir, target, "codex.tar.gz", extractCodexTarGz)
+func (i *codexInstaller) installCodexTarGz(ctx context.Context, downloadURL, checksum, workDir, target string) error {
+	return installCodexArchive(ctx, downloadURL, checksum, workDir, target, "codex.tar.gz", i.extractCodexTarGz)
 }
 
 func installCodexArchive(ctx context.Context, downloadURL, checksum, workDir, target, archiveName string, extract func(string, string) error) error {

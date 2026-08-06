@@ -49,6 +49,22 @@ func TestNewDriverUsesEnvServerURLAndName(t *testing.T) {
 	}
 }
 
+func TestSessionToolSurfaceIDIsSessionOwnedStableAndUnique(t *testing.T) {
+	first := &session{agentID: "agent-1", approvalSessionScope: "scope-one"}
+	second := &session{agentID: "agent-1", approvalSessionScope: "scope-two"}
+
+	firstID := first.ensureToolSurfaceID()
+	if firstID != "codex-surface:agent-1:scope-one" {
+		t.Fatalf("first surface ID = %q, want stable external format", firstID)
+	}
+	if again := first.ensureToolSurfaceID(); again != firstID {
+		t.Fatalf("same session surface ID = %q, want %q", again, firstID)
+	}
+	if secondID := second.ensureToolSurfaceID(); secondID == firstID {
+		t.Fatalf("distinct session surface IDs = %q and %q, want unique", firstID, secondID)
+	}
+}
+
 func TestCloseSessionReleasesCodexToolSurface(t *testing.T) {
 	recorder := &toolBridgeRPCRecorder{}
 	serverURL := startToolBridgeRPCServer(t, recorder)

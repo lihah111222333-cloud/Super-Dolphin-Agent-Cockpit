@@ -25,13 +25,33 @@ import (
 func RegisterTranslators(dispatcher *unified.EventDispatcher, configuredHooks ...providershared.RuntimeHooks) {
 	hooks := runtimeHooksOrZero(configuredHooks)
 	if dispatcher != nil {
-		dispatcher.Register(func(raw dto.RawProviderEvent, publish func(ev any)) { translateCodexAdapterEvent(raw, publish, hooks) })
+		translator := newCodexEventTranslator(hooks)
+		dispatcher.Register(translator.translateAdapterEvent)
 	}
+}
+
+type codexEventTranslator struct {
+	hooks                providershared.RuntimeHooks
+	sampler              *pkglogger.Sampler
+	retryProgressPattern *regexp.Regexp
+}
+
+func newCodexEventTranslator(hooks providershared.RuntimeHooks) *codexEventTranslator {
+	return &codexEventTranslator{
+		hooks:                hooks,
+		sampler:              pkglogger.NewEverySampler(1000),
+		retryProgressPattern: regexp.MustCompile(`(?i)^\s*(reconnecting|retrying)(\.\.\.)?\s+\d+\s*/\s*\d+\s*$`),
+	}
+}
+
+func (t *codexEventTranslator) translateAdapterEvent(raw dto.RawProviderEvent, publish func(ev any)) {
+	t.translateEvent(canonicalizeCodexAdapterRaw(raw), publish)
 }
 
 // translateCodexAdapterEvent 为绕过 session 的合法 raw producer 幂等附加 canonical outcome。
 func translateCodexAdapterEvent(raw dto.RawProviderEvent, publish func(ev any), configuredHooks ...providershared.RuntimeHooks) {
-	translateCodexEvent(canonicalizeCodexAdapterRaw(raw), publish, configuredHooks...)
+	translator := newCodexEventTranslator(runtimeHooksOrZero(configuredHooks))
+	translator.translateAdapterEvent(raw, publish)
 }
 
 func canonicalizeCodexAdapterRaw(raw dto.RawProviderEvent) dto.RawProviderEvent {
@@ -48,9 +68,6 @@ func canonicalizeCodexAdapterRaw(raw dto.RawProviderEvent) dto.RawProviderEvent 
 	raw.Terminal = &outcome
 	return raw
 }
-
-var outputDeltaTranslateLogSampler = pkglogger.NewEverySampler(1000)
-var retryProgressMessagePattern = regexp.MustCompile(`(?i)^\s*(reconnecting|retrying)(\.\.\.)?\s+\d+\s*/\s*\d+\s*$`)
 
 func buildAgentSessionHeader(payload map[string]any) shareddto.AgentSessionHeader {
 	agentID := payloadAgentID(payload)
@@ -73,7 +90,15 @@ func buildToolApprovalHeader(payload map[string]any) shareddto.ToolApprovalHeade
 // translateCodexEvent 把 Codex app-server raw event 分派到 agent、turn、tool 三类统一事件。
 // 未识别事件只在排除 token usage、重试进度和已知噪声后告警，避免日志被高频流事件淹没。
 func translateCodexEvent(raw dto.RawProviderEvent, publish func(ev any), configuredHooks ...providershared.RuntimeHooks) {
-	hooks := runtimeHooksOrZero(configuredHooks)
+	translator := newCodexEventTranslator(runtimeHooksOrZero(configuredHooks))
+	translator.translateEvent(raw, publish)
+}
+
+func (t *codexEventTranslator) translateEvent(raw dto.RawProviderEvent, publish func(ev any)) {
+	if t == nil || t.sampler == nil || t.retryProgressPattern == nil {
+		panic("codexapp event translator runtime owner is required")
+	}
+	hooks := t.hooks
 	if rawErr, agentErr, ok := codexTimestampProviderError(raw); ok {
 		publish(dto.BusRawProviderEvent{Event: rawErr})
 		publish(agentErr)
@@ -91,7 +116,7 @@ func translateCodexEvent(raw dto.RawProviderEvent, publish func(ev any), configu
 		publishCodexTranslatedEvent(eventType, ev, publish)
 		return
 	}
-	if ev, ok := translateTurnEventWithRuntimeHooks(hooks, eventType, payload, raw.Terminal); ok {
+	if ev, ok := translateTurnEventWithRuntimeHooksAndSampler(hooks, eventType, payload, t.sampler, raw.Terminal); ok {
 		publishCodexTranslatedEvent(eventType, ev, publish)
 		return
 	}
@@ -106,7 +131,7 @@ func translateCodexEvent(raw dto.RawProviderEvent, publish func(ev any), configu
 	if logCodexMCPStartupStatus(eventType, payload) {
 		return
 	}
-	if shouldWarnUnknownRawEvent(eventType, payload) {
+	if shouldWarnUnknownRawEvent(eventType, payload, t.retryProgressPattern) {
 		pkglogger.Get().Warn("codexapp: unknown raw event", "raw_type", eventType, "payload_metadata", raw.SanitizedCopy().Data)
 	}
 }
@@ -386,8 +411,8 @@ func logCodexMCPStartupStatus(eventType string, payload map[string]any) bool {
 
 // shouldWarnUnknownRawEvent 判断未翻译 raw event 是否值得记录告警。
 // token usage 和已登记的 UI 噪声事件会被静默忽略，真正未知 payload 才暴露给维护者。
-func shouldWarnUnknownRawEvent(eventType string, payload map[string]any) bool {
-	if isRetryProgressRawError(eventType, payload) {
+func shouldWarnUnknownRawEvent(eventType string, payload map[string]any, retryProgressPattern *regexp.Regexp) bool {
+	if isRetryProgressRawError(eventType, payload, retryProgressPattern) {
 		return false
 	}
 	switch strings.TrimSpace(eventType) {
@@ -421,9 +446,12 @@ func shouldWarnUnknownRawEvent(eventType string, payload map[string]any) bool {
 	)
 }
 
-func isRetryProgressRawError(eventType string, payload map[string]any) bool {
+func isRetryProgressRawError(eventType string, payload map[string]any, retryProgressPattern *regexp.Regexp) bool {
+	if retryProgressPattern == nil {
+		panic("codexapp retry progress pattern is required")
+	}
 	message := shared.FirstNonEmpty(stringValue(payload, "message", "error", "reason"), stringValue(nestedValue(payload, "error"), "message"))
-	return strings.TrimSpace(eventType) == "error" && boolValue(payload, "willRetry", "will_retry") && retryProgressMessagePattern.MatchString(message)
+	return strings.TrimSpace(eventType) == "error" && boolValue(payload, "willRetry", "will_retry") && retryProgressPattern.MatchString(message)
 }
 
 // translateAgentEvent 将 Codex 会话级事件转换为 agent DTO。
@@ -471,6 +499,13 @@ func translateTurnEvent(eventType string, payload map[string]any, terminals ...*
 }
 
 func translateTurnEventWithRuntimeHooks(hooks providershared.RuntimeHooks, eventType string, payload map[string]any, terminals ...*dto.TerminalOutcome) (any, bool) {
+	return translateTurnEventWithRuntimeHooksAndSampler(hooks, eventType, payload, pkglogger.NewEverySampler(1000), terminals...)
+}
+
+func translateTurnEventWithRuntimeHooksAndSampler(hooks providershared.RuntimeHooks, eventType string, payload map[string]any, sampler *pkglogger.Sampler, terminals ...*dto.TerminalOutcome) (any, bool) {
+	if sampler == nil {
+		panic("codexapp event translator sampler is required")
+	}
 	terminal := selectedCodexTerminal(terminals)
 	if isTurnTerminalEvent(eventType) {
 		return translateTurnTerminalEvent(hooks, payload, terminal), true
@@ -481,7 +516,7 @@ func translateTurnEventWithRuntimeHooks(hooks providershared.RuntimeHooks, event
 	case "turn/interrupted", "turn.interrupted":
 		return translateTurnTerminalEvent(hooks, payload, terminal), true
 	case "item/agentMessage/delta", "message.delta", "agent_message_delta":
-		if outputDeltaTranslateLogSampler.ShouldLog("message") {
+		if sampler.ShouldLog("message") {
 			pkglogger.Get().Debug("codexapp: translateTurnEvent: outputDelta",
 				"sample_rate", "0.1%",
 				"event_type", eventType,
@@ -493,7 +528,7 @@ func translateTurnEventWithRuntimeHooks(hooks providershared.RuntimeHooks, event
 		}
 		return turnOutputDelta(payload, "message"), true
 	case "item/reasoning/summaryTextDelta", "item/reasoning/textDelta", "reasoning.delta":
-		if outputDeltaTranslateLogSampler.ShouldLog("reasoning") {
+		if sampler.ShouldLog("reasoning") {
 			pkglogger.Get().Debug("codexapp: translateTurnEvent: outputDelta",
 				"sample_rate", "0.1%",
 				"event_type", eventType,
@@ -505,7 +540,7 @@ func translateTurnEventWithRuntimeHooks(hooks providershared.RuntimeHooks, event
 		}
 		return turnOutputDelta(payload, "reasoning"), true
 	case "item/commandExecution/outputDelta", "exec_output_delta":
-		if outputDeltaTranslateLogSampler.ShouldLog("stdout") {
+		if sampler.ShouldLog("stdout") {
 			pkglogger.Get().Debug("codexapp: translateTurnEvent: outputDelta",
 				"sample_rate", "0.1%",
 				"event_type", eventType,
