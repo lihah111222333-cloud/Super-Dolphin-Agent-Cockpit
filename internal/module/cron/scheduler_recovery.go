@@ -293,12 +293,25 @@ func (s *Scheduler) recoverSubmittingRun(ctx context.Context, job JobRecord, run
 	if !observed.Found || observed.TurnID == "" {
 		return s.finalizeRecoveredFailure(ctx, job, run, errors.New("cron: provider dedupe lookup missed"))
 	}
-	if err := s.store.SetRunTurn(ctx, SetRunTurnParams{
-		ID: run.ID, ThreadID: run.ThreadID, AgentID: run.AgentID,
-		TurnID: observed.TurnID, SubmittedAt: s.now().UTC(), UpdatedAt: s.now().UTC(),
+	submitStore, ok := s.store.(submittedTurnStore)
+	if !ok {
+		return errors.New("cron: store does not implement atomic submitted turn persistence")
+	}
+	now := s.now().UTC()
+	if err := submitStore.SubmitRunWithActiveTurn(ctx, SubmitRunWithActiveTurnParams{
+		RunID:        run.ID,
+		JobID:        job.ID,
+		ClaimToken:   job.ClaimToken,
+		ActiveTurnID: observed.TurnID,
+		ThreadID:     run.ThreadID,
+		AgentID:      run.AgentID,
+		SubmittedAt:  now,
+		Now:          now,
 	}); err != nil {
 		return err
 	}
+	run.TurnID = observed.TurnID
+	run.Status = statusSubmitted
 	return s.observeRecoveredSubmittedRun(ctx, job, run, observed.TurnID)
 }
 

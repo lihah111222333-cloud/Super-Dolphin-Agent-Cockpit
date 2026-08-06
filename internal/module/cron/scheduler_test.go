@@ -769,6 +769,77 @@ func TestCronTerminalSubscriberMarksFinished(t *testing.T) {
 	}
 }
 
+func TestRecoverSubmittingRunDedupeHitPersistsSubmittedTurnAtomically(t *testing.T) {
+	t.Parallel()
+
+	const observedTurnID = "turn-recovered"
+	newRecovery := func(t *testing.T, submitFn func(context.Context, SubmitRunWithActiveTurnParams) error) (*Scheduler, *recordingCronStore, *JobRecord, *RunRecord) {
+		t.Helper()
+		job := &JobRecord{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", ClaimToken: "claim-token"}
+		run := &RunRecord{ID: "run-1", JobID: job.ID, ThreadID: "thread-1", AgentID: "agent-1", DedupeKey: "dedupe-1", Status: statusSubmitting, ScheduledAt: time.Unix(1_700_000_000, 0).UTC()}
+		store := &recordingCronStore{}
+		store.submitRunWithActiveTurn = submitFn
+		store.setRunTurnFn = func(context.Context, SetRunTurnParams) error {
+			t.Fatal("recovery dedupe hit must not persist a run-only turn")
+			return nil
+		}
+		store.casStatusFn = func(_ context.Context, params CASRunStatusParams) error {
+			if params.ID != run.ID || params.ExpectedStatus != statusSubmitted || params.NextStatus != statusRunning {
+				t.Fatalf("recovery CAS = %+v, want submitted -> running for %s", params, run.ID)
+			}
+			run.Status = statusRunning
+			return nil
+		}
+		submitter := &programmableSubmitter{lookupFn: func(_ context.Context, dedupeKey string) (ObservedTurn, error) {
+			if dedupeKey != run.DedupeKey {
+				t.Fatalf("LookupByDedupeKey(%q), want %q", dedupeKey, run.DedupeKey)
+			}
+			return ObservedTurn{Found: true, TurnID: observedTurnID}, nil
+		}}
+		return newTestScheduler(t, store, submitter), store, job, run
+	}
+
+	t.Run("atomically binds run job and submitted status before observe", func(t *testing.T) {
+		var job *JobRecord
+		var run *RunRecord
+		s, _, jobRef, runRef := newRecovery(t, func(_ context.Context, params SubmitRunWithActiveTurnParams) error {
+			if params.RunID != run.ID || params.JobID != job.ID || params.ClaimToken != job.ClaimToken ||
+				params.ActiveTurnID != observedTurnID || params.ThreadID != run.ThreadID || params.AgentID != run.AgentID {
+				t.Fatalf("SubmitRunWithActiveTurn params = %+v", params)
+			}
+			run.TurnID = params.ActiveTurnID
+			run.Status = statusSubmitted
+			job.ActiveTurnID = params.ActiveTurnID
+			return nil
+		})
+		job, run = jobRef, runRef
+
+		if err := s.recoverSubmittingRun(context.Background(), *job, *run); err != nil {
+			t.Fatalf("recoverSubmittingRun() error = %v", err)
+		}
+		if run.TurnID != observedTurnID || job.ActiveTurnID != observedTurnID || run.Status != statusRunning {
+			t.Fatalf("recovered durable state run=%+v job=%+v", run, job)
+		}
+	})
+
+	t.Run("atomic fence or write failure leaves no run-only turn", func(t *testing.T) {
+		wantErr := errors.New("submitted turn fence refused")
+		s, store, job, run := newRecovery(t, func(context.Context, SubmitRunWithActiveTurnParams) error {
+			return wantErr
+		})
+
+		if err := s.recoverSubmittingRun(context.Background(), *job, *run); !errors.Is(err, wantErr) {
+			t.Fatalf("recoverSubmittingRun() error = %v, want %v", err, wantErr)
+		}
+		if run.TurnID != "" || job.ActiveTurnID != "" || run.Status != statusSubmitting {
+			t.Fatalf("fence failure left partial durable state run=%+v job=%+v", run, job)
+		}
+		if len(store.casCalls) != 0 {
+			t.Fatalf("fence failure advanced run status after atomic write refusal: %+v", store.casCalls)
+		}
+	})
+}
+
 // TestRecoverDanglingRunsProcessesBatches prevents startup recovery from loading all unresolved runs at once.
 func TestRecoverDanglingRunsProcessesBatches(t *testing.T) {
 	t.Parallel()
