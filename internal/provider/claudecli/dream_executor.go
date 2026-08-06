@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	platformmetrics "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/dreamexec"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/dreammetrics"
 )
 
 // dreamModelEnv 是 dream 调用 claude 时可选的 model env override。未设则走 binary 默认 model。
@@ -86,7 +86,7 @@ func (e dreamExecutor) ExecuteDreamWithOptions(ctx context.Context, prompt strin
 		MaxRetries:     dreamMaxRetries,
 		RuntimePolicy:  options.RuntimePolicy,
 		OnUsage: func(usage dreamexec.TokenUsage) {
-			dreammetrics.AddTokens(usage.InputTokens, usage.OutputTokens, usage.CacheReadTokens)
+			platformmetrics.DreamRegistry().AddTokens(usage.InputTokens, usage.OutputTokens, usage.CacheReadTokens)
 		},
 	})
 	if err != nil {

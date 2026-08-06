@@ -3,22 +3,21 @@ package dreammetrics
 import "testing"
 
 func TestDreamMetrics_IncrementAndRead(t *testing.T) {
-	ResetForTesting()
-	t.Cleanup(ResetForTesting)
+	registry := NewRegistry()
 
-	IncSuccess()
-	IncSuccess()
-	IncProviderSkipped()
-	IncProviderFailed()
-	IncProviderFailed()
-	IncProviderFailed()
-	IncAllNotConfigured()
-	IncPromptOversize()
-	IncPromptOversize()
+	registry.IncSuccess()
+	registry.IncSuccess()
+	registry.IncProviderSkipped()
+	registry.IncProviderFailed()
+	registry.IncProviderFailed()
+	registry.IncProviderFailed()
+	registry.IncAllNotConfigured()
+	registry.IncPromptOversize()
+	registry.IncPromptOversize()
 
-	snap := Read()
+	snap := registry.Read()
 	assertDreamSnapshotCounts(t, snap)
-	assertDreamSingleReadsMatchSnapshot(t, snap)
+	assertDreamSingleReadsMatchSnapshot(t, registry, snap)
 }
 
 func assertDreamSnapshotCounts(t *testing.T, snap Snapshot) {
@@ -41,37 +40,38 @@ func assertDreamSnapshotCounts(t *testing.T, snap Snapshot) {
 	}
 }
 
-func assertDreamSingleReadsMatchSnapshot(t *testing.T, snap Snapshot) {
+func assertDreamSingleReadsMatchSnapshot(t *testing.T, registry *Registry, snap Snapshot) {
 	t.Helper()
 
 	// 单值读 API 与 snapshot 一致
-	if Success() != snap.SuccessTotal {
-		t.Errorf("Success()/SuccessTotal mismatch: %d vs %d", Success(), snap.SuccessTotal)
+	if registry.Success() != snap.SuccessTotal {
+		t.Errorf("Success()/SuccessTotal mismatch: %d vs %d", registry.Success(), snap.SuccessTotal)
 	}
-	if ProviderSkipped() != snap.ProviderSkippedTotal {
+	if registry.ProviderSkipped() != snap.ProviderSkippedTotal {
 		t.Errorf("ProviderSkipped() mismatch")
 	}
-	if ProviderFailed() != snap.ProviderFailedTotal {
+	if registry.ProviderFailed() != snap.ProviderFailedTotal {
 		t.Errorf("ProviderFailed() mismatch")
 	}
-	if AllNotConfigured() != snap.AllNotConfiguredTotal {
+	if registry.AllNotConfigured() != snap.AllNotConfiguredTotal {
 		t.Errorf("AllNotConfigured() mismatch")
 	}
-	if PromptOversize() != snap.PromptOversizeTotal {
+	if registry.PromptOversize() != snap.PromptOversizeTotal {
 		t.Errorf("PromptOversize() mismatch")
 	}
 }
 
 func TestDreamMetrics_ResetForTestingZeroes(t *testing.T) {
-	IncSuccess()
-	IncProviderSkipped()
-	IncProviderFailed()
-	IncAllNotConfigured()
-	IncPromptOversize()
-	AddTokens(100, 50, 200)
-	ResetForTesting()
+	registry := NewRegistry()
+	registry.IncSuccess()
+	registry.IncProviderSkipped()
+	registry.IncProviderFailed()
+	registry.IncAllNotConfigured()
+	registry.IncPromptOversize()
+	registry.AddTokens(100, 50, 200)
+	registry.ResetForTesting()
 
-	snap := Read()
+	snap := registry.Read()
 	if snap != (Snapshot{}) {
 		t.Errorf("expected zero snapshot after reset, got %+v", snap)
 	}
@@ -80,26 +80,25 @@ func TestDreamMetrics_ResetForTestingZeroes(t *testing.T) {
 // TestDreamMetrics_AddTokensAccumulates 验证 token counter 聚合 API 的累加语义与读取一致性。
 // AddTokens 是 Step 2 接入 dream provider 解析 usage 后的入口，本测锁 Step 1 API 语义。
 func TestDreamMetrics_AddTokensAccumulates(t *testing.T) {
-	ResetForTesting()
-	t.Cleanup(ResetForTesting)
+	registry := NewRegistry()
 
-	AddTokens(100, 50, 200)
-	AddTokens(30, 10, 0)
+	registry.AddTokens(100, 50, 200)
+	registry.AddTokens(30, 10, 0)
 
-	if got := TokensInput(); got != 130 {
+	if got := registry.TokensInput(); got != 130 {
 		t.Errorf("TokensInput: got %d, want 130", got)
 	}
-	if got := TokensOutput(); got != 60 {
+	if got := registry.TokensOutput(); got != 60 {
 		t.Errorf("TokensOutput: got %d, want 60", got)
 	}
-	if got := TokensCacheRead(); got != 200 {
+	if got := registry.TokensCacheRead(); got != 200 {
 		t.Errorf("TokensCacheRead: got %d, want 200", got)
 	}
 
-	snap := Read()
-	if snap.TokensInputTotal != TokensInput() ||
-		snap.TokensOutputTotal != TokensOutput() ||
-		snap.TokensCacheReadTotal != TokensCacheRead() {
+	snap := registry.Read()
+	if snap.TokensInputTotal != registry.TokensInput() ||
+		snap.TokensOutputTotal != registry.TokensOutput() ||
+		snap.TokensCacheReadTotal != registry.TokensCacheRead() {
 		t.Errorf("snapshot/single-read mismatch: %+v", snap)
 	}
 }
@@ -107,12 +106,11 @@ func TestDreamMetrics_AddTokensAccumulates(t *testing.T) {
 // TestDreamMetrics_AddTokensZeroIsNoop 验证【 0 值参数隐式 no-op】语义。
 // dream provider 某次只拿到部分 usage 字段时，可以安全传 0，不会污染 counter。
 func TestDreamMetrics_AddTokensZeroIsNoop(t *testing.T) {
-	ResetForTesting()
-	t.Cleanup(ResetForTesting)
+	registry := NewRegistry()
 
-	AddTokens(0, 0, 0)
+	registry.AddTokens(0, 0, 0)
 
-	if TokensInput() != 0 || TokensOutput() != 0 || TokensCacheRead() != 0 {
-		t.Errorf("AddTokens(0,0,0) should be no-op, got snapshot %+v", Read())
+	if registry.TokensInput() != 0 || registry.TokensOutput() != 0 || registry.TokensCacheRead() != 0 {
+		t.Errorf("AddTokens(0,0,0) should be no-op, got snapshot %+v", registry.Read())
 	}
 }

@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/dagmetrics"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/dreammetrics"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
@@ -9,6 +10,9 @@ import (
 var (
 	// dagRegistry 是 DAG 进程级指标状态的唯一 owner；编排和 collector 通过 DAGRegistry 显式共享它。
 	dagRegistry = dagmetrics.NewRegistry()
+
+	// dreamRegistry 是 Dream 进程级指标状态的唯一 owner；provider 与直接测试通过 DreamRegistry 显式共享它。
+	dreamRegistry = dreammetrics.NewRegistry()
 
 	// DAG dispatch/retry 指标直接读取 dagmetrics 快照，避免在热路径重复注册 label 维度。
 	DAGDispatchFailedTotal = promauto.NewCounterFunc(
@@ -49,6 +53,11 @@ var (
 // DAGRegistry 返回由 metrics 包拥有的 DAG 进程级指标状态。
 func DAGRegistry() *dagmetrics.Registry {
 	return dagRegistry
+}
+
+// DreamRegistry 返回由 metrics 包拥有的 Dream 进程级指标状态。
+func DreamRegistry() *dreammetrics.Registry {
+	return dreamRegistry
 }
 
 // registerDAGRetryCountPerNodeCollector 注册自定义 collector，并通过 bool 返回值适配 var 初始化。

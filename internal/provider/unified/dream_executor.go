@@ -12,7 +12,7 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/dreammetrics"
+	platformmetrics "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
@@ -167,7 +167,7 @@ func (e *dreamExecutor) preflight(prompt string) error {
 			"size_bytes", len(prompt),
 			"max_bytes", e.maxPromptBytes,
 		)
-		dreammetrics.IncPromptOversize()
+		platformmetrics.DreamRegistry().IncPromptOversize()
 		return fmt.Errorf("dream prompt too large: %d bytes exceeds %d", len(prompt), e.maxPromptBytes)
 	}
 	return nil
@@ -189,27 +189,27 @@ func (e *dreamExecutor) runFailover(ctx context.Context, prompt string, options 
 		result, err := executeProviderDream(ctx, executor, prompt, options)
 		if err == nil {
 			e.logger.Info("dream executor succeeded", "provider", name, "size_bytes", len(result))
-			dreammetrics.IncSuccess()
+			platformmetrics.DreamRegistry().IncSuccess()
 			return result, nil
 		}
 		if requestedProvider {
 			e.logger.Warn("requested dream executor failed", "provider", name, "error", dreamLogError(err))
-			dreammetrics.IncProviderFailed()
+			platformmetrics.DreamRegistry().IncProviderFailed()
 			return "", fmt.Errorf("dream executor provider %q failed: %w", name, err)
 		}
 		if errors.Is(err, contract.ErrDreamExecutorNotConfigured) {
 			e.logger.Debug("dream executor skipped (not configured)", "provider", name)
-			dreammetrics.IncProviderSkipped()
+			platformmetrics.DreamRegistry().IncProviderSkipped()
 			lastNotConfigured = err
 			continue
 		}
 		e.logger.Warn("dream executor failed", "provider", name, "error", dreamLogError(err))
-		dreammetrics.IncProviderFailed()
+		platformmetrics.DreamRegistry().IncProviderFailed()
 		return "", err
 	}
 	if lastNotConfigured != nil {
 		e.logger.Warn("all dream executors not configured", "providers", order)
-		dreammetrics.IncAllNotConfigured()
+		platformmetrics.DreamRegistry().IncAllNotConfigured()
 		return "", lastNotConfigured
 	}
 	return "", fmt.Errorf("%w: no provider dream executors registered", contract.ErrDreamExecutorNotConfigured)

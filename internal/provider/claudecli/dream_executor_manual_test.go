@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/dreammetrics"
+	platformmetrics "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 )
 
 // minimalConsolidationPrompt 模拟 consolidation_prompt.go 的 JSON 契约要求。
@@ -38,8 +38,8 @@ func TestManualClaudeDreamPipeline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	dreammetrics.ResetForTesting()
-	t.Cleanup(dreammetrics.ResetForTesting)
+	platformmetrics.DreamRegistry().ResetForTesting()
+	t.Cleanup(platformmetrics.DreamRegistry().ResetForTesting)
 
 	// 使用生产构造器（commander=nil → NewRealCommander，binary 走 resolveBinaryPath）
 	exec := newDreamExecutor(nil, "", "")
@@ -68,7 +68,7 @@ func TestManualClaudeDreamPipeline(t *testing.T) {
 		t.Fatalf("expected valid JSON envelope, got parse error: %v\nraw: %s", err, got)
 	}
 	t.Logf("parsed envelope: memories=%d items", len(envelope.Memories))
-	if got := dreammetrics.TokensInput(); got == 0 {
+	if got := platformmetrics.DreamRegistry().TokensInput(); got == 0 {
 		t.Errorf("TokensInput() = %d, want > 0 (claude usage should be recorded)", got)
 	}
 

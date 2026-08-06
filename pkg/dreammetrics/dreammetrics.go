@@ -4,7 +4,9 @@ package dreammetrics
 
 import "sync/atomic"
 
-var (
+// Registry 保存 DreamExecutor 的八组可变观测指标状态。
+// 每个运行时必须由显式 owner 创建并共享同一 Registry。
+type Registry struct {
 	successTotal          atomic.Uint64
 	providerSkippedTotal  atomic.Uint64
 	providerFailedTotal   atomic.Uint64
@@ -16,56 +18,61 @@ var (
 	tokensInputTotal     atomic.Uint64
 	tokensOutputTotal    atomic.Uint64
 	tokensCacheReadTotal atomic.Uint64
-)
+}
+
+// NewRegistry 创建独立 DreamExecutor 指标 registry。
+func NewRegistry() *Registry {
+	return &Registry{}
+}
 
 // IncSuccess 记录一次 dream 蒸馏成功。
-func IncSuccess() { successTotal.Add(1) }
+func (r *Registry) IncSuccess() { r.successTotal.Add(1) }
 
 // Success 返回 dream 蒸馏成功累计数。
-func Success() uint64 { return successTotal.Load() }
+func (r *Registry) Success() uint64 { return r.successTotal.Load() }
 
 // IncProviderSkipped 单个 provider 返回 ErrDreamExecutorNotConfigured 跳过（dispatcher 继续 failover）+1。
 // failover 链路若多个 provider 都跳过，会累加多次。
-func IncProviderSkipped() { providerSkippedTotal.Add(1) }
+func (r *Registry) IncProviderSkipped() { r.providerSkippedTotal.Add(1) }
 
 // ProviderSkipped 返回 provider 未配置跳过累计数。
-func ProviderSkipped() uint64 { return providerSkippedTotal.Load() }
+func (r *Registry) ProviderSkipped() uint64 { return r.providerSkippedTotal.Load() }
 
 // IncProviderFailed 单个 provider 返回非 NotConfigured 真错误（dispatcher 立即短路）+1。
-func IncProviderFailed() { providerFailedTotal.Add(1) }
+func (r *Registry) IncProviderFailed() { r.providerFailedTotal.Add(1) }
 
 // ProviderFailed 返回 provider 真错误累计数。
-func ProviderFailed() uint64 { return providerFailedTotal.Load() }
+func (r *Registry) ProviderFailed() uint64 { return r.providerFailedTotal.Load() }
 
 // IncAllNotConfigured failover 链路全部 provider 返回 NotConfigured，整轮 dream 失败 +1。
-func IncAllNotConfigured() { allNotConfiguredTotal.Add(1) }
+func (r *Registry) IncAllNotConfigured() { r.allNotConfiguredTotal.Add(1) }
 
 // AllNotConfigured 返回整条 failover 链均未配置的累计数。
-func AllNotConfigured() uint64 { return allNotConfiguredTotal.Load() }
+func (r *Registry) AllNotConfigured() uint64 { return r.allNotConfiguredTotal.Load() }
 
 // IncPromptOversize prompt 长度超过 dispatcher size cap 被 fail-fast 拒绝 +1。
-func IncPromptOversize() { promptOversizeTotal.Add(1) }
+func (r *Registry) IncPromptOversize() { r.promptOversizeTotal.Add(1) }
 
 // PromptOversize 返回 prompt 过大被拒绝的累计数。
-func PromptOversize() uint64 { return promptOversizeTotal.Load() }
+func (r *Registry) PromptOversize() uint64 { return r.promptOversizeTotal.Load() }
 
 // AddTokens 累加单次 dream 成功的 token usage。
 // 聚合 API（而非分 3 个 Inc）：input/output/cacheRead 是一次 LLM 调用同时产出，
 // 分开上报容易在 provider 解析路径上遗漏对齐。0 值参数隐式 no-op。
-func AddTokens(input, output, cacheRead uint64) {
-	tokensInputTotal.Add(input)
-	tokensOutputTotal.Add(output)
-	tokensCacheReadTotal.Add(cacheRead)
+func (r *Registry) AddTokens(input, output, cacheRead uint64) {
+	r.tokensInputTotal.Add(input)
+	r.tokensOutputTotal.Add(output)
+	r.tokensCacheReadTotal.Add(cacheRead)
 }
 
 // TokensInput 返回输入 token 累计数。
-func TokensInput() uint64 { return tokensInputTotal.Load() }
+func (r *Registry) TokensInput() uint64 { return r.tokensInputTotal.Load() }
 
 // TokensOutput 返回输出 token 累计数。
-func TokensOutput() uint64 { return tokensOutputTotal.Load() }
+func (r *Registry) TokensOutput() uint64 { return r.tokensOutputTotal.Load() }
 
 // TokensCacheRead 返回 cache read token 累计数。
-func TokensCacheRead() uint64 { return tokensCacheReadTotal.Load() }
+func (r *Registry) TokensCacheRead() uint64 { return r.tokensCacheReadTotal.Load() }
 
 // Snapshot 是 DreamExecutor 指标的一次读取快照。
 // 快照非原子，并发自增可能出现在下一次读取中。
@@ -81,27 +88,27 @@ type Snapshot struct {
 }
 
 // Read 返回当前 DreamExecutor 指标快照。
-func Read() Snapshot {
+func (r *Registry) Read() Snapshot {
 	return Snapshot{
-		SuccessTotal:          successTotal.Load(),
-		ProviderSkippedTotal:  providerSkippedTotal.Load(),
-		ProviderFailedTotal:   providerFailedTotal.Load(),
-		AllNotConfiguredTotal: allNotConfiguredTotal.Load(),
-		PromptOversizeTotal:   promptOversizeTotal.Load(),
-		TokensInputTotal:      tokensInputTotal.Load(),
-		TokensOutputTotal:     tokensOutputTotal.Load(),
-		TokensCacheReadTotal:  tokensCacheReadTotal.Load(),
+		SuccessTotal:          r.successTotal.Load(),
+		ProviderSkippedTotal:  r.providerSkippedTotal.Load(),
+		ProviderFailedTotal:   r.providerFailedTotal.Load(),
+		AllNotConfiguredTotal: r.allNotConfiguredTotal.Load(),
+		PromptOversizeTotal:   r.promptOversizeTotal.Load(),
+		TokensInputTotal:      r.tokensInputTotal.Load(),
+		TokensOutputTotal:     r.tokensOutputTotal.Load(),
+		TokensCacheReadTotal:  r.tokensCacheReadTotal.Load(),
 	}
 }
 
 // ResetForTesting 仅测试用：全部 counter 归零。
-func ResetForTesting() {
-	successTotal.Store(0)
-	providerSkippedTotal.Store(0)
-	providerFailedTotal.Store(0)
-	allNotConfiguredTotal.Store(0)
-	promptOversizeTotal.Store(0)
-	tokensInputTotal.Store(0)
-	tokensOutputTotal.Store(0)
-	tokensCacheReadTotal.Store(0)
+func (r *Registry) ResetForTesting() {
+	r.successTotal.Store(0)
+	r.providerSkippedTotal.Store(0)
+	r.providerFailedTotal.Store(0)
+	r.allNotConfiguredTotal.Store(0)
+	r.promptOversizeTotal.Store(0)
+	r.tokensInputTotal.Store(0)
+	r.tokensOutputTotal.Store(0)
+	r.tokensCacheReadTotal.Store(0)
 }

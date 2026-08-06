@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	platformmetrics "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/dreamexec"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/dreammetrics"
 )
 
 // capturingCommander 记录最后一次调用的 binary/args/input，并按预设序列返回。
@@ -114,17 +114,17 @@ func TestClaudeDreamExecutorEnforcesNoToolsReadOnlyRuntime(t *testing.T) {
 }
 
 // TestClaudeDreamExecutor_EnvelopeUsageIncrementsDreamMetrics 验证完整流路：
-// envelope JSON 输出 -> dreamexec 探测 -> ExtractClaudeEnvelope -> OnUsage 路由 -> dreammetrics.AddTokens。
+// envelope JSON 输出 -> dreamexec 探测 -> ExtractClaudeEnvelope -> OnUsage 路由 -> DreamRegistry().AddTokens。
 // fixture 使用小数量便于验证：input=1+2+3=6、output=4、cacheRead=3。
 func TestClaudeDreamExecutor_EnvelopeUsageIncrementsDreamMetrics(t *testing.T) {
-	dreammetrics.ResetForTesting()
-	t.Cleanup(dreammetrics.ResetForTesting)
+	platformmetrics.DreamRegistry().ResetForTesting()
+	t.Cleanup(platformmetrics.DreamRegistry().ResetForTesting)
 	c := &capturingCommander{outputs: []string{`{"type":"result","is_error":false,"result":"{\"memories\":[]}","usage":{"input_tokens":1,"cache_creation_input_tokens":2,"cache_read_input_tokens":3,"output_tokens":4}}`}}
 	exec := newDreamExecutor(c, "claude", "")
 	if _, err := exec.ExecuteDream(context.Background(), "p"); err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
-	snap := dreammetrics.Read()
+	snap := platformmetrics.DreamRegistry().Read()
 	if snap.TokensInputTotal != 6 || snap.TokensOutputTotal != 4 || snap.TokensCacheReadTotal != 3 {
 		t.Fatalf("dream token metrics = %+v, want input=6 output=4 cacheRead=3", snap)
 	}

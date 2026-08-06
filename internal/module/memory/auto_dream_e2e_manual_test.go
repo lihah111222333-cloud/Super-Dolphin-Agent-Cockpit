@@ -20,18 +20,18 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	platformmetrics "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/claudecli"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/dreammetrics"
 )
 
 func TestManualAutoDreamE2EPipeline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer cancel()
 
-	dreammetrics.ResetForTesting()
-	t.Cleanup(dreammetrics.ResetForTesting)
+	platformmetrics.DreamRegistry().ResetForTesting()
+	t.Cleanup(platformmetrics.DreamRegistry().ResetForTesting)
 
 	root := prepareManualAutoDreamMemoryRoot(t)
 	now := time.Date(2026, 4, 15, 9, 0, 0, 0, time.UTC)
@@ -131,7 +131,7 @@ func assertManualAutoDreamStamp(t *testing.T, root string) {
 func assertManualAutoDreamMetrics(t *testing.T) {
 	t.Helper()
 
-	snap := dreammetrics.Read()
+	snap := platformmetrics.DreamRegistry().Read()
 	t.Logf("dispatcher metrics: %+v", snap)
 	if snap.SuccessTotal != 1 {
 		t.Errorf("SuccessTotal: got %d, want 1 (dispatcher should record 1 success)", snap.SuccessTotal)
@@ -139,7 +139,7 @@ func assertManualAutoDreamMetrics(t *testing.T) {
 	if snap.AllNotConfiguredTotal != 0 {
 		t.Errorf("AllNotConfiguredTotal: got %d, want 0", snap.AllNotConfiguredTotal)
 	}
-	if got := dreammetrics.TokensInput(); got == 0 {
+	if got := platformmetrics.DreamRegistry().TokensInput(); got == 0 {
 		t.Errorf("TokensInput() = %d, want > 0 (dream usage should be recorded)", got)
 	}
 }

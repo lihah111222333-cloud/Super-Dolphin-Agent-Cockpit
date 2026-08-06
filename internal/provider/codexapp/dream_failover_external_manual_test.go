@@ -21,9 +21,9 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	platformmetrics "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/claudecli"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/dreammetrics"
 )
 
 const failoverPrompt = `You are a memory consolidation assistant. Output ONLY this exact JSON: {"memories":[]}`
@@ -38,8 +38,8 @@ func TestManualDispatcherFailover(t *testing.T) {
 	t.Setenv("DREAM_CODEX_BIN", "")
 
 	// 重置 metrics counter 以隔离观察
-	dreammetrics.ResetForTesting()
-	t.Cleanup(dreammetrics.ResetForTesting)
+	platformmetrics.DreamRegistry().ResetForTesting()
+	t.Cleanup(platformmetrics.DreamRegistry().ResetForTesting)
 
 	// 用 fx 拉起 dispatcher 太重，手动构造 provider 列表
 	// 模仿 unified/module.go 内 dreamExecutorParams 收集流程
@@ -67,7 +67,7 @@ func TestManualDispatcherFailover(t *testing.T) {
 	t.Logf("parsed envelope: memories=%d items", len(envelope.Memories))
 
 	// 验证 2: metrics 反映 failover 真发生
-	snap := dreammetrics.Read()
+	snap := platformmetrics.DreamRegistry().Read()
 	t.Logf("metrics snapshot: %+v", snap)
 
 	if snap.ProviderSkippedTotal != 1 {
@@ -82,7 +82,7 @@ func TestManualDispatcherFailover(t *testing.T) {
 	if snap.AllNotConfiguredTotal != 0 {
 		t.Errorf("AllNotConfiguredTotal: got %d, want 0 (codex succeeded)", snap.AllNotConfiguredTotal)
 	}
-	if got := dreammetrics.TokensInput(); got == 0 {
+	if got := platformmetrics.DreamRegistry().TokensInput(); got == 0 {
 		t.Errorf("TokensInput() = %d, want > 0 (codex usage should be recorded)", got)
 	}
 }

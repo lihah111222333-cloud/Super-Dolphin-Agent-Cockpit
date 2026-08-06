@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	platformmetrics "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/dreamexec"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/dreammetrics"
 )
 
 const (
@@ -88,7 +88,7 @@ func (e dreamExecutor) ExecuteDreamWithOptions(ctx context.Context, prompt strin
 		MaxRetries:     dreamMaxRetries,
 		RuntimePolicy:  options.RuntimePolicy,
 		OnUsage: func(usage dreamexec.TokenUsage) {
-			dreammetrics.AddTokens(usage.InputTokens, usage.OutputTokens, usage.CacheReadTokens)
+			platformmetrics.DreamRegistry().AddTokens(usage.InputTokens, usage.OutputTokens, usage.CacheReadTokens)
 		},
 	})
 	if err != nil {

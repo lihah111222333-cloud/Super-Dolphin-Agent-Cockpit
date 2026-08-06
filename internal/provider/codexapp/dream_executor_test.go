@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	platformmetrics "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/dreamexec"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/dreammetrics"
 )
 
 // capturingCommander 记录最后一次调用的 binary/args/input。
@@ -131,11 +132,11 @@ func TestCodexDreamExecutorEnforcesNoToolsReadOnlyMinEnvRuntime(t *testing.T) {
 }
 
 // TestCodexDreamExecutor_JSONLUsageIncrementsDreamMetrics 验证完整流路：
-// JSONL stream -> dreamexec 探测 -> ExtractCodexJSONL -> OnUsage -> dreammetrics.AddTokens。
+// JSONL stream -> dreamexec 探测 -> ExtractCodexJSONL -> OnUsage -> DreamRegistry().AddTokens。
 // codex usage 语义：input_tokens 已含 cached（OpenAI 惯例），无 cache_creation。
 func TestCodexDreamExecutor_JSONLUsageIncrementsDreamMetrics(t *testing.T) {
-	dreammetrics.ResetForTesting()
-	t.Cleanup(dreammetrics.ResetForTesting)
+	platformmetrics.DreamRegistry().ResetForTesting()
+	t.Cleanup(platformmetrics.DreamRegistry().ResetForTesting)
 	jsonl := "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"{\\\"memories\\\":[]}\"}}\n" +
 		"{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":10,\"cached_input_tokens\":3,\"output_tokens\":5}}\n"
 	c := &capturingCommander{outputs: []string{jsonl}}
@@ -144,7 +145,7 @@ func TestCodexDreamExecutor_JSONLUsageIncrementsDreamMetrics(t *testing.T) {
 		t.Fatalf("expected success, got %v", err)
 	}
 	// TokensInput = input_tokens (=10)、TokensOutput = output_tokens (=5)、TokensCacheRead = cached_input_tokens (=3)
-	snap := dreammetrics.Read()
+	snap := platformmetrics.DreamRegistry().Read()
 	if snap.TokensInputTotal != 10 || snap.TokensOutputTotal != 5 || snap.TokensCacheReadTotal != 3 {
 		t.Fatalf("dream token metrics = %+v, want input=10 output=5 cacheRead=3", snap)
 	}
@@ -230,10 +231,8 @@ func TestCodexDreamExecutor_ProviderProviderUsesCodexName(t *testing.T) {
 
 func assertArgPresent(t *testing.T, args []string, flag string) {
 	t.Helper()
-	for _, arg := range args {
-		if arg == flag {
-			return
-		}
+	if slices.Contains(args, flag) {
+		return
 	}
 	t.Fatalf("args missing %s: %v", flag, args)
 }
