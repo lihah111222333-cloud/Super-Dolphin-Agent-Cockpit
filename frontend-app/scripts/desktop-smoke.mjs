@@ -104,7 +104,7 @@ export function buildFrontendFailureEvent() {
     method: 'thread/start',
     trace_id: `desktop-smoke-${suffix}`,
     span_id: `desktop-smoke-span-${suffix}`,
-    status: 'error',
+    timestamp: new Date().toISOString(), status: 'error',
     error: 'desktop smoke forced rejection',
     metadata: { component: 'desktop-smoke' },
   };

@@ -167,6 +167,33 @@ describe('delivery smoke runner', () => {
     expect(JSON.stringify(verdict.diagnostics)).not.toContain('leaked-stack');
   });
 
+  it('preserves redacted failure-only diagnostics for exit 1 with an exact schema', async () => {
+    const inspected = inspectDeliveryCommands({ scripts: COMPLETE_SCRIPTS }, MAKEFILE);
+    const secret = 't03-exit-one-provider-secret-do-not-persist';
+    const failure = new Error(`safe error Authorization: Bearer ${secret}`);
+    failure.stack = `leaked-stack ${secret}`;
+    const verdict = await runDeliveryCommands(inspected, async () => ({
+      status: 1,
+      signal: null,
+      timedOut: false,
+      stdout: `stdout Authorization: Bearer ${secret}`,
+      stderr: `stderr token=${secret}`,
+      error: failure,
+      outputTruncated: false,
+    }));
+
+    expect(verdict.diagnostics).toEqual({
+      availability: 'available',
+      stdout: 'stdout Authorization: Bearer [redacted]',
+      stderr: 'stderr token=[redacted]',
+      error: 'safe error Authorization: Bearer [redacted]',
+      outputTruncated: false,
+      runnerTruncated: false,
+    });
+    expect(JSON.stringify(verdict.diagnostics)).not.toContain(secret);
+    expect(JSON.stringify(verdict.diagnostics)).not.toContain('leaked-stack');
+  });
+
   it('redacts GitHub raw tokens from exit-2 stdout diagnostics', async () => {
     const inspected = inspectDeliveryCommands({ scripts: COMPLETE_SCRIPTS }, MAKEFILE);
     const classicToken = 'ghp_syntheticClassicToken123456789';
@@ -288,7 +315,7 @@ describe('delivery smoke runner', () => {
     });
   });
 
-  it('keeps the legacy failure verdict schema deep-equal for non-exit-2 failures', async () => {
+  it('projects diagnostics for exit 1 while preserving upstream truncation', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-29T00:00:00.000Z'));
     const inspected = inspectDeliveryCommands({ scripts: COMPLETE_SCRIPTS }, MAKEFILE);
@@ -317,6 +344,14 @@ describe('delivery smoke runner', () => {
         durationMs: 0,
         status: 'FAIL',
       }],
+      diagnostics: {
+        availability: 'available',
+        stdout: 'must not be retained',
+        stderr: 'must not be retained',
+        error: '',
+        outputTruncated: true,
+        runnerTruncated: false,
+      },
     });
   });
 

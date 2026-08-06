@@ -160,12 +160,15 @@ describe('desktop smoke command', () => {
     await expect(packageScriptIncludesSmoke()).resolves.toBe(true);
   });
 
-  it('builds a strict frontend ingest failure event', () => {
-    expect(buildFrontendFailureEvent()).toEqual(expect.objectContaining({
+  it('builds a strict frontend ingest failure event with the required timestamp', () => {
+    const event = buildFrontendFailureEvent();
+    expect(event).toEqual(expect.objectContaining({
       phase: 'frontend.rpc.failed',
       method: 'thread/start',
       status: 'error',
       metadata: { component: 'desktop-smoke' },
     }));
+    expect(event.timestamp).toEqual(expect.any(String));
+    expect(Number.isNaN(Date.parse(event.timestamp))).toBe(false);
   });
 });
