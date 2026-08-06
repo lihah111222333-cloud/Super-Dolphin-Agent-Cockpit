@@ -23,7 +23,9 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
-var outputDeltaPublishLogSampler = pkglogger.NewEverySampler(1000)
+func newOutputDeltaPublishLogSampler() *pkglogger.Sampler {
+	return pkglogger.NewEverySampler(1000)
+}
 
 const terminalTurnTrackingLimit = 4096
 
@@ -189,6 +191,7 @@ func taskNodeStatusChangedPayload(ev taskdto.TaskNodeStatusChanged) map[string]a
 // 输出增量事件带采样 debug 日志，避免高频 token/command 输出刷爆日志。
 func bindCore(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish PublishFunc) []context.CancelFunc {
 	terminalTurns := newTerminalTurnTracker()
+	outputDeltaPublishLogSampler := newOutputDeltaPublishLogSampler()
 	return []context.CancelFunc{
 		bus.ResilientSubscribe(dispatcher, func(ev agentdto.StateChanged) {
 			publish(MethodUIStateChanged, ev)

@@ -24,6 +24,17 @@ type publishedEvent struct {
 	payload any
 }
 
+func TestNewOutputDeltaPublishLogSamplerReturnsIndependentSamplers(t *testing.T) {
+	first := newOutputDeltaPublishLogSampler()
+	second := newOutputDeltaPublishLogSampler()
+	if first == nil || second == nil {
+		t.Fatal("newOutputDeltaPublishLogSampler() returned nil")
+	}
+	if first == second {
+		t.Fatal("newOutputDeltaPublishLogSampler() returned shared sampler")
+	}
+}
+
 func TestBindPublishesExpandedSurface(t *testing.T) {
 	t.Parallel()
 
