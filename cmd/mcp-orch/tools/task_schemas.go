@@ -3,6 +3,7 @@ package tools
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/nodeexec"
@@ -10,28 +11,15 @@ import (
 	mcpcommon "github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 )
 
-// applyOpsOpEnum 是 raw ops schema 接受的 nodeexec 操作集合。
-// 只暴露已实现的模板编辑能力，保留能力必须先完成运行时闭环再加入。
-var applyOpsOpEnum = []string{
-	string(nodeexec.OpKindUpdateDAG),
-	string(nodeexec.OpKindAddNode),
-	string(nodeexec.OpKindUpdateNode),
-	string(nodeexec.OpKindRemoveNode),
-}
-
-// creatableNodeTypeEnum 限制创建入口能落库的节点类型。
-// hybrid 暂不放开，避免用户创建出调度器无法稳定执行的 DAG。
-var creatableNodeTypeEnum = []string{"agent", "automation"}
-
 // applyOpsOpSchema 构建 task_dag_apply_ops raw ops 的 schema。
 // schema 与 nodeexec.OpKind 共用枚举，保持工具描述和解码器一致。
-func applyOpsOpSchema() Schema {
+func applyOpsOpSchemaWithRuntimeState(state *toolRuntimeState) Schema {
 	return ObjectSchema(map[string]Schema{
-		"op": EnumStringSchema("Operation discriminator.", applyOpsOpEnum...),
+		"op": EnumStringSchema("Operation discriminator.", state.applyOpsOpEnum...),
 		"node": ObjectSchema(map[string]Schema{
 			"node_key":    StringSchema("Node key for add_node."),
 			"title":       StringSchema("Node title for add_node."),
-			"node_type":   EnumStringSchema("Node type for add_node. Hybrid is reserved until runtime support is complete.", creatableNodeTypeEnum...),
+			"node_type":   EnumStringSchema("Node type for add_node. Hybrid is reserved until runtime support is complete.", state.creatableNodeTypeEnum...),
 			"assigned_to": StringSchema("Optional assignee for add_node."),
 			"depends_on":  ArraySchema(StringSchema("Dependency node key."), "Dependency node keys."),
 			"reads":       ArraySchema(StringSchema("Readable artifact or node output reference."), "Node read dependencies persisted for workflow inspection."),
@@ -45,7 +33,7 @@ func applyOpsOpSchema() Schema {
 
 // createDAGSchema 构建 task_create_dag 入参 schema。
 // 创建入口只接受 create-only 字段；定时触发和并发版本写入必须走 apply_ops。
-func createDAGSchema() Schema {
+func createDAGSchemaWithRuntimeState(state *toolRuntimeState) Schema {
 	return ObjectSchema(map[string]Schema{
 		"agent_id":            StringSchema("Creator orchestration agent ID."),
 		"dag_key":             StringSchema("Unique DAG key."),
@@ -69,7 +57,7 @@ func createDAGSchema() Schema {
 		"nodes": ArraySchema(ObjectSchema(map[string]Schema{
 			"node_key":    StringSchema("Unique node key within the DAG."),
 			"title":       StringSchema("Node title."),
-			"node_type":   EnumStringSchema("Optional node type. Hybrid is reserved until runtime support is complete.", creatableNodeTypeEnum...),
+			"node_type":   EnumStringSchema("Optional node type. Hybrid is reserved until runtime support is complete.", state.creatableNodeTypeEnum...),
 			"assigned_to": StringSchema("Optional assignee."),
 			"depends_on":  ArraySchema(StringSchema("Dependency node key."), "Node dependency keys."),
 			"reads":       ArraySchema(StringSchema("Readable artifact or node output reference."), "Node read dependencies persisted for workflow inspection."),
@@ -95,6 +83,10 @@ func createDAGSchema() Schema {
 // createDAGRequestFromInput 将工具入参转换为服务层 DAG 创建请求。
 // 所有会被 JSON 解码静默丢弃的旧字段都在这里 fail-fast，避免坏 DAG 落库。
 func createDAGRequestFromInput(in CreateDAGInput, trustedAgentID string) (contract.CreateDAGRequest, error) {
+	return createDAGRequestFromInputWithRuntimeState(newToolRuntimeState(), in, trustedAgentID)
+}
+
+func createDAGRequestFromInputWithRuntimeState(state *toolRuntimeState, in CreateDAGInput, trustedAgentID string) (contract.CreateDAGRequest, error) {
 	agentID, err := resolveCreateDAGAgentID(in.AgentID, trustedAgentID)
 	if err != nil {
 		return contract.CreateDAGRequest{}, err
@@ -107,7 +99,7 @@ func createDAGRequestFromInput(in CreateDAGInput, trustedAgentID string) (contra
 	if err != nil {
 		return contract.CreateDAGRequest{}, err
 	}
-	nodes, err := createDAGNodesFromInput(in.Nodes)
+	nodes, err := createDAGNodesFromInputWithRuntimeState(state, in.Nodes)
 	if err != nil {
 		return contract.CreateDAGRequest{}, err
 	}
@@ -359,6 +351,10 @@ func hasNodeExecConfig(raw json.RawMessage) bool {
 // createDAGNodesFromInput 将工具节点数组映射为服务层节点请求。
 // 节点类型、配置和拓扑在这里集中校验，避免服务层接收半规范化输入。
 func createDAGNodesFromInput(nodes []CreateDAGNodeInput) ([]contract.CreateDAGNodeRequest, error) {
+	return createDAGNodesFromInputWithRuntimeState(newToolRuntimeState(), nodes)
+}
+
+func createDAGNodesFromInputWithRuntimeState(state *toolRuntimeState, nodes []CreateDAGNodeInput) ([]contract.CreateDAGNodeRequest, error) {
 	mapped := make([]contract.CreateDAGNodeRequest, 0, len(nodes))
 	for i, node := range nodes {
 		nodeKey, err := requireTrimmed(node.NodeKey, fmt.Sprintf("nodes[%d].node_key", i))
@@ -370,7 +366,7 @@ func createDAGNodesFromInput(nodes []CreateDAGNodeInput) ([]contract.CreateDAGNo
 			return nil, err
 		}
 		nodeType := createDAGNodeType(node)
-		if err := validateCreatableNodeType(fmt.Sprintf("nodes[%d].node_type", i), nodeType); err != nil {
+		if err := validateCreatableNodeTypeWithRuntimeState(state, fmt.Sprintf("nodes[%d].node_type", i), nodeType); err != nil {
 			return nil, err
 		}
 		node.NodeType = nodeType
@@ -397,15 +393,19 @@ func createDAGNodesFromInput(nodes []CreateDAGNodeInput) ([]contract.CreateDAGNo
 }
 
 // validateCreatableNodeType 拦截创建和 ops 入口尚不支持的节点类型。
-func validateCreatableNodeType(label, nodeType string) error {
-	switch strings.TrimSpace(nodeType) {
-	case "", "agent", "automation":
+func validateCreatableNodeTypeWithRuntimeState(state *toolRuntimeState, label, nodeType string) error {
+	nodeType = strings.TrimSpace(nodeType)
+	switch nodeType {
+	case "":
 		return nil
-	case "hybrid":
-		return fmt.Errorf("%s hybrid is reserved until hybrid runtime lifecycle is implemented; use agent or automation", label)
-	default:
-		return fmt.Errorf("%s %q is unsupported; allowed: agent, automation", label, strings.TrimSpace(nodeType))
 	}
+	if slices.Contains(state.creatableNodeTypeEnum, nodeType) {
+		return nil
+	}
+	if nodeType == "hybrid" {
+		return fmt.Errorf("%s hybrid is reserved until hybrid runtime lifecycle is implemented; use agent or automation", label)
+	}
+	return fmt.Errorf("%s %q is unsupported; allowed: agent, automation", label, nodeType)
 }
 
 // createDAGNodeType 推断未显式声明的 automation 节点。

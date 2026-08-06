@@ -101,8 +101,12 @@ func HandleWorkflowDiagnostics(svc workflowDiagnosticsPort) ToolHandler {
 // HandleWorkflowRecoveryAction 执行工作台允许的恢复动作。
 // 未落地的 retry 合约必须 fail-fast，避免静默重写运行时状态。
 func HandleWorkflowRecoveryAction(svc workflowRecoveryPort) ToolHandler {
+	return handleWorkflowRecoveryActionWithRuntimeState(svc, newToolRuntimeState())
+}
+
+func handleWorkflowRecoveryActionWithRuntimeState(svc workflowRecoveryPort, state *toolRuntimeState) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in WorkflowRecoveryActionInput) (any, error) {
-		action, err := requireEnum(in.Action, "action", recoveryActionEnum)
+		action, err := requireEnum(in.Action, "action", state.recoveryActionEnum)
 		if err != nil {
 			return nil, err
 		}

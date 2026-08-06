@@ -15,16 +15,6 @@ import (
 )
 
 // 下列枚举切片同时驱动 schema 和 handler 层校验。
-// 新增工具字段枚举时放在这里，避免工具描述允许的值与运行时拒绝的值不一致。
-// 命名规约：<tool>_<field>_Enum。
-var (
-	listDAGsStatusEnum   = []string{"draft", "active", "ready", "running", "archived"}
-	listRunsStatusEnum   = []string{"running", "succeeded", "failed", "cancelled"}
-	startDAGTriggerEnum  = []string{"manual", "auto", "scheduled", "external"}
-	updateNodeStatusEnum = []string{"ready", "running", "retrying", "done", "failed", "cancelled"}
-	recoveryActionEnum   = []string{"cancel_with_cleanup", "retry_failed_node"}
-)
-
 // CreateDAGInput 是 task_create_dag 的 wire 入参。
 // handler 会把它转换成服务层请求，并在创建期拦截坏拓扑、保留节点类型和缺失执行身份。
 type CreateDAGInput struct {
@@ -147,8 +137,12 @@ type taskNodeDispatcher interface {
 // HandleCreateDAG 将工具入参归一化后创建 DAG 模板。
 // agent_id 以调用作用域为准，拒绝让外部 JSON 伪造创建者身份。
 func HandleCreateDAG(svc contract.DAGCreateRuntime) ToolHandler {
+	return handleCreateDAGWithRuntimeState(svc, newToolRuntimeState())
+}
+
+func handleCreateDAGWithRuntimeState(svc contract.DAGCreateRuntime, state *toolRuntimeState) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in CreateDAGInput) (any, error) {
-		req, err := createDAGRequestFromInput(in, trustedAgentID(ctx))
+		req, err := createDAGRequestFromInputWithRuntimeState(state, in, trustedAgentID(ctx))
 		if err != nil {
 			return nil, err
 		}
@@ -221,8 +215,12 @@ func HandleGetDAG(svc contract.DAGRuntime) ToolHandler {
 // HandleListDAGs 校验列表过滤条件并返回兼容分页对象。
 // status 不允许静默透传未知值，防止工具描述和运行时结果分叉。
 func HandleListDAGs(svc contract.DAGRuntime) ToolHandler {
+	return handleListDAGsWithRuntimeState(svc, newToolRuntimeState())
+}
+
+func handleListDAGsWithRuntimeState(svc contract.DAGRuntime, state *toolRuntimeState) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in ListDAGsInput) (any, error) {
-		filter, err := listDAGsFilterFromInput(in)
+		filter, err := listDAGsFilterFromInputWithRuntimeState(state, in)
 		if err != nil {
 			return nil, err
 		}
@@ -237,8 +235,12 @@ func HandleListDAGs(svc contract.DAGRuntime) ToolHandler {
 // HandleUpdateNode 更新某次运行中的节点状态。
 // run_id 是运行时边界，done/failed 会触发后续调度或失败级联，不能当作模板状态更新。
 func HandleUpdateNode(svc taskNodeStatusUpdater) ToolHandler {
+	return handleUpdateNodeWithRuntimeState(svc, newToolRuntimeState())
+}
+
+func handleUpdateNodeWithRuntimeState(svc taskNodeStatusUpdater, state *toolRuntimeState) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in UpdateNodeInput) (any, error) {
-		req, err := updateNodeRequestFromInput(in)
+		req, err := updateNodeRequestFromInputWithRuntimeState(state, in)
 		if err != nil {
 			return nil, err
 		}
@@ -351,8 +353,12 @@ type ApplyOpsInput struct {
 // HandleListRuns 返回运行列表的包装对象。
 // list 路径没有业务哨兵错误，DAG 未命中时保持空 slice；其他错误由通用工具错误转换处理。
 func HandleListRuns(svc contract.DAGRuntime) ToolHandler {
+	return handleListRunsWithRuntimeState(svc, newToolRuntimeState())
+}
+
+func handleListRunsWithRuntimeState(svc contract.DAGRuntime, state *toolRuntimeState) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in ListRunsInput) (any, error) {
-		req, err := listRunsRequestFromInput(in)
+		req, err := listRunsRequestFromInputWithRuntimeState(state, in)
 		if err != nil {
 			return nil, err
 		}
@@ -392,9 +398,13 @@ func newListRunsOutput(runs []contract.Run, limit int) ListRunsOutput {
 
 // listDAGsFilterFromInput 把 ListDAGsInput 转换为 contract.ListDAGsFilter。
 func listDAGsFilterFromInput(in ListDAGsInput) (contract.ListDAGsFilter, error) {
+	return listDAGsFilterFromInputWithRuntimeState(newToolRuntimeState(), in)
+}
+
+func listDAGsFilterFromInputWithRuntimeState(state *toolRuntimeState, in ListDAGsInput) (contract.ListDAGsFilter, error) {
 	status := strings.TrimSpace(in.Status)
 	if status != "" {
-		validated, err := requireEnum(status, "status", listDAGsStatusEnum)
+		validated, err := requireEnum(status, "status", state.listDAGsStatusEnum)
 		if err != nil {
 			return contract.ListDAGsFilter{}, err
 		}
@@ -410,13 +420,17 @@ func listDAGsFilterFromInput(in ListDAGsInput) (contract.ListDAGsFilter, error) 
 // listRunsRequestFromInput 把 ListRunsInput 校验为服务层请求。
 // status 为空表示不过滤；非空必须命中工具枚举，和 schema 共用同一份值域。
 func listRunsRequestFromInput(in ListRunsInput) (contract.ListRunsRequest, error) {
+	return listRunsRequestFromInputWithRuntimeState(newToolRuntimeState(), in)
+}
+
+func listRunsRequestFromInputWithRuntimeState(state *toolRuntimeState, in ListRunsInput) (contract.ListRunsRequest, error) {
 	dagKey, err := resolveDAGKeyInput(in.DagKey, in.Pos)
 	if err != nil {
 		return contract.ListRunsRequest{}, err
 	}
 	status := strings.TrimSpace(in.Status)
 	if status != "" {
-		validated, err := requireEnum(status, "status", listRunsStatusEnum)
+		validated, err := requireEnum(status, "status", state.listRunsStatusEnum)
 		if err != nil {
 			return contract.ListRunsRequest{}, err
 		}
@@ -438,8 +452,12 @@ func listRunsRequestFromInput(in ListRunsInput) (contract.ListRunsRequest, error
 //   - ErrDAGAlreadyRunning → 中英双语提示。
 //   - ErrDAGNotFound → 中英双语提示 + 提示先调 task_create_dag。
 func HandleStartDAG(svc contract.DAGRuntime) ToolHandler {
+	return handleStartDAGWithRuntimeState(svc, newToolRuntimeState())
+}
+
+func handleStartDAGWithRuntimeState(svc contract.DAGRuntime, state *toolRuntimeState) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in StartDAGInput) (any, error) {
-		req, err := startDAGRequestFromInput(in)
+		req, err := startDAGRequestFromInputWithRuntimeState(state, in)
 		if err != nil {
 			return nil, err
 		}
@@ -484,13 +502,17 @@ func HandleDeleteDAG(svc contract.DAGDeleteRuntime) ToolHandler {
 // startDAGRequestFromInput 把 StartDAGInput 校验为服务层请求。
 // trigger_source 可选；非空必须命中工具枚举，idempotency_key 只裁剪空白不改写语义。
 func startDAGRequestFromInput(in StartDAGInput) (contract.StartDAGRequest, error) {
+	return startDAGRequestFromInputWithRuntimeState(newToolRuntimeState(), in)
+}
+
+func startDAGRequestFromInputWithRuntimeState(state *toolRuntimeState, in StartDAGInput) (contract.StartDAGRequest, error) {
 	dagKey, err := resolveDAGKeyInput(in.DagKey, in.Pos)
 	if err != nil {
 		return contract.StartDAGRequest{}, err
 	}
 	trigger := strings.TrimSpace(in.TriggerSource)
 	if trigger != "" {
-		validated, err := requireEnum(trigger, "trigger_source", startDAGTriggerEnum)
+		validated, err := requireEnum(trigger, "trigger_source", state.startDAGTriggerEnum)
 		if err != nil {
 			return contract.StartDAGRequest{}, err
 		}

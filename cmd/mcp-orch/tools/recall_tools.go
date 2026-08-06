@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -16,8 +15,6 @@ import (
 const promptRecallUnknownTopicHint = "see recall_catalog section for available topics"
 const promptRecallInvalidTopicHint = "use lowercase dash-separated recall topics shorter than 64 characters"
 const promptRecallAlreadyRecalledWarning = "already recalled in this thread"
-
-var recallTopicNamePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
 type promptRecallInput struct {
 	Topic string `json:"topic"`
@@ -66,26 +63,26 @@ func (t *promptRecallTracker) mark(threadID, topic string) bool {
 
 // HandlePromptRecall 注册 prompt_recall 工具，并为进程内重复 recall 提示维护记录器。
 func HandlePromptRecall(store promptRecallStore) ToolHandler {
-	return handlePromptRecall(store, newPromptRecallTracker())
+	return handlePromptRecallWithRuntimeState(store, newPromptRecallTracker(), newToolRuntimeState())
 }
 
-func handlePromptRecall(store promptRecallStore, tracker *promptRecallTracker) ToolHandler {
+func handlePromptRecallWithRuntimeState(store promptRecallStore, tracker *promptRecallTracker, state *toolRuntimeState) ToolHandler {
 	return makeHandler(store, "prompt store", func(ctx context.Context, in promptRecallInput) (promptRecallResult, error) {
-		return recallPromptSection(ctx, store, in, tracker)
+		return recallPromptSectionWithRuntimeState(ctx, store, in, tracker, state)
 	})
 }
 
-func recallToolDefinitions(store promptRecallStore) []ToolDefinition {
+func recallToolDefinitionsWithRuntimeState(store promptRecallStore, state *toolRuntimeState) []ToolDefinition {
 	return buildToolDefinitions(
 		defineTool("prompt_recall", "Recall a prompt knowledge package by topic. Use recall_catalog to discover available topics.", ObjectSchema(map[string]Schema{
 			"topic": StringSchema("知识包 topic"),
-		}, "topic"), HandlePromptRecall(store)),
+		}, "topic"), handlePromptRecallWithRuntimeState(store, newPromptRecallTracker(), state)),
 	)
 }
 
 // recallPromptSection 读取可信 cwd 下的 recall topic。
 // 未知 topic 返回工具级软错误，存储不可用或 scope 缺失则 fail-fast。
-func recallPromptSection(ctx context.Context, store promptRecallStore, input promptRecallInput, tracker *promptRecallTracker) (promptRecallResult, error) {
+func recallPromptSectionWithRuntimeState(ctx context.Context, store promptRecallStore, input promptRecallInput, tracker *promptRecallTracker, state *toolRuntimeState) (promptRecallResult, error) {
 	if err := requireDependency(store, "prompt store"); err != nil {
 		return promptRecallResult{}, err
 	}
@@ -93,7 +90,7 @@ func recallPromptSection(ctx context.Context, store promptRecallStore, input pro
 	if err != nil {
 		return promptRecallResult{}, err
 	}
-	if !validRecallTopicName(topic) {
+	if !validRecallTopicNameWithRuntimeState(state, topic) {
 		return promptRecallSoftError(topic, "invalid topic", promptRecallInvalidTopicHint), nil
 	}
 	cwd, err := promptRecallTrustedCWD(ctx)
@@ -176,5 +173,9 @@ func promptRecallThreadID(ctx context.Context) string {
 }
 
 func validRecallTopicName(topic string) bool {
-	return len(topic) < 64 && recallTopicNamePattern.MatchString(topic)
+	return validRecallTopicNameWithRuntimeState(newToolRuntimeState(), topic)
+}
+
+func validRecallTopicNameWithRuntimeState(state *toolRuntimeState, topic string) bool {
+	return len(topic) < 64 && state.recallTopicNamePattern.MatchString(topic)
 }

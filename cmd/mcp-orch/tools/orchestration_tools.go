@@ -23,8 +23,6 @@ type agentIDRegistry struct {
 	reservations map[string]struct{}
 }
 
-var agentIDReg = &agentIDRegistry{}
-
 // LaunchAgentInput 是 launch_agent MCP 工具的入参结构体。
 type LaunchAgentInput struct {
 	AgentID            string `json:"agent_id,omitempty"`
@@ -123,14 +121,6 @@ type agentArchiver interface {
 	ArchiveAgent(context.Context, string) (orch.ArchiveOutcome, error)
 }
 
-// 下列包级 enum 切片是 schema 与 handler 层 requireEnum 的单一真源。
-// 修改 schema 字面量时必须同步切片，反之亦然。
-// memory_scope 仍走独立校验函数，避免把语义范围和 launch provider/context 枚举混在一起。
-var (
-	launchAgentProviderEnum    = []string{"codex", "claude"}
-	launchAgentContextModeEnum = []string{launchContextModeMinimal, launchContextModeFocused, launchContextModeForked}
-)
-
 const (
 	launchContextModeMinimal = "minimal"
 	launchContextModeFocused = "focused"
@@ -150,14 +140,18 @@ func defaultLaunchAgentDisabledTools() ([]string, error) {
 
 // HandleLaunchAgent 注册 launch_agent 工具处理器，默认使用当前可执行文件重启子进程。
 func HandleLaunchAgent(svc contract.AgentLaunchPort) ToolHandler {
-	return handleLaunchAgentWithExeFn(svc, os.Executable)
+	return handleLaunchAgentWithExeFnAndRuntimeState(svc, os.Executable, newToolRuntimeState())
 }
 
 // handleLaunchAgentWithExeFn 构造启动请求并处理同步快照启动或异步后台启动。
 // agent_id 预留必须覆盖整个启动窗口，防止并发请求同时启动同一逻辑 agent。
 func handleLaunchAgentWithExeFn(svc contract.AgentLaunchPort, exeFn func() (string, error)) ToolHandler {
+	return handleLaunchAgentWithExeFnAndRuntimeState(svc, exeFn, newToolRuntimeState())
+}
+
+func handleLaunchAgentWithExeFnAndRuntimeState(svc contract.AgentLaunchPort, exeFn func() (string, error), state *toolRuntimeState) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in LaunchAgentInput) (map[string]any, error) {
-		req, err := launchRequestForHandler(ctx, svc, in, exeFn)
+		req, err := launchRequestForHandlerWithRuntimeState(ctx, svc, in, exeFn, state)
 		if err != nil {
 			return nil, err
 		}
@@ -179,7 +173,7 @@ func handleLaunchAgentWithExeFn(svc contract.AgentLaunchPort, exeFn func() (stri
 			result["status"] = "existing"
 			return successResult(result), nil
 		}
-		agentID, releaseAgentID, reserved, err := reserveLaunchAgentID(ctx, svc, req.AgentID)
+		agentID, releaseAgentID, reserved, err := reserveLaunchAgentIDWithRuntimeState(state, ctx, svc, req.AgentID)
 		if err != nil {
 			return nil, err
 		}
@@ -212,7 +206,7 @@ func handleLaunchAgentWithExeFn(svc contract.AgentLaunchPort, exeFn func() (stri
 
 // launchRequestForHandler 先做调用者深度校验，再把 handler 输入转成启动请求。
 // 深度校验必须在 reserve/launch 前发生，避免子 agent 通过旧名或短名进入后续流程。
-func launchRequestForHandler(ctx context.Context, svc contract.AgentLaunchPort, in LaunchAgentInput, exeFn func() (string, error)) (contract.LaunchRequest, error) {
+func launchRequestForHandlerWithRuntimeState(ctx context.Context, svc contract.AgentLaunchPort, in LaunchAgentInput, exeFn func() (string, error), state *toolRuntimeState) (contract.LaunchRequest, error) {
 	if err := rejectChildAgentDelegation(ctx, svc); err != nil {
 		return contract.LaunchRequest{}, err
 	}
@@ -220,7 +214,7 @@ func launchRequestForHandler(ctx context.Context, svc contract.AgentLaunchPort, 
 	if err != nil {
 		return contract.LaunchRequest{}, err
 	}
-	return launchRequestFromExecutable(in, exe)
+	return launchRequestFromExecutableWithRuntimeState(state, in, exe)
 }
 
 // rejectChildAgentDelegation 用可信工具作用域判断调用者深度。
@@ -315,37 +309,37 @@ func launchAgentAcceptedResult(snapshot contract.AgentSnapshot, reservedID strin
 
 // reserveLaunchAgentID 在进程内登记启动中的 agent id，并返回释放函数。
 // 这个锁只覆盖本进程并发；已有运行态 ID 仍以 orchestration service 快照为准。
-func reserveLaunchAgentID(ctx context.Context, svc contract.AgentLaunchPort, requested string) (string, func(), bool, error) {
+func reserveLaunchAgentIDWithRuntimeState(state *toolRuntimeState, ctx context.Context, svc contract.AgentLaunchPort, requested string) (string, func(), bool, error) {
 	existing, activeExisting, err := existingLaunchAgentIDs(ctx, svc)
 	if err != nil {
 		return "", nil, false, err
 	}
-	agentIDReg.mu.Lock()
-	defer agentIDReg.mu.Unlock()
-	if agentIDReg.reservations == nil {
-		agentIDReg.reservations = make(map[string]struct{})
+	state.agentIDReg.mu.Lock()
+	defer state.agentIDReg.mu.Unlock()
+	if state.agentIDReg.reservations == nil {
+		state.agentIDReg.reservations = make(map[string]struct{})
 	}
 	candidate := strings.TrimSpace(requested)
 	if candidate != "" {
-		if _, ok := agentIDReg.reservations[candidate]; ok {
+		if _, ok := state.agentIDReg.reservations[candidate]; ok {
 			return candidate, func() {}, false, nil
 		}
 		if _, ok := activeExisting[candidate]; ok {
 			return candidate, func() {}, false, nil
 		}
-		agentIDReg.reservations[candidate] = struct{}{}
-		return candidate, releaseLaunchAgentID(candidate), true, nil
+		state.agentIDReg.reservations[candidate] = struct{}{}
+		return candidate, releaseLaunchAgentIDWithRuntimeState(state, candidate), true, nil
 	}
 	candidate = shared.NewAgentID()
 	for range 64 {
-		if !launchAgentIDInUseLocked(candidate, existing) {
-			agentIDReg.reservations[candidate] = struct{}{}
-			return candidate, releaseLaunchAgentID(candidate), true, nil
+		if !launchAgentIDInUseLockedWithRuntimeState(state, candidate, existing) {
+			state.agentIDReg.reservations[candidate] = struct{}{}
+			return candidate, releaseLaunchAgentIDWithRuntimeState(state, candidate), true, nil
 		}
 		candidate = shared.NewAgentID()
 	}
-	agentIDReg.reservations[candidate] = struct{}{}
-	return candidate, releaseLaunchAgentID(candidate), true, nil
+	state.agentIDReg.reservations[candidate] = struct{}{}
+	return candidate, releaseLaunchAgentIDWithRuntimeState(state, candidate), true, nil
 }
 
 // existingLaunchAgentIDs 汇总 runtime id、agent_id 和 launch_id，供新启动避开冲突。
@@ -381,7 +375,7 @@ func existingLaunchAgentIDs(ctx context.Context, svc contract.AgentLaunchPort) (
 }
 
 // launchAgentIDInUseLocked 在持有锁时检查 agentID 是否已被占用或预留。
-func launchAgentIDInUseLocked(agentID string, existing map[string]struct{}) bool {
+func launchAgentIDInUseLockedWithRuntimeState(state *toolRuntimeState, agentID string, existing map[string]struct{}) bool {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
 		return true
@@ -389,16 +383,16 @@ func launchAgentIDInUseLocked(agentID string, existing map[string]struct{}) bool
 	if _, ok := existing[agentID]; ok {
 		return true
 	}
-	_, ok := agentIDReg.reservations[agentID]
+	_, ok := state.agentIDReg.reservations[agentID]
 	return ok
 }
 
 // releaseLaunchAgentID 返回释放 agentID 预留的闭包函数。
-func releaseLaunchAgentID(agentID string) func() {
+func releaseLaunchAgentIDWithRuntimeState(state *toolRuntimeState, agentID string) func() {
 	return func() {
-		agentIDReg.mu.Lock()
-		delete(agentIDReg.reservations, strings.TrimSpace(agentID))
-		agentIDReg.mu.Unlock()
+		state.agentIDReg.mu.Lock()
+		delete(state.agentIDReg.reservations, strings.TrimSpace(agentID))
+		state.agentIDReg.mu.Unlock()
 	}
 }
 
@@ -543,6 +537,10 @@ func hydrateListAgentReports(ctx context.Context, reports agentListReportReader,
 // launchRequestFromExecutable 把工具入参转换成服务层 LaunchRequest。
 // Command 只保留当前可执行文件路径；远端 launcher 会通过 Env 读取 provider/model 等运行配置。
 func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.LaunchRequest, error) {
+	return launchRequestFromExecutableWithRuntimeState(newToolRuntimeState(), in, exe)
+}
+
+func launchRequestFromExecutableWithRuntimeState(state *toolRuntimeState, in LaunchAgentInput, exe string) (contract.LaunchRequest, error) {
 	name, err := requireTrimmed(in.Name, "name")
 	if err != nil {
 		return contract.LaunchRequest{}, err
@@ -551,7 +549,7 @@ func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.Laun
 	if agentID == "" {
 		agentID = shared.NewAgentID()
 	}
-	provider, err := validateLaunchProvider(in.Provider)
+	provider, err := validateLaunchProviderWithRuntimeState(state, in.Provider)
 	if err != nil {
 		return contract.LaunchRequest{}, err
 	}
@@ -696,13 +694,17 @@ func normalizedLaunchContextMode(raw string) string {
 
 // validateLaunchProvider 校验并规范化 provider 字段，空值默认为 codex。
 func validateLaunchProvider(raw string) (string, error) {
+	return validateLaunchProviderWithRuntimeState(newToolRuntimeState(), raw)
+}
+
+func validateLaunchProviderWithRuntimeState(state *toolRuntimeState, raw string) (string, error) {
 	// provider 可选；空串/纯空白 → codex。
 	// 非空时走 requireEnum 与 launchAgentProviderEnum 校验（单源驱动）。
 	lower := strings.ToLower(strings.TrimSpace(raw))
 	if lower == "" {
 		return "codex", nil
 	}
-	return requireEnum(lower, "provider", launchAgentProviderEnum)
+	return requireEnum(lower, "provider", state.launchAgentProviderEnum)
 }
 
 // rejectUnsupportedClaudeChildLaunch 阻断第一版暂不支持的 Claude 子 agent 编排。

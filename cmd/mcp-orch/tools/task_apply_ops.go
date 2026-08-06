@@ -10,15 +10,15 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
-// applyOpsActionEnum 是扁平 action 入口允许的操作集合。
-// schema 和 handler 共用这份枚举，避免工具描述允许但运行时拒绝的漂移。
-var applyOpsActionEnum = []string{"update_dag", "add_node", "update_node", "remove_node", "apply_ops_raw"}
-
 // HandleApplyOps 处理 DAG 模板 ops 写入工具调用。
 // 输入会先统一转成 ApplyOpsRequest，raw ops 与扁平 action 混用时立即报错。
 func HandleApplyOps(svc contract.DAGRuntime) ToolHandler {
+	return handleApplyOpsWithRuntimeState(svc, newToolRuntimeState())
+}
+
+func handleApplyOpsWithRuntimeState(svc contract.DAGRuntime, state *toolRuntimeState) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in ApplyOpsInput) (any, error) {
-		req, err := applyOpsRequestFromInput(in)
+		req, err := applyOpsRequestFromInputWithRuntimeState(state, in)
 		if err != nil {
 			return nil, err
 		}
@@ -32,11 +32,15 @@ func HandleApplyOps(svc contract.DAGRuntime) ToolHandler {
 // applyOpsRequestFromInput 解析 DAG 定位符并构造服务层写入请求。
 // base_version 原样透传给服务层做 OCC，避免 handler 自行判断并发版本。
 func applyOpsRequestFromInput(in ApplyOpsInput) (contract.ApplyOpsRequest, error) {
+	return applyOpsRequestFromInputWithRuntimeState(newToolRuntimeState(), in)
+}
+
+func applyOpsRequestFromInputWithRuntimeState(state *toolRuntimeState, in ApplyOpsInput) (contract.ApplyOpsRequest, error) {
 	dagKey, err := resolveDAGKeyInput(in.DagKey, in.Pos)
 	if err != nil {
 		return contract.ApplyOpsRequest{}, err
 	}
-	ops, err := applyOpsPayloadFromInput(in)
+	ops, err := applyOpsPayloadFromInputWithRuntimeState(state, in)
 	if err != nil {
 		return contract.ApplyOpsRequest{}, err
 	}
@@ -49,22 +53,22 @@ func applyOpsRequestFromInput(in ApplyOpsInput) (contract.ApplyOpsRequest, error
 
 // applyOpsPayloadFromInput 将 raw ops 或扁平 action 统一编码为 nodeexec.Ops JSON。
 // raw ops 与扁平字段不能同时出现，防止调用方以为局部字段会覆盖 raw payload。
-func applyOpsPayloadFromInput(in ApplyOpsInput) (json.RawMessage, error) {
+func applyOpsPayloadFromInputWithRuntimeState(state *toolRuntimeState, in ApplyOpsInput) (json.RawMessage, error) {
 	action := strings.TrimSpace(in.Action)
 	if action == "" {
 		if !hasExplicitRawJSON(in.Ops) {
 			return nil, fmt.Errorf("ops is required when action is omitted")
 		}
-		return validatedApplyOpsPayload(append(json.RawMessage(nil), in.Ops...))
+		return validatedApplyOpsPayloadWithRuntimeState(state, append(json.RawMessage(nil), in.Ops...))
 	}
-	if _, err := requireEnum(action, "action", applyOpsActionEnum); err != nil {
+	if _, err := requireEnum(action, "action", state.applyOpsActionEnum); err != nil {
 		return nil, err
 	}
 	if action == "apply_ops_raw" {
 		if !hasExplicitRawJSON(in.Ops) {
 			return nil, fmt.Errorf("ops is required when action=apply_ops_raw")
 		}
-		return validatedApplyOpsPayload(append(json.RawMessage(nil), in.Ops...))
+		return validatedApplyOpsPayloadWithRuntimeState(state, append(json.RawMessage(nil), in.Ops...))
 	}
 	if hasExplicitRawJSON(in.Ops) {
 		return nil, fmt.Errorf("ops cannot be combined with flat action %q", action)
@@ -77,13 +81,13 @@ func applyOpsPayloadFromInput(in ApplyOpsInput) (json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}
-	return validatedApplyOpsPayload(raw)
+	return validatedApplyOpsPayloadWithRuntimeState(state, raw)
 }
 
 // validatedApplyOpsPayload 校验即将落库的 ops payload。
 // 当前重点拦截保留能力，后续新增校验应放在这里保持所有入口一致。
-func validatedApplyOpsPayload(raw json.RawMessage) (json.RawMessage, error) {
-	if err := rejectReservedApplyOpsCapabilities(raw); err != nil {
+func validatedApplyOpsPayloadWithRuntimeState(state *toolRuntimeState, raw json.RawMessage) (json.RawMessage, error) {
+	if err := rejectReservedApplyOpsCapabilitiesWithRuntimeState(state, raw); err != nil {
 		return nil, err
 	}
 	return raw, nil
@@ -91,7 +95,7 @@ func validatedApplyOpsPayload(raw json.RawMessage) (json.RawMessage, error) {
 
 // rejectReservedApplyOpsCapabilities 拒绝尚未闭环运行时能力的节点类型。
 // 这里直接解码 typed ops，确保 raw 批量入口也不能绕过 create/update 的限制。
-func rejectReservedApplyOpsCapabilities(raw json.RawMessage) error {
+func rejectReservedApplyOpsCapabilitiesWithRuntimeState(state *toolRuntimeState, raw json.RawMessage) error {
 	var ops nodeexec.Ops
 	if err := json.Unmarshal(raw, &ops); err != nil {
 		return err
@@ -101,7 +105,7 @@ func rejectReservedApplyOpsCapabilities(raw json.RawMessage) error {
 		if !ok {
 			continue
 		}
-		if err := validateCreatableNodeType(fmt.Sprintf("ops[%d].node.node_type", i), add.Node.NodeType); err != nil {
+		if err := validateCreatableNodeTypeWithRuntimeState(state, fmt.Sprintf("ops[%d].node.node_type", i), add.Node.NodeType); err != nil {
 			return err
 		}
 	}

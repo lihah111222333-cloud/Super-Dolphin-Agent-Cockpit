@@ -10,14 +10,23 @@ import (
 )
 
 // TestEnumValidation_SchemaHandlerSingleSource 验证 schema 与 handler 共用
-// 同一份 enum 切片（修改一边不会忘改另一边）。
+// 同一份 Registry runtime state（修改一边不会忘改另一边）。
 //
 // TestEnumValidation_SchemaHandlerSingleSource asserts that the schema and
-// handler share the same enum slice (defined as a package-level variable),
+// handler share the same enum slice (owned by the Registry runtime state),
 // so changes cannot drift between layers.
 func TestEnumValidation_SchemaHandlerSingleSource(t *testing.T) {
-	// 通过 schema 反取 enum，应与包级变量逐元素相等。
-	// Read the enum back from schemas and compare with the package-level slice.
+	registry := NewRegistry(Dependencies{})
+	if registry.initErr != nil {
+		t.Fatalf("NewRegistry() initErr = %v", registry.initErr)
+	}
+	state := registry.runtimeState
+	if state == nil {
+		t.Fatal("NewRegistry() must initialize runtime state")
+	}
+	definitions := registry.tools
+	// 通过 schema 反取 enum，应与同一 Registry 状态逐元素相等。
+	// Read the enum back from schemas and compare with the Registry-owned slice.
 	cases := []struct {
 		name       string
 		fromSchema []string
@@ -25,37 +34,36 @@ func TestEnumValidation_SchemaHandlerSingleSource(t *testing.T) {
 	}{
 		{
 			name:       "task_list_dags.status",
-			fromSchema: enumValuesFromToolSchema(t, taskToolDefinitions(ToolPorts{}), "task_list_dags", "status"),
-			fromVar:    listDAGsStatusEnum,
+			fromSchema: enumValuesFromToolSchema(t, definitions, "task_list_dags", "status"),
+			fromVar:    state.listDAGsStatusEnum,
 		},
 		{
 			name:       "task_list_runs.status",
-			fromSchema: enumValuesFromToolSchema(t, taskToolDefinitions(ToolPorts{}), "task_list_runs", "status"),
-			fromVar:    listRunsStatusEnum,
+			fromSchema: enumValuesFromToolSchema(t, definitions, "task_list_runs", "status"),
+			fromVar:    state.listRunsStatusEnum,
 		},
 		{
 			name:       "task_start_dag.trigger_source",
-			fromSchema: enumValuesFromToolSchema(t, taskToolDefinitions(ToolPorts{}), "task_start_dag", "trigger_source"),
-			fromVar:    startDAGTriggerEnum,
+			fromSchema: enumValuesFromToolSchema(t, definitions, "task_start_dag", "trigger_source"),
+			fromVar:    state.startDAGTriggerEnum,
 		},
 		{
 			name:       "task_update_node.status",
-			fromSchema: enumValuesFromToolSchema(t, taskToolDefinitions(ToolPorts{}), "task_update_node", "status"),
-			fromVar:    updateNodeStatusEnum,
+			fromSchema: enumValuesFromToolSchema(t, definitions, "task_update_node", "status"),
+			fromVar:    state.updateNodeStatusEnum,
 		},
 		{
 			name:       "task_workflow_recovery_action.action",
-			fromSchema: enumValuesFromToolSchema(t, taskToolDefinitions(ToolPorts{}), "task_workflow_recovery_action", "action"),
-			fromVar:    recoveryActionEnum,
+			fromSchema: enumValuesFromToolSchema(t, definitions, "task_workflow_recovery_action", "action"),
+			fromVar:    state.recoveryActionEnum,
 		},
 		{
 			name:       "launch_agent.provider",
-			fromSchema: enumValuesFromToolSchema(t, orchestrationToolDefinitions(ToolPorts{}), "launch_agent", "provider"),
-			fromVar:    launchAgentProviderEnum,
+			fromSchema: enumValuesFromToolSchema(t, definitions, "launch_agent", "provider"),
+			fromVar:    state.launchAgentProviderEnum,
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			if len(tc.fromSchema) != len(tc.fromVar) {
 				t.Fatalf("len mismatch: schema=%d var=%d", len(tc.fromSchema), len(tc.fromVar))
@@ -66,6 +74,21 @@ func TestEnumValidation_SchemaHandlerSingleSource(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestNewRegistryOwnsIndependentRuntimeState(t *testing.T) {
+	first := NewRegistry(Dependencies{})
+	second := NewRegistry(Dependencies{})
+	if first.runtimeState == nil || second.runtimeState == nil {
+		t.Fatal("NewRegistry() must initialize its runtime state")
+	}
+	if first.runtimeState == second.runtimeState {
+		t.Fatal("NewRegistry() must not share runtime state between registries")
+	}
+	first.runtimeState.agentIDReg.reservations = map[string]struct{}{"agent-a": {}}
+	if len(second.runtimeState.agentIDReg.reservations) != 0 {
+		t.Fatal("registry runtime state leaked launch ID reservation to another registry")
 	}
 }
 
@@ -120,7 +143,6 @@ func TestListRunsRequestFromInput(t *testing.T) {
 		{name: "invalid-status", in: ListRunsInput{DagKey: "dag-1", Status: "bogus"}, wantErr: "status"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			req, err := listRunsRequestFromInput(tc.in)
 			if tc.wantErr != "" {
@@ -152,7 +174,6 @@ func TestListDAGsRequestFromInput(t *testing.T) {
 		{name: "invalid-status", in: ListDAGsInput{Status: "bogus"}, wantErr: "status"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			req, err := listDAGsFilterFromInput(tc.in)
 			if tc.wantErr != "" {
@@ -187,7 +208,6 @@ func TestStartDAGRequestFromInput(t *testing.T) {
 		{name: "invalid", in: StartDAGInput{DagKey: "dag-1", TriggerSource: "cron"}, wantErr: "trigger_source"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			req, err := startDAGRequestFromInput(tc.in)
 			if tc.wantErr != "" {
@@ -246,7 +266,6 @@ func TestUpdateNodeRequestFromInput_EnumValidation(t *testing.T) {
 		{name: "invalid", in: UpdateNodeInput{DagKey: "dag-1", NodeKey: "n", RunID: 7, Status: "skipped"}, wantErr: "status"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			req, err := updateNodeRequestFromInput(tc.in)
 			if tc.wantErr != "" {
@@ -294,7 +313,6 @@ func TestApplyOpsRequestFromInputRejectsHybridAddNode(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := applyOpsRequestFromInput(tc.in)
 			if err == nil {
@@ -328,7 +346,6 @@ func TestValidateLaunchProvider_EnumValidation(t *testing.T) {
 		{name: "invalid", raw: "openai", wantErr: "provider"},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := validateLaunchProvider(tc.raw)
 			if tc.wantErr != "" {

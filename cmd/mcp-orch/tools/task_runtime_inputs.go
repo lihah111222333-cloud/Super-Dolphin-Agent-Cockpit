@@ -9,6 +9,10 @@ import (
 // pos 可以补 dag/node/run，但最终必须有明确 run_id。
 // 没有 run_id 就拒绝，避免把 task_update_node 写到模板节点上。
 func updateNodeRequestFromInput(in UpdateNodeInput) (contract.UpdateNodeStatusRequest, error) {
+	return updateNodeRequestFromInputWithRuntimeState(newToolRuntimeState(), in)
+}
+
+func updateNodeRequestFromInputWithRuntimeState(state *toolRuntimeState, in UpdateNodeInput) (contract.UpdateNodeStatusRequest, error) {
 	dagKey, err := resolveDAGKeyInput(in.DagKey, in.Pos)
 	if err != nil {
 		return contract.UpdateNodeStatusRequest{}, err
@@ -21,7 +25,7 @@ func updateNodeRequestFromInput(in UpdateNodeInput) (contract.UpdateNodeStatusRe
 	if err != nil {
 		return contract.UpdateNodeStatusRequest{}, err
 	}
-	status, err := requireEnum(in.Status, "status", updateNodeStatusEnum)
+	status, err := requireEnum(in.Status, "status", state.updateNodeStatusEnum)
 	if err != nil {
 		return contract.UpdateNodeStatusRequest{}, err
 	}

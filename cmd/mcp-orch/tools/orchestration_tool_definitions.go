@@ -1,16 +1,24 @@
 package tools
 
-import "github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+import (
+	"os"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+)
 
 // orchestrationToolDefinitions 注册编排工具的 wire schema 和 handler。
 // schema 文案需要和 handler 层校验保持一致，避免模型看到的可用字段与运行时不一致。
 func orchestrationToolDefinitions(ports ToolPorts) []ToolDefinition {
+	return orchestrationToolDefinitionsWithRuntimeState(ports, newToolRuntimeState())
+}
+
+func orchestrationToolDefinitionsWithRuntimeState(ports ToolPorts, state *toolRuntimeState) []ToolDefinition {
 	return buildToolDefinitions(
 		defineTool("launch_agent", "Launch a managed orchestration agent.", ObjectSchema(map[string]Schema{
 			"agent_id":     StringSchema("Stable persisted orchestration agent ID for this subtask. Reuse the same agent_id when polling or retrying the same subtask; omit only when intentionally launching a separate parallel agent. An active duplicate agent_id returns the existing agent instead of launching another."),
 			"name":         StringSchema("User-facing agent name. Prefer a short friendly name tied to the task; avoid paths, IDs, and generic labels like worker-agent."),
 			"prompt":       StringSchema("Optional initial prompt to submit as the launched agent's first turn."),
-			"context_mode": EnumStringSchema("Optional context mode for the first turn. Defaults to minimal. Use minimal for prompt-only launches; use focused only when the single context field carries caller-selected context; use forked to fork the parent provider thread. Do not copy the parent conversation history unless using forked.", launchAgentContextModeEnum...),
+			"context_mode": EnumStringSchema("Optional context mode for the first turn. Defaults to minimal. Use minimal for prompt-only launches; use focused only when the single context field carries caller-selected context; use forked to fork the parent provider thread. Do not copy the parent conversation history unless using forked.", state.launchAgentContextModeEnum...),
 			"context":      StringSchema("Optional focused-mode context selected by the parent agent. Required when context_mode is focused; rejected when context_mode is minimal or forked. Suggested focused context: background, confirmed decisions, relevant file paths, forbidden actions, return format, and known risks. Prefer file paths, function names, line numbers, and constraints. Do not paste large code blocks unless the child cannot read them directly. The child still uses the fixed Markdown report template and must not delegate again."),
 			"parent_id":    StringSchema("Optional parent agent ID for child-agent launches."),
 			"agent_type":   StringSchema("Optional stable agent identity for child-agent routing; display name is not used as a fallback."),
@@ -20,7 +28,7 @@ func orchestrationToolDefinitions(ports ToolPorts) []ToolDefinition {
 			"memory_scope": EnumStringSchema("Optional child-agent scope metadata for launches.", "project", "user", "local"),
 
 			"cwd":                  StringSchema("Optional only when parent_id resolves to an existing parent agent with cwd; otherwise required. Use an explicit absolute project or workspace path."),
-			"provider":             EnumStringSchema("Provider for the launched agent. Defaults to codex when omitted. Child-agent orchestration with parent_id currently supports codex only; claude is retained only for legacy root-launch compatibility.", launchAgentProviderEnum...),
+			"provider":             EnumStringSchema("Provider for the launched agent. Defaults to codex when omitted. Child-agent orchestration with parent_id currently supports codex only; claude is retained only for legacy root-launch compatibility.", state.launchAgentProviderEnum...),
 			"model":                StringSchema("Optional model identifier for the launched agent. For first-version child-agent orchestration, use codex-compatible models."),
 			"codex_home":           StringSchema("Optional explicit Codex home for codex launches. When any Codex identity override is supplied, codex_home, codex_instance_key, and codex_model_provider must all be supplied."),
 			"codex_instance_key":   StringSchema("Optional Codex instance key for codex launches. Use with codex_home and codex_model_provider."),
@@ -28,7 +36,7 @@ func orchestrationToolDefinitions(ports ToolPorts) []ToolDefinition {
 			"effort":               StringSchema("Optional reasoning effort for the launched agent. For first-version child-agent orchestration, use codex-compatible effort values."),
 			"language":             StringSchema("Optional language tag for the launched agent (e.g. 'zh', 'en'). Propagated to BuildCtx.Language for prompt match_when / section enable_when evaluation."),
 			"disabled_tools":       StringSchema("Optional comma-separated list of tool names to disable for the launched agent. Merged with the default deny list."),
-		}, "name"), HandleLaunchAgent(ports.AgentLaunch)),
+		}, "name"), handleLaunchAgentWithExeFnAndRuntimeState(ports.AgentLaunch, os.Executable, state)),
 		defineTool("send_message", "Submit a text turn to an existing orchestration agent.", ObjectSchema(map[string]Schema{
 			"pos":         StringSchema("Flattened agent locator, e.g. agent:<agent_id>. Preferred over legacy agent_id."),
 			"agent_id":    StringSchema("Target orchestration agent ID."),
