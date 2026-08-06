@@ -32,53 +32,56 @@ type typedEventPublisher func(*event.Dispatcher, any) bool
 // 翻译器通过 publish 回调输出事件，便于一个 raw event 派生多个投影。
 type EventTranslator func(raw dto.RawProviderEvent, publish func(ev any))
 
-// typedEventPublishers 保存内部事件类型到发布函数的映射，未知类型必须显式拒绝。
-var typedEventPublishers = map[reflect.Type]typedEventPublisher{
-	typedEventType[agentdto.StateChanged]():         publishEvent[agentdto.StateChanged],
-	typedEventType[agentdto.AgentLaunched]():        publishEvent[agentdto.AgentLaunched],
-	typedEventType[agentdto.AgentStopped]():         publishEvent[agentdto.AgentStopped],
-	typedEventType[agentdto.AgentRecovering]():      publishEvent[agentdto.AgentRecovering],
-	typedEventType[agentdto.AgentFailed]():          publishEvent[agentdto.AgentFailed],
-	typedEventType[agentdto.AgentRuntimeReported](): publishEvent[agentdto.AgentRuntimeReported],
-	typedEventType[agentdto.AgentWarning]():         publishEvent[agentdto.AgentWarning],
-	typedEventType[agentdto.AgentError]():           publishEvent[agentdto.AgentError],
-	typedEventType[dto.RawProviderEvent]():          publishEvent[dto.RawProviderEvent],
-	typedEventType[dto.BusRawProviderEvent]():       publishEvent[dto.BusRawProviderEvent],
-	typedEventType[taskdto.TaskNodeStatusChanged](): publishEvent[taskdto.TaskNodeStatusChanged],
-	typedEventType[threaddto.Started]():             publishEvent[threaddto.Started],
-	typedEventType[threaddto.Stopped]():             publishEvent[threaddto.Stopped],
-	typedEventType[threaddto.MessagesPage]():        publishEvent[threaddto.MessagesPage],
-	typedEventType[threaddto.Compacted]():           publishEvent[threaddto.Compacted],
-	typedEventType[tooldto.ToolCallBegin]():         publishEvent[tooldto.ToolCallBegin],
-	typedEventType[tooldto.ToolCallEnd]():           publishEvent[tooldto.ToolCallEnd],
-	typedEventType[tooldto.ToolApprovalRequested](): publishEvent[tooldto.ToolApprovalRequested],
-	typedEventType[tooldto.ToolApprovalResolved]():  publishEvent[tooldto.ToolApprovalResolved],
-	typedEventType[tooldto.ToolDiffUpdated]():       publishEvent[tooldto.ToolDiffUpdated],
-	typedEventType[turndto.TurnStarted]():           publishEvent[turndto.TurnStarted],
-	typedEventType[turndto.TurnCompleted]():         publishEvent[turndto.TurnCompleted],
-	typedEventType[turndto.TurnInterrupted]():       publishEvent[turndto.TurnInterrupted],
-	typedEventType[turndto.TurnStalled]():           publishEvent[turndto.TurnStalled],
-	typedEventType[turndto.TurnResumed]():           publishEvent[turndto.TurnResumed],
-	typedEventType[turndto.TurnInputReceived]():     publishEvent[turndto.TurnInputReceived],
-	typedEventType[turndto.TurnOutputDelta]():       publishEvent[turndto.TurnOutputDelta],
-	typedEventType[turndto.PlanDelta]():             publishEvent[turndto.PlanDelta],
-	typedEventType[turndto.PlanUpdated]():           publishEvent[turndto.PlanUpdated],
-	typedEventType[turndto.ItemStarted]():           publishEvent[turndto.ItemStarted],
-	typedEventType[turndto.ItemCompleted]():         publishEvent[turndto.ItemCompleted],
-	typedEventType[uidto.UIProjectionUpdated]():     publishEvent[uidto.UIProjectionUpdated],
-	typedEventType[uidto.UITimelineAppended]():      publishEvent[uidto.UITimelineAppended],
-	typedEventType[uidto.UITokensUpdated]():         publishEvent[uidto.UITokensUpdated],
-	typedEventType[uidto.SkillsChanged]():           publishEvent[uidto.SkillsChanged],
-	typedEventType[uidto.UIThreadPatch]():           publishEvent[uidto.UIThreadPatch],
-	typedEventType[uidto.UIPreferencesChanged]():    publishEvent[uidto.UIPreferencesChanged],
-	typedEventType[uidto.UISharedFilesChanged]():    publishEvent[uidto.UISharedFilesChanged],
-	typedEventType[uidto.UIMemoryChanged]():         publishEvent[uidto.UIMemoryChanged],
+// newTypedEventPublishers 创建单个 dispatcher 的内部事件类型发布表，未知类型必须显式拒绝。
+func newTypedEventPublishers() map[reflect.Type]typedEventPublisher {
+	return map[reflect.Type]typedEventPublisher{
+		typedEventType[agentdto.StateChanged]():         publishEvent[agentdto.StateChanged],
+		typedEventType[agentdto.AgentLaunched]():        publishEvent[agentdto.AgentLaunched],
+		typedEventType[agentdto.AgentStopped]():         publishEvent[agentdto.AgentStopped],
+		typedEventType[agentdto.AgentRecovering]():      publishEvent[agentdto.AgentRecovering],
+		typedEventType[agentdto.AgentFailed]():          publishEvent[agentdto.AgentFailed],
+		typedEventType[agentdto.AgentRuntimeReported](): publishEvent[agentdto.AgentRuntimeReported],
+		typedEventType[agentdto.AgentWarning]():         publishEvent[agentdto.AgentWarning],
+		typedEventType[agentdto.AgentError]():           publishEvent[agentdto.AgentError],
+		typedEventType[dto.RawProviderEvent]():          publishEvent[dto.RawProviderEvent],
+		typedEventType[dto.BusRawProviderEvent]():       publishEvent[dto.BusRawProviderEvent],
+		typedEventType[taskdto.TaskNodeStatusChanged](): publishEvent[taskdto.TaskNodeStatusChanged],
+		typedEventType[threaddto.Started]():             publishEvent[threaddto.Started],
+		typedEventType[threaddto.Stopped]():             publishEvent[threaddto.Stopped],
+		typedEventType[threaddto.MessagesPage]():        publishEvent[threaddto.MessagesPage],
+		typedEventType[threaddto.Compacted]():           publishEvent[threaddto.Compacted],
+		typedEventType[tooldto.ToolCallBegin]():         publishEvent[tooldto.ToolCallBegin],
+		typedEventType[tooldto.ToolCallEnd]():           publishEvent[tooldto.ToolCallEnd],
+		typedEventType[tooldto.ToolApprovalRequested](): publishEvent[tooldto.ToolApprovalRequested],
+		typedEventType[tooldto.ToolApprovalResolved]():  publishEvent[tooldto.ToolApprovalResolved],
+		typedEventType[tooldto.ToolDiffUpdated]():       publishEvent[tooldto.ToolDiffUpdated],
+		typedEventType[turndto.TurnStarted]():           publishEvent[turndto.TurnStarted],
+		typedEventType[turndto.TurnCompleted]():         publishEvent[turndto.TurnCompleted],
+		typedEventType[turndto.TurnInterrupted]():       publishEvent[turndto.TurnInterrupted],
+		typedEventType[turndto.TurnStalled]():           publishEvent[turndto.TurnStalled],
+		typedEventType[turndto.TurnResumed]():           publishEvent[turndto.TurnResumed],
+		typedEventType[turndto.TurnInputReceived]():     publishEvent[turndto.TurnInputReceived],
+		typedEventType[turndto.TurnOutputDelta]():       publishEvent[turndto.TurnOutputDelta],
+		typedEventType[turndto.PlanDelta]():             publishEvent[turndto.PlanDelta],
+		typedEventType[turndto.PlanUpdated]():           publishEvent[turndto.PlanUpdated],
+		typedEventType[turndto.ItemStarted]():           publishEvent[turndto.ItemStarted],
+		typedEventType[turndto.ItemCompleted]():         publishEvent[turndto.ItemCompleted],
+		typedEventType[uidto.UIProjectionUpdated]():     publishEvent[uidto.UIProjectionUpdated],
+		typedEventType[uidto.UITimelineAppended]():      publishEvent[uidto.UITimelineAppended],
+		typedEventType[uidto.UITokensUpdated]():         publishEvent[uidto.UITokensUpdated],
+		typedEventType[uidto.SkillsChanged]():           publishEvent[uidto.SkillsChanged],
+		typedEventType[uidto.UIThreadPatch]():           publishEvent[uidto.UIThreadPatch],
+		typedEventType[uidto.UIPreferencesChanged]():    publishEvent[uidto.UIPreferencesChanged],
+		typedEventType[uidto.UISharedFilesChanged]():    publishEvent[uidto.UISharedFilesChanged],
+		typedEventType[uidto.UIMemoryChanged]():         publishEvent[uidto.UIMemoryChanged],
+	}
 }
 
 // EventDispatcher 接收 provider 原始事件，并按注册的 translator 重新发布为内部强类型事件。
 type EventDispatcher struct {
 	mu          sync.RWMutex
 	translators []EventTranslator
+	publishers  map[reflect.Type]typedEventPublisher
 	bus         *event.Dispatcher
 	logger      *slog.Logger
 }
@@ -90,6 +93,7 @@ func NewEventDispatcher(bus *event.Dispatcher, logger *slog.Logger) *EventDispat
 	}
 	return &EventDispatcher{
 		translators: []EventTranslator{translateCommonRawEvent},
+		publishers:  newTypedEventPublishers(),
 		bus:         bus,
 		logger:      logger,
 	}
@@ -121,7 +125,7 @@ func (d *EventDispatcher) publishTranslatedEvent(rawType string, ev any) {
 		d.logger.Warn("event dispatcher rejected turn terminal without canonical projection", "raw_type", rawType)
 		return
 	}
-	if !publishTypedEvent(d.bus, canonicalEvent) {
+	if !d.publishTypedEvent(canonicalEvent) {
 		d.logger.Warn("event dispatcher received unsupported typed event", "event", ev)
 	}
 }
@@ -168,9 +172,10 @@ func attachCanonicalTurnTerminal(ev any) (any, error) {
 	return attached, nil
 }
 
-// publishTypedEvent 根据事件实际类型查找发布器，bus 缺失时视为已处理以支持无事件总线测试。
-func publishTypedEvent(bus *event.Dispatcher, ev any) bool {
-	if bus == nil {
+// publishTypedEvent 根据事件实际类型在 dispatcher 自己的发布表中查找发布器。
+// bus 缺失时视为已处理，以保持无事件总线测试的既有语义。
+func (d *EventDispatcher) publishTypedEvent(ev any) bool {
+	if d == nil || d.bus == nil {
 		return true
 	}
 	switch typed := ev.(type) {
@@ -179,11 +184,11 @@ func publishTypedEvent(bus *event.Dispatcher, ev any) bool {
 	case dto.BusRawProviderEvent:
 		ev = dto.BusRawProviderEvent{Event: typed.Event.SanitizedCopy()}
 	}
-	publisher, ok := typedEventPublishers[reflect.TypeOf(ev)]
+	publisher, ok := d.publishers[reflect.TypeOf(ev)]
 	if !ok {
 		return false
 	}
-	return publisher(bus, ev)
+	return publisher(d.bus, ev)
 }
 
 // typedEventType 返回泛型事件的反射类型，保证分发表 key 与 publishEvent 的类型一致。

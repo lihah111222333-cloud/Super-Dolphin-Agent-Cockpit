@@ -195,3 +195,19 @@ func TestEventDispatcherSuppressesRetryProgressErrorEvents(t *testing.T) {
 		t.Fatalf("published events = %#v, want non-progress retry error still visible", published)
 	}
 }
+
+func TestNewEventDispatcherOwnsIndependentTypedEventPublishers(t *testing.T) {
+	first := NewEventDispatcher(nil, nil)
+	second := NewEventDispatcher(nil, nil)
+	key := typedEventType[agentdto.AgentWarning]()
+	if _, ok := first.publishers[key]; !ok {
+		t.Fatal("first dispatcher is missing AgentWarning publisher")
+	}
+	if _, ok := second.publishers[key]; !ok {
+		t.Fatal("second dispatcher is missing AgentWarning publisher")
+	}
+	delete(first.publishers, key)
+	if _, ok := second.publishers[key]; !ok {
+		t.Fatal("typed event publisher mutation leaked into another dispatcher")
+	}
+}

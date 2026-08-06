@@ -674,7 +674,9 @@ func assertUnifiedPlanDeltaEvent(t *testing.T, ev turndto.PlanDelta) {
 func assertUnifiedDispatcherRejectsUnsupportedTypedEvent(t *testing.T) {
 	t.Helper()
 	type unsupportedProviderEvent struct{}
-	if publishTypedEvent(event.NewDispatcher(), unsupportedProviderEvent{}) {
+	bus := event.NewDispatcher()
+	defer func() { _ = bus.Close() }()
+	if NewEventDispatcher(bus, nil).publishTypedEvent(unsupportedProviderEvent{}) {
 		t.Fatal("unsupported typed event was reported as published")
 	}
 }
