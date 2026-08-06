@@ -43,6 +43,41 @@ func TestRecyclerProbeDegradedCleanupFailureIsObservable(t *testing.T) {
 	assertRecyclerCleanupOwner(t, mgr, workspace, client)
 }
 
+func TestIdleShutdownProtocolFailureDoesNotRetainClosedClient(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "private", "workspace")
+	now := time.Now()
+	client := &p2LifecycleClient{healthy: true, shutdownFailure: errors.New("shutdown failed for " + root)}
+	workspace := workspaceClient{
+		key: root, languageID: "sql", client: client, lastActivity: now.Add(-2 * time.Minute), generation: 7,
+		state: workspaceStateIdleCountdown, idleSince: now.Add(-2 * time.Minute),
+	}
+	var logs bytes.Buffer
+	mgr := &manager{
+		logger: slog.New(slog.NewJSONHandler(&logs, nil)), idleTimeout: time.Minute,
+		workspaces: map[string]*workspaceClient{workspace.key: &workspace},
+	}
+	recycler := newPoolRecycler(nil)
+	recycler.now = func() time.Time { return now }
+	scope := ResolvedLSPToolScope{ManagerKey: "manager-idle-protocol", ScopeKey: "scope-idle-protocol"}
+	recycler.shutdownIdleWorkspace(mgr, scope, workspace)
+
+	logText := logs.String()
+	for _, want := range []string{
+		"LSP idle shutdown protocol degraded", `"action":"shutdown"`, `"action_result":"degraded"`,
+		`"shutdown_error_sha256":`, `"reason":"idle_timeout"`,
+	} {
+		if !strings.Contains(logText, want) {
+			t.Fatalf("protocol-only idle shutdown log missing %q: %s", want, logText)
+		}
+	}
+	if strings.Contains(logText, "LSP idle shutdown cleanup failed") || strings.Contains(logText, root) {
+		t.Fatalf("protocol-only idle shutdown logged cleanup failure or leaked path: %s", logText)
+	}
+	if got := snapshotWorkspaceClients(mgr); len(got) != 0 {
+		t.Fatalf("protocol-only idle shutdown retained client = %#v", got)
+	}
+}
+
 func assertRecyclerCleanupFailureLog(t *testing.T, logText, root string, shutdownErr, closeErr error) {
 	t.Helper()
 	for _, want := range []string{

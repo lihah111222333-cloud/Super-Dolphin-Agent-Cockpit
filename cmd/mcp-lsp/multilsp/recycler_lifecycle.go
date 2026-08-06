@@ -42,6 +42,33 @@ func recyclerCleanupLogFields(workspace workspaceClient, cleanupErr error) []any
 	return args
 }
 
+// logIdleShutdownProtocolDegraded 区分协议退出失败和进程树回收失败，避免已 Close 的 client 被误报为 cleanup failed。
+func logIdleShutdownProtocolDegraded(
+	mgr *manager,
+	scope ResolvedLSPToolScope,
+	workspace workspaceClient,
+	now time.Time,
+	shutdownErr error,
+) {
+	if shutdownErr == nil || mgr == nil || mgr.logger == nil {
+		return
+	}
+	args := recyclerWorkspaceLogArgs(scope, workspace,
+		"generation", workspace.generation,
+		"active_leases", workspace.activeLeases,
+		"state", workspace.state,
+		"idle_since", recyclerLifecycleTime(workspace.idleSince),
+		"last_activity", recyclerLifecycleTime(workspace.lastActivity),
+		"idle_duration", idleDurationSince(workspace.idleSince, now),
+		"idle_timeout", mgr.idleTimeout.String(),
+		"action", "shutdown",
+		"action_result", "degraded",
+		"reason", "idle_timeout",
+	)
+	args = append(args, platformshared.SafePayloadLogFields("shutdown_error", shutdownErr.Error())...)
+	mgr.logger.Warn("LSP idle shutdown protocol degraded", args...)
+}
+
 func recyclerScopeLogArgs(scope ResolvedLSPToolScope) []any {
 	args := platformshared.SafePathLogFields("manager_key", scope.ManagerKey)
 	return append(args, platformshared.SafePathLogFields("scope_key", scope.ScopeKey)...)
@@ -56,6 +83,7 @@ func recyclerManagerLogArgs(scope ResolvedLSPToolScope, mgr *manager, workspaceC
 	return args
 }
 
+// recyclerWorkspaceCleanupLogArgs 固化 workspace 级失败日志的生命周期快照，避免调用方遗漏租约和空闲窗口证据。
 func recyclerWorkspaceCleanupLogArgs(
 	mgr *manager,
 	scope ResolvedLSPToolScope,
@@ -118,6 +146,7 @@ func idleDurationSince(start, now time.Time) string {
 	return now.Sub(start).String()
 }
 
+// logRecyclerCleanupPending 在关闭所有权尚未收敛时记录 pending 而非猜测已释放，供后续 retry 关联。
 func logRecyclerCleanupPending(
 	mgr *manager,
 	scope ResolvedLSPToolScope,
@@ -163,6 +192,7 @@ func logRecyclerCleanupPending(
 	}
 }
 
+// logRecyclerCleanupFailure 为已知清理错误保留 workspace 级脱敏证据；没有 workspace 时退化为 manager 级事件。
 func logRecyclerCleanupFailure(
 	mgr *manager,
 	scope ResolvedLSPToolScope,

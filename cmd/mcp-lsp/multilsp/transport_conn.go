@@ -95,13 +95,12 @@ func (t *transport) Close() error {
 		t.clearPending(ErrTransportClosed)
 	}
 	drainErr := t.drainResponders(defaultResponderDrainTimeout)
+	t.logShutdownStageResult("drain", drainErr)
 	terminationErr, _ := t.terminateProcessTreeAttempt()
+	t.logShutdownStageResult("terminate", terminationErr)
 	waitErr := t.waitForExit(defaultShutdownTimeout)
-	var releaseErr error
-	releaseComplete := false
-	if terminationErr == nil {
-		releaseErr, releaseComplete = t.releaseProcessTreeAttempt()
-	}
+	t.logShutdownStageResult("wait", waitErr)
+	releaseErr, releaseComplete := t.releaseProcessTreeAfterTermination(terminationErr)
 	result := errors.Join(terminationErr, waitErr, releaseErr, drainErr)
 
 	t.closeMu.Lock()
@@ -114,6 +113,26 @@ func (t *transport) Close() error {
 	close(attempt.done)
 	t.closeMu.Unlock()
 	return result
+}
+
+// logShutdownStageResult 记录非跳过关闭阶段的结果。
+func (t *transport) logShutdownStageResult(stage string, stageErr error) {
+	if stageErr != nil {
+		t.logShutdownStage(stage, "failed", stageErr)
+		return
+	}
+	t.logShutdownStage(stage, "completed", nil)
+}
+
+// releaseProcessTreeAfterTermination 仅在终止阶段成功后释放 exact owner。
+func (t *transport) releaseProcessTreeAfterTermination(terminationErr error) (error, bool) {
+	if terminationErr != nil {
+		t.logShutdownStage("release", "skipped", terminationErr)
+		return nil, false
+	}
+	releaseErr, releaseComplete := t.releaseProcessTreeAttempt()
+	t.logShutdownStageResult("release", releaseErr)
+	return releaseErr, releaseComplete
 }
 
 // drainResponders 在 timeout 内等待所有已登记的服务端请求响应 goroutine。
@@ -274,12 +293,21 @@ func (t *transport) killProcess() error {
 }
 
 // prepareProcessTreeShutdown 在协议 shutdown/exit 前通过 exact owner 入册当前后代。
-// 缺少 preparation 能力时 fail-fast，绝不退回裸 PID 或 process-group 推断。
+// 缺少 preparation 能力时返回安全错误，由 client 继续尝试非破坏性协议关闭；绝不退回裸 PID 或 process-group 推断。
 func (t *transport) prepareProcessTreeShutdown() error {
 	if t == nil || t.processTree == nil {
+		if t != nil {
+			t.logShutdownStage("prepare", "skipped", nil)
+		}
 		return nil
 	}
-	return t.processTree.PrepareShutdown()
+	err := t.processTree.PrepareShutdown()
+	if err != nil {
+		t.logShutdownStage("prepare", "failed", err)
+	} else {
+		t.logShutdownStage("prepare", "completed", nil)
+	}
+	return err
 }
 
 // terminateProcessTree 统一所有关闭路径的进程树终止与 owner 释放。

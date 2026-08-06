@@ -14,8 +14,8 @@ import (
 const (
 	// TierFast 快速操作超时（5秒）。
 	TierFast = 5 * time.Second
-	// TierNormal 普通操作超时（30秒）。
-	TierNormal = 30 * time.Second
+	// TierNormal 普通操作超时（80秒）。
+	TierNormal = 80 * time.Second
 	// TierSlow 慢速操作超时（120秒）。
 	TierSlow = 120 * time.Second
 )

@@ -6,7 +6,9 @@ import (
 	"fmt"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
+	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 )
 
 type managerNavigation = manager
@@ -214,6 +216,17 @@ func (m *manager) documentSymbolsWithoutDiagnosticsWait(ctx context.Context, uri
 // requestDocumentSymbols 统一执行 documentSymbol 请求和结果解码。
 // 空结果是否重试或兜底由调用方决定，避免请求函数吞掉 LSP 的原始能力错误。
 func (m *manager) requestDocumentSymbols(ctx context.Context, client Client, ref documentRef) ([]protocol.DocumentSymbol, error) {
+	if !clientSupportsDocumentSymbols(client) {
+		return nil, &common.CodedToolError{
+			Err:       fmt.Errorf("%w: %s", lspmanager.ErrUnsupportedCapability, protocol.MethodDocumentSymbol),
+			Code:      "capability_unsupported",
+			Retryable: false,
+			Hint:      "next: use a SQL language server that advertises textDocument/documentSymbol",
+			Meta: map[string]any{
+				"lsp_method": protocol.MethodDocumentSymbol,
+			},
+		}
+	}
 	raw, err := m.request(ctx, client, protocol.MethodDocumentSymbol, protocol.DocumentSymbolParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: ref.uri},
 	})
@@ -221,6 +234,16 @@ func (m *manager) requestDocumentSymbols(ctx context.Context, client Client, ref
 		return nil, unsupportedCapabilityError(err)
 	}
 	return decodeDocumentSymbols(raw)
+}
+
+// clientSupportsDocumentSymbols 仅在客户端已暴露 initialize 能力时拒绝未声明的大纲请求。
+// 旧客户端没有能力快照，仍保留原有请求路径以维持兼容。
+func clientSupportsDocumentSymbols(client Client) bool {
+	capClient, ok := client.(ServerCapabilitiesClient)
+	if !ok {
+		return true
+	}
+	return serverCapabilityAvailable(capClient.ServerCapabilities().DocumentSymbolProvider)
 }
 
 // WorkspaceSymbol 查询指定语言 workspace 内的符号。
