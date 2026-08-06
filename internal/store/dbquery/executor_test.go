@@ -19,6 +19,49 @@ type validateQueryCase struct {
 	wantErrText string
 }
 
+func TestIsAllowedTable(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		want bool
+	}{
+		{name: "agent_interactions", want: true},
+		{name: "agent_provider_binding", want: true},
+		{name: "agent_status", want: true},
+		{name: "agent_threads", want: true},
+		{name: "audit_events", want: true},
+		{name: "bus_exception_logs", want: true},
+		{name: "command_card_runs", want: true},
+		{name: "command_card_versions", want: true},
+		{name: "command_cards", want: true},
+		{name: "cwd_instance_locks", want: true},
+		{name: "prompt_templates", want: true},
+		{name: "prompt_versions", want: true},
+		{name: "shared_files", want: true},
+		{name: "system_logs", want: true},
+		{name: "task_dag_nodes", want: true},
+		{name: "task_dag_runs", want: true},
+		{name: "task_dags", want: true},
+		{name: "topology_approvals", want: true},
+		{name: "ui_preferences", want: true},
+		{name: "workspace_run_files", want: true},
+		{name: "workspace_runs", want: true},
+		{name: "sqlite_master", want: false},
+		{name: "task_traces", want: false},
+		{name: "", want: false},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isAllowedTable(tc.name); got != tc.want {
+				t.Fatalf("isAllowedTable(%q) = %v, want %v", tc.name, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestValidateQueryAllowsWhitelistedSelects(t *testing.T) {
 	t.Parallel()
 

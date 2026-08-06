@@ -18,29 +18,6 @@ const maxQueryRows = 10000
 const queryOnlyCleanupTimeout = 5 * time.Second
 
 var (
-	allowedTables = map[string]struct{}{
-		"agent_interactions":     {},
-		"agent_provider_binding": {},
-		"agent_status":           {},
-		"agent_threads":          {},
-		"audit_events":           {},
-		"bus_exception_logs":     {},
-		"command_card_runs":      {},
-		"command_card_versions":  {},
-		"command_cards":          {},
-		"cwd_instance_locks":     {},
-		"prompt_templates":       {},
-		"prompt_versions":        {},
-		"shared_files":           {},
-		"system_logs":            {},
-		"task_dag_nodes":         {},
-		"task_dag_runs":          {},
-		"task_dags":              {},
-		"topology_approvals":     {},
-		"ui_preferences":         {},
-		"workspace_run_files":    {},
-		"workspace_runs":         {},
-	}
 	dangerousKeywordPattern      = regexp.MustCompile(`(?i)\b(insert|update|delete|drop|alter|truncate|create|grant|revoke|comment|vacuum|analyze|copy|merge|call|do|attach|detach|pragma|reindex|replace|returning)\b`)
 	dangerousFunctionCallPattern = regexp.MustCompile(`(?i)\b(load_extension|writefile|current_user|last_insert_rowid|changes|total_changes|pg_sleep|pg_terminate_backend|pg_cancel_backend|set_config|version|current_setting|inet_server_addr|inet_server_port|pg_read_file|pg_read_binary_file|pg_ls_dir|pg_stat_\w+|lo_import|lo_export)\b\s*\(`)
 	dangerousBareFunctionPattern = regexp.MustCompile(`(?i)\bcurrent_user\b`)
@@ -372,11 +349,41 @@ func (refs *tableReferenceScan) addTable(name string, cteNames map[string]struct
 	if _, ok := cteNames[name]; ok {
 		return
 	}
-	if _, ok := allowedTables[name]; ok {
+	if isAllowedTable(name) {
 		refs.allowedRefs++
 		return
 	}
 	refs.addDisallowed(name)
+}
+
+// isAllowedTable 将 dbquery 可读取的表定义为无共享状态的策略。
+func isAllowedTable(name string) bool {
+	switch name {
+	case "agent_interactions",
+		"agent_provider_binding",
+		"agent_status",
+		"agent_threads",
+		"audit_events",
+		"bus_exception_logs",
+		"command_card_runs",
+		"command_card_versions",
+		"command_cards",
+		"cwd_instance_locks",
+		"prompt_templates",
+		"prompt_versions",
+		"shared_files",
+		"system_logs",
+		"task_dag_nodes",
+		"task_dag_runs",
+		"task_dags",
+		"topology_approvals",
+		"ui_preferences",
+		"workspace_run_files",
+		"workspace_runs":
+		return true
+	default:
+		return false
+	}
 }
 
 func (refs *tableReferenceScan) addDisallowed(name string) {
