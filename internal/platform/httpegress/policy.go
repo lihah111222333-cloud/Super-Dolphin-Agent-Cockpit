@@ -11,22 +11,20 @@ import (
 	"time"
 )
 
-// unsafeHeaderNames 列出调用方不得覆盖的传输层头，避免绕过出站请求边界。
-var unsafeHeaderNames = map[string]struct{}{
-	"accept":              {},
-	"connection":          {},
-	"content-length":      {},
-	"content-type":        {},
-	"host":                {},
-	"proxy-authenticate":  {},
-	"proxy-authorization": {},
-	"te":                  {},
-	"trailer":             {},
-	"transfer-encoding":   {},
-	"upgrade":             {},
+// isUnsafeHeaderName 判断调用方是否试图覆盖传输层安全边界头。
+func isUnsafeHeaderName(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "accept", "connection", "content-length", "content-type", "host", "proxy-authenticate",
+		"proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade":
+		return true
+	default:
+		return false
+	}
 }
 
-var carrierGradeNATPrefix = netip.MustParsePrefix("100.64.0.0/10")
+func carrierGradeNATPrefix() netip.Prefix {
+	return netip.PrefixFrom(netip.AddrFrom4([4]byte{100, 64, 0, 0}), 10)
+}
 
 // ValidatePublicURL 校验出站 HTTP URL 只能指向公网主机，避免 SSRF 访问本机、内网或云元数据地址。
 func ValidatePublicURL(rawURL string) (string, error) {
@@ -98,8 +96,7 @@ func ValidateResolvedIP(host string, addr netip.Addr) error {
 // ValidateHeaders 拒绝调用方覆盖传输层关键头，避免通过 Host/Transfer-Encoding 等头绕过出站边界。
 func ValidateHeaders(headers map[string]string) error {
 	for name := range headers {
-		normalized := strings.ToLower(strings.TrimSpace(name))
-		if _, unsafe := unsafeHeaderNames[normalized]; unsafe {
+		if isUnsafeHeaderName(name) {
 			return fmt.Errorf("unsafe header %q is not allowed", strings.TrimSpace(name))
 		}
 	}
@@ -192,7 +189,7 @@ func isUnsafeHTTPAddr(addr netip.Addr) bool {
 	addr = addr.Unmap()
 	return !addr.IsGlobalUnicast() ||
 		addr.IsPrivate() ||
-		carrierGradeNATPrefix.Contains(addr) ||
+		carrierGradeNATPrefix().Contains(addr) ||
 		addr.IsLoopback() ||
 		addr.IsLinkLocalUnicast() ||
 		addr.IsLinkLocalMulticast() ||

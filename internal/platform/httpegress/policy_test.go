@@ -8,6 +8,21 @@ import (
 	"testing"
 )
 
+func TestEgressPolicyOwnersPreserveHeaderAndCGNATBoundaries(t *testing.T) {
+	for _, header := range []string{"Host", " transfer-encoding ", "PROXY-AUTHORIZATION"} {
+		if !isUnsafeHeaderName(header) {
+			t.Fatalf("isUnsafeHeaderName(%q) = false, want true", header)
+		}
+	}
+	if isUnsafeHeaderName("X-Request-ID") {
+		t.Fatal("isUnsafeHeaderName(X-Request-ID) = true, want false")
+	}
+	prefix := carrierGradeNATPrefix()
+	if !prefix.Contains(netip.MustParseAddr("100.64.0.0")) || !prefix.Contains(netip.MustParseAddr("100.127.255.255")) || prefix.Contains(netip.MustParseAddr("100.128.0.0")) {
+		t.Fatalf("carrierGradeNATPrefix() = %s, want exact 100.64.0.0/10 boundary", prefix)
+	}
+}
+
 func TestValidateResolvedIPRejectsUnsafeAddresses(t *testing.T) {
 	tests := []struct {
 		name string
