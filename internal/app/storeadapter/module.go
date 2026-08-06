@@ -18,17 +18,21 @@ import (
 )
 
 // Module 聚合按领域拆分的 Store adapter 子模块。
-var Module = fx.Options(
-	cronadapter.Module,
-	dashboardadapter.Module,
-	datasourcev2adapter.Module,
-	feedbackadapter.Module,
-	insightadapter.Module,
-	memoryadapter.Module,
-	personalizationadapter.Module,
-	promptadapter.Module,
-	skilladapter.Module,
-	threadadapter.Module,
-	turnadapter.Module,
-	uistateadapter.Module,
-)
+var Module = newModule()
+
+func newModule() fx.Option {
+	return fx.Options(
+		cronadapter.Module,
+		dashboardadapter.Module,
+		datasourcev2adapter.Module,
+		feedbackadapter.Module,
+		insightadapter.Module,
+		memoryadapter.Module,
+		personalizationadapter.Module,
+		promptadapter.Module,
+		skilladapter.Module,
+		threadadapter.Module,
+		turnadapter.Module,
+		uistateadapter.Module,
+	)
+}
