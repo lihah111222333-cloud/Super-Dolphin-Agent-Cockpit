@@ -34,13 +34,14 @@ const wailsWebSocketTokenEnv = "SUPER_DOLPHIN_WAILS_WS_TOKEN"
 
 // httpAssetServer 负责提供前端静态资源和 Wails RPC WebSocket。
 type httpAssetServer struct {
-	logger     *slog.Logger
-	addr       string
-	handler    http.Handler
-	metrics    http.Handler
-	server     *rpc.Server
-	wsToken    string
-	startupErr error
+	logger      *slog.Logger
+	addr        string
+	handler     http.Handler
+	metrics     http.Handler
+	server      *rpc.Server
+	wsToken     string
+	previewAddr *sharedFilePreviewHTTPAddr
+	startupErr  error
 }
 
 // registerHTTPAssetRoutes 注册 metrics、WebSocket 和静态资源路由。
@@ -64,8 +65,13 @@ func registerHTTPAssetRoutes(mux *http.ServeMux, server *rpc.Server, assetHandle
 // WebSocket token 在 runner 构造时确定，后续 route guard 和 asset cookie 共用同一值。
 func NewHTTPAssetServer(p httpAssetServerParams) httpAssetRunnerResult {
 	handler, startupErr := assetHandlerFromForMode(p.Frontend, isDebug(p.Config))
+	localAssets, localErr := p.Binding.localImageAssets()
+	sharedAssets, previewAddr, sharedErr := p.Binding.sharedFilePreviewAssets()
+	startupErr = errors.Join(startupErr, localErr, sharedErr)
 	if handler != nil {
-		handler = withSharedFilePreviewAssets(withClipboardAssets(handler))
+		if localErr == nil && sharedErr == nil {
+			handler = withSharedFilePreviewAssetsRegistry(withClipboardAssetsRegistry(handler, localAssets), sharedAssets)
+		}
 	}
 	cronCollector, err := metrics.NewCronRecoveryCollector(p.Metrics)
 	if err != nil {
@@ -80,13 +86,14 @@ func NewHTTPAssetServer(p httpAssetServerParams) httpAssetRunnerResult {
 	}
 	return httpAssetRunnerResult{
 		Runner: &httpAssetServer{
-			logger:     p.Logger,
-			addr:       resolveHTTPAssetAddr(),
-			handler:    handler,
-			metrics:    metricsHandler,
-			server:     p.Server,
-			wsToken:    resolveWailsWebSocketToken(),
-			startupErr: startupErr,
+			logger:      p.Logger,
+			addr:        resolveHTTPAssetAddr(),
+			handler:     handler,
+			metrics:     metricsHandler,
+			server:      p.Server,
+			wsToken:     resolveWailsWebSocketToken(),
+			previewAddr: previewAddr,
+			startupErr:  startupErr,
 		},
 	}
 }
@@ -139,7 +146,10 @@ func (s *httpAssetServer) Run(ctx context.Context) error {
 	}
 	defer listener.Close()
 
-	setSharedFilePreviewHTTPAddr(listener.Addr().String())
+	if s.previewAddr == nil {
+		return errors.New("shared file preview HTTP address state is required")
+	}
+	s.previewAddr.set(listener.Addr().String())
 	s.logger.Info("http asset server listening", "addr", listener.Addr().String())
 
 	errCh := make(chan error, 1)

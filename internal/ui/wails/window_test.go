@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -77,7 +78,7 @@ func TestWindowURLAllowsLoopbackFrontendDevServerURLInDebugMode(t *testing.T) {
 func TestBuildFilesDroppedPayloadIncludesDropTargetDetails(t *testing.T) {
 	t.Parallel()
 
-	payload, ok := buildFilesDroppedPayload([]string{"/tmp/a.txt"}, &application.DropTargetDetails{
+	payload, ok := buildFilesDroppedPayload(&App{localImageAssetRegistry: newLocalImageAssetRegistry(time.Now)}, []string{"/tmp/a.txt"}, &application.DropTargetDetails{
 		X:         11,
 		Y:         17,
 		ElementID: "composer-drop-zone",
@@ -105,7 +106,7 @@ func TestBuildFilesDroppedPayloadIncludesDropTargetDetails(t *testing.T) {
 func TestBuildFilesDroppedPayloadRegistersImagePreviewToken(t *testing.T) {
 	path := mustCreateLocalPNG(t, t.TempDir())
 
-	payload, ok := buildFilesDroppedPayload([]string{path}, nil)
+	payload, ok := buildFilesDroppedPayload(&App{localImageAssetRegistry: newLocalImageAssetRegistry(time.Now)}, []string{path}, nil)
 	if !ok {
 		t.Fatal("buildFilesDroppedPayload() ok = false, want true")
 	}
@@ -121,7 +122,7 @@ func TestBuildFilesDroppedPayloadRegistersImagePreviewToken(t *testing.T) {
 func TestBuildFilesDroppedPayloadRejectsEmptyFileList(t *testing.T) {
 	t.Parallel()
 
-	if payload, ok := buildFilesDroppedPayload(nil, nil); ok || payload != nil {
+	if payload, ok := buildFilesDroppedPayload(&App{localImageAssetRegistry: newLocalImageAssetRegistry(time.Now)}, nil, nil); ok || payload != nil {
 		t.Fatalf("buildFilesDroppedPayload() = (%#v, %t), want (nil, false)", payload, ok)
 	}
 }

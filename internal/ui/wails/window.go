@@ -88,7 +88,7 @@ func bindFileDrop(window *application.WebviewWindow, app *application.App, bindi
 		if binding != nil {
 			binding.recordDroppedFiles(files, details)
 		}
-		payload, ok := buildFilesDroppedPayload(files, details)
+		payload, ok := buildFilesDroppedPayload(binding, files, details)
 		if !ok {
 			return
 		}
@@ -109,14 +109,14 @@ func emitFilesDroppedEvent(app *application.App, binding *App, payload map[strin
 }
 
 // buildFilesDroppedPayload 构造前端文件拖拽事件载荷。
-func buildFilesDroppedPayload(files []string, details *application.DropTargetDetails) (map[string]any, bool) {
+func buildFilesDroppedPayload(binding *App, files []string, details *application.DropTargetDetails) (map[string]any, bool) {
 	if len(files) == 0 {
 		return nil, false
 	}
 	payload := map[string]any{
 		"files": append([]string(nil), files...),
 	}
-	if previews := droppedImagePreviews(files); len(previews) > 0 {
+	if previews := droppedImagePreviews(binding, files); len(previews) > 0 {
 		payload["imagePreviews"] = previews
 	}
 	if detailPayload := fileDropDetails(details); detailPayload != nil {
@@ -126,14 +126,18 @@ func buildFilesDroppedPayload(files []string, details *application.DropTargetDet
 }
 
 // droppedImagePreviews 为拖入的本地图片登记短期预览 token。
-func droppedImagePreviews(files []string) map[string]string {
+func droppedImagePreviews(binding *App, files []string) map[string]string {
+	registry, err := binding.localImageAssets()
+	if err != nil {
+		return nil
+	}
 	previews := make(map[string]string)
 	for _, raw := range files {
 		path := strings.TrimSpace(raw)
 		if path == "" {
 			continue
 		}
-		previewURL, err := registerLocalImageAsset(path, "dropped-file")
+		previewURL, err := registry.register(path, "dropped-file")
 		if err == nil {
 			previews[path] = previewURL
 		}

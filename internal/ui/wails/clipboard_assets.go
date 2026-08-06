@@ -24,9 +24,6 @@ const localImagePathPrefix = "/local-image"
 // localImageAssetTTL 限制本地图片预览 token 的存活时间。
 const localImageAssetTTL = 15 * time.Minute
 
-// archguard:ignore global_vars -- 本地图片预览 token 是 Wails HTTP capability 状态，需跨窗口与 HTTP handler 共享。
-var defaultLocalImageAssets = newLocalImageAssetRegistry(time.Now)
-
 type localImageAssetRecord struct {
 	Path        string
 	ContentType string
@@ -38,11 +35,6 @@ type localImageAssetRegistry struct {
 	mu     sync.Mutex
 	now    func() time.Time
 	assets map[string]localImageAssetRecord
-}
-
-// withClipboardAssets 包装前端资源 handler，额外提供剪贴板和本地图片预览路由。
-func withClipboardAssets(inner http.Handler) http.Handler {
-	return withClipboardAssetsRegistry(inner, defaultLocalImageAssets)
 }
 
 // withClipboardAssetsRegistry 使用给定 registry 包装前端资源 handler，便于测试隔离 token 状态。
@@ -112,9 +104,12 @@ func newLocalImageAssetRegistry(now func() time.Time) *localImageAssetRegistry {
 	}
 }
 
-// registerLocalImageAsset 登记本地图片路径并返回 WebView 可用的后端预览 URL。
-func registerLocalImageAsset(path string, source string) (string, error) {
-	return defaultLocalImageAssets.register(path, source)
+// localImageAssets 返回 App 独占的本地图片 capability 状态。
+func (a *App) localImageAssets() (*localImageAssetRegistry, error) {
+	if a == nil || a.localImageAssetRegistry == nil {
+		return nil, errors.New("local image asset: app registry is required")
+	}
+	return a.localImageAssetRegistry, nil
 }
 
 // register 校验图片路径并登记短期 token，失败时不泄露文件内容。

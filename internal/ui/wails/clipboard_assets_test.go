@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestIsValidClipboardAssetName(t *testing.T) {
@@ -36,10 +37,10 @@ func TestServeClipboardAssetServesValidPNG(t *testing.T) {
 	defer os.Remove(filepath.Join(os.TempDir(), tempName))
 
 	mux := http.NewServeMux()
-	mux.Handle("/", withClipboardAssets(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/", withClipboardAssetsRegistry(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// inner: fall-through default for non-clipboard URLs
 		http.NotFound(w, r)
-	})))
+	}), newLocalImageAssetRegistry(time.Now)))
 
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -62,9 +63,9 @@ func TestServeClipboardAssetServesCodexClipboardPNG(t *testing.T) {
 	defer os.Remove(filepath.Join(os.TempDir(), tempName))
 
 	mux := http.NewServeMux()
-	mux.Handle("/", withClipboardAssets(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/", withClipboardAssetsRegistry(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
-	})))
+	}), newLocalImageAssetRegistry(time.Now)))
 
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -81,9 +82,9 @@ func TestServeClipboardAssetServesCodexClipboardPNG(t *testing.T) {
 
 func TestServeClipboardAssetRejectsTraversal(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.Handle("/", withClipboardAssets(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/", withClipboardAssetsRegistry(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
-	})))
+	}), newLocalImageAssetRegistry(time.Now)))
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
@@ -112,7 +113,7 @@ func TestWithClipboardAssetsFallsThroughForNonClipboardURLs(t *testing.T) {
 		called = true
 		w.WriteHeader(http.StatusTeapot)
 	})
-	srv := httptest.NewServer(withClipboardAssets(inner))
+	srv := httptest.NewServer(withClipboardAssetsRegistry(inner, newLocalImageAssetRegistry(time.Now)))
 	defer srv.Close()
 
 	res, err := http.Get(srv.URL + "/index.html")
@@ -155,7 +156,7 @@ func TestServeLocalImageAssetServesAbsolutePNG(t *testing.T) {
 func TestLocalImageRejectsUnregisteredAbsolutePath(t *testing.T) {
 	full := mustCreateLocalPNG(t, t.TempDir())
 
-	srv := httptest.NewServer(withClipboardAssets(http.NotFoundHandler()))
+	srv := httptest.NewServer(withClipboardAssetsRegistry(http.NotFoundHandler(), newLocalImageAssetRegistry(time.Now)))
 	defer srv.Close()
 
 	res, err := http.Get(srv.URL + "/local-image?path=" + url.QueryEscape(full))
@@ -180,7 +181,7 @@ func TestServeLocalImageAssetRejectsUnsafePaths(t *testing.T) {
 		t.Fatalf("write text file: %v", err)
 	}
 
-	srv := httptest.NewServer(withClipboardAssets(http.NotFoundHandler()))
+	srv := httptest.NewServer(withClipboardAssetsRegistry(http.NotFoundHandler(), newLocalImageAssetRegistry(time.Now)))
 	defer srv.Close()
 
 	bad := []string{"", relativePNG, fakePNG, textFile, dir}

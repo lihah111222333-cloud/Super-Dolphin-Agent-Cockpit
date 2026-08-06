@@ -47,10 +47,9 @@ func TestPreviewSharedFileReturnsTokenizedMediaURL(t *testing.T) {
 	writeSharedFile(t, root, finalPath, validMP4Bytes())
 
 	registry := newSharedFilePreviewRegistry(time.Now)
+	previewAddr := &sharedFilePreviewHTTPAddr{}
 	server := rpcpkg.NewServer(rpcpkg.Params{Config: &config.Config{RPCAddr: "127.0.0.1:0"}})
-	server.Register(NewRPCHandlers(&App{}, &config.Config{ProjectRoot: root}, nil).Handlers)
-	defaultSharedFilePreviewAssets = registry
-	t.Cleanup(func() { defaultSharedFilePreviewAssets = newSharedFilePreviewRegistry(time.Now) })
+	server.Register(NewRPCHandlers(&App{sharedFilePreviewRegistry: registry, sharedFilePreviewHTTPAddr: previewAddr}, &config.Config{ProjectRoot: root}, nil).Handlers)
 
 	raw, err := server.Dispatch(context.Background(), "ui/sharedFile/open", json.RawMessage(`{"path":"dag/video/final.mp4","preview":true}`))
 	if err != nil {
@@ -87,7 +86,7 @@ func TestSharedFilePreviewHTTPServesRegisteredToken(t *testing.T) {
 	want := validMP4Bytes()
 	writeSharedFile(t, root, finalPath, want)
 	registry := newSharedFilePreviewRegistry(time.Now)
-	previewURL, _, err := registry.register(root, finalPath)
+	previewURL, _, err := registry.register(root, finalPath, "127.0.0.1:4511")
 	if err != nil {
 		t.Fatalf("register shared preview: %v", err)
 	}
@@ -132,7 +131,7 @@ func TestSharedFilePreviewRejectsRawPathAndUnsafeInputs(t *testing.T) {
 		`C:\Users\me\secret.mp4`,
 	}
 	for _, path := range badPaths {
-		if _, _, err := registry.register(root, path); err == nil {
+		if _, _, err := registry.register(root, path, "127.0.0.1:4511"); err == nil {
 			t.Fatalf("register(%q) error = nil, want rejection", path)
 		}
 	}
@@ -140,7 +139,7 @@ func TestSharedFilePreviewRejectsRawPathAndUnsafeInputs(t *testing.T) {
 	assertSharedPreviewRejectsSymlink(t, registry, root)
 	assertSharedPreviewRejectsOversized(t, registry, root)
 	writeSharedFile(t, root, "dag/video/fake.mp4", []byte("not a video"))
-	if _, _, err := registry.register(root, "dag/video/fake.mp4"); err == nil {
+	if _, _, err := registry.register(root, "dag/video/fake.mp4", "127.0.0.1:4511"); err == nil {
 		t.Fatal("register MIME mismatch error = nil, want rejection")
 	}
 
@@ -246,7 +245,7 @@ func assertSharedPreviewRejectsSymlink(t *testing.T, registry *sharedFilePreview
 		t.Logf("skip symlink assertion: %v", err)
 		return
 	}
-	if _, _, err := registry.register(root, "dag/video/link.mp4"); err == nil {
+	if _, _, err := registry.register(root, "dag/video/link.mp4", "127.0.0.1:4511"); err == nil {
 		t.Fatal("register symlink error = nil, want rejection")
 	}
 }
@@ -260,7 +259,7 @@ func assertSharedPreviewRejectsOversized(t *testing.T, registry *sharedFilePrevi
 	if err := os.Truncate(oversized, sharedFilePreviewMaxBytes+1); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := registry.register(root, "dag/video/large.mp4"); err == nil {
+	if _, _, err := registry.register(root, "dag/video/large.mp4", "127.0.0.1:4511"); err == nil {
 		t.Fatal("register oversized file error = nil, want rejection")
 	}
 }

@@ -31,13 +31,16 @@ const (
 // App 是暴露给 Wails 前端的后端绑定对象。
 // 它同时持有 RPC dispatch、窗口状态和拖拽文件登记表，跨 goroutine 字段必须通过各自 mutex 访问。
 type App struct {
-	dispatch         func(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) // 前端 callAPI 的后端 RPC 分发入口
-	emitter          func(event string, data any)                                                              // Wails 原生事件发送器
-	pushRuntimeEvent func(ctx context.Context, event string, data any)                                         // WebSocket runtime 事件推送入口
-	wailsApp         *application.App                                                                          // Wails 应用实例，原生 dialog 和窗口操作依赖它
-	windowTitle      string                                                                                    // 新窗口标题
-	debug            bool                                                                                      // 是否启用 devtools 和调试窗口行为
-	observability    *observability.Service                                                                    // callAPI trace 写入服务
+	dispatch                  func(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) // 前端 callAPI 的后端 RPC 分发入口
+	emitter                   func(event string, data any)                                                              // Wails 原生事件发送器
+	pushRuntimeEvent          func(ctx context.Context, event string, data any)                                         // WebSocket runtime 事件推送入口
+	wailsApp                  *application.App                                                                          // Wails 应用实例，原生 dialog 和窗口操作依赖它
+	windowTitle               string                                                                                    // 新窗口标题
+	debug                     bool                                                                                      // 是否启用 devtools 和调试窗口行为
+	observability             *observability.Service                                                                    // callAPI trace 写入服务
+	localImageAssetRegistry   *localImageAssetRegistry                                                                  // 当前桌面实例的本地图片预览 capability 状态
+	sharedFilePreviewRegistry *sharedFilePreviewRegistry                                                                // 当前桌面实例的 shared file 预览 capability 状态
+	sharedFilePreviewHTTPAddr *sharedFilePreviewHTTPAddr                                                                // 当前桌面实例的 HTTP 预览地址状态
 
 	frontendReadinessMu sync.RWMutex         // 保护当前 App 绑定的 readiness 与 lifecycle owner
 	frontendReadiness   *ActivationReadiness // 当前 Wails application 的 activation readiness

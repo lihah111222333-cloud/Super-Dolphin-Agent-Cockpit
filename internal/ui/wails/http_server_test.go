@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/cronmetrics"
@@ -170,6 +171,7 @@ func TestNewHTTPAssetServerUsesConfiguredAddr(t *testing.T) {
 		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Frontend: testHTTPFrontendFS(),
 		Metrics:  cronmetrics.New(),
+		Binding:  newHTTPAssetTestApp(),
 	})
 
 	server, ok := result.Runner.(*httpAssetServer)
@@ -183,12 +185,9 @@ func TestNewHTTPAssetServerUsesConfiguredAddr(t *testing.T) {
 
 func TestSharedFilePreviewURLUsesBoundHTTPAddr(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_HTTP_ADDR", "127.0.0.1:0")
-	previous := setSharedFilePreviewHTTPAddr("127.0.0.1:45199")
-	t.Cleanup(func() {
-		setSharedFilePreviewHTTPAddr(previous)
-	})
-
-	previewURL := sharedFilePreviewURL("sf_test")
+	previewAddr := &sharedFilePreviewHTTPAddr{}
+	previewAddr.set("127.0.0.1:45199")
+	previewURL := sharedFilePreviewURL("sf_test", previewAddr.current())
 	parsed, err := url.Parse(previewURL)
 	if err != nil {
 		t.Fatalf("parse preview URL %q: %v", previewURL, err)
@@ -207,6 +206,7 @@ func TestNewHTTPAssetServerUsesDevSessionTokenForWebSocket(t *testing.T) {
 		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Frontend: testHTTPFrontendFS(),
 		Metrics:  cronmetrics.New(),
+		Binding:  newHTTPAssetTestApp(),
 	})
 	server, ok := result.Runner.(*httpAssetServer)
 	if !ok {
@@ -224,6 +224,7 @@ func TestHTTPAssetServerRejectsNonLoopbackConfiguredAddr(t *testing.T) {
 		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Frontend: testHTTPFrontendFS(),
 		Metrics:  cronmetrics.New(),
+		Binding:  newHTTPAssetTestApp(),
 	})
 	server, ok := result.Runner.(*httpAssetServer)
 	if !ok {
@@ -243,6 +244,14 @@ func testHTTPFrontendFS() FrontendFS {
 		FS: fstest.MapFS{
 			"index.html": {Data: []byte("<!doctype html><div id=\"root\"></div>")},
 		},
+	}
+}
+
+func newHTTPAssetTestApp() *App {
+	return &App{
+		localImageAssetRegistry:   newLocalImageAssetRegistry(time.Now),
+		sharedFilePreviewRegistry: newSharedFilePreviewRegistry(time.Now),
+		sharedFilePreviewHTTPAddr: &sharedFilePreviewHTTPAddr{},
 	}
 }
 

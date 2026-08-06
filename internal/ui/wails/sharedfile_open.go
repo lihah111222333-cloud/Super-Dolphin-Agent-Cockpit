@@ -27,14 +27,10 @@ const sharedFilePreviewPathPrefix = "/shared-file-preview"
 const sharedFilePreviewMaxBytes int64 = 50 * 1024 * 1024
 const sharedFilePreviewTTL = 15 * time.Minute
 
-// archguard:ignore global_vars -- shared file preview token 是 Wails HTTP capability 状态，需要被 RPC 和 HTTP handler 共同访问。
-var defaultSharedFilePreviewAssets = newSharedFilePreviewRegistry(time.Now)
-
-// archguard:ignore global_vars -- 预览 URL 需要复用 HTTP server 实际监听地址，避免 :0 绑定后生成不可访问链接。
-var sharedFilePreviewHTTPAddr = struct {
+type sharedFilePreviewHTTPAddr struct {
 	mu    sync.RWMutex
 	value string
-}{}
+}
 
 // openSharedFileParams 是 ui/sharedFile/open 的请求参数。
 // Path 使用 shared file 相对路径 wire 格式，不能直接接受任意本地绝对路径。
@@ -90,7 +86,7 @@ func handleOpenSharedFile(
 		return openSharedFileResult{}, errors.New("shared file open: config is required")
 	}
 	if p.Preview {
-		return handlePreviewSharedFile(cfg, p)
+		return handlePreviewSharedFile(app, cfg, p)
 	}
 	abs, cleaned, err := resolveSharedFileOpenPathWithCleanPath(cfg.ProjectRoot, p.Path)
 	if err != nil {
@@ -104,11 +100,15 @@ func handleOpenSharedFile(
 
 // handlePreviewSharedFile 为 shared file 生成短期媒体预览 URL。
 // 只返回 token URL 和清理后的相对路径，真实文件读取仍由 HTTP endpoint 再校验一次。
-func handlePreviewSharedFile(cfg *config.Config, p openSharedFileParams) (sharedFilePreviewResult, error) {
+func handlePreviewSharedFile(app *App, cfg *config.Config, p openSharedFileParams) (sharedFilePreviewResult, error) {
 	if cfg == nil {
 		return sharedFilePreviewResult{}, errors.New("shared file preview: config is required")
 	}
-	_, result, err := defaultSharedFilePreviewAssets.register(cfg.ProjectRoot, p.Path)
+	registry, addr, err := app.sharedFilePreviewAssets()
+	if err != nil {
+		return sharedFilePreviewResult{}, err
+	}
+	_, result, err := registry.register(cfg.ProjectRoot, p.Path, addr.current())
 	if err != nil {
 		return sharedFilePreviewResult{}, err
 	}
@@ -169,7 +169,7 @@ func lstatSharedFileOpenPath(sandboxRoot, cleaned, abs string) (os.FileInfo, err
 	if rootInfo.Mode()&os.ModeSymlink != 0 {
 		return nil, errors.New("sandbox root is a symlink")
 	}
-	for _, part := range strings.Split(filepath.FromSlash(cleaned), string(filepath.Separator)) {
+	for part := range strings.SplitSeq(filepath.FromSlash(cleaned), string(filepath.Separator)) {
 		if part == "" || part == "." {
 			continue
 		}
@@ -186,11 +186,6 @@ func lstatSharedFileOpenPath(sandboxRoot, cleaned, abs string) (os.FileInfo, err
 		}
 	}
 	return os.Lstat(abs)
-}
-
-// withSharedFilePreviewAssets 包装前端资源 handler，额外提供 shared file token 预览路由。
-func withSharedFilePreviewAssets(inner http.Handler) http.Handler {
-	return withSharedFilePreviewAssetsRegistry(inner, defaultSharedFilePreviewAssets)
 }
 
 // withSharedFilePreviewAssetsRegistry 使用指定 registry，便于测试隔离 token 状态。
@@ -252,7 +247,7 @@ func newSharedFilePreviewRegistry(now func() time.Time) *sharedFilePreviewRegist
 }
 
 // register 校验 shared file 媒体路径并登记短期 token。
-func (r *sharedFilePreviewRegistry) register(projectRoot, rawPath string) (string, sharedFilePreviewResult, error) {
+func (r *sharedFilePreviewRegistry) register(projectRoot, rawPath, httpAddr string) (string, sharedFilePreviewResult, error) {
 	if r == nil {
 		return "", sharedFilePreviewResult{}, errors.New("shared file preview: registry is required")
 	}
@@ -279,7 +274,7 @@ func (r *sharedFilePreviewRegistry) register(projectRoot, rawPath string) (strin
 		SizeBytes:   sizeBytes,
 		ExpiresAt:   now.Add(sharedFilePreviewTTL),
 	}
-	previewURL := sharedFilePreviewURL(id)
+	previewURL := sharedFilePreviewURL(id, httpAddr)
 	return previewURL, sharedFilePreviewResult{
 		URL:         previewURL,
 		Path:        cleaned,
@@ -313,31 +308,42 @@ func (r *sharedFilePreviewRegistry) pruneLocked(now time.Time) {
 	}
 }
 
-func sharedFilePreviewURL(id string) string {
+func sharedFilePreviewURL(id, httpAddr string) string {
 	values := url.Values{}
 	values.Set("id", id)
 	return (&url.URL{
 		Scheme:   "http",
-		Host:     currentSharedFilePreviewHTTPAddr(),
+		Host:     strings.TrimSpace(httpAddr),
 		Path:     sharedFilePreviewPathPrefix,
 		RawQuery: values.Encode(),
 	}).String()
 }
 
-// setSharedFilePreviewHTTPAddr 记录 HTTP asset server 已绑定的地址，返回旧值便于测试恢复全局状态。
-func setSharedFilePreviewHTTPAddr(addr string) string {
-	sharedFilePreviewHTTPAddr.mu.Lock()
-	defer sharedFilePreviewHTTPAddr.mu.Unlock()
-	previous := sharedFilePreviewHTTPAddr.value
-	sharedFilePreviewHTTPAddr.value = strings.TrimSpace(addr)
-	return previous
+func (a *App) sharedFilePreviewAssets() (*sharedFilePreviewRegistry, *sharedFilePreviewHTTPAddr, error) {
+	if a == nil || a.sharedFilePreviewRegistry == nil || a.sharedFilePreviewHTTPAddr == nil {
+		return nil, nil, errors.New("shared file preview: app state is required")
+	}
+	return a.sharedFilePreviewRegistry, a.sharedFilePreviewHTTPAddr, nil
 }
 
-// currentSharedFilePreviewHTTPAddr 优先使用 listener 真实地址，未启动时退回配置地址。
-func currentSharedFilePreviewHTTPAddr() string {
-	sharedFilePreviewHTTPAddr.mu.RLock()
-	addr := sharedFilePreviewHTTPAddr.value
-	sharedFilePreviewHTTPAddr.mu.RUnlock()
+// set 记录 HTTP asset server 已绑定的地址。
+func (a *sharedFilePreviewHTTPAddr) set(addr string) {
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	a.value = strings.TrimSpace(addr)
+	a.mu.Unlock()
+}
+
+// current 优先使用 listener 真实地址，未启动时使用配置地址。
+func (a *sharedFilePreviewHTTPAddr) current() string {
+	if a == nil {
+		return ""
+	}
+	a.mu.RLock()
+	addr := a.value
+	a.mu.RUnlock()
 	if strings.TrimSpace(addr) != "" {
 		return addr
 	}

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/appupdate"
@@ -57,7 +58,7 @@ func provideAppUpdateRequestQuit(lifecycle *WailsLifecycle) appupdate.RequestQui
 }
 
 // NewApp 创建暴露给 Wails 前端的后端绑定对象。
-// 它只装配 RPC dispatch、runtime event 推送和观测依赖，不持有业务模块状态。
+// 它装配 RPC dispatch、runtime event 推送、观测依赖和当前桌面实例的资源 capability 状态。
 func NewApp(p AppParams) *App {
 	return &App{
 		dispatch: p.Dispatcher.Dispatch,
@@ -68,6 +69,9 @@ func NewApp(p AppParams) *App {
 		windowTitle:                  applicationTitle(),
 		debug:                        isDebug(p.Config),
 		observability:                p.Observability,
+		localImageAssetRegistry:      newLocalImageAssetRegistry(time.Now),
+		sharedFilePreviewRegistry:    newSharedFilePreviewRegistry(time.Now),
+		sharedFilePreviewHTTPAddr:    &sharedFilePreviewHTTPAddr{},
 		datasourceImportPickerTokens: newDatasourceImportPickerTokens(nil),
 	}
 }
@@ -148,6 +152,7 @@ type httpAssetServerParams struct {
 	Config   *config.Config
 	Server   *rpc.Server
 	Metrics  *cronmetrics.Metrics
+	Binding  *App
 }
 
 // NewWailsApplication 创建 Wails 桌面应用。
@@ -161,6 +166,14 @@ func NewWailsApplication(p ApplicationParams) (*application.App, error) {
 	}
 	if p.Lifecycle == nil {
 		return nil, errors.New("wails lifecycle is required")
+	}
+	localAssets, err := p.Binding.localImageAssets()
+	if err != nil {
+		return nil, err
+	}
+	sharedAssets, _, err := p.Binding.sharedFilePreviewAssets()
+	if err != nil {
+		return nil, err
 	}
 	title := applicationTitle()
 	debug := false
@@ -182,7 +195,7 @@ func NewWailsApplication(p ApplicationParams) (*application.App, error) {
 		Services:                    []application.Service{p.Service},
 		DisableDefaultSignalHandler: true,
 		Assets: application.AssetOptions{
-			Handler: withClipboardAssets(assetHandler),
+			Handler: withSharedFilePreviewAssetsRegistry(withClipboardAssetsRegistry(assetHandler, localAssets), sharedAssets),
 		},
 		ShouldQuit: p.Lifecycle.ShouldQuit,
 		OnShutdown: p.Lifecycle.OnShutdown,
