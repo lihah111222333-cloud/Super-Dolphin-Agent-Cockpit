@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/dreammetrics"
+	platformmetrics "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 )
 
 type fakeDreamExecutor struct {
@@ -596,8 +596,8 @@ func TestDreamExecutorLogsEnvOverriddenOrderEvent(t *testing.T) {
 }
 
 func TestDreamExecutorMetricSuccessTotal(t *testing.T) {
-	dreammetrics.ResetForTesting()
-	t.Cleanup(dreammetrics.ResetForTesting)
+	platformmetrics.DreamRegistry().ResetForTesting()
+	t.Cleanup(platformmetrics.DreamRegistry().ResetForTesting)
 	providers := []contract.DreamExecutorProvider{
 		{Name: "claude", Executor: &fakeDreamExecutor{result: "ok"}},
 	}
@@ -605,14 +605,14 @@ func TestDreamExecutorMetricSuccessTotal(t *testing.T) {
 	if _, err := d.ExecuteDream(context.Background(), "p"); err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
-	if got := dreammetrics.Success(); got != 1 {
+	if got := platformmetrics.DreamRegistry().Success(); got != 1 {
 		t.Errorf("SuccessTotal: got %d, want 1", got)
 	}
 }
 
 func TestDreamExecutorMetricProviderSkippedTotal(t *testing.T) {
-	dreammetrics.ResetForTesting()
-	t.Cleanup(dreammetrics.ResetForTesting)
+	platformmetrics.DreamRegistry().ResetForTesting()
+	t.Cleanup(platformmetrics.DreamRegistry().ResetForTesting)
 	notCfg := fmt.Errorf("%w: claude", contract.ErrDreamExecutorNotConfigured)
 	providers := []contract.DreamExecutorProvider{
 		{Name: "claude", Executor: &fakeDreamExecutor{err: notCfg}},
@@ -622,17 +622,17 @@ func TestDreamExecutorMetricProviderSkippedTotal(t *testing.T) {
 	if _, err := d.ExecuteDream(context.Background(), "p"); err != nil {
 		t.Fatalf("expected success after failover, got %v", err)
 	}
-	if got := dreammetrics.ProviderSkipped(); got != 1 {
+	if got := platformmetrics.DreamRegistry().ProviderSkipped(); got != 1 {
 		t.Errorf("ProviderSkippedTotal: got %d, want 1", got)
 	}
-	if got := dreammetrics.Success(); got != 1 {
+	if got := platformmetrics.DreamRegistry().Success(); got != 1 {
 		t.Errorf("SuccessTotal: got %d, want 1", got)
 	}
 }
 
 func TestDreamExecutorMetricProviderFailedTotal(t *testing.T) {
-	dreammetrics.ResetForTesting()
-	t.Cleanup(dreammetrics.ResetForTesting)
+	platformmetrics.DreamRegistry().ResetForTesting()
+	t.Cleanup(platformmetrics.DreamRegistry().ResetForTesting)
 	boom := errors.New("provider boom")
 	providers := []contract.DreamExecutorProvider{
 		{Name: "claude", Executor: &fakeDreamExecutor{err: boom}},
@@ -641,14 +641,14 @@ func TestDreamExecutorMetricProviderFailedTotal(t *testing.T) {
 	if _, err := d.ExecuteDream(context.Background(), "p"); !errors.Is(err, boom) {
 		t.Fatalf("expected boom, got %v", err)
 	}
-	if got := dreammetrics.ProviderFailed(); got != 1 {
+	if got := platformmetrics.DreamRegistry().ProviderFailed(); got != 1 {
 		t.Errorf("ProviderFailedTotal: got %d, want 1", got)
 	}
 }
 
 func TestDreamExecutorMetricAllNotConfiguredTotal(t *testing.T) {
-	dreammetrics.ResetForTesting()
-	t.Cleanup(dreammetrics.ResetForTesting)
+	platformmetrics.DreamRegistry().ResetForTesting()
+	t.Cleanup(platformmetrics.DreamRegistry().ResetForTesting)
 	notCfg := fmt.Errorf("%w: claude", contract.ErrDreamExecutorNotConfigured)
 	providers := []contract.DreamExecutorProvider{
 		{Name: "claude", Executor: &fakeDreamExecutor{err: notCfg}},
@@ -657,17 +657,17 @@ func TestDreamExecutorMetricAllNotConfiguredTotal(t *testing.T) {
 	if _, err := d.ExecuteDream(context.Background(), "p"); !errors.Is(err, contract.ErrDreamExecutorNotConfigured) {
 		t.Fatalf("expected ErrDreamExecutorNotConfigured, got %v", err)
 	}
-	if got := dreammetrics.AllNotConfigured(); got != 1 {
+	if got := platformmetrics.DreamRegistry().AllNotConfigured(); got != 1 {
 		t.Errorf("AllNotConfiguredTotal: got %d, want 1", got)
 	}
-	if got := dreammetrics.ProviderSkipped(); got != 1 {
+	if got := platformmetrics.DreamRegistry().ProviderSkipped(); got != 1 {
 		t.Errorf("ProviderSkippedTotal: got %d, want 1", got)
 	}
 }
 
 func TestDreamExecutorMetricPromptOversizeTotal(t *testing.T) {
-	dreammetrics.ResetForTesting()
-	t.Cleanup(dreammetrics.ResetForTesting)
+	platformmetrics.DreamRegistry().ResetForTesting()
+	t.Cleanup(platformmetrics.DreamRegistry().ResetForTesting)
 	providers := []contract.DreamExecutorProvider{
 		{Name: "claude", Executor: &fakeDreamExecutor{result: "unreachable"}},
 	}
@@ -676,10 +676,10 @@ func TestDreamExecutorMetricPromptOversizeTotal(t *testing.T) {
 	if _, err := d.ExecuteDream(context.Background(), oversized); err == nil {
 		t.Fatalf("expected size cap error, got nil")
 	}
-	if got := dreammetrics.PromptOversize(); got != 1 {
+	if got := platformmetrics.DreamRegistry().PromptOversize(); got != 1 {
 		t.Errorf("PromptOversizeTotal: got %d, want 1", got)
 	}
-	if got := dreammetrics.Success(); got != 0 {
+	if got := platformmetrics.DreamRegistry().Success(); got != 0 {
 		t.Errorf("SuccessTotal should not increment when size cap fails fast: got %d", got)
 	}
 }
