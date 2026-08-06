@@ -70,13 +70,17 @@ type driver struct {
 
 var _ contract.Driver = (*driver)(nil)
 
-var codexCapabilities = dto.CapabilitySet{
-	dto.CapMessageSend:    true,
-	dto.CapThreadList:     true,
-	dto.CapThreadFork:     true,
-	dto.CapContextCompact: true,
-	dto.CapTurnOverride:   true,
-	dto.CapModelSwitch:    true,
+// codexCapabilities 构造 Codex app 当前暴露给上层 runtime 的能力集合。
+// 每次调用返回独立 map，避免 package-level mutable state 成为跨会话共享 owner。
+func codexCapabilities() dto.CapabilitySet {
+	return dto.CapabilitySet{
+		dto.CapMessageSend:    true,
+		dto.CapThreadList:     true,
+		dto.CapThreadFork:     true,
+		dto.CapContextCompact: true,
+		dto.CapTurnOverride:   true,
+		dto.CapModelSwitch:    true,
+	}
 }
 
 type threadRPCResult struct {

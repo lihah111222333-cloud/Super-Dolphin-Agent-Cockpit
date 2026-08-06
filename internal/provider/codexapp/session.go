@@ -183,7 +183,7 @@ func newSessionWithOptions(
 		approvalSessionScope:  approvalSessionScope,
 		transport:             t,
 		manager:               manager,
-		caps:                  cloneCaps(codexCapabilities),
+		caps:                  codexCapabilities(),
 		recovery:              &recoveryManager{transport: t, logger: agentLog, maxRetry: maxRecoveryAttempts},
 		history:               &rolloutReader{logger: agentLog, transport: t},
 		logger:                agentLog,

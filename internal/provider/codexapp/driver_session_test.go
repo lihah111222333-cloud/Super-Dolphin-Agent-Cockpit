@@ -424,7 +424,7 @@ func assertNewCodexSessionState(t *testing.T, s *session) {
 
 func assertCodexSessionCapabilities(t *testing.T, s *session) {
 	t.Helper()
-	for cap, want := range codexCapabilities {
+	for cap, want := range codexCapabilities() {
 		if s.caps[cap] != want {
 			t.Fatalf("caps[%q] = %v, want %v", cap, s.caps[cap], want)
 		}
@@ -432,9 +432,12 @@ func assertCodexSessionCapabilities(t *testing.T, s *session) {
 }
 
 func TestSessionCapabilitiesReturnsClone(t *testing.T) {
-	t.Parallel()
-
-	s := &session{caps: cloneCaps(codexCapabilities)}
+	first, second := codexCapabilities(), codexCapabilities()
+	first[dto.CapMessageSend] = false
+	if !second[dto.CapMessageSend] {
+		t.Fatal("independent capability set changed after mutating another call")
+	}
+	s := &session{caps: second}
 	got := s.Capabilities()
 	got[dto.CapThreadList] = false
 	if !contract.HasCapability(s.caps, dto.CapThreadList) {
