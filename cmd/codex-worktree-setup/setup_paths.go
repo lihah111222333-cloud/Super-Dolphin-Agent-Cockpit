@@ -19,6 +19,8 @@ type setupPaths struct {
 	Config   string
 }
 
+const legacyProjectMCPConfig = ".mcp.json"
+
 func executableName(name string) string {
 	if runtime.GOOS == "windows" {
 		return name + ".exe"
@@ -45,6 +47,21 @@ func resolvePaths(ctx context.Context, opts setupOptions) (setupPaths, error) {
 		return setupPaths{}, err
 	}
 	return setupPaths{Worktree: worktree, Binary: binary, Config: config}, nil
+}
+
+// rejectLegacyProjectMCPConfig 拒绝第二份 project-local MCP 真值，避免绕过受管 Codex 配置。
+func rejectLegacyProjectMCPConfig(worktree string) error {
+	path := filepath.Join(worktree, legacyProjectMCPConfig)
+	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("stat legacy project MCP config: %w", err)
+	}
+	return fmt.Errorf(
+		"legacy project MCP config is not allowed: %s; remove it and use %s",
+		path,
+		filepath.Join(worktree, ".codex", "config.toml"),
+	)
 }
 
 // resolveWorktree 查找并规范化 Git worktree 根，且要求该根当前可访问。

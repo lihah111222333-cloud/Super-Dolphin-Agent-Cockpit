@@ -30,6 +30,9 @@ func runSetup(ctx context.Context, opts setupOptions) (setupReport, error) {
 	if err != nil {
 		return setupReport{}, err
 	}
+	if err := rejectLegacyProjectMCPConfig(paths.Worktree); err != nil {
+		return setupReport{}, err
+	}
 	switch opts.Command {
 	case commandConfigure:
 		if err := validateLSPBinary(paths.Binary); err != nil {

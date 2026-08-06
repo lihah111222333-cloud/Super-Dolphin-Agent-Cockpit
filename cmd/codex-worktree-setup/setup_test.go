@@ -31,6 +31,21 @@ func TestResolvePathsUsesWorktreeOwnedDefaults(t *testing.T) {
 	}
 }
 
+func TestRunSetupRejectsLegacyProjectMCPConfig(t *testing.T) {
+	root := t.TempDir()
+	legacy := filepath.Join(root, legacyProjectMCPConfig)
+	if err := os.WriteFile(legacy, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := runSetup(context.Background(), setupOptions{Command: commandVerify, Worktree: root})
+	if err == nil || !strings.Contains(err.Error(), "legacy project MCP config is not allowed") {
+		t.Fatalf("error = %v", err)
+	}
+	if !strings.Contains(err.Error(), filepath.Join(root, ".codex", "config.toml")) {
+		t.Fatalf("error = %v, want managed config path", err)
+	}
+}
+
 func TestResolvePathsRejectsPathsOutsideWorktree(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
