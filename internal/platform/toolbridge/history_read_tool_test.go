@@ -12,6 +12,7 @@ import (
 	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/mcpcontrol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 type stubSessionStatusPort struct {
@@ -142,7 +143,7 @@ func TestHistoryReadHostToolRegistry_MissingTrustedThreadID(t *testing.T) {
 func TestHistoryReadHostToolRegistry_DoesNotRequireCWD(t *testing.T) {
 	status := &stubSessionStatusPort{}
 	host := NewHistoryReadHostToolRegistry(status)
-	h := &Handler{hostTools: host, registry: &stubKindRegistry{}}
+	h := &Handler{hostTools: host, registry: &stubKindRegistry{}, skillMetrics: skillmetrics.NewRegistry()}
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
 		Name:      ToolNameHistoryRead,
@@ -163,6 +164,7 @@ func TestProxyToolCall_HistoryReadUsesTrustedThreadID(t *testing.T) {
 	h := &Handler{
 		registry:       &stubKindRegistry{},
 		hostTools:      host,
+		skillMetrics:   skillmetrics.NewRegistry(),
 		bindingStore:   &toolCallBindingStoreStub{threadID: "thread-proxy"},
 		proxyAuthToken: newProxyAuthToken(),
 	}
@@ -200,6 +202,7 @@ func TestCodexToolSurfaceHistoryReadUsesHostAndBlocksPeerShadow(t *testing.T) {
 	}}}
 	h := &Handler{
 		hostTools:          NewHistoryReadHostToolRegistry(status),
+		skillMetrics:       skillmetrics.NewRegistry(),
 		stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": peer}),
 	}
 
@@ -234,6 +237,7 @@ func TestCodexToolSurfaceHistoryReadRejectsThreadIDArgumentBeforeHostOrPeer(t *t
 	}}}
 	h := &Handler{
 		hostTools:          NewHistoryReadHostToolRegistry(status),
+		skillMetrics:       skillmetrics.NewRegistry(),
 		stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": peer}),
 	}
 	prepareHistoryReadCodexSurface(t, h)

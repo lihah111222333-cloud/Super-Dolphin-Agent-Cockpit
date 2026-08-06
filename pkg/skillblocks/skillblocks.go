@@ -4,8 +4,6 @@ package skillblocks
 import (
 	"regexp"
 	"strings"
-
-	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 // skillBlockHeaderNewFormat 匹配带 footer 的 skill 注入块头行：
@@ -160,9 +158,8 @@ func TrimInjectedSkillBlocksWithDiag(text string) TrimResult {
 				i = footerIdx + 1
 				continue
 			}
-			// footer 缺失时剪到 EOF，并记录损坏兜底指标。
+			// footer 缺失时剪到 EOF。计数由拥有 Registry 的调用方依据诊断上报。
 			res.FooterMissingCount++
-			skillmetrics.IncTrimCorruptionFallback()
 			res.Text = strings.TrimRight(strings.Join(kept, "\n"), "\n")
 			return res
 		case SkillBlockFormatLegacy:

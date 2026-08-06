@@ -16,10 +16,12 @@ import (
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/historyjsonl"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 type historyBackend struct {
-	sessionDir string
+	sessionDir   string
+	skillMetrics *skillmetrics.Registry
 }
 
 // ReadHistory 从 Claude CLI 的 JSONL 会话文件读取完整消息历史。

@@ -248,7 +248,7 @@ func assertInterruptCleanupFailureRetainsOwnership(t *testing.T, settle func(*tr
 	cleanupCalled := false
 	s := &session{
 		agentID: "agent-interrupt-failure", threadID: "thread-interrupt-failure", publicThreadID: "thread-public",
-		sessionID: "11111111-2222-3333-4444-555555555555", history: &historyBackend{sessionDir: t.TempDir()},
+		sessionID: "11111111-2222-3333-4444-555555555555", history: &historyBackend{sessionDir: t.TempDir(), skillMetrics: testSkillMetrics(t)},
 		transport: tr, cleanup: func() { cleanupCalled = true }, logWatcher: oldWatcher,
 		pidRegistry: reg, activeTurn: handle, suppressedTurns: map[string]struct{}{},
 		eventDispatcher: dispatcher, settleTransport: settle,

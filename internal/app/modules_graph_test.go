@@ -29,6 +29,7 @@ import (
 	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 	uiwails "github.com/lihah111222333-cloud/super-dolphin-agent/internal/ui/wails"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 // TestAppModuleGraphIsClosed 验证核心 app Module 的 fx.Provide 都能满足声明的 fx.In 依赖。
@@ -225,7 +226,7 @@ func TestProviderScaffoldProductionGraphRequiresCriticalDependencies(t *testing.
 			name:      "codexapp missing runtime hooks",
 			module:    codexapp.Module,
 			omissions: []providerGraphOmission{omitRuntimeHooks},
-			want:      "shared.RuntimeHooksReady",
+			want:      "shared.RuntimeHooks",
 		},
 		{
 			name:      "codexapp missing runtime reporter",
@@ -249,7 +250,7 @@ func TestProviderScaffoldProductionGraphRequiresCriticalDependencies(t *testing.
 			name:      "claudecli missing runtime hooks",
 			module:    claudecli.Module,
 			omissions: []providerGraphOmission{omitRuntimeHooks},
-			want:      "shared.RuntimeHooksReady",
+			want:      "shared.RuntimeHooks",
 		},
 		{
 			name:      "claudecli missing runtime reporter",
@@ -406,6 +407,7 @@ func providerProductionGraphOptions(module fx.Option, omissions ...providerGraph
 		fx.Provide(unified.NewEventDispatcher),
 		fx.Provide(rpc.NewApprovalManager),
 		fx.Provide(pidregistry.New),
+		fx.Provide(skillmetrics.NewRegistry),
 	}
 	opts = appendProviderGraphCoreDependencies(opts, omitted)
 	opts = appendProviderGraphProxyDependencies(opts, omitted)

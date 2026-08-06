@@ -81,7 +81,7 @@ func TestCallHostTool_ApprovalDeniedReturnsStructuredResult(t *testing.T) {
 		hasToolName: testHostToolName,
 		err:         deniedHostToolError{},
 	}
-	h := &Handler{hostTools: host}
+	h := &Handler{hostTools: host, skillMetrics: skillmetrics.NewRegistry()}
 
 	got, err := h.callHostTool(context.Background(), ToolCallRequest{Name: testHostToolName, CWD: t.TempDir()})
 	if err != nil {
@@ -103,17 +103,16 @@ func TestCallHostTool_ApprovalDeniedReturnsStructuredResult(t *testing.T) {
 }
 
 func TestCallHostTool_ApprovalRequiredFallbackReturnsStructuredResult(t *testing.T) {
-	skillmetrics.ResetForTesting()
-	t.Cleanup(skillmetrics.ResetForTesting)
+	metricSource := skillmetrics.NewRegistry()
 	host := approvalRequiredHostToolRegistry()
-	h := &Handler{hostTools: host}
+	h := &Handler{hostTools: host, skillMetrics: metricSource}
 
 	got, err := h.callHostTool(context.Background(), ToolCallRequest{Name: testHostToolName, CWD: t.TempDir()})
 	if err != nil {
 		t.Fatalf("callHostTool() error = %v, want structured approval required result", err)
 	}
 	assertApprovalRequiredEnvelope(t, got)
-	if snap := skillmetrics.Read(); snap.HostToolCallApprovalReqTotal != 1 {
+	if snap := metricSource.Snapshot(); snap.HostToolCallApprovalReqTotal != 1 {
 		t.Fatalf("HostToolCallApprovalReqTotal = %d, want 1 (snapshot %+v)", snap.HostToolCallApprovalReqTotal, snap)
 	}
 }
@@ -196,7 +195,7 @@ func TestRouteToolCall_HostToolBypassesPeer_UsesResolvedCWD(t *testing.T) {
 	}
 	resolver := &stubCWDResolver{cwd: t.TempDir()}
 	registry := &stubRegistry{}
-	h := &Handler{registry: registry, resolver: resolver, hostTools: host}
+	h := &Handler{registry: registry, resolver: resolver, hostTools: host, skillMetrics: skillmetrics.NewRegistry()}
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
 		Name:      "custom_host_tool",
@@ -253,7 +252,7 @@ func TestRouteToolCall_HostToolPrefersInjectedCWD(t *testing.T) {
 	}
 	injectedCWD := t.TempDir()
 	resolver := &stubCWDResolver{cwd: t.TempDir()}
-	h := &Handler{registry: &stubRegistry{}, resolver: resolver, hostTools: host}
+	h := &Handler{registry: &stubRegistry{}, resolver: resolver, hostTools: host, skillMetrics: skillmetrics.NewRegistry()}
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
 		Name:      "custom_host_tool",
@@ -276,8 +275,7 @@ func TestRouteToolCall_HostToolPrefersInjectedCWD(t *testing.T) {
 }
 
 func TestCallHostTool_ObservabilityCountersAndLogs(t *testing.T) {
-	skillmetrics.ResetForTesting()
-	t.Cleanup(skillmetrics.ResetForTesting)
+	metricSource := skillmetrics.NewRegistry()
 	host := &stubHostToolRegistry{
 		hasToolName: testHostToolName,
 		result:      map[string]any{"name": "foo", "content": "body"},
@@ -285,9 +283,10 @@ func TestCallHostTool_ObservabilityCountersAndLogs(t *testing.T) {
 	resolver := &stubCWDResolver{cwd: t.TempDir()}
 	var logs bytes.Buffer
 	h := &Handler{
-		resolver:  resolver,
-		hostTools: host,
-		logger:    slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		resolver:     resolver,
+		hostTools:    host,
+		skillMetrics: metricSource,
+		logger:       slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 	}
 
 	got, err := h.callHostTool(context.Background(), ToolCallRequest{
@@ -301,7 +300,7 @@ func TestCallHostTool_ObservabilityCountersAndLogs(t *testing.T) {
 	if got == nil || !got.Success {
 		t.Fatalf("callHostTool() result = %#v, want success", got)
 	}
-	if snap := skillmetrics.Read(); snap.HostToolCallOKTotal != 1 {
+	if snap := metricSource.Snapshot(); snap.HostToolCallOKTotal != 1 {
 		t.Fatalf("HostToolCallOKTotal = %d, want 1 (snapshot %+v)", snap.HostToolCallOKTotal, snap)
 	}
 	text := logs.String()
@@ -313,8 +312,7 @@ func TestCallHostTool_ObservabilityCountersAndLogs(t *testing.T) {
 }
 
 func TestCallHostTool_PartialStructuredResultIsNotSuccess(t *testing.T) {
-	skillmetrics.ResetForTesting()
-	t.Cleanup(skillmetrics.ResetForTesting)
+	metricSource := skillmetrics.NewRegistry()
 	host := &stubHostToolRegistry{
 		hasToolName: testHostToolName,
 		result: map[string]any{
@@ -328,9 +326,10 @@ func TestCallHostTool_PartialStructuredResultIsNotSuccess(t *testing.T) {
 	resolver := &stubCWDResolver{cwd: t.TempDir()}
 	var logs bytes.Buffer
 	h := &Handler{
-		resolver:  resolver,
-		hostTools: host,
-		logger:    slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		resolver:     resolver,
+		hostTools:    host,
+		skillMetrics: metricSource,
+		logger:       slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 	}
 
 	got, err := h.callHostTool(context.Background(), ToolCallRequest{
@@ -348,23 +347,23 @@ func TestCallHostTool_PartialStructuredResultIsNotSuccess(t *testing.T) {
 	if envelope["success"] != false || envelope["partial"] != true || envelope["degraded"] != true {
 		t.Fatalf("structured envelope = %#v, want partial degraded failure flags", envelope)
 	}
-	if snap := skillmetrics.Read(); snap.HostToolCallOKTotal != 0 || snap.HostToolCallErrorTotal != 1 {
+	if snap := metricSource.Snapshot(); snap.HostToolCallOKTotal != 0 || snap.HostToolCallErrorTotal != 1 {
 		t.Fatalf("host tool counters = %+v, want 0 ok and 1 error", snap)
 	}
 	assertLogContainsAll(t, logs.String(), "toolbridge host-direct tool call", "agent_id=agent-partial", "call_id=call-partial", "outcome=error")
 }
 
 func TestCallHostTool_CWDMissingCounterAndWarn(t *testing.T) {
-	skillmetrics.ResetForTesting()
-	t.Cleanup(skillmetrics.ResetForTesting)
+	metricSource := skillmetrics.NewRegistry()
 	host := &stubHostToolRegistry{
 		hasToolName: testHostToolName,
 		err:         skillpkg.ErrMissingCWD,
 	}
 	var logs bytes.Buffer
 	h := &Handler{
-		hostTools: host,
-		logger:    slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		hostTools:    host,
+		skillMetrics: metricSource,
+		logger:       slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 	}
 
 	got, err := h.callHostTool(context.Background(), ToolCallRequest{Name: testHostToolName, AgentID: "agent-missing"})
@@ -374,7 +373,7 @@ func TestCallHostTool_CWDMissingCounterAndWarn(t *testing.T) {
 	if got == nil || got.Success {
 		t.Fatalf("callHostTool() result = %#v, want structured failure", got)
 	}
-	if snap := skillmetrics.Read(); snap.HostToolCallCWDMissingTotal != 1 {
+	if snap := metricSource.Snapshot(); snap.HostToolCallCWDMissingTotal != 1 {
 		t.Fatalf("HostToolCallCWDMissingTotal = %d, want 1 (snapshot %+v)", snap.HostToolCallCWDMissingTotal, snap)
 	}
 	text := logs.String()

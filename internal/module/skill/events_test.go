@@ -24,7 +24,7 @@ func TestWriteLocalPublishesSkillsChanged(t *testing.T) {
 	defer cancel()
 
 	projectRoot := t.TempDir()
-	svc := NewService(projectRoot).(*service)
+	svc := NewService(projectRoot, testSkillMetrics(t)).(*service)
 	svc.root = t.TempDir()
 	svc.projectSkillsRoot = defaultProjectSkillsRoot(projectRoot)
 	svc.bindDispatcher(dispatcher)
@@ -50,7 +50,7 @@ func TestPublishSkillsChangedDebouncesBurst(t *testing.T) {
 	cancel := event.Subscribe(dispatcher, func(ev uidto.SkillsChanged) { got <- ev })
 	defer cancel()
 
-	svc := NewService("").(*service)
+	svc := NewService("", testSkillMetrics(t)).(*service)
 	svc.bindDispatcher(dispatcher)
 	releaseFlush := blockSkillsChangedFlushForTest(t, svc)
 	svc.publishSkillsChanged(context.Background(), "local_write", "first", skillScopePersonal)
@@ -76,7 +76,7 @@ func TestSkillsChangedDebounceRunnerFlushesBurstAndStops(t *testing.T) {
 	cancelSubscription := event.Subscribe(dispatcher, func(ev uidto.SkillsChanged) { got <- ev })
 	defer cancelSubscription()
 
-	svc := NewService("").(*service)
+	svc := NewService("", testSkillMetrics(t)).(*service)
 	svc.bindDispatcher(dispatcher)
 	svc.skillsChangedDebounceWindow = 5 * time.Millisecond
 	cancelRunner, runnerDone := startSkillsChangedRunnerForTest(svc)
@@ -98,7 +98,7 @@ func TestSkillsChangedDebounceRunnerFlushesBurstAndStops(t *testing.T) {
 }
 
 func TestSkillsChangedDebounceRunnerFinalFlushesAndRejectsAfterStop(t *testing.T) {
-	svc := NewService("").(*service)
+	svc := NewService("", testSkillMetrics(t)).(*service)
 	emitted := make(chan uidto.SkillsChanged, 2)
 	svc.emitSkillsChanged = func(ev uidto.SkillsChanged) { emitted <- ev }
 	svc.skillsChangedDebounceWindow = time.Second
@@ -168,7 +168,7 @@ func TestPublishSkillsChangedDedupesRepeatedActions(t *testing.T) {
 	cancel := event.Subscribe(dispatcher, func(ev uidto.SkillsChanged) { got <- ev })
 	defer cancel()
 
-	svc := NewService("").(*service)
+	svc := NewService("", testSkillMetrics(t)).(*service)
 	svc.bindDispatcher(dispatcher)
 	releaseFlush := blockSkillsChangedFlushForTest(t, svc)
 	svc.publishSkillsChanged(context.Background(), "local_write", "first", skillScopePersonal)
@@ -283,7 +283,7 @@ func TestServiceEmitsScopedSkillsChangedProject(t *testing.T) {
 	defer cancel()
 
 	projectRoot := t.TempDir()
-	svc := NewService(projectRoot).(*service)
+	svc := NewService(projectRoot, testSkillMetrics(t)).(*service)
 	svc.root = t.TempDir()
 	svc.projectSkillsRoot = defaultProjectSkillsRoot(projectRoot)
 	svc.bindDispatcher(dispatcher)
@@ -313,7 +313,7 @@ func TestServiceEmitsScopedSkillsChangedPersonal(t *testing.T) {
 	cancel := event.Subscribe(dispatcher, func(ev uidto.SkillsChanged) { got <- ev })
 	defer cancel()
 
-	svc := NewService("").(*service)
+	svc := NewService("", testSkillMetrics(t)).(*service)
 	svc.bindDispatcher(dispatcher)
 	startSkillsChangedRunnerCleanup(t, svc)
 
@@ -339,7 +339,7 @@ func TestServiceCrossScopeFlushesBothEvents(t *testing.T) {
 	defer cancel()
 
 	projectRoot := t.TempDir()
-	svc := NewService(projectRoot).(*service)
+	svc := NewService(projectRoot, testSkillMetrics(t)).(*service)
 	svc.root = t.TempDir()
 	svc.projectSkillsRoot = defaultProjectSkillsRoot(projectRoot)
 	svc.bindDispatcher(dispatcher)
@@ -375,7 +375,7 @@ func TestServiceCrossCwdFlushesBothEvents(t *testing.T) {
 
 	projectRootA := t.TempDir()
 	projectRootB := t.TempDir()
-	svc := NewService(projectRootA).(*service)
+	svc := NewService(projectRootA, testSkillMetrics(t)).(*service)
 	svc.root = t.TempDir()
 	svc.projectSkillsRoot = defaultProjectSkillsRoot(projectRootA)
 	svc.bindDispatcher(dispatcher)
@@ -407,7 +407,7 @@ func TestServiceMergeableEventsStillCoalesce(t *testing.T) {
 	defer cancel()
 
 	projectRoot := t.TempDir()
-	svc := NewService(projectRoot).(*service)
+	svc := NewService(projectRoot, testSkillMetrics(t)).(*service)
 	svc.root = t.TempDir()
 	svc.projectSkillsRoot = defaultProjectSkillsRoot(projectRoot)
 	svc.bindDispatcher(dispatcher)

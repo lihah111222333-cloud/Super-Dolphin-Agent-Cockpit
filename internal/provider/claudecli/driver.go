@@ -22,6 +22,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/ctxutil"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/identifier"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 // claudeCapabilities 构造 Claude provider 当前暴露给上层 runtime 的能力集合。
@@ -46,6 +47,7 @@ type driver struct {
 	mirror           contract.SkillMirrorReconciler
 	recovery         contract.SessionRecoveryReporter
 	tracer           *observability.Service
+	skillMetrics     *skillmetrics.Registry
 	traceSpanCounter *claudeTraceSpanCounter
 	launchCLI        func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error)
 	authStatus       func(context.Context, string, string, cliLaunchConfig) (claudeAuthStatus, string, error)
@@ -117,7 +119,10 @@ func (d *driver) proxyHTTPToken() string {
 }
 
 // newDriver 创建 Claude CLI driver，并注入可替换的启动、认证和观测依赖。
-func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry, proxyAddrFn func() string, proxyTokenFn func() string, mirror contract.SkillMirrorReconciler, recovery contract.SessionRecoveryReporter, tracers ...*observability.Service) contract.Driver {
+func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry, proxyAddrFn func() string, proxyTokenFn func() string, mirror contract.SkillMirrorReconciler, recovery contract.SessionRecoveryReporter, metrics *skillmetrics.Registry, tracers ...*observability.Service) contract.Driver {
+	if metrics == nil {
+		panic("claudecli skill metrics registry is required")
+	}
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -138,6 +143,7 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, re
 		mirror:           mirror,
 		recovery:         recovery,
 		tracer:           firstClaudeTracer(tracers),
+		skillMetrics:     metrics,
 		traceSpanCounter: newClaudeTraceSpanCounter(),
 		launchCLI:        launchCLIWithManifest,
 		authStatus:       runClaudeAuthStatus,
@@ -314,7 +320,7 @@ func (d *driver) prepareSessionStart(ctx context.Context, spec startSpec) (prepa
 	if err := validateStartCWD(spec.cwd); err != nil {
 		return preparedStartSession{}, err
 	}
-	history := &historyBackend{sessionDir: spec.historyDir}
+	history := &historyBackend{sessionDir: spec.historyDir, skillMetrics: d.skillMetrics}
 	requestedModel, requestedConfig := resolveRequestedStartConfig(spec)
 	requestedConfig.DeveloperInstructions = promptDeveloperInstructions(cliLaunchConfig{
 		DeveloperInstructions: requestedConfig.DeveloperInstructions,

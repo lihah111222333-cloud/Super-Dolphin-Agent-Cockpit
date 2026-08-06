@@ -1,76 +1,34 @@
 package metrics
 
 import (
+	"fmt"
+
 	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-var (
-	// SkillTrimCorruptionFallbackCount 统计技能块裁剪遇到损坏 fence 后回退的次数。
-	SkillTrimCorruptionFallbackCount = promauto.NewCounterFunc(
-		prometheus.CounterOpts{
-			Name: "skill_trim_corruption_fallback_count",
-			Help: "Number of skill block trim operations that fell back because paired fences were corrupt.",
-		},
-		func() float64 { return float64(skillmetrics.TrimCorruptionFallback()) },
-	)
+// SkillCollector exports one explicit skill metrics registry.
+type SkillCollector struct {
+	registry *prometheus.Registry
+}
 
-	// SkillArtifactApprovalMissTotal 统计技能 artifact approval 缓存未命中的次数。
-	SkillArtifactApprovalMissTotal = promauto.NewCounterFunc(
-		prometheus.CounterOpts{
-			Name: "skill_artifact_approval_miss_total",
-			Help: "Number of skill artifact approval cache misses.",
-		},
-		func() float64 { return float64(skillmetrics.ArtifactApprovalMiss()) },
+// NewSkillCollector creates an isolated Prometheus exporter for source.
+func NewSkillCollector(source *skillmetrics.Registry) (*SkillCollector, error) {
+	if source == nil {
+		return nil, fmt.Errorf("metrics: skill registry is required")
+	}
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(
+		prometheus.NewCounterFunc(prometheus.CounterOpts{Name: "skill_trim_corruption_fallback_count", Help: "Number of skill block trim operations that fell back because paired fences were corrupt."}, func() float64 { return float64(source.Snapshot().TrimCorruptionFallbackCount) }),
+		prometheus.NewCounterFunc(prometheus.CounterOpts{Name: "skill_artifact_approval_miss_total", Help: "Number of skill artifact approval cache misses."}, func() float64 { return float64(source.Snapshot().ArtifactApprovalMissTotal) }),
+		prometheus.NewCounterFunc(prometheus.CounterOpts{Name: "host_tool_calls_total", Help: "Number of codexapp host-direct skill tool calls labelled by outcome.", ConstLabels: prometheus.Labels{"outcome": skillmetrics.HostToolOutcomeOK}}, func() float64 { return float64(source.Snapshot().HostToolCallOKTotal) }),
+		prometheus.NewCounterFunc(prometheus.CounterOpts{Name: "host_tool_calls_total", Help: "Number of codexapp host-direct skill tool calls labelled by outcome.", ConstLabels: prometheus.Labels{"outcome": skillmetrics.HostToolOutcomeCWDMissing}}, func() float64 { return float64(source.Snapshot().HostToolCallCWDMissingTotal) }),
+		prometheus.NewCounterFunc(prometheus.CounterOpts{Name: "host_tool_calls_total", Help: "Number of codexapp host-direct skill tool calls labelled by outcome.", ConstLabels: prometheus.Labels{"outcome": skillmetrics.HostToolOutcomeApprovalRequired}}, func() float64 { return float64(source.Snapshot().HostToolCallApprovalReqTotal) }),
+		prometheus.NewCounterFunc(prometheus.CounterOpts{Name: "host_tool_calls_total", Help: "Number of codexapp host-direct skill tool calls labelled by outcome.", ConstLabels: prometheus.Labels{"outcome": skillmetrics.HostToolOutcomeError}}, func() float64 { return float64(source.Snapshot().HostToolCallErrorTotal) }),
+		prometheus.NewCounterFunc(prometheus.CounterOpts{Name: "enrich_failures_total", Help: "Number of codexapp tool-call parameter enrichment failures."}, func() float64 { return float64(source.Snapshot().EnrichFailuresTotal) }),
 	)
+	return &SkillCollector{registry: registry}, nil
+}
 
-	// HostToolCallsOK 统计 codexapp host-direct skill tool 调用成功次数。
-	HostToolCallsOK = promauto.NewCounterFunc(
-		prometheus.CounterOpts{
-			Name:        "host_tool_calls_total",
-			Help:        "Number of codexapp host-direct skill tool calls labelled by outcome.",
-			ConstLabels: prometheus.Labels{"outcome": skillmetrics.HostToolOutcomeOK},
-		},
-		func() float64 { return float64(skillmetrics.HostToolCallOK()) },
-	)
-
-	// HostToolCallsCWDMissing 统计 host-direct skill tool 因 cwd 缺失失败的次数。
-	HostToolCallsCWDMissing = promauto.NewCounterFunc(
-		prometheus.CounterOpts{
-			Name:        "host_tool_calls_total",
-			Help:        "Number of codexapp host-direct skill tool calls labelled by outcome.",
-			ConstLabels: prometheus.Labels{"outcome": skillmetrics.HostToolOutcomeCWDMissing},
-		},
-		func() float64 { return float64(skillmetrics.HostToolCallCWDMissing()) },
-	)
-
-	// HostToolCallsApprovalRequired 统计 host-direct skill tool 因需要审批而未执行的次数。
-	HostToolCallsApprovalRequired = promauto.NewCounterFunc(
-		prometheus.CounterOpts{
-			Name:        "host_tool_calls_total",
-			Help:        "Number of codexapp host-direct skill tool calls labelled by outcome.",
-			ConstLabels: prometheus.Labels{"outcome": skillmetrics.HostToolOutcomeApprovalRequired},
-		},
-		func() float64 { return float64(skillmetrics.HostToolCallApprovalRequired()) },
-	)
-
-	// HostToolCallsError 统计 host-direct skill tool 调用的普通错误次数。
-	HostToolCallsError = promauto.NewCounterFunc(
-		prometheus.CounterOpts{
-			Name:        "host_tool_calls_total",
-			Help:        "Number of codexapp host-direct skill tool calls labelled by outcome.",
-			ConstLabels: prometheus.Labels{"outcome": skillmetrics.HostToolOutcomeError},
-		},
-		func() float64 { return float64(skillmetrics.HostToolCallError()) },
-	)
-
-	// EnrichFailuresTotal 统计 codexapp 工具调用参数补全失败次数。
-	EnrichFailuresTotal = promauto.NewCounterFunc(
-		prometheus.CounterOpts{
-			Name: "enrich_failures_total",
-			Help: "Number of codexapp tool-call parameter enrichment failures.",
-		},
-		func() float64 { return float64(skillmetrics.EnrichFailures()) },
-	)
-)
+// Gatherer returns only the skill registry's Prometheus series.
+func (c *SkillCollector) Gatherer() prometheus.Gatherer { return c.registry }

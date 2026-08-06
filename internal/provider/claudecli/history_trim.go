@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillblocks"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 const claudeSystemNoiseTrimLeftCutset = "\ufeff \t\r\n"
@@ -21,10 +22,10 @@ func claudeSystemNoiseTagPairs() []claudeSystemNoiseTagPair {
 	}
 }
 
-func normalizeClaudeHistory(messages []Message) []Message {
+func normalizeClaudeHistory(messages []Message, metrics *skillmetrics.Registry) []Message {
 	out := make([]Message, 0, len(messages))
 	for _, msg := range messages {
-		normalized, ok := normalizeClaudeHistoryMessage(msg)
+		normalized, ok := normalizeClaudeHistoryMessage(msg, metrics)
 		if ok {
 			out = append(out, normalized)
 		}
@@ -34,7 +35,7 @@ func normalizeClaudeHistory(messages []Message) []Message {
 
 // normalizeClaudeHistoryMessage 清理单条 Claude 历史消息中的注入噪声。
 // 用户消息会移除开头的系统上下文块；非用户消息只做空内容过滤。
-func normalizeClaudeHistoryMessage(msg Message) (Message, bool) {
+func normalizeClaudeHistoryMessage(msg Message, metrics *skillmetrics.Registry) (Message, bool) {
 	if !strings.EqualFold(strings.TrimSpace(msg.Role), "user") {
 		msg.Content = strings.TrimSpace(msg.Content)
 		if msg.Content == "" && len(msg.Metadata) == 0 {
@@ -42,7 +43,7 @@ func normalizeClaudeHistoryMessage(msg Message) (Message, bool) {
 		}
 		return msg, true
 	}
-	text := stripSystemNoise(msg.Content)
+	text := stripSystemNoise(msg.Content, metrics)
 	trimmedText := strings.TrimSpace(text)
 	if trimmedText == "" || isClaudeSystemNoiseText(text) {
 		if !shouldKeepEmptyMessage(msg) {
@@ -64,8 +65,17 @@ func trimInjectedClaudeLSPHint(text string) string {
 
 // trimInjectedClaudeSkillBlock 委托公共纯函数裁剪 provider 注入的技能块。
 // Claude 和 Codex 必须共用识别规则，否则同一线程跨 provider 恢复时历史会不一致。
-func trimInjectedClaudeSkillBlock(text string) string {
-	return skillblocks.TrimInjectedSkillBlocks(text)
+func trimInjectedClaudeSkillBlock(text string, metrics *skillmetrics.Registry) string {
+	result := skillblocks.TrimInjectedSkillBlocksWithDiag(text)
+	if result.FooterMissingCount > 0 {
+		if metrics == nil {
+			panic("claudecli skill metrics registry is required")
+		}
+		for range result.FooterMissingCount {
+			metrics.IncTrimCorruptionFallback()
+		}
+	}
+	return result.Text
 }
 
 func isClaudeSystemNoiseText(text string) bool {

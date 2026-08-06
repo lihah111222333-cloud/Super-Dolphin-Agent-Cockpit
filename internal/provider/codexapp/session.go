@@ -25,6 +25,7 @@ import (
 	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 type session struct {
@@ -42,6 +43,7 @@ type session struct {
 	dispatcher             *unified.EventDispatcher
 	approvals              *rpc.ApprovalManager
 	runtimeHooks           providershared.RuntimeHooks
+	skillMetrics           *skillmetrics.Registry
 	approvalDecisionHook   func(context.Context, rpc.ApprovalRequest) (contract.ApprovalDecision, error)
 	ctx                    context.Context
 	cancel                 context.CancelFunc
@@ -121,7 +123,11 @@ func newSession(
 	dispatcher *unified.EventDispatcher,
 	approvals *rpc.ApprovalManager,
 	manager *ServerManager,
+	metrics *skillmetrics.Registry,
 ) (*session, error) {
+	if metrics == nil {
+		return nil, errors.New("codexapp skill metrics registry is required")
+	}
 	return newSessionWithOptions(
 		transportCtx,
 		logger,
@@ -130,6 +136,7 @@ func newSession(
 		dispatcher,
 		approvals,
 		manager,
+		withSkillMetrics(metrics),
 	)
 }
 
@@ -151,6 +158,10 @@ func newSessionWithOptions(
 	cfg := sessionOptions{approvalScopeReader: rand.Reader}
 	for _, opt := range opts {
 		opt(&cfg)
+	}
+	if cfg.skillMetrics == nil {
+		releaseSessionPoolSlot(cfg)
+		return nil, errors.New("codexapp skill metrics registry is required")
 	}
 	if err := requireApprovalManager(approvals); err != nil {
 		releaseSessionPoolSlot(cfg)
@@ -187,11 +198,12 @@ func newSessionWithOptions(
 		manager:               manager,
 		caps:                  codexCapabilities(),
 		recovery:              &recoveryManager{transport: t, logger: agentLog, maxRetry: maxRecoveryAttempts},
-		history:               &rolloutReader{logger: agentLog, transport: t},
+		history:               &rolloutReader{logger: agentLog, transport: t, skillMetrics: cfg.skillMetrics},
 		logger:                agentLog,
 		dispatcher:            dispatcher,
 		approvals:             approvals,
 		runtimeHooks:          cfg.runtimeHooks,
+		skillMetrics:          cfg.skillMetrics,
 		ctx:                   ctx,
 		cancel:                cancel,
 		turns:                 map[string]*turnHandle{},
@@ -243,6 +255,7 @@ type sessionOptions struct {
 	poolRelease         func()
 	approvalScopeReader io.Reader
 	runtimeHooks        providershared.RuntimeHooks
+	skillMetrics        *skillmetrics.Registry
 }
 
 func withPoolServer(url string, release func()) sessionOption {
@@ -263,6 +276,13 @@ func withRuntimeHooks(hooks providershared.RuntimeHooks) sessionOption {
 	return func(o *sessionOptions) {
 		o.runtimeHooks = hooks
 	}
+}
+
+func withSkillMetrics(metrics *skillmetrics.Registry) sessionOption {
+	if metrics == nil {
+		panic("codexapp skill metrics registry is required")
+	}
+	return func(o *sessionOptions) { o.skillMetrics = metrics }
 }
 
 // generateApprovalSessionScope 从不可预测随机源生成 RFC 4122 version 4 会话 scope。

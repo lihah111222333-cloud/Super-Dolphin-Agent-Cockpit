@@ -677,7 +677,7 @@ func newRecoveryTestSession(t *testing.T, server *httptest.Server) *session {
 
 func newRecoveryTestSessionWithDispatcher(t *testing.T, server *httptest.Server, dispatcher *unified.EventDispatcher) *session {
 	t.Helper()
-	s, err := newSession(context.Background(), pkglogger.Get(), "ws"+strings.TrimPrefix(server.URL, "http"), "agent-1", dispatcher, testApprovalManager(), nil)
+	s, err := newSession(context.Background(), pkglogger.Get(), "ws"+strings.TrimPrefix(server.URL, "http"), "agent-1", dispatcher, testApprovalManager(), nil, testSkillMetrics(t))
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}

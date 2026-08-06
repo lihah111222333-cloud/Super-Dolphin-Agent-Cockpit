@@ -43,10 +43,11 @@ func TestDriverStartSessionSelectsDefaultModelFromModelList(t *testing.T) {
 		}
 	})
 	d := &driver{
-		approvals: testApprovalManager(),
-		pool:      newSingleURLPoolForTest(t, serverURL),
-		mirror:    &recordingSkillMirrorReconciler{},
-		listTools: noopCodexToolLister,
+		approvals:    testApprovalManager(),
+		skillMetrics: testSkillMetrics(t),
+		pool:         newSingleURLPoolForTest(t, serverURL),
+		mirror:       &recordingSkillMirrorReconciler{},
+		listTools:    noopCodexToolLister,
 	}
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
@@ -94,10 +95,11 @@ func TestThreadStartFailsWhenRequiredModelListFails(t *testing.T) {
 		}
 	})
 	d := &driver{
-		approvals: testApprovalManager(),
-		pool:      newSingleURLPoolForTest(t, serverURL),
-		mirror:    &recordingSkillMirrorReconciler{},
-		listTools: noopCodexToolLister,
+		approvals:    testApprovalManager(),
+		skillMetrics: testSkillMetrics(t),
+		pool:         newSingleURLPoolForTest(t, serverURL),
+		mirror:       &recordingSkillMirrorReconciler{},
+		listTools:    noopCodexToolLister,
 	}
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
@@ -139,10 +141,11 @@ func TestThreadStartConfigGPTDefaultRequiresModelList(t *testing.T) {
 		}
 	})
 	d := &driver{
-		approvals: testApprovalManager(),
-		pool:      newSingleURLPoolForTest(t, serverURL),
-		mirror:    &recordingSkillMirrorReconciler{},
-		listTools: noopCodexToolLister,
+		approvals:    testApprovalManager(),
+		skillMetrics: testSkillMetrics(t),
+		pool:         newSingleURLPoolForTest(t, serverURL),
+		mirror:       &recordingSkillMirrorReconciler{},
+		listTools:    noopCodexToolLister,
 	}
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
@@ -201,10 +204,11 @@ func TestDriverStartSessionPreservesExplicitOverrideGPT5Model(t *testing.T) {
 		}
 	})
 	d := &driver{
-		approvals: testApprovalManager(),
-		pool:      newSingleURLPoolForTest(t, serverURL),
-		mirror:    &recordingSkillMirrorReconciler{},
-		listTools: noopCodexToolLister,
+		approvals:    testApprovalManager(),
+		skillMetrics: testSkillMetrics(t),
+		pool:         newSingleURLPoolForTest(t, serverURL),
+		mirror:       &recordingSkillMirrorReconciler{},
+		listTools:    noopCodexToolLister,
 	}
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
@@ -262,10 +266,11 @@ func TestDriverStartSessionPreservesExplicitOverrideGPT55Model(t *testing.T) {
 		}
 	})
 	d := &driver{
-		approvals: testApprovalManager(),
-		pool:      newSingleURLPoolForTest(t, serverURL),
-		mirror:    &recordingSkillMirrorReconciler{},
-		listTools: noopCodexToolLister,
+		approvals:    testApprovalManager(),
+		skillMetrics: testSkillMetrics(t),
+		pool:         newSingleURLPoolForTest(t, serverURL),
+		mirror:       &recordingSkillMirrorReconciler{},
+		listTools:    noopCodexToolLister,
 	}
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{

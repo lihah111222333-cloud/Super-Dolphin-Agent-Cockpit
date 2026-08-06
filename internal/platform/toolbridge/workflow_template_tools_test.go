@@ -9,6 +9,7 @@ import (
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/mcpcontrol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared/workflowtemplates"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 func TestWorkflowTemplateHostToolRegistry_ListSchemaAndFilters(t *testing.T) {
@@ -111,8 +112,9 @@ func TestWorkflowTemplateHostToolRegistry_GetAndRenderDAG(t *testing.T) {
 func TestWorkflowTemplateHostToolRegistry_DefaultDirectWriteRequiresApproval(t *testing.T) {
 	reg := NewWorkflowTemplateHostToolRegistry(newWorkflowTemplateRegistryForTest(t))
 	h := &Handler{
-		registry:  &stubKindRegistry{},
-		hostTools: reg,
+		registry:     &stubKindRegistry{},
+		hostTools:    reg,
+		skillMetrics: skillmetrics.NewRegistry(),
 	}
 
 	for _, toolName := range []string{ToolNameWorkflowTemplateSave, ToolNameWorkflowTemplateRollback} {
@@ -224,7 +226,7 @@ func newWorkflowTemplateRegistryForTest(t *testing.T) *workflowtemplates.Registr
 
 func TestWorkflowTemplateHostToolRegistry_CWDisOptionalThroughHandler(t *testing.T) {
 	reg := NewWorkflowTemplateHostToolRegistry(newWorkflowTemplateRegistryForTest(t))
-	h := &Handler{hostTools: reg}
+	h := &Handler{hostTools: reg, skillMetrics: skillmetrics.NewRegistry()}
 
 	got, err := h.callHostTool(context.Background(), ToolCallRequest{
 		Name:      ToolNameWorkflowTemplateList,

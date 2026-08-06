@@ -6,16 +6,16 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/cronmetrics"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 func TestMetricsHandlerServesSkillHostToolCounters(t *testing.T) {
-	skillmetrics.ResetForTesting()
-	t.Cleanup(skillmetrics.ResetForTesting)
-	skillmetrics.IncHostToolCallOutcome(skillmetrics.HostToolOutcomeOK)
+	source := skillmetrics.NewRegistry()
+	source.IncHostToolCallOutcome(skillmetrics.HostToolOutcomeOK)
 
 	rec := httptest.NewRecorder()
-	Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, PrometheusMetricsPath, nil))
+	newMetricsHandler(t, cronmetrics.New(), source).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, PrometheusMetricsPath, nil))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("metrics status = %d, want %d", rec.Code, http.StatusOK)
@@ -27,12 +27,13 @@ func TestMetricsHandlerServesSkillHostToolCounters(t *testing.T) {
 
 func TestRegisterHTTPHandlersMountsMetricsPath(t *testing.T) {
 	t.Setenv(EnableMetricsEnv, "1")
-	skillmetrics.ResetForTesting()
-	t.Cleanup(skillmetrics.ResetForTesting)
-	skillmetrics.IncEnrichFailure()
+	source := skillmetrics.NewRegistry()
+	source.IncEnrichFailure()
 
 	mux := http.NewServeMux()
-	RegisterHTTPHandlers(mux)
+	if err := RegisterHTTPHandlers(mux, newMetricsHandler(t, cronmetrics.New(), source)); err != nil {
+		t.Fatalf("RegisterHTTPHandlers() error = %v", err)
+	}
 
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, PrometheusMetricsPath, nil))
@@ -42,5 +43,11 @@ func TestRegisterHTTPHandlersMountsMetricsPath(t *testing.T) {
 	}
 	if body := rec.Body.String(); !strings.Contains(body, "enrich_failures_total 1") {
 		t.Fatalf("metrics body missing enrich_failures_total sample:\n%s", body)
+	}
+}
+
+func TestNewHandlerRejectsMissingCollector(t *testing.T) {
+	if _, err := NewHandler(Collectors{}); err == nil {
+		t.Fatal("NewHandler() error = nil, want required-owner failure")
 	}
 }

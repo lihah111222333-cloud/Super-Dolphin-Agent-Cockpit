@@ -33,6 +33,7 @@ import (
 // 线程安全：所有公开方法加 RWMutex；写盘用临时文件 + rename 做原子替换。
 type ApprovalCache struct {
 	path    string
+	metrics skillmetrics.ApprovalMissWriter
 	mu      sync.RWMutex
 	entries map[string]ApprovalEntry
 	// writeMu 系列化盘面写入，避免并发 Approve/Revoke 因 snapshot 时序不同
@@ -105,13 +106,17 @@ func DefaultApprovalCachePath() string {
 
 // NewApprovalCache 从指定路径加载已有审批记录；文件不存在时返回空 cache（不报错）。
 // 文件存在但损坏时返回空 cache + 错误，调用方可选择是否继续运行（降级策略）。
-func NewApprovalCache(path string) (*ApprovalCache, error) {
+func NewApprovalCache(path string, metrics skillmetrics.ApprovalMissWriter) (*ApprovalCache, error) {
+	if metrics == nil {
+		return nil, errors.New("skill approval metrics writer is required")
+	}
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return nil, ErrApprovalCachePathRequired
 	}
 	cache := &ApprovalCache{
 		path:    path,
+		metrics: metrics,
 		entries: make(map[string]ApprovalEntry),
 	}
 	data, err := os.ReadFile(path)
@@ -193,18 +198,18 @@ func (c *ApprovalCache) Lookup(name, contentHash string) (ApprovalEntry, bool) {
 // 未备案或 hash mismatch 会计入 miss；nil receiver 表示审批缓存未配置，不写入 miss 指标。
 func (c *ApprovalCache) LookupArtifact(req ApprovalRequest) (ApprovalEntry, bool) {
 	if c == nil {
-		skillmetrics.IncSkillArtifactApprovalMiss()
+		c.metrics.IncArtifactApprovalMiss()
 		return ApprovalEntry{}, false
 	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	entry, ok := c.entries[artifactApprovalKey(req)]
 	if !ok {
-		skillmetrics.IncSkillArtifactApprovalMiss()
+		c.metrics.IncArtifactApprovalMiss()
 		return ApprovalEntry{}, false
 	}
 	if !strings.EqualFold(entry.ContentHash, req.ContentHash) {
-		skillmetrics.IncSkillArtifactApprovalMiss()
+		c.metrics.IncArtifactApprovalMiss()
 		return ApprovalEntry{}, false
 	}
 	return entry, true

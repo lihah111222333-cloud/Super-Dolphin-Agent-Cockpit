@@ -103,7 +103,7 @@ func (s *recoveryOrderServer) snapshot() []string {
 // legal startup contract.
 func newTestRuntimeSession(t *testing.T, wsURL string) *session {
 	t.Helper()
-	s, err := newSession(context.Background(), pkglogger.Get(), wsURL, "agent-1", nil, testApprovalManager(), nil)
+	s, err := newSession(context.Background(), pkglogger.Get(), wsURL, "agent-1", nil, testApprovalManager(), nil, testSkillMetrics(t))
 	if err != nil {
 		t.Fatalf("newSession(): %v", err)
 	}
@@ -115,6 +115,13 @@ func newTestRuntimeSession(t *testing.T, wsURL string) *session {
 		}
 	})
 	return s
+}
+
+func TestNewSessionRequiresSkillMetricsRegistry(t *testing.T) {
+	_, err := newSession(context.Background(), pkglogger.Get(), "", "agent-1", nil, testApprovalManager(), nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "skill metrics registry") {
+		t.Fatalf("newSession() error = %v, want missing skill metrics registry", err)
+	}
 }
 
 // -----------------------------------------------------------------------------

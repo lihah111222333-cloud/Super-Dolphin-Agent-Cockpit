@@ -169,7 +169,7 @@ func TestListSkillsIgnoresLegacySkillsRootAtRuntime(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_HOME", filepath.Join(t.TempDir(), ".super-dolphin"))
 	writeTestSkill(t, oldRoot, "legacy-global", "---\nname: legacy-global\nsummary: legacy\n---\nbody")
 
-	svc := NewService(projectRoot)
+	svc := NewService(projectRoot, testSkillMetrics(t))
 	skills, err := svc.ListSkills(skillTestContext(projectRoot))
 	if err != nil {
 		t.Fatalf("ListSkills() error = %v", err)

@@ -12,6 +12,7 @@ import (
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/mcpcontrol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 func TestProxyToolCall_MemoryReadUsesHostDirect(t *testing.T) {
@@ -19,7 +20,7 @@ func TestProxyToolCall_MemoryReadUsesHostDirect(t *testing.T) {
 	host := NewMemoryReadHostToolRegistry(reader, MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: true})
 	registry := &stubKindRegistry{}
 	cwd := t.TempDir()
-	h := &Handler{registry: registry, hostTools: host, resolver: &stubCWDResolver{cwd: cwd}, proxyAuthToken: newProxyAuthToken()}
+	h := &Handler{registry: registry, hostTools: host, resolver: &stubCWDResolver{cwd: cwd}, skillMetrics: skillmetrics.NewRegistry(), proxyAuthToken: newProxyAuthToken()}
 	body := string(mustRawJSON(t, map[string]any{"jsonrpc": "2.0", "id": "read-1", "method": "tools/call", "params": map[string]any{"name": ToolNameMemoryRead, "arguments": map[string]any{"name": "daily", "scope": "user"}}}))
 
 	got := callProxyRequest(t, h, "/mcp/orch/agent-read", body)
@@ -41,7 +42,7 @@ func TestProxyToolCall_MemoryReadUsesHostDirect(t *testing.T) {
 func TestProxyToolsList_HidesMemoryReadWhenToolsDisabled(t *testing.T) {
 	reader := &stubAgentMemoryReader{enabled: true, toolsEnabled: true}
 	host := NewMemoryReadHostToolRegistry(reader, MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: false})
-	h := &Handler{hostTools: host, registry: &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: "launch_agent", Description: "peer orch"}}, nil)}}}, proxyAuthToken: newProxyAuthToken()}
+	h := &Handler{hostTools: host, registry: &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: "launch_agent", Description: "peer orch"}}, nil)}}}, skillMetrics: skillmetrics.NewRegistry(), proxyAuthToken: newProxyAuthToken()}
 
 	got := callProxyRequest(t, h, "/mcp/orch/agent-1", `{"jsonrpc":"2.0","id":"req-1","method":"tools/list"}`)
 	if got.Error != nil {
@@ -68,7 +69,7 @@ func TestProxyToolCall_MemoryReadToolsDisabledDoesNotFallbackToPeer(t *testing.T
 			}}},
 		},
 	}}
-	h := &Handler{hostTools: host, registry: registry, resolver: &stubCWDResolver{cwd: t.TempDir()}, proxyAuthToken: newProxyAuthToken()}
+	h := &Handler{hostTools: host, registry: registry, resolver: &stubCWDResolver{cwd: t.TempDir()}, skillMetrics: skillmetrics.NewRegistry(), proxyAuthToken: newProxyAuthToken()}
 	body := string(mustRawJSON(t, map[string]any{"jsonrpc": "2.0", "id": "read-tools-off-no-peer", "method": "tools/call", "params": map[string]any{"name": ToolNameMemoryRead, "arguments": map[string]any{"name": "daily"}}}))
 
 	got := callProxyRequest(t, h, "/mcp/orch/agent-read", body)
@@ -90,7 +91,7 @@ func TestProxyToolCall_MemoryReadFeatureDisabledDoesNotFallbackToPeer(t *testing
 			}}},
 		},
 	}}
-	h := &Handler{hostTools: host, registry: registry, resolver: &stubCWDResolver{cwd: t.TempDir()}, proxyAuthToken: newProxyAuthToken()}
+	h := &Handler{hostTools: host, registry: registry, resolver: &stubCWDResolver{cwd: t.TempDir()}, skillMetrics: skillmetrics.NewRegistry(), proxyAuthToken: newProxyAuthToken()}
 	body := string(mustRawJSON(t, map[string]any{"jsonrpc": "2.0", "id": "read-feature-off-no-peer", "method": "tools/call", "params": map[string]any{"name": ToolNameMemoryRead, "arguments": map[string]any{"name": "daily"}}}))
 
 	got := callProxyRequest(t, h, "/mcp/orch/agent-read", body)
@@ -112,7 +113,7 @@ func TestProxyToolCall_MemoryReadReaderErrorDoesNotFallbackToPeer(t *testing.T) 
 			}}},
 		},
 	}}
-	h := &Handler{hostTools: host, registry: registry, resolver: &stubCWDResolver{cwd: t.TempDir()}, proxyAuthToken: newProxyAuthToken()}
+	h := &Handler{hostTools: host, registry: registry, resolver: &stubCWDResolver{cwd: t.TempDir()}, skillMetrics: skillmetrics.NewRegistry(), proxyAuthToken: newProxyAuthToken()}
 	body := string(mustRawJSON(t, map[string]any{"jsonrpc": "2.0", "id": "read-not-visible-no-peer", "method": "tools/call", "params": map[string]any{"name": ToolNameMemoryRead, "arguments": map[string]any{"name": "private"}}}))
 
 	got := callProxyRequest(t, h, "/mcp/orch/agent-read", body)
@@ -126,7 +127,7 @@ func TestProxyToolCall_MemoryReadReaderErrorDoesNotFallbackToPeer(t *testing.T) 
 func TestProxyToolCall_MemoryReadToolsDisabledReturnsToolErrorEnvelope(t *testing.T) {
 	reader := &stubAgentMemoryReader{enabled: true, toolsEnabled: true}
 	host := NewMemoryReadHostToolRegistry(reader, MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: false})
-	h := &Handler{hostTools: host, registry: &stubKindRegistry{}, resolver: &stubCWDResolver{cwd: t.TempDir()}, proxyAuthToken: newProxyAuthToken()}
+	h := &Handler{hostTools: host, registry: &stubKindRegistry{}, resolver: &stubCWDResolver{cwd: t.TempDir()}, skillMetrics: skillmetrics.NewRegistry(), proxyAuthToken: newProxyAuthToken()}
 	body := string(mustRawJSON(t, map[string]any{"jsonrpc": "2.0", "id": "read-tools-off", "method": "tools/call", "params": map[string]any{"name": ToolNameMemoryRead, "arguments": map[string]any{"name": "daily"}}}))
 
 	got := callProxyRequest(t, h, "/mcp/orch/agent-read", body)
@@ -136,7 +137,7 @@ func TestProxyToolCall_MemoryReadToolsDisabledReturnsToolErrorEnvelope(t *testin
 func TestProxyToolCall_MemoryReadFeatureDisabledReturnsToolErrorEnvelope(t *testing.T) {
 	reader := &stubAgentMemoryReader{enabled: true, toolsEnabled: true}
 	host := NewMemoryReadHostToolRegistry(reader, MemoryReadHostToolOptions{Enabled: false, ToolsEnabled: true})
-	h := &Handler{hostTools: host, registry: &stubKindRegistry{}, resolver: &stubCWDResolver{cwd: t.TempDir()}, proxyAuthToken: newProxyAuthToken()}
+	h := &Handler{hostTools: host, registry: &stubKindRegistry{}, resolver: &stubCWDResolver{cwd: t.TempDir()}, skillMetrics: skillmetrics.NewRegistry(), proxyAuthToken: newProxyAuthToken()}
 	body := string(mustRawJSON(t, map[string]any{"jsonrpc": "2.0", "id": "read-feature-off", "method": "tools/call", "params": map[string]any{"name": ToolNameMemoryRead, "arguments": map[string]any{"name": "daily"}}}))
 
 	got := callProxyRequest(t, h, "/mcp/orch/agent-read", body)
@@ -154,7 +155,7 @@ func TestProxyToolCall_StaleMemoryReadCallReturnsStableToolError(t *testing.T) {
 func TestProxyToolCall_MemoryReadReaderErrorUsesToolErrorNotJSONRPCError(t *testing.T) {
 	reader := &stubAgentMemoryReader{enabled: true, toolsEnabled: true, err: contract.NewAgentMemoryError("not_found", errors.New("missing"))}
 	host := NewMemoryReadHostToolRegistry(reader, MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: true})
-	h := &Handler{hostTools: host, registry: &stubKindRegistry{}, resolver: &stubCWDResolver{cwd: t.TempDir()}, proxyAuthToken: newProxyAuthToken()}
+	h := &Handler{hostTools: host, registry: &stubKindRegistry{}, resolver: &stubCWDResolver{cwd: t.TempDir()}, skillMetrics: skillmetrics.NewRegistry(), proxyAuthToken: newProxyAuthToken()}
 	body := string(mustRawJSON(t, map[string]any{"jsonrpc": "2.0", "id": "read-missing", "method": "tools/call", "params": map[string]any{"name": ToolNameMemoryRead, "arguments": map[string]any{"name": "missing"}}}))
 
 	got := callProxyRequest(t, h, "/mcp/orch/agent-read", body)
@@ -164,7 +165,7 @@ func TestProxyToolCall_MemoryReadReaderErrorUsesToolErrorNotJSONRPCError(t *test
 func TestProxyToolCall_MemoryReadUnsupportedScopeReturnsToolErrorEnvelope(t *testing.T) {
 	reader := &stubAgentMemoryReader{enabled: true, toolsEnabled: true, err: contract.NewAgentMemoryError("unsupported_scope", errors.New("unsupported"))}
 	host := NewMemoryReadHostToolRegistry(reader, MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: true})
-	h := &Handler{hostTools: host, registry: &stubKindRegistry{}, resolver: &stubCWDResolver{cwd: t.TempDir()}, proxyAuthToken: newProxyAuthToken()}
+	h := &Handler{hostTools: host, registry: &stubKindRegistry{}, resolver: &stubCWDResolver{cwd: t.TempDir()}, skillMetrics: skillmetrics.NewRegistry(), proxyAuthToken: newProxyAuthToken()}
 	body := string(mustRawJSON(t, map[string]any{"jsonrpc": "2.0", "id": "read-unsupported", "method": "tools/call", "params": map[string]any{"name": ToolNameMemoryRead, "arguments": map[string]any{"name": "x", "scope": "project"}}}))
 
 	got := callProxyRequest(t, h, "/mcp/orch/agent-read", body)
@@ -174,7 +175,7 @@ func TestProxyToolCall_MemoryReadUnsupportedScopeReturnsToolErrorEnvelope(t *tes
 func TestProxyToolCall_MemoryReadReaderUnavailableReturnsToolErrorEnvelope(t *testing.T) {
 	host := &MemoryReadHostToolRegistry{opts: MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: true}}
 	registry := &stubKindRegistry{}
-	h := &Handler{registry: registry, hostTools: host, resolver: &stubCWDResolver{cwd: t.TempDir()}, proxyAuthToken: newProxyAuthToken()}
+	h := &Handler{registry: registry, hostTools: host, resolver: &stubCWDResolver{cwd: t.TempDir()}, skillMetrics: skillmetrics.NewRegistry(), proxyAuthToken: newProxyAuthToken()}
 	body := string(mustRawJSON(t, map[string]any{"jsonrpc": "2.0", "id": "read-err", "method": "tools/call", "params": map[string]any{"name": ToolNameMemoryRead, "arguments": map[string]any{"name": "daily"}}}))
 
 	got := callProxyRequest(t, h, "/mcp/orch/agent-read", body)
@@ -188,7 +189,7 @@ func TestProxyToolCall_MemoryReadMalformedInputReturnsToolErrorEnvelope(t *testi
 	reader := &stubAgentMemoryReader{enabled: true, toolsEnabled: true}
 	host := NewMemoryReadHostToolRegistry(reader, MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: true})
 	registry := &stubKindRegistry{}
-	h := &Handler{registry: registry, hostTools: host, resolver: &stubCWDResolver{cwd: t.TempDir()}, proxyAuthToken: newProxyAuthToken()}
+	h := &Handler{registry: registry, hostTools: host, resolver: &stubCWDResolver{cwd: t.TempDir()}, skillMetrics: skillmetrics.NewRegistry(), proxyAuthToken: newProxyAuthToken()}
 	body := string(mustRawJSON(t, map[string]any{"jsonrpc": "2.0", "id": "read-bad", "method": "tools/call", "params": map[string]any{"name": ToolNameMemoryRead, "arguments": "not-object"}}))
 
 	got := callProxyRequest(t, h, "/mcp/orch/agent-read", body)
@@ -272,7 +273,7 @@ func TestProxyToolCall_MemoryWriteUsesHostDirect(t *testing.T) {
 	cwd := t.TempDir()
 	resolver := &stubCWDResolver{cwd: cwd}
 	registry := &stubKindRegistry{}
-	h := &Handler{registry: registry, hostTools: host, resolver: resolver, proxyAuthToken: newProxyAuthToken()}
+	h := &Handler{registry: registry, hostTools: host, resolver: resolver, skillMetrics: skillmetrics.NewRegistry(), proxyAuthToken: newProxyAuthToken()}
 
 	body := string(mustRawJSON(t, map[string]any{
 		"jsonrpc": "2.0",

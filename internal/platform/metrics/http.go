@@ -15,28 +15,40 @@ const (
 	EnableMetricsEnv      = "SUPER_DOLPHIN_ENABLE_METRICS"
 )
 
-// EnabledFromEnv 只接受显式开关值 1，避免本地 HTTP surface 默认暴露 Prometheus 指标。
-func EnabledFromEnv() bool {
-	return strings.TrimSpace(os.Getenv(EnableMetricsEnv)) == "1"
+// Collectors declares every explicit metrics owner exposed by one HTTP surface.
+type Collectors struct {
+	Cron      *CronRecoveryCollector
+	DAG       *DAGCollector
+	Dream     *DreamCollector
+	Bootstrap *BootstrapMetrics
+	Skill     *SkillCollector
 }
 
-// Handler 返回进程级 Prometheus handler；本包指标通过 promauto 注册到默认 gatherer。
-func Handler() http.Handler {
-	return promhttp.Handler()
-}
+// EnabledFromEnv only accepts the explicit opt-in value 1.
+func EnabledFromEnv() bool { return strings.TrimSpace(os.Getenv(EnableMetricsEnv)) == "1" }
 
-// HandlerWithCronRecovery 将进程既有指标与指定 Cron 恢复 owner 的显式 registry 一起暴露。
-func HandlerWithCronRecovery(collector *CronRecoveryCollector) (http.Handler, error) {
-	if collector == nil {
-		return nil, errors.New("cron recovery collector is required")
+// NewHandler composes the five explicit owner gatherers without DefaultGatherer.
+func NewHandler(collectors Collectors) (http.Handler, error) {
+	if collectors.Cron == nil || collectors.DAG == nil || collectors.Dream == nil || collectors.Bootstrap == nil || collectors.Skill == nil {
+		return nil, errors.New("metrics: cron, DAG, dream, bootstrap, and skill collectors are required")
 	}
-	return promhttp.HandlerFor(prometheus.Gatherers{prometheus.DefaultGatherer, collector.Gatherer()}, promhttp.HandlerOpts{}), nil
+	return promhttp.HandlerFor(prometheus.Gatherers{
+		collectors.Cron.Gatherer(),
+		collectors.DAG.Gatherer(),
+		collectors.Dream.Gatherer(),
+		collectors.Bootstrap.Gatherer(),
+		collectors.Skill.Gatherer(),
+	}, promhttp.HandlerOpts{}), nil
 }
 
-// RegisterHTTPHandlers 在显式开启时挂载 /metrics，避免各 HTTP surface 默认暴露 promhttp。
-func RegisterHTTPHandlers(mux *http.ServeMux) {
+// RegisterHTTPHandlers mounts an explicit metrics handler only when enabled.
+func RegisterHTTPHandlers(mux *http.ServeMux, handler http.Handler) error {
 	if !EnabledFromEnv() {
-		return
+		return nil
 	}
-	mux.Handle(PrometheusMetricsPath, Handler())
+	if handler == nil {
+		return errors.New("metrics handler is required")
+	}
+	mux.Handle(PrometheusMetricsPath, handler)
+	return nil
 }

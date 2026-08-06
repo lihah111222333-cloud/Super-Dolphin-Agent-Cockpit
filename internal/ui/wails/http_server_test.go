@@ -17,33 +17,43 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/cronmetrics"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/dreammetrics"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
-func newTestMetricsHandler(t *testing.T) http.Handler {
+func newTestMetricsHandler(t *testing.T, skillSource *skillmetrics.Registry) http.Handler {
 	t.Helper()
-	collector, err := metrics.NewCronRecoveryCollector(cronmetrics.New())
+	cron, err := metrics.NewCronRecoveryCollector(cronmetrics.New())
 	if err != nil {
 		t.Fatalf("NewCronRecoveryCollector() error = %v", err)
 	}
-	handler, err := metrics.HandlerWithCronRecovery(collector)
+	dream, err := metrics.NewDreamCollector(dreammetrics.NewRegistry())
 	if err != nil {
-		t.Fatalf("HandlerWithCronRecovery() error = %v", err)
+		t.Fatalf("NewDreamCollector() error = %v", err)
+	}
+	skill, err := metrics.NewSkillCollector(skillSource)
+	if err != nil {
+		t.Fatalf("NewSkillCollector() error = %v", err)
+	}
+	handler, err := metrics.NewHandler(metrics.Collectors{
+		Cron: cron, DAG: metrics.NewDAGCollector(), Dream: dream, Bootstrap: metrics.NewBootstrapMetrics(), Skill: skill,
+	})
+	if err != nil {
+		t.Fatalf("NewHandler() error = %v", err)
 	}
 	return handler
 }
 
 func TestHTTPAssetRoutesExposePrometheusMetricsEndpointWhenExplicitlyEnabled(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_ENABLE_METRICS", "1")
-	skillmetrics.ResetForTesting()
-	t.Cleanup(skillmetrics.ResetForTesting)
-	skillmetrics.IncHostToolCallOutcome(skillmetrics.HostToolOutcomeOK)
+	skillSource := skillmetrics.NewRegistry()
+	skillSource.IncHostToolCallOutcome(skillmetrics.HostToolOutcomeOK)
 
 	mux := http.NewServeMux()
 	if err := registerHTTPAssetRoutes(mux, nil, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "asset fallback should not handle /metrics", http.StatusTeapot)
-	}), newTestMetricsHandler(t), ""); err != nil {
+	}), newTestMetricsHandler(t, skillSource), ""); err != nil {
 		t.Fatalf("registerHTTPAssetRoutes: %v", err)
 	}
 
@@ -65,7 +75,7 @@ func TestMetricsRouteDisabledByDefault(t *testing.T) {
 	mux := http.NewServeMux()
 	if err := registerHTTPAssetRoutes(mux, nil, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "asset fallback", http.StatusTeapot)
-	}), newTestMetricsHandler(t), ""); err != nil {
+	}), newTestMetricsHandler(t, skillmetrics.NewRegistry()), ""); err != nil {
 		t.Fatalf("registerHTTPAssetRoutes: %v", err)
 	}
 
@@ -95,7 +105,7 @@ func TestMetricsRouteRequiresExplicitPolicy(t *testing.T) {
 	mux := http.NewServeMux()
 	if err := registerHTTPAssetRoutes(mux, nil, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "asset fallback", http.StatusTeapot)
-	}), newTestMetricsHandler(t), "token-1"); err != nil {
+	}), newTestMetricsHandler(t, skillmetrics.NewRegistry()), "token-1"); err != nil {
 		t.Fatalf("registerHTTPAssetRoutes: %v", err)
 	}
 
@@ -168,10 +178,13 @@ func TestNewHTTPAssetServerUsesConfiguredAddr(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_HTTP_ADDR", "127.0.0.1:0")
 
 	result := NewHTTPAssetServer(httpAssetServerParams{
-		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Frontend: testHTTPFrontendFS(),
-		Metrics:  cronmetrics.New(),
-		Binding:  newHTTPAssetTestApp(),
+		Logger:           slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Frontend:         testHTTPFrontendFS(),
+		Metrics:          cronmetrics.New(),
+		DAGMetrics:       metrics.NewDAGCollector(),
+		BootstrapMetrics: metrics.NewBootstrapMetrics(),
+		SkillMetrics:     skillmetrics.NewRegistry(),
+		Binding:          newHTTPAssetTestApp(),
 	})
 
 	server, ok := result.Runner.(*httpAssetServer)
@@ -203,10 +216,13 @@ func TestNewHTTPAssetServerUsesDevSessionTokenForWebSocket(t *testing.T) {
 	t.Setenv("GO_AGENT_MCP_SESSION_TOKEN", "")
 
 	result := NewHTTPAssetServer(httpAssetServerParams{
-		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Frontend: testHTTPFrontendFS(),
-		Metrics:  cronmetrics.New(),
-		Binding:  newHTTPAssetTestApp(),
+		Logger:           slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Frontend:         testHTTPFrontendFS(),
+		Metrics:          cronmetrics.New(),
+		DAGMetrics:       metrics.NewDAGCollector(),
+		BootstrapMetrics: metrics.NewBootstrapMetrics(),
+		SkillMetrics:     skillmetrics.NewRegistry(),
+		Binding:          newHTTPAssetTestApp(),
 	})
 	server, ok := result.Runner.(*httpAssetServer)
 	if !ok {
@@ -221,10 +237,13 @@ func TestHTTPAssetServerRejectsNonLoopbackConfiguredAddr(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_HTTP_ADDR", "0.0.0.0:0")
 
 	result := NewHTTPAssetServer(httpAssetServerParams{
-		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Frontend: testHTTPFrontendFS(),
-		Metrics:  cronmetrics.New(),
-		Binding:  newHTTPAssetTestApp(),
+		Logger:           slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Frontend:         testHTTPFrontendFS(),
+		Metrics:          cronmetrics.New(),
+		DAGMetrics:       metrics.NewDAGCollector(),
+		BootstrapMetrics: metrics.NewBootstrapMetrics(),
+		SkillMetrics:     skillmetrics.NewRegistry(),
+		Binding:          newHTTPAssetTestApp(),
 	})
 	server, ok := result.Runner.(*httpAssetServer)
 	if !ok {

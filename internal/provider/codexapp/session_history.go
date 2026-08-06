@@ -11,6 +11,7 @@ import (
 
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 // Message 表示 Codex rollout 历史中的单条 provider 消息。
@@ -23,14 +24,15 @@ type Message struct {
 }
 
 type rolloutReader struct {
-	logger    *slog.Logger
-	transport *transport
+	logger       *slog.Logger
+	transport    *transport
+	skillMetrics *skillmetrics.Registry
 }
 
 // ReadHistory 从本地 rollout 文件读取 Codex 历史消息。
 // 本地历史缺失时返回空列表并告警；远端 history API 当前不可用，不做静默远端兜底。
 func (r *rolloutReader) ReadHistory(ctx context.Context, threadID, codexHome string, limit int) ([]Message, error) {
-	if messages, err := readLocalRollout(threadID, codexHome, limit); err == nil && len(messages) > 0 {
+	if messages, err := readLocalRollout(threadID, codexHome, limit, r.skillMetrics); err == nil && len(messages) > 0 {
 		return messages, nil
 	} else if err != nil && r.logger != nil {
 		r.logger.Warn("codexapp: local rollout history unavailable", "thread_id", threadID, "error", err)

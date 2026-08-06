@@ -58,7 +58,7 @@ func TestDefaultApprovalCachePath_DefaultsToHome(t *testing.T) {
 }
 
 func TestLookupArtifactApproval_NilCacheReturnsFalse(t *testing.T) {
-	svc := NewService(t.TempDir()).(*service)
+	svc := NewService(t.TempDir(), testSkillMetrics(t)).(*service)
 	svc.approval = nil
 	approved, err := svc.LookupArtifactApproval(context.Background(), contract.ArtifactApprovalRequest{
 		RepoFingerprint: "repo",
@@ -79,7 +79,7 @@ func newTestCache(t *testing.T) *ApprovalCache {
 	t.Helper()
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "skills-trust.json")
-	cache, err := NewApprovalCache(path)
+	cache, err := NewApprovalCache(path, testSkillMetrics(t))
 	if err != nil {
 		t.Fatalf("NewApprovalCache() error = %v", err)
 	}
@@ -98,7 +98,7 @@ func TestApprovalCache_NewLoadsEmptyWhenFileMissing(t *testing.T) {
 }
 
 func TestApprovalCache_NewRequiresPath(t *testing.T) {
-	if _, err := NewApprovalCache(""); err != ErrApprovalCachePathRequired {
+	if _, err := NewApprovalCache("", testSkillMetrics(t)); err != ErrApprovalCachePathRequired {
 		t.Fatalf("expected ErrApprovalCachePathRequired, got %v", err)
 	}
 }
@@ -232,7 +232,7 @@ func TestApprovalCache_RevokeNonExistentIsNoop(t *testing.T) {
 func TestApprovalCache_ReloadFromFile(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "skills-trust.json")
-	first, err := NewApprovalCache(path)
+	first, err := NewApprovalCache(path, testSkillMetrics(t))
 	if err != nil {
 		t.Fatalf("first NewApprovalCache: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestApprovalCache_ReloadFromFile(t *testing.T) {
 		t.Fatalf("approve: %v", err)
 	}
 
-	second, err := NewApprovalCache(path)
+	second, err := NewApprovalCache(path, testSkillMetrics(t))
 	if err != nil {
 		t.Fatalf("second NewApprovalCache: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestApprovalCache_CorruptedFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte("not json at all {"), 0o600); err != nil {
 		t.Fatalf("write corrupted: %v", err)
 	}
-	cache, err := NewApprovalCache(path)
+	cache, err := NewApprovalCache(path, testSkillMetrics(t))
 	if err == nil {
 		t.Fatalf("expected error on corrupted file")
 	}
@@ -295,7 +295,7 @@ func TestApprovalCache_ConcurrentApproveAllEntriesPersisted(t *testing.T) {
 	}
 
 	// 从磁盘重载也应保留全部条目，验证并发写入没有丢失最终快照。
-	reloaded, err := NewApprovalCache(cache.Path())
+	reloaded, err := NewApprovalCache(cache.Path(), testSkillMetrics(t))
 	if err != nil {
 		t.Fatalf("reload: %v", err)
 	}
@@ -465,7 +465,7 @@ func TestApprovalCache_LegacyJSONRoundtrip(t *testing.T) {
 	if err := os.WriteFile(path, []byte(legacyJSON), 0o600); err != nil {
 		t.Fatalf("write legacy JSON: %v", err)
 	}
-	cache, err := NewApprovalCache(path)
+	cache, err := NewApprovalCache(path, testSkillMetrics(t))
 	if err != nil {
 		t.Fatalf("load legacy: %v", err)
 	}

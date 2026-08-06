@@ -354,7 +354,7 @@ func TestImportLocalDir_BatchRejectsNameOverride(t *testing.T) {
 func newImportDirTestService(t *testing.T) (*service, string) {
 	t.Helper()
 	projectRoot := t.TempDir()
-	svc := NewService(projectRoot).(*service)
+	svc := NewService(projectRoot, testSkillMetrics(t)).(*service)
 	svc.root = t.TempDir()
 	svc.projectSkillsRoot = defaultProjectSkillsRoot(projectRoot)
 	svc.superDolphinHome = newTestSuperDolphinHome(t)

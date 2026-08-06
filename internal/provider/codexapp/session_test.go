@@ -42,6 +42,7 @@ func TestNewSessionWithOptionsRejectsNilApprovalManagerAndReleasesPoolSlot(t *te
 		nil,
 		nil,
 		withPoolServer("ws://127.0.0.1:1", func() { releases++ }),
+		withSkillMetrics(testSkillMetrics(t)),
 	)
 	if s != nil {
 		t.Fatalf("newSessionWithOptions() session = %#v, want nil", s)
@@ -81,6 +82,7 @@ func TestNewSessionWithOptionsPropagatesAgentLogFailureAndReleasesPoolSlot(t *te
 		testApprovalManager(),
 		nil,
 		withPoolServer(serverURL, func() { releases++ }),
+		withSkillMetrics(testSkillMetrics(t)),
 	)
 	if err == nil || !strings.Contains(err.Error(), "create agent logger") {
 		t.Fatalf("newSessionWithOptions() error = %v, want agent logger failure", err)

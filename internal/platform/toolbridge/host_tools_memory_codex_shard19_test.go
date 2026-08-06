@@ -8,6 +8,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/mcpcontrol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 func TestListToolsForCodex_IncludesHostMemoryReadAndWrite(t *testing.T) {
@@ -66,7 +67,7 @@ func TestListToolsForCodex_FiltersRemovedSkillToolsFromHostAndPeer(t *testing.T)
 		dto.ClientKindLSP:  {listToolsPeer(nil, nil)},
 	}}
 	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: ToolNameLegacySkillExpandBody, Description: "host removed"}, {Name: ToolNameMemoryRead, Description: "host memory"}}}
-	h := &Handler{registry: registry, hostTools: host}
+	h := &Handler{registry: registry, hostTools: host, skillMetrics: skillmetrics.NewRegistry()}
 
 	tools, err := h.ListToolsForCodex(context.Background())
 	if err != nil {
@@ -157,7 +158,7 @@ func TestListToolsForCodex_FiltersPeerMemoryReadWhenMemoryReadToolsDisabled(t *t
 		dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: ToolNameMemoryRead, Description: "peer memory"}, {Name: "launch_agent", Description: "peer orch"}}, nil)},
 		dto.ClientKindLSP:  {listToolsPeer(nil, nil)},
 	}}
-	h := &Handler{registry: registry, hostTools: host}
+	h := &Handler{registry: registry, hostTools: host, skillMetrics: skillmetrics.NewRegistry()}
 	tools, err := h.ListToolsForCodex(context.Background())
 	if err != nil {
 		t.Fatalf("ListToolsForCodex() error = %v", err)
@@ -186,7 +187,7 @@ func TestListToolsForCodex_HostMemoryReadPreventsPeerMemoryReadUse(t *testing.T)
 		dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: ToolNameMemoryRead, Description: "peer memory"}}, nil)},
 		dto.ClientKindLSP:  {listToolsPeer(nil, nil)},
 	}}
-	h := &Handler{registry: registry, hostTools: host}
+	h := &Handler{registry: registry, hostTools: host, skillMetrics: skillmetrics.NewRegistry()}
 	tools, err := h.ListToolsForCodex(context.Background())
 	if err != nil {
 		t.Fatalf("ListToolsForCodex() error = %v", err)
@@ -215,7 +216,7 @@ func TestCodexMemoryReadCallToolsDisabledReturnsStableEnvelopeWithoutPeerFallbac
 			}}},
 		},
 	}}
-	h := &Handler{registry: registry, hostTools: host}
+	h := &Handler{registry: registry, hostTools: host, skillMetrics: skillmetrics.NewRegistry()}
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: ToolNameMemoryRead, Arguments: mustMarshal(t, map[string]any{"name": "daily"}), AgentID: "agent-1", CWD: t.TempDir()})
 
@@ -236,7 +237,7 @@ func TestCodexMemoryReadCallFeatureDisabledReturnsStableEnvelopeWithoutPeerFallb
 			}}},
 		},
 	}}
-	h := &Handler{registry: registry, hostTools: host}
+	h := &Handler{registry: registry, hostTools: host, skillMetrics: skillmetrics.NewRegistry()}
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: ToolNameMemoryRead, Arguments: mustMarshal(t, map[string]any{"name": "daily"}), AgentID: "agent-1"})
 
@@ -256,7 +257,7 @@ func TestCodexMemoryReadCallNilReaderReturnsStableEnvelopeWithoutPeerFallback(t 
 			}}},
 		},
 	}}
-	h := &Handler{registry: registry, hostTools: host}
+	h := &Handler{registry: registry, hostTools: host, skillMetrics: skillmetrics.NewRegistry()}
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: ToolNameMemoryRead, Arguments: mustMarshal(t, map[string]any{"name": "daily"}), AgentID: "agent-1"})
 
@@ -277,7 +278,7 @@ func TestCodexMemoryReadCallReaderErrorPreservesCodeWithoutPeerFallback(t *testi
 			}}},
 		},
 	}}
-	h := &Handler{registry: registry, hostTools: host}
+	h := &Handler{registry: registry, hostTools: host, skillMetrics: skillmetrics.NewRegistry()}
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: ToolNameMemoryRead, Arguments: mustMarshal(t, map[string]any{"name": "private"}), AgentID: "agent-1", CWD: t.TempDir()})
 
@@ -298,7 +299,7 @@ func TestCodexMemoryReadCallUsesHostDirect(t *testing.T) {
 			}}},
 		},
 	}}
-	h := &Handler{registry: registry, hostTools: host}
+	h := &Handler{registry: registry, hostTools: host, skillMetrics: skillmetrics.NewRegistry()}
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: ToolNameMemoryRead, Arguments: mustMarshal(t, map[string]any{"name": "daily", "scope": "user"}), AgentID: "agent-1", CWD: t.TempDir()})
 	if err != nil {
 		t.Fatalf("routeToolCall() error = %v", err)
@@ -340,7 +341,7 @@ func TestCodexMemoryWriteCallWithoutHostDoesNotFallbackToPeer(t *testing.T) {
 func TestCodexMemoryWriteCallToolsDisabledReturnsStableEnvelope(t *testing.T) {
 	writer := &stubAgentMemoryWriter{}
 	host := NewMemoryWriteHostToolRegistry(writer, MemoryWriteHostToolOptions{Enabled: true, ToolsEnabled: false})
-	h := &Handler{registry: &stubKindRegistry{}, hostTools: host}
+	h := &Handler{registry: &stubKindRegistry{}, hostTools: host, skillMetrics: skillmetrics.NewRegistry()}
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: ToolNameMemoryWrite, Arguments: mustMarshal(t, map[string]any{"name": "daily"}), AgentID: "agent-1"})
 	assertHostRouteFailFast(t, got, err)
 }

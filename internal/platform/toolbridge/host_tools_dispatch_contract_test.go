@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 type cwdOptionalHostToolRegistry struct {
@@ -37,7 +38,7 @@ func (r *cwdOptionalHostToolRegistry) CallHostTool(_ context.Context, call HostT
 func TestCallHostToolCWDOptionalSkipsResolverAndMirrorsStructuredContent(t *testing.T) {
 	host := &cwdOptionalHostToolRegistry{result: map[string]any{"trace_id": "trace-1", "source": "memory"}}
 	resolver := &stubCWDResolver{err: errors.New("resolver should not be called")}
-	h := &Handler{resolver: resolver, hostTools: host}
+	h := &Handler{resolver: resolver, hostTools: host, skillMetrics: skillmetrics.NewRegistry()}
 
 	got, err := h.callHostTool(context.Background(), ToolCallRequest{Name: "observability_trace_get", Arguments: json.RawMessage(`{"trace_id":"trace-1"}`)})
 	if err != nil {

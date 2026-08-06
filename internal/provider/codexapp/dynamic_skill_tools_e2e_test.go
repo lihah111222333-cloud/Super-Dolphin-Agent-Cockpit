@@ -153,13 +153,13 @@ func runDynamicSkillToolsModelE2E(t *testing.T, scenario dynamicSkillModelScenar
 
 	recorder := newDynamicSkillModelRecorder()
 	serverURL := startDynamicSkillModelServer(t, recorder, scenario.finalDelta)
-	drv := newDriver(nil, dispatcher, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
+	drv := requireToolBridgeDriver(t, newDriver(nil, dispatcher, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 		return []codexprotocol.DynamicToolSchema{{
 			Name:        testGenericDynamicToolName,
 			Description: "Echo test payload through dynamic tool transport.",
 			InputSchema: json.RawMessage(`{"type":"object"}`),
 		}}, nil
-	}).(*driver)
+	}))
 
 	sessionAny, err := drv.StartSession(context.Background(), providerdto.StartSessionRequest{
 		AgentID:       "agent-1",

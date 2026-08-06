@@ -121,7 +121,7 @@ func newEarlyTerminalTurnFixture(t *testing.T) earlyTerminalTurnFixture {
 	terminals := make(chan turndto.TurnCompleted, 2)
 	cancelTerminal := event.Subscribe(bus, func(ev turndto.TurnCompleted) { terminals <- ev })
 	t.Cleanup(cancelTerminal)
-	s, err := newSession(context.Background(), pkglogger.Get(), startEarlyTerminalTurnStartServer(t), "agent-1", dispatcher, testApprovalManager(), nil)
+	s, err := newSession(context.Background(), pkglogger.Get(), startEarlyTerminalTurnStartServer(t), "agent-1", dispatcher, testApprovalManager(), nil, testSkillMetrics(t))
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}
@@ -591,7 +591,7 @@ func startBlockedInterruptResponseServer(t *testing.T) (string, <-chan struct{},
 
 func newActiveInterruptTestSession(t *testing.T, serverURL string, dispatcher *unified.EventDispatcher) *session {
 	t.Helper()
-	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", dispatcher, testApprovalManager(), nil)
+	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", dispatcher, testApprovalManager(), nil, testSkillMetrics(t))
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}
@@ -662,7 +662,7 @@ func newInterruptTestSession(t *testing.T, paramsCh chan<- map[string]any) *sess
 		}
 		return mustJSON(map[string]any{"ok": true})
 	})
-	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", nil, testApprovalManager(), nil)
+	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", nil, testApprovalManager(), nil, testSkillMetrics(t))
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}

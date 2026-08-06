@@ -20,6 +20,7 @@ import (
 	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 	"go.uber.org/fx"
 )
 
@@ -91,6 +92,7 @@ type DriverFactoryParams struct {
 	Mirror       contract.SkillMirrorReconciler
 	Recovery     contract.SessionRecoveryReporter `optional:"true"`
 	RuntimeHooks providershared.RuntimeHooks
+	Metrics      *skillmetrics.Registry
 }
 
 func provideDriverFactory(p DriverFactoryParams) (*DriverFactory, error) {
@@ -101,7 +103,12 @@ func provideDriverFactory(p DriverFactoryParams) (*DriverFactory, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewDriverFactory(p.Logger, p.Dispatcher, p.Approvals, reporter, p.Manager, p.Pool, p.Mirror, p.Recovery, p.RuntimeHooks), nil
+	if p.Metrics == nil {
+		return nil, fmt.Errorf("codexapp skill metrics registry is required")
+	}
+	factory := NewDriverFactory(p.Logger, p.Dispatcher, p.Approvals, reporter, p.Manager, p.Pool, p.Mirror, p.Recovery, p.RuntimeHooks)
+	factory.SetSkillMetrics(p.Metrics)
+	return factory, nil
 }
 
 func provideContractDriverFactory(factory *DriverFactory) contract.DriverFactory {

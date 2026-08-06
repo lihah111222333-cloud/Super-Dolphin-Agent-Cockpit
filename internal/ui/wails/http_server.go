@@ -77,9 +77,23 @@ func NewHTTPAssetServer(p httpAssetServerParams) httpAssetRunnerResult {
 	if err != nil {
 		startupErr = errors.Join(startupErr, err)
 	}
+	dreamCollector, err := metrics.NewDreamCollector(metrics.DreamRegistry())
+	if err != nil {
+		startupErr = errors.Join(startupErr, err)
+	}
+	skillCollector, err := metrics.NewSkillCollector(p.SkillMetrics)
+	if err != nil {
+		startupErr = errors.Join(startupErr, err)
+	}
 	var metricsHandler http.Handler
-	if cronCollector != nil {
-		metricsHandler, err = metrics.HandlerWithCronRecovery(cronCollector)
+	if cronCollector != nil && dreamCollector != nil && skillCollector != nil {
+		metricsHandler, err = metrics.NewHandler(metrics.Collectors{
+			Cron:      cronCollector,
+			DAG:       p.DAGMetrics,
+			Dream:     dreamCollector,
+			Bootstrap: p.BootstrapMetrics,
+			Skill:     skillCollector,
+		})
 		if err != nil {
 			startupErr = errors.Join(startupErr, err)
 		}

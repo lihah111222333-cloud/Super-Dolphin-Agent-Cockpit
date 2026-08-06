@@ -22,6 +22,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/ctxutil"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 var errApprovalManagerRequired = errors.New("codexapp: approval manager is required")
@@ -62,6 +63,7 @@ type DriverFactory struct {
 	mirror          contract.SkillMirrorReconciler
 	recovery        contract.SessionRecoveryReporter
 	runtimeHooks    providershared.RuntimeHooks
+	skillMetrics    *skillmetrics.Registry
 }
 
 type driver struct {
@@ -79,6 +81,7 @@ type driver struct {
 	mirror          contract.SkillMirrorReconciler
 	recovery        contract.SessionRecoveryReporter
 	runtimeHooks    providershared.RuntimeHooks
+	skillMetrics    *skillmetrics.Registry
 }
 
 var _ contract.Driver = (*driver)(nil)
@@ -164,6 +167,7 @@ func NewDriverFactory(
 			raw := newDriver(logger, dispatcher, approvals, reporter, manager, pool, factory.mirror, factory.recovery, factory.currentListTools())
 			if d, ok := raw.(*driver); ok {
 				d.runtimeHooks = factory.runtimeHooks
+				d.skillMetrics = factory.currentSkillMetrics()
 				d.prepareTools = factory.currentPrepareTools()
 				d.bindTools = factory.currentBindTools()
 				d.releaseTools = factory.currentReleaseTools()
@@ -203,7 +207,7 @@ func (d *driver) startSession(ctx context.Context, req dto.StartSessionRequest) 
 	if err != nil {
 		return nil, err
 	}
-	opts = append(opts, withRuntimeHooks(d.runtimeHooks))
+	opts = append(opts, withRuntimeHooks(d.runtimeHooks), withSkillMetrics(d.skillMetrics))
 	s, err := newSessionWithOptions(ctx, d.logger, d.serverURL, req.AgentID, d.eventDispatcher, d.approvals, d.manager, opts...)
 	if err != nil {
 		return nil, err
@@ -276,7 +280,7 @@ func (d *driver) resumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	if err != nil {
 		return nil, err
 	}
-	opts = append(opts, withRuntimeHooks(d.runtimeHooks))
+	opts = append(opts, withRuntimeHooks(d.runtimeHooks), withSkillMetrics(d.skillMetrics))
 	s, err := newSessionWithOptions(ctx, d.logger, d.serverURL, req.AgentID, d.eventDispatcher, d.approvals, d.manager, opts...)
 	if err != nil {
 		return nil, err

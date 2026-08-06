@@ -238,7 +238,7 @@ func TestNewServiceConfiguresProjectRootAndHTTPTimeout(t *testing.T) {
 	t.Parallel()
 
 	project := filepath.Clean("/tmp/project")
-	impl, ok := NewService(" /tmp/project ").(*service)
+	impl, ok := NewService(" /tmp/project ", testSkillMetrics(t)).(*service)
 	if !ok {
 		t.Fatal("NewService type assertion failed")
 	}
@@ -256,7 +256,7 @@ func TestNewServiceConfiguresProjectRootAndHTTPTimeout(t *testing.T) {
 func TestNewServiceOmitsProjectSkillsRootWhenProjectRootEmpty(t *testing.T) {
 	t.Parallel()
 
-	impl, ok := NewService("   ").(*service)
+	impl, ok := NewService("   ", testSkillMetrics(t)).(*service)
 	if !ok {
 		t.Fatal("NewService type assertion failed")
 	}
@@ -272,7 +272,7 @@ func TestNewServiceIgnoresLegacySkillsRootEnvOverride(t *testing.T) {
 	override := t.TempDir()
 	t.Setenv("SKILLS_ROOT", "  "+override+"  ")
 
-	impl, ok := NewService("").(*service)
+	impl, ok := NewService("", testSkillMetrics(t)).(*service)
 	if !ok {
 		t.Fatal("NewService type assertion failed")
 	}

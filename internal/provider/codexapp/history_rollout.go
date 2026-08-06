@@ -11,6 +11,7 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/sessionpaths"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillblocks"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 type rolloutLine struct {
@@ -33,7 +34,7 @@ type rolloutContentItem struct {
 
 // readLocalRollout 读取 Codex rollout JSONL 并返回最近的对话消息。
 // codexHome 用于定位多实例 sessions 目录，避免误读默认 ~/.codex 的同名 thread。
-func readLocalRollout(threadID, codexHome string, limit int) ([]Message, error) {
+func readLocalRollout(threadID, codexHome string, limit int, metrics *skillmetrics.Registry) ([]Message, error) {
 	path, err := findRolloutPath(threadID, codexHome)
 	if err != nil {
 		return nil, err
@@ -47,7 +48,7 @@ func readLocalRollout(threadID, codexHome string, limit int) ([]Message, error) 
 	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	messages := make([]Message, 0, 32)
 	for scanner.Scan() {
-		if msg, ok := parseRolloutLine(scanner.Bytes()); ok {
+		if msg, ok := parseRolloutLine(scanner.Bytes(), metrics); ok {
 			messages = append(messages, msg)
 		}
 	}
@@ -59,7 +60,7 @@ func readLocalRollout(threadID, codexHome string, limit int) ([]Message, error) 
 
 // parseRolloutLine 将 Codex response_item 事件转成统一历史消息。
 // 系统注入块和纯环境噪声会被过滤，用户侧图片/附件 metadata 会保留下来。
-func parseRolloutLine(raw []byte) (Message, bool) {
+func parseRolloutLine(raw []byte, metrics *skillmetrics.Registry) (Message, bool) {
 	var line rolloutLine
 	if err := json.Unmarshal(raw, &line); err != nil || line.Type != "response_item" {
 		return Message{}, false
@@ -72,7 +73,7 @@ func parseRolloutLine(raw []byte) (Message, bool) {
 	metadata := extractRolloutMetadata(payload.Role, payload.Content)
 	if payload.Role == "user" {
 		var ok bool
-		text, ok = normalizeRolloutUserContent(text, metadata)
+		text, ok = normalizeRolloutUserContent(text, metadata, metrics)
 		if !ok {
 			return Message{}, false
 		}
@@ -148,9 +149,9 @@ func rolloutMessageHasContent(text string, metadata json.RawMessage) bool {
 	return strings.TrimSpace(text) != "" || len(metadata) > 0
 }
 
-func normalizeRolloutUserContent(text string, metadata json.RawMessage) (string, bool) {
+func normalizeRolloutUserContent(text string, metadata json.RawMessage, metrics *skillmetrics.Registry) (string, bool) {
 	text = stripLeadingSystemNoise(text)
-	text = trimInjectedLSPHint(trimInjectedSkillBlock(text))
+	text = trimInjectedLSPHint(trimInjectedSkillBlock(text, metrics))
 	if !rolloutMessageHasContent(text, metadata) {
 		return text, false
 	}
@@ -246,8 +247,17 @@ func trimInjectedLSPHint(text string) string {
 
 // trimInjectedSkillBlock 委托公共纯函数裁剪 provider 注入的技能块。
 // Claude 与 Codex 共用识别规则，新增 marker 形态只需在 pkg/skillblocks 维护一次。
-func trimInjectedSkillBlock(text string) string {
-	return skillblocks.TrimInjectedSkillBlocks(text)
+func trimInjectedSkillBlock(text string, metrics *skillmetrics.Registry) string {
+	result := skillblocks.TrimInjectedSkillBlocksWithDiag(text)
+	if result.FooterMissingCount > 0 {
+		if metrics == nil {
+			panic("codexapp skill metrics registry is required")
+		}
+		for range result.FooterMissingCount {
+			metrics.IncTrimCorruptionFallback()
+		}
+	}
+	return result.Text
 }
 
 func normalizeRolloutInputType(kind string) string {

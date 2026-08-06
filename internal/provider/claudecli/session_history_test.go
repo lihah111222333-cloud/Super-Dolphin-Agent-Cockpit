@@ -35,7 +35,7 @@ func TestTrimClaudeHistoryFiltersNoiseAndInjectedHints(t *testing.T) {
 		},
 	}
 
-	got := trimClaudeHistory(messages, 0)
+	got := trimClaudeHistory(messages, 0, testSkillMetrics(t))
 	if len(got) != 3 {
 		t.Fatalf("len(trimClaudeHistory()) = %d, want 3", len(got))
 	}
@@ -50,6 +50,17 @@ func TestTrimClaudeHistoryFiltersNoiseAndInjectedHints(t *testing.T) {
 	}
 	if string(got[2].Metadata) == "" {
 		t.Fatal("metadata-only message was not preserved")
+	}
+}
+
+func TestTrimClaudeHistoryCountsMissingSkillFooter(t *testing.T) {
+	metrics := testSkillMetrics(t)
+	got := trimClaudeHistory([]Message{{Role: "user", Content: "question\n[skill:foo::full@v1]\nbody without closing footer"}}, 0, metrics)
+	if len(got) != 1 || got[0].Content != "question" {
+		t.Fatalf("trimClaudeHistory() = %#v, want one trimmed question", got)
+	}
+	if count := metrics.Snapshot().TrimCorruptionFallbackCount; count != 1 {
+		t.Fatalf("TrimCorruptionFallbackCount = %d, want 1", count)
 	}
 }
 
@@ -70,7 +81,7 @@ func TestSessionMessagePageResolvedFallbackPreservesPagination(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(projectsDir, targetID+".jsonl"), []byte("noise\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	s := &session{threadID: resolvedID, history: &historyBackend{sessionDir: dir}}
+	s := &session{threadID: resolvedID, history: &historyBackend{sessionDir: dir, skillMetrics: testSkillMetrics(t)}}
 	first := readClaudeMessagePage(t, s, targetID, dto.MessagePageRequest{Limit: 2})
 	if !first.HasMore || first.NextBefore == "" {
 		t.Fatalf("first page = %#v, want resolved continuation", first)
@@ -95,7 +106,7 @@ func TestSessionMessagePageResolvedFallbackPropagatesReadError(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(resolvedPath, 0o644) })
-	s := &session{threadID: resolvedID, history: &historyBackend{sessionDir: dir}}
+	s := &session{threadID: resolvedID, history: &historyBackend{sessionDir: dir, skillMetrics: testSkillMetrics(t)}}
 	if _, err := s.ReadMessagesPage(context.Background(), targetID, dto.MessagePageRequest{Limit: 2}); err == nil {
 		t.Fatal("ReadMessagesPage() error = nil, want resolved fallback read error")
 	}
@@ -160,7 +171,7 @@ func setupClaudeSourceRevisionSession(t *testing.T) (string, string, string, *se
 	threadID := "thread-source-revision"
 	writeClaudeHistoryMessages(t, dir, threadID, []string{"one", "two", "claude-prompt-that-must-not-leak", "four"})
 	path := filepath.Join(dir, "projects", "test-project", threadID+".jsonl")
-	return dir, threadID, path, &session{threadID: threadID, history: &historyBackend{sessionDir: dir}}
+	return dir, threadID, path, &session{threadID: threadID, history: &historyBackend{sessionDir: dir, skillMetrics: testSkillMetrics(t)}}
 }
 
 func readClaudeMessagePage(t *testing.T, s *session, threadID string, req dto.MessagePageRequest) dto.MessagePageResult {

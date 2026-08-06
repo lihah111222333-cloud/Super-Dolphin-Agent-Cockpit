@@ -20,6 +20,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/mcpcontrol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/observability"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 // Handler 字段只依赖 ports.go 中的窄接口，避免 toolbridge 反向导入具体 store。
@@ -94,6 +95,7 @@ type Handler struct {
 	// toolbridge.Module。
 	hostTools          HostToolRegistry
 	skillTools         contract.SkillToolProvider
+	skillMetrics       skillmetrics.HostToolCallWriter
 	surfaceMu          sync.Mutex
 	surfaces           map[string]*codexToolSurface
 	peerSchemaMu       sync.Mutex
@@ -186,6 +188,7 @@ func NewHandler(in handlerIn) (*Handler, error) {
 		authorityOwner:  in.AuthorityOwner,
 		hostTools:       in.HostTools,
 		skillTools:      in.SkillTools,
+		skillMetrics:     in.Metrics,
 		surfaces:        make(map[string]*codexToolSurface),
 		proxyAuthToken:  newProxyAuthToken(),
 	}
@@ -195,6 +198,9 @@ func NewHandler(in handlerIn) (*Handler, error) {
 
 // validateToolbridgeDependencies 在构造 Handler 前按 dependency profile 校验关键端口，防止生产图退化为空能力。
 func validateToolbridgeDependencies(in handlerIn) error {
+	if in.Metrics == nil {
+		return fmt.Errorf("toolbridge skill metrics registry is required")
+	}
 	if in.AuthorityOwner == nil {
 		return fmt.Errorf("toolbridge MCP authority owner is required")
 	}

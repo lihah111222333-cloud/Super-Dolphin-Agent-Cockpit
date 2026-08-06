@@ -45,9 +45,9 @@ func (s *stubRuntimeReporter) ReportRuntime(_ context.Context, report contract.R
 func TestNewDriverDefaultsLoggerAndBinaryPath(t *testing.T) {
 	t.Parallel()
 
-	got, ok := newDriver(nil, nil, nil, nil, nil, nil, nil, nil).(*driver)
+	got, ok := newDriver(nil, nil, nil, nil, nil, nil, nil, nil, testSkillMetrics(t)).(*driver)
 	if !ok {
-		t.Fatalf("newDriver() type = %T, want *driver", newDriver(nil, nil, nil, nil, nil, nil, nil, nil))
+		t.Fatalf("newDriver() type = %T, want *driver", newDriver(nil, nil, nil, nil, nil, nil, nil, nil, testSkillMetrics(t)))
 	}
 	if got.logger == nil {
 		t.Fatal("newDriver() logger = nil")
@@ -63,7 +63,7 @@ func TestNewDriverDefaultsLoggerAndBinaryPath(t *testing.T) {
 func TestNewDriverFactoryCreateReturnsClaudeDriver(t *testing.T) {
 	t.Parallel()
 
-	factory, err := provideDriverFactory(completeClaudeDriverFactoryParamsForTest())
+	factory, err := provideDriverFactory(completeClaudeDriverFactoryParamsForTest(t))
 	if err != nil {
 		t.Fatalf("provideDriverFactory() error = %v", err)
 	}
@@ -84,7 +84,7 @@ func TestNewDriverFactoryCreateReturnsClaudeDriver(t *testing.T) {
 }
 
 func TestClaudeDriverFactoryRequiresDependencyProfile(t *testing.T) {
-	params := completeClaudeDriverFactoryParamsForTest()
+	params := completeClaudeDriverFactoryParamsForTest(t)
 	params.Dependency = contract.DependencyConfig{}
 	_, err := provideDriverFactory(params)
 	if err == nil || !strings.Contains(err.Error(), "dependency profile") {
@@ -92,10 +92,19 @@ func TestClaudeDriverFactoryRequiresDependencyProfile(t *testing.T) {
 	}
 }
 
-func completeClaudeDriverFactoryParamsForTest() driverFactoryParams {
+func TestClaudeDriverFactoryRequiresSkillMetricsRegistry(t *testing.T) {
+	params := completeClaudeDriverFactoryParamsForTest(t)
+	params.Metrics = nil
+	if _, err := provideDriverFactory(params); err == nil || !strings.Contains(err.Error(), "skill metrics registry") {
+		t.Fatalf("provideDriverFactory() error = %v, want missing skill metrics registry", err)
+	}
+}
+
+func completeClaudeDriverFactoryParamsForTest(t *testing.T) driverFactoryParams {
 	return driverFactoryParams{
 		Reporter:   &stubRuntimeReporter{},
 		Dependency: contract.DependencyConfig{Profile: contract.DependencyProfileTest},
+		Metrics:    testSkillMetrics(t),
 	}
 }
 
@@ -103,7 +112,7 @@ func TestDriverReportRuntimeUsesProviderWithoutPort(t *testing.T) {
 	t.Parallel()
 
 	reporter := &stubRuntimeReporter{}
-	got := newDriver(nil, nil, reporter, nil, nil, nil, nil, nil).(*driver)
+	got := newDriver(nil, nil, reporter, nil, nil, nil, nil, nil, testSkillMetrics(t)).(*driver)
 	if err := got.reportRuntime(" agent-1 "); err != nil {
 		t.Fatalf("reportRuntime() error = %v", err)
 	}

@@ -16,7 +16,6 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp/resultguard"
 	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 const (
@@ -66,14 +65,12 @@ func enrichToolCallParams(msg RawMessage, agentID, cwd string) RawMessage {
 	}
 	var payload map[string]json.RawMessage
 	if err := json.Unmarshal(msg.Params, &payload); err != nil || payload == nil || !injectToolCallMetadata(payload, agentID, cwd) {
-		skillmetrics.IncEnrichFailure()
 		return msg
 	}
 	if raw, err := json.Marshal(payload); err == nil {
 		msg.Params = raw
 		return msg
 	}
-	skillmetrics.IncEnrichFailure()
 	return msg
 }
 
@@ -131,6 +128,10 @@ func (s *session) prepareToolCall(msg RawMessage) (preparedToolCall, error) {
 	header := toolCallHeader(agentID, turnID, callID, toolName, started)
 	enriched, err := enrichToolCallParamsStrict(msg, agentID, providerThreadID, callID, cwd, workspaceRoots)
 	if err != nil {
+		if s.skillMetrics == nil {
+			panic("codexapp skill metrics registry is required")
+		}
+		s.skillMetrics.IncEnrichFailure()
 		return preparedToolCall{}, err
 	}
 	return preparedToolCall{header: header, params: enriched, started: started}, nil

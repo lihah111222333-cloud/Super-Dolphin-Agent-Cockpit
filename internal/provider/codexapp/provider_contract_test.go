@@ -22,6 +22,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/contracttest"
 	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 func TestCodexAppProviderContract(t *testing.T) {
@@ -284,7 +285,7 @@ func codexAppApprovalContractCase() contracttest.Case {
 			}
 			return mustJSON(map[string]any{"ok": true})
 		})
-		s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-approval-contract", nil, rpc.NewApprovalManager(nil, nil), nil)
+		s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-approval-contract", nil, rpc.NewApprovalManager(nil, nil), nil, testSkillMetrics(t))
 		if err != nil {
 			t.Fatalf("newSession() error = %v", err)
 		}
@@ -377,7 +378,7 @@ func codexAppResumeIdentityContractCase() contracttest.Case {
 			}
 		})
 		reporter := &stubRuntimeReporter{}
-		d := &driver{approvals: testApprovalManager(), pool: newSingleURLPoolForTest(t, serverURL), reporter: reporter, mirror: &recordingSkillMirrorReconciler{}}
+		d := &driver{approvals: testApprovalManager(), pool: newSingleURLPoolForTest(t, serverURL), reporter: reporter, mirror: &recordingSkillMirrorReconciler{}, skillMetrics: testSkillMetrics(t)}
 		resumed, err := d.ResumeSession(context.Background(), req)
 		if err != nil {
 			t.Fatalf("ResumeSession() error = %v", err)
@@ -618,10 +619,11 @@ func newCodexAppContractDriverEnv() *codexAppContractDriverEnv {
 		closeServer()
 	}
 	env.driver = &driver{
-		approvals: testApprovalManager(),
-		pool:      pool,
-		mirror:    &recordingSkillMirrorReconciler{},
-		listTools: func(context.Context) ([]codexprotocol.DynamicToolSchema, error) { return nil, nil },
+		approvals:    testApprovalManager(),
+		pool:         pool,
+		mirror:       &recordingSkillMirrorReconciler{},
+		skillMetrics: skillmetrics.NewRegistry(),
+		listTools:    func(context.Context) ([]codexprotocol.DynamicToolSchema, error) { return nil, nil },
 	}
 	return env
 }

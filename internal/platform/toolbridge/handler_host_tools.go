@@ -391,7 +391,7 @@ func (h *Handler) callHostTool(ctx context.Context, req ToolCallRequest) (*ToolC
 	started := time.Now()
 	outcome := skillmetrics.HostToolOutcomeError
 	defer func() {
-		skillmetrics.IncHostToolCallOutcome(outcome)
+		h.skillMetrics.IncHostToolCallOutcome(outcome)
 		h.info("toolbridge host-direct tool call",
 			"tool", strings.TrimSpace(req.Name),
 			"agent_id", strings.TrimSpace(req.AgentID),

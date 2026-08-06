@@ -15,6 +15,7 @@ import (
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/difftracker"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/mcpcontrol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 func TestSchemaHelperProductionPathIgnoresProjectRootAndEnvironment(t *testing.T) {
@@ -207,6 +208,7 @@ func (f toolbridgeDependencyFixture) handlerIn() handlerIn {
 			tools:       []mcpdto.MCPTool{{Name: testHostToolName}},
 		},
 		SkillTools: &fakeSkillToolProvider{},
+		Metrics:    skillmetrics.NewRegistry(),
 	}
 	omitToolbridgeDependencyForTest(&in, f.omit)
 	return in

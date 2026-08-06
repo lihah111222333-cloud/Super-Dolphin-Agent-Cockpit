@@ -11,6 +11,7 @@ import (
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 // encodeAttachmentHint 将文件或图片输入编码成可写入 Claude 文本流的提示行。
@@ -340,6 +341,6 @@ func shouldKeepEmptyMessage(msg Message) bool {
 }
 
 // stripSystemNoise 去掉 Claude CLI 输出前缀中注入的系统提示噪声。
-func stripSystemNoise(text string) string {
-	return trimInjectedClaudeLSPHint(trimInjectedClaudeSkillBlock(stripLeadingClaudeSystemNoise(text)))
+func stripSystemNoise(text string, metrics *skillmetrics.Registry) string {
+	return trimInjectedClaudeLSPHint(trimInjectedClaudeSkillBlock(stripLeadingClaudeSystemNoise(text), metrics))
 }

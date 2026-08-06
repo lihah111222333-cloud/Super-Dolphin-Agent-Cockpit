@@ -329,11 +329,12 @@ func newCodexDriverWithRuntimeReporterForTest(t *testing.T, reporter contract.Ru
 	}
 	serverURL := startCodexRPCServer(t, runtimeReportCodexRPCResult)
 	driver := &driver{
-		approvals: testApprovalManager(),
-		pool:      newSingleURLPoolForTest(t, serverURL),
-		mirror:    &recordingSkillMirrorReconciler{},
-		reporter:  modeReporter,
-		listTools: noopCodexToolLister,
+		approvals:    testApprovalManager(),
+		skillMetrics: testSkillMetrics(t),
+		pool:         newSingleURLPoolForTest(t, serverURL),
+		mirror:       &recordingSkillMirrorReconciler{},
+		reporter:     modeReporter,
+		listTools:    noopCodexToolLister,
 	}
 	return driver, modeReporter
 }
@@ -380,7 +381,7 @@ func codexResumeRequestForRuntimeReportTest(t *testing.T) dto.ResumeSessionReque
 func TestNewSessionInitializesStateAndCapabilities(t *testing.T) {
 	t.Parallel()
 
-	s, err := newSession(context.Background(), nil, startCodexTestServer(t), " agent-1 ", nil, testApprovalManager(), nil)
+	s, err := newSession(context.Background(), nil, startCodexTestServer(t), " agent-1 ", nil, testApprovalManager(), nil, testSkillMetrics(t))
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}
@@ -751,10 +752,11 @@ func TestDriverStartSessionUsesAppManagedCodexHomeWhenConfigMissing(t *testing.T
 		return startSessionInjectResult(method, wantHome)
 	})
 	d := &driver{
-		approvals: testApprovalManager(),
-		pool:      newSingleURLPoolForTest(t, serverURL),
-		mirror:    &recordingSkillMirrorReconciler{},
-		listTools: noopCodexToolLister,
+		approvals:    testApprovalManager(),
+		skillMetrics: testSkillMetrics(t),
+		pool:         newSingleURLPoolForTest(t, serverURL),
+		mirror:       &recordingSkillMirrorReconciler{},
+		listTools:    noopCodexToolLister,
 	}
 	workDir := t.TempDir()
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
@@ -800,10 +802,11 @@ func TestDriverStartSessionCanonicalizesRuntimeCodexHome(t *testing.T) {
 		return canonicalCodexHomeResult(method, wantHome)
 	})
 	d := &driver{
-		approvals: testApprovalManager(),
-		pool:      newSingleURLPoolForTest(t, serverURL),
-		mirror:    &recordingSkillMirrorReconciler{},
-		listTools: noopCodexToolLister,
+		approvals:    testApprovalManager(),
+		skillMetrics: testSkillMetrics(t),
+		pool:         newSingleURLPoolForTest(t, serverURL),
+		mirror:       &recordingSkillMirrorReconciler{},
+		listTools:    noopCodexToolLister,
 	}
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		Provider:      "codex",
@@ -841,10 +844,11 @@ func TestDriverStartSessionSendsRestrictedSandboxPolicyOnWire(t *testing.T) {
 		return mustJSON(map[string]any{"ok": true})
 	})
 	d := &driver{
-		approvals: testApprovalManager(),
-		pool:      newSingleURLPoolForTest(t, serverURL),
-		mirror:    &recordingSkillMirrorReconciler{},
-		listTools: noopCodexToolLister,
+		approvals:    testApprovalManager(),
+		skillMetrics: testSkillMetrics(t),
+		pool:         newSingleURLPoolForTest(t, serverURL),
+		mirror:       &recordingSkillMirrorReconciler{},
+		listTools:    noopCodexToolLister,
 	}
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{

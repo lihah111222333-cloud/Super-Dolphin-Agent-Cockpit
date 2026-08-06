@@ -13,6 +13,7 @@ import (
 	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 	"github.com/stretchr/testify/require"
 )
 
@@ -152,8 +153,9 @@ func TestPrepareCodexToolSurfaceFiltersDisabledToolsAndRejectsStaleCalls(t *test
 	orch := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "launch_agent", Description: "launch", InputSchema: strictEmptyObjectSchema()}}}
 	external := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "connect_tool_source", Description: "connect source", InputSchema: strictEmptyObjectSchema()}}}
 	h := &Handler{
-		hostTools:  host,
-		skillTools: skills,
+		hostTools:    host,
+		skillTools:   skills,
+		skillMetrics: skillmetrics.NewRegistry(),
 		bindingStore: &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
 			"agent-allow": {AgentID: "agent-allow", Provider: "codex", ProviderThreadID: "provider-thread-allow"},
 		}},

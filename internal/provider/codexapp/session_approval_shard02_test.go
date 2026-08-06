@@ -36,6 +36,7 @@ func TestNewSessionFailsFastWhenApprovalScopeEntropyFails(t *testing.T) {
 		nil,
 		withPoolServer("ws://127.0.0.1:1", func() { releaseCalls++ }),
 		withApprovalScopeReader(iotest.ErrReader(entropyErr)),
+		withSkillMetrics(testSkillMetrics(t)),
 	)
 	if s != nil {
 		t.Fatalf("newSessionWithOptions() session = %#v, want nil", s)
@@ -127,7 +128,7 @@ func decodeApprovalRespondParams(raw json.RawMessage) map[string]any {
 
 func newApprovalRecorderSession(t *testing.T, serverURL string, approvals *rpc.ApprovalManager) *session {
 	t.Helper()
-	s, err := newSession(context.Background(), pkglogger.Get(), "ws"+strings.TrimPrefix(serverURL, "http"), "agent-1", nil, approvals, nil)
+	s, err := newSession(context.Background(), pkglogger.Get(), "ws"+strings.TrimPrefix(serverURL, "http"), "agent-1", nil, approvals, nil, testSkillMetrics(t))
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}

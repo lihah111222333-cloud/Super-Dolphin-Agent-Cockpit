@@ -202,7 +202,7 @@ func TestReadConfigFallsBackToSettingsModelWithoutInventingOverride(t *testing.T
 	}
 	s := &session{
 		threadID: "thread-1",
-		history:  &historyBackend{sessionDir: dir},
+		history:  &historyBackend{sessionDir: dir, skillMetrics: testSkillMetrics(t)},
 		config:   cliLaunchConfig{Effort: "high"},
 	}
 	cfg, err := s.ReadConfig(context.Background(), "")

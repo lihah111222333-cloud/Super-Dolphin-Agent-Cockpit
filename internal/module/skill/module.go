@@ -9,6 +9,7 @@ import (
 	"github.com/kelindar/event"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/skill/toolstore"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 	"go.uber.org/fx"
 )
 
@@ -40,6 +41,7 @@ type serviceDeps struct {
 	Dispatcher *event.Dispatcher
 	AuditStore MutationAuditStore
 	ToolStore  toolstore.Persistence
+	Metrics    *skillmetrics.Registry
 }
 
 type skillHandlerDeps struct {
@@ -54,7 +56,7 @@ func newService(deps serviceDeps) *service {
 	if deps.Config != nil {
 		projectRoot = strings.TrimSpace(deps.Config.ProjectRoot)
 	}
-	svc := NewService(projectRoot).(*service)
+	svc := NewService(projectRoot, deps.Metrics).(*service)
 	svc.bindDispatcher(deps.Dispatcher)
 	svc.auditStore = deps.AuditStore
 	svc.skillTools = deps.ToolStore

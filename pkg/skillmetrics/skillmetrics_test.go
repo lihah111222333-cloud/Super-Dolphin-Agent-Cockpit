@@ -2,47 +2,21 @@ package skillmetrics
 
 import "testing"
 
-// TestCountersIncrementAndSnapshot 验证活 counter 的 Inc/Read/Snapshot 对齐，
-// 并保证 ResetForTesting 能重置到 0。
+// TestCountersIncrementAndSnapshot 验证独立 Registry 的七条 series 对齐。
 func TestCountersIncrementAndSnapshot(t *testing.T) {
-	ResetForTesting()
-	t.Cleanup(ResetForTesting)
+	registry := NewRegistry()
 
-	IncTrimCorruptionFallback()
-	IncHostToolCallOutcome(HostToolOutcomeOK)
-	IncHostToolCallOutcome(HostToolOutcomeOK)
-	IncHostToolCallOutcome(HostToolOutcomeCWDMissing)
-	IncHostToolCallOutcome(HostToolOutcomeApprovalRequired)
-	IncHostToolCallOutcome(HostToolOutcomeError)
-	IncHostToolCallOutcome("unknown") // 未知 outcome 计入 error
-	IncEnrichFailure()
-	IncEnrichFailure()
+	registry.IncTrimCorruptionFallback()
+	registry.IncHostToolCallOutcome(HostToolOutcomeOK)
+	registry.IncHostToolCallOutcome(HostToolOutcomeOK)
+	registry.IncHostToolCallOutcome(HostToolOutcomeCWDMissing)
+	registry.IncHostToolCallOutcome(HostToolOutcomeApprovalRequired)
+	registry.IncHostToolCallOutcome(HostToolOutcomeError)
+	registry.IncHostToolCallOutcome("unknown") // 未知 outcome 计入 error
+	registry.IncEnrichFailure()
+	registry.IncEnrichFailure()
 
-	assertCounterReads(t)
-	assertSkillSnapshot(t, Read())
-}
-
-func assertCounterReads(t *testing.T) {
-	t.Helper()
-
-	if v := TrimCorruptionFallback(); v != 1 {
-		t.Fatalf("TrimCorruptionFallback want 1, got %d", v)
-	}
-	if v := HostToolCallOK(); v != 2 {
-		t.Fatalf("HostToolCallOK want 2, got %d", v)
-	}
-	if v := HostToolCallCWDMissing(); v != 1 {
-		t.Fatalf("HostToolCallCWDMissing want 1, got %d", v)
-	}
-	if v := HostToolCallApprovalRequired(); v != 1 {
-		t.Fatalf("HostToolCallApprovalRequired want 1, got %d", v)
-	}
-	if v := HostToolCallError(); v != 2 {
-		t.Fatalf("HostToolCallError want 2, got %d", v)
-	}
-	if v := EnrichFailures(); v != 2 {
-		t.Fatalf("EnrichFailures want 2, got %d", v)
-	}
+	assertSkillSnapshot(t, registry.Snapshot())
 }
 
 func assertSkillSnapshot(t *testing.T, snap Snapshot) {
@@ -58,15 +32,12 @@ func assertSkillSnapshot(t *testing.T, snap Snapshot) {
 	}
 }
 
-func TestResetForTestingZeroes(t *testing.T) {
-	IncTrimCorruptionFallback()
-	IncHostToolCallOutcome(HostToolOutcomeOK)
-	IncHostToolCallOutcome(HostToolOutcomeError)
-	IncEnrichFailure()
-	ResetForTesting()
-	t.Cleanup(ResetForTesting)
-
-	if got := Read(); got != (Snapshot{}) {
-		t.Fatalf("after Reset want zero snapshot, got %+v", got)
-	}
+func TestNilRegistryFailsFast(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("nil registry must panic")
+		}
+	}()
+	var registry *Registry
+	registry.IncEnrichFailure()
 }

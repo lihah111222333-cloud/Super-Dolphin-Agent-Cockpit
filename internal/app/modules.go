@@ -35,6 +35,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/hooks"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/mcpcontrol"
+	platformmetrics "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/metrics"
 	platformobservability "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/observability"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/pidregistry"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
@@ -46,6 +47,7 @@ import (
 	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/store"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 const promptIntentE2EFixtureHarnessEnv = "PROMPT_INTENT_E2E_FIXTURE_HARNESS"
@@ -57,6 +59,8 @@ var Module = newModule()
 func newModule() fx.Option {
 	return fx.Options(
 		fx.Provide(NewLogger),
+		fx.Provide(skillmetrics.NewRegistry),
+		fx.Provide(platformmetrics.NewDAGCollector, platformmetrics.NewBootstrapMetrics),
 		fx.Provide(pidregistry.New),
 		fx.Provide(
 			provideProviderRuntimeHooks,

@@ -82,10 +82,11 @@ func TestResumeApprovalPolicyComesFromResumeResponse(t *testing.T) {
 func approvalRestoreDriverForTest(t *testing.T, serverURL string) *driver {
 	t.Helper()
 	return &driver{
-		approvals: testApprovalManager(),
-		pool:      newSingleURLPoolForTest(t, serverURL),
-		mirror:    &recordingSkillMirrorReconciler{},
-		listTools: noopCodexToolLister,
+		approvals:    testApprovalManager(),
+		pool:         newSingleURLPoolForTest(t, serverURL),
+		mirror:       &recordingSkillMirrorReconciler{},
+		skillMetrics: testSkillMetrics(t),
+		listTools:    noopCodexToolLister,
 	}
 }
 

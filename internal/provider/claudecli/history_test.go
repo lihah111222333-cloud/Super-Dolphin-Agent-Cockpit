@@ -29,7 +29,7 @@ func TestSessionReadHistoryFallsBackToResolvedThreadID(t *testing.T) {
 	// Session has threadID = claudeUUID (set by system:init after startup).
 	s := &session{
 		threadID: claudeUUID,
-		history:  &historyBackend{sessionDir: dir},
+		history:  &historyBackend{sessionDir: dir, skillMetrics: testSkillMetrics(t)},
 	}
 
 	// Query with agentID (what the thread module passes) — should fallback to session threadID.
@@ -51,7 +51,7 @@ func TestSessionReadHistoryReturnsResolvedFallbackError(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(path, 0o644) })
-	s := &session{threadID: resolved, history: &historyBackend{sessionDir: dir}}
+	s := &session{threadID: resolved, history: &historyBackend{sessionDir: dir, skillMetrics: testSkillMetrics(t)}}
 
 	if messages, err := s.ReadHistory(context.Background(), "target-empty", 0); err == nil {
 		t.Fatalf("ReadHistory() = %v, nil; want resolved fallback read error", messages)
@@ -67,7 +67,7 @@ func TestSessionReadHistorySkipsResolvedFallbackWhenTargetNonEmpty(t *testing.T)
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(path, 0o644) })
-	s := &session{threadID: "resolved-error", history: &historyBackend{sessionDir: dir}}
+	s := &session{threadID: "resolved-error", history: &historyBackend{sessionDir: dir, skillMetrics: testSkillMetrics(t)}}
 
 	messages, err := s.ReadHistory(context.Background(), "target", 0)
 	if err != nil {
@@ -79,7 +79,7 @@ func TestSessionReadHistorySkipsResolvedFallbackWhenTargetNonEmpty(t *testing.T)
 }
 
 func TestSessionReadHistoryPreservesSuccessfulEmptyFallback(t *testing.T) {
-	s := &session{threadID: "resolved-empty", history: &historyBackend{sessionDir: t.TempDir()}}
+	s := &session{threadID: "resolved-empty", history: &historyBackend{sessionDir: t.TempDir(), skillMetrics: testSkillMetrics(t)}}
 	messages, err := s.ReadHistory(context.Background(), "target-empty", 0)
 	if err != nil {
 		t.Fatalf("ReadHistory() error = %v", err)
@@ -94,7 +94,7 @@ func TestReadHistoryReturnsEmptyForNewSession(t *testing.T) {
 
 	// Use a temp dir that has no JSONL files — simulates a brand-new session.
 	dir := t.TempDir()
-	h := &historyBackend{sessionDir: dir}
+	h := &historyBackend{sessionDir: dir, skillMetrics: testSkillMetrics(t)}
 
 	msgs, err := h.ReadHistory(context.Background(), "agent_new_session_123")
 	if err != nil {
@@ -112,7 +112,7 @@ func TestReadMessagesPageReturnsRecentClaudeHistory(t *testing.T) {
 	threadID := "thread-page"
 	writeClaudeHistoryMessages(t, dir, threadID, []string{"one", "two", "three"})
 
-	page, err := (&historyBackend{sessionDir: dir}).ReadMessagesPage(context.Background(), threadID, dto.MessagePageRequest{Limit: 2})
+	page, err := (&historyBackend{sessionDir: dir, skillMetrics: testSkillMetrics(t)}).ReadMessagesPage(context.Background(), threadID, dto.MessagePageRequest{Limit: 2})
 	if err != nil {
 		t.Fatalf("ReadMessagesPage() error = %v", err)
 	}
@@ -135,7 +135,7 @@ func TestSessionReadMessagesPageSetsStableIDsFromOffsets(t *testing.T) {
 	writeClaudeHistoryMessages(t, dir, threadID, []string{"one", "two", "three"})
 	s := &session{
 		threadID: threadID,
-		history:  &historyBackend{sessionDir: dir},
+		history:  &historyBackend{sessionDir: dir, skillMetrics: testSkillMetrics(t)},
 	}
 
 	page, err := s.ReadMessagesPage(context.Background(), threadID, dto.MessagePageRequest{Limit: 2})
@@ -168,7 +168,7 @@ func TestHistoryRootDirPrefersClaudeConfigDir(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
 	t.Setenv("CLAUDE_HOME", legacyDir)
 
-	h := &historyBackend{}
+	h := &historyBackend{skillMetrics: testSkillMetrics(t)}
 	got, err := h.rootDir()
 	if err != nil {
 		t.Fatalf("rootDir() error = %v", err)
@@ -183,7 +183,7 @@ func TestHistoryRootDirFallsBackToClaudeHome(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	t.Setenv("CLAUDE_HOME", legacyDir)
 
-	h := &historyBackend{}
+	h := &historyBackend{skillMetrics: testSkillMetrics(t)}
 	got, err := h.rootDir()
 	if err != nil {
 		t.Fatalf("rootDir() error = %v", err)
@@ -209,7 +209,7 @@ func TestSessionRolloutPathReturnsClaudeHistoryFile(t *testing.T) {
 
 	s := &session{
 		threadID: claudeUUID,
-		history:  &historyBackend{sessionDir: dir},
+		history:  &historyBackend{sessionDir: dir, skillMetrics: testSkillMetrics(t)},
 	}
 	if got := s.RolloutPath(); got != jsonlPath {
 		t.Fatalf("RolloutPath() = %q, want %q", got, jsonlPath)

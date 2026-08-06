@@ -14,6 +14,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	codexprotocol "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 func TestStartSessionFailsFastAndCleansUpOnStartupPermanentError(t *testing.T) {
@@ -22,10 +23,11 @@ func TestStartSessionFailsFastAndCleansUpOnStartupPermanentError(t *testing.T) {
 	serverURL := startStartupPermanentErrorServer(t)
 	var released atomic.Int32
 	d := &driver{
-		approvals: testApprovalManager(),
-		pool:      newSingleURLPoolForTest(t, serverURL),
-		mirror:    &recordingSkillMirrorReconciler{},
-		manager:   &ServerManager{},
+		approvals:    testApprovalManager(),
+		pool:         newSingleURLPoolForTest(t, serverURL),
+		mirror:       &recordingSkillMirrorReconciler{},
+		manager:      &ServerManager{},
+		skillMetrics: skillmetrics.NewRegistry(),
 		prepareTools: func(context.Context, contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error) {
 			return []codexprotocol.DynamicToolSchema{{Name: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}, nil
 		},

@@ -11,6 +11,7 @@ import (
 	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/mcpcontrol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/observability"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 func TestObservabilityTraceHostToolListsOnlyWhenEnabledButHandlesDisabledStaleCall(t *testing.T) {
@@ -39,7 +40,7 @@ func TestObservabilityTraceHostToolListsOnlyWhenEnabledButHandlesDisabledStaleCa
 
 func TestObservabilityTraceHostToolDisabledStaleCallRoutesThroughHostDispatch(t *testing.T) {
 	disabled := observability.NewDisabledService(observability.Config{DisabledReason: "trace disabled", QueryTailTimeoutMS: 100, QueryTailMaxConcurrency: 1})
-	h := &Handler{hostTools: NewObservabilityTraceHostToolRegistry(disabled)}
+	h := &Handler{hostTools: NewObservabilityTraceHostToolRegistry(disabled), skillMetrics: skillmetrics.NewRegistry()}
 
 	got, err := h.callHostTool(context.Background(), ToolCallRequest{Name: ToolNameObservabilityTraceGet, Arguments: json.RawMessage(`{"trace_id":"trace-disabled"}`)})
 	if err != nil {
@@ -143,6 +144,7 @@ func TestObservabilityTraceHostOnlyToolFiltersPreparedCodexSurface(t *testing.T)
 			}}
 			h := &Handler{
 				hostTools:          tc.hostTools,
+				skillMetrics:       skillmetrics.NewRegistry(),
 				stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp}),
 			}
 
@@ -175,6 +177,7 @@ func TestObservabilityTraceDisabledStaleHandleToolCallBypassesPreparedSurface(t 
 	}}
 	h := &Handler{
 		hostTools:          NewObservabilityTraceHostToolRegistry(disabled),
+		skillMetrics:       skillmetrics.NewRegistry(),
 		stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp}),
 	}
 
@@ -219,6 +222,7 @@ func TestObservabilityTraceHostOnlyToolFiltersPreparedCodexSurfaceReservedAliase
 	}}
 	h := &Handler{
 		hostTools:          NewObservabilityTraceHostToolRegistry(disabled),
+		skillMetrics:       skillmetrics.NewRegistry(),
 		stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp}),
 	}
 
@@ -246,6 +250,7 @@ func TestObservabilityTraceDisabledStaleAliasHandleToolCallBypassesPreparedSurfa
 	lsp := &fakeMCPClient{tools: []mcp.MCPTool{{Name: "grep", Description: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
 	h := &Handler{
 		hostTools:          NewObservabilityTraceHostToolRegistry(disabled),
+		skillMetrics:       skillmetrics.NewRegistry(),
 		stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp}),
 	}
 

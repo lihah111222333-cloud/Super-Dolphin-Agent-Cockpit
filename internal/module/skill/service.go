@@ -18,6 +18,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/skill/toolstore"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 const (
@@ -144,13 +145,16 @@ func (s *service) TrustRevision() uint64 { return s.SkillRevision() }
 
 // NewService 创建无数据库依赖的 skill service。
 // 它会尝试加载本地审批缓存；加载失败时保留空缓存，由后续审批查询返回未命中。
-func NewService(projectRoot string) Service {
+func NewService(projectRoot string, metrics skillmetrics.Writer) Service {
+	if metrics == nil {
+		panic("skill service metrics writer is required")
+	}
 	pr := strings.TrimSpace(projectRoot)
 	if pr != "" {
 		pr = filepath.Clean(pr)
 	}
 	// 审批缓存只用于只读 trust probe；构造期加载失败不能阻断整个模块启动。
-	approvalCache, _ := NewApprovalCache(DefaultApprovalCachePath())
+	approvalCache, _ := NewApprovalCache(DefaultApprovalCachePath(), metrics)
 	return &service{
 		projectRoot:                 pr,
 		projectSkillsRoot:           defaultProjectSkillsRoot(pr),
@@ -164,8 +168,8 @@ func NewService(projectRoot string) Service {
 
 // NewServiceWithToolStore 创建通过消费端窄端口访问 Skill Tool CRUD 的 service。
 // 生产装配由 app adapter 注入 Store 实现；聚焦测试可提供满足端口的 fake。
-func NewServiceWithToolStore(projectRoot string, store toolstore.Persistence) Service {
-	svc := NewService(projectRoot).(*service)
+func NewServiceWithToolStore(projectRoot string, store toolstore.Persistence, metrics skillmetrics.Writer) Service {
+	svc := NewService(projectRoot, metrics).(*service)
 	svc.skillTools = store
 	return svc
 }

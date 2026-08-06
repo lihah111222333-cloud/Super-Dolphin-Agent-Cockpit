@@ -174,13 +174,13 @@ func TestToolBridge_StartSession_InjectsMemoryReadDynamicTool(t *testing.T) {
 	recorder := &toolBridgeRPCRecorder{}
 	serverURL := startToolBridgeRPCServer(t, recorder)
 	manager := &ServerManager{}
-	got := newDriver(nil, nil, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
+	got := requireToolBridgeDriver(t, newDriver(nil, nil, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 		return []codexprotocol.DynamicToolSchema{{
 			Name:        "memory_read",
 			Description: "host direct memory read",
 			InputSchema: json.RawMessage(`{"type":"object"}`),
 		}}, nil
-	}).(*driver)
+	}))
 
 	sessionAny, err := got.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID:       "agent-1",
@@ -259,9 +259,10 @@ func TestResumeSession_RebuildsCodexToolSurfaceWithoutDynamicTools(t *testing.T)
 	extraDir := t.TempDir()
 	var gotScope contract.CodexToolSurfaceScope
 	d := &driver{
-		approvals: testApprovalManager(),
-		pool:      newSingleURLPoolForTest(t, "ws"+strings.TrimPrefix(server.URL, "http")),
-		mirror:    &recordingSkillMirrorReconciler{},
+		approvals:    testApprovalManager(),
+		pool:         newSingleURLPoolForTest(t, "ws"+strings.TrimPrefix(server.URL, "http")),
+		mirror:       &recordingSkillMirrorReconciler{},
+		skillMetrics: testSkillMetrics(t),
 		prepareTools: func(_ context.Context, scope contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error) {
 			gotScope = scope
 			return []codexprotocol.DynamicToolSchema{{Name: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}, nil
@@ -372,10 +373,11 @@ func runDynamicToolsResumeScenario(t *testing.T) dynamicToolsResumeObservation {
 	pool := newSingleURLPoolForTest(t, "ws"+strings.TrimPrefix(server.URL, "http"))
 
 	d := &driver{
-		approvals: testApprovalManager(),
-		manager:   manager,
-		pool:      pool,
-		mirror:    &recordingSkillMirrorReconciler{},
+		approvals:    testApprovalManager(),
+		manager:      manager,
+		pool:         pool,
+		mirror:       &recordingSkillMirrorReconciler{},
+		skillMetrics: testSkillMetrics(t),
 		listTools: func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 			return []codexprotocol.DynamicToolSchema{dynamicSkillToolSchema()}, nil
 		},
@@ -471,6 +473,7 @@ func requireToolBridgeDriver(t *testing.T, raw any) *driver {
 	if !ok {
 		t.Fatalf("newDriver() type = %T, want *driver", raw)
 	}
+	got.skillMetrics = testSkillMetrics(t)
 	return got
 }
 

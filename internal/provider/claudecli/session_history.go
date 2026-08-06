@@ -13,6 +13,7 @@ import (
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 	historyjsonl "github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/historyjsonl"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 const (
@@ -53,7 +54,7 @@ func (s *session) ReadHistory(ctx context.Context, threadID string, limit int) (
 			}
 		}
 	}
-	messages = trimClaudeHistory(messages, limit)
+	messages = trimClaudeHistory(messages, limit, s.history.skillMetrics)
 	return toProviderHistory(messages)
 }
 
@@ -94,7 +95,7 @@ func (s *session) readResolvedMessagePage(
 	if err != nil {
 		return dto.MessagePageResult{}, err
 	}
-	return claudeResolvedMessagePage(page)
+	return claudeResolvedMessagePage(page, s.history.skillMetrics)
 }
 
 // readTargetMessagePage 先读取请求 ID，仅在首屏无条目时尝试真实 Claude UUID。
@@ -109,16 +110,16 @@ func (s *session) readTargetMessagePage(
 		return dto.MessagePageResult{}, err
 	}
 	if !shouldReadResolvedFallback(req, page, target, resolved) {
-		return claudeMessagePage(page)
+		return claudeMessagePage(page, s.history.skillMetrics)
 	}
 	fallback, err := s.history.ReadMessagesPage(ctx, resolved, req)
 	if err != nil {
 		return dto.MessagePageResult{}, err
 	}
 	if hasClaudeHistoryPage(fallback) {
-		return claudeResolvedMessagePage(fallback)
+		return claudeResolvedMessagePage(fallback, s.history.skillMetrics)
 	}
-	return claudeMessagePage(page)
+	return claudeMessagePage(page, s.history.skillMetrics)
 }
 
 // shouldReadResolvedFallback 将 fallback 条件集中为纯判断，续页请求绝不切换 source。
@@ -139,8 +140,8 @@ func hasClaudeHistoryPage(page historyjsonl.JSONLPageResult[Message]) bool {
 	return len(page.Items) > 0 || page.HasMore
 }
 
-func claudeMessagePage(page historyjsonl.JSONLPageResult[Message]) (dto.MessagePageResult, error) {
-	messages, err := toProviderHistoryWithOffsets(page.Items, page.Offsets)
+func claudeMessagePage(page historyjsonl.JSONLPageResult[Message], metrics *skillmetrics.Registry) (dto.MessagePageResult, error) {
+	messages, err := toProviderHistoryWithOffsets(page.Items, page.Offsets, metrics)
 	if err != nil {
 		return dto.MessagePageResult{}, err
 	}
@@ -152,8 +153,8 @@ func claudeMessagePage(page historyjsonl.JSONLPageResult[Message]) (dto.MessageP
 	}, nil
 }
 
-func claudeResolvedMessagePage(page historyjsonl.JSONLPageResult[Message]) (dto.MessagePageResult, error) {
-	result, err := claudeMessagePage(page)
+func claudeResolvedMessagePage(page historyjsonl.JSONLPageResult[Message], metrics *skillmetrics.Registry) (dto.MessagePageResult, error) {
+	result, err := claudeMessagePage(page, metrics)
 	if err != nil {
 		return dto.MessagePageResult{}, err
 	}
@@ -250,8 +251,8 @@ func invalidClaudeResolvedCursorError() error {
 	return errors.New("claudecli: invalid resolved history cursor")
 }
 
-func trimClaudeHistory(messages []Message, limit int) []Message {
-	messages = normalizeClaudeHistory(messages)
+func trimClaudeHistory(messages []Message, limit int, metrics *skillmetrics.Registry) []Message {
+	messages = normalizeClaudeHistory(messages, metrics)
 	if limit <= 0 || len(messages) <= limit {
 		return messages
 	}
@@ -275,10 +276,10 @@ func toProviderHistory(messages []Message) ([]dto.Message, error) {
 	return out, nil
 }
 
-func toProviderHistoryWithOffsets(messages []Message, offsets []int64) ([]dto.Message, error) {
+func toProviderHistoryWithOffsets(messages []Message, offsets []int64, metrics *skillmetrics.Registry) ([]dto.Message, error) {
 	out := make([]dto.Message, 0, len(messages))
 	for i, msg := range messages {
-		normalized, ok := normalizeClaudeHistoryMessage(msg)
+		normalized, ok := normalizeClaudeHistoryMessage(msg, metrics)
 		if !ok {
 			continue
 		}

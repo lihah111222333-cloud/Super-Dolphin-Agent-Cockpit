@@ -17,6 +17,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge/schema"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp"
 	codexprotocol "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 func TestManagedAdmissionFailureStopsRealDriverBeforeRemoteThreadStart(t *testing.T) {
@@ -36,6 +37,7 @@ func TestManagedAdmissionFailureStopsRealDriverBeforeRemoteThreadStart(t *testin
 		&task4BMCPClient{tools: []mcpdto.MCPTool{task4BTool("unsafe", `{"type":"object"}`)}},
 	)
 	factory := codexapp.NewDriverFactory(nil, nil, platformrpc.NewApprovalManager(nil, nil), nil, &codexapp.ServerManager{}, pool, recoveryDriverSkillMirror{}, nil)
+	factory.SetSkillMetrics(skillmetrics.NewRegistry())
 	factory.SetPrepareTools(func(ctx context.Context, scope contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error) {
 		tools, err := handler.PrepareCodexToolSurface(ctx, scope)
 		if err != nil {

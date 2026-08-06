@@ -10,6 +10,7 @@ import (
 	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/mcpcontrol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 func TestHostToolInputSchemaRejectsUnknownFieldsBeforeHandler(t *testing.T) {
@@ -21,7 +22,7 @@ func TestHostToolInputSchemaRejectsUnknownFieldsBeforeHandler(t *testing.T) {
 		}},
 		result: map[string]any{"ok": true},
 	}
-	h := &Handler{hostTools: host}
+	h := &Handler{hostTools: host, skillMetrics: skillmetrics.NewRegistry()}
 
 	got, err := h.callHostTool(context.Background(), ToolCallRequest{
 		Name:      testHostToolName,

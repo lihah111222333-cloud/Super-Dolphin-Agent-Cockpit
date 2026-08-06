@@ -15,6 +15,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/pidregistry"
 	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 // driverFactoryParams 收集 Claude driver factory 的 fx 依赖。
@@ -32,6 +33,7 @@ type driverFactoryParams struct {
 	Mirror       contract.SkillMirrorReconciler
 	Recovery     contract.SessionRecoveryReporter `optional:"true"`
 	Tracer       *observability.Service           `optional:"true"`
+	Metrics      *skillmetrics.Registry
 }
 
 // NewDriverFactory 构造 Claude provider 的 DriverFactory。
@@ -40,7 +42,7 @@ func NewDriverFactory(p driverFactoryParams) contract.DriverFactory {
 	return contract.DriverFactory{
 		Name: "claude",
 		Create: func() contract.Driver {
-			return newDriver(p.Logger, p.Dispatcher, p.Reporter, p.Reg, p.ProxyAddrFn, p.ProxyTokenFn, p.Mirror, p.Recovery, p.Tracer)
+			return newDriver(p.Logger, p.Dispatcher, p.Reporter, p.Reg, p.ProxyAddrFn, p.ProxyTokenFn, p.Mirror, p.Recovery, p.Metrics, p.Tracer)
 		},
 		NativeTools: []contract.NativeToolDescriptor{
 			{ID: "Read", Label: "直接读项目文件", Description: "绕过项目文件工具直接读取工作区文件。", DefaultDisabled: true, Provider: "claude", FilterMode: contract.NativeToolFilterModeHard},
@@ -96,6 +98,9 @@ func NewDriverFactory(p driverFactoryParams) contract.DriverFactory {
 }
 
 func provideDriverFactory(p driverFactoryParams) (contract.DriverFactory, error) {
+	if p.Metrics == nil {
+		return contract.DriverFactory{}, errors.New("claudecli skill metrics registry is required")
+	}
 	reporter, err := newModeAwareRuntimeReporter(p.Reporter, p.Dependency, p.Config, p.Logger, "claude")
 	if err != nil {
 		return contract.DriverFactory{}, err

@@ -18,6 +18,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/observability"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared/workflowtemplates"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 	"go.uber.org/fx"
 )
 
@@ -70,6 +71,7 @@ type handlerIn struct {
 	// Handler 构造期会按 dependency profile 校验它不能静默为空。
 	HostTools  HostToolRegistry           `optional:"true"`
 	SkillTools contract.SkillToolProvider `optional:"true"`
+	Metrics    *skillmetrics.Registry
 }
 
 func provideToolbridgeDependencyConfig(cfg *platformconfig.Config) (contract.DependencyConfig, error) {
@@ -112,7 +114,7 @@ func ProvideHostToolRegistryForTesting(in hostToolRegistryIn) HostToolRegistry {
 
 // NewHandlerForTesting 创建测试用 Handler，只注入 registry、hostTools 和默认 logger。
 func NewHandlerForTesting(registry activePeerRegistry, hostTools HostToolRegistry) *Handler {
-	return &Handler{registry: registry, hostTools: hostTools, logger: pkglogger.Get()}
+	return &Handler{registry: registry, hostTools: hostTools, logger: pkglogger.Get(), skillMetrics: skillmetrics.NewRegistry()}
 }
 
 // memoryReadHostToolOptions 从 reader 能力位生成 memory_read host tool 开关。

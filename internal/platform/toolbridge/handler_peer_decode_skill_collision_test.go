@@ -7,6 +7,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 func TestPrepareCodexToolSurfaceNamespacesSkillOwnerCollisions(t *testing.T) {
@@ -21,6 +22,7 @@ func TestPrepareCodexToolSurfaceNamespacesSkillOwnerCollisions(t *testing.T) {
 	h := &Handler{
 		hostTools:          host,
 		skillTools:         skills,
+		skillMetrics:       skillmetrics.NewRegistry(),
 		stdioClientFactory: fakeClientFactory(map[string]mcpClient{mcpdto.ClientKindLSP: &fakeMCPClient{}}),
 	}
 	manifest := providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{{

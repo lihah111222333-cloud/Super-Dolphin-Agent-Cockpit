@@ -44,7 +44,7 @@ func TestClaudeContextWindowPrefersRuntimeAndSettings(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"model":"opus[1m]"}`), 0o644); err != nil {
 		t.Fatalf("WriteFile(settings.json) error = %v", err)
 	}
-	history := &historyBackend{sessionDir: dir}
+	history := &historyBackend{sessionDir: dir, skillMetrics: testSkillMetrics(t)}
 	if got := readClaudeSettingsModel(history); got != "opus[1m]" {
 		t.Fatalf("readClaudeSettingsModel() = %q, want opus[1m]", got)
 	}

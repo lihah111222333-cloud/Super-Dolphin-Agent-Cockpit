@@ -12,6 +12,7 @@ import (
 	codexprotocol "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 // codexNativeToolDescriptors 返回 Codex 原生工具的默认治理描述表。
@@ -96,6 +97,19 @@ func (f *DriverFactory) SetBindTools(fn func(contract.CodexToolSurfaceScope) err
 	f.bindTools = fn
 }
 
+// SetSkillMetrics 注入 factory 创建的每个 driver 所使用的指标 owner。
+func (f *DriverFactory) SetSkillMetrics(metrics *skillmetrics.Registry) {
+	if f == nil {
+		panic("codexapp driver factory is required")
+	}
+	if metrics == nil {
+		panic("codexapp skill metrics registry is required")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.skillMetrics = metrics
+}
+
 func (f *DriverFactory) currentListTools() func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 	if f == nil {
 		return nil
@@ -133,6 +147,15 @@ func (f *DriverFactory) currentReleaseTools() func(contract.CodexToolSurfaceScop
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	return f.releaseTools
+}
+
+func (f *DriverFactory) currentSkillMetrics() *skillmetrics.Registry {
+	if f == nil {
+		return nil
+	}
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return f.skillMetrics
 }
 
 // newDriver 创建单个 Codex driver 实例。

@@ -64,7 +64,7 @@ func TestHandleSystemInitRawStartsLogWatcherAndUsesRuntimeContextWindow(t *testi
 		sessionID:       sessionID,
 		threadReady:     make(chan struct{}),
 		transport:       tr,
-		history:         &historyBackend{sessionDir: dir},
+		history:         &historyBackend{sessionDir: dir, skillMetrics: testSkillMetrics(t)},
 		eventDispatcher: dispatcher,
 		suppressedTurns: map[string]struct{}{},
 	}
@@ -144,7 +144,7 @@ func TestDispatchTokenUsageIfCurrentRejectsStaleIdentity(t *testing.T) {
 		transport:       tr,
 		logWatcherGen:   2,
 		eventDispatcher: dispatcher,
-		history:         &historyBackend{sessionDir: t.TempDir()},
+		history:         &historyBackend{sessionDir: t.TempDir(), skillMetrics: testSkillMetrics(t)},
 	}
 	s.dispatchTokenUsageIfCurrent(tr, logWatcherIdentity{sessionID: "other", threadID: "other"}, 2, sessionLogUsage{Timestamp: "2026-04-13T00:00:00Z", InputTokens: 1, OutputTokens: 1, TotalTokens: 2})
 	select {
@@ -205,7 +205,7 @@ func newLogWatcherTimestampErrorTest(t *testing.T) (<-chan dto.BusRawProviderEve
 		transport:       tr,
 		logWatcherGen:   2,
 		eventDispatcher: dispatcher,
-		history:         &historyBackend{sessionDir: t.TempDir()},
+		history:         &historyBackend{sessionDir: t.TempDir(), skillMetrics: testSkillMetrics(t)},
 	}
 	return rawEvents, agentErrors, s, tr
 }

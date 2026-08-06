@@ -13,6 +13,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/skill/toolstore"
 	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 	"go.uber.org/fx"
 )
 
@@ -542,6 +543,7 @@ func TestSkillModuleExposesMirrorReconcilerThroughFx(t *testing.T) {
 		fx.NopLogger,
 		fx.Provide(func() *contract.Config { return &contract.Config{ProjectRoot: t.TempDir()} }),
 		fx.Provide(func() *event.Dispatcher { return event.NewDispatcher() }),
+		fx.Provide(func() *skillmetrics.Registry { return skillmetrics.NewRegistry() }),
 		fx.Provide(func() MutationAuditStore { return skillModuleAuditLogStoreStub{} }),
 		fx.Provide(func() toolstore.Persistence { return skillModuleToolStoreStub{} }),
 		Module,
