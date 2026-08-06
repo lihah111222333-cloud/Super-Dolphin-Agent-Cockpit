@@ -147,7 +147,6 @@ func TestFXInvokeGuardMatcherFixtures(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range fxInvokeGuardFixtureCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			violations, err := fxInvokeGuardViolationsInSource(tc.relPath, []byte(tc.source))

@@ -80,7 +80,6 @@ func TestTerminalNodeStatusResolutionConcurrent(t *testing.T) {
 	results := make(chan error, len(statuses)*64)
 	for range 64 {
 		for _, tc := range statuses {
-			tc := tc
 			go func() {
 				if got := isTerminalNodeStatus(tc.status); got != tc.want {
 					results <- fmt.Errorf("isTerminalNodeStatus(%q) = %v, want %v", tc.status, got, tc.want)

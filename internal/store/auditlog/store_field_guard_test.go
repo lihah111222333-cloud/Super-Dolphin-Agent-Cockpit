@@ -33,8 +33,8 @@ func TestMapAuditEventFieldGuard(t *testing.T) {
 
 func assertAuditFieldRegistry(t *testing.T, producerType, consumerType reflect.Type, registry map[string]string) {
 	t.Helper()
-	for i := 0; i < producerType.NumField(); i++ {
-		name := producerType.Field(i).Name
+	for field := range producerType.Fields() {
+		name := field.Name
 		if _, ok := registry[name]; !ok {
 			t.Errorf("producer field %s is missing from registry", name)
 		}
@@ -47,8 +47,8 @@ func assertAuditFieldRegistry(t *testing.T, producerType, consumerType reflect.T
 			t.Errorf("registry target %s does not exist", targetName)
 		}
 	}
-	for i := 0; i < consumerType.NumField(); i++ {
-		targetName := consumerType.Field(i).Name
+	for field := range consumerType.Fields() {
+		targetName := field.Name
 		count := 0
 		for _, registeredTarget := range registry {
 			if registeredTarget == targetName {

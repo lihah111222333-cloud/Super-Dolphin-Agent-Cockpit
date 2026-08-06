@@ -1,5 +1,4 @@
 //go:build e2e
-// +build e2e
 
 package manager_test
 
@@ -299,7 +298,6 @@ func TestMultiLanguageLSP_E2E(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	for _, tc := range multiLangCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			runMultiLanguageLSPCase(t, log, tc)
 		})
@@ -461,7 +459,6 @@ func TestMultiLanguageHoverDefinition_E2E(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	for _, tc := range hoverDefinitionCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			runMultiLanguageHoverDefinitionCase(t, log, tc)
 		})
