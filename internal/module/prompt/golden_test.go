@@ -2,10 +2,13 @@ package prompt
 
 import (
 	"context"
+	"flag"
 	"testing"
 
 	goldentest "github.com/lihah111222333-cloud/super-dolphin-agent/internal/testutil/golden"
 )
+
+var promptGoldenOwner = goldentest.NewTestOwner(flag.Bool("update", false, "refresh golden JSON fixtures"))
 
 func TestStartAssemblyGolden(t *testing.T) {
 	t.Setenv(envPromptStartCurrentDate, "2026-04-17")
@@ -29,7 +32,7 @@ func TestStartAssemblyGolden(t *testing.T) {
 		t.Fatalf("AssembleStart() error = %v", err)
 	}
 	assembly.Snapshot.Generation = 0
-	goldentest.AssertJSON(t, goldentest.Case{
+	goldentest.AssertJSON(t, promptGoldenOwner, goldentest.Case{
 		BaseDir: "testdata/golden",
 		Domain:  goldentest.DomainIntegration,
 		Name:    "start_assembly",

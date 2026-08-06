@@ -3,7 +3,6 @@ package golden
 import (
 	"bytes"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -14,8 +13,25 @@ import (
 	"github.com/pmezard/go-difflib/difflib"
 )
 
-// updateFiles 控制测试是否刷新 golden JSON 文件。
-var updateFiles = flag.Bool("update", false, "refresh golden JSON fixtures")
+// TestOwner 保存调用测试包对 golden 更新开关的显式所有权。
+type TestOwner struct {
+	update *bool
+}
+
+// NewTestOwner 绑定调用测试包注册的 -update flag。
+func NewTestOwner(update *bool) TestOwner {
+	if update == nil {
+		panic("golden test owner update flag must not be nil")
+	}
+	return TestOwner{update: update}
+}
+
+func (owner TestOwner) shouldUpdate() bool {
+	if owner.update == nil {
+		panic("golden test owner update flag must not be nil")
+	}
+	return *owner.update
+}
 
 // Domain 标识 golden 用例所属目录，是磁盘路径的一部分。
 // 新增值时需要保证目录名稳定，否则历史 fixture 会被重新定位。
@@ -37,8 +53,8 @@ type Case struct {
 }
 
 // AssertJSON 对比 actual 的规范化 JSON 与 golden 文件。
-// 只有显式传入 -update 时才写回 fixture，普通测试失败会输出稳定 diff。
-func AssertJSON(t *testing.T, tc Case, actual any) {
+// 只有 owner 显式传入 -update 时才写回 fixture，普通测试失败会输出稳定 diff。
+func AssertJSON(t *testing.T, owner TestOwner, tc Case, actual any) {
 	t.Helper()
 
 	path, err := tc.path()
@@ -49,7 +65,7 @@ func AssertJSON(t *testing.T, tc Case, actual any) {
 	if err != nil {
 		t.Fatalf("canonicalize actual JSON: %v", err)
 	}
-	if *updateFiles {
+	if owner.shouldUpdate() {
 		writeGolden(t, path, got)
 		return
 	}

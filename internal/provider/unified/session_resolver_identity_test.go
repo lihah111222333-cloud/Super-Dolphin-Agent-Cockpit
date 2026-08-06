@@ -3,6 +3,7 @@ package unified
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,8 @@ import (
 	goldentest "github.com/lihah111222333-cloud/super-dolphin-agent/internal/testutil/golden"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/providerrecovery"
 )
+
+var sessionResolverGoldenOwner = goldentest.NewTestOwner(flag.Bool("update", false, "refresh golden JSON fixtures"))
 
 type resumeCaptureDriver struct {
 	name      string
@@ -104,7 +107,7 @@ func TestSessionResolverAutoResumePassesCodexIdentityGolden(t *testing.T) {
 	if driver.resumed != 1 {
 		t.Fatalf("ResumeSession calls = %d, want 1", driver.resumed)
 	}
-	goldentest.AssertJSON(t, goldentest.Case{
+	goldentest.AssertJSON(t, sessionResolverGoldenOwner, goldentest.Case{
 		BaseDir: "testdata/golden",
 		Domain:  goldentest.DomainIntegration,
 		Name:    "auto_resume_identity_request",

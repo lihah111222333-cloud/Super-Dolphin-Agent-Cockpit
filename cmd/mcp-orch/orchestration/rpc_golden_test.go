@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
@@ -10,6 +11,8 @@ import (
 	rpcpkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 	goldentest "github.com/lihah111222333-cloud/super-dolphin-agent/internal/testutil/golden"
 )
+
+var orchestrationGoldenOwner = goldentest.NewTestOwner(flag.Bool("update", false, "refresh golden JSON fixtures"))
 
 func TestOrchestrationGoldenTurnAgentSamples(t *testing.T) {
 	t.Parallel()
@@ -56,7 +59,7 @@ func TestOrchestrationGoldenTurnAgentSamples(t *testing.T) {
 	submitResponse := dispatchJSON(t, server, "agent/submit", submitRequest)
 	assertSubmitRequest(t, submitReq)
 
-	goldentest.AssertJSON(t, goldentest.Case{
+	goldentest.AssertJSON(t, orchestrationGoldenOwner, goldentest.Case{
 		BaseDir: "testdata/golden",
 		Domain:  goldentest.DomainTurnAgent,
 		Name:    "rpc_samples",

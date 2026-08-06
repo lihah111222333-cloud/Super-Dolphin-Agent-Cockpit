@@ -1,16 +1,19 @@
 package rpc
 
 import (
+	"flag"
 	"testing"
 
 	goldentest "github.com/lihah111222333-cloud/super-dolphin-agent/internal/testutil/golden"
 )
 
+var codecGoldenOwner = goldentest.NewTestOwner(flag.Bool("update", false, "refresh golden JSON fixtures"))
+
 func TestPayloadEncoderGoldenSamples(t *testing.T) {
 	t.Parallel()
 
 	encoder := PayloadEncoder{}
-	goldentest.AssertJSON(t, goldentest.Case{
+	goldentest.AssertJSON(t, codecGoldenOwner, goldentest.Case{
 		BaseDir: "testdata/golden",
 		Domain:  goldentest.DomainTransport,
 		Name:    "payload_encoder_samples",

@@ -3,6 +3,7 @@ package archtest
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"testing"
 	"time"
 
@@ -13,6 +14,8 @@ import (
 	rpcpkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 	goldentest "github.com/lihah111222333-cloud/super-dolphin-agent/internal/testutil/golden"
 )
+
+var orchestrationRPCGoldenOwner = goldentest.NewTestOwner(flag.Bool("update", false, "refresh golden JSON fixtures"))
 
 func TestCrossDomainGoldenAgentListDispatch(t *testing.T) {
 	t.Parallel()
@@ -41,7 +44,7 @@ func TestCrossDomainGoldenAgentListDispatch(t *testing.T) {
 		t.Fatalf("json.Unmarshal(agent.list response) error = %v", err)
 	}
 
-	goldentest.AssertJSON(t, goldentest.Case{
+	goldentest.AssertJSON(t, orchestrationRPCGoldenOwner, goldentest.Case{
 		BaseDir: "testdata/golden",
 		Domain:  goldentest.DomainIntegration,
 		Name:    "agent_list_dispatch",
