@@ -568,7 +568,10 @@ internal/devtools/gate/go_distribution.go	internal	other	go-source	707	开发工
 internal/devtools/gate/ledger_store_observability_test.go	internal	other	go-test	23955	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,observability,test,开发工具与生成器辅助包
 internal/devtools/gate/ledger_store_sqlite_calibration_checkpoint_migration_test.go	internal	other	go-test	3442	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,calibration,checkpoint,migration,test,开发工具与生成器辅助包
 internal/devtools/gate/ledger_store_sqlite_index_migration_test.go	internal	other	go-test	11126	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,index,migration,test,开发工具与生成器辅助包
-internal/devtools/gate/ledger_store_sqlite_observability.go	internal	other	go-source	36367	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,observability,开发工具与生成器辅助包
+internal/devtools/gate/ledger_store_sqlite_observability_posix.go	internal	other	go-source	1612	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,observability,posix,开发工具与生成器辅助包
+internal/devtools/gate/ledger_store_sqlite_observability_windows_test.go	internal	other	go-test	496	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,observability,windows,test,开发工具与生成器辅助包
+internal/devtools/gate/ledger_store_sqlite_observability_windows.go	internal	other	go-source	439	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,observability,windows,开发工具与生成器辅助包
+internal/devtools/gate/ledger_store_sqlite_observability.go	internal	other	go-source	34836	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,observability,开发工具与生成器辅助包
 internal/devtools/gate/ledger_store_sqlite_projection_test.go	internal	other	go-test	921	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,projection,test,开发工具与生成器辅助包
 internal/devtools/gate/ledger_store_sqlite_read.go	internal	other	go-source	6900	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,read,开发工具与生成器辅助包
 internal/devtools/gate/ledger_store_sqlite_retention_matrix_test.go	internal	other	go-test	15099	开发工具与生成器辅助包	internal,devtools,gate,ledger,store,sqlite,retention,matrix,test,开发工具与生成器辅助包
