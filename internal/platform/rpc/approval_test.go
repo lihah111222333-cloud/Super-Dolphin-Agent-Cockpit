@@ -112,16 +112,15 @@ func TestCleanupPublishesResolvedTimeoutEvent(t *testing.T) {
 	}
 }
 
-func TestRequestApprovalUsesDefaultTimeoutWithCallbackPath(t *testing.T) {
-	previous := DefaultApprovalTimeout
-	DefaultApprovalTimeout = 25 * time.Millisecond
-	defer func() { DefaultApprovalTimeout = previous }()
-
+func TestRequestApprovalUsesCallerDeadlineWithCallbackPath(t *testing.T) {
 	manager := NewApprovalManager(nil, nil)
 	local, bridge := newBlockingApprovalLocal(t)
 
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+
 	start := time.Now()
-	_, err := manager.RequestApproval(context.Background(), bridge, local.Server, testApprovalRequest("call-1"))
+	_, err := manager.RequestApproval(ctx, bridge, local.Server, testApprovalRequest("call-1"))
 	if err == nil {
 		t.Fatal("RequestApproval() error = nil, want timeout")
 	}
@@ -132,7 +131,7 @@ func TestRequestApprovalUsesDefaultTimeoutWithCallbackPath(t *testing.T) {
 		}
 	}
 	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
-		t.Fatalf("RequestApproval() elapsed = %s, want default timeout to apply quickly in test", elapsed)
+		t.Fatalf("RequestApproval() elapsed = %s, want caller deadline to apply quickly in test", elapsed)
 	}
 	if len(manager.PendingSnapshot()) != 0 {
 		t.Fatal("RequestApproval left pending approvals behind after timeout")

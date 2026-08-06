@@ -15,8 +15,8 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
-// DefaultApprovalTimeout 是审批等待默认超时，测试通过 setApprovalTimeoutForTest 临时覆盖。
-var DefaultApprovalTimeout = 5 * time.Minute
+// DefaultApprovalTimeout 是审批等待默认超时。
+const DefaultApprovalTimeout = 5 * time.Minute
 
 type approvalContextKey string
 
