@@ -161,16 +161,28 @@ func TestNestedIngestWorkerCoalescesOnlySameCallID(t *testing.T) {
 
 	rt := &fakeNestedIngestRuntime{}
 	w := newNestedIngestWorker(rt, pkglogger.Get())
-	if err := w.Enqueue("thread-call-id", "call-one", "Read", "first", ""); err != nil {
-		t.Fatalf("Enqueue(first) error = %v", err)
-	}
-	if err := w.Enqueue("thread-call-id", "call-two", "Read", "second", ""); err != nil {
-		t.Fatalf("Enqueue(second) error = %v", err)
-	}
-	if err := w.Enqueue("thread-call-id", "call-one", "Read", "first-replayed", "/tmp/replayed"); err != nil {
-		t.Fatalf("Enqueue(replay) error = %v", err)
+	enqueueNestedIngestCall(t, w, "call-one", "first", "")
+	enqueueNestedIngestCall(t, w, "call-two", "second", "")
+	enqueueNestedIngestCall(t, w, "call-one", "first-replayed", "/tmp/replayed")
+
+	assertNestedIngestPendingCallIDs(t, w)
+	if got := w.CoalescedTotal(); got != 1 {
+		t.Fatalf("CoalescedTotal = %d, want 1 for same CallID replay", got)
 	}
 
+	stopNestedIngestWorker(t, w)
+	assertNestedIngestDrainedCalls(t, rt.Calls())
+}
+
+func enqueueNestedIngestCall(t *testing.T, w *nestedIngestWorker, callID, result, path string) {
+	t.Helper()
+	if err := w.Enqueue("thread-call-id", callID, "Read", result, path); err != nil {
+		t.Fatalf("Enqueue(%s) error = %v", callID, err)
+	}
+}
+
+func assertNestedIngestPendingCallIDs(t *testing.T, w *nestedIngestWorker) {
+	t.Helper()
 	w.mu.Lock()
 	pending := len(w.pending)
 	_, hasFirst := w.pending[nestedIngestKey{threadID: "thread-call-id", callID: "call-one"}]
@@ -179,12 +191,10 @@ func TestNestedIngestWorkerCoalescesOnlySameCallID(t *testing.T) {
 	if pending != 2 || !hasFirst || !hasSecond {
 		t.Fatalf("pending CallID identities = count:%d first:%t second:%t, want two distinct calls", pending, hasFirst, hasSecond)
 	}
-	if got := w.CoalescedTotal(); got != 1 {
-		t.Fatalf("CoalescedTotal = %d, want 1 for same CallID replay", got)
-	}
+}
 
-	stopNestedIngestWorker(t, w)
-	calls := rt.Calls()
+func assertNestedIngestDrainedCalls(t *testing.T, calls []nestedIngestRequest) {
+	t.Helper()
 	if len(calls) != 2 {
 		t.Fatalf("AddToolReadResult call count = %d, want 2 distinct CallIDs", len(calls))
 	}

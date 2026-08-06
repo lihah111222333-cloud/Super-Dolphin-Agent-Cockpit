@@ -89,16 +89,33 @@ func TestTrustFailsClosedForUnknownExternalAndExternalReadOnlyHint(t *testing.T)
 func TestShellRulePredicatesKeepExactMembership(t *testing.T) {
 	t.Parallel()
 
+	assertReadOnlyShellCommands(t)
+	assertDeniedShellCommands(t)
+	assertDangerousShellArguments(t)
+	assertGitBranchFlags(t)
+	assertUnknownShellValuesRejected(t)
+}
+
+func assertReadOnlyShellCommands(t *testing.T) {
+	t.Helper()
 	for _, name := range []string{"cat", "git", "grep", "head", "ls", "nl", "pwd", "rg", "sed", "tail", "wc"} {
 		if _, ok := readOnlyShellCommandPolicy(name); !ok {
 			t.Fatalf("readOnlyShellCommandPolicy(%q) = not found", name)
 		}
 	}
+}
+
+func assertDeniedShellCommands(t *testing.T) {
+	t.Helper()
 	for _, name := range []string{"bash", "bg", "disown", "exec", "fg", "fish", "jobs", "kill", "killall", "nohup", "osascript", "pkill", "screen", "setsid", "sh", "sleep", "sudo", "su", "tmux", "wait", "zsh"} {
 		if !isDeniedShellCommand(name) {
 			t.Fatalf("isDeniedShellCommand(%q) = false", name)
 		}
 	}
+}
+
+func assertDangerousShellArguments(t *testing.T) {
+	t.Helper()
 	for _, arg := range []string{"-c", "-delete", "-exec", "-i", "--command", "--config-env", "--delete", "--exec", "--exec-path", "--ext-diff", "--in-place", "--out-dir", "--output", "--outfile", "--receive-pack", "--textconv", "--upload-pack"} {
 		if !isDangerousShellArg(arg) {
 			t.Fatalf("isDangerousShellArg(%q) = false", arg)
@@ -109,6 +126,10 @@ func TestShellRulePredicatesKeepExactMembership(t *testing.T) {
 			t.Fatalf("hasDangerousShellArgPrefix(%q) = false", arg)
 		}
 	}
+}
+
+func assertGitBranchFlags(t *testing.T) {
+	t.Helper()
 	for _, flag := range []string{"--all", "--color", "--column", "--list", "--no-color", "--no-column", "--remotes", "--show-current", "-a", "-r", "-v", "-vv"} {
 		if !isGitBranchReadOnlyFlag(flag) {
 			t.Fatalf("isGitBranchReadOnlyFlag(%q) = false", flag)
@@ -124,6 +145,10 @@ func TestShellRulePredicatesKeepExactMembership(t *testing.T) {
 			t.Fatalf("isGitBranchRequiredValueFlag(%q) = false", flag)
 		}
 	}
+}
+
+func assertUnknownShellValuesRejected(t *testing.T) {
+	t.Helper()
 	for _, unknown := range []string{"__unknown__"} {
 		if _, ok := readOnlyShellCommandPolicy(unknown); ok || isDeniedShellCommand(unknown) || isDangerousShellArg(unknown) || hasDangerousShellArgPrefix(unknown) || isGitBranchReadOnlyFlag(unknown) || isGitBranchOptionalValueFlag(unknown) || isGitBranchRequiredValueFlag(unknown) {
 			t.Fatalf("unknown value %q is unexpectedly accepted", unknown)
