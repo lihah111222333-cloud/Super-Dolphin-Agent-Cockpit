@@ -176,47 +176,55 @@ func decodeCatalogDocument(raw []byte) (Catalog, error) {
 	return document, nil
 }
 
-// materializeCandidateProducerWorkflows materializes only producer workflow
-// blobs from the resolved candidate tree. Validation must never read a
-// mutable worktree workflow/artifact while deciding a candidate catalog.
+// materializeCandidateProducerWorkflows 将候选树中的生产者 workflow blob
+// 物化到临时根目录；候选目录校验不得读取可变工作树中的 workflow/artifact。
 func materializeCandidateProducerWorkflows(repoRoot, revision string, document Catalog) (string, func(), error) {
 	validationRoot, err := os.MkdirTemp("", "mcp-lsp-catalog-candidate-")
 	if err != nil {
 		return "", nil, fmt.Errorf("create candidate catalog validation root: %w", err)
 	}
 	cleanup := func() { _ = os.RemoveAll(validationRoot) }
-	seen := make(map[string]bool)
+	seen := make(map[string]struct{})
 	for _, workload := range document.Workloads {
-		if workload.ProducerImplementationStatus != "implemented" || seen[workload.ProducerWorkflowPath] {
+		if workload.ProducerImplementationStatus != "implemented" {
 			continue
 		}
-		seen[workload.ProducerWorkflowPath] = true
-		relative, err := resolveProducerWorkflowPath(validationRoot, workload.ProducerWorkflowPath)
-		if err != nil {
-			cleanup()
-			return "", nil, fmt.Errorf("workload %q producer workflow path is unsafe: %w", workload.ID, err)
+		if _, ok := seen[workload.ProducerWorkflowPath]; ok {
+			continue
 		}
-		raw, mode, err := readCandidateTreeFile(repoRoot, revision, workload.ProducerWorkflowPath)
-		if err != nil {
+		seen[workload.ProducerWorkflowPath] = struct{}{}
+		if err := materializeCandidateProducerWorkflow(validationRoot, repoRoot, revision, workload); err != nil {
 			cleanup()
-			return "", nil, fmt.Errorf("workload %q producer workflow is not in candidate tree: %w", workload.ID, err)
-		}
-		if mode != "100644" && mode != "100755" {
-			cleanup()
-			return "", nil, fmt.Errorf("workload %q producer workflow has unsupported candidate mode %q", workload.ID, mode)
-		}
-		if err := os.MkdirAll(filepath.Dir(relative), 0o755); err != nil {
-			cleanup()
-			return "", nil, fmt.Errorf("materialize workload %q producer workflow directory: %w", workload.ID, err)
-		}
-		if err := os.WriteFile(relative, raw, 0o644); err != nil {
-			cleanup()
-			return "", nil, fmt.Errorf("materialize workload %q producer workflow: %w", workload.ID, err)
+			return "", nil, err
 		}
 	}
 	return validationRoot, cleanup, nil
 }
 
+// materializeCandidateProducerWorkflow 读取并写出一个候选 workflow blob，
+// 同时拒绝符号链接、目录和其他非普通文件模式。
+func materializeCandidateProducerWorkflow(validationRoot, repoRoot, revision string, workload Workload) error {
+	relative, err := resolveProducerWorkflowPath(validationRoot, workload.ProducerWorkflowPath)
+	if err != nil {
+		return fmt.Errorf("workload %q producer workflow path is unsafe: %w", workload.ID, err)
+	}
+	raw, mode, err := readCandidateTreeFile(repoRoot, revision, workload.ProducerWorkflowPath)
+	if err != nil {
+		return fmt.Errorf("workload %q producer workflow is not in candidate tree: %w", workload.ID, err)
+	}
+	if mode != "100644" && mode != "100755" {
+		return fmt.Errorf("workload %q producer workflow has unsupported candidate mode %q", workload.ID, mode)
+	}
+	if err := os.MkdirAll(filepath.Dir(relative), 0o755); err != nil {
+		return fmt.Errorf("materialize workload %q producer workflow directory: %w", workload.ID, err)
+	}
+	if err := os.WriteFile(relative, raw, 0o644); err != nil {
+		return fmt.Errorf("materialize workload %q producer workflow: %w", workload.ID, err)
+	}
+	return nil
+}
+
+// readCandidateTreeFile 从已解析的 Git tree 读取普通 workflow blob 与模式。
 func readCandidateTreeFile(repoRoot, revision, relative string) ([]byte, string, error) {
 	path := filepath.ToSlash(relative)
 	listing, err := exec.Command("git", "-C", repoRoot, "ls-tree", "-z", revision, "--", path).Output()
@@ -898,6 +906,15 @@ func validateReceiptStatus(value Receipt, workloadID string) error {
 const default15mTriggerClass = "default-15m-source-e2e"
 const default15mWorkloadID = "mcp-lsp-default-15m"
 
+// RequireRemoteCompletionAuthority 在任何远程或本地执行前检查 completion
+// artifact 的权威绑定；默认 15 分钟 workload 尚无该能力时必须保持 N/V。
+func RequireRemoteCompletionAuthority(workload Workload) error {
+	if workload.ID == default15mWorkloadID {
+		return fmt.Errorf("workload %q is N/V: remote run/job/artifact authority binding is unavailable", workload.ID)
+	}
+	return nil
+}
+
 var completionActionOrder = []string{
 	"mark_draining",
 	"shutdown_forwarders",
@@ -1108,98 +1125,133 @@ type completionProof struct {
 	Status                      string
 }
 
+// decodeCompletionProof 解码 completion receipt 的固定溯源字段并拒绝缺失字段。
 func decodeCompletionProof(raw []byte) (completionProof, error) {
+	fields, err := decodeCompletionProofFields(raw)
+	if err != nil {
+		return completionProof{}, err
+	}
+	var proof completionProof
+	if err := decodeCompletionIdentityFields(fields, &proof); err != nil {
+		return completionProof{}, err
+	}
+	if err := decodeCompletionAuthorityFields(fields, &proof); err != nil {
+		return completionProof{}, err
+	}
+	if err := decodeCompletionVerificationFields(fields, &proof); err != nil {
+		return completionProof{}, err
+	}
+	return proof, nil
+}
+
+// decodeCompletionProofFields 将 completion receipt 解析为可选择的 JSON 字段。
+func decodeCompletionProofFields(raw []byte) (map[string]json.RawMessage, error) {
 	var fields map[string]json.RawMessage
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
 	// Completion receipts are owned by the mcp-lsp controller and may grow
 	// fields independently; retain strict JSON syntax while selecting only the
 	// frozen provenance fields below.
-	decoder = json.NewDecoder(strings.NewReader(string(raw)))
 	if err := decoder.Decode(&fields); err != nil {
-		return completionProof{}, err
+		return nil, err
 	}
 	if err := requireDecoderEOF(decoder); err != nil {
-		return completionProof{}, err
+		return nil, err
 	}
-	var proof completionProof
+	return fields, nil
+}
+
+// decodeCompletionIdentityFields 读取 Git、cohort、epoch 等源身份字段。
+func decodeCompletionIdentityFields(fields map[string]json.RawMessage, proof *completionProof) error {
 	var err error
 	proof.GitHead, err = requiredJSONField[string](fields, "git_head")
 	if err != nil {
-		return completionProof{}, err
+		return err
 	}
 	proof.SourceTreeDigest, err = requiredJSONField[string](fields, "source_tree_digest")
 	if err != nil {
-		return completionProof{}, err
+		return err
 	}
 	proof.CohortID, err = requiredJSONField[string](fields, "cohort_id")
 	if err != nil {
-		return completionProof{}, err
+		return err
 	}
 	proof.RepositoryInstanceProofHash, err = requiredJSONField[string](fields, "repository_instance_proof_hash")
 	if err != nil {
-		return completionProof{}, err
+		return err
 	}
 	proof.Epoch, err = requiredJSONField[uint64](fields, "epoch")
 	if err != nil {
-		return completionProof{}, err
+		return err
 	}
 	proof.DaemonOwnerReceiptHash, err = requiredJSONField[string](fields, "daemon_owner_receipt_hash")
 	if err != nil {
-		return completionProof{}, err
+		return err
 	}
+	return nil
+}
+
+// decodeCompletionAuthorityFields 读取远程 run、job 和 artifact 权威坐标。
+func decodeCompletionAuthorityFields(fields map[string]json.RawMessage, proof *completionProof) error {
+	var err error
 	proof.RemoteRunID, err = requiredJSONField[string](fields, "remote_run_id")
 	if err != nil {
-		return completionProof{}, err
+		return err
 	}
 	proof.RemoteJobID, err = requiredJSONField[string](fields, "remote_job_id")
 	if err != nil {
-		return completionProof{}, err
+		return err
 	}
 	proof.RemoteArtifactName, err = requiredJSONField[string](fields, "remote_artifact_name")
 	if err != nil {
-		return completionProof{}, err
+		return err
 	}
 	proof.RemoteArtifactDigest, err = requiredJSONField[string](fields, "remote_artifact_digest")
 	if err != nil {
-		return completionProof{}, err
+		return err
 	}
+	return nil
+}
+
+// decodeCompletionVerificationFields 读取 completion 链的动作、状态和隔离证明。
+func decodeCompletionVerificationFields(fields map[string]json.RawMessage, proof *completionProof) error {
+	var err error
 	proof.ActionOrder, err = requiredJSONField[[]string](fields, "action_order")
 	if err != nil {
-		return completionProof{}, err
+		return err
 	}
 	proof.ForwarderCountAfter, err = requiredJSONField[int](fields, "forwarder_count_after")
 	if err != nil {
-		return completionProof{}, err
+		return err
 	}
 	proof.DaemonObservedAfter, err = requiredJSONField[bool](fields, "daemon_observed_after")
 	if err != nil {
-		return completionProof{}, err
+		return err
 	}
 	proof.TelemetryIdentitiesGone, err = requiredJSONField[bool](fields, "telemetry_identities_gone")
 	if err != nil {
-		return completionProof{}, err
+		return err
 	}
 	proof.EndpointUnreachable, err = requiredJSONField[bool](fields, "endpoint_unreachable")
 	if err != nil {
-		return completionProof{}, err
+		return err
 	}
 	proof.NativeOwnerReleased, err = requiredJSONField[bool](fields, "native_owner_released")
 	if err != nil {
-		return completionProof{}, err
+		return err
 	}
 	proof.QuietWindowVerified, err = requiredJSONField[bool](fields, "quiet_window_verified")
 	if err != nil {
-		return completionProof{}, err
+		return err
 	}
 	proof.NextEpoch, err = requiredJSONField[uint64](fields, "next_epoch")
 	if err != nil {
-		return completionProof{}, err
+		return err
 	}
 	proof.Status, err = requiredJSONField[string](fields, "status")
 	if err != nil {
-		return completionProof{}, err
+		return err
 	}
-	return proof, nil
+	return nil
 }
 
 func requiredJSONField[T any](fields map[string]json.RawMessage, name string) (T, error) {

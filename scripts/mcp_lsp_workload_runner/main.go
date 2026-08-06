@@ -61,6 +61,9 @@ func run(args []string) error {
 	if workload.ProducerImplementationStatus != "implemented" {
 		return fmt.Errorf("workload %q is N/V: producer_implementation_status=%s t6_blocking=%t release_blocking=%t", workload.ID, workload.ProducerImplementationStatus, workload.T6Blocking, workload.ReleaseBlocking)
 	}
+	if err := catalog.RequireRemoteCompletionAuthority(workload); err != nil {
+		return err
+	}
 	if options.plan {
 		return printPlan(document, workload)
 	}

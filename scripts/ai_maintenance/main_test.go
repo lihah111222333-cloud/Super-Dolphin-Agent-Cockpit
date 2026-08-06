@@ -49,7 +49,7 @@ func TestChangedFilesFromGitPreservesNulDelimitedUnicodePaths(t *testing.T) {
 	runAIMaintenanceGit(t, root, "init", "--quiet")
 	runAIMaintenanceGit(t, root, "config", "user.name", "ai-maintenance-test")
 	runAIMaintenanceGit(t, root, "config", "user.email", "ai-maintenance@example.invalid")
-	tracked := filepath.Join(root, "资料", "阶段 甲.txt")
+	tracked := filepath.Join(root, "  前导目录", "尾随文件  .txt")
 	if err := os.MkdirAll(filepath.Dir(tracked), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestChangedFilesFromGitPreservesNulDelimitedUnicodePaths(t *testing.T) {
 	}
 	runAIMaintenanceGit(t, root, "add", ".")
 	runAIMaintenanceGit(t, root, "commit", "--quiet", "-m", "初始化")
-	untracked := filepath.Join(root, "新增", "中文 名.md")
+	untracked := filepath.Join(root, "新增", "  中文 名  .md")
 	if err := os.MkdirAll(filepath.Dir(untracked), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -68,15 +68,15 @@ func TestChangedFilesFromGitPreservesNulDelimitedUnicodePaths(t *testing.T) {
 	if err := os.WriteFile(tracked, []byte("候选变更\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	runAIMaintenanceGit(t, root, "add", "资料/阶段 甲.txt")
+	runAIMaintenanceGit(t, root, "add", "  前导目录/尾随文件  .txt")
 	runAIMaintenanceGit(t, root, "commit", "--quiet", "-m", "候选变更")
 	t.Chdir(root)
 	files, err := changedFilesFromGit("HEAD^")
 	if err != nil {
 		t.Fatalf("changedFilesFromGit() error = %v", err)
 	}
-	if !slices.Contains(files, "资料/阶段 甲.txt") || !slices.Contains(files, "新增/中文 名.md") {
-		t.Fatalf("changedFilesFromGit() = %v, want both Unicode paths", files)
+	if !slices.Contains(files, "  前导目录/尾随文件  .txt") || !slices.Contains(files, "新增/  中文 名  .md") {
+		t.Fatalf("changedFilesFromGit() = %v, want exact Unicode/whitespace paths", files)
 	}
 }
 

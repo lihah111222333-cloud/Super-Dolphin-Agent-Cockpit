@@ -324,6 +324,90 @@ func TestDefault15mReceiptRejectsCompletionChainAndGitDrift(t *testing.T) {
 	}
 }
 
+func TestRequireRemoteCompletionAuthorityFailsBeforeExecution(t *testing.T) {
+	workload := Workload{ID: default15mWorkloadID, ImplementationStatus: "implemented", ProducerImplementationStatus: "implemented"}
+	if err := RequireRemoteCompletionAuthority(workload); err == nil || !strings.Contains(err.Error(), "remote run/job/artifact authority") {
+		t.Fatalf("RequireRemoteCompletionAuthority() error = %v, want fail-closed authority error", err)
+	}
+	short := Workload{ID: "mcp-lsp-idle-quick", TriggerClass: "quick", ImplementationStatus: "implemented", ProducerImplementationStatus: "implemented"}
+	if err := RequireRemoteCompletionAuthority(short); err != nil {
+		t.Fatalf("RequireRemoteCompletionAuthority(short) error = %v, want nil", err)
+	}
+}
+
+func TestAttachCompletionProvenanceMapsAndComparesRemoteAuthority(t *testing.T) {
+	_, root, receipt, completionPath := default15mReceiptFixture(t)
+	receipt.WorkloadID = "mcp-lsp-idle-quick"
+	proof := mustDecodeCompletionProof(t, completionPath)
+	if err := AttachCompletionProvenance(&receipt, root, completionPath); err == nil || !strings.Contains(err.Error(), "remote run/job/artifact authority") {
+		t.Fatalf("AttachCompletionProvenance() error = %v, want final authority N/V", err)
+	}
+	assertRemoteAuthorityMapping(t, receipt, proof)
+	assertRemoteAuthorityMismatches(t, receipt, proof)
+}
+
+func mustDecodeCompletionProof(t *testing.T, path string) completionProof {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := decodeCompletionProof(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return proof
+}
+
+func assertRemoteAuthorityMapping(t *testing.T, receipt Receipt, proof completionProof) {
+	t.Helper()
+	if receipt.RemoteRunID != proof.RemoteRunID || receipt.RemoteJobID != proof.RemoteJobID ||
+		receipt.RemoteArtifactName != proof.RemoteArtifactName || receipt.RemoteArtifactDigest != proof.RemoteArtifactDigest {
+		t.Fatalf("AttachCompletionProvenance() remote fields = (%q, %q, %q, %q), want proof values", receipt.RemoteRunID, receipt.RemoteJobID, receipt.RemoteArtifactName, receipt.RemoteArtifactDigest)
+	}
+}
+
+func assertRemoteAuthorityMismatches(t *testing.T, receipt Receipt, proof completionProof) {
+	t.Helper()
+	mutations := []struct {
+		name   string
+		mutate func(*Receipt)
+	}{
+		{name: "run", mutate: func(value *Receipt) { value.RemoteRunID = "other-run" }},
+		{name: "job", mutate: func(value *Receipt) { value.RemoteJobID = "other-job" }},
+		{name: "artifact name", mutate: func(value *Receipt) { value.RemoteArtifactName = "other-artifact" }},
+		{name: "artifact digest", mutate: func(value *Receipt) { value.RemoteArtifactDigest = "sha256:" + strings.Repeat("9", 64) }},
+	}
+	for _, test := range mutations {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := receipt
+			test.mutate(&candidate)
+			if err := validateCompletionProof(proof, candidate, candidate.WorkloadID); err == nil || !strings.Contains(err.Error(), "provenance chain mismatch") {
+				t.Fatalf("validateCompletionProof() error = %v, want remote field mismatch", err)
+			}
+		})
+	}
+}
+
+func TestAttachCompletionProvenanceRejectsMissingRemoteAuthorityFields(t *testing.T) {
+	_, root, receipt, _ := default15mReceiptFixture(t)
+	receipt.WorkloadID = "mcp-lsp-idle-quick"
+	for _, field := range []string{"remote_run_id", "remote_job_id", "remote_artifact_name", "remote_artifact_digest"} {
+		t.Run(field, func(t *testing.T) {
+			proof := defaultCompletionProof(t, root)
+			delete(proof, field)
+			path := filepath.Join(t.TempDir(), field+".json")
+			writeJSON(t, path, proof)
+			candidate := receipt
+			err := AttachCompletionProvenance(&candidate, root, path)
+			want := fmt.Sprintf("completion receipt field %q is required", field)
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Fatalf("AttachCompletionProvenance() error = %v, want missing-field error %q", err, want)
+			}
+		})
+	}
+}
+
 func TestLoadAtBindsResolvedGitTreeDespiteWorkingTreeDrift(t *testing.T) {
 	document, raw, root := validFixture(t)
 	document.Workloads[0].Command = []string{"go", "test", "./cmd/mcp-lsp", "-run", "^TestFoo$"}
