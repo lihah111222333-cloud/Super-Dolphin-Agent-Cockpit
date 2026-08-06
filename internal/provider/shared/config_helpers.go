@@ -47,7 +47,7 @@ func (r binaryDirResolver) ResolveBinaryDir(cwd string, cfg map[string]any) stri
 	if dir := r.packagedBinaryDir(); dir != "" {
 		return dir
 	}
-	if dir := ConfigString(cfg, "binary_dir", "binaryDir"); dir != "" {
+	if dir := ConfigString(cfg, contract.RuntimeConfigBinaryDir().Keys()...); dir != "" {
 		return dir
 	}
 	candidates := make([]string, 0, 4)

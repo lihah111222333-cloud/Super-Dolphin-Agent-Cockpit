@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 )
 
@@ -30,7 +31,7 @@ func resolveInvalidNativeToolPolicy(value any) error {
 	_, err := (&driver{}).resolveSessionOptions(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-1",
 		Config: map[string]any{
-			codexDisabledNativeToolsConfigKey: value,
+			contract.RuntimeConfigCodexDisabledNativeTools().Canonical: value,
 		},
 	})
 	return err
@@ -52,8 +53,9 @@ func assertNativeToolPolicyValidationError(t *testing.T, err error) {
 		t.Fatal("resolveSessionOptions() error = nil, want invalid native tool policy")
 	}
 	message := err.Error()
-	if !strings.Contains(message, codexDisabledNativeToolsConfigKey) {
-		t.Fatalf("error = %v, want %s validation detail", err, codexDisabledNativeToolsConfigKey)
+	key := contract.RuntimeConfigCodexDisabledNativeTools().Canonical
+	if !strings.Contains(message, key) {
+		t.Fatalf("error = %v, want %s validation detail", err, key)
 	}
 	if !strings.Contains(message, "must be []string or []any of strings") {
 		t.Fatalf("error = %v, want strict string list validation detail", err)
@@ -67,8 +69,9 @@ func assertNativeToolPolicyUnknownError(t *testing.T, err error, unknown string)
 		t.Fatal("native tool policy error = nil, want unknown native tool ID")
 	}
 	message := err.Error()
-	if !strings.Contains(message, codexDisabledNativeToolsConfigKey) {
-		t.Fatalf("error = %v, want %s validation detail", err, codexDisabledNativeToolsConfigKey)
+	key := contract.RuntimeConfigCodexDisabledNativeTools().Canonical
+	if !strings.Contains(message, key) {
+		t.Fatalf("error = %v, want %s validation detail", err, key)
 	}
 	if !strings.Contains(message, unknown) {
 		t.Fatalf("error = %v, want unknown native tool ID %q", err, unknown)

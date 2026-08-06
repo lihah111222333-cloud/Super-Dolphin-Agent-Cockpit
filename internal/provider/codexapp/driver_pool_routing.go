@@ -473,7 +473,7 @@ func (d *driver) missingResumeIdentityOptions(req dto.ResumeSessionRequest, stri
 // withPoolSpawnSessionConfig 把工作区、LSP roots 和 native tool policy 注入 pool spawn context。
 // 这些值只用于新 app-server 启动，不写回线程运行时配置。
 func withPoolSpawnSessionConfig(ctx context.Context, workDir string, cfg map[string]any, policy codexNativeToolPolicy) context.Context {
-	roots := trustedWorkspaceRoots(workDir, providershared.ConfigStringSlice(cfg, contract.RuntimeConfigAdditionalWorkingDirectories.Keys()...))
+	roots := trustedWorkspaceRoots(workDir, providershared.ConfigStringSlice(cfg, contract.RuntimeConfigAdditionalWorkingDirectories().Keys()...))
 	ctx = withPoolSpawnWorkDir(ctx, workDir)
 	ctx = withPoolSpawnLSPConfig(ctx, roots, providershared.ResolveBinaryDir(workDir, cfg))
 	return withPoolSpawnNativeToolPolicy(ctx, policy)
@@ -509,12 +509,11 @@ func poolRoutingDecision() (enabled bool, strict bool, err error) {
 	return parsed, parsed, nil
 }
 
-const codexDisabledNativeToolsConfigKey = "codexDisabledNativeTools"
-
 type codexNativeToolPolicy struct{ contract.CodexNativeToolPolicy }
 
 func codexNativeToolPolicyFromConfig(cfg map[string]any) (codexNativeToolPolicy, error) {
-	values, err := rawStringList(cfg[codexDisabledNativeToolsConfigKey])
+	key := contract.RuntimeConfigCodexDisabledNativeTools().Canonical
+	values, err := rawStringList(key, cfg[key])
 	if err != nil {
 		return codexNativeToolPolicy{}, err
 	}
@@ -535,7 +534,7 @@ func validateCodexNativeToolPolicyConfig(cfg map[string]any) error {
 }
 
 // rawStringList 严格解析 native tool 禁用列表，遇到非字符串元素会直接阻断启动。
-func rawStringList(value any) ([]string, error) {
+func rawStringList(key string, value any) ([]string, error) {
 	switch v := value.(type) {
 	case nil:
 		return nil, nil
@@ -546,13 +545,13 @@ func rawStringList(value any) ([]string, error) {
 		for _, value := range v {
 			text, ok := value.(string)
 			if !ok {
-				return nil, fmt.Errorf("%s must be []string or []any of strings, got element %T", codexDisabledNativeToolsConfigKey, value)
+				return nil, fmt.Errorf("%s must be []string or []any of strings, got element %T", key, value)
 			}
 			out = append(out, text)
 		}
 		return out, nil
 	default:
-		return nil, fmt.Errorf("%s must be []string or []any of strings, got %T", codexDisabledNativeToolsConfigKey, value)
+		return nil, fmt.Errorf("%s must be []string or []any of strings, got %T", key, value)
 	}
 }
 
@@ -574,7 +573,7 @@ func cleanCodexNativeToolIDs(values []string) []string {
 func validateCodexNativeToolIDs(ids []string) error {
 	for _, id := range ids {
 		if !contract.IsKnownCodexNativeTool(id) {
-			return fmt.Errorf("%s contains unknown Codex native tool %q", codexDisabledNativeToolsConfigKey, id)
+			return fmt.Errorf("%s contains unknown Codex native tool %q", contract.RuntimeConfigCodexDisabledNativeTools().Canonical, id)
 		}
 	}
 	return nil

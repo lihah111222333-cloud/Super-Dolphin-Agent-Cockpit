@@ -108,7 +108,7 @@ func mustCodexNativeToolPolicyFromConfig(t *testing.T, cfg map[string]any) codex
 
 func TestCodexNativeToolPolicyMapsDisabledToolsToProcessFlags(t *testing.T) {
 	policy := mustCodexNativeToolPolicyFromConfig(t, map[string]any{
-		codexDisabledNativeToolsConfigKey: []any{"write_new_file", "shell", "apply_patch"},
+		contract.RuntimeConfigCodexDisabledNativeTools().Canonical: []any{"write_new_file", "shell", "apply_patch"},
 	})
 	wantArgs := []string{"--disable", "shell_tool", "--disable", "unified_exec"}
 	if got := policy.AppServerArgs(); !reflect.DeepEqual(got, wantArgs) {
@@ -121,7 +121,7 @@ func TestCodexNativeToolPolicyMapsDisabledToolsToProcessFlags(t *testing.T) {
 
 func TestCodexNativeToolPolicyOmitsRemovedChildAgentsFeatureFlag(t *testing.T) {
 	policy := mustCodexNativeToolPolicyFromConfig(t, map[string]any{
-		codexDisabledNativeToolsConfigKey: []string{"spawn_agent"},
+		contract.RuntimeConfigCodexDisabledNativeTools().Canonical: []string{"spawn_agent"},
 	})
 	wantArgs := []string{
 		"--disable", "enable_fanout",
@@ -139,7 +139,7 @@ func TestCodexNativeToolPolicyOmitsRemovedChildAgentsFeatureFlag(t *testing.T) {
 func TestCodexNativeToolPolicyUsesReadOnlySandboxForPartialWriteDisable(t *testing.T) {
 	params := threadStartParams{}
 	mustCodexNativeToolPolicyFromConfig(t, map[string]any{
-		codexDisabledNativeToolsConfigKey: []string{"apply_patch"},
+		contract.RuntimeConfigCodexDisabledNativeTools().Canonical: []string{"apply_patch"},
 	}).ApplyThreadStartParams(&params)
 	if params.ApprovalPolicy != "never" {
 		t.Fatalf("ApprovalPolicy = %q, want never", params.ApprovalPolicy)
@@ -153,7 +153,7 @@ func TestCodexNativeToolPolicyUsesReadOnlySandboxForPartialWriteDisable(t *testi
 func TestCodexNativeToolPolicyDoesNotOverrideSandboxForNativelyDisabledWriteTools(t *testing.T) {
 	params := threadStartParams{}
 	policy := mustCodexNativeToolPolicyFromConfig(t, map[string]any{
-		codexDisabledNativeToolsConfigKey: []string{
+		contract.RuntimeConfigCodexDisabledNativeTools().Canonical: []string{
 			contract.CodexNativeToolShell,
 			contract.CodexNativeToolApplyPatch,
 			contract.CodexNativeToolWriteNewFile,

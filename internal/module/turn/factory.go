@@ -116,22 +116,22 @@ func mergePrepareInputRuntime(input PrepareInput, cfg map[string]any) PrepareInp
 	if len(cfg) == 0 {
 		return input
 	}
-	input.Provider = util.FirstNonEmpty(strings.TrimSpace(input.Provider), configutil.ConfigString(cfg, contract.RuntimeConfigProvider.Keys()...))
-	input.PromptKey = util.FirstNonEmpty(strings.TrimSpace(input.PromptKey), configutil.ConfigString(cfg, contract.RuntimeConfigPromptKey.Keys()...))
-	input.CWD = util.FirstNonEmpty(strings.TrimSpace(input.CWD), configutil.ConfigString(cfg, contract.RuntimeConfigCWD.Keys()...))
-	input.Model = util.FirstNonEmpty(strings.TrimSpace(input.Model), configutil.ConfigString(cfg, contract.RuntimeConfigModel.Keys()...))
-	input.GitRoot = util.FirstNonEmpty(strings.TrimSpace(input.GitRoot), configutil.ConfigString(cfg, contract.RuntimeConfigGitRoot.Keys()...))
-	input.IsWorktree = input.IsWorktree || configBool(cfg, contract.RuntimeConfigIsWorktree.Keys()...)
-	input.Language = util.FirstNonEmpty(strings.TrimSpace(input.Language), configutil.ConfigString(cfg, contract.RuntimeConfigLanguage.Keys()...))
-	input.EnabledTools = firstNonEmptyStrings(input.EnabledTools, configutil.ConfigStringSlice(cfg, contract.RuntimeConfigEnabledTools.Keys()...))
-	input.AdditionalWorkingDirectories = firstNonEmptyStrings(input.AdditionalWorkingDirectories, configutil.ConfigStringSlice(cfg, contract.RuntimeConfigAdditionalWorkingDirectories.Keys()...))
+	input.Provider = util.FirstNonEmpty(strings.TrimSpace(input.Provider), configutil.ConfigString(cfg, contract.RuntimeConfigProvider().Keys()...))
+	input.PromptKey = util.FirstNonEmpty(strings.TrimSpace(input.PromptKey), configutil.ConfigString(cfg, contract.RuntimeConfigPromptKey().Keys()...))
+	input.CWD = util.FirstNonEmpty(strings.TrimSpace(input.CWD), configutil.ConfigString(cfg, contract.RuntimeConfigCWD().Keys()...))
+	input.Model = util.FirstNonEmpty(strings.TrimSpace(input.Model), configutil.ConfigString(cfg, contract.RuntimeConfigModel().Keys()...))
+	input.GitRoot = util.FirstNonEmpty(strings.TrimSpace(input.GitRoot), configutil.ConfigString(cfg, contract.RuntimeConfigGitRoot().Keys()...))
+	input.IsWorktree = input.IsWorktree || configBool(cfg, contract.RuntimeConfigIsWorktree().Keys()...)
+	input.Language = util.FirstNonEmpty(strings.TrimSpace(input.Language), configutil.ConfigString(cfg, contract.RuntimeConfigLanguage().Keys()...))
+	input.EnabledTools = firstNonEmptyStrings(input.EnabledTools, configutil.ConfigStringSlice(cfg, contract.RuntimeConfigEnabledTools().Keys()...))
+	input.AdditionalWorkingDirectories = firstNonEmptyStrings(input.AdditionalWorkingDirectories, configutil.ConfigStringSlice(cfg, contract.RuntimeConfigAdditionalWorkingDirectories().Keys()...))
 	input.MCPSnapshot = mergeMCPSnapshot(input.MCPSnapshot, configMCPSnapshot(cfg))
-	input.SessionFlags = firstNonEmptyFlags(input.SessionFlags, configBoolMap(cfg, contract.RuntimeConfigSessionFlags.Keys()...))
-	input.Summary = util.FirstNonEmpty(strings.TrimSpace(input.Summary), configutil.ConfigString(cfg, contract.RuntimeConfigSummary.Keys()...))
-	input.OutputStyleConfig = firstNonNilOutputStyle(input.OutputStyleConfig, configOutputStyle(cfg, contract.RuntimeConfigOutputStyleConfig.Keys()...))
-	input.ScratchpadDir = util.FirstNonEmpty(strings.TrimSpace(input.ScratchpadDir), configScratchpadDir(cfg, contract.RuntimeConfigScratchpadDir.Keys()...))
+	input.SessionFlags = firstNonEmptyFlags(input.SessionFlags, configBoolMap(cfg, contract.RuntimeConfigSessionFlags().Keys()...))
+	input.Summary = util.FirstNonEmpty(strings.TrimSpace(input.Summary), configutil.ConfigString(cfg, contract.RuntimeConfigSummary().Keys()...))
+	input.OutputStyleConfig = firstNonNilOutputStyle(input.OutputStyleConfig, configOutputStyle(cfg, contract.RuntimeConfigOutputStyleConfig().Keys()...))
+	input.ScratchpadDir = util.FirstNonEmpty(strings.TrimSpace(input.ScratchpadDir), configScratchpadDir(cfg, contract.RuntimeConfigScratchpadDir().Keys()...))
 	if input.FRCConfig == nil {
-		input.FRCConfig = configFRCConfig(cfg, contract.RuntimeConfigFRCConfig.Keys()...)
+		input.FRCConfig = configFRCConfig(cfg, contract.RuntimeConfigFRCConfig().Keys()...)
 	}
 	if providerNativeSkillsDisabled(cfg) {
 		input.ManualSkillSelection = true
@@ -141,7 +141,7 @@ func mergePrepareInputRuntime(input PrepareInput, cfg map[string]any) PrepareInp
 
 // providerNativeSkillsDisabled 读取新旧配置键，判断 provider 原生 skill 是否被显式禁用。
 func providerNativeSkillsDisabled(cfg map[string]any) bool {
-	for _, key := range contract.RuntimeConfigProviderNativeSkills.Keys() {
+	for _, key := range contract.RuntimeConfigProviderNativeSkills().Keys() {
 		raw, ok := cfg[key]
 		if !ok {
 			continue
@@ -149,7 +149,7 @@ func providerNativeSkillsDisabled(cfg map[string]any) bool {
 		enabled, ok := raw.(bool)
 		return ok && !enabled
 	}
-	for _, key := range contract.RuntimeConfigDisableProviderNativeSkills.Keys() {
+	for _, key := range contract.RuntimeConfigDisableProviderNativeSkills().Keys() {
 		raw, ok := cfg[key]
 		if !ok {
 			continue
@@ -210,10 +210,10 @@ func normalizePrepareBoolMap(value any) map[string]bool {
 // configMCPSnapshot 从运行时配置中抽取 MCP server、tool 和指令增量快照。
 func configMCPSnapshot(cfg map[string]any) contract.MCPSnapshot {
 	return contract.MCPSnapshot{
-		Servers:                  configutil.ConfigStringSlice(cfg, contract.RuntimeConfigMCPServers.Keys()...),
-		Tools:                    configutil.ConfigStringSlice(cfg, contract.RuntimeConfigMCPTools.Keys()...),
-		Instructions:             configStringMap(cfg, contract.RuntimeConfigMCPInstructions.Keys()...),
-		InstructionsDeltaEnabled: configBool(cfg, contract.RuntimeConfigMCPInstructionsDeltaEnabled.Keys()...),
+		Servers:                  configutil.ConfigStringSlice(cfg, contract.RuntimeConfigMCPServers().Keys()...),
+		Tools:                    configutil.ConfigStringSlice(cfg, contract.RuntimeConfigMCPTools().Keys()...),
+		Instructions:             configStringMap(cfg, contract.RuntimeConfigMCPInstructions().Keys()...),
+		InstructionsDeltaEnabled: configBool(cfg, contract.RuntimeConfigMCPInstructionsDeltaEnabled().Keys()...),
 	}
 }
 

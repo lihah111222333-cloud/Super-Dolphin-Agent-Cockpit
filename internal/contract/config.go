@@ -114,84 +114,84 @@ type DependencyAbsencePolicy struct {
 	Error   error
 }
 
-var registeredDependencyAbsencePolicies = []DependencyAbsencePolicy{
-	{
-		Name:    "runtime_reporter.orchestration_service",
-		Profile: DependencyProfileDesktopHost,
-		Reason:  DependencyAbsenceDesktopExternal,
-		Owner:   "Lane D",
-		Error:   ErrDependencyDeferred,
-	},
-	{
-		Name:    "runtime_reporter.orchestration_service",
-		Profile: DependencyProfileTest,
-		Reason:  DependencyAbsenceDesktopExternal,
-		Owner:   "Lane D",
-		Error:   ErrDependencyDeferred,
-	},
-	{
-		Name:    "toolbridge.agent_thread_lookup",
-		Profile: DependencyProfileDesktopHost,
-		Reason:  DependencyAbsenceDesktopExternal,
-		Owner:   "Lane D",
-		Error:   ErrUnsupportedDependencyMode,
-	},
-	{
-		Name:    "toolbridge.thread_config_override_store",
-		Profile: DependencyProfileDesktopHost,
-		Reason:  DependencyAbsenceDesktopExternal,
-		Owner:   "Lane D",
-		Error:   ErrUnsupportedDependencyMode,
-	},
-	{
-		Name:    "toolbridge.lifecycle_backfiller",
-		Profile: DependencyProfileTest,
-		Reason:  DependencyAbsenceTestHarness,
-		Owner:   "Lane D",
-		Error:   ErrUnsupportedDependencyMode,
-	},
-	{
-		Name:    "toolbridge.skill_tools",
-		Profile: DependencyProfileTest,
-		Reason:  DependencyAbsenceTestHarness,
-		Owner:   "Lane D",
-		Error:   ErrUnsupportedDependencyMode,
-	},
-	{
-		Name:    "thread.bind_session_generation",
-		Profile: DependencyProfileDesktopHost,
-		Reason:  DependencyAbsenceDesktopExternal,
-		Owner:   "Lane D",
-		Error:   ErrUnsupportedDependencyMode,
-	},
-	{
-		Name:    "thread.bind_session_generation",
-		Profile: DependencyProfileTest,
-		Reason:  DependencyAbsenceDesktopExternal,
-		Owner:   "Lane D",
-		Error:   ErrUnsupportedDependencyMode,
-	},
-	{
-		Name:    "dynamic_tools",
-		Profile: DependencyProfileTest,
-		Reason:  DependencyAbsenceTestHarness,
-		Owner:   "provider contract",
-		Error:   ErrUnsupportedDependencyMode,
-	},
-	{
-		Name:    "approval_or_tool_diff",
-		Profile: DependencyProfileTest,
-		Reason:  DependencyAbsenceTestHarness,
-		Owner:   "provider contract",
-		Error:   ErrUnsupportedDependencyMode,
-	},
+func registeredDependencyAbsencePolicies() []DependencyAbsencePolicy {
+	return []DependencyAbsencePolicy{
+		{
+			Name:    "runtime_reporter.orchestration_service",
+			Profile: DependencyProfileDesktopHost,
+			Reason:  DependencyAbsenceDesktopExternal,
+			Owner:   "Lane D",
+			Error:   ErrDependencyDeferred,
+		},
+		{
+			Name:    "runtime_reporter.orchestration_service",
+			Profile: DependencyProfileTest,
+			Reason:  DependencyAbsenceDesktopExternal,
+			Owner:   "Lane D",
+			Error:   ErrDependencyDeferred,
+		},
+		{
+			Name:    "toolbridge.agent_thread_lookup",
+			Profile: DependencyProfileDesktopHost,
+			Reason:  DependencyAbsenceDesktopExternal,
+			Owner:   "Lane D",
+			Error:   ErrUnsupportedDependencyMode,
+		},
+		{
+			Name:    "toolbridge.thread_config_override_store",
+			Profile: DependencyProfileDesktopHost,
+			Reason:  DependencyAbsenceDesktopExternal,
+			Owner:   "Lane D",
+			Error:   ErrUnsupportedDependencyMode,
+		},
+		{
+			Name:    "toolbridge.lifecycle_backfiller",
+			Profile: DependencyProfileTest,
+			Reason:  DependencyAbsenceTestHarness,
+			Owner:   "Lane D",
+			Error:   ErrUnsupportedDependencyMode,
+		},
+		{
+			Name:    "toolbridge.skill_tools",
+			Profile: DependencyProfileTest,
+			Reason:  DependencyAbsenceTestHarness,
+			Owner:   "Lane D",
+			Error:   ErrUnsupportedDependencyMode,
+		},
+		{
+			Name:    "thread.bind_session_generation",
+			Profile: DependencyProfileDesktopHost,
+			Reason:  DependencyAbsenceDesktopExternal,
+			Owner:   "Lane D",
+			Error:   ErrUnsupportedDependencyMode,
+		},
+		{
+			Name:    "thread.bind_session_generation",
+			Profile: DependencyProfileTest,
+			Reason:  DependencyAbsenceDesktopExternal,
+			Owner:   "Lane D",
+			Error:   ErrUnsupportedDependencyMode,
+		},
+		{
+			Name:    "dynamic_tools",
+			Profile: DependencyProfileTest,
+			Reason:  DependencyAbsenceTestHarness,
+			Owner:   "provider contract",
+			Error:   ErrUnsupportedDependencyMode,
+		},
+		{
+			Name:    "approval_or_tool_diff",
+			Profile: DependencyProfileTest,
+			Reason:  DependencyAbsenceTestHarness,
+			Owner:   "provider contract",
+			Error:   ErrUnsupportedDependencyMode,
+		},
+	}
 }
 
-// RegisteredDependencyAbsencePolicies 返回当前注册的依赖缺席策略副本，防止调用方改写全局策略。
+// RegisteredDependencyAbsencePolicies 返回当前注册的依赖缺席策略，调用方无法改写共享包级状态。
 func RegisteredDependencyAbsencePolicies() []DependencyAbsencePolicy {
-	out := make([]DependencyAbsencePolicy, len(registeredDependencyAbsencePolicies))
-	copy(out, registeredDependencyAbsencePolicies)
-	return out
+	return registeredDependencyAbsencePolicies()
 }
 
 // AllowsMissingDependency 判断指定 profile 是否允许该依赖缺席；未知依赖和生产 profile 都返回 false。
@@ -251,7 +251,7 @@ func lookupDependencyAbsencePolicy(name string, profile DependencyProfile) (Depe
 	if name == "" || strings.TrimSpace(string(profile)) == "" {
 		return DependencyAbsencePolicy{}, false
 	}
-	for _, policy := range registeredDependencyAbsencePolicies {
+	for _, policy := range registeredDependencyAbsencePolicies() {
 		if policy.Name == name && policy.Profile == profile {
 			return policy, true
 		}
@@ -261,7 +261,7 @@ func lookupDependencyAbsencePolicy(name string, profile DependencyProfile) (Depe
 
 func dependencyAbsencePolicyNameExists(name string) bool {
 	name = strings.TrimSpace(name)
-	for _, policy := range registeredDependencyAbsencePolicies {
+	for _, policy := range registeredDependencyAbsencePolicies() {
 		if policy.Name == name {
 			return true
 		}
@@ -352,29 +352,110 @@ func (f RuntimeConfigField) Keys() []string {
 	return keys
 }
 
-var (
-	RuntimeConfigProvider                     = RuntimeConfigField{Canonical: "provider"}
-	RuntimeConfigPromptKey                    = RuntimeConfigField{Canonical: "promptKey", Aliases: []string{"prompt_key"}}
-	RuntimeConfigCWD                          = RuntimeConfigField{Canonical: "cwd"}
-	RuntimeConfigModel                        = RuntimeConfigField{Canonical: "model"}
-	RuntimeConfigGitRoot                      = RuntimeConfigField{Canonical: "gitRoot", Aliases: []string{"git_root"}}
-	RuntimeConfigIsWorktree                   = RuntimeConfigField{Canonical: "isWorktree", Aliases: []string{"is_worktree"}}
-	RuntimeConfigLanguage                     = RuntimeConfigField{Canonical: "language"}
-	RuntimeConfigEnabledTools                 = RuntimeConfigField{Canonical: "enabledTools", Aliases: []string{"enabled_tools", "tools"}}
-	RuntimeConfigAdditionalWorkingDirectories = RuntimeConfigField{Canonical: "additionalWorkingDirectories", Aliases: []string{"additional_working_directories"}}
-	RuntimeConfigSessionFlags                 = RuntimeConfigField{Canonical: "sessionFlags", Aliases: []string{"session_flags"}}
-	RuntimeConfigSummary                      = RuntimeConfigField{Canonical: "summary"}
-	RuntimeConfigOutputStyleConfig            = RuntimeConfigField{Canonical: "outputStyleConfig", Aliases: []string{"output_style_config"}}
-	RuntimeConfigScratchpadDir                = RuntimeConfigField{Canonical: "scratchpadDir", Aliases: []string{"scratchpad_dir"}}
-	RuntimeConfigFRCConfig                    = RuntimeConfigField{Canonical: "frcConfig", Aliases: []string{"frc_config"}}
-	RuntimeConfigProviderNativeSkills         = RuntimeConfigField{Canonical: "providerNativeSkills", Aliases: []string{"provider_native_skills"}}
-	RuntimeConfigDisableProviderNativeSkills  = RuntimeConfigField{Canonical: "disableProviderNativeSkills", Aliases: []string{"disable_provider_native_skills"}}
-	RuntimeConfigMCPServers                   = RuntimeConfigField{Canonical: "mcpServers", Aliases: []string{"mcp_servers"}}
-	RuntimeConfigMCPTools                     = RuntimeConfigField{Canonical: "mcpTools", Aliases: []string{"mcp_tools"}}
-	RuntimeConfigMCPInstructions              = RuntimeConfigField{Canonical: "mcpInstructions", Aliases: []string{"mcp_instructions"}}
-	RuntimeConfigMCPInstructionsDeltaEnabled  = RuntimeConfigField{Canonical: "mcpInstructionsDeltaEnabled", Aliases: []string{"mcp_instructions_delta_enabled"}}
-	RuntimeConfigEnv                          = RuntimeConfigField{Canonical: "env"}
-	RuntimeConfigAutoApprove                  = RuntimeConfigField{Canonical: "autoApprove", Aliases: []string{"auto_approve"}}
-	RuntimeConfigBinaryDir                    = RuntimeConfigField{Canonical: "binary_dir", Aliases: []string{"binaryDir"}}
-	RuntimeConfigCodexDisabledNativeTools     = RuntimeConfigField{Canonical: "codexDisabledNativeTools"}
-)
+// RuntimeConfigProvider 返回 provider 字段描述符的新值，避免暴露可变包级状态。
+func RuntimeConfigProvider() RuntimeConfigField { return RuntimeConfigField{Canonical: "provider"} }
+
+// RuntimeConfigPromptKey 返回 prompt key 字段描述符的新值。
+func RuntimeConfigPromptKey() RuntimeConfigField {
+	return RuntimeConfigField{Canonical: "promptKey", Aliases: []string{"prompt_key"}}
+}
+
+// RuntimeConfigCWD 返回 cwd 字段描述符的新值。
+func RuntimeConfigCWD() RuntimeConfigField { return RuntimeConfigField{Canonical: "cwd"} }
+
+// RuntimeConfigModel 返回 model 字段描述符的新值。
+func RuntimeConfigModel() RuntimeConfigField { return RuntimeConfigField{Canonical: "model"} }
+
+// RuntimeConfigGitRoot 返回 git root 字段描述符的新值。
+func RuntimeConfigGitRoot() RuntimeConfigField {
+	return RuntimeConfigField{Canonical: "gitRoot", Aliases: []string{"git_root"}}
+}
+
+// RuntimeConfigIsWorktree 返回 worktree 字段描述符的新值。
+func RuntimeConfigIsWorktree() RuntimeConfigField {
+	return RuntimeConfigField{Canonical: "isWorktree", Aliases: []string{"is_worktree"}}
+}
+
+// RuntimeConfigLanguage 返回 language 字段描述符的新值。
+func RuntimeConfigLanguage() RuntimeConfigField { return RuntimeConfigField{Canonical: "language"} }
+
+// RuntimeConfigEnabledTools 返回 enabled tools 字段描述符的新值。
+func RuntimeConfigEnabledTools() RuntimeConfigField {
+	return RuntimeConfigField{Canonical: "enabledTools", Aliases: []string{"enabled_tools", "tools"}}
+}
+
+// RuntimeConfigAdditionalWorkingDirectories 返回额外工作目录字段描述符的新值。
+func RuntimeConfigAdditionalWorkingDirectories() RuntimeConfigField {
+	return RuntimeConfigField{Canonical: "additionalWorkingDirectories", Aliases: []string{"additional_working_directories"}}
+}
+
+// RuntimeConfigSessionFlags 返回 session flags 字段描述符的新值。
+func RuntimeConfigSessionFlags() RuntimeConfigField {
+	return RuntimeConfigField{Canonical: "sessionFlags", Aliases: []string{"session_flags"}}
+}
+
+// RuntimeConfigSummary 返回 summary 字段描述符的新值。
+func RuntimeConfigSummary() RuntimeConfigField { return RuntimeConfigField{Canonical: "summary"} }
+
+// RuntimeConfigOutputStyleConfig 返回输出样式字段描述符的新值。
+func RuntimeConfigOutputStyleConfig() RuntimeConfigField {
+	return RuntimeConfigField{Canonical: "outputStyleConfig", Aliases: []string{"output_style_config"}}
+}
+
+// RuntimeConfigScratchpadDir 返回 scratchpad 目录字段描述符的新值。
+func RuntimeConfigScratchpadDir() RuntimeConfigField {
+	return RuntimeConfigField{Canonical: "scratchpadDir", Aliases: []string{"scratchpad_dir"}}
+}
+
+// RuntimeConfigFRCConfig 返回 FRC 字段描述符的新值。
+func RuntimeConfigFRCConfig() RuntimeConfigField {
+	return RuntimeConfigField{Canonical: "frcConfig", Aliases: []string{"frc_config"}}
+}
+
+// RuntimeConfigProviderNativeSkills 返回 provider 原生技能字段描述符的新值。
+func RuntimeConfigProviderNativeSkills() RuntimeConfigField {
+	return RuntimeConfigField{Canonical: "providerNativeSkills", Aliases: []string{"provider_native_skills"}}
+}
+
+// RuntimeConfigDisableProviderNativeSkills 返回禁用 provider 原生技能字段描述符的新值。
+func RuntimeConfigDisableProviderNativeSkills() RuntimeConfigField {
+	return RuntimeConfigField{Canonical: "disableProviderNativeSkills", Aliases: []string{"disable_provider_native_skills"}}
+}
+
+// RuntimeConfigMCPServers 返回 MCP servers 字段描述符的新值。
+func RuntimeConfigMCPServers() RuntimeConfigField {
+	return RuntimeConfigField{Canonical: "mcpServers", Aliases: []string{"mcp_servers"}}
+}
+
+// RuntimeConfigMCPTools 返回 MCP tools 字段描述符的新值。
+func RuntimeConfigMCPTools() RuntimeConfigField {
+	return RuntimeConfigField{Canonical: "mcpTools", Aliases: []string{"mcp_tools"}}
+}
+
+// RuntimeConfigMCPInstructions 返回 MCP instructions 字段描述符的新值。
+func RuntimeConfigMCPInstructions() RuntimeConfigField {
+	return RuntimeConfigField{Canonical: "mcpInstructions", Aliases: []string{"mcp_instructions"}}
+}
+
+// RuntimeConfigMCPInstructionsDeltaEnabled 返回 MCP 指令增量字段描述符的新值。
+func RuntimeConfigMCPInstructionsDeltaEnabled() RuntimeConfigField {
+	return RuntimeConfigField{Canonical: "mcpInstructionsDeltaEnabled", Aliases: []string{"mcp_instructions_delta_enabled"}}
+}
+
+// RuntimeConfigEnv 返回环境变量字段描述符的新值。
+func RuntimeConfigEnv() RuntimeConfigField { return RuntimeConfigField{Canonical: "env"} }
+
+// RuntimeConfigAutoApprove 返回自动批准字段描述符的新值。
+func RuntimeConfigAutoApprove() RuntimeConfigField {
+	return RuntimeConfigField{Canonical: "autoApprove", Aliases: []string{"auto_approve"}}
+}
+
+// RuntimeConfigBinaryDir 返回二进制目录字段描述符的新值。
+func RuntimeConfigBinaryDir() RuntimeConfigField {
+	return RuntimeConfigField{Canonical: "binary_dir", Aliases: []string{"binaryDir"}}
+}
+
+// RuntimeConfigCodexDisabledNativeTools 返回 Codex 原生工具禁用字段描述符的新值。
+func RuntimeConfigCodexDisabledNativeTools() RuntimeConfigField {
+	return RuntimeConfigField{Canonical: "codexDisabledNativeTools"}
+}

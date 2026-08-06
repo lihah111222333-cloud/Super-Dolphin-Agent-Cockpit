@@ -12,7 +12,7 @@ func TestRuntimeConfigFieldsKeepCanonicalKeyAndAliases(t *testing.T) {
 
 	tests := []struct {
 		name  string
-		field contract.RuntimeConfigField
+		field func() contract.RuntimeConfigField
 		want  []string
 	}{
 		{name: "provider", field: contract.RuntimeConfigProvider, want: []string{"provider"}},
@@ -42,21 +42,27 @@ func TestRuntimeConfigFieldsKeepCanonicalKeyAndAliases(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := tt.field.Keys()
+			field := tt.field()
+			got := field.Keys()
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Fatalf("Keys() = %#v, want %#v", got, tt.want)
 			}
-			if tt.field.Canonical != tt.want[0] {
-				t.Fatalf("Canonical = %q, want first key %q", tt.field.Canonical, tt.want[0])
+			if field.Canonical != tt.want[0] {
+				t.Fatalf("Canonical = %q, want first key %q", field.Canonical, tt.want[0])
 			}
 
 			got[0] = "mutated"
-			if reflect.DeepEqual(tt.field.Keys(), got) {
-				t.Fatalf("Keys() returned mutable backing slice for %#v", tt.field)
+			if reflect.DeepEqual(tt.field().Keys(), got) {
+				t.Fatalf("Keys() returned mutable backing slice for %#v", field)
+			}
+			if len(field.Aliases) > 0 {
+				field.Aliases[0] = "mutated"
+			}
+			if got := tt.field().Keys(); !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("descriptor mutation leaked: Keys() = %#v, want %#v", got, tt.want)
 			}
 		})
 	}

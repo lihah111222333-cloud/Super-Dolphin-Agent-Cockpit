@@ -408,19 +408,19 @@ func buildStartSessionConfig(req StartRequest, input contract.StartInput, assemb
 		{req.ApprovalPolicy, []string{"approvalPolicy", "approval_policy", "approvals"}},
 		{modelProvider, []string{"modelProvider"}},
 		{assembly.DeveloperInstructions, []string{"developerInstructions", "developer_instructions"}},
-		{req.Summary, []string{"summary"}},
+		{req.Summary, contract.RuntimeConfigSummary().Keys()},
 		{req.Effort, []string{"effort"}},
 		{req.Personality, []string{"personality"}},
 		{input.ParentAgentID, []string{"parentAgentId", "parent_agent_id"}},
 		{input.AgentType, []string{"agentType", "agent_type"}},
 		{input.AgentMemoryScope, []string{"agentMemoryScope", "agent_memory_scope"}},
-		{input.PromptKey, []string{"promptKey", "prompt_key"}},
-		{input.Provider, []string{"provider"}},
-		{input.CWD, []string{"cwd"}},
-		{input.Model, []string{"model"}},
-		{input.GitRoot, []string{"gitRoot"}},
-		{input.Language, []string{"language"}},
-		{input.ScratchpadDir, []string{"scratchpadDir", "scratchpad_dir"}},
+		{input.PromptKey, contract.RuntimeConfigPromptKey().Keys()},
+		{input.Provider, contract.RuntimeConfigProvider().Keys()},
+		{input.CWD, contract.RuntimeConfigCWD().Keys()},
+		{input.Model, contract.RuntimeConfigModel().Keys()},
+		{input.GitRoot, []string{contract.RuntimeConfigGitRoot().Canonical}},
+		{input.Language, contract.RuntimeConfigLanguage().Keys()},
+		{input.ScratchpadDir, contract.RuntimeConfigScratchpadDir().Keys()},
 		{req.ToolSurfaceMode, []string{"toolSurfaceMode", "tool_surface_mode"}},
 	} {
 		for _, key := range field.keys {
@@ -430,25 +430,25 @@ func buildStartSessionConfig(req StartRequest, input contract.StartInput, assemb
 	threadKind := threadKindForStart(input.ParentAgentID)
 	putConfigString(cfg, "threadKind", threadKind)
 	putConfigString(cfg, "thread_kind", threadKind)
-	putConfigBool(cfg, "isWorktree", input.IsWorktree)
-	putConfigStrings(cfg, "enabledTools", applyPersistentSubagentToolPolicy(input.EnabledTools, input.SessionFlags))
-	putConfigStrings(cfg, "additionalWorkingDirectories", input.AdditionalWorkingDirectories)
+	putConfigBool(cfg, contract.RuntimeConfigIsWorktree().Canonical, input.IsWorktree)
+	putConfigStrings(cfg, contract.RuntimeConfigEnabledTools().Canonical, applyPersistentSubagentToolPolicy(input.EnabledTools, input.SessionFlags))
+	putConfigStrings(cfg, contract.RuntimeConfigAdditionalWorkingDirectories().Canonical, input.AdditionalWorkingDirectories)
 	for _, key := range []string{"claudeMdExcludes", "claude_md_excludes"} {
 		putConfigStrings(cfg, key, input.ClaudeMdExcludes)
 	}
-	putConfigStrings(cfg, "mcpServers", input.MCPSnapshot.Servers)
-	putConfigStrings(cfg, "mcpTools", input.MCPSnapshot.Tools)
-	putConfigStringMap(cfg, "mcpInstructions", input.MCPSnapshot.Instructions)
+	putConfigStrings(cfg, contract.RuntimeConfigMCPServers().Canonical, input.MCPSnapshot.Servers)
+	putConfigStrings(cfg, contract.RuntimeConfigMCPTools().Canonical, input.MCPSnapshot.Tools)
+	putConfigStringMap(cfg, contract.RuntimeConfigMCPInstructions().Canonical, input.MCPSnapshot.Instructions)
 	putConfigMCPServerConfigs(cfg, "mcpConfig", input.MCPSnapshot.ServerConfigs)
-	for _, key := range []string{"mcpInstructionsDeltaEnabled", "mcp_instructions_delta_enabled"} {
+	for _, key := range contract.RuntimeConfigMCPInstructionsDeltaEnabled().Keys() {
 		putConfigBool(cfg, key, input.MCPSnapshot.InstructionsDeltaEnabled)
 	}
-	putConfigBoolMap(cfg, "sessionFlags", input.SessionFlags)
-	for _, key := range []string{"outputStyleConfig", "output_style_config"} {
+	putConfigBoolMap(cfg, contract.RuntimeConfigSessionFlags().Canonical, input.SessionFlags)
+	for _, key := range contract.RuntimeConfigOutputStyleConfig().Keys() {
 		putConfigOutputStyleConfig(cfg, key, input.OutputStyleConfig)
 	}
 	if strings.EqualFold(strings.TrimSpace(input.Provider), "codex") {
-		putConfigStrings(cfg, "codexDisabledNativeTools", assembly.SuppressedTools)
+		putConfigStrings(cfg, contract.RuntimeConfigCodexDisabledNativeTools().Canonical, assembly.SuppressedTools)
 	}
 	putConfigJSON(cfg, "sandbox", req.Sandbox)
 	mergeStartRequestConfig(cfg, req.Config, input.Provider)
@@ -463,7 +463,7 @@ func buildStartSessionConfig(req StartRequest, input contract.StartInput, assemb
 func mergeStartRequestConfig(cfg map[string]any, values map[string]any, provider string) {
 	codexProvider := strings.EqualFold(strings.TrimSpace(provider), "codex")
 	for key, value := range values {
-		if codexProvider && key == "codexDisabledNativeTools" {
+		if codexProvider && key == contract.RuntimeConfigCodexDisabledNativeTools().Canonical {
 			mergeConfigStringListValue(cfg, key, value)
 			continue
 		}

@@ -58,7 +58,7 @@ func TestCanonicalStartRuntimeConfigPreservesRestrictedReadOnlySandboxPolicy(t *
 				"includePlatformDefaults": true,
 			},
 		},
-		codexDisabledNativeToolsConfigKey: []string{contract.CodexNativeToolApplyPatch},
+		contract.RuntimeConfigCodexDisabledNativeTools().Canonical: []string{contract.CodexNativeToolApplyPatch},
 	})
 
 	if out["sandbox"] != "read-only" {
@@ -72,7 +72,7 @@ func TestCanonicalStartRuntimeConfigPreservesRestrictedReadOnlySandboxPolicy(t *
 func TestCanonicalStartRuntimeConfigPreservesDangerSandboxWhenWriteToolsAreNativelyDisabled(t *testing.T) {
 	out := canonicalStartRuntimeConfig(map[string]any{
 		"sandbox": map[string]any{"type": "dangerFullAccess"},
-		codexDisabledNativeToolsConfigKey: []string{
+		contract.RuntimeConfigCodexDisabledNativeTools().Canonical: []string{
 			contract.CodexNativeToolShell,
 			contract.CodexNativeToolApplyPatch,
 			contract.CodexNativeToolWriteNewFile,

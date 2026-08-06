@@ -162,7 +162,7 @@ func codexDisabledNativeToolsFromRuntime(runtime map[string]any) ([]string, erro
 	if len(runtime) == 0 {
 		return nil, nil
 	}
-	return cleanResumeStringList(runtime["codexDisabledNativeTools"])
+	return cleanResumeStringList(runtime[contract.RuntimeConfigCodexDisabledNativeTools().Canonical])
 }
 
 // cleanResumeStringList 清洗 resume runtime 中的字符串列表。
