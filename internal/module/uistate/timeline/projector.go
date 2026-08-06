@@ -16,8 +16,6 @@ import (
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
-var timelineOutputDeltaLogSampler = pkglogger.NewEverySampler(1000)
-
 // RegisterSubscriptions 注册 timeline 投影订阅，并把每个 cancel 返回给上层生命周期管理。
 // 对话消息不在这里投影，避免和 thread/messages 历史接口生成重复消息行。
 func RegisterSubscriptions(
@@ -32,6 +30,7 @@ func RegisterSubscriptions(
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
+	reasoningDeltaLogSampler := pkglogger.NewEverySampler(1000)
 	return []context.CancelFunc{
 		contract.ResilientSubscribe(dispatcher, turnStartedHandler(svc, onUpdated), logger),
 		contract.ResilientSubscribe(dispatcher, turnCompletedHandler(svc, onUpdated), logger),
@@ -47,7 +46,7 @@ func RegisterSubscriptions(
 		contract.ResilientSubscribe(dispatcher, toolCallEndHandler(svc, onUpdated), logger),
 		contract.ResilientSubscribe(dispatcher, approvalRequestedHandler(svc, onUpdated), logger),
 		contract.ResilientSubscribe(dispatcher, approvalResolvedHandler(svc, onUpdated), logger),
-		contract.ResilientSubscribe(dispatcher, reasoningDeltaHandler(svc, onUpdated), logger),
+		contract.ResilientSubscribe(dispatcher, reasoningDeltaHandler(svc, onUpdated, reasoningDeltaLogSampler), logger),
 	}
 }
 
@@ -81,9 +80,9 @@ func turnCompletedHandler(_ Service, _ func(string)) func(turndto.TurnCompleted)
 
 // reasoningDeltaHandler 将 reasoning stream 增量合并到同一个 thinking item。
 // 非 reasoning stream 由其他投影链处理，避免 timeline 重复展示消息正文。
-func reasoningDeltaHandler(svc Service, onUpdated func(string)) func(turndto.TurnOutputDelta) {
+func reasoningDeltaHandler(svc Service, onUpdated func(string), sampler *pkglogger.Sampler) func(turndto.TurnOutputDelta) {
 	return func(ev turndto.TurnOutputDelta) {
-		if timelineOutputDeltaLogSampler.ShouldLog(ev.Stream) {
+		if sampler.ShouldLog(ev.Stream) {
 			pkglogger.Get().Debug("timeline: reasoningDeltaHandler received",
 				"sample_rate", "0.1%",
 				"stream", ev.Stream,
