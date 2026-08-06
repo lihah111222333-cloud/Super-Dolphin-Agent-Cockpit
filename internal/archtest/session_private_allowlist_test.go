@@ -14,7 +14,7 @@ import (
 func TestSessionPrivateAllowlistIntegrity(t *testing.T) {
 	t.Parallel()
 	root := repoRootForGuardTests(t)
-	for _, entry := range sessionPrivateRuntimeAllowlist {
+	for _, entry := range sessionPrivateRuntimeAllowlist() {
 		t.Run(entry.Symbol, func(t *testing.T) {
 			t.Parallel()
 			if !sessionPrivateEntryComplete(entry) {
@@ -27,6 +27,21 @@ func TestSessionPrivateAllowlistIntegrity(t *testing.T) {
 				t.Fatalf("symbol %s not found in %s", entry.Symbol, entry.DefinitionPath)
 			}
 		})
+	}
+}
+
+func TestSessionPrivateRuntimeAllowlistReturnsIndependentSnapshots(t *testing.T) {
+	first := sessionPrivateRuntimeAllowlist()
+	second := sessionPrivateRuntimeAllowlist()
+	if len(first) == 0 || len(second) == 0 {
+		t.Fatal("session-private runtime allowlist snapshot is empty")
+	}
+	if &first[0] == &second[0] {
+		t.Fatal("session-private runtime allowlist snapshots share backing storage")
+	}
+	first[0].Reason = "local mutation"
+	if second[0].Reason == "local mutation" {
+		t.Fatal("session-private runtime allowlist mutation leaked into another snapshot")
 	}
 }
 
@@ -47,7 +62,7 @@ func TestSessionPrivateRuntimeAllowlist(t *testing.T) {
 	t.Parallel()
 	root := repoRootForGuardTests(t)
 	allow := map[string]bool{}
-	for _, entry := range sessionPrivateRuntimeAllowlist {
+	for _, entry := range sessionPrivateRuntimeAllowlist() {
 		line := symbolLine(t, root, entry.DefinitionPath, entry.Symbol)
 		t.Logf("[P22.1 ALLOW] session-private %s:%d %s", entry.DefinitionPath, line, entry.Symbol)
 		if kind := sessionPrivateLaunchKind(entry); kind != "" {
@@ -231,7 +246,7 @@ func sessionPrivateLaunchesInNode(fset *token.FileSet, symbol string, node ast.N
 }
 
 func isSessionPrivateDefinition(rel, symbol string) bool {
-	for _, entry := range sessionPrivateRuntimeAllowlist {
+	for _, entry := range sessionPrivateRuntimeAllowlist() {
 		if entry.DefinitionPath == rel && entry.Symbol == symbol {
 			return true
 		}

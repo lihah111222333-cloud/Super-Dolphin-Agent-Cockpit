@@ -53,12 +53,11 @@ func AutoRepairFreezeRegistry(opts CheckOptions) ([]FreezeRegistryAutoFix, error
 	if err := rewriteFreezeRegistrySource(repoRoot, entries); err != nil {
 		return nil, err
 	}
-	explicitFreezeRegistry = entries
 	return planned, nil
 }
 
 func planFreezeRegistryAutoFixes(repoRoot string, scanRoots []string, stats map[string]*packageStat) ([]FreezeRegistryAutoFix, []explicitFreeze) {
-	return planFreezeRegistryAutoFixesForEntries(repoRoot, scanRoots, stats, explicitFreezeRegistry)
+	return planFreezeRegistryAutoFixesForEntries(repoRoot, scanRoots, stats, explicitFreezeRegistry())
 }
 
 func planFreezeRegistryAutoFixesForEntries(repoRoot string, scanRoots []string, stats map[string]*packageStat, entries []explicitFreeze) ([]FreezeRegistryAutoFix, []explicitFreeze) {
@@ -142,20 +141,26 @@ func findExplicitFreezeRegistryOffsets(path string, src []byte) (int, int, error
 		return 0, 0, err
 	}
 	for _, decl := range file.Decls {
-		gen, ok := decl.(*ast.GenDecl)
-		if !ok || gen.Tok != token.VAR {
+		function, ok := decl.(*ast.FuncDecl)
+		if !ok || function.Name.Name != "explicitFreezeRegistry" {
 			continue
 		}
-		for _, spec := range gen.Specs {
-			valueSpec, ok := spec.(*ast.ValueSpec)
-			if !ok || len(valueSpec.Names) != 1 || valueSpec.Names[0].Name != "explicitFreezeRegistry" || len(valueSpec.Values) != 1 {
-				continue
-			}
-			value := valueSpec.Values[0]
-			return fset.Position(value.Pos()).Offset, fset.Position(value.End()).Offset, nil
-		}
+		return explicitFreezeRegistryReturnOffsets(fset, function)
 	}
-	return 0, 0, fmt.Errorf("explicitFreezeRegistry literal not found in %s", path)
+	return 0, 0, fmt.Errorf("explicitFreezeRegistry snapshot function not found in %s", path)
+}
+
+// explicitFreezeRegistryReturnOffsets 定位快照函数中唯一的返回字面量范围。
+func explicitFreezeRegistryReturnOffsets(fset *token.FileSet, function *ast.FuncDecl) (int, int, error) {
+	for _, statement := range function.Body.List {
+		result, ok := statement.(*ast.ReturnStmt)
+		if !ok || len(result.Results) != 1 {
+			continue
+		}
+		value := result.Results[0]
+		return fset.Position(value.Pos()).Offset, fset.Position(value.End()).Offset, nil
+	}
+	return 0, 0, fmt.Errorf("explicitFreezeRegistry snapshot literal not found")
 }
 
 func renderExplicitFreezeRegistry(entries []explicitFreeze) []byte {

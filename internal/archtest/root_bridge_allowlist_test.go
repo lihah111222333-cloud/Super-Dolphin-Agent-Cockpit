@@ -21,3 +21,18 @@ func TestRootBridgeAllowlistIntegrity(t *testing.T) {
 	t.Fatalf("root-bridge allowlist integrity violations (%d):\n  %s",
 		len(problems), strings.Join(problems, "\n  "))
 }
+
+func TestRootBridgeAllowlistReturnsIndependentSnapshots(t *testing.T) {
+	first := rootBridgeAllowlist()
+	second := rootBridgeAllowlist()
+	if len(first) == 0 || len(second) == 0 {
+		t.Fatal("root bridge allowlist snapshot is empty")
+	}
+	if &first[0] == &second[0] {
+		t.Fatal("root bridge allowlist snapshots share backing storage")
+	}
+	first[0].Reason = "local mutation"
+	if second[0].Reason == "local mutation" {
+		t.Fatal("root bridge allowlist mutation leaked into another snapshot")
+	}
+}

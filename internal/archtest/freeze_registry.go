@@ -16,14 +16,18 @@ type explicitFreeze struct {
 	RemoveWhen string
 }
 
-var explicitFreezeRegistry = []explicitFreeze{
+// explicitFreezeRegistry 返回 freeze 条目的独立快照。
+// 返回值只供本次 guard 检查使用，禁止跨调用持有可变共享状态。
+func explicitFreezeRegistry() []explicitFreeze {
+	return []explicitFreeze{}
 }
 
 // freezeRegistryIntegrityViolations 检查 freeze 表本身是否完整且没有重复项。
 func freezeRegistryIntegrityViolations() []Violation {
-	seen := make(map[string]struct{}, len(explicitFreezeRegistry))
+	registry := explicitFreezeRegistry()
+	seen := make(map[string]struct{}, len(registry))
 	violations := make([]Violation, 0)
-	for _, entry := range explicitFreezeRegistry {
+	for _, entry := range registry {
 		key := freezeRegistryKey(entry.Path, entry.Kind)
 		if _, ok := seen[key]; ok {
 			violations = append(violations, Violation{
@@ -70,7 +74,7 @@ func freezeRegistryIntegrityViolations() []Violation {
 // deadKeyViolations 找出已经失效或可以删除的 freeze 条目。
 func deadKeyViolations(repoRoot string, scanRoots []string, stats map[string]*packageStat) []Violation {
 	violations := make([]Violation, 0)
-	for _, entry := range explicitFreezeRegistry {
+	for _, entry := range explicitFreezeRegistry() {
 		if !freezeAppliesToScanRoots(entry.Path, scanRoots) {
 			continue
 		}
@@ -102,7 +106,7 @@ func deadKeyViolations(repoRoot string, scanRoots []string, stats map[string]*pa
 }
 
 func frozenLimit(path string, kind ViolationKind) (int, bool) {
-	for _, entry := range explicitFreezeRegistry {
+	for _, entry := range explicitFreezeRegistry() {
 		if entry.Path == path && entry.Kind == kind {
 			return entry.Limit, true
 		}

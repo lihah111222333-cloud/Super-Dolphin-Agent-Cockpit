@@ -38,61 +38,64 @@ const (
 	rootBridgeExceptionTemporary rootBridgeExceptionClass = "temporary"
 )
 
-// rootBridgeAllowlist 枚举允许聚合 group:"runners" 并调用 platformrunner.RunGroup 的进程入口桥。
+// rootBridgeAllowlist 返回允许聚合 group:"runners" 并调用 platformrunner.RunGroup 的进程入口桥快照。
 // guard 只按 path+symbol 精确放行，拒绝“整个文件都豁免”的粗粒度例外。
-var rootBridgeAllowlist = []rootBridgeException{
-	{
-		DefinitionPath: "internal/app/runner.go",
-		CallSitePath:   "internal/app/app.go",
-		Symbol:         "BindRuntime",
-		BridgeShape:    rootBridgeShapeAppRoot,
-		ExceptionClass: rootBridgeExceptionPermanent,
-		Reason:         "desktop/headless app root: aggregates group:\"runners\" and calls platformrunner.RunGroup inside OnStart",
-		RemoveWhen:     "n/a — permanent architectural exception",
-		RollbackWhen:   "the desktop/headless app entry is redesigned to drop the singleton root runtime bridge",
-		RollbackAction: "remove this entry together with internal/app/runner.go BindRuntime and its fx.Invoke call site in internal/app/app.go",
-	},
-	{
-		DefinitionPath: "cmd/mcp-orch/runtime.go",
-		CallSitePath:   "cmd/mcp-orch/fx.go",
-		Symbol:         "bindRuntime",
-		BridgeShape:    rootBridgeShapeOrchRoot,
-		ExceptionClass: rootBridgeExceptionPermanent,
-		Reason:         "mcp-orch sidecar root: aggregates group:\"runners\" and calls platformrunner.RunGroup inside OnStart",
-		RemoveWhen:     "n/a — permanent architectural exception",
-		RollbackWhen:   "the mcp-orch entry is redesigned to drop the singleton root runtime bridge",
-		RollbackAction: "remove this entry together with cmd/mcp-orch/runtime.go bindRuntime and its fx.Invoke call site in cmd/mcp-orch/fx.go",
-	},
-	{
-		DefinitionPath: "cmd/mcp-lsp/fx.go",
-		CallSitePath:   "cmd/mcp-lsp/fx.go",
-		Symbol:         "bindRuntime",
-		BridgeShape:    rootBridgeShapeSidecarRoot,
-		ExceptionClass: rootBridgeExceptionPermanent,
-		Reason:         "mcp-lsp runner-only sidecar root: aggregates group:\"runners\" and calls platformrunner.RunGroup inside OnStart",
-		RemoveWhen:     "n/a — permanent architectural exception",
-		RollbackWhen:   "mcp-lsp sidecar is redesigned to drop the singleton root runtime bridge",
-		RollbackAction: "remove this entry together with cmd/mcp-lsp/fx.go bindRuntime",
-	},
-	{
-		DefinitionPath: "cmd/mcp-ida/fx.go",
-		CallSitePath:   "cmd/mcp-ida/fx.go",
-		Symbol:         "bindRuntime",
-		BridgeShape:    rootBridgeShapeSidecarRoot,
-		ExceptionClass: rootBridgeExceptionPermanent,
-		Reason:         "mcp-ida runner-only sidecar root: aggregates group:\"runners\" and calls platformrunner.RunGroup inside OnStart",
-		RemoveWhen:     "n/a — permanent architectural exception",
-		RollbackWhen:   "mcp-ida sidecar is redesigned to drop the singleton root runtime bridge",
-		RollbackAction: "remove this entry together with cmd/mcp-ida/fx.go bindRuntime",
-	},
+func rootBridgeAllowlist() []rootBridgeException {
+	return []rootBridgeException{
+		{
+			DefinitionPath: "internal/app/runner.go",
+			CallSitePath:   "internal/app/app.go",
+			Symbol:         "BindRuntime",
+			BridgeShape:    rootBridgeShapeAppRoot,
+			ExceptionClass: rootBridgeExceptionPermanent,
+			Reason:         "desktop/headless app root: aggregates group:\"runners\" and calls platformrunner.RunGroup inside OnStart",
+			RemoveWhen:     "n/a — permanent architectural exception",
+			RollbackWhen:   "the desktop/headless app entry is redesigned to drop the singleton root runtime bridge",
+			RollbackAction: "remove this entry together with internal/app/runner.go BindRuntime and its fx.Invoke call site in internal/app/app.go",
+		},
+		{
+			DefinitionPath: "cmd/mcp-orch/runtime.go",
+			CallSitePath:   "cmd/mcp-orch/fx.go",
+			Symbol:         "bindRuntime",
+			BridgeShape:    rootBridgeShapeOrchRoot,
+			ExceptionClass: rootBridgeExceptionPermanent,
+			Reason:         "mcp-orch sidecar root: aggregates group:\"runners\" and calls platformrunner.RunGroup inside OnStart",
+			RemoveWhen:     "n/a — permanent architectural exception",
+			RollbackWhen:   "the mcp-orch entry is redesigned to drop the singleton root runtime bridge",
+			RollbackAction: "remove this entry together with cmd/mcp-orch/runtime.go bindRuntime and its fx.Invoke call site in cmd/mcp-orch/fx.go",
+		},
+		{
+			DefinitionPath: "cmd/mcp-lsp/fx.go",
+			CallSitePath:   "cmd/mcp-lsp/fx.go",
+			Symbol:         "bindRuntime",
+			BridgeShape:    rootBridgeShapeSidecarRoot,
+			ExceptionClass: rootBridgeExceptionPermanent,
+			Reason:         "mcp-lsp runner-only sidecar root: aggregates group:\"runners\" and calls platformrunner.RunGroup inside OnStart",
+			RemoveWhen:     "n/a — permanent architectural exception",
+			RollbackWhen:   "mcp-lsp sidecar is redesigned to drop the singleton root runtime bridge",
+			RollbackAction: "remove this entry together with cmd/mcp-lsp/fx.go bindRuntime",
+		},
+		{
+			DefinitionPath: "cmd/mcp-ida/fx.go",
+			CallSitePath:   "cmd/mcp-ida/fx.go",
+			Symbol:         "bindRuntime",
+			BridgeShape:    rootBridgeShapeSidecarRoot,
+			ExceptionClass: rootBridgeExceptionPermanent,
+			Reason:         "mcp-ida runner-only sidecar root: aggregates group:\"runners\" and calls platformrunner.RunGroup inside OnStart",
+			RemoveWhen:     "n/a — permanent architectural exception",
+			RollbackWhen:   "mcp-ida sidecar is redesigned to drop the singleton root runtime bridge",
+			RollbackAction: "remove this entry together with cmd/mcp-ida/fx.go bindRuntime",
+		},
+	}
 }
 
 // rootBridgeAllowlistIntegrityViolations 校验 allowlist 自身的语义完整性。
 // 它只检查例外记录的字段、枚举和文件存在性，不替代调用点 matcher 的行为检查。
 func rootBridgeAllowlistIntegrityViolations(repoRoot string) []string {
 	var problems []string
-	seen := make(map[string]struct{}, len(rootBridgeAllowlist))
-	for _, entry := range rootBridgeAllowlist {
+	allowlist := rootBridgeAllowlist()
+	seen := make(map[string]struct{}, len(allowlist))
+	for _, entry := range allowlist {
 		problems = append(problems, validateRootBridgeEntry(entry, seen, repoRoot)...)
 	}
 	return problems
@@ -177,7 +180,7 @@ func rootBridgeEntryMissingFiles(entry rootBridgeException, repoRoot, key string
 // isRootBridgeException 判断指定 path+symbol 是否命中 root bridge 精确例外。
 // matcher 必须先把 OnStart hook 解析到所属函数；仅按文件名豁免会扩大放行面，因此不支持。
 func isRootBridgeException(path, symbol string) bool {
-	for _, entry := range rootBridgeAllowlist {
+	for _, entry := range rootBridgeAllowlist() {
 		if entry.Symbol != symbol {
 			continue
 		}

@@ -45,6 +45,29 @@ func TestPlanFreezeRegistryAutoFixes(t *testing.T) {
 	assertNextFreezeRegistryEntries(t, next, shrinkObserved)
 }
 
+func TestExplicitFreezeRegistryReturnsIndependentSnapshots(t *testing.T) {
+	first := explicitFreezeRegistry()
+	second := explicitFreezeRegistry()
+	first = append(first, explicitFreeze{Path: "local-only", Kind: ViolationFile})
+	if len(second) != 0 {
+		t.Fatalf("second freeze registry snapshot length = %d, want 0", len(second))
+	}
+	if _, ok := frozenLimit("local-only", ViolationFile); ok {
+		t.Fatal("local freeze registry mutation leaked into guard lookup")
+	}
+}
+
+func TestFindExplicitFreezeRegistryOffsetsTargetsSnapshotLiteral(t *testing.T) {
+	source := []byte("package archtest\n\nfunc explicitFreezeRegistry() []explicitFreeze {\n\treturn []explicitFreeze{}\n}\n")
+	start, end, err := findExplicitFreezeRegistryOffsets("freeze_registry.go", source)
+	if err != nil {
+		t.Fatalf("find snapshot literal offsets: %v", err)
+	}
+	if got, want := string(source[start:end]), "[]explicitFreeze{}"; got != want {
+		t.Fatalf("snapshot literal = %q, want %q", got, want)
+	}
+}
+
 // TestPlanFreezeRegistryAutoFixes_Boundary 覆盖 shrinkObserved 恰好等于 MaxFileLines（边界）
 // 以及 shrinkObserved == MaxFileLines-1（刚好触发 delete）两个临界路径。
 func TestPlanFreezeRegistryAutoFixes_Boundary(t *testing.T) {

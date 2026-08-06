@@ -35,7 +35,7 @@ func TestLifecycleOnStartGuard(t *testing.T) {
 
 func assertRootBridgeAllowlistConsumable(t *testing.T) {
 	t.Parallel()
-	if len(rootBridgeAllowlist) == 0 {
+	if len(rootBridgeAllowlist()) == 0 {
 		t.Fatal("rootBridgeAllowlist is empty; TestLifecycleOnStartGuard must " +
 			"share the same seed as TestFXInvokeGuard")
 	}

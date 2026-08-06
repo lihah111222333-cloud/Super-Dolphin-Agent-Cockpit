@@ -16,7 +16,7 @@ func TestFXInvokeGuard(t *testing.T) {
 
 	t.Run("shared_root_bridge_allowlist_is_consumable", func(t *testing.T) {
 		t.Parallel()
-		if len(rootBridgeAllowlist) == 0 {
+		if len(rootBridgeAllowlist()) == 0 {
 			t.Fatal("rootBridgeAllowlist is empty; TestFXInvokeGuard and " +
 				"TestLifecycleOnStartGuard must share a non-empty seed")
 		}
