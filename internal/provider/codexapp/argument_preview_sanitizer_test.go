@@ -64,7 +64,7 @@ func TestPublishToolCallBeginSanitizesArgumentsPreview(t *testing.T) {
 	cancelBegin := event.Subscribe(bus, func(ev tooldto.ToolCallBegin) { beginCh <- ev })
 	t.Cleanup(cancelBegin)
 
-	s := newInboundTestSession(context.Background(), nil, &ServerManager{})
+	s := newInboundTestSession(t, context.Background(), nil, &ServerManager{})
 	s.dispatcher = dispatcher
 	msg := rawParams(t, map[string]any{
 		"name":      "shell",
@@ -97,7 +97,7 @@ func TestTranslateCodexRolloutFunctionCallSanitizesArgumentsPreview(t *testing.T
 			"arguments": string(rawArguments),
 			"call_id":   "call-1",
 		},
-	}, func(ev any) { got = append(got, ev) })
+	}, func(ev any) { got = append(got, ev) }, testRuntimeHooks(t))
 	if len(got) != 1 {
 		t.Fatalf("published events = %d, want 1", len(got))
 	}

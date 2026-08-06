@@ -157,7 +157,7 @@ func codexFailureMatrixPayload(success bool, status string) map[string]any {
 
 func requireFailureMatrixTerminal(t *testing.T, payload map[string]any, outcome *dto.TerminalOutcome) turndto.TurnCompleted {
 	t.Helper()
-	ev, ok := translateTurnEvent("turn/completed", payload, outcome)
+	ev, ok := translateTurnEventWithRuntimeHooks(testRuntimeHooks(t), "turn/completed", payload, outcome)
 	if !ok {
 		t.Fatal("translateTurnEvent() ok = false, want visible terminal")
 	}

@@ -2,7 +2,6 @@ package shared
 
 import (
 	"fmt"
-	"sync/atomic"
 	"time"
 )
 
@@ -39,52 +38,36 @@ type ResetToolResultScopeFunc func(threadID, turnID string) error
 
 // RuntimeHooks 集中描述 provider 运行时依赖，必须由 Fx 根图一次性完整装配。
 type RuntimeHooks struct {
-	CaptureToolResult    CaptureToolResultFunc
-	ResetToolResultScope ResetToolResultScopeFunc
+	Capture CaptureToolResultFunc
+	Reset   ResetToolResultScopeFunc
 }
 
-// RuntimeHooksReady 是 provider 模块要求的 Fx readiness token。
-// 只有 ConfigureRuntimeHooks 完成全量校验后才能生成。
-type RuntimeHooksReady struct{}
-
-var runtimeHooks atomic.Pointer[RuntimeHooks]
-
-// ConfigureRuntimeHooks 原子发布完整 hook bundle，缺少任一核心能力都会阻断 Fx 装配。
-func ConfigureRuntimeHooks(hooks RuntimeHooks) (RuntimeHooksReady, error) {
-	if hooks.CaptureToolResult == nil {
-		return RuntimeHooksReady{}, fmt.Errorf("provider runtime hooks: capture tool result is required")
+// ConfigureRuntimeHooks 校验完整 hook bundle 并返回显式 runtime owner。
+// 调用方必须把返回值注入到每一条 provider 执行链，禁止依赖进程级共享状态。
+func ConfigureRuntimeHooks(hooks RuntimeHooks) (RuntimeHooks, error) {
+	if hooks.Capture == nil {
+		return RuntimeHooks{}, fmt.Errorf("provider runtime hooks: capture tool result is required")
 	}
-	if hooks.ResetToolResultScope == nil {
-		return RuntimeHooksReady{}, fmt.Errorf("provider runtime hooks: reset tool result scope is required")
-	}
-	runtimeHooks.Store(&hooks)
-	return RuntimeHooksReady{}, nil
-}
-
-// CaptureToolResult 调用已注册的工具结果捕获 hook。
-// 根图未装配时立即失败，禁止返回零值记录掩盖工具结果丢失。
-func CaptureToolResult(meta ToolResultMeta, raw string) (ToolResultRecord, error) {
-	hooks, err := configuredRuntimeHooks()
-	if err != nil {
-		return ToolResultRecord{}, err
-	}
-	return hooks.CaptureToolResult(meta, raw)
-}
-
-// ResetToolResultScope 调用已注册的作用域清理 hook。
-// 根图未装配时立即失败，禁止静默保留跨 turn 缓存。
-func ResetToolResultScope(threadID, turnID string) error {
-	hooks, err := configuredRuntimeHooks()
-	if err != nil {
-		return err
-	}
-	return hooks.ResetToolResultScope(threadID, turnID)
-}
-
-func configuredRuntimeHooks() (*RuntimeHooks, error) {
-	hooks := runtimeHooks.Load()
-	if hooks == nil {
-		return nil, fmt.Errorf("provider runtime hooks are not configured")
+	if hooks.Reset == nil {
+		return RuntimeHooks{}, fmt.Errorf("provider runtime hooks: reset tool result scope is required")
 	}
 	return hooks, nil
+}
+
+// CaptureToolResult 调用当前 runtime owner 的工具结果捕获 hook。
+// 缺失 owner 时立即失败，禁止返回零值记录掩盖工具结果丢失。
+func (hooks RuntimeHooks) CaptureToolResult(meta ToolResultMeta, raw string) (ToolResultRecord, error) {
+	if hooks.Capture == nil {
+		return ToolResultRecord{}, fmt.Errorf("provider runtime hooks: capture tool result is required")
+	}
+	return hooks.Capture(meta, raw)
+}
+
+// ResetToolResultScope 调用当前 runtime owner 的作用域清理 hook。
+// 缺失 owner 时立即失败，禁止静默保留跨 turn 缓存。
+func (hooks RuntimeHooks) ResetToolResultScope(threadID, turnID string) error {
+	if hooks.Reset == nil {
+		return fmt.Errorf("provider runtime hooks: reset tool result scope is required")
+	}
+	return hooks.Reset(threadID, turnID)
 }

@@ -128,7 +128,7 @@ func runDynamicSkillToolsModelE2E(t *testing.T, scenario dynamicSkillModelScenar
 	bus := event.NewDispatcher()
 	t.Cleanup(func() { _ = bus.Close() })
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 
 	finalDeltas := make(chan turndto.TurnOutputDelta, 1)
 	cancelDelta := event.Subscribe(bus, func(ev turndto.TurnOutputDelta) {

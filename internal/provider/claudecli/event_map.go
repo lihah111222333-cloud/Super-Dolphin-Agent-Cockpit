@@ -17,20 +17,20 @@ import (
 )
 
 // RegisterTranslators 将 Claude provider 原始事件翻译器注册到统一 dispatcher。
-func RegisterTranslators(dispatcher *unified.EventDispatcher) {
+func RegisterTranslators(dispatcher *unified.EventDispatcher, hooks providershared.RuntimeHooks) {
 	if dispatcher == nil {
 		return
 	}
-	dispatcher.Register(translateClaudeAdapterEvent)
+	dispatcher.Register(func(raw dto.RawProviderEvent, publish func(ev any)) { translateClaudeAdapterEvent(hooks, raw, publish) })
 }
 
 // translateClaudeAdapterEvent 为绕过 session 的合法 raw producer 幂等附加 canonical outcome。
-func translateClaudeAdapterEvent(raw dto.RawProviderEvent, publish func(ev any)) {
-	translateClaudeEvent(attachClaudeTerminalOutcome(raw), publish)
+func translateClaudeAdapterEvent(hooks providershared.RuntimeHooks, raw dto.RawProviderEvent, publish func(ev any)) {
+	translateClaudeEvent(hooks, attachClaudeTerminalOutcome(raw), publish)
 }
 
 // translateClaudeEvent 按 UI token、状态、agent、turn、tool 的顺序翻译并发布事件。
-func translateClaudeEvent(raw dto.RawProviderEvent, publish func(ev any)) {
+func translateClaudeEvent(hooks providershared.RuntimeHooks, raw dto.RawProviderEvent, publish func(ev any)) {
 	if rawErr, agentErr, ok := claudeTimestampProviderError(raw); ok {
 		publish(dto.BusRawProviderEvent{Event: rawErr})
 		publish(agentErr)
@@ -45,11 +45,11 @@ func translateClaudeEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 		publish(ev)
 		return
 	}
-	if ev, ok := translateTurnEvent(raw); ok {
+	if ev, ok := translateTurnEvent(hooks, raw); ok {
 		publish(ev)
 		return
 	}
-	if ev, ok := translateToolEvent(raw); ok {
+	if ev, ok := translateToolEvent(hooks, raw); ok {
 		publish(ev)
 	}
 }
@@ -180,7 +180,7 @@ func translateAgentEvent(raw dto.RawProviderEvent) (any, bool) {
 }
 
 // translateTurnEvent 翻译 turn 生命周期和输出增量事件。
-func translateTurnEvent(raw dto.RawProviderEvent) (any, bool) {
+func translateTurnEvent(hooks providershared.RuntimeHooks, raw dto.RawProviderEvent) (any, bool) {
 	switch raw.EventType {
 	case "turn:started":
 		return turndto.TurnStarted{TurnHeader: turnHeader(raw.Data)}, true
@@ -221,7 +221,7 @@ func translateTurnEvent(raw dto.RawProviderEvent) (any, bool) {
 		if outcome.ContractError != "" && errorText == "" {
 			errorText += "terminal contract: " + outcome.ContractError
 		}
-		if err := providershared.ResetToolResultScope(header.ThreadID, header.TurnID); err != nil {
+		if err := hooks.ResetToolResultScope(header.ThreadID, header.TurnID); err != nil {
 			outcome.Success = false
 			outcome.Status = "failed"
 			outcome.Cause = ""
@@ -259,7 +259,7 @@ func terminalReason(cause, rawReason string) string {
 }
 
 // translateToolEvent 翻译工具开始/结束事件，并把大结果交给共享结果捕获器。
-func translateToolEvent(raw dto.RawProviderEvent) (any, bool) {
+func translateToolEvent(hooks providershared.RuntimeHooks, raw dto.RawProviderEvent) (any, bool) {
 	switch raw.EventType {
 	case "tool:use_begin":
 		return tooldto.ToolCallBegin{
@@ -268,7 +268,7 @@ func translateToolEvent(raw dto.RawProviderEvent) (any, bool) {
 		}, true
 	case "tool:use_end":
 		header := toolHeader(raw.Data)
-		result, captureErr := providershared.CaptureToolResult(providershared.ToolResultMeta{
+		result, captureErr := hooks.CaptureToolResult(providershared.ToolResultMeta{
 			ThreadID:  header.ThreadID,
 			TurnID:    header.TurnID,
 			CallID:    header.CallID,

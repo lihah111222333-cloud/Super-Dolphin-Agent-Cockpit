@@ -452,10 +452,12 @@ func (s *session) recordToolFailureFromRaw(eventType string, payload map[string]
 		s.recordDirectToolFailure(eventType, payload)
 		return
 	}
-	if s.recordTranslatedToolFailure(payload, translateCodexMCPToolCallEnd) {
+	if s.recordTranslatedToolFailure(payload, func(payload map[string]any) (any, bool) { return translateCodexMCPToolCallEnd(s.runtimeHooks, payload) }) {
 		return
 	}
-	s.recordTranslatedToolFailure(payload, translateCodexFunctionCallOutputEnd)
+	s.recordTranslatedToolFailure(payload, func(payload map[string]any) (any, bool) {
+		return translateCodexFunctionCallOutputEnd(s.runtimeHooks, payload)
+	})
 }
 
 func (s *session) recordDirectToolFailure(eventType string, payload map[string]any) {

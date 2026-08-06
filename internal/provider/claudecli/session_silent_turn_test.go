@@ -18,7 +18,7 @@ func newSilentTurnTestSession(t *testing.T, tr *transport) (*session, chan dto.B
 	bus := event.NewDispatcher()
 	t.Cleanup(func() { _ = bus.Close() })
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 	rawEvents := make(chan dto.BusRawProviderEvent, 4)
 	turnCompleted := make(chan turndto.TurnCompleted, 4)
 	cancelRaw := event.Subscribe(bus, func(ev dto.BusRawProviderEvent) { rawEvents <- ev })

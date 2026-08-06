@@ -151,10 +151,10 @@ func AsRPCRunner(server *rpc.Server) RunnerResult {
 }
 
 // provideProviderRuntimeHooks 把 module 层能力收窄成 provider/shared 的完整运行时依赖。
-// 返回 readiness token 让 provider 模块通过 Fx 图显式依赖该装配，而不是依赖调用顺序。
-func provideProviderRuntimeHooks() (providershared.RuntimeHooksReady, error) {
+// 返回已校验的 owner，让 provider 模块通过 Fx 图显式依赖同一实例，而不是依赖调用顺序。
+func provideProviderRuntimeHooks() (providershared.RuntimeHooks, error) {
 	return providershared.ConfigureRuntimeHooks(providershared.RuntimeHooks{
-		CaptureToolResult: func(meta providershared.ToolResultMeta, raw string) (providershared.ToolResultRecord, error) {
+		Capture: func(meta providershared.ToolResultMeta, raw string) (providershared.ToolResultRecord, error) {
 			result := turn.CaptureToolResult(turn.ToolResultMeta{
 				ThreadID:  meta.ThreadID,
 				TurnID:    meta.TurnID,
@@ -171,7 +171,7 @@ func provideProviderRuntimeHooks() (providershared.RuntimeHooksReady, error) {
 				OriginalSize:  result.OriginalSize,
 			}, nil
 		},
-		ResetToolResultScope: func(threadID, turnID string) error {
+		Reset: func(threadID, turnID string) error {
 			turn.ResetToolResultScope(threadID, turnID)
 			return nil
 		},

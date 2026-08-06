@@ -26,7 +26,7 @@ func TestForceStopRawFailedEventUsesSafeMetadata(t *testing.T) {
 	bus := event.NewDispatcher()
 	defer func() { _ = bus.Close() }()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 
 	got := make(chan dto.BusRawProviderEvent, 1)
 	cancel := event.Subscribe(bus, func(ev dto.BusRawProviderEvent) {
@@ -126,7 +126,7 @@ func TestHandleReceiveExitEOFCompletesActiveTurn(t *testing.T) {
 	bus := event.NewDispatcher()
 	defer func() { _ = bus.Close() }()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 
 	got := make(chan turndto.TurnCompleted, 1)
 	cancel := event.Subscribe(bus, func(ev turndto.TurnCompleted) {
@@ -211,7 +211,7 @@ func TestDriverResumeSessionPublishesPublicThreadID(t *testing.T) {
 	bus := event.NewDispatcher()
 	defer func() { _ = bus.Close() }()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 
 	got := make(chan agentdto.AgentLaunched, 4)
 	cancel := event.Subscribe(bus, func(ev agentdto.AgentLaunched) {

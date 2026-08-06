@@ -103,7 +103,7 @@ func newTerminalOwnershipFixture(t *testing.T) terminalOwnershipFixture {
 	t.Helper()
 	bus := event.NewDispatcher()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 	fixture := terminalOwnershipFixture{
 		completedCh: make(chan turndto.TurnCompleted, 2),
 		toolBeginCh: make(chan tooldto.ToolCallBegin, 1),
@@ -118,7 +118,7 @@ func newTerminalOwnershipFixture(t *testing.T) terminalOwnershipFixture {
 		cancelToolEnd()
 		_ = bus.Close()
 	})
-	fixture.session = newInboundTestSession(context.Background(), nil, &ServerManager{})
+	fixture.session = newInboundTestSession(t, context.Background(), nil, &ServerManager{})
 	fixture.session.dispatcher = dispatcher
 	fixture.active = configureSingleForceCompleteTurn(fixture.session, "turn-1")
 	return fixture

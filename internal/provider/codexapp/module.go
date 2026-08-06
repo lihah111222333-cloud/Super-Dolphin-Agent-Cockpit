@@ -41,9 +41,9 @@ var Module = fx.Module("provider.codexapp",
 	fx.Invoke(registerTranslatorsWithRuntimeHooks),
 )
 
-// registerTranslatorsWithRuntimeHooks 让 Codex 事件面显式依赖 provider runtime hooks readiness。
-func registerTranslatorsWithRuntimeHooks(dispatcher *unified.EventDispatcher, _ providershared.RuntimeHooksReady) {
-	RegisterTranslators(dispatcher)
+// registerTranslatorsWithRuntimeHooks 将同一 runtime owner 显式注入 Codex 事件翻译链。
+func registerTranslatorsWithRuntimeHooks(dispatcher *unified.EventDispatcher, hooks providershared.RuntimeHooks) {
+	RegisterTranslators(dispatcher, hooks)
 }
 
 // provideDefaultPeerSupervisor 构造生产使用的 PeerSupervisor runner。
@@ -80,16 +80,17 @@ func configuredPeerWorkspaceRoots(cfg *contract.Config) func() []string {
 type DriverFactoryParams struct {
 	fx.In
 
-	Logger     *slog.Logger
-	Dispatcher *unified.EventDispatcher
-	Approvals  *rpc.ApprovalManager
-	Reporter   contract.RuntimeReporter
-	Dependency contract.DependencyConfig `optional:"true"`
-	Config     *contract.Config          `optional:"true"`
-	Manager    *ServerManager
-	Pool       *ServerPool
-	Mirror     contract.SkillMirrorReconciler
-	Recovery   contract.SessionRecoveryReporter `optional:"true"`
+	Logger       *slog.Logger
+	Dispatcher   *unified.EventDispatcher
+	Approvals    *rpc.ApprovalManager
+	Reporter     contract.RuntimeReporter
+	Dependency   contract.DependencyConfig `optional:"true"`
+	Config       *contract.Config          `optional:"true"`
+	Manager      *ServerManager
+	Pool         *ServerPool
+	Mirror       contract.SkillMirrorReconciler
+	Recovery     contract.SessionRecoveryReporter `optional:"true"`
+	RuntimeHooks providershared.RuntimeHooks
 }
 
 func provideDriverFactory(p DriverFactoryParams) (*DriverFactory, error) {
@@ -100,7 +101,7 @@ func provideDriverFactory(p DriverFactoryParams) (*DriverFactory, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewDriverFactory(p.Logger, p.Dispatcher, p.Approvals, reporter, p.Manager, p.Pool, p.Mirror, p.Recovery), nil
+	return NewDriverFactory(p.Logger, p.Dispatcher, p.Approvals, reporter, p.Manager, p.Pool, p.Mirror, p.Recovery, p.RuntimeHooks), nil
 }
 
 func provideContractDriverFactory(factory *DriverFactory) contract.DriverFactory {

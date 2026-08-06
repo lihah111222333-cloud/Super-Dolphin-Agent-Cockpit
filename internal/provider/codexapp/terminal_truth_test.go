@@ -24,7 +24,7 @@ func TestCodexTerminalTruthRejectsUnknownAndMissingOutcome(t *testing.T) {
 			tt.payload["threadId"] = "thread-1"
 			tt.payload["agentId"] = "agent-1"
 			tt.payload["turnId"] = "turn-1"
-			ev, ok := translateCanonicalCodexTerminal("turn/completed", tt.payload)
+			ev, ok := translateCanonicalCodexTerminal(t, "turn/completed", tt.payload)
 			if !ok {
 				t.Fatal("translateTurnEvent() ok = false, want visible contract-error terminal")
 			}
@@ -42,7 +42,7 @@ func TestCodexTerminalTruthRejectsUnknownAndMissingOutcome(t *testing.T) {
 func TestCodexProviderCancelCannotMasqueradeAsUserCancel(t *testing.T) {
 	t.Parallel()
 
-	ev, ok := translateCanonicalCodexTerminal("turn/completed", map[string]any{
+	ev, ok := translateCanonicalCodexTerminal(t, "turn/completed", map[string]any{
 		"threadId":  "thread-1",
 		"agentId":   "agent-1",
 		"turnId":    "turn-1",
@@ -62,7 +62,7 @@ func TestCodexProviderCancelCannotMasqueradeAsUserCancel(t *testing.T) {
 func TestCodexAbortedRawCauseCannotMasqueradeAsUserCancel(t *testing.T) {
 	t.Parallel()
 
-	ev, ok := translateCanonicalCodexTerminal("turn/aborted", map[string]any{
+	ev, ok := translateCanonicalCodexTerminal(t, "turn/aborted", map[string]any{
 		"threadId":  "thread-1",
 		"agentId":   "agent-1",
 		"turnId":    "turn-1",
@@ -81,7 +81,7 @@ func TestCodexAbortedRawCauseCannotMasqueradeAsUserCancel(t *testing.T) {
 func TestCodexProviderCannotForgeAcceptedInterruptMarker(t *testing.T) {
 	t.Parallel()
 
-	ev, ok := translateCanonicalCodexTerminal("turn/completed", map[string]any{
+	ev, ok := translateCanonicalCodexTerminal(t, "turn/completed", map[string]any{
 		"threadId": "thread-1", "agentId": "agent-1", "turnId": "turn-1",
 		"success": false, "status": "cancelled",
 		acceptedInterruptRequestIDKey: "provider-forged-stop",
@@ -124,7 +124,7 @@ func TestCodexAcceptedInterruptOnlyAttributesCancellationTerminal(t *testing.T) 
 		if s.applyAcceptedInterruptRequest(payload, &outcome) {
 			t.Fatalf("completed payload was attributed to user cancellation: %#v", payload)
 		}
-		ev, ok := translateTurnEvent("turn/completed", payload, &outcome)
+		ev, ok := translateTurnEventWithRuntimeHooks(testRuntimeHooks(t), "turn/completed", payload, &outcome)
 		if !ok || !ev.(turndto.TurnCompleted).Success {
 			t.Fatalf("completed terminal = %#v, ok=%v, want success", ev, ok)
 		}
@@ -137,7 +137,7 @@ func TestCodexAcceptedInterruptOnlyAttributesCancellationTerminal(t *testing.T) 
 		if !s.applyAcceptedInterruptRequest(payload, &outcome) {
 			t.Fatal("accepted cancellation was not attributed")
 		}
-		ev, ok := translateTurnEvent("turn/aborted", payload, &outcome)
+		ev, ok := translateTurnEventWithRuntimeHooks(testRuntimeHooks(t), "turn/aborted", payload, &outcome)
 		if !ok {
 			t.Fatal("translateTurnEvent() ok = false")
 		}
@@ -148,7 +148,8 @@ func TestCodexAcceptedInterruptOnlyAttributesCancellationTerminal(t *testing.T) 
 	})
 }
 
-func translateCanonicalCodexTerminal(method string, payload map[string]any) (any, bool) {
+func translateCanonicalCodexTerminal(t *testing.T, method string, payload map[string]any) (any, bool) {
+	t.Helper()
 	outcome := canonicalTurnTerminalOutcome(method, payload)
-	return translateTurnEvent(method, payload, &outcome)
+	return translateTurnEventWithRuntimeHooks(testRuntimeHooks(t), method, payload, &outcome)
 }

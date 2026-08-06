@@ -59,7 +59,7 @@ func TestForceCompletePublishesInterruptedSystemTerminal(t *testing.T) {
 }
 
 func TestCompleteSyntheticTurnRejectsMissingTrustedSummary(t *testing.T) {
-	s := newInboundTestSession(context.Background(), nil, &ServerManager{})
+	s := newInboundTestSession(t, context.Background(), nil, &ServerManager{})
 	completedCh := bindForceCompleteTerminalProbe(t, s)
 	active := configureSingleForceCompleteTurn(s, "turn-1")
 
@@ -97,7 +97,7 @@ func bindForceCompleteTerminalProbe(t *testing.T, s *session) <-chan turndto.Tur
 	t.Helper()
 	bus := event.NewDispatcher()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 	s.dispatcher = dispatcher
 	completedCh := make(chan turndto.TurnCompleted, 2)
 	cancel := event.Subscribe(bus, func(ev turndto.TurnCompleted) { completedCh <- ev })

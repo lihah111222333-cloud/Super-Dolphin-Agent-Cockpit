@@ -20,7 +20,7 @@ import (
 func TestOnNotification_CodexRolloutAssistantMessageCompletesActiveTurn(t *testing.T) {
 	bus := event.NewDispatcher()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 	completedCh := make(chan turndto.TurnCompleted, 1)
 	cancelCompleted := event.Subscribe(bus, func(ev turndto.TurnCompleted) { completedCh <- ev })
 	defer cancelCompleted()
@@ -65,7 +65,7 @@ func TestOnNotification_CodexRolloutAssistantMessageCompletesActiveTurn(t *testi
 func TestOnNotification_CodexAssistantItemCompletedCompletesActiveTurnFromAccumulator(t *testing.T) {
 	bus := event.NewDispatcher()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 	completedCh := make(chan turndto.TurnCompleted, 1)
 	cancelCompleted := event.Subscribe(bus, func(ev turndto.TurnCompleted) { completedCh <- ev })
 	defer cancelCompleted()
@@ -74,7 +74,7 @@ func TestOnNotification_CodexAssistantItemCompletedCompletesActiveTurnFromAccumu
 	defer cancelToolEnd()
 	defer func() { _ = bus.Close() }()
 
-	s := newInboundTestSession(context.Background(), nil, &ServerManager{})
+	s := newInboundTestSession(t, context.Background(), nil, &ServerManager{})
 	s.dispatcher = dispatcher
 	active := configureSingleForceCompleteTurn(s, "turn-1")
 
@@ -110,7 +110,7 @@ func TestOnNotification_CodexAssistantItemCompletedCompletesActiveTurnFromAccumu
 func TestOnNotification_CodexAssistantItemCompletedDoesNotCompleteToolItem(t *testing.T) {
 	bus := event.NewDispatcher()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 	completedCh := make(chan turndto.TurnCompleted, 1)
 	cancelCompleted := event.Subscribe(bus, func(ev turndto.TurnCompleted) { completedCh <- ev })
 	defer cancelCompleted()
@@ -119,7 +119,7 @@ func TestOnNotification_CodexAssistantItemCompletedDoesNotCompleteToolItem(t *te
 	defer cancelToolEnd()
 	defer func() { _ = bus.Close() }()
 
-	s := newInboundTestSession(context.Background(), nil, &ServerManager{})
+	s := newInboundTestSession(t, context.Background(), nil, &ServerManager{})
 	s.dispatcher = dispatcher
 	configureSingleForceCompleteTurn(s, "turn-1")
 
@@ -143,7 +143,7 @@ func TestOnNotification_CodexAssistantItemCompletedDoesNotCompleteToolItem(t *te
 func TestSyntheticAssistantCompletionPreservesToolFailure(t *testing.T) {
 	bus := event.NewDispatcher()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 	completedCh := make(chan turndto.TurnCompleted, 1)
 	cancelCompleted := event.Subscribe(bus, func(ev turndto.TurnCompleted) { completedCh <- ev })
 	defer cancelCompleted()
@@ -152,7 +152,7 @@ func TestSyntheticAssistantCompletionPreservesToolFailure(t *testing.T) {
 	defer cancelToolEnd()
 	defer func() { _ = bus.Close() }()
 
-	s := newInboundTestSession(context.Background(), nil, &ServerManager{})
+	s := newInboundTestSession(t, context.Background(), nil, &ServerManager{})
 	s.dispatcher = dispatcher
 	active := newTurnHandle("local-1", "turn-1")
 	s.mu.Lock()
@@ -244,7 +244,7 @@ func assertNoRolloutTurnCompleted(t *testing.T, ch <-chan turndto.TurnCompleted)
 func TestOnNotification_CodexRolloutMCPToolEventsDispatchToolLifecycle(t *testing.T) {
 	bus := event.NewDispatcher()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 	beginCh := make(chan tooldto.ToolCallBegin, 1)
 	endCh := make(chan tooldto.ToolCallEnd, 1)
 	cancelBegin := event.Subscribe(bus, func(ev tooldto.ToolCallBegin) { beginCh <- ev })
@@ -252,7 +252,7 @@ func TestOnNotification_CodexRolloutMCPToolEventsDispatchToolLifecycle(t *testin
 	cancelEnd := event.Subscribe(bus, func(ev tooldto.ToolCallEnd) { endCh <- ev })
 	defer cancelEnd()
 
-	s := newInboundTestSession(context.Background(), nil, &ServerManager{})
+	s := newInboundTestSession(t, context.Background(), nil, &ServerManager{})
 	s.dispatcher = dispatcher
 
 	s.onNotification("response_item", json.RawMessage(`{
@@ -286,7 +286,7 @@ func TestOnNotification_CodexRolloutMCPToolEventsDispatchToolLifecycle(t *testin
 func TestOnNotification_CodexRolloutToolResultReusesBeginToolName(t *testing.T) {
 	bus := event.NewDispatcher()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 	beginCh := make(chan tooldto.ToolCallBegin, 1)
 	endCh := make(chan tooldto.ToolCallEnd, 1)
 	cancelBegin := event.Subscribe(bus, func(ev tooldto.ToolCallBegin) { beginCh <- ev })
@@ -294,7 +294,7 @@ func TestOnNotification_CodexRolloutToolResultReusesBeginToolName(t *testing.T) 
 	cancelEnd := event.Subscribe(bus, func(ev tooldto.ToolCallEnd) { endCh <- ev })
 	defer cancelEnd()
 
-	s := newInboundTestSession(context.Background(), nil, &ServerManager{})
+	s := newInboundTestSession(t, context.Background(), nil, &ServerManager{})
 	s.dispatcher = dispatcher
 
 	s.onNotification("response_item", json.RawMessage(`{
@@ -328,7 +328,7 @@ func TestOnNotification_CodexRolloutToolResultReusesBeginToolName(t *testing.T) 
 func TestOnNotification_CodexRolloutMCPFileReadEmptySuccessResultFailsWithPathGuidance(t *testing.T) {
 	bus := event.NewDispatcher()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 	beginCh := make(chan tooldto.ToolCallBegin, 1)
 	endCh := make(chan tooldto.ToolCallEnd, 1)
 	cancelBegin := event.Subscribe(bus, func(ev tooldto.ToolCallBegin) { beginCh <- ev })
@@ -336,7 +336,7 @@ func TestOnNotification_CodexRolloutMCPFileReadEmptySuccessResultFailsWithPathGu
 	cancelEnd := event.Subscribe(bus, func(ev tooldto.ToolCallEnd) { endCh <- ev })
 	defer cancelEnd()
 
-	s := newInboundTestSession(context.Background(), nil, &ServerManager{})
+	s := newInboundTestSession(t, context.Background(), nil, &ServerManager{})
 	s.dispatcher = dispatcher
 
 	s.onNotification("response_item", json.RawMessage(`{
@@ -380,7 +380,7 @@ func TestOnNotification_CodexRolloutMCPFileReadEmptySuccessResultFailsWithPathGu
 func TestOnNotification_CodexRolloutResponseItemToolResultDispatchesToolEnd(t *testing.T) {
 	bus := event.NewDispatcher()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 	beginCh := make(chan tooldto.ToolCallBegin, 1)
 	endCh := make(chan tooldto.ToolCallEnd, 1)
 	cancelBegin := event.Subscribe(bus, func(ev tooldto.ToolCallBegin) { beginCh <- ev })
@@ -388,7 +388,7 @@ func TestOnNotification_CodexRolloutResponseItemToolResultDispatchesToolEnd(t *t
 	cancelEnd := event.Subscribe(bus, func(ev tooldto.ToolCallEnd) { endCh <- ev })
 	defer cancelEnd()
 
-	s := newInboundTestSession(context.Background(), nil, &ServerManager{})
+	s := newInboundTestSession(t, context.Background(), nil, &ServerManager{})
 	s.dispatcher = dispatcher
 
 	s.onNotification("response_item", json.RawMessage(`{
@@ -429,12 +429,12 @@ func TestOnNotification_CodexRolloutResponseItemToolResultDispatchesToolEnd(t *t
 }
 
 func TestOnNotification_CodexRolloutResponseItemFunctionCallOutputDispatchesToolEnd(t *testing.T) {
-	configureCaptureRuntimeHookForTest(t, func(_ providershared.ToolResultMeta, raw string) (providershared.ToolResultRecord, error) {
+	hooks := configureCaptureRuntimeHookForTest(t, func(_ providershared.ToolResultMeta, raw string) (providershared.ToolResultRecord, error) {
 		return providershared.ToolResultRecord{Preview: raw, OriginalSize: len(raw)}, nil
 	})
 	bus := event.NewDispatcher()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, hooks)
 	beginCh := make(chan tooldto.ToolCallBegin, 1)
 	endCh := make(chan tooldto.ToolCallEnd, 1)
 	cancelBegin := event.Subscribe(bus, func(ev tooldto.ToolCallBegin) { beginCh <- ev })
@@ -442,7 +442,7 @@ func TestOnNotification_CodexRolloutResponseItemFunctionCallOutputDispatchesTool
 	cancelEnd := event.Subscribe(bus, func(ev tooldto.ToolCallEnd) { endCh <- ev })
 	defer cancelEnd()
 
-	s := newInboundTestSession(context.Background(), nil, &ServerManager{})
+	s := newInboundTestSession(t, context.Background(), nil, &ServerManager{})
 	s.dispatcher = dispatcher
 
 	s.onNotification("response_item", json.RawMessage(`{
@@ -468,10 +468,10 @@ func TestOnNotification_CodexRolloutResponseItemFunctionCallOutputDispatchesTool
 
 // TestOnNotification_CodexRolloutFunctionCallOutputReportsPersistFailure verifies function_call_output uses the shared persistence capture path.
 func TestOnNotification_CodexRolloutFunctionCallOutputReportsPersistFailure(t *testing.T) {
-	installFunctionCallOutputPersistFailureHook(t)
+	hooks := installFunctionCallOutputPersistFailureHook(t)
 	bus := event.NewDispatcher()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, hooks)
 	beginCh := make(chan tooldto.ToolCallBegin, 1)
 	endCh := make(chan tooldto.ToolCallEnd, 1)
 	cancelBegin := event.Subscribe(bus, func(ev tooldto.ToolCallBegin) { beginCh <- ev })
@@ -479,7 +479,7 @@ func TestOnNotification_CodexRolloutFunctionCallOutputReportsPersistFailure(t *t
 	cancelEnd := event.Subscribe(bus, func(ev tooldto.ToolCallEnd) { endCh <- ev })
 	defer cancelEnd()
 
-	s := newInboundTestSession(context.Background(), nil, &ServerManager{})
+	s := newInboundTestSession(t, context.Background(), nil, &ServerManager{})
 	s.dispatcher = dispatcher
 
 	s.onNotification("response_item", json.RawMessage(`{
@@ -541,9 +541,9 @@ func assertToolCallEndPersistence(t *testing.T, end tooldto.ToolCallEnd, want to
 }
 
 // installFunctionCallOutputPersistFailureHook injects a failing capture hook for function_call_output tests.
-func installFunctionCallOutputPersistFailureHook(t *testing.T) {
+func installFunctionCallOutputPersistFailureHook(t *testing.T) providershared.RuntimeHooks {
 	t.Helper()
-	configureCaptureRuntimeHookForTest(t, func(meta providershared.ToolResultMeta, raw string) (providershared.ToolResultRecord, error) {
+	return configureCaptureRuntimeHookForTest(t, func(meta providershared.ToolResultMeta, raw string) (providershared.ToolResultRecord, error) {
 		if meta.CallID != "call-file" || meta.ToolName != "file" {
 			t.Fatalf("capture meta = %+v, want call-file/file", meta)
 		}
@@ -564,7 +564,7 @@ func installFunctionCallOutputPersistFailureHook(t *testing.T) {
 func TestOnNotification_CodexRolloutFunctionCallOutputAfterResultDoesNotPublishNamelessEnd(t *testing.T) {
 	bus := event.NewDispatcher()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 	beginCh := make(chan tooldto.ToolCallBegin, 1)
 	endCh := make(chan tooldto.ToolCallEnd, 2)
 	cancelBegin := event.Subscribe(bus, func(ev tooldto.ToolCallBegin) { beginCh <- ev })
@@ -572,7 +572,7 @@ func TestOnNotification_CodexRolloutFunctionCallOutputAfterResultDoesNotPublishN
 	cancelEnd := event.Subscribe(bus, func(ev tooldto.ToolCallEnd) { endCh <- ev })
 	defer cancelEnd()
 
-	s := newInboundTestSession(context.Background(), nil, &ServerManager{})
+	s := newInboundTestSession(t, context.Background(), nil, &ServerManager{})
 	s.dispatcher = dispatcher
 
 	s.onNotification("response_item", json.RawMessage(`{
@@ -600,7 +600,7 @@ func TestOnNotification_CodexRolloutFunctionCallOutputAfterResultDoesNotPublishN
 func TestOnInboundMessage_ToolsCallSuppressesDuplicateRolloutToolResult(t *testing.T) {
 	bus := event.NewDispatcher()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 	ctx := context.Background()
 	endCh := make(chan tooldto.ToolCallEnd, 2)
 	cancelEnd := event.Subscribe(bus, func(ev tooldto.ToolCallEnd) { endCh <- ev })
@@ -611,7 +611,7 @@ func TestOnInboundMessage_ToolsCallSuppressesDuplicateRolloutToolResult(t *testi
 		return map[string]any{"ok": true}, nil
 	})
 	resp := newRecordingResponder()
-	s := newInboundTestSession(ctx, nil, manager)
+	s := newInboundTestSession(t, ctx, nil, manager)
 	s.dispatcher = dispatcher
 	s.mu.Lock()
 	s.activeTurnID = "turn-1"
@@ -642,7 +642,7 @@ func TestOnInboundMessage_ToolsCallSuppressesDuplicateRolloutToolResult(t *testi
 func TestOnInboundMessage_ToolsCallSuppressesDuplicateResponseItemToolResult(t *testing.T) {
 	bus := event.NewDispatcher()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 	ctx := context.Background()
 	endCh := make(chan tooldto.ToolCallEnd, 2)
 	cancelEnd := event.Subscribe(bus, func(ev tooldto.ToolCallEnd) { endCh <- ev })
@@ -653,7 +653,7 @@ func TestOnInboundMessage_ToolsCallSuppressesDuplicateResponseItemToolResult(t *
 		return map[string]any{"ok": true}, nil
 	})
 	resp := newRecordingResponder()
-	s := newInboundTestSession(ctx, nil, manager)
+	s := newInboundTestSession(t, ctx, nil, manager)
 	s.dispatcher = dispatcher
 	s.mu.Lock()
 	s.activeTurnID = "turn-1"
@@ -686,7 +686,7 @@ func TestOnInboundMessage_ToolsCallSuppressesDuplicateRolloutToolResultAliases(t
 		t.Run(method, func(t *testing.T) {
 			bus := event.NewDispatcher()
 			dispatcher := unified.NewEventDispatcher(bus, nil)
-			RegisterTranslators(dispatcher)
+			RegisterTranslators(dispatcher, testRuntimeHooks(t))
 			ctx := context.Background()
 			endCh := make(chan tooldto.ToolCallEnd, 2)
 			cancelEnd := event.Subscribe(bus, func(ev tooldto.ToolCallEnd) { endCh <- ev })
@@ -697,7 +697,7 @@ func TestOnInboundMessage_ToolsCallSuppressesDuplicateRolloutToolResultAliases(t
 				return map[string]any{"ok": true}, nil
 			})
 			resp := newRecordingResponder()
-			s := newInboundTestSession(ctx, nil, manager)
+			s := newInboundTestSession(t, ctx, nil, manager)
 			s.dispatcher = dispatcher
 			s.mu.Lock()
 			s.activeTurnID = "turn-1"

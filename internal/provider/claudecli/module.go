@@ -219,7 +219,7 @@ var Module = fx.Module("provider.claudecli",
 	fx.Invoke(registerTranslatorsWithRuntimeHooks),
 )
 
-// registerTranslatorsWithRuntimeHooks 让 Claude 事件面显式依赖 provider runtime hooks readiness。
-func registerTranslatorsWithRuntimeHooks(dispatcher *unified.EventDispatcher, _ providershared.RuntimeHooksReady) {
-	RegisterTranslators(dispatcher)
+// registerTranslatorsWithRuntimeHooks 将同一 runtime owner 显式注入 Claude 事件翻译链。
+func registerTranslatorsWithRuntimeHooks(dispatcher *unified.EventDispatcher, hooks providershared.RuntimeHooks) {
+	RegisterTranslators(dispatcher, hooks)
 }

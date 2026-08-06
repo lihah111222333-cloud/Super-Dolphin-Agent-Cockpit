@@ -185,7 +185,7 @@ func TestConnectionDeadInvalidAPIKeyFailsWithoutRecovery(t *testing.T) {
 
 	handle := newTurnHandle("local-1", "provider-1")
 	dispatcher := unified.NewEventDispatcher(bus, pkglogger.Get())
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 	s := &session{
 		agentID:    "agent-1",
 		dispatcher: dispatcher,
@@ -287,7 +287,7 @@ func runConnectionDeadAuthFailure(t *testing.T, reason string) (string, agentdto
 
 	handle := newTurnHandle("local-1", "provider-1")
 	dispatcher := unified.NewEventDispatcher(bus, pkglogger.Get())
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 	s := &session{
 		agentID:    "agent-1",
 		dispatcher: dispatcher,
@@ -406,7 +406,7 @@ func TestReplayFailureDispatchesConnectionDead(t *testing.T) {
 
 	dispatcher := unified.NewEventDispatcher(bus, pkglogger.Get())
 	// Register the codexapp event translator so connection.dead → AgentFailed.
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 
 	s, err := newSession(context.Background(), pkglogger.Get(), url, "agent-test", dispatcher, testApprovalManager(), nil)
 	if err != nil {

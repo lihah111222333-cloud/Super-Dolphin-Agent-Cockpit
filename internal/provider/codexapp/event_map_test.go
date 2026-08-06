@@ -112,15 +112,17 @@ func TestCodexTimestampValidationMatchesClaudeProviderErrors(t *testing.T) {
 	}{
 		{
 			name:     "codex missing lifecycle timestamp",
-			register: RegisterTranslators,
+			register: func(dispatcher *unified.EventDispatcher) { RegisterTranslators(dispatcher, testRuntimeHooks(t)) },
 			raw: dto.RawProviderEvent{EventType: "thread/status/changed", Data: map[string]any{
 				"agentId": "agent-1", "threadId": "thread-1", "newState": "idle",
 			}},
 			wantCode: codexMissingTimestampCode,
 		},
 		{
-			name:     "claude missing lifecycle timestamp",
-			register: claudecli.RegisterTranslators,
+			name: "claude missing lifecycle timestamp",
+			register: func(dispatcher *unified.EventDispatcher) {
+				claudecli.RegisterTranslators(dispatcher, testRuntimeHooks(t))
+			},
 			raw: dto.RawProviderEvent{EventType: "system:init", Data: map[string]any{
 				"agent_id": "agent-1", "thread_id": "thread-1", "session_id": "session-1",
 			}},
@@ -163,7 +165,7 @@ func TestTranslateCodexEventWarnsOnUnknownRawEvent(t *testing.T) {
 		Data:      map[string]any{"foo": "bar", "api_key": "sk-live-secret"},
 	}, func(any) {
 		t.Fatal("unknown raw event should not publish typed event")
-	})
+	}, testRuntimeHooks(t))
 
 	output := buf.String()
 	if !strings.Contains(output, "unknown raw event") {
@@ -195,7 +197,7 @@ func TestTranslateCodexEventRejectsBadJSONPayload(t *testing.T) {
 		Data:      json.RawMessage(`{"agentId":"agent-1",`),
 	}, func(ev any) {
 		t.Fatalf("bad JSON published %#v, want no typed event", ev)
-	})
+	}, testRuntimeHooks(t))
 
 	output := buf.String()
 	if !strings.Contains(output, "invalid raw event payload") || !strings.Contains(output, "turn/completed") {
@@ -218,7 +220,7 @@ func TestTranslateCodexEventRejectsMissingCriticalIDs(t *testing.T) {
 		},
 	}, func(ev any) {
 		t.Fatalf("missing turn_id published %#v, want no typed event", ev)
-	})
+	}, testRuntimeHooks(t))
 
 	output := buf.String()
 	if !strings.Contains(output, "invalid translated event") || !strings.Contains(output, "turn_id is required") {
@@ -237,7 +239,7 @@ func TestTranslateCodexEventSuppressesAccountRateLimitsUpdated(t *testing.T) {
 		Data:      map[string]any{"foo": "bar"},
 	}, func(any) {
 		t.Fatal("rate limit update should not publish typed event")
-	})
+	}, testRuntimeHooks(t))
 
 	if output := buf.String(); strings.Contains(output, "unknown raw event") {
 		t.Fatalf("output = %q, want no unknown raw event warning", output)
@@ -264,7 +266,7 @@ func TestTranslateCodexEventSuppressesRetryProgressErrorWarning(t *testing.T) {
 		},
 	}, func(ev any) {
 		t.Fatalf("retry progress error published %#v, want no typed event", ev)
-	})
+	}, testRuntimeHooks(t))
 
 	if output := buf.String(); strings.Contains(output, "unknown raw event") {
 		t.Fatalf("output = %q, want retry progress error warning suppressed", output)
@@ -285,7 +287,7 @@ func TestTranslateCodexEventMCPStartupStatusOnlyWarnsOnFailures(t *testing.T) {
 		},
 	}, func(any) {
 		t.Fatal("mcp startup status should not publish typed event")
-	})
+	}, testRuntimeHooks(t))
 	if output := buf.String(); strings.Contains(output, "mcp server startup status") {
 		t.Fatalf("ready output = %q, want debug-only/no info warning", output)
 	}
@@ -299,7 +301,7 @@ func TestTranslateCodexEventMCPStartupStatusOnlyWarnsOnFailures(t *testing.T) {
 		},
 	}, func(any) {
 		t.Fatal("mcp startup status should not publish typed event")
-	})
+	}, testRuntimeHooks(t))
 	output := buf.String()
 	if !strings.Contains(output, "mcp server startup status") || !strings.Contains(output, "failed") {
 		t.Fatalf("failed output = %q, want warning", output)
@@ -319,7 +321,7 @@ func TestTranslateCodexEventIgnoresClaudeColonTurnEvents(t *testing.T) {
 			Data:      map[string]any{"turnId": "T1", "success": true, "message": "done"},
 		}, func(ev any) {
 			t.Fatalf("translateCodexEvent(%q) published %#v, want no typed event", method, ev)
-		})
+		}, testRuntimeHooks(t))
 	}
 }
 
@@ -362,7 +364,7 @@ func TestTranslateToolEventUsesNameFieldForDynamicToolBegin(t *testing.T) {
 			"name":      "file",
 			"arguments": map[string]any{"action": "read_file", "file_path": "smoke.go"},
 		},
-	}, func(ev any) { got = append(got, ev) })
+	}, func(ev any) { got = append(got, ev) }, testRuntimeHooks(t))
 
 	if len(got) != 1 {
 		t.Fatalf("published events = %d, want 1", len(got))
@@ -389,7 +391,7 @@ func TestTranslateToolEventUsesNameFieldForDynamicToolEnd(t *testing.T) {
 			"success":  true,
 			"result":   map[string]any{"success": true, "text_edit_count": 2},
 		},
-	}, func(ev any) { got = append(got, ev) })
+	}, func(ev any) { got = append(got, ev) }, testRuntimeHooks(t))
 
 	if len(got) != 1 {
 		t.Fatalf("published events = %d, want 1", len(got))
@@ -417,7 +419,7 @@ func TestTranslateToolEventMarksNestedResultFailure(t *testing.T) {
 				"error":   "grep failed",
 			},
 		},
-	}, func(ev any) { got = append(got, ev) })
+	}, func(ev any) { got = append(got, ev) }, testRuntimeHooks(t))
 
 	if len(got) != 1 {
 		t.Fatalf("published events = %d, want 1", len(got))
@@ -445,7 +447,7 @@ func TestTranslateCodexRolloutFunctionCallPublishesToolCallBegin(t *testing.T) {
 			"arguments": `{"action":"read_file","file_path":"smoke.go"}`,
 			"call_id":   "call-file",
 		},
-	}, func(ev any) { got = append(got, ev) })
+	}, func(ev any) { got = append(got, ev) }, testRuntimeHooks(t))
 
 	if len(got) != 1 {
 		t.Fatalf("published events = %d, want 1", len(got))
@@ -480,7 +482,7 @@ func TestTranslateCodexRolloutToolCallPublishesToolCallBegin(t *testing.T) {
 				},
 			},
 		},
-	}, func(ev any) { got = append(got, ev) })
+	}, func(ev any) { got = append(got, ev) }, testRuntimeHooks(t))
 
 	if len(got) != 1 {
 		t.Fatalf("published events = %d, want 1", len(got))
@@ -524,7 +526,7 @@ func TestTranslateCodexRolloutMCPToolCallEndPublishesToolCallEnd(t *testing.T) {
 				},
 			},
 		},
-	}, func(ev any) { got = append(got, ev) })
+	}, func(ev any) { got = append(got, ev) }, testRuntimeHooks(t))
 
 	if len(got) != 1 {
 		t.Fatalf("published events = %d, want 1", len(got))
@@ -575,7 +577,7 @@ func TestTranslateCodexRolloutToolResultPrefersStructuredContentPreview(t *testi
 				},
 			},
 		},
-	}, func(ev any) { got = append(got, ev) })
+	}, func(ev any) { got = append(got, ev) }, testRuntimeHooks(t))
 
 	if len(got) != 1 {
 		t.Fatalf("published events = %d, want 1", len(got))
@@ -627,7 +629,7 @@ func TestTranslateCodexRolloutToolResultSupportsLowercaseOKWrapper(t *testing.T)
 				},
 			},
 		},
-	}, func(ev any) { got = append(got, ev) })
+	}, func(ev any) { got = append(got, ev) }, testRuntimeHooks(t))
 
 	if len(got) != 1 {
 		t.Fatalf("published events = %d, want 1", len(got))
@@ -670,7 +672,7 @@ func TestTranslateCodexRolloutResponseItemToolResultSupportsDirectMCPResult(t *t
 				},
 			},
 		},
-	}, func(ev any) { got = append(got, ev) })
+	}, func(ev any) { got = append(got, ev) }, testRuntimeHooks(t))
 
 	if len(got) != 1 {
 		t.Fatalf("published events = %d, want 1", len(got))
@@ -691,7 +693,7 @@ func TestTranslateCodexRolloutResponseItemToolResultSupportsDirectMCPResult(t *t
 }
 
 func TestToolCallEndReportsPersistFailure(t *testing.T) {
-	configureCaptureRuntimeHookForTest(t, func(meta providershared.ToolResultMeta, raw string) (providershared.ToolResultRecord, error) {
+	hooks := configureCaptureRuntimeHookForTest(t, func(meta providershared.ToolResultMeta, raw string) (providershared.ToolResultRecord, error) {
 		return persistFailureCaptureResult(t, meta, raw)
 	})
 
@@ -716,7 +718,7 @@ func TestToolCallEndReportsPersistFailure(t *testing.T) {
 				},
 			},
 		},
-	}, func(ev any) { got = append(got, ev) })
+	}, func(ev any) { got = append(got, ev) }, hooks)
 
 	assertPersistFailureToolEnd(t, got)
 }
@@ -754,7 +756,7 @@ func assertPersistFailureToolEnd(t *testing.T, got []any) {
 
 // TestToolCallEndFailsWhenRuntimeCaptureFails 验证捕获依赖错误不会退化成成功事件。
 func TestToolCallEndFailsWhenRuntimeCaptureFails(t *testing.T) {
-	configureCaptureRuntimeHookForTest(t, func(providershared.ToolResultMeta, string) (providershared.ToolResultRecord, error) {
+	hooks := configureCaptureRuntimeHookForTest(t, func(providershared.ToolResultMeta, string) (providershared.ToolResultRecord, error) {
 		return providershared.ToolResultRecord{}, errors.New("capture unavailable")
 	})
 
@@ -765,7 +767,7 @@ func TestToolCallEndFailsWhenRuntimeCaptureFails(t *testing.T) {
 		"toolName": "Read",
 		"success":  true,
 		"result":   "raw",
-	})
+	}, hooks)
 	if !ok {
 		t.Fatal("translateToolEvent() ok = false, want ToolCallEnd")
 	}

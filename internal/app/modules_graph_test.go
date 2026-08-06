@@ -417,7 +417,7 @@ func appendProviderGraphCoreDependencies(opts []fx.Option, omitted map[providerG
 		opts = append(opts, fx.Provide(func() contract.RuntimeReporter { return graphTestRuntimeReporter{} }))
 	}
 	if !omitted[omitRuntimeHooks] {
-		opts = append(opts, fx.Supply(providershared.RuntimeHooksReady{}))
+		opts = append(opts, fx.Supply(providershared.RuntimeHooks{}))
 	}
 	if !omitted[omitProviderMirror] {
 		opts = append(opts, fx.Provide(func() contract.SkillMirrorReconciler { return graphTestSkillMirror{} }))

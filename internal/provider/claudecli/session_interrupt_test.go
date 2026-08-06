@@ -225,7 +225,7 @@ func assertInterruptCleanupFailureRetainsOwnership(t *testing.T, settle func(*tr
 	bus := event.NewDispatcher()
 	defer func() { _ = bus.Close() }()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 	terminals := make(chan turndto.TurnCompleted, 1)
 	cancelTerminal := event.Subscribe(bus, func(ev turndto.TurnCompleted) { terminals <- ev })
 	defer cancelTerminal()
@@ -340,7 +340,7 @@ func TestInterruptDispatchesSyntheticToolEnd(t *testing.T) {
 	bus := event.NewDispatcher()
 	defer func() { _ = bus.Close() }()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 
 	toolEnds := make(chan tooldto.ToolCallEnd, 1)
 	turnInterrupted := make(chan turndto.TurnCompleted, 1)

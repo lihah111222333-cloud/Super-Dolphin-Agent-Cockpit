@@ -22,6 +22,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 	codexprotocol "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp/supportutil"
+	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
@@ -40,6 +41,7 @@ type session struct {
 	logger                 *slog.Logger
 	dispatcher             *unified.EventDispatcher
 	approvals              *rpc.ApprovalManager
+	runtimeHooks           providershared.RuntimeHooks
 	approvalDecisionHook   func(context.Context, rpc.ApprovalRequest) (contract.ApprovalDecision, error)
 	ctx                    context.Context
 	cancel                 context.CancelFunc
@@ -189,6 +191,7 @@ func newSessionWithOptions(
 		logger:                agentLog,
 		dispatcher:            dispatcher,
 		approvals:             approvals,
+		runtimeHooks:          cfg.runtimeHooks,
 		ctx:                   ctx,
 		cancel:                cancel,
 		turns:                 map[string]*turnHandle{},
@@ -239,6 +242,7 @@ type sessionOptions struct {
 	poolURL             string
 	poolRelease         func()
 	approvalScopeReader io.Reader
+	runtimeHooks        providershared.RuntimeHooks
 }
 
 func withPoolServer(url string, release func()) sessionOption {
@@ -252,6 +256,12 @@ func withPoolServer(url string, release func()) sessionOption {
 func withApprovalScopeReader(reader io.Reader) sessionOption {
 	return func(o *sessionOptions) {
 		o.approvalScopeReader = reader
+	}
+}
+
+func withRuntimeHooks(hooks providershared.RuntimeHooks) sessionOption {
+	return func(o *sessionOptions) {
+		o.runtimeHooks = hooks
 	}
 }
 

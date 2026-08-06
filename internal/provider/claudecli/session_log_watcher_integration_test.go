@@ -52,7 +52,7 @@ func TestHandleSystemInitRawStartsLogWatcherAndUsesRuntimeContextWindow(t *testi
 	bus := event.NewDispatcher()
 	defer func() { _ = bus.Close() }()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 
 	rawEvents := subscribeLogWatcherEvents(t, bus)
 
@@ -126,7 +126,7 @@ func TestDispatchTokenUsageIfCurrentRejectsStaleIdentity(t *testing.T) {
 	bus := event.NewDispatcher()
 	defer func() { _ = bus.Close() }()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 
 	rawEvents := make(chan dto.BusRawProviderEvent, 1)
 	cancel := event.Subscribe(bus, func(ev dto.BusRawProviderEvent) {
@@ -184,7 +184,7 @@ func newLogWatcherTimestampErrorTest(t *testing.T) (<-chan dto.BusRawProviderEve
 	bus := event.NewDispatcher()
 	t.Cleanup(func() { _ = bus.Close() })
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 
 	rawEvents := make(chan dto.BusRawProviderEvent, 1)
 	agentErrors := make(chan agentdto.AgentError, 1)

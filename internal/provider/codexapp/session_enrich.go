@@ -172,7 +172,7 @@ func (s *session) publishToolCallEnd(call preparedToolCall, result any, callErr 
 	header.Timestamp = time.Now()
 	success, errorText := toolCallEndOutcome(result, callErr)
 	success, errorText, resultPreview := resultguard.ApplyEmptyFileReadFromRaw(success, errorText, previewAny(result), call.header.ToolName, call.params.Params, result)
-	record, captureErr := captureSessionToolResult(header, resultPreview)
+	record, captureErr := captureSessionToolResult(s.runtimeHooks, header, resultPreview)
 	if captureErr != nil {
 		success = false
 		errorText = appendProviderRuntimeError(errorText, captureErr)
@@ -205,8 +205,8 @@ func (s *session) publishToolCallEnd(call preparedToolCall, result any, callErr 
 
 // captureSessionToolResult 通过 provider/shared 运行时依赖捕获 host-direct 工具结果。
 // 未装配或捕获失败必须显式返回错误，禁止以原 preview 掩盖结果未持久化。
-func captureSessionToolResult(header shareddto.ToolCallHeader, preview string) (providershared.ToolResultRecord, error) {
-	return providershared.CaptureToolResult(providershared.ToolResultMeta{ThreadID: header.ThreadID, TurnID: header.TurnID, CallID: header.CallID, ToolName: header.ToolName, Timestamp: header.Timestamp}, preview)
+func captureSessionToolResult(hooks providershared.RuntimeHooks, header shareddto.ToolCallHeader, preview string) (providershared.ToolResultRecord, error) {
+	return hooks.CaptureToolResult(providershared.ToolResultMeta{ThreadID: header.ThreadID, TurnID: header.TurnID, CallID: header.CallID, ToolName: header.ToolName, Timestamp: header.Timestamp}, preview)
 }
 
 type toolCallResultEnvelope struct {

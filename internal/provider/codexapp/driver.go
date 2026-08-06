@@ -33,6 +33,17 @@ func requireApprovalManager(approvals *rpc.ApprovalManager) error {
 	return nil
 }
 
+func runtimeHooksOrZero(configured []providershared.RuntimeHooks) providershared.RuntimeHooks {
+	switch len(configured) {
+	case 0:
+		return providershared.RuntimeHooks{}
+	case 1:
+		return configured[0]
+	default:
+		panic("codexapp: exactly one runtime hooks owner is allowed")
+	}
+}
+
 // DriverFactory 持有创建 Codex provider driver 所需的运行时依赖。
 // tool surface 回调可在 fx 装配后注入，Create 会读取当前回调并隔离到新 driver。
 type DriverFactory struct {
@@ -50,6 +61,7 @@ type DriverFactory struct {
 	releaseTools    func(contract.CodexToolSurfaceScope) error
 	mirror          contract.SkillMirrorReconciler
 	recovery        contract.SessionRecoveryReporter
+	runtimeHooks    providershared.RuntimeHooks
 }
 
 type driver struct {
@@ -66,6 +78,7 @@ type driver struct {
 	releaseTools    func(contract.CodexToolSurfaceScope) error
 	mirror          contract.SkillMirrorReconciler
 	recovery        contract.SessionRecoveryReporter
+	runtimeHooks    providershared.RuntimeHooks
 }
 
 var _ contract.Driver = (*driver)(nil)
@@ -131,7 +144,9 @@ func NewDriverFactory(
 	pool *ServerPool,
 	mirror contract.SkillMirrorReconciler,
 	recovery contract.SessionRecoveryReporter,
+	runtimeHooks ...providershared.RuntimeHooks,
 ) *DriverFactory {
+	hooks := runtimeHooksOrZero(runtimeHooks)
 	factory := &DriverFactory{
 		logger:          logger,
 		eventDispatcher: dispatcher,
@@ -141,12 +156,14 @@ func NewDriverFactory(
 		pool:            pool,
 		mirror:          mirror,
 		recovery:        recovery,
+		runtimeHooks:    hooks,
 	}
 	factory.DriverFactory = contract.DriverFactory{
 		Name: "codex",
 		Create: func() contract.Driver {
 			raw := newDriver(logger, dispatcher, approvals, reporter, manager, pool, factory.mirror, factory.recovery, factory.currentListTools())
 			if d, ok := raw.(*driver); ok {
+				d.runtimeHooks = factory.runtimeHooks
 				d.prepareTools = factory.currentPrepareTools()
 				d.bindTools = factory.currentBindTools()
 				d.releaseTools = factory.currentReleaseTools()
@@ -186,6 +203,7 @@ func (d *driver) startSession(ctx context.Context, req dto.StartSessionRequest) 
 	if err != nil {
 		return nil, err
 	}
+	opts = append(opts, withRuntimeHooks(d.runtimeHooks))
 	s, err := newSessionWithOptions(ctx, d.logger, d.serverURL, req.AgentID, d.eventDispatcher, d.approvals, d.manager, opts...)
 	if err != nil {
 		return nil, err
@@ -258,6 +276,7 @@ func (d *driver) resumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	if err != nil {
 		return nil, err
 	}
+	opts = append(opts, withRuntimeHooks(d.runtimeHooks))
 	s, err := newSessionWithOptions(ctx, d.logger, d.serverURL, req.AgentID, d.eventDispatcher, d.approvals, d.manager, opts...)
 	if err != nil {
 		return nil, err

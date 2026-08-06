@@ -50,7 +50,7 @@ func TestCodexSessionObservesMissingNonTerminalLifecycleTimestamp(t *testing.T) 
 	bus := event.NewDispatcher()
 	t.Cleanup(func() { _ = bus.Close() })
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 	s := &session{agentID: "agent-1", dispatcher: dispatcher}
 	launched := make(chan agentdto.AgentLaunched, 1)
 	stateChanged := make(chan agentdto.StateChanged, 1)
@@ -182,7 +182,7 @@ func newTimestampTerminalEventSurface(t *testing.T) (*unified.EventDispatcher, <
 	bus := event.NewDispatcher()
 	t.Cleanup(func() { _ = bus.Close() })
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 	terminals := make(chan turndto.TurnTerminalV2, 2)
 	for _, cancel := range eventsurface.Bind(bus, nil, timestampTerminalSubscriber(terminals)) {
 		t.Cleanup(cancel)

@@ -121,7 +121,8 @@ func (r *recordingResponder) callCount() int {
 	return len(r.calls)
 }
 
-func newInboundTestSession(ctx context.Context, approvals *rpc.ApprovalManager, manager *ServerManager) *session {
+func newInboundTestSession(t *testing.T, ctx context.Context, approvals *rpc.ApprovalManager, manager *ServerManager) *session {
+	t.Helper()
 	s := &session{
 		agentID:              "agent-1",
 		approvalSessionScope: "test-session-scope",
@@ -132,6 +133,7 @@ func newInboundTestSession(ctx context.Context, approvals *rpc.ApprovalManager, 
 		suppressed:           map[string]struct{}{},
 		suppressedToolEnds:   map[string]struct{}{},
 		turns:                map[string]*turnHandle{},
+		runtimeHooks:         testRuntimeHooks(t),
 	}
 	s.setThreadID("provider-thread-1")
 	s.setRuntimeConfig(map[string]any{"cwd": "/trusted/root"})
@@ -176,7 +178,7 @@ func TestOnInboundMessage_Approval_ViaApprovalBridge(t *testing.T) {
 		return nil, nil
 	})
 	resp := newRecordingResponder()
-	s := newInboundTestSession(ctx, rpc.NewApprovalManager(nil, bus), manager)
+	s := newInboundTestSession(t, ctx, rpc.NewApprovalManager(nil, bus), manager)
 
 	s.onInboundMessage(ctx, resp, RawMessage{
 		ID:     json.RawMessage(`1`),
@@ -209,7 +211,7 @@ func TestOnInboundMessage_ApprovalRequest_RespondsWithJSONRPCID(t *testing.T) {
 
 	approvals := rpc.NewApprovalManager(nil, bus)
 	resp := newRecordingResponder()
-	s := newInboundTestSession(ctx, approvals, &ServerManager{})
+	s := newInboundTestSession(t, ctx, approvals, &ServerManager{})
 
 	s.onInboundMessage(ctx, resp, RawMessage{
 		ID:     json.RawMessage(`17`),
@@ -278,7 +280,7 @@ func TestOnInboundMessage_ApprovalRequestWithZeroID_RespondsWithOriginalJSONRPCI
 
 	approvals := rpc.NewApprovalManager(nil, bus)
 	resp := newRecordingResponder()
-	s := newInboundTestSession(ctx, approvals, &ServerManager{})
+	s := newInboundTestSession(t, ctx, approvals, &ServerManager{})
 
 	s.onInboundMessage(ctx, resp, RawMessage{
 		ID:     json.RawMessage(`0`),
@@ -324,7 +326,7 @@ func TestOnInboundMessage_RequestUserInput_ViaApprovalBridge(t *testing.T) {
 		return nil, nil
 	})
 	resp := newRecordingResponder()
-	s := newInboundTestSession(ctx, rpc.NewApprovalManager(nil, bus), manager)
+	s := newInboundTestSession(t, ctx, rpc.NewApprovalManager(nil, bus), manager)
 
 	s.onInboundMessage(ctx, resp, RawMessage{
 		ID:     json.RawMessage(`2`),
@@ -360,7 +362,7 @@ func TestOnInboundMessage_ToolCall_AsyncNoBlockReadLoop(t *testing.T) {
 		return "tool-result", nil
 	})
 	resp := newRecordingResponder()
-	s := newInboundTestSession(ctx, nil, manager)
+	s := newInboundTestSession(t, ctx, nil, manager)
 
 	returned := make(chan struct{})
 	goroutines := newTestGoroutineGroup(t)
@@ -406,7 +408,7 @@ func TestOnInboundMessage_ToolCall_DispatchesLifecycleAndPrivateMetadata(t *test
 		return map[string]any{"ok": true}, nil
 	})
 	resp := newRecordingResponder()
-	s := newInboundTestSession(ctx, nil, manager)
+	s := newInboundTestSession(t, ctx, nil, manager)
 	s.dispatcher = dispatcher
 	s.setThreadID("provider-thread-1")
 	s.setRuntimeConfig(map[string]any{"cwd": "/trusted/root"})
@@ -450,7 +452,7 @@ func TestOnInboundMessage_ToolsCall_DispatchesLifecycle(t *testing.T) {
 		return map[string]any{"ok": true, "content": []any{map[string]any{"type": "text", "text": "package main"}}}, nil
 	})
 	resp := newRecordingResponder()
-	s := newInboundTestSession(ctx, nil, manager)
+	s := newInboundTestSession(t, ctx, nil, manager)
 	s.dispatcher = dispatcher
 	s.setThreadID("provider-thread-1")
 	s.setRuntimeConfig(map[string]any{"cwd": "/trusted/root"})
@@ -497,7 +499,7 @@ func assertToolHandlerTraceContext(t *testing.T, sawLifecycleContext bool, sawTr
 func TestOnInboundMessage_ToolsCallSuppressesDuplicateRawEnd(t *testing.T) {
 	bus := event.NewDispatcher()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 	ctx := context.Background()
 	endCh := make(chan tooldto.ToolCallEnd, 2)
 	cancelEnd := event.Subscribe(bus, func(ev tooldto.ToolCallEnd) { endCh <- ev })
@@ -508,7 +510,7 @@ func TestOnInboundMessage_ToolsCallSuppressesDuplicateRawEnd(t *testing.T) {
 		return map[string]any{"ok": true}, nil
 	})
 	resp := newRecordingResponder()
-	s := newInboundTestSession(ctx, nil, manager)
+	s := newInboundTestSession(t, ctx, nil, manager)
 	s.dispatcher = dispatcher
 	s.mu.Lock()
 	s.activeTurnID = "turn-1"
@@ -530,7 +532,7 @@ func TestOnInboundMessage_ToolsCallSuppressesDuplicateRawEnd(t *testing.T) {
 }
 
 func TestSuppressedToolEndBoundedAndTurnScoped(t *testing.T) {
-	s := newInboundTestSession(context.Background(), nil, &ServerManager{})
+	s := newInboundTestSession(t, context.Background(), nil, &ServerManager{})
 	s.suppressToolEnd("turn-1", "call-1", "file")
 	if s.consumeSuppressedToolEnd("turn-2", "call-1", "file") {
 		t.Fatal("consumeSuppressedToolEnd consumed a different turn")
@@ -570,7 +572,7 @@ func TestOnInboundMessage_ToolCall_DispatchesStructuredFailureEnd(t *testing.T) 
 		}, nil
 	})
 	resp := newRecordingResponder()
-	s := newInboundTestSession(ctx, nil, manager)
+	s := newInboundTestSession(t, ctx, nil, manager)
 	s.dispatcher = dispatcher
 
 	s.onInboundMessage(ctx, resp, RawMessage{
@@ -612,7 +614,7 @@ func TestOnInboundMessage_ToolCall_ResultSuccessFalseDispatchesFailedLifecycle(t
 		}, nil
 	})
 	resp := newRecordingResponder()
-	s := newInboundTestSession(ctx, nil, manager)
+	s := newInboundTestSession(t, ctx, nil, manager)
 	s.dispatcher = dispatcher
 
 	s.onInboundMessage(ctx, resp, RawMessage{

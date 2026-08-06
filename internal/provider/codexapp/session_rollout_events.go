@@ -13,21 +13,21 @@ import (
 )
 
 // translateCodexRolloutToolEvent 把 Codex rollout tool 事件转换为内部 tool DTO。
-func translateCodexRolloutToolEvent(eventType string, payload map[string]any) (any, bool) {
+func translateCodexRolloutToolEvent(hooks providershared.RuntimeHooks, eventType string, payload map[string]any) (any, bool) {
 	switch strings.TrimSpace(eventType) {
 	case "response_item", "item/started", "item_started", "agent/event/item_started":
 		if ev, ok := translateCodexFunctionCallBegin(payload); ok {
 			return ev, true
 		}
-		if ev, ok := translateCodexMCPToolCallEnd(payload); ok {
+		if ev, ok := translateCodexMCPToolCallEnd(hooks, payload); ok {
 			return ev, true
 		}
-		return translateCodexFunctionCallOutputEnd(payload)
+		return translateCodexFunctionCallOutputEnd(hooks, payload)
 	case "event_msg", "item/completed", "item_completed", "agent/event/item_completed", "rawResponseItem/completed":
-		if ev, ok := translateCodexMCPToolCallEnd(payload); ok {
+		if ev, ok := translateCodexMCPToolCallEnd(hooks, payload); ok {
 			return ev, true
 		}
-		return translateCodexFunctionCallOutputEnd(payload)
+		return translateCodexFunctionCallOutputEnd(hooks, payload)
 	default:
 		return nil, false
 	}
@@ -49,7 +49,7 @@ func translateCodexFunctionCallBegin(payload map[string]any) (any, bool) {
 }
 
 // translateCodexMCPToolCallEnd 转换 MCP 工具终态，并显式上报结果捕获错误。
-func translateCodexMCPToolCallEnd(payload map[string]any) (any, bool) {
+func translateCodexMCPToolCallEnd(hooks providershared.RuntimeHooks, payload map[string]any) (any, bool) {
 	item := codexToolItemPayload(payload)
 	switch strings.TrimSpace(stringValue(item, "type")) {
 	case "mcp_tool_call_end", "tool_result":
@@ -62,7 +62,7 @@ func translateCodexMCPToolCallEnd(payload map[string]any) (any, bool) {
 	}
 	success, errorText := codexMCPToolResultOutcome(item)
 	preview := resultguard.ApplyCodexMCPPreview(success, errorText, codexMCPToolResultPreview(item), codexRolloutToolName(item), item)
-	result, captureErr := captureCodexRolloutToolResult(header, eventTime(payload), preview)
+	result, captureErr := captureCodexRolloutToolResult(hooks, header, eventTime(payload), preview)
 	if captureErr != nil {
 		success = false
 		errorText = appendProviderRuntimeError(errorText, captureErr)
@@ -82,7 +82,7 @@ func translateCodexMCPToolCallEnd(payload map[string]any) (any, bool) {
 	}, true
 }
 
-func translateCodexFunctionCallOutputEnd(payload map[string]any) (any, bool) {
+func translateCodexFunctionCallOutputEnd(hooks providershared.RuntimeHooks, payload map[string]any) (any, bool) {
 	item := codexToolItemPayload(payload)
 	if strings.TrimSpace(stringValue(item, "type")) != "function_call_output" {
 		return nil, false
@@ -92,7 +92,7 @@ func translateCodexFunctionCallOutputEnd(payload map[string]any) (any, bool) {
 		return nil, false
 	}
 	success, errorText := codexFunctionCallOutputOutcome(item)
-	result, captureErr := captureCodexRolloutToolResult(header, eventTime(payload), stringValue(item, "output"))
+	result, captureErr := captureCodexRolloutToolResult(hooks, header, eventTime(payload), stringValue(item, "output"))
 	if captureErr != nil {
 		success = false
 		errorText = appendProviderRuntimeError(errorText, captureErr)
@@ -298,8 +298,8 @@ func codexFunctionCallOutputOutcome(item map[string]any) (bool, string) {
 
 // captureCodexRolloutToolResult 捕获 rollout/replay 工具结果并保留持久化诊断。
 // 运行时依赖缺失或捕获失败必须向 ToolCallEnd 返回显式错误。
-func captureCodexRolloutToolResult(header shareddto.ToolCallHeader, timestamp time.Time, preview string) (providershared.ToolResultRecord, error) {
-	return providershared.CaptureToolResult(providershared.ToolResultMeta{
+func captureCodexRolloutToolResult(hooks providershared.RuntimeHooks, header shareddto.ToolCallHeader, timestamp time.Time, preview string) (providershared.ToolResultRecord, error) {
+	return hooks.CaptureToolResult(providershared.ToolResultMeta{
 		ThreadID:  header.ThreadID,
 		TurnID:    header.TurnID,
 		CallID:    header.CallID,

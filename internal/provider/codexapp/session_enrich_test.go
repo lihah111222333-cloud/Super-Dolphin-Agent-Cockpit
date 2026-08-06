@@ -128,7 +128,7 @@ func TestPublishToolCallEnd_FileReadEmptySuccessResultFailsWithPathGuidance(t *t
 	defer cancelEnd()
 	defer func() { _ = bus.Close() }()
 
-	s := newInboundTestSession(context.Background(), nil, &ServerManager{})
+	s := newInboundTestSession(t, context.Background(), nil, &ServerManager{})
 	s.dispatcher = dispatcher
 
 	msg := rawParams(t, map[string]any{

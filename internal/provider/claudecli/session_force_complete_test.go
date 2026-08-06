@@ -51,7 +51,7 @@ func newForceCompleteTerminalProbe(t *testing.T) forceCompleteTerminalProbe {
 		}
 	})
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 
 	rawEvents := make(chan dto.BusRawProviderEvent, 1)
 	cancelRaw := event.Subscribe(bus, func(ev dto.BusRawProviderEvent) {

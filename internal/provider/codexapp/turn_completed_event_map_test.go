@@ -23,7 +23,7 @@ func sniffAndTranslate(t *testing.T, s *session, method string, raw json.RawMess
 	merged := s.sniffTurnOutput(method, raw)
 	payload := decodeEventPayload(merged)
 	outcome := canonicalTurnTerminalOutcome(method, payload)
-	ev, ok := translateTurnEvent(method, payload, &outcome)
+	ev, ok := translateTurnEventWithRuntimeHooks(testRuntimeHooks(t), method, payload, &outcome)
 	if !ok {
 		return turndto.TurnCompleted{}, false
 	}
@@ -76,7 +76,7 @@ func TestOnNotificationFirstTerminalWinsBeforeDispatch(t *testing.T) {
 	bus := event.NewDispatcher()
 	defer func() { _ = bus.Close() }()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 	completedEvents := make(chan turndto.TurnCompleted, 2)
 	cancelSub := event.Subscribe(bus, func(ev turndto.TurnCompleted) {
 		completedEvents <- ev
@@ -120,7 +120,7 @@ func TestOnNotificationOwnerlessTerminalIsRejected(t *testing.T) {
 	bus := event.NewDispatcher()
 	defer func() { _ = bus.Close() }()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 	completedEvents := make(chan turndto.TurnCompleted, 1)
 	cancelSub := event.Subscribe(bus, func(ev turndto.TurnCompleted) {
 		completedEvents <- ev
@@ -142,7 +142,7 @@ func TestOnNotificationOldOwnerlessTerminalIsRejectedAfterChurn(t *testing.T) {
 	bus := event.NewDispatcher()
 	defer func() { _ = bus.Close() }()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 	completedEvents := make(chan turndto.TurnCompleted, liveTerminalCount+1)
 	cancelSub := event.Subscribe(bus, func(ev turndto.TurnCompleted) {
 		completedEvents <- ev
@@ -521,7 +521,7 @@ func assertStaleMalformedTerminalDoesNotFinishActiveTurn(t *testing.T, params js
 	bus := event.NewDispatcher()
 	defer func() { _ = bus.Close() }()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 	surface := make(chan turndto.TurnTerminalV2, 1)
 	for _, cancel := range eventsurface.Bind(bus, nil, func(method string, payload any) {
 		if method == eventsurface.MethodTurnTerminal {

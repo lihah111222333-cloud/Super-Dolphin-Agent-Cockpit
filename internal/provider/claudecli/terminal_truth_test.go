@@ -16,7 +16,7 @@ import (
 func TestClaudeInterruptedIsTerminalWithoutCompletedEvent(t *testing.T) {
 	t.Parallel()
 
-	ev, ok := translateCanonicalClaudeTerminal(dto.RawProviderEvent{EventType: "turn:interrupted", Data: map[string]any{
+	ev, ok := translateCanonicalClaudeTerminal(t, dto.RawProviderEvent{EventType: "turn:interrupted", Data: map[string]any{
 		"thread_id": "thread-1",
 		"agent_id":  "agent-1",
 		"turn_id":   "turn-1",
@@ -38,7 +38,7 @@ func TestClaudeInterruptedIsTerminalWithoutCompletedEvent(t *testing.T) {
 func TestClaudeCompletedRawCauseCannotMasqueradeAsUserCancel(t *testing.T) {
 	t.Parallel()
 
-	ev, ok := translateCanonicalClaudeTerminal(dto.RawProviderEvent{EventType: "turn:complete", Data: map[string]any{
+	ev, ok := translateCanonicalClaudeTerminal(t, dto.RawProviderEvent{EventType: "turn:complete", Data: map[string]any{
 		"thread_id":  "thread-1",
 		"agent_id":   "agent-1",
 		"turn_id":    "turn-1",
@@ -57,8 +57,9 @@ func TestClaudeCompletedRawCauseCannotMasqueradeAsUserCancel(t *testing.T) {
 	}
 }
 
-func translateCanonicalClaudeTerminal(raw dto.RawProviderEvent) (any, bool) {
-	return translateTurnEvent(attachClaudeTerminalOutcome(raw))
+func translateCanonicalClaudeTerminal(t *testing.T, raw dto.RawProviderEvent) (any, bool) {
+	t.Helper()
+	return translateTurnEvent(testRuntimeHooks(t), attachClaudeTerminalOutcome(raw))
 }
 
 func TestClaudeMalformedOutcomeUsesActiveIdentityAcrossEventSurface(t *testing.T) {
@@ -82,7 +83,7 @@ func assertClaudeMalformedOutcomeAcrossEventSurface(t *testing.T, data map[strin
 	bus := event.NewDispatcher()
 	defer func() { _ = bus.Close() }()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 	surface := make(chan turndto.TurnTerminalV2, 1)
 	for _, cancel := range eventsurface.Bind(bus, nil, func(method string, payload any) {
 		if method == eventsurface.MethodTurnTerminal {

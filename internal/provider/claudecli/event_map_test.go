@@ -67,7 +67,7 @@ func publishClaudeTerminalFixture(t *testing.T, fixture claudeTerminalFixture) c
 	bus := event.NewDispatcher()
 	defer func() { _ = bus.Close() }()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 	published := make(chan claudeTerminalPublication, 1)
 	cancels := eventsurface.Bind(bus, nil, func(method string, payload any) {
 		terminal, ok := payload.(turndto.TurnTerminalV2)
@@ -136,7 +136,7 @@ func TestRegisterTranslatorsPublishesProviderErrorForMissingEventTimestamp(t *te
 	bus := event.NewDispatcher()
 	defer func() { _ = bus.Close() }()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 
 	agentErrors := make(chan agentdto.AgentError, 1)
 	runtimes := make(chan agentdto.AgentRuntimeReported, 1)
@@ -174,7 +174,7 @@ func TestRegisterTranslatorsPublishesProviderErrorForInvalidToolTimestamp(t *tes
 	bus := event.NewDispatcher()
 	defer func() { _ = bus.Close() }()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 
 	agentErrors := make(chan agentdto.AgentError, 1)
 	toolEnds := make(chan tooldto.ToolCallEnd, 1)
@@ -212,10 +212,10 @@ func TestRegisterTranslatorsPublishesProviderErrorForInvalidToolTimestamp(t *tes
 
 // TestToolCallEndReportsPersistFailure 确认 Claude 工具结束事件透传结果持久化失败诊断。
 func TestToolCallEndReportsPersistFailure(t *testing.T) {
-	configureCaptureRuntimeHookForTest(t, func(providershared.ToolResultMeta, string) (providershared.ToolResultRecord, error) {
+	hooks := configureCaptureRuntimeHookForTest(t, func(providershared.ToolResultMeta, string) (providershared.ToolResultRecord, error) {
 		return providershared.ToolResultRecord{Preview: "captured", PersistFailed: true, PersistError: "disk full"}, nil
 	})
-	ev, ok := translateToolEvent(dto.RawProviderEvent{EventType: "tool:use_end", Data: map[string]any{"thread_id": "thread-1", "turn_id": "turn-1", "call_id": "call-1", "tool_name": "Read", "success": true, "result": "raw"}})
+	ev, ok := translateToolEvent(hooks, dto.RawProviderEvent{EventType: "tool:use_end", Data: map[string]any{"thread_id": "thread-1", "turn_id": "turn-1", "call_id": "call-1", "tool_name": "Read", "success": true, "result": "raw"}})
 	if !ok {
 		t.Fatal("translateToolEvent() ok=false, want ToolCallEnd")
 	}
@@ -227,11 +227,11 @@ func TestToolCallEndReportsPersistFailure(t *testing.T) {
 
 // TestToolCallEndFailsWhenRuntimeCaptureFails 验证捕获依赖错误不会退化成成功事件。
 func TestToolCallEndFailsWhenRuntimeCaptureFails(t *testing.T) {
-	configureCaptureRuntimeHookForTest(t, func(providershared.ToolResultMeta, string) (providershared.ToolResultRecord, error) {
+	hooks := configureCaptureRuntimeHookForTest(t, func(providershared.ToolResultMeta, string) (providershared.ToolResultRecord, error) {
 		return providershared.ToolResultRecord{}, errors.New("capture unavailable")
 	})
 
-	ev, ok := translateToolEvent(dto.RawProviderEvent{EventType: "tool:use_end", Data: map[string]any{
+	ev, ok := translateToolEvent(hooks, dto.RawProviderEvent{EventType: "tool:use_end", Data: map[string]any{
 		"thread_id": "thread-1",
 		"turn_id":   "turn-1",
 		"call_id":   "call-1",

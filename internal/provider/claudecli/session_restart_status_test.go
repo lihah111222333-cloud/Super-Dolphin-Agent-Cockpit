@@ -34,7 +34,7 @@ func TestRestartIfNeededLockedPublishesRestartStatusPatch(t *testing.T) {
 	bus := event.NewDispatcher()
 	defer func() { _ = bus.Close() }()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 
 	patches := make(chan uidto.UIThreadPatch, 4)
 	cancel := event.Subscribe(bus, func(ev uidto.UIThreadPatch) {

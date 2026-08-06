@@ -341,7 +341,7 @@ func TestTransportStartupFailureCleansUpOrphans(t *testing.T) {
 func TestTransportDispatchReadMessage_CodexRolloutFramesDispatchToolLifecycle(t *testing.T) {
 	bus := event.NewDispatcher()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 	beginCh := make(chan tooldto.ToolCallBegin, 1)
 	endCh := make(chan tooldto.ToolCallEnd, 1)
 	cancelBegin := event.Subscribe(bus, func(ev tooldto.ToolCallBegin) { beginCh <- ev })
@@ -350,7 +350,7 @@ func TestTransportDispatchReadMessage_CodexRolloutFramesDispatchToolLifecycle(t 
 	defer cancelEnd()
 
 	ctx := context.Background()
-	s := newInboundTestSession(ctx, nil, &ServerManager{})
+	s := newInboundTestSession(t, ctx, nil, &ServerManager{})
 	s.dispatcher = dispatcher
 	transport := &transport{}
 	handler := func(ctx context.Context, resp Responder, msg RawMessage) {

@@ -6,31 +6,36 @@ import (
 	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 )
 
-// configureCaptureRuntimeHookForTest 临时替换结果捕获依赖，并在测试结束时恢复默认实现。
-func configureCaptureRuntimeHookForTest(t *testing.T, capture providershared.CaptureToolResultFunc) {
+// configureCaptureRuntimeHookForTest 为单个测试创建结果捕获 owner，禁止写入进程级状态。
+func configureCaptureRuntimeHookForTest(t *testing.T, capture providershared.CaptureToolResultFunc) providershared.RuntimeHooks {
 	t.Helper()
-	if err := configureRuntimeHooksForTest(capture); err != nil {
+	hooks, err := configureRuntimeHooksForTest(capture)
+	if err != nil {
 		t.Fatalf("configure runtime hooks: %v", err)
 	}
-	t.Cleanup(func() {
-		if err := configureDefaultRuntimeHooksForTest(); err != nil {
-			t.Errorf("restore default runtime hooks: %v", err)
-		}
-	})
+	return hooks
 }
 
-func configureDefaultRuntimeHooksForTest() error {
+func testRuntimeHooks(t *testing.T) providershared.RuntimeHooks {
+	t.Helper()
+	hooks, err := configureDefaultRuntimeHooksForTest()
+	if err != nil {
+		t.Fatalf("configure default runtime hooks: %v", err)
+	}
+	return hooks
+}
+
+func configureDefaultRuntimeHooksForTest() (providershared.RuntimeHooks, error) {
 	return configureRuntimeHooksForTest(func(_ providershared.ToolResultMeta, raw string) (providershared.ToolResultRecord, error) {
 		return providershared.ToolResultRecord{Preview: raw, OriginalSize: len(raw)}, nil
 	})
 }
 
-func configureRuntimeHooksForTest(capture providershared.CaptureToolResultFunc) error {
-	_, err := providershared.ConfigureRuntimeHooks(providershared.RuntimeHooks{
-		CaptureToolResult: capture,
-		ResetToolResultScope: func(string, string) error {
+func configureRuntimeHooksForTest(capture providershared.CaptureToolResultFunc) (providershared.RuntimeHooks, error) {
+	return providershared.ConfigureRuntimeHooks(providershared.RuntimeHooks{
+		Capture: capture,
+		Reset: func(string, string) error {
 			return nil
 		},
 	})
-	return err
 }

@@ -25,9 +25,6 @@ import (
 )
 
 func TestCodexAppProviderContract(t *testing.T) {
-	configureCaptureRuntimeHookForTest(t, func(providershared.ToolResultMeta, string) (providershared.ToolResultRecord, error) {
-		return providershared.ToolResultRecord{}, nil
-	})
 	contracttest.Run(t, CompleteCodexAppContractSpec())
 }
 
@@ -38,7 +35,7 @@ func TestCodexAppNativeSuccessCarriesTrustedSummary(t *testing.T) {
 		"success": true, "status": "completed", "summary": "public contract success",
 	}
 	outcome := canonicalTurnTerminalOutcome("turn/completed", payload)
-	event, ok := translateTurnEvent("turn/completed", payload, &outcome)
+	event, ok := translateTurnEventWithRuntimeHooks(testRuntimeHooks(t), "turn/completed", payload, &outcome)
 	completed, typed := event.(turndto.TurnCompleted)
 	if !ok || !typed {
 		t.Fatalf("translateTurnEvent() = (%T, %v), want TurnCompleted", event, ok)
@@ -201,7 +198,12 @@ func codexAppToolEventTranslationContractCases() []contracttest.Case {
 func codexAppEventTranslationContractCase(name, snapshotID string, raw dto.RawProviderEvent) contracttest.Case {
 	return contracttest.Case{Name: name, Run: func(t *testing.T, e *contracttest.CaseEvidence) {
 		t.Helper()
-		got := contracttest.CaptureProviderEventTranslation(t, "codex-"+snapshotID+"-capture", raw, translateCodexAdapterEvent)
+		hooks := configureCaptureRuntimeHookForTest(t, func(providershared.ToolResultMeta, string) (providershared.ToolResultRecord, error) {
+			return providershared.ToolResultRecord{}, nil
+		})
+		got := contracttest.CaptureProviderEventTranslation(t, "codex-"+snapshotID+"-capture", raw, func(raw dto.RawProviderEvent, publish func(any)) {
+			translateCodexAdapterEvent(raw, publish, hooks)
+		})
 		want := contracttest.NewExpectedEventEvidence(contracttest.LoadExpectedEventSnapshot(t, snapshotID))
 		e.RecordEventTranslation(t, name, got, want)
 	}}
@@ -446,7 +448,7 @@ func codexAppDynamicToolResponderContractCase() contracttest.Case {
 				return nil, errors.New("unexpected contract tool " + name)
 			}
 		})
-		s := newInboundTestSession(ctx, nil, manager)
+		s := newInboundTestSession(t, ctx, nil, manager)
 
 		successResp := newRecordingResponder()
 		s.onInboundMessage(ctx, successResp, RawMessage{

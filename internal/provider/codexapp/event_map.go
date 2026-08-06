@@ -22,15 +22,16 @@ import (
 )
 
 // RegisterTranslators 将 Codex raw event 翻译器注册到统一事件分发器。
-func RegisterTranslators(dispatcher *unified.EventDispatcher) {
+func RegisterTranslators(dispatcher *unified.EventDispatcher, configuredHooks ...providershared.RuntimeHooks) {
+	hooks := runtimeHooksOrZero(configuredHooks)
 	if dispatcher != nil {
-		dispatcher.Register(translateCodexAdapterEvent)
+		dispatcher.Register(func(raw dto.RawProviderEvent, publish func(ev any)) { translateCodexAdapterEvent(raw, publish, hooks) })
 	}
 }
 
 // translateCodexAdapterEvent 为绕过 session 的合法 raw producer 幂等附加 canonical outcome。
-func translateCodexAdapterEvent(raw dto.RawProviderEvent, publish func(ev any)) {
-	translateCodexEvent(canonicalizeCodexAdapterRaw(raw), publish)
+func translateCodexAdapterEvent(raw dto.RawProviderEvent, publish func(ev any), configuredHooks ...providershared.RuntimeHooks) {
+	translateCodexEvent(canonicalizeCodexAdapterRaw(raw), publish, configuredHooks...)
 }
 
 func canonicalizeCodexAdapterRaw(raw dto.RawProviderEvent) dto.RawProviderEvent {
@@ -71,11 +72,12 @@ func buildToolApprovalHeader(payload map[string]any) shareddto.ToolApprovalHeade
 
 // translateCodexEvent 把 Codex app-server raw event 分派到 agent、turn、tool 三类统一事件。
 // 未识别事件只在排除 token usage、重试进度和已知噪声后告警，避免日志被高频流事件淹没。
-func translateCodexEvent(raw dto.RawProviderEvent, publish func(ev any)) {
+func translateCodexEvent(raw dto.RawProviderEvent, publish func(ev any), configuredHooks ...providershared.RuntimeHooks) {
+	hooks := runtimeHooksOrZero(configuredHooks)
 	if rawErr, agentErr, ok := codexTimestampProviderError(raw); ok {
 		publish(dto.BusRawProviderEvent{Event: rawErr})
 		publish(agentErr)
-		publishCodexTimestampFailureTerminal(raw, publish)
+		publishCodexTimestampFailureTerminal(hooks, raw, publish)
 		return
 	}
 	eventType := strings.TrimSpace(raw.EventType)
@@ -89,15 +91,15 @@ func translateCodexEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 		publishCodexTranslatedEvent(eventType, ev, publish)
 		return
 	}
-	if ev, ok := translateTurnEvent(eventType, payload, raw.Terminal); ok {
+	if ev, ok := translateTurnEventWithRuntimeHooks(hooks, eventType, payload, raw.Terminal); ok {
 		publishCodexTranslatedEvent(eventType, ev, publish)
 		return
 	}
-	if ev, ok := translateCodexRolloutToolEvent(eventType, payload); ok {
+	if ev, ok := translateCodexRolloutToolEvent(hooks, eventType, payload); ok {
 		publishCodexTranslatedEvent(eventType, ev, publish)
 		return
 	}
-	if ev, ok := translateToolEvent(eventType, payload); ok {
+	if ev, ok := translateToolEvent(eventType, payload, hooks); ok {
 		publishCodexTranslatedEvent(eventType, ev, publish)
 		return
 	}
@@ -181,7 +183,7 @@ func codexTerminalTimestampInvalid(raw dto.RawProviderEvent) bool {
 
 // publishCodexTimestampFailureTerminal 在可归因 terminal 时间无效时发布脱敏的失败终态。
 // 原始时间和 provider 错误只保留在内部 provider error 通道，绝不进入 TurnCompleted。
-func publishCodexTimestampFailureTerminal(raw dto.RawProviderEvent, publish func(ev any)) {
+func publishCodexTimestampFailureTerminal(hooks providershared.RuntimeHooks, raw dto.RawProviderEvent, publish func(ev any)) {
 	if !isTurnTerminalEvent(raw.EventType) {
 		return
 	}
@@ -203,7 +205,7 @@ func publishCodexTimestampFailureTerminal(raw dto.RawProviderEvent, publish func
 		"error":     codexTerminalTimestampProtocolError,
 	}
 	terminal := &dto.TerminalOutcome{Status: "failed", ContractError: "provider timestamp invalid"}
-	publishCodexTranslatedEvent(raw.EventType, translateTurnTerminalEvent(safePayload, terminal), publish)
+	publishCodexTranslatedEvent(raw.EventType, translateTurnTerminalEvent(hooks, safePayload, terminal), publish)
 }
 
 func codexEventRequiresTimestamp(eventType string) bool {
@@ -465,15 +467,19 @@ func translateAgentEvent(eventType string, payload map[string]any) (any, bool) {
 // translateTurnEvent 将 Codex turn 生命周期和输出 delta 转换为统一 turn DTO。
 // terminal event 会先重置 tool result scope，避免下一轮复用上一轮的工具结果缓存。
 func translateTurnEvent(eventType string, payload map[string]any, terminals ...*dto.TerminalOutcome) (any, bool) {
+	return translateTurnEventWithRuntimeHooks(providershared.RuntimeHooks{}, eventType, payload, terminals...)
+}
+
+func translateTurnEventWithRuntimeHooks(hooks providershared.RuntimeHooks, eventType string, payload map[string]any, terminals ...*dto.TerminalOutcome) (any, bool) {
 	terminal := selectedCodexTerminal(terminals)
 	if isTurnTerminalEvent(eventType) {
-		return translateTurnTerminalEvent(payload, terminal), true
+		return translateTurnTerminalEvent(hooks, payload, terminal), true
 	}
 	switch eventType {
 	case "turn/started", "turn.started":
 		return turndto.TurnStarted{TurnHeader: buildTurnHeader(payload)}, true
 	case "turn/interrupted", "turn.interrupted":
-		return translateTurnTerminalEvent(payload, terminal), true
+		return translateTurnTerminalEvent(hooks, payload, terminal), true
 	case "item/agentMessage/delta", "message.delta", "agent_message_delta":
 		if outputDeltaTranslateLogSampler.ShouldLog("message") {
 			pkglogger.Get().Debug("codexapp: translateTurnEvent: outputDelta",
@@ -523,7 +529,7 @@ func selectedCodexTerminal(terminals []*dto.TerminalOutcome) *dto.TerminalOutcom
 }
 
 // translateTurnTerminalEvent 只投影 adapter 解析后的 canonical outcome。
-func translateTurnTerminalEvent(payload map[string]any, terminal *dto.TerminalOutcome) turndto.TurnCompleted {
+func translateTurnTerminalEvent(hooks providershared.RuntimeHooks, payload map[string]any, terminal *dto.TerminalOutcome) turndto.TurnCompleted {
 	header := buildTurnHeader(payload)
 	outcome := dto.TerminalOutcome{Status: "failed", ContractError: "missing canonical terminal outcome"}
 	if terminal != nil {
@@ -533,7 +539,7 @@ func translateTurnTerminalEvent(payload map[string]any, terminal *dto.TerminalOu
 	if outcome.ContractError != "" && errorText == "" {
 		errorText = "terminal contract: " + outcome.ContractError
 	}
-	if err := providershared.ResetToolResultScope(header.ThreadID, header.TurnID); err != nil {
+	if err := hooks.ResetToolResultScope(header.ThreadID, header.TurnID); err != nil {
 		outcome.Success = false
 		outcome.Status = "failed"
 		errorText = appendProviderRuntimeError(errorText, err)
@@ -646,7 +652,8 @@ func isKnownAgentState(state string) bool {
 
 // translateToolEvent 将 Codex tool/approval/diff 事件转换为统一 tool DTO。
 // tool end 会捕获结果预览并落盘大结果，避免 UI 事件携带过大的原始 payload。
-func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
+func translateToolEvent(eventType string, payload map[string]any, configuredHooks ...providershared.RuntimeHooks) (any, bool) {
+	hooks := runtimeHooksOrZero(configuredHooks)
 	if isApprovalBridgeMethod(eventType) {
 		return tooldto.ToolApprovalRequested{
 			ToolApprovalHeader: buildToolApprovalHeader(payload),
@@ -662,7 +669,7 @@ func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
 			ArgumentsPreview: providershared.SafeToolArgumentsPreviewString(jsonPreview(payload, "arguments", "args")),
 		}, true
 	case "item/completed", "tool.call.end":
-		return translateToolCallEnd(eventType, payload)
+		return translateToolCallEnd(hooks, eventType, payload)
 	case "approval/resolved", "tool.approval.resolved":
 		return tooldto.ToolApprovalResolved{
 			ToolApprovalHeader: buildToolApprovalHeader(payload),
@@ -684,14 +691,14 @@ func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
 }
 
 // translateToolCallEnd 捕获工具结果，并将执行及持久化失败转换为安全公开消息。
-func translateToolCallEnd(eventType string, payload map[string]any) (any, bool) {
+func translateToolCallEnd(hooks providershared.RuntimeHooks, eventType string, payload map[string]any) (any, bool) {
 	if !looksLikeToolCall(payload) {
 		return nil, false
 	}
 	header := buildToolCallHeader(payload)
 	success, errorText := toolEventEndOutcome(eventType, payload)
 	raw := dto.RawProviderEvent{EventType: eventType, Data: payload}
-	result, captureErr := providershared.CaptureToolResult(providershared.ToolResultMeta{
+	result, captureErr := hooks.CaptureToolResult(providershared.ToolResultMeta{
 		ThreadID: header.ThreadID, TurnID: header.TurnID, CallID: header.CallID,
 		ToolName: header.ToolName, Timestamp: eventTime(payload),
 	}, jsonPreview(payload, "result", "content"))

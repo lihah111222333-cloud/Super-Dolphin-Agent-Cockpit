@@ -499,7 +499,7 @@ func newLostStopRecoveryFixture(t *testing.T, testCase lostStopRecoveryCase) los
 	bus := event.NewDispatcher()
 	t.Cleanup(func() { _ = bus.Close() })
 	dispatcher := unified.NewEventDispatcher(bus, nil)
-	RegisterTranslators(dispatcher)
+	RegisterTranslators(dispatcher, testRuntimeHooks(t))
 	terminals := make(chan turndto.TurnCompleted, 1)
 	cancelTerminal := event.Subscribe(bus, func(ev turndto.TurnCompleted) { terminals <- ev })
 	t.Cleanup(cancelTerminal)

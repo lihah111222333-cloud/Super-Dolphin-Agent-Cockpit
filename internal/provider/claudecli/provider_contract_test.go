@@ -208,7 +208,9 @@ func claudeContractEventCases() []contracttest.Case {
 func claudeEventTranslationContractCase(name, snapshotID string, raw dto.RawProviderEvent) contracttest.Case {
 	return contracttest.Case{Name: name, Run: func(t *testing.T, e *contracttest.CaseEvidence) {
 		t.Helper()
-		got := contracttest.CaptureProviderEventTranslation(t, "claude-"+snapshotID+"-capture", raw, translateClaudeAdapterEvent)
+		got := contracttest.CaptureProviderEventTranslation(t, "claude-"+snapshotID+"-capture", raw, func(raw dto.RawProviderEvent, publish func(any)) {
+			translateClaudeAdapterEvent(testRuntimeHooks(t), raw, publish)
+		})
 		want := contracttest.NewExpectedEventEvidence(contracttest.LoadExpectedEventSnapshot(t, snapshotID))
 		e.RecordEventTranslation(t, name, got, want)
 	}}

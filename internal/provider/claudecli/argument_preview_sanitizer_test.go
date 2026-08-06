@@ -9,7 +9,7 @@ import (
 )
 
 func TestToolCallBeginSanitizesArgumentsPreview(t *testing.T) {
-	ev, ok := translateToolEvent(dto.RawProviderEvent{
+	ev, ok := translateToolEvent(testRuntimeHooks(t), dto.RawProviderEvent{
 		EventType: "tool:use_begin",
 		Data: map[string]any{
 			"thread_id":         "thread-1",
@@ -34,7 +34,7 @@ func TestToolCallBeginFailsClosedForOversizedPrefixedArguments(t *testing.T) {
 	const sensitiveValue = "claude-oversized-secret-4e82c1"
 	raw := "arguments: " + `{"password":"` + sensitiveValue + `","padding":"` + strings.Repeat("x", 17*1024)
 
-	ev, ok := translateToolEvent(dto.RawProviderEvent{
+	ev, ok := translateToolEvent(testRuntimeHooks(t), dto.RawProviderEvent{
 		EventType: "tool:use_begin",
 		Data: map[string]any{
 			"call_id":           "call-oversized",
