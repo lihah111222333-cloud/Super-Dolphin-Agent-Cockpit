@@ -735,7 +735,7 @@ frontend-app/tests/agentic-harness/agentic-testing-harness.config.ts	frontend-ap
 frontend-app/tests/agentic-harness/identity.mjs	frontend-app	app-ui	js-source	1473	当前 React/Vite 前端包	frontend,app,tests,agentic,harness,identity,当前,React,Vite,前端包
 frontend-app/tests/agentic-harness/launch-super-dolphin.mjs	frontend-app	app-ui	js-source	6132	当前 React/Vite 前端包	frontend,app,tests,agentic,harness,launch,super,dolphin,当前,React,Vite,前端包
 frontend-app/tests/agentic-harness/launch-super-dolphin.test.mjs	frontend-app	app-ui	js-test	3179	当前 React/Vite 前端包	frontend,app,tests,agentic,harness,launch,super,dolphin,test,当前,React,Vite,前端包
-frontend-app/tests/e2e/business-flows.spec.js	frontend-app	app-ui	js-test	23597	React 前端 Playwright E2E 与视觉回归测试	frontend,app,tests,e2e,business,flows,spec,React,前端,Playwright,E2E,与视觉回归测试
+frontend-app/tests/e2e/business-flows.spec.js	frontend-app	app-ui	js-test	23712	React 前端 Playwright E2E 与视觉回归测试	frontend,app,tests,e2e,business,flows,spec,React,前端,Playwright,E2E,与视觉回归测试
 frontend-app/tests/e2e/desktop-failure.spec.js	frontend-app	app-ui	js-test	6649	React 前端 Playwright E2E 与视觉回归测试	frontend,app,tests,e2e,desktop,failure,spec,React,前端,Playwright,E2E,与视觉回归测试
 frontend-app/tests/e2e/desktop-ux.spec.js	frontend-app	app-ui	js-test	3384	React 前端 Playwright E2E 与视觉回归测试	frontend,app,tests,e2e,desktop,ux,spec,React,前端,Playwright,E2E,与视觉回归测试
 frontend-app/tests/e2e/desktop-wide.spec.js	frontend-app	app-ui	js-test	11010	React 前端 Playwright E2E 与视觉回归测试	frontend,app,tests,e2e,desktop,wide,spec,React,前端,Playwright,E2E,与视觉回归测试

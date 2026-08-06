@@ -722,12 +722,13 @@ internal/platform/runner/contract.go	internal	platform-provider	go-source	2119	�
 internal/platform/runner/group_test.go	internal	platform-provider	go-test	999	基础设施层	internal,platform,runner,group,test,基础设施层
 internal/platform/runner/group.go	internal	platform-provider	go-source	3313	基础设施层	internal,platform,runner,group,基础设施层
 internal/platform/runner/module.go	internal	platform-provider	go-source	166	基础设施层	internal,platform,runner,module,基础设施层
-internal/platform/runtimeenv/recovery_launch.go	internal	platform-provider	go-source	6427	基础设施层	internal,platform,runtimeenv,recovery,launch,基础设施层
+internal/platform/runtimeenv/recovery_launch_test.go	internal	platform-provider	go-test	1015	基础设施层	internal,platform,runtimeenv,recovery,launch,test,基础设施层
+internal/platform/runtimeenv/recovery_launch.go	internal	platform-provider	go-source	6472	基础设施层	internal,platform,runtimeenv,recovery,launch,基础设施层
 internal/platform/runtimeenv/runtime_paths.go	internal	platform-provider	go-source	5849	基础设施层	internal,platform,runtimeenv,runtime,paths,基础设施层
 internal/platform/runtimeenv/runtime_resolution_test.go	internal	platform-provider	go-test	12625	基础设施层	internal,platform,runtimeenv,runtime,resolution,test,基础设施层
 internal/platform/runtimeenv/runtime_resolution.go	internal	platform-provider	go-source	14706	基础设施层	internal,platform,runtimeenv,runtime,resolution,基础设施层
-internal/platform/runtimeenv/runtimeenv_test.go	internal	platform-provider	go-test	25528	基础设施层	internal,platform,runtimeenv,test,基础设施层
-internal/platform/runtimeenv/runtimeenv.go	internal	platform-provider	go-source	21740	基础设施层	internal,platform,runtimeenv,基础设施层
+internal/platform/runtimeenv/runtimeenv_test.go	internal	platform-provider	go-test	26175	基础设施层	internal,platform,runtimeenv,test,基础设施层
+internal/platform/runtimeenv/runtimeenv.go	internal	platform-provider	go-source	22639	基础设施层	internal,platform,runtimeenv,基础设施层
 internal/platform/runtimesafe/safego_test.go	internal	platform-provider	go-test	2067	基础设施层	internal,platform,runtimesafe,safego,test,基础设施层
 internal/platform/runtimesafe/safego.go	internal	platform-provider	go-source	1256	基础设施层	internal,platform,runtimesafe,safego,基础设施层
 internal/platform/securefs/owner_only_unix.go	internal	platform-provider	go-source	831	基础设施层	internal,platform,securefs,owner,only,unix,基础设施层
@@ -825,10 +826,10 @@ internal/platform/shared/workflowtemplates/validation.go	internal	platform-provi
 internal/platform/sharedfilefs/disk_test.go	internal	platform-provider	go-test	5467	shared file 磁盘落盘工具	internal,platform,sharedfilefs,disk,test,shared,file,磁盘落盘工具
 internal/platform/sharedfilefs/disk.go	internal	platform-provider	go-source	12043	shared file 磁盘落盘工具	internal,platform,sharedfilefs,disk,shared,file,磁盘落盘工具
 internal/platform/sharedfilefs/staged.go	internal	platform-provider	go-source	6136	shared file 磁盘落盘工具	internal,platform,sharedfilefs,staged,shared,file,磁盘落盘工具
-internal/platform/sharedfilegitignore/gitignore_test.go	internal	platform-provider	go-test	4691	基础设施层	internal,platform,sharedfilegitignore,gitignore,test,基础设施层
-internal/platform/sharedfilegitignore/gitignore.go	internal	platform-provider	go-source	5201	基础设施层	internal,platform,sharedfilegitignore,gitignore,基础设施层
-internal/platform/sharedfilepath/policy_test.go	internal	platform-provider	go-test	3867	shared file 路径安全策略	internal,platform,sharedfilepath,policy,test,shared,file,路径安全策略
-internal/platform/sharedfilepath/policy.go	internal	platform-provider	go-source	4023	shared file 路径安全策略	internal,platform,sharedfilepath,policy,shared,file,路径安全策略
+internal/platform/sharedfilegitignore/gitignore_test.go	internal	platform-provider	go-test	4612	基础设施层	internal,platform,sharedfilegitignore,gitignore,test,基础设施层
+internal/platform/sharedfilegitignore/gitignore.go	internal	platform-provider	go-source	3973	基础设施层	internal,platform,sharedfilegitignore,gitignore,基础设施层
+internal/platform/sharedfilepath/policy_test.go	internal	platform-provider	go-test	4162	shared file 路径安全策略	internal,platform,sharedfilepath,policy,test,shared,file,路径安全策略
+internal/platform/sharedfilepath/policy.go	internal	platform-provider	go-source	3995	shared file 路径安全策略	internal,platform,sharedfilepath,policy,shared,file,路径安全策略
 internal/platform/statemachine/factory_test.go	internal	platform-provider	go-test	4761	基础设施层	internal,platform,statemachine,factory,test,基础设施层
 internal/platform/statemachine/factory.go	internal	platform-provider	go-source	2559	基础设施层	internal,platform,statemachine,factory,基础设施层
 internal/platform/statemachine/module.go	internal	platform-provider	go-source	249	基础设施层	internal,platform,statemachine,module,基础设施层
@@ -880,12 +881,12 @@ internal/platform/toolbridge/lifecycle_backfill_test.go	internal	platform-provid
 internal/platform/toolbridge/lifecycle_enforcement_test.go	internal	platform-provider	go-test	23348	provider 与 MCP tools 桥接	internal,platform,toolbridge,lifecycle,enforcement,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/managed_authority_test.go	internal	platform-provider	go-test	4425	provider 与 MCP tools 桥接	internal,platform,toolbridge,managed,authority,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/mcp_namespace_test.go	internal	platform-provider	go-test	1560	provider 与 MCP tools 桥接	internal,platform,toolbridge,mcp,namespace,test,provider,与,MCP,tools,桥接
-internal/platform/toolbridge/mcpwire/protocol_test.go	internal	platform-provider	go-test	2071	provider 与 MCP tools 桥接	internal,platform,toolbridge,mcpwire,protocol,test,provider,与,MCP,tools,桥接
-internal/platform/toolbridge/mcpwire/protocol.go	internal	platform-provider	go-source	2612	provider 与 MCP tools 桥接	internal,platform,toolbridge,mcpwire,protocol,provider,与,MCP,tools,桥接
+internal/platform/toolbridge/mcpwire/protocol_test.go	internal	platform-provider	go-test	4235	provider 与 MCP tools 桥接	internal,platform,toolbridge,mcpwire,protocol,test,provider,与,MCP,tools,桥接
+internal/platform/toolbridge/mcpwire/protocol.go	internal	platform-provider	go-source	2556	provider 与 MCP tools 桥接	internal,platform,toolbridge,mcpwire,protocol,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/mcpwire/stdio_test.go	internal	platform-provider	go-test	4344	provider 与 MCP tools 桥接	internal,platform,toolbridge,mcpwire,stdio,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/mcpwire/stdio.go	internal	platform-provider	go-source	8663	provider 与 MCP tools 桥接	internal,platform,toolbridge,mcpwire,stdio,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/mcpwire/structured_content.go	internal	platform-provider	go-source	1540	provider 与 MCP tools 桥接	internal,platform,toolbridge,mcpwire,structured,content,provider,与,MCP,tools,桥接
-internal/platform/toolbridge/mcpwire/tool_error_classifier.go	internal	platform-provider	go-source	14140	provider 与 MCP tools 桥接	internal,platform,toolbridge,mcpwire,tool,error,classifier,provider,与,MCP,tools,桥接
+internal/platform/toolbridge/mcpwire/tool_error_classifier.go	internal	platform-provider	go-source	17618	provider 与 MCP tools 桥接	internal,platform,toolbridge,mcpwire,tool,error,classifier,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/memory_read_tool.go	internal	platform-provider	go-source	9637	provider 与 MCP tools 桥接	internal,platform,toolbridge,memory,read,tool,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/memory_write_tool.go	internal	platform-provider	go-source	10762	provider 与 MCP tools 桥接	internal,platform,toolbridge,memory,write,tool,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/module_test.go	internal	platform-provider	go-test	3175	provider 与 MCP tools 桥接	internal,platform,toolbridge,module,test,provider,与,MCP,tools,桥接
@@ -913,7 +914,7 @@ internal/platform/toolbridge/recovery_driver_integration_test.go	internal	platfo
 internal/platform/toolbridge/schema_quarantine_red_test.go	internal	platform-provider	go-test	29828	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,quarantine,red,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema_validation_test.go	internal	platform-provider	go-test	4676	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,validation,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema/attach_failure_test.go	internal	platform-provider	go-test	11073	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,attach,failure,test,provider,与,MCP,tools,桥接
-internal/platform/toolbridge/schema/canonical.go	internal	platform-provider	go-source	18359	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,canonical,provider,与,MCP,tools,桥接
+internal/platform/toolbridge/schema/canonical.go	internal	platform-provider	go-source	18922	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,canonical,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema/client.go	internal	platform-provider	go-source	15674	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,client,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema/compiler.go	internal	platform-provider	go-source	5199	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,compiler,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema/errors_tree_test.go	internal	platform-provider	go-test	9549	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,errors,tree,test,provider,与,MCP,tools,桥接
@@ -931,7 +932,7 @@ internal/platform/toolbridge/schema/process_unix.go	internal	platform-provider	g
 internal/platform/toolbridge/schema/process_windows_test.go	internal	platform-provider	go-test	2918	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,process,windows,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema/process_windows.go	internal	platform-provider	go-source	5124	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,process,windows,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema/protocol.go	internal	platform-provider	go-source	12836	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,protocol,provider,与,MCP,tools,桥接
-internal/platform/toolbridge/schema/schema_red_test.go	internal	platform-provider	go-test	28184	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,red,test,provider,与,MCP,tools,桥接
+internal/platform/toolbridge/schema/schema_red_test.go	internal	platform-provider	go-test	29735	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,red,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/stdio_mcp_client_cancellation_test.go	internal	platform-provider	go-test	7788	provider 与 MCP tools 桥接	internal,platform,toolbridge,stdio,mcp,client,cancellation,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/stdio_mcp_client_test.go	internal	platform-provider	go-test	22114	provider 与 MCP tools 桥接	internal,platform,toolbridge,stdio,mcp,client,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/stdio_mcp_client.go	internal	platform-provider	go-source	12591	provider 与 MCP tools 桥接	internal,platform,toolbridge,stdio,mcp,client,provider,与,MCP,tools,桥接
@@ -947,9 +948,9 @@ internal/platform/toolbridge/tool_catalog_test.go	internal	platform-provider	go-
 internal/platform/toolbridge/types_test.go	internal	platform-provider	go-test	2219	provider 与 MCP tools 桥接	internal,platform,toolbridge,types,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/types.go	internal	platform-provider	go-source	8441	provider 与 MCP tools 桥接	internal,platform,toolbridge,types,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/workflow_template_tools_test.go	internal	platform-provider	go-test	12677	provider 与 MCP tools 桥接	internal,platform,toolbridge,workflow,template,tools,test,provider,与,MCP,桥接
-internal/platform/toolpolicy/policy_test.go	internal	platform-provider	go-test	5463	基础设施层	internal,platform,toolpolicy,policy,test,基础设施层
+internal/platform/toolpolicy/policy_test.go	internal	platform-provider	go-test	7721	基础设施层	internal,platform,toolpolicy,policy,test,基础设施层
 internal/platform/toolpolicy/policy.go	internal	platform-provider	go-source	4820	基础设施层	internal,platform,toolpolicy,policy,基础设施层
-internal/platform/toolpolicy/shell.go	internal	platform-provider	go-source	9823	基础设施层	internal,platform,toolpolicy,shell,基础设施层
+internal/platform/toolpolicy/shell.go	internal	platform-provider	go-source	10024	基础设施层	internal,platform,toolpolicy,shell,基础设施层
 internal/provider/_template/module.go.txt	internal	platform-provider	txt	2409	AI provider 集成层	internal,provider,template,module,go,AI,集成层
 internal/provider/_template/provider_contract_test.go.txt	internal	platform-provider	txt	8034	AI provider 集成层	internal,provider,template,contract,test,go,AI,集成层
 internal/provider/_template/README.md	internal	platform-provider	doc	889	AI provider 集成层	internal,provider,template,README,AI,集成层

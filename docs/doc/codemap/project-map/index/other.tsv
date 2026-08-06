@@ -219,6 +219,7 @@ internal/archtest/contract_import_boundary_test.go	internal	other	go-test	534	�
 internal/archtest/cron_list_field_guard_test.go	internal	other	go-test	7045	架构守卫、baseline ratchet 与冻结规则	internal,archtest,cron,list,field,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/cross_domain_guard_test.go	internal	other	go-test	767	架构守卫、baseline ratchet 与冻结规则	internal,archtest,cross,domain,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/dag_designer_prompt_asset_contract_test.go	internal	other	go-test	3887	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dag,designer,prompt,asset,contract,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dbquery_table_policy_guard_test.go	internal	other	go-test	2558	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dbquery,table,policy,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/dead_key_guard_test.go	internal	other	go-test	300	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dead,key,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/deep_map_probe_guard_test.go	internal	other	go-test	2904	架构守卫、baseline ratchet 与冻结规则	internal,archtest,deep,map,probe,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/dependency_direction_mcp_orch_test.go	internal	other	go-test	7159	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dependency,direction,mcp,orch,test,架构守卫,baseline,ratchet,与冻结规则
@@ -345,7 +346,8 @@ internal/archtest/session_private_allowlist.go	internal	other	go-source	3987	架
 internal/archtest/sessionpaths_dependency_guard_test.go	internal	other	go-test	1685	架构守卫、baseline ratchet 与冻结规则	internal,archtest,sessionpaths,dependency,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/sessionpaths_literal_guard_test.go	internal	other	go-test	1221	架构守卫、baseline ratchet 与冻结规则	internal,archtest,sessionpaths,literal,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/shared_budget_test.go	internal	other	go-test	2725	架构守卫、baseline ratchet 与冻结规则	internal,archtest,shared,budget,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/sharedfilegitignore_no_pkg_error_var_test.go	internal	other	go-test	5069	架构守卫、baseline ratchet 与冻结规则	internal,archtest,sharedfilegitignore,no,pkg,error,var,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/sharedfilegitignore_no_pkg_error_var_test.go	internal	other	go-test	1997	架构守卫、baseline ratchet 与冻结规则	internal,archtest,sharedfilegitignore,no,pkg,error,var,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/sharedfilepath_no_pkg_mutable_collection_test.go	internal	other	go-test	2460	架构守卫、baseline ratchet 与冻结规则	internal,archtest,sharedfilepath,no,pkg,mutable,collection,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/silent_fallback_guard_test.go	internal	other	go-test	5085	架构守卫、baseline ratchet 与冻结规则	internal,archtest,silent,fallback,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/silent_fallback_guard.go	internal	other	go-source	11349	架构守卫、baseline ratchet 与冻结规则	internal,archtest,silent,fallback,guard,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/skill_fbsd_boundary_guard_test.go	internal	other	go-test	5490	架构守卫、baseline ratchet 与冻结规则	internal,archtest,skill,fbsd,boundary,guard,test,架构守卫,baseline,ratchet,与冻结规则

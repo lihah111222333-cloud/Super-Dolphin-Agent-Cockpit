@@ -248,11 +248,11 @@ cmd/mcp-orch/store/prompt/store_runtime_visible_test.go	cmd	orchestration	go-tes
 cmd/mcp-orch/store/prompt/store_test.go	cmd	orchestration	go-test	13707	prompt template 资源 store	cmd,mcp,orch,store,prompt,test,template,资源
 cmd/mcp-orch/store/prompt/store.go	cmd	orchestration	go-source	10954	prompt template 资源 store	cmd,mcp,orch,store,prompt,template,资源
 cmd/mcp-orch/store/sharedfile/contract.go	cmd	orchestration	go-source	1548	shared file 资源 store	cmd,mcp,orch,store,sharedfile,contract,shared,file,资源
-cmd/mcp-orch/store/sharedfile/importer_test.go	cmd	orchestration	go-test	21219	shared file 资源 store	cmd,mcp,orch,store,sharedfile,importer,test,shared,file,资源
+cmd/mcp-orch/store/sharedfile/importer_test.go	cmd	orchestration	go-test	21023	shared file 资源 store	cmd,mcp,orch,store,sharedfile,importer,test,shared,file,资源
 cmd/mcp-orch/store/sharedfile/importer.go	cmd	orchestration	go-source	19728	shared file 资源 store	cmd,mcp,orch,store,sharedfile,importer,shared,file,资源
 cmd/mcp-orch/store/sharedfile/module_test.go	cmd	orchestration	go-test	3702	shared file 资源 store	cmd,mcp,orch,store,sharedfile,module,test,shared,file,资源
 cmd/mcp-orch/store/sharedfile/module.go	cmd	orchestration	go-source	2046	shared file 资源 store	cmd,mcp,orch,store,sharedfile,module,shared,file,资源
-cmd/mcp-orch/store/sharedfile/store_test.go	cmd	orchestration	go-test	9598	shared file 资源 store	cmd,mcp,orch,store,sharedfile,test,shared,file,资源
+cmd/mcp-orch/store/sharedfile/store_test.go	cmd	orchestration	go-test	9402	shared file 资源 store	cmd,mcp,orch,store,sharedfile,test,shared,file,资源
 cmd/mcp-orch/store/sharedfile/store.go	cmd	orchestration	go-source	13464	shared file 资源 store	cmd,mcp,orch,store,sharedfile,shared,file,资源
 cmd/mcp-orch/store/sqlc/.gitkeep	cmd	orchestration	file	0	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,mcp-orch,生成层
 cmd/mcp-orch/store/sqlc/command_card.sql.go	cmd	orchestration	go-source	10932	mcp-orch sqlc 生成层	cmd,mcp,orch,store,sqlc,command,card,sql,mcp-orch,生成层
