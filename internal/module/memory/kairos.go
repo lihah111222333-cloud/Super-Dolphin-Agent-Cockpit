@@ -20,41 +20,49 @@ import (
 
 const dateChangeAttachmentKind = "date_change"
 
-var kairosOverviewLines = []string{
-	"KAIROS mode continuously records durable remember-worthy facts to today's append-only daily log instead of editing topic files inline.",
-	"The daily log lives under `logs/YYYY/MM/YYYY-MM-DD.md` inside the auto-memory root.",
-	"`MEMORY.md` remains a read-only orientation summary in KAIROS: read it for context, but never edit it inline during the live session.",
-	"Only root-thread auto-memory sessions write to that log; child agents do not.",
+func newKairosOverviewLines() []string {
+	return []string{
+		"KAIROS mode continuously records durable remember-worthy facts to today's append-only daily log instead of editing topic files inline.",
+		"The daily log lives under `logs/YYYY/MM/YYYY-MM-DD.md` inside the auto-memory root.",
+		"`MEMORY.md` remains a read-only orientation summary in KAIROS: read it for context, but never edit it inline during the live session.",
+		"Only root-thread auto-memory sessions write to that log; child agents do not.",
+	}
 }
 
-var kairosWriteRules = []string{
-	"Whenever durable remember-worthy information becomes clear, append exactly one new bullet to today's log using `- [HH:MM] content` in local time.",
-	"Explicit `remember` requests are a strong signal, but KAIROS should keep recording other durable facts, preferences, project notes, workflow rules, and reference pointers as they emerge.",
-	"Create the parent directories and today's file on first write if needed.",
-	"Never rewrite, reorder, deduplicate, or retroactively edit older bullets in the daily log; it is append-only.",
-	"Keep each bullet self-contained, convert relative dates to absolute dates, and make the durable fact understandable when read later in isolation.",
+func newKairosWriteRules() []string {
+	return []string{
+		"Whenever durable remember-worthy information becomes clear, append exactly one new bullet to today's log using `- [HH:MM] content` in local time.",
+		"Explicit `remember` requests are a strong signal, but KAIROS should keep recording other durable facts, preferences, project notes, workflow rules, and reference pointers as they emerge.",
+		"Create the parent directories and today's file on first write if needed.",
+		"Never rewrite, reorder, deduplicate, or retroactively edit older bullets in the daily log; it is append-only.",
+		"Keep each bullet self-contained, convert relative dates to absolute dates, and make the durable fact understandable when read later in isolation.",
+	}
 }
 
-var kairosConsolidationLines = []string{
-	"When the date changes, switch to a new daily log file for the new day.",
-	"Runtime may surface a `date_change` attachment instead of rebuilding cached base instructions; use the new date silently.",
-	"Later `/dream` or manual consolidation distills daily logs into typed topic files and refreshes `MEMORY.md`.",
-	"Treat daily logs as recent signal, not guaranteed current truth; verify current state before acting on time-sensitive details.",
+func newKairosConsolidationLines() []string {
+	return []string{
+		"When the date changes, switch to a new daily log file for the new day.",
+		"Runtime may surface a `date_change` attachment instead of rebuilding cached base instructions; use the new date silently.",
+		"Later `/dream` or manual consolidation distills daily logs into typed topic files and refreshes `MEMORY.md`.",
+		"Treat daily logs as recent signal, not guaranteed current truth; verify current state before acting on time-sensitive details.",
+	}
 }
 
-var kairosAckPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?is)^\s*(?:i(?:'|’)ll remember|i will remember|i(?:'|’)ve noted|noted|saved to memory|saved in memory|i(?:'|’)ll save this to memory)\s*(?:that\s+)?(?:[:：\-—,，]\s*|\s+)?(.+?)\s*$`),
-	regexp.MustCompile(`(?is)^\s*(?:记住了|已记住|我会记住|已经记住|已保存到记忆|保存到记忆了|帮你记住了)\s*(?:这个|这点|了)?\s*(?:[:：\-—,，]\s*|\s+)?(.+?)\s*$`),
+func newKairosAckPatterns() []*regexp.Regexp {
+	return []*regexp.Regexp{
+		regexp.MustCompile(`(?is)^\s*(?:i(?:'|’)ll remember|i will remember|i(?:'|’)ve noted|noted|saved to memory|saved in memory|i(?:'|’)ll save this to memory)\s*(?:that\s+)?(?:[:：\-—,，]\s*|\s+)?(.+?)\s*$`),
+		regexp.MustCompile(`(?is)^\s*(?:记住了|已记住|我会记住|已经记住|已保存到记忆|保存到记忆了|帮你记住了)\s*(?:这个|这点|了)?\s*(?:[:：\-—,，]\s*|\s+)?(.+?)\s*$`),
+	}
 }
 
 // BuildDailyLogPrompt 构建daily日志prompt。
 func BuildDailyLogPrompt(skipIndex, searchPastContextEnabled bool, extraGuidelines []string) string {
 	sections := []string{
-		renderSection("### 1. KAIROS daily log mode", kairosOverviewLines),
-		renderSection("### 2. append-only write protocol", append(cloneStrings(kairosWriteRules), kairosSkipIndexRule(skipIndex))),
+		renderSection("### 1. KAIROS daily log mode", newKairosOverviewLines()),
+		renderSection("### 2. append-only write protocol", append(newKairosWriteRules(), kairosSkipIndexRule(skipIndex))),
 		renderSection("### 3. memory taxonomy to preserve", kairosTaxonomyHints()),
-		renderSection("### 4. exclusions", standardExclusionRules),
-		renderSection("### 5. trust, rollover, and consolidation", kairosConsolidationLines),
+		renderSection("### 4. exclusions", newStandardExclusionRules()),
+		renderSection("### 5. trust, rollover, and consolidation", newKairosConsolidationLines()),
 	}
 	if extra := normalizeStringSlice(extraGuidelines); len(extra) > 0 {
 		sections = append(sections, renderSection("### 6. extra guidelines", extra))
@@ -132,7 +140,7 @@ func detectKairosAcknowledgement(text string) SaveIntent {
 	if text == "" {
 		return SaveIntent{}
 	}
-	for _, pattern := range kairosAckPatterns {
+	for _, pattern := range newKairosAckPatterns() {
 		matches := pattern.FindStringSubmatch(text)
 		if len(matches) == 0 {
 			continue
@@ -444,18 +452,21 @@ func FeedbackTopicSlug(name string) string {
 	return strings.Join(filtered, "-")
 }
 
-var feedbackStopWords = map[string]bool{
-	"的": true, "是": true, "在": true, "了": true, "和": true,
-	"与": true, "或": true, "等": true, "时": true, "要": true,
-	"a": true, "an": true, "the": true, "to": true, "of": true,
-	"and": true, "or": true, "for": true, "with": true, "this": true,
-	"that": true, "from": true, "when": true, "must": true,
+func newFeedbackStopWords() map[string]bool {
+	return map[string]bool{
+		"的": true, "是": true, "在": true, "了": true, "和": true,
+		"与": true, "或": true, "等": true, "时": true, "要": true,
+		"a": true, "an": true, "the": true, "to": true, "of": true,
+		"and": true, "or": true, "for": true, "with": true, "this": true,
+		"that": true, "from": true, "when": true, "must": true,
+	}
 }
 
 func filterFeedbackStopWords(words []string) []string {
 	var out []string
+	stopWords := newFeedbackStopWords()
 	for _, w := range words {
-		if !feedbackStopWords[w] && len(w) > 0 {
+		if !stopWords[w] && len(w) > 0 {
 			out = append(out, w)
 		}
 	}

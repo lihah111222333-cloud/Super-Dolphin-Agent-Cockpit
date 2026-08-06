@@ -14,7 +14,7 @@ import (
 
 func TestMemoryRuleEngineRulesForKnownTypes(t *testing.T) {
 	engine := NewMemoryRuleEngine()
-	for _, memoryType := range diskMemoryTypes {
+	for _, memoryType := range newDiskMemoryTypes() {
 		behavior, ok := engine.RulesForType(memoryType)
 		if !ok {
 			t.Fatalf("RulesForType(%q) missing", memoryType)
@@ -25,6 +25,69 @@ func TestMemoryRuleEngineRulesForKnownTypes(t *testing.T) {
 		if len(behavior.Save) == 0 || len(behavior.Access) == 0 || len(behavior.Trust) == 0 {
 			t.Fatalf("RulesForType(%q) has incomplete layers: %#v", memoryType, behavior)
 		}
+	}
+}
+
+func TestMemoryRuleCollectionsAreMutationIsolated(t *testing.T) {
+	behaviors := newStandardMemoryTypeBehaviors()
+	behavior := behaviors[MemoryTypeUser]
+	behavior.Save[0] = "mutated"
+	behaviors[MemoryTypeUser] = behavior
+	if got := newStandardMemoryTypeBehaviors()[MemoryTypeUser].Save[0]; got == "mutated" {
+		t.Fatal("standard memory type behaviors share mutable state")
+	}
+
+	lines := newStandardSaveRules()
+	lines[0] = "mutated"
+	if got := newStandardSaveRules()[0]; got == "mutated" {
+		t.Fatal("standard rule lines share mutable state")
+	}
+
+	types := newDiskMemoryTypes()
+	types[0] = MemoryTypeUnknown
+	if got := newDiskMemoryTypes()[0]; got != MemoryTypeUser {
+		t.Fatalf("disk memory type factory = %q, want %q", got, MemoryTypeUser)
+	}
+
+	cues := newUserPreferenceCues()
+	cues[0] = "mutated"
+	if got := newUserPreferenceCues()[0]; got == "mutated" {
+		t.Fatal("heuristic cues share mutable state")
+	}
+
+	kairosRules := newKairosWriteRules()
+	kairosRules[0] = "mutated"
+	if got := newKairosWriteRules()[0]; got == "mutated" {
+		t.Fatal("kairos rules share mutable state")
+	}
+
+	delete(newFeedbackStopWords(), "the")
+	if !newFeedbackStopWords()["the"] {
+		t.Fatal("feedback stop words share mutable state")
+	}
+
+	contentPatterns := newForbiddenMemoryContentPatterns()
+	contentPatterns[0].RuleID = "mutated"
+	if got := newForbiddenMemoryContentPatterns()[0].RuleID; got == "mutated" {
+		t.Fatal("content validation patterns share mutable state")
+	}
+
+	secretPatterns := newAgentSecretRegexps()
+	secretPatterns[0] = nil
+	if newAgentSecretRegexps()[0] == nil {
+		t.Fatal("agent secret patterns share mutable state")
+	}
+}
+
+func TestMemoryRuntimeOwnersFailFastWhenRequiredDependencyIsMissing(t *testing.T) {
+	if _, err := newMemoryIntentFailurePublisher(nil); err == nil {
+		t.Fatal("newMemoryIntentFailurePublisher(nil) error = nil, want required dispatcher error")
+	}
+	if _, err := NewMemoryLifecycleHooks(memoryLifecycleHookParams{}); err == nil {
+		t.Fatal("NewMemoryLifecycleHooks() error = nil, want required publisher error")
+	}
+	if jobs := newMemoryHandlerDeps(memoryHandlerFxDeps{}).ConsolidationJobs; jobs == nil {
+		t.Fatal("newMemoryHandlerDeps() consolidation jobs = nil")
 	}
 }
 
@@ -52,7 +115,7 @@ func TestBuildMemoryLinesIncludesDeterministicCompleteSections(t *testing.T) {
 		}
 		last = idx
 	}
-	for _, memoryType := range diskMemoryTypes {
+	for _, memoryType := range newDiskMemoryTypes() {
 		if got := strings.Count(text, "#### "+string(memoryType)); got != 3 {
 			t.Fatalf("type heading %q count = %d, want 3 in save/access/trust sections", memoryType, got)
 		}

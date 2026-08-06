@@ -159,8 +159,10 @@ const (
 
 var (
 	_ contract.AgentMemoryWriter = (*MemoryLifecycleHooks)(nil)
+)
 
-	agentSecretRegexps = []*regexp.Regexp{
+func newAgentSecretRegexps() []*regexp.Regexp {
+	return []*regexp.Regexp{
 		regexp.MustCompile(`(?m)-----BEGIN(?: [A-Z0-9]+)* PRIVATE KEY-----`),
 		regexp.MustCompile(`\bgithub_pat_[A-Za-z0-9_]{40,}\b`),
 		regexp.MustCompile(`\bgh[pousr]_[A-Za-z0-9]{36,255}\b`),
@@ -168,7 +170,7 @@ var (
 		regexp.MustCompile(`\b(?:AKIA|ASIA)[A-Z0-9]{16}\b`),
 		regexp.MustCompile(`(?im)\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|secret[_-]?key|auth[_-]?token|client[_-]?secret|password|secret)\b\s*[:=]\s*['"]?[A-Za-z0-9/_+=.-]{12,}['"]?`),
 	}
-)
+}
 
 // MemoryWriteEnabled 判断记忆写入是否启用。
 func (h *MemoryLifecycleHooks) MemoryWriteEnabled() bool {
@@ -412,7 +414,7 @@ func agentMemoryError(code string, err error) error {
 
 func hasProbableSecret(parts ...string) bool {
 	text := strings.Join(parts, "\n")
-	for _, re := range agentSecretRegexps {
+	for _, re := range newAgentSecretRegexps() {
 		if re.MatchString(text) {
 			return true
 		}

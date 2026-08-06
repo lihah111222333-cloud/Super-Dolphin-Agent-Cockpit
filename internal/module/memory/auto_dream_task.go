@@ -507,14 +507,20 @@ func startConsolidateAllHandler(_ context.Context, p memoryHandlerDeps, req uiSi
 	if p.Service == nil {
 		return uiSimilarityConsolidateAllStartResult{}, errors.New("memory service is not configured")
 	}
-	return uiMemoryConsolidationJobs().start(p, req)
+	if p.ConsolidationJobs == nil {
+		return uiSimilarityConsolidateAllStartResult{}, errors.New("memory consolidation jobs are not configured")
+	}
+	return p.ConsolidationJobs.start(p, req)
 }
 
 func statusConsolidateAllHandler(_ context.Context, p memoryHandlerDeps, req uiSimilarityConsolidateAllStatusParams) (uiSimilarityConsolidateAllStatusResult, error) {
 	if p.Service == nil {
 		return uiSimilarityConsolidateAllStatusResult{}, errors.New("memory service is not configured")
 	}
-	return uiMemoryConsolidationJobs().status(req)
+	if p.ConsolidationJobs == nil {
+		return uiSimilarityConsolidateAllStatusResult{}, errors.New("memory consolidation jobs are not configured")
+	}
+	return p.ConsolidationJobs.status(req)
 }
 
 const (
@@ -542,10 +548,6 @@ type uiMemoryConsolidationJobStore struct {
 	ttl     time.Duration
 	now     func() time.Time
 }
-
-var uiMemoryConsolidationJobs = sync.OnceValue(func() *uiMemoryConsolidationJobStore {
-	return newUIMemoryConsolidationJobStore(runConsolidateAll, ctxutil.DreamConsolidationTimeout)
-})
 
 func newUIMemoryConsolidationJobStore(run uiMemoryConsolidationRunner, timeout time.Duration) *uiMemoryConsolidationJobStore {
 	if timeout <= 0 {

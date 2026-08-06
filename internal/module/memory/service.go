@@ -87,27 +87,33 @@ type MemoryLifecycleHooks struct {
 
 	dedupFilter *dedup.Filter
 
+	intentFailurePublisher *memoryIntentFailurePublisher
+
 	// locks 是进程内共享的记忆协调器，负责 diskStore 锁和跨 scope 告警去重。
 	// 构造函数必须显式注入；memoryCoordinator 只是 getter，不能懒加载，否则会和
 	// module.go 里给整理器共享的实例竞争并覆盖。
 	locks *diskLockCoordinator
 }
 
-var saveIntentPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?is)^\s*remember\s+that\s+(.+?)\s*$`),
-	regexp.MustCompile(`(?is)^\s*remember\s*[:：\-—,，]\s*(.+?)\s*$`),
-	regexp.MustCompile(`(?is)^\s*(?:save|store)\s+(.+?)\s+(?:to|in)\s+memory\s*$`),
-	regexp.MustCompile(`(?is)^\s*(?:save|store)\s+to\s+memory\s*(?:[:：\-—,，]\s*|\s+)(.+?)\s*$`),
-	regexp.MustCompile(`(?is)^\s*(?:请)?记住(?:这个|这点)?\s*(?:[:：\-—,，]\s*|\s+)(.+?)\s*$`),
-	regexp.MustCompile(`(?is)^\s*(?:把\s+)?(.+?)\s*(?:记到记忆里|保存到记忆里|保存到记忆中)\s*$`),
+func newSaveIntentPatterns() []*regexp.Regexp {
+	return []*regexp.Regexp{
+		regexp.MustCompile(`(?is)^\s*remember\s+that\s+(.+?)\s*$`),
+		regexp.MustCompile(`(?is)^\s*remember\s*[:：\-—,，]\s*(.+?)\s*$`),
+		regexp.MustCompile(`(?is)^\s*(?:save|store)\s+(.+?)\s+(?:to|in)\s+memory\s*$`),
+		regexp.MustCompile(`(?is)^\s*(?:save|store)\s+to\s+memory\s*(?:[:：\-—,，]\s*|\s+)(.+?)\s*$`),
+		regexp.MustCompile(`(?is)^\s*(?:请)?记住(?:这个|这点)?\s*(?:[:：\-—,，]\s*|\s+)(.+?)\s*$`),
+		regexp.MustCompile(`(?is)^\s*(?:把\s+)?(.+?)\s*(?:记到记忆里|保存到记忆里|保存到记忆中)\s*$`),
+	}
 }
 
-var forgetIntentPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?is)^\s*forget\s+that\s+(.+?)\s*$`),
-	regexp.MustCompile(`(?is)^\s*forget\s*[:：\-—,，]\s*(.+?)\s*$`),
-	regexp.MustCompile(`(?is)^\s*(?:remove|delete)\s+(.+?)\s+from\s+memory\s*$`),
-	regexp.MustCompile(`(?is)^\s*(?:请)?(?:忘记|忘掉)(?:这个|这点|这条)?\s*(?:[:：\-—,，]\s*|\s+)(.+?)\s*$`),
-	regexp.MustCompile(`(?is)^\s*把\s+(.+?)\s*(?:从记忆里删除|从记忆中删除|从记忆删除|从记忆里移除)\s*$`),
+func newForgetIntentPatterns() []*regexp.Regexp {
+	return []*regexp.Regexp{
+		regexp.MustCompile(`(?is)^\s*forget\s+that\s+(.+?)\s*$`),
+		regexp.MustCompile(`(?is)^\s*forget\s*[:：\-—,，]\s*(.+?)\s*$`),
+		regexp.MustCompile(`(?is)^\s*(?:remove|delete)\s+(.+?)\s+from\s+memory\s*$`),
+		regexp.MustCompile(`(?is)^\s*(?:请)?(?:忘记|忘掉)(?:这个|这点|这条)?\s*(?:[:：\-—,，]\s*|\s+)(.+?)\s*$`),
+		regexp.MustCompile(`(?is)^\s*把\s+(.+?)\s*(?:从记忆里删除|从记忆中删除|从记忆删除|从记忆里移除)\s*$`),
+	}
 }
 
 // NewService 创建记忆服务并绑定整理器与生命周期 hooks。
@@ -624,21 +630,25 @@ func (h *MemoryLifecycleHooks) handleExplicitUserMemoryIntent(
 
 // handleExplicitIntentError 记录显式记忆指令失败。
 // handled=false 表示普通文本，不应记录为记忆错误。
-func (h *MemoryLifecycleHooks) handleExplicitIntentError(evt turndto.TurnCompleted, handled bool, action string, err error) {
+func (h *MemoryLifecycleHooks) handleExplicitIntentError(evt turndto.TurnCompleted, handled bool, action string, err error) error {
 	if !handled || err == nil {
-		return
+		return nil
 	}
 	threadID := strings.TrimSpace(evt.ThreadID)
 	if h != nil && h.logger != nil {
 		h.logger.Warn("memory explicit intent failed", "thread_id", threadID, "turn_id", strings.TrimSpace(evt.TurnID), "action", strings.TrimSpace(action), "error", err)
 	}
-	publishMemoryIntentFailedDiagnostic(memoryIntentFailureDiagnostic{
+	if h == nil || h.intentFailurePublisher == nil {
+		return errors.New("memory intent failure publisher is not configured")
+	}
+	h.intentFailurePublisher.publish(memoryIntentFailureDiagnostic{
 		ThreadID: threadID,
 		AgentID:  strings.TrimSpace(evt.AgentID),
 		TurnID:   strings.TrimSpace(evt.TurnID),
 		Action:   strings.TrimSpace(action),
 		Error:    redactedMemoryIntentError(err),
 	})
+	return nil
 }
 
 // resolvedStoreRoot 解析最终可写记忆根目录。

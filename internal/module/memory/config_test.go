@@ -222,7 +222,7 @@ func TestMemoryConstructorsUseIsMemoryEnabled(t *testing.T) {
 	if contextText != nil {
 		t.Fatalf("MemoryContextProvider.Resolve() = %#v, want nil in simple mode", contextText)
 	}
-	if got := NewMemoryLifecycleHooks(memoryLifecycleHookParams{Config: cfg}).enabled; got {
+	if got := mustNewMemoryLifecycleHooks(t, memoryLifecycleHookParams{Config: cfg}).enabled; got {
 		t.Fatal("NewMemoryLifecycleHooks() kept memory enabled in simple mode")
 	}
 }

@@ -135,10 +135,7 @@ func newWriteIntentDedupTestHooks(t *testing.T, teamEnabled bool) (*MemoryLifecy
 	if teamEnabled {
 		withTeamMemoryRuntimeReady(t, team, true)
 	}
-	hooks := NewMemoryLifecycleHooks(memoryLifecycleHookParams{Config: cfg, Team: team})
-	if hooks == nil {
-		t.Fatal("NewMemoryLifecycleHooks() returned nil")
-	}
+	hooks := mustNewMemoryLifecycleHooks(t, memoryLifecycleHookParams{Config: cfg, Team: team})
 	if hooks.dedupFilter == nil {
 		t.Fatal("NewMemoryLifecycleHooks() did not initialize dedupFilter")
 	}

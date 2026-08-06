@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-	"sync"
 )
 
 // MemoryMode 表示 start prompt 中 memory 规则的注入模式。
@@ -43,63 +42,67 @@ type MemoryRuleEngine struct {
 	rules map[MemoryType]MemoryTypeBehavior
 }
 
-var standardMemoryTypeBehaviors = map[MemoryType]MemoryTypeBehavior{
-	MemoryTypeUser: {
-		Summary: "Information about the user's role, goals, responsibilities, knowledge, and collaboration preferences so future work can be tailored to their perspective.",
-		Save: []string{
-			"Store durable details about the user's role, preferences, responsibilities, and knowledge so future responses can be tailored to them specifically.",
-			"Avoid negative judgments or irrelevant personal evaluations.",
+func newStandardMemoryTypeBehaviors() map[MemoryType]MemoryTypeBehavior {
+	return map[MemoryType]MemoryTypeBehavior{
+		MemoryTypeUser: {
+			Summary: "Information about the user's role, goals, responsibilities, knowledge, and collaboration preferences so future work can be tailored to their perspective.",
+			Save: []string{
+				"Store durable details about the user's role, preferences, responsibilities, and knowledge so future responses can be tailored to them specifically.",
+				"Avoid negative judgments or irrelevant personal evaluations.",
+			},
+			Access: []string{
+				"Read `user` memory when the answer should be informed by the user's profile, perspective, working style, or knowledge level.",
+			},
+			Trust: []string{
+				"Re-confirm if the user's goals, responsibilities, or preferences appear to have changed.",
+			},
 		},
-		Access: []string{
-			"Read `user` memory when the answer should be informed by the user's profile, perspective, working style, or knowledge level.",
+		MemoryTypeFeedback: {
+			Summary: "Guidance about how to approach work — both what to avoid and what to keep doing.",
+			Save: []string{
+				"Record from failure and success: store confirmed corrections and validated non-obvious successful approaches that should guide future conversations.",
+				"Structure the body as `rule`, `Why:`, and `How to apply:` so future turns can judge edge cases.",
+			},
+			Access: []string{
+				"Read `feedback` memory to guide behavior so the user does not need to repeat the same working guidance twice.",
+			},
+			Trust: []string{
+				"Trust only feedback that was explicitly confirmed or repeatedly validated; revise or delete it when it stops working.",
+			},
 		},
-		Trust: []string{
-			"Re-confirm if the user's goals, responsibilities, or preferences appear to have changed.",
+		MemoryTypeProject: {
+			Summary: "Information about ongoing work, goals, initiatives, bugs, or incidents that is not otherwise derivable from code or git history.",
+			Save: []string{
+				"Store who is doing what, why, or by when when that context is not derivable from code or git.",
+				"Convert relative dates to absolute dates and structure the body as `fact`, `Why:`, and `How to apply:` because project memory decays quickly.",
+			},
+			Access: []string{
+				"Read `project` memory when broader project context, motivation, deadlines, owners, decisions, or incident history should shape the answer.",
+			},
+			Trust: []string{
+				"Re-check dates, owners, and incident status against current code, docs, or direct user input before acting; keep dates absolute.",
+			},
 		},
-	},
-	MemoryTypeFeedback: {
-		Summary: "Guidance about how to approach work — both what to avoid and what to keep doing.",
-		Save: []string{
-			"Record from failure and success: store confirmed corrections and validated non-obvious successful approaches that should guide future conversations.",
-			"Structure the body as `rule`, `Why:`, and `How to apply:` so future turns can judge edge cases.",
+		MemoryTypeReference: {
+			Summary: "Pointers to where up-to-date information can be found in external systems and why it matters.",
+			Save: []string{
+				"Store where to look in external systems and what it is for; keep pointers only, not copied snapshots.",
+			},
+			Access: []string{
+				"Read `reference` memory when the user references an external system or current work may require consulting docs, Slack, Grafana, Linear, or runbooks.",
+			},
+			Trust: []string{
+				"Verify the pointer still resolves and that the underlying external data is current before relying on it.",
+			},
 		},
-		Access: []string{
-			"Read `feedback` memory to guide behavior so the user does not need to repeat the same working guidance twice.",
-		},
-		Trust: []string{
-			"Trust only feedback that was explicitly confirmed or repeatedly validated; revise or delete it when it stops working.",
-		},
-	},
-	MemoryTypeProject: {
-		Summary: "Information about ongoing work, goals, initiatives, bugs, or incidents that is not otherwise derivable from code or git history.",
-		Save: []string{
-			"Store who is doing what, why, or by when when that context is not derivable from code or git.",
-			"Convert relative dates to absolute dates and structure the body as `fact`, `Why:`, and `How to apply:` because project memory decays quickly.",
-		},
-		Access: []string{
-			"Read `project` memory when broader project context, motivation, deadlines, owners, decisions, or incident history should shape the answer.",
-		},
-		Trust: []string{
-			"Re-check dates, owners, and incident status against current code, docs, or direct user input before acting; keep dates absolute.",
-		},
-	},
-	MemoryTypeReference: {
-		Summary: "Pointers to where up-to-date information can be found in external systems and why it matters.",
-		Save: []string{
-			"Store where to look in external systems and what it is for; keep pointers only, not copied snapshots.",
-		},
-		Access: []string{
-			"Read `reference` memory when the user references an external system or current work may require consulting docs, Slack, Grafana, Linear, or runbooks.",
-		},
-		Trust: []string{
-			"Verify the pointer still resolves and that the underlying external data is current before relying on it.",
-		},
-	},
+	}
 }
 
-var standardOverviewLines = []string{
-	"Persistent memory stores durable, surprising facts for future turns; it is not a transcript, a scratchpad, or a replacement for current observation.",
-	"Use memory to preserve behaviorally relevant context while keeping authorization, visibility, and retrieval boundaries intact.",
+func newStandardOverviewLines() []string {
+	return []string{
+		"Persistent memory stores durable, surprising facts for future turns; it is not a transcript, a scratchpad, or a replacement for current observation.",
+		"Use memory to preserve behaviorally relevant context while keeping authorization, visibility, and retrieval boundaries intact.",
+	}
 }
 
 func standardMemorySystemLines(autoDir string) []string {
@@ -109,91 +112,104 @@ func standardMemorySystemLines(autoDir string) []string {
 	}
 	return append([]string{
 		fmt.Sprintf("Standard mode uses a single auto-memory root at `%s`; treat `%s` as the pointer index entrypoint and keep durable topic files organized beneath that root.", root, filepath.ToSlash(memoryIndexPath(root))),
-	}, standardOverviewLines...)
+	}, newStandardOverviewLines()...)
 }
 
-var standardSaveRules = []string{
-	"Explicit `remember` saves immediately; explicit `forget` finds and deletes the matching memory.",
-	"Each durable fact belongs in its own topic file; `MEMORY.md` stays a pointer index rather than a second copy of the body.",
-	"Prefer updating an existing topic over creating duplicates.",
-	"Keep `name`, `description`, and `type` frontmatter aligned with the body.",
-	"Use the standard topic-file frontmatter template:\n  ---\n  name: <memory name>\n  description: <specific one-line relevance hook>\n  type: user|feedback|project|reference\n  title: <short display title, max 12 chars, optional>\n  ---\n  <durable memory body>",
-	"When saving a memory, include a concise `title` (max 12 characters) that captures the core point for card-view display. Omit if the description is already short and clear enough.",
-	"Organize memory by semantic topic, not by time.",
-	"Save or delete only after runtime `sanitize + resolve + authorize` succeeds; `deny`, `not_visible`, and `local_unavailable` are hard stop conditions.",
-	"The prompt layer must not probe or `mkdir` memory directories; runtime may ensure them separately.",
-	"Update or delete stale or incorrect memory instead of letting it drift.",
-	"`MEMORY.md` index lines must stay one-per-line, pointer-only, roughly 150 characters or less, and must not inline full memory bodies.",
+func newStandardSaveRules() []string {
+	return []string{
+		"Explicit `remember` saves immediately; explicit `forget` finds and deletes the matching memory.",
+		"Each durable fact belongs in its own topic file; `MEMORY.md` stays a pointer index rather than a second copy of the body.",
+		"Prefer updating an existing topic over creating duplicates.",
+		"Keep `name`, `description`, and `type` frontmatter aligned with the body.",
+		"Use the standard topic-file frontmatter template:\n  ---\n  name: <memory name>\n  description: <specific one-line relevance hook>\n  type: user|feedback|project|reference\n  title: <short display title, max 12 chars, optional>\n  ---\n  <durable memory body>",
+		"When saving a memory, include a concise `title` (max 12 characters) that captures the core point for card-view display. Omit if the description is already short and clear enough.",
+		"Organize memory by semantic topic, not by time.",
+		"Save or delete only after runtime `sanitize + resolve + authorize` succeeds; `deny`, `not_visible`, and `local_unavailable` are hard stop conditions.",
+		"The prompt layer must not probe or `mkdir` memory directories; runtime may ensure them separately.",
+		"Update or delete stale or incorrect memory instead of letting it drift.",
+		"`MEMORY.md` index lines must stay one-per-line, pointer-only, roughly 150 characters or less, and must not inline full memory bodies.",
+	}
 }
 
-var standardAutoDetectSignalRules = []string{
-	"When you detect the following signals during conversation, save a memory proactively without the user saying \"remember\":",
-	"User corrects your behavior → save as feedback",
-	"User repeats the same instruction for the second time → save as feedback (high priority)",
-	"User makes an explicit technical or product decision → save as project",
-	"User expresses frustration about a recurring mistake (\"又来了\", \"上次也是\") → save as feedback (high priority)",
-	"User states a personal preference, habit, or context about themselves (\"我喜欢…\", \"我的习惯是…\", timezone, language, editor settings) → save as feedback",
-	"User states project environment facts, tech stack, or constraints (\"我们用的是 PostgreSQL\", \"CI 跑在 GitHub Actions\", \"必须兼容 v1\") → save as project",
-	"Do not ask for confirmation. The dedup filter will handle duplicates automatically.",
+func newStandardAutoDetectSignalRules() []string {
+	return []string{
+		"When you detect the following signals during conversation, save a memory proactively without the user saying \"remember\":",
+		"User corrects your behavior → save as feedback",
+		"User repeats the same instruction for the second time → save as feedback (high priority)",
+		"User makes an explicit technical or product decision → save as project",
+		"User expresses frustration about a recurring mistake (\"又来了\", \"上次也是\") → save as feedback (high priority)",
+		"User states a personal preference, habit, or context about themselves (\"我喜欢…\", \"我的习惯是…\", timezone, language, editor settings) → save as feedback",
+		"User states project environment facts, tech stack, or constraints (\"我们用的是 PostgreSQL\", \"CI 跑在 GitHub Actions\", \"必须兼容 v1\") → save as project",
+		"Do not ask for confirmation. The dedup filter will handle duplicates automatically.",
+	}
 }
 
-var standardAccessRules = []string{
-	"Read memory when it appears relevant or when the user refers to previous context.",
-	"If the user explicitly asks to recall, check, or remember, you must read memory.",
-	"If the user says ignore or not use memory, act as if `MEMORY.md` is empty; do not apply, reference, compare, or mention remembered content.",
-	"Only use memory text surfaced by runtime or returned by tools; do not guess paths, scopes, or hidden entries from names.",
-	"Visibility is decided by runtime `sanitize + resolve + authorize`; knowing a `name`, `path`, or `@agent` does not grant access.",
-	"`scope` is an ACL boundary, not a fifth memory type; `user`, `project`, and `local` visibility still require the same authorizer.",
-	"Treat `deny`, `not_visible`, and `local_unavailable` as unavailable; do not retry via another root or scope.",
+func newStandardAccessRules() []string {
+	return []string{
+		"Read memory when it appears relevant or when the user refers to previous context.",
+		"If the user explicitly asks to recall, check, or remember, you must read memory.",
+		"If the user says ignore or not use memory, act as if `MEMORY.md` is empty; do not apply, reference, compare, or mention remembered content.",
+		"Only use memory text surfaced by runtime or returned by tools; do not guess paths, scopes, or hidden entries from names.",
+		"Visibility is decided by runtime `sanitize + resolve + authorize`; knowing a `name`, `path`, or `@agent` does not grant access.",
+		"`scope` is an ACL boundary, not a fifth memory type; `user`, `project`, and `local` visibility still require the same authorizer.",
+		"Treat `deny`, `not_visible`, and `local_unavailable` as unavailable; do not retry via another root or scope.",
+	}
 }
 
-var standardTrustRules = []string{
-	"Memory is what was true when it was written, not guaranteed current truth.",
-	"If memory conflicts with current observation, trust the current observation and update or delete stale memory.",
-	"Verify referenced files and paths still exist before relying on them.",
-	"Verify referenced functions and flags still exist before relying on them; V3 also re-checks referenced type names as the same kind of stale claim.",
-	"Before making a recommendation the user may act on, validate the current state first.",
-	"For recent or current repository status, prefer current code or `git log` over memory snapshots.",
+func newStandardTrustRules() []string {
+	return []string{
+		"Memory is what was true when it was written, not guaranteed current truth.",
+		"If memory conflicts with current observation, trust the current observation and update or delete stale memory.",
+		"Verify referenced files and paths still exist before relying on them.",
+		"Verify referenced functions and flags still exist before relying on them; V3 also re-checks referenced type names as the same kind of stale claim.",
+		"Before making a recommendation the user may act on, validate the current state first.",
+		"For recent or current repository status, prefer current code or `git log` over memory snapshots.",
+	}
 }
 
-var standardExclusionRules = []string{
-	"Never store secrets, credentials, tokens, API keys, or passwords in any memory type.",
-	"Do not store code patterns, conventions, architecture, file paths, or project structure; derive those by reading the current project state.",
-	"Do not store git history, recent changes, or who-changed-what; `git log` / `git blame` are authoritative.",
-	"Do not store debugging solutions or fix recipes; the fix should live in code and the commit message carries the context.",
-	"Do not store anything already documented in `CLAUDE.md` files.",
-	"Do not store ephemeral task details such as in-progress work, temporary state, or current conversation context.",
-	"Do not store PR lists, activity summaries, progress trackers, tasks, or plans.",
-	"Even if the user explicitly asks, these exclusions still apply.",
-	"If asked to save a PR list or activity summary, ask what was surprising or non-obvious about it and save only that durable part.",
+func newStandardExclusionRules() []string {
+	return []string{
+		"Never store secrets, credentials, tokens, API keys, or passwords in any memory type.",
+		"Do not store code patterns, conventions, architecture, file paths, or project structure; derive those by reading the current project state.",
+		"Do not store git history, recent changes, or who-changed-what; `git log` / `git blame` are authoritative.",
+		"Do not store debugging solutions or fix recipes; the fix should live in code and the commit message carries the context.",
+		"Do not store anything already documented in `CLAUDE.md` files.",
+		"Do not store ephemeral task details such as in-progress work, temporary state, or current conversation context.",
+		"Do not store PR lists, activity summaries, progress trackers, tasks, or plans.",
+		"Even if the user explicitly asks, these exclusions still apply.",
+		"If asked to save a PR list or activity summary, ask what was surprising or non-obvious about it and save only that durable part.",
+	}
 }
 
-var standardPlanRules = []string{
-	"Plans and non-trivial implementation strategies belong in plan mechanisms, not memory.",
-	"Current step breakdowns, progress tracking, and task state belong in tasks, not memory.",
+func newStandardPlanRules() []string {
+	return []string{
+		"Plans and non-trivial implementation strategies belong in plan mechanisms, not memory.",
+		"Current step breakdowns, progress tracking, and task state belong in tasks, not memory.",
+	}
 }
 
 // V3 intentionally keeps `searching past context` runtime-driven rather than
 // Claude's model-driven directory/log search. Only surface this section when
 // the runtime SearchPastContext gate is enabled so the prompt never promises a
 // retrieval path that is unavailable in the current session.
-var standardSearchingPastContextRules = []string{
-	"V3 intentionally keeps `searching past context` runtime-driven: durable memory is searched first, and budgeted transcript snippets may be surfaced only when memory misses or confidence is weak.",
-	"Do not probe memory directories, hidden roots, or session transcript logs from the prompt layer.",
-	"Only use runtime-surfaced memory or transcript snippets included in context, and apply the access/trust rules above before acting on them.",
+func newStandardSearchingPastContextRules() []string {
+	return []string{
+		"V3 intentionally keeps `searching past context` runtime-driven: durable memory is searched first, and budgeted transcript snippets may be surfaced only when memory misses or confidence is weak.",
+		"Do not probe memory directories, hidden roots, or session transcript logs from the prompt layer.",
+		"Only use runtime-surfaced memory or transcript snippets included in context, and apply the access/trust rules above before acting on them.",
+	}
 }
 
-var defaultMemoryRuleEngine = sync.OnceValue(NewMemoryRuleEngine)
-
 // NewMemoryRuleEngine 构造标准记忆规则引擎。
-// 行为表会深拷贝到实例内，调用方后续读取规则时不会修改包级默认模板。
+// 每次调用都会创建独立行为表，调用方不能改写其它 provider 会话的规则。
 func NewMemoryRuleEngine() *MemoryRuleEngine {
+	behaviors := newStandardMemoryTypeBehaviors()
 	engine := &MemoryRuleEngine{
-		order: append([]MemoryType(nil), diskMemoryTypes...),
-		rules: make(map[MemoryType]MemoryTypeBehavior, len(standardMemoryTypeBehaviors)),
+		order: newDiskMemoryTypes(),
+		rules: make(map[MemoryType]MemoryTypeBehavior, len(behaviors)),
 	}
 	for _, memoryType := range engine.order {
-		engine.rules[memoryType] = cloneBehavior(standardMemoryTypeBehaviors[memoryType])
+		engine.rules[memoryType] = cloneBehavior(behaviors[memoryType])
 	}
 	return engine
 }
@@ -201,7 +217,7 @@ func NewMemoryRuleEngine() *MemoryRuleEngine {
 // BuildMemoryLines 使用默认规则引擎生成标准模式的记忆提示文本。
 // skipIndex 和 extraGuidelines 只影响提示内容，不触发任何磁盘读写。
 func BuildMemoryLines(skipIndex, searchPastContextEnabled bool, extraGuidelines []string) string {
-	return defaultMemoryRuleEngine().BuildMemoryLines(MemoryRuleOptions{
+	return NewMemoryRuleEngine().BuildMemoryLines(MemoryRuleOptions{
 		SkipIndex:                skipIndex,
 		SearchPastContextEnabled: searchPastContextEnabled,
 		ExtraGuidelines:          extraGuidelines,
@@ -211,7 +227,7 @@ func BuildMemoryLines(skipIndex, searchPastContextEnabled bool, extraGuidelines 
 // LoadMemoryPrompt 根据记忆模式返回可注入的系统提示片段。
 // autoEnabled 关闭或模式未知时返回 nil，提示汇编器据此跳过 memory 规则区块。
 func LoadMemoryPrompt(mode MemoryMode, autoEnabled, skipIndex, searchPastContextEnabled bool, extraGuidelines []string) *string {
-	return defaultMemoryRuleEngine().LoadMemoryPrompt(mode, autoEnabled, MemoryRuleOptions{
+	return NewMemoryRuleEngine().LoadMemoryPrompt(mode, autoEnabled, MemoryRuleOptions{
 		SkipIndex:                skipIndex,
 		SearchPastContextEnabled: searchPastContextEnabled,
 		ExtraGuidelines:          extraGuidelines,
@@ -288,12 +304,12 @@ func (e *MemoryRuleEngine) BuildMemoryLines(opts MemoryRuleOptions) string {
 	}
 	sections = append(sections, renderSection(nextTitle("memory system"), standardMemorySystemLines(opts.AutoMemPath)))
 	sections = append(sections, renderSection(nextTitle("taxonomy"), engine.taxonomyLines()))
-	sections = append(sections, renderSection(nextTitle("exclusions"), standardExclusionRules))
-	sections = append(sections, engine.renderBehaviorSection(nextTitle("save rules / how to save memories"), append(cloneStrings(standardSaveRules), indexRule(opts.SkipIndex)), func(b MemoryTypeBehavior) []string { return b.Save }))
-	sections = append(sections, renderSection(nextTitle("auto-detect signals"), standardAutoDetectSignalRules))
-	sections = append(sections, engine.renderBehaviorSection(nextTitle("access rules / when to access memories"), standardAccessRules, func(b MemoryTypeBehavior) []string { return b.Access }))
-	sections = append(sections, engine.renderBehaviorSection(nextTitle("trust rules / before recommending from memory"), standardTrustRules, func(b MemoryTypeBehavior) []string { return b.Trust }))
-	sections = append(sections, renderSection(nextTitle("memory vs plan/tasks"), standardPlanRules))
+	sections = append(sections, renderSection(nextTitle("exclusions"), newStandardExclusionRules()))
+	sections = append(sections, engine.renderBehaviorSection(nextTitle("save rules / how to save memories"), append(newStandardSaveRules(), indexRule(opts.SkipIndex)), func(b MemoryTypeBehavior) []string { return b.Save }))
+	sections = append(sections, renderSection(nextTitle("auto-detect signals"), newStandardAutoDetectSignalRules()))
+	sections = append(sections, engine.renderBehaviorSection(nextTitle("access rules / when to access memories"), newStandardAccessRules(), func(b MemoryTypeBehavior) []string { return b.Access }))
+	sections = append(sections, engine.renderBehaviorSection(nextTitle("trust rules / before recommending from memory"), newStandardTrustRules(), func(b MemoryTypeBehavior) []string { return b.Trust }))
+	sections = append(sections, renderSection(nextTitle("memory vs plan/tasks"), newStandardPlanRules()))
 	if extraLines := normalizeStringSlice(opts.ExtraGuidelines); len(extraLines) > 0 {
 		sections = append(sections, renderSection(nextTitle("extra guidelines"), extraLines))
 	}
@@ -323,10 +339,10 @@ func buildCombinedMemoryPrompt(engine *MemoryRuleEngine, opts MemoryRuleOptions)
 	sections = append(sections, renderSection(nextTitle("taxonomy"), combinedTaxonomyLines(engine)))
 	sections = append(sections, renderSection(nextTitle("exclusions"), combinedExclusionRules()))
 	sections = append(sections, renderSection(nextTitle("save rules / how to save memories"), combinedSaveRules(opts.SkipIndex, autoDir, teamDir)))
-	sections = append(sections, renderSection(nextTitle("auto-detect signals"), standardAutoDetectSignalRules))
+	sections = append(sections, renderSection(nextTitle("auto-detect signals"), newStandardAutoDetectSignalRules()))
 	sections = append(sections, renderSection(nextTitle("access rules / when to access memories"), combinedAccessRules()))
-	sections = append(sections, renderSection(nextTitle("trust rules / before recommending from memory"), standardTrustRules))
-	sections = append(sections, renderSection(nextTitle("memory vs plan/tasks"), standardPlanRules))
+	sections = append(sections, renderSection(nextTitle("trust rules / before recommending from memory"), newStandardTrustRules()))
+	sections = append(sections, renderSection(nextTitle("memory vs plan/tasks"), newStandardPlanRules()))
 	if extraLines := normalizeStringSlice(opts.ExtraGuidelines); len(extraLines) > 0 {
 		sections = append(sections, renderSection(nextTitle("extra guidelines"), extraLines))
 	}
@@ -381,7 +397,7 @@ func combinedTaxonomyLines(engine *MemoryRuleEngine) []string {
 // 团队记忆会被共享，因此在标准排除项之外再次强调密钥禁止写入。
 func combinedExclusionRules() []string {
 	return append(
-		cloneStrings(standardExclusionRules),
+		newStandardExclusionRules(),
 		"Never store secrets, credentials, tokens, API keys, or passwords in shared team memory.",
 	)
 }
@@ -454,13 +470,12 @@ func (e *MemoryRuleEngine) renderBehaviorSection(title string, base []string, pi
 	return strings.Join(nonEmpty(parts), "\n")
 }
 
-// resolvedRuleEngine 返回可用规则引擎，nil 时回退包级默认实例。
-// 默认实例通过 sync.OnceValue 构造，避免重复分配和跨 goroutine 竞态。
+// resolvedRuleEngine 返回可用规则引擎，nil 时创建独立默认实例。
 func resolvedRuleEngine(engine *MemoryRuleEngine) *MemoryRuleEngine {
 	if engine != nil {
 		return engine
 	}
-	return defaultMemoryRuleEngine()
+	return NewMemoryRuleEngine()
 }
 
 // renderSection 将标题和清理后的 bullet 行合并成一个 prompt 章节。
@@ -478,7 +493,7 @@ func searchingPastContextSection(title string, enabled bool) string {
 	if !enabled {
 		return ""
 	}
-	return renderSection(title, standardSearchingPastContextRules)
+	return renderSection(title, newStandardSearchingPastContextRules())
 }
 
 func renderBullets(lines []string) string {

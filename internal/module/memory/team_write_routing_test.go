@@ -110,7 +110,7 @@ func TestTeamWriteIntentOverflowMergesWithinTeamScope(t *testing.T) {
 	}
 	team := NewTeamMemoryManager(cfg)
 	withTeamMemoryRuntimeReady(t, team, true)
-	hooks := NewMemoryLifecycleHooks(memoryLifecycleHookParams{Config: cfg, Team: team})
+	hooks := mustNewMemoryLifecycleHooks(t, memoryLifecycleHookParams{Config: cfg, Team: team})
 	teamRoot := filepath.Join(autoRoot, teamMemoryRootDirName)
 	teamStore, err := newDiskStore(teamRoot, nil)
 	if err != nil {

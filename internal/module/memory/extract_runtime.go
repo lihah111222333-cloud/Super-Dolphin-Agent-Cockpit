@@ -74,7 +74,9 @@ func (h *MemoryLifecycleHooks) onTurnInputReceived(ctx context.Context, ev turnd
 	}
 	turn := turnCompletedFromInput(ev)
 	handled, action, err := h.handleExplicitUserMemoryIntent(ctx, turn, text)
-	h.handleExplicitIntentError(turn, handled, action, err)
+	if publishErr := h.handleExplicitIntentError(turn, handled, action, err); publishErr != nil {
+		h.memoryLogger().Error("memory explicit intent failure publisher is unavailable", "error", publishErr)
+	}
 	if handled && err == nil {
 		h.markHandledTurnInput(key)
 	}

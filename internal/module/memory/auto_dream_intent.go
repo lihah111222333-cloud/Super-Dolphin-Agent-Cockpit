@@ -107,7 +107,7 @@ func DetectSaveIntent(userText string) SaveIntent {
 	if response == "" {
 		return SaveIntent{}
 	}
-	for _, pattern := range saveIntentPatterns {
+	for _, pattern := range newSaveIntentPatterns() {
 		matches := pattern.FindStringSubmatch(response)
 		if len(matches) == 0 {
 			continue
@@ -128,7 +128,7 @@ func DetectForgetIntent(userText string) ForgetIntent {
 	if response == "" {
 		return ForgetIntent{}
 	}
-	for _, pattern := range forgetIntentPatterns {
+	for _, pattern := range newForgetIntentPatterns() {
 		matches := pattern.FindStringSubmatch(response)
 		if len(matches) == 0 {
 			continue

@@ -22,6 +22,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/sharedfileport"
 	teampkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/team"
 	platformrpc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/ctxutil"
 	"go.uber.org/fx"
 )
 
@@ -64,6 +65,7 @@ type memoryHandlerDeps struct {
 	Logger             *slog.Logger
 	DreamExecutor      contract.DreamExecutor
 	Dispatcher         *event.Dispatcher
+	ConsolidationJobs  *uiMemoryConsolidationJobStore
 }
 
 type historySource interface {
@@ -117,16 +119,17 @@ type memorySubscriptionDeps struct {
 type memoryLifecycleHookParams struct {
 	fx.In
 
-	Config          *Config                     `optional:"true"`
-	Team            *TeamMemoryManager          `optional:"true"`
-	Consolidator    *AutoDreamConsolidator      `optional:"true"`
-	DreamExtractFn  ExtractFunc                 `optional:"true"`
-	Logger          *slog.Logger                `optional:"true"`
-	Threads         historySource               `optional:"true"`
-	ThreadStore     threadMetadataStore         `optional:"true"`
-	Sections        contract.SectionInvalidator `optional:"true"`
-	Extractor       *MemoryExtractor            `optional:"true"`
-	ManifestBuilder *ManifestBuilder            `optional:"true"`
+	Config           *Config                     `optional:"true"`
+	Team             *TeamMemoryManager          `optional:"true"`
+	Consolidator     *AutoDreamConsolidator      `optional:"true"`
+	DreamExtractFn   ExtractFunc                 `optional:"true"`
+	Logger           *slog.Logger                `optional:"true"`
+	Threads          historySource               `optional:"true"`
+	ThreadStore      threadMetadataStore         `optional:"true"`
+	Sections         contract.SectionInvalidator `optional:"true"`
+	Extractor        *MemoryExtractor            `optional:"true"`
+	ManifestBuilder  *ManifestBuilder            `optional:"true"`
+	FailurePublisher *memoryIntentFailurePublisher
 }
 
 type dreamExtractParams struct {
@@ -136,7 +139,10 @@ type dreamExtractParams struct {
 }
 
 // NewMemoryLifecycleHooks 创建线程生命周期里的记忆 hook。
-func NewMemoryLifecycleHooks(p memoryLifecycleHookParams) *MemoryLifecycleHooks {
+func NewMemoryLifecycleHooks(p memoryLifecycleHookParams) (*MemoryLifecycleHooks, error) {
+	if p.FailurePublisher == nil {
+		return nil, errors.New("memory intent failure publisher is required")
+	}
 	hooks := newMemoryLifecycleHooksWithTeam(
 		p.Config,
 		p.Team,
@@ -157,7 +163,10 @@ func NewMemoryLifecycleHooks(p memoryLifecycleHookParams) *MemoryLifecycleHooks 
 	if hooks != nil {
 		hooks.dedupFilter = buildDedupFilter(hooks)
 	}
-	return hooks
+	if hooks != nil {
+		hooks.intentFailurePublisher = p.FailurePublisher
+	}
+	return hooks, nil
 }
 
 func buildDedupFilter(hooks *MemoryLifecycleHooks) *dedup.Filter {
@@ -336,6 +345,7 @@ var Module = fx.Module("memory",
 		provideTeamMemoryManagerContract,
 		asTeamSyncLifecycle,
 		provideMemoryService,
+		newMemoryIntentFailurePublisher,
 		newMemoryHandlerDeps,
 		NewMemoryHandlers,
 		NewMemoryRuleEngine,
@@ -450,6 +460,7 @@ func newMemoryHandlerDeps(p memoryHandlerFxDeps) memoryHandlerDeps {
 		Logger:             p.Logger,
 		DreamExecutor:      p.DreamExecutor,
 		Dispatcher:         p.Dispatcher,
+		ConsolidationJobs:  newUIMemoryConsolidationJobStore(runConsolidateAll, ctxutil.DreamConsolidationTimeout),
 	}
 }
 

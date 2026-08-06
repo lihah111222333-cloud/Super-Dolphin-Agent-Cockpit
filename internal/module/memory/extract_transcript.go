@@ -125,8 +125,9 @@ func renderExtractTaxonomy() string {
 		"Use only `user`, `feedback`, `project`, or `reference`.",
 		"Choose `type` by semantic meaning of the content. Storage path, scope, and mode are separate concerns.",
 	}
-	for _, memoryType := range diskMemoryTypes {
-		behavior := standardMemoryTypeBehaviors[memoryType]
+	behaviors := newStandardMemoryTypeBehaviors()
+	for _, memoryType := range newDiskMemoryTypes() {
+		behavior := behaviors[memoryType]
 		section := []string{
 			"### " + string(memoryType),
 			renderBullets(append([]string{behavior.Summary}, behavior.Save...)),
@@ -139,7 +140,7 @@ func renderExtractTaxonomy() string {
 func renderExtractExclusions() string {
 	return strings.Join(nonEmpty([]string{
 		"## What not to save",
-		renderBullets(standardExclusionRules),
+		renderBullets(newStandardExclusionRules()),
 	}), "\n")
 }
 
@@ -227,13 +228,13 @@ func internalMemoryFromMessage(msg providerdto.Message) (ExtractedMemory, bool) 
 	}
 	lower := strings.ToLower(text)
 	switch {
-	case strings.EqualFold(msg.Role, "user") && containsHeuristicCue(lower, userPreferenceCues...):
+	case strings.EqualFold(msg.Role, "user") && containsHeuristicCue(lower, newUserPreferenceCues()...):
 		return ExtractedMemory{Scope: extractScopePrivate, Content: text, Type: MemoryTypeUser}, true
-	case strings.EqualFold(msg.Role, "assistant") && containsHeuristicCue(lower, assistantPreferenceCues...):
+	case strings.EqualFold(msg.Role, "assistant") && containsHeuristicCue(lower, newAssistantPreferenceCues()...):
 		return ExtractedMemory{Scope: extractScopePrivate, Content: text, Type: MemoryTypeFeedback}, true
-	case containsHeuristicCue(lower, referenceCues...) && strings.Contains(text, "http"):
+	case containsHeuristicCue(lower, newReferenceCues()...) && strings.Contains(text, "http"):
 		return ExtractedMemory{Scope: extractScopePrivate, Content: text, Type: MemoryTypeReference}, true
-	case containsHeuristicCue(lower, projectCues...):
+	case containsHeuristicCue(lower, newProjectCues()...):
 		return ExtractedMemory{Scope: extractScopePrivate, Content: text, Type: MemoryTypeProject}, true
 	default:
 		return ExtractedMemory{}, false
@@ -257,18 +258,18 @@ func containsHeuristicCue(text string, cues ...string) bool {
 	return false
 }
 
-var userPreferenceCues = []string{
-	"prefer", "preference", "i like", "keep diffs", "please keep", "以后请", "偏好", "喜欢", "记住",
+func newUserPreferenceCues() []string {
+	return []string{"prefer", "preference", "i like", "keep diffs", "please keep", "以后请", "偏好", "喜欢", "记住"}
 }
 
-var assistantPreferenceCues = []string{
-	"you prefer", "keep diffs", "偏好", "喜欢", "记住了",
+func newAssistantPreferenceCues() []string {
+	return []string{"you prefer", "keep diffs", "偏好", "喜欢", "记住了"}
 }
 
-var projectCues = []string{
-	"repo", "project", "build", "test", "deploy", "service", "branch", "ticket", "仓库", "项目", "构建", "测试", "部署",
+func newProjectCues() []string {
+	return []string{"repo", "project", "build", "test", "deploy", "service", "branch", "ticket", "仓库", "项目", "构建", "测试", "部署"}
 }
 
-var referenceCues = []string{
-	"http://", "https://", "dashboard", "doc", "wiki", "grafana", "链接", "地址",
+func newReferenceCues() []string {
+	return []string{"http://", "https://", "dashboard", "doc", "wiki", "grafana", "链接", "地址"}
 }

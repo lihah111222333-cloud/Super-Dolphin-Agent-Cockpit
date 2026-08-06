@@ -3,6 +3,8 @@ package memory
 import (
 	"log/slog"
 	"testing"
+
+	"github.com/kelindar/event"
 )
 
 // testHooksOption 是 MemoryLifecycleHooks 测试构造的函数式选项。
@@ -60,6 +62,22 @@ func mustNewContextProvider(t *testing.T, cfg *Config) *MemoryContextProvider {
 		t.Fatalf("NewContextProvider() error = %v", err)
 	}
 	return provider
+}
+
+func mustNewMemoryLifecycleHooks(t *testing.T, p memoryLifecycleHookParams) *MemoryLifecycleHooks {
+	t.Helper()
+	dispatcher := event.NewDispatcher()
+	t.Cleanup(func() { _ = dispatcher.Close() })
+	publisher, err := newMemoryIntentFailurePublisher(dispatcher)
+	if err != nil {
+		t.Fatalf("newMemoryIntentFailurePublisher() error = %v", err)
+	}
+	p.FailurePublisher = publisher
+	hooks, err := NewMemoryLifecycleHooks(p)
+	if err != nil {
+		t.Fatalf("NewMemoryLifecycleHooks() error = %v", err)
+	}
+	return hooks
 }
 
 // newTestHooks 构造一个 locks 字段已就绪的 MemoryLifecycleHooks，

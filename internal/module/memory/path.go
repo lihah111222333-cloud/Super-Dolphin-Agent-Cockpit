@@ -690,11 +690,13 @@ const (
 	MemoryTypeReference = shared.MemoryTypeReference
 )
 
-var diskMemoryTypes = []MemoryType{
-	MemoryTypeUser,
-	MemoryTypeFeedback,
-	MemoryTypeProject,
-	MemoryTypeReference,
+func newDiskMemoryTypes() []MemoryType {
+	return []MemoryType{
+		MemoryTypeUser,
+		MemoryTypeFeedback,
+		MemoryTypeProject,
+		MemoryTypeReference,
+	}
 }
 
 // ParseMemoryType 将字符串解析为共享记忆类型枚举。

@@ -104,32 +104,32 @@ type memoryContentPattern struct {
 	Regex  *regexp.Regexp
 }
 
-var forbiddenMemoryContentPatterns = []memoryContentPattern{
-	{
-		RuleID: "derivable_codebase",
-		Reason: "code patterns, architecture, file paths, and project structure should be derived from the current repository state, not durable memory",
-		Regex:  regexp.MustCompile(`(?:^|\n)\s*(?:code patterns?|code structure|coding conventions?|naming conventions?|project structure|repository structure|repository layout|repo structure|repo layout|folder structure|architecture|file paths?)\s*:`),
-	},
-	{
-		RuleID: "derivable_git",
-		Reason: "git history, recent changes, PR lists, and activity summaries should come from current git state, not durable memory",
-		Regex:  regexp.MustCompile(`(?:^|\n)\s*(?:git history|recent changes|who[- ]changed[- ]what|git blame|git log|pr list|activity summary|activity log)\s*:`),
-	},
-	{
-		RuleID: "temporary_tasks",
-		Reason: "temporary task details, task lists, and in-progress state belong in plans or tasks, not durable memory",
-		Regex:  regexp.MustCompile(`(?:^|\n)\s*(?:in[- ]progress|current conversation(?: task list)?|temporary state|next steps?|progress tracker|task list|current task|working on right now|currently implementing|todo)\s*:`),
-	},
-	{
-		RuleID: "debug_recipe",
-		Reason: "debugging solutions and fix recipes should live in code, commits, or runbooks, not durable memory",
-		Regex:  regexp.MustCompile(`(?:^|\n)\s*(?:debug(?:ging)? (?:recipes?|solutions?|steps?)|fix recipe|reproduction steps?|repro steps?|workaround|set a breakpoint|stack trace)\s*:`),
-	},
+func newForbiddenMemoryContentPatterns() []memoryContentPattern {
+	return []memoryContentPattern{
+		{
+			RuleID: "derivable_codebase",
+			Reason: "code patterns, architecture, file paths, and project structure should be derived from the current repository state, not durable memory",
+			Regex:  regexp.MustCompile(`(?:^|\n)\s*(?:code patterns?|code structure|coding conventions?|naming conventions?|project structure|repository structure|repository layout|repo structure|repo layout|folder structure|architecture|file paths?)\s*:`),
+		},
+		{
+			RuleID: "derivable_git",
+			Reason: "git history, recent changes, PR lists, and activity summaries should come from current git state, not durable memory",
+			Regex:  regexp.MustCompile(`(?:^|\n)\s*(?:git history|recent changes|who[- ]changed[- ]what|git blame|git log|pr list|activity summary|activity log)\s*:`),
+		},
+		{
+			RuleID: "temporary_tasks",
+			Reason: "temporary task details, task lists, and in-progress state belong in plans or tasks, not durable memory",
+			Regex:  regexp.MustCompile(`(?:^|\n)\s*(?:in[- ]progress|current conversation(?: task list)?|temporary state|next steps?|progress tracker|task list|current task|working on right now|currently implementing|todo)\s*:`),
+		},
+		{
+			RuleID: "debug_recipe",
+			Reason: "debugging solutions and fix recipes should live in code, commits, or runbooks, not durable memory",
+			Regex:  regexp.MustCompile(`(?:^|\n)\s*(?:debug(?:ging)? (?:recipes?|solutions?|steps?)|fix recipe|reproduction steps?|repro steps?|workaround|set a breakpoint|stack trace)\s*:`),
+		},
+	}
 }
 
-var defaultMemoryContentValidator = NewMemoryContentValidator()
-
-// NewMemoryContentValidator 创建无状态内容校验器，便于测试替换默认规则调用入口。
+// NewMemoryContentValidator 创建无状态内容校验器。
 func NewMemoryContentValidator() *MemoryContentValidator {
 	return &MemoryContentValidator{}
 }
@@ -149,7 +149,7 @@ func (e *MemoryContentValidationError) Unwrap() error {
 
 // ValidateMemoryEntryContent 使用默认校验器检查单条记忆，写入路径必须在落盘前调用。
 func ValidateMemoryEntryContent(entry MemoryEntry) error {
-	return defaultMemoryContentValidator.Validate(entry)
+	return NewMemoryContentValidator().Validate(entry)
 }
 
 // Validate 同时执行密钥扫描和 durable-memory 禁写规则，命中任一规则都会 fail-fast 阻断保存。
@@ -158,7 +158,7 @@ func (v *MemoryContentValidator) Validate(entry MemoryEntry) error {
 		return err
 	}
 	corpus := memoryValidationCorpus(entry)
-	for _, pattern := range forbiddenMemoryContentPatterns {
+	for _, pattern := range newForbiddenMemoryContentPatterns() {
 		if pattern.Regex.MatchString(corpus) {
 			return &MemoryContentValidationError{RuleID: pattern.RuleID, Reason: pattern.Reason}
 		}

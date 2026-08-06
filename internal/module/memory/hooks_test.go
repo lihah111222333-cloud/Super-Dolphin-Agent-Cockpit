@@ -284,7 +284,10 @@ func newMemoryIntentFailureHarness(t *testing.T) (*MemoryLifecycleHooks, <-chan 
 	patches := make(chan uidto.UIThreadPatch, 2)
 	cancelPatch := event.Subscribe(dispatcher, func(ev uidto.UIThreadPatch) { patches <- ev })
 	t.Cleanup(cancelPatch)
-	registerUIMemoryHandlers(memoryHandlerDeps{Dispatcher: dispatcher})
+	publisher, err := newMemoryIntentFailurePublisher(dispatcher)
+	if err != nil {
+		t.Fatalf("newMemoryIntentFailurePublisher() error = %v", err)
+	}
 
 	badMemoryRoot := filepath.Join(t.TempDir(), "not-a-directory")
 	if err := os.WriteFile(badMemoryRoot, []byte("not a directory"), 0o644); err != nil {
@@ -297,6 +300,7 @@ func newMemoryIntentFailureHarness(t *testing.T) (*MemoryLifecycleHooks, <-chan 
 		ProjectRoot:         newTestGitProjectRoot(t),
 		AutoMemPathOverride: badMemoryRoot,
 	}, nil, nil, nil, nil, nil, nil, nil)
+	hooks.intentFailurePublisher = publisher
 	return hooks, warnings, patches, badMemoryRoot
 }
 

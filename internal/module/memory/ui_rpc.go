@@ -9,10 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/creachadair/jrpc2/handler"
+	"github.com/kelindar/event"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
 	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
@@ -454,7 +454,6 @@ func firstNonEmptyUI(values ...string) string {
 
 // registerUIMemoryHandlers 注册只读记忆 RPC，写入/删除入口在 mutation 文件中集中处理。
 func registerUIMemoryHandlers(p memoryHandlerDeps) handler.Map {
-	installMemoryIntentFailurePublisher(p)
 	return handler.Map{
 		"ui/memory/get": platformrpc.StrictHandler(func(ctx context.Context, req uiMemoryGetParams) (UIMemorySnapshot, error) {
 			return buildUIMemorySnapshot(ctx, p.Service, p.Logger, req.CWD)
@@ -470,23 +469,25 @@ type memoryIntentFailureDiagnostic struct {
 	Error    string
 }
 
-var memoryIntentFailurePublisher = struct {
-	sync.RWMutex
+type memoryIntentFailurePublisher struct {
 	warning func(agentdto.AgentWarning)
 	patch   func(uidto.UIThreadPatch)
-}{}
+}
 
-// installMemoryIntentFailurePublisher 绑定显式记忆失败事件出口；缺 dispatcher 时发布会变成 no-op。
-func installMemoryIntentFailurePublisher(deps memoryHandlerDeps) {
-	memoryIntentFailurePublisher.Lock()
-	defer memoryIntentFailurePublisher.Unlock()
-	memoryIntentFailurePublisher.warning = contract.NewEmitter[agentdto.AgentWarning](deps.Dispatcher)
-	memoryIntentFailurePublisher.patch = contract.NewEmitter[uidto.UIThreadPatch](deps.Dispatcher)
+// newMemoryIntentFailurePublisher 绑定显式记忆失败事件出口。
+func newMemoryIntentFailurePublisher(dispatcher *event.Dispatcher) (*memoryIntentFailurePublisher, error) {
+	if dispatcher == nil {
+		return nil, errors.New("memory intent failure dispatcher is required")
+	}
+	return &memoryIntentFailurePublisher{
+		warning: contract.NewEmitter[agentdto.AgentWarning](dispatcher),
+		patch:   contract.NewEmitter[uidto.UIThreadPatch](dispatcher),
+	}, nil
 }
 
 // publishMemoryIntentFailedDiagnostic 发布显式 remember/forget 的失败诊断。
 // Payload 只包含线程、turn、动作和脱敏错误码，避免把本地路径透给 UI/模型事件面。
-func publishMemoryIntentFailedDiagnostic(d memoryIntentFailureDiagnostic) {
+func (publisher *memoryIntentFailurePublisher) publish(d memoryIntentFailureDiagnostic) {
 	threadID := strings.TrimSpace(d.ThreadID)
 	if threadID == "" {
 		return
@@ -500,37 +501,29 @@ func publishMemoryIntentFailedDiagnostic(d memoryIntentFailureDiagnostic) {
 		"error":     errText,
 	})
 
-	memoryIntentFailurePublisher.RLock()
-	emitWarning := memoryIntentFailurePublisher.warning
-	emitPatch := memoryIntentFailurePublisher.patch
-	memoryIntentFailurePublisher.RUnlock()
-	if emitWarning != nil {
-		emitWarning(agentdto.AgentWarning{
-			AgentSessionHeader: shareddto.AgentSessionHeader{
-				AgentHeader: shareddto.AgentHeader{
-					ThreadHeader: shareddto.ThreadHeader{ThreadID: threadID},
-					AgentID:      strings.TrimSpace(d.AgentID),
-				},
+	publisher.warning(agentdto.AgentWarning{
+		AgentSessionHeader: shareddto.AgentSessionHeader{
+			AgentHeader: shareddto.AgentHeader{
+				ThreadHeader: shareddto.ThreadHeader{ThreadID: threadID},
+				AgentID:      strings.TrimSpace(d.AgentID),
 			},
-			RawType: "memory.intent_failed",
-			Code:    "memory.intent_failed",
+		},
+		RawType: "memory.intent_failed",
+		Code:    "memory.intent_failed",
+		Message: "memory.intent_failed: " + errText,
+		Payload: payload,
+	})
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	publisher.patch(uidto.UIThreadPatch{
+		ThreadID: threadID,
+		Source:   "memory.intent_failed",
+		Alerts: []uidto.PatchAlert{{
+			ID:      "memory.intent_failed:" + strings.TrimSpace(d.TurnID) + ":" + action,
+			Time:    now,
+			Level:   "warning",
 			Message: "memory.intent_failed: " + errText,
-			Payload: payload,
-		})
-	}
-	if emitPatch != nil {
-		now := time.Now().UTC().Format(time.RFC3339Nano)
-		emitPatch(uidto.UIThreadPatch{
-			ThreadID: threadID,
-			Source:   "memory.intent_failed",
-			Alerts: []uidto.PatchAlert{{
-				ID:      "memory.intent_failed:" + strings.TrimSpace(d.TurnID) + ":" + action,
-				Time:    now,
-				Level:   "warning",
-				Message: "memory.intent_failed: " + errText,
-			}},
-		})
-	}
+		}},
+	})
 }
 
 // redactedMemoryIntentError 将内部写入失败归约为 UI 可公开展示的稳定代码。
