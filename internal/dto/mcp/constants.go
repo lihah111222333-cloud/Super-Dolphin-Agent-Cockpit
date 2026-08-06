@@ -4,19 +4,17 @@ package mcp
 
 import "strings"
 
-var orchCapabilities = []string{
-	"tools/orchestration",
-	"tools/task",
-	"tools/workspace",
-	"tools/prompt",
-	"tools/command",
-	"tools/shared_file",
-	"tools/video",
-}
-
 // OrchCapabilities 返回 mcp-orch 与 host managed profile 共享的能力真值副本。
 func OrchCapabilities() []string {
-	return append([]string(nil), orchCapabilities...)
+	return []string{
+		"tools/orchestration",
+		"tools/task",
+		"tools/workspace",
+		"tools/prompt",
+		"tools/command",
+		"tools/shared_file",
+		"tools/video",
+	}
 }
 
 const (
