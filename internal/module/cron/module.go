@@ -7,6 +7,7 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/cronmetrics"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
@@ -25,6 +26,7 @@ var Module = fx.Module("cron",
 	fx.Provide(NewService),
 	fx.Provide(NewHandlers),
 	fx.Provide(provideSchedulerConfig),
+	fx.Provide(cronmetrics.New),
 	fx.Provide(provideTurnSubmitter),
 	fx.Provide(provideScheduler),
 	fx.Provide(fx.Annotate(provideTickActor, fx.ResultTags(`group:"runners"`))),
@@ -81,6 +83,7 @@ type schedulerParams struct {
 	Store      SchedulerStore
 	Submitter  TurnSubmitter
 	Cfg        SchedulerConfig
+	Metrics    *cronmetrics.Metrics
 	Dispatcher *event.Dispatcher `optional:"true"`
 }
 
@@ -90,7 +93,7 @@ func provideScheduler(p schedulerParams) *Scheduler {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
-	s := NewScheduler(logger, p.Store, p.Submitter, p.Cfg)
+	s := NewScheduler(logger, p.Store, p.Submitter, p.Cfg, p.Metrics)
 	if p.Dispatcher != nil {
 		s.WithDispatcher(p.Dispatcher)
 	}

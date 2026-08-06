@@ -8,8 +8,6 @@ import (
 	"log/slog"
 	"strings"
 	"time"
-
-	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/cronmetrics"
 )
 
 const recoverDanglingRunsBatchLimit int32 = 128
@@ -396,7 +394,7 @@ func (s *Scheduler) finalizeRecoveredRun(ctx context.Context, job JobRecord, run
 		s.recordRecoveryFinalizeError(job, run, terminalStatus, finalizeErr)
 		return finalizeErr
 	}
-	cronmetrics.IncRecoveryFinalizeConflict()
+	s.metrics.IncRecoveryFinalizeConflict()
 	s.logger.Warn("cron: recovery finalization conflict",
 		slog.String("metric", cronRecoveryFinalizeConflictMetric),
 		slog.String("job_id", job.ID),
@@ -444,7 +442,7 @@ func recoveredFinalizationMatches(currentRun RunRecord, currentJob JobRecord, jo
 // weakening the caller-visible error. The required identity and expected status
 // fields make a stale turn or lost claim diagnosable from one log event.
 func (s *Scheduler) recordRecoveryFinalizeError(job JobRecord, run RunRecord, terminalStatus string, err error) {
-	cronmetrics.IncRecoveryFinalizeError()
+	s.metrics.IncRecoveryFinalizeError()
 	s.logger.Error("cron: recovery finalization failed",
 		slog.String("metric", cronRecoveryFinalizeErrorMetric),
 		slog.String("job_id", job.ID),

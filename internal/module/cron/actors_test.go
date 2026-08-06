@@ -53,7 +53,7 @@ func TestTickActorRunsOnCtxCancel(t *testing.T) {
 		ClaimedBy:    "test",
 		TickInterval: 10 * time.Millisecond,
 		MaxClaim:     4,
-	})
+	}, newTestCronMetrics())
 	actor := NewTickActor(slog.Default(), s)
 
 	cancel, done := startActorForTest(t, actor.Run)
@@ -91,7 +91,7 @@ func TestLeaseActorCallsRenewOnTick(t *testing.T) {
 	s := NewScheduler(slog.Default(), store, &programmableSubmitter{}, SchedulerConfig{
 		ClaimedBy:      "test",
 		LeaseHeartbeat: 10 * time.Millisecond,
-	})
+	}, newTestCronMetrics())
 	actor := NewLeaseActor(slog.Default(), s)
 
 	cancel, done := startActorForTest(t, actor.Run)

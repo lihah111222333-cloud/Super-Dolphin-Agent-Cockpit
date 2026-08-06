@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kelindar/event"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/cronmetrics"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
@@ -189,6 +190,7 @@ type Scheduler struct {
 	store      SchedulerStore
 	submitter  TurnSubmitter
 	cfg        SchedulerConfig
+	metrics    *cronmetrics.Metrics
 	dispatcher *event.Dispatcher
 
 	// clock/uuid 可被测试替换，保证调度时间和 token 可预测。
@@ -200,20 +202,24 @@ type submittedTurnStore interface {
 	SubmitRunWithActiveTurn(ctx context.Context, params SubmitRunWithActiveTurnParams) error
 }
 
-// NewScheduler 创建 cron 调度器并注入存储和 turn 依赖。
+// NewScheduler 创建 cron 调度器并注入存储、turn 和恢复指标依赖。
 // nil submitter 会替换为 NoopTurnSubmitter，确保未接线时 fail-fast。
-func NewScheduler(logger *slog.Logger, store SchedulerStore, submitter TurnSubmitter, cfg SchedulerConfig) *Scheduler {
+func NewScheduler(logger *slog.Logger, store SchedulerStore, submitter TurnSubmitter, cfg SchedulerConfig, metrics *cronmetrics.Metrics) *Scheduler {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
 	if submitter == nil {
 		submitter = NoopTurnSubmitter{}
 	}
+	if metrics == nil {
+		panic("cron metrics is required")
+	}
 	return &Scheduler{
 		logger:    logger,
 		store:     store,
 		submitter: submitter,
 		cfg:       cfg.withDefaults(),
+		metrics:   metrics,
 		now:       time.Now,
 		newID:     func() string { return uuid.NewString() },
 	}

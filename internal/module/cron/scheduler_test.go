@@ -15,6 +15,7 @@ import (
 
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 	platformbus "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/bus"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/cronmetrics"
 )
 
 // recordingCronStore is a programmable double for SchedulerStore. Only
@@ -251,7 +252,7 @@ func (p *programmableSubmitter) Observe(ctx context.Context, turnID string) erro
 // pinned so assertions can match exact values.
 func newTestScheduler(t *testing.T, store SchedulerStore, submitter TurnSubmitter) *Scheduler {
 	t.Helper()
-	s := NewScheduler(slog.Default(), store, submitter, SchedulerConfig{ClaimedBy: "test"})
+	s := NewScheduler(slog.Default(), store, submitter, SchedulerConfig{ClaimedBy: "test"}, newTestCronMetrics())
 	s.now = func() time.Time { return time.Unix(1_700_000_000, 0).UTC() }
 	// Deterministic monotonic id stream (not globally unique, but
 	// enough for tests that only compare structural relations).
@@ -262,6 +263,8 @@ func newTestScheduler(t *testing.T, store SchedulerStore, submitter TurnSubmitte
 	}
 	return s
 }
+
+func newTestCronMetrics() *cronmetrics.Metrics { return cronmetrics.New() }
 
 func uuidShort(n int) string {
 	// Stable sequence like "id-0001", "id-0002" ... Longer than a raw

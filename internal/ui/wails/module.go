@@ -15,6 +15,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 	platformrunner "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runner"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/cronmetrics"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 	"go.uber.org/fx"
@@ -146,6 +147,7 @@ type httpAssetServerParams struct {
 	Frontend FrontendFS `optional:"true"`
 	Config   *config.Config
 	Server   *rpc.Server
+	Metrics  *cronmetrics.Metrics
 }
 
 // NewWailsApplication 创建 Wails 桌面应用。

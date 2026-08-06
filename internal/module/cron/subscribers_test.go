@@ -18,7 +18,7 @@ import (
 func TestNewCronProgressSubscribersSpec(t *testing.T) {
 	t.Parallel()
 
-	scheduler := NewScheduler(slog.Default(), &recordingCronStore{}, &programmableSubmitter{}, SchedulerConfig{})
+	scheduler := NewScheduler(slog.Default(), &recordingCronStore{}, &programmableSubmitter{}, SchedulerConfig{}, newTestCronMetrics())
 	spec := NewCronProgressSubscribers(scheduler, nil).Spec
 
 	if spec.EventType != "cron.progress" {
@@ -60,7 +60,7 @@ func TestCronProgressSubscribersRegisterCancelAndDeliver(t *testing.T) {
 			return nil, nil
 		},
 	}
-	scheduler := NewScheduler(slog.Default(), store, &programmableSubmitter{}, SchedulerConfig{ClaimedBy: "test"})
+	scheduler := NewScheduler(slog.Default(), store, &programmableSubmitter{}, SchedulerConfig{ClaimedBy: "test"}, newTestCronMetrics())
 	spec := NewCronProgressSubscribers(scheduler, nil).Spec
 
 	cancel := spec.Register(dispatcher)
@@ -94,7 +94,7 @@ func TestCronProgressWorkerWarnsAndCountsStaleTerminal(t *testing.T) {
 			return nil, nil
 		},
 	}
-	scheduler := NewScheduler(slog.Default(), store, &programmableSubmitter{}, SchedulerConfig{ClaimedBy: "test"})
+	scheduler := NewScheduler(slog.Default(), store, &programmableSubmitter{}, SchedulerConfig{ClaimedBy: "test"}, newTestCronMetrics())
 	worker := newCronProgressWorker(scheduler, logger)
 
 	worker.dispatch(context.Background(), cronProgressRequest{kind: cronCompleteTurn, turnID: "stale-turn", success: true})

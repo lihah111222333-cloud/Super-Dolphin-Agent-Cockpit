@@ -37,6 +37,7 @@ type httpAssetServer struct {
 	logger     *slog.Logger
 	addr       string
 	handler    http.Handler
+	metrics    http.Handler
 	server     *rpc.Server
 	wsToken    string
 	startupErr error
@@ -44,9 +45,12 @@ type httpAssetServer struct {
 
 // registerHTTPAssetRoutes 注册 metrics、WebSocket 和静态资源路由。
 // 非静态入口必须通过 RoutePolicy 声明守卫，防止新增 route 绕过本地来源检查。
-func registerHTTPAssetRoutes(mux *http.ServeMux, server *rpc.Server, assetHandler http.Handler, wsToken string) error {
+func registerHTTPAssetRoutes(mux *http.ServeMux, server *rpc.Server, assetHandler, metricsHandler http.Handler, wsToken string) error {
 	if metrics.EnabledFromEnv() {
-		if err := registerWailsHTTPRoute(mux, metrics.PrometheusMetricsPath, RoutePolicyMetricsGuarded, wailsMetricsRequestGuard(metrics.Handler(), wsToken)); err != nil {
+		if metricsHandler == nil {
+			return errors.New("wails metrics handler is required")
+		}
+		if err := registerWailsHTTPRoute(mux, metrics.PrometheusMetricsPath, RoutePolicyMetricsGuarded, wailsMetricsRequestGuard(metricsHandler, wsToken)); err != nil {
 			return err
 		}
 	}
@@ -63,11 +67,23 @@ func NewHTTPAssetServer(p httpAssetServerParams) httpAssetRunnerResult {
 	if handler != nil {
 		handler = withSharedFilePreviewAssets(withClipboardAssets(handler))
 	}
+	cronCollector, err := metrics.NewCronRecoveryCollector(p.Metrics)
+	if err != nil {
+		startupErr = errors.Join(startupErr, err)
+	}
+	var metricsHandler http.Handler
+	if cronCollector != nil {
+		metricsHandler, err = metrics.HandlerWithCronRecovery(cronCollector)
+		if err != nil {
+			startupErr = errors.Join(startupErr, err)
+		}
+	}
 	return httpAssetRunnerResult{
 		Runner: &httpAssetServer{
 			logger:     p.Logger,
 			addr:       resolveHTTPAssetAddr(),
 			handler:    handler,
+			metrics:    metricsHandler,
 			server:     p.Server,
 			wsToken:    resolveWailsWebSocketToken(),
 			startupErr: startupErr,
@@ -105,7 +121,7 @@ func (s *httpAssetServer) Run(ctx context.Context) error {
 	}
 
 	mux := http.NewServeMux()
-	if err := registerHTTPAssetRoutes(mux, s.server, s.handler, s.wsToken); err != nil {
+	if err := registerHTTPAssetRoutes(mux, s.server, s.handler, s.metrics, s.wsToken); err != nil {
 		return err
 	}
 

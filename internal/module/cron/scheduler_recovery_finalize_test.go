@@ -30,10 +30,10 @@ func (s *recordingCronRecoveryStore) GetRunByID(ctx context.Context, id string) 
 }
 
 func TestFinalizeRecoveredFailureCASFailureDoesNotMarkJobFailed(t *testing.T) {
-	cronmetrics.ResetForTesting()
-	t.Cleanup(cronmetrics.ResetForTesting)
 	store := &recordingCronStore{}
 	s := newTestScheduler(t, store, &programmableSubmitter{})
+	s.metrics.ResetForTesting()
+	t.Cleanup(s.metrics.ResetForTesting)
 	job := JobRecord{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", ClaimToken: "tok", ActiveTurnID: "turn-1", MaxAttempts: 1}
 	run := RunRecord{ID: "run-1", JobID: job.ID, TurnID: "turn-1", Status: statusSubmitted, ScheduledAt: s.now()}
 	finalizeCalls := 0
@@ -52,14 +52,14 @@ func TestFinalizeRecoveredFailureCASFailureDoesNotMarkJobFailed(t *testing.T) {
 	if finalizeCalls != 1 {
 		t.Fatalf("FinalizeRecoveredRun calls = %d, want 1", finalizeCalls)
 	}
-	assertCronRecoveryMetrics(t, 0, 1)
+	assertCronRecoveryMetrics(t, s.metrics, 0, 1)
 }
 
 func TestFinalizeRecoveredObserveLostCASFailureDoesNotMarkJobFailed(t *testing.T) {
-	cronmetrics.ResetForTesting()
-	t.Cleanup(cronmetrics.ResetForTesting)
 	store := &recordingCronStore{}
 	s := newTestScheduler(t, store, &programmableSubmitter{})
+	s.metrics.ResetForTesting()
+	t.Cleanup(s.metrics.ResetForTesting)
 	job := JobRecord{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", ClaimToken: "tok", ActiveTurnID: "turn-1", MaxAttempts: 1}
 	run := RunRecord{ID: "run-1", JobID: job.ID, TurnID: "turn-1", Status: statusRunning, ScheduledAt: s.now()}
 	finalizeCalls := 0
@@ -78,14 +78,14 @@ func TestFinalizeRecoveredObserveLostCASFailureDoesNotMarkJobFailed(t *testing.T
 	if finalizeCalls != 1 {
 		t.Fatalf("FinalizeRecoveredRun calls = %d, want 1", finalizeCalls)
 	}
-	assertCronRecoveryMetrics(t, 0, 1)
+	assertCronRecoveryMetrics(t, s.metrics, 0, 1)
 }
 
 func TestFinalizeRecoveredRunTreatsMatchingTerminalStateAsIdempotent(t *testing.T) {
-	cronmetrics.ResetForTesting()
-	t.Cleanup(cronmetrics.ResetForTesting)
 	store := &recordingCronStore{}
 	s := newTestScheduler(t, store, &programmableSubmitter{})
+	s.metrics.ResetForTesting()
+	t.Cleanup(s.metrics.ResetForTesting)
 	job := JobRecord{ID: "job-1", ClaimToken: "tok", ActiveTurnID: "turn-1"}
 	run := RunRecord{ID: "run-1", JobID: job.ID, TurnID: "turn-1", Status: statusSubmitted}
 	store.getRunByIDFn = func(context.Context, string) (RunRecord, error) {
@@ -97,14 +97,14 @@ func TestFinalizeRecoveredRunTreatsMatchingTerminalStateAsIdempotent(t *testing.
 	if err := s.finalizeRecoveredRun(context.Background(), job, run, statusFailed, ErrStoreStatusTransitionRefused); err != nil {
 		t.Fatalf("finalizeRecoveredRun() error = %v, want idempotent success", err)
 	}
-	assertCronRecoveryMetrics(t, 1, 0)
+	assertCronRecoveryMetrics(t, s.metrics, 1, 0)
 }
 
 func TestFinalizeRecoveredRunRejectsConflictingTerminalState(t *testing.T) {
-	cronmetrics.ResetForTesting()
-	t.Cleanup(cronmetrics.ResetForTesting)
 	store := &recordingCronStore{}
 	s := newTestScheduler(t, store, &programmableSubmitter{})
+	s.metrics.ResetForTesting()
+	t.Cleanup(s.metrics.ResetForTesting)
 	job := JobRecord{ID: "job-1", ClaimToken: "tok", ActiveTurnID: "turn-1"}
 	run := RunRecord{ID: "run-1", JobID: job.ID, TurnID: "turn-1", Status: statusSubmitted}
 	store.getRunByIDFn = func(context.Context, string) (RunRecord, error) {
@@ -117,15 +117,15 @@ func TestFinalizeRecoveredRunRejectsConflictingTerminalState(t *testing.T) {
 	if !errors.Is(err, ErrStoreStatusTransitionRefused) {
 		t.Fatalf("finalizeRecoveredRun() error = %v, want classified conflict", err)
 	}
-	assertCronRecoveryMetrics(t, 1, 1)
+	assertCronRecoveryMetrics(t, s.metrics, 1, 1)
 }
 
 // TestFinalizeRecoveredObserveLostOldTurnConflictDoesNotReleaseNewClaimOrRetry 模拟并发调度器替换旧 turn 的 claim。
 func TestFinalizeRecoveredObserveLostOldTurnConflictDoesNotReleaseNewClaimOrRetry(t *testing.T) {
-	cronmetrics.ResetForTesting()
-	t.Cleanup(cronmetrics.ResetForTesting)
 	store := &recordingCronStore{}
 	s := newTestScheduler(t, store, &programmableSubmitter{})
+	s.metrics.ResetForTesting()
+	t.Cleanup(s.metrics.ResetForTesting)
 	oldJob := JobRecord{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", ClaimToken: "old-claim", ActiveTurnID: "turn-old", MaxAttempts: 3}
 	oldRun := RunRecord{ID: "run-old", JobID: oldJob.ID, TurnID: "turn-old", Status: statusRunning, ScheduledAt: s.now()}
 	newJob := JobRecord{ID: oldJob.ID, ClaimToken: "new-claim", ActiveTurnID: "turn-new", NextRetryAt: s.now().Add(time.Hour)}
@@ -152,12 +152,12 @@ func TestFinalizeRecoveredObserveLostOldTurnConflictDoesNotReleaseNewClaimOrRetr
 	if newJob.ClaimToken != "new-claim" || newJob.ActiveTurnID != "turn-new" || newJob.NextRetryAt.IsZero() {
 		t.Fatalf("new claim was released or its retry schedule changed: %+v", newJob)
 	}
-	assertCronRecoveryMetrics(t, 1, 1)
+	assertCronRecoveryMetrics(t, s.metrics, 1, 1)
 }
 
-func assertCronRecoveryMetrics(t *testing.T, wantConflict, wantError uint64) {
+func assertCronRecoveryMetrics(t *testing.T, metrics *cronmetrics.Metrics, wantConflict, wantError uint64) {
 	t.Helper()
-	got := cronmetrics.Read()
+	got := metrics.Read()
 	if got.RecoveryFinalizeConflictTotal != wantConflict || got.RecoveryFinalizeErrorTotal != wantError {
 		t.Fatalf("cron recovery metrics = %+v, want conflict=%d error=%d", got, wantConflict, wantError)
 	}

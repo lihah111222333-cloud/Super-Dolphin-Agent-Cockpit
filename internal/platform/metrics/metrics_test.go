@@ -48,21 +48,21 @@ func TestSkillMetricsExporterSnapshotIncludesHostToolOutcomes(t *testing.T) {
 }
 
 func TestCronRecoveryMetricsExportSourceSnapshotAndHandler(t *testing.T) {
-	cronmetrics.ResetForTesting()
-	t.Cleanup(cronmetrics.ResetForTesting)
-	cronmetrics.IncRecoveryFinalizeConflict()
-	cronmetrics.IncRecoveryFinalizeError()
-	cronmetrics.IncRecoveryFinalizeError()
-
-	if got := testutil.ToFloat64(CronRecoveryFinalizeConflictTotal); got != 1 {
-		t.Fatalf("cron_recovery_finalize_conflict_total = %v, want 1", got)
+	source := cronmetrics.New()
+	source.IncRecoveryFinalizeConflict()
+	source.IncRecoveryFinalizeError()
+	source.IncRecoveryFinalizeError()
+	collector, err := NewCronRecoveryCollector(source)
+	if err != nil {
+		t.Fatalf("NewCronRecoveryCollector() error = %v", err)
 	}
-	if got := testutil.ToFloat64(CronRecoveryFinalizeErrorTotal); got != 2 {
-		t.Fatalf("cron_recovery_finalize_error_total = %v, want 2", got)
+	handler, err := HandlerWithCronRecovery(collector)
+	if err != nil {
+		t.Fatalf("HandlerWithCronRecovery() error = %v", err)
 	}
 
 	rec := httptest.NewRecorder()
-	Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, PrometheusMetricsPath, nil))
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, PrometheusMetricsPath, nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("metrics status = %d, want %d", rec.Code, http.StatusOK)
 	}

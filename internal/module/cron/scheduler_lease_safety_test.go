@@ -22,7 +22,7 @@ func TestLeaseActorReturnsListClaimedFailureWithoutRetryOrCancel(t *testing.T) {
 	submitter := &leaseCancelSubmitter{}
 	s := NewScheduler(nil, store, submitter, SchedulerConfig{
 		ClaimedBy: "test", LeaseHeartbeat: time.Millisecond, LeaseTTL: time.Hour,
-	})
+	}, newTestCronMetrics())
 	actor := NewLeaseActor(nil, s)
 
 	_, done := startActorForTest(t, actor.Run)
@@ -63,7 +63,7 @@ func TestRenewLeasesAggregatesJobFailuresAndContinues(t *testing.T) {
 			return nil
 		},
 	}
-	s := NewScheduler(nil, store, &programmableSubmitter{}, SchedulerConfig{ClaimedBy: "test"})
+	s := NewScheduler(nil, store, &programmableSubmitter{}, SchedulerConfig{ClaimedBy: "test"}, newTestCronMetrics())
 
 	err := s.RenewLeases(context.Background())
 	if !errors.Is(err, want) || !strings.Contains(err.Error(), "job-bad") {
@@ -79,7 +79,7 @@ func TestRenewLeasesAggregatesJobFailuresAndContinues(t *testing.T) {
 func TestCancelLeaseFailuresAggregatesCancelErrorsByJob(t *testing.T) {
 	want := errors.New("interrupt failed")
 	submitter := &leaseCancelSubmitter{err: want}
-	s := NewScheduler(nil, &recordingCronStore{}, submitter, SchedulerConfig{})
+	s := NewScheduler(nil, &recordingCronStore{}, submitter, SchedulerConfig{}, newTestCronMetrics())
 	failures := []leaseRenewFailure{{job: JobRecord{ID: "job-1", ThreadID: "thread-1", ActiveTurnID: "turn-1"}}}
 
 	err := s.cancelLeaseFailures(context.Background(), failures)
@@ -104,7 +104,7 @@ func TestLeaseActorExitsAndCancelsWhenRenewSafetyBudgetIsExhausted(t *testing.T)
 	submitter := &leaseCancelSubmitter{}
 	s := NewScheduler(nil, store, submitter, SchedulerConfig{
 		ClaimedBy: "test", LeaseHeartbeat: 10 * time.Millisecond, LeaseTTL: time.Minute,
-	})
+	}, newTestCronMetrics())
 	actor := NewLeaseActor(nil, s)
 
 	_, done := startActorForTest(t, actor.Run)
