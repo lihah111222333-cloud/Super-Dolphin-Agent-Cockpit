@@ -202,19 +202,13 @@ func canonicalToolName(name string) string {
 	return strings.TrimSpace(name)
 }
 
-var currentLSPToolNames = map[string]struct{}{
-	"file":       {},
-	"grep":       {},
-	"inspect":    {},
-	"xref":       {},
-	"structure":  {},
-	"patch_edit": {},
-	"completion": {},
-}
-
 func isCurrentLSPToolName(name string) bool {
-	_, ok := currentLSPToolNames[strings.TrimSpace(name)]
-	return ok
+	switch strings.TrimSpace(name) {
+	case "file", "grep", "inspect", "xref", "structure", "patch_edit", "completion":
+		return true
+	default:
+		return false
+	}
 }
 
 // classifyTool 根据工具名推断所属 MCP client family。

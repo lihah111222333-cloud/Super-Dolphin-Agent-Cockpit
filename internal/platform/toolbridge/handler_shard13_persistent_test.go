@@ -173,7 +173,7 @@ func TestPersistentSubagentAllowsLegacyOptInFallback(t *testing.T) {
 	})
 	h.threadStore = &stubThreadStore{thread: &threadstore.Thread{ThreadID: "thread-legacy-fallback", ConfigOverride: raw}}
 	h.cfg = &platformconfig.Config{Agent: platformconfig.AgentConfig{PersistentSubagentDefault: true}}
-	before := persistentSubagentDefaultFallbackCount()
+	before := h.persistentSubagentDefaultFallbackCount()
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
 		Name:      "spawn_agent",
@@ -184,8 +184,8 @@ func TestPersistentSubagentAllowsLegacyOptInFallback(t *testing.T) {
 		t.Fatalf("routeToolCall() error = %v", err)
 	}
 	assertSingleTextItem(t, got, persistentSubagentDefaultBlockText, false)
-	if after := persistentSubagentDefaultFallbackCount(); after != before+1 {
-		t.Fatalf("persistentSubagentDefaultFallbackCount() = %d, want %d", after, before+1)
+	if after := h.persistentSubagentDefaultFallbackCount(); after != before+1 {
+		t.Fatalf("Handler.persistentSubagentDefaultFallbackCount() = %d, want %d", after, before+1)
 	}
 	if !strings.Contains(logs.String(), "compatibility-only: persistent subagent default fallback") {
 		t.Fatalf("logs = %q, want compatibility warning", logs.String())

@@ -22,8 +22,11 @@ import (
 	"go.uber.org/fx"
 )
 
-// proxyAddr 保存当前 toolbridge proxy 的监听地址，供 provider manifest 注入。
-var proxyAddr atomic.Value
+// proxyAddress 持有单个 Fx toolbridge 实例发布的 proxy 地址。
+type proxyAddress struct{ value atomic.Value }
+
+// newProxyAddress 创建 proxy 地址的实例 owner。
+func newProxyAddress() *proxyAddress { return &proxyAddress{} }
 
 // Module 装配 toolbridge 核心能力。
 // store adapter、Codex handler 绑定和 WorkDirResolver 都留在 app 装配层，
@@ -31,6 +34,7 @@ var proxyAddr atomic.Value
 var Module = fx.Module("toolbridge",
 	fx.Provide(
 		provideToolbridgeDependencyConfig,
+		newProxyAddress,
 		NewHandler,
 		provideHostToolRegistry,
 		provideDiffEmitter,
@@ -164,11 +168,14 @@ func (fn resolverFunc) ResolveAgentCWD(ctx context.Context, agentID string) (str
 }
 
 // provideProxyAddrFn 返回可被 provider manifest builder 调用的 proxy 地址读取函数。
-func provideProxyAddrFn() func() string {
-	return func() string {
-		addr, _ := proxyAddr.Load().(string)
-		return strings.TrimSpace(addr)
+func provideProxyAddrFn(address *proxyAddress) (func() string, error) {
+	if address == nil {
+		return nil, errors.New("toolbridge: nil proxy address owner")
 	}
+	return func() string {
+		addr, _ := address.value.Load().(string)
+		return strings.TrimSpace(addr)
+	}, nil
 }
 
 // provideProxyTokenFn 返回可被 provider manifest builder 调用的 proxy token 读取函数。
@@ -184,7 +191,7 @@ func provideProxyTokenFn(h *Handler) func() string {
 
 // registerProxyLifecycle 完成 proxy 的同步装配：监听端口、发布地址并交给 ProxyRunner。
 // Serve 与 listener close 由 ProxyRunner.Run 负责，这里 OnStop 只清空已发布地址。
-func registerProxyLifecycle(lifecycle fx.Lifecycle, h *Handler, runner *ProxyRunner) error {
+func registerProxyLifecycle(lifecycle fx.Lifecycle, h *Handler, runner *ProxyRunner, address *proxyAddress) error {
 	if lifecycle == nil {
 		return errors.New("toolbridge: nil lifecycle")
 	}
@@ -194,6 +201,9 @@ func registerProxyLifecycle(lifecycle fx.Lifecycle, h *Handler, runner *ProxyRun
 	if runner == nil {
 		return errors.New("toolbridge: nil proxy runner")
 	}
+	if address == nil {
+		return errors.New("toolbridge: nil proxy address owner")
+	}
 	lifecycle.Append(fx.Hook{
 		OnStart: func(context.Context) error {
 			listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -201,7 +211,7 @@ func registerProxyLifecycle(lifecycle fx.Lifecycle, h *Handler, runner *ProxyRun
 				return err
 			}
 			addr := strings.TrimSpace(listener.Addr().String())
-			proxyAddr.Store(addr)
+			address.value.Store(addr)
 			runner.SetListener(listener)
 			logger := h.logger
 			if logger == nil {
@@ -211,7 +221,7 @@ func registerProxyLifecycle(lifecycle fx.Lifecycle, h *Handler, runner *ProxyRun
 			return nil
 		},
 		OnStop: func(context.Context) error {
-			proxyAddr.Store("")
+			address.value.Store("")
 			return nil
 		},
 	})

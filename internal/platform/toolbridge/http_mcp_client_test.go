@@ -263,6 +263,31 @@ func TestBuildHTTPMCPClientRejectsPrivateURL(t *testing.T) {
 	}
 }
 
+func TestBuildHTTPMCPClientCreatesIndependentManagedClients(t *testing.T) {
+	t.Parallel()
+
+	binary := providerdto.MCPBinary{Name: string(providerdto.FamilyOrch), Type: "http", URL: "http://127.0.0.1:9900/mcp"}
+	first, err := buildHTTPMCPClient(binary)
+	if err != nil {
+		t.Fatalf("first buildHTTPMCPClient() error = %v", err)
+	}
+	second, err := buildHTTPMCPClient(binary)
+	if err != nil {
+		t.Fatalf("second buildHTTPMCPClient() error = %v", err)
+	}
+	firstHTTP, ok := first.client.(*http.Client)
+	if !ok {
+		t.Fatalf("first client = %T, want *http.Client", first.client)
+	}
+	secondHTTP, ok := second.client.(*http.Client)
+	if !ok {
+		t.Fatalf("second client = %T, want *http.Client", second.client)
+	}
+	if firstHTTP == secondHTTP {
+		t.Fatal("buildHTTPMCPClient() shared the default HTTP client across builds")
+	}
+}
+
 func TestHTTPMCPClientListToolsRejectsMalformedResult(t *testing.T) {
 	cases := []struct {
 		name    string

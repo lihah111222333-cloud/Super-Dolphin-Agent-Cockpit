@@ -6,41 +6,37 @@ import (
 	"maps"
 	"sort"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/difftracker"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/observability"
 )
 
-// toolTraceSpanSeq 为本进程内 toolbridge trace span 生成递增后缀。
-var toolTraceSpanSeq atomic.Uint64
-
 // recordToolTrace 记录 toolbridge trace 事件，tracer 未启用时保持空操作。
 func (h *Handler) recordToolTrace(ctx context.Context, event observability.TraceEvent) {
 	if h == nil || h.tracer == nil {
 		return
 	}
-	fillToolTrace(ctx, &event)
+	h.fillToolTrace(ctx, &event)
 	if err := h.tracer.Record(ctx, event); err != nil {
 		h.tracer.WarnRecordError(h.logger, "toolbridge", event, err)
 	}
 }
 
 // beginToolTraceContext 为一次工具调用创建或延续 trace/span 上下文。
-func beginToolTraceContext(ctx context.Context) context.Context {
+func (h *Handler) beginToolTraceContext(ctx context.Context) context.Context {
 	trace, _ := observability.TraceFromContext(ctx)
 	parentSpanID := trace.SpanID
 	if trace.TraceID == "" {
-		trace.TraceID = nextToolTraceSpan("trace")
+		trace.TraceID = h.nextToolTraceSpan("trace")
 	}
 	trace.ParentSpanID = parentSpanID
-	trace.SpanID = nextToolTraceSpan("tool.call")
+	trace.SpanID = h.nextToolTraceSpan("tool.call")
 	return observability.ContextWithTrace(ctx, trace)
 }
 
 // fillToolTrace 填充 trace/span/code/status 默认值，并按错误状态采集 stack。
-func fillToolTrace(ctx context.Context, event *observability.TraceEvent) {
+func (h *Handler) fillToolTrace(ctx context.Context, event *observability.TraceEvent) {
 	fillToolTraceDefaults(event)
 	if trace, ok := observability.TraceFromContext(ctx); ok {
 		event.TraceID = trace.TraceID
@@ -52,7 +48,7 @@ func fillToolTrace(ctx context.Context, event *observability.TraceEvent) {
 		}
 	}
 	if event.SpanID == "" {
-		event.SpanID = nextToolTraceSpan(event.Method)
+		event.SpanID = h.nextToolTraceSpan(event.Method)
 	}
 	if event.TraceID != "" {
 		if event.Metadata == nil {
@@ -87,8 +83,11 @@ func shouldCaptureToolStack(status observability.Status) bool {
 }
 
 // nextToolTraceSpan 生成本地唯一的 toolbridge span id。
-func nextToolTraceSpan(method string) string {
-	return "toolbridge:" + method + ":" + formatUint(toolTraceSpanSeq.Add(1))
+func (h *Handler) nextToolTraceSpan(method string) string {
+	if h == nil {
+		panic("toolbridge: nil handler trace owner")
+	}
+	return "toolbridge:" + method + ":" + formatUint(h.toolTraceSpanSeq.Add(1))
 }
 
 // formatUint 在无额外分配的情况下格式化正整数。
@@ -276,14 +275,14 @@ func toolTraceJSONSize(value any) int {
 }
 
 // toolDiffTraceEvent 构造工具 diff 发布 trace 事件。
-func toolDiffTraceEvent(req ToolCallRequest, result difftracker.DiffResult, elapsed time.Duration, err error) observability.TraceEvent {
+func (h *Handler) toolDiffTraceEvent(req ToolCallRequest, result difftracker.DiffResult, elapsed time.Duration, err error) observability.TraceEvent {
 	status := observability.StatusOK
 	if err != nil {
 		status = observability.StatusError
 	}
 	return observability.TraceEvent{
 		Method:     "tool.diff.emit",
-		SpanID:     nextToolTraceSpan("tool.diff.emit"),
+		SpanID:     h.nextToolTraceSpan("tool.diff.emit"),
 		ThreadID:   req.ThreadID,
 		AgentID:    req.AgentID,
 		TurnID:     req.TurnID,

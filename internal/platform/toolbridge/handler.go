@@ -28,9 +28,6 @@ import (
 const allowDefaultPersistentSubagentEnv = "TOOLBRIDGE_ALLOW_DEFAULT_PERSISTENT_SUBAGENT"
 const subAgentDelegationDepthLimitMessage = "Sub-agents are not allowed to spawn further agents (delegation depth limit)."
 
-// persistentSubagentDefaultFallbackTotal 统计兼容 fallback 被触发的次数，便于后续移除旧路径。
-var persistentSubagentDefaultFallbackTotal atomic.Uint64
-
 const (
 	toolCallPublicErrorSummary = "Tool execution failed."
 	toolCallPublicErrorCode    = "tool_execution_failed"
@@ -93,17 +90,19 @@ type Handler struct {
 	// host-direct 工具。字段保持 nil-safe：测试或未来无 HostToolRegistry 的
 	// toolbridge 图会退回 peer 路径；当前 mcp-orch / mcp-lsp standalone 不加载
 	// toolbridge.Module。
-	hostTools          HostToolRegistry
-	skillTools         contract.SkillToolProvider
-	skillMetrics       skillmetrics.HostToolCallWriter
-	surfaceMu          sync.Mutex
-	surfaces           map[string]*codexToolSurface
-	peerSchemaMu       sync.Mutex
-	peerInputSchemas   map[string]map[string]json.RawMessage
-	proxyAuthToken     string
-	stdioClientFactory func(context.Context, providerdto.MCPBinary) (mcpClient, error)
-	schemaExecutor     mcpSchemaExecutor
-	authorityOwner     contract.MCPToolAuthorityOwner
+	hostTools                              HostToolRegistry
+	skillTools                             contract.SkillToolProvider
+	skillMetrics                           skillmetrics.HostToolCallWriter
+	surfaceMu                              sync.Mutex
+	surfaces                               map[string]*codexToolSurface
+	peerSchemaMu                           sync.Mutex
+	peerInputSchemas                       map[string]map[string]json.RawMessage
+	proxyAuthToken                         string
+	stdioClientFactory                     func(context.Context, providerdto.MCPBinary) (mcpClient, error)
+	schemaExecutor                         mcpSchemaExecutor
+	authorityOwner                         contract.MCPToolAuthorityOwner
+	persistentSubagentDefaultFallbackTotal atomic.Uint64
+	toolTraceSpanSeq                       atomic.Uint64
 }
 
 // activePeerRegistry 是 toolbridge 选择活跃 MCP peer 所需的最小注册表接口。
@@ -188,7 +187,7 @@ func NewHandler(in handlerIn) (*Handler, error) {
 		authorityOwner:  in.AuthorityOwner,
 		hostTools:       in.HostTools,
 		skillTools:      in.SkillTools,
-		skillMetrics:     in.Metrics,
+		skillMetrics:    in.Metrics,
 		surfaces:        make(map[string]*codexToolSurface),
 		proxyAuthToken:  newProxyAuthToken(),
 	}
@@ -270,7 +269,7 @@ func (h *Handler) HandleToolCall(ctx context.Context, msg contract.ToolCallRawMe
 		traceReq.CallID = callIDFromRawJSONRPCID(msg.ID)
 	}
 	traceReq = normalizeToolCallRequest(traceReq)
-	ctx = beginToolTraceContext(ctx)
+	ctx = h.beginToolTraceContext(ctx)
 	started := time.Now()
 	h.recordToolTrace(ctx, toolTraceBeginEvent(traceReq))
 	defer func() {
@@ -607,7 +606,7 @@ func (h *Handler) persistentSubagentRequired(ctx context.Context, req ToolCallRe
 			return false, contract.ErrPersistentSubagentFlagRequired
 		}
 		required = h.cfg != nil && h.cfg.Agent.PersistentSubagentDefault
-		persistentSubagentDefaultFallbackTotal.Add(1)
+		h.persistentSubagentDefaultFallbackTotal.Add(1)
 		h.warn("compatibility-only: persistent subagent default fallback", "env", allowDefaultPersistentSubagentEnv, "required", required)
 	}
 	if !required {
@@ -802,8 +801,11 @@ func allowDefaultPersistentSubagentFallback() bool {
 }
 
 // persistentSubagentDefaultFallbackCount 返回兼容 fallback 次数，主要用于测试和观测。
-func persistentSubagentDefaultFallbackCount() uint64 {
-	return persistentSubagentDefaultFallbackTotal.Load()
+func (h *Handler) persistentSubagentDefaultFallbackCount() uint64 {
+	if h == nil {
+		return 0
+	}
+	return h.persistentSubagentDefaultFallbackTotal.Load()
 }
 
 // persistentSubagentFlagFromRuntime 从 runtime session flags 中读取 persistent subagent 开关。

@@ -46,7 +46,7 @@ func (h *Handler) emitToolDiff(ctx context.Context, req ToolCallRequest, snapsho
 	started := time.Now()
 	diffText, files, err := difftracker.EmitGitDiff(ctx, snapshot)
 	if err != nil {
-		h.recordToolTrace(ctx, toolDiffTraceEvent(req, difftracker.DiffResult{Files: files}, time.Since(started), err))
+		h.recordToolTrace(ctx, h.toolDiffTraceEvent(req, difftracker.DiffResult{Files: files}, time.Since(started), err))
 		return
 	}
 	if diffText == "" {
@@ -61,10 +61,10 @@ func (h *Handler) emitToolDiff(ctx context.Context, req ToolCallRequest, snapsho
 		Files:    files,
 	}
 	if err := h.emitter(ctx, diff); err != nil {
-		h.recordToolTrace(ctx, toolDiffTraceEvent(req, diff, time.Since(started), err))
+		h.recordToolTrace(ctx, h.toolDiffTraceEvent(req, diff, time.Since(started), err))
 		return
 	}
-	h.recordToolTrace(ctx, toolDiffTraceEvent(req, diff, time.Since(started), nil))
+	h.recordToolTrace(ctx, h.toolDiffTraceEvent(req, diff, time.Since(started), nil))
 	if h.diffFallback != nil {
 		h.diffFallback.MarkSeen(req.CallID)
 	}

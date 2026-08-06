@@ -87,17 +87,6 @@ func SplitMCPToolName(name string) (MCPToolNamespace, bool) {
 	return MCPToolNamespace{Server: strings.TrimSpace(parts[0]), Tool: strings.TrimSpace(parts[1])}, true
 }
 
-var toolCWDTraceCanonicalTools = map[string]struct{}{
-	"file":         {},
-	"grep":         {},
-	"inspect":      {},
-	"xref":         {},
-	"structure":    {},
-	"patch_edit":   {},
-	"completion":   {},
-	"launch_agent": {},
-}
-
 func (h *Handler) resolveCurrentToolCallCWD(ctx context.Context, req ToolCallRequest) string {
 	if cwd := normalizeToolCallCWD(req.CWD); cwd != "" {
 		return cwd
@@ -124,13 +113,22 @@ func (h *Handler) resolveAndWarnCurrentToolCallCWD(ctx context.Context, req Tool
 
 func shouldWarnToolCWDTrace(toolName string) bool {
 	trimmed := strings.TrimSpace(toolName)
-	if _, ok := toolCWDTraceCanonicalTools[canonicalToolName(trimmed)]; ok {
+	if isToolCWDTraceCanonicalTool(canonicalToolName(trimmed)) {
 		return true
 	}
-	if _, ok := toolCWDTraceCanonicalTools[canonicalOrchestrationToolName(trimmed)]; ok {
+	if isToolCWDTraceCanonicalTool(canonicalOrchestrationToolName(trimmed)) {
 		return true
 	}
 	return false
+}
+
+func isToolCWDTraceCanonicalTool(name string) bool {
+	switch name {
+	case "file", "grep", "inspect", "xref", "structure", "patch_edit", "completion", "launch_agent":
+		return true
+	default:
+		return false
+	}
 }
 
 func (h *Handler) warnPeerToolCWDTrace(ctx context.Context, req ToolCallRequest, forwardedCWD string) {
@@ -330,31 +328,12 @@ func requiresCodexSurfaceFamilyTool(family, name string) bool {
 }
 
 func requiresCanonicalCodexSurfaceTool(name string) bool {
-	_, ok := canonicalCodexSurfaceTools[strings.TrimSpace(name)]
-	return ok
-}
-
-var canonicalCodexSurfaceTools = map[string]struct{}{
-	"file":              {},
-	"inspect":           {},
-	"xref":              {},
-	"grep":              {},
-	"structure":         {},
-	"patch_edit":        {},
-	"completion":        {},
-	"launch_agent":      {},
-	"send_message":      {},
-	"stop_agent":        {},
-	"recover_agent":     {},
-	"interrupt_agent":   {},
-	"list_agents":       {},
-	"get_agent_report":  {},
-	"get_agent_reports": {},
-	ToolNameMemoryRead:  {},
-	ToolNameMemoryWrite: {},
-	ToolNameHistoryRead: {},
-	ToolNameReadSection: {},
-	"skill_expand_body": {},
+	switch strings.TrimSpace(name) {
+	case "file", "inspect", "xref", "grep", "structure", "patch_edit", "completion", "launch_agent", "send_message", "stop_agent", "recover_agent", "interrupt_agent", "list_agents", "get_agent_report", "get_agent_reports", ToolNameMemoryRead, ToolNameMemoryWrite, ToolNameHistoryRead, ToolNameReadSection, "skill_expand_body":
+		return true
+	default:
+		return false
+	}
 }
 
 // setDynamicToolDeferLoading 设置 dynamic 工具 defer loading。

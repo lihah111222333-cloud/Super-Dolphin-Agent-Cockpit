@@ -31,8 +31,6 @@ const (
 	httpMCPCloseTimeout           = 5 * time.Second
 )
 
-var defaultHTTPMCPClient = &http.Client{Timeout: 30 * time.Second}
-
 type httpMCPDoer interface {
 	Do(*http.Request) (*http.Response, error)
 }
@@ -103,7 +101,7 @@ func buildHTTPMCPClient(binary providerdto.MCPBinary) (*httpMCPClient, error) {
 	if endpoint == "" {
 		return nil, fmt.Errorf("toolbridge: HTTP MCP url is required for %q", name)
 	}
-	client := httpMCPDoer(defaultHTTPMCPClient)
+	client := httpMCPDoer(&http.Client{Timeout: 30 * time.Second})
 	if !contract.IsManagedRuntimeMCPServerName(name) {
 		var err error
 		endpoint, err = httpegress.ValidatePublicURL(endpoint)
