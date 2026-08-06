@@ -26,7 +26,13 @@ const (
 // toolPayloadLogSeq 为同一纳秒内的载荷快照提供单调序号，避免文件名冲突。
 var toolPayloadLogSeq atomic.Uint64
 
-var tokenLikePayloadPattern = regexp.MustCompile(`(?i)(sk-[a-z0-9_-]{8,}|gh[pousr]_[a-z0-9_]{8,}|xox[baprs]-[a-z0-9-]{8,}|[a-z0-9_-]{20,}\.[a-z0-9_-]{10,}\.[a-z0-9_-]{10,})`)
+var (
+	tokenLikePayloadPattern     = regexp.MustCompile(`(?i)(sk-[a-z0-9_-]{8,}|gh[pousr]_[a-z0-9_]{8,}|xox[baprs]-[a-z0-9-]{8,}|[a-z0-9_-]{20,}\.[a-z0-9_-]{10,}\.[a-z0-9_-]{10,})`)
+	bearerPayloadPattern        = regexp.MustCompile(`(?i)\bbearer\s+[^\s,;]+`)
+	authorizationPayloadPattern = regexp.MustCompile(`(?i)\bauthorization\s*[:=]\s*[^\r\n,;]+`)
+	credentialAssignmentPattern = regexp.MustCompile(`(?i)\b(api[_-]?key|token|secret|password)\s*([:=])\s*[^\s,;]+`)
+	connectionUserinfoPattern   = regexp.MustCompile(`(?i)\b([a-z][a-z0-9+.-]*://)[^:/\s@]+:[^@/\s]+@`)
+)
 
 // UnmarshalJSON 严格解码 tools/call 顶层参数，同时兼容 MCP 标准和历史 metadata。
 // _meta/sessionId/session_id 只作为不可信 metadata 被接收或忽略；其他未知字段仍会直接报错。
@@ -223,9 +229,13 @@ func redactJSONValue(key string, value any) any {
 	}
 }
 
-// redactSensitiveString 替换 token-looking 字符串片段，保留非敏感调试上下文。
+// redactSensitiveString 替换常见凭据载体，保留不含凭据的调试上下文。
 func redactSensitiveString(value string) string {
-	return tokenLikePayloadPattern.ReplaceAllString(value, "[REDACTED]")
+	value = tokenLikePayloadPattern.ReplaceAllString(value, "[REDACTED]")
+	value = bearerPayloadPattern.ReplaceAllString(value, "Bearer [REDACTED]")
+	value = authorizationPayloadPattern.ReplaceAllString(value, "authorization=[REDACTED]")
+	value = credentialAssignmentPattern.ReplaceAllString(value, "$1$2[REDACTED]")
+	return connectionUserinfoPattern.ReplaceAllString(value, "$1[REDACTED]@")
 }
 
 // isSensitivePayloadKey 判断 JSON key 是否常用于认证密钥或口令。

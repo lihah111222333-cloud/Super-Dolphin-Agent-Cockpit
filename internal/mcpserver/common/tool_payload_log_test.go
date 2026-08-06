@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -117,6 +118,55 @@ func TestToolPayloadLogDebugModeStillRedactsSecrets(t *testing.T) {
 				if !strings.Contains(files, want) {
 					t.Fatalf("debug snapshots missing %q redaction evidence: %s", want, files)
 				}
+			}
+		})
+	}
+}
+
+func TestToolPayloadLogRedactsProviderErrorsAcrossTransports(t *testing.T) {
+	const rawError = "provider failed: Bearer bearer-secret; api_key=api-secret; postgres://alice:dsn-secret@db.example/app"
+	for _, tc := range []struct {
+		name string
+		run  func(t *testing.T, dir string, provider ToolProvider)
+	}{
+		{
+			name: "stdio",
+			run: func(t *testing.T, dir string, provider ToolProvider) {
+				t.Helper()
+				var output bytes.Buffer
+				server := NewServer("mcp-lsp", "dev", NewStdioTransport(bytes.NewReader(toolCallRequest(t, "error-stdio", "error", nil)), &output), provider)
+				if err := server.Run(context.Background()); err != nil {
+					t.Fatalf("Run() error = %v", err)
+				}
+			},
+		},
+		{
+			name: "http",
+			run: func(t *testing.T, dir string, provider ToolProvider) {
+				t.Helper()
+				server := NewHTTPServer("mcp-lsp", "dev", provider)
+				rec := httptest.NewRecorder()
+				req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(toolCallRequest(t, "error-http", "error", nil)))
+				attachInitializedHTTPSession(t, server, req)
+				server.handleMCP(rec, req)
+				if rec.Code != http.StatusOK {
+					t.Fatalf("HTTP status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+				}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv(toolPayloadLogDirEnv, dir)
+			provider := captureToolProvider{call: func(context.Context, string, json.RawMessage) (any, error) {
+				return nil, errors.New(rawError)
+			}}
+			tc.run(t, dir, provider)
+
+			files := readToolPayloadFiles(t, dir)
+			assertSnapshotsDoNotContain(t, files, "bearer-secret", "api-secret", "dsn-secret")
+			if !strings.Contains(files, "[REDACTED]") {
+				t.Fatalf("error snapshot has no redaction evidence: %s", files)
 			}
 		})
 	}
