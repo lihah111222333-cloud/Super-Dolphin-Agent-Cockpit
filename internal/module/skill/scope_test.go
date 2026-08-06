@@ -54,6 +54,7 @@ func TestWriteLocalRejectsEmptyScopeBeforeProjectWrite(t *testing.T) {
 		projectRoot:       projectRoot,
 		projectSkillsRoot: defaultProjectSkillsRoot(projectRoot),
 		http:              &http.Client{},
+		mirrorLocks:       NewMirrorRootLockRegistry(),
 	}
 
 	_, err := svc.WriteLocal(skillTestContext(projectRoot), "empty-scope", "# blocked", "   ")
@@ -73,6 +74,7 @@ func TestImportLocalDirRejectsEmptyScopeBeforeSourceValidation(t *testing.T) {
 		projectRoot:       projectRoot,
 		projectSkillsRoot: defaultProjectSkillsRoot(projectRoot),
 		http:              &http.Client{},
+		mirrorLocks:       NewMirrorRootLockRegistry(),
 	}
 
 	_, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: filepath.Join(t.TempDir(), "missing"), Scope: " "})
@@ -91,6 +93,7 @@ func TestWriteLocalScopeRoutesProjectSystemAndRejectsEmpty(t *testing.T) {
 		projectRoot:       projectRoot,
 		projectSkillsRoot: defaultProjectSkillsRoot(projectRoot),
 		http:              &http.Client{},
+		mirrorLocks:       NewMirrorRootLockRegistry(),
 	}
 
 	projectOut, err := svc.WriteLocal(skillTestContext(projectRoot), "project-skill", "# project", "project")
@@ -125,6 +128,7 @@ func TestImportLocalDirScopeRoutesProjectAndSystemGlobal(t *testing.T) {
 		projectRoot:       projectRoot,
 		projectSkillsRoot: defaultProjectSkillsRoot(projectRoot),
 		http:              &http.Client{},
+		mirrorLocks:       NewMirrorRootLockRegistry(),
 	}
 
 	projectSource := filepath.Join(t.TempDir(), "project-import")
@@ -169,7 +173,7 @@ func TestListSkillsIgnoresLegacySkillsRootAtRuntime(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_HOME", filepath.Join(t.TempDir(), ".super-dolphin"))
 	writeTestSkill(t, oldRoot, "legacy-global", "---\nname: legacy-global\nsummary: legacy\n---\nbody")
 
-	svc := NewService(projectRoot, testSkillMetrics(t))
+	svc := NewService(projectRoot, testSkillMetrics(t), NewMirrorRootLockRegistry())
 	skills, err := svc.ListSkills(skillTestContext(projectRoot))
 	if err != nil {
 		t.Fatalf("ListSkills() error = %v", err)
@@ -198,6 +202,7 @@ func TestDeleteLocalStructuredTargetDoesNotCrossDeleteSameName(t *testing.T) {
 		superDolphinHome:  superDolphinHome,
 		http:              &http.Client{},
 		auditStore:        &capturingSkillAuditStore{},
+		mirrorLocks:       NewMirrorRootLockRegistry(),
 	}
 
 	if _, err := svc.DeleteLocal(skillTestContext(projectRoot), DeleteSkillParams{Name: "build", Scope: skillScopeProject}); err != nil {
@@ -271,6 +276,7 @@ func TestSkillSystemScopeWriteRequiresReview(t *testing.T) {
 		projectRoot:       projectRoot,
 		projectSkillsRoot: defaultProjectSkillsRoot(projectRoot),
 		http:              &http.Client{},
+		mirrorLocks:       NewMirrorRootLockRegistry(),
 	}
 	_, err := svc.WriteLocal(skillTestContext(projectRoot), "blocked-system", "# blocked", skillScopeSystem)
 	if !errors.Is(err, ErrSkillSystemScopeRemoved) {

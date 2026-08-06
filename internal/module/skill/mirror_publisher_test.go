@@ -31,7 +31,7 @@ func TestSkillMirrorPublisherPublishesProjectAndPersonalTargets(t *testing.T) {
 	claudeRoot := filepath.Join(project, ".claude", "skills")
 	codexRoot := testCodexProjectMirrorRoot(project)
 	personalRoot := filepath.Join(superHome, "providers", "claude", "skills")
-	report, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{
+	report, err := PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{
 		{TargetID: "claude:project:repo", Provider: SkillProviderClaude, Scope: skillScopeProject, Root: claudeRoot, CanonicalRootID: "repo"},
 		{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: codexRoot, CanonicalRootID: "repo"},
 		{TargetID: "claude:app-managed:owner", Provider: SkillProviderClaude, Scope: skillScopePersonal, Root: personalRoot, CanonicalRootID: "sd_owner:owner"},
@@ -76,7 +76,7 @@ func TestSkillMirrorPublisherWritesCanonicalNameAndDisplayName(t *testing.T) {
 	}
 	root := testCodexProjectMirrorRoot(project)
 
-	_, err = PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{
+	_, err = PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{
 		{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: root, CanonicalRootID: "repo"},
 	})
 	if err != nil {
@@ -106,7 +106,7 @@ func TestMirrorRootSymlinkIsRejected(t *testing.T) {
 		t.Fatalf("Symlink valid mirror root: %v", err)
 	}
 
-	report, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{
+	report, err := PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{
 		{TargetID: "claude:project:repo", Provider: SkillProviderClaude, Scope: skillScopeProject, Root: linkedRoot, CanonicalRootID: "repo"},
 	})
 	if err == nil || !strings.Contains(err.Error(), "symlink") {
@@ -135,7 +135,7 @@ func TestSkillMirrorPublisherDoesNotPublishManualOnlySkills(t *testing.T) {
 	}
 	root := testCodexProjectMirrorRoot(project)
 
-	report, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{
+	report, err := PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{
 		{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: root, CanonicalRootID: "repo"},
 	})
 	if err != nil {
@@ -164,7 +164,7 @@ func TestSkillMirrorPublisherBlocksManualOnlyCanonicalSelfMirror(t *testing.T) {
 	}
 	target := SkillMirrorTarget{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: providerProjectMirrorRoot(SkillProviderCodex, project), CanonicalRootID: "repo"}
 
-	report, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{target})
+	report, err := PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{target})
 	if err != nil {
 		t.Fatalf("PublishSkillMirrors: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestSkillMirrorPublisherDoesNotOverwriteUnmanagedOrDriftedMirrors(t *testin
 		t.Fatalf("WriteFile unmanaged: %v", err)
 	}
 
-	report, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{
+	report, err := PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{
 		{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: root, CanonicalRootID: "repo"},
 	})
 	if err != nil {
@@ -221,7 +221,7 @@ func TestSkillMirrorPublisherDoesNotOverwriteUnmanagedOrDriftedMirrors(t *testin
 	if err := os.RemoveAll(root); err != nil {
 		t.Fatalf("RemoveAll root: %v", err)
 	}
-	report, err = PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{
+	report, err = PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{
 		{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: root, CanonicalRootID: "repo"},
 	})
 	if err != nil {
@@ -233,7 +233,7 @@ func TestSkillMirrorPublisherDoesNotOverwriteUnmanagedOrDriftedMirrors(t *testin
 	if err := os.WriteFile(filepath.Join(root, "build", "references", "guide.md"), []byte("local edit"), 0o644); err != nil {
 		t.Fatalf("WriteFile drift: %v", err)
 	}
-	report, err = PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{
+	report, err = PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{
 		{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: root, CanonicalRootID: "repo"},
 	})
 	if err != nil {
@@ -251,7 +251,7 @@ func TestPublisherUsesSharedManagedMirrorDriftPredicate(t *testing.T) {
 		t.Fatalf("scan canonical records: %v", err)
 	}
 	target := SkillMirrorTarget{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: testCodexProjectMirrorRoot(project), CanonicalRootID: "repo"}
-	if _, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{target}); err != nil {
+	if _, err := PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{target}); err != nil {
 		t.Fatalf("PublishSkillMirrors initial: %v", err)
 	}
 	manifest, err := readSkillMirrorManifest(filepath.Join(target.Root, skillMirrorManifestFile))
@@ -265,7 +265,7 @@ func TestPublisherUsesSharedManagedMirrorDriftPredicate(t *testing.T) {
 		t.Fatalf("write manifest: %v", err)
 	}
 
-	report, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{target})
+	report, err := PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{target})
 	if err != nil {
 		t.Fatalf("PublishSkillMirrors owned=false: %v", err)
 	}
@@ -283,13 +283,13 @@ func TestSkillMirrorPublisherDeletesAndRegeneratesOwnedMirrors(t *testing.T) {
 	}
 	root := testCodexProjectMirrorRoot(project)
 	target := SkillMirrorTarget{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: root, CanonicalRootID: "repo"}
-	if _, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{target}); err != nil {
+	if _, err := PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{target}); err != nil {
 		t.Fatalf("PublishSkillMirrors initial: %v", err)
 	}
 	if err := os.RemoveAll(filepath.Join(root, "build")); err != nil {
 		t.Fatalf("RemoveAll mirror skill: %v", err)
 	}
-	report, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{target})
+	report, err := PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{target})
 	if err != nil {
 		t.Fatalf("PublishSkillMirrors regenerate: %v", err)
 	}
@@ -303,7 +303,7 @@ func TestSkillMirrorPublisherDeletesAndRegeneratesOwnedMirrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rescan canonical records: %v", err)
 	}
-	report, err = PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{target})
+	report, err = PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{target})
 	if err != nil {
 		t.Fatalf("PublishSkillMirrors delete: %v", err)
 	}
@@ -321,7 +321,7 @@ func TestSkillMirrorPublisherSkipsUnchangedOwnedMirrors(t *testing.T) {
 		t.Fatalf("scan canonical records: %v", err)
 	}
 	target := SkillMirrorTarget{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: testCodexProjectMirrorRoot(project), CanonicalRootID: "repo"}
-	if _, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{target}); err != nil {
+	if _, err := PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{target}); err != nil {
 		t.Fatalf("PublishSkillMirrors initial: %v", err)
 	}
 	info, err := os.Stat(filepath.Join(target.Root, "build"))
@@ -330,7 +330,7 @@ func TestSkillMirrorPublisherSkipsUnchangedOwnedMirrors(t *testing.T) {
 	}
 	initialModTime := info.ModTime()
 
-	report, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{target})
+	report, err := PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{target})
 	if err != nil {
 		t.Fatalf("PublishSkillMirrors unchanged: %v", err)
 	}
@@ -363,7 +363,7 @@ func TestSkillMirrorPublisherFailsClosedOnSymlinksAndPathEscape(t *testing.T) {
 		skipIfSymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("Symlink legacy root: %v", err)
 	}
-	_, err = PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{
+	_, err = PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{
 		{TargetID: "claude:project:repo", Provider: SkillProviderClaude, Scope: skillScopeProject, Root: legacyRoot, CanonicalRootID: "repo"},
 	})
 	if err == nil {
@@ -378,7 +378,7 @@ func TestSkillMirrorPublisherFailsClosedOnSymlinksAndPathEscape(t *testing.T) {
 		skipIfSymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("Symlink final mirror dir: %v", err)
 	}
-	_, err = PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{
+	_, err = PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{
 		{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: badRoot, CanonicalRootID: "repo"},
 	})
 	if err == nil {
@@ -386,7 +386,7 @@ func TestSkillMirrorPublisherFailsClosedOnSymlinksAndPathEscape(t *testing.T) {
 	}
 
 	escapeRoot := filepath.Join(project, ".agents", "escape")
-	_, err = PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{
+	_, err = PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{
 		{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: escapeRoot, CanonicalRootID: "repo"},
 		{TargetID: "codex:project:escape", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: filepath.Join(escapeRoot, ".."), CanonicalRootID: "repo"},
 	})
@@ -408,7 +408,7 @@ func TestSkillMirrorPublisherRejectsParentSymlinkRoot(t *testing.T) {
 		t.Fatalf("Symlink parent mirror dir: %v", err)
 	}
 
-	_, err = PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{
+	_, err = PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{
 		{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: root, CanonicalRootID: "repo"},
 	})
 	if err == nil {
@@ -429,7 +429,7 @@ func TestSkillMirrorPublisherRejectsCanonicalSymlinkEntries(t *testing.T) {
 		t.Fatalf("scan canonical records: %v", err)
 	}
 
-	_, err = PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{
+	_, err = PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{
 		{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: testCodexProjectMirrorRoot(project), CanonicalRootID: "repo"},
 	})
 	if err == nil {
@@ -459,7 +459,7 @@ func TestSkillMirrorPublisherStopsOnOversizedCanonicalFile(t *testing.T) {
 	}
 	root := testCodexProjectMirrorRoot(project)
 
-	_, err := PublishSkillMirrors(context.Background(), []canonicalSkillRecord{record}, []SkillMirrorTarget{
+	_, err := PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), []canonicalSkillRecord{record}, []SkillMirrorTarget{
 		{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: root, CanonicalRootID: "repo"},
 	})
 	if err == nil || !strings.Contains(err.Error(), "too large") {
@@ -477,7 +477,7 @@ func TestSkillMirrorPublisherRejectsUnsafeManifestSkillNames(t *testing.T) {
 	}
 	root := testCodexProjectMirrorRoot(project)
 	target := SkillMirrorTarget{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: root, CanonicalRootID: "repo"}
-	if _, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{target}); err != nil {
+	if _, err := PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{target}); err != nil {
 		t.Fatalf("PublishSkillMirrors initial: %v", err)
 	}
 	manifest, err := readSkillMirrorManifest(filepath.Join(root, skillMirrorManifestFile))
@@ -495,7 +495,7 @@ func TestSkillMirrorPublisherRejectsUnsafeManifestSkillNames(t *testing.T) {
 		t.Fatalf("WriteFile manifest: %v", err)
 	}
 
-	_, err = PublishSkillMirrors(context.Background(), nil, []SkillMirrorTarget{target})
+	_, err = PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), nil, []SkillMirrorTarget{target})
 	if err == nil || !strings.Contains(err.Error(), "unsafe skill name") {
 		t.Fatalf("PublishSkillMirrors unsafe manifest error = %v, want unsafe skill name", err)
 	}
@@ -543,7 +543,7 @@ func TestReconcileProviderMirrorsDerivesProjectAndPersonalTargetIDs(t *testing.T
 	if err != nil {
 		t.Fatalf("resolveOwnerIdentity: %v", err)
 	}
-	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome}
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, mirrorLocks: NewMirrorRootLockRegistry()}
 	codexProjectRoot := providerProjectMirrorRoot(SkillProviderCodex, project)
 	claudePersonalHome := filepath.Join(superHome, "providers", "claude")
 	claudePersonalRoot := filepath.Join(claudePersonalHome, "skills")
@@ -567,7 +567,7 @@ func TestReconcileProviderMirrorsDerivesProjectAndPersonalTargetIDs(t *testing.T
 func TestReconcileProviderMirrorsReportsSameNameConflictButContinuesSafeMirrorWrites(t *testing.T) {
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome}
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, mirrorLocks: NewMirrorRootLockRegistry()}
 	codexProjectRoot := providerProjectMirrorRoot(SkillProviderCodex, project)
 	targets := []contract.SkillProviderMirrorTarget{{
 		Provider:   "codex",
@@ -603,7 +603,7 @@ func TestReconcileProviderMirrorsReportsSameNameConflictButContinuesSafeMirrorWr
 func TestReconcileProviderMirrorsDoesNotReportConflictedProjectSkillAsUnmanagedProviderSkill(t *testing.T) {
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome}
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, mirrorLocks: NewMirrorRootLockRegistry()}
 	codexProjectRoot := providerProjectMirrorRoot(SkillProviderCodex, project)
 	targets := []contract.SkillProviderMirrorTarget{{
 		Provider:   "codex",
@@ -633,7 +633,7 @@ func TestReconcileProviderMirrorsUsesAgentsPolicyRootAsCanonicalSelfMirror(t *te
 	if _, err := writeSkillPolicyJSON(filepath.Join(agentsRoot, projectSkillPolicyFile), projectSkillPolicy{Version: 1}, 0o644); err != nil {
 		t.Fatalf("write .agents project policy: %v", err)
 	}
-	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome}
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, mirrorLocks: NewMirrorRootLockRegistry()}
 
 	report, err := svc.ReconcileProviderMirrors(context.Background(), project, []contract.SkillProviderMirrorTarget{{
 		Provider:   "codex",
@@ -660,7 +660,7 @@ func TestReconcileProviderMirrorsUsesAgentsPolicyRootAsCanonicalSelfMirror(t *te
 func TestReconcileProviderMirrorsReportsOrphanUnmanagedProviderSkill(t *testing.T) {
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome}
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, mirrorLocks: NewMirrorRootLockRegistry()}
 	claudeProjectRoot := providerProjectMirrorRoot(SkillProviderClaude, project)
 	writeSkillWithSupportFiles(t, filepath.Join(claudeProjectRoot, "scratch"), "scratch")
 
@@ -687,7 +687,7 @@ func TestReconcileProviderMirrorsRecognizesProjectTargetThroughSymlinkCWD(t *tes
 		t.Fatalf("Symlink project: %v", err)
 	}
 	writeSkillWithSupportFiles(t, filepath.Join(realProject, ".agents", "skills", "build"), "build")
-	svc := &service{projectRoot: aliasProject, projectSkillsRoot: defaultProjectSkillsRoot(aliasProject), superDolphinHome: newTestSuperDolphinHome(t)}
+	svc := &service{projectRoot: aliasProject, projectSkillsRoot: defaultProjectSkillsRoot(aliasProject), superDolphinHome: newTestSuperDolphinHome(t), mirrorLocks: NewMirrorRootLockRegistry()}
 	codexProjectRoot := providerProjectMirrorRoot(SkillProviderCodex, realProject)
 
 	report, err := svc.ReconcileProviderMirrors(context.Background(), aliasProject, []contract.SkillProviderMirrorTarget{{
@@ -718,7 +718,7 @@ func TestReconcileProviderMirrorsUsesProjectMirrorRootWhenCWDIsSubdir(t *testing
 	}
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
 	writeSkillWithSupportFiles(t, filepath.Join(project, ".agents", "skills", "build"), "build")
-	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome}
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, mirrorLocks: NewMirrorRootLockRegistry()}
 	codexProjectRoot := providerProjectMirrorRoot(SkillProviderCodex, project)
 
 	report, err := svc.ReconcileProviderMirrors(context.Background(), subdir, []contract.SkillProviderMirrorTarget{{

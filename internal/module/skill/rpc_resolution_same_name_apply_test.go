@@ -57,7 +57,7 @@ func TestSkillResolutionApplySameNameKeepSelectedPersonalRemovesProjectDuplicate
 	projectA := t.TempDir()
 	projectB := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	svc := &service{projectRoot: projectA, projectSkillsRoot: defaultProjectSkillsRoot(projectA), superDolphinHome: superHome, http: &http.Client{}}
+	svc := &service{projectRoot: projectA, projectSkillsRoot: defaultProjectSkillsRoot(projectA), superDolphinHome: superHome, http: &http.Client{}, mirrorLocks: NewMirrorRootLockRegistry()}
 	server := newSkillRPCTestServer(t, svc)
 	writeSkillContent(t, filepath.Join(projectA, ".agents", "skills", "same"), "same", "# project a same\n")
 	writeSkillContent(t, filepath.Join(projectB, ".agents", "skills", "same"), "same", "# project b same\n")
@@ -126,7 +126,7 @@ func TestSkillResolutionApplySameNameKeepSelectedProjectDuplicateByDirectory(t *
 
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, http: &http.Client{}}
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, http: &http.Client{}, mirrorLocks: NewMirrorRootLockRegistry()}
 	server := newSkillRPCTestServer(t, svc)
 	writeSkillContent(t, filepath.Join(project, ".agents", "skills", "security-engineer"), "安全工程师规范", "# a\n")
 	writeSkillContent(t, filepath.Join(project, ".agents", "skills", "security-standards"), "安全工程师规范", "# b\n")
@@ -156,7 +156,7 @@ func setupSameNameResolutionFixture(t *testing.T) (string, *platformrpc.Server, 
 	setSkillTestUserHome(t)
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, http: &http.Client{}}
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, http: &http.Client{}, mirrorLocks: NewMirrorRootLockRegistry()}
 	writeSkillContent(t, filepath.Join(project, ".agents", "skills", "same"), "same", "# project same\n")
 	writeSkillContent(t, filepath.Join(superHome, "skills", "personal", "user", "same"), "same", "# personal same\n")
 	return project, newSkillRPCTestServer(t, svc), svc
@@ -173,7 +173,7 @@ func publishSameNameMirrorsForTest(t *testing.T, svc *service, project string) {
 		{TargetID: "claude:user-global:test", Provider: SkillProviderClaude, Scope: skillScopePersonal, Root: providerPersonalMirrorRoot(SkillProviderClaude), CanonicalRootID: "sd_owner:test"},
 		{TargetID: "codex:user-global:test", Provider: SkillProviderCodex, Scope: skillScopePersonal, Root: providerPersonalMirrorRoot(SkillProviderCodex), CanonicalRootID: "sd_owner:test"},
 	}
-	report, err := PublishSkillMirrors(context.Background(), records, targets)
+	report, err := PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, targets)
 	if err != nil {
 		t.Fatalf("PublishSkillMirrors same-name fixture: %v", err)
 	}

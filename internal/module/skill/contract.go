@@ -173,7 +173,7 @@ func (s *service) ReconcileProviderMirrors(ctx context.Context, cwd string, targ
 		return report, err
 	}
 	for _, scope := range []string{skillScopeProject, skillScopePersonal} {
-		if err := reconcileProviderMirrorScope(ctx, &report, store, projectRoot, mirrorTargets, scope); err != nil {
+		if err := reconcileProviderMirrorScope(s.mirrorLocks, ctx, &report, store, projectRoot, mirrorTargets, scope); err != nil {
 			return report, err
 		}
 	}
@@ -197,7 +197,7 @@ func (s *service) reconcileMirrorProjectRoot(ctx context.Context, cwd string) (s
 
 // reconcileProviderMirrorScope 分开处理 project 和 personal。
 // 这样清理 mirror 时不会误删另一个来源的内容。
-func reconcileProviderMirrorScope(ctx context.Context, report *SkillMirrorReport, store *canonicalStore, projectRoot string, targets []SkillMirrorTarget, scope string) error {
+func reconcileProviderMirrorScope(locks *MirrorRootLockRegistry, ctx context.Context, report *SkillMirrorReport, store *canonicalStore, projectRoot string, targets []SkillMirrorTarget, scope string) error {
 	group := mirrorTargetsForScope(targets, scope)
 	records, conflicts, err := mirrorRecordsForScope(ctx, store, projectRoot, scope)
 	if err != nil {
@@ -206,7 +206,7 @@ func reconcileProviderMirrorScope(ctx context.Context, report *SkillMirrorReport
 	if len(conflicts) > 0 {
 		appendCanonicalConflictReportItems(report, group, conflicts)
 	}
-	targetReport, err := PublishSkillMirrors(ctx, records, group)
+	targetReport, err := PublishSkillMirrors(locks, ctx, records, group)
 	appendSkillMirrorReport(report, targetReport)
 	return err
 }

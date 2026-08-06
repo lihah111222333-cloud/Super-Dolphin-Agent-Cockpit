@@ -416,7 +416,7 @@ func (s *service) removeSameNameDuplicateSources(cwd string, item skillResolutio
 		}
 		record := canonicalSkillRecord{Name: item.Name, Scope: source.Scope, PersonalType: source.PersonalType, Dir: filepath.FromSlash(source.Path)}
 		for _, target := range s.writeTimeMirrorTargets(cwd, source.Scope) {
-			if _, _, err := cleanupSuppressedPersonalMirrorRecord(target, record); err != nil {
+			if _, _, err := cleanupSuppressedPersonalMirrorRecord(s.mirrorLocks, target, record); err != nil {
 				return "", err
 			}
 		}

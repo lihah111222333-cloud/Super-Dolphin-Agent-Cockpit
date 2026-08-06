@@ -14,7 +14,7 @@ func TestResolveSkillMirrorDriftSyncBackPublishesOtherProjectMirrors(t *testing.
 	publishInitialProjectMirrorsForTest(t, project, claudeTarget)
 	writeFileWithMode(t, filepath.Join(claudeTarget.Root, "build", "references", "guide.md"), "claude edit\n", 0o644)
 	previewHash := mustStableMirrorDirectoryHash(t, filepath.Join(claudeTarget.Root, "build"))
-	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), auditStore: &capturingSkillAuditStore{}}
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), auditStore: &capturingSkillAuditStore{}, mirrorLocks: NewMirrorRootLockRegistry()}
 
 	report, err := ResolveSkillMirrorDrift(context.Background(), svc, SkillMirrorResolutionRequest{
 		Action:      "sync_back_to_canonical",
@@ -36,7 +36,7 @@ func TestResolveSkillMirrorDriftSaveAsNewPublishesNewSkillToOtherProjectMirrors(
 	publishInitialProjectMirrorsForTest(t, project, claudeTarget)
 	writeFileWithMode(t, filepath.Join(claudeTarget.Root, "build", "references", "guide.md"), "new skill edit\n", 0o644)
 	previewHash := mustStableMirrorDirectoryHash(t, filepath.Join(claudeTarget.Root, "build"))
-	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), auditStore: &capturingSkillAuditStore{}}
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), auditStore: &capturingSkillAuditStore{}, mirrorLocks: NewMirrorRootLockRegistry()}
 
 	report, err := ResolveSkillMirrorDrift(context.Background(), svc, SkillMirrorResolutionRequest{
 		Action:      "save_as_new_skill",
@@ -60,7 +60,7 @@ func TestTakeoverProviderSkillPublishesTakenOverProjectSkillToOtherMirrors(t *te
 	writeSkillWithSupportFiles(t, filepath.Join(claudeTarget.Root, "owned"), "owned")
 	writeFileWithMode(t, filepath.Join(claudeTarget.Root, "owned", "references", "guide.md"), "provider edit\n", 0o644)
 	previewHash := mustStableMirrorDirectoryHash(t, filepath.Join(claudeTarget.Root, "owned"))
-	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), auditStore: &capturingSkillAuditStore{}}
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), auditStore: &capturingSkillAuditStore{}, mirrorLocks: NewMirrorRootLockRegistry()}
 
 	report, err := TakeoverProviderSkill(context.Background(), svc, SkillMirrorResolutionRequest{
 		Action:      "takeover_provider_skill",
@@ -96,7 +96,7 @@ func publishInitialProjectMirrorsForTest(t *testing.T, project string, targets .
 	if err != nil {
 		t.Fatalf("scan canonical records: %v", err)
 	}
-	if _, err := PublishSkillMirrors(context.Background(), records, targets); err != nil {
+	if _, err := PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, targets); err != nil {
 		t.Fatalf("PublishSkillMirrors initial: %v", err)
 	}
 }

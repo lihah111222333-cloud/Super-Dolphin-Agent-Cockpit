@@ -60,7 +60,7 @@ func TestReadLocalRejectsPathOutsideSkillsRoot(t *testing.T) {
 	if err := os.WriteFile(outsidePath, []byte("# outside"), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
-	svc := &service{projectRoot: projectRoot, root: skillsRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), http: &http.Client{}}
+	svc := &service{projectRoot: projectRoot, root: skillsRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), http: &http.Client{}, mirrorLocks: NewMirrorRootLockRegistry()}
 
 	_, err := svc.ReadLocal(skillTestContext(projectRoot), outsidePath)
 	if err == nil || err.Error() != "path escapes skills root: "+outsidePath {
@@ -74,7 +74,7 @@ func TestListLocalFilesRejectsDirOutsideSkillsRoot(t *testing.T) {
 	skillsRoot := t.TempDir()
 	outsideRoot := t.TempDir()
 	projectRoot := t.TempDir()
-	svc := &service{projectRoot: projectRoot, root: skillsRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), http: &http.Client{}}
+	svc := &service{projectRoot: projectRoot, root: skillsRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), http: &http.Client{}, mirrorLocks: NewMirrorRootLockRegistry()}
 
 	_, err := svc.ListLocalFiles(skillTestContext(projectRoot), listSkillFilesParams{Dir: outsideRoot})
 	if err == nil || err.Error() != "path escapes skills root: "+outsideRoot {
@@ -92,7 +92,7 @@ func TestWriteLocalRejectsPathOutsideSkillsRoot(t *testing.T) {
 	if err := os.WriteFile(outsidePath, []byte("before"), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
-	svc := &service{projectRoot: projectRoot, root: skillsRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), http: &http.Client{}}
+	svc := &service{projectRoot: projectRoot, root: skillsRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), http: &http.Client{}, mirrorLocks: NewMirrorRootLockRegistry()}
 
 	_, err := svc.WriteLocal(skillTestContext(projectRoot), outsidePath, "after", skillScopeProject)
 	if err == nil || err.Error() != "path escapes skills root: "+outsidePath {
@@ -115,7 +115,7 @@ func TestWriteLocalRejectsRelativeSymlinkEscape(t *testing.T) {
 		skipIfSymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("Symlink escape skill: %v", err)
 	}
-	svc := &service{projectRoot: projectRoot, projectSkillsRoot: skillsRoot, superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}}
+	svc := &service{projectRoot: projectRoot, projectSkillsRoot: skillsRoot, superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}, mirrorLocks: NewMirrorRootLockRegistry()}
 
 	_, err := svc.WriteLocal(skillTestContext(projectRoot), "escape/SKILL.md", "---\nname: escape\n---\nbody", skillScopeProject)
 
@@ -140,7 +140,7 @@ func TestWriteLocalRejectsSkillMainSymlink(t *testing.T) {
 		skipIfSymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("Symlink SKILL.md: %v", err)
 	}
-	svc := &service{projectRoot: projectRoot, projectSkillsRoot: skillsRoot, superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}}
+	svc := &service{projectRoot: projectRoot, projectSkillsRoot: skillsRoot, superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}, mirrorLocks: NewMirrorRootLockRegistry()}
 
 	_, err := svc.WriteLocal(skillTestContext(projectRoot), "escape/SKILL.md", "---\nname: escape\n---\nbody", skillScopeProject)
 
@@ -159,7 +159,7 @@ func TestWriteLocalPropagatesIntermediatePathError(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(skillsRoot, "blocked"), []byte("not a directory"), 0o644); err != nil {
 		t.Fatalf("WriteFile blocked path: %v", err)
 	}
-	svc := &service{projectRoot: projectRoot, projectSkillsRoot: skillsRoot, superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}}
+	svc := &service{projectRoot: projectRoot, projectSkillsRoot: skillsRoot, superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}, mirrorLocks: NewMirrorRootLockRegistry()}
 
 	_, err := svc.WriteLocal(skillTestContext(projectRoot), "blocked/SKILL.md", "---\nname: blocked\n---\nbody", skillScopeProject)
 
@@ -173,7 +173,7 @@ func TestWriteLocalPropagatesIntermediatePathError(t *testing.T) {
 
 func TestWriteLocalRejectsUnsafeFrontmatterSkillName(t *testing.T) {
 	projectRoot := t.TempDir()
-	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}}
+	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}, mirrorLocks: NewMirrorRootLockRegistry()}
 
 	_, err := svc.WriteLocal(
 		skillTestContext(projectRoot),
@@ -190,7 +190,7 @@ func TestWriteLocalRejectsUnsafeFrontmatterSkillName(t *testing.T) {
 
 func TestReadLocalAcceptsLegacyDisplayNameAlias(t *testing.T) {
 	projectRoot := t.TempDir()
-	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}}
+	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}, mirrorLocks: NewMirrorRootLockRegistry()}
 	writeSkillContent(t, filepath.Join(projectRoot, ".agents", "skills", "Docker 容器化部署"), "Docker 容器化部署", "# legacy body\n")
 
 	out, err := svc.ReadLocal(skillTestContext(projectRoot), "Docker 容器化部署")
@@ -215,7 +215,7 @@ func TestReadLocalAcceptsLegacyDisplayNameAlias(t *testing.T) {
 
 func TestDeleteLocalAcceptsLegacyDisplayNameAlias(t *testing.T) {
 	projectRoot := t.TempDir()
-	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}}
+	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}, mirrorLocks: NewMirrorRootLockRegistry()}
 	legacyDir := filepath.Join(projectRoot, ".agents", "skills", "Docker 容器化部署")
 	writeSkillContent(t, legacyDir, "Docker 容器化部署", "# legacy body\n")
 
@@ -262,7 +262,7 @@ func TestWriteProjectPolicyRejectsSymlinkFile(t *testing.T) {
 
 func TestWriteLocalPublishesProjectMirrors(t *testing.T) {
 	projectRoot := t.TempDir()
-	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}}
+	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}, mirrorLocks: NewMirrorRootLockRegistry()}
 
 	out, err := svc.WriteLocal(skillTestContext(projectRoot), "build", "---\nname: build\n---\nbody", skillScopeProject)
 	if err != nil {
@@ -294,6 +294,7 @@ func TestWriteLocalProjectIgnoresConfiguredMirrorTargets(t *testing.T) {
 			Root:            outsideRoot,
 			CanonicalRootID: "spoofed",
 		}},
+		mirrorLocks: NewMirrorRootLockRegistry(),
 	}
 
 	out, err := svc.WriteLocal(skillTestContext(projectRoot), "build", "---\nname: build\n---\nbody", skillScopeProject)
@@ -319,6 +320,7 @@ func TestWriteLocalPublishConflictBlocksBeforeCanonicalWrite(t *testing.T) {
 		projectSkillsRoot: defaultProjectSkillsRoot(projectRoot),
 		superDolphinHome:  superDolphinHome,
 		http:              &http.Client{},
+		mirrorLocks:       NewMirrorRootLockRegistry(),
 	}
 	initial, err := svc.WriteLocal(skillTestContext(projectRoot), "old", "---\nname: old\n---\nold", skillScopeProject)
 	if err != nil {
@@ -350,7 +352,7 @@ func TestWriteLocalPublishConflictBlocksCanonicalWrite(t *testing.T) {
 	claudeMirror := filepath.Join(projectRoot, ".claude", "skills", "build")
 	mustMkdirAll(t, claudeMirror)
 	mustWriteFile(t, filepath.Join(claudeMirror, skillMainFile), "unmanaged")
-	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}}
+	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}, mirrorLocks: NewMirrorRootLockRegistry()}
 
 	_, err := svc.WriteLocal(skillTestContext(projectRoot), "build", "---\nname: build\n---\ncanonical", skillScopeProject)
 	assertMirrorBlockingErrorContains(t, err, "unmanaged")
@@ -366,7 +368,7 @@ func TestWriteLocalPublishErrorBlocksAndRollsBackCanonical(t *testing.T) {
 		t.Fatalf("Chmod readonly Claude home: %v", err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(claudeHome, 0o755) })
-	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}}
+	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}, mirrorLocks: NewMirrorRootLockRegistry()}
 
 	_, err := svc.WriteLocal(skillTestContext(projectRoot), "build", "---\nname: build\n---\ncanonical", skillScopeProject)
 	assertMirrorPublishBlockingError(t, err)
@@ -375,7 +377,7 @@ func TestWriteLocalPublishErrorBlocksAndRollsBackCanonical(t *testing.T) {
 
 func TestDeleteLocalPublishErrorBlocksAndRestoresCanonical(t *testing.T) {
 	projectRoot := t.TempDir()
-	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}}
+	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}, mirrorLocks: NewMirrorRootLockRegistry()}
 	if _, err := svc.WriteLocal(skillTestContext(projectRoot), "build", "---\nname: build\n---\nbody", skillScopeProject); err != nil {
 		t.Fatalf("WriteLocal() error = %v", err)
 	}
@@ -418,6 +420,7 @@ func TestWriteLocalPersonalPublishesUserGlobalMirrors(t *testing.T) {
 		projectSkillsRoot: defaultProjectSkillsRoot(projectRoot),
 		superDolphinHome:  superDolphinHome,
 		auditStore:        &capturingSkillAuditStore{},
+		mirrorLocks:       NewMirrorRootLockRegistry(),
 	}
 
 	out, err := svc.WriteLocal(skillTestContext(projectRoot), "notes", "---\nname: notes\n---\nbody", skillScopePersonal, personalSkillTypeUser)
@@ -439,7 +442,7 @@ func TestWriteLocalPersonalPublishesUserGlobalMirrors(t *testing.T) {
 
 func TestDeleteLocalRemovesOwnedProjectMirrors(t *testing.T) {
 	projectRoot := t.TempDir()
-	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}}
+	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}, mirrorLocks: NewMirrorRootLockRegistry()}
 	if _, err := svc.WriteLocal(skillTestContext(projectRoot), "build", "---\nname: build\n---\nbody", skillScopeProject); err != nil {
 		t.Fatalf("WriteLocal() error = %v", err)
 	}
@@ -469,7 +472,7 @@ func TestReadLocalAcceptsPathInsideProjectSkillsRoot(t *testing.T) {
 	if err := os.WriteFile(skillPath, []byte("# demo"), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
-	svc := &service{root: systemRoot, projectRoot: projectRoot, projectSkillsRoot: projectSkillsRoot, http: &http.Client{}}
+	svc := &service{root: systemRoot, projectRoot: projectRoot, projectSkillsRoot: projectSkillsRoot, http: &http.Client{}, mirrorLocks: NewMirrorRootLockRegistry()}
 
 	out, err := svc.ReadLocal(skillTestContext(projectRoot), skillPath)
 	if err != nil {
@@ -502,7 +505,7 @@ func TestReadLocalGeneratedSummarySkipsFrontmatter(t *testing.T) {
 	if err := os.WriteFile(skillPath, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
-	svc := &service{root: systemRoot, projectRoot: projectRoot, projectSkillsRoot: projectSkillsRoot, http: &http.Client{}}
+	svc := &service{root: systemRoot, projectRoot: projectRoot, projectSkillsRoot: projectSkillsRoot, http: &http.Client{}, mirrorLocks: NewMirrorRootLockRegistry()}
 
 	out, err := svc.ReadLocal(skillTestContext(projectRoot), skillPath)
 	if err != nil {
@@ -538,7 +541,7 @@ func TestReadLocalSummaryPrefersDescriptionOverInternalMarkers(t *testing.T) {
 	if err := os.WriteFile(skillPath, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
-	svc := &service{root: systemRoot, projectRoot: projectRoot, projectSkillsRoot: projectSkillsRoot, http: &http.Client{}}
+	svc := &service{root: systemRoot, projectRoot: projectRoot, projectSkillsRoot: projectSkillsRoot, http: &http.Client{}, mirrorLocks: NewMirrorRootLockRegistry()}
 
 	out, err := svc.ReadLocal(skillTestContext(projectRoot), skillPath)
 	if err != nil {
@@ -568,7 +571,7 @@ func TestReadLocalGeneratedSummarySkipsInternalMarkerBlocks(t *testing.T) {
 	if err := os.WriteFile(skillPath, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
-	svc := &service{root: systemRoot, projectRoot: projectRoot, projectSkillsRoot: projectSkillsRoot, http: &http.Client{}}
+	svc := &service{root: systemRoot, projectRoot: projectRoot, projectSkillsRoot: projectSkillsRoot, http: &http.Client{}, mirrorLocks: NewMirrorRootLockRegistry()}
 
 	out, err := svc.ReadLocal(skillTestContext(projectRoot), skillPath)
 	if err != nil {
@@ -592,7 +595,7 @@ func TestListSkillsIgnoresLegacySystemRoot(t *testing.T) {
 	projectSkillsRoot := defaultProjectSkillsRoot(projectRoot)
 	writeTestSkill(t, systemRoot, "from-system", "# system")
 	writeTestSkill(t, projectSkillsRoot, "from-project", "# project")
-	svc := &service{root: systemRoot, projectRoot: projectRoot, projectSkillsRoot: projectSkillsRoot, http: &http.Client{}}
+	svc := &service{root: systemRoot, projectRoot: projectRoot, projectSkillsRoot: projectSkillsRoot, http: &http.Client{}, mirrorLocks: NewMirrorRootLockRegistry()}
 
 	skills, err := svc.ListSkills(skillTestContext(projectRoot))
 	if err != nil {

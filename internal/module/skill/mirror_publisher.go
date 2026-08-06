@@ -16,11 +16,22 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/skill/skillhash"
 )
 
-// mirrorLockRegistry 按 provider mirror 根目录保存写入锁。
-type mirrorLockRegistry struct{ m sync.Map }
+// MirrorRootLockRegistry 按 provider mirror 根目录保存短生命周期写入锁。
+// 它必须由应用装配显式拥有，禁止作为包级 singleton 共享。
+type MirrorRootLockRegistry struct {
+	mu    sync.Mutex
+	roots map[string]*mirrorRootLock
+}
 
-// skillMirrorRootLocks 避免同一 skills 目录被并发发布流程同时删除或重写。
-var skillMirrorRootLocks = &mirrorLockRegistry{}
+type mirrorRootLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
+// NewMirrorRootLockRegistry 创建一个独立的 provider mirror 根目录锁 owner。
+func NewMirrorRootLockRegistry() *MirrorRootLockRegistry {
+	return &MirrorRootLockRegistry{roots: make(map[string]*mirrorRootLock)}
+}
 
 // SkillMirrorTarget 指向 provider 会读取的 skills 目录。
 // 这里的内容是生成物，不是真实 skill 来源。
@@ -31,7 +42,8 @@ type SkillMirrorTarget struct {
 
 // PublishSkillMirrors 把真实 skill 目录复制到 provider mirror。
 // 只做“真实来源 -> mirror”；遇到人工改动或未知目录要报告，不要自动覆盖。
-func PublishSkillMirrors(ctx context.Context, records []canonicalSkillRecord, targets []SkillMirrorTarget) (SkillMirrorReport, error) {
+func PublishSkillMirrors(locks *MirrorRootLockRegistry, ctx context.Context, records []canonicalSkillRecord, targets []SkillMirrorTarget) (SkillMirrorReport, error) {
+	requireMirrorRootLockRegistry(locks)
 	var report SkillMirrorReport
 	for _, target := range targets {
 		if err := ctx.Err(); err != nil {
@@ -41,7 +53,7 @@ func PublishSkillMirrors(ctx context.Context, records []canonicalSkillRecord, ta
 		if targetUsesCanonicalSelfMirror(records, target) {
 			targetRecords = canonicalRecordsForMirrorTargetScope(records, target)
 		}
-		targetReport, err := publishSkillMirrorTarget(targetRecords, target)
+		targetReport, err := publishSkillMirrorTarget(locks, targetRecords, target)
 		appendSkillMirrorReport(&report, targetReport)
 		if err != nil {
 			return report, err
@@ -105,11 +117,11 @@ func targetUsesCanonicalSelfMirror(records []canonicalSkillRecord, target SkillM
 
 // publishSkillMirrorTarget 刷新一个 provider skills 根。
 // 只有本系统创建、且内容没被改过的目录，才会自动替换或删除。
-func publishSkillMirrorTarget(records []canonicalSkillRecord, target SkillMirrorTarget) (SkillMirrorReport, error) {
+func publishSkillMirrorTarget(locks *MirrorRootLockRegistry, records []canonicalSkillRecord, target SkillMirrorTarget) (SkillMirrorReport, error) {
 	if err := validateSkillMirrorTarget(target); err != nil {
 		return SkillMirrorReport{}, err
 	}
-	unlock := lockSkillMirrorRoot(target.Root)
+	unlock := locks.lock(target.Root)
 	defer unlock()
 	if err := prepareMirrorRoot(target.Root); err != nil {
 		return SkillMirrorReport{}, err
@@ -232,17 +244,54 @@ func projectMismatchedManifestPublishReport(records []canonicalSkillRecord, targ
 	return report, nil
 }
 
-// lockSkillMirrorRoot 序列化同一 mirror 根目录的发布流程。
-// 返回的 unlock 必须由调用方 defer，避免错误路径留下全局互斥锁。
-func lockSkillMirrorRoot(root string) func() {
-	key := filepath.Clean(strings.TrimSpace(root))
-	value, _ := skillMirrorRootLocks.m.LoadOrStore(key, &sync.Mutex{})
-	mu, ok := value.(*sync.Mutex)
-	if !ok {
-		mu = &sync.Mutex{}
+// lock 序列化同一 mirror 根目录的写入；最后一个释放者回收 root entry。
+func (r *MirrorRootLockRegistry) lock(root string) func() {
+	requireMirrorRootLockRegistry(r)
+	key := strings.TrimSpace(root)
+	if key == "" {
+		panic("skill mirror root is required")
 	}
-	mu.Lock()
-	return mu.Unlock
+	key = filepath.Clean(key)
+
+	r.mu.Lock()
+	entry := r.roots[key]
+	if entry == nil {
+		entry = &mirrorRootLock{}
+		r.roots[key] = entry
+	}
+	entry.refs++
+	r.mu.Unlock()
+
+	entry.mu.Lock()
+	return func() {
+		entry.mu.Unlock()
+
+		r.mu.Lock()
+		entry.refs--
+		if entry.refs < 0 {
+			r.mu.Unlock()
+			panic("skill mirror root lock released too many times")
+		}
+		if entry.refs == 0 {
+			delete(r.roots, key)
+		}
+		r.mu.Unlock()
+	}
+}
+
+// requireMirrorRootLockRegistry 阻止发布路径在缺少显式 app-scoped owner 时继续执行。
+func requireMirrorRootLockRegistry(r *MirrorRootLockRegistry) {
+	if r == nil {
+		panic("skill mirror lock registry is required")
+	}
+}
+
+// entryCount 返回当前仍被持有或等待的 mirror root 数，仅供同包并发测试断言回收。
+func (r *MirrorRootLockRegistry) entryCount() int {
+	requireMirrorRootLockRegistry(r)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.roots)
 }
 
 // unmanagedProviderMirrorReport 生成未托管 provider mirror 的报告。

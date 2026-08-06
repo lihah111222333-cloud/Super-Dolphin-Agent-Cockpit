@@ -31,7 +31,7 @@ func setupExternalPersonalProjectConflictFixtureWithService(t *testing.T) (strin
 	setSkillTestUserHome(t)
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	svc := &service{root: t.TempDir(), projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, http: &http.Client{}}
+	svc := &service{root: t.TempDir(), projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, http: &http.Client{}, mirrorLocks: NewMirrorRootLockRegistry()}
 	writeSkillWithSupportFiles(t, filepath.Join(project, ".agents", "skills", "build"), "build")
 	externalDir := filepath.Join(providerPersonalMirrorRoot(SkillProviderClaude), "build")
 	writeSkillWithSupportFiles(t, externalDir, "build")

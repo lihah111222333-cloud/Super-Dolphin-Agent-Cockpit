@@ -32,7 +32,7 @@ func setupPersonalCanonicalDeletedDriftFixture(t *testing.T) (string, *platformr
 	setSkillTestUserHome(t)
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	svc := &service{root: t.TempDir(), projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, http: &http.Client{}}
+	svc := &service{root: t.TempDir(), projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, http: &http.Client{}, mirrorLocks: NewMirrorRootLockRegistry()}
 	owner, err := resolveOwnerIdentity(superHome, defaultOwnerOSUID(), defaultAppProfile())
 	if err != nil {
 		t.Fatalf("resolveOwnerIdentity: %v", err)
@@ -43,7 +43,7 @@ func setupPersonalCanonicalDeletedDriftFixture(t *testing.T) (string, *platformr
 		t.Fatalf("scan canonical records: %v", err)
 	}
 	target := SkillMirrorTarget{TargetID: "claude:user-global:" + owner.OwnerKey, Provider: SkillProviderClaude, Scope: skillScopePersonal, Root: providerPersonalMirrorRoot(SkillProviderClaude), CanonicalRootID: owner.OwnerKey}
-	if _, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{target}); err != nil {
+	if _, err := PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{target}); err != nil {
 		t.Fatalf("PublishSkillMirrors: %v", err)
 	}
 	if err := os.RemoveAll(filepath.Join(superHome, "skills", "personal", personalSkillTypeUser, "drift-personal")); err != nil {

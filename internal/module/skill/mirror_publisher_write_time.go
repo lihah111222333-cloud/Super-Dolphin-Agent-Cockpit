@@ -25,7 +25,7 @@ func (s *service) publishWriteTimeMirrors(ctx context.Context, cwd, scope, perso
 	if err != nil {
 		return mirrorPublishErrorReport(targets, scope, personalType, name, err)
 	}
-	return publishPreparedWriteTimeMirrors(ctx, report, targets, records, conflicts, scope, personalType, name)
+	return publishPreparedWriteTimeMirrors(s.mirrorLocks, ctx, report, targets, records, conflicts, scope, personalType, name)
 }
 
 func (s *service) ensureWriteTimeMirrorPublishAllowed(ctx context.Context, cwd, scope, personalType, name string) error {
@@ -88,7 +88,7 @@ func (s *service) publishWriteTimeMirrorsForScope(ctx context.Context, cwd, scop
 	if err != nil {
 		return mirrorPublishErrorReport(targets, scope, personalType, name, err)
 	}
-	return publishPreparedWriteTimeMirrors(ctx, report, targets, records, conflicts, scope, personalType, name)
+	return publishPreparedWriteTimeMirrors(s.mirrorLocks, ctx, report, targets, records, conflicts, scope, personalType, name)
 }
 
 func (s *service) publishWriteTimeMirrorsForEffectiveSet(ctx context.Context, cwd, name string) SkillMirrorReport {
@@ -105,7 +105,7 @@ func (s *service) publishWriteTimeMirrorsForEffectiveSet(ctx context.Context, cw
 	if err != nil {
 		return mirrorPublishErrorReport(targets, "", "", name, err)
 	}
-	return publishPreparedWriteTimeMirrors(ctx, report, targets, records, conflicts, "", "", name)
+	return publishPreparedWriteTimeMirrors(s.mirrorLocks, ctx, report, targets, records, conflicts, "", "", name)
 }
 
 func (s *service) prepareWriteTimeMirrorPublish(cwd string, targets []SkillMirrorTarget, store *canonicalStore, scope, personalType, name string) (SkillMirrorReport, bool) {
@@ -146,16 +146,44 @@ func writeTimeMirrorRecordsForScope(ctx context.Context, store *canonicalStore, 
 	return records, conflicts, nil
 }
 
-func publishPreparedWriteTimeMirrors(ctx context.Context, report SkillMirrorReport, targets []SkillMirrorTarget, records []canonicalSkillRecord, conflicts []canonicalSkillConflict, scope, personalType, name string) SkillMirrorReport {
+func publishPreparedWriteTimeMirrors(locks *MirrorRootLockRegistry, ctx context.Context, report SkillMirrorReport, targets []SkillMirrorTarget, records []canonicalSkillRecord, conflicts []canonicalSkillConflict, scope, personalType, name string) SkillMirrorReport {
 	if len(conflicts) > 0 {
 		appendCanonicalConflictReportItems(&report, targets, conflicts)
 	}
-	publishReport, err := PublishSkillMirrors(ctx, records, targets)
+	publishReport, err := PublishSkillMirrors(locks, ctx, records, targets)
 	appendSkillMirrorReport(&report, publishReport)
 	if err != nil {
 		appendSkillMirrorReport(&report, mirrorPublishErrorReport(targets, scope, personalType, name, err))
 	}
 	return report
+}
+
+// cleanupSuppressedPersonalMirrorRecord 删除仍由系统托管的被压制 personal mirror。
+// mirror hash 或内容 hash 已漂移时跳过删除，让冲突检测路径交给用户确认。
+func cleanupSuppressedPersonalMirrorRecord(locks *MirrorRootLockRegistry, target SkillMirrorTarget, record canonicalSkillRecord) (SkillMirrorReportItem, bool, error) {
+	unlock := locks.lock(target.Root)
+	defer unlock()
+	if targetUsesCanonicalSelfMirror([]canonicalSkillRecord{record}, target) {
+		return SkillMirrorReportItem{}, false, nil
+	}
+	mirrorDir := filepath.Join(target.Root, record.Name)
+	mirrorHash, exists, err := existingMirrorHash(mirrorDir)
+	if err != nil || !exists {
+		return SkillMirrorReportItem{}, false, err
+	}
+	expectedHash, expectedContentHash, err := expectedCanonicalMirrorHashes(target.Root, record, target.Scope)
+	if err != nil {
+		return SkillMirrorReportItem{}, false, err
+	}
+	mirrorContentHash, err := skillDirContentHash(mirrorDir)
+	if err != nil {
+		return SkillMirrorReportItem{}, false, err
+	}
+	if mirrorHash != expectedHash && mirrorContentHash != expectedContentHash {
+		return SkillMirrorReportItem{}, false, nil
+	}
+	item := reportItem(target, record.Name, canonicalSourceID(record), mirrorHash, "", "")
+	return item, true, os.RemoveAll(mirrorDir)
 }
 
 // cleanupProjectSuppressedPersonalMirrors 处理项目策略压制的 personal mirror。
@@ -233,46 +261,4 @@ func projectSuppressedPersonalSourceIDs(policy projectSkillPolicy) (map[string]s
 		}
 	}
 	return out, nil
-}
-
-func cleanupSuppressedPersonalMirrorTarget(target SkillMirrorTarget, records []canonicalSkillRecord) (SkillMirrorReport, error) {
-	var report SkillMirrorReport
-	unlock := lockSkillMirrorRoot(target.Root)
-	defer unlock()
-	for _, record := range records {
-		item, deleted, err := cleanupSuppressedPersonalMirrorRecord(target, record)
-		if err != nil {
-			return report, err
-		}
-		if deleted {
-			report.Deleted = append(report.Deleted, item)
-		}
-	}
-	return report, nil
-}
-
-// cleanupSuppressedPersonalMirrorRecord 删除仍由系统托管的被压制 personal mirror。
-// mirror hash 或内容 hash 已漂移时跳过删除，让冲突检测路径交给用户确认。
-func cleanupSuppressedPersonalMirrorRecord(target SkillMirrorTarget, record canonicalSkillRecord) (SkillMirrorReportItem, bool, error) {
-	if targetUsesCanonicalSelfMirror([]canonicalSkillRecord{record}, target) {
-		return SkillMirrorReportItem{}, false, nil
-	}
-	mirrorDir := filepath.Join(target.Root, record.Name)
-	mirrorHash, exists, err := existingMirrorHash(mirrorDir)
-	if err != nil || !exists {
-		return SkillMirrorReportItem{}, false, err
-	}
-	expectedHash, expectedContentHash, err := expectedCanonicalMirrorHashes(target.Root, record, target.Scope)
-	if err != nil {
-		return SkillMirrorReportItem{}, false, err
-	}
-	mirrorContentHash, err := skillDirContentHash(mirrorDir)
-	if err != nil {
-		return SkillMirrorReportItem{}, false, err
-	}
-	if mirrorHash != expectedHash && mirrorContentHash != expectedContentHash {
-		return SkillMirrorReportItem{}, false, nil
-	}
-	item := reportItem(target, record.Name, canonicalSourceID(record), mirrorHash, "", "")
-	return item, true, os.RemoveAll(mirrorDir)
 }

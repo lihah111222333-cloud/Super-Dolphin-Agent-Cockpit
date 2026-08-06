@@ -214,7 +214,7 @@ func TestSkillResolutionApplyImportsLegacyDisplayNameProviderSkill(t *testing.T)
 	if err != nil {
 		t.Fatalf("stableMirrorDirectoryHash: %v", err)
 	}
-	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: filepath.Join(t.TempDir(), ".super-dolphin"), auditStore: &capturingSkillAuditStore{}}
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: filepath.Join(t.TempDir(), ".super-dolphin"), auditStore: &capturingSkillAuditStore{}, mirrorLocks: NewMirrorRootLockRegistry()}
 	target := SkillMirrorTarget{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: providerRoot, CanonicalRootID: "repo"}
 
 	report, err := ImportUnmanagedProviderSkill(context.Background(), svc, SkillMirrorResolutionRequest{
@@ -301,7 +301,7 @@ func setupOrphanUnmanagedProviderConflictFixtureWithService(t *testing.T) (strin
 	setSkillTestUserHome(t)
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	svc := &service{root: t.TempDir(), projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, http: &http.Client{}}
+	svc := &service{root: t.TempDir(), projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, http: &http.Client{}, mirrorLocks: NewMirrorRootLockRegistry()}
 	writeSkillWithSupportFiles(t, filepath.Join(project, ".claude", "skills", "scratch"), "scratch")
 	return project, newSkillRPCTestServer(t, svc), svc
 }
@@ -324,6 +324,7 @@ func setupProviderManifestMismatchResolutionFixtureWithService(t *testing.T) (st
 		superDolphinHome:  superHome,
 		http:              &http.Client{},
 		auditStore:        audit,
+		mirrorLocks:       NewMirrorRootLockRegistry(),
 	}
 	writeSkillWithSupportFiles(t, filepath.Join(project, ".agents", "skills", "build"), "build")
 	claudeRoot := providerProjectMirrorRoot(SkillProviderClaude, project)
@@ -358,6 +359,7 @@ func setupProviderRootSymlinkResolutionFixture(t *testing.T) (string, *platformr
 		superDolphinHome:  superHome,
 		http:              &http.Client{},
 		auditStore:        audit,
+		mirrorLocks:       NewMirrorRootLockRegistry(),
 	}
 	writeSkillWithSupportFiles(t, filepath.Join(project, ".agents", "skills", "build"), "build")
 	legacyCache := filepath.Join(t.TempDir(), "skills-cache")

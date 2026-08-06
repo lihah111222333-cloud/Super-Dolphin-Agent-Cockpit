@@ -26,6 +26,7 @@ func TestSubdirWriteLocalProjectUsesGitRootCanonicalAndMirrors(t *testing.T) {
 		projectSkillsRoot: defaultProjectSkillsRoot(projectRoot),
 		superDolphinHome:  newTestSuperDolphinHome(t),
 		http:              &http.Client{},
+		mirrorLocks:       NewMirrorRootLockRegistry(),
 	}
 
 	out, err := svc.WriteLocal(skillTestContext(subdir), "build", "---\nname: build\n---\nbody", skillScopeProject)
@@ -94,7 +95,7 @@ func TestSubdirResolutionUsesGitRootMirrorTargets(t *testing.T) {
 		Root:            providerProjectMirrorRoot(SkillProviderCodex, projectRoot),
 		CanonicalRootID: RepoFingerprint(projectRoot),
 	}
-	if _, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{target}); err != nil {
+	if _, err := PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{target}); err != nil {
 		t.Fatalf("PublishSkillMirrors: %v", err)
 	}
 	writeFileWithMode(t, filepath.Join(target.Root, "drift", "references", "guide.md"), "provider drift\n", 0o644)

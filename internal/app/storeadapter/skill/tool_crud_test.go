@@ -12,6 +12,7 @@ import (
 	skill "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/skill"
 	platformrpc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 	skilltoolstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/skilltool"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 	_ "modernc.org/sqlite"
 )
 
@@ -26,7 +27,7 @@ func TestSkillToolRPCPersistsCRUDWithLazyTableCreation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("provide Skill tool persistence: %v", err)
 	}
-	svc := skill.NewServiceWithToolStore(projectRoot, port)
+	svc := skill.NewServiceWithToolStore(projectRoot, port, skillmetrics.NewRegistry(), skill.NewMirrorRootLockRegistry())
 	server := newSkillToolRPCServer(svc)
 
 	assertSkillToolInitialListCreatesTable(t, db, server, projectRoot)

@@ -44,6 +44,7 @@ type service struct {
 	skillsChangedDropped        uint64
 	skillsChangedLastError      string
 	approval                    *ApprovalCache
+	mirrorLocks                 *MirrorRootLockRegistry
 	auditStore                  skillMutationAuditStore
 	mirrorTargets               []SkillMirrorTarget
 	skillTools                  toolstore.Persistence
@@ -145,10 +146,11 @@ func (s *service) TrustRevision() uint64 { return s.SkillRevision() }
 
 // NewService 创建无数据库依赖的 skill service。
 // 它会尝试加载本地审批缓存；加载失败时保留空缓存，由后续审批查询返回未命中。
-func NewService(projectRoot string, metrics skillmetrics.Writer) Service {
+func NewService(projectRoot string, metrics skillmetrics.Writer, mirrorLocks *MirrorRootLockRegistry) Service {
 	if metrics == nil {
 		panic("skill service metrics writer is required")
 	}
+	requireMirrorRootLockRegistry(mirrorLocks)
 	pr := strings.TrimSpace(projectRoot)
 	if pr != "" {
 		pr = filepath.Clean(pr)
@@ -163,13 +165,14 @@ func NewService(projectRoot string, metrics skillmetrics.Writer) Service {
 		skillsChangedWake:           make(chan struct{}, 1),
 		skillsChangedDebounceWindow: skillsChangedDebounceWindow,
 		approval:                    approvalCache,
+		mirrorLocks:                 mirrorLocks,
 	}
 }
 
 // NewServiceWithToolStore 创建通过消费端窄端口访问 Skill Tool CRUD 的 service。
 // 生产装配由 app adapter 注入 Store 实现；聚焦测试可提供满足端口的 fake。
-func NewServiceWithToolStore(projectRoot string, store toolstore.Persistence, metrics skillmetrics.Writer) Service {
-	svc := NewService(projectRoot, metrics).(*service)
+func NewServiceWithToolStore(projectRoot string, store toolstore.Persistence, metrics skillmetrics.Writer, mirrorLocks *MirrorRootLockRegistry) Service {
+	svc := NewService(projectRoot, metrics, mirrorLocks).(*service)
 	svc.skillTools = store
 	return svc
 }

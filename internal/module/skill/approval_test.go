@@ -58,7 +58,7 @@ func TestDefaultApprovalCachePath_DefaultsToHome(t *testing.T) {
 }
 
 func TestLookupArtifactApproval_NilCacheReturnsFalse(t *testing.T) {
-	svc := NewService(t.TempDir(), testSkillMetrics(t)).(*service)
+	svc := NewService(t.TempDir(), testSkillMetrics(t), NewMirrorRootLockRegistry()).(*service)
 	svc.approval = nil
 	approved, err := svc.LookupArtifactApproval(context.Background(), contract.ArtifactApprovalRequest{
 		RepoFingerprint: "repo",

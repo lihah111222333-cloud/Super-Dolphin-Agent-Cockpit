@@ -22,7 +22,7 @@ func TestSkillMirrorReconcilerReportsProjectManifestTargetMismatchAsConflict(t *
 func TestSkillMirrorPublisherReportsProjectManifestTargetMismatchConflictWithoutTakingOwnership(t *testing.T) {
 	fixture := setupProjectManifestTargetMismatchFixture(t)
 
-	report, err := PublishSkillMirrors(context.Background(), []canonicalSkillRecord{fixture.record}, []SkillMirrorTarget{fixture.target})
+	report, err := PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), []canonicalSkillRecord{fixture.record}, []SkillMirrorTarget{fixture.target})
 	if err != nil {
 		t.Fatalf("PublishSkillMirrors: %v", err)
 	}

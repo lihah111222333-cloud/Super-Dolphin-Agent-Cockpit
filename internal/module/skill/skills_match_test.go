@@ -168,7 +168,7 @@ func TestMatchPreviewConfiguredDisplayNameAliasReturnsCanonicalName(t *testing.T
 
 func newTestSkillService(t *testing.T) *service {
 	t.Helper()
-	return &service{root: t.TempDir(), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}}
+	return &service{root: t.TempDir(), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}, mirrorLocks: NewMirrorRootLockRegistry()}
 }
 
 func newTestSuperDolphinHome(t *testing.T) string {

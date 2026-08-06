@@ -17,6 +17,7 @@ import (
 // skill 自动匹配当前只在 `skills/match/preview` 按需执行，运行期绑定等待 provider context 提供状态。
 var Module = fx.Module("skill",
 	fx.Provide(
+		NewMirrorRootLockRegistry,
 		fx.Annotate(
 			newService,
 			fx.As(fx.Self()),
@@ -37,11 +38,12 @@ var Module = fx.Module("skill",
 type serviceDeps struct {
 	fx.In
 
-	Config     *contract.Config
-	Dispatcher *event.Dispatcher
-	AuditStore MutationAuditStore
-	ToolStore  toolstore.Persistence
-	Metrics    *skillmetrics.Registry
+	Config      *contract.Config
+	Dispatcher  *event.Dispatcher
+	AuditStore  MutationAuditStore
+	ToolStore   toolstore.Persistence
+	Metrics     *skillmetrics.Registry
+	MirrorLocks *MirrorRootLockRegistry
 }
 
 type skillHandlerDeps struct {
@@ -56,7 +58,7 @@ func newService(deps serviceDeps) *service {
 	if deps.Config != nil {
 		projectRoot = strings.TrimSpace(deps.Config.ProjectRoot)
 	}
-	svc := NewService(projectRoot, deps.Metrics).(*service)
+	svc := NewService(projectRoot, deps.Metrics, deps.MirrorLocks).(*service)
 	svc.bindDispatcher(deps.Dispatcher)
 	svc.auditStore = deps.AuditStore
 	svc.skillTools = deps.ToolStore

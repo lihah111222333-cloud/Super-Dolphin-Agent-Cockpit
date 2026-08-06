@@ -29,6 +29,7 @@ func TestSkillResolutionListHidesMirrorDriftForUnresolvedSameName(t *testing.T) 
 		projectSkillsRoot: defaultProjectSkillsRoot(project),
 		superDolphinHome:  superHome,
 		http:              &http.Client{},
+		mirrorLocks:       NewMirrorRootLockRegistry(),
 	}
 	writeSkillWithSupportFiles(t, filepath.Join(project, ".agents", "skills", "build"), "build")
 	writeSkillWithSupportFiles(t, filepath.Join(superHome, "skills", "personal", personalSkillTypeUser, "build"), "build")
@@ -39,7 +40,7 @@ func TestSkillResolutionListHidesMirrorDriftForUnresolvedSameName(t *testing.T) 
 	}
 	fingerprint := RepoFingerprint(project)
 	claudeTarget := SkillMirrorTarget{TargetID: "claude:project:" + fingerprint, Provider: SkillProviderClaude, Scope: skillScopeProject, Root: providerProjectMirrorRoot(SkillProviderClaude, project), CanonicalRootID: fingerprint}
-	if _, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{claudeTarget}); err != nil {
+	if _, err := PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{claudeTarget}); err != nil {
 		t.Fatalf("PublishSkillMirrors: %v", err)
 	}
 	writeFileWithMode(t, filepath.Join(claudeTarget.Root, "build", "references", "guide.md"), "claude project drift\n", 0o644)
@@ -99,7 +100,7 @@ func TestSkillResolutionListReportsLegacyMirrorRootSymlinkAsConflict(t *testing.
 	setSkillTestUserHome(t)
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, http: &http.Client{}}
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, http: &http.Client{}, mirrorLocks: NewMirrorRootLockRegistry()}
 	writeSkillWithSupportFiles(t, filepath.Join(project, ".agents", "skills", "build"), "build")
 	legacyCache := filepath.Join(t.TempDir(), "skills-cache")
 	if err := os.MkdirAll(legacyCache, 0o755); err != nil {
@@ -138,7 +139,7 @@ func TestSkillResolutionListSupportsProjectOnlySameNameSelection(t *testing.T) {
 
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, http: &http.Client{}}
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, http: &http.Client{}, mirrorLocks: NewMirrorRootLockRegistry()}
 	writeSkillContent(t, filepath.Join(project, ".agents", "skills", "security-engineer"), "security", "# a\n")
 	writeSkillContent(t, filepath.Join(project, ".agents", "skills", "security-standards"), "security", "# b\n")
 
@@ -173,7 +174,7 @@ func TestSkillResolutionMirrorTargetsUseResolvedOwnerKey(t *testing.T) {
 	setSkillTestUserHome(t)
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome}
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, mirrorLocks: NewMirrorRootLockRegistry()}
 	owner, err := resolveOwnerIdentity(superHome, defaultOwnerOSUID(), defaultAppProfile())
 	if err != nil {
 		t.Fatalf("resolveOwnerIdentity: %v", err)

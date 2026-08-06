@@ -24,7 +24,7 @@ func TestSkillMirrorPublisherAdoptsIdenticalUnmanagedPersonalMirror(t *testing.T
 	}
 	target := SkillMirrorTarget{TargetID: "codex:user-global:owner", Provider: SkillProviderCodex, Scope: skillScopePersonal, Root: root, CanonicalRootID: "sd_owner:owner"}
 
-	report, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{target})
+	report, err := PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{target})
 	if err != nil {
 		t.Fatalf("PublishSkillMirrors: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestSkillMirrorPublisherAdoptsIdenticalUnmanagedProjectMirror(t *testing.T)
 		t.Fatalf("copy unmanaged project mirror: %v", err)
 	}
 
-	report, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{
+	report, err := PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{
 		{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: root, CanonicalRootID: "repo"},
 	})
 	if err != nil {
@@ -102,7 +102,7 @@ func TestReconcileProviderMirrorsProjectPolicyFailsClosedBeforeMutatingSharedPer
 	projectB := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
 	writeSkillWithSupportFiles(t, filepath.Join(superHome, "skills", "personal", "user", "same"), "same")
-	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome}
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, mirrorLocks: NewMirrorRootLockRegistry()}
 	personalHome := filepath.Join(superHome, "providers", "claude")
 	personalRoot := filepath.Join(personalHome, "skills")
 	records, err := newCanonicalStore(superHome).scan(project)
@@ -137,7 +137,7 @@ func TestReconcileProviderMirrorsProjectPolicyFailsClosedBeforeMutatingSharedPer
 	}
 	assertMirrorFile(t, filepath.Join(personalRoot, "same", skillMainFile), false)
 
-	svcB := &service{projectRoot: projectB, projectSkillsRoot: defaultProjectSkillsRoot(projectB), superDolphinHome: superHome}
+	svcB := &service{projectRoot: projectB, projectSkillsRoot: defaultProjectSkillsRoot(projectB), superDolphinHome: superHome, mirrorLocks: NewMirrorRootLockRegistry()}
 	if _, err := svcB.ReconcileProviderMirrors(context.Background(), projectB, []contract.SkillProviderMirrorTarget{
 		{Provider: "claude", HomeRoot: personalHome, SkillsRoot: personalRoot},
 	}); err != nil {
@@ -150,7 +150,7 @@ func TestReconcileProviderMirrorsProjectKeepSelectedFailsClosedBeforeMutatingSha
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
 	writeSkillWithSupportFiles(t, filepath.Join(superHome, "skills", "personal", "user", "same"), "same")
-	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome}
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, mirrorLocks: NewMirrorRootLockRegistry()}
 	personalHome := filepath.Join(superHome, "providers", "claude")
 	personalRoot := filepath.Join(personalHome, "skills")
 	records, err := newCanonicalStore(superHome).scan(project)
@@ -187,7 +187,7 @@ func TestPrepareWriteTimeMirrorPublishFailsClosedBeforeMutatingSharedPersonalMir
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
 	writeSkillWithSupportFiles(t, filepath.Join(superHome, "skills", "personal", "user", "same"), "same")
-	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome}
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, mirrorLocks: NewMirrorRootLockRegistry()}
 	personalHome := filepath.Join(superHome, "providers", "claude")
 	personalRoot := filepath.Join(personalHome, "skills")
 	records, err := newCanonicalStore(superHome).scan(project)

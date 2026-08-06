@@ -18,7 +18,7 @@ func newCreateSkillService(t *testing.T) (*service, string, string) {
 	t.Helper()
 	systemRoot := t.TempDir()
 	projectRoot := filepath.Join(t.TempDir(), "repo-a")
-	svc := NewService(projectRoot, testSkillMetrics(t)).(*service)
+	svc := NewService(projectRoot, testSkillMetrics(t), NewMirrorRootLockRegistry()).(*service)
 	svc.root = systemRoot
 	return svc, projectRoot, systemRoot
 }

@@ -15,6 +15,7 @@ import (
 	platformrpc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 	auditstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/auditlog"
 	skilltoolstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/skilltool"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 func TestSkillMutationAuditAdapterMapsDomainDTO(t *testing.T) {
@@ -121,7 +122,7 @@ func TestSkillToolRPCMapsPortErrors(t *testing.T) {
 	t.Parallel()
 
 	projectRoot := t.TempDir()
-	svc := skill.NewServiceWithToolStore(projectRoot, failingSkillToolPersistence{})
+	svc := skill.NewServiceWithToolStore(projectRoot, failingSkillToolPersistence{}, skillmetrics.NewRegistry(), skill.NewMirrorRootLockRegistry())
 	server := newSkillToolRPCServer(svc)
 
 	_, err := server.Dispatch(context.Background(), "skills/tools/get", mustRawJSON(t, map[string]any{

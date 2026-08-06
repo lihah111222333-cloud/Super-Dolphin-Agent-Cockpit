@@ -89,7 +89,7 @@ func publishProviderRootAfterTakeover(ctx context.Context, svc *service, target 
 	if err != nil {
 		return "", err
 	}
-	if _, err := PublishSkillMirrors(ctx, records, []SkillMirrorTarget{target}); err != nil {
+	if _, err := PublishSkillMirrors(svc.mirrorLocks, ctx, records, []SkillMirrorTarget{target}); err != nil {
 		return "", err
 	}
 	return stableMirrorDirectoryHash(target.Root)

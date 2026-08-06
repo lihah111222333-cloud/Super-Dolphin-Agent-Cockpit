@@ -34,7 +34,7 @@ func TestProjectMirrorCapsTrustFrontmatter(t *testing.T) {
 	codexRoot := testCodexProjectMirrorRoot(project)
 	personalRoot := filepath.Join(superHome, "providers", "codex", "skills")
 
-	if _, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{{
+	if _, err := PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{{
 		TargetID:        "codex:project:" + RepoFingerprint(project),
 		Provider:        SkillProviderCodex,
 		Scope:           skillScopeProject,
@@ -68,7 +68,7 @@ func TestReconcileProviderMirrorsUsesRequestCWDWhenServiceProjectRootDiffers(t *
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
 	providerHome := filepath.Join(superHome, "providers", "codex")
 	writeSkillWithSupportFiles(t, filepath.Join(requestProject, ".agents", "skills", "build"), "build")
-	svc := &service{projectRoot: serviceProject, projectSkillsRoot: defaultProjectSkillsRoot(serviceProject), superDolphinHome: superHome}
+	svc := &service{projectRoot: serviceProject, projectSkillsRoot: defaultProjectSkillsRoot(serviceProject), superDolphinHome: superHome, mirrorLocks: NewMirrorRootLockRegistry()}
 	targets, err := providershared.ProviderMirrorTargets(providershared.ProviderCodex, requestProject, providerHome)
 	if err != nil {
 		t.Fatalf("ProviderMirrorTargets: %v", err)
@@ -101,7 +101,7 @@ func TestReconcileProviderMirrorsPublishesPackagedProjectMirrorToWritableHome(t 
 	t.Setenv("PROJECT_ROOT", resources)
 	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
 	t.Setenv("SUPER_DOLPHIN_PACKAGED_CODEX_IDENTITY", "1")
-	svc := &service{projectRoot: resources, projectSkillsRoot: defaultProjectSkillsRoot(resources), superDolphinHome: superHome}
+	svc := &service{projectRoot: resources, projectSkillsRoot: defaultProjectSkillsRoot(resources), superDolphinHome: superHome, mirrorLocks: NewMirrorRootLockRegistry()}
 	targets, err := providershared.ProviderMirrorTargets(providershared.ProviderCodex, resources, filepath.Join(superHome, "providers", "codex"))
 	if err != nil {
 		t.Fatalf("ProviderMirrorTargets: %v", err)
@@ -131,14 +131,14 @@ func TestPersonalMirrorDriftBlocksProviderStartup(t *testing.T) {
 		Root:            filepath.Join(superHome, "providers", "codex", "skills"),
 		CanonicalRootID: "sd_owner:owner",
 	}
-	if _, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{target}); err != nil {
+	if _, err := PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{target}); err != nil {
 		t.Fatalf("PublishSkillMirrors initial: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(target.Root, "notes", "references", "guide.md"), []byte("personal edit"), 0o644); err != nil {
 		t.Fatalf("WriteFile personal drift: %v", err)
 	}
 
-	report, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{target})
+	report, err := PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{target})
 	if err != nil {
 		t.Fatalf("PublishSkillMirrors drift: %v", err)
 	}
@@ -199,14 +199,14 @@ func TestSkillMirrorPublisherReportsProjectManagedDriftAsBlockingConflict(t *tes
 		Root:            testCodexProjectMirrorRoot(project),
 		CanonicalRootID: "repo",
 	}
-	if _, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{target}); err != nil {
+	if _, err := PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{target}); err != nil {
 		t.Fatalf("PublishSkillMirrors initial: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(target.Root, "build", "references", "guide.md"), []byte("project edit"), 0o644); err != nil {
 		t.Fatalf("WriteFile project drift: %v", err)
 	}
 
-	report, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{target})
+	report, err := PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{target})
 	if err != nil {
 		t.Fatalf("PublishSkillMirrors drift: %v", err)
 	}
@@ -290,7 +290,7 @@ func TestReconcileProviderMirrorsRepairsManagedProjectMirrorTrustCap(t *testing.
 	writeManagedMirrorFixtures(t, projectTarget, projectFixtures...)
 	writeManagedMirrorFixtures(t, personalTarget, managedMirrorFixture{record: personalRecord, content: personalContent})
 
-	report, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{projectTarget, personalTarget})
+	report, err := PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{projectTarget, personalTarget})
 	if err != nil {
 		t.Fatalf("PublishSkillMirrors: %v", err)
 	}
@@ -340,7 +340,7 @@ func publishDeletedWithDriftMirror(t *testing.T, project, superHome, canonicalDi
 	if err != nil {
 		t.Fatalf("scan canonical records: %v", err)
 	}
-	if _, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{target}); err != nil {
+	if _, err := PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), records, []SkillMirrorTarget{target}); err != nil {
 		t.Fatalf("PublishSkillMirrors initial: %v", err)
 	}
 	if err := os.RemoveAll(canonicalDir); err != nil {
@@ -353,7 +353,7 @@ func publishDeletedWithDriftMirror(t *testing.T, project, superHome, canonicalDi
 	if err != nil {
 		t.Fatalf("scan canonical records after delete: %v", err)
 	}
-	report, err := PublishSkillMirrors(context.Background(), recordsAfterDelete, []SkillMirrorTarget{target})
+	report, err := PublishSkillMirrors(NewMirrorRootLockRegistry(), context.Background(), recordsAfterDelete, []SkillMirrorTarget{target})
 	if err != nil {
 		t.Fatalf("PublishSkillMirrors deleted drift: %v", err)
 	}
@@ -525,7 +525,7 @@ func TestReconcileProviderMirrorsRejectsPersonalSystemHome(t *testing.T) {
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
 	writeSkillWithSupportFiles(t, filepath.Join(superHome, "skills", "personal", "user", "notes"), "notes")
-	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome}
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, mirrorLocks: NewMirrorRootLockRegistry()}
 	systemHome := filepath.Join(t.TempDir(), ".claude")
 
 	_, err := svc.ReconcileProviderMirrors(context.Background(), project, []contract.SkillProviderMirrorTarget{

@@ -354,7 +354,7 @@ func TestImportLocalDir_BatchRejectsNameOverride(t *testing.T) {
 func newImportDirTestService(t *testing.T) (*service, string) {
 	t.Helper()
 	projectRoot := t.TempDir()
-	svc := NewService(projectRoot, testSkillMetrics(t)).(*service)
+	svc := NewService(projectRoot, testSkillMetrics(t), NewMirrorRootLockRegistry()).(*service)
 	svc.root = t.TempDir()
 	svc.projectSkillsRoot = defaultProjectSkillsRoot(projectRoot)
 	svc.superDolphinHome = newTestSuperDolphinHome(t)
@@ -472,7 +472,7 @@ func TestImportLocalDirRejectsSourceInsideProjectSkillsRoot(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(sourceDir, skillMainFile), []byte("# demo"), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
-	svc := &service{root: systemRoot, projectRoot: projectRoot, projectSkillsRoot: projectSkillsRoot}
+	svc := &service{root: systemRoot, projectRoot: projectRoot, projectSkillsRoot: projectSkillsRoot, mirrorLocks: NewMirrorRootLockRegistry()}
 
 	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: sourceDir, Scope: skillScopeProject})
 	if err != nil {
@@ -519,7 +519,7 @@ func TestImportLocalDirAcceptsSourceOutsideProjectRoot(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(sourceDir, skillMainFile), []byte("# demo"), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
-	svc := &service{projectRoot: projectRoot, root: skillsRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot)}
+	svc := &service{projectRoot: projectRoot, root: skillsRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), mirrorLocks: NewMirrorRootLockRegistry()}
 
 	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: sourceDir, Scope: "project"})
 	if err != nil {
@@ -556,7 +556,7 @@ func TestImportLocalDirAcceptsLegacyRootAsExplicitSource(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(sourceDir, skillMainFile), []byte("# demo"), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
-	svc := &service{projectRoot: projectRoot, root: skillsRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot)}
+	svc := &service{projectRoot: projectRoot, root: skillsRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), mirrorLocks: NewMirrorRootLockRegistry()}
 
 	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: sourceDir, Scope: skillScopeProject})
 	if err != nil {
@@ -581,7 +581,7 @@ func TestImportLocalDirConvertsSafeLegacyDisplayName(t *testing.T) {
 	sourceRoot := t.TempDir()
 	sourceDir := filepath.Join(sourceRoot, "Docker 容器化部署")
 	writeSkillContent(t, sourceDir, "Docker 容器化部署", "# docker\n")
-	svc := &service{projectRoot: projectRoot, root: t.TempDir(), projectSkillsRoot: defaultProjectSkillsRoot(projectRoot)}
+	svc := &service{projectRoot: projectRoot, root: t.TempDir(), projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), mirrorLocks: NewMirrorRootLockRegistry()}
 
 	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: sourceDir, Scope: "project"})
 	if err != nil {
@@ -620,7 +620,7 @@ func TestImportLocalDirRejectsExistingTarget(t *testing.T) {
 	if err := os.MkdirAll(existingDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(existing) error = %v", err)
 	}
-	svc := &service{projectRoot: projectRoot, root: skillsRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot)}
+	svc := &service{projectRoot: projectRoot, root: skillsRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), mirrorLocks: NewMirrorRootLockRegistry()}
 
 	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: sourceDir, Scope: "project"})
 	if err != nil {

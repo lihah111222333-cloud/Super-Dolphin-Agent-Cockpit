@@ -530,6 +530,7 @@ func TestSkillLocalDeleteRPCRequiresExplicitTarget(t *testing.T) {
 		superDolphinHome:  superDolphinHome,
 		http:              &http.Client{},
 		auditStore:        &capturingSkillAuditStore{},
+		mirrorLocks:       NewMirrorRootLockRegistry(),
 	}
 	for _, provider := range []SkillProvider{SkillProviderClaude, SkillProviderCodex} {
 		mirrorRoot := providerPersonalMirrorRoot(provider)
