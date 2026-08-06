@@ -40,7 +40,7 @@ func TestPersonalCanonicalExplicitReadAndWriteUsesPersonalType(t *testing.T) {
 	}
 }
 
-func TestWriteLocalPersonalWriteTimeMirrorRespectsProjectDisablePersonalPolicy(t *testing.T) {
+func TestWriteLocalPersonalWriteTimeMirrorFailsClosedForProjectDisablePersonalPolicy(t *testing.T) {
 	setSkillTestUserHome(t)
 	project := t.TempDir()
 	superDolphinHome := filepath.Join(t.TempDir(), ".super-dolphin")
@@ -71,14 +71,17 @@ func TestWriteLocalPersonalWriteTimeMirrorRespectsProjectDisablePersonalPolicy(t
 	})
 
 	_, err := svc.WriteLocal(skillTestContext(project), "beta", "---\nname: beta\n---\n# beta updated\n", skillScopePersonal, personalSkillTypeUser)
-	if err != nil {
-		t.Fatalf("WriteLocal(personal beta): %v", err)
+	if err == nil {
+		t.Fatal("WriteLocal(personal beta) succeeded, want shared personal mirror fail-fast")
+	}
+	if !strings.Contains(err.Error(), errProjectPolicyCannotMutateSharedPersonalMirror.Error()) {
+		t.Fatalf("WriteLocal(personal beta) error = %v, want shared personal mirror policy error", err)
 	}
 
 	for _, provider := range []SkillProvider{SkillProviderClaude, SkillProviderCodex} {
-		assertMissing(t, filepath.Join(providerPersonalMirrorRoot(provider), "alpha", skillMainFile))
-		assertFileContent(t, filepath.Join(providerPersonalMirrorRoot(provider), "beta", skillMainFile), "---\nname: beta\n---\n# beta updated\n")
-		assertPersonalMirrorManifestMissing(t, provider, "alpha")
+		assertFileContent(t, filepath.Join(providerPersonalMirrorRoot(provider), "alpha", skillMainFile), "---\nname: alpha\n---\n# alpha\n")
+		assertFileContent(t, filepath.Join(providerPersonalMirrorRoot(provider), "beta", skillMainFile), "---\nname: beta\n---\n# beta\n")
+		assertPersonalMirrorManifestEntry(t, provider, "alpha", "personal/user/alpha")
 		assertPersonalMirrorManifestEntry(t, provider, "beta", "personal/user/beta")
 	}
 }

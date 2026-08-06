@@ -2,11 +2,14 @@ package skill
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+var errProjectPolicyCannotMutateSharedPersonalMirror = errors.New("project skill policy cannot suppress personal skills through a shared provider mirror")
 
 func (s *service) publishWriteTimeMirrors(ctx context.Context, cwd, scope, personalType, name string) SkillMirrorReport {
 	targets := s.writeTimeMirrorTargets(cwd, scope)
@@ -155,8 +158,8 @@ func publishPreparedWriteTimeMirrors(ctx context.Context, report SkillMirrorRepo
 	return report
 }
 
-// cleanupProjectSuppressedPersonalMirrors 清理被项目策略压制的 personal mirror。
-// 只处理 personal target，且只有 mirror 内容仍等于受管记录时才删除，避免覆盖用户改动。
+// cleanupProjectSuppressedPersonalMirrors 处理项目策略压制的 personal mirror。
+// personal mirror 没有 project/session 维度；若继续删除会污染其他项目和恢复会话。
 func (s *service) cleanupProjectSuppressedPersonalMirrors(cwd string, targets []SkillMirrorTarget, store *canonicalStore) (SkillMirrorReport, error) {
 	var report SkillMirrorReport
 	personalTargets := mirrorTargetsForScope(targets, skillScopePersonal)
@@ -171,14 +174,7 @@ func (s *service) cleanupProjectSuppressedPersonalMirrors(cwd string, targets []
 	if err != nil || len(suppressed) == 0 {
 		return report, err
 	}
-	for _, target := range personalTargets {
-		targetReport, err := cleanupSuppressedPersonalMirrorTarget(target, suppressed)
-		appendSkillMirrorReport(&report, targetReport)
-		if err != nil {
-			return report, err
-		}
-	}
-	return report, nil
+	return report, errProjectPolicyCannotMutateSharedPersonalMirror
 }
 
 // projectSuppressedPersonalRecords 根据项目策略找出不应再发布到 provider 的 personal skill。

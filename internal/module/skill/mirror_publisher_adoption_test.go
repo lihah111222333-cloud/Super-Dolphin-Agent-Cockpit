@@ -2,6 +2,7 @@ package skill
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -96,15 +97,14 @@ func TestProjectSuppressedPersonalSourceIDsProjectKeepSelectedCoversFuturePerson
 	}
 }
 
-func TestReconcileProviderMirrorsProjectPolicyPrunesPersonalMirrorForCurrentProject(t *testing.T) {
+func TestReconcileProviderMirrorsProjectPolicyFailsClosedBeforeMutatingSharedPersonalMirror(t *testing.T) {
 	project := t.TempDir()
+	projectB := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	writeSkillWithSupportFiles(t, filepath.Join(project, ".agents", "skills", "same"), "same")
 	writeSkillWithSupportFiles(t, filepath.Join(superHome, "skills", "personal", "user", "same"), "same")
 	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome}
 	personalHome := filepath.Join(superHome, "providers", "claude")
 	personalRoot := filepath.Join(personalHome, "skills")
-	projectRoot := filepath.Join(project, ".claude", "skills")
 	records, err := newCanonicalStore(superHome).scan(project)
 	if err != nil {
 		t.Fatalf("scan canonical records: %v", err)
@@ -126,29 +126,33 @@ func TestReconcileProviderMirrorsProjectPolicyPrunesPersonalMirrorForCurrentProj
 		t.Fatalf("writeProjectDisablePersonalPolicy: %v", err)
 	}
 
-	report, err := svc.ReconcileProviderMirrors(context.Background(), project, []contract.SkillProviderMirrorTarget{
+	_, err = svc.ReconcileProviderMirrors(context.Background(), project, []contract.SkillProviderMirrorTarget{
 		{Provider: "claude", HomeRoot: personalHome, SkillsRoot: personalRoot},
-		{Provider: "claude", HomeRoot: personalHome, SkillsRoot: projectRoot},
 	})
-	if err != nil {
-		t.Fatalf("ReconcileProviderMirrors with project policy: %v", err)
+	if err == nil {
+		t.Fatal("ReconcileProviderMirrors with project suppression succeeded, want fail-fast")
 	}
-	if len(report.Conflicts) > 0 {
-		t.Fatalf("conflicts = %+v", report.Conflicts)
+	if !errors.Is(err, errProjectPolicyCannotMutateSharedPersonalMirror) {
+		t.Fatalf("ReconcileProviderMirrors error = %v, want shared personal mirror policy error", err)
 	}
-	assertMissing(t, filepath.Join(personalRoot, "same", skillMainFile))
-	assertMirrorFile(t, filepath.Join(projectRoot, "same", skillMainFile), false)
+	assertMirrorFile(t, filepath.Join(personalRoot, "same", skillMainFile), false)
+
+	svcB := &service{projectRoot: projectB, projectSkillsRoot: defaultProjectSkillsRoot(projectB), superDolphinHome: superHome}
+	if _, err := svcB.ReconcileProviderMirrors(context.Background(), projectB, []contract.SkillProviderMirrorTarget{
+		{Provider: "claude", HomeRoot: personalHome, SkillsRoot: personalRoot},
+	}); err != nil {
+		t.Fatalf("project B reconcile after project A rejection: %v", err)
+	}
+	assertMirrorFile(t, filepath.Join(personalRoot, "same", skillMainFile), false)
 }
 
-func TestReconcileProviderMirrorsProjectKeepSelectedPrunesPersonalMirrorForCurrentProject(t *testing.T) {
+func TestReconcileProviderMirrorsProjectKeepSelectedFailsClosedBeforeMutatingSharedPersonalMirror(t *testing.T) {
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	writeSkillWithSupportFiles(t, filepath.Join(project, ".agents", "skills", "same"), "same")
 	writeSkillWithSupportFiles(t, filepath.Join(superHome, "skills", "personal", "user", "same"), "same")
 	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome}
 	personalHome := filepath.Join(superHome, "providers", "claude")
 	personalRoot := filepath.Join(personalHome, "skills")
-	projectRoot := filepath.Join(project, ".claude", "skills")
 	records, err := newCanonicalStore(superHome).scan(project)
 	if err != nil {
 		t.Fatalf("scan canonical records: %v", err)
@@ -167,63 +171,52 @@ func TestReconcileProviderMirrorsProjectKeepSelectedPrunesPersonalMirrorForCurre
 		CanonicalRootID: owner.OwnerKey,
 	}, managedMirrorFixture{record: personalRecord, content: "---\nname: same\n---\n# same\n"})
 
-	report, err := svc.ReconcileProviderMirrors(context.Background(), project, []contract.SkillProviderMirrorTarget{
+	_, err = svc.ReconcileProviderMirrors(context.Background(), project, []contract.SkillProviderMirrorTarget{
 		{Provider: "claude", HomeRoot: personalHome, SkillsRoot: personalRoot},
-		{Provider: "claude", HomeRoot: personalHome, SkillsRoot: projectRoot},
 	})
-	if err != nil {
-		t.Fatalf("ReconcileProviderMirrors with keep selected project policy: %v", err)
+	if err == nil {
+		t.Fatal("ReconcileProviderMirrors with project keep-selected suppression succeeded, want fail-fast")
 	}
-	if len(report.Conflicts) > 0 {
-		t.Fatalf("conflicts = %+v", report.Conflicts)
+	if !errors.Is(err, errProjectPolicyCannotMutateSharedPersonalMirror) {
+		t.Fatalf("ReconcileProviderMirrors error = %v, want shared personal mirror policy error", err)
 	}
-	assertMissing(t, filepath.Join(personalRoot, "same", skillMainFile))
-	assertMirrorFile(t, filepath.Join(projectRoot, "same", skillMainFile), false)
+	assertMirrorFile(t, filepath.Join(personalRoot, "same", skillMainFile), false)
 }
 
-func TestReconcileProviderMirrorsDeletesIdenticalUnmanagedSuppressedPersonalMirror(t *testing.T) {
+func TestPrepareWriteTimeMirrorPublishFailsClosedBeforeMutatingSharedPersonalMirror(t *testing.T) {
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	writeSkillWithSupportFiles(t, filepath.Join(project, ".agents", "skills", "same"), "same")
 	writeSkillWithSupportFiles(t, filepath.Join(superHome, "skills", "personal", "user", "same"), "same")
 	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome}
 	personalHome := filepath.Join(superHome, "providers", "claude")
 	personalRoot := filepath.Join(personalHome, "skills")
-	projectRoot := filepath.Join(project, ".claude", "skills")
 	records, err := newCanonicalStore(superHome).scan(project)
 	if err != nil {
 		t.Fatalf("scan canonical records: %v", err)
 	}
-	writeProjectSkillPolicy(t, project, projectKeepSelectedPolicy("same", "project/same", "personal/user/same"))
 	owner, err := resolveOwnerIdentity(superHome, defaultOwnerOSUID(), defaultAppProfile())
 	if err != nil {
 		t.Fatalf("resolveOwnerIdentity: %v", err)
 	}
 	personalRecord := findCanonicalRecord(t, records, "same", skillScopePersonal, personalSkillTypeUser)
-	personalTarget := SkillMirrorTarget{
-		TargetID:        "claude:user-global:" + owner.OwnerKey,
+	target := SkillMirrorTarget{
+		TargetID:        "claude:app-managed:" + owner.OwnerKey,
 		Provider:        SkillProviderClaude,
 		Scope:           skillScopePersonal,
 		Root:            personalRoot,
 		CanonicalRootID: owner.OwnerKey,
 	}
-	if err := copyCanonicalSkillDir(personalRecord.Dir, filepath.Join(personalRoot, "same"), skillScopePersonal); err != nil {
-		t.Fatalf("copy unmanaged suppressed personal mirror: %v", err)
-	}
-	if err := writeSkillMirrorManifest(filepath.Join(personalRoot, skillMirrorManifestFile), newSkillMirrorManifest(personalTarget)); err != nil {
-		t.Fatalf("write empty personal manifest: %v", err)
+	writeManagedMirrorFixtures(t, target, managedMirrorFixture{record: personalRecord, content: "---\nname: same\n---\n# same\n"})
+	if _, err := writeProjectDisablePersonalPolicy(project, "same", personalSkillTypeUser); err != nil {
+		t.Fatalf("write project policy: %v", err)
 	}
 
-	report, err := svc.ReconcileProviderMirrors(context.Background(), project, []contract.SkillProviderMirrorTarget{
-		{Provider: "claude", HomeRoot: personalHome, SkillsRoot: personalRoot},
-		{Provider: "claude", HomeRoot: personalHome, SkillsRoot: projectRoot},
-	})
-	if err != nil {
-		t.Fatalf("ReconcileProviderMirrors with unmanaged suppressed personal mirror: %v", err)
+	report, ok := svc.prepareWriteTimeMirrorPublish(project, []SkillMirrorTarget{target}, newCanonicalStore(superHome), skillScopePersonal, personalSkillTypeUser, "same")
+	if ok {
+		t.Fatal("prepareWriteTimeMirrorPublish succeeded, want fail-fast")
 	}
-	if len(report.Conflicts) > 0 {
-		t.Fatalf("conflicts = %+v", report.Conflicts)
+	if len(report.Conflicts) == 0 {
+		t.Fatalf("write-time report = %+v, want blocking conflict", report)
 	}
-	assertMissing(t, filepath.Join(personalRoot, "same", skillMainFile))
-	assertMirrorFile(t, filepath.Join(projectRoot, "same", skillMainFile), false)
+	assertMirrorFile(t, filepath.Join(personalRoot, "same", skillMainFile), false)
 }
