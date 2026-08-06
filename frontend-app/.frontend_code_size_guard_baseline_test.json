@@ -4,7 +4,7 @@
   },
   "files": {
     "src/App.test.jsx": {
-      "lines": 7278,
+      "lines": 7281,
       "maxFuncLen": 81,
       "maxNesting": 5,
       "maxParams": 4,
