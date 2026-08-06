@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -19,6 +20,7 @@ func createRuntimeLSPClient(
 	binary *runtimeBinaryOverride,
 	rootDir string,
 	env []string,
+	goplsRootController multilsp.GoplsRootCohortController,
 	handler protocol.NotificationHandler,
 ) (multilsp.Client, error) {
 	dir := strings.TrimSpace(rootDir)
@@ -26,8 +28,26 @@ func createRuntimeLSPClient(
 		dir = root
 	}
 	serverBinary := binary.Get()
-	serverArgs, err := runtimeServerArgs(command, serverBinary, env)
+	var goplsLease *multilsp.GoplsRootCohortLease
+	if runtime.GOOS != "windows" && runtimeServerUsesSharedGoplsDaemon(command) {
+		config, configErr := runtimeServerGoplsRootCohortConfig(command, serverBinary, dir, env)
+		if configErr != nil {
+			return nil, configErr
+		}
+		if goplsRootController == nil {
+			return nil, fmt.Errorf("%w for cohort %s", multilsp.ErrGoplsRootCohortDurabilityUnsupported, config.CohortID)
+		}
+		lease, leaseErr := goplsRootController.AcquireLease(config)
+		if leaseErr != nil {
+			return nil, leaseErr
+		}
+		goplsLease = &lease
+	}
+	serverArgs, err := runtimeServerArgsForOS(command, serverBinary, env, runtime.GOOS, dir)
 	if err != nil {
+		if goplsLease != nil {
+			return nil, errors.Join(err, goplsLease.Release())
+		}
 		return nil, err
 	}
 	resourceCommand := command
@@ -41,11 +61,15 @@ func createRuntimeLSPClient(
 		runtimeAdapterUsesNode(adapter),
 	)
 	if err != nil {
+		if goplsLease != nil {
+			return nil, errors.Join(err, goplsLease.Release())
+		}
 		return nil, err
 	}
 	sqliteWorkspace, err := runtimeSQLiteDiagnosticsWorkspace(adapter, dir)
 	if err != nil {
-		return nil, errors.Join(err, multilsp.ReleaseResourceCohortLease(serverEnv))
+		cleanupErr := errors.Join(multilsp.ReleaseResourceCohortLease(serverEnv), releaseGoplsRootLease(goplsLease))
+		return nil, errors.Join(err, cleanupErr)
 	}
 	notificationHandler := handler
 	if sqliteWorkspace {
@@ -53,7 +77,8 @@ func createRuntimeLSPClient(
 	}
 	initOptions, err := runtimeServerInitOptions(adapter, packagedLSP, serverBinary, serverEnv)
 	if err != nil {
-		return nil, errors.Join(err, multilsp.ReleaseResourceCohortLease(serverEnv))
+		cleanupErr := errors.Join(multilsp.ReleaseResourceCohortLease(serverEnv), releaseGoplsRootLease(goplsLease))
+		return nil, errors.Join(err, cleanupErr)
 	}
 	client, err := multilsp.NewClientWithOptions(multilsp.Options{
 		Binary:              serverBinary,
@@ -64,12 +89,68 @@ func createRuntimeLSPClient(
 		NotificationHandler: notificationHandler,
 	})
 	if err != nil {
-		return nil, errors.Join(err, multilsp.ReleaseResourceCohortLease(serverEnv))
+		cleanupErr := errors.Join(multilsp.ReleaseResourceCohortLease(serverEnv), releaseGoplsRootLease(goplsLease))
+		return nil, errors.Join(err, cleanupErr)
 	}
 	if !sqliteWorkspace {
-		return client, nil
+		if goplsLease == nil {
+			return client, nil
+		}
+		return &goplsRootCohortClient{Client: client, lease: goplsLease}, nil
+	}
+	if goplsLease != nil {
+		return nil, errors.Join(client.Close(), releaseGoplsRootLease(goplsLease), errors.New("gopls root cohort cannot use SQL diagnostic wrapper"))
 	}
 	return newSQLDiagnosticClient(client, dir, handler)
+}
+
+func releaseGoplsRootLease(lease *multilsp.GoplsRootCohortLease) error {
+	if lease == nil {
+		return nil
+	}
+	return lease.Release()
+}
+
+// goplsRootCohortClient 把 root cohort lease 的 release 绑定到真实 LSP client Close。
+// 这样 manager cleanup 与 controller fence 使用同一 owner，不会提前释放 active member。
+type goplsRootCohortClient struct {
+	multilsp.Client
+	lease *multilsp.GoplsRootCohortLease
+}
+
+// UnderlyingLSPClient 保留真实 transport owner，供 multilsp 进程树和资源清理穿透 wrapper。
+func (c *goplsRootCohortClient) UnderlyingLSPClient() multilsp.Client {
+	if c == nil {
+		return nil
+	}
+	return c.Client
+}
+
+// ServerCapabilities 保留真实 gopls capability 面，避免 lease wrapper 改变能力判断。
+func (c *goplsRootCohortClient) ServerCapabilities() protocol.ServerCapabilities {
+	if c == nil || c.Client == nil {
+		return protocol.ServerCapabilities{}
+	}
+	capabilities, ok := c.Client.(multilsp.ServerCapabilitiesClient)
+	if !ok {
+		return protocol.ServerCapabilities{}
+	}
+	return capabilities.ServerCapabilities()
+}
+
+// Close 把真实 forwarder transport 交给 root cohort owner；最后 member 的
+// transport 由 durable idle-drain 在 deadline/fence 复核后关闭，避免先关闭
+// 自身再把已关闭 callback 交给 15 分钟 drain。
+func (c *goplsRootCohortClient) Close() error {
+	if c == nil {
+		return nil
+	}
+	if c.lease == nil {
+		return c.Client.Close()
+	}
+	return c.lease.ReleaseWithOwner(func() error {
+		return c.Client.Close()
+	})
 }
 
 // runtimeServerResolveResourceLimits 解析主次 RSS/heap 上限并拒绝无法证明安全的组合。

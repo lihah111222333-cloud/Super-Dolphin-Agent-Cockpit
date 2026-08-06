@@ -356,6 +356,72 @@ func TestRuntimeServerArgsSharesOnlyCompatibleGoplsEnvironments(t *testing.T) {
 	}
 }
 
+func TestRuntimeServerArgsUsesCanonicalGitCommonDirForGoplsRootCohort(t *testing.T) {
+	firstRoot, secondRoot := writeRuntimeLinkedWorktreeFixture(t)
+	binary := writeRuntimeServerCacheFixture(t, "gopls", "#!/bin/sh\nexit 0\n")
+	command := multilsp.ServerCommand{
+		Executable: "gopls",
+		Args:       []string{"-remote=auto;sdmcp2", "-remote.listen.timeout=1m"},
+	}
+	first := mustRuntimeServerArgsForRoot(t, command, binary, firstRoot)
+	second := mustRuntimeServerArgsForRoot(t, command, binary, secondRoot)
+	if runtimeServerGoplsRemoteID(first) == "" || runtimeServerGoplsRemoteID(first) != runtimeServerGoplsRemoteID(second) {
+		t.Fatalf("linked worktrees did not share canonical gopls root cohort: first=%v second=%v", first, second)
+	}
+	unrelatedRoot := t.TempDir()
+	unrelated := mustRuntimeServerArgsForRoot(t, command, binary, unrelatedRoot)
+	if runtimeServerGoplsRemoteID(first) == runtimeServerGoplsRemoteID(unrelated) {
+		t.Fatalf("unrelated root reused gopls cohort: first=%v unrelated=%v", first, unrelated)
+	}
+}
+
+func TestRuntimeServerGoplsRootCohortConfigHasTypedProof(t *testing.T) {
+	root := t.TempDir()
+	binary := writeRuntimeServerCacheFixture(t, "gopls", "#!/bin/sh\nexit 0\n")
+	config, err := runtimeServerGoplsRootCohortConfig(
+		multilsp.ServerCommand{Executable: "gopls", Args: []string{"-remote=auto;sdmcp2", "-remote.listen.timeout=1m"}},
+		binary,
+		root,
+		[]string{"GOOS=darwin"},
+	)
+	if err != nil {
+		t.Fatalf("runtimeServerGoplsRootCohortConfig() error = %v", err)
+	}
+	if err := config.Validate(); err != nil {
+		t.Fatalf("GoplsRootCohortConfig.Validate() error = %v", err)
+	}
+	proof := config.RepositoryInstanceProof
+	if proof.CanonicalRootDigest == "" || proof.FilesystemIdentity == "" || proof.GitMarkerDigest == "" || proof.InstanceNonce == "" {
+		t.Fatalf("typed repository proof is incomplete: %#v", proof)
+	}
+}
+
+func TestRuntimeServerGoplsRootProofIsStableAcrossLinkedWorktrees(t *testing.T) {
+	firstRoot, secondRoot := writeRuntimeLinkedWorktreeFixture(t)
+	binary := writeRuntimeServerCacheFixture(t, "gopls", "#!/bin/sh\nexit 0\n")
+	command := multilsp.ServerCommand{Executable: "gopls", Args: []string{"-remote=auto;sdmcp2", "-remote.listen.timeout=1m"}}
+	first, err := runtimeServerGoplsRootCohortConfig(command, binary, firstRoot, []string{"GOOS=darwin"})
+	if err != nil {
+		t.Fatalf("runtimeServerGoplsRootCohortConfig(first) error = %v", err)
+	}
+	second, err := runtimeServerGoplsRootCohortConfig(command, binary, secondRoot, []string{"GOOS=darwin"})
+	if err != nil {
+		t.Fatalf("runtimeServerGoplsRootCohortConfig(second) error = %v", err)
+	}
+	if first.RepositoryInstanceProof != second.RepositoryInstanceProof || first.CohortID != second.CohortID {
+		t.Fatalf("linked worktree root proof split: first=%#v second=%#v", first, second)
+	}
+}
+
+func mustRuntimeServerArgsForRoot(t *testing.T, command multilsp.ServerCommand, binary, root string) []string {
+	t.Helper()
+	args, err := runtimeServerArgsForOS(command, binary, []string{"GOOS=darwin"}, "darwin", root)
+	if err != nil {
+		t.Fatalf("runtimeServerArgsForOS(root=%q) error = %v", root, err)
+	}
+	return args
+}
+
 func TestRuntimeServerArgsSeparatesAmbientGoBuildEnvironments(t *testing.T) {
 	binary := writeRuntimeServerCacheFixture(t, "gopls", "#!/bin/sh\nexit 0\n")
 	command := multilsp.ServerCommand{

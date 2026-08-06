@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -528,6 +529,13 @@ func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *
 		return nil, errors.New("language adapter server command is empty")
 	}
 	binary := &runtimeBinaryOverride{value: initialBinary}
+	var goplsRootController multilsp.GoplsRootCohortController
+	if runtime.GOOS != "windows" && runtimeServerUsesSharedGoplsDaemon(command) {
+		goplsRootController, err = runtimeServerNewDurableGoplsRootCohortController()
+		if err != nil {
+			return nil, err
+		}
+	}
 	mgr, err := multilsp.NewManagerWithError(multilsp.Config{
 		WorkspaceRoot:                    root,
 		LanguageAdapters:                 adapters,
@@ -543,6 +551,7 @@ func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *
 				binary,
 				rootDir,
 				env,
+				goplsRootController,
 				h,
 			)
 		}),
@@ -551,7 +560,7 @@ func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *
 	if err != nil {
 		return nil, err
 	}
-	return &runtimeBinaryManager{Manager: mgr, binary: binary}, nil
+	return &runtimeBinaryManager{Manager: mgr, binary: binary, goplsRootController: goplsRootController}, nil
 }
 
 func runtimeAdapterDiagnosticsMaxWait(adapter multilsp.LanguageAdapter) time.Duration {
@@ -763,7 +772,24 @@ func (b *runtimeBinaryOverride) Get() string {
 
 type runtimeBinaryManager struct {
 	multilsp.Manager
-	binary *runtimeBinaryOverride
+	binary              *runtimeBinaryOverride
+	goplsRootController multilsp.GoplsRootCohortController
+}
+
+// Close 先关闭池内 workspace clients，再关闭 root cohort admission owner。
+// durable controller 的 pending owner 会在自身 Close 中继续执行安全 drain，不会走 RSS/ps kill。
+func (m *runtimeBinaryManager) Close() error {
+	if m == nil {
+		return nil
+	}
+	var closeErr error
+	if m.Manager != nil {
+		closeErr = m.Manager.Close()
+	}
+	if m.goplsRootController != nil {
+		closeErr = errors.Join(closeErr, m.goplsRootController.Close())
+	}
+	return closeErr
 }
 
 // RegistryScopedResolver 暴露 runtime manager 的按工具作用域解析能力。
