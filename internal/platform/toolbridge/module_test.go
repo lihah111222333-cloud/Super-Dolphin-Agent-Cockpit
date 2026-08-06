@@ -19,7 +19,7 @@ func (l *recordingLifecycle) Append(hook fx.Hook) {
 
 func TestProvideDiffEmitterRejectsNilDispatcher(t *testing.T) {
 	if fn, err := provideProxyAddrFn(nil); err == nil || fn != nil {
-		t.Fatalf("provideProxyAddrFn(nil) = %#v, %v; want nil function and error", fn, err)
+		t.Fatalf("provideProxyAddrFn(nil) = %T, %v; want nil function and error", fn, err)
 	}
 	t.Parallel()
 

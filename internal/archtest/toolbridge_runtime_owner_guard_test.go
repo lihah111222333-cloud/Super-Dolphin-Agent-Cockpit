@@ -66,6 +66,10 @@ func toolbridgeForbiddenGlobalViolations(files map[string]*ast.File) []string {
 	}
 	var violations []string
 	for rel, file := range files {
+		if file == nil {
+			violations = append(violations, fmt.Sprintf("%s: source file is required", rel))
+			continue
+		}
 		for _, decl := range file.Decls {
 			gen, ok := decl.(*ast.GenDecl)
 			if !ok || gen.Tok != token.VAR {
@@ -88,6 +92,9 @@ func toolbridgeForbiddenGlobalViolations(files map[string]*ast.File) []string {
 }
 
 func toolbridgeStructHasAtomicField(file *ast.File, structName, fieldName string) bool {
+	if file == nil {
+		return false
+	}
 	for _, decl := range file.Decls {
 		gen, ok := decl.(*ast.GenDecl)
 		if !ok || gen.Tok != token.TYPE {
@@ -145,6 +152,9 @@ func toolbridgeFunctionHasOSClientLiteral(file *ast.File, name string) bool {
 				return true
 			}
 			selector, ok := literal.Type.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
 			if pkg, ok := selector.X.(*ast.Ident); ok && pkg.Name == "http" && selector.Sel.Name == "Client" {
 				found = true
 			}
@@ -170,6 +180,9 @@ func toolbridgeFunctionHasProxyAddressParam(file *ast.File, name string) bool {
 }
 
 func toolbridgeFunctionMatches(file *ast.File, name string, predicate func(*ast.FuncDecl) bool) bool {
+	if file == nil || predicate == nil {
+		return false
+	}
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
 		if ok && fn.Name.Name == name {

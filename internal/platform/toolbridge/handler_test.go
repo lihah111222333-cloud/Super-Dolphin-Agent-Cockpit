@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -20,11 +19,12 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 	threadstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/thread"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
 
 //go:linkname codexNewSession github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp.newSession
-func codexNewSession(context.Context, *slog.Logger, string, string, *unified.EventDispatcher, *rpc.ApprovalManager, *codexapp.ServerManager, *skillmetrics.Registry) (unsafe.Pointer, error)
+func codexNewSession(context.Context, *pkglogger.Runtime, string, string, *unified.EventDispatcher, *rpc.ApprovalManager, *codexapp.ServerManager, *skillmetrics.Registry) (unsafe.Pointer, error)
 
 //go:linkname codexSessionOnInboundMessage github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp.(*session).onInboundMessage
 func codexSessionOnInboundMessage(unsafe.Pointer, context.Context, codexapp.Responder, codexapp.RawMessage)
@@ -278,7 +278,8 @@ func startCodexBridgeTestServer(t *testing.T) string {
 
 func newInboundSession(t *testing.T) unsafe.Pointer {
 	t.Helper()
-	sessionPtr, err := codexNewSession(context.Background(), nil, startCodexBridgeTestServer(t), "agent-1", nil, rpc.NewApprovalManager(nil, nil), nil, skillmetrics.NewRegistry())
+	logRuntime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{})
+	sessionPtr, err := codexNewSession(context.Background(), logRuntime, startCodexBridgeTestServer(t), "agent-1", nil, rpc.NewApprovalManager(nil, nil), nil, skillmetrics.NewRegistry())
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}
