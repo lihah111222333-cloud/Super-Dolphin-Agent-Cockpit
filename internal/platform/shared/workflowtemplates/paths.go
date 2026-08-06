@@ -11,8 +11,10 @@ import (
 // windowsDrivePath 识别 Windows 盘符绝对路径，补足 filepath.IsAbs 的跨平台差异。
 var windowsDrivePath = regexp.MustCompile(`^[A-Za-z]:[\\/]`)
 
-// defaultSharedFilePrefixes 是模板未声明路径前缀时的安全默认写入范围。
-var defaultSharedFilePrefixes = []string{"reports/workflows/", "dag/"}
+// defaultSharedFilePrefixes 返回独立的默认前缀快照，调用方可安全归一化。
+func defaultSharedFilePrefixes() []string {
+	return []string{"reports/workflows/", "dag/"}
+}
 
 // validateTemplateOutputPaths 校验模板中的未渲染输出路径模板不会越界。
 func validateTemplateOutputPaths(tpl Template) error {
@@ -155,7 +157,7 @@ func sharedFilePrefixes(rule ValidationRule) []string {
 		prefixes = append(prefixes, strings.TrimSpace(rule.SharedFilePrefix))
 	}
 	if len(prefixes) == 0 {
-		prefixes = append(prefixes, defaultSharedFilePrefixes...)
+		prefixes = append(prefixes, defaultSharedFilePrefixes()...)
 	}
 	return normalizePrefixes(prefixes)
 }

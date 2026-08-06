@@ -13,7 +13,7 @@ func TestTemplateValidationRejectsUnsupportedRuntimeCapabilities(t *testing.T) {
 	tpl.DAGTemplate.Nodes[0].NodeType = "hybrid"
 	tpl.Compatibility.NodeTypes = []string{"agent", "hybrid"}
 
-	err := validateTemplate(tpl)
+	err := validateTemplate(tpl, newValidationRules())
 	if err == nil || !strings.Contains(err.Error(), "hybrid") || !strings.Contains(err.Error(), "runtime support") {
 		t.Fatalf("validateTemplate() error = %v, want hybrid runtime support failure", err)
 	}
@@ -26,7 +26,7 @@ func TestPublishedTemplateValidationRequiresAgentExecCWD(t *testing.T) {
 	tpl = testTemplateWithExecCWD(tpl)
 	delete(tpl.DAGTemplate.Nodes[0].Config, "exec")
 
-	err := validatePublishedTemplate(tpl)
+	err := validatePublishedTemplate(tpl, newValidationRules())
 	if err == nil || !strings.Contains(err.Error(), "config.exec.cwd") {
 		t.Fatalf("validatePublishedTemplate() error = %v, want config.exec.cwd failure", err)
 	}
@@ -41,7 +41,7 @@ func TestTemplateValidationChecksFinalOutputMapping(t *testing.T) {
 	artifact := outputs["to_artifact"].(map[string]any)
 	artifact["path_template"] = "{{output_path}}wrong.docx"
 
-	err := validateTemplate(tpl)
+	err := validateTemplate(tpl, newValidationRules())
 	if err == nil || !strings.Contains(err.Error(), "final_output") {
 		t.Fatalf("validateTemplate() error = %v, want final_output mapping failure", err)
 	}
@@ -57,7 +57,7 @@ func TestTemplateValidationChecksDocumentArtifactContract(t *testing.T) {
 	delete(artifact, "source_text_field")
 	artifact["source_path_field"] = "output_path"
 
-	err := validateTemplate(tpl)
+	err := validateTemplate(tpl, newValidationRules())
 	if err == nil || !strings.Contains(err.Error(), "document template") {
 		t.Fatalf("validateTemplate() error = %v, want document artifact contract failure", err)
 	}

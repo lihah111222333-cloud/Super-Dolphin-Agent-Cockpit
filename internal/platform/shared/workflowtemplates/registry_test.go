@@ -132,6 +132,25 @@ func renderMeetingMinutesDraft(t *testing.T, reg *Registry) DAGDraft {
 	return draft
 }
 
+func TestRegistryValidationRulesAreInstancePrivate(t *testing.T) {
+	t.Parallel()
+
+	first, err := NewDefaultRegistry()
+	if err != nil {
+		t.Fatalf("first registry: %v", err)
+	}
+	second, err := NewDefaultRegistry()
+	if err != nil {
+		t.Fatalf("second registry: %v", err)
+	}
+
+	first.rules.allowedOutputTypes["test-only"] = struct{}{}
+	_, shared := second.rules.allowedOutputTypes["test-only"]
+	if shared {
+		t.Fatal("registry validation rules must not share mutable maps")
+	}
+}
+
 func assertRenderedMeetingMinutesDraft(t *testing.T, draft DAGDraft) {
 	t.Helper()
 

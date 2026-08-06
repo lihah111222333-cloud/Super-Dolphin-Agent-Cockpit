@@ -11,87 +11,76 @@ import (
 // templateIDPattern 约束模板 ID 使用 category/kebab-case 形式，避免 UI 和持久化层出现歧义。
 var templateIDPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
-// allowedOutputTypes 是当前模板系统可声明的最终产物类型白名单。
-var allowedOutputTypes = map[string]struct{}{
-	"video":    {},
-	"pptx":     {},
-	"docx":     {},
-	"xlsx":     {},
-	"markdown": {},
-	"pdf":      {},
-	"json":     {},
+// validationRules 保存单个 Registry 私有的模板校验白名单。
+type validationRules struct {
+	allowedOutputTypes           map[string]struct{}
+	allowedFieldTypes            map[string]struct{}
+	supportedRuntimeNodeTypes    map[string]struct{}
+	supportedRuntimeCapabilities map[string]struct{}
 }
 
-// allowedFieldTypes 是 UI schema 支持的字段类型白名单。
-var allowedFieldTypes = map[string]struct{}{
-	"text":         {},
-	"textarea":     {},
-	"select":       {},
-	"multi_select": {},
-	"file_ref":     {},
-	"path":         {},
-	"datetime":     {},
-	"cron":         {},
-	"reviewer":     {},
-	"number":       {},
-	"boolean":      {},
-}
-
-// supportedRuntimeNodeTypes 是运行时已真正支持的 DAG 节点类型。
-var supportedRuntimeNodeTypes = map[string]struct{}{
-	"agent":      {},
-	"automation": {},
-}
-
-// supportedRuntimeCapabilities 是模板 compatibility 可声明的运行时能力。
-var supportedRuntimeCapabilities = map[string]struct{}{
-	"workflow.node.agent":        {},
-	"workflow.node.automation":   {},
-	"workflow.output.sharedfile": {},
-	"workflow.output.artifact":   {},
-	"workflow.final_output":      {},
+// newValidationRules 为一个 Registry 创建不与其他实例共享的校验规则。
+func newValidationRules() validationRules {
+	return validationRules{
+		allowedOutputTypes: map[string]struct{}{
+			"video": {}, "pptx": {}, "docx": {}, "xlsx": {}, "markdown": {}, "pdf": {}, "json": {},
+		},
+		allowedFieldTypes: map[string]struct{}{
+			"text": {}, "textarea": {}, "select": {}, "multi_select": {}, "file_ref": {}, "path": {}, "datetime": {}, "cron": {}, "reviewer": {}, "number": {}, "boolean": {},
+		},
+		supportedRuntimeNodeTypes: map[string]struct{}{"agent": {}, "automation": {}},
+		supportedRuntimeCapabilities: map[string]struct{}{
+			"workflow.node.agent": {}, "workflow.node.automation": {}, "workflow.output.sharedfile": {}, "workflow.output.artifact": {}, "workflow.final_output": {},
+		},
+	}
 }
 
 // validateTemplate 执行模板静态校验，不要求运行时可执行配置完整。
-func validateTemplate(tpl Template) error {
-	for _, check := range []func(Template) error{
-		validateTemplateFields,
-		validateUIFields,
-		validateNodes,
-		validateTemplateOutputPaths,
-		validateCompatibility,
-		validateVideoContract,
-		validateDocumentContract,
-	} {
-		if err := check(tpl); err != nil {
-			return err
-		}
+func validateTemplate(tpl Template, rules validationRules) error {
+	if err := validateTemplateFields(tpl, rules); err != nil {
+		return err
 	}
-	return nil
+	if err := validateUIFields(tpl, rules); err != nil {
+		return err
+	}
+	if err := validateNodes(tpl); err != nil {
+		return err
+	}
+	if err := validateTemplateOutputPaths(tpl); err != nil {
+		return err
+	}
+	if err := validateCompatibility(tpl, rules); err != nil {
+		return err
+	}
+	if err := validateVideoContract(tpl); err != nil {
+		return err
+	}
+	return validateDocumentContract(tpl)
 }
 
 // validatePublishedTemplate 在静态校验后追加运行时节点配置校验，用于保存/发布路径。
-func validatePublishedTemplate(tpl Template) error {
-	if err := validateTemplate(tpl); err != nil {
+func validatePublishedTemplate(tpl Template, rules validationRules) error {
+	if err := validateTemplate(tpl, rules); err != nil {
 		return err
 	}
-	return validateRuntimeNodeConfigs(tpl.DAGTemplate.Nodes)
+	return validateRuntimeNodeConfigs(tpl.DAGTemplate.Nodes, rules)
 }
 
 // validateTemplateFields 聚合模板元数据、产物类型和最终节点关系校验。
-func validateTemplateFields(tpl Template) error {
-	for _, check := range []func(Template) error{
-		validateTemplateIdentity,
-		validateTemplateText,
-		validateTemplateCategory,
-		validateTemplateOutputTypes,
-		validateTemplateReviewAndFinal,
-	} {
-		if err := check(tpl); err != nil {
-			return err
-		}
+func validateTemplateFields(tpl Template, rules validationRules) error {
+	if err := validateTemplateIdentity(tpl); err != nil {
+		return err
 	}
-	return nil
+	if err := validateTemplateText(tpl); err != nil {
+		return err
+	}
+	if err := validateTemplateCategory(tpl); err != nil {
+		return err
+	}
+	if err := validateTemplateOutputTypes(tpl, rules); err != nil {
+		return err
+	}
+	return validateTemplateReviewAndFinal(tpl)
 }
 
 // validateTemplateIdentity 校验模板 ID 和版本号，保证版本索引可排序且不为空。
@@ -132,12 +121,12 @@ func validateTemplateCategory(tpl Template) error {
 }
 
 // validateTemplateOutputTypes 校验模板至少声明一个已支持的输出类型。
-func validateTemplateOutputTypes(tpl Template) error {
+func validateTemplateOutputTypes(tpl Template, rules validationRules) error {
 	if len(tpl.OutputTypes) == 0 {
 		return errors.New("output_types is required")
 	}
 	for _, outputType := range tpl.OutputTypes {
-		if _, ok := allowedOutputTypes[strings.TrimSpace(outputType)]; !ok {
+		if _, ok := rules.allowedOutputTypes[strings.TrimSpace(outputType)]; !ok {
 			return fmt.Errorf("output_type %q is not supported", outputType)
 		}
 	}
@@ -165,10 +154,10 @@ func validateTemplateReviewAndFinal(tpl Template) error {
 }
 
 // validateUIFields 校验 UI schema 的字段唯一性、文案和路径占位符。
-func validateUIFields(tpl Template) error {
+func validateUIFields(tpl Template, rules validationRules) error {
 	seen := make(map[string]struct{}, len(tpl.UISchema))
 	for _, field := range tpl.UISchema {
-		if err := validateUIField(field, seen, sharedFilePrefixes(tpl.Validation)); err != nil {
+		if err := validateUIField(field, seen, sharedFilePrefixes(tpl.Validation), rules); err != nil {
 			return err
 		}
 	}
@@ -176,7 +165,7 @@ func validateUIFields(tpl Template) error {
 }
 
 // validateUIField 校验单个 UI 字段，并登记 key 以阻止重复字段。
-func validateUIField(field UIField, seen map[string]struct{}, prefixes []string) error {
+func validateUIField(field UIField, seen map[string]struct{}, prefixes []string, rules validationRules) error {
 	key := strings.TrimSpace(field.Key)
 	if key == "" {
 		return errors.New("ui_schema.key is required")
@@ -185,7 +174,7 @@ func validateUIField(field UIField, seen map[string]struct{}, prefixes []string)
 		return fmt.Errorf("ui_schema field %q is duplicated", key)
 	}
 	seen[key] = struct{}{}
-	if _, ok := allowedFieldTypes[strings.TrimSpace(field.Type)]; !ok {
+	if _, ok := rules.allowedFieldTypes[strings.TrimSpace(field.Type)]; !ok {
 		return fmt.Errorf("ui_schema field %q has unsupported type %q", key, field.Type)
 	}
 	if err := validateUIFieldText(key, field); err != nil {
@@ -275,9 +264,9 @@ func validateNodeTemplate(tpl Template, node NodeTemplate, nodeIndex map[string]
 }
 
 // validateRuntimeNodeConfigs 校验节点配置是否满足当前运行时真正能执行的 contract。
-func validateRuntimeNodeConfigs(nodes []NodeTemplate) error {
+func validateRuntimeNodeConfigs(nodes []NodeTemplate, rules validationRules) error {
 	for _, node := range nodes {
-		if err := validateRuntimeNodeConfig(node); err != nil {
+		if err := validateRuntimeNodeConfig(node, rules); err != nil {
 			return err
 		}
 	}
@@ -285,10 +274,10 @@ func validateRuntimeNodeConfigs(nodes []NodeTemplate) error {
 }
 
 // validateRuntimeNodeConfig 校验单个运行时节点类型和 agent exec.cwd 要求。
-func validateRuntimeNodeConfig(node NodeTemplate) error {
+func validateRuntimeNodeConfig(node NodeTemplate, rules validationRules) error {
 	key := strings.TrimSpace(node.NodeKey)
 	nodeType := strings.TrimSpace(strings.ToLower(node.NodeType))
-	if _, ok := supportedRuntimeNodeTypes[nodeType]; !ok {
+	if _, ok := rules.supportedRuntimeNodeTypes[nodeType]; !ok {
 		if nodeType == "hybrid" || nodeType == "hitl" || nodeType == "human" {
 			return fmt.Errorf("node %s node_type %q is not available until runtime support lands", key, node.NodeType)
 		}
@@ -390,17 +379,17 @@ func validateFinalReviewRelationship(tpl Template, nodeIndex map[string]int) err
 }
 
 // validateCompatibility 校验 trust、runtime、node type 和能力声明，阻止模板声明未实现能力。
-func validateCompatibility(tpl Template) error {
+func validateCompatibility(tpl Template, rules validationRules) error {
 	if err := validateTrustMetadata(tpl.Trust); err != nil {
 		return err
 	}
 	if err := validateCompatibilityRuntime(tpl.Compatibility); err != nil {
 		return err
 	}
-	if err := validateCompatibilityNodeTypes(tpl.Compatibility.NodeTypes); err != nil {
+	if err := validateCompatibilityNodeTypes(tpl.Compatibility.NodeTypes, rules); err != nil {
 		return err
 	}
-	return validateCompatibilityCapabilities(tpl.Compatibility.RequiredCapabilities)
+	return validateCompatibilityCapabilities(tpl.Compatibility.RequiredCapabilities, rules)
 }
 
 // validateTrustMetadata 要求模板来源和可信等级明确。
@@ -423,13 +412,13 @@ func validateCompatibilityRuntime(compatibility Compatibility) error {
 }
 
 // validateCompatibilityNodeTypes 校验 compatibility 中声明的节点类型均已支持。
-func validateCompatibilityNodeTypes(nodeTypes []string) error {
+func validateCompatibilityNodeTypes(nodeTypes []string, rules validationRules) error {
 	if len(nodeTypes) == 0 {
 		return errors.New("compatibility.node_types is required")
 	}
 	for _, nodeType := range nodeTypes {
 		normalized := strings.TrimSpace(strings.ToLower(nodeType))
-		if _, ok := supportedRuntimeNodeTypes[normalized]; !ok {
+		if _, ok := rules.supportedRuntimeNodeTypes[normalized]; !ok {
 			return unsupportedRuntimeNodeTypeError(nodeType, normalized)
 		}
 	}
@@ -445,13 +434,13 @@ func unsupportedRuntimeNodeTypeError(nodeType, normalized string) error {
 }
 
 // validateCompatibilityCapabilities 校验模板所需能力均在当前运行时白名单内。
-func validateCompatibilityCapabilities(capabilities []string) error {
+func validateCompatibilityCapabilities(capabilities []string, rules validationRules) error {
 	if len(capabilities) == 0 {
 		return errors.New("compatibility.required_capabilities is required")
 	}
 	for _, capability := range capabilities {
 		normalized := strings.TrimSpace(capability)
-		if _, ok := supportedRuntimeCapabilities[normalized]; !ok {
+		if _, ok := rules.supportedRuntimeCapabilities[normalized]; !ok {
 			return fmt.Errorf("compatibility required_capability %q is not supported", capability)
 		}
 	}

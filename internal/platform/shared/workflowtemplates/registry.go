@@ -23,6 +23,7 @@ type Registry struct {
 	order            []string                    // manifest 顺序或首次保存顺序。
 	templates        map[string]Template         // 当前活跃模板版本。
 	templateVersions map[string]map[int]Template // 每个模板保留的历史版本。
+	rules            validationRules             // 实例私有的模板校验白名单。
 }
 
 // manifest 对应内置模板 manifest.json，只声明允许从 embed.FS 读取的模板 YAML 路径。
@@ -89,7 +90,7 @@ func (r *Registry) SaveTemplate(tpl Template) error {
 	if r == nil {
 		return errors.New("workflowtemplates: registry is nil")
 	}
-	if err := validatePublishedTemplate(tpl); err != nil {
+	if err := validatePublishedTemplate(tpl, r.rules); err != nil {
 		return fmt.Errorf("workflowtemplates: validate saved template: %w", err)
 	}
 	r.mu.Lock()
@@ -142,7 +143,7 @@ func (r *Registry) RenderDAGDraft(req RenderRequest) (DAGDraft, error) {
 	nodes := renderNodes(tpl.DAGTemplate.Nodes, values)
 	finalOutput := tpl.FinalOutput
 	finalOutput.PathTemplate = renderString(finalOutput.PathTemplate, values)
-	if err := validateRuntimeNodeConfigs(nodes); err != nil {
+	if err := validateRuntimeNodeConfigs(nodes, r.rules); err != nil {
 		return DAGDraft{}, err
 	}
 	if err := validateRenderedOutputPaths(tpl, nodes, finalOutput); err != nil {
@@ -157,13 +158,14 @@ func loadTemplates(fsys fs.FS, items []string) (*Registry, error) {
 		order:            make([]string, 0, len(items)),
 		templates:        make(map[string]Template, len(items)),
 		templateVersions: make(map[string]map[int]Template, len(items)),
+		rules:            newValidationRules(),
 	}
 	for _, item := range items {
 		tpl, err := loadTemplate(fsys, item)
 		if err != nil {
 			return nil, err
 		}
-		if err := validateTemplate(tpl); err != nil {
+		if err := validateTemplate(tpl, reg.rules); err != nil {
 			return nil, fmt.Errorf("workflowtemplates: validate %s: %w", item, err)
 		}
 		if _, exists := reg.templates[tpl.ID]; exists {
