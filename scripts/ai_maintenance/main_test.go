@@ -135,7 +135,7 @@ func TestBuildGatePlanFailsClosedWhenCapabilityRootsCannotBeParsed(t *testing.T)
 		t.Fatalf("write malformed capcontract source: %v", err)
 	}
 
-	_, err := buildGatePlanForRepo(repoRoot, []string{"internal/provider/claudecli/session.go"})
+	_, err := buildGatePlanForRepo(repoRoot, []string{"internal/provider/claudecli/session.go"}, newGatePlanPolicy())
 	if err == nil || !strings.Contains(err.Error(), "parse default capability roots source") {
 		t.Fatalf("buildGatePlanForRepo() error = %v, want parser failure", err)
 	}
@@ -469,9 +469,9 @@ func TestLoadTurnContractPathsFailsClosedForInvalidRegistry(t *testing.T) {
 		want string
 	}{
 		{name: "missing", want: "read turn contract consumer registry"},
-		{name: "malformed", body: stringPointer(`{"version":`), want: "parse turn contract consumer registry"},
-		{name: "wrong version", body: stringPointer(`{"version":1,"schemas":{},"goChains":[],"goConstants":[],"jsMappers":[]}`), want: "version 2"},
-		{name: "wrong structure", body: stringPointer(`{"version":2,"schemas":[],"goChains":[],"goConstants":[],"jsMappers":[]}`), want: "schemas"},
+		{name: "malformed", body: new(`{"version":`), want: "parse turn contract consumer registry"},
+		{name: "wrong version", body: new(`{"version":1,"schemas":{},"goChains":[],"goConstants":[],"jsMappers":[]}`), want: "version 2"},
+		{name: "wrong structure", body: new(`{"version":2,"schemas":[],"goChains":[],"goConstants":[],"jsMappers":[]}`), want: "schemas"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -485,11 +485,34 @@ func TestLoadTurnContractPathsFailsClosedForInvalidRegistry(t *testing.T) {
 					t.Fatalf("write registry: %v", err)
 				}
 			}
-			_, err := loadTurnContractPaths(repoRoot)
+			_, err := loadTurnContractPaths(repoRoot, newGatePlanPolicy())
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("loadTurnContractPaths() error = %v, want %q", err, test.want)
 			}
 		})
+	}
+}
+
+func TestNewGatePlanPolicyOwnsMutableDescriptors(t *testing.T) {
+	first := newGatePlanPolicy()
+	second := newGatePlanPolicy()
+
+	first.aiMaintenanceFiles["Makefile"] = false
+	first.coreBackendGatePackages[0] = "mutated"
+	first.mcpLSPWorkloadExactFiles["Makefile"] = false
+	first.mcpLSPWorkloadPrefixes[0] = "mutated"
+
+	if !second.aiMaintenanceFiles["Makefile"] {
+		t.Fatal("AI maintenance descriptors are shared between policies")
+	}
+	if second.coreBackendGatePackages[0] == "mutated" {
+		t.Fatal("core backend package descriptors are shared between policies")
+	}
+	if !second.mcpLSPWorkloadExactFiles["Makefile"] {
+		t.Fatal("MCP LSP exact-file descriptors are shared between policies")
+	}
+	if second.mcpLSPWorkloadPrefixes[0] == "mutated" {
+		t.Fatal("MCP LSP prefix descriptors are shared between policies")
 	}
 }
 
@@ -507,10 +530,6 @@ func collectRegistryLocatorPaths(value any, paths map[string]bool) {
 			collectRegistryLocatorPaths(child, paths)
 		}
 	}
-}
-
-func stringPointer(value string) *string {
-	return &value
 }
 
 func TestGatePlanProducerMatchesRunnerAndEvidenceRegistries(t *testing.T) {

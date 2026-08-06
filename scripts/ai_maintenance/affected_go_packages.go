@@ -9,7 +9,7 @@ import (
 )
 
 // affectedGoPackages 对普通变更只保留当前树中仍存在的直接包；全局输入、删除整包或无法定位包时使用广域回归集合。
-func affectedGoPackages(repoRoot string, files []string) ([]string, error) {
+func affectedGoPackages(repoRoot string, files []string, policy gatePlanPolicy) ([]string, error) {
 	packages := map[string]bool{}
 	for _, file := range files {
 		pkg, ok := changedGoPackage(file)
@@ -29,7 +29,7 @@ func affectedGoPackages(repoRoot string, files []string) ([]string, error) {
 		return nil, err
 	}
 	if fullRegression || len(packages) == 0 {
-		for _, pkg := range coreBackendGatePackages {
+		for _, pkg := range policy.coreBackendGatePackages {
 			packages[pkg] = true
 		}
 	}

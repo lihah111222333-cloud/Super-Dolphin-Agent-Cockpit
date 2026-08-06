@@ -44,14 +44,14 @@ type turnContractPathExemption struct {
 }
 
 // loadTurnContractPaths 从字段消费 registry 派生 turncontract gate 的生产路径集合。
-func loadTurnContractPaths(repoRoot string) (map[string]bool, error) {
+func loadTurnContractPaths(repoRoot string, policy gatePlanPolicy) (map[string]bool, error) {
 	registry, err := readTurnContractRegistry(repoRoot)
 	if err != nil {
 		return nil, err
 	}
 
-	paths := make(map[string]bool, len(turnContractInfrastructureFiles))
-	for file := range turnContractInfrastructureFiles {
+	paths := make(map[string]bool, len(policy.turnContractInfrastructureFiles))
+	for file := range policy.turnContractInfrastructureFiles {
 		paths[file] = true
 	}
 	for schemaName, schema := range registry.Schemas {

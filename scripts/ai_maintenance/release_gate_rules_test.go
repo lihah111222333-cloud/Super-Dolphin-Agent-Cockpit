@@ -18,7 +18,7 @@ func TestMcpLSPWorkloadFilesRequireCatalogAndQuickRoundTrip(t *testing.T) {
 		"Makefile",
 	} {
 		gates := map[string]bool{}
-		applyOwnedGateRules(file, gates)
+		newGatePlanPolicy().applyOwnedGateRules(file, gates)
 		if !gates["mcp-lsp:catalog"] || !gates["mcp-lsp:idle-quick"] {
 			t.Fatalf("%q gates = %#v, want catalog and idle-quick roundtrip", file, gates)
 		}

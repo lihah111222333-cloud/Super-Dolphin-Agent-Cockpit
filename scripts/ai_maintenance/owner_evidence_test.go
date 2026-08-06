@@ -121,7 +121,7 @@ func TestAffectedGoPackagesUsesCurrentOwnerForTestdataAndSkipsDeletedPackage(t *
 	packages, err := affectedGoPackages(repoRoot, []string{
 		"internal/devtools/typednil/testdata/src/fixture/fixture.go",
 		"internal/deleted/package_test.go",
-	})
+	}, newGatePlanPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestAffectedGoPackagesUsesCurrentOwnerForTestdataAndSkipsDeletedPackage(t *
 }
 
 func TestAffectedGoPackagesRetainsCoreMetadataForDeletionOnly(t *testing.T) {
-	packages, err := affectedGoPackages(t.TempDir(), []string{"internal/deleted/package.go"})
+	packages, err := affectedGoPackages(t.TempDir(), []string{"internal/deleted/package.go"}, newGatePlanPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}

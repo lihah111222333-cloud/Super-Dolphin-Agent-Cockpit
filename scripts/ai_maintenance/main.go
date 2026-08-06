@@ -15,61 +15,91 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/capcontract"
 )
 
-var aiMaintenanceFiles = map[string]bool{
-	"Makefile":                                   true,
-	"scripts/ai_maintenance_gates.sh":            true,
-	"scripts/ai_maintenance_gates_guard_test.go": true,
-	"scripts/check_mcp_lsp_workload_catalog.sh":  true,
-	"scripts/mcp_lsp_workload_catalog.json":      true,
-	"scripts/run_mcp_lsp_workload.sh":            true,
-	"scripts/configure_hook_node_runtime.sh":     true,
-	"scripts/frontend_embed_verify.sh":           true,
-	"scripts/refresh_generated_artifacts.sh":     true,
-	"scripts/sqlc_verify_worktree.sh":            true,
-	"scripts/test_with_guard.ps1":                true,
-	"scripts/test_with_guard.sh":                 true,
+type gatePlanPolicy struct {
+	aiMaintenanceFiles              map[string]bool
+	codemapExactFiles               map[string]bool
+	turnContractInfrastructureFiles map[string]bool
+	frontendStaticGuardFiles        map[string]bool
+	coreBackendGatePackages         []string
+	mcpLSPWorkloadExactFiles        map[string]bool
+	mcpLSPWorkloadPrefixes          []string
+	nightlyProtocolFiles            map[string]bool
+	archtestNonGoInputFiles         map[string]bool
+	archtestNonGoInputPrefixes      []string
 }
 
-var codemapExactFiles = map[string]bool{
-	".ai-project-map.overrides.json":      true,
-	"README.md":                           true,
-	"scripts/codemap_index.go":            true,
-	"scripts/codemap_policy.txt":          true,
-	"scripts/generate_ai_project_map.mjs": true,
-}
-
-var turnContractInfrastructureFiles = map[string]bool{
-	"scripts/turncontract/main.go":                                 true,
-	"frontend-app/package.json":                                    true,
-	"frontend-app/scripts/turn-contract-field-guard.mjs":           true,
-	"frontend-app/scripts/turn-contract-field-guard.test.mjs":      true,
-	"frontend-app/src/shared/contracts/turnContracts.generated.js": true,
-}
-
-var frontendStaticGuardFiles = map[string]bool{
-	"frontend-app/package.json":                                         true,
-	"frontend-app/scripts/frontend-state-ownership-registry.json":       true,
-	"frontend-app/scripts/frontend-state-ownership-guard.mjs":           true,
-	"frontend-app/scripts/frontend-state-ownership-guard.test.mjs":      true,
-	"frontend-app/scripts/frontend-dependency-direction-registry.json":  true,
-	"frontend-app/scripts/frontend-dependency-direction-guard.mjs":      true,
-	"frontend-app/scripts/frontend-dependency-direction-guard.test.mjs": true,
-}
-
-var coreBackendGatePackages = []string{
-	"./cmd/mcp-lsp",
-	"./cmd/mcp-orch",
-	"./internal/app",
-	"./internal/module/thread",
-	"./internal/platform/config",
-	"./internal/platform/toolbridge",
-	"./internal/provider/contracttest",
-	"./internal/provider/unified",
-	"./internal/provider/codexapp",
-	"./internal/provider/claudecli",
-	"./internal/provider",
-	"./scripts",
-	"./scripts/ai_maintenance",
+func newGatePlanPolicy() gatePlanPolicy {
+	return gatePlanPolicy{
+		aiMaintenanceFiles: map[string]bool{
+			"Makefile":                                   true,
+			"scripts/ai_maintenance_gates.sh":            true,
+			"scripts/ai_maintenance_gates_guard_test.go": true,
+			"scripts/check_mcp_lsp_workload_catalog.sh":  true,
+			"scripts/mcp_lsp_workload_catalog.json":      true,
+			"scripts/run_mcp_lsp_workload.sh":            true,
+			"scripts/configure_hook_node_runtime.sh":     true,
+			"scripts/frontend_embed_verify.sh":           true,
+			"scripts/refresh_generated_artifacts.sh":     true,
+			"scripts/sqlc_verify_worktree.sh":            true,
+			"scripts/test_with_guard.ps1":                true,
+			"scripts/test_with_guard.sh":                 true,
+		},
+		codemapExactFiles: map[string]bool{
+			".ai-project-map.overrides.json":      true,
+			"README.md":                           true,
+			"scripts/codemap_index.go":            true,
+			"scripts/codemap_policy.txt":          true,
+			"scripts/generate_ai_project_map.mjs": true,
+		},
+		turnContractInfrastructureFiles: map[string]bool{
+			"scripts/turncontract/main.go":                                 true,
+			"frontend-app/package.json":                                    true,
+			"frontend-app/scripts/turn-contract-field-guard.mjs":           true,
+			"frontend-app/scripts/turn-contract-field-guard.test.mjs":      true,
+			"frontend-app/src/shared/contracts/turnContracts.generated.js": true,
+		},
+		frontendStaticGuardFiles: map[string]bool{
+			"frontend-app/package.json":                                         true,
+			"frontend-app/scripts/frontend-state-ownership-registry.json":       true,
+			"frontend-app/scripts/frontend-state-ownership-guard.mjs":           true,
+			"frontend-app/scripts/frontend-state-ownership-guard.test.mjs":      true,
+			"frontend-app/scripts/frontend-dependency-direction-registry.json":  true,
+			"frontend-app/scripts/frontend-dependency-direction-guard.mjs":      true,
+			"frontend-app/scripts/frontend-dependency-direction-guard.test.mjs": true,
+		},
+		coreBackendGatePackages: []string{
+			"./cmd/mcp-lsp", "./cmd/mcp-orch", "./internal/app", "./internal/module/thread",
+			"./internal/platform/config", "./internal/platform/toolbridge", "./internal/provider/contracttest",
+			"./internal/provider/unified", "./internal/provider/codexapp", "./internal/provider/claudecli",
+			"./internal/provider", "./scripts", "./scripts/ai_maintenance",
+		},
+		mcpLSPWorkloadExactFiles: map[string]bool{
+			"Makefile": true, ".github/workflows/ci.yml": true, ".github/workflows/release.yml": true,
+			"scripts/check_mcp_lsp_workload_catalog.sh": true, "scripts/mcp_lsp_workload_catalog.json": true,
+			"scripts/run_mcp_lsp_workload.sh": true, "scripts/ai_maintenance/main.go": true,
+			"scripts/ai_maintenance/owned_gate_execution.go": true, "scripts/ai_maintenance/evidence.go": true,
+			".githooks/README.md": true,
+		},
+		mcpLSPWorkloadPrefixes: []string{"cmd/mcp-lsp/", "scripts/mcp_lsp_workload_"},
+		nightlyProtocolFiles: map[string]bool{
+			"docs/automation/全仓夜间门禁健康巡检协议.md": true,
+			"docs/automation/门禁问题台账接管协议.md":   true,
+			"docs/automation/授权问题修复与验证协议.md":  true,
+		},
+		archtestNonGoInputFiles: map[string]bool{
+			"cmd/mcp-orch/sqlc.yaml": true, "docs/契约/modularity-convention.md": true,
+			"frontend-app/src/App.jsx": true, "frontend-app/src/app/appShellModel.js": true,
+			"frontend-app/src/features/slash-commands/adapters/skillInfoFieldRegistry.json": true,
+			"go.mod": true, "internal/archtest/freeze_baseline.json": true, "scripts/ci_cross_platform_smoke.ps1": true,
+			"scripts/ai_maintenance_gates.sh": true, "scripts/codemap_policy.txt": true,
+			"scripts/test_with_guard.ps1": true, "scripts/test_with_guard.sh": true, "sqlc.yaml": true,
+		},
+		archtestNonGoInputPrefixes: []string{
+			".githooks/", "cmd/mcp-orch/sql/queries/", "docs/guards/", "internal/guards/",
+			"internal/platform/db/sqlite/migrations/", "internal/platform/shared/builtinprompts/assets/",
+			"internal/provider/_template/", "migrations/", "sql/queries/",
+		},
+	}
 }
 
 type gatePlan struct {
@@ -344,16 +374,16 @@ func buildGatePlan(files []string) (gatePlan, error) {
 	if err != nil {
 		return gatePlan{}, fmt.Errorf("resolve repository root for capability path rules: %w", err)
 	}
-	return buildGatePlanForRepo(repoRoot, files)
+	return buildGatePlanForRepo(repoRoot, files, newGatePlanPolicy())
 }
 
 // buildGatePlanForRepo 使用 generator AST 派生的 capability roots 构造计划；解析失败时拒绝产出不完整计划。
-func buildGatePlanForRepo(repoRoot string, files []string) (gatePlan, error) {
+func buildGatePlanForRepo(repoRoot string, files []string, policy gatePlanPolicy) (gatePlan, error) {
 	capabilityRules, err := capcontract.LoadPathRules(repoRoot)
 	if err != nil {
 		return gatePlan{}, fmt.Errorf("load capability-contract path rules: %w", err)
 	}
-	turnContractPaths, err := loadTurnContractPaths(repoRoot)
+	turnContractPaths, err := loadTurnContractPaths(repoRoot, policy)
 	if err != nil {
 		return gatePlan{}, err
 	}
@@ -364,7 +394,7 @@ func buildGatePlanForRepo(repoRoot string, files []string) (gatePlan, error) {
 	generated := map[string]bool{}
 	backendChanged := false
 	for _, file := range normalized {
-		backendFile, err := applyFileGateRules(file, capabilityRules, turnContractPaths, gates, evidence, generated)
+		backendFile, err := applyFileGateRules(file, capabilityRules, turnContractPaths, gates, evidence, generated, policy)
 		if err != nil {
 			return gatePlan{}, err
 		}
@@ -385,7 +415,7 @@ func buildGatePlanForRepo(repoRoot string, files []string) (gatePlan, error) {
 	plan.GeneratedFiles = sortedKeys(generated)
 	plan.RequiresEvidenceDoc = len(plan.RequiredEvidence) > 0
 	if backendChanged {
-		plan.AffectedGoPackages, err = affectedGoPackages(repoRoot, normalized)
+		plan.AffectedGoPackages, err = affectedGoPackages(repoRoot, normalized, policy)
 		if err != nil {
 			return gatePlan{}, err
 		}
@@ -394,12 +424,12 @@ func buildGatePlanForRepo(repoRoot string, files []string) (gatePlan, error) {
 }
 
 // applyFileGateRules 汇总单个路径触发的命令 gate 和证据要求，并返回它是否属于 Go/后端验证面。
-func applyFileGateRules(file string, capabilityRules capcontract.PathRules, turnContractPaths, gates, evidence, generated map[string]bool) (bool, error) {
+func applyFileGateRules(file string, capabilityRules capcontract.PathRules, turnContractPaths, gates, evidence, generated map[string]bool, policy gatePlanPolicy) (bool, error) {
 	backendChanged := applySourceGateRules(file, gates, evidence)
 	if err := applyCapabilityContractGateRules(file, capabilityRules, gates, evidence, generated); err != nil {
 		return false, err
 	}
-	applyOwnedGateRules(file, gates)
+	policy.applyOwnedGateRules(file, gates)
 	if applyGateInfrastructureRules(file, gates) {
 		backendChanged = true
 	}
@@ -412,10 +442,10 @@ func applyFileGateRules(file string, capabilityRules capcontract.PathRules, turn
 	if turnContractRelevant(file, turnContractPaths) {
 		gates["turncontract:verify"] = true
 	}
-	if frontendStaticGuardRelevant(file) {
+	if policy.frontendStaticGuardRelevant(file) {
 		gates["frontend:static-guards"] = true
 	}
-	if codemapRelevant(file) {
+	if policy.codemapRelevant(file) {
 		gates["codemap:check"] = true
 	}
 	if projectMapRelevant(file) {
@@ -478,8 +508,8 @@ func turnContractRelevant(file string, turnContractPaths map[string]bool) bool {
 }
 
 // frontendStaticGuardRelevant 覆盖 guard 自身与全部生产前端输入，防止新增 writer 或反向依赖绕过定向门禁。
-func frontendStaticGuardRelevant(file string) bool {
-	return frontendProductionScriptRelevant(file) || frontendStaticGuardFiles[file]
+func (policy gatePlanPolicy) frontendStaticGuardRelevant(file string) bool {
+	return frontendProductionScriptRelevant(file) || policy.frontendStaticGuardFiles[file]
 }
 
 func turnContractProductionGo(file string) bool {
@@ -495,8 +525,8 @@ func turnContractProductionGo(file string) bool {
 }
 
 // aiMaintenanceRelevant 识别会改变本 gate 自身行为的文件，触发自测避免 workflow/script 空绿。
-func aiMaintenanceRelevant(file string) bool {
-	return aiMaintenanceFiles[file] ||
+func (policy gatePlanPolicy) aiMaintenanceRelevant(file string) bool {
+	return policy.aiMaintenanceFiles[file] ||
 		(strings.HasPrefix(file, ".githooks/") && !strings.HasSuffix(file, ".md")) ||
 		strings.HasPrefix(file, "scripts/ai_maintenance/")
 }
@@ -617,8 +647,8 @@ func normalizeFiles(files []string) []string {
 }
 
 // codemapRelevant 判断变更是否可能影响手写代码地图或其符号索引。
-func codemapRelevant(file string) bool {
-	if codemapExactFiles[file] {
+func (policy gatePlanPolicy) codemapRelevant(file string) bool {
+	if policy.codemapExactFiles[file] {
 		return true
 	}
 	for _, prefix := range []string{"cmd/", "internal/", "pkg/", "frontend-app/src/", "docs/doc/codemap/", "scripts/archtestmap/"} {

@@ -2,58 +2,6 @@ package main
 
 import "strings"
 
-var mcpLSPWorkloadExactFiles = map[string]bool{
-	"Makefile":                                       true,
-	".github/workflows/ci.yml":                       true,
-	".github/workflows/release.yml":                  true,
-	"scripts/check_mcp_lsp_workload_catalog.sh":      true,
-	"scripts/mcp_lsp_workload_catalog.json":          true,
-	"scripts/run_mcp_lsp_workload.sh":                true,
-	"scripts/ai_maintenance/main.go":                 true,
-	"scripts/ai_maintenance/owned_gate_execution.go": true,
-	"scripts/ai_maintenance/evidence.go":             true,
-	".githooks/README.md":                            true,
-}
-
-var mcpLSPWorkloadPrefixes = []string{
-	"cmd/mcp-lsp/",
-	"scripts/mcp_lsp_workload_",
-}
-
-var nightlyProtocolFiles = map[string]bool{
-	"docs/automation/全仓夜间门禁健康巡检协议.md": true,
-	"docs/automation/门禁问题台账接管协议.md":   true,
-	"docs/automation/授权问题修复与验证协议.md":  true,
-}
-
-var archtestNonGoInputFiles = map[string]bool{
-	"cmd/mcp-orch/sqlc.yaml":                true,
-	"docs/契约/modularity-convention.md":      true,
-	"frontend-app/src/App.jsx":              true,
-	"frontend-app/src/app/appShellModel.js": true,
-	"frontend-app/src/features/slash-commands/adapters/skillInfoFieldRegistry.json": true,
-	"go.mod":                                 true,
-	"internal/archtest/freeze_baseline.json": true,
-	"scripts/ci_cross_platform_smoke.ps1":    true,
-	"scripts/ai_maintenance_gates.sh":        true,
-	"scripts/codemap_policy.txt":             true,
-	"scripts/test_with_guard.ps1":            true,
-	"scripts/test_with_guard.sh":             true,
-	"sqlc.yaml":                              true,
-}
-
-var archtestNonGoInputPrefixes = []string{
-	".githooks/",
-	"cmd/mcp-orch/sql/queries/",
-	"docs/guards/",
-	"internal/guards/",
-	"internal/platform/db/sqlite/migrations/",
-	"internal/platform/shared/builtinprompts/assets/",
-	"internal/provider/_template/",
-	"migrations/",
-	"sql/queries/",
-}
-
 func workflowRelevant(file string) bool {
 	return strings.HasPrefix(file, ".github/workflows/") &&
 		(strings.HasSuffix(file, ".yml") || strings.HasSuffix(file, ".yaml"))
@@ -82,11 +30,11 @@ func releaseInfrastructureRelevant(file string) bool {
 }
 
 // archtestNonGoInputRelevant 识别会改变架构门禁结论但无法由 Go 包路径捕获的输入。
-func archtestNonGoInputRelevant(file string) bool {
-	if workflowRelevant(file) || archtestNonGoInputFiles[file] {
+func (policy gatePlanPolicy) archtestNonGoInputRelevant(file string) bool {
+	if workflowRelevant(file) || policy.archtestNonGoInputFiles[file] {
 		return true
 	}
-	for _, prefix := range archtestNonGoInputPrefixes {
+	for _, prefix := range policy.archtestNonGoInputPrefixes {
 		if strings.HasPrefix(file, prefix) {
 			return true
 		}
@@ -94,16 +42,16 @@ func archtestNonGoInputRelevant(file string) bool {
 	return false
 }
 
-func nightlyProtocolRelevant(file string) bool {
-	return nightlyProtocolFiles[file] ||
+func (policy gatePlanPolicy) nightlyProtocolRelevant(file string) bool {
+	return policy.nightlyProtocolFiles[file] ||
 		strings.HasPrefix(file, "scripts/nightly_protocol_validator/") ||
 		file == "Makefile" ||
 		file == ".github/workflows/ci.yml"
 }
 
 // applyOwnedGateRules 将各门禁所有者输入路由到不可跳过的语义验证。
-func applyOwnedGateRules(file string, gates map[string]bool) {
-	if aiMaintenanceRelevant(file) {
+func (policy gatePlanPolicy) applyOwnedGateRules(file string, gates map[string]bool) {
+	if policy.aiMaintenanceRelevant(file) {
 		gates["ai-maintenance:self-test"] = true
 	}
 	if workflowRelevant(file) {
@@ -113,27 +61,27 @@ func applyOwnedGateRules(file string, gates map[string]bool) {
 	if releaseInfrastructureRelevant(file) {
 		gates["release:semantic-guards"] = true
 	}
-	if archtestNonGoInputRelevant(file) {
+	if policy.archtestNonGoInputRelevant(file) {
 		gates["backend:archtest"] = true
 	}
 	if strings.HasSuffix(file, "_test.go") {
 		gates["backend:test-integrity"] = true
 	}
-	if nightlyProtocolRelevant(file) {
+	if policy.nightlyProtocolRelevant(file) {
 		gates["nightly-protocol:check"] = true
 	}
-	if mcpLSPWorkloadRelevant(file) {
+	if policy.mcpLSPWorkloadRelevant(file) {
 		gates["mcp-lsp:catalog"] = true
 		gates["mcp-lsp:idle-quick"] = true
 	}
 }
 
 // mcpLSPWorkloadRelevant 将目录、runner 与 mcp-lsp 源码漂移路由到统一目录守卫。
-func mcpLSPWorkloadRelevant(file string) bool {
-	if mcpLSPWorkloadExactFiles[file] {
+func (policy gatePlanPolicy) mcpLSPWorkloadRelevant(file string) bool {
+	if policy.mcpLSPWorkloadExactFiles[file] {
 		return true
 	}
-	for _, prefix := range mcpLSPWorkloadPrefixes {
+	for _, prefix := range policy.mcpLSPWorkloadPrefixes {
 		if strings.HasPrefix(file, prefix) {
 			return true
 		}
