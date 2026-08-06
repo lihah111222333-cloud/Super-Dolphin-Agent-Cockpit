@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -297,13 +298,25 @@ func (h handlerBase) fetchLanguageOverrideDiagnostics(ctx context.Context, input
 }
 
 // fetchSingleFileLanguageOverrideDiagnostics 为 .txt 模板等扩展名不可信的单文件诊断走显式语言。
-// 它先按 override 打开文档，确保底层语言服务器收到正确 languageId，再从同一个 manager 拉取诊断。
+// 现存文档会按 override 打开；已删除文档先解析同一 manager，再由其 diagnostics 清理缓存和墓碑。
 func (h handlerBase) fetchSingleFileLanguageOverrideDiagnostics(ctx context.Context, input fileToolInput, target diagnosticTarget) ([]protocol.PublishDiagnosticsParams, string, string, error) {
-	if _, err := h.openFile(ctx, target.AbsPath, input.LanguageID); err != nil {
-		return nil, "", "", err
-	}
 	manager, err := managerForFile(ctx, h.registry, target.AbsPath, input.LanguageID)
 	if err != nil {
+		return nil, "", "", err
+	}
+	if _, err := os.Lstat(target.AbsPath); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return nil, "", "", err
+		}
+		items, err := manager.Diagnostics(ctx, []string{target.URI})
+		if err != nil {
+			return nil, "", "", err
+		}
+		filtered := diagnosticsForTargetURI(target.URI, items)
+		message := diagnosticsMessageAfterFetch("", []string{target.URI}, filtered)
+		return filtered, "language_override", message, nil
+	}
+	if _, err := h.openFile(ctx, target.AbsPath, input.LanguageID); err != nil {
 		return nil, "", "", err
 	}
 	if err := reopenManagerDocumentForDiagnostics(ctx, manager, target.URI); err != nil {

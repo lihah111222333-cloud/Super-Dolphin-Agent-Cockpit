@@ -22,6 +22,7 @@ type diagnosticsTestRegistry struct {
 	bootstrapURIs     []string
 	callOrder         []string
 	managerCalls      int
+	languageIDs       []string
 	lastScope         common.ToolScope
 	scopeOK           bool
 	bootstrapErrByURI map[string]error
@@ -44,8 +45,9 @@ func (r *diagnosticsTestRegistry) GetManagerForFile(context.Context, string) (ls
 	return nil, lspmanager.ErrUnsupportedLanguage
 }
 
-func (r *diagnosticsTestRegistry) GetManagerForFileWithLanguage(context.Context, string, string) (lspmanager.Manager, error) {
+func (r *diagnosticsTestRegistry) GetManagerForFileWithLanguage(_ context.Context, _ string, languageID string) (lspmanager.Manager, error) {
 	r.managerCalls++
+	r.languageIDs = append(r.languageIDs, languageID)
 	if r.manager != nil {
 		return r.manager, nil
 	}
@@ -54,25 +56,35 @@ func (r *diagnosticsTestRegistry) GetManagerForFileWithLanguage(context.Context,
 
 type languageOverrideDiagnosticsManager struct {
 	structureTestManager
-	diagnostics []protocol.Diagnostic
-	uri         string
-	languageID  string
-	reopenURI   string
+	diagnostics     []protocol.Diagnostic
+	uri             string
+	languageID      string
+	reopenURI       string
+	didOpenCalls    int
+	reopenCalls     int
+	diagnosticsURIs [][]string
 }
 
 func (m *languageOverrideDiagnosticsManager) DidOpen(_ context.Context, uri, languageID string, _ int, _ string) error {
+	m.didOpenCalls++
 	m.uri = uri
 	m.languageID = languageID
 	return nil
 }
 
 func (m *languageOverrideDiagnosticsManager) ReopenDocumentForDiagnostics(_ context.Context, uri string) error {
+	m.reopenCalls++
 	m.reopenURI = uri
 	return nil
 }
 
-func (m *languageOverrideDiagnosticsManager) Diagnostics(context.Context, []string) ([]protocol.PublishDiagnosticsParams, error) {
-	return []protocol.PublishDiagnosticsParams{{URI: m.uri, Diagnostics: m.diagnostics}}, nil
+func (m *languageOverrideDiagnosticsManager) Diagnostics(_ context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, error) {
+	m.diagnosticsURIs = append(m.diagnosticsURIs, append([]string(nil), uris...))
+	uri := m.uri
+	if uri == "" && len(uris) > 0 {
+		uri = uris[0]
+	}
+	return []protocol.PublishDiagnosticsParams{{URI: uri, Diagnostics: m.diagnostics}}, nil
 }
 
 func (r *diagnosticsTestRegistry) GetManagerForLanguage(context.Context, string) (lspmanager.Manager, error) {
@@ -597,6 +609,53 @@ func TestDiagnosticsLanguageOverrideSingleAndBatchShellResultsAreEquivalent(t *t
 		if manager.languageID != "shellscript" || manager.reopenURI != manager.uri {
 			t.Errorf("%s language override lifecycle = language %q uri %q reopen %q", name, manager.languageID, manager.uri, manager.reopenURI)
 		}
+	}
+}
+
+func TestDiagnosticsLanguageOverrideDeletedFilesUseManagerCleanup(t *testing.T) {
+	root := t.TempDir()
+	for _, tc := range []struct {
+		name  string
+		input fileToolInput
+		paths []string
+	}{
+		{
+			name:  "single",
+			input: fileToolInput{Action: "diagnostics", FilePath: "deleted-single.txt", LanguageID: "javascript"},
+			paths: []string{"deleted-single.txt"},
+		},
+		{
+			name:  "batch",
+			input: fileToolInput{Action: "diagnostics", FilePaths: []string{"deleted-batch-a.txt", "deleted-batch-b.txt"}, LanguageID: "javascript"},
+			paths: []string{"deleted-batch-a.txt", "deleted-batch-b.txt"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			manager := &languageOverrideDiagnosticsManager{}
+			registry := &diagnosticsTestRegistry{manager: manager}
+			handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
+
+			if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), marshalDiagnosticsInput(t, tc.input)); err != nil {
+				t.Fatalf("diagnostics for deleted language override target: %v", err)
+			}
+			wantURIs := make([][]string, 0, len(tc.paths))
+			for _, path := range tc.paths {
+				wantURIs = append(wantURIs, []string{canonicalDeletedFileURI(t, filepath.Join(root, path))})
+			}
+			if !reflect.DeepEqual(manager.diagnosticsURIs, wantURIs) {
+				t.Fatalf("manager cleanup diagnostics URIs = %#v, want %#v", manager.diagnosticsURIs, wantURIs)
+			}
+			wantLanguageIDs := make([]string, len(tc.paths))
+			for index := range wantLanguageIDs {
+				wantLanguageIDs[index] = "javascript"
+			}
+			if !reflect.DeepEqual(registry.languageIDs, wantLanguageIDs) {
+				t.Fatalf("manager language overrides = %#v, want %#v", registry.languageIDs, wantLanguageIDs)
+			}
+			if manager.didOpenCalls != 0 || manager.reopenCalls != 0 {
+				t.Fatalf("deleted target manager open/reopen calls = %d/%d, want 0/0", manager.didOpenCalls, manager.reopenCalls)
+			}
+		})
 	}
 }
 
