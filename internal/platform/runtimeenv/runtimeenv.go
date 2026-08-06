@@ -38,15 +38,19 @@ type runtimeDeps struct {
 	setenv      func(string, string) error
 }
 
-// deps 是运行时环境配置的可替换系统依赖集合。
-var deps = runtimeDeps{
-	executable:  os.Executable,
-	userHomeDir: os.UserHomeDir,
-	setenv:      os.Setenv,
+// systemRuntimeDeps 返回 packaged 运行时配置所需的系统依赖。
+func systemRuntimeDeps() runtimeDeps {
+	return runtimeDeps{
+		executable:  os.Executable,
+		userHomeDir: os.UserHomeDir,
+		setenv:      os.Setenv,
+	}
 }
 
-// bundledSidecarNames 是打包版必须携带的 peer sidecar 可执行文件。
-var bundledSidecarNames = []string{"mcp-orch", "mcp-lsp", "mcp-ida"}
+// bundledSidecarNames 返回打包版必须携带的 peer sidecar 可执行文件。
+func bundledSidecarNames() []string {
+	return []string{"mcp-orch", "mcp-lsp", "mcp-ida"}
+}
 
 // PackagedRuntime 汇总 packaged owner/sidecar 共用的资源路径，字段必须来自已校验包根。
 type PackagedRuntime struct {
@@ -99,6 +103,11 @@ type lspServerManifest struct {
 // ConfigurePackagedApp 在 packaged owner 进程中注入包内运行时环境。
 // 开发模式直接返回；packaged 模式缺少 manifest、sidecar 或 LSP bundle 时立即报错。
 func ConfigurePackagedApp() error {
+	return configurePackagedApp(systemRuntimeDeps())
+}
+
+// configurePackagedApp 使用当前调用持有的系统依赖注入 packaged owner 运行时环境。
+func configurePackagedApp(deps runtimeDeps) error {
 	exe, err := deps.executable()
 	if err != nil {
 		return fmt.Errorf("resolve executable for packaged runtime: %w", err)
@@ -121,7 +130,7 @@ func ConfigurePackagedApp() error {
 	}
 	runtime := *resolved.PackagedRuntime
 	runtime.AppDataDir = packagedAppDataDir(home)
-	if err := applyPackagedRuntimeEnv(runtime); err != nil {
+	if err := applyPackagedRuntimeEnv(runtime, deps.setenv); err != nil {
 		return fmt.Errorf("configure packaged runtime env: %w", err)
 	}
 	return nil
@@ -189,7 +198,7 @@ func packagedAppDataDir(userHome string) string {
 
 // applyPackagedEnv 根据资源根和用户目录注入 packaged owner 环境。
 func applyPackagedEnv(resources, userHome string) error {
-	return applyPackagedRuntimeEnv(packagedRuntimeFromResources(resources, userHome))
+	return applyPackagedRuntimeEnv(packagedRuntimeFromResources(resources, userHome), os.Setenv)
 }
 
 // LoadLSPBundleFromEnv 从环境变量加载 LSP bundle；两个变量必须同时存在。
@@ -289,35 +298,38 @@ func resolveLSPBundlePath(bundleDir, relativePath string) (string, error) {
 	return filepath.Join(bundleDir, clean), nil
 }
 
-var defaultLSPLanguageSets = map[string][]string{
-	"bash-language-server":         {"shellscript"},
-	"clangd":                       {"c", "cpp", "objective-c", "objective-cpp"},
-	"csharp-ls":                    {"csharp"},
-	"dart":                         {"dart"},
-	"docker-langserver":            {"dockerfile"},
-	"gopls":                        {"go", "gomod", "gosum", "gowork"},
-	"graphql-lsp":                  {"graphql"},
-	"intelephense":                 {"php"},
-	"jdtls":                        {"java"},
-	"kotlin-language-server":       {"kotlin"},
-	"lua-language-server":          {"lua"},
-	"prisma-language-server":       {"prisma"},
-	"pyright":                      {"python"},
-	"rust-analyzer":                {"rust"},
-	"solargraph":                   {"ruby"},
-	"sourcekit-lsp":                {"swift"},
-	"sqruff":                       {"sql"},
-	"svelteserver":                 {"svelte"},
-	"terraform-ls":                 {"terraform"},
-	"typescript-language-server":   {"javascript", "javascriptreact", "typescript", "typescriptreact"},
-	"vscode-langservers-extracted": {"css", "html", "json", "markdown"},
-	"vue-language-server":          {"vue"},
-	"yaml-language-server":         {"yaml"},
+// defaultLSPLanguageSets 返回内置 server 的默认语言集合，调用方得到独立的描述符副本。
+func defaultLSPLanguageSets() map[string][]string {
+	return map[string][]string{
+		"bash-language-server":         {"shellscript"},
+		"clangd":                       {"c", "cpp", "objective-c", "objective-cpp"},
+		"csharp-ls":                    {"csharp"},
+		"dart":                         {"dart"},
+		"docker-langserver":            {"dockerfile"},
+		"gopls":                        {"go", "gomod", "gosum", "gowork"},
+		"graphql-lsp":                  {"graphql"},
+		"intelephense":                 {"php"},
+		"jdtls":                        {"java"},
+		"kotlin-language-server":       {"kotlin"},
+		"lua-language-server":          {"lua"},
+		"prisma-language-server":       {"prisma"},
+		"pyright":                      {"python"},
+		"rust-analyzer":                {"rust"},
+		"solargraph":                   {"ruby"},
+		"sourcekit-lsp":                {"swift"},
+		"sqruff":                       {"sql"},
+		"svelteserver":                 {"svelte"},
+		"terraform-ls":                 {"terraform"},
+		"typescript-language-server":   {"javascript", "javascriptreact", "typescript", "typescriptreact"},
+		"vscode-langservers-extracted": {"css", "html", "json", "markdown"},
+		"vue-language-server":          {"vue"},
+		"yaml-language-server":         {"yaml"},
+	}
 }
 
 // defaultLSPLanguages 为缺少 languages 字段的内置 server 提供默认语言集合。
 func defaultLSPLanguages(serverID string) []string {
-	return slices.Clone(defaultLSPLanguageSets[normalizeLSPKey(serverID)])
+	return defaultLSPLanguageSets()[normalizeLSPKey(serverID)]
 }
 
 // normalizeLSPLanguages 去重、排序并清理 language id，保证映射稳定。
@@ -361,7 +373,7 @@ func (b LSPBundle) SemanticLanguages() []string {
 }
 
 // applyPackagedRuntimeEnv 校验包内 sidecar 和 LSP 后注入 owner 进程环境变量。
-func applyPackagedRuntimeEnv(runtime PackagedRuntime) error {
+func applyPackagedRuntimeEnv(runtime PackagedRuntime, setenv func(string, string) error) error {
 	if err := requireBundledSidecars(runtime.BinDir); err != nil {
 		return err
 	}
@@ -370,30 +382,30 @@ func applyPackagedRuntimeEnv(runtime PackagedRuntime) error {
 		return err
 	}
 	return runEnvSetters(
-		func() error { return setControlledEnvPath("PATH", packagedPathEntries(runtime)...) },
-		func() error { return setEnv(peerBinDirEnv, runtime.BinDir) },
-		func() error { return setEnv(lspBundleDirEnv, lspBundle.BundleDir) },
-		func() error { return setEnv(lspManifestEnv, lspBundle.ManifestPath) },
-		func() error { return setEnvIfEmpty(controlRPCAddrEnv, "127.0.0.1:0") },
-		func() error { return setEnvIfEmpty(httpAddrEnv, "127.0.0.1:0") },
-		func() error { return setEnvIfEmpty(sessionTokenEnv, newSessionToken()) },
-		func() error { return setEnv(projectRootEnv, runtime.ResourcesDir) },
-		func() error { return setEnv(runtimeModeEnv, "packaged") },
-		func() error { return setEnv(runtimeResourcesEnv, runtime.ResourcesDir) },
-		func() error { return setEnv(requireCodexEnv, "1") },
-		func() error { return setEnvIfEmpty(superDolphinHomeEnv, runtime.AppDataDir) },
+		func() error { return setControlledEnvPath(setenv, "PATH", packagedPathEntries(runtime)...) },
+		func() error { return setEnv(setenv, peerBinDirEnv, runtime.BinDir) },
+		func() error { return setEnv(setenv, lspBundleDirEnv, lspBundle.BundleDir) },
+		func() error { return setEnv(setenv, lspManifestEnv, lspBundle.ManifestPath) },
+		func() error { return setEnvIfEmpty(setenv, controlRPCAddrEnv, "127.0.0.1:0") },
+		func() error { return setEnvIfEmpty(setenv, httpAddrEnv, "127.0.0.1:0") },
+		func() error { return setEnvIfEmpty(setenv, sessionTokenEnv, newSessionToken()) },
+		func() error { return setEnv(setenv, projectRootEnv, runtime.ResourcesDir) },
+		func() error { return setEnv(setenv, runtimeModeEnv, "packaged") },
+		func() error { return setEnv(setenv, runtimeResourcesEnv, runtime.ResourcesDir) },
+		func() error { return setEnv(setenv, requireCodexEnv, "1") },
+		func() error { return setEnvIfEmpty(setenv, superDolphinHomeEnv, runtime.AppDataDir) },
 		func() error {
-			return setEnvIfEmpty(codexHomeEnv, filepath.Join(runtime.AppDataDir, "providers", "codex"))
+			return setEnvIfEmpty(setenv, codexHomeEnv, filepath.Join(runtime.AppDataDir, "providers", "codex"))
 		},
-		func() error { return setEnv(packagedCodexEnv, "1") },
+		func() error { return setEnv(setenv, packagedCodexEnv, "1") },
 		func() error {
-			return setIfDir("GIT_EXEC_PATH", filepath.Join(runtime.ResourcesDir, "libexec", "git-core"))
-		},
-		func() error {
-			return setIfDir("GIT_TEMPLATE_DIR", filepath.Join(runtime.ResourcesDir, "share", "git-core", "templates"))
+			return setIfDir(setenv, "GIT_EXEC_PATH", filepath.Join(runtime.ResourcesDir, "libexec", "git-core"))
 		},
 		func() error {
-			return setIfFile(modelRegistryEnv, filepath.Join(runtime.ResourcesDir, modelRegistryBundle))
+			return setIfDir(setenv, "GIT_TEMPLATE_DIR", filepath.Join(runtime.ResourcesDir, "share", "git-core", "templates"))
+		},
+		func() error {
+			return setIfFile(setenv, modelRegistryEnv, filepath.Join(runtime.ResourcesDir, modelRegistryBundle))
 		},
 	)
 }
@@ -469,18 +481,18 @@ func videoEnvPath() (string, error) {
 // applySidecarRuntimeContract 把 owner 传入的 sidecar contract 转成进程环境。
 func applySidecarRuntimeContract(contract SidecarRuntimeContract) error {
 	setters := []func() error{
-		func() error { return setEnvIfEmpty(projectRootEnv, contract.ResourcesDir) },
+		func() error { return setEnvIfEmpty(os.Setenv, projectRootEnv, contract.ResourcesDir) },
 	}
 	if contract.Mode == "packaged" {
 		runtime := packagedRuntimeFromResources(contract.ResourcesDir, "")
 		setters = append(setters,
-			func() error { return setControlledEnvPath("PATH", packagedSidecarPathEntries(runtime)...) },
-			func() error { return setEnv(peerBinDirEnv, runtime.BinDir) },
+			func() error { return setControlledEnvPath(os.Setenv, "PATH", packagedSidecarPathEntries(runtime)...) },
+			func() error { return setEnv(os.Setenv, peerBinDirEnv, runtime.BinDir) },
 			func() error {
-				return setEnvIfEmpty(lspBundleDirEnv, filepath.Join(runtime.ResourcesDir, lspBundleName))
+				return setEnvIfEmpty(os.Setenv, lspBundleDirEnv, filepath.Join(runtime.ResourcesDir, lspBundleName))
 			},
 			func() error {
-				return setEnvIfEmpty(lspManifestEnv, filepath.Join(runtime.ResourcesDir, lspBundleName, lspManifestName))
+				return setEnvIfEmpty(os.Setenv, lspManifestEnv, filepath.Join(runtime.ResourcesDir, lspBundleName, lspManifestName))
 			},
 		)
 	}
@@ -499,7 +511,7 @@ func runEnvSetters(setters ...func() error) error {
 
 // requireBundledSidecars 校验发行包内所有 peer sidecar 均可执行。
 func requireBundledSidecars(binDir string) error {
-	for _, name := range executableNamesForOS(runtimeGOOS(), bundledSidecarNames) {
+	for _, name := range executableNamesForOS(runtimeGOOS(), bundledSidecarNames()) {
 		path := filepath.Join(binDir, name)
 		if err := requireExecutableFile(path); err != nil {
 			return fmt.Errorf("missing bundled sidecar %s: %w", path, err)
@@ -534,7 +546,7 @@ func packagedSidecarPathEntries(runtime PackagedRuntime) []string {
 }
 
 // setControlledEnvPath 用去重后的受控条目覆盖指定 PATH 类环境变量。
-func setControlledEnvPath(key string, entries ...string) error {
+func setControlledEnvPath(setenv func(string, string) error, key string, entries ...string) error {
 	seen := map[string]bool{}
 	out := make([]string, 0, len(entries))
 	for _, entry := range entries {
@@ -543,7 +555,7 @@ func setControlledEnvPath(key string, entries ...string) error {
 	if len(out) == 0 {
 		return nil
 	}
-	return setEnv(key, strings.Join(out, string(os.PathListSeparator)))
+	return setEnv(setenv, key, strings.Join(out, string(os.PathListSeparator)))
 }
 
 // appendPathEntry 去重追加非空路径条目。
@@ -557,35 +569,35 @@ func appendPathEntry(out *[]string, seen map[string]bool, entry string) {
 }
 
 // setIfDir 仅当目录存在时写入环境变量。
-func setIfDir(key, dir string) error {
+func setIfDir(setenv func(string, string) error, key, dir string) error {
 	if info, err := os.Stat(dir); err == nil && info.IsDir() {
-		return setEnv(key, dir)
+		return setEnv(setenv, key, dir)
 	}
 	return nil
 }
 
 // setIfFile 仅当目标文件存在且变量未设置时写入环境变量。
-func setIfFile(key, path string) error {
+func setIfFile(setenv func(string, string) error, key, path string) error {
 	if strings.TrimSpace(os.Getenv(key)) != "" {
 		return nil
 	}
 	if info, err := os.Stat(path); err == nil && !info.IsDir() {
-		return setEnv(key, path)
+		return setEnv(setenv, key, path)
 	}
 	return nil
 }
 
 // setEnvIfEmpty 只在变量为空且 value 非空时写入，保留调用方显式配置。
-func setEnvIfEmpty(key, value string) error {
+func setEnvIfEmpty(setenv func(string, string) error, key, value string) error {
 	if strings.TrimSpace(os.Getenv(key)) != "" || strings.TrimSpace(value) == "" {
 		return nil
 	}
-	return setEnv(key, value)
+	return setEnv(setenv, key, value)
 }
 
 // setEnv 写入环境变量，并把 key 带入错误便于定位失败项。
-func setEnv(key, value string) error {
-	if err := deps.setenv(key, value); err != nil {
+func setEnv(setenv func(string, string) error, key, value string) error {
+	if err := setenv(key, value); err != nil {
 		return fmt.Errorf("%s: %w", key, err)
 	}
 	return nil

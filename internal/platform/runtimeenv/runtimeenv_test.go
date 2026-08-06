@@ -453,6 +453,22 @@ func TestDefaultLSPLanguagesMapsBundledLanguageServers(t *testing.T) {
 	}
 }
 
+func TestDefaultLSPLanguagesReturnsIndependentDescriptor(t *testing.T) {
+	first := defaultLSPLanguages("gopls")
+	first[0] = "changed"
+	if got, want := defaultLSPLanguages("gopls"), []string{"go", "gomod", "gosum", "gowork"}; !slices.Equal(got, want) {
+		t.Fatalf("defaultLSPLanguages(gopls) after caller mutation = %v, want %v", got, want)
+	}
+}
+
+func TestBundledSidecarNamesReturnsIndependentDescriptor(t *testing.T) {
+	first := bundledSidecarNames()
+	first[0] = "changed"
+	if got, want := bundledSidecarNames(), []string{"mcp-orch", "mcp-lsp", "mcp-ida"}; !slices.Equal(got, want) {
+		t.Fatalf("bundledSidecarNames() after caller mutation = %v, want %v", got, want)
+	}
+}
+
 func writeBundledSidecars(t *testing.T, binDir string) {
 	t.Helper()
 	writeOnlyBundledSidecars(t, binDir)
@@ -581,27 +597,26 @@ func writeExecutable(t *testing.T, dir, name string) {
 }
 
 func TestConfigurePackagedAppReturnsSetenvError(t *testing.T) {
-	prev := deps
-	t.Cleanup(func() { deps = prev })
-
 	resources := t.TempDir()
 	writePackagedRuntimeFixture(t, resources, runtimeGOOS()+"-"+runtimeGOARCH())
-	deps.executable = func() (string, error) {
-		return filepath.Join(resources, "bin", executableNameForOS(runtimeGOOS(), "agent-terminal")), nil
-	}
-	deps.userHomeDir = func() (string, error) {
-		return "/Users/alice", nil
-	}
-	deps.setenv = func(key, value string) error {
-		if key == projectRootEnv {
-			return errors.New("injected setenv failure")
-		}
-		return nil
+	deps := runtimeDeps{
+		executable: func() (string, error) {
+			return filepath.Join(resources, "bin", executableNameForOS(runtimeGOOS(), "agent-terminal")), nil
+		},
+		userHomeDir: func() (string, error) {
+			return "/Users/alice", nil
+		},
+		setenv: func(key, value string) error {
+			if key == projectRootEnv {
+				return errors.New("injected setenv failure")
+			}
+			return nil
+		},
 	}
 	t.Setenv(projectRootEnv, "")
 	t.Setenv(packageRootEnv, resources)
 
-	err := ConfigurePackagedApp()
+	err := configurePackagedApp(deps)
 	if err == nil {
 		t.Fatal("ConfigurePackagedApp() error = nil, want setenv failure")
 	}
@@ -613,21 +628,22 @@ func TestConfigurePackagedAppReturnsSetenvError(t *testing.T) {
 }
 
 func TestConfigurePackagedAppSkipsDevBinaryWithoutUserHome(t *testing.T) {
-	prev := deps
-	t.Cleanup(func() { deps = prev })
 	t.Setenv(runtimeModeEnv, "")
 	t.Setenv(packageRootEnv, "")
 	t.Setenv(packagedLauncherEnv, "")
 
-	deps.executable = func() (string, error) {
-		return filepath.Join(t.TempDir(), "bin", "agent-terminal"), nil
-	}
-	deps.userHomeDir = func() (string, error) {
-		t.Fatal("user home must not be required for a dev binary")
-		return "", nil
+	deps := runtimeDeps{
+		executable: func() (string, error) {
+			return filepath.Join(t.TempDir(), "bin", "agent-terminal"), nil
+		},
+		userHomeDir: func() (string, error) {
+			t.Fatal("user home must not be required for a dev binary")
+			return "", nil
+		},
+		setenv: os.Setenv,
 	}
 
-	if err := ConfigurePackagedApp(); err != nil {
+	if err := configurePackagedApp(deps); err != nil {
 		t.Fatalf("ConfigurePackagedApp() error = %v, want nil for dev binary", err)
 	}
 }

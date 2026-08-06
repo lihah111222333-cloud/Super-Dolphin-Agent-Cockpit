@@ -16,10 +16,6 @@ const (
 	updateTerminationTokenEnv    = "SUPER_DOLPHIN_UPDATE_TERMINATION_TOKEN"
 )
 
-var detachedEnvironmentAllowlist = map[string]struct{}{
-	"HOME": {}, "LANG": {}, "LC_ALL": {}, "PATH": {}, "TMPDIR": {},
-}
-
 // RecoveryLaunch 是 early selector 可读取的 frozen probation 启动契约。
 type RecoveryLaunch struct {
 	TransactionRoot     string
@@ -147,14 +143,14 @@ func validateTransactionRoot(root string) error {
 
 // DetachedCommandEnvironment 只保留 Guard/Recovery detached command 的 frozen 环境变量。
 func DetachedCommandEnvironment(environ []string) ([]string, error) {
-	result := make([]string, 0, len(detachedEnvironmentAllowlist))
-	seen := make(map[string]struct{}, len(detachedEnvironmentAllowlist))
+	result := make([]string, 0, 5)
+	seen := make(map[string]struct{}, 5)
 	for _, entry := range environ {
 		name, _, ok := strings.Cut(entry, "=")
 		if !ok || strings.TrimSpace(name) == "" {
 			return nil, fmt.Errorf("invalid environment entry %q", entry)
 		}
-		if _, allowed := detachedEnvironmentAllowlist[name]; !allowed {
+		if !isDetachedEnvironmentAllowed(name) {
 			continue
 		}
 		if _, duplicate := seen[name]; duplicate {
@@ -164,6 +160,16 @@ func DetachedCommandEnvironment(environ []string) ([]string, error) {
 		result = append(result, entry)
 	}
 	return result, nil
+}
+
+// isDetachedEnvironmentAllowed 返回 detached command 可继承的 frozen 环境变量。
+func isDetachedEnvironmentAllowed(name string) bool {
+	switch name {
+	case "HOME", "LANG", "LC_ALL", "PATH", "TMPDIR":
+		return true
+	default:
+		return false
+	}
 }
 
 func packagedTransactionRoot(executable string) string {
