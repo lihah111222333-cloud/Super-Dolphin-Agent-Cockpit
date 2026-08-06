@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 )
 
 // sharedfilegitignore 管理 sharedfile 私有状态的 `.gitignore` 规则。
@@ -17,7 +16,7 @@ import (
 // `<cwd>/.agnet/shared/_internal/...` 保存系统私有状态，不应进入 git index；
 // handoff、dag、inbox 和 reports 等协作产物默认仍可提交，便于审计回溯。
 //
-// Ensure 对同一 cwd 在进程内只执行一次磁盘 IO；已有 `_internal/` 或父目录覆盖规则时不改文件。
+// Ensure 每次检查 `.gitignore`；已有 `_internal/` 或父目录覆盖规则时不改文件。
 
 const (
 	// gitignoreEntry 是要写入 .gitignore 的相对规则。git 解读 `<dir>/`
@@ -28,55 +27,17 @@ const (
 )
 
 // Ensure 确保 `<cwd>/.gitignore` 忽略 `.agnet/shared/_internal/`。
-// 空 cwd 视为无平台配置的测试或 fx 场景；每个 cwd 在进程内只执行一次实际 IO。
+// 空 cwd 视为无平台配置的测试或 fx 场景。
 func Ensure(cwd string, logger *slog.Logger) error {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" {
 		return nil
 	}
-	state := loadOrCreateState(cwd)
-	state.once.Do(func() {
-		state.err = ensureOnce(cwd, logger)
-	})
-	// sync.Once 会发布本次执行错误，且错误挂在每个 cwd 的状态上，避免不同 cwd 的结果互相污染。
-	return state.err
+	return ensureRule(cwd, logger)
 }
 
-// ResetForTests 清空按 cwd 记录的执行状态，允许单进程测试重复覆盖 Ensure 路径。
-func ResetForTests() {
-	state.mu.Lock()
-	defer state.mu.Unlock()
-	state.byCWD = make(map[string]*ensureState)
-}
-
-// ensureState 把每个 cwd 的 sync.Once 和执行错误放在一起，保证成功/失败状态隔离。
-type ensureState struct {
-	once sync.Once
-	err  error
-}
-
-// gitignoreState 保存每个 cwd 独立的 once 状态，避免不同仓库的错误互相污染。
-type gitignoreState struct {
-	mu    sync.Mutex
-	byCWD map[string]*ensureState
-}
-
-var state = &gitignoreState{byCWD: make(map[string]*ensureState)}
-
-// loadOrCreateState 在全局锁下读取或创建 cwd 对应的 ensureState。
-func loadOrCreateState(cwd string) *ensureState {
-	state.mu.Lock()
-	defer state.mu.Unlock()
-	if existing, ok := state.byCWD[cwd]; ok {
-		return existing
-	}
-	s := &ensureState{}
-	state.byCWD[cwd] = s
-	return s
-}
-
-// ensureOnce 执行单次 `.gitignore` 检查和追加写入，已有覆盖规则时不改文件。
-func ensureOnce(cwd string, logger *slog.Logger) error {
+// ensureRule 执行 `.gitignore` 检查和追加写入，已有覆盖规则时不改文件。
+func ensureRule(cwd string, logger *slog.Logger) error {
 	gitignorePath := filepath.Join(cwd, ".gitignore")
 	existing, readErr := os.ReadFile(gitignorePath)
 	if readErr != nil && !errors.Is(readErr, fs.ErrNotExist) {

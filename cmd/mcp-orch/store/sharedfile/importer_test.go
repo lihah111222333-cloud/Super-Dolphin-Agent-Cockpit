@@ -13,7 +13,6 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlc"
 	sharedfilefs "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/sharedfilefs"
-	sharedfilegitignore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/sharedfilegitignore"
 	_ "modernc.org/sqlite"
 )
 
@@ -133,8 +132,6 @@ func TestImportLocalFile_FailsBeforeCopyWhenGitignoreEnsureFails(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(cwd, ".gitignore"), 0o755); err != nil {
 		t.Fatalf("mkdir .gitignore sentinel: %v", err)
 	}
-	sharedfilegitignore.ResetForTests()
-	t.Cleanup(sharedfilegitignore.ResetForTests)
 	db := newFakeImportDB(t)
 	sfStore := newStoreWithConfig(db.DB, sharedfilefs.Config{CWD: cwd, InlineThresholdBytes: 1})
 

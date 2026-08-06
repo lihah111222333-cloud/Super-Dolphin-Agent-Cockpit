@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	sharedfilefs "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/sharedfilefs"
-	sharedfilegitignore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/sharedfilegitignore"
 )
 
 func TestSharedFileListPrefixIsPrefixOnly(t *testing.T) {
@@ -174,8 +173,6 @@ func TestSharedFileUpsertFailsBeforeWriteWhenGitignoreEnsureFails(t *testing.T) 
 	if err := os.Mkdir(filepath.Join(cwd, ".gitignore"), 0o755); err != nil {
 		t.Fatalf("mkdir .gitignore sentinel: %v", err)
 	}
-	sharedfilegitignore.ResetForTests()
-	t.Cleanup(sharedfilegitignore.ResetForTests)
 	db := newFakeImportDB(t)
 	store := newStoreWithConfig(db.DB, sharedfilefs.Config{
 		CWD:                  cwd,

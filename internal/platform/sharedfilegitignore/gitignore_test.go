@@ -9,8 +9,6 @@ import (
 
 func setupTempCWD(t *testing.T) string {
 	t.Helper()
-	ResetForTests()
-	t.Cleanup(ResetForTests)
 	return t.TempDir()
 }
 
@@ -49,7 +47,7 @@ func TestEnsure_AppendsToExisting(t *testing.T) {
 	}
 }
 
-func TestEnsure_IsIdempotent_SkipsAppendOnSecondCallSameProcess(t *testing.T) {
+func TestEnsure_IsIdempotent_OnRepeatedCalls(t *testing.T) {
 	cwd := setupTempCWD(t)
 	if err := Ensure(cwd, nil); err != nil {
 		t.Fatalf("first err = %v", err)
@@ -129,7 +127,6 @@ func TestEnsure_RecognizesNoTrailingSlash(t *testing.T) {
 }
 
 func TestEnsure_HandlesEmptyCWD(t *testing.T) {
-	ResetForTests()
 	if err := Ensure("", nil); err != nil {
 		t.Fatalf("Ensure(empty) err = %v, want nil", err)
 	}
