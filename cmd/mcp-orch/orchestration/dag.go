@@ -30,6 +30,7 @@ type dagController struct {
 	dispatchStore       taskdag.DispatchNodeStore
 	agentThreads        AgentThreadLookup
 	svcStopper          StopAgentService
+	stopMetrics         *stopSpawnedAgentCounter
 }
 
 type dagControllerParams struct {
@@ -53,6 +54,7 @@ func newDAGController(p dagControllerParams) *dagController {
 		dispatchStore:       p.DispatchStore,
 		agentThreads:        p.AgentThreads,
 		svcStopper:          p.SvcStopper,
+		stopMetrics:         newStopSpawnedAgentCounter(),
 	}
 }
 

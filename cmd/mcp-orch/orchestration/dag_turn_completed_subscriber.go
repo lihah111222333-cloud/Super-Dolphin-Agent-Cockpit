@@ -49,12 +49,20 @@ type DAGSubscriberDeps struct {
 	ArtifactImporter sharedfilestore.Importer           `optional:"true"`
 	NodeRouter       *NodeExecutorRouter                `optional:"true"`
 	TerminalOutcomes contract.TerminalOutcomeCommitPort `optional:"true"`
+	Metrics          *dagSubscriberCounter              `optional:"true"`
+	StopMetrics      *stopSpawnedAgentCounter           `optional:"true"`
 }
 
 // WireTerminalOutcomeDAGProjection 把完整 DAG 投影依赖接到 canonical outbox runner。
 func WireTerminalOutcomeDAGProjection(svc *service, deps DAGSubscriberDeps) {
 	if svc == nil {
 		return
+	}
+	if deps.Metrics == nil {
+		deps.Metrics = newDAGSubscriberCounter()
+	}
+	if deps.StopMetrics == nil {
+		deps.StopMetrics = newStopSpawnedAgentCounter()
 	}
 	deps.EventBus = firstNonNilEventBus(deps.EventBus, svc.eventBus)
 	svc.terminalDAG = &deps
@@ -77,6 +85,12 @@ func RegisterDAGTurnCompletedSubscriber(lc fx.Lifecycle, dispatcher *event.Dispa
 	}
 	if deps.EventBus == nil {
 		deps.EventBus = dispatcher
+	}
+	if deps.Metrics == nil {
+		deps.Metrics = newDAGSubscriberCounter()
+	}
+	if deps.StopMetrics == nil {
+		deps.StopMetrics = newStopSpawnedAgentCounter()
 	}
 	var cancelSub = func() {}
 	var lifecycleCtx context.Context
@@ -114,27 +128,27 @@ func handleDAGTurnCompleted(ctx context.Context, deps DAGSubscriberDeps, logger 
 func projectDAGTurnCompleted(ctx context.Context, deps DAGSubscriberDeps, logger *slog.Logger, ev turndto.TurnCompleted) error {
 	threadID := strings.TrimSpace(ev.ThreadID)
 	if threadID == "" {
-		dagSubscriberMetrics.IncLookupNoNode()
+		deps.Metrics.IncLookupNoNode()
 		return nil
 	}
 	if deps.LookupStore == nil || deps.FlowStore == nil {
 		logger.Warn("dag subscriber: deps not wired", "thread_id", threadID)
-		dagSubscriberMetrics.IncLookupFailed()
+		deps.Metrics.IncLookupFailed()
 		return errors.New("dag terminal projection dependencies are not wired")
 	}
 	nodes, err := deps.LookupStore.LookupNodesBySpawningThread(ctx, threadID)
 	if err != nil {
-		dagSubscriberMetrics.IncLookupFailed()
+		deps.Metrics.IncLookupFailed()
 		logger.Warn("dag subscriber: lookup nodes by spawning thread failed", "thread_id", threadID, "error", err)
 		return err
 	}
 	if len(nodes) == 0 {
-		dagSubscriberMetrics.IncLookupNoNode()
+		deps.Metrics.IncLookupNoNode()
 		logger.Debug("dag subscriber: no node carries this thread id", "thread_id", threadID)
 		return nil
 	}
 	if len(nodes) > 1 {
-		dagSubscriberMetrics.IncLookupDirtyData()
+		deps.Metrics.IncLookupDirtyData()
 		logger.Warn("dag subscriber: N>1 nodes carry the same spawning thread id", "thread_id", threadID, "node_count", len(nodes))
 	}
 	for i := range nodes {
@@ -153,7 +167,7 @@ func projectDAGTurnCompleted(ctx context.Context, deps DAGSubscriberDeps, logger
 // 已经终态的节点只计幂等跳过，防止重复 hook 或重放事件覆盖最终状态。
 func advanceNodeForTurnCompleted(ctx context.Context, deps DAGSubscriberDeps, logger *slog.Logger, node *taskdag.Node, ev turndto.TurnCompleted) error {
 	if isTerminalNodeStatus(node.Status) {
-		dagSubscriberMetrics.IncIdempotentSkipped()
+		deps.Metrics.IncIdempotentSkipped()
 		logger.Debug("dag subscriber: node already terminal, skip", "dag_key", node.DagKey, "node_key", node.NodeKey, "status", node.Status)
 		return nil
 	}
@@ -166,12 +180,12 @@ func advanceNodeForTurnCompleted(ctx context.Context, deps DAGSubscriberDeps, lo
 		}
 	}
 	if strings.TrimSpace(result) == "" {
-		dagSubscriberMetrics.IncCompleteResultEmpty()
+		deps.Metrics.IncCompleteResultEmpty()
 	}
 	if ev.Success {
 		return advanceNodeDoneForSuccess(ctx, deps, logger, node, result, ev)
 	}
-	return advanceNodeFailed(ctx, deps.FlowStore, deps.EventBus, deps.NodeRouter, logger, node, ev)
+	return advanceNodeFailed(ctx, deps.FlowStore, deps.EventBus, deps.NodeRouter, deps.Metrics, logger, node, ev)
 }
 
 func advanceNodeDoneForSuccess(ctx context.Context, deps DAGSubscriberDeps, logger *slog.Logger, node *taskdag.Node, rawResult string, ev turndto.TurnCompleted) error {
@@ -193,8 +207,8 @@ func advanceNodeDoneForSuccess(ctx context.Context, deps DAGSubscriberDeps, logg
 	if !ok {
 		return nil
 	}
-	recordLegacyResultCapMetric(logger, node, result)
-	advanced, err := advanceNodeDone(ctx, deps.FlowStore, deps.EventBus, logger, node, result)
+	recordLegacyResultCapMetric(deps.Metrics, logger, node, result)
+	advanced, err := advanceNodeDone(ctx, deps.FlowStore, deps.EventBus, deps.Metrics, logger, node, result)
 	if err != nil {
 		return err
 	}
@@ -214,7 +228,7 @@ func materializeTurnOutputAfterClaim(ctx context.Context, deps DAGSubscriberDeps
 	return materializeSharedfileAfterClaim(ctx, deps, logger, node, materialized, owner)
 }
 
-func advanceNodeDone(ctx context.Context, flow taskdag.NodeFlowStore, eventBus *event.Dispatcher, logger *slog.Logger, node *taskdag.Node, result json.RawMessage) (bool, error) {
+func advanceNodeDone(ctx context.Context, flow taskdag.NodeFlowStore, eventBus *event.Dispatcher, metrics *dagSubscriberCounter, logger *slog.Logger, node *taskdag.Node, result json.RawMessage) (bool, error) {
 	res, err := flow.CompleteNodeAndScheduleDownstream(ctx, taskdag.CompleteNodeInput{
 		Status:  "done",
 		Result:  result,
@@ -225,10 +239,10 @@ func advanceNodeDone(ctx context.Context, flow taskdag.NodeFlowStore, eventBus *
 	switch {
 	case err == nil:
 		nodeevents.PublishComplete(eventBus, node.Status, res)
-		dagSubscriberMetrics.IncCompleteDone()
+		metrics.IncCompleteDone()
 		return true, nil
 	case errors.Is(err, sql.ErrNoRows) || platformdb.IsNotFound(err):
-		dagSubscriberMetrics.IncIdempotentSkipped()
+		metrics.IncIdempotentSkipped()
 		logger.Debug("dag subscriber: complete fence rejected, node already terminal", "dag_key", node.DagKey, "node_key", node.NodeKey)
 		return false, nil
 	default:
@@ -243,7 +257,7 @@ func advanceNodeDone(ctx context.Context, flow taskdag.NodeFlowStore, eventBus *
 	}
 }
 
-func advanceNodeFailed(ctx context.Context, flow taskdag.NodeFlowStore, eventBus *event.Dispatcher, router *NodeExecutorRouter, logger *slog.Logger, node *taskdag.Node, ev turndto.TurnCompleted) error {
+func advanceNodeFailed(ctx context.Context, flow taskdag.NodeFlowStore, eventBus *event.Dispatcher, router *NodeExecutorRouter, metrics *dagSubscriberCounter, logger *slog.Logger, node *taskdag.Node, ev turndto.TurnCompleted) error {
 	reason := strings.TrimSpace(ev.Error)
 	if reason == "" {
 		reason = strings.TrimSpace(ev.Reason)
@@ -251,7 +265,7 @@ func advanceNodeFailed(ctx context.Context, flow taskdag.NodeFlowStore, eventBus
 	if reason == "" {
 		reason = "turn_completed_failure"
 	}
-	advanced, err := advanceNodeFailedWithReason(ctx, flow, eventBus, logger, node, reason, false)
+	advanced, err := advanceNodeFailedWithReason(ctx, flow, eventBus, metrics, logger, node, reason, false)
 	if err != nil {
 		return err
 	}
@@ -264,7 +278,7 @@ func advanceNodeFailed(ctx context.Context, flow taskdag.NodeFlowStore, eventBus
 	return nil
 }
 
-func advanceNodeFailedWithReason(ctx context.Context, flow taskdag.NodeFlowStore, eventBus *event.Dispatcher, logger *slog.Logger, node *taskdag.Node, reason string, failFast bool) (bool, error) {
+func advanceNodeFailedWithReason(ctx context.Context, flow taskdag.NodeFlowStore, eventBus *event.Dispatcher, metrics *dagSubscriberCounter, logger *slog.Logger, node *taskdag.Node, reason string, failFast bool) (bool, error) {
 	res, err := flow.FailNodeAndCancelDownstream(ctx, taskdag.FailNodeInput{
 		DagKey:   node.DagKey,
 		NodeKey:  node.NodeKey,
@@ -275,10 +289,10 @@ func advanceNodeFailedWithReason(ctx context.Context, flow taskdag.NodeFlowStore
 	switch {
 	case err == nil:
 		nodeevents.PublishFail(eventBus, node.Status, res)
-		dagSubscriberMetrics.IncCompleteFailed()
+		metrics.IncCompleteFailed()
 		return true, nil
 	case errors.Is(err, sql.ErrNoRows) || platformdb.IsNotFound(err):
-		dagSubscriberMetrics.IncIdempotentSkipped()
+		metrics.IncIdempotentSkipped()
 		logger.Debug("dag subscriber: fail fence rejected, node already terminal", "dag_key", node.DagKey, "node_key", node.NodeKey)
 		return false, nil
 	}
@@ -305,14 +319,14 @@ func materializeSharedfileAfterClaim(ctx context.Context, deps DAGSubscriberDeps
 			failureErr := handleMaterializationFailure(ctx, deps, logger, node, validationMaterializationFailure("empty agent output and configured sharedfile lacks current-run ownership marker"))
 			return nil, false, failureErr
 		}
-		claimed, err := claimNodeOutputMaterialization(ctx, deps.FlowStore, deps.EventBus, logger, node, result)
+		claimed, err := claimNodeOutputMaterialization(ctx, deps.FlowStore, deps.EventBus, deps.Metrics, logger, node, result)
 		if err != nil || !claimed {
 			return nil, false, err
 		}
 		logger.Debug("dag subscriber: configured sharedfile has current-run marker, preserve existing content", "dag_key", node.DagKey, "node_key", node.NodeKey, "path", materialized.SharedfilePath)
 		return result, true, nil
 	}
-	claimed, err := claimNodeOutputMaterialization(ctx, deps.FlowStore, deps.EventBus, logger, node, result)
+	claimed, err := claimNodeOutputMaterialization(ctx, deps.FlowStore, deps.EventBus, deps.Metrics, logger, node, result)
 	if err != nil || !claimed {
 		return nil, false, err
 	}
@@ -326,11 +340,11 @@ type nodeOutputMaterializationClaimer interface {
 	ClaimNodeOutputMaterialization(context.Context, taskdag.OutputMaterializationClaimInput) (*taskdag.Node, error)
 }
 
-func claimNodeOutputMaterialization(ctx context.Context, flow taskdag.NodeFlowStore, eventBus *event.Dispatcher, logger *slog.Logger, node *taskdag.Node, result json.RawMessage) (bool, error) {
+func claimNodeOutputMaterialization(ctx context.Context, flow taskdag.NodeFlowStore, eventBus *event.Dispatcher, metrics *dagSubscriberCounter, logger *slog.Logger, node *taskdag.Node, result json.RawMessage) (bool, error) {
 	claimer, ok := flow.(nodeOutputMaterializationClaimer)
 	if !ok {
 		logger.Warn("dag subscriber: output materialization claim not wired", "dag_key", node.DagKey, "node_key", node.NodeKey)
-		_, err := advanceNodeFailedWithReason(ctx, flow, eventBus, logger, node, "infrastructure: output materialization claim not wired", true)
+		_, err := advanceNodeFailedWithReason(ctx, flow, eventBus, metrics, logger, node, "infrastructure: output materialization claim not wired", true)
 		return false, err
 	}
 	updated, err := claimer.ClaimNodeOutputMaterialization(ctx, taskdag.OutputMaterializationClaimInput{
@@ -344,7 +358,7 @@ func claimNodeOutputMaterialization(ctx context.Context, flow taskdag.NodeFlowSt
 		nodeevents.Publish(eventBus, node.Status, updated)
 		return true, nil
 	case errors.Is(err, sql.ErrNoRows) || platformdb.IsNotFound(err):
-		dagSubscriberMetrics.IncIdempotentSkipped()
+		metrics.IncIdempotentSkipped()
 		logger.Debug("dag subscriber: output materialization claim rejected, node already claimed or terminal", "dag_key", node.DagKey, "node_key", node.NodeKey)
 		return false, nil
 	}
@@ -357,7 +371,7 @@ func stopSpawnedAgentForSubscriber(ctx context.Context, deps DAGSubscriberDeps, 
 		logger.Debug("dag subscriber: stop helper deps not wired, skip", "thread_id", threadID)
 		return
 	}
-	if _, err := StopSpawnedAgent(ctx, deps.AgentThreads, deps.SvcStopper, threadID); err != nil {
+	if _, err := StopSpawnedAgent(ctx, deps.AgentThreads, deps.SvcStopper, threadID, deps.StopMetrics); err != nil {
 		logger.Warn("dag subscriber: stop spawned agent failed", "thread_id", threadID, "error", err)
 	}
 }

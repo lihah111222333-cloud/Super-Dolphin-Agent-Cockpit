@@ -6,9 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/launcherrors"
@@ -18,6 +16,7 @@ import (
 	taskdag "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/taskdag"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/idgen"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
@@ -43,8 +42,7 @@ type WakeupDispatcherConfig struct {
 func (c WakeupDispatcherConfig) ConfigOrDefaults() WakeupDispatcherConfig {
 	out := c
 	if out.ClaimedBy == "" {
-		seq := dispatcherClaimedBySeq.Add(1)
-		out.ClaimedBy = "mcp-orch-dispatcher-" + strconv.FormatUint(seq, 10)
+		out.ClaimedBy = "mcp-orch-dispatcher-" + idgen.NewAgentID()
 	}
 	if out.LeaseInterval == "" {
 		out.LeaseInterval = defaultWakeupLeaseInterval
@@ -60,8 +58,6 @@ func (c WakeupDispatcherConfig) ConfigOrDefaults() WakeupDispatcherConfig {
 	}
 	return out
 }
-
-var dispatcherClaimedBySeq atomic.Uint64
 
 // WakeupLauncher 是非 DAG wakeup 投递所需的启动接口。
 type WakeupLauncher interface {
@@ -79,7 +75,8 @@ type WakeupDispatcher struct {
 
 	leaseHeartbeatInterval time.Duration
 
-	retryAlertSink DispatchRetryAlertSink
+	retryAlertSink    DispatchRetryAlertSink
+	subscriberMetrics *dagSubscriberCounter
 }
 
 // NewWakeupDispatcher 创建负责投递 DAG wakeup 的调度器。
@@ -105,6 +102,7 @@ func NewWakeupDispatcher(store taskdag.WakeupDispatchStore, launcher WakeupLaunc
 		logger:                 logger,
 		cfg:                    normalized,
 		leaseHeartbeatInterval: heartbeatInterval,
+		subscriberMetrics:      newDAGSubscriberCounter(),
 	}, nil
 }
 
@@ -236,7 +234,7 @@ func (d *WakeupDispatcher) handleTurnCompletionRetryWakeup(ctx context.Context, 
 	case turncompletionretry.CompleteSucceeded:
 		return d.markLaunched(ctx, w, fence)
 	case turncompletionretry.CompleteAlreadyTerminal:
-		dagSubscriberMetrics.IncIdempotentSkipped()
+		d.subscriberMetrics.IncIdempotentSkipped()
 		return d.markLaunched(ctx, w, fence)
 	case turncompletionretry.CompleteRetry:
 		lastErr := truncateWakeupError("turn.completed completion retry failed: " + res.Err.Error())

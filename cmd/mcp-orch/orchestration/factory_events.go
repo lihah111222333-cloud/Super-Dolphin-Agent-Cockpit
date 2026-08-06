@@ -46,27 +46,29 @@ const (
 	eventTypeTurnResumed          = "turn_resumed"
 )
 
-var eventPublishers = map[string]eventPublisher{
-	eventTypeStateChanged:         publishStateChangedEvent,
-	eventTypeAgentLaunched:        publishAgentLaunchedEvent,
-	eventTypeAgentStopped:         publishAgentStoppedEvent,
-	eventTypeAgentRecovering:      publishAgentRecoveringEvent,
-	eventTypeAgentFailed:          publishAgentFailedEvent,
-	eventTypeAgentRuntimeReported: publishAgentRuntimeReportedEvent,
-	eventTypeTurnStalled:          publishTurnStalledEvent,
-	eventTypeTurnResumed:          publishTurnResumedEvent,
-}
-
 func emitEvent(bus EventBus, eventType string, agentID string, fields ...any) {
 	if bus == nil {
 		return
 	}
 	agent, values := eventAgent(agentID, fields)
-	publish, ok := eventPublishers[eventType]
-	if !ok {
-		return
+	switch eventType {
+	case eventTypeStateChanged:
+		publishStateChangedEvent(bus, agent, values)
+	case eventTypeAgentLaunched:
+		publishAgentLaunchedEvent(bus, agent, values)
+	case eventTypeAgentStopped:
+		publishAgentStoppedEvent(bus, agent, values)
+	case eventTypeAgentRecovering:
+		publishAgentRecoveringEvent(bus, agent, values)
+	case eventTypeAgentFailed:
+		publishAgentFailedEvent(bus, agent, values)
+	case eventTypeAgentRuntimeReported:
+		publishAgentRuntimeReportedEvent(bus, agent, values)
+	case eventTypeTurnStalled:
+		publishTurnStalledEvent(bus, agent, values)
+	case eventTypeTurnResumed:
+		publishTurnResumedEvent(bus, agent, values)
 	}
-	publish(bus, agent, values)
 }
 
 func publishStateChangedEvent(bus EventBus, agent *agentState, values []any) {

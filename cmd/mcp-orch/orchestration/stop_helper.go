@@ -38,11 +38,12 @@ type StopAgentService interface {
 
 // StopSpawnedAgent 根据 spawned thread 反查 agent 并执行停止。
 // 已停止/已归档视为幂等成功；真实失败会保留错误返回给调用方。
-func StopSpawnedAgent(ctx context.Context, threads AgentThreadLookup, svc StopAgentService, threadID string) (StopResult, error) {
+func StopSpawnedAgent(ctx context.Context, threads AgentThreadLookup, svc StopAgentService, threadID string, counters ...*stopSpawnedAgentCounter) (StopResult, error) {
 	threadID = strings.TrimSpace(threadID)
 	logger := pkglogger.Get()
+	counter := stopSpawnedAgentCounterFor(counters)
 
-	agentID, thread, preflight, preflightErr := resolveAgentIDForStop(ctx, logger, threads, svc, threadID)
+	agentID, thread, preflight, preflightErr := resolveAgentIDForStop(ctx, logger, threads, svc, threadID, counter)
 	if preflight != "" {
 		return preflight, preflightErr
 	}
@@ -55,12 +56,12 @@ func StopSpawnedAgent(ctx context.Context, threads AgentThreadLookup, svc StopAg
 		if status != persistedThreadStatusArchived && status != "stopped" {
 			if err := threads.UpdateStatus(ctx, PersistedThreadStatusUpdate{ThreadID: threadID, Status: "stopped", UpdatedAt: time.Now().Unix()}); err != nil {
 				logger.Warn("stop_helper: persisted thread stop status update failed", "thread_id", threadID, "result", string(result), "err", err)
-				recordStopSpawnedAgentMetric(StopResultFailed)
+				recordStopSpawnedAgentMetric(counter, StopResultFailed)
 				return StopResultFailed, err
 			}
 		}
 	}
-	recordStopSpawnedAgentMetric(result)
+	recordStopSpawnedAgentMetric(counter, result)
 	return finalizeStopOutcome(logger, threadID, agentID, result, stopErr)
 }
 
@@ -125,31 +126,40 @@ func (c *stopSpawnedAgentCounter) Snapshot() StopSpawnedAgentMetrics {
 	}
 }
 
-var defaultStopSpawnedAgentCounter = &stopSpawnedAgentCounter{}
+func newStopSpawnedAgentCounter() *stopSpawnedAgentCounter { return &stopSpawnedAgentCounter{} }
 
-// recordStopSpawnedAgentMetric 记录全局 StopSpawnedAgent 结果指标。
-func recordStopSpawnedAgentMetric(result StopResult) {
-	defaultStopSpawnedAgentCounter.Inc(result)
+func stopSpawnedAgentCounterFor(counters []*stopSpawnedAgentCounter) *stopSpawnedAgentCounter {
+	if len(counters) > 0 && counters[0] != nil {
+		return counters[0]
+	}
+	return newStopSpawnedAgentCounter()
 }
 
-// StopSpawnedAgentCounters 返回 spawned agent 停止路径的全局计数快照。
-func StopSpawnedAgentCounters() StopSpawnedAgentMetrics {
-	return defaultStopSpawnedAgentCounter.Snapshot()
+func recordStopSpawnedAgentMetric(counter *stopSpawnedAgentCounter, result StopResult) {
+	counter.Inc(result)
+}
+
+// StopSpawnedAgentCounters 返回指定 owner 的停止路径计数快照。
+func StopSpawnedAgentCounters(counters ...*stopSpawnedAgentCounter) StopSpawnedAgentMetrics {
+	if len(counters) == 0 {
+		return StopSpawnedAgentMetrics{}
+	}
+	return counters[0].Snapshot()
 }
 
 // resolveAgentIDForStop 从持久化 thread 反查 agent id，并把前置失败映射为 StopResult。
-func resolveAgentIDForStop(ctx context.Context, logger logHandle, threads AgentThreadLookup, svc StopAgentService, threadID string) (string, *PersistedThread, StopResult, error) {
+func resolveAgentIDForStop(ctx context.Context, logger logHandle, threads AgentThreadLookup, svc StopAgentService, threadID string, counter *stopSpawnedAgentCounter) (string, *PersistedThread, StopResult, error) {
 	if threadID == "" {
-		recordStopSpawnedAgentMetric(StopResultSkippedNoThreadID)
+		recordStopSpawnedAgentMetric(counter, StopResultSkippedNoThreadID)
 		return "", nil, StopResultSkippedNoThreadID, nil
 	}
 	if threads == nil {
-		recordStopSpawnedAgentMetric(StopResultSkippedLookupFailed)
+		recordStopSpawnedAgentMetric(counter, StopResultSkippedLookupFailed)
 		logger.Warn("stop_helper: AgentThreadLookup is nil", "thread_id", threadID)
 		return "", nil, StopResultSkippedLookupFailed, errors.New("stop_helper: AgentThreadLookup is nil")
 	}
 	if svc == nil {
-		recordStopSpawnedAgentMetric(StopResultSkippedLookupFailed)
+		recordStopSpawnedAgentMetric(counter, StopResultSkippedLookupFailed)
 		logger.Warn("stop_helper: StopAgentService is nil", "thread_id", threadID)
 		return "", nil, StopResultSkippedLookupFailed, errors.New("stop_helper: StopAgentService is nil")
 	}
@@ -157,22 +167,22 @@ func resolveAgentIDForStop(ctx context.Context, logger logHandle, threads AgentT
 	thread, err := threads.GetByThreadID(ctx, threadID)
 	if err != nil {
 		if isThreadNotFound(err) {
-			recordStopSpawnedAgentMetric(StopResultSkippedNoThreadID)
+			recordStopSpawnedAgentMetric(counter, StopResultSkippedNoThreadID)
 			logger.Warn("stop_helper: thread not found during reverse lookup", "thread_id", threadID, "err", err)
 			return "", nil, StopResultSkippedNoThreadID, err
 		}
-		recordStopSpawnedAgentMetric(StopResultSkippedLookupFailed)
+		recordStopSpawnedAgentMetric(counter, StopResultSkippedLookupFailed)
 		logger.Warn("stop_helper: thread lookup failed", "thread_id", threadID, "err", err)
 		return "", nil, StopResultSkippedLookupFailed, err
 	}
 	if thread == nil {
-		recordStopSpawnedAgentMetric(StopResultSkippedNoThreadID)
+		recordStopSpawnedAgentMetric(counter, StopResultSkippedNoThreadID)
 		logger.Warn("stop_helper: thread nil after lookup", "thread_id", threadID)
 		return "", nil, StopResultSkippedNoThreadID, nil
 	}
 	agentID := strings.TrimSpace(thread.AgentID)
 	if agentID == "" {
-		recordStopSpawnedAgentMetric(StopResultSkippedBindingMissing)
+		recordStopSpawnedAgentMetric(counter, StopResultSkippedBindingMissing)
 		logger.Warn("stop_helper: persisted thread has empty AgentID (binding missing or archived)", "thread_id", threadID)
 		return "", thread, StopResultSkippedBindingMissing, nil
 	}

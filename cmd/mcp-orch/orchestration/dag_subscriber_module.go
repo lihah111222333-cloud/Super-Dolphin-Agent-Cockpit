@@ -29,11 +29,16 @@ type dagSubscriberCounter struct {
 	completeSizeCapExceeded, completeResultEmpty    atomic.Int64
 }
 
-// dagSubscriberMetrics 是进程内共享的 DAG subscriber 指标实例。
-var dagSubscriberMetrics = &dagSubscriberCounter{}
+// newDAGSubscriberCounter 为一个 subscriber owner 创建独立的运行期计数器。
+func newDAGSubscriberCounter() *dagSubscriberCounter { return &dagSubscriberCounter{} }
 
-// DAGSubscriberCounters 返回 DAG subscriber 的当前计数器快照。
-func DAGSubscriberCounters() DAGSubscriberMetrics { return dagSubscriberMetrics.Snapshot() }
+// DAGSubscriberCounters 返回指定 subscriber owner 的当前计数器快照。
+func DAGSubscriberCounters(counters ...*dagSubscriberCounter) DAGSubscriberMetrics {
+	if len(counters) == 0 {
+		return DAGSubscriberMetrics{}
+	}
+	return counters[0].Snapshot()
+}
 
 // IncCompleteDone 累加成功完成节点的事件数。
 func (c *dagSubscriberCounter) IncCompleteDone() {
@@ -286,7 +291,7 @@ func materializeArtifactAfterClaim(ctx context.Context, deps DAGSubscriberDeps, 
 		return nil, false, err
 	}
 	defer documentartifact.CleanupSource(materialized.Artifact.Params.SourcePath)
-	claimed, err := claimNodeOutputMaterialization(ctx, deps.FlowStore, deps.EventBus, logger, node, materialized.Result)
+	claimed, err := claimNodeOutputMaterialization(ctx, deps.FlowStore, deps.EventBus, deps.Metrics, logger, node, materialized.Result)
 	if err != nil || !claimed {
 		return nil, false, err
 	}
@@ -312,10 +317,10 @@ func handleMaterializationFailure(ctx context.Context, deps DAGSubscriberDeps, l
 		return nil
 	}
 	if failure.SizeCapExceeded {
-		dagSubscriberMetrics.IncCompleteSizeCapExceeded()
+		deps.Metrics.IncCompleteSizeCapExceeded()
 	}
 	logger.Warn("dag subscriber: materialize agent output failed", "dag_key", node.DagKey, "node_key", node.NodeKey, "reason", failure.Reason)
-	advanced, err := advanceNodeFailedWithReason(ctx, deps.FlowStore, deps.EventBus, logger, node, failure.Reason, true)
+	advanced, err := advanceNodeFailedWithReason(ctx, deps.FlowStore, deps.EventBus, deps.Metrics, logger, node, failure.Reason, true)
 	if err != nil {
 		return err
 	}
@@ -326,11 +331,11 @@ func handleMaterializationFailure(ctx context.Context, deps DAGSubscriberDeps, l
 }
 
 // recordLegacyResultCapMetric 为旧输出路径记录 4KB 上限超标指标。
-func recordLegacyResultCapMetric(logger *slog.Logger, node *taskdag.Node, result json.RawMessage) {
+func recordLegacyResultCapMetric(metrics *dagSubscriberCounter, logger *slog.Logger, node *taskdag.Node, result json.RawMessage) {
 	if len(result) <= completeNodeResultCap {
 		return
 	}
-	dagSubscriberMetrics.IncCompleteSizeCapExceeded()
+	metrics.IncCompleteSizeCapExceeded()
 	logger.Warn("dag subscriber: complete result exceeds ADR-006 4KB cap", "dag_key", node.DagKey, "node_key", node.NodeKey, "size", len(result))
 }
 

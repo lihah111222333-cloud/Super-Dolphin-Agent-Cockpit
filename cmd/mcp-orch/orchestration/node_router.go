@@ -717,7 +717,7 @@ func (a *serviceAgentLauncher) StopLaunchedThread(ctx context.Context, threadID 
 	if a == nil || a.lifecycle == nil || a.lifecycle.threads == nil || a.lifecycle.stopper == nil {
 		return errors.New("service agent launcher: nil receiver")
 	}
-	result, err := StopSpawnedAgent(ctx, a.lifecycle.threads, a.lifecycle.stopper, threadID)
+	result, err := StopSpawnedAgent(ctx, a.lifecycle.threads, a.lifecycle.stopper, threadID, a.lifecycle.stopMetrics)
 	if terminateStopResultError(result, err) {
 		if err == nil {
 			err = fmt.Errorf("spawned agent stop result %s", result)

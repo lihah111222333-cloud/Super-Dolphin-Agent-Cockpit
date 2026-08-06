@@ -129,7 +129,7 @@ func (c *dagController) terminableRun(ctx context.Context, req TerminateDAGReque
 func (c *dagController) stopSpawnedAgentThreads(ctx context.Context, dagKey string, runID int64, threadIDs []string) error {
 	var stopErrs []error
 	for _, threadID := range threadIDs {
-		result, err := StopSpawnedAgent(ctx, c.agentThreads, c.svcStopper, threadID)
+		result, err := StopSpawnedAgent(ctx, c.agentThreads, c.svcStopper, threadID, c.stopMetrics)
 		if terminateStopResultError(result, err) {
 			if err == nil {
 				err = fmt.Errorf("spawned agent stop result %s", result)

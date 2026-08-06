@@ -4,6 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +20,41 @@ import (
 func TestNewWakeupDispatcherRejectsNilStore(t *testing.T) {
 	if _, err := NewWakeupDispatcher(nil, nil, nil, WakeupDispatcherConfig{}); err == nil {
 		t.Fatalf("err = nil, want error for nil store")
+	}
+}
+
+func TestRuntimeStateHasNoPackageGlobalOwner(t *testing.T) {
+	_, testFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("locate test source")
+	}
+	for fileName, symbol := range map[string]string{
+		"dag_subscriber_module.go": "dagSubscriberMetrics",
+		"wakeup_dispatcher.go":     "dispatcherClaimedBySeq",
+		"factory_events.go":        "eventPublishers",
+		"stop_helper.go":           "defaultStopSpawnedAgentCounter",
+	} {
+		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(filepath.Dir(testFile), fileName), nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", fileName, err)
+		}
+		for _, declaration := range file.Decls {
+			general, ok := declaration.(*ast.GenDecl)
+			if !ok || general.Tok != token.VAR {
+				continue
+			}
+			for _, spec := range general.Specs {
+				value, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				for _, name := range value.Names {
+					if name.Name == symbol {
+						t.Fatalf("%s must not retain package-global runtime state", symbol)
+					}
+				}
+			}
+		}
 	}
 }
 

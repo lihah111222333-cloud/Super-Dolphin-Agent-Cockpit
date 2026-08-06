@@ -29,6 +29,7 @@ type agentLifecycleController struct {
 	launcher        AgentLauncher
 	threads         AgentThreadLookup
 	stopper         StopAgentService
+	stopMetrics     *stopSpawnedAgentCounter
 }
 
 // AgentLifecycleControllerParams 汇总 DAG agent lifecycle controller 的 fx 端口。
@@ -54,6 +55,7 @@ func ProvideAgentLifecycleController(p AgentLifecycleControllerParams) (*agentLi
 		launcher:        p.Launcher,
 		threads:         p.Threads,
 		stopper:         p.Stopper,
+		stopMetrics:     newStopSpawnedAgentCounter(),
 	}, nil
 }
 
