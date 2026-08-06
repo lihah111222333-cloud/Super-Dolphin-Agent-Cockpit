@@ -25,7 +25,7 @@ func TestRecordTraceAddsProviderCorrelationAndNoPayload(t *testing.T) {
 	}
 	svc := observability.NewService(cfg)
 	ctx := observability.ContextWithSpan(context.Background(), "trace-provider", "parent", "root")
-	RecordTrace(ctx, svc, observability.TraceEvent{Method: "provider.turn.run", Status: observability.StatusOK, Metadata: map[string]any{"input_count": int64(1)}}, "codex", observability.CodeAnchor{File: "internal/provider/codexapp/session.go", Function: "codexapp.(*session).StartTurn", Line: 321})
+	RecordTrace(ctx, &TraceSpanCounter{}, svc, observability.TraceEvent{Method: "provider.turn.run", Status: observability.StatusOK, Metadata: map[string]any{"input_count": int64(1)}}, "codex", observability.CodeAnchor{File: "internal/provider/codexapp/session.go", Function: "codexapp.(*session).StartTurn", Line: 321})
 	events := svc.Query(context.Background(), observability.Query{TraceID: "trace-provider"}).Events
 	if len(events) != 1 {
 		t.Fatalf("events = %#v, want one", events)
@@ -49,7 +49,7 @@ func TestRecordTraceLogsRecordErrors(t *testing.T) {
 	t.Cleanup(func() { pkglogger.SetForTest(previousLogger) })
 	svc := observability.NewService(cfg, observability.WithSink(failingTraceSink{}))
 
-	RecordTrace(context.Background(), svc, observability.TraceEvent{Method: "provider.turn.run", Status: observability.StatusOK}, "codex", observability.CodeAnchor{File: "test.go", Function: "test", Line: 1})
+	RecordTrace(context.Background(), &TraceSpanCounter{}, svc, observability.TraceEvent{Method: "provider.turn.run", Status: observability.StatusOK}, "codex", observability.CodeAnchor{File: "test.go", Function: "test", Line: 1})
 
 	got := logs.String()
 	if !strings.Contains(got, "observability: trace record failed") || !strings.Contains(got, "provider.shared") || !strings.Contains(got, "provider.turn.run") || !strings.Contains(got, "trace sink unavailable") {

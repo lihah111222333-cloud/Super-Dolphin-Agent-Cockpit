@@ -13,7 +13,7 @@ import (
 // recordProviderTrace 把 unified client 的关键 provider 操作写入观测链路。
 func (c *Client) recordProviderTrace(ctx context.Context, event observability.TraceEvent) {
 	if c != nil {
-		providershared.RecordTrace(ctx, c.tracer, event, "", observability.CodeAnchor{File: "internal/provider/unified/client.go", Function: "unified.(*Client).open", Line: 48})
+		providershared.RecordTrace(ctx, &c.traceSpanCounter, c.tracer, event, "", observability.CodeAnchor{File: "internal/provider/unified/client.go", Function: "unified.(*Client).open", Line: 48})
 	}
 }
 
@@ -22,7 +22,7 @@ func (c *Client) wrapSession(provider string, session contract.Session) contract
 	if c == nil || c.tracer == nil || session == nil {
 		return session
 	}
-	return &tracedSession{Session: session, provider: provider, tracer: c.tracer}
+	return &tracedSession{Session: session, provider: provider, tracer: c.tracer, traceSpanCounter: &c.traceSpanCounter}
 }
 
 // providerSessionEvent 组装 provider session 级别的 TraceEvent，错误状态由共享规则统一归类。
@@ -38,8 +38,9 @@ func providerSessionEvent(method, provider, agentID, threadID string, elapsed ti
 // tracedSession 装饰 contract.Session，只在 StartTurn 等边界补充观测信息。
 type tracedSession struct {
 	contract.Session
-	provider string
-	tracer   *observability.Service
+	provider         string
+	tracer           *observability.Service
+	traceSpanCounter *providershared.TraceSpanCounter
 }
 
 // RuntimeConfigSnapshot 透传底层 session 的运行时配置快照；底层不支持时返回 nil。
@@ -55,7 +56,7 @@ func (s *tracedSession) RuntimeConfigSnapshot() map[string]any {
 func (s *tracedSession) StartTurn(ctx context.Context, req dto.TurnRequest) (handle contract.TurnHandle, err error) {
 	started := time.Now()
 	defer func() {
-		providershared.RecordTrace(ctx, s.tracer, providerTurnEvent(s.provider, req, handle, time.Since(started), err), "", observability.CodeAnchor{File: "internal/provider/unified/observability_trace.go", Function: "unified.(*tracedSession).StartTurn", Line: 33})
+		providershared.RecordTrace(ctx, s.traceSpanCounter, s.tracer, providerTurnEvent(s.provider, req, handle, time.Since(started), err), "", observability.CodeAnchor{File: "internal/provider/unified/observability_trace.go", Function: "unified.(*tracedSession).StartTurn", Line: 33})
 	}()
 	return s.Session.StartTurn(ctx, req)
 }

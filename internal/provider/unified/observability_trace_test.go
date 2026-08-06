@@ -80,3 +80,34 @@ func TestTracedSessionErrorTraceUsesSafePreviewField(t *testing.T) {
 		t.Fatalf("error_code = %#v, want provider_error", events[0].Metadata[observability.ErrorCodeField])
 	}
 }
+
+func TestClientTraceCounterIsIsolatedAndSharedWithTracedSession(t *testing.T) {
+	cfg, err := observability.ParseConfig(observability.EnvMap{"OBS_TRACING_ENABLED": "1", "OBS_INDEX_MAX_EVENTS": "10", "OBS_INDEX_MAX_TRACE_EVENTS": "10", "OBS_INDEX_MAX_THREAD_EVENTS": "10"})
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	firstTracer := observability.NewService(cfg)
+	secondTracer := observability.NewService(cfg)
+	first := newClient(nil, nil, nil, firstTracer)
+	second := newClient(nil, nil, nil, secondTracer)
+	ctx := observability.ContextWithSpan(context.Background(), "trace-client-counter", "parent", "root")
+
+	first.recordProviderTrace(ctx, observability.TraceEvent{Method: "provider.session.acquire"})
+	second.recordProviderTrace(ctx, observability.TraceEvent{Method: "provider.session.acquire"})
+	wrapped := first.wrapSession("codex", &errorTraceSession{generationTestSession: &generationTestSession{threadID: "thread-counter"}, err: errors.New("provider failed")})
+	if _, err := wrapped.StartTurn(ctx, dto.TurnRequest{ThreadID: "thread-counter", LocalID: "turn-counter"}); err == nil {
+		t.Fatal("StartTurn() error = nil, want provider error")
+	}
+
+	firstEvents := firstTracer.Query(context.Background(), observability.Query{TraceID: "trace-client-counter"}).Events
+	secondEvents := secondTracer.Query(context.Background(), observability.Query{TraceID: "trace-client-counter"}).Events
+	if len(firstEvents) != 2 || len(secondEvents) != 1 {
+		t.Fatalf("first events = %#v, second events = %#v, want 2 and 1", firstEvents, secondEvents)
+	}
+	if firstEvents[0].SpanID != secondEvents[0].SpanID || !strings.HasSuffix(firstEvents[0].SpanID, ":1") {
+		t.Fatalf("first span = %q, second span = %q, want isolated counters starting at :1", firstEvents[0].SpanID, secondEvents[0].SpanID)
+	}
+	if !strings.HasSuffix(firstEvents[1].SpanID, ":2") {
+		t.Fatalf("wrapped span = %q, want same client counter incremented to :2", firstEvents[1].SpanID)
+	}
+}

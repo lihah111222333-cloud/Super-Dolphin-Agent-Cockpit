@@ -8,28 +8,36 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/observability"
 )
 
-var traceSpanSeq atomic.Uint64
+// TraceSpanCounter 为一个 provider runtime owner 生成单调递增的 trace span 序号。
+// 它必须由具体 runtime 持有，避免跨 Client 共享可变观测状态。
+type TraceSpanCounter struct {
+	sequence atomic.Uint64
+}
+
+func (c *TraceSpanCounter) next() uint64 {
+	return c.sequence.Add(1)
+}
 
 // RecordTrace 补齐 provider trace 默认字段并写入观测服务。
 // tracer 为空时直接返回；写入失败只告警，不能反向影响 provider 主流程。
-func RecordTrace(ctx context.Context, tracer *observability.Service, event observability.TraceEvent, provider string, code observability.CodeAnchor) {
+func RecordTrace(ctx context.Context, counter *TraceSpanCounter, tracer *observability.Service, event observability.TraceEvent, provider string, code observability.CodeAnchor) {
 	if tracer == nil {
 		return
 	}
-	fillTraceEvent(ctx, &event, provider, code)
+	fillTraceEvent(ctx, counter, &event, provider, code)
 	if err := tracer.Record(ctx, event); err != nil {
 		observability.WarnRecordError(nil, "provider.shared", event, err)
 	}
 }
 
-func fillTraceEvent(ctx context.Context, event *observability.TraceEvent, provider string, code observability.CodeAnchor) {
+func fillTraceEvent(ctx context.Context, counter *TraceSpanCounter, event *observability.TraceEvent, provider string, code observability.CodeAnchor) {
 	fillTraceDefaults(event, provider, code)
 	if trace, ok := observability.TraceFromContext(ctx); ok {
 		event.TraceID = trace.TraceID
 		event.ParentSpanID = trace.SpanID
 	}
 	if event.SpanID == "" {
-		event.SpanID = provider + ":" + event.Method + ":" + traceID(traceSpanSeq.Add(1))
+		event.SpanID = provider + ":" + event.Method + ":" + traceID(counter.next())
 	}
 	if captureTraceStack(event.Status) {
 		event.Stack = observability.CaptureStackForStatus(traceStackConfig(), event.Status)

@@ -9,16 +9,18 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/observability"
+	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // Client 是 provider 统一启动和恢复入口。
 // 它通过 Registry 解析具体 driver，并在成功后把 session 注册到 SessionManager。
 type Client struct {
-	registry *Registry
-	sessions *SessionManager
-	logger   *slog.Logger
-	tracer   *observability.Service
+	registry         *Registry
+	sessions         *SessionManager
+	logger           *slog.Logger
+	tracer           *observability.Service
+	traceSpanCounter providershared.TraceSpanCounter
 }
 
 // NewClient 创建统一 provider client。
