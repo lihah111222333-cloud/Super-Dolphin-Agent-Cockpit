@@ -90,63 +90,71 @@ const (
 	EvidenceRuntimeReportPayload EvidenceKey = "runtime_report.payload"
 )
 
-var requiredEvidenceByCase = map[CaseKey][]EvidenceKey{
-	CaseEventMatrix: {EvidenceEventMatrixManifest},
-	CasePromptParity: {
-		EvidencePromptBaseInstructions,
-		EvidencePromptDeveloperInstructions,
-		EvidencePromptPrefixHash,
-		EvidencePromptBoundary,
-		EvidencePromptSectionSnapshot,
-	},
-	CasePromptMaterializedCarrier: {
-		EvidencePromptBaseInstructions,
-		EvidencePromptDeveloperInstructions,
-		EvidencePromptMaterializedCarrier,
-	},
-	CaseApproval:      {EvidenceApprovalOutcome},
-	CaseInterrupt:     {EvidenceInterruptOutcome},
-	CaseForceComplete: {EvidenceForceCompleteOutcome},
-	CaseResume:        {EvidenceResumeIdentity},
-	CaseToolbridge:    {EvidenceToolbridgeDependency},
-	CaseDynamicToolResponder: {
-		EvidenceDynamicToolResponder,
-	},
-	CaseRuntimeReport: {EvidenceRuntimeReportPayload},
+func requiredEvidenceByCase() map[CaseKey][]EvidenceKey {
+	return map[CaseKey][]EvidenceKey{
+		CaseEventMatrix: {EvidenceEventMatrixManifest},
+		CasePromptParity: {
+			EvidencePromptBaseInstructions,
+			EvidencePromptDeveloperInstructions,
+			EvidencePromptPrefixHash,
+			EvidencePromptBoundary,
+			EvidencePromptSectionSnapshot,
+		},
+		CasePromptMaterializedCarrier: {
+			EvidencePromptBaseInstructions,
+			EvidencePromptDeveloperInstructions,
+			EvidencePromptMaterializedCarrier,
+		},
+		CaseApproval:      {EvidenceApprovalOutcome},
+		CaseInterrupt:     {EvidenceInterruptOutcome},
+		CaseForceComplete: {EvidenceForceCompleteOutcome},
+		CaseResume:        {EvidenceResumeIdentity},
+		CaseToolbridge:    {EvidenceToolbridgeDependency},
+		CaseDynamicToolResponder: {
+			EvidenceDynamicToolResponder,
+		},
+		CaseRuntimeReport: {EvidenceRuntimeReportPayload},
+	}
 }
 
-var requiredCaseOrder = []CaseKey{
-	CaseEventMatrix,
-	CaseApproval,
-	CaseInterrupt,
-	CaseForceComplete,
-	CaseResume,
-	CaseToolbridge,
-	CaseDynamicToolResponder,
-	CaseRuntimeReport,
+func requiredCaseOrder() []CaseKey {
+	return []CaseKey{
+		CaseEventMatrix,
+		CaseApproval,
+		CaseInterrupt,
+		CaseForceComplete,
+		CaseResume,
+		CaseToolbridge,
+		CaseDynamicToolResponder,
+		CaseRuntimeReport,
+	}
 }
 
-var promptCaseAlternatives = []CaseKey{
-	CasePromptParity,
-	CasePromptMaterializedCarrier,
+func promptCaseAlternatives() []CaseKey {
+	return []CaseKey{
+		CasePromptParity,
+		CasePromptMaterializedCarrier,
+	}
 }
 
-var reservedEvidenceKeys = map[EvidenceKey]bool{
-	EvidenceEventTranslated:             true,
-	EvidenceEventMatrixManifest:         true,
-	EvidencePromptBaseInstructions:      true,
-	EvidencePromptDeveloperInstructions: true,
-	EvidencePromptPrefixHash:            true,
-	EvidencePromptBoundary:              true,
-	EvidencePromptSectionSnapshot:       true,
-	EvidencePromptMaterializedCarrier:   true,
-	EvidenceApprovalOutcome:             true,
-	EvidenceInterruptOutcome:            true,
-	EvidenceForceCompleteOutcome:        true,
-	EvidenceResumeIdentity:              true,
-	EvidenceToolbridgeDependency:        true,
-	EvidenceDynamicToolResponder:        true,
-	EvidenceRuntimeReportPayload:        true,
+func reservedEvidenceKeys() map[EvidenceKey]bool {
+	return map[EvidenceKey]bool{
+		EvidenceEventTranslated:             true,
+		EvidenceEventMatrixManifest:         true,
+		EvidencePromptBaseInstructions:      true,
+		EvidencePromptDeveloperInstructions: true,
+		EvidencePromptPrefixHash:            true,
+		EvidencePromptBoundary:              true,
+		EvidencePromptSectionSnapshot:       true,
+		EvidencePromptMaterializedCarrier:   true,
+		EvidenceApprovalOutcome:             true,
+		EvidenceInterruptOutcome:            true,
+		EvidenceForceCompleteOutcome:        true,
+		EvidenceResumeIdentity:              true,
+		EvidenceToolbridgeDependency:        true,
+		EvidenceDynamicToolResponder:        true,
+		EvidenceRuntimeReportPayload:        true,
+	}
 }
 
 // ValidateSpec 校验 provider 契约规格是否完整。
@@ -179,7 +187,7 @@ func validateSpecEntrypoints(spec Spec) error {
 
 // validateRequiredCaseSet 校验除 prompt alternative 之外的必需契约用例。
 func validateRequiredCaseSet(cases map[CaseKey]Case) error {
-	for _, key := range requiredCaseOrder {
+	for _, key := range requiredCaseOrder() {
 		c, ok := cases[key]
 		if !ok || strings.TrimSpace(c.Name) == "" || c.Run == nil {
 			return fmt.Errorf("provider contract case %s is required", key)
@@ -191,7 +199,7 @@ func validateRequiredCaseSet(cases map[CaseKey]Case) error {
 // validatePromptCaseAlternative 校验 provider 至少声明一种 prompt carrier 证据。
 func validatePromptCaseAlternative(cases map[CaseKey]Case) error {
 	present := false
-	for _, key := range promptCaseAlternatives {
+	for _, key := range promptCaseAlternatives() {
 		c, ok := cases[key]
 		if !ok {
 			continue
@@ -322,18 +330,19 @@ func runEventCases(t *testing.T, cases []Case) error {
 // runRequiredCases 先运行 prompt alternative，再运行所有非 prompt 必需契约。
 func runRequiredCases(t *testing.T, cases map[CaseKey]Case) error {
 	t.Helper()
-	for _, key := range promptCaseAlternatives {
+	evidenceByCase := requiredEvidenceByCase()
+	for _, key := range promptCaseAlternatives() {
 		c, ok := cases[key]
 		if !ok {
 			continue
 		}
-		if err := runCase(t, string(key)+"/"+c.Name, c, requiredEvidenceByCase[key]); err != nil {
+		if err := runCase(t, string(key)+"/"+c.Name, c, evidenceByCase[key]); err != nil {
 			return err
 		}
 	}
-	for _, key := range requiredCaseOrder {
+	for _, key := range requiredCaseOrder() {
 		c := cases[key]
-		if err := runCase(t, string(key)+"/"+c.Name, c, requiredEvidenceByCase[key]); err != nil {
+		if err := runCase(t, string(key)+"/"+c.Name, c, evidenceByCase[key]); err != nil {
 			return err
 		}
 	}

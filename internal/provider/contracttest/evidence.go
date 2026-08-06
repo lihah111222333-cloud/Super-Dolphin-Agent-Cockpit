@@ -167,7 +167,7 @@ func (e *CaseEvidence) AssertEqual(t *testing.T, key EvidenceKey, got, want any)
 	if key == "" {
 		t.Fatal("provider contract evidence key is required")
 	}
-	if reservedEvidenceKeys[key] {
+	if reservedEvidenceKeys()[key] {
 		e.invalid = append(e.invalid, fmt.Sprintf("%s must be recorded through a typed evidence helper", key))
 		return
 	}
@@ -187,7 +187,7 @@ func (e *CaseEvidence) AssertNoError(t *testing.T, key EvidenceKey, err error) {
 	if key == "" {
 		t.Fatal("provider contract evidence key is required")
 	}
-	if reservedEvidenceKeys[key] {
+	if reservedEvidenceKeys()[key] {
 		e.invalid = append(e.invalid, fmt.Sprintf("%s must be recorded through a typed evidence helper", key))
 		return
 	}

@@ -29,11 +29,12 @@ const (
 // RequiredAcceptanceCriteria 从 provider 已声明的 RequiredCases 投影验收清单。
 // 新增 provider 只能通过现有 CaseKey 进入验收面，避免维护一份会漂移的平行注册表。
 func RequiredAcceptanceCriteria(spec Spec) []AcceptanceCriterion {
-	criteria := make([]AcceptanceCriterion, 0, len(requiredCaseOrder)+1)
-	for _, key := range requiredCaseOrder {
+	order := requiredCaseOrder()
+	criteria := make([]AcceptanceCriterion, 0, len(order)+1)
+	for _, key := range order {
 		criteria = append(criteria, AcceptanceCriterion(key))
 	}
-	for _, key := range promptCaseAlternatives {
+	for _, key := range promptCaseAlternatives() {
 		if c, ok := spec.RequiredCases[key]; ok && strings.TrimSpace(c.Name) != "" && c.Run != nil {
 			criteria = append(criteria, AcceptanceCriterion(key))
 			break

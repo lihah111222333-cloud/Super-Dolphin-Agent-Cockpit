@@ -20,6 +20,20 @@ func TestSuiteRejectsEmptyProviderName(t *testing.T) {
 	}
 }
 
+func TestSuiteConfigurationOwnersAreFresh(t *testing.T) {
+	evidenceFirst, evidenceSecond := requiredEvidenceByCase(), requiredEvidenceByCase()
+	orderFirst, orderSecond := requiredCaseOrder(), requiredCaseOrder()
+	promptFirst, promptSecond := promptCaseAlternatives(), promptCaseAlternatives()
+	reservedFirst, reservedSecond := reservedEvidenceKeys(), reservedEvidenceKeys()
+	evidenceFirst[CaseApproval][0] = EvidenceKey("changed")
+	orderFirst[0] = CaseKey("changed")
+	promptFirst[0] = CaseKey("changed")
+	reservedFirst[EvidenceApprovalOutcome] = false
+	if evidenceSecond[CaseApproval][0] != EvidenceApprovalOutcome || orderSecond[0] != CaseEventMatrix || promptSecond[0] != CasePromptParity || !reservedSecond[EvidenceApprovalOutcome] {
+		t.Fatal("suite configuration owners share mutable backing data")
+	}
+}
+
 func TestSuiteRejectsMissingRequiredCases(t *testing.T) {
 	spec := CompleteFixtureSpec("fixture")
 	delete(spec.RequiredCases, CaseRuntimeReport)
