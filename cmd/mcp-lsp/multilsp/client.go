@@ -307,7 +307,7 @@ func (c *client) Initialize(ctx context.Context, rootURI string) error {
 }
 
 // Shutdown 按 LSP 协议发送 shutdown 和 exit。
-// 进程树 preparation 失败时仍尝试非破坏性的协议 shutdown/exit；所有阶段错误最终合并返回。
+// 进程树 preparation 失败时只尝试非破坏性的 shutdown request，不发送 exit，保留 exact owner 供 Close 或重试收敛。
 func (c *client) Shutdown(ctx context.Context) error {
 	c.lifecycleMu.Lock()
 	defer c.lifecycleMu.Unlock()
@@ -315,9 +315,11 @@ func (c *client) Shutdown(ctx context.Context) error {
 		return nil
 	}
 	var shutdownErrors []error
+	var preparationErr error
 	if c.transport != nil {
 		if err := c.transport.prepareProcessTreeShutdown(); err != nil {
-			shutdownErrors = append(shutdownErrors, fmt.Errorf("prepare LSP process-tree shutdown: %w", err))
+			preparationErr = fmt.Errorf("prepare LSP process-tree shutdown: %w", err)
+			shutdownErrors = append(shutdownErrors, preparationErr)
 		}
 	}
 	if !c.isInitialized() {
@@ -338,6 +340,10 @@ func (c *client) Shutdown(ctx context.Context) error {
 		}
 	} else {
 		c.transport.logShutdownStage("protocol_shutdown", "completed", nil)
+	}
+	if preparationErr != nil {
+		c.transport.logShutdownStage("protocol_exit", "skipped", preparationErr)
+		return errors.Join(shutdownErrors...)
 	}
 	if err := c.transport.notify(ctx, methodExit, nil); err != nil {
 		if errors.Is(err, ErrTransportClosed) {

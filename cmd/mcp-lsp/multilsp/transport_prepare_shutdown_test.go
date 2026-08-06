@@ -57,14 +57,16 @@ func TestClientShutdownUninitializedPreparesExactOwner(t *testing.T) {
 	}
 }
 
-// TestClientShutdownPreparationFailureStillRunsProtocol 验证准备失败时仍发送协议并保留安全错误。
-func TestClientShutdownPreparationFailureStillRunsProtocol(t *testing.T) {
+// TestClientShutdownPreparationFailureSkipsExitAndPreservesOwner 验证准备失败时不发送 exit，Close 仍通过 exact owner 收敛。
+func TestClientShutdownPreparationFailureSkipsExitAndPreservesOwner(t *testing.T) {
 	want := errors.New("owner preparation failed")
 	owner := &countingProcessTreeOwner{prepareErr: want}
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	done := make(chan struct{})
+	close(done)
 	var tr *transport
 	writer := &shutdownRecordingWriter{cancel: cancel}
 	tr = &transport{
@@ -72,6 +74,7 @@ func TestClientShutdownPreparationFailureStillRunsProtocol(t *testing.T) {
 		stdin:       writer,
 		pending:     map[string]chan pendingResult{},
 		logger:      logger,
+		done:        done,
 	}
 	writer.transport = tr
 	c := &client{
@@ -86,19 +89,34 @@ func TestClientShutdownPreparationFailureStillRunsProtocol(t *testing.T) {
 	if got := owner.prepareCalls.Load(); got != 1 {
 		t.Fatalf("PrepareShutdown() calls = %d, want 1", got)
 	}
-	if got := writer.methodsSnapshot(); len(got) != 2 || got[0] != "shutdown" || got[1] != methodExit {
-		t.Fatalf("protocol methods after preparation failure = %v, want [shutdown exit]", got)
+	if got := writer.methodsSnapshot(); len(got) != 1 || got[0] != "shutdown" {
+		t.Fatalf("protocol methods after preparation failure = %v, want [shutdown]", got)
 	}
-	if !c.isShutdown() {
-		t.Fatal("Shutdown() did not mark client shutdown after protocol attempts")
+	if c.isShutdown() {
+		t.Fatal("Shutdown() marked client shutdown before exact-owner cleanup")
+	}
+	if ctx.Err() != nil {
+		t.Fatalf("Shutdown() sent exit and canceled test context: %v", ctx.Err())
 	}
 	for _, stage := range []string{"prepare", "protocol_shutdown", "protocol_exit"} {
 		if !bytes.Contains(logs.Bytes(), []byte("\"stage\":\""+stage+"\"")) {
 			t.Fatalf("shutdown logs missing stage %q: %s", stage, logs.String())
 		}
 	}
+	if !bytes.Contains(logs.Bytes(), []byte("\"stage\":\"protocol_exit\",\"action_result\":\"skipped\"")) {
+		t.Fatalf("shutdown logs did not mark protocol exit skipped: %s", logs.String())
+	}
 	if bytes.Contains(logs.Bytes(), []byte(want.Error())) {
 		t.Fatalf("shutdown logs leaked preparation error: %s", logs.String())
+	}
+	if err := c.Close(); err != nil {
+		t.Fatalf("Close() after preparation failure error = %v", err)
+	}
+	if got := owner.terminateCalls.Load(); got != 1 {
+		t.Fatalf("Terminate() calls = %d, want 1", got)
+	}
+	if got := owner.releaseCalls.Load(); got != 1 {
+		t.Fatalf("Release() calls = %d, want 1", got)
 	}
 }
 
