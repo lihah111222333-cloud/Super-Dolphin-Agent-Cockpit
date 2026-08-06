@@ -1615,7 +1615,7 @@ describe('frozen scorer target binding', () => {
     expect(result.displayScore).toBe(0);
   });
 
-  it('rejects a mismatched subject and a dirty or untracked target', () => {
+  it('rejects a mismatched subject plus tracked and untracked dirty targets', () => {
     const target = createTargetRepository();
     expect(() => inspectTargetRepository({
       repoRoot: target.repoRoot,
@@ -1624,13 +1624,45 @@ describe('frozen scorer target binding', () => {
     })).toThrow('subject must equal target HEAD');
     expect(cli(['--score', '--repo', target.repoRoot, '--subject', 'f'.repeat(40)]).status).not.toBe(0);
 
-    write('untracked.txt', 'dirty\n', target.repoRoot);
+    for (const { path, content } of [
+      { path: 'README.md', content: 'tracked dirty\n' },
+      { path: 'untracked.txt', content: 'untracked dirty\n' },
+    ]) {
+      write(path, content, target.repoRoot);
+      expect(() => inspectTargetRepository({
+        repoRoot: target.repoRoot,
+        subjectSha: target.subjectSha,
+        requireClean: true,
+      })).toThrow('dirty or untracked target worktrees');
+      expect(cli(['--score', '--repo', target.repoRoot, '--subject', target.subjectSha]).status).not.toBe(0);
+      if (path === 'README.md') write(path, 'target repository\n', target.repoRoot);
+    }
+  });
+
+  it('rejects a nested --repo path instead of treating it as a target root', () => {
+    const target = createTargetRepository();
+    const nestedRepoPath = join(target.repoRoot, 'frontend-app');
+
     expect(() => inspectTargetRepository({
-      repoRoot: target.repoRoot,
+      repoRoot: nestedRepoPath,
       subjectSha: target.subjectSha,
       requireClean: true,
-    })).toThrow('dirty or untracked target worktrees');
-    expect(cli(['--score', '--repo', target.repoRoot, '--subject', target.subjectSha]).status).not.toBe(0);
+    })).toThrow('--repo must be the target repository root');
+    expect(cli(['--score', '--repo', nestedRepoPath, '--subject', target.subjectSha]).status).not.toBe(0);
+  });
+
+  it('keeps final target preflight before detached subject execution', () => {
+    const source = readFileSync(scorerPath, 'utf8');
+    const preflightIndex = source.indexOf('const targetContext = inspectTargetRepository({');
+    const detachedExecutionIndex = source.indexOf('const scored = await withDetachedSubject(targetContext');
+    const detachedFunctionIndex = source.indexOf('async function withDetachedSubject');
+    const watchdogSpawnIndex = source.indexOf('startDetachedSubjectWatchdog', detachedFunctionIndex);
+
+    expect(preflightIndex).toBeGreaterThanOrEqual(0);
+    expect(detachedExecutionIndex).toBeGreaterThan(preflightIndex);
+    expect(source.slice(preflightIndex, detachedExecutionIndex)).toContain('requireClean: true');
+    expect(detachedFunctionIndex).toBeGreaterThanOrEqual(0);
+    expect(watchdogSpawnIndex).toBeGreaterThan(detachedFunctionIndex);
   });
 
   it('accepts only a clean strict descendant with byte-identical frozen governance', () => {
