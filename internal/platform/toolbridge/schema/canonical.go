@@ -32,12 +32,18 @@ const (
 
 const defaultDraftURI = "https://json-schema.org/draft/2020-12/schema"
 
-var supportedDraftURIs = map[string]struct{}{
-	"http://json-schema.org/draft-04/schema":       {},
-	"http://json-schema.org/draft-06/schema":       {},
-	"http://json-schema.org/draft-07/schema":       {},
-	"https://json-schema.org/draft/2019-09/schema": {},
-	defaultDraftURI: {},
+// isSupportedDraftURI 判断 schema 草案 URI 是否属于受支持的固定集合。
+func isSupportedDraftURI(uri string) bool {
+	switch uri {
+	case "http://json-schema.org/draft-04/schema",
+		"http://json-schema.org/draft-06/schema",
+		"http://json-schema.org/draft-07/schema",
+		"https://json-schema.org/draft/2019-09/schema",
+		defaultDraftURI:
+		return true
+	default:
+		return false
+	}
 }
 
 type valueKind uint8
@@ -317,13 +323,13 @@ func (s *scanner) scanSchema(value *jsonValue) error {
 
 // scanNestedSchemaMember 按关键字语义定位嵌套 schema，避免误判普通属性名。
 func (s *scanner) scanNestedSchemaMember(key string, value *jsonValue) error {
-	if _, ok := objectSchemaKeywords[key]; ok || key == "patternProperties" {
+	if isObjectSchemaKeyword(key) || key == "patternProperties" {
 		return s.scanSchemaMap(value)
 	}
-	if _, ok := arraySchemaKeywords[key]; ok {
+	if isArraySchemaKeyword(key) {
 		return s.scanSchemaArray(value)
 	}
-	if _, ok := schemaOrBoolKeywords[key]; ok {
+	if isSchemaOrBoolKeyword(key) {
 		return s.scanSchema(value)
 	}
 	switch key {
@@ -386,33 +392,63 @@ func (s *scanner) validateSchemaMember(key string, value *jsonValue) error {
 	return validateSchemaShapeMember(key, value)
 }
 
-var referenceKeywords = map[string]struct{}{
-	"$ref": {}, "$dynamicRef": {}, "$recursiveRef": {},
+// isReferenceKeyword 判断关键字是否声明本地引用。
+func isReferenceKeyword(key string) bool {
+	switch key {
+	case "$ref", "$dynamicRef", "$recursiveRef":
+		return true
+	default:
+		return false
+	}
 }
 
-var forbiddenSchemaKeywords = map[string]struct{}{
-	"$id": {}, "id": {}, "$vocabulary": {},
+// isForbiddenSchemaKeyword 判断关键字是否违反内联 schema 边界。
+func isForbiddenSchemaKeyword(key string) bool {
+	switch key {
+	case "$id", "id", "$vocabulary":
+		return true
+	default:
+		return false
+	}
 }
 
-var objectSchemaKeywords = map[string]struct{}{
-	"properties": {}, "$defs": {}, "definitions": {}, "dependentSchemas": {},
+// isObjectSchemaKeyword 判断关键字是否要求对象形态。
+func isObjectSchemaKeyword(key string) bool {
+	switch key {
+	case "properties", "$defs", "definitions", "dependentSchemas":
+		return true
+	default:
+		return false
+	}
 }
 
-var arraySchemaKeywords = map[string]struct{}{
-	"allOf": {}, "anyOf": {}, "oneOf": {}, "prefixItems": {},
+// isArraySchemaKeyword 判断关键字是否要求数组形态。
+func isArraySchemaKeyword(key string) bool {
+	switch key {
+	case "allOf", "anyOf", "oneOf", "prefixItems":
+		return true
+	default:
+		return false
+	}
 }
 
-var schemaOrBoolKeywords = map[string]struct{}{
-	"not": {}, "if": {}, "then": {}, "else": {}, "contains": {}, "propertyNames": {},
-	"contentSchema": {}, "additionalProperties": {}, "additionalItems": {},
-	"unevaluatedProperties": {}, "unevaluatedItems": {},
+// isSchemaOrBoolKeyword 判断关键字是否要求 schema 或布尔值形态。
+func isSchemaOrBoolKeyword(key string) bool {
+	switch key {
+	case "not", "if", "then", "else", "contains", "propertyNames",
+		"contentSchema", "additionalProperties", "additionalItems",
+		"unevaluatedProperties", "unevaluatedItems":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *scanner) validateSchemaIdentityMember(key string, value *jsonValue) (bool, error) {
-	if _, ok := referenceKeywords[key]; ok {
+	if isReferenceKeyword(key) {
 		return true, s.validateReference(key, value)
 	}
-	if _, ok := forbiddenSchemaKeywords[key]; ok {
+	if isForbiddenSchemaKeyword(key) {
 		return true, newDiagnostic(CodeExternalRefForbidden, key+" is forbidden", nil)
 	}
 	switch key {
@@ -443,7 +479,7 @@ func validateDraftKeyword(value *jsonValue) error {
 	if value.kind != kindString {
 		return newDiagnostic(CodeDraftUnsupported, "$schema must be a string", nil)
 	}
-	if _, ok := supportedDraftURIs[value.text]; !ok {
+	if !isSupportedDraftURI(value.text) {
 		return newDiagnostic(CodeDraftUnsupported, "unsupported $schema URI", nil)
 	}
 	return nil
@@ -488,16 +524,16 @@ func (s *scanner) validatePattern(value *jsonValue) error {
 
 // validateSchemaShapeMember 校验已识别结构关键字的冻结值形态。
 func validateSchemaShapeMember(key string, value *jsonValue) error {
-	if _, ok := objectSchemaKeywords[key]; ok {
+	if isObjectSchemaKeyword(key) {
 		return requireSchemaKind(key, value, kindObject, " must be an object")
 	}
 	if key == "required" {
 		return validateRequiredKeyword(value)
 	}
-	if _, ok := arraySchemaKeywords[key]; ok {
+	if isArraySchemaKeyword(key) {
 		return requireSchemaKind(key, value, kindArray, " must be an array")
 	}
-	if _, ok := schemaOrBoolKeywords[key]; ok {
+	if isSchemaOrBoolKeyword(key) {
 		return validateSchemaOrBoolKeyword(key, value)
 	}
 	if key == "items" {

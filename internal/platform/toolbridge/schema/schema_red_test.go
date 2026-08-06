@@ -82,6 +82,52 @@ func newSchemaTestClient(t *testing.T, source string) *Client {
 	return client
 }
 
+func TestCanonicalKeywordPredicatesKeepExactMembership(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		contains func(string) bool
+		members  []string
+	}{
+		{
+			name:     "supported drafts",
+			contains: isSupportedDraftURI,
+			members: []string{
+				"http://json-schema.org/draft-04/schema",
+				"http://json-schema.org/draft-06/schema",
+				"http://json-schema.org/draft-07/schema",
+				"https://json-schema.org/draft/2019-09/schema",
+				defaultDraftURI,
+			},
+		},
+		{name: "references", contains: isReferenceKeyword, members: []string{"$ref", "$dynamicRef", "$recursiveRef"}},
+		{name: "forbidden", contains: isForbiddenSchemaKeyword, members: []string{"$id", "id", "$vocabulary"}},
+		{name: "object shape", contains: isObjectSchemaKeyword, members: []string{"properties", "$defs", "definitions", "dependentSchemas"}},
+		{name: "array shape", contains: isArraySchemaKeyword, members: []string{"allOf", "anyOf", "oneOf", "prefixItems"}},
+		{
+			name:     "schema or bool",
+			contains: isSchemaOrBoolKeyword,
+			members: []string{
+				"not", "if", "then", "else", "contains", "propertyNames", "contentSchema",
+				"additionalProperties", "additionalItems", "unevaluatedProperties", "unevaluatedItems",
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, member := range tc.members {
+				if !tc.contains(member) {
+					t.Fatalf("%s does not accept %q", tc.name, member)
+				}
+			}
+			if tc.contains("__unknown__") {
+				t.Fatalf("%s accepts an unknown member", tc.name)
+			}
+		})
+	}
+}
+
 func TestSchemaCompilerRejectsReferencesAndBudgets(t *testing.T) {
 	t.Parallel()
 
