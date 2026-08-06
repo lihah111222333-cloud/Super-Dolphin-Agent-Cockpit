@@ -486,7 +486,7 @@ func TestTargetCompileKeySeparatesBuildTagsAndRegistryVersion(t *testing.T) {
 		t.Fatal("tagged and untagged target compile keys were deduplicated")
 	}
 	otherVersion := tagged
-	otherVersion.BuildTagRegistryVersion = "lsp-build-tags/v1"
+	otherVersion.BuildTagRegistryVersion = buildTagTargetRegistryVersion + "-other"
 	if targetCompileKey("pkg", tagged) == targetCompileKey("pkg", otherVersion) {
 		t.Fatal("different build-tag registry versions were deduplicated")
 	}
