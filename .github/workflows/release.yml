@@ -105,7 +105,9 @@ jobs:
             echo "previous_version must be SemVer with an optional v prefix" >&2
             exit 1
           fi
-          if [[ "$VERSION" == "$PREVIOUS_VERSION" ]]; then
+          canonical_version="${VERSION#v}"
+          canonical_previous_version="${PREVIOUS_VERSION#v}"
+          if [[ "$canonical_version" == "$canonical_previous_version" ]]; then
             echo "version and previous_version must differ" >&2
             exit 1
           fi

@@ -128,6 +128,38 @@ func TestReleaseRolloutWorkflowRequiresOneApprovedStageAndNativeARM64Evidence(t 
 	assertReleaseRolloutCheckout(t, parsed.Jobs["validate-inputs"])
 }
 
+func TestReleaseRolloutInputValidationRejectsVersionPrefixAlias(t *testing.T) {
+	t.Parallel()
+
+	if err := releaseRolloutValidateInputVersions(t, "v1.2.3", "1.2.3"); err == nil {
+		t.Fatal("validation accepted a previous_version alias for the candidate version")
+	}
+	if err := releaseRolloutValidateInputVersions(t, "v1.2.4", "1.2.3"); err != nil {
+		t.Fatalf("validation rejected different versions: %v", err)
+	}
+}
+
+func releaseRolloutValidateInputVersions(t *testing.T, version, previousVersion string) error {
+	t.Helper()
+	workflow := releaseRolloutParseWorkflow(t, readRepoFile(t, "../.github/workflows/release.yml"))
+	validation := workflow.Jobs["validate-inputs"].Steps[0].Run
+	command := exec.Command("bash", "-c", validation)
+	command.Env = append(os.Environ(),
+		"STAGE=internal-20",
+		"VERSION="+version,
+		"BUILD_COMMIT="+strings.Repeat("a", 40),
+		"SIGNING_PUBLIC_KEY_FINGERPRINT=fingerprint",
+		"PREVIOUS_VERSION="+previousVersion,
+		"MONITORING_WINDOW_HOURS=8",
+		"PREDECESSOR_EVIDENCE=native-arm64-current-run",
+		"MACOS_UPGRADE_MATRIX_EVIDENCE=macos-run",
+		"WINDOWS_UPGRADE_MATRIX_EVIDENCE=windows-run",
+		"GITHUB_REF=refs/heads/main",
+		"DEFAULT_BRANCH=main",
+	)
+	return command.Run()
+}
+
 func assertReleaseRolloutValidatorContract(t *testing.T, validator string) {
 	t.Helper()
 	for _, contract := range []string{
