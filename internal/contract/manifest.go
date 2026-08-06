@@ -253,37 +253,34 @@ func cloneManifestEnv(in map[string]string) map[string]string {
 	return out
 }
 
-// MCP 必要环境变量键名列表，不含这些键时 provider 进程无法正常注册。
-var mcpRequiredEnvKeys = []string{
-	"GO_AGENT_CTL_RPC_ADDR",
-	"GO_AGENT_CTL_INSTANCE_ID",
-	"GO_AGENT_CTL_BOOT_ID",
-	"GO_AGENT_CTL_BINARY_NAME",
-	"GO_AGENT_CTL_CLIENT_KIND",
-	"GO_AGENT_CTL_AGENT_ID",
-	"GO_AGENT_CTL_THREAD_ID",
-	"GO_AGENT_CTL_SESSION_TOKEN",
-	"GO_AGENT_CTL_BOOTSTRAP_JSON",
-	"SUPER_DOLPHIN_RUNTIME_MODE",
-	"SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR",
+// mcpRequiredEnvKeys 返回 MCP 必要环境变量键名的独立快照。
+// 不含这些键时 provider 进程无法正常注册。
+func mcpRequiredEnvKeys() []string {
+	return []string{
+		"GO_AGENT_CTL_RPC_ADDR",
+		"GO_AGENT_CTL_INSTANCE_ID",
+		"GO_AGENT_CTL_BOOT_ID",
+		"GO_AGENT_CTL_BINARY_NAME",
+		"GO_AGENT_CTL_CLIENT_KIND",
+		"GO_AGENT_CTL_AGENT_ID",
+		"GO_AGENT_CTL_THREAD_ID",
+		"GO_AGENT_CTL_SESSION_TOKEN",
+		"GO_AGENT_CTL_BOOTSTRAP_JSON",
+		"SUPER_DOLPHIN_RUNTIME_MODE",
+		"SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR",
+	}
 }
 
-// MCP 透传环境变量键名列表：这些键允许透传到 provider 进程。
-var mcpPassthroughEnvKeys = []string{"SUPER_DOLPHIN_MODEL_REGISTRY"}
+// mcpPassthroughEnvKeys 返回允许透传到 provider 进程的环境变量键独立快照。
+func mcpPassthroughEnvKeys() []string {
+	return []string{"SUPER_DOLPHIN_MODEL_REGISTRY"}
+}
 
 // SQLite / 数据库路径环境变量键名常量，禁止透传给 provider 进程。
 const (
 	SQLitePathEnvKey         = "SUPER_DOLPHIN_SQLITE_PATH"
 	InternalSQLitePathEnvKey = "SUPER_DOLPHIN_INTERNAL_SQLITE_PATH"
 )
-
-// mcpForbiddenDatabaseEnvKeys 是禁止透传的数据库环境变量键集合，方便 O(1) 查找。
-var mcpForbiddenDatabaseEnvKeys = map[string]struct{}{
-	"DATABASE_URL":               {},
-	"POSTGRES_CONNECTION_STRING": {},
-	SQLitePathEnvKey:             {},
-	InternalSQLitePathEnvKey:     {},
-}
 
 // ForbiddenDatabaseEnvKeyNames 返回禁止透传到 provider manifest 的数据库环境变量键名列表。
 func ForbiddenDatabaseEnvKeyNames() []string {
@@ -292,8 +289,12 @@ func ForbiddenDatabaseEnvKeyNames() []string {
 
 // IsForbiddenDatabaseEnvKey 判断给定键名是否属于禁止透传的数据库环境变量。
 func IsForbiddenDatabaseEnvKey(key string) bool {
-	_, ok := mcpForbiddenDatabaseEnvKeys[strings.ToUpper(strings.TrimSpace(key))]
-	return ok
+	switch strings.ToUpper(strings.TrimSpace(key)) {
+	case "DATABASE_URL", "POSTGRES_CONNECTION_STRING", SQLitePathEnvKey, InternalSQLitePathEnvKey:
+		return true
+	default:
+		return false
+	}
 }
 
 // ScrubDatabaseEnv 从 key=value 格式的环境变量切片中移除数据库相关键。
@@ -318,27 +319,30 @@ func ScrubDatabaseEnvMap(env map[string]string) {
 	}
 }
 
-// 兼容输入键映射表，将旧控制面键收敛到规范环境变量。
-var mcpLegacyEnvAliases = map[string][]string{
-	"GO_AGENT_CTL_RPC_ADDR":       {"RPC_ADDR"},
-	"GO_AGENT_CTL_INSTANCE_ID":    {"GO_AGENT_MCP_INSTANCE_ID"},
-	"GO_AGENT_CTL_BOOT_ID":        {"GO_AGENT_MCP_BOOT_ID"},
-	"GO_AGENT_CTL_BINARY_NAME":    {"GO_AGENT_MCP_BINARY_NAME"},
-	"GO_AGENT_CTL_CLIENT_KIND":    {"GO_AGENT_MCP_CLIENT_KIND"},
-	"GO_AGENT_CTL_AGENT_ID":       {"GO_AGENT_MCP_AGENT_ID"},
-	"GO_AGENT_CTL_THREAD_ID":      {"GO_AGENT_MCP_THREAD_ID"},
-	"GO_AGENT_CTL_SESSION_TOKEN":  {"GO_AGENT_MCP_SESSION_TOKEN"},
-	"GO_AGENT_CTL_BOOTSTRAP_JSON": {"GO_AGENT_MCP_BOOT_CONTEXT"},
+// mcpLegacyEnvAliases 返回兼容输入键到规范环境变量的独立快照。
+func mcpLegacyEnvAliases() map[string][]string {
+	return map[string][]string{
+		"GO_AGENT_CTL_RPC_ADDR":       {"RPC_ADDR"},
+		"GO_AGENT_CTL_INSTANCE_ID":    {"GO_AGENT_MCP_INSTANCE_ID"},
+		"GO_AGENT_CTL_BOOT_ID":        {"GO_AGENT_MCP_BOOT_ID"},
+		"GO_AGENT_CTL_BINARY_NAME":    {"GO_AGENT_MCP_BINARY_NAME"},
+		"GO_AGENT_CTL_CLIENT_KIND":    {"GO_AGENT_MCP_CLIENT_KIND"},
+		"GO_AGENT_CTL_AGENT_ID":       {"GO_AGENT_MCP_AGENT_ID"},
+		"GO_AGENT_CTL_THREAD_ID":      {"GO_AGENT_MCP_THREAD_ID"},
+		"GO_AGENT_CTL_SESSION_TOKEN":  {"GO_AGENT_MCP_SESSION_TOKEN"},
+		"GO_AGENT_CTL_BOOTSTRAP_JSON": {"GO_AGENT_MCP_BOOT_CONTEXT"},
+	}
 }
 
 // normalizeManifestEnv 规范化 MCP manifest 环境变量。
 // 它会提升兼容别名、补齐必需控制面变量，并在返回前再次清理数据库连接信息。
 func normalizeManifestEnv(in map[string]string) map[string]string {
 	out := cloneManifestEnv(in)
-	for key, aliases := range mcpLegacyEnvAliases {
+	aliasesByKey := mcpLegacyEnvAliases()
+	for key, aliases := range aliasesByKey {
 		promoteManifestEnv(out, key, aliases...)
 	}
-	for _, key := range mcpRequiredEnvKeys {
+	for _, key := range mcpRequiredEnvKeys() {
 		if value := strings.TrimSpace(out[key]); value != "" {
 			continue
 		}
@@ -346,14 +350,14 @@ func normalizeManifestEnv(in map[string]string) map[string]string {
 			out[key] = val
 			continue
 		}
-		for _, alias := range mcpLegacyEnvAliases[key] {
+		for _, alias := range aliasesByKey[key] {
 			if val := strings.TrimSpace(os.Getenv(alias)); val != "" {
 				out[key] = val
 				break
 			}
 		}
 	}
-	for _, key := range mcpPassthroughEnvKeys {
+	for _, key := range mcpPassthroughEnvKeys() {
 		if value := strings.TrimSpace(out[key]); value != "" {
 			continue
 		}

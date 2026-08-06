@@ -36,14 +36,16 @@ const (
 	orchestrationLaunchCanonical = "launch_agent"
 )
 
-var orchestrationToolCanonicalNames = []string{
-	"launch_agent", "send_message", "stop_agent", "recover_agent", "interrupt_agent",
-	"list_agents", "get_agent_report", "get_agent_reports",
+func orchestrationToolCanonicalNames() []string {
+	return []string{
+		"launch_agent", "send_message", "stop_agent", "recover_agent", "interrupt_agent",
+		"list_agents", "get_agent_report", "get_agent_reports",
+	}
 }
 
 // OrchestrationToolCanonicalNames 返回 orchestration 控制面的 canonical 短工具名副本。
 func OrchestrationToolCanonicalNames() []string {
-	return append([]string(nil), orchestrationToolCanonicalNames...)
+	return orchestrationToolCanonicalNames()
 }
 
 // OrchestrationToolDenylist 返回 orchestration 控制面的 canonical 工具名。
@@ -59,7 +61,11 @@ func IsOrchestrationLaunchTool(toolName string) bool {
 
 // OrchestrationLaunchDefaultDisabledTools 返回默认禁用 launch_agent 时必须一起阻断的所有 orchestration 名称。
 func OrchestrationLaunchDefaultDisabledTools() ([]string, error) {
-	if !orchestrationToolCanonicalExists(orchestrationLaunchCanonical) {
+	return orchestrationLaunchDefaultDisabledTools(orchestrationToolCanonicalNames())
+}
+
+func orchestrationLaunchDefaultDisabledTools(canonicalNames []string) ([]string, error) {
+	if !orchestrationToolCanonicalExists(canonicalNames, orchestrationLaunchCanonical) {
 		return nil, fmt.Errorf("%w: %s", ErrOrchestrationToolMissing, orchestrationLaunchCanonical)
 	}
 	return []string{
@@ -68,12 +74,12 @@ func OrchestrationLaunchDefaultDisabledTools() ([]string, error) {
 	}, nil
 }
 
-func orchestrationToolCanonicalExists(canonical string) bool {
+func orchestrationToolCanonicalExists(canonicalNames []string, canonical string) bool {
 	canonical = strings.TrimSpace(canonical)
 	if canonical == "" {
 		return false
 	}
-	return slices.Contains(orchestrationToolCanonicalNames, canonical)
+	return slices.Contains(canonicalNames, canonical)
 }
 
 // ValidateLaunchCWD 校验启动工作目录。

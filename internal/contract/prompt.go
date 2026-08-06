@@ -480,13 +480,15 @@ type TurnContextProvider interface {
 	PrepareTurnContext(ctx context.Context, session Session, buildCtx BuildCtx, threadID, query string) TurnContextPayload
 }
 
-// preferredUserContextKeys 控制用户上下文块的稳定渲染顺序。
-var preferredUserContextKeys = []string{
-	"claudeMd",
-	"currentDate",
-	"workerToolsContext",
-	"terminalFocus",
-	"runtimeExtras",
+// preferredUserContextKeys 返回用户上下文块稳定渲染顺序的独立快照。
+func preferredUserContextKeys() []string {
+	return []string{
+		"claudeMd",
+		"currentDate",
+		"workerToolsContext",
+		"terminalFocus",
+		"runtimeExtras",
+	}
 }
 
 // FormatUserContextText 将 runtime user context 渲染为稳定顺序的文本块。
@@ -589,7 +591,7 @@ func appendPromptBlock(base, block string) string {
 func orderedUserContextKeys(payload map[string]string) []string {
 	seen := make(map[string]struct{}, len(payload))
 	ordered := make([]string, 0, len(payload))
-	for _, key := range preferredUserContextKeys {
+	for _, key := range preferredUserContextKeys() {
 		if _, ok := payload[key]; ok {
 			ordered = append(ordered, key)
 			seen[key] = struct{}{}
@@ -722,22 +724,24 @@ const (
 	AgentTypePlan    AgentType = "Plan"
 )
 
-var readOnlyNonOrchestrationDeniedTools = []string{
-	"patch_edit", "shared_file_write", "memory_write",
-	"tts_generate", "av_merge", "video_with_audio",
-	"task_create_dag", "task_dag_apply_ops", "task_update_node", "task_dispatch_node",
-	"task_start_dag", "task_terminate_dag", "task_delete_dag", "task_workflow_recovery_action",
-	"workspace_create_run", "workspace_merge_run", "workspace_abort_run",
-	"workflow_template_save", "workflow_template_rollback",
-	"wait", "bash_output", "BashOutput", "update_plan", "todo_write", "TodoWrite", "complete_step",
-	"multi_agent", "multi_tool_use.parallel", "spawn_agent", "send_input",
-	"resume_agent", "wait_agent", "close_agent",
-	"connect_tool_source",
+func readOnlyNonOrchestrationDeniedTools() []string {
+	return []string{
+		"patch_edit", "shared_file_write", "memory_write",
+		"tts_generate", "av_merge", "video_with_audio",
+		"task_create_dag", "task_dag_apply_ops", "task_update_node", "task_dispatch_node",
+		"task_start_dag", "task_terminate_dag", "task_delete_dag", "task_workflow_recovery_action",
+		"workspace_create_run", "workspace_merge_run", "workspace_abort_run",
+		"workflow_template_save", "workflow_template_rollback",
+		"wait", "bash_output", "BashOutput", "update_plan", "todo_write", "TodoWrite", "complete_step",
+		"multi_agent", "multi_tool_use.parallel", "spawn_agent", "send_input",
+		"resume_agent", "wait_agent", "close_agent",
+		"connect_tool_source",
+	}
 }
 
 // ReadOnlyNonOrchestrationDeniedTools 返回不来自 mcp-orch orchestration registry 的只读禁用工具名。
 func ReadOnlyNonOrchestrationDeniedTools() []string {
-	return append([]string(nil), readOnlyNonOrchestrationDeniedTools...)
+	return readOnlyNonOrchestrationDeniedTools()
 }
 
 // ReadOnlyAgentDeniedTools 返回只读/规划子 agent 必须禁用的精确工具名。

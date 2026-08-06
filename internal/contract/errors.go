@@ -163,23 +163,27 @@ type recoveryFailureSpec struct {
 	action    RecoveryAction
 }
 
-var recoveryFailureRegistry = map[string]recoveryFailureSpec{
-	"UPDATE_TRANSACTION_AMBIGUOUS":  {action: RecoveryActionPreserveStateExportDiagnostics},
-	"UPDATE_SIGNATURE_INVALID":      {action: RecoveryActionPreserveStateExportDiagnostics},
-	"UPDATE_INTEGRITY_INVALID":      {action: RecoveryActionPreserveStateExportDiagnostics},
-	"MCP_SCHEMA_CAPACITY_EXHAUSTED": {retryable: true, action: RecoveryActionWaitThenRetry},
-	"MCP_SCHEMA_REAP_FAILED":        {action: RecoveryActionRestartApplication},
-	"MCP_SCHEMA_DIGEST_MISMATCH":    {action: RecoveryActionPreserveStateExportDiagnostics},
-	"MCP_SCHEMA_PROTOCOL_VIOLATION": {action: RecoveryActionPreserveStateExportDiagnostics},
-}
-
-// RecoveryFailureForCode 从唯一稳定 registry 构造四字段恢复元数据。
+// RecoveryFailureForCode 从唯一稳定码矩阵构造四字段恢复元数据。
 func RecoveryFailureForCode(code, transactionID string) (RecoveryFailure, bool) {
-	spec, ok := recoveryFailureRegistry[code]
+	spec, ok := recoveryFailureSpecForCode(code)
 	if !ok {
 		return RecoveryFailure{}, false
 	}
 	return RecoveryFailure{Code: code, Retryable: spec.retryable, Action: spec.action, TransactionID: transactionID}, true
+}
+
+// recoveryFailureSpecForCode 以纯判定返回稳定恢复码对应的语义，避免共享可变 registry。
+func recoveryFailureSpecForCode(code string) (recoveryFailureSpec, bool) {
+	switch code {
+	case "UPDATE_TRANSACTION_AMBIGUOUS", "UPDATE_SIGNATURE_INVALID", "UPDATE_INTEGRITY_INVALID", "MCP_SCHEMA_DIGEST_MISMATCH", "MCP_SCHEMA_PROTOCOL_VIOLATION":
+		return recoveryFailureSpec{action: RecoveryActionPreserveStateExportDiagnostics}, true
+	case "MCP_SCHEMA_CAPACITY_EXHAUSTED":
+		return recoveryFailureSpec{retryable: true, action: RecoveryActionWaitThenRetry}, true
+	case "MCP_SCHEMA_REAP_FAILED":
+		return recoveryFailureSpec{action: RecoveryActionRestartApplication}, true
+	default:
+		return recoveryFailureSpec{}, false
+	}
 }
 
 // ValidateRecoveryFailure 拒绝 code、retryable 与 action 之间的冲突语义。

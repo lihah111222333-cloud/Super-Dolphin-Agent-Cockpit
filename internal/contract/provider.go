@@ -89,59 +89,63 @@ const (
 	CodexFeatureGoals                  = "goals"
 )
 
-// knownCodexNativeToolIDs 是 Codex 运行时已知原生工具 ID 白名单。
-var knownCodexNativeToolIDs = []string{
-	CodexNativeToolReadFile,
-	CodexNativeToolWriteNewFile,
-	CodexNativeToolApplyPatch,
-	CodexNativeToolShell,
-	CodexNativeToolListDir,
-	CodexNativeToolMultiAgent,
-	CodexNativeToolMultiToolParallel,
-	CodexNativeToolSpawnAgent,
-	CodexNativeToolSendInput,
-	CodexNativeToolResumeAgent,
-	CodexNativeToolWaitAgent,
-	CodexNativeToolCloseAgent,
-	CodexNativeToolToolSearch,
-	CodexNativeToolWebSearch,
-	CodexNativeToolImageGen,
-	CodexNativeToolViewImage,
-	CodexNativeToolRequestInput,
-	CodexNativeToolRequestPerms,
-	CodexNativeToolPluginInstall,
-	CodexNativeToolListMCPResources,
-	CodexNativeToolListMCPResourceTemplates,
-	CodexNativeToolReadMCPResource,
-	CodexNativeToolBrowserUse,
-	CodexNativeToolBrowserUseExternal,
-	CodexNativeToolComputerUse,
-	CodexNativeToolWorkspaceDeps,
-	CodexNativeToolApps,
-	CodexNativeToolPlugins,
-	CodexNativeToolGoals,
-	CodexNativeToolUpdatePlan,
+// knownCodexNativeToolIDs 返回 Codex 运行时已知原生工具 ID 白名单的独立快照。
+func knownCodexNativeToolIDs() []string {
+	return []string{
+		CodexNativeToolReadFile,
+		CodexNativeToolWriteNewFile,
+		CodexNativeToolApplyPatch,
+		CodexNativeToolShell,
+		CodexNativeToolListDir,
+		CodexNativeToolMultiAgent,
+		CodexNativeToolMultiToolParallel,
+		CodexNativeToolSpawnAgent,
+		CodexNativeToolSendInput,
+		CodexNativeToolResumeAgent,
+		CodexNativeToolWaitAgent,
+		CodexNativeToolCloseAgent,
+		CodexNativeToolToolSearch,
+		CodexNativeToolWebSearch,
+		CodexNativeToolImageGen,
+		CodexNativeToolViewImage,
+		CodexNativeToolRequestInput,
+		CodexNativeToolRequestPerms,
+		CodexNativeToolPluginInstall,
+		CodexNativeToolListMCPResources,
+		CodexNativeToolListMCPResourceTemplates,
+		CodexNativeToolReadMCPResource,
+		CodexNativeToolBrowserUse,
+		CodexNativeToolBrowserUseExternal,
+		CodexNativeToolComputerUse,
+		CodexNativeToolWorkspaceDeps,
+		CodexNativeToolApps,
+		CodexNativeToolPlugins,
+		CodexNativeToolGoals,
+		CodexNativeToolUpdatePlan,
+	}
 }
 
-// codexMultiAgentNativeToolIDs 归类会启动或控制子 agent 的原生工具。
-var codexMultiAgentNativeToolIDs = []string{
-	CodexNativeToolMultiAgent,
-	CodexNativeToolMultiToolParallel,
-	CodexNativeToolSpawnAgent,
-	CodexNativeToolSendInput,
-	CodexNativeToolResumeAgent,
-	CodexNativeToolWaitAgent,
-	CodexNativeToolCloseAgent,
+// codexMultiAgentNativeToolIDs 返回会启动或控制子 agent 的原生工具独立快照。
+func codexMultiAgentNativeToolIDs() []string {
+	return []string{
+		CodexNativeToolMultiAgent,
+		CodexNativeToolMultiToolParallel,
+		CodexNativeToolSpawnAgent,
+		CodexNativeToolSendInput,
+		CodexNativeToolResumeAgent,
+		CodexNativeToolWaitAgent,
+		CodexNativeToolCloseAgent,
+	}
 }
 
 // KnownCodexNativeToolIDs 返回已知 Codex 原生工具 ID 的副本。
-// 调用方可安全排序或过滤返回值，不会污染全局白名单。
+// 调用方可安全排序或过滤返回值，不会影响固定白名单。
 func KnownCodexNativeToolIDs() []string {
-	return append([]string(nil), knownCodexNativeToolIDs...)
+	return knownCodexNativeToolIDs()
 }
 
 // ReadOnlyCodexNativeDeniedTools 返回只读/规划子 agent 必须禁用的 Codex 原生工具名。
-// 包含执行写入工具和递归 agent 工具，返回副本避免调用方污染共享列表。
+// 包含执行写入工具和递归 agent 工具，返回独立快照。
 func ReadOnlyCodexNativeDeniedTools() []string {
 	tools := []string{
 		CodexNativeToolShell,
@@ -149,7 +153,7 @@ func ReadOnlyCodexNativeDeniedTools() []string {
 		CodexNativeToolWriteNewFile,
 		CodexNativeToolUpdatePlan,
 	}
-	return append(tools, codexMultiAgentNativeToolIDs...)
+	return append(tools, codexMultiAgentNativeToolIDs()...)
 }
 
 // IsKnownCodexNativeTool 判断工具 ID 是否属于当前可治理的 Codex 原生工具集合。
@@ -224,10 +228,11 @@ func (p *CodexNativeToolPolicy) assignExecEnforcement() {
 
 // assignMultiAgentEnforcement 处理子 agent 相关工具的硬禁用和 App Server 特性开关。
 func (p *CodexNativeToolPolicy) assignMultiAgentEnforcement() {
-	if !p.hasAny(codexMultiAgentNativeToolIDs...) {
+	multiAgentToolIDs := codexMultiAgentNativeToolIDs()
+	if !p.hasAny(multiAgentToolIDs...) {
 		return
 	}
-	for _, id := range codexMultiAgentNativeToolIDs {
+	for _, id := range multiAgentToolIDs {
 		if p.has(id) {
 			p.tiers[id] = NativeToolEnforcementNativeHard
 		}

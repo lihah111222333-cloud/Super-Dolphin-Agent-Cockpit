@@ -108,11 +108,7 @@ func TestOrchestrationLaunchDefaultDisabledTools(t *testing.T) {
 }
 
 func TestOrchestrationLaunchDefaultDisabledToolsFailsFastWhenRegistryMissing(t *testing.T) {
-	old := orchestrationToolCanonicalNames
-	orchestrationToolCanonicalNames = []string{"send_message"}
-	t.Cleanup(func() { orchestrationToolCanonicalNames = old })
-
-	got, err := OrchestrationLaunchDefaultDisabledTools()
+	got, err := orchestrationLaunchDefaultDisabledTools([]string{"send_message"})
 	if err == nil {
 		t.Fatalf("OrchestrationLaunchDefaultDisabledTools() error = nil, want %v", ErrOrchestrationToolMissing)
 	}

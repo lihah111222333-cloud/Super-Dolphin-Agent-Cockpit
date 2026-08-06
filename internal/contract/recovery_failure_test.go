@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestRecoveryFailureRegistryCoversStableCodeActionMatrix(t *testing.T) {
+func TestRecoveryFailureMatrixCoversStableCodeActionMatrix(t *testing.T) {
 	tests := []struct {
 		code      string
 		retryable bool
