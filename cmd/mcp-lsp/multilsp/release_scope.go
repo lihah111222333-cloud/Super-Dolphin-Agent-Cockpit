@@ -51,7 +51,7 @@ func (m *manager) ReleaseScope(req ReleaseScopeRequest) (ReleaseScopeResult, err
 }
 
 // ReleaseScope 从池中摘除匹配 scope 的 manager clone 并关闭可安全释放的实例。
-// Drain 会先建立代际栅栏并摘除 busy manager，最后租约释放后再自动关闭；不会中断进行中的请求。
+// Drain 会先建立代际栅栏并摘除 busy manager；延后 cleanup 由受管 recycler 在最后租约释放后执行，不会中断进行中的请求。
 func (p *ManagerPool) ReleaseScope(req ReleaseScopeRequest) (ReleaseScopeResult, error) {
 	if p == nil {
 		return ReleaseScopeResult{}, errors.New("LSP manager pool is nil")
@@ -68,7 +68,6 @@ func (p *ManagerPool) ReleaseScope(req ReleaseScopeRequest) (ReleaseScopeResult,
 	p.releaseMu.Lock()
 	defer p.releaseMu.Unlock()
 
-	p.drainPendingReleases()
 	pendingResult, pendingErr := p.pendingReleaseScopeResult(req)
 	result, toClose, pending := p.detachReleaseScopeManagers(req)
 	mergeReleaseScopeResult(&result, pendingResult)

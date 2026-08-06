@@ -2,12 +2,144 @@ package multilsp
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"log/slog"
 	"sync"
 	"testing"
 	"time"
 )
+
+func TestReleaseScopeDoesNotSynchronouslyDrainOtherPendingReleases(t *testing.T) {
+	root := canonicalScopePath(t.TempDir(), "")
+	mgr := newManagerPoolTestManager(t, root)
+	const pendingCount = 3
+	shutdownStarted := make(chan *blockingShutdownP2Client, pendingCount)
+	pendingScopes := make([]LSPToolScope, 0, pendingCount)
+	pendingManagers := make([]*manager, 0, pendingCount)
+	pendingClients := make([]*blockingShutdownP2Client, 0, pendingCount)
+	for _, agentID := range []string{
+		"agent-pending-release-1",
+		"agent-pending-release-2",
+		"agent-pending-release-3",
+	} {
+		scope := testLSPToolScope(root, agentID, "thread-1")
+		pending := scopedManagerForTest(t, mgr, scope)
+		client := &blockingShutdownP2Client{
+			p2LifecycleClient: &p2LifecycleClient{},
+			shutdownStarted:   shutdownStarted,
+			allowShutdown:     make(chan struct{}),
+		}
+		attachWorkspaceClientForReleaseTest(pending, agentID, client)
+		lease := acquireDeferredRetryLease(t, pending, client)
+		initial, err := mgr.pool.ReleaseScope(ReleaseScopeRequest{
+			ScopeKind: ReleaseScopeAgentThread,
+			AgentID:   scope.AgentID,
+			ThreadID:  scope.ThreadID,
+			Drain:     true,
+			Reason:    "defer_pending_release",
+		})
+		if err != nil {
+			t.Fatalf("ReleaseScope(initial %s): %v", agentID, err)
+		}
+		assertDeferredRetryInitialReceipt(t, initial)
+		if err := lease.Release(); err != nil {
+			t.Fatalf("release deferred lease for %s: %v", agentID, err)
+		}
+		ageWorkspaceForLifecycleTest(t, pending, client)
+		pendingScopes = append(pendingScopes, scope)
+		pendingManagers = append(pendingManagers, pending)
+		pendingClients = append(pendingClients, client)
+	}
+	t.Cleanup(func() {
+		for _, client := range pendingClients {
+			client.allow()
+		}
+	})
+
+	type releaseOutcome struct {
+		result ReleaseScopeResult
+		err    error
+	}
+	releaseDone := make(chan releaseOutcome, 1)
+	go func() {
+		result, releaseErr := mgr.pool.ReleaseScope(ReleaseScopeRequest{
+			ScopeKind: ReleaseScopeAgentThread,
+			AgentID:   "agent-unrelated-release",
+			ThreadID:  "thread-1",
+			Drain:     true,
+			Reason:    "must_not_drain_other_pending_release",
+		})
+		releaseDone <- releaseOutcome{result: result, err: releaseErr}
+	}()
+
+	select {
+	case client := <-shutdownStarted:
+		client.allow()
+		for _, pendingClient := range pendingClients {
+			pendingClient.allow()
+		}
+		<-releaseDone
+		t.Fatal("ReleaseScope synchronously drained unrelated pending releases")
+	case outcome := <-releaseDone:
+		if outcome.err != nil {
+			t.Fatalf("ReleaseScope(unrelated): %v", outcome.err)
+		}
+		if outcome.result.MatchedManagers != 0 || outcome.result.ClosedManagers != 0 || !outcome.result.Drained {
+			t.Fatalf("ReleaseScope(unrelated) = %#v, want empty drained receipt", outcome.result)
+		}
+	case <-time.After(250 * time.Millisecond):
+		for _, client := range pendingClients {
+			client.allow()
+		}
+		<-releaseDone
+		t.Fatal("ReleaseScope(unrelated) exceeded the multi-pending cleanup latency bound")
+	}
+
+	recycler, ok := mgr.pool.RecyclerRunner().(*poolRecycler)
+	if !ok || recycler == nil {
+		t.Fatalf("RecyclerRunner() = %T, want *poolRecycler", mgr.pool.RecyclerRunner())
+	}
+	recyclerDone := make(chan struct{})
+	go func() {
+		recycler.check()
+		close(recyclerDone)
+	}()
+	for range pendingClients {
+		select {
+		case client := <-shutdownStarted:
+			client.allow()
+		case <-time.After(time.Second):
+			t.Fatal("recycler did not begin deferred pending cleanup")
+		}
+	}
+	select {
+	case <-recyclerDone:
+	case <-time.After(time.Second):
+		t.Fatal("recycler did not finish deferred pending cleanup")
+	}
+	for _, pending := range pendingManagers {
+		if !managerIsClosed(pending) {
+			t.Fatal("pending manager stayed open after recycler cleanup")
+		}
+	}
+
+	for _, scope := range pendingScopes {
+		completed, err := mgr.pool.ReleaseScope(ReleaseScopeRequest{
+			ScopeKind: ReleaseScopeAgentThread,
+			AgentID:   scope.AgentID,
+			ThreadID:  scope.ThreadID,
+			Drain:     true,
+			Reason:    "consume_completed_pending_release",
+		})
+		if err != nil {
+			t.Fatalf("ReleaseScope(completed %s): %v", scope.AgentID, err)
+		}
+		if completed.MatchedManagers != 1 || completed.ClosedManagers != 1 || !completed.Drained {
+			t.Fatalf("ReleaseScope(completed %s) = %#v, want completed drain receipt", scope.AgentID, completed)
+		}
+	}
+}
 
 func TestReleaseScopeCloseFailureReceiptRetriesUntilClosed(t *testing.T) {
 	root := canonicalScopePath(t.TempDir(), "")
@@ -51,6 +183,7 @@ func TestReleaseScopeCloseFailureReceiptRetriesUntilClosed(t *testing.T) {
 	)
 	assertStructuredLogOmits(t, "release scope cleanup log", logText,
 		root, closeErr.Error(), agentID, threadID, `"manager_key":"`, `"scope_key":"`)
+	runManagedRecyclerCheck(t, mgr.pool)
 
 	second, err := mgr.pool.ReleaseScope(ReleaseScopeRequest{
 		ScopeKind: ReleaseScopeAgentThread,
@@ -92,6 +225,7 @@ func TestDeferredReleaseCloseFailureRemainsRetryable(t *testing.T) {
 		t.Fatalf("release deferred lease: %v", err)
 	}
 	ageWorkspaceForLifecycleTest(t, scoped, client)
+	runManagedRecyclerCheck(t, mgr.pool)
 
 	second, err := releaseDeferredRetryScope(mgr, "deferred_retry_second")
 	if !errors.Is(err, closeErr) {
@@ -111,6 +245,7 @@ func TestDeferredReleaseCloseFailureRemainsRetryable(t *testing.T) {
 	assertStructuredLogOmits(t, "deferred cleanup log", logText,
 		root, closeErr.Error(), `"manager_key":"`, `"scope_key":"`)
 	assertDeferredRetryFailureReceipt(t, second)
+	runManagedRecyclerCheck(t, mgr.pool)
 	third := mustReleaseDeferredRetryScope(t, mgr, "deferred_retry_third")
 	assertDeferredRetryClosedReceipt(t, third)
 	assertRetryCloseCallCount(t, client, 2)
@@ -170,6 +305,15 @@ func assertRetryCloseCallCount(t *testing.T, client *retryCloseP2Client, want in
 	if got := client.closeCallCount(); got != want {
 		t.Fatalf("client Close calls = %d, want %d", got, want)
 	}
+}
+
+func runManagedRecyclerCheck(t *testing.T, pool *ManagerPool) {
+	t.Helper()
+	recycler, ok := pool.RecyclerRunner().(*poolRecycler)
+	if !ok || recycler == nil {
+		t.Fatalf("RecyclerRunner() = %T, want *poolRecycler", pool.RecyclerRunner())
+	}
+	recycler.check()
 }
 
 func TestReleaseScopeNonDrainDetachRejectsLeaseBeforeClose(t *testing.T) {
@@ -280,6 +424,29 @@ func TestManagerPoolCapEvictionFailureRetainsCleanupOwner(t *testing.T) {
 	if got := client.closeCallCount(); got != 2 {
 		t.Fatalf("client Close calls = %d, want 2", got)
 	}
+}
+
+type blockingShutdownP2Client struct {
+	*p2LifecycleClient
+
+	shutdownStarted chan<- *blockingShutdownP2Client
+	allowShutdown   chan struct{}
+	shutdownOnce    sync.Once
+	allowOnce       sync.Once
+}
+
+func (c *blockingShutdownP2Client) Shutdown(ctx context.Context) error {
+	c.shutdownOnce.Do(func() { c.shutdownStarted <- c })
+	select {
+	case <-c.allowShutdown:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (c *blockingShutdownP2Client) allow() {
+	c.allowOnce.Do(func() { close(c.allowShutdown) })
 }
 
 type retryCloseP2Client struct {
