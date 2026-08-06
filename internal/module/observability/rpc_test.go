@@ -421,11 +421,59 @@ func TestRecentListRPCDoesNotReuseStaleTailResult(t *testing.T) {
 func TestFrontendIngestSanitizesAllowlistedFields(t *testing.T) {
 	sink := &recordingSink{}
 	server := newTestRPCServer(t, newRecordingService(sink))
-	resp := dispatchIngest(t, server, json.RawMessage(`{"events":[{"kind":"ui/log","trace_id":"trace token=secret","method":"Authorization: Bearer abc.def","status":"error","metadata":{"token":"secret","safe":"ok","prompt":"draft private prompt payload","tool_result":"tool returned private payload","file_path":"/home/alice/private.txt"}}]}`))
+	resp := dispatchIngest(t, server, json.RawMessage(`{"events":[{"ts":"2026-08-06T10:11:12Z","kind":"ui/log","trace_id":"trace token=secret","method":"Authorization: Bearer abc.def","status":"error","metadata":{"token":"secret","safe":"ok","prompt":"draft private prompt payload","tool_result":"tool returned private payload","file_path":"/home/alice/private.txt"}}]}`))
 	if !resp.Enabled || resp.Recorded != 1 || resp.Dropped != 0 {
 		t.Fatalf("response = %+v", resp)
 	}
 	assertSanitizedFrontendEvent(t, sink)
+}
+
+func TestFrontendIngestRejectsMissingRequiredFieldsWithoutRecording(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload json.RawMessage
+	}{
+		{
+			name:    "missing status",
+			payload: json.RawMessage(`{"events":[{"ts":"2026-08-06T10:11:12Z","trace_id":"trace"}]}`),
+		},
+		{
+			name:    "missing timestamp",
+			payload: json.RawMessage(`{"events":[{"status":"ok","trace_id":"trace"}]}`),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			sink := &recordingSink{}
+			server := newTestRPCServer(t, newRecordingService(sink))
+			if _, err := server.Dispatch(t.Context(), "observability/frontend/ingest", test.payload); err == nil {
+				t.Fatal("Dispatch ingest error = nil, want missing required field rejection")
+			}
+			if len(sink.events) != 0 {
+				t.Fatalf("sink events = %d, want 0 after rejected ingest", len(sink.events))
+			}
+		})
+	}
+}
+
+func TestFrontendIngestPreservesRequiredFields(t *testing.T) {
+	sink := &recordingSink{}
+	server := newTestRPCServer(t, newRecordingService(sink))
+	const timestamp = "2026-08-06T10:11:12.345Z"
+	resp := dispatchIngest(t, server, json.RawMessage(`{"events":[{"ts":"2026-08-06T10:11:12.345Z","status":"error","trace_id":"trace"}]}`))
+	if !resp.Enabled || resp.Recorded != 1 || resp.Dropped != 0 {
+		t.Fatalf("response = %+v", resp)
+	}
+	if len(sink.events) != 1 {
+		t.Fatalf("sink events = %d, want 1", len(sink.events))
+	}
+	wantTimestamp, err := time.Parse(time.RFC3339Nano, timestamp)
+	if err != nil {
+		t.Fatalf("parse timestamp: %v", err)
+	}
+	if got := sink.events[0]; !got.Timestamp.Equal(wantTimestamp) || got.Status != platformobs.StatusError {
+		t.Fatalf("recorded event = %+v, want preserved timestamp and error status", got)
+	}
 }
 
 func assertSanitizedFrontendEvent(t *testing.T, sink *recordingSink) {
@@ -467,7 +515,7 @@ func TestFrontendIngestTrimsOversizedBatch(t *testing.T) {
 	server := newTestRPCServer(t, svc)
 	events := make([]map[string]any, maxFrontendIngestEvents+3)
 	for i := range events {
-		events[i] = map[string]any{"trace_id": "trace", "status": "ok"}
+		events[i] = map[string]any{"ts": "2026-08-06T10:11:12Z", "trace_id": "trace", "status": "ok"}
 	}
 	payload, err := json.Marshal(map[string]any{"events": events})
 	if err != nil {
@@ -491,7 +539,7 @@ func TestFrontendIngestTrimsOversizedBatch(t *testing.T) {
 
 func TestFrontendIngestDisabledServiceDropsWithoutRecording(t *testing.T) {
 	server := newTestRPCServer(t, platformobs.NewDisabledService(platformobs.Config{DisabledReason: "unit disabled"}))
-	raw, err := server.Dispatch(t.Context(), "observability/frontend/ingest", json.RawMessage(`{"events":[{"trace_id":"trace"},{"trace_id":"trace2"}]}`))
+	raw, err := server.Dispatch(t.Context(), "observability/frontend/ingest", json.RawMessage(`{"events":[{"ts":"2026-08-06T10:11:12Z","status":"ok","trace_id":"trace"},{"ts":"2026-08-06T10:11:12Z","status":"ok","trace_id":"trace2"}]}`))
 	if err != nil {
 		t.Fatalf("Dispatch ingest disabled: %v", err)
 	}

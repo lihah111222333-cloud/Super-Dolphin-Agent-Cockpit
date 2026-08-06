@@ -237,21 +237,25 @@ func frontendIngestHandler(svc *platformobs.Service) func(context.Context, front
 			return frontendIngestResponse{}, fmt.Errorf("observability service is not wired")
 		}
 		status := svc.Status()
-		if !status.Enabled {
-			return frontendIngestResponse{Enabled: false, Dropped: len(p.Events), DisabledReason: status.DisabledReason}, nil
-		}
 		limit := len(p.Events)
 		dropped := 0
 		if limit > maxFrontendIngestEvents {
 			dropped = limit - maxFrontendIngestEvents
 			limit = maxFrontendIngestEvents
 		}
-		recorded := 0
+		events := make([]platformobs.TraceEvent, 0, limit)
 		for i := 0; i < limit; i++ {
 			event, err := frontendEventFromRaw(p.Events[i])
 			if err != nil {
 				return frontendIngestResponse{}, fmt.Errorf("frontend trace event %d: %w", i, err)
 			}
+			events = append(events, event)
+		}
+		if !status.Enabled {
+			return frontendIngestResponse{Enabled: false, Dropped: len(p.Events), DisabledReason: status.DisabledReason}, nil
+		}
+		recorded := 0
+		for _, event := range events {
 			if err := svc.Record(ctx, event); err != nil {
 				return frontendIngestResponse{}, err
 			}
@@ -538,10 +542,7 @@ func recentRawQueryLimit(displayLimit int) int {
 	if displayLimit <= 0 {
 		displayLimit = defaultListLimit
 	}
-	rawLimit := displayLimit * recentRawLimitMultiple
-	if rawLimit < maxQueryLimit {
-		rawLimit = maxQueryLimit
-	}
+	rawLimit := max(displayLimit*recentRawLimitMultiple, maxQueryLimit)
 	if rawLimit > maxRecentRawQueryLimit {
 		return maxRecentRawQueryLimit
 	}
@@ -626,10 +627,10 @@ func frontendEventFromRaw(raw json.RawMessage) (platformobs.TraceEvent, error) {
 		return platformobs.TraceEvent{}, err
 	}
 	if in.Status == "" {
-		in.Status = platformobs.StatusOK
+		return platformobs.TraceEvent{}, fmt.Errorf("event status is required")
 	}
 	if in.Timestamp.IsZero() {
-		in.Timestamp = time.Now().UTC()
+		return platformobs.TraceEvent{}, fmt.Errorf("event timestamp is required")
 	}
 	return platformobs.TraceEvent{
 		SchemaVersion: platformobs.SchemaVersion,
